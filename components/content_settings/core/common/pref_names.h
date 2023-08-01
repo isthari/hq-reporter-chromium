@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,6 +19,7 @@ extern const char kContentSettingsVersion[];
 extern const char kContentSettingsWindowLastTabIndex[];
 
 extern const char kManagedDefaultAdsSetting[];
+extern const char kManagedDefaultClipboardSetting[];
 extern const char kManagedDefaultCookiesSetting[];
 extern const char kManagedDefaultImagesSetting[];
 extern const char kManagedDefaultInsecureContentSetting[];
@@ -30,17 +31,22 @@ extern const char kManagedDefaultMediaStreamSetting[];
 extern const char kManagedDefaultSensorsSetting[];
 extern const char kManagedDefaultWebBluetoothGuardSetting[];
 extern const char kManagedDefaultWebUsbGuardSetting[];
-extern const char kManagedDefaultFileHandlingGuardSetting[];
 extern const char kManagedDefaultFileSystemReadGuardSetting[];
 extern const char kManagedDefaultFileSystemWriteGuardSetting[];
 extern const char kManagedDefaultSerialGuardSetting[];
-extern const char kManagedDefaultInsecurePrivateNetworkSetting[];
+extern const char kManagedDefaultInsecureLocalNetworkSetting[];
 extern const char kManagedDefaultJavaScriptJitSetting[];
 extern const char kManagedDefaultWebHidGuardSetting[];
+extern const char kManagedDefaultWindowManagementSetting[];
+extern const char kManagedDefaultLocalFontsSetting[];
+extern const char kManagedDefaultThirdPartyStoragePartitioningSetting[];
 
+extern const char kManagedClipboardAllowedForUrls[];
+extern const char kManagedClipboardBlockedForUrls[];
 extern const char kManagedCookiesAllowedForUrls[];
 extern const char kManagedCookiesBlockedForUrls[];
 extern const char kManagedCookiesSessionOnlyForUrls[];
+extern const char kManagedGetDisplayMediaSetSelectAllScreensAllowedForUrls[];
 extern const char kManagedImagesAllowedForUrls[];
 extern const char kManagedImagesBlockedForUrls[];
 extern const char kManagedInsecureContentAllowedForUrls[];
@@ -57,8 +63,6 @@ extern const char kManagedAutoSelectCertificateForUrls[];
 extern const char kManagedWebUsbAllowDevicesForUrls[];
 extern const char kManagedWebUsbAskForUrls[];
 extern const char kManagedWebUsbBlockedForUrls[];
-extern const char kManagedFileHandlingAllowedForUrls[];
-extern const char kManagedFileHandlingBlockedForUrls[];
 extern const char kManagedFileSystemReadAskForUrls[];
 extern const char kManagedFileSystemReadBlockedForUrls[];
 extern const char kManagedFileSystemWriteAskForUrls[];
@@ -66,18 +70,27 @@ extern const char kManagedFileSystemWriteBlockedForUrls[];
 extern const char kManagedLegacyCookieAccessAllowedForDomains[];
 extern const char kManagedSerialAskForUrls[];
 extern const char kManagedSerialBlockedForUrls[];
-extern const char kManagedInsecurePrivateNetworkAllowedForUrls[];
+extern const char kManagedInsecureLocalNetworkAllowedForUrls[];
 extern const char kManagedJavaScriptJitAllowedForSites[];
 extern const char kManagedJavaScriptJitBlockedForSites[];
 extern const char kManagedWebHidAskForUrls[];
 extern const char kManagedWebHidBlockedForUrls[];
+extern const char kManagedWindowManagementAllowedForUrls[];
+extern const char kManagedWindowManagementBlockedForUrls[];
+extern const char kManagedLocalFontsAllowedForUrls[];
+extern const char kManagedLocalFontsBlockedForUrls[];
+extern const char kManagedThirdPartyStoragePartitioningBlockedForOrigins[];
 
 extern const char kEnableQuietNotificationPermissionUi[];
 extern const char kQuietNotificationPermissionUiEnablingMethod[];
 extern const char kQuietNotificationPermissionUiDisabledTime[];
 
+extern const char kInContextCookieControlsOpened[];
+
 #if BUILDFLAG(IS_ANDROID)
 extern const char kNotificationsVibrateEnabled[];
+extern const char kDesktopSitePeripheralSettingEnabled[];
+extern const char kDesktopSiteDisplaySettingEnabled[];
 #endif
 
 }  // namespace prefs

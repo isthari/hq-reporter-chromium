@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -77,7 +77,8 @@
 
     for (var i = 0; i < events.length; ++i) {
       var event = events[i];
-      if (event.phase === SDK.TracingModel.Phase.Complete)
+      // X is the letter used to mark an event's phase as being Complete.
+      if (event.phase === "X")
         ++phaseComplete;
       if (event.name in knownEvents)
         ++knownEvents[event.name];

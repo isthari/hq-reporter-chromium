@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,12 +9,13 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/password_manager/account_password_store_factory.h"
 #include "chrome/browser/password_manager/chrome_password_manager_client.h"
 #include "chrome/browser/password_manager/password_store_factory.h"
@@ -24,13 +25,14 @@
 #include "chrome/browser/ui/autofill/chrome_autofill_client.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/passwords/manage_passwords_ui_controller.h"
-#include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/tabs/tab_enums.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/autofill/content/browser/content_autofill_client.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
 #include "components/password_manager/core/browser/password_manager_test_utils.h"
 #include "components/password_manager/core/browser/test_password_store.h"
 #include "components/password_manager/core/common/password_manager_features.h"
-#include "components/sync/driver/test_sync_service.h"
+#include "components/sync/test/test_sync_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_details.h"
 #include "content/public/browser/navigation_handle.h"
@@ -175,7 +177,7 @@ bool CustomManagePasswordsUIController::WaitForFallbackForSaving(
   base::RunLoop run_loop;
   wait_for_fallback_ = true;
   run_loop_ = &run_loop;
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE, run_loop_->QuitClosure(), timeout);
   run_loop_->Run();
   bool shownFallbackForSaving = !wait_for_fallback_;
@@ -470,7 +472,7 @@ void PasswordManagerBrowserTestBase::GetNewTab(
   autofill::ChromeAutofillClient::CreateForWebContents(*web_contents);
   ChromePasswordManagerClient::CreateForWebContentsWithAutofillClient(
       *web_contents,
-      autofill::ChromeAutofillClient::FromWebContents(*web_contents));
+      autofill::ContentAutofillClient::FromWebContents(*web_contents));
   ASSERT_TRUE(ChromePasswordManagerClient::FromWebContents(*web_contents));
   CustomManagePasswordsUIController* controller =
       new CustomManagePasswordsUIController(*web_contents);
@@ -478,7 +480,7 @@ void PasswordManagerBrowserTestBase::GetNewTab(
                                                 true);
   if (preexisting_tab) {
     browser->tab_strip_model()->CloseWebContentsAt(0,
-                                                   TabStripModel::CLOSE_NONE);
+                                                   TabCloseTypes::CLOSE_NONE);
   }
   ASSERT_EQ(controller,
             ManagePasswordsUIController::FromWebContents(*web_contents));
@@ -513,7 +515,7 @@ content::WebContents* PasswordManagerBrowserTestBase::WebContents() const {
 
 content::RenderFrameHost* PasswordManagerBrowserTestBase::RenderFrameHost()
     const {
-  return WebContents()->GetMainFrame();
+  return WebContents()->GetPrimaryMainFrame();
 }
 
 void PasswordManagerBrowserTestBase::NavigateToFile(const std::string& path) {
@@ -522,7 +524,7 @@ void PasswordManagerBrowserTestBase::NavigateToFile(const std::string& path) {
   PasswordsNavigationObserver observer(WebContents());
   GURL url = embedded_test_server()->GetURL(path);
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
-  observer.Wait();
+  ASSERT_TRUE(observer.Wait());
 }
 
 void PasswordManagerBrowserTestBase::WaitForElementValue(
@@ -552,39 +554,42 @@ void PasswordManagerBrowserTestBase::WaitForElementValue(
   const std::string script =
       value_check_function +
       base::StringPrintf(
-          "if (valueCheck()) {"
-          "  /* Spin the event loop with setTimeout. */"
-          "  setTimeout(window.domAutomationController.send(%d), 0);"
-          "} else {"
-          "  if (%s)"
-          "    var element = document.getElementById("
-          "        '%s').contentDocument.getElementById('%s');"
-          "  else "
-          "    var element = document.getElementById('%s');"
-          "  if (!element)"
-          "    window.domAutomationController.send(%d);"
-          "  element.onchange = function() {"
-          "    if (valueCheck()) {"
-          "      /* Spin the event loop with setTimeout. */"
-          "      setTimeout(window.domAutomationController.send(%d), 0);"
-          "    } else {"
-          "      window.domAutomationController.send(%d);"
-          "    }"
-          // This script should never send more than one message because only 1
-          // message is expected. Any further messages might be processed in
-          // subsequent script executions, that could lead to failures or
-          // flakiness. Leaving onchange handler would cause sending messages
-          // on any further onchange events.
-          "    element.onchange = undefined;"
-          "  };"
-          "}",
+          "new Promise(resolve => {"
+          "  if (valueCheck()) {"
+          "    /* Spin the event loop with setTimeout. */"
+          "    setTimeout(() => resolve(%d), 0);"
+          "  } else {"
+          "    if (%s)"
+          "      var element = document.getElementById("
+          "          '%s').contentDocument.getElementById('%s');"
+          "    else "
+          "      var element = document.getElementById('%s');"
+          "    if (!element)"
+          "      resolve(%d);"
+          "    element.onchange = function() {"
+          "      if (valueCheck()) {"
+          "        /* Spin the event loop with setTimeout. */"
+          "        setTimeout(() => resolve(%d), 0);"
+          "      } else {"
+          "        resolve(%d);"
+          "      }"
+          // Since this test uses promises, rather than
+          // domAutomationController.send, it is not possible for future
+          // 'change' events to cause flakiness or wrong script results, since
+          // each promise can only settle (i.e.  fulfill or reject) at most
+          // once. However, to ensure that the first onchange event is the only
+          // one that can be the result of this script, we still clear out the
+          // onchange listener.
+          "      element.onchange = undefined;"
+          "    };"
+          "  }"
+          "});",
           RETURN_CODE_OK, iframe_id.c_str(), iframe_id.c_str(),
           element_id.c_str(), element_id.c_str(), RETURN_CODE_NO_ELEMENT,
           RETURN_CODE_OK, RETURN_CODE_WRONG_VALUE);
   EXPECT_EQ(RETURN_CODE_OK,
             content::EvalJs(RenderFrameHost(), script,
-                            content::EXECUTE_SCRIPT_NO_USER_GESTURE |
-                                content::EXECUTE_SCRIPT_USE_MANUAL_REPLY))
+                            content::EXECUTE_SCRIPT_NO_USER_GESTURE))
       << "element_id = " << element_id
       << ", expected_value = " << expected_value;
 }
@@ -613,34 +618,37 @@ void PasswordManagerBrowserTestBase::WaitForJsElementValue(
   const std::string script =
       value_check_function +
       base::StringPrintf(
-          "if (valueCheck()) {"
-          "  /* Spin the event loop with setTimeout. */"
-          "  setTimeout(window.domAutomationController.send(%d), 0);"
-          "} else {"
-          "  var element = %s;"
-          "  if (!element)"
-          "    window.domAutomationController.send(%d);"
-          "  element.onchange = function() {"
-          "    if (valueCheck()) {"
-          "      /* Spin the event loop with setTimeout. */"
-          "      setTimeout(window.domAutomationController.send(%d), 0);"
-          "    } else {"
-          "      window.domAutomationController.send(%d);"
-          "    }"
-          // This script should never send more than one message because only 1
-          // message is expected. Any further messages might be processed in
-          // subsequent script executions, that could lead to failures or
-          // flakiness. Leaving onchange handler would cause sending messages
-          // on any further onchange events.
-          "    element.onchange = undefined;"
-          "  };"
-          "}",
+          "new Promise(resolve => {"
+          "  if (valueCheck()) {"
+          "    /* Spin the event loop with setTimeout. */"
+          "    setTimeout(() => resolve(%d), 0);"
+          "  } else {"
+          "    var element = %s;"
+          "    if (!element)"
+          "      resolve(%d);"
+          "    element.onchange = function() {"
+          "      if (valueCheck()) {"
+          "        /* Spin the event loop with setTimeout. */"
+          "        setTimeout(() => resolve(%d), 0);"
+          "      } else {"
+          "        resolve(%d);"
+          "      }"
+          // Since this test uses promises, rather than
+          // domAutomationController.send, it is not possible for future
+          // 'change' events to cause flakiness or wrong script results, since
+          // each promise can only settle (i.e.  fulfill or reject) at most
+          // once. However, to ensure that the first onchange event is the only
+          // one that can be the result of this script, we still clear out the
+          // onchange listener.
+          "      element.onchange = undefined;"
+          "    };"
+          "  }"
+          "});",
           RETURN_CODE_OK, element_selector.c_str(), RETURN_CODE_NO_ELEMENT,
           RETURN_CODE_OK, RETURN_CODE_WRONG_VALUE);
   EXPECT_EQ(RETURN_CODE_OK,
             content::EvalJs(RenderFrameHost(), script,
-                            content::EXECUTE_SCRIPT_NO_USER_GESTURE |
-                                content::EXECUTE_SCRIPT_USE_MANUAL_REPLY))
+                            content::EXECUTE_SCRIPT_NO_USER_GESTURE))
       << "element_selector = " << element_selector
       << ", expected_value = " << expected_value;
 }
@@ -666,12 +674,13 @@ void PasswordManagerBrowserTestBase::CheckElementValue(
       "else "
       "  var element = document.getElementById('%s');"
       "var value = element ? element.value : 'element not found';"
-      "window.domAutomationController.send(value);",
+      "value;",
       iframe_id.c_str(), iframe_id.c_str(), element_id.c_str(),
       element_id.c_str());
-  std::string return_value;
-  ASSERT_TRUE(content::ExecuteScriptWithoutUserGestureAndExtractString(
-      RenderFrameHost(), value_get_script, &return_value));
+  std::string return_value =
+      content::EvalJs(RenderFrameHost(), value_get_script,
+                      content::EXECUTE_SCRIPT_NO_USER_GESTURE)
+          .ExtractString();
   EXPECT_EQ(expected_value, return_value) << "element_id = " << element_id;
 }
 

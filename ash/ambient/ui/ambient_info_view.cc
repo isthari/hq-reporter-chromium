@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "ash/ambient/ui/ambient_view_ids.h"
 #include "ash/ambient/ui/glanceable_info_view.h"
 #include "ash/ambient/util/ambient_util.h"
+#include "ash/style/ash_color_id.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/compositor/layer.h"
 #include "ui/gfx/geometry/insets.h"
@@ -28,12 +29,11 @@ constexpr int kSpacingDip = 8;
 // Typography
 constexpr int kDefaultFontSizeDip = 64;
 constexpr int kDetailsFontSizeDip = 13;
+constexpr int kTimeFontSizeDip = 64;
 
 views::Label* AddLabel(views::View* parent) {
   auto* label = parent->AddChildView(std::make_unique<views::Label>());
   label->SetAutoColorReadabilityEnabled(false);
-  label->SetEnabledColor(ambient::util::GetContentLayerColor(
-      AshColorProvider::ContentLayerType::kTextColorSecondary));
   label->SetFontList(ambient::util::GetDefaultFontlist().DeriveWithSizeDelta(
       kDetailsFontSizeDip - kDefaultFontSizeDip));
   label->SetPaintToLayer();
@@ -57,8 +57,16 @@ void AmbientInfoView::OnThemeChanged() {
   const auto* color_provider = GetColorProvider();
   details_label_->SetShadows(
       ambient::util::GetTextShadowValues(color_provider));
+  details_label_->SetEnabledColor(
+      ambient::util::GetColor(color_provider, kColorAshTextColorSecondary));
   related_details_label_->SetShadows(
       ambient::util::GetTextShadowValues(color_provider));
+  related_details_label_->SetEnabledColor(
+      ambient::util::GetColor(color_provider, kColorAshTextColorSecondary));
+}
+
+SkColor AmbientInfoView::GetTimeTemperatureFontColor() {
+  return ambient::util::GetColor(GetColorProvider(), kColorAshTextColorPrimary);
 }
 
 void AmbientInfoView::UpdateImageDetails(
@@ -89,14 +97,14 @@ void AmbientInfoView::InitLayout() {
   layout->set_cross_axis_alignment(
       views::BoxLayout::CrossAxisAlignment::kStart);
   layout->set_inside_border_insets(
-      gfx::Insets(0, kMarginDip + shadow_insets.left(),
-                  kMarginDip + shadow_insets.bottom(), 0));
+      gfx::Insets::TLBR(0, kMarginDip + shadow_insets.left(),
+                        kMarginDip + shadow_insets.bottom(), 0));
 
   layout->set_between_child_spacing(kSpacingDip + shadow_insets.top() +
                                     shadow_insets.bottom());
 
-  glanceable_info_view_ =
-      AddChildView(std::make_unique<GlanceableInfoView>(delegate_));
+  glanceable_info_view_ = AddChildView(
+      std::make_unique<GlanceableInfoView>(delegate_, this, kTimeFontSizeDip));
   glanceable_info_view_->SetPaintToLayer();
 
   details_label_ = AddLabel(this);

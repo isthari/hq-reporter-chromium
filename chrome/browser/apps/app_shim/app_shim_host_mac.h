@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/files/file_path.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/process/process.h"
 #include "base/threading/thread_checker.h"
@@ -75,6 +76,10 @@ class AppShimHost : public chrome::mojom::AppShimHost {
     // url (e.g. user clicks on an item in the application dock menu).
     virtual void OnShimOpenAppWithOverrideUrl(AppShimHost* host,
                                               const GURL& override_url) = 0;
+
+    // Invoked by the shim host when the app is about to terminate (for example
+    // because the user quit it).
+    virtual void OnShimWillTerminate(AppShimHost* host) = 0;
   };
 
   AppShimHost(Client* client,
@@ -113,6 +118,9 @@ class AppShimHost : public chrome::mojom::AppShimHost {
 
   void SetOnShimConnectedForTesting(base::OnceClosure closure);
 
+  // Returns kNullProcessId if no process has connected to this host yet.
+  base::ProcessId GetAppShimPid() const;
+
  protected:
   void ChannelError(uint32_t custom_reason, const std::string& description);
 
@@ -134,9 +142,10 @@ class AppShimHost : public chrome::mojom::AppShimHost {
   void ProfileSelectedFromMenu(const base::FilePath& profile_path) override;
   void UrlsOpened(const std::vector<GURL>& urls) override;
   void OpenAppWithOverrideUrl(const GURL& override_url) override;
+  void ApplicationWillTerminate() override;
 
   // Weak, owns |this|.
-  Client* const client_;
+  const raw_ptr<Client> client_;
 
   mojo::Receiver<chrome::mojom::AppShimHost> host_receiver_{this};
   mojo::Remote<chrome::mojom::AppShim> app_shim_;

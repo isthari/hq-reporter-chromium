@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,9 +11,9 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/discardable_memory.h"
 #include "base/memory/discardable_memory_allocator.h"
 #include "base/memory/madv_free_discardable_memory_allocator_posix.h"
@@ -120,7 +120,8 @@ IN_PROC_BROWSER_TEST_F(RenderThreadImplDiscardableMemoryBrowserTest,
 // See http://crbug.com/667837 for detail.
 #if !(BUILDFLAG(IS_ANDROID) && defined(ADDRESS_SANITIZER))
 IN_PROC_BROWSER_TEST_F(RenderThreadImplDiscardableMemoryBrowserTest,
-                       DiscardableMemoryAddressSpace) {
+                       // TODO(crbug.com/1065493): Re-enable this test
+                       DISABLED_DiscardableMemoryAddressSpace) {
   const size_t kLargeSize = 4 * 1024 * 1024;   // 4MiB.
   const size_t kNumberOfInstances = 1024 + 1;  // >4GiB total.
 
@@ -148,7 +149,7 @@ IN_PROC_BROWSER_TEST_F(RenderThreadImplDiscardableMemoryBrowserTest,
 #endif
 
 IN_PROC_BROWSER_TEST_F(RenderThreadImplDiscardableMemoryBrowserTest,
-                       ReleaseFreeDiscardableMemory) {
+                       ReleaseFreeDiscardableMemory_Explicitly) {
   const size_t kSize = 1024 * 1024;  // 1MiB.
 
   base::DiscardableMemoryBacking impl = base::GetDiscardableMemoryBacking();
@@ -158,11 +159,14 @@ IN_PROC_BROWSER_TEST_F(RenderThreadImplDiscardableMemoryBrowserTest,
 
   EXPECT_TRUE(memory);
   EXPECT_GE(discardable_memory_allocator()->GetBytesAllocated(), kSize);
-  memory.reset();
 
+  memory.reset();
   EXPECT_EQ(discardable_memory_allocator()->GetBytesAllocated(), 0U);
-  if (impl != base::DiscardableMemoryBacking::kSharedMemory)
+
+  if (impl != base::DiscardableMemoryBacking::kSharedMemory) {
+    LOG(INFO) << "Not using shared-memory backing. Skipping test.";
     return;
+  }
 
   EXPECT_GE(discardable_memory::DiscardableSharedMemoryManager::Get()
                 ->GetBytesAllocated(),
@@ -184,27 +188,40 @@ IN_PROC_BROWSER_TEST_F(RenderThreadImplDiscardableMemoryBrowserTest,
   EXPECT_LT(base::TimeTicks::Now(), end);
 }
 
-// TODO(crbug.com/974850): Flaky on all platforms.
 IN_PROC_BROWSER_TEST_F(RenderThreadImplDiscardableMemoryBrowserTest,
-                       DISABLED_ReleaseFreeMemory) {
+                       ReleaseFreeDiscardableMemory_ByCriticalPressure) {
   const size_t kSize = 1024 * 1024;  // 1MiB.
+
+  base::DiscardableMemoryBacking impl = base::GetDiscardableMemoryBacking();
 
   std::unique_ptr<base::DiscardableMemory> memory =
       AllocateLockedDiscardableMemory(kSize);
 
   EXPECT_TRUE(memory);
-  memory.reset();
-
   EXPECT_GE(discardable_memory_allocator()->GetBytesAllocated(), kSize);
 
+  memory.reset();
+  EXPECT_EQ(discardable_memory_allocator()->GetBytesAllocated(), 0U);
+
+  if (impl != base::DiscardableMemoryBacking::kSharedMemory) {
+    LOG(INFO) << "Not using shared-memory backing. Skipping test.";
+    return;
+  }
+
+  EXPECT_GE(discardable_memory::DiscardableSharedMemoryManager::Get()
+                ->GetBytesAllocated(),
+            kSize);
+
   // Call RenderThreadImpl::ReleaseFreeMemory through a fake memory pressure
-  // notification.
+  // notification. The pressure notification will be handled on the test
+  // main thread, so it is sufficient to RunAllTasksUntilIdle(), after which
+  // the manager should report that the memory has been freed.
   base::MemoryPressureListener::SimulatePressureNotification(
       base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_CRITICAL);
-  base::RunLoop().RunUntilIdle();
-  RunAllTasksUntilIdle();
 
-  EXPECT_EQ(0U, discardable_memory_allocator()->GetBytesAllocated());
+  RunAllTasksUntilIdle();
+  EXPECT_EQ(0u, discardable_memory::DiscardableSharedMemoryManager::Get()
+                    ->GetBytesAllocated());
 }
 
 IN_PROC_BROWSER_TEST_F(RenderThreadImplDiscardableMemoryBrowserTest,

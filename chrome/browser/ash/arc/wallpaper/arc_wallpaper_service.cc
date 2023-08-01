@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,10 +11,10 @@
 
 #include "ash/components/arc/arc_browser_context_keyed_service_factory_base.h"
 #include "ash/components/arc/session/arc_bridge_service.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/singleton.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "chrome/browser/ui/ash/wallpaper_controller_client_impl.h"
 #include "components/account_id/account_id.h"
@@ -103,7 +103,7 @@ class ArcWallpaperService::DecodeRequest : public ImageDecoder::ImageRequest {
 
  private:
   // ArcWallpaperService owns DecodeRequest, so it will outlive this.
-  ArcWallpaperService* const service_;
+  const raw_ptr<ArcWallpaperService, ExperimentalAsh> service_;
   const int32_t android_id_;
 };
 
@@ -154,14 +154,15 @@ void ArcWallpaperService::SetDefaultWallpaper() {
       UserManager::Get()->GetPrimaryUser();
   WallpaperControllerClientImpl::Get()->SetDefaultWallpaper(
       primary_user->GetAccountId(),
-      primary_user->is_active() /*show_wallpaper=*/);
+      primary_user->is_active() /*show_wallpaper=*/, base::DoNothing());
 }
 
 void ArcWallpaperService::GetWallpaper(GetWallpaperCallback callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   gfx::ImageSkia image =
       WallpaperControllerClientImpl::Get()->GetWallpaperImage();
-  image.SetReadOnly();
+  if (!image.isNull())
+    image.SetReadOnly();
   base::ThreadPool::PostTaskAndReplyWithResult(
       FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
       base::BindOnce(&EncodeImagePng, image), std::move(callback));
@@ -171,9 +172,6 @@ void ArcWallpaperService::OnWallpaperDecoded(const gfx::ImageSkia& image,
                                              int32_t android_id) {
   const AccountId account_id =
       UserManager::Get()->GetPrimaryUser()->GetAccountId();
-
-  WallpaperControllerClientImpl::Get()->RecordWallpaperSourceUMA(
-      ash::WallpaperType::kThirdParty);
 
   const bool result =
       WallpaperControllerClientImpl::Get()->SetThirdPartyWallpaper(
@@ -185,11 +183,6 @@ void ArcWallpaperService::OnWallpaperDecoded(const gfx::ImageSkia& image,
     NotifyWallpaperChanged(android_id);
   else
     NotifyWallpaperChangedAndReset(android_id);
-
-  // TODO(crbug.com/618922): Register the wallpaper to Chrome OS wallpaper
-  // picker. Currently the new wallpaper does not appear there. The best way
-  // to make this happen seems to do the same things as wallpaper_api.cc and
-  // wallpaper_private_api.cc.
 }
 
 void ArcWallpaperService::NotifyWallpaperChanged(int android_id) {
@@ -208,6 +201,11 @@ void ArcWallpaperService::NotifyWallpaperChangedAndReset(int32_t android_id) {
   // Invoke NotifyWallpaperChanged with -1 so that Android side regards the
   // wallpaper of |android_id_| is no longer used at Chrome side.
   NotifyWallpaperChanged(-1);
+}
+
+// static
+void ArcWallpaperService::EnsureFactoryBuilt() {
+  ArcWallpaperServiceFactory::GetInstance();
 }
 
 }  // namespace arc

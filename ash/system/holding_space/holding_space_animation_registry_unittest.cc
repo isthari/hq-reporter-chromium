@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,13 +15,13 @@
 #include "ash/public/cpp/holding_space/holding_space_prefs.h"
 #include "ash/public/cpp/holding_space/holding_space_util.h"
 #include "ash/public/cpp/holding_space/mock_holding_space_client.h"
-#include "ash/system/holding_space/holding_space_progress_icon_animation.h"
-#include "ash/system/holding_space/holding_space_progress_indicator_animation.h"
-#include "ash/system/holding_space/holding_space_progress_ring_animation.h"
+#include "ash/system/progress_indicator/progress_icon_animation.h"
+#include "ash/system/progress_indicator/progress_indicator_animation.h"
+#include "ash/system/progress_indicator/progress_ring_animation.h"
 #include "ash/test/ash_test_base.h"
-#include "base/barrier_closure.h"
 #include "base/strings/strcat.h"
 #include "base/test/bind.h"
+#include "base/test/repeating_test_future.h"
 #include "base/test/scoped_feature_list.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
@@ -30,26 +30,10 @@ namespace {
 
 constexpr char kTestUser[] = "user@test";
 
-// Helpers ---------------------------------------------------------------------
-
-template <typename... T>
-base::RepeatingCallback<void(T...)> IgnoreArgs(base::RepeatingClosure closure) {
-  return base::BindRepeating([](T...) {}).Then(std::move(closure));
-}
-
 // HoldingSpaceAnimationRegistryTest -------------------------------------------
 
-class HoldingSpaceAnimationRegistryTest : public AshTestBase,
-                                          public testing::WithParamInterface<
-                                              /*animation_v2_enabled=*/bool> {
+class HoldingSpaceAnimationRegistryTest : public AshTestBase {
  public:
-  HoldingSpaceAnimationRegistryTest() {
-    scoped_feature_list_.InitWithFeatureState(
-        features::kHoldingSpaceInProgressAnimationV2, IsAnimationV2Enabled());
-  }
-
-  bool IsAnimationV2Enabled() const { return GetParam(); }
-
   // AshTestBase:
   void SetUp() override {
     AshTestBase::SetUp();
@@ -88,9 +72,15 @@ class HoldingSpaceAnimationRegistryTest : public AshTestBase,
     EXPECT_EQ(!!animation, exists);
   }
 
+  void ExpectProgressIconAnimationHasAnimatedForKey(const void* key,
+                                                    bool has_animated) {
+    auto* animation = registry()->GetProgressIconAnimationForKey(key);
+    EXPECT_EQ(animation && animation->HasAnimated(), has_animated);
+  }
+
   void ExpectProgressRingAnimationOfTypeForKey(
       const void* key,
-      const absl::optional<HoldingSpaceProgressRingAnimation::Type>& type) {
+      const absl::optional<ProgressRingAnimation::Type>& type) {
     auto* animation = registry()->GetProgressRingAnimationForKey(key);
     EXPECT_EQ(!!animation, type.has_value());
     if (animation && type.has_value())
@@ -100,6 +90,13 @@ class HoldingSpaceAnimationRegistryTest : public AshTestBase,
   void StartSession() {
     AccountId user_account = AccountId::FromUserEmail(kTestUser);
     GetSessionControllerClient()->SwitchActiveUser(user_account);
+  }
+
+  void EnableTrayIconPreviews() {
+    AccountId account_id = AccountId::FromUserEmail(kTestUser);
+    auto* prefs = GetSessionControllerClient()->GetUserPrefService(account_id);
+    ASSERT_TRUE(prefs);
+    holding_space_prefs::SetPreviewsEnabled(prefs, true);
   }
 
   HoldingSpaceController* controller() { return HoldingSpaceController::Get(); }
@@ -115,23 +112,19 @@ class HoldingSpaceAnimationRegistryTest : public AshTestBase,
   }
 
  private:
-  base::test::ScopedFeatureList scoped_feature_list_;
   testing::NiceMock<MockHoldingSpaceClient> holding_space_client_;
   HoldingSpaceModel holding_space_model_;
 };
-
-INSTANTIATE_TEST_SUITE_P(All,
-                         HoldingSpaceAnimationRegistryTest,
-                         /*in_progress_animation_v2_enabled=*/testing::Bool());
 
 }  // namespace
 
 // Tests -----------------------------------------------------------------------
 
-TEST_P(HoldingSpaceAnimationRegistryTest, ProgressIndicatorAnimations) {
-  using Type = HoldingSpaceProgressRingAnimation::Type;
+TEST_F(HoldingSpaceAnimationRegistryTest, ProgressIndicatorAnimations) {
+  using Type = ProgressRingAnimation::Type;
 
   StartSession();
+  EnableTrayIconPreviews();
 
   // Verify initial animation `registry()` state.
   ExpectProgressIconAnimationExistsForKey(controller(), false);
@@ -153,11 +146,13 @@ TEST_P(HoldingSpaceAnimationRegistryTest, ProgressIndicatorAnimations) {
               HoldingSpaceProgress(0, absl::nullopt));
 
   // Verify animation `registry()` state.
-  ExpectProgressIconAnimationExistsForKey(controller(), IsAnimationV2Enabled());
+  ExpectProgressIconAnimationExistsForKey(controller(), true);
+  ExpectProgressIconAnimationHasAnimatedForKey(controller(), true);
   ExpectProgressRingAnimationOfTypeForKey(controller(), Type::kIndeterminate);
   ExpectProgressIconAnimationExistsForKey(item_0, false);
   ExpectProgressRingAnimationOfTypeForKey(item_0, absl::nullopt);
-  ExpectProgressIconAnimationExistsForKey(item_1, IsAnimationV2Enabled());
+  ExpectProgressIconAnimationExistsForKey(item_1, true);
+  ExpectProgressIconAnimationHasAnimatedForKey(item_1, false);
   ExpectProgressRingAnimationOfTypeForKey(item_1, Type::kIndeterminate);
 
   // Add a determinately in-progress item to the `model()`.
@@ -166,26 +161,31 @@ TEST_P(HoldingSpaceAnimationRegistryTest, ProgressIndicatorAnimations) {
               HoldingSpaceProgress(0, 10));
 
   // Verify animation `registry()` state.
-  ExpectProgressIconAnimationExistsForKey(controller(), IsAnimationV2Enabled());
+  ExpectProgressIconAnimationExistsForKey(controller(), true);
+  ExpectProgressIconAnimationHasAnimatedForKey(controller(), true);
   ExpectProgressRingAnimationOfTypeForKey(controller(), Type::kIndeterminate);
   ExpectProgressIconAnimationExistsForKey(item_0, false);
   ExpectProgressRingAnimationOfTypeForKey(item_0, absl::nullopt);
-  ExpectProgressIconAnimationExistsForKey(item_1, IsAnimationV2Enabled());
+  ExpectProgressIconAnimationExistsForKey(item_1, true);
+  ExpectProgressIconAnimationHasAnimatedForKey(item_1, false);
   ExpectProgressRingAnimationOfTypeForKey(item_1, Type::kIndeterminate);
-  ExpectProgressIconAnimationExistsForKey(item_2, IsAnimationV2Enabled());
+  ExpectProgressIconAnimationExistsForKey(item_2, true);
+  ExpectProgressIconAnimationHasAnimatedForKey(item_2, false);
   ExpectProgressRingAnimationOfTypeForKey(item_2, absl::nullopt);
 
   // Complete the first in-progress item.
   model()->UpdateItem(item_1->id())->SetProgress(HoldingSpaceProgress(10, 10));
 
   // Verify animation `registry()` state.
-  ExpectProgressIconAnimationExistsForKey(controller(), IsAnimationV2Enabled());
+  ExpectProgressIconAnimationExistsForKey(controller(), true);
+  ExpectProgressIconAnimationHasAnimatedForKey(controller(), true);
   ExpectProgressRingAnimationOfTypeForKey(controller(), absl::nullopt);
   ExpectProgressIconAnimationExistsForKey(item_0, false);
   ExpectProgressRingAnimationOfTypeForKey(item_0, absl::nullopt);
   ExpectProgressIconAnimationExistsForKey(item_1, false);
   ExpectProgressRingAnimationOfTypeForKey(item_1, Type::kPulse);
-  ExpectProgressIconAnimationExistsForKey(item_2, IsAnimationV2Enabled());
+  ExpectProgressIconAnimationExistsForKey(item_2, true);
+  ExpectProgressIconAnimationHasAnimatedForKey(item_2, false);
   ExpectProgressRingAnimationOfTypeForKey(item_2, absl::nullopt);
 
   // Complete the second in-progress item.
@@ -201,36 +201,27 @@ TEST_P(HoldingSpaceAnimationRegistryTest, ProgressIndicatorAnimations) {
   ExpectProgressIconAnimationExistsForKey(item_2, false);
   ExpectProgressRingAnimationOfTypeForKey(item_2, Type::kPulse);
 
-  {
-    // Wait for `kPulse` animations to complete.
-    base::RunLoop run_loop;
-    auto pulse_animation_complete = base::BarrierClosure(
-        3u, base::BindLambdaForTesting([&]() {
-          // Verify animation `registry()` state.
-          ExpectProgressIconAnimationExistsForKey(controller(), false);
-          ExpectProgressRingAnimationOfTypeForKey(controller(), absl::nullopt);
-          ExpectProgressIconAnimationExistsForKey(item_0, false);
-          ExpectProgressRingAnimationOfTypeForKey(item_0, absl::nullopt);
-          ExpectProgressIconAnimationExistsForKey(item_1, false);
-          ExpectProgressRingAnimationOfTypeForKey(item_1, absl::nullopt);
-          ExpectProgressIconAnimationExistsForKey(item_2, false);
-          ExpectProgressRingAnimationOfTypeForKey(item_2, absl::nullopt);
-          run_loop.Quit();
-        }));
+  // Wait for `kPulse` animations to complete.
+  base::test::RepeatingTestFuture<ProgressRingAnimation*> future;
+  std::array<base::CallbackListSubscription, 3u> subscriptions = {
+      registry()->AddProgressRingAnimationChangedCallbackForKey(
+          controller(), future.GetCallback()),
+      registry()->AddProgressRingAnimationChangedCallbackForKey(
+          item_1, future.GetCallback()),
+      registry()->AddProgressRingAnimationChangedCallbackForKey(
+          item_2, future.GetCallback())};
+  for (size_t i = 0u; i < std::size(subscriptions); ++i)
+    EXPECT_EQ(future.Take(), nullptr);
 
-    std::array<base::CallbackListSubscription, 3u> subscriptions = {
-        registry()->AddProgressRingAnimationChangedCallbackForKey(
-            controller(), IgnoreArgs<HoldingSpaceProgressRingAnimation*>(
-                              pulse_animation_complete)),
-        registry()->AddProgressRingAnimationChangedCallbackForKey(
-            item_1, IgnoreArgs<HoldingSpaceProgressRingAnimation*>(
-                        pulse_animation_complete)),
-        registry()->AddProgressRingAnimationChangedCallbackForKey(
-            item_2, IgnoreArgs<HoldingSpaceProgressRingAnimation*>(
-                        pulse_animation_complete))};
-
-    run_loop.Run();
-  }
+  // Verify animation `registry()` state.
+  ExpectProgressIconAnimationExistsForKey(controller(), false);
+  ExpectProgressRingAnimationOfTypeForKey(controller(), absl::nullopt);
+  ExpectProgressIconAnimationExistsForKey(item_0, false);
+  ExpectProgressRingAnimationOfTypeForKey(item_0, absl::nullopt);
+  ExpectProgressIconAnimationExistsForKey(item_1, false);
+  ExpectProgressRingAnimationOfTypeForKey(item_1, absl::nullopt);
+  ExpectProgressIconAnimationExistsForKey(item_2, false);
+  ExpectProgressRingAnimationOfTypeForKey(item_2, absl::nullopt);
 }
 
 }  // namespace ash

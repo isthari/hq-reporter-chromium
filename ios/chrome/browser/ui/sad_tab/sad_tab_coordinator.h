@@ -1,11 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef IOS_CHROME_BROWSER_UI_SAD_TAB_SAD_TAB_COORDINATOR_H_
 #define IOS_CHROME_BROWSER_UI_SAD_TAB_SAD_TAB_COORDINATOR_H_
 
-#import "ios/chrome/browser/ui/coordinators/chrome_coordinator.h"
+#import "ios/chrome/browser/shared/coordinator/chrome_coordinator/chrome_coordinator.h"
 #import "ios/chrome/browser/web/sad_tab_tab_helper_delegate.h"
 
 @protocol OverscrollActionsControllerDelegate;
@@ -22,6 +22,11 @@
 
 // YES if page load for this URL has failed more than once.
 @property(nonatomic) BOOL repeatedFailure;
+
+// Disconnects all delegates set by the coordinator on any web states in its web
+// state list. After `disconnect` is called, the coordinator will not add
+// delegates to further webstates.
+- (void)disconnect;
 
 @end
 

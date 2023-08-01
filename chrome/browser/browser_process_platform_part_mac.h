@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,10 +14,6 @@
 namespace apps {
 class AppShimManager;
 }  // namespace apps
-
-namespace device {
-class GeolocationManager;
-}  // namespace device
 
 class BrowserProcessPlatformPart : public BrowserProcessPlatformPartBase {
  public:
@@ -37,15 +33,8 @@ class BrowserProcessPlatformPart : public BrowserProcessPlatformPartBase {
 
   AppShimListener* app_shim_listener();
   apps::AppShimManager* app_shim_manager();
-  device::GeolocationManager* geolocation_manager();
 
   KeyWindowNotifier& key_window_notifier() { return key_window_notifier_; }
-
-  void SetGeolocationManagerForTesting(
-      std::unique_ptr<device::GeolocationManager> fake_geolocation_manager);
-
- protected:
-  std::unique_ptr<device::GeolocationManager> geolocation_manager_;
 
  private:
   std::unique_ptr<apps::AppShimManager> app_shim_manager_;

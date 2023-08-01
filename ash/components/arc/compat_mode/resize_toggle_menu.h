@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,10 @@
 #include <memory>
 
 #include "ash/components/arc/compat_mode/resize_util.h"
-#include "base/callback_forward.h"
 #include "base/cancelable_callback.h"
+#include "base/functional/callback_forward.h"
+#include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ref.h"
 #include "base/scoped_multi_source_observation.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_observer.h"
@@ -58,7 +60,7 @@ class ResizeToggleMenu : public views::WidgetObserver,
     views::ImageView* icon_view_{nullptr};
     views::Label* title_{nullptr};
 
-    const gfx::VectorIcon& icon_;
+    const raw_ref<const gfx::VectorIcon, ExperimentalAsh> icon_;
     bool is_selected_{false};
   };
 
@@ -79,6 +81,8 @@ class ResizeToggleMenu : public views::WidgetObserver,
                                intptr_t old) override;
   void OnWindowDestroying(aura::Window* window) override;
 
+  bool IsBubbleShown() const;
+
  private:
   friend class ResizeToggleMenuTest;
 
@@ -88,6 +92,8 @@ class ResizeToggleMenu : public views::WidgetObserver,
 
   gfx::Rect GetAnchorRect() const;
 
+  base::WeakPtr<views::BubbleDialogDelegateView> bubble_view_;
+
   std::unique_ptr<views::BubbleDialogDelegateView> MakeBubbleDelegateView(
       views::Widget* parent,
       gfx::Rect anchor_rect,
@@ -95,9 +101,9 @@ class ResizeToggleMenu : public views::WidgetObserver,
 
   void CloseBubble();
 
-  views::Widget* widget_;
+  raw_ptr<views::Widget, ExperimentalAsh> widget_;
 
-  ArcResizeLockPrefDelegate* pref_delegate_;
+  raw_ptr<ArcResizeLockPrefDelegate, ExperimentalAsh> pref_delegate_;
 
   base::ScopedMultiSourceObservation<views::Widget, views::WidgetObserver>
       widget_observations_{this};
@@ -106,11 +112,12 @@ class ResizeToggleMenu : public views::WidgetObserver,
 
   base::CancelableOnceClosure auto_close_closure_;
 
+  raw_ptr<views::Widget, ExperimentalAsh> bubble_widget_{nullptr};
+
   // Store only for testing.
-  views::Widget* bubble_widget_{nullptr};
-  MenuButtonView* phone_button_{nullptr};
-  MenuButtonView* tablet_button_{nullptr};
-  MenuButtonView* resizable_button_{nullptr};
+  raw_ptr<MenuButtonView, ExperimentalAsh> phone_button_{nullptr};
+  raw_ptr<MenuButtonView, ExperimentalAsh> tablet_button_{nullptr};
+  raw_ptr<MenuButtonView, ExperimentalAsh> resizable_button_{nullptr};
 
   base::WeakPtrFactory<ResizeToggleMenu> weak_ptr_factory_{this};
 };

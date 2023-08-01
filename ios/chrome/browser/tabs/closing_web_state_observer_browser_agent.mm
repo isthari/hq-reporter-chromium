@@ -1,21 +1,21 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/tabs/closing_web_state_observer_browser_agent.h"
 
-#include "base/strings/string_piece.h"
-#include "components/sessions/core/tab_restore_service.h"
-#include "components/sessions/ios/ios_restore_live_tab.h"
-#include "components/sessions/ios/ios_webstate_live_tab.h"
-#include "ios/chrome/browser/chrome_url_constants.h"
-#include "ios/chrome/browser/sessions/ios_chrome_tab_restore_service_factory.h"
+#import "base/strings/string_piece.h"
+#import "components/sessions/core/tab_restore_service.h"
+#import "components/sessions/ios/ios_restore_live_tab.h"
+#import "components/sessions/ios/ios_webstate_live_tab.h"
+#import "ios/chrome/browser/sessions/ios_chrome_tab_restore_service_factory.h"
+#import "ios/chrome/browser/shared/model/url/chrome_url_constants.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/snapshots/snapshot_tab_helper.h"
-#import "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/web/public/navigation/navigation_item.h"
 #import "ios/web/public/navigation/navigation_manager.h"
 #import "ios/web/public/web_state.h"
-#include "url/gurl.h"
+#import "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -62,7 +62,7 @@ void ClosingWebStateObserverBrowserAgent::RecordHistoryForWebStateAtIndex(
 
   // No need to record history if the tab has no navigation or has only
   // presented the NTP or the bookmark UI.
-  if (navigation_manager->GetItemCount() <= 1) {
+  if (web_state->GetNavigationItemCount() <= 1) {
     const GURL& last_committed_url = web_state->GetLastCommittedURL();
     if (!last_committed_url.is_valid() ||
         (last_committed_url.host_piece() == kChromeUINewTabHost)) {
@@ -91,18 +91,12 @@ void ClosingWebStateObserverBrowserAgent::WebStateReplacedAt(
   SnapshotTabHelper::FromWebState(old_web_state)->RemoveSnapshot();
 }
 
-void ClosingWebStateObserverBrowserAgent::WillDetachWebStateAt(
-    WebStateList* web_state_list,
-    web::WebState* web_state,
-    int index) {
-  RecordHistoryForWebStateAtIndex(web_state, index);
-}
-
 void ClosingWebStateObserverBrowserAgent::WillCloseWebStateAt(
     WebStateList* web_state_list,
     web::WebState* web_state,
     int index,
     bool user_action) {
+  RecordHistoryForWebStateAtIndex(web_state, index);
   if (user_action) {
     SnapshotTabHelper::FromWebState(web_state)->RemoveSnapshot();
   }

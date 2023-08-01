@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -95,6 +95,7 @@ class PlatformNotificationServiceImpl
                            DisplayNameForContextMessage);
   FRIEND_TEST_ALL_PREFIXES(PlatformNotificationServiceTest,
                            RecordNotificationUkmEvent);
+  FRIEND_TEST_ALL_PREFIXES(PlatformNotificationServiceTest, IncomingCallWebApp);
   FRIEND_TEST_ALL_PREFIXES(
       PlatformNotificationServiceTest_WebAppNotificationIconAndTitle,
       FindWebAppIconAndTitle_NoApp);
@@ -140,6 +141,10 @@ class PlatformNotificationServiceImpl
   // as such.
   absl::optional<WebAppIconAndTitle> FindWebAppIconAndTitle(
       const GURL& web_app_hint_url) const;
+
+  // Identifies whether the notification was sent from an installed web app or
+  // not.
+  bool IsActivelyInstalledWebAppScope(const GURL& web_app_url) const;
 
   // Clears |closed_notifications_|. Should only be used for testing purposes.
   void ClearClosedNotificationsForTesting() { closed_notifications_.clear(); }

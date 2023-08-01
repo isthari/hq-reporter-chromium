@@ -1,4 +1,12 @@
 <style include="cr-shared-style scanning-shared scanning-fonts">
+  :host-context(body.jelly-enabled) #appTitle {
+    font: var(--cros-display-6-font);
+  }
+
+  :host-context(body.jelly-enabled) #moreSettingsButton {
+    font: var(--cros-annotation-1-font);
+  }
+
   #appTitle {
     color: var(--scanning-app-title-text-color);
     font-family: var(--scanning-app-title-font-family);
@@ -9,7 +17,6 @@
     margin-inline-end: 0;
     margin-inline-start: 32px;
     margin-top: 0;
-    width: 68px;
   }
 
   #moreSettingsButton {
@@ -19,7 +26,6 @@
     background: none;
     border: none;
     border-radius: initial;
-    box-shadow: none;
     color: var(--scanning-more-settings-text-color);
     display: flex;
     font-family: var(--scanning-more-settings-font-family);
@@ -34,6 +40,10 @@
     padding-inline: 0;
     text-transform: none;
     width: 280px;
+  }
+
+  #moreSettingsButton:active {
+    box-shadow: none;
   }
 
   #moreSettingsButton:focus {

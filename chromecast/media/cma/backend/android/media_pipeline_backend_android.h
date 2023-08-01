@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,6 +28,7 @@ class VideoDecoderNull;
 class MediaPipelineBackendAndroid : public MediaPipelineBackend {
  public:
   using RenderingDelay = AudioDecoder::RenderingDelay;
+  using AudioTrackTimestamp = AudioDecoder::AudioTrackTimestamp;
 
   explicit MediaPipelineBackendAndroid(const MediaPipelineDeviceParams& params);
 

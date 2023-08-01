@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "components/permissions/permissions_client.h"
 #include "content/public/browser/android/browser_context_handle.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/web_contents.h"
 
 namespace content_settings {
 
@@ -59,8 +60,9 @@ void CookieControlsBridge::OnCookiesCountChanged(int allowed_cookies,
   // The cookie counts change quite frequently, so avoid unnecessary
   // UI updates if possible.
   if (allowed_cookies_ == allowed_cookies &&
-      blocked_cookies_ == blocked_cookies)
+      blocked_cookies_ == blocked_cookies) {
     return;
+  }
 
   allowed_cookies_ = allowed_cookies;
   blocked_cookies_ = blocked_cookies;
@@ -68,6 +70,9 @@ void CookieControlsBridge::OnCookiesCountChanged(int allowed_cookies,
   Java_CookieControlsBridge_onCookiesCountChanged(
       env, jobject_, allowed_cookies, blocked_cookies);
 }
+
+// This is a no-op for Android.
+void CookieControlsBridge::OnStatefulBounceCountChanged(int bounce_count) {}
 
 void CookieControlsBridge::SetThirdPartyCookieBlockingEnabledForSite(
     JNIEnv* env,

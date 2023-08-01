@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,10 @@
 #include <vector>
 
 #include "base/memory/raw_ptr.h"
-#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
+#include "base/values.h"
 #include "net/base/completion_once_callback.h"
 #include "net/base/net_export.h"
 #include "net/dns/host_resolver.h"
@@ -22,10 +23,6 @@
 #include "net/proxy_resolution/proxy_config_with_annotation.h"
 #include "net/proxy_resolution/proxy_resolver.h"
 #include "url/gurl.h"
-
-namespace base {
-class Value;
-}
 
 namespace net {
 
@@ -43,7 +40,7 @@ class PacFileFetcher;
 // both for auto-detect and not.
 struct NET_EXPORT_PRIVATE PacFileDataWithSource {
   PacFileDataWithSource();
-  explicit PacFileDataWithSource(const PacFileDataWithSource&);
+  PacFileDataWithSource(const PacFileDataWithSource&);
   ~PacFileDataWithSource();
 
   PacFileDataWithSource& operator=(const PacFileDataWithSource&);
@@ -124,7 +121,7 @@ class NET_EXPORT_PRIVATE PacFileDecider {
     // Returns a Value representing the PacSource.  |effective_pac_url| is the
     // URL derived from information contained in
     // |this|, if Type is not WPAD_DHCP.
-    base::Value NetLogParams(const GURL& effective_pac_url) const;
+    base::Value::Dict NetLogParams(const GURL& effective_pac_url) const;
 
     Type type;
     GURL url;  // Empty unless |type == PAC_SOURCE_CUSTOM|.
@@ -186,24 +183,24 @@ class NET_EXPORT_PRIVATE PacFileDecider {
 
   CompletionOnceCallback callback_;
 
-  size_t current_pac_source_index_;
+  size_t current_pac_source_index_ = 0u;
 
   // Filled when the PAC script fetch completes.
   std::u16string pac_script_;
 
   // Flag indicating whether the caller requested a mandatory PAC script
   // (i.e. fallback to direct connections are prohibited).
-  bool pac_mandatory_;
+  bool pac_mandatory_ = false;
 
   // Whether we have an existing custom PAC URL.
   bool have_custom_pac_url_;
 
   PacSourceList pac_sources_;
-  State next_state_;
+  State next_state_ = STATE_NONE;
 
   NetLogWithSource net_log_;
 
-  bool fetch_pac_bytes_;
+  bool fetch_pac_bytes_ = false;
 
   base::TimeDelta wait_delay_;
   base::OneShotTimer wait_timer_;
@@ -211,7 +208,7 @@ class NET_EXPORT_PRIVATE PacFileDecider {
   net::MutableNetworkTrafficAnnotationTag traffic_annotation_;
 
   // Whether to do DNS quick check
-  bool quick_check_enabled_;
+  bool quick_check_enabled_ = true;
 
   // Results.
   ProxyConfigWithAnnotation effective_config_;

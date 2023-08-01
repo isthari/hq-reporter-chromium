@@ -1,29 +1,43 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "media/gpu/v4l2/test/vp9_decoder.h"
 
-#include <linux/media/vp9-ctrls.h>
+#include <linux/v4l2-controls.h>
+
+// ChromeOS specific header; does not exist upstream
+#if BUILDFLAG(IS_CHROMEOS)
+#include <linux/media/vp9-ctrls-upstream.h>
+#endif
+
 #include <sys/ioctl.h>
 
+#include "base/bits.h"
 #include "base/files/memory_mapped_file.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "media/filters/ivf_parser.h"
 #include "media/filters/vp9_parser.h"
 #include "media/gpu/macros.h"
+#include "media/gpu/v4l2/test/upstream_pix_fmt.h"
 
 namespace media {
 
 namespace v4l2_test {
+constexpr uint32_t kDriverCodecFourcc = V4L2_PIX_FMT_VP9_FRAME;
+
+constexpr uint32_t kNumberOfBuffersInCaptureQueue = 10;
+
+static_assert(kNumberOfBuffersInCaptureQueue <= 16,
+              "Too many CAPTURE buffers are used. The number of CAPTURE "
+              "buffers is currently assumed to be no larger than 16.");
 
 #define SET_IF(bit_field, cond, mask) (bit_field) |= ((cond) ? (mask) : 0)
 
-inline void conditionally_set_flag(
-    struct v4l2_ctrl_vp9_frame_decode_params& params,
-    bool condition,
-    enum v4l2_vp9_frame_flags flag) {
+inline void conditionally_set_flag(struct v4l2_ctrl_vp9_frame& params,
+                                   const bool condition,
+                                   const __u32 flag) {
   params.flags |= condition ? flag : 0;
 }
 
@@ -40,39 +54,6 @@ void FillV4L2VP9QuantizationParams(
       base::checked_cast<__s8>(vp9_quant_params.delta_q_uv_ac);
 }
 
-void FillV4L2VP9MvProbsParams(const Vp9FrameContext& vp9_ctx,
-                              struct v4l2_vp9_mv_probabilities* v4l2_mv_probs) {
-  SafeArrayMemcpy(v4l2_mv_probs->joint, vp9_ctx.mv_joint_probs);
-  SafeArrayMemcpy(v4l2_mv_probs->sign, vp9_ctx.mv_sign_prob);
-  SafeArrayMemcpy(v4l2_mv_probs->class_, vp9_ctx.mv_class_probs);
-  SafeArrayMemcpy(v4l2_mv_probs->class0_bit, vp9_ctx.mv_class0_bit_prob);
-  SafeArrayMemcpy(v4l2_mv_probs->bits, vp9_ctx.mv_bits_prob);
-  SafeArrayMemcpy(v4l2_mv_probs->class0_fr, vp9_ctx.mv_class0_fr_probs);
-  SafeArrayMemcpy(v4l2_mv_probs->fr, vp9_ctx.mv_fr_probs);
-  SafeArrayMemcpy(v4l2_mv_probs->class0_hp, vp9_ctx.mv_class0_hp_prob);
-  SafeArrayMemcpy(v4l2_mv_probs->hp, vp9_ctx.mv_hp_prob);
-}
-
-void FillV4L2VP9ProbsParams(const Vp9FrameContext& vp9_ctx,
-                            struct v4l2_vp9_probabilities* v4l2_probs) {
-  SafeArrayMemcpy(v4l2_probs->tx8, vp9_ctx.tx_probs_8x8);
-  SafeArrayMemcpy(v4l2_probs->tx16, vp9_ctx.tx_probs_16x16);
-  SafeArrayMemcpy(v4l2_probs->tx32, vp9_ctx.tx_probs_32x32);
-  SafeArrayMemcpy(v4l2_probs->coef, vp9_ctx.coef_probs);
-  SafeArrayMemcpy(v4l2_probs->skip, vp9_ctx.skip_prob);
-  SafeArrayMemcpy(v4l2_probs->inter_mode, vp9_ctx.inter_mode_probs);
-  SafeArrayMemcpy(v4l2_probs->interp_filter, vp9_ctx.interp_filter_probs);
-  SafeArrayMemcpy(v4l2_probs->is_inter, vp9_ctx.is_inter_prob);
-  SafeArrayMemcpy(v4l2_probs->comp_mode, vp9_ctx.comp_mode_prob);
-  SafeArrayMemcpy(v4l2_probs->single_ref, vp9_ctx.single_ref_prob);
-  SafeArrayMemcpy(v4l2_probs->comp_ref, vp9_ctx.comp_ref_prob);
-  SafeArrayMemcpy(v4l2_probs->y_mode, vp9_ctx.y_mode_probs);
-  SafeArrayMemcpy(v4l2_probs->uv_mode, vp9_ctx.uv_mode_probs);
-  SafeArrayMemcpy(v4l2_probs->partition, vp9_ctx.partition_probs);
-
-  FillV4L2VP9MvProbsParams(vp9_ctx, &v4l2_probs->mv);
-}
-
 void FillV4L2VP9LoopFilterParams(const Vp9LoopFilterParams& vp9_lf_params,
                                  struct v4l2_vp9_loop_filter* v4l2_lf) {
   SET_IF(v4l2_lf->flags, vp9_lf_params.delta_enabled,
@@ -85,7 +66,6 @@ void FillV4L2VP9LoopFilterParams(const Vp9LoopFilterParams& vp9_lf_params,
   v4l2_lf->sharpness = vp9_lf_params.sharpness;
   SafeArrayMemcpy(v4l2_lf->ref_deltas, vp9_lf_params.ref_deltas);
   SafeArrayMemcpy(v4l2_lf->mode_deltas, vp9_lf_params.mode_deltas);
-  SafeArrayMemcpy(v4l2_lf->level_lookup, vp9_lf_params.lvl);
 }
 
 void FillV4L2VP9SegmentationParams(const Vp9SegmentationParams& vp9_seg_params,
@@ -105,7 +85,7 @@ void FillV4L2VP9SegmentationParams(const Vp9SegmentationParams& vp9_seg_params,
   SafeArrayMemcpy(v4l2_seg->pred_probs, vp9_seg_params.pred_probs);
 
   static_assert(static_cast<size_t>(Vp9SegmentationParams::SEG_LVL_MAX) ==
-                    static_cast<size_t>(V4L2_VP9_SEGMENT_FEATURE_CNT),
+                    static_cast<size_t>(V4L2_VP9_SEG_LVL_MAX),
                 "mismatch in number of segmentation features");
 
   for (size_t j = 0;
@@ -122,133 +102,173 @@ void FillV4L2VP9SegmentationParams(const Vp9SegmentationParams& vp9_seg_params,
   SafeArrayMemcpy(v4l2_seg->feature_data, vp9_seg_params.feature_data);
 }
 
+static void FillV4L2VP9MvProbsParams(const Vp9FrameContext& vp9_ctx,
+                                     struct v4l2_vp9_mv_probs* v4l2_mv_probs) {
+  SafeArrayMemcpy(v4l2_mv_probs->joint, vp9_ctx.mv_joint_probs);
+  SafeArrayMemcpy(v4l2_mv_probs->sign, vp9_ctx.mv_sign_prob);
+  SafeArrayMemcpy(v4l2_mv_probs->classes, vp9_ctx.mv_class_probs);
+  SafeArrayMemcpy(v4l2_mv_probs->class0_bit, vp9_ctx.mv_class0_bit_prob);
+  SafeArrayMemcpy(v4l2_mv_probs->bits, vp9_ctx.mv_bits_prob);
+  SafeArrayMemcpy(v4l2_mv_probs->class0_fr, vp9_ctx.mv_class0_fr_probs);
+  SafeArrayMemcpy(v4l2_mv_probs->fr, vp9_ctx.mv_fr_probs);
+  SafeArrayMemcpy(v4l2_mv_probs->class0_hp, vp9_ctx.mv_class0_hp_prob);
+  SafeArrayMemcpy(v4l2_mv_probs->hp, vp9_ctx.mv_hp_prob);
+}
+
+static void FillV4L2VP9ProbsParams(
+    const Vp9FrameContext& vp9_ctx,
+    struct v4l2_ctrl_vp9_compressed_hdr* v4l2_probs) {
+  SafeArrayMemcpy(v4l2_probs->tx8, vp9_ctx.tx_probs_8x8);
+  SafeArrayMemcpy(v4l2_probs->tx16, vp9_ctx.tx_probs_16x16);
+  SafeArrayMemcpy(v4l2_probs->tx32, vp9_ctx.tx_probs_32x32);
+  SafeArrayMemcpy(v4l2_probs->coef, vp9_ctx.coef_probs);
+  SafeArrayMemcpy(v4l2_probs->skip, vp9_ctx.skip_prob);
+  SafeArrayMemcpy(v4l2_probs->inter_mode, vp9_ctx.inter_mode_probs);
+  SafeArrayMemcpy(v4l2_probs->interp_filter, vp9_ctx.interp_filter_probs);
+  SafeArrayMemcpy(v4l2_probs->is_inter, vp9_ctx.is_inter_prob);
+  SafeArrayMemcpy(v4l2_probs->comp_mode, vp9_ctx.comp_mode_prob);
+  SafeArrayMemcpy(v4l2_probs->single_ref, vp9_ctx.single_ref_prob);
+  SafeArrayMemcpy(v4l2_probs->comp_ref, vp9_ctx.comp_ref_prob);
+  SafeArrayMemcpy(v4l2_probs->y_mode, vp9_ctx.y_mode_probs);
+  SafeArrayMemcpy(v4l2_probs->uv_mode, vp9_ctx.uv_mode_probs);
+  SafeArrayMemcpy(v4l2_probs->partition, vp9_ctx.partition_probs);
+
+  FillV4L2VP9MvProbsParams(vp9_ctx, &v4l2_probs->mv);
+}
+
 Vp9Decoder::Vp9Decoder(std::unique_ptr<IvfParser> ivf_parser,
                        std::unique_ptr<V4L2IoctlShim> v4l2_ioctl,
-                       std::unique_ptr<V4L2Queue> OUTPUT_queue,
-                       std::unique_ptr<V4L2Queue> CAPTURE_queue)
-    : ivf_parser_(std::move(ivf_parser)),
+                       gfx::Size display_resolution)
+    : VideoDecoder::VideoDecoder(std::move(v4l2_ioctl), display_resolution),
+      ivf_parser_(std::move(ivf_parser)),
       vp9_parser_(
-          std::make_unique<Vp9Parser>(/*parsing_compressed_header=*/false)),
-      v4l2_ioctl_(std::move(v4l2_ioctl)),
-      OUTPUT_queue_(std::move(OUTPUT_queue)),
-      CAPTURE_queue_(std::move(CAPTURE_queue)) {}
+          std::make_unique<Vp9Parser>(/*parsing_compressed_header=*/true)),
+      supports_compressed_headers_(
+          v4l2_ioctl_->QueryCtrl(V4L2_CID_STATELESS_VP9_COMPRESSED_HDR)) {
+  DCHECK(v4l2_ioctl_);
+
+  // This control was landed in v5.17 and is pretty much a marker that the
+  // driver supports the stable API.
+  DCHECK(v4l2_ioctl_->QueryCtrl(V4L2_CID_STATELESS_VP9_FRAME));
+
+  // MediaTek platforms don't support V4L2_CID_STATELESS_VP9_COMPRESSED_HDR.
+  LOG_IF(INFO, !supports_compressed_headers_)
+      << "VIDIOC_QUERYCTRL ioctl failure with "
+         "V4L2_CID_STATELESS_VP9_COMPRESSED_HDR is expected because VP9 "
+         "compressed header support is optional.";
+}
 
 Vp9Decoder::~Vp9Decoder() = default;
 
 // static
 std::unique_ptr<Vp9Decoder> Vp9Decoder::Create(
-    std::unique_ptr<IvfParser> ivf_parser,
-    const media::IvfFileHeader& file_header) {
-  constexpr uint32_t kDriverCodecFourcc = V4L2_PIX_FMT_VP9_FRAME;
+    const base::MemoryMappedFile& stream) {
+  VLOG(2) << "Attempting to create decoder with codec "
+          << media::FourccToString(kDriverCodecFourcc);
 
-  // MM21 is an uncompressed opaque format that is produced by MediaTek
-  // video decoders.
-  const uint32_t kUncompressedFourcc = v4l2_fourcc('M', 'M', '2', '1');
+  // Set up video parser.
+  auto ivf_parser = std::make_unique<media::IvfParser>();
+  media::IvfFileHeader file_header{};
 
-  auto v4l2_ioctl = std::make_unique<V4L2IoctlShim>();
-
-  if (!v4l2_ioctl->VerifyCapabilities(kDriverCodecFourcc,
-                                      kUncompressedFourcc)) {
-    LOG(ERROR) << "Device doesn't support the provided FourCCs.";
+  if (!ivf_parser->Initialize(stream.data(), stream.length(), &file_header)) {
+    LOG(ERROR) << "Couldn't initialize IVF parser";
     return nullptr;
   }
 
-  LOG(INFO) << "Ivf file header: " << file_header.width << " x "
-            << file_header.height;
+  const auto driver_codec_fourcc =
+      media::v4l2_test::FileFourccToDriverFourcc(file_header.fourcc);
 
-  // TODO(stevecho): might need to consider using more than 1 file descriptor
-  // (fd) & buffer with the output queue for 4K60 requirement.
-  // https://buganizer.corp.google.com/issues/202214561#comment31
-  auto OUTPUT_queue = std::make_unique<V4L2Queue>(
-      V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE, kDriverCodecFourcc,
-      gfx::Size(file_header.width, file_header.height), /*num_planes=*/1,
-      V4L2_MEMORY_MMAP, /*num_buffers=*/1);
-
-  // TODO(stevecho): enable V4L2_MEMORY_DMABUF memory for CAPTURE queue.
-  // |num_planes| represents separate memory buffers, not planes for Y, U, V.
-  // https://www.kernel.org/doc/html/v5.10/userspace-api/media/v4l/pixfmt-v4l2-mplane.html#c.V4L.v4l2_plane_pix_format
-  auto CAPTURE_queue = std::make_unique<V4L2Queue>(
-      V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE, kUncompressedFourcc,
-      gfx::Size(file_header.width, file_header.height), /*num_planes=*/2,
-      V4L2_MEMORY_MMAP, /*num_buffers=*/8);
-
-  return base::WrapUnique(
-      new Vp9Decoder(std::move(ivf_parser), std::move(v4l2_ioctl),
-                     std::move(OUTPUT_queue), std::move(CAPTURE_queue)));
-}
-
-bool Vp9Decoder::Initialize() {
-  // TODO(stevecho): remove VIDIOC_ENUM_FRAMESIZES ioctl call
-  //   after b/193237015 is resolved.
-  if (!v4l2_ioctl_->EnumFrameSizes(OUTPUT_queue_->fourcc()))
-    LOG(ERROR) << "EnumFrameSizes for OUTPUT queue failed.";
-
-  if (!v4l2_ioctl_->SetFmt(OUTPUT_queue_))
-    LOG(ERROR) << "SetFmt for OUTPUT queue failed.";
-
-  gfx::Size coded_size;
-  uint32_t num_planes;
-  if (!v4l2_ioctl_->GetFmt(CAPTURE_queue_->type(), &coded_size, &num_planes))
-    LOG(ERROR) << "GetFmt for CAPTURE queue failed.";
-
-  CAPTURE_queue_->set_coded_size(coded_size);
-  CAPTURE_queue_->set_num_planes(num_planes);
-
-  // VIDIOC_TRY_FMT() ioctl is equivalent to VIDIOC_S_FMT
-  // with one exception that it does not change driver state.
-  // VIDIOC_TRY_FMT may or may not be needed; it's used by the stateful
-  // Chromium V4L2VideoDecoder backend, see b/190733055#comment78.
-  // TODO(b/190733055): try and remove it after landing all the code.
-  if (!v4l2_ioctl_->TryFmt(CAPTURE_queue_))
-    LOG(ERROR) << "TryFmt for CAPTURE queue failed.";
-
-  if (!v4l2_ioctl_->SetFmt(CAPTURE_queue_))
-    LOG(ERROR) << "SetFmt for CAPTURE queue failed.";
-
-  if (!v4l2_ioctl_->ReqBufs(OUTPUT_queue_))
-    LOG(ERROR) << "ReqBufs for OUTPUT queue failed.";
-
-  if (!v4l2_ioctl_->QueryAndMmapQueueBuffers(OUTPUT_queue_))
-    LOG(ERROR) << "QueryAndMmapQueueBuffers for OUTPUT queue failed";
-
-  if (!v4l2_ioctl_->ReqBufs(CAPTURE_queue_))
-    LOG(ERROR) << "ReqBufs for CAPTURE queue failed.";
-
-  if (!v4l2_ioctl_->QueryAndMmapQueueBuffers(CAPTURE_queue_))
-    LOG(ERROR) << "QueryAndMmapQueueBuffers for CAPTURE queue failed.";
-
-  for (uint32_t i = 0; i < CAPTURE_queue_->num_buffers(); ++i) {
-    if (!v4l2_ioctl_->QBuf(CAPTURE_queue_, i))
-      LOG(ERROR) << "VIDIOC_QBUF failed for CAPTURE queue.";
+  if (driver_codec_fourcc != kDriverCodecFourcc) {
+    VLOG(2) << "File fourcc (" << media::FourccToString(driver_codec_fourcc)
+            << ") does not match expected fourcc("
+            << media::FourccToString(kDriverCodecFourcc) << ").";
+    return nullptr;
   }
 
-  int media_request_fd;
-  if (!v4l2_ioctl_->MediaIocRequestAlloc(&media_request_fd))
-    LOG(ERROR) << "MEDIA_IOC_REQUEST_ALLOC failed";
+  auto v4l2_ioctl = std::make_unique<V4L2IoctlShim>(kDriverCodecFourcc);
 
-  OUTPUT_queue_->set_media_request_fd(media_request_fd);
+  if (!v4l2_ioctl->VerifyCapabilities(kDriverCodecFourcc)) {
+    LOG(ERROR) << "Device doesn't support "
+               << media::FourccToString(kDriverCodecFourcc) << ".";
+    return nullptr;
+  }
 
-  if (!v4l2_ioctl_->StreamOn(OUTPUT_queue_->type()))
-    LOG(ERROR) << "StreamOn for OUTPUT queue failed.";
+  gfx::Size display_resolution =
+      gfx::Size(file_header.width, file_header.height);
+  LOG(INFO) << "Ivf file header: " << display_resolution.ToString();
 
-  if (!v4l2_ioctl_->StreamOn(CAPTURE_queue_->type()))
-    LOG(ERROR) << "StreamOn for CAPTURE queue failed.";
-
-  return true;
+  return base::WrapUnique(new Vp9Decoder(
+      std::move(ivf_parser), std::move(v4l2_ioctl), display_resolution));
 }
 
-void Vp9Decoder::RefreshReferenceSlots(const uint8_t refresh_frame_flags,
-                                       scoped_refptr<MmapedBuffer> buffer) {
-  const std::bitset<kVp9NumRefFrames> slots(refresh_frame_flags);
+std::set<int> Vp9Decoder::RefreshReferenceSlots(
+    uint8_t refresh_frame_flags,
+    scoped_refptr<MmappedBuffer> buffer,
+    uint32_t last_queued_buffer_id) {
+  const std::bitset<kVp9NumRefFrames> refresh_frame_slots(refresh_frame_flags);
+
+  std::set<int> reusable_buffer_slots;
 
   static_assert(kVp9NumRefFrames == sizeof(refresh_frame_flags) * CHAR_BIT,
                 "|refresh_frame_flags| size should not be larger than "
                 "|kVp9NumRefFrames|");
 
-  for (size_t i = 0; i < kVp9NumRefFrames; i++) {
-    if (slots[i])
-      ref_frames_[i] = buffer;
+  constexpr uint8_t kRefreshFrameFlagsNone = 0;
+  if (refresh_frame_flags == kRefreshFrameFlagsNone) {
+    // Indicates to reuse currently decoded CAPTURE buffer.
+    reusable_buffer_slots.insert(buffer->buffer_id());
+
+    return reusable_buffer_slots;
   }
+
+  constexpr uint8_t kRefreshFrameFlagsAll = 0xFF;
+  if (refresh_frame_flags == kRefreshFrameFlagsAll) {
+    // After decoding a key frame, all CAPTURE buffers can be reused except the
+    // CAPTURE buffer corresponding to the key frame.
+    for (size_t i = 0; i < kNumberOfBuffersInCaptureQueue; i++)
+      reusable_buffer_slots.insert(i);
+
+    reusable_buffer_slots.erase(buffer->buffer_id());
+
+    // Note that the CAPTURE buffer for previous frame can be used as well,
+    // but it is already queued again at this point.
+    reusable_buffer_slots.erase(last_queued_buffer_id);
+
+    // Updates to assign current key frame as a reference frame for all
+    // reference frame slots in the reference frames list.
+    ref_frames_.fill(buffer);
+
+    return reusable_buffer_slots;
+  }
+
+  // More than one slots in |refresh_frame_flags| can be set.
+  uint16_t reusable_candidate_buffer_id;
+  for (size_t i = 0; i < kVp9NumRefFrames; i++) {
+    if (!refresh_frame_slots[i])
+      continue;
+
+    // It is not required to check whether existing reference frame slot is
+    // already pointing to a reference frame. This is because reference
+    // frame slots are empty only after the first key frame decoding.
+    reusable_candidate_buffer_id = ref_frames_[i]->buffer_id();
+    reusable_buffer_slots.insert(reusable_candidate_buffer_id);
+
+    // Checks to make sure |reusable_candidate_buffer_id| is not used in
+    // different reference frame slots in the reference frames list.
+    for (size_t j = 0; j < kVp9NumRefFrames; j++) {
+      const bool is_refresh_slot_not_used = (refresh_frame_slots[j] == false);
+      const bool is_candidate_not_used =
+          (ref_frames_[j]->buffer_id() == reusable_candidate_buffer_id);
+
+      if (is_refresh_slot_not_used && is_candidate_not_used) {
+        reusable_buffer_slots.erase(reusable_candidate_buffer_id);
+        break;
+      }
+    }
+    ref_frames_[i] = buffer;
+  }
+
+  return reusable_buffer_slots;
 }
 
 Vp9Parser::Result Vp9Decoder::ReadNextFrame(Vp9FrameHeader& vp9_frame_header,
@@ -276,7 +296,7 @@ Vp9Parser::Result Vp9Decoder::ReadNextFrame(Vp9FrameHeader& vp9_frame_header,
 
 void Vp9Decoder::SetupFrameParams(
     const Vp9FrameHeader& frame_hdr,
-    struct v4l2_ctrl_vp9_frame_decode_params* v4l2_frame_params) {
+    struct v4l2_ctrl_vp9_frame* v4l2_frame_params) {
   conditionally_set_flag(*v4l2_frame_params,
                          frame_hdr.frame_type == Vp9FrameHeader::KEYFRAME,
                          V4L2_VP9_FRAME_FLAG_KEY_FRAME);
@@ -330,14 +350,13 @@ void Vp9Decoder::SetupFrameParams(
   v4l2_frame_params->interpolation_filter = frame_hdr.interpolation_filter;
   v4l2_frame_params->tile_cols_log2 = frame_hdr.tile_cols_log2;
   v4l2_frame_params->tile_rows_log2 = frame_hdr.tile_rows_log2;
-  v4l2_frame_params->tx_mode = frame_hdr.compressed_header.tx_mode;
   v4l2_frame_params->reference_mode =
       frame_hdr.compressed_header.reference_mode;
-  static_assert(VP9_FRAME_LAST + (V4L2_REF_ID_CNT - 1) <
+  static_assert(Vp9RefType::VP9_FRAME_MAX - VP9_FRAME_LAST <
                     std::extent<decltype(frame_hdr.ref_frame_sign_bias)>::value,
                 "array sizes are incompatible");
-  for (size_t i = 0; i < V4L2_REF_ID_CNT; i++) {
-    v4l2_frame_params->ref_frame_sign_biases |=
+  for (size_t i = 0; i < Vp9RefType::VP9_FRAME_MAX - VP9_FRAME_LAST; i++) {
+    v4l2_frame_params->ref_frame_sign_bias |=
         (frame_hdr.ref_frame_sign_bias[i + VP9_FRAME_LAST] ? (1 << i) : 0);
   }
   v4l2_frame_params->frame_width_minus_1 = frame_hdr.frame_width - 1;
@@ -347,24 +366,44 @@ void Vp9Decoder::SetupFrameParams(
 
   constexpr uint64_t kInvalidSurface = std::numeric_limits<uint32_t>::max();
 
-  for (size_t i = 0; i < base::size(frame_hdr.ref_frame_idx); ++i) {
+  for (size_t i = 0; i < std::size(frame_hdr.ref_frame_idx); ++i) {
     const auto idx = frame_hdr.ref_frame_idx[i];
 
     LOG_ASSERT(idx < kVp9NumRefFrames) << "Invalid reference frame index.\n";
 
-    static_assert(
-        std::extent<decltype(frame_hdr.ref_frame_idx)>::value ==
-            std::extent<decltype(v4l2_frame_params->refs)>::value,
-        "The number of reference frames in |Vp9FrameHeader| does not match "
-        "|v4l2_ctrl_vp9_frame_decode_params|. Fix |Vp9FrameHeader|.");
+    // We need to convert a reference frame's frame_number() (in  microseconds)
+    // to reference ID (in nanoseconds). Technically, v4l2_timeval_to_ns() is
+    // suggested to be used to convert timestamp to nanoseconds, but multiplying
+    // the microseconds part of timestamp |tv_usec| by |kTimestampToNanoSecs| to
+    // make it nanoseconds is also known to work. This is how it is implemented
+    // in v4l2 video decode accelerator tests as well as in gstreamer.
+    // https://www.kernel.org/doc/html/v5.10/userspace-api/media/v4l/dev-stateless-decoder.html#buffer-management-while-decoding
+    constexpr size_t kTimestampToNanoSecs = 1000;
 
-    v4l2_frame_params->refs[i] =
-        ref_frames_[idx] ? ref_frames_[idx]->reference_id() : kInvalidSurface;
+    const auto reference_id =
+        ref_frames_[idx]
+            ? ref_frames_[idx]->frame_number() * kTimestampToNanoSecs
+            : kInvalidSurface;
+
+    // Only partially/indirectly documented in the VP9 spec, but this array
+    // contains LAST, GOLDEN, and ALT, in that order.
+    switch (i) {
+      case 0:
+        v4l2_frame_params->last_frame_ts = reference_id;
+        break;
+      case 1:
+        v4l2_frame_params->golden_frame_ts = reference_id;
+        break;
+      case 2:
+        v4l2_frame_params->alt_frame_ts = reference_id;
+        break;
+      default:
+        NOTREACHED() << "Invalid reference frame index";
+    }
   }
-  // TODO(stevecho): fill in the rest of |v4l2_frame_params| fields.
+
   FillV4L2VP9QuantizationParams(frame_hdr.quant_params,
                                 &v4l2_frame_params->quant);
-  FillV4L2VP9ProbsParams(frame_hdr.frame_context, &v4l2_frame_params->probs);
 
   const Vp9Parser::Context& context = vp9_parser_->context();
   const Vp9LoopFilterParams& lf_params = context.loop_filter();
@@ -374,7 +413,7 @@ void Vp9Decoder::SetupFrameParams(
   FillV4L2VP9SegmentationParams(segm_params, &v4l2_frame_params->seg);
 }
 
-bool Vp9Decoder::CopyFrameData(const Vp9FrameHeader& frame_hdr,
+void Vp9Decoder::CopyFrameData(const Vp9FrameHeader& frame_hdr,
                                std::unique_ptr<V4L2Queue>& queue) {
   LOG_ASSERT(queue->num_buffers() == 1)
       << "Only 1 buffer is expected to be used for OUTPUT queue for now.";
@@ -382,14 +421,16 @@ bool Vp9Decoder::CopyFrameData(const Vp9FrameHeader& frame_hdr,
   LOG_ASSERT(queue->num_planes() == 1)
       << "Number of planes is expected to be 1 for OUTPUT queue.";
 
-  scoped_refptr<MmapedBuffer> buffer = queue->GetBuffer(0);
+  scoped_refptr<MmappedBuffer> buffer = queue->GetBuffer(0);
 
-  return memcpy(static_cast<uint8_t*>(buffer->mmaped_planes()[0].start_addr),
-                frame_hdr.data, frame_hdr.frame_size);
+  buffer->mmapped_planes()[0].CopyIn(frame_hdr.data, frame_hdr.frame_size);
 }
 
-Vp9Decoder::Result Vp9Decoder::DecodeNextFrame(const int frame_number) {
-  gfx::Size size;
+VideoDecoder::Result Vp9Decoder::DecodeNextFrame(std::vector<uint8_t>& y_plane,
+                                                 std::vector<uint8_t>& u_plane,
+                                                 std::vector<uint8_t>& v_plane,
+                                                 gfx::Size& size,
+                                                 const int frame_number) {
   Vp9FrameHeader frame_hdr{};
 
   Vp9Parser::Result parser_res = ReadNextFrame(frame_hdr, size);
@@ -406,8 +447,15 @@ Vp9Decoder::Result Vp9Decoder::DecodeNextFrame(const int frame_number) {
       break;
   }
 
-  if (!CopyFrameData(frame_hdr, OUTPUT_queue_))
-    LOG(FATAL) << "Failed to copy the frame data into the V4L2 buffer.";
+  const bool is_OUTPUT_queue_new = !OUTPUT_queue_;
+  if (!OUTPUT_queue_) {
+    CreateOUTPUTQueue(kDriverCodecFourcc);
+  }
+
+  VLOG_IF(2, !frame_hdr.show_frame) << "not displaying frame";
+  last_decoded_frame_visible_ = frame_hdr.show_frame;
+
+  CopyFrameData(frame_hdr, OUTPUT_queue_);
 
   LOG_ASSERT(OUTPUT_queue_->num_buffers() == 1)
       << "Too many buffers in OUTPUT queue. It is currently designed to "
@@ -416,37 +464,81 @@ Vp9Decoder::Result Vp9Decoder::DecodeNextFrame(const int frame_number) {
   OUTPUT_queue_->GetBuffer(0)->set_frame_number(frame_number);
 
   if (!v4l2_ioctl_->QBuf(OUTPUT_queue_, 0))
-    LOG(ERROR) << "VIDIOC_QBUF failed for OUTPUT queue.";
+    LOG(FATAL) << "VIDIOC_QBUF failed for OUTPUT queue.";
 
-  struct v4l2_ctrl_vp9_frame_decode_params v4l2_frame_params;
+  struct v4l2_ctrl_vp9_frame v4l2_frame_params;
   memset(&v4l2_frame_params, 0, sizeof(v4l2_frame_params));
 
   SetupFrameParams(frame_hdr, &v4l2_frame_params);
 
-  if (!v4l2_ioctl_->SetExtCtrls(OUTPUT_queue_, v4l2_frame_params))
-    LOG(ERROR) << "VIDIOC_S_EXT_CTRLS failed.";
+  struct v4l2_ext_control ext_ctrl[2] = {{.id = V4L2_CID_STATELESS_VP9_FRAME,
+                                          .size = sizeof(v4l2_frame_params),
+                                          .ptr = &v4l2_frame_params}};
 
-  if (!v4l2_ioctl_->MediaRequestIocQueue(OUTPUT_queue_))
-    LOG(ERROR) << "MEDIA_REQUEST_IOC_QUEUE failed.";
+  struct v4l2_ext_controls ext_ctrls = {.count = 1, .controls = ext_ctrl};
 
-  uint32_t index;
+  struct v4l2_ctrl_vp9_compressed_hdr v4l2_compressed_hdr_probs = {};
+  if (supports_compressed_headers_) {
+    v4l2_compressed_hdr_probs.tx_mode = frame_hdr.compressed_header.tx_mode;
+    FillV4L2VP9ProbsParams(frame_hdr.frame_context, &v4l2_compressed_hdr_probs);
 
-  if (!v4l2_ioctl_->DQBuf(CAPTURE_queue_, &index))
-    LOG(ERROR) << "VIDIOC_DQBUF failed for CAPTURE queue.";
+    ext_ctrl[ext_ctrls.count++] = {.id = V4L2_CID_STATELESS_VP9_COMPRESSED_HDR,
+                                   .size = sizeof(v4l2_compressed_hdr_probs),
+                                   .ptr = &v4l2_compressed_hdr_probs};
+  }
 
-  RefreshReferenceSlots(frame_hdr.refresh_frame_flags,
-                        CAPTURE_queue_->GetBuffer(index));
+  // Before the CAPTURE queue is set up the first frame must be parsed by the
+  // driver. This is done so that when VIDIOC_G_FMT is called the frame
+  // dimensions and format will be ready. Specifying V4L2_CTRL_WHICH_CUR_VAL
+  // when VIDIOC_S_EXT_CTRLS processes the request immediately so that the frame
+  // is parsed by the driver and the state is readied.
+  v4l2_ioctl_->SetExtCtrls(OUTPUT_queue_, &ext_ctrls,
+                           is_OUTPUT_queue_new && cur_val_is_supported_);
+  v4l2_ioctl_->MediaRequestIocQueue(OUTPUT_queue_);
 
-  if (!v4l2_ioctl_->DQBuf(OUTPUT_queue_, &index))
-    LOG(ERROR) << "VIDIOC_DQBUF failed for OUTPUT queue.";
+  if (!CAPTURE_queue_) {
+    CreateCAPTUREQueue(kNumberOfBuffersInCaptureQueue);
+  }
+
+  uint32_t buffer_id;
+  v4l2_ioctl_->DQBuf(CAPTURE_queue_, &buffer_id);
+
+  scoped_refptr<MmappedBuffer> buffer = CAPTURE_queue_->GetBuffer(buffer_id);
+
+  ConvertToYUV(y_plane, u_plane, v_plane, OUTPUT_queue_->resolution(),
+               buffer->mmapped_planes(), CAPTURE_queue_->resolution(),
+               CAPTURE_queue_->fourcc());
+
+  const std::set<int> reusable_buffer_slots = RefreshReferenceSlots(
+      frame_hdr.refresh_frame_flags, CAPTURE_queue_->GetBuffer(buffer_id),
+      CAPTURE_queue_->last_queued_buffer_id());
+
+  for (const auto reusable_buffer_slot : reusable_buffer_slots) {
+    if (!v4l2_ioctl_->QBuf(CAPTURE_queue_, reusable_buffer_slot))
+      LOG(ERROR) << "VIDIOC_QBUF failed for CAPTURE queue.";
+
+    // For inter frames, |refresh_frame_flags| indicates which reference frame
+    // slot (usually 1 slot, but can be more than 1 slots) can be reused. Then,
+    // CAPTURE buffer corresponding to this reference frame slot is queued
+    // again. If we encounter a key frame now, |refresh_frame_flags = 0xFF|
+    // indicates all reference frame slots can be reused. But we already queued
+    // one CAPTURE buffer again after decoding the previous frame. So we want to
+    // avoid queuing this specific CAPTURE buffer again.
+    // This issue only happens at key frames, which comes after inter frames.
+    // Inter frames coming right after key frames doesn't have this issue, so we
+    // don't need to track which buffer was queued for key frames.
+    if (frame_hdr.frame_type == Vp9FrameHeader::INTERFRAME)
+      CAPTURE_queue_->set_last_queued_buffer_id(reusable_buffer_slot);
+  }
+
+  v4l2_ioctl_->DQBuf(OUTPUT_queue_, &buffer_id);
 
   // TODO(stevecho): With current VP9 API, VIDIOC_G_EXT_CTRLS ioctl call is
   // needed when forward probabilities update is used. With new VP9 API landing
   // in kernel 5.17, VIDIOC_G_EXT_CTRLS ioctl call is no longer needed, see:
   // https://lwn.net/Articles/855419/
 
-  if (!v4l2_ioctl_->MediaRequestIocReinit(OUTPUT_queue_))
-    LOG(ERROR) << "MEDIA_REQUEST_IOC_REINIT failed.";
+  v4l2_ioctl_->MediaRequestIocReinit(OUTPUT_queue_);
 
   return Vp9Decoder::kOk;
 }

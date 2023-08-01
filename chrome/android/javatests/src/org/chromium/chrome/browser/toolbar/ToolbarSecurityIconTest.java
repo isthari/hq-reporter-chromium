@@ -1,18 +1,20 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 package org.chromium.chrome.browser.toolbar;
 
 import static org.junit.Assert.assertEquals;
-import static org.mockito.Mockito.any;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.spy;
 
 import android.content.Context;
 import android.view.ContextThemeWrapper;
 
+import androidx.annotation.ColorRes;
 import androidx.test.filters.SmallTest;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -23,6 +25,7 @@ import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
 import org.chromium.base.ContextUtils;
+import org.chromium.base.UserDataHost;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
 import org.chromium.base.test.UiThreadTest;
 import org.chromium.base.test.util.Batch;
@@ -30,29 +33,37 @@ import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.JniMocker;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
-import org.chromium.chrome.browser.omnibox.LocationBarLayout;
+import org.chromium.chrome.browser.omnibox.ChromeAutocompleteSchemeClassifier;
+import org.chromium.chrome.browser.omnibox.ChromeAutocompleteSchemeClassifierJni;
 import org.chromium.chrome.browser.omnibox.NewTabPageDelegate;
 import org.chromium.chrome.browser.omnibox.SearchEngineLogoUtils;
-import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
+import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.TabImpl;
-import org.chromium.chrome.test.util.ToolbarTestUtils;
+import org.chromium.chrome.browser.tab.TrustedCdn;
+import org.chromium.chrome.browser.theme.ThemeUtils;
+import org.chromium.chrome.browser.ui.theme.BrandedColorScheme;
+import org.chromium.chrome.test.util.ToolbarUnitTestUtils;
 import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.components.prefs.PrefService;
 import org.chromium.components.security_state.ConnectionSecurityLevel;
 import org.chromium.components.security_state.SecurityStateModel;
 import org.chromium.components.security_state.SecurityStateModelJni;
 import org.chromium.content_public.browser.test.NativeLibraryTestUtils;
+import org.chromium.content_public.browser.test.util.TestThreadUtils;
+import org.chromium.url.GURL;
+import org.chromium.url.JUnitTestGURLs;
+
+import java.util.Random;
+import java.util.concurrent.ExecutionException;
 
 /**
- * Unit tests for {@link LocationBarLayout} class.
+ * Instrumentation tests for the toolbar security icon.
  */
 @RunWith(BaseJUnit4ClassRunner.class)
 @Batch(Batch.UNIT_TESTS)
-@Features.DisableFeatures(ChromeFeatureList.OMNIBOX_UPDATED_CONNECTION_SECURITY_INDICATORS)
+@Features.DisableFeatures({ChromeFeatureList.OMNIBOX_UPDATED_CONNECTION_SECURITY_INDICATORS})
 public final class ToolbarSecurityIconTest {
     private static final boolean IS_SMALL_DEVICE = true;
     private static final boolean IS_OFFLINE_PAGE = true;
-    private static final boolean IS_PREVIEW = true;
     private static final boolean IS_PAINT_PREVIEW = true;
     private static final int[] SECURITY_LEVELS =
             new int[] {ConnectionSecurityLevel.NONE, ConnectionSecurityLevel.WARNING,
@@ -66,50 +77,72 @@ public final class ToolbarSecurityIconTest {
 
     @Mock
     private TabImpl mTab;
+
     @Mock
     SecurityStateModel.Natives mSecurityStateMocks;
 
     @Mock
     private LocationBarModel mLocationBarModel;
+
+    @Mock
+    private LocationBarModel.Natives mLocationBarModelJni;
+
     @Mock
     private SearchEngineLogoUtils mSearchEngineLogoUtils;
 
     @Mock
-    private PrefService mMockPrefService;
+    private ChromeAutocompleteSchemeClassifier.Natives mChromeAutocompleteSchemeClassifierJni;
 
-    /**
-     * Set up the lock icon policy for Mock PrefService.
-     * @param isPolicyEnabled If true, omnibox must show the lock icon.
-     */
-    private void setupLockIconPolicyForTests(boolean isPolicyEnabled) {
-        Mockito.when(mMockPrefService.isManagedPreference(
-                             ChromePreferenceKeys.LOCK_ICON_IN_ADDRESS_BAR_ENABLED))
-                .thenReturn(isPolicyEnabled);
-        Mockito.when(mMockPrefService.getBoolean(
-                             ChromePreferenceKeys.LOCK_ICON_IN_ADDRESS_BAR_ENABLED))
-                .thenReturn(isPolicyEnabled);
-    }
+    @Mock
+    private Profile mMockProfile;
+
+    @Mock
+    private TrustedCdn mTrustedCdn;
 
     @Before
-    public void setUp() {
+    public void setUp() throws ExecutionException {
         MockitoAnnotations.initMocks(this);
 
         NativeLibraryTestUtils.loadNativeLibraryNoBrowserProcess();
-
         mocker.mock(SecurityStateModelJni.TEST_HOOKS, mSecurityStateMocks);
+        mocker.mock(ChromeAutocompleteSchemeClassifierJni.TEST_HOOKS,
+                mChromeAutocompleteSchemeClassifierJni);
+        mocker.mock(org.chromium.chrome.browser.toolbar.LocationBarModelJni.TEST_HOOKS,
+                mLocationBarModelJni);
 
-        Context context =
-                new ContextThemeWrapper(ContextUtils.getApplicationContext(), R.style.ColorOverlay);
+        String exampleUrl = JUnitTestGURLs.EXAMPLE_URL;
+        GURL exampleGurl = JUnitTestGURLs.getGURL(exampleUrl);
+        doReturn(exampleGurl)
+                .when(mLocationBarModelJni)
+                .getUrlOfVisibleNavigationEntry(Mockito.anyLong(), Mockito.any());
+        doReturn(exampleUrl)
+                .when(mLocationBarModelJni)
+                .getFormattedFullURL(Mockito.anyLong(), Mockito.any());
+        doReturn(exampleUrl)
+                .when(mLocationBarModelJni)
+                .getURLForDisplay(Mockito.anyLong(), Mockito.any());
+        doReturn((new Random()).nextLong()).when(mLocationBarModelJni).init(Mockito.any());
+
+        Context context = new ContextThemeWrapper(
+                ContextUtils.getApplicationContext(), R.style.Theme_BrowserUI_DayNight);
         // clang-format off
         mLocationBarModel = spy(
                 new LocationBarModel(context, NewTabPageDelegate.EMPTY,
-                        (url) -> url.getSpec(), (window) -> null, ToolbarTestUtils.OFFLINE_STATUS,
+                        (url) -> url.getSpec(), (window) -> null, ToolbarUnitTestUtils.OFFLINE_STATUS,
                         mSearchEngineLogoUtils));
         // clang-format on
-        mLocationBarModel.initializeWithNative();
+        Profile.setLastUsedProfileForTesting(mMockProfile);
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mLocationBarModel.initializeWithNative();
+            UserDataHost userDataHost = new UserDataHost();
+            userDataHost.setUserData(TrustedCdn.USER_DATA_KEY, mTrustedCdn);
+            doReturn(userDataHost).when(mTab).getUserDataHost();
+        });
+    }
 
-        doReturn(mMockPrefService).when(mLocationBarModel).getPrefService();
-        setupLockIconPolicyForTests(false);
+    @After
+    public void tearDown() throws ExecutionException {
+        mLocationBarModel.destroy();
     }
 
     @Test
@@ -117,34 +150,37 @@ public final class ToolbarSecurityIconTest {
     @UiThreadTest
     public void testGetSecurityLevel() {
         assertEquals(ConnectionSecurityLevel.NONE,
-                mLocationBarModel.getSecurityLevel(null, !IS_OFFLINE_PAGE, null));
+                mLocationBarModel.getSecurityLevel(null, !IS_OFFLINE_PAGE));
         assertEquals(ConnectionSecurityLevel.NONE,
-                mLocationBarModel.getSecurityLevel(null, IS_OFFLINE_PAGE, null));
+                mLocationBarModel.getSecurityLevel(null, IS_OFFLINE_PAGE));
         assertEquals(ConnectionSecurityLevel.NONE,
-                mLocationBarModel.getSecurityLevel(mTab, IS_OFFLINE_PAGE, null));
+                mLocationBarModel.getSecurityLevel(mTab, IS_OFFLINE_PAGE));
 
         for (int securityLevel : SECURITY_LEVELS) {
             doReturn(securityLevel).when(mLocationBarModel).getSecurityLevelFromStateModel(any());
             assertEquals("Wrong security level returned for " + securityLevel, securityLevel,
-                    mLocationBarModel.getSecurityLevel(mTab, !IS_OFFLINE_PAGE, null));
+                    mLocationBarModel.getSecurityLevel(mTab, !IS_OFFLINE_PAGE));
         }
 
         doReturn(ConnectionSecurityLevel.SECURE)
                 .when(mLocationBarModel)
                 .getSecurityLevelFromStateModel(any());
+        doReturn("https://example.com").when(mTrustedCdn).getPublisherUrl();
         assertEquals("Wrong security level returned for HTTPS publisher URL",
                 ConnectionSecurityLevel.SECURE,
-                mLocationBarModel.getSecurityLevel(mTab, !IS_OFFLINE_PAGE, "https://example.com"));
+                mLocationBarModel.getSecurityLevel(mTab, !IS_OFFLINE_PAGE));
+        doReturn("http://example.com").when(mTrustedCdn).getPublisherUrl();
         assertEquals("Wrong security level returned for HTTP publisher URL",
                 ConnectionSecurityLevel.WARNING,
-                mLocationBarModel.getSecurityLevel(mTab, !IS_OFFLINE_PAGE, "http://example.com"));
+                mLocationBarModel.getSecurityLevel(mTab, !IS_OFFLINE_PAGE));
 
         doReturn(ConnectionSecurityLevel.DANGEROUS)
                 .when(mLocationBarModel)
                 .getSecurityLevelFromStateModel(any());
+        doReturn(null).when(mTrustedCdn).getPublisherUrl();
         assertEquals("Wrong security level returned for publisher URL on insecure page",
                 ConnectionSecurityLevel.DANGEROUS,
-                mLocationBarModel.getSecurityLevel(mTab, !IS_OFFLINE_PAGE, null));
+                mLocationBarModel.getSecurityLevel(mTab, !IS_OFFLINE_PAGE));
     }
 
     @Test
@@ -213,33 +249,61 @@ public final class ToolbarSecurityIconTest {
     @Test
     @SmallTest
     @UiThreadTest
-    @Feature({"Omnibox"})
-    @Features.EnableFeatures(ChromeFeatureList.OMNIBOX_UPDATED_CONNECTION_SECURITY_INDICATORS)
-    public void testLockIconPolicyDisabled() {
-        setupLockIconPolicyForTests(false);
-
-        assertEquals(R.drawable.omnibox_https_valid_arrow,
-                mLocationBarModel.getSecurityIconResource(ConnectionSecurityLevel.SECURE,
-                        IS_SMALL_DEVICE, !IS_OFFLINE_PAGE, !IS_PAINT_PREVIEW));
-        assertEquals(R.drawable.omnibox_https_valid_arrow,
-                mLocationBarModel.getSecurityIconResource(ConnectionSecurityLevel.SECURE,
-                        !IS_SMALL_DEVICE, !IS_OFFLINE_PAGE, !IS_PAINT_PREVIEW));
+    public void testGetSecurityIconColorWithSecurityLevel_DangerousWebsite() {
+        assertEquals(R.color.default_red,
+                mLocationBarModel.getSecurityIconColorWithSecurityLevel(
+                        /*connectionSecurityLevel*/ ConnectionSecurityLevel.DANGEROUS,
+                        /*brandedColorScheme*/ BrandedColorScheme.APP_DEFAULT,
+                        /*isIncognito*/ false));
     }
 
     @Test
     @SmallTest
     @UiThreadTest
-    @Feature({"Omnibox"})
-    @Features.EnableFeatures(ChromeFeatureList.OMNIBOX_UPDATED_CONNECTION_SECURITY_INDICATORS)
-    public void testLockIconPolicyEnabled() {
-        setupLockIconPolicyForTests(true);
+    public void testGetSecurityIconColorWithSecurityLevel_DangerousWebsiteWithIncognito() {
+        assertEquals(R.color.baseline_error_200,
+                mLocationBarModel.getSecurityIconColorWithSecurityLevel(
+                        /*connectionSecurityLevel*/ ConnectionSecurityLevel.DANGEROUS,
+                        /*brandedColorScheme*/ BrandedColorScheme.APP_DEFAULT,
+                        /*isIncognito*/ true));
+    }
 
-        // When the policy is enabled, omnibox should keep showing the lock icon.
-        assertEquals(R.drawable.omnibox_https_valid,
-                mLocationBarModel.getSecurityIconResource(ConnectionSecurityLevel.SECURE,
-                        IS_SMALL_DEVICE, !IS_OFFLINE_PAGE, !IS_PAINT_PREVIEW));
-        assertEquals(R.drawable.omnibox_https_valid,
-                mLocationBarModel.getSecurityIconResource(ConnectionSecurityLevel.SECURE,
-                        !IS_SMALL_DEVICE, !IS_OFFLINE_PAGE, !IS_PAINT_PREVIEW));
+    @Test
+    @SmallTest
+    @UiThreadTest
+    public void testGetSecurityIconColorWithSecurityLevel_NonDangerousWebsite() {
+        final @ConnectionSecurityLevel int brandedColorScheme = BrandedColorScheme.APP_DEFAULT;
+        final @ColorRes int defaultColorRes =
+                ThemeUtils.getThemedToolbarIconTintRes(brandedColorScheme);
+
+        for (int connectionSecurityLevel : SECURITY_LEVELS) {
+            if (connectionSecurityLevel != ConnectionSecurityLevel.DANGEROUS) {
+                assertEquals(defaultColorRes,
+                        mLocationBarModel.getSecurityIconColorWithSecurityLevel(
+                                connectionSecurityLevel, brandedColorScheme,
+                                /*isIncognito*/ false));
+            }
+        }
+    }
+
+    @Test
+    @SmallTest
+    @UiThreadTest
+    public void testGetSecurityIconColorWithSecurityLevel_BrandedTheme() {
+        final @ColorRes int defaultColorResLight =
+                ThemeUtils.getThemedToolbarIconTintRes(BrandedColorScheme.LIGHT_BRANDED_THEME);
+        final @ColorRes int defaultColorResDark =
+                ThemeUtils.getThemedToolbarIconTintRes(BrandedColorScheme.DARK_BRANDED_THEME);
+
+        for (int connectionSecurityLevel : SECURITY_LEVELS) {
+            assertEquals(defaultColorResLight,
+                    mLocationBarModel.getSecurityIconColorWithSecurityLevel(connectionSecurityLevel,
+                            /*brandedColorScheme*/ BrandedColorScheme.LIGHT_BRANDED_THEME,
+                            /*isIncognito*/ false));
+            assertEquals(defaultColorResDark,
+                    mLocationBarModel.getSecurityIconColorWithSecurityLevel(connectionSecurityLevel,
+                            /*brandedColorScheme*/ BrandedColorScheme.DARK_BRANDED_THEME,
+                            /*isIncognito*/ false));
+        }
     }
 }

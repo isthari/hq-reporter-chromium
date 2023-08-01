@@ -4,6 +4,7 @@
 <translation id="1135328998467923690">Paketeak ez du balio: "<ph name="ERROR_CODE" />".</translation>
 <translation id="1140871961407805696">Atzeko kamera</translation>
 <translation id="1196338895211115272">Ezin izan da gako pribatua esportatu.</translation>
+<translation id="132960226125594336">Ezin izan da kargatu <ph name="RELATIVE_PATH" /> fitxategia edukiaren scripterako, scriptaren gehieneko tamaina edo luzapenaren edukiaren scripten guztizko tamaina gaindituko lukeelako.</translation>
 <translation id="1420684932347524586">Ezin izan da sortu ausazko RSA gako pribatua.</translation>
 <translation id="1445572445564823378">Luzapen hau <ph name="PRODUCT_NAME" /> moteltzen ari da. Hori desgaitzea gomendatzen dizugu <ph name="PRODUCT_NAME" />-ren errendimendua leheneratzeko..</translation>
 <translation id="1468038450257740950">WebGL ez da bateragarria.</translation>
@@ -12,7 +13,7 @@
 <translation id="2350172092385603347">Kokapena erabili da baina ez da "default_locale" elementua zehaztua manifestuan.</translation>
 <translation id="2576842806987913196">Badago izen hori duen CRX fitxategi bat.</translation>
 <translation id="2785530881066938471">Ezin izan da kargatu "<ph name="RELATIVE_PATH" />" fitxategia edukiaren scripta dela-eta. Ez du erabiltzen UTF-8 kodeketa.</translation>
-<translation id="2903070246402204397">Administratzaileak <ph name="EXTENSION_NAME" /> blokeatu du (luzapenaren IDa: "<ph name="EXTENSION_ID" />"). <ph name="ADMIN_INFO" /></translation>
+<translation id="2903070246402204397">Administratzaileak <ph name="EXTENSION_NAME" /> blokeatu du (luzapenaren identifikatzailea: "<ph name="EXTENSION_ID" />"). <ph name="ADMIN_INFO" /></translation>
 <translation id="2988488679308982380">Ezin izan da paketea instalatu: "<ph name="ERROR_CODE" />"</translation>
 <translation id="3115238746683532089"><ph name="VENDOR_ID" /> saltzailearen <ph name="PRODUCT_ID" /> produktu ezezaguna (<ph name="SERIAL_NUMBER" /> serie-zenbakia)</translation>
 <translation id="3144135466825225871">Ezin izan da crx fitxategia ordeztu. Begiratu fitxategia nonbait erabiltzen ari den.</translation>
@@ -61,6 +62,7 @@
 <translation id="8636666366616799973">Paketeak ez du balio. Xehetasunak: "<ph name="ERROR_MESSAGE" />".</translation>
 <translation id="8761756413268424715">Gailuetako baterako sarbidea eskatzen ari da "<ph name="APP_NAME" />" aplikazioa:</translation>
 <translation id="8885905466771744233">Adierazitako luzapenak gako pribatua zuen lehendik ere. Jarraitzeko, berrerabili edo ezabatu gako hori.</translation>
+<translation id="9039223174332979184">Gailu honen administratzailearen eskakizunen arabera, <ph name="EXTENSION_NAME" /> luzapenak 3. bertsioko manifestua gutxienez eduki behar du.</translation>
 <translation id="907841381057066561">Ezin izan da sortu behin behineko zip fitxategia paketatu bitartean</translation>
 <translation id="941543339607623937">Gako pribatu baliogabea.</translation>
 </translationbundle>

@@ -1,13 +1,17 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {createChild} from '../../common/js/dom_utils.js';
 import {metrics} from '../../common/js/metrics.js';
-import {str, util} from '../../common/js/util.js';
+import {str, strf, util} from '../../common/js/util.js';
 import {DirectoryChangeEvent} from '../../externs/directory_change_event.js';
 import {FakeEntry} from '../../externs/files_app_entry_interfaces.js';
+import {State} from '../../externs/ts/state.js';
+import {getStore} from '../../state/store.js';
 
 import {DirectoryModel} from './directory_model.js';
+import {A11yAnnounce} from './ui/a11y_announce.js';
 
 /**
  * This class controls wires file-type filter UI and the filter settings in
@@ -18,8 +22,36 @@ export class FileTypeFiltersController {
    * @param {!HTMLElement} fileTypeFilterContainer
    * @param {!DirectoryModel} directoryModel
    * @param {!FakeEntry} recentEntry
+   * @param {!A11yAnnounce} a11y
    */
-  constructor(fileTypeFilterContainer, directoryModel, recentEntry) {
+  constructor(fileTypeFilterContainer, directoryModel, recentEntry, a11y) {
+    /**
+     * @private {Map<chrome.fileManagerPrivate.FileCategory, string>}
+     * @const
+     */
+    this.filterTypeToTranslationKeyMap_ = new Map([
+      [
+        chrome.fileManagerPrivate.FileCategory.ALL,
+        'MEDIA_VIEW_ALL_ROOT_LABEL',
+      ],
+      [
+        chrome.fileManagerPrivate.FileCategory.AUDIO,
+        'MEDIA_VIEW_AUDIO_ROOT_LABEL',
+      ],
+      [
+        chrome.fileManagerPrivate.FileCategory.IMAGE,
+        'MEDIA_VIEW_IMAGES_ROOT_LABEL',
+      ],
+      [
+        chrome.fileManagerPrivate.FileCategory.VIDEO,
+        'MEDIA_VIEW_VIDEOS_ROOT_LABEL',
+      ],
+      [
+        chrome.fileManagerPrivate.FileCategory.DOCUMENT,
+        'MEDIA_VIEW_DOCUMENTS_ROOT_LABEL',
+      ],
+    ]);
+
     /**
      * @private {!HTMLElement}
      * @const
@@ -39,49 +71,79 @@ export class FileTypeFiltersController {
     this.recentEntry_ = recentEntry;
 
     /**
-     * @private {!HTMLElement}
+     * @private {!A11yAnnounce}
      * @const
      */
-    this.allFilterButton_ = this.createFilterButton_(
-        str('MEDIA_VIEW_ALL_ROOT_LABEL'),
-        chrome.fileManagerPrivate.RecentFileType.ALL);
+    this.a11y_ = a11y;
 
     /**
      * @private {!HTMLElement}
      * @const
      */
-    this.audioFilterButton_ = this.createFilterButton_(
-        str('MEDIA_VIEW_AUDIO_ROOT_LABEL'),
-        chrome.fileManagerPrivate.RecentFileType.AUDIO);
+    this.allFilterButton_ =
+        this.createFilterButton_(chrome.fileManagerPrivate.FileCategory.ALL);
 
     /**
      * @private {!HTMLElement}
      * @const
      */
-    this.imageFilterButton_ = this.createFilterButton_(
-        str('MEDIA_VIEW_IMAGES_ROOT_LABEL'),
-        chrome.fileManagerPrivate.RecentFileType.IMAGE);
+    this.audioFilterButton_ =
+        this.createFilterButton_(chrome.fileManagerPrivate.FileCategory.AUDIO);
+
+    /**
+     * @private {!HTMLElement|null}
+     * @const
+     */
+    this.documentFilterButton_ = this.createFilterButton_(
+        chrome.fileManagerPrivate.FileCategory.DOCUMENT);
 
     /**
      * @private {!HTMLElement}
      * @const
      */
-    this.videoFilterButton_ = this.createFilterButton_(
-        str('MEDIA_VIEW_VIDEOS_ROOT_LABEL'),
-        chrome.fileManagerPrivate.RecentFileType.VIDEO);
+    this.imageFilterButton_ =
+        this.createFilterButton_(chrome.fileManagerPrivate.FileCategory.IMAGE);
+
+    /**
+     * @private {!HTMLElement}
+     * @const
+     */
+    this.videoFilterButton_ =
+        this.createFilterButton_(chrome.fileManagerPrivate.FileCategory.VIDEO);
 
     this.directoryModel_.addEventListener(
         'directory-changed', this.onCurrentDirectoryChanged_.bind(this));
 
     this.updateButtonActiveStates_();
+
+    /**
+     * @private {boolean}
+     */
+    this.inRecent_ = false;
+
+    if (util.isSearchV2Enabled()) {
+      getStore().subscribe(this);
+    }
   }
 
+
+  /** @param {!State} state latest state from the store. */
+  onStateChanged(state) {
+    if (util.isSearchV2Enabled()) {
+      if (this.inRecent_) {
+        const search = state.search;
+        this.container_.hidden = !!(search?.query);
+      }
+    }
+  }
+
+
   /**
-   * @param {chrome.fileManagerPrivate.RecentFileType} fileType File type filter
-   *     which needs to be recorded.
+   * @param {chrome.fileManagerPrivate.FileCategory} fileCategory File category
+   *     filter which needs to be recorded.
    * @private
    */
-  recordFileTypeFilterUMA_(fileType) {
+  recordFileCategoryFilterUMA_(fileCategory) {
     /**
      * Keep the order of this in sync with FileManagerRecentFilterType in
      * tools/metrics/histograms/enums.xml.
@@ -89,32 +151,73 @@ export class FileTypeFiltersController {
      * each filter type should never be renumbered nor reused in this array.
      */
     const FileTypeFiltersForUMA =
-        /** @type {!Array<!chrome.fileManagerPrivate.RecentFileType>} */ ([
-          chrome.fileManagerPrivate.RecentFileType.ALL,    // 0
-          chrome.fileManagerPrivate.RecentFileType.AUDIO,  // 1
-          chrome.fileManagerPrivate.RecentFileType.IMAGE,  // 2
-          chrome.fileManagerPrivate.RecentFileType.VIDEO,  // 3
+        /** @type {!Array<!chrome.fileManagerPrivate.FileCategory>} */ ([
+          chrome.fileManagerPrivate.FileCategory.ALL,       // 0
+          chrome.fileManagerPrivate.FileCategory.AUDIO,     // 1
+          chrome.fileManagerPrivate.FileCategory.IMAGE,     // 2
+          chrome.fileManagerPrivate.FileCategory.VIDEO,     // 3
+          chrome.fileManagerPrivate.FileCategory.DOCUMENT,  // 4
         ]);
     Object.freeze(FileTypeFiltersForUMA);
-    metrics.recordEnum('Recent.FilterByType', fileType, FileTypeFiltersForUMA);
+    metrics.recordEnum(
+        'Recent.FilterByType', fileCategory, FileTypeFiltersForUMA);
+  }
+
+  /**
+   * Speak voice message in screen recording mode depends on the existing
+   * filter and the new filter type.
+   *
+   * @param {!chrome.fileManagerPrivate.FileCategory} currentFilter
+   * @param {!chrome.fileManagerPrivate.FileCategory} newFilter
+   */
+  speakA11yMessage(currentFilter, newFilter) {
+    /**
+     * When changing button active/inactive states, the common voice message is
+     * "AAA filter is off. BBB filter is on.", i.e. the "off" message first
+     * then the "on" message. However there are some exceptions:
+     *  * If the active filter changes from "All" to others, no need to say
+     * the off message.
+     *  * If the active filter changes from others to "All", the on message will
+     * be a filter reset message.
+     */
+    const isFromAllToOthers =
+        currentFilter === chrome.fileManagerPrivate.FileCategory.ALL;
+    const isFromOthersToAll =
+        newFilter === chrome.fileManagerPrivate.FileCategory.ALL;
+    let offMessage = strf(
+        'RECENT_VIEW_FILTER_OFF',
+        str(this.filterTypeToTranslationKeyMap_.get(currentFilter)));
+    let onMessage = strf(
+        'RECENT_VIEW_FILTER_ON',
+        str(this.filterTypeToTranslationKeyMap_.get(newFilter)));
+    if (isFromAllToOthers) {
+      offMessage = '';
+    }
+    if (isFromOthersToAll) {
+      onMessage = str('RECENT_VIEW_FILTER_RESET');
+    }
+    this.a11y_.speakA11yMessage(
+        offMessage ? `${offMessage} ${onMessage}` : onMessage);
   }
 
   /**
    * Creates filter button's UI element.
-   * @param {string} label Label of the filter button.
-   * @param {chrome.fileManagerPrivate.RecentFileType} fileType File type filter
+   *
+   * @param {!chrome.fileManagerPrivate.FileCategory} fileCategory File category
    *     for the filter button.
    * @private
    */
-  createFilterButton_(label, fileType) {
+  createFilterButton_(fileCategory) {
+    const label = str(this.filterTypeToTranslationKeyMap_.get(fileCategory));
     const button =
-        util.createChild(this.container_, 'file-type-filter-button', 'button');
+        createChild(this.container_, 'file-type-filter-button', 'cr-button');
     button.textContent = label;
-    // Store the "RecentFileType" on the button element so we know the mapping
-    // between the DOM element and its corresponding "RecentFileType", which
-    // will make it easier to trigger UI change based on "RecentFileType" or
+    button.setAttribute('aria-label', label);
+    // Store the "FileCategory" on the button element so we know the mapping
+    // between the DOM element and its corresponding "FileCategory", which
+    // will make it easier to trigger UI change based on "FileCategory" or
     // vice versa.
-    button.setAttribute('file-type-filter', fileType);
+    button.setAttribute('file-type-filter', fileCategory);
     button.onclick = this.onFilterButtonClicked_.bind(this);
     return button;
   }
@@ -126,9 +229,20 @@ export class FileTypeFiltersController {
    */
   onCurrentDirectoryChanged_(event) {
     const directoryChangeEvent = /** @type {!DirectoryChangeEvent} */ (event);
+    const isEnteringRecentEntry =
+        util.isSameEntry(directoryChangeEvent.newDirEntry, this.recentEntry_);
+    const isLeavingRecentEntry = !isEnteringRecentEntry &&
+        util.isSameEntry(
+            directoryChangeEvent.previousDirEntry, this.recentEntry_);
     // We show filter buttons only in Recents view at this moment.
-    this.container_.hidden =
-        !(directoryChangeEvent.newDirEntry == this.recentEntry_);
+    this.container_.hidden = !isEnteringRecentEntry;
+    // Reset the filter back to "All" on leaving Recents view.
+    if (isLeavingRecentEntry) {
+      this.recentEntry_.fileCategory =
+          chrome.fileManagerPrivate.FileCategory.ALL;
+      this.updateButtonActiveStates_();
+    }
+    this.inRecent_ = isEnteringRecentEntry;
   }
 
   /**
@@ -138,40 +252,59 @@ export class FileTypeFiltersController {
    */
   onFilterButtonClicked_(event) {
     const target = /** @type {HTMLButtonElement} */ (event.target);
-    // At least one filter button should be selected, so we don't allow user to
-    // unselect a filter button by clicking it, e.g. do nothing if an active
-    // filter button is clicked.
-    if (target.classList.contains('active')) {
+    const isButtonActive = target.classList.contains('active');
+    const buttonFilter =
+        /** @type {!chrome.fileManagerPrivate.FileCategory} */
+        (target.getAttribute('file-type-filter'));
+    // Do nothing if "All" button is active and being clicked again.
+    if (isButtonActive &&
+        buttonFilter === chrome.fileManagerPrivate.FileCategory.ALL) {
       return;
     }
-    const newFilter = /** @type {!chrome.fileManagerPrivate.RecentFileType} */
-        (target.getAttribute('file-type-filter'));
-    this.recentEntry_.recentFileType = newFilter;
+    const currentFilter = this.recentEntry_.fileCategory ||
+        chrome.fileManagerPrivate.FileCategory.ALL;
+    // Clicking an active button will make it inactive and make "All"
+    // button active.
+    const newFilter = isButtonActive ?
+        chrome.fileManagerPrivate.FileCategory.ALL :
+        buttonFilter;
+    this.recentEntry_.fileCategory = newFilter;
     this.updateButtonActiveStates_();
-    // Refresh current directory with the updated Recent setting.
-    // We don't need to invalidate the cached metadata for this rescan.
-    this.directoryModel_.rescan(false);
-    this.recordFileTypeFilterUMA_(newFilter);
+    if (isButtonActive) {
+      this.allFilterButton_.focus();
+    }
+    // Clear and scan the current directory with the updated Recent setting.
+    this.directoryModel_.clearCurrentDirAndScan();
+    this.speakA11yMessage(currentFilter, newFilter);
+    this.recordFileCategoryFilterUMA_(newFilter);
   }
 
   /**
-   * Update the filter button active states based on current `recentFileType`.
-   * Every time `recentFileType` is changed (including the initialization),
+   * Update the filter button active states based on current `fileCategory`.
+   * Every time `fileCategory` is changed (including the initialization),
    * this method needs to be called to render the UI to reflect the file
    * type filter change.
    * @private
    */
   updateButtonActiveStates_() {
-    const currentFilter = this.recentEntry_.recentFileType;
+    const currentFilter = this.recentEntry_.fileCategory;
     const buttons = [
-      this.allFilterButton_, this.audioFilterButton_, this.imageFilterButton_,
-      this.videoFilterButton_
+      this.allFilterButton_,
+      this.audioFilterButton_,
+      this.imageFilterButton_,
+      this.videoFilterButton_,
     ];
+    if (this.documentFilterButton_) {
+      buttons.push(this.documentFilterButton_);
+    }
     buttons.forEach(button => {
-      const fileTypeFilter =
-          /** @type {!chrome.fileManagerPrivate.RecentFileType} */ (
+      const fileCategoryFilter =
+          /** @type {!chrome.fileManagerPrivate.FileCategory} */ (
               button.getAttribute('file-type-filter'));
-      button.classList.toggle('active', currentFilter === fileTypeFilter);
+      button.classList.toggle('active', currentFilter === fileCategoryFilter);
+      button.setAttribute(
+          'aria-pressed',
+          currentFilter === fileCategoryFilter ? 'true' : 'false');
     });
   }
 }

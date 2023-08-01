@@ -1,15 +1,16 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/android_system_error_page/error_page_populator.h"
 
 #include "base/i18n/rtl.h"
+#include "base/strings/escape.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "components/content_relationship_verification/content_relationship_verification_constants.h"
 #include "components/grit/components_resources.h"
 #include "components/strings/grit/components_strings.h"
-#include "net/base/escape.h"
 #include "net/base/net_errors.h"
 #include "third_party/blink/public/platform/web_url_error.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -43,8 +44,22 @@ void PopulateErrorPageHtml(const blink::WebURLError& error,
   if (err.empty())
     reason_id = IDS_ANDROID_ERROR_PAGE_WEBPAGE_TEMPORARILY_DOWN;
 
-  std::string escaped_url = net::EscapeForHTML(url_string);
+  std::string escaped_url = base::EscapeForHTML(url_string);
+
+  // Restrict webview content error.
+  if (error.reason() == net::ERR_ACCESS_DENIED &&
+      error.extended_reason() ==
+          static_cast<int>(
+              content_relationship_verification::kExtendedErrorReason)) {
+    *error_html = base::ReplaceStringPlaceholders(
+        ui::ResourceBundle::GetSharedInstance().LoadDataResourceString(
+            IDR_ANDROID_ERROR_CONTENT_BLOCKED_ERROR_HTML),
+        {escaped_url}, nullptr);
+    return;
+  }
+
   std::vector<std::string> replacements;
+
   replacements.push_back(
       l10n_util::GetStringUTF8(IDS_ANDROID_ERROR_PAGE_WEBPAGE_NOT_AVAILABLE));
   replacements.push_back(

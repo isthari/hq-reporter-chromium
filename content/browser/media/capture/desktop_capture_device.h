@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,9 @@
 #include <memory>
 
 #include "base/memory/ref_counted.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread.h"
+#include "base/time/time.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/desktop_media_id.h"
 #include "media/capture/video/video_capture_device.h"
@@ -34,6 +36,14 @@ namespace content {
 // not on Chrome OS (which uses AuraWindowCaptureMachine instead).
 class CONTENT_EXPORT DesktopCaptureDevice : public media::VideoCaptureDevice {
  public:
+  class RefreshFrameCallback {
+   public:
+    virtual void OnCaptureFrameIsRefresh() = 0;
+
+   protected:
+    virtual ~RefreshFrameCallback() = default;
+  };
+
   // Creates capturer for the specified |source| and then creates
   // DesktopCaptureDevice for it. May return NULL in case of a failure (e.g. if
   // requested window was destroyed).
@@ -49,13 +59,24 @@ class CONTENT_EXPORT DesktopCaptureDevice : public media::VideoCaptureDevice {
   void AllocateAndStart(const media::VideoCaptureParams& params,
                         std::unique_ptr<Client> client) override;
   void StopAndDeAllocate() override;
+  // If currently stopped, starts the refresh frame timer to guarantee a frame
+  // representing the most up-to-date content will be sent to the consumer in
+  // the near future. This refresh operation will be canceled if a default
+  // capture event triggers a frame capture in the meantime, and will result in
+  // a frame sent to the consumer with a delay of up to one second.
+  void RequestRefreshFrame() override;
 
   // Set the platform-dependent window id for the notification window.
   void SetNotificationWindowId(gfx::NativeViewId window_id);
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(DesktopCaptureDeviceTest,
+                           RequestRefreshFrameBeforeStart);
+  FRIEND_TEST_ALL_PREFIXES(DesktopCaptureDeviceTest,
+                           RequestRefreshFrameAfterStop);
   friend class DesktopCaptureDeviceTest;
   friend class DesktopCaptureDeviceThrottledTest;
+  friend class DesktopCaptureDeviceRequestRefreshFrameTest;
   class Core;
 
   DesktopCaptureDevice(
@@ -67,6 +88,8 @@ class CONTENT_EXPORT DesktopCaptureDevice : public media::VideoCaptureDevice {
   void SetMockTimeForTesting(
       scoped_refptr<base::SingleThreadTaskRunner> task_runner,
       const base::TickClock* tick_clock);
+
+  void SetRefreshFrameCallbackForTesting(RefreshFrameCallback* rrf_callback);
 
   std::unique_ptr<Core> core_;
 

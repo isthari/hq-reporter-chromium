@@ -1,17 +1,16 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/optimization_guide/tab_url_provider_impl.h"
+#import "ios/chrome/browser/optimization_guide/tab_url_provider_impl.h"
 
 #import "base/containers/adapters.h"
 #import "base/time/clock.h"
 #import "base/time/time.h"
-#import "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#import "ios/chrome/browser/main/browser.h"
-#import "ios/chrome/browser/main/browser_list.h"
-#import "ios/chrome/browser/main/browser_list_factory.h"
-#import "ios/chrome/browser/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/shared/model/browser/browser.h"
+#import "ios/chrome/browser/shared/model/browser/browser_list.h"
+#import "ios/chrome/browser/shared/model/browser/browser_list_factory.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
 #import "ios/web/public/navigation/navigation_item.h"
 #import "ios/web/public/navigation/navigation_manager.h"
 #import "ios/web/public/web_state.h"
@@ -20,10 +19,9 @@
 #error "This file requires ARC support."
 #endif
 
-TabUrlProviderImpl::TabUrlProviderImpl(ChromeBrowserState* browser_state,
+TabUrlProviderImpl::TabUrlProviderImpl(BrowserList* browser_list,
                                        base::Clock* clock)
-    : browser_list_(BrowserListFactory::GetForBrowserState(browser_state)),
-      clock_(clock) {}
+    : browser_list_(browser_list), clock_(clock) {}
 
 TabUrlProviderImpl::~TabUrlProviderImpl() = default;
 
@@ -40,23 +38,14 @@ const std::vector<GURL> TabUrlProviderImpl::GetUrlsOfActiveTabs(
     for (int i = 0; i < web_state_list->count(); ++i) {
       web::WebState* web_state = web_state_list->GetWebStateAt(i);
       DCHECK(web_state);
-      web::NavigationItem* navigation_item =
-          web_state->GetNavigationManager()->GetVisibleItem();
-      if (!navigation_item)
-        continue;
 
-      // Fallback to use last commit navigation timestamp since iOS web state
-      // doesn't provide last active timestamp.
-      // TODO(crbug.com/1238043): Use WebState::GetLastActiveTime() as
-      // timestamp.
-      if (navigation_item->GetTimestamp().is_null() ||
-          clock_->Now() - navigation_item->GetTimestamp() >
-              duration_since_last_shown) {
+      const base::Time last_active_time = web_state->GetLastActiveTime();
+      if (last_active_time.is_null() ||
+          clock_->Now() - last_active_time > duration_since_last_shown) {
         continue;
       }
 
-      urls.emplace(navigation_item->GetTimestamp(),
-                   navigation_item->GetVirtualURL());
+      urls.emplace(last_active_time, web_state->GetLastCommittedURL());
     }
   }
 

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include "ash/ash_export.h"
 #include "ash/public/cpp/keyboard/keyboard_controller_observer.h"
+#include "base/memory/raw_ptr.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/rect.h"
 
@@ -29,6 +30,13 @@ class ASH_EXPORT WorkAreaInsets : public KeyboardControllerObserver {
  public:
   // Returns work area parameters associated with the given |window|.
   static WorkAreaInsets* ForWindow(const aura::Window* window);
+
+  // Test API that updates work area through `ShelfLayoutManager`.
+  static void UpdateWorkAreaInsetsForTest(
+      aura::Window* window,
+      const gfx::Rect& shelf_bounds_for_workarea_calculation,
+      const gfx::Insets& shelf_insets,
+      const gfx::Insets& in_session_shelf_insets);
 
   explicit WorkAreaInsets(RootWindowController* root_window_controller);
 
@@ -56,11 +64,14 @@ class ASH_EXPORT WorkAreaInsets : public KeyboardControllerObserver {
     return user_work_area_insets_;
   }
 
+  // Returns cached user work area insets in DIPs for this root window in
+  // session with true shelf alignment instead of `BottomLocked`.
+  const gfx::Insets& in_session_user_work_area_insets() const {
+    return in_session_user_work_area_insets_;
+  }
+
   // Returns accessibility insets in DIPs.
   gfx::Insets GetAccessibilityInsets() const;
-
-  // Returns the persistent desk bar insets in DIPs.
-  gfx::Insets GetPersistentDeskBarInsets() const;
 
   // Returns bounds of the stable work area (work area when the shelf is
   // visible) in screen coordinates DIPs.
@@ -79,21 +90,12 @@ class ASH_EXPORT WorkAreaInsets : public KeyboardControllerObserver {
   // Shell observers will be notified that accessibility insets changed.
   void SetAccessibilityPanelHeight(int height);
 
-  // Sets height of the persistent desk bar in DIPs for this root
-  // window. Shell observers will be notified that persistent desk bar
-  // insets changed.
-  void SetPersistentDeskBarHeight(int height);
-
-  // Indicates if the persistent desk bar height is in change. This is useful to
-  // prevent circular call from the App List as it also observes the work area
-  // value.
-  bool PersistentDeskBarHeightInChange();
-
   // Sets bounds (in window coordinates) and insets of the shelf for this root
   // window. |bounds| and |insets| are passed separately, because insets depend
   // on shelf visibility and can be different than calculated from bounds.
   void SetShelfBoundsAndInsets(const gfx::Rect& bounds,
-                               const gfx::Insets& insets);
+                               const gfx::Insets& insets,
+                               const gfx::Insets& in_session_insets);
 
   // KeyboardControllerObserver:
   void OnKeyboardAppearanceChanged(
@@ -105,13 +107,18 @@ class ASH_EXPORT WorkAreaInsets : public KeyboardControllerObserver {
   void UpdateWorkArea();
 
   // RootWindowController associated with this work area.
-  RootWindowController* const root_window_controller_ = nullptr;
+  const raw_ptr<RootWindowController, ExperimentalAsh> root_window_controller_ =
+      nullptr;
 
   // Cached bounds of user work area in screen coordinates DIPs.
   gfx::Rect user_work_area_bounds_;
 
   // Cached insets of user work area in DIPs.
   gfx::Insets user_work_area_insets_;
+
+  // Cached insets of user work area in DIPs in session with true shelf
+  // alignment instead of `BottomLocked`.
+  gfx::Insets in_session_user_work_area_insets_;
 
   // Cached occluded bounds of the keyboard in window coordinates. It needs to
   // be removed from the available work area. See
@@ -128,6 +135,10 @@ class ASH_EXPORT WorkAreaInsets : public KeyboardControllerObserver {
   // Cached insets of the shelf in DIPs.
   gfx::Insets shelf_insets_;
 
+  // Cached insets of the shelf in DIPs in session with true shelf alignment
+  // instead of `BottomLocked`.
+  gfx::Insets in_session_shelf_insets_;
+
   // Cached height of the docked magnifier in DIPs at the top of the screen.
   // It needs to be removed from the available work area.
   int docked_magnifier_height_ = 0;
@@ -135,13 +146,6 @@ class ASH_EXPORT WorkAreaInsets : public KeyboardControllerObserver {
   // Cached height of the accessibility panel in DIPs at the top of the
   // screen. It needs to be removed from the available work area.
   int accessibility_panel_height_ = 0;
-
-  // Cached height of the persistent desk bar in DIPs at the top of the
-  // screen. It needs to be removed from the available work area.
-  int persistent_desk_bar_height_ = 0;
-
-  // Indicates if the persistent desk bar height is in change.
-  bool persistent_desk_bar_height_in_change_ = false;
 };
 
 }  // namespace ash

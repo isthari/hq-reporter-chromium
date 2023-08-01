@@ -1,6 +1,8 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import {assert} from './assert_ts.js';
 
 /**
  * @fileoverview Base class for Web Components that don't use Polymer.
@@ -8,9 +10,13 @@
  * chrome/test/data/webui/js/custom_element_test.js
  */
 
+function emptyHTML(): string|TrustedHTML {
+  return window.trustedTypes ? window.trustedTypes.emptyHTML : '';
+}
+
 export class CustomElement extends HTMLElement {
-  static get template(): string {
-    return '';
+  static get template() {
+    return emptyHTML();
   }
 
   constructor() {
@@ -19,7 +25,7 @@ export class CustomElement extends HTMLElement {
     this.attachShadow({mode: 'open'});
     const template = document.createElement('template');
     template.innerHTML =
-        (this.constructor as typeof CustomElement).template || '';
+        (this.constructor as typeof CustomElement).template || emptyHTML();
     this.shadowRoot!.appendChild(template.content.cloneNode(true));
   }
 
@@ -29,5 +35,12 @@ export class CustomElement extends HTMLElement {
 
   $all<E extends Element = Element>(query: string): NodeListOf<E> {
     return this.shadowRoot!.querySelectorAll<E>(query);
+  }
+
+  getRequiredElement<T extends HTMLElement = HTMLElement>(query: string): T {
+    const el = this.shadowRoot!.querySelector<T>(query);
+    assert(el);
+    assert(el instanceof HTMLElement);
+    return el;
   }
 }

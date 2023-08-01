@@ -1,9 +1,10 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/exo/keyboard.h"
 
+#include "ash/accelerators/accelerator_table.h"
 #include "ash/constants/app_types.h"
 #include "ash/constants/ash_features.h"
 #include "ash/keyboard/ui/keyboard_ui_controller.h"
@@ -11,9 +12,11 @@
 #include "ash/public/cpp/accelerators.h"
 #include "ash/public/cpp/keyboard/keyboard_controller.h"
 #include "ash/shell.h"
-#include "base/bind.h"
 #include "base/containers/contains.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/containers/span.h"
+#include "base/functional/bind.h"
+#include "base/no_destructor.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/trace_event/trace_event.h"
 #include "components/exo/input_trace.h"
 #include "components/exo/keyboard_delegate.h"
@@ -27,10 +30,13 @@
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/focus_client.h"
 #include "ui/aura/window.h"
+#include "ui/base/ime/constants.h"
+#include "ui/base/ime/events.h"
 #include "ui/base/ime/input_method.h"
 #include "ui/events/base_event_utils.h"
 #include "ui/events/event.h"
 #include "ui/views/widget/widget.h"
+#include "ui/wm/core/window_util.h"
 
 namespace exo {
 namespace {
@@ -90,7 +96,7 @@ bool ProcessAcceleratorIfReserved(Surface* surface, ui::KeyEvent* event) {
 // to fix https://crbug.com/847500 without breaking ARC apps/Lacros browser.
 bool IsImeSupportedSurface(Surface* surface) {
   aura::Window* window = surface->window();
-  for (; window; window = window->parent()) {
+  while (window) {
     const auto app_type =
         static_cast<ash::AppType>(window->GetProperty(aura::client::kAppType));
     switch (app_type) {
@@ -109,6 +115,12 @@ bool IsImeSupportedSurface(Surface* surface) {
     // TODO(tetsui): find a way to remove this.
     if (window->GetProperty(aura::client::kSkipImeProcessing))
       return true;
+
+    if (aura::Window* transient_parent = wm::GetTransientParent(window)) {
+      window = transient_parent;
+    } else {
+      window = window->parent();
+    }
   }
   return false;
 }
@@ -119,14 +131,10 @@ bool CanConsumeAshAccelerators(Surface* surface) {
   for (; window; window = window->parent()) {
     const auto app_type =
         static_cast<ash::AppType>(window->GetProperty(aura::client::kAppType));
-    // TODO(fukino): Always returning false for Lacros window is a short-term
-    // solution. In reality, Lacros can consume ash accelerator's key
-    // combination when it is a deprecated ash accelerator or the window is
-    // running PWA. We need to let the wayland client dynamically decrlare
-    // whether it want to consume ash accelerators' key combinations.
-    // crbug.com/1174025.
+    // TOOD(hidehiko): get rid of this if check, after introducing capability,
+    // followed by ARC/Crostini migration.
     if (app_type == ash::AppType::LACROS)
-      return false;
+      return surface->is_keyboard_shortcuts_inhibited();
   }
   return true;
 }
@@ -139,24 +147,38 @@ bool ProcessAshAcceleratorIfPossible(Surface* surface, ui::KeyEvent* event) {
   if (CanConsumeAshAccelerators(surface))
     return false;
 
-  // Ctrl-N (new window), Shift-Ctrl-N (new incognite window), Ctrl-T (new tab),
-  // and Shit-Ctrl-T (restore tab) need to be sent to the active client even
-  // when the active window is lacros-chrome, since the ash-chrome does not
-  // handle these new-window requests properly at this moment.
-  // TODO(fukino): Remove this workaround once ash-chrome has an implementation
-  // to handle new-window requests when lacros-chrome browser window is active.
-  // crbug.com/1172189.
-  const ui::Accelerator kAppHandlingAccelerators[] = {
-      {ui::VKEY_N, ui::EF_CONTROL_DOWN},
-      {ui::VKEY_N, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN},
-      {ui::VKEY_T, ui::EF_CONTROL_DOWN},
-      {ui::VKEY_T, ui::EF_SHIFT_DOWN | ui::EF_CONTROL_DOWN},
-  };
+  // If accelerators can be processed by browser, send it to the app.
+  static const base::NoDestructor<std::vector<ui::Accelerator>>
+      kAppHandlingAccelerators([] {
+        std::vector<ui::Accelerator> result;
+        for (size_t i = 0; i < ash::kAcceleratorDataLength; ++i) {
+          const auto& ash_entry = ash::kAcceleratorData[i];
+          if (base::Contains(base::span<const ash::AcceleratorAction>(
+                                 ash::kActionsInterceptableByBrowser,
+                                 ash::kActionsInterceptableByBrowserLength),
+                             ash_entry.action) ||
+              base::Contains(base::span<const ash::AcceleratorAction>(
+                                 ash::kActionsDuplicatedWithBrowser,
+                                 ash::kActionsDuplicatedWithBrowserLength),
+                             ash_entry.action)) {
+            result.emplace_back(ash_entry.keycode, ash_entry.modifiers);
+          }
+        }
+        return result;
+      }());
   ui::Accelerator accelerator(*event);
-  if (base::Contains(kAppHandlingAccelerators, accelerator))
+  if (base::Contains(*kAppHandlingAccelerators, accelerator))
     return false;
 
   return ash::AcceleratorController::Get()->Process(accelerator);
+}
+
+bool IsAutoRepeatEnabled(const ui::KeyEvent& event) {
+  const auto* properties = event.properties();
+  if (!properties) {
+    return true;
+  }
+  return !ui::HasKeyEventSuppressAutoRepeat(*properties);
 }
 
 }  // namespace
@@ -170,15 +192,22 @@ Keyboard::Keyboard(std::unique_ptr<KeyboardDelegate> delegate, Seat* seat)
       expiration_delay_for_pending_key_acks_(
           base::Milliseconds(kExpirationDelayForPendingKeyAcksMs)) {
   seat_->AddObserver(this, kKeyboardSeatObserverPriority);
-  ash::KeyboardController::Get()->AddObserver(this);
+  auto* keyboard_controller = ash::KeyboardController::Get();
+  keyboard_controller->AddObserver(this);
   ash::ImeControllerImpl* ime_controller = ash::Shell::Get()->ime_controller();
   ime_controller->AddObserver(this);
 
   delegate_->OnKeyboardLayoutUpdated(seat_->xkb_tracker()->GetKeymap().get());
   OnSurfaceFocused(seat_->GetFocusedSurface(), nullptr,
                    !!seat_->GetFocusedSurface());
-  OnKeyRepeatSettingsChanged(
-      ash::KeyboardController::Get()->GetKeyRepeatSettings());
+
+  // Send the initial key repeat settings, iff it is already initialized.
+  // If not, that means Profile is not yet initialized, thus skipping,
+  // because when it is initialized, OnKeyRepeatSettingsChanged is called
+  // by KeyboardController.
+  auto key_repeat_settings = keyboard_controller->GetKeyRepeatSettings();
+  if (key_repeat_settings.has_value())
+    OnKeyRepeatSettingsChanged(key_repeat_settings.value());
 }
 
 Keyboard::~Keyboard() {
@@ -234,8 +263,9 @@ void Keyboard::AckKeyboardKey(uint32_t serial, bool handled) {
   if (it == pending_key_acks_.end())
     return;
 
-  if (!handled && focus_)
-    ProcessAccelerator(focus_, &it->second.first);
+  auto* key_event = &it->second.first;
+  if (!handled && !key_event->handled() && focus_)
+    ProcessAccelerator(focus_, key_event);
   pending_key_acks_.erase(serial);
 }
 
@@ -282,11 +312,6 @@ void Keyboard::OnKeyEvent(ui::KeyEvent* event) {
       !focus_->window()->GetProperty(aura::client::kSkipImeProcessing) &&
       ConsumedByIme(focus_->window(), *event);
 
-  // Always update modifiers.
-  // XkbTracker must be updated in the Seat, before calling this method.
-  // Ensured by the observer registration order.
-  delegate_->OnKeyboardModifiers(seat_->xkb_tracker()->GetModifiers());
-
   // Currently, physical keycode is tracked in Seat, assuming that the
   // Keyboard::OnKeyEvent is called between Seat::WillProcessEvent and
   // Seat::DidProcessEvent. However, if IME is enabled, it is no longer true,
@@ -310,8 +335,19 @@ void Keyboard::OnKeyEvent(ui::KeyEvent* event) {
       auto it = pressed_keys_.find(physical_code);
       if (it == pressed_keys_.end() && !event->handled() &&
           physical_code != ui::DomCode::NONE) {
-        for (auto& observer : observer_list_)
+        if (bool auto_repeat_enabled = IsAutoRepeatEnabled(*event);
+            auto_repeat_enabled != auto_repeat_enabled_) {
+          auto_repeat_enabled_ = auto_repeat_enabled;
+          if (auto settings =
+                  ash::KeyboardController::Get()->GetKeyRepeatSettings();
+              settings.has_value()) {
+            OnKeyRepeatSettingsChanged(*settings);
+          }
+        }
+
+        for (auto& observer : observer_list_) {
           observer.OnKeyboardKey(event->time_stamp(), event->code(), true);
+        }
 
         if (!consumed_by_ime) {
           // Process key press event if not already handled and not already
@@ -355,10 +391,17 @@ void Keyboard::OnKeyEvent(ui::KeyEvent* event) {
           uint32_t serial = delegate_->OnKeyboardKey(event->time_stamp(),
                                                      it->second.code, false);
           if (AreKeyboardKeyAcksNeeded()) {
-            pending_key_acks_.insert(
-                {serial,
-                 {*event, base::TimeTicks::Now() +
-                              expiration_delay_for_pending_key_acks_}});
+            auto ack_it =
+                pending_key_acks_
+                    .insert(
+                        {serial,
+                         {*event, base::TimeTicks::Now() +
+                                      expiration_delay_for_pending_key_acks_}})
+                    .first;
+            // Handled is not copied with Event's copy ctor, so explicitly copy
+            // here.
+            if (event->handled())
+              ack_it->second.first.SetHandled();
             event->SetHandled();
           }
         }
@@ -400,6 +443,12 @@ void Keyboard::OnSurfaceFocused(Surface* gained_focus,
     SetFocus(gained_focus_surface);
 }
 
+void Keyboard::OnKeyboardModifierUpdated() {
+  // XkbTracker must be updated in the Seat, before calling this method.
+  if (focus_)
+    delegate_->OnKeyboardModifiers(seat_->xkb_tracker()->GetModifiers());
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // ash::KeyboardControllerObserver overrides:
 
@@ -410,8 +459,9 @@ void Keyboard::OnKeyboardEnableFlagsChanged(
 
 void Keyboard::OnKeyRepeatSettingsChanged(
     const ash::KeyRepeatSettings& settings) {
-  delegate_->OnKeyRepeatSettingsChanged(settings.enabled, settings.delay,
-                                        settings.interval);
+  delegate_->OnKeyRepeatSettingsChanged(
+      settings.enabled && auto_repeat_enabled_, settings.delay,
+      settings.interval);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -478,7 +528,7 @@ void Keyboard::ProcessExpiredPendingKeyAcks() {
 void Keyboard::ScheduleProcessExpiredPendingKeyAcks(base::TimeDelta delay) {
   DCHECK(!process_expired_pending_key_acks_pending_);
   process_expired_pending_key_acks_pending_ = true;
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&Keyboard::ProcessExpiredPendingKeyAcks,
                      weak_ptr_factory_.GetWeakPtr()),

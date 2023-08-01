@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,6 @@ import androidx.annotation.NonNull;
 
 import org.chromium.base.Callback;
 import org.chromium.base.ThreadUtils;
-import org.chromium.content_public.browser.trusttokens.TrustTokenFulfillerManager;
 
 /**
  * This class manages platform-specific services. (i.e. Google Services) The platform
@@ -93,23 +92,34 @@ public abstract class PlatformServiceBridge {
     }
 
     // Takes an uncompressed, serialized UMA proto and logs it via a platform-specific mechanism.
-    public void logMetrics(byte[] data) {}
+    public void logMetrics(byte[] data, boolean useDefaultUploadQos) {}
 
     /**
      * Similar to {@link logMetrics}, logs a serialized UMA proto via a platform-specific mechanism
      * but blocks until the operation finishes.
      *
      * @param data uncompressed, serialized UMA proto.
-     * @return Status code of the logging operation.
+     * @param useDefaultUploadQos whether to use an experimental change that increases upload
+     *         frequency
+     * @return Status code of the logging operation. The status codes are:
+     * - Success cache (went to the devices cache): -1
+     * - Success: 0
+     * - Internal error: 8
+     * - Interrupted: 14
+     * - Timeout: 15
+     * - Cancelled: 16
+     * - API not connected (probably means the API is not available on device): 17
      */
-    public int logMetricsBlocking(byte[] data) {
+    public int logMetricsBlocking(byte[] data, boolean useDefaultUploadQos) {
         // TODO(crbug.com/1248039): remove this once downstream implementation lands.
-        logMetrics(data);
+        logMetrics(data, useDefaultUploadQos);
         return 0;
     }
 
-    // Returns a TrustTokenFulfillerManager.Factory if appropriate, else returns null.
-    public TrustTokenFulfillerManager.Factory getLocalTrustTokenFulfillerFactory() {
-        return null;
-    }
+    /**
+     * Checks if app recovery mitigations are currently required and initializes SafeMode if needed.
+     * This should only be called from the ":webview_service" process. All other processes should
+     * query SafeModeController to receive mitigation steps.
+     */
+    public void checkForAppRecovery() {}
 }

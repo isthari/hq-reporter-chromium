@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,17 +7,15 @@ package org.chromium.chrome.browser.vr;
 import static org.chromium.chrome.browser.vr.XrTestFramework.PAGE_LOAD_TIMEOUT_S;
 import static org.chromium.chrome.browser.vr.XrTestFramework.POLL_TIMEOUT_LONG_MS;
 import static org.chromium.chrome.browser.vr.XrTestFramework.POLL_TIMEOUT_SHORT_MS;
-import static org.chromium.chrome.test.util.ChromeRestriction.RESTRICTION_TYPE_SVR;
-import static org.chromium.chrome.test.util.ChromeRestriction.RESTRICTION_TYPE_VIEWER_DAYDREAM_OR_STANDALONE;
+import static org.chromium.chrome.test.util.ChromeRestriction.RESTRICTION_TYPE_VIEWER_DAYDREAM;
 import static org.chromium.chrome.test.util.ChromeRestriction.RESTRICTION_TYPE_VIEWER_NON_DAYDREAM;
 
-import android.graphics.PointF;
 import android.os.Build;
+import android.os.Build.VERSION_CODES;
 import android.os.SystemClock;
 import android.view.MotionEvent;
 import android.view.View;
 
-import androidx.test.filters.LargeTest;
 import androidx.test.filters.MediumTest;
 
 import org.junit.Assert;
@@ -36,10 +34,7 @@ import org.chromium.base.test.util.DisableIf;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.vr.rules.XrActivityRestriction;
-import org.chromium.chrome.browser.vr.util.NativeUiUtils;
-import org.chromium.chrome.browser.vr.util.PermissionUtils;
 import org.chromium.chrome.browser.vr.util.VrTestRuleUtils;
-import org.chromium.chrome.browser.vr.util.VrTransitionUtils;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4RunnerDelegate;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
@@ -93,14 +88,11 @@ public class WebXrVrInputTest {
      */
     @Test
     @MediumTest
-    @DisableIf
-            .Build(message = "Flaky on K/L crbug.com/762126",
-                    sdk_is_less_than = Build.VERSION_CODES.M)
-            @Restriction(RESTRICTION_TYPE_SVR)
-            @CommandLineFlags.Add({"enable-features=WebXR"})
-            @XrActivityRestriction({XrActivityRestriction.SupportedActivity.ALL})
-            public void
-            testScreenTapsNotRegistered_WebXr() throws InterruptedException {
+    @CommandLineFlags.Add({"enable-features=WebXR"})
+    @XrActivityRestriction({XrActivityRestriction.SupportedActivity.ALL})
+    @DisableIf.
+    Build(sdk_is_less_than = Build.VERSION_CODES.O, message = "https://crbug.com/1409794")
+    public void testScreenTapsNotRegistered_WebXr() throws InterruptedException {
         screenTapsNotRegisteredImpl("webxr_test_screen_taps_not_registered", mWebXrVrTestFramework);
     }
 
@@ -109,7 +101,6 @@ public class WebXrVrInputTest {
         framework.loadFileAndAwaitInitialization(url, PAGE_LOAD_TIMEOUT_S);
         framework.executeStepAndWait("stepVerifyNoInitialTaps()");
         framework.enterSessionWithUserGestureOrFail();
-        VrTransitionUtils.waitForOverlayGone();
         // Wait on VrShell to say that its parent consumed the touch event.
         // Set to 2 because there's an ACTION_DOWN followed by ACTION_UP
         final CountDownLatch touchRegisteredLatch = new CountDownLatch(2);
@@ -133,7 +124,7 @@ public class WebXrVrInputTest {
      */
     @Test
     @MediumTest
-    @Restriction(RESTRICTION_TYPE_VIEWER_DAYDREAM_OR_STANDALONE)
+    @Restriction(RESTRICTION_TYPE_VIEWER_DAYDREAM)
     @CommandLineFlags.Add({"enable-features=WebXR"})
     @XrActivityRestriction({XrActivityRestriction.SupportedActivity.ALL})
     public void testControllerClicksRegisteredOnDaydream_WebXr() {
@@ -166,10 +157,13 @@ public class WebXrVrInputTest {
      */
     @Test
     @MediumTest
-    @Restriction(RESTRICTION_TYPE_VIEWER_DAYDREAM_OR_STANDALONE)
+    @Restriction(RESTRICTION_TYPE_VIEWER_DAYDREAM)
     @CommandLineFlags.Add({"enable-features=WebXR"})
     @XrActivityRestriction({XrActivityRestriction.SupportedActivity.ALL})
-    public void testControllerExposedAsGamepadOnDaydream_WebXr() {
+    @DisableIf.Build(sdk_is_greater_than = VERSION_CODES.P, sdk_is_less_than = VERSION_CODES.R,
+            message = "https://crbug.com/1420205")
+    public void
+    testControllerExposedAsGamepadOnDaydream_WebXr() {
         EmulatedVrController controller = new EmulatedVrController(mTestRule.getActivity());
         mWebXrVrTestFramework.loadFileAndAwaitInitialization(
                 "test_webxr_gamepad_support", PAGE_LOAD_TIMEOUT_S);
@@ -269,11 +263,15 @@ public class WebXrVrInputTest {
         // Android doesn't seem to like sending touch events too quickly, so have a short delay
         // between events.
         for (int i = 0; i < iterations; i++) {
-            long downTime = sendScreenTouchDown(view, x, y);
-            SystemClock.sleep(100);
-            sendScreenTouchUp(view, x, y, downTime);
-            SystemClock.sleep(100);
+            sendScreenTap(view, x, y);
         }
+    }
+
+    private void sendScreenTap(final View view, final int x, final int y) {
+        long downTime = sendScreenTouchDown(view, x, y);
+        SystemClock.sleep(100);
+        sendScreenTouchUp(view, x, y, downTime);
+        SystemClock.sleep(100);
     }
 
     /**
@@ -319,20 +317,20 @@ public class WebXrVrInputTest {
     // Note that the page should load the appropriate test page and enter any relevant session
     // before calling this.
     private void testScreenTapsRegisteredOnCardboardImpl(View presentationView, int numIterations) {
-        // Make it so that the webpage doesn't try to finish the JavaScript step after each input
-        // since we don't need to ack each one like with the Daydream controller.
-        mWebXrVrTestFramework.runJavaScriptOrFail(
-                "finishAfterEachInput = false", POLL_TIMEOUT_SHORT_MS);
         mWebXrVrTestFramework.runJavaScriptOrFail(
                 "stepSetupListeners(" + String.valueOf(numIterations) + ")", POLL_TIMEOUT_SHORT_MS);
 
         int x = presentationView.getWidth() / 2;
         int y = presentationView.getHeight() / 2;
 
-        // Tap the screen a bunch of times and make sure that they're all registered.
-        spamScreenTaps(presentationView, x, y, numIterations);
+        // Tap the screen a bunch of times and make sure that they're all registered. Ideally, we
+        // shouldn't have to ack each one, but it's possible for inputs to get eaten by garbage
+        // collection if there are multiple in flight, so only send one at a time.
+        for (int i = 0; i < numIterations; i++) {
+            sendScreenTap(presentationView, x, y);
+            mWebXrVrTestFramework.waitOnJavaScriptStep();
+        }
 
-        mWebXrVrTestFramework.waitOnJavaScriptStep();
         mWebXrVrTestFramework.endTest();
     }
 
@@ -355,36 +353,6 @@ public class WebXrVrInputTest {
         framework.endTest();
     }
 
-    private void appButtonExitsPresentationImpl(String url, WebXrVrTestFramework framework) {
-        framework.loadFileAndAwaitInitialization(url, PAGE_LOAD_TIMEOUT_S);
-        framework.enterSessionWithUserGestureOrFail();
-        NativeUiUtils.clickAppButton(UserFriendlyElementName.NONE, new PointF());
-        assertAppButtonEffect(true /* shouldHaveExited */, framework);
-        framework.assertNoJavaScriptErrors();
-    }
-
-    /**
-     * Verifies that pressing the Daydream controller's 'app' button causes the user to exit
-     * a WebXR presentation even when the page is not submitting frames.
-     */
-    @Test
-    @MediumTest
-    @Restriction(RESTRICTION_TYPE_VIEWER_DAYDREAM_OR_STANDALONE)
-    @CommandLineFlags.Add({"enable-features=WebXR"})
-    public void testAppButtonAfterPageStopsSubmitting_WebXr() {
-        appButtonAfterPageStopsSubmittingImpl("webxr_page_submits_once", mWebXrVrTestFramework);
-    }
-
-    private void appButtonAfterPageStopsSubmittingImpl(String url, WebXrVrTestFramework framework) {
-        framework.loadFileAndAwaitInitialization(url, PAGE_LOAD_TIMEOUT_S);
-        framework.enterSessionWithUserGestureOrFail();
-        // Wait for page to stop submitting frames.
-        framework.waitOnJavaScriptStep();
-        NativeUiUtils.clickAppButton(UserFriendlyElementName.NONE, new PointF());
-        assertAppButtonEffect(true /* shouldHaveExited */, framework);
-        framework.assertNoJavaScriptErrors();
-    }
-
     /**
      * Verifies that a Gamepad API gamepad is returned on the XRSession's input
      * source instead of the navigator array when using WebXR and a Daydream
@@ -392,7 +360,7 @@ public class WebXrVrInputTest {
      */
     @Test
     @MediumTest
-    @Restriction(RESTRICTION_TYPE_VIEWER_DAYDREAM_OR_STANDALONE)
+    @Restriction(RESTRICTION_TYPE_VIEWER_DAYDREAM)
     @CommandLineFlags.Add({"enable-features=WebXR"})
     @XrActivityRestriction({XrActivityRestriction.SupportedActivity.ALL})
     public void testWebXrInputSourceHasGamepad() {
@@ -444,88 +412,5 @@ public class WebXrVrInputTest {
 
         mWebXrVrTestFramework.runJavaScriptOrFail("done()", POLL_TIMEOUT_SHORT_MS);
         mWebXrVrTestFramework.endTest();
-    }
-
-    /**
-     * Tests that long pressing the app button shows a toast indicating which permissions are in
-     * use, and that it disappears at the correct time.
-     */
-    @Test
-    @LargeTest
-    @Restriction(RESTRICTION_TYPE_VIEWER_DAYDREAM_OR_STANDALONE)
-    @CommandLineFlags.Add({"enable-features=WebXR"})
-    @XrActivityRestriction({XrActivityRestriction.SupportedActivity.ALL})
-    public void testAppButtonLongPressDisplaysPermissions() throws InterruptedException {
-        testAppButtonLongPressDisplaysPermissionsImpl();
-    }
-
-    /**
-     * Tests that long pressing the app button shows a toast indicating which permissions are in
-     * use, and that it disappears at the correct time while in incognito mode.
-     */
-    @Test
-    @LargeTest
-    @Restriction(RESTRICTION_TYPE_VIEWER_DAYDREAM_OR_STANDALONE)
-    @CommandLineFlags.Add({"enable-features=WebXR"})
-    @XrActivityRestriction({XrActivityRestriction.SupportedActivity.CTA})
-    public void testAppButtonLongPressDisplaysPermissionsIncognito() throws InterruptedException {
-        mWebXrVrTestFramework.openIncognitoTab("about:blank");
-        testAppButtonLongPressDisplaysPermissionsImpl();
-    }
-
-    private void testAppButtonLongPressDisplaysPermissionsImpl() throws InterruptedException {
-        // Note that we need to pass in the WebContents to use throughout this because automatically
-        // using the first tab's WebContents doesn't work in Incognito.
-        mWebXrVrTestFramework.loadFileAndAwaitInitialization(
-                "generic_webxr_permission_page", PAGE_LOAD_TIMEOUT_S);
-        WebXrVrTestFramework.runJavaScriptOrFail("requestPermission({audio:true})",
-                POLL_TIMEOUT_SHORT_MS, mTestRule.getWebContents());
-
-        // Accept the permission prompt. Standalone devices need to be special cased since they
-        // will be in the VR Browser.
-        if (TestVrShellDelegate.isOnStandalone()) {
-            NativeUiUtils.enableMockedInput();
-            NativeUiUtils.performActionAndWaitForVisibilityStatus(
-                    UserFriendlyElementName.BROWSING_DIALOG, true /* visible */, () -> {});
-            NativeUiUtils.waitForUiQuiescence();
-            NativeUiUtils.clickFallbackUiPositiveButton();
-        } else {
-            PermissionUtils.waitForPermissionPrompt();
-            PermissionUtils.acceptPermissionPrompt();
-        }
-
-        WebXrVrTestFramework.waitOnJavaScriptStep(mTestRule.getWebContents());
-        mWebXrVrTestFramework.enterSessionWithUserGestureOrFail(mTestRule.getWebContents());
-        // The permission toasts automatically show for ~5 seconds when entering an immersive
-        // session, so wait for that to disappear
-        NativeUiUtils.performActionAndWaitForVisibilityStatus(
-                UserFriendlyElementName.WEB_XR_AUDIO_INDICATOR, true /* visible */, () -> {});
-        SystemClock.sleep(4500);
-        NativeUiUtils.performActionAndWaitForVisibilityStatus(
-                UserFriendlyElementName.WEB_XR_AUDIO_INDICATOR, false /* visible */, () -> {});
-        NativeUiUtils.performActionAndWaitForVisibilityStatus(
-                UserFriendlyElementName.WEB_XR_AUDIO_INDICATOR, true /* visible */, () -> {
-                    NativeUiUtils.pressAppButton(UserFriendlyElementName.NONE, new PointF());
-                });
-        // The toast should automatically disappear after ~5 second after the button is pressed,
-        // regardless of whether it's released or not.
-        SystemClock.sleep(1000);
-        NativeUiUtils.releaseAppButton(UserFriendlyElementName.NONE, new PointF());
-        SystemClock.sleep(3500);
-        // Make sure it's still present shortly before we expect it to disappear.
-        NativeUiUtils.performActionAndWaitForVisibilityStatus(
-                UserFriendlyElementName.WEB_XR_AUDIO_INDICATOR, true /* visible */, () -> {});
-        NativeUiUtils.performActionAndWaitForVisibilityStatus(
-                UserFriendlyElementName.WEB_XR_AUDIO_INDICATOR, false /* visible */, () -> {});
-        // Do the same, but make sure the toast disappears even with the button still held.
-        NativeUiUtils.performActionAndWaitForVisibilityStatus(
-                UserFriendlyElementName.WEB_XR_AUDIO_INDICATOR, true /* visible */, () -> {
-                    NativeUiUtils.pressAppButton(UserFriendlyElementName.NONE, new PointF());
-                });
-        SystemClock.sleep(4500);
-        NativeUiUtils.performActionAndWaitForVisibilityStatus(
-                UserFriendlyElementName.WEB_XR_AUDIO_INDICATOR, true /* visible */, () -> {});
-        NativeUiUtils.performActionAndWaitForVisibilityStatus(
-                UserFriendlyElementName.WEB_XR_AUDIO_INDICATOR, false /* visible */, () -> {});
     }
 }

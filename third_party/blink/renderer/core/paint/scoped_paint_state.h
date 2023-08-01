@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/layout/layout_box.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_physical_fragment.h"
+#include "third_party/blink/renderer/core/mobile_metrics/mobile_friendliness_checker.h"
 #include "third_party/blink/renderer/core/paint/paint_info.h"
 #include "third_party/blink/renderer/platform/graphics/paint/scoped_paint_chunk_properties.h"
 
@@ -27,24 +28,12 @@ class ScopedPaintState {
   STACK_ALLOCATED();
 
  public:
-  // If |paint_legacy_table_part_in_ancestor_layer| is true, we'll
-  // unconditionally apply PaintOffsetTranslation adjustment. For self-painting
-  // layers, this adjustment is typically applied by PaintLayerPainter rather
-  // than ScopedPaintState, but legacy tables table parts sometimes paint into
-  // ancestor's self-painting layer instead of their own.
-  // TODO(layout-dev): Remove this parameter when removing legacy table classes.
-  ScopedPaintState(const LayoutObject&,
-                   const PaintInfo&,
-                   const FragmentData*,
-                   bool painting_legacy_table_part_in_ancestor_layer = false);
+  ScopedPaintState(const LayoutObject&, const PaintInfo&, const FragmentData*);
 
-  ScopedPaintState(const LayoutObject& object,
-                   const PaintInfo& paint_info,
-                   bool painting_legacy_table_part_in_ancestor_layer = false)
+  ScopedPaintState(const LayoutObject& object, const PaintInfo& paint_info)
       : ScopedPaintState(object,
                          paint_info,
-                         paint_info.FragmentToPaint(object),
-                         painting_legacy_table_part_in_ancestor_layer) {}
+                         paint_info.FragmentToPaint(object)) {}
 
   ScopedPaintState(const NGPhysicalFragment& fragment,
                    const PaintInfo& paint_info)
@@ -121,6 +110,8 @@ class ScopedBoxContentsPaintState : public ScopedPaintState {
 
  private:
   void AdjustForBoxContents(const LayoutBox&);
+  absl::optional<MobileFriendlinessChecker::IgnoreBeyondViewportScope>
+      mf_ignore_scope_;
 };
 
 }  // namespace blink

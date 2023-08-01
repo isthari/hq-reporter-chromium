@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,10 @@ import android.content.Context;
 
 import androidx.annotation.Nullable;
 
-import org.chromium.base.Log;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
 import org.chromium.chrome.browser.ui.autofill.data.AuthenticatorOption;
-import org.chromium.chrome.browser.ui.autofill.data.CardUnmaskChallengeOptionType;
 import org.chromium.chrome.browser.ui.autofill.internal.R;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.modaldialog.DialogDismissalCause;
@@ -76,7 +74,8 @@ public class AuthenticatorSelectionDialogBridge implements AuthenticatorSelectio
      */
     @CalledByNative
     private static void createAuthenticatorOptionAndAddToList(List<AuthenticatorOption> list,
-            String title, String identifier, String description, int type) {
+            String title, String identifier, String description,
+            @CardUnmaskChallengeOptionType int type) {
         if (list == null) {
             return;
         }
@@ -84,19 +83,24 @@ public class AuthenticatorSelectionDialogBridge implements AuthenticatorSelectio
         int iconResId = 0;
         // We need to map the icon on this side, since the ID isn't available on the C++ side.
         switch (type) {
-            case CardUnmaskChallengeOptionType.SmsOtp:
+            case CardUnmaskChallengeOptionType.SMS_OTP:
                 iconResId = R.drawable.ic_outline_sms_24dp;
                 break;
-            case CardUnmaskChallengeOptionType.UnknownType:
-                // This should never happen
-                Log.w(TAG, "Attempted to offer CardUnmaskChallengeOption with Unknown type");
+            case CardUnmaskChallengeOptionType.EMAIL_OTP:
+                iconResId = R.drawable.ic_outline_email_24dp;
                 break;
+            case CardUnmaskChallengeOptionType.CVC:
+                break;
+            case CardUnmaskChallengeOptionType.UNKNOWN_TYPE:
+                // This will never happen
+                assert false : "Attempted to offer CardUnmaskChallengeOption with Unknown type";
         }
         AuthenticatorOption authenticatorOption = new AuthenticatorOption.Builder()
                                                           .setTitle(title)
                                                           .setIdentifier(identifier)
                                                           .setDescription(description)
                                                           .setIconResId(iconResId)
+                                                          .setType(type)
                                                           .build();
         list.add(authenticatorOption);
     }

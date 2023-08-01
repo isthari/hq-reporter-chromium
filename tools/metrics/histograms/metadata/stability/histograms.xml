@@ -1,5 +1,5 @@
 <!--
-Copyright 2020 The Chromium Authors. All rights reserved.
+Copyright 2020 The Chromium Authors
 Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
@@ -22,8 +22,45 @@ chromium-metrics-reviews@google.com.
 
 <histograms>
 
+<variants name="StandbyBucket">
+  <variant name="Active"/>
+  <variant name="Frequent"/>
+  <variant name="Rare"/>
+  <variant name="Restricted"/>
+  <variant name="Unknown"/>
+  <variant name="Unsupported"/>
+  <variant name="WorkingSet"/>
+</variants>
+
+<histogram name="Stability.Android.MinidumpUploadingTime" units="ms"
+    expires_after="2023-10-22">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>src/components/minidump_uploader/OWNERS</owner>
+  <summary>
+    Records the time (uptimeMillis) taken by a minidump uploading task to
+    complete. Recorded when the task finished callback is invoked.
+  </summary>
+</histogram>
+
+<histogram name="Stability.Android.MinidumpUploadingTime.{StandbyBucket}"
+    units="ms" expires_after="2022-11-30">
+  <owner>shaktisahu@chromium.org</owner>
+  <owner>src/components/minidump_uploader/OWNERS</owner>
+  <summary>
+    Records the time (uptimeMillis) taken by a minidump uploading task to
+    complete grouped by {StandbyBucket} state. Recorded when the task finished
+    callback is invoked. The {StandbyBucket} corresponds to the standby bucket
+    (UsageStatsManager.getAppStandbyBucket) chrome was placed into when metrics
+    was uploaded.
+  </summary>
+  <token key="StandbyBucket" variants="StandbyBucket"/>
+</histogram>
+
 <histogram name="Stability.Android.OomKillReverseRank" units="rank"
-    expires_after="2022-07-03">
+    expires_after="2023-01-15">
+  <obsolete>
+    Removed in M111.
+  </obsolete>
   <owner>boliu@chromium.org</owner>
   <owner>ssid@chromium.org</owner>
   <summary>
@@ -33,16 +70,6 @@ chromium-metrics-reviews@google.com.
     ranked process has reverse rank 0. This is a measure how good the hints to
     android are; if hints were perfect, then all android kills should have
     reverse rank 0.
-  </summary>
-</histogram>
-
-<histogram name="Stability.Android.OomKillReverseRankSuccess"
-    enum="BooleanSuccess" expires_after="2020-04-10">
-  <owner>boliu@chromium.org</owner>
-  <owner>ssid@chromium.org</owner>
-  <summary>
-    Getting value for OomKillReverseRank may fail. Recorded when an applicable
-    child process is killed by android.
   </summary>
 </histogram>
 
@@ -65,10 +92,9 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Stability.Android.ProcessedRealMinidumps"
-    enum="AndroidProcessedMinidumps" expires_after="2022-06-12">
-  <owner>mheikal@chromium.org</owner>
-  <owner>smaier@chromium.org</owner>
+    enum="AndroidProcessedMinidumps" expires_after="2023-09-24">
   <owner>wnwen@chromium.org</owner>
+  <owner>src/components/minidump_uploader/OWNERS</owner>
   <summary>
     Records the number of non-simulated minidumps processed by Crashpad, split
     by process type. This metric is similar to one that could be computed
@@ -77,21 +103,8 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="Stability.Android.ProcessedSimulatedMinidumps"
-    enum="AndroidProcessedMinidumps" expires_after="2022-07-03">
-  <owner>mheikal@chromium.org</owner>
-  <owner>smaier@chromium.org</owner>
-  <owner>wnwen@chromium.org</owner>
-  <summary>
-    Records the number of simulated minidumps processed by Crashpad, split by
-    process type. This metric is similar to one that could be computed
-    server-side based on received crash uploads; but the client-side metric also
-    includes any minidumps that were not successfully uploaded.
-  </summary>
-</histogram>
-
 <histogram name="Stability.Android.RendererCrash" enum="Boolean"
-    expires_after="2022-06-26">
+    expires_after="2023-11-12">
   <owner>wnwen@chromium.org</owner>
   <summary>
     Counts renderer crashes including OOMs. Android only. Mirrors old stability
@@ -100,7 +113,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram base="true" name="Stability.Android.SystemExitReason"
-    enum="AndroidProcessExitReason" expires_after="2022-07-03">
+    enum="AndroidProcessExitReason" expires_after="2023-10-08">
   <owner>boliu@chromium.org</owner>
   <owner>ssid@chromium.org</owner>
   <owner>wnwen@chromium.org</owner>
@@ -220,7 +233,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Stability.ChildFrameCrash.ShownAfterCrashingReason"
-    enum="ShownAfterCrashingReason" expires_after="2022-08-18">
+    enum="ShownAfterCrashingReason" expires_after="2023-08-09">
   <owner>alexmos@chromium.org</owner>
   <owner>boliu@chromium.org</owner>
   <owner>lukasza@chromium.org</owner>
@@ -232,7 +245,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Stability.ChildFrameCrash.TabMarkedForReload"
-    enum="BooleanMarkedForReload" expires_after="2022-08-18">
+    enum="BooleanMarkedForReload" expires_after="2023-10-08">
   <owner>alexmos@chromium.org</owner>
   <owner>boliu@chromium.org</owner>
   <summary>
@@ -242,7 +255,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Stability.ChildFrameCrash.TabMarkedForReload.Visibility"
-    enum="FrameVisibility" expires_after="2022-08-18">
+    enum="FrameVisibility" expires_after="2023-08-09">
   <owner>alexmos@chromium.org</owner>
   <owner>boliu@chromium.org</owner>
   <summary>
@@ -253,7 +266,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Stability.ChildFrameCrash.Visibility" enum="CrashVisibility"
-    expires_after="2022-08-18">
+    expires_after="2023-08-09">
   <owner>alexmos@chromium.org</owner>
   <owner>boliu@chromium.org</owner>
   <owner>lfg@chromium.org</owner>
@@ -267,11 +280,13 @@ chromium-metrics-reviews@google.com.
 <histogram name="Stability.Counts2" enum="StabilityEventType"
     expires_after="never">
 <!--
-  expires-never: Critical stability metrics. go/chrome-browser-guardian-metrics
+  expires-never: Critical stability metrics. go/chrome-browser-guardrail-metrics.
   -->
 
   <owner>rkaplow@chromium.org</owner>
-  <owner>chrome-metrics-team@google.com</owner>
+  <owner>src/base/metrics/OWNERS</owner>
+  <owner>chrome-analysis-team@google.com</owner>
+  <improvement direction="LOWER_IS_BETTER"/>
   <summary>
     Collects various counters related to stability. The majority of them are
     crash types.
@@ -279,7 +294,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Stability.DebugScenario.Navigation" enum="DebugScenario"
-    expires_after="2022-03-19">
+    expires_after="2023-08-08">
   <owner>nasko@chromium.org</owner>
   <owner>altimin@chromium.org</owner>
   <summary>
@@ -292,8 +307,22 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="Stability.DumpWithoutCrashingStatus"
+    enum="DumpWithoutCrashingStatus" expires_after="never">
+<!-- expires-never: Used for monitoring the throttling frequency of
+     DumpWithoutCrashing. -->
+
+  <owner>dcheng@chromium.org</owner>
+  <owner>wfh@chromium.org</owner>
+  <owner>adkushwa@microsoft.com</owner>
+  <summary>
+    Keeps a count of number of times uploading the dump was throttled when
+    calling DumpWithoutCrashing.
+  </summary>
+</histogram>
+
 <histogram name="Stability.Experimental.PageLoads" enum="StabilityPageLoadType"
-    expires_after="2022-06-12">
+    expires_after="2023-08-27">
   <owner>fdoray@chromium.org</owner>
   <owner>catan-team@chromium.org</owner>
   <summary>
@@ -329,7 +358,9 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Stability.Internals.SystemCrashCount" units="crashes"
-    expires_after="2022-10-20">
+    expires_after="never">
+<!-- expires-never: Necessary context for understanding stability metrics. -->
+
   <owner>davidbienvenu@chromium.org</owner>
   <owner>jessemckenna@google.com</owner>
   <summary>
@@ -339,7 +370,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Stability.IOS.Crashpad.Initialized" enum="BooleanSuccess"
-    expires_after="2022-06-15">
+    expires_after="2024-05-01">
   <owner>justincohen@chromium.org</owner>
   <owner>olivierrobin@chromium.org</owner>
   <summary>
@@ -347,8 +378,8 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="Stability.IOS.Experimental.Counts"
-    enum="IOSStabilityUserVisibleTerminationType" expires_after="2022-06-15">
+<histogram name="Stability.IOS.Experimental.Counts2"
+    enum="IOSStabilityUserVisibleTerminationType" expires_after="2024-03-20">
   <owner>ajuma@chromium.org</owner>
   <owner>olivierrobin@chromium.org</owner>
   <summary>
@@ -358,18 +389,28 @@ chromium-metrics-reviews@google.com.
     crashes, hangs, UTEs and XTEs. This metric intends to complement
     Stability.Counts. Stability.Counts does include UTEs / XTEs and thus is a
     noisy metric which significantly overcounts user-visible crashes.
-    Stability.IOS.Experimental.Counts is not recorded on OOM crashes, so it does
-    not represent all user-visible crashes, but OOMs are so rare in Chrome for
-    iOS that Stability.IOS.Experimental.Counts is still a good proxy for
+    Stability.IOS.Experimental.Counts2 is not recorded on OOM crashes, so it
+    does not represent all user-visible crashes, but OOMs are so rare in Chrome
+    for iOS that Stability.IOS.Experimental.Counts2 is still a good proxy for
     user-visible crashes. IOS.MetricKit.ForegroundExitData includes OOM crashes
     (iOS 14 and higher) and can be used in conjunction with this metric.
   </summary>
 </histogram>
 
+<histogram name="Stability.IOS.PostCrashAction" enum="IOSPostCrashAction"
+    expires_after="2023-10-04">
+  <owner>justincohen@chromium.org</owner>
+  <owner>ajuma@chromium.org</owner>
+  <summary>
+    Recorded when the app is foregrounded. Records what action is taken after an
+    unclear shutdown (likely a crash).
+  </summary>
+</histogram>
+
 <histogram name="Stability.iOS.TabCountBefore{Event}" units="tabs"
-    expires_after="2022-05-05">
-  <owner>djean@chromium.org</owner>
-  <owner>olivierrobin@chromium.org</owner>
+    expires_after="2024-03-21">
+  <owner>ajuma@chromium.org</owner>
+  <owner>justincohen@chromium.org</owner>
   <summary>
     The number of tabs opened in the previous session when the app starts after
     {Event}. Can be used to understand if there is a correlation between
@@ -389,7 +430,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Stability.IOS.UTE.AppWillTerminateWasCalledInForeground"
-    enum="Boolean" expires_after="2022-06-06">
+    enum="Boolean" expires_after="2023-10-04">
   <owner>olivierrobin@chromium.org</owner>
   <owner>ajuma@chromium.org</owner>
   <summary>
@@ -413,7 +454,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Stability.iOS.UTE.BatteryCharge" units="%"
-    expires_after="2022-07-03">
+    expires_after="2023-10-04">
   <owner>michaeldo@chromium.org</owner>
   <owner>olivierrobin@chromium.org</owner>
   <summary>
@@ -426,7 +467,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Stability.iOS.UTE.DeviceThermalState"
-    enum="IOSDeviceThermalState" expires_after="2022-07-03">
+    enum="IOSDeviceThermalState" expires_after="2023-10-04">
   <owner>michaeldo@chromium.org</owner>
   <owner>olivierrobin@chromium.org</owner>
   <summary>
@@ -436,7 +477,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Stability.iOS.UTE.HasPossibleExplanation"
-    enum="BooleanHasPossibleExplanation" expires_after="2022-06-26">
+    enum="BooleanHasPossibleExplanation" expires_after="2023-09-24">
   <owner>michaeldo@chromium.org</owner>
   <owner>olivierrobin@chromium.org</owner>
   <summary>
@@ -447,7 +488,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Stability.iOS.UTE.MobileSessionAppState" enum="IOSAppState"
-    expires_after="2022-12-11">
+    expires_after="2023-07-16">
   <owner>justincohen@chromium.org</owner>
   <owner>olivierrobin@chromium.org</owner>
   <summary>
@@ -458,7 +499,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Stability.iOS.UTE.MobileSessionAppWillTerminateWasReceived"
-    enum="AppWillTerminateReceived" expires_after="2022-11-14">
+    enum="AppWillTerminateReceived" expires_after="2023-07-16">
   <owner>michaeldo@chromium.org</owner>
   <owner>olivierrobin@chromium.org</owner>
   <summary>
@@ -471,7 +512,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Stability.iOS.UTE.MobileSessionOOMShutdownHint"
-    enum="OOMShutdownHint" expires_after="2022-05-11">
+    enum="OOMShutdownHint" expires_after="2024-04-24">
   <owner>olivierrobin@chromium.org</owner>
   <owner>sdefresne@chromium.org</owner>
   <summary>
@@ -483,7 +524,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Stability.iOS.UTE.OSRestartedAfterPreviousSession"
-    enum="BooleanRebooted" expires_after="2022-07-03">
+    enum="BooleanRebooted" expires_after="2023-10-04">
   <owner>olivierrobin@chromium.org</owner>
   <owner>michaeldo@chromium.org</owner>
   <summary>
@@ -494,7 +535,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Stability.iOS.UTE.OSVersion" enum="VersionComparison"
-    expires_after="2022-05-01">
+    expires_after="2023-10-04">
   <owner>michaeldo@chromium.org</owner>
   <owner>olivierrobin@chromium.org</owner>
   <summary>
@@ -506,7 +547,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Stability.iOS.UTE.TimeBetweenUTEAndNextLaunch" units="ms"
-    expires_after="2022-07-03">
+    expires_after="2023-07-16">
   <owner>michaeldo@chromium.org</owner>
   <owner>olivierrobin@chromium.org</owner>
   <summary>
@@ -517,7 +558,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Stability.MobileSessionShutdownType"
-    enum="MobileSessionShutdownType" expires_after="2022-07-03">
+    enum="MobileSessionShutdownType" expires_after="2023-11-19">
   <owner>michaeldo@chromium.org</owner>
   <owner>olivierrobin@chromium.org</owner>
   <summary>
@@ -530,6 +571,23 @@ chromium-metrics-reviews@google.com.
     before being killed. For first launch after upgrade, the crash reports may
     be discarded before this histogram is written to so it's not possible to
     determine if there's a valid crash log present or not.
+  </summary>
+</histogram>
+
+<histogram name="Stability.MobileSessionShutdownType2"
+    enum="MobileSessionShutdownType" expires_after="2023-11-19">
+  <owner>justincohen@chromium.org</owner>
+  <owner>ajuma@chromium.org</owner>
+  <summary>
+    Type of the shutdown. This histogram is recorded after processing Crashpad
+    intermediate dumps, and is otherwise identical to
+    Stability.MobileSessionShutdownType, which is recorded at startup and before
+    Crashpad dumps are processed. Because this histogram is not recorded in time
+    for the initial stability log, the histogram will appear in a log that lists
+    the current Chrome version (and other browser metadata), not the Chrome
+    version at the time the crash occurred. The earlier histogram
+    Stability.MobileSessionShutdownType should be in the stability log, which
+    will list the Chrome version at the time of the crash.
   </summary>
 </histogram>
 

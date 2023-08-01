@@ -1,8 +1,9 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/exo/wayland/zwp_linux_explicit_synchronization.h"
+#include "base/memory/raw_ptr.h"
 
 #include <linux-explicit-synchronization-unstable-v1-server-protocol.h>
 #include <sync/sync.h>
@@ -56,7 +57,7 @@ class LinuxBufferRelease {
     wl_resource_destroy(resource_);
   }
 
-  wl_resource* resource_;
+  raw_ptr<wl_resource, ExperimentalAsh> resource_;
   // Use a cancelable callback in case this object is destroyed while a commit
   // is still in flight.
   base::CancelableOnceCallback<void(gfx::GpuFenceHandle)> release_callback_;
@@ -97,7 +98,7 @@ class LinuxSurfaceSynchronization : public SurfaceObserver {
   }
 
  private:
-  Surface* surface_;
+  raw_ptr<Surface, ExperimentalAsh> surface_;
 };
 
 void linux_surface_synchronization_destroy(struct wl_client* client,

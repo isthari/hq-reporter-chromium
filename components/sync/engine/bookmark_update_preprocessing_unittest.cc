@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include <stdint.h>
 
-#include "base/guid.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "base/uuid.h"
 #include "components/sync/base/unique_position.h"
 #include "components/sync/protocol/bookmark_specifics.pb.h"
 #include "components/sync/protocol/entity_data.h"
@@ -72,7 +72,8 @@ TEST(BookmarkUpdatePreprocessingTest,
 TEST(BookmarkUpdatePreprocessingTest,
      ShouldComputeUniquePositionFromPositionInParent) {
   sync_pb::SyncEntity entity;
-  entity.set_originator_cache_guid(base::GenerateGUID());
+  entity.set_originator_cache_guid(
+      base::Uuid::GenerateRandomV4().AsLowercaseString());
   entity.set_originator_client_item_id("1");
   entity.set_position_in_parent(5);
 
@@ -97,7 +98,8 @@ TEST(BookmarkUpdatePreprocessingTest,
 TEST(BookmarkUpdatePreprocessingTest,
      ShouldComputeUniquePositionFromInsertAfterItemId) {
   sync_pb::SyncEntity entity;
-  entity.set_originator_cache_guid(base::GenerateGUID());
+  entity.set_originator_cache_guid(
+      base::Uuid::GenerateRandomV4().AsLowercaseString());
   entity.set_originator_client_item_id("1");
   entity.set_insert_after_item_id("ITEM_ID");
 
@@ -124,11 +126,14 @@ TEST(BookmarkUpdatePreprocessingTest, ShouldFallBackToRandomUniquePosition) {
 // Tests that AdaptGuidForBookmark() propagates GUID in specifics if the field
 // is set (even if it doesn't match the originator client item ID).
 TEST(BookmarkUpdatePreprocessingTest, ShouldPropagateGuidFromSpecifics) {
-  const std::string kGuidInSpecifics = base::GenerateGUID();
+  const std::string kGuidInSpecifics =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
 
   sync_pb::SyncEntity entity;
-  entity.set_originator_cache_guid(base::GenerateGUID());
-  entity.set_originator_client_item_id(base::GenerateGUID());
+  entity.set_originator_cache_guid(
+      base::Uuid::GenerateRandomV4().AsLowercaseString());
+  entity.set_originator_client_item_id(
+      base::Uuid::GenerateRandomV4().AsLowercaseString());
   entity.mutable_specifics()->mutable_bookmark()->set_guid(kGuidInSpecifics);
 
   base::HistogramTester histogram_tester;
@@ -140,16 +145,18 @@ TEST(BookmarkUpdatePreprocessingTest, ShouldPropagateGuidFromSpecifics) {
   histogram_tester.ExpectUniqueSample("Sync.BookmarkGUIDSource2",
                                       /*sample=*/
                                       ExpectedBookmarkGuidSource::kSpecifics,
-                                      /*count=*/1);
+                                      /*expected_bucket_count=*/1);
 }
 
 // Tests that AdaptGuidForBookmark() uses the originator client item ID as GUID
 // when it is a valid GUID, and the GUID in specifics is not set.
 TEST(BookmarkUpdatePreprocessingTest, ShouldUseOriginatorClientItemIdAsGuid) {
-  const std::string kOriginatorClientItemId = base::GenerateGUID();
+  const std::string kOriginatorClientItemId =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
 
   sync_pb::SyncEntity entity;
-  entity.set_originator_cache_guid(base::GenerateGUID());
+  entity.set_originator_cache_guid(
+      base::Uuid::GenerateRandomV4().AsLowercaseString());
   entity.set_originator_client_item_id(kOriginatorClientItemId);
   entity.mutable_specifics()->mutable_bookmark();
 
@@ -162,7 +169,7 @@ TEST(BookmarkUpdatePreprocessingTest, ShouldUseOriginatorClientItemIdAsGuid) {
   histogram_tester.ExpectUniqueSample("Sync.BookmarkGUIDSource2",
                                       /*sample=*/
                                       ExpectedBookmarkGuidSource::kValidOCII,
-                                      /*count=*/1);
+                                      /*expected_bucket_count=*/1);
 }
 
 // Tests that AdaptGuidForBookmark() infers the GUID when the field in specifics
@@ -171,7 +178,8 @@ TEST(BookmarkUpdatePreprocessingTest, ShouldInferGuid) {
   const std::string kOriginatorClientItemId = "1";
 
   sync_pb::SyncEntity entity;
-  entity.set_originator_cache_guid(base::GenerateGUID());
+  entity.set_originator_cache_guid(
+      base::Uuid::GenerateRandomV4().AsLowercaseString());
   entity.set_originator_client_item_id(kOriginatorClientItemId);
   entity.mutable_specifics()->mutable_bookmark();
 
@@ -179,12 +187,13 @@ TEST(BookmarkUpdatePreprocessingTest, ShouldInferGuid) {
   sync_pb::EntitySpecifics specifics = entity.specifics();
   AdaptGuidForBookmark(entity, &specifics);
 
-  EXPECT_TRUE(base::IsValidGUIDOutputString(specifics.bookmark().guid()));
+  EXPECT_TRUE(
+      base::Uuid::ParseLowercase(specifics.bookmark().guid()).is_valid());
 
   histogram_tester.ExpectUniqueSample("Sync.BookmarkGUIDSource2",
                                       /*sample=*/
                                       ExpectedBookmarkGuidSource::kInferred,
-                                      /*count=*/1);
+                                      /*expected_bucket_count=*/1);
 }
 
 TEST(BookmarkUpdatePreprocessingTest,
@@ -204,7 +213,7 @@ TEST(BookmarkUpdatePreprocessingTest,
       "Sync.BookmarkGUIDSource2",
       /*sample=*/
       ExpectedBookmarkGuidSource::kLeftEmptyPossiblyForClientTag,
-      /*count=*/1);
+      /*expected_bucket_count=*/1);
 }
 
 // Tests that inferred GUIDs are computed deterministically.

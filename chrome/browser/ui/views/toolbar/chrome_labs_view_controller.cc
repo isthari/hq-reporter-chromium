@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,15 +21,18 @@
 #include "chrome/browser/flag_descriptions.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/toolbar/chrome_labs_model.h"
 #include "chrome/browser/ui/toolbar/chrome_labs_prefs.h"
+#include "chrome/browser/ui/toolbar/chrome_labs_utils.h"
 #include "chrome/browser/ui/views/toolbar/chrome_labs_bubble_view.h"
-#include "chrome/browser/ui/views/toolbar/chrome_labs_bubble_view_model.h"
 #include "chrome/browser/ui/views/toolbar/chrome_labs_item_view.h"
-#include "chrome/browser/ui/views/toolbar/chrome_labs_utils.h"
 #include "chrome/common/buildflags.h"
 #include "components/flags_ui/feature_entry.h"
 #include "components/flags_ui/flags_state.h"
+#include "components/flags_ui/flags_storage.h"
 #include "components/prefs/scoped_user_pref_update.h"
+#include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/ash/settings/about_flags.h"
@@ -47,10 +50,12 @@ enum class ChromeLabsSelectedLab {
   // kReadLaterSelected = 1,
   // kTabSearchSelected = 2,
   kTabScrollingSelected = 3,
-  kSidePanelSelected = 4,
-  kLensRegionSearchSelected = 5,
+  // kSidePanelSelected = 4,
+  // kLensRegionSearchSelected = 5,
   kWebUITabStripSelected = 6,
-  kMaxValue = kWebUITabStripSelected,
+  // kTabSearchMediaTabsSelected = 7,
+  kChromeRefresh2023Selected = 8,
+  kMaxValue = kChromeRefresh2023Selected,
 };
 
 void EmitToHistogram(const std::u16string& selected_lab_state,
@@ -72,17 +77,17 @@ void EmitToHistogram(const std::u16string& selected_lab_state,
   };
 
   const auto get_enum = [](const std::string& internal_name) {
+    if (internal_name == flag_descriptions::kChromeRefresh2023Id) {
+      return ChromeLabsSelectedLab::kChromeRefresh2023Selected;
+    }
     if (internal_name == flag_descriptions::kScrollableTabStripFlagId)
       return ChromeLabsSelectedLab::kTabScrollingSelected;
-    if (internal_name == flag_descriptions::kSidePanelFlagId)
-      return ChromeLabsSelectedLab::kSidePanelSelected;
-    if (internal_name == flag_descriptions::kEnableLensRegionSearchFlagId)
-      return ChromeLabsSelectedLab::kLensRegionSearchSelected;
 #if BUILDFLAG(ENABLE_WEBUI_TAB_STRIP) && \
     (BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHROMEOS_ASH))
     if (internal_name == flag_descriptions::kWebUITabStripFlagId)
       return ChromeLabsSelectedLab::kWebUITabStripSelected;
 #endif
+
     return ChromeLabsSelectedLab::kUnspecifiedSelected;
   };
 
@@ -100,7 +105,7 @@ uint32_t GetCurrentDay() {
 }  // namespace
 
 ChromeLabsViewController::ChromeLabsViewController(
-    const ChromeLabsBubbleViewModel* model,
+    const ChromeLabsModel* model,
     ChromeLabsBubbleView* chrome_labs_bubble_view,
     Browser* browser,
     flags_ui::FlagsState* flags_state,
@@ -147,7 +152,7 @@ void ChromeLabsViewController::ParseModelDataAndAddLabs() {
               [](ChromeLabsBubbleView* bubble_view, std::string internal_name,
                  flags_ui::FlagsStorage* flags_storage,
                  ChromeLabsItemView* item_view) {
-                int selected_index = item_view->GetSelectedIndex();
+                size_t selected_index = item_view->GetSelectedIndex().value();
                 about_flags::SetFeatureEntryEnabled(
                     flags_storage,
                     internal_name + flags_ui::kMultiSeparatorChar +
@@ -178,7 +183,13 @@ void ChromeLabsViewController::RestartToApplyFlags() {
       *flags_storage_, browser_->profile()->GetOriginalProfile()->GetPrefs())
       .UpdateSessionManager();
 #endif
-  chrome::AttemptRestart();
+  // During the restart process some situations may cause previously active
+  // bubbles to deactivate. Since the restart action itself is not binded to any
+  // state, run the restart asynchronously. See crbug.com/1310212 where
+  // deactivation of bubbles is caused by the modal for downloads in progress
+  // being shown.
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE, base::BindOnce(&chrome::AttemptRestart));
 }
 
 void ChromeLabsViewController::SetRestartCallback() {
@@ -195,16 +206,15 @@ bool ChromeLabsViewController::ShouldLabShowNewBadge(Profile* profile,
   }
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  DictionaryPrefUpdate update(
+  ScopedDictPrefUpdate update(
       profile->GetPrefs(), chrome_labs_prefs::kChromeLabsNewBadgeDictAshChrome);
 #else
-  DictionaryPrefUpdate update(g_browser_process->local_state(),
+  ScopedDictPrefUpdate update(g_browser_process->local_state(),
                               chrome_labs_prefs::kChromeLabsNewBadgeDict);
 #endif
 
-  base::Value* new_badge_prefs = update.Get();
-  absl::optional<int> start_day =
-      new_badge_prefs->FindIntKey(lab.internal_name);
+  base::Value::Dict& new_badge_prefs = update.Get();
+  absl::optional<int> start_day = new_badge_prefs.FindInt(lab.internal_name);
   DCHECK(start_day);
   uint32_t current_day = GetCurrentDay();
   if (*start_day == chrome_labs_prefs::kChromeLabsNewExperimentPrefValue) {
@@ -212,7 +222,7 @@ bool ChromeLabsViewController::ShouldLabShowNewBadge(Profile* profile,
     // epoch (1970-01-01). This value is the first day the user sees the new
     // experiment in Chrome Labs and will be used to determine whether or not to
     // show the new badge.
-    new_badge_prefs->SetIntKey(lab.internal_name, current_day);
+    new_badge_prefs.Set(lab.internal_name, static_cast<int>(current_day));
     return true;
   }
   int days_elapsed = current_day - *start_day;

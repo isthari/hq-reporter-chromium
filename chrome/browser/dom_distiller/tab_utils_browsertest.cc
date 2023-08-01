@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -50,6 +50,8 @@
 #include "content/public/test/back_forward_cache_util.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
+#include "content/public/test/fenced_frame_test_util.h"
+#include "content/public/test/prerender_test_util.h"
 #include "content/public/test/test_utils.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/request_handler_util.h"
@@ -155,16 +157,16 @@ class DomDistillerTabUtilsBrowserTest : public InProcessBrowserTest {
   const GURL& article_url() const { return article_url_; }
 
   std::string GetDocumentTitle(content::WebContents* web_contents) const {
-    return content::ExecuteScriptAndGetValue(web_contents->GetMainFrame(),
-                                             "document.title")
-        .GetString();
+    return content::EvalJs(web_contents->GetPrimaryMainFrame(),
+                           "document.title")
+        .ExtractString();
   }
 
   std::string GetArticleHeading(content::WebContents* web_contents) const {
-    return content::ExecuteScriptAndGetValue(
-               web_contents->GetMainFrame(),
+    return content::EvalJs(
+               web_contents->GetPrimaryMainFrame(),
                "document.getElementById('title-holder').textContent")
-        .GetString();
+        .ExtractString();
   }
 
   std::unique_ptr<net::EmbeddedTestServer> https_server_;
@@ -242,6 +244,36 @@ IN_PROC_BROWSER_TEST_F(DomDistillerTabUtilsBrowserTest, UMATimesAreLogged) {
   histogram_tester.ExpectTotalCount(kDistilledPageHistogram, 1);
   // However, there should not be a second distillable histogram.
   histogram_tester.ExpectTotalCount(kDistillablePageHistogram, 1);
+}
+
+IN_PROC_BROWSER_TEST_F(DomDistillerTabUtilsBrowserTest,
+                       BackForwardNavigationRegeneratesDistillabilitySignal) {
+  content::WebContents* initial_web_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  TestDistillabilityObserver distillability_observer(initial_web_contents);
+  DistillabilityResult article_result;
+  article_result.is_distillable = true;
+  article_result.is_last = true;
+  article_result.is_mobile_friendly = false;
+
+  // Navigate to URL 1.
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), article_url()));
+  distillability_observer.WaitForResult(article_result);
+
+  GURL non_article_url =
+      https_server_->GetURL("/dom_distiller/non_og_article.html");
+  DistillabilityResult non_article_result;
+  non_article_result.is_distillable = false;
+  non_article_result.is_last = true;
+  non_article_result.is_mobile_friendly = false;
+
+  // Navigate to URL 2.
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), non_article_url));
+  distillability_observer.WaitForResult(non_article_result);
+
+  // Navigate to the previous page.
+  initial_web_contents->GetController().GoBack();
+  distillability_observer.WaitForResult(article_result);
 }
 
 // TODO(crbug.com/1272152): Flaky on linux.
@@ -329,10 +361,6 @@ IN_PROC_BROWSER_TEST_F(DomDistillerTabUtilsBrowserTest,
   GURL url1(article_url());
   content::WebContents* initial_web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
-  content::RenderFrameHost* main_frame =
-      browser()->tab_strip_model()->GetActiveWebContents()->GetMainFrame();
-  int process_id = main_frame->GetProcess()->GetID();
-  int frame_routing_id = main_frame->GetRoutingID();
   GURL url2(https_server_->GetURL("/title1.html"));
 
   TestDistillabilityObserver distillability_observer(initial_web_contents);
@@ -343,6 +371,12 @@ IN_PROC_BROWSER_TEST_F(DomDistillerTabUtilsBrowserTest,
 
   // Navigate to the page
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url1));
+  content::RenderFrameHost* main_frame = browser()
+                                             ->tab_strip_model()
+                                             ->GetActiveWebContents()
+                                             ->GetPrimaryMainFrame();
+  int process_id = main_frame->GetProcess()->GetID();
+  int frame_routing_id = main_frame->GetRoutingID();
   distillability_observer.WaitForResult(expected_result);
 
   DistillCurrentPageAndView(initial_web_contents);
@@ -422,6 +456,135 @@ IN_PROC_BROWSER_TEST_F(DomDistillerTabUtilsBrowserTest,
   EXPECT_TRUE(gfx::test::AreImagesEqual(article_favicon, distilled_favicon));
 }
 
+class DomDistillerTabUtilsMPArchTest : public DomDistillerTabUtilsBrowserTest {
+ public:
+  content::WebContents* source_web_contents() {
+    return browser()->tab_strip_model()->GetWebContentsAt(0);
+  }
+
+  void NavigateAndDistill() {
+    // Navigate to the initial page.
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), article_url()));
+
+    // Create destination WebContents and add it to the tab strip.
+    browser()->tab_strip_model()->AppendWebContents(
+        NewContentsWithSameParamsAs(source_web_contents()),
+        /* foreground = */ true);
+    content::WebContents* destination_web_contents =
+        browser()->tab_strip_model()->GetWebContentsAt(1);
+
+    DistillAndView(source_web_contents(), destination_web_contents);
+    DistilledPageObserver(destination_web_contents).WaitUntilFinishedLoading();
+  }
+
+  bool HasTaskTracker() {
+    // SelfDeletingRequestDelegate uses a DeleteSoon. Make sure the
+    // DeleteSoon task runs before checking TaskTracker.
+    base::RunLoop().RunUntilIdle();
+    return DomDistillerServiceFactory::GetForBrowserContext(
+               source_web_contents()->GetBrowserContext())
+        ->HasTaskTrackerForTesting(article_url());
+  }
+};
+
+IN_PROC_BROWSER_TEST_F(DomDistillerTabUtilsMPArchTest,
+                       TaskTrackerRemovedWhenPrimaryPageChanged) {
+  NavigateAndDistill();
+  // Ensure the TaskTracker for distilling the source article exist.
+  EXPECT_TRUE(HasTaskTracker());
+
+  // Activate the source web contents.
+  browser()->tab_strip_model()->ActivateTabAt(0);
+
+  // Navigate away from the source page.
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(), https_server_->GetURL("/title1.html")));
+
+  // SelfDeletingRequestDelegate deletes itself when PrimaryPageChanged() is
+  // called. Ensure that the TaskTracker has been removed.
+  EXPECT_FALSE(HasTaskTracker());
+}
+
+class DomDistillerTabUtilsFencedFrameTest
+    : public DomDistillerTabUtilsMPArchTest {
+ public:
+  content::test::FencedFrameTestHelper& fenced_frame_test_helper() {
+    return fenced_frame_helper_;
+  }
+
+ protected:
+  content::test::FencedFrameTestHelper fenced_frame_helper_;
+};
+
+IN_PROC_BROWSER_TEST_F(DomDistillerTabUtilsFencedFrameTest,
+                       TaskTrackerNotRemovedByFencedFrame) {
+  NavigateAndDistill();
+  // Ensure the TaskTracker for distilling the source article exist.
+  EXPECT_TRUE(HasTaskTracker());
+
+  // Activate the source web contents.
+  browser()->tab_strip_model()->ActivateTabAt(0);
+
+  // Add a fenced frame into the source web contents.
+  const GURL fenced_frame_url =
+      https_server_->GetURL("/fenced_frames/title1.html");
+  ASSERT_TRUE(fenced_frame_test_helper().CreateFencedFrame(
+      source_web_contents()->GetPrimaryMainFrame(), fenced_frame_url));
+
+  // Ensure that the navigation in the fenced frame doesn't affect the
+  // SelfDeletingRequestDelegate.
+  EXPECT_TRUE(HasTaskTracker());
+}
+
+class DomDistillerTabUtilsPrerenderTest
+    : public DomDistillerTabUtilsMPArchTest {
+ public:
+  DomDistillerTabUtilsPrerenderTest()
+      : prerender_helper_(base::BindRepeating(
+            &DomDistillerTabUtilsMPArchTest::source_web_contents,
+            base::Unretained(this))) {}
+
+  void SetUpOnMainThread() override {
+    prerender_helper_.SetUp(https_server_.get());
+    DomDistillerTabUtilsBrowserTest::SetUpOnMainThread();
+  }
+
+  content::test::PrerenderTestHelper& prerender_test_helper() {
+    return prerender_helper_;
+  }
+
+ private:
+  content::test::PrerenderTestHelper prerender_helper_;
+};
+
+IN_PROC_BROWSER_TEST_F(DomDistillerTabUtilsPrerenderTest,
+                       TaskTrackerNotRemovedByPrerendering) {
+  NavigateAndDistill();
+  // Ensure the TaskTracker for distilling the source article exist.
+  EXPECT_TRUE(HasTaskTracker());
+
+  // Activate the source web contents.
+  browser()->tab_strip_model()->ActivateTabAt(0);
+
+  // Add a prerender.
+  const GURL prerender_url = https_server_->GetURL("/title1.html");
+  int host_id = prerender_test_helper().AddPrerender(prerender_url);
+  content::test::PrerenderHostObserver prerender_observer(
+      *source_web_contents(), host_id);
+  EXPECT_FALSE(prerender_observer.was_activated());
+
+  // Ensure that prerendering doesn't affect the SelfDeletingRequestDelegate.
+  EXPECT_TRUE(HasTaskTracker());
+
+  // Activate the prerendered page.
+  prerender_test_helper().NavigatePrimaryPage(prerender_url);
+  EXPECT_TRUE(prerender_observer.was_activated());
+
+  // SelfDeletingRequestDelegate deletes itself when PrimaryPageChanged() is
+  // called. Ensure that the TaskTracker has been removed.
+  EXPECT_FALSE(HasTaskTracker());
+}
+
 #if !BUILDFLAG(IS_ANDROID)
 class DistilledPageImageLoadWaiter {
  public:
@@ -449,24 +612,22 @@ class DistilledPageImageLoadWaiter {
 
  private:
   void OnTimer() {
-    bool loaded = false;
-    // Use ExecuteScriptAndExtractInt to avoid Content SecurityPolicy errors.
     // Use naturalWidth because the distiller sets the width and height
     // attributes on the img.
     // Get the good and bad imags and check they are loaded and their size.
     // If they aren't loaded or the size is wrong, stay in the loop until the
     // load completes.
-    ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-        contents_.get(),
-        content::JsReplace("var ok = document.getElementById('main-content')"
-                           "    .getElementsByTagName('img')[$1];"
-                           "var bad = document.getElementById('main-content')"
-                           "    .getElementsByTagName('img')[$2];"
-                           "window.domAutomationController.send("
-                           "    ok.complete && ok.naturalWidth == $3 &&"
-                           "    bad.complete && bad.naturalWidth == $4)",
-                           ok_elem_, bad_elem_, ok_width_, bad_width_),
-        &loaded));
+    bool loaded =
+        content::EvalJs(contents_.get(),
+                        content::JsReplace(
+                            "var ok = document.getElementById('main-content')"
+                            "    .getElementsByTagName('img')[$1];"
+                            "var bad = document.getElementById('main-content')"
+                            "    .getElementsByTagName('img')[$2];"
+                            "ok.complete && ok.naturalWidth == $3 &&"
+                            "    bad.complete && bad.naturalWidth == $4",
+                            ok_elem_, bad_elem_, ok_width_, bad_width_))
+            .ExtractBool();
     if (loaded)
       runner_.Quit();
   }

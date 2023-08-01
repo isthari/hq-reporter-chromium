@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <string>
 
-#include "base/feature_list.h"
 #include "base/json/json_reader.h"
 #include "base/json/values_util.h"
 #include "base/memory/raw_ptr.h"
@@ -17,7 +16,6 @@
 #include "chrome/browser/profiles/profile_attributes_init_params.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/signin/identity_test_environment_profile_adaptor.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_browser_process.h"
@@ -93,10 +91,11 @@ class ProfileReportGeneratorTest : public ::testing::Test {
     InitPolicyMap();
 
     profile_ = profile_manager_.CreateTestingProfile(
-        kProfile, {}, kProfile16, 0, {},
+        kProfile, {}, kProfile16, 0,
         IdentityTestEnvironmentProfileAdaptor::
             GetIdentityTestEnvironmentFactories(),
-        absl::nullopt, std::move(policy_service_));
+        /*is_supervised_profile=*/false, absl::nullopt,
+        std::move(policy_service_));
   }
 
   void InitMockPolicyService() {
@@ -111,7 +110,7 @@ class ProfileReportGeneratorTest : public ::testing::Test {
   void InitPolicyMap() {
     policy_map_.Set("kPolicyName1", policy::POLICY_LEVEL_MANDATORY,
                     policy::POLICY_SCOPE_USER, policy::POLICY_SOURCE_CLOUD,
-                    base::Value(std::vector<base::Value>()), nullptr);
+                    base::Value(base::Value::List()), nullptr);
     policy_map_.Set("kPolicyName2", policy::POLICY_LEVEL_RECOMMENDED,
                     policy::POLICY_SCOPE_MACHINE, policy::POLICY_SOURCE_MERGED,
                     base::Value(true), nullptr);
@@ -138,19 +137,14 @@ class ProfileReportGeneratorTest : public ::testing::Test {
 
 #if !BUILDFLAG(IS_ANDROID)
   void SetExtensionToPendingList(const std::vector<std::string>& ids) {
-    std::unique_ptr<base::Value> id_values =
-        std::make_unique<base::Value>(base::Value::Type::DICTIONARY);
+    base::Value::Dict id_values;
     for (const auto& id : ids) {
-      base::Value request_data(base::Value::Type::DICTIONARY);
-      request_data.SetKey(
-          extension_misc::kExtensionRequestTimestamp,
-          ::base::TimeToValue(base::Time::FromJavaTime(kFakeTime)));
-      if (base::FeatureList::IsEnabled(
-              features::kExtensionWorkflowJustification)) {
-        request_data.SetKey(extension_misc::kExtensionWorkflowJustification,
-                            base::Value(kJustification));
-      }
-      id_values->SetKey(id, std::move(request_data));
+      id_values.Set(
+          id, base::Value::Dict()
+                  .Set(extension_misc::kExtensionRequestTimestamp,
+                       ::base::TimeToValue(base::Time::FromJavaTime(kFakeTime)))
+                  .Set(extension_misc::kExtensionWorkflowJustification,
+                       base::Value(kJustification)));
     }
     profile()->GetTestingPrefService()->SetUserPref(
         prefs::kCloudExtensionRequestIds, std::move(id_values));
@@ -171,8 +165,6 @@ class ProfileReportGeneratorTest : public ::testing::Test {
 
   PlatformReportingDelegateFactory reporting_delegate_factory_;
   ProfileReportGenerator generator_;
-
-  base::test::ScopedFeatureList feature_list_;
 
  private:
   content::BrowserTaskEnvironment task_environment_;
@@ -257,22 +249,6 @@ TEST_F(ProfileReportGeneratorTest, PoliciesDisabled) {
 }
 
 TEST_F(ProfileReportGeneratorTest, PendingRequest) {
-  profile()->GetTestingPrefService()->SetManagedPref(
-      prefs::kCloudExtensionRequestEnabled,
-      std::make_unique<base::Value>(true));
-  std::vector<std::string> ids = {kExtensionId};
-  SetExtensionToPendingList(ids);
-
-  auto report = GenerateReport();
-  ASSERT_EQ(1, report->extension_requests_size());
-  EXPECT_EQ(kExtensionId, report->extension_requests(0).id());
-  EXPECT_EQ(kFakeTime, report->extension_requests(0).request_timestamp());
-  EXPECT_EQ(std::string(), report->extension_requests(0).justification());
-}
-
-TEST_F(ProfileReportGeneratorTest, PendingRequest_Justification) {
-  feature_list_.InitAndEnableFeature(features::kExtensionWorkflowJustification);
-
   profile()->GetTestingPrefService()->SetManagedPref(
       prefs::kCloudExtensionRequestEnabled,
       std::make_unique<base::Value>(true));

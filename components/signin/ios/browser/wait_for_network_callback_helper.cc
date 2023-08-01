@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,10 +25,16 @@ void WaitForNetworkCallbackHelper::OnNetworkChanged(
   delayed_callbacks_.clear();
 }
 
+bool WaitForNetworkCallbackHelper::AreNetworkCallsDelayed() {
+  return net::NetworkChangeNotifier::IsOffline();
+}
+
 void WaitForNetworkCallbackHelper::HandleCallback(base::OnceClosure callback) {
-  if (net::NetworkChangeNotifier::IsOffline()) {
+  if (AreNetworkCallsDelayed()) {
+    // Will be processed by `OnNetworkChanged()`.
     delayed_callbacks_.push_back(std::move(callback));
-  } else {
-    std::move(callback).Run();
+    return;
   }
+
+  std::move(callback).Run();
 }

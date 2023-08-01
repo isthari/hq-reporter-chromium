@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -12,17 +12,6 @@ namespace GaiaConstants {
 const char kChromeOSSource[] = "chromeos";
 const char kChromeSource[] = "ChromiumBrowser";
 const char kUnexpectedServiceResponse[] = "UnexpectedServiceResponse";
-
-// Service name for Gaia.  Used to convert to cookie auth.
-const char kGaiaService[] = "gaia";
-// Service name for Picasa API. API is used to get user's image.
-const char kPicasaService[] = "lh2";
-
-// Service/scope names for sync.
-const char kSyncService[] = "chromiumsync";
-
-// Service name for remoting.
-const char kRemotingService[] = "chromoting";
 
 // OAuth scopes.
 const char kOAuth1LoginScope[] = "https://www.google.com/accounts/OAuthLogin";
@@ -41,10 +30,6 @@ const char kChromeSyncOAuth2Scope[] =
 const char kChromeSyncSupervisedOAuth2Scope[] =
     "https://www.googleapis.com/auth/chromesync_playpen";
 
-// OAuth2 scope for access to Kid Management API.
-const char kKidManagementOAuth2Scope[] =
-    "https://www.googleapis.com/auth/kid.management";
-
 // OAuth2 scope for parental consent logging for secondary account addition.
 const char kKidManagementPrivilegedOAuth2Scope[] =
     "https://www.googleapis.com/auth/kid.management.privileged";
@@ -62,6 +47,10 @@ const char kGoogleUserInfoEmail[] =
     "https://www.googleapis.com/auth/userinfo.email";
 const char kGoogleUserInfoProfile[] =
     "https://www.googleapis.com/auth/userinfo.profile";
+
+// OAuth2 scope for IP protection proxy authentication
+const char kIpProtectionAuthScope[] =
+    "https://www.googleapis.com/auth/ip-protection";
 
 // OAuth2 scope for access to the parent approval widget.
 const char kParentApprovalOAuth2Scope[] =
@@ -95,6 +84,10 @@ const char kTachyonOAuthScope[] = "https://www.googleapis.com/auth/tachyon";
 
 // OAuth2 scope for access to the Photos API.
 const char kPhotosOAuth2Scope[] = "https://www.googleapis.com/auth/photos";
+
+// OAuth2 scope for access to the SecureConnect API.
+extern const char kSecureConnectOAuth2Scope[] =
+    "https://www.googleapis.com/auth/bce.secureconnect";
 
 // OAuth2 scope for access to Cast backdrop API.
 const char kCastBackdropOAuth2Scope[] =
@@ -169,16 +162,34 @@ const char kPhotosModuleOAuth2Scope[] =
 const char kPhotosModuleImageOAuth2Scope[] =
     "https://www.googleapis.com/auth/photos.image.readonly";
 
-// Used to mint uber auth tokens when needed.
-const char kGaiaSid[] = "sid";
-const char kGaiaLsid[] = "lsid";
-const char kGaiaOAuthToken[] = "oauthToken";
-const char kGaiaOAuthSecret[] = "oauthSecret";
-const char kGaiaOAuthDuration[] = "3600";
-const char kGaiaOAuth2LoginRefreshToken[] = "oauth2LoginRefreshToken";
+// OAuth 2 scope for the Discover feed.
+const char kFeedOAuth2Scope[] = "https://www.googleapis.com/auth/googlenow";
 
-// Used to construct a channel ID for push messaging.
-const char kObfuscatedGaiaId[] = "obfuscatedGaiaId";
+// OAuth 2 scope for the k-Anonymity Service API.
+const char kKAnonymityServiceOAuth2Scope[] =
+    "https://www.googleapis.com/auth/chromekanonymity";
+
+// OAuth 2 scope for readonly access to Calendar.
+const char kCalendarReadOnlyOAuth2Scope[] =
+    "https://www.googleapis.com/auth/calendar.readonly";
+
+// OAuth 2 scopes for Google Tasks API.
+const char kTasksReadOnlyOAuth2Scope[] =
+    "https://www.googleapis.com/auth/tasks.readonly";
+const char kTasksOAuth2Scope[] = "https://www.googleapis.com/auth/tasks";
+
+// OAuth 2 scopes for Google Classroom API.
+const char kClassroomReadOnlyCoursesOAuth2Scope[] =
+    "https://www.googleapis.com/auth/classroom.courses.readonly";
+const char kClassroomReadOnlyCourseWorkSelfOAuth2Scope[] =
+    "https://www.googleapis.com/auth/classroom.coursework.me.readonly";
+const char kClassroomReadOnlyCourseWorkStudentsOAuth2Scope[] =
+    "https://www.googleapis.com/auth/classroom.coursework.students.readonly";
+const char kClassroomReadOnlyStudentSubmissionsSelfOAuth2Scope[] =
+    "https://www.googleapis.com/auth/classroom.student-submissions.me.readonly";
+const char kClassroomReadOnlyStudentSubmissionsStudentsOAuth2Scope[] =
+    "https://www.googleapis.com/auth/"
+    "classroom.student-submissions.students.readonly";
 
 // Used to build ClientOAuth requests.  These are the names of keys used when
 // building base::DictionaryValue that represent the json data that makes up

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <memory>
 #include <utility>
 
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "base/test/mock_callback.h"
 #include "chrome/browser/sharing/proto/optimization_guide_push_notification.pb.h"
 #include "chrome/browser/sharing/proto/sharing_message.pb.h"
@@ -30,7 +30,7 @@ class OptimizationGuideMessageHandlerTest : public testing::Test {
 
   void SetUp() override {
     message_handler_ = std::make_unique<OptimizationGuideMessageHandler>(
-        push_notification_manager());
+        push_notification_manager(), /*optimization_guide_logger=*/nullptr);
   }
 
   optimization_guide::MockPushNotificationManager* push_notification_manager() {

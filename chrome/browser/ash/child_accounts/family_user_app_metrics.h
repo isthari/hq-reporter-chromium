@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,10 @@
 #include <set>
 #include <string>
 
+#include "base/memory/raw_ptr.h"
 #include "chrome/browser/ash/child_accounts/family_user_metrics_service.h"
 #include "components/services/app_service/public/cpp/app_registry_cache.h"
-#include "components/services/app_service/public/mojom/types.mojom.h"
+#include "components/services/app_service/public/cpp/app_types.h"
 
 class Profile;
 
@@ -40,8 +41,7 @@ class FamilyUserAppMetrics : public FamilyUserMetricsService::Observer,
 
   // UMA metrics for a snapshot count of recently used apps for a given family
   // user.
-  static const char* GetAppsCountHistogramNameForTest(
-      apps::mojom::AppType app_type);
+  static const char* GetAppsCountHistogramNameForTest(apps::AppType app_type);
 
  protected:
   // These methods are marked protected for visibility to derived test class.
@@ -53,12 +53,12 @@ class FamilyUserAppMetrics : public FamilyUserMetricsService::Observer,
   void OnNewDay() override;
 
   // AppRegistryCache::Observer:
-  void OnAppTypeInitialized(apps::mojom::AppType app_type) override;
+  void OnAppTypeInitialized(apps::AppType app_type) override;
   void OnAppRegistryCacheWillBeDestroyed(
       apps::AppRegistryCache* cache) override;
   void OnAppUpdate(const apps::AppUpdate& update) override;
 
-  bool IsAppTypeReady(apps::mojom::AppType app_type) const;
+  bool IsAppTypeReady(apps::AppType app_type) const;
 
  private:
   // Records the number of non-component extensions that the family user has
@@ -71,18 +71,19 @@ class FamilyUserAppMetrics : public FamilyUserMetricsService::Observer,
 
   // Records the number of apps of the given `app_type` that the family user has
   // recently used.
-  void RecordRecentlyUsedAppsCount(apps::mojom::AppType app_type);
+  void RecordRecentlyUsedAppsCount(apps::AppType app_type);
 
   // Returns true if the app is currently open.
   bool IsAppWindowOpen(const std::string& app_id);
 
-  const extensions::ExtensionRegistry* const extension_registry_;
-  apps::AppRegistryCache* const app_registry_;
-  apps::InstanceRegistry* const instance_registry_;
+  const raw_ptr<const extensions::ExtensionRegistry, ExperimentalAsh>
+      extension_registry_;
+  const raw_ptr<apps::AppRegistryCache, ExperimentalAsh> app_registry_;
+  const raw_ptr<apps::InstanceRegistry, ExperimentalAsh> instance_registry_;
 
   bool should_record_metrics_on_new_day_ = false;
   bool first_report_on_current_device_ = false;
-  std::set<apps::mojom::AppType> ready_app_types_;
+  std::set<apps::AppType> ready_app_types_;
 };
 }  // namespace ash
 

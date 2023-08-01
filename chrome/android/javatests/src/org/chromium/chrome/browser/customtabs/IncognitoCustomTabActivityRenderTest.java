@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,11 @@ import static org.junit.Assert.assertTrue;
 
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
-import android.support.test.InstrumentationRegistry;
 import android.view.View;
 
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.MediumTest;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.junit.Before;
 import org.junit.Rule;
@@ -23,11 +24,11 @@ import org.chromium.base.test.params.ParameterSet;
 import org.chromium.base.test.params.ParameterizedRunner;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.incognito.IncognitoDataTestUtils;
 import org.chromium.chrome.test.ChromeJUnit4RunnerDelegate;
+import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.net.test.EmbeddedTestServerRule;
 import org.chromium.ui.test.util.RenderTestRule;
@@ -64,7 +65,10 @@ public class IncognitoCustomTabActivityRenderTest {
     public final EmbeddedTestServerRule mEmbeddedTestServerRule = new EmbeddedTestServerRule();
 
     @Rule
-    public final RenderTestRule mRenderTestRule = RenderTestRule.Builder.withPublicCorpus().build();
+    public final RenderTestRule mRenderTestRule =
+            RenderTestRule.Builder.withPublicCorpus()
+                    .setBugComponent(RenderTestRule.Component.UI_BROWSER_MOBILE_CUSTOM_TABS)
+                    .build();
 
     @Before
     public void setUp() throws TimeoutException {
@@ -83,8 +87,8 @@ public class IncognitoCustomTabActivityRenderTest {
 
     private void prepareCCTIntent() {
         String url = mEmbeddedTestServerRule.getServer().getURL(TEST_PAGE);
-        mIntent = CustomTabsTestUtils.createMinimalIncognitoCustomTabIntent(
-                InstrumentationRegistry.getContext(), url);
+        mIntent = CustomTabsIntentTestUtils.createMinimalIncognitoCustomTabIntent(
+                ApplicationProvider.getApplicationContext(), url);
     }
 
     private void startActivity(String renderTestId, int mScreenOrientation) throws IOException {

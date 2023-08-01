@@ -1,22 +1,20 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/download/vcard_coordinator.h"
 
-#include "base/test/scoped_feature_list.h"
-#include "base/test/task_environment.h"
-#include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
+#import "base/test/task_environment.h"
 #import "ios/chrome/browser/download/vcard_tab_helper.h"
 #import "ios/chrome/browser/download/vcard_tab_helper_delegate.h"
-#import "ios/chrome/browser/main/test_browser.h"
-#import "ios/chrome/browser/ui/download/features.h"
-#import "ios/chrome/browser/web_state_list/fake_web_state_list_delegate.h"
-#import "ios/chrome/browser/web_state_list/web_state_list.h"
-#import "ios/chrome/browser/web_state_list/web_state_opener.h"
+#import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
+#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/web_state_list/test/fake_web_state_list_delegate.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_opener.h"
 #import "ios/chrome/test/scoped_key_window.h"
 #import "ios/web/public/test/fakes/fake_web_state.h"
-#include "testing/platform_test.h"
+#import "testing/platform_test.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -32,7 +30,6 @@ class VcardCoordinatorTest : public PlatformTest {
         [[VcardCoordinator alloc] initWithBaseViewController:nil
                                                      browser:browser_.get()];
     [scoped_key_window_.Get() setRootViewController:nil];
-    feature_list_.InitAndEnableFeature(kDownloadVcard);
 
     [coordinator_ start];
   }
@@ -41,7 +38,6 @@ class VcardCoordinatorTest : public PlatformTest {
 
   // Needed for test browser state created by TestBrowser().
   base::test::TaskEnvironment task_environment_;
-  base::test::ScopedFeatureList feature_list_;
   std::unique_ptr<TestChromeBrowserState> browser_state_;
   std::unique_ptr<TestBrowser> browser_;
   VcardCoordinator* coordinator_;

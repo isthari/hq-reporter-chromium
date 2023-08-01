@@ -1,12 +1,17 @@
-// Copyright (c) 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef ASH_SYSTEM_PHONEHUB_PHONE_HUB_METRICS_H_
 #define ASH_SYSTEM_PHONEHUB_PHONE_HUB_METRICS_H_
 
-namespace ash {
-namespace phone_hub_metrics {
+#include "base/time/time.h"
+#include "chromeos/ash/components/phonehub/recent_apps_interaction_handler.h"
+
+namespace ash::phone_hub_metrics {
+
+using RecentAppsUiState =
+    phonehub::RecentAppsInteractionHandler::RecentAppsUiState;
 
 // Keep in sync with corresponding enum in tools/metrics/histograms/enums.xml.
 enum class InterstitialScreenEvent {
@@ -31,7 +36,8 @@ enum class Screen {
   kInvalid = 8,
   kPhoneConnecting = 9,
   kTetherConnectionPending = 10,
-  kMaxValue = kTetherConnectionPending
+  kMiniLauncher = 11,
+  kMaxValue = kMiniLauncher
 };
 
 // Keep in sync with corresponding enum in tools/metrics/histograms/enums.xml.
@@ -85,6 +91,22 @@ enum class CameraRollContextMenuDownload {
   kMaxValue = kDownloadGTE5
 };
 
+// Keep in sync with corresponding enum in tools/metrics/histograms/enums.xml.
+enum class MoreAppsButtonLoadingState {
+  kAnimationShown = 0,
+  kMoreAppsButtonLoaded = 1,
+  kMaxValue = kMoreAppsButtonLoaded
+};
+
+// Keep in sync with RecentAppsViewUiState in
+// tools/metrics/histograms/enums.xml.
+enum class RecentAppsViewUiState {
+  kLoading = 0,
+  kError = 1,
+  kApps = 2,
+  kMaxValue = kApps,
+};
+
 enum class CameraRollMediaType { kPhoto = 0, kVideo = 1, kMaxValue = kVideo };
 
 // Logs an |event| occurring for the given |interstitial_screen|.
@@ -98,12 +120,6 @@ void LogScreenOnBubbleClose(Screen screen);
 
 // Logs the |screen| when the settings button is clicked.
 void LogScreenOnSettingsButtonClicked(Screen screen);
-
-// Logs an |event| for the notification opt-in prompt.
-void LogNotificationOptInEvent(InterstitialScreenEvent event);
-
-// Logs an |event| for the camera roll opt-in dialog in phone hub view.
-void LogCameraRollOptInEvent(InterstitialScreenEvent event);
 
 // Logs the |tab_index| of the tab continuation chip that was clicked.
 void LogTabContinuationChipClicked(int tab_index);
@@ -129,7 +145,28 @@ void LogCameraRollContentClicked(int index, CameraRollMediaType mediaType);
 // Logs a download of item at |index| from the Camera Roll context menu.
 void LogCameraRollContextMenuDownload(int index, CameraRollMediaType mediaType);
 
-}  // namespace phone_hub_metrics
-}  // namespace ash
+// Logs the display of any Camera Roll item. Emits once per opening of bubble.
+void LogCameraRollContentPresent();
+
+// Logs if the glimmer animation was shown or not (more apps button was shown
+// instead) when Phone Hub is opened.
+void LogMoreAppsButtonAnimationOnShow(MoreAppsButtonLoadingState loading_state);
+
+// Logs the time latency from initializing the More Apps button and when we
+// receive/load the full apps list.
+void LogMoreAppsButtonFullAppsLatency(const base::TimeDelta latency);
+
+// Logs the recent apps UI state when the Phone Hub bubble is opened.
+void LogRecentAppsStateOnBubbleOpened(RecentAppsUiState ui_state);
+
+// Logs the latency between showing the loading animation in the Recent Apps
+// view to the connection failed error button.
+void LogRecentAppsTransitionToFailedLatency(const base::TimeDelta latency);
+
+// Logs the latency between showing the loading animation in the Recent Apps
+// view to showing the recent apps icons and more apps button.
+void LogRecentAppsTransitionToSuccessLatency(const base::TimeDelta latency);
+
+}  // namespace ash::phone_hub_metrics
 
 #endif  // ASH_SYSTEM_PHONEHUB_PHONE_HUB_METRICS_H_

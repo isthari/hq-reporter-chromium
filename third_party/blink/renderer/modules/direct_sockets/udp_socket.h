@@ -1,27 +1,27 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_DIRECT_SOCKETS_UDP_SOCKET_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_DIRECT_SOCKETS_UDP_SOCKET_H_
 
-#include "base/callback_forward.h"
+#include "third_party/blink/renderer/modules/direct_sockets/socket.h"
+
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
-#include "services/network/public/mojom/udp_socket.mojom-blink.h"
+#include "services/network/public/mojom/restricted_udp_socket.mojom-blink.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
-#include "third_party/blink/public/mojom/direct_sockets/direct_sockets.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
-#include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/modules/direct_sockets/udp_readable_stream_wrapper.h"
 #include "third_party/blink/renderer/modules/direct_sockets/udp_socket_mojo_remote.h"
 #include "third_party/blink/renderer/modules/direct_sockets/udp_writable_stream_wrapper.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
+#include "third_party/blink/renderer/platform/bindings/trace_wrapper_v8_reference.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_receiver.h"
@@ -34,70 +34,84 @@ class IPEndPoint;
 
 namespace blink {
 
-class ExecutionContext;
+class UDPSocketOptions;
+class ScriptState;
+class SocketCloseOptions;
 
-class MODULES_EXPORT UDPSocket final
-    : public ScriptWrappable,
-      public ActiveScriptWrappable<UDPSocket>,
-      public ExecutionContextClient,
-      public network::mojom::blink::UDPSocketListener {
+// UDPSocket interface from udp_socket.idl
+class MODULES_EXPORT UDPSocket final : public ScriptWrappable,
+                                       public Socket,
+                                       public ActiveScriptWrappable<UDPSocket> {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  explicit UDPSocket(ExecutionContext* execution_context,
-                     ScriptPromiseResolver&);
+  // IDL definitions
+  static UDPSocket* Create(ScriptState*,
+                           const UDPSocketOptions*,
+                           ExceptionState&);
+
+  // Socket:
+  ScriptPromise close(ScriptState*, ExceptionState&) override;
+
+ public:
+  explicit UDPSocket(ScriptState*);
   ~UDPSocket() override;
 
-  UDPSocket(const UDPSocket&) = delete;
-  UDPSocket& operator=(const UDPSocket&) = delete;
+  // Validates options and calls OpenBoundUDPSocket(...) or
+  // OpenConnectedUDPSocket() depending on the provided options.
+  bool Open(const UDPSocketOptions*, ExceptionState&);
 
-  // Called by NavigatorSocket when initiating a connection:
-  mojo::PendingReceiver<blink::mojom::blink::DirectUDPSocket>
-  GetUDPSocketReceiver();
-  mojo::PendingRemote<network::mojom::blink::UDPSocketListener>
-  GetUDPSocketListener();
-  void Init(int32_t result,
-            const absl::optional<net::IPEndPoint>& local_addr,
-            const absl::optional<net::IPEndPoint>& peer_addr);
+  // On net::OK initializes readable/writable streams and resolves opened
+  // promise. Otherwise rejects the opened promise.
+  void OnConnectedUDPSocketOpened(
+      mojo::PendingReceiver<network::mojom::blink::UDPSocketListener>,
+      int32_t result,
+      const absl::optional<net::IPEndPoint>& local_addr,
+      const absl::optional<net::IPEndPoint>& peer_addr);
 
-  // Web-exposed functions
-  ScriptPromise close(ScriptState* script_state,
-                      ExceptionState& exception_state);
+  // On net::OK initializes readable/writable streams and resolves opened
+  // promise. Otherwise rejects the opened promise.
+  void OnBoundUDPSocketOpened(
+      mojo::PendingReceiver<network::mojom::blink::UDPSocketListener>,
+      int32_t result,
+      const absl::optional<net::IPEndPoint>& local_addr);
 
-  ReadableStream* readable() const;
-  WritableStream* writable() const;
-  String remoteAddress() const;
-  uint16_t remotePort() const;
-  uint16_t localPort() const;
+  void Trace(Visitor*) const override;
 
-  // network::mojom::blink::UDPSocketListener:
-  void OnReceived(int32_t result,
-                  const absl::optional<::net::IPEndPoint>& src_addr,
-                  absl::optional<::base::span<const ::uint8_t>> data) override;
-
-  // ActiveScriptWrappable overrides.
+  // ActiveScriptWrappable:
   bool HasPendingActivity() const override;
-  void Trace(Visitor* visitor) const override;
+
+  // ExecutionContextLifecycleStateObserver:
+  void ContextDestroyed() override;
 
  private:
-  void OnSocketListenerConnectionError();
-  void DoClose();
-  void CloseInternal();
+  void FinishOpen(
+      network::mojom::RestrictedUDPSocketMode,
+      mojo::PendingReceiver<network::mojom::blink::UDPSocketListener>,
+      int32_t result,
+      const absl::optional<net::IPEndPoint>& local_addr,
+      const absl::optional<net::IPEndPoint>& peer_addr);
 
-  Member<ScriptPromiseResolver> init_resolver_;
-  FrameOrWorkerScheduler::SchedulingAffectingFeatureHandle
-      feature_handle_for_scheduler_;
+  void FailOpenWith(int32_t error);
 
-  const Member<UDPSocketMojoRemote> udp_socket_;
-  HeapMojoReceiver<network::mojom::blink::UDPSocketListener, UDPSocket>
-      socket_listener_receiver_;
+  mojo::PendingReceiver<network::mojom::blink::RestrictedUDPSocket>
+  GetUDPSocketReceiver();
 
-  Member<UDPReadableStreamWrapper> udp_readable_stream_wrapper_;
-  Member<UDPWritableStreamWrapper> udp_writable_stream_wrapper_;
-  absl::optional<net::IPEndPoint> local_addr_;
-  absl::optional<net::IPEndPoint> peer_addr_;
+  // Invoked if mojo pipe for |service_| breaks.
+  void OnServiceConnectionError() override;
 
-  bool closed_ = false;
+  // Invoked if mojo pipe for |udp_socket_| breaks.
+  void CloseOnError();
+
+  // Resets mojo resources held by this class.
+  void ReleaseResources();
+
+  void OnBothStreamsClosed(std::vector<ScriptValue> args);
+
+  Member<UDPSocketMojoRemote> udp_socket_;
+
+  Member<UDPReadableStreamWrapper> readable_stream_wrapper_;
+  Member<UDPWritableStreamWrapper> writable_stream_wrapper_;
 };
 
 }  // namespace blink

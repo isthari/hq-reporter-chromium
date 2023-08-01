@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,8 @@
 
 #include "ash/app_menu/app_menu_model_adapter.h"
 #include "ash/test/ash_test_base.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/models/simple_menu_model.h"
@@ -24,8 +26,8 @@ void BuildAndSendNotification(const std::string& app_id,
   std::unique_ptr<message_center::Notification> notification =
       std::make_unique<message_center::Notification>(
           message_center::NOTIFICATION_TYPE_SIMPLE, notification_id,
-          u"Test Web Notification", u"Notification message body.", gfx::Image(),
-          u"www.test.org", GURL(), notifier_id,
+          u"Test Web Notification", u"Notification message body.",
+          ui::ImageModel(), u"www.test.org", GURL(), notifier_id,
           message_center::RichNotificationData(), nullptr /* delegate */);
   message_center::MessageCenter::Get()->AddNotification(
       std::move(notification));
@@ -83,7 +85,7 @@ class NotificationMenuControllerTest : public AshTestBase {
     root_menu_item_view_ =
         new views::MenuItemView(test_app_menu_model_adapter_.get());
     host_view_ = std::make_unique<views::View>();
-    host_view_->AddChildView(root_menu_item_view_);
+    host_view_->AddChildView(root_menu_item_view_.get());
     test_app_menu_model_adapter_->BuildMenu(root_menu_item_view_);
 
     notification_menu_controller_ =
@@ -96,7 +98,7 @@ class NotificationMenuControllerTest : public AshTestBase {
 
  private:
   // The root MenuItemView. Owned by |host_view_|.
-  views::MenuItemView* root_menu_item_view_ = nullptr;
+  raw_ptr<views::MenuItemView, ExperimentalAsh> root_menu_item_view_ = nullptr;
   // Allows the dtor to access the restricted views::MenuItemView dtor.
   std::unique_ptr<views::View> host_view_;
   std::unique_ptr<NotificationMenuController> notification_menu_controller_;

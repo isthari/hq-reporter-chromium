@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,8 +40,7 @@ class GeneratedNotificationPref
   // Generated Preference Interface.
   extensions::settings_private::SetPrefResult SetPref(
       const base::Value* value) override;
-  std::unique_ptr<extensions::api::settings_private::PrefObject> GetPrefObject()
-      const override;
+  extensions::api::settings_private::PrefObject GetPrefObject() const override;
 
   void OnContentSettingChanged(
       const ContentSettingsPattern& primary_pattern,
@@ -52,8 +51,8 @@ class GeneratedNotificationPref
 
  private:
   static void ApplyNotificationManagementState(
-      Profile* profile,
-      extensions::api::settings_private::PrefObject* pref_object);
+      Profile& profile,
+      extensions::api::settings_private::PrefObject& pref_object);
 
   const raw_ptr<Profile> profile_;
   raw_ptr<HostContentSettingsMap> host_content_settings_map_;

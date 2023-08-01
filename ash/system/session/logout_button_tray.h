@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "ash/ash_export.h"
 #include "ash/public/cpp/session/session_observer.h"
 #include "ash/system/tray/tray_background_view.h"
+#include "base/memory/raw_ptr.h"
 #include "base/time/time.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/view.h"
@@ -62,7 +63,7 @@ class ASH_EXPORT LogoutButtonTray : public TrayBackgroundView,
 
   void ButtonPressed();
 
-  views::MdTextButton* button_;
+  raw_ptr<views::MdTextButton, ExperimentalAsh> button_;
   bool show_logout_button_in_tray_ = false;
   base::TimeDelta dialog_duration_;
 

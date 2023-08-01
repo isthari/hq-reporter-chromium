@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,10 @@
 
 #include <limits>
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
@@ -257,9 +257,16 @@ TEST_F(LevelDBSiteDataStoreTest, DatabaseRecoveryTest) {
   // manifest files.
 }
 
+#if BUILDFLAG(IS_FUCHSIA)
+// TODO(crbug.com/1314084): Re-enable when DatabaseOpeningFailure works on
+// Fuchsia.
+#define MAYBE_DatabaseOpeningFailure DISABLED_DatabaseOpeningFailure
+#else
+#define MAYBE_DatabaseOpeningFailure DatabaseOpeningFailure
+#endif
 // Ensure that there's no fatal failures if we try using the data store after
 // failing to open it (all the events will be ignored).
-TEST_F(LevelDBSiteDataStoreTest, DatabaseOpeningFailure) {
+TEST_F(LevelDBSiteDataStoreTest, MAYBE_DatabaseOpeningFailure) {
   db_.reset();
   ScopedReadOnlyDirectory read_only_dir(GetTempPath());
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,13 +6,14 @@
 
 #include <memory>
 
-#include "base/bind.h"
-#include "base/guid.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/threading/platform_thread.h"
+#include "base/time/time.h"
+#include "base/uuid.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/web_data_service_factory.h"
@@ -102,7 +103,7 @@ class AutofillCounterTest : public InProcessBrowserTest {
                   const std::string& surname,
                   const std::string& address) {
     autofill::AutofillProfile profile;
-    std::string id = base::GenerateGUID();
+    std::string id = base::Uuid::GenerateRandomV4().AsLowercaseString();
     address_ids_.push_back(id);
     profile.set_guid(id);
     profile.SetInfo(autofill::AutofillType(autofill::NAME_FIRST),
@@ -115,7 +116,9 @@ class AutofillCounterTest : public InProcessBrowserTest {
   }
 
   void RemoveLastAddress() {
-    web_data_service_->RemoveAutofillProfile(address_ids_.back());
+    web_data_service_->RemoveAutofillProfile(
+        address_ids_.back(),
+        autofill::AutofillProfile::Source::kLocalOrSyncable);
     address_ids_.pop_back();
   }
 

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,17 +9,19 @@
 #include <memory>
 #include <utility>
 
-#include "base/callback.h"
 #include "base/compiler_specific.h"
 #include "base/component_export.h"
-#include "base/memory/ref_counted.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr_exclusion.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
 #include "base/task/sequenced_task_runner.h"
 #include "mojo/public/cpp/bindings/connection_group.h"
 #include "mojo/public/cpp/bindings/message.h"
-#include "mojo/public/cpp/system/core.h"
+#include "mojo/public/cpp/bindings/message_header_validator.h"
 #include "mojo/public/cpp/system/handle_signal_tracker.h"
+#include "mojo/public/cpp/system/message_pipe.h"
 #include "mojo/public/cpp/system/simple_watcher.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
@@ -28,9 +30,6 @@ class Lock;
 }
 
 namespace mojo {
-namespace internal {
-class MessageQuotaChecker;
-}
 
 class SyncHandleWatcher;
 
@@ -222,16 +221,16 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS) Connector : public MessageReceiver {
 
   base::SequencedTaskRunner* task_runner() const { return task_runner_.get(); }
 
-  // Sets the quota checker.
-  void SetMessageQuotaChecker(
-      scoped_refptr<internal::MessageQuotaChecker> checker);
-
   // Allows testing environments to override the default serialization behavior
   // of newly constructed Connector instances. Must be called before any
   // Connector instances are constructed.
   static void OverrideDefaultSerializationBehaviorForTesting(
       OutgoingSerializationMode outgoing_mode,
       IncomingSerializationMode incoming_mode);
+
+  // Feeds a message to the Connector as if the Connector read it from a pipe.
+  // Used for testing and fuzzing.
+  bool SimulateReadMessage(ScopedMessageHandle message);
 
  private:
   class ActiveDispatchTracker;
@@ -251,12 +250,12 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS) Connector : public MessageReceiver {
   // Attempts to read a single Message from the pipe. Returns |MOJO_RESULT_OK|
   // and a valid message in |*message| iff a message was successfully read and
   // prepared for dispatch.
-  MojoResult ReadMessage(Message* message);
+  MojoResult ReadMessage(ScopedMessageHandle& message);
 
   // Dispatches |message| to the receiver. Returns |true| if the message was
   // accepted by the receiver, and |false| otherwise (e.g. if it failed
   // validation).
-  bool DispatchMessage(Message message);
+  bool DispatchMessage(ScopedMessageHandle handle);
 
   // Posts a task to read the next message from the pipe. These two functions
   // keep |num_pending_read_tasks_| up to date to limit the number of posted
@@ -297,7 +296,7 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS) Connector : public MessageReceiver {
   ScopedMessagePipeHandle message_pipe_;
   // `incoming_receiver_` is not a raw_ptr<...> for performance reasons (based
   // on analysis of sampling profiler data).
-  MessageReceiver* incoming_receiver_ = nullptr;
+  RAW_PTR_EXCLUSION MessageReceiver* incoming_receiver_ = nullptr;
 
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
   std::unique_ptr<SimpleWatcher> handle_watcher_;
@@ -328,9 +327,6 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS) Connector : public MessageReceiver {
 
   SEQUENCE_CHECKER(sequence_checker_);
 
-  // The quota checker associate with this connector, if any.
-  scoped_refptr<internal::MessageQuotaChecker> quota_checker_;
-
   // Indicates whether the Connector is configured to actively read from its
   // message pipe. As long as this is true, the Connector is only safe to
   // destroy in sequence with `task_runner_` tasks.
@@ -344,7 +340,7 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS) Connector : public MessageReceiver {
   // Connector was created.
   // `nesting_observer_` is not a raw_ptr<...> for performance reasons (based on
   // analysis of sampling profiler data).
-  RunLoopNestingObserver* nesting_observer_ = nullptr;
+  RAW_PTR_EXCLUSION RunLoopNestingObserver* nesting_observer_ = nullptr;
 
   // |true| iff the Connector is currently dispatching a message. Used to detect
   // nested dispatch operations.
@@ -352,6 +348,8 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS) Connector : public MessageReceiver {
 
   // The number of pending tasks for |CallDispatchNextMessageFromPipe|.
   size_t num_pending_dispatch_tasks_ = 0;
+
+  MessageHeaderValidator header_validator_;
 
 #if defined(ENABLE_IPC_FUZZER)
   std::unique_ptr<MessageReceiver> message_dumper_;

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,19 +9,15 @@
 #include "ash/clipboard/clipboard_nudge.h"
 #include "ash/constants/ash_features.h"
 #include "ash/constants/ash_pref_names.h"
+#include "ash/constants/notifier_catalogs.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
-#include "base/bind.h"
 #include "base/json/values_util.h"
-#include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
-#include "base/metrics/histogram_macros.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "ui/base/clipboard/clipboard_monitor.h"
-#include "ui/compositor/layer.h"
-#include "ui/compositor/scoped_layer_animation_settings.h"
 
 namespace ash {
 namespace {
@@ -29,7 +25,6 @@ namespace {
 // Keys for tooltip sub-preferences for shown count and last time shown.
 constexpr char kShownCount[] = "shown_count";
 constexpr char kLastTimeShown[] = "last_time_shown";
-constexpr char kNewFeatureBadgeCount[] = "new_feature_shown_count";
 
 // The maximum number of 1 second buckets used to record the time between
 // showing the nudge and recording the feature being opened/used.
@@ -71,6 +66,19 @@ bool LogFeatureUsedTime(
                                 kMaxSeconds);
   return true;
 }
+
+NudgeCatalogName GetCatalogName(ClipboardNudgeType type) {
+  switch (type) {
+    case kOnboardingNudge:
+      return NudgeCatalogName::kClipboardHistoryOnboarding;
+    case kZeroStateNudge:
+      return NudgeCatalogName::kClipboardHistoryZeroState;
+    case kScreenshotNotificationNudge:
+      NOTREACHED();
+  }
+  return NudgeCatalogName::kTestCatalogName;
+}
+
 }  // namespace
 
 ClipboardNudgeController::ClipboardNudgeController(
@@ -81,16 +89,12 @@ ClipboardNudgeController::ClipboardNudgeController(
   clipboard_history_->AddObserver(this);
   clipboard_history_controller_->AddObserver(this);
   ui::ClipboardMonitor::GetInstance()->AddObserver(this);
-  if (chromeos::features::IsClipboardHistoryNudgeSessionResetEnabled())
-    Shell::Get()->session_controller()->AddObserver(this);
 }
 
 ClipboardNudgeController::~ClipboardNudgeController() {
   clipboard_history_->RemoveObserver(this);
   clipboard_history_controller_->RemoveObserver(this);
   ui::ClipboardMonitor::GetInstance()->RemoveObserver(this);
-  if (chromeos::features::IsClipboardHistoryNudgeSessionResetEnabled())
-    Shell::Get()->session_controller()->RemoveObserver(this);
 }
 
 // static
@@ -121,25 +125,6 @@ void ClipboardNudgeController::OnClipboardHistoryItemAdded(
   }
 }
 
-void ClipboardNudgeController::MarkNewFeatureBadgeShown() {
-  PrefService* prefs =
-      Shell::Get()->session_controller()->GetLastActiveUserPrefService();
-  if (!prefs)
-    return;
-  const int shown_count = GetNewFeatureBadgeShownCount(prefs);
-  DictionaryPrefUpdate update(prefs, prefs::kMultipasteNudges);
-  update->SetIntPath(kNewFeatureBadgeCount, shown_count + 1);
-  base::UmaHistogramBoolean(kNewBadge_ShowCount, true);
-  if (new_feature_last_shown_time_.ShouldLogFeatureOpenTime()) {
-    base::UmaHistogramExactLinear(kNewBadge_OpenTime, kMaxSeconds, kMaxSeconds);
-  }
-  if (new_feature_last_shown_time_.ShouldLogFeatureUsedTime()) {
-    base::UmaHistogramExactLinear(kNewBadge_PasteTime, kMaxSeconds,
-                                  kMaxSeconds);
-  }
-  new_feature_last_shown_time_.ResetTime();
-}
-
 void ClipboardNudgeController::MarkScreenshotNotificationShown() {
   base::UmaHistogramBoolean(kScreenshotNotification_ShowCount, true);
   if (screenshot_notification_last_shown_time_.ShouldLogFeatureOpenTime()) {
@@ -153,20 +138,10 @@ void ClipboardNudgeController::MarkScreenshotNotificationShown() {
   screenshot_notification_last_shown_time_.ResetTime();
 }
 
-bool ClipboardNudgeController::ShouldShowNewFeatureBadge() {
-  PrefService* prefs =
-      Shell::Get()->session_controller()->GetLastActiveUserPrefService();
-  if (!prefs)
-    return false;
-  int badge_shown_count = GetNewFeatureBadgeShownCount(prefs);
-  // We should not show more nudges after hitting the limit.
-  return badge_shown_count < kContextMenuBadgeShowLimit;
-}
-
 void ClipboardNudgeController::OnClipboardDataRead() {
   PrefService* prefs =
       Shell::Get()->session_controller()->GetLastActiveUserPrefService();
-  if (!ClipboardHistoryUtil::IsEnabledInCurrentMode() || !prefs ||
+  if (!clipboard_history_util::IsEnabledInCurrentMode() || !prefs ||
       !ShouldShowNudge(prefs)) {
     return;
   }
@@ -196,18 +171,7 @@ void ClipboardNudgeController::OnClipboardDataRead() {
   }
 }
 
-void ClipboardNudgeController::OnActiveUserPrefServiceChanged(
-    PrefService* prefs) {
-  // Reset the nudge prefs so that the nudge can be shown again.
-  DictionaryPrefUpdate update(prefs, prefs::kMultipasteNudges);
-  update->SetIntPath(kShownCount, 0);
-  update->SetPath(kLastTimeShown, base::TimeToValue(base::Time()));
-  update->SetIntPath(kNewFeatureBadgeCount, 0);
-}
-
 void ClipboardNudgeController::ShowNudge(ClipboardNudgeType nudge_type) {
-  DCHECK_NE(nudge_type, ClipboardNudgeType::kNewFeatureBadge);
-
   current_nudge_type_ = nudge_type;
   SystemNudgeController::ShowNudge();
 
@@ -251,40 +215,44 @@ void ClipboardNudgeController::HandleNudgeShown() {
   if (!prefs)
     return;
   const int shown_count = GetShownCount(prefs);
-  DictionaryPrefUpdate update(prefs, prefs::kMultipasteNudges);
-  update->SetIntPath(kShownCount, shown_count + 1);
-  update->SetPath(kLastTimeShown, base::TimeToValue(GetTime()));
+  ScopedDictPrefUpdate update(prefs, prefs::kMultipasteNudges);
+  update->Set(kShownCount, shown_count + 1);
+  update->Set(kLastTimeShown, base::TimeToValue(GetTime()));
 }
 
 void ClipboardNudgeController::OnClipboardHistoryMenuShown(
     crosapi::mojom::ClipboardHistoryControllerShowSource show_source) {
-  if (LogFeatureOpenTime(last_shown_time_, kOnboardingNudge_OpenTime))
-    last_shown_time_.set_was_logged_as_opened();
-  switch (show_source) {
-    case crosapi::mojom::ClipboardHistoryControllerShowSource::kAccelerator:
-    case crosapi::mojom::ClipboardHistoryControllerShowSource::kVirtualKeyboard:
-    case crosapi::mojom::ClipboardHistoryControllerShowSource::kUnknown:
-      break;
-    case crosapi::mojom::ClipboardHistoryControllerShowSource::
-        kRenderViewContextMenu:
-    case crosapi::mojom::ClipboardHistoryControllerShowSource::
-        kTextfieldContextMenu:
-      if (LogFeatureOpenTime(new_feature_last_shown_time_, kNewBadge_OpenTime))
-        new_feature_last_shown_time_.set_was_logged_as_opened();
+  // The clipboard history nudges specifically suggest trying the Search+V
+  // shortcut. Opening the menu any other way should not count as the user
+  // responding to the nudge.
+  if (show_source !=
+      crosapi::mojom::ClipboardHistoryControllerShowSource::kAccelerator) {
+    return;
   }
-  if (LogFeatureOpenTime(zero_state_last_shown_time_, kZeroStateNudge_OpenTime))
+
+  if (LogFeatureOpenTime(last_shown_time_, kOnboardingNudge_OpenTime)) {
+    last_shown_time_.set_was_logged_as_opened();
+  }
+  if (LogFeatureOpenTime(zero_state_last_shown_time_,
+                         kZeroStateNudge_OpenTime)) {
     zero_state_last_shown_time_.set_was_logged_as_opened();
+  }
   if (LogFeatureOpenTime(screenshot_notification_last_shown_time_,
                          kScreenshotNotification_OpenTime)) {
     screenshot_notification_last_shown_time_.set_was_logged_as_opened();
   }
+
+  // These metrics will not be recorded if the respective nudges have not been
+  // shown before.
+  SystemNudgeController::RecordNudgeAction(
+      NudgeCatalogName::kClipboardHistoryOnboarding);
+  SystemNudgeController::RecordNudgeAction(
+      NudgeCatalogName::kClipboardHistoryZeroState);
 }
 
 void ClipboardNudgeController::OnClipboardHistoryPasted() {
   if (LogFeatureUsedTime(last_shown_time_, kOnboardingNudge_PasteTime))
     last_shown_time_.set_was_logged_as_used();
-  if (LogFeatureUsedTime(new_feature_last_shown_time_, kNewBadge_PasteTime))
-    new_feature_last_shown_time_.set_was_logged_as_used();
   if (LogFeatureUsedTime(zero_state_last_shown_time_,
                          kZeroStateNudge_PasteTime)) {
     zero_state_last_shown_time_.set_was_logged_as_used();
@@ -311,32 +279,21 @@ const ClipboardState& ClipboardNudgeController::GetClipboardStateForTesting() {
 }
 
 std::unique_ptr<SystemNudge> ClipboardNudgeController::CreateSystemNudge() {
-  return std::make_unique<ClipboardNudge>(current_nudge_type_);
+  return std::make_unique<ClipboardNudge>(current_nudge_type_,
+                                          GetCatalogName(current_nudge_type_));
 }
 
 int ClipboardNudgeController::GetShownCount(PrefService* prefs) {
-  const base::Value* dictionary =
-      prefs->GetDictionary(prefs::kMultipasteNudges);
-  if (!dictionary)
-    return 0;
-  return dictionary->FindIntPath(kShownCount).value_or(0);
-}
-
-int ClipboardNudgeController::GetNewFeatureBadgeShownCount(PrefService* prefs) {
-  const base::Value* dictionary =
-      prefs->GetDictionary(prefs::kMultipasteNudges);
-  if (!dictionary)
-    return 0;
-  return dictionary->FindIntPath(kNewFeatureBadgeCount).value_or(0);
+  const base::Value::Dict& dictionary =
+      prefs->GetDict(prefs::kMultipasteNudges);
+  return dictionary.FindInt(kShownCount).value_or(0);
 }
 
 base::Time ClipboardNudgeController::GetLastShownTime(PrefService* prefs) {
-  const base::Value* dictionary =
-      prefs->GetDictionary(prefs::kMultipasteNudges);
-  if (!dictionary)
-    return base::Time();
+  const base::Value::Dict& dictionary =
+      prefs->GetDict(prefs::kMultipasteNudges);
   absl::optional<base::Time> last_shown_time =
-      base::ValueToTime(dictionary->FindPath(kLastTimeShown));
+      base::ValueToTime(dictionary.Find(kLastTimeShown));
   return last_shown_time.value_or(base::Time());
 }
 

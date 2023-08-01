@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -69,7 +69,7 @@ class MODULES_EXPORT MediaControlInputElement : public HTMLInputElement,
   bool IsOverflowElement() const;
 
   // Sets/removes a CSS class from this element based on |should_have_class|.
-  void SetClass(const AtomicString& class_name, bool should_have_class);
+  void SetClass(const String& class_name, bool should_have_class);
 
   virtual void UpdateDisplayType();
 
@@ -78,6 +78,7 @@ class MODULES_EXPORT MediaControlInputElement : public HTMLInputElement,
 
  private:
   friend class MediaControlInputElementTest;
+  friend class MediaControlPopupMenuElementTest;
 
   bool IsMouseFocusable() const override;
   bool IsMediaControlElement() const final;

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,6 +40,7 @@ void AddReadOnlyFiles(std::vector<BrokerFilePermission>* permissions) {
   // These files are required for some syscalls e.g. get_nprocs, sysinfo.
   permissions->push_back(BrokerFilePermission::ReadOnly("/proc/stat"));
   permissions->push_back(BrokerFilePermission::ReadOnly("/proc/meminfo"));
+  permissions->push_back(BrokerFilePermission::ReadOnly("/proc/cpuinfo"));
 }
 
 std::vector<BrokerFilePermission> GetTtsFilePermissions() {

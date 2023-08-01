@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 
 #include <memory>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/strings/string_piece.h"
 #include "components/browsing_data/core/counters/browsing_data_counter.h"
 
@@ -22,7 +22,7 @@ class BrowsingDataCounterWrapper {
       const browsing_data::BrowsingDataCounter::Result&)>;
 
   // This method returns the counter corresponding to the data type specified by
-  // |pref_name| or null if there is no such counter.
+  // `pref_name` or null if there is no such counter.
   static std::unique_ptr<BrowsingDataCounterWrapper> CreateCounterWrapper(
       base::StringPiece pref_name,
       ChromeBrowserState* browser_state,

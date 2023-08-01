@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -60,10 +60,12 @@ struct HttpResponse {
 
   static HttpResponse Uninitialized();
   static HttpResponse ForNetError(int net_error_code);
-  static HttpResponse ForIoError();
   static HttpResponse ForUnspecifiedError();
   static HttpResponse ForHttpStatusCode(int http_status_code);
-  static HttpResponse ForSuccess();
+
+  // For testing only.
+  static HttpResponse ForSuccessForTest();
+  static HttpResponse ForIoErrorForTest();
 
  private:
   // Private to prevent accidental usage. Use Uninitialized() if you really need

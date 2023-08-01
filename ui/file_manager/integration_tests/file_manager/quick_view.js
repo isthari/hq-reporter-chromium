@@ -1,16 +1,26 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {assert} from 'chrome://resources/js/assert.m.js';
+import {assert} from 'chrome://resources/ash/common/assert.js';
 
 import {DialogType} from '../dialog_type.js';
 import {ExecuteScriptError} from '../remote_call.js';
-import {addEntries, ENTRIES, EntryType, getCaller, getHistogramCount, pending, repeatUntil, RootPath, sendTestMessage, TestEntryInfo, wait} from '../test_util.js';
+import {addEntries, ENTRIES, EntryType, getCaller, getHistogramCount, pending, repeatUntil, RootPath, sanitizeDate, sendTestMessage, TestEntryInfo, wait} from '../test_util.js';
 import {testcase} from '../testcase.js';
 
-import {mountCrostini, navigateWithDirectoryTree, openNewWindow, remoteCall, setupAndWaitUntilReady} from './background.js';
-import {BASIC_ANDROID_ENTRY_SET, BASIC_FAKE_ENTRY_SET, BASIC_LOCAL_ENTRY_SET} from './test_data.js';
+import {mountCrostini, mountGuestOs, navigateWithDirectoryTree, openNewWindow, remoteCall, setupAndWaitUntilReady} from './background.js';
+import {BASIC_ANDROID_ENTRY_SET, BASIC_DRIVE_ENTRY_SET, BASIC_FAKE_ENTRY_SET, BASIC_LOCAL_ENTRY_SET, BASIC_ZIP_ENTRY_SET, MODIFIED_ENTRY_SET} from './test_data.js';
+
+/**
+ * The tag used to create a safe environment to display the preview.
+ */
+const previewTag = 'iframe';
+
+/**
+ * The JS code used to query the content window for preview.
+ */
+const contentWindowQuery = 'document.querySelector("iframe").contentWindow';
 
 /**
  * The name of the UMA emitted to track how Quick View is opened.
@@ -28,6 +38,16 @@ const QuickViewUmaWayToOpenHistogramValues = {
   SPACE_KEY: 1,
   SELECTION_MENU: 2,
 };
+
+/**
+ * Checks if dark mode has been turned on or not.
+ *
+ * @return {!Promise<boolean>} enabled or not.
+ */
+async function isDarkModeEnabled() {
+  const isDarkModeEnabled = await sendTestMessage({name: 'isDarkModeEnabled'});
+  return isDarkModeEnabled === 'true';
+}
 
 /**
  * Returns the $i18n{} label for the Quick View item |text| if devtools code
@@ -67,11 +87,13 @@ async function i18nQuickViewLabelText(text) {
     'Device settings': 'METADATA_BOX_EXIF_DEVICE_SETTINGS',
     'Dimensions': 'METADATA_BOX_DIMENSION',
     'Duration': 'METADATA_BOX_DURATION',
+    'Encrypted': 'METADATA_BOX_ENCRYPTED',
     'File location': 'METADATA_BOX_FILE_LOCATION',
     'Frame rate': 'METADATA_BOX_FRAME_RATE',
     'General info': 'METADATA_BOX_GENERAL_INFO',
     'Genre': 'METADATA_BOX_GENRE',
     'Geography': 'METADATA_BOX_EXIF_GEOGRAPHY',
+    'Original location': 'METADATA_BOX_ORIGINAL_LOCATION',
     'Image info': 'METADATA_BOX_IMAGE_INFO',
     'Modified by': 'METADATA_BOX_MODIFIED_BY',
     'Page count': 'METADATA_BOX_PAGE_COUNT',
@@ -150,9 +172,7 @@ async function waitQuickViewClose(appId) {
  */
 async function openQuickView(appId, name) {
   // Select file |name| in the file list.
-  chrome.test.assertTrue(
-      !!await remoteCall.callRemoteTestUtil('selectFile', appId, [name]),
-      'selectFile failed');
+  await remoteCall.waitUntilSelected(appId, name);
 
   // Press the space key.
   const space = ['#file-list', ' ', false, false, false];
@@ -288,6 +308,9 @@ async function getQuickViewMetadataBoxField(appId, name, hidden = '') {
     case 'File location':
       filesMetadataBox += '[metadata~="location"]';
       break;
+    case 'Original location':
+      filesMetadataBox += '[metadata~="originalLocation"]';
+      break;
     default:
       filesMetadataBox += '[metadata~="meta"]';
       break;
@@ -317,7 +340,11 @@ async function getQuickViewMetadataBoxField(appId, name, hidden = '') {
   }
 
   const element = await remoteCall.waitForElement(appId, quickViewQuery);
-  return element.text;
+  if (name === 'Date modified') {
+    return sanitizeDate(element.text || '');
+  } else {
+    return element.text;
+  }
 }
 
 /**
@@ -385,10 +412,7 @@ testcase.openQuickViewViaContextMenuSingleSelection = async () => {
       RootPath.DOWNLOADS, BASIC_LOCAL_ENTRY_SET, []);
 
   // Select the file in the file list.
-  chrome.test.assertTrue(
-      !!await remoteCall.callRemoteTestUtil(
-          'selectFile', appId, [ENTRIES.hello.nameText]),
-      'selectFile failed');
+  await remoteCall.waitUntilSelected(appId, ENTRIES.hello.nameText);
 
   // Check: clicking the context menu "Get Info" should open Quick View.
   await openQuickViewViaContextMenu(appId, ENTRIES.hello.nameText);
@@ -539,6 +563,77 @@ testcase.openQuickViewRemovablePartitions = async () => {
 };
 
 /**
+ * Tests opening Quick View on an item that was Trashed shows original location
+ * instead of the current file location.
+ */
+testcase.openQuickViewTrash = async () => {
+  const appId = await setupAndWaitUntilReady(
+      RootPath.DOWNLOADS, BASIC_LOCAL_ENTRY_SET, []);
+
+  // Select hello.txt.
+  await remoteCall.waitAndClickElement(
+      appId, '#file-list [file-name="hello.txt"]');
+
+  // Delete item and wait for it to be removed (no dialog).
+  await remoteCall.waitAndClickElement(appId, '#move-to-trash-button');
+  await remoteCall.waitForElementLost(
+      appId, '#file-list [file-name="hello.txt"]');
+
+  // Navigate to /Trash and ensure the file is shown.
+  await navigateWithDirectoryTree(appId, '/Trash');
+  await remoteCall.waitAndClickElement(
+      appId, '#file-list [file-name="hello.txt"]');
+
+  // Open the file in Quick View.
+  await openQuickView(appId, 'hello.txt');
+
+  // Check: the original location should be shown instead of the actual file
+  // location.
+  const location =
+      await getQuickViewMetadataBoxField(appId, 'Original location');
+  chrome.test.assertEq('My files/Downloads/hello.txt', location);
+};
+
+/**
+ * Tests seeing dashes for an empty last_modified for DocumentsProvider.
+ */
+testcase.openQuickViewLastModifiedMetaData = async () => {
+  const documentsProviderVolumeQuery =
+      '[has-children="true"] [volume-type-icon="documents_provider"]';
+
+  // Add files to the DocumentsProvider volume.
+  await addEntries(['documents_provider'], MODIFIED_ENTRY_SET);
+
+  // Open Files app.
+  const appId = await openNewWindow(RootPath.DOWNLOADS);
+
+  // Wait for the DocumentsProvider volume to mount and then click to open
+  // DocumentsProvider Volume.
+  await remoteCall.waitAndClickElement(appId, documentsProviderVolumeQuery);
+
+  // Check: the DocumentsProvider files should appear in the file list.
+  const files = TestEntryInfo.getExpectedRows(MODIFIED_ENTRY_SET);
+  await remoteCall.waitForFiles(appId, files, {ignoreLastModifiedTime: true});
+
+  // Open a DocumentsProvider file in Quick View.
+  await openQuickView(appId, ENTRIES.hello.nameText);
+
+  const lastValidModifiedText =
+      await getQuickViewMetadataBoxField(appId, 'Date modified');
+  chrome.test.assertEq(ENTRIES.hello.lastModifiedTime, lastValidModifiedText);
+
+  await closeQuickView(appId);
+
+  // Open a DocumentsProvider file in Quick View.
+  await openQuickView(appId, ENTRIES.invalidLastModifiedDate.nameText);
+
+  // Modified time should be displayed as "--" when it's absent.
+  const lastInvalidModifiedText =
+      await getQuickViewMetadataBoxField(appId, 'Date modified');
+  chrome.test.assertEq('--', lastInvalidModifiedText);
+};
+
+/**
  * Tests opening Quick View on an MTP file.
  */
 testcase.openQuickViewMtp = async () => {
@@ -582,6 +677,19 @@ testcase.openQuickViewCrostini = async () => {
 };
 
 /**
+ * Tests opening Quick View on a GuestOS file.
+ */
+testcase.openQuickViewGuestOs = async () => {
+  // Open Files app on Downloads containing ENTRIES.photos.
+  const appId =
+      await setupAndWaitUntilReady(RootPath.DOWNLOADS, [ENTRIES.photos], []);
+
+  // Open a GuestOS file in Quick View.
+  await mountGuestOs(appId, BASIC_LOCAL_ENTRY_SET);
+  await openQuickView(appId, ENTRIES.hello.nameText);
+};
+
+/**
  * Tests opening Quick View on an Android file.
  */
 testcase.openQuickViewAndroid = async () => {
@@ -600,8 +708,37 @@ testcase.openQuickViewAndroid = async () => {
   await remoteCall.waitForFiles(appId, files, {ignoreLastModifiedTime: true});
 
   // Navigate to the Android files '/Documents' directory.
-  await remoteCall.navigateWithDirectoryTree(
-      appId, '/Documents', 'My files/Play files', 'android_files');
+  await navigateWithDirectoryTree(appId, '/My files/Play files/Documents');
+
+  // Check: the 'android.txt' file should appear in the file list.
+  files = [ENTRIES.documentsText.getExpectedRow()];
+  await remoteCall.waitForFiles(appId, files, {ignoreLastModifiedTime: true});
+
+  // Open the Android file in Quick View.
+  const documentsFileName = ENTRIES.documentsText.nameText;
+  await openQuickView(appId, documentsFileName);
+};
+
+/**
+ * Tests opening Quick View on an Android file on GuestOS.
+ */
+testcase.openQuickViewAndroidGuestOs = async () => {
+  // Open Files app on Android files.
+  const appId = await openNewWindow(RootPath.ANDROID_FILES);
+
+  // Add files to the Android files volume.
+  const entrySet = BASIC_ANDROID_ENTRY_SET.concat([ENTRIES.documentsText]);
+  await addEntries(['android_files'], entrySet);
+
+  // Wait for the file list to appear.
+  await remoteCall.waitForElement(appId, '#file-list');
+
+  // Check: the basic Android file set should appear in the file list.
+  let files = TestEntryInfo.getExpectedRows(BASIC_ANDROID_ENTRY_SET);
+  await remoteCall.waitForFiles(appId, files, {ignoreLastModifiedTime: true});
+
+  // Navigate to the Android files '/Documents' directory.
+  await navigateWithDirectoryTree(appId, '/My files/Play files/Documents');
 
   // Check: the 'android.txt' file should appear in the file list.
   files = [ENTRIES.documentsText.getExpectedRow()];
@@ -642,12 +779,6 @@ testcase.openQuickViewDocumentsProvider = async () => {
   await openQuickView(appId, ENTRIES.hello.nameText);
 
   /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
-
-  /**
    * The text preview resides in the #quick-view shadow DOM, as a child of
    * the #dialog element.
    */
@@ -672,9 +803,6 @@ testcase.openQuickViewDocumentsProvider = async () => {
 
   // Wait until the preview displays the file's content.
   await repeatUntil(async () => {
-    const contentWindowQuery = remoteCall.isSwaMode() ?
-        'document.querySelector("iframe").contentWindow' :
-        'window';
     const getTextContent = contentWindowQuery + '.document.body.textContent';
     const text = await executeJsInPreviewTagAndCatchErrors(
         appId, preview, getTextContent);
@@ -698,12 +826,6 @@ testcase.openQuickViewDocumentsProvider = async () => {
  */
 testcase.openQuickViewSniffedText = async () => {
   const caller = getCaller();
-
-  /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
 
   /**
    * The text preview resides in the #quick-view shadow DOM, as a child of
@@ -747,12 +869,6 @@ testcase.openQuickViewTextFileWithUnknownMimeType = async () => {
   const caller = getCaller();
 
   /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
-
-  /**
    * The text preview resides in the #quick-view shadow DOM, as a child of
    * the #dialog element.
    */
@@ -793,12 +909,6 @@ testcase.openQuickViewUtf8Text = async () => {
   const caller = getCaller();
 
   /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
-
-  /**
    * The text preview resides in the #quick-view shadow DOM, as a child of
    * the #dialog element.
    */
@@ -829,9 +939,6 @@ testcase.openQuickViewUtf8Text = async () => {
 
   // Wait until the preview displays the file's content.
   await repeatUntil(async () => {
-    const contentWindowQuery = remoteCall.isSwaMode() ?
-        'document.querySelector("iframe").contentWindow' :
-        'window';
     const getTextContent = contentWindowQuery + '.document.body.textContent';
     const text = await executeJsInPreviewTagAndCatchErrors(
         appId, preview, getTextContent);
@@ -855,15 +962,6 @@ testcase.openQuickViewUtf8Text = async () => {
 testcase.openQuickViewScrollText = async () => {
   const caller = getCaller();
 
-  /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
-
-  const contentWindowQuery = remoteCall.isSwaMode() ?
-      'document.querySelector("iframe").contentWindow' :
-      'window';
   /**
    * The text preview resides in the #quick-view shadow DOM, as a child of
    * the #dialog element.
@@ -932,12 +1030,6 @@ testcase.openQuickViewPdf = async () => {
   const caller = getCaller();
 
   /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
-
-  /**
    * The PDF preview resides in the #quick-view shadow DOM, as a child of
    * the #dialog element.
    */
@@ -975,9 +1067,6 @@ testcase.openQuickViewPdf = async () => {
     return type[0];
   }
   const type = await repeatUntil(async () => {
-    const contentWindowQuery = remoteCall.isSwaMode() ?
-        'document.querySelector("iframe").contentWindow' :
-        'window';
     const getType =
         contentWindowQuery + '.document.querySelector("embed").type';
     const type =
@@ -998,12 +1087,6 @@ testcase.openQuickViewPdf = async () => {
  */
 testcase.openQuickViewPdfPopup = async () => {
   const caller = getCaller();
-
-  /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
 
   /**
    * The PDF preview resides in the #quick-view shadow DOM, as a child of
@@ -1043,9 +1126,6 @@ testcase.openQuickViewPdfPopup = async () => {
     return type[0];
   }
   const type = await repeatUntil(async () => {
-    const contentWindowQuery = remoteCall.isSwaMode() ?
-        'document.querySelector("iframe").contentWindow' :
-        'window';
     const getType =
         contentWindowQuery + '.document.querySelector("embed").type';
     const type =
@@ -1115,12 +1195,6 @@ testcase.openQuickViewMhtml = async () => {
   const caller = getCaller();
 
   /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
-
-  /**
    * The text preview resides in the #quick-view shadow DOM, as a child of
    * the #dialog element.
    */
@@ -1164,12 +1238,6 @@ testcase.openQuickViewMhtml = async () => {
  */
 testcase.openQuickViewScrollHtml = async () => {
   const caller = getCaller();
-
-  /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
 
   /**
    * The preview resides in the <files-safe-media type="html"> shadow DOM,
@@ -1264,7 +1332,7 @@ testcase.openQuickViewBackgroundColorHtml = async () => {
       haveElements = elements[0].styles.display.includes('block');
     }
     if (!haveElements || !elements[0].styles.backgroundColor) {
-      return pending(caller, 'Waiting for <file-safe-media> element.');
+      return pending(caller, 'Waiting for <files-safe-media> element.');
     }
     return elements[0].styles.backgroundColor;
   }
@@ -1274,8 +1342,12 @@ testcase.openQuickViewBackgroundColorHtml = async () => {
         'deepQueryAllElements', appId, [fileSafeMedia, styles]));
   });
 
-  // Check: the <files-safe-media> backgroundColor should be solid white.
-  chrome.test.assertEq('rgb(255, 255, 255)', backgroundColor);
+  // Check: the <files-safe-media> backgroundColor: var(--cros-bg-color).
+  if (await isDarkModeEnabled()) {
+    chrome.test.assertEq('rgb(32, 33, 36)', backgroundColor);
+  } else {
+    chrome.test.assertEq('rgb(255, 255, 255)', backgroundColor);
+  }
 };
 
 /**
@@ -1283,12 +1355,6 @@ testcase.openQuickViewBackgroundColorHtml = async () => {
  */
 testcase.openQuickViewAudio = async () => {
   const caller = getCaller();
-
-  /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
 
   /**
    * The preview resides in the <files-safe-media type="audio"> shadow DOM,
@@ -1339,8 +1405,13 @@ testcase.openQuickViewAudio = async () => {
   const backgroundColor = await remoteCall.executeJsInPreviewTag(
       appId, preview, getBackgroundStyle);
 
-  // Check: the preview body backgroundColor should be transparent black.
-  chrome.test.assertEq('rgba(0, 0, 0, 0)', backgroundColor[0]);
+  if (await isDarkModeEnabled()) {
+    // Check: the preview body backgroundColor should be black.
+    chrome.test.assertEq('rgb(0, 0, 0)', backgroundColor[0]);
+  } else {
+    // Check: the preview body backgroundColor should be transparent black.
+    chrome.test.assertEq('rgba(0, 0, 0, 0)', backgroundColor[0]);
+  }
 
   // Check: the correct mimeType should be displayed.
   const mimeType = await getQuickViewMetadataBoxField(appId, 'Type');
@@ -1352,12 +1423,6 @@ testcase.openQuickViewAudio = async () => {
  */
 testcase.openQuickViewAudioOnDrive = async () => {
   const caller = getCaller();
-
-  /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
 
   /**
    * The preview resides in the <files-safe-media type="audio"> shadow DOM,
@@ -1394,8 +1459,13 @@ testcase.openQuickViewAudioOnDrive = async () => {
   const backgroundColor = await remoteCall.executeJsInPreviewTag(
       appId, preview, getBackgroundStyle);
 
-  // Check: the preview body backgroundColor should be transparent black.
-  chrome.test.assertEq('rgba(0, 0, 0, 0)', backgroundColor[0]);
+  if (await isDarkModeEnabled()) {
+    // Check: the preview body backgroundColor should be black.
+    chrome.test.assertEq('rgb(0, 0, 0)', backgroundColor[0]);
+  } else {
+    // Check: the preview body backgroundColor should be transparent black.
+    chrome.test.assertEq('rgba(0, 0, 0, 0)', backgroundColor[0]);
+  }
 };
 
 /**
@@ -1416,12 +1486,6 @@ testcase.openQuickViewAudioWithImageMetadata = async () => {
     sizeText: '5KB',
     typeText: 'id3 encoded MP3 audio',
   });
-
-  /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
 
   /**
    * The preview resides in the <files-safe-media> shadow DOM, which
@@ -1470,12 +1534,6 @@ testcase.openQuickViewImageJpg = async () => {
   const caller = getCaller();
 
   /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
-
-  /**
    * The preview resides in the <files-safe-media type="image"> shadow DOM,
    * which is a child of the #quick-view shadow DOM.
    */
@@ -1510,8 +1568,13 @@ testcase.openQuickViewImageJpg = async () => {
   const backgroundColor = await remoteCall.executeJsInPreviewTag(
       appId, preview, getBackgroundStyle);
 
-  // Check: the preview body backgroundColor should be transparent black.
-  chrome.test.assertEq('rgba(0, 0, 0, 0)', backgroundColor[0]);
+  if (await isDarkModeEnabled()) {
+    // Check: the preview body backgroundColor should be black.
+    chrome.test.assertEq('rgb(0, 0, 0)', backgroundColor[0]);
+  } else {
+    // Check: the preview body backgroundColor should be transparent black.
+    chrome.test.assertEq('rgba(0, 0, 0, 0)', backgroundColor[0]);
+  }
 
   // Check: the correct mimeType should be displayed.
   const mimeType = await getQuickViewMetadataBoxField(appId, 'Type');
@@ -1523,12 +1586,6 @@ testcase.openQuickViewImageJpg = async () => {
  */
 testcase.openQuickViewImageJpeg = async () => {
   const caller = getCaller();
-
-  /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
 
   /**
    * The preview resides in the <files-safe-media type="image"> shadow DOM,
@@ -1565,8 +1622,13 @@ testcase.openQuickViewImageJpeg = async () => {
   const backgroundColor = await remoteCall.executeJsInPreviewTag(
       appId, preview, getBackgroundStyle);
 
-  // Check: the preview body backgroundColor should be transparent black.
-  chrome.test.assertEq('rgba(0, 0, 0, 0)', backgroundColor[0]);
+  if (await isDarkModeEnabled()) {
+    // Check: the preview body backgroundColor should be black.
+    chrome.test.assertEq('rgb(0, 0, 0)', backgroundColor[0]);
+  } else {
+    // Check: the preview body backgroundColor should be transparent black.
+    chrome.test.assertEq('rgba(0, 0, 0, 0)', backgroundColor[0]);
+  }
 
   // Check: the correct mimeType should be displayed.
   const mimeType = await getQuickViewMetadataBoxField(appId, 'Type');
@@ -1579,12 +1641,6 @@ testcase.openQuickViewImageJpeg = async () => {
  */
 testcase.openQuickViewImageExif = async () => {
   const caller = getCaller();
-
-  /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
 
   /**
    * The preview resides in the <files-safe-media type="image"> shadow DOM,
@@ -1640,12 +1696,6 @@ testcase.openQuickViewImageRaw = async () => {
   const caller = getCaller();
 
   /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
-
-  /**
    * The preview resides in the <files-safe-media type="image"> shadow DOM,
    * which is a child of the #quick-view shadow DOM.
    */
@@ -1693,12 +1743,6 @@ testcase.openQuickViewImageRaw = async () => {
  */
 testcase.openQuickViewImageRawWithOrientation = async () => {
   const caller = getCaller();
-
-  /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
 
   /**
    * The <files-safe-media type="image"> element is a shadow DOM child of
@@ -1766,12 +1810,6 @@ testcase.openQuickViewImageWebp = async () => {
   const caller = getCaller();
 
   /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
-
-  /**
    * The preview resides in the <files-safe-media type="image"> shadow DOM,
    * which is a child of the #quick-view shadow DOM.
    */
@@ -1816,12 +1854,6 @@ testcase.openQuickViewImageWebp = async () => {
  */
 testcase.openQuickViewImageClick = async () => {
   const caller = getCaller();
-
-  /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
 
   /**
    * The preview resides in the <files-safe-media type="image"> shadow DOM,
@@ -1927,12 +1959,6 @@ testcase.openQuickViewVideo = async () => {
   const caller = getCaller();
 
   /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
-
-  /**
    * The preview resides in the <files-safe-media type="video"> shadow DOM,
    * which is a child of the #quick-view shadow DOM.
    */
@@ -1967,8 +1993,13 @@ testcase.openQuickViewVideo = async () => {
   const backgroundColor = await remoteCall.executeJsInPreviewTag(
       appId, preview, getBackgroundStyle);
 
-  // Check: the preview body backgroundColor should be transparent black.
-  chrome.test.assertEq('rgba(0, 0, 0, 0)', backgroundColor[0]);
+  if (await isDarkModeEnabled()) {
+    // Check: the preview body backgroundColor should be black.
+    chrome.test.assertEq('rgb(0, 0, 0)', backgroundColor[0]);
+  } else {
+    // Check: the preview body backgroundColor should be transparent black.
+    chrome.test.assertEq('rgba(0, 0, 0, 0)', backgroundColor[0]);
+  }
 
   // Check: the correct mimeType should be displayed.
   const mimeType = await getQuickViewMetadataBoxField(appId, 'Type');
@@ -1977,10 +2008,9 @@ testcase.openQuickViewVideo = async () => {
   // Close Quick View.
   await closeQuickView(appId);
 
-  // Check quickview video <files-safe-media> has no "src", so it stops
-  // playing the video. crbug.com/970192
-  const noSrcFilesSafeMedia = ['#quick-view', '#videoSafeMedia[src=""]'];
-  await remoteCall.waitForElement(appId, noSrcFilesSafeMedia);
+  // Check: closing Quick View should remove the video <files-safe-media>
+  // preview element, so it stops playing the video. crbug.com/970192
+  await remoteCall.waitForElementLost(appId, preview);
 };
 
 /**
@@ -1988,12 +2018,6 @@ testcase.openQuickViewVideo = async () => {
  */
 testcase.openQuickViewVideoOnDrive = async () => {
   const caller = getCaller();
-
-  /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
 
   /**
    * The preview resides in the <files-safe-media type="video"> shadow DOM,
@@ -2030,8 +2054,13 @@ testcase.openQuickViewVideoOnDrive = async () => {
   const backgroundColor = await remoteCall.executeJsInPreviewTag(
       appId, preview, getBackgroundStyle);
 
-  // Check: the preview body backgroundColor should be transparent black.
-  chrome.test.assertEq('rgba(0, 0, 0, 0)', backgroundColor[0]);
+  if (await isDarkModeEnabled()) {
+    // Check: the preview body backgroundColor should be black.
+    chrome.test.assertEq('rgb(0, 0, 0)', backgroundColor[0]);
+  } else {
+    // Check: the preview body backgroundColor should be transparent black.
+    chrome.test.assertEq('rgba(0, 0, 0, 0)', backgroundColor[0]);
+  }
 
   // Check: the correct mimeType should be displayed.
   const mimeType = await getQuickViewMetadataBoxField(appId, 'Type');
@@ -2040,10 +2069,9 @@ testcase.openQuickViewVideoOnDrive = async () => {
   // Close Quick View.
   await closeQuickView(appId);
 
-  // Check quickview video <files-safe-media> has no "src", so it stops
-  // playing the video. crbug.com/970192
-  const noSrcFilesSafeMedia = ['#quick-view', '#videoSafeMedia[src=""]'];
-  await remoteCall.waitForElement(appId, noSrcFilesSafeMedia);
+  // Check: closing Quick View should remove the video <files-safe-media>
+  // preview element, so it stops playing the video. crbug.com/970192
+  await remoteCall.waitForElementLost(appId, preview);
 };
 
 /**
@@ -2052,12 +2080,6 @@ testcase.openQuickViewVideoOnDrive = async () => {
  */
 testcase.openQuickViewKeyboardUpDownChangesView = async () => {
   const caller = getCaller();
-
-  /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
 
   /**
    * The text preview resides in the #quick-view shadow DOM, as a child of
@@ -2095,9 +2117,6 @@ testcase.openQuickViewKeyboardUpDownChangesView = async () => {
 
   // Wait until the preview displays that file's content.
   await repeatUntil(async () => {
-    const contentWindowQuery = remoteCall.isSwaMode() ?
-        'document.querySelector("iframe").contentWindow' :
-        'window';
     const getTextContent = contentWindowQuery + '.document.body.textContent';
     const text = await executeJsInPreviewTagAndCatchErrors(
         appId, preview, getTextContent);
@@ -2113,9 +2132,6 @@ testcase.openQuickViewKeyboardUpDownChangesView = async () => {
 
   // Wait until the preview displays that file's content.
   await repeatUntil(async () => {
-    const contentWindowQuery = remoteCall.isSwaMode() ?
-        'document.querySelector("iframe").contentWindow' :
-        'window';
     const getTextContent = contentWindowQuery + '.document.body.textContent';
     const text = await executeJsInPreviewTagAndCatchErrors(
         appId, preview, getTextContent);
@@ -2131,12 +2147,6 @@ testcase.openQuickViewKeyboardUpDownChangesView = async () => {
  */
 testcase.openQuickViewKeyboardLeftRightChangesView = async () => {
   const caller = getCaller();
-
-  /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
 
   /**
    * The text preview resides in the #quick-view shadow DOM, as a child of
@@ -2174,9 +2184,6 @@ testcase.openQuickViewKeyboardLeftRightChangesView = async () => {
 
   // Wait until the preview displays that file's content.
   await repeatUntil(async () => {
-    const contentWindowQuery = remoteCall.isSwaMode() ?
-        'document.querySelector("iframe").contentWindow' :
-        'window';
     const getTextContent = contentWindowQuery + '.document.body.textContent';
     const text = await executeJsInPreviewTagAndCatchErrors(
         appId, preview, getTextContent);
@@ -2192,9 +2199,6 @@ testcase.openQuickViewKeyboardLeftRightChangesView = async () => {
 
   // Wait until the preview displays that file's content.
   await repeatUntil(async () => {
-    const contentWindowQuery = remoteCall.isSwaMode() ?
-        'document.querySelector("iframe").contentWindow' :
-        'window';
     const getTextContent = contentWindowQuery + '.document.body.textContent';
     const text = await executeJsInPreviewTagAndCatchErrors(
         appId, preview, getTextContent);
@@ -2284,12 +2288,6 @@ testcase.openQuickViewWithMultipleFiles = async () => {
   const caller = getCaller();
 
   /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
-
-  /**
    * The preview resides in the <files-safe-media type="image"> shadow DOM,
    * which is a child of the #quick-view shadow DOM.
    */
@@ -2354,12 +2352,6 @@ testcase.openQuickViewWithMultipleFiles = async () => {
  */
 testcase.openQuickViewWithMultipleFilesText = async () => {
   const caller = getCaller();
-
-  /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
 
   /**
    * The preview resides in the <files-safe-media type="image"> shadow DOM,
@@ -2454,12 +2446,6 @@ testcase.openQuickViewWithMultipleFilesPdf = async () => {
   const caller = getCaller();
 
   /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
-
-  /**
    * The preview resides in the <files-safe-media type="image"> shadow DOM,
    * which is a child of the #quick-view shadow DOM.
    */
@@ -2552,12 +2538,6 @@ testcase.openQuickViewWithMultipleFilesKeyboardUpDown = async () => {
   const caller = getCaller();
 
   /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
-
-  /**
    * The text preview resides in the #quick-view shadow DOM, as a child of
    * the #dialog element.
    */
@@ -2614,9 +2594,6 @@ testcase.openQuickViewWithMultipleFilesKeyboardUpDown = async () => {
 
   // Wait until the preview displays that file's content.
   await repeatUntil(async () => {
-    const contentWindowQuery = remoteCall.isSwaMode() ?
-        'document.querySelector("iframe").contentWindow' :
-        'window';
     const getTextContent = contentWindowQuery + '.document.body.textContent';
     const text = await executeJsInPreviewTagAndCatchErrors(
         appId, preview, getTextContent);
@@ -2633,9 +2610,6 @@ testcase.openQuickViewWithMultipleFilesKeyboardUpDown = async () => {
 
   // Wait until the preview displays that file's content.
   await repeatUntil(async () => {
-    const contentWindowQuery = remoteCall.isSwaMode() ?
-        'document.querySelector("iframe").contentWindow' :
-        'window';
     const getTextContent = contentWindowQuery + '.document.body.textContent';
     const text = await executeJsInPreviewTagAndCatchErrors(
         appId, preview, getTextContent);
@@ -2652,12 +2626,6 @@ testcase.openQuickViewWithMultipleFilesKeyboardUpDown = async () => {
  */
 testcase.openQuickViewWithMultipleFilesKeyboardLeftRight = async () => {
   const caller = getCaller();
-
-  /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
 
   /**
    * The text preview resides in the #quick-view shadow DOM, as a child of
@@ -2716,9 +2684,7 @@ testcase.openQuickViewWithMultipleFilesKeyboardLeftRight = async () => {
 
   // Wait until the preview displays that file's content.
   await repeatUntil(async () => {
-    const contentWindowQuery = remoteCall.isSwaMode() ?
-        'document.querySelector("iframe").contentWindow' :
-        'window';
+
     const getTextContent = contentWindowQuery + '.document.body.textContent';
     const text = await executeJsInPreviewTagAndCatchErrors(
         appId, preview, getTextContent);
@@ -2735,9 +2701,6 @@ testcase.openQuickViewWithMultipleFilesKeyboardLeftRight = async () => {
 
   // Wait until the preview displays that file's content.
   await repeatUntil(async () => {
-    const contentWindowQuery = remoteCall.isSwaMode() ?
-        'document.querySelector("iframe").contentWindow' :
-        'window';
     const getTextContent = contentWindowQuery + '.document.body.textContent';
     const text = await executeJsInPreviewTagAndCatchErrors(
         appId, preview, getTextContent);
@@ -3135,20 +3098,6 @@ testcase.openQuickViewAndDeleteSingleSelection = async () => {
       await remoteCall.callRemoteTestUtil('fakeKeyDown', appId, deleteKey),
       'Pressing Delete failed.');
 
-  if (await sendTestMessage({name: 'isTrashEnabled'}) !== 'true') {
-    // Check: the delete confirm dialog should focus the 'Cancel' button.
-    let defaultDialogButton = ['#quick-view', '.cr-dialog-cancel:focus'];
-    defaultDialogButton =
-        await remoteCall.waitForElement(appId, defaultDialogButton);
-    chrome.test.assertEq('Cancel', defaultDialogButton.text);
-
-    // Click the delete confirm dialog 'Delete' button.
-    let deleteDialogButton = ['#quick-view', '.cr-dialog-ok:not([hidden])'];
-    deleteDialogButton =
-        await remoteCall.waitAndClickElement(appId, deleteDialogButton);
-    chrome.test.assertEq('Delete', deleteDialogButton.text);
-  }
-
   // Check: |hello.txt| should have been deleted.
   await remoteCall.waitForElementLost(
       appId, '#file-list [file-name="hello.txt"]');
@@ -3194,20 +3143,6 @@ testcase.openQuickViewAndDeleteCheckSelection = async () => {
       await remoteCall.callRemoteTestUtil('fakeKeyDown', appId, deleteKey),
       'Pressing Delete failed.');
 
-  if (await sendTestMessage({name: 'isTrashEnabled'}) !== 'true') {
-    // Check: the delete confirm dialog should focus the 'Cancel' button.
-    let defaultDialogButton = ['#quick-view', '.cr-dialog-cancel:focus'];
-    defaultDialogButton =
-        await remoteCall.waitForElement(appId, defaultDialogButton);
-    chrome.test.assertEq('Cancel', defaultDialogButton.text);
-
-    // Click the delete confirm dialog 'Delete' button.
-    let deleteDialogButton = ['#quick-view', '.cr-dialog-ok:not([hidden])'];
-    deleteDialogButton =
-        await remoteCall.waitAndClickElement(appId, deleteDialogButton);
-    chrome.test.assertEq('Delete', deleteDialogButton.text);
-  }
-
   // Check: |hello.txt| should have been deleted.
   await remoteCall.waitForElementLost(
       appId, '#file-list [file-name="hello.txt"]');
@@ -3224,12 +3159,6 @@ testcase.openQuickViewAndDeleteCheckSelection = async () => {
     }
     return;
   }
-
-  /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
 
   const videoWebView =
       ['#quick-view', 'files-safe-media[type="video"]', previewTag];
@@ -3280,12 +3209,6 @@ testcase.openQuickViewDeleteEntireCheckSelection = async () => {
   await openQuickViewMultipleSelection(appId, ['Beautiful', 'Desktop']);
 
   /**
-   * The tag used to create a safe environment to display the preview: webview
-   * for legacy Files app and iframe for Files SWA.
-   */
-  const previewTag = remoteCall.isSwaMode() ? 'iframe' : 'webview';
-
-  /**
    * The preview resides in the <files-safe-media type="audio"> shadow DOM,
    * which is a child of the #quick-view shadow DOM.
    */
@@ -3313,12 +3236,6 @@ testcase.openQuickViewDeleteEntireCheckSelection = async () => {
   chrome.test.assertTrue(
       await remoteCall.callRemoteTestUtil('fakeKeyDown', appId, deleteKey),
       'Pressing Delete failed.');
-
-  // Click the delete confirm dialog OK button.
-  const deleteConfirm = ['#quick-view', '.cr-dialog-ok:not([hidden])'];
-  if (await sendTestMessage({name: 'isTrashEnabled'}) !== 'true') {
-    await remoteCall.waitAndClickElement(appId, deleteConfirm);
-  }
 
   // Check: |Beautiful Song.ogg| should have been deleted.
   await remoteCall.waitForElementLost(
@@ -3352,11 +3269,6 @@ testcase.openQuickViewDeleteEntireCheckSelection = async () => {
       await remoteCall.callRemoteTestUtil('fakeKeyDown', appId, deleteKey),
       'Pressing Delete failed.');
 
-  // Click the delete confirm dialog OK button.
-  if (await sendTestMessage({name: 'isTrashEnabled'}) !== 'true') {
-    await remoteCall.waitAndClickElement(appId, deleteConfirm);
-  }
-
   // Check: |My Desktop Background.png| should have been deleted.
   await remoteCall.waitForElementLost(
       appId, '#file-list [file-name="My Desktop Background.png"]');
@@ -3379,12 +3291,6 @@ testcase.openQuickViewClickDeleteButton = async () => {
   // Click the Quick View delete button.
   const quickViewDeleteButton = ['#quick-view', '#delete-button:not([hidden])'];
   await remoteCall.waitAndClickElement(appId, quickViewDeleteButton);
-
-  // Click the delete confirm dialog OK button.
-  if (await sendTestMessage({name: 'isTrashEnabled'}) !== 'true') {
-    const deleteConfirm = ['#quick-view', '.cr-dialog-ok:not([hidden])'];
-    await remoteCall.waitAndClickElement(appId, deleteConfirm);
-  }
 
   // Check: |hello.txt| should have been deleted.
   await remoteCall.waitForElementLost(
@@ -3683,4 +3589,47 @@ testcase.openQuickViewUmaViaSelectionMenuKeyboard = async () => {
   chrome.test.assertEq(
       selectionMenuUMAValueAfterOpening,
       selectionMenuUMAValueBeforeOpening + 1);
+};
+
+/**
+ * Tests that Quick View does not display a CSE file preview.
+ */
+testcase.openQuickViewEncryptedFile = async () => {
+  const caller = getCaller();
+
+  /**
+   * The #innerContentPanel resides in the #quick-view shadow DOM as a child
+   * of the #dialog element, and contains the file preview result.
+   */
+  const contentPanel = ['#quick-view', '#dialog[open] #innerContentPanel'];
+
+  const appId =
+      await setupAndWaitUntilReady(RootPath.DRIVE, [], [ENTRIES.testCSEFile]);
+
+  // Open the file in Quick View.
+  await openQuickView(appId, ENTRIES.testCSEFile.nameText);
+
+  // Get the content panel 'No preview available' item text.
+  const noPreviewAvailableText =
+      await i18nQuickViewLabelText('No preview available');
+
+  // Wait for the innerContentPanel to load and display its content.
+  function checkInnerContentPanel(elements) {
+    const haveElements = Array.isArray(elements) && elements.length === 1;
+    if (!haveElements || elements[0].styles.display !== 'flex') {
+      return pending(caller, 'Waiting for inner content panel to load.');
+    }
+    // Check: the preview should not be shown.
+    chrome.test.assertEq(noPreviewAvailableText, elements[0].innerText);
+    return;
+  }
+  await repeatUntil(async () => {
+    return checkInnerContentPanel(await remoteCall.callRemoteTestUtil(
+        'deepQueryAllElements', appId, [contentPanel, ['display']]));
+  });
+
+  // Check: the correct file mimeType should be displayed.
+  const mimeType = await getQuickViewMetadataBoxField(appId, 'Type');
+  chrome.test.assertEq(
+      await i18nQuickViewLabelText('Encrypted') + ' text/plain', mimeType);
 };

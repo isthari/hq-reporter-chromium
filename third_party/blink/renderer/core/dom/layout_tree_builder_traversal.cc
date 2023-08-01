@@ -28,6 +28,7 @@
 
 #include "third_party/blink/renderer/core/css/style_engine.h"
 #include "third_party/blink/renderer/core/dom/flat_tree_traversal.h"
+#include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/pseudo_element.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
@@ -41,10 +42,7 @@ inline static bool HasDisplayContentsStyle(const Node& node) {
 }
 
 static bool IsLayoutObjectReparented(const LayoutObject* layout_object) {
-  auto* element = DynamicTo<Element>(layout_object->GetNode());
-  if (!element)
-    return false;
-  return element->IsInTopLayer();
+  return layout_object->IsInTopOrViewTransitionLayer();
 }
 
 ContainerNode* LayoutTreeBuilderTraversal::Parent(const Node& node) {
@@ -102,35 +100,34 @@ Node* LayoutTreeBuilderTraversal::NextSibling(const Node& node) {
       [[fallthrough]];
     case kPseudoIdAfter:
       return nullptr;
-    case kPseudoIdTransition:
+    case kPseudoIdViewTransition:
       return nullptr;
-    case kPseudoIdTransitionContainer: {
+    case kPseudoIdViewTransitionGroup: {
       auto* pseudo_element = DynamicTo<PseudoElement>(node);
       DCHECK(pseudo_element);
 
       // Iterate the list of IDs until we hit the entry for |node's| ID. The
       // sibling is the next ID in the list which generates a pseudo element.
       bool found = false;
-      for (const auto& document_transition_tag :
-           parent_element->GetDocument()
-               .GetStyleEngine()
-               .DocumentTransitionTags()) {
+      for (const auto& view_transition_name : parent_element->GetDocument()
+                                                  .GetStyleEngine()
+                                                  .ViewTransitionTags()) {
         if (!found) {
-          if (document_transition_tag ==
-              pseudo_element->document_transition_tag())
+          if (view_transition_name == pseudo_element->view_transition_name())
             found = true;
           continue;
         }
 
         if (auto* sibling = parent_element->GetPseudoElement(
-                kPseudoIdTransitionContainer, document_transition_tag)) {
+                kPseudoIdViewTransitionGroup, view_transition_name)) {
           return sibling;
         }
       }
       return nullptr;
     }
-    case kPseudoIdTransitionOldContent:
-    case kPseudoIdTransitionNewContent:
+    case kPseudoIdViewTransitionImagePair:
+    case kPseudoIdViewTransitionOld:
+    case kPseudoIdViewTransitionNew:
       return nullptr;
     default:
       NOTREACHED();
@@ -347,8 +344,9 @@ LayoutObject* LayoutTreeBuilderTraversal::PreviousSiblingLayoutObject(
 
 LayoutObject* LayoutTreeBuilderTraversal::NextInTopLayer(
     const Element& element) {
-  if (!element.IsInTopLayer())
-    return nullptr;
+  DCHECK(element.ComputedStyleRef().IsInTopLayer(element))
+      << "This method should only be called with an element in the top layer "
+         "candidate list which is rendered in the top layer";
   const HeapVector<Member<Element>>& top_layer_elements =
       element.GetDocument().TopLayerElements();
   wtf_size_t position = top_layer_elements.Find(&element);
@@ -358,10 +356,50 @@ LayoutObject* LayoutTreeBuilderTraversal::NextInTopLayer(
     // If top_layer_elements[i] is not a LayoutView child, its LayoutObject is
     // not re-attached and not in the top layer yet, thus we can not use it as a
     // sibling LayoutObject.
-    if (layout_object && IsA<LayoutView>(layout_object->Parent()))
+    if (layout_object &&
+        layout_object->StyleRef().Overlay() == EOverlay::kAuto &&
+        IsA<LayoutView>(layout_object->Parent())) {
       return layout_object;
+    }
   }
   return nullptr;
+}
+
+int LayoutTreeBuilderTraversal::ComparePreorderTreePosition(const Node& node1,
+                                                            const Node& node2) {
+  if (node1 == node2) {
+    return 0;
+  }
+  HeapVector<const Node*> ancestors1;
+  HeapVector<const Node*> ancestors2;
+  for (const Node* anc1 = &node1; anc1; anc1 = Parent(*anc1)) {
+    ancestors1.emplace_back(anc1);
+  }
+  for (const Node* anc2 = &node2; anc2; anc2 = Parent(*anc2)) {
+    ancestors2.emplace_back(anc2);
+  }
+  int anc1 = ancestors1.size() - 1;
+  int anc2 = ancestors2.size() - 1;
+  // First let's eliminate the ancestors until we find the first that are
+  // inequal, meaning that we need to perform a linear search in that subtree.
+  while (anc1 >= 0 && anc2 >= 0 && ancestors1[anc1] == ancestors2[anc2]) {
+    --anc1;
+    --anc2;
+  }
+  if (anc1 < 0) {
+    return anc2 < 0 ? 0 : -1;
+  }
+  if (anc2 < 0) {
+    return 1;
+  }
+  // Start linear search from last ancestor we found
+  const Node* parent = Parent(*ancestors1[anc1]);
+  for (const Node* elem = ancestors1[anc1]; elem; elem = Next(*elem, parent)) {
+    if (elem == ancestors2[anc2]) {
+      return -1;
+    }
+  }
+  return 1;
 }
 
 }  // namespace blink

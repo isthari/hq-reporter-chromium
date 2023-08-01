@@ -25,7 +25,7 @@
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
-#include "third_party/blink/renderer/platform/wtf/hash_map.h"
+#include "third_party/blink/renderer/platform/wtf/text/string_hash.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "ui/gfx/geometry/rect.h"
@@ -50,28 +50,10 @@ class CORE_EXPORT PrintContext : public GarbageCollected<PrintContext> {
   // This value is the percentage inverted.
   static constexpr float kPrintingMinimumShrinkFactor = 1.33333333f;
 
-  // This number determines how small we are willing to reduce the page content
-  // in order to accommodate the widest line. If the page would have to be
-  // reduced smaller to make the widest line fit, we just clip instead (this
-  // behavior matches MacIE and Mozilla, at least).
-  // TODO(rhogan): Decide if this quirk is still required.
-  static constexpr float kPrintingMaximumShrinkFactor = 2;
-
   PrintContext(LocalFrame*, bool use_printing_layout);
   virtual ~PrintContext();
 
   LocalFrame* GetFrame() const { return frame_; }
-
-  // Break up a page into rects without relayout.
-  // FIXME: This means that CSS page breaks won't be on page boundary if the
-  // size is different than what was passed to BeginPrintMode(). That's probably
-  // not always desirable.
-  virtual void ComputePageRects(const gfx::SizeF& print_size);
-
-  // Deprecated. Page size computation is already in this class, clients
-  // shouldn't be copying it.
-  virtual void ComputePageRectsWithPageSize(
-      const gfx::SizeF& page_size_in_pixels);
 
   // These are only valid after page rects are computed.
   wtf_size_t PageCount() const { return page_rects_.size(); }
@@ -121,6 +103,7 @@ class CORE_EXPORT PrintContext : public GarbageCollected<PrintContext> {
   Vector<gfx::Rect> page_rects_;
 
  private:
+  void ComputePageRects(const gfx::SizeF& print_size);
   void ComputePageRectsWithPageSizeInternal(
       const gfx::SizeF& page_size_in_pixels);
   void CollectLinkedDestinations(Node*);

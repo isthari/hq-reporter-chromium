@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,25 @@
 
 namespace gfx {
 struct NativePixmapHandle;
+struct NativePixmapPlane;
 }  // namespace gfx
 
 namespace mojo {
+
+template <>
+struct StructTraits<media::stable::mojom::NativePixmapPlaneDataView,
+                    gfx::NativePixmapPlane> {
+  static uint32_t stride(const gfx::NativePixmapPlane& plane);
+
+  static uint64_t offset(const gfx::NativePixmapPlane& plane);
+
+  static uint64_t size(const gfx::NativePixmapPlane& plane);
+
+  static mojo::PlatformHandle buffer_handle(gfx::NativePixmapPlane& plane);
+
+  static bool Read(media::stable::mojom::NativePixmapPlaneDataView data,
+                   gfx::NativePixmapPlane* out);
+};
 
 template <>
 struct StructTraits<media::stable::mojom::NativePixmapHandleDataView,

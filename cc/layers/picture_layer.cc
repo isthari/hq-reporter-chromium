@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -70,8 +70,8 @@ void PictureLayer::PushPropertiesTo(
   layer_impl->set_gpu_raster_max_texture_size(
       commit_state.device_viewport_rect.size());
   layer_impl->SetIsBackdropFilterMask(is_backdrop_filter_mask());
-  layer_impl->SetDirectlyCompositedImageSize(
-      picture_layer_inputs_.directly_composited_image_size);
+  layer_impl->SetDirectlyCompositedImageDefaultRasterScale(
+      picture_layer_inputs_.directly_composited_image_default_raster_scale);
 
   // TODO(enne): http://crbug.com/918126 debugging
   CHECK(this);
@@ -160,18 +160,18 @@ bool PictureLayer::Update() {
 
     // Clear out previous directly composited image state - if the layer
     // qualifies we'll set up the state below.
-    picture_layer_inputs_.directly_composited_image_size = absl::nullopt;
+    picture_layer_inputs_.directly_composited_image_default_raster_scale =
+        gfx::Vector2dF();
     picture_layer_inputs_.nearest_neighbor = false;
     absl::optional<DisplayItemList::DirectlyCompositedImageResult> result =
-        picture_layer_inputs_.display_list->GetDirectlyCompositedImageResult(
-            bounds());
+        picture_layer_inputs_.display_list->GetDirectlyCompositedImageResult();
     if (result) {
       // Directly composited images are not guaranteed to fully cover every
       // pixel in the layer due to ceiling when calculating the tile content
       // rect from the layer bounds.
       recording_source->SetRequiresClear(true);
-      picture_layer_inputs_.directly_composited_image_size =
-          result->intrinsic_image_size;
+      picture_layer_inputs_.directly_composited_image_default_raster_scale =
+          result->default_raster_scale;
       picture_layer_inputs_.nearest_neighbor = result->nearest_neighbor;
     }
 
@@ -205,13 +205,11 @@ sk_sp<const SkPicture> PictureLayer::GetPicture() const {
 }
 
 void PictureLayer::ClearClient() {
-  DCHECK(IsMutationAllowed());
   picture_layer_inputs_.client = nullptr;
-  SetDrawsContent(HasDrawableContent());
+  UpdateDrawsContent();
 }
 
 void PictureLayer::SetNearestNeighbor(bool nearest_neighbor) {
-  DCHECK(IsMutationAllowed());
   if (picture_layer_inputs_.nearest_neighbor == nearest_neighbor)
     return;
 
@@ -224,7 +222,6 @@ bool PictureLayer::HasDrawableContent() const {
 }
 
 void PictureLayer::SetIsBackdropFilterMask(bool is_backdrop_filter_mask) {
-  DCHECK(IsMutationAllowed());
   if (picture_layer_inputs_.is_backdrop_filter_mask == is_backdrop_filter_mask)
     return;
 
@@ -269,8 +266,8 @@ void PictureLayer::CaptureContent(const gfx::Rect& rect,
             &inverse_outer_screen_space_transform)) {
       return;
     }
-    gfx::Transform combined_transform{ScreenSpaceTransform(),
-                                      inverse_outer_screen_space_transform};
+    gfx::Transform combined_transform =
+        ScreenSpaceTransform() * inverse_outer_screen_space_transform;
     for (auto& i : *content) {
       i.visual_rect = MathUtil::ProjectEnclosingClippedRect(combined_transform,
                                                             i.visual_rect);

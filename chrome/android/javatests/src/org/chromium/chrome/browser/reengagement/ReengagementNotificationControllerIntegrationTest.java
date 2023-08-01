@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,19 +10,18 @@ import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
-import android.annotation.TargetApi;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.content.Context;
 import android.content.Intent;
-import android.os.Build;
 import android.service.notification.StatusBarNotification;
-import android.support.test.InstrumentationRegistry;
 import android.text.TextUtils;
 
 import androidx.annotation.StringRes;
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.MediumTest;
 import androidx.test.filters.SmallTest;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -40,11 +39,10 @@ import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.UrlUtils;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.DefaultBrowserInfo2;
 import org.chromium.chrome.browser.app.reengagement.ReengagementActivity;
 import org.chromium.chrome.browser.customtabs.CustomTabActivityTestRule;
-import org.chromium.chrome.browser.customtabs.CustomTabsTestUtils;
+import org.chromium.chrome.browser.customtabs.CustomTabsIntentTestUtils;
 import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
@@ -53,6 +51,7 @@ import org.chromium.chrome.browser.tab.TabCreationState;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorObserver;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.components.embedder_support.util.UrlUtilities;
 import org.chromium.components.feature_engagement.EventConstants;
@@ -87,7 +86,7 @@ public class ReengagementNotificationControllerIntegrationTest {
         FeatureList.setTestCanUseDefaultsForTesting();
         setReengagementNotificationEnabled(true);
         TrackerFactory.setTrackerForTests(mTracker);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) closeReengagementNotifications();
+        closeReengagementNotifications();
     }
 
     @After
@@ -96,7 +95,7 @@ public class ReengagementNotificationControllerIntegrationTest {
         DefaultBrowserInfo2.clearDefaultInfoForTests();
         FeatureList.resetTestCanUseDefaultsForTesting();
         FeatureList.setTestFeatures(null);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) closeReengagementNotifications();
+        closeReengagementNotifications();
     }
 
     @Test
@@ -107,8 +106,8 @@ public class ReengagementNotificationControllerIntegrationTest {
         doReturn(true).when(mTracker).shouldTriggerHelpUI(
                 FeatureConstants.CHROME_REENGAGEMENT_NOTIFICATION_1_FEATURE);
         mCustomTabActivityTestRule.startCustomTabActivityWithIntent(
-                CustomTabsTestUtils.createMinimalCustomTabIntent(
-                        InstrumentationRegistry.getTargetContext(),
+                CustomTabsIntentTestUtils.createMinimalCustomTabIntent(
+                        ApplicationProvider.getApplicationContext(),
                         ContentUrlConstants.ABOUT_BLANK_DISPLAY_URL));
         verify(mTracker, times(1))
                 .shouldTriggerHelpUI(FeatureConstants.CHROME_REENGAGEMENT_NOTIFICATION_1_FEATURE);
@@ -127,8 +126,8 @@ public class ReengagementNotificationControllerIntegrationTest {
         doReturn(true).when(mTracker).shouldTriggerHelpUI(
                 FeatureConstants.CHROME_REENGAGEMENT_NOTIFICATION_2_FEATURE);
         mCustomTabActivityTestRule.startCustomTabActivityWithIntent(
-                CustomTabsTestUtils.createMinimalCustomTabIntent(
-                        InstrumentationRegistry.getTargetContext(),
+                CustomTabsIntentTestUtils.createMinimalCustomTabIntent(
+                        ApplicationProvider.getApplicationContext(),
                         ContentUrlConstants.ABOUT_BLANK_DISPLAY_URL));
         verify(mTracker, times(1))
                 .shouldTriggerHelpUI(FeatureConstants.CHROME_REENGAGEMENT_NOTIFICATION_2_FEATURE);
@@ -145,8 +144,8 @@ public class ReengagementNotificationControllerIntegrationTest {
         DefaultBrowserInfo2.setDefaultInfoForTests(
                 createDefaultInfo(/* passesPrecondition = */ true));
         mCustomTabActivityTestRule.startCustomTabActivityWithIntent(
-                CustomTabsTestUtils.createMinimalCustomTabIntent(
-                        InstrumentationRegistry.getTargetContext(),
+                CustomTabsIntentTestUtils.createMinimalCustomTabIntent(
+                        ApplicationProvider.getApplicationContext(),
                         ContentUrlConstants.ABOUT_BLANK_DISPLAY_URL));
         verifyHasNoNotifications();
         verify(mTracker, times(1))
@@ -169,8 +168,8 @@ public class ReengagementNotificationControllerIntegrationTest {
         DefaultBrowserInfo2.setDefaultInfoForTests(
                 createDefaultInfo(/* passesPrecondition = */ false));
         mCustomTabActivityTestRule.startCustomTabActivityWithIntent(
-                CustomTabsTestUtils.createMinimalCustomTabIntent(
-                        InstrumentationRegistry.getTargetContext(),
+                CustomTabsIntentTestUtils.createMinimalCustomTabIntent(
+                        ApplicationProvider.getApplicationContext(),
                         ContentUrlConstants.ABOUT_BLANK_DISPLAY_URL));
         verifyHasNoNotifications();
         verify(mTracker, never())
@@ -192,8 +191,8 @@ public class ReengagementNotificationControllerIntegrationTest {
     public void testReengagementNotificationNotSentDueToUnavailablePreconditions() {
         DefaultBrowserInfo2.setDefaultInfoForTests(null);
         mCustomTabActivityTestRule.startCustomTabActivityWithIntent(
-                CustomTabsTestUtils.createMinimalCustomTabIntent(
-                        InstrumentationRegistry.getTargetContext(),
+                CustomTabsIntentTestUtils.createMinimalCustomTabIntent(
+                        ApplicationProvider.getApplicationContext(),
                         ContentUrlConstants.ABOUT_BLANK_DISPLAY_URL));
         verifyHasNoNotifications();
         verify(mTracker, never())
@@ -221,8 +220,8 @@ public class ReengagementNotificationControllerIntegrationTest {
     @SmallTest
     public void testEngagementNotTracked() {
         mCustomTabActivityTestRule.startCustomTabActivityWithIntent(
-                CustomTabsTestUtils.createMinimalCustomTabIntent(
-                        InstrumentationRegistry.getTargetContext(),
+                CustomTabsIntentTestUtils.createMinimalCustomTabIntent(
+                        ApplicationProvider.getApplicationContext(),
                         ContentUrlConstants.ABOUT_BLANK_DISPLAY_URL));
         verify(mTracker, never()).notifyEvent(EventConstants.STARTED_FROM_MAIN_INTENT);
     }
@@ -251,8 +250,8 @@ public class ReengagementNotificationControllerIntegrationTest {
         DefaultBrowserInfo2.setDefaultInfoForTests(
                 createDefaultInfo(/* passesPrecondition = */ true));
         mCustomTabActivityTestRule.startCustomTabActivityWithIntent(
-                CustomTabsTestUtils.createMinimalCustomTabIntent(
-                        InstrumentationRegistry.getTargetContext(),
+                CustomTabsIntentTestUtils.createMinimalCustomTabIntent(
+                        ApplicationProvider.getApplicationContext(),
                         ContentUrlConstants.ABOUT_BLANK_DISPLAY_URL));
         verifyHasNoNotifications();
         verify(mTracker, never())
@@ -289,7 +288,7 @@ public class ReengagementNotificationControllerIntegrationTest {
         });
 
         Intent intent =
-                new Intent(InstrumentationRegistry.getTargetContext(), ReengagementActivity.class);
+                new Intent(ApplicationProvider.getApplicationContext(), ReengagementActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         intent.setAction(ReengagementNotificationController.LAUNCH_NTP_ACTION);
         InstrumentationRegistry.getInstrumentation().startActivitySync(intent);
@@ -304,20 +303,15 @@ public class ReengagementNotificationControllerIntegrationTest {
     }
 
     private void verifyNotification(@StringRes int title, @StringRes int description) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
-
         CriteriaHelper.pollUiThread(() -> { return findNotification(title, description); });
     }
 
     private void verifyHasNoNotifications() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
-
         Assert.assertFalse(hasNotifications());
     }
 
-    @TargetApi(Build.VERSION_CODES.M)
     private static boolean findNotification(@StringRes int title, @StringRes int description) {
-        Context context = InstrumentationRegistry.getTargetContext();
+        Context context = ApplicationProvider.getApplicationContext();
         StatusBarNotification[] notifications =
                 ((NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE))
                         .getActiveNotifications();
@@ -339,9 +333,8 @@ public class ReengagementNotificationControllerIntegrationTest {
         return false;
     }
 
-    @TargetApi(Build.VERSION_CODES.M)
     private static boolean hasNotifications() {
-        Context context = InstrumentationRegistry.getTargetContext();
+        Context context = ApplicationProvider.getApplicationContext();
         StatusBarNotification[] notifications =
                 ((NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE))
                         .getActiveNotifications();
@@ -356,11 +349,10 @@ public class ReengagementNotificationControllerIntegrationTest {
         return false;
     }
 
-    @TargetApi(Build.VERSION_CODES.M)
     private static void closeReengagementNotifications() {
         if (!hasNotifications()) return;
 
-        Context context = InstrumentationRegistry.getTargetContext();
+        Context context = ApplicationProvider.getApplicationContext();
         ((NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE))
                 .cancel(ReengagementNotificationController.NOTIFICATION_TAG,
                         ReengagementNotificationController.NOTIFICATION_ID);
@@ -379,7 +371,6 @@ public class ReengagementNotificationControllerIntegrationTest {
         features.put(ChromeFeatureList.REENGAGEMENT_NOTIFICATION, enabled);
         // TODO(crbug.com/1111584): Remove these overrides when FeatureList#isInitialized() works
         // as expected with test values.
-        features.put(ChromeFeatureList.SEARCH_ENGINE_PROMO_EXISTING_DEVICE, false);
         features.put(ChromeFeatureList.VOICE_SEARCH_AUDIO_CAPTURE_POLICY, false);
         FeatureList.setTestFeatures(features);
     }

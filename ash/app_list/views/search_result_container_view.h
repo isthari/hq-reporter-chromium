@@ -1,4 +1,4 @@
-// Copyright (c) 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,15 @@
 
 #include <stddef.h>
 
+#include <string>
+#include <vector>
+
 #include "ash/app_list/app_list_view_delegate.h"
 #include "ash/app_list/model/app_list_model.h"
 #include "ash/app_list/model/search/search_model.h"
 #include "ash/app_list/views/search_result_base_view.h"
 #include "ash/ash_export.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_multi_source_observation.h"
 #include "ui/views/view.h"
@@ -52,9 +56,21 @@ class ASH_EXPORT SearchResultContainerView : public views::View,
   void SetResults(SearchModel::SearchResults* results);
   SearchModel::SearchResults* results() { return results_; }
 
-  int num_results() const { return num_results_; }
+  size_t num_results() const { return num_results_; }
 
   virtual SearchResultBaseView* GetResultViewAt(size_t index) = 0;
+
+  // Activates or deactivates results container - when not active, the container
+  // will not react to search model updates. Generally, container will be active
+  // when search is in progress in the launcher UI that owns the results
+  // container.
+  // Setting the container as inactive will not clear results, so results remain
+  // shown during search results UI hide animation. To clear the container when
+  // the search UI gets hidden, call `ResetAndHide()`.
+  void SetActive(bool active);
+
+  // Clears all results in the container, and hides the container view.
+  void ResetAndHide();
 
   // Information needed to configure search result visibility animations when
   // result updates are animated.
@@ -62,8 +78,27 @@ class ASH_EXPORT SearchResultContainerView : public views::View,
     // Total number of visible views (either title or result views).
     int total_views = 0;
 
+    // Total number of visible result views.
+    int total_result_views = 0;
+
+    // The index of the first result view that should be animated.
+    int first_animated_result_view_index = 0;
+
     // The number of views that are animating (either title or result views).
     int animating_views = 0;
+
+    // Whether fast search result update animations should be used.
+    bool use_short_animations = false;
+  };
+
+  // Information needed to determine if a search result shuold have an updated
+  // animation.
+  struct SearchResultAimationMetadata {
+    // The ID of the search result.
+    std::string result_id;
+
+    // Whether animations should be skipped for this search result.
+    bool skip_animations = false;
   };
 
   // Schedules animations for result list updates. Expected to be implemented
@@ -75,12 +110,23 @@ class ASH_EXPORT SearchResultContainerView : public views::View,
   virtual absl::optional<ResultsAnimationInfo> ScheduleResultAnimations(
       const ResultsAnimationInfo& aggregate_animation_info);
 
+  // Appends search result IDs of the search results shown by the container
+  // view into 'result_ids_'
+  virtual void AppendShownResultMetadata(
+      std::vector<SearchResultAimationMetadata>* result_metadata_);
+
+  // Returns whether the container view has any animating child views.
+  virtual bool HasAnimatingChildView();
+
   bool horizontally_traversable() const { return horizontally_traversable_; }
 
   // Allows a container to define its traversal behavior
   void set_horizontally_traversable(bool horizontally_traversable) {
     horizontally_traversable_ = horizontally_traversable;
   }
+
+  // Called when the result selection controller updates its selected result.
+  virtual void OnSelectedResultChanged();
 
   // Batching method that actually performs the update and updates layout.
   void Update();
@@ -105,13 +151,11 @@ class ASH_EXPORT SearchResultContainerView : public views::View,
   // not exist.
   SearchResultBaseView* GetFirstResultView();
 
-  // Called from SearchResultPageView OnShown/OnHidden
-  void SetShown(bool shown);
-  bool shown() const { return shown_; }
-  // Called when SetShowing has changed a result.
-  virtual void OnShownChanged();
-
   AppListViewDelegate* view_delegate() const { return view_delegate_; }
+
+  // Runs scheduled update for the view. Returns whether the update was
+  // actually run (i.e. whether an update was scheduled).
+  bool RunScheduledUpdateForTest();
 
  private:
   // Schedules an Update call using |update_factory_|. Do nothing if there is a
@@ -121,18 +165,22 @@ class ASH_EXPORT SearchResultContainerView : public views::View,
   // Updates UI with model. Returns the number of visible results.
   virtual int DoUpdate() = 0;
 
-  Delegate* delegate_ = nullptr;
+  raw_ptr<Delegate, ExperimentalAsh> delegate_ = nullptr;
 
-  int num_results_ = 0;
+  size_t num_results_ = 0;
 
   // If true, left/right key events will traverse this container
   bool horizontally_traversable_ = false;
 
-  SearchModel::SearchResults* results_ = nullptr;  // Owned by SearchModel.
+  raw_ptr<SearchModel::SearchResults, ExperimentalAsh> results_ =
+      nullptr;  // Owned by SearchModel.
 
   // view delegate for notifications.
-  bool shown_ = false;
-  AppListViewDelegate* const view_delegate_;
+  const raw_ptr<AppListViewDelegate, ExperimentalAsh> view_delegate_;
+
+  // Whether the container is observing search result model, and updating when
+  // results in the model change.
+  bool active_ = false;
 
   base::ScopedMultiSourceObservation<views::View, views::ViewObserver>
       result_view_observations_{this};

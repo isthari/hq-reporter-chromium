@@ -1,15 +1,13 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "extensions/browser/path_util.h"
 
-#include "base/bind.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/path_service.h"
 #include "base/strings/sys_string_conversions.h"
-#include "base/task/task_runner_util.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "build/build_config.h"
 #include "extensions/browser/extension_file_task_runner.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -18,6 +16,7 @@
 #if BUILDFLAG(IS_MAC)
 #include <CoreFoundation/CoreFoundation.h>
 #include "base/mac/foundation_util.h"
+#include "base/mac/scoped_cftyperef.h"
 #endif
 
 namespace extensions {
@@ -30,17 +29,20 @@ namespace {
 // If the path is not localized, this will just return the base name.
 std::string GetDisplayBaseName(const base::FilePath& path) {
   base::ScopedCFTypeRef<CFURLRef> url(CFURLCreateFromFileSystemRepresentation(
-      NULL, (const UInt8*)path.value().c_str(), path.value().length(), true));
-  if (!url)
+      nullptr, (const UInt8*)path.value().c_str(), path.value().length(),
+      /*isDirectory=*/true));
+  if (!url) {
     return path.BaseName().value();
+  }
 
-  CFStringRef str;
-  if (LSCopyDisplayNameForURL(url, &str) != noErr)
+  base::ScopedCFTypeRef<CFStringRef> str;
+  if (!CFURLCopyResourcePropertyForKey(url, kCFURLLocalizedNameKey,
+                                       str.InitializeInto(),
+                                       /*error=*/nullptr)) {
     return path.BaseName().value();
+  }
 
-  std::string result(base::SysCFStringRefToUTF8(str));
-  CFRelease(str);
-  return result;
+  return base::SysCFStringRefToUTF8(str);
 }
 
 #endif  // BUILDFLAG(IS_MAC)
@@ -82,8 +84,8 @@ base::FilePath PrettifyPath(const base::FilePath& source_path) {
   // and localized subfolders of the user's home directory.
   // Don't grab the display name of the first component, i.e., "/", as it'll
   // show up as the HDD name.
-  std::vector<base::FilePath::StringType> components;
-  source_path.GetComponents(&components);
+  std::vector<base::FilePath::StringType> components =
+      source_path.GetComponents();
   display_path = base::FilePath(components[0]);
   base::FilePath actual_path = display_path;
   for (std::vector<base::FilePath::StringType>::iterator i =
@@ -110,9 +112,8 @@ void CalculateAndFormatExtensionDirectorySize(
     const base::FilePath& extension_path,
     int message_id,
     base::OnceCallback<void(const std::u16string&)> callback) {
-  base::PostTaskAndReplyWithResult(
-      GetExtensionFileTaskRunner().get(), FROM_HERE,
-      base::BindOnce(&base::ComputeDirectorySize, extension_path),
+  GetExtensionFileTaskRunner()->PostTaskAndReplyWithResult(
+      FROM_HERE, base::BindOnce(&base::ComputeDirectorySize, extension_path),
       base::BindOnce(&OnDirectorySizeCalculated, message_id,
                      std::move(callback)));
 }

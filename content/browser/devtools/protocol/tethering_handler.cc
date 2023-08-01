@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,8 @@
 #include <map>
 #include <memory>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/task/single_thread_task_runner.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "net/base/io_buffer.h"
@@ -207,7 +208,8 @@ class BoundSocket {
   bool Listen(uint16_t port) {
     port_ = port;
     net::IPEndPoint end_point(net::IPAddress::IPv4Localhost(), port);
-    int result = socket_->Listen(end_point, kListenBacklog);
+    int result =
+        socket_->Listen(end_point, kListenBacklog, /*ipv6_only=*/absl::nullopt);
     if (result < 0)
       return false;
 

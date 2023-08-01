@@ -1,11 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef IOS_CHROME_BROWSER_UI_HISTORY_HISTORY_TABLE_VIEW_CONTROLLER_H_
 #define IOS_CHROME_BROWSER_UI_HISTORY_HISTORY_TABLE_VIEW_CONTROLLER_H_
 
-#import "ios/chrome/browser/ui/table_view/chrome_table_view_controller.h"
+#import "ios/chrome/browser/shared/ui/table_view/chrome_table_view_controller.h"
 
 #include "ios/chrome/browser/ui/history/history_consumer.h"
 #import "ios/chrome/browser/ui/history/history_entry_item_delegate.h"
@@ -31,6 +31,9 @@ enum class UrlLoadStrategy;
 @property(nonatomic, assign) history::BrowsingHistoryService* historyService;
 // Opaque instructions on how to open urls.
 @property(nonatomic) UrlLoadStrategy loadStrategy;
+// Optional: If provided, search terms to filter the displayed history items.
+// `searchTerms` will be the initial value of the text in the search bar.
+@property(nonatomic, copy) NSString* searchTerms;
 // Delegate for this HistoryTableView.
 @property(nonatomic, weak) id<HistoryUIDelegate> delegate;
 // Delegate used to make the Tab UI visible.
@@ -46,6 +49,10 @@ enum class UrlLoadStrategy;
 // Initializers.
 - (instancetype)init NS_DESIGNATED_INITIALIZER;
 - (instancetype)initWithStyle:(UITableViewStyle)style NS_UNAVAILABLE;
+
+// Call this when the view controller needs to be detech from browser
+// synchronously (in the case of a shutdown for example).
+- (void)detachFromBrowser;
 
 @end
 

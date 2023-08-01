@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,18 +6,27 @@
 
 #import <UIKit/UIKit.h>
 
+#import "base/feature_list.h"
+#import "base/functional/callback_helpers.h"
 #import "base/strings/sys_string_conversions.h"
 #import "components/consent_auditor/fake_consent_auditor.h"
-#import "components/sync/driver/mock_sync_service.h"
+#import "components/password_manager/core/common/password_manager_features.h"
+#import "components/sync/test/mock_sync_service.h"
 #import "components/sync_preferences/pref_service_mock_factory.h"
 #import "components/sync_preferences/pref_service_syncable.h"
-#import "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
-#import "ios/chrome/browser/main/test_browser.h"
+#import "ios/chrome/browser/consent_auditor/consent_auditor_factory.h"
+#import "ios/chrome/browser/consent_auditor/consent_auditor_test_utils.h"
+#import "ios/chrome/browser/shared/model/application_context/application_context.h"
+#import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
+#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/signin/authentication_service.h"
 #import "ios/chrome/browser/signin/authentication_service_factory.h"
-#import "ios/chrome/browser/signin/authentication_service_fake.h"
 #import "ios/chrome/browser/signin/chrome_account_manager_service_factory.h"
+#import "ios/chrome/browser/signin/fake_authentication_service_delegate.h"
+#import "ios/chrome/browser/signin/fake_system_identity.h"
+#import "ios/chrome/browser/signin/fake_system_identity_manager.h"
 #import "ios/chrome/browser/signin/identity_manager_factory.h"
-#import "ios/chrome/browser/sync/consent_auditor_factory.h"
+#import "ios/chrome/browser/sync/mock_sync_service_utils.h"
 #import "ios/chrome/browser/sync/sync_service_factory.h"
 #import "ios/chrome/browser/sync/sync_setup_service_factory.h"
 #import "ios/chrome/browser/sync/sync_setup_service_mock.h"
@@ -26,8 +35,6 @@
 #import "ios/chrome/browser/unified_consent/unified_consent_service_factory.h"
 #import "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/ios_chrome_scoped_testing_local_state.h"
-#import "ios/public/provider/chrome/browser/signin/fake_chrome_identity.h"
-#import "ios/public/provider/chrome/browser/signin/fake_chrome_identity_service.h"
 #import "ios/web/public/test/web_task_environment.h"
 #import "testing/gmock/include/gmock/gmock.h"
 #import "testing/platform_test.h"
@@ -39,36 +46,20 @@
 #error "This file requires ARC support."
 #endif
 
-namespace {
-std::unique_ptr<KeyedService> CreateMockSyncService(
-    web::BrowserState* context) {
-  return std::make_unique<syncer::MockSyncService>();
-}
-
-std::unique_ptr<KeyedService> CreateFakeConsentAuditor(
-    web::BrowserState* context) {
-  return std::make_unique<consent_auditor::FakeConsentAuditor>();
-}
-}  // namespace
-
 class UserSigninMediatorTest : public PlatformTest {
  public:
   UserSigninMediatorTest() : consent_string_ids_(ExpectedConsentStringIds()) {}
 
   void SetUp() override {
     PlatformTest::SetUp();
-    identity_ = [FakeChromeIdentity identityWithEmail:@"foo1@gmail.com"
-                                               gaiaID:@"foo1ID"
-                                                 name:@"Fake Foo 1"];
-    identity_service()->AddIdentity(identity_);
-
+    identity_ = [FakeSystemIdentity fakeIdentity1];
+    fake_system_identity_manager()->AddIdentity(identity_);
     TestChromeBrowserState::Builder builder;
     builder.AddTestingFactory(
         AuthenticationServiceFactory::GetInstance(),
-        base::BindRepeating(
-            &AuthenticationServiceFake::CreateAuthenticationService));
+        AuthenticationServiceFactory::GetDefaultFactory());
     builder.AddTestingFactory(ConsentAuditorFactory::GetInstance(),
-                              base::BindRepeating(&CreateFakeConsentAuditor));
+                              base::BindRepeating(&BuildFakeConsentAuditor));
     builder.AddTestingFactory(SyncServiceFactory::GetInstance(),
                               base::BindRepeating(&CreateMockSyncService));
     builder.AddTestingFactory(
@@ -76,6 +67,9 @@ class UserSigninMediatorTest : public PlatformTest {
         base::BindRepeating(&SyncSetupServiceMock::CreateKeyedService));
     browser_state_ = builder.Build();
 
+    AuthenticationServiceFactory::CreateAndInitializeForBrowserState(
+        browser_state_.get(),
+        std::make_unique<FakeAuthenticationServiceDelegate>());
     browser_ = std::make_unique<TestBrowser>(browser_state_.get());
 
     mediator_delegate_mock_ =
@@ -107,7 +101,7 @@ class UserSigninMediatorTest : public PlatformTest {
   }
 
   // Sets up the necessary mocks for authentication operations in
-  // |authentication_flow_|.
+  // `authentication_flow_`.
   void CreateAuthenticationFlow(PostSignInAction postSignInAction) {
     presenting_view_controller_mock_ =
         OCMStrictClassMock([UIViewController class]);
@@ -116,6 +110,8 @@ class UserSigninMediatorTest : public PlatformTest {
     authentication_flow_ = [[AuthenticationFlow alloc]
                  initWithBrowser:browser_.get()
                         identity:identity_
+                     accessPoint:signin_metrics::AccessPoint::
+                                     ACCESS_POINT_UNKNOWN
                 postSignInAction:postSignInAction
         presentingViewController:presenting_view_controller_mock_];
     [authentication_flow_ setPerformerForTesting:performer_mock_];
@@ -129,28 +125,34 @@ class UserSigninMediatorTest : public PlatformTest {
           NSLog(@" fetchManagedStatus ");
           [authentication_flow_ didFetchManagedStatus:nil];
         });
-    OCMExpect([performer_mock_ signInIdentity:identity_
-                             withHostedDomain:nil
-                               toBrowserState:browser_state_.get()])
-        .andDo(^(NSInvocation*) {
+    OCMExpect(
+        [performer_mock_
+              signInIdentity:identity_
+               atAccessPoint:signin_metrics::AccessPoint::ACCESS_POINT_UNKNOWN
+            withHostedDomain:nil
+              toBrowserState:browser_state_.get()])
+        .andDo(^(NSInvocation* invocation) {
           NSLog(@" signInIdentity ");
-          authentication_service()->SignIn(identity_);
+          authentication_service()->SignIn(
+              identity_, signin_metrics::AccessPoint::ACCESS_POINT_UNKNOWN);
         });
-    OCMExpect([performer_mock_
-                  shouldHandleMergeCaseForIdentity:identity_
-                                      browserState:browser_state_.get()])
-        .andReturn(NO);
-    NSLog(@" shouldHandleMergeCaseForIdentity ");
-    if (postSignInAction == POST_SIGNIN_ACTION_COMMIT_SYNC) {
+    if (postSignInAction == PostSignInAction::kCommitSync) {
       OCMExpect(
-          [performer_mock_ commitSyncForBrowserState:browser_state_.get()]);
+          [performer_mock_
+              shouldHandleMergeCaseForIdentity:identity_
+                             browserStatePrefs:browser_state_->GetPrefs()])
+          .andReturn(NO);
+      NSLog(@" shouldHandleMergeCaseForIdentity ");
     }
   }
 
   void SetPerformerSignoutExpectations() {
     OCMExpect([performer_mock_ signOutBrowserState:browser_state_.get()])
         .andDo(^(NSInvocation*) {
-          [authentication_flow_ didSignOut];
+          authentication_service()->SignOut(
+              signin_metrics::ProfileSignout::kTest, false, ^{
+                [authentication_flow_ didSignOut];
+              });
         });
   }
 
@@ -188,7 +190,7 @@ class UserSigninMediatorTest : public PlatformTest {
         });
     OCMExpect([performer_mock_
                   shouldHandleMergeCaseForIdentity:identity_
-                                      browserState:browser_state_.get()])
+                                 browserStatePrefs:browser_state_->GetPrefs()])
         .andReturn(YES);
     OCMExpect([performer_mock_
         promptMergeCaseForIdentity:identity_
@@ -222,9 +224,14 @@ class UserSigninMediatorTest : public PlatformTest {
   // then the consent is given. The list is ordered according to the position
   // on the screen.
   const std::vector<int> ExpectedConsentStringIds() const {
+    const int sync_dialog_title =
+        base::FeatureList::IsEnabled(
+            password_manager::features::kEnablePasswordsAccountStorage)
+            ? IDS_IOS_ACCOUNT_UNIFIED_CONSENT_SYNC_TITLE_WITHOUT_PASSWORDS
+            : IDS_IOS_ACCOUNT_UNIFIED_CONSENT_SYNC_TITLE;
     return {
         IDS_IOS_ACCOUNT_UNIFIED_CONSENT_TITLE,
-        IDS_IOS_ACCOUNT_UNIFIED_CONSENT_SYNC_TITLE,
+        sync_dialog_title,
         IDS_IOS_ACCOUNT_UNIFIED_CONSENT_SYNC_SUBTITLE,
         IDS_IOS_ACCOUNT_UNIFIED_CONSENT_SETTINGS,
     };
@@ -249,8 +256,9 @@ class UserSigninMediatorTest : public PlatformTest {
         browser_state_.get());
   }
 
-  ios::FakeChromeIdentityService* identity_service() {
-    return ios::FakeChromeIdentityService::GetInstanceFromChromeProvider();
+  FakeSystemIdentityManager* fake_system_identity_manager() {
+    return FakeSystemIdentityManager::FromSystemIdentityManager(
+        GetApplicationContext()->GetSystemIdentityManager());
   }
 
   SyncSetupService* sync_setup_service() {
@@ -270,7 +278,7 @@ class UserSigninMediatorTest : public PlatformTest {
   // Needed for test browser state created by TestChromeBrowserState().
   web::WebTaskEnvironment task_environment_;
   IOSChromeScopedTestingLocalState scoped_testing_local_state_;
-  FakeChromeIdentity* identity_ = nullptr;
+  id<SystemIdentity> identity_ = nil;
 
   AuthenticationFlow* authentication_flow_ = nullptr;
   std::unique_ptr<Browser> browser_;
@@ -289,8 +297,8 @@ class UserSigninMediatorTest : public PlatformTest {
 
 // Tests a successful authentication for a given identity.
 TEST_F(UserSigninMediatorTest, AuthenticateWithIdentitySuccess) {
-  CreateAuthenticationFlow(POST_SIGNIN_ACTION_COMMIT_SYNC);
-  SetPerformerSigninExpectations(POST_SIGNIN_ACTION_COMMIT_SYNC);
+  CreateAuthenticationFlow(PostSignInAction::kCommitSync);
+  SetPerformerSigninExpectations(PostSignInAction::kCommitSync);
 
   // Retrieving coordinator data for the mediator delegate.
   OCMExpect(
@@ -305,9 +313,9 @@ TEST_F(UserSigninMediatorTest, AuthenticateWithIdentitySuccess) {
   // Sign-in result successful.
   OCMExpect([mediator_delegate_mock_ userSigninMediatorSigninFinishedWithResult:
                                          SigninCoordinatorResultSuccess]);
-  EXPECT_CALL(
-      *sync_setup_service_mock_,
-      SetFirstSetupComplete(syncer::SyncFirstSetupCompleteSource::BASIC_FLOW));
+  EXPECT_CALL(*sync_setup_service_mock_,
+              SetInitialSyncFeatureSetupComplete(
+                  syncer::SyncFirstSetupCompleteSource::BASIC_FLOW));
 
   [mediator_ authenticateWithIdentity:identity_
                    authenticationFlow:authentication_flow_];
@@ -317,8 +325,8 @@ TEST_F(UserSigninMediatorTest, AuthenticateWithIdentitySuccess) {
 
 // Tests authenticating the identity when the settings link has been tapped.
 TEST_F(UserSigninMediatorTest, AuthenticateWithSettingsLinkTapped) {
-  CreateAuthenticationFlow(POST_SIGNIN_ACTION_COMMIT_SYNC);
-  SetPerformerSigninExpectations(POST_SIGNIN_ACTION_COMMIT_SYNC);
+  CreateAuthenticationFlow(PostSignInAction::kCommitSync);
+  SetPerformerSigninExpectations(PostSignInAction::kCommitSync);
 
   OCMExpect(
       [mediator_delegate_mock_ userSigninMediatorGetSettingsLinkWasTapped])
@@ -327,9 +335,9 @@ TEST_F(UserSigninMediatorTest, AuthenticateWithSettingsLinkTapped) {
   // Sign-in result successful.
   OCMExpect([mediator_delegate_mock_ userSigninMediatorSigninFinishedWithResult:
                                          SigninCoordinatorResultSuccess]);
-  EXPECT_CALL(
-      *sync_setup_service_mock_,
-      SetFirstSetupComplete(syncer::SyncFirstSetupCompleteSource::BASIC_FLOW))
+  EXPECT_CALL(*sync_setup_service_mock_,
+              SetInitialSyncFeatureSetupComplete(
+                  syncer::SyncFirstSetupCompleteSource::BASIC_FLOW))
       .Times(0);
 
   [mediator_ authenticateWithIdentity:identity_
@@ -339,7 +347,7 @@ TEST_F(UserSigninMediatorTest, AuthenticateWithSettingsLinkTapped) {
 
 // Tests authentication failure for a given identity.
 TEST_F(UserSigninMediatorTest, AuthenticateWithIdentityError) {
-  CreateAuthenticationFlow(POST_SIGNIN_ACTION_COMMIT_SYNC);
+  CreateAuthenticationFlow(PostSignInAction::kCommitSync);
   SetPerformerFailureExpectations();
 
   OCMExpect(
@@ -413,7 +421,7 @@ TEST_F(UserSigninMediatorTest, CancelAndDismissAuthenticationNotInProgress) {
 // authentication is in progress.
 TEST_F(UserSigninMediatorTest,
        CancelAndDismissAuthenticationInProgressWithAnimation) {
-  CreateAuthenticationFlow(POST_SIGNIN_ACTION_COMMIT_SYNC);
+  CreateAuthenticationFlow(PostSignInAction::kCommitSync);
   SetPerformerCancelAndDismissExpectations(/*animated=*/YES);
 
   OCMExpect(
@@ -442,7 +450,7 @@ TEST_F(UserSigninMediatorTest,
 // authentication is in progress.
 TEST_F(UserSigninMediatorTest,
        CancelAndDismissAuthenticationInProgressWithoutAnimation) {
-  CreateAuthenticationFlow(POST_SIGNIN_ACTION_COMMIT_SYNC);
+  CreateAuthenticationFlow(PostSignInAction::kCommitSync);
   SetPerformerCancelAndDismissExpectations(/*animated=*/NO);
 
   OCMExpect(
@@ -470,8 +478,10 @@ TEST_F(UserSigninMediatorTest,
 // Tests a user sign-in operation cancel and dismiss without animation when
 // authentication is in progress.
 TEST_F(UserSigninMediatorTest, CancelSyncAndStaySignin) {
-  CreateAuthenticationFlow(POST_SIGNIN_ACTION_COMMIT_SYNC);
-  SetPerformerSigninExpectations(POST_SIGNIN_ACTION_COMMIT_SYNC);
+  EXPECT_CALL(*sync_service_mock_, StopAndClear()).Times(0);
+
+  CreateAuthenticationFlow(PostSignInAction::kCommitSync);
+  SetPerformerSigninExpectations(PostSignInAction::kCommitSync);
 
   OCMExpect(
       [mediator_delegate_mock_ userSigninMediatorGetSettingsLinkWasTapped])
@@ -480,9 +490,9 @@ TEST_F(UserSigninMediatorTest, CancelSyncAndStaySignin) {
   // Sign-in result successful.
   OCMExpect([mediator_delegate_mock_ userSigninMediatorSigninFinishedWithResult:
                                          SigninCoordinatorResultSuccess]);
-  EXPECT_CALL(
-      *sync_setup_service_mock_,
-      SetFirstSetupComplete(syncer::SyncFirstSetupCompleteSource::BASIC_FLOW))
+  EXPECT_CALL(*sync_setup_service_mock_,
+              SetInitialSyncFeatureSetupComplete(
+                  syncer::SyncFirstSetupCompleteSource::BASIC_FLOW))
       .Times(0);
 
   [mediator_ authenticateWithIdentity:identity_
@@ -509,25 +519,23 @@ TEST_F(UserSigninMediatorTest, CancelSyncAndStaySignin) {
 //   * Cancel the user sign-in dialog
 TEST_F(UserSigninMediatorTest, OpenSettingsLinkWithDifferentIdentityAndCancel) {
   // Signs in with identity 2.
-  ChromeIdentity* identity2 =
-      [FakeChromeIdentity identityWithEmail:@"foo2@gmail.com"
-                                     gaiaID:@"foo2ID"
-                                       name:@"Fake Foo 2"];
-  identity_service()->AddIdentity(identity2);
-  authentication_service()->SignIn(identity2);
+  id<SystemIdentity> identity2 = [FakeSystemIdentity fakeIdentity2];
+  fake_system_identity_manager()->AddIdentity(identity2);
+  authentication_service()->SignIn(
+      identity2, signin_metrics::AccessPoint::ACCESS_POINT_UNKNOWN);
 
   // Opens the settings link with identity 1.
-  CreateAuthenticationFlow(POST_SIGNIN_ACTION_NONE);
+  CreateAuthenticationFlow(PostSignInAction::kNone);
   SetPerformerSignoutExpectations();
-  SetPerformerSigninExpectations(POST_SIGNIN_ACTION_NONE);
+  SetPerformerSigninExpectations(PostSignInAction::kNone);
   OCMExpect(
       [mediator_delegate_mock_ userSigninMediatorGetSettingsLinkWasTapped])
       .andReturn(YES);
   OCMExpect([mediator_delegate_mock_ userSigninMediatorSigninFinishedWithResult:
                                          SigninCoordinatorResultSuccess]);
-  EXPECT_CALL(
-      *sync_setup_service_mock_,
-      SetFirstSetupComplete(syncer::SyncFirstSetupCompleteSource::BASIC_FLOW))
+  EXPECT_CALL(*sync_setup_service_mock_,
+              SetInitialSyncFeatureSetupComplete(
+                  syncer::SyncFirstSetupCompleteSource::BASIC_FLOW))
       .Times(0);
   [mediator_ authenticateWithIdentity:identity_
                    authenticationFlow:authentication_flow_];
@@ -561,33 +569,34 @@ TEST_F(UserSigninMediatorTest, OpenSettingsLinkWithDifferentIdentityAndCancel) {
 TEST_F(UserSigninMediatorTest,
        OpenSettingsLinkWithDifferentIdentityAndForgetIdentity) {
   // Signs in with identity 2.
-  ChromeIdentity* identity2 =
-      [FakeChromeIdentity identityWithEmail:@"foo2@gmail.com"
+  id<SystemIdentity> identity2 =
+      [FakeSystemIdentity identityWithEmail:@"foo2@gmail.com"
                                      gaiaID:@"foo2ID"
                                        name:@"Fake Foo 2"];
-  identity_service()->AddIdentity(identity2);
-  authentication_service()->SignIn(identity2);
+  fake_system_identity_manager()->AddIdentity(identity2);
+  authentication_service()->SignIn(
+      identity2, signin_metrics::AccessPoint::ACCESS_POINT_UNKNOWN);
 
   // Opens the settings link with identity 1.
-  CreateAuthenticationFlow(POST_SIGNIN_ACTION_NONE);
+  CreateAuthenticationFlow(PostSignInAction::kNone);
   SetPerformerSignoutExpectations();
-  SetPerformerSigninExpectations(POST_SIGNIN_ACTION_NONE);
+  SetPerformerSigninExpectations(PostSignInAction::kNone);
 
   OCMExpect(
       [mediator_delegate_mock_ userSigninMediatorGetSettingsLinkWasTapped])
       .andReturn(YES);
   OCMExpect([mediator_delegate_mock_ userSigninMediatorSigninFinishedWithResult:
                                          SigninCoordinatorResultSuccess]);
-  EXPECT_CALL(
-      *sync_setup_service_mock_,
-      SetFirstSetupComplete(syncer::SyncFirstSetupCompleteSource::BASIC_FLOW))
+  EXPECT_CALL(*sync_setup_service_mock_,
+              SetInitialSyncFeatureSetupComplete(
+                  syncer::SyncFirstSetupCompleteSource::BASIC_FLOW))
       .Times(0);
   [mediator_ authenticateWithIdentity:identity_
                    authenticationFlow:authentication_flow_];
   base::RunLoop().RunUntilIdle();
 
   // Forgets identity 2.
-  identity_service()->ForgetIdentity(identity2, nil);
+  fake_system_identity_manager()->ForgetIdentity(identity2, base::DoNothing());
 
   // Cancels the sign-in dialog.
   OCMStub([mediator_delegate_mock_ signinStateOnStart])
@@ -611,7 +620,7 @@ TEST_F(UserSigninMediatorTest,
 //   * Forget identity_
 //   * Cancel the user sign-in dialog
 TEST_F(UserSigninMediatorTest, ForgetSignedInIdentityWhileTurnOnSyncIsOpened) {
-  identity_service()->ForgetIdentity(identity_, nil);
+  fake_system_identity_manager()->ForgetIdentity(identity_, base::DoNothing());
 
   // Cancels the sign-in dialog.
   __block bool completion_called = false;

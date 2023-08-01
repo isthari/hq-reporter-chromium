@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,13 @@
 #include <memory>
 #include <vector>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/single_sample_metrics.h"
 #include "base/sequence_checker.h"
 #include "base/synchronization/lock.h"
+#include "base/task/sequenced_task_runner.h"
 #include "build/build_config.h"
 #include "media/base/decoder_status.h"
 #include "media/base/media_switches.h"
@@ -83,7 +84,7 @@ class PLATFORM_EXPORT RTCVideoDecoderStreamAdapter
   // Called on the worker thread.
   static std::unique_ptr<RTCVideoDecoderStreamAdapter> Create(
       media::GpuVideoAcceleratorFactories* gpu_factories,
-      media::DecoderFactory* decoder_factory,
+      base::WeakPtr<media::DecoderFactory> decoder_factory,
       scoped_refptr<base::SequencedTaskRunner> media_task_runner,
       const gfx::ColorSpace& render_color_space,
       const webrtc::SdpVideoFormat& format);
@@ -124,7 +125,7 @@ class PLATFORM_EXPORT RTCVideoDecoderStreamAdapter
   // Called on the worker thread.
   RTCVideoDecoderStreamAdapter(
       media::GpuVideoAcceleratorFactories* gpu_factories,
-      media::DecoderFactory* decoder_factory,
+      base::WeakPtr<media::DecoderFactory> decoder_factory,
       scoped_refptr<base::SequencedTaskRunner> media_task_runner,
       const gfx::ColorSpace& render_color_space,
       const media::VideoDecoderConfig& config,
@@ -197,7 +198,7 @@ class PLATFORM_EXPORT RTCVideoDecoderStreamAdapter
   // Construction parameters.
   const scoped_refptr<base::SequencedTaskRunner> media_task_runner_;
   media::GpuVideoAcceleratorFactories* const gpu_factories_;
-  media::DecoderFactory* const decoder_factory_;
+  base::WeakPtr<media::DecoderFactory> const decoder_factory_;
   gfx::ColorSpace render_color_space_;
   const webrtc::SdpVideoFormat format_;
   media::VideoDecoderConfig config_;

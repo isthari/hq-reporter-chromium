@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,7 +31,8 @@ class AppManagementShelfDelegate : public ash::ShelfModelObserver {
   ~AppManagementShelfDelegate() override;
 
   bool IsPinned(const std::string& app_id);
-  void SetPinned(const std::string& app_id, apps::mojom::OptionalBool pinned);
+  void SetPinned(const std::string& app_id,
+                 app_management::mojom::OptionalBool pinned);
 
   bool IsPolicyPinned(const std::string& app_id) const;
 

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,7 @@
 #include "ui/aura/window.h"
 #include "ui/display/display_layout.h"
 #include "ui/display/manager/display_manager.h"
-#include "ui/display/manager/display_manager_utilities.h"
+#include "ui/display/manager/util/display_manager_util.h"
 #include "ui/display/screen.h"
 #include "ui/display/types/display_constants.h"
 #include "ui/events/event_utils.h"
@@ -52,7 +52,8 @@ void AdjustSourceEdgeBounds(const gfx::Rect& display_bounds,
   int available_height = edge->height() - kMinimumIndicatorHeight;
   if (available_height <= 0)
     return;
-  edge->Inset(0, std::min(available_height, target_y - edge->y()), 0, 0);
+  edge->Inset(
+      gfx::Insets().set_top(std::min(available_height, target_y - edge->y())));
 }
 
 }  // namespace

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,13 +10,15 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
+#include "base/command_line.h"
 #include "base/compiler_specific.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/path_service.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
 #include "build/branding_buildflags.h"
@@ -32,6 +34,7 @@
 #include "chrome/browser/ui/profile_error_dialog.h"
 #include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_constants.h"
+#include "chrome/common/chrome_paths.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/browser_resources.h"
 #include "chrome/grit/chromium_strings.h"
@@ -48,11 +51,12 @@
 #include "components/prefs/pref_service.h"
 #include "components/prefs/pref_store.h"
 #include "components/prefs/pref_value_store.h"
-#include "components/prefs/standalone_browser_pref_store.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "components/search_engines/default_search_manager.h"
 #include "components/search_engines/search_engines_pref_names.h"
 #include "components/signin/public/base/signin_pref_names.h"
+#include "components/supervised_user/core/common/buildflags.h"
+#include "components/sync/base/features.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/base/pref_names.h"
 #include "components/sync_preferences/pref_model_associator.h"
@@ -73,7 +77,7 @@
 #endif
 
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS)
-#include "chrome/browser/supervised_user/supervised_user_pref_store.h"
+#include "components/supervised_user/core/browser/supervised_user_pref_store.h"
 #endif
 
 #if BUILDFLAG(IS_WIN)
@@ -159,8 +163,12 @@ const prefs::TrackedPreferenceMetadata kTrackedPrefs[] = {
 #endif
     {23, prefs::kGoogleServicesAccountId, EnforcementLevel::ENFORCE_ON_LOAD,
      PrefTrackingStrategy::ATOMIC, ValueType::PERSONAL},
-    {24, prefs::kGoogleServicesLastAccountId, EnforcementLevel::ENFORCE_ON_LOAD,
-     PrefTrackingStrategy::ATOMIC, ValueType::PERSONAL},
+    // This is being migrated to `kGoogleServicesLastGaiaId` since 2022/10, and
+    // should move to `CleanupDeprecatedTrackedPreferences()` in
+    // pref_hash_filter.cc when that migration completes.
+    {24, prefs::kGoogleServicesLastAccountIdDeprecated,
+     EnforcementLevel::ENFORCE_ON_LOAD, PrefTrackingStrategy::ATOMIC,
+     ValueType::PERSONAL},
 #if BUILDFLAG(IS_WIN)
     {25, prefs::kSettingsResetPromptPromptWave,
      EnforcementLevel::ENFORCE_ON_LOAD, PrefTrackingStrategy::ATOMIC,
@@ -195,7 +203,7 @@ const prefs::TrackedPreferenceMetadata kTrackedPrefs[] = {
 
 // One more than the last tracked preferences ID above.
 const size_t kTrackedPrefsReportingIDsCount =
-    kTrackedPrefs[base::size(kTrackedPrefs) - 1].reporting_id + 1;
+    kTrackedPrefs[std::size(kTrackedPrefs) - 1].reporting_id + 1;
 
 // Each group enforces a superset of the protection provided by the previous
 // one.
@@ -215,13 +223,13 @@ SettingsEnforcementGroup GetSettingsEnforcementGroup() {
 #if BUILDFLAG(IS_WIN)
   if (!g_disable_domain_check_for_testing) {
     static bool first_call = true;
-    static const bool is_managed = base::IsMachineExternallyManaged();
+    static const bool is_domain_joined = base::IsEnterpriseDevice();
     if (first_call) {
       UMA_HISTOGRAM_BOOLEAN("Settings.TrackedPreferencesNoEnforcementOnDomain",
-                            is_managed);
+                            is_domain_joined);
       first_call = false;
     }
-    if (is_managed)
+    if (is_domain_joined)
       return GROUP_NO_ENFORCEMENT;
   }
 #endif
@@ -243,7 +251,7 @@ GetTrackingConfiguration() {
       GetSettingsEnforcementGroup();
 
   std::vector<prefs::mojom::TrackedPreferenceMetadataPtr> result;
-  for (size_t i = 0; i < base::size(kTrackedPrefs); ++i) {
+  for (size_t i = 0; i < std::size(kTrackedPrefs); ++i) {
     prefs::mojom::TrackedPreferenceMetadataPtr data =
         prefs::ConstructTrackedMetadata(kTrackedPrefs[i]);
 
@@ -276,12 +284,9 @@ std::unique_ptr<ProfilePrefStoreManager> CreateProfilePrefStoreManager(
     const base::FilePath& profile_path) {
   std::string legacy_device_id;
 #if BUILDFLAG(IS_WIN) && BUILDFLAG(ENABLE_RLZ)
-  // This is used by
-  // chrome/browser/apps/platform_apps/api/music_manager_private/device_id_win.cc
-  // but that API is private (http://crbug.com/276485) and other platforms are
-  // not available synchronously.
-  // As part of improving pref metrics on other platforms we may want to find
-  // ways to defer preference loading until the device ID can be used.
+  // This was used by the musicManagerPrivate API, and remains here for backward
+  // compatibility so ProfilePrefStoreManager can continue to calculate the same
+  // hashes as before.
   rlz_lib::GetMachineId(&legacy_device_id);
 #endif
   std::string seed;
@@ -294,14 +299,16 @@ std::unique_ptr<ProfilePrefStoreManager> CreateProfilePrefStoreManager(
                                                    legacy_device_id);
 }
 
-void PrepareFactory(sync_preferences::PrefServiceSyncableFactory* factory,
-                    const base::FilePath& pref_filename,
-                    policy::PolicyService* policy_service,
-                    SupervisedUserSettingsService* supervised_user_settings,
-                    scoped_refptr<PersistentPrefStore> user_pref_store,
-                    scoped_refptr<PrefStore> extension_prefs,
-                    bool async,
-                    policy::BrowserPolicyConnector* policy_connector) {
+void PrepareFactory(
+    sync_preferences::PrefServiceSyncableFactory* factory,
+    const base::FilePath& pref_filename,
+    policy::PolicyService* policy_service,
+    supervised_user::SupervisedUserSettingsService* supervised_user_settings,
+    scoped_refptr<PersistentPrefStore> user_pref_store,
+    scoped_refptr<PrefStore> extension_prefs,
+    scoped_refptr<PersistentPrefStore> standalone_browser_prefs,
+    bool async,
+    policy::BrowserPolicyConnector* policy_connector) {
   factory->SetManagedPolicies(policy_service, policy_connector);
   factory->SetRecommendedPolicies(policy_service, policy_connector);
 
@@ -315,9 +322,7 @@ void PrepareFactory(sync_preferences::PrefServiceSyncableFactory* factory,
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  scoped_refptr<PrefStore> standalone_browser_prefs =
-      base::MakeRefCounted<StandaloneBrowserPrefStore>();
-  factory->set_standalone_browser_prefs(standalone_browser_prefs);
+  factory->set_standalone_browser_prefs(std::move(standalone_browser_prefs));
 #endif
 
   factory->set_async(async);
@@ -359,33 +364,19 @@ class ResetOnLoadObserverImpl : public prefs::mojom::ResetOnLoadObserver {
 
 namespace chrome_prefs {
 
-namespace internals {
-
-// Group modifications should be reflected in first_run_browsertest.cc and
-// pref_hash_browsertest.cc.
-const char kSettingsEnforcementTrialName[] = "SettingsEnforcement";
-const char kSettingsEnforcementGroupNoEnforcement[] = "no_enforcement";
-const char kSettingsEnforcementGroupEnforceAlways[] = "enforce_always";
-const char kSettingsEnforcementGroupEnforceAlwaysWithDSE[] =
-    "enforce_always_with_dse";
-const char kSettingsEnforcementGroupEnforceAlwaysWithExtensionsAndDSE[] =
-    "enforce_always_with_extensions_and_dse";
-
-}  // namespace internals
-
 std::unique_ptr<PrefService> CreateLocalState(
     const base::FilePath& pref_filename,
+    scoped_refptr<PersistentPrefStore> pref_store,
     policy::PolicyService* policy_service,
     scoped_refptr<PrefRegistry> pref_registry,
-    bool async,
     policy::BrowserPolicyConnector* policy_connector) {
   sync_preferences::PrefServiceSyncableFactory factory;
   PrepareFactory(&factory, pref_filename, policy_service,
                  nullptr,  // supervised_user_settings
-                 base::MakeRefCounted<JsonPrefStore>(
-                     pref_filename, std::unique_ptr<PrefFilter>()),
+                 pref_store,
                  nullptr,  // extension_prefs
-                 async, policy_connector);
+                 nullptr,  // standalone_browser_prefs
+                 /*async=*/false, policy_connector);
 
   return factory.Create(std::move(pref_registry));
 }
@@ -395,7 +386,7 @@ std::unique_ptr<sync_preferences::PrefServiceSyncable> CreateProfilePrefs(
     mojo::PendingRemote<prefs::mojom::TrackedPreferenceValidationDelegate>
         validation_delegate,
     policy::PolicyService* policy_service,
-    SupervisedUserSettingsService* supervised_user_settings,
+    supervised_user::SupervisedUserSettingsService* supervised_user_settings,
     scoped_refptr<PrefStore> extension_prefs,
     scoped_refptr<user_prefs::PrefRegistrySyncable> pref_registry,
     policy::BrowserPolicyConnector* connector,
@@ -408,15 +399,48 @@ std::unique_ptr<sync_preferences::PrefServiceSyncable> CreateProfilePrefs(
       std::make_unique<ResetOnLoadObserverImpl>(profile_path),
       reset_on_load_observer.InitWithNewPipeAndPassReceiver());
   sync_preferences::PrefServiceSyncableFactory factory;
+  scoped_refptr<JsonPrefStore> standalone_browser_prefs = nullptr;
+
   scoped_refptr<PersistentPrefStore> user_pref_store =
       CreateProfilePrefStoreManager(profile_path)
           ->CreateProfilePrefStore(
               GetTrackingConfiguration(), kTrackedPrefsReportingIDsCount,
-              std::move(io_task_runner), std::move(reset_on_load_observer),
+              io_task_runner, std::move(reset_on_load_observer),
               std::move(validation_delegate));
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  // In ash, load the standalone_browser_prefs. This PrefStore
+  // contains data about prefs set by extensions in lacros where the feature
+  // lives in ash (for example, screen magnifier). The values are persisted in
+  // ash so they can be loaded on startup or when lacros is not running.
+  base::FilePath user_data_dir;
+  const bool success =
+      base::PathService::Get(chrome::DIR_USER_DATA, &user_data_dir);
+  DCHECK(success);
+  standalone_browser_prefs = base::MakeRefCounted<JsonPrefStore>(
+      user_data_dir.Append(
+          FILE_PATH_LITERAL("standalone_browser_preferences.json")),
+      std::unique_ptr<PrefFilter>(), io_task_runner);
+#endif
+
   PrepareFactory(&factory, profile_path, policy_service,
                  supervised_user_settings, std::move(user_pref_store),
-                 std::move(extension_prefs), async, connector);
+                 std::move(extension_prefs),
+                 std::move(standalone_browser_prefs), async, connector);
+
+  if (base::FeatureList::IsEnabled(syncer::kEnablePreferencesAccountStorage) &&
+      base::FeatureList::IsEnabled(
+          syncer::kSyncEnablePersistentStorageForAccountPreferences)) {
+    // Note: Only mobile platforms are targeted as part of the experiment,
+    // which do not require preference protection. Hence pref filters and
+    // ProfilePrefStoreManager::CreateProfilePrefStore() can be avoided.
+    factory.SetAccountPrefStore(base::MakeRefCounted<JsonPrefStore>(
+        /*pref_filename=*/profile_path.Append(
+            chrome::kAccountPreferencesFilename),
+        /*pref_filter=*/nullptr,
+        /*file_task_runner=*/io_task_runner));
+  }
+
   return factory.CreateSyncable(std::move(pref_registry));
 }
 
@@ -426,9 +450,8 @@ void DisableDomainCheckForTesting() {
 #endif  // BUILDFLAG(IS_WIN)
 }
 
-bool InitializePrefsFromMasterPrefs(
-    const base::FilePath& profile_path,
-    std::unique_ptr<base::DictionaryValue> master_prefs) {
+bool InitializePrefsFromMasterPrefs(const base::FilePath& profile_path,
+                                    base::Value::Dict master_prefs) {
   return CreateProfilePrefStoreManager(profile_path)
       ->InitializePrefsFromMasterPrefs(GetTrackingConfiguration(),
                                        kTrackedPrefsReportingIDsCount,
@@ -474,10 +497,11 @@ void HandlePersistentPrefStoreReadError(
     }
 
     if (message_id) {
-      // Note: ThreadTaskRunnerHandle() is usually BrowserThread::UI but during
-      // early startup it can be ChromeBrowserMainParts::DeferringTaskRunner
-      // which will forward to BrowserThread::UI when it's initialized.
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
+      // Note: SingleThreadTaskRunner::CurrentDefaultHandle is usually
+      // BrowserThread::UI but during early startup it can be
+      // ChromeBrowserMainParts::DeferringTaskRunner which will forward to
+      // BrowserThread::UI when it's initialized.
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE,
           base::BindOnce(&ShowProfileErrorDialog, ProfileErrorType::PREFERENCES,
                          message_id,

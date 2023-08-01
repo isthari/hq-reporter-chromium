@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 
 #include "ash/components/arc/mojom/arc_bridge.mojom.h"
 #include "ash/components/arc/session/arc_bridge_service.h"
+#include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/test/task_environment.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
@@ -76,7 +77,7 @@ class ScopedPendingReceiver {
 
  private:
   mojo::PendingReceiver<T> pending_receiver_;
-  const ArcBridgeHostImpl* const arc_bridge_host_impl_;
+  const raw_ptr<const ArcBridgeHostImpl, ExperimentalAsh> arc_bridge_host_impl_;
 };
 
 // Test that the test fixture class, especially its ArcBridgeHostImpl variable,
@@ -107,6 +108,20 @@ TEST_F(ArcBridgeHostImplTest, TestOnInstanceReady) {
     EXPECT_EQ(count_before + 1, count_after);                                 \
   }
 
+#define MAKE_INSTANCE_READY_WITH_NAMESPACE(name_space, name)          \
+  ScopedPendingReceiver<mojom::name_space::name##Instance>            \
+      pending_receiver_##name(impl);                                  \
+  {                                                                   \
+    SCOPED_TRACE("mojom::" #name_space "::" #name "Instance");        \
+    mojo::PendingRemote<mojom::name_space::name##Instance> remote =   \
+        pending_receiver_##name.get().InitWithNewPipeAndPassRemote(); \
+    const size_t count_before = impl->GetNumMojoChannelsForTesting(); \
+    proxy->On##name##InstanceReady(std::move(remote));                \
+    base::RunLoop().RunUntilIdle();                                   \
+    const size_t count_after = impl->GetNumMojoChannelsForTesting();  \
+    EXPECT_EQ(count_before + 1, count_after);                         \
+  }
+
     MAKE_INSTANCE_READY(AccessibilityHelper);
     MAKE_INSTANCE_READY(AdbdMonitor);
     MAKE_INSTANCE_READY(App);
@@ -118,12 +133,9 @@ TEST_F(ArcBridgeHostImplTest, TestOnInstanceReady) {
     MAKE_INSTANCE_READY(Bluetooth);
     MAKE_INSTANCE_READY(BootPhaseMonitor);
     MAKE_INSTANCE_READY(Camera);
-    MAKE_INSTANCE_READY(CastReceiver);
-    MAKE_INSTANCE_READY(CertStore);
     MAKE_INSTANCE_READY(Clipboard);
     MAKE_INSTANCE_READY(CompatibilityMode);
     MAKE_INSTANCE_READY(CrashCollector);
-    MAKE_INSTANCE_READY(DarkTheme);
     MAKE_INSTANCE_READY(DigitalGoods);
     MAKE_INSTANCE_READY(DiskQuota);
     MAKE_INSTANCE_READY(EnterpriseReporting);
@@ -133,6 +145,7 @@ TEST_F(ArcBridgeHostImplTest, TestOnInstanceReady) {
     MAKE_INSTANCE_READY(InputMethodManager);
     MAKE_INSTANCE_READY(IntentHelper);
     MAKE_INSTANCE_READY(Keymaster);
+    MAKE_INSTANCE_READY_WITH_NAMESPACE(keymint, KeyMint);
     MAKE_INSTANCE_READY(Kiosk);
     MAKE_INSTANCE_READY(LockScreen);
     MAKE_INSTANCE_READY(MediaSession);
@@ -140,7 +153,7 @@ TEST_F(ArcBridgeHostImplTest, TestOnInstanceReady) {
     MAKE_INSTANCE_READY(Midis);
     MAKE_INSTANCE_READY(NearbyShare);
     MAKE_INSTANCE_READY(Net);
-    // TODO(yusukes): Test mojom::NotificationsInstance. Unlike others, the
+    // TODO(khmel): Test mojom::NotificationsInstance. Unlike others, the
     // notification instance is not managed by ArcBridgeHostImpl. Since the
     // instance is forwarded to ash, we need a completely different test.
     MAKE_INSTANCE_READY(ObbMounter);
@@ -154,9 +167,7 @@ TEST_F(ArcBridgeHostImplTest, TestOnInstanceReady) {
     MAKE_INSTANCE_READY(Property);
     MAKE_INSTANCE_READY(RotationLock);
     MAKE_INSTANCE_READY(ScreenCapture);
-    MAKE_INSTANCE_READY(Sensor);
     MAKE_INSTANCE_READY(Sharesheet);
-    MAKE_INSTANCE_READY(SmartCardManager);
     MAKE_INSTANCE_READY(StorageManager);
     MAKE_INSTANCE_READY(Timer);
     MAKE_INSTANCE_READY(Tracing);

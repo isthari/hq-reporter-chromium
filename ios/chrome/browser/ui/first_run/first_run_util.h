@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,25 +8,20 @@
 #import <UIKit/UIKit.h>
 
 #include "ios/chrome/browser/first_run/first_run_metrics.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
+namespace base {
+class Time;
+}
 namespace signin {
 class IdentityManager;
 }
-namespace web {
-class WebState;
-}
 
-class ChromeBrowserState;
-@class FirstRunConfiguration;
 @protocol SyncPresenter;
 
-// Notification sent when the first run ends, right before dimissing the Terms
-// of Service modal view.
-extern NSString* const kChromeFirstRunUIWillFinishNotification;
-
-// Notification sent when the first run has finished and has dismissed the Terms
-// of Service modal view.
-extern NSString* const kChromeFirstRunUIDidFinishNotification;
+// Default value for metrics reporting state. "YES" corresponding to "opt-out"
+// state.
+extern const BOOL kDefaultMetricsReportingCheckboxValue;
 
 // Records the result of the sign in steps for the First Run.
 void RecordFirstRunSignInMetrics(
@@ -37,16 +32,15 @@ void RecordFirstRunSignInMetrics(
 // Records the completion of the first run.
 void WriteFirstRunSentinel();
 
-// Methods for writing sentinel and recording metrics and posting notifications
-void FinishFirstRun(ChromeBrowserState* browserState,
-                    web::WebState* web_state,
-                    FirstRunConfiguration* config,
-                    id<SyncPresenter> presenter);
-
-// Posts a notification that First Run did finish.
-void FirstRunDismissed();
-
 // Returns whether the First Run Experience should be presented.
 bool ShouldPresentFirstRunExperience();
+
+// Records what the default opt-in state for metrics reporting is in the local
+// prefs, based on whether the consent checkbox should be selected by default.
+void RecordMetricsReportingDefaultState();
+
+// If the first run sentinel file exist, returns the info; otherwise, return
+// `absl::nullopt`.
+absl::optional<base::Time> GetFirstRunTime();
 
 #endif  // IOS_CHROME_BROWSER_UI_FIRST_RUN_FIRST_RUN_UTIL_H_

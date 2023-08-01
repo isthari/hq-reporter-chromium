@@ -1,8 +1,11 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {NativeEventTarget as EventTarget} from 'chrome://resources/js/cr/event_target.m.js';
+import {NativeEventTarget as EventTarget} from 'chrome://resources/ash/common/event_target.js';
+
+import {addAndroidApps} from '../../state/actions/android_apps.js';
+import {getStore} from '../../state/store.js';
 
 /**
  * Model for managing a list of Android apps.
@@ -33,6 +36,7 @@ export class AndroidAppListModel extends EventTarget {
 
     chrome.fileManagerPrivate.getAndroidPickerApps(extensions, apps => {
       this.apps_ = apps;
+      getStore().dispatch(addAndroidApps({apps}));
       this.dispatchEvent(new Event('permuted'));
     });
   }

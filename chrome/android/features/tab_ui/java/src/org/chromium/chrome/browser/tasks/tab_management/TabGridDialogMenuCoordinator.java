@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,8 @@ import android.view.View;
 import android.widget.ListView;
 
 import androidx.annotation.IntDef;
+import androidx.appcompat.content.res.AppCompatResources;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.Callback;
 import org.chromium.base.LifetimeAssert;
 import org.chromium.chrome.tab_ui.R;
@@ -92,7 +92,7 @@ public class TabGridDialogMenuCoordinator {
         // clang-format off
         adapter.registerType(ListItemType.MENU_ITEM,
                 new LayoutViewBuilder(R.layout.list_menu_item),
-                TabGridDialogMenuItemBinder::binder);
+                TabGridDialogMenuItemBinder::bind);
         // clang-format on
         listView.setOnItemClickListener((p, v, pos, id) -> {
             if (mOnItemClickedCallback != null) {
@@ -105,13 +105,12 @@ public class TabGridDialogMenuCoordinator {
         ViewRectProvider rectProvider = new ViewRectProvider(anchorView);
 
         mMenuWindow = new AnchoredPopupWindow(mContext, decorView,
-                ApiCompatibilityUtils.getDrawable(
-                        mContext.getResources(), R.drawable.menu_bg_tinted),
-                contentView, rectProvider);
+                AppCompatResources.getDrawable(mContext, R.drawable.menu_bg_tinted), contentView,
+                rectProvider);
         mMenuWindow.setFocusable(true);
         mMenuWindow.setHorizontalOverlapAnchor(true);
         mMenuWindow.setVerticalOverlapAnchor(true);
-        mMenuWindow.setAnimationStyle(R.style.OverflowMenuAnim);
+        mMenuWindow.setAnimationStyle(R.style.EndIconMenuAnim);
         int popupWidth = mContext.getResources().getDimensionPixelSize(R.dimen.menu_width);
         mMenuWindow.setMaxWidth(popupWidth);
 
@@ -135,14 +134,8 @@ public class TabGridDialogMenuCoordinator {
     private ModelList buildMenuItems(Context context) {
         ModelList itemList = new ModelList();
         itemList.add(new ListItem(ListItemType.MENU_ITEM,
-                buildPropertyModel(context, R.string.tab_grid_dialog_toolbar_remove_from_group,
-                        R.id.ungroup_tab)));
-        if (TabUiFeatureUtilities.ENABLE_TAB_GROUP_SHARING.getValue()) {
-            itemList.add(new ListItem(ListItemType.MENU_ITEM,
-                    buildPropertyModel(context, R.string.tab_grid_dialog_toolbar_share_group,
-                            R.id.share_tab_group)));
-        }
-        if (TabUiFeatureUtilities.isLaunchPolishEnabled()) {
+                buildPropertyModel(context, R.string.menu_select_tabs, R.id.select_tabs)));
+        if (TabUiFeatureUtilities.isTabGroupsAndroidContinuationEnabled(mContext)) {
             itemList.add(new ListItem(ListItemType.MENU_ITEM,
                     buildPropertyModel(context, R.string.tab_grid_dialog_toolbar_edit_group_name,
                             R.id.edit_group_name)));

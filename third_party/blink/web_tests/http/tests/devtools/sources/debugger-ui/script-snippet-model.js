@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -180,7 +180,9 @@ doesNothing;
 
         TestRunner.addResult('Run Snippet1..');
         Snippets.evaluateScriptSnippet(uiSourceCode1);
-        await ConsoleTestRunner.waitUntilMessageReceivedPromise();
+        await new Promise(fulfill => {
+          SDK.targetManager.addModelListener(SDK.ConsoleModel, SDK.ConsoleModel.Events.MessageAdded, fulfill);
+        });
         await ConsoleTestRunner.dumpConsoleMessages();
 
         await uiSourceCode1.project().deleteFile(uiSourceCode1);

@@ -1,16 +1,18 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_UI_SIGNIN_INTERCEPT_FIRST_RUN_EXPERIENCE_DIALOG_H_
 #define CHROME_BROWSER_UI_SIGNIN_INTERCEPT_FIRST_RUN_EXPERIENCE_DIALOG_H_
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
+#include "chrome/browser/ui/signin/profile_customization_synced_theme_waiter.h"
 #include "chrome/browser/ui/signin_modal_dialog.h"
 #include "chrome/browser/ui/signin_view_controller_delegate.h"
+#include "chrome/browser/ui/webui/signin/profile_customization_handler.h"
 #include "google_apis/gaia/core_account_id.h"
 
 class Browser;
@@ -28,6 +30,32 @@ class SigninInterceptFirstRunExperienceDialog
     : public SigninModalDialog,
       public SigninViewControllerDelegate::Observer {
  public:
+  // Dialog steps and user actions that occur during the first run experience.
+  // These values are persisted to logs. Entries should not be renumbered and
+  // numeric values should never be reused.
+  // TODO(https://crbug.com/1282157): Add further buckets to track engagement
+  // with the profile customization dialog (customized name / customized color).
+  enum class DialogEvent {
+    // FRE started.
+    kStart = 0,
+    // Sync confirmation was shown to the user.
+    kShowSyncConfirmation = 1,
+    // The user turned sync on.
+    kSyncConfirmationClickConfirm = 2,
+    // The user canceled sync.
+    kSyncConfirmationClickCancel = 3,
+    // The user clicked on sync settings.
+    kSyncConfirmationClickSettings = 4,
+    // Profile customization was shown to the user.
+    kShowProfileCustomization = 5,
+    // The user completed profile customization.
+    kProfileCustomizationClickDone = 6,
+    // The user skipped profile customization.
+    kProfileCustomizationClickSkip = 7,
+
+    kMaxValue = kProfileCustomizationClickSkip
+  };
+
   explicit SigninInterceptFirstRunExperienceDialog(
       Browser* browser,
       const CoreAccountId& account_id,
@@ -59,6 +87,7 @@ class SigninInterceptFirstRunExperienceDialog
     kStart,
     kTurnOnSync,
     kSyncConfirmation,
+    kWaitForSyncedTheme,
     kProfileCustomization,
     kProfileSwitchIPHAndCloseModal,
   };
@@ -69,12 +98,16 @@ class SigninInterceptFirstRunExperienceDialog
   // Actions executed right after moving to a corresponding step.
   void DoTurnOnSync();
   void DoSyncConfirmation();
+  void DoWaitForSyncedTheme();
   void DoProfileCustomization();
   void DoProfileSwitchIPHAndCloseModal();
 
   void SetDialogDelegate(SigninViewControllerDelegate* delegate);
   void PreloadProfileCustomizationUI();
-  void OnProfileCustomizationDoneButtonClicked();
+  void OnSyncedThemeReady(
+      ProfileCustomizationSyncedThemeWaiter::Outcome outcome);
+  void ProfileCustomizationCloseOnCompletion(
+      ProfileCustomizationHandler::CustomizationResult customization_result);
 
   const raw_ptr<Browser> browser_;
   const CoreAccountId account_id_;
@@ -89,6 +122,7 @@ class SigninInterceptFirstRunExperienceDialog
 
   std::unique_ptr<content::WebContents>
       profile_customization_preloaded_contents_;
+  std::unique_ptr<ProfileCustomizationSyncedThemeWaiter> synced_theme_waiter_;
 
   base::WeakPtrFactory<SigninInterceptFirstRunExperienceDialog>
       weak_ptr_factory_{this};

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,12 +16,14 @@
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/test_simple_task_runner.h"
+#include "components/metrics/clean_exit_beacon.h"
+#include "components/metrics/content/subprocess_metrics_provider.h"
 #include "components/metrics/metrics_pref_names.h"
 #include "components/metrics/metrics_service.h"
+#include "components/metrics/metrics_state_manager.h"
 #include "components/metrics/metrics_switches.h"
 #include "components/metrics/persistent_histograms.h"
 #include "components/prefs/testing_pref_service.h"
-#include "components/variations/service/variations_safe_mode_constants.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -111,6 +113,31 @@ class TestClient : public AndroidMetricsServiceClient {
   bool record_package_name_for_app_type_;
 };
 
+class SampleBucketValueTestClient : public AndroidMetricsServiceClient {
+ public:
+  SampleBucketValueTestClient() = default;
+
+  SampleBucketValueTestClient(const SampleBucketValueTestClient&) = delete;
+  SampleBucketValueTestClient& operator=(const SampleBucketValueTestClient&) =
+      delete;
+
+  ~SampleBucketValueTestClient() override = default;
+
+  using AndroidMetricsServiceClient::GetSampleBucketValue;
+
+ protected:
+  // AndroidMetricsServiceClient:
+  void OnMetricsStart() override {}
+  void OnMetricsNotStarted() override {}
+  int GetSampleRatePerMille() const override { return 0; }
+  bool CanRecordPackageNameForAppType() override { return false; }
+  int32_t GetProduct() override {
+    return metrics::ChromeUserMetricsExtension::ANDROID_WEBVIEW;
+  }
+  int GetPackageNameLimitRatePerMille() override { return 0; }
+  void RegisterAdditionalMetricsProviders(MetricsService* service) override {}
+};
+
 std::unique_ptr<TestingPrefServiceSimple> CreateTestPrefs() {
   auto prefs = std::make_unique<TestingPrefServiceSimple>();
   AndroidMetricsServiceClient::RegisterPrefs(prefs->registry());
@@ -132,6 +159,8 @@ class AndroidMetricsServiceClientTest : public testing::Test {
         task_runner_(new base::TestSimpleTaskRunner) {
     // Required by MetricsService.
     base::SetRecordActionTaskRunner(task_runner_);
+    // Needed because RegisterMetricsProvidersAndInitState() checks for this.
+    metrics::SubprocessMetricsProvider::CreateInstance();
   }
 
   AndroidMetricsServiceClientTest(const AndroidMetricsServiceClientTest&) =
@@ -153,15 +182,27 @@ class AndroidMetricsServiceClientTest : public testing::Test {
   scoped_refptr<base::TestSimpleTaskRunner> task_runner_;
 };
 
-// Verify that the Extended Variations Safe Mode experiment is disabled on
-// Android embedders.
+// Verify that Chrome does not start watching for browser crashes before setting
+// up field trials. For Android embedders, Chrome should not watch for crashes
+// then because, at the time of field trial set-up, it is not possible to know
+// whether the embedder will come to foreground. The embedder may remain in the
+// background for the browser process lifetime, and in this case, Chrome should
+// not watch for crashes so that exiting is not considered a crash. Embedders
+// start watching for crashes when foregrounding via
+// MetricsService::OnAppEnterForeground().
 TEST_F(AndroidMetricsServiceClientTest,
-       ExtendedVariationsSafeModeExperimentDisabled) {
+       DoNotWatchForCrashesBeforeFieldTrialSetUp) {
   auto prefs = CreateTestPrefs();
   auto client = std::make_unique<TestClient>();
   client->Initialize(prefs.get());
-  EXPECT_FALSE(
-      base::FieldTrialList::IsTrialActive(variations::kExtendedSafeModeTrial));
+  EXPECT_TRUE(client->metrics_state_manager()
+                  ->clean_exit_beacon()
+                  ->GetUserDataDirForTesting()
+                  .empty());
+  EXPECT_TRUE(client->metrics_state_manager()
+                  ->clean_exit_beacon()
+                  ->GetBeaconFilePathForTesting()
+                  .empty());
 }
 
 TEST_F(AndroidMetricsServiceClientTest, TestSetConsentTrueBeforeInit) {
@@ -394,11 +435,11 @@ TEST_F(AndroidMetricsServiceClientTest,
        TestBrowserMetricsDirClearedIfReportingDisabled) {
   base::test::ScopedFeatureList scoped_feature_list;
   scoped_feature_list.InitAndEnableFeatureWithParameters(
-      base::kPersistentHistogramsFeature, {{"storage", "MappedFile"}});
+      kPersistentHistogramsFeature, {{"storage", "MappedFile"}});
 
   base::FilePath metrics_dir;
   ASSERT_TRUE(base::PathService::Get(base::DIR_ANDROID_APP_DATA, &metrics_dir));
-  InstantiatePersistentHistograms(metrics_dir);
+  InstantiatePersistentHistogramsWithFeaturesAndCleanup(metrics_dir);
   base::FilePath upload_dir = metrics_dir.AppendASCII(kBrowserMetricsName);
   ASSERT_TRUE(base::PathExists(upload_dir));
 
@@ -419,11 +460,11 @@ TEST_F(AndroidMetricsServiceClientTest,
        TestBrowserMetricsDirClearedIfNoConsent) {
   base::test::ScopedFeatureList scoped_feature_list;
   scoped_feature_list.InitAndEnableFeatureWithParameters(
-      base::kPersistentHistogramsFeature, {{"storage", "MappedFile"}});
+      kPersistentHistogramsFeature, {{"storage", "MappedFile"}});
 
   base::FilePath metrics_dir;
   ASSERT_TRUE(base::PathService::Get(base::DIR_ANDROID_APP_DATA, &metrics_dir));
-  InstantiatePersistentHistograms(metrics_dir);
+  InstantiatePersistentHistogramsWithFeaturesAndCleanup(metrics_dir);
   base::FilePath upload_dir = metrics_dir.AppendASCII(kBrowserMetricsName);
   ASSERT_TRUE(base::PathExists(upload_dir));
 
@@ -443,11 +484,11 @@ TEST_F(AndroidMetricsServiceClientTest,
        TestBrowserMetricsDirExistsIfReportingEnabled) {
   base::test::ScopedFeatureList scoped_feature_list;
   scoped_feature_list.InitAndEnableFeatureWithParameters(
-      base::kPersistentHistogramsFeature, {{"storage", "MappedFile"}});
+      kPersistentHistogramsFeature, {{"storage", "MappedFile"}});
 
   base::FilePath metrics_dir;
   ASSERT_TRUE(base::PathService::Get(base::DIR_ANDROID_APP_DATA, &metrics_dir));
-  InstantiatePersistentHistograms(metrics_dir);
+  InstantiatePersistentHistogramsWithFeaturesAndCleanup(metrics_dir);
   base::FilePath upload_dir = metrics_dir.AppendASCII(kBrowserMetricsName);
   ASSERT_TRUE(base::PathExists(upload_dir));
 
@@ -484,4 +525,33 @@ TEST_F(AndroidMetricsServiceClientTest, GetMetricsServiceIfStarted) {
   EXPECT_TRUE(client->GetMetricsServiceIfStarted());
 }
 
+TEST_F(AndroidMetricsServiceClientTest,
+       ShouldComputeCorrectSampleBucketValues) {
+  // The following sample values were generated by using
+  // https://www.uuidgenerator.net/version4
+  struct {
+    const char* client_uuid;
+    int expected_sample_bucket_value;
+  } test_cases[] = {{"01234567-89ab-40cd-80ef-0123456789ab", 946},
+                    {"00aa37bf-7fba-47a7-9180-e334f5c69a8e", 607},
+                    {"a7a68d68-8ba3-486d-832b-a0cded65fea2", 995},
+                    {"5aed7b5d-b827-400d-9d28-5d23dcc076dc", 802},
+                    {"fa5f5bd4-aae7-4d94-ab84-69c8ca40f400", 100}};
+
+  for (const auto& test : test_cases) {
+    auto prefs = CreateTestPrefs();
+    prefs->SetString(metrics::prefs::kMetricsClientID, test.client_uuid);
+    // Needed because RegisterMetricsProvidersAndInitState() checks for this.
+    // TODO(crbug/1293026): Remove this and only keep the one in ctor/SetUp.
+    // This is currently needed because |client| will own the provider and
+    // destroy it when it goes out of scope, so need to re-create the provider.
+    metrics::SubprocessMetricsProvider::CreateInstance();
+    auto client = std::make_unique<SampleBucketValueTestClient>();
+    client->SetHaveMetricsConsent(/*user_consent=*/true, /*app_consent=*/true);
+    client->Initialize(prefs.get());
+
+    EXPECT_EQ(client->GetSampleBucketValue(),
+              test.expected_sample_bucket_value);
+  }
+}
 }  // namespace metrics

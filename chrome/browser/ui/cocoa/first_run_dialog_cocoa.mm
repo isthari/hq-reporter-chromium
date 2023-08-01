@@ -1,19 +1,20 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "chrome/browser/ui/cocoa/first_run_dialog_cocoa.h"
 
-#include "base/bind.h"
+#include "base/apple/bundle_locations.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
-#include "base/mac/bundle_locations.h"
+#include "base/functional/bind.h"
 #import "base/mac/scoped_nsobject.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/current_thread.h"
-#include "base/threading/thread_task_runner_handle.h"
+#import "base/task/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/browser_process_impl.h"
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/first_run/first_run_dialog.h"
@@ -36,7 +37,7 @@ namespace {
 
 class FirstRunShowBridge : public base::RefCounted<FirstRunShowBridge> {
  public:
-  FirstRunShowBridge(FirstRunDialogController* controller);
+  explicit FirstRunShowBridge(FirstRunDialogController* controller);
 
   void ShowDialog(base::OnceClosure quit_closure);
 
@@ -54,14 +55,14 @@ FirstRunShowBridge::FirstRunShowBridge(FirstRunDialogController* controller)
 void FirstRunShowBridge::ShowDialog(base::OnceClosure quit_closure) {
   // Proceeding past the modal dialog requires user interaction. Allow nested
   // tasks to run so that signal handlers operate correctly.
-  base::CurrentThread::ScopedNestableTaskAllower allow_nested;
+  base::CurrentThread::ScopedAllowApplicationTasksInNativeNestedLoop allow;
   [controller_ show];
   std::move(quit_closure).Run();
 }
 
-FirstRunShowBridge::~FirstRunShowBridge() {}
+FirstRunShowBridge::~FirstRunShowBridge() = default;
 
-void ShowFirstRunModal(Profile* profile) {
+void ShowFirstRunModal() {
   base::scoped_nsobject<FirstRunDialogController> dialog(
       [[FirstRunDialogController alloc] init]);
 
@@ -94,8 +95,8 @@ bool StatsCheckboxDefault() {
 
 namespace first_run {
 
-void ShowFirstRunDialogCocoa(Profile* profile) {
-  ShowFirstRunModal(profile);
+void ShowFirstRunDialogCocoa() {
+  ShowFirstRunModal();
 }
 
 }  // namespace first_run
@@ -106,16 +107,14 @@ void ShowFirstRunDialogCocoa(Profile* profile) {
 
 - (instancetype)init {
   _viewController.reset([[FirstRunDialogViewController alloc]
-      initWithStatsCheckboxInitiallyChecked:StatsCheckboxDefault()
-              defaultBrowserCheckboxVisible:shell_integration::
-                                                CanSetAsDefaultBrowser()]);
+      initWithStatsCheckboxInitiallyChecked:StatsCheckboxDefault()]);
 
   // Create the content view controller (and the content view) *before* the
   // window, so that we can find out what the content view's frame is supposed
   // to be for use here.
   base::scoped_nsobject<NSWindow> window([[NSWindow alloc]
       initWithContentRect:[[_viewController view] frame]
-                styleMask:NSTitledWindowMask
+                styleMask:NSWindowStyleMaskTitled
                   backing:NSBackingStoreBuffered
                     defer:YES]);
   [window setContentView:[_viewController view]];
@@ -154,7 +153,7 @@ void ShowFirstRunDialogCocoa(Profile* profile) {
 
   // Barring a shutdown signal, the run loop will quit when the user closes the
   // first run dialog.
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&FirstRunShowBridge::ShowDialog, bridge.get(),
                                 run_loop.QuitClosure()));
   run_loop.Run();

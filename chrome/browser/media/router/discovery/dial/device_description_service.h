@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,10 @@
 #include <memory>
 #include <string>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/gtest_prod_util.h"
 #include "base/sequence_checker.h"
+#include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/media/router/discovery/dial/dial_device_data.h"
 #include "chrome/browser/media/router/discovery/dial/parsed_dial_device_description.h"
@@ -131,7 +132,7 @@ class DeviceDescriptionService {
   void OnParsedDeviceDescription(
       const DialDeviceData& device_data,
       const ParsedDialDeviceDescription& device_description,
-      SafeDialDeviceDescriptionParser::ParsingError parsing_error);
+      SafeDialDeviceDescriptionParser::ParsingResult parsing_result);
 
   // Remove expired cache entries from |description_map_|.
   void CleanUpCacheEntries();

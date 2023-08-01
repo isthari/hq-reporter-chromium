@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 // TabHelper which manages vcard files.
 @protocol VcardTabHelperDelegate
 
-// Called to open a Vcard. |data| cannot be nil.
+// Called to open a Vcard. `data` cannot be nil.
 - (void)openVcardFromData:(NSData*)vcardData;
 
 @end

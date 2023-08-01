@@ -1,4 +1,4 @@
-// Copyright (c) 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,21 +31,21 @@ class SystemFeaturesDisableListPolicyHandlerTest : public testing::Test {
 
   void ApplyPolicySettings(std::vector<std::string> list) {
     PolicyMap policy_map;
-    base::Value features_list(base::Value::Type::LIST);
+    base::Value::List features_list;
     for (auto& i : list) {
       features_list.Append(i);
     }
     policy_map.Set(policy::key::kSystemFeaturesDisableList,
                    policy::POLICY_LEVEL_MANDATORY, policy::POLICY_SCOPE_USER,
-                   policy::POLICY_SOURCE_CLOUD, std::move(features_list),
-                   nullptr);
+                   policy::POLICY_SOURCE_CLOUD,
+                   base::Value(std::move(features_list)), nullptr);
     policy_handler_.ApplyPolicySettings(policy_map, &prefs_);
   }
 
   void VerifyPrefList(std::vector<SystemFeature> expected) {
-    base::Value expected_list(base::Value::Type::LIST);
+    base::Value::List expected_list;
     for (auto& i : expected) {
-      expected_list.Append(i);
+      expected_list.Append(static_cast<int>(i));
     }
 
     base::Value* value = nullptr;
@@ -61,8 +61,8 @@ TEST_F(SystemFeaturesDisableListPolicyHandlerTest, ShouldHandleSomeSettings) {
   VerifyPrefList({SystemFeature::kCamera, SystemFeature::kBrowserSettings});
 
   std::vector<base::Bucket> expected_histogram{
-      base::Bucket(SystemFeature::kCamera, 1),
-      base::Bucket(SystemFeature::kBrowserSettings, 1)};
+      base::Bucket(static_cast<int>(SystemFeature::kCamera), 1),
+      base::Bucket(static_cast<int>(SystemFeature::kBrowserSettings), 1)};
 
   EXPECT_EQ(
       histogram_tester_.GetAllSamples(kSystemFeaturesDisableListHistogram),
@@ -79,14 +79,14 @@ TEST_F(SystemFeaturesDisableListPolicyHandlerTest, ShouldHandleAllSettings) {
                   SystemFeature::kExplore, SystemFeature::kCrosh});
 
   std::vector<base::Bucket> expected_histogram{
-      base::Bucket(SystemFeature::kCamera, 1),
-      base::Bucket(SystemFeature::kBrowserSettings, 1),
-      base::Bucket(SystemFeature::kOsSettings, 1),
-      base::Bucket(SystemFeature::kScanning, 1),
-      base::Bucket(SystemFeature::kWebStore, 1),
-      base::Bucket(SystemFeature::kCanvas, 1),
-      base::Bucket(SystemFeature::kExplore, 1),
-      base::Bucket(SystemFeature::kCrosh, 1)};
+      base::Bucket(static_cast<int>(SystemFeature::kCamera), 1),
+      base::Bucket(static_cast<int>(SystemFeature::kBrowserSettings), 1),
+      base::Bucket(static_cast<int>(SystemFeature::kOsSettings), 1),
+      base::Bucket(static_cast<int>(SystemFeature::kScanning), 1),
+      base::Bucket(static_cast<int>(SystemFeature::kWebStore), 1),
+      base::Bucket(static_cast<int>(SystemFeature::kCanvas), 1),
+      base::Bucket(static_cast<int>(SystemFeature::kExplore), 1),
+      base::Bucket(static_cast<int>(SystemFeature::kCrosh), 1)};
 
   EXPECT_EQ(
       histogram_tester_.GetAllSamples(kSystemFeaturesDisableListHistogram),
@@ -105,13 +105,13 @@ TEST_F(SystemFeaturesDisableListPolicyHandlerTest,
                   SystemFeature::kExplore});
 
   std::vector<base::Bucket> expected_histogram{
-      base::Bucket(SystemFeature::kCamera, 1),
-      base::Bucket(SystemFeature::kBrowserSettings, 1),
-      base::Bucket(SystemFeature::kOsSettings, 1),
-      base::Bucket(SystemFeature::kScanning, 1),
-      base::Bucket(SystemFeature::kWebStore, 1),
-      base::Bucket(SystemFeature::kCanvas, 1),
-      base::Bucket(SystemFeature::kExplore, 1)};
+      base::Bucket(static_cast<int>(SystemFeature::kCamera), 1),
+      base::Bucket(static_cast<int>(SystemFeature::kBrowserSettings), 1),
+      base::Bucket(static_cast<int>(SystemFeature::kOsSettings), 1),
+      base::Bucket(static_cast<int>(SystemFeature::kScanning), 1),
+      base::Bucket(static_cast<int>(SystemFeature::kWebStore), 1),
+      base::Bucket(static_cast<int>(SystemFeature::kCanvas), 1),
+      base::Bucket(static_cast<int>(SystemFeature::kExplore), 1)};
 
   EXPECT_EQ(
       histogram_tester_.GetAllSamples(kSystemFeaturesDisableListHistogram),
@@ -125,7 +125,7 @@ TEST_F(SystemFeaturesDisableListPolicyHandlerTest,
   VerifyPrefList({SystemFeature::kUnknownSystemFeature});
 
   std::vector<base::Bucket> expected_histogram{
-      base::Bucket(SystemFeature::kUnknownSystemFeature, 1)};
+      base::Bucket(static_cast<int>(SystemFeature::kUnknownSystemFeature), 1)};
 
   EXPECT_EQ(
       histogram_tester_.GetAllSamples(kSystemFeaturesDisableListHistogram),

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <memory>
 #include <vector>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/time/time.h"
 #include "build/chromeos_buildflags.h"
@@ -307,6 +307,12 @@ class EventGenerator {
   // Generates a touch release event with |touch_id|.
   void ReleaseTouchId(int touch_id);
 
+  // Generates a touch cancel event.
+  void CancelTouch();
+
+  // Generates a touch cancel event with |touch_id|.
+  void CancelTouchId(int touch_id);
+
   // Generates press, move and release event to move touch
   // to be the given |point|.
   void PressMoveAndReleaseTouchTo(const gfx::Point& point);
@@ -447,6 +453,9 @@ class EventGenerator {
   // Dispatch the event to the WindowEventDispatcher.
   void Dispatch(Event* event);
 
+  // Advances the event generator's clock by `delta`.
+  void AdvanceClock(const base::TimeDelta& delta);
+
   void set_current_target(EventTarget* target) {
     current_target_ = target;
   }
@@ -474,7 +483,7 @@ class EventGenerator {
 
   std::unique_ptr<EventGeneratorDelegate> delegate_;
   gfx::Point current_screen_location_;
-  raw_ptr<EventTarget> current_target_ = nullptr;
+  raw_ptr<EventTarget, DanglingUntriaged> current_target_ = nullptr;
   int flags_ = 0;
   bool grab_ = false;
 
@@ -484,6 +493,17 @@ class EventGenerator {
 
   std::unique_ptr<TestTickClock> tick_clock_;
 };
+
+// This generates key events for moidfiers as well as the key with
+// modifiers.
+// TODO(crbug.com/1415115): Remove this once the EventGenerator is
+// modified to generate the same sequence.
+void EmulateFullKeyPressReleaseSequence(test::EventGenerator* generator,
+                                        KeyboardCode key,
+                                        bool control,
+                                        bool shift,
+                                        bool alt,
+                                        bool command);
 
 }  // namespace test
 }  // namespace ui

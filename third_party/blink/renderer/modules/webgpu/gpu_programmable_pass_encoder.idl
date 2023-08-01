@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,6 @@ interface mixin GPUProgrammablePassEncoder {
         GPUSize32 dynamicOffsetsDataLength);
 
     void pushDebugGroup(USVString groupLabel);
-    void popDebugGroup();
+    [NoAllocDirectCall] void popDebugGroup();
     void insertDebugMarker(USVString markerLabel);
 };

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "base/memory/raw_ptr.h"
 #include "base/types/pass_key.h"
 #include "components/viz/service/display_embedder/skia_output_device_offscreen.h"
 #include "ui/gfx/native_widget_types.h"
@@ -36,19 +37,17 @@ class SkiaOutputDeviceX11 final : public SkiaOutputDeviceOffscreen {
       gpu::MemoryTracker* memory_tracker,
       DidSwapBufferCompleteCallback did_swap_buffer_complete_callback);
 
-  bool Reshape(const gfx::Size& size,
-               float device_scale_factor,
+  bool Reshape(const SkImageInfo& image_info,
                const gfx::ColorSpace& color_space,
-               gfx::BufferFormat format,
+               int sample_count,
+               float device_scale_factor,
                gfx::OverlayTransform transform) override;
-  void SwapBuffers(BufferPresentedCallback feedback,
-                   OutputSurfaceFrame frame) override;
-  void PostSubBuffer(const gfx::Rect& rect,
-                     BufferPresentedCallback feedback,
-                     OutputSurfaceFrame frame) override;
+  void Present(const absl::optional<gfx::Rect>& update_rect,
+               BufferPresentedCallback feedback,
+               OutputSurfaceFrame frame) override;
 
  private:
-  x11::Connection* const connection_;
+  const raw_ptr<x11::Connection> connection_;
   const x11::Window window_;
   const x11::VisualId visual_;
   const x11::GraphicsContext gc_;

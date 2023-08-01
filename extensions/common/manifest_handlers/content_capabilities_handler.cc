@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -62,7 +62,7 @@ bool ContentCapabilitiesHandler::Parse(Extension* extension,
   }
 
   std::unique_ptr<ContentCapabilities> capabilities(
-      ContentCapabilities::FromValue(*value, error));
+      ContentCapabilities::FromValueDeprecated(*value, error));
   if (!capabilities)
     return false;
 

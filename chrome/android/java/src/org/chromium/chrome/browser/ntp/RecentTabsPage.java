@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -159,7 +159,7 @@ public class RecentTabsPage
         // Work around a bug on Samsung devices where the recent tabs page does not appear after
         // toggling the Sync quick setting.  For some reason, the layout is being dropped on the
         // flow and we need to force a root level layout to get the UI to appear.
-        view.getRootView().requestLayout();
+        ViewUtils.requestLayout(view.getRootView(), "RecentTabsPage.onViewAttachedToWindow");
     }
 
     @Override

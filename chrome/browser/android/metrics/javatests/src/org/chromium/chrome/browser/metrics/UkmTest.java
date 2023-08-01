@@ -1,12 +1,11 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.metrics;
 
-import android.support.test.InstrumentationRegistry;
-
 import androidx.test.filters.SmallTest;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -14,6 +13,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.chrome.browser.browsing_data.BrowsingDataBridge;
@@ -22,6 +22,8 @@ import org.chromium.chrome.browser.browsing_data.BrowsingDataType;
 import org.chromium.chrome.browser.browsing_data.TimePeriod;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.metrics.util.UkmUtilsForTest;
+import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.signin.services.UnifiedConsentServiceBridge;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.ChromeTabUtils;
@@ -32,6 +34,7 @@ import org.chromium.content_public.browser.test.util.TestThreadUtils;
  * Android UKM tests.
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
+@Batch(Batch.PER_CLASS)
 @CommandLineFlags.
 Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE, MetricsSwitches.FORCE_ENABLE_METRICS_REPORTING})
 public class UkmTest {
@@ -54,8 +57,11 @@ public class UkmTest {
         ChromeTabUtils.closeAllTabs(
                 InstrumentationRegistry.getInstrumentation(), mActivityTestRule.getActivity());
 
-        TestThreadUtils.runOnUiThreadBlocking(
-                () -> { Assert.assertTrue(UkmUtilsForTest.isEnabled()); });
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            Profile profile = Profile.getLastUsedRegularProfile();
+            UnifiedConsentServiceBridge.setUrlKeyedAnonymizedDataCollectionEnabled(profile, true);
+            Assert.assertTrue(UkmUtilsForTest.isEnabled());
+        });
 
         long originalClientId =
                 TestThreadUtils

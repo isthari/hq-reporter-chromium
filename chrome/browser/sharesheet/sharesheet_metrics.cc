@@ -1,9 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/sharesheet/sharesheet_metrics.h"
 
+#include "ash/public/cpp/tablet_mode.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/string_split.h"
 #include "components/services/app_service/public/cpp/intent_util.h"
@@ -38,6 +39,8 @@ const char kSharesheetMimeTypeResultHistogram[] =
     "ChromeOS.Sharesheet.Invocation.MimeType";
 const char kSharesheetCopyToClipboardMimeTypeResultHistogram[] =
     "ChromeOS.Sharesheet.CopyToClipboard.MimeType";
+const char kSharesheetCopyToClipboardFormFactorResultHistogram[] =
+    "ChromeOS.Sharesheet.CopyToClipboard.FormFactor";
 
 SharesheetMetrics::SharesheetMetrics() = default;
 
@@ -101,6 +104,12 @@ void SharesheetMetrics::RecordCopyToClipboardShareActionMimeType(
       kSharesheetCopyToClipboardMimeTypeResultHistogram, mime_type);
 }
 
+void SharesheetMetrics::RecordCopyToClipboardShareActionFormFactor(
+    const FormFactor form_factor) {
+  base::UmaHistogramEnumeration(
+      kSharesheetCopyToClipboardFormFactorResultHistogram, form_factor);
+}
+
 SharesheetMetrics::MimeType SharesheetMetrics::ConvertMimeTypeForMetrics(
     std::string mime_type) {
   std::vector<std::string> type =
@@ -127,7 +136,7 @@ SharesheetMetrics::MimeType SharesheetMetrics::ConvertMimeTypeForMetrics(
 
 base::flat_set<SharesheetMetrics::MimeType>
 SharesheetMetrics::GetMimeTypesFromIntentForMetrics(
-    const apps::mojom::IntentPtr& intent) {
+    const apps::IntentPtr& intent) {
   base::flat_set<MimeType> mime_types_to_record;
 
   if (intent->share_text.has_value()) {
@@ -142,16 +151,19 @@ SharesheetMetrics::GetMimeTypesFromIntentForMetrics(
     }
   }
 
-  const bool has_files =
-      (intent->files.has_value() && !intent->files.value().empty());
-  if (has_files) {
-    for (const auto& file : intent->files.value()) {
+  if (!intent->files.empty()) {
+    for (const auto& file : intent->files) {
       if (file->mime_type.has_value())
         mime_types_to_record.insert(
             ConvertMimeTypeForMetrics(file->mime_type.value()));
     }
   }
   return mime_types_to_record;
+}
+
+SharesheetMetrics::FormFactor SharesheetMetrics::GetFormFactorForMetrics() {
+  return ash::TabletMode::Get()->InTabletMode() ? FormFactor::kTablet
+                                                : FormFactor::kClamshell;
 }
 
 }  // namespace sharesheet

@@ -1,19 +1,19 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/bookmarks/managed_bookmark_service_factory.h"
 
-#include "base/no_destructor.h"
-#include "base/strings/sys_string_conversions.h"
-#include "components/bookmarks/managed/managed_bookmark_service.h"
-#include "components/keyed_service/ios/browser_state_dependency_manager.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/signin/authentication_service.h"
-#include "ios/chrome/browser/signin/authentication_service_factory.h"
-#import "ios/public/provider/chrome/browser/chrome_browser_provider.h"
-#import "ios/public/provider/chrome/browser/signin/chrome_identity.h"
-#include "ios/public/provider/chrome/browser/signin/chrome_identity_service.h"
+#import "base/no_destructor.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/bookmarks/managed/managed_bookmark_service.h"
+#import "components/keyed_service/ios/browser_state_dependency_manager.h"
+#import "ios/chrome/browser/shared/model/application_context/application_context.h"
+#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/signin/authentication_service.h"
+#import "ios/chrome/browser/signin/authentication_service_factory.h"
+#import "ios/chrome/browser/signin/system_identity.h"
+#import "ios/chrome/browser/signin/system_identity_manager.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -27,18 +27,27 @@ std::string GetManagedBookmarksDomain(ChromeBrowserState* browser_state) {
   if (!auth_service)
     return std::string();
 
-  ChromeIdentity* identity =
+  id<SystemIdentity> identity =
       auth_service->GetPrimaryIdentity(signin::ConsentLevel::kSignin);
   if (!identity)
     return std::string();
 
-  ios::ChromeIdentityService* identity_service =
-      ios::GetChromeBrowserProvider().GetChromeIdentityService();
-  if (!identity_service)
-    return std::string();
-
   return base::SysNSStringToUTF8(
-      identity_service->GetCachedHostedDomainForIdentity(identity));
+      GetApplicationContext()
+          ->GetSystemIdentityManager()
+          ->GetCachedHostedDomainForIdentity(identity));
+}
+
+std::unique_ptr<KeyedService> BuildManagedBookmarkModel(
+    web::BrowserState* context) {
+  ChromeBrowserState* browser_state =
+      ChromeBrowserState::FromBrowserState(context);
+  // base::Unretained is safe because ManagedBookmarkService will
+  // be destroyed before the browser_state it is attached to.
+  return std::make_unique<bookmarks::ManagedBookmarkService>(
+      browser_state->GetPrefs(),
+      base::BindRepeating(&GetManagedBookmarksDomain,
+                          base::Unretained(browser_state)));
 }
 
 }  // namespace
@@ -57,6 +66,12 @@ ManagedBookmarkServiceFactory* ManagedBookmarkServiceFactory::GetInstance() {
   return instance.get();
 }
 
+// static
+ManagedBookmarkServiceFactory::TestingFactory
+ManagedBookmarkServiceFactory::GetDefaultFactory() {
+  return base::BindRepeating(&BuildManagedBookmarkModel);
+}
+
 ManagedBookmarkServiceFactory::ManagedBookmarkServiceFactory()
     : BrowserStateKeyedServiceFactory(
           "ManagedBookmarkService",
@@ -67,14 +82,7 @@ ManagedBookmarkServiceFactory::~ManagedBookmarkServiceFactory() {}
 std::unique_ptr<KeyedService>
 ManagedBookmarkServiceFactory::BuildServiceInstanceFor(
     web::BrowserState* context) const {
-  ChromeBrowserState* browser_state =
-      ChromeBrowserState::FromBrowserState(context);
-  // base::Unretained is safe because ManagedBookmarkService will
-  // be destroyed before the browser_state it is attached to.
-  return std::make_unique<bookmarks::ManagedBookmarkService>(
-      browser_state->GetPrefs(),
-      base::BindRepeating(&GetManagedBookmarksDomain,
-                          base::Unretained(browser_state)));
+  return BuildManagedBookmarkModel(context);
 }
 
 bool ManagedBookmarkServiceFactory::ServiceIsNULLWhileTesting() const {

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -41,12 +41,14 @@ class MixingGraphImpl : public MixingGraph {
   // media::AudioOutputStream::AudioSourceCallback
   int OnMoreData(base::TimeDelta delay,
                  base::TimeTicks delay_timestamp,
-                 int prior_frames_skipped,
+                 const media::AudioGlitchInfo& glitch_info,
                  media::AudioBus* dest) final;
 
   void OnError(ErrorType type) final;
 
  protected:
+  class OvertimeLogger;
+
   media::LoopbackAudioConverter* FindOrAddConverter(
       const media::AudioParameters& input_params,
       const media::AudioParameters& output_params,
@@ -112,6 +114,9 @@ class MixingGraphImpl : public MixingGraph {
   // Called when a new converter needs to be created.
   const CreateConverterCallback create_converter_cb_;
 
+  // UMA logging.
+  const std::unique_ptr<OvertimeLogger> overtime_logger_;
+
   base::Lock lock_;
 
   // The |main_converter_|, the |converters_| and the inputs are connected
@@ -120,14 +125,15 @@ class MixingGraphImpl : public MixingGraph {
   // and resampling are handled by converters. The tree is constructed to
   // minimize the use of resampling, which is the most complex operation.
   // 1. For inputs with a channel layout different from the output channel
-  // layout: All inputs of the same sample rate and channel layout are combined
-  // and channel mixed to produce new inputs with the output channel layout.
-  // 2. For inputs with a sample rate different from the output sample rate: All
-  // inputs of the same sample rate (and after channel mixing the same channel
-  // layout) are combined and resampled to produce new inputs of the
+  // layout: All inputs of the same sample rate and channel layout are
+  // combined and channel mixed to produce new inputs with the output
+  // channel layout.
+  // 2. For inputs with a sample rate different from the output sample rate:
+  // All inputs of the same sample rate (and after channel mixing the same
+  // channel layout) are combined and resampled to produce new inputs of the
   // output sample rate (and channel layout).
-  // 3. All inputs of the output sample rate and channel layout are combined by
-  // the main converter to produce a single output.
+  // 3. All inputs of the output sample rate and channel layout are combined
+  // by the main converter to produce a single output.
   AudioConverters converters_;
   media::AudioConverter main_converter_;
 };

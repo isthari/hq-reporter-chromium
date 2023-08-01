@@ -53,6 +53,14 @@ AccessibilityOrientation AXSlider::Orientation() const {
   if (!style)
     return kAccessibilityOrientationHorizontal;
 
+  if (RuntimeEnabledFeatures::FormControlsVerticalWritingModeSupportEnabled()) {
+    if (IsHorizontalWritingMode(style->GetWritingMode())) {
+      return kAccessibilityOrientationHorizontal;
+    } else {
+      return kAccessibilityOrientationVertical;
+    }
+  }
+
   ControlPart style_appearance = style->EffectiveAppearance();
   switch (style_appearance) {
     case kSliderThumbHorizontalPart:
@@ -60,8 +68,12 @@ AccessibilityOrientation AXSlider::Orientation() const {
     case kMediaSliderPart:
       return kAccessibilityOrientationHorizontal;
 
-    case kSliderThumbVerticalPart:
     case kSliderVerticalPart:
+      return RuntimeEnabledFeatures::
+                     RemoveNonStandardAppearanceValueSliderVerticalEnabled()
+                 ? kAccessibilityOrientationHorizontal
+                 : kAccessibilityOrientationVertical;
+    case kSliderThumbVerticalPart:
     case kMediaVolumeSliderPart:
       return kAccessibilityOrientationVertical;
 
@@ -73,10 +85,10 @@ AccessibilityOrientation AXSlider::Orientation() const {
 bool AXSlider::OnNativeSetValueAction(const String& value) {
   HTMLInputElement* input = GetInputElement();
 
-  if (input->value() == value)
+  if (input->Value() == value)
     return false;
 
-  input->setValue(value, TextFieldEventBehavior::kDispatchInputAndChangeEvent);
+  input->SetValue(value, TextFieldEventBehavior::kDispatchInputAndChangeEvent);
 
   // Fire change event manually, as SliderThumbElement::StopDragging does.
   input->DispatchFormControlChangeEvent();
@@ -87,7 +99,7 @@ bool AXSlider::OnNativeSetValueAction(const String& value) {
     return false;
 
   // Ensure the AX node is updated.
-  AXObjectCache().MarkAXObjectDirtyWithCleanLayout(this);
+  AXObjectCache().HandleValueChanged(GetNode());
 
   return true;
 }

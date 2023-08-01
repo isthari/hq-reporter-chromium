@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,19 @@
 
 #include "base/feature_list.h"
 
-namespace remoting {
+namespace remoting::features {
 
-// Enable to allow CRD to stream other monitors than the primary display.
-extern const base::Feature kEnableMultiMonitorsInCrd;
+// Enable to allow CRD remote admin connections when the ChromeOS device is at
+// the login screen.
+BASE_DECLARE_FEATURE(kEnableCrdAdminRemoteAccess);
 
-}  // namespace remoting
+// Enable the V2 feature development related to launching CRD remote admin
+// to GA.
+BASE_DECLARE_FEATURE(kEnableCrdAdminRemoteAccessV2);
+
+// Enable to allow FrameSinkDesktopCapturer to be used for CRD video streaming.
+BASE_DECLARE_FEATURE(kEnableFrameSinkDesktopCapturerInCrd);
+
+}  // namespace remoting::features
 
 #endif  // REMOTING_HOST_CHROMEOS_FEATURES_H_

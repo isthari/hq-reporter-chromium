@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include <memory>
 #include <vector>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/strings/string_piece.h"
 #include "ios/chrome/browser/overlays/public/overlay_request_config.h"
 #include "ios/chrome/browser/overlays/public/overlay_response_info.h"
@@ -45,7 +45,7 @@ namespace alert_overlays {
 //     std::unique_ptr<OverlayResponse> response) {
 //   AlertResponse* alert_response = response->GetInfo<AlertResponse>();
 //   return OverlayResponse::CreateWithInfo<FooResponse>(
-//       /* ... parse |alert_response| to create a FooResponse ... */);
+//       /* ... parse `alert_response` to create a FooResponse ... */);
 // }
 //
 // void FooRequest::CreateAuxiliaryData(base::SupportsUserData* user_data) {
@@ -56,7 +56,7 @@ namespace alert_overlays {
 
 // Callback that converts an OverlayResponse created with an AlertResponse
 // to one exposing its feature-specific logic.  For example, a feature asking
-// for the email of a user with an alert can convert |alert_response| to an
+// for the email of a user with an alert can convert `alert_response` to an
 // OverlayResponse created with an OverlayResponseInfo that exposes the email
 // typed into a text field in the alert, rather than requiring the overlay
 // requester to parse the AlertResponse's text field values.
@@ -66,11 +66,11 @@ typedef base::RepeatingCallback<std::unique_ptr<OverlayResponse>(
 
 // Config struct used to set up buttons shown in overlay UI for an AlertRequest.
 struct ButtonConfig {
-  // Creates a ButtonConfig with |title| and |style|.
+  // Creates a ButtonConfig with `title` and `style`.
   explicit ButtonConfig(NSString* title,
                         UIAlertActionStyle style = UIAlertActionStyleDefault);
-  // Creates a ButtonConfig with |title| and |style|. UMA User Action with
-  // |user_action_name| will be recorded when this button is tapped.
+  // Creates a ButtonConfig with `title` and `style`. UMA User Action with
+  // `user_action_name` will be recorded when this button is tapped.
   ButtonConfig(NSString* title,
                base::StringPiece user_action_name,
                UIAlertActionStyle style = UIAlertActionStyleDefault);
@@ -108,8 +108,9 @@ class AlertRequest : public OverlayRequestConfig<AlertRequest> {
   NSArray<TextFieldConfiguration*>* text_field_configs() const {
     return text_field_configs_;
   }
-  // The button titles.  All alerts must have at least one button.
-  const std::vector<ButtonConfig>& button_configs() const {
+  // The button styles, titles and placement, with each child vector being a
+  // horizontal list of buttons.  All alerts must have at least one button.
+  const std::vector<std::vector<ButtonConfig>>& button_configs() const {
     return button_configs_;
   }
   // Callback that converts an alert-specific OverlayResponse to one exposing
@@ -121,22 +122,22 @@ class AlertRequest : public OverlayRequestConfig<AlertRequest> {
  private:
   OVERLAY_USER_DATA_SETUP(AlertRequest);
 
-  // Constructor called by CreateForUserData().  All arguments are copied to the
-  // ivars below.  |title|, |message|, or both must be non-empty strings.
-  // |button_configs| must contain at least one ButtonConfig.
-  // |response_converter| must be non-null.
+  // Constructor called by CreateForUserData(). All arguments are copied to the
+  // ivars below.  `title`, `message`, or both must be non-empty strings.
+  // `button_configs` must contain at least one ButtonConfig.
+  // `response_converter` must be non-null.
   AlertRequest(NSString* title,
                NSString* message,
                NSString* accessibility_identifier,
                NSArray<TextFieldConfiguration*>* text_field_configs,
-               const std::vector<ButtonConfig>& button_configs,
+               const std::vector<std::vector<ButtonConfig>>& button_configs,
                ResponseConverter response_converter);
 
   NSString* title_ = nil;
   NSString* message_ = nil;
   NSString* accessibility_identifier_ = nil;
   NSArray<TextFieldConfiguration*>* text_field_configs_ = nil;
-  const std::vector<ButtonConfig> button_configs_;
+  const std::vector<std::vector<ButtonConfig>> button_configs_;
   ResponseConverter response_converter_;
 };
 
@@ -145,17 +146,23 @@ class AlertResponse : public OverlayResponseInfo<AlertResponse> {
  public:
   ~AlertResponse() override;
 
-  // The index of the button tapped by the user to close the dialog.
-  size_t tapped_button_index() const { return tapped_button_index_; }
+  // The row index of the button tapped by the user to close the dialog.
+  size_t tapped_button_row_index() const { return tapped_button_row_index_; }
+  // The column index of the button tapped by the user to close the dialog.
+  size_t tapped_button_column_index() const {
+    return tapped_button_column_index_;
+  }
   // The values of the text fields when the button was tapped.
   NSArray<NSString*>* text_field_values() const { return text_field_values_; }
 
  private:
   OVERLAY_USER_DATA_SETUP(AlertResponse);
-  AlertResponse(size_t tapped_button_index,
+  AlertResponse(size_t tapped_button_row_index,
+                size_t tapped_button_column_index,
                 NSArray<NSString*>* text_field_values);
 
-  const size_t tapped_button_index_ = 0;
+  const size_t tapped_button_row_index_ = 0;
+  const size_t tapped_button_column_index_ = 0;
   NSArray<NSString*>* text_field_values_ = nil;
 };
 

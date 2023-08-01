@@ -1,16 +1,19 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/test/launcher/unit_test_launcher.h"
 #include "base/test/test_io_thread.h"
 #include "base/threading/platform_thread.h"
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "chrome/browser/chrome_content_browser_client.h"
+#include "chrome/common/chrome_content_client.h"
 #include "chrome/test/base/chrome_unit_test_suite.h"
+#include "chrome/utility/chrome_content_utility_client.h"
 #include "content/public/test/unittest_test_suite.h"
 #include "mojo/core/embedder/scoped_ipc_support.h"
 
@@ -27,6 +30,30 @@
 #include "chromeos/lacros/lacros_test_helper.h"
 #endif
 
+namespace {
+
+class ChromeContentBrowserClientWithoutNetworkServiceInitialization
+    : public ChromeContentBrowserClient {
+ public:
+  // content::ContentBrowserClient:
+  // Skip some production Network Service code that doesn't work in unit tests.
+  void OnNetworkServiceCreated(
+      network::mojom::NetworkService* network_service) override {}
+};
+
+std::unique_ptr<content::UnitTestTestSuite::ContentClients>
+CreateContentClients() {
+  auto clients = std::make_unique<content::UnitTestTestSuite::ContentClients>();
+  clients->content_client = std::make_unique<ChromeContentClient>();
+  clients->content_browser_client = std::make_unique<
+      ChromeContentBrowserClientWithoutNetworkServiceInitialization>();
+  clients->content_utility_client =
+      std::make_unique<ChromeContentUtilityClient>();
+  return clients;
+}
+
+}  // namespace
+
 int main(int argc, char** argv) {
   base::PlatformThread::SetName("MainThread");
 
@@ -34,9 +61,9 @@ int main(int argc, char** argv) {
   chromeos::ScopedDisableCrosapiForTesting disable_crosapi;
 #endif
 
-  // unit_tests don't currently work with the Network Service enabled.
-  // https://crbug.com/966633.
-  content::UnitTestTestSuite test_suite(new ChromeUnitTestSuite(argc, argv));
+  content::UnitTestTestSuite test_suite(
+      new ChromeUnitTestSuite(argc, argv),
+      base::BindRepeating(CreateContentClients));
 
   base::TestIOThread test_io_thread(base::TestIOThread::kAutoStart);
   mojo::core::ScopedIPCSupport ipc_support(

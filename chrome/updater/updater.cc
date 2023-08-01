@@ -1,45 +1,55 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/updater/updater.h"
 
-#include <algorithm>
 #include <iterator>
 
 #include "base/at_exit.h"
+#include "base/check.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/message_loop/message_pump_type.h"
 #include "base/process/memory.h"
+#include "base/ranges/algorithm.h"
 #include "base/task/single_thread_task_executor.h"
+#include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/threading/platform_thread.h"
 #include "build/build_config.h"
 #include "chrome/updater/app/app.h"
 #include "chrome/updater/app/app_install.h"
+#include "chrome/updater/app/app_recover.h"
 #include "chrome/updater/app/app_uninstall.h"
+#include "chrome/updater/app/app_uninstall_self.h"
 #include "chrome/updater/app/app_update.h"
 #include "chrome/updater/app/app_wake.h"
+#include "chrome/updater/app/app_wakeall.h"
 #include "chrome/updater/configurator.h"
 #include "chrome/updater/constants.h"
 #include "chrome/updater/crash_client.h"
 #include "chrome/updater/crash_reporter.h"
 #include "chrome/updater/updater_scope.h"
 #include "chrome/updater/updater_version.h"
-#include "chrome/updater/util.h"
+#include "chrome/updater/util/util.h"
 #include "components/crash/core/common/crash_key.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
+#if BUILDFLAG(IS_POSIX)
+#include "chrome/updater/ipc/ipc_support.h"
+#endif
+
 #if BUILDFLAG(IS_WIN)
 #include "base/win/process_startup_helper.h"
+#include "base/win/scoped_com_initializer.h"
 #include "chrome/updater/app/server/win/server.h"
 #include "chrome/updater/app/server/win/service_main.h"
-#include "chrome/updater/win/win_util.h"
-#elif BUILDFLAG(IS_MAC)
-#include "chrome/updater/app/server/mac/server.h"
-#elif BUILDFLAG(IS_LINUX)
-#include "chrome/updater/app/server/linux/server.h"
+#include "chrome/updater/util/win_util.h"
+#elif BUILDFLAG(IS_POSIX)
+#include "chrome/updater/app/server/posix/app_server_posix.h"
 #endif
 
 // Instructions For Windows.
@@ -51,31 +61,9 @@
 // directory of the build.
 // - To debug, append the following arguments to any updater command line:
 //    --enable-logging --vmodule=*/chrome/updater/*=2,*/components/winhttp/*=2.
-// - To run the `updater --install` from the `out` directory of the build,
-//   use --install-from-out-dir command line switch in addition to other
-//   arguments for --install.
 
 namespace updater {
 namespace {
-
-// The log file is created in DIR_LOCAL_APP_DATA or DIR_ROAMING_APP_DATA.
-void InitLogging(UpdaterScope updater_scope) {
-  logging::LoggingSettings settings;
-  const absl::optional<base::FilePath> log_dir =
-      GetBaseDirectory(updater_scope);
-  if (!log_dir) {
-    LOG(ERROR) << "Error getting base dir.";
-    return;
-  }
-  const auto log_file = log_dir->Append(FILE_PATH_LITERAL("updater.log"));
-  settings.log_file_path = log_file.value().c_str();
-  settings.logging_dest = logging::LOG_TO_ALL;
-  logging::InitLogging(settings);
-  logging::SetLogItems(true,    // enable_process_id
-                       true,    // enable_thread_id
-                       true,    // enable_timestamp
-                       false);  // enable_tickcount
-}
 
 void ReinitializeLoggingAfterCrashHandler(UpdaterScope updater_scope) {
   // Initializing the logging more than two times is not supported. In this
@@ -104,7 +92,7 @@ int HandleUpdaterCommands(UpdaterScope updater_scope,
                           const base::CommandLine* command_line) {
   // Used for unit test purposes. There is no need to run with a crash handler.
   if (command_line->HasSwitch(kTestSwitch))
-    return 0;
+    return kErrorOk;
 
   if (command_line->HasSwitch(kCrashHandlerSwitch)) {
     const int retval = CrashReporterMain();
@@ -123,19 +111,37 @@ int HandleUpdaterCommands(UpdaterScope updater_scope,
   // Make the process more resilient to memory allocation issues.
   base::EnableTerminationOnHeapCorruption();
   base::EnableTerminationOnOutOfMemory();
-#if BUILDFLAG(IS_WIN)
-  base::win::RegisterInvalidParamHandler();
 
+#if BUILDFLAG(IS_WIN)
+  base::win::ScopedCOMInitializer com_initializer(
+      base::win::ScopedCOMInitializer::kMTA);
+  if (!com_initializer.Succeeded()) {
+    PLOG(ERROR) << "Failed to initialize COM";
+    return kErrorComInitializationFailed;
+  }
+
+  // Failing to disable COM exception handling is a critical error.
+  CHECK(SUCCEEDED(DisableCOMExceptionHandling()))
+      << "Failed to disable COM exception handling.";
+  base::win::RegisterInvalidParamHandler();
   VLOG(1) << GetUACState();
 #endif
 
+  InitializeThreadPool("updater");
+  const base::ScopedClosureRunner shutdown_thread_pool(
+      base::BindOnce([]() { base::ThreadPoolInstance::Get()->Shutdown(); }));
   base::SingleThreadTaskExecutor main_task_executor(base::MessagePumpType::UI);
 
-  if (command_line->HasSwitch(kCrashMeSwitch)) {
-    // Records a backtrace in the log, crashes the program, saves a crash dump,
-    // and reports the crash.
-    CHECK(false) << "--crash-me was used.";
-  }
+  // Records a backtrace in the log, crashes the program, saves a crash dump,
+  // and reports the crash.
+  CHECK(!command_line->HasSwitch(kCrashMeSwitch)) << "--crash-me was used.";
+
+#if BUILDFLAG(IS_POSIX)
+  // As long as this object is alive, all Mojo API surface relevant to IPC
+  // connections is usable, and message pipes which span a process boundary will
+  // continue to function.
+  ScopedIPCSupportWrapper ipc_support;
+#endif
 
   if (command_line->HasSwitch(kServerSwitch)) {
 #if BUILDFLAG(IS_WIN)
@@ -150,32 +156,45 @@ int HandleUpdaterCommands(UpdaterScope updater_scope,
     return MakeAppUpdate()->Run();
 
 #if BUILDFLAG(IS_WIN)
-  if (command_line->HasSwitch(kComServiceSwitch))
-    return ServiceMain::RunComService(command_line);
+  if (command_line->HasSwitch(kWindowsServiceSwitch))
+    return ServiceMain::RunWindowsService(command_line);
 
   if (command_line->HasSwitch(kHealthCheckSwitch)) {
-    return 0;
+    return kErrorOk;
   }
 #endif  // BUILDFLAG(IS_WIN)
 
   if (command_line->HasSwitch(kInstallSwitch) ||
       command_line->HasSwitch(kTagSwitch) ||
+      command_line->HasSwitch(kRuntimeSwitch) ||
       command_line->HasSwitch(kHandoffSwitch)) {
-    return MakeAppInstall()->Run();
+    return MakeAppInstall(command_line->HasSwitch(kSilentSwitch))->Run();
   }
 
   if (command_line->HasSwitch(kUninstallSwitch) ||
-      command_line->HasSwitch(kUninstallSelfSwitch) ||
       command_line->HasSwitch(kUninstallIfUnusedSwitch)) {
     return MakeAppUninstall()->Run();
+  }
+
+  if (command_line->HasSwitch(kUninstallSelfSwitch)) {
+    return MakeAppUninstallSelf()->Run();
+  }
+
+  if (command_line->HasSwitch(kRecoverSwitch) ||
+      command_line->HasSwitch(kBrowserVersionSwitch)) {
+    return MakeAppRecover()->Run();
   }
 
   if (command_line->HasSwitch(kWakeSwitch)) {
     return MakeAppWake()->Run();
   }
 
+  if (command_line->HasSwitch(kWakeAllSwitch)) {
+    return MakeAppWakeAll()->Run();
+  }
+
   VLOG(1) << "Unknown command line switch.";
-  return -1;
+  return kErrorUnknownCommandLine;
 }
 
 // Returns the string literal corresponding to an updater command, which
@@ -184,29 +203,63 @@ int HandleUpdaterCommands(UpdaterScope updater_scope,
 const char* GetUpdaterCommand(const base::CommandLine* command_line) {
   // Contains the literals which are associated with specific updater commands.
   const char* commands[] = {
-      kComServiceSwitch,
-      kCrashHandlerSwitch,
-      kInstallSwitch,
-      kServerSwitch,
-      kTagSwitch,
-      kTestSwitch,
-      kUninstallIfUnusedSwitch,
-      kUninstallSelfSwitch,
-      kUninstallSwitch,
-      kUpdateSwitch,
-      kWakeSwitch,
-      kHealthCheckSwitch,
-      kHandoffSwitch,
+      kWindowsServiceSwitch, kCrashHandlerSwitch,
+      kInstallSwitch,        kRecoverSwitch,
+      kServerSwitch,         kTagSwitch,
+      kTestSwitch,           kUninstallIfUnusedSwitch,
+      kUninstallSelfSwitch,  kUninstallSwitch,
+      kUpdateSwitch,         kWakeSwitch,
+      kWakeAllSwitch,        kHealthCheckSwitch,
+      kHandoffSwitch,        kRuntimeSwitch,
   };
-  const char** it = std::find_if(
-      std::begin(commands), std::end(commands),
-      [command_line](auto cmd) { return command_line->HasSwitch(cmd); });
-  return it != std::end(commands) ? *it : "";
+  const char** it = base::ranges::find_if(commands, [command_line](auto cmd) {
+    return command_line->HasSwitch(cmd);
+  });
+  // Return the command. As a workaround for recovery component invocations
+  // that do not pass --recover, report the browser version switch as --recover.
+  return it != std::end(commands)
+             ? *it
+             : (command_line->HasSwitch(kBrowserVersionSwitch) ? kRecoverSwitch
+                                                               : "");
+}
+
+constexpr const char* BuildFlavor() {
+#if defined(NBEDUG)
+  return "opt";
+#else
+  return "debug";
+#endif
+}
+
+constexpr const char* BuildArch() {
+#if defined(ARCH_CPU_64_BITS)
+  return "64 bits";
+#elif defined(ARCH_CPU_32_BITS)
+  return "32 bits";
+#else
+#error CPU architecture is unknown.
+#endif
+}
+
+base::CommandLine::StringType GetCommandLineString() {
+#if BUILDFLAG(IS_WIN)
+  // Gets the raw command line on Windows, because
+  // `base::CommandLine::GetCommandLineString()` could return an invalid string
+  // after the class re-arranges the legacy command line arguments.
+  return ::GetCommandLine();
+#else
+  return base::CommandLine::ForCurrentProcess()->GetCommandLineString();
+#endif
 }
 
 }  // namespace
 
 int UpdaterMain(int argc, const char* const* argv) {
+#if BUILDFLAG(IS_WIN)
+  CHECK(EnableSecureDllLoading());
+  EnableProcessHeapMetadataProtection();
+#endif
+
   base::PlatformThread::SetName("UpdaterMain");
   base::AtExitManager exit_manager;
 
@@ -217,8 +270,8 @@ int UpdaterMain(int argc, const char* const* argv) {
   const UpdaterScope updater_scope = GetUpdaterScope();
   InitLogging(updater_scope);
 
-  VLOG(1) << "Version " << kUpdaterVersion
-          << ", command line: " << command_line->GetCommandLineString();
+  VLOG(1) << "Version " << kUpdaterVersion << ", " << BuildFlavor() << ", "
+          << BuildArch() << ", command line: " << GetCommandLineString();
   const int retval = HandleUpdaterCommands(updater_scope, command_line);
   VLOG(1) << __func__ << " (--" << GetUpdaterCommand(command_line) << ")"
           << " returned " << retval << ".";

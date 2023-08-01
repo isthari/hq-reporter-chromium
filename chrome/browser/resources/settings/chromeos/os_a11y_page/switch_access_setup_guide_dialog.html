@@ -1,4 +1,4 @@
-<link rel="import" href="chrome://resources/cr_elements/cr_icons_css.html">
+<link rel="import" href="chrome://resources/cr_elements/cr_icons.css.html">
 <style include="cr-shared-style settings-shared">
   cr-dialog::part(dialog) {
     height: 380px;
@@ -28,6 +28,10 @@
     background-position: center center;
     background-repeat: no-repeat;
     background-size: 183px;
+  }
+
+  .illustration,
+  .illustration-jelly {
     height: 173px;
     margin-top: 15px;
     padding: 16px;
@@ -36,40 +40,40 @@
 
   #intro .illustration {
      background-image:
-        url(chrome://os-settings/images/computer_and_bluetooth_switch.svg);
+        url(chrome://os-settings/images/switch_access_setup_guide_start_pairing.svg);
   }
 
-  #assign-switch .illustration.select {
+  #assignSwitch[data-switch='select'] .illustration {
     background-image:
       url(chrome://os-settings/images/switch_access_setup_guide_assign_select.svg);
   }
 
-  #assign-switch .illustration.next {
+  #assignSwitch[data-switch='next'] .illustration {
     background-image:
       url(chrome://os-settings/images/switch_access_setup_guide_assign_next.svg);
   }
 
-  #assign-switch .illustration.previous {
+  #assignSwitch[data-switch='previous'] .illustration {
     background-image:
       url(chrome://os-settings/images/switch_access_setup_guide_assign_previous.svg);
   }
 
-  #choose-switch-count .illustration.one-switch {
+  #chooseSwitchCount[data-switch-count='1'] .illustration {
     background-image:
       url(chrome://os-settings/images/switch_access_setup_guide_choose_one_switch.svg);
   }
 
-  #choose-switch-count .illustration.two-switches {
+  #chooseSwitchCount[data-switch-count='2'] .illustration {
     background-image:
       url(chrome://os-settings/images/switch_access_setup_guide_choose_two_switches.svg);
   }
 
-  #choose-switch-count .illustration.three-switches {
+  #chooseSwitchCount[data-switch-count='3'] .illustration {
     background-image:
       url(chrome://os-settings/images/switch_access_setup_guide_choose_three_switches.svg);
   }
 
-  #auto-scan-enabled .illustration {
+  #autoScanEnabled .illustration {
     background-image:
       url(chrome://os-settings/images/switch_access_setup_guide_auto_scan_enabled.svg);
   }
@@ -79,7 +83,62 @@
       url(chrome://os-settings/images/switch_access_setup_guide_closing.svg);
   }
 
-  #button-container {
+  @media(prefers-color-scheme: dark) {
+    #intro .illustration {
+       background-image:
+          url(chrome://os-settings/images/switch_access_setup_guide_start_pairing_dark.svg);
+    }
+
+    #assignSwitch[data-switch='select'] .illustration {
+      background-image:
+        url(chrome://os-settings/images/switch_access_setup_guide_assign_select_dark.svg);
+    }
+
+    #assignSwitch[data-switch='next'] .illustration {
+      background-image:
+        url(chrome://os-settings/images/switch_access_setup_guide_assign_next_dark.svg);
+    }
+
+    #assignSwitch[data-switch='previous'] .illustration {
+      background-image:
+        url(chrome://os-settings/images/switch_access_setup_guide_assign_previous_dark.svg);
+    }
+
+    #chooseSwitchCount[data-switch-count='1'] .illustration {
+      background-image:
+        url(chrome://os-settings/images/switch_access_setup_guide_choose_one_switch_dark.svg);
+    }
+
+    #chooseSwitchCount[data-switch-count='2'] .illustration {
+      background-image:
+        url(chrome://os-settings/images/switch_access_setup_guide_choose_two_switches_dark.svg);
+    }
+
+    #chooseSwitchCount[data-switch-count='3'] .illustration {
+      background-image:
+        url(chrome://os-settings/images/switch_access_setup_guide_choose_three_switches_dark.svg);
+    }
+
+    #autoScanEnabled .illustration {
+      background-image:
+        url(chrome://os-settings/images/switch_access_setup_guide_auto_scan_enabled_dark.svg);
+    }
+
+    #closing .illustration {
+      background-image:
+        url(chrome://os-settings/images/switch_access_setup_guide_closing_dark.svg);
+    }
+  }
+
+  :host-context(body:not(.jelly-enabled)) .illustration-jelly {
+    display: none;
+  }
+
+  :host-context(body.jelly-enabled) .illustration {
+    display: none;
+  }
+
+  #buttonContainer {
     padding: 24px;
   }
 
@@ -119,22 +178,36 @@
       <div class="sa-setup-contents">
         $i18n{switchAccessSetupIntroBody}
       </div>
+
       <div class="illustration"></div>
+      <iron-icon icon="os-settings-illo:switch-access-setup-guide-start-pairing"
+          class="illustration-jelly">
+      </iron-icon>
     </div>
-    <div id="assign-switch" class="flex" hidden>
+    <div id="assignSwitch" class="flex" hidden
+        data-switch$="[[switchToAssign_]]">
       <div class="sa-setup-contents"></div>
+
       <div class="illustration"></div>
+      <iron-icon icon="[[getAssignSwitchIllo_(switchToAssign_)]]"
+          class="illustration-jelly">
+      </iron-icon>
     </div>
-    <div id="auto-scan-enabled" class="flex" hidden>
+    <div id="autoScanEnabled" class="flex" hidden>
       <div class="sa-setup-contents">
         <p>$i18n{switchAccessSetupAutoScanEnabledExplanation}</p>
         <p>$i18n{switchAccessSetupAutoScanEnabledDirections}</p>
       </div>
+
       <div class="illustration"></div>
+      <iron-icon icon="os-settings-illo:switch-access-setup-guide-auto-scan"
+          class="illustration-jelly">
+      </iron-icon>
     </div>
-    <div id="choose-switch-count" class="flex" hidden>
+    <div id="chooseSwitchCount" class="flex" hidden
+        data-switch-count$="[[switchCount_]]">
       <div class="sa-setup-contents">
-        <cr-radio-group id="switch-count-group" selected="one-switch"
+        <cr-radio-group id="switchCountGroup" selected="one-switch"
             on-selected-changed="onSwitchCountChanged_">
           <cr-radio-button name="one-switch" class="list-item"
               aria-label="$i18n{switchAccessSetupChoose1Switch}">
@@ -151,7 +224,7 @@
               $i18n{switchAccessSetupChoose2SwitchesDescription}
             </div>
           </cr-radio-button>
-          <cr-radio-button name="three-switches" class=list-item"
+          <cr-radio-button name="three-switches" class="list-item"
               aria-label="$i18n{switchAccessSetupChoose3Switches}">
             <span class="radio-button-title">
               $i18n{switchAccessSetupChoose3Switches}
@@ -162,11 +235,13 @@
           </cr-radio-button>
         </cr-radio-button-group>
       </div>
-      <div class="illustration one-switch"
-           id="choose-switch-count-illustration">
-      </div>
+
+      <div class="illustration"></div>
+      <iron-icon icon="[[getSwitchCountIllo_(switchCount_)]]"
+          class="illustration-jelly">
+      </iron-icon>
     </div>
-    <div id="auto-scan-speed" hidden>
+    <div id="autoScanSpeed" hidden>
       <p>$i18n{switchAccessSetupAutoScanSpeedDescription}</p>
       <cr-button id="autoScanSpeedSlower" on-click="onAutoScanSpeedSlower_">
         $i18n{switchAccessSetupAutoScanSlower}
@@ -186,20 +261,24 @@
     </div>
     <div id="closing" class="flex" hidden>
       <div class="sa-setup-contents">
-        <p id="closing-instructions"></p>
+        <p id="closingInstructions"></p>
         <p>$i18n{switchAccessSetupClosingInfo}</p>
       </div>
+
       <div class="illustration"></div>
+      <iron-icon icon="os-settings-illo:switch-access-setup-guide-closing"
+          class="illustration-jelly">
+      </iron-icon>
     </div>
   </div>
-  <div id="button-container" slot="button-container">
+  <div id="buttonContainer" slot="button-container">
     <cr-button on-click="onBluetoothClick_" id="bluetooth">
       $i18n{switchAccessSetupPairBluetooth}
     </cr-button>
     <cr-button on-click="onPreviousClick_" id="previous" hidden>
       $i18n{switchAccessSetupPrevious}
     </cr-button>
-    <cr-button on-click="onStartOverClick_" id="start-over" hidden>
+    <cr-button on-click="onStartOverClick_" id="startOver" hidden>
       $i18n{switchAccessSetupStartOver}
     </cr-button>
     <cr-button class="action-button" on-click="onExitClick_"

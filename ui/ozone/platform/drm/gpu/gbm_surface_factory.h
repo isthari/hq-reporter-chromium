@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include <memory>
 #include <vector>
 
+#include "base/memory/raw_ptr.h"
 #include "base/threading/thread_checker.h"
 #include "gpu/vulkan/buildflags.h"
 #include "ui/gl/gl_implementation.h"
@@ -60,13 +61,13 @@ class GbmSurfaceFactory : public SurfaceFactoryOzone {
       gfx::AcceleratedWidget widget) override;
   scoped_refptr<gfx::NativePixmap> CreateNativePixmap(
       gfx::AcceleratedWidget widget,
-      VkDevice vk_device,
+      gpu::VulkanDeviceQueue* device_queue,
       gfx::Size size,
       gfx::BufferFormat format,
       gfx::BufferUsage usage,
       absl::optional<gfx::Size> framebuffer_size = absl::nullopt) override;
   void CreateNativePixmapAsync(gfx::AcceleratedWidget widget,
-                               VkDevice vk_device,
+                               gpu::VulkanDeviceQueue* device_queue,
                                gfx::Size size,
                                gfx::BufferFormat format,
                                gfx::BufferUsage usage,
@@ -99,7 +100,7 @@ class GbmSurfaceFactory : public SurfaceFactoryOzone {
 
   base::ThreadChecker thread_checker_;
 
-  DrmThreadProxy* const drm_thread_proxy_;
+  const raw_ptr<DrmThreadProxy, ExperimentalAsh> drm_thread_proxy_;
 
   std::map<gfx::AcceleratedWidget, GbmSurfaceless*> widget_to_surface_map_;
 

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -70,6 +70,13 @@ export class VolumeInfo {
      */
     this.devicePath;
 
+    /**
+     * @type {(string|undefined)} Drive label of the volume. Removable
+     * partitions belonging to the same device will share the same drive label.
+     */
+    this.driveLabel;
+
+
     /** @type {boolean} */
     this.isReadOnly;
 
@@ -139,6 +146,12 @@ export class VolumeInfo {
      * @type {(string|undefined)}
      */
     this.remoteMountPath;
+
+    /**
+     * If this is a GuestOS volume, the type of the VM which owns this volume.
+     * @type {chrome.fileManagerPrivate.VmType}
+     */
+    this.vmType;
   }
 
   /**

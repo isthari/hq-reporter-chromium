@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,14 @@
 #include <limits.h>
 #include <unistd.h>
 
+#include <ostream>
+
 #include "base/android/jni_android.h"
 #include "base/android/path_utils.h"
 #include "base/base_paths.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/logging.h"
 #include "base/notreached.h"
 #include "base/process/process_metrics.h"
 
@@ -23,7 +26,9 @@ bool PathProviderAndroid(int key, FilePath* result) {
     case base::FILE_EXE: {
       FilePath bin_dir;
       if (!ReadSymbolicLink(FilePath(kProcSelfExe), &bin_dir)) {
-        NOTREACHED() << "Unable to resolve " << kProcSelfExe << ".";
+        // This fails for some devices (maybe custom OEM selinux policy?)
+        // https://crbug.com/1416753
+        LOG(ERROR) << "Unable to resolve " << kProcSelfExe << ".";
         return false;
       }
       *result = bin_dir;

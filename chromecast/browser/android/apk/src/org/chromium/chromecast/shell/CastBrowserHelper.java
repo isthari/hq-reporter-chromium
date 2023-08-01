@@ -1,13 +1,12 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chromecast.shell;
 
 import android.content.Context;
+import android.content.Intent;
 
-import org.chromium.base.CommandLine;
-import org.chromium.base.CommandLineInitUtil;
 import org.chromium.base.Log;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.library_loader.LibraryProcessType;
@@ -20,7 +19,6 @@ import org.chromium.net.NetworkChangeNotifier;
  */
 public class CastBrowserHelper {
     private static final String TAG = "CastBrowserHelper";
-    private static final String COMMAND_LINE_FILE = "castshell-command-line";
 
     private static boolean sIsBrowserInitialized;
 
@@ -30,25 +28,28 @@ public class CastBrowserHelper {
      * This may only be called on the UI thread.
      *
      * @return whether or not the process started successfully
-     */
+     * 
+     * TODO(sanfin): Remove this overload.
+     */    
     public static void initializeBrowser(Context context) {
+        initializeBrowser(context, null);
+    }
+    
+    public static void initializeBrowser(Context context, Intent intent) {
         if (sIsBrowserInitialized) return;
 
         Log.d(TAG, "Performing one-time browser initialization");
 
         // Initializing the command line must occur before loading the library.
-        CastCommandLineHelper.initCommandLineWithSavedArgs(() -> {
-            CommandLineInitUtil.initCommandLine(COMMAND_LINE_FILE);
-            return CommandLine.getInstance();
-        });
+        CastCommandLineHelper.initCommandLine(intent);
 
         DeviceUtils.addDeviceSpecificUserAgentSwitch();
-
         LibraryLoader.getInstance().ensureInitialized();
 
         Log.d(TAG, "Loading BrowserStartupController...");
         BrowserStartupController.getInstance().startBrowserProcessesSync(
-                LibraryProcessType.PROCESS_BROWSER, false);
+                LibraryProcessType.PROCESS_BROWSER, /*singleProcess=*/false,
+                /*startGpuProcess=*/false);
         NetworkChangeNotifier.init();
         // Cast shell always expects to receive notifications to track network state.
         NetworkChangeNotifier.registerToReceiveNotificationsAlways();

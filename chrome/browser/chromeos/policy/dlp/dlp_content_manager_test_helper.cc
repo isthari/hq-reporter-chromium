@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,9 @@
 
 #include <memory>
 
+#include "chrome/browser/chromeos/policy/dlp/dialogs/dlp_warn_notifier.h"
 #include "chrome/browser/chromeos/policy/dlp/dlp_content_manager.h"
 #include "chrome/browser/chromeos/policy/dlp/dlp_reporting_manager.h"
-#include "chrome/browser/chromeos/policy/dlp/dlp_warn_notifier.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/ash/policy/dlp/dlp_content_manager_ash.h"
@@ -48,6 +48,13 @@ void DlpContentManagerTestHelper::ChangeConfidentiality(
   manager_->OnConfidentialityChanged(web_contents, restrictions);
 }
 
+void DlpContentManagerTestHelper::UpdateConfidentiality(
+    content::WebContents* web_contents,
+    const DlpContentRestrictionSet& restrictions) {
+  DCHECK(manager_);
+  manager_->UpdateConfidentiality(web_contents, restrictions);
+}
+
 void DlpContentManagerTestHelper::ChangeVisibility(
     content::WebContents* web_contents) {
   DCHECK(manager_);
@@ -58,6 +65,11 @@ void DlpContentManagerTestHelper::DestroyWebContents(
     content::WebContents* web_contents) {
   DCHECK(manager_);
   manager_->OnWebContentsDestroyed(web_contents);
+}
+
+void DlpContentManagerTestHelper::CheckRunningScreenShares() {
+  DCHECK(manager_);
+  manager_->CheckRunningScreenShares();
 }
 
 void DlpContentManagerTestHelper::SetWarnNotifierForTesting(
@@ -71,28 +83,25 @@ void DlpContentManagerTestHelper::ResetWarnNotifierForTesting() {
   manager_->ResetWarnNotifierForTesting();
 }
 
-bool DlpContentManagerTestHelper::HasContentCachedForRestriction(
-    content::WebContents* web_contents,
-    DlpRulesManager::Restriction restriction) const {
-  DCHECK(manager_);
-  return manager_->user_allowed_contents_cache_.Contains(web_contents,
-                                                         restriction);
-}
-
-bool DlpContentManagerTestHelper::HasAnyContentCached() const {
-  DCHECK(manager_);
-  return manager_->user_allowed_contents_cache_.GetSizeForTesting() != 0;
-}
-
-void DlpContentManagerTestHelper::EnableScreenShareWarningMode() {
-  DCHECK(manager_);
-  manager_->SetIsScreenShareWarningModeEnabledForTesting(/*is_enabled=*/true);
-}
-
 int DlpContentManagerTestHelper::ActiveWarningDialogsCount() const {
   DCHECK(manager_);
   return manager_->warn_notifier_->ActiveWarningDialogsCountForTesting();
 }
+
+const std::vector<std::unique_ptr<DlpContentManager::ScreenShareInfo>>&
+DlpContentManagerTestHelper::GetRunningScreenShares() const {
+  DCHECK(manager_);
+  return manager_->running_screen_shares_;
+}
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+absl::optional<DlpContentManagerAsh::VideoCaptureInfo>
+DlpContentManagerTestHelper::GetRunningVideoCaptureInfo() const {
+  DCHECK(manager_);
+  return static_cast<DlpContentManagerAsh*>(manager_)
+      ->running_video_capture_info_;
+}
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 base::TimeDelta DlpContentManagerTestHelper::GetPrivacyScreenOffDelay() const {
@@ -101,6 +110,12 @@ base::TimeDelta DlpContentManagerTestHelper::GetPrivacyScreenOffDelay() const {
       ->GetPrivacyScreenOffDelayForTesting();
 }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
+void DlpContentManagerTestHelper::SetScreenShareResumeDelay(
+    base::TimeDelta delay) const {
+  DCHECK(manager_);
+  manager_->SetScreenShareResumeDelayForTesting(delay);
+}
 
 DlpContentManager* DlpContentManagerTestHelper::GetContentManager() const {
   return manager_;

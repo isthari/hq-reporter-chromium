@@ -30,10 +30,12 @@
 
 #include "third_party/blink/renderer/platform/graphics/bitmap_image.h"
 
-#include "base/bind.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/simple_test_tick_clock.h"
+#include "base/time/time.h"
 #include "cc/paint/image_provider.h"
 #include "cc/paint/skia_paint_canvas.h"
 #include "cc/tiles/mipmap_util.h"
@@ -49,7 +51,6 @@
 #include "third_party/blink/renderer/platform/testing/testing_platform_support_with_mock_scheduler.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 #include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
-#include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "third_party/skia/include/core/SkImage.h"
 #include "ui/gfx/geometry/rect_f.h"
@@ -129,7 +130,8 @@ class BitmapImageTest : public testing::Test {
 
     void DecodedSizeChangedTo(const Image*, size_t new_size) override {
       last_decoded_size_changed_delta_ =
-          SafeCast<int>(new_size) - SafeCast<int>(last_decoded_size_);
+          base::checked_cast<int>(new_size) -
+          base::checked_cast<int>(last_decoded_size_);
       last_decoded_size_ = new_size;
     }
     bool ShouldPauseAnimation(const Image*) override { return false; }
@@ -352,7 +354,7 @@ TEST_F(BitmapImageTest, ConstantImageIdForPartiallyLoadedImages) {
   ASSERT_EQ(image_->SetData(partial_buffer, false), Image::kSizeAvailable);
   auto image1 = image_->PaintImageForCurrentFrame();
   auto image2 = image_->PaintImageForCurrentFrame();
-  EXPECT_EQ(image1, image2);
+  EXPECT_TRUE(image1.IsSameForTesting(image2));
   auto sk_image1 = image1.GetSwSkImage();
   auto sk_image2 = image2.GetSwSkImage();
   EXPECT_EQ(sk_image1->uniqueID(), sk_image2->uniqueID());
@@ -405,7 +407,7 @@ TEST_F(BitmapImageTest, ImageForDefaultFrame_MultiFrame) {
   // But the PaintImage should be the same.
   auto paint_image1 = default_image1->PaintImageForCurrentFrame();
   auto paint_image2 = default_image2->PaintImageForCurrentFrame();
-  EXPECT_EQ(paint_image1, paint_image2);
+  EXPECT_TRUE(paint_image1.IsSameForTesting(paint_image2));
   EXPECT_EQ(paint_image1.GetSwSkImage()->uniqueID(),
             paint_image2.GetSwSkImage()->uniqueID());
 }
@@ -839,10 +841,6 @@ TEST_F(BitmapHistogramTest, DecodedImageDensityKiBWeighted) {
     LoadImage("animated-10color.gif");       // 100x100 but GIF is not reported.
     histogram_tester.ExpectTotalCount(
         "Blink.DecodedImage.JpegDensity.KiBWeighted", 0);
-    histogram_tester.ExpectTotalCount(
-        "Blink.DecodedImage.WebPDensity.KiBWeighted", 0);
-    histogram_tester.ExpectTotalCount(
-        "Blink.DecodedImage.AvifDensity.KiBWeighted", 0);
   }
 
   // 439x154, 23220 bytes --> 2.74 bpp, 23 KiB (rounded up)
@@ -854,11 +852,6 @@ TEST_F(BitmapHistogramTest, DecodedImageDensityKiBWeighted) {
   ExpectImageRecordsSample("blue-wheel-srgb-color-profile.jpg",
                            "Blink.DecodedImage.JpegDensity.KiBWeighted", 578,
                            72);
-
-  // 800x800, 19436 bytes --> 0.24, 19 KiB
-  ExpectImageRecordsSample("webp-color-profile-lossy.webp",
-                           "Blink.DecodedImage.WebPDensity.KiBWeighted", 24,
-                           19);
 }
 
 }  // namespace blink

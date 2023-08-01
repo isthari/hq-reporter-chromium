@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #import <Foundation/Foundation.h>
 
+#include "base/apple/bundle_locations.h"
 #include "base/files/file_path.h"
-#include "base/mac/bundle_locations.h"
 #include "base/mac/foundation_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "build/build_config.h"
@@ -21,7 +21,7 @@ FileVersionInfoMac::~FileVersionInfoMac() {}
 // static
 std::unique_ptr<FileVersionInfo>
 FileVersionInfo::CreateFileVersionInfoForCurrentModule() {
-  return CreateFileVersionInfo(base::mac::FrameworkBundlePath());
+  return CreateFileVersionInfo(base::apple::FrameworkBundlePath());
 }
 
 // static

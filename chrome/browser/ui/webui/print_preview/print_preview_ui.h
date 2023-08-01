@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,13 +11,14 @@
 #include <string>
 #include <vector>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/read_only_shared_memory_region.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/ui/webui/constrained_web_dialog_ui.h"
 #include "chrome/services/printing/public/mojom/pdf_nup_converter.mojom.h"
 #include "components/printing/common/print.mojom.h"
@@ -29,6 +30,10 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 
+#if BUILDFLAG(ENABLE_OOP_PRINTING)
+#include "chrome/browser/printing/print_backend_service_manager.h"
+#endif
+
 namespace base {
 class FilePath;
 class RefCountedMemory;
@@ -38,6 +43,7 @@ namespace printing {
 
 class PrintPreviewHandler;
 
+// PrintPreviewUI lives on the UI thread.
 class PrintPreviewUI : public ConstrainedWebDialogUI,
                        public mojom::PrintPreviewUI {
  public:
@@ -84,7 +90,9 @@ class PrintPreviewUI : public ConstrainedWebDialogUI,
 
   const std::u16string& initiator_title() const { return initiator_title_; }
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   bool source_is_arc() const { return source_is_arc_; }
+#endif
 
   bool source_is_modifiable() const { return source_is_modifiable_; }
 
@@ -119,7 +127,6 @@ class PrintPreviewUI : public ConstrainedWebDialogUI,
 
   // Determines whether to cancel a print preview request based on the request
   // id.
-  // Can be called from any thread.
   static bool ShouldCancelRequest(const absl::optional<int32_t>& preview_ui_id,
                                   int request_id);
 
@@ -159,12 +166,16 @@ class PrintPreviewUI : public ConstrainedWebDialogUI,
   class TestDelegate {
    public:
     // Provides the total number of pages requested for the preview.
-    virtual void DidGetPreviewPageCount(uint32_t page_count) = 0;
+    virtual void DidGetPreviewPageCount(uint32_t page_count) {}
 
     // Notifies that a page was rendered for the preview.  This occurs after
     // any possible N-up processing, so each rendered page could represent
     // multiple pages that were counted in `DidGetPreviewPageCount()`.
-    virtual void DidRenderPreviewPage(content::WebContents* preview_dialog) = 0;
+    virtual void DidRenderPreviewPage(content::WebContents* preview_dialog) {}
+
+    // Notifies that the document to print from preview is ready.  This occurs
+    // after any possible N-up processing.
+    virtual void PreviewDocumentReady(content::WebContents* preview_dialog) {}
 
    protected:
     virtual ~TestDelegate() = default;
@@ -194,6 +205,8 @@ class PrintPreviewUI : public ConstrainedWebDialogUI,
   // Clears the UI ID. Called by PrintPreviewHandler in
   // OnJavascriptDisallowed().
   void ClearPreviewUIId();
+
+  base::WeakPtr<PrintPreviewUI> GetWeakPointer();
 
  protected:
   // Alternate constructor for tests
@@ -247,6 +260,17 @@ class PrintPreviewUI : public ConstrainedWebDialogUI,
                             mojom::PrintCompositor::Status status,
                             base::ReadOnlySharedMemoryRegion region);
 
+#if BUILDFLAG(ENABLE_OOP_PRINTING)
+  // Registers this PrintPreviewUI with the PrintBackendServiceManager. It is
+  // beneficial to have the Print Backend service be present and ready for at
+  // least as long as this UI is around.
+  void RegisterPrintBackendServiceManagerClient();
+
+  void UnregisterPrintBackendServiceManagerClient();
+#endif  // BUILDFLAG(ENABLE_OOP_PRINTING)
+
+  WEB_UI_CONTROLLER_TYPE_DECL();
+
   base::TimeTicks initial_preview_start_time_;
 
   // The unique ID for this class instance. Stored here to avoid calling
@@ -255,14 +279,16 @@ class PrintPreviewUI : public ConstrainedWebDialogUI,
 
 #if BUILDFLAG(ENABLE_OOP_PRINTING)
   // This UI's client ID with the print backend service manager.
-  uint32_t service_manager_client_id_;
+  PrintBackendServiceManager::ClientId service_manager_client_id_;
 #endif
 
   // Weak pointer to the WebUI handler.
   const raw_ptr<PrintPreviewHandler> handler_;
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Indicates whether the source document is from ARC.
   bool source_is_arc_ = false;
+#endif
 
   // Indicates whether the source document can be modified.
   bool source_is_modifiable_ = true;

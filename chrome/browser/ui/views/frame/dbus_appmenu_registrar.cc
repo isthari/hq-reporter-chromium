@@ -1,13 +1,14 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/frame/dbus_appmenu_registrar.h"
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/check_op.h"
 #include "base/containers/contains.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
+#include "base/no_destructor.h"
 #include "base/notreached.h"
 #include "chrome/browser/ui/views/frame/dbus_appmenu.h"
 #include "components/dbus/thread_linux/dbus_thread_linux.h"
@@ -26,15 +27,13 @@ const char kAppMenuRegistrarInterface[] = "com.canonical.AppMenu.Registrar";
 
 // static
 DbusAppmenuRegistrar* DbusAppmenuRegistrar::GetInstance() {
-  return base::Singleton<DbusAppmenuRegistrar>::get();
+  static base::NoDestructor<DbusAppmenuRegistrar> instance;
+  return instance.get();
 }
 
 void DbusAppmenuRegistrar::OnMenuBarCreated(DbusAppmenu* menu) {
-  if (base::Contains(menus_, menu)) {
-    NOTREACHED();
-    return;
-  }
-  menus_[menu] = kUninitialized;
+  // Make sure insertion succeeds, we should not already be tracking `menu`.
+  CHECK(menus_.insert({menu, kUninitialized}).second);
   if (service_has_owner_)
     InitializeMenu(menu);
 }
@@ -68,12 +67,6 @@ DbusAppmenuRegistrar::DbusAppmenuRegistrar() {
                           weak_ptr_factory_.GetWeakPtr());
   bus_->ListenForServiceOwnerChange(kAppMenuRegistrarName, callback);
   bus_->GetServiceOwner(kAppMenuRegistrarName, callback);
-}
-
-DbusAppmenuRegistrar::~DbusAppmenuRegistrar() {
-  DCHECK(menus_.empty());
-  bus_->GetDBusTaskRunner()->PostTask(
-      FROM_HERE, base::BindOnce(&dbus::Bus::ShutdownAndBlock, bus_));
 }
 
 void DbusAppmenuRegistrar::InitializeMenu(DbusAppmenu* menu) {

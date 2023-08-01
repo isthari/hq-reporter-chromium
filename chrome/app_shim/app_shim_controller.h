@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,9 +24,14 @@ namespace apps {
 class MachBootstrapAcceptorTest;
 }
 
+namespace display {
+class ScopedNativeScreen;
+}
+
 @class AppShimDelegate;
 @class ProfileMenuTarget;
 @class ApplicationDockMenuTarget;
+@protocol RenderWidgetHostViewMacDelegate;
 
 // The AppShimController is responsible for launching and maintaining the
 // connection with the main Chrome process, and generally controls the lifetime
@@ -78,6 +83,9 @@ class AppShimController : public chrome::mojom::AppShim {
 
   NSMenu* GetApplicationDockMenu();
 
+  // Called when the app is about to terminate.
+  void ApplicationWillTerminate();
+
  private:
   friend class TestShimClient;
   friend class apps::MachBootstrapAcceptorTest;
@@ -91,14 +99,15 @@ class AppShimController : public chrome::mojom::AppShim {
     // Has sent OnShimConnected to the browser process, waiting for the
     // response.
     kHasSentOnShimConnected,
-    // Has received the OnShimConnected response from the browser, initializaton
-    // is now complete.
+    // Has received the OnShimConnected response from the browser,
+    // initialization is now complete.
     kHasReceivedOnShimConnectedResponse,
   };
 
   // Init step 1 after OnAppFinishedLaunching. Find a running instance of Chrome
-  // to connect to, or launch Chrome if none is found.
-  void FindOrLaunchChrome();
+  // to connect to, or launch Chrome if none is found. Returns true if a
+  // running instance was found and polling for readiness is possible.
+  bool FindOrLaunchChrome();
 
   // Init step 2: Poll for the mach server exposed by Chrome's AppShimListener
   // to be initialized. Once it has, proceed to SendBootstrapOnShimConnected.
@@ -146,6 +155,14 @@ class AppShimController : public chrome::mojom::AppShim {
   static base::scoped_nsobject<NSRunningApplication>
   FindChromeFromSingletonLock(const base::FilePath& user_data_dir);
 
+  static void CreateRenderWidgetHostNSView(
+      uint64_t view_id,
+      mojo::ScopedInterfaceEndpointHandle host_handle,
+      mojo::ScopedInterfaceEndpointHandle view_request_handle);
+
+  static NSObject<RenderWidgetHostViewMacDelegate>* GetDelegateForHost(
+      uint64_t view_id);
+
   const Params params_;
 
   // Populated by OpenFiles if it was called before OnAppFinishedLaunching
@@ -189,10 +206,13 @@ class AppShimController : public chrome::mojom::AppShim {
   base::scoped_nsobject<ApplicationDockMenuTarget>
       application_dock_menu_target_;
 
+  // The screen object used in the app sim.
+  std::unique_ptr<display::ScopedNativeScreen> screen_;
+
   // The items in the profile menu.
   std::vector<chrome::mojom::ProfileMenuItemPtr> profile_menu_items_;
 
-  // The items in the appliation dock menu.
+  // The items in the application dock menu.
   std::vector<chrome::mojom::ApplicationDockMenuItemPtr> dock_menu_items_;
 
   NSInteger attention_request_id_ = 0;

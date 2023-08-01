@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,8 +19,8 @@ import org.chromium.weblayer_private.interfaces.IMediaCaptureCallbackClient;
 import org.chromium.weblayer_private.interfaces.INavigationController;
 import org.chromium.weblayer_private.interfaces.INavigationControllerClient;
 import org.chromium.weblayer_private.interfaces.IObjectWrapper;
+import org.chromium.weblayer_private.interfaces.IStringCallback;
 import org.chromium.weblayer_private.interfaces.ITabClient;
-import org.chromium.weblayer_private.interfaces.IWebMessageCallbackClient;
 
 interface ITab {
   void setClient(in ITabClient client) = 0;
@@ -33,7 +33,7 @@ interface ITab {
 
   void setFullscreenCallbackClient(in IFullscreenCallbackClient client) = 4;
 
-  void executeScript(in String script, boolean useSeparateIsolate, in IObjectWrapper callback) = 5;
+  void executeScript(in String script, boolean useSeparateIsolate, in IStringCallback callback) = 5;
 
   void setNewTabsEnabled(in boolean enabled) = 6;
 
@@ -60,10 +60,9 @@ interface ITab {
 
   boolean setData(in Map data) = 17;
   Map getData() = 18;
-  void registerWebMessageCallback(in String jsObjectName,
-                                  in List<String> allowedOrigins,
-                                  in IWebMessageCallbackClient client) = 19;
-  void unregisterWebMessageCallback(in String jsObjectName) = 20;
+
+  // IDs 19 and 20 were registerWebMessageCallback & unregisterWebMessageCallback.
+
   boolean canTranslate() = 21;
   void showTranslateUi() = 22;
 
@@ -85,4 +84,8 @@ interface ITab {
 
   // Added in 93
   void setExternalIntentInIncognitoCallbackClient(IExternalIntentInIncognitoCallbackClient client) = 33;
+
+  String getUri() = 34;
+
+  void postMessage(in String message, in String targetOrigin) = 35;
 }

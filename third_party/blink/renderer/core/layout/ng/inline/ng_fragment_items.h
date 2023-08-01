@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,23 +19,24 @@ class NGFragmentItemsBuilder;
 //
 // During the layout phase, descendants of the inline formatting context is
 // transformed to a flat list of |NGFragmentItem| and stored in this class.
-class CORE_EXPORT NGFragmentItems {
+class CORE_EXPORT NGFragmentItems final {
+  DISALLOW_NEW();
+
  public:
   NGFragmentItems(const NGFragmentItems& other);
   explicit NGFragmentItems(NGFragmentItemsBuilder* builder);
-  ~NGFragmentItems();
 
-  wtf_size_t Size() const { return size_; }
+  wtf_size_t Size() const { return items_.size(); }
 
   using Span = base::span<const NGFragmentItem>;
-  Span Items() const { return base::make_span(ItemsData(), size_); }
+  Span Items() const { return base::make_span(ItemsData(), items_.size()); }
   bool Equals(const Span& span) const {
     return ItemsData() == span.data() && Size() == span.size();
   }
   bool IsSubSpan(const Span& span) const;
 
   const NGFragmentItem& front() const {
-    CHECK_GE(size_, 1u);
+    CHECK_GE(items_.size(), 1u);
     return items_[0];
   }
 
@@ -57,7 +58,9 @@ class CORE_EXPORT NGFragmentItems {
   wtf_size_t SizeOfEarlierFragments() const {
     return size_of_earlier_fragments_;
   }
-  wtf_size_t EndItemIndex() const { return size_of_earlier_fragments_ + size_; }
+  wtf_size_t EndItemIndex() const {
+    return size_of_earlier_fragments_ + items_.size();
+  }
   bool HasItemIndex(wtf_size_t index) const {
     return index >= SizeOfEarlierFragments() && index < EndItemIndex();
   }
@@ -65,7 +68,7 @@ class CORE_EXPORT NGFragmentItems {
   // Associate |NGFragmentItem|s with |LayoutObject|s and finalize the items
   // (set which ones are the first / last for the LayoutObject).
   static void FinalizeAfterLayout(
-      const Vector<scoped_refptr<const NGLayoutResult>, 1>& results);
+      const HeapVector<Member<const NGLayoutResult>, 1>& results);
 
   // Disassociate |NGFragmentItem|s with |LayoutObject|s. And more.
   static void ClearAssociatedFragments(LayoutObject* container);
@@ -94,18 +97,22 @@ class CORE_EXPORT NGFragmentItems {
   // Mark items dirty from |LayoutObject::NeedsLayout| flags.
   static void DirtyLinesFromNeedsLayout(const LayoutBlockFlow& block_flow);
 
-  // The byte size of this instance.
-  constexpr static wtf_size_t ByteSizeFor(wtf_size_t count) {
-    return sizeof(NGFragmentItems) + count * sizeof(items_[0]);
-  }
-  wtf_size_t ByteSize() const { return ByteSizeFor(Size()); }
+  // Search for |old_fragment| among the fragment items inside
+  // |containing_fragment|, and replace it with |new_fragment| if found. Return
+  // true if found and replaced, otherwise false.
+  static bool ReplaceBoxFragment(
+      const NGPhysicalBoxFragment& old_fragment,
+      const NGPhysicalBoxFragment& new_fragment,
+      const NGPhysicalBoxFragment& containing_fragment);
 
 #if DCHECK_IS_ON()
   void CheckAllItemsAreValid() const;
 #endif
 
+  void Trace(Visitor*) const;
+
  private:
-  const NGFragmentItem* ItemsData() const { return items_; }
+  const NGFragmentItem* ItemsData() const { return items_.data(); }
 
   static bool CanReuseAll(NGInlineCursor* cursor);
   static bool TryDirtyFirstLineFor(const LayoutObject& layout_object,
@@ -117,20 +124,11 @@ class CORE_EXPORT NGFragmentItems {
   String text_content_;
   String first_line_text_content_;
 
-  wtf_size_t size_;
-
   // Total size of |NGFragmentItem| in earlier fragments when block fragmented.
   // 0 for the first |NGFragmentItems|.
-  mutable wtf_size_t size_of_earlier_fragments_;
+  mutable wtf_size_t size_of_earlier_fragments_ = 0u;
 
-  // Semantically, |items_| is a flexible array of |scoped_refptr<const
-  // NGFragmentItem>|, but |scoped_refptr| has non-trivial destruction which
-  // causes an error in clang. Declare as a flexible array of |NGFragmentItem*|
-  // instead. Please see |ItemsData()|.
-  static_assert(
-      sizeof(NGFragmentItem*) == sizeof(scoped_refptr<const NGFragmentItem>),
-      "scoped_refptr must be the size of a pointer for |ItemsData()| to work");
-  NGFragmentItem items_[0];
+  HeapVector<NGFragmentItem> items_;
 };
 
 }  // namespace blink

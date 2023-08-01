@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,7 +32,6 @@ std::unique_ptr<LayerImpl> UIResourceLayer::CreateLayerImpl(
 
 void UIResourceLayer::SetUV(const gfx::PointF& top_left,
                             const gfx::PointF& bottom_right) {
-  DCHECK(IsMutationAllowed());
   if (uv_top_left_.Read(*this) == top_left &&
       uv_bottom_right_.Read(*this) == bottom_right)
     return;
@@ -45,7 +44,6 @@ void UIResourceLayer::SetVertexOpacity(float bottom_left,
                                        float top_left,
                                        float top_right,
                                        float bottom_right) {
-  DCHECK(IsMutationAllowed());
   // Indexing according to the quad vertex generation:
   // 1--2
   // |  |
@@ -72,11 +70,10 @@ void UIResourceLayer::SetLayerTreeHost(LayerTreeHost* host) {
   // Recreate the resource held against the new LTH.
   RecreateUIResourceIdFromBitmap();
 
-  SetDrawsContent(HasDrawableContent());
+  UpdateDrawsContent();
 }
 
 void UIResourceLayer::SetBitmap(const SkBitmap& bitmap) {
-  DCHECK(IsMutationAllowed());
   bitmap_.Write(*this) = bitmap;
   if (!layer_tree_host())
     return;
@@ -85,7 +82,6 @@ void UIResourceLayer::SetBitmap(const SkBitmap& bitmap) {
 }
 
 void UIResourceLayer::SetUIResourceId(UIResourceId resource_id) {
-  DCHECK(IsMutationAllowed());
   // Even if the ID is not changing we should drop the bitmap. The ID is 0 when
   // there's no layer tree. When setting an id (even if to 0), we should no
   // longer keep the bitmap.
@@ -127,7 +123,7 @@ void UIResourceLayer::RecreateUIResourceIdFromBitmap() {
 
 void UIResourceLayer::SetUIResourceIdInternal(UIResourceId resource_id) {
   resource_id_.Write(*this) = resource_id;
-  SetDrawsContent(HasDrawableContent());
+  UpdateDrawsContent();
   SetNeedsCommit();
 }
 

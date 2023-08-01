@@ -1,26 +1,27 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import <Cocoa/Cocoa.h>
+
 #include <memory>
 #include <utility>
 #include <vector>
 
 #include "apps/app_lifetime_monitor_factory.h"
 #include "apps/switches.h"
-#include "base/auto_reset.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/mac/foundation_util.h"
-#import "base/mac/launch_services_util.h"
+#import "base/mac/launch_application.h"
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_nsobject.h"
+#include "base/memory/raw_ptr.h"
 #include "base/path_service.h"
 #include "base/process/launch.h"
 #include "base/run_loop.h"
 #include "base/strings/sys_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
+#include "base/test/test_future.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
@@ -36,8 +37,8 @@
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/web_applications/extensions/web_app_extension_shortcut.h"
+#include "chrome/browser/web_applications/os_integration/web_app_shortcut_mac.h"
 #include "chrome/browser/web_applications/web_app_helpers.h"
-#include "chrome/browser/web_applications/web_app_shortcut_mac.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/mac/app_mode_common.h"
 #include "content/public/test/browser_test.h"
@@ -57,14 +58,15 @@ namespace {
 
 // General end-to-end test for app shims.
 class AppShimInteractiveTest : public extensions::PlatformAppBrowserTest {
+ public:
+  AppShimInteractiveTest(const AppShimInteractiveTest&) = delete;
+  AppShimInteractiveTest& operator=(const AppShimInteractiveTest&) = delete;
+
  protected:
   // Type of app to install, when invoking InstallAppWithShim().
   enum AppType { APP_TYPE_PACKAGED, APP_TYPE_HOSTED };
 
-  AppShimInteractiveTest()
-      : auto_reset_(&g_app_shims_allow_update_and_launch_in_tests, true) {}
-  AppShimInteractiveTest(const AppShimInteractiveTest&) = delete;
-  AppShimInteractiveTest& operator=(const AppShimInteractiveTest&) = delete;
+  AppShimInteractiveTest() = default;
 
   // Install a test app of |type| and reliably wait for its app shim to be
   // created on disk. Sets |shim_path_|.
@@ -73,16 +75,12 @@ class AppShimInteractiveTest : public extensions::PlatformAppBrowserTest {
 
  protected:
   base::FilePath shim_path_;
-
- private:
-  // Temporarily enable app shims.
-  base::AutoReset<bool> auto_reset_;
 };
 
 // Watches for an app shim to connect.
 class WindowedAppShimLaunchObserver : public apps::AppShimManager {
  public:
-  WindowedAppShimLaunchObserver(const std::string& app_id)
+  explicit WindowedAppShimLaunchObserver(const std::string& app_id)
       : AppShimManager(
             std::make_unique<apps::ExtensionAppShimManagerDelegate>()),
         app_mode_id_(app_id) {
@@ -200,7 +198,7 @@ class HostedAppBrowserListObserver : public BrowserListObserver {
 
 class AppLifetimeMonitorObserver : public apps::AppLifetimeMonitor::Observer {
  public:
-  AppLifetimeMonitorObserver(Profile* profile) : profile_(profile) {
+  explicit AppLifetimeMonitorObserver(Profile* profile) : profile_(profile) {
     apps::AppLifetimeMonitorFactory::GetForBrowserContext(profile_)
         ->AddObserver(this);
   }
@@ -227,7 +225,7 @@ class AppLifetimeMonitorObserver : public apps::AppLifetimeMonitor::Observer {
   }
 
  private:
-  Profile* profile_;
+  raw_ptr<Profile> profile_;
   int activated_count_ = 0;
   int deactivated_count_ = 0;
 };
@@ -288,8 +286,7 @@ const extensions::Extension* AppShimInteractiveTest::InstallAppWithShim(
   shim_path_ = GetAppShimPath(profile(), app);
   EXPECT_FALSE(base::PathExists(shim_path_));
 
-  // To create a shim in a test, instead call UpdateAllShortcuts, which has been
-  // blessed by g_app_shims_allow_update_and_launch_in_tests.
+  // To create a shim in a test, instead call UpdateAllShortcuts.
   base::RunLoop run_loop;
   web_app::UpdateAllShortcuts(std::u16string(), profile(), app,
                               run_loop.QuitClosure());
@@ -363,10 +360,15 @@ IN_PROC_BROWSER_TEST_F(AppShimInteractiveTest, MAYBE_HostedAppLaunch) {
     HostedAppBrowserListObserver listener(app->id());
     base::CommandLine shim_cmdline(base::CommandLine::NO_PROGRAM);
     shim_cmdline.AppendSwitch(app_mode::kLaunchedForTest);
-    NSRunningApplication* shim_app = base::mac::OpenApplicationWithPath(
-        shim_path_, shim_cmdline, NSWorkspaceLaunchDefault);
+
+    base::test::TestFuture<NSRunningApplication*, NSError*> open_result;
+    base::mac::LaunchApplication(shim_path_, shim_cmdline, /*url_specs=*/{},
+                                 /*options=*/{}, open_result.GetCallback());
+    ASSERT_TRUE(open_result.Get<0>());
+    NSRunningApplication* shim_app = open_result.Get<0>();
     ASSERT_TRUE(shim_app);
-    base::Process shim_process([shim_app processIdentifier]);
+
+    base::Process shim_process(shim_app.processIdentifier);
     listener.WaitUntilAdded();
 
     ASSERT_TRUE(GetFirstHostedAppWindow());
@@ -431,13 +433,18 @@ IN_PROC_BROWSER_TEST_F(AppShimInteractiveTest, MAYBE_Launch) {
 
   // Case 2: Launch the shim, it should start the app.
   {
-    ExtensionTestMessageListener launched_listener("Launched", false);
+    ExtensionTestMessageListener launched_listener("Launched");
     base::CommandLine shim_cmdline(base::CommandLine::NO_PROGRAM);
     shim_cmdline.AppendSwitch(app_mode::kLaunchedForTest);
-    NSRunningApplication* shim_app = base::mac::OpenApplicationWithPath(
-        shim_path_, shim_cmdline, NSWorkspaceLaunchDefault);
+
+    base::test::TestFuture<NSRunningApplication*, NSError*> open_result;
+    base::mac::LaunchApplication(shim_path_, shim_cmdline, /*url_specs=*/{},
+                                 /*options=*/{}, open_result.GetCallback());
+    ASSERT_TRUE(open_result.Get<0>());
+    NSRunningApplication* shim_app = open_result.Get<0>();
     ASSERT_TRUE(shim_app);
-    base::Process shim_process([shim_app processIdentifier]);
+
+    base::Process shim_process(shim_app.processIdentifier);
     ASSERT_TRUE(launched_listener.WaitUntilSatisfied());
 
     ASSERT_TRUE(GetFirstAppWindow());
@@ -481,7 +488,7 @@ IN_PROC_BROWSER_TEST_F(AppShimInteractiveTest, MAYBE_ShowWindow) {
   // Launch the app. It should create a hidden window, but the shim should not
   // launch.
   {
-    ExtensionTestMessageListener launched_listener("Launched", false);
+    ExtensionTestMessageListener launched_listener("Launched");
     LaunchPlatformApp(app);
     EXPECT_TRUE(launched_listener.WaitUntilSatisfied());
   }
@@ -520,7 +527,7 @@ IN_PROC_BROWSER_TEST_F(AppShimInteractiveTest, MAYBE_ShowWindow) {
 
   // Launch a second window. It should not launch the shim.
   {
-    ExtensionTestMessageListener launched_listener("Launched", false);
+    ExtensionTestMessageListener launched_listener("Launched");
     LaunchPlatformApp(app);
     EXPECT_TRUE(launched_listener.WaitUntilSatisfied());
   }
@@ -652,10 +659,14 @@ IN_PROC_BROWSER_TEST_F(AppShimInteractiveTest, MAYBE_RebuildShim) {
   //     rebuild the shim.
   // (3) After rebuilding, Chrome again launches the shim and expects it to
   //     behave normally.
-  ExtensionTestMessageListener launched_listener("Launched", false);
+  ExtensionTestMessageListener launched_listener("Launched");
   base::CommandLine shim_cmdline(base::CommandLine::NO_PROGRAM);
-  NSRunningApplication* shim_app = base::mac::OpenApplicationWithPath(
-      shim_path, shim_cmdline, NSWorkspaceLaunchDefault);
+
+  base::test::TestFuture<NSRunningApplication*, NSError*> open_result;
+  base::mac::LaunchApplication(shim_path, shim_cmdline, /*url_specs=*/{},
+                               /*options=*/{}, open_result.GetCallback());
+  ASSERT_TRUE(open_result.Get<0>());
+  NSRunningApplication* shim_app = open_result.Get<0>();
   ASSERT_TRUE(shim_app);
 
   // Wait for the app to start (1). At this point there is no shim host.

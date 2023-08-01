@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,14 +13,13 @@
 #include "ui/color/color_id.h"
 #include "ui/color/color_provider.h"
 #include "ui/gfx/color_utils.h"
-#include "ui/views/accessibility/accessibility_paint_checks.h"
+#include "ui/gfx/text_constants.h"
 #include "ui/views/background.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/widget/widget.h"
 
-namespace ui {
-namespace ime {
+namespace ui::ime {
 
 namespace {
 
@@ -66,13 +65,12 @@ class ShortcutLabel : public views::Label {
     // candidate_label, like Chinese font for Chinese input method?
 
     // Setup paddings.
-    const gfx::Insets kVerticalShortcutLabelInsets(1, 6, 1, 6);
-    const gfx::Insets kHorizontalShortcutLabelInsets(1, 3, 1, 0);
+    const auto kVerticalShortcutLabelInsets = gfx::Insets::TLBR(1, 6, 1, 6);
+    const auto kHorizontalShortcutLabelInsets = gfx::Insets::TLBR(1, 3, 1, 0);
     const gfx::Insets insets = (orientation == ui::CandidateWindow::VERTICAL
                                     ? kVerticalShortcutLabelInsets
                                     : kHorizontalShortcutLabelInsets);
-    SetBorder(views::CreateEmptyBorder(insets.top(), insets.left(),
-                                       insets.bottom(), insets.right()));
+    SetBorder(views::CreateEmptyBorder(insets));
 
     SetElideBehavior(gfx::NO_ELIDE);
   }
@@ -100,30 +98,16 @@ class ShortcutLabel : public views::Label {
 BEGIN_METADATA(ShortcutLabel, views::Label)
 END_METADATA
 
-// The label text is not set in this class.
-class AnnotationLabel : public views::Label {
- public:
-  METADATA_HEADER(AnnotationLabel);
-  AnnotationLabel() {
-    // Change the font size and color.
-    SetFontList(font_list().DeriveWithSizeDelta(kFontSizeDelta));
-    SetHorizontalAlignment(gfx::ALIGN_LEFT);
-    SetElideBehavior(gfx::NO_ELIDE);
-  }
-  AnnotationLabel(const AnnotationLabel&) = delete;
-  AnnotationLabel& operator=(const AnnotationLabel&) = delete;
-  ~AnnotationLabel() override = default;
-
-  // views::Label:
-  void OnThemeChanged() override {
-    Label::OnThemeChanged();
-    SetEnabledColor(
-        GetColorProvider()->GetColor(ui::kColorLabelForegroundSecondary));
-  }
-};
-
-BEGIN_METADATA(AnnotationLabel, views::Label)
-END_METADATA
+// Creates an annotation label. Sets no text by default.
+std::unique_ptr<views::Label> CreateAnnotationLabel() {
+  auto label = views::Builder<views::Label>()
+                   .SetHorizontalAlignment(gfx::ALIGN_LEFT)
+                   .SetElideBehavior(gfx::NO_ELIDE)
+                   .SetEnabledColorId(ui::kColorLabelForegroundSecondary)
+                   .Build();
+  label->SetFontList(label->font_list().DeriveWithSizeDelta(kFontSizeDelta));
+  return label;
+}
 
 // Creates the candidate label, and returns it (never returns nullptr).
 // The label text is not set in this function.
@@ -151,21 +135,21 @@ std::unique_ptr<views::Label> CreateCandidateLabel(
 CandidateView::CandidateView(PressedCallback callback,
                              ui::CandidateWindow::Orientation orientation)
     : views::Button(std::move(callback)), orientation_(orientation) {
-  SetBorder(views::CreateEmptyBorder(1, 1, 1, 1));
+  SetBorder(views::CreateEmptyBorder(1));
 
   shortcut_label_ = AddChildView(std::make_unique<ShortcutLabel>(orientation));
   candidate_label_ = AddChildView(CreateCandidateLabel(orientation));
-  annotation_label_ = AddChildView(std::make_unique<AnnotationLabel>());
+  annotation_label_ = AddChildView(CreateAnnotationLabel());
 
-  if (orientation == ui::CandidateWindow::VERTICAL)
-    infolist_icon_ = AddChildView(std::make_unique<views::View>());
+  if (orientation == ui::CandidateWindow::VERTICAL) {
+    infolist_icon_ =
+        AddChildView(views::Builder<views::View>()
+                         .SetBackground(views::CreateThemedSolidBackground(
+                             ui::kColorFocusableBorderFocused))
+                         .Build());
+  }
 
   SetFocusBehavior(views::View::FocusBehavior::ACCESSIBLE_ONLY);
-
-  // TODO(crbug.com/1218186): Remove this, this is in place temporarily to be
-  // able to submit accessibility checks, but this focusable View needs to
-  // add a name so that the screen reader knows what to announce.
-  SetProperty(views::kSkipAccessibilityPaintChecks, true);
 }
 
 void CandidateView::GetPreferredWidths(int* shortcut_width,
@@ -203,11 +187,10 @@ void CandidateView::SetHighlighted(bool highlighted) {
   highlighted_ = highlighted;
   if (highlighted) {
     NotifyAccessibilityEvent(ax::mojom::Event::kSelection, false);
-    const ui::ColorProvider* color_provider = GetColorProvider();
-    SetBackground(views::CreateSolidBackground(
-        color_provider->GetColor(ui::kColorTextfieldSelectionBackground)));
-    SetBorder(views::CreateSolidBorder(
-        1, color_provider->GetColor(ui::kColorFocusableBorderFocused)));
+    SetBackground(views::CreateThemedSolidBackground(
+        ui::kColorTextfieldSelectionBackground));
+    SetBorder(
+        views::CreateThemedSolidBorder(1, ui::kColorFocusableBorderFocused));
 
     // Cancel currently focused one.
     for (View* view : parent()->children()) {
@@ -216,7 +199,7 @@ void CandidateView::SetHighlighted(bool highlighted) {
     }
   } else {
     SetBackground(nullptr);
-    SetBorder(views::CreateEmptyBorder(1, 1, 1, 1));
+    SetBorder(views::CreateEmptyBorder(1));
   }
   SchedulePaint();
 }
@@ -225,8 +208,8 @@ void CandidateView::StateChanged(ButtonState old_state) {
   Button::StateChanged(old_state);
   int text_style = GetState() == STATE_DISABLED ? views::style::STYLE_DISABLED
                                                 : views::style::STYLE_PRIMARY;
-  shortcut_label_->SetEnabledColor(views::style::GetColor(
-      *shortcut_label_, views::style::CONTEXT_LABEL, text_style));
+  shortcut_label_->SetEnabledColorId(
+      views::style::GetColorId(views::style::CONTEXT_LABEL, text_style));
   if (GetState() == STATE_PRESSED)
     SetHighlighted(true);
 }
@@ -316,16 +299,7 @@ void CandidateView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
                              total_candidates_);
 }
 
-void CandidateView::OnThemeChanged() {
-  Button::OnThemeChanged();
-  if (infolist_icon_) {
-    infolist_icon_->SetBackground(views::CreateSolidBackground(
-        GetColorProvider()->GetColor(ui::kColorFocusableBorderFocused)));
-  }
-}
-
 BEGIN_METADATA(CandidateView, views::Button)
 END_METADATA
 
-}  // namespace ime
-}  // namespace ui
+}  // namespace ui::ime

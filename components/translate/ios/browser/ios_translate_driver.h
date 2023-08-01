@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,18 @@
 #include <memory>
 #include <string>
 
+#include "base/gtest_prod_util.h"
+#include "base/memory/weak_ptr.h"
+#include "base/timer/timer.h"
 #include "components/language/ios/browser/ios_language_detection_tab_helper.h"
 #include "components/translate/core/browser/translate_driver.h"
 #include "components/translate/core/common/translate_errors.h"
-#include "components/translate/ios/browser/language_detection_controller.h"
 #include "components/translate/ios/browser/translate_controller.h"
 #include "ios/web/public/web_state_observer.h"
+
+namespace language {
+class UrlLanguageHistogram;
+}  // namespace language
 
 namespace web {
 class WebState;
@@ -21,6 +27,7 @@ class WebState;
 
 namespace translate {
 
+class LanguageDetectionModelService;
 class TranslateManager;
 
 // Content implementation of TranslateDriver.
@@ -30,23 +37,29 @@ class IOSTranslateDriver
       public web::WebStateObserver,
       public language::IOSLanguageDetectionTabHelper::Observer {
  public:
-  IOSTranslateDriver(web::WebState* web_state,
-                     TranslateManager* translate_manager);
+  IOSTranslateDriver(
+      web::WebState* web_state,
+      LanguageDetectionModelService* language_detection_model_service);
 
   IOSTranslateDriver(const IOSTranslateDriver&) = delete;
   IOSTranslateDriver& operator=(const IOSTranslateDriver&) = delete;
 
   ~IOSTranslateDriver() override;
 
-  LanguageDetectionController* language_detection_controller() {
-    return language_detection_controller_.get();
-  }
-
   TranslateController* translate_controller() {
     return translate_controller_.get();
   }
 
+  // Sets the translate manager and url language histogram to be used by the
+  // driver and Inits the driver.
+  void Initialize(language::UrlLanguageHistogram* url_language_histogram,
+                  TranslateManager* translate_manager);
+
+  void OnLanguageModelFileAvailabilityChanged(bool available);
+
   // web::WebStateObserver methods.
+  void DidStartNavigation(web::WebState* web_state,
+                          web::NavigationContext* navigation_context) override;
   void DidFinishNavigation(web::WebState* web_state,
                            web::NavigationContext* navigation_context) override;
   void WebStateDestroyed(web::WebState* web_state) override;
@@ -60,6 +73,10 @@ class IOSTranslateDriver
   void OnIsPageTranslatedChanged() override;
   void OnTranslateEnabledChanged() override;
   bool IsLinkNavigation() override;
+  void PrepareToTranslatePage(int page_seq_no,
+                              const std::string& original_source_lang,
+                              const std::string& target_lang,
+                              bool triggered_from_menu) override;
   void TranslatePage(int page_seq_no,
                      const std::string& translate_script,
                      const std::string& source_lang,
@@ -74,6 +91,9 @@ class IOSTranslateDriver
   void OpenUrlInNewTab(const GURL& url) override;
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(IOSTranslateDriverTest, TestTimeout);
+  FRIEND_TEST_ALL_PREFIXES(IOSTranslateDriverTest, TestNoTimeout);
+
   // Called when the translation was successful.
   void TranslationDidSucceed(const std::string& source_lang,
                              const std::string& target_lang,
@@ -86,10 +106,10 @@ class IOSTranslateDriver
   bool IsPageValid(int page_seq_no) const;
 
   // TranslateController::Observer methods.
-  void OnTranslateScriptReady(TranslateErrors::Type error_type,
+  void OnTranslateScriptReady(TranslateErrors error_type,
                               double load_time,
                               double ready_time) override;
-  void OnTranslateComplete(TranslateErrors::Type error_type,
+  void OnTranslateComplete(TranslateErrors error_type,
                            const std::string& source_language,
                            double translation_time) override;
 
@@ -100,12 +120,16 @@ class IOSTranslateDriver
   // |web_state_|.
   void StopObservingIOSLanguageDetectionTabHelper();
 
+  // The translation action timed out.
+  void OnTranslationTimeout(int pending_page_seq_no);
+
   // The WebState this instance is observing.
   web::WebState* web_state_ = nullptr;
 
   base::WeakPtr<TranslateManager> translate_manager_;
   std::unique_ptr<TranslateController> translate_controller_;
-  std::unique_ptr<LanguageDetectionController> language_detection_controller_;
+
+  LanguageDetectionModelService* language_detection_model_service_ = nullptr;
 
   // An ever-increasing sequence number of the current page, used to match up
   // translation requests with responses.
@@ -120,6 +144,11 @@ class IOSTranslateDriver
   // Parameters of the current translation.
   std::string source_language_;
   std::string target_language_;
+
+  // A timer to limit the length of translate actions.
+  base::OneShotTimer timeout_timer_;
+
+  base::WeakPtrFactory<IOSTranslateDriver> weak_ptr_factory_{this};
 };
 
 }  // namespace translate

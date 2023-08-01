@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,14 +7,14 @@
 #include <functional>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/bind_post_task.h"
 #include "build/build_config.h"
-#include "media/base/bind_to_current_loop.h"
 #include "media/base/video_frame.h"
 #include "media/base/video_frame_layout.h"
 #include "media/gpu/chromeos/fourcc.h"
@@ -148,8 +148,7 @@ scoped_refptr<VideoFrame> ImageProcessorClient::CreateInputFrame(
   ASSERT_TRUE_OR_RETURN_NULLPTR(input_layout);
 
   if (VideoFrame::IsStorageTypeMappable(input_storage_type)) {
-    return CloneVideoFrame(gpu_memory_buffer_factory_.get(),
-                           CreateVideoFrameFromImage(input_image).get(),
+    return CloneVideoFrame(CreateVideoFrameFromImage(input_image).get(),
                            *input_layout, VideoFrame::STORAGE_OWNED_MEMORY);
   } else {
     ASSERT_TRUE_OR_RETURN_NULLPTR(
@@ -162,8 +161,7 @@ scoped_refptr<VideoFrame> ImageProcessorClient::CreateInputFrame(
         (PIXEL_FORMAT_NV12 == input_image.PixelFormat())
             ? gfx::BufferUsage::VEA_READ_CAMERA_AND_CPU_READ_WRITE
             : gfx::BufferUsage::GPU_READ_CPU_READ_WRITE;
-    return CloneVideoFrame(gpu_memory_buffer_factory_.get(),
-                           CreateVideoFrameFromImage(input_image).get(),
+    return CloneVideoFrame(CreateVideoFrameFromImage(input_image).get(),
                            *input_layout, input_storage_type, dst_buffer_usage);
   }
 }
@@ -190,15 +188,13 @@ scoped_refptr<VideoFrame> ImageProcessorClient::CreateOutputFrame(
       output_storage_type == VideoFrame::STORAGE_DMABUFS ||
       output_storage_type == VideoFrame::STORAGE_GPU_MEMORY_BUFFER);
   scoped_refptr<VideoFrame> output_frame = CreatePlatformVideoFrame(
-      gpu_memory_buffer_factory_.get(), output_layout->format(),
-      output_layout->coded_size(), gfx::Rect(output_image.Size()),
-      output_image.Size(), base::TimeDelta(),
+      output_layout->format(), output_layout->coded_size(),
+      gfx::Rect(output_image.Size()), output_image.Size(), base::TimeDelta(),
       gfx::BufferUsage::GPU_READ_CPU_READ_WRITE);
 
   if (output_storage_type == VideoFrame::STORAGE_GPU_MEMORY_BUFFER) {
     output_frame = CreateGpuMemoryBufferVideoFrame(
-        gpu_memory_buffer_factory_.get(), output_frame.get(),
-        gfx::BufferUsage::GPU_READ_CPU_READ_WRITE);
+        output_frame.get(), gfx::BufferUsage::GPU_READ_CPU_READ_WRITE);
   }
   return output_frame;
 }
@@ -280,7 +276,7 @@ void ImageProcessorClient::ProcessTask(scoped_refptr<VideoFrame> input_frame,
   // because the callback is executed on |image_processor_client_thread_| which
   // is owned by this class.
   image_processor_->Process(std::move(input_frame), std::move(output_frame),
-                            BindToCurrentLoop(base::BindOnce(
+                            base::BindPostTaskToCurrentDefault(base::BindOnce(
                                 &ImageProcessorClient::FrameReady,
                                 base::Unretained(this), next_frame_index_)));
   next_frame_index_++;

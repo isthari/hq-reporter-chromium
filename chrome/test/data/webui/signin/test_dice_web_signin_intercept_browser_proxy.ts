@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@ export class TestDiceWebSigninInterceptBrowserProxy extends TestBrowserProxy
   private interceptionParameters_: InterceptionParameters;
 
   constructor() {
-    super(['accept', 'cancel', 'guest', 'pageLoaded']);
+    super(['accept', 'cancel', 'guest', 'pageLoaded', 'initializedWithHeight']);
 
     this.interceptionParameters_ = {
       headerText: '',
@@ -18,10 +18,15 @@ export class TestDiceWebSigninInterceptBrowserProxy extends TestBrowserProxy
       bodyText: '',
       cancelButtonLabel: '',
       confirmButtonLabel: '',
+      managedDisclaimerText: '',
       showGuestOption: false,
       headerTextColor: '',
-      headerBackgroundColor: '',
+      interceptedProfileColor: '',
+      primaryProfileColor: '',
       interceptedAccount: {isManaged: false, pictureUrl: ''},
+      primaryAccount: {isManaged: false, pictureUrl: ''},
+      useV2Design: false,
+      showManagedDisclaimer: false,
     };
   }
 
@@ -44,5 +49,9 @@ export class TestDiceWebSigninInterceptBrowserProxy extends TestBrowserProxy
   pageLoaded() {
     this.methodCalled('pageLoaded');
     return Promise.resolve(this.interceptionParameters_);
+  }
+
+  initializedWithHeight(height: number) {
+    this.methodCalled('initializedWithHeight', height);
   }
 }

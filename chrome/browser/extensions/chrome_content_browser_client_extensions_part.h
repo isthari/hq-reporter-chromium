@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,11 @@
 
 #include <memory>
 
+#include "base/auto_reset.h"
 #include "base/gtest_prod_util.h"
 #include "chrome/browser/chrome_content_browser_client_parts.h"
 #include "components/download/public/common/quarantine_connection.h"
 #include "content/public/browser/browser_or_resource_context.h"
-#include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/network/public/mojom/network_context.mojom-forward.h"
 #include "services/network/public/mojom/url_loader_factory.mojom-forward.h"
 #include "ui/base/page_transition_types.h"
@@ -57,7 +57,7 @@ class ChromeContentBrowserClientExtensionsPart
   static bool ShouldCompareEffectiveURLsForSiteInstanceSelection(
       content::BrowserContext* browser_context,
       content::SiteInstance* candidate_site_instance,
-      bool is_main_frame,
+      bool is_outermost_main_frame,
       const GURL& candidate_url,
       const GURL& destination_url);
   static bool ShouldUseProcessPerSite(Profile* profile, const GURL& site_url);
@@ -72,8 +72,8 @@ class ChromeContentBrowserClientExtensionsPart
                              content::RenderProcessHost* process_host,
                              const GURL& site_url);
   static size_t GetProcessCountToIgnoreForLimit();
-  static bool ShouldSubframesTryToReuseExistingProcess(
-      content::RenderFrameHost* main_frame);
+  static bool ShouldEmbeddedFramesTryToReuseExistingProcess(
+      content::RenderFrameHost* outermost_main_frame);
   static bool ShouldSwapBrowsingInstancesForNavigation(
       content::SiteInstance* site_instance,
       const GURL& current_effective_url,
@@ -82,6 +82,9 @@ class ChromeContentBrowserClientExtensionsPart
                                  const GURL& first_party_url,
                                  const GURL& script_url,
                                  content::BrowserContext* context);
+  static bool MayDeleteServiceWorkerRegistration(
+      const GURL& scope,
+      content::BrowserContext* browser_context);
   static std::vector<url::Origin> GetOriginsRequiringDedicatedProcess();
 
   // Helper function to call InfoMap::SetSigninProcess().
@@ -101,6 +104,16 @@ class ChromeContentBrowserClientExtensionsPart
   static bool IsBuiltinComponent(content::BrowserContext* browser_context,
                                  const url::Origin& origin);
 
+  // Checks if the given context support extensions, based on the profile type.
+  static bool AreExtensionsDisabledForProfile(
+      content::BrowserContext* browser_context);
+
+  // Temporarily allows unregistration of the service worker with the given
+  // `scope` for testing purposes; unregistration is allowed while the returned
+  // AutoReset remains in scope.
+  static base::AutoReset<const GURL*>
+  AllowServiceWorkerUnregistrationForScopeForTesting(const GURL* scope);
+
  private:
   FRIEND_TEST_ALL_PREFIXES(ChromeContentBrowserClientExtensionsPartTest,
                            IsolatedOriginsAndHostedAppWebExtents);
@@ -108,7 +121,6 @@ class ChromeContentBrowserClientExtensionsPart
   // ChromeContentBrowserClientParts:
   void RenderProcessWillLaunch(content::RenderProcessHost* host) override;
   void SiteInstanceGotProcess(content::SiteInstance* site_instance) override;
-  void SiteInstanceDeleting(content::SiteInstance* site_instance) override;
   void OverrideWebkitPrefs(content::WebContents* web_contents,
                            blink::web_pref::WebPreferences* web_prefs) override;
   bool OverrideWebPreferencesAfterNavigation(

@@ -1,20 +1,14 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/sync/base/user_selectable_type.h"
 
-#include <type_traits>
-
 #include "base/notreached.h"
 #include "build/chromeos_buildflags.h"
+#include "components/sync/base/features.h"
 #include "components/sync/base/model_type.h"
-#include "components/sync/base/pref_names.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "ash/constants/ash_features.h"
-#endif
 
 namespace syncer {
 
@@ -31,82 +25,87 @@ constexpr char kPreferencesTypeName[] = "preferences";
 constexpr char kPasswordsTypeName[] = "passwords";
 constexpr char kAutofillTypeName[] = "autofill";
 constexpr char kThemesTypeName[] = "themes";
-constexpr char kTypedUrlsTypeName[] = "typedUrls";
+// Note: The type name for History is "typedUrls" for historic reasons. This
+// name is used in JS (sync settings) and in the SyncTypesListDisabled policy,
+// so it's fairly hard to change.
+constexpr char kHistoryTypeName[] = "typedUrls";
 constexpr char kExtensionsTypeName[] = "extensions";
 constexpr char kAppsTypeName[] = "apps";
 constexpr char kReadingListTypeName[] = "readingList";
 constexpr char kTabsTypeName[] = "tabs";
 constexpr char kWifiConfigurationsTypeName[] = "wifiConfigurations";
+constexpr char kSavedTabGroupsTypeName[] = "savedTabGroups";
 
 UserSelectableTypeInfo GetUserSelectableTypeInfo(UserSelectableType type) {
+  static_assert(48 == syncer::GetNumModelTypes(),
+                "Almost always when adding a new ModelType, you must tie it to "
+                "a UserSelectableType below (new or existing) so the user can "
+                "disable syncing of that data. Today you must also update the "
+                "UI code yourself; crbug.com/1067282 and related bugs will "
+                "improve that");
   // UserSelectableTypeInfo::type_name is used in js code and shouldn't be
   // changed without updating js part.
   switch (type) {
     case UserSelectableType::kBookmarks:
-      return {kBookmarksTypeName, BOOKMARKS, {BOOKMARKS}};
-    case UserSelectableType::kPreferences: {
-      ModelTypeSet model_types = {PREFERENCES, DICTIONARY, PRIORITY_PREFERENCES,
-                                  SEARCH_ENGINES};
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-      if (!chromeos::features::IsSyncSettingsCategorizationEnabled()) {
-        // SyncSettingsCategorization makes Printers a separate OS setting.
-        model_types.Put(PRINTERS);
-
-        // Workspace desk template is an OS-only feature. When
-        // SyncSettingsCategorization is disabled, WORKSPACE_DESK should be
-        // enabled with user preferences. Otherwise, WORKSPACE_DESK should be
-        // enabled with OS preferences below.
-        model_types.Put(WORKSPACE_DESK);
-      }
-#endif
-      return {kPreferencesTypeName, PREFERENCES, model_types};
-    }
+      return {kBookmarksTypeName, BOOKMARKS, {BOOKMARKS, POWER_BOOKMARK}};
+    case UserSelectableType::kPreferences:
+      // TODO(crbug.com/1369259): Add GetPreconditionState() logic to check
+      // history state as a precondition for SEGMENTATION.
+      return {kPreferencesTypeName,
+              PREFERENCES,
+              {PREFERENCES, DICTIONARY, PRIORITY_PREFERENCES, SEARCH_ENGINES,
+               SEGMENTATION}};
     case UserSelectableType::kPasswords:
-      return {kPasswordsTypeName, PASSWORDS, {PASSWORDS}};
+      // TODO(crbug.com/1223853): Revisit whether WEBAUTHN_CREDENTIAL should be
+      // its own UserSelectableType before launch.
+      return {
+          kPasswordsTypeName,
+          PASSWORDS,
+          {PASSWORDS, WEBAUTHN_CREDENTIAL, INCOMING_PASSWORD_SHARING_INVITATION,
+           OUTGOING_PASSWORD_SHARING_INVITATION}};
     case UserSelectableType::kAutofill:
       return {kAutofillTypeName,
               AUTOFILL,
               {AUTOFILL, AUTOFILL_PROFILE, AUTOFILL_WALLET_DATA,
-               AUTOFILL_WALLET_METADATA, AUTOFILL_WALLET_OFFER}};
+               AUTOFILL_WALLET_METADATA, AUTOFILL_WALLET_OFFER,
+               AUTOFILL_WALLET_USAGE, CONTACT_INFO}};
     case UserSelectableType::kThemes:
       return {kThemesTypeName, THEMES, {THEMES}};
-    case UserSelectableType::kHistory:
-      return {kTypedUrlsTypeName,
-              TYPED_URLS,
-              {TYPED_URLS, HISTORY_DELETE_DIRECTIVES, SESSIONS, USER_EVENTS}};
+    case UserSelectableType::kHistory: {
+      // TODO(crbug.com/1365291): After HISTORY has launched, remove TYPED_URLS
+      // from here.
+      ModelTypeSet types = {TYPED_URLS, HISTORY, HISTORY_DELETE_DIRECTIVES,
+                            SESSIONS, USER_EVENTS};
+      if (base::FeatureList::IsEnabled(kSyncEnableHistoryDataType)) {
+        types.Remove(SESSIONS);
+      }
+      return {kHistoryTypeName, TYPED_URLS, types};
+    }
     case UserSelectableType::kExtensions:
       return {
           kExtensionsTypeName, EXTENSIONS, {EXTENSIONS, EXTENSION_SETTINGS}};
-    case UserSelectableType::kApps: {
+    case UserSelectableType::kApps:
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-      // SyncSettingsCategorization moves apps to Chrome OS settings.
-      if (chromeos::features::IsSyncSettingsCategorizationEnabled()) {
-        return {kAppsTypeName, UNSPECIFIED};
-      } else {
-        return {kAppsTypeName,
-                APPS,
-                {APP_LIST, APPS, APP_SETTINGS, ARC_PACKAGE, WEB_APPS}};
-      }
+      // In Ash, "Apps" part of Chrome OS settings.
+      return {kAppsTypeName, UNSPECIFIED};
 #else
       return {kAppsTypeName, APPS, {APPS, APP_SETTINGS, WEB_APPS}};
 #endif
-    }
     case UserSelectableType::kReadingList:
       return {kReadingListTypeName, READING_LIST, {READING_LIST}};
     case UserSelectableType::kTabs:
-      return {
-          kTabsTypeName, PROXY_TABS, {PROXY_TABS, SESSIONS, SEND_TAB_TO_SELF}};
-    case UserSelectableType::kWifiConfigurations: {
+      return {kTabsTypeName, PROXY_TABS, {PROXY_TABS, SESSIONS}};
+    case UserSelectableType::kWifiConfigurations:
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-      // SyncSettingsCategorization moves Wi-Fi configurations to Chrome OS
-      // settings.
-      if (chromeos::features::IsSyncSettingsCategorizationEnabled())
-        return {kWifiConfigurationsTypeName, UNSPECIFIED};
-#endif
+      // In Ash, "Wi-Fi configurations" is part of Chrome OS settings.
+      return {kWifiConfigurationsTypeName, UNSPECIFIED};
+#else
       return {kWifiConfigurationsTypeName,
               WIFI_CONFIGURATIONS,
               {WIFI_CONFIGURATIONS}};
-    }
+#endif
+    case UserSelectableType::kSavedTabGroups:
+      return {kSavedTabGroupsTypeName, SAVED_TAB_GROUP, {SAVED_TAB_GROUP}};
   }
   NOTREACHED();
   return {nullptr, UNSPECIFIED, {}};
@@ -126,10 +125,10 @@ UserSelectableTypeInfo GetUserSelectableOsTypeInfo(UserSelectableOsType type) {
               APPS,
               {APP_LIST, APPS, APP_SETTINGS, ARC_PACKAGE, WEB_APPS}};
     case UserSelectableOsType::kOsPreferences:
-      return {
-          kOsPreferencesTypeName,
-          OS_PREFERENCES,
-          {OS_PREFERENCES, OS_PRIORITY_PREFERENCES, PRINTERS, WORKSPACE_DESK}};
+      return {kOsPreferencesTypeName,
+              OS_PREFERENCES,
+              {OS_PREFERENCES, OS_PRIORITY_PREFERENCES, PRINTERS,
+               PRINTERS_AUTHORIZATION_SERVERS, WORKSPACE_DESK}};
     case UserSelectableOsType::kOsWifiConfigurations:
       return {kOsWifiConfigurationsTypeName,
               WIFI_CONFIGURATIONS,
@@ -161,7 +160,7 @@ absl::optional<UserSelectableType> GetUserSelectableTypeFromString(
   if (type == kThemesTypeName) {
     return UserSelectableType::kThemes;
   }
-  if (type == kTypedUrlsTypeName) {
+  if (type == kHistoryTypeName) {
     return UserSelectableType::kHistory;
   }
   if (type == kExtensionsTypeName) {
@@ -178,6 +177,9 @@ absl::optional<UserSelectableType> GetUserSelectableTypeFromString(
   }
   if (type == kWifiConfigurationsTypeName) {
     return UserSelectableType::kWifiConfigurations;
+  }
+  if (type == kSavedTabGroupsTypeName) {
+    return UserSelectableType::kSavedTabGroups;
   }
   return absl::nullopt;
 }
@@ -231,11 +233,9 @@ absl::optional<UserSelectableOsType> GetUserSelectableOsTypeFromString(
 
   // Some pref types migrated from browser prefs to OS prefs. Map the browser
   // type name to the OS type so that enterprise policy SyncTypesListDisabled
-  // still applies to the migrated names during SyncSettingsCategorization
-  // roll-out.
+  // still applies to the migrated names.
   // TODO(https://crbug.com/1059309): Rename "osApps" to "apps" and
-  // "osWifiConfigurations" to "wifiConfigurations" after
-  // SyncSettingsCategorization is the default, and remove the mapping for
+  // "osWifiConfigurations" to "wifiConfigurations", and remove the mapping for
   // "preferences".
   if (type == kAppsTypeName) {
     return UserSelectableOsType::kOsApps;

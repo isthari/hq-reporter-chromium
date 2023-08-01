@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,7 +21,6 @@ import org.chromium.base.IntentUtils;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.search_engines.TemplateUrlServiceFactory;
 import org.chromium.chrome.browser.signin.services.IdentityServicesProvider;
@@ -91,21 +90,15 @@ public class ClearBrowsingDataFragmentBasic extends ClearBrowsingDataFragment {
                     .launchUrl(UrlConstants.MY_ACTIVITY_URL_IN_CBD, TabLaunchType.FROM_CHROME_UI);
         });
 
-        IdentityManager identityManager = IdentityServicesProvider.get().getIdentityManager(
-                Profile.getLastUsedRegularProfile());
+        IdentityManager identityManager =
+                IdentityServicesProvider.get().getIdentityManager(getProfile());
         if (identityManager.hasPrimaryAccount(ConsentLevel.SIGNIN)) {
             // Update the Clear Browsing History text based on the sign-in/sync state and whether
             // the link to MyActivity is displayed inline or at the bottom of the page.
-            // Note: when the flag is enabled but sync is disabled, the default string is used, so
-            // there is no need to change it.
-            if (ChromeFeatureList.isEnabled(ChromeFeatureList.SEARCH_HISTORY_LINK)
-                    && isHistorySyncEnabled()) {
+            // Note: when  sync is disabled, the default string is used.
+            if (isHistorySyncEnabled()) {
                 // The text is different only for users with history sync.
                 historyCheckbox.setSummary(R.string.clear_browsing_history_summary_synced_no_link);
-            } else if (!ChromeFeatureList.isEnabled(ChromeFeatureList.SEARCH_HISTORY_LINK)) {
-                historyCheckbox.setSummary(isHistorySyncEnabled()
-                                ? R.string.clear_browsing_history_summary_synced
-                                : R.string.clear_browsing_history_summary_signed_in);
             }
             cookiesCheckbox.setSummary(
                     R.string.clear_cookies_and_site_data_summary_basic_signed_in);
@@ -115,25 +108,24 @@ public class ClearBrowsingDataFragmentBasic extends ClearBrowsingDataFragment {
     @Override
     public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
         super.onCreatePreferences(savedInstanceState, rootKey);
-        IdentityManager identityManager = IdentityServicesProvider.get().getIdentityManager(
-                Profile.getLastUsedRegularProfile());
+        Profile profile = getProfile();
+        IdentityManager identityManager =
+                IdentityServicesProvider.get().getIdentityManager(profile);
         ClickableSpansTextMessagePreference googleDataTextPref =
                 (ClickableSpansTextMessagePreference) findPreference(
                         ClearBrowsingDataFragment.PREF_GOOGLE_DATA_TEXT);
         Preference nonGoogleSearchHistoryTextPref =
                 findPreference(ClearBrowsingDataFragment.PREF_SEARCH_HISTORY_NON_GOOGLE_TEXT);
-        TemplateUrlService templateUrlService = TemplateUrlServiceFactory.get();
+        TemplateUrlService templateUrlService = TemplateUrlServiceFactory.getForProfile(profile);
         TemplateUrl defaultSearchEngine = templateUrlService.getDefaultSearchEngineTemplateUrl();
         boolean isDefaultSearchEngineGoogle = templateUrlService.isDefaultSearchEngineGoogle();
 
         // Google-related links to delete search history and other browsing activity.
-        if (!ChromeFeatureList.isEnabled(ChromeFeatureList.SEARCH_HISTORY_LINK)
-                || defaultSearchEngine == null
+        if (defaultSearchEngine == null
                 || !identityManager.hasPrimaryAccount(ConsentLevel.SIGNIN)) {
-            // One of three cases:
-            // 1. The feature is disabled.
-            // 2. The default search engine is disabled.
-            // 3. The user is not signed into Chrome.
+            // One of two cases:
+            // 1. The default search engine is disabled.
+            // 2. The user is not signed into Chrome.
             // In all those cases, delete the link to clear Google data using MyActivity.
             deleteGoogleDataTextIfExists();
         } else if (isDefaultSearchEngineGoogle) {
@@ -145,12 +137,10 @@ public class ClearBrowsingDataFragmentBasic extends ClearBrowsingDataFragment {
         }
 
         // Text for search history if DSE is not Google.
-        if (!ChromeFeatureList.isEnabled(ChromeFeatureList.SEARCH_HISTORY_LINK)
-                || defaultSearchEngine == null || isDefaultSearchEngineGoogle) {
-            // One of three cases:
-            // 1. The feature is disabled.
-            // 2. The default search engine is disabled.
-            // 3. The default search engine is Google.
+        if (defaultSearchEngine == null || isDefaultSearchEngineGoogle) {
+            // One of two cases:
+            // 1. The default search engine is disabled.
+            // 2. The default search engine is Google.
             // In all those cases, delete the link to clear non-Google search history.
             deleteNonGoogleSearchHistoryTextIfExists();
         } else if (defaultSearchEngine.getIsPrepopulated()) {
@@ -188,10 +178,10 @@ public class ClearBrowsingDataFragmentBasic extends ClearBrowsingDataFragment {
     private SpannableString buildGoogleSearchHistoryText() {
         return SpanApplier.applySpans(getContext().getString(R.string.clear_search_history_link),
                 new SpanInfo("<link1>", "</link1>",
-                        new NoUnderlineClickableSpan(getContext().getResources(),
+                        new NoUnderlineClickableSpan(getContext(),
                                 createOpenMyActivityCallback(/* openSearchHistory = */ true))),
                 new SpanInfo("<link2>", "</link2>",
-                        new NoUnderlineClickableSpan(getContext().getResources(),
+                        new NoUnderlineClickableSpan(getContext(),
                                 createOpenMyActivityCallback(/* openSearchHistory = */ false))));
     }
 
@@ -199,7 +189,7 @@ public class ClearBrowsingDataFragmentBasic extends ClearBrowsingDataFragment {
         return SpanApplier.applySpans(
                 getContext().getString(R.string.clear_search_history_link_other_forms),
                 new SpanInfo("<link1>", "</link1>",
-                        new NoUnderlineClickableSpan(getContext().getResources(),
+                        new NoUnderlineClickableSpan(getContext(),
                                 createOpenMyActivityCallback(/* openSearchHistory = */ false))));
     }
 
@@ -236,7 +226,7 @@ public class ClearBrowsingDataFragmentBasic extends ClearBrowsingDataFragment {
 
     private boolean isHistorySyncEnabled() {
         SyncService syncService = SyncService.get();
-        return syncService != null && syncService.isSyncRequested()
+        return syncService != null && syncService.isSyncFeatureEnabled()
                 && syncService.getActiveDataTypes().contains(ModelType.HISTORY_DELETE_DIRECTIVES);
     }
 

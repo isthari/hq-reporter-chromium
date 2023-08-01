@@ -1,4 +1,4 @@
-// Copyright (c) 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "base/command_line.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/field_trial_params.h"
+#include "base/process/process_handle.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -17,7 +18,6 @@
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
 #include "content/public/common/content_switches.h"
-#include "content/public/common/use_zoom_for_dsf_policy.h"
 #include "third_party/blink/public/mojom/v8_cache_options.mojom.h"
 
 #if BUILDFLAG(IS_ANDROID)
@@ -63,6 +63,11 @@ std::string FromNativeString(const std::string& string) {
 #endif  // BUILDFLAG(IS_WIN)
 
 }  // namespace
+
+// This switch is passed from the browser to the first renderer process it
+// creates. Useful for performing some actions only once, from one renderer
+// process.
+const char kFirstRendererProcess[] = "first-renderer-process";
 
 bool IsPinchToZoomEnabled() {
   const base::CommandLine& command_line =
@@ -142,13 +147,15 @@ std::vector<std::string> FeaturesFromSwitch(
   for (NativeStringPiece arg : command_line.argv()) {
     // Switch names are case insensitive on Windows, but base::CommandLine has
     // already made them lowercase when building argv().
-    if (!StartsWith(arg, prefix, base::CompareCase::SENSITIVE))
+    if (!base::StartsWith(arg, prefix, base::CompareCase::SENSITIVE)) {
       continue;
+    }
     arg.remove_prefix(prefix.size());
-    if (!IsStringASCII(arg))
+    if (!base::IsStringASCII(arg)) {
       continue;
-    auto vals = SplitString(FromNativeString(NativeString(arg)), ",",
-                            base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
+    }
+    auto vals = base::SplitString(FromNativeString(NativeString(arg)), ",",
+                                  base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
     features.insert(features.end(), vals.begin(), vals.end());
   }
   return features;

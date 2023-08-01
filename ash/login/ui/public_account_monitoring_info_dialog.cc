@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -65,7 +65,7 @@ PublicAccountMonitoringInfoDialog::PublicAccountMonitoringInfoDialog(
   auto layout = std::make_unique<views::FlexLayout>();
   layout->SetOrientation(views::LayoutOrientation::kVertical);
   SetLayoutManager(std::move(layout));
-  SetBorder(views::CreateEmptyBorder(gfx::Insets(kDialogContentMarginDp)));
+  SetBorder(views::CreateEmptyBorder(kDialogContentMarginDp));
 
   auto add_bulleted_label = [&](const std::u16string& text) {
     auto* container = new views::View();
@@ -106,8 +106,9 @@ PublicAccountMonitoringInfoDialog::PublicAccountMonitoringInfoDialog(
 }
 
 PublicAccountMonitoringInfoDialog::~PublicAccountMonitoringInfoDialog() {
-  if (controller_)
+  if (controller_) {
     controller_->OnLearnMoreDialogClosed();
+  }
 }
 
 bool PublicAccountMonitoringInfoDialog::IsVisible() {
@@ -115,8 +116,9 @@ bool PublicAccountMonitoringInfoDialog::IsVisible() {
 }
 
 void PublicAccountMonitoringInfoDialog::Show() {
-  if (GetWidget())
+  if (GetWidget()) {
     GetWidget()->Show();
+  }
 }
 
 void PublicAccountMonitoringInfoDialog::AddedToWidget() {

@@ -1,14 +1,15 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/translate/core/language_detection/language_detection_model.h"
 
-#include "base/cxx17_backports.h"
+#include "base/feature_list.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/histogram_macros_local.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/language/core/common/language_util.h"
+#include "components/optimization_guide/core/optimization_guide_features.h"
 #include "components/translate/core/common/translate_constants.h"
 #include "components/translate/core/common/translate_util.h"
 #include "components/translate/core/language_detection/language_detection_resolver.h"
@@ -26,7 +27,7 @@ struct sort_category {
 
 // The number of characters to sample and provide as a buffer to the model
 // for determining its language.
-constexpr int kTextSampleLength = 250;
+constexpr int kTextSampleLength = 256;
 
 // The number of samples of |kTextSampleLength| to evaluate the model when
 // determining the language of the page content.
@@ -62,7 +63,11 @@ class ScopedLanguageDetectionModelStateRecorder {
 
 namespace translate {
 
-LanguageDetectionModel::LanguageDetectionModel() = default;
+LanguageDetectionModel::LanguageDetectionModel()
+    : num_threads_(
+          optimization_guide::features::OverrideNumThreadsForOptTarget(
+              optimization_guide::proto::OPTIMIZATION_TARGET_LANGUAGE_DETECTION)
+              .value_or(-1)) {}
 
 LanguageDetectionModel::~LanguageDetectionModel() = default;
 
@@ -81,15 +86,32 @@ void LanguageDetectionModel::UpdateWithFile(base::File model_file) {
   options.set_output_score_tensor_index(0);
   options.set_output_label_tensor_index(2);
 
-  std::string file_content(model_file.GetLength(), '\0');
-  int bytes_read =
-      model_file.Read(0, base::data(file_content), model_file.GetLength());
-  if (bytes_read != model_file.GetLength()) {
-    return;
+  options.mutable_base_options()
+      ->mutable_compute_settings()
+      ->mutable_tflite_settings()
+      ->mutable_cpu_settings()
+      ->set_num_threads(num_threads_);
+
+// Windows doesn't support using mmap for the language detection model.
+#if !BUILDFLAG(IS_WIN)
+  if (base::FeatureList::IsEnabled(kMmapLanguageDetectionModel)) {
+    options.mutable_base_options()
+        ->mutable_model_file()
+        ->mutable_file_descriptor_meta()
+        ->set_fd(model_file.GetPlatformFile());
+  } else
+#endif
+  {
+    std::string file_content(model_file.GetLength(), '\0');
+    int bytes_read =
+        model_file.Read(0, std::data(file_content), model_file.GetLength());
+    if (bytes_read != model_file.GetLength()) {
+      return;
+    }
+    *options.mutable_base_options()
+         ->mutable_model_file()
+         ->mutable_file_content() = std::move(file_content);
   }
-  *options.mutable_base_options()
-       ->mutable_model_file()
-       ->mutable_file_content() = std::move(file_content);
 
   auto statusor_classifier =
       tflite::task::text::nlclassifier::NLClassifier::CreateFromOptions(
@@ -108,16 +130,25 @@ bool LanguageDetectionModel::IsAvailable() const {
 }
 
 std::pair<std::string, float> LanguageDetectionModel::DetectTopLanguage(
-    const std::string& sampled_str) const {
+    const std::u16string& sampled_str) const {
   DCHECK(IsAvailable());
-  std::vector<tflite::task::core::Category> categories =
-      lang_detection_model_->Classify(sampled_str);
-  std::sort(categories.begin(), categories.end(), sort_category());
+  std::string utf8_sample = base::UTF16ToUTF8(sampled_str);
 
-  if (categories.empty())
+  // TFLite expects all strings to be aligned to 4 bytes.
+  constexpr size_t kAlignTo = sizeof(int32_t);
+  if (utf8_sample.size() % kAlignTo != 0) {
+    // Pad the input string to be aligned for TFLite
+    utf8_sample += std::string(kAlignTo - utf8_sample.size() % kAlignTo, ' ');
+  }
+
+  auto status_or_categories = lang_detection_model_->ClassifyText(utf8_sample);
+  if (!status_or_categories.ok() || status_or_categories.value().empty()) {
     return std::make_pair(translate::kUnknownLanguageCode, 0.0);
-
-  return std::make_pair(categories[0].class_name, categories[0].score);
+  }
+  auto& categories = status_or_categories.value();
+  auto top_category =
+      std::min_element(categories.begin(), categories.end(), sort_category());
+  return std::make_pair(top_category->class_name, top_category->score);
 }
 
 std::string LanguageDetectionModel::DeterminePageLanguage(
@@ -144,20 +175,18 @@ std::string LanguageDetectionModel::DeterminePageLanguage(
   // implementation, for v1 it is the first 128 tokens that are unicode
   // "letters". We do not need to have the model's length in sync with
   // the sampling logic for v1 as 128 tokens is unlikely to be changed.
-  model_predictions.emplace_back(
-      DetectTopLanguage(base::UTF16ToUTF8(contents)));
+  model_predictions.emplace_back(DetectTopLanguage(contents));
   if (contents.length() > kNumTextSamples * kTextSampleLength) {
     // Strings with UTF-8 have different widths so substr should be performed on
     // the UTF16 strings to ensure alignment and then convert down to UTF-8
     // strings for model evaluation.
-    std::string sampled_str = base::UTF16ToUTF8(contents.substr(
-        contents.length() - kTextSampleLength, kTextSampleLength));
+    std::u16string sampled_str = contents.substr(
+        contents.length() - kTextSampleLength, kTextSampleLength);
     // Evaluate on the last |kTextSampleLength| characters.
     model_predictions.emplace_back(DetectTopLanguage(sampled_str));
 
     // Sample and evaluate on the middle |kTextSampleLength| characters.
-    sampled_str = base::UTF16ToUTF8(
-        contents.substr(contents.length() / 2, kTextSampleLength));
+    sampled_str = contents.substr(contents.length() / 2, kTextSampleLength);
     model_predictions.emplace_back(DetectTopLanguage(sampled_str));
   }
 

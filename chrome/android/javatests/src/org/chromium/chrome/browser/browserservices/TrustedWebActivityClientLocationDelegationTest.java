@@ -1,10 +1,9 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.browserservices;
 
-import android.content.ComponentName;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.RemoteException;
@@ -20,13 +19,13 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.chrome.browser.ChromeApplicationImpl;
 import org.chromium.chrome.browser.dependency_injection.ChromeAppComponent;
 import org.chromium.components.embedder_support.util.Origin;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 
 import java.util.concurrent.TimeoutException;
 
@@ -62,7 +61,7 @@ public class TrustedWebActivityClientLocationDelegationTest {
         mClient = component.resolveTrustedWebActivityClient();
 
         // TestTrustedWebActivityService is in the test support apk.
-        component.resolveTwaPermissionManager().addDelegateApp(ORIGIN, TEST_SUPPORT_PACKAGE);
+        component.resolvePermissionManager().addDelegateApp(ORIGIN, TEST_SUPPORT_PACKAGE);
     }
 
     /**
@@ -73,16 +72,11 @@ public class TrustedWebActivityClientLocationDelegationTest {
     public void testCheckLocationPermission() throws TimeoutException {
         CallbackHelper locationPermission = new CallbackHelper();
 
-        TrustedWebActivityClient.PermissionCheckCallback callback =
-                new TrustedWebActivityClient.PermissionCheckCallback() {
-                    @Override
-                    public void onPermissionCheck(ComponentName answeringApp, boolean enabled) {
-                        locationPermission.notifyCalled();
-                    }
-                };
+        TrustedWebActivityClient.PermissionCallback callback =
+                (app, settingValue) -> locationPermission.notifyCalled();
 
-        PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT,
-                () -> mClient.checkLocationPermission(ORIGIN, callback));
+        PostTask.runOrPostTask(TaskTraits.UI_DEFAULT,
+                () -> mClient.checkLocationPermission(SCOPE.toString(), callback));
         locationPermission.waitForFirst();
     }
 
@@ -106,10 +100,10 @@ public class TrustedWebActivityClientLocationDelegationTest {
                 }
             }
         };
-        PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT,
+        PostTask.runOrPostTask(TaskTraits.UI_DEFAULT,
                 ()
-                        -> mClient.startListeningLocationUpdates(
-                                ORIGIN, false /* highAccuracy */, locationUpdateCallback));
+                        -> mClient.startListeningLocationUpdates(SCOPE.toString(),
+                                false /* highAccuracy */, locationUpdateCallback));
         locationUpdate.waitForFirst();
     }
 
@@ -132,10 +126,10 @@ public class TrustedWebActivityClientLocationDelegationTest {
                 }
             }
         };
-        PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT,
+        PostTask.runOrPostTask(TaskTraits.UI_DEFAULT,
                 ()
-                        -> mClient.startListeningLocationUpdates(
-                                otherOrigin, false /* highAccuracy */, locationUpdateCallback));
+                        -> mClient.startListeningLocationUpdates(otherOrigin.toString(),
+                                false /* highAccuracy */, locationUpdateCallback));
         locationError.waitForFirst();
     }
 }

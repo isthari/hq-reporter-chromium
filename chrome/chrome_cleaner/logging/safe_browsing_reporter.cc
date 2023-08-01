@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,19 +12,17 @@
 
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/lock.h"
-#include "base/task/post_task.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/platform_thread.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/win/scoped_handle.h"
 #include "chrome/chrome_cleaner/constants/chrome_cleaner_switches.h"
@@ -57,7 +55,7 @@ std::string GetHttpResponseData(chrome_cleaner::HttpResponse* http_response) {
   std::string response_data;
   while (true) {
     char buffer[8192] = {};
-    uint32_t count = static_cast<uint32_t>(base::size(buffer));
+    uint32_t count = static_cast<uint32_t>(std::size(buffer));
     if (!http_response->ReadData(buffer, &count)) {
       LOG(ERROR) << "ReadData failed";
       break;
@@ -255,7 +253,7 @@ void SafeBrowsingReporter::UploadReport(
   // ownership of the object, which will get destructed on task completion.
   new SafeBrowsingReporter(done_callback, GetSafeBrowsingReportUrl(default_url),
                            report, traffic_annotation,
-                           base::ThreadTaskRunnerHandle::Get());
+                           base::SingleThreadTaskRunner::GetCurrentDefault());
 }
 
 // static

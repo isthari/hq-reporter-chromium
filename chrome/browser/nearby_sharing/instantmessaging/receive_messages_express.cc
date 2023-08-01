@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,16 +6,16 @@
 
 #include <sstream>
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/stringprintf.h"
-#include "chrome/browser/nearby_sharing/common/nearby_share_http_result.h"
 #include "chrome/browser/nearby_sharing/instantmessaging/constants.h"
 #include "chrome/browser/nearby_sharing/instantmessaging/proto/instantmessaging.pb.h"
 #include "chrome/browser/nearby_sharing/instantmessaging/token_fetcher.h"
 #include "chrome/browser/nearby_sharing/logging/logging.h"
 #include "chrome/browser/nearby_sharing/webrtc_request_builder.h"
+#include "chromeos/ash/components/nearby/common/client/nearby_http_result.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "net/base/load_flags.h"
 #include "services/network/public/cpp/resource_request.h"
@@ -35,7 +35,6 @@ const base::TimeDelta kFastPathReadyTimeout = base::Milliseconds(2500);
 // the ReceiveMessagesExpress if something goes wrong.
 const base::TimeDelta kStreamTimeout = base::Seconds(60);
 
-// TODO(crbug.com/1123164) - Add nearby sharing policy when available.
 const net::NetworkTrafficAnnotationTag kTrafficAnnotation =
     net::DefineNetworkTrafficAnnotation("receive_messages_express", R"(
         semantics {
@@ -57,26 +56,32 @@ const net::NetworkTrafficAnnotationTag kTrafficAnnotation =
             cookies_allowed: NO
             setting:
               "This feature is only enabled for signed-in users who enable "
-              "Nearby sharing"
+              "Nearby sharing or Phone Hub."
             chrome_policy {
-              BrowserSignin {
+              NearbyShareAllowed {
                 policy_options {mode: MANDATORY}
-                BrowserSignin: 0
+                NearbyShareAllowed: 0
+              },
+              PhoneHubAllowed {
+                policy_options {mode: MANDATORY}
+                PhoneHubAllowed: 0
               }
             }
           })");
 
-absl::optional<NearbyShareHttpStatus> HttpStatusFromUrlLoader(
+absl::optional<ash::nearby::NearbyHttpStatus> HttpStatusFromUrlLoader(
     const network::SimpleURLLoader* loader) {
   if (!loader)
     return absl::nullopt;
 
-  return NearbyShareHttpStatus(loader->NetError(), loader->ResponseInfo());
+  return ash::nearby::NearbyHttpStatus(loader->NetError(),
+                                       loader->ResponseInfo());
 }
 
-void LogReceiveResult(bool success,
-                      const absl::optional<NearbyShareHttpStatus>& http_status,
-                      const std::string& request_id) {
+void LogReceiveResult(
+    bool success,
+    const absl::optional<ash::nearby::NearbyHttpStatus>& http_status,
+    const std::string& request_id) {
   std::stringstream ss;
   ss << "Instant messaging receive express "
      << (success ? "succeeded" : "failed") << " for request " << request_id;
@@ -290,7 +295,7 @@ void ReceiveMessagesExpress::DelegateMessage(
 void ReceiveMessagesExpress::OnComplete(bool success) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   fast_path_ready_timeout_timer_.Stop();
-  absl::optional<NearbyShareHttpStatus> http_status =
+  absl::optional<ash::nearby::NearbyHttpStatus> http_status =
       HttpStatusFromUrlLoader(url_loader_.get());
 
   NS_LOG(VERBOSE) << __func__ << ": success? " << (success ? "yes" : "no")

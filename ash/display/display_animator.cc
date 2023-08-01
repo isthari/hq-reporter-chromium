@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,10 @@
 
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/shell.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/memory/raw_ptr.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_event_dispatcher.h"
@@ -48,10 +49,11 @@ class CallbackRunningObserver {
   void OnSingleTaskCompleted() {
     completed_counter_++;
     if (completed_counter_ >= observer_list_.size()) {
-      base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, this);
+      base::SingleThreadTaskRunner::GetCurrentDefault()->DeleteSoon(FROM_HERE,
+                                                                    this);
       if (!animation_aborted_)
-        base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                      std::move(callback_));
+        base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+            FROM_HERE, std::move(callback_));
     }
   }
 
@@ -87,8 +89,8 @@ class CallbackRunningObserver {
     }
 
    private:
-    ui::LayerAnimator* animator_;
-    CallbackRunningObserver* observer_;
+    raw_ptr<ui::LayerAnimator, ExperimentalAsh> animator_;
+    raw_ptr<CallbackRunningObserver, ExperimentalAsh> observer_;
   };
 
   size_t completed_counter_;

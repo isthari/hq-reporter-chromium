@@ -1,4 +1,4 @@
-// Copyright (c) 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -18,9 +18,18 @@ class PrefRegistrySimple;
 class PrefService;
 class GURL;
 
+namespace base {
+class Time;
+}
+
 namespace prefs {
 // A list of times at which CSD pings were sent.
 extern const char kSafeBrowsingCsdPingTimestamps[];
+
+// A boolean indicating if client side phishing protection is allowed
+// by policy. If false, no protection is performed. If true, follow other Safe
+// Browsing settings.
+extern const char kSafeBrowsingCsdPhishingProtectionAllowedByPolicy[];
 
 // Boolean that is true when SafeBrowsing is enabled.
 extern const char kSafeBrowsingEnabled[];
@@ -37,9 +46,19 @@ extern const char kSafeBrowsingEnterpriseRealTimeUrlCheckMode[];
 // kSafeBrowsingEnterpriseRealTimeUrlCheckMode pref is set.
 extern const char kSafeBrowsingEnterpriseRealTimeUrlCheckScope[];
 
-// Boolean that tells us whether users are given the option to opt in to Safe
-// Browsing extended reporting. This is exposed as a preference that can be
-// overridden by enterprise policy.
+// Timestamp indicating the last time a protego ping with a token was sent.
+// This is only set if the user has enhanced protection enabled and is signed
+// in with their account.
+extern const char kSafeBrowsingEsbProtegoPingWithTokenLastLogTime[];
+
+// Timestamp indicating the last time a protego ping without a token was sent.
+// This is only set if the user has enhanced protection enabled and is not
+// signed in with their account.
+extern const char kSafeBrowsingEsbProtegoPingWithoutTokenLastLogTime[];
+
+// Boolean that tells us whether users are given the option to opt in to
+// Safe Browsing extended reporting. This is exposed as a preference that
+// can be overridden by enterprise policy.
 extern const char kSafeBrowsingExtendedReportingOptInAllowed[];
 
 // A dictionary mapping incident types to a dict of incident key:digest pairs.
@@ -111,6 +130,13 @@ extern const char kSafeBrowsingMetricsLastLogTime[];
 // Used for logging metrics. Structure: go/sb-event-ts-pref-struct.
 extern const char kSafeBrowsingEventTimestamps[];
 
+// A timestamp indicating the expiration time of the Oblivious HTTP key used by
+// hash prefix real time URL check.
+extern const char kSafeBrowsingHashRealTimeOhttpExpirationTime[];
+
+// The Oblivious HTTP key used by hash prefix real time URL check.
+extern const char kSafeBrowsingHashRealTimeOhttpKey[];
+
 // A timestamp indicating the last time the account tailored security boolean
 // was updated.
 extern const char kAccountTailoredSecurityUpdateTimestamp[];
@@ -122,6 +148,31 @@ extern const char kAccountTailoredSecurityShownNotification[];
 // A boolean indicating if Enhanced Protection was enabled in sync with
 // account tailored security.
 extern const char kEnhancedProtectionEnabledViaTailoredSecurity[];
+
+// The last time the Extension Telemetry Service successfully
+// uploaded its data.
+extern const char kExtensionTelemetryLastUploadTime[];
+
+// The saved copy of the current configuration that will be used by
+// the Extension Telemetry Service.
+extern const char kExtensionTelemetryConfig[];
+
+// A dictionary of extension ids and their file data from the
+// Telemetry Service's file processor.
+extern const char kExtensionTelemetryFileData[];
+
+// A boolean indicating if Real Time File Download Protection requests are
+// allowed to be sent to Google by policy. If false, no ClientDownloadRequest
+// will be sent to Safe Browsing regardless of Safe Browsing Protection Level.
+// If true, follow Safe Browsing Protection Level.
+extern const char kRealTimeDownloadProtectionRequestAllowedByPolicy[];
+
+// A boolean indicating if Safe Browsing extension blocklist is allowed by
+// policy. If false, Safe Browsing extension blocklist will be disabled and no
+// ClientCRXListInfoRequest will be sent to Safe Browsing regardless of Safe
+// Browsing Protection Level. If true, follow Safe Browsing Protection Level.
+// This policy does not impact extension blocklist due to Omaha updater.
+extern const char kSafeBrowsingExtensionProtectionAllowedByPolicy[];
 
 }  // namespace prefs
 
@@ -232,6 +283,20 @@ bool IsExtendedReportingPolicyManaged(const PrefService& prefs);
 // SafeBrowsingProtectionLevel policy(new).
 bool IsSafeBrowsingPolicyManaged(const PrefService& prefs);
 
+// Returns whether Safe Browsing Real Time Download Protection request uploads
+// are allowed for the user. If this returns false, Download Protection
+// request uploads are disabled. Otherwise, Download Protection will depend on
+// other Safe Browsing settings.
+bool IsRealTimeDownloadProtectionRequestAllowed(const PrefService& prefs);
+
+// Returns whether Safe Browsing client side phishing protection is allowed for
+// the user.
+bool IsCsdPhishingProtectionAllowed(const PrefService& prefs);
+
+// Returns whether Safe Browsing extension protection is allowed for
+// the user.
+bool IsSafeBrowsingExtensionProtectionAllowed(const PrefService& prefs);
+
 // Updates UMA metrics about Safe Browsing Extended Reporting states.
 void RecordExtendedReportingMetrics(const PrefService& prefs);
 
@@ -250,6 +315,26 @@ void SetExtendedReportingPrefAndMetric(PrefService* prefs,
 
 // This variant is used to simplify test code by omitting the location.
 void SetExtendedReportingPrefForTests(PrefService* prefs, bool value);
+
+// Set the current configuration being used by the Extension Telemetry Service
+void SetExtensionTelemetryConfig(PrefService& prefs,
+                                 const base::Value::Dict& config);
+
+// Get the current configuration being used by the Extension Telemetry Service
+const base::Value::Dict& GetExtensionTelemetryConfig(const PrefService& prefs);
+
+// Get the current processed file data stored in the Extension Telemetry
+// Service.
+const base::Value::Dict& GetExtensionTelemetryFileData(
+    const PrefService& prefs);
+
+// Sets the last time the Extension Telemetry Service successfully uploaded
+// its data.
+void SetLastUploadTimeForExtensionTelemetry(PrefService& prefs,
+                                            const base::Time& time);
+
+// Returns the `kExtensionTelemetryLastUploadTime` user preference.
+base::Time GetLastUploadTimeForExtensionTelemetry(PrefService& prefs);
 
 // Sets the currently active Safe Browsing Enhanced Protection to the specified
 // value.
@@ -277,12 +362,12 @@ void UpdatePrefsBeforeSecurityInterstitial(PrefService* prefs);
 // Returns a list of preferences to be shown in chrome://safe-browsing. The
 // preferences are passed as an alternating sequence of preference names and
 // values represented as strings.
-base::ListValue GetSafeBrowsingPreferencesList(PrefService* prefs);
+base::Value::List GetSafeBrowsingPreferencesList(PrefService* prefs);
 
 // Returns a list of policies to be shown in chrome://safe-browsing. The
 // policies are passed as an alternating sequence of policy names and
 // values represented as strings.
-base::ListValue GetSafeBrowsingPoliciesList(PrefService* prefs);
+base::Value::List GetSafeBrowsingPoliciesList(PrefService* prefs);
 
 // Returns a list of valid domains that Safe Browsing service trusts.
 void GetSafeBrowsingAllowlistDomainsPref(
@@ -291,7 +376,7 @@ void GetSafeBrowsingAllowlistDomainsPref(
 
 // Helper function to validate and canonicalize a list of domain strings.
 void CanonicalizeDomainList(
-    const base::Value& raw_domain_list,
+    const base::Value::List& raw_domain_list,
     std::vector<std::string>* out_canonicalized_domain_list);
 
 // Helper function to determine if |url| matches Safe Browsing allowlist domains

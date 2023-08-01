@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,19 +6,17 @@
 
 #include <stddef.h>
 
-#include <string>
-#include <vector>
-
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/metrics/user_metrics.h"
+#include "base/strings/escape.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -46,7 +44,6 @@
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/buildflags/buildflags.h"
-#include "net/base/escape.h"
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "chrome/browser/extensions/extension_service.h"
@@ -86,35 +83,28 @@ void UnblockExtensions(Profile* profile) {
 #endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
 // Helper function to run a callback on a profile once it's initialized.
-void ProfileLoadedCallback(base::OnceCallback<void(Profile*)>& callback,
-                           Profile* profile,
-                           Profile::CreateStatus status) {
+void ProfileLoadedCallback(base::OnceCallback<void(Profile*)> callback,
+                           Profile* profile) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-
-  if (status != Profile::CREATE_STATUS_INITIALIZED)
+  if (!profile) {
     return;
-
-  // This function is called with `CREATE_STATUS_INITIALIZED` at most once, so
-  // it is fine to move the callback.
-  if (callback)
+  }
+  if (callback) {
     std::move(callback).Run(profile);
+  }
+}
+
+// Runs `callback` with a nullptr browser. Note: this takes the callback by
+// reference, so that this can be used without consuming the callback.
+void RunWithNullBrowser(base::OnceCallback<void(Browser*)>& callback) {
+  if (callback) {
+    std::move(callback).Run(nullptr);
+  }
 }
 
 }  // namespace
 
 namespace profiles {
-
-base::FilePath GetPathOfProfileWithEmail(ProfileManager* profile_manager,
-                                         const std::string& email) {
-  std::u16string profile_email = base::UTF8ToUTF16(email);
-  std::vector<ProfileAttributesEntry*> entries =
-      profile_manager->GetProfileAttributesStorage().GetAllProfilesAttributes();
-  for (ProfileAttributesEntry* entry : entries) {
-    if (entry->GetUserName() == profile_email)
-      return entry->GetPath();
-  }
-  return base::FilePath();
-}
 
 void FindOrCreateNewWindowForProfile(
     Profile* profile,
@@ -142,7 +132,7 @@ void FindOrCreateNewWindowForProfile(
                                 /*launch_mode_recorder=*/nullptr);
 }
 
-void OpenBrowserWindowForProfile(base::OnceCallback<void(Profile*)> callback,
+void OpenBrowserWindowForProfile(base::OnceCallback<void(Browser*)> callback,
                                  bool always_create,
                                  bool is_new_profile,
                                  bool unblock_extensions,
@@ -150,6 +140,12 @@ void OpenBrowserWindowForProfile(base::OnceCallback<void(Profile*)> callback,
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   TRACE_EVENT1("browser", "OpenBrowserWindowForProfile", "profile_path",
                profile->GetPath().AsUTF8Unsafe());
+  // `error_closure_runner` runs the callback  with nullptr to signal an error
+  // if the function reaches a return statement without consuming callback. If
+  // the callback is consumed by std::move(), then `callback` will be empty
+  // after that and the closure runner does nothing.
+  base::ScopedClosureRunner error_closure_runner(
+      base::BindOnce(&RunWithNullBrowser, std::ref(callback)));
   chrome::startup::IsProcessStartup process_startup =
       chrome::startup::IsProcessStartup::kNo;
   chrome::startup::IsFirstRun is_first_run = chrome::startup::IsFirstRun::kNo;
@@ -167,7 +163,8 @@ void OpenBrowserWindowForProfile(base::OnceCallback<void(Profile*)> callback,
             ->GetProfileAttributesStorage()
             .GetProfileAttributesWithPath(profile->GetPath());
     if (entry && entry->IsSigninRequired()) {
-      ProfilePicker::Show(ProfilePicker::EntryPoint::kProfileLocked);
+      ProfilePicker::Show(ProfilePicker::Params::FromEntryPoint(
+          ProfilePicker::EntryPoint::kProfileLocked));
       return;
     }
   }
@@ -175,14 +172,16 @@ void OpenBrowserWindowForProfile(base::OnceCallback<void(Profile*)> callback,
 
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
   if (!AreSecondaryProfilesAllowed() && !profile->IsMainProfile()) {
-    ProfilePicker::Show(ProfilePicker::EntryPoint::kProfileLocked);
+    ProfilePicker::Show(ProfilePicker::Params::FromEntryPoint(
+        ProfilePicker::EntryPoint::kProfileLocked));
     return;
   }
 #endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
-  if (unblock_extensions)
+  if (unblock_extensions) {
     UnblockExtensions(profile);
+  }
 #endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
   // If |always_create| is false, and we have a |callback| to run, check
@@ -194,8 +193,9 @@ void OpenBrowserWindowForProfile(base::OnceCallback<void(Profile*)> callback,
     Browser* browser = chrome::FindTabbedBrowser(profile, false);
     if (browser) {
       browser->window()->Activate();
-      if (callback)
-        std::move(callback).Run(profile);
+      if (callback) {
+        std::move(callback).Run(browser);
+      }
       return;
     }
   }
@@ -208,8 +208,7 @@ void OpenBrowserWindowForProfile(base::OnceCallback<void(Profile*)> callback,
   // that fails, either something has crashed, or the observer will be cleaned
   // up when a different browser for this profile is opened.
   if (callback) {
-    new BrowserAddedForProfileObserver(
-        profile, base::BindOnce(std::move(callback), profile));
+    new BrowserAddedForProfileObserver(profile, std::move(callback));
   }
 
   // We already dealt with the case when |always_create| was false and a browser
@@ -225,13 +224,12 @@ void OpenBrowserWindowForProfile(base::OnceCallback<void(Profile*)> callback,
 void LoadProfileAsync(const base::FilePath& path,
                       base::OnceCallback<void(Profile*)> callback) {
   g_browser_process->profile_manager()->CreateProfileAsync(
-      path, base::BindRepeating(&ProfileLoadedCallback,
-                                base::OwnedRef(std::move(callback))));
+      path, base::BindOnce(&ProfileLoadedCallback, std::move(callback)));
 }
 
 void SwitchToProfile(const base::FilePath& path,
                      bool always_create,
-                     base::OnceCallback<void(Profile*)> callback) {
+                     base::OnceCallback<void(Browser*)> callback) {
   base::OnceCallback<void(Profile*)> open_browser_callback =
       base::BindOnce(&profiles::OpenBrowserWindowForProfile,
                      std::move(callback), always_create,
@@ -239,11 +237,10 @@ void SwitchToProfile(const base::FilePath& path,
                      /*unblock_extensions=*/false);
   g_browser_process->profile_manager()->CreateProfileAsync(
       path,
-      base::BindRepeating(&ProfileLoadedCallback,
-                          base::OwnedRef(std::move(open_browser_callback))));
+      base::BindOnce(&ProfileLoadedCallback, std::move(open_browser_callback)));
 }
 
-void SwitchToGuestProfile(base::OnceCallback<void(Profile*)> callback) {
+void SwitchToGuestProfile(base::OnceCallback<void(Browser*)> callback) {
   SwitchToProfile(ProfileManager::GetGuestProfilePath(),
                   /*always_create=*/false, std::move(callback));
 }
@@ -263,49 +260,50 @@ void CloseProfileWindows(Profile* profile) {
                                            BrowserList::CloseCallback(), false);
 }
 
-void BubbleViewModeFromAvatarBubbleMode(BrowserWindow::AvatarBubbleMode mode,
-                                        Profile* profile,
-                                        BubbleViewMode* bubble_view_mode) {
-  switch (mode) {
-    case BrowserWindow::AVATAR_BUBBLE_MODE_SIGNIN:
-      *bubble_view_mode = BUBBLE_VIEW_MODE_GAIA_SIGNIN;
-      return;
-    case BrowserWindow::AVATAR_BUBBLE_MODE_ADD_ACCOUNT:
-      *bubble_view_mode = BUBBLE_VIEW_MODE_GAIA_ADD_ACCOUNT;
-      return;
-    case BrowserWindow::AVATAR_BUBBLE_MODE_REAUTH:
-      *bubble_view_mode = BUBBLE_VIEW_MODE_GAIA_REAUTH;
-      return;
-    case BrowserWindow::AVATAR_BUBBLE_MODE_CONFIRM_SIGNIN:
-      *bubble_view_mode = BUBBLE_VIEW_MODE_PROFILE_CHOOSER;
-      return;
-    case BrowserWindow::AVATAR_BUBBLE_MODE_DEFAULT:
-      *bubble_view_mode = profile->IsIncognitoProfile()
-                              ? profiles::BUBBLE_VIEW_MODE_INCOGNITO
-                              : profiles::BUBBLE_VIEW_MODE_PROFILE_CHOOSER;
-  }
-}
-
 BrowserAddedForProfileObserver::BrowserAddedForProfileObserver(
     Profile* profile,
-    base::OnceClosure callback)
-    : profile_(profile), callback_(std::move(callback)) {
+    base::OnceCallback<void(Browser*)> callback)
+    : profile_(profile->GetWeakPtr()), callback_(std::move(callback)) {
   DCHECK(callback_);
-  BrowserList::AddObserver(this);
+  browser_list_observation_.Observe(BrowserList::GetInstance());
 }
 
 BrowserAddedForProfileObserver::~BrowserAddedForProfileObserver() {}
 
 void BrowserAddedForProfileObserver::OnBrowserAdded(Browser* browser) {
-  if (browser->profile() == profile_) {
-    BrowserList::RemoveObserver(this);
-    // By the time the browser is added a tab (or multiple) are about to be
-    // added. Post the callback to the message loop so it gets executed after
-    // the tabs are created.
-    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                  std::move(callback_));
-    base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, this);
+  if (browser_) {
+    // Do not run the callback twice.
+    return;
   }
+
+  if (browser->profile() != profile_.get()) {
+    // The profile has been deleted, or this is a different profile.
+    return;
+  }
+
+  browser_ = browser;
+  // By the time the browser is added a tab (or multiple) are about to be added.
+  // Post the callback to the message loop so it gets executed after the tabs
+  // are created.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE,
+      base::BindOnce(&BrowserAddedForProfileObserver::NotifyBrowserCreatedAnDie,
+                     base::Unretained(this)));
+}
+
+void BrowserAddedForProfileObserver::OnBrowserRemoved(Browser* browser) {
+  // The browser was closed before the callback could run.
+  if (browser == browser_) {
+    browser_list_observation_.Reset();
+    browser_ = nullptr;
+  }
+}
+
+void BrowserAddedForProfileObserver::NotifyBrowserCreatedAnDie() {
+  // If the browser exists, the profile has to exist too.
+  CHECK(profile_ || !browser_);
+  std::move(callback_).Run(browser_);
+  delete this;
 }
 
 }  // namespace profiles

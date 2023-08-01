@@ -1,12 +1,15 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import {TestRunner} from 'test_runner';
+import {ConsoleTestRunner} from 'console_test_runner';
 
 (async function() {
   TestRunner.addResult(
       `Tests a handling of a click on the link in a message, which had been shown before its originating script was added.\n`);
 
-  await TestRunner.loadLegacyModule('console'); await TestRunner.loadTestModule('console_test_runner');
+  await TestRunner.loadLegacyModule('console');
   await TestRunner.showPanel('console');
 
   await TestRunner.evaluateInPagePromise(`
@@ -25,7 +28,8 @@
       Protocol.Log.LogEntryLevel.Info, 'hello?',
       {url: 'http://127.0.0.1:8000/devtools/resources/source2.js'});
 
-  SDK.consoleModel.addMessage(message);
+  const consoleModel = SDK.targetManager.primaryPageTarget().model(SDK.ConsoleModel);
+  consoleModel.addMessage(message);
   TestRunner.debuggerModel.addEventListener(SDK.DebuggerModel.Events.ParsedScriptSource, onScriptAdded);
   await ConsoleTestRunner.dumpConsoleMessages();
   TestRunner.evaluateInPage('loadScript()');

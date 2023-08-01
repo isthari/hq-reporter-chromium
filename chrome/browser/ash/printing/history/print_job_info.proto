@@ -1,10 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 syntax = "proto3";
 
-package chromeos.printing.proto;
+package ash.printing.proto;
 
 // Required in Chrome.
 option optimize_for = LITE_RUNTIME;
@@ -118,6 +118,8 @@ message PrintJobInfo {
     UNKNOWN_ERROR = 10;
     // The authorization with the printer has failed.
     CLIENT_UNAUTHORIZED = 11;
+    // The SSL certificate in the printer is expired.
+    EXPIRED_CERTIFICATE = 12;
   }
 
   // The ID of the job.

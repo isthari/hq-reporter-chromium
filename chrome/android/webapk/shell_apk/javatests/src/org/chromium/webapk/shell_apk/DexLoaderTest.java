@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,9 @@ package org.chromium.webapk.shell_apk;
 import android.content.Context;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.os.FileObserver;
-import android.support.test.InstrumentationRegistry;
 
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.MediumTest;
-
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -84,7 +83,7 @@ public class DexLoaderTest {
 
     @Before
     public void setUp() {
-        mContext = InstrumentationRegistry.getTargetContext();
+        mContext = ApplicationProvider.getApplicationContext();
         mRemoteContext = getRemoteContext(mContext);
         mDexLoader = new DexLoader();
 

@@ -1,24 +1,25 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/web/security/wk_web_view_security_util.h"
 
 #import <Foundation/Foundation.h>
-#include <Security/Security.h>
+#import <Security/Security.h>
 
-#include <memory>
+#import <memory>
 
-#include "base/mac/bridging.h"
-#include "base/mac/scoped_cftyperef.h"
-#include "crypto/rsa_private_key.h"
-#include "net/cert/x509_certificate.h"
-#include "net/cert/x509_util.h"
-#include "net/cert/x509_util_ios.h"
-#include "net/ssl/ssl_info.h"
-#include "testing/gtest/include/gtest/gtest.h"
+#import "base/apple/bridging.h"
+#import "base/mac/foundation_util.h"
+#import "base/mac/scoped_cftyperef.h"
+#import "crypto/rsa_private_key.h"
+#import "net/cert/x509_certificate.h"
+#import "net/cert/x509_util.h"
+#import "net/cert/x509_util_apple.h"
+#import "net/ssl/ssl_info.h"
+#import "testing/gtest/include/gtest/gtest.h"
 #import "testing/gtest_mac.h"
-#include "testing/platform_test.h"
+#import "testing/platform_test.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -32,7 +33,7 @@ const char kTestSubject[] = "self-signed";
 NSString* const kTestHost = @"www.example.com";
 
 // Returns an autoreleased certificate chain for testing. Chain will contain a
-// single self-signed cert with |subject| as a subject.
+// single self-signed cert with `subject` as a subject.
 NSArray* MakeTestCertChain(const std::string& subject) {
   std::unique_ptr<crypto::RSAPrivateKey> private_key;
   std::string der_cert;
@@ -60,7 +61,7 @@ NSDictionary* MakeTestSSLCertErrorUserInfo() {
 base::ScopedCFTypeRef<SecTrustRef> CreateTestTrust(NSArray* cert_chain) {
   base::ScopedCFTypeRef<SecPolicyRef> policy(SecPolicyCreateBasicX509());
   SecTrustRef trust = nullptr;
-  SecTrustCreateWithCertificates(base::mac::NSToCFPtrCast(cert_chain), policy,
+  SecTrustCreateWithCertificates(base::apple::NSToCFPtrCast(cert_chain), policy,
                                  &trust);
   return base::ScopedCFTypeRef<SecTrustRef>(trust);
 }
@@ -99,7 +100,7 @@ TEST_F(WKWebViewSecurityUtilTest, MakingTrustValid) {
   EXPECT_TRUE(!trusted && error);
 
   // Make sure that trust becomes valid after
-  // |EnsureFutureTrustEvaluationSucceeds| call.
+  // `EnsureFutureTrustEvaluationSucceeds` call.
   EnsureFutureTrustEvaluationSucceeds(trust);
   trusted = SecTrustEvaluateWithError(trust, &error);
   EXPECT_TRUE(trusted && !error);
@@ -131,14 +132,30 @@ TEST_F(WKWebViewSecurityUtilTest, CreationServerTrust) {
   EXPECT_EQ(static_cast<CFIndex>(chain.count),
             SecTrustGetCertificateCount(server_trust));
   [chain enumerateObjectsUsingBlock:^(id expected_cert, NSUInteger i, BOOL*) {
-    id actual_cert = static_cast<id>(SecTrustGetCertificateAtIndex(
-        server_trust.get(), static_cast<CFIndex>(i)));
-    EXPECT_EQ(expected_cert, actual_cert);
+    // TODO(crbug.com/1418068): Remove after minimum version required is >=
+    // iOS 15.
+    SecCertificateRef secCertificate = nil;
+    if (@available(iOS 15.0, *)) {
+      base::ScopedCFTypeRef<CFArrayRef> certificateChain(
+          SecTrustCopyCertificateChain(server_trust.get()));
+      secCertificate = base::mac::CFCastStrict<SecCertificateRef>(
+          CFArrayGetValueAtIndex(certificateChain, static_cast<CFIndex>(i)));
+    }
+#if __IPHONE_OS_VERSION_MIN_REQUIRED < __IPHONE_15_0
+    else {
+      secCertificate = SecTrustGetCertificateAtIndex(server_trust.get(),
+                                                     static_cast<CFIndex>(i));
+    }
+#endif  // __IPHONE_OS_VERSION_MIN_REQUIRED < __IPHONE_15_0
+
+    id actual_cert = static_cast<id>((__bridge id)secCertificate);
+    EXPECT_NSEQ(expected_cert, actual_cert);
   }];
 
   // Verify policies.
-  CFArrayRef policies = nullptr;
-  EXPECT_EQ(errSecSuccess, SecTrustCopyPolicies(server_trust.get(), &policies));
+  base::ScopedCFTypeRef<CFArrayRef> policies;
+  EXPECT_EQ(errSecSuccess, SecTrustCopyPolicies(server_trust.get(),
+                                                policies.InitializeInto()));
   EXPECT_EQ(1, CFArrayGetCount(policies));
   SecPolicyRef policy = (SecPolicyRef)CFArrayGetValueAtIndex(policies, 0);
   base::ScopedCFTypeRef<CFDictionaryRef> properties(
@@ -146,7 +163,6 @@ TEST_F(WKWebViewSecurityUtilTest, CreationServerTrust) {
   NSString* name = static_cast<NSString*>(
       CFDictionaryGetValue(properties.get(), kSecPolicyName));
   EXPECT_NSEQ(kTestHost, name);
-  CFRelease(policies);
 }
 
 // Tests CreateServerTrustFromChain with nil chain.

@@ -158,6 +158,13 @@ fetching new policy or logging in.
 A [Help Center article](https://support.google.com/chrome/a/answer/6326250)
 warns admins of the implications of mis-using this policy for Chrome OS.
 
+* **AllowCellularSimLock**
+    * (optional, defaults to true) - **boolean**
+    * When this field is present and set to false, a SIM cannot be PIM Locked on
+      a managed device. If the currently active SIM is already PIN Locked when
+      this field turns false, the managed user will be guided to PIN unlock the
+      SIM.
+
 * **AllowOnlyPolicyCellularNetworks**
     * (optional, defaults to false) - **boolean**
     * When this field is present and set to true, only cellular networks present
@@ -486,6 +493,19 @@ field **WiFi** must be set to an object of type [WiFi](#WiFi-type).
     * Indicating that the network should be connected to automatically when in
       range.
 
+* **BSSIDAllowlist**
+    * (optional) - **array of string**
+    * Array of BSSIDs that control what APs can be connected to. BSSIDs
+      should be formatted as colon-separated octets (e.g.
+      `"00:01:02:03:04:05"`).
+    * Values are:
+        * *Empty list*: The WiFi network can associate with any AP.
+        * *Non-empty list*: The Wifi network will only associate with the
+          specified BSSes.
+        * *["00:00:00:00:00:00"]*: Special value indicating the network
+          shouldn't associate with any AP. `"00:00:00:00:00:00"` shouldn't be a
+          part of any other list of values, otherwise it may cause an error.
+
 * **EAP**
     * (required if **Security** is
         *WEP-8021X* or *WPA-EAP*, otherwise ignored) - [EAP](#EAP-type)
@@ -606,9 +626,11 @@ field **VPN** must be set to an object of type [VPN](#VPN-type).
     * (required) - **string**
     * Allowed values are:
         * *Cert*
+        * *EAP*
         * *PSK*
     * If *Cert* is used, **ClientCertType** and *ServerCARefs* (or the
       deprecated *ServerCARef*) must be set.
+    * *EAP* is only valid if **IKEVersion** is 2.
 
 * **ClientCertProvisioningProfileId**
     * (required if **ClientCertType** is *ProvisioningProfileId*, otherwise
@@ -1057,6 +1079,11 @@ L2TP over IPsec with pre-shared key:
 
 ### WireGuard type
 
+* **IPAddresses**
+    * (required) - **array of string**
+    * Array of IP addresses in string representation (case-insensitive for IPv6)
+      to be configured on the local WireGuard interface.
+
 * **PrivateKey**
     * (optional) - **string**
     * The base64 private key of the wireguard client peer. If not set, a random
@@ -1308,6 +1335,7 @@ type exists to configure the authentication.
         * *EAP-TTLS*
         * *EAP-SIM*
         * *PEAP*
+        * *MSCHAPv2* (only valid for IPsec-IKEv2 VPNs)
 
 * **Password**
     * (optional) - **string**
@@ -1346,21 +1374,21 @@ type exists to configure the authentication.
 
 * **SubjectMatch**
     * (optional) - **string**
-    * WiFi only. A substring which a remote RADIUS service certificate subject
-      name must contain in order to connect.
+    * A substring which a remote RADIUS service certificate subject name must
+      contain in order to connect.
 
 * **SubjectAlternativeNameMatch**
 	* (optional) - [array of AlternativeSubjectName](#AlternativeSubjectName-type)
-	* WiFi only. A list of alternative subject names to be matched against the
-    alternative subject name of an authentication server certificate.
+	* A list of alternative subject names to be matched against the alternative
+      subject name of an authentication server certificate.
 
 * **DomainSuffixMatch**
     * (optional) - **array of string**
-    * WiFi only. A list of constraints for the server domain name. If set, the
-      entries will be used as suffix match requirements against the DNS name
-      element(s) of the alternative subject name of an authentication server
-      certificate. When multiple match strings are specified, a match with any one
-      of the values is considered a sufficient match for the server certificate.
+    * A list of constraints for the server domain name. If set, the entries will
+      be used as suffix match requirements against the DNS name element(s) of
+      the alternative subject name of an authentication server certificate.
+      When multiple match strings are specified, a match with any one of the
+      values is considered a sufficient match for the server certificate.
 
 * **TLSVersionMax**
     * (optional) - **string**
@@ -1447,6 +1475,11 @@ ONC configuration of of **Cellular** networks is not yet supported.
       possible. Note, that disabled **AllowRoaming**
       takes precedence over autoconnect.
 
+* **CustomAPNList**
+    * (optional) - [array of APN](#APN-type)
+    * List of custom APN configurations, added by either the user or enterprise
+      admin.
+
 * **EID**
     * (optional, read-only, provided only for eSIM networks) - **string**
     * For GSM / LTE modems, the Embedded Universal Integrated Circuit Card
@@ -1496,6 +1529,16 @@ ONC configuration of of **Cellular** networks is not yet supported.
     * (optional, read-only, provided only if **Family** is *GSM*) - **string**
     * For GSM modems, the International Mobile Subscriber Identity of the SIM
       card installed in the device.
+
+* **LastConnectedAttachApnProperty**
+    * (optional, read-only) - [APN](#APN-type)
+    * The attach APN information used in the last successful connection
+    * attempt. This value is not cleared if the connection fails.
+
+* **LastConnectedDefaultApnProperty**
+    * (optional, read-only) - [APN](#APN-type)
+    * The default APN information used in the last successful connection
+    * attempt. This value is not cleared if the connection fails.
 
 * **LastGoodAPN**
     * (optional, read-only) - [APN](#APN-type)
@@ -1581,13 +1624,23 @@ ONC configuration of of **Cellular** networks is not yet supported.
 
 * **SMDPAddress**
     * (optional, read-only) - **string**
-    * When set with the address of an SMDP+ server, indicates that eSIM profile
-      for this network should be downloaded and installed using this address.
+    * When set with the address of an SMDP+ server, indicates that the eSIM
+      profile for this network should be downloaded and installed using this
+      address. This field is mutually exclusive with SMDSAddress.
+
+* **SMDSAddress**
+    * (optional, read-only) - **string**
+    * When set with the address of an SMDS server, indicates that the eSIM
+      profile for this network should be downloaded and installed using this
+      address. This field is mutually exclusive with SMDPAddress and is expected
+      to be formatted according to the GSMA specification. Policies that do not
+      conform to the GSMA specification will fail. Learn more about the
+      specification at
+      https://www.gsma.com/newsroom/wp-content/uploads/SGP.22_v2.2.pdf.
 
 * **SupportNetworkScan**
     * (optional, read-only) - **boolean**
     * True if the cellular network supports scanning.
-
 
 ### APN type
 
@@ -1938,9 +1991,10 @@ expansions. These allow one ONC to have basic user-specific variations.
 
 
 ## String Substitutions
-The value of **WiFi.EAP.Password** is subject to string substitution. These
-differ from the **String Expansions** section above in that an exact match of
-the substitution variable is required in order to substitute the real value.
+The values of **WiFi.EAP.Password** and **VPN.L2TP.Password** are subject to
+string substitution. These differ from the **String Expansions** section above
+in that an exact match of the substitution variable is required in order to
+substitute the real value.
 
 ### Example expansions, assuming the user password was *helloworld*:
 
@@ -2281,7 +2335,7 @@ In this simplified format, a descriptive enum is used to describe the effective
 policy source and whether it is enforced or recommended.
 
 The conversion code can be found in cros_network_config.cc:GetManagedDictionary
-https://source.chromium.org/chromium/chromium/src/+/main:chromeos/services/network_config/cros_network_config.cc
+https://source.chromium.org/chromium/chromium/src/+/main:chromeos/ash/services/network_config/cros_network_config.cc
 
 ```
 enum PolicySource {

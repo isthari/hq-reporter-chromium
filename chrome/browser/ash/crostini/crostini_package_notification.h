@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include <ostream>
 #include <string>
 
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "chrome/browser/ash/crostini/crostini_manager.h"
@@ -37,7 +38,7 @@ class CrostiniPackageNotification
   CrostiniPackageNotification(Profile* profile,
                               NotificationType notification_type,
                               PackageOperationStatus status,
-                              const ContainerId& container_id,
+                              const guest_os::GuestId& container_id,
                               const std::u16string& app_name,
                               const std::string& notification_id,
                               CrostiniPackageService* installer_service);
@@ -65,7 +66,7 @@ class CrostiniPackageNotification
   // GuestOsRegistryService::Observer:
   void OnRegistryUpdated(
       guest_os::GuestOsRegistryService* registry_service,
-      guest_os::GuestOsRegistryService::VmType vm_type,
+      guest_os::VmType vm_type,
       const std::vector<std::string>& updated_apps,
       const std::vector<std::string>& removed_apps,
       const std::vector<std::string>& inserted_apps) override;
@@ -109,8 +110,8 @@ class CrostiniPackageNotification
   base::TimeTicks running_start_time_;
 
   // These notifications are owned by the package service.
-  CrostiniPackageService* package_service_;
-  Profile* profile_;
+  raw_ptr<CrostiniPackageService, ExperimentalAsh> package_service_;
+  raw_ptr<Profile, ExperimentalAsh> profile_;
   const NotificationSettings notification_settings_;
 
   std::unique_ptr<message_center::Notification> notification_;
@@ -126,7 +127,7 @@ class CrostiniPackageNotification
   // launched.
   std::string app_id_;
 
-  ContainerId container_id_;
+  guest_os::GuestId container_id_;
 
   std::set<std::string> inserted_apps_;
   int app_count_ = 0;

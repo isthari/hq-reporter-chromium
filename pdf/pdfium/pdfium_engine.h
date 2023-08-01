@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,8 +22,8 @@
 #include "base/values.h"
 #include "pdf/document_attachment_info.h"
 #include "pdf/document_layout.h"
-#include "pdf/document_loader.h"
 #include "pdf/document_metadata.h"
+#include "pdf/loader/document_loader.h"
 #include "pdf/pdf_engine.h"
 #include "pdf/pdfium/pdfium_form_filler.h"
 #include "pdf/pdfium/pdfium_page.h"
@@ -37,6 +37,7 @@
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/rect_f.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/geometry/vector2d.h"
 
@@ -106,7 +107,7 @@ class PDFiumEngine : public PDFEngine,
       const std::vector<int>& page_numbers,
       const blink::WebPrintParams& print_params) override;
   void PrintEnd() override;
-  void StartFind(const std::string& text, bool case_sensitive) override;
+  void StartFind(const std::u16string& text, bool case_sensitive) override;
   bool SelectFindResult(bool forward) override;
   void StopFind() override;
   void ZoomUpdated(double new_zoom_level) override;
@@ -114,7 +115,7 @@ class PDFiumEngine : public PDFEngine,
   void RotateCounterclockwise() override;
   bool IsReadOnly() const override;
   void SetReadOnly(bool enable) override;
-  void SetTwoUpView(bool enable) override;
+  void SetDocumentLayout(DocumentLayout::PageSpread page_spread) override;
   void DisplayAnnotations(bool display) override;
   gfx::Size ApplyDocumentLayout(
       const DocumentLayout::Options& options) override;
@@ -136,13 +137,14 @@ class PDFiumEngine : public PDFEngine,
   std::vector<uint8_t> GetAttachmentData(size_t index) override;
   const DocumentMetadata& GetDocumentMetadata() const override;
   int GetNumberOfPages() const override;
-  base::Value GetBookmarks() override;
+  base::Value::List GetBookmarks() override;
   absl::optional<PDFEngine::NamedDestination> GetNamedDestination(
       const std::string& destination) override;
   int GetMostVisiblePage() override;
   gfx::Rect GetPageBoundsRect(int index) override;
   gfx::Rect GetPageContentsRect(int index) override;
   gfx::Rect GetPageScreenRect(int page_index) const override;
+  gfx::RectF GetPageBoundingBox(int page_index) override;
   void SetGrayscale(bool grayscale) override;
   int GetCharCount(int page_index) override;
   gfx::RectF GetCharBounds(int page_index, int char_index) override;
@@ -294,7 +296,7 @@ class PDFiumEngine : public PDFEngine,
   // This should only be called after `doc_` has been loaded and the document is
   // fully downloaded.
   // If this has been run once, it will not notify the client again.
-  void FinishLoadingDocument(int32_t /*unused_but_required*/);
+  void FinishLoadingDocument();
 
   // Loads information about the pages in the document and performs layout.
   void LoadPageInfo();
@@ -391,7 +393,7 @@ class PDFiumEngine : public PDFEngine,
   void UpdateTickMarks();
 
   // Called to continue searching so we don't block the main thread.
-  void ContinueFind(int32_t result);
+  void ContinueFind(bool case_sensitive);
 
   // Inserts a find result into `find_results_`, which is sorted.
   void AddFindResult(const PDFiumRange& result);
@@ -575,11 +577,12 @@ class PDFiumEngine : public PDFEngine,
   void KillTouchTimer();
   void HandleLongPress(const blink::WebTouchEvent& event);
 
-  // Returns a base::Value (representing a bookmark), which in turn contains
-  // child base::Value dictionaries (representing the child bookmarks).
-  // If nullptr is passed in as the bookmark then we traverse from the "root".
-  // Note that the "root" bookmark contains no useful information.
-  base::Value TraverseBookmarks(FPDF_BOOKMARK bookmark, unsigned int depth);
+  // Returns a dictionary representing a bookmark, which in turn contains child
+  // dictionaries representing the child bookmarks. If `bookmark` is null, then
+  // this method traverses from the root of the bookmarks tree. Note that the
+  // root bookmark contains no useful information.
+  base::Value::Dict TraverseBookmarks(FPDF_BOOKMARK bookmark,
+                                      unsigned int depth);
 
   void ScrollBasedOnScrollAlignment(
       const gfx::Rect& scroll_rect,
@@ -650,10 +653,6 @@ class PDFiumEngine : public PDFEngine,
   // Checks whether a given `page_index` exists in `pending_thumbnails_`. If so,
   // requests the thumbnail for that page.
   void MaybeRequestPendingThumbnail(int page_index);
-
-  // Keeps track of the most recently used plugin instance.
-  // TODO(crbug.com/702993): Remove when PPAPI is gone.
-  void SetLastInstance();
 
   const raw_ptr<PDFEngine::Client> client_;
 
@@ -726,7 +725,7 @@ class PDFiumEngine : public PDFEngine,
   gfx::Point mouse_middle_button_last_position_;
 
   // The current text used for searching.
-  std::string current_find_text_;
+  std::u16string current_find_text_;
   // The results found.
   std::vector<PDFiumRange> find_results_;
   // Whether a search is in progress.

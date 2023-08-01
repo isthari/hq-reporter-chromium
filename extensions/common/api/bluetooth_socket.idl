@@ -1,9 +1,10 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // Use the <code>chrome.bluetoothSocket</code> API to send and receive data
 // to Bluetooth devices using RFCOMM and L2CAP connections.
+[modernised_enums]
 namespace bluetoothSocket {
   // The socket properties specified in the $ref:create or $ref:update
   // function. Each property is optional. If a property value is not specified,

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,9 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
-import com.google.common.primitives.UnsignedLongs;
 import com.google.protobuf.InvalidProtocolBufferException;
 
+import org.chromium.base.Callback;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.ObserverList;
 import org.chromium.base.ThreadUtils;
@@ -22,342 +22,80 @@ import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.NativeMethods;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
-import org.chromium.chrome.browser.commerce.shopping_list.ShoppingFeatures;
 import org.chromium.chrome.browser.partnerbookmarks.PartnerBookmarksShim;
-import org.chromium.chrome.browser.power_bookmarks.PowerBookmarkMeta;
-import org.chromium.chrome.browser.power_bookmarks.PowerBookmarkType;
-import org.chromium.chrome.browser.power_bookmarks.ShoppingSpecifics;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.read_later.ReadingListUtils;
-import org.chromium.chrome.browser.subscriptions.CommerceSubscription;
-import org.chromium.chrome.browser.subscriptions.CommerceSubscriptionsServiceFactory;
-import org.chromium.chrome.browser.subscriptions.SubscriptionsManager;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.components.bookmarks.BookmarkId;
+import org.chromium.components.bookmarks.BookmarkItem;
 import org.chromium.components.bookmarks.BookmarkType;
-import org.chromium.components.commerce.PriceTracking.ProductPrice;
-import org.chromium.components.url_formatter.SchemeDisplay;
-import org.chromium.components.url_formatter.UrlFormatter;
+import org.chromium.components.commerce.core.ShoppingService;
+import org.chromium.components.power_bookmarks.PowerBookmarkMeta;
+import org.chromium.components.power_bookmarks.PowerBookmarkType;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.url.GURL;
 
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 
 /**
  * Provides the communication channel for Android to fetch and manipulate the
  * bookmark model stored in native.
  */
-public class BookmarkBridge {
-    private final Profile mProfile;
+class BookmarkBridge {
+    private long mNativeBookmarkBridge;
     private boolean mIsDestroyed;
     private boolean mIsDoingExtensiveChanges;
-    private long mNativeBookmarkBridge;
     private boolean mIsNativeBookmarkModelLoaded;
-    private final List<DelayedBookmarkCallback> mDelayedBookmarkCallbacks =
-            new ArrayList<DelayedBookmarkCallback>();
-    private final ObserverList<BookmarkModelObserver> mObservers =
-            new ObserverList<BookmarkModelObserver>();
-    private SubscriptionsManager mSubscriptionManager;
-    private SubscriptionsManager.SubscriptionObserver mSubscriptionsObserver;
-
-    /**
-     * Interface for callback object for fetching bookmarks and folder hierarchy.
-     */
-    public interface BookmarksCallback {
-        /**
-         * Callback method for fetching bookmarks for a folder and the folder hierarchy.
-         * @param folderId The folder id to which the bookmarks belong.
-         * @param bookmarksList List holding the fetched bookmarks and details.
-         */
-        @CalledByNative("BookmarksCallback")
-        void onBookmarksAvailable(BookmarkId folderId, List<BookmarkItem> bookmarksList);
-
-        /**
-         * Callback method for fetching the folder hierarchy.
-         * @param folderId The folder id to which the bookmarks belong.
-         * @param bookmarksList List holding the fetched folder details.
-         */
-        @CalledByNative("BookmarksCallback")
-        void onBookmarksFolderHierarchyAvailable(BookmarkId folderId,
-                List<BookmarkItem> bookmarksList);
-    }
-
-    /** A callback for updates to the price of a product. */
-    public interface PriceUpdateCallback {
-        /**
-         * @param id The bookmark ID that the price information was fetched for.
-         * @param url The URL of the product that was updated.
-         * @param price The price of the product.
-         */
-        void onPriceUpdated(BookmarkId id, GURL url, ProductPrice price);
-    }
-
-    /**
-     * Base empty implementation observer class that provides listeners to be notified of changes
-     * to the bookmark model. It's mandatory to implement one method, bookmarkModelChanged. Other
-     * methods are optional and if they aren't overridden, the default implementation of them will
-     * eventually call bookmarkModelChanged. Unless noted otherwise, all the functions won't be
-     * called during extensive change.
-     */
-    public abstract static class BookmarkModelObserver {
-        /**
-         * Invoked when a node has moved.
-         * @param oldParent The parent before the move.
-         * @param oldIndex The index of the node in the old parent.
-         * @param newParent The parent after the move.
-         * @param newIndex The index of the node in the new parent.
-         */
-        public void bookmarkNodeMoved(
-                BookmarkItem oldParent, int oldIndex, BookmarkItem newParent, int newIndex) {
-            bookmarkModelChanged();
-        }
-
-        /**
-         * Invoked when a node has been added.
-         * @param parent The parent of the node being added.
-         * @param index The index of the added node.
-         */
-        public void bookmarkNodeAdded(BookmarkItem parent, int index) {
-            bookmarkModelChanged();
-        }
-
-        /**
-         * Invoked when a node has been removed, the item may still be starred though. This can
-         * be called during extensive change, and have the flag argument indicating it.
-         * @param parent The parent of the node that was removed.
-         * @param oldIndex The index of the removed node in the parent before it was removed.
-         * @param node The node that was removed.
-         * @param isDoingExtensiveChanges whether extensive changes are happening.
-         */
-        public void bookmarkNodeRemoved(BookmarkItem parent, int oldIndex, BookmarkItem node,
-                boolean isDoingExtensiveChanges) {
-            if (isDoingExtensiveChanges) return;
-
-            bookmarkNodeRemoved(parent, oldIndex, node);
-        }
-
-        /**
-         * Invoked when a node has been removed, the item may still be starred though.
-         *
-         * @param parent The parent of the node that was removed.
-         * @param oldIndex The index of the removed node in the parent before it was removed.
-         * @param node The node that was removed.
-         */
-        public void bookmarkNodeRemoved(BookmarkItem parent, int oldIndex, BookmarkItem node) {
-            bookmarkModelChanged();
-        }
-
-        /**
-         * Invoked when all user-editable nodes have been removed. The exception is partner and
-         * managed bookmarks, which are not affected by this operation.
-         */
-        public void bookmarkAllUserNodesRemoved() {
-            bookmarkModelChanged();
-        }
-
-        /**
-         * Invoked when the title or url of a node changes.
-         * @param node The node being changed.
-         */
-        public void bookmarkNodeChanged(BookmarkItem node) {
-            bookmarkModelChanged();
-        }
-
-        /**
-         * Invoked when the children (just direct children, not descendants) of a node have been
-         * reordered in some way, such as sorted.
-         * @param node The node whose children are being reordered.
-         */
-        public void bookmarkNodeChildrenReordered(BookmarkItem node) {
-            bookmarkModelChanged();
-        }
-
-        /**
-         * Invoked when the native side of bookmark is loaded and now in usable state.
-         */
-        public void bookmarkModelLoaded() {
-            bookmarkModelChanged();
-        }
-
-        /**
-         * Invoked when bookmarks became editable or non-editable.
-         */
-        public void editBookmarksEnabledChanged() {
-            bookmarkModelChanged();
-        }
-
-        /**
-         *  Invoked when there are changes to the bookmark model that don't trigger any of the other
-         *  callback methods or it wasn't handled by other callback methods.
-         *  Examples:
-         *  - On partner bookmarks change.
-         *  - On extensive change finished.
-         *  - Falling back from other methods that are not overridden in this class.
-         */
-        public abstract void bookmarkModelChanged();
-    }
-
-    /**
-     * Contains data about a bookmark or bookmark folder.
-     */
-    public static class BookmarkItem {
-        private final String mTitle;
-        private final GURL mUrl;
-        private final BookmarkId mId;
-        private final boolean mIsFolder;
-        private final BookmarkId mParentId;
-        private final boolean mIsEditable;
-        private final boolean mIsManaged;
-        private boolean mForceEditableForTesting;
-        private long mDateAdded;
-        private boolean mRead;
-
-        @VisibleForTesting
-        public BookmarkItem(BookmarkId id, String title, GURL url, boolean isFolder,
-                BookmarkId parentId, boolean isEditable, boolean isManaged, long dateAdded,
-                boolean read) {
-            mId = id;
-            mTitle = title;
-            mUrl = url;
-            mIsFolder = isFolder;
-            mParentId = parentId;
-            mIsEditable = isEditable;
-            mIsManaged = isManaged;
-            mDateAdded = dateAdded;
-            mRead = read;
-        }
-
-        /** Returns the title of the bookmark item. */
-        public String getTitle() {
-            return mTitle;
-        }
-
-        /** Returns the url of the bookmark item. */
-        public GURL getUrl() {
-            return mUrl;
-        }
-
-        /** Returns the string to display for the item's url. */
-        public String getUrlForDisplay() {
-            return UrlFormatter.formatUrlForSecurityDisplay(
-                    getUrl(), SchemeDisplay.OMIT_HTTP_AND_HTTPS);
-        }
-
-        /** Returns whether item is a folder or a bookmark. */
-        public boolean isFolder() {
-            return mIsFolder;
-        }
-
-        /** Returns the parent id of the bookmark item. */
-        public BookmarkId getParentId() {
-            return mParentId;
-        }
-
-        /** Returns whether this bookmark can be edited. */
-        public boolean isEditable() {
-            return mForceEditableForTesting || mIsEditable;
-        }
-
-        /** Returns whether this bookmark's URL can be edited */
-        public boolean isUrlEditable() {
-            return isEditable() && mId.getType() == BookmarkType.NORMAL;
-        }
-
-        /** Returns whether this bookmark can be moved */
-        public boolean isMovable() {
-            return ReadingListUtils.isSwappableReadingListItem(mId) || isReorderable();
-        }
-
-        /** Returns whether this bookmark can be moved */
-        public boolean isReorderable() {
-            return isEditable() && mId.getType() == BookmarkType.NORMAL;
-        }
-
-        /** Returns whether this is a managed bookmark. */
-        public boolean isManaged() {
-            return mIsManaged;
-        }
-
-        /** Returns the {@link BookmarkId}. */
-        public BookmarkId getId() {
-            return mId;
-        }
-
-        /** Retuns the timestamp in milliseconds since epoch that the bookmark is added. */
-        public long getDateAdded() {
-            return mDateAdded;
-        }
-
-        /**
-         * Returns whether the bookmark is read. Only valid for {@link BookmarkType#READING_LIST}.
-         * Defaults to "false" for other types.
-         */
-        public boolean isRead() {
-            return mRead;
-        }
-
-        // TODO(https://crbug.com/1019217): Remove when BookmarkModel is stubbed in tests instead.
-        void forceEditableForTesting() {
-            mForceEditableForTesting = true;
-        }
-    }
+    private final ObserverList<BookmarkModelObserver> mObservers = new ObserverList<>();
+    private ShoppingService mShoppingService;
 
     /**
      * Handler to fetch the bookmarks, titles, urls and folder hierarchy.
      * @param profile Profile instance corresponding to the active profile.
      */
-    public BookmarkBridge(Profile profile) {
+    static BookmarkModel getForProfile(Profile profile) {
         ThreadUtils.assertOnUiThread();
-        mProfile = profile;
-        mNativeBookmarkBridge = BookmarkBridgeJni.get().init(BookmarkBridge.this, profile);
-        mIsDoingExtensiveChanges = BookmarkBridgeJni.get().isDoingExtensiveChanges(
-                mNativeBookmarkBridge, BookmarkBridge.this);
-        mSubscriptionsObserver = new SubscriptionsManager.SubscriptionObserver() {
-            @Override
-            public void onSubscribe(List<CommerceSubscription> subscriptions) {}
-
-            @Override
-            public void onUnsubscribe(List<CommerceSubscription> subscriptions) {
-                removeExplicitShoppingSubscriptions(subscriptions);
-            }
-        };
-        if (ShoppingFeatures.isShoppingListEnabled()) {
-            mSubscriptionManager = new CommerceSubscriptionsServiceFactory()
-                                           .getForLastUsedProfile()
-                                           .getSubscriptionsManager();
-            mSubscriptionManager.addObserver(mSubscriptionsObserver);
-        }
+        return BookmarkBridgeJni.get().getForProfile(profile);
     }
 
-    @VisibleForTesting
-    SubscriptionsManager.SubscriptionObserver getSubscriptionObserver() {
-        return mSubscriptionsObserver;
+    @CalledByNative
+    static BookmarkModel createBookmarkModel(long nativeBookmarkBridge) {
+        return new BookmarkModel(nativeBookmarkBridge);
+    }
+
+    BookmarkBridge(long nativeBookmarkBridge) {
+        mNativeBookmarkBridge = nativeBookmarkBridge;
+        mIsDoingExtensiveChanges = BookmarkBridgeJni.get().isDoingExtensiveChanges(
+                mNativeBookmarkBridge, BookmarkBridge.this);
     }
 
     /**
      * Destroys this instance so no further calls can be executed.
      */
-    public void destroy() {
+    void destroy() {
         mIsDestroyed = true;
         if (mNativeBookmarkBridge != 0) {
             BookmarkBridgeJni.get().destroy(mNativeBookmarkBridge, BookmarkBridge.this);
             mNativeBookmarkBridge = 0;
             mIsNativeBookmarkModelLoaded = false;
-            mDelayedBookmarkCallbacks.clear();
         }
         mObservers.clear();
-
-        if (mSubscriptionManager != null) {
-            mSubscriptionManager.removeObserver(mSubscriptionsObserver);
-        }
     }
 
     /** Returns whether the bridge has been destroyed. */
-    public boolean isDestroyed() {
+    private boolean isDestroyed() {
         return mIsDestroyed;
+    }
+
+    /**
+     * Gets the url for an image representing the given url.
+     * @param url The url to fetch the image for.
+     * @param callback The callback which will receive the image url.
+     */
+    public void getImageUrlForBookmark(GURL url, Callback<GURL> callback) {
+        BookmarkBridgeJni.get().getImageUrlForBookmark(
+                mNativeBookmarkBridge, BookmarkBridge.this, url, callback);
     }
 
     /**
@@ -367,6 +105,7 @@ public class BookmarkBridge {
      */
     public boolean hasBookmarkIdForTab(@Nullable Tab tab) {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return false;
         return getUserBookmarkIdForTab(tab) != null;
     }
 
@@ -377,6 +116,7 @@ public class BookmarkBridge {
     @Nullable
     public BookmarkId getUserBookmarkIdForTab(@Nullable Tab tab) {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return null;
         if (tab == null || tab.isFrozen() || mNativeBookmarkBridge == 0) return null;
         return BookmarkBridgeJni.get().getBookmarkIdForWebContents(
                 mNativeBookmarkBridge, this, tab.getWebContents(), true);
@@ -458,13 +198,17 @@ public class BookmarkBridge {
     }
 
     /**
+     * Gets the {@link BookmarkItem} which is referenced by the given {@link BookmarkId}.
+     * @param id The {@link BookmarkId} used to lookup the corresponding {@link BookmarkItem}.
      * @return A BookmarkItem instance for the given BookmarkId.
      *         <code>null</code> if it doesn't exist.
      */
     @Nullable
-    public BookmarkItem getBookmarkById(BookmarkId id) {
+    public BookmarkItem getBookmarkById(@Nullable BookmarkId id) {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return null;
         assert mIsNativeBookmarkModelLoaded;
+        if (id == null) return null;
 
         if (BookmarkId.SHOPPING_FOLDER.equals(id)) {
             return new BookmarkItem(id, /*title=*/null, /*url=*/null,
@@ -472,18 +216,19 @@ public class BookmarkBridge {
                     /*isManaged=*/false, /*dateAdded=*/0L, /*read=*/false);
         }
 
-        return BookmarkBridgeJni.get().getBookmarkByID(
+        return BookmarkBridgeJni.get().getBookmarkById(
                 mNativeBookmarkBridge, BookmarkBridge.this, id.getId(), id.getType());
     }
 
     /**
      * @return The top level folder's parents.
      */
-    public List<BookmarkId> getTopLevelFolderParentIDs() {
+    public List<BookmarkId> getTopLevelFolderParentIds() {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return new ArrayList<>();
         assert mIsNativeBookmarkModelLoaded;
-        List<BookmarkId> result = new ArrayList<BookmarkId>();
-        BookmarkBridgeJni.get().getTopLevelFolderParentIDs(
+        List<BookmarkId> result = new ArrayList<>();
+        BookmarkBridgeJni.get().getTopLevelFolderParentIds(
                 mNativeBookmarkBridge, BookmarkBridge.this, result);
         return result;
     }
@@ -494,11 +239,12 @@ public class BookmarkBridge {
      * @return The top level folders. Note that special folders come first and normal top folders
      *         will be in the alphabetical order.
      */
-    public List<BookmarkId> getTopLevelFolderIDs(boolean getSpecial, boolean getNormal) {
+    public List<BookmarkId> getTopLevelFolderIds(boolean getSpecial, boolean getNormal) {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return new ArrayList<>();
         assert mIsNativeBookmarkModelLoaded;
-        List<BookmarkId> result = new ArrayList<BookmarkId>();
-        BookmarkBridgeJni.get().getTopLevelFolderIDs(
+        List<BookmarkId> result = new ArrayList<>();
+        BookmarkBridgeJni.get().getTopLevelFolderIds(
                 mNativeBookmarkBridge, BookmarkBridge.this, getSpecial, getNormal, result);
         return result;
     }
@@ -506,6 +252,7 @@ public class BookmarkBridge {
     /** Returns the synthetic reading list folder. */
     public BookmarkId getReadingListFolder() {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return null;
         assert mIsNativeBookmarkModelLoaded;
         return BookmarkBridgeJni.get().getReadingListFolder(
                 mNativeBookmarkBridge, BookmarkBridge.this);
@@ -525,6 +272,7 @@ public class BookmarkBridge {
     public void getAllFoldersWithDepths(List<BookmarkId> folderList,
             List<Integer> depthList) {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return;
         assert mIsNativeBookmarkModelLoaded;
         BookmarkBridgeJni.get().getAllFoldersWithDepths(
                 mNativeBookmarkBridge, BookmarkBridge.this, folderList, depthList);
@@ -537,6 +285,7 @@ public class BookmarkBridge {
      */
     public void getMoveDestinations(List<BookmarkId> folderList,
             List<Integer> depthList, List<BookmarkId> bookmarksToMove) {
+        if (mNativeBookmarkBridge == 0) return;
         ThreadUtils.assertOnUiThread();
         assert mIsNativeBookmarkModelLoaded;
         BookmarkBridgeJni.get().getAllFoldersWithDepths(
@@ -577,6 +326,7 @@ public class BookmarkBridge {
      */
     public BookmarkId getRootFolderId() {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return null;
         assert mIsNativeBookmarkModelLoaded;
         return BookmarkBridgeJni.get().getRootFolderId(mNativeBookmarkBridge, BookmarkBridge.this);
     }
@@ -586,6 +336,7 @@ public class BookmarkBridge {
      */
     public BookmarkId getMobileFolderId() {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return null;
         assert mIsNativeBookmarkModelLoaded;
         return BookmarkBridgeJni.get().getMobileFolderId(
                 mNativeBookmarkBridge, BookmarkBridge.this);
@@ -596,6 +347,7 @@ public class BookmarkBridge {
      */
     public BookmarkId getOtherFolderId() {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return null;
         assert mIsNativeBookmarkModelLoaded;
         return BookmarkBridgeJni.get().getOtherFolderId(mNativeBookmarkBridge, BookmarkBridge.this);
     }
@@ -605,6 +357,7 @@ public class BookmarkBridge {
      */
     public BookmarkId getDesktopFolderId() {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return null;
         assert mIsNativeBookmarkModelLoaded;
         return BookmarkBridgeJni.get().getDesktopFolderId(
                 mNativeBookmarkBridge, BookmarkBridge.this);
@@ -621,6 +374,7 @@ public class BookmarkBridge {
     @VisibleForTesting
     public String getBookmarkGuidByIdForTesting(BookmarkId id) {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return null;
         assert mIsNativeBookmarkModelLoaded;
         return BookmarkBridgeJni.get().getBookmarkGuidByIdForTesting(
                 mNativeBookmarkBridge, BookmarkBridge.this, id.getId(), id.getType());
@@ -631,6 +385,7 @@ public class BookmarkBridge {
      */
     public int getChildCount(BookmarkId id) {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return 0;
         assert mIsNativeBookmarkModelLoaded;
         return BookmarkBridgeJni.get().getChildCount(
                 mNativeBookmarkBridge, BookmarkBridge.this, id.getId(), id.getType());
@@ -641,71 +396,17 @@ public class BookmarkBridge {
      *
      * @return Child IDs of the given folder, with the specified type.
      */
-    public List<BookmarkId> getChildIDs(BookmarkId id) {
+    public List<BookmarkId> getChildIds(BookmarkId id) {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return new ArrayList<>();
         assert mIsNativeBookmarkModelLoaded;
         if (BookmarkId.SHOPPING_FOLDER.equals(id)) {
             return searchBookmarks("", null, PowerBookmarkType.SHOPPING, -1);
         }
-        List<BookmarkId> result = new ArrayList<BookmarkId>();
-        BookmarkBridgeJni.get().getChildIDs(
+        List<BookmarkId> result = new ArrayList<>();
+        BookmarkBridgeJni.get().getChildIds(
                 mNativeBookmarkBridge, BookmarkBridge.this, id.getId(), id.getType(), result);
         return result;
-    }
-
-    /**
-     * Disable price tracking for the list of subscriptions. This flips the bit in ShoppingSpecifics
-     * but does not actually unsubscribe from the subscription service -- this assumes that is
-     * already done.
-     * TODO(1284730): This should live somewhere other than BookmarkBridge.
-     *
-     * @param subscriptions The list of subscriptions to disable.
-     */
-    private void removeExplicitShoppingSubscriptions(List<CommerceSubscription> subscriptions) {
-        if (subscriptions == null) return;
-
-        List<BookmarkId> products = searchBookmarks("", null, PowerBookmarkType.SHOPPING, -1);
-        if (products == null || products.size() == 0) return;
-
-        // Put the offer and cluster IDs into a map so they can be quickly checked.
-        HashSet<Long> offerIdMap = new HashSet<>();
-        HashSet<Long> clusterIdMap = new HashSet<>();
-        for (CommerceSubscription c : subscriptions) {
-            // Ensure the subscription is explicit.
-            if (c == null
-                    || !c.getManagementType().equals(
-                            CommerceSubscription.SubscriptionManagementType.USER_MANAGED)) {
-                continue;
-            }
-
-            if (c.getTrackingIdType().equals(CommerceSubscription.TrackingIdType.OFFER_ID)) {
-                offerIdMap.add(UnsignedLongs.parseUnsignedLong(c.getTrackingId()));
-            } else if (c.getTrackingIdType().equals(
-                               CommerceSubscription.TrackingIdType.PRODUCT_CLUSTER_ID)) {
-                clusterIdMap.add(UnsignedLongs.parseUnsignedLong(c.getTrackingId()));
-            }
-        }
-
-        // Look at all the products the user has saved to find any of the above product or cluster
-        // IDs.
-        for (BookmarkId product : products) {
-            PowerBookmarkMeta meta = getPowerBookmarkMeta(product);
-            if (meta.getType() != PowerBookmarkType.SHOPPING) continue;
-
-            ShoppingSpecifics specifics = meta.getShoppingSpecifics();
-            if (offerIdMap.contains(specifics.getOfferId())
-                    || clusterIdMap.contains(specifics.getProductClusterId())) {
-                // Reset the meta using a copy of the existing one, but set the price tracking flag
-                // to false.
-                setPowerBookmarkMeta(product,
-                        PowerBookmarkMeta.newBuilder(meta)
-                                .setShoppingSpecifics(
-                                        ShoppingSpecifics.newBuilder(meta.getShoppingSpecifics())
-                                                .setIsPriceTracked(false)
-                                                .build())
-                                .build());
-            }
-        }
     }
 
     /**
@@ -717,6 +418,7 @@ public class BookmarkBridge {
      */
     public BookmarkId getChildAt(BookmarkId folderId, int index) {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return null;
         assert mIsNativeBookmarkModelLoaded;
         return BookmarkBridgeJni.get().getChildAt(mNativeBookmarkBridge, BookmarkBridge.this,
                 folderId.getId(), folderId.getType(), index);
@@ -729,6 +431,7 @@ public class BookmarkBridge {
      */
     public int getTotalBookmarkCount(BookmarkId id) {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return 0;
         assert mIsNativeBookmarkModelLoaded;
         return BookmarkBridgeJni.get().getTotalBookmarkCount(
                 mNativeBookmarkBridge, BookmarkBridge.this, id.getId(), id.getType());
@@ -755,6 +458,7 @@ public class BookmarkBridge {
     public List<BookmarkId> searchBookmarks(String query, @Nullable String[] tags,
             @Nullable PowerBookmarkType powerBookmarkType, int maxNumberOfResult) {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return new ArrayList<>();
         List<BookmarkId> bookmarkMatches = new ArrayList<>();
         int typeInt = powerBookmarkType == null ? -1 : powerBookmarkType.getNumber();
         BookmarkBridgeJni.get().searchBookmarks(mNativeBookmarkBridge, BookmarkBridge.this,
@@ -769,6 +473,7 @@ public class BookmarkBridge {
      */
     public List<BookmarkId> getBookmarksOfType(@NonNull PowerBookmarkType powerBookmarkType) {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return new ArrayList<>();
         List<BookmarkId> bookmarkMatches = new ArrayList<>();
         int typeInt = powerBookmarkType.getNumber();
         BookmarkBridgeJni.get().getBookmarksOfType(
@@ -781,6 +486,7 @@ public class BookmarkBridge {
      */
     public void setBookmarkTitle(BookmarkId id, String title) {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return;
         assert mIsNativeBookmarkModelLoaded;
         BookmarkBridgeJni.get().setBookmarkTitle(
                 mNativeBookmarkBridge, BookmarkBridge.this, id.getId(), id.getType(), title);
@@ -791,6 +497,7 @@ public class BookmarkBridge {
      */
     public void setBookmarkUrl(BookmarkId id, GURL url) {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return;
         assert mIsNativeBookmarkModelLoaded;
         assert id.getType() == BookmarkType.NORMAL;
         BookmarkBridgeJni.get().setBookmarkUrl(
@@ -803,7 +510,8 @@ public class BookmarkBridge {
      * @return The meta or null if none exists.
      */
     public @Nullable PowerBookmarkMeta getPowerBookmarkMeta(@Nullable BookmarkId id) {
-        if (id == null || mNativeBookmarkBridge == 0) return null;
+        if (mNativeBookmarkBridge == 0) return null;
+        if (id == null) return null;
         byte[] protoBytes = BookmarkBridgeJni.get().getPowerBookmarkMeta(
                 mNativeBookmarkBridge, this, id.getId(), id.getType());
 
@@ -824,6 +532,7 @@ public class BookmarkBridge {
      * @param meta The meta to store.
      */
     public void setPowerBookmarkMeta(BookmarkId id, PowerBookmarkMeta meta) {
+        if (mNativeBookmarkBridge == 0) return;
         if (meta == null) return;
         BookmarkBridgeJni.get().setPowerBookmarkMeta(mNativeBookmarkBridge, BookmarkBridge.this,
                 id.getId(), id.getType(), meta.toByteArray());
@@ -834,6 +543,7 @@ public class BookmarkBridge {
      * @param id The ID of the bookmark to remove the meta from.
      */
     public void deletePowerBookmarkMeta(BookmarkId id) {
+        if (mNativeBookmarkBridge == 0) return;
         BookmarkBridgeJni.get().deletePowerBookmarkMeta(
                 mNativeBookmarkBridge, BookmarkBridge.this, id.getId(), id.getType());
     }
@@ -843,6 +553,7 @@ public class BookmarkBridge {
      */
     public boolean doesBookmarkExist(BookmarkId id) {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return false;
         assert mIsNativeBookmarkModelLoaded;
         return BookmarkBridgeJni.get().doesBookmarkExist(
                 mNativeBookmarkBridge, BookmarkBridge.this, id.getId(), id.getType());
@@ -857,29 +568,12 @@ public class BookmarkBridge {
      */
     public List<BookmarkItem> getBookmarksForFolder(BookmarkId folderId) {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return new ArrayList<>();
         assert mIsNativeBookmarkModelLoaded;
-        List<BookmarkItem> result = new ArrayList<BookmarkItem>();
+        List<BookmarkItem> result = new ArrayList<>();
         BookmarkBridgeJni.get().getBookmarksForFolder(
-                mNativeBookmarkBridge, BookmarkBridge.this, folderId, null, result);
+                mNativeBookmarkBridge, BookmarkBridge.this, folderId, result);
         return result;
-    }
-
-    /**
-     * Fetches the bookmarks of the current folder. Callback will be
-     * synchronous if the bookmark model is already loaded and async if it is loaded in the
-     * background.
-     * @param folderId The current folder id.
-     * @param callback Instance of a callback object.
-     */
-    public void getBookmarksForFolder(BookmarkId folderId, BookmarksCallback callback) {
-        ThreadUtils.assertOnUiThread();
-        if (mIsNativeBookmarkModelLoaded) {
-            BookmarkBridgeJni.get().getBookmarksForFolder(mNativeBookmarkBridge,
-                    BookmarkBridge.this, folderId, callback, new ArrayList<BookmarkItem>());
-        } else {
-            mDelayedBookmarkCallbacks.add(new DelayedBookmarkCallback(folderId, callback,
-                    DelayedBookmarkCallback.GET_BOOKMARKS_FOR_FOLDER, this));
-        }
     }
 
     /**
@@ -889,6 +583,7 @@ public class BookmarkBridge {
      */
     public boolean isFolderVisible(BookmarkId id) {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return false;
         assert mIsNativeBookmarkModelLoaded;
         if (ReadingListUtils.isSwappableReadingListItem(id)) {
             return true;
@@ -898,29 +593,12 @@ public class BookmarkBridge {
     }
 
     /**
-     * Fetches the folder hierarchy of the given folder. Callback will be
-     * synchronous if the bookmark model is already loaded and async if it is loaded in the
-     * background.
-     * @param folderId The current folder id.
-     * @param callback Instance of a callback object.
-     */
-    public void getCurrentFolderHierarchy(BookmarkId folderId, BookmarksCallback callback) {
-        ThreadUtils.assertOnUiThread();
-        if (mIsNativeBookmarkModelLoaded) {
-            BookmarkBridgeJni.get().getCurrentFolderHierarchy(mNativeBookmarkBridge,
-                    BookmarkBridge.this, folderId, callback, new ArrayList<BookmarkItem>());
-        } else {
-            mDelayedBookmarkCallbacks.add(new DelayedBookmarkCallback(folderId, callback,
-                    DelayedBookmarkCallback.GET_CURRENT_FOLDER_HIERARCHY, this));
-        }
-    }
-
-    /**
      * Deletes a specified bookmark node.
      * @param bookmarkId The ID of the bookmark to be deleted.
      */
     public void deleteBookmark(BookmarkId bookmarkId) {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return;
         BookmarkBridgeJni.get().deleteBookmark(
                 mNativeBookmarkBridge, BookmarkBridge.this, bookmarkId);
     }
@@ -932,6 +610,7 @@ public class BookmarkBridge {
      */
     public void removeAllUserBookmarks() {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return;
         BookmarkBridgeJni.get().removeAllUserBookmarks(mNativeBookmarkBridge, BookmarkBridge.this);
     }
 
@@ -943,6 +622,7 @@ public class BookmarkBridge {
      */
     public void moveBookmark(BookmarkId bookmarkId, BookmarkId newParentId, int index) {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return;
         BookmarkBridgeJni.get().moveBookmark(
                 mNativeBookmarkBridge, BookmarkBridge.this, bookmarkId, newParentId, index);
     }
@@ -960,6 +640,7 @@ public class BookmarkBridge {
      */
     public BookmarkId addFolder(BookmarkId parent, int index, String title) {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return null;
         assert parent.getType() == BookmarkType.NORMAL;
         assert index >= 0;
         assert title != null;
@@ -969,7 +650,7 @@ public class BookmarkBridge {
     }
 
     /**
-     * Add a new bookmark to a specific position below parent
+     * Add a new bookmark to a specific position below parent.
      *
      * @param parent Folder where to add. Must be a normal editable folder, instead of a partner
      *               bookmark folder or a managed bookmark folder or root node of the entire
@@ -982,6 +663,7 @@ public class BookmarkBridge {
      */
     public BookmarkId addBookmark(BookmarkId parent, int index, String title, GURL url) {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return null;
         assert parent.getType() == BookmarkType.NORMAL;
         assert index >= 0;
         assert title != null;
@@ -991,35 +673,7 @@ public class BookmarkBridge {
 
         if (TextUtils.isEmpty(title)) title = url.getSpec();
         return BookmarkBridgeJni.get().addBookmark(
-                mNativeBookmarkBridge, BookmarkBridge.this, parent, index, title, url);
-    }
-
-    /**
-     * Add a new power bookmark.
-     *
-     * @param webContents A {@link WebContents} associated with the page being bookmarked.
-     * @param parent Folder where to add. Must be a normal editable folder, instead of a partner
-     *               bookmark folder or a managed bookmark folder or root node of the entire
-     *               bookmark model.
-     * @param index The position where the bookmark will be placed in parent folder
-     * @param title Title of the new bookmark. If empty, the URL will be used as the title.
-     * @param url Url of the new bookmark
-     * @return Id of the added node. If adding failed (index is invalid, string is null, parent is
-     *         not editable), returns null.
-     */
-    public BookmarkId addPowerBookmark(
-            WebContents webContents, BookmarkId parent, int index, String title, GURL url) {
-        ThreadUtils.assertOnUiThread();
-        assert parent.getType() == BookmarkType.NORMAL;
-        assert index >= 0;
-        assert title != null;
-        assert url != null;
-
-        recordBookmarkAdded();
-
-        if (TextUtils.isEmpty(title)) title = url.getSpec();
-        return BookmarkBridgeJni.get().addPowerBookmark(
-                mNativeBookmarkBridge, this, webContents, parent, index, title, url);
+                mNativeBookmarkBridge, this, parent, index, title, url);
     }
 
     /** Record the user action for adding a bookmark. */
@@ -1027,16 +681,12 @@ public class BookmarkBridge {
         RecordUserAction.record("BookmarkAdded");
     }
 
-    @Deprecated // Only included until internal repository is updated.
-    public BookmarkId addBookmark(BookmarkId parent, int index, String title, String url) {
-        return addBookmark(parent, index, title, new GURL(url));
-    }
-
     /**
      * Undo the last undoable action on the top of the bookmark undo stack
      */
     public void undo() {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return;
         BookmarkBridgeJni.get().undo(mNativeBookmarkBridge, BookmarkBridge.this);
     }
 
@@ -1046,6 +696,7 @@ public class BookmarkBridge {
      */
     public void startGroupingUndos() {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return;
         BookmarkBridgeJni.get().startGroupingUndos(mNativeBookmarkBridge, BookmarkBridge.this);
     }
 
@@ -1055,6 +706,7 @@ public class BookmarkBridge {
      */
     public void endGroupingUndos() {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return;
         BookmarkBridgeJni.get().endGroupingUndos(mNativeBookmarkBridge, BookmarkBridge.this);
     }
 
@@ -1062,11 +714,6 @@ public class BookmarkBridge {
         ThreadUtils.assertOnUiThread();
         if (mNativeBookmarkBridge == 0) return false;
         return BookmarkBridgeJni.get().isEditBookmarksEnabled(mNativeBookmarkBridge);
-    }
-
-    /** Gets the profile. */
-    protected Profile getProfile() {
-        return mProfile;
     }
 
     /**
@@ -1091,6 +738,7 @@ public class BookmarkBridge {
      */
     public void reorderBookmarks(BookmarkId parent, long[] newOrder) {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return;
         BookmarkBridgeJni.get().reorderChildren(
                 mNativeBookmarkBridge, BookmarkBridge.this, parent, newOrder);
     }
@@ -1105,6 +753,7 @@ public class BookmarkBridge {
      */
     public @Nullable BookmarkId addToReadingList(String title, GURL url) {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return null;
         assert title != null;
         assert url != null;
         assert mIsNativeBookmarkModelLoaded;
@@ -1119,6 +768,7 @@ public class BookmarkBridge {
      */
     public BookmarkItem getReadingListItem(GURL url) {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return null;
         assert url != null;
         assert mIsNativeBookmarkModelLoaded;
 
@@ -1132,6 +782,7 @@ public class BookmarkBridge {
      * @param read Whether the article should be marked as read.
      */
     public void setReadStatusForReadingList(GURL url, boolean read) {
+        if (mNativeBookmarkBridge == 0) return;
         BookmarkBridgeJni.get().setReadStatus(
                 mNativeBookmarkBridge, BookmarkBridge.this, url, read);
     }
@@ -1142,12 +793,14 @@ public class BookmarkBridge {
      * @return Whether the URL has been bookmarked.
      */
     public boolean isBookmarked(GURL url) {
+        if (mNativeBookmarkBridge == 0) return false;
         return BookmarkBridgeJni.get().isBookmarked(mNativeBookmarkBridge, url);
     }
 
-    @VisibleForTesting
-    BookmarkId getPartnerFolderId() {
+    public BookmarkId getPartnerFolderId() {
         ThreadUtils.assertOnUiThread();
+        if (mNativeBookmarkBridge == 0) return null;
+
         assert mIsNativeBookmarkModelLoaded;
         return BookmarkBridgeJni.get().getPartnerFolderId(
                 mNativeBookmarkBridge, BookmarkBridge.this);
@@ -1156,15 +809,7 @@ public class BookmarkBridge {
     @CalledByNative
     private void bookmarkModelLoaded() {
         mIsNativeBookmarkModelLoaded = true;
-
         notifyBookmarkModelLoaded();
-
-        if (!mDelayedBookmarkCallbacks.isEmpty()) {
-            for (int i = 0; i < mDelayedBookmarkCallbacks.size(); i++) {
-                mDelayedBookmarkCallbacks.get(i).callCallbackMethod();
-            }
-            mDelayedBookmarkCallbacks.clear();
-        }
     }
 
     @CalledByNative
@@ -1251,46 +896,6 @@ public class BookmarkBridge {
         }
     }
 
-    /**
-     * Get updated price information for a given list of bookmark IDs.
-     * @param bookmarksToUpdate The IDs of the bookmarks to update.
-     * @param callback A callback to be called for each ID iff price information is available.
-     */
-    public void getUpdatedProductPrices(
-            List<BookmarkId> bookmarksToUpdate, PriceUpdateCallback callback) {
-        final HashMap<GURL, BookmarkId> urlToId = new HashMap<>();
-        GURL[] urls = new GURL[bookmarksToUpdate.size()];
-        for (int i = 0; i < bookmarksToUpdate.size(); i++) {
-            GURL url = getBookmarkById(bookmarksToUpdate.get(i)).getUrl();
-            urls[i] = url;
-            urlToId.put(url, bookmarksToUpdate.get(i));
-        }
-
-        // This wrapper is used to avoid needing to pass the map of URL -> BookmarkId to native.
-        PriceUpdateCallback callbackWrapper = new PriceUpdateCallback() {
-            @Override
-            public void onPriceUpdated(BookmarkId id, GURL url, ProductPrice price) {
-                callback.onPriceUpdated(urlToId.get(url), url, price);
-            }
-        };
-
-        BookmarkBridgeJni.get().getUpdatedProductPrices(
-                mNativeBookmarkBridge, BookmarkBridge.this, urls, callbackWrapper);
-    }
-
-    @CalledByNative
-    private void onProductPriceUpdated(
-            GURL url, byte[] productPriceBytes, PriceUpdateCallback callback) {
-        try {
-            ProductPrice price = ProductPrice.parseFrom(productPriceBytes);
-            // Intentionally pass |null| for the bookmark ID here, the wrapper will populate this
-            // field. See #getUpdatedProductPrices
-            callback.onPriceUpdated(null, url, price);
-        } catch (InvalidProtocolBufferException ex) {
-            // Intentional noop
-        }
-    }
-
     @CalledByNative
     private static BookmarkItem createBookmarkItem(long id, int type, String title, GURL url,
             boolean isFolder, long parentId, int parentIdType, boolean isEditable,
@@ -1317,61 +922,26 @@ public class BookmarkBridge {
     }
 
     private static List<Pair<Integer, Integer>> createPairsList(int[] left, int[] right) {
-        List<Pair<Integer, Integer>> pairList = new ArrayList<Pair<Integer, Integer>>();
+        List<Pair<Integer, Integer>> pairList = new ArrayList<>();
         for (int i = 0; i < left.length; i++) {
-            pairList.add(new Pair<Integer, Integer>(left[i], right[i]));
+            pairList.add(new Pair<>(left[i], right[i]));
         }
         return pairList;
     }
 
-    /**
-     * Details about callbacks that need to be called once the bookmark model has loaded.
-     */
-    private static class DelayedBookmarkCallback {
-
-        private static final int GET_BOOKMARKS_FOR_FOLDER = 0;
-        private static final int GET_CURRENT_FOLDER_HIERARCHY = 1;
-
-        private final BookmarksCallback mCallback;
-        private final BookmarkId mFolderId;
-        private final int mCallbackMethod;
-        private final BookmarkBridge mHandler;
-
-        private DelayedBookmarkCallback(BookmarkId folderId, BookmarksCallback callback,
-                int method, BookmarkBridge handler) {
-            mFolderId = folderId;
-            mCallback = callback;
-            mCallbackMethod = method;
-            mHandler = handler;
-        }
-
-        /**
-         * Invoke the callback method.
-         */
-        private void callCallbackMethod() {
-            switch (mCallbackMethod) {
-                case GET_BOOKMARKS_FOR_FOLDER:
-                    mHandler.getBookmarksForFolder(mFolderId, mCallback);
-                    break;
-                case GET_CURRENT_FOLDER_HIERARCHY:
-                    mHandler.getCurrentFolderHierarchy(mFolderId, mCallback);
-                    break;
-                default:
-                    assert false;
-                    break;
-            }
-        }
-    }
-
+    @VisibleForTesting(otherwise = VisibleForTesting.PACKAGE_PRIVATE)
     @NativeMethods
-    interface Natives {
+    public interface Natives {
+        BookmarkModel getForProfile(Profile profile);
+        void getImageUrlForBookmark(long nativeBookmarkBridge, BookmarkBridge caller, GURL url,
+                Callback<GURL> callback);
         BookmarkId getBookmarkIdForWebContents(long nativeBookmarkBridge, BookmarkBridge caller,
                 WebContents webContents, boolean onlyEditable);
-        BookmarkItem getBookmarkByID(
+        BookmarkItem getBookmarkById(
                 long nativeBookmarkBridge, BookmarkBridge caller, long id, int type);
-        void getTopLevelFolderParentIDs(
+        void getTopLevelFolderParentIds(
                 long nativeBookmarkBridge, BookmarkBridge caller, List<BookmarkId> bookmarksList);
-        void getTopLevelFolderIDs(long nativeBookmarkBridge, BookmarkBridge caller,
+        void getTopLevelFolderIds(long nativeBookmarkBridge, BookmarkBridge caller,
                 boolean getSpecial, boolean getNormal, List<BookmarkId> bookmarksList);
         BookmarkId getReadingListFolder(long nativeBookmarkBridge, BookmarkBridge caller);
         void getAllFoldersWithDepths(long nativeBookmarkBridge, BookmarkBridge caller,
@@ -1384,14 +954,12 @@ public class BookmarkBridge {
         String getBookmarkGuidByIdForTesting(
                 long nativeBookmarkBridge, BookmarkBridge caller, long id, int type);
         int getChildCount(long nativeBookmarkBridge, BookmarkBridge caller, long id, int type);
-        void getChildIDs(long nativeBookmarkBridge, BookmarkBridge caller, long id, int type,
+        void getChildIds(long nativeBookmarkBridge, BookmarkBridge caller, long id, int type,
                 List<BookmarkId> bookmarksList);
         BookmarkId getChildAt(
                 long nativeBookmarkBridge, BookmarkBridge caller, long id, int type, int index);
         int getTotalBookmarkCount(
                 long nativeBookmarkBridge, BookmarkBridge caller, long id, int type);
-        void getUpdatedProductPrices(long nativeBookmarkBridge, BookmarkBridge caller, GURL[] gurls,
-                PriceUpdateCallback callback);
         void setBookmarkTitle(
                 long nativeBookmarkBridge, BookmarkBridge caller, long id, int type, String title);
         void setBookmarkUrl(
@@ -1405,11 +973,9 @@ public class BookmarkBridge {
         boolean doesBookmarkExist(
                 long nativeBookmarkBridge, BookmarkBridge caller, long id, int type);
         void getBookmarksForFolder(long nativeBookmarkBridge, BookmarkBridge caller,
-                BookmarkId folderId, BookmarksCallback callback, List<BookmarkItem> bookmarksList);
+                BookmarkId folderId, List<BookmarkItem> bookmarksList);
         boolean isFolderVisible(
                 long nativeBookmarkBridge, BookmarkBridge caller, long id, int type);
-        void getCurrentFolderHierarchy(long nativeBookmarkBridge, BookmarkBridge caller,
-                BookmarkId folderId, BookmarksCallback callback, List<BookmarkItem> bookmarksList);
         BookmarkId addFolder(long nativeBookmarkBridge, BookmarkBridge caller, BookmarkId parent,
                 int index, String title);
         void deleteBookmark(
@@ -1419,8 +985,6 @@ public class BookmarkBridge {
                 BookmarkId newParentId, int index);
         BookmarkId addBookmark(long nativeBookmarkBridge, BookmarkBridge caller, BookmarkId parent,
                 int index, String title, GURL url);
-        BookmarkId addPowerBookmark(long nativeBookmarkBridge, BookmarkBridge caller,
-                WebContents webContents, BookmarkId parent, int index, String title, GURL url);
         BookmarkId addToReadingList(
                 long nativeBookmarkBridge, BookmarkBridge caller, String title, GURL url);
         BookmarkItem getReadingListItem(long nativeBookmarkBridge, BookmarkBridge caller, GURL url);
@@ -1438,7 +1002,6 @@ public class BookmarkBridge {
                 int powerBookmarkType, int maxNumber);
         void getBookmarksOfType(long nativeBookmarkBridge, BookmarkBridge caller,
                 List<BookmarkId> bookmarkMatches, int powerBookmarkType);
-        long init(BookmarkBridge caller, Profile profile);
         boolean isDoingExtensiveChanges(long nativeBookmarkBridge, BookmarkBridge caller);
         void destroy(long nativeBookmarkBridge, BookmarkBridge caller);
         boolean isEditBookmarksEnabled(long nativeBookmarkBridge);

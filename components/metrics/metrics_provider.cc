@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,7 +22,12 @@ void MetricsProvider::AsyncInit(base::OnceClosure done_callback) {
   std::move(done_callback).Run();
 }
 
+bool MetricsProvider::ProvideHistograms() {
+  return true;
+}
+
 void MetricsProvider::OnDidCreateMetricsLog() {
+  emitted_ = ProvideHistograms();
 }
 
 void MetricsProvider::OnRecordingEnabled() {
@@ -71,6 +76,10 @@ void MetricsProvider::ProvidePreviousSessionData(
 void MetricsProvider::ProvideCurrentSessionData(
     ChromeUserMetricsExtension* uma_proto) {
   ProvideStabilityMetrics(uma_proto->mutable_system_profile());
+
+  if (!emitted_) {
+    ProvideHistograms();
+  }
 }
 
 void MetricsProvider::ProvideCurrentSessionUKMData() {}

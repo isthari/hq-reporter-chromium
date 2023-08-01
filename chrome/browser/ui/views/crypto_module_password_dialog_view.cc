@@ -1,11 +1,10 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/crypto_module_password_dialog_view.h"
 
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/strings/grit/components_strings.h"
@@ -45,7 +44,6 @@ CryptoModulePasswordDialogView::CryptoModulePasswordDialogView(
   set_margins(ChromeLayoutProvider::Get()->GetDialogInsetsForContentType(
       views::DialogContentType::kText, views::DialogContentType::kControl));
   Init(hostname, slot_name, reason);
-  chrome::RecordDialogCreation(chrome::DialogIdentifier::CRYPTO_PASSWORD);
 }
 
 CryptoModulePasswordDialogView::~CryptoModulePasswordDialogView() {
@@ -103,7 +101,7 @@ void CryptoModulePasswordDialogView::Init(const std::string& hostname,
           IDS_CRYPTO_MODULE_AUTH_DIALOG_TEXT_CERT_EXPORT, slot16);
       break;
     default:
-      NOTREACHED();
+      NOTREACHED_NORETURN();
   }
 
   ChromeLayoutProvider* provider = ChromeLayoutProvider::Get();
@@ -127,7 +125,7 @@ void CryptoModulePasswordDialogView::Init(const std::string& hostname,
       password_container->AddChildView(std::make_unique<views::Textfield>());
   password_entry_->SetTextInputType(ui::TEXT_INPUT_TYPE_PASSWORD);
   password_entry_->set_controller(this);
-  password_entry_->SetAssociatedLabel(password_label_);
+  password_entry_->SetAccessibleName(password_label_);
   password_container->SetFlexForView(password_entry_, 1);
 }
 

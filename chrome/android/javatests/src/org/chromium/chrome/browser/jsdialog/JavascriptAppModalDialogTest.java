@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,15 +27,15 @@ import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags.Add;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.FlakyTest;
 import org.chromium.base.test.util.UrlUtils;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.tasks.tab_management.TabUiTestHelper;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.batch.BlankCTATabInitialStateRule;
 import org.chromium.components.javascript_dialogs.JavascriptAppModalDialog;
 import org.chromium.content_public.browser.GestureStateListener;
@@ -84,6 +84,7 @@ public class JavascriptAppModalDialogTest {
      */
     @Test
     @MediumTest
+    @DisabledTest(message = "https://crbug.com/1295498")
     @Feature({"Browser", "Main"})
     public void testBeforeUnloadDialog() throws TimeoutException, ExecutionException {
         sActivityTestRule.loadUrl(BEFORE_UNLOAD_URL);
@@ -127,7 +128,7 @@ public class JavascriptAppModalDialogTest {
      */
     @Test
     @MediumTest
-    @FlakyTest(message = "https://crbug.com/1237639")
+    @DisabledTest(message = "https://crbug.com/1237639")
     @Feature({"Browser", "Main"})
     public void testBeforeUnloadDialogWithNoHistory() throws TimeoutException, ExecutionException {
         ChromeTabbedActivity activity = sActivityTestRule.getActivity();
@@ -152,6 +153,7 @@ public class JavascriptAppModalDialogTest {
      */
     @Test
     @MediumTest
+    @DisabledTest(message = "https://crbug.com/1295498")
     @Feature({"Browser", "Main"})
     public void testBeforeUnloadOnReloadDialog() throws TimeoutException, ExecutionException {
         sActivityTestRule.loadUrl(BEFORE_UNLOAD_URL);
@@ -173,6 +175,7 @@ public class JavascriptAppModalDialogTest {
     @Test
     @MediumTest
     @Feature({"Browser", "Main"})
+    @DisabledTest(message = "https://crbug.com/1299944")
     public void testDisableRepeatedDialogs() throws TimeoutException, ExecutionException {
         sActivityTestRule.loadUrl(BEFORE_UNLOAD_URL);
         // JavaScript onbeforeunload dialogs require a user gesture.
@@ -278,7 +281,7 @@ public class JavascriptAppModalDialogTest {
                 () -> JavascriptAppModalDialog.getCurrentDialogForTest());
     }
 
-    private static class TapGestureStateListener implements GestureStateListener {
+    private static class TapGestureStateListener extends GestureStateListener {
         private CallbackHelper mCallbackHelper = new CallbackHelper();
 
         public int getCallCount() {

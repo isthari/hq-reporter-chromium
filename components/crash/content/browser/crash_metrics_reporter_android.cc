@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,54 +35,6 @@ void ReportCrashCount(CrashMetricsReporter::ProcessedCrashCounts crash_type,
   UMA_HISTOGRAM_ENUMERATION("Stability.Android.ProcessedCrashCounts",
                             crash_type);
   counts->insert(crash_type);
-}
-
-void ReportLegacyCrashUma(const ChildExitObserver::TerminationInfo& info,
-                          bool has_valid_dump) {
-  // TODO(wnwen): If these numbers match up to TabWebContentsObserver's
-  //     TabRendererCrashStatus histogram, then remove that one as this is more
-  //     accurate with more detail.
-  if ((info.process_type == content::PROCESS_TYPE_RENDERER ||
-       info.process_type == content::PROCESS_TYPE_GPU) &&
-      info.app_state != base::android::APPLICATION_STATE_UNKNOWN) {
-    CrashMetricsReporter::ExitStatus exit_status;
-    bool is_running = (info.app_state ==
-                       base::android::APPLICATION_STATE_HAS_RUNNING_ACTIVITIES);
-    bool is_paused = (info.app_state ==
-                      base::android::APPLICATION_STATE_HAS_PAUSED_ACTIVITIES);
-    if (!has_valid_dump) {
-      if (is_running) {
-        exit_status = CrashMetricsReporter::EMPTY_MINIDUMP_WHILE_RUNNING;
-      } else if (is_paused) {
-        exit_status = CrashMetricsReporter::EMPTY_MINIDUMP_WHILE_PAUSED;
-      } else {
-        exit_status = CrashMetricsReporter::EMPTY_MINIDUMP_WHILE_BACKGROUND;
-      }
-    } else {
-      if (is_running) {
-        exit_status = CrashMetricsReporter::VALID_MINIDUMP_WHILE_RUNNING;
-      } else if (is_paused) {
-        exit_status = CrashMetricsReporter::VALID_MINIDUMP_WHILE_PAUSED;
-      } else {
-        exit_status = CrashMetricsReporter::VALID_MINIDUMP_WHILE_BACKGROUND;
-      }
-    }
-    if (info.process_type == content::PROCESS_TYPE_RENDERER) {
-      if (info.was_oom_protected_status) {
-        UMA_HISTOGRAM_ENUMERATION(
-            "Tab.RendererDetailedExitStatus", exit_status,
-            CrashMetricsReporter::ExitStatus::MINIDUMP_STATUS_COUNT);
-      } else {
-        UMA_HISTOGRAM_ENUMERATION(
-            "Tab.RendererDetailedExitStatusUnbound", exit_status,
-            CrashMetricsReporter::ExitStatus::MINIDUMP_STATUS_COUNT);
-      }
-    } else if (info.process_type == content::PROCESS_TYPE_GPU) {
-      UMA_HISTOGRAM_ENUMERATION(
-          "GPU.GPUProcessDetailedExitStatus", exit_status,
-          CrashMetricsReporter::ExitStatus::MINIDUMP_STATUS_COUNT);
-    }
-  }
 }
 
 void RecordSystemExitReason(
@@ -152,9 +104,6 @@ void CrashMetricsReporter::ChildProcessExited(
       info.blink_oom_metrics.allocation_failed;
   const uint64_t private_footprint_kb =
       info.blink_oom_metrics.current_private_footprint_kb;
-  const uint64_t swap_kb = info.blink_oom_metrics.current_swap_kb;
-  const uint64_t vm_size_kb = info.blink_oom_metrics.current_vm_size_kb;
-  const uint64_t blink_usage_kb = info.blink_oom_metrics.current_blink_usage_kb;
 
   if (app_foreground && android_oom_kill) {
     if (info.process_type == content::PROCESS_TYPE_GPU) {
@@ -217,15 +166,6 @@ void CrashMetricsReporter::ChildProcessExited(
               "Memory.Experimental.OomIntervention."
               "RendererPrivateMemoryFootprintAtOOM",
               private_footprint_kb / 1024);
-          UMA_HISTOGRAM_MEMORY_MB(
-              "Memory.Experimental.OomIntervention.RendererSwapFootprintAtOOM",
-              swap_kb / 1024);
-          UMA_HISTOGRAM_MEMORY_MB(
-              "Memory.Experimental.OomIntervention.RendererBlinkUsageAtOOM",
-              blink_usage_kb / 1024);
-          UMA_HISTOGRAM_MEMORY_LARGE_MB(
-              "Memory.Experimental.OomIntervention.RendererVmSizeAtOOMLarge",
-              vm_size_kb / 1024);
         }
       }
     } else if (!crashed) {
@@ -234,7 +174,14 @@ void CrashMetricsReporter::ChildProcessExited(
       // the bindings are updated later than visibility on web contents.
       switch (info.binding_state) {
         case base::android::ChildBindingState::UNBOUND:
+          break;
         case base::android::ChildBindingState::WAIVED:
+          if (!intentional_kill && !info.normal_termination) {
+            ReportCrashCount(
+                ProcessedCrashCounts::
+                    kRendererForegroundInvisibleWithWaivedBindingOom,
+                &reported_counts);
+          }
           break;
         case base::android::ChildBindingState::STRONG:
           if (intentional_kill || info.normal_termination) {
@@ -249,16 +196,29 @@ void CrashMetricsReporter::ChildProcessExited(
                 &reported_counts);
           }
           break;
-        case base::android::ChildBindingState::MODERATE:
+        case base::android::ChildBindingState::VISIBLE:
           if (intentional_kill || info.normal_termination) {
             ReportCrashCount(
                 ProcessedCrashCounts::
-                    kRendererForegroundInvisibleWithModerateBindingKilled,
+                    kRendererForegroundInvisibleWithVisibleBindingKilled,
                 &reported_counts);
           } else {
             ReportCrashCount(
                 ProcessedCrashCounts::
-                    kRendererForegroundInvisibleWithModerateBindingOom,
+                    kRendererForegroundInvisibleWithVisibleBindingOom,
+                &reported_counts);
+          }
+          break;
+        case base::android::ChildBindingState::NOT_PERCEPTIBLE:
+          if (intentional_kill || info.normal_termination) {
+            ReportCrashCount(
+                ProcessedCrashCounts::
+                    kRendererForegroundInvisibleWithNotPerceptibleBindingKilled,
+                &reported_counts);
+          } else {
+            ReportCrashCount(
+                ProcessedCrashCounts::
+                    kRendererForegroundInvisibleWithNotPerceptibleBindingOom,
                 &reported_counts);
           }
           break;
@@ -294,18 +254,6 @@ void CrashMetricsReporter::ChildProcessExited(
                      &reported_counts);
   }
 
-  if (android_oom_kill) {
-    if (info.best_effort_reverse_rank >= 0) {
-      UMA_HISTOGRAM_EXACT_LINEAR("Stability.Android.OomKillReverseRank",
-                                 info.best_effort_reverse_rank, 50);
-    }
-    if (info.best_effort_reverse_rank != -2) {
-      UMA_HISTOGRAM_BOOLEAN("Stability.Android.OomKillReverseRankSuccess",
-                            info.best_effort_reverse_rank != -1);
-    }
-  }
-
-  ReportLegacyCrashUma(info, crashed);
   RecordSystemExitReason(info.pid, reported_counts);
   NotifyObservers(info.process_host_id, reported_counts);
 }

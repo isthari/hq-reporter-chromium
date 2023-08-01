@@ -1,10 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/enterprise/reporting/extension_request/extension_request_observer_factory.h"
 
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "chrome/browser/enterprise/reporting/extension_request/extension_request_observer.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile_manager.h"
@@ -132,9 +132,11 @@ TEST_F(ExtensionRequestObserverFactoryTest,
   EXPECT_FALSE(factory_.GetObserverByProfileForTesting(guest_profile));
   EXPECT_EQ(0, factory_.GetNumberOfObserversForTesting());
 
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
   TestingProfile* system_profile = profile_manager()->CreateSystemProfile();
   EXPECT_FALSE(factory_.GetObserverByProfileForTesting(system_profile));
   EXPECT_EQ(0, factory_.GetNumberOfObserversForTesting());
+#endif
 }
 
 TEST_F(ExtensionRequestObserverFactoryTest, ReportEnabledAndDisabled) {

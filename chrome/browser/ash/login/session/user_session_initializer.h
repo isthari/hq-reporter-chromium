@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,9 @@
 
 #include <memory>
 
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
+#include "base/time/time.h"
 #include "components/session_manager/core/session_manager_observer.h"
 #include "components/user_manager/user.h"
 
@@ -75,7 +78,8 @@ class UserSessionInitializer : public session_manager::SessionManagerObserver {
   // Initializes RLZ. If `disabled` is true, RLZ pings are disabled.
   void InitRlzImpl(Profile* profile, const RlzInitParams& params);
 
-  Profile* primary_profile_ = nullptr;
+  raw_ptr<Profile, DanglingUntriaged | ExperimentalAsh> primary_profile_ =
+      nullptr;
 
   bool inited_for_testing_ = false;
   base::OnceClosure init_rlz_impl_closure_for_testing_;

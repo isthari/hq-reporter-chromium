@@ -1,16 +1,17 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import {assert} from '../assert.js';
 import {AsyncJobQueue} from '../async_job_queue.js';
+import {Awaitable} from '../type.js';
 
 /**
  * Represents a set of operations of a file-like writable stream. The seek and
  * close operations are optional.
  */
 export interface AsyncOps {
-  write(blob: Blob): Promise<void>;
+  write(blob: Blob): Awaitable<void>;
   seek: ((offset: number) => Promise<void>)|null;
   close: (() => Promise<void>)|null;
 }
@@ -20,7 +21,9 @@ export interface AsyncOps {
  */
 export class AsyncWriter {
   private readonly queue = new AsyncJobQueue();
+
   private closed = false;
+
   constructor(private readonly ops: AsyncOps) {}
 
   /**
@@ -32,6 +35,7 @@ export class AsyncWriter {
 
   /**
    * Writes the blob asynchronously.
+   *
    * @return Resolved when the data is written.
    */
   async write(blob: Blob): Promise<void> {
@@ -41,6 +45,7 @@ export class AsyncWriter {
 
   /**
    * Seeks to the specified |offset|.
+   *
    * @return Resolved when the seek operation is finished.
    */
   async seek(offset: number): Promise<void> {
@@ -53,6 +58,7 @@ export class AsyncWriter {
 
   /**
    * Closes the writer. No more write operations are allowed.
+   *
    * @return Resolved when all write operations are finished.
    */
   async close(): Promise<void> {
@@ -60,33 +66,33 @@ export class AsyncWriter {
       return;
     }
     this.closed = true;
-    this.queue.push(async () => {
+    await this.queue.push(async () => {
       if (this.ops.close !== null) {
         await this.ops.close();
       }
     });
-    await this.queue.flush();
   }
 
   /**
    * Combines multiple writers into one writer such that the blob would be
    * written to each of them.
+   *
    * @return The combined writer.
    */
   static combine(...writers: AsyncWriter[]): AsyncWriter {
-    const write = async (blob: Blob) => {
+    async function write(blob: Blob) {
       await Promise.all(writers.map((writer) => writer.write(blob)));
-    };
+    }
 
     const allSeekable = writers.every((writer) => writer.seekable());
-    const seekAll = async (offset: number) => {
+    async function seekAll(offset: number) {
       await Promise.all(writers.map((writer) => writer.seek(offset)));
-    };
+    }
     const seek = allSeekable ? seekAll : null;
 
-    const close = async () => {
+    async function close() {
       await Promise.all(writers.map((writer) => writer.close()));
-    };
+    }
 
     return new AsyncWriter({write, seek, close});
   }

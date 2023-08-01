@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,10 @@
 
 #include "ash/components/arc/mojom/adbd.mojom.h"
 #include "ash/components/arc/session/connection_observer.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/ash/arc/session/arc_session_manager.h"
-#include "chromeos/dbus/dbus_method_call_status.h"
+#include "chromeos/dbus/common/dbus_method_call_status.h"
 #include "components/keyed_service/core/keyed_service.h"
 
 namespace content {
@@ -51,6 +52,8 @@ class ArcAdbdMonitorBridge
   void OnStartArcVmAdbdTesting(chromeos::VoidDBusMethodCallback callback);
   void OnStopArcVmAdbdTesting(chromeos::VoidDBusMethodCallback callback);
 
+  static void EnsureFactoryBuilt();
+
  private:
   void StartArcVmAdbd(chromeos::VoidDBusMethodCallback callback);
   void StopArcVmAdbd(chromeos::VoidDBusMethodCallback callback);
@@ -59,7 +62,8 @@ class ArcAdbdMonitorBridge
   void StopArcVmAdbdInternal(chromeos::VoidDBusMethodCallback,
                              bool adb_over_usb_enabled);
 
-  ArcBridgeService* const arc_bridge_service_;  // Owned by ArcServiceManager.
+  const raw_ptr<ArcBridgeService, ExperimentalAsh>
+      arc_bridge_service_;  // Owned by ArcServiceManager.
 
   // For callbacks.
   base::WeakPtrFactory<ArcAdbdMonitorBridge> weak_factory_{this};

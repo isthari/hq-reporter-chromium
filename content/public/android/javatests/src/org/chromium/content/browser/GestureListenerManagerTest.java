@@ -1,8 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.content.browser;
+
+import static org.chromium.cc.mojom.RootScrollOffsetUpdateFrequency.ALL_UPDATES;
+import static org.chromium.cc.mojom.RootScrollOffsetUpdateFrequency.NONE;
 
 import android.view.View;
 
@@ -18,10 +21,11 @@ import org.chromium.base.test.BaseJUnit4ClassRunner;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.content_public.browser.GestureListenerManager;
-import org.chromium.content_public.browser.GestureStateListenerWithScroll;
+import org.chromium.content_public.browser.GestureStateListener;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.test.RenderFrameHostTestExt;
@@ -43,7 +47,7 @@ public class GestureListenerManagerTest {
             "<html><body style='height: 10000px'><script>"
             + "window.addEventListener('load', () => { document.title = 'loaded'; });</script>");
 
-    private static final class GestureStateListenerImpl implements GestureStateListenerWithScroll {
+    private static final class GestureStateListenerImpl extends GestureStateListener {
         private int mNumOnScrollOffsetOrExtentChangedCalls;
         public CallbackHelper mCallbackHelper = new CallbackHelper();
         private boolean mGotStarted;
@@ -51,7 +55,7 @@ public class GestureListenerManagerTest {
         private Integer mLastScrollOffsetY;
 
         @Override
-        public void onScrollStarted(int scrollOffsetY, int scrollExtentY) {
+        public void onScrollStarted(int scrollOffsetY, int scrollExtentY, boolean isDirectionUp) {
             org.chromium.base.Log.e("chrome", "!!!onScrollStarted " + scrollOffsetY);
             mGotStarted = true;
             mLastScrollOffsetY = null;
@@ -89,6 +93,7 @@ public class GestureListenerManagerTest {
     @Test
     @LargeTest
     @Feature({"Browser"})
+    @DisabledTest(message = "https://crbug.com/1324302")
     public void testOnScrollOffsetOrExtentChanged() throws Throwable {
         mActivityTestRule.launchContentShellWithUrl("about:blank");
         WebContents webContents = mActivityTestRule.getWebContents();
@@ -122,11 +127,12 @@ public class GestureListenerManagerTest {
             GestureListenerManagerImpl manager =
                     (GestureListenerManagerImpl) GestureListenerManager.fromWebContents(
                             webContents);
-            // shouldReportAllRootScrolls() should initially be false (as there are no listeners).
-            Assert.assertFalse(manager.shouldReportAllRootScrolls());
-            manager.addListener(listener);
-            // Adding a listener enables root-scrolls.
-            Assert.assertTrue(manager.shouldReportAllRootScrolls());
+            // getRootScrollOffsetUpdateFrequency() should initially return NONE (as there are no
+            // listeners).
+            Assert.assertEquals(NONE, manager.getRootScrollOffsetUpdateFrequency());
+            manager.addListener(listener, ALL_UPDATES);
+            // Adding a listener changes this to ALL_UPDATES.
+            Assert.assertEquals(ALL_UPDATES, manager.getRootScrollOffsetUpdateFrequency());
             View webContentsView = webContents.getViewAndroidDelegate().getContainerView();
             mCurrentX = webContentsView.getWidth() / 2;
             mCurrentY = webContentsView.getHeight() / 2;
@@ -143,8 +149,8 @@ public class GestureListenerManagerTest {
                     (GestureListenerManagerImpl) GestureListenerManager.fromWebContents(
                             webContents);
             manager.removeListener(listener);
-            // Removing the only listener disbles root-scrolls.
-            Assert.assertFalse(manager.shouldReportAllRootScrolls());
+            // Should go back to NONE after removing the only listener.
+            Assert.assertEquals(NONE, manager.getRootScrollOffsetUpdateFrequency());
         });
     }
 }

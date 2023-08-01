@@ -1,4 +1,4 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,7 @@
 #include "base/allocator/partition_allocator/partition_alloc_check.h"
 #include "base/allocator/partition_allocator/starscan/pcscan_internal.h"
 
-namespace base {
-namespace internal {
+namespace partition_alloc::internal {
 
 std::unique_ptr<StarScanSnapshot> StarScanSnapshot::Create(
     const PCScanInternal& pcscan) {
@@ -29,20 +28,21 @@ StarScanSnapshot::StarScanSnapshot(const PCScanInternal& pcscan) {
     clear_worklist_.Push(super_pages.begin(), super_pages.end());
     scan_worklist_.Push(super_pages.begin(), super_pages.end());
     sweep_worklist_.Push(super_pages.begin(), super_pages.end());
-    if (pcscan.WriteProtectionEnabled())
+    if (pcscan.WriteProtectionEnabled()) {
       unprotect_worklist_.Push(super_pages.begin(), super_pages.end());
+    }
   }
 
   for (const auto& root : pcscan.nonscannable_roots()) {
     const auto& super_pages = root.second;
     clear_worklist_.Push(super_pages.begin(), super_pages.end());
     sweep_worklist_.Push(super_pages.begin(), super_pages.end());
-    if (pcscan.WriteProtectionEnabled())
+    if (pcscan.WriteProtectionEnabled()) {
       unprotect_worklist_.Push(super_pages.begin(), super_pages.end());
+    }
   }
 }
 
 StarScanSnapshot::~StarScanSnapshot() = default;
 
-}  // namespace internal
-}  // namespace base
+}  // namespace partition_alloc::internal

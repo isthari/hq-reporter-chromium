@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,8 @@
 
 #include <vector>
 
+#include "base/containers/flat_map.h"
+#include "base/memory/raw_ptr.h"
 #include "base/observer_list.h"
 #include "ui/display/manager/test/action_logger.h"
 #include "ui/display/manager/test/action_logger_util.h"
@@ -21,6 +23,12 @@ class DisplaySnapshot;
 class NativeDisplayObserver;
 
 namespace test {
+
+constexpr char kTestModesetStr[] = "test-modeset";
+constexpr char kCommitModesetStr[] = "commit-modeset";
+constexpr char kSeamlessModesetStr[] = "seamless-modeset";
+constexpr char kModesetOutcomeFailure[] = "outcome: failure";
+constexpr char kModesetOutcomeSuccess[] = "outcome: success";
 
 class TestNativeDisplayDelegate : public NativeDisplayDelegate {
  public:
@@ -41,6 +49,10 @@ class TestNativeDisplayDelegate : public NativeDisplayDelegate {
 
   void set_max_configurable_pixels(int pixels) {
     max_configurable_pixels_ = pixels;
+  }
+
+  void set_system_bandwidth_limit(int bandwidth_limit) {
+    system_bandwidth_limit_ = bandwidth_limit;
   }
 
   void set_get_hdcp_state_expectation(bool success) {
@@ -71,7 +83,11 @@ class TestNativeDisplayDelegate : public NativeDisplayDelegate {
   void GetDisplays(GetDisplaysCallback callback) override;
   void Configure(
       const std::vector<display::DisplayConfigurationParams>& config_requests,
-      ConfigureCallback callback) override;
+      ConfigureCallback callback,
+      uint32_t modeset_flag) override;
+  void SetHdcpKeyProp(int64_t display_id,
+                      const std::string& key,
+                      SetHdcpKeyPropCallback callback) override;
   void GetHDCPState(const DisplaySnapshot& output,
                     GetHDCPStateCallback callback) override;
   void SetHDCPState(const DisplaySnapshot& output,
@@ -100,6 +116,11 @@ class TestNativeDisplayDelegate : public NativeDisplayDelegate {
                       ContentProtectionMethod protection_method,
                       SetHDCPStateCallback callback);
 
+  bool IsConfigurationWithinSystemBandwidth(
+      const std::vector<display::DisplayConfigurationParams>& config_requests);
+  void SaveCurrentConfigSystemBandwidth(
+      const std::vector<display::DisplayConfigurationParams>& config_requests);
+
   // Outputs to be returned by GetDisplays().
   std::vector<DisplaySnapshot*> outputs_;
 
@@ -111,6 +132,9 @@ class TestNativeDisplayDelegate : public NativeDisplayDelegate {
   // return success regardless of the resolution.
   int max_configurable_pixels_;
 
+  int system_bandwidth_limit_ = 0;
+  base::flat_map<int64_t, int> display_id_to_used_system_bw_;
+
   bool get_hdcp_expectation_;
   bool set_hdcp_expectation_;
 
@@ -121,12 +145,13 @@ class TestNativeDisplayDelegate : public NativeDisplayDelegate {
   // If true, the callbacks are posted on the message loop.
   bool run_async_;
 
-  ActionLogger* log_;  // Not owned.
+  raw_ptr<ActionLogger, ExperimentalAsh> log_;  // Not owned.
 
   base::ObserverList<NativeDisplayObserver>::Unchecked observers_;
 };
 
 }  // namespace test
+
 }  // namespace display
 
 #endif  // UI_DISPLAY_MANAGER_TEST_TEST_NATIVE_DISPLAY_DELEGATE_H_

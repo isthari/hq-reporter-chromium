@@ -1,9 +1,8 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "remoting/base/leaky_bucket.h"
-
 
 namespace remoting {
 
@@ -19,18 +18,18 @@ bool LeakyBucket::RefillOrSpill(int drops, base::TimeTicks now) {
   UpdateLevel(now);
 
   int new_level = current_level_ + drops;
-  if (depth_ >= 0 && new_level > depth_)
+  if (depth_ >= 0 && new_level > depth_) {
     return false;
+  }
   current_level_ = new_level;
   return true;
 }
 
 base::TimeTicks LeakyBucket::GetEmptyTime() {
-  // To avoid unnecessary complexity in WebrtcFrameSchedulerSimple, we return
-  // a fairly large value (1 minute) here if the b/w estimate is 0 (which means
-  // that the video stream should be paused). This means that
-  // WebrtcFrameSchedulerSimple does not need to handle any overflow isssues
-  // caused by returning TimeDelta::Max().
+  // To avoid unnecessary complexity in the consuming class, we return a fairly
+  // large value (1 minute) here if the b/w estimate is 0 which means that the
+  // consumer does not need to handle overflow issues caused by returning
+  // TimeDelta::Max().
   base::TimeDelta time_to_empty =
       (rate_ != 0)
           ? base::Microseconds(base::TimeTicks::kMicrosecondsPerSecond *

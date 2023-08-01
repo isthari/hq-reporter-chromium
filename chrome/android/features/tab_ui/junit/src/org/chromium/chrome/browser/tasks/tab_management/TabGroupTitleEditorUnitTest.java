@@ -1,11 +1,15 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.tasks.tab_management;
 
+import static androidx.test.espresso.matcher.ViewMatchers.assertThat;
+
 import static org.hamcrest.CoreMatchers.equalTo;
-import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
@@ -20,9 +24,11 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 
 import org.chromium.base.UserDataHost;
+import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabImpl;
 import org.chromium.chrome.browser.tab.state.CriticalPersistedTabData;
@@ -31,8 +37,8 @@ import org.chromium.chrome.browser.tabmodel.TabModelFilterProvider;
 import org.chromium.chrome.browser.tabmodel.TabModelObserver;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tasks.tab_groups.TabGroupModelFilter;
+import org.chromium.chrome.tab_ui.R;
 import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.testing.local.LocalRobolectricTestRunner;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -44,7 +50,7 @@ import java.util.Map;
  * Tests for {@link TabGroupTitleEditor}.
  */
 @SuppressWarnings({"ArraysAsListWithZeroOrOneArgument", "ResultOfMethodCallIgnored"})
-@RunWith(LocalRobolectricTestRunner.class)
+@RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
 public class TabGroupTitleEditorUnitTest {
     @Rule
@@ -102,7 +108,8 @@ public class TabGroupTitleEditorUnitTest {
                 .when(mTabGroupModelFilter)
                 .addTabGroupObserver(mTabGroupModelFilterObserverCaptor.capture());
 
-        mTabGroupTitleEditor = new TabGroupTitleEditor(mTabModelSelector) {
+        mTabGroupTitleEditor = new TabGroupTitleEditor(
+                RuntimeEnvironment.application, mTabModelSelector) {
             @Override
             protected void updateTabGroupTitle(Tab tab, String title) {}
 
@@ -263,6 +270,27 @@ public class TabGroupTitleEditorUnitTest {
         assertThat(mTabGroupTitleEditor.getTabGroupTitle(TAB2_ID), equalTo(CUSTOMIZED_TITLE1));
     }
 
+    @Test
+    public void testDefaultTitle() {
+        int relatedTabCount = 5;
+
+        String expectedTitle = RuntimeEnvironment.application.getResources().getQuantityString(
+                R.plurals.bottom_tab_grid_title_placeholder, relatedTabCount, relatedTabCount);
+        assertEquals(expectedTitle,
+                TabGroupTitleEditor.getDefaultTitle(
+                        RuntimeEnvironment.application, relatedTabCount));
+    }
+
+    @Test
+    public void testIsDefaultTitle() {
+        int fourTabsCount = 4;
+        String fourTabsTitle =
+                TabGroupTitleEditor.getDefaultTitle(RuntimeEnvironment.application, fourTabsCount);
+        assertTrue(mTabGroupTitleEditor.isDefaultTitle(fourTabsTitle, fourTabsCount));
+        assertFalse(mTabGroupTitleEditor.isDefaultTitle(fourTabsTitle, 3));
+        assertFalse(mTabGroupTitleEditor.isDefaultTitle("Foo", fourTabsCount));
+    }
+
     private void createTabGroup(List<Tab> tabs, int rootId) {
         for (Tab tab : tabs) {
             when(mTabGroupModelFilter.getRelatedTabList(tab.getId())).thenReturn(tabs);
@@ -274,5 +302,4 @@ public class TabGroupTitleEditorUnitTest {
             doReturn(rootId).when(criticalPersistedTabData).getRootId();
         }
     }
-
 }

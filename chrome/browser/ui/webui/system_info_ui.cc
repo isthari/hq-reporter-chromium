@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,11 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/memory/weak_ptr.h"
+#include "base/strings/escape.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -33,7 +34,6 @@
 #include "content/public/browser/web_ui_data_source.h"
 #include "content/public/browser/web_ui_message_handler.h"
 #include "net/base/directory_lister.h"
-#include "net/base/escape.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/webui/jstemplate_builder.h"
@@ -45,9 +45,10 @@ using system_logs::SystemLogsResponse;
 
 namespace {
 
-content::WebUIDataSource* CreateSystemInfoUIDataSource() {
+void CreateAndAddSystemInfoUIDataSource(Profile* profile) {
   content::WebUIDataSource* html_source =
-      content::WebUIDataSource::Create(chrome::kChromeUISystemInfoHost);
+      content::WebUIDataSource::CreateAndAdd(profile,
+                                             chrome::kChromeUISystemInfoHost);
 
   static constexpr webui::LocalizedString kStrings[] = {
       {"title", IDS_ABOUT_SYS_TITLE},
@@ -66,20 +67,19 @@ content::WebUIDataSource* CreateSystemInfoUIDataSource() {
   html_source->AddResourcePath("about_sys.css", IDR_ABOUT_SYS_CSS);
   html_source->SetDefaultResource(IDR_ABOUT_SYS_HTML);
   html_source->UseStringsJs();
-  return html_source;
 }
 
 }  // namespace
 
 // The handler for Javascript messages related to the "system" view.
-class SystemInfoHandler : public WebUIMessageHandler {
+class SystemInfoUIHandler : public WebUIMessageHandler {
  public:
-  SystemInfoHandler();
+  SystemInfoUIHandler();
 
-  SystemInfoHandler(const SystemInfoHandler&) = delete;
-  SystemInfoHandler& operator=(const SystemInfoHandler&) = delete;
+  SystemInfoUIHandler(const SystemInfoUIHandler&) = delete;
+  SystemInfoUIHandler& operator=(const SystemInfoUIHandler&) = delete;
 
-  ~SystemInfoHandler() override;
+  ~SystemInfoUIHandler() override;
 
   // WebUIMessageHandler implementation.
   void RegisterMessages() override;
@@ -87,57 +87,58 @@ class SystemInfoHandler : public WebUIMessageHandler {
 
   // Callback for the "requestSystemInfo" message. This asynchronously requests
   // system info and eventually returns it to the front end.
-  void HandleRequestSystemInfo(const base::ListValue* args);
+  void HandleRequestSystemInfo(const base::Value::List& args);
 
   void OnSystemInfo(std::unique_ptr<SystemLogsResponse> sys_info);
 
  private:
   std::string callback_id_;
-  base::WeakPtrFactory<SystemInfoHandler> weak_ptr_factory_{this};
+  base::WeakPtrFactory<SystemInfoUIHandler> weak_ptr_factory_{this};
 };
 
 ////////////////////////////////////////////////////////////////////////////////
 //
-// SystemInfoHandler
+// SystemInfoUIHandler
 //
 ////////////////////////////////////////////////////////////////////////////////
-SystemInfoHandler::SystemInfoHandler() {}
+SystemInfoUIHandler::SystemInfoUIHandler() {}
 
-SystemInfoHandler::~SystemInfoHandler() {}
+SystemInfoUIHandler::~SystemInfoUIHandler() {}
 
-void SystemInfoHandler::OnJavascriptDisallowed() {
+void SystemInfoUIHandler::OnJavascriptDisallowed() {
   weak_ptr_factory_.InvalidateWeakPtrs();
   callback_id_.clear();
 }
 
-void SystemInfoHandler::RegisterMessages() {
-  web_ui()->RegisterDeprecatedMessageCallback(
+void SystemInfoUIHandler::RegisterMessages() {
+  web_ui()->RegisterMessageCallback(
       "requestSystemInfo",
-      base::BindRepeating(&SystemInfoHandler::HandleRequestSystemInfo,
+      base::BindRepeating(&SystemInfoUIHandler::HandleRequestSystemInfo,
                           base::Unretained(this)));
 }
 
-void SystemInfoHandler::HandleRequestSystemInfo(const base::ListValue* args) {
+void SystemInfoUIHandler::HandleRequestSystemInfo(
+    const base::Value::List& args) {
   AllowJavascript();
-  callback_id_ = args->GetList()[0].GetString();
+  callback_id_ = args[0].GetString();
 
   system_logs::SystemLogsFetcher* fetcher =
       system_logs::BuildAboutSystemLogsFetcher();
-  fetcher->Fetch(base::BindOnce(&SystemInfoHandler::OnSystemInfo,
+  fetcher->Fetch(base::BindOnce(&SystemInfoUIHandler::OnSystemInfo,
                                 weak_ptr_factory_.GetWeakPtr()));
 }
 
-void SystemInfoHandler::OnSystemInfo(
+void SystemInfoUIHandler::OnSystemInfo(
     std::unique_ptr<SystemLogsResponse> sys_info) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   if (!sys_info)
     return;
-  base::ListValue data;
+  base::Value::List data;
   for (SystemLogsResponse::const_iterator it = sys_info->begin();
        it != sys_info->end(); ++it) {
-    auto val = std::make_unique<base::DictionaryValue>();
-    val->SetString("statName", it->first);
-    val->SetString("statValue", it->second);
+    base::Value::Dict val;
+    val.Set("statName", it->first);
+    val.Set("statValue", it->second);
     data.Append(std::move(val));
   }
   ResolveJavascriptCallback(base::Value(callback_id_), data);
@@ -151,9 +152,8 @@ void SystemInfoHandler::OnSystemInfo(
 ////////////////////////////////////////////////////////////////////////////////
 
 SystemInfoUI::SystemInfoUI(content::WebUI* web_ui) : WebUIController(web_ui) {
-  web_ui->AddMessageHandler(std::make_unique<SystemInfoHandler>());
+  web_ui->AddMessageHandler(std::make_unique<SystemInfoUIHandler>());
 
   // Set up the chrome://system/ source.
-  content::WebUIDataSource::Add(Profile::FromWebUI(web_ui),
-                                CreateSystemInfoUIDataSource());
+  CreateAndAddSystemInfoUIDataSource(Profile::FromWebUI(web_ui));
 }

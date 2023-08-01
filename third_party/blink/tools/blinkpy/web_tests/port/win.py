@@ -39,10 +39,8 @@ try:
 except ImportError:
     _winreg = None  # pylint: disable=invalid-name
 
-from blinkpy.common import exit_codes
 from blinkpy.common.memoized import memoized
 from blinkpy.web_tests.breakpad.dump_reader_win import DumpReaderWin
-from blinkpy.web_tests.models import test_run_results
 from blinkpy.web_tests.port import base
 
 _log = logging.getLogger(__name__)
@@ -51,11 +49,12 @@ _log = logging.getLogger(__name__)
 class WinPort(base.Port):
     port_name = 'win'
 
-    SUPPORTED_VERSIONS = ('win7', 'win10.20h2')
+    SUPPORTED_VERSIONS = ('win10.20h2', 'win11-arm64', 'win11')
 
     FALLBACK_PATHS = {}
-    FALLBACK_PATHS['win10.20h2'] = ['win']
-    FALLBACK_PATHS['win7'] = ['win7'] + FALLBACK_PATHS['win10.20h2']
+    FALLBACK_PATHS['win11'] = ['win']
+    FALLBACK_PATHS['win10.20h2'] = ['win10'] + FALLBACK_PATHS['win11']
+    FALLBACK_PATHS['win11-arm64'] = ['win11-arm64'] + FALLBACK_PATHS['win11']
 
     BUILD_REQUIREMENTS_URL = 'https://chromium.googlesource.com/chromium/src/+/main/docs/windows_build_instructions.md'
 
@@ -63,16 +62,20 @@ class WinPort(base.Port):
     def determine_full_port_name(cls, host, options, port_name):
         if port_name.endswith('win'):
             assert host.platform.is_win()
-            # We don't maintain separate baselines for vista, so we pretend it is win7.
-            if host.platform.os_version in ('vista', '7sp0', '7sp1'):
-                version = 'win7'
-            # Same for win8, win10.1909 we treat it as win10.
-            elif host.platform.os_version in ('8', '8.1', '10.1909', '10.20h2',
-                                              'future'):
+            # We don't maintain separate baselines for vista, win7, win8, win10.1909 we treat it as win10.
+            if host.platform.os_version in ('vista', '7sp0', '7sp1',
+                                              '8', '8.1', '10.1909',
+                                              '10.20h2'):
                 version = 'win10.20h2'
+            elif host.platform.os_version in ('11', 'future'):
+                version = 'win11'
             else:
                 version = host.platform.os_version
+
             port_name = port_name + '-' + version
+            if host.platform.get_machine() == 'arm64':
+                port_name = port_name + '-arm64'
+
         return port_name
 
     def __init__(self, host, port_name, **kwargs):
@@ -84,6 +87,9 @@ class WinPort(base.Port):
             self._dump_reader = None
         else:
             self._dump_reader = DumpReaderWin(host, self._build_path())
+
+        if port_name.endswith('arm64'):
+            self._architecture = 'arm64'
 
     def additional_driver_flags(self):
         flags = super(WinPort, self).additional_driver_flags()
@@ -216,6 +222,10 @@ class WinPort(base.Port):
         return val
 
     def path_to_apache(self):
+        if self._architecture == 'arm64':
+            return self._path_from_chromium_base('third_party',
+                                                 'apache-windows-arm64', 'bin',
+                                                 'httpd.exe')
         return self._path_from_chromium_base('third_party', 'apache-win32',
                                              'bin', 'httpd.exe')
 

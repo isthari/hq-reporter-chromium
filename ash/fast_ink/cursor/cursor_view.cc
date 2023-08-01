@@ -1,23 +1,20 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/fast_ink/cursor/cursor_view.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
-#include "base/task/post_task.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
 #include "cc/paint/paint_canvas.h"
 #include "ui/aura/window.h"
-#include "ui/events/base_event_utils.h"
 #include "ui/gfx/geometry/skia_conversions.h"
 #include "ui/gfx/presentation_feedback.h"
-#include "ui/views/widget/widget.h"
 
-namespace cursor {
+namespace ash {
 namespace {
 
 // Amount of time without cursor movement before entering stationary state.
@@ -61,7 +58,7 @@ gfx::Vector2dF InterpolateBetween(const gfx::Vector2dF& start,
 CursorView::CursorView(const gfx::Point& initial_location,
                        bool is_motion_blur_enabled)
     : is_motion_blur_enabled_(is_motion_blur_enabled),
-      ui_task_runner_(base::ThreadTaskRunnerHandle::Get()),
+      ui_task_runner_(base::SingleThreadTaskRunner::GetCurrentDefault()),
       paint_task_runner_(base::ThreadPool::CreateSingleThreadTaskRunner(
           {base::TaskPriority::USER_BLOCKING,
            base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN})),
@@ -83,9 +80,8 @@ CursorView::CursorView(const gfx::Point& initial_location,
 
   // Create transform used to convert cursor controller coordinates to screen
   // coordinates.
-  bool inversible = host()->window_to_buffer_transform().GetInverse(
-      &buffer_to_screen_transform_);
-  DCHECK(inversible);
+  buffer_to_screen_transform_ =
+      host()->window_to_buffer_transform().GetCheckedInverse();
 
   ui::CursorController::GetInstance()->AddCursorObserver(this);
 }
@@ -100,14 +96,13 @@ CursorView::~CursorView() {
 views::UniqueWidgetPtr CursorView::Create(const gfx::Point& initial_location,
                                           bool is_motion_blur_enabled,
                                           aura::Window* container) {
-  return fast_ink::FastInkView::CreateWidgetWithContents(
+  return FastInkView::CreateWidgetWithContents(
       base::WrapUnique(
           new CursorView(initial_location, is_motion_blur_enabled)),
       container);
 }
 
-fast_ink::FastInkHost::PresentationCallback
-CursorView::GetPresentationCallback() {
+FastInkHost::PresentationCallback CursorView::GetPresentationCallback() {
   return base::BindRepeating(&CursorView::DidPresentCompositorFrame,
                              base::Unretained(this));
 }
@@ -135,8 +130,7 @@ void CursorView::SetCursorImage(const gfx::ImageSkia& cursor_image,
 // ui::CursorController::CursorObserver overrides:
 
 void CursorView::OnCursorLocationChanged(const gfx::PointF& location) {
-  gfx::PointF new_location_f = location;
-  buffer_to_screen_transform_.TransformPoint(&new_location_f);
+  gfx::PointF new_location_f = buffer_to_screen_transform_.MapPoint(location);
   gfx::Point new_location = gfx::ToRoundedPoint(new_location_f);
 
   {
@@ -238,8 +232,9 @@ void CursorView::OnTimerTick() {
     TRACE_EVENT1("ui", "CursorView::Paint", "damage_rect",
                  damage_rect.ToString());
 
-    ScopedPaint paint(this, damage_rect);
-    cc::PaintCanvas* sk_canvas = paint.canvas().sk_canvas();
+    auto paint = GetScopedPaint(damage_rect);
+
+    cc::PaintCanvas* sk_canvas = paint->canvas().sk_canvas();
     sk_canvas->translate(SkIntToScalar(location_.x() - cursor_hotspot_.x()),
                          SkIntToScalar(location_.y() - cursor_hotspot_.y()));
 
@@ -247,19 +242,19 @@ void CursorView::OnTimerTick() {
       sk_canvas->translate(SkIntToScalar(motion_blur_offset_.x()),
                            SkIntToScalar(motion_blur_offset_.y()));
 
-      sk_canvas->concat(motion_blur_inverse_matrix_);
+      sk_canvas->concat(SkM44(motion_blur_inverse_matrix_));
       SkRect blur_rect = SkRect::MakeWH(SkIntToScalar(cursor_size_.width()),
                                         SkIntToScalar(cursor_size_.height()));
       motion_blur_matrix_.mapRect(&blur_rect);
       cc::PaintFlags flags;
       flags.setImageFilter(motion_blur_filter_);
-      sk_canvas->saveLayer(&blur_rect, &flags);
-      sk_canvas->concat(motion_blur_matrix_);
-      paint.canvas().DrawImageInt(cursor_image_, 0, 0);
+      sk_canvas->saveLayer(blur_rect, flags);
+      sk_canvas->concat(SkM44(motion_blur_matrix_));
+      paint->canvas().DrawImageInt(cursor_image_, 0, 0);
       sk_canvas->restore();
     } else {
       // Fast path for when motion blur is not present.
-      paint.canvas().DrawImageInt(cursor_image_, 0, 0);
+      paint->canvas().DrawImageInt(cursor_image_, 0, 0);
     }
   }
 
@@ -348,4 +343,4 @@ void CursorView::DidPresentCompositorFrame(
                      feedback.interval));
 }
 
-}  // namespace cursor
+}  // namespace ash

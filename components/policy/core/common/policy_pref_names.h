@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,28 +9,64 @@
 #include "components/policy/policy_export.h"
 
 namespace policy {
+
+// Possible values for Incognito mode availability. Please, do not change
+// the order of entries since numeric values are exposed to users.
+enum class IncognitoModeAvailability {
+  // Incognito mode enabled. Users may open pages in both Incognito mode and
+  // normal mode (usually the default behaviour).
+  kEnabled = 0,
+  // Incognito mode disabled. Users may not open pages in Incognito mode.
+  // Only normal mode is available for browsing.
+  kDisabled,
+  // Incognito mode forced. Users may open pages *ONLY* in Incognito mode.
+  // Normal mode is not available for browsing.
+  kForced,
+
+  kNumTypes
+};
+
 namespace policy_prefs {
 
-POLICY_EXPORT extern const char kCloudManagementEnrollmentMandatory[];
-POLICY_EXPORT extern const char kDlpClipboardCheckSizeLimit[];
-POLICY_EXPORT extern const char kDlpReportingEnabled[];
-POLICY_EXPORT extern const char kDlpRulesList[];
-POLICY_EXPORT extern const char kLastPolicyStatisticsUpdate[];
-POLICY_EXPORT extern const char kNativeWindowOcclusionEnabled[];
-POLICY_EXPORT extern const char kSafeSitesFilterBehavior[];
-POLICY_EXPORT extern const char kSystemFeaturesDisableList[];
-POLICY_EXPORT extern const char kSystemFeaturesDisableMode[];
-POLICY_EXPORT extern const char kUrlBlocklist[];
-POLICY_EXPORT extern const char kUrlAllowlist[];
-POLICY_EXPORT extern const char kUserPolicyRefreshRate[];
-POLICY_EXPORT extern const char kIntensiveWakeUpThrottlingEnabled[];
-POLICY_EXPORT extern const char kTargetBlankImpliesNoOpener[];
-POLICY_EXPORT extern const char kUserAgentClientHintsGREASEUpdateEnabled[];
+#if BUILDFLAG(IS_WIN)
+extern const char kAzureActiveDirectoryManagement[];
+extern const char kEnterpriseMDMManagementWindows[];
+#endif
+extern const char kCloudManagementEnrollmentMandatory[];
+extern const char kDlpClipboardCheckSizeLimit[];
+extern const char kDlpReportingEnabled[];
+extern const char kDlpRulesList[];
+#if BUILDFLAG(IS_MAC)
+extern const char kEnterpriseMDMManagementMac[];
+extern const char kScreenTimeEnabled[];
+#endif
+extern const char kLastPolicyStatisticsUpdate[];
+extern const char kNativeWindowOcclusionEnabled[];
+extern const char kSafeSitesFilterBehavior[];
+extern const char kSystemFeaturesDisableList[];
+extern const char kSystemFeaturesDisableMode[];
+extern const char kUrlBlocklist[];
+extern const char kUrlAllowlist[];
+extern const char kUserPolicyRefreshRate[];
+extern const char kIntensiveWakeUpThrottlingEnabled[];
+extern const char kUserAgentClientHintsGREASEUpdateEnabled[];
 #if BUILDFLAG(IS_ANDROID)
-POLICY_EXPORT extern const char kBackForwardCacheEnabled[];
+extern const char kBackForwardCacheEnabled[];
 #endif  // BUILDFLAG(IS_ANDROID)
-POLICY_EXPORT extern const char kWebSQLInThirdPartyContextEnabled[];
-POLICY_EXPORT extern const char kWindowPlacementAlwaysAllowed[];
+extern const char kIsolatedAppsDeveloperModeAllowed[];
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
+extern const char kLastPolicyCheckTime[];
+#endif
+#if BUILDFLAG(IS_IOS)
+extern const char kUserPolicyNotificationWasShown[];
+#endif
+extern const char kEventPathEnabled[];
+extern const char kOffsetParentNewSpecBehaviorEnabled[];
+extern const char kSendMouseEventsDisabledFormControlsEnabled[];
+extern const char kForceGoogleSafeSearch[];
+extern const char kForceYouTubeRestrict[];
+extern const char kHideWebStoreIcon[];
+extern const char kIncognitoModeAvailability[];
 
 }  // namespace policy_prefs
 }  // namespace policy

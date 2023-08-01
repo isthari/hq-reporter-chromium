@@ -1,17 +1,17 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/notifications/notification_platform_bridge_win.h"
 
+#include <windows.ui.notifications.h>
+#include <wrl/client.h>
+#include <wrl/implements.h>
+
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
-
-#include <windows.ui.notifications.h>
-#include <wrl/client.h>
-#include <wrl/implements.h>
 
 #include "base/hash/hash.h"
 #include "base/logging.h"
@@ -19,7 +19,6 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/win/scoped_com_initializer.h"
 #include "base/win/scoped_hstring.h"
-#include "base/win/windows_version.h"
 #include "chrome/browser/notifications/notification_common.h"
 #include "chrome/browser/notifications/win/fake_itoastnotification.h"
 #include "chrome/browser/notifications/win/fake_notification_image_retainer.h"
@@ -68,7 +67,7 @@ class NotificationPlatformBridgeWinTest : public testing::Test {
     GURL origin(kOrigin);
     auto notification = std::make_unique<message_center::Notification>(
         message_center::NOTIFICATION_TYPE_SIMPLE, kNotificationId, u"title",
-        u"message", gfx::Image(), u"display_source", origin,
+        u"message", ui::ImageModel(), u"display_source", origin,
         message_center::NotifierId(origin),
         message_center::RichNotificationData(), nullptr /* delegate */);
     notification->set_renotify(renotify);
@@ -98,11 +97,6 @@ class NotificationPlatformBridgeWinTest : public testing::Test {
 };
 
 TEST_F(NotificationPlatformBridgeWinTest, GroupAndTag) {
-  // This test requires WinRT core functions, which are not available in
-  // older versions of Windows.
-  if (base::win::GetVersion() < base::win::Version::WIN8)
-    return;
-
   base::win::ScopedCOMInitializer com_initializer;
 
   NotificationPlatformBridgeWin bridge;
@@ -134,11 +128,6 @@ TEST_F(NotificationPlatformBridgeWinTest, GroupAndTag) {
 }
 
 TEST_F(NotificationPlatformBridgeWinTest, GroupAndTagUniqueness) {
-  // This test requires WinRT core functions, which are not available in
-  // older versions of Windows.
-  if (base::win::GetVersion() < base::win::Version::WIN8)
-    return;
-
   base::win::ScopedCOMInitializer com_initializer;
 
   NotificationPlatformBridgeWin bridge;
@@ -213,11 +202,6 @@ TEST_F(NotificationPlatformBridgeWinTest, GroupAndTagUniqueness) {
 }
 
 TEST_F(NotificationPlatformBridgeWinTest, Suppress) {
-  // This test requires WinRT core functions, which are not available in
-  // older versions of Windows.
-  if (base::win::GetVersion() < base::win::Version::WIN8)
-    return;
-
   base::win::ScopedCOMInitializer com_initializer;
 
   NotificationPlatformBridgeWin bridge;

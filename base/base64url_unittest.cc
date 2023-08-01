@@ -1,9 +1,10 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/base64url.h"
 
+#include "base/ranges/algorithm.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace base {
@@ -73,6 +74,16 @@ TEST(Base64UrlTest, DecodeIgnorePaddingPolicy) {
                               Base64UrlDecodePolicy::IGNORE_PADDING, &output));
 
   EXPECT_EQ("hello?world", output);
+}
+
+TEST(Base64UrlTest, DecodeIntoVector) {
+  ASSERT_FALSE(
+      Base64UrlDecode("invalid=", Base64UrlDecodePolicy::DISALLOW_PADDING));
+
+  static constexpr uint8_t kExpected[] = {'1', '2', '3', '4'};
+  absl::optional<std::vector<uint8_t>> result =
+      Base64UrlDecode("MTIzNA", Base64UrlDecodePolicy::DISALLOW_PADDING);
+  ASSERT_TRUE(ranges::equal(*result, kExpected));
 }
 
 TEST(Base64UrlTest, DecodeDisallowPaddingPolicy) {

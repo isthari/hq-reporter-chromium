@@ -1,13 +1,18 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/memory/raw_ptr.h"
+#include "base/run_loop.h"
 #include "build/build_config.h"
 #include "chrome/browser/media/router/media_router_feature.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/frame/top_container_view.h"
+#include "chrome/browser/ui/views/global_media_controls/media_dialog_view.h"
+#include "chrome/browser/ui/views/media_router/cast_dialog_coordinator.h"
 #include "chrome/browser/ui/views/media_router/cast_dialog_view.h"
 #include "chrome/browser/ui/views/media_router/media_router_dialog_controller_views.h"
 #include "chrome/test/base/in_process_browser_test.h"
@@ -18,6 +23,8 @@
 #include "content/public/test/browser_test.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/page_transition_types.h"
+#include "ui/views/test/widget_test.h"
+#include "ui/views/widget/native_widget_private.h"
 #include "ui/views/widget/widget.h"
 
 #if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
@@ -31,8 +38,9 @@ namespace media_router {
 std::unique_ptr<StartPresentationContext> CreateStartPresentationContext(
     content::WebContents* content) {
   return std::make_unique<StartPresentationContext>(
-      content::PresentationRequest(content->GetMainFrame()->GetGlobalId(),
-                                   {GURL(), GURL()}, url::Origin()),
+      content::PresentationRequest(
+          content->GetPrimaryMainFrame()->GetGlobalId(), {GURL(), GURL()},
+          url::Origin()),
       base::DoNothing(), base::DoNothing());
 }
 
@@ -49,10 +57,18 @@ class MediaRouterDialogControllerViewsTest : public InProcessBrowserTest {
 
   void OpenMediaRouterDialog();
   void CreateDialogController();
+  void CloseWebContents();
 
  protected:
-  raw_ptr<WebContents> initiator_;
-  raw_ptr<MediaRouterDialogControllerViews> dialog_controller_;
+  void ShowDialogForPresentation() {
+    dialog_controller_->ShowMediaRouterDialogForPresentation(
+        CreateStartPresentationContext(initiator_));
+    base::RunLoop().RunUntilIdle();
+  }
+
+  raw_ptr<WebContents, DanglingUntriaged> initiator_;
+  raw_ptr<MediaRouterDialogControllerViews, DanglingUntriaged>
+      dialog_controller_;
 };
 
 void MediaRouterDialogControllerViewsTest::CreateDialogController() {
@@ -70,20 +86,49 @@ void MediaRouterDialogControllerViewsTest::CreateDialogController() {
 void MediaRouterDialogControllerViewsTest::OpenMediaRouterDialog() {
   CreateDialogController();
   // Show the media router dialog for the initiator.
-  dialog_controller_->ShowMediaRouterDialog(MediaRouterDialogOpenOrigin::PAGE);
+  dialog_controller_->ShowMediaRouterDialog(
+      MediaRouterDialogActivationLocation::PAGE);
   ASSERT_TRUE(dialog_controller_->IsShowingMediaRouterDialog());
+}
+
+void MediaRouterDialogControllerViewsTest::CloseWebContents() {
+  initiator_->Close();
 }
 
 // Create/Get a media router dialog for initiator.
 IN_PROC_BROWSER_TEST_F(MediaRouterDialogControllerViewsTest,
                        OpenCloseMediaRouterDialog) {
   OpenMediaRouterDialog();
-  views::Widget* widget = CastDialogView::GetCurrentDialogWidget();
+  views::Widget* widget =
+      dialog_controller_->GetCastDialogCoordinatorForTesting()
+          .GetCastDialogWidget();
   ASSERT_TRUE(widget);
   EXPECT_TRUE(widget->HasObserver(dialog_controller_));
   dialog_controller_->CloseMediaRouterDialog();
   EXPECT_FALSE(dialog_controller_->IsShowingMediaRouterDialog());
-  EXPECT_EQ(CastDialogView::GetCurrentDialogWidget(), nullptr);
+  EXPECT_EQ(dialog_controller_->GetCastDialogCoordinatorForTesting()
+                .GetCastDialogWidget(),
+            nullptr);
+}
+
+// Regression test for crbug.com/1308341.
+IN_PROC_BROWSER_TEST_F(MediaRouterDialogControllerViewsTest,
+                       MediaBubbleClosedByPlatform) {
+  OpenMediaRouterDialog();
+  base::RunLoop().RunUntilIdle();
+  CastDialogCoordinator& cast_dialog_coordinator =
+      dialog_controller_->GetCastDialogCoordinatorForTesting();
+  views::Widget* widget = cast_dialog_coordinator.GetCastDialogWidget();
+  ASSERT_TRUE(widget);
+  EXPECT_TRUE(widget->HasObserver(dialog_controller_));
+  // The media bubble usually will close itself on deactivation, but
+  // crbug.com/1308341 shows a state where the browser is not responsive
+  // to activation change. Simulate that.
+  cast_dialog_coordinator.GetCastDialogView()->set_close_on_deactivate(false);
+  views::test::WidgetDestroyedWaiter waiter(widget);
+  widget->native_widget_private()->Close();
+  waiter.Wait();
+  CloseWebContents();
 }
 
 // The feature |media_router::kGlobalMediaControlsCastStartStop| is supported
@@ -113,8 +158,7 @@ IN_PROC_BROWSER_TEST_F(GlobalMediaControlsDialogTest, OpenGMCDialog) {
   ASSERT_TRUE(ui_test_utils::NavigateToURL(
       browser(), embedded_test_server()->GetURL("/simple_page.html")));
   CreateDialogController();
-  dialog_controller_->ShowMediaRouterDialogForPresentation(
-      CreateStartPresentationContext(initiator_));
+  ShowDialogForPresentation();
   ASSERT_TRUE(MediaDialogView::IsShowing());
   auto* view = MediaDialogView::GetDialogViewForTesting();
   ASSERT_TRUE(view->GetAnchorView());
@@ -128,17 +172,15 @@ IN_PROC_BROWSER_TEST_F(GlobalMediaControlsDialogTest, OpenGMCDialogInWebApp) {
       browser(), embedded_test_server()->GetURL("/simple_page.html")));
   CreateDialogController();
   dialog_controller_->SetHideMediaButtonForTesting(true);
-  dialog_controller_->ShowMediaRouterDialogForPresentation(
-      CreateStartPresentationContext(initiator_));
+  ShowDialogForPresentation();
 
   ASSERT_TRUE(MediaDialogView::IsShowing());
   auto* view = MediaDialogView::GetDialogViewForTesting();
   // If there does not exist a media button, the dialog should not have an
   // anchor view.
-  EXPECT_FALSE(view->GetAnchorView());
-  gfx::Rect anchor_bounds = initiator_->GetContainerBounds();
-  anchor_bounds.set_height(0);
-  EXPECT_EQ(anchor_bounds, view->GetAnchorRect());
+  views::View* anchor_view =
+      BrowserView::GetBrowserViewForBrowser(browser())->top_container();
+  EXPECT_EQ(anchor_view, view->GetAnchorView());
 }
 
 IN_PROC_BROWSER_TEST_F(GlobalMediaControlsDialogTest,
@@ -154,9 +196,8 @@ IN_PROC_BROWSER_TEST_F(GlobalMediaControlsDialogTest,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
   ASSERT_NE(initiator_, browser()->tab_strip_model()->GetActiveWebContents());
 
+  ShowDialogForPresentation();
   // |initiator_| should become active after the GMC dialog is open.
-  dialog_controller_->ShowMediaRouterDialogForPresentation(
-      CreateStartPresentationContext(initiator_));
   ASSERT_EQ(initiator_, browser()->tab_strip_model()->GetActiveWebContents());
 }
 

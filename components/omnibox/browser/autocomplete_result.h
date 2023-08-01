@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,8 @@
 #include "components/omnibox/browser/autocomplete_match.h"
 #include "components/omnibox/browser/match_compare.h"
 #include "components/omnibox/browser/search_suggestion_parser.h"
+#include "components/omnibox/browser/suggestion_group_util.h"
+#include "third_party/omnibox_proto/groups.pb.h"
 #include "url/gurl.h"
 
 #if BUILDFLAG(IS_ANDROID)
@@ -25,6 +27,7 @@
 class AutocompleteInput;
 class AutocompleteProvider;
 class AutocompleteProviderClient;
+class OmniboxTriggeredFeatureService;
 class PrefService;
 class TemplateURLService;
 
@@ -35,7 +38,7 @@ class AutocompleteResult {
  public:
   typedef ACMatches::const_iterator const_iterator;
   typedef ACMatches::iterator iterator;
-  using MatchDedupComparator = std::pair<GURL, bool>;
+  using MatchDedupComparator = ACMatchKey<std::string, bool>;
 
   // Max number of matches we'll show from the various providers. This limit
   // may be different for zero suggest and non zero suggest. Does not take into
@@ -91,20 +94,16 @@ class AutocompleteResult {
   // Moves matches from |old_matches| to provide a consistent result set.
   // |old_matches| is mutated during this, and should not be used afterwards.
   void TransferOldMatches(const AutocompleteInput& input,
-                          AutocompleteResult* old_matches,
-                          TemplateURLService* template_url_service);
+                          AutocompleteResult* old_matches);
 
-  // Adds a new set of matches to the result set.  Does not re-sort.  Calls
-  // PossiblySwapContentsAndDescriptionForURLSuggestion(input) on all added
-  // matches; see comments there for more information.
-  void AppendMatches(const AutocompleteInput& input,
-                     const ACMatches& matches);
+  // Adds a new set of matches to the result set.  Does not re-sort.
+  void AppendMatches(const ACMatches& matches);
 
   // Removes duplicates, puts the list in sorted order and culls to leave only
   // the best GetMaxMatches() matches. Sets the default match to the best match
   // and updates the alternate nav URL.
   //
-  // |preserve_default_match| can be used to prevent the default match from
+  // |default_match_to_preserve| can be used to prevent the default match from
   // being surprisingly swapped out during the asynchronous pass. If it has a
   // value, this method searches the results for that match, and promotes it to
   // the top. But we don't add back that match if it doesn't already exist.
@@ -113,25 +112,37 @@ class AutocompleteResult {
   // (except for the first match) or no tail suggestions.
   void SortAndCull(const AutocompleteInput& input,
                    TemplateURLService* template_url_service,
-                   const AutocompleteMatch* preserve_default_match = nullptr);
+                   OmniboxTriggeredFeatureService* triggered_feature_service,
+                   absl::optional<AutocompleteMatch> default_match_to_preserve =
+                       absl::nullopt);
 
-  // Ensures that matches with headers, i.e., matches with a suggestion_group_id
-  // value, are grouped together at the bottom of result set based on their
-  // suggestion_group_id values and in the order the group IDs first appear.
-  // Certain types of remote zero-prefix matches need to appear under a header
-  // for transparency reasons. This information is sent to Chrome by the server.
-  // Also it is possible for zero-prefix matches from different providers (e.g.,
-  // local and remote) to mix and match. Hence, we group matches with the same
-  // headers and demote them to the bottom of the result set to ensure, one,
-  // matches without headers appear at the top of the result set, and two, there
-  // are no interleaving headers whether this is caused by bad server data or by
-  // mixing of local and remote zero-prefix suggestions.
-  // Note that prior to grouping and demoting the matches with headers, we strip
-  // all match group IDs that don't have an equivalent header string;
-  // essentially treating those matches as if they did not belong to any
-  // suggestion group.
+  // Ensures that matches belonging to suggestion groups, i.e., those with a
+  // suggestion_group_id value and a corresponding suggestion group info, are
+  // grouped together at the bottom of result set based on the order in which
+  // the groups should appear in the result set. This is done for two reasons:
+  //
+  // 1) Certain groups of remote zero-prefix matches need to appear under a
+  // header as specified in omnibox::GroupConfig. GroupConfigs are
+  // uniquely identified by the group IDs in |suggestion_groups_map_|. It is
+  // also possible for zero-prefix matches to mix and match while belonging to
+  // the same groups (e.g., bad server data or mixing of local and remote
+  // suggestions from different providers). Hence, after mixing, deduping, and
+  // sorting the matches, we group the ones with the same group ID and demote
+  // them to the bottom of the result set based on a predetermined order. This
+  // ensures matches without group IDs or omnibox::GroupConfig to appear at
+  // the top of the result set, and two, there are no interleaving of groups or
+  // headers;
+  //
+  // 2) Certain groups of non-zero-prefix matches, such as those produced by the
+  // HistoryClusterProvider, must appear at the bottom of the result set.
+  // Specifying a group ID (and a corresponding suggestion group info) for those
+  // matches ensures that would happen.
+  //
   // Called after matches are deduped and sorted and before they are culled.
-  void GroupAndDemoteMatchesWithHeaders();
+  void GroupAndDemoteMatchesInGroups();
+
+  // Filter and remove OmniboxActions according to Platform-specific rules.
+  void TrimOmniboxActions(bool is_zero_suggest);
 
   // Sets |action| in matches that have Pedal-triggering text.
   void AttachPedalsToMatches(const AutocompleteInput& input,
@@ -170,9 +181,11 @@ class AutocompleteResult {
                                           ACMatches* matches);
 
   // If the top match is a Search Entity, and it was deduplicated with a
-  // non-entity match, split off the non-entity match from the list of
-  // duplicates and promote it to the top.
-  static void DiscourageTopMatchFromBeingSearchEntity(ACMatches* matches);
+  // non-entity match, splits off the non-entity match from the list of
+  // duplicates and returns true. Otherwise returns false.
+  // The non-entity duplicate is promoted to the top, unless the entity match
+  // has Action in Suggest where it remains at the top.
+  static bool UndedupTopSearchEntityMatch(ACMatches* matches);
 
   // Just a helper function to encapsulate the logic of deciding how many
   // matches to keep, with respect to configured maximums, URL limits,
@@ -188,19 +201,14 @@ class AutocompleteResult {
       const ACMatches& matches,
       const CompareWithDemoteByType<AutocompleteMatch>& comparing_object);
 
-  const SearchSuggestionParser::HeadersMap& headers_map() const {
-    return headers_map_;
+  const omnibox::GroupConfigMap& suggestion_groups_map() const {
+    return suggestion_groups_map_;
   }
-
-  const std::set<int>& hidden_group_ids() const { return hidden_group_ids_; }
 
   // Clears the matches for this result set.
   void Reset();
 
   void Swap(AutocompleteResult* other);
-
-  // operator=() by another name.
-  void CopyFrom(const AutocompleteResult& other);
 
 #if DCHECK_IS_ON()
   // Does a data integrity check on this result.
@@ -217,13 +225,6 @@ class AutocompleteResult {
   // Gets common prefix from SEARCH_SUGGEST_TAIL matches
   std::u16string GetCommonPrefix();
 
-  // Populates tail_suggest_common_prefix on the matches as well as prepends
-  // ellipses.
-  void SetTailSuggestContentPrefixes();
-
-  // Populates tail_suggest_common_prefix on the matches.
-  void SetTailSuggestCommonPrefixes();
-
   // Estimates dynamic memory usage.
   // See base/trace_event/memory_usage_estimator.h for more info.
   size_t EstimateMemoryUsage() const;
@@ -232,37 +233,68 @@ class AutocompleteResult {
   // This is only used for logging.
   std::vector<MatchDedupComparator> GetMatchDedupComparators() const;
 
-  // Gets the header string associated with |suggestion_group_id|. Returns an
-  // empty string if no header is found.
-  std::u16string GetHeaderForGroupId(int suggestion_group_id) const;
+  // Returns the header string associated with |suggestion_group_id|.
+  // Returns an empty string if |suggestion_group_id| is not found in
+  // |suggestion_groups_map_|.
+  std::u16string GetHeaderForSuggestionGroup(
+      omnibox::GroupId suggestion_group_id) const;
 
   // Returns whether or not |suggestion_group_id| should be collapsed in the UI.
-  // This method takes into account both the user's stored |prefs| as well as
+  // This method takes into account both the user's stored prefs as well as
   // the server-provided visibility hint for |suggestion_group_id|.
-  bool IsSuggestionGroupIdHidden(PrefService* prefs,
-                                 int suggestion_group_id) const;
+  // Returns false if |suggestion_group_id| is not found in
+  // |suggestion_groups_map_| or if the suggestion group does not contain the
+  // original server provided group ID.
+  bool IsSuggestionGroupHidden(PrefService* prefs,
+                               omnibox::GroupId suggestion_group_id) const;
 
-  void MergeHeadersMap(const SearchSuggestionParser::HeadersMap& headers_map);
+  // Sets the UI collapsed/expanded state of the |suggestion_group_id| in the
+  // user's stored prefs based on the value of |hidden|.
+  // Returns early if |suggestion_group_id| is not found in
+  // |suggestion_groups_map_| or if the suggestion group does not contains the
+  // original server provided group ID.
+  void SetSuggestionGroupHidden(PrefService* prefs,
+                                omnibox::GroupId suggestion_group_id,
+                                bool hidden) const;
 
-  void MergeHiddenGroupIds(const std::vector<int>& hidden_group_ids);
+  // Returns the section associated with |suggestion_group_id|.
+  // Returns omnibox::SECTION_DEFAULT if |suggestion_group_id| is not found in
+  // |suggestion_groups_map_|.
+  omnibox::GroupSection GetSectionForSuggestionGroup(
+      omnibox::GroupId suggestion_group_id) const;
 
-  // Logs metrics for when |new_result| replaces |old_result| asynchronously.
-  // |old_result| a list of the comparators for the old matches.
-  static void LogAsynchronousUpdateMetrics(
-      const std::vector<MatchDedupComparator>& old_result,
-      const AutocompleteResult& new_result);
+  // Returns the side type associated with `suggestion_group_id`.
+  // Returns omnibox::DEFAULT_PRIMARY if `suggestion_group_id` is not found in
+  // `suggestion_groups_map_`.
+  omnibox::GroupConfig_SideType GetSideTypeForSuggestionGroup(
+      omnibox::GroupId suggestion_group_id) const;
+
+  // Updates |suggestion_groups_map_| with the suggestion groups information
+  // from |suggeston_groups_map|. Followed by GroupAndDemoteMatchesInGroups()
+  // which sorts the matches based on the order in which their groups should
+  // appear while preserving the existing order of matches within the same
+  // group.
+  void MergeSuggestionGroupsMap(
+      const omnibox::GroupConfigMap& suggeston_groups_map);
+
+  // This method implements a stateful stable partition. Matches which are
+  // search types, and their submatches regardless of type, are shifted
+  // earlier in the range, while non-search types and their submatches
+  // are shifted later. For grouping purposes, the starter pack suggestions
+  // (while technically navigation suggestions) are grouped before search types.
+  static void GroupSuggestionsBySearchVsURL(iterator begin, iterator end);
 
   // This value should be comfortably larger than any max-autocomplete-matches
   // under consideration.
   static constexpr size_t kMaxAutocompletePositionValue = 30;
 
  private:
-  FRIEND_TEST_ALL_PREFIXES(AutocompleteResultTest,
-                           DemoteOnDeviceSearchSuggestions);
-  FRIEND_TEST_ALL_PREFIXES(
-      AutocompleteResultTest,
-      GroupSuggestionsBySearchVsURLHonorsProtectedSuggestions);
+  friend class AutocompleteController;  // Friended to use `CopyFrom()`.
+  friend class AutocompleteResultForTesting;
+  friend class AutocompleteProviderTest;
   friend class HistoryURLProviderTest;
+  FRIEND_TEST_ALL_PREFIXES(AutocompleteResultTest, Desktop_TwoColumnRealbox);
+  FRIEND_TEST_ALL_PREFIXES(AutocompleteResultTest, Android_TrimOmniboxActions);
 
   typedef std::map<AutocompleteProvider*, ACMatches> ProviderToMatches;
 
@@ -273,6 +305,10 @@ class AutocompleteResult {
 #else
   typedef ACMatches::iterator::difference_type matches_difference_type;
 #endif
+
+  // operator=() by another name.
+  // To be called in AutocompleteController and AutocompleteProviderTest only.
+  void CopyFrom(const AutocompleteResult& other);
 
   // Modifies |matches| such that any duplicate matches are coalesced into
   // representative "best" matches. The erased matches are moved into the
@@ -318,12 +354,6 @@ class AutocompleteResult {
       size_t max_url_count,
       const CompareWithDemoteByType<AutocompleteMatch>& comparing_object);
 
-  // This method implements a stateful stable partition. Matches which are
-  // search types, and their submatches regardless of type, are shifted
-  // earlier in the range, while non-search types and their submatches
-  // are shifted later.
-  static void GroupSuggestionsBySearchVsURL(iterator begin, iterator end);
-
   // If we have SearchProvider search suggestions, demote OnDeviceProvider
   // search suggestions, since, which in general have lower quality than
   // SearchProvider search suggestions. The demotion can happen in two ways,
@@ -336,11 +366,8 @@ class AutocompleteResult {
 
   ACMatches matches_;
 
-  // The server supplied map of suggestion group IDs to header labels.
-  SearchSuggestionParser::HeadersMap headers_map_;
-
-  // The server supplied list of group IDs that should be hidden-by-default.
-  std::set<int> hidden_group_ids_;
+  // The map of suggestion group IDs to suggestion group information.
+  omnibox::GroupConfigMap suggestion_groups_map_;
 
 #if BUILDFLAG(IS_ANDROID)
   // Corresponding Java object.

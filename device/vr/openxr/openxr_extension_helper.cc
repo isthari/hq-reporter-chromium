@@ -1,10 +1,12 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "device/vr/openxr/openxr_extension_helper.h"
 
 #include <tuple>
+
+#include "base/ranges/algorithm.h"
 
 namespace device {
 
@@ -27,11 +29,11 @@ OpenXrExtensionEnumeration::~OpenXrExtensionEnumeration() = default;
 
 bool OpenXrExtensionEnumeration::ExtensionSupported(
     const char* extension_name) const {
-  return std::find_if(
-             extension_properties_.begin(), extension_properties_.end(),
-             [&extension_name](const XrExtensionProperties& properties) {
-               return strcmp(properties.extensionName, extension_name) == 0;
-             }) != extension_properties_.end();
+  return base::ranges::any_of(
+      extension_properties_,
+      [&extension_name](const XrExtensionProperties& properties) {
+        return strcmp(properties.extensionName, extension_name) == 0;
+      });
 }
 
 OpenXrExtensionHelper::~OpenXrExtensionHelper() = default;
@@ -41,13 +43,6 @@ OpenXrExtensionHelper::OpenXrExtensionHelper(
     const OpenXrExtensionEnumeration* const extension_enumeration)
     : extension_enumeration_(extension_enumeration) {
   // Failure to query a method results in a nullptr
-
-  // D3D11
-  std::ignore = xrGetInstanceProcAddr(
-      instance, "xrGetD3D11GraphicsRequirementsKHR",
-      reinterpret_cast<PFN_xrVoidFunction*>(
-          const_cast<PFN_xrGetD3D11GraphicsRequirementsKHR*>(
-              &extension_methods_.xrGetD3D11GraphicsRequirementsKHR)));
 
   // Hand tracking methods
   std::ignore = xrGetInstanceProcAddr(
@@ -131,6 +126,14 @@ OpenXrExtensionHelper::OpenXrExtensionHelper(
       reinterpret_cast<PFN_xrVoidFunction*>(
           const_cast<PFN_xrGetSceneMeshBuffersMSFT*>(
               &extension_methods_.xrGetSceneMeshBuffersMSFT)));
+
+#if BUILDFLAG(IS_WIN)
+  std::ignore = xrGetInstanceProcAddr(
+      instance, "xrConvertWin32PerformanceCounterToTimeKHR",
+      reinterpret_cast<PFN_xrVoidFunction*>(
+          const_cast<PFN_xrConvertWin32PerformanceCounterToTimeKHR*>(
+              &extension_methods_.xrConvertWin32PerformanceCounterToTimeKHR)));
+#endif
 }
 
 }  // namespace device

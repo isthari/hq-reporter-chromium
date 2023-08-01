@@ -1,17 +1,17 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/renderer_context_menu/mock_render_view_context_menu.h"
 
-#include <algorithm>
-
+#include "base/ranges/algorithm.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/prefs/pref_service.h"
 #include "components/renderer_context_menu/render_view_context_menu_observer.h"
+#include "components/services/screen_ai/buildflags/buildflags.h"
 #include "content/public/browser/browser_context.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -136,7 +136,7 @@ void MockRenderViewContextMenu::AppendSubMenuItems(ui::MenuModel* model) {
   // them. This works in non-mock because of toolkit_delegate_ in RVCMBase.
   // TODO(yusukes,lazyboy): This is a hack. RVCMProxy should neither directly
   // know about but submenu items nor it should update them.
-  for (int i = 0; i < model->GetItemCount(); ++i) {
+  for (size_t i = 0; i < model->GetItemCount(); ++i) {
     MockMenuItem sub_item;
     sub_item.command_id = model->GetCommandIdAt(i);
     sub_item.enabled = model->IsEnabledAt(i);
@@ -191,9 +191,7 @@ void MockRenderViewContextMenu::RemoveMenuItem(int command_id) {
 void MockRenderViewContextMenu::RemoveAdjacentSeparators() {}
 
 void MockRenderViewContextMenu::RemoveSeparatorBeforeMenuItem(int command_id) {
-  auto iter = std::find_if(
-      items_.begin(), items_.end(),
-      [command_id](const auto& item) { return item.command_id == command_id; });
+  auto iter = base::ranges::find(items_, command_id, &MockMenuItem::command_id);
 
   if (iter == items_.end()) {
     FAIL() << "Menu observer is trying to remove a separator before a "
@@ -237,6 +235,30 @@ void MockRenderViewContextMenu::AddAccessibilityLabelsServiceItem(
                    IDS_CONTENT_CONTEXT_ACCESSIBILITY_LABELS_MENU_OPTION),
                &accessibility_labels_submenu_model_);
   }
+}
+
+void MockRenderViewContextMenu::AddPdfOcrMenuItem(bool is_checked) {
+#if BUILDFLAG(ENABLE_SCREEN_AI_SERVICE)
+  if (is_checked) {
+    AddCheckItem(
+        IDC_CONTENT_CONTEXT_PDF_OCR,
+        l10n_util::GetStringUTF16(IDS_CONTENT_CONTEXT_PDF_OCR_MENU_OPTION));
+  } else {
+    ui::SimpleMenuModel pdf_ocr_submenu_model_(this);
+    pdf_ocr_submenu_model_.AddItem(
+        IDC_CONTENT_CONTEXT_PDF_OCR_ALWAYS,
+        l10n_util::GetStringUTF16(
+            IDS_CONTENT_CONTEXT_PDF_OCR_MENU_OPTION_ALWAYS));
+    pdf_ocr_submenu_model_.AddItem(
+        IDC_CONTENT_CONTEXT_PDF_OCR_ONCE,
+        l10n_util::GetStringUTF16(
+            IDS_CONTENT_CONTEXT_PDF_OCR_MENU_OPTION_ONCE));
+    AddSubMenu(
+        IDC_CONTENT_CONTEXT_PDF_OCR,
+        l10n_util::GetStringUTF16(IDS_CONTENT_CONTEXT_PDF_OCR_MENU_OPTION),
+        &pdf_ocr_submenu_model_);
+  }
+#endif  // BUILDFLAG(ENABLE_SCREEN_AI_SERVICE)
 }
 
 content::RenderViewHost* MockRenderViewContextMenu::GetRenderViewHost() const {

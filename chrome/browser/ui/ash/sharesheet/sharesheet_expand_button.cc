@@ -1,11 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/ash/sharesheet/sharesheet_expand_button.h"
 
 #include "ash/public/cpp/ash_typography.h"
-#include "ash/public/cpp/style/scoped_light_mode_as_default.h"
 #include "ash/style/ash_color_provider.h"
 #include "chrome/browser/ui/ash/sharesheet/sharesheet_constants.h"
 #include "chrome/browser/ui/ash/sharesheet/sharesheet_util.h"
@@ -23,15 +22,14 @@ SharesheetExpandButton::SharesheetExpandButton(PressedCallback callback)
     : Button(std::move(callback)) {
   auto* layout = SetLayoutManager(std::make_unique<views::BoxLayout>(
       views::BoxLayout::Orientation::kHorizontal,
-      gfx::Insets(kExpandButtonInsideBorderInsetsVertical,
-                  kExpandButtonInsideBorderInsetsHorizontal),
+      gfx::Insets::VH(kExpandButtonInsideBorderInsetsVertical,
+                      kExpandButtonInsideBorderInsetsHorizontal),
       kExpandButtonBetweenChildSpacing, true));
   // Sets all views to be center-aligned along the orientation axis.
   layout->set_main_axis_alignment(views::BoxLayout::MainAxisAlignment::kCenter);
 
   icon_ = AddChildView(std::make_unique<views::ImageView>());
 
-  ScopedLightModeAsDefault scoped_light_mode_as_default;
   label_ = AddChildView(CreateShareLabel(
       std::u16string(), CONTEXT_SHARESHEET_BUBBLE_BODY, kPrimaryTextLineHeight,
       AshColorProvider::Get()->GetContentLayerColor(
@@ -42,7 +40,6 @@ SharesheetExpandButton::SharesheetExpandButton(PressedCallback callback)
 }
 
 void SharesheetExpandButton::SetToDefaultState() {
-  ScopedLightModeAsDefault scoped_light_mode_as_default;
   icon_->SetImage(ui::ImageModel::FromVectorIcon(
       vector_icons::kCaretDownIcon,
       AshColorProvider::Get()->GetContentLayerColor(
@@ -54,7 +51,6 @@ void SharesheetExpandButton::SetToDefaultState() {
 }
 
 void SharesheetExpandButton::SetToExpandedState() {
-  ScopedLightModeAsDefault scoped_light_mode_as_default;
   icon_->SetImage(ui::ImageModel::FromVectorIcon(
       vector_icons::kCaretUpIcon,
       AshColorProvider::Get()->GetContentLayerColor(

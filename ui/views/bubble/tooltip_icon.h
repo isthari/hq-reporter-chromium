@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include <string>
 
 #include "base/memory/raw_ptr.h"
+#include "base/observer_list.h"
 #include "base/scoped_observation.h"
 #include "base/timer/timer.h"
 #include "ui/views/bubble/bubble_border.h"
@@ -52,7 +53,6 @@ class VIEWS_EXPORT TooltipIcon : public ImageView,
   void OnFocus() override;
   void OnBlur() override;
   void OnGestureEvent(ui::GestureEvent* event) override;
-  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   void OnThemeChanged() override;
 
   // MouseWatcherListener:
@@ -95,13 +95,13 @@ class VIEWS_EXPORT TooltipIcon : public ImageView,
   BubbleBorder::Arrow anchor_point_arrow_ = BubbleBorder::TOP_RIGHT;
 
   // Whether the mouse is inside this tooltip.
-  bool mouse_inside_;
+  bool mouse_inside_ = false;
 
   // A bubble shown on hover. Weak; owns itself. NULL while hiding.
   raw_ptr<InfoBubble> bubble_;
 
   // The width the tooltip prefers to be. Default is 0 (no preference).
-  int preferred_width_;
+  int preferred_width_ = 0;
 
   // A timer to delay showing |bubble_|.
   base::OneShotTimer show_timer_;

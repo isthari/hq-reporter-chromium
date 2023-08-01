@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,9 @@
 #include "net/base/net_export.h"
 #include "net/cert/cert_verify_result.h"
 #include "net/log/net_log_with_source.h"
-#include "net/third_party/quiche/src/quic/core/quic_connection.h"
-#include "net/third_party/quiche/src/quic/core/quic_packet_creator.h"
-#include "net/third_party/quiche/src/quic/core/quic_session.h"
+#include "net/third_party/quiche/src/quiche/quic/core/quic_connection.h"
+#include "net/third_party/quiche/src/quiche/quic/core/quic_packet_creator.h"
+#include "net/third_party/quiche/src/quiche/quic/core/quic_session.h"
 
 namespace net {
 
@@ -49,6 +49,7 @@ class NET_EXPORT_PRIVATE QuicEventLogger
                     quic::EncryptionLevel encryption_level,
                     quic::TransmissionType transmission_type,
                     quic::QuicTime detection_time) override;
+  void OnConfigProcessed(const SendParameters& parameters) override;
   void OnPacketReceived(const quic::QuicSocketAddress& self_address,
                         const quic::QuicSocketAddress& peer_address,
                         const quic::QuicEncryptedPacket& packet) override;
@@ -69,7 +70,6 @@ class NET_EXPORT_PRIVATE QuicEventLogger
       const quic::QuicStreamsBlockedFrame& frame) override;
   void OnMaxStreamsFrame(const quic::QuicMaxStreamsFrame& frame) override;
   void OnStreamFrame(const quic::QuicStreamFrame& frame) override;
-  void OnStopWaitingFrame(const quic::QuicStopWaitingFrame& frame) override;
   void OnRstStreamFrame(const quic::QuicRstStreamFrame& frame) override;
   void OnConnectionCloseFrame(
       const quic::QuicConnectionCloseFrame& frame) override;
@@ -89,7 +89,6 @@ class NET_EXPORT_PRIVATE QuicEventLogger
   void OnHandshakeDoneFrame(const quic::QuicHandshakeDoneFrame& frame) override;
   void OnCoalescedPacketSent(const quic::QuicCoalescedPacket& coalesced_packet,
                              size_t length) override;
-  void OnPublicResetPacket(const quic::QuicPublicResetPacket& packet) override;
   void OnVersionNegotiationPacket(
       const quic::QuicVersionNegotiationPacket& packet) override;
   void OnConnectionClosed(const quic::QuicConnectionCloseFrame& frame,
@@ -103,6 +102,7 @@ class NET_EXPORT_PRIVATE QuicEventLogger
   void OnTransportParametersResumed(
       const quic::TransportParameters& transport_parameters) override;
   void OnZeroRttRejected(int reason) override;
+  void OnEncryptedClientHelloSent(std::string_view client_hello) override;
 
   // Events that are not received via the visitor and have to be called manually
   // from the session.

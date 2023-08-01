@@ -1,4 +1,4 @@
-// Copyright (c) 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "components/safe_browsing/content/browser/triggers/trigger_throttler.h"
+#include "components/safe_browsing/content/browser/web_contents_key.h"
 #include "components/safe_browsing/core/browser/referrer_chain_provider.h"
 #include "components/security_interstitials/core/base_safe_browsing_error_ui.h"
 #include "components/security_interstitials/core/unsafe_resource.h"
@@ -51,9 +52,10 @@ struct DataCollectorsContainer {
 };
 
 // Stores the data collectors that are active on each WebContents (ie: browser
-// tab).
-using DataCollectorsMap =
-    std::unordered_map<content::WebContents*, DataCollectorsContainer>;
+// tab). Keys are derived from WebContents* but should not be dereferenced.
+using DataCollectorsMap = std::unordered_map<WebContentsKey,
+                                             DataCollectorsContainer,
+                                             typename WebContentsKey::Hasher>;
 
 using SBErrorOptions =
     security_interstitials::BaseSafeBrowsingErrorUI::SBErrorDisplayOptions;
@@ -132,8 +134,6 @@ class TriggerManager {
       const security_interstitials::UnsafeResource& resource,
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       history::HistoryService* history_service,
-      base::RepeatingCallback<ChromeUserPopulation()>
-          get_user_population_callback,
       ReferrerChainProvider* referrer_chain_provider,
       const SBErrorOptions& error_display_options,
       TriggerManagerReason* out_reason);
@@ -146,24 +146,23 @@ class TriggerManager {
       const security_interstitials::UnsafeResource& resource,
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       history::HistoryService* history_service,
-      base::RepeatingCallback<ChromeUserPopulation()>
-          get_user_population_callback,
       ReferrerChainProvider* referrer_chain_provider,
       const SBErrorOptions& error_display_options);
 
-  // Completes the collection of a ThreatDetails report on the specified
-  // |web_contents| and sends the report. |delay| can be used to wait a period
-  // of time before finishing the report. |did_proceed| indicates whether the
-  // user proceeded through the security interstitial associated with this
-  // report. |num_visits| is how many times the user has visited the site
-  // before. |error_display_options| contains the current state of relevant user
-  // preferences. We use this object for interop with WebView, in Chrome it
-  // should be created by TriggerManager::GetSBErrorDisplayOptions().
-  // Returns true if the report was completed and sent, or false otherwise (eg:
-  // the user was not opted-in to extended reporting after collection began).
+  // Completes the collection of a ThreatDetails report for the specified
+  // |web_contents_key| (derived from a WebContents*) and sends the
+  // report. |delay| can be used to wait a period of time before finishing the
+  // report. |did_proceed| indicates whether the user proceeded through the
+  // security interstitial associated with this report. |num_visits| is how many
+  // times the user has visited the site before. |error_display_options|
+  // contains the current state of relevant user preferences. We use this object
+  // for interop with WebView, in Chrome it should be created by
+  // TriggerManager::GetSBErrorDisplayOptions().  Returns true if the report was
+  // completed and sent, or false otherwise (eg: the user was not opted-in to
+  // extended reporting after collection began).
   virtual bool FinishCollectingThreatDetails(
       TriggerType trigger_type,
-      content::WebContents* web_contents,
+      WebContentsKey web_contents_key,
       const base::TimeDelta& delay,
       bool did_proceed,
       int num_visits,
@@ -171,10 +170,10 @@ class TriggerManager {
 
   // Called when a ThreatDetails report finishes for the specified
   // |web_contents|.
-  void ThreatDetailsDone(content::WebContents* web_contents);
+  void ThreatDetailsDone(WebContentsKey web_contents_key);
 
   // Called when the specified |web_contents| is being destroyed. Used to clean
-  // up our map.
+  // up our map by removing the corresponding WebContentsKey from the map.
   void WebContentsDestroyed(content::WebContents* web_contents);
 
  private:

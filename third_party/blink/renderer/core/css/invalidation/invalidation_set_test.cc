@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,8 +22,9 @@ bool HasAny(const Backing<type>& backing,
             const BackingFlags& flags,
             std::initializer_list<const char*> args) {
   for (const char* str : args) {
-    if (backing.Contains(flags, str))
+    if (backing.Contains(flags, str)) {
       return true;
+    }
   }
   return false;
 }
@@ -33,8 +34,9 @@ bool HasAll(const Backing<type>& backing,
             const BackingFlags& flags,
             std::initializer_list<const char*> args) {
   for (const char* str : args) {
-    if (!backing.Contains(flags, str))
+    if (!backing.Contains(flags, str)) {
       return false;
+    }
   }
   return true;
 }
@@ -202,8 +204,9 @@ TEST(InvalidationSetTest, Backing_Iterator) {
     Backing<BackingType::kClasses> backing;
 
     Vector<AtomicString> strings;
-    for (const AtomicString& str : backing.Items(flags))
+    for (const AtomicString& str : backing.Items(flags)) {
       strings.push_back(str);
+    }
     ASSERT_EQ(0u, strings.size());
   }
 
@@ -214,8 +217,9 @@ TEST(InvalidationSetTest, Backing_Iterator) {
 
     backing.Add(flags, "test1");
     Vector<AtomicString> strings;
-    for (const AtomicString& str : backing.Items(flags))
+    for (const AtomicString& str : backing.Items(flags)) {
       strings.push_back(str);
+    }
     ASSERT_EQ(1u, strings.size());
     ASSERT_TRUE(strings.Contains("test1"));
     backing.Clear(flags);
@@ -230,8 +234,9 @@ TEST(InvalidationSetTest, Backing_Iterator) {
     backing.Add(flags, "test2");
     backing.Add(flags, "test3");
     Vector<AtomicString> strings;
-    for (const AtomicString& str : backing.Items(flags))
+    for (const AtomicString& str : backing.Items(flags)) {
       strings.push_back(str);
+    }
     ASSERT_EQ(3u, strings.size());
     ASSERT_TRUE(strings.Contains("test1"));
     ASSERT_TRUE(strings.Contains("test2"));
@@ -240,14 +245,15 @@ TEST(InvalidationSetTest, Backing_Iterator) {
   }
 }
 
-TEST(InvalidationSetTest, Backing_GetAtomicString) {
+TEST(InvalidationSetTest, Backing_GetString) {
   BackingFlags flags;
   Backing<BackingType::kClasses> backing;
-  EXPECT_FALSE(backing.GetAtomicString(flags));
+  ASSERT_NE(nullptr, backing.GetString(flags));
+  EXPECT_TRUE(backing.GetString(flags)->IsNull());
   backing.Add(flags, "a");
-  EXPECT_EQ("a", backing.GetAtomicString(flags));
+  EXPECT_EQ("a", *backing.GetString(flags));
   backing.Add(flags, "b");
-  EXPECT_FALSE(backing.GetAtomicString(flags));
+  EXPECT_EQ(nullptr, backing.GetString(flags));
   backing.Clear(flags);
 }
 

@@ -1,12 +1,14 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_elements/cr_toggle/cr_toggle.m.js';
-import 'chrome://resources/cr_elements/shared_style_css.m.js';
+import 'chrome://resources/cr_elements/cr_toggle/cr_toggle.js';
+import 'chrome://resources/cr_elements/cr_shared_style.css.js';
 
-import {CrToggleElement} from 'chrome://resources/cr_elements/cr_toggle/cr_toggle.m.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {CrToggleElement} from 'chrome://resources/cr_elements/cr_toggle/cr_toggle.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {getTemplate} from './toggle_row.html.js';
 
 
 /**
@@ -29,7 +31,7 @@ export class ExtensionsToggleRowElement extends PolymerElement {
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
@@ -60,7 +62,7 @@ export class ExtensionsToggleRowElement extends PolymerElement {
     // Even though the native checkbox is hidden and can't be actually
     // cilcked/tapped by the user, because it resides within the <label> the
     // browser emits an extraneous event when the label is clicked. Stop
-    // propagation so that it does not interfere with |onLabelTap_| listener.
+    // propagation so that it does not interfere with |onLabelClick_| listener.
     e.stopPropagation();
   }
 

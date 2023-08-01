@@ -1,4 +1,4 @@
-# Copyright 2016 The Chromium Authors. All rights reserved.
+# Copyright 2016 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -17,6 +17,7 @@ import subprocess
 import threading
 import time
 
+import constants
 import file_util
 import gtest_utils
 import iossim_util
@@ -29,7 +30,8 @@ import xctest_utils
 
 LOGGER = logging.getLogger(__name__)
 DERIVED_DATA = os.path.expanduser('~/Library/Developer/Xcode/DerivedData')
-READLINE_TIMEOUT = 180
+DEFAULT_TEST_REPO = 'https://chromium.googlesource.com/chromium/src'
+HOST_IS_DOWN_ERROR = 'Domain=NSPOSIXErrorDomain Code=64 "Host is down"'
 
 
 # TODO(crbug.com/1077277): Move commonly used error classes to
@@ -139,6 +141,13 @@ class ShardingDisabledError(TestRunnerError):
       'Sharding has not been implemented!')
 
 
+class HostIsDownError(TestRunnerError):
+  """Simulator host is down, usually due to a corrupted runtime."""
+
+  def __init__(self):
+    super(HostIsDownError, self).__init__('Simulator host is down!')
+
+
 def get_device_ios_version(udid):
   """Gets device iOS version.
 
@@ -220,7 +229,7 @@ def terminate_process(proc, proc_name):
 def print_process_output(proc,
                          proc_name=None,
                          parser=None,
-                         timeout=READLINE_TIMEOUT):
+                         timeout=constants.READLINE_TIMEOUT):
   """Logs process messages in console and waits until process is done.
 
   Method waits until no output message and if no message for timeout seconds,
@@ -265,6 +274,13 @@ def print_process_output(proc,
     LOGGER.info(line)
     sys.stdout.flush()
 
+    # This is a temporary mitigation to surface this issue so that
+    # test runner can clear runtime cache for the next run.
+    # TODO(crbug.com/1370522): remove this workaround once the issue
+    # is resolved.
+    if HOST_IS_DOWN_ERROR in line:
+      raise HostIsDownError()
+
   if parser:
     parser.Finalize()
   LOGGER.debug('Finished print_process_output.')
@@ -296,6 +312,18 @@ def get_current_xcode_info():
   }
 
 
+def init_test_result_defaults():
+  return {
+      'version': 3,
+      'path_delimiter': '.',
+      'seconds_since_epoch': int(time.time()),
+      # This will be overwritten when the tests complete successfully.
+      'interrupted': True,
+      'num_failures_by_type': {},
+      'tests': {}
+  }
+
+
 class TestRunner(object):
   """Base class containing common functionality."""
 
@@ -307,6 +335,8 @@ class TestRunner(object):
       out_dir: Directory to emit test data into.
       (Following are potential args in **kwargs)
       env_vars: List of environment variables to pass to the test itself.
+      readline_timeout: (int) Timeout to kill a test process when it doesn't
+        have output (in seconds).
       repeat_count: Number of times to run each test case (passed to test app).
       retries: Number of times to retry failed test cases in test runner.
       test_args: List of strings to pass as arguments to the test when
@@ -347,13 +377,11 @@ class TestRunner(object):
     self.test_cases = kwargs.get('test_cases') or []
     self.xctest_path = ''
     self.xctest = kwargs.get('xctest') or False
+    self.readline_timeout = (
+        kwargs.get('readline_timeout') or constants.READLINE_TIMEOUT)
+    self.output_disabled_tests = kwargs.get('output_disabled_tests') or False
 
-    self.test_results = {}
-    self.test_results['version'] = 3
-    self.test_results['path_delimiter'] = '.'
-    self.test_results['seconds_since_epoch'] = int(time.time())
-    # This will be overwritten when the tests complete successfully.
-    self.test_results['interrupted'] = True
+    self.test_results = init_test_result_defaults()
 
     if self.xctest:
       plugins_dir = os.path.join(self.app_path, 'PlugIns')
@@ -541,7 +569,8 @@ class TestRunner(object):
     proc = self.start_proc(cmd)
     old_handler = self.set_sigterm_handler(
         lambda _signum, _frame: self.handle_sigterm(proc))
-    print_process_output(proc, 'xcodebuild', parser)
+    print_process_output(
+        proc, 'xcodebuild', parser, timeout=self.readline_timeout)
     LOGGER.info('Waiting for test process to terminate.')
     proc.wait()
     LOGGER.info('Test process terminated.')
@@ -551,6 +580,34 @@ class TestRunner(object):
     returncode = proc.returncode
 
     LOGGER.info('%s returned %s\n', cmd[0], returncode)
+
+    LOGGER.info('Populating test location info for test results...')
+    if isinstance(self, SimulatorTestRunner):
+      # TODO(crbug.com/1091345): currently we have some tests suites that are
+      # written in ios_internal, so not all test repos are public. We should
+      # figure out a way to identify test repo info depending on the test suite.
+      parser.ParseAndPopulateTestResultLocations(DEFAULT_TEST_REPO,
+                                                 self.output_disabled_tests)
+    elif isinstance(self, DeviceTestRunner):
+      # Pull the file from device first before parsing.
+      if (parser.compiled_tests_file_path != None):
+        LOGGER.info('Pulling test location file from iOS device Documents...')
+        file_name = os.path.split(parser.compiled_tests_file_path)[1]
+        pull_cmd = [
+            'idevicefs', '--udid', self.udid, 'pull',
+            '@%s/Documents/%s' % (self.cfbundleid, file_name), self.out_dir
+        ]
+        print_process_output(self.start_proc(pull_cmd))
+        host_tests_file_path = os.path.join(self.out_dir, file_name)
+        parser.ParseAndPopulateTestResultLocations(DEFAULT_TEST_REPO,
+                                                   self.output_disabled_tests,
+                                                   host_tests_file_path)
+      else:
+        LOGGER.warning('No compiled test files found in documents dir...')
+
+    else:
+      LOGGER.warning('Test location reporting is not yet supported on %s',
+                     type(self))
 
     return parser.GetResultCollection()
 
@@ -566,7 +623,8 @@ class TestRunner(object):
     cmd = self.get_launch_command(test_app, out_dir, destination, self.shards)
     try:
       result = self._run(cmd=cmd, shards=self.shards or 1)
-      if result.crashed and not result.crashed_tests():
+      if (result.crashed and not result.spawning_test_launcher and
+          not result.crashed_tests()):
         # If the app crashed but not during any particular test case, assume
         # it crashed on startup. Try one more time.
         self.shutdown_and_restart()
@@ -578,25 +636,30 @@ class TestRunner(object):
 
       result.report_to_result_sink()
 
-      if result.crashed and not result.crashed_tests():
+      if (result.crashed and not result.spawning_test_launcher and
+          not result.crashed_tests()):
         raise AppLaunchError
 
       overall_result.add_result_collection(result)
 
       try:
-        while result.crashed and result.crashed_tests():
+        while (result.crashed and not result.spawning_test_launcher and
+               result.crashed_tests()):
           # If the app crashes during a specific test case, then resume at the
           # next test case. This is achieved by filtering out every test case
           # which has already run.
           LOGGER.warning('Crashed during %s, resuming...\n',
                          list(result.crashed_tests()))
           test_app.excluded_tests = list(overall_result.all_test_names())
+          # Changing test filter will change selected gtests in this shard.
+          # Thus, sharding env vars have to be cleared to ensure needed tests
+          # are run. This means there might be duplicate same tests across
+          # the shards.
+          test_app.remove_gtest_sharding_env_vars()
           retry_out_dir = os.path.join(
               self.out_dir, 'retry_after_crash_%d' % int(time.time()))
           result = self._run(
-              self.get_launch_command(
-                  test_app, os.path.join(retry_out_dir, str(int(time.time()))),
-                  destination))
+              self.get_launch_command(test_app, retry_out_dir, destination))
           result.report_to_result_sink()
           # Only keep the last crash status in crash retries in overall crash
           # status.
@@ -611,7 +674,8 @@ class TestRunner(object):
       # Retry failed test cases.
       test_app.excluded_tests = []
       never_expected_tests = overall_result.never_expected_tests()
-      if self.retries and never_expected_tests:
+      if (self.retries and not result.spawning_test_launcher and
+          never_expected_tests):
         LOGGER.warning('%s tests failed and will be retried.\n',
                        len(never_expected_tests))
         for i in range(self.retries):
@@ -619,8 +683,12 @@ class TestRunner(object):
           for test in tests_to_retry:
             LOGGER.info('Retry #%s for %s.\n', i + 1, test)
             test_app.included_tests = [test]
-            retry_out_dir = os.path.join(self.out_dir, test + '_failed',
-                                         'retry_%d' % i)
+            # Changing test filter will change selected gtests in this shard.
+            # Thus, sharding env vars have to be cleared to ensure the test
+            # runs when it's the only test in gtest_filter.
+            test_app.remove_gtest_sharding_env_vars()
+            test_retry_sub_dir = '%s_retry_%d' % (test.replace('/', '_'), i)
+            retry_out_dir = os.path.join(self.out_dir, test_retry_sub_dir)
             retry_result = self._run(
                 self.get_launch_command(test_app, retry_out_dir, destination))
 
@@ -728,6 +796,10 @@ class SimulatorTestRunner(TestRunner):
     """Wipes the simulator."""
     iossim_util.wipe_simulator_by_udid(self.udid)
 
+  def disable_hw_keyboard(self):
+    """Disables hardware keyboard input."""
+    iossim_util.disable_hardware_keyboard(self.udid)
+
   def get_home_directory(self):
     """Returns the simulator's home directory."""
     return iossim_util.get_home_directory(self.platform, self.version)
@@ -738,6 +810,7 @@ class SimulatorTestRunner(TestRunner):
     self.kill_simulators()
     self.wipe_simulator()
     self.wipe_derived_data()
+    self.disable_hw_keyboard()
     self.homedir = self.get_home_directory()
     # Crash reports have a timestamp in their file name, formatted as
     # YYYY-MM-DD-HHMMSS. Save the current time in the same format so
@@ -827,8 +900,11 @@ class SimulatorTestRunner(TestRunner):
       returncode: (int) Return code of subprocess.
     """
     proc = self.start_proc(cmd)
-    out = print_process_output(proc, 'xcodebuild',
-                               xctest_utils.XCTestLogParser())
+    out = print_process_output(
+        proc,
+        'xcodebuild',
+        xctest_utils.XCTestLogParser(),
+        timeout=self.readline_timeout)
     self.deleteSimulator(self.udid)
     return (out, proc.returncode)
 

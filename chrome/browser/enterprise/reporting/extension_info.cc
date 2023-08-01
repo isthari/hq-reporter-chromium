@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,10 @@
 #include <string>
 
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension_set.h"
+#include "extensions/common/manifest.h"
 #include "extensions/common/manifest_url_handlers.h"
 #include "extensions/common/permissions/permissions_data.h"
 
@@ -68,8 +68,9 @@ void AddExtensions(const extensions::ExtensionSet& extensions,
                    bool enabled) {
   for (const auto& extension : extensions) {
     // Skip the component extension.
-    if (!extension->ShouldExposeViaManagementAPI())
+    if (extensions::Manifest::IsComponentLocation(extension->location())) {
       continue;
+    }
 
     auto* extension_info = profile_info->add_extensions();
     extension_info->set_id(extension->id());
@@ -86,9 +87,7 @@ void AddExtensions(const extensions::ExtensionSet& extensions,
     AddPermission(extension.get(), extension_info);
     AddHostPermission(extension.get(), extension_info);
     extension_info->set_from_webstore(extension->from_webstore());
-    if (base::FeatureList::IsEnabled(
-            features::kEnterpriseReportingExtensionManifestVersion))
-      extension_info->set_manifest_version(extension->manifest_version());
+    extension_info->set_manifest_version(extension->manifest_version());
   }
 }
 

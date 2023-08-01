@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,23 +8,26 @@
 #include "chrome/browser/android/signin/signin_manager_android.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 
 SigninManagerAndroidFactory::SigninManagerAndroidFactory()
-    : BrowserContextKeyedServiceFactory(
+    : ProfileKeyedServiceFactory(
           "SigninManagerAndroid",
-          BrowserContextDependencyManager::GetInstance()) {
+          ProfileSelections::Builder()
+              .WithRegular(ProfileSelection::kOriginalOnly)
+              // TODO(crbug.com/1418376): Check if this service is needed in
+              // Guest mode.
+              .WithGuest(ProfileSelection::kOriginalOnly)
+              .Build()) {
   DependsOn(IdentityManagerFactory::GetInstance());
 }
 
 SigninManagerAndroidFactory::~SigninManagerAndroidFactory() {}
 
 // static
-base::android::ScopedJavaLocalRef<jobject>
-SigninManagerAndroidFactory::GetJavaObjectForProfile(Profile* profile) {
+SigninManagerAndroid* SigninManagerAndroidFactory::GetForProfile(
+    Profile* profile) {
   return static_cast<SigninManagerAndroid*>(
-             GetInstance()->GetServiceForBrowserContext(profile, true))
-      ->GetJavaObject();
+      GetInstance()->GetServiceForBrowserContext(profile, true));
 }
 
 // static

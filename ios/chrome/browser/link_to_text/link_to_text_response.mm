@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,22 +26,22 @@ using shared_highlighting::TextFragment;
 
 @interface LinkToTextResponse ()
 
-// Initializes an object with a |sourceID| representing the current WebState,
-// along with the |latency| for link generation.
+// Initializes an object with a `sourceID` representing the current WebState,
+// along with the `latency` for link generation.
 - (instancetype)initWithSourceID:(ukm::SourceId)sourceID
                          latency:(base::TimeDelta)latency
     NS_DESIGNATED_INITIALIZER;
 
-// Initializes an object with the given |payload| of the link generation
-// request, a |sourceID| representing the current WebState and the |latency| for
+// Initializes an object with the given `payload` of the link generation
+// request, a `sourceID` representing the current WebState and the `latency` for
 // link generation.
 - (instancetype)initWithPayload:(LinkToTextPayload*)payload
                        sourceID:(ukm::SourceId)sourceID
                         latency:(base::TimeDelta)latency;
 
-// Initializes an object with the given |error| which occurred while trying to
-// generate a link, a |sourceID| representing the current WebState and the
-// |latency| for link generation.
+// Initializes an object with the given `error` which occurred while trying to
+// generate a link, a `sourceID` representing the current WebState and the
+// `latency` for link generation.
 - (instancetype)initWithError:(LinkGenerationError)error
                      sourceID:(ukm::SourceId)sourceID
                       latency:(base::TimeDelta)latency;
@@ -100,8 +100,9 @@ using shared_highlighting::TextFragment;
                                                        latency:latency];
   }
 
+  const base::Value::Dict& dict = value->GetDict();
   absl::optional<LinkGenerationOutcome> outcome =
-      link_to_text::ParseStatus(value->FindDoubleKey("status"));
+      link_to_text::ParseStatus(dict.FindDouble("status"));
   if (!outcome.has_value()) {
     return [self linkToTextResponseWithUnknownErrorAndSourceID:sourceID
                                                        latency:latency];
@@ -118,10 +119,10 @@ using shared_highlighting::TextFragment;
   // Attempts to parse a payload from the response.
   NSString* title = tab_util::GetTabTitle(webState);
   absl::optional<TextFragment> fragment =
-      TextFragment::FromValue(value->FindKey("fragment"));
-  const std::string* selectedText = value->FindStringKey("selectedText");
+      TextFragment::FromValue(dict.Find("fragment"));
+  const std::string* selectedText = dict.FindString("selectedText");
   absl::optional<CGRect> sourceRect =
-      shared_highlighting::ParseRect(value->FindKey("selectionRect"));
+      shared_highlighting::ParseRect(dict.FindDict("selectionRect"));
 
   // All values must be present to have a valid payload.
   if (!title || !fragment || !selectedText || !sourceRect) {
@@ -132,7 +133,7 @@ using shared_highlighting::TextFragment;
 
   GURL baseURL = webState->GetLastCommittedURL();
   absl::optional<GURL> canonicalURL =
-      shared_highlighting::ParseURL(value->FindStringKey("canonicalUrl"));
+      shared_highlighting::ParseURL(dict.FindString("canonicalUrl"));
 
   // Use the canonical URL as base when it exists, and only on HTTPS pages.
   if (baseURL.SchemeIsCryptographic() && canonicalURL) {

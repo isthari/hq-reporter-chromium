@@ -1,16 +1,15 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {Destination, DestinationConnectionStatus, DestinationOrigin, DestinationType, NativeLayerCrosImpl, NativeLayerImpl, PrinterStatusReason, PrinterStatusSeverity, PrintPreviewDestinationDropdownCrosElement, PrintPreviewDestinationSelectCrosElement} from 'chrome://print/print_preview.js';
-import {assert} from 'chrome://resources/js/assert.m.js';
-
+import {Destination, DestinationOrigin, NativeLayerCrosImpl, NativeLayerImpl, PrinterStatusReason, PrinterStatusSeverity, PrintPreviewDestinationDropdownCrosElement, PrintPreviewDestinationSelectCrosElement} from 'chrome://print/print_preview.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
-import {waitBeforeNextRender} from 'chrome://webui-test/test_util.js';
+import {MockController} from 'chrome://webui-test/mock_controller.js';
+import {waitBeforeNextRender} from 'chrome://webui-test/polymer_test_util.js';
 
 import {NativeLayerCrosStub} from './native_layer_cros_stub.js';
 import {NativeLayerStub} from './native_layer_stub.js';
-import {getGoogleDriveDestination, getSaveAsPdfDestination} from './print_preview_test_utils.js';
+import {FakeMediaQueryList, getGoogleDriveDestination, getSaveAsPdfDestination} from './print_preview_test_utils.js';
 
 const printer_status_test_cros = {
   suiteName: 'PrinterStatusTestCros',
@@ -28,9 +27,11 @@ Object.assign(window, {printer_status_test_cros: printer_status_test_cros});
 suite(printer_status_test_cros.suiteName, function() {
   let destinationSelect: PrintPreviewDestinationSelectCrosElement;
 
-  const account: string = 'foo@chromium.org';
-
   let nativeLayerCros: NativeLayerCrosStub;
+
+  let mockController: MockController;
+
+  let fakePrefersColorSchemeMediaQueryList: FakeMediaQueryList;
 
   function setNativeLayerPrinterStatusMap() {
     [{
@@ -42,7 +43,7 @@ suite(printer_status_test_cros.suiteName, function() {
        printerId: 'ID2',
        statusReasons: [{
          reason: PrinterStatusReason.LOW_ON_PAPER,
-         severity: PrinterStatusSeverity.UNKNOWN_SEVERITY
+         severity: PrinterStatusSeverity.UNKNOWN_SEVERITY,
        }],
        timestamp: 0,
      },
@@ -50,7 +51,7 @@ suite(printer_status_test_cros.suiteName, function() {
        printerId: 'ID3',
        statusReasons: [{
          reason: PrinterStatusReason.LOW_ON_PAPER,
-         severity: PrinterStatusSeverity.REPORT
+         severity: PrinterStatusSeverity.REPORT,
        }],
        timestamp: 0,
      },
@@ -58,7 +59,7 @@ suite(printer_status_test_cros.suiteName, function() {
        printerId: 'ID4',
        statusReasons: [{
          reason: PrinterStatusReason.LOW_ON_PAPER,
-         severity: PrinterStatusSeverity.WARNING
+         severity: PrinterStatusSeverity.WARNING,
        }],
        timestamp: 0,
      },
@@ -66,7 +67,7 @@ suite(printer_status_test_cros.suiteName, function() {
        printerId: 'ID5',
        statusReasons: [{
          reason: PrinterStatusReason.LOW_ON_PAPER,
-         severity: PrinterStatusSeverity.ERROR
+         severity: PrinterStatusSeverity.ERROR,
        }],
        timestamp: 0,
      },
@@ -75,12 +76,12 @@ suite(printer_status_test_cros.suiteName, function() {
        statusReasons: [
          {
            reason: PrinterStatusReason.DEVICE_ERROR,
-           severity: PrinterStatusSeverity.UNKNOWN_SEVERITY
+           severity: PrinterStatusSeverity.UNKNOWN_SEVERITY,
          },
          {
            reason: PrinterStatusReason.PRINTER_QUEUE_FULL,
-           severity: PrinterStatusSeverity.ERROR
-         }
+           severity: PrinterStatusSeverity.ERROR,
+         },
        ],
        timestamp: 0,
      },
@@ -89,12 +90,12 @@ suite(printer_status_test_cros.suiteName, function() {
        statusReasons: [
          {
            reason: PrinterStatusReason.DEVICE_ERROR,
-           severity: PrinterStatusSeverity.REPORT
+           severity: PrinterStatusSeverity.REPORT,
          },
          {
            reason: PrinterStatusReason.PRINTER_QUEUE_FULL,
-           severity: PrinterStatusSeverity.UNKNOWN_SEVERITY
-         }
+           severity: PrinterStatusSeverity.UNKNOWN_SEVERITY,
+         },
        ],
        timestamp: 0,
      },
@@ -102,7 +103,7 @@ suite(printer_status_test_cros.suiteName, function() {
        printerId: 'ID8',
        statusReasons: [{
          reason: PrinterStatusReason.UNKNOWN_REASON,
-         severity: PrinterStatusSeverity.ERROR
+         severity: PrinterStatusSeverity.ERROR,
        }],
        timestamp: 0,
      },
@@ -110,7 +111,7 @@ suite(printer_status_test_cros.suiteName, function() {
        printerId: 'ID9',
        statusReasons: [{
          reason: PrinterStatusReason.UNKNOWN_REASON,
-         severity: PrinterStatusSeverity.UNKNOWN_SEVERITY
+         severity: PrinterStatusSeverity.UNKNOWN_SEVERITY,
        }],
        timestamp: 0,
      },
@@ -118,7 +119,7 @@ suite(printer_status_test_cros.suiteName, function() {
        printerId: 'ID10',
        statusReasons: [{
          reason: PrinterStatusReason.PRINTER_UNREACHABLE,
-         severity: PrinterStatusSeverity.ERROR
+         severity: PrinterStatusSeverity.ERROR,
        }],
        timestamp: 0,
      }]
@@ -130,9 +131,7 @@ suite(printer_status_test_cros.suiteName, function() {
   function createDestination(
       id: string, displayName: string,
       destinationOrigin: DestinationOrigin): Destination {
-    return new Destination(
-        id, DestinationType.LOCAL, destinationOrigin, displayName,
-        DestinationConnectionStatus.ONLINE);
+    return new Destination(id, destinationOrigin, displayName);
   }
 
   function escapeForwardSlahes(value: string): string {
@@ -146,8 +145,20 @@ suite(printer_status_test_cros.suiteName, function() {
         escapeForwardSlahes(key)}`)!.querySelector('iron-icon')!.icon!;
   }
 
+  // Mocks calls to window.matchMedia, returning false by default.
+  function configureMatchMediaMock() {
+    mockController = new MockController();
+    const matchMediaMock =
+        mockController.createFunctionMock(window, 'matchMedia');
+    fakePrefersColorSchemeMediaQueryList =
+        new FakeMediaQueryList('(prefers-color-scheme: dark)');
+    matchMediaMock.returnValue = fakePrefersColorSchemeMediaQueryList;
+    assertFalse(window.matchMedia('(prefers-color-scheme: dark)').matches);
+  }
+
   setup(function() {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
+    configureMatchMediaMock();
 
     // Stub out native layer.
     NativeLayerImpl.setInstance(new NativeLayerStub());
@@ -160,9 +171,12 @@ suite(printer_status_test_cros.suiteName, function() {
     document.body.appendChild(destinationSelect);
   });
 
+  teardown(function() {
+    mockController.reset();
+  });
+
   test(
-      assert(printer_status_test_cros.TestNames.PrinterStatusUpdatesColor),
-      function() {
+      printer_status_test_cros.TestNames.PrinterStatusUpdatesColor, function() {
         const destination1 =
             createDestination('ID1', 'One', DestinationOrigin.CROS);
         const destination2 =
@@ -257,8 +271,7 @@ suite(printer_status_test_cros.suiteName, function() {
       });
 
   test(
-      assert(printer_status_test_cros.TestNames.SendStatusRequestOnce),
-      function() {
+      printer_status_test_cros.TestNames.SendStatusRequestOnce, function() {
         return waitBeforeNextRender(destinationSelect).then(() => {
           const destination1 =
               createDestination('ID1', 'One', DestinationOrigin.CROS);
@@ -287,7 +300,7 @@ suite(printer_status_test_cros.suiteName, function() {
         });
       });
 
-  test(assert(printer_status_test_cros.TestNames.HiddenStatusText), function() {
+  test(printer_status_test_cros.TestNames.HiddenStatusText, function() {
     const destinationStatus =
         destinationSelect.shadowRoot!.querySelector<HTMLElement>(
             '.destination-additional-info')!;
@@ -299,22 +312,13 @@ suite(printer_status_test_cros.suiteName, function() {
           // trigger the error text being populated.
           const destinationWithErrorStatus =
               createDestination('ID4', 'Four', DestinationOrigin.CROS);
-          const cloudPrintDestination = new Destination(
-              'ID2', DestinationType.GOOGLE, DestinationOrigin.COOKIES, 'Two',
-              DestinationConnectionStatus.OFFLINE, {account: account});
-
           destinationSelect.recentDestinationList = [
             destinationWithoutErrorStatus,
             destinationWithErrorStatus,
-            cloudPrintDestination,
           ];
 
           const destinationEulaWrapper =
               destinationSelect.$.destinationEulaWrapper;
-
-          destinationSelect.destination = cloudPrintDestination;
-          assertFalse(destinationStatus.hidden);
-          assertTrue(destinationEulaWrapper.hidden);
 
           destinationSelect.destination = destinationWithoutErrorStatus;
           assertTrue(destinationStatus.hidden);
@@ -335,26 +339,15 @@ suite(printer_status_test_cros.suiteName, function() {
         });
   });
 
-  test(assert(printer_status_test_cros.TestNames.ChangeIcon), function() {
+  test(printer_status_test_cros.TestNames.ChangeIcon, function() {
     return waitBeforeNextRender(destinationSelect).then(() => {
       const localCrosPrinter =
           createDestination('ID1', 'One', DestinationOrigin.CROS);
       const localNonCrosPrinter =
           createDestination('ID2', 'Two', DestinationOrigin.LOCAL);
-      const cloudPrintDestination = new Destination(
-          'ID3', DestinationType.GOOGLE, DestinationOrigin.COOKIES, 'Three',
-          DestinationConnectionStatus.ONLINE, {account: account});
-      const ownedCloudPrintDestination = new Destination(
-          'ID4', DestinationType.GOOGLE, DestinationOrigin.COOKIES, 'Four',
-          DestinationConnectionStatus.ONLINE,
-          {account: account, isOwned: true});
       const crosEnterprisePrinter = new Destination(
-          'ID5', DestinationType.LOCAL, DestinationOrigin.CROS, 'Five',
-          DestinationConnectionStatus.ONLINE, {isEnterprisePrinter: true});
-      const mobilePrinter = new Destination(
-          'ID7', DestinationType.MOBILE, DestinationOrigin.COOKIES, 'Seven',
-          DestinationConnectionStatus.ONLINE);
-      const saveToDrive = getGoogleDriveDestination('account');
+          'ID5', DestinationOrigin.CROS, 'Five', {isEnterprisePrinter: true});
+      const saveToDrive = getGoogleDriveDestination();
       const saveAsPdf = getSaveAsPdfDestination();
 
       destinationSelect.recentDestinationList = [
@@ -373,23 +366,11 @@ suite(printer_status_test_cros.suiteName, function() {
       destinationSelect.updateDestination();
       assertEquals('print-preview:print', dropdown.destinationIcon);
 
-      destinationSelect.destination = cloudPrintDestination;
-      destinationSelect.updateDestination();
-      assertEquals('print-preview:printer-shared', dropdown.destinationIcon);
-
-      destinationSelect.destination = ownedCloudPrintDestination;
-      destinationSelect.updateDestination();
-      assertEquals('print-preview:print', dropdown.destinationIcon);
-
       destinationSelect.destination = crosEnterprisePrinter;
       destinationSelect.updateDestination();
       assertEquals(
           'print-preview:business-printer-status-grey',
           dropdown.destinationIcon);
-
-      destinationSelect.destination = mobilePrinter;
-      destinationSelect.updateDestination();
-      assertEquals('print-preview:smartphone', dropdown.destinationIcon);
 
       destinationSelect.destination = saveToDrive;
       destinationSelect.updateDestination();
@@ -402,8 +383,7 @@ suite(printer_status_test_cros.suiteName, function() {
   });
 
   test(
-      assert(
-          printer_status_test_cros.TestNames.SuccessfulPrinterStatusAfterRetry),
+      printer_status_test_cros.TestNames.SuccessfulPrinterStatusAfterRetry,
       function() {
         nativeLayerCros.simulateStatusRetrySuccesful();
 

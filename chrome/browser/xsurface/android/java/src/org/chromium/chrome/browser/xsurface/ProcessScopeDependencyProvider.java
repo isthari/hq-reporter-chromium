@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,8 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 
 /**
+ * Implemented in Chromium.
+ *
  * Provides application-level dependencies for an external surface.
  */
 public interface ProcessScopeDependencyProvider {
@@ -45,6 +47,56 @@ public interface ProcessScopeDependencyProvider {
     /** Returns the collection of currently active experiment ids. */
     default int[] getExperimentIds() {
         return new int[0];
+    }
+
+    /**
+     * Provides experimental feature state to xsurface implementations.
+     *
+     * Must be called on the UI thread.
+     *
+     * WARNING: These methods can crash Chrome!
+     *
+     * You must add the feature to kFeaturesExposedToJava in
+     * chrome/browser/flags/android/chrome_feature_list.cc before
+     * querying for the feature with these methods. Chrome will
+     * crash if it doesn't find the feature.
+     */
+    public interface FeatureStateProvider {
+        boolean isFeatureActive(String featureName);
+        boolean getBooleanParameterValue(
+                String featureName, String paramName, boolean defaultValue);
+        int getIntegerParameterValue(String featureName, String paramName, int defaultValue);
+        double getDoubleParameterValue(String featureName, String paramName, double defaultValue);
+    }
+
+    /**
+     * Returns the FeatureStateProvider.
+     */
+    default FeatureStateProvider getFeatureStateProvider() {
+        return new FeatureStateProvider() {
+            @Override
+            public boolean isFeatureActive(String featureName) {
+                return false;
+            }
+
+            @Override
+            public boolean getBooleanParameterValue(
+                    String featureName, String paramName, boolean defaultValue) {
+                return defaultValue;
+            }
+
+            @Override
+            public int getIntegerParameterValue(
+                    String featureName, String paramName, int defaultValue) {
+                return defaultValue;
+            }
+
+            @Override
+            public double getDoubleParameterValue(
+                    String featureName, String paramName, double defaultValue) {
+                return defaultValue;
+            }
+        };
     }
 
     /** @see {Log.e} */
@@ -167,4 +219,11 @@ public interface ProcessScopeDependencyProvider {
      * @param enabled - whether logging is enabled
      */
     default void reportVisibilityLoggingEnabled(boolean enabled) {}
+
+    /**
+     * Must return true to enable ReliabilityLoggingTestUtil.
+     */
+    default boolean enableAppFlowDebugging() {
+        return false;
+    }
 }

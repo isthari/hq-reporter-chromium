@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "ash/wm/desks/desks_controller.h"
 #include "ash/wm/splitview/split_view_observer.h"
 #include "ash/wm/window_state_observer.h"
+#include "base/memory/raw_ptr.h"
 #include "base/scoped_observation.h"
 #include "base/time/time.h"
 #include "ui/aura/env_observer.h"
@@ -120,15 +121,8 @@ class SplitViewMetricsController : public TabletModeObserver,
                          aura::Window* lost_active) override;
 
   // DesksController::Observer:
-  void OnDeskAdded(const Desk* desk) override;
-  void OnDeskRemoved(const Desk* desk) override;
-  void OnDeskReordered(int old_index, int new_index) override;
   void OnDeskActivationChanged(const Desk* activated,
                                const Desk* deactivated) override;
-  void OnDeskSwitchAnimationLaunching() override;
-  void OnDeskSwitchAnimationFinished() override;
-  void OnDeskNameChanged(const Desk* desk,
-                         const std::u16string& new_name) override;
 
   // aura::EnvObserver
   void OnWindowInitialized(aura::Window* window) override;
@@ -205,7 +199,7 @@ class SplitViewMetricsController : public TabletModeObserver,
   // We need to save an ptr of the observed `SplitViewController`. Because the
   // `RootWindowController` will be deconstructed in advance. Then, we cannot
   // use it to get observed `SplitViewController`.
-  SplitViewController* const split_view_controller_;
+  const raw_ptr<SplitViewController, ExperimentalAsh> split_view_controller_;
 
   // Indicates whether it is recording split view metrics.
   bool in_split_view_recording_ = false;
@@ -214,7 +208,7 @@ class SplitViewMetricsController : public TabletModeObserver,
   DeviceOrientation orientation_ = DeviceOrientation::kLandscape;
 
   // Current observed desk.
-  const Desk* current_desk_ = nullptr;
+  raw_ptr<const Desk, ExperimentalAsh> current_desk_ = nullptr;
 
   // Observed windows on the active desk.
   std::vector<aura::Window*> observed_windows_;

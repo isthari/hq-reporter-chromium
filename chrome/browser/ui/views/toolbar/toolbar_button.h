@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,14 @@
 
 #include <memory>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "chrome/browser/ui/views/chrome_views_export.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/base/pointer/touch_ui_controller.h"
 #include "ui/base/theme_provider.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/gfx/animation/animation_delegate.h"
 #include "ui/gfx/animation/slide_animation.h"
 #include "ui/gfx/geometry/point.h"
@@ -127,26 +128,6 @@ class ToolbarButton : public views::LabelButton,
 
   ui::MenuModel* menu_model() { return model_.get(); }
 
-  // Chooses from |desired_dark_color| and |desired_light_color| based on
-  // whether the toolbar background is dark or light.
-  //
-  // If the resulting color will achieve sufficient contrast,
-  // returns it. Otherwise, blends it towards |dark_extreme| if it's light, or
-  // |dark_extreme| if it's dark until minimum contrast is achieved, and returns
-  // the result.
-  static SkColor AdjustHighlightColorForContrast(
-      const ui::ThemeProvider* theme_provider,
-      SkColor desired_dark_color,
-      SkColor desired_light_color,
-      SkColor dark_extreme,
-      SkColor light_extreme);
-
-  // Returns the default background and border color used for toolbar buttons
-  // (when having a highlight text, see SetHighlight()).
-  static SkColor GetDefaultBackgroundColor(
-      const ui::ThemeProvider* theme_provider);
-  static SkColor GetDefaultBorderColor(views::View* host_view);
-
  protected:
   // Returns if menu should be shown. Override this to change default behavior.
   virtual bool ShouldShowMenu();
@@ -167,6 +148,21 @@ class ToolbarButton : public views::LabelButton,
   // This color is typically used for the icon and text of toolbar buttons.
   virtual SkColor GetForegroundColor(ButtonState state) const;
 
+  // Returns the icon size of the toolbar button
+  virtual int GetIconSize() const;
+
+  // Retuns true if a non-empty border should be painted.
+  virtual bool ShouldPaintBorder() const;
+
+  // Returns whether to directly use the highlight as background instead
+  // of blending it with the toolbar colors.
+  // TODO(shibalik): remove this method after fixing for profile button.
+  virtual bool ShouldDirectlyUseHighlightAsBackground() const;
+
+  // Virtual method to explicitly set the highlighted text color instead of the
+  // default behavior of the HighlightColorAnimation.
+  virtual absl::optional<SkColor> GetHighlightTextColor() const;
+
   // Updates the images using the given icons and specific colors.
   void UpdateIconsWithColors(const gfx::VectorIcon& icon,
                              SkColor normal_color,
@@ -175,6 +171,7 @@ class ToolbarButton : public views::LabelButton,
                              SkColor disabled_color);
 
   static constexpr int kDefaultIconSize = 16;
+  static constexpr int kDefaultIconSizeChromeRefresh = 20;
   static constexpr int kDefaultTouchableIconSize = 24;
 
  private:

@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -99,15 +99,14 @@
 namespace ui {
 
 ScopedCrTrackingArea::ScopedCrTrackingArea(CrTrackingArea* tracking_area)
-    : tracking_area_(tracking_area) {
-}
+    : tracking_area_([tracking_area retain]) {}
 
 ScopedCrTrackingArea::~ScopedCrTrackingArea() {
   [tracking_area_ clearOwner];
 }
 
 void ScopedCrTrackingArea::reset(CrTrackingArea* tracking_area) {
-  tracking_area_.reset(tracking_area);
+  tracking_area_.reset([tracking_area retain]);
 }
 
 CrTrackingArea* ScopedCrTrackingArea::get() const {

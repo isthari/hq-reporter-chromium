@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,19 +6,19 @@
  * @fileoverview 'settings-omnibox-extension-entry' is a component for showing
  * an omnibox extension with its name and keyword.
  */
-import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
-import 'chrome://resources/cr_elements/icons.m.js';
-import './search_engine_entry_css.js';
-import '../settings_shared_css.js';
+import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.js';
+import 'chrome://resources/cr_elements/icons.html.js';
+import './search_engine_entry.css.js';
+import '../settings_shared.css.js';
 import '../site_favicon.js';
 
+import {ExtensionControlBrowserProxy, ExtensionControlBrowserProxyImpl} from '/shared/settings/extension_control_browser_proxy.js';
 import {AnchorAlignment} from 'chrome://resources/cr_elements/cr_action_menu/cr_action_menu.js';
-import {assert} from 'chrome://resources/js/assert.m.js';
-import {FocusRowBehavior} from 'chrome://resources/js/cr/ui/focus_row_behavior.m.js';
-import {html, mixinBehaviors, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {FocusRowMixin} from 'chrome://resources/cr_elements/focus_row_mixin.js';
+import {assert} from 'chrome://resources/js/assert_ts.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {ExtensionControlBrowserProxy, ExtensionControlBrowserProxyImpl} from '../extension_control_browser_proxy.js';
-
+import {getTemplate} from './omnibox_extension_entry.html.js';
 import {SearchEngine} from './search_engines_browser_proxy.js';
 
 export interface SettingsOmniboxExtensionEntryElement {
@@ -28,9 +28,7 @@ export interface SettingsOmniboxExtensionEntryElement {
   };
 }
 
-const SettingsOmniboxExtensionEntryElementBase =
-    mixinBehaviors([FocusRowBehavior], PolymerElement) as
-    {new (): PolymerElement & FocusRowBehavior};
+const SettingsOmniboxExtensionEntryElementBase = FocusRowMixin(PolymerElement);
 
 export class SettingsOmniboxExtensionEntryElement extends
     SettingsOmniboxExtensionEntryElementBase {
@@ -39,7 +37,7 @@ export class SettingsOmniboxExtensionEntryElement extends
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
@@ -52,12 +50,12 @@ export class SettingsOmniboxExtensionEntryElement extends
   private browserProxy_: ExtensionControlBrowserProxy =
       ExtensionControlBrowserProxyImpl.getInstance();
 
-  private onManageTap_() {
+  private onManageClick_() {
     this.closePopupMenu_();
     this.browserProxy_.manageExtension(this.engine.extension!.id);
   }
 
-  private onDisableTap_() {
+  private onDisableClick_() {
     this.closePopupMenu_();
     this.browserProxy_.disableExtension(this.engine.extension!.id);
   }
@@ -66,11 +64,12 @@ export class SettingsOmniboxExtensionEntryElement extends
     this.shadowRoot!.querySelector('cr-action-menu')!.close();
   }
 
-  private onDotsTap_() {
-    this.shadowRoot!.querySelector('cr-action-menu')!.showAt(
-        assert(this.shadowRoot!.querySelector('cr-icon-button')!), {
-          anchorAlignmentY: AnchorAlignment.AFTER_END,
-        });
+  private onDotsClick_() {
+    const dots = this.shadowRoot!.querySelector('cr-icon-button');
+    assert(dots);
+    this.shadowRoot!.querySelector('cr-action-menu')!.showAt(dots, {
+      anchorAlignmentY: AnchorAlignment.AFTER_END,
+    });
   }
 }
 

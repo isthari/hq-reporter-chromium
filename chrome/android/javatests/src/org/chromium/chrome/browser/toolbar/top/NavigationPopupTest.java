@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,14 +25,12 @@ import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.UrlUtils;
-import org.chromium.chrome.R;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.history.HistoryManagerUtils;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
-import org.chromium.chrome.test.util.browser.Features;
+import org.chromium.chrome.test.R;
 import org.chromium.content_public.browser.NavigationController;
 import org.chromium.content_public.browser.NavigationEntry;
 import org.chromium.content_public.browser.NavigationHistory;
@@ -62,8 +60,8 @@ public class NavigationPopupTest {
     private static class TestNavigationEntry extends NavigationEntry {
         public TestNavigationEntry(int index, GURL url, GURL virtualUrl, GURL originalUrl,
                 String title, Bitmap favicon, int transition, long timestamp) {
-            super(index, url, virtualUrl, originalUrl, GURL.emptyGURL(), title, favicon, transition,
-                    timestamp, /* isInitialEntry=*/false);
+            super(index, url, virtualUrl, originalUrl, title, favicon, transition, timestamp,
+                    /* isInitialEntry=*/false);
         }
     }
 
@@ -147,7 +145,6 @@ public class NavigationPopupTest {
     @Test
     @SmallTest
     @Feature({"Navigation"})
-    @Features.EnableFeatures({ChromeFeatureList.UPDATE_HISTORY_ENTRY_POINTS_IN_INCOGNITO})
     public void testPopupForIncognito() throws ExecutionException {
         final TestNavigationController controller = new TestNavigationController();
         final ListPopupWindow popup = showPopup(controller, true);

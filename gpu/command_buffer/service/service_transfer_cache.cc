@@ -1,4 +1,4 @@
-// Copyright (c) 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,15 +9,17 @@
 #include <utility>
 
 #include "base/auto_reset.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/stringprintf.h"
 #include "base/system/sys_info.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "cc/paint/image_transfer_cache_entry.h"
 #include "gpu/command_buffer/service/service_discardable_manager.h"
 #include "third_party/skia/include/core/SkImage.h"
 #include "third_party/skia/include/gpu/GrBackendSurface.h"
+#include "third_party/skia/include/gpu/ganesh/SkImageGanesh.h"
 #include "ui/gl/trace_util.h"
 
 namespace gpu {
@@ -43,8 +45,12 @@ void DumpMemoryForImageTransferCacheEntry(
   dump->AddScalar(MemoryAllocatorDump::kNameSize,
                   MemoryAllocatorDump::kUnitsBytes, entry->CachedSize());
 
-  GrBackendTexture image_backend_texture =
-      entry->image()->getBackendTexture(false /* flushPendingGrContextIO */);
+  GrBackendTexture image_backend_texture;
+  if (!SkImages::GetBackendTextureFromImage(
+          entry->image(), &image_backend_texture,
+          false /* flushPendingGrContextIO */)) {
+    return;
+  }
   GrGLTextureInfo info;
   if (image_backend_texture.getGLTextureInfo(&info)) {
     auto guid = gl::GetGLTextureRasterGUIDForTracing(info.fID);
@@ -98,9 +104,12 @@ void DumpMemoryForYUVImageTransferCacheEntry(
     // If entry->image() is backed by multiple textures,
     // getBackendTexture() would end up flattening them to RGB, which is
     // undesirable.
-    GrBackendTexture image_backend_texture =
-        entry->GetPlaneImage(i)->getBackendTexture(
-            false /* flushPendingGrContextIO */);
+    GrBackendTexture image_backend_texture;
+    if (!SkImages::GetBackendTextureFromImage(
+            entry->GetPlaneImage(i), &image_backend_texture,
+            false /* flushPendingGrContextIO */)) {
+      return;
+    }
     GrGLTextureInfo info;
     if (image_backend_texture.getGLTextureInfo(&info)) {
       auto guid = gl::GetGLTextureRasterGUIDForTracing(info.fID);
@@ -120,7 +129,13 @@ ServiceTransferCache::CacheEntryInternal::CacheEntryInternal(
     std::unique_ptr<cc::ServiceTransferCacheEntry> entry)
     : handle(handle), entry(std::move(entry)) {}
 
-ServiceTransferCache::CacheEntryInternal::~CacheEntryInternal() {}
+ServiceTransferCache::CacheEntryInternal::~CacheEntryInternal() {
+  if (entry) {
+    UMA_HISTOGRAM_COUNTS_1M("GPU.TransferCache.ReusedTimes", num_reuse);
+    UMA_HISTOGRAM_LONG_TIMES("GPU.TransferCache.TimeSinceLastUseOnDelete",
+                             base::TimeTicks::Now() - last_use);
+  }
+}
 
 ServiceTransferCache::CacheEntryInternal::CacheEntryInternal(
     CacheEntryInternal&& other) = default;
@@ -135,11 +150,12 @@ ServiceTransferCache::ServiceTransferCache(const GpuPreferences& preferences)
                             ? preferences.force_gpu_mem_discardable_limit_bytes
                             : DiscardableCacheSizeLimit()),
       max_cache_entries_(kMaxCacheEntries) {
-  // In certain cases, ThreadTaskRunnerHandle isn't set (Android Webview).
-  // Don't register a dump provider in these cases.
-  if (base::ThreadTaskRunnerHandle::IsSet()) {
+  // In certain cases, SingleThreadTaskRunner::CurrentDefaultHandle isn't set
+  // (Android Webview).  Don't register a dump provider in these cases.
+  if (base::SingleThreadTaskRunner::HasCurrentDefault()) {
     base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
-        this, "gpu::ServiceTransferCache", base::ThreadTaskRunnerHandle::Get());
+        this, "gpu::ServiceTransferCache",
+        base::SingleThreadTaskRunner::GetCurrentDefault());
   }
 }
 
@@ -148,21 +164,26 @@ ServiceTransferCache::~ServiceTransferCache() {
       this);
 }
 
-bool ServiceTransferCache::CreateLockedEntry(const EntryKey& key,
-                                             ServiceDiscardableHandle handle,
-                                             GrDirectContext* context,
-                                             base::span<uint8_t> data) {
+bool ServiceTransferCache::CreateLockedEntry(
+    const EntryKey& key,
+    ServiceDiscardableHandle handle,
+    GrDirectContext* context,
+    skgpu::graphite::Recorder* graphite_recorder,
+    base::span<uint8_t> data) {
   auto found = entries_.Peek(key);
-  if (found != entries_.end())
+  if (found != entries_.end()) {
     return false;
+  }
 
   std::unique_ptr<cc::ServiceTransferCacheEntry> entry =
       cc::ServiceTransferCacheEntry::Create(key.entry_type);
-  if (!entry)
+  if (!entry) {
     return false;
+  }
 
-  if (!entry->Deserialize(context, data))
+  if (!entry->Deserialize(context, graphite_recorder, data)) {
     return false;
+  }
 
   total_size_ += entry->CachedSize();
   if (key.entry_type == cc::TransferCacheEntryType::kImage) {
@@ -229,10 +250,17 @@ bool ServiceTransferCache::DeleteEntry(const EntryKey& key) {
 
 cc::ServiceTransferCacheEntry* ServiceTransferCache::GetEntry(
     const EntryKey& key) {
-  auto found = entries_.Get(key);
-  if (found == entries_.end())
+  auto entry = entries_.Get(key);
+  bool found = entry != entries_.end();
+  UMA_HISTOGRAM_BOOLEAN("GPU.TransferCache.EntryFound", found);
+  if (!found) {
     return nullptr;
-  return found->second.entry.get();
+  }
+  UMA_HISTOGRAM_LONG_TIMES("GPU.TransferCache.TimeSinceLastUse",
+                           base::TimeTicks::Now() - entry->second.last_use);
+  entry->second.last_use = base::TimeTicks::Now();
+  entry->second.num_reuse++;
+  return entry->second.entry.get();
 }
 
 void ServiceTransferCache::EnforceLimits() {

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,8 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
+#include "base/scoped_observation_traits.h"
+#include "base/time/time.h"
 #include "components/translate/content/common/translate.mojom.h"
 #include "components/translate/core/browser/translate_driver.h"
 #include "components/translate/core/common/translate_errors.h"
@@ -51,8 +53,7 @@ class ContentTranslateDriver : public TranslateDriver,
     // Called when the page has been translated.
     virtual void OnPageTranslated(const std::string& source_lang,
                                   const std::string& translated_lang,
-                                  translate::TranslateErrors::Type error_type) {
-    }
+                                  translate::TranslateErrors error_type) {}
   };
 
   ContentTranslateDriver(content::WebContents& web_contents,
@@ -105,7 +106,7 @@ class ContentTranslateDriver : public TranslateDriver,
   void OnPageTranslated(bool cancelled,
                         const std::string& source_lang,
                         const std::string& translated_lang,
-                        TranslateErrors::Type error_type);
+                        TranslateErrors error_type);
 
   // Adds a receiver in |receivers_| for the passed |receiver|.
   void AddReceiver(
@@ -150,7 +151,7 @@ class ContentTranslateDriver : public TranslateDriver,
       GetLanguageDetectionModelCallback callback,
       bool is_available);
 
-  raw_ptr<TranslateManager> translate_manager_;
+  raw_ptr<TranslateManager, DanglingUntriaged> translate_manager_;
 
   base::ObserverList<TranslationObserver, true> translation_observers_;
 
@@ -186,5 +187,25 @@ class ContentTranslateDriver : public TranslateDriver,
 };
 
 }  // namespace translate
+
+namespace base {
+
+template <>
+struct ScopedObservationTraits<
+    translate::ContentTranslateDriver,
+    translate::ContentTranslateDriver::TranslationObserver> {
+  static void AddObserver(
+      translate::ContentTranslateDriver* source,
+      translate::ContentTranslateDriver::TranslationObserver* observer) {
+    source->AddTranslationObserver(observer);
+  }
+  static void RemoveObserver(
+      translate::ContentTranslateDriver* source,
+      translate::ContentTranslateDriver::TranslationObserver* observer) {
+    source->RemoveTranslationObserver(observer);
+  }
+};
+
+}  // namespace base
 
 #endif  // COMPONENTS_TRANSLATE_CONTENT_BROWSER_CONTENT_TRANSLATE_DRIVER_H_

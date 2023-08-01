@@ -1,11 +1,10 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.keyboard_accessory.sheet_component;
 
 import static android.view.ViewGroup.LayoutParams.MATCH_PARENT;
-import static android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
 
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
 
@@ -20,14 +19,10 @@ import static org.chromium.ui.base.LocalizationUtils.setRtlForTesting;
 import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.view.Gravity;
-import android.view.ViewStub;
+import android.view.LayoutInflater;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 
-import androidx.annotation.DimenRes;
-import androidx.annotation.IdRes;
-import androidx.annotation.LayoutRes;
-import androidx.annotation.Nullable;
 import androidx.test.filters.MediumTest;
 
 import org.junit.After;
@@ -60,19 +55,22 @@ import org.chromium.chrome.browser.keyboard_accessory.sheet_tabs.CreditCardAcces
 import org.chromium.chrome.browser.keyboard_accessory.sheet_tabs.PasswordAccessorySheetCoordinator;
 import org.chromium.chrome.test.ChromeJUnit4RunnerDelegate;
 import org.chromium.chrome.test.util.ChromeRenderTestRule;
+import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
 import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.content_public.browser.test.NativeLibraryTestUtils;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
-import org.chromium.ui.DeferredViewStubInflationProvider;
+import org.chromium.ui.AsyncViewProvider;
+import org.chromium.ui.AsyncViewStub;
 import org.chromium.ui.modelutil.LazyConstructionPropertyMcp;
 import org.chromium.ui.modelutil.ListModel;
 import org.chromium.ui.modelutil.PropertyModel;
-import org.chromium.ui.test.util.DummyUiActivity;
+import org.chromium.ui.test.util.BlankUiTestActivity;
 import org.chromium.ui.test.util.NightModeTestUtils;
 import org.chromium.ui.test.util.ViewUtils;
 
 import java.util.Arrays;
-import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.List;
 
 /**
@@ -80,6 +78,7 @@ import java.util.List;
  */
 @RunWith(ParameterizedRunner.class)
 @ParameterAnnotations.UseRunnerDelegate(ChromeJUnit4RunnerDelegate.class)
+@DisableFeatures({ChromeFeatureList.AUTOFILL_ENABLE_NEW_CARD_ART_AND_NETWORK_IMAGES})
 @EnableFeatures({ChromeFeatureList.AUTOFILL_KEYBOARD_ACCESSORY})
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
 public class AccessorySheetRenderTest {
@@ -94,18 +93,24 @@ public class AccessorySheetRenderTest {
 
     // No @Rule since we only need the launching helpers. Adding the rule to the chain breaks with
     // any ParameterizedRunnerDelegate.
-    private BaseActivityTestRule<DummyUiActivity> mActivityTestRule =
-            new BaseActivityTestRule<>(DummyUiActivity.class);
+    private BaseActivityTestRule<BlankUiTestActivity> mActivityTestRule =
+            new BaseActivityTestRule<>(BlankUiTestActivity.class);
 
     @Rule
     public final ChromeRenderTestRule mRenderTestRule =
-            ChromeRenderTestRule.Builder.withPublicCorpus().build();
+            ChromeRenderTestRule.Builder.withPublicCorpus()
+                    .setRevision(1)
+                    .setBugComponent(ChromeRenderTestRule.Component.UI_BROWSER_AUTOFILL)
+                    .build();
 
     public AccessorySheetRenderTest(boolean nightModeEnabled, boolean useRtlLayout) {
-        FeatureList.setTestFeatures(
-                Collections.singletonMap(ChromeFeatureList.AUTOFILL_KEYBOARD_ACCESSORY, true));
+        Map<String, Boolean> featureMap = new HashMap<>();
+        featureMap.put(ChromeFeatureList.AUTOFILL_ENABLE_NEW_CARD_ART_AND_NETWORK_IMAGES, false);
+        featureMap.put(ChromeFeatureList.AUTOFILL_KEYBOARD_ACCESSORY, true);
+        FeatureList.setTestFeatures(featureMap);
+
         setRtlForTesting(useRtlLayout);
-        NightModeTestUtils.setUpNightModeForDummyUiActivity(nightModeEnabled);
+        NightModeTestUtils.setUpNightModeForBlankUiTestActivity(nightModeEnabled);
         mRenderTestRule.setNightModeEnabled(nightModeEnabled);
         mRenderTestRule.setVariantPrefix(useRtlLayout ? "RTL" : "LTR");
     }
@@ -128,23 +133,23 @@ public class AccessorySheetRenderTest {
         mActivityTestRule.launchActivity(null);
         // Calling #setTheme() explicitly because the test rule doesn't have the @Rule annotation
         // and won't apply the theme.
-        mActivityTestRule.getActivity().setTheme(R.style.ColorOverlay_ChromiumAndroid);
+        mActivityTestRule.getActivity().setTheme(R.style.Theme_BrowserUI_DayNight);
         TestThreadUtils.runOnUiThreadBlocking(() -> {
-            ViewStub sheetStub = initializeContentViewWithSheetStub();
+            AsyncViewStub sheetStub = initializeContentViewWithSheetStub();
 
             mSheetModel = createSheetModel(
                     mActivityTestRule.getActivity().getResources().getDimensionPixelSize(
                             R.dimen.keyboard_accessory_sheet_height));
 
             LazyConstructionPropertyMcp.create(mSheetModel, VISIBLE,
-                    new DeferredViewStubInflationProvider<>(sheetStub),
+                    AsyncViewProvider.of(sheetStub, R.id.keyboard_accessory_sheet_container),
                     AccessorySheetViewBinder::bind);
         });
     }
 
     @After
     public void tearDown() {
-        NightModeTestUtils.tearDownNightModeForDummyUiActivity();
+        NightModeTestUtils.tearDownNightModeForBlankUiTestActivity();
         setRtlForTesting(false);
         try {
             ApplicationTestUtils.finishActivity(mActivityTestRule.getActivity());
@@ -255,27 +260,20 @@ public class AccessorySheetRenderTest {
         mRenderTestRule.render(mContentView, "Addresses");
     }
 
-    private ViewStub initializeContentViewWithSheetStub() {
-        mContentView = new FrameLayout(mActivityTestRule.getActivity());
-        mActivityTestRule.getActivity().setContentView(mContentView);
-
-        ViewStub sheetStub = createViewStub(R.id.keyboard_accessory_sheet_stub,
-                R.layout.keyboard_accessory_sheet, null, R.dimen.keyboard_accessory_sheet_height);
-        mContentView.addView(sheetStub, MATCH_PARENT, WRAP_CONTENT);
-        return sheetStub;
-    }
-
-    private ViewStub createViewStub(@IdRes int id, @LayoutRes int layout,
-            @Nullable @IdRes Integer inflatedId, @DimenRes int layoutHeight) {
-        ViewStub stub = new ViewStub(mActivityTestRule.getActivity());
-        stub.setId(id);
-        stub.setLayoutResource(layout);
-        if (inflatedId != null) stub.setInflatedId(inflatedId);
+    private AsyncViewStub initializeContentViewWithSheetStub() {
+        mContentView = (FrameLayout) LayoutInflater.from(mActivityTestRule.getActivity())
+                               .inflate(R.layout.test_main, null);
+        AsyncViewStub sheetStub = mContentView.findViewById(R.id.keyboard_accessory_sheet_stub);
+        sheetStub.setLayoutResource(R.layout.keyboard_accessory_sheet);
+        sheetStub.setShouldInflateOnBackgroundThread(true);
         LinearLayout.LayoutParams layoutParams = new LinearLayout.LayoutParams(MATCH_PARENT,
-                mActivityTestRule.getActivity().getResources().getDimensionPixelSize(layoutHeight));
+                mActivityTestRule.getActivity().getResources().getDimensionPixelSize(
+                        R.dimen.keyboard_accessory_sheet_height));
         layoutParams.gravity = Gravity.START | Gravity.BOTTOM;
-        stub.setLayoutParams(layoutParams);
-        return stub;
+        sheetStub.setLayoutParams(layoutParams);
+
+        mActivityTestRule.getActivity().setContentView(mContentView);
+        return sheetStub;
     }
 
     private static PropertyModel createSheetModel(int height) {
@@ -299,6 +297,6 @@ public class AccessorySheetRenderTest {
             mSheetModel.set(ACTIVE_TAB_INDEX, 0);
             mSheetModel.set(VISIBLE, true);
         });
-        ViewUtils.waitForView(mContentView, withId(R.id.keyboard_accessory_sheet));
+        ViewUtils.waitForView(mContentView, withId(R.id.keyboard_accessory_sheet_frame));
     }
 }

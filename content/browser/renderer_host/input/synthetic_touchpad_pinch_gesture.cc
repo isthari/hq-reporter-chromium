@@ -1,10 +1,10 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <stdint.h>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "content/browser/renderer_host/input/synthetic_touchpad_pinch_gesture.h"
 #include "content/common/input/input_injector.mojom.h"
 #include "third_party/blink/public/common/input/synthetic_web_input_event_builders.h"
@@ -39,6 +39,11 @@ SyntheticTouchpadPinchGesture::~SyntheticTouchpadPinchGesture() {}
 SyntheticGesture::Result SyntheticTouchpadPinchGesture::ForwardInputEvents(
     const base::TimeTicks& timestamp,
     SyntheticGestureTarget* target) {
+  CHECK(dispatching_controller_);
+  // Keep this on the stack so we can check if the forwarded event caused the
+  // deletion of the controller (which owns `this`).
+  base::WeakPtr<SyntheticGestureController> weak_controller =
+      dispatching_controller_;
   if (state_ == SETUP) {
     gesture_source_type_ = params_.gesture_source_type;
     if (gesture_source_type_ ==
@@ -53,6 +58,9 @@ SyntheticGesture::Result SyntheticTouchpadPinchGesture::ForwardInputEvents(
             content::mojom::GestureSourceType::kDefaultInput);
   if (gesture_source_type_ == content::mojom::GestureSourceType::kMouseInput) {
     ForwardGestureEvents(timestamp, target);
+
+    // A pinch gesture cannot cause `this` to be destroyed.
+    CHECK(weak_controller);
   } else {
     // Touch input should be using SyntheticTouchscreenPinchGesture.
     return SyntheticGesture::GESTURE_SOURCE_TYPE_NOT_IMPLEMENTED;

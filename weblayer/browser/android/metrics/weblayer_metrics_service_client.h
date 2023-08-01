@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,7 @@
 #include "components/metrics/metrics_service_client.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
-#include "weblayer/browser/browser_list_observer.h"
+#include "weblayer/browser/browser_fragment_list_observer.h"
 #include "weblayer/browser/profile_impl.h"
 
 namespace weblayer {
@@ -24,7 +24,7 @@ namespace weblayer {
 class WebLayerMetricsServiceClient
     : public ::metrics::AndroidMetricsServiceClient,
       public ProfileImpl::ProfileObserver,
-      public BrowserListObserver {
+      public BrowserFragmentListObserver {
   friend class base::NoDestructor<WebLayerMetricsServiceClient>;
 
  public:
@@ -71,7 +71,8 @@ class WebLayerMetricsServiceClient
   void ProfileDestroyed(ProfileImpl* profile) override;
 
   // BrowserListObserver:
-  void OnHasAtLeastOneResumedBrowserStateChanged(bool new_value) override;
+  void OnHasAtLeastOneResumedBrowserFragmentStateChanged(
+      bool new_value) override;
 
   std::vector<base::OnceClosure> post_start_tasks_;
 };

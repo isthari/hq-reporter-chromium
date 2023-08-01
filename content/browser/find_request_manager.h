@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,9 @@
 
 #include "base/cancelable_callback.h"
 #include "base/containers/queue.h"
+#include "base/functional/function_ref.h"
 #include "base/memory/raw_ptr.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/common/stop_find_action.h"
@@ -84,6 +86,10 @@ class FindRequestManager {
 
   // Tells active frame to clear the active match highlighting.
   void ClearActiveFindMatch();
+
+  // Runs the delayed find task if present. Returns true if there was a task
+  // which got run. Returns false if there was no delayed task.
+  bool CONTENT_EXPORT RunDelayedFindTaskForTesting();
 
 #if BUILDFLAG(IS_ANDROID)
   // Selects and zooms to the find result nearest to the point (x, y), defined
@@ -212,11 +218,10 @@ class FindRequestManager {
   std::unique_ptr<FindInPageClient> CreateFindInPageClient(
       RenderFrameHostImpl* rfh);
 
-  using FrameIterationCallback =
-      base::RepeatingCallback<void(RenderFrameHostImpl*)>;
   // Traverses all RenderFrameHosts added for find-in-page and invokes the
   // callback if the each RenderFrameHost is alive and active.
-  void ForEachAddedFindInPageRenderFrameHost(FrameIterationCallback callback);
+  void ForEachAddedFindInPageRenderFrameHost(
+      base::FunctionRef<void(RenderFrameHostImpl*)> func_ref);
 
   void EmitFindRequest(int request_id,
                        const std::u16string& search_text,

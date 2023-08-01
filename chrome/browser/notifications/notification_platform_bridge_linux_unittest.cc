@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,9 @@
 #include <memory>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/i18n/number_formatting.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
@@ -51,7 +51,7 @@ class NotificationBuilder {
                       id,
                       std::u16string(),
                       std::u16string(),
-                      gfx::Image(),
+                      ui::ImageModel(),
                       std::u16string(),
                       GURL(),
                       message_center::NotifierId(GURL()),
@@ -149,38 +149,39 @@ struct TestParams {
         expect_shutdown(true),
         connect_signals(true) {}
 
-  TestParams& SetNameHasOwner(bool name_has_owner) {
-    this->name_has_owner = name_has_owner;
+  TestParams& SetNameHasOwner(bool new_name_has_owner) {
+    this->name_has_owner = new_name_has_owner;
     return *this;
   }
 
-  TestParams& SetCapabilities(const std::vector<std::string>& capabilities) {
-    this->capabilities = capabilities;
+  TestParams& SetCapabilities(
+      const std::vector<std::string>& new_capabilities) {
+    this->capabilities = new_capabilities;
     return *this;
   }
 
-  TestParams& SetServerName(const std::string& server_name) {
-    this->server_name = server_name;
+  TestParams& SetServerName(const std::string& new_server_name) {
+    this->server_name = new_server_name;
     return *this;
   }
 
-  TestParams& SetServerVersion(const std::string& server_version) {
-    this->server_version = server_version;
+  TestParams& SetServerVersion(const std::string& new_server_version) {
+    this->server_version = new_server_version;
     return *this;
   }
 
-  TestParams& SetExpectInitSuccess(bool expect_init_success) {
-    this->expect_init_success = expect_init_success;
+  TestParams& SetExpectInitSuccess(bool new_expect_init_success) {
+    this->expect_init_success = new_expect_init_success;
     return *this;
   }
 
-  TestParams& SetExpectShutdown(bool expect_shutdown) {
-    this->expect_shutdown = expect_shutdown;
+  TestParams& SetExpectShutdown(bool new_expect_shutdown) {
+    this->expect_shutdown = new_expect_shutdown;
     return *this;
   }
 
-  TestParams& SetConnectSignals(bool connect_signals) {
-    this->connect_signals = connect_signals;
+  TestParams& SetConnectSignals(bool new_connect_signals) {
+    this->connect_signals = new_connect_signals;
     return *this;
   }
 

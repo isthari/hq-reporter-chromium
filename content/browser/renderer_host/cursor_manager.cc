@@ -1,23 +1,26 @@
-// Copyright (c) 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "content/browser/renderer_host/cursor_manager.h"
 
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
+#include "ui/base/cursor/cursor.h"
+#include "ui/base/cursor/mojom/cursor_type.mojom-shared.h"
 
 namespace content {
 
 CursorManager::CursorManager(RenderWidgetHostViewBase* root)
     : view_under_cursor_(root), root_view_(root) {}
 
-CursorManager::~CursorManager() {}
+CursorManager::~CursorManager() = default;
 
 void CursorManager::UpdateCursor(RenderWidgetHostViewBase* view,
-                                 const WebCursor& cursor) {
+                                 const ui::Cursor& cursor) {
   cursor_map_[view] = cursor;
-  if (view == view_under_cursor_)
-    root_view_->DisplayCursor(cursor);
+  if (view == view_under_cursor_) {
+    UpdateCursor();
+  }
 }
 
 void CursorManager::UpdateViewUnderCursor(RenderWidgetHostViewBase* view) {
@@ -31,13 +34,7 @@ void CursorManager::UpdateViewUnderCursor(RenderWidgetHostViewBase* view) {
   // ignored.
   root_view_->UpdateTooltip(std::u16string());
   view_under_cursor_ = view;
-  WebCursor cursor(ui::mojom::CursorType::kPointer);
-
-  auto it = cursor_map_.find(view);
-  if (it != cursor_map_.end())
-    cursor = it->second;
-
-  root_view_->DisplayCursor(cursor);
+  UpdateCursor();
 }
 
 void CursorManager::ViewBeingDestroyed(RenderWidgetHostViewBase* view) {
@@ -53,13 +50,65 @@ bool CursorManager::IsViewUnderCursor(RenderWidgetHostViewBase* view) const {
   return view == view_under_cursor_;
 }
 
+base::ScopedClosureRunner CursorManager::CreateDisallowCustomCursorScope() {
+  bool should_update_cursor = false;
+
+  // If custom cursors are about to be disallowed and the current view uses a
+  // custom cursor, the cursor needs to be updated to replace the custom cursor.
+  if (AreCustomCursorsAllowed() && cursor_map_[view_under_cursor_].type() ==
+                                       ui::mojom::CursorType::kCustom) {
+    should_update_cursor = true;
+  }
+
+  ++disallow_custom_cursor_scope_count_;
+
+  if (should_update_cursor) {
+    UpdateCursor();
+  }
+
+  return base::ScopedClosureRunner(
+      base::BindOnce(&CursorManager::DisallowCustomCursorScopeExpired,
+                     weak_factory_.GetWeakPtr()));
+}
+
 bool CursorManager::GetCursorForTesting(RenderWidgetHostViewBase* view,
-                                        WebCursor& cursor) {
-  if (cursor_map_.find(view) == cursor_map_.end())
+                                        ui::Cursor& cursor) {
+  if (cursor_map_.find(view) == cursor_map_.end()) {
     return false;
+  }
 
   cursor = cursor_map_[view];
   return true;
+}
+
+bool CursorManager::AreCustomCursorsAllowed() const {
+  return disallow_custom_cursor_scope_count_ == 0;
+}
+
+void CursorManager::DisallowCustomCursorScopeExpired() {
+  --disallow_custom_cursor_scope_count_;
+
+  // If custom cursors started being allowed and the current view has a custom
+  // cursor, update the cursor to ensure the custom cursor is now displayed.
+  if (AreCustomCursorsAllowed() && cursor_map_[view_under_cursor_].type() ==
+                                       ui::mojom::CursorType::kCustom) {
+    UpdateCursor();
+  }
+}
+
+void CursorManager::UpdateCursor() {
+  ui::Cursor cursor(ui::mojom::CursorType::kPointer);
+
+  auto it = cursor_map_.find(view_under_cursor_);
+  if (it != cursor_map_.end() &&
+      (AreCustomCursorsAllowed() ||
+       it->second.type() != ui::mojom::CursorType::kCustom)) {
+    cursor = it->second;
+  }
+
+  last_set_cursor_type_for_testing_ = cursor.type();
+
+  root_view_->DisplayCursor(cursor);
 }
 
 }  // namespace content

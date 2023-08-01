@@ -1,15 +1,14 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.omnibox;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
@@ -37,14 +36,15 @@ import org.mockito.junit.MockitoRule;
 import org.robolectric.annotation.Config;
 import org.robolectric.shadow.api.Shadow;
 
-import org.chromium.base.Callback;
-import org.chromium.base.metrics.test.ShadowRecordHistogram;
+import org.chromium.base.Promise;
+import org.chromium.base.metrics.RecordHistogram;
+import org.chromium.base.metrics.UmaRecorderHolder;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.JniMocker;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.locale.LocaleManager;
 import org.chromium.chrome.browser.locale.LocaleManagerDelegate;
 import org.chromium.chrome.browser.omnibox.status.StatusProperties.StatusIconResource;
+import org.chromium.chrome.browser.omnibox.test.R;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.theme.ThemeUtils;
 import org.chromium.chrome.browser.ui.favicon.FaviconHelper;
@@ -52,14 +52,14 @@ import org.chromium.chrome.browser.ui.theme.BrandedColorScheme;
 import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.components.browser_ui.widget.RoundedIconGenerator;
 import org.chromium.components.search_engines.TemplateUrlService;
-import org.chromium.content_public.browser.BrowserStartupController;
 import org.chromium.url.JUnitTestGURLs;
+import org.chromium.url.ShadowGURL;
 
 /**
  * Tests for SearchEngineLogoUtils.
  */
 @RunWith(BaseRobolectricTestRunner.class)
-@Config(manifest = Config.NONE, shadows = {ShadowRecordHistogram.class})
+@Config(manifest = Config.NONE, shadows = {ShadowGURL.class})
 public class SearchEngineLogoUtilsUnitTest {
     private static final String LOGO_URL = JUnitTestGURLs.URL_1;
     private static final String EVENTS_HISTOGRAM = "AndroidSearchEngineLogo.Events";
@@ -74,8 +74,6 @@ public class SearchEngineLogoUtilsUnitTest {
     @Captor
     ArgumentCaptor<FaviconHelper.FaviconImageCallback> mCallbackCaptor;
     @Mock
-    Callback<StatusIconResource> mCallback;
-    @Mock
     FaviconHelper mFaviconHelper;
     @Mock
     TemplateUrlService mTemplateUrlService;
@@ -84,9 +82,7 @@ public class SearchEngineLogoUtilsUnitTest {
     @Mock
     LocaleManagerDelegate mLocaleManagerDelegate;
     @Mock
-    BrowserStartupController mBrowserStartupController;
-    @Mock
-    Resources mResource;
+    Resources mResources;
 
     SearchEngineLogoUtils mSearchEngineLogoUtils;
     Bitmap mBitmap;
@@ -101,22 +97,21 @@ public class SearchEngineLogoUtilsUnitTest {
         doReturn(LOGO_URL).when(mTemplateUrlService).getUrlForSearchQuery(any());
         doReturn(true)
                 .when(mFaviconHelper)
-                .getLocalFaviconImageForURL(any(), anyString(), anyInt(), any());
+                .getLocalFaviconImageForURL(any(), any(), anyInt(), any());
         doReturn(false).when(mLocaleManagerDelegate).needToCheckForSearchEnginePromo();
         LocaleManager.getInstance().setDelegateForTest(mLocaleManagerDelegate);
 
         // Used when creating bitmaps, needs to be greater than 0.
-        doReturn(1).when(mResource).getDimensionPixelSize(anyInt());
+        doReturn(1).when(mResources).getDimensionPixelSize(anyInt());
 
-        doReturn(true).when(mBrowserStartupController).isFullBrowserStarted();
-        mSearchEngineLogoUtils = new SearchEngineLogoUtils(mBrowserStartupController);
+        mSearchEngineLogoUtils = new SearchEngineLogoUtils();
         mSearchEngineLogoUtils.setFaviconHelperForTesting(mFaviconHelper);
         mSearchEngineLogoUtils.setRoundedIconGeneratorForTesting(mRoundedIconGenerator);
     }
 
     @After
     public void tearDown() {
-        ShadowRecordHistogram.reset();
+        UmaRecorderHolder.resetForTesting();
         SearchEngineLogoUtils.resetForTesting();
     }
 
@@ -132,7 +127,7 @@ public class SearchEngineLogoUtilsUnitTest {
         mSearchEngineLogoUtils.recordEvent(
                 SearchEngineLogoUtils.Events.FETCH_NON_GOOGLE_LOGO_REQUEST);
         assertEquals(1,
-                ShadowRecordHistogram.getHistogramValueCountForTesting(EVENTS_HISTOGRAM,
+                RecordHistogram.getHistogramValueCountForTesting(EVENTS_HISTOGRAM,
                         SearchEngineLogoUtils.Events.FETCH_NON_GOOGLE_LOGO_REQUEST));
     }
 
@@ -140,20 +135,20 @@ public class SearchEngineLogoUtilsUnitTest {
     public void getSearchEngineLogo() {
         StatusIconResource expected = new StatusIconResource(LOGO_URL, mBitmap, 0);
 
-        mSearchEngineLogoUtils.getSearchEngineLogo(mResource, BrandedColorScheme.APP_DEFAULT,
-                Mockito.mock(Profile.class), mTemplateUrlService, mCallback);
+        Promise<StatusIconResource> promise = mSearchEngineLogoUtils.getSearchEngineLogo(mResources,
+                BrandedColorScheme.APP_DEFAULT, Mockito.mock(Profile.class), mTemplateUrlService);
         verify(mFaviconHelper)
-                .getLocalFaviconImageForURL(
-                        any(), anyString(), anyInt(), mCallbackCaptor.capture());
+                .getLocalFaviconImageForURL(any(), any(), anyInt(), mCallbackCaptor.capture());
         FaviconHelper.FaviconImageCallback faviconCallback = mCallbackCaptor.getValue();
         faviconCallback.onFaviconAvailable(mBitmap, JUnitTestGURLs.getGURL(LOGO_URL));
 
-        verify(mCallback).onResult(expected);
+        assertTrue(promise.isFulfilled());
+        assertEquals(promise.getResult(), expected);
         assertEquals(1,
-                ShadowRecordHistogram.getHistogramValueCountForTesting(EVENTS_HISTOGRAM,
+                RecordHistogram.getHistogramValueCountForTesting(EVENTS_HISTOGRAM,
                         SearchEngineLogoUtils.Events.FETCH_NON_GOOGLE_LOGO_REQUEST));
         assertEquals(1,
-                ShadowRecordHistogram.getHistogramValueCountForTesting(
+                RecordHistogram.getHistogramValueCountForTesting(
                         EVENTS_HISTOGRAM, SearchEngineLogoUtils.Events.FETCH_SUCCESS));
     }
 
@@ -162,12 +157,15 @@ public class SearchEngineLogoUtilsUnitTest {
         StatusIconResource expected =
                 mSearchEngineLogoUtils.getSearchLoupeResource(BrandedColorScheme.APP_DEFAULT);
 
-        mSearchEngineLogoUtils.getSearchEngineLogo(Mockito.mock(Resources.class),
-                BrandedColorScheme.APP_DEFAULT, null, mTemplateUrlService, mCallback);
-        mSearchEngineLogoUtils.getSearchEngineLogo(Mockito.mock(Resources.class),
-                BrandedColorScheme.APP_DEFAULT, Mockito.mock(Profile.class), null, mCallback);
+        Promise<StatusIconResource> promise =
+                mSearchEngineLogoUtils.getSearchEngineLogo(Mockito.mock(Resources.class),
+                        BrandedColorScheme.APP_DEFAULT, null, mTemplateUrlService);
+        Promise<StatusIconResource> promise2 =
+                mSearchEngineLogoUtils.getSearchEngineLogo(Mockito.mock(Resources.class),
+                        BrandedColorScheme.APP_DEFAULT, Mockito.mock(Profile.class), null);
 
-        verify(mCallback, times(2)).onResult(expected);
+        assertEquals(promise.getResult(), expected);
+        assertEquals(promise2.getResult(), expected);
     }
 
     @Test
@@ -175,36 +173,37 @@ public class SearchEngineLogoUtilsUnitTest {
         StatusIconResource expected = new StatusIconResource(R.drawable.ic_logo_googleg_20dp, 0);
         doReturn(true).when(mTemplateUrlService).isDefaultSearchEngineGoogle();
 
-        mSearchEngineLogoUtils.getSearchEngineLogo(Mockito.mock(Resources.class),
-                BrandedColorScheme.APP_DEFAULT, Mockito.mock(Profile.class), mTemplateUrlService,
-                mCallback);
-        verify(mCallback).onResult(expected);
+        Promise<StatusIconResource> promise = mSearchEngineLogoUtils.getSearchEngineLogo(
+                Mockito.mock(Resources.class), BrandedColorScheme.APP_DEFAULT,
+                Mockito.mock(Profile.class), mTemplateUrlService);
+        assertEquals(promise.getResult(), expected);
     }
 
     @Test
     public void getSearchEngineLogo_faviconCached() {
         StatusIconResource expected = new StatusIconResource(LOGO_URL, mBitmap, 0);
 
-        mSearchEngineLogoUtils.getSearchEngineLogo(mResource, BrandedColorScheme.APP_DEFAULT,
-                Mockito.mock(Profile.class), mTemplateUrlService, mCallback);
+        Promise<StatusIconResource> promise = mSearchEngineLogoUtils.getSearchEngineLogo(mResources,
+                BrandedColorScheme.APP_DEFAULT, Mockito.mock(Profile.class), mTemplateUrlService);
         verify(mFaviconHelper)
-                .getLocalFaviconImageForURL(
-                        any(), anyString(), anyInt(), mCallbackCaptor.capture());
+                .getLocalFaviconImageForURL(any(), any(), anyInt(), mCallbackCaptor.capture());
         FaviconHelper.FaviconImageCallback faviconCallback = mCallbackCaptor.getValue();
         faviconCallback.onFaviconAvailable(mBitmap, JUnitTestGURLs.getGURL(LOGO_URL));
-        mSearchEngineLogoUtils.getSearchEngineLogo(Mockito.mock(Resources.class),
-                BrandedColorScheme.APP_DEFAULT, Mockito.mock(Profile.class), mTemplateUrlService,
-                mCallback);
+        assertEquals(promise.getResult(), expected);
 
-        verify(mCallback, times(2)).onResult(expected);
+        Promise<StatusIconResource> promise2 = mSearchEngineLogoUtils.getSearchEngineLogo(
+                Mockito.mock(Resources.class), BrandedColorScheme.APP_DEFAULT,
+                Mockito.mock(Profile.class), mTemplateUrlService);
+        assertEquals(promise2.getResult(), expected);
+
         assertEquals(2,
-                ShadowRecordHistogram.getHistogramValueCountForTesting(EVENTS_HISTOGRAM,
+                RecordHistogram.getHistogramValueCountForTesting(EVENTS_HISTOGRAM,
                         SearchEngineLogoUtils.Events.FETCH_NON_GOOGLE_LOGO_REQUEST));
         assertEquals(1,
-                ShadowRecordHistogram.getHistogramValueCountForTesting(
+                RecordHistogram.getHistogramValueCountForTesting(
                         EVENTS_HISTOGRAM, SearchEngineLogoUtils.Events.FETCH_SUCCESS));
         assertEquals(1,
-                ShadowRecordHistogram.getHistogramValueCountForTesting(
+                RecordHistogram.getHistogramValueCountForTesting(
                         EVENTS_HISTOGRAM, SearchEngineLogoUtils.Events.FETCH_SUCCESS_CACHE_HIT));
     }
 
@@ -214,16 +213,16 @@ public class SearchEngineLogoUtilsUnitTest {
                 mSearchEngineLogoUtils.getSearchLoupeResource(BrandedColorScheme.APP_DEFAULT);
 
         doReturn(null).when(mTemplateUrlService).getUrlForSearchQuery(any());
-        mSearchEngineLogoUtils.getSearchEngineLogo(Mockito.mock(Resources.class),
-                BrandedColorScheme.APP_DEFAULT, Mockito.mock(Profile.class), mTemplateUrlService,
-                mCallback);
+        Promise<StatusIconResource> promise = mSearchEngineLogoUtils.getSearchEngineLogo(
+                Mockito.mock(Resources.class), BrandedColorScheme.APP_DEFAULT,
+                Mockito.mock(Profile.class), mTemplateUrlService);
 
-        verify(mCallback).onResult(eq(expected));
+        assertEquals(promise.getResult(), expected);
         assertEquals(1,
-                ShadowRecordHistogram.getHistogramValueCountForTesting(EVENTS_HISTOGRAM,
+                RecordHistogram.getHistogramValueCountForTesting(EVENTS_HISTOGRAM,
                         SearchEngineLogoUtils.Events.FETCH_NON_GOOGLE_LOGO_REQUEST));
         assertEquals(1,
-                ShadowRecordHistogram.getHistogramValueCountForTesting(
+                RecordHistogram.getHistogramValueCountForTesting(
                         EVENTS_HISTOGRAM, SearchEngineLogoUtils.Events.FETCH_FAILED_NULL_URL));
     }
 
@@ -233,19 +232,19 @@ public class SearchEngineLogoUtilsUnitTest {
                 mSearchEngineLogoUtils.getSearchLoupeResource(BrandedColorScheme.APP_DEFAULT);
 
         when(mFaviconHelper.getLocalFaviconImageForURL(
-                     any(), anyString(), anyInt(), mCallbackCaptor.capture()))
+                     any(), any(), anyInt(), mCallbackCaptor.capture()))
                 .thenReturn(false);
 
-        mSearchEngineLogoUtils.getSearchEngineLogo(Mockito.mock(Resources.class),
-                BrandedColorScheme.APP_DEFAULT, Mockito.mock(Profile.class), mTemplateUrlService,
-                mCallback);
+        Promise<StatusIconResource> promise = mSearchEngineLogoUtils.getSearchEngineLogo(
+                Mockito.mock(Resources.class), BrandedColorScheme.APP_DEFAULT,
+                Mockito.mock(Profile.class), mTemplateUrlService);
 
-        verify(mCallback).onResult(expected);
+        assertEquals(promise.getResult(), expected);
         assertEquals(1,
-                ShadowRecordHistogram.getHistogramValueCountForTesting(EVENTS_HISTOGRAM,
+                RecordHistogram.getHistogramValueCountForTesting(EVENTS_HISTOGRAM,
                         SearchEngineLogoUtils.Events.FETCH_NON_GOOGLE_LOGO_REQUEST));
         assertEquals(1,
-                ShadowRecordHistogram.getHistogramValueCountForTesting(EVENTS_HISTOGRAM,
+                RecordHistogram.getHistogramValueCountForTesting(EVENTS_HISTOGRAM,
                         SearchEngineLogoUtils.Events.FETCH_FAILED_FAVICON_HELPER_ERROR));
     }
 
@@ -254,21 +253,20 @@ public class SearchEngineLogoUtilsUnitTest {
         StatusIconResource expected =
                 mSearchEngineLogoUtils.getSearchLoupeResource(BrandedColorScheme.APP_DEFAULT);
 
-        mSearchEngineLogoUtils.getSearchEngineLogo(Mockito.mock(Resources.class),
-                BrandedColorScheme.APP_DEFAULT, Mockito.mock(Profile.class), mTemplateUrlService,
-                mCallback);
+        Promise<StatusIconResource> promise = mSearchEngineLogoUtils.getSearchEngineLogo(
+                Mockito.mock(Resources.class), BrandedColorScheme.APP_DEFAULT,
+                Mockito.mock(Profile.class), mTemplateUrlService);
         verify(mFaviconHelper)
-                .getLocalFaviconImageForURL(
-                        any(), anyString(), anyInt(), mCallbackCaptor.capture());
+                .getLocalFaviconImageForURL(any(), any(), anyInt(), mCallbackCaptor.capture());
         FaviconHelper.FaviconImageCallback faviconCallback = mCallbackCaptor.getValue();
         faviconCallback.onFaviconAvailable(null, JUnitTestGURLs.getGURL(LOGO_URL));
 
-        verify(mCallback).onResult(expected);
+        assertEquals(promise.getResult(), expected);
         assertEquals(1,
-                ShadowRecordHistogram.getHistogramValueCountForTesting(EVENTS_HISTOGRAM,
+                RecordHistogram.getHistogramValueCountForTesting(EVENTS_HISTOGRAM,
                         SearchEngineLogoUtils.Events.FETCH_NON_GOOGLE_LOGO_REQUEST));
         assertEquals(1,
-                ShadowRecordHistogram.getHistogramValueCountForTesting(EVENTS_HISTOGRAM,
+                RecordHistogram.getHistogramValueCountForTesting(EVENTS_HISTOGRAM,
                         SearchEngineLogoUtils.Events.FETCH_FAILED_RETURNED_BITMAP_NULL));
     }
 
@@ -331,6 +329,30 @@ public class SearchEngineLogoUtilsUnitTest {
         } catch (Exception e) {
             Assert.fail("No exception should be thrown.");
         }
+    }
+
+    @Test
+    public void needToCheckForSearchEnginePromo_resultCached() {
+        doThrow(RuntimeException.class)
+                .when(mLocaleManagerDelegate)
+                .needToCheckForSearchEnginePromo();
+        assertFalse(mSearchEngineLogoUtils.needToCheckForSearchEnginePromo());
+
+        Mockito.reset(mLocaleManagerDelegate);
+
+        doReturn(true).when(mLocaleManagerDelegate).needToCheckForSearchEnginePromo();
+
+        assertTrue(mSearchEngineLogoUtils.needToCheckForSearchEnginePromo());
+
+        Mockito.reset(mLocaleManagerDelegate);
+
+        doReturn(false).when(mLocaleManagerDelegate).needToCheckForSearchEnginePromo();
+
+        assertFalse(mSearchEngineLogoUtils.needToCheckForSearchEnginePromo());
+        assertFalse(mSearchEngineLogoUtils.needToCheckForSearchEnginePromo());
+        assertFalse(mSearchEngineLogoUtils.needToCheckForSearchEnginePromo());
+
+        verify(mLocaleManagerDelegate, times(1)).needToCheckForSearchEnginePromo();
     }
 
     private static Bitmap createSolidImage(int width, int height, int color) {

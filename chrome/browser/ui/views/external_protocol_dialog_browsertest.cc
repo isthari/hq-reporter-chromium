@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #include <string>
 
 #include "base/memory/raw_ptr.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "build/build_config.h"
 #include "chrome/browser/external_protocol/external_protocol_handler.h"
@@ -53,24 +54,25 @@ namespace {
 constexpr char kInitiatingOrigin[] = "a.test";
 constexpr char kRedirectingOrigin[] = "b.test";
 
-class FakeDefaultProtocolClientWorker
-    : public shell_integration::DefaultProtocolClientWorker {
+class FakeDefaultSchemeClientWorker
+    : public shell_integration::DefaultSchemeClientWorker {
  public:
-  explicit FakeDefaultProtocolClientWorker(const std::string& protocol)
-      : DefaultProtocolClientWorker(protocol) {}
-  FakeDefaultProtocolClientWorker(const FakeDefaultProtocolClientWorker&) =
-      delete;
-  FakeDefaultProtocolClientWorker& operator=(
-      const FakeDefaultProtocolClientWorker&) = delete;
+  explicit FakeDefaultSchemeClientWorker(const GURL& url)
+      : DefaultSchemeClientWorker(url) {}
+  FakeDefaultSchemeClientWorker(const FakeDefaultSchemeClientWorker&) = delete;
+  FakeDefaultSchemeClientWorker& operator=(
+      const FakeDefaultSchemeClientWorker&) = delete;
 
  private:
-  ~FakeDefaultProtocolClientWorker() override = default;
+  ~FakeDefaultSchemeClientWorker() override = default;
   shell_integration::DefaultWebClientState CheckIsDefaultImpl() override {
     return shell_integration::DefaultWebClientState::NOT_DEFAULT;
   }
 
+  std::u16string GetDefaultClientNameImpl() override { return u"TestApp"; }
+
   void SetAsDefaultImpl(base::OnceClosure on_finished_callback) override {
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, std::move(on_finished_callback));
   }
 };
@@ -102,18 +104,19 @@ class ExternalProtocolDialogBrowserTest
     dialog_ = new ExternalProtocolDialog(
         web_contents, GURL("telnet://12345"), u"/usr/bin/telnet",
         url::Origin::Create(GURL(initiating_origin)),
-        web_contents->GetMainFrame()->GetWeakDocumentPtr());
+        web_contents->GetPrimaryMainFrame()->GetWeakDocumentPtr());
   }
 
   void SetChecked(bool checked) {
     test::ExternalProtocolDialogTestApi(dialog_).SetCheckBoxSelected(checked);
   }
 
-  // ExternalProtocolHander::Delegate:
-  scoped_refptr<shell_integration::DefaultProtocolClientWorker>
-  CreateShellWorker(const std::string& protocol) override {
-    return base::MakeRefCounted<FakeDefaultProtocolClientWorker>(protocol);
+  // ExternalProtocolHandler::Delegate:
+  scoped_refptr<shell_integration::DefaultSchemeClientWorker> CreateShellWorker(
+      const GURL& url) override {
+    return base::MakeRefCounted<FakeDefaultSchemeClientWorker>(url);
   }
+
   ExternalProtocolHandler::BlockState GetBlockState(const std::string& scheme,
                                                     Profile* profile) override {
     return ExternalProtocolHandler::UNKNOWN;
@@ -124,7 +127,9 @@ class ExternalProtocolDialogBrowserTest
       content::WebContents* web_contents,
       ui::PageTransition page_transition,
       bool has_user_gesture,
-      const absl::optional<url::Origin>& initiating_origin) override {
+      const absl::optional<url::Origin>& initiating_origin,
+      const std::u16string& program_name) override {
+    EXPECT_EQ(program_name, u"TestApp");
     url_did_launch_ = true;
     launch_url_ = initiating_origin->host();
     if (launch_url_run_loop_)
@@ -160,7 +165,7 @@ class ExternalProtocolDialogBrowserTest
   base::HistogramTester histogram_tester_;
 
  protected:
-  raw_ptr<ExternalProtocolDialog> dialog_ = nullptr;
+  raw_ptr<ExternalProtocolDialog, DanglingUntriaged> dialog_ = nullptr;
   std::string blocked_scheme_;
   url::Origin blocked_origin_;
   BlockState blocked_state_ = BlockState::UNKNOWN;

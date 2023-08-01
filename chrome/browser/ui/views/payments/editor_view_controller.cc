@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -50,8 +50,8 @@ class ErrorLabelView : public views::Label {
     SetMultiLine(true);
     SetHorizontalAlignment(gfx::ALIGN_LEFT);
     constexpr int kErrorLabelTopPadding = 6;
-    SetBorder(
-        views::CreateEmptyBorder(gfx::Insets(kErrorLabelTopPadding, 0, 0, 0)));
+    SetBorder(views::CreateEmptyBorder(
+        gfx::Insets::TLBR(kErrorLabelTopPadding, 0, 0, 0)));
   }
 
   // views::Label:
@@ -162,6 +162,13 @@ void EditorViewController::FillContentView(views::View* content_view) {
   content_view->AddChildView(CreateEditorView().release());
 }
 
+bool EditorViewController::ShouldAccelerateEnterKey() {
+  // We allow the user to confirm their details by pressing 'enter' irregardless
+  // of which edit field is currently focused, for quicker navigation through
+  // the form.
+  return true;
+}
+
 void EditorViewController::UpdateEditorView() {
   UpdateContentView();
   UpdateFocus(GetFirstFocusedView());
@@ -228,9 +235,9 @@ std::unique_ptr<views::View> EditorViewController::CreateEditorView() {
   // |______|__________|______________|_________|____________|_________________|
   constexpr int kInputRowSpacing = 12;
 
-  editor_view->SetBorder(views::CreateEmptyBorder(
+  editor_view->SetBorder(views::CreateEmptyBorder(gfx::Insets::TLBR(
       kInputRowSpacing, payments::kPaymentRequestRowHorizontalInsets, 0,
-      payments::kPaymentRequestRowHorizontalInsets));
+      payments::kPaymentRequestRowHorizontalInsets)));
 
   editor_view->SetLayoutManager(std::make_unique<views::BoxLayout>(
       views::BoxLayout::Orientation::kVertical, gfx::Insets(),

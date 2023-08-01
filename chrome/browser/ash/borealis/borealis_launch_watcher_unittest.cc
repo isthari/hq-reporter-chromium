@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,13 @@
 
 #include <memory>
 
+#include "base/memory/raw_ptr.h"
 #include "chrome/browser/ash/borealis/testing/callback_factory.h"
-#include "chrome/browser/ash/borealis/testing/dbus.h"
+#include "chrome/browser/ash/guest_os/dbus_test_helper.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/test/base/testing_profile.h"
-#include "chromeos/dbus/cicerone/fake_cicerone_client.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/ash/components/dbus/cicerone/fake_cicerone_client.h"
+#include "chromeos/ash/components/dbus/dbus_thread_manager.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
@@ -22,12 +23,12 @@ using CallbackFactory =
     StrictCallbackFactory<void(absl::optional<std::string>)>;
 
 class BorealisLaunchWatcherTest : public testing::Test,
-                                  protected FakeVmServicesHelper {
+                                  protected guest_os::FakeVmServicesHelper {
  protected:
   content::BrowserTaskEnvironment task_environment_;
   // This test doesn't actually need the profile for anything meaningful,
   // beyond hashing, so it is safe for it to be nullptr.
-  Profile* profile_ = nullptr;
+  raw_ptr<Profile, ExperimentalAsh> profile_ = nullptr;
 };
 
 TEST_F(BorealisLaunchWatcherTest, VmStartsCallbackRan) {

@@ -1,4 +1,4 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,10 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
 #include "base/containers/contains.h"
-#include "base/guid.h"
+#include "base/functional/callback.h"
 #include "base/token.h"
+#include "base/uuid.h"
 #include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/browser_thread.h"
@@ -22,9 +22,9 @@
 
 namespace content {
 
-// TODO(crbug.com/1247761): Remove this protected static function.
+// TODO(crbug.com/1264849): Remove this protected static function.
 // See header for more details.
-base::Token CropIdWebContentsHelper::GUIDToToken(const base::GUID& guid) {
+base::Token CropIdWebContentsHelper::GUIDToToken(const base::Uuid& guid) {
   std::string lowercase = guid.AsLowercaseString();
 
   // |lowercase| is either empty, or follows the expected pattern.
@@ -73,10 +73,10 @@ std::string CropIdWebContentsHelper::ProduceCropId() {
   // enough to perform, given that `kMaxCropIdsPerWebContents` is so small
   // compared to the space of GUIDs, and it guarantees we never silently fail
   // the application by cropping to the wrong, duplicate target.
-  base::GUID guid;
+  base::Uuid guid;
   base::Token crop_id;
   do {
-    guid = base::GUID::GenerateRandomV4();
+    guid = base::Uuid::GenerateRandomV4();
     crop_id = GUIDToToken(guid);
   } while (IsAssociatedWithCropId(crop_id));
   crop_ids_.push_back(crop_id);

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -58,11 +58,18 @@ bool UserAcceptedAccountManagement(Profile* profile);
 // management through the enterprise account confirmation dialog.
 bool ProfileCanBeManaged(Profile* profile);
 
+// Checks `email_domain` against the list of pre-defined known consumer domains.
+// Use this for optimization purposes when you want to skip some code paths for
+// most non-managed (=consumer) users with domains like gmail.com. Note that it
+// can still return `false` for consumer domains which are not hardcoded in
+// implementation.
+bool IsKnownConsumerDomain(const std::string& email_domain);
+
 #if BUILDFLAG(IS_ANDROID)
 
 // Returns the UTF8-encoded string representation of the entity that manages
 // `profile` or nullopt if unmanaged. `profile` must be not-null.
-std::string GetAccountManagerName(Profile* profile);
+std::string GetBrowserManagerName(Profile* profile);
 
 #endif  // BUILDFLAG(IS_ANDROID)
 

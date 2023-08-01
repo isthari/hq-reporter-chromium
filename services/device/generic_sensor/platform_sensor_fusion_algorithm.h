@@ -1,14 +1,12 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef SERVICES_DEVICE_GENERIC_SENSOR_PLATFORM_SENSOR_FUSION_ALGORITHM_H_
 #define SERVICES_DEVICE_GENERIC_SENSOR_PLATFORM_SENSOR_FUSION_ALGORITHM_H_
 
-#include <vector>
-
+#include "base/containers/flat_set.h"
 #include "base/memory/raw_ptr.h"
-#include "base/memory/ref_counted.h"
 #include "services/device/public/cpp/generic_sensor/sensor_reading.h"
 
 namespace device {
@@ -25,19 +23,17 @@ class PlatformSensorFusionAlgorithm {
   virtual ~PlatformSensorFusionAlgorithm();
 
   void set_threshold(double threshold) { threshold_ = threshold; }
+  double threshold() const { return threshold_; }
 
   void set_fusion_sensor(PlatformSensorFusion* fusion_sensor) {
     fusion_sensor_ = fusion_sensor;
   }
 
-  const std::vector<mojom::SensorType>& source_types() const {
+  const base::flat_set<mojom::SensorType>& source_types() const {
     return source_types_;
   }
 
   mojom::SensorType fused_type() const { return fused_type_; }
-
-  bool IsReadingSignificantlyDifferent(const SensorReading& reading1,
-                                       const SensorReading& reading2);
 
   bool GetFusedData(mojom::SensorType which_sensor_changed,
                     SensorReading* fused_reading);
@@ -54,7 +50,7 @@ class PlatformSensorFusionAlgorithm {
  protected:
   PlatformSensorFusionAlgorithm(
       mojom::SensorType fused_type,
-      const std::vector<mojom::SensorType>& source_types);
+      const base::flat_set<mojom::SensorType>& source_types);
 
   virtual bool GetFusedDataInternal(mojom::SensorType which_sensor_changed,
                                     SensorReading* fused_reading) = 0;
@@ -69,7 +65,7 @@ class PlatformSensorFusionAlgorithm {
   double threshold_ = 0.1;
 
   mojom::SensorType fused_type_;
-  std::vector<mojom::SensorType> source_types_;
+  base::flat_set<mojom::SensorType> source_types_;
 };
 
 }  // namespace device

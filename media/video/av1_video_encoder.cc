@@ -1,23 +1,23 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "media/video/av1_video_encoder.h"
 
+#include <algorithm>
 #include <cmath>
 
-#include "base/cxx17_backports.h"
 #include "base/logging.h"
 #include "base/numerics/checked_math.h"
 #include "base/strings/stringprintf.h"
-#include "base/system/sys_info.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
-#include "media/base/bind_to_current_loop.h"
 #include "media/base/svc_scalability_mode.h"
 #include "media/base/timestamp_constants.h"
+#include "media/base/video_color_space.h"
 #include "media/base/video_frame.h"
 #include "media/base/video_util.h"
+#include "media/video/video_encoder_info.h"
 #include "third_party/libaom/source/libaom/aom/aomcx.h"
 #include "third_party/libyuv/include/libyuv/convert.h"
 
@@ -32,26 +32,6 @@ void FreeCodecCtx(aom_codec_ctx_t* codec_ctx) {
     DCHECK_EQ(error, AOM_CODEC_OK);
   }
   delete codec_ctx;
-}
-
-int GetNumberOfThreads(int width) {
-  // Default to 1 thread for less than VGA.
-  int desired_threads = 1;
-
-  if (width >= 3840)
-    desired_threads = 16;
-  else if (width >= 2560)
-    desired_threads = 8;
-  else if (width >= 1280)
-    desired_threads = 4;
-  else if (width >= 640)
-    desired_threads = 2;
-
-  // Clamp to the number of available logical processors/cores.
-  desired_threads =
-      std::min(desired_threads, base::SysInfo::NumberOfProcessors());
-
-  return desired_threads;
 }
 
 EncoderStatus SetUpAomConfig(const VideoEncoder::Options& opts,
@@ -85,7 +65,7 @@ EncoderStatus SetUpAomConfig(const VideoEncoder::Options& opts,
   config.g_timebase.den = base::Time::kMicrosecondsPerSecond;
 
   // Set the number of threads based on the image width and num of cores.
-  config.g_threads = GetNumberOfThreads(opts.frame_size.width());
+  config.g_threads = GetNumberOfThreadsForSoftwareEncoding(opts.frame_size);
 
   // Insert keyframes at will with a given max interval
   if (opts.keyframe_interval.has_value()) {
@@ -96,7 +76,7 @@ EncoderStatus SetUpAomConfig(const VideoEncoder::Options& opts,
 
   if (opts.bitrate.has_value()) {
     auto& bitrate = opts.bitrate.value();
-    config.rc_target_bitrate = bitrate.target() / 1000;
+    config.rc_target_bitrate = bitrate.target_bps() / 1000;
     switch (bitrate.mode()) {
       case Bitrate::Mode::kVariable:
         config.rc_end_usage = AOM_VBR;
@@ -104,13 +84,20 @@ EncoderStatus SetUpAomConfig(const VideoEncoder::Options& opts,
       case Bitrate::Mode::kConstant:
         config.rc_end_usage = AOM_CBR;
         break;
+      case Bitrate::Mode::kExternal:
+        // libaom doesn't have a special rate control mode for per-frame
+        // quantizer. Instead we just set CBR and set
+        // AV1E_SET_QUANTIZER_ONE_PASS before each frame.
+        config.rc_end_usage = AOM_CBR;
+        // Let the whole AV1 quantizer range to be used.
+        config.rc_max_quantizer = 63;
+        config.rc_min_quantizer = 1;
+        break;
     }
   } else {
-    // Default that gives about 2mbps to HD video
     config.rc_end_usage = AOM_VBR;
-    config.rc_target_bitrate =
-        int{(opts.frame_size.GetCheckedArea() * 2)
-                .ValueOrDefault(std::numeric_limits<int>::max())};
+    config.rc_target_bitrate = GetDefaultVideoEncodeBitrate(
+        opts.frame_size, opts.framerate.value_or(30));
   }
 
   config.g_w = opts.frame_size.width();
@@ -120,8 +107,12 @@ EncoderStatus SetUpAomConfig(const VideoEncoder::Options& opts,
   svc_params = {};
   svc_params.framerate_factor[0] = 1;
   svc_params.number_spatial_layers = 1;
+  svc_params.number_temporal_layers = 1;
   if (opts.scalability_mode.has_value()) {
     switch (opts.scalability_mode.value()) {
+      case SVCScalabilityMode::kL1T1:
+        // Nothing to do
+        break;
       case SVCScalabilityMode::kL1T2:
         svc_params.framerate_factor[0] = 2;
         svc_params.framerate_factor[1] = 1;
@@ -162,15 +153,26 @@ EncoderStatus SetUpAomConfig(const VideoEncoder::Options& opts,
   return EncoderStatus::Codes::kOk;
 }
 
+std::string LogAomErrorMessage(aom_codec_ctx_t* context,
+                               const char* message,
+                               aom_codec_err_t status) {
+  auto formatted_msg = base::StringPrintf("%s: %s (%s)", message,
+                                          aom_codec_err_to_string(status),
+                                          aom_codec_error_detail(context));
+  DLOG(ERROR) << formatted_msg;
+  return formatted_msg;
+}
+
 }  // namespace
 
 Av1VideoEncoder::Av1VideoEncoder() : codec_(nullptr, FreeCodecCtx) {}
 
 void Av1VideoEncoder::Initialize(VideoCodecProfile profile,
                                  const Options& options,
+                                 EncoderInfoCB info_cb,
                                  OutputCB output_cb,
                                  EncoderStatusCB done_cb) {
-  done_cb = BindToCurrentLoop(std::move(done_cb));
+  done_cb = BindCallbackToCurrentLoopIfNeeded(std::move(done_cb));
   if (codec_) {
     std::move(done_cb).Run(EncoderStatus::Codes::kEncoderInitializeTwice);
     return;
@@ -268,15 +270,21 @@ void Av1VideoEncoder::Initialize(VideoCodecProfile profile,
 
   options_ = options;
   originally_configured_size_ = options.frame_size;
-  output_cb_ = BindToCurrentLoop(std::move(output_cb));
+  output_cb_ = BindCallbackToCurrentLoopIfNeeded(std::move(output_cb));
   codec_ = std::move(codec);
+
+  VideoEncoderInfo info;
+  info.implementation_name = "Av1VideoEncoder";
+  info.is_hardware_accelerated = false;
+  BindCallbackToCurrentLoopIfNeeded(std::move(info_cb)).Run(info);
+
   std::move(done_cb).Run(EncoderStatus::Codes::kOk);
 }
 
 void Av1VideoEncoder::Encode(scoped_refptr<VideoFrame> frame,
-                             bool key_frame,
+                             const EncodeOptions& encode_options,
                              EncoderStatusCB done_cb) {
-  done_cb = BindToCurrentLoop(std::move(done_cb));
+  done_cb = BindCallbackToCurrentLoopIfNeeded(std::move(done_cb));
   if (!codec_) {
     std::move(done_cb).Run(
         EncoderStatus::Codes::kEncoderInitializeNeverCompleted);
@@ -317,14 +325,14 @@ void Av1VideoEncoder::Encode(scoped_refptr<VideoFrame> frame,
     }
   }
 
-  const bool i420 = frame->format() == PIXEL_FORMAT_I420;
-  if (frame->visible_rect().size() != options_.frame_size || !i420) {
+  const bool is_yuv = IsYuvPlanar(frame->format());
+  if (frame->visible_rect().size() != options_.frame_size || !is_yuv) {
     auto resized_frame = frame_pool_.CreateFrame(
         PIXEL_FORMAT_I420, options_.frame_size, gfx::Rect(options_.frame_size),
         options_.frame_size, frame->timestamp());
 
     if (resized_frame) {
-      Status conv_status =
+      auto conv_status =
           ConvertAndScaleFrame(*frame, *resized_frame, resize_buf_);
       if (!conv_status.is_ok()) {
         std::move(done_cb).Run(
@@ -341,32 +349,64 @@ void Av1VideoEncoder::Encode(scoped_refptr<VideoFrame> frame,
     frame = std::move(resized_frame);
   }
 
+  aom_img_fmt fmt = frame->format() == PIXEL_FORMAT_NV12 ? AOM_IMG_FMT_NV12
+                                                         : AOM_IMG_FMT_I420;
   aom_image_t* image = aom_img_wrap(
-      &image_, AOM_IMG_FMT_I420, options_.frame_size.width(),
-      options_.frame_size.height(), 1, frame->data(VideoFrame::kYPlane));
+      &image_, fmt, options_.frame_size.width(), options_.frame_size.height(),
+      1, const_cast<uint8_t*>(frame->visible_data(VideoFrame::kYPlane)));
   DCHECK_EQ(image, &image_);
 
-  image->planes[AOM_PLANE_Y] = frame->visible_data(VideoFrame::kYPlane);
-  image->planes[AOM_PLANE_U] = frame->visible_data(VideoFrame::kUPlane);
-  image->planes[AOM_PLANE_V] = frame->visible_data(VideoFrame::kVPlane);
-  image->stride[AOM_PLANE_Y] = frame->stride(VideoFrame::kYPlane);
-  image->stride[AOM_PLANE_U] = frame->stride(VideoFrame::kUPlane);
-  image->stride[AOM_PLANE_V] = frame->stride(VideoFrame::kVPlane);
+  switch (frame->format()) {
+    case PIXEL_FORMAT_I420:
+      image->planes[AOM_PLANE_Y] =
+          const_cast<uint8_t*>(frame->visible_data(VideoFrame::kYPlane));
+      image->planes[AOM_PLANE_U] =
+          const_cast<uint8_t*>(frame->visible_data(VideoFrame::kUPlane));
+      image->planes[AOM_PLANE_V] =
+          const_cast<uint8_t*>(frame->visible_data(VideoFrame::kVPlane));
+      image->stride[AOM_PLANE_Y] = frame->stride(VideoFrame::kYPlane);
+      image->stride[AOM_PLANE_U] = frame->stride(VideoFrame::kUPlane);
+      image->stride[AOM_PLANE_V] = frame->stride(VideoFrame::kVPlane);
+      break;
+    case PIXEL_FORMAT_NV12:
+      image->planes[AOM_PLANE_Y] =
+          const_cast<uint8_t*>(frame->visible_data(VideoFrame::kYPlane));
+      image->planes[AOM_PLANE_U] =
+          const_cast<uint8_t*>(frame->visible_data(VideoFrame::kUVPlane));
+      image->planes[AOM_PLANE_V] = nullptr;
+      image->stride[AOM_PLANE_Y] = frame->stride(VideoFrame::kYPlane);
+      image->stride[AOM_PLANE_U] = frame->stride(VideoFrame::kUVPlane);
+      image->stride[AOM_PLANE_V] = 0;
+      break;
+    default:
+      NOTREACHED();
+  }
 
+  bool key_frame = encode_options.key_frame;
   auto duration_us = GetFrameDuration(*frame).InMicroseconds();
   last_frame_timestamp_ = frame->timestamp();
   if (last_frame_color_space_ != frame->ColorSpace()) {
     last_frame_color_space_ = frame->ColorSpace();
     key_frame = true;
+    UpdateEncoderColorSpace();
   }
 
   auto temporal_id_status = AssignNextTemporalId(key_frame);
-  if (temporal_id_status.has_error()) {
+  if (!temporal_id_status.has_value()) {
     std::move(done_cb).Run(std::move(temporal_id_status).error());
     return;
   }
 
-  TRACE_EVENT0("media", "aom_codec_encode");
+  if (encode_options.quantizer.has_value()) {
+    DCHECK_EQ(options_.bitrate->mode(), Bitrate::Mode::kExternal);
+    // Convert double quantizer to an integer within codec's supported range.
+    int qp = static_cast<int>(std::lround(encode_options.quantizer.value()));
+    qp = std::clamp(qp, static_cast<int>(config_.rc_min_quantizer),
+                    static_cast<int>(config_.rc_max_quantizer));
+    aom_codec_control(codec_.get(), AV1E_SET_QUANTIZER_ONE_PASS, qp);
+  }
+
+  TRACE_EVENT1("media", "aom_codec_encode", "timestamp", frame->timestamp());
   // Use artificial timestamps, so the encoder will not be misled by frame's
   // fickle timestamps when doing rate control.
   auto error =
@@ -375,10 +415,7 @@ void Av1VideoEncoder::Encode(scoped_refptr<VideoFrame> frame,
   artificial_timestamp_ += duration_us;
 
   if (error != AOM_CODEC_OK) {
-    auto msg =
-        base::StringPrintf("AOM encoding error: %s (%d)",
-                           aom_codec_error_detail(codec_.get()), codec_->err);
-    DLOG(ERROR) << msg;
+    auto msg = LogAomErrorMessage(codec_.get(), "AOM encoding error", error);
     std::move(done_cb).Run(
         EncoderStatus(EncoderStatus::Codes::kEncoderFailedEncode, msg));
     return;
@@ -391,7 +428,7 @@ void Av1VideoEncoder::Encode(scoped_refptr<VideoFrame> frame,
 void Av1VideoEncoder::ChangeOptions(const Options& options,
                                     OutputCB output_cb,
                                     EncoderStatusCB done_cb) {
-  done_cb = BindToCurrentLoop(std::move(done_cb));
+  done_cb = BindCallbackToCurrentLoopIfNeeded(std::move(done_cb));
   if (!codec_) {
     std::move(done_cb).Run(
         EncoderStatus::Codes::kEncoderInitializeNeverCompleted);
@@ -439,7 +476,7 @@ void Av1VideoEncoder::ChangeOptions(const Options& options,
   svc_params_ = new_svc_params;
   options_ = options;
   if (!output_cb.is_null())
-    output_cb_ = BindToCurrentLoop(std::move(output_cb));
+    output_cb_ = BindCallbackToCurrentLoopIfNeeded(std::move(output_cb));
   std::move(done_cb).Run(EncoderStatus::Codes::kOk);
 }
 
@@ -457,7 +494,7 @@ base::TimeDelta Av1VideoEncoder::GetFrameDuration(const VideoFrame& frame) {
   constexpr auto min_duration = base::Seconds(1.0 / 60.0);
   constexpr auto max_duration = base::Seconds(1.0 / 24.0);
   auto duration = frame.timestamp() - last_frame_timestamp_;
-  return base::clamp(duration, min_duration, max_duration);
+  return std::clamp(duration, min_duration, max_duration);
 }
 
 void Av1VideoEncoder::DrainOutputs(int temporal_id,
@@ -484,7 +521,7 @@ void Av1VideoEncoder::DrainOutputs(int temporal_id,
       result.temporal_id = temporal_id;
     }
 
-    result.data.reset(new uint8_t[result.size]);
+    result.data = std::make_unique<uint8_t[]>(result.size);
     memcpy(result.data.get(), pkt->data.frame.buf, result.size);
     output_cb_.Run(std::move(result), {});
   }
@@ -524,9 +561,8 @@ EncoderStatus::Or<int> Av1VideoEncoder::AssignNextTemporalId(bool key_frame) {
     aom_codec_control(codec_.get(), AV1E_SET_ERROR_RESILIENT_MODE,
                       temporal_id > 0 ? 1 : 0);
   if (error != AOM_CODEC_OK) {
-    auto msg =
-        base::StringPrintf("Set AV1E_SET_SVC_LAYER_ID error: %s (%d)",
-                           aom_codec_error_detail(codec_.get()), codec_->err);
+    auto msg = LogAomErrorMessage(codec_.get(),
+                                  "Set AV1E_SET_SVC_LAYER_ID error", error);
     return EncoderStatus(EncoderStatus::Codes::kEncoderFailedEncode, msg);
   }
   return temporal_id;
@@ -535,7 +571,7 @@ EncoderStatus::Or<int> Av1VideoEncoder::AssignNextTemporalId(bool key_frame) {
 Av1VideoEncoder::~Av1VideoEncoder() = default;
 
 void Av1VideoEncoder::Flush(EncoderStatusCB done_cb) {
-  done_cb = BindToCurrentLoop(std::move(done_cb));
+  done_cb = BindCallbackToCurrentLoopIfNeeded(std::move(done_cb));
   if (!codec_) {
     std::move(done_cb).Run(
         EncoderStatus::Codes::kEncoderInitializeNeverCompleted);
@@ -544,10 +580,7 @@ void Av1VideoEncoder::Flush(EncoderStatusCB done_cb) {
 
   auto error = aom_codec_encode(codec_.get(), nullptr, 0, 0, 0);
   if (error != AOM_CODEC_OK) {
-    auto msg =
-        base::StringPrintf("AOM encoding error: %s (%d)",
-                           aom_codec_error_detail(codec_.get()), codec_->err);
-    DLOG(ERROR) << msg;
+    auto msg = LogAomErrorMessage(codec_.get(), "AOM encoding error", error);
     std::move(done_cb).Run(
         EncoderStatus(EncoderStatus::Codes::kEncoderFailedEncode, msg));
     return;
@@ -558,6 +591,41 @@ void Av1VideoEncoder::Flush(EncoderStatusCB done_cb) {
   // are drained after each Encode(). We might want to change this in the
   // future, see: crbug.com/1280404
   std::move(done_cb).Run(EncoderStatus::Codes::kOk);
+}
+
+void Av1VideoEncoder::UpdateEncoderColorSpace() {
+  auto aom_cs = VideoColorSpace::FromGfxColorSpace(last_frame_color_space_);
+  if (aom_cs.primaries != VideoColorSpace::PrimaryID::INVALID) {
+    auto status = aom_codec_control(codec_.get(), AV1E_SET_COLOR_PRIMARIES,
+                                    static_cast<int>(aom_cs.primaries));
+    if (status != AOM_CODEC_OK)
+      LogAomErrorMessage(codec_.get(), "Failed to set color primaries", status);
+  }
+  if (aom_cs.transfer != VideoColorSpace::TransferID::INVALID) {
+    auto status =
+        aom_codec_control(codec_.get(), AV1E_SET_TRANSFER_CHARACTERISTICS,
+                          static_cast<int>(aom_cs.transfer));
+    if (status != AOM_CODEC_OK)
+      LogAomErrorMessage(codec_.get(), "Failed to set color transfer", status);
+  }
+  if (aom_cs.matrix != VideoColorSpace::MatrixID::INVALID) {
+    auto status = aom_codec_control(codec_.get(), AV1E_SET_MATRIX_COEFFICIENTS,
+                                    static_cast<int>(aom_cs.matrix));
+    if (status != AOM_CODEC_OK)
+      LogAomErrorMessage(codec_.get(), "Failed to set color transfer", status);
+  }
+
+  if (last_frame_color_space_.GetRangeID() == gfx::ColorSpace::RangeID::FULL ||
+      last_frame_color_space_.GetRangeID() ==
+          gfx::ColorSpace::RangeID::LIMITED) {
+    auto status = aom_codec_control(
+        codec_.get(), AV1E_SET_COLOR_RANGE,
+        last_frame_color_space_.GetRangeID() == gfx::ColorSpace::RangeID::FULL
+            ? AOM_CR_FULL_RANGE
+            : AOM_CR_STUDIO_RANGE);
+    if (status != AOM_CODEC_OK)
+      LogAomErrorMessage(codec_.get(), "Failed to set color range", status);
+  }
 }
 
 }  // namespace media

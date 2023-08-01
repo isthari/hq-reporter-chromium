@@ -1,10 +1,11 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ui/gtk/gtk_ui_platform_stub.h"
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "ui/base/ime/linux/linux_input_method_context.h"
 
 namespace gtk {
 
@@ -31,12 +32,6 @@ GdkWindow* GtkUiPlatformStub::GetGdkWindow(gfx::AcceleratedWidget window_id) {
   return nullptr;
 }
 
-bool GtkUiPlatformStub::ExportWindowHandle(
-    gfx::AcceleratedWidget window_id,
-    base::OnceCallback<void(std::string)> callback) {
-  return false;
-}
-
 bool GtkUiPlatformStub::SetGtkWidgetTransientFor(
     GtkWidget* widget,
     gfx::AcceleratedWidget parent) {
@@ -49,8 +44,10 @@ void GtkUiPlatformStub::ShowGtkWindow(GtkWindow* window) {
   gtk_window_present(window);
 }
 
-bool GtkUiPlatformStub::PreferGtkIme() {
-  return true;
+std::unique_ptr<ui::LinuxInputMethodContext>
+GtkUiPlatformStub::CreateInputMethodContext(
+    ui::LinuxInputMethodContextDelegate* delegate) const {
+  return nullptr;
 }
 
 }  // namespace gtk

@@ -2,7 +2,7 @@ Name: Crashpad
 Short Name: crashpad
 URL: https://crashpad.chromium.org/
 Version: unknown
-Revision: 36ad57186286ac6511ce149fd51e1b52c2d3e2e4
+Revision: 1103dfc65def733ed50ed1a4471c263c3ab11b28
 License: Apache 2.0
 License File: crashpad/LICENSE
 Security Critical: yes
@@ -46,3 +46,12 @@ Local Modifications:
  - CloseMultipleNowOrOnExec has been updated to invoke the new
    base::subtle::ResetFDOwnership() API
  - FALLTHROUGH macro has been replaced with C++17 attribute [[fallthrough]]
+ - Qualified calls to bit_cast<>() with base::.
+ - MultiprocessExec.MultiprocessExec is disabled entirely on the Mac.
+   https://crbug.com/1341377
+ - SystemSnapshotLinux.Basic is disabled on Android: https://crbug.com/1362091
+ - Updated ANDROID_API from 24 to 26: https://crbug.com/1379422
+ - #include path was modified "base/allocator/buildflags.h" ->
+   "base/allocator/partition_allocator/partition_alloc_buildflags.h", because
+   BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC) was moved. crrev.com/c/3963596
+ - Fix some accidental argument-dependent lookup: https://crrev.com/c/4298113

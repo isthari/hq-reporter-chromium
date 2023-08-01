@@ -1,27 +1,27 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/crash_report/crash_reporter_url_observer.h"
+#import "ios/chrome/browser/crash_report/crash_reporter_url_observer.h"
 
 #import <Foundation/Foundation.h>
 
-#include <map>
+#import <map>
 
-#include "base/check.h"
-#include "base/strings/stringprintf.h"
-#include "base/strings/sys_string_conversions.h"
-#include "components/crash/core/common/crash_key.h"
+#import "base/check.h"
+#import "base/strings/stringprintf.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/crash/core/common/crash_key.h"
 #import "components/previous_session_info/previous_session_info.h"
-#include "ios/chrome/browser/crash_report/crash_helper.h"
-#import "ios/chrome/browser/web_state_list/all_web_state_observation_forwarder.h"
-#import "ios/chrome/browser/web_state_list/web_state_list.h"
-#include "ios/web/public/browser_state.h"
+#import "ios/chrome/browser/crash_report/crash_helper.h"
+#import "ios/chrome/browser/shared/model/web_state_list/all_web_state_observation_forwarder.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/web/public/browser_state.h"
 #import "ios/web/public/navigation/navigation_context.h"
 #import "ios/web/public/navigation/navigation_item.h"
 #import "ios/web/public/navigation/navigation_manager.h"
 #import "ios/web/public/web_state.h"
-#include "url/gurl.h"
+#import "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -34,7 +34,7 @@ namespace {
 // Max number of urls to send. This represent 1 URL per WebState group.
 const int kNumberOfURLsToSend = 3;
 
-// Keep the following two CrashKey arrays in sync with |kNumberOfURLsToSend|.
+// Keep the following two CrashKey arrays in sync with `kNumberOfURLsToSend`.
 static crash_reporter::CrashKeyString<1024> url_crash_keys[] = {
     {"url0", CrashKeyString<1024>::Tag::kArray},
     {"url1", CrashKeyString<1024>::Tag::kArray},
@@ -51,7 +51,7 @@ const char kPreloadWebStateGroup[] = "PreloadGroup";
 
 }  // namespace
 
-// A CrashReporterParameterSetter that forward parameters to Breakpad and
+// A CrashReporterParameterSetter that forward parameters to crash keys and
 // PreviousSessionInfo.
 @interface CrashReporterParameterSetter
     : NSObject <CrashReporterParameterSetter>
@@ -61,20 +61,33 @@ const char kPreloadWebStateGroup[] = "PreloadGroup";
 - (void)removeReportParameter:(NSNumber*)key pending:(BOOL)pending {
   int index = key.intValue;
   DCHECK(index < kNumberOfURLsToSend);
-  if (pending)
+  if (pending) {
     pending_url_crash_keys[index].Clear();
-  else
+  } else {
     url_crash_keys[index].Clear();
+    if (index == 0) {
+      // Only sync (and clear) the first non-pending URL to PreviousSessionInfo.
+      [[PreviousSessionInfo sharedInstance]
+          removeReportParameterForKey:@"url0"];
+    }
+  }
 }
 - (void)setReportParameterURL:(const GURL&)URL
                        forKey:(NSNumber*)key
                       pending:(BOOL)pending {
   int index = key.intValue;
   DCHECK(index < kNumberOfURLsToSend);
-  if (pending)
+  if (pending) {
     pending_url_crash_keys[index].Set(URL.spec());
-  else
+  } else {
     url_crash_keys[index].Set(URL.spec());
+    if (index == 0) {
+      // Only sync (and clear) the first non-pending URL to PreviousSessionInfo.
+      [[PreviousSessionInfo sharedInstance]
+          setReportParameterValue:base::SysUTF8ToNSString(URL.spec())
+                           forKey:@"url0"];
+    }
+  }
 }
 @end
 
@@ -90,12 +103,12 @@ CrashReporterURLObserver* CrashReporterURLObserver::GetSharedInstance() {
 CrashReporterURLObserver::CrashReporterURLObserver(
     id<CrashReporterParameterSetter> setter) {
   params_setter_ = setter;
-  breakpad_key_by_group_ =
+  crash_key_by_group_ =
       [[NSMutableDictionary alloc] initWithCapacity:kNumberOfURLsToSend];
-  breakpad_keys_ =
-      [[NSMutableArray alloc] initWithCapacity:kNumberOfURLsToSend];
-  for (int i = 0; i < kNumberOfURLsToSend; ++i)
-    [breakpad_keys_ addObject:[NSNumber numberWithInt:i]];
+  crash_keys_ = [[NSMutableArray alloc] initWithCapacity:kNumberOfURLsToSend];
+  for (int i = 0; i < kNumberOfURLsToSend; ++i) {
+    [crash_keys_ addObject:[NSNumber numberWithInt:i]];
+  }
 }
 
 CrashReporterURLObserver::~CrashReporterURLObserver() {}
@@ -109,14 +122,14 @@ std::string CrashReporterURLObserver::GroupForWebStateList(
 
 void CrashReporterURLObserver::RemoveGroup(const std::string& group) {
   NSString* ns_group = base::SysUTF8ToNSString(group);
-  NSNumber* key = [breakpad_key_by_group_ objectForKey:ns_group];
+  NSNumber* key = [crash_key_by_group_ objectForKey:ns_group];
   if (!key)
     return;
   [params_setter_ removeReportParameter:key pending:NO];
   [params_setter_ removeReportParameter:key pending:YES];
-  [breakpad_key_by_group_ removeObjectForKey:ns_group];
-  [breakpad_keys_ removeObject:key];
-  [breakpad_keys_ insertObject:key atIndex:0];
+  [crash_key_by_group_ removeObjectForKey:ns_group];
+  [crash_keys_ removeObject:key];
+  [crash_keys_ insertObject:key atIndex:0];
   current_web_states_.erase(group);
 }
 
@@ -134,33 +147,34 @@ void CrashReporterURLObserver::RecordURL(const GURL& url,
   std::string group = web_state_to_group_[web_state];
   DCHECK(group.size());
   NSString* ns_group = base::SysUTF8ToNSString(group);
-  NSNumber* breakpad_key = [breakpad_key_by_group_ objectForKey:ns_group];
+  NSNumber* crash_key = [crash_key_by_group_ objectForKey:ns_group];
   BOOL reusing_key = NO;
-  if (!breakpad_key) {
-    // Get the first breakpad key and push it back at the end of the keys.
-    breakpad_key = [breakpad_keys_ objectAtIndex:0];
+  if (!crash_key) {
+    // Get the first crash key and push it back at the end of the keys.
+    crash_key = [crash_keys_ objectAtIndex:0];
 
-    // Remove the current mapping to the breakpad key.
+    // Remove the current mapping to the crash key.
     for (NSString* used_group in
-         [breakpad_key_by_group_ allKeysForObject:breakpad_key]) {
+         [crash_key_by_group_ allKeysForObject:crash_key]) {
       reusing_key = YES;
       current_web_states_.erase(base::SysNSStringToUTF8(used_group));
-      [breakpad_key_by_group_ removeObjectForKey:used_group];
+      [crash_key_by_group_ removeObjectForKey:used_group];
     }
-    // Associate the breakpad key to the tab id.
-    [breakpad_key_by_group_ setObject:breakpad_key forKey:ns_group];
+    // Associate the crash key to the tab id.
+    [crash_key_by_group_ setObject:crash_key forKey:ns_group];
   }
-  [breakpad_keys_ removeObject:breakpad_key];
-  [breakpad_keys_ addObject:breakpad_key];
+  [crash_keys_ removeObject:crash_key];
+  [crash_keys_ addObject:crash_key];
 
   current_web_states_[group] = web_state;
   if (pending) {
-    if (reusing_key)
-      [params_setter_ removeReportParameter:breakpad_key pending:NO];
-    [params_setter_ setReportParameterURL:url forKey:breakpad_key pending:YES];
+    if (reusing_key) {
+      [params_setter_ removeReportParameter:crash_key pending:NO];
+    }
+    [params_setter_ setReportParameterURL:url forKey:crash_key pending:YES];
   } else {
-    [params_setter_ setReportParameterURL:url forKey:breakpad_key pending:NO];
-    [params_setter_ removeReportParameter:breakpad_key pending:YES];
+    [params_setter_ setReportParameterURL:url forKey:crash_key pending:NO];
+    [params_setter_ removeReportParameter:crash_key pending:YES];
   }
 }
 

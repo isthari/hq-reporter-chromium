@@ -33,13 +33,15 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_BINDINGS_V8_BINDING_H_
 
 #include "third_party/blink/renderer/platform/bindings/dom_wrapper_world.h"
-#include "third_party/blink/renderer/platform/bindings/string_resource.h"
+#include "third_party/blink/renderer/platform/bindings/to_blink_string.h"
 #include "third_party/blink/renderer/platform/bindings/v8_per_isolate_data.h"
 #include "third_party/blink/renderer/platform/bindings/v8_value_cache.h"
 #include "third_party/blink/renderer/platform/bindings/wrapper_type_info.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
+#include "third_party/blink/renderer/platform/wtf/vector.h"
+#include "third_party/blink/renderer/platform/wtf/wtf_size_t.h"
 #include "v8/include/v8-container.h"
 #include "v8/include/v8-forward.h"
 #include "v8/include/v8-function-callback.h"
@@ -262,11 +264,12 @@ inline v8::Local<v8::Value> V8StringOrNull(v8::Isolate* isolate,
 }
 
 inline v8::Local<v8::String> V8String(v8::Isolate* isolate,
-                                      const ParkableString& string) {
+                                      const ParkableString& string,
+                                      Resource* resource = nullptr) {
   if (string.IsNull())
     return v8::String::Empty(isolate);
   return V8PerIsolateData::From(isolate)->GetStringCache()->V8ExternalString(
-      isolate, string);
+      isolate, string, resource);
 }
 
 inline v8::Local<v8::String> V8AtomicString(v8::Isolate* isolate,
@@ -351,7 +354,18 @@ enum class NamedPropertyDeleterResult {
 // Gets the url of the currently executing script. Returns empty string, if no
 // script is executing (e.g. during parsing of a meta tag in markup), or the
 // script context is otherwise unavailable.
-PLATFORM_EXPORT String GetCurrentScriptUrl();
+PLATFORM_EXPORT String GetCurrentScriptUrl(v8::Isolate* isolate);
+
+// Gets the urls of the scripts at the top of the currently executing stack.
+// If available, returns up to |unique_url_count| urls, filtering out duplicate
+// urls (e.g. if the stack includes multiple frames from the same script).
+// Returns an empty vector, if no script is executing (e.g. during parsing of a
+// meta tag in markup), or the script context is otherwise unavailable.
+// To minimize the cost of walking the stack, only the top frames (currently 10)
+// are examined, regardless of the value of |unique_url_count|.
+PLATFORM_EXPORT Vector<String> GetScriptUrlsFromCurrentStack(
+    v8::Isolate* isolate,
+    wtf_size_t unique_url_count);
 
 namespace bindings {
 

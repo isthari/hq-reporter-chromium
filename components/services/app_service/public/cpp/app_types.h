@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,90 +13,117 @@
 #include "base/time/time.h"
 #include "components/services/app_service/public/cpp/icon_types.h"
 #include "components/services/app_service/public/cpp/intent_filter.h"
+#include "components/services/app_service/public/cpp/macros.h"
 #include "components/services/app_service/public/cpp/permission.h"
-#include "components/services/app_service/public/mojom/types.mojom.h"
+#include "components/services/app_service/public/cpp/run_on_os_login_types.h"
+#include "components/services/app_service/public/protos/app_types.pb.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace apps {
 
-enum class AppType {
-  kUnknown = 0,
-  kArc = 1,                // Android app.
-  kBuiltIn = 2,            // Built-in app.
-  kCrostini = 3,           // Linux (via Crostini) app.
-  kChromeApp = 4,          // Chrome app.
-  kWeb = 5,                // Web app.
-  kMacOs = 6,              // Mac OS app.
-  kPluginVm = 7,           // Plugin VM app, see go/pluginvm.
-  kStandaloneBrowser = 8,  // Lacros browser app, see //docs/lacros.md.
-  kRemote = 9,             // Remote app.
-  kBorealis = 10,          // Borealis app, see go/borealis-app.
-  kSystemWeb = 11,         // System web app.
-  kStandaloneBrowserChromeApp = 12,  // Chrome app hosted in Lacros.
-  kExtension = 13,                   // Browser extension.
-};
+// When updating the enum below, update
+// //components/services/app_service/public/cpp/macros.h
+// macros if necessary, as well as the ApplicationType enum in
+// //components/services/app_service/public/protos/app_types.proto.
+ENUM(AppType,
+     kUnknown,
+     kArc,                         // Android app.
+     kBuiltIn,                     // Built-in app.
+     kCrostini,                    // Linux (via Crostini) app.
+     kChromeApp,                   // Chrome app.
+     kWeb,                         // Web app.
+     kMacOs,                       // Mac OS app.
+     kPluginVm,                    // Plugin VM app, see go/pluginvm.
+     kStandaloneBrowser,           // Lacros browser app, see //docs/lacros.md.
+     kRemote,                      // Remote app.
+     kBorealis,                    // Borealis app, see go/borealis-app.
+     kSystemWeb,                   // System web app.
+     kStandaloneBrowserChromeApp,  // Chrome app hosted in Lacros.
+     kExtension,                   // Browser extension.
+     kStandaloneBrowserExtension,  // Extension hosted in Lacros.
+     kBruschetta                   // Bruschetta app, see go/bruschetta.
+)
 
 // Whether an app is ready to launch, i.e. installed.
 // Note the enumeration is used in UMA histogram so entries should not be
 // re-ordered or removed. New entries should be added at the bottom.
-enum class Readiness {
-  kUnknown = 0,
-  kReady,                // Installed and launchable.
-  kDisabledByBlocklist,  // Disabled by SafeBrowsing.
-  kDisabledByPolicy,     // Disabled by admin policy.
-  kDisabledByUser,       // Disabled by explicit user action.
-  kTerminated,           // Renderer process crashed.
-  kUninstalledByUser,
-  // Removed apps are purged from the registry cache and have their
-  // associated memory freed. Subscribers are not notified of removed
-  // apps, so publishers must set the app as uninstalled before
-  // removing it.
-  kRemoved,
-  kUninstalledByMigration,
-
-  // Add any new values above this one, and update kMaxValue to the highest
-  // enumerator value.
-  kMaxValue = kUninstalledByMigration,
-};
+ENUM(Readiness,
+     kUnknown,
+     kReady,                // Installed and launchable.
+     kDisabledByBlocklist,  // Disabled by SafeBrowsing.
+     kDisabledByPolicy,     // Disabled by admin policy.
+     kDisabledByUser,       // Disabled by explicit user action.
+     kTerminated,           // Renderer process crashed.
+     kUninstalledByUser,
+     // Removed apps are purged from the registry cache and have their
+     // associated memory freed. Subscribers are not notified of removed
+     // apps, so publishers must set the app as uninstalled before
+     // removing it.
+     kRemoved,
+     // This is used for all non-user initiated uninstallation.
+     kUninstalledByNonUser)
 
 // How the app was installed.
-// This should be kept in sync with histograms.xml, and InstallReason in
-// enums.xml.
+// This should be kept in sync with histograms.xml, InstallReason in
+// enums.xml as well as ApplicationInstallReason in
+// //components/services/app_service/public/protos/app_types.proto.
+//
 // Note the enumeration is used in UMA histogram so entries should not be
 // re-ordered or removed. New entries should be added at the bottom.
-enum class InstallReason {
-  kUnknown = 0,
-  kSystem,   // Installed with the system and is considered a part of the OS.
-  kPolicy,   // Installed by policy.
-  kOem,      // Installed by an OEM.
-  kDefault,  // Preinstalled by default, but is not considered a system app.
-  kSync,     // Installed by sync.
-  kUser,     // Installed by user action.
-  kSubApp,   // Installed by the SubApp API call.
-
-  // Add any new values above this one, and update kMaxValue to the highest
-  // enumerator value.
-  kMaxValue = kSubApp,
-};
+ENUM(InstallReason,
+     kUnknown,
+     kSystem,   // Installed with the system and is considered a part of the OS.
+     kPolicy,   // Installed by policy.
+     kOem,      // Installed by an OEM.
+     kDefault,  // Preinstalled by default, but is not considered a system app.
+     kSync,     // Installed by sync.
+     kUser,     // Installed by user action.
+     kSubApp,   // Installed by the SubApp API call.
+     kKiosk,    // Installed by Kiosk on Chrome OS.
+     kCommandLine  // Installed by command line argument.
+)
 
 // Where the app was installed from.
-// This should be kept in sync with histograms.xml, and InstallSource in
-// enums.xml.
+// This should be kept in sync with histograms.xml, InstallSource in
+// enums.xml as well as ApplicationInstallSource in
+// //components/services/app_service/public/protos/app_types.proto.
+//
 // Note the enumeration is used in UMA histogram so entries should not be
 // re-ordered or removed. New entries should be added at the bottom.
-enum class InstallSource {
-  kUnknown = 0,
-  kSystem,          // Installed as part of Chrome OS.
-  kSync,            // Installed from sync.
-  kPlayStore,       // Installed from Play store.
-  kChromeWebStore,  // Installed from Chrome web store.
-  kBrowser,         // Installed from browser.
+ENUM(InstallSource,
+     kUnknown,
+     kSystem,          // Installed as part of Chrome OS.
+     kSync,            // Installed from sync.
+     kPlayStore,       // Installed from Play store.
+     kChromeWebStore,  // Installed from Chrome web store.
+     kBrowser          // Installed from browser.
+)
 
-  // Add any new values above this one, and update kMaxValue to the highest
-  // enumerator value.
-  kMaxValue = kBrowser,
-};
+// What caused the app to be uninstalled.
+// This should be kept in sync with UninstallSource in enums.xml as well as
+// ApplicationUninstallSource in
+// //components/services/app_service/public/protos/app_types.proto, so entries
+// should not be re-ordered or removed. New entries should be added at the
+// bottom.
+ENUM(UninstallSource,
+     kUnknown,
+     kAppList,        // Uninstall by the user from the App List (Launcher)
+     kAppManagement,  // Uninstall by the user from the App Management page
+     kShelf,          // Uninstall by the user from the Shelf
+     kMigration       // Uninstall by app migration.
+)
 
+// The window mode that each app will open in.
+ENUM(WindowMode,
+     kUnknown,
+     // Opens in a standalone window
+     kWindow,
+     // Opens in the default web browser
+     kBrowser,
+     // Opens in a tabbed app window
+     kTabbedWindow)
+
+// Information about an app. See components/services/app_service/README.md.
 struct COMPONENT_EXPORT(APP_TYPES) App {
   App(AppType app_type, const std::string& app_id);
 
@@ -142,9 +169,9 @@ struct COMPONENT_EXPORT(APP_TYPES) App {
   // Store, etc.
   InstallSource install_source = InstallSource::kUnknown;
 
-  // An optional ID used for policy to identify the app.
-  // For web apps, it contains the install URL.
-  absl::optional<std::string> policy_id;
+  // IDs used for policy to identify the app.
+  // For web apps, it contains the install URL(s).
+  std::vector<std::string> policy_ids;
 
   // Whether the app is an extensions::Extensions where is_platform_app()
   // returns true.
@@ -177,38 +204,41 @@ struct COMPONENT_EXPORT(APP_TYPES) App {
   // be handled by this app. One app can have multiple intent filters.
   IntentFilters intent_filters;
 
-  // TODO(crbug.com/1253250): Add other App struct fields.
+  // Whether the app can be free resized. If this is true, various resizing
+  // operations will be restricted.
+  absl::optional<bool> resize_locked;
+
+  // Whether the app's display mode is in the browser or otherwise.
+  WindowMode window_mode = WindowMode::kUnknown;
+
+  // Whether the app runs on os login in a new window or not.
+  absl::optional<RunOnOsLogin> run_on_os_login;
+
+  // Storage space size for app and associated data.
+  absl::optional<uint64_t> app_size_in_bytes;
+  absl::optional<uint64_t> data_size_in_bytes;
 
   // When adding new fields to the App type, the `Clone` function and the
   // `AppUpdate` class should also be updated.
 };
 
-// TODO(crbug.com/1253250): Remove these functions after migrating to non-mojo
-// AppService.
-COMPONENT_EXPORT(APP_TYPES)
-AppType ConvertMojomAppTypToAppType(apps::mojom::AppType mojom_app_type);
+using AppPtr = std::unique_ptr<App>;
 
 COMPONENT_EXPORT(APP_TYPES)
-mojom::AppType ConvertAppTypeToMojomAppType(AppType mojom_app_type);
+ApplicationType ConvertAppTypeToProtoApplicationType(AppType app_type);
 
 COMPONENT_EXPORT(APP_TYPES)
-Readiness ConvertMojomReadinessToReadiness(
-    apps::mojom::Readiness mojom_readiness);
+ApplicationInstallReason ConvertInstallReasonToProtoApplicationInstallReason(
+    InstallReason install_reason);
 
 COMPONENT_EXPORT(APP_TYPES)
-InstallReason ConvertMojomInstallReasonToInstallReason(
-    apps::mojom::InstallReason mojom_install_reason);
+ApplicationInstallSource ConvertInstallSourceToProtoApplicationInstallSource(
+    InstallSource install_source);
 
 COMPONENT_EXPORT(APP_TYPES)
-InstallSource ConvertMojomInstallSourceToInstallSource(
-    apps::mojom::InstallSource mojom_install_source);
-
-COMPONENT_EXPORT(APP_TYPES)
-absl::optional<bool> GetOptionalBool(
-    const apps::mojom::OptionalBool& mojom_optional_bool);
-
-COMPONENT_EXPORT(APP_TYPES)
-std::unique_ptr<App> ConvertMojomAppToApp(const apps::mojom::AppPtr& mojom_app);
+ApplicationUninstallSource
+ConvertUninstallSourceToProtoApplicationUninstallSource(
+    UninstallSource uninstall_source);
 
 }  // namespace apps
 

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,20 +7,20 @@
 
 #include <windows.h>
 
-#include "base/callback_forward.h"
 #include "base/check.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/task/sequenced_task_runner.h"
-#include "base/win/scoped_com_initializer.h"
-#include "chrome/updater/app/app.h"
 #include "chrome/updater/app/app_server.h"
 #include "chrome/updater/update_service.h"
 #include "chrome/updater/update_service_internal.h"
 
 namespace updater {
 
-class Configurator;
 struct RegistrationRequest;
+
+// Returns S_OK if user install, or if the COM caller is admin. Error otherwise.
+HRESULT IsCOMCallerAllowed();
 
 // The COM objects involved in this server are free threaded. Incoming COM calls
 // arrive on COM RPC threads. Outgoing COM calls are posted from a blocking
@@ -43,6 +43,9 @@ class ComServerApp : public AppServer {
  public:
   ComServerApp();
 
+  using AppServer::config;
+  using AppServer::prefs;
+
   scoped_refptr<base::SequencedTaskRunner> main_task_runner() {
     return main_task_runner_;
   }
@@ -62,8 +65,18 @@ class ComServerApp : public AppServer {
  private:
   ~ComServerApp() override;
 
-  // Overrides for App.
-  void InitializeThreadPool() override;
+  // Called before each invocation of an `UpdateService` or
+  // `UpdateServiceInternal` method. Increments the WRL Module count.
+  void TaskStarted();
+
+  // Calls `AcknowledgeTaskCompletion` after a `ServerKeepAliveTime` delay.The
+  // delay allow for more COM calls to come into the server, reducing the
+  // overhead of the server process shutting down/coming back up.
+  void TaskCompleted();
+
+  // Called after each invocation of an `UpdateService` or
+  // `UpdateServiceInternal` method. Decrements the WRL Module count.
+  void AcknowledgeTaskCompletion();
 
   // Overrides for AppServer
   void ActiveDuty(scoped_refptr<UpdateService> update_service) override;
@@ -92,9 +105,6 @@ class ComServerApp : public AppServer {
   // Handles COM setup and registration.
   void Start(base::OnceCallback<HRESULT()> register_callback);
 
-  // While this object lives, COM can be used by all threads in the program.
-  base::win::ScopedCOMInitializer com_initializer_;
-
   // Task runner bound to the main sequence.
   scoped_refptr<base::SequencedTaskRunner> main_task_runner_;
 
@@ -102,6 +112,8 @@ class ComServerApp : public AppServer {
   // |update_client| component.
   scoped_refptr<UpdateService> update_service_;
   scoped_refptr<UpdateServiceInternal> update_service_internal_;
+
+  SEQUENCE_CHECKER(sequence_checker_);
 };
 
 // Returns a singleton application object bound to this COM server.

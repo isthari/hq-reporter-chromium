@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,8 +15,8 @@
 // toolbar always displayed.
 @interface PrimaryToolbarView : UIView<AdaptiveToolbarView>
 
-// Initialize this View with the button |factory|. To finish the initialization
-// of the view, a call to |setUp| is needed.
+// Initialize this View with the button `factory`. To finish the initialization
+// of the view, a call to `setUp` is needed.
 - (instancetype)initWithButtonFactory:(ToolbarButtonFactory*)factory
     NS_DESIGNATED_INITIALIZER;
 
@@ -24,18 +24,9 @@
 - (instancetype)initWithCoder:(NSCoder*)aDecoder NS_UNAVAILABLE;
 - (instancetype)init NS_UNAVAILABLE;
 
-// The location bar view, containing the omnibox.
-@property(nonatomic, strong) UIView* locationBarView;
-
-// Container for the location bar.
-@property(nonatomic, strong, readonly) UIView* locationBarContainer;
-
-// A tappable view overlapping |locationBarContainer| used when the omnibox is
+// A tappable view overlapping `locationBarContainer` used when the omnibox is
 // hidden by the NTP.
 @property(nonatomic, strong) UIView* fakeOmniboxTarget;
-
-// The height of the container for the location bar.
-@property(nonatomic, strong, readonly) NSLayoutConstraint* locationBarHeight;
 
 // StackView containing the leading buttons (relative to the location bar).
 // It should only contain ToolbarButtons.
@@ -46,9 +37,6 @@
 
 // Button to cancel the edit of the location bar.
 @property(nonatomic, strong, readonly) UIButton* cancelButton;
-
-// Button taking the full size of the toolbar. Expands the toolbar when  tapped.
-@property(nonatomic, strong, readonly) UIButton* collapsedToolbarButton;
 
 // Constraints to be activated when the location bar is expanded and positioned
 // relatively to the cancel button.
@@ -71,15 +59,15 @@
 // square.
 @property(nonatomic, assign) BOOL topCornersRounded;
 
-// Sets all the subviews and constraints of the view. The |topSafeAnchor| needs
+// Sets all the subviews and constraints of the view. The `topSafeAnchor` needs
 // to be set before calling this.
 - (void)setUp;
 
-// Adds a view overlapping |locationBarContainer| for use when the omnibox is
+// Adds a view overlapping `locationBarContainer` for use when the omnibox is
 // hidden by the NTP.
 - (void)addFakeOmniboxTarget;
 
-// Removes |fakeOmniboxTarget| from the view hierarchy.
+// Removes `fakeOmniboxTarget` from the view hierarchy.
 - (void)removeFakeOmniboxTarget;
 
 @end

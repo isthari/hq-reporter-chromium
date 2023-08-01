@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,11 @@
 
 #include <google/protobuf/message_lite.h>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
-#include "base/logging.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/histogram_functions.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "chromeos/dbus/tpm_manager/tpm_manager.pb.h"
 #include "chromeos/dbus/tpm_manager/tpm_manager_client.h"
 #include "chromeos/dbus/u2f/fake_u2f_client.h"
@@ -40,8 +39,12 @@ constexpr char kGetAssertionStatusHistogram[] =
 // infinite DBus timeouts.
 const int kU2FInfiniteTimeout = dbus::ObjectProxy::TIMEOUT_INFINITE;
 
-// Timeout for all other methods.
+// Timeout for methods which don't take time proportional to the number of total
+// credentials.
 constexpr int kU2FShortTimeout = 3000;
+// Timeout for methods which take time proportional to the number of total
+// credentials.
+constexpr int kU2FMediumTimeout = 10000;
 
 // U2FClientStatus represents the outcome of a DBus method call to u2fd. It
 // needs to be kept in sync with the WebAuthenticationU2FClientStatus metrics
@@ -88,8 +91,9 @@ class U2FClientImpl : public U2FClient {
   // U2FClient:
   void IsUvpaa(const u2f::IsUvpaaRequest& request,
                DBusMethodCallback<u2f::IsUvpaaResponse> callback) override;
-  void IsU2FEnabled(const u2f::IsUvpaaRequest& request,
-                    DBusMethodCallback<u2f::IsUvpaaResponse> callback) override;
+  void IsU2FEnabled(
+      const u2f::IsU2fEnabledRequest& request,
+      DBusMethodCallback<u2f::IsU2fEnabledResponse> callback) override;
   void MakeCredential(
       const u2f::MakeCredentialRequest& request,
       DBusMethodCallback<u2f::MakeCredentialResponse> callback) override;
@@ -102,12 +106,26 @@ class U2FClientImpl : public U2FClient {
   void HasLegacyU2FCredentials(
       const u2f::HasCredentialsRequest& request,
       DBusMethodCallback<u2f::HasCredentialsResponse> callback) override;
+  void CountCredentials(
+      const u2f::CountCredentialsInTimeRangeRequest& request,
+      DBusMethodCallback<u2f::CountCredentialsInTimeRangeResponse> callback)
+      override;
+  void DeleteCredentials(
+      const u2f::DeleteCredentialsInTimeRangeRequest& request,
+      DBusMethodCallback<u2f::DeleteCredentialsInTimeRangeResponse> callback)
+      override;
   void CancelWebAuthnFlow(
       const u2f::CancelWebAuthnFlowRequest& request,
       DBusMethodCallback<u2f::CancelWebAuthnFlowResponse> callback) override;
+  void GetAlgorithms(
+      const u2f::GetAlgorithmsRequest& request,
+      DBusMethodCallback<u2f::GetAlgorithmsResponse> callback) override;
+  void GetSupportedFeatures(
+      const u2f::GetSupportedFeaturesRequest& request,
+      DBusMethodCallback<u2f::GetSupportedFeaturesResponse> callback) override;
 
  private:
-  dbus::ObjectProxy* proxy_ = nullptr;
+  raw_ptr<dbus::ObjectProxy> proxy_ = nullptr;
 
   base::WeakPtrFactory<U2FClientImpl> weak_factory_{this};
 };
@@ -144,8 +162,8 @@ void U2FClientImpl::IsUvpaa(const u2f::IsUvpaaRequest& request,
 }
 
 void U2FClientImpl::IsU2FEnabled(
-    const u2f::IsUvpaaRequest& request,
-    DBusMethodCallback<u2f::IsUvpaaResponse> callback) {
+    const u2f::IsU2fEnabledRequest& request,
+    DBusMethodCallback<u2f::IsU2fEnabledResponse> callback) {
   dbus::MethodCall method_call(u2f::kU2FInterface, u2f::kU2FIsU2fEnabled);
   dbus::MessageWriter writer(&method_call);
   writer.AppendProtoAsArrayOfBytes(request);
@@ -153,13 +171,13 @@ void U2FClientImpl::IsU2FEnabled(
       &method_call, kU2FShortTimeout,
       base::BindOnce(
           [](base::TimeTicks start,
-             DBusMethodCallback<u2f::IsUvpaaResponse> callback,
+             DBusMethodCallback<u2f::IsU2fEnabledResponse> callback,
              dbus::Response* dbus_response) {
             base::UmaHistogramTimes(
                 "WebAuthentication.ChromeOS.U2FClient.IsU2fEnabledDuration",
                 base::TimeTicks::Now() - start);
-            absl::optional<u2f::IsUvpaaResponse> response =
-                ConvertResponse<u2f::IsUvpaaResponse>(dbus_response);
+            absl::optional<u2f::IsU2fEnabledResponse> response =
+                ConvertResponse<u2f::IsU2fEnabledResponse>(dbus_response);
             base::UmaHistogramEnumeration(
                 "WebAuthentication.ChromeOS.U2FClient.IsU2fEnabledStatus",
                 response ? U2FClientStatus::kOk
@@ -231,7 +249,7 @@ void U2FClientImpl::HasCredentials(
   dbus::MessageWriter writer(&method_call);
   writer.AppendProtoAsArrayOfBytes(request);
   proxy_->CallMethod(
-      &method_call, kU2FShortTimeout,
+      &method_call, kU2FMediumTimeout,
       base::BindOnce(
           &U2FClientImpl::HandleResponse<u2f::HasCredentialsResponse>,
           weak_factory_.GetWeakPtr(), std::move(callback)));
@@ -245,10 +263,38 @@ void U2FClientImpl::HasLegacyU2FCredentials(
   dbus::MessageWriter writer(&method_call);
   writer.AppendProtoAsArrayOfBytes(request);
   proxy_->CallMethod(
-      &method_call, kU2FShortTimeout,
+      &method_call, kU2FMediumTimeout,
       base::BindOnce(
           &U2FClientImpl::HandleResponse<u2f::HasCredentialsResponse>,
           weak_factory_.GetWeakPtr(), std::move(callback)));
+}
+
+void U2FClientImpl::CountCredentials(
+    const u2f::CountCredentialsInTimeRangeRequest& request,
+    DBusMethodCallback<u2f::CountCredentialsInTimeRangeResponse> callback) {
+  dbus::MethodCall method_call(u2f::kU2FInterface,
+                               u2f::kU2FCountCredentialsInTimeRange);
+  dbus::MessageWriter writer(&method_call);
+  writer.AppendProtoAsArrayOfBytes(request);
+  proxy_->CallMethod(
+      &method_call, kU2FMediumTimeout,
+      base::BindOnce(&U2FClientImpl::HandleResponse<
+                         u2f::CountCredentialsInTimeRangeResponse>,
+                     weak_factory_.GetWeakPtr(), std::move(callback)));
+}
+
+void U2FClientImpl::DeleteCredentials(
+    const u2f::DeleteCredentialsInTimeRangeRequest& request,
+    DBusMethodCallback<u2f::DeleteCredentialsInTimeRangeResponse> callback) {
+  dbus::MethodCall method_call(u2f::kU2FInterface,
+                               u2f::kU2FDeleteCredentialsInTimeRange);
+  dbus::MessageWriter writer(&method_call);
+  writer.AppendProtoAsArrayOfBytes(request);
+  proxy_->CallMethod(
+      &method_call, kU2FMediumTimeout,
+      base::BindOnce(&U2FClientImpl::HandleResponse<
+                         u2f::DeleteCredentialsInTimeRangeResponse>,
+                     weak_factory_.GetWeakPtr(), std::move(callback)));
 }
 
 void U2FClientImpl::CancelWebAuthnFlow(
@@ -261,6 +307,32 @@ void U2FClientImpl::CancelWebAuthnFlow(
       &method_call, kU2FShortTimeout,
       base::BindOnce(
           &U2FClientImpl::HandleResponse<u2f::CancelWebAuthnFlowResponse>,
+          weak_factory_.GetWeakPtr(), std::move(callback)));
+}
+
+void U2FClientImpl::GetAlgorithms(
+    const u2f::GetAlgorithmsRequest& request,
+    DBusMethodCallback<u2f::GetAlgorithmsResponse> callback) {
+  dbus::MethodCall method_call(u2f::kU2FInterface, u2f::kU2FGetAlgorithms);
+  dbus::MessageWriter writer(&method_call);
+  writer.AppendProtoAsArrayOfBytes(request);
+  proxy_->CallMethod(
+      &method_call, kU2FShortTimeout,
+      base::BindOnce(&U2FClientImpl::HandleResponse<u2f::GetAlgorithmsResponse>,
+                     weak_factory_.GetWeakPtr(), std::move(callback)));
+}
+
+void U2FClientImpl::GetSupportedFeatures(
+    const u2f::GetSupportedFeaturesRequest& request,
+    DBusMethodCallback<u2f::GetSupportedFeaturesResponse> callback) {
+  dbus::MethodCall method_call(u2f::kU2FInterface,
+                               u2f::kU2FGetSupportedFeatures);
+  dbus::MessageWriter writer(&method_call);
+  writer.AppendProtoAsArrayOfBytes(request);
+  proxy_->CallMethod(
+      &method_call, kU2FShortTimeout,
+      base::BindOnce(
+          &U2FClientImpl::HandleResponse<u2f::GetSupportedFeaturesResponse>,
           weak_factory_.GetWeakPtr(), std::move(callback)));
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,8 +40,7 @@ class CastWindowManager {
     MEDIA_INFO = 5,
     SETTINGS = 6,
     BOOT_ANIMATION_OVERLAY = 7,
-    CORNERS_OVERLAY = 8,
-    TOP = CORNERS_OVERLAY
+    TOP = BOOT_ANIMATION_OVERLAY,
   };
 
   class Observer {
@@ -102,14 +101,6 @@ class CastWindowManager {
   // disabled.
   virtual void RemoveTouchActivityObserver(
       CastTouchActivityObserver* observer) = 0;
-
-  // Let the window manager that the current app needs explicit rounded window
-  // decorations.
-  // TODO(rdaum): Rename to "SetNeedsRoundedCorners"
-  virtual void SetEnableRoundedCorners(bool enable) = 0;
-
-  // Called when color inversion is turned on or off.
-  virtual void NotifyColorInversionEnabled(bool enabled) = 0;
 };
 
 }  // namespace chromecast

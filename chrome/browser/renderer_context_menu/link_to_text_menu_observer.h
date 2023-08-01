@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,7 +21,7 @@ class LinkToTextMenuObserver : public RenderViewContextMenuObserver {
  public:
   static std::unique_ptr<LinkToTextMenuObserver> Create(
       RenderViewContextMenuProxy* proxy,
-      content::RenderFrameHost* render_frame_host);
+      content::GlobalRenderFrameHostId render_frame_host_id);
 
   LinkToTextMenuObserver(const LinkToTextMenuObserver&) = delete;
   LinkToTextMenuObserver& operator=(const LinkToTextMenuObserver&) = delete;
@@ -40,11 +40,9 @@ class LinkToTextMenuObserver : public RenderViewContextMenuObserver {
  private:
   friend class MockLinkToTextMenuObserver;
 
-  explicit LinkToTextMenuObserver(RenderViewContextMenuProxy* proxy,
-                                  content::RenderFrameHost* render_frame_host);
-  // Returns true if the link should be generated from the constructor, vs
-  // determined when executed.
-  bool ShouldPreemptivelyGenerateLink();
+  explicit LinkToTextMenuObserver(
+      RenderViewContextMenuProxy* proxy,
+      content::GlobalRenderFrameHostId render_frame_host_id);
 
   // Requests link generation if needed.
   void RequestLinkGeneration();
@@ -61,8 +59,9 @@ class LinkToTextMenuObserver : public RenderViewContextMenuObserver {
       shared_highlighting::LinkGenerationError error,
       shared_highlighting::LinkGenerationReadyStatus ready_status);
 
-  // Copies the generated link to the user's clipboard.
-  void CopyLinkToClipboard();
+  // Called when "Copy Link to Text" option is selected from a context menu for
+  // a selected text.
+  void ExecuteCopyLinkToText();
 
   // Make a request to the renderer to retrieve the selector for an
   // existing highlight.
@@ -84,6 +83,9 @@ class LinkToTextMenuObserver : public RenderViewContextMenuObserver {
   // was unsuccessful.
   void CompleteWithError(shared_highlighting::LinkGenerationError error);
 
+  // Copies given text to clipboard.
+  void CopyTextToClipboard(const std::string& text);
+
   // Returns |remote_|, for the frame in which the context menu was opened.
   mojo::Remote<blink::mojom::TextFragmentReceiver>& GetRemote();
 
@@ -91,7 +93,7 @@ class LinkToTextMenuObserver : public RenderViewContextMenuObserver {
   raw_ptr<RenderViewContextMenuProxy> proxy_;
   GURL url_;
   GURL raw_url_;
-  raw_ptr<content::RenderFrameHost> render_frame_host_;
+  content::GlobalRenderFrameHostId render_frame_host_id_;
 
   std::unordered_map<content::GlobalRenderFrameHostId,
                      std::vector<std::string>,

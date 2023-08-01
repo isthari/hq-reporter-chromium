@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,7 +21,7 @@ class SyncManager;
 // Helper class to allow dependency injection of the SyncManager in tests.
 class SyncManagerFactory {
  public:
-  SyncManagerFactory(
+  explicit SyncManagerFactory(
       network::NetworkConnectionTracker* network_connection_tracker);
 
   SyncManagerFactory(const SyncManagerFactory&) = delete;

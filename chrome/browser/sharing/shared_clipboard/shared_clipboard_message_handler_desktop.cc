@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,9 @@
 
 #include <string>
 
-#include "base/guid.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/trace_event/trace_event.h"
+#include "base/uuid.h"
 #include "chrome/browser/notifications/notification_display_service.h"
 #include "chrome/browser/notifications/notification_display_service_factory.h"
 #include "chrome/grit/generated_resources.h"
@@ -31,7 +31,8 @@ void SharedClipboardMessageHandlerDesktop::ShowNotification(
   TRACE_EVENT0("sharing",
                "SharedClipboardMessageHandlerDesktop::ShowNotification");
 
-  std::string notification_id = base::GenerateGUID();
+  std::string notification_id =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
 
   std::u16string notification_title =
       device_name.empty()
@@ -46,7 +47,7 @@ void SharedClipboardMessageHandlerDesktop::ShowNotification(
       notification_title,
       l10n_util::GetStringUTF16(
           IDS_CONTENT_CONTEXT_SHARING_SHARED_CLIPBOARD_NOTIFICATION_DESCRIPTION),
-      /* icon= */ gfx::Image(),
+      /* icon= */ ui::ImageModel(),
       /* display_source= */ std::u16string(),
       /* origin_url= */ GURL(), message_center::NotifierId(),
       message_center::RichNotificationData(),

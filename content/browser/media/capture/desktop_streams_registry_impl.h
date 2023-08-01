@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,7 +31,6 @@ class DesktopStreamsRegistryImpl : public DesktopStreamsRegistry {
                              int render_frame_id,
                              const url::Origin& origin,
                              const DesktopMediaID& source,
-                             const std::string& extension_name,
                              const DesktopStreamRegistryType type) override;
 
   DesktopMediaID RequestMediaForStreamId(
@@ -39,7 +38,6 @@ class DesktopStreamsRegistryImpl : public DesktopStreamsRegistry {
       int render_process_id,
       int render_frame_id,
       const url::Origin& origin,
-      std::string* extension_name,
       const DesktopStreamRegistryType type) override;
 
  private:
@@ -51,7 +49,6 @@ class DesktopStreamsRegistryImpl : public DesktopStreamsRegistry {
     int render_frame_id;
     url::Origin origin;
     DesktopMediaID source;
-    std::string extension_name;
     DesktopStreamRegistryType type;
   };
   typedef std::map<std::string, ApprovedDesktopMediaStream> StreamsMap;

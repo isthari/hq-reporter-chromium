@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 
 #include "ash/ash_export.h"
 #include "ash/system/tray/tray_item_view.h"
-#include "base/scoped_observation.h"
+#include "base/memory/raw_ptr.h"
 
 namespace session_manager {
 enum class SessionState;
@@ -55,7 +55,9 @@ class ASH_EXPORT NotificationCounterView : public TrayItemView {
   // |kTrayNotificationMaxCount| + 1 indicates the plus icon.
   int count_for_display_ = 0;
 
-  NotificationIconsController* const controller_;
+  const raw_ptr<NotificationIconsController,
+                DanglingUntriaged | ExperimentalAsh>
+      controller_;
 };
 
 // A do-not-distrub icon view in UnifiedSystemTray button.
@@ -92,7 +94,7 @@ class SeparatorTrayItemView : public TrayItemView {
   void UpdateColor(session_manager::SessionState state);
 
  private:
-  views::Separator* separator_ = nullptr;
+  raw_ptr<views::Separator, ExperimentalAsh> separator_ = nullptr;
 };
 
 }  // namespace ash

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,17 +7,17 @@
 #include <atomic>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/containers/flat_map.h"
 #include "base/debug/alias.h"
 #include "base/debug/crash_logging.h"
 #include "base/debug/dump_without_crashing.h"
 #include "base/debug/leak_annotations.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/no_destructor.h"
+#include "base/power_monitor/power_monitor.h"
 #include "base/ranges/algorithm.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/synchronization/lock.h"
@@ -28,7 +28,9 @@
 #include "base/threading/threading_features.h"
 #include "base/time/default_tick_clock.h"
 #include "base/time/time.h"
+#include "base/trace_event/base_tracing.h"
 #include "build/build_config.h"
+#include "third_party/abseil-cpp/absl/base/attributes.h"
 
 namespace base {
 
@@ -42,6 +44,8 @@ namespace {
 enum class LoggingLevel { kNone = 0, kUmaOnly = 1, kUmaAndCrash = 2 };
 
 HangWatcher* g_instance = nullptr;
+ABSL_CONST_INIT thread_local internal::HangWatchState* hang_watch_state =
+    nullptr;
 std::atomic<bool> g_use_hang_watcher{false};
 std::atomic<HangWatcher::ProcessType> g_hang_watcher_process_type{
     HangWatcher::ProcessType::kBrowserProcess};
@@ -59,7 +63,7 @@ std::atomic<bool> g_keep_monitoring{true};
 // encountered on each call to Monitor().
 void LogHungThreadCountHistogram(HangWatcher::ThreadType thread_type,
                                  int count) {
-  // In the case of unique threads like the IO or UI thread a count does
+  // In the case of unique threads like the IO or UI/Main thread a count does
   // not make sense.
   const bool any_thread_hung = count >= 1;
 
@@ -90,8 +94,47 @@ void LogHungThreadCountHistogram(HangWatcher::ThreadType thread_type,
       break;
 
     case HangWatcher::ProcessType::kGPUProcess:
-    case HangWatcher::ProcessType::kRendererProcess:
       // Not recorded for now.
+      break;
+
+    case HangWatcher::ProcessType::kRendererProcess:
+      switch (thread_type) {
+        case HangWatcher::ThreadType::kIOThread:
+          UMA_HISTOGRAM_BOOLEAN(
+              "HangWatcher.IsThreadHung.RendererProcess."
+              "IOThread",
+              any_thread_hung);
+          break;
+        case HangWatcher::ThreadType::kMainThread:
+          UMA_HISTOGRAM_BOOLEAN(
+              "HangWatcher.IsThreadHung.RendererProcess."
+              "MainThread",
+              any_thread_hung);
+          break;
+        case HangWatcher::ThreadType::kThreadPoolThread:
+          // Not recorded for now.
+          break;
+      }
+      break;
+
+    case HangWatcher::ProcessType::kUtilityProcess:
+      switch (thread_type) {
+        case HangWatcher::ThreadType::kIOThread:
+          UMA_HISTOGRAM_BOOLEAN(
+              "HangWatcher.IsThreadHung.UtilityProcess."
+              "IOThread",
+              any_thread_hung);
+          break;
+        case HangWatcher::ThreadType::kMainThread:
+          UMA_HISTOGRAM_BOOLEAN(
+              "HangWatcher.IsThreadHung.UtilityProcess."
+              "MainThread",
+              any_thread_hung);
+          break;
+        case HangWatcher::ThreadType::kThreadPoolThread:
+          // Not recorded for now.
+          break;
+      }
       break;
   }
 }
@@ -117,8 +160,9 @@ bool ThreadTypeLoggingLevelGreaterOrEqual(HangWatcher::ThreadType thread_type,
 
 // Determines if the HangWatcher is activated. When false the HangWatcher
 // thread never started.
-const Feature kEnableHangWatcher{"EnableHangWatcher",
-                                 FEATURE_ENABLED_BY_DEFAULT};
+BASE_FEATURE(kEnableHangWatcher,
+             "EnableHangWatcher",
+             FEATURE_ENABLED_BY_DEFAULT);
 
 // Browser process.
 constexpr base::FeatureParam<int> kIOThreadLogLevel{
@@ -134,13 +178,13 @@ constexpr base::FeatureParam<int> kThreadPoolLogLevel{
 // GPU process.
 constexpr base::FeatureParam<int> kGPUProcessIOThreadLogLevel{
     &kEnableHangWatcher, "gpu_process_io_thread_log_level",
-    static_cast<int>(LoggingLevel::kUmaOnly)};
+    static_cast<int>(LoggingLevel::kNone)};
 constexpr base::FeatureParam<int> kGPUProcessMainThreadLogLevel{
     &kEnableHangWatcher, "gpu_process_main_thread_log_level",
-    static_cast<int>(LoggingLevel::kUmaOnly)};
+    static_cast<int>(LoggingLevel::kNone)};
 constexpr base::FeatureParam<int> kGPUProcessThreadPoolLogLevel{
     &kEnableHangWatcher, "gpu_process_threadpool_log_level",
-    static_cast<int>(LoggingLevel::kUmaOnly)};
+    static_cast<int>(LoggingLevel::kNone)};
 
 // Renderer process.
 constexpr base::FeatureParam<int> kRendererProcessIOThreadLogLevel{
@@ -153,9 +197,16 @@ constexpr base::FeatureParam<int> kRendererProcessThreadPoolLogLevel{
     &kEnableHangWatcher, "renderer_process_threadpool_log_level",
     static_cast<int>(LoggingLevel::kUmaOnly)};
 
-// static
-const base::TimeDelta WatchHangsInScope::kDefaultHangWatchTime =
-    base::Seconds(10);
+// Utility process.
+constexpr base::FeatureParam<int> kUtilityProcessIOThreadLogLevel{
+    &kEnableHangWatcher, "utility_process_io_thread_log_level",
+    static_cast<int>(LoggingLevel::kUmaOnly)};
+constexpr base::FeatureParam<int> kUtilityProcessMainThreadLogLevel{
+    &kEnableHangWatcher, "utility_process_main_thread_log_level",
+    static_cast<int>(LoggingLevel::kUmaOnly)};
+constexpr base::FeatureParam<int> kUtilityProcessThreadPoolLogLevel{
+    &kEnableHangWatcher, "utility_process_threadpool_log_level",
+    static_cast<int>(LoggingLevel::kUmaOnly)};
 
 constexpr const char* kThreadName = "HangWatcher";
 
@@ -171,7 +222,9 @@ constexpr auto kMonitoringPeriod = base::Seconds(10);
 
 WatchHangsInScope::WatchHangsInScope(TimeDelta timeout) {
   internal::HangWatchState* current_hang_watch_state =
-      internal::HangWatchState::GetHangWatchStateForCurrentThread()->Get();
+      HangWatcher::IsEnabled()
+          ? internal::HangWatchState::GetHangWatchStateForCurrentThread()
+          : nullptr;
 
   DCHECK(timeout >= base::TimeDelta()) << "Negative timeouts are invalid.";
 
@@ -216,9 +269,6 @@ WatchHangsInScope::WatchHangsInScope(TimeDelta timeout) {
 WatchHangsInScope::~WatchHangsInScope() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
-  internal::HangWatchState* current_hang_watch_state =
-      internal::HangWatchState::GetHangWatchStateForCurrentThread()->Get();
-
   // If hang watching was not enabled at construction time there is nothing to
   // validate or undo.
   if (!took_effect_) {
@@ -226,44 +276,45 @@ WatchHangsInScope::~WatchHangsInScope() {
   }
 
   // If the thread was unregistered since construction there is also nothing to
-  // do .
-  if (!current_hang_watch_state) {
+  // do.
+  auto* const state =
+      internal::HangWatchState::GetHangWatchStateForCurrentThread();
+  if (!state) {
     return;
   }
 
   // If a hang is currently being captured we should block here so execution
   // stops and we avoid recording unrelated stack frames in the crash.
-  if (current_hang_watch_state->IsFlagSet(
-          internal::HangWatchDeadline::Flag::kShouldBlockOnHang))
+  if (state->IsFlagSet(internal::HangWatchDeadline::Flag::kShouldBlockOnHang)) {
     base::HangWatcher::GetInstance()->BlockIfCaptureInProgress();
+  }
 
 #if DCHECK_IS_ON()
   // Verify that no Scope was destructed out of order.
-  DCHECK_EQ(this, current_hang_watch_state->GetCurrentWatchHangsInScope());
-  current_hang_watch_state->SetCurrentWatchHangsInScope(
-      previous_watch_hangs_in_scope_);
+  DCHECK_EQ(this, state->GetCurrentWatchHangsInScope());
+  state->SetCurrentWatchHangsInScope(previous_watch_hangs_in_scope_);
 #endif
 
-  if (current_hang_watch_state->nesting_level() == 1) {
+  if (state->nesting_level() == 1) {
     // If a call to InvalidateActiveExpectations() suspended hang watching
     // during the lifetime of this or any nested WatchHangsInScope it can now
     // safely be reactivated by clearing the ignore bit since this is the
     // outer-most scope.
-    current_hang_watch_state->UnsetIgnoreCurrentWatchHangsInScope();
+    state->UnsetIgnoreCurrentWatchHangsInScope();
   } else if (set_hangs_ignored_on_exit_) {
     // Return to ignoring hangs since this was the previous state before hang
     // watching was temporarily enabled for this WatchHangsInScope only in the
     // constructor.
-    current_hang_watch_state->SetIgnoreCurrentWatchHangsInScope();
+    state->SetIgnoreCurrentWatchHangsInScope();
   }
 
   // Reset the deadline to the value it had before entering this
   // WatchHangsInScope.
-  current_hang_watch_state->SetDeadline(previous_deadline_);
+  state->SetDeadline(previous_deadline_);
   // TODO(crbug.com/1034046): Log when a WatchHangsInScope exits after its
   // deadline and that went undetected by the HangWatcher.
 
-  current_hang_watch_state->DecrementNestingLevel();
+  state->DecrementNestingLevel();
 }
 
 // static
@@ -273,8 +324,14 @@ void HangWatcher::InitializeOnMainThread(ProcessType process_type) {
   DCHECK(g_main_thread_log_level == LoggingLevel::kNone);
   DCHECK(g_threadpool_log_level == LoggingLevel::kNone);
 
-  const bool enable_hang_watcher =
-      base::FeatureList::IsEnabled(kEnableHangWatcher);
+  bool enable_hang_watcher = base::FeatureList::IsEnabled(kEnableHangWatcher);
+
+  // Do not start HangWatcher in the GPU process until the issue related to
+  // invalid magic signature in the GPU WatchDog is fixed
+  // (https://crbug.com/1297760).
+  if (process_type == ProcessType::kGPUProcess)
+    enable_hang_watcher = false;
+
   g_use_hang_watcher.store(enable_hang_watcher, std::memory_order_relaxed);
 
   // Keep the process type.
@@ -325,6 +382,18 @@ void HangWatcher::InitializeOnMainThread(ProcessType process_type) {
           static_cast<LoggingLevel>(kRendererProcessMainThreadLogLevel.Get()),
           std::memory_order_relaxed);
       break;
+
+    case HangWatcher::ProcessType::kUtilityProcess:
+      g_threadpool_log_level.store(
+          static_cast<LoggingLevel>(kUtilityProcessThreadPoolLogLevel.Get()),
+          std::memory_order_relaxed);
+      g_io_thread_log_level.store(
+          static_cast<LoggingLevel>(kUtilityProcessIOThreadLogLevel.Get()),
+          std::memory_order_relaxed);
+      g_main_thread_log_level.store(
+          static_cast<LoggingLevel>(kUtilityProcessMainThreadLogLevel.Get()),
+          std::memory_order_relaxed);
+      break;
   }
 }
 
@@ -371,13 +440,13 @@ bool HangWatcher::IsCrashReportingEnabled() {
 
 // static
 void HangWatcher::InvalidateActiveExpectations() {
-  internal::HangWatchState* current_hang_watch_state =
-      internal::HangWatchState::GetHangWatchStateForCurrentThread()->Get();
-  if (!current_hang_watch_state) {
+  auto* const state =
+      internal::HangWatchState::GetHangWatchStateForCurrentThread();
+  if (!state) {
     // If the current thread is not under watch there is nothing to invalidate.
     return;
   }
-  current_hang_watch_state->SetIgnoreCurrentWatchHangsInScope();
+  state->SetIgnoreCurrentWatchHangsInScope();
 }
 
 HangWatcher::HangWatcher()
@@ -426,7 +495,7 @@ HangWatcher::GetTimeSinceLastCriticalMemoryPressureCrashKey() {
   if (last_critical_memory_pressure_time.is_null()) {
     constexpr char kNoMemoryPressureMsg[] = "No critical memory pressure";
     static_assert(
-        base::size(kNoMemoryPressureMsg) <=
+        std::size(kNoMemoryPressureMsg) <=
             static_cast<uint64_t>(kCrashKeyContentSize),
         "The crash key is too small to hold \"No critical memory pressure\".");
     return debug::ScopedCrashKeyString(crash_key, kNoMemoryPressureMsg);
@@ -439,6 +508,22 @@ HangWatcher::GetTimeSinceLastCriticalMemoryPressureCrashKey() {
   }
 }
 #endif
+
+std::string HangWatcher::GetTimeSinceLastSystemPowerResumeCrashKeyValue()
+    const {
+  DCHECK_CALLED_ON_VALID_THREAD(hang_watcher_thread_checker_);
+
+  const TimeTicks last_system_power_resume_time =
+      PowerMonitor::GetLastSystemResumeTime();
+  if (last_system_power_resume_time.is_null())
+    return "Never suspended";
+  if (last_system_power_resume_time == TimeTicks::Max())
+    return "Power suspended";
+
+  const TimeDelta time_since_last_system_resume =
+      TimeTicks::Now() - last_system_power_resume_time;
+  return NumberToString(time_since_last_system_resume.InSeconds());
+}
 
 void HangWatcher::OnMemoryPressure(
     base::MemoryPressureListener::MemoryPressureLevel memory_pressure_level) {
@@ -562,11 +647,17 @@ void HangWatcher::RecordHang() {
 ScopedClosureRunner HangWatcher::RegisterThreadInternal(
     ThreadType thread_type) {
   AutoLock auto_lock(watch_state_lock_);
+  CHECK(base::FeatureList::GetInstance());
+
+  // Do not install a WatchState if the results would never be observable.
+  if (!ThreadTypeLoggingLevelGreaterOrEqual(thread_type,
+                                            LoggingLevel::kUmaOnly)) {
+    return ScopedClosureRunner(base::DoNothing());
+  }
 
   watch_states_.push_back(
       internal::HangWatchState::CreateHangWatchStateForCurrentThread(
           thread_type));
-
   return ScopedClosureRunner(BindOnce(&HangWatcher::UnregisterThread,
                                       Unretained(HangWatcher::GetInstance())));
 }
@@ -620,7 +711,9 @@ void HangWatcher::WatchStateSnapShot::Init(
 
   // Copy hung thread information.
   for (const auto& watch_state : watch_states) {
-    auto [flags, deadline] = watch_state->GetFlagsAndDeadline();
+    uint64_t flags;
+    TimeTicks deadline;
+    std::tie(flags, deadline) = watch_state->GetFlagsAndDeadline();
 
     if (deadline <= deadline_ignore_threshold) {
       found_deadline_before_ignore_threshold = true;
@@ -649,6 +742,20 @@ void HangWatcher::WatchStateSnapShot::Init(
         any_hung_thread_has_dumping_enabled = true;
       }
 
+#if BUILDFLAG(ENABLE_BASE_TRACING)
+      // Emit trace events for monitored threads.
+      if (ThreadTypeLoggingLevelGreaterOrEqual(watch_state.get()->thread_type(),
+                                               LoggingLevel::kUmaOnly)) {
+        const PlatformThreadId thread_id = watch_state.get()->GetThreadID();
+        const auto track = perfetto::Track::FromPointer(
+            this, perfetto::ThreadTrack::ForThread(thread_id));
+        TRACE_EVENT_BEGIN("base", "HangWatcher::ThreadHung", track, deadline);
+        TRACE_EVENT_END("base", track, now);
+        // TODO(crbug.com/1021571): Remove this once fixed.
+        PERFETTO_INTERNAL_ADD_EMPTY_EVENT();
+      }
+#endif
+
       // Attempt to mark the thread as needing to stay within its current
       // WatchHangsInScope until capture is complete.
       bool thread_marked = watch_state->SetShouldBlockOnHang(flags, deadline);
@@ -659,9 +766,8 @@ void HangWatcher::WatchStateSnapShot::Init(
       // the next capture then they'll already be marked and will be included
       // in the capture at that time.
       if (thread_marked && all_threads_marked) {
-        hung_watch_state_copies_.push_back(WatchStateCopy{
-            deadline,
-            static_cast<PlatformThreadId>(watch_state.get()->GetThreadID())});
+        hung_watch_state_copies_.push_back(
+            WatchStateCopy{deadline, watch_state.get()->GetThreadID()});
       } else {
         all_threads_marked = false;
       }
@@ -676,8 +782,9 @@ void HangWatcher::WatchStateSnapShot::Init(
         static_cast<HangWatcher::ThreadType>(i);
     if (hang_count != kInvalidHangCount &&
         ThreadTypeLoggingLevelGreaterOrEqual(thread_type,
-                                             LoggingLevel::kUmaOnly))
+                                             LoggingLevel::kUmaOnly)) {
       LogHungThreadCountHistogram(thread_type, hang_count);
+    }
   }
 
   // Three cases can invalidate this snapshot and prevent the capture of the
@@ -776,6 +883,8 @@ void HangWatcher::Monitor() {
 
 void HangWatcher::DoDumpWithoutCrashing(
     const WatchStateSnapShot& watch_state_snapshot) {
+  TRACE_EVENT("base", "HangWatcher::DoDumpWithoutCrashing");
+
   capture_in_progress_.store(true, std::memory_order_relaxed);
   base::AutoLock scope_lock(capture_lock_);
 
@@ -792,6 +901,9 @@ void HangWatcher::DoDumpWithoutCrashing(
   const debug::ScopedCrashKeyString
       time_since_last_critical_memory_pressure_crash_key_string =
           GetTimeSinceLastCriticalMemoryPressureCrashKey();
+
+  SCOPED_CRASH_KEY_STRING32("HangWatcher", "seconds-since-last-resume",
+                            GetTimeSinceLastSystemPowerResumeCrashKeyValue());
 #endif
 
   // To avoid capturing more than one hang that blames a subset of the same
@@ -864,7 +976,7 @@ void HangWatcher::SetTickClockForTesting(const base::TickClock* tick_clock) {
 
 void HangWatcher::BlockIfCaptureInProgress() {
   // Makes a best-effort attempt to block execution if a hang is currently being
-  // captured.Only block on |capture_lock| if |capture_in_progress_| hints that
+  // captured. Only block on |capture_lock| if |capture_in_progress_| hints that
   // it's already held to avoid serializing all threads on this function when no
   // hang capture is in-progress.
   if (capture_in_progress_.load(std::memory_order_relaxed))
@@ -874,15 +986,10 @@ void HangWatcher::BlockIfCaptureInProgress() {
 void HangWatcher::UnregisterThread() {
   AutoLock auto_lock(watch_state_lock_);
 
-  internal::HangWatchState* current_hang_watch_state =
-      internal::HangWatchState::GetHangWatchStateForCurrentThread()->Get();
-
-  auto it = ranges::find_if(
+  auto it = ranges::find(
       watch_states_,
-      [current_hang_watch_state](
-          const std::unique_ptr<internal::HangWatchState>& state) {
-        return state.get() == current_hang_watch_state;
-      });
+      internal::HangWatchState::GetHangWatchStateForCurrentThread(),
+      &std::unique_ptr<internal::HangWatchState>::get);
 
   // Thread should be registered to get unregistered.
   DCHECK(it != watch_states_.end());
@@ -893,9 +1000,9 @@ void HangWatcher::UnregisterThread() {
 namespace internal {
 namespace {
 
-constexpr uint64_t kOnlyDeadlineMask = 0x00FFFFFFFFFFFFFFu;
+constexpr uint64_t kOnlyDeadlineMask = 0x00FF'FFFF'FFFF'FFFFu;
 constexpr uint64_t kOnlyFlagsMask = ~kOnlyDeadlineMask;
-constexpr uint64_t kMaximumFlag = 0x8000000000000000u;
+constexpr uint64_t kMaximumFlag = 0x8000'0000'0000'0000u;
 
 // Use as a mask to keep persistent flags and the deadline.
 constexpr uint64_t kPersistentFlagsAndDeadlineMask =
@@ -955,7 +1062,8 @@ void HangWatchDeadline::SetDeadline(TimeTicks new_deadline) {
   const uint64_t old_bits = bits_.load(std::memory_order_relaxed);
   const uint64_t new_flags =
       ExtractFlags(old_bits & kPersistentFlagsAndDeadlineMask);
-  bits_.store(new_flags | ExtractDeadline(new_deadline.ToInternalValue()),
+  bits_.store(new_flags | ExtractDeadline(static_cast<uint64_t>(
+                              new_deadline.ToInternalValue())),
               std::memory_order_relaxed);
 }
 
@@ -1026,7 +1134,8 @@ TimeTicks HangWatchDeadline::DeadlineFromBits(uint64_t bits) {
   // representable value.
   DCHECK(bits <= kOnlyDeadlineMask)
       << "Flags bits are set. Remove them before returning deadline.";
-  return TimeTicks::FromInternalValue(bits);
+  static_assert(kOnlyDeadlineMask <= std::numeric_limits<int64_t>::max());
+  return TimeTicks::FromInternalValue(static_cast<int64_t>(bits));
 }
 
 bool HangWatchDeadline::IsFlagSet(Flag flag) const {
@@ -1056,29 +1165,24 @@ uint64_t HangWatchDeadline::SwitchBitsForTesting() {
 }
 
 HangWatchState::HangWatchState(HangWatcher::ThreadType thread_type)
-    : thread_type_(thread_type) {
-  // There should not exist a state object for this thread already.
-  DCHECK(!GetHangWatchStateForCurrentThread()->Get());
-
+    : resetter_(&hang_watch_state, this, nullptr), thread_type_(thread_type) {
 // TODO(crbug.com/1223033): Remove this once macOS uses system-wide ids.
 // On macOS the thread ids used by CrashPad are not the same as the ones
 // provided by PlatformThread. Make sure to use the same for correct
 // attribution.
 #if BUILDFLAG(IS_MAC)
-  pthread_threadid_np(pthread_self(), &thread_id_);
+  uint64_t thread_id;
+  pthread_threadid_np(pthread_self(), &thread_id);
+  thread_id_ = checked_cast<PlatformThreadId>(thread_id);
 #else
   thread_id_ = PlatformThread::CurrentId();
 #endif
-
-  // Bind the new instance to this thread.
-  GetHangWatchStateForCurrentThread()->Set(this);
 }
 
 HangWatchState::~HangWatchState() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
-  DCHECK_EQ(GetHangWatchStateForCurrentThread()->Get(), this);
-  GetHangWatchStateForCurrentThread()->Set(nullptr);
+  DCHECK_EQ(GetHangWatchStateForCurrentThread(), this);
 
 #if DCHECK_IS_ON()
   // Destroying the HangWatchState should not be done if there are live
@@ -1096,7 +1200,7 @@ HangWatchState::CreateHangWatchStateForCurrentThread(
       std::make_unique<HangWatchState>(thread_type);
 
   // Setting the thread local worked.
-  DCHECK_EQ(GetHangWatchStateForCurrentThread()->Get(), hang_state.get());
+  DCHECK_EQ(GetHangWatchStateForCurrentThread(), hang_state.get());
 
   // Transfer ownership to caller.
   return hang_state;
@@ -1162,13 +1266,16 @@ void HangWatchState::DecrementNestingLevel() {
 }
 
 // static
-ThreadLocalPointer<HangWatchState>*
-HangWatchState::GetHangWatchStateForCurrentThread() {
-  static NoDestructor<ThreadLocalPointer<HangWatchState>> hang_watch_state;
-  return hang_watch_state.get();
+HangWatchState* HangWatchState::GetHangWatchStateForCurrentThread() {
+  // Workaround false-positive MSAN use-of-uninitialized-value on
+  // thread_local storage for loaded libraries:
+  // https://github.com/google/sanitizers/issues/1265
+  MSAN_UNPOISON(&hang_watch_state, sizeof(internal::HangWatchState*));
+
+  return hang_watch_state;
 }
 
-uint64_t HangWatchState::GetThreadID() const {
+PlatformThreadId HangWatchState::GetThreadID() const {
   return thread_id_;
 }
 

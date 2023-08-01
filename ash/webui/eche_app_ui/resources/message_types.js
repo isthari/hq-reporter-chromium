@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,6 +25,10 @@
  *    tabletMode: boolean,
  *    wifiConnectionState: string,
  *    debugMode: boolean,
+ *    MeasureLatency: boolean,
+ *    sendStartSignaling: boolean,
+ *    disable_stun_server: boolean,
+ *    check_android_network_info: boolean,
  * }}
  */
 /* #export */ let SystemInfo;
@@ -62,6 +66,12 @@
 /* #export */ let EnumHistogram;
 
 /**
+ * A number that represents the action to control stream.
+ * @typedef {number} StreamAction
+ */
+/* #export */ let StreamAction;
+
+/**
  * Enum for message types.
  * @enum {string}
  */
@@ -85,8 +95,27 @@
   NOTIFICATION_INFO: 'notification_info',
   // Message for sending notification data in bi-directional pipes.
   SHOW_NOTIFICATION: 'show_notification',
+  // Message for sending toast data.
+  SHOW_TOAST: 'show_toast',
   // Message for sending metrics data for recording time histogram.
   TIME_HISTOGRAM_MESSAGE: 'time_histagram_message',
   // Message for sending metrics data for recording enum histogram.
   ENUM_HISTOGRAM_MESSAGE: 'enum_histagram_message',
+  // Message for starting the display video of Eche.
+  START_STREAMING: 'start_streaming',
+  // Message for stream action
+  STREAM_ACTION: 'stream_action',
+  // Message for virtual keyboard state
+  IS_VIRTUAL_KEYBOARD_ENABLED: 'is_virtual_keyboard_enabled',
+  // Message for Android network info
+  ANDROID_NETWORK_INFO: 'android-network-info',
+  // Message for changing app stream orientation
+  CHANGE_ORIENTATION: 'change_orientation',
+  // Message for notifying Chrome OS about a change in the status of the WebRTC
+  // connection.
+  CONNECTION_STATUS_CHANGED: 'connection_status_changed',
+  // Message for sending accessibility event data.
+  ACCESSIBILITY_EVENT_DATA: 'accessibility_event_data',
+  // Message for sending actions and their parameters.
+  ACCESSIBILITY_PERFORM_ACTION: 'accessibility_perform_action',
 };

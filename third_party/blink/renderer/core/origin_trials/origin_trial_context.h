@@ -1,15 +1,19 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_ORIGIN_TRIALS_ORIGIN_TRIAL_CONTEXT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_ORIGIN_TRIALS_ORIGIN_TRIAL_CONTEXT_H_
 
+#include "base/time/time.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/origin_trials/trial_token.h"
 #include "third_party/blink/public/common/origin_trials/trial_token_validator.h"
+#include "third_party/blink/public/mojom/runtime_feature_state/runtime_feature_state.mojom-shared.h"
+#include "third_party/blink/public/mojom/runtime_feature_state/runtime_feature_state_controller.mojom-blink.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/hash_set.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_hash.h"
@@ -46,6 +50,13 @@ struct OriginTrialResult {
   String trial_name;
   OriginTrialStatus status;
   Vector<OriginTrialTokenResult> token_results;
+};
+
+// `status` is kEnabled if one or more OriginTrialFeatures are enabled.
+// `features` is a Vector containing all of the enabled features.
+struct OriginTrialFeaturesEnabled {
+  OriginTrialStatus status;
+  Vector<OriginTrialFeature> features;
 };
 
 // The Origin Trials Framework provides limited access to experimental features,
@@ -111,10 +122,12 @@ class CORE_EXPORT OriginTrialContext final
 
   void AddToken(const String& token);
   // Add a token injected from external script. The token may be a third-party
-  // token, which will be validated against the given origin of the injecting
-  // script.
-  void AddTokenFromExternalScript(const String& token,
-                                  const SecurityOrigin* origin);
+  // token, which will be validated against the given origin(s) of the injecting
+  // script. This should only be called with at least one valid external origin,
+  // otherwise use AddToken().
+  void AddTokenFromExternalScript(
+      const String& token,
+      const Vector<scoped_refptr<SecurityOrigin>>& external_origins);
   void AddTokens(const Vector<String>& tokens);
 
   void ActivateWorkerInheritedFeatures(
@@ -174,46 +187,51 @@ class CORE_EXPORT OriginTrialContext final
     return trial_results_;
   }
 
+  const HashMap<OriginTrialFeature, Vector<String>>
+  GetFeatureToTokensForTesting() const {
+    return feature_to_tokens_;
+  }
+
  private:
+  struct OriginInfo {
+    const scoped_refptr<const SecurityOrigin> origin;
+    bool is_secure;
+  };
+
   // Handle token from document origin or third party origins, initialize
   // features if the token is valid.
   void AddTokenInternal(const String& token,
-                        const SecurityOrigin* origin,
-                        bool is_origin_secure,
-                        const SecurityOrigin* script_origin,
-                        bool is_script_origin_secure);
+                        const OriginInfo origin_info,
+                        const Vector<OriginInfo>* script_origins);
 
   // If this returns false, the trial cannot be enabled (e.g. due to it is
   // invalid in the browser's present configuration).
   bool CanEnableTrialFromName(const StringView& trial_name);
 
-  // Enable features by trial name. Returns true or false to indicate whether
-  // some features are enabled as the result.
-  OriginTrialStatus EnableTrialFromName(const String& trial_name,
-                                        base::Time expiry_time);
+  // Returns features which are currently restricted for a given trial name,
+  // these features *will not* be enabled by the origin trial infrastructure if
+  // the given trial is enabled. The corresponding runtime features may still be
+  // enabled via command line flags, etc.
+  Vector<OriginTrialFeature> RestrictedFeaturesForTrial(
+      const String& trial_name);
+
+  // Enable features by trial name. Returns a OriginTrialFeaturesEnabled struct
+  // containing whether one or more trials were enabled, and a Vector of the
+  // OriginTrialFeatures representing those trials.
+  OriginTrialFeaturesEnabled EnableTrialFromName(const String& trial_name,
+                                                 base::Time expiry_time);
 
   // Validate the trial token. If valid, the trial named in the token is
   // added to the list of enabled trials. Returns true or false to indicate if
   // the token is valid.
-  bool EnableTrialFromToken(const SecurityOrigin* origin,
-                            bool is_secure,
-                            const String& token);
+  bool EnableTrialFromToken(const String& token, const OriginInfo origin_info);
 
-  // Validate the trial token injected by external script from script_origin.
-  // If is_third_party flag is set on the token, script_origin will be used for
+  // Validate the trial token injected by external script from script_origins.
+  // If is_third_party flag is set on the token, script_origins will be used for
   // validation. Otherwise it's the same as above.
-  bool EnableTrialFromToken(const SecurityOrigin* origin,
-                            bool is_origin_secure,
-                            const SecurityOrigin* script_origin,
-                            bool is_script_origin_secure,
-                            const String& token);
-
-  // Validate the token result returned from token validator.
-  // `token_result` is modified in place to reflect the `OriginTrialTokenStatus`
-  // change.
-  void ValidateTokenResult(bool is_secure,
-                           bool is_secure_script_origin,
-                           TrialTokenResult& token_result);
+  bool EnableTrialFromToken(const String& token,
+                            const OriginInfo origin_info,
+                            const Vector<OriginInfo>* script_origins);
 
   // Installs a series of OriginTrialFeatures listed in a HashSet. The return
   // value indicates whether binding features were added, signalling that V8
@@ -234,6 +252,15 @@ class CORE_EXPORT OriginTrialContext final
 
   const SecurityOrigin* GetSecurityOrigin();
   bool IsSecureContext();
+  OriginInfo GetCurrentOriginInfo();
+
+  // Send the token to the browser process to update persistent origin trial
+  // tokens. Will check if |parsed_token| is persistable before sending to the
+  // browser, and |parsed_token| should be the parsed version of |raw_token|.
+  void SendTokenToBrowser(const OriginInfo& origin_info,
+                          const TrialToken& parsed_token,
+                          const String& raw_token,
+                          const Vector<OriginInfo>* script_origin_info);
 
   HashSet<OriginTrialFeature> enabled_features_;
   HashSet<OriginTrialFeature> installed_features_;
@@ -245,6 +272,10 @@ class CORE_EXPORT OriginTrialContext final
   // This field is mainly used for devtools support, but
   // `OriginTrialContext::GetTokens` also depends on the structure.
   HashMap</* Trial Name */ String, OriginTrialResult> trial_results_;
+  // Stores the OriginTrialFeature enum value along with its corresponding
+  // validated and parsed trial tokens. Used for security checks in the
+  // browser's RuntimeFeatureChangeImpl.
+  HashMap<OriginTrialFeature, Vector</*Raw Token*/ String>> feature_to_tokens_;
 };
 
 }  // namespace blink

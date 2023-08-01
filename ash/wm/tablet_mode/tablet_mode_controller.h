@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include "ash/public/cpp/session/session_observer.h"
 #include "ash/public/cpp/tablet_mode.h"
 #include "ash/shell_observer.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/time/time.h"
@@ -186,6 +187,12 @@ class ASH_EXPORT TabletModeController
     ++tab_drag_in_splitview_count_;
   }
 
+  // TODO(hewer): Remove this when the cue is made into a class variable for
+  // the event handler.
+  TabletModeWindowManager* tablet_mode_window_manager() {
+    return tablet_mode_window_manager_.get();
+  }
+
   bool is_in_tablet_physical_state() const {
     return is_in_tablet_physical_state_;
   }
@@ -238,7 +245,7 @@ class ASH_EXPORT TabletModeController
 
  private:
   class DestroyObserver;
-  class ScopedShelfHider;
+  class ScopedContainerHider;
   friend class TabletModeControllerTestApi;
 
   // Used for recording metrics for intervals of time spent in
@@ -414,7 +421,7 @@ class ASH_EXPORT TabletModeController
   base::TimeTicks first_unstable_lid_angle_time_;
 
   // Source for the current time in base::TimeTicks.
-  const base::TickClock* tick_clock_;
+  raw_ptr<const base::TickClock, ExperimentalAsh> tick_clock_;
 
   // The state in which the UI mode is forced in via command-line flags, such as
   // `--force-tablet-mode=touch_view` or `--force-tablet-mode=clamshell`.
@@ -493,12 +500,13 @@ class ASH_EXPORT TabletModeController
 
   // The layer that animates duraing tablet mode <-> clamshell
   // transition. It's observed to take an action after its animation ends.
-  ui::Layer* animating_layer_ = nullptr;
+  raw_ptr<ui::Layer, ExperimentalAsh> animating_layer_ = nullptr;
 
-  // When in scope, hides the shelf container. Used to temporarily hide shelf
-  // while taking a screenshot during tablet mode transition (so the screenshot
-  // does not show the old version of shelf in the background).
-  std::unique_ptr<ScopedShelfHider> shelf_hider_;
+  // When in scope, hides the shelf and float containers. Used to temporarily
+  // hide shelf while taking a screenshot during tablet mode transition (so the
+  // screenshot does not show the old version of the shelf and floated window in
+  // the background).
+  std::unique_ptr<ScopedContainerHider> container_hider_;
 
   // Tracks and record transition smoothness.
   absl::optional<ui::ThroughputTracker> transition_tracker_;

@@ -1,20 +1,22 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <string>
 #include <tuple>
+#include <vector>
 
-#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/shelf_item_delegate.h"
 #include "ash/public/cpp/shelf_model.h"
 #include "ash/public/cpp/shelf_types.h"
 #include "ash/public/cpp/window_properties.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "base/location.h"
+#include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/scoped_observation.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/bind.h"
-#include "base/test/scoped_feature_list.h"
 #include "base/test/scoped_run_loop_timeout.h"
 #include "base/test/test_timeouts.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
@@ -22,32 +24,27 @@
 #include "chrome/browser/apps/app_service/browser_app_instance.h"
 #include "chrome/browser/apps/app_service/browser_app_instance_observer.h"
 #include "chrome/browser/apps/app_service/browser_app_instance_registry.h"
+#include "chrome/browser/ash/crosapi/ash_requires_lacros_browsertestbase.h"
 #include "chrome/browser/ash/crosapi/browser_manager.h"
-#include "chrome/browser/ash/crosapi/crosapi_manager.h"
-#include "chrome/browser/ash/crosapi/test_controller_ash.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/ash/shelf/chrome_shelf_controller.h"
 #include "chrome/browser/ui/ash/shelf/chrome_shelf_controller_test_util.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/web_applications/test/app_registry_cache_waiter.h"
 #include "chrome/browser/web_applications/test/web_app_install_test_utils.h"
 #include "chrome/browser/web_applications/web_app_helpers.h"
 #include "chrome/browser/web_applications/web_app_id.h"
 #include "chrome/browser/web_applications/web_app_install_info.h"
-#include "chrome/test/base/chromeos/ash_browser_test_starter.h"
-#include "chrome/test/base/in_process_browser_test.h"
 #include "chromeos/crosapi/mojom/test_controller.mojom-test-utils.h"
 #include "components/app_constants/constants.h"
 #include "components/services/app_service/public/cpp/app_registry_cache.h"
-#include "components/services/app_service/public/mojom/types.mojom-shared.h"
+#include "components/services/app_service/public/cpp/app_types.h"
 #include "content/public/test/browser_test.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "ui/events/base_event_utils.h"
 
 using ::app_constants::kChromeAppId;
 using ::app_constants::kLacrosAppId;
-using ::testing::AnyOf;
-using ::testing::Eq;
 
 void PinApp(const std::string& app_id) {
   auto* shelf_model = ash::ShelfModel::Get();
@@ -127,10 +124,10 @@ class TestConditionWaiter : public apps::BrowserAppInstanceObserver,
     OnAnyEvent();
   }
 
-  void Wait(const std::string& message) {
+  void Wait(const base::Location& from_here, const std::string& message) {
     if (!condition_.Run()) {
       base::test::ScopedRunLoopTimeout timeout(
-          FROM_HERE, TestTimeouts::action_timeout(),
+          from_here, TestTimeouts::action_timeout(),
           base::BindLambdaForTesting(
               [&]() { return "Waiting for: " + message; }));
       run_loop_.Run();
@@ -155,7 +152,8 @@ class TestConditionWaiter : public apps::BrowserAppInstanceObserver,
 };
 
 #define WAIT_FOR(condition)                                                   \
-  WaitForCondition(base::BindLambdaForTesting([&]() { return (condition); }), \
+  WaitForCondition(FROM_HERE,                                                 \
+                   base::BindLambdaForTesting([&]() { return (condition); }), \
                    #condition)
 
 struct ExpectedAppMenuItem {
@@ -171,12 +169,8 @@ std::ostream& operator<<(std::ostream& os, const ExpectedAppMenuItem& i) {
   return os << i.command_id << ", " << i.title;
 }
 
-class BrowserAppShelfControllerBrowserTest : public InProcessBrowserTest {
- public:
-  BrowserAppShelfControllerBrowserTest() {
-    scoped_feature_list_.InitAndEnableFeature(ash::features::kLacrosPrimary);
-  }
-
+class BrowserAppShelfControllerBrowserTest
+    : public crosapi::AshRequiresLacrosBrowserTestBase {
  protected:
   static constexpr char kURL_A[] = "https://a.example.org";
   static constexpr char kURL_B[] = "https://b.example.org";
@@ -194,54 +188,76 @@ class BrowserAppShelfControllerBrowserTest : public InProcessBrowserTest {
                                   GURL(start_url));
   }
 
-  void SetUpInProcessBrowserTestFixture() override {
-    if (!ash_starter_.HasLacrosArgument()) {
-      return;
-    }
-    ASSERT_TRUE(ash_starter_.PrepareEnvironmentForLacros());
-  }
-
   void SetUpOnMainThread() override {
-    if (!ash_starter_.HasLacrosArgument()) {
+    crosapi::AshRequiresLacrosBrowserTestBase::SetUpOnMainThread();
+    profile_ = browser()->profile();
+    if (!HasLacrosArgument()) {
       return;
     }
-    auto* manager = crosapi::CrosapiManager::Get();
-    test_controller_ash_ = std::make_unique<crosapi::TestControllerAsh>();
-    manager->crosapi_ash()->SetTestControllerForTesting(
-        test_controller_ash_.get());
 
-    ash_starter_.StartLacros(this);
+    web_app::AppTypeInitializationWaiter(profile(), apps::AppType::kWeb)
+        .Await();
 
     auto* registry = AppServiceProxy()->BrowserAppInstanceRegistry();
     ASSERT_NE(registry, nullptr);
     registry_ = registry;
   }
 
-  apps::AppServiceProxy* AppServiceProxy() {
-    return apps::AppServiceProxyFactory::GetForProfile(browser()->profile());
+  void TearDownOnMainThread() override {
+    crosapi::AshRequiresLacrosBrowserTestBase::TearDownOnMainThread();
+    if (!HasLacrosArgument()) {
+      return;
+    }
+
+    std::vector<std::string> app_ids;
+    AppServiceProxy()->AppRegistryCache().ForEachApp(
+        [&app_ids](const apps::AppUpdate& update) {
+          if (update.AppType() == apps::AppType::kWeb) {
+            app_ids.push_back(update.AppId());
+          }
+        });
+
+    for (const std::string& app_id : app_ids) {
+      AppServiceProxy()->UninstallSilently(app_id,
+                                           apps::UninstallSource::kShelf);
+      web_app::AppReadinessWaiter(profile(), app_id,
+                                  apps::Readiness::kUninstalledByUser)
+          .Await();
+    }
   }
 
-  void WaitForCondition(TestConditionWaiter::Condition condition,
+  Profile* profile() { return profile_; }
+
+  apps::AppServiceProxy* AppServiceProxy() {
+    return apps::AppServiceProxyFactory::GetForProfile(profile());
+  }
+
+  void WaitForCondition(const base::Location& from_here,
+                        TestConditionWaiter::Condition condition,
                         const std::string& message) {
-    auto* proxy =
-        apps::AppServiceProxyFactory::GetForProfile(browser()->profile());
+    auto* proxy = apps::AppServiceProxyFactory::GetForProfile(profile());
     TestConditionWaiter(*registry_, proxy->AppRegistryCache(),
                         std::move(condition))
-        .Wait(message);
+        .Wait(from_here, message);
   }
 
   std::string InstallWebApp(const std::string& start_url,
-                            apps::mojom::WindowMode mode) {
+                            apps::WindowMode mode) {
     crosapi::mojom::StandaloneBrowserTestControllerAsyncWaiter waiter(
-        test_controller_ash_->GetStandaloneBrowserTestController().get());
+        GetStandaloneBrowserTestController());
     std::string app_id;
     waiter.InstallWebApp(start_url, mode, &app_id);
 
     // Wait until the app is installed: app service publisher updates may arrive
     // out of order with the web app installation reply, so we wait until the
     // state of the app service is consistent.
-    WAIT_FOR(AppServiceProxy()->AppRegistryCache().GetAppType(app_id) ==
-             apps::mojom::AppType::kWeb);
+    web_app::AppReadinessWaiter(profile(), app_id).Await();
+    AppServiceProxy()->AppRegistryCache().ForOneApp(
+        app_id, [mode](const apps::AppUpdate& update) {
+          EXPECT_EQ(update.AppType(), apps::AppType::kWeb);
+          EXPECT_EQ(update.WindowMode(), mode);
+        });
+
     return app_id;
   }
 
@@ -321,15 +337,12 @@ class BrowserAppShelfControllerBrowserTest : public InProcessBrowserTest {
     return SelectResult{action_taken, std::move(app_menu_items)};
   }
 
-  base::test::ScopedFeatureList scoped_feature_list_;
-  test::AshBrowserTestStarter ash_starter_;
-  apps::BrowserAppInstanceRegistry* registry_{nullptr};
-
-  std::unique_ptr<crosapi::TestControllerAsh> test_controller_ash_;
+  raw_ptr<Profile, ExperimentalAsh> profile_ = nullptr;
+  raw_ptr<apps::BrowserAppInstanceRegistry, ExperimentalAsh> registry_{nullptr};
 };
 
 IN_PROC_BROWSER_TEST_F(BrowserAppShelfControllerBrowserTest, TabbedApps) {
-  if (!ash_starter_.HasLacrosArgument()) {
+  if (!HasLacrosArgument()) {
     return;
   }
 
@@ -354,8 +367,7 @@ IN_PROC_BROWSER_TEST_F(BrowserAppShelfControllerBrowserTest, TabbedApps) {
   {
     SCOPED_TRACE("launch unpinned, stop");
 
-    ASSERT_EQ(kAppId_A,
-              InstallWebApp(kURL_A, apps::mojom::WindowMode::kBrowser));
+    ASSERT_EQ(kAppId_A, InstallWebApp(kURL_A, apps::WindowMode::kBrowser));
     Launch(kAppId_A);
 
     // App A is unpinned, so no new item.
@@ -375,8 +387,7 @@ IN_PROC_BROWSER_TEST_F(BrowserAppShelfControllerBrowserTest, TabbedApps) {
   {
     SCOPED_TRACE("launch, pin, stop");
 
-    ASSERT_EQ(kAppId_B,
-              InstallWebApp(kURL_B, apps::mojom::WindowMode::kBrowser));
+    ASSERT_EQ(kAppId_B, InstallWebApp(kURL_B, apps::WindowMode::kBrowser));
     Launch(kAppId_B);
     PinApp(kAppId_B);
 
@@ -399,8 +410,7 @@ IN_PROC_BROWSER_TEST_F(BrowserAppShelfControllerBrowserTest, TabbedApps) {
   {
     SCOPED_TRACE("pin, launch, stop");
 
-    ASSERT_EQ(kAppId_C,
-              InstallWebApp(kURL_C, apps::mojom::WindowMode::kBrowser));
+    ASSERT_EQ(kAppId_C, InstallWebApp(kURL_C, apps::WindowMode::kBrowser));
     PinApp(kAppId_C);
     EXPECT_EQ(SelectShelfItem(kAppId_C),
               (SelectResult{ash::SHELF_ACTION_NEW_WINDOW_CREATED, {}}));
@@ -424,8 +434,7 @@ IN_PROC_BROWSER_TEST_F(BrowserAppShelfControllerBrowserTest, TabbedApps) {
   {
     SCOPED_TRACE("pin, launch, unpin, stop");
 
-    ASSERT_EQ(kAppId_D,
-              InstallWebApp(kURL_D, apps::mojom::WindowMode::kBrowser));
+    ASSERT_EQ(kAppId_D, InstallWebApp(kURL_D, apps::WindowMode::kBrowser));
     PinApp(kAppId_D);
     EXPECT_EQ(SelectShelfItem(kAppId_D),
               (SelectResult{ash::SHELF_ACTION_NEW_WINDOW_CREATED, {}}));
@@ -447,7 +456,7 @@ IN_PROC_BROWSER_TEST_F(BrowserAppShelfControllerBrowserTest, TabbedApps) {
 }
 
 IN_PROC_BROWSER_TEST_F(BrowserAppShelfControllerBrowserTest, WindowedApps) {
-  if (!ash_starter_.HasLacrosArgument()) {
+  if (!HasLacrosArgument()) {
     return;
   }
 
@@ -464,8 +473,7 @@ IN_PROC_BROWSER_TEST_F(BrowserAppShelfControllerBrowserTest, WindowedApps) {
   {
     SCOPED_TRACE("launch unpinned, stop");
 
-    ASSERT_EQ(kAppId_A,
-              InstallWebApp(kURL_A, apps::mojom::WindowMode::kWindow));
+    ASSERT_EQ(kAppId_A, InstallWebApp(kURL_A, apps::WindowMode::kWindow));
     Launch(kAppId_A);
     const apps::BrowserAppInstance* appA = registry_->FindAppInstanceIf(
         [&](const auto& instance) { return instance.app_id == kAppId_A; });
@@ -483,8 +491,7 @@ IN_PROC_BROWSER_TEST_F(BrowserAppShelfControllerBrowserTest, WindowedApps) {
 
   {
     SCOPED_TRACE("launch, pin, stop");
-    ASSERT_EQ(kAppId_B,
-              InstallWebApp(kURL_B, apps::mojom::WindowMode::kWindow));
+    ASSERT_EQ(kAppId_B, InstallWebApp(kURL_B, apps::WindowMode::kWindow));
     Launch(kAppId_B);
     PinApp(kAppId_B);
     const apps::BrowserAppInstance* appB = registry_->FindAppInstanceIf(
@@ -503,8 +510,7 @@ IN_PROC_BROWSER_TEST_F(BrowserAppShelfControllerBrowserTest, WindowedApps) {
 
   {
     SCOPED_TRACE("pin, launch, stop");
-    ASSERT_EQ(kAppId_C,
-              InstallWebApp(kURL_C, apps::mojom::WindowMode::kWindow));
+    ASSERT_EQ(kAppId_C, InstallWebApp(kURL_C, apps::WindowMode::kWindow));
     PinApp(kAppId_C);
     EXPECT_EQ(SelectShelfItem(kAppId_C),
               (SelectResult{ash::SHELF_ACTION_NEW_WINDOW_CREATED, {}}));
@@ -524,8 +530,7 @@ IN_PROC_BROWSER_TEST_F(BrowserAppShelfControllerBrowserTest, WindowedApps) {
 
   {
     SCOPED_TRACE("pin, launch, unpin, stop");
-    ASSERT_EQ(kAppId_D,
-              InstallWebApp(kURL_D, apps::mojom::WindowMode::kWindow));
+    ASSERT_EQ(kAppId_D, InstallWebApp(kURL_D, apps::WindowMode::kWindow));
     PinApp(kAppId_D);
     EXPECT_EQ(SelectShelfItem(kAppId_D),
               (SelectResult{ash::SHELF_ACTION_NEW_WINDOW_CREATED, {}}));
@@ -545,9 +550,10 @@ IN_PROC_BROWSER_TEST_F(BrowserAppShelfControllerBrowserTest, WindowedApps) {
   }
 }
 
+// Flakily fails: https://crbug.com/1373054
 IN_PROC_BROWSER_TEST_F(BrowserAppShelfControllerBrowserTest,
-                       ActivateAndMinimizeTabs) {
-  if (!ash_starter_.HasLacrosArgument()) {
+                       DISABLED_ActivateAndMinimizeTabs) {
+  if (!HasLacrosArgument()) {
     return;
   }
 
@@ -567,17 +573,15 @@ IN_PROC_BROWSER_TEST_F(BrowserAppShelfControllerBrowserTest,
   {
     // Install, pin, and launch two apps (A and B) in the same order. Both apps
     // will be running in two tabs in one window, app B is active.
-    ASSERT_EQ(kAppId_A,
-              InstallWebApp(kURL_A, apps::mojom::WindowMode::kBrowser));
-    ASSERT_EQ(kAppId_B,
-              InstallWebApp(kURL_B, apps::mojom::WindowMode::kBrowser));
+    ASSERT_EQ(kAppId_A, InstallWebApp(kURL_A, apps::WindowMode::kBrowser));
+    ASSERT_EQ(kAppId_B, InstallWebApp(kURL_B, apps::WindowMode::kBrowser));
     PinApp(kAppId_A);
     PinApp(kAppId_B);
     ASSERT_EQ(SelectShelfItem(kAppId_A),
               (SelectResult{ash::SHELF_ACTION_NEW_WINDOW_CREATED, {}}));
     ASSERT_EQ(SelectShelfItem(kAppId_B),
               (SelectResult{ash::SHELF_ACTION_NEW_WINDOW_CREATED, {}}));
-    ASSERT_EQ(registry_->GetLacrosBrowserWindowInstances().size(), 1);
+    ASSERT_EQ(registry_->GetLacrosBrowserWindowInstances().size(), 1u);
     ASSERT_EQ(ShelfStatus(kAppId_A), ash::STATUS_RUNNING);
     ASSERT_EQ(ShelfStatus(kAppId_B), ash::STATUS_RUNNING);
     ASSERT_EQ(WindowAppId(lacros->window), kAppId_B);
@@ -626,9 +630,10 @@ IN_PROC_BROWSER_TEST_F(BrowserAppShelfControllerBrowserTest,
   }
 }
 
+// Flakily fails: https://crbug.com/1373054
 IN_PROC_BROWSER_TEST_F(BrowserAppShelfControllerBrowserTest,
-                       ActivateAndMinimizeWindows) {
-  if (!ash_starter_.HasLacrosArgument()) {
+                       DISABLED_ActivateAndMinimizeWindows) {
+  if (!HasLacrosArgument()) {
     return;
   }
 
@@ -642,8 +647,8 @@ IN_PROC_BROWSER_TEST_F(BrowserAppShelfControllerBrowserTest,
     EXPECT_EQ(ShelfStatus(kChromeAppId), ash::STATUS_RUNNING);
   }
 
-  ASSERT_EQ(kAppId_A, InstallWebApp(kURL_A, apps::mojom::WindowMode::kWindow));
-  ASSERT_EQ(kAppId_B, InstallWebApp(kURL_B, apps::mojom::WindowMode::kWindow));
+  ASSERT_EQ(kAppId_A, InstallWebApp(kURL_A, apps::WindowMode::kWindow));
+  ASSERT_EQ(kAppId_B, InstallWebApp(kURL_B, apps::WindowMode::kWindow));
   Launch(kAppId_A);
   Launch(kAppId_B);
   const apps::BrowserAppInstance* appA = registry_->FindAppInstanceIf(
@@ -654,8 +659,11 @@ IN_PROC_BROWSER_TEST_F(BrowserAppShelfControllerBrowserTest,
   // Both are pinned.
   EXPECT_EQ(ShelfStatus(kAppId_A), ash::STATUS_RUNNING);
   EXPECT_EQ(ShelfStatus(kAppId_B), ash::STATUS_RUNNING);
-  // App B is active.
-  WAIT_FOR(!IsAppActive(kAppId_A) && !IsAppActive(kAppId_B));
+
+  // App B window is activated.
+  ASSERT_EQ(SelectShelfItem(kAppId_B),
+            (SelectResult{ash::SHELF_ACTION_WINDOW_ACTIVATED, {}}));
+  WAIT_FOR(!IsAppActive(kAppId_A) && IsAppActive(kAppId_B));
 
   // App A window is activated.
   ASSERT_EQ(SelectShelfItem(kAppId_A),
@@ -679,9 +687,10 @@ IN_PROC_BROWSER_TEST_F(BrowserAppShelfControllerBrowserTest,
   EXPECT_TRUE(appB->window->IsVisible());
 }
 
+// Flakily fails: https://crbug.com/1373054
 IN_PROC_BROWSER_TEST_F(BrowserAppShelfControllerBrowserTest,
-                       MultipleInstancesShowMenu) {
-  if (!ash_starter_.HasLacrosArgument()) {
+                       DISABLED_MultipleInstancesShowMenu) {
+  if (!HasLacrosArgument()) {
     return;
   }
 
@@ -695,7 +704,7 @@ IN_PROC_BROWSER_TEST_F(BrowserAppShelfControllerBrowserTest,
     EXPECT_EQ(ShelfStatus(kChromeAppId), ash::STATUS_RUNNING);
   }
 
-  ASSERT_EQ(kAppId_A, InstallWebApp(kURL_A, apps::mojom::WindowMode::kBrowser));
+  ASSERT_EQ(kAppId_A, InstallWebApp(kURL_A, apps::WindowMode::kBrowser));
   PinApp(kAppId_A);
   Launch(kAppId_A);
   Launch(kAppId_A);
@@ -707,7 +716,7 @@ IN_PROC_BROWSER_TEST_F(BrowserAppShelfControllerBrowserTest,
                                                          {2, "a.example.org"},
                                                      }}));
 
-  ASSERT_EQ(kAppId_B, InstallWebApp(kURL_B, apps::mojom::WindowMode::kWindow));
+  ASSERT_EQ(kAppId_B, InstallWebApp(kURL_B, apps::WindowMode::kWindow));
   Launch(kAppId_B);
   Launch(kAppId_B);
   WAIT_FOR(AppInstanceCount(kAppId_B) == 2 &&

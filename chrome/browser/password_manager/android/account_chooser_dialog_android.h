@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,7 @@
 #include "base/android/jni_android.h"
 #include "base/memory/raw_ptr.h"
 #include "chrome/browser/ui/passwords/manage_passwords_state.h"
-#include "components/device_reauth/biometric_authenticator.h"
+#include "components/device_reauth/device_authenticator.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
 #include "content/public/browser/web_contents_observer.h"
 
@@ -90,7 +90,7 @@ class AccountChooserDialogAndroid : public content::WebContentsObserver {
 
   // Authenticator used to trigger a biometric re-auth before passing the
   // credential to the site.
-  scoped_refptr<device_reauth::BiometricAuthenticator> authenticator_;
+  scoped_refptr<device_reauth::DeviceAuthenticator> authenticator_;
 
   ManagePasswordsState passwords_data_;
   url::Origin origin_;

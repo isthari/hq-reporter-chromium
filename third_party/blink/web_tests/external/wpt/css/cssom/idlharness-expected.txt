@@ -1,5 +1,5 @@
 This is a testharness.js-based test.
-Found 452 tests; 396 PASS, 56 FAIL, 0 TIMEOUT, 0 NOTRUN.
+Found 453 tests; 396 PASS, 57 FAIL, 0 TIMEOUT, 0 NOTRUN.
 PASS idl_test setup
 PASS idl_test validation
 PASS Partial interface CSSStyleSheet: original interface defined
@@ -17,12 +17,10 @@ PASS HTMLElement includes ElementCSSInlineStyle: member names are unique
 PASS SVGElement includes ElementCSSInlineStyle: member names are unique
 PASS MathMLElement includes ElementCSSInlineStyle: member names are unique
 PASS SVGElement includes GlobalEventHandlers: member names are unique
-PASS SVGElement includes DocumentAndElementEventHandlers: member names are unique
 PASS SVGElement includes SVGElementInstance: member names are unique
 PASS SVGElement includes HTMLOrSVGElement: member names are unique
 PASS SVGStyleElement includes LinkStyle: member names are unique
 PASS HTMLElement includes GlobalEventHandlers: member names are unique
-PASS HTMLElement includes DocumentAndElementEventHandlers: member names are unique
 PASS HTMLElement includes ElementContentEditable: member names are unique
 PASS HTMLElement includes HTMLOrSVGElement: member names are unique
 PASS HTMLLinkElement includes LinkStyle: member names are unique
@@ -47,7 +45,6 @@ PASS CharacterData includes ChildNode: member names are unique
 PASS Element includes Slottable: member names are unique
 PASS Document includes XPathEvaluatorBase: member names are unique
 PASS MathMLElement includes GlobalEventHandlers: member names are unique
-PASS MathMLElement includes DocumentAndElementEventHandlers: member names are unique
 PASS MathMLElement includes HTMLOrSVGElement: member names are unique
 PASS MediaList interface: existence and properties of interface object
 PASS MediaList interface object length
@@ -208,11 +205,15 @@ PASS CSSImportRule interface: existence and properties of interface prototype ob
 PASS CSSImportRule interface: attribute href
 PASS CSSImportRule interface: attribute media
 PASS CSSImportRule interface: attribute styleSheet
+PASS CSSImportRule interface: attribute layerName
+FAIL CSSImportRule interface: attribute supportsText assert_true: The prototype object must have a property "supportsText" expected true got false
 PASS CSSImportRule must be primary interface of sheet.cssRules[0]
 PASS Stringification of sheet.cssRules[0]
 PASS CSSImportRule interface: sheet.cssRules[0] must inherit property "href" with the proper type
 PASS CSSImportRule interface: sheet.cssRules[0] must inherit property "media" with the proper type
 PASS CSSImportRule interface: sheet.cssRules[0] must inherit property "styleSheet" with the proper type
+FAIL CSSImportRule interface: sheet.cssRules[0] must inherit property "layerName" with the proper type assert_equals: expected "string" but got "object"
+FAIL CSSImportRule interface: sheet.cssRules[0] must inherit property "supportsText" with the proper type assert_inherits: property "supportsText" not found in prototype chain
 PASS CSSRule interface: sheet.cssRules[0] must inherit property "cssText" with the proper type
 PASS CSSRule interface: sheet.cssRules[0] must inherit property "parentRule" with the proper type
 PASS CSSRule interface: sheet.cssRules[0] must inherit property "parentStyleSheet" with the proper type
@@ -444,9 +445,9 @@ PASS Window interface: calling getComputedStyle(Element, optional CSSOMString?) 
 PASS Document interface: attribute styleSheets
 PASS Document interface: attribute adoptedStyleSheets
 PASS Document interface: document must inherit property "styleSheets" with the proper type
-FAIL Document interface: document must inherit property "adoptedStyleSheets" with the proper type Right-hand side of 'instanceof' is not an object
+PASS Document interface: document must inherit property "adoptedStyleSheets" with the proper type
 PASS Document interface: new Document() must inherit property "styleSheets" with the proper type
-FAIL Document interface: new Document() must inherit property "adoptedStyleSheets" with the proper type Right-hand side of 'instanceof' is not an object
+PASS Document interface: new Document() must inherit property "adoptedStyleSheets" with the proper type
 PASS ShadowRoot interface: attribute styleSheets
 PASS ShadowRoot interface: attribute adoptedStyleSheets
 PASS ProcessingInstruction interface: attribute sheet

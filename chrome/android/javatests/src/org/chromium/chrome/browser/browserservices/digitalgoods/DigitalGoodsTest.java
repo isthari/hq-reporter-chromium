@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,17 +9,16 @@ import static org.junit.Assert.assertEquals;
 import static org.chromium.chrome.browser.browserservices.TestTrustedWebActivityService.COMMAND_SET_RESPONSE;
 import static org.chromium.chrome.browser.browserservices.TestTrustedWebActivityService.SET_RESPONSE_BUNDLE;
 import static org.chromium.chrome.browser.browserservices.TestTrustedWebActivityService.SET_RESPONSE_NAME;
-import static org.chromium.chrome.browser.browserservices.digitalgoods.AcknowledgeConverter.RESPONSE_ACKNOWLEDGE;
 
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
-import android.support.test.InstrumentationRegistry;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.browser.trusted.TrustedWebActivityCallback;
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.MediumTest;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -35,10 +34,9 @@ import org.chromium.base.test.util.DisableIf;
 import org.chromium.chrome.browser.ChromeApplicationImpl;
 import org.chromium.chrome.browser.browserservices.TrustedWebActivityClient;
 import org.chromium.chrome.browser.customtabs.CustomTabActivityTestRule;
-import org.chromium.chrome.browser.customtabs.CustomTabsTestUtils;
+import org.chromium.chrome.browser.customtabs.CustomTabsIntentTestUtils;
 import org.chromium.chrome.browser.dependency_injection.ChromeAppComponent;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
-import org.chromium.chrome.browser.payments.PaymentRequestTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.components.embedder_support.util.Origin;
 import org.chromium.net.test.EmbeddedTestServer;
@@ -55,8 +53,7 @@ import java.util.concurrent.TimeoutException;
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE,
-        PaymentRequestTestRule.ENABLE_EXPERIMENTAL_WEB_PLATFORM_FEATURES,
-        "enable-blink-features=DigitalGoods"})
+        "enable-experimental-web-platform-features", "enable-blink-features=DigitalGoods"})
 public class DigitalGoodsTest {
     @Rule
     public CustomTabActivityTestRule mCustomTabActivityTestRule = new CustomTabActivityTestRule();
@@ -74,7 +71,7 @@ public class DigitalGoodsTest {
         LibraryLoader.getInstance().ensureInitialized();
 
         ChromeAppComponent component = ChromeApplicationImpl.getComponent();
-        component.resolveTwaPermissionManager().addDelegateApp(
+        component.resolvePermissionManager().addDelegateApp(
                 Origin.createOrThrow(TWA_SERVICE_SCOPE), "org.chromium.chrome.tests.support");
         mClient = component.resolveTrustedWebActivityClient();
 
@@ -85,8 +82,8 @@ public class DigitalGoodsTest {
         mTestPage = mTestServer.getURL(TEST_PAGE);
 
         mCustomTabActivityTestRule.startCustomTabActivityWithIntent(
-                CustomTabsTestUtils.createMinimalCustomTabIntent(
-                        InstrumentationRegistry.getTargetContext(), mTestPage));
+                CustomTabsIntentTestUtils.createMinimalCustomTabIntent(
+                        ApplicationProvider.getApplicationContext(), mTestPage));
     }
 
     /**
@@ -138,67 +135,6 @@ public class DigitalGoodsTest {
             }
         });
         helper.waitForFirst();
-    }
-
-    /**
-     * Tests that calling JavaScript methods correctly navigates all the way through to the TWA.
-     */
-    @Test
-    @MediumTest
-    @DisableIf.Build(sdk_is_greater_than = Build.VERSION_CODES.LOLLIPOP_MR1,
-            sdk_is_less_than = Build.VERSION_CODES.N)
-    @DisableIf.Device(type = {UiDisableIf.TABLET})
-    public void
-    jsToTwaConnected() throws TimeoutException {
-        DigitalGoodsFactoryImpl.setDigitalGoodsForTesting(createFixedDigitalGoods());
-
-        // Note: The response code much be 0 for success otherwise it doesn't propagate through to
-        // JS.
-        setTwaServiceResponse(GetDetailsConverter.RESPONSE_COMMAND,
-                GetDetailsConverter.createResponseBundle(0,
-                        GetDetailsConverter.createItemDetailsBundle(
-                                "id1", "Item 1", "Desc 1", "GBP", "10")));
-
-        exec("populateDigitalGoodsService()");
-        waitForNonNull("digitalGoodsService");
-        exec("populateItemDetails(['id1'])");
-        waitForNonNull("itemDetails");
-
-        assertEquals("\"Item 1\"", exec("itemDetails[0].title"));
-    }
-
-    /**
-     * Tests that consume works correctly.
-     */
-    @Test
-    @MediumTest
-    public void consume() throws TimeoutException {
-        DigitalGoodsFactoryImpl.setDigitalGoodsForTesting(createFixedDigitalGoods());
-
-        // Consume JS method currently results in a mojo call to Acknowledge.
-        setTwaServiceResponse(RESPONSE_ACKNOWLEDGE, AcknowledgeConverter.createResponseBundle(0));
-
-        exec("populateDigitalGoodsService()");
-        waitForNonNull("digitalGoodsService");
-        exec("callConsume('sku')");
-        waitForNonNull("consumeFlag");
-    }
-
-    /**
-     * Tests that consume throws when acknowledge gives a non-zero response code.
-     */
-    @Test
-    @MediumTest
-    public void consume_failsOnNonZeroResponse() throws TimeoutException {
-        DigitalGoodsFactoryImpl.setDigitalGoodsForTesting(createFixedDigitalGoods());
-
-        // Consume JS method currently results in a mojo call to Acknowledge.
-        setTwaServiceResponse(RESPONSE_ACKNOWLEDGE, AcknowledgeConverter.createResponseBundle(1));
-
-        exec("populateDigitalGoodsService()");
-        waitForNonNull("digitalGoodsService");
-        exec("callConsume('sku')");
-        waitForNonNull("consumeError");
     }
 
     private DigitalGoodsImpl createFixedDigitalGoods() {

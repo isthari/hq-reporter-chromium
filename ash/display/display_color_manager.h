@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,9 +13,10 @@
 #include "ash/ash_export.h"
 #include "base/containers/flat_map.h"
 #include "base/files/file_path.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
-#include "skia/ext/skia_matrix_44.h"
+#include "third_party/skia/include/core/SkM44.h"
 #include "ui/display/display_observer.h"
 #include "ui/display/manager/display_configurator.h"
 #include "ui/display/types/display_constants.h"
@@ -67,13 +68,12 @@ class ASH_EXPORT DisplayColorManager
   // this display. This doesn't affect gamma or degamma values.
   // Returns true if the hardware supports this operation and the matrix was
   // successfully sent to the GPU.
-  bool SetDisplayColorMatrix(int64_t display_id,
-                             const skia::Matrix44& color_matrix);
+  bool SetDisplayColorMatrix(int64_t display_id, const SkM44& color_matrix);
 
   // Similar to the above but can be used when a display snapshot is known to
   // the caller.
   bool SetDisplayColorMatrix(const display::DisplaySnapshot* display_snapshot,
-                             const skia::Matrix44& color_matrix);
+                             const SkM44& color_matrix);
 
   // display::DisplayConfigurator::Observer
   void OnDisplayModeChanged(
@@ -148,7 +148,7 @@ class ASH_EXPORT DisplayColorManager
   // changes, https://crrev.com/1914343003.
   void ResetDisplayColorCalibration(int64_t display_id);
 
-  display::DisplayConfigurator* configurator_;
+  raw_ptr<display::DisplayConfigurator, ExperimentalAsh> configurator_;
 
   // This is a pre-allocated storage in order to avoid re-allocating the
   // matrix array every time when converting a skia matrix to a matrix array.
@@ -157,7 +157,7 @@ class ASH_EXPORT DisplayColorManager
   // Contains a per display color transform matrix that can be post-multiplied
   // by any available color calibration matrix for the corresponding display.
   // The key is the display ID.
-  base::flat_map<int64_t, skia::Matrix44> displays_color_matrix_map_;
+  base::flat_map<int64_t, SkM44> displays_color_matrix_map_;
 
   // Maps a display's color calibration data by the display's product code as
   // the key.

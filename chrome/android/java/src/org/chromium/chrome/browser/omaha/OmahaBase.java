@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@ package org.chromium.chrome.browser.omaha;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.os.Build;
 import android.text.format.DateUtils;
 
 import androidx.annotation.IntDef;
@@ -101,8 +100,6 @@ public class OmahaBase {
     static final String PREF_TIMESTAMP_OF_INSTALL = "timestampOfInstall";
     static final String PREF_TIMESTAMP_OF_REQUEST = "timestampOfRequest";
 
-    static final int MIN_API_JOB_SCHEDULER = Build.VERSION_CODES.M;
-
     private static final int UNKNOWN_DATE = -2;
 
     /** Whether or not the Omaha server should really be contacted. */
@@ -178,10 +175,7 @@ public class OmahaBase {
     public @UpdateStatus int checkForUpdates() {
         // Since this update check is synchronous and blocking on the network
         // connection, it should not be run on the UI thread.
-        assert !ThreadUtils.runningOnUiThread();
-        Log.i(TAG,
-                "OmahaBase::checkForUpdates(): Current version String: \"" + getInstalledVersion()
-                        + "\"");
+        ThreadUtils.assertOnBackgroundThread();
         // This is not available on developer builds.
         if (getRequestGenerator() == null) {
             Log.w(TAG,
@@ -212,9 +206,6 @@ public class OmahaBase {
         if (versionConfig.updateStatus != null && versionConfig.updateStatus.equals("noupdate")) {
             return UpdateStatus.UPDATED;
         }
-        Log.i(TAG,
-                "OmahaBase::checkForUpdates(): Received latest version String from Omaha "
-                        + "server: \"" + versionConfig.latestVersion + "\"");
         // Compare the current version with the latest received from the server.
         VersionNumber current = VersionNumber.fromString(getInstalledVersion());
         VersionNumber latest = VersionNumber.fromString(versionConfig.latestVersion);
@@ -230,7 +221,7 @@ public class OmahaBase {
             return;
         }
 
-        restoreState(getContext());
+        restoreState();
 
         long nextTimestamp = Long.MAX_VALUE;
         if (mDelegate.isChromeBeingUsed()) {
@@ -250,11 +241,11 @@ public class OmahaBase {
         //                    case a scheduling error occurs.
         if (nextTimestamp != Long.MAX_VALUE && nextTimestamp >= 0) {
             long currentTimestamp = mDelegate.getScheduler().getCurrentTime();
-            Log.i(TAG, "Attempting to schedule next job for: " + new Date(nextTimestamp));
+            Log.d(TAG, "Attempting to schedule next job for: " + new Date(nextTimestamp));
             mDelegate.scheduleService(currentTimestamp, nextTimestamp);
         }
 
-        saveState(getContext());
+        saveState();
     }
 
     /**
@@ -319,7 +310,7 @@ public class OmahaBase {
      * @return version currently installed on the device.
      */
     protected String getInstalledVersion() {
-        return VersionNumberGetter.getInstance().getCurrentlyUsedVersion(getContext());
+        return VersionNumberGetter.getInstance().getCurrentlyUsedVersion();
     }
 
     protected boolean generateAndPostRequest(long currentTimestamp, String sessionID) {
@@ -338,13 +329,9 @@ public class OmahaBase {
                     installAgeInDays,
                     mVersionConfig == null ? UNKNOWN_DATE : mVersionConfig.serverDate,
                     currentRequest);
-            Log.i(TAG, "OmahaBase::generateAndPostRequest(): Sending request to Omaha:\n" + xml);
 
             // Send the request to the server & wait for a response.
             String response = postRequest(currentTimestamp, xml);
-            Log.i(TAG,
-                    "OmahaBase::generateAndPostRequest(): Received response from Omaha:\n"
-                            + response);
 
             // Parse out the response.
             String appId = getRequestGenerator().getAppId();
@@ -366,7 +353,7 @@ public class OmahaBase {
             scheduler.resetFailedAttempts();
             mTimestampForNewRequest = scheduler.getCurrentTime() + MS_BETWEEN_REQUESTS;
             mTimestampForNextPostAttempt = scheduler.calculateNextTimestamp();
-            Log.i(TAG,
+            Log.d(TAG,
                     "Request to Server Successful. Timestamp for next request:"
                             + mTimestampForNextPostAttempt);
         } else {
@@ -483,7 +470,7 @@ public class OmahaBase {
      * Reads the data back from the file it was saved to.  Uses SharedPreferences to handle I/O.
      * Sanity checks are performed on the timestamps to guard against clock changing.
      */
-    private void restoreState(Context context) {
+    private void restoreState() {
         if (mStateHasBeenRestored) return;
 
         String installSource =
@@ -538,7 +525,7 @@ public class OmahaBase {
     /**
      * Writes out the current state to a file.
      */
-    private void saveState(Context context) {
+    private void saveState() {
         SharedPreferences prefs = OmahaBase.getSharedPreferences();
         SharedPreferences.Editor editor = prefs.edit();
         editor.putBoolean(OmahaBase.PREF_SEND_INSTALL_EVENT, mSendInstallEvent);
@@ -557,10 +544,6 @@ public class OmahaBase {
         mDelegate.onSaveStateDone(mTimestampForNewRequest, mTimestampForNextPostAttempt);
     }
 
-    private Context getContext() {
-        return mDelegate.getContext();
-    }
-
     private RequestGenerator getRequestGenerator() {
         return mDelegate.getRequestGenerator();
     }
@@ -570,13 +553,13 @@ public class OmahaBase {
     }
 
     /** Begin communicating with the Omaha Update Server. */
-    public static void onForegroundSessionStart(Context context) {
+    public static void onForegroundSessionStart() {
         if (!VersionInfo.isOfficialBuild() || isDisabled()) return;
-        OmahaService.startServiceImmediately(context);
+        OmahaService.startServiceImmediately();
     }
 
     /** Checks whether Chrome has ever tried contacting Omaha before. */
-    public static boolean isProbablyFreshInstall(Context context) {
+    public static boolean isProbablyFreshInstall() {
         SharedPreferences prefs = getSharedPreferences();
         return prefs.getLong(PREF_TIMESTAMP_OF_INSTALL, -1) == -1;
     }

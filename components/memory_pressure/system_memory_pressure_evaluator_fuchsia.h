@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,10 +25,6 @@ class SystemMemoryPressureEvaluatorFuchsia
       public fuchsia::memorypressure::Watcher {
  public:
   using SystemMemoryPressureEvaluator::SendCurrentVote;
-
-  // The period at which the system is re-notified when the pressure is not
-  // none.
-  static const base::TimeDelta kRenotifyVotePeriod;
 
   explicit SystemMemoryPressureEvaluatorFuchsia(
       std::unique_ptr<memory_pressure::MemoryPressureVoter> voter);

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,34 +6,31 @@
  * @fileoverview Handles automation intents for speech feedback.
  * Braille is *not* handled in this module.
  */
+import {AutomationPredicate} from '../../../common/automation_predicate.js';
+import {AutomationUtil} from '../../../common/automation_util.js';
+import {constants} from '../../../common/constants.js';
+import {CursorRange} from '../../../common/cursors/range.js';
+import {Output} from '../output/output.js';
+import {OutputRoleInfo} from '../output/output_role_info.js';
+import {OutputCustomEvent} from '../output/output_types.js';
 
-goog.provide('IntentHandler');
+import {EditableLine} from './editable_line.js';
 
-goog.require('constants');
-goog.require('editing.EditableLine');
-goog.require('Msgs');
-goog.require('Output');
-
-goog.scope(function() {
 const AutomationIntent = chrome.automation.AutomationIntent;
-const Cursor = cursors.Cursor;
 const Dir = constants.Dir;
 const IntentCommandType = chrome.automation.IntentCommandType;
 const IntentTextBoundaryType = chrome.automation.IntentTextBoundaryType;
-const Movement = cursors.Movement;
-const Range = cursors.Range;
 const RoleType = chrome.automation.RoleType;
-const Unit = cursors.Unit;
 
 /**
  * A stateless class that turns intents into speech.
  */
-IntentHandler = class {
+export class IntentHandler {
   /**
    * Called when intents are received from an AutomationEvent.
    * @param {!Array<AutomationIntent>} intents
-   * @param {!editing.EditableLine} cur The current line.
-   * @param {editing.EditableLine} prev The previous line.
+   * @param {!EditableLine} cur The current line.
+   * @param {EditableLine} prev The previous line.
    * @return {boolean} Whether intents are handled.
    */
   static onIntents(intents, cur, prev) {
@@ -54,8 +51,8 @@ IntentHandler = class {
   /**
    * Called when an intent is received.
    * @param {!AutomationIntent} intent
-   * @param {!editing.EditableLine} cur The current line.
-   * @param {editing.EditableLine} prev The previous line.
+   * @param {!EditableLine} cur The current line.
+   * @param {EditableLine} prev The previous line.
    * @return {boolean} Whether the intent was handled.
    */
   static onIntent(intent, cur, prev) {
@@ -83,8 +80,8 @@ IntentHandler = class {
    * Called when the text selection moves.
    * @param {!AutomationIntent} intent A move selection
    *     intent.
-   * @param {!editing.EditableLine} cur The current line.
-   * @param {editing.EditableLine} prev The previous line.
+   * @param {!EditableLine} cur The current line.
+   * @param {EditableLine} prev The previous line.
    * @return {boolean} Whether the intent was handled.
    */
   static onMoveSelection(intent, cur, prev) {
@@ -135,7 +132,7 @@ IntentHandler = class {
           }
         }
 
-        output.withRichSpeech(newRange, prevRange, OutputEventType.NAVIGATE)
+        output.withRichSpeech(newRange, prevRange, OutputCustomEvent.NAVIGATE)
             .go();
 
         // Handled.
@@ -164,7 +161,7 @@ IntentHandler = class {
 
         new Output()
             .withRichSpeech(
-                cursors.Range.fromNode(node), null, OutputEventType.NAVIGATE)
+                CursorRange.fromNode(node), null, OutputCustomEvent.NAVIGATE)
             .go();
         return true;
       }
@@ -179,7 +176,7 @@ IntentHandler = class {
         const newRange = cur.createWordRange(
             intent.textBoundary === IntentTextBoundaryType.WORD_END);
         new Output()
-            .withSpeech(newRange, prevRange, OutputEventType.NAVIGATE)
+            .withSpeech(newRange, prevRange, OutputCustomEvent.NAVIGATE)
             .go();
         return true;
       }
@@ -203,5 +200,4 @@ IntentHandler = class {
 
     return false;
   }
-};
-});  // goog.scope
+}

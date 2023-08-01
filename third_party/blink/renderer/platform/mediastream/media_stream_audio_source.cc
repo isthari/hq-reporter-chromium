@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,18 +7,20 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "third_party/blink/public/common/thread_safe_browser_interface_broker_proxy.h"
 #include "third_party/blink/public/platform/modules/webrtc/webrtc_logging.h"
+#include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/renderer/platform/mediastream/media_stream_audio_track.h"
 #include "third_party/blink/renderer/platform/mediastream/media_stream_component.h"
 #include "third_party/blink/renderer/platform/mediastream/media_stream_source.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_base.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 
@@ -73,17 +75,11 @@ MediaStreamAudioSource* MediaStreamAudioSource::From(
   return static_cast<MediaStreamAudioSource*>(source->GetPlatformSource());
 }
 
-bool MediaStreamAudioSource::ConnectToTrack(MediaStreamComponent* component) {
+bool MediaStreamAudioSource::ConnectToInitializedTrack(
+    MediaStreamComponent* component) {
   DCHECK(GetTaskRunner()->BelongsToCurrentThread());
   DCHECK(component);
-
-  // Sanity-check that there is not already a MediaStreamAudioTrack instance
-  // associated with |component|.
-  if (MediaStreamAudioTrack::From(component)) {
-    LOG(DFATAL) << "Attempting to connect another source to a "
-                   "WebMediaStreamTrack/MediaStreamComponent.";
-    return false;
-  }
+  DCHECK(MediaStreamAudioTrack::From(component));
 
   LogMessage(base::StringPrintf("%s(track=%s)", __func__,
                                 component->ToString().Utf8().c_str()));
@@ -96,11 +92,6 @@ bool MediaStreamAudioSource::ConnectToTrack(MediaStreamComponent* component) {
       StopSource();
   }
 
-  // Create and initialize a new MediaStreamAudioTrack and pass ownership of it
-  // to the MediaStreamComponent.
-  component->SetPlatformTrack(
-      CreateMediaStreamAudioTrack(component->Id().Utf8()));
-
   // Propagate initial "enabled" state.
   MediaStreamAudioTrack* const track = MediaStreamAudioTrack::From(component);
   DCHECK(track);
@@ -110,13 +101,14 @@ bool MediaStreamAudioSource::ConnectToTrack(MediaStreamComponent* component) {
   if (is_stopped_)
     return false;
 
-  track->Start(WTF::Bind(&MediaStreamAudioSource::StopAudioDeliveryTo,
-                         weak_factory_.GetWeakPtr(), WTF::Unretained(track)));
+  track->Start(WTF::BindOnce(&MediaStreamAudioSource::StopAudioDeliveryTo,
+                             weak_factory_.GetWeakPtr(),
+                             WTF::Unretained(track)));
   deliverer_.AddConsumer(track);
   LogMessage(
       base::StringPrintf("%s => (added new MediaStreamAudioTrack as consumer, "
-                         "total number of consumers=%d)",
-                         __func__, NumConsumers()));
+                         "total number of consumers=%zu)",
+                         __func__, NumTracks()));
   return true;
 }
 
@@ -127,22 +119,6 @@ media::AudioParameters MediaStreamAudioSource::GetAudioParameters() const {
 bool MediaStreamAudioSource::RenderToAssociatedSinkEnabled() const {
   DCHECK(GetTaskRunner()->BelongsToCurrentThread());
   return device().matched_output_device_id.has_value();
-}
-
-bool MediaStreamAudioSource::AllTracksAreDisabled() {
-  DCHECK(GetTaskRunner()->BelongsToCurrentThread());
-
-  unsigned int num_disabled_tracks = 0;
-  Vector<MediaStreamAudioTrack*> audio_tracks;
-  deliverer_.GetConsumerList(&audio_tracks);
-  for (MediaStreamAudioTrack* track : audio_tracks) {
-    if (!track->IsEnabled())
-      ++num_disabled_tracks;
-  }
-  LogMessage(base::StringPrintf("%s => (%u of %u tracks are disabled))",
-                                __func__, num_disabled_tracks,
-                                audio_tracks.size()));
-  return (num_disabled_tracks == audio_tracks.size());
 }
 
 void* MediaStreamAudioSource::GetClassIdentifier() const {
@@ -239,8 +215,8 @@ void MediaStreamAudioSource::StopAudioDeliveryTo(MediaStreamAudioTrack* track) {
   const bool did_remove_last_track = deliverer_.RemoveConsumer(track);
   LogMessage(
       base::StringPrintf("%s => (removed MediaStreamAudioTrack as consumer, "
-                         "total number of consumers=%u)",
-                         __func__, NumConsumers()));
+                         "total number of consumers=%zu)",
+                         __func__, NumTracks()));
 
   // The W3C spec requires a source automatically stop when the last track is
   // stopped.
@@ -284,7 +260,7 @@ int MediaStreamAudioSource::NumPreferredChannels() const {
   return deliverer_.NumPreferredChannels();
 }
 
-int MediaStreamAudioSource::NumConsumers() const {
+size_t MediaStreamAudioSource::NumTracks() const {
   DCHECK(GetTaskRunner()->BelongsToCurrentThread());
   Vector<MediaStreamAudioTrack*> audio_tracks;
   deliverer_.GetConsumerList(&audio_tracks);

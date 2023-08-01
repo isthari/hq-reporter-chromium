@@ -1,8 +1,10 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser;
+import static androidx.test.espresso.matcher.ViewMatchers.assertThat;
+
 import static org.hamcrest.core.StringStartsWith.startsWith;
 
 import android.content.Intent;
@@ -51,7 +53,7 @@ public class IntentHandlerBrowserTest {
         intent.putStringArrayListExtra(RecognizerResultsIntent.EXTRA_VOICE_SEARCH_RESULT_URLS,
                 new ArrayList<>(Collections.singletonList(VOICE_SEARCH_QUERY_URL)));
         String query = IntentHandler.getUrlFromVoiceSearchResult(intent);
-        Assert.assertThat(query, startsWith(VOICE_SEARCH_QUERY_URL));
+        assertThat(query, startsWith(VOICE_SEARCH_QUERY_URL));
     }
 
     @Test

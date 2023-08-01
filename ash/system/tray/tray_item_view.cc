@@ -1,9 +1,10 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/system/tray/tray_item_view.h"
 
+#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/shelf_types.h"
 #include "ash/shelf/shelf.h"
 #include "ash/system/tray/tray_constants.h"
@@ -13,6 +14,7 @@
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/compositor/compositor.h"
 #include "ui/compositor/layer.h"
+#include "ui/compositor/layer_animator.h"
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
 #include "ui/compositor/throughput_tracker.h"
 #include "ui/gfx/animation/slide_animation.h"
@@ -65,14 +67,11 @@ void IconizedLabel::GetAccessibleNodeData(ui::AXNodeData* node_data) {
     return Label::GetAccessibleNodeData(node_data);
 
   node_data->role = ax::mojom::Role::kStaticText;
-  node_data->SetName(custom_accessible_name_);
+  node_data->SetNameChecked(custom_accessible_name_);
 }
 
 TrayItemView::TrayItemView(Shelf* shelf)
-    : views::AnimationDelegateViews(this),
-      shelf_(shelf),
-      label_(NULL),
-      image_view_(NULL) {
+    : views::AnimationDelegateViews(this), shelf_(shelf) {
   DCHECK(shelf_);
   SetPaintToLayer();
   layer()->SetFillsBoundsOpaquely(false);
@@ -81,36 +80,111 @@ TrayItemView::TrayItemView(Shelf* shelf)
 
 TrayItemView::~TrayItemView() = default;
 
+void TrayItemView::AddObserver(Observer* observer) {
+  observers_.AddObserver(observer);
+}
+
+void TrayItemView::RemoveObserver(Observer* observer) {
+  observers_.RemoveObserver(observer);
+}
+
 void TrayItemView::CreateLabel() {
   label_ = new IconizedLabel;
-  AddChildView(label_);
+  AddChildView(label_.get());
   PreferredSizeChanged();
 }
 
 void TrayItemView::CreateImageView() {
   image_view_ = new views::ImageView;
-  AddChildView(image_view_);
+  AddChildView(image_view_.get());
   PreferredSizeChanged();
 }
 
-void TrayItemView::SetVisible(bool set_visible) {
+void TrayItemView::DestroyLabel() {
+  if (!label_)
+    return;
+
+  RemoveChildViewT(label_.get());
+  label_ = nullptr;
+}
+
+void TrayItemView::DestroyImageView() {
+  if (!image_view_)
+    return;
+
+  RemoveChildViewT(image_view_.get());
+  image_view_ = nullptr;
+}
+
+base::ScopedClosureRunner TrayItemView::DisableAnimation() {
+  if (layer()->GetAnimator()->is_animating()) {
+    layer()->GetAnimator()->StopAnimating();
+  }
+  ++disable_animation_count_;
+  return base::ScopedClosureRunner(base::BindOnce(
+      [](const base::WeakPtr<TrayItemView>& ptr) {
+        if (ptr) {
+          --ptr->disable_animation_count_;
+        }
+      },
+      weak_factory_.GetWeakPtr()));
+}
+
+void TrayItemView::SetAnimationIdleClosureForTest(base::OnceClosure closure) {
+  animation_idle_closure_ = std::move(closure);
+}
+
+bool TrayItemView::IsAnimating() {
+  return animation_ && animation_->is_animating();
+}
+
+void TrayItemView::SetVisible(bool visible) {
+  // Do not invoke animation when the current visibility is already at the
+  // target visibility.
+  if (visible == target_visible_) {
+    return;
+  }
+  target_visible_ = visible;
+  for (auto& observer : observers_) {
+    observer.OnTrayItemVisibilityAboutToChange(target_visible_);
+  }
+  views::View::SetVisible(visible);
   if (!GetWidget() ||
       ui::ScopedAnimationDurationScaleMode::duration_multiplier() ==
           ui::ScopedAnimationDurationScaleMode::ZERO_DURATION) {
-    views::View::SetVisible(set_visible);
     return;
   }
+  PerformVisibilityAnimation(visible);
+}
 
-  // Do not invoke animation when visibility is not changing.
-  if (set_visible == GetVisible())
-    return;
+bool TrayItemView::IsHorizontalAlignment() const {
+  return shelf_->IsHorizontalAlignment();
+}
 
-  target_visible_ = set_visible;
+void TrayItemView::PerformVisibilityAnimation(bool visible) {
+  // Set the view visible to show both show/hide animation.
+  views::View::SetVisible(true);
 
   if (!animation_) {
     animation_ = std::make_unique<gfx::SlideAnimation>(this);
     animation_->SetTweenType(gfx::Tween::LINEAR);
-    animation_->Reset(GetVisible() ? 1.0 : 0.0);
+    animation_->Reset(target_visible_ ? 0.0 : 1.0);
+  }
+
+  // Immediately progress to the end of the animation if animation is disabled.
+  if (!ShouldVisibilityChangeBeAnimated()) {
+    // Tray items need to stay visible during the notification center tray's
+    // hide animation, so don't do anything here.
+    // `StatusAreaAnimationController` will call `ImmediatelyUpdateVisibility()`
+    // once the hide animation is over to ensure that all tray items are given a
+    // chance to properly update their visibilities. Only applicable when the
+    // QS revamp is enabled.
+    if (features::IsQsRevampEnabled() && !target_visible_) {
+      return;
+    }
+    animation_->SetSlideDuration(base::TimeDelta());
+    target_visible_ ? animation_->Show() : animation_->Hide();
+    return;
   }
 
   if (target_visible_) {
@@ -120,8 +194,6 @@ void TrayItemView::SetVisible(bool set_visible) {
     animation_->SetSlideDuration(base::Milliseconds(400));
     animation_->Show();
     AnimationProgressed(animation_.get());
-    views::View::SetVisible(true);
-    layer()->SetOpacity(0.f);
   } else {
     SetupThroughputTrackerForAnimationSmoothness(
         GetWidget(), throughput_tracker_,
@@ -132,8 +204,15 @@ void TrayItemView::SetVisible(bool set_visible) {
   }
 }
 
-bool TrayItemView::IsHorizontalAlignment() const {
-  return shelf_->IsHorizontalAlignment();
+void TrayItemView::ImmediatelyUpdateVisibility() {
+  // Reset the animation to the end state according to `target_visible_` so that
+  // future visibility changes can animate properly.
+  if (animation_) {
+    animation_->Reset(target_visible_ ? 1.0 : 0.0);
+  }
+  layer()->SetTransform(gfx::Transform());
+  layer()->SetOpacity(target_visible_ ? 1.0 : 0.0);
+  views::View::SetVisible(target_visible_);
 }
 
 gfx::Size TrayItemView::CalculatePreferredSize() const {
@@ -174,6 +253,10 @@ void TrayItemView::ChildPreferredSizeChanged(views::View* child) {
 void TrayItemView::AnimationProgressed(const gfx::Animation* animation) {
   // Should not animate during resize stage.
   if (InResizeAnimation(animation->GetCurrentValue())) {
+    // Ensure we are not visible during resize stage.
+    if (layer()->opacity() > 0.0) {
+      layer()->SetOpacity(0.0);
+    }
     PreferredSizeChanged();
     return;
   }
@@ -203,13 +286,17 @@ void TrayItemView::AnimationProgressed(const gfx::Animation* animation) {
 }
 
 void TrayItemView::AnimationEnded(const gfx::Animation* animation) {
-  if (animation->GetCurrentValue() < 0.1)
-    views::View::SetVisible(false);
+  views::View::SetVisible(target_visible_);
+  layer()->SetOpacity(target_visible_ ? 1.0 : 0.0);
 
   if (throughput_tracker_) {
     // Reset `throughput_tracker_` to reset animation metrics recording.
     throughput_tracker_->Stop();
     throughput_tracker_.reset();
+  }
+
+  if (animation_idle_closure_) {
+    std::move(animation_idle_closure_).Run();
   }
 }
 

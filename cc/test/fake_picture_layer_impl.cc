@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -130,7 +130,7 @@ void FakePictureLayerImpl::SetAllTilesReadyInTiling(
 
 void FakePictureLayerImpl::SetTileReady(Tile* tile) {
   TileDrawInfo& draw_info = tile->draw_info();
-  draw_info.SetSolidColorForTesting(true);
+  draw_info.SetSolidColorForTesting(SkColors::kRed);
   DCHECK(draw_info.IsReadyToDraw());
 }
 

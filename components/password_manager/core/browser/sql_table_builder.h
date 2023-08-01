@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "base/strings/string_piece.h"
 
 namespace sql {
@@ -64,12 +64,15 @@ class SQLTableBuilder {
   void AddPrimaryKeyColumn(std::string name);
 
   // As AddColumn but also adds column |name| to the unique key of the table.
-  // If 'parent_table' isn't empty then the column is a foreign key to
-  // 'parent_table' and an implicit index is created. Only one foreign key per
-  // table is allowed.
+  void AddColumnToUniqueKey(std::string name, std::string type);
+
+  // As AddColumn but also adds column |name| to the unique key of the table.
+  // The column |name| is a foreign key to 'parent_table' and an implicit index
+  // is created.
   void AddColumnToUniqueKey(std::string name,
                             std::string type,
-                            std::string parent_table = std::string());
+                            std::string parent_table,
+                            std::string index_name);
 
   // Renames column |old_name| to |new_name|. |new_name| can not exist already.
   // |old_name| must have been added in the past. Furthermore, there must be no
@@ -135,6 +138,9 @@ class SQLTableBuilder {
   // Returns the number of all columns present in the last version. The last
   // version must be sealed.
   size_t NumberOfColumns() const;
+
+  // Returns the table name.
+  std::string TableName() const;
 
  private:
   // Stores the information about one column (name, type, etc.).

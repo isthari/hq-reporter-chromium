@@ -1,31 +1,33 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/app/application_delegate/url_opener.h"
+#import "ios/chrome/app/application_delegate/url_opener.h"
 
 #import <Foundation/Foundation.h>
 
-#include "base/check_op.h"
-#include "ios/chrome/app/application_delegate/app_state.h"
+#import "base/check_op.h"
+#import "base/test/with_feature_override.h"
+#import "ios/chrome/app/application_delegate/app_state.h"
 #import "ios/chrome/app/application_delegate/app_state_observer.h"
-#include "ios/chrome/app/application_delegate/mock_tab_opener.h"
-#include "ios/chrome/app/application_delegate/startup_information.h"
-#include "ios/chrome/app/application_delegate/url_opener_params.h"
-#include "ios/chrome/app/startup/chrome_app_startup_parameters.h"
-#include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
-#import "ios/chrome/browser/ui/main/test/fake_connection_information.h"
-#import "ios/chrome/browser/ui/main/test/stub_browser_interface.h"
-#import "ios/chrome/browser/ui/main/test/stub_browser_interface_provider.h"
+#import "ios/chrome/app/application_delegate/mock_tab_opener.h"
+#import "ios/chrome/app/application_delegate/startup_information.h"
+#import "ios/chrome/app/application_delegate/url_opener_params.h"
+#import "ios/chrome/app/startup/chrome_app_startup_parameters.h"
+#import "ios/chrome/browser/shared/coordinator/scene/test/fake_connection_information.h"
+#import "ios/chrome/browser/shared/coordinator/scene/test/stub_browser_provider.h"
+#import "ios/chrome/browser/shared/coordinator/scene/test/stub_browser_provider_interface.h"
+#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
 #import "ios/chrome/browser/url_loading/url_loading_params.h"
-#import "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/testing/open_url_context.h"
-#include "ios/web/public/test/web_task_environment.h"
-#include "net/base/mac/url_conversions.h"
-#include "testing/gtest_mac.h"
-#include "testing/platform_test.h"
+#import "ios/web/public/test/web_task_environment.h"
+#import "net/base/mac/url_conversions.h"
+#import "testing/gtest_mac.h"
+#import "testing/platform_test.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
-#include "third_party/ocmock/gtest_support.h"
+#import "third_party/ocmock/gtest_support.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -48,7 +50,6 @@ enum class ExternalFilesLoadedInWebStateFeature {
 @synthesize appLaunchTime = _appLaunchTime;
 @synthesize didFinishLaunchingTime = _didFinishLaunchingTime;
 @synthesize firstSceneConnectionTime = _firstSceneConnectionTime;
-@synthesize restoreHelper = _restoreHelper;
 
 - (FirstUserActionRecorder*)firstUserActionRecorder {
   return nil;
@@ -79,6 +80,9 @@ enum class ExternalFilesLoadedInWebStateFeature {
 #pragma mark -
 
 class URLOpenerTest : public PlatformTest {
+ protected:
+  URLOpenerTest() {}
+
  private:
   web::WebTaskEnvironment task_environment_;
 };
@@ -138,7 +142,7 @@ TEST_F(URLOpenerTest, HandleOpenURL) {
     @"com.google.SomeOtherProduct", @"com.apple.mobilesafari",
     @"com.othercompany.otherproduct"
   ];
-  // See documentation for |annotation| property in
+  // See documentation for `annotation` property in
   // UIDocumentInteractionstartupInformation Class Reference.  The following
   // values are mostly to detect garbage-in situations and ensure that the app
   // won't crash or garbage out.

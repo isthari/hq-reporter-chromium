@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,18 +10,21 @@
 #include <memory>
 
 #import "components/autofill/ios/browser/form_suggestion_provider.h"
+#import "components/password_manager/ios/ios_password_manager_driver.h"
+#import "components/password_manager/ios/password_account_storage_notice_handler.h"
 #import "components/password_manager/ios/password_form_helper.h"
 #import "components/password_manager/ios/password_generation_provider.h"
 #import "components/password_manager/ios/password_manager_client_bridge.h"
 #import "components/password_manager/ios/password_manager_driver_bridge.h"
+#import "components/password_manager/ios/password_reuse_detection_manager_client_bridge.h"
 #import "ios/chrome/browser/passwords/ios_chrome_password_manager_client.h"
-#import "ios/chrome/browser/passwords/ios_chrome_password_manager_driver.h"
+#import "ios/chrome/browser/passwords/ios_chrome_password_reuse_detection_manager_client.h"
 #import "ios/web/public/web_state_observer_bridge.h"
 
-@protocol ApplicationCommands;
 @class CommandDispatcher;
 @class NotifyUserAutoSigninViewController;
 @protocol PasswordBreachCommands;
+@protocol PasswordControllerDelegate;
 @protocol PasswordsUiDelegate;
 @class SharedPasswordController;
 
@@ -29,27 +32,18 @@ namespace password_manager {
 class PasswordManagerClient;
 }  // namespace password_manager
 
-// Delegate for registering view controller and displaying its view. Used to
-// add views to BVC.
-// TODO(crbug.com/1272487): Refactor this API to not be coupled to the BVC and
-// to use the UI command patterns.
-@protocol PasswordControllerDelegate
-
-// Adds |viewController| as child controller in order to display auto sign-in
-// notification. Returns YES if view was displayed, NO otherwise.
-- (BOOL)displaySignInNotification:(UIViewController*)viewController
-                        fromTabId:(NSString*)tabId;
-
-// Opens the list of saved passwords in the settings.
-- (void)displaySavedPasswordList;
-
-@end
+namespace safe_browsing {
+class PasswordReuseDetectionManagerClient;
+}  // namespace safe_browsing
 
 // Per-tab password controller. Handles password autofill and saving.
 // TODO(crbug.com/1272487): Refactor this into an appropriately-scoped object,
 // such as a browser agent.
 @interface PasswordController
-    : NSObject <CRWWebStateObserver, IOSChromePasswordManagerClientBridge>
+    : NSObject <CRWWebStateObserver,
+                PasswordsAccountStorageNoticeHandler,
+                IOSChromePasswordManagerClientBridge,
+                IOSChromePasswordReuseDetectionManagerClientBridge>
 
 // An object that can provide suggestions from this PasswordController.
 @property(nonatomic, readonly) id<FormSuggestionProvider> suggestionProvider;
@@ -61,6 +55,11 @@ class PasswordManagerClient;
 // The PasswordManagerClient owned by this PasswordController.
 @property(nonatomic, readonly)
     password_manager::PasswordManagerClient* passwordManagerClient;
+
+// The PasswordReuseDetectionManagerClient owned by this PasswordController.
+@property(nonatomic, readonly)
+    safe_browsing::PasswordReuseDetectionManagerClient*
+        passwordReuseDetectionManagerClient;
 
 // The PasswordManagerDriver owned by this PasswordController.
 @property(nonatomic, readonly)
@@ -80,14 +79,18 @@ class PasswordManagerClient;
 @property(nonatomic, readonly)
     SharedPasswordController* sharedPasswordController;
 
-// |webState| should not be nil.
+// `webState` should not be nil.
 - (instancetype)initWithWebState:(web::WebState*)webState;
 
 // This is just for testing.
 - (instancetype)
-   initWithWebState:(web::WebState*)webState
-             client:(std::unique_ptr<password_manager::PasswordManagerClient>)
-                        passwordManagerClient NS_DESIGNATED_INITIALIZER;
+        initWithWebState:(web::WebState*)webState
+                  client:
+                      (std::unique_ptr<password_manager::PasswordManagerClient>)
+                          passwordManagerClient
+    reuseDetectionClient:
+        (std::unique_ptr<safe_browsing::PasswordReuseDetectionManagerClient>)
+            passwordReuseDetectionManagerClient NS_DESIGNATED_INITIALIZER;
 
 - (instancetype)init NS_UNAVAILABLE;
 

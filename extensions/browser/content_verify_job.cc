@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,10 @@
 
 #include <algorithm>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/lazy_instance.h"
 #include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/timer/elapsed_timer.h"
 #include "content/public/browser/browser_thread.h"
@@ -199,13 +198,13 @@ bool ContentVerifyJob::FinishBlock() {
     current_hash_ = crypto::SecureHash::Create(crypto::SecureHash::SHA256);
   }
   std::string final(crypto::kSHA256Length, 0);
-  current_hash_->Finish(base::data(final), final.size());
+  current_hash_->Finish(std::data(final), final.size());
   current_hash_.reset();
   current_hash_byte_count_ = 0;
 
   int block = current_block_++;
 
-  const std::string* expected_hash = NULL;
+  const std::string* expected_hash = nullptr;
   if (!hash_reader_->GetHashForBlock(block, &expected_hash) ||
       *expected_hash != final) {
     return false;
@@ -257,7 +256,7 @@ void ContentVerifyJob::OnHashesReady(
   if (!queue_.empty()) {
     std::string tmp;
     queue_.swap(tmp);
-    ReadImpl(base::data(tmp), tmp.size(), MOJO_RESULT_OK);
+    ReadImpl(std::data(tmp), tmp.size(), MOJO_RESULT_OK);
     if (failed_)
       return;
   }

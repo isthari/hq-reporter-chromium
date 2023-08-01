@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,16 @@ class WebContents;
 }
 
 namespace autofill {
+
+// Specifies which rules are to be used for address validation.
+// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.autofill.settings
+enum class AddressValidationType {
+  // Validation rules used for the PaymentRequest API (e.g. for billing
+  // addresses).
+  kPaymentRequest = 0,
+  // Validation rules used for addresses stored in the user account.
+  kAccount = 1
+};
 
 // Opens the autofill settings page for profiles.
 void ShowAutofillProfileSettings(content::WebContents* web_contents);

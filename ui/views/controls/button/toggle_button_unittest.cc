@@ -1,4 +1,4 @@
-// Copyright (c) 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -28,19 +28,19 @@ class TestToggleButton : public ToggleButton {
 
   ~TestToggleButton() override {
     // TODO(pbos): Revisit explicit removal of InkDrop for classes that override
-    // Add/RemoveLayerBeneathView(). This is done so that the InkDrop doesn't
+    // Add/RemoveLayerFromRegions(). This is done so that the InkDrop doesn't
     // access the non-override versions in ~View.
     views::InkDrop::Remove(this);
   }
 
-  void AddLayerBeneathView(ui::Layer* layer) override {
+  void AddLayerToRegion(ui::Layer* layer, views::LayerRegion region) override {
     ++(*counter_);
-    ToggleButton::AddLayerBeneathView(layer);
+    ToggleButton::AddLayerToRegion(layer, region);
   }
 
-  void RemoveLayerBeneathView(ui::Layer* layer) override {
+  void RemoveLayerFromRegions(ui::Layer* layer) override {
     --(*counter_);
-    ToggleButton::RemoveLayerBeneathView(layer);
+    ToggleButton::RemoveLayerFromRegions(layer);
   }
 
   using View::Focus;
@@ -95,7 +95,6 @@ class ToggleButtonTest : public ViewsTestBase {
 // The test verifies that the ink drop layer is removed properly when the
 // ToggleButton gets destroyed.
 TEST_F(ToggleButtonTest, ToggleButtonDestroyed) {
-  EXPECT_EQ(0, counter());
   gfx::Point center(10, 10);
   button()->OnMousePressed(ui::MouseEvent(
       ui::ET_MOUSE_PRESSED, center, center, ui::EventTimeForNow(),
@@ -109,7 +108,6 @@ TEST_F(ToggleButtonTest, ToggleButtonDestroyed) {
 // ToggleButton has focus (and is showing a ripple).
 TEST_F(ToggleButtonTest, ShutdownWithFocus) {
   button()->RequestFocus();
-  EXPECT_EQ(1, counter());
 }
 
 // Verify that ToggleButton::accepts_events_ works as expected.

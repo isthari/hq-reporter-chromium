@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,10 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/environment.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/path_service.h"
 #include "base/threading/thread.h"
@@ -20,16 +20,24 @@
 #include "components/keyed_service/core/simple_factory_key.h"
 #include "components/keyed_service/core/simple_key_map.h"
 #include "components/network_session_configurator/common/network_switches.h"
+#include "components/origin_trials/browser/leveldb_persistence_provider.h"
+#include "components/origin_trials/browser/origin_trials.h"
+#include "components/origin_trials/common/features.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/origin_trials_controller_delegate.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/content_switches.h"
+#include "content/shell/browser/shell_content_browser_client.h"
 #include "content/shell/browser/shell_content_index_provider.h"
 #include "content/shell/browser/shell_download_manager_delegate.h"
+#include "content/shell/browser/shell_federated_permission_context.h"
 #include "content/shell/browser/shell_paths.h"
 #include "content/shell/browser/shell_permission_manager.h"
 #include "content/shell/common/shell_switches.h"
 #include "content/test/mock_background_sync_controller.h"
+#include "content/test/mock_reduce_accept_language_controller_delegate.h"
+#include "third_party/blink/public/common/origin_trials/trial_token_validator.h"
 
 namespace content {
 
@@ -43,6 +51,10 @@ ShellBrowserContext::ShellBrowserContext(bool off_the_record,
     : resource_context_(std::make_unique<ShellResourceContext>()),
       off_the_record_(off_the_record) {
   InitWhileIOAllowed();
+#if BUILDFLAG(IS_WIN)
+  base::SetExtraNoExecuteAllowedPath(SHELL_DIR_USER_DATA);
+#endif  // BUILDFLAG(IS_WIN)
+
   if (!delay_services_creation) {
     BrowserContextDependencyManager::GetInstance()
         ->CreateBrowserContextServices(this);
@@ -86,6 +98,8 @@ void ShellBrowserContext::InitWhileIOAllowed() {
         path_ = base::MakeAbsoluteFilePath(path_);
       if (!path_.empty()) {
         FinishInitWhileIOAllowed();
+        base::PathService::OverrideAndCreateIfNeeded(
+            SHELL_DIR_USER_DATA, path_, /*is_absolute=*/true, /*create=*/false);
         return;
       }
     } else {
@@ -189,6 +203,57 @@ ContentIndexProvider* ShellBrowserContext::GetContentIndexProvider() {
   if (!content_index_provider_)
     content_index_provider_ = std::make_unique<ShellContentIndexProvider>();
   return content_index_provider_.get();
+}
+
+FederatedIdentityApiPermissionContextDelegate*
+ShellBrowserContext::GetFederatedIdentityApiPermissionContext() {
+  if (!federated_permission_context_)
+    federated_permission_context_ =
+        std::make_unique<ShellFederatedPermissionContext>();
+  return federated_permission_context_.get();
+}
+
+FederatedIdentityAutoReauthnPermissionContextDelegate*
+ShellBrowserContext::GetFederatedIdentityAutoReauthnPermissionContext() {
+  if (!federated_permission_context_) {
+    federated_permission_context_ =
+        std::make_unique<ShellFederatedPermissionContext>();
+  }
+  return federated_permission_context_.get();
+}
+
+FederatedIdentityPermissionContextDelegate*
+ShellBrowserContext::GetFederatedIdentityPermissionContext() {
+  if (!federated_permission_context_)
+    federated_permission_context_ =
+        std::make_unique<ShellFederatedPermissionContext>();
+  return federated_permission_context_.get();
+}
+
+ReduceAcceptLanguageControllerDelegate*
+ShellBrowserContext::GetReduceAcceptLanguageControllerDelegate() {
+  if (!reduce_accept_lang_controller_delegate_) {
+    reduce_accept_lang_controller_delegate_ =
+        std::make_unique<MockReduceAcceptLanguageControllerDelegate>(
+            GetShellLanguage());
+  }
+  return reduce_accept_lang_controller_delegate_.get();
+}
+
+OriginTrialsControllerDelegate*
+ShellBrowserContext::GetOriginTrialsControllerDelegate() {
+  if (!origin_trials::features::IsPersistentOriginTrialsEnabled())
+    return nullptr;
+
+  if (!origin_trials_controller_delegate_) {
+    origin_trials_controller_delegate_ =
+        std::make_unique<origin_trials::OriginTrials>(
+            std::make_unique<origin_trials::LevelDbPersistenceProvider>(
+                GetPath(),
+                GetDefaultStoragePartition()->GetProtoDatabaseProvider()),
+            std::make_unique<blink::TrialTokenValidator>());
+  }
+  return origin_trials_controller_delegate_.get();
 }
 
 }  // namespace content

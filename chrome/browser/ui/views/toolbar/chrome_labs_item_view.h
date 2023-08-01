@@ -1,21 +1,25 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_UI_VIEWS_TOOLBAR_CHROME_LABS_ITEM_VIEW_H_
 #define CHROME_BROWSER_UI_VIEWS_TOOLBAR_CHROME_LABS_ITEM_VIEW_H_
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/view.h"
 
 class Browser;
-class NewBadgeLabel;
 struct LabInfo;
 
 namespace flags_ui {
 struct FeatureEntry;
+}
+
+namespace user_education {
+class NewBadgeLabel;
 }
 
 namespace views {
@@ -38,7 +42,7 @@ class ChromeLabsItemView : public views::View {
 
   ~ChromeLabsItemView() override;
 
-  int GetSelectedIndex() const;
+  absl::optional<size_t> GetSelectedIndex() const;
 
   void ShowNewBadge();
 
@@ -50,19 +54,25 @@ class ChromeLabsItemView : public views::View {
     return feedback_button_;
   }
 
-  NewBadgeLabel* GetNewBadgeForTesting() { return experiment_name_; }
+  user_education::NewBadgeLabel* GetNewBadgeForTesting() {
+    return experiment_name_;
+  }
 
   const flags_ui::FeatureEntry* GetFeatureEntry();
 
  private:
-  raw_ptr<NewBadgeLabel> experiment_name_;
+  raw_ptr<user_education::NewBadgeLabel> experiment_name_;
 
   // Combobox with selected state of the lab.
-  views::Combobox* lab_state_combobox_;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION views::Combobox* lab_state_combobox_;
 
   raw_ptr<const flags_ui::FeatureEntry> feature_entry_;
 
-  views::MdTextButton* feedback_button_;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION views::MdTextButton* feedback_button_;
 
   base::RepeatingClosureList combobox_callback_list_;
 };

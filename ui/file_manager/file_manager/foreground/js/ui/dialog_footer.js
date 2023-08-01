@@ -1,12 +1,11 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_elements/cr_input/cr_input.m.js';
-
-import {queryRequiredElement} from 'chrome://resources/js/util.m.js';
+import 'chrome://resources/cr_elements/cr_input/cr_input.js';
 
 import {DialogType} from '../../../common/js/dialog_type.js';
+import {getKeyModifiers, queryRequiredElement} from '../../../common/js/dom_utils.js';
 import {FileType} from '../../../common/js/file_type.js';
 import {str, util} from '../../../common/js/util.js';
 import {FileListModel} from '../file_list_model.js';
@@ -74,7 +73,7 @@ export class DialogFooter {
         return this.getSelectValue();
       },
       enumerable: true,
-      configurable: true
+      configurable: true,
     });
     this.fileTypeSelector.getSelectValue = this.getSelectValue_.bind(this);
     this.fileTypeSelector.addEventListener(
@@ -409,7 +408,7 @@ export class DialogFooter {
    * @private
    */
   onFilenameInputKeyDown_(event) {
-    if ((util.getKeyModifiers(event) + event.keyCode) === '13' /* Enter */) {
+    if ((getKeyModifiers(event) + event.keyCode) === '13' /* Enter */) {
       this.okButton.click();
     }
   }

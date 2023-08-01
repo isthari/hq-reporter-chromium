@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,10 +10,10 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
-#include "base/memory/ref_counted.h"
 #include "chrome/browser/ui/tabs/tab_enums.h"
 #include "chrome/browser/ui/tabs/tab_renderer_data.h"
 #include "chrome/browser/ui/views/tabs/tab_slot_view.h"
+#include "chrome/browser/ui/views/tabs/tab_style_views.h"
 #include "components/performance_manager/public/freezing/freezing.h"
 #include "components/tab_groups/tab_group_id.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -31,10 +31,9 @@
 
 class AlertIndicatorButton;
 class TabCloseButton;
-class TabController;
+class TabSlotController;
 class TabIcon;
 struct TabSizeInfo;
-class TabStyleViews;
 
 namespace gfx {
 class Animation;
@@ -67,7 +66,7 @@ class Tab : public gfx::AnimationDelegate,
   // tests to prevent them from interfering with unrelated tests.
   static void SetShowHoverCardOnMouseHoverForTesting(bool value);
 
-  explicit Tab(TabController* controller);
+  explicit Tab(TabSlotController* controller);
   Tab(const Tab&) = delete;
   Tab& operator=(const Tab&) = delete;
   ~Tab() override;
@@ -97,13 +96,14 @@ class Tab : public gfx::AnimationDelegate,
   void PaintChildren(const views::PaintInfo& info) override;
   void OnPaint(gfx::Canvas* canvas) override;
   void AddedToWidget() override;
+  void RemovedFromWidget() override;
   void OnFocus() override;
   void OnBlur() override;
   void OnThemeChanged() override;
   TabSlotView::ViewType GetTabSlotViewType() const override;
   TabSizeInfo GetTabSizeInfo() const override;
 
-  TabController* controller() const { return controller_; }
+  TabSlotController* controller() const { return controller_; }
 
   // Used to set/check whether this Tab is being animated closed.
   void SetClosing(bool closing);
@@ -124,9 +124,6 @@ class Tab : public gfx::AnimationDelegate,
 
   // Called when the alert indicator has changed states.
   void AlertStateChanged();
-
-  // Called when the frame state color changes.
-  void FrameColorsChanged();
 
   // Called when the selected state changes.
   void SelectedStateChanged();
@@ -168,8 +165,11 @@ class Tab : public gfx::AnimationDelegate,
   bool mouse_hovered() const { return mouse_hovered_; }
 
   // Returns the TabStyle associated with this tab.
-  TabStyleViews* tab_style() { return tab_style_.get(); }
-  const TabStyleViews* tab_style() const { return tab_style_.get(); }
+  TabStyleViews* tab_style_views() { return tab_style_views_.get(); }
+  const TabStyleViews* tab_style_views() const {
+    return tab_style_views_.get();
+  }
+  const TabStyle* tab_style() const { return tab_style_views_->tab_style(); }
 
   // Returns the text to show in a tab's tooltip: The contents |title|, followed
   // by a break, followed by a localized string describing the |alert_state|.
@@ -186,6 +186,10 @@ class Tab : public gfx::AnimationDelegate,
     return showing_close_button_;
   }
 
+  raw_ptr<TabCloseButton> close_button() { return close_button_; }
+
+  TabIcon* GetTabIconForTesting() const { return icon_; }
+
  private:
   class TabCloseButtonObserver;
   friend class AlertIndicatorButtonTest;
@@ -193,8 +197,8 @@ class Tab : public gfx::AnimationDelegate,
   friend class TabStripTestBase;
   FRIEND_TEST_ALL_PREFIXES(TabStripTest, TabCloseButtonVisibility);
   FRIEND_TEST_ALL_PREFIXES(TabTest, TitleTextHasSufficientContrast);
-  FRIEND_TEST_ALL_PREFIXES(TabHoverCardBubbleViewBrowserTest,
-                           WidgetVisibleOnTabCloseButtonFocusAfterTabFocus);
+  FRIEND_TEST_ALL_PREFIXES(TabHoverCardInteractiveUiTest,
+                           HoverCardVisibleOnTabCloseButtonFocusAfterTabFocus);
 
   // Invoked from Layout to adjust the position of the favicon or alert
   // indicator for pinned tabs. The visual_width parameter is how wide the
@@ -226,11 +230,11 @@ class Tab : public gfx::AnimationDelegate,
   void CloseButtonPressed(const ui::Event& event);
 
   // The controller, never nullptr.
-  const raw_ptr<TabController> controller_;
+  const raw_ptr<TabSlotController> controller_;
 
   TabRendererData data_;
 
-  std::unique_ptr<TabStyleViews> tab_style_;
+  std::unique_ptr<TabStyleViews> tab_style_views_;
 
   // True if the tab is being animated closed.
   bool closing_ = false;
@@ -279,9 +283,6 @@ class Tab : public gfx::AnimationDelegate,
   // padding between them to space them out visually.
   bool extra_alert_indicator_padding_ = false;
 
-  // The tab foreground color (title, buttons).
-  SkColor foreground_color_ = SK_ColorTRANSPARENT;
-
   // Indicates whether the mouse is currently hovered over the tab. This is
   // different from View::IsMouseHovered() which does a naive intersection with
   // the view bounds.
@@ -292,6 +293,8 @@ class Tab : public gfx::AnimationDelegate,
   // Freezing token held while the tab is collapsed.
   std::unique_ptr<performance_manager::freezing::FreezingVoteToken>
       freezing_token_;
+
+  base::CallbackListSubscription paint_as_active_subscription_;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_TABS_TAB_H_

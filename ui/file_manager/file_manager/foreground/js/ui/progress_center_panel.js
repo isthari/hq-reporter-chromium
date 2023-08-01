@@ -1,10 +1,10 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {assertNotReached} from 'chrome://resources/js/assert.m.js';
+import {assertNotReached} from 'chrome://resources/ash/common/assert.js';
 
-import {ProgressCenterItem, ProgressItemState, ProgressItemType} from '../../../common/js/progress_center_common.js';
+import {PolicyErrorType, ProgressCenterItem, ProgressItemState, ProgressItemType} from '../../../common/js/progress_center_common.js';
 import {str, strf, util} from '../../../common/js/util.js';
 import {ProgressCenterPanelInterface} from '../../../externs/progress_center_panel.js';
 import {DisplayPanel} from '../../elements/xf_display_panel.js';
@@ -44,10 +44,20 @@ export class ProgressCenterPanel {
     this.dismissErrorItemCallback = null;
 
     /**
-     * Timeout for hiding file operations in progress.
-     * @type {number}
+     * Defer showing in progress operation to avoid displaying quick
+     * operations, e.g. the notification panel only shows if the task is
+     * processing longer than this time.
+     * @private {number}
      */
     this.PENDING_TIME_MS_ = 2000;
+
+    /**
+     * Timeout for removing the notification panel, e.g. the notification
+     * panel will be removed after this time.
+     * @private {number}
+     */
+    this.TIMEOUT_TO_REMOVE_MS_ = 4000;
+
     if (window.IN_TEST) {
       this.PENDING_TIME_MS_ = 0;
     }
@@ -69,11 +79,21 @@ export class ProgressCenterPanel {
           if (item.type === ProgressItemType.COPY) {
             return strf('COPY_FILE_NAME', source);
           }
+          if (item.type === ProgressItemType.EXTRACT) {
+            return strf('EXTRACT_FILE_NAME', source);
+          }
           if (item.type === ProgressItemType.MOVE) {
             return strf('MOVE_FILE_NAME', source);
           }
           if (item.type === ProgressItemType.DELETE) {
             return strf('DELETE_FILE_NAME', source);
+          }
+          if (item.type === ProgressItemType.TRASH) {
+            return strf('MOVE_TO_TRASH_FILE_NAME', source);
+          }
+          if (item.type === ProgressItemType.RESTORE_TO_DESTINATION ||
+              item.type === ProgressItemType.RESTORE) {
+            return strf('RESTORING_FROM_TRASH_FILE_NAME', source);
           }
           return item.message;
         }
@@ -82,14 +102,23 @@ export class ProgressCenterPanel {
         if (item.type === ProgressItemType.COPY) {
           return strf('COPY_ITEMS_REMAINING', count);
         }
+        if (item.type === ProgressItemType.EXTRACT) {
+          return strf('EXTRACT_ITEMS_REMAINING', count);
+        }
         if (item.type === ProgressItemType.MOVE) {
           return strf('MOVE_ITEMS_REMAINING', count);
         }
         if (item.type === ProgressItemType.DELETE) {
           return strf('DELETE_ITEMS_REMAINING', count);
         }
+        if (item.type === ProgressItemType.TRASH) {
+          return strf('MOVE_TO_TRASH_ITEMS_REMAINING', count);
+        }
+        if (item.type === ProgressItemType.RESTORE_TO_DESTINATION ||
+            item.type === ProgressItemType.RESTORE) {
+          return strf('RESTORING_FROM_TRASH_ITEMS_REMAINING', count);
+        }
         return item.message;
-        break;
       case ProgressItemState.COMPLETED:
         if (count > 1) {
           return strf('FILE_ITEMS', count);
@@ -130,6 +159,7 @@ export class ProgressCenterPanel {
     const {source, destination, count} = info;
     const hasDestination = this.isNonEmptyString_(destination);
     switch (item.state) {
+      case ProgressItemState.SCANNING:
       case ProgressItemState.PROGRESSING:
         // Source and primary string are the same for missing destination.
         if (!hasDestination) {
@@ -141,12 +171,17 @@ export class ProgressCenterPanel {
         if (item.itemCount === 1) {
           if (item.type === ProgressItemType.COPY) {
             return hasDestination ?
-                strf('COPY_FILE_NAME_LONG', source, destination) :
+                getStrForCopyWithDestination(item, source, destination) :
                 strf('FILE_COPIED', source);
+          }
+          if (item.type === ProgressItemType.EXTRACT) {
+            return hasDestination ?
+                strf('EXTRACT_FILE_NAME_LONG', source, destination) :
+                strf('FILE_EXTRACTED', source);
           }
           if (item.type === ProgressItemType.MOVE) {
             return hasDestination ?
-                strf('MOVE_FILE_NAME_LONG', source, destination) :
+                getStrForMoveWithDestination(item, source, destination) :
                 strf('FILE_MOVED', source);
           }
           if (item.type === ProgressItemType.ZIP) {
@@ -155,17 +190,37 @@ export class ProgressCenterPanel {
           if (item.type === ProgressItemType.DELETE) {
             return strf('DELETE_FILE_NAME', source);
           }
+          if (item.type === ProgressItemType.TRASH) {
+            return item.state == ProgressItemState.PROGRESSING ?
+                strf('MOVE_TO_TRASH_FILE_NAME', source) :
+                strf('UNDO_DELETE_ONE', source);
+          }
+          if (item.type === ProgressItemType.RESTORE_TO_DESTINATION ||
+              item.type === ProgressItemType.RESTORE) {
+            return item.state == ProgressItemState.PROGRESSING ?
+                strf('RESTORING_FROM_TRASH_FILE_NAME', source) :
+                strf('RESTORE_TRASH_FILE_NAME', source);
+          }
           return item.message;
         }
 
         // Multiple items:
         if (item.type === ProgressItemType.COPY) {
           return hasDestination ?
+              item.isDestinationDrive ?
+              strf('PREPARING_ITEMS_MY_DRIVE', count, destination) :
               strf('COPY_ITEMS_REMAINING_LONG', count, destination) :
               strf('FILE_ITEMS_COPIED', source);
         }
+        if (item.type === ProgressItemType.EXTRACT) {
+          return item.state == ProgressItemState.PROGRESSING ?
+              strf('EXTRACT_ITEMS_REMAINING', count) :
+              strf('FILE_ITEMS_EXTRACTED', count);
+        }
         if (item.type === ProgressItemType.MOVE) {
           return hasDestination ?
+              item.isDestinationDrive ?
+              strf('PREPARING_ITEMS_MY_DRIVE', count, destination) :
               strf('MOVE_ITEMS_REMAINING_LONG', count, destination) :
               strf('FILE_ITEMS_MOVED', count);
         }
@@ -175,9 +230,26 @@ export class ProgressCenterPanel {
         if (item.type === ProgressItemType.DELETE) {
           return strf('DELETE_ITEMS_REMAINING', count);
         }
+        if (item.type === ProgressItemType.TRASH) {
+          return item.state == ProgressItemState.PROGRESSING ?
+              strf('MOVE_TO_TRASH_ITEMS_REMAINING', count) :
+              strf('UNDO_DELETE_SOME', count);
+        }
+        if (item.type === ProgressItemType.RESTORE_TO_DESTINATION ||
+            item.type === ProgressItemType.RESTORE) {
+          return item.state == ProgressItemState.PROGRESSING ?
+              strf('RESTORING_FROM_TRASH_ITEMS_REMAINING', count) :
+              strf('RESTORE_TRASH_MANY_ITEMS', count);
+        }
         return item.message;
-        break;
+      case ProgressItemState.PAUSED:
+        // TODO(b/279435843): Replace with translation strings.
+        return 'Confirmation required';
       case ProgressItemState.ERROR:
+        if (item.policyError) {
+          return getStrForPolicyError(item);
+        }
+        // General error
         return item.message;
       case ProgressItemState.CANCELED:
         return '';
@@ -186,10 +258,46 @@ export class ProgressCenterPanel {
         break;
     }
     return '';
+
+    function getStrForMoveWithDestination(item, source, destination) {
+      return item.isDestinationDrive ?
+          strf('PREPARING_FILE_NAME_MY_DRIVE', source, destination) :
+          strf('MOVE_FILE_NAME_LONG', source, destination);
+    }
+
+    function getStrForCopyWithDestination(item, source, destination) {
+      return item.isDestinationDrive ?
+          strf('PREPARING_FILE_NAME_MY_DRIVE', source, destination) :
+          strf('COPY_FILE_NAME_LONG', source, destination);
+    }
+
+    function getStrForPolicyError(item) {
+      if (!item.policyError) {
+        console.warn('Policy error type must be supplied');
+        return '';
+      }
+      // TODO(b/279435843): Replace with translation strings.
+      switch (item.policyError) {
+        case PolicyErrorType.DLP:
+        case PolicyErrorType.ENTERPRISE_CONNECTORS:
+          return (item.itemCount === 1) ? `${item.sourceMessage} was blocked` :
+                                          `${item.itemCount} files blocked`;
+        case PolicyErrorType.DLP_WARNING_TIMEOUT:
+          return `Action failed`;
+        default:
+          console.warn(`Unexpected security error type: ${item.policyError}`);
+          return '';
+      }
+    }
   }
 
   /**
-   * Generates remaining time message with formatted time.
+   * Generates the secondary string to display on the feedback panel.
+   *
+   * The string can be empty in case of errors or tasks with no
+   * remaining time set. In case of data protection policy related
+   * notifications, the message provides more info about the state of the task.
+   * Otherwise the message shows formatted remaining task time.
    *
    * The time format in hour and minute and the durations more
    * than 24 hours also formatted in hour.
@@ -198,15 +306,45 @@ export class ProgressCenterPanel {
    * of time part is handled using Intl methods.
    *
    * @param {!ProgressCenterItem} item Item we're generating a message for.
-   * @return {!string} Remaining time message.
+   * @return {!string} Secondary string message.
+   * @private
    */
-  generateRemainingTimeMessage(item) {
+  generateSecondaryString_(item) {
+    if (item.state === ProgressItemState.PAUSED) {
+      // TODO(b/279435843): Replace with translation strings.
+      return (item.itemCount === 1) ?
+          `${item.sourceMessage} may contain sensitive content` :
+          `${item.itemCount} files may contain sensitive content`;
+    }
+
+    if (item.state === ProgressItemState.ERROR) {
+      if (!item.policyError) {
+        // General error doesn't have secondary text.
+        return '';
+      }
+      // TODO(b/279435843): Replace with translation strings.
+      switch (item.policyError) {
+        case PolicyErrorType.DLP:
+        case PolicyErrorType.ENTERPRISE_CONNECTORS:
+          return (item.itemCount === 1) ?
+              `This file doesn't meet your organization's security policies.` :
+              `Review for more details`;
+        case PolicyErrorType.DLP_WARNING_TIMEOUT:
+          return `Items you are trying to copy may have contained` +
+              `sensitive information, and required review. Please try again.`;
+      }
+    }
+
     const seconds = item.remainingTime;
 
     // Return empty string for unsupported operation (which didn't set
     // remaining time).
-    if (seconds == null) {
+    if (seconds === undefined) {
       return '';
+    }
+
+    if (item.state === ProgressItemState.SCANNING) {
+      return str('SCANNING_LABEL');
     }
 
     // Check if remaining time is valid (ie finite and positive).
@@ -214,7 +352,7 @@ export class ProgressCenterPanel {
       // Return empty string for invalid remaining time in non progressing
       // state.
       return item.state === ProgressItemState.PROGRESSING ?
-          str('PENDING_LABEL') :
+          str('PREPARING_LABEL') :
           '';
     }
 
@@ -284,9 +422,13 @@ export class ProgressCenterPanel {
       }
 
       const primaryText = this.generatePrimaryString_(item, panelItem.userData);
-      panelItem.secondaryText = this.generateRemainingTimeMessage(item);
+      panelItem.secondaryText = this.generateSecondaryString_(item);
       panelItem.primaryText = primaryText;
       panelItem.setAttribute('data-progress-id', item.id);
+
+      // Certain visual signals have the functionality to display an extra
+      // button with an arbitrary callback.
+      let extraButton = null;
 
       // On progress panels, make the cancel button aria-label more useful.
       const cancelLabel = strf('CANCEL_ACTIVITY_LABEL', primaryText);
@@ -294,9 +436,15 @@ export class ProgressCenterPanel {
       panelItem.signalCallback = (signal) => {
         if (signal === 'cancel' && item.cancelCallback) {
           item.cancelCallback();
-        }
-        if (signal === 'dismiss') {
+        } else if (signal === 'dismiss') {
           this.feedbackHost_.removePanelItem(panelItem);
+          this.dismissErrorItemCallback(item.id);
+        } else if (
+            signal === 'extra-button' && extraButton && extraButton.callback) {
+          extraButton.callback();
+          this.feedbackHost_.removePanelItem(panelItem);
+          // The extra-button currently acts as a dismissal to invoke the
+          // error item callback as well.
           this.dismissErrorItemCallback(item.id);
         }
       };
@@ -305,17 +453,34 @@ export class ProgressCenterPanel {
         case ProgressItemState.COMPLETED:
           // Create a completed panel for copies, moves, deletes and formats.
           if (item.type === ProgressItemType.COPY ||
+              item.type === ProgressItemType.EXTRACT ||
               item.type === ProgressItemType.MOVE ||
               item.type === ProgressItemType.FORMAT ||
               item.type === ProgressItemType.ZIP ||
-              item.type === ProgressItemType.DELETE) {
+              item.type === ProgressItemType.DELETE ||
+              item.type === ProgressItemType.TRASH ||
+              item.type === ProgressItemType.RESTORE_TO_DESTINATION ||
+              item.type === ProgressItemType.RESTORE) {
             const donePanelItem = this.feedbackHost_.addPanelItem(item.id);
+            if (item.extraButton.has(ProgressItemState.COMPLETED)) {
+              extraButton = item.extraButton.get(ProgressItemState.COMPLETED);
+              donePanelItem.dataset.extraButtonText = extraButton.text;
+            }
             donePanelItem.id = item.id;
             donePanelItem.panelType = donePanelItem.panelTypeDone;
             donePanelItem.primaryText = primaryText;
-            donePanelItem.secondaryText = str('COMPLETE_LABEL');
+            donePanelItem.secondaryText = item.isDestinationDrive ?
+                str('READY_TO_SYNC_MY_DRIVE') :
+                str('COMPLETE_LABEL');
+            donePanelItem.fadeSecondaryText = item.isDestinationDrive;
             donePanelItem.signalCallback = (signal) => {
               if (signal === 'dismiss') {
+                this.feedbackHost_.removePanelItem(donePanelItem);
+                delete this.items_[donePanelItem.id];
+              } else if (
+                  signal === 'extra-button' && extraButton &&
+                  extraButton.callback) {
+                extraButton.callback();
                 this.feedbackHost_.removePanelItem(donePanelItem);
                 delete this.items_[donePanelItem.id];
               }
@@ -325,17 +490,27 @@ export class ProgressCenterPanel {
             setTimeout(() => {
               this.feedbackHost_.removePanelItem(donePanelItem);
               delete this.items_[donePanelItem.id];
-            }, 4000);
+            }, this.TIMEOUT_TO_REMOVE_MS_);
           }
           // Drop through to remove the progress panel.
         case ProgressItemState.CANCELED:
           // Remove the feedback panel when complete.
           this.feedbackHost_.removePanelItem(panelItem);
           break;
+        case ProgressItemState.PAUSED:
+          if (item.extraButton.has(ProgressItemState.PAUSED)) {
+            extraButton = item.extraButton.get(ProgressItemState.PAUSED);
+            panelItem.dataset.extraButtonText = extraButton.text;
+          }
+          panelItem.panelType = panelItem.panelTypeInfo;
+          this.feedbackHost_.attachPanelItem(panelItem);
+          break;
         case ProgressItemState.ERROR:
+          if (item.extraButton.has(ProgressItemState.ERROR)) {
+            extraButton = item.extraButton.get(ProgressItemState.ERROR);
+            panelItem.dataset.extraButtonText = extraButton.text;
+          }
           panelItem.panelType = panelItem.panelTypeError;
-          panelItem.primaryText = item.message;
-          panelItem.secondaryText = '';
           // Make sure the panel is attached so it shows immediately.
           this.feedbackHost_.attachPanelItem(panelItem);
           break;
@@ -356,7 +531,9 @@ export class ProgressCenterPanel {
     switch (item.state) {
       case ProgressItemState.ERROR:
         if (previousItem &&
-            previousItem.state !== ProgressItemState.PROGRESSING) {
+            (previousItem.state !== ProgressItemState.PROGRESSING ||
+             previousItem.state !== ProgressItemState.PAUSED ||
+             previousItem.state !== ProgressItemState.SCANNING)) {
           return;
         }
         this.items_[item.id] = item.clone();
@@ -374,7 +551,9 @@ export class ProgressCenterPanel {
 
       case ProgressItemState.CANCELED:
         if (!previousItem ||
-            previousItem.state !== ProgressItemState.PROGRESSING) {
+            (previousItem.state !== ProgressItemState.PROGRESSING ||
+             previousItem.state !== ProgressItemState.PAUSED ||
+             previousItem.state !== ProgressItemState.SCANNING)) {
           return;
         }
         delete this.items_[item.id];

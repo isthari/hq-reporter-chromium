@@ -1,17 +1,17 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.net;
 
-import static org.junit.Assert.assertEquals;
+import static com.google.common.truth.Truth.assertThat;
+
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import static org.chromium.net.CronetTestRule.getContext;
 
-import android.support.test.runner.AndroidJUnit4;
-
+import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.filters.SmallTest;
 
 import org.junit.After;
@@ -20,7 +20,6 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import org.chromium.base.test.util.Feature;
 import org.chromium.net.CronetTestRule.CronetTestFramework;
 import org.chromium.net.CronetTestRule.OnlyRunNativeCronet;
 import org.chromium.net.impl.CronetUploadDataStream;
@@ -78,7 +77,6 @@ public class CronetUploadTest {
      */
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     public void testInitTriggersRewindAndInitBeforeRewindCompletes() throws Exception {
         // Init completes synchronously and read succeeds.
@@ -89,13 +87,13 @@ public class CronetUploadTest {
         mDataProvider.onReadSucceeded(mUploadDataStream);
         mHandler.waitForReadComplete();
         mDataProvider.assertReadNotPending();
-        assertEquals(0, mDataProvider.getNumRewindCalls());
-        assertEquals(1, mDataProvider.getNumReadCalls());
-        assertEquals("hello", mHandler.getData());
+        assertThat(mDataProvider.getNumRewindCalls()).isEqualTo(0);
+        assertThat(mDataProvider.getNumReadCalls()).isEqualTo(1);
+        assertThat(mHandler.getData()).isEqualTo("hello");
 
         // Reset and then init, which should trigger a rewind.
         mHandler.reset();
-        assertEquals("", mHandler.getData());
+        assertThat(mHandler.getData()).isEmpty();
         assertFalse(mHandler.init());
         mDataProvider.waitForRewindRequest();
         mHandler.checkInitCallbackNotInvoked();
@@ -117,9 +115,9 @@ public class CronetUploadTest {
         mDataProvider.onReadSucceeded(mUploadDataStream);
         mHandler.waitForReadComplete();
         mDataProvider.assertReadNotPending();
-        assertEquals(1, mDataProvider.getNumRewindCalls());
-        assertEquals(2, mDataProvider.getNumReadCalls());
-        assertEquals("hello", mHandler.getData());
+        assertThat(mDataProvider.getNumRewindCalls()).isEqualTo(1);
+        assertThat(mDataProvider.getNumReadCalls()).isEqualTo(2);
+        assertThat(mHandler.getData()).isEqualTo("hello");
     }
 
     /**
@@ -128,7 +126,6 @@ public class CronetUploadTest {
      */
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     public void testInitTriggersRewindAndInitAfterRewindCompletes() throws Exception {
         // Init completes synchronously and read succeeds.
@@ -139,13 +136,13 @@ public class CronetUploadTest {
         mDataProvider.onReadSucceeded(mUploadDataStream);
         mHandler.waitForReadComplete();
         mDataProvider.assertReadNotPending();
-        assertEquals(0, mDataProvider.getNumRewindCalls());
-        assertEquals(1, mDataProvider.getNumReadCalls());
-        assertEquals("hello", mHandler.getData());
+        assertThat(mDataProvider.getNumRewindCalls()).isEqualTo(0);
+        assertThat(mDataProvider.getNumReadCalls()).isEqualTo(1);
+        assertThat(mHandler.getData()).isEqualTo("hello");
 
         // Reset and then init, which should trigger a rewind.
         mHandler.reset();
-        assertEquals("", mHandler.getData());
+        assertThat(mHandler.getData()).isEmpty();
         assertFalse(mHandler.init());
         mDataProvider.waitForRewindRequest();
         mHandler.checkInitCallbackNotInvoked();
@@ -166,9 +163,9 @@ public class CronetUploadTest {
         mDataProvider.onReadSucceeded(mUploadDataStream);
         mHandler.waitForReadComplete();
         mDataProvider.assertReadNotPending();
-        assertEquals(1, mDataProvider.getNumRewindCalls());
-        assertEquals(2, mDataProvider.getNumReadCalls());
-        assertEquals("hello", mHandler.getData());
+        assertThat(mDataProvider.getNumRewindCalls()).isEqualTo(1);
+        assertThat(mDataProvider.getNumReadCalls()).isEqualTo(2);
+        assertThat(mHandler.getData()).isEqualTo("hello");
     }
 
     /**
@@ -177,7 +174,6 @@ public class CronetUploadTest {
      */
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     public void testReadCompleteTriggerRewind() throws Exception {
         // Reset and init before read completes.
@@ -190,9 +186,9 @@ public class CronetUploadTest {
         assertFalse(mHandler.init());
         mDataProvider.assertRewindNotPending();
         mHandler.checkInitCallbackNotInvoked();
-        assertEquals(0, mDataProvider.getNumRewindCalls());
-        assertEquals(1, mDataProvider.getNumReadCalls());
-        assertEquals("", mHandler.getData());
+        assertThat(mDataProvider.getNumRewindCalls()).isEqualTo(0);
+        assertThat(mDataProvider.getNumReadCalls()).isEqualTo(1);
+        assertThat(mHandler.getData()).isEmpty();
 
         // Read completes should trigger a rewind.
         mDataProvider.onReadSucceeded(mUploadDataStream);
@@ -201,9 +197,9 @@ public class CronetUploadTest {
         mDataProvider.onRewindSucceeded(mUploadDataStream);
         mHandler.waitForInitComplete();
         mDataProvider.assertRewindNotPending();
-        assertEquals(1, mDataProvider.getNumRewindCalls());
-        assertEquals(1, mDataProvider.getNumReadCalls());
-        assertEquals("", mHandler.getData());
+        assertThat(mDataProvider.getNumRewindCalls()).isEqualTo(1);
+        assertThat(mDataProvider.getNumReadCalls()).isEqualTo(1);
+        assertThat(mHandler.getData()).isEmpty();
     }
 
     /**
@@ -213,7 +209,6 @@ public class CronetUploadTest {
      */
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     public void testReadCompleteTriggerRewindOnlyOneRewind() throws Exception {
         testReadCompleteTriggerRewind();
@@ -221,9 +216,9 @@ public class CronetUploadTest {
         mHandler.reset();
         assertTrue(mHandler.init());
         mDataProvider.assertRewindNotPending();
-        assertEquals(1, mDataProvider.getNumRewindCalls());
-        assertEquals(1, mDataProvider.getNumReadCalls());
-        assertEquals("", mHandler.getData());
+        assertThat(mDataProvider.getNumRewindCalls()).isEqualTo(1);
+        assertThat(mDataProvider.getNumReadCalls()).isEqualTo(1);
+        assertThat(mHandler.getData()).isEmpty();
     }
 
     /**
@@ -232,7 +227,6 @@ public class CronetUploadTest {
      */
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     public void testResetBeforeReadCompleteAndInitTriggerRewind() throws Exception {
         // Reset before read completes. Rewind is not triggered.
@@ -243,9 +237,9 @@ public class CronetUploadTest {
         mHandler.reset();
         mDataProvider.onReadSucceeded(mUploadDataStream);
         mDataProvider.assertRewindNotPending();
-        assertEquals(0, mDataProvider.getNumRewindCalls());
-        assertEquals(1, mDataProvider.getNumReadCalls());
-        assertEquals("", mHandler.getData());
+        assertThat(mDataProvider.getNumRewindCalls()).isEqualTo(0);
+        assertThat(mDataProvider.getNumReadCalls()).isEqualTo(1);
+        assertThat(mHandler.getData()).isEmpty();
 
         // Init should trigger a rewind.
         assertFalse(mHandler.init());
@@ -254,9 +248,9 @@ public class CronetUploadTest {
         mDataProvider.onRewindSucceeded(mUploadDataStream);
         mHandler.waitForInitComplete();
         mDataProvider.assertRewindNotPending();
-        assertEquals(1, mDataProvider.getNumRewindCalls());
-        assertEquals(1, mDataProvider.getNumReadCalls());
-        assertEquals("", mHandler.getData());
+        assertThat(mDataProvider.getNumRewindCalls()).isEqualTo(1);
+        assertThat(mDataProvider.getNumReadCalls()).isEqualTo(1);
+        assertThat(mHandler.getData()).isEmpty();
     }
 
     /**
@@ -268,7 +262,6 @@ public class CronetUploadTest {
      */
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     public void testDestroyNativeStreamBeforeReadComplete() throws Exception {
         // Start a read and wait for it to be pending.
@@ -287,8 +280,8 @@ public class CronetUploadTest {
         // Make the read complete should not encounter a crash.
         mDataProvider.onReadSucceeded(mUploadDataStream);
 
-        assertEquals(0, mDataProvider.getNumRewindCalls());
-        assertEquals(1, mDataProvider.getNumReadCalls());
+        assertThat(mDataProvider.getNumRewindCalls()).isEqualTo(0);
+        assertThat(mDataProvider.getNumReadCalls()).isEqualTo(1);
     }
 
     /**
@@ -300,7 +293,6 @@ public class CronetUploadTest {
      */
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     public void testDestroyNativeStreamBeforeRewindComplete() throws Exception {
         // Start a read and wait for it to complete.
@@ -311,13 +303,13 @@ public class CronetUploadTest {
         mDataProvider.onReadSucceeded(mUploadDataStream);
         mHandler.waitForReadComplete();
         mDataProvider.assertReadNotPending();
-        assertEquals(0, mDataProvider.getNumRewindCalls());
-        assertEquals(1, mDataProvider.getNumReadCalls());
-        assertEquals("hello", mHandler.getData());
+        assertThat(mDataProvider.getNumRewindCalls()).isEqualTo(0);
+        assertThat(mDataProvider.getNumReadCalls()).isEqualTo(1);
+        assertThat(mHandler.getData()).isEqualTo("hello");
 
         // Reset and then init, which should trigger a rewind.
         mHandler.reset();
-        assertEquals("", mHandler.getData());
+        assertThat(mHandler.getData()).isEmpty();
         assertFalse(mHandler.init());
         mDataProvider.waitForRewindRequest();
         mHandler.checkInitCallbackNotInvoked();
@@ -332,7 +324,7 @@ public class CronetUploadTest {
         // Signal rewind completes, and wait for init to complete.
         mDataProvider.onRewindSucceeded(mUploadDataStream);
 
-        assertEquals(1, mDataProvider.getNumRewindCalls());
-        assertEquals(1, mDataProvider.getNumReadCalls());
+        assertThat(mDataProvider.getNumRewindCalls()).isEqualTo(1);
+        assertThat(mDataProvider.getNumReadCalls()).isEqualTo(1);
     }
 }

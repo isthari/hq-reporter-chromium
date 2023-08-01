@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@ import android.text.TextUtils;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
 
 import org.chromium.components.dom_distiller.core.DomDistillerUrlUtils;
 import org.chromium.ui.base.WindowAndroid;
@@ -42,13 +43,19 @@ public class ShareParams {
     private final ArrayList<Uri> mFileUris;
 
     /** The alt-text for the shared files. */
-    private final ArrayList<String> mFileAltTexts;
+    private final String mImageAltText;
 
     /** The Uri to the offline MHTML file to be shared. */
     private final Uri mOfflineUri;
 
-    /** The Uri of the screenshot of the page to be shared. */
-    private final Uri mScreenshotUri;
+    /**
+     * The Uri of a single image to be shared. If multiple image are being shared, use {@link
+     * #mFileUris}.
+     */
+    private final Uri mSingleImageUri;
+
+    /** The Uri of the preview image (e.g. a favicon) of the text being shared. */
+    private Uri mPreviewImageUri;
 
     /** The boolean result of link to text generation. */
     private final Boolean mLinkToTextSuccessful;
@@ -67,8 +74,8 @@ public class ShareParams {
 
     private ShareParams(WindowAndroid window, String title, String text, String textFormat,
             String url, @Nullable String fileContentType, @Nullable ArrayList<Uri> fileUris,
-            @Nullable ArrayList<String> fileAltTexts, @Nullable Uri offlineUri,
-            @Nullable Uri screenshotUri, @Nullable TargetChosenCallback callback,
+            @Nullable String imageAltText, @Nullable Uri offlineUri, @Nullable Uri singleImageUri,
+            @Nullable Uri previewImageUri, @Nullable TargetChosenCallback callback,
             @Nullable Boolean linkToTextSuccessful, @Nullable String previewText,
             String previewTextFormat) {
         mWindow = window;
@@ -78,9 +85,10 @@ public class ShareParams {
         mUrl = url;
         mFileContentType = fileContentType;
         mFileUris = fileUris;
-        mFileAltTexts = fileAltTexts;
+        mImageAltText = imageAltText;
         mOfflineUri = offlineUri;
-        mScreenshotUri = screenshotUri;
+        mSingleImageUri = singleImageUri;
+        mPreviewImageUri = previewImageUri;
         mCallback = callback;
         mLinkToTextSuccessful = linkToTextSuccessful;
         mPreviewText = previewText;
@@ -163,11 +171,11 @@ public class ShareParams {
     }
 
     /**
-     * @return The alt-texts related to the files to be shared.
+     * @return The alt-texts related to the single image to be shared.
      */
     @Nullable
-    public ArrayList<String> getFileAltTexts() {
-        return mFileAltTexts;
+    public String getImageAltText() {
+        return mImageAltText;
     }
 
     /**
@@ -179,11 +187,24 @@ public class ShareParams {
     }
 
     /**
-     * @return The Uri of the screenshot of the page to be shared.
+     * @return The Uri of a single image to be shared.
      */
     @Nullable
-    public Uri getScreenshotUri() {
-        return mScreenshotUri;
+    public Uri getSingleImageUri() {
+        return mSingleImageUri;
+    }
+
+    /** @return The Uri of the preview image (e.g. a favicon) of the text being shared. */
+    @Nullable
+    public Uri getPreviewImageUri() {
+        return mPreviewImageUri;
+    }
+
+    /**
+     * @param uri The Uri of the preview image (e.g. a favicon) of the text being shared.
+     */
+    public void setPreviewImageUri(Uri uri) {
+        mPreviewImageUri = uri;
     }
 
     /**
@@ -218,6 +239,22 @@ public class ShareParams {
                                           : String.format(mPreviewTextFormat, mPreviewText);
     }
 
+    /**
+     * A helper function returning the image Uri to share if image is passed as image URI, or as a
+     * single file.
+     */
+    @Nullable
+    public Uri getImageUriToShare() {
+        if (getSingleImageUri() != null) {
+            return getSingleImageUri();
+        }
+        if (getFileUris() != null && getFileUris().size() == 1 && getFileContentType() != null
+                && getFileContentType().startsWith("image")) {
+            return getFileUris().get(0);
+        }
+        return null;
+    }
+
     /** The builder for {@link ShareParams} objects. */
     public static class Builder {
         private WindowAndroid mWindow;
@@ -227,13 +264,16 @@ public class ShareParams {
         private String mUrl;
         private String mFileContentType;
         private ArrayList<Uri> mFileUris;
-        private ArrayList<String> mFileAltTexts;
+        private String mImageAltText;
         private Uri mOfflineUri;
-        private Uri mScreenshotUri;
+        private Uri mSingleImageUri;
+        private Uri mPreviewImageUri;
         private TargetChosenCallback mCallback;
         private Boolean mLinkToTextSuccessful;
         private String mPreviewText;
         private String mPreviewTextFormat;
+        // TODO(https://crbug/1415082): Remove when DomDistillerUrlUtil is removed from below.
+        private boolean mBypassFixingDomDistillerUrl;
 
         public Builder(@NonNull WindowAndroid window, @NonNull String title, @NonNull String url) {
             mWindow = window;
@@ -283,10 +323,10 @@ public class ShareParams {
         }
 
         /**
-         * Sets the alt-texts associated with the files to be shared.
+         * Sets the alt-texts associated with the single image to be shared.
          */
-        public Builder setFileAltTexts(@Nullable ArrayList<String> fileAltTexts) {
-            mFileAltTexts = fileAltTexts;
+        public Builder setImageAltText(@Nullable String imageAltText) {
+            mImageAltText = imageAltText;
             return this;
         }
 
@@ -299,10 +339,19 @@ public class ShareParams {
         }
 
         /**
-         * Sets the Uri of the screenshot of the page to be shared.
+         * Sets the Uri of a single image to be shared. If multiple image are being shared, use
+         * {@link #setFileUris(ArrayList)}.
          */
-        public Builder setScreenshotUri(@Nullable Uri screenshotUri) {
-            mScreenshotUri = screenshotUri;
+        public Builder setSingleImageUri(@Nullable Uri singleImageUri) {
+            mSingleImageUri = singleImageUri;
+            return this;
+        }
+
+        /**
+         * Sets the Uri of the preview image of the text being shared.
+         */
+        public Builder setPreviewImageUri(@Nullable Uri previewImageUri) {
+            mPreviewImageUri = previewImageUri;
             return this;
         }
 
@@ -322,14 +371,23 @@ public class ShareParams {
             return this;
         }
 
+        /**
+         * Sets whether the URL should be fixed to its original URL when it is a dom distiller URL.
+         */
+        @VisibleForTesting(otherwise = VisibleForTesting.NONE)
+        public Builder setBypassFixingDomDistillerUrl(boolean bypassFixingDomDistillerUrl) {
+            mBypassFixingDomDistillerUrl = bypassFixingDomDistillerUrl;
+            return this;
+        }
+
         /** @return A fully constructed {@link ShareParams} object. */
         public ShareParams build() {
-            if (!TextUtils.isEmpty(mUrl)) {
+            if (!TextUtils.isEmpty(mUrl) && !mBypassFixingDomDistillerUrl) {
                 mUrl = DomDistillerUrlUtils.getOriginalUrlFromDistillerUrl(mUrl);
             }
             return new ShareParams(mWindow, mTitle, mText, mTextFormat, mUrl, mFileContentType,
-                    mFileUris, mFileAltTexts, mOfflineUri, mScreenshotUri, mCallback,
-                    mLinkToTextSuccessful, mPreviewText, mPreviewTextFormat);
+                    mFileUris, mImageAltText, mOfflineUri, mSingleImageUri, mPreviewImageUri,
+                    mCallback, mLinkToTextSuccessful, mPreviewText, mPreviewTextFormat);
         }
     }
 
@@ -338,11 +396,13 @@ public class ShareParams {
      */
     public static interface TargetChosenCallback {
         /**
-         * Called when the user chooses a target in the share dialog.
+         * Called when the user chooses a target in the share dialog. When this is called when a
+         * custom action is selected on the system share sheet (e.g. Copy, Edit), the
+         * |chosenComponent| can be null.
          *
          * Note that if the user cancels the share dialog, this callback is never called.
          */
-        public void onTargetChosen(ComponentName chosenComponent);
+        public void onTargetChosen(@Nullable ComponentName chosenComponent);
 
         /**
          * Called when the user cancels the share dialog.

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,7 +31,7 @@ const char kSendAssistantRequestMethodName[] = "sendAssistantRequest";
 }  // namespace
 
 AssistantBindings::AssistantBindings(content::RenderFrame* frame,
-                                     const base::Value& feature_config)
+                                     const base::Value::Dict& feature_config)
     : CastBinding(frame),
       feature_config_(feature_config.Clone()),
       message_client_binding_(this),
@@ -64,7 +64,7 @@ void AssistantBindings::OnMessage(base::Value message) {
 
   v8::Local<v8::Value> argv[] = {message_val};
   web_frame->CallFunctionEvenIfScriptDisabled(handler, context->Global(),
-                                              base::size(argv), argv);
+                                              std::size(argv), argv);
 
   assistant_message_handler_ =
       v8::UniquePersistent<v8::Function>(isolate, handler);
@@ -120,11 +120,10 @@ void AssistantBindings::ReconnectMessagePipe() {
   if (message_pipe_.is_bound())
     message_pipe_.reset();
   LOG(INFO) << "Creating message pipe";
-  base::Value* app_id =
-      feature_config_.FindKeyOfType("app_id", base::Value::Type::STRING);
+  const std::string* app_id = feature_config_.FindString("app_id");
   DCHECK(app_id) << "Couldn't get app_id from feature config";
   GetMojoInterface()->CreateMessagePipe(
-      app_id->GetString(), message_client_binding_.BindNewPipeAndPassRemote(),
+      *app_id, message_client_binding_.BindNewPipeAndPassRemote(),
       message_pipe_.BindNewPipeAndPassReceiver());
 
   reconnect_assistant_timer_.Stop();

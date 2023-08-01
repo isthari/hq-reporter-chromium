@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,56 +7,28 @@
 #include <stddef.h>
 #include <sys/prctl.h>
 
-#include <map>
-
 #include "base/android/java_exception_reporter.h"
 #include "base/android/jni_string.h"
 #include "base/android/jni_utils.h"
-#include "base/containers/flat_map.h"
+#include "base/base_jni_headers/PiiElider_jni.h"
 #include "base/debug/debugging_buildflags.h"
-#include "base/lazy_instance.h"
 #include "base/logging.h"
-#include "base/no_destructor.h"
-#include "base/synchronization/lock.h"
-#include "base/threading/thread_local.h"
+#include "build/build_config.h"
+#include "third_party/abseil-cpp/absl/base/attributes.h"
 
 namespace base {
 namespace android {
 namespace {
 
-JavaVM* g_jvm = NULL;
-base::LazyInstance<ScopedJavaGlobalRef<jobject>>::Leaky g_class_loader =
-    LAZY_INSTANCE_INITIALIZER;
+JavaVM* g_jvm = nullptr;
+jobject g_class_loader = nullptr;
 jmethodID g_class_loader_load_class_method_id = 0;
 
 #if BUILDFLAG(CAN_UNWIND_WITH_FRAME_POINTERS)
-base::LazyInstance<base::ThreadLocalPointer<void>>::Leaky
-    g_stack_frame_pointer = LAZY_INSTANCE_INITIALIZER;
+ABSL_CONST_INIT thread_local void* stack_frame_pointer = nullptr;
 #endif
 
 bool g_fatal_exception_occurred = false;
-
-// Returns a ClassLoader instance which will be able to load classes from the
-// specified split.
-jobject GetCachedClassLoader(JNIEnv* env, const std::string& split_name) {
-  DCHECK(!split_name.empty());
-  static base::NoDestructor<base::Lock> lock;
-  static base::NoDestructor<
-      base::flat_map<std::string, ScopedJavaGlobalRef<jobject>>>
-      split_class_loader_map;
-
-  base::AutoLock guard(*lock);
-  auto it = split_class_loader_map->find(split_name);
-  if (it != split_class_loader_map->end()) {
-    return it->second.obj();
-  }
-
-  ScopedJavaGlobalRef<jobject> class_loader(
-      GetSplitClassLoader(env, split_name));
-  jobject class_loader_obj = class_loader.obj();
-  split_class_loader_map->insert({split_name, std::move(class_loader)});
-  return class_loader_obj;
-}
 
 ScopedJavaLocalRef<jclass> GetClassInternal(JNIEnv* env,
                                             const char* class_name,
@@ -111,7 +83,11 @@ JNIEnv* AttachCurrentThread() {
       args.name = thread_name;
     }
 
+#if BUILDFLAG(IS_ANDROID)
     ret = g_jvm->AttachCurrentThread(&env, &args);
+#else
+    ret = g_jvm->AttachCurrentThread(reinterpret_cast<void**>(&env), &args);
+#endif
     CHECK_EQ(JNI_OK, ret);
   }
   return env;
@@ -121,10 +97,14 @@ JNIEnv* AttachCurrentThreadWithName(const std::string& thread_name) {
   DCHECK(g_jvm);
   JavaVMAttachArgs args;
   args.version = JNI_VERSION_1_2;
-  args.name = thread_name.c_str();
-  args.group = NULL;
-  JNIEnv* env = NULL;
+  args.name = const_cast<char*>(thread_name.c_str());
+  args.group = nullptr;
+  JNIEnv* env = nullptr;
+#if BUILDFLAG(IS_ANDROID)
   jint ret = g_jvm->AttachCurrentThread(&env, &args);
+#else
+  jint ret = g_jvm->AttachCurrentThread(reinterpret_cast<void**>(&env), &args);
+#endif
   CHECK_EQ(JNI_OK, ret);
   return env;
 }
@@ -142,13 +122,15 @@ void InitVM(JavaVM* vm) {
 }
 
 bool IsVMInitialized() {
-  return g_jvm != NULL;
+  return g_jvm != nullptr;
 }
 
-void InitReplacementClassLoader(JNIEnv* env,
-                                const JavaRef<jobject>& class_loader) {
-  DCHECK(g_class_loader.Get().is_null());
-  DCHECK(!class_loader.is_null());
+JavaVM* GetVM() {
+  return g_jvm;
+}
+
+void InitGlobalClassLoader(JNIEnv* env) {
+  DCHECK(g_class_loader == nullptr);
 
   ScopedJavaLocalRef<jclass> class_loader_clazz =
       GetClass(env, "java/lang/ClassLoader");
@@ -159,26 +141,27 @@ void InitReplacementClassLoader(JNIEnv* env,
                        "(Ljava/lang/String;)Ljava/lang/Class;");
   CHECK(!ClearException(env));
 
-  DCHECK(env->IsInstanceOf(class_loader.obj(), class_loader_clazz.obj()));
-  g_class_loader.Get().Reset(class_loader);
+  // GetClassLoader() caches the reference, so we do not need to wrap it in a
+  // smart pointer as well.
+  g_class_loader = GetClassLoader(env);
 }
 
 ScopedJavaLocalRef<jclass> GetClass(JNIEnv* env,
                                     const char* class_name,
-                                    const std::string& split_name) {
+                                    const char* split_name) {
   return GetClassInternal(env, class_name,
-                          GetCachedClassLoader(env, split_name));
+                          GetSplitClassLoader(env, split_name));
 }
 
 ScopedJavaLocalRef<jclass> GetClass(JNIEnv* env, const char* class_name) {
-  return GetClassInternal(env, class_name, g_class_loader.Get().obj());
+  return GetClassInternal(env, class_name, g_class_loader);
 }
 
 // This is duplicated with LazyGetClass below because these are performance
 // sensitive.
 jclass LazyGetClass(JNIEnv* env,
                     const char* class_name,
-                    const std::string& split_name,
+                    const char* split_name,
                     std::atomic<jclass>* atomic_class_id) {
   const jclass value = atomic_class_id->load(std::memory_order_acquire);
   if (value)
@@ -307,45 +290,22 @@ void CheckException(JNIEnv* env) {
 }
 
 std::string GetJavaExceptionInfo(JNIEnv* env, jthrowable java_throwable) {
-  ScopedJavaLocalRef<jclass> log_clazz = GetClass(env, "android/util/Log");
-  jmethodID log_getstacktracestring = MethodID::Get<MethodID::TYPE_STATIC>(
-      env, log_clazz.obj(), "getStackTraceString",
-      "(Ljava/lang/Throwable;)Ljava/lang/String;");
-
-  // Call Log.getStackTraceString()
-  ScopedJavaLocalRef<jstring> exception_string(
-      env, static_cast<jstring>(env->CallStaticObjectMethod(
-               log_clazz.obj(), log_getstacktracestring, java_throwable)));
-  CheckException(env);
-
-  ScopedJavaLocalRef<jclass> piielider_clazz =
-      GetClass(env, "org/chromium/base/PiiElider");
-  jmethodID piielider_sanitize_stacktrace =
-      MethodID::Get<MethodID::TYPE_STATIC>(
-          env, piielider_clazz.obj(), "sanitizeStacktrace",
-          "(Ljava/lang/String;)Ljava/lang/String;");
-  ScopedJavaLocalRef<jstring> sanitized_exception_string(
-      env, static_cast<jstring>(env->CallStaticObjectMethod(
-               piielider_clazz.obj(), piielider_sanitize_stacktrace,
-               exception_string.obj())));
-  CheckException(env);
+  ScopedJavaLocalRef<jstring> sanitized_exception_string =
+      Java_PiiElider_getSanitizedStacktrace(
+          env, ScopedJavaLocalRef(env, java_throwable));
 
   return ConvertJavaStringToUTF8(sanitized_exception_string);
 }
 
 #if BUILDFLAG(CAN_UNWIND_WITH_FRAME_POINTERS)
 
-JNIStackFrameSaver::JNIStackFrameSaver(void* current_fp) {
-  previous_fp_ = g_stack_frame_pointer.Pointer()->Get();
-  g_stack_frame_pointer.Pointer()->Set(current_fp);
-}
+JNIStackFrameSaver::JNIStackFrameSaver(void* current_fp)
+    : resetter_(&stack_frame_pointer, current_fp) {}
 
-JNIStackFrameSaver::~JNIStackFrameSaver() {
-  g_stack_frame_pointer.Pointer()->Set(previous_fp_);
-}
+JNIStackFrameSaver::~JNIStackFrameSaver() = default;
 
 void* JNIStackFrameSaver::SavedFrame() {
-  return g_stack_frame_pointer.Pointer()->Get();
+  return stack_frame_pointer;
 }
 
 #endif  // BUILDFLAG(CAN_UNWIND_WITH_FRAME_POINTERS)

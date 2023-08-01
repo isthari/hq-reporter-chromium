@@ -1,12 +1,13 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/media/router/test/provider_test_helpers.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/json/json_reader.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/sequenced_task_runner.h"
 #include "chrome/browser/media/router/discovery/dial/dial_app_discovery_service.h"
 #include "components/media_router/common/media_source.h"
 #include "components/media_router/common/test/test_helper.h"
@@ -163,11 +164,12 @@ std::unique_ptr<ParsedDialAppInfo> CreateParsedDialAppInfoPtr(
 
 std::unique_ptr<DialInternalMessage> ParseDialInternalMessage(
     const std::string& message) {
-  auto message_value = base::JSONReader::ReadDeprecated(message);
+  auto message_value = base::JSONReader::Read(message);
   std::string error_unused;
-  return message_value ? DialInternalMessage::From(std::move(*message_value),
-                                                   &error_unused)
-                       : nullptr;
+  return message_value && message_value->is_dict()
+             ? DialInternalMessage::From(std::move(message_value->GetDict()),
+                                         &error_unused)
+             : nullptr;
 }
 
 }  // namespace media_router

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/strings/utf_string_conversions.h"
@@ -30,7 +30,6 @@
 
 #if BUILDFLAG(IS_WIN)
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/chrome_features.h"
 #endif
 
@@ -39,9 +38,6 @@ IncognitoMenuView::IncognitoMenuView(views::Button* anchor_button,
     : ProfileMenuViewBase(anchor_button, browser) {
   DCHECK(browser->profile()->IsIncognitoProfile());
   GetViewAccessibility().OverrideName(GetAccessibleWindowTitle());
-
-  chrome::RecordDialogCreation(
-      chrome::DialogIdentifier::INCOGNITO_WINDOW_COUNT);
 
   base::RecordAction(base::UserMetricsAction("IncognitoMenu_Show"));
 }
@@ -68,19 +64,6 @@ void IncognitoMenuView::BuildMenu() {
           : std::u16string(),
       header_art_icon);
 
-#if BUILDFLAG(IS_WIN)
-  if (ProfileShortcutManager::IsFeatureEnabled() &&
-      base::FeatureList::IsEnabled(
-          features::kEnableIncognitoShortcutOnDesktop)) {
-    // TODO(crbug.com/1113162): Add desktop shortcut icon to the menu entry.
-    AddFeatureButton(
-        l10n_util::GetStringUTF16(
-            IDS_INCOGNITO_PROFILE_MENU_CREATE_SHORTCUT_BUTTON),
-        base::BindRepeating(&IncognitoMenuView::OnCreateShortcutButtonClicked,
-                            base::Unretained(this)));
-  }
-#endif
-
   AddFeatureButton(
       l10n_util::GetStringUTF16(IDS_INCOGNITO_PROFILE_MENU_CLOSE_BUTTON_NEW),
       base::BindRepeating(&IncognitoMenuView::OnExitButtonClicked,
@@ -94,19 +77,6 @@ std::u16string IncognitoMenuView::GetAccessibleWindowTitle() const {
       BrowserList::GetOffTheRecordBrowsersActiveForProfile(
           browser()->profile()));
 }
-
-#if BUILDFLAG(IS_WIN)
-void IncognitoMenuView::OnCreateShortcutButtonClicked() {
-  RecordClick(ActionableItem::kCreateIncognitoShortcutButton);
-  ProfileShortcutManager* shortcut_manager =
-      g_browser_process->profile_manager()->profile_shortcut_manager();
-
-  DCHECK(shortcut_manager);
-  if (shortcut_manager)
-    shortcut_manager->CreateIncognitoProfileShortcut(
-        browser()->profile()->GetPath());
-}
-#endif
 
 void IncognitoMenuView::OnExitButtonClicked() {
   RecordClick(ActionableItem::kExitProfileButton);

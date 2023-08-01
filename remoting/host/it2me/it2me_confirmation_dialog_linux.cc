@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,12 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/i18n/message_formatter.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
@@ -50,10 +51,15 @@ class It2MeConfirmationDialogLinux : public It2MeConfirmationDialog {
   void Hide();
 
   // Handles user input from the dialog.
-  CHROMEG_CALLBACK_1(It2MeConfirmationDialogLinux, void, OnResponse, GtkDialog*,
+  CHROMEG_CALLBACK_1(It2MeConfirmationDialogLinux,
+                     void,
+                     OnResponse,
+                     GtkDialog*,
                      int);
 
-  GtkWidget* confirmation_window_ = nullptr;
+  // This field is not a raw_ptr<> because of a static_cast not related by
+  // inheritance.
+  RAW_PTR_EXCLUSION GtkWidget* confirmation_window_ = nullptr;
 
   ResultCallback result_callback_;
 
@@ -97,8 +103,7 @@ void It2MeConfirmationDialogLinux::CreateWindow(
 
   confirmation_window_ = gtk_dialog_new_with_buttons(
       l10n_util::GetStringUTF8(IDS_PRODUCT_NAME).c_str(),
-      /*parent=*/nullptr,
-      static_cast<GtkDialogFlags>(GTK_DIALOG_MODAL),
+      /*parent=*/nullptr, static_cast<GtkDialogFlags>(GTK_DIALOG_MODAL),
       l10n_util::GetStringUTF8(IDS_SHARE_CONFIRM_DIALOG_DECLINE).c_str(),
       GTK_RESPONSE_CANCEL,
       l10n_util::GetStringUTF8(IDS_SHARE_CONFIRM_DIALOG_CONFIRM).c_str(),

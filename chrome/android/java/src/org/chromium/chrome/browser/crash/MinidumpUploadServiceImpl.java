@@ -1,10 +1,9 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.crash;
 
-import android.annotation.SuppressLint;
 import android.app.job.JobInfo;
 import android.content.ComponentName;
 import android.content.Intent;
@@ -25,6 +24,7 @@ import org.chromium.base.ThreadUtils;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
 import org.chromium.chrome.browser.privacy.settings.PrivacyPreferencesManagerImpl;
@@ -35,7 +35,6 @@ import org.chromium.components.minidump_uploader.MinidumpUploadCallable;
 import org.chromium.components.minidump_uploader.MinidumpUploadCallable.MinidumpUploadStatus;
 import org.chromium.components.minidump_uploader.MinidumpUploadJobService;
 import org.chromium.components.minidump_uploader.util.CrashReportingPermissionManager;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -94,21 +93,9 @@ public class MinidumpUploadServiceImpl extends MinidumpUploadService.Impl {
     }
 
     /**
-     * @return Whether to use the JobSchduler API to upload crash reports, rather than directly
-     *     creating a service for uploading.
-     */
-    public static boolean shouldUseJobSchedulerForUploads() {
-        // The JobScheduler API is only usable as of Android M.
-        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.M;
-    }
-
-    /**
      * Schedules uploading of all pending minidumps, using the JobScheduler API.
      */
-    @SuppressLint("NewApi")
     public static void scheduleUploadJob() {
-        assert shouldUseJobSchedulerForUploads();
-
         CrashReportingPermissionManager permissionManager =
                 PrivacyPreferencesManagerImpl.getInstance();
         PersistableBundle permissions = new PersistableBundle();
@@ -122,7 +109,8 @@ public class MinidumpUploadServiceImpl extends MinidumpUploadService.Impl {
                         .Builder(TaskIds.CHROME_MINIDUMP_UPLOADING_JOB_ID,
                                 new ComponentName(ContextUtils.getApplicationContext(),
                                         ChromeMinidumpUploadJobService.class))
-                        .setExtras(permissions);
+                        .setExtras(permissions)
+                        .setRequiredNetworkType(JobInfo.NETWORK_TYPE_UNMETERED);
         MinidumpUploadJobService.scheduleUpload(builder);
     }
 
@@ -157,7 +145,7 @@ public class MinidumpUploadServiceImpl extends MinidumpUploadService.Impl {
         if (ThreadUtils.runningOnUiThread()) {
             ApplicationStatus.registerApplicationStateListener(appStateListener);
         } else {
-            PostTask.postTask(UiThreadTaskTraits.BEST_EFFORT, () -> {
+            PostTask.postTask(TaskTraits.UI_BEST_EFFORT, () -> {
                 ApplicationStatus.registerApplicationStateListener(appStateListener);
             });
         }
@@ -268,9 +256,7 @@ public class MinidumpUploadServiceImpl extends MinidumpUploadService.Impl {
             String newName = CrashFileManager.tryIncrementAttemptNumber(minidumpFile);
             if (newName != null) {
                 if (tries < MAX_TRIES_ALLOWED) {
-                    // TODO(nyquist): Do this as an exponential backoff.
-                    MinidumpUploadRetry.scheduleRetry(ContextUtils.getApplicationContext(),
-                            getCrashReportingPermissionManager());
+                    MinidumpUploadServiceImpl.scheduleUploadJob();
                 } else {
                     Log.d(TAG,
                             "Giving up on trying to upload " + minidumpFileName + "after " + tries
@@ -371,24 +357,21 @@ public class MinidumpUploadServiceImpl extends MinidumpUploadService.Impl {
     }
 
     /**
-     * Attempts to upload the specified {@param minidumpFile}.
+     * Attempts to upload the specified {@param minidumpFile} directly. If Android doesn't allow a
+     * direct upload, then fallback to JobScheduler.
      *
-     * Note that this method is asynchronous. All that is guaranteed is that an upload attempt will
-     * be enqueued.
-     */
-    public static void tryUploadCrashDump(File minidumpFile) {
-        assert !shouldUseJobSchedulerForUploads();
-        tryUploadCrashDumpNow(minidumpFile);
-    }
-
-    /**
-     * Attempts to upload the specified {@param minidumpFile} directly even when JobScheduler is
-     * available. This function is same as |tryUploadCrashDump| without the JobScheduler check.
-     *
-     * Note that the preferred way to upload minidump is through JobScheduler when possible, use
-     * this function if want to upload ASAP.
+     * Note that the preferred way to upload minidump is only through JobScheduler, use this
+     * function if you need to upload it urgently.
      */
     static void tryUploadCrashDumpNow(File minidumpFile) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                && !ApplicationStatus.hasVisibleActivities()) {
+            // If we are on API 31+, Android does not allow us to start services from the
+            // background. If we are in the background, then go through the JobScheduler path
+            // instead. See crbug.com/1433529 for more details.
+            scheduleUploadJob();
+            return;
+        }
         CrashFileManager fileManager =
                 new CrashFileManager(ContextUtils.getApplicationContext().getCacheDir());
         Intent intent =
@@ -397,26 +380,6 @@ public class MinidumpUploadServiceImpl extends MinidumpUploadService.Impl {
         intent.putExtra(FILE_TO_UPLOAD_KEY, minidumpFile.getAbsolutePath());
         intent.putExtra(UPLOAD_LOG_KEY, fileManager.getCrashUploadLogFile().getAbsolutePath());
         ContextUtils.getApplicationContext().startService(intent);
-    }
-
-    /**
-     * Attempts to upload all minidump files using the given {@link android.content.Context}.
-     *
-     * Note that this method is asynchronous. All that is guaranteed is that
-     * upload attempts will be enqueued.
-     *
-     * This method is safe to call from the UI thread.
-     *
-     */
-    public static void tryUploadAllCrashDumps() {
-        assert !shouldUseJobSchedulerForUploads();
-        CrashFileManager fileManager =
-                new CrashFileManager(ContextUtils.getApplicationContext().getCacheDir());
-        File[] minidumps = fileManager.getMinidumpsReadyForUpload(MAX_TRIES_ALLOWED);
-        Log.i(TAG, "Attempting to upload accumulated crash dumps.");
-        for (File minidump : minidumps) {
-            tryUploadCrashDump(minidump);
-        }
     }
 
     /**
@@ -449,10 +412,6 @@ public class MinidumpUploadServiceImpl extends MinidumpUploadService.Impl {
             return;
         }
 
-        if (shouldUseJobSchedulerForUploads()) {
-            scheduleUploadJob();
-        } else {
-            tryUploadCrashDump(renamedMinidumpFile);
-        }
+        scheduleUploadJob();
     }
 }

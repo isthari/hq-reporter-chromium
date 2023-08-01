@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,9 @@
 #include "ash/wm/workspace_controller.h"
 #include "ash/wm/workspace_controller_test_api.h"
 #include "base/containers/contains.h"
+#include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/test/test_window_delegate.h"
 #include "ui/aura/window.h"
@@ -97,7 +98,7 @@ class WindowPropertyObserver : public aura::WindowObserver {
     properties_changed_.push_back(key);
   }
 
-  aura::Window* window_;
+  raw_ptr<aura::Window, ExperimentalAsh> window_;
   std::vector<const void*> properties_changed_;
 };
 
@@ -221,7 +222,7 @@ TEST_F(WorkspaceEventHandlerTest, DoubleClickSingleAxisWhenSideSnapped) {
                                       .work_area();
 
   WindowState* window_state = WindowState::Get(window.get());
-  const WMEvent snap_event(WM_EVENT_SNAP_PRIMARY);
+  const WindowSnapWMEvent snap_event(WM_EVENT_SNAP_PRIMARY);
   window_state->OnWMEvent(&snap_event);
 
   gfx::Rect snapped_bounds_in_screen = window->GetBoundsInScreen();
@@ -370,7 +371,7 @@ TEST_F(WorkspaceEventHandlerTest, DoubleClickCaptionTogglesMaximize) {
   EXPECT_EQ(restore_bounds.ToString(), window->bounds().ToString());
 
   // 3) Double clicking a snapped window should maximize.
-  const WMEvent snap_event(WM_EVENT_SNAP_PRIMARY);
+  const WindowSnapWMEvent snap_event(WM_EVENT_SNAP_PRIMARY);
   window_state->OnWMEvent(&snap_event);
   EXPECT_TRUE(window_state->IsSnapped());
   generator.MoveMouseTo(window->GetBoundsInRootWindow().CenterPoint());
@@ -547,7 +548,8 @@ TEST_F(WorkspaceEventHandlerTest, DeleteWhileInRunLoop) {
   delegate.set_window_component(HTCAPTION);
 
   ASSERT_TRUE(::wm::GetWindowMoveClient(window->GetRootWindow()));
-  base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, window.get());
+  base::SingleThreadTaskRunner::GetCurrentDefault()->DeleteSoon(FROM_HERE,
+                                                                window.get());
   ::wm::GetWindowMoveClient(window->GetRootWindow())
       ->RunMoveLoop(window.release(), gfx::Vector2d(),
                     ::wm::WINDOW_MOVE_SOURCE_MOUSE);

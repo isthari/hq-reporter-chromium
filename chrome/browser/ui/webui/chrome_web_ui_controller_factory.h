@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -63,7 +63,6 @@ class ChromeWebUIControllerFactory : public content::WebUIControllerFactory {
   std::vector<GURL> GetListOfAcceptableURLs();
 
   // Determines if the given URL can be handled by any known handler.
-  // Note that the provided |url| needs to be sanitized.
   bool CanHandleUrl(const GURL& url);
 #endif
 

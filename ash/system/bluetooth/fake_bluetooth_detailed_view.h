@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "ash/ash_export.h"
 #include "ash/system/bluetooth/bluetooth_detailed_view.h"
 #include "ash/system/tray/view_click_listener.h"
+#include "base/memory/raw_ptr.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/gfx/vector_icon_types.h"
 #include "ui/views/view.h"
@@ -21,9 +22,6 @@ class View;
 namespace ash {
 
 class BluetoothDeviceListItemView;
-class TriView;
-
-namespace tray {
 
 // Fake BluetoothDetailedView implementation.
 class ASH_EXPORT FakeBluetoothDetailedView : public BluetoothDetailedView,
@@ -53,8 +51,8 @@ class ASH_EXPORT FakeBluetoothDetailedView : public BluetoothDetailedView,
   views::View* GetAsView() override;
   void UpdateBluetoothEnabledState(bool enabled) override;
   BluetoothDeviceListItemView* AddDeviceListItem() override;
-  ash::TriView* AddDeviceListSubHeader(const gfx::VectorIcon& /*icon*/,
-                                       int text_id) override;
+  views::View* AddDeviceListSubHeader(const gfx::VectorIcon& /*icon*/,
+                                      int text_id) override;
   void NotifyDeviceListChanged() override;
   views::View* device_list() override;
 
@@ -64,10 +62,10 @@ class ASH_EXPORT FakeBluetoothDetailedView : public BluetoothDetailedView,
   size_t notify_device_list_changed_call_count_ = 0;
   absl::optional<bool> last_bluetooth_enabled_state_;
   std::unique_ptr<views::View> device_list_;
-  BluetoothDeviceListItemView* last_clicked_device_list_item_ = nullptr;
+  raw_ptr<BluetoothDeviceListItemView, ExperimentalAsh>
+      last_clicked_device_list_item_ = nullptr;
 };
 
-}  // namespace tray
 }  // namespace ash
 
 #endif  // ASH_SYSTEM_BLUETOOTH_FAKE_BLUETOOTH_DETAILED_VIEW_H_

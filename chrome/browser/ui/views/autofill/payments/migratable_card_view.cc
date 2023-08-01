@@ -1,10 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/autofill/payments/migratable_card_view.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/ui/autofill/payments/local_card_migration_dialog_state.h"
 #include "chrome/browser/ui/views/autofill/payments/local_card_migration_dialog_view.h"
@@ -47,14 +47,17 @@ MigratableCardView::MigratableCardView(
                    .release());
 
   checkbox_uncheck_text_container_ =
-      AddChildView(std::make_unique<views::View>());
+      AddChildView(views::Builder<views::View>()
+                       .SetBackground(views::CreateThemedSolidBackground(
+                           ui::kColorBubbleFooterBackground))
+                       .Build());
   views::BoxLayout* layout = checkbox_uncheck_text_container_->SetLayoutManager(
       std::make_unique<views::BoxLayout>(
           views::BoxLayout::Orientation::kVertical,
-          gfx::Insets(provider->GetDistanceMetric(
-                          views::DISTANCE_RELATED_CONTROL_VERTICAL),
-                      provider->GetDistanceMetric(
-                          views::DISTANCE_RELATED_CONTROL_HORIZONTAL)),
+          gfx::Insets::VH(provider->GetDistanceMetric(
+                              views::DISTANCE_RELATED_CONTROL_VERTICAL),
+                          provider->GetDistanceMetric(
+                              views::DISTANCE_RELATED_CONTROL_HORIZONTAL)),
           provider->GetDistanceMetric(
               views::DISTANCE_RELATED_CONTROL_HORIZONTAL)));
   layout->set_cross_axis_alignment(
@@ -78,14 +81,7 @@ std::string MigratableCardView::GetGuid() const {
 }
 
 std::u16string MigratableCardView::GetCardIdentifierString() const {
-  return migratable_credit_card_.credit_card()
-      .CardIdentifierStringForAutofillDisplay();
-}
-
-void MigratableCardView::OnThemeChanged() {
-  View::OnThemeChanged();
-  checkbox_uncheck_text_container_->SetBackground(views::CreateSolidBackground(
-      GetColorProvider()->GetColor(ui::kColorBubbleFooterBackground)));
+  return migratable_credit_card_.credit_card().CardNameAndLastFourDigits();
 }
 
 std::unique_ptr<views::View>
@@ -124,7 +120,7 @@ MigratableCardView::GetMigratableCardDescriptionView(
         // format.
         views::InkDrop::Get(checkbox_)->SetMode(
             views::InkDropHost::InkDropMode::OFF);
-        checkbox_->SetAssociatedLabel(card_description.get());
+        checkbox_->SetAccessibleName(card_description.get());
       }
       break;
     }

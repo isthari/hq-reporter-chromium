@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -171,9 +171,6 @@ public final class EventConstants {
     /** The keyboard accessory was swiped to reveal more suggestions. */
     public static final String KEYBOARD_ACCESSORY_BAR_SWIPED = "keyboard_accessory_bar_swiped";
 
-    /** The Explore Sites tile was tapped. */
-    public static final String EXPLORE_SITES_TILE_TAPPED = "explore_sites_tile_tapped";
-
     /** User has finished drop-to-merge to create a group. */
     public static final String TAB_DRAG_AND_DROP_TO_GROUP = "tab_drag_and_drop_to_group";
 
@@ -186,11 +183,9 @@ public final class EventConstants {
     /** 'Manage windows' menu for multi-instance support feature was tapped. */
     public static final String INSTANCE_SWITCHER_IPH_USED = "instance_switcher_iph_used";
 
-    /** HomepagePromo has been accepted. */
-    public static final String NTP_SHOWN = "ntp_shown";
-    public static final String NTP_HOME_BUTTON_CLICKED = "ntp_homebutton_clicked";
-
     public static final String TAB_SWITCHER_BUTTON_CLICKED = "tab_switcher_button_clicked";
+
+    public static final String FOREGROUND_SESSION_DESTROYED = "foreground_session_destroyed";
 
     /** Read later related events. */
     public static final String APP_MENU_BOOKMARK_STAR_ICON_PRESSED =
@@ -236,6 +231,9 @@ public final class EventConstants {
     public static final String PAGE_INFO_STORE_INFO_ROW_CLICKED =
             "page_info_store_info_row_clicked";
 
+    /** PageZoom events. */
+    public static final String PAGE_ZOOM_OPENED = "page_zoom_opened";
+
     /** Permission events. */
     public static final String PERMISSION_REQUEST_SHOWN = "permission_request_shown";
 
@@ -244,6 +242,9 @@ public final class EventConstants {
 
     /** Sharing Hub link toggle events. */
     public static final String SHARING_HUB_LINK_TOGGLE_CLICKED = "sharing_hub_link_toggle_clicked";
+
+    /** Crow events. */
+    public static final String CROW_TAB_MENU_ITEM_CLICKED = "crow_tab_menu_item_clicked";
 
     /** Mic toolbar IPH event */
     public static final String SUCCESSFUL_VOICE_SEARCH = "successful_voice_search";
@@ -260,6 +261,14 @@ public final class EventConstants {
     public static final String ADAPTIVE_TOOLBAR_CUSTOMIZATION_VOICE_SEARCH_OPENED =
             "adaptive_toolbar_customization_voice_search_opened";
 
+    /** AdaptiveButtonInTopToolbarCustomization translate events. */
+    public static final String ADAPTIVE_TOOLBAR_CUSTOMIZATION_TRANSLATE_OPENED =
+            "adaptive_toolbar_customization_translate_opened";
+
+    /** AdaptiveButtonInTopToolbarCustomization add to bookmarks events. */
+    public static final String ADAPTIVE_TOOLBAR_CUSTOMIZATION_ADD_TO_BOOKMARKS_OPENED =
+            "adaptive_toolbar_customization_add_to_bookmarks_opened";
+
     /** Open new incognito tab from app menu. */
     public static final String APP_MENU_NEW_INCOGNITO_TAB_CLICKED =
             "app_menu_new_incognito_tab_clicked";
@@ -269,10 +278,6 @@ public final class EventConstants {
 
     /** WebFeed events. */
     public static final String WEB_FEED_FOLLOW_INTRO_CLICKED = "web_feed_follow_intro_clicked";
-
-    /** Tab switcher home button events. */
-    public static final String START_SURFACE_TAB_SWITCHER_HOME_BUTTON_CLICKED =
-            "start_surface_tab_switcher_home_button_clicked";
 
     /** Shared Highlighting button event */
     public static final String IPH_SHARED_HIGHLIGHTING_USED = "iph_shared_highlighting_used";
@@ -297,6 +302,36 @@ public final class EventConstants {
     /** A tap on the folder icon in the enhanced bookmark save flow. */
     public static final String SHOPPING_LIST_SAVE_FLOW_FOLDER_TAP =
             "shopping_list_save_flow_folder_tap";
+
+    /** An app menu (tab-level) desktop site setting update event. */
+    public static final String APP_MENU_DESKTOP_SITE_FOR_TAB_CLICKED =
+            "app_menu_desktop_site_for_tab_clicked";
+
+    /** Desktop site settings page opened. */
+    public static final String DESKTOP_SITE_SETTINGS_PAGE_OPENED =
+            "desktop_site_settings_page_opened";
+
+    /** Desktop site default-on message primary action event. */
+    public static final String DESKTOP_SITE_DEFAULT_ON_PRIMARY_ACTION =
+            "desktop_site_default_on_primary_action";
+
+    /** Desktop site default-on message gesture event. */
+    public static final String DESKTOP_SITE_DEFAULT_ON_GESTURE = "desktop_site_default_on_gesture";
+
+    /** Desktop site opt-in message primary action event. */
+    public static final String DESKTOP_SITE_OPT_IN_PRIMARY_ACTION =
+            "desktop_site_opt_in_primary_action";
+
+    /** Desktop site opt-in message gesture event. */
+    public static final String DESKTOP_SITE_OPT_IN_GESTURE = "desktop_site_opt_in_gesture";
+
+    /** An app menu desktop site exception addition event. */
+    public static final String APP_MENU_DESKTOP_SITE_EXCEPTION_ADDED =
+            "app_menu_desktop_site_exception_added";
+
+    /** Restore tabs on first run experience promo event */
+    public static final String RESTORE_TABS_ON_FIRST_RUN_SHOW_PROMO =
+            "restore_tabs_on_first_run_show_promo";
 
     /**
      * Do not instantiate.

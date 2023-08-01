@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,13 +12,12 @@
 #include <vector>
 
 #include "ash/public/cpp/session/session_observer.h"
-#include "ash/services/nearby/public/cpp/nearby_process_manager.h"
-#include "ash/services/nearby/public/mojom/nearby_decoder_types.mojom.h"
-#include "base/callback_helpers.h"
 #include "base/cancelable_callback.h"
 #include "base/containers/flat_map.h"
 #include "base/containers/flat_set.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ptr_util.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
 #include "base/time/time.h"
@@ -32,7 +31,6 @@
 #include "chrome/browser/nearby_sharing/incoming_frames_reader.h"
 #include "chrome/browser/nearby_sharing/incoming_share_target_info.h"
 #include "chrome/browser/nearby_sharing/local_device_data/nearby_share_local_device_data_manager.h"
-#include "chrome/browser/nearby_sharing/nearby_connections_manager.h"
 #include "chrome/browser/nearby_sharing/nearby_file_handler.h"
 #include "chrome/browser/nearby_sharing/nearby_notification_manager.h"
 #include "chrome/browser/nearby_sharing/nearby_share_feature_usage_metrics.h"
@@ -41,10 +39,14 @@
 #include "chrome/browser/nearby_sharing/nearby_sharing_service.h"
 #include "chrome/browser/nearby_sharing/outgoing_share_target_info.h"
 #include "chrome/browser/nearby_sharing/power_client.h"
+#include "chrome/browser/nearby_sharing/public/cpp/nearby_connections_manager.h"
 #include "chrome/browser/nearby_sharing/share_target.h"
 #include "chrome/browser/nearby_sharing/transfer_metadata.h"
-#include "chrome/browser/ui/webui/nearby_share/public/mojom/nearby_share_settings.mojom.h"
+#include "chrome/browser/nearby_sharing/wifi_network_configuration/wifi_network_configuration_handler.h"
 #include "chrome/services/sharing/public/proto/wire_format.pb.h"
+#include "chromeos/ash/services/nearby/public/cpp/nearby_process_manager.h"
+#include "chromeos/ash/services/nearby/public/mojom/nearby_decoder_types.mojom.h"
+#include "chromeos/ash/services/nearby/public/mojom/nearby_share_settings.mojom.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "device/bluetooth/bluetooth_adapter.h"
 #include "net/base/network_change_notifier.h"
@@ -61,7 +63,7 @@ class PrefService;
 class Profile;
 
 namespace NearbySharingServiceUnitTests {
-class NearbySharingServiceImplTest;
+class NearbySharingServiceImplTestBase;
 }
 
 // All methods should be called from the same sequence that created the service.
@@ -86,7 +88,8 @@ class NearbySharingServiceImpl
       Profile* profile,
       std::unique_ptr<NearbyConnectionsManager> nearby_connections_manager,
       ash::nearby::NearbyProcessManager* process_manager,
-      std::unique_ptr<PowerClient> power_client);
+      std::unique_ptr<PowerClient> power_client,
+      std::unique_ptr<WifiNetworkConfigurationHandler> wifi_network_handler);
   ~NearbySharingServiceImpl() override;
 
   // NearbySharingService:
@@ -137,9 +140,12 @@ class NearbySharingServiceImpl
   NearbyShareCertificateManager* GetCertificateManager() override;
 
   // NearbyConnectionsManager::IncomingConnectionListener:
-  void OnIncomingConnection(const std::string& endpoint_id,
-                            const std::vector<uint8_t>& endpoint_info,
-                            NearbyConnection* connection) override;
+  void OnIncomingConnectionInitiated(
+      const std::string& endpoint_id,
+      const std::vector<uint8_t>& endpoint_info) override {}
+  void OnIncomingConnectionAccepted(const std::string& endpoint_id,
+                                    const std::vector<uint8_t>& endpoint_info,
+                                    NearbyConnection* connection) override;
 
   // net::NetworkChangeNotifier::NetworkChangeObserver:
   void OnNetworkChanged(
@@ -150,9 +156,13 @@ class NearbySharingServiceImpl
   void set_free_disk_space_for_testing(int64_t free_disk_space) {
     free_disk_space_for_testing_ = free_disk_space;
   }
+  void set_visibility_reminder_timer_delay_for_testing(base::TimeDelta delay) {
+    visibility_reminder_timer_delay_ = delay;
+    UpdateVisibilityReminderTimer(true);
+  }
 
  private:
-  friend class NearbySharingServiceUnitTests::NearbySharingServiceImplTest;
+  friend class NearbySharingServiceUnitTests::NearbySharingServiceImplTestBase;
 
   // nearby_share::mojom::NearbyShareSettingsObserver:
   void OnEnabledChanged(bool enabled) override;
@@ -183,6 +193,9 @@ class NearbySharingServiceImpl
                              bool present) override;
   void AdapterPoweredChanged(device::BluetoothAdapter* adapter,
                              bool powered) override;
+  void LowEnergyScanSessionHardwareOffloadingStatusChanged(
+      device::BluetoothAdapter::LowEnergyScanSessionHardwareOffloadingStatus
+          status) override;
 
   // PowerClient::Observer:
   void SuspendImminent() override;
@@ -259,13 +272,11 @@ class NearbySharingServiceImpl
   void OnUniquePathFetched(
       int64_t attachment_id,
       int64_t payload_id,
-      base::OnceCallback<void(location::nearby::connections::mojom::Status)>
-          callback,
+      base::OnceCallback<void(nearby::connections::mojom::Status)> callback,
       base::FilePath path);
-  void OnPayloadPathRegistered(
-      base::ScopedClosureRunner closure_runner,
-      bool* aggregated_success,
-      location::nearby::connections::mojom::Status status);
+  void OnPayloadPathRegistered(base::ScopedClosureRunner closure_runner,
+                               bool* aggregated_success,
+                               nearby::connections::mojom::Status status);
   void OnPayloadPathsRegistered(const ShareTarget& share_target,
                                 std::unique_ptr<bool> aggregated_success,
                                 StatusCodesCallback status_codes_callback);
@@ -284,8 +295,8 @@ class NearbySharingServiceImpl
   void OnOpenFiles(ShareTarget share_target,
                    base::OnceCallback<void(ShareTarget, bool)> callback,
                    std::vector<NearbyFileHandler::FileInfo> files);
-  std::vector<location::nearby::connections::mojom::PayloadPtr>
-  CreateTextPayloads(const std::vector<TextAttachment>& attachments);
+  std::vector<nearby::connections::mojom::PayloadPtr> CreateTextPayloads(
+      const std::vector<TextAttachment>& attachments);
 
   void WriteResponse(
       NearbyConnection& connection,
@@ -409,13 +420,23 @@ class NearbySharingServiceImpl
   void AbortAndCloseConnectionIfNecessary(const TransferMetadata::Status status,
                                           const ShareTarget& share_target);
 
-  PrefService* prefs_ = nullptr;
-  Profile* profile_;
+  // The method is responsible for updating visibility reminder timer:
+  // 1) Stops the timer if the feature flag is disabled OR Nearby Share is
+  // disabled OR visibility is changed to 'Hidden"; 2) Restart the timer and
+  // update the timestamp if we force it to update OR it's past 180 days since
+  // last time we updated it.
+  void UpdateVisibilityReminderTimer(bool reset_timestamp);
+  void OnVisibilityReminderTimerFired();
+  base::TimeDelta GetTimeUntilNextVisibilityReminder();
+
+  raw_ptr<PrefService, ExperimentalAsh> prefs_ = nullptr;
+  raw_ptr<Profile, ExperimentalAsh> profile_;
   std::unique_ptr<NearbyConnectionsManager> nearby_connections_manager_;
-  ash::nearby::NearbyProcessManager* process_manager_;
+  raw_ptr<ash::nearby::NearbyProcessManager, ExperimentalAsh> process_manager_;
   std::unique_ptr<ash::nearby::NearbyProcessManager::NearbyProcessReference>
       process_reference_;
   std::unique_ptr<PowerClient> power_client_;
+  std::unique_ptr<WifiNetworkConfigurationHandler> wifi_network_handler_;
   scoped_refptr<device::BluetoothAdapter> bluetooth_adapter_;
   // Advertiser which is non-null when we are attempting to share and
   // broadcasting Fast Initiation advertisements.
@@ -545,6 +566,13 @@ class NearbySharingServiceImpl
   // Used to prevent the "Device nearby is sharing" notification from appearing
   // immediately after a completed share.
   base::OneShotTimer fast_initiation_scanner_cooldown_timer_;
+
+  // The duration of reminder timer. In production, this is 180 days.
+  // Can be shorten for testing efficiency purpose.
+  base::TimeDelta visibility_reminder_timer_delay_;
+
+  // Used to control when to show visibility reminder notification to users.
+  base::OneShotTimer visibility_reminder_timer_;
 
   // Available free disk space for testing. Using real disk space can introduce
   // flakiness in tests.

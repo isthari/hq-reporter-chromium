@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,13 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/sequence_checker.h"
+#include "base/values.h"
+#include "chrome/updater/updater_scope.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+
+#if BUILDFLAG(IS_WIN)
+#include <windows.h>
+#endif
 
 class PrefService;
 class PrefRegistrySimple;
@@ -18,7 +25,6 @@ class PrefRegistrySimple;
 namespace base {
 class FilePath;
 class Time;
-class Value;
 class Version;
 }  // namespace base
 
@@ -28,17 +34,12 @@ struct RegistrationRequest;
 
 // PersistedData uses the PrefService to persist updater data that outlives
 // the updater processes.
-//
-// This class has sequence affinity.
-//
-// A mechanism to remove apps or app versions from prefs is needed.
-// TODO(sorin): crbug.com/1056450
 class PersistedData : public base::RefCountedThreadSafe<PersistedData> {
  public:
   // Constructs a provider using the specified |pref_service|.
   // The associated preferences are assumed to already be registered.
   // The |pref_service| must outlive the instance of this class.
-  explicit PersistedData(PrefService* pref_service);
+  PersistedData(UpdaterScope scope, PrefService* pref_service);
   PersistedData(const PersistedData&) = delete;
   PersistedData& operator=(const PersistedData&) = delete;
 
@@ -68,8 +69,26 @@ class PersistedData : public base::RefCountedThreadSafe<PersistedData> {
   std::string GetAP(const std::string& id) const;
   void SetAP(const std::string& id, const std::string& ap);
 
-  // This function sets everything in the registration request object into the
-  // persistent data store.
+  // These functions get/set the client-regulated-counting data for the
+  // specified id. The functions are for app migration only.
+  // The getters return nullopt when the persisted data does not have the
+  // corresponding value, or any node subtype is not expected along the
+  // path to the target value.
+  absl::optional<int> GetDateLastActive(const std::string& id) const;
+  void SetDateLastActive(const std::string& id, int dla);
+  absl::optional<int> GetDateLastRollcall(const std::string& id) const;
+  void SetDateLastRollcall(const std::string& id, int dlrc);
+
+  // These functions access the cohort values for the specified id.
+  std::string GetCohort(const std::string& id) const;
+  void SetCohort(const std::string& id, const std::string& cohort);
+  std::string GetCohortName(const std::string& id) const;
+  void SetCohortName(const std::string& id, const std::string& cohort_name);
+  std::string GetCohortHint(const std::string& id) const;
+  void SetCohortHint(const std::string& id, const std::string& cohort_hint);
+
+  // This function sets any non-empty field in the registration request object
+  // into the persistent data store.
   void RegisterApp(const RegistrationRequest& rq);
 
   // This function removes a registered application from the persistent store.
@@ -83,6 +102,12 @@ class PersistedData : public base::RefCountedThreadSafe<PersistedData> {
   // than itself, and is never unset, even if the app is uninstalled.
   bool GetHadApps() const;
   void SetHadApps();
+
+  // UsageStatsEnabled reflects whether the updater as a whole is allowed to
+  // send usage stats, and is set or reset periodically based on the usage
+  // stats opt-in state of each product.
+  bool GetUsageStatsEnabled() const;
+  void SetUsageStatsEnabled(bool usage_stats_enabled);
 
   // LastChecked is set when the updater completed successfully a call to
   // `UpdateService::UpdateAll` as indicated by the `UpdateService::Result`
@@ -98,16 +123,28 @@ class PersistedData : public base::RefCountedThreadSafe<PersistedData> {
   base::Time GetLastStarted() const;
   void SetLastStarted(const base::Time& time);
 
+#if BUILDFLAG(IS_WIN)
+  // Retrieves the previously stored OS version.
+  absl::optional<OSVERSIONINFOEX> GetLastOSVersion() const;
+
+  // Stores the current os version.
+  void SetLastOSVersion();
+#endif
+
  private:
   friend class base::RefCountedThreadSafe<PersistedData>;
   ~PersistedData();
 
   // Returns nullptr if the app key does not exist.
-  const base::Value* GetAppKey(const std::string& id) const;
+  const base::Value::Dict* GetAppKey(const std::string& id) const;
 
   // Returns an existing or newly created app key under a root pref.
-  base::Value* GetOrCreateAppKey(const std::string& id, base::Value* root);
+  base::Value::Dict* GetOrCreateAppKey(const std::string& id,
+                                       base::Value::Dict& root);
 
+  absl::optional<int> GetInteger(const std::string& id,
+                                 const std::string& key) const;
+  void SetInteger(const std::string& id, const std::string& key, int value);
   std::string GetString(const std::string& id, const std::string& key) const;
   void SetString(const std::string& id,
                  const std::string& key,
@@ -115,7 +152,8 @@ class PersistedData : public base::RefCountedThreadSafe<PersistedData> {
 
   SEQUENCE_CHECKER(sequence_checker_);
 
-  raw_ptr<PrefService> pref_service_ = nullptr;  // Not owned by this class.
+  const UpdaterScope scope_;
+  raw_ptr<PrefService> pref_service_ = nullptr;
 };
 
 void RegisterPersistedDataPrefs(scoped_refptr<PrefRegistrySimple> registry);

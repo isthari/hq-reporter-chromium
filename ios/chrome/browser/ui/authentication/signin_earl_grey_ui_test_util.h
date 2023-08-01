@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 
 #import "ios/chrome/browser/ui/authentication/cells/signin_promo_view_constants.h"
 
-@class FakeChromeIdentity;
+@class FakeSystemIdentity;
 
 typedef NS_ENUM(NSInteger, SignOutConfirmationChoice) {
   SignOutConfirmationChoiceClearData,
@@ -21,18 +21,18 @@ typedef NS_ENUM(NSInteger, SignOutConfirmationChoice) {
 @interface SigninEarlGreyUI : NSObject
 
 // Calls +[SigninEarlGreyUI signinWithFakeIdentity:fakeIdentity enableSync:YES].
-+ (void)signinWithFakeIdentity:(FakeChromeIdentity*)fakeIdentity;
++ (void)signinWithFakeIdentity:(FakeSystemIdentity*)fakeIdentity;
 
-// Signs the account for |fakeIdentity| into Chrome through the Settings screen,
-// with sync enabled or not according to |enableSync|.
+// Signs the account for `fakeIdentity` into Chrome through the Settings screen,
+// with sync enabled or not according to `enableSync`.
 // There will be a GREYAssert if the tools menus is open when calling this
 // method or if the account is not successfully signed in.
-+ (void)signinWithFakeIdentity:(FakeChromeIdentity*)fakeIdentity
++ (void)signinWithFakeIdentity:(FakeSystemIdentity*)fakeIdentity
                     enableSync:(BOOL)enableSync;
 
 // Signs the primary account out of Chrome through the accounts list screen.
 // Taps the "Sign Out" button, and then validated the confirmation dialog
-// according to |confirmation|.
+// according to `confirmation`.
 + (void)signOutWithConfirmationChoice:(SignOutConfirmationChoice)confirmation;
 
 // Taps the sign in confirmation page, scrolls first to make the OK button
@@ -47,15 +47,15 @@ typedef NS_ENUM(NSInteger, SignOutConfirmationChoice) {
 // Opens the confirmation dialog to remove an account from the device, without
 // confirming it.
 + (void)openRemoveAccountConfirmationDialogWithFakeIdentity:
-    (FakeChromeIdentity*)fakeIdentity;
+    (FakeSystemIdentity*)fakeIdentity;
 
 // Opens MyGoogle UI from the account list settings.
-+ (void)openMyGoogleDialogWithFakeIdentity:(FakeChromeIdentity*)fakeIdentity;
++ (void)openMyGoogleDialogWithFakeIdentity:(FakeSystemIdentity*)fakeIdentity;
 
 // Taps "Remove from this device" button and follow-up confirmation.
 // Assumes the user is on the Settings screen.
 + (void)tapRemoveAccountFromDeviceWithFakeIdentity:
-    (FakeChromeIdentity*)fakeIdentity;
+    (FakeSystemIdentity*)fakeIdentity;
 
 // Opens the recent tabs and tap in the primary sign-in button.
 + (void)tapPrimarySignInButtonInRecentTabs;
@@ -68,7 +68,7 @@ typedef NS_ENUM(NSInteger, SignOutConfirmationChoice) {
 + (void)verifySigninPromoVisibleWithMode:(SigninPromoViewMode)mode;
 
 // Checks that the sign-in promo view is visible using the right mode. If
-// |closeButton| is set to YES, the close button in the sign-in promo has to be
+// `closeButton` is set to YES, the close button in the sign-in promo has to be
 // visible.
 + (void)verifySigninPromoVisibleWithMode:(SigninPromoViewMode)mode
                              closeButton:(BOOL)closeButton;
@@ -76,7 +76,7 @@ typedef NS_ENUM(NSInteger, SignOutConfirmationChoice) {
 // Checks that the sign-in promo view is not visible.
 + (void)verifySigninPromoNotVisible;
 
-// Checks that the web sign-in consistency sheet visibility matches |isVisible|.
+// Checks that the web sign-in consistency sheet visibility matches `isVisible`.
 + (void)verifyWebSigninIsVisible:(BOOL)isVisible;
 
 // Submits encryption passphrase, if the user is on the Encryption page.

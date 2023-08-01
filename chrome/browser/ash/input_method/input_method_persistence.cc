@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,6 @@
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/ash/login_screen_client_impl.h"
 #include "chrome/common/pref_names.h"
 #include "components/account_id/account_id.h"
@@ -22,8 +21,7 @@
 #include "components/user_manager/known_user.h"
 #include "ui/base/ime/ash/input_method_util.h"
 
-namespace ash {
-namespace input_method {
+namespace ash::input_method {
 namespace {
 
 void PersistSystemInputMethod(const std::string& input_method) {
@@ -48,8 +46,8 @@ static void SetUserLastInputMethodPreference(
     const std::string& input_method_id) {
   if (!account_id.is_valid())
     return;
-  user_manager::known_user::SetUserLastLoginInputMethodId(account_id,
-                                                          input_method_id);
+  user_manager::KnownUser known_user(g_browser_process->local_state());
+  known_user.SetUserLastLoginInputMethodId(account_id, input_method_id);
 }
 
 void PersistUserInputMethod(const std::string& input_method_id,
@@ -148,5 +146,4 @@ void SetUserLastInputMethodPreferenceForTesting(
   SetUserLastInputMethodPreference(account_id, input_method);
 }
 
-}  // namespace input_method
-}  // namespace ash
+}  // namespace ash::input_method

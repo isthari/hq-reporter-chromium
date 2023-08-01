@@ -1,13 +1,15 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/flying_indicator.h"
 
+#include "base/memory/ptr_util.h"
 #include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/themes/theme_properties.h"
+#include "chrome/browser/ui/color/chrome_color_id.h"
 #include "ui/accessibility/ax_enums.mojom-shared.h"
-#include "ui/base/theme_provider.h"
+#include "ui/color/color_provider.h"
 #include "ui/gfx/geometry/cubic_bezier.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
@@ -52,14 +54,12 @@ FlyingIndicator::FlyingIndicator(const gfx::VectorIcon& icon,
           target, views::BubbleBorder::Arrow::FLOAT,
           views::BubbleBorder::Shadow::STANDARD_SHADOW);
 
-  const ui::ThemeProvider* theme_provider = target_->GetThemeProvider();
-  const SkColor foreground_color =
-      theme_provider->GetColor(ThemeProperties::COLOR_TOOLBAR_BUTTON_ICON);
+  const auto* color_provider = target_->GetColorProvider();
   const SkColor background_color =
-      theme_provider->GetColor(ThemeProperties::COLOR_TOOLBAR);
+      color_provider->GetColor(kColorFlyingIndicatorBackground);
 
   // Set the bubble properties.
-  bubble_view->SetAccessibleRole(ax::mojom::Role::kNone);
+  bubble_view->SetAccessibleWindowRole(ax::mojom::Role::kNone);
   bubble_view->SetButtons(ui::DIALOG_BUTTON_NONE);
   bubble_view->set_margins(gfx::Insets());
   bubble_view->SetCanActivate(false);
@@ -74,8 +74,8 @@ FlyingIndicator::FlyingIndicator(const gfx::VectorIcon& icon,
   // Add the link icon.
   auto* const link_image =
       bubble_view->AddChildView(std::make_unique<views::ImageView>());
-  link_image->SetImage(
-      gfx::CreateVectorIcon(kWebIcon, kIconSize, foreground_color));
+  link_image->SetImage(ui::ImageModel::FromVectorIcon(
+      kWebIcon, kColorFlyingIndicatorForeground, kIconSize));
   link_image->SetPreferredSize(gfx::Size(kBubbleSize, kBubbleSize));
 
   // Use the default fill layout because there's only one child view.
@@ -159,7 +159,7 @@ void FlyingIndicator::AnimationProgressed(const gfx::Animation* animation) {
       widget_->SetOpacity(opacity);
       break;
     default:
-      NOTREACHED();
+      NOTREACHED_NORETURN();
   }
   gfx::Size bubble_size = bubble_size_;
   if (opacity < 1.0) {

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,7 @@
 namespace ash {
 
 ShelfLockingManager::ShelfLockingManager(Shelf* shelf)
-    : shelf_(shelf),
-      stored_alignment_(ShelfAlignment::kBottomLocked),
-      scoped_session_observer_(this) {
+    : shelf_(shelf), scoped_session_observer_(this) {
   DCHECK(shelf_);
   Shell::Get()->lock_state_controller()->AddObserver(this);
   SessionControllerImpl* controller = Shell::Get()->session_controller();
@@ -49,10 +47,12 @@ void ShelfLockingManager::OnLockStateEvent(EventType event) {
 void ShelfLockingManager::UpdateLockedState() {
   const ShelfAlignment alignment = shelf_->alignment();
   if (is_locked() && alignment != ShelfAlignment::kBottomLocked) {
-    stored_alignment_ = alignment;
+    in_session_auto_hide_behavior_ = shelf_->auto_hide_behavior();
+    in_session_alignment_ = alignment;
     shelf_->SetAlignment(ShelfAlignment::kBottomLocked);
   } else if (!is_locked() && alignment == ShelfAlignment::kBottomLocked) {
-    shelf_->SetAlignment(stored_alignment_);
+    in_session_auto_hide_behavior_ = ShelfAutoHideBehavior::kNever;
+    shelf_->SetAlignment(in_session_alignment_);
   }
 }
 

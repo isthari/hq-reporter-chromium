@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,8 +16,10 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
+#include "base/check.h"
+#include "base/check_op.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
@@ -361,9 +363,18 @@ bool JobFileUrlEqualPredicate(ComPtr<IBackgroundCopyJob> job, const GURL& url) {
 // Creates an instance of the BITS manager.
 HRESULT CreateBitsManager(ComPtr<IBackgroundCopyManager>* bits_manager) {
   ComPtr<IBackgroundCopyManager> local_bits_manager;
-  HRESULT hr =
-      ::CoCreateInstance(__uuidof(BackgroundCopyManager), nullptr, CLSCTX_ALL,
-                         IID_PPV_ARGS(&local_bits_manager));
+  HRESULT hr;
+  {
+    // CoCreateInstance may acquire the loader lock to load a library. Doing it
+    // at background priority can cause a priority inversion with the main
+    // thread, perceived as a hang by the user.
+    // SCOPED_MAY_LOAD_LIBRARY_AT_BACKGROUND_PRIORITY() mitigates this problem
+    // by boosting the thread's priority. See crbug.com/1295941.
+    SCOPED_MAY_LOAD_LIBRARY_AT_BACKGROUND_PRIORITY();
+    hr = ::CoCreateInstance(__uuidof(BackgroundCopyManager), nullptr,
+                            CLSCTX_ALL, IID_PPV_ARGS(&local_bits_manager));
+  }
+
   if (FAILED(hr)) {
     return hr;
   }
@@ -431,7 +442,7 @@ void BackgroundDownloader::DoStartDownload(const GURL& url) {
 
 // Called one time when this class is asked to do a download.
 void BackgroundDownloader::BeginDownload(const GURL& url) {
-  DCHECK(com_task_runner_->RunsTasksInCurrentSequence());
+  CHECK(com_task_runner_->RunsTasksInCurrentSequence());
 
   download_start_time_ = base::TimeTicks::Now();
   job_stuck_begin_time_ = download_start_time_;
@@ -478,7 +489,7 @@ HRESULT BackgroundDownloader::BeginDownloadHelper(const GURL& url) {
 
 // Called any time the timer fires.
 void BackgroundDownloader::OnDownloading() {
-  DCHECK(com_task_runner_->RunsTasksInCurrentSequence());
+  CHECK(com_task_runner_->RunsTasksInCurrentSequence());
 
   HRESULT hr = UpdateInterfacePointers();
   if (FAILED(hr)) {
@@ -542,7 +553,7 @@ void BackgroundDownloader::OnDownloading() {
 // Completes the BITS download, picks up the file path of the response, and
 // notifies the CrxDownloader. The function should be called only once.
 void BackgroundDownloader::EndDownload(HRESULT error) {
-  DCHECK(com_task_runner_->RunsTasksInCurrentSequence());
+  CHECK(com_task_runner_->RunsTasksInCurrentSequence());
 
   const base::TimeTicks download_end_time(base::TimeTicks::Now());
   const base::TimeDelta download_time =
@@ -565,8 +576,6 @@ void BackgroundDownloader::EndDownload(HRESULT error) {
       SUCCEEDED(error) || IsHttpServerError(GetHttpStatusFromBitsError(error));
 
   const int error_to_report = SUCCEEDED(error) ? 0 : error;
-
-  DCHECK(static_cast<bool>(error_to_report) == !base::PathExists(response_));
 
   DownloadMetrics download_metrics;
   download_metrics.url = url();
@@ -601,7 +610,7 @@ bool BackgroundDownloader::OnStateError() {
   if (FAILED(hr))
     error_code = hr;
 
-  DCHECK(FAILED(error_code));
+  CHECK(FAILED(error_code));
   EndDownload(error_code);
   return true;
 }
@@ -667,13 +676,10 @@ bool BackgroundDownloader::OnStateTransferring() {
 
 HRESULT BackgroundDownloader::QueueBitsJob(const GURL& url,
                                            ComPtr<IBackgroundCopyJob>* job) {
-  DCHECK(com_task_runner_->RunsTasksInCurrentSequence());
+  CHECK(com_task_runner_->RunsTasksInCurrentSequence());
 
   size_t num_jobs = std::numeric_limits<size_t>::max();
   HRESULT hr = GetBackgroundDownloaderJobCount(&num_jobs);
-
-  // The metric records a large number if the job count can't be read.
-  UMA_HISTOGRAM_COUNTS_100("UpdateClient.BackgroundDownloaderJobs", num_jobs);
 
   // Remove some old jobs from the BITS queue before creating new jobs.
   CleanupStaleJobs();
@@ -688,9 +694,6 @@ HRESULT BackgroundDownloader::QueueBitsJob(const GURL& url,
     CleanupJob(local_job);
     return hr;
   }
-
-  const bool is_new_job = hr == S_OK;
-  UMA_HISTOGRAM_BOOLEAN("UpdateClient.BackgroundDownloaderNewJob", is_new_job);
 
   hr = local_job->Resume();
   if (FAILED(hr)) {
@@ -793,11 +796,11 @@ HRESULT BackgroundDownloader::CompleteJob() {
   if (FAILED(hr))
     return hr;
 
-  // Sanity check the post-conditions of a successful download, including
-  // the file and job invariants. The byte counts for a job and its file
-  // must match as a job only contains one file.
-  DCHECK(progress.Completed);
-  DCHECK_EQ(progress.BytesTotal, progress.BytesTransferred);
+  // Check the post-conditions of a successful download, including the file and
+  // job invariants. The byte counts for a job and its file must match as a job
+  // only contains one file.
+  CHECK(progress.Completed);
+  CHECK_EQ(progress.BytesTotal, progress.BytesTransferred);
 
   response_ = base::FilePath(local_name);
 
@@ -805,7 +808,7 @@ HRESULT BackgroundDownloader::CompleteJob() {
 }
 
 HRESULT BackgroundDownloader::UpdateInterfacePointers() {
-  DCHECK(com_task_runner_->RunsTasksInCurrentSequence());
+  CHECK(com_task_runner_->RunsTasksInCurrentSequence());
 
   bits_manager_ = nullptr;
   job_ = nullptr;
@@ -833,7 +836,7 @@ void BackgroundDownloader::ResetInterfacePointers() {
 }
 
 HRESULT BackgroundDownloader::ClearGit() {
-  DCHECK(com_task_runner_->RunsTasksInCurrentSequence());
+  CHECK(com_task_runner_->RunsTasksInCurrentSequence());
 
   ResetInterfacePointers();
 
@@ -856,8 +859,8 @@ HRESULT BackgroundDownloader::ClearGit() {
 
 HRESULT BackgroundDownloader::GetBackgroundDownloaderJobCount(
     size_t* num_jobs) {
-  DCHECK(com_task_runner_->RunsTasksInCurrentSequence());
-  DCHECK(bits_manager_);
+  CHECK(com_task_runner_->RunsTasksInCurrentSequence());
+  CHECK(bits_manager_);
 
   std::vector<ComPtr<IBackgroundCopyJob>> jobs;
   const HRESULT hr =
@@ -871,8 +874,8 @@ HRESULT BackgroundDownloader::GetBackgroundDownloaderJobCount(
 }
 
 void BackgroundDownloader::CleanupStaleJobs() {
-  DCHECK(com_task_runner_->RunsTasksInCurrentSequence());
-  DCHECK(bits_manager_);
+  CHECK(com_task_runner_->RunsTasksInCurrentSequence());
+  CHECK(bits_manager_);
 
   static base::Time last_sweep;
 

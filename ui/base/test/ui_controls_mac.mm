@@ -1,20 +1,20 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ui/base/test/ui_controls.h"
 
 #import <Cocoa/Cocoa.h>
+
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #import "base/mac/foundation_util.h"
 #import "base/mac/scoped_objc_class_swizzler.h"
 #include "base/task/current_thread.h"
-#include "base/threading/thread_task_runner_handle.h"
-#include "ui/base/cocoa/cocoa_base_utils.h"
+#import "base/task/single_thread_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "ui/events/keycodes/keyboard_code_conversion_mac.h"
 #import "ui/events/test/cocoa_test_event_utils.h"
 #include "ui/gfx/geometry/point.h"
@@ -67,84 +67,88 @@ bool g_ui_controls_enabled = false;
 // Creates the proper sequence of autoreleased key events for a key down + up.
 void SynthesizeKeyEventsSequence(NSWindow* window,
                                  ui::KeyboardCode keycode,
-                                 bool control,
-                                 bool shift,
-                                 bool alt,
-                                 bool command,
+                                 int key_event_types,
+                                 int accelerator_state,
                                  std::vector<NSEvent*>* events) {
   NSEvent* event = nil;
   NSUInteger flags = 0;
-  if (control) {
-    flags |= NSControlKeyMask;
-    event = SynthesizeKeyEvent(window, true, ui::VKEY_CONTROL, flags);
-    DCHECK(event);
-    events->push_back(event);
-  }
-  if (shift) {
-    flags |= NSShiftKeyMask;
-    event = SynthesizeKeyEvent(window, true, ui::VKEY_SHIFT, flags);
-    DCHECK(event);
-    events->push_back(event);
-  }
-  if (alt) {
-    flags |= NSAlternateKeyMask;
-    event = SynthesizeKeyEvent(window, true, ui::VKEY_MENU, flags);
-    DCHECK(event);
-    events->push_back(event);
-  }
-  if (command) {
-    flags |= NSCommandKeyMask;
-    event = SynthesizeKeyEvent(window, true, ui::VKEY_COMMAND, flags);
+  if (key_event_types & ui_controls::kKeyPress) {
+    if (accelerator_state & ui_controls::kControl) {
+      flags |= NSEventModifierFlagControl;
+      event = SynthesizeKeyEvent(window, true, ui::VKEY_CONTROL, flags);
+      DCHECK(event);
+      events->push_back(event);
+    }
+    if (accelerator_state & ui_controls::kShift) {
+      flags |= NSEventModifierFlagShift;
+      event = SynthesizeKeyEvent(window, true, ui::VKEY_SHIFT, flags);
+      DCHECK(event);
+      events->push_back(event);
+    }
+    if (accelerator_state & ui_controls::kAlt) {
+      flags |= NSEventModifierFlagOption;
+      event = SynthesizeKeyEvent(window, true, ui::VKEY_MENU, flags);
+      DCHECK(event);
+      events->push_back(event);
+    }
+    if (accelerator_state & ui_controls::kCommand) {
+      flags |= NSEventModifierFlagCommand;
+      event = SynthesizeKeyEvent(window, true, ui::VKEY_COMMAND, flags);
+      DCHECK(event);
+      events->push_back(event);
+    }
+
+    event = SynthesizeKeyEvent(window, true, keycode, flags);
     DCHECK(event);
     events->push_back(event);
   }
 
-  event = SynthesizeKeyEvent(window, true, keycode, flags);
-  DCHECK(event);
-  events->push_back(event);
-  event = SynthesizeKeyEvent(window, false, keycode, flags);
-  DCHECK(event);
-  events->push_back(event);
+  if (key_event_types & ui_controls::kKeyRelease) {
+    event = SynthesizeKeyEvent(window, false, keycode, flags);
+    DCHECK(event);
+    events->push_back(event);
 
-  if (command) {
-    flags &= ~NSCommandKeyMask;
-    event = SynthesizeKeyEvent(window, false, ui::VKEY_COMMAND, flags);
-    DCHECK(event);
-    events->push_back(event);
-  }
-  if (alt) {
-    flags &= ~NSAlternateKeyMask;
-    event = SynthesizeKeyEvent(window, false, ui::VKEY_MENU, flags);
-    DCHECK(event);
-    events->push_back(event);
-  }
-  if (shift) {
-    flags &= ~NSShiftKeyMask;
-    event = SynthesizeKeyEvent(window, false, ui::VKEY_SHIFT, flags);
-    DCHECK(event);
-    events->push_back(event);
-  }
-  if (control) {
-    flags &= ~NSControlKeyMask;
-    event = SynthesizeKeyEvent(window, false, ui::VKEY_CONTROL, flags);
-    DCHECK(event);
-    events->push_back(event);
+    if (accelerator_state & ui_controls::kCommand) {
+      flags &= ~NSEventModifierFlagCommand;
+      event = SynthesizeKeyEvent(window, false, ui::VKEY_COMMAND, flags);
+      DCHECK(event);
+      events->push_back(event);
+    }
+    if (accelerator_state & ui_controls::kAlt) {
+      flags &= ~NSEventModifierFlagOption;
+      event = SynthesizeKeyEvent(window, false, ui::VKEY_MENU, flags);
+      DCHECK(event);
+      events->push_back(event);
+    }
+    if (accelerator_state & ui_controls::kShift) {
+      flags &= ~NSEventModifierFlagShift;
+      event = SynthesizeKeyEvent(window, false, ui::VKEY_SHIFT, flags);
+      DCHECK(event);
+      events->push_back(event);
+    }
+    if (accelerator_state & ui_controls::kControl) {
+      flags &= ~NSEventModifierFlagControl;
+      event = SynthesizeKeyEvent(window, false, ui::VKEY_CONTROL, flags);
+      DCHECK(event);
+      events->push_back(event);
+    }
   }
 }
 
 // A helper function to watch for the event queue. The specific task will be
 // fired when there is no more event in the queue.
 void EventQueueWatcher(base::OnceClosure task) {
-  NSEvent* event = [NSApp nextEventMatchingMask:NSAnyEventMask
+  NSEvent* event = [NSApp nextEventMatchingMask:NSEventMaskAny
                                       untilDate:nil
                                          inMode:NSDefaultRunLoopMode
                                         dequeue:NO];
   // If there is still event in the queue, then we need to check again.
   if (event) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&EventQueueWatcher, std::move(task)));
   } else {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, std::move(task));
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, std::move(task));
   }
 }
 
@@ -195,7 +199,7 @@ NSWindow* WindowAtCurrentMouseLocation() {
   NSUInteger result = 0;
   const int buttons[3] = {
       ui_controls::LEFT, ui_controls::RIGHT, ui_controls::MIDDLE};
-  for (size_t i = 0; i < base::size(buttons); ++i) {
+  for (size_t i = 0; i < std::size(buttons); ++i) {
     if (g_mouse_button_down[buttons[i]])
       result |= (1 << i);
   }
@@ -246,6 +250,8 @@ bool IsUIControlsEnabled() {
   return g_ui_controls_enabled;
 }
 
+void ResetUIControlsIfEnabled() {}
+
 bool SendKeyPress(gfx::NativeWindow window,
                   ui::KeyboardCode key,
                   bool control,
@@ -267,11 +273,31 @@ bool SendKeyPressNotifyWhenDone(gfx::NativeWindow window,
                                 bool command,
                                 base::OnceClosure task) {
   CHECK(g_ui_controls_enabled);
+  return SendKeyEventsNotifyWhenDone(
+      window, key, kKeyPress | kKeyRelease, std::move(task),
+      GenerateAcceleratorState(control, shift, alt, command));
+}
+
+bool SendKeyEvents(gfx::NativeWindow window,
+                   ui::KeyboardCode key,
+                   int key_event_types,
+                   int accelerator_state) {
+  CHECK(g_ui_controls_enabled);
+  return SendKeyEventsNotifyWhenDone(window, key, key_event_types,
+                                     base::OnceClosure(), accelerator_state);
+}
+
+bool SendKeyEventsNotifyWhenDone(gfx::NativeWindow window,
+                                 ui::KeyboardCode key,
+                                 int key_event_types,
+                                 base::OnceClosure task,
+                                 int accelerator_state) {
+  CHECK(g_ui_controls_enabled);
   DCHECK(base::CurrentUIThread::IsSet());
 
   std::vector<NSEvent*> events;
-  SynthesizeKeyEventsSequence(window.GetNativeNSWindow(), key, control, shift,
-                              alt, command, &events);
+  SynthesizeKeyEventsSequence(window.GetNativeNSWindow(), key, key_event_types,
+                              accelerator_state, &events);
 
   // TODO(suzhe): Using [NSApplication postEvent:atStart:] here causes
   // BrowserKeyEventsTest.CommandKeyEvents to fail. See http://crbug.com/49270
@@ -283,56 +309,61 @@ bool SendKeyPressNotifyWhenDone(gfx::NativeWindow window,
     [[NSApplication sharedApplication] sendEvent:*iter];
 
   if (!task.is_null()) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&EventQueueWatcher, std::move(task)));
   }
 
   return true;
 }
 
-bool SendMouseMove(int x, int y) {
+bool SendMouseMove(int x, int y, gfx::NativeWindow window_hint) {
   CHECK(g_ui_controls_enabled);
-  return SendMouseMoveNotifyWhenDone(x, y, base::OnceClosure());
+  return SendMouseMoveNotifyWhenDone(x, y, base::OnceClosure(), window_hint);
 }
 
-// Input position is in screen coordinates.  However, NSMouseMoved
+// Input position is in screen coordinates.  However, NSEventTypeMouseMoved
 // events require them window-relative, so we adjust.  We *DO* flip
 // the coordinate space, so input events can be the same for all
 // platforms.  E.g. (0,0) is upper-left.
-bool SendMouseMoveNotifyWhenDone(int x, int y, base::OnceClosure task) {
+bool SendMouseMoveNotifyWhenDone(int x,
+                                 int y,
+                                 base::OnceClosure task,
+                                 gfx::NativeWindow window_hint) {
   CHECK(g_ui_controls_enabled);
   g_mouse_location = gfx::ScreenPointToNSPoint(gfx::Point(x, y));  // flip!
 
-  NSWindow* window = WindowAtCurrentMouseLocation();
+  NSWindow* window = window_hint ? window_hint.GetNativeNSWindow()
+                                 : WindowAtCurrentMouseLocation();
 
   NSPoint pointInWindow = g_mouse_location;
-  if (window)
-    pointInWindow = ui::ConvertPointFromScreenToWindow(window, pointInWindow);
+  if (window) {
+    pointInWindow = [window convertPointFromScreen:pointInWindow];
+  }
   NSTimeInterval timestamp = TimeIntervalSinceSystemStartup();
 
-  NSEventType event_type = NSMouseMoved;
+  NSEventType event_type = NSEventTypeMouseMoved;
   if (g_mouse_button_down[LEFT]) {
-    event_type = NSLeftMouseDragged;
+    event_type = NSEventTypeLeftMouseDragged;
   } else if (g_mouse_button_down[RIGHT]) {
-    event_type = NSRightMouseDragged;
+    event_type = NSEventTypeRightMouseDragged;
   } else if (g_mouse_button_down[MIDDLE]) {
-    event_type = NSOtherMouseDragged;
+    event_type = NSEventTypeOtherMouseDragged;
   }
 
-  NSEvent* event =
-      [NSEvent mouseEventWithType:event_type
-                         location:pointInWindow
-                    modifierFlags:0
-                        timestamp:timestamp
-                     windowNumber:[window windowNumber]
-                          context:nil
-                      eventNumber:0
-                       clickCount:event_type == NSMouseMoved ? 0 : 1
-                         pressure:event_type == NSMouseMoved ? 0.0 : 1.0];
+  NSEvent* event = [NSEvent
+      mouseEventWithType:event_type
+                location:pointInWindow
+           modifierFlags:0
+               timestamp:timestamp
+            windowNumber:[window windowNumber]
+                 context:nil
+             eventNumber:0
+              clickCount:event_type == NSEventTypeMouseMoved ? 0 : 1
+                pressure:event_type == NSEventTypeMouseMoved ? 0.0 : 1.0];
   [[NSApplication sharedApplication] postEvent:event atStart:NO];
 
   if (!task.is_null()) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&EventQueueWatcher, std::move(task)));
   }
 
@@ -341,42 +372,44 @@ bool SendMouseMoveNotifyWhenDone(int x, int y, base::OnceClosure task) {
 
 bool SendMouseEvents(MouseButton type,
                      int button_state,
-                     int accelerator_state) {
+                     int accelerator_state,
+                     gfx::NativeWindow window_hint) {
   CHECK(g_ui_controls_enabled);
   return SendMouseEventsNotifyWhenDone(type, button_state, base::OnceClosure(),
-                                       accelerator_state);
+                                       accelerator_state, window_hint);
 }
 
 bool SendMouseEventsNotifyWhenDone(MouseButton type,
                                    int button_state,
                                    base::OnceClosure task,
-                                   int accelerator_state) {
+                                   int accelerator_state,
+                                   gfx::NativeWindow window_hint) {
   CHECK(g_ui_controls_enabled);
   // Handle the special case of mouse clicking (UP | DOWN) case.
   if (button_state == (UP | DOWN)) {
     return (SendMouseEventsNotifyWhenDone(type, DOWN, base::OnceClosure(),
-                                          accelerator_state) &&
+                                          accelerator_state, window_hint) &&
             SendMouseEventsNotifyWhenDone(type, UP, std::move(task),
-                                          accelerator_state));
+                                          accelerator_state, window_hint));
   }
-  NSEventType event_type = NSLeftMouseDown;
+  NSEventType event_type = NSEventTypeLeftMouseDown;
   if (type == LEFT) {
     if (button_state == UP) {
-      event_type = NSLeftMouseUp;
+      event_type = NSEventTypeLeftMouseUp;
     } else {
-      event_type = NSLeftMouseDown;
+      event_type = NSEventTypeLeftMouseDown;
     }
   } else if (type == MIDDLE) {
     if (button_state == UP) {
-      event_type = NSOtherMouseUp;
+      event_type = NSEventTypeOtherMouseUp;
     } else {
-      event_type = NSOtherMouseDown;
+      event_type = NSEventTypeOtherMouseDown;
     }
   } else if (type == RIGHT) {
     if (button_state == UP) {
-      event_type = NSRightMouseUp;
+      event_type = NSEventTypeRightMouseUp;
     } else {
-      event_type = NSRightMouseDown;
+      event_type = NSEventTypeRightMouseDown;
     }
   } else {
     NOTREACHED();
@@ -384,10 +417,13 @@ bool SendMouseEventsNotifyWhenDone(MouseButton type,
   }
   g_mouse_button_down[type] = button_state == DOWN;
 
-  NSWindow* window = WindowAtCurrentMouseLocation();
+  NSWindow* window = window_hint ? window_hint.GetNativeNSWindow()
+                                 : WindowAtCurrentMouseLocation();
+
   NSPoint pointInWindow = g_mouse_location;
-  if (window)
-    pointInWindow = ui::ConvertPointFromScreenToWindow(window, pointInWindow);
+  if (window) {
+    pointInWindow = [window convertPointFromScreen:pointInWindow];
+  }
 
   // Process the accelerator key state.
   NSEventModifierFlags modifier = 0;
@@ -413,16 +449,17 @@ bool SendMouseEventsNotifyWhenDone(MouseButton type,
   [[NSApplication sharedApplication] postEvent:event atStart:NO];
 
   if (!task.is_null()) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&EventQueueWatcher, std::move(task)));
   }
 
   return true;
 }
 
-bool SendMouseClick(MouseButton type) {
+bool SendMouseClick(MouseButton type, gfx::NativeWindow window_hint) {
   CHECK(g_ui_controls_enabled);
-  return SendMouseEventsNotifyWhenDone(type, UP | DOWN, base::OnceClosure());
+  return SendMouseEventsNotifyWhenDone(type, UP | DOWN, base::OnceClosure(),
+                                       kNoAccelerator, window_hint);
 }
 
 bool IsFullKeyboardAccessEnabled() {

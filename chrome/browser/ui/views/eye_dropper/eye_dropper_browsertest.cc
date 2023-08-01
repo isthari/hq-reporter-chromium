@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,7 @@
 #include "content/public/test/browser_test.h"
 #include "ui/display/display_switches.h"
 
+// TODO(crbug.com/1448244): enable this test on all supported platforms.
 #if BUILDFLAG(IS_WIN)
 #include "chrome/browser/ui/views/eye_dropper/eye_dropper_view.h"
 #endif
@@ -34,8 +35,10 @@ class EyeDropperBrowserTest : public UiBrowserTest,
   // UiBrowserTest:
   void ShowUi(const std::string& name) override {
 #if BUILDFLAG(IS_WIN)
-    content::RenderFrameHost* parent_frame =
-        browser()->tab_strip_model()->GetActiveWebContents()->GetMainFrame();
+    content::RenderFrameHost* parent_frame = browser()
+                                                 ->tab_strip_model()
+                                                 ->GetActiveWebContents()
+                                                 ->GetPrimaryMainFrame();
     eye_dropper_ = ShowEyeDropper(parent_frame, /*listener=*/nullptr);
 #endif
   }
@@ -50,7 +53,8 @@ class EyeDropperBrowserTest : public UiBrowserTest,
     auto* test_info = testing::UnitTest::GetInstance()->current_test_info();
     const std::string screenshot_name =
         base::StrCat({test_info->test_case_name(), "_", test_info->name()});
-    return VerifyPixelUi(widget, "EyeDropperBrowserTest", screenshot_name);
+    return VerifyPixelUi(widget, "EyeDropperBrowserTest", screenshot_name) !=
+           ui::test::ActionResult::kFailed;
 #else
     return true;
 #endif

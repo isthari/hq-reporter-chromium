@@ -1,10 +1,10 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "components/cronet/android/cronet_tests_jni_headers/MockUrlRequestJobFactory_jni.h"
 #include "components/cronet/android/test/cronet_test_util.h"
@@ -40,7 +40,7 @@ class UrlInterceptorJobFactoryHandle {
     DCHECK(
         TestUtil::GetTaskRunner(jcontext_adapter_)->BelongsToCurrentThread());
     TestUtil::GetURLRequestContext(jcontext_adapter_)
-        ->set_job_factory(old_job_factory_);
+        ->SetJobFactoryForTesting(old_job_factory_);  // IN-TEST
   }
 
   void ShutDown() {
@@ -58,7 +58,8 @@ class UrlInterceptorJobFactoryHandle {
     new_job_factory_.reset(new URLRequestInterceptingJobFactory(
         const_cast<net::URLRequestJobFactory*>(old_job_factory_.get()),
         net::URLRequestFilter::GetInstance()));
-    request_context->set_job_factory(new_job_factory_.get());
+    request_context->SetJobFactoryForTesting(  // IN-TEST
+        new_job_factory_.get());
   }
 
   void ShutdownOnNetworkThread() { delete this; }

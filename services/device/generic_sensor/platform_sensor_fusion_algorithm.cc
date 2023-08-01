@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,24 +11,12 @@ namespace device {
 
 PlatformSensorFusionAlgorithm::PlatformSensorFusionAlgorithm(
     mojom::SensorType fused_type,
-    const std::vector<mojom::SensorType>& source_types)
+    const base::flat_set<mojom::SensorType>& source_types)
     : fused_type_(fused_type), source_types_(source_types) {
   DCHECK(!source_types_.empty());
 }
 
 PlatformSensorFusionAlgorithm::~PlatformSensorFusionAlgorithm() = default;
-
-bool PlatformSensorFusionAlgorithm::IsReadingSignificantlyDifferent(
-    const SensorReading& reading1,
-    const SensorReading& reading2) {
-  for (size_t i = 0; i < SensorReadingRaw::kValuesCount; ++i) {
-    if (std::fabs(reading1.raw.values[i] - reading2.raw.values[i]) >=
-        threshold_) {
-      return true;
-    }
-  }
-  return false;
-}
 
 bool PlatformSensorFusionAlgorithm::GetFusedData(
     mojom::SensorType which_sensor_changed,

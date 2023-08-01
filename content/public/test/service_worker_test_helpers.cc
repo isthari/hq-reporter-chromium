@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,10 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/run_loop.h"
+#include "content/browser/service_worker/embedded_worker_status.h"
 #include "content/browser/service_worker/service_worker_context_core_observer.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -130,7 +131,7 @@ void StopServiceWorkerForScope(ServiceWorkerContext* context,
       static_cast<ServiceWorkerContextWrapper*>(context));
 
   context_wrapper->FindReadyRegistrationForScope(
-      scope, blink::StorageKey(url::Origin::Create(scope)),
+      scope, blink::StorageKey::CreateFirstParty(url::Origin::Create(scope)),
       base::BindOnce(&StopServiceWorkerForRegistration, context_wrapper,
                      std::move(completion_callback_ui)));
 }
@@ -144,9 +145,61 @@ void DispatchServiceWorkerNotificationClick(
       static_cast<ServiceWorkerContextWrapper*>(context));
 
   context_wrapper->FindReadyRegistrationForScope(
-      scope, blink::StorageKey(url::Origin::Create(scope)),
+      scope, blink::StorageKey::CreateFirstParty(url::Origin::Create(scope)),
       base::BindOnce(&DispatchNotificationClickForRegistration,
                      notification_data));
+}
+
+void AdvanceClockAfterRequestTimeout(ServiceWorkerContext* context,
+                                     int64_t service_worker_version_id,
+                                     base::SimpleTestTickClock* tick_clock) {
+  tick_clock->SetNowTicks(base::TimeTicks::Now());
+
+  ServiceWorkerVersion* service_worker_version =
+      static_cast<ServiceWorkerContextWrapper*>(context)->GetLiveVersion(
+          service_worker_version_id);
+  service_worker_version->SetTickClockForTesting(tick_clock);
+
+  base::TimeDelta timeout_beyond_request_timeout =
+      // Timeout for a request to be handled.
+      ServiceWorkerVersion::kRequestTimeout +
+      // A little past that.
+      base::Minutes(1);
+  tick_clock->Advance(timeout_beyond_request_timeout);
+}
+
+bool TriggerTimeoutAndCheckRunningState(ServiceWorkerContext* context,
+                                        int64_t service_worker_version_id) {
+  ServiceWorkerVersion* service_worker_version =
+      static_cast<ServiceWorkerContextWrapper*>(context)->GetLiveVersion(
+          service_worker_version_id);
+  service_worker_version->RunUserTasksForTesting();
+
+  // TODO(b/266799118): Investigate the need to call OnRequestTermination()
+  service_worker_version->OnRequestTermination();
+  return service_worker_version->running_status() ==
+         content::EmbeddedWorkerStatus::RUNNING;
+}
+
+bool CheckServiceWorkerIsRunning(ServiceWorkerContext* context,
+                                 int64_t service_worker_version_id) {
+  ServiceWorkerVersion* service_worker_version =
+      static_cast<ServiceWorkerContextWrapper*>(context)->GetLiveVersion(
+          service_worker_version_id);
+  if (!service_worker_version) {
+    return false;
+  }
+  return service_worker_version->running_status() ==
+         content::EmbeddedWorkerStatus::RUNNING;
+}
+
+void SetServiceWorkerIdleDelay(ServiceWorkerContext* context,
+                               int64_t service_worker_version_id,
+                               base::TimeDelta delta) {
+  ServiceWorkerVersion* service_worker_version =
+      static_cast<ServiceWorkerContextWrapper*>(context)->GetLiveVersion(
+          service_worker_version_id);
+  service_worker_version->endpoint()->SetIdleDelay(delta);
 }
 
 }  // namespace content

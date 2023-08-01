@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 #include <memory>
 #include <utility>
 
-#include "base/callback.h"
 #include "base/check.h"
+#include "base/functional/callback.h"
 #include "base/time/time.h"
 #include "base/types/pass_key.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -19,6 +19,7 @@
 #include "ui/compositor/layer_owner.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rounded_corners_f.h"
+#include "ui/gfx/interpolated_transform.h"
 #include "ui/views/animation/animation_builder.h"
 #include "ui/views/animation/animation_key.h"
 
@@ -29,38 +30,17 @@ using PassKey = base::PassKey<AnimationSequenceBlock>;
 AnimationSequenceBlock::AnimationSequenceBlock(
     base::PassKey<AnimationBuilder> builder_key,
     AnimationBuilder* owner,
-    base::TimeDelta start)
-    : builder_key_(builder_key), owner_(owner), start_(start) {}
-
-AnimationSequenceBlock::AnimationSequenceBlock(AnimationSequenceBlock&& other)
-    : builder_key_(std::move(other.builder_key_)),
-      owner_(other.owner_),
-      start_(std::move(other.start_)),
-      duration_(std::move(other.duration_)),
-      elements_(std::move(other.elements_)) {
-  DCHECK(!other.finalized_)
-      << "Do not access old blocks after creating new ones.";
-  other.finalized_ = true;
-}
-
-AnimationSequenceBlock& AnimationSequenceBlock::operator=(
-    AnimationSequenceBlock&& other) {
-  DCHECK(!other.finalized_)
-      << "Do not access old blocks after creating new ones.";
-  builder_key_ = std::move(other.builder_key_);
-  owner_ = other.owner_;
-  start_ = std::move(other.start_);
-  duration_ = std::move(other.duration_);
-  elements_ = std::move(other.elements_);
-  finalized_ = false;
-  other.finalized_ = true;
-  return *this;
-}
+    base::TimeDelta start,
+    bool repeating)
+    : builder_key_(builder_key),
+      owner_(owner),
+      start_(start),
+      repeating_(repeating) {}
 
 AnimationSequenceBlock::~AnimationSequenceBlock() {
   if (!finalized_) {
     TerminateBlock();
-    owner_->TerminateSequence(PassKey());
+    owner_->TerminateSequence(PassKey(), repeating_);
   }
 }
 
@@ -192,6 +172,21 @@ AnimationSequenceBlock& AnimationSequenceBlock::SetRoundedCorners(
   return SetRoundedCorners(target->layer(), rounded_corners, tween_type);
 }
 
+AnimationSequenceBlock& AnimationSequenceBlock::SetGradientMask(
+    ui::Layer* target,
+    const gfx::LinearGradient& gradient_mask,
+    gfx::Tween::Type tween_type) {
+  return AddAnimation({target, ui::LayerAnimationElement::GRADIENT_MASK},
+                      Element(gradient_mask, tween_type));
+}
+
+AnimationSequenceBlock& AnimationSequenceBlock::SetGradientMask(
+    ui::LayerOwner* target,
+    const gfx::LinearGradient& gradient_mask,
+    gfx::Tween::Type tween_type) {
+  return SetGradientMask(target->layer(), gradient_mask, tween_type);
+}
+
 AnimationSequenceBlock& AnimationSequenceBlock::SetVisibility(
     ui::Layer* target,
     bool visible,
@@ -207,20 +202,45 @@ AnimationSequenceBlock& AnimationSequenceBlock::SetVisibility(
   return SetVisibility(target->layer(), visible, tween_type);
 }
 
-AnimationSequenceBlock AnimationSequenceBlock::At(
+AnimationSequenceBlock& AnimationSequenceBlock::SetInterpolatedTransform(
+    ui::Layer* target,
+    std::unique_ptr<ui::InterpolatedTransform> interpolated_transform,
+    gfx::Tween::Type tween_type) {
+  return AddAnimation({target, ui::LayerAnimationElement::TRANSFORM},
+                      Element(std::move(interpolated_transform), tween_type));
+}
+
+AnimationSequenceBlock& AnimationSequenceBlock::SetInterpolatedTransform(
+    ui::LayerOwner* target,
+    std::unique_ptr<ui::InterpolatedTransform> interpolated_transform,
+    gfx::Tween::Type tween_type) {
+  return SetInterpolatedTransform(
+      target->layer(), std::move(interpolated_transform), tween_type);
+}
+
+AnimationSequenceBlock& AnimationSequenceBlock::At(
     base::TimeDelta since_sequence_start) {
+  // NOTE: at the end of this function, this object is destroyed.
+
   DCHECK(!finalized_) << "Do not access old blocks after creating new ones.";
   TerminateBlock();
   finalized_ = true;
-  return AnimationSequenceBlock(builder_key_, owner_, since_sequence_start);
+
+  // NOTE: `old_sequence` is actually the sequence block itself. Do not destruct
+  // this object until the function end.
+  auto old_sequence = owner_->SwapCurrentSequence(
+      PassKey(), std::make_unique<AnimationSequenceBlock>(
+                     builder_key_, owner_, since_sequence_start, repeating_));
+
+  return owner_->GetCurrentSequence();
 }
 
-AnimationSequenceBlock AnimationSequenceBlock::Offset(
+AnimationSequenceBlock& AnimationSequenceBlock::Offset(
     base::TimeDelta since_last_block_start) {
   return At(start_ + since_last_block_start);
 }
 
-AnimationSequenceBlock AnimationSequenceBlock::Then() {
+AnimationSequenceBlock& AnimationSequenceBlock::Then() {
   return Offset(duration_.value_or(base::TimeDelta()));
 }
 
@@ -248,9 +268,21 @@ void AnimationSequenceBlock::TerminateBlock() {
     std::unique_ptr<ui::LayerAnimationElement> element;
     switch (pair.first.property) {
       case ui::LayerAnimationElement::TRANSFORM:
-        element = ui::LayerAnimationElement::CreateTransformElement(
-            absl::get<gfx::Transform>(std::move(pair.second.animation_value_)),
-            duration);
+        if (absl::holds_alternative<std::unique_ptr<ui::InterpolatedTransform>>(
+                pair.second.animation_value_)) {
+          element =
+              ui::LayerAnimationElement::CreateInterpolatedTransformElement(
+                  absl::get<std::unique_ptr<ui::InterpolatedTransform>>(
+                      std::move(pair.second.animation_value_)),
+                  duration);
+        } else {
+          DCHECK(absl::holds_alternative<gfx::Transform>(
+              pair.second.animation_value_));
+          element = ui::LayerAnimationElement::CreateTransformElement(
+              absl::get<gfx::Transform>(
+                  std::move(pair.second.animation_value_)),
+              duration);
+        }
         break;
       case ui::LayerAnimationElement::BOUNDS:
         element = ui::LayerAnimationElement::CreateBoundsElement(
@@ -285,8 +317,13 @@ void AnimationSequenceBlock::TerminateBlock() {
             absl::get<gfx::RoundedCornersF>(pair.second.animation_value_),
             duration);
         break;
+      case ui::LayerAnimationElement::GRADIENT_MASK:
+        element = ui::LayerAnimationElement::CreateGradientMaskElement(
+            absl::get<gfx::LinearGradient>(pair.second.animation_value_),
+            duration);
+        break;
       default:
-        NOTREACHED();
+        NOTREACHED_NORETURN();
     }
     element->set_tween_type(pair.second.tween_type_);
     owner_->AddLayerAnimationElement(PassKey(), pair.first, start_, duration,

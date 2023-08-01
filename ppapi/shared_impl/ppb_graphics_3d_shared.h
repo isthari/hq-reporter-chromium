@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -68,7 +68,7 @@ class PPAPI_SHARED_EXPORT PPB_Graphics3D_Shared
   void SwapBuffersACK(int32_t pp_error);
 
  protected:
-  PPB_Graphics3D_Shared(PP_Instance instance);
+  explicit PPB_Graphics3D_Shared(PP_Instance instance);
   PPB_Graphics3D_Shared(const HostResource& host_resource,
                         const gfx::Size& size);
   ~PPB_Graphics3D_Shared() override;
@@ -77,6 +77,7 @@ class PPAPI_SHARED_EXPORT PPB_Graphics3D_Shared
   virtual gpu::GpuControl* GetGpuControl() = 0;
   virtual int32_t DoSwapBuffers(const gpu::SyncToken& sync_token,
                                 const gfx::Size& size) = 0;
+  virtual void DoResize(gfx::Size size) = 0;
 
   bool HasPendingSwap() const;
   bool CreateGLES2Impl(gpu::gles2::GLES2Implementation* share_gles2);

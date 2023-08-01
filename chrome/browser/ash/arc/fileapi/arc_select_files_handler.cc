@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "ash/components/arc/arc_util.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/json/string_escape.h"
 #include "base/logging.h"
 #include "base/strings/stringprintf.h"
@@ -20,6 +20,9 @@
 #include "chrome/browser/ash/file_manager/app_id.h"
 #include "chrome/browser/ash/file_manager/fileapi_util.h"
 #include "chrome/browser/ash/file_manager/path_util.h"
+#include "chrome/browser/ash/policy/dlp/dlp_files_controller_ash.h"
+#include "chrome/browser/chromeos/policy/dlp/dlp_file_destination.h"
+#include "chrome/browser/chromeos/policy/dlp/dlp_rules_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/ash/shelf/chrome_shelf_controller.h"
@@ -76,6 +79,8 @@ const char kScriptGetElements[] =
 
 namespace {
 
+constexpr char kRecentAllFakePath[] = "/.fake-entry/recent/all";
+
 void ConvertToElementVector(
     const base::Value* list_value,
     std::vector<mojom::FileSelectorElementPtr>* elements) {
@@ -94,9 +99,10 @@ void OnGetElementsScriptResults(
     base::Value value) {
   mojom::FileSelectorElementsPtr result = mojom::FileSelectorElements::New();
   if (value.is_dict()) {
-    ConvertToElementVector(value.FindKey("dirNames"),
+    ConvertToElementVector(value.GetDict().Find("dirNames"),
                            &result->directory_elements);
-    ConvertToElementVector(value.FindKey("fileNames"), &result->file_elements);
+    ConvertToElementVector(value.GetDict().Find("fileNames"),
+                           &result->file_elements);
     // TODO(niwa): Fill result->search_query.
   }
   std::move(callback).Run(std::move(result));
@@ -116,6 +122,7 @@ ui::SelectFileDialog::Type GetDialogType(
   switch (request->action_type) {
     case mojom::SelectFilesActionType::GET_CONTENT:
     case mojom::SelectFilesActionType::OPEN_DOCUMENT:
+    case mojom::SelectFilesActionType::OPEN_MEDIA_STORE_FILES:
       return request->allow_multiple
                  ? ui::SelectFileDialog::SELECT_OPEN_MULTI_FILE
                  : ui::SelectFileDialog::SELECT_OPEN_FILE;
@@ -130,11 +137,11 @@ ui::SelectFileDialog::Type GetDialogType(
 base::FilePath GetInitialFilePath(const mojom::SelectFilesRequestPtr& request) {
   const mojom::DocumentPathPtr& document_path = request->initial_document_path;
   if (!document_path)
-    return base::FilePath();
+    return base::FilePath(kRecentAllFakePath);
 
   if (document_path->path.empty()) {
     LOG(ERROR) << "path should at least contain root Document ID.";
-    return base::FilePath();
+    return base::FilePath(kRecentAllFakePath);
   }
 
   const std::string& root_document_id = document_path->path[0];
@@ -147,16 +154,16 @@ void BuildFileTypeInfo(const mojom::SelectFilesRequestPtr& request,
                        ui::SelectFileDialog::FileTypeInfo* file_type_info) {
   file_type_info->allowed_paths = ui::SelectFileDialog::FileTypeInfo::ANY_PATH;
   for (const std::string& mime_type : request->mime_types) {
-    std::vector<base::FilePath::StringType> extensions;
-    net::GetExtensionsForMimeType(mime_type, &extensions);
+    const std::vector<base::FilePath::StringType> extensions =
+        GetExtensionsForArcMimeType(mime_type);
     if (!extensions.empty()) {
       file_type_info->extensions.push_back(extensions);
     }
 
-    // Enable "Select from all files" option if GetExtensionsForMimeType
+    // Enable "Select from all files" option if GetExtensionsForArcMimeType
     // can't find any matching extensions or specified MIME type contains an
-    // asterisk. This is because some extensions used in Android (e.g. .DNG) are
-    // not covered by GetExtensionsForMimeType. (crbug.com/1034874)
+    // asterisk. This is to support extensions that are not covered by
+    // GetExtensionsForArcMimeType. (crbug.com/1034874)
     if (extensions.empty() ||
         base::EndsWith(mime_type, "/*", base::CompareCase::SENSITIVE)) {
       file_type_info->include_all_files = true;
@@ -257,9 +264,15 @@ void ArcSelectFilesHandler::SelectFiles(
   bool show_android_picker_apps =
       request->action_type == mojom::SelectFilesActionType::GET_CONTENT;
 
+  // In OPEN_MEDIA_STORE_FILES mode, only show volumes indexed in Android's
+  // MediaStore.
+  bool use_media_store_filter =
+      request->action_type ==
+      mojom::SelectFilesActionType::OPEN_MEDIA_STORE_FILES;
+
   bool success = dialog_holder_->SelectFile(
       dialog_type, default_path, &file_type_info, request->task_id,
-      search_query, show_android_picker_apps);
+      search_query, show_android_picker_apps, use_media_store_filter);
   if (!success) {
     std::move(callback_).Run(mojom::SelectFilesResult::New());
   }
@@ -383,7 +396,8 @@ bool SelectFileDialogHolder::SelectFile(
     const ui::SelectFileDialog::FileTypeInfo* file_types,
     int task_id,
     const std::string& search_query,
-    bool show_android_picker_apps) {
+    bool show_android_picker_apps,
+    bool use_media_store_filter) {
   aura::Window* owner_window = nullptr;
   for (auto* window : ChromeShelfController::instance()->GetArcWindows()) {
     if (arc::GetWindowTaskId(window) == task_id) {
@@ -396,22 +410,25 @@ bool SelectFileDialogHolder::SelectFile(
     return false;
   }
 
-  // TODO(niwa): Pass search query as well.
   SelectFileDialogExtension::Owner owner;
   owner.window = owner_window;
   owner.android_task_id = task_id;
+  owner.dialog_caller =
+      policy::DlpFileDestination(data_controls::Component::kArc);
   select_file_dialog_->SelectFileWithFileManagerParams(
       type,
       /*title=*/std::u16string(), default_path, file_types,
       /*file_type_index=*/0,
-      /*params=*/nullptr, owner, search_query, show_android_picker_apps);
+      /*params=*/nullptr, owner, search_query, show_android_picker_apps,
+      use_media_store_filter);
   return true;
 }
 
 void SelectFileDialogHolder::ExecuteJavaScript(
     const std::string& script,
     content::RenderFrameHost::JavaScriptResultCallback callback) {
-  content::RenderFrameHost* frame_host = select_file_dialog_->GetMainFrame();
+  content::RenderFrameHost* frame_host =
+      select_file_dialog_->GetPrimaryMainFrame();
 
   if (!frame_host || !frame_host->IsRenderFrameLive()) {
     LOG(ERROR) << "Can't execute a script. SelectFileDialog is not ready.";

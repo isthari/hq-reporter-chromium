@@ -1,10 +1,11 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "remoting/host/chromeos/host_event_reporter_impl.h"
 
 #include "base/memory/ptr_util.h"
+#include "base/memory/raw_ptr.h"
 #include "base/test/repeating_test_future.h"
 #include "chrome/browser/policy/messaging_layer/proto/synced/crd_event.pb.h"
 #include "remoting/protocol/transport.h"
@@ -45,15 +46,15 @@ class HostEventReporterTest : public ::testing::Test {
   HostEventReporterTest()
       : delegate_(new TestHostEventReporterDelegate()),
         monitor_(new HostStatusMonitor()),
-        reporter_(monitor_, base::WrapUnique(delegate_)) {}
+        reporter_(monitor_, base::WrapUnique(delegate_.get())) {}
 
-  TestHostEventReporterDelegate* const delegate_;
+  const raw_ptr<TestHostEventReporterDelegate, ExperimentalAsh> delegate_;
   scoped_refptr<HostStatusMonitor> monitor_;
   HostEventReporterImpl reporter_;
 };
 
 TEST_F(HostEventReporterTest, ReportConnectedAndDisconnected) {
-  reporter_.OnStart(kHostUser);
+  reporter_.OnHostStarted(kHostUser);
   reporter_.OnClientConnected(kHostIp);
 
   protocol::TransportRoute route;
@@ -63,7 +64,7 @@ TEST_F(HostEventReporterTest, ReportConnectedAndDisconnected) {
 
   reporter_.OnClientRouteChange(kSessionId, "", route);
   reporter_.OnClientDisconnected(kSessionId);
-  reporter_.OnShutdown();
+  reporter_.OnHostShutdown();
 
   auto received = delegate_->WaitForEvent();
   EXPECT_THAT(received.host_user().user_email(), StrEq(kHostUser));

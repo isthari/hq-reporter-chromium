@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,28 +14,28 @@
 
 #include "ash/components/arc/arc_features.h"
 #include "ash/components/arc/arc_util.h"
-#include "ash/components/arc/enterprise/arc_data_snapshotd_manager.h"
 #include "ash/components/arc/session/arc_bridge_host_impl.h"
-#include "ash/components/cryptohome/cryptohome_parameters.h"
 #include "ash/constants/ash_features.h"
 #include "ash/constants/ash_switches.h"
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
-#include "base/cxx17_backports.h"
+#include "base/feature_list.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
+#include "base/memory/raw_ptr.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/process/process_metrics.h"
 #include "base/rand_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/system/sys_info.h"
-#include "base/task/post_task.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/thread_restrictions.h"
-#include "chromeos/memory/memory.h"
-#include "chromeos/system/scheduler_configuration_manager_base.h"
+#include "chromeos/ash/components/cryptohome/cryptohome_parameters.h"
+#include "chromeos/ash/components/dbus/spaced/spaced_client.h"
+#include "chromeos/ash/components/memory/memory.h"
+#include "chromeos/ash/components/system/scheduler_configuration_manager_base.h"
 #include "components/user_manager/user_manager.h"
 #include "components/version_info/channel.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
@@ -75,7 +75,7 @@ bool WaitForSocketReadable(int raw_socket_fd, int raw_cancel_fd) {
       {raw_cancel_fd, POLLIN, 0},
   };
 
-  if (HANDLE_EINTR(poll(fds, base::size(fds), -1)) <= 0) {
+  if (HANDLE_EINTR(poll(fds, std::size(fds), -1)) <= 0) {
     PLOG(ERROR) << "poll()";
     return false;
   }
@@ -123,39 +123,6 @@ void ApplyDalvikMemoryProfile(
           << (mem_info.total / 1024) << "Mb device.";
 }
 
-// Applies USAP profile to the ARC mini instance start params.
-// Profile is determined based on enable feature and available memory on the
-// device. Possible profiles 16G,8G and 4G. For low memory devices USAP
-// profile is not overridden. If |memory_stat_file_for_testing| is set,
-// it specifies the file to read in tests instead of /proc/meminfo in
-// production.
-// Note: This is only used for VM. This profile does nothing for container.
-void ApplyUsapProfile(
-    ArcSessionImpl::SystemMemoryInfoCallback system_memory_info_callback,
-    StartParams* params) {
-  // Check if enabled.
-  if (!base::FeatureList::IsEnabled(arc::kEnableUsap)) {
-    VLOG(1) << "USAP profile is not enabled.";
-    return;
-  }
-
-  base::SystemMemoryInfoKB mem_info;
-  if (!system_memory_info_callback.Run(&mem_info)) {
-    LOG(ERROR) << "Failed to get system memory info";
-    return;
-  }
-
-  if (mem_info.total >= kClassify16GbDeviceInKb) {
-    params->usap_profile = StartParams::UsapProfile::M16G;
-  } else if (mem_info.total >= kClassify8GbDeviceInKb) {
-    params->usap_profile = StartParams::UsapProfile::M8G;
-  } else if (mem_info.total >= kClassify4GbDeviceInKb) {
-    params->usap_profile = StartParams::UsapProfile::M4G;
-  } else {
-    params->usap_profile = StartParams::UsapProfile::DEFAULT;
-  }
-}
-
 void ApplyDisableDownloadProvider(StartParams* params) {
   params->disable_download_provider =
       base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -163,7 +130,13 @@ void ApplyDisableDownloadProvider(StartParams* params) {
 }
 
 void ApplyDisableUreadahed(StartParams* params) {
-  params->disable_ureadahead = IsUreadaheadDisabled();
+  // Host ureadahead generation implies disabling ureadahead.
+  params->disable_ureadahead =
+      IsUreadaheadDisabled() || IsHostUreadaheadGeneration();
+}
+
+void ApplyHostUreadahedGeneration(StartParams* params) {
+  params->host_ureadahead_generation = IsHostUreadaheadGeneration();
 }
 
 // Real Delegate implementation to connect Mojo.
@@ -204,7 +177,7 @@ class ArcSessionDelegateImpl : public ArcSessionImpl::Delegate {
                        mojo::ScopedMessagePipeHandle server_pipe);
 
   // Owned by ArcServiceManager.
-  ArcBridgeService* const arc_bridge_service_;
+  const raw_ptr<ArcBridgeService, ExperimentalAsh> arc_bridge_service_;
 
   const version_info::Channel channel_;
 
@@ -250,11 +223,8 @@ base::ScopedFD ArcSessionDelegateImpl::ConnectMojo(
 
 void ArcSessionDelegateImpl::GetFreeDiskSpace(
     GetFreeDiskSpaceCallback callback) {
-  base::ThreadPool::PostTaskAndReplyWithResult(
-      FROM_HERE, {base::MayBlock()},
-      base::BindOnce(&base::SysInfo::AmountOfFreeDiskSpace,
-                     base::FilePath("/home")),
-      std::move(callback));
+  ash::SpacedClient::Get()->GetFreeDiskSpace("/home/chronos/user",
+                                             std::move(callback));
 }
 
 version_info::Channel ArcSessionDelegateImpl::GetChannel() {
@@ -409,8 +379,7 @@ std::unique_ptr<ArcSessionImpl::Delegate> ArcSessionImpl::CreateDelegate(
 
 ArcSessionImpl::ArcSessionImpl(
     std::unique_ptr<Delegate> delegate,
-    chromeos::SchedulerConfigurationManagerBase*
-        scheduler_configuration_manager,
+    ash::SchedulerConfigurationManagerBase* scheduler_configuration_manager,
     AdbSideloadingAvailabilityDelegate* adb_sideloading_availability_delegate)
     : delegate_(std::move(delegate)),
       client_(delegate_->CreateClient()),
@@ -463,8 +432,16 @@ void ArcSessionImpl::DoStartMiniInstance(size_t num_cores_disabled) {
           arc::kKeyboardShortcutHelperIntegrationFeature);
   params.lcd_density = lcd_density_;
   params.num_cores_disabled = num_cores_disabled;
-  params.enable_notifications_refresh =
-      ash::features::IsNotificationsRefreshEnabled();
+  // TODO(b/278121256): Remove pre-NotificationsRefresh code from ARC.
+  params.enable_notifications_refresh = true;
+  params.enable_tts_caching = true;
+  params.enable_consumer_auto_update_toggle = base::FeatureList::IsEnabled(
+      ash::features::kConsumerAutoUpdateToggleAllowed);
+  params.enable_privacy_hub_for_chrome =
+      base::FeatureList::IsEnabled(ash::features::kCrosPrivacyHub);
+  params.arc_switch_to_keymint =
+      base::FeatureList::IsEnabled(kSwitchToKeyMintOnT);
+  params.use_virtio_blk_data = use_virtio_blk_data_;
 
   // TODO (b/196460968): Remove after CTS run is complete.
   if (params.enable_notifications_refresh) {
@@ -490,12 +467,6 @@ void ArcSessionImpl::DoStartMiniInstance(size_t num_cores_disabled) {
     }
   }
 
-  params.arc_disable_system_default_app =
-      base::CommandLine::ForCurrentProcess()->HasSwitch(
-          ash::switches::kArcDisableSystemDefaultApps);
-  if (params.arc_disable_system_default_app)
-    VLOG(1) << "System default app(s) are disabled";
-
   params.disable_media_store_maintenance =
       base::CommandLine::ForCurrentProcess()->HasSwitch(
           ash::switches::kArcDisableMediaStoreMaintenance);
@@ -511,9 +482,9 @@ void ArcSessionImpl::DoStartMiniInstance(size_t num_cores_disabled) {
           << ", num_cores_disabled=" << params.num_cores_disabled;
 
   ApplyDalvikMemoryProfile(system_memory_info_callback_, &params);
-  ApplyUsapProfile(system_memory_info_callback_, &params);
   ApplyDisableDownloadProvider(&params);
   ApplyDisableUreadahed(&params);
+  ApplyHostUreadahedGeneration(&params);
 
   client_->StartMiniArc(std::move(params),
                         base::BindOnce(&ArcSessionImpl::OnMiniInstanceStarted,
@@ -591,13 +562,13 @@ void ArcSessionImpl::DoUpgrade() {
                                              weak_factory_.GetWeakPtr()));
 }
 
-void ArcSessionImpl::OnFreeDiskSpace(int64_t space) {
+void ArcSessionImpl::OnFreeDiskSpace(absl::optional<int64_t> space) {
   // Ensure there's sufficient space on disk for the container.
-  if (space == -1) {
+  if (!space.has_value()) {
     LOG(ERROR) << "Could not determine free disk space";
     StopArcInstance(/*on_shutdown=*/false, /*should_backup_log=*/false);
     return;
-  } else if (space < kMinimumFreeDiskSpaceBytes) {
+  } else if (space.value() < kMinimumFreeDiskSpaceBytes) {
     VLOG(1) << "There is not enough disk space to start the ARC container";
     insufficient_disk_space_ = true;
     StopArcInstance(/*on_shutdown=*/false, /*should_backup_log=*/false);
@@ -635,23 +606,7 @@ void ArcSessionImpl::OnSocketCreated(base::ScopedFD socket_fd) {
     return;
   }
 
-  VLOG(2) << "Socket is created. Start loading ARC data snapshot";
-  StartLoadingDataSnapshot(base::BindOnce(&ArcSessionImpl::OnDataSnapshotLoaded,
-                                          weak_factory_.GetWeakPtr(),
-                                          std::move(socket_fd)));
-}
-
-void ArcSessionImpl::StartLoadingDataSnapshot(base::OnceClosure callback) {
-  auto* arc_data_snapshotd_manager =
-      arc::data_snapshotd::ArcDataSnapshotdManager::Get();
-  if (arc_data_snapshotd_manager)
-    arc_data_snapshotd_manager->StartLoadingSnapshot(std::move(callback));
-  else
-    std::move(callback).Run();
-}
-
-void ArcSessionImpl::OnDataSnapshotLoaded(base::ScopedFD socket_fd) {
-  VLOG(2) << "Starting ARC container";
+  VLOG(2) << "Socket is created. Starting ARC container";
   client_->UpgradeArc(
       std::move(upgrade_params_),
       base::BindOnce(&ArcSessionImpl::OnUpgraded, weak_factory_.GetWeakPtr(),
@@ -712,7 +667,7 @@ void ArcSessionImpl::OnMojoConnected(
   state_ = State::RUNNING_FULL_INSTANCE;
 
   // Some memory parameters may be changed when ARC is launched.
-  chromeos::UpdateMemoryParameters();
+  ash::UpdateMemoryParameters(arc::IsArcAvailable());
 }
 
 void ArcSessionImpl::Stop() {
@@ -877,14 +832,19 @@ void ArcSessionImpl::SetDemoModeDelegate(
   client_->SetDemoModeDelegate(delegate);
 }
 
-void ArcSessionImpl::TrimVmMemory(TrimVmMemoryCallback callback) {
+void ArcSessionImpl::TrimVmMemory(TrimVmMemoryCallback callback,
+                                  int page_limit) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  client_->TrimVmMemory(std::move(callback));
+  client_->TrimVmMemory(std::move(callback), page_limit);
 }
 
 void ArcSessionImpl::SetDefaultDeviceScaleFactor(float scale_factor) {
   lcd_density_ = GetLcdDensityForDeviceScaleFactor(scale_factor);
   DCHECK_GT(lcd_density_, 0);
+}
+
+void ArcSessionImpl::SetUseVirtioBlkData(bool use_virtio_blk_data) {
+  use_virtio_blk_data_ = use_virtio_blk_data;
 }
 
 void ArcSessionImpl::OnConfigurationSet(bool success,

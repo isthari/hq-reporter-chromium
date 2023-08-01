@@ -1,4 +1,4 @@
-# Copyright 2021 The Chromium Authors. All rights reserved.
+# Copyright 2021 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -8,15 +8,20 @@ source_set("sync") {
   sources = [
     "safe_browsing_primary_account_token_fetcher.cc",
     "safe_browsing_primary_account_token_fetcher.h",
+    "safe_browsing_sync_observer_impl.cc",
+    "safe_browsing_sync_observer_impl.h",
     "sync_utils.cc",
     "sync_utils.h",
   ]
 
+  configs += [ "//build/config/compiler:wexit_time_destructors" ]
+
   deps = [
     "//base",
+    "//components/safe_browsing/core/browser:sync_observer",
     "//components/safe_browsing/core/browser:token_fetcher",
     "//components/signin/public/identity_manager",
-    "//components/sync/driver",
+    "//components/sync/service",
     "//google_apis",
   ]
 }
@@ -25,6 +30,7 @@ source_set("unittests") {
   testonly = true
   sources = [
     "safe_browsing_primary_account_token_fetcher_unittest.cc",
+    "safe_browsing_sync_observer_impl_unittest.cc",
     "sync_utils_unittest.cc",
   ]
 
@@ -33,7 +39,7 @@ source_set("unittests") {
     "//base/test:test_support",
     "//components/safe_browsing/core/browser:token_fetcher",
     "//components/signin/public/identity_manager:test_support",
-    "//components/sync/driver:test_support",
+    "//components/sync:test_support",
     "//testing/gtest",
   ]
 }

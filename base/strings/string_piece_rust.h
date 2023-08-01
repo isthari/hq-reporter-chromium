@@ -1,14 +1,18 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef BASE_STRINGS_STRING_PIECE_RUST_H_
 #define BASE_STRINGS_STRING_PIECE_RUST_H_
 
+#include "base/rust_buildflags.h"
+
+#if BUILDFLAG(BUILD_RUST_BASE_CONVERSIONS)
+
 #include <stdint.h>
 
 #include "base/strings/string_piece.h"
-#include "third_party/rust/cxx/v1/crate/include/cxx.h"
+#include "third_party/rust/cxx/v1/crate/include/cxx.h"  // nogncheck
 
 namespace base {
 
@@ -34,5 +38,7 @@ inline StringPiece RustStrToStringPiece(rust::Str str) {
 }
 
 }  // namespace base
+
+#endif  // BUILDFLAG(BUILD_RUST_BASE_CONVERSIONS)
 
 #endif  // BASE_STRINGS_STRING_PIECE_RUST_H_

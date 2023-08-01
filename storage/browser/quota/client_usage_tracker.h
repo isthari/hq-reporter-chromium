@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/sequence_checker.h"
 #include "components/services/storage/public/cpp/buckets/bucket_locator.h"
@@ -80,13 +80,10 @@ class ClientUsageTracker : public SpecialStoragePolicy::Observer {
   // Accumulates all cached usage to determine storage pressure.
   int64_t GetCachedUsage() const;
 
-  // Returns cached usage organized by host. Expected to be called after
-  // GetGlobalUsage which retrieves and caches host usage.
-  std::map<std::string, int64_t> GetCachedHostsUsage() const;
-
-  // Returns cached usage organized by StorageKey. Used for histogram recording.
-  // TODO(ayui): Update to return bucket usage map.
-  std::map<blink::StorageKey, int64_t> GetCachedStorageKeysUsage() const;
+  // Returns cached usage organized by bucket. Used for histogram recording and
+  // eviction. Expected to be called after GetGlobalUsage which retrieves and
+  // caches usage.
+  const std::map<BucketLocator, int64_t>& GetCachedBucketsUsage() const;
 
   // Sets if a `storage_key` for `client_` should / should not be excluded from
   // quota restrictions.

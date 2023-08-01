@@ -1,13 +1,15 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.tabmodel;
 
+import static androidx.test.espresso.matcher.ViewMatchers.assertThat;
+
 import android.app.Activity;
-import android.support.test.InstrumentationRegistry;
 
 import androidx.test.filters.MediumTest;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.hamcrest.Matchers;
 import org.junit.After;
@@ -97,12 +99,13 @@ public class TabbedModeTabPersistencePolicyTest {
                 new MockTabModel.MockTabModelDelegate() {
                     @Override
                     public Tab createTab(int id, boolean incognito) {
-                        Tab tab = new MockTab(id, incognito) {
+                        MockTab tab = new MockTab(id, incognito) {
                             @Override
                             public GURL getUrl() {
                                 return new GURL("https://www.google.com");
                             }
                         };
+                        tab.initialize(null, null, null, null, null, false, null, false);
                         return tab;
                     }
                 };
@@ -178,7 +181,7 @@ public class TabbedModeTabPersistencePolicyTest {
         final CallbackHelper callbackSignal = new CallbackHelper();
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             policy.cleanupInstanceState(id, (result) -> {
-                Assert.assertThat(result,
+                assertThat(result,
                         Matchers.containsInAnyOrder(
                                 TabStateFileManager.getTabStateFilename(4, false),
                                 TabStateFileManager.getTabStateFilename(12, true),

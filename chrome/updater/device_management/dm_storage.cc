@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,19 +10,17 @@
 #include <utility>
 
 #include "base/base64.h"
+#include "base/check.h"
 #include "base/files/file_enumerator.h"
+#include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/important_file_writer.h"
-#include "base/notreached.h"
-#include "base/strings/sys_string_conversions.h"
+#include "base/files/scoped_temp_dir.h"
 #include "build/build_config.h"
 #include "chrome/updater/device_management/dm_cached_policy_info.h"
 #include "chrome/updater/device_management/dm_message.h"
 #include "chrome/updater/protos/omaha_settings.pb.h"
-#include "chrome/updater/updater_scope.h"
-#include "chrome/updater/util.h"
 #include "components/policy/proto/device_management_backend.pb.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace updater {
 
@@ -43,9 +41,6 @@ constexpr char kPolicyInfoFileName[] = "CachedPolicyInfo";
 // {policy_type} that it receives from the DMServer.
 constexpr char kPolicyFileName[] = "PolicyFetchResponse";
 
-// Policy subfolder in the updater installation path.
-constexpr char kPolicyCacheSubfolder[] = "Policies";
-
 // Deletes the child directories in cache root if they do not appear in
 // set |policy_types_base64|.
 bool DeleteObsoletePolicies(const base::FilePath& cache_root,
@@ -58,40 +53,54 @@ bool DeleteObsoletePolicies(const base::FilePath& cache_root,
   for (base::FilePath file = cached_files.Next(); !file.empty();
        file = cached_files.Next()) {
     const std::string file_base_name = file.BaseName().MaybeAsASCII();
-    if (policy_types_base64.count(file_base_name))
+    if (policy_types_base64.count(file_base_name)) {
       continue;
+    }
 
-    if (!base::DeletePathRecursively(file))
+    if (!base::DeletePathRecursively(file)) {
       result = false;
+    }
   }
 
   return result;
 }
 
-}  // namespace
-
-#if BUILDFLAG(IS_LINUX)
-// crbug.com/1276162 - implement.
-DMStorage::DMStorage(const base::FilePath& policy_cache_root)
-    : policy_cache_root_(policy_cache_root) {
-  NOTIMPLEMENTED();
+bool MakePathGlobalAccessible(const base::FilePath& path) {
+#if BUILDFLAG(IS_POSIX)
+  return base::SetPosixFilePermissions(
+      path, base::FILE_PERMISSION_USER_MASK |
+                base::FILE_PERMISSION_READ_BY_GROUP |
+                base::FILE_PERMISSION_EXECUTE_BY_GROUP |
+                base::FILE_PERMISSION_READ_BY_OTHERS |
+                base::FILE_PERMISSION_EXECUTE_BY_OTHERS);
+#else
+  // Use system default permission for that path.
+  return true;
+#endif  // BUILDFLAG(IS_POSIX)
 }
-#endif  // BUILDFLAG(IS_LINUX)
+
+}  // namespace
 
 DMStorage::DMStorage(const base::FilePath& policy_cache_root,
                      std::unique_ptr<TokenServiceInterface> token_service)
     : policy_cache_root_(policy_cache_root),
+      policy_info_file_(policy_cache_root_.AppendASCII(kPolicyInfoFileName)),
       token_service_(std::move(token_service)) {
-  DCHECK(token_service_);
+  CHECK(token_service_);
 }
 
 DMStorage::~DMStorage() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 }
 
-bool DMStorage::DeregisterDevice() {
+bool DMStorage::InvalidateDMToken() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return token_service_->StoreDmToken(kInvalidTokenValue);
+}
+
+bool DMStorage::DeleteDMToken() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  return token_service_->DeleteDmToken();
 }
 
 bool DMStorage::IsValidDMToken() const {
@@ -105,10 +114,21 @@ bool DMStorage::IsDeviceDeregistered() const {
   return GetDmToken() == kInvalidTokenValue;
 }
 
+bool DMStorage::CanPersistPolicies() const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  return base::PathExists(policy_info_file_)
+             ? base::PathIsWritable(policy_info_file_)
+             : base::ScopedTempDir().CreateUniqueTempDirUnderPath(
+                   policy_cache_root_) &&
+                   MakePathGlobalAccessible(policy_cache_root_);
+}
+
 bool DMStorage::PersistPolicies(const DMPolicyMap& policy_map) const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  if (policy_map.empty())
+  if (policy_map.empty()) {
     return true;
+  }
 
   // Each policy in the map should be signed in the same way. If a policy
   // in the map contains a public key, normally it means the server rotates the
@@ -118,10 +138,9 @@ bool DMStorage::PersistPolicies(const DMPolicyMap& policy_map) const {
   CachedPolicyInfo cached_info;
   if (cached_info.Populate(policy_info_data) &&
       !cached_info.public_key().empty()) {
-    base::FilePath policy_info_file =
-        policy_cache_root_.AppendASCII(kPolicyInfoFileName);
-    if (!base::ImportantFileWriter::WriteFileAtomically(policy_info_file,
-                                                        policy_info_data)) {
+    if (!base::ImportantFileWriter::WriteFileAtomically(policy_info_file_,
+                                                        policy_info_data) ||
+        !MakePathGlobalAccessible(policy_info_file_)) {
       return false;
     }
   }
@@ -139,11 +158,14 @@ bool DMStorage::PersistPolicies(const DMPolicyMap& policy_map) const {
 
     base::FilePath policy_dir =
         policy_cache_root_.AppendASCII(encoded_policy_type);
-    if (!base::CreateDirectory(policy_dir))
+    if (!base::CreateDirectory(policy_dir) ||
+        !MakePathGlobalAccessible(policy_dir)) {
       return false;
+    }
     base::FilePath policy_file = policy_dir.AppendASCII(kPolicyFileName);
     if (!base::ImportantFileWriter::WriteFileAtomically(policy_file,
-                                                        policy_value)) {
+                                                        policy_value) ||
+        !MakePathGlobalAccessible(policy_file)) {
       return false;
     }
   }
@@ -156,14 +178,13 @@ std::unique_ptr<CachedPolicyInfo> DMStorage::GetCachedPolicyInfo() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   auto cached_info = std::make_unique<CachedPolicyInfo>();
 
-  if (!IsValidDMToken())
+  if (!IsValidDMToken()) {
     return cached_info;
+  }
 
-  base::FilePath policy_info_file =
-      policy_cache_root_.AppendASCII(kPolicyInfoFileName);
   std::string policy_info_data;
-  if (!base::PathExists(policy_info_file) ||
-      !base::ReadFileToString(policy_info_file, &policy_info_data) ||
+  if (!base::PathExists(policy_info_file_) ||
+      !base::ReadFileToString(policy_info_file_, &policy_info_data) ||
       !cached_info->Populate(policy_info_data)) {
     return cached_info;
   }
@@ -176,8 +197,9 @@ std::unique_ptr<
 DMStorage::GetOmahaPolicySettings() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  if (!IsValidDMToken())
+  if (!IsValidDMToken()) {
     return nullptr;
+  }
 
   std::string encoded_omaha_policy_type;
   base::Base64Encode(kGoogleUpdatePolicyType, &encoded_omaha_policy_type);
@@ -201,18 +223,6 @@ DMStorage::GetOmahaPolicySettings() const {
   }
 
   return omaha_settings;
-}
-
-scoped_refptr<DMStorage> GetDefaultDMStorage() {
-  const absl::optional<base::FilePath> updater_versioned_path =
-      GetVersionedDirectory(GetUpdaterScope());
-  if (!updater_versioned_path)
-    return nullptr;
-
-  base::FilePath policy_cache_folder =
-      updater_versioned_path->AppendASCII(kPolicyCacheSubfolder);
-
-  return base::MakeRefCounted<DMStorage>(policy_cache_folder);
 }
 
 }  // namespace updater

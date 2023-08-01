@@ -1,19 +1,22 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "content/browser/attribution_reporting/attribution_storage_sql.h"
+#include "content/browser/attribution_reporting/attribution_storage_sql_migrations.h"
 
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/guid.h"
 #include "base/path_service.h"
 #include "base/strings/string_util.h"
+#include "base/strings/stringprintf.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/time/time.h"
 #include "content/browser/attribution_reporting/attribution_storage.h"
+#include "content/browser/attribution_reporting/attribution_storage_sql.h"
 #include "content/browser/attribution_reporting/attribution_test_utils.h"
+#include "content/browser/attribution_reporting/store_source_result.h"
+#include "content/browser/attribution_reporting/test/configurable_storage_delegate.h"
 #include "sql/database.h"
 #include "sql/statement.h"
 #include "sql/test/test_helpers.h"
@@ -23,13 +26,19 @@ namespace content {
 
 namespace {
 
-std::string RemoveQuotes(std::string input) {
+// Normalize schema strings to compare them reliabily. Notably, applies the
+// following transformations:
+// - Remove quotes as sometimes migrations cause table names to be string
+//   literals.
+// - Replaces ", " with "," as CREATE TABLE in schema will be represented with
+//   or without a space depending if it got there by calling CREATE TABLE
+//   directly or with an ALTER TABLE.
+std::string NormalizeSchema(std::string input) {
   std::string output;
   base::RemoveChars(input, "\"", &output);
+  base::ReplaceSubstringsAfterOffset(&output, 0, ", ", ",");
   return output;
 }
-
-const int kCurrentVersionNumber = 17;
 
 }  // namespace
 
@@ -46,7 +55,7 @@ class AttributionStorageSqlMigrationsTest : public testing::Test {
 
     // We need to run an operation on storage to force the lazy initialization.
     std::ignore =
-        static_cast<AttributionStorage*>(&storage)->GetAttributionsToReport(
+        static_cast<AttributionStorage*>(&storage)->GetAttributionReports(
             base::Time::Min());
   }
 
@@ -54,10 +63,19 @@ class AttributionStorageSqlMigrationsTest : public testing::Test {
     return temp_directory_.GetPath().Append(FILE_PATH_LITERAL("Conversions"));
   }
 
+  static base::FilePath GetVersionFilePath(int version_id) {
+    // Should be safe cross platform because StringPrintf has overloads for wide
+    // strings.
+    return base::FilePath(
+        base::StringPrintf(FILE_PATH_LITERAL("version_%d.sql"), version_id));
+  }
+
   std::string GetCurrentSchema() {
     base::FilePath current_version_path = temp_directory_.GetPath().Append(
         FILE_PATH_LITERAL("TestCurrentVersion.db"));
-    LoadDatabase(FILE_PATH_LITERAL("version_17.sql"), current_version_path);
+    LoadDatabase(
+        GetVersionFilePath(AttributionStorageSql::kCurrentVersionNumber),
+        current_version_path);
     sql::Database db;
     EXPECT_TRUE(db.Open(current_version_path));
     return db.GetSchema();
@@ -78,19 +96,26 @@ class AttributionStorageSqlMigrationsTest : public testing::Test {
            base::ReadFileToString(source_path, contents);
   }
 
-  static int VersionFromDatabase(sql::Database* db) {
-    // Get version.
-    sql::Statement s(
-        db->GetUniqueStatement("SELECT value FROM meta WHERE key='version'"));
-    if (!s.Step())
-      return 0;
-    return s.ColumnInt(0);
+  static void CheckVersionNumbers(sql::Database* db) {
+    {
+      sql::Statement s(
+          db->GetUniqueStatement("SELECT value FROM meta WHERE key='version'"));
+      ASSERT_TRUE(s.Step());
+      EXPECT_EQ(s.ColumnInt(0), AttributionStorageSql::kCurrentVersionNumber);
+    }
+
+    {
+      sql::Statement s(db->GetUniqueStatement(
+          "SELECT value FROM meta WHERE key='last_compatible_version'"));
+      ASSERT_TRUE(s.Step());
+      EXPECT_EQ(s.ColumnInt(0),
+                AttributionStorageSql::kCompatibleVersionNumber);
+    }
   }
 
-  void LoadDatabase(const base::FilePath::StringType& file,
-                    const base::FilePath& db_path) {
+  void LoadDatabase(const base::FilePath& file, const base::FilePath& db_path) {
     std::string contents;
-    ASSERT_TRUE(GetDatabaseData(base::FilePath(file), &contents));
+    ASSERT_TRUE(GetDatabaseData(file, &contents));
 
     sql::Database db;
     ASSERT_TRUE(db.Open(db_path));
@@ -118,12 +143,11 @@ TEST_F(AttributionStorageSqlMigrationsTest, MigrateEmptyToCurrent) {
     sql::Database db;
     ASSERT_TRUE(db.Open(DbPath()));
 
-    // Check version.
-    EXPECT_EQ(kCurrentVersionNumber, VersionFromDatabase(&db));
+    CheckVersionNumbers(&db);
 
     // Check that expected tables are present.
-    EXPECT_TRUE(db.DoesTableExist("conversions"));
-    EXPECT_TRUE(db.DoesTableExist("impressions"));
+    EXPECT_TRUE(db.DoesTableExist("reports"));
+    EXPECT_TRUE(db.DoesTableExist("sources"));
     EXPECT_TRUE(db.DoesTableExist("meta"));
 
     EXPECT_EQ(GetCurrentSchema(), db.GetSchema());
@@ -136,14 +160,16 @@ TEST_F(AttributionStorageSqlMigrationsTest, MigrateEmptyToCurrent) {
 
 TEST_F(AttributionStorageSqlMigrationsTest, MigrateLatestDeprecatedToCurrent) {
   base::HistogramTester histograms;
-  LoadDatabase(FILE_PATH_LITERAL("version_16.sql"), DbPath());
+  LoadDatabase(
+      GetVersionFilePath(AttributionStorageSql::kDeprecatedVersionNumber),
+      DbPath());
 
   // Verify pre-conditions.
   {
     sql::Database db;
     ASSERT_TRUE(db.Open(DbPath()));
 
-    sql::Statement s(db.GetUniqueStatement("SELECT COUNT(*) FROM conversions"));
+    sql::Statement s(db.GetUniqueStatement("SELECT COUNT(*) FROM sources"));
 
     ASSERT_TRUE(s.Step());
     ASSERT_EQ(1, s.ColumnInt(0));
@@ -156,15 +182,13 @@ TEST_F(AttributionStorageSqlMigrationsTest, MigrateLatestDeprecatedToCurrent) {
     sql::Database db;
     ASSERT_TRUE(db.Open(DbPath()));
 
-    // Check version.
-    EXPECT_EQ(kCurrentVersionNumber, VersionFromDatabase(&db));
+    CheckVersionNumbers(&db);
 
-    // Compare without quotes as sometimes migrations cause table names to be
-    // string literals.
-    EXPECT_EQ(RemoveQuotes(GetCurrentSchema()), RemoveQuotes(db.GetSchema()));
+    EXPECT_EQ(NormalizeSchema(GetCurrentSchema()),
+              NormalizeSchema(db.GetSchema()));
 
     // Verify that data is not preserved across the migration.
-    sql::Statement s(db.GetUniqueStatement("SELECT COUNT(*) FROM conversions"));
+    sql::Statement s(db.GetUniqueStatement("SELECT COUNT(*) FROM sources"));
 
     ASSERT_TRUE(s.Step());
     ASSERT_EQ(0, s.ColumnInt(0));
@@ -173,6 +197,96 @@ TEST_F(AttributionStorageSqlMigrationsTest, MigrateLatestDeprecatedToCurrent) {
   // DB creation histograms should be recorded.
   histograms.ExpectTotalCount("Conversions.Storage.CreationTime", 1);
   histograms.ExpectTotalCount("Conversions.Storage.MigrationTime", 0);
+}
+
+TEST_F(AttributionStorageSqlMigrationsTest, MigrateVersion52ToCurrent) {
+  base::HistogramTester histograms;
+  LoadDatabase(GetVersionFilePath(52), DbPath());
+
+  // Verify pre-conditions.
+  {
+    sql::Database db;
+    ASSERT_TRUE(db.Open(DbPath()));
+
+    sql::Statement s(db.GetUniqueStatement(
+        "SELECT aggregatable_budget_consumed FROM sources"));
+    ASSERT_TRUE(s.Step());
+    ASSERT_EQ(0, s.ColumnInt(0));
+    ASSERT_TRUE(s.Step());
+    ASSERT_EQ(200, s.ColumnInt(0));
+    ASSERT_FALSE(s.Step());
+  }
+  MigrateDatabase();
+
+  // Verify schema is current.
+  {
+    sql::Database db;
+    ASSERT_TRUE(db.Open(DbPath()));
+
+    CheckVersionNumbers(&db);
+
+    // Compare normalized schemas
+    EXPECT_EQ(NormalizeSchema(GetCurrentSchema()),
+              NormalizeSchema(db.GetSchema()));
+
+    // Verify that data is preserved across the migration.
+    sql::Statement s(
+        db.GetUniqueStatement("SELECT aggregatable_budget_consumed, "
+                              "num_aggregatable_reports FROM sources"));
+    ASSERT_TRUE(s.Step());
+    // First source has no budget consumed so hasn't made any reports.
+    ASSERT_EQ(0, s.ColumnInt(0));
+    ASSERT_EQ(0, s.ColumnInt(1));
+    ASSERT_TRUE(s.Step());
+    // Second source has budget consumed so we set their num reports to 1.
+    ASSERT_EQ(200, s.ColumnInt(0));
+    ASSERT_EQ(1, s.ColumnInt(1));
+    ASSERT_FALSE(s.Step());
+  }
+
+  // DB creation histograms should be recorded.
+  histograms.ExpectTotalCount("Conversions.Storage.CreationTime", 0);
+  histograms.ExpectTotalCount("Conversions.Storage.MigrationTime", 1);
+}
+
+TEST_F(AttributionStorageSqlMigrationsTest, MigrateVersion53ToCurrent) {
+  base::HistogramTester histograms;
+  LoadDatabase(GetVersionFilePath(53), DbPath());
+
+  // Verify pre-conditions.
+  {
+    sql::Database db;
+    ASSERT_TRUE(db.Open(DbPath()));
+
+    sql::Statement s(
+        db.GetUniqueStatement("SELECT reporting_origin FROM rate_limits"));
+    ASSERT_TRUE(s.Step());
+    ASSERT_EQ("https://a.r.test", s.ColumnString(0));
+  }
+  MigrateDatabase();
+
+  // Verify schema is current.
+  {
+    sql::Database db;
+    ASSERT_TRUE(db.Open(DbPath()));
+
+    CheckVersionNumbers(&db);
+
+    // Compare normalized schemas
+    EXPECT_EQ(NormalizeSchema(GetCurrentSchema()),
+              NormalizeSchema(db.GetSchema()));
+
+    // Verify that data is preserved across the migration.
+    sql::Statement s(
+        db.GetUniqueStatement("SELECT reporting_site FROM rate_limits"));
+    ASSERT_TRUE(s.Step());
+    ASSERT_EQ("https://r.test", s.ColumnString(0));
+    ASSERT_FALSE(s.Step());
+  }
+
+  // DB creation histograms should be recorded.
+  histograms.ExpectTotalCount("Conversions.Storage.CreationTime", 0);
+  histograms.ExpectTotalCount("Conversions.Storage.MigrationTime", 1);
 }
 
 }  // namespace content

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,10 @@
 
 #include <wininet.h>
 
-#include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -47,8 +47,7 @@ const char* const kUntrustedURLs[] = {
 bool CreateFile(const base::FilePath& file_path) {
   constexpr char kTestData[] = "Hello world!";
 
-  return base::WriteFile(file_path, kTestData, base::size(kTestData)) ==
-         static_cast<int>(base::size(kTestData));
+  return base::WriteFile(file_path, kTestData);
 }
 
 base::FilePath GetZoneIdentifierStreamPath(const base::FilePath& file_path) {
@@ -121,9 +120,7 @@ ScopedZoneForSite::~ScopedZoneForSite() {
 bool AddInternetZoneIdentifierDirectly(const base::FilePath& file_path) {
   static const char kMotwForInternetZone[] = "[ZoneTransfer]\r\nZoneId=3\r\n";
   return base::WriteFile(GetZoneIdentifierStreamPath(file_path),
-                         kMotwForInternetZone,
-                         base::size(kMotwForInternetZone)) ==
-         static_cast<int>(base::size(kMotwForInternetZone));
+                         kMotwForInternetZone);
 }
 
 void CheckQuarantineResult(QuarantineFileResult result,
@@ -311,7 +308,7 @@ TEST_F(QuarantineWinTest, EmptySource_DependsOnLocalConfig) {
 // it and the test would fail.
 TEST_F(QuarantineWinTest, EmptyFile) {
   base::FilePath test_file = GetTempDir().AppendASCII("foo.exe");
-  ASSERT_EQ(0, base::WriteFile(test_file, "", 0u));
+  ASSERT_TRUE(base::WriteFile(test_file, ""));
 
   QuarantineFile(
       test_file, net::FilePathToFileURL(test_file), GURL(), kDummyClientGuid,

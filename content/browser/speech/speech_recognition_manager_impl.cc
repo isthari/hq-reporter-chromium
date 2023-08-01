@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,20 +9,18 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/location.h"
 #include "base/memory/ref_counted_delete_on_sequence.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "content/browser/browser_main_loop.h"
 #include "content/browser/renderer_host/media/media_stream_manager.h"
 #include "content/browser/renderer_host/media/media_stream_ui_proxy.h"
 #include "content/browser/speech/speech_recognition_engine.h"
 #include "content/browser/speech/speech_recognizer_impl.h"
-#include "content/browser/storage_partition_impl.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
@@ -278,7 +276,7 @@ void SpeechRecognitionManagerImpl::RecognitionAllowedCallback(int session_id,
   }
 
   if (is_allowed) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(&SpeechRecognitionManagerImpl::DispatchEvent,
                        weak_factory_.GetWeakPtr(), session_id, EVENT_START));
@@ -287,7 +285,7 @@ void SpeechRecognitionManagerImpl::RecognitionAllowedCallback(int session_id,
         session_id, blink::mojom::SpeechRecognitionError(
                         blink::mojom::SpeechRecognitionErrorCode::kNotAllowed,
                         blink::mojom::SpeechAudioErrorDetails::kNone));
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(&SpeechRecognitionManagerImpl::DispatchEvent,
                        weak_factory_.GetWeakPtr(), session_id, EVENT_ABORT));
@@ -296,7 +294,7 @@ void SpeechRecognitionManagerImpl::RecognitionAllowedCallback(int session_id,
 
 void SpeechRecognitionManagerImpl::MediaRequestPermissionCallback(
     int session_id,
-    const blink::MediaStreamDevices& devices,
+    const blink::mojom::StreamDevicesSet& stream_devices_set,
     std::unique_ptr<MediaStreamUIProxy> stream_ui) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
@@ -304,10 +302,18 @@ void SpeechRecognitionManagerImpl::MediaRequestPermissionCallback(
   if (iter == sessions_.end())
     return;
 
-  bool is_allowed = !devices.empty();
+  // The SpeechRecognictionManager is not used with multiple streams
+  // which is only supported in combination with the getAllScreensMedia API.
+  // The |stream_devices| vector can be empty e.g. if the permission
+  // was denied.
+  DCHECK_LE(stream_devices_set.stream_devices.size(), 1u);
+
+  blink::MediaStreamDevices devices_list =
+      blink::ToMediaStreamDevicesList(stream_devices_set);
+  const bool is_allowed = !devices_list.empty();
   if (is_allowed) {
     // Copy the approved devices array to the context for UI indication.
-    iter->second->context.devices = devices;
+    iter->second->context.devices = devices_list;
 
     // Save the UI object.
     iter->second->ui = std::move(stream_ui);
@@ -350,7 +356,7 @@ void SpeechRecognitionManagerImpl::AbortSessionImpl(int session_id) {
 
   iter->second->abort_requested = true;
 
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(&SpeechRecognitionManagerImpl::DispatchEvent,
                      weak_factory_.GetWeakPtr(), session_id, EVENT_ABORT));
@@ -372,7 +378,7 @@ void SpeechRecognitionManagerImpl::StopAudioCaptureForSession(int session_id) {
 
   iter->second->ui.reset();
 
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&SpeechRecognitionManagerImpl::DispatchEvent,
                                 weak_factory_.GetWeakPtr(), session_id,
                                 EVENT_STOP_CAPTURE));
@@ -461,7 +467,7 @@ void SpeechRecognitionManagerImpl::OnAudioEnd(int session_id) {
     delegate_listener->OnAudioEnd(session_id);
   if (SpeechRecognitionEventListener* listener = GetListener(session_id))
     listener->OnAudioEnd(session_id);
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&SpeechRecognitionManagerImpl::DispatchEvent,
                                 weak_factory_.GetWeakPtr(), session_id,
                                 EVENT_AUDIO_ENDED));
@@ -514,7 +520,7 @@ void SpeechRecognitionManagerImpl::OnRecognitionEnd(int session_id) {
     delegate_listener->OnRecognitionEnd(session_id);
   if (SpeechRecognitionEventListener* listener = GetListener(session_id))
     listener->OnRecognitionEnd(session_id);
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&SpeechRecognitionManagerImpl::DispatchEvent,
                                 weak_factory_.GetWeakPtr(), session_id,
                                 EVENT_RECOGNITION_ENDED));

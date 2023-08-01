@@ -1,4 +1,4 @@
-# Copyright 2020 The Chromium Authors. All rights reserved.
+# Copyright 2020 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -24,6 +24,7 @@ static_library("scanning") {
 
   deps = [
     "//ash/constants",
+    "//ash/webui/common:chrome_os_webui_config",
     "//ash/webui/common/backend:backend",
     "//ash/webui/common/mojom",
     "//ash/webui/resources:scanning_app_resources",

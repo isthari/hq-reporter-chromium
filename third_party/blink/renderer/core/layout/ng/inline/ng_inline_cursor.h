@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,12 @@
 
 #include <unicode/ubidi.h>
 
+#include "base/check_op.h"
 #include "base/dcheck_is_on.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/editing/forward.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_fragment_item.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_fragment_items.h"
-#include "third_party/blink/renderer/core/layout/ng/inline/ng_text_offset.h"
 #include "third_party/blink/renderer/platform/text/text_direction.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_view.h"
@@ -30,10 +30,12 @@ class NGFragmentItems;
 class NGInlineBackwardCursor;
 class NGInlineBreakToken;
 class NGInlineCursor;
+class NGInlinePaintContext;
 class NGPhysicalBoxFragment;
 class Node;
 class ShapeResultView;
 enum class NGStyleVariant;
+struct LayoutSelectionStatus;
 struct PhysicalOffset;
 struct PhysicalRect;
 struct PhysicalSize;
@@ -155,13 +157,14 @@ class CORE_EXPORT NGInlineCursorPosition {
     return item_->SelfInkOverflow();
   }
 
-  void RecalcInkOverflow(const NGInlineCursor& cursor) const;
+  void RecalcInkOverflow(const NGInlineCursor& cursor,
+                         NGInlinePaintContext* inline_context) const;
 
   // Returns start/end of offset in text content of current text fragment.
   // It is error when this cursor doesn't point to text fragment.
-  NGTextOffset TextOffset() const { return item_->TextOffset(); }
-  unsigned TextStartOffset() const { return TextOffset().start; }
-  unsigned TextEndOffset() const { return TextOffset().end; }
+  NGTextOffsetRange TextOffset() const { return item_->TextOffset(); }
+  wtf_size_t TextStartOffset() const { return TextOffset().start; }
+  wtf_size_t TextEndOffset() const { return TextOffset().end; }
 
   // Returns text of the current position. It is error to call other than
   // text.
@@ -406,6 +409,9 @@ class CORE_EXPORT NGInlineCursor {
   // should be part of |this| cursor.
   void MoveTo(const NGInlineCursor& cursor);
 
+  // Move to the parent box or line box.
+  void MoveToParent();
+
   // Move to containing line box. It is error if the current position is line.
   void MoveToContainingLine();
 
@@ -540,6 +546,22 @@ class CORE_EXPORT NGInlineCursor {
   // Move the current position to the last fragment on same layout object.
   void MoveToLastForSameLayoutObject();
 
+  // Move the current position to the last fragment on the same layout object,
+  // in visual order. This is the same as |MoveToLastForSameLayoutObject|,
+  // except for culled inlines.
+  //
+  // Note that this method will only consider fragments reachable through
+  // |MoveToNextForSameLayoutObject|.
+  void MoveToVisualLastForSameLayoutObject();
+
+  // Move the current position to the first fragment on the same layout object,
+  // in visual order.
+  //
+  // Note that this method will only consider fragments reachable through
+  // |MoveToNextForSameLayoutObject|. For non-culled inlines, this means this
+  // method is a no-op.
+  void MoveToVisualFirstForSameLayoutObject();
+
 #if DCHECK_IS_ON()
   void CheckValid(const NGInlineCursorPosition& position) const;
 #else
@@ -599,6 +621,10 @@ class CORE_EXPORT NGInlineCursor {
 
   // |MoveToNextForSameLayoutObject| that doesn't check |culled_inline_|.
   void MoveToNextForSameLayoutObjectExceptCulledInline();
+
+  // Used for |MoveToVisualLastForSameLayoutObject| and
+  // |MoveToVisualFirstForSameLayoutObject|.
+  void MoveToVisualFirstOrLastForCulledInline(bool last);
 
   // A helper class to enumerate |LayoutObject|s that contribute to a culled
   // inline.

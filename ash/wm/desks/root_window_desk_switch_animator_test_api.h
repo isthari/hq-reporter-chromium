@@ -1,11 +1,12 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef ASH_WM_DESKS_ROOT_WINDOW_DESK_SWITCH_ANIMATOR_TEST_API_H_
 #define ASH_WM_DESKS_ROOT_WINDOW_DESK_SWITCH_ANIMATOR_TEST_API_H_
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
 
 namespace ui {
 class Layer;
@@ -37,7 +38,7 @@ class RootWindowDeskSwitchAnimatorTestApi {
   void SetOnEndingScreenshotTakenCallback(base::OnceClosure callback);
 
  private:
-  RootWindowDeskSwitchAnimator* const animator_;
+  const raw_ptr<RootWindowDeskSwitchAnimator, ExperimentalAsh> animator_;
 };
 
 }  // namespace ash

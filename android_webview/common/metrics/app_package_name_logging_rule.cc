@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -48,8 +48,8 @@ bool AppPackageNameLoggingRule::IsSameAs(
 
 // static
 absl::optional<AppPackageNameLoggingRule>
-AppPackageNameLoggingRule::FromDictionary(const base::Value& dict) {
-  const std::string* version_string = dict.FindStringKey(kVersionKey);
+AppPackageNameLoggingRule::FromDictionary(const base::Value::Dict& dict) {
+  const std::string* version_string = dict.FindString(kVersionKey);
   if (!version_string) {
     return absl::optional<AppPackageNameLoggingRule>();
   }
@@ -58,7 +58,7 @@ AppPackageNameLoggingRule::FromDictionary(const base::Value& dict) {
     return absl::optional<AppPackageNameLoggingRule>();
   }
 
-  const base::Value* expiry_date_value = dict.FindKey(kExpiryDateKey);
+  const base::Value* expiry_date_value = dict.Find(kExpiryDateKey);
   if (!expiry_date_value) {
     return AppPackageNameLoggingRule(version, base::Time::Min());
   }
@@ -71,12 +71,12 @@ AppPackageNameLoggingRule::FromDictionary(const base::Value& dict) {
   return AppPackageNameLoggingRule(version, expiry_date.value());
 }
 
-base::Value AppPackageNameLoggingRule::ToDictionary() {
-  base::Value dict(base::Value::Type::DICTIONARY);
+base::Value::Dict AppPackageNameLoggingRule::ToDictionary() {
+  base::Value::Dict dict;
 
-  dict.SetStringKey(kVersionKey, version_.GetString());
+  dict.Set(kVersionKey, version_.GetString());
   if (!expiry_date_.is_min()) {
-    dict.SetKey(kExpiryDateKey, base::TimeToValue(expiry_date_));
+    dict.Set(kExpiryDateKey, base::TimeToValue(expiry_date_));
   }
   return dict;
 }

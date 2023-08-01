@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <string>
 
+#include "base/memory/raw_ptr_exclusion.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "url/gurl.h"
@@ -35,11 +36,14 @@ class PdfStreamDelegate {
 
     // Script to be injected into the internal plugin frame. This should point
     // at an immutable string with static storage duration.
-    const std::string* injected_script = nullptr;
+    // This field is not a raw_ptr<> because it was filtered by the rewriter
+    // for: #union
+    RAW_PTR_EXCLUSION const std::string* injected_script = nullptr;
 
     SkColor background_color = SK_ColorTRANSPARENT;
     bool full_frame = false;
     bool allow_javascript = false;
+    bool use_skia = false;
   };
 
   PdfStreamDelegate();

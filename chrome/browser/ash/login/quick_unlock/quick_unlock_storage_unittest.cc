@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include <memory>
 
-#include "ash/components/login/auth/user_context.h"
 #include "ash/constants/ash_pref_names.h"
+#include "base/memory/raw_ptr.h"
 #include "base/time/time.h"
 #include "chrome/browser/ash/login/quick_unlock/auth_token.h"
 #include "chrome/browser/ash/login/quick_unlock/fingerprint_storage.h"
@@ -15,6 +15,8 @@
 #include "chrome/browser/ash/login/quick_unlock/quick_unlock_factory.h"
 #include "chrome/browser/ash/login/quick_unlock/quick_unlock_utils.h"
 #include "chrome/test/base/testing_profile.h"
+#include "chromeos/ash/components/dbus/userdataauth/userdataauth_client.h"
+#include "chromeos/ash/components/login/auth/public/user_context.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -48,8 +50,9 @@ class QuickUnlockStorageUnitTest : public testing::Test {
   ~QuickUnlockStorageUnitTest() override {}
 
   // testing::Test:
-  void SetUp() override { EnabledForTesting(true); }
-  void TearDown() override { EnabledForTesting(false); }
+  void SetUp() override { UserDataAuthClient::InitializeFake(); }
+
+  void TearDown() override {}
 
   void ExpireAuthToken() {
     QuickUnlockFactory::GetForProfile(profile_.get())->auth_token_->Reset();
@@ -86,7 +89,7 @@ class QuickUnlockStorageTestApi {
   }
 
  private:
-  QuickUnlockStorage* quick_unlock_storage_;
+  raw_ptr<QuickUnlockStorage, ExperimentalAsh> quick_unlock_storage_;
 };
 
 // Verifies that marking the strong auth makes TimeSinceLastStrongAuth a > zero

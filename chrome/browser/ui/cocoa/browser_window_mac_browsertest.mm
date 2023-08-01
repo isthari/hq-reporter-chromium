@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,11 +11,14 @@
 #import "base/mac/scoped_nsobject.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/lifetime/application_lifetime.h"
+#include "chrome/browser/lifetime/application_lifetime_desktop.h"
+#include "chrome/browser/ui/browser_command_controller.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/remote_cocoa/app_shim/native_widget_mac_nswindow.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test.h"
+#import "ui/base/cocoa/window_size_constants.h"
 #include "ui/base/test/ns_ax_tree_validator.h"
 
 // Test harness for Mac-specific behaviors of BrowserWindow.
@@ -39,12 +42,6 @@ IN_PROC_BROWSER_TEST_F(BrowserWindowMacTest, MenuCommandsAfterDestroy) {
           itemWithTag:IDC_BOOKMARK_THIS_TAB],
       base::scoped_policy::RETAIN);
 
-  // The mainMenu item doesn't have an action associated while the browser
-  // window isn't focused, which we can't do in a browser test. So associate one
-  // manually.
-  EXPECT_EQ([bookmark_menu_item action], nullptr);
-  [bookmark_menu_item setAction:@selector(commandDispatch:)];
-
   EXPECT_TRUE(window.get());
   EXPECT_TRUE(bookmark_menu_item.get());
 
@@ -58,6 +55,45 @@ IN_PROC_BROWSER_TEST_F(BrowserWindowMacTest, MenuCommandsAfterDestroy) {
   // NSWindow (e.g. NativeWidgetMacNSWindow)'s defaultValidateUserInterfaceItem,
   // which currently asks |super|. That is, NSWindow. Which says YES.
   EXPECT_TRUE([window validateUserInterfaceItem:bookmark_menu_item]);
+}
+
+// Test that mainMenu commands from child windows are validated by the window
+// chain.
+// TODO(crbug.com/1425317): Disabled because this test is flaky.
+IN_PROC_BROWSER_TEST_F(BrowserWindowMacTest,
+                       DISABLED_MenuCommandsFromChildWindow) {
+  NativeWidgetMacNSWindow* window =
+      base::mac::ObjCCastStrict<NativeWidgetMacNSWindow>(
+          browser()->window()->GetNativeWindow().GetNativeNSWindow());
+
+  // Create a child window.
+  base::scoped_nsobject<NativeWidgetMacNSWindow> child_window(
+      [[NativeWidgetMacNSWindow alloc]
+          initWithContentRect:ui::kWindowSizeDeterminedLater
+                    styleMask:NSWindowStyleMaskBorderless
+                      backing:NSBackingStoreBuffered
+                        defer:NO]);
+  [window addChildWindow:child_window ordered:NSWindowAbove];
+
+  NSMenuItem* show_bookmark_bar_menu_item =
+      [[[[NSApp mainMenu] itemWithTag:IDC_VIEW_MENU] submenu]
+          itemWithTag:IDC_SHOW_BOOKMARK_BAR];
+
+  // Make sure both windows validate the bookmark bar menu item.
+  EXPECT_TRUE([window validateUserInterfaceItem:show_bookmark_bar_menu_item]);
+  EXPECT_TRUE(
+      [child_window validateUserInterfaceItem:show_bookmark_bar_menu_item]);
+
+  browser()->command_controller()->UpdateCommandEnabled(
+      show_bookmark_bar_menu_item.tag, false);
+
+  // Make sure both windows find the bookmark bar menu item invalid. The child
+  // window check is the focus of this test. The child window does not have a
+  // UserInterfaceItemCommandHandler. This test ensures the validation request
+  // bubbles up to the parent window.
+  EXPECT_FALSE([window validateUserInterfaceItem:show_bookmark_bar_menu_item]);
+  EXPECT_FALSE(
+      [child_window validateUserInterfaceItem:show_bookmark_bar_menu_item]);
 }
 
 class BrowserWindowMacA11yTest : public BrowserWindowMacTest {

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,11 +14,13 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/i18n/rtl.h"
+#include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/persistent_histogram_allocator.h"
 #include "base/metrics/statistics_recorder.h"
 #include "base/path_service.h"
 #include "base/process/process_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/thread_restrictions.h"
@@ -37,6 +39,7 @@
 #include "components/metrics/drive_metrics_provider.h"
 #include "components/metrics/entropy_state_provider.h"
 #include "components/metrics/file_metrics_provider.h"
+#include "components/metrics/metrics_features.h"
 #include "components/metrics/metrics_pref_names.h"
 #include "components/metrics/metrics_service.h"
 #include "components/metrics/metrics_state_manager.h"
@@ -46,6 +49,7 @@
 #include "components/metrics/persistent_histograms.h"
 #include "components/metrics/sampling_metrics_provider.h"
 #include "components/metrics/stability_metrics_helper.h"
+#include "components/metrics/ui/form_factor_metrics_provider.h"
 #include "components/metrics/ui/screen_info_metrics_provider.h"
 #include "components/metrics/version_utils.h"
 #include "components/prefs/pref_service.h"
@@ -131,13 +135,13 @@ void RegisterOrRemovePreviousRunMetricsFile(
         FROM_HERE,
         {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
          base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
-        base::BindOnce(base::GetDeleteFileCallback(), metrics_file));
+        base::GetDeleteFileCallback(metrics_file));
   }
 }
 
 bool IsSamplesCounterEnabled() {
   return base::GetFieldTrialParamByFeatureAsBool(
-      base::kPersistentHistogramsFeature, "prev_run_metrics_count_only", false);
+      kPersistentHistogramsFeature, "prev_run_metrics_count_only", false);
 }
 
 // TODO(crbug.com/1152072): Unify this implementation with the one in
@@ -192,8 +196,8 @@ std::unique_ptr<metrics::FileMetricsProvider> CreateFileMetricsProvider(
         FROM_HERE,
         {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
          base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
-        base::BindOnce(base::GetDeletePathRecursivelyCallback(),
-                       std::move(browser_metrics_upload_dir)));
+        base::GetDeletePathRecursivelyCallback(
+            std::move(browser_metrics_upload_dir)));
   }
 
   return file_metrics_provider;
@@ -240,29 +244,31 @@ void AndroidMetricsServiceClient::Initialize(PrefService* pref_service) {
 
   pref_service_ = pref_service;
 
-  // TODO(crbug/1245347): If and when the Extended Variations Safe Mode
-  // experiment is enabled on Android WebLayer, pass the channel to the
-  // MetricsStateManager.
-  //
-  // Pass an empty file path since the path is for the Extended Variations Safe
-  // Mode experiment and Android embedders are excluded from this experiment.
   metrics_state_manager_ = MetricsStateManager::Create(
-      pref_service_, this, std::wstring(), base::FilePath());
+      pref_service_, this,
+      // Pass an empty file path since the path is for Extended Variations Safe
+      // Mode, which is N/A to Android embedders.
+      std::wstring(), base::FilePath(), StartupVisibility::kUnknown,
+      {
+          // The low entropy provider is used instead of the default provider
+          // because the default provider needs to know if UMA is enabled and
+          // querying GMS to determine whether UMA is enabled is slow.
+          // The low entropy provider has fewer unique experiment combinations,
+          // which is better for privacy, but can have crosstalk issues between
+          // experiments.
+          .default_entropy_provider_type = metrics::EntropyProviderType::kLow,
+          .force_benchmarking_mode =
+              base::CommandLine::ForCurrentProcess()->HasSwitch(
+                  cc::switches::kEnableGpuBenchmarking),
+      });
 
-  // Creates the FieldTrialList using the low entropy provider. The low entropy
-  // provider is used instead of the default provider because the default
-  // provider needs to know if UMA is enabled and querying GMS to determine
-  // whether UMA is enabled is slow.
-  //
-  // Both entropy providers guarantee permanent consistency, which is the main
-  // requirement. The difference is that the low entropy provider has fewer
-  // unique experiment combinations. This is better for privacy (since
-  // experiment state doesn't identify users), but also means fewer combinations
-  // are tested in the wild.
-  metrics_state_manager_->InstantiateFieldTrialList(
-      cc::switches::kEnableGpuBenchmarking, EntropyProviderType::kLow);
+  metrics_state_manager_->InstantiateFieldTrialList();
 
   init_finished_ = true;
+
+  synthetic_trial_registry_ =
+      std::make_unique<variations::SyntheticTrialRegistry>(
+          IsExternalExperimentAllowlistEnabled());
 
   // Create the MetricsService immediately so that other code can make use of
   // it. Chrome always creates the MetricsService as well.
@@ -319,12 +325,21 @@ void AndroidMetricsServiceClient::MaybeStartMetrics() {
         pref_service_, /* metrics_reporting_enabled */ false));
     OnMetricsNotStarted();
     pref_service_->ClearPref(prefs::kMetricsClientID);
+    pref_service_->ClearPref(prefs::kMetricsProvisionalClientID);
+    pref_service_->ClearPref(prefs::kMetricsLogRecordId);
   }
 }
 
 void AndroidMetricsServiceClient::RegisterMetricsProvidersAndInitState() {
-  metrics_service_->RegisterMetricsProvider(
-      std::make_unique<metrics::SubprocessMetricsProvider>());
+  CHECK(metrics::SubprocessMetricsProvider::GetInstance());
+  if (!base::FeatureList::IsEnabled(
+          metrics::features::kSubprocessMetricsProviderLeaky)) {
+    // Hacky way to make MetricsService own the subprocess provider.
+    // TODO(crbug/1293026): Remove this.
+    metrics_service_->RegisterMetricsProvider(
+        base::WrapUnique(metrics::SubprocessMetricsProvider::GetInstance()));
+  }
+
   metrics_service_->RegisterMetricsProvider(
       std::make_unique<NetworkMetricsProvider>(
           content::CreateNetworkConnectionTrackerAsyncGetter()));
@@ -334,6 +349,8 @@ void AndroidMetricsServiceClient::RegisterMetricsProvidersAndInitState() {
       std::make_unique<EntropyStateProvider>(pref_service_));
   metrics_service_->RegisterMetricsProvider(
       std::make_unique<ScreenInfoMetricsProvider>());
+  metrics_service_->RegisterMetricsProvider(
+      std::make_unique<metrics::FormFactorMetricsProvider>());
   metrics_service_->RegisterMetricsProvider(CreateFileMetricsProvider(
       pref_service_, metrics_state_manager_->IsMetricsReportingEnabled()));
   metrics_service_->RegisterMetricsProvider(
@@ -377,7 +394,11 @@ void AndroidMetricsServiceClient::CreateUkmService() {
   ukm_service_->RegisterMetricsProvider(
       std::make_unique<metrics::ScreenInfoMetricsProvider>());
 
-  ukm_service_->RegisterMetricsProvider(ukm::CreateFieldTrialsProviderForUkm());
+  ukm_service_->RegisterMetricsProvider(
+      std::make_unique<metrics::FormFactorMetricsProvider>());
+
+  ukm_service_->RegisterMetricsProvider(
+      ukm::CreateFieldTrialsProviderForUkm(synthetic_trial_registry_.get()));
 
   UpdateUkmService();
 }
@@ -434,7 +455,7 @@ void AndroidMetricsServiceClient::UpdateUkmService() {
   bool is_incognito = IsOffTheRecordSessionActive();
 
   if (consent_or_flag && allowed && !is_incognito) {
-    ukm_service_->EnableRecording(/*extensions=*/false);
+    ukm_service_->EnableRecording();
     ukm_service_->EnableReporting();
   } else {
     ukm_service_->DisableRecording();
@@ -462,6 +483,11 @@ bool AndroidMetricsServiceClient::IsReportingEnabled() const {
 MetricsService* AndroidMetricsServiceClient::GetMetricsServiceIfStarted() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return did_start_metrics_ ? metrics_service_.get() : nullptr;
+}
+
+variations::SyntheticTrialRegistry*
+AndroidMetricsServiceClient::GetSyntheticTrialRegistry() {
+  return synthetic_trial_registry_.get();
 }
 
 MetricsService* AndroidMetricsServiceClient::GetMetricsService() {
@@ -519,7 +545,7 @@ void AndroidMetricsServiceClient::CollectFinalMetricsForLog(
   // child processes. |timeout| specifies how long to wait before absolutely
   // calling us back on the task.
   content::FetchHistogramsAsynchronously(
-      base::ThreadTaskRunnerHandle::Get(),
+      base::SingleThreadTaskRunner::GetCurrentDefault(),
       CreateChainedClosure(std::move(done_callback),
                            on_final_metrics_collected_listener_),
       timeout);
@@ -629,12 +655,6 @@ bool AndroidMetricsServiceClient::CanRecordPackageNameForAppType() {
 }
 
 bool AndroidMetricsServiceClient::ShouldRecordPackageName() {
-  // Check if this client falls within the group for which it's acceptable to
-  // log package name. This guarantees we enforce the privacy requirement
-  // because we never log package names for more than kPackageNameLimitRate
-  // percent of clients. We'll actually log package name for less than this,
-  // because we also filter out packages for certain types of apps (see
-  // CanRecordPackageNameForAppType()).
   return GetSampleBucketValue() < GetPackageNameLimitRatePerMille();
 }
 

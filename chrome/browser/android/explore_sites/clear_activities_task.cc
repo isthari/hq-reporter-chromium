@@ -1,12 +1,11 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/android/explore_sites/clear_activities_task.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "chrome/browser/android/explore_sites/explore_sites_schema.h"
-#include "components/offline_pages/core/offline_store_utils.h"
 #include "sql/database.h"
 #include "sql/statement.h"
 
@@ -25,8 +24,8 @@ bool ClearActivitiesTaskSync(base::Time begin,
 
   sql::Statement statement(
       db->GetCachedStatement(SQL_FROM_HERE, kClearActivitiesSql));
-  statement.BindInt64(0, offline_pages::store_utils::ToDatabaseTime(begin));
-  statement.BindInt64(1, offline_pages::store_utils::ToDatabaseTime(end));
+  statement.BindTime(0, begin);
+  statement.BindTime(1, end);
   return statement.Run();
 }
 

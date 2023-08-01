@@ -1,27 +1,41 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CONTENT_BROWSER_ATTRIBUTION_REPORTING_ATTRIBUTION_HOST_H_
 #define CONTENT_BROWSER_ATTRIBUTION_REPORTING_ATTRIBUTION_HOST_H_
 
+#include <stdint.h>
+
 #include <memory>
 
 #include "base/containers/flat_map.h"
-#include "base/gtest_prod_util.h"
-#include "content/browser/attribution_reporting/attribution_manager.h"
-#include "content/browser/attribution_reporting/common_source_info.h"
+#include "build/build_config.h"
+#include "build/buildflag.h"
+#include "content/browser/attribution_reporting/attribution_beacon_id.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/render_frame_host_receiver_set.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
+#include "mojo/public/cpp/bindings/pending_associated_receiver.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/blink/public/mojom/conversions/attribution_data_host.mojom-forward.h"
 #include "third_party/blink/public/mojom/conversions/conversions.mojom.h"
+
+namespace attribution_reporting {
+class SuitableOrigin;
+}  // namespace attribution_reporting
 
 namespace content {
 
-class AttributionPageMetrics;
+struct AttributionInputEvent;
+class RenderFrameHost;
+class RenderFrameHostImpl;
 class WebContents;
+
+#if BUILDFLAG(IS_ANDROID)
+class AttributionInputEventTrackerAndroid;
+#endif
 
 // Class responsible for listening to conversion events originating from blink,
 // and verifying that they are valid. Owned by the WebContents. Lifetime is
@@ -29,73 +43,70 @@ class WebContents;
 class CONTENT_EXPORT AttributionHost
     : public WebContentsObserver,
       public WebContentsUserData<AttributionHost>,
-      public blink::mojom::ConversionHost {
+      public blink::mojom::AttributionHost {
  public:
   explicit AttributionHost(WebContents* web_contents);
-  AttributionHost(const AttributionHost& other) = delete;
-  AttributionHost& operator=(const AttributionHost& other) = delete;
-  AttributionHost(AttributionHost&& other) = delete;
-  AttributionHost& operator=(AttributionHost&& other) = delete;
+  AttributionHost(const AttributionHost&) = delete;
+  AttributionHost& operator=(const AttributionHost&) = delete;
+  AttributionHost(AttributionHost&&) = delete;
+  AttributionHost& operator=(AttributionHost&&) = delete;
   ~AttributionHost() override;
 
   static void BindReceiver(
-      mojo::PendingAssociatedReceiver<blink::mojom::ConversionHost> receiver,
+      mojo::PendingAssociatedReceiver<blink::mojom::AttributionHost> receiver,
       RenderFrameHost* rfh);
 
-  // Normally, Attributions should be reported at the start of a navigation.
-  // However, in some cases, like with speculative navigation on Android, the
-  // attribution parameters aren't available at the start of the navigation.
-  //
-  // This method allows Attributions to be reported for ongoing or already
-  // completed navigations, as long as the current navigation finishes on the
-  // destination URL for the Impression.
-  //
-  // TODO(crbug.com/1234529): Attributions for preloaded pages that perform
-  // javascript redirects may get dropped if the new navigation begins before
-  // the attribution data arrives.
-  void ReportAttributionForCurrentNavigation(
-      const url::Origin& impression_origin,
-      const blink::Impression& impression);
+#if BUILDFLAG(IS_ANDROID)
+  AttributionInputEventTrackerAndroid* input_event_tracker() {
+    return input_event_tracker_android_.get();
+  }
+#endif
 
-  static blink::mojom::ImpressionPtr MojoImpressionFromImpression(
-      const blink::Impression& impression);
-
-  // Overrides the target object to bind |receiver| to in BindReceiver().
-  static void SetReceiverImplForTesting(AttributionHost* impl);
+  // This should be called when the fenced frame reporting beacon was initiated
+  // for reportEvent or for an automatic beacon. It may be cached and sent
+  // later. This should be called before the navigation committed for a
+  // navigation beacon.
+  // This function should only be invoked if Attribution Reporting API is
+  // enabled on the page.
+  // `navigation_id` will be set if this beacon is being sent as the result of a
+  // top navigation initiated by a fenced frame. This is used to track
+  // attributions that occur on a navigated page after the current page has been
+  // unloaded. Otherwise `absl::nullopt`.
+  // Returns whether fenced frame reporting beacons can support Attribution
+  // Reporting API.
+  bool NotifyFencedFrameReportingBeaconStarted(
+      BeaconId beacon_id,
+      absl::optional<int64_t> navigation_id,
+      RenderFrameHostImpl* initiator_frame_host);
 
  private:
   friend class AttributionHostTestPeer;
   friend class WebContentsUserData<AttributionHost>;
 
-  struct PendingAttribution {
-    url::Origin initiator_origin;
-    blink::Impression impression;
-  };
-
-  AttributionHost(WebContents* web_contents,
-                  std::unique_ptr<AttributionManager::Provider>
-                      attribution_manager_provider);
-
-  // blink::mojom::ConversionHost:
-  void RegisterConversion(blink::mojom::ConversionPtr conversion) override;
-  void RegisterImpression(const blink::Impression& impression) override;
+  // blink::mojom::AttributionHost:
+  void RegisterDataHost(
+      mojo::PendingReceiver<blink::mojom::AttributionDataHost>,
+      attribution_reporting::mojom::RegistrationType) override;
+  void RegisterNavigationDataHost(
+      mojo::PendingReceiver<blink::mojom::AttributionDataHost> data_host,
+      const blink::AttributionSrcToken& attribution_src_token) override;
 
   // WebContentsObserver:
   void DidStartNavigation(NavigationHandle* navigation_handle) override;
+  void DidRedirectNavigation(NavigationHandle* navigation_handle) override;
   void DidFinishNavigation(NavigationHandle* navigation_handle) override;
 
-  // Notifies an impression.
-  void NotifyImpressionInitiatedByPage(const url::Origin& impression_origin,
-                                       const blink::Impression& impression);
+  void NotifyNavigationRegistrationData(NavigationHandle* navigation_handle,
+                                        bool is_final_response);
 
-  // Stores the impression if conversion measurement is allowed for the
-  // impression origin and reporting origin and the impressionorigin, reporting
-  // origin, and conversion destination are potentially trustworthy. Returns
-  // whether the impression was stored.
-  bool VerifyAndStoreImpression(CommonSourceInfo::SourceType source_type,
-                                const url::Origin& impression_origin,
-                                const blink::Impression& impression,
-                                AttributionManager& attribution_manager);
+  // Returns the top frame origin corresponding to the current target frame.
+  // Returns `absl::nullopt` and reports a bad message if the top frame origin
+  // is not potentially trustworthy or the current target frame is not a secure
+  // context.
+  absl::optional<attribution_reporting::SuitableOrigin>
+  TopFrameOriginForSecureContext();
+
+  AttributionInputEvent GetMostRecentNavigationInputEvent() const;
 
   // Map which stores the top-frame origin an impression occurred on for all
   // navigations with an associated impression, keyed by navigation ID.
@@ -109,22 +120,16 @@ class CONTENT_EXPORT AttributionHost
   //
   // A flat_map is used as the number of ongoing impression navigations is
   // expected to be very small in a given WebContents.
-  using NavigationImpressionOriginMap = base::flat_map<int64_t, url::Origin>;
-  NavigationImpressionOriginMap navigation_impression_origins_;
+  struct NavigationInfo;
+  using NavigationInfoMap = base::flat_map<int64_t, NavigationInfo>;
+  NavigationInfoMap navigation_info_map_;
 
-  // Gives access to a AttributionManager implementation to forward impressions
-  // and conversion registrations to.
-  std::unique_ptr<AttributionManager::Provider> attribution_manager_provider_;
+  RenderFrameHostReceiverSet<blink::mojom::AttributionHost> receivers_;
 
-  // Logs metrics per top-level page load. Created for every top level
-  // navigation that commits, as long as there is a AttributionManager.
-  // Excludes the initial about:blank document.
-  std::unique_ptr<AttributionPageMetrics> conversion_page_metrics_;
-
-  RenderFrameHostReceiverSet<blink::mojom::ConversionHost> receivers_;
-
-  absl::optional<PendingAttribution> pending_attribution_;
-  bool last_navigation_allows_attribution_ = false;
+#if BUILDFLAG(IS_ANDROID)
+  std::unique_ptr<AttributionInputEventTrackerAndroid>
+      input_event_tracker_android_;
+#endif
 
   WEB_CONTENTS_USER_DATA_KEY_DECL();
 };

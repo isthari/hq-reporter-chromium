@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,26 +8,17 @@
 #include <memory>
 #include <utility>
 #include <vector>
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
-#include "base/memory/weak_ptr.h"
 #include "chrome/browser/ui/webid/account_selection_view.h"
 #include "content/public/browser/identity_request_dialog_controller.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/gfx/native_widget_types.h"
 
-class GURL;
-class WebIdDialog;
-
-using UserApproval = content::IdentityRequestDialogController::UserApproval;
-using InitialApprovalCallback =
-    content::IdentityRequestDialogController::InitialApprovalCallback;
-using IdProviderWindowClosedCallback =
-    content::IdentityRequestDialogController::IdProviderWindowClosedCallback;
-using TokenExchangeApprovalCallback =
-    content::IdentityRequestDialogController::TokenExchangeApprovalCallback;
 using AccountSelectionCallback =
     content::IdentityRequestDialogController::AccountSelectionCallback;
+using DismissCallback =
+    content::IdentityRequestDialogController::DismissCallback;
 
 // The IdentityDialogController controls the views that are used across
 // browser-mediated federated sign-in flows.
@@ -46,54 +37,48 @@ class IdentityDialogController
   int GetBrandIconMinimumSize() override;
   int GetBrandIconIdealSize() override;
 
-  void ShowInitialPermissionDialog(
-      content::WebContents* rp_web_contents,
-      const GURL& idp_url,
-      content::IdentityRequestDialogController::PermissionDialogMode mode,
-      InitialApprovalCallback) override;
-
+  // content::IdentityRequestDialogController
   void ShowAccountsDialog(
       content::WebContents* rp_web_contents,
-      content::WebContents* idp_web_contents,
-      const GURL& idp_url,
-      base::span<const content::IdentityRequestAccount> accounts,
-      const content::IdentityProviderMetadata& idp_metadata,
-      const content::ClientIdData& client_data,
+      const std::string& top_frame_for_display,
+      const absl::optional<std::string>& iframe_for_display,
+      const std::vector<content::IdentityProviderData>& identity_provider_data,
       content::IdentityRequestAccount::SignInMode sign_in_mode,
-      AccountSelectionCallback on_selected) override;
+      bool show_auto_reauthn_checkbox,
+      AccountSelectionCallback on_selected,
+      DismissCallback dismiss_callback) override;
+  void ShowFailureDialog(content::WebContents* rp_web_contents,
+                         const std::string& top_frame_for_display,
+                         const absl::optional<std::string>& iframe_for_display,
+                         const std::string& idp_for_display,
+                         const content::IdentityProviderMetadata& idp_metadata,
+                         DismissCallback dismiss_callback,
+                         SigninToIdPCallback signin_callback) override;
+  void ShowIdpSigninFailureDialog(base::OnceClosure dismiss_callback) override;
 
-  void ShowIdProviderWindow(content::WebContents* rp_web_contents,
-                            content::WebContents* idp_web_contents,
-                            const GURL& idp_signin_url,
-                            IdProviderWindowClosedCallback) override;
+  std::string GetTitle() const override;
+  absl::optional<std::string> GetSubtitle() const override;
 
-  void CloseIdProviderWindow() override;
-
-  void ShowTokenExchangePermissionDialog(
-      content::WebContents* rp_web_contents,
-      const GURL& idp_url,
-      TokenExchangeApprovalCallback) override;
+  // Show a modal dialog that loads content from the IdP in a WebView.
+  content::WebContents* ShowModalDialog(
+      const GURL& url,
+      DismissCallback dismiss_callback) override;
+  void CloseModalDialog() override;
 
   // AccountSelectionView::Delegate:
-
-  void OnAccountSelected(const Account& account) override;
-  void OnDismiss() override;
-
-  // The web page view containing the focused field.
+  void OnAccountSelected(const GURL& idp_config_url,
+                         const Account& account) override;
+  void OnDismiss(DismissReason dismiss_reason) override;
+  void OnSigninToIdP() override;
   gfx::NativeView GetNativeView() override;
+  content::WebContents* GetWebContents() override;
 
  private:
-  WebIdDialog& GetOrCreateView(content::WebContents* rp_web_contents);
-  raw_ptr<WebIdDialog> view_{nullptr};
-
-  void OnViewClosed();
-
   std::unique_ptr<AccountSelectionView> account_view_{nullptr};
   AccountSelectionCallback on_account_selection_;
+  DismissCallback on_dismiss_;
+  SigninToIdPCallback on_signin_;
   raw_ptr<content::WebContents> rp_web_contents_;
-  IdProviderWindowClosedCallback view_closed_callback_;
-
-  base::WeakPtrFactory<IdentityDialogController> weak_ptr_factory_{this};
 };
 
 #endif  // CHROME_BROWSER_UI_WEBID_IDENTITY_DIALOG_CONTROLLER_H_

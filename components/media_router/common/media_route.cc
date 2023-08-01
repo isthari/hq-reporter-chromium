@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -81,10 +81,19 @@ MediaRoute::MediaRoute(const MediaRoute::Id& media_route_id,
       description_(description),
       is_local_(is_local) {}
 
-MediaRoute::MediaRoute(const MediaRoute& other) = default;
+MediaRoute::MediaRoute() : media_source_("") {}
+MediaRoute::MediaRoute(const MediaRoute&) = default;
+MediaRoute& MediaRoute::operator=(const MediaRoute&) = default;
+MediaRoute::MediaRoute(MediaRoute&&) = default;
+MediaRoute& MediaRoute::operator=(MediaRoute&&) = default;
 
-MediaRoute::MediaRoute() = default;
 MediaRoute::~MediaRoute() = default;
+
+bool MediaRoute::IsLocalMirroringRoute() const {
+  return is_local_ && (media_source_.IsTabMirroringSource() ||
+                       media_source_.IsDesktopMirroringSource() ||
+                       controller_type_ == RouteControllerType::kMirroring);
+}
 
 bool MediaRoute::operator==(const MediaRoute& other) const {
   return media_route_id_ == other.media_route_id_ &&

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@
 
 #include <memory>
 
-#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/no_destructor.h"
@@ -40,13 +39,26 @@ class WindowsAccessibilityEnabler
 
  private:
   // WinAccessibilityAPIUsageObserver
-  void OnIAccessible2Used() override {
+  void OnMSAAUsed() override {
+    // When only basic MSAA functionality is used, just enable kNativeAPIs.
+    // Enabling kNativeAPIs gives little perf impact, but allows these APIs to
+    // interact with the BrowserAccessibilityManager allowing ATs to be able at
+    // least find the document without using any advanced APIs.
+    BrowserAccessibilityStateImpl::GetInstance()->AddAccessibilityModeFlags(
+        ui::AXMode::kNativeAPIs);
+  }
+
+  void OnBasicIAccessible2Used() override {
+    BrowserAccessibilityStateImpl::GetInstance()->AddAccessibilityModeFlags(
+        ui::AXMode::kNativeAPIs);
+  }
+
+  void OnAdvancedIAccessible2Used() override {
     // When IAccessible2 APIs have been used elsewhere in the codebase,
     // enable basic web accessibility support. (Full screen reader support is
     // detected later when specific more advanced APIs are accessed.)
     BrowserAccessibilityStateImpl::GetInstance()->AddAccessibilityModeFlags(
         ui::kAXModeBasic);
-    BrowserAccessibilityStateImpl::GetInstance()->OnAccessibilityApiUsage();
   }
 
   void OnScreenReaderHoneyPotQueried() override {
@@ -60,7 +72,6 @@ class WindowsAccessibilityEnabler
       BrowserAccessibilityStateImpl::GetInstance()->AddAccessibilityModeFlags(
           ui::kAXModeBasic);
     }
-    BrowserAccessibilityStateImpl::GetInstance()->OnAccessibilityApiUsage();
   }
 
   void OnAccNameCalled() override {
@@ -72,7 +83,6 @@ class WindowsAccessibilityEnabler
       BrowserAccessibilityStateImpl::GetInstance()->AddAccessibilityModeFlags(
           ui::kAXModeBasic);
     }
-    BrowserAccessibilityStateImpl::GetInstance()->OnAccessibilityApiUsage();
   }
 
   void OnBasicUIAutomationUsed() override {
@@ -117,7 +127,6 @@ class WindowsAccessibilityEnabler
       mode = ui::kAXModeComplete;
     BrowserAccessibilityStateImpl::GetInstance()->AddAccessibilityModeFlags(
         mode);
-    BrowserAccessibilityStateImpl::GetInstance()->OnAccessibilityApiUsage();
   }
 
   void StartFiringUIAEvents() override { firing_uia_events_ = true; }
@@ -204,20 +213,41 @@ void BrowserAccessibilityStateImplWin::UpdateHistogramsOnOtherThread() {
   bool satogo = false;  // Very few users -- do not need uniques
   for (size_t i = 0; i < module_count; i++) {
     TCHAR filename[MAX_PATH];
-    GetModuleFileName(modules[i], filename, base::size(filename));
+    GetModuleFileName(modules[i], filename, std::size(filename));
     std::string module_name(base::FilePath(filename).BaseName().AsUTF8Unsafe());
-    if (base::LowerCaseEqualsASCII(module_name, "fsdomsrv.dll"))
+    if (base::EqualsCaseInsensitiveASCII(module_name, "fsdomsrv.dll")) {
+      static auto* ax_jaws_crash_key = base::debug::AllocateCrashKeyString(
+          "ax_jaws", base::debug::CrashKeySize::Size32);
+      base::debug::SetCrashKeyString(ax_jaws_crash_key, "true");
       g_jaws = true;
-    if (base::LowerCaseEqualsASCII(module_name, "vbufbackend_gecko_ia2.dll") ||
-        base::LowerCaseEqualsASCII(module_name, "nvdahelperremote.dll"))
+    }
+    if (base::EqualsCaseInsensitiveASCII(module_name,
+                                         "vbufbackend_gecko_ia2.dll") ||
+        base::EqualsCaseInsensitiveASCII(module_name, "nvdahelperremote.dll")) {
+      static auto* ax_nvda_crash_key = base::debug::AllocateCrashKeyString(
+          "ax_nvda", base::debug::CrashKeySize::Size32);
+      base::debug::SetCrashKeyString(ax_nvda_crash_key, "true");
       g_nvda = true;
-    if (base::LowerCaseEqualsASCII(module_name, "stsaw32.dll"))
+    }
+    if (base::EqualsCaseInsensitiveASCII(module_name, "stsaw32.dll")) {
+      static auto* ax_satogo_crash_key = base::debug::AllocateCrashKeyString(
+          "ax_satogo", base::debug::CrashKeySize::Size32);
+      base::debug::SetCrashKeyString(ax_satogo_crash_key, "true");
       satogo = true;
-    if (base::LowerCaseEqualsASCII(module_name, "dolwinhk.dll"))
+    }
+    if (base::EqualsCaseInsensitiveASCII(module_name, "dolwinhk.dll")) {
+      static auto* ax_supernova_crash_key = base::debug::AllocateCrashKeyString(
+          "ax_supernova", base::debug::CrashKeySize::Size32);
+      base::debug::SetCrashKeyString(ax_supernova_crash_key, "true");
       g_supernova = true;
-    if (base::LowerCaseEqualsASCII(module_name, "zslhook.dll") ||
-        base::LowerCaseEqualsASCII(module_name, "zslhook64.dll"))
+    }
+    if (base::EqualsCaseInsensitiveASCII(module_name, "zslhook.dll") ||
+        base::EqualsCaseInsensitiveASCII(module_name, "zslhook64.dll")) {
+      static auto* ax_zoomtext_crash_key = base::debug::AllocateCrashKeyString(
+          "ax_zoomtext", base::debug::CrashKeySize::Size32);
+      base::debug::SetCrashKeyString(ax_zoomtext_crash_key, "true");
       g_zoomtext = true;
+    }
   }
 
   UMA_HISTOGRAM_BOOLEAN("Accessibility.WinJAWS", g_jaws);

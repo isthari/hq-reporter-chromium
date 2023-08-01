@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "base/sequence_checker.h"
+#include "base/task/sequenced_task_runner.h"
 #include "chrome/chrome_cleaner/cleaner/cleaner.h"
 #include "chrome/chrome_cleaner/engines/broker/engine_client.h"
 #include "components/chrome_cleaner/public/constants/result_codes.h"

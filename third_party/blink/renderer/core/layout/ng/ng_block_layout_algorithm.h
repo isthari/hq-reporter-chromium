@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,6 +45,7 @@ struct NGInflowChildData {
   NGBoxStrut margins;
   bool margins_fully_resolved;
   bool allow_discard_start_margin;
+  bool is_pushed_by_floats = false;
 };
 
 // A class for general block layout (e.g. a <div> with no special style).
@@ -62,22 +63,24 @@ class CORE_EXPORT NGBlockLayoutAlgorithm
   void SetBoxType(NGPhysicalFragment::NGBoxType type);
 
   MinMaxSizesResult ComputeMinMaxSizes(const MinMaxSizesFloatInput&) override;
-  scoped_refptr<const NGLayoutResult> Layout() override;
+  const NGLayoutResult* Layout() override;
 
  private:
-  NOINLINE scoped_refptr<const NGLayoutResult>
-  LayoutWithInlineChildLayoutContext(const NGLayoutInputNode& first_child);
-  NOINLINE scoped_refptr<const NGLayoutResult> LayoutWithItemsBuilder(
-      const NGInlineNode& first_child,
-      NGInlineChildLayoutContext* context);
+  NOINLINE const NGLayoutResult* HandleNonsuccessfulLayoutResult(
+      const NGLayoutResult*);
 
-  NOINLINE scoped_refptr<const NGLayoutResult> RelayoutIgnoringLineClamp();
+  NOINLINE const NGLayoutResult* LayoutWithSimpleInlineChildLayoutContext(
+      const NGInlineNode& child);
+  NOINLINE const NGLayoutResult* LayoutWithOptimalInlineChildLayoutContext(
+      const NGInlineNode& child);
 
-  inline scoped_refptr<const NGLayoutResult> Layout(
+  NOINLINE const NGLayoutResult* RelayoutIgnoringLineClamp();
+
+  inline const NGLayoutResult* Layout(
       NGInlineChildLayoutContext* inline_child_layout_context);
 
-  scoped_refptr<const NGLayoutResult> FinishLayout(NGPreviousInflowPosition*,
-                                                   NGInlineChildLayoutContext*);
+  const NGLayoutResult* FinishLayout(NGPreviousInflowPosition*,
+                                     NGInlineChildLayoutContext*);
 
   // Return the BFC block offset of this block.
   LayoutUnit BfcBlockOffset() const {
@@ -104,6 +107,7 @@ class CORE_EXPORT NGBlockLayoutAlgorithm
   // Creates a new constraint space for the current child.
   NGConstraintSpace CreateConstraintSpaceForChild(
       const NGLayoutInputNode child,
+      const NGBreakToken* child_break_token,
       const NGInflowChildData& child_data,
       const LogicalSize child_available_size,
       bool is_new_fc,
@@ -173,14 +177,14 @@ class CORE_EXPORT NGBlockLayoutAlgorithm
   // block offset has now been resolved.
   NGLayoutResult::EStatus HandleNewFormattingContext(
       NGLayoutInputNode child,
-      const NGBreakToken* child_break_token,
+      const NGBlockBreakToken* child_break_token,
       NGPreviousInflowPosition*);
 
   // Performs the actual layout of a new formatting context. This may be called
   // multiple times from HandleNewFormattingContext.
-  scoped_refptr<const NGLayoutResult> LayoutNewFormattingContext(
+  const NGLayoutResult* LayoutNewFormattingContext(
       NGLayoutInputNode child,
-      const NGBreakToken* child_break_token,
+      const NGBlockBreakToken* child_break_token,
       const NGInflowChildData&,
       NGBfcOffset origin_offset,
       bool abort_if_cleared,
@@ -201,18 +205,11 @@ class CORE_EXPORT NGBlockLayoutAlgorithm
       const NGBreakToken* child_break_token,
       const NGConstraintSpace&,
       bool has_clearance_past_adjoining_floats,
-      scoped_refptr<const NGLayoutResult>,
+      const NGLayoutResult*,
       NGInflowChildData*,
       NGPreviousInflowPosition*,
       NGInlineChildLayoutContext*,
       const NGInlineBreakToken** previous_inline_break_token);
-
-  // Performs any final adjustments for table-cells.
-  void FinalizeForTableCell(LayoutUnit unconstrained_intrinsic_block_size);
-
-  // Return the amount of block space available in the current fragmentainer
-  // for the node being laid out by this algorithm.
-  LayoutUnit FragmentainerSpaceAvailable() const;
 
   // Consume all remaining fragmentainer space. This happens when we decide to
   // break before a child.
@@ -228,7 +225,8 @@ class CORE_EXPORT NGBlockLayoutAlgorithm
   // clipped box gets overflowed past the fragmentation line). The return value
   // can be checked for this. Only if kContinue is returned, can a fragment be
   // created.
-  NGBreakStatus FinalizeForFragmentation();
+  NGBreakStatus FinalizeForFragmentation(
+      LayoutUnit block_end_border_padding_added);
 
   // Insert a fragmentainer break before the child if necessary.
   // See |::blink::BreakBeforeChildIfNeeded()| for more documentation.
@@ -243,9 +241,10 @@ class CORE_EXPORT NGBlockLayoutAlgorithm
   void UpdateEarlyBreakBetweenLines();
 
   // Propagates the baseline from the given |child| if needed.
-  void PropagateBaselineFromChild(const NGPhysicalFragment& child,
-                                  LayoutUnit block_offset);
+  void PropagateBaselineFromLineBox(const NGPhysicalFragment& child,
+                                    LayoutUnit block_offset);
   void PropagateBaselineFromBlockChild(const NGPhysicalFragment& child,
+                                       const NGBoxStrut& margins,
                                        LayoutUnit block_offset);
 
   // If still unresolved, resolve the fragment's BFC block offset.
@@ -372,7 +371,9 @@ class CORE_EXPORT NGBlockLayoutAlgorithm
   LogicalSize child_percentage_size_;
   LogicalSize replaced_child_percentage_size_;
 
-  scoped_refptr<const NGLayoutResult> previous_result_;
+  const NGLayoutResult* previous_result_ = nullptr;
+
+  const NGColumnSpannerPath* column_spanner_path_ = nullptr;
 
   // Intrinsic block size based on child layout and containment.
   LayoutUnit intrinsic_block_size_;
@@ -413,8 +414,6 @@ class CORE_EXPORT NGBlockLayoutAlgorithm
   // If set, this is the number of lines until a clamp. A value of 1 indicates
   // the current line should be clamped. This may go negative.
   absl::optional<int> lines_until_clamp_;
-
-  NGExclusionSpace exclusion_space_;
 
   // If set, one of the lines was clamped and this is the intrinsic size at the
   // time of the clamp.

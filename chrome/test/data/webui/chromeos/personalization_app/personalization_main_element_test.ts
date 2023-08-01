@@ -1,71 +1,85 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+import 'chrome://personalization/strings.m.js';
+import 'chrome://webui-test/mojo_webui_test_support.js';
 
-import {PersonalizationMain} from 'chrome://personalization/trusted/personalization_main_element.js';
-import {Paths, PersonalizationRouter} from 'chrome://personalization/trusted/personalization_router_element.js';
-import {assertDeepEquals, assertEquals} from 'chrome://webui-test/chai_assert.js';
+import {AmbientActionName, PersonalizationMain, SetShouldShowTimeOfDayBannerAction} from 'chrome://personalization/js/personalization_app.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
+import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
+import {waitAfterNextRender} from 'chrome://webui-test/polymer_test_util.js';
 
-import {initElement, teardownElement} from './personalization_app_test_utils.js';
+import {baseSetup, initElement, teardownElement} from './personalization_app_test_utils.js';
+import {TestPersonalizationStore} from './test_personalization_store.js';
 
-export function PersonalizationMainTest() {
+suite('PersonalizationMainTest', function() {
   let personalizationMainElement: PersonalizationMain|null;
+  let personalizationStore: TestPersonalizationStore;
 
-  setup(function() {});
+  setup(() => {
+    const mocks = baseSetup();
+    personalizationStore = mocks.personalizationStore;
+  });
 
   teardown(async () => {
     await teardownElement(personalizationMainElement);
     personalizationMainElement = null;
   });
 
-  test('displays content', async () => {
+  test('has large ambient preview when ambient allowed', async () => {
+    loadTimeData.overrideValues({isAmbientModeAllowed: true});
     personalizationMainElement = initElement(PersonalizationMain);
+    await waitAfterNextRender(personalizationMainElement);
+
+    const preview = personalizationMainElement!.shadowRoot!.querySelector(
+        'ambient-preview-large')!;
+    assertTrue(!!preview, 'ambient preview exists');
+  });
+
+  test('has preview when ambient disallowed but jelly enabled', async () => {
+    loadTimeData.overrideValues(
+        {isAmbientModeAllowed: false, isPersonalizationJellyEnabled: true});
+    personalizationMainElement = initElement(PersonalizationMain);
+    await waitAfterNextRender(personalizationMainElement);
+
+    const preview = personalizationMainElement!.shadowRoot!.querySelector(
+        'ambient-preview-large')!;
+    assertTrue(!!preview, 'ambient preview exists');
+  });
+
+  test('has no ambient preview when ambient and jelly disallowed', async () => {
+    loadTimeData.overrideValues(
+        {isAmbientModeAllowed: false, isPersonalizationJellyEnabled: false});
+    personalizationMainElement = initElement(PersonalizationMain);
+    await waitAfterNextRender(personalizationMainElement);
+
+    const preview = personalizationMainElement!.shadowRoot!.querySelector(
+        'ambient-preview-large')!;
+    assertFalse(!!preview, 'ambient preview does not exist');
+  });
+
+  test('time of day banner', async () => {
+    personalizationStore.setReducersEnabled(true);
+    personalizationStore.data.ambient.shouldShowTimeOfDayBanner = true;
+    personalizationStore.notifyObservers();
+    personalizationMainElement = initElement(PersonalizationMain);
+    await waitAfterNextRender(personalizationMainElement);
+
+    const banner = personalizationMainElement!.shadowRoot!.querySelector(
+        'time-of-day-banner');
+    assertTrue(!!banner, 'time of day banner exists');
+
+    // Verify clicking on dismiss button hides the banner.
+    const dismissButton = banner.shadowRoot!.getElementById('dismissButton');
+    assertTrue(!!dismissButton, 'dismiss button exists');
+    personalizationStore.expectAction(
+        AmbientActionName.SET_SHOULD_SHOW_TIME_OF_DAY_BANNER);
+    dismissButton.click();
+    const action = await personalizationStore.waitForAction(
+                       AmbientActionName.SET_SHOULD_SHOW_TIME_OF_DAY_BANNER) as
+        SetShouldShowTimeOfDayBannerAction;
+    assertFalse(action.shouldShowTimeOfDayBanner);
     assertEquals(
-        'Personalization',
-        personalizationMainElement.shadowRoot!.querySelector('h1')!.innerText);
+        'none', getComputedStyle(banner).display, 'banner is displayed none');
   });
-
-  test('links to user subpage', async () => {
-    personalizationMainElement = initElement(PersonalizationMain);
-    const original = PersonalizationRouter.instance;
-    const goToRoutePromise = new Promise<[Paths, Object]>(resolve => {
-      PersonalizationRouter.instance = () => {
-        return {
-          goToRoute(path: Paths, queryParams: Object = {}) {
-            resolve([path, queryParams]);
-            PersonalizationRouter.instance = original;
-          }
-        } as PersonalizationRouter;
-      };
-    });
-    const userSubpageLink =
-        personalizationMainElement!.shadowRoot!.getElementById(
-            'userSubpageLink')!;
-    userSubpageLink.click();
-    const [path, queryParams] = await goToRoutePromise;
-    assertEquals(Paths.User, path);
-    assertDeepEquals({}, queryParams);
-  });
-
-  test('links to ambient subpage', async () => {
-    personalizationMainElement = initElement(PersonalizationMain);
-    const original = PersonalizationRouter.instance;
-    const goToRoutePromise = new Promise<[Paths, Object]>(resolve => {
-      PersonalizationRouter.instance = () => {
-        return {
-          goToRoute(path: Paths, queryParams: Object = {}) {
-            resolve([path, queryParams]);
-            PersonalizationRouter.instance = original;
-          }
-        } as PersonalizationRouter;
-      };
-    });
-    const ambientSubpageLink =
-        personalizationMainElement!.shadowRoot!.getElementById(
-            'ambientSubpageLink')!;
-    ambientSubpageLink.click();
-    const [path, queryParams] = await goToRoutePromise;
-    assertEquals(Paths.Ambient, path);
-    assertDeepEquals({}, queryParams);
-  });
-}
+});

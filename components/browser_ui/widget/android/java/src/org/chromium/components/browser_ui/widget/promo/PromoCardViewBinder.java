@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,8 @@ package org.chromium.components.browser_ui.widget.promo;
 
 import android.view.View;
 
-import org.chromium.base.ApiCompatibilityUtils;
+import androidx.core.widget.ImageViewCompat;
+
 import org.chromium.base.Callback;
 import org.chromium.base.Log;
 import org.chromium.ui.modelutil.PropertyKey;
@@ -26,7 +27,7 @@ class PromoCardViewBinder
         if (propertyKey == PromoCardProperties.IMAGE) {
             view.mPromoImage.setImageDrawable(model.get(PromoCardProperties.IMAGE));
         } else if (propertyKey == PromoCardProperties.ICON_TINT) {
-            ApiCompatibilityUtils.setImageTintList(
+            ImageViewCompat.setImageTintList(
                     view.mPromoImage, model.get(PromoCardProperties.ICON_TINT));
         } else if (propertyKey == PromoCardProperties.TITLE) {
             view.mTitle.setText(model.get(PromoCardProperties.TITLE));

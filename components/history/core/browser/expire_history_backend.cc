@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,21 +6,21 @@
 
 #include <stddef.h>
 
-#include <algorithm>
 #include <functional>
 #include <limits>
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/check.h"
 #include "base/compiler_specific.h"
 #include "base/containers/cxx20_erase.h"
 #include "base/containers/flat_set.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/ranges/algorithm.h"
 #include "base/task/sequenced_task_runner.h"
 #include "build/build_config.h"
 #include "components/favicon/core/favicon_database.h"
@@ -193,10 +193,14 @@ void ExpireHistoryBackend::DeleteURLs(const std::vector<GURL>& urls,
   for (const auto& url : urls) {
     const bool is_pinned = backend_client_ && backend_client_->IsPinnedURL(url);
     URLRow url_row;
-    if (!main_db_->GetRowForURL(url, &url_row) && !is_pinned) {
-      // If the URL isn't in the database and not pinned, we should still
-      // check to see if any favicons need to be deleted.
-      DeleteIcons(url, &effects);
+    if (!main_db_->GetRowForURL(url, &url_row)) {
+      if (!is_pinned) {
+        // If the URL isn't in the database and not pinned, we should still
+        // check to see if any favicons need to be deleted.
+        DeleteIcons(url, &effects);
+      }
+      // Otherwise, nothing to do: If the URL doesn't exist, it also can't have
+      // any visits that would need to be deleted.
       continue;
     }
 
@@ -262,10 +266,8 @@ void ExpireHistoryBackend::ExpireHistoryForTimes(
   // `times` must be in reverse chronological order and have no
   // duplicates, i.e. each member must be earlier than the one before
   // it.
-  DCHECK(
-      std::adjacent_find(
-          times.begin(), times.end(), std::less_equal<base::Time>()) ==
-      times.end());
+  DCHECK(base::ranges::adjacent_find(times, std::less_equal<base::Time>()) ==
+         times.end());
 
   if (!main_db_)
     return;
@@ -289,10 +291,7 @@ void ExpireHistoryBackend::ExpireVisitsInternal(
   if (visits.empty())
     return;
 
-  base::TimeTicks start = base::TimeTicks::Now();
-
   const VisitVector visits_and_redirects = GetVisitsAndRedirectParents(visits);
-  base::TimeDelta get_redirects_time = base::TimeTicks::Now() - start;
 
   DeleteEffects effects;
   DeleteVisitRelatedInfo(visits_and_redirects, &effects);
@@ -308,15 +307,6 @@ void ExpireHistoryBackend::ExpireVisitsInternal(
 
   // Pick up any bits possibly left over.
   ParanoidExpireHistory();
-
-  base::TimeDelta expire_visits_time = base::TimeTicks::Now() - start;
-  UMA_HISTOGRAM_TIMES("History.ExpireVisits.TotalDuration", expire_visits_time);
-  if (!expire_visits_time.is_zero()) {
-    UMA_HISTOGRAM_PERCENTAGE(
-        "History.ExpireVisits.GetRedirectsDurationPercentage",
-        base::ClampRound<base::Histogram::Sample>(get_redirects_time /
-                                                  expire_visits_time * 100));
-  }
 }
 
 void ExpireHistoryBackend::ExpireHistoryBeforeForTesting(base::Time end_time) {
@@ -472,7 +462,8 @@ void ExpireHistoryBackend::DeleteVisitRelatedInfo(const VisitVector& visits,
     }
 
     // Delete content & context annotations associated with visit.
-    main_db_->DeleteAnnotationsForVisit(visit.visit_id);
+    if (visit.visit_id)
+      main_db_->DeleteAnnotationsForVisit(visit.visit_id);
 
     notifier_->NotifyVisitDeleted(visit);
   }

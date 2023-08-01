@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <string>
 #include <utility>
 
+#include "base/memory/raw_ptr.h"
 #include "base/strings/string_number_conversions.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/display/manager/default_touch_transform_setter.h"
@@ -17,8 +18,8 @@
 #include "ui/display/screen_base.h"
 #include "ui/events/devices/device_data_manager.h"
 
-namespace display {
-namespace test {
+namespace display::test {
+
 namespace {
 
 constexpr int kDisplayId1 = 1;
@@ -143,8 +144,7 @@ class TouchTransformControllerTest : public testing::Test {
   ManagedDisplayInfo CreateDisplayInfo(int64_t id,
                                        const ui::TouchscreenDevice& device,
                                        const gfx::Rect& bounds) {
-    ManagedDisplayInfo info(id, std::string(), false);
-    info.SetBounds(bounds);
+    ManagedDisplayInfo info = display::CreateDisplayInfo(id, bounds);
 
     // Create a default mode.
     ManagedDisplayInfo::ManagedDisplayModeList default_modes(
@@ -161,7 +161,7 @@ class TouchTransformControllerTest : public testing::Test {
  private:
   std::unique_ptr<DisplayManager> display_manager_;
   std::unique_ptr<TouchTransformController> touch_transform_controller_;
-  TouchDeviceManager* touch_device_manager_;
+  raw_ptr<TouchDeviceManager, ExperimentalAsh> touch_device_manager_;
 };
 
 TEST_F(TouchTransformControllerTest, MirrorModeLetterboxing) {
@@ -281,7 +281,7 @@ TEST_F(TouchTransformControllerTest, MirrorModePillarboxing) {
   EXPECT_EQ(100, y);
 
   // In pillarboxing, there is (1-768*(1024/768)/1366)/2 = 12.5% of the
-  // width on both the left & rigth region of the screen is blank.
+  // width on both the left & right region of the screen is blank.
   // When touch events coming at X range [0, 1024), the mapping should be
   // [0, ~128] ---> < 0
   // [~128, ~896] ---> [0, 1024)
@@ -871,18 +871,33 @@ TEST_F(TouchTransformControllerTest, PillarBoxingUserTouchCalibration) {
   // [0, ~137] ---> < 0
   // [~137, ~1782] ---> [0, 1920)
   // [~1782, 1920] ---> >= 1920
+  x = 136.0;
+  y = 0.0;
+  device_manager->ApplyTouchTransformer(kTouchId1, &x, &y);
+  EXPECT_LT(-1.0f, x);
+  EXPECT_LT(x, 0.0f);
+  EXPECT_NEAR(0.0f, y, 0.01f);
+
   x = 137.0;
   y = 0.0;
   device_manager->ApplyTouchTransformer(kTouchId1, &x, &y);
-  EXPECT_NEAR(0, x, 0.5);
-  EXPECT_NEAR(0, y, 0.5);
+  EXPECT_LT(0.0f, x);
+  EXPECT_LT(x, 1.0f);
+  EXPECT_NEAR(0.0f, y, 0.01f);
 
   x = 1782.0;
   y = 0.0;
   device_manager->ApplyTouchTransformer(kTouchId1, &x, &y);
-  EXPECT_NEAR(1920, x, 0.5);
-  EXPECT_NEAR(0, y, 0.5);
+  EXPECT_LT(1919.0f, x);
+  EXPECT_LT(x, 1920.0f);
+  EXPECT_NEAR(0.0f, y, 0.01f);
+
+  x = 1783.0;
+  y = 0.0;
+  device_manager->ApplyTouchTransformer(kTouchId1, &x, &y);
+  EXPECT_LT(1920.0f, x);
+  EXPECT_LT(x, 1921.0f);
+  EXPECT_NEAR(0.0f, y, 0.01f);
 }
 
-}  // namespace test
-}  // namespace display
+}  // namespace display::test

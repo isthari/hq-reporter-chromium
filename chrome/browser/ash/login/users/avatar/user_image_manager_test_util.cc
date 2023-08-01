@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,16 +12,15 @@
 #include "base/files/file_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/threading/thread_restrictions.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/image/image_skia_rep.h"
 
 namespace ash {
 namespace test {
 
-const char kUserAvatarImage1RelativePath[] = "chromeos/avatar1.jpg";
-const char kUserAvatarImage2RelativePath[] = "chromeos/avatar2.jpg";
-const char kUserAvatarImage3RelativePath[] = "chromeos/avatar3.png";
+const char kUserAvatarImage1RelativePath[] = "chromeos/avatars/avatar1.jpg";
+const char kUserAvatarImage2RelativePath[] = "chromeos/avatars/avatar2.jpg";
+const char kUserAvatarImage3RelativePath[] = "chromeos/avatars/avatar3.png";
 
 bool AreImagesEqual(const gfx::ImageSkia& first, const gfx::ImageSkia& second) {
   if (first.width() != second.width() || first.height() != second.height())

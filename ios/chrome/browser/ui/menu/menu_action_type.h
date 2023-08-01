@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -44,11 +44,13 @@ enum class MenuActionType {
   ShowQRScanner = 32,
   StartVoiceSearch = 33,
   StartNewSearch = 34,
-  StartNewIcognitoSearch = 35,
+  StartNewIncognitoSearch = 35,
   SearchCopiedImage = 36,
   VisitCopiedLink = 37,
   SearchCopiedText = 38,
-  kMaxValue = SearchCopiedText
+  PinTab = 39,
+  UnpinTab = 40,
+  kMaxValue = UnpinTab
 };
 
 #endif  // IOS_CHROME_BROWSER_UI_MENU_MENU_ACTION_TYPE_H_

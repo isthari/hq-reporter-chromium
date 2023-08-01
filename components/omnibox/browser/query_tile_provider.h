@@ -1,4 +1,4 @@
-// Copyright (c) 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -67,7 +67,6 @@ class QueryTileProvider : public AutocompleteProvider {
                        std::vector<query_tiles::Tile> tiles);
 
   const raw_ptr<AutocompleteProviderClient> client_;
-  const raw_ptr<AutocompleteProviderListener> listener_;
 
   // The backend providing query tiles.
   const raw_ptr<query_tiles::TileService> tile_service_;

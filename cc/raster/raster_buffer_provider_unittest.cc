@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,10 +15,10 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/cancelable_callback.h"
 #include "base/check.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
@@ -27,7 +27,6 @@
 #include "base/run_loop.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -49,6 +48,7 @@
 #include "components/viz/test/test_context_support.h"
 #include "components/viz/test/test_gles2_interface.h"
 #include "components/viz/test/test_gpu_memory_buffer_manager.h"
+#include "components/viz/test/test_raster_interface.h"
 #include "gpu/GLES2/gl2extchromium.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
 #include "gpu/command_buffer/client/raster_implementation_gles.h"
@@ -165,7 +165,7 @@ class RasterBufferProviderTest
 
   RasterBufferProviderTest()
       : all_tile_tasks_finished_(
-            base::ThreadTaskRunnerHandle::Get().get(),
+            base::SingleThreadTaskRunner::GetCurrentDefault().get(),
             base::BindRepeating(&RasterBufferProviderTest::AllTileTasksFinished,
                                 base::Unretained(this))),
         timeout_seconds_(5),
@@ -179,22 +179,22 @@ class RasterBufferProviderTest
         raster_buffer_provider_ =
             std::make_unique<ZeroCopyRasterBufferProvider>(
                 &gpu_memory_buffer_manager_, context_provider_.get(),
-                viz::RGBA_8888);
+                viz::SinglePlaneFormat::kRGBA_8888);
         break;
       case RASTER_BUFFER_PROVIDER_TYPE_ONE_COPY:
         Create3dResourceProvider();
         raster_buffer_provider_ = std::make_unique<OneCopyRasterBufferProvider>(
-            base::ThreadTaskRunnerHandle::Get().get(), context_provider_.get(),
-            worker_context_provider_.get(), &gpu_memory_buffer_manager_,
-            kMaxBytesPerCopyOperation, false, false, kMaxStagingBuffers,
-            viz::RGBA_8888);
+            base::SingleThreadTaskRunner::GetCurrentDefault().get(),
+            context_provider_.get(), worker_context_provider_.get(),
+            &gpu_memory_buffer_manager_, kMaxBytesPerCopyOperation, false,
+            false, kMaxStagingBuffers, viz::SinglePlaneFormat::kRGBA_8888);
         break;
       case RASTER_BUFFER_PROVIDER_TYPE_GPU:
         Create3dResourceProvider();
         raster_buffer_provider_ = std::make_unique<GpuRasterBufferProvider>(
             context_provider_.get(), worker_context_provider_.get(), false,
-            viz::RGBA_8888, gfx::Size(), true, pending_raster_queries_.get(),
-            1);
+            viz::SinglePlaneFormat::kRGBA_8888, gfx::Size(), true,
+            pending_raster_queries_.get(), 1);
         break;
       case RASTER_BUFFER_PROVIDER_TYPE_BITMAP:
         CreateSoftwareResourceProvider();
@@ -207,7 +207,8 @@ class RasterBufferProviderTest
 
     pool_ = std::make_unique<ResourcePool>(
         resource_provider_.get(), context_provider_.get(),
-        base::ThreadTaskRunnerHandle::Get(), base::TimeDelta(), true);
+        base::SingleThreadTaskRunner::GetCurrentDefault(), base::TimeDelta(),
+        true);
     tile_task_manager_ = TileTaskManagerImpl::Create(&task_graph_runner_);
   }
 
@@ -248,7 +249,8 @@ class RasterBufferProviderTest
   }
 
   ResourcePool::InUsePoolResource AllocateResource(const gfx::Size& size) {
-    return pool_->AcquireResource(size, viz::RGBA_8888, gfx::ColorSpace());
+    return pool_->AcquireResource(size, viz::SinglePlaneFormat::kRGBA_8888,
+                                  gfx::ColorSpace());
   }
 
   void AppendTask(unsigned id,
@@ -335,7 +337,7 @@ class RasterBufferProviderTest
     auto gl_owned = std::make_unique<viz::TestGLES2Interface>();
     gl_owned->set_support_sync_query(true);
     context_provider_ = viz::TestContextProvider::Create(std::move(gl_owned));
-    context_provider_->BindToCurrentThread();
+    context_provider_->BindToCurrentSequence();
 
     worker_context_provider_ = viz::TestContextProvider::CreateWorker();
     DCHECK(worker_context_provider_);
@@ -523,8 +525,9 @@ TEST_P(RasterBufferProviderTest, WaitOnSyncTokenAfterReschedulingTask) {
   {
     viz::ContextProvider::ScopedContextLock context_lock(
         worker_context_provider_.get());
-    viz::TestGLES2Interface* gl = worker_context_provider_->TestContextGL();
-    EXPECT_TRUE(gl->last_waited_sync_token().HasData());
+    viz::TestRasterInterface* ri =
+        worker_context_provider_->GetTestRasterInterface();
+    EXPECT_TRUE(ri->last_waited_sync_token().HasData());
   }
 
   lock.Release();

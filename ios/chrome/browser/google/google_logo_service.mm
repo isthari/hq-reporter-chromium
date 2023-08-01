@@ -1,16 +1,16 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/google/google_logo_service.h"
+#import "ios/chrome/browser/google/google_logo_service.h"
 
 #import <Foundation/Foundation.h>
 
-#include "base/bind.h"
-#include "base/strings/sys_string_conversions.h"
-#include "components/image_fetcher/ios/ios_image_decoder_impl.h"
-#include "ios/chrome/browser/ui/util/ui_util.h"
-#include "services/network/public/cpp/shared_url_loader_factory.h"
+#import "base/functional/bind.h"
+#import "base/path_service.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/image_fetcher/ios/ios_image_decoder_impl.h"
+#import "services/network/public/cpp/shared_url_loader_factory.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -18,18 +18,13 @@
 
 namespace {
 
-static NSArray* const kDoodleCacheDirectory = @[ @"Chromium", @"Doodle" ];
-
 // Cache directory for doodle.
 base::FilePath DoodleDirectory() {
-  NSArray* paths = NSSearchPathForDirectoriesInDomains(NSCachesDirectory,
-                                                       NSUserDomainMask, YES);
-  NSString* path = [paths objectAtIndex:0];
-  NSArray* path_components =
-      [NSArray arrayWithObjects:path, kDoodleCacheDirectory[0],
-                                kDoodleCacheDirectory[1], nil];
-  return base::FilePath(
-      base::SysNSStringToUTF8([NSString pathWithComponents:path_components]));
+  base::FilePath cache;
+  const bool success = base::PathService::Get(base::DIR_CACHE, &cache);
+  DCHECK(success) << "Failed to get cache dir path.";
+  return cache.Append(FILE_PATH_LITERAL("Chromium"))
+      .Append(FILE_PATH_LITERAL("Doodle"));
 }
 
 }  // namespace

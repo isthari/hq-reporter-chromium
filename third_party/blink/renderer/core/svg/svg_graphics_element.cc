@@ -73,7 +73,7 @@ AffineTransform SVGGraphicsElement::ComputeCTM(
     if (!svg_element)
       break;
 
-    ctm = svg_element->LocalCoordinateSpaceTransform(mode).Multiply(ctm);
+    ctm = svg_element->LocalCoordinateSpaceTransform(mode).PreConcat(ctm);
 
     switch (mode) {
       case kNearestViewportScope:
@@ -149,8 +149,6 @@ void SVGGraphicsElement::SvgAttributeChanged(
     // away with removing the InvalidationGuard?
     SetNeedsStyleRecalc(kLocalStyleChange,
                         StyleChangeReasonForTracing::FromAttribute(attr_name));
-    if (LayoutObject* object = GetLayoutObject())
-      MarkForLayoutAndParentResourceInvalidation(*object);
     return;
   }
 
@@ -191,8 +189,9 @@ SVGRectTearOff* SVGGraphicsElement::getBBoxFromJavascript() {
   if (const auto* layout_object = GetLayoutObject()) {
     bounding_box = GetBBox();
 
-    if (layout_object->IsSVGText() || layout_object->IsSVGInline())
+    if (layout_object->IsSVGInline()) {
       UseCounter::Count(GetDocument(), WebFeature::kGetBBoxForText);
+    }
   }
   return SVGRectTearOff::CreateDetached(bounding_box);
 }

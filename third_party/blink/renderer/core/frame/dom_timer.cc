@@ -32,10 +32,12 @@
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/bindings/core/v8/scheduled_action.h"
+#include "third_party/blink/renderer/core/core_probes_inl.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/inspector/inspector_trace_events.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
+#include "third_party/blink/renderer/platform/scheduler/public/scheduling_policy.h"
 
 namespace blink {
 
@@ -47,38 +49,118 @@ namespace {
 // greater than 5.
 constexpr int kMaxTimerNestingLevel = 5;
 constexpr base::TimeDelta kMinimumInterval = base::Milliseconds(4);
+constexpr base::TimeDelta kMaxHighResolutionInterval = base::Milliseconds(32);
+
+// Maintains a set of DOMTimers for a given ExecutionContext. Assigns IDs to
+// timers; these IDs are the ones returned to web authors from setTimeout or
+// setInterval. It also tracks recursive creation or iterative scheduling of
+// timers, which is used as a signal for throttling repetitive timers.
+class DOMTimerCoordinator : public GarbageCollected<DOMTimerCoordinator>,
+                            public Supplement<ExecutionContext> {
+ public:
+  constexpr static const char kSupplementName[] = "DOMTimerCoordinator";
+
+  static DOMTimerCoordinator& From(ExecutionContext& context) {
+    CHECK(!context.IsWorkletGlobalScope());
+    auto* coordinator =
+        Supplement<ExecutionContext>::From<DOMTimerCoordinator>(context);
+    if (!coordinator) {
+      coordinator = MakeGarbageCollected<DOMTimerCoordinator>(context);
+      Supplement<ExecutionContext>::ProvideTo(context, coordinator);
+    }
+    return *coordinator;
+  }
+
+  explicit DOMTimerCoordinator(ExecutionContext& context)
+      : Supplement<ExecutionContext>(context) {}
+
+  int Install(DOMTimer* timer) {
+    int timeout_id = NextID();
+    timers_.insert(timeout_id, timer);
+    return timeout_id;
+  }
+
+  // Removes and disposes the timer with the specified ID, if any. This may
+  // destroy the timer.
+  DOMTimer* RemoveTimeoutByID(int timeout_id) {
+    if (timeout_id <= 0) {
+      return nullptr;
+    }
+    DOMTimer* removed_timer = timers_.Take(timeout_id);
+    if (removed_timer) {
+      removed_timer->Stop();
+    }
+    return removed_timer;
+  }
+
+  // Timers created during the execution of other timers, and
+  // repeating timers, are throttled. Timer nesting level tracks the
+  // number of linked timers or repetitions of a timer. See
+  // https://html.spec.whatwg.org/C/#timers
+  int TimerNestingLevel() { return timer_nesting_level_; }
+
+  // Sets the timer nesting level. Set when a timer executes so that
+  // any timers created while the timer is executing will incur a
+  // deeper timer nesting level, see DOMTimer::DOMTimer.
+  void SetTimerNestingLevel(int level) { timer_nesting_level_ = level; }
+
+  void Trace(Visitor* visitor) const final {
+    visitor->Trace(timers_);
+    Supplement<ExecutionContext>::Trace(visitor);
+  }
+
+ private:
+  int NextID() {
+    while (true) {
+      ++circular_sequential_id_;
+
+      if (circular_sequential_id_ <= 0) {
+        circular_sequential_id_ = 1;
+      }
+
+      if (!timers_.Contains(circular_sequential_id_)) {
+        return circular_sequential_id_;
+      }
+    }
+  }
+
+  HeapHashMap<int, Member<DOMTimer>> timers_;
+  int circular_sequential_id_ = 0;
+  int timer_nesting_level_ = 0;
+};
 
 }  // namespace
 
-int DOMTimer::Install(ExecutionContext* context,
+int DOMTimer::Install(ExecutionContext& context,
                       ScheduledAction* action,
                       base::TimeDelta timeout,
                       bool single_shot) {
-  int timeout_id = context->Timers()->InstallNewTimeout(context, action,
-                                                        timeout, single_shot);
-  return timeout_id;
+  return MakeGarbageCollected<DOMTimer>(context, action, timeout, single_shot)
+      ->timeout_id_;
 }
 
-void DOMTimer::RemoveByID(ExecutionContext* context, int timeout_id) {
-  DOMTimer* timer = context->Timers()->RemoveTimeoutByID(timeout_id);
+void DOMTimer::RemoveByID(ExecutionContext& context, int timeout_id) {
   DEVTOOLS_TIMELINE_TRACE_EVENT_INSTANT(
-      "TimerRemove", inspector_timer_remove_event::Data, context, timeout_id);
+      "TimerRemove", inspector_timer_remove_event::Data, &context, timeout_id);
   // Eagerly unregister as ExecutionContext observer.
-  if (timer)
+  if (DOMTimer* timer =
+          DOMTimerCoordinator::From(context).RemoveTimeoutByID(timeout_id)) {
+    // Eagerly unregister as ExecutionContext observer.
     timer->SetExecutionContext(nullptr);
+  }
 }
-DOMTimer::DOMTimer(ExecutionContext* context,
+
+DOMTimer::DOMTimer(ExecutionContext& context,
                    ScheduledAction* action,
                    base::TimeDelta timeout,
-                   bool single_shot,
-                   int timeout_id)
-    : ExecutionContextLifecycleObserver(context),
+                   bool single_shot)
+    : ExecutionContextLifecycleObserver(&context),
       TimerBase(nullptr),
-      timeout_id_(timeout_id),
+      timeout_id_(DOMTimerCoordinator::From(context).Install(this)),
       // Step 9:
-      nesting_level_(context->Timers()->TimerNestingLevel()),
+      nesting_level_(DOMTimerCoordinator::From(context).TimerNestingLevel()),
       action_(action) {
-  DCHECK_GT(timeout_id, 0);
+  DCHECK_GT(timeout_id_, 0);
 
   // Step 10:
   if (timeout.is_negative())
@@ -92,20 +174,31 @@ DOMTimer::DOMTimer(ExecutionContext* context,
   // Step 11:
   // Note: The implementation uses >= instead of >, contrary to what the spec
   // requires crbug.com/1108877.
-  if (nesting_level_ >= kMaxTimerNestingLevel && timeout < kMinimumInterval)
+  int max_nesting_level = features::IsMaxUnthrottledTimeoutNestingLevelEnabled()
+                              ? features::GetMaxUnthrottledTimeoutNestingLevel()
+                              : kMaxTimerNestingLevel;
+  // Under AlignWakeUps experiment, avoid timer alignment if the original delay
+  // is small, to avoid being affected by ongoing experiments on delay clamping
+  // MaxUnthrottledTimeoutNestingLevel and SetTimeoutZeroWithoutClamping.
+  // TODO(1153139) Remove this logic one experiments have shipped.
+  bool precise = (timeout <= kMinimumInterval) ||
+                 (scheduler::IsAlignWakeUpsDisabledForProcess() &&
+                  timeout < kMaxHighResolutionInterval);
+
+  if (nesting_level_ >= max_nesting_level && timeout < kMinimumInterval)
     timeout = kMinimumInterval;
 
   // Select TaskType based on nesting level.
   TaskType task_type;
-  if (timeout.is_zero()) {
-    task_type = TaskType::kJavascriptTimerImmediate;
-    DCHECK_LT(nesting_level_, kMaxTimerNestingLevel);
-  } else if (nesting_level_ >= kMaxTimerNestingLevel) {
+  if (nesting_level_ >= kMaxTimerNestingLevel) {
     task_type = TaskType::kJavascriptTimerDelayedHighNesting;
+  } else if (timeout.is_zero()) {
+    task_type = TaskType::kJavascriptTimerImmediate;
+    DCHECK_LT(nesting_level_, max_nesting_level);
   } else {
     task_type = TaskType::kJavascriptTimerDelayedLowNesting;
   }
-  MoveToNewTaskRunner(context->GetTaskRunner(task_type));
+  MoveToNewTaskRunner(context.GetTaskRunner(task_type));
 
   // Clamping up to 1ms for historical reasons crbug.com/402694.
   // Removing clamp for single_shot behind a feature flag.
@@ -113,16 +206,16 @@ DOMTimer::DOMTimer(ExecutionContext* context,
     timeout = std::max(timeout, base::Milliseconds(1));
 
   if (single_shot)
-    StartOneShot(timeout, FROM_HERE);
+    StartOneShot(timeout, FROM_HERE, precise);
   else
-    StartRepeating(timeout, FROM_HERE);
+    StartRepeating(timeout, FROM_HERE, precise);
 
   DEVTOOLS_TIMELINE_TRACE_EVENT_INSTANT(
-      "TimerInstall", inspector_timer_install_event::Data, context, timeout_id,
-      timeout, single_shot);
+      "TimerInstall", inspector_timer_install_event::Data, &context,
+      timeout_id_, timeout, single_shot);
   const char* name = single_shot ? "setTimeout" : "setInterval";
-  async_task_context_.Schedule(context, name);
-  probe::BreakableLocation(context, name);
+  async_task_context_.Schedule(&context, name);
+  probe::BreakableLocation(&context, name);
 }
 
 DOMTimer::~DOMTimer() = default;
@@ -156,7 +249,7 @@ void DOMTimer::ContextDestroyed() {
 void DOMTimer::Fired() {
   ExecutionContext* context = GetExecutionContext();
   DCHECK(context);
-  context->Timers()->SetTimerNestingLevel(nesting_level_);
+  DOMTimerCoordinator::From(*context).SetTimerNestingLevel(nesting_level_);
   DCHECK(!context->IsContextPaused());
   // Only the first execution of a multi-shot timer should get an affirmative
   // user gesture indicator.
@@ -164,8 +257,13 @@ void DOMTimer::Fired() {
   DEVTOOLS_TIMELINE_TRACE_EVENT("TimerFire", inspector_timer_fire_event::Data,
                                 context, timeout_id_);
   const bool is_interval = !RepeatInterval().is_zero();
+
   probe::UserCallback probe(context, is_interval ? "setInterval" : "setTimeout",
                             g_null_atom, true);
+  probe::InvokeCallback invoke_probe(
+      context,
+      is_interval ? "TimerHandler:setInterval" : "TimerHandler:setTimeout",
+      action_->CallbackFunction());
   probe::AsyncTask async_task(context, &async_task_context_,
                               is_interval ? "fired" : nullptr);
 
@@ -181,23 +279,29 @@ void DOMTimer::Fired() {
     // Make adjustments when the nesting level becomes >= |kMaxNestingLevel|.
     // Note: The implementation uses >= instead of >, contrary to what the spec
     // requires crbug.com/1108877.
+    int max_nesting_level =
+        features::IsMaxUnthrottledTimeoutNestingLevelEnabled()
+            ? features::GetMaxUnthrottledTimeoutNestingLevel()
+            : kMaxTimerNestingLevel;
+    // Step 11:
+    if (nesting_level_ == max_nesting_level &&
+        RepeatInterval() < kMinimumInterval) {
+      AugmentRepeatInterval(kMinimumInterval - RepeatInterval());
+    }
     if (nesting_level_ == kMaxTimerNestingLevel) {
       // Move to the TaskType that corresponds to nesting level >=
       // |kMaxNestingLevel|.
       MoveToNewTaskRunner(
           context->GetTaskRunner(TaskType::kJavascriptTimerDelayedHighNesting));
-      // Step 11:
-      if (RepeatInterval() < kMinimumInterval)
-        AugmentRepeatInterval(kMinimumInterval - RepeatInterval());
     }
 
-    DCHECK(nesting_level_ < kMaxTimerNestingLevel ||
+    DCHECK(nesting_level_ < max_nesting_level ||
            RepeatInterval() >= kMinimumInterval);
 
     // No access to member variables after this point, it can delete the timer.
     action_->Execute(context);
 
-    context->Timers()->SetTimerNestingLevel(0);
+    DOMTimerCoordinator::From(*context).SetTimerNestingLevel(0);
 
     return;
   }
@@ -205,7 +309,7 @@ void DOMTimer::Fired() {
   // Unregister the timer from ExecutionContext before executing the action
   // for one-shot timers.
   ScheduledAction* action = action_.Release();
-  context->Timers()->RemoveTimeoutByID(timeout_id_);
+  DOMTimerCoordinator::From(*context).RemoveTimeoutByID(timeout_id_);
 
   action->Execute(context);
 
@@ -217,7 +321,7 @@ void DOMTimer::Fired() {
   if (!execution_context)
     return;
 
-  execution_context->Timers()->SetTimerNestingLevel(0);
+  DOMTimerCoordinator::From(*execution_context).SetTimerNestingLevel(0);
   // Eagerly unregister as ExecutionContext observer.
   SetExecutionContext(nullptr);
 }

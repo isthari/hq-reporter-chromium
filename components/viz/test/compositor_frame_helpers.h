@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,7 +31,7 @@ struct SolidColorQuadParms {
 };
 
 struct SurfaceQuadParams {
-  SkColor default_background_color = SK_ColorWHITE;
+  SkColor4f default_background_color = SkColors::kWhite;
   bool stretch_content_to_fill_bounds = false;
   bool is_reflection = false;
   bool allow_merge = true;
@@ -46,7 +46,7 @@ struct RenderPassQuadParams {
 struct TextureQuadParams {
   bool needs_blending = false;
   bool premultiplied_alpha = false;
-  SkColor background_color = SK_ColorGREEN;
+  SkColor4f background_color = SkColors::kGreen;
   float vertex_opacity[4] = {1.0f, 1.0f, 1.0f, 1.0f};
   bool flipped = false;
   bool nearest_neighbor = false;
@@ -100,12 +100,15 @@ class RenderPassBuilder {
   // important attributes are stored in an optional struct parameter. The
   // optional params struct is POD so that designated initializers can be used
   // to construct a new object with specified parameters overridden.
+  RenderPassBuilder& AddSharedElementQuad(
+      const gfx::Rect& rect,
+      const ViewTransitionElementResourceId& id);
   RenderPassBuilder& AddSolidColorQuad(const gfx::Rect& rect,
-                                       SkColor color,
+                                       SkColor4f color,
                                        SolidColorQuadParms params = {});
   RenderPassBuilder& AddSolidColorQuad(const gfx::Rect& rect,
                                        const gfx::Rect& visible_rect,
-                                       SkColor color,
+                                       SkColor4f color,
                                        SolidColorQuadParms params = {});
 
   RenderPassBuilder& AddSurfaceQuad(const gfx::Rect& rect,
@@ -150,6 +153,10 @@ class RenderPassBuilder {
   // Sets SharedQuadState::clip_rect for the last quad.
   RenderPassBuilder& SetQuadClipRect(absl::optional<gfx::Rect> clip_rect);
 
+  // Sets the damage_rect for the last quad. This is only valid to call if the
+  // last quad has a `damage_rect` member.
+  RenderPassBuilder& SetQuadDamageRect(const gfx::Rect& damage_rect);
+
   // Sets SharedQuadState::blend_mode for the last quad.
   RenderPassBuilder& SetBlendMode(SkBlendMode blend_mode);
 
@@ -157,6 +164,9 @@ class RenderPassBuilder {
   // SharedQuadState::is_fast_rounded_corner for the last quad.
   RenderPassBuilder& SetMaskFilter(const gfx::MaskFilterInfo& mask_filter_info,
                                    bool is_fast_rounded_corner);
+
+  // Sets SharedQuadState::layer_id for the last quad.
+  RenderPassBuilder& SetQuadLayerId(uint32_t layer_id);
 
  private:
   // Appends and returns a new SharedQuadState for quad.
@@ -215,6 +225,7 @@ class CompositorFrameBuilder {
 
   // Sets the BeginFrameAck. This replaces the default BeginFrameAck.
   CompositorFrameBuilder& SetBeginFrameAck(const BeginFrameAck& ack);
+  CompositorFrameBuilder& SetBeginFrameSourceId(uint64_t source_id);
   CompositorFrameBuilder& SetDeviceScaleFactor(float device_scale_factor);
   CompositorFrameBuilder& AddLatencyInfo(ui::LatencyInfo latency_info);
   CompositorFrameBuilder& AddLatencyInfos(
@@ -242,7 +253,8 @@ CompositorRenderPassList CopyRenderPasses(
 
 // Creates a CompositorFrame that has a render pass with 20x20 output_rect and
 // empty damage_rect. This CompositorFrame is valid and can be sent over IPC.
-CompositorFrame MakeDefaultCompositorFrame();
+CompositorFrame MakeDefaultCompositorFrame(
+    uint64_t source_id = BeginFrameArgs::kManualSourceId);
 
 // Creates a CompositorFrame with provided render pass.
 CompositorFrame MakeCompositorFrame(

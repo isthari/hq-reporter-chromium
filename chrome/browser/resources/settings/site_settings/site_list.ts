@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,30 +8,33 @@
  * category.
  */
 import 'chrome://resources/cr_elements/cr_action_menu/cr_action_menu.js';
-import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
-import 'chrome://resources/cr_elements/policy/cr_policy_pref_indicator.m.js';
-import 'chrome://resources/cr_elements/shared_style_css.m.js';
-import 'chrome://resources/cr_elements/shared_vars_css.m.js';
+import 'chrome://resources/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/cr_elements/policy/cr_policy_pref_indicator.js';
+import 'chrome://resources/cr_elements/cr_shared_style.css.js';
+import 'chrome://resources/cr_elements/cr_shared_vars.css.js';
 import 'chrome://resources/polymer/v3_0/iron-flex-layout/iron-flex-layout-classes.js';
 import 'chrome://resources/polymer/v3_0/iron-list/iron-list.js';
 import 'chrome://resources/polymer/v3_0/paper-tooltip/paper-tooltip.js';
-import '../settings_shared_css.js';
+import '../settings_shared.css.js';
 import './add_site_dialog.js';
 import './edit_exception_dialog.js';
 import './site_list_entry.js';
 
-import {assert} from 'chrome://resources/js/assert.m.js';
-import {focusWithoutInk} from 'chrome://resources/js/cr/ui/focus_without_ink.m.js';
-import {ListPropertyUpdateMixin} from 'chrome://resources/js/list_property_update_mixin.js';
-import {WebUIListenerMixin} from 'chrome://resources/js/web_ui_listener_mixin.js';
+import {ListPropertyUpdateMixin} from 'chrome://resources/cr_elements/list_property_update_mixin.js';
+import {WebUiListenerMixin} from 'chrome://resources/cr_elements/web_ui_listener_mixin.js';
+import {assert} from 'chrome://resources/js/assert_ts.js';
+import {focusWithoutInk} from 'chrome://resources/js/focus_without_ink.js';
 import {PaperTooltipElement} from 'chrome://resources/polymer/v3_0/paper-tooltip/paper-tooltip.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-// <if expr="chromeos">
+import {TooltipMixin} from '../tooltip_mixin.js';
+// <if expr="chromeos_ash">
 import {loadTimeData} from '../i18n_setup.js';
+
 import {AndroidInfoBrowserProxyImpl, AndroidSmsInfo} from './android_info_browser_proxy.js';
 // </if>
-import {ContentSetting, ContentSettingsTypes, INVALID_CATEGORY_SUBTYPE} from './constants.js';
+import {ContentSetting, ContentSettingsTypes, CookiesExceptionType, INVALID_CATEGORY_SUBTYPE, SITE_EXCEPTION_WILDCARD} from './constants.js';
+import {getTemplate} from './site_list.html.js';
 import {SiteSettingsMixin} from './site_settings_mixin.js';
 import {RawSiteException, SiteException, SiteSettingsPrefsBrowserProxy, SiteSettingsPrefsBrowserProxyImpl} from './site_settings_prefs_browser_proxy.js';
 
@@ -44,8 +47,8 @@ export interface SiteListElement {
   };
 }
 
-const SiteListElementBase = ListPropertyUpdateMixin(
-    SiteSettingsMixin(WebUIListenerMixin(PolymerElement)));
+const SiteListElementBase = TooltipMixin(ListPropertyUpdateMixin(
+    SiteSettingsMixin(WebUiListenerMixin(PolymerElement))));
 
 export class SiteListElement extends SiteListElementBase {
   static get is() {
@@ -53,7 +56,7 @@ export class SiteListElement extends SiteListElementBase {
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
@@ -99,6 +102,19 @@ export class SiteListElement extends SiteListElementBase {
         value: INVALID_CATEGORY_SUBTYPE,
       },
 
+      /**
+       * Filters cookies exceptions based on the type (CookiesExceptionType):
+       * - THIRD_PARTY: Only show cookies exceptions that have primary pattern
+       * as wildcard (third-party cookies exceptions).
+       * - SITE_DATA: Only show cookies exceptions that have primary pattern
+       * set. This includes site data exceptions (secondary pattern is wildcard)
+       * and exceptions with both patterns set (currently possible only via
+       * exceptions API).
+       * - COMBINED: Doesn't apply any filters, will show exceptions with both
+       * pattern types.
+       */
+      cookiesExceptionType: String,
+
       hasIncognito_: Boolean,
 
       /**
@@ -139,7 +155,7 @@ export class SiteListElement extends SiteListElementBase {
           BLOCK: 'Block',
           RESET: 'Reset',
           SESSION_ONLY: 'SessionOnly',
-        }
+        },
       },
 
       lastFocused_: Object,
@@ -157,7 +173,7 @@ export class SiteListElement extends SiteListElementBase {
   categoryHeader: string;
   private actionMenuSite_: SiteException|null;
   private showEditExceptionDialog_: boolean;
-  sites: Array<SiteException>;
+  sites: SiteException[];
   categorySubtype: ContentSetting;
   private hasIncognito_: boolean;
   private showAddSiteButton_: boolean;
@@ -169,19 +185,20 @@ export class SiteListElement extends SiteListElementBase {
   private listBlurred_: boolean;
   private tooltipText_: string;
   searchFilter: string;
+  cookiesExceptionType: CookiesExceptionType;
 
   private activeDialogAnchor_: HTMLElement|null;
   private browserProxy_: SiteSettingsPrefsBrowserProxy =
       SiteSettingsPrefsBrowserProxyImpl.getInstance();
 
-  // <if expr="chromeos">
+  // <if expr="chromeos_ash">
   private androidSmsInfo_: AndroidSmsInfo|null;
   // </if>
 
   constructor() {
     super();
 
-    // <if expr="chromeos">
+    // <if expr="chromeos_ash">
     /**
      * Android messages info object containing messages feature state and
      * exception origin.
@@ -196,19 +213,23 @@ export class SiteListElement extends SiteListElementBase {
     this.activeDialogAnchor_ = null;
   }
 
-  ready() {
+  override ready() {
     super.ready();
 
-    this.addWebUIListener(
+    this.addWebUiListener(
         'contentSettingSitePermissionChanged',
         (category: ContentSettingsTypes) =>
             this.siteWithinCategoryChanged_(category));
-    this.addWebUIListener(
+    this.addWebUiListener(
+        'contentSettingCategoryChanged',
+        (category: ContentSettingsTypes) =>
+            this.siteWithinCategoryChanged_(category));
+    this.addWebUiListener(
         'onIncognitoStatusChanged',
         (hasIncognito: boolean) =>
             this.onIncognitoStatusChanged_(hasIncognito));
-    // <if expr="chromeos">
-    this.addWebUIListener(
+    // <if expr="chromeos_ash">
+    this.addWebUiListener(
         'settings.onAndroidSmsInfoChange', (info: AndroidSmsInfo) => {
           this.androidSmsInfo_ = info;
           this.populateList_();
@@ -256,11 +277,11 @@ export class SiteListElement extends SiteListElementBase {
 
     this.setUpActionMenu_();
 
-    // <if expr="not chromeos">
+    // <if expr="not chromeos_ash">
     this.populateList_();
     // </if>
 
-    // <if expr="chromeos">
+    // <if expr="chromeos_ash">
     this.updateAndroidSmsInfo_().then(() => this.populateList_());
     // </if>
 
@@ -295,14 +316,14 @@ export class SiteListElement extends SiteListElementBase {
   /**
    * A handler for the Add Site button.
    */
-  private onAddSiteTap_() {
+  private onAddSiteClick_() {
     assert(!this.readOnlyList);
     this.showAddSiteDialog_ = true;
   }
 
   private onAddSiteDialogClosed_() {
     this.showAddSiteDialog_ = false;
-    focusWithoutInk(assert(this.$.addSite));
+    focusWithoutInk(this.$.addSite);
   }
 
   /**
@@ -311,28 +332,13 @@ export class SiteListElement extends SiteListElementBase {
    */
   private onShowTooltip_(e: CustomEvent<{target: HTMLElement, text: string}>) {
     this.tooltipText_ = e.detail.text;
-    const target = e.detail.target;
     // paper-tooltip normally determines the target from the |for| property,
     // which is a selector. Here paper-tooltip is being reused by multiple
     // potential targets.
-    const tooltip = this.$.tooltip;
-    tooltip.target = target;
-    tooltip.updatePosition();
-    const hide = () => {
-      this.$.tooltip.hide();
-      target.removeEventListener('mouseleave', hide);
-      target.removeEventListener('blur', hide);
-      target.removeEventListener('click', hide);
-      this.$.tooltip.removeEventListener('mouseenter', hide);
-    };
-    target.addEventListener('mouseleave', hide);
-    target.addEventListener('blur', hide);
-    target.addEventListener('click', hide);
-    this.$.tooltip.addEventListener('mouseenter', hide);
-    this.$.tooltip.show();
+    this.showTooltipAtTarget(this.$.tooltip, e.detail.target);
   }
 
-  // <if expr="chromeos">
+  // <if expr="chromeos_ash">
   /**
    * Load android sms info if required and sets it to the |androidSmsInfo_|
    * property. Returns a promise that resolves when load is complete.
@@ -358,8 +364,8 @@ export class SiteListElement extends SiteListElementBase {
    * Processes exceptions and adds showAndroidSmsNote field to
    * the required exception item.
    */
-  private processExceptionsForAndroidSmsInfo_(sites: Array<SiteException>):
-      Array<SiteException> {
+  private processExceptionsForAndroidSmsInfo_(sites: SiteException[]):
+      SiteException[] {
     if (!this.androidSmsInfo_ || !this.androidSmsInfo_.enabled) {
       return sites;
     }
@@ -386,14 +392,34 @@ export class SiteListElement extends SiteListElementBase {
   /**
    * Process the exception list returned from the native layer.
    */
-  private processExceptions_(exceptionList: Array<RawSiteException>) {
+  private processExceptions_(exceptionList: RawSiteException[]) {
     let sites = exceptionList
                     .filter(
                         site => site.setting !== ContentSetting.DEFAULT &&
                             site.setting === this.categorySubtype)
+                    .filter(site => {
+                      if (this.category !== ContentSettingsTypes.COOKIES) {
+                        return true;
+                      }
+                      assert(this.cookiesExceptionType !== undefined);
+                      switch (this.cookiesExceptionType) {
+                        case CookiesExceptionType.THIRD_PARTY:
+                          return site.origin === SITE_EXCEPTION_WILDCARD;
+                        case CookiesExceptionType.SITE_DATA:
+                          // Site data exceptions include all exceptions that
+                          // have `origin` set. This includes site data
+                          // exceptions and exceptions with both patterns set
+                          // (currently possible only via exceptions API).
+                          return site.origin !== SITE_EXCEPTION_WILDCARD;
+                        case CookiesExceptionType.COMBINED:
+                          // For cookies exception type COMBINED, don't apply
+                          // any filters and show exceptions with both pattern
+                          // types.
+                          return true;
+                      }
+                    })
                     .map(site => this.expandSiteException(site));
-
-    // <if expr="chromeos">
+    // <if expr="chromeos_ash">
     sites = this.processExceptionsForAndroidSmsInfo_(sites);
     // </if>
     this.updateList('sites', x => x.origin, sites);
@@ -432,22 +458,22 @@ export class SiteListElement extends SiteListElementBase {
         this.category, contentSetting, this.actionMenuSite_!.incognito);
   }
 
-  private onAllowTap_() {
+  private onAllowClick_() {
     this.setContentSettingForActionMenuSite_(ContentSetting.ALLOW);
     this.closeActionMenu_();
   }
 
-  private onBlockTap_() {
+  private onBlockClick_() {
     this.setContentSettingForActionMenuSite_(ContentSetting.BLOCK);
     this.closeActionMenu_();
   }
 
-  private onSessionOnlyTap_() {
+  private onSessionOnlyClick_() {
     this.setContentSettingForActionMenuSite_(ContentSetting.SESSION_ONLY);
     this.closeActionMenu_();
   }
 
-  private onEditTap_() {
+  private onEditClick_() {
     // Close action menu without resetting |this.actionMenuSite_| since it is
     // bound to the dialog.
     this.shadowRoot!.querySelector('cr-action-menu')!.close();
@@ -463,10 +489,11 @@ export class SiteListElement extends SiteListElementBase {
     }
   }
 
-  private onResetTap_() {
-    const site = assert(this.actionMenuSite_!);
+  private onResetClick_() {
+    assert(this.actionMenuSite_);
     this.browserProxy.resetCategoryPermissionForPattern(
-        site!.origin, site!.embeddingOrigin, this.category, site!.incognito);
+        this.actionMenuSite_.origin, this.actionMenuSite_.embeddingOrigin,
+        this.category, this.actionMenuSite_.incognito);
     this.closeActionMenu_();
   }
 
@@ -487,13 +514,14 @@ export class SiteListElement extends SiteListElementBase {
     }
   }
 
-  private getFilteredSites_(): Array<SiteException> {
+  private getFilteredSites_(): SiteException[] {
     if (!this.searchFilter) {
       return this.sites.slice();
     }
 
-    type SearchableProperty = 'displayName'|'origin';
-    const propNames: Array<SearchableProperty> = ['displayName', 'origin'];
+    type SearchableProperty = 'displayName'|'origin'|'embeddingOrigin';
+    const propNames: SearchableProperty[] =
+        ['displayName', 'origin', 'embeddingOrigin'];
     const searchFilter = this.searchFilter.toLowerCase();
     return this.sites.filter(
         site => propNames.some(

@@ -1,34 +1,36 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import <UIKit/UIKit.h>
 #import <XCTest/XCTest.h>
 
-#include "base/ios/ios_util.h"
-#include "components/strings/grit/components_strings.h"
+#import "base/ios/ios_util.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/strings/grit/components_strings.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_earl_grey.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_earl_grey_ui.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_ui_constants.h"
 #import "ios/chrome/browser/ui/popup_menu/popup_menu_constants.h"
-#import "ios/chrome/browser/ui/ui_feature_flags.h"
-#include "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/web_http_server_chrome_test_case.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
-#include "net/base/net_errors.h"
-#include "net/test/embedded_test_server/embedded_test_server.h"
-#include "ui/base/l10n/l10n_util.h"
+#import "net/base/net_errors.h"
+#import "net/test/embedded_test_server/embedded_test_server.h"
+#import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
-using chrome_test_util::BookmarkHomeDoneButton;
+using chrome_test_util::BookmarksHomeDoneButton;
 using chrome_test_util::BookmarksNavigationBarBackButton;
 using chrome_test_util::BookmarksSaveEditDoneButton;
+using chrome_test_util::BookmarksSaveEditFolderButton;
 using chrome_test_util::ButtonWithAccessibilityLabelId;
 using chrome_test_util::ContextBarCenterButtonWithLabel;
 using chrome_test_util::ContextBarLeadingButtonWithLabel;
@@ -73,7 +75,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
       assertWithMatcher:grey_notNil()];
 
   // Add the bookmark from the UI.
-  [BookmarkEarlGrey waitForBookmarkModelLoaded:YES];
+  [BookmarkEarlGrey waitForBookmarkModelLoaded];
   [BookmarkEarlGreyUI bookmarkCurrentTabWithTitle:bookmarkTitle];
 
   // Verify the bookmark is set.
@@ -125,9 +127,77 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
   [ChromeEarlGrey openNewTab];
   [ChromeEarlGrey loadURL:secondURL];
 
-  [BookmarkEarlGrey waitForBookmarkModelLoaded:YES];
+  [BookmarkEarlGrey waitForBookmarkModelLoaded];
   [BookmarkEarlGreyUI bookmarkCurrentTabWithTitle:@"my bookmark"];
   [BookmarkEarlGrey verifyBookmarksWithTitle:@"my bookmark" expectedCount:1];
+}
+
+// Regression test for crbug.com/1426259.
+// Tests that there is no crash when opening from incognito tab.
+- (void)testOpeningBookmarksInIncognitoMode {
+  [ChromeEarlGrey openNewIncognitoTab];
+
+  [BookmarkEarlGrey setupStandardBookmarks];
+  [BookmarkEarlGreyUI openBookmarks];
+  [BookmarkEarlGreyUI openMobileBookmarks];
+}
+
+// Tests opening the folder chooser from the bookmark editor using
+// an incognito tab.
+// See http://crbug.com/1432310.
+- (void)testOpenFolderChooserFromBookmarkEditorWithIncognito {
+  [ChromeEarlGrey openNewIncognitoTab];
+  [BookmarkEarlGrey setupStandardBookmarks];
+  [BookmarkEarlGreyUI openBookmarks];
+  [BookmarkEarlGreyUI openMobileBookmarks];
+  // Invoke Edit through long press on "First URL" bookmark.
+  [[EarlGrey
+      selectElementWithMatcher:TappableBookmarkNodeWithLabel(@"First URL")]
+      performAction:grey_longPress()];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::
+                                          BookmarksContextMenuEditButton()]
+      performAction:grey_tap()];
+  // Tap the Folder button.
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"Change Folder")]
+      performAction:grey_tap()];
+  // Close the folder chooser, bookmark editor and the bookmark list.
+  [[EarlGrey
+      selectElementWithMatcher:grey_allOf(BookmarksNavigationBarBackButton(),
+                                          grey_sufficientlyVisible(), nil)]
+      performAction:grey_tap()];
+  [[EarlGrey selectElementWithMatcher:BookmarksSaveEditDoneButton()]
+      performAction:grey_tap()];
+  [[EarlGrey selectElementWithMatcher:BookmarksHomeDoneButton()]
+      performAction:grey_tap()];
+}
+
+// Tests opening the folder chooser from the folder editor using
+// an incognito tab.
+// See http://crbug.com/1432310.
+- (void)testOpenFolderChooserFromFolderEditorWithIncognito {
+  [ChromeEarlGrey openNewIncognitoTab];
+  [BookmarkEarlGrey setupStandardBookmarks];
+  [BookmarkEarlGreyUI openBookmarks];
+  [BookmarkEarlGreyUI openMobileBookmarks];
+  // Invoke Edit through long press on "Folder 1" folder.
+  [[EarlGrey
+      selectElementWithMatcher:TappableBookmarkNodeWithLabel(@"Folder 1")]
+      performAction:grey_longPress()];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::
+                                          BookmarksContextMenuEditButton()]
+      performAction:grey_tap()];
+  // Tap the Folder button.
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"Change Folder")]
+      performAction:grey_tap()];
+  // Close the folder chooser, bookmark editor and the bookmark list.
+  [[EarlGrey
+      selectElementWithMatcher:grey_allOf(BookmarksNavigationBarBackButton(),
+                                          grey_sufficientlyVisible(), nil)]
+      performAction:grey_tap()];
+  [[EarlGrey selectElementWithMatcher:BookmarksSaveEditFolderButton()]
+      performAction:grey_tap()];
+  [[EarlGrey selectElementWithMatcher:BookmarksHomeDoneButton()]
+      performAction:grey_tap()];
 }
 
 // Tests that changes to the parent folder from the Single Bookmark Editor
@@ -173,7 +243,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
   [BookmarkEarlGrey verifyChildCount:1 inFolderWithName:@"New Folder"];
 
   // Close bookmarks
-  [[EarlGrey selectElementWithMatcher:BookmarkHomeDoneButton()]
+  [[EarlGrey selectElementWithMatcher:BookmarksHomeDoneButton()]
       performAction:grey_tap()];
 
   // Check that the new folder still contains the bookmark.
@@ -218,51 +288,6 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
                  @"No keyboard commands are registered.");
 }
 
-// Test that swiping left to right navigate back.
-// TODO(crbug.com/768339): This test is faling on devices because
-// grey_swipeFastInDirectionWithStartPoint does not work.
-// TODO(crbug.com/978877): Fix the bug in EG and enable the test.
-// Navigate back side swipe gesture does not work on iOS13 simulator. This
-// is not specific to Bookmarks. The issue is that the gesture needs to
-// start offscreen, and EG cannot replicate that.
-- (void)DISABLED_testNavigateBackWithGesture {
-  // Disabled on iPad as there is not "navigate back" gesture.
-  if ([ChromeEarlGrey isIPadIdiom]) {
-    EARL_GREY_TEST_SKIPPED(@"Test not applicable for iPad");
-  }
-
-  [BookmarkEarlGrey setupStandardBookmarks];
-  [BookmarkEarlGreyUI openBookmarks];
-  [BookmarkEarlGreyUI openMobileBookmarks];
-
-  // Make sure Mobile Bookmarks is not present. Also check the button Class to
-  // avoid matching the "back" NavigationBar button.
-  [[EarlGrey
-      selectElementWithMatcher:grey_allOf(
-                                   grey_accessibilityID(@"Mobile Bookmarks"),
-                                   grey_kindOfClassName(@"UITableViewCell"),
-                                   nil)] assertWithMatcher:grey_nil()];
-
-  // Open the first folder, to be able to go back twice on the bookmarks.
-  [[EarlGrey
-      selectElementWithMatcher:TappableBookmarkNodeWithLabel(@"Folder 1")]
-      performAction:grey_tap()];
-
-  // Back twice using swipe left gesture.
-  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
-                                          kBookmarkHomeTableViewIdentifier)]
-      performAction:grey_swipeFastInDirectionWithStartPoint(kGREYDirectionRight,
-                                                            0.01, 0.5)];
-  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
-                                          kBookmarkHomeTableViewIdentifier)]
-      performAction:grey_swipeFastInDirectionWithStartPoint(kGREYDirectionRight,
-                                                            0.01, 0.5)];
-
-  // Check we navigated back to the Mobile Bookmarks.
-  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"Mobile Bookmarks")]
-      assertWithMatcher:grey_sufficientlyVisible()];
-}
-
 // Tests that the bookmark context bar is shown in MobileBookmarks.
 - (void)testBookmarkContextBarShown {
   [BookmarkEarlGrey setupStandardBookmarks];
@@ -271,16 +296,17 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 
   // Verify the context bar is shown.
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
-                                          kBookmarkHomeUIToolbarIdentifier)]
+                                          kBookmarksHomeUIToolbarIdentifier)]
       assertWithMatcher:grey_notNil()];
 
   // Verify the context bar's leading and trailing buttons are shown.
-  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
-                                          kBookmarkHomeLeadingButtonIdentifier)]
+  [[EarlGrey
+      selectElementWithMatcher:grey_accessibilityID(
+                                   kBookmarksHomeLeadingButtonIdentifier)]
       assertWithMatcher:grey_notNil()];
   [[EarlGrey
       selectElementWithMatcher:grey_accessibilityID(
-                                   kBookmarkHomeTrailingButtonIdentifier)]
+                                   kBookmarksHomeTrailingButtonIdentifier)]
       assertWithMatcher:grey_notNil()];
 }
 
@@ -291,13 +317,13 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 
   // Verify the context bar is shown.
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
-                                          kBookmarkHomeUIToolbarIdentifier)]
+                                          kBookmarksHomeUIToolbarIdentifier)]
       assertWithMatcher:grey_notNil()];
 
   // Change to edit mode
   [[EarlGrey
       selectElementWithMatcher:grey_accessibilityID(
-                                   kBookmarkHomeTrailingButtonIdentifier)]
+                                   kBookmarksHomeTrailingButtonIdentifier)]
       performAction:grey_tap()];
 
   // Verify context bar shows disabled "Delete" disabled "More" enabled
@@ -425,13 +451,13 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 
   // Verify the context bar is shown.
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
-                                          kBookmarkHomeUIToolbarIdentifier)]
+                                          kBookmarksHomeUIToolbarIdentifier)]
       assertWithMatcher:grey_notNil()];
 
   // Change to edit mode
   [[EarlGrey
       selectElementWithMatcher:grey_accessibilityID(
-                                   kBookmarkHomeTrailingButtonIdentifier)]
+                                   kBookmarksHomeTrailingButtonIdentifier)]
       performAction:grey_tap()];
 
   // Multi select URL and folders.
@@ -555,10 +581,13 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
   [BookmarkEarlGreyUI verifyFolderCreatedWithTitle:newFolderTitle];
 }
 
-// TODO(crbug.com/801453): Folder name is not commited as expected in this test.
 // Tests the new folder name is committed when "hide keyboard" button is
 // pressed. (iPad specific)
-- (void)DISABLED_testNewFolderNameCommittedWhenKeyboardDismissedOnIpad {
+- (void)testNewFolderNameCommittedWhenKeyboardDismissedOnIpad {
+#if TARGET_IPHONE_SIMULATOR
+  EARL_GREY_TEST_SKIPPED(@"The keyboard is not considered 'dismissed' on "
+                         @"simulator when tapping on 'hide keyboard'.");
+#endif
   // Tablet only (handset keyboard does not have "hide keyboard" button).
   if (![ChromeEarlGrey isIPadIdiom]) {
     EARL_GREY_TEST_SKIPPED(@"Test not supported on iPhone");
@@ -605,7 +634,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
   // Change to edit mode, using context menu.
   [[EarlGrey
       selectElementWithMatcher:grey_accessibilityID(
-                                   kBookmarkHomeTrailingButtonIdentifier)]
+                                   kBookmarksHomeTrailingButtonIdentifier)]
       performAction:grey_tap()];
 
   // Select every URL and folder.
@@ -658,7 +687,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
       assertWithMatcher:grey_sufficientlyVisible()];
 
   // Close bookmarks
-  [[EarlGrey selectElementWithMatcher:BookmarkHomeDoneButton()]
+  [[EarlGrey selectElementWithMatcher:BookmarksHomeDoneButton()]
       performAction:grey_tap()];
 
   // Reopen bookmarks.
@@ -686,7 +715,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
       performAction:grey_tap()];
 
   // Close bookmarks, it will store Folder 2 as the cache position.
-  [[EarlGrey selectElementWithMatcher:BookmarkHomeDoneButton()]
+  [[EarlGrey selectElementWithMatcher:BookmarksHomeDoneButton()]
       performAction:grey_tap()];
 
   // Delete Folder 2.
@@ -708,7 +737,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
   [BookmarkEarlGreyUI openMobileBookmarks];
 
   // Close bookmarks, it will store Mobile Bookmarks as the cache position.
-  [[EarlGrey selectElementWithMatcher:BookmarkHomeDoneButton()]
+  [[EarlGrey selectElementWithMatcher:BookmarksHomeDoneButton()]
       performAction:grey_tap()];
 
   // Delete all bookmarks and folders under Mobile Bookmarks.
@@ -746,7 +775,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
       performAction:grey_tap()];
 
   // Close bookmarks
-  [[EarlGrey selectElementWithMatcher:BookmarkHomeDoneButton()]
+  [[EarlGrey selectElementWithMatcher:BookmarksHomeDoneButton()]
       performAction:grey_tap()];
 
   // Move Folder 3 under Folder 1.
@@ -784,18 +813,79 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 
   // Check that the TableView is presented.
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
-                                          kBookmarkHomeTableViewIdentifier)]
+                                          kBookmarksHomeTableViewIdentifier)]
       assertWithMatcher:grey_notNil()];
 
   // Swipe TableView down.
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
-                                          kBookmarkHomeTableViewIdentifier)]
+                                          kBookmarksHomeTableViewIdentifier)]
       performAction:grey_swipeFastInDirection(kGREYDirectionDown)];
 
   // Check that the TableView has been dismissed.
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
-                                          kBookmarkHomeTableViewIdentifier)]
+                                          kBookmarksHomeTableViewIdentifier)]
       assertWithMatcher:grey_nil()];
+}
+
+// Tests that swiping down dismisses multiple bookmarks UIs on the same
+// navigation controller.
+- (void)testSwipeDownToDismissMultipleBookmarksUI {
+  [BookmarkEarlGrey setupStandardBookmarks];
+  [BookmarkEarlGreyUI openBookmarks];
+  [BookmarkEarlGreyUI openMobileBookmarks];
+
+  // Invoke Edit through long press.
+  [[EarlGrey
+      selectElementWithMatcher:TappableBookmarkNodeWithLabel(@"First URL")]
+      performAction:grey_longPress()];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::
+                                          BookmarksContextMenuEditButton()]
+      performAction:grey_tap()];
+
+  // Tap the Folder button and verify folder chooser UI is displayed.
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"Change Folder")]
+      performAction:grey_tap()];
+  [[EarlGrey
+      selectElementWithMatcher:
+          grey_accessibilityID(kBookmarkFolderPickerViewContainerIdentifier)]
+      assertWithMatcher:grey_sufficientlyVisible()];
+
+  // Choose to move the bookmark into a new folder and verify folder creator is
+  // visible.
+  [[EarlGrey
+      selectElementWithMatcher:
+          grey_accessibilityID(kBookmarkCreateNewProfileFolderCellIdentifier)]
+      performAction:grey_tap()];
+  [[EarlGrey
+      selectElementWithMatcher:
+          grey_accessibilityID(kBookmarkFolderCreateViewContainerIdentifier)]
+      assertWithMatcher:grey_sufficientlyVisible()];
+
+  // Tap on Folder button to open folder chooser UI and verify `New Folder`
+  // section is not visible.
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(@"Change Folder")]
+      performAction:grey_tap()];
+  [[EarlGrey
+      selectElementWithMatcher:
+          grey_accessibilityID(kBookmarkFolderPickerViewContainerIdentifier)]
+      assertWithMatcher:grey_sufficientlyVisible()];
+  [[EarlGrey
+      selectElementWithMatcher:
+          grey_accessibilityID(kBookmarkCreateNewProfileFolderCellIdentifier)]
+      assertWithMatcher:grey_notVisible()];
+
+  // Swipe TableView down and verify that we're back to the bookmarks list.
+  [[EarlGrey
+      selectElementWithMatcher:
+          grey_accessibilityID(kBookmarkFolderPickerViewContainerIdentifier)]
+      performAction:grey_swipeFastInDirection(kGREYDirectionDown)];
+  [[EarlGrey
+      selectElementWithMatcher:
+          grey_accessibilityID(kBookmarkFolderPickerViewContainerIdentifier)]
+      assertWithMatcher:grey_nil()];
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                          kBookmarksHomeTableViewIdentifier)]
+      assertWithMatcher:grey_sufficientlyVisible()];
 }
 
 - (void)testFolderEmptyState {
@@ -840,6 +930,110 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 
   // When the user has no bookmarks, the root view should be an empty state.
   [BookmarkEarlGreyUI verifyEmptyState];
+}
+
+// Tests that bookmarking an incognito tab actually bookmarks the
+// expected URL. Regression test for https://crbug.com/1353114.
+- (void)testBookmarkFromIncognito {
+  GREYAssertTrue(self.testServer->Start(), @"Server did not start.");
+
+  const GURL firstURL = self.testServer->GetURL("/pony.html");
+  [ChromeEarlGrey openNewTab];
+  [ChromeEarlGrey loadURL:firstURL];
+
+  const GURL incognitoURL = self.testServer->GetURL("/destination.html");
+  [ChromeEarlGrey openNewIncognitoTab];
+  [ChromeEarlGrey loadURL:incognitoURL];
+
+  // Add the bookmark from the UI.
+  [BookmarkEarlGrey waitForBookmarkModelLoaded];
+  NSString* bookmarkTitle = @"Test Page";
+  [BookmarkEarlGreyUI bookmarkCurrentTabWithTitle:@"Test Page"];
+
+  [BookmarkEarlGrey verifyExistenceOfBookmarkWithURL:base::SysUTF8ToNSString(
+                                                         incognitoURL.spec())
+                                                name:bookmarkTitle];
+  [BookmarkEarlGrey
+      verifyAbsenceOfBookmarkWithURL:base::SysUTF8ToNSString(firstURL.spec())];
+}
+
+// Test that when bookmark is on edit mode and all entries are deleted outside
+// of that window it automatically quits edit mode.
+- (void)testBookmarksSyncWhenAllEntriesAreCancelled {
+  [BookmarkEarlGrey setupStandardBookmarks];
+  [BookmarkEarlGreyUI openBookmarks];
+  [BookmarkEarlGreyUI openMobileBookmarks];
+
+  // Go in edit mode.
+  [[EarlGrey
+      selectElementWithMatcher:grey_accessibilityID(
+                                   kBookmarksHomeTrailingButtonIdentifier)]
+      performAction:grey_tap()];
+
+  // Delete all bookmarks and folders under Mobile Bookmarks.
+  [BookmarkEarlGrey removeBookmarkWithTitle:@"Folder 1.1"];
+  [BookmarkEarlGrey removeBookmarkWithTitle:@"Folder 1"];
+  [BookmarkEarlGrey removeBookmarkWithTitle:@"French URL"];
+  [BookmarkEarlGrey removeBookmarkWithTitle:@"Second URL"];
+
+  // Check window is still in edit mode (still one bookmark/folder left).
+  [BookmarkEarlGreyUI verifyContextBarInEditMode];
+  [BookmarkEarlGrey removeBookmarkWithTitle:@"First URL"];
+
+  // Check window is no more in edit mode (no bookmark/folder left).
+  [BookmarkEarlGreyUI verifyContextBarInDefaultStateWithSelectEnabled:NO
+                                                     newFolderEnabled:YES];
+}
+
+// Test to swipe down the bookmark view twice.
+- (void)testBookmarksSwipeDownTwice {
+  [BookmarkEarlGrey setupStandardBookmarks];
+  [BookmarkEarlGreyUI openBookmarks];
+  // Check that the TableView is presented.
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                          kBookmarksHomeTableViewIdentifier)]
+      assertWithMatcher:grey_notNil()];
+  // Swipe TableView down.
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                          kBookmarksHomeTableViewIdentifier)]
+      performAction:grey_swipeFastInDirection(kGREYDirectionDown)];
+  // Check that the TableView has been dismissed.
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                          kBookmarksHomeTableViewIdentifier)]
+      assertWithMatcher:grey_nil()];
+  // Repeat a second time.
+  [BookmarkEarlGreyUI openBookmarks];
+  // Check that the TableView is presented.
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                          kBookmarksHomeTableViewIdentifier)]
+      assertWithMatcher:grey_notNil()];
+  // Swipe TableView down.
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                          kBookmarksHomeTableViewIdentifier)]
+      performAction:grey_swipeFastInDirection(kGREYDirectionDown)];
+  // Check that the TableView has been dismissed.
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                          kBookmarksHomeTableViewIdentifier)]
+      assertWithMatcher:grey_nil()];
+}
+
+// Test to swipe down the bookmark view after opening a bookmark folder.
+- (void)testBookmarksSwipeDownAfterOpeningBookmarkFolder {
+  [BookmarkEarlGrey setupStandardBookmarks];
+  [BookmarkEarlGreyUI openBookmarks];
+  // Check that the TableView is presented.
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                          kBookmarksHomeTableViewIdentifier)]
+      assertWithMatcher:grey_notNil()];
+  [BookmarkEarlGreyUI openMobileBookmarks];
+  // Swipe TableView down.
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                          kBookmarksHomeTableViewIdentifier)]
+      performAction:grey_swipeFastInDirection(kGREYDirectionDown)];
+  // Check that the TableView has been dismissed.
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                          kBookmarksHomeTableViewIdentifier)]
+      assertWithMatcher:grey_nil()];
 }
 
 // TODO(crbug.com/695749): Add egtests for:

@@ -1,12 +1,13 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "extensions/browser/updater/safe_manifest_parser.h"
 
 #include <memory>
+#include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/values.h"
@@ -29,11 +30,6 @@ namespace {
 constexpr char kExpectedGupdateProtocol[] = "2.0";
 constexpr char kExpectedGupdateXmlns[] =
     "http://www.google.com/update2/response";
-
-void ReportError(ParseUpdateManifestCallback callback,
-                 const ManifestParseFailure& failure) {
-  std::move(callback).Run(/*results=*/nullptr, failure);
-}
 
 // Helper function that reads in values for a single <app> tag. It returns a
 // boolean indicating success or failure. On failure, it writes a error message
@@ -168,47 +164,50 @@ bool ParseSingleAppTag(const base::Value& app_element,
 void ParseXmlDone(ParseUpdateManifestCallback callback,
                   data_decoder::DataDecoder::ValueOrError result) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  if (!result.value) {
-    ManifestParseFailure failure("Failed to parse XML: " + *result.error,
-                                 ManifestInvalidError::XML_PARSING_FAILED);
-    ReportError(std::move(callback), failure);
+  std::string gupdate_ns;
+  const auto get_root =
+      [&]() -> base::expected<base::Value, ManifestParseFailure> {
+    if (!result.has_value()) {
+      return base::unexpected(
+          ManifestParseFailure("Failed to parse XML: " + result.error(),
+                               ManifestInvalidError::XML_PARSING_FAILED));
+    }
+    base::Value root = std::move(result).value();
+
+    // Look for the required namespace declaration.
+    if (!GetXmlElementNamespacePrefix(root, kExpectedGupdateXmlns,
+                                      &gupdate_ns)) {
+      return base::unexpected(ManifestParseFailure(
+          "Missing or incorrect xmlns on gupdate tag",
+          ManifestInvalidError::INVALID_XLMNS_ON_GUPDATE_TAG));
+    }
+
+    if (!IsXmlElementNamed(root, GetXmlQualifiedName(gupdate_ns, "gupdate"))) {
+      return base::unexpected(ManifestParseFailure(
+          "Missing gupdate tag", ManifestInvalidError::MISSING_GUPDATE_TAG));
+    }
+
+    // Check for the gupdate "protocol" attribute.
+    if (GetXmlElementAttribute(root, "protocol") != kExpectedGupdateProtocol) {
+      return base::unexpected(ManifestParseFailure(
+          std::string("Missing/incorrect protocol on gupdate tag (expected '") +
+              kExpectedGupdateProtocol + "')",
+          ManifestInvalidError::INVALID_PROTOCOL_ON_GUPDATE_TAG));
+    }
+
+    return root;
+  };
+  auto root = get_root();
+  if (!root.has_value()) {
+    std::move(callback).Run(/*results=*/nullptr, std::move(root.error()));
     return;
   }
 
   auto results = std::make_unique<UpdateManifestResults>();
-  base::Value& root = *result.value;
-
-  // Look for the required namespace declaration.
-  std::string gupdate_ns;
-  if (!GetXmlElementNamespacePrefix(root, kExpectedGupdateXmlns, &gupdate_ns)) {
-    ManifestParseFailure failure(
-        "Missing or incorrect xmlns on gupdate tag",
-        ManifestInvalidError::INVALID_XLMNS_ON_GUPDATE_TAG);
-    ReportError(std::move(callback), failure);
-    return;
-  }
-
-  if (!IsXmlElementNamed(root, GetXmlQualifiedName(gupdate_ns, "gupdate"))) {
-    ManifestParseFailure failure("Missing gupdate tag",
-                                 ManifestInvalidError::MISSING_GUPDATE_TAG);
-    ReportError(std::move(callback), failure);
-    return;
-  }
-
-  // Check for the gupdate "protocol" attribute.
-  if (GetXmlElementAttribute(root, "protocol") != kExpectedGupdateProtocol) {
-    ManifestParseFailure failure(
-        std::string("Missing/incorrect protocol on gupdate tag "
-                    "(expected '") +
-            kExpectedGupdateProtocol + "')",
-        ManifestInvalidError::INVALID_PROTOCOL_ON_GUPDATE_TAG);
-    ReportError(std::move(callback), failure);
-    return;
-  }
 
   // Parse the first <daystart> if it's present.
   const base::Value* daystart = GetXmlElementChildWithTag(
-      root, GetXmlQualifiedName(gupdate_ns, "daystart"));
+      *root, GetXmlQualifiedName(gupdate_ns, "daystart"));
   if (daystart) {
     std::string elapsed_seconds =
         GetXmlElementAttribute(*daystart, "elapsed_seconds");
@@ -221,7 +220,7 @@ void ParseXmlDone(ParseUpdateManifestCallback callback,
   // Parse each of the <app> tags.
   std::vector<const base::Value*> apps;
   data_decoder::GetAllXmlElementChildrenWithTag(
-      root, GetXmlQualifiedName(gupdate_ns, "app"), &apps);
+      *root, GetXmlQualifiedName(gupdate_ns, "app"), &apps);
   std::string error_msg;
   int prodversionmin_count = 0;
   for (const auto* app : apps) {
@@ -276,7 +275,8 @@ void ParseUpdateManifest(const std::string& xml,
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(callback);
   data_decoder::DataDecoder::ParseXmlIsolated(
-      xml, base::BindOnce(&ParseXmlDone, std::move(callback)));
+      xml, data_decoder::mojom::XmlParser::WhitespaceBehavior::kIgnore,
+      base::BindOnce(&ParseXmlDone, std::move(callback)));
 }
 
 }  // namespace extensions

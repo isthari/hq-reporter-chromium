@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -41,18 +41,15 @@ class AutofillDataModel : public FormGroup {
     SERVER = 1,
   };
 
-  AutofillDataModel(const std::string& guid, const std::string& origin);
+  explicit AutofillDataModel(const std::string& guid);
   ~AutofillDataModel() override;
 
-  // Returns true if the data in this model was entered directly by the user,
-  // rather than automatically aggregated.
-  bool IsVerified() const;
+  // Calculates the number of days since the model was last used by subtracting
+  // the model's last recent |use_date_| from the |current_time|.
+  int GetDaysSinceLastUse(base::Time current_time) const;
 
   std::string guid() const { return guid_; }
   void set_guid(const std::string& guid) { guid_ = guid; }
-
-  std::string origin() const { return origin_; }
-  void set_origin(const std::string& origin) { origin_ = origin; }
 
   size_t use_count() const { return use_count_; }
   void set_use_count(size_t count) { use_count_ = count; }
@@ -71,46 +68,37 @@ class AutofillDataModel : public FormGroup {
     modification_date_ = time;
   }
 
-  // Compares two data models according to their frecency score. The score uses
-  // a combination of frequency and recency to determine the relevance of the
-  // profile. |comparison_time_| allows consistent sorting throughout the
-  // comparisons.
-  bool HasGreaterFrecencyThan(const AutofillDataModel* other,
-                              base::Time comparison_time) const;
+  // Compares two data models according to their ranking score. The score uses
+  // a combination of use count and days since last use to determine the
+  // relevance of the profile. `comparison_time_` allows consistent sorting
+  // throughout the comparisons. A greater ranking score corresponds to a higher
+  // ranking on the suggestion list.
+  bool HasGreaterRankingThan(const AutofillDataModel* other,
+                             base::Time comparison_time) const;
 
   // Gets the metadata associated with this autofill data model.
   virtual AutofillMetadata GetMetadata() const;
 
   // Sets the |use_count_| and |use_date_| of this autofill data model. Returns
   // whether the metadata was set.
-  virtual bool SetMetadata(const AutofillMetadata metadata);
+  virtual bool SetMetadata(const AutofillMetadata& metadata);
 
   // Returns whether the data model is deletable: if it has not been used for
   // longer than |kDisusedCreditCardDeletionTimeDelta|.
   virtual bool IsDeletable() const;
 
  protected:
+  // Calculate the ranking score of a card or profile depending on their use
+  // count and most recent use date.
+  virtual double GetRankingScore(base::Time current_time) const;
+
   // Called to update |use_count_| and |use_date_| when this data model is
   // the subject of user interaction (usually, when it's used to fill a form).
   void RecordUse();
 
-  // Returns a score based on both the recency (relative to |time|) and
-  // frequency for the model. The score is a negative number where a higher
-  // value is more relevant. |time| is passed as a parameter to ensure
-  // consistent results.
-  double GetFrecencyScore(base::Time time) const;
-
  private:
   // A globally unique ID for this object.
   std::string guid_;
-
-  // The origin of this data.  This should be
-  //   (a) a web URL for the domain of the form from which the data was
-  //       automatically aggregated, e.g. https://www.example.com/register,
-  //   (b) some other non-empty string, which cannot be interpreted as a web
-  //       URL, identifying the origin for non-aggregated data, or
-  //   (c) an empty string, indicating that the origin for this data is unknown.
-  std::string origin_;
 
   // The number of times this model has been used.
   size_t use_count_;

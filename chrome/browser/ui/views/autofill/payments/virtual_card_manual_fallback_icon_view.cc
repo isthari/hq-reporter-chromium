@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/strings/grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/paint_vector_icon.h"
 
 namespace autofill {
@@ -24,7 +25,13 @@ VirtualCardManualFallbackIconView::VirtualCardManualFallbackIconView(
     : PageActionIconView(command_updater,
                          IDC_VIRTUAL_CARD_MANUAL_FALLBACK,
                          icon_label_bubble_delegate,
-                         delegate) {}
+                         delegate,
+                         "VirtualCardManualFallback") {
+  SetAccessibilityProperties(
+      /*role*/ absl::nullopt,
+      l10n_util::GetStringUTF16(
+          IDS_AUTOFILL_VIRTUAL_CARD_MANUAL_FALLBACK_ICON_TOOLTIP));
+}
 
 VirtualCardManualFallbackIconView::~VirtualCardManualFallbackIconView() =
     default;
@@ -49,22 +56,12 @@ void VirtualCardManualFallbackIconView::UpdateImpl() {
   SetVisible(SetCommandEnabled(command_enabled));
 }
 
-std::u16string
-VirtualCardManualFallbackIconView::GetTextForTooltipAndAccessibleName() const {
-  return l10n_util::GetStringUTF16(
-      IDS_AUTOFILL_VIRTUAL_CARD_MANUAL_FALLBACK_ICON_TOOLTIP);
-}
-
 void VirtualCardManualFallbackIconView::OnExecuting(
     PageActionIconView::ExecuteSource execute_source) {}
 
 const gfx::VectorIcon& VirtualCardManualFallbackIconView::GetVectorIcon()
     const {
   return kCreditCardIcon;
-}
-
-const char* VirtualCardManualFallbackIconView::GetClassName() const {
-  return "VirtualCardManualFallbackIconView";
 }
 
 VirtualCardManualFallbackBubbleController*
@@ -75,5 +72,8 @@ VirtualCardManualFallbackIconView::GetController() const {
 
   return VirtualCardManualFallbackBubbleController::Get(web_contents);
 }
+
+BEGIN_METADATA(VirtualCardManualFallbackIconView, PageActionIconView)
+END_METADATA
 
 }  // namespace autofill

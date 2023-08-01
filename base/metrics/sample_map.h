@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include <map>
 #include <memory>
 
+#include "base/base_export.h"
 #include "base/compiler_specific.h"
 #include "base/metrics/histogram_base.h"
 #include "base/metrics/histogram_samples.h"
@@ -37,6 +38,7 @@ class BASE_EXPORT SampleMap : public HistogramSamples {
   HistogramBase::Count GetCount(HistogramBase::Sample value) const override;
   HistogramBase::Count TotalCount() const override;
   std::unique_ptr<SampleCountIterator> Iterator() const override;
+  std::unique_ptr<SampleCountIterator> ExtractingIterator() override;
 
  protected:
   // Performs arithemetic. |op| is ADD or SUBTRACT.

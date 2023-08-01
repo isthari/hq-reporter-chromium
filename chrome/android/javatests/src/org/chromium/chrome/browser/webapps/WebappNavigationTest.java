@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,11 +16,11 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Color;
 import android.net.Uri;
-import android.support.test.InstrumentationRegistry;
 import android.util.Base64;
 
 import androidx.test.filters.LargeTest;
 import androidx.test.filters.SmallTest;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.hamcrest.Matchers;
 import org.junit.Before;
@@ -34,15 +34,15 @@ import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.CommandLine;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
-import org.chromium.base.test.util.DisabledTest;
+import org.chromium.base.test.util.DoNotBatch;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.blink.mojom.DisplayMode;
 import org.chromium.cc.input.BrowserControlsState;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntentDataProvider;
@@ -55,18 +55,17 @@ import org.chromium.chrome.browser.customtabs.dependency_injection.BaseCustomTab
 import org.chromium.chrome.browser.dependency_injection.ModuleOverridesRule;
 import org.chromium.chrome.browser.firstrun.FirstRunStatus;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
-import org.chromium.chrome.browser.init.StartupTabPreloader;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.test.MockCertVerifierRuleAndroid;
 import org.chromium.chrome.browser.theme.TopUiThemeColorProvider;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
+import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.chrome.test.util.browser.contextmenu.ContextMenuUtils;
 import org.chromium.chrome.test.util.browser.webapps.WebappTestPage;
 import org.chromium.components.browser_ui.styles.ChromeColors;
 import org.chromium.content_public.browser.LoadUrlParams;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.test.NativeLibraryTestUtils;
 import org.chromium.content_public.browser.test.util.DOMUtils;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
@@ -79,6 +78,7 @@ import org.chromium.ui.test.util.UiRestriction;
  * Tests web navigations originating from a WebappActivity.
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
+@DoNotBatch(reason = "tests run on startup.")
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
 public class WebappNavigationTest {
     public final WebappActivityTestRule mActivityTestRule = new WebappActivityTestRule();
@@ -86,17 +86,16 @@ public class WebappNavigationTest {
     public MockCertVerifierRuleAndroid mCertVerifierRule =
             new MockCertVerifierRuleAndroid(0 /* net::OK */);
 
-    private final TestRule mModuleOverridesRule = new ModuleOverridesRule().setOverride(
-            BaseCustomTabActivityModule.Factory.class,
-            (BrowserServicesIntentDataProvider intentDataProvider,
-                    StartupTabPreloader startupTabPreloader,
-                    CustomTabNightModeStateController nightModeController,
-                    CustomTabIntentHandler.IntentIgnoringCriterion intentIgnoringCriterion,
-                    TopUiThemeColorProvider topUiThemeColorProvider,
-                    DefaultBrowserProviderImpl customTabDefaultBrowserProvider)
-                    -> new BaseCustomTabActivityModule(intentDataProvider, startupTabPreloader,
-                            nightModeController, intentIgnoringCriterion, topUiThemeColorProvider,
-                            new FakeDefaultBrowserProviderImpl()));
+    private final TestRule mModuleOverridesRule =
+            new ModuleOverridesRule().setOverride(BaseCustomTabActivityModule.Factory.class,
+                    (BrowserServicesIntentDataProvider intentDataProvider,
+                            CustomTabNightModeStateController nightModeController,
+                            CustomTabIntentHandler.IntentIgnoringCriterion intentIgnoringCriterion,
+                            TopUiThemeColorProvider topUiThemeColorProvider,
+                            DefaultBrowserProviderImpl customTabDefaultBrowserProvider)
+                            -> new BaseCustomTabActivityModule(intentDataProvider,
+                                    nightModeController, intentIgnoringCriterion,
+                                    topUiThemeColorProvider, new FakeDefaultBrowserProviderImpl()));
 
     @Rule
     public RuleChain mRuleChain = RuleChain.emptyRuleChain()
@@ -324,14 +323,13 @@ public class WebappNavigationTest {
     @SmallTest
     @Feature({"Webapps"})
     // Regression test for crbug.com/771174.
-    @DisabledTest(message = "crbug.com/1087499")
     public void testCanNavigateAfterReparentingToTabbedChrome() throws Exception {
         runWebappActivityAndWaitForIdle(
                 mActivityTestRule.createIntent()
                         .putExtra(WebappConstants.EXTRA_DISPLAY_MODE, DisplayMode.MINIMAL_UI)
                         .putExtra(WebappConstants.EXTRA_THEME_COLOR, (long) Color.CYAN));
 
-        PostTask.postTask(UiThreadTaskTraits.DEFAULT, () -> {
+        PostTask.postTask(TaskTraits.UI_DEFAULT, () -> {
             mActivityTestRule.getActivity()
                     .getComponent()
                     .resolveNavigationController()

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,6 +25,8 @@ import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
+import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedDispatcher;
 
 import org.chromium.android_webview.AwBrowserContext;
 import org.chromium.android_webview.AwBrowserProcess;
@@ -41,6 +43,7 @@ import org.chromium.base.Log;
 import org.chromium.base.TraceEvent;
 import org.chromium.content_public.browser.NavigationController;
 import org.chromium.content_public.browser.WebContents;
+import org.chromium.content_public.browser.WebContentsObserver;
 import org.chromium.content_public.common.ContentUrlConstants;
 
 import java.net.MalformedURLException;
@@ -64,6 +67,10 @@ public class AwShellActivity extends Activity {
     private EditText mUrlTextView;
     private ImageButton mPrevButton;
     private ImageButton mNextButton;
+    private final OnBackInvokedCallback mOnBackInvokedCallback =
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ? ()
+            -> mNavigationController.goBack()
+            : null;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -77,8 +84,7 @@ public class AwShellActivity extends Activity {
         if (CommandLine.getInstance().hasSwitch(AwShellSwitches.ENABLE_ATRACE)) {
             Log.e(TAG, "To trace the test shell, run \"atrace webview\"");
         }
-        TraceEvent.maybeEnableEarlyTracing(
-                TraceEvent.ATRACE_TAG_WEBVIEW, /*readCommandLine=*/false);
+        TraceEvent.maybeEnableEarlyTracing(/*readCommandLine=*/false);
 
         setContentView(R.layout.testshell_activity);
 
@@ -103,6 +109,23 @@ public class AwShellActivity extends Activity {
         mAwTestContainerView.getAwContents().loadUrl(startupUrl);
         AwContents.setShouldDownloadFavicons();
         mUrlTextView.setText(startupUrl);
+
+        mWebContents.addObserver(new WebContentsObserver() {
+            @Override
+            public void navigationEntriesChanged() {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    if (mNavigationController.canGoBack()) {
+                        AwShellActivity.this.getOnBackInvokedDispatcher()
+                                .registerOnBackInvokedCallback(
+                                        OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                                        mOnBackInvokedCallback);
+                    } else if (!mNavigationController.canGoBack()) {
+                        AwShellActivity.this.getOnBackInvokedDispatcher()
+                                .unregisterOnBackInvokedCallback(mOnBackInvokedCallback);
+                    }
+                }
+            }
+        });
     }
 
     @Override
@@ -207,8 +230,8 @@ public class AwShellActivity extends Activity {
         SharedPreferences sharedPreferences =
                 getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE);
         if (mBrowserContext == null) {
-            mBrowserContext = new AwBrowserContext(
-                    sharedPreferences, AwBrowserContext.getDefault().getNativePointer(), true);
+            mBrowserContext = new AwBrowserContext(sharedPreferences,
+                    AwBrowserContext.getDefault().getNativeBrowserContextPointer(), true);
         }
         final AwSettings awSettings =
                 new AwSettings(this /* context */, false /* isAccessFromFileURLsGrantedByDefault */,

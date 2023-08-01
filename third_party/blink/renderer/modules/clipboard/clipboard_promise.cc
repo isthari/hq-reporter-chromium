@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <memory>
 #include <utility>
 
-#include "base/task/post_task.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/task/single_thread_task_runner.h"
 #include "mojo/public/cpp/base/big_buffer.h"
 #include "third_party/blink/public/common/features.h"
@@ -15,13 +15,14 @@
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_function.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
-#include "third_party/blink/renderer/bindings/modules/v8/v8_clipboard_item_options.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_clipboard_unsanitized_formats.h"
 #include "third_party/blink/renderer/core/clipboard/clipboard_mime_types.h"
 #include "third_party/blink/renderer/core/clipboard/system_clipboard.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
+#include "third_party/blink/renderer/modules/clipboard/clipboard.h"
 #include "third_party/blink/renderer/modules/clipboard/clipboard_reader.h"
 #include "third_party/blink/renderer/modules/clipboard/clipboard_writer.h"
 #include "third_party/blink/renderer/modules/permissions/permission_utils.h"
@@ -43,7 +44,6 @@
 
 namespace blink {
 
-using mojom::blink::PermissionStatus;
 using mojom::blink::PermissionService;
 
 // This class deals with all the Blob promises and executes the write
@@ -89,22 +89,22 @@ class ClipboardPromise::BlobPromiseResolverFunction final
         exception_state.ClearException();
         const String exception_text = "Invalid Blob types.";
         clipboard_promise_->GetTaskRunner()->PostTask(
-            FROM_HERE, WTF::Bind(&ClipboardPromise::RejectBlobPromise,
-                                 WrapPersistent(clipboard_promise_.Get()),
-                                 std::move(exception_text)));
+            FROM_HERE, WTF::BindOnce(&ClipboardPromise::RejectBlobPromise,
+                                     WrapPersistent(clipboard_promise_.Get()),
+                                     std::move(exception_text)));
         return ScriptValue();
       }
       clipboard_promise_->GetTaskRunner()->PostTask(
-          FROM_HERE, WTF::Bind(&ClipboardPromise::HandlePromiseBlobsWrite,
-                               WrapPersistent(clipboard_promise_.Get()),
-                               WrapPersistent(blob_list)));
+          FROM_HERE, WTF::BindOnce(&ClipboardPromise::HandlePromiseBlobsWrite,
+                                   WrapPersistent(clipboard_promise_.Get()),
+                                   WrapPersistent(blob_list)));
       return ScriptValue();
     }
     const String exception_text = "Promises to Blobs were rejected.";
     clipboard_promise_->GetTaskRunner()->PostTask(
-        FROM_HERE, WTF::Bind(&ClipboardPromise::RejectBlobPromise,
-                             WrapPersistent(clipboard_promise_.Get()),
-                             std::move(exception_text)));
+        FROM_HERE, WTF::BindOnce(&ClipboardPromise::RejectBlobPromise,
+                                 WrapPersistent(clipboard_promise_.Get()),
+                                 std::move(exception_text)));
     return ScriptValue();
   }
 
@@ -114,17 +114,18 @@ class ClipboardPromise::BlobPromiseResolverFunction final
 };
 
 // static
-ScriptPromise ClipboardPromise::CreateForRead(ExecutionContext* context,
-                                              ScriptState* script_state,
-                                              ClipboardItemOptions* options) {
+ScriptPromise ClipboardPromise::CreateForRead(
+    ExecutionContext* context,
+    ScriptState* script_state,
+    ClipboardUnsanitizedFormats* formats) {
   if (!script_state->ContextIsValid())
     return ScriptPromise();
   ClipboardPromise* clipboard_promise =
       MakeGarbageCollected<ClipboardPromise>(context, script_state);
   clipboard_promise->GetTaskRunner()->PostTask(
-      FROM_HERE,
-      WTF::Bind(&ClipboardPromise::HandleRead,
-                WrapPersistent(clipboard_promise), WrapPersistent(options)));
+      FROM_HERE, WTF::BindOnce(&ClipboardPromise::HandleRead,
+                               WrapPersistent(clipboard_promise),
+                               WrapPersistent(formats)));
   return clipboard_promise->script_promise_resolver_->Promise();
 }
 
@@ -136,8 +137,8 @@ ScriptPromise ClipboardPromise::CreateForReadText(ExecutionContext* context,
   ClipboardPromise* clipboard_promise =
       MakeGarbageCollected<ClipboardPromise>(context, script_state);
   clipboard_promise->GetTaskRunner()->PostTask(
-      FROM_HERE, WTF::Bind(&ClipboardPromise::HandleReadText,
-                           WrapPersistent(clipboard_promise)));
+      FROM_HERE, WTF::BindOnce(&ClipboardPromise::HandleReadText,
+                               WrapPersistent(clipboard_promise)));
   return clipboard_promise->script_promise_resolver_->Promise();
 }
 
@@ -153,9 +154,9 @@ ScriptPromise ClipboardPromise::CreateForWrite(
   HeapVector<Member<ClipboardItem>>* items_copy =
       MakeGarbageCollected<HeapVector<Member<ClipboardItem>>>(items);
   clipboard_promise->GetTaskRunner()->PostTask(
-      FROM_HERE,
-      WTF::Bind(&ClipboardPromise::HandleWrite,
-                WrapPersistent(clipboard_promise), WrapPersistent(items_copy)));
+      FROM_HERE, WTF::BindOnce(&ClipboardPromise::HandleWrite,
+                               WrapPersistent(clipboard_promise),
+                               WrapPersistent(items_copy)));
   return clipboard_promise->script_promise_resolver_->Promise();
 }
 
@@ -168,8 +169,8 @@ ScriptPromise ClipboardPromise::CreateForWriteText(ExecutionContext* context,
   ClipboardPromise* clipboard_promise =
       MakeGarbageCollected<ClipboardPromise>(context, script_state);
   clipboard_promise->GetTaskRunner()->PostTask(
-      FROM_HERE, WTF::Bind(&ClipboardPromise::HandleWriteText,
-                           WrapPersistent(clipboard_promise), data));
+      FROM_HERE, WTF::BindOnce(&ClipboardPromise::HandleWriteText,
+                               WrapPersistent(clipboard_promise), data));
   return clipboard_promise->script_promise_resolver_->Promise();
 }
 
@@ -212,25 +213,13 @@ void ClipboardPromise::WriteNextRepresentation() {
       clipboard_item_data_[clipboard_representation_index_].second;
 
   DCHECK(!clipboard_writer_);
-  wtf_size_t item_index = custom_format_items_.Find(type);
-  if (item_index != kNotFound) {
-    clipboard_writer_ =
-        ClipboardWriter::Create(local_frame->GetSystemClipboard(), type, this,
-                                /*is_custom_format_type*/ true);
-    if (ClipboardWriter::IsValidType(type, /*is_custom_format_type*/ false)) {
-      // Decrement `clipboard_representation_index_` & remove the format from
-      // the `custom_format_items_` so we can redo the write, but this time, it
-      // will write a sanitized version of the format using the "standard"
-      // format writer. Standard formats include text/html, text/plain,
-      // text/rtf, image/png, text/uri-list & image/svg+xml.
-      // https://github.com/w3c/editing/blob/gh-pages/docs/clipboard-pickling/explainer.md#pickled-version-for-sanitized-formats
-      custom_format_items_.EraseAt(item_index);
-      clipboard_representation_index_--;
-    }
-  } else {
-    clipboard_writer_ =
-        ClipboardWriter::Create(local_frame->GetSystemClipboard(), type, this,
-                                /*is_custom_format_type*/ false);
+  clipboard_writer_ =
+      ClipboardWriter::Create(local_frame->GetSystemClipboard(), type, this);
+  if (!clipboard_writer_) {
+    script_promise_resolver_->Reject(MakeGarbageCollected<DOMException>(
+        DOMExceptionCode::kNotAllowedError,
+        "Type " + type + " is not supported"));
+    return;
   }
   clipboard_writer_->WriteToSystem(blob);
 }
@@ -245,24 +234,44 @@ void ClipboardPromise::RejectFromReadOrDecodeFailure() {
           clipboard_item_data_[clipboard_representation_index_].first + "."));
 }
 
-void ClipboardPromise::HandleRead(ClipboardItemOptions* options) {
+void ClipboardPromise::HandleRead(ClipboardUnsanitizedFormats* formats) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  if (options->hasUnsanitized()) {
-    for (const auto& unsanitized_item : options->unsanitized()) {
-      custom_format_items_.push_back(unsanitized_item);
+
+  if (RuntimeEnabledFeatures::ClipboardUnsanitizedContentEnabled() && formats &&
+      formats->hasUnsanitized() && !formats->unsanitized().empty()) {
+    Vector<String> unsanitized_formats = formats->unsanitized();
+    if (unsanitized_formats.size() > 1) {
+      script_promise_resolver_->Reject(MakeGarbageCollected<DOMException>(
+          DOMExceptionCode::kNotAllowedError,
+          "Support to read multiple unsanitized formats is not implemented."));
+      return;
     }
+    if (unsanitized_formats[0] != kMimeTypeTextHTML) {
+      script_promise_resolver_->Reject(MakeGarbageCollected<DOMException>(
+          DOMExceptionCode::kNotAllowedError, "The unsanitized type " +
+                                                  unsanitized_formats[0] +
+                                                  " is not supported."));
+      return;
+    }
+    // HTML is the only standard format that can have an unsanitized read for
+    // now.
+    will_read_unsanitized_html_ = true;
   }
+
   RequestPermission(mojom::blink::PermissionName::CLIPBOARD_READ,
-                    !custom_format_items_.IsEmpty(),
-                    WTF::Bind(&ClipboardPromise::HandleReadWithPermission,
-                              WrapPersistent(this)));
+                    /*will_be_sanitized=*/
+                    !RuntimeEnabledFeatures::ClipboardCustomFormatsEnabled(),
+                    WTF::BindOnce(&ClipboardPromise::HandleReadWithPermission,
+                                  WrapPersistent(this)));
 }
 
 void ClipboardPromise::HandleReadText() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  RequestPermission(mojom::blink::PermissionName::CLIPBOARD_READ, false,
-                    WTF::Bind(&ClipboardPromise::HandleReadTextWithPermission,
-                              WrapPersistent(this)));
+  RequestPermission(
+      mojom::blink::PermissionName::CLIPBOARD_READ,
+      /*will_be_sanitized=*/true,
+      WTF::BindOnce(&ClipboardPromise::HandleReadTextWithPermission,
+                    WrapPersistent(this)));
 }
 
 void ClipboardPromise::HandleWrite(
@@ -296,36 +305,52 @@ void ClipboardPromise::HandleWrite(
         "Number of custom formats exceeds the max limit which is set to 100."));
     return;
   }
-  DCHECK(RuntimeEnabledFeatures::ClipboardCustomFormatsEnabled() ||
-         custom_format_items_.IsEmpty());
 
+  bool has_unsanitized_html =
+      RuntimeEnabledFeatures::ClipboardUnsanitizedContentEnabled() &&
+      base::ranges::any_of(clipboard_item_data_with_promises_,
+                           [](const auto& type_and_promise_to_blob) {
+                             return type_and_promise_to_blob.first ==
+                                    kMimeTypeTextHTML;
+                           });
+
+  DCHECK(has_unsanitized_html ||
+         RuntimeEnabledFeatures::ClipboardCustomFormatsEnabled() ||
+         custom_format_items_.empty());
+
+  // Input in standard formats is sanitized, so the write will be sanitized
+  // unless the HTML is unsanitized or there are custom formats.
   RequestPermission(mojom::blink::PermissionName::CLIPBOARD_WRITE,
-                    !custom_format_items_.IsEmpty(),
-                    WTF::Bind(&ClipboardPromise::HandleWriteWithPermission,
-                              WrapPersistent(this)));
+                    /*will_be_sanitized=*/
+                    !has_unsanitized_html && custom_format_items_.empty(),
+                    WTF::BindOnce(&ClipboardPromise::HandleWriteWithPermission,
+                                  WrapPersistent(this)));
 }
 
 void ClipboardPromise::HandleWriteText(const String& data) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   plain_text_ = data;
-  RequestPermission(mojom::blink::PermissionName::CLIPBOARD_WRITE, false,
-                    WTF::Bind(&ClipboardPromise::HandleWriteTextWithPermission,
-                              WrapPersistent(this)));
+  RequestPermission(
+      mojom::blink::PermissionName::CLIPBOARD_WRITE,
+      /*will_be_sanitized=*/true,
+      WTF::BindOnce(&ClipboardPromise::HandleWriteTextWithPermission,
+                    WrapPersistent(this)));
 }
 
-void ClipboardPromise::HandleReadWithPermission(PermissionStatus status) {
+void ClipboardPromise::HandleReadWithPermission(
+    mojom::blink::PermissionStatus status) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!GetExecutionContext())
     return;
-  if (status != PermissionStatus::GRANTED) {
+  if (status != mojom::blink::PermissionStatus::GRANTED) {
     script_promise_resolver_->Reject(MakeGarbageCollected<DOMException>(
         DOMExceptionCode::kNotAllowedError, "Read permission denied."));
     return;
   }
 
   SystemClipboard* system_clipboard = GetLocalFrame()->GetSystemClipboard();
-  if (!custom_format_items_.IsEmpty()) {
-    system_clipboard->ReadAvailableCustomAndStandardFormats(WTF::Bind(
+  if (RuntimeEnabledFeatures::ClipboardCustomFormatsEnabled()) {
+    system_clipboard->ReadAvailableCustomAndStandardFormats(WTF::BindOnce(
         &ClipboardPromise::OnReadAvailableFormatNames, WrapPersistent(this)));
     return;
   }
@@ -343,9 +368,6 @@ void ClipboardPromise::ResolveRead() {
     return;
   }
 
-  ClipboardItemOptions* options = ClipboardItemOptions::Create();
-  options->setUnsanitized(custom_format_items_);
-
   ScriptState::Scope scope(script_state_);
   HeapVector<std::pair<String, ScriptPromise>> items;
   items.ReserveInitialCapacity(clipboard_item_data_.size());
@@ -356,7 +378,7 @@ void ClipboardPromise::ResolveRead() {
     items.emplace_back(item.first, promise);
   }
   HeapVector<Member<ClipboardItem>> clipboard_items = {
-      MakeGarbageCollected<ClipboardItem>(items, options)};
+      MakeGarbageCollected<ClipboardItem>(items)};
   script_promise_resolver_->Resolve(clipboard_items);
 }
 
@@ -368,8 +390,7 @@ void ClipboardPromise::OnReadAvailableFormatNames(
 
   clipboard_item_data_.ReserveInitialCapacity(format_names.size());
   for (const String& format_name : format_names) {
-    if (ClipboardWriter::IsValidType(
-            format_name, base::Contains(custom_format_items_, format_name))) {
+    if (ClipboardWriter::IsValidType(format_name)) {
       clipboard_item_data_.emplace_back(format_name,
                                         /* Placeholder value. */ nullptr);
     }
@@ -386,12 +407,10 @@ void ClipboardPromise::ReadNextRepresentation() {
     return;
   }
 
-  String format_name =
-      clipboard_item_data_[clipboard_representation_index_].first;
-
   ClipboardReader* clipboard_reader = ClipboardReader::Create(
-      GetLocalFrame()->GetSystemClipboard(), format_name, this,
-      base::Contains(custom_format_items_, format_name));
+      GetLocalFrame()->GetSystemClipboard(),
+      clipboard_item_data_[clipboard_representation_index_].first, this,
+      /*sanitize_html=*/!will_read_unsanitized_html_);
   if (!clipboard_reader) {
     OnRead(nullptr);
     return;
@@ -406,11 +425,12 @@ void ClipboardPromise::OnRead(Blob* blob) {
   ReadNextRepresentation();
 }
 
-void ClipboardPromise::HandleReadTextWithPermission(PermissionStatus status) {
+void ClipboardPromise::HandleReadTextWithPermission(
+    mojom::blink::PermissionStatus status) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!GetExecutionContext())
     return;
-  if (status != PermissionStatus::GRANTED) {
+  if (status != mojom::blink::PermissionStatus::GRANTED) {
     script_promise_resolver_->Reject(MakeGarbageCollected<DOMException>(
         DOMExceptionCode::kNotAllowedError, "Read permission denied."));
     return;
@@ -429,10 +449,16 @@ void ClipboardPromise::HandlePromiseBlobsWrite(
   for (const auto& blob_item : *blob_list) {
     const String& type = clipboard_item_types_[clipboard_item_index];
     const String& type_with_args = blob_item->type();
-    // For normal (not-custom) write, blobs may have a full MIME type with args
-    // (ex. 'text/plain;charset=utf-8'), whereas the type must not have args
-    // (ex. 'text/plain' only), so ensure that Blob->type is contained in type.
-    if (!type_with_args.Contains(type.LowerASCII())) {
+    // For web custom types, extract the MIME type after removing the "web "
+    // prefix. For normal (not-custom) write, blobs may have a full MIME type
+    // with args (ex. 'text/plain;charset=utf-8'), whereas the type must not
+    // have args (ex. 'text/plain' only), so ensure that Blob->type is contained
+    // in type.
+    String web_custom_format = Clipboard::ParseWebCustomFormat(type);
+    if ((!type_with_args.Contains(type.LowerASCII()) &&
+         web_custom_format.empty()) ||
+        (!web_custom_format.empty() &&
+         !type_with_args.Contains(web_custom_format))) {
       script_promise_resolver_->Reject(MakeGarbageCollected<DOMException>(
           DOMExceptionCode::kNotAllowedError,
           "Type " + type + " does not match the blob's type " +
@@ -448,11 +474,12 @@ void ClipboardPromise::HandlePromiseBlobsWrite(
   WriteNextRepresentation();
 }
 
-void ClipboardPromise::HandleWriteWithPermission(PermissionStatus status) {
+void ClipboardPromise::HandleWriteWithPermission(
+    mojom::blink::PermissionStatus status) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!GetExecutionContext())
     return;
-  if (status != PermissionStatus::GRANTED) {
+  if (status != mojom::blink::PermissionStatus::GRANTED) {
     script_promise_resolver_->Reject(MakeGarbageCollected<DOMException>(
         DOMExceptionCode::kNotAllowedError, "Write permission denied."));
     return;
@@ -469,8 +496,7 @@ void ClipboardPromise::HandleWriteWithPermission(PermissionStatus status) {
     const String& type = type_and_promise_to_blob.first;
     clipboard_item_types_.emplace_back(type);
     promise_list.emplace_back(type_and_promise_to_blob.second);
-    bool is_valid_custom_format = base::Contains(custom_format_items_, type);
-    if (!ClipboardWriter::IsValidType(type, is_valid_custom_format)) {
+    if (!ClipboardWriter::IsValidType(type)) {
       script_promise_resolver_->Reject(MakeGarbageCollected<DOMException>(
           DOMExceptionCode::kNotAllowedError,
           "Type " + type + " not supported on write."));
@@ -482,11 +508,12 @@ void ClipboardPromise::HandleWriteWithPermission(PermissionStatus status) {
       script_state_, ScriptPromise::All(script_state_, promise_list), this);
 }
 
-void ClipboardPromise::HandleWriteTextWithPermission(PermissionStatus status) {
+void ClipboardPromise::HandleWriteTextWithPermission(
+    mojom::blink::PermissionStatus status) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!GetExecutionContext())
     return;
-  if (status != PermissionStatus::GRANTED) {
+  if (status != mojom::blink::PermissionStatus::GRANTED) {
     script_promise_resolver_->Reject(MakeGarbageCollected<DOMException>(
         DOMExceptionCode::kNotAllowedError, "Write permission denied."));
     return;
@@ -517,7 +544,7 @@ PermissionService* ClipboardPromise::GetPermissionService() {
 
 void ClipboardPromise::RequestPermission(
     mojom::blink::PermissionName permission,
-    bool allow_without_sanitization,
+    bool will_be_sanitized,
     base::OnceCallback<void(::blink::mojom::PermissionStatus)> callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(script_promise_resolver_);
@@ -555,8 +582,17 @@ void ClipboardPromise::RequestPermission(
     return;
   }
 
-  if (!custom_format_items_.IsEmpty() &&
-      !LocalFrame::HasTransientUserActivation(GetLocalFrame())) {
+  bool has_transient_user_activation =
+      LocalFrame::HasTransientUserActivation(GetLocalFrame());
+  base::UmaHistogramBoolean("Blink.Clipboard.HasTransientUserActivation",
+                            has_transient_user_activation);
+  // `will_be_sanitized` is false only when we are trying to read/write
+  // web custom formats.
+  // TODO(ansollan): Remove this block as custom formats don't need both a user
+  // gesture and a permission grant to use custom clipboard.
+  if (!will_be_sanitized &&
+      RuntimeEnabledFeatures::ClipboardCustomFormatsEnabled() &&
+      !has_transient_user_activation) {
     script_promise_resolver_->Reject(MakeGarbageCollected<DOMException>(
         DOMExceptionCode::kSecurityError,
         "Must be handling a user gesture to use custom clipboard"));
@@ -571,19 +607,14 @@ void ClipboardPromise::RequestPermission(
   }
 
   auto permission_descriptor = CreateClipboardPermissionDescriptor(
-      permission, false, allow_without_sanitization);
-  if (permission == mojom::blink::PermissionName::CLIPBOARD_WRITE &&
-      !allow_without_sanitization) {
-    // Check permission (but do not query the user).
-    // See crbug.com/795929 for moving this check into the Browser process.
-    permission_service_->HasPermission(std::move(permission_descriptor),
-                                       std::move(callback));
-    return;
-  }
-  // Check permission, and query if necessary.
-  // See crbug.com/795929 for moving this check into the Browser process.
-  permission_service_->RequestPermission(std::move(permission_descriptor),
-                                         false, std::move(callback));
+      permission, /*has_user_gesture=*/has_transient_user_activation,
+      /*will_be_sanitized=*/will_be_sanitized);
+
+  // Note that extra checks are performed browser-side in
+  // `ContentBrowserClient::IsClipboardPasteAllowed()`.
+  permission_service_->RequestPermission(
+      std::move(permission_descriptor),
+      /*user_gesture=*/has_transient_user_activation, std::move(callback));
 }
 
 LocalFrame* ClipboardPromise::GetLocalFrame() const {

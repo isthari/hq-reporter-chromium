@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,19 +6,32 @@ package org.chromium.chrome.browser.omnibox.suggestions.base;
 
 import android.content.Context;
 
+import androidx.annotation.IntDef;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.StringRes;
 
+import org.chromium.chrome.browser.omnibox.styles.OmniboxResourceProvider;
 import org.chromium.chrome.browser.omnibox.suggestions.SuggestionCommonProperties;
 import org.chromium.ui.modelutil.PropertyKey;
 import org.chromium.ui.modelutil.PropertyModel;
+import org.chromium.ui.modelutil.PropertyModel.WritableIntPropertyKey;
 import org.chromium.ui.modelutil.PropertyModel.WritableObjectPropertyKey;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.util.List;
 
 /** The base set of properties for most omnibox suggestions. */
 public class BaseSuggestionViewProperties {
+    /** Describes density of the suggestions. */
+    @IntDef({Density.DEFAULT, Density.COMPACT})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface Density {
+        int DEFAULT = 0;
+        int COMPACT = 1;
+    }
+
     /**
      * Describes the content and behavior of the interactive Action Icon.
      */
@@ -66,7 +79,7 @@ public class BaseSuggestionViewProperties {
          */
         public Action(Context context, SuggestionDrawableState icon, @StringRes int descriptionRes,
                 Runnable callback) {
-            this(icon, context.getResources().getString(descriptionRes), callback);
+            this(icon, OmniboxResourceProvider.getString(context, descriptionRes), callback);
         }
     }
 
@@ -74,13 +87,16 @@ public class BaseSuggestionViewProperties {
     public static final WritableObjectPropertyKey<SuggestionDrawableState> ICON =
             new WritableObjectPropertyKey<>();
 
-    /** Action Icons description. */
-    public static final WritableObjectPropertyKey<List<Action>> ACTIONS =
+    /** Action Button descriptors. */
+    public static final WritableObjectPropertyKey<List<Action>> ACTION_BUTTONS =
             new WritableObjectPropertyKey();
 
     /** Callback invoked when the Suggestion view is highlighted. */
     public static final WritableObjectPropertyKey<Runnable> ON_FOCUS_VIA_SELECTION =
             new WritableObjectPropertyKey<>();
+
+    /** Specifies how densely suggestions should be packed. */
+    public static final WritableIntPropertyKey DENSITY = new WritableIntPropertyKey();
 
     /** Callback invoked when user clicks the suggestion. */
     public static final WritableObjectPropertyKey<Runnable> ON_CLICK =
@@ -90,9 +106,10 @@ public class BaseSuggestionViewProperties {
     public static final WritableObjectPropertyKey<Runnable> ON_LONG_CLICK =
             new WritableObjectPropertyKey<>();
 
-    public static final PropertyKey[] ALL_UNIQUE_KEYS =
-            new PropertyKey[] {ICON, ACTIONS, ON_FOCUS_VIA_SELECTION, ON_CLICK, ON_LONG_CLICK};
+    public static final PropertyKey[] ALL_UNIQUE_KEYS = new PropertyKey[] {
+            ICON, ACTION_BUTTONS, ON_FOCUS_VIA_SELECTION, DENSITY, ON_CLICK, ON_LONG_CLICK};
 
-    public static final PropertyKey[] ALL_KEYS =
-            PropertyModel.concatKeys(ALL_UNIQUE_KEYS, SuggestionCommonProperties.ALL_KEYS);
+    public static final PropertyKey[] ALL_KEYS = PropertyModel.concatKeys(
+            PropertyModel.concatKeys(ALL_UNIQUE_KEYS, ActionChipsProperties.ALL_UNIQUE_KEYS),
+            SuggestionCommonProperties.ALL_KEYS);
 }

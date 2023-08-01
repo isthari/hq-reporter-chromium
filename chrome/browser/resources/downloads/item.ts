@@ -1,34 +1,36 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import './icons.js';
-import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
-import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
-import 'chrome://resources/cr_elements/cr_icons_css.m.js';
-import 'chrome://resources/cr_elements/hidden_style_css.m.js';
-import 'chrome://resources/cr_elements/icons.m.js';
-import 'chrome://resources/cr_elements/shared_vars_css.m.js';
+import './icons.html.js';
+import 'chrome://resources/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.js';
+import 'chrome://resources/cr_elements/cr_icons.css.js';
+import 'chrome://resources/cr_elements/cr_hidden_style.css.js';
+import 'chrome://resources/cr_elements/icons.html.js';
+import 'chrome://resources/cr_elements/cr_shared_vars.css.js';
 import 'chrome://resources/js/action_link.js';
-import 'chrome://resources/cr_elements/action_link_css.m.js';
+import 'chrome://resources/cr_elements/action_link.css.js';
 import './strings.m.js';
 import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
 import 'chrome://resources/polymer/v3_0/paper-progress/paper-progress.js';
 import 'chrome://resources/polymer/v3_0/paper-styles/color.js';
 
 import {getToastManager} from 'chrome://resources/cr_elements/cr_toast/cr_toast_manager.js';
+import {FocusRowMixin} from 'chrome://resources/cr_elements/focus_row_mixin.js';
 import {assert} from 'chrome://resources/js/assert_ts.js';
-import {FocusRowBehavior} from 'chrome://resources/js/cr/ui/focus_row_behavior.m.js';
-import {focusWithoutInk} from 'chrome://resources/js/cr/ui/focus_without_ink.m.js';
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
-import {HTMLEscape} from 'chrome://resources/js/util.m.js';
-import {beforeNextRender, html, mixinBehaviors, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {focusWithoutInk} from 'chrome://resources/js/focus_without_ink.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
+import {sanitizeInnerHtml} from 'chrome://resources/js/parse_html_subset.js';
+import {htmlEscape} from 'chrome://resources/js/util_ts.js';
+import {beforeNextRender, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {BrowserProxy} from './browser_proxy.js';
 import {DangerType, States} from './constants.js';
 import {MojomData} from './data.js';
 import {PageHandlerInterface} from './downloads.mojom-webui.js';
 import {IconLoaderImpl} from './icon_loader.js';
+import {getTemplate} from './item.html.js';
 
 export interface DownloadsItemElement {
   $: {
@@ -40,13 +42,15 @@ export interface DownloadsItemElement {
   };
 }
 
-const DownloadsItemElementBase =
-    mixinBehaviors([FocusRowBehavior], PolymerElement) as
-    {new (): PolymerElement & FocusRowBehavior};
+const DownloadsItemElementBase = FocusRowMixin(PolymerElement);
 
 export class DownloadsItemElement extends DownloadsItemElementBase {
   static get is() {
     return 'downloads-item';
+  }
+
+  static get template() {
+    return getTemplate();
   }
 
   static get properties() {
@@ -85,26 +89,20 @@ export class DownloadsItemElement extends DownloadsItemElementBase {
         value: true,
       },
 
-      isDownloadItemSafe_: {
-        computed: 'computeIsDownloadItemSafe_(data.state)',
-        type: Boolean,
-        value: false
-      },
-
       isDangerous_: {
         computed: 'computeIsDangerous_(data.state)',
         type: Boolean,
         value: false,
       },
 
-      shouldShowIncognitoWarning_: {
-        computed: 'computeShouldShowIncognitoWarning_(data.state)',
+      isMalware_: {
+        computed: 'computeIsMalware_(isDangerous_, data.dangerType)',
         type: Boolean,
         value: false,
       },
 
-      isMalware_: {
-        computed: 'computeIsMalware_(isDangerous_, data.dangerType)',
+      isReviewable_: {
+        computed: 'computeIsReviewable_(data.isReviewable)',
         type: Boolean,
         value: false,
       },
@@ -139,6 +137,12 @@ export class DownloadsItemElement extends DownloadsItemElementBase {
         value: false,
       },
 
+      showDeepScan_: {
+        computed: 'computeShowDeepScan_(data.state)',
+        type: Boolean,
+        value: false,
+      },
+
       useFileIcon_: Boolean,
     };
   }
@@ -158,25 +162,23 @@ export class DownloadsItemElement extends DownloadsItemElementBase {
   private controlledBy_: string;
   private isActive_: boolean;
   private isDangerous_: boolean;
-  private isDownloadItemSafe_: boolean;
-  private shouldShowIncognitoWarning_: boolean;
   private isInProgress_: boolean;
   private pauseOrResumeText_: string;
   private showCancel_: boolean;
   private showProgress_: boolean;
   private useFileIcon_: boolean;
   private restoreFocusAfterCancel_: boolean = false;
-  overrideCustomEquivalent: boolean;
+  override overrideCustomEquivalent: boolean;
 
   constructor() {
     super();
 
-    /** Used by FocusRowBehavior. */
+    /** Used by FocusRowMixin. */
     this.overrideCustomEquivalent = true;
   }
 
   /** @override */
-  ready() {
+  override ready() {
     super.ready();
 
     this.setAttribute('role', 'row');
@@ -187,8 +189,8 @@ export class DownloadsItemElement extends DownloadsItemElementBase {
     focusWithoutInk(this.$.remove);
   }
 
-  /** Overrides FocusRowBehavior. */
-  getCustomEquivalent(sampleElement: HTMLElement): HTMLElement|null {
+  /** Overrides FocusRowMixin. */
+  override getCustomEquivalent(sampleElement: HTMLElement): HTMLElement|null {
     if (sampleElement.getAttribute('focus-type') === 'cancel') {
       return this.shadowRoot!.querySelector('[focus-type="retry"]');
     }
@@ -244,7 +246,7 @@ export class DownloadsItemElement extends DownloadsItemElementBase {
 
     const url = `chrome://extensions/?id=${this.data.byExtId}`;
     const name = this.data.byExtName;
-    return loadTimeData.getStringF('controlledByUrl', url, HTMLEscape(name));
+    return loadTimeData.getStringF('controlledByUrl', url, htmlEscape(name));
   }
 
   private computeControlRemoveFromListAriaLabel_(): string {
@@ -277,14 +279,10 @@ export class DownloadsItemElement extends DownloadsItemElementBase {
         }
         break;
 
-      case States.INCOGNITO_WARNING:
-        return loadTimeData.getString('incognitoDownloadsWarningDesc');
-
-      case States.MIXED_CONTENT:
-        return loadTimeData.getString('mixedContentDownloadDesc');
+      case States.INSECURE:
+        return loadTimeData.getString('insecureDownloadDesc');
 
       case States.DANGEROUS:
-        const fileName = data.fileName;
         switch (data.dangerType) {
           case DangerType.DANGEROUS_FILE:
             return loadTimeData.getString('dangerFileDesc');
@@ -310,7 +308,8 @@ export class DownloadsItemElement extends DownloadsItemElementBase {
 
       case States.ASYNC_SCANNING:
         return loadTimeData.getString('asyncScanningDownloadDesc');
-
+      case States.PROMPT_FOR_SCANNING:
+        return loadTimeData.getString('promptForScanningDesc');
       case States.IN_PROGRESS:
       case States.PAUSED:  // Fallthrough.
         return data.progressStatusText;
@@ -334,8 +333,7 @@ export class DownloadsItemElement extends DownloadsItemElementBase {
       const dangerType = this.data.dangerType as DangerType;
       if ((loadTimeData.getBoolean('requestsApVerdicts') &&
            dangerType === DangerType.UNCOMMON_CONTENT) ||
-          dangerType === DangerType.SENSITIVE_CONTENT_WARNING ||
-          this.data.state === States.INCOGNITO_WARNING) {
+          dangerType === DangerType.SENSITIVE_CONTENT_WARNING) {
         return 'cr:warning';
       }
 
@@ -350,6 +348,10 @@ export class DownloadsItemElement extends DownloadsItemElementBase {
 
       if (this.data.state === States.ASYNC_SCANNING) {
         return 'cr:info';
+      }
+
+      if (this.data.state === States.PROMPT_FOR_SCANNING) {
+        return 'cr:warning';
       }
     }
     if (this.isDangerous_) {
@@ -366,8 +368,7 @@ export class DownloadsItemElement extends DownloadsItemElementBase {
       const dangerType = this.data.dangerType as DangerType;
       if ((loadTimeData.getBoolean('requestsApVerdicts') &&
            dangerType === DangerType.UNCOMMON_CONTENT) ||
-          dangerType === DangerType.SENSITIVE_CONTENT_WARNING ||
-          this.data.state === States.INCOGNITO_WARNING) {
+          dangerType === DangerType.SENSITIVE_CONTENT_WARNING) {
         return 'yellow';
       }
 
@@ -382,6 +383,10 @@ export class DownloadsItemElement extends DownloadsItemElementBase {
 
       if (this.data.state === States.ASYNC_SCANNING) {
         return 'grey';
+      }
+
+      if (this.data.state === States.PROMPT_FOR_SCANNING) {
+        return 'yellow';
       }
     }
     if (this.isDangerous_) {
@@ -401,7 +406,7 @@ export class DownloadsItemElement extends DownloadsItemElementBase {
 
   private computeIsDangerous_(): boolean {
     return this.data.state === States.DANGEROUS ||
-        this.data.state === States.MIXED_CONTENT;
+        this.data.state === States.INSECURE;
   }
 
   private computeIsInProgress_(): boolean {
@@ -415,6 +420,10 @@ export class DownloadsItemElement extends DownloadsItemElementBase {
          this.data.dangerType === DangerType.DANGEROUS_URL ||
          this.data.dangerType === DangerType.POTENTIALLY_UNWANTED ||
          this.data.dangerType === DangerType.DANGEROUS_ACCOUNT_COMPROMISE);
+  }
+
+  private computeIsReviewable_(): boolean {
+    return this.data.isReviewable;
   }
 
   private toggleButtonClass_() {
@@ -461,12 +470,17 @@ export class DownloadsItemElement extends DownloadsItemElementBase {
 
   private computeShowProgress_(): boolean {
     return this.showCancel_ && this.data.percent >= -1 &&
-        this.data.state !== States.ASYNC_SCANNING;
+        this.data.state !== States.ASYNC_SCANNING &&
+        this.data.state !== States.PROMPT_FOR_SCANNING;
   }
 
   private computeShowOpenNow_(): boolean {
     const allowOpenNow = loadTimeData.getBoolean('allowOpenNow');
     return this.data.state === States.ASYNC_SCANNING && allowOpenNow;
+  }
+
+  private computeShowDeepScan_(): boolean {
+    return this.data.state === States.PROMPT_FOR_SCANNING;
   }
 
   private computeTag_(): string {
@@ -491,7 +505,7 @@ export class DownloadsItemElement extends DownloadsItemElementBase {
   }
 
   private observeControlledBy_() {
-    this.$['controlled-by'].innerHTML = this.controlledBy_;
+    this.$['controlled-by'].innerHTML = sanitizeInnerHtml(this.controlledBy_);
     if (this.controlledBy_) {
       const link = this.shadowRoot!.querySelector('#controlled-by a');
       link!.setAttribute('focus-row-control', '');
@@ -518,7 +532,7 @@ export class DownloadsItemElement extends DownloadsItemElementBase {
       this.useFileIcon_ = false;
     } else if (this.data.state === States.ASYNC_SCANNING) {
       this.useFileIcon_ = false;
-    } else if (this.data.state === States.INCOGNITO_WARNING) {
+    } else if (this.data.state === States.PROMPT_FOR_SCANNING) {
       this.useFileIcon_ = false;
     } else {
       this.$.url.href = this.data.url;
@@ -534,27 +548,29 @@ export class DownloadsItemElement extends DownloadsItemElementBase {
     }
   }
 
-  private computeShouldShowIncognitoWarning_(): boolean {
-    return this.data.state === States.INCOGNITO_WARNING &&
-        this.data.shouldShowIncognitoWarning;
-  }
-
-  private computeIsDownloadItemSafe_(): boolean {
-    return !this.computeIsDangerous_() &&
-        !this.computeShouldShowIncognitoWarning_();
-  }
-
-  private onCancelTap_() {
+  private onCancelClick_() {
     this.restoreFocusAfterCancel_ = true;
     this.mojoHandler_!.cancel(this.data.id);
   }
 
-  private onDiscardDangerousTap_() {
+  private onDiscardDangerousClick_() {
     this.mojoHandler_!.discardDangerous(this.data.id);
   }
 
-  private onOpenNowTap_() {
+  private onOpenNowClick_() {
     this.mojoHandler_!.openDuringScanningRequiringGesture(this.data.id);
+  }
+
+  private onDeepScanClick_() {
+    this.mojoHandler_!.deepScan(this.data.id);
+  }
+
+  private onBypassDeepScanClick_() {
+    this.mojoHandler_!.bypassDeepScanRequiringGesture(this.data.id);
+  }
+
+  private onReviewDangerousClick_() {
+    this.mojoHandler_!.reviewDangerousRequiringGesture(this.data.id);
   }
 
   private onDragStart_(e: Event) {
@@ -562,17 +578,17 @@ export class DownloadsItemElement extends DownloadsItemElementBase {
     this.mojoHandler_!.drag(this.data.id);
   }
 
-  private onFileLinkTap_(e: Event) {
+  private onFileLinkClick_(e: Event) {
     e.preventDefault();
     this.mojoHandler_!.openFileRequiringGesture(this.data.id);
   }
 
-  private onUrlTap_() {
+  private onUrlClick_() {
     chrome.send(
         'metricsHandler:recordAction', ['Downloads_OpenUrlOfDownloadedItem']);
   }
 
-  private onPauseOrResumeTap_() {
+  private onPauseOrResumeClick_() {
     if (this.isInProgress_) {
       this.mojoHandler_!.pause(this.data.id);
     } else {
@@ -580,7 +596,7 @@ export class DownloadsItemElement extends DownloadsItemElementBase {
     }
   }
 
-  private onRemoveTap_(e: Event) {
+  private onRemoveClick_(e: Event) {
     this.mojoHandler_!.remove(this.data.id);
     const pieces = loadTimeData.getSubstitutedStringPieces(
                        loadTimeData.getString('toastRemovedFromList'),
@@ -591,7 +607,7 @@ export class DownloadsItemElement extends DownloadsItemElementBase {
       // Make the file name collapsible.
       p.collapsible = !!p.arg;
     });
-    const canUndo = !this.data.isDangerous && !this.data.isMixedContent;
+    const canUndo = !this.data.isDangerous && !this.data.isInsecure;
     getToastManager().showForStringPieces(pieces, /* hideSlotted= */ !canUndo);
 
     // Stop propagating a click to the document to remove toast.
@@ -599,19 +615,15 @@ export class DownloadsItemElement extends DownloadsItemElementBase {
     e.preventDefault();
   }
 
-  private onRetryTap_() {
+  private onRetryClick_() {
     this.mojoHandler_!.retryDownload(this.data.id);
   }
 
-  private onSaveDangerousTap_() {
+  private onSaveDangerousClick_() {
     this.mojoHandler_!.saveDangerousRequiringGesture(this.data.id);
   }
 
-  private onIncognitoWarningAccepted_() {
-    this.mojoHandler_!.acceptIncognitoWarning(this.data.id);
-  }
-
-  private onShowTap_() {
+  private onShowClick_() {
     this.mojoHandler_!.show(this.data.id);
   }
 
@@ -626,10 +638,6 @@ export class DownloadsItemElement extends DownloadsItemElementBase {
         (element as HTMLElement).focus();
       }
     });
-  }
-
-  static get template() {
-    return html`{__html_template__}`;
   }
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,15 +8,19 @@
 #include <memory>
 
 #include "base/memory/singleton.h"
-#include "chrome/browser/supervised_user/supervised_users.h"
 #include "components/keyed_service/core/simple_keyed_service_factory.h"
+#include "components/supervised_user/core/common/supervised_users.h"
 
 class SimpleFactoryKey;
+
+namespace supervised_user {
 class SupervisedUserSettingsService;
+}  // namespace supervised_user
 
 class SupervisedUserSettingsServiceFactory : public SimpleKeyedServiceFactory {
  public:
-  static SupervisedUserSettingsService* GetForKey(SimpleFactoryKey* key);
+  static supervised_user::SupervisedUserSettingsService* GetForKey(
+      SimpleFactoryKey* key);
 
   static SupervisedUserSettingsServiceFactory* GetInstance();
 

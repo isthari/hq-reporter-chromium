@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,18 +7,17 @@
 
 #include "base/containers/flat_map.h"
 #include "base/containers/flat_set.h"
+#include "base/containers/span.h"
 #include "base/memory/raw_ptr.h"
-#include "components/autofill/content/browser/content_autofill_driver.h"
+#include "components/autofill/core/browser/autofill_driver.h"
 #include "components/autofill/core/browser/field_types.h"
 #include "components/autofill/core/common/form_data.h"
-#include "components/autofill/core/common/form_field_data.h"
 #include "components/autofill/core/common/unique_ids.h"
-#include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/global_routing_id.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/abseil-cpp/absl/types/variant.h"
 
-namespace autofill {
-namespace internal {
+namespace autofill::internal {
 
 // FormForest converts renderer forms into a browser form and vice versa.
 //
@@ -56,7 +55,7 @@ namespace internal {
 //
 // The three key functions of FormForest are:
 // - UpdateTreeOfRendererForm()
-// - GetBrowserFormOfRendererForm()
+// - GetBrowserForm()
 // - GetRendererFormsOfBrowserForm()
 //
 // UpdateTreeOfRendererForm() incrementally builds up a graph of frames, forms,
@@ -97,9 +96,9 @@ namespace internal {
 // There is no meaningful order between the fields and frames in these flattened
 // forms.
 //
-// GetBrowserFormOfRendererForm(renderer_form) simply retrieves the form node
-// of |renderer_form| and returns the root form, along with its field children
-// For example, if |renderer_form| is form B, it returns form A with fields 1–4.
+// GetBrowserForm(renderer_form) simply retrieves the form node of
+// |renderer_form| and returns the root form, along with its field children. For
+// example, if |renderer_form| is form B, it returns form A with fields 1–4.
 //
 // GetRendererFormsOfBrowserForm(browser_form) returns the individual renderer
 // forms that constitute |browser_form|, with their fields reinstated. For
@@ -128,23 +127,49 @@ namespace internal {
 //   identified by FormFieldData::host_frame and FormFieldData::host_form_id.
 //
 // Reasonable usage of FormForest follows this protocol:
-// 1. Call any of the functions only for forms and fields which have the
-//    following attributes set:
+// 1. Call UpdateTreeOfRendererForm(renderer_form) whenever a renderer form is
+//    seen to make FormForest aware of the (new or potentially changed) form.
+// 2. Call GetBrowserForm(renderer_form.global_id()) directly afterwards (as
+//    long as the renderer form is known to the FormForest).
+// 3. Call GetRendererFormsOfBrowserForm(browser_form) only if |browser_form|
+//    was previously returned by GetBrowserForm(), perhaps with
+//    different FormFieldData::value, FormFieldData::is_autofilled.
+//
+// For FormForest to be memory safe,
+// 1. UpdateTreeOfRendererForm() and GetRendererFormsOfBrowserForm() must only
+//    be called for forms which have the following attributes set:
 //    - FormData::host_frame
 //    - FormData::unique_renderer_id
 //    - FormFieldData::host_frame
 //    - FormFieldData::unique_renderer_id
 //    - FormFieldData::host_form_id
-// 2. Call UpdateTreeOfRendererForm(renderer_form) whenever a renderer form is
-//    seen to make FormForest aware of the (new or potentially changed) form.
-// 3. Call GetBrowserFormOfRendererForm(renderer_form) only after a preceding
-//    UpdateTreeOfRendererForm(some_renderer_form) call where |renderer_form|
-//    typically is identical to |some_renderer_form|, but technically it
-//    suffices if both forms have the same global_id().
-// 4. Call GetRendererFormsOfBrowserForm(browser_form) only if |browser_form|
-//    was previously returned by GetBrowserFormOfRendererForm(), perhaps with
-//    different FormFieldData::value, FormFieldData::is_autofilled.
-// Items 1 and 3 are mandatory for FormForest to be memory-safe.
+// 2. GetBrowserForm() must only be called for known renderer forms. A renderer
+//    form is *known* after a corresponding UpdateTreeOfRendererForm() call
+//    until it is erased by EraseForms() or EraseFormsOfFrame().
+//
+// FormForest works with LocalFrameToken and resolves the RemoteFrameTokens in
+// FormData::child_frames to LocalFrameTokens.
+//
+// From the perspective of a frame F, a frame G is either local or remote:
+// - If G is local, G is hosted by the same render process as F.
+// - If G is remote, G may be hosted by another render process.
+//
+// Suppose F is the parent frame of G. If G is local to F, then F refers to G in
+// its FormData::child_frames by G's LocalFrameToken. Otherwise, if G is remote
+// to F, then F uses a RemoteFrameToken as a placeholder to refer to G in
+// FormData::child_frames.
+//
+// While LocalFrameTokens are unique identifiers at any point in time, they may
+// change when a navigation happens in the frame:
+// - If G is local to F and a navigation causes G's render process to be
+//   swapped so that G becomes remote, G gets a new LocalFrameToken and F will
+//   refer to G by a fresh RemoteFrameToken.
+// - If G is remote to F and a navigation causes G's render process to be
+//   swapped, then F may continue to refer to G by the same RemoteFrameToken
+//   as before even if G's LocalFrameToken has changed.
+// The first example is the reason why UpdateTreeOfRendererForm() may trigger a
+// reparse in a parent frame. The second example is the reason why we do not
+// cache LocalFrameTokens.
 class FormForest {
  public:
   // A FrameData is a frame node in the form tree. Its children are FormData
@@ -185,11 +210,11 @@ class FormForest {
     // itself as the parent of the child frame, even if no form in this frame
     // has been seen yet.
     absl::optional<FormGlobalId> parent_form = absl::nullopt;
-    // Pointer to the frame's ContentAutofillDriver. This can be null because an
+    // Pointer to the frame's AutofillDriver. This may be null because an
     // empty FrameData is created when a parent form can Resolve() a child's
     // LocalFrameToken and no form from that child frame has been seen yet.
     // However, if |child_forms| is non-empty, then driver is non-null.
-    raw_ptr<ContentAutofillDriver> driver = nullptr;
+    raw_ptr<AutofillDriver> driver = nullptr;
   };
 
   FormForest();
@@ -198,18 +223,31 @@ class FormForest {
   ~FormForest();
 
   // Adds or updates |renderer_form| and |driver| to/in the relevant tree, where
-  // |driver| must be the ContentAutofillDriver of `renderer_form.host_frame`.
+  // |driver| must be the AutofillDriver of `renderer_form.host_frame`.
+  // Afterwards, `renderer_form.global_id()` is a known renderer form.
   void UpdateTreeOfRendererForm(FormData renderer_form,
-                                ContentAutofillDriver* driver) {
+                                AutofillDriver* driver) {
     UpdateTreeOfRendererForm(&renderer_form, driver);
   }
 
-  // Returns the browser form of |renderer_form|.
-  const FormData& GetBrowserFormOfRendererForm(
-      const FormData& renderer_form) const;
+  // Returns the non-null browser form of a known |renderer_form|.
+  // Returns null if |renderer_form| is unknown browser form; this may change to
+  // undefined behavior in the future.
+  const FormData* GetBrowserForm(FormGlobalId renderer_form) const;
 
-  // Returns the renderer forms of |browser_form|. The security policy depends
-  // on |triggered_origin| and |field_type_map|.
+  struct RendererForms {
+    RendererForms();
+    RendererForms(RendererForms&&);
+    RendererForms& operator=(RendererForms&&);
+    ~RendererForms();
+    std::vector<FormData> renderer_forms;
+    std::vector<FieldGlobalId> safe_fields;
+  };
+
+  // Returns the renderer forms of |browser_form| and the fields that are safe
+  // to be filled according to the security policy for cross-frame previewing
+  // and filling. The security policy depends on |triggered_origin| and
+  // |field_type_map|.
   //
   // The function reinstates each field from |browser_form| in the renderer form
   // it originates from. These reinstated fields hold the (possibly autofilled)
@@ -222,41 +260,48 @@ class FormForest {
   // The |field_type_map| should contain the field types of the fields in
   // |browser_form|.
   //
-  // A field is *safe to fill* iff at least one of the conditions (1), (2), (3)
-  // and additionally condition (4) hold:
+  // A field is *safe to fill* iff at least one of the conditions (1–3) and
+  // additionally condition (4) hold:
+  //
   // (1) The field's origin is the |triggered_origin|.
-  // (2) The field's origin is the main origin and the field's type in
-  //     |field_type_map| is not sensitive (see is_sensitive_field_type()).
-  // (3) The |triggered_origin| is main origin and the field's frame's
-  //     permissions policy allows shared-autofill.
-  // (4) No frame on the shortest path from the field on which Autofill was
-  //     triggered to the field in question, except perhaps the shallowest
-  //     frame, is a fenced frame.
+  // (2) The field's origin is the main origin, the field's type in
+  //     |field_type_map| is not sensitive (see IsSensitiveFieldType()), and the
+  //     policy-controlled feature shared-autofill is enabled in the field's
+  //     frame.
+  // (3) The |triggered_origin| is the main origin and the policy-controlled
+  //     feature shared-autofill is enabled in the field's frame.
+  // (4) The field is in the same frame tree as the field on which Autofill was
+  //     triggered.
   //
   // The *origin of a field* is the origin of the frame that contains the
   // corresponding form-control element.
   //
   // The *main origin* is `browser_form.main_frame_origin`.
   //
-  // A frame's *permissions policy allows shared-autofill* if that frame is a
-  // main frame or its embedding <iframe> element lists "shared-autofill" in
-  // its "allow" attribute (see https://www.w3.org/TR/permissions-policy-1/).
-  std::vector<FormData> GetRendererFormsOfBrowserForm(
+  // The "allow" attribute of the <iframe> element controls whether the
+  // *policy-controlled feature shared-autofill* is enabled in a document
+  // (see https://www.w3.org/TR/permissions-policy-1/).
+  RendererForms GetRendererFormsOfBrowserForm(
       const FormData& browser_form,
       const url::Origin& triggered_origin,
       const base::flat_map<FieldGlobalId, ServerFieldType>& field_type_map)
       const;
 
-  // Deletes all forms and fields that originate from |form| and unsets the
-  // FrameData::parent_form pointers of all child forms.
-  void EraseForm(FormGlobalId form);
+  // Deletes all forms and fields that originate from the |renderer_forms| and
+  // unsets the FrameData::parent_form pointers of all child forms.
+  //
+  // Afterwards, the |renderer_forms| are unknown.
+  //
+  // Returns the forms that lost fields due to the removal, which are known
+  // renderer forms.
+  base::flat_set<FormGlobalId> EraseForms(
+      base::span<const FormGlobalId> renderer_forms);
 
   // Deletes all forms and fields that originate from |frame| and unsets the
   // FrameData::parent_form pointers of all child forms.
-  void EraseFrame(LocalFrameToken frame);
-
-  // Resets the object to the initial state.
-  void Reset() { frame_datas_.clear(); }
+  //
+  // Afterwards, all renderer forms in |frame| are unknown.
+  void EraseFormsOfFrame(LocalFrameToken frame, bool keep_frame);
 
   // Returns the set of FrameData nodes of the forest.
   const base::flat_set<std::unique_ptr<FrameData>,
@@ -274,44 +319,9 @@ class FormForest {
       return frame && form;
     }
 
-    FrameData* frame = nullptr;
-    FormData* form = nullptr;
+    raw_ptr<FrameData, DanglingUntriaged> frame = nullptr;
+    raw_ptr<FormData, DanglingUntriaged> form = nullptr;
   };
-
-  // Resolves a FrameToken |query| from the perspective of |reference| to the
-  // globally unique LocalFrameToken. `reference.driver` must be non-null.
-  //
-  // Frames identify each other using LocalFrameTokens and RemoteFrameTokens.
-  // - LocalFrameTokens are globally unique identifiers and hence suitable for
-  //   discrimating between frames.
-  // - RemoteFrameTokens are not unique and hence unsuitable to discriminate
-  //   between frames.
-  //
-  // Therefore, FormForest works with LocalFrameToken and resolves the
-  // RemoteFrameTokens in FormData::child_frames to LocalFrameTokens.
-  //
-  // From the perspective of a frame F, a frame G is either local or remote:
-  // - If G is local, G is hosted by the same render process as F.
-  // - If G is remote, G may be hosted by another render process.
-  //
-  // Suppose F is the parent frame of G. If G is local to F, then F refers to G
-  // in its FormData::child_frames by G's LocalFrameToken. Otherwise, if G is
-  // remote to F, then F uses a RemoteFrameToken as a placeholder to refer to G
-  // in FormData::child_frames.
-  //
-  // While LocalFrameTokens are unique identifiers at any point in time, they
-  // may change when a navigation happens in the frame:
-  // - If G is local to F and a navigation causes G's render process to be
-  //   swapped so that G becomes remote, G gets a new LocalFrameToken and F will
-  //   refer to G by a fresh RemoteFrameToken.
-  // - If G is remote to F and a navigation causes G's render process to be
-  //   swapped, then F may continue to refer to G by the same RemoteFrameToken
-  //   as before even if G's LocalFrameToken has changed.
-  // The first example is the reason why UpdateTreeOfRendererForm() may trigger
-  // a reparse in a parent frame. The second example is the reason why we do not
-  // cache LocalFrameTokens.
-  absl::optional<LocalFrameToken> Resolve(const FrameData& reference,
-                                          FrameToken query);
 
   // Returns the FrameData known for |frame|, or creates a new one and returns
   // it, in which case all members but FrameData::host_frame are uninitialized.
@@ -328,8 +338,7 @@ class FormForest {
   // Beware of invalidating the returned form pointer by changing its host
   // frame's FrameData::host_forms.
   // May be used in const qualified methods if the return value is not mutated.
-  FormData* GetFormData(const FormGlobalId& form,
-                        FrameData* frame_data = nullptr);
+  FormData* GetFormData(FormGlobalId form, FrameData* frame_data = nullptr);
 
   // Returns the non-null root frame and form of the tree that contains |form|.
   // Beware of invalidating the returned form pointer by changing its host
@@ -337,22 +346,34 @@ class FormForest {
   // May be used in const qualified methods if the return value is not mutated.
   FrameAndForm GetRoot(FormGlobalId form);
 
-  // Helper for EraseFrame() and EraseForm() that removes all fields that
-  // originate from |frame_or_form| and unsets FrameData::parent_form pointer of
-  // |frame_or_form|'s children. We intentionally iterate over all frames and
-  // forms to search for fields from |frame_or_form|. Alternatively, we could
-  // limit this to the root form of |frame_or_form|. However, this would rely on
-  // |frame_or_form| being erased before its ancestors, since otherwise
-  // |frame_or_form| is disconnected from its root already.
+  // Helper for EraseFormsOfFrame() and EraseForms() that removes all fields
+  // that originate from |frame_or_form| and unsets FrameData::parent_form
+  // pointer of |frame_or_form|'s children.
+  //
+  // Afterwards, all renderer forms in |frame_or_form| (if it is a frame) or the
+  // renderer form |frame_or_form| (if it is a form) are unknown.
+  //
+  // Adds every known renderer form from which a field is removed is to
+  // |forms_with_removed_fields|.
+  //
+  // We intentionally iterate over all frames and forms to search for fields
+  // from |frame_or_form|. Alternatively, we could limit this to the root form
+  // of |frame_or_form|. However, this would rely on |frame_or_form| being
+  // erased before its ancestors, since otherwise |frame_or_form| is
+  // disconnected from its root already.
   void EraseReferencesTo(
-      absl::variant<LocalFrameToken, FormGlobalId> frame_or_form);
+      absl::variant<LocalFrameToken, FormGlobalId> frame_or_form,
+      base::flat_set<FormGlobalId>* forms_with_removed_fields);
 
   // Adds |renderer_form| and |driver| to the relevant tree, where |driver| must
-  // be the ContentAutofillDriver of the |renderer_form|'s FormData::host_frame.
+  // be the AutofillDriver of the |renderer_form|'s FormData::host_frame.
+  //
+  // Afterwards, `renderer_form->global_id()` is a known renderer form.
+  //
   // Leaves `*renderer_form` in a valid but unspecified state (like after a
   // move). In particular, `*renderer_form` and its members can be reassigned.
   void UpdateTreeOfRendererForm(FormData* renderer_form,
-                                ContentAutofillDriver* driver);
+                                AutofillDriver* driver);
 
   // The URL of a main frame managed by the FormForest.
   // TODO(crbug.com/1240247): Remove and make Resolve() static.
@@ -371,7 +392,6 @@ class FormForest {
       frame_datas_;
 };
 
-}  // namespace internal
-}  // namespace autofill
+}  // namespace autofill::internal
 
 #endif  // COMPONENTS_AUTOFILL_CONTENT_BROWSER_FORM_FOREST_H_

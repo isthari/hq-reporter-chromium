@@ -53,10 +53,6 @@
     // Console is installed by v8 inspector when context is created
     // and is left commented here just for documentation.
 
-    // CORS and RFC1918
-    // https://wicg.github.io/cors-rfc1918/#feature-detect
-    [RuntimeEnabled=AddressSpace, ImplementedAs=addressSpaceForBindings] readonly attribute AddressSpace addressSpace;
-
     // Unhandled Promise Rejection Events
     attribute EventHandler onrejectionhandled;
     attribute EventHandler onunhandledrejection;
@@ -75,8 +71,8 @@
     // TODO(fserb): temporarly until we can enable the interface below.
     readonly attribute FontFaceSet fonts;
 
-    // TrustedTypes API: http://github.com/wicg/trusted-types
-    [RuntimeEnabled=TrustedDOMTypes] readonly attribute TrustedTypePolicyFactory trustedTypes;
+    // TrustedTypes API: http://github.com/w3c/trusted-types
+    readonly attribute TrustedTypePolicyFactory trustedTypes;
 };
 
 WorkerGlobalScope includes WindowOrWorkerGlobalScope;

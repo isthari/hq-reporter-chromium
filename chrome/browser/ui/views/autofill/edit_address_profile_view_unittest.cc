@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,8 +31,10 @@ class MockEditAddressProfileDialogController
     : public EditAddressProfileDialogController {
  public:
   MOCK_METHOD(std::u16string, GetWindowTitle, (), (const, override));
+  MOCK_METHOD(const std::u16string&, GetFooterMessage, (), (const, override));
   MOCK_METHOD(std::u16string, GetOkButtonLabel, (), (const, override));
   MOCK_METHOD(const AutofillProfile&, GetProfileToEdit, (), (const, override));
+  MOCK_METHOD(bool, GetIsValidatable, (), (const, override));
   MOCK_METHOD(void,
               OnUserDecision,
               (AutofillClient::SaveAddressProfileOfferUserDecision decision,
@@ -49,13 +51,14 @@ class EditAddressProfileViewTest : public ChromeViewsTestBase {
   void CreateViewAndShow();
 
   void SetUp() override {
-    feature_list_.InitAndEnableFeature(
-        features::kAutofillAddressProfileSavePrompt);
     ChromeViewsTestBase::SetUp();
 
     address_profile_to_edit_ = test::GetFullProfile();
     test_web_contents_ =
         content::WebContentsTester::CreateTestWebContents(&profile_, nullptr);
+
+    ON_CALL(mock_controller_, GetFooterMessage)
+        .WillByDefault(::testing::ReturnRefOfCopy(std::u16string()));
   }
 
   void TearDown() override {

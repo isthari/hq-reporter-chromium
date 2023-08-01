@@ -1,11 +1,12 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_ASH_MULTIDEVICE_SETUP_AUTH_TOKEN_VALIDATOR_IMPL_H_
 #define CHROME_BROWSER_ASH_MULTIDEVICE_SETUP_AUTH_TOKEN_VALIDATOR_IMPL_H_
 
-#include "chromeos/services/multidevice_setup/public/cpp/auth_token_validator.h"
+#include "base/memory/raw_ptr.h"
+#include "chromeos/ash/services/multidevice_setup/public/cpp/auth_token_validator.h"
 #include "components/keyed_service/core/keyed_service.h"
 
 namespace ash {
@@ -37,7 +38,8 @@ class AuthTokenValidatorImpl : public AuthTokenValidator, public KeyedService {
   // KeyedService:
   void Shutdown() override;
 
-  quick_unlock::QuickUnlockStorage* quick_unlock_storage_;
+  raw_ptr<quick_unlock::QuickUnlockStorage, ExperimentalAsh>
+      quick_unlock_storage_;
 };
 
 }  // namespace multidevice_setup

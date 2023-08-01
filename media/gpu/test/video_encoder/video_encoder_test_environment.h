@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,6 +21,9 @@ class GpuMemoryBufferFactory;
 }
 
 namespace media {
+
+class Bitrate;
+
 namespace test {
 class Video;
 
@@ -41,14 +44,14 @@ class VideoEncoderTestEnvironment : public VideoTestEnvironment {
       bool enable_bitstream_validator,
       const base::FilePath& output_folder,
       const std::string& codec,
-      size_t num_temporal_layers,
-      size_t num_spatial_layers,
+      const std::string& svc_mode,
       bool save_output_bitstream,
       absl::optional<uint32_t> output_bitrate,
+      Bitrate::Mode bitrate_mode,
       bool reverse,
       const FrameOutputConfig& frame_output_config = FrameOutputConfig(),
-      const std::vector<base::Feature>& enabled_features = {},
-      const std::vector<base::Feature>& disabled_features = {});
+      const std::vector<base::test::FeatureRef>& enabled_features = {},
+      const std::vector<base::test::FeatureRef>& disabled_features = {});
 
   ~VideoEncoderTestEnvironment() override;
 
@@ -65,10 +68,17 @@ class VideoEncoderTestEnvironment : public VideoTestEnvironment {
   // Get the spatial layers config for SVC. Return empty vector in non SVC mode.
   const std::vector<VideoEncodeAccelerator::Config::SpatialLayer>&
   SpatialLayers() const;
+  VideoEncodeAccelerator::Config::InterLayerPredMode InterLayerPredMode() const;
   // Get the target bitrate (bits/second).
-  VideoBitrateAllocation Bitrate() const;
+  const VideoBitrateAllocation& BitrateAllocation() const;
   // Whether the encoded bitstream is saved to disk.
   bool SaveOutputBitstream() const;
+  // Get the output file path for a bitstream to be saved to disk.
+  base::FilePath OutputFilePath(const VideoCodec& codec,
+                                const base::FilePath& base_name,
+                                bool svc_enable = false,
+                                int spatial_idx = 0,
+                                int temporal_idx = 0) const;
   // True if the video should play backwards at reaching the end of video.
   // Otherwise the video loops. See the comment in AlignedDataHelper for detail.
   bool Reverse() const;
@@ -86,19 +96,22 @@ class VideoEncoderTestEnvironment : public VideoTestEnvironment {
   bool IsKeplerUsed() const;
 
  private:
+  // TODO(crbug.com/1335251): merge |use_vbr| and |bitrate| into a single
+  // Bitrate-typed field.
   VideoEncoderTestEnvironment(
       std::unique_ptr<media::test::Video> video,
       bool enable_bitstream_validator,
       const base::FilePath& output_folder,
       VideoCodecProfile profile,
+      VideoEncodeAccelerator::Config::InterLayerPredMode inter_layer_pred_mode,
       size_t num_temporal_layers,
       size_t num_spatial_layers,
-      uint32_t bitrate,
+      const media::Bitrate& bitrate,
       bool save_output_bitstream,
       bool reverse,
       const FrameOutputConfig& frame_output_config,
-      const std::vector<base::Feature>& enabled_features,
-      const std::vector<base::Feature>& disabled_features);
+      const std::vector<base::test::FeatureRef>& enabled_features,
+      const std::vector<base::test::FeatureRef>& disabled_features);
 
   // Video file to be used for testing.
   const std::unique_ptr<media::test::Video> video_;
@@ -110,12 +123,9 @@ class VideoEncoderTestEnvironment : public VideoTestEnvironment {
   const base::FilePath output_folder_;
   // VideoCodecProfile to be produced by VideoEncoder.
   const VideoCodecProfile profile_;
-  // The number of temporal layers of the stream to be produced by VideoEncoder.
-  // This is only for vp9 stream.
-  const size_t num_temporal_layers_;
-  // The number of spatial layers of the stream to be produced by VideoEncoder.
-  // This is only for vp9 stream.
-  const size_t num_spatial_layers_;
+  // Inter layer predict mode.
+  const VideoEncodeAccelerator::Config::InterLayerPredMode
+      inter_layer_pred_mode_;
   // Targeted bitrate (bits/second) of the stream produced by VideoEncoder.
   const VideoBitrateAllocation bitrate_;
   // The spatial layers of the stream which aligned with |num_spatial_layers_|

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,9 @@
 
 #include <string>
 
+#include "base/memory/raw_ptr.h"
 #include "components/keyed_service/core/keyed_service.h"
-#include "components/sync/driver/sync_service_observer.h"
+#include "components/sync/service/sync_service_observer.h"
 
 class Profile;
 
@@ -31,12 +32,16 @@ class SyncErrorNotifier : public syncer::SyncServiceObserver,
   // syncer::SyncServiceObserver:
   void OnStateChanged(syncer::SyncService* service) override;
 
+  const std::string& GetNotificationIdForTesting() const {
+    return notification_id_;
+  }
+
  private:
   // The sync service to query for error details.
-  syncer::SyncService* sync_service_;
+  raw_ptr<syncer::SyncService, ExperimentalAsh> sync_service_;
 
   // The Profile this service belongs to.
-  Profile* const profile_;
+  const raw_ptr<Profile, ExperimentalAsh> profile_;
 
   // Notification was added to NotificationUIManager. This flag is used to
   // prevent displaying passphrase notification to user if they already saw (and

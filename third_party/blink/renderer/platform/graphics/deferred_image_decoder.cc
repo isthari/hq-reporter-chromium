@@ -28,9 +28,13 @@
 #include <memory>
 #include <utility>
 
+#include "base/feature_list.h"
+#include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/time/time.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/renderer/platform/graphics/decoding_image_generator.h"
 #include "third_party/blink/renderer/platform/graphics/image_decoding_store.h"
 #include "third_party/blink/renderer/platform/graphics/image_frame_generator.h"
@@ -39,7 +43,9 @@
 #include "third_party/blink/renderer/platform/image-decoders/segment_reader.h"
 #include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
+#include "third_party/skia/include/core/SkColorSpace.h"
 #include "third_party/skia/include/core/SkImage.h"
+#include "ui/gfx/geometry/skia_conversions.h"
 
 namespace blink {
 
@@ -71,47 +77,6 @@ void ReportIncrementalDecodeNeeded(bool all_data_received,
   if (status) {
     UMA_HISTOGRAM_ENUMERATION("Blink.ImageDecoders.IncrementalDecodeNeeded",
                               *status);
-  }
-}
-
-void RecordByteSizeAndWhetherIncrementalDecode(const String& image_type,
-                                               bool incrementally_decoded,
-                                               size_t bytes) {
-  DCHECK(IsMainThread());
-  // A base::HistogramBase::Sample may not fit the number of bytes of the image.
-  base::HistogramBase::Sample sample_bytes =
-      base::saturated_cast<base::HistogramBase::Sample>(bytes);
-  if (image_type == "jpg") {
-    if (incrementally_decoded) {
-      DEFINE_STATIC_LOCAL(
-          CustomCountHistogram, jpeg_byte_size_incrementally_decoded_histogram,
-          ("Blink.ImageDecoders.IncrementallyDecodedByteSize.Jpeg",
-           125 /* min */, 15000000 /* 15 MB */, 100 /* bucket count */));
-      jpeg_byte_size_incrementally_decoded_histogram.Count(sample_bytes);
-    } else {
-      DEFINE_STATIC_LOCAL(
-          CustomCountHistogram,
-          jpeg_byte_size_initially_fully_decoded_histogram,
-          ("Blink.ImageDecoders.InitiallyFullyDecodedByteSize.Jpeg",
-           125 /* min */, 15000000 /* 15 MB */, 100 /* bucket count */));
-      jpeg_byte_size_initially_fully_decoded_histogram.Count(sample_bytes);
-    }
-  } else {
-    DCHECK_EQ(image_type, "webp");
-    if (incrementally_decoded) {
-      DEFINE_STATIC_LOCAL(
-          CustomCountHistogram, webp_byte_size_incrementally_decoded_histogram,
-          ("Blink.ImageDecoders.IncrementallyDecodedByteSize.WebP",
-           125 /* min */, 15000000 /* 15 MB */, 100 /* bucket count */));
-      webp_byte_size_incrementally_decoded_histogram.Count(sample_bytes);
-    } else {
-      DEFINE_STATIC_LOCAL(
-          CustomCountHistogram,
-          webp_byte_size_initially_fully_decoded_histogram,
-          ("Blink.ImageDecoders.InitiallyFullyDecodedByteSize.WebP",
-           125 /* min */, 15000000 /* 15 MB */, 100 /* bucket count */));
-      webp_byte_size_initially_fully_decoded_histogram.Count(sample_bytes);
-    }
   }
 }
 
@@ -179,11 +144,15 @@ String DeferredImageDecoder::FilenameExtension() const {
                            : filename_extension_;
 }
 
+const AtomicString& DeferredImageDecoder::MimeType() const {
+  return metadata_decoder_ ? metadata_decoder_->MimeType() : mime_type_;
+}
+
 sk_sp<PaintImageGenerator> DeferredImageDecoder::CreateGenerator() {
   if (frame_generator_ && frame_generator_->DecodeFailed())
     return nullptr;
 
-  if (invalid_image_ || frame_data_.IsEmpty())
+  if (invalid_image_ || frame_data_.empty())
     return nullptr;
 
   DCHECK(frame_generator_);
@@ -237,15 +206,26 @@ sk_sp<PaintImageGenerator> DeferredImageDecoder::CreateGenerator() {
       *image_metadata_);
   first_decoding_generator_created_ = true;
 
-  size_t image_byte_size = ByteSize();
-  if (all_data_received_ && (image_type == "jpg" || image_type == "webp")) {
-    DCHECK(incremental_decode_needed_.has_value());
-    DCHECK(image_byte_size);
-    RecordByteSizeAndWhetherIncrementalDecode(
-        image_type, incremental_decode_needed_.value(), image_byte_size);
-  }
-
   return generator;
+}
+
+bool DeferredImageDecoder::CreateGainmapGenerator(
+    sk_sp<PaintImageGenerator>& gainmap_generator,
+    SkGainmapInfo& gainmap_info) {
+  if (!gainmap_) {
+    return false;
+  }
+  WebVector<FrameMetadata> frames;
+
+  SkImageInfo gainmap_image_info =
+      SkImageInfo::Make(gainmap_->frame_generator->GetFullSize(),
+                        kN32_SkColorType, kOpaque_SkAlphaType);
+  gainmap_generator = DecodingImageGenerator::Create(
+      gainmap_->frame_generator, gainmap_image_info, gainmap_->data, frames,
+      complete_frame_content_id_, all_data_received_, gainmap_->can_decode_yuv,
+      gainmap_->image_metadata);
+  gainmap_info = gainmap_->info;
+  return true;
 }
 
 scoped_refptr<SharedBuffer> DeferredImageDecoder::Data() {
@@ -383,6 +363,7 @@ size_t DeferredImageDecoder::ByteSize() const {
 }
 
 void DeferredImageDecoder::ActivateLazyDecoding() {
+  ActivateLazyGainmapDecoding();
   if (frame_generator_)
     return;
 
@@ -390,6 +371,7 @@ void DeferredImageDecoder::ActivateLazyDecoding() {
   image_is_high_bit_depth_ = metadata_decoder_->ImageIsHighBitDepth();
   has_hot_spot_ = metadata_decoder_->HotSpot(hot_spot_);
   filename_extension_ = metadata_decoder_->FilenameExtension();
+  mime_type_ = metadata_decoder_->MimeType();
   has_embedded_color_profile_ = metadata_decoder_->HasEmbeddedColorProfile();
   color_space_for_sk_images_ = metadata_decoder_->ColorSpaceForSkImages();
 
@@ -397,11 +379,69 @@ void DeferredImageDecoder::ActivateLazyDecoding() {
       metadata_decoder_->RepetitionCount() == kAnimationNone ||
       (all_data_received_ && metadata_decoder_->FrameCount() == 1u);
   const SkISize decoded_size =
-      SkISize::Make(metadata_decoder_->DecodedSize().width(),
-                    metadata_decoder_->DecodedSize().height());
+      gfx::SizeToSkISize(metadata_decoder_->DecodedSize());
   frame_generator_ = ImageFrameGenerator::Create(
       decoded_size, !is_single_frame, metadata_decoder_->GetColorBehavior(),
       metadata_decoder_->GetSupportedDecodeSizes());
+}
+
+void DeferredImageDecoder::ActivateLazyGainmapDecoding() {
+  // Gate this behind a feature flag.
+  static bool feature_enabled =
+      base::FeatureList::IsEnabled(blink::features::kGainmapHdrImages);
+  if (!feature_enabled) {
+    return;
+  }
+
+  // Early-out if we have excluded the possibility that this image has a
+  // gainmap, or if we have already created the gainmap frame generator.
+  if (!might_have_gainmap_ || gainmap_) {
+    return;
+  }
+
+  // Do not decode gainmaps until all data is received (spatially incrementally
+  // adding HDR to an image looks odd).
+  if (!all_data_received_) {
+    return;
+  }
+
+  // Attempt to extract the gainmap's data.
+  std::unique_ptr<Gainmap> gainmap(new Gainmap);
+  if (!metadata_decoder_->GetGainmapInfoAndData(gainmap->info, gainmap->data)) {
+    might_have_gainmap_ = false;
+    return;
+  }
+  DCHECK(gainmap->data);
+
+  // Extract metadata from the gainmap's data.
+  auto gainmap_metadata_decoder = ImageDecoder::Create(
+      gainmap->data, all_data_received_, ImageDecoder::kAlphaNotPremultiplied,
+      ImageDecoder::kDefaultBitDepth, ColorBehavior::Ignore());
+  if (!gainmap_metadata_decoder) {
+    DLOG(ERROR) << "Failed to create gainmap image decoder.";
+    might_have_gainmap_ = false;
+    return;
+  }
+
+  // Animated gainmap support does not exist.
+  if (gainmap_metadata_decoder->FrameCount() != 1) {
+    DLOG(ERROR) << "Animated gainmap images are not supported.";
+    might_have_gainmap_ = false;
+    return;
+  }
+  const bool kIsMultiFrame = false;
+
+  // Create the result frame generator and metadata.
+  gainmap->frame_generator = ImageFrameGenerator::Create(
+      gfx::SizeToSkISize(gainmap_metadata_decoder->DecodedSize()),
+      kIsMultiFrame, ColorBehavior::Ignore(),
+      gainmap_metadata_decoder->GetSupportedDecodeSizes());
+
+  // Populate metadata and save to the `gainmap_` member.
+  gainmap->can_decode_yuv = gainmap_metadata_decoder->CanDecodeToYUV();
+  gainmap->image_metadata =
+      gainmap_metadata_decoder->MakeMetadataForDecodeAcceleration();
+  gainmap_ = std::move(gainmap);
 }
 
 void DeferredImageDecoder::PrepareLazyDecodedFrames() {

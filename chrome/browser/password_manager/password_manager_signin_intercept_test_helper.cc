@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -80,12 +80,12 @@ void PasswordManagerSigninInterceptTestHelper::NavigateToGaiaSigninPage(
   std::string path = "/password/password_form.html";
   GURL https_url(https_test_server_->GetURL(path));
   DCHECK(https_url.SchemeIs(url::kHttpsScheme));
-  DCHECK(gaia::IsGaiaSignonRealm(https_url.DeprecatedGetOriginAsURL()));
+  DCHECK(gaia::HasGaiaSchemeHostPort(https_url));
 
   PasswordsNavigationObserver navigation_observer(contents);
   ASSERT_TRUE(ui_test_utils::NavigateToURL(
       chrome::FindBrowserWithWebContents(contents), https_url));
-  navigation_observer.Wait();
+  ASSERT_TRUE(navigation_observer.Wait());
 }
 
 // Create another profile with the same Gaia account, so that the profile

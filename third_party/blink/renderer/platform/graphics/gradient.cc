@@ -29,6 +29,7 @@
 
 #include <algorithm>
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/blink/renderer/platform/graphics/color.h"
 #include "third_party/blink/renderer/platform/graphics/dark_mode_settings_builder.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_context.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_shader.h"
@@ -59,7 +60,7 @@ static inline bool CompareStops(const Gradient::ColorStop& a,
 }
 
 void Gradient::AddColorStop(const Gradient::ColorStop& stop) {
-  if (stops_.IsEmpty()) {
+  if (stops_.empty()) {
     stops_sorted_ = true;
   } else {
     stops_sorted_ = stops_sorted_ && CompareStops(stops_.back(), stop);
@@ -86,16 +87,24 @@ void Gradient::SortStopsIfNecessary() const {
   std::stable_sort(stops_.begin(), stops_.end(), CompareStops);
 }
 
+bool Gradient::HasNonLegacyColor() const {
+  for (const auto& stop : stops_) {
+    if (!stop.color.IsLegacyColor())
+      return true;
+  }
+  return false;
+}
+
 // Collect sorted stop position and color information into the pos and colors
 // buffers, ensuring stops at both 0.0 and 1.0.
 // TODO(fmalita): theoretically Skia should provide the same 0.0/1.0 padding
 // (making this logic redundant), but in practice there are rendering diffs;
 // investigate.
 void Gradient::FillSkiaStops(ColorBuffer& colors, OffsetBuffer& pos) const {
-  if (stops_.IsEmpty()) {
+  if (stops_.empty()) {
     // A gradient with no stops must be transparent black.
     pos.push_back(WebCoreDoubleToSkScalar(0));
-    colors.push_back(SK_ColorTRANSPARENT);
+    colors.push_back(SkColors::kTransparent);
   } else if (stops_.front().stop > 0) {
     // Copy the first stop to 0.0. The first stop position may have a slight
     // rounding error, but we don't care in this float comparison, since
@@ -103,28 +112,104 @@ void Gradient::FillSkiaStops(ColorBuffer& colors, OffsetBuffer& pos) const {
     // with a stop at (0 + epsilon).
     pos.push_back(WebCoreDoubleToSkScalar(0));
     if (color_filter_) {
-      colors.push_back(
-          color_filter_->filterColor(SkColor(stops_.front().color)));
+      colors.push_back(color_filter_->filterColor4f(
+          stops_.front().color.toSkColor4f(), nullptr, nullptr));
     } else {
-      colors.push_back(SkColor(stops_.front().color));
+      colors.push_back(stops_.front().color.toSkColor4f());
     }
   }
 
   for (const auto& stop : stops_) {
     pos.push_back(WebCoreDoubleToSkScalar(stop.stop));
-    if (color_filter_)
-      colors.push_back(color_filter_->filterColor(SkColor(stop.color)));
-    else
-      colors.push_back(SkColor(stop.color));
+    if (color_filter_) {
+      colors.push_back(color_filter_->filterColor4f(stop.color.toSkColor4f(),
+                                                    nullptr, nullptr));
+    } else {
+      colors.push_back(stop.color.toSkColor4f());
+    }
   }
 
   // Copy the last stop to 1.0 if needed. See comment above about this float
   // comparison.
-  DCHECK(!pos.IsEmpty());
+  DCHECK(!pos.empty());
   if (pos.back() < 1) {
     pos.push_back(WebCoreDoubleToSkScalar(1));
     colors.push_back(colors.back());
   }
+}
+
+SkGradientShader::Interpolation Gradient::ResolveSkInterpolation() const {
+  using sk_colorspace = SkGradientShader::Interpolation::ColorSpace;
+  using sk_hue_method = SkGradientShader::Interpolation::HueMethod;
+  SkGradientShader::Interpolation sk_interpolation;
+
+  switch (color_space_interpolation_space_) {
+    case Color::ColorSpace::kXYZD65:
+    case Color::ColorSpace::kXYZD50:
+    case Color::ColorSpace::kSRGBLinear:
+      sk_interpolation.fColorSpace = sk_colorspace::kSRGBLinear;
+      break;
+    case Color::ColorSpace::kLab:
+      sk_interpolation.fColorSpace = sk_colorspace::kLab;
+      break;
+    case Color::ColorSpace::kOklab:
+      sk_interpolation.fColorSpace = sk_colorspace::kOKLab;
+      break;
+    case Color::ColorSpace::kLch:
+      sk_interpolation.fColorSpace = sk_colorspace::kLCH;
+      break;
+    case Color::ColorSpace::kOklch:
+      sk_interpolation.fColorSpace = sk_colorspace::kOKLCH;
+      break;
+    case Color::ColorSpace::kSRGB:
+    case Color::ColorSpace::kSRGBLegacy:
+      sk_interpolation.fColorSpace = sk_colorspace::kSRGB;
+      break;
+    case Color::ColorSpace::kHSL:
+      sk_interpolation.fColorSpace = sk_colorspace::kHSL;
+      break;
+    case Color::ColorSpace::kHWB:
+      sk_interpolation.fColorSpace = sk_colorspace::kHWB;
+      break;
+    case Color::ColorSpace::kNone:
+      if (HasNonLegacyColor()) {
+        // If no colorspace is provided and the gradient is not entirely
+        // composed of legacy colors, Oklab is the default interpolation space.
+        sk_interpolation.fColorSpace = sk_colorspace::kOKLab;
+      } else {
+        // TODO(crbug.com/1379462): This should be kSRGB.
+        sk_interpolation.fColorSpace = sk_colorspace::kDestination;
+      }
+      break;
+    // We do not yet support interpolation in these spaces.
+    case Color::ColorSpace::kDisplayP3:
+    case Color::ColorSpace::kA98RGB:
+    case Color::ColorSpace::kProPhotoRGB:
+    case Color::ColorSpace::kRec2020:
+      NOTREACHED();
+      break;
+  }
+
+  switch (hue_interpolation_method_) {
+    case Color::HueInterpolationMethod::kLonger:
+      sk_interpolation.fHueMethod = sk_hue_method::kLonger;
+      break;
+    case Color::HueInterpolationMethod::kIncreasing:
+      sk_interpolation.fHueMethod = sk_hue_method::kIncreasing;
+      break;
+    case Color::HueInterpolationMethod::kDecreasing:
+      sk_interpolation.fHueMethod = sk_hue_method::kDecreasing;
+      break;
+    default:
+      sk_interpolation.fHueMethod = sk_hue_method::kShorter;
+  }
+
+  sk_interpolation.fInPremul =
+      (color_interpolation_ == ColorInterpolation::kPremultiplied)
+          ? SkGradientShader::Interpolation::InPremul::kYes
+          : SkGradientShader::Interpolation::InPremul::kNo;
+
+  return sk_interpolation;
 }
 
 sk_sp<PaintShader> Gradient::CreateShaderInternal(
@@ -133,9 +218,9 @@ sk_sp<PaintShader> Gradient::CreateShaderInternal(
   DCHECK(stops_sorted_);
 
   ColorBuffer colors;
-  colors.ReserveCapacity(stops_.size());
+  colors.reserve(stops_.size());
   OffsetBuffer pos;
-  pos.ReserveCapacity(stops_.size());
+  pos.reserve(stops_.size());
 
   FillSkiaStops(colors, pos);
   DCHECK_GE(colors.size(), 2ul);
@@ -157,15 +242,11 @@ sk_sp<PaintShader> Gradient::CreateShaderInternal(
   if (is_dark_mode_enabled_) {
     for (auto& color : colors) {
       color = EnsureDarkModeFilter().InvertColorIfNeeded(
-          SkColor(color), DarkModeFilter::ElementRole::kBackground);
+          color, DarkModeFilter::ElementRole::kBackground);
     }
   }
-
-  uint32_t flags = color_interpolation_ == ColorInterpolation::kPremultiplied
-                       ? SkGradientShader::kInterpolateColorsInPremul_Flag
-                       : 0;
-  sk_sp<PaintShader> shader =
-      CreateShader(colors, pos, tile, flags, local_matrix, colors.back());
+  sk_sp<PaintShader> shader = CreateShader(
+      colors, pos, tile, ResolveSkInterpolation(), local_matrix, colors.back());
   DCHECK(shader);
 
   return shader;
@@ -219,9 +300,9 @@ class LinearGradient final : public Gradient {
   sk_sp<PaintShader> CreateShader(const ColorBuffer& colors,
                                   const OffsetBuffer& pos,
                                   SkTileMode tile_mode,
-                                  uint32_t flags,
+                                  SkGradientShader::Interpolation interpolation,
                                   const SkMatrix& local_matrix,
-                                  SkColor fallback_color) const override {
+                                  SkColor4f fallback_color) const override {
     if (GetDegenerateHandling() == DegenerateHandling::kDisallow &&
         p0_ == p1_) {
       return PaintShader::MakeEmpty();
@@ -230,7 +311,7 @@ class LinearGradient final : public Gradient {
     SkPoint pts[2] = {FloatPointToSkPoint(p0_), FloatPointToSkPoint(p1_)};
     return PaintShader::MakeLinearGradient(
         pts, colors.data(), pos.data(), static_cast<int>(colors.size()),
-        tile_mode, flags, &local_matrix, fallback_color);
+        tile_mode, interpolation, 0 /* flags */, &local_matrix, fallback_color);
   }
 
  private:
@@ -262,9 +343,9 @@ class RadialGradient final : public Gradient {
   sk_sp<PaintShader> CreateShader(const ColorBuffer& colors,
                                   const OffsetBuffer& pos,
                                   SkTileMode tile_mode,
-                                  uint32_t flags,
+                                  SkGradientShader::Interpolation interpolation,
                                   const SkMatrix& local_matrix,
-                                  SkColor fallback_color) const override {
+                                  SkColor4f fallback_color) const override {
     const SkMatrix* matrix = &local_matrix;
     absl::optional<SkMatrix> adjusted_local_matrix;
     if (aspect_ratio_ != 1) {
@@ -289,7 +370,7 @@ class RadialGradient final : public Gradient {
     return PaintShader::MakeTwoPointConicalGradient(
         FloatPointToSkPoint(p0_), radius0, FloatPointToSkPoint(p1_), radius1,
         colors.data(), pos.data(), static_cast<int>(colors.size()), tile_mode,
-        flags, matrix, fallback_color);
+        interpolation, 0 /* flags */, matrix, fallback_color);
   }
 
  private:
@@ -322,9 +403,9 @@ class ConicGradient final : public Gradient {
   sk_sp<PaintShader> CreateShader(const ColorBuffer& colors,
                                   const OffsetBuffer& pos,
                                   SkTileMode tile_mode,
-                                  uint32_t flags,
+                                  SkGradientShader::Interpolation interpolation,
                                   const SkMatrix& local_matrix,
-                                  SkColor fallback_color) const override {
+                                  SkColor4f fallback_color) const override {
     if (GetDegenerateHandling() == DegenerateHandling::kDisallow &&
         start_angle_ == end_angle_) {
       return PaintShader::MakeEmpty();
@@ -344,7 +425,7 @@ class ConicGradient final : public Gradient {
     return PaintShader::MakeSweepGradient(
         position_.x(), position_.y(), colors.data(), pos.data(),
         static_cast<int>(colors.size()), tile_mode, start_angle_, end_angle_,
-        flags, matrix, fallback_color);
+        interpolation, 0 /* flags */, matrix, fallback_color);
   }
 
  private:

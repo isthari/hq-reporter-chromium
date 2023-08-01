@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,14 +23,17 @@ FileManagerUntrustedUIConfig::FileManagerUntrustedUIConfig()
 FileManagerUntrustedUIConfig::~FileManagerUntrustedUIConfig() = default;
 
 std::unique_ptr<content::WebUIController>
-FileManagerUntrustedUIConfig::CreateWebUIController(content::WebUI* web_ui) {
+FileManagerUntrustedUIConfig::CreateWebUIController(content::WebUI* web_ui,
+                                                    const GURL& url) {
   return std::make_unique<FileManagerUntrustedUI>(web_ui);
 }
 
 FileManagerUntrustedUI::FileManagerUntrustedUI(content::WebUI* web_ui)
     : ui::UntrustedWebUIController(web_ui) {
   content::WebUIDataSource* untrusted_source =
-      content::WebUIDataSource::Create(kChromeUIFileManagerUntrustedURL);
+      content::WebUIDataSource::CreateAndAdd(
+          web_ui->GetWebContents()->GetBrowserContext(),
+          kChromeUIFileManagerUntrustedURL);
 
   untrusted_source->AddResourcePaths(base::make_span(
       kFileManagerUntrustedResources, kFileManagerUntrustedResourcesSize));
@@ -51,9 +54,6 @@ FileManagerUntrustedUI::FileManagerUntrustedUI(content::WebUI* web_ui)
   untrusted_source->OverrideContentSecurityPolicy(
       network::mojom::CSPDirectiveName::StyleSrc,
       "style-src 'unsafe-inline' 'self';");
-
-  auto* browser_context = web_ui->GetWebContents()->GetBrowserContext();
-  content::WebUIDataSource::Add(browser_context, untrusted_source);
 }
 
 FileManagerUntrustedUI::~FileManagerUntrustedUI() = default;

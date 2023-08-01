@@ -1,20 +1,20 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef SQL_META_TABLE_H_
 #define SQL_META_TABLE_H_
 
-#include <stdint.h>
+#include <cstdint>
 #include <string>
 
 #include "base/component_export.h"
 #include "base/memory/raw_ptr.h"
+#include "base/strings/string_piece_forward.h"
 
 namespace sql {
 
 class Database;
-class Statement;
 
 // Creates and manages a table to store generic metadata. The features provided
 // are:
@@ -27,6 +27,8 @@ class COMPONENT_EXPORT(SQL) MetaTable {
   MetaTable();
   MetaTable(const MetaTable&) = delete;
   MetaTable& operator=(const MetaTable&) = delete;
+  MetaTable(MetaTable&&) = delete;
+  MetaTable& operator=(MetaTable&&) = delete;
   ~MetaTable();
 
   // Values for Get/SetMmapStatus(). `kMmapFailure` indicates that there was at
@@ -50,6 +52,9 @@ class COMPONENT_EXPORT(SQL) MetaTable {
   // the latter, pass `kNoLowestSupportedVersion` for
   // `lowest_supported_version`.
   //
+  // Returns false if razing the database was necessary but failed or if
+  // determining the metadata version failed.
+  //
   // TODO(crbug.com/1228463): At this time the database is razed IFF meta exists
   // and contains a version row with the value not satisfying the constraints.
   // It may make sense to also raze if meta exists but has no version row, or if
@@ -58,7 +63,7 @@ class COMPONENT_EXPORT(SQL) MetaTable {
   // TODO(crbug.com/1228463): Folding this into Init() would allow enforcing
   // the version constraint, but Init() is often called in a transaction.
   static constexpr int kNoLowestSupportedVersion = 0;
-  static void RazeIfIncompatible(Database* db,
+  static bool RazeIfIncompatible(Database* db,
                                  int lowest_supported_version,
                                  int current_version);
 
@@ -75,7 +80,7 @@ class COMPONENT_EXPORT(SQL) MetaTable {
   // Versions must be greater than 0 to distinguish missing versions (see
   // GetVersionNumber()). If there was no meta table (proxy for a fresh
   // database), mmap status is set to `kMmapSuccess`.
-  bool Init(Database* db, int version, int compatible_version);
+  [[nodiscard]] bool Init(Database* db, int version, int compatible_version);
 
   // Resets this MetaTable object, making another call to Init() possible.
   void Reset();
@@ -85,7 +90,7 @@ class COMPONENT_EXPORT(SQL) MetaTable {
   // previously set version number.
   //
   // See also Get/SetCompatibleVersionNumber().
-  void SetVersionNumber(int version);
+  [[nodiscard]] bool SetVersionNumber(int version);
   int GetVersionNumber();
 
   // The compatible version number is the lowest current version embedded in
@@ -104,29 +109,23 @@ class COMPONENT_EXPORT(SQL) MetaTable {
   //
   // The compatible version number will be 0 if there is no previously set
   // compatible version number.
-  void SetCompatibleVersionNumber(int version);
+  [[nodiscard]] bool SetCompatibleVersionNumber(int version);
   int GetCompatibleVersionNumber();
 
   // Set the given arbitrary key with the given data. Returns true on success.
-  bool SetValue(const char* key, const std::string& value);
-  bool SetValue(const char* key, int value);
-  bool SetValue(const char* key, int64_t value);
+  bool SetValue(base::StringPiece key, const std::string& value);
+  bool SetValue(base::StringPiece key, int64_t value);
 
   // Retrieves the value associated with the given key. This will use sqlite's
   // type conversion rules. It will return true on success.
-  bool GetValue(const char* key, std::string* value);
-  bool GetValue(const char* key, int* value);
-  bool GetValue(const char* key, int64_t* value);
+  bool GetValue(base::StringPiece key, std::string* value);
+  bool GetValue(base::StringPiece key, int* value);
+  bool GetValue(base::StringPiece key, int64_t* value);
 
   // Deletes the key from the table.
-  bool DeleteKey(const char* key);
+  bool DeleteKey(base::StringPiece key);
 
  private:
-  // Conveniences to prepare the two types of statements used by
-  // MetaTableHelper.
-  void PrepareSetStatement(Statement* statement, const char* key);
-  bool PrepareGetStatement(Statement* statement, const char* key);
-
   raw_ptr<Database> db_ = nullptr;
 };
 

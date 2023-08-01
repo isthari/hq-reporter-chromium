@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,5 +10,15 @@ namespace webapps {
 
 AddToHomescreenParams::AddToHomescreenParams() = default;
 AddToHomescreenParams::~AddToHomescreenParams() = default;
+
+std::string AddToHomescreenParams::GetAppIdentifier() {
+  return native_app_data.is_null() ? shortcut_info->url.spec()
+                                   : native_app_package_name;
+}
+
+bool AddToHomescreenParams::HasMaskablePrimaryIcon() {
+  return app_type != AddToHomescreenParams::AppType::NATIVE &&
+         shortcut_info->is_primary_icon_maskable;
+}
 
 }  // namespace webapps

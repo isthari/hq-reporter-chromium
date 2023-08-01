@@ -1,10 +1,11 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.ui;
 
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.content.res.TypedArray;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
@@ -31,7 +32,6 @@ import androidx.annotation.StyleableRes;
 import androidx.appcompat.content.res.AppCompatResources;
 import androidx.core.graphics.drawable.DrawableCompat;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.Log;
 
 import java.io.File;
@@ -54,6 +54,10 @@ public class UiUtils {
     // Keep this variable in sync with the value defined in file_paths.xml.
     public static final String IMAGE_FILE_PATH = "images";
 
+    // crbug.com/1413586: Prevent potentially unintentional user interaction with any prompt for
+    // this long after the prompt is displayed.
+    public static long PROMPT_INPUT_PROTECTION_SHORT_DELAY_MS = 600;
+
     /**
      * A static map of manufacturers to the version where theming Android UI is completely
      * supported. If there is no entry, it means the manufacturer supports theming at the same
@@ -61,9 +65,6 @@ public class UiUtils {
      */
     private static final Map<String, Integer> sAndroidUiThemeBlocklist = new HashMap<>();
     static {
-        // Xiaomi doesn't support SYSTEM_UI_FLAG_LIGHT_STATUS_BAR until Android N; more info at
-        // https://crbug.com/823264.
-        sAndroidUiThemeBlocklist.put("xiaomi", Build.VERSION_CODES.N);
         // HTC doesn't respect theming flags on activity restart until Android O; this affects both
         // the system nav and status bar. More info at https://crbug.com/831737.
         sAndroidUiThemeBlocklist.put("htc", Build.VERSION_CODES.O);
@@ -93,7 +94,7 @@ public class UiUtils {
                     imManager.getEnabledInputMethodSubtypeList(enabledMethods.get(i), true);
             if (subtypes == null) continue;
             for (int j = 0; j < subtypes.size(); j++) {
-                String locale = ApiCompatibilityUtils.getLocale(subtypes.get(j));
+                String locale = subtypes.get(j).getLanguageTag();
                 if (!TextUtils.isEmpty(locale)) locales.add(locale);
             }
         }
@@ -367,15 +368,26 @@ public class UiUtils {
      * Gets a drawable from the resources and applies the specified tint to it. Uses Support Library
      * for vector drawables and tinting on older Android versions.
      * @param drawableId The resource id for the drawable.
-     * @param tintColorId The resource id for the color or ColorStateList.
+     * @param tintColorId The resource id for the color to build ColorStateList with.
      */
     public static Drawable getTintedDrawable(
             Context context, @DrawableRes int drawableId, @ColorRes int tintColorId) {
+        return getTintedDrawable(
+                context, drawableId, AppCompatResources.getColorStateList(context, tintColorId));
+    }
+
+    /**
+     * Gets a drawable from the resources and applies the specified tint to it. Uses Support Library
+     * for vector drawables and tinting on older Android versions.
+     * @param drawableId The resource id for the drawable.
+     * @param colorStateList The color state list to apply to the drawable.
+     */
+    public static Drawable getTintedDrawable(
+            Context context, @DrawableRes int drawableId, ColorStateList list) {
         Drawable drawable = AppCompatResources.getDrawable(context, drawableId);
         assert drawable != null;
         drawable = DrawableCompat.wrap(drawable).mutate();
-        DrawableCompat.setTintList(
-                drawable, AppCompatResources.getColorStateList(context, tintColorId));
+        DrawableCompat.setTintList(drawable, list);
         return drawable;
     }
 

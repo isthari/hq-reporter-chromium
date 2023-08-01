@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,11 +15,6 @@ bool IsAppBundleAlertStyle();
 // Returns a suffix to be used in UMA histogram names. Needs to be kept in sync
 // with variants of MacOSNotificationStyle in .../notifications/histograms.xml.
 std::string MacNotificationStyleSuffix(bool is_alert);
-
-// Called when we delivered a new notification to the macOS notification center.
-// |is_alert| determines if the notification was an alert or a banner.
-// |success| determines if there was an error while delivering the notification.
-void LogMacNotificationDelivered(bool is_alert, bool success);
 
 // Called when a user performed an action on a notification on macOS.
 // |is_alert| determines if the notification was an alert or a banner.

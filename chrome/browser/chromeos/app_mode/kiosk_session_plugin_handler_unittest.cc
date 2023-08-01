@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -94,8 +94,9 @@ TEST_F(KioskSessionPluginHandlerTest, ObserveAndDestroyWebContents) {
 
   // The number of watchers returns to zero after each WebContents instance is
   // destroyed.
-  for (WebContentsObserver* observer : watchers)
+  for (WebContentsObserver* observer : watchers) {
     observer->WebContentsDestroyed();
+  }
   EXPECT_EQ(handler()->GetWatchersForTesting().size(), 0U);
 }
 

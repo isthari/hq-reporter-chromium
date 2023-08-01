@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,14 +7,17 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/metrics/field_trial_params.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/user_metrics.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/no_destructor.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "components/feature_engagement/internal/availability_model_impl.h"
 #include "components/feature_engagement/internal/chrome_variations_configuration.h"
@@ -35,6 +38,8 @@
 #include "components/feature_engagement/internal/system_time_provider.h"
 #include "components/feature_engagement/public/feature_constants.h"
 #include "components/feature_engagement/public/feature_list.h"
+#include "components/feature_engagement/public/group_constants.h"
+#include "components/feature_engagement/public/group_list.h"
 #include "components/leveldb_proto/public/proto_database_provider.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
@@ -82,7 +87,7 @@ std::unique_ptr<Tracker> CreateDemoModeTracker() {
       std::make_unique<NeverAvailabilityModel>(), std::move(configuration),
       std::make_unique<NoopDisplayLockController>(),
       std::make_unique<OnceConditionValidator>(),
-      std::make_unique<SystemTimeProvider>());
+      std::make_unique<SystemTimeProvider>(), nullptr);
 }
 
 }  // namespace
@@ -94,7 +99,8 @@ std::unique_ptr<Tracker> CreateDemoModeTracker() {
 Tracker* Tracker::Create(
     const base::FilePath& storage_dir,
     const scoped_refptr<base::SequencedTaskRunner>& background_task_runner,
-    leveldb_proto::ProtoDatabaseProvider* db_provider) {
+    leveldb_proto::ProtoDatabaseProvider* db_provider,
+    base::WeakPtr<TrackerEventExporter> event_exporter) {
   DVLOG(2) << "Creating Tracker";
   if (base::FeatureList::IsEnabled(kIPHDemoMode))
     return CreateDemoModeTracker().release();
@@ -109,7 +115,7 @@ Tracker* Tracker::Create(
       std::make_unique<PersistentEventStore>(std::move(event_db));
 
   auto configuration = std::make_unique<ChromeVariationsConfiguration>();
-  configuration->ParseFeatureConfigs(GetAllFeatures());
+  configuration->ParseConfigs(GetAllFeatures(), GetAllGroups());
 
   auto event_storage_validator =
       std::make_unique<FeatureConfigEventStorageValidator>();
@@ -139,7 +145,7 @@ Tracker* Tracker::Create(
   return new TrackerImpl(
       std::move(event_model), std::move(availability_model),
       std::move(configuration), std::make_unique<DisplayLockControllerImpl>(),
-      std::move(condition_validator), std::move(time_provider));
+      std::move(condition_validator), std::move(time_provider), event_exporter);
 }
 
 TrackerImpl::TrackerImpl(
@@ -148,13 +154,15 @@ TrackerImpl::TrackerImpl(
     std::unique_ptr<Configuration> configuration,
     std::unique_ptr<DisplayLockController> display_lock_controller,
     std::unique_ptr<ConditionValidator> condition_validator,
-    std::unique_ptr<TimeProvider> time_provider)
+    std::unique_ptr<TimeProvider> time_provider,
+    base::WeakPtr<TrackerEventExporter> event_exporter)
     : event_model_(std::move(event_model)),
       availability_model_(std::move(availability_model)),
       configuration_(std::move(configuration)),
       display_lock_controller_(std::move(display_lock_controller)),
       condition_validator_(std::move(condition_validator)),
       time_provider_(std::move(time_provider)),
+      event_exporter_(event_exporter),
       event_model_initialization_finished_(false),
       availability_model_initialization_finished_(false) {
   event_model_->Initialize(
@@ -182,9 +190,13 @@ bool TrackerImpl::ShouldTriggerHelpUI(const base::Feature& feature) {
 
 TrackerImpl::TriggerDetails TrackerImpl::ShouldTriggerHelpUIWithSnooze(
     const base::Feature& feature) {
+  if (IsFeatureBlockedByTest(feature)) {
+    return TriggerDetails(false, false);
+  }
+
   FeatureConfig feature_config = configuration_->GetFeatureConfig(feature);
   ConditionValidator::Result result = condition_validator_->MeetsConditions(
-      feature, feature_config, *event_model_, *availability_model_,
+      feature, feature_config, {}, *event_model_, *availability_model_,
       *display_lock_controller_, configuration_.get(),
       time_provider_->GetCurrentDay());
   if (result.NoErrors()) {
@@ -194,6 +206,12 @@ TrackerImpl::TriggerDetails TrackerImpl::ShouldTriggerHelpUIWithSnooze(
     DCHECK_NE("", feature_config.trigger.name);
     event_model_->IncrementEvent(feature_config.trigger.name,
                                  time_provider_->GetCurrentDay());
+
+    for (auto group : feature_config.groups) {
+      GroupConfig group_config = configuration_->GetGroupConfigByName(group);
+      event_model_->IncrementEvent(group_config.trigger.name,
+                                   time_provider_->GetCurrentDay());
+    }
   }
 
   stats::RecordShouldTriggerHelpUI(feature, feature_config, result);
@@ -217,13 +235,22 @@ TrackerImpl::TriggerDetails TrackerImpl::ShouldTriggerHelpUIWithSnooze(
     should_show_iph = result.NoErrors();
   }
 
+  if (should_show_iph) {
+    DCHECK(start_times_.find(feature.name) == start_times_.end());
+    start_times_[feature.name] = time_provider_->Now();
+  }
+
   return TriggerDetails(should_show_iph, result.should_show_snooze);
 }
 
 bool TrackerImpl::WouldTriggerHelpUI(const base::Feature& feature) const {
+  if (IsFeatureBlockedByTest(feature)) {
+    return false;
+  }
+
   FeatureConfig feature_config = configuration_->GetFeatureConfig(feature);
   ConditionValidator::Result result = condition_validator_->MeetsConditions(
-      feature, feature_config, *event_model_, *availability_model_,
+      feature, feature_config, {}, *event_model_, *availability_model_,
       *display_lock_controller_, configuration_.get(),
       time_provider_->GetCurrentDay());
   DVLOG(2) << "Would trigger result for " << feature.name
@@ -257,7 +284,7 @@ Tracker::TriggerState TrackerImpl::GetTriggerState(
   }
 
   ConditionValidator::Result result = condition_validator_->MeetsConditions(
-      feature, configuration_->GetFeatureConfig(feature), *event_model_,
+      feature, configuration_->GetFeatureConfig(feature), {}, *event_model_,
       *availability_model_, *display_lock_controller_, configuration_.get(),
       time_provider_->GetCurrentDay());
 
@@ -274,13 +301,18 @@ Tracker::TriggerState TrackerImpl::GetTriggerState(
 
 void TrackerImpl::Dismissed(const base::Feature& feature) {
   DVLOG(2) << "Dismissing " << feature.name;
+  DCHECK(!IsFeatureBlockedByTest(feature));
+
   condition_validator_->NotifyDismissed(feature);
   stats::RecordUserDismiss();
+  RecordShownTime(feature);
 }
 
 void TrackerImpl::DismissedWithSnooze(
     const base::Feature& feature,
     absl::optional<SnoozeAction> snooze_action) {
+  DCHECK(!IsFeatureBlockedByTest(feature));
+
   FeatureConfig feature_config = configuration_->GetFeatureConfig(feature);
   if (snooze_action == SnoozeAction::SNOOZED) {
     event_model_->IncrementSnooze(feature_config.trigger.name,
@@ -291,6 +323,7 @@ void TrackerImpl::DismissedWithSnooze(
   }
   if (snooze_action.has_value())
     stats::RecordUserSnoozeAction(snooze_action.value());
+  RecordShownTime(feature);
 }
 
 std::unique_ptr<DisplayLockHandle> TrackerImpl::AcquireDisplayLock() {
@@ -337,13 +370,17 @@ void TrackerImpl::UnregisterPriorityNotificationHandler(
   priority_notification_handlers_.erase(feature.name);
 }
 
+const Configuration* TrackerImpl::GetConfigurationForTesting() const {
+  return configuration_.get();
+}
+
 bool TrackerImpl::IsInitialized() const {
   return event_model_->IsReady() && availability_model_->IsReady();
 }
 
 void TrackerImpl::AddOnInitializedCallback(OnInitializedCallback callback) {
   if (IsInitializationFinished()) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), IsInitialized()));
     return;
   }
@@ -357,7 +394,12 @@ void TrackerImpl::OnEventModelInitializationFinished(bool success) {
 
   DVLOG(2) << "Event model initialization result = " << success;
 
-  MaybePostInitializedCallbacks();
+  if (event_exporter_) {
+    event_exporter_->ExportEvents(base::BindOnce(
+        &TrackerImpl::OnReceiveExportedEvents, weak_ptr_factory_.GetWeakPtr()));
+  } else {
+    MaybePostInitializedCallbacks();
+  }
 }
 
 void TrackerImpl::OnAvailabilityModelInitializationFinished(bool success) {
@@ -370,8 +412,11 @@ void TrackerImpl::OnAvailabilityModelInitializationFinished(bool success) {
 }
 
 bool TrackerImpl::IsInitializationFinished() const {
+  bool event_migration_finished =
+      event_exporter_ == nullptr || event_migration_finished_;
   return event_model_initialization_finished_ &&
-         availability_model_initialization_finished_;
+         availability_model_initialization_finished_ &&
+         event_migration_finished;
 }
 
 void TrackerImpl::MaybePostInitializedCallbacks() {
@@ -381,11 +426,58 @@ void TrackerImpl::MaybePostInitializedCallbacks() {
   DVLOG(2) << "Initialization finished.";
 
   for (auto& callback : on_initialized_callbacks_) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), IsInitialized()));
   }
 
   on_initialized_callbacks_.clear();
+}
+
+void TrackerImpl::RecordShownTime(const base::Feature& feature) {
+  std::string feature_name = feature.name;
+  auto iter = start_times_.find(feature_name);
+  if (iter == start_times_.end())
+    return;
+
+  UmaHistogramTimes("InProductHelp.ShownTime." + feature_name,
+                    time_provider_->Now() - iter->second);
+  start_times_.erase(feature_name);
+}
+
+void TrackerImpl::OnReceiveExportedEvents(
+    std::vector<TrackerEventExporter::EventData> events) {
+  for (auto& event : events) {
+    event_model_->IncrementEvent(event.event_name, event.day);
+  }
+
+  event_migration_finished_ = true;
+  MaybePostInitializedCallbacks();
+}
+
+// static
+bool TrackerImpl::IsFeatureBlockedByTest(const base::Feature& feature) {
+  auto& data = GetAllowedTestFeatureMap();
+  // Refcount for nullptr is the number of active ScopedIphFeatureList.
+  if (!data[nullptr]) {
+    return false;
+  }
+
+  // If the refcount for the feature is nonzero, then it is explicitly allowed.
+  if (data[&feature]) {
+    return false;
+  }
+
+  // At least one ScopedIphFeatureList is active and this feature is not
+  // explicitly allowed.
+  return true;
+}
+
+// static
+std::map<const base::Feature*, size_t>&
+TrackerImpl::GetAllowedTestFeatureMap() {
+  static base::NoDestructor<std::map<const base::Feature*, size_t>> instance{
+      {std::make_pair(nullptr, 0)}};
+  return *instance;
 }
 
 }  // namespace feature_engagement

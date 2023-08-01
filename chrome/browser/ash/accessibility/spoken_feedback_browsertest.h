@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,10 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
 #include "ui/events/keycodes/keyboard_codes_posix.h"
+
+namespace ui::test {
+class EventGenerator;
+}
 
 namespace ash {
 
@@ -30,6 +34,7 @@ class LoggedInSpokenFeedbackTest : public InProcessBrowserTest {
 
   // InProcessBrowserTest:
   void SetUpInProcessBrowserTestFixture() override;
+  void SetUpOnMainThread() override;
   void TearDownOnMainThread() override;
 
   // Simulate key press event.
@@ -54,15 +59,21 @@ class LoggedInSpokenFeedbackTest : public InProcessBrowserTest {
 
   void StablizeChromeVoxState();
 
+  void ExecuteCommandHandlerCommand(std::string command);
+
   void PressRepeatedlyUntilUtterance(ui::KeyboardCode key,
                                      const std::string& expected_utterance);
+  void ImportJSModuleForChromeVox(std::string name, std::string path);
 
   test::SpeechMonitor sm_;
 
  private:
+  std::unique_ptr<ui::test::EventGenerator> event_generator_;
+
   StubBrailleController braille_controller_;
   ui::ScopedAnimationDurationScaleMode animation_mode_;
   std::unique_ptr<ExtensionConsoleErrorObserver> console_observer_;
+  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
 }  // namespace ash

@@ -1,10 +1,13 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {TestRunner} from 'test_runner';
+import {ElementsTestRunner} from 'elements_test_runner';
+
 (async function() {
   TestRunner.addResult(`Tests that the styles sidebar can be used with a mouse.\n`);
-  await TestRunner.loadLegacyModule('elements'); await TestRunner.loadTestModule('elements_test_runner');
+  await TestRunner.loadLegacyModule('elements');
   await TestRunner.showPanel('elements');
   await TestRunner.loadHTML(`
     <style>
@@ -69,7 +72,7 @@
       TestRunner.addResult('Not editing');
       return;
     }
-    TestRunner.addResult('Editing: "' + TestRunner.textContentWithoutStyles(document.deepActiveElement()) + '"');
+    TestRunner.addResult('Editing: "' + TestRunner.textContentWithoutStyles(Platform.DOMUtilities.deepActiveElement(document)) + '"');
   }
 
   function mouseDown(element, offset = 0) {

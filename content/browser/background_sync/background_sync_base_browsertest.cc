@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,11 @@
 #include <vector>
 #include "base/metrics/field_trial_param_associator.h"
 #include "base/strings/stringprintf.h"
-#include "base/task/post_task.h"
+#include "base/task/single_thread_task_runner.h"
 #include "content/browser/background_sync/background_sync_manager.h"
 #include "content/browser/storage_partition_impl.h"
 #include "content/public/browser/browser_context.h"
-#include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/service_worker_context.h"
 #include "content/public/test/background_sync_test_util.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -53,7 +53,7 @@ bool BackgroundSyncBaseBrowserTest::RegistrationPending(
   auto callback = base::BindOnce(
       &BackgroundSyncBaseBrowserTest::RegistrationPendingCallback,
       base::Unretained(this), run_loop.QuitClosure(),
-      base::ThreadTaskRunnerHandle::Get(), &is_pending);
+      base::SingleThreadTaskRunner::GetCurrentDefault(), &is_pending);
 
   RegistrationPendingOnCoreThread(base::WrapRefCounted(sync_context),
                                   base::WrapRefCounted(service_worker_context),
@@ -118,7 +118,7 @@ void BackgroundSyncBaseBrowserTest::RegistrationPendingOnCoreThread(
     const GURL& url,
     base::OnceCallback<void(bool)> callback) {
   sw_context->FindReadyRegistrationForClientUrl(
-      url, blink::StorageKey(url::Origin::Create(url)),
+      url, blink::StorageKey::CreateFirstParty(url::Origin::Create(url)),
       base::BindOnce(&BackgroundSyncBaseBrowserTest::
                          RegistrationPendingDidGetSWRegistration,
                      base::Unretained(this), sync_context, tag,
@@ -186,8 +186,7 @@ bool BackgroundSyncBaseBrowserTest::LoadTestPage(const std::string& path) {
 
 std::string BackgroundSyncBaseBrowserTest::RunScript(
     const std::string& script) {
-  return EvalJs(web_contents(), script, EXECUTE_SCRIPT_USE_MANUAL_REPLY)
-      .ExtractString();
+  return EvalJs(web_contents(), script).ExtractString();
 }
 
 void BackgroundSyncBaseBrowserTest::SetTestClock(base::SimpleTestClock* clock) {
@@ -209,14 +208,15 @@ void BackgroundSyncBaseBrowserTest::ClearStoragePartitionData() {
       StoragePartition::REMOVE_DATA_MASK_SERVICE_WORKERS;
   uint32_t quota_storage_mask =
       StoragePartition::QUOTA_MANAGED_STORAGE_MASK_ALL;
-  GURL delete_origin = GURL();
+  blink::StorageKey delete_storage_key = blink::StorageKey();
   const base::Time delete_begin = base::Time();
   base::Time delete_end = base::Time::Max();
 
   base::RunLoop run_loop;
 
-  storage->ClearData(storage_partition_mask, quota_storage_mask, delete_origin,
-                     delete_begin, delete_end, run_loop.QuitClosure());
+  storage->ClearData(storage_partition_mask, quota_storage_mask,
+                     delete_storage_key, delete_begin, delete_end,
+                     run_loop.QuitClosure());
 
   run_loop.Run();
 }

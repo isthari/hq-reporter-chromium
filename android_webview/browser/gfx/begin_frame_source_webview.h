@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 #include <memory>
 
 #include "base/android/scoped_java_ref.h"
-#include "base/callback.h"
-#include "base/callback_helpers.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/no_destructor.h"
 #include "components/power_scheduler/power_mode_voter.h"
@@ -24,6 +24,8 @@ namespace android_webview {
 // BeginFrameSourceWebView to provide AddBeginFrameCompletionCallback which will
 // be forwarded to root begin frame source to ensure that callbacks called after
 // all BeginFrames are sent.
+//
+// Lifetime: WebView
 class BeginFrameSourceWebView : public viz::ExternalBeginFrameSource {
  public:
   BeginFrameSourceWebView();
@@ -35,6 +37,9 @@ class BeginFrameSourceWebView : public viz::ExternalBeginFrameSource {
 
   // Schedules BeginFrame completion callback on root begin frame source.
   virtual void AddBeginFrameCompletionCallback(base::OnceClosure callback);
+
+  // Returns last dispatched begin frame args.
+  const viz::BeginFrameArgs& LastDispatchedBeginFrameArgs();
 
  protected:
   void ObserveBeginFrameSource(viz::BeginFrameSource* begin_frame_source);
@@ -71,6 +76,12 @@ class BeginFrameSourceWebView : public viz::ExternalBeginFrameSource {
 // observes ExternalBeginFrameSourceAndroid to provide actual BeginFrames from
 // Android Choreographer and implements the logic of
 // AddBeginFrameCompletionCallback.
+//
+// Lifetime: Singleton
+//
+// There is only one RootBeginFrameSourceWebView, even if there are multiple
+// displays with different VSync timings attached. Choreographer only uses the
+// built-in display for frame timing.
 class RootBeginFrameSourceWebView : public BeginFrameSourceWebView {
  public:
   static RootBeginFrameSourceWebView* GetInstance();

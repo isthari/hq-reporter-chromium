@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,10 @@
 
 #include "ash/public/cpp/ash_public_export.h"
 #include "ash/public/cpp/login_accelerators.h"
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/time/time.h"
 #include "ui/gfx/native_widget_types.h"
+#include "ui/views/widget/widget.h"
 
 class AccountId;
 
@@ -69,10 +70,6 @@ class ASH_PUBLIC_EXPORT LoginScreenClient {
       const AccountId& account_id,
       const std::string& access_code,
       base::Time validation_time) = 0;
-
-  // Request to hard lock the user pod.
-  // |account_id|:    The account id of the user in the user pod.
-  virtual void HardlockPod(const AccountId& account_id) = 0;
 
   // Focus user pod of user with |account_id|.
   virtual void OnFocusPod(const AccountId& account_id) = 0;
@@ -165,8 +162,9 @@ class ASH_PUBLIC_EXPORT LoginScreenClient {
   // Called when the lock screen is shown.
   virtual void OnLoginScreenShown() = 0;
 
-  // Used by Ash to signal that user activity occurred on the login screen.
-  virtual void OnUserActivity() = 0;
+  // Get login screen widget. Currently used to set proper accessibility
+  // navigation.
+  virtual views::Widget* GetLoginWindowWidget() = 0;
 
  protected:
   virtual ~LoginScreenClient() = default;

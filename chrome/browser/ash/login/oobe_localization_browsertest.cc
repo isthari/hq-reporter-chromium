@@ -1,11 +1,11 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <stddef.h>
 
-#include "base/bind.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
+#include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/task_runner.h"
@@ -20,12 +20,12 @@
 #include "chrome/browser/ash/login/wizard_controller.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
-#include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
-#include "chrome/browser/ui/webui/chromeos/login/welcome_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/oobe_ui.h"
+#include "chrome/browser/ui/webui/ash/login/welcome_screen_handler.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/in_process_browser_test.h"
-#include "chromeos/system/fake_statistics_provider.h"
-#include "chromeos/system/statistics_provider.h"
+#include "chromeos/ash/components/system/fake_statistics_provider.h"
+#include "chromeos/ash/components/system/statistics_provider.h"
 #include "components/language/core/browser/pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/notification_service.h"
@@ -73,7 +73,7 @@ class LanguageListWaiter : public WelcomeScreen::Observer {
 
  private:
   bool LanguageListReady() const {
-    return !welcome_screen_->language_list().GetList().empty();
+    return welcome_screen_->language_list_updated_for_testing();
   }
 
   void CheckLanguageList() {
@@ -81,7 +81,7 @@ class LanguageListWaiter : public WelcomeScreen::Observer {
       loop_.Quit();
   }
 
-  WelcomeScreen* welcome_screen_;
+  raw_ptr<WelcomeScreen, ExperimentalAsh> welcome_screen_;
   base::RunLoop loop_;
 };
 
@@ -335,8 +335,7 @@ std::string TranslateXKB2Extension(const std::string& src) {
 }
 
 void OobeLocalizationTest::RunLocalizationTest() {
-  const std::string initial_locale(GetParam()->initial_locale);
-  const std::string keyboard_layout(GetParam()->keyboard_layout);
+  WaitForOobeUI();
   const std::string expected_locale(GetParam()->expected_locale);
   const std::string expected_keyboard_layout(
       GetParam()->expected_keyboard_layout);
@@ -384,6 +383,6 @@ INSTANTIATE_TEST_SUITE_P(
     All,
     OobeLocalizationTest,
     testing::Range(&oobe_localization_test_parameters[0],
-                   &oobe_localization_test_parameters[base::size(
+                   &oobe_localization_test_parameters[std::size(
                        oobe_localization_test_parameters)]));
 }  // namespace ash

@@ -1,13 +1,15 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/media/webrtc/webrtc_event_log_uploader.h"
 
-#include "base/bind.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
+#include "base/strings/strcat.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/sequenced_task_runner.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
@@ -264,9 +266,9 @@ bool WebRtcEventLogUploaderImpl::PrepareUploadData(std::string* upload_data) {
 
   net::AddMultipartValueForUpload("prod", kProduct, kBoundary, std::string(),
                                   upload_data);
-  net::AddMultipartValueForUpload("ver",
-                                  version_info::GetVersionNumber() + "-webrtc",
-                                  kBoundary, std::string(), upload_data);
+  net::AddMultipartValueForUpload(
+      "ver", base::StrCat({version_info::GetVersionNumber(), "-webrtc"}),
+      kBoundary, std::string(), upload_data);
   net::AddMultipartValueForUpload("guid", "0", kBoundary, std::string(),
                                   upload_data);
   net::AddMultipartValueForUpload("type", filename, kBoundary, std::string(),

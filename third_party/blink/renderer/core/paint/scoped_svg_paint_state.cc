@@ -90,15 +90,19 @@ void ScopedSVGPaintState::ApplyPaintPropertyState(
     return;
   auto& paint_controller = paint_info_.context.GetPaintController();
   auto state = paint_controller.CurrentPaintChunkProperties();
-  if (const auto* filter = properties.Filter())
+  if (const auto* filter = properties.Filter()) {
     state.SetEffect(*filter);
-  else if (const auto* effect = properties.Effect())
+  } else if (const auto* effect = properties.Effect()) {
     state.SetEffect(*effect);
-
-  if (const auto* mask_clip = properties.MaskClip())
+  }
+  if (const auto* filter_clip = properties.PixelMovingFilterClipExpander()) {
+    state.SetClip(*filter_clip);
+  } else if (const auto* mask_clip = properties.MaskClip()) {
     state.SetClip(*mask_clip);
-  else if (const auto* clip_path_clip = properties.ClipPathClip())
+  } else if (const auto* clip_path_clip = properties.ClipPathClip()) {
     state.SetClip(*clip_path_clip);
+  }
+
   scoped_paint_chunk_properties_.emplace(
       paint_controller, state, display_item_client_,
       DisplayItem::PaintPhaseToSVGEffectType(paint_info_.phase));

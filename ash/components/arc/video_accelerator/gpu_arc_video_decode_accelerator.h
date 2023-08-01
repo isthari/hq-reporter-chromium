@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,8 +11,9 @@
 #include <vector>
 
 #include "ash/components/arc/mojom/video_decode_accelerator.mojom.h"
-#include "base/callback_forward.h"
 #include "base/files/scoped_file.h"
+#include "base/functional/callback_forward.h"
+#include "base/memory/unsafe_shared_memory_region.h"
 #include "base/threading/thread_checker.h"
 #include "gpu/config/gpu_driver_bug_workarounds.h"
 #include "gpu/config/gpu_preferences.h"
@@ -110,7 +111,7 @@ class GpuArcVideoDecodeAccelerator
   // directly.
   void ContinueDecode(mojom::BitstreamBufferPtr bitstream_buffer,
                       base::ScopedFD handle_fd,
-                      base::subtle::PlatformSharedMemoryRegion shm_region);
+                      base::UnsafeSharedMemoryRegion shm_region);
 
   // Posted as a task after getting the result of the first query to the
   // |protected_buffer_manager_| in order to resume decode tasks that were
@@ -221,12 +222,15 @@ class GpuArcVideoDecodeAccelerator
   // Set to true when the last ProvidePictureBuffers() is replied.
   bool awaiting_first_import_ = false;
 
-  // Set to true when we're waiting for the |protected_buffer_manager_| to reply
-  // to the first query for the shared memory region corresponding to a dummy
-  // FD. When true, we queue incoming Decode() requests in
-  // |decode_requests_waiting_for_first_secure_buffer_| for later use.
-  bool awaiting_first_secure_buffer_ = false;
-  std::queue<base::OnceClosure>
+  // |first_input_waiting_on_secure_buffer_| is set when we're waiting for the
+  // |protected_buffer_manager_| to reply to the first query for the shared
+  // memory region corresponding to a dummy FD. When set, its value is the
+  // bitstream buffer ID of the input buffer that caused us to query the
+  // |protected_buffer_manager_|. Also, when set, we queue incoming Decode()
+  // requests in |decode_requests_waiting_for_first_secure_buffer_| for later
+  // use.
+  absl::optional<int32_t> first_input_waiting_on_secure_buffer_;
+  std::queue<std::pair<int32_t, base::OnceClosure>>
       decode_requests_waiting_for_first_secure_buffer_;
 
   THREAD_CHECKER(thread_checker_);

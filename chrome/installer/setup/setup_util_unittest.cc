@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 
 #include "base/base64.h"
 #include "base/command_line.h"
+#include "base/containers/contains.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/logging.h"
@@ -32,11 +33,7 @@
 #include "base/win/scoped_handle.h"
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
-#include "chrome/browser/enterprise/connectors/device_trust/key_management/core/network/key_network_delegate.h"
-#include "chrome/browser/enterprise/connectors/device_trust/key_management/core/network/mock_key_network_delegate.h"
-#include "chrome/browser/enterprise/connectors/device_trust/key_management/core/persistence/key_persistence_delegate_factory.h"
-#include "chrome/browser/enterprise/connectors/device_trust/key_management/core/persistence/mock_key_persistence_delegate.h"
-#include "chrome/browser/enterprise/connectors/device_trust/key_management/installer/key_rotation_manager.h"
+#include "chrome/browser/chrome_for_testing/buildflags.h"
 #include "chrome/install_static/install_details.h"
 #include "chrome/install_static/install_util.h"
 #include "chrome/install_static/test/scoped_install_details.h"
@@ -98,7 +95,7 @@ TEST(SetupUtilTest, DeleteFileFromTempProcess) {
   base::FilePath test_file;
   base::CreateTemporaryFileInDir(test_dir.GetPath(), &test_file);
   ASSERT_TRUE(base::PathExists(test_file));
-  base::WriteFile(test_file, "foo", 3);
+  base::WriteFile(test_file, "foo");
   EXPECT_TRUE(installer::DeleteFileFromTempProcess(test_file, 0));
   base::PlatformThread::Sleep(TestTimeouts::tiny_timeout() * 3);
   EXPECT_FALSE(base::PathExists(test_file)) << test_file.value();
@@ -429,9 +426,9 @@ class FindArchiveToPatchTest : public testing::Test {
     // Create archives in the two version dirs.
     ASSERT_TRUE(
         base::CreateDirectory(GetProductVersionArchivePath().DirName()));
-    ASSERT_EQ(1, base::WriteFile(GetProductVersionArchivePath(), "a", 1));
+    ASSERT_TRUE(base::WriteFile(GetProductVersionArchivePath(), "a"));
     ASSERT_TRUE(base::CreateDirectory(GetMaxVersionArchivePath().DirName()));
-    ASSERT_EQ(1, base::WriteFile(GetMaxVersionArchivePath(), "b", 1));
+    ASSERT_TRUE(base::WriteFile(GetMaxVersionArchivePath(), "b"));
   }
 
   void TearDown() override { original_state_.reset(); }
@@ -543,12 +540,6 @@ TEST(SetupUtilTest, ContainsUnsupportedSwitch) {
       base::CommandLine::FromString(L"foo.exe --chrome-frame")));
 }
 
-TEST(SetupUtilTest, GetRegistrationDataCommandKey) {
-  const std::wstring key = installer::GetCommandKey(L"test_name");
-  EXPECT_TRUE(base::EndsWith(key, L"\\Commands\\test_name",
-                             base::CompareCase::SENSITIVE));
-}
-
 TEST(SetupUtilTest, GetConsoleSessionStartTime) {
   base::Time start_time = installer::GetConsoleSessionStartTime();
   EXPECT_FALSE(start_time.is_null());
@@ -617,86 +608,131 @@ TEST(SetupUtilTest, StoreDMTokenToRegistryShouldFailWhenDMTokenTooLarge) {
   EXPECT_FALSE(installer::StoreDMToken(token_too_large));
 }
 
-TEST(SetupUtilTest, RotateDTKeySuccess) {
-  base::test::TaskEnvironment task_environment;
+TEST(SetupUtilTest, DeleteDMTokenFromRegistrySuccess) {
   install_static::ScopedInstallDetails scoped_install_details(true);
   registry_util::RegistryOverrideManager registry_override_manager;
-  ASSERT_NO_FATAL_FAILURE(
-      registry_override_manager.OverrideRegistry(HKEY_LOCAL_MACHINE));
+  registry_override_manager.OverrideRegistry(HKEY_LOCAL_MACHINE);
 
-  // Use the 2 argument std::string constructor so that the length of the string
-  // is not calculated by assuming the input char array is null terminated.
+  // Store the DMToken and confirm that it can be found in the registry.
   static constexpr char kTokenData[] = "tokens are \0 binary data";
-  constexpr DWORD kExpectedSize = sizeof(kTokenData) - 1;
+  static constexpr DWORD kExpectedSize = sizeof(kTokenData) - 1;
   std::string token(&kTokenData[0], kExpectedSize);
-  ASSERT_EQ(token.length(), kExpectedSize);
+  ASSERT_TRUE(installer::StoreDMToken(token));
 
-  GURL dmserver_url("dmserver.com");
-  std::string nonce = "nonce";
-
-  // Trigger the key rotation with a real persistence delegate (empty) but with
-  // a mocked network delegate.
-  auto mock_network_delegate =
-      std::make_unique<enterprise_connectors::test::MockKeyNetworkDelegate>();
-  EXPECT_CALL(*mock_network_delegate,
-              SendPublicKeyToDmServerSync(dmserver_url, token, testing::_))
-      .WillOnce(testing::Return(/*http_code=*/200));
-
-  auto key_rotation_manager =
-      enterprise_connectors::KeyRotationManager::CreateForTesting(
-          std::move(mock_network_delegate),
-          enterprise_connectors::KeyPersistenceDelegateFactory::GetInstance()
-              ->CreateKeyPersistenceDelegate());
-
-  ASSERT_TRUE(installer::RotateDeviceTrustKey(std::move(key_rotation_manager),
-                                              dmserver_url, token, nonce));
-
-  auto [key, signingkey_name, tustlevel_name] =
-      InstallUtil::GetDeviceTrustSigningKeyLocation(
-          InstallUtil::ReadOnly(true));
+  auto [key, name] = InstallUtil::GetCloudManagementDmTokenLocation(
+      InstallUtil::ReadOnly(true), InstallUtil::BrowserLocation(false));
   ASSERT_TRUE(key.Valid());
+  ASSERT_TRUE(key.HasValue(name.c_str()));
+  DWORD size = kExpectedSize;
+  std::vector<char> raw_value(size);
+  DWORD dtype;
+  ASSERT_EQ(ERROR_SUCCESS,
+            key.ReadValue(name.c_str(), raw_value.data(), &size, &dtype));
 
-  DWORD size = 0;
-  DWORD dtype = 0;
-  ASSERT_EQ(key.ReadValue(signingkey_name.c_str(), nullptr, &size, &dtype),
-            ERROR_SUCCESS);
-  EXPECT_EQ(dtype, REG_BINARY);
-  ASSERT_GT(size, 0u);
+  std::tie(key, name) = InstallUtil::GetCloudManagementDmTokenLocation(
+      InstallUtil::ReadOnly(true), InstallUtil::BrowserLocation(true));
+  ASSERT_TRUE(key.Valid());
+  ASSERT_TRUE(key.HasValue(name.c_str()));
+  ASSERT_EQ(ERROR_SUCCESS,
+            key.ReadValue(name.c_str(), raw_value.data(), &size, &dtype));
 
-  DWORD trust_level;
-  ASSERT_EQ(key.ReadValueDW(tustlevel_name.c_str(), &trust_level),
-            ERROR_SUCCESS);
-  EXPECT_NE(trust_level, 0u);
+  // Delete the DMToken from registry and confirm that the corresponding value
+  // can no longer be found. Since no other values were stored in the key, the
+  // key is also deleted.
+  ASSERT_TRUE(installer::DeleteDMToken());
+
+  std::tie(key, name) = InstallUtil::GetCloudManagementDmTokenLocation(
+      InstallUtil::ReadOnly(true), InstallUtil::BrowserLocation(false));
+  ASSERT_FALSE(key.Valid());
+
+  std::tie(key, name) = InstallUtil::GetCloudManagementDmTokenLocation(
+      InstallUtil::ReadOnly(true), InstallUtil::BrowserLocation(true));
+  ASSERT_FALSE(key.Valid());
 }
 
-TEST(SetupUtilTest, RotateDTKeyShouldFailWhenDMTokenTooLarge) {
+TEST(SetupUtilTest, DeleteDMTokenFromRegistryWhenValueNotFound) {
   install_static::ScopedInstallDetails scoped_install_details(true);
   registry_util::RegistryOverrideManager registry_override_manager;
-  ASSERT_NO_FATAL_FAILURE(
-      registry_override_manager.OverrideRegistry(HKEY_LOCAL_MACHINE));
+  registry_override_manager.OverrideRegistry(HKEY_LOCAL_MACHINE);
 
-  std::string token_too_large(installer::kMaxDMTokenLength + 1, 'x');
-  ASSERT_GT(token_too_large.size(), installer::kMaxDMTokenLength);
+  // Store an unrelated value in the registry.
+  auto [key, name] = InstallUtil::GetCloudManagementDmTokenLocation(
+      InstallUtil::ReadOnly(false), InstallUtil::BrowserLocation(false));
+  ASSERT_TRUE(key.Valid());
+  auto result = key.WriteValue(L"unrelated_value", L"unrelated_data");
+  ASSERT_EQ(ERROR_SUCCESS, result);
 
-  auto mock_network_delegate = std::make_unique<testing::StrictMock<
-      enterprise_connectors::test::MockKeyNetworkDelegate>>();
-  auto mock_persistence_delegate = std::make_unique<testing::StrictMock<
-      enterprise_connectors::test::MockKeyPersistenceDelegate>>();
-  enterprise_connectors::test::MockKeyPersistenceDelegate::KeyInfo
-      empty_key_pair = {enterprise_management::BrowserPublicKeyUploadRequest::
-                            KEY_TRUST_LEVEL_UNSPECIFIED,
-                        std::vector<uint8_t>()};
-  EXPECT_CALL(*mock_persistence_delegate, LoadKeyPair())
-      .WillOnce(testing::Return(empty_key_pair));
+  std::tie(key, name) = InstallUtil::GetCloudManagementDmTokenLocation(
+      InstallUtil::ReadOnly(false), InstallUtil::BrowserLocation(true));
+  ASSERT_TRUE(key.Valid());
+  result = key.WriteValue(L"unrelated_value", L"unrelated_data");
+  ASSERT_EQ(ERROR_SUCCESS, result);
 
-  auto key_rotation_manager =
-      enterprise_connectors::KeyRotationManager::CreateForTesting(
-          std::move(mock_network_delegate),
-          std::move(mock_persistence_delegate));
+  // Validate that the DMToken value is not found in the registry.
+  std::tie(key, name) = InstallUtil::GetCloudManagementDmTokenLocation(
+      InstallUtil::ReadOnly(true), InstallUtil::BrowserLocation(false));
+  ASSERT_TRUE(key.Valid());
+  ASSERT_FALSE(key.HasValue(name.c_str()));
+  DWORD size = 0;
+  std::vector<char> raw_value(size);
+  DWORD dtype;
+  ASSERT_EQ(ERROR_FILE_NOT_FOUND,
+            key.ReadValue(name.c_str(), raw_value.data(), &size, &dtype));
 
-  EXPECT_FALSE(installer::RotateDeviceTrustKey(std::move(key_rotation_manager),
-                                               GURL("dmserver.com"),
-                                               token_too_large, "nonce"));
+  std::tie(key, name) = InstallUtil::GetCloudManagementDmTokenLocation(
+      InstallUtil::ReadOnly(true), InstallUtil::BrowserLocation(true));
+  ASSERT_TRUE(key.Valid());
+  ASSERT_FALSE(key.HasValue(name.c_str()));
+  ASSERT_EQ(ERROR_FILE_NOT_FOUND,
+            key.ReadValue(name.c_str(), raw_value.data(), &size, &dtype));
+
+  // DMToken deletion is treated as successful if the value is not found.
+  ASSERT_TRUE(installer::DeleteDMToken());
+
+  std::tie(key, name) = InstallUtil::GetCloudManagementDmTokenLocation(
+      InstallUtil::ReadOnly(true), InstallUtil::BrowserLocation(false));
+  ASSERT_TRUE(key.Valid());
+  ASSERT_FALSE(key.HasValue(name.c_str()));
+  ASSERT_EQ(ERROR_FILE_NOT_FOUND,
+            key.ReadValue(name.c_str(), raw_value.data(), &size, &dtype));
+
+  std::tie(key, name) = InstallUtil::GetCloudManagementDmTokenLocation(
+      InstallUtil::ReadOnly(true), InstallUtil::BrowserLocation(true));
+  ASSERT_TRUE(key.Valid());
+  ASSERT_FALSE(key.HasValue(name.c_str()));
+  ASSERT_EQ(ERROR_FILE_NOT_FOUND,
+            key.ReadValue(name.c_str(), raw_value.data(), &size, &dtype));
+}
+
+TEST(SetupUtilTest, DeleteDMTokenFromRegistryWhenKeyNotFound) {
+  install_static::ScopedInstallDetails scoped_install_details(true);
+  registry_util::RegistryOverrideManager registry_override_manager;
+  registry_override_manager.OverrideRegistry(HKEY_LOCAL_MACHINE);
+
+  // Validate that the key is not found in the registry.
+  auto [key, name] = InstallUtil::GetCloudManagementDmTokenLocation(
+      InstallUtil::ReadOnly(true), InstallUtil::BrowserLocation(false));
+  ASSERT_FALSE(key.Valid());
+
+  std::tie(key, name) = InstallUtil::GetCloudManagementDmTokenLocation(
+      InstallUtil::ReadOnly(true), InstallUtil::BrowserLocation(true));
+  ASSERT_FALSE(key.Valid());
+
+  // DMToken deletion is treated as successful if the key is not found.
+  ASSERT_TRUE(installer::DeleteDMToken());
+
+  std::tie(key, name) = InstallUtil::GetCloudManagementDmTokenLocation(
+      InstallUtil::ReadOnly(true), InstallUtil::BrowserLocation(false));
+  ASSERT_FALSE(key.Valid());
+
+  std::tie(key, name) = InstallUtil::GetCloudManagementDmTokenLocation(
+      InstallUtil::ReadOnly(true), InstallUtil::BrowserLocation(true));
+  ASSERT_FALSE(key.Valid());
+}
+
+TEST(SetupUtilTest, WerHelperRegPath) {
+  // Must return a valid regpath, never an empty string.
+  ASSERT_FALSE(installer::GetWerHelperRegistryPath().empty());
 }
 
 namespace installer {
@@ -819,13 +855,10 @@ TEST_F(DeleteRegistryKeyPartialTest, NonEmptyKeyWithPreserve) {
   {
     base::win::RegistryKeyIterator it(root_, path_.c_str());
     ASSERT_EQ(to_preserve_.size(), it.SubkeyCount());
+    std::wstring (*to_lower)(base::WStringPiece) = &base::ToLowerASCII;
     for (; it.Valid(); ++it) {
-      ASSERT_NE(to_preserve_.end(),
-                std::find_if(to_preserve_.begin(), to_preserve_.end(),
-                             [&it](const std::wstring& key_name) {
-                               return base::ToLowerASCII(it.Name()) ==
-                                      base::ToLowerASCII(key_name);
-                             }))
+      ASSERT_TRUE(
+          base::Contains(to_preserve_, base::ToLowerASCII(it.Name()), to_lower))
           << it.Name();
     }
   }
@@ -851,12 +884,14 @@ class LegacyCleanupsTest : public ::testing::Test {
     installer_state_ =
         std::make_unique<FakeInstallerState>(temp_dir_.GetPath());
     // Create the state to be cleared.
+#if !BUILDFLAG(GOOGLE_CHROME_FOR_TESTING_BRANDING)
     ASSERT_TRUE(base::win::RegKey(HKEY_CURRENT_USER, kBinariesClientsKeyPath,
                                   KEY_WRITE | KEY_WOW64_32KEY)
                     .Valid());
     ASSERT_TRUE(base::win::RegKey(HKEY_CURRENT_USER, kCommandExecuteImplClsid,
                                   KEY_WRITE)
                     .Valid());
+#endif
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
     ASSERT_TRUE(base::win::RegKey(HKEY_CURRENT_USER, kAppLauncherClientsKeyPath,
                                   KEY_WRITE | KEY_WOW64_32KEY)
@@ -871,6 +906,7 @@ class LegacyCleanupsTest : public ::testing::Test {
 
   const InstallerState& installer_state() const { return *installer_state_; }
 
+#if !BUILDFLAG(GOOGLE_CHROME_FOR_TESTING_BRANDING)
   bool HasBinariesVersionKey() const {
     return base::win::RegKey(HKEY_CURRENT_USER, kBinariesClientsKeyPath,
                              KEY_QUERY_VALUE | KEY_WOW64_32KEY)
@@ -882,6 +918,7 @@ class LegacyCleanupsTest : public ::testing::Test {
                              KEY_QUERY_VALUE)
         .Valid();
   }
+#endif  // !BUILDFLAG(GOOGLE_CHROME_FOR_TESTING_BRANDING)
 
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
   bool HasAppLauncherVersionKey() const {
@@ -921,8 +958,10 @@ class LegacyCleanupsTest : public ::testing::Test {
   }
 #endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING)
 
+#if !BUILDFLAG(GOOGLE_CHROME_FOR_TESTING_BRANDING)
   static const wchar_t kBinariesClientsKeyPath[];
   static const wchar_t kCommandExecuteImplClsid[];
+#endif
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
   static const wchar_t kAppLauncherClientsKeyPath[];
 #endif
@@ -941,7 +980,8 @@ const wchar_t LegacyCleanupsTest::kCommandExecuteImplClsid[] =
 const wchar_t LegacyCleanupsTest::kAppLauncherClientsKeyPath[] =
     L"SOFTWARE\\Google\\Update\\Clients\\"
     L"{FDA71E6F-AC4C-4a00-8B70-9958A68906BF}";
-#else   // BUILDFLAG(GOOGLE_CHROME_BRANDING)
+#elif BUILDFLAG(CHROMIUM_BRANDING) && \
+    !BUILDFLAG(GOOGLE_CHROME_FOR_TESTING_BRANDING)
 const wchar_t LegacyCleanupsTest::kBinariesClientsKeyPath[] =
     L"SOFTWARE\\Chromium Binaries";
 const wchar_t LegacyCleanupsTest::kCommandExecuteImplClsid[] =
@@ -950,22 +990,26 @@ const wchar_t LegacyCleanupsTest::kCommandExecuteImplClsid[] =
 
 TEST_F(LegacyCleanupsTest, NoOpOnFailedUpdate) {
   DoLegacyCleanups(installer_state(), INSTALL_FAILED);
+#if !BUILDFLAG(GOOGLE_CHROME_FOR_TESTING_BRANDING)
   EXPECT_TRUE(HasBinariesVersionKey());
   EXPECT_TRUE(HasCommandExecuteImplClassKey());
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
   EXPECT_TRUE(HasAppLauncherVersionKey());
   EXPECT_TRUE(HasInstallExtensionCommand());
 #endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING)
+#endif  // !BUILDFLAG(GOOGLE_CHROME_FOR_TESTING_BRANDING)
 }
 
 TEST_F(LegacyCleanupsTest, Do) {
   DoLegacyCleanups(installer_state(), NEW_VERSION_UPDATED);
+#if !BUILDFLAG(GOOGLE_CHROME_FOR_TESTING_BRANDING)
   EXPECT_FALSE(HasBinariesVersionKey());
   EXPECT_FALSE(HasCommandExecuteImplClassKey());
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
   EXPECT_FALSE(HasAppLauncherVersionKey());
   EXPECT_FALSE(HasInstallExtensionCommand());
 #endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING)
+#endif  // !BUILDFLAG(GOOGLE_CHROME_FOR_TESTING_BRANDING)
 }
 
 }  // namespace installer

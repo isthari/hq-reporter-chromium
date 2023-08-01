@@ -1,16 +1,15 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "net/cert/asn1_util.h"
 
-#include "net/cert/internal/parse_certificate.h"
+#include "net/cert/pki/parse_certificate.h"
 #include "net/der/input.h"
 #include "net/der/parser.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
-namespace net {
-
-namespace asn1 {
+namespace net::asn1 {
 
 namespace {
 
@@ -116,14 +115,13 @@ bool SeekToExtensions(der::Input in,
     return false;
   }
 
-  der::Input extensions;
+  absl::optional<der::Input> extensions;
   if (!tbs_cert_parser.ReadOptionalTag(
-          der::kTagConstructed | der::kTagContextSpecific | 3, &extensions,
-          &present)) {
+          der::kTagConstructed | der::kTagContextSpecific | 3, &extensions)) {
     return false;
   }
 
-  if (!present) {
+  if (!extensions) {
     *extensions_present = false;
     return true;
   }
@@ -136,7 +134,7 @@ bool SeekToExtensions(der::Input in,
 
   // |extensions| was EXPLICITly tagged, so we still need to remove the
   // ASN.1 SEQUENCE header.
-  der::Parser explicit_extensions_parser(extensions);
+  der::Parser explicit_extensions_parser(extensions.value());
   if (!explicit_extensions_parser.ReadSequence(extensions_parser))
     return false;
 
@@ -192,7 +190,7 @@ bool ExtractSubjectFromDERCert(base::StringPiece cert,
   der::Input subject;
   if (!parser.ReadRawTLV(&subject))
     return false;
-  *subject_out = subject.AsStringPiece();
+  *subject_out = subject.AsStringView();
   return true;
 }
 
@@ -204,7 +202,7 @@ bool ExtractSPKIFromDERCert(base::StringPiece cert,
   der::Input spki;
   if (!parser.ReadRawTLV(&spki))
     return false;
-  *spki_out = spki.AsStringPiece();
+  *spki_out = spki.AsStringView();
   return true;
 }
 
@@ -233,7 +231,7 @@ bool ExtractSubjectPublicKeyFromSPKI(base::StringPiece spki,
   der::Input spk;
   if (!spki_parser.ReadTag(der::kBitString, &spk))
     return false;
-  *spk_out = spk.AsStringPiece();
+  *spk_out = spk.AsStringView();
   return true;
 }
 
@@ -304,8 +302,8 @@ bool ExtractSignatureAlgorithmsFromDERCert(
   if (!certificate.ReadRawTLV(&cert_algorithm))
     return false;
 
-  *cert_signature_algorithm_sequence = cert_algorithm.AsStringPiece();
-  *tbs_signature_algorithm_sequence = tbs_algorithm.AsStringPiece();
+  *cert_signature_algorithm_sequence = cert_algorithm.AsStringView();
+  *tbs_signature_algorithm_sequence = tbs_algorithm.AsStringView();
   return true;
 }
 
@@ -326,10 +324,8 @@ bool ExtractExtensionFromDERCert(base::StringPiece cert,
     return true;
 
   *out_extension_critical = extension.critical;
-  *out_contents = extension.value.AsStringPiece();
+  *out_contents = extension.value.AsStringView();
   return true;
 }
 
-} // namespace asn1
-
-} // namespace net
+}  // namespace net::asn1

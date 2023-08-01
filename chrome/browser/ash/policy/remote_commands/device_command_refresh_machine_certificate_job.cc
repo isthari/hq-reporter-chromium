@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,17 +6,24 @@
 
 #include <algorithm>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/syslog_logging.h"
 #include "base/system/sys_info.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
-#include "base/time/time.h"
 #include "chrome/browser/ash/attestation/machine_certificate_uploader.h"
 
 namespace policy {
+
+namespace {
+
+// This command has an expiration time this high with the same reasons as for
+// `DeviceCommandWipeUsersJob::kWipeUsersCommandExpirationTime`.
+constexpr base::TimeDelta kRefreshMachineCertificateCommandExpirationTime =
+    base::Days(180);
+
+}  // namespace
 
 DeviceCommandRefreshMachineCertificateJob::
     DeviceCommandRefreshMachineCertificateJob(
@@ -33,31 +40,34 @@ DeviceCommandRefreshMachineCertificateJob::GetType() const {
       RemoteCommand_Type_DEVICE_REFRESH_ENTERPRISE_MACHINE_CERTIFICATE;
 }
 
+bool DeviceCommandRefreshMachineCertificateJob::IsExpired(base::TimeTicks now) {
+  return now > issued_time() + kRefreshMachineCertificateCommandExpirationTime;
+}
+
 void DeviceCommandRefreshMachineCertificateJob::RunImpl(
-    CallbackWithResult succeeded_callback,
-    CallbackWithResult failed_callback) {
+    CallbackWithResult result_callback) {
   if (machine_certificate_uploader_) {
     SYSLOG(INFO) << "Refreshing enterprise machine certificate.";
     machine_certificate_uploader_->RefreshAndUploadCertificate(base::BindOnce(
         &DeviceCommandRefreshMachineCertificateJob::OnCertificateUploaded,
-        weak_ptr_factory_.GetWeakPtr(), std::move(succeeded_callback),
-        std::move(failed_callback)));
+        weak_ptr_factory_.GetWeakPtr(), std::move(result_callback)));
   } else {
     SYSLOG(WARNING) << "Machine certificate uploader unavailable,"
                     << " certificate cannot be refreshed.";
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::BindOnce(std::move(failed_callback), nullptr));
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(std::move(result_callback),
+                                  ResultType::kFailure, absl::nullopt));
   }
 }
 
 void DeviceCommandRefreshMachineCertificateJob::OnCertificateUploaded(
-    CallbackWithResult succeeded_callback,
-    CallbackWithResult failed_callback,
+    CallbackWithResult result_callback,
     bool success) {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
-      base::BindOnce(std::move(success ? succeeded_callback : failed_callback),
-                     nullptr));
+      base::BindOnce(std::move(result_callback),
+                     success ? ResultType::kSuccess : ResultType::kFailure,
+                     absl::nullopt));
 }
 
 }  // namespace policy

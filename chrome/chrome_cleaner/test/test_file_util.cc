@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -65,7 +65,7 @@ base::win::ScopedHandle CreateFileWithContent(
     const std::wstring& file_name,
     const base::ScopedTempDir& temp_dir) {
   base::FilePath path(temp_dir.GetPath().Append(file_name));
-  EXPECT_NE(base::WriteFile(path, content.c_str(), content.size()), -1);
+  EXPECT_TRUE(base::WriteFile(path, content));
   std::wstring wide_file_path = path.value();
   base::win::ScopedHandle file_handle(
       ::CreateFile(wide_file_path.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL,

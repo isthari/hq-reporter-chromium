@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,6 @@
 #include <type_traits>
 
 #include "base/bits.h"
-#include "base/cxx17_backports.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -25,42 +24,42 @@ using ::testing::ElementsAre;
 
 namespace base {
 
-static const struct trim_case {
+namespace {
+
+const struct trim_case {
   const wchar_t* input;
   const TrimPositions positions;
   const wchar_t* output;
   const TrimPositions return_value;
 } trim_cases[] = {
-  {L" Google Video ", TRIM_LEADING, L"Google Video ", TRIM_LEADING},
-  {L" Google Video ", TRIM_TRAILING, L" Google Video", TRIM_TRAILING},
-  {L" Google Video ", TRIM_ALL, L"Google Video", TRIM_ALL},
-  {L"Google Video", TRIM_ALL, L"Google Video", TRIM_NONE},
-  {L"", TRIM_ALL, L"", TRIM_NONE},
-  {L"  ", TRIM_LEADING, L"", TRIM_LEADING},
-  {L"  ", TRIM_TRAILING, L"", TRIM_TRAILING},
-  {L"  ", TRIM_ALL, L"", TRIM_ALL},
-  {L"\t\rTest String\n", TRIM_ALL, L"Test String", TRIM_ALL},
-  {L"\x2002Test String\x00A0\x3000", TRIM_ALL, L"Test String", TRIM_ALL},
+    {L" Google Video ", TRIM_LEADING, L"Google Video ", TRIM_LEADING},
+    {L" Google Video ", TRIM_TRAILING, L" Google Video", TRIM_TRAILING},
+    {L" Google Video ", TRIM_ALL, L"Google Video", TRIM_ALL},
+    {L"Google Video", TRIM_ALL, L"Google Video", TRIM_NONE},
+    {L"", TRIM_ALL, L"", TRIM_NONE},
+    {L"  ", TRIM_LEADING, L"", TRIM_LEADING},
+    {L"  ", TRIM_TRAILING, L"", TRIM_TRAILING},
+    {L"  ", TRIM_ALL, L"", TRIM_ALL},
+    {L"\t\rTest String\n", TRIM_ALL, L"Test String", TRIM_ALL},
+    {L"\x2002Test String\x00A0\x3000", TRIM_ALL, L"Test String", TRIM_ALL},
 };
 
-static const struct trim_case_ascii {
+const struct trim_case_ascii {
   const char* input;
   const TrimPositions positions;
   const char* output;
   const TrimPositions return_value;
 } trim_cases_ascii[] = {
-  {" Google Video ", TRIM_LEADING, "Google Video ", TRIM_LEADING},
-  {" Google Video ", TRIM_TRAILING, " Google Video", TRIM_TRAILING},
-  {" Google Video ", TRIM_ALL, "Google Video", TRIM_ALL},
-  {"Google Video", TRIM_ALL, "Google Video", TRIM_NONE},
-  {"", TRIM_ALL, "", TRIM_NONE},
-  {"  ", TRIM_LEADING, "", TRIM_LEADING},
-  {"  ", TRIM_TRAILING, "", TRIM_TRAILING},
-  {"  ", TRIM_ALL, "", TRIM_ALL},
-  {"\t\rTest String\n", TRIM_ALL, "Test String", TRIM_ALL},
+    {" Google Video ", TRIM_LEADING, "Google Video ", TRIM_LEADING},
+    {" Google Video ", TRIM_TRAILING, " Google Video", TRIM_TRAILING},
+    {" Google Video ", TRIM_ALL, "Google Video", TRIM_ALL},
+    {"Google Video", TRIM_ALL, "Google Video", TRIM_NONE},
+    {"", TRIM_ALL, "", TRIM_NONE},
+    {"  ", TRIM_LEADING, "", TRIM_LEADING},
+    {"  ", TRIM_TRAILING, "", TRIM_TRAILING},
+    {"  ", TRIM_ALL, "", TRIM_ALL},
+    {"\t\rTest String\n", TRIM_ALL, "Test String", TRIM_ALL},
 };
-
-namespace {
 
 // Helper used to test TruncateUTF8ToByteSize.
 bool Truncated(const std::string& input,
@@ -73,7 +72,7 @@ bool Truncated(const std::string& input,
 
 using TestFunction = bool (*)(StringPiece str);
 
-// Helper used to test IsStringUTF8{,AllowingNoncharacters}.
+// Helper used to test IsStringUTF8[AllowingNoncharacters].
 void TestStructurallyValidUtf8(TestFunction fn) {
   EXPECT_TRUE(fn("abc"));
   EXPECT_TRUE(fn("\xC2\x81"));
@@ -93,7 +92,7 @@ void TestStructurallyValidUtf8(TestFunction fn) {
   EXPECT_TRUE(fn(kEmbeddedNull));
 }
 
-// Helper used to test IsStringUTF8{,AllowingNoncharacters}.
+// Helper used to test IsStringUTF8[AllowingNoncharacters].
 void TestStructurallyInvalidUtf8(TestFunction fn) {
   // Invalid encoding of U+1FFFE (0x8F instead of 0x9F)
   EXPECT_FALSE(fn("\xF0\x8F\xBF\xBE"));
@@ -152,7 +151,7 @@ void TestStructurallyInvalidUtf8(TestFunction fn) {
   EXPECT_FALSE(fn(kUtf32LeBom));
 }
 
-// Helper used to test IsStringUTF8{,AllowingNoncharacters}.
+// Helper used to test IsStringUTF8[AllowingNoncharacters].
 void TestNoncharacters(TestFunction fn, bool expected_result) {
   EXPECT_EQ(fn("\xEF\xB7\x90"), expected_result);      // U+FDD0
   EXPECT_EQ(fn("\xEF\xB7\x9F"), expected_result);      // U+FDDF
@@ -193,8 +192,6 @@ void TestNoncharacters(TestFunction fn, bool expected_result) {
   EXPECT_EQ(fn("\xF4\x8F\xBF\xBF"), expected_result);  // U+10FFFF
 }
 
-}  // namespace
-
 TEST(StringUtilTest, TruncateUTF8ToByteSize) {
   std::string output;
 
@@ -218,14 +215,14 @@ TEST(StringUtilTest, TruncateUTF8ToByteSize) {
 
   {
     const char array[] = "\x00\x00\xc2\x81\xc2\x81";
-    const std::string array_string(array, base::size(array));
+    const std::string array_string(array, std::size(array));
     EXPECT_TRUE(Truncated(array_string, 4, &output));
     EXPECT_EQ(output.compare(std::string("\x00\x00\xc2\x81", 4)), 0);
   }
 
   {
     const char array[] = "\x00\xc2\x81\xc2\x81";
-    const std::string array_string(array, base::size(array));
+    const std::string array_string(array, std::size(array));
     EXPECT_TRUE(Truncated(array_string, 4, &output));
     EXPECT_EQ(output.compare(std::string("\x00\xc2\x81", 3)), 0);
   }
@@ -292,7 +289,7 @@ TEST(StringUtilTest, TruncateUTF8ToByteSize) {
 
   {
     const char array[] = "\x00\x00\xfe\xff";
-    const std::string array_string(array, base::size(array));
+    const std::string array_string(array, std::size(array));
     EXPECT_TRUE(Truncated(array_string, 4, &output));
     EXPECT_EQ(output.compare(std::string("\x00\x00", 2)), 0);
   }
@@ -306,7 +303,7 @@ TEST(StringUtilTest, TruncateUTF8ToByteSize) {
   }
   {
     const char array[] = "\xff\x00\x00\xfe";
-    const std::string array_string(array, base::size(array));
+    const std::string array_string(array, std::size(array));
     EXPECT_TRUE(Truncated(array_string, 4, &output));
     EXPECT_EQ(output.compare(std::string("\xff\x00\x00", 3)), 0);
   }
@@ -480,23 +477,26 @@ static const struct collapse_case_ascii {
   const bool trim;
   const char* output;
 } collapse_cases_ascii[] = {
-  {" Google Video ", false, "Google Video"},
-  {"Google Video", false, "Google Video"},
-  {"", false, ""},
-  {"  ", false, ""},
-  {"\t\rTest String\n", false, "Test String"},
-  {"    Test     \n  \t String    ", false, "Test String"},
-  {"   Test String", false, "Test String"},
-  {"Test String    ", false, "Test String"},
-  {"Test String", false, "Test String"},
-  {"", true, ""},
-  {"\n", true, ""},
-  {"  \r  ", true, ""},
-  {"\nFoo", true, "Foo"},
-  {"\r  Foo  ", true, "Foo"},
-  {" Foo bar ", true, "Foo bar"},
-  {"  \tFoo  bar  \n", true, "Foo bar"},
-  {" a \r b\n c \r\n d \t\re \t f \n ", true, "abcde f"},
+    {" Google Video ", false, "Google Video"},
+    {"Google Video", false, "Google Video"},
+    {"", false, ""},
+    {"  ", false, ""},
+    {"\t\rTest String\n", false, "Test String"},
+    {"    Test     \n  \t String    ", false, "Test String"},
+    {"   Test String", false, "Test String"},
+    {"Test String    ", false, "Test String"},
+    {"Test String", false, "Test String"},
+    {"", true, ""},
+    {"\n", true, ""},
+    {"  \r  ", true, ""},
+    {"\nFoo", true, "Foo"},
+    {"\r  Foo  ", true, "Foo"},
+    {" Foo bar ", true, "Foo bar"},
+    // \u00A0 is whitespace, but not _ASCII_ whitespace, so it should not be
+    // collapsed by CollapseWhitespaceASCII().
+    {"Foo\u00A0bar", true, "Foo\u00A0bar"},
+    {"  \tFoo  bar  \n", true, "Foo bar"},
+    {" a \r b\n c \r\n d \t\re \t f \n ", true, "abcde f"},
 };
 
 TEST(StringUtilTest, CollapseWhitespaceASCII) {
@@ -536,7 +536,7 @@ TEST(StringUtilTest, IsStringASCII) {
   // Also, test that a non-ASCII character will be detected regardless of its
   // position inside the string.
   {
-    const size_t string_length = base::size(char_ascii) - 1;
+    const size_t string_length = std::size(char_ascii) - 1;
     for (size_t offset = 0; offset < 8; ++offset) {
       for (size_t len = 0, max_len = string_length - offset; len < max_len;
            ++len) {
@@ -551,7 +551,7 @@ TEST(StringUtilTest, IsStringASCII) {
   }
 
   {
-    const size_t string_length = base::size(char16_ascii) - 1;
+    const size_t string_length = std::size(char16_ascii) - 1;
     for (size_t offset = 0; offset < 4; ++offset) {
       for (size_t len = 0, max_len = string_length - offset; len < max_len;
            ++len) {
@@ -605,7 +605,7 @@ TEST(StringUtilTest, ConvertASCII) {
     L"0123ABCDwxyz \a\b\t\r\n!+,.~"
   };
 
-  for (size_t i = 0; i < base::size(char_cases); ++i) {
+  for (size_t i = 0; i < std::size(char_cases); ++i) {
     EXPECT_TRUE(IsStringASCII(char_cases[i]));
     std::u16string utf16 = ASCIIToUTF16(char_cases[i]);
     EXPECT_EQ(WideToUTF16(wchar_cases[i]), utf16);
@@ -624,7 +624,7 @@ TEST(StringUtilTest, ConvertASCII) {
 
   // Convert strings with an embedded NUL character.
   const char chars_with_nul[] = "test\0string";
-  const int length_with_nul = base::size(chars_with_nul) - 1;
+  const int length_with_nul = std::size(chars_with_nul) - 1;
   std::string string_with_nul(chars_with_nul, length_with_nul);
   std::u16string string16_with_nul = ASCIIToUTF16(string_with_nul);
   EXPECT_EQ(static_cast<std::u16string::size_type>(length_with_nul),
@@ -646,6 +646,11 @@ TEST(StringUtilTest, ToLowerASCII) {
 
   EXPECT_EQ("cc2", ToLowerASCII("Cc2"));
   EXPECT_EQ(u"cc2", ToLowerASCII(u"Cc2"));
+
+  // Non-ASCII characters are unmodified. U+00C4 is LATIN CAPITAL LETTER A WITH
+  // DIAERESIS.
+  EXPECT_EQ('\xc4', ToLowerASCII('\xc4'));
+  EXPECT_EQ(u'\x00c4', ToLowerASCII(u'\x00c4'));
 }
 
 TEST(StringUtilTest, ToUpperASCII) {
@@ -659,22 +664,11 @@ TEST(StringUtilTest, ToUpperASCII) {
 
   EXPECT_EQ("CC2", ToUpperASCII("Cc2"));
   EXPECT_EQ(u"CC2", ToUpperASCII(u"Cc2"));
-}
 
-TEST(StringUtilTest, LowerCaseEqualsASCII) {
-  static const struct {
-    const char*    src_a;
-    const char*    dst;
-  } lowercase_cases[] = {
-    { "FoO", "foo" },
-    { "foo", "foo" },
-    { "FOO", "foo" },
-  };
-
-  for (const auto& i : lowercase_cases) {
-    EXPECT_TRUE(LowerCaseEqualsASCII(ASCIIToUTF16(i.src_a), i.dst));
-    EXPECT_TRUE(LowerCaseEqualsASCII(i.src_a, i.dst));
-  }
+  // Non-ASCII characters are unmodified. U+00E4 is LATIN SMALL LETTER A WITH
+  // DIAERESIS.
+  EXPECT_EQ('\xe4', ToUpperASCII('\xe4'));
+  EXPECT_EQ(u'\x00e4', ToUpperASCII(u'\x00e4'));
 }
 
 TEST(StringUtilTest, FormatBytesUnlocalized) {
@@ -1218,21 +1212,28 @@ TEST(StringUtilTest, LcpyTest) {
   // Test the normal case where we fit in our buffer.
   {
     char dst[10];
+    char16_t u16dst[10];
     wchar_t wdst[10];
-    EXPECT_EQ(7U, strlcpy(dst, "abcdefg", base::size(dst)));
-    EXPECT_EQ(0, memcmp(dst, "abcdefg", 8));
-    EXPECT_EQ(7U, wcslcpy(wdst, L"abcdefg", base::size(wdst)));
-    EXPECT_EQ(0, memcmp(wdst, L"abcdefg", sizeof(wchar_t) * 8));
+    EXPECT_EQ(7U, strlcpy(dst, "abcdefg", std::size(dst)));
+    EXPECT_EQ(0, memcmp(dst, "abcdefg", sizeof(dst[0]) * 8));
+    EXPECT_EQ(7U, u16cstrlcpy(u16dst, u"abcdefg", std::size(u16dst)));
+    EXPECT_EQ(0, memcmp(u16dst, u"abcdefg", sizeof(u16dst[0]) * 8));
+    EXPECT_EQ(7U, wcslcpy(wdst, L"abcdefg", std::size(wdst)));
+    EXPECT_EQ(0, memcmp(wdst, L"abcdefg", sizeof(wdst[0]) * 8));
   }
 
   // Test dst_size == 0, nothing should be written to |dst| and we should
   // have the equivalent of strlen(src).
   {
     char dst[2] = {1, 2};
+    char16_t u16dst[2] = {1, 2};
     wchar_t wdst[2] = {1, 2};
     EXPECT_EQ(7U, strlcpy(dst, "abcdefg", 0));
     EXPECT_EQ(1, dst[0]);
     EXPECT_EQ(2, dst[1]);
+    EXPECT_EQ(7U, u16cstrlcpy(u16dst, u"abcdefg", 0));
+    EXPECT_EQ(char16_t{1}, u16dst[0]);
+    EXPECT_EQ(char16_t{2}, u16dst[1]);
     EXPECT_EQ(7U, wcslcpy(wdst, L"abcdefg", 0));
     EXPECT_EQ(static_cast<wchar_t>(1), wdst[0]);
     EXPECT_EQ(static_cast<wchar_t>(2), wdst[1]);
@@ -1241,31 +1242,40 @@ TEST(StringUtilTest, LcpyTest) {
   // Test the case were we _just_ competely fit including the null.
   {
     char dst[8];
+    char16_t u16dst[8];
     wchar_t wdst[8];
-    EXPECT_EQ(7U, strlcpy(dst, "abcdefg", base::size(dst)));
+    EXPECT_EQ(7U, strlcpy(dst, "abcdefg", std::size(dst)));
     EXPECT_EQ(0, memcmp(dst, "abcdefg", 8));
-    EXPECT_EQ(7U, wcslcpy(wdst, L"abcdefg", base::size(wdst)));
-    EXPECT_EQ(0, memcmp(wdst, L"abcdefg", sizeof(wchar_t) * 8));
+    EXPECT_EQ(7U, u16cstrlcpy(u16dst, u"abcdefg", std::size(u16dst)));
+    EXPECT_EQ(0, memcmp(u16dst, u"abcdefg", sizeof(u16dst)));
+    EXPECT_EQ(7U, wcslcpy(wdst, L"abcdefg", std::size(wdst)));
+    EXPECT_EQ(0, memcmp(wdst, L"abcdefg", sizeof(wdst)));
   }
 
   // Test the case were we we are one smaller, so we can't fit the null.
   {
     char dst[7];
+    char16_t u16dst[7];
     wchar_t wdst[7];
-    EXPECT_EQ(7U, strlcpy(dst, "abcdefg", base::size(dst)));
-    EXPECT_EQ(0, memcmp(dst, "abcdef", 7));
-    EXPECT_EQ(7U, wcslcpy(wdst, L"abcdefg", base::size(wdst)));
-    EXPECT_EQ(0, memcmp(wdst, L"abcdef", sizeof(wchar_t) * 7));
+    EXPECT_EQ(7U, strlcpy(dst, "abcdefg", std::size(dst)));
+    EXPECT_EQ(0, memcmp(dst, "abcdef", sizeof(dst[0]) * 7));
+    EXPECT_EQ(7U, u16cstrlcpy(u16dst, u"abcdefg", std::size(u16dst)));
+    EXPECT_EQ(0, memcmp(u16dst, u"abcdef", sizeof(u16dst[0]) * 7));
+    EXPECT_EQ(7U, wcslcpy(wdst, L"abcdefg", std::size(wdst)));
+    EXPECT_EQ(0, memcmp(wdst, L"abcdef", sizeof(wdst[0]) * 7));
   }
 
   // Test the case were we are just too small.
   {
     char dst[3];
+    char16_t u16dst[3];
     wchar_t wdst[3];
-    EXPECT_EQ(7U, strlcpy(dst, "abcdefg", base::size(dst)));
-    EXPECT_EQ(0, memcmp(dst, "ab", 3));
-    EXPECT_EQ(7U, wcslcpy(wdst, L"abcdefg", base::size(wdst)));
-    EXPECT_EQ(0, memcmp(wdst, L"ab", sizeof(wchar_t) * 3));
+    EXPECT_EQ(7U, strlcpy(dst, "abcdefg", std::size(dst)));
+    EXPECT_EQ(0, memcmp(dst, "ab", sizeof(dst)));
+    EXPECT_EQ(7U, u16cstrlcpy(u16dst, u"abcdefg", std::size(u16dst)));
+    EXPECT_EQ(0, memcmp(u16dst, u"ab", sizeof(u16dst)));
+    EXPECT_EQ(7U, wcslcpy(wdst, L"abcdefg", std::size(wdst)));
+    EXPECT_EQ(0, memcmp(wdst, L"ab", sizeof(wdst)));
   }
 }
 
@@ -1466,6 +1476,31 @@ TEST(StringUtilTest, CompareCaseInsensitiveASCII) {
   // Differing values.
   EXPECT_EQ(-1, CompareCaseInsensitiveASCII("AsdfA", "aSDfb"));
   EXPECT_EQ(1, CompareCaseInsensitiveASCII("Asdfb", "aSDfA"));
+
+  // Non-ASCII bytes are permitted, but they will be compared case-sensitively.
+  EXPECT_EQ(0, CompareCaseInsensitiveASCII("aaa \xc3\xa4", "AAA \xc3\xa4"));
+  EXPECT_EQ(-1, CompareCaseInsensitiveASCII("AAA \xc3\x84", "aaa \xc3\xa4"));
+  EXPECT_EQ(1, CompareCaseInsensitiveASCII("aaa \xc3\xa4", "AAA \xc3\x84"));
+
+  // ASCII bytes should sort before non-ASCII ones.
+  EXPECT_EQ(-1, CompareCaseInsensitiveASCII("a", "\xc3\xa4"));
+  EXPECT_EQ(1, CompareCaseInsensitiveASCII("\xc3\xa4", "a"));
+
+  // For constexpr.
+  static_assert(CompareCaseInsensitiveASCII("", "") == 0);
+  static_assert(CompareCaseInsensitiveASCII("Asdf", "aSDf") == 0);
+  static_assert(CompareCaseInsensitiveASCII("Asdf", "aSDfA") == -1);
+  static_assert(CompareCaseInsensitiveASCII("AsdfA", "aSDf") == 1);
+  static_assert(CompareCaseInsensitiveASCII("AsdfA", "aSDfb") == -1);
+  static_assert(CompareCaseInsensitiveASCII("Asdfb", "aSDfA") == 1);
+  static_assert(CompareCaseInsensitiveASCII("aaa \xc3\xa4", "AAA \xc3\xa4") ==
+                0);
+  static_assert(CompareCaseInsensitiveASCII("AAA \xc3\x84", "aaa \xc3\xa4") ==
+                -1);
+  static_assert(CompareCaseInsensitiveASCII("aaa \xc3\xa4", "AAA \xc3\x84") ==
+                1);
+  static_assert(CompareCaseInsensitiveASCII("a", "\xc3\xa4") == -1);
+  static_assert(CompareCaseInsensitiveASCII("\xc3\xa4", "a") == 1);
 }
 
 TEST(StringUtilTest, EqualsCaseInsensitiveASCII) {
@@ -1473,6 +1508,43 @@ TEST(StringUtilTest, EqualsCaseInsensitiveASCII) {
   EXPECT_TRUE(EqualsCaseInsensitiveASCII("Asdf", "aSDF"));
   EXPECT_FALSE(EqualsCaseInsensitiveASCII("bsdf", "aSDF"));
   EXPECT_FALSE(EqualsCaseInsensitiveASCII("Asdf", "aSDFz"));
+
+  EXPECT_TRUE(EqualsCaseInsensitiveASCII(u"", u""));
+  EXPECT_TRUE(EqualsCaseInsensitiveASCII(u"Asdf", u"aSDF"));
+  EXPECT_FALSE(EqualsCaseInsensitiveASCII(u"bsdf", u"aSDF"));
+  EXPECT_FALSE(EqualsCaseInsensitiveASCII(u"Asdf", u"aSDFz"));
+
+  EXPECT_TRUE(EqualsCaseInsensitiveASCII(u"", ""));
+  EXPECT_TRUE(EqualsCaseInsensitiveASCII(u"Asdf", "aSDF"));
+  EXPECT_FALSE(EqualsCaseInsensitiveASCII(u"bsdf", "aSDF"));
+  EXPECT_FALSE(EqualsCaseInsensitiveASCII(u"Asdf", "aSDFz"));
+
+  EXPECT_TRUE(EqualsCaseInsensitiveASCII("", u""));
+  EXPECT_TRUE(EqualsCaseInsensitiveASCII("Asdf", u"aSDF"));
+  EXPECT_FALSE(EqualsCaseInsensitiveASCII("bsdf", u"aSDF"));
+  EXPECT_FALSE(EqualsCaseInsensitiveASCII("Asdf", u"aSDFz"));
+
+  // Non-ASCII bytes are permitted, but they will be compared case-sensitively.
+  EXPECT_TRUE(EqualsCaseInsensitiveASCII("aaa \xc3\xa4", "AAA \xc3\xa4"));
+  EXPECT_FALSE(EqualsCaseInsensitiveASCII("aaa \xc3\x84", "AAA \xc3\xa4"));
+
+  // The `WStringPiece` overloads are only defined on Windows.
+#if BUILDFLAG(IS_WIN)
+  EXPECT_TRUE(EqualsCaseInsensitiveASCII(L"", L""));
+  EXPECT_TRUE(EqualsCaseInsensitiveASCII(L"Asdf", L"aSDF"));
+  EXPECT_FALSE(EqualsCaseInsensitiveASCII(L"bsdf", L"aSDF"));
+  EXPECT_FALSE(EqualsCaseInsensitiveASCII(L"Asdf", L"aSDFz"));
+
+  EXPECT_TRUE(EqualsCaseInsensitiveASCII(L"", ""));
+  EXPECT_TRUE(EqualsCaseInsensitiveASCII(L"Asdf", "aSDF"));
+  EXPECT_FALSE(EqualsCaseInsensitiveASCII(L"bsdf", "aSDF"));
+  EXPECT_FALSE(EqualsCaseInsensitiveASCII(L"Asdf", "aSDFz"));
+
+  EXPECT_TRUE(EqualsCaseInsensitiveASCII("", L""));
+  EXPECT_TRUE(EqualsCaseInsensitiveASCII("Asdf", L"aSDF"));
+  EXPECT_FALSE(EqualsCaseInsensitiveASCII("bsdf", L"aSDF"));
+  EXPECT_FALSE(EqualsCaseInsensitiveASCII("Asdf", L"aSDFz"));
+#endif
 }
 
 TEST(StringUtilTest, IsUnicodeWhitespace) {
@@ -1504,7 +1576,7 @@ class WriteIntoTest : public testing::Test {
     // Using std::string(buffer.c_str()) instead of |buffer| truncates the
     // string at the first \0.
     EXPECT_EQ(
-        std::string(kOriginal, std::min(num_chars, base::size(kOriginal) - 1)),
+        std::string(kOriginal, std::min(num_chars, std::size(kOriginal) - 1)),
         std::string(buffer.c_str()));
     EXPECT_EQ(num_chars, buffer.size());
   }
@@ -1536,5 +1608,7 @@ TEST_F(WriteIntoTest, WriteInto) {
   EXPECT_EQ(kLive, live);
   EXPECT_EQ(4u, live.size());
 }
+
+}  // namespace
 
 }  // namespace base

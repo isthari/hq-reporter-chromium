@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,8 @@
 #define CHROME_BROWSER_UI_ASH_SHELF_SHELF_APP_UPDATER_H_
 
 #include <string>
+
+#include "base/memory/raw_ptr.h"
 
 namespace content {
 class BrowserContext;
@@ -50,8 +52,8 @@ class ShelfAppUpdater {
 
  private:
   // Unowned pointers
-  Delegate* delegate_;
-  content::BrowserContext* browser_context_;
+  raw_ptr<Delegate, ExperimentalAsh> delegate_;
+  raw_ptr<content::BrowserContext, ExperimentalAsh> browser_context_;
 };
 
 #endif  // CHROME_BROWSER_UI_ASH_SHELF_SHELF_APP_UPDATER_H_

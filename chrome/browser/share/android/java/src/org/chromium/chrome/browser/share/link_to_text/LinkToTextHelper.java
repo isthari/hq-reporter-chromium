@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@ import android.net.Uri;
 import org.chromium.base.Callback;
 import org.chromium.blink.mojom.TextFragmentReceiver;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.tab.SadTab;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.content_public.browser.RenderFrameHost;
 import org.chromium.content_public.browser.WebContents;
@@ -63,6 +64,36 @@ public class LinkToTextHelper {
                         callback.onResult(matches);
                     }
                 });
+    }
+
+    /**
+     * Fetch the canonical url for sharing
+     *
+     * @param tab The tab to fetch the canonical url from.
+     * @param callback The {@link Callback} to return the tab's canonical url or an empty string
+     */
+    public static void requestCanonicalUrl(Tab tab, Callback<String> callback) {
+        if (!shouldRequestCanonicalUrl(tab)) {
+            callback.onResult("");
+            return;
+        }
+
+        tab.getWebContents().getMainFrame().getCanonicalUrlForSharing(new Callback<GURL>() {
+            @Override
+            public void onResult(GURL result) {
+                callback.onResult(result.getSpec());
+            }
+        });
+    }
+
+    private static boolean shouldRequestCanonicalUrl(Tab tab) {
+        if (tab.getWebContents() == null) return false;
+        if (tab.getWebContents().getMainFrame() == null) return false;
+        if (tab.getUrl().isEmpty()) return false;
+        if (tab.isShowingErrorPage() || SadTab.isShowing(tab)) {
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -147,6 +178,7 @@ public class LinkToTextHelper {
         if (producer == null) {
             getExistingSelectorsFromFrameAtIndex(
                     selectorsList, renderFrameHosts, callback, index + 1);
+            return;
         }
 
         getExistingSelectorsForFrame(producer, (selectors) -> {
@@ -202,11 +234,11 @@ public class LinkToTextHelper {
      * This checks that the URL has a text fragment selector (e.g: #:~:text=selector) attached.
      *
      * @param url The url which may include the text fragment.
-     * @returns whether or not the url had a text fragment selector.
+     * @return whether or not the url had a text fragment selector.
      */
     public static boolean hasTextFragment(GURL url) {
         Uri uri = Uri.parse(url.getSpec());
         String fragment = uri.getEncodedFragment();
-        return fragment != null ? fragment.contains(TEXT_FRAGMENT_PREFIX) : false;
+        return (fragment != null) && fragment.contains(TEXT_FRAGMENT_PREFIX);
     }
 }

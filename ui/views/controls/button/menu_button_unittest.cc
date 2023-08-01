@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/utf_string_conversions.h"
@@ -16,7 +16,7 @@
 #include "ui/events/keycodes/dom/dom_code.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/views/animation/ink_drop.h"
-#include "ui/views/animation/test/ink_drop_host_view_test_api.h"
+#include "ui/views/animation/test/ink_drop_host_test_api.h"
 #include "ui/views/animation/test/test_ink_drop.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/button/menu_button_controller.h"
@@ -200,6 +200,10 @@ class TestDragDropClient : public aura::client::DragDropClient,
                                  const gfx::Point& screen_location,
                                  int allowed_operations,
                                  ui::mojom::DragEventSource source) override;
+#if BUILDFLAG(IS_LINUX)
+  void UpdateDragImage(const gfx::ImageSkia& image,
+                       const gfx::Vector2d& offset) override {}
+#endif
   void DragCancel() override;
   bool IsDragDropInProgress() override;
   void AddObserver(aura::client::DragDropClientObserver* observer) override {}
@@ -305,7 +309,15 @@ TEST_F(MenuButtonTest, InkDropCenterSetFromClick) {
 }
 
 // Tests that the ink drop center point is set from the PressedLock constructor.
-TEST_F(MenuButtonTest, InkDropCenterSetFromClickWithPressedLock) {
+// TODO(crbug.com/1433710): Test flaky on MSAN ChromeOS builders.
+#if BUILDFLAG(IS_CHROMEOS) && defined(MEMORY_SANITIZER)
+#define MAYBE_InkDropCenterSetFromClickWithPressedLock \
+  DISABLED_InkDropCenterSetFromClickWithPressedLock
+#else
+#define MAYBE_InkDropCenterSetFromClickWithPressedLock \
+  InkDropCenterSetFromClickWithPressedLock
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH) && defined(MEMORY_SANITIZER)
+TEST_F(MenuButtonTest, MAYBE_InkDropCenterSetFromClickWithPressedLock) {
   ConfigureMenuButton(std::make_unique<TestMenuButton>());
 
   gfx::Point click_point(11, 7);
@@ -320,7 +332,15 @@ TEST_F(MenuButtonTest, InkDropCenterSetFromClickWithPressedLock) {
 }
 
 // Test that the MenuButton stays pressed while there are any PressedLocks.
-TEST_F(MenuButtonTest, ButtonStateForMenuButtonsWithPressedLocks) {
+// TODO(crbug.com/1433710): Test flaky on MSAN ChromeOS builders.
+#if BUILDFLAG(IS_CHROMEOS) && defined(MEMORY_SANITIZER)
+#define MAYBE_ButtonStateForMenuButtonsWithPressedLocks \
+  DISABLED_ButtonStateForMenuButtonsWithPressedLocks
+#else
+#define MAYBE_ButtonStateForMenuButtonsWithPressedLocks \
+  ButtonStateForMenuButtonsWithPressedLocks
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH) && defined(MEMORY_SANITIZER)
+TEST_F(MenuButtonTest, MAYBE_ButtonStateForMenuButtonsWithPressedLocks) {
   ConfigureMenuButton(std::make_unique<TestMenuButton>());
   const gfx::Rect button_bounds = button()->GetBoundsInScreen();
 
@@ -382,7 +402,15 @@ TEST_F(MenuButtonTest, ButtonStateForMenuButtonsWithPressedLocks) {
 
 // Test that the MenuButton does not become pressed if it can be dragged, until
 // a release occurs.
-TEST_F(MenuButtonTest, DraggableMenuButtonActivatesOnRelease) {
+// TODO(crbug.com/1433710): Test flaky on MSAN ChromeOS builders.
+#if BUILDFLAG(IS_CHROMEOS) && defined(MEMORY_SANITIZER)
+#define MAYBE_DraggableMenuButtonActivatesOnRelease \
+  DISABLED_DraggableMenuButtonActivatesOnRelease
+#else
+#define MAYBE_DraggableMenuButtonActivatesOnRelease \
+  DraggableMenuButtonActivatesOnRelease
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH) && defined(MEMORY_SANITIZER)
+TEST_F(MenuButtonTest, MAYBE_DraggableMenuButtonActivatesOnRelease) {
   ConfigureMenuButton(std::make_unique<TestMenuButton>());
   TestDragController drag_controller;
   button()->set_drag_controller(&drag_controller);
@@ -396,7 +424,16 @@ TEST_F(MenuButtonTest, DraggableMenuButtonActivatesOnRelease) {
   EXPECT_EQ(Button::STATE_HOVERED, button()->last_state());
 }
 
-TEST_F(MenuButtonTest, InkDropStateForMenuButtonActivationsWithoutCallback) {
+// TODO(crbug.com/1433710): Test flaky on MSAN ChromeOS builders.
+#if BUILDFLAG(IS_CHROMEOS) && defined(MEMORY_SANITIZER)
+#define MAYBE_InkDropStateForMenuButtonActivationsWithoutCallback \
+  DISABLED_InkDropStateForMenuButtonActivationsWithoutCallback
+#else
+#define MAYBE_InkDropStateForMenuButtonActivationsWithoutCallback \
+  InkDropStateForMenuButtonActivationsWithoutCallback
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH) && defined(MEMORY_SANITIZER)
+TEST_F(MenuButtonTest,
+       MAYBE_InkDropStateForMenuButtonActivationsWithoutCallback) {
   ConfigureMenuButton(
       std::make_unique<TestMenuButton>(Button::PressedCallback()));
   ink_drop()->AnimateToState(InkDropState::ACTION_PENDING);
@@ -405,8 +442,17 @@ TEST_F(MenuButtonTest, InkDropStateForMenuButtonActivationsWithoutCallback) {
   EXPECT_EQ(InkDropState::HIDDEN, ink_drop()->GetTargetInkDropState());
 }
 
-TEST_F(MenuButtonTest,
-       InkDropStateForMenuButtonActivationsWithCallbackThatDoesntAcquireALock) {
+// TODO(crbug.com/1433710): Test flaky on MSAN ChromeOS builders.
+#if BUILDFLAG(IS_CHROMEOS) && defined(MEMORY_SANITIZER)
+#define MAYBE_InkDropStateForMenuButtonActivationsWithCallbackThatDoesntAcquireALock \
+  DISABLED_InkDropStateForMenuButtonActivationsWithCallbackThatDoesntAcquireALock
+#else
+#define MAYBE_InkDropStateForMenuButtonActivationsWithCallbackThatDoesntAcquireALock \
+  InkDropStateForMenuButtonActivationsWithCallbackThatDoesntAcquireALock
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH) && defined(MEMORY_SANITIZER)
+TEST_F(
+    MenuButtonTest,
+    MAYBE_InkDropStateForMenuButtonActivationsWithCallbackThatDoesntAcquireALock) {
   ConfigureMenuButton(std::make_unique<TestMenuButton>());
   button()->Activate(nullptr);
 
@@ -431,7 +477,15 @@ TEST_F(MenuButtonTest,
   EXPECT_EQ(InkDropState::DEACTIVATED, ink_drop()->GetTargetInkDropState());
 }
 
-TEST_F(MenuButtonTest, InkDropStateForMenuButtonsWithPressedLocks) {
+// TODO(crbug.com/1433710): Test flaky on MSAN ChromeOS builders.
+#if BUILDFLAG(IS_CHROMEOS) && defined(MEMORY_SANITIZER)
+#define MAYBE_InkDropStateForMenuButtonsWithPressedLocks \
+  DISABLED_InkDropStateForMenuButtonsWithPressedLocks
+#else
+#define MAYBE_InkDropStateForMenuButtonsWithPressedLocks \
+  InkDropStateForMenuButtonsWithPressedLocks
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH) && defined(MEMORY_SANITIZER)
+TEST_F(MenuButtonTest, MAYBE_InkDropStateForMenuButtonsWithPressedLocks) {
   ConfigureMenuButton(std::make_unique<TestMenuButton>());
 
   auto pressed_lock1 = std::make_unique<MenuButtonController::PressedLock>(
@@ -453,7 +507,14 @@ TEST_F(MenuButtonTest, InkDropStateForMenuButtonsWithPressedLocks) {
 
 // Verifies only one ink drop animation is triggered when multiple PressedLocks
 // are attached to a MenuButton.
-TEST_F(MenuButtonTest, OneInkDropAnimationForReentrantPressedLocks) {
+#if BUILDFLAG(IS_CHROMEOS) && defined(MEMORY_SANITIZER)
+#define MAYBE_OneInkDropAnimationForReentrantPressedLocks \
+  DISABLED_OneInkDropAnimationForReentrantPressedLocks
+#else
+#define MAYBE_OneInkDropAnimationForReentrantPressedLocks \
+  OneInkDropAnimationForReentrantPressedLocks
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH) && defined(MEMORY_SANITIZER)
+TEST_F(MenuButtonTest, MAYBE_OneInkDropAnimationForReentrantPressedLocks) {
   ConfigureMenuButton(std::make_unique<TestMenuButton>());
 
   auto pressed_lock1 = std::make_unique<MenuButtonController::PressedLock>(
@@ -470,8 +531,16 @@ TEST_F(MenuButtonTest, OneInkDropAnimationForReentrantPressedLocks) {
 
 // Verifies the InkDropState is left as ACTIVATED if a PressedLock is active
 // before another Activation occurs.
+// TODO(crbug.com/1433710): Test flaky on MSAN ChromeOS builders.
+#if BUILDFLAG(IS_CHROMEOS) && defined(MEMORY_SANITIZER)
+#define MAYBE_InkDropStateForMenuButtonWithPressedLockBeforeActivation \
+  DISABLED_InkDropStateForMenuButtonWithPressedLockBeforeActivation
+#else
+#define MAYBE_InkDropStateForMenuButtonWithPressedLockBeforeActivation \
+  InkDropStateForMenuButtonWithPressedLockBeforeActivation
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH) && defined(MEMORY_SANITIZER)
 TEST_F(MenuButtonTest,
-       InkDropStateForMenuButtonWithPressedLockBeforeActivation) {
+       MAYBE_InkDropStateForMenuButtonWithPressedLockBeforeActivation) {
   ConfigureMenuButton(std::make_unique<TestMenuButton>());
   MenuButtonController::PressedLock lock(button()->button_controller());
 
@@ -484,7 +553,15 @@ TEST_F(MenuButtonTest,
 
 // Tests that the MenuButton does not become pressed if it can be dragged, and a
 // DragDropClient is processing the events.
-TEST_F(MenuButtonTest, DraggableMenuButtonDoesNotActivateOnDrag) {
+// TODO(crbug.com/1433710): Test flaky on MSAN ChromeOS builders.
+#if BUILDFLAG(IS_CHROMEOS) && defined(MEMORY_SANITIZER)
+#define MAYBE_DraggableMenuButtonDoesNotActivateOnDrag \
+  DISABLED_DraggableMenuButtonDoesNotActivateOnDrag
+#else
+#define MAYBE_DraggableMenuButtonDoesNotActivateOnDrag \
+  DraggableMenuButtonDoesNotActivateOnDrag
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH) && defined(MEMORY_SANITIZER)
+TEST_F(MenuButtonTest, MAYBE_DraggableMenuButtonDoesNotActivateOnDrag) {
   ConfigureMenuButton(std::make_unique<TestMenuButton>());
   TestDragController drag_controller;
   button()->set_drag_controller(&drag_controller);

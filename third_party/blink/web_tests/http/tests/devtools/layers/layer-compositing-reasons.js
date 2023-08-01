@@ -1,10 +1,12 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {TestRunner} from 'test_runner';
+import {LayersTestRunner} from 'layers_test_runner';
+
 (async function() {
   TestRunner.addResult(`Tests layer compositing reasons in Layers Panel`);
-  await TestRunner.loadTestModule('layers_test_runner');
   await TestRunner.navigatePromise(TestRunner.url('resources/compositing-reasons.html'));
 
   async function dumpCompositingReasons(layer) {
@@ -17,9 +19,11 @@
   }
 
   const idsToTest = [
-    'transform3d', 'transform3d-individual', 'backface-visibility', 'animation', 'animation-individual',
+    'transform3d', 'scale3d', 'rotate3d', 'translate3d', 'backface-visibility',
+    'animation', 'animation-scale', 'animation-rotate', 'animation-translate',
     'transformWithCompositedDescendants', 'transformWithCompositedDescendants-individual',
-    'opacityWithCompositedDescendants', 'reflectionWithCompositedDescendants', 'perspective', 'preserve3d'
+    'opacityWithCompositedDescendants', 'reflectionWithCompositedDescendants', 'perspective', 'preserve3d',
+    'scrollOpaque', 'scrollForced'
   ];
 
   await LayersTestRunner.requestLayers();

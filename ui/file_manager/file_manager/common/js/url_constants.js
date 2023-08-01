@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,15 @@ export const SWA_APP_ID = 'fkiggjmkendpmbegkagpmagjepfkpmeb';
 
 /** @const {string} */
 export const SWA_FILES_APP_HOST = 'file-manager';
+
+/**
+ * Special key for when we are showing search results. Search results do not
+ * have a corresponding entry in the directory tree. As a result we need to
+ * fake the PathComponent that represents the "current" directory. This constant
+ * corresponds to the key field of the PathComponent object.
+ * @const {string}
+ */
+export const SEARCH_RESULTS_KEY = 'fake-entry://search/';
 
 /**
  * The URL of the legacy version of File Manager.
@@ -38,7 +47,7 @@ export const FILES_APP_ICON_PATH = 'common/images/icon96.png';
  * @return {!URL} The absolute URL for a path within the Files app.
  */
 export function toFilesAppURL(path = '') {
-  return new URL(path, window.isSWA ? SWA_FILES_APP_URL : LEGACY_FILES_APP_URL);
+  return new URL(path, SWA_FILES_APP_URL);
 }
 
 /**
@@ -46,9 +55,7 @@ export function toFilesAppURL(path = '') {
  * @return {!URL} The absolute URL.
  */
 export function toSandboxedURL(path = '') {
-  const SANDBOXED_URL = window.isSWA ?
-      new URL(`chrome-untrusted://${SWA_FILES_APP_HOST}`) :
-      LEGACY_FILES_APP_URL;
+  const SANDBOXED_URL = new URL(`chrome-untrusted://${SWA_FILES_APP_HOST}`);
   return new URL(path, SANDBOXED_URL);
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #include "base/containers/span.h"
+#include "base/time/time.h"
 #include "base/types/pass_key.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
@@ -19,6 +20,8 @@
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/prefinalizer.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_receiver.h"
@@ -34,6 +37,7 @@ class ExceptionState;
 class IncomingStream;
 class OutgoingStream;
 class ReadableStream;
+class ReadableByteStreamController;
 class ScriptPromise;
 class ScriptPromiseResolver;
 class ScriptState;
@@ -124,7 +128,9 @@ class MODULES_EXPORT WebTransport final
 
   WebTransport(ScriptState*, const String& url, ExecutionContext* context);
 
-  void Init(const String& url, const WebTransportOptions&, ExceptionState&);
+  void Init(const String& url_for_diagnostics,
+            const WebTransportOptions&,
+            ExceptionState&);
 
   void Dispose();
   void Cleanup(v8::Local<v8::Value> reason,
@@ -147,6 +153,7 @@ class MODULES_EXPORT WebTransport final
   Member<DatagramDuplexStream> datagrams_;
 
   Member<ReadableStream> received_datagrams_;
+  Member<ReadableByteStreamController> received_datagrams_controller_;
   Member<DatagramUnderlyingSource> datagram_underlying_source_;
 
   // This corresponds to the [[SentDatagrams]] internal slot in the standard.
@@ -165,8 +172,7 @@ class MODULES_EXPORT WebTransport final
   // TODO(ricea): Find out if such large stream ids are possible.
   HeapHashMap<uint32_t,
               Member<IncomingStream>,
-              WTF::DefaultHash<uint32_t>::Hash,
-              WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>
+              IntWithZeroKeyHashTraits<uint32_t>>
       incoming_stream_map_;
 
   // Map from stream_id to OutgoingStream.
@@ -175,17 +181,13 @@ class MODULES_EXPORT WebTransport final
   // TODO(ricea): Find out if such large stream ids are possible.
   HeapHashMap<uint32_t,
               Member<OutgoingStream>,
-              WTF::DefaultHash<uint32_t>::Hash,
-              WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>
+              IntWithZeroKeyHashTraits<uint32_t>>
       outgoing_stream_map_;
 
   // A map from stream id to whether the fin signal was received. When
   // OnIncomingStreamClosed is called with a stream ID which doesn't have its
   // corresponding incoming stream, the event is recorded here.
-  HashMap<uint32_t,
-          bool,
-          WTF::DefaultHash<uint32_t>::Hash,
-          WTF::UnsignedWithZeroKeyHashTraits<uint32_t>>
+  HashMap<uint32_t, bool, IntWithZeroKeyHashTraits<uint32_t>>
       closed_potentially_pending_streams_;
 
   HeapMojoRemote<mojom::blink::WebTransportConnector> connector_;

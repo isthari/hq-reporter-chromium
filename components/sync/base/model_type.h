@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,11 +11,7 @@
 #include <string>
 
 #include "base/containers/enum_set.h"
-
-namespace base {
-class ListValue;
-class Value;
-}  // namespace base
+#include "base/values.h"
 
 namespace sync_pb {
 class EntitySpecifics;
@@ -72,6 +68,8 @@ enum ModelType {
   // Offers and rewards from the user's account. These are read-only on the
   // client side.
   AUTOFILL_WALLET_OFFER,
+  // Autofill usage data of a payment method related to a specific merchant.
+  AUTOFILL_WALLET_USAGE,
   // A theme object.
   THEMES,
   // A typed_url object, i.e. a URL the user has typed into the Omnibox.
@@ -108,12 +106,14 @@ enum ModelType {
   ARC_PACKAGE,
   // Printer device information. ChromeOS only.
   PRINTERS,
-  // Reading list items. iOS only.
+  // Reading list items.
   READING_LIST,
   // Commit only user events.
   USER_EVENTS,
   // Commit only user consents.
   USER_CONSENTS,
+  // Segmentation data.
+  SEGMENTATION,
   // Tabs sent between devices.
   SEND_TAB_TO_SELF,
   // Commit only security events.
@@ -130,10 +130,27 @@ enum ModelType {
   SHARING_MESSAGE,
   // A workspace desk saved by user. Chrome OS only.
   WORKSPACE_DESK,
-  // WebAuthn credentials. Commented out because this type is currently only
-  // used by the server and Play Services, not Chrome itself.
-  // (crbug.com/1223853)
-  // WEBAUTHN_CREDENTIAL,
+  // Synced history. An entity roughly corresponds to a navigation.
+  HISTORY,
+  // Trusted Authorization Servers for printers. ChromeOS only.
+  PRINTERS_AUTHORIZATION_SERVERS,
+  // Contact information from the Google Address Storage.
+  CONTACT_INFO,
+  // A tab group saved by a user. Currently only supported on desktop platforms
+  // (Linux, Mac, Windows, ChromeOS).
+  SAVED_TAB_GROUP,
+
+  // Power bookmarks are features associated with bookmarks(i.e. notes, price
+  // tracking). Their life cycle are synced with bookmarks.
+  POWER_BOOKMARK,
+
+  // WebAuthn credentials, more commonly known as passkeys.
+  WEBAUTHN_CREDENTIAL,
+
+  // Invitations for sending passwords. Outgoing invitation from one user will
+  // become an incoming one for another.
+  INCOMING_PASSWORD_SHARING_INVITATION,
+  OUTGOING_PASSWORD_SHARING_INVITATION,
 
   // Proxy types are excluded from the sync protocol, but are still considered
   // real user types. By convention, we prefix them with 'PROXY_' to distinguish
@@ -230,7 +247,17 @@ enum class ModelTypeForHistograms {
   kSharingMessage = 48,
   kAutofillWalletOffer = 49,
   kWorkspaceDesk = 50,
-  kMaxValue = kWorkspaceDesk
+  kHistory = 51,
+  kPrintersAuthorizationServers = 52,
+  kContactInfo = 53,
+  kAutofillWalletUsage = 54,
+  kSegmentation = 55,
+  kSavedTabGroups = 56,
+  kPowerBookmark = 57,
+  kWebAuthnCredentials = 58,
+  kIncomingPasswordSharingInvitations = 59,
+  kOutgoingPasswordSharingInvitations = 60,
+  kMaxValue = kOutgoingPasswordSharingInvitations,
 };
 
 // Used to mark the type of EntitySpecifics that has no actual data.
@@ -244,15 +271,51 @@ ModelType GetModelTypeFromSpecifics(const sync_pb::EntitySpecifics& specifics);
 // representations. This distinguishes them from Proxy types, which have no
 // protocol representation and are never sent to the server.
 constexpr ModelTypeSet ProtocolTypes() {
-  return ModelTypeSet(
-      BOOKMARKS, PREFERENCES, PASSWORDS, AUTOFILL_PROFILE, AUTOFILL,
-      AUTOFILL_WALLET_DATA, AUTOFILL_WALLET_METADATA, AUTOFILL_WALLET_OFFER,
-      THEMES, TYPED_URLS, EXTENSIONS, SEARCH_ENGINES, SESSIONS, APPS,
-      APP_SETTINGS, EXTENSION_SETTINGS, HISTORY_DELETE_DIRECTIVES, DICTIONARY,
-      DEVICE_INFO, PRIORITY_PREFERENCES, SUPERVISED_USER_SETTINGS, APP_LIST,
-      ARC_PACKAGE, PRINTERS, READING_LIST, USER_EVENTS, NIGORI, USER_CONSENTS,
-      SEND_TAB_TO_SELF, SECURITY_EVENTS, WEB_APPS, WIFI_CONFIGURATIONS,
-      OS_PREFERENCES, OS_PRIORITY_PREFERENCES, SHARING_MESSAGE, WORKSPACE_DESK);
+  return {BOOKMARKS,
+          PREFERENCES,
+          PASSWORDS,
+          AUTOFILL_PROFILE,
+          AUTOFILL,
+          AUTOFILL_WALLET_DATA,
+          AUTOFILL_WALLET_METADATA,
+          AUTOFILL_WALLET_OFFER,
+          AUTOFILL_WALLET_USAGE,
+          THEMES,
+          TYPED_URLS,
+          EXTENSIONS,
+          SEARCH_ENGINES,
+          SESSIONS,
+          APPS,
+          APP_SETTINGS,
+          EXTENSION_SETTINGS,
+          HISTORY_DELETE_DIRECTIVES,
+          DICTIONARY,
+          DEVICE_INFO,
+          PRIORITY_PREFERENCES,
+          SUPERVISED_USER_SETTINGS,
+          APP_LIST,
+          ARC_PACKAGE,
+          PRINTERS,
+          READING_LIST,
+          USER_EVENTS,
+          NIGORI,
+          USER_CONSENTS,
+          SEND_TAB_TO_SELF,
+          SECURITY_EVENTS,
+          WEB_APPS,
+          WIFI_CONFIGURATIONS,
+          OS_PREFERENCES,
+          OS_PRIORITY_PREFERENCES,
+          SHARING_MESSAGE,
+          WORKSPACE_DESK,
+          HISTORY,
+          PRINTERS_AUTHORIZATION_SERVERS,
+          CONTACT_INFO,
+          SAVED_TAB_GROUP,
+          POWER_BOOKMARK,
+          WEBAUTHN_CREDENTIAL,
+          INCOMING_PASSWORD_SHARING_INVITATION,
+          OUTGOING_PASSWORD_SHARING_INVITATION};
 }
 
 // These are the normal user-controlled types. This is to distinguish from
@@ -262,10 +325,14 @@ constexpr ModelTypeSet UserTypes() {
   return ModelTypeSet::FromRange(FIRST_USER_MODEL_TYPE, LAST_USER_MODEL_TYPE);
 }
 
-// User types, which are not user-controlled.
+// User types which are not user-controlled.
 constexpr ModelTypeSet AlwaysPreferredUserTypes() {
-  return ModelTypeSet(DEVICE_INFO, USER_CONSENTS, SECURITY_EVENTS,
-                      SUPERVISED_USER_SETTINGS, SHARING_MESSAGE);
+  return {DEVICE_INFO,
+          USER_CONSENTS,
+          SECURITY_EVENTS,
+          SEND_TAB_TO_SELF,
+          SUPERVISED_USER_SETTINGS,
+          SHARING_MESSAGE};
 }
 
 // User types which are always encrypted.
@@ -273,7 +340,7 @@ constexpr ModelTypeSet AlwaysEncryptedUserTypes() {
   // If you add a new model type here that is conceptually different from a
   // password, make sure you audit UI code that refers to these types as
   // passwords, e.g. consumers of IsEncryptEverythingEnabled().
-  return ModelTypeSet(PASSWORDS, WIFI_CONFIGURATIONS);
+  return {PASSWORDS, WIFI_CONFIGURATIONS};
 }
 
 // This is the subset of UserTypes() that have priority over other types. These
@@ -281,8 +348,8 @@ constexpr ModelTypeSet AlwaysEncryptedUserTypes() {
 // This mostly matters during initial sync, since priority types can become
 // active before all the data for non-prio types has been downloaded (which may
 // be a lot of data).
-constexpr ModelTypeSet PriorityUserTypes() {
-  return ModelTypeSet(
+constexpr ModelTypeSet HighPriorityUserTypes() {
+  return {
       // The "Send to Your Devices" feature needs fast updating of the list of
       // your devices and also fast sending of the actual messages.
       DEVICE_INFO, SHARING_MESSAGE,
@@ -298,7 +365,21 @@ constexpr ModelTypeSet PriorityUserTypes() {
       // in the creation flow for a new profile. If the user has no theme in
       // their sync data, the browser offers a theme customization bubble which
       // should appear soon after opening the browser.
-      THEMES);
+      THEMES};
+}
+
+// This is the subset of UserTypes() that have a *lower* priority than other
+// types. These types are synced only after all other user types (both for
+// get_updates and commits). This mostly matters during initial sync, since
+// high-priority and regular types can become active before all the data for
+// low-priority types has been downloaded (which may be a lot of data).
+constexpr ModelTypeSet LowPriorityUserTypes() {
+  return {
+      // Downloading History may take a while, but should not block the download
+      // of other data types.
+      HISTORY,
+      // User Events should not block or delay commits for other data types.
+      USER_EVENTS};
 }
 
 // Returns a list of all control types.
@@ -312,21 +393,23 @@ constexpr ModelTypeSet PriorityUserTypes() {
 // - They support custom update application and conflict resolution logic.
 // - All change processing occurs on the sync thread.
 constexpr ModelTypeSet ControlTypes() {
-  return ModelTypeSet(NIGORI);
-}
-
-// Returns true if this is a control type.
-//
-// See comment above for more information on what makes these types special.
-constexpr bool IsControlType(ModelType model_type) {
-  return ControlTypes().Has(model_type);
+  return {NIGORI};
 }
 
 // Types that may commit data, but should never be included in a GetUpdates.
 // These are never encrypted.
 constexpr ModelTypeSet CommitOnlyTypes() {
-  return ModelTypeSet(USER_EVENTS, USER_CONSENTS, SECURITY_EVENTS,
-                      SHARING_MESSAGE);
+  return {USER_EVENTS, USER_CONSENTS, SECURITY_EVENTS, SHARING_MESSAGE,
+          OUTGOING_PASSWORD_SHARING_INVITATION};
+}
+
+// Types for which downloaded updates are applied immediately, before all
+// updates are downloaded and the Sync cycle finishes.
+// For these types, ModelTypeSyncBridge::MergeFullSyncData() will never be
+// called (since without downloading all the data, no initial merge is
+// possible).
+constexpr ModelTypeSet ApplyUpdatesImmediatelyTypes() {
+  return {HISTORY};
 }
 
 // User types that can be encrypted, which is a subset of UserTypes() and a
@@ -336,24 +419,27 @@ ModelTypeSet EncryptableUserTypes();
 // Determine a model type from the field number of its associated
 // EntitySpecifics field.  Returns UNSPECIFIED if the field number is
 // not recognized.
-//
-// If you're putting the result in a ModelTypeSet, you should use the
-// following pattern:
-//
-//   ModelTypeSet model_types;
-//   // Say we're looping through a list of items, each of which has a
-//   // field number.
-//   for (...) {
-//     int field_number = ...;
-//     ModelType model_type =
-//         GetModelTypeFromSpecificsFieldNumber(field_number);
-//     if (!IsRealDataType(model_type)) {
-//       DLOG(WARNING) << "Unknown field number " << field_number;
-//       continue;
-//     }
-//     model_types.Put(model_type);
-//   }
 ModelType GetModelTypeFromSpecificsFieldNumber(int field_number);
+
+namespace internal {
+// Obtain model type from field_number and add to model_types if valid.
+void GetModelTypeSetFromSpecificsFieldNumberListHelper(
+    ModelTypeSet& model_types,
+    int field_number);
+}  // namespace internal
+
+// Build a ModelTypeSet from a list of field numbers. Any unknown field numbers
+// are ignored.
+template <typename ContainerT>
+ModelTypeSet GetModelTypeSetFromSpecificsFieldNumberList(
+    const ContainerT& field_numbers) {
+  ModelTypeSet model_types;
+  for (int field_number : field_numbers) {
+    internal::GetModelTypeSetFromSpecificsFieldNumberListHelper(model_types,
+                                                                field_number);
+  }
+  return model_types;
+}
 
 // Return the field number of the EntitySpecifics field associated with
 // a model type.
@@ -380,7 +466,7 @@ ModelTypeForHistograms ModelTypeHistogramValue(ModelType model_type);
 int ModelTypeToStableIdentifier(ModelType model_type);
 
 // Handles all model types, and not just real ones.
-std::unique_ptr<base::Value> ModelTypeToValue(ModelType model_type);
+base::Value ModelTypeToValue(ModelType model_type);
 
 // Returns the comma-separated string representation of |model_types|.
 std::string ModelTypeSetToDebugString(ModelTypeSet model_types);
@@ -388,16 +474,21 @@ std::string ModelTypeSetToDebugString(ModelTypeSet model_types);
 // Necessary for compatibility with EXPECT_EQ and the like.
 std::ostream& operator<<(std::ostream& out, ModelTypeSet model_type_set);
 
-// Generates a base::ListValue from |model_types|.
-std::unique_ptr<base::ListValue> ModelTypeSetToValue(ModelTypeSet model_types);
+// Generates a base::Value::List from |model_types|.
+base::Value::List ModelTypeSetToValue(ModelTypeSet model_types);
 
-// Returns a string corresponding to the syncable tag for this datatype.
-std::string ModelTypeToRootTag(ModelType type);
+// Returns a string corresponding to the root tag as exposed in the sync
+// protocol as the root entity's ID, which makes the root entity trivially
+// distinguishable from regular entities. Note that the existence of a root
+// entity in the sync protocol is a legacy artifact, and modern clients ignore
+// it except for bookmarks and Nigori. For this reason, the server may or may
+// not return the root entity.
+std::string ModelTypeToProtocolRootTag(ModelType model_type);
 
-// Returns root_tag for |model_type| in ModelTypeInfo.
-// Difference with ModelTypeToRootTag(), this just simply returns root_tag in
-// ModelTypeInfo.
-const char* GetModelTypeRootTag(ModelType model_type);
+// As opposed to ModelTypeToProtocolRootTag(), this returns a string that isn't
+// exposed in the sync protocol, but that is still stable and thus can be used
+// for local persistence. It is guaranteed to be lowercase.
+const char* GetModelTypeLowerCaseRootTag(ModelType model_type);
 
 // Convert a real model type to a notification type (used for
 // subscribing to server-issued notifications).  Returns true iff

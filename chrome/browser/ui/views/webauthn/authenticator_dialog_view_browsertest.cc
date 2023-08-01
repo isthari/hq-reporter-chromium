@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,7 @@
 #include "chrome/browser/ui/views/webauthn/authenticator_request_sheet_view.h"
 #include "chrome/browser/ui/webauthn/authenticator_request_dialog.h"
 #include "chrome/browser/ui/webauthn/authenticator_request_sheet_model.h"
+#include "chrome/browser/ui/webauthn/sheet_models.h"
 #include "chrome/browser/webauthn/authenticator_request_dialog_model.h"
 #include "content/public/common/content_features.h"
 #include "content/public/test/browser_test.h"
@@ -72,8 +73,6 @@ class TestSheetModel : public AuthenticatorRequestSheetModel {
     return u"You must construct additional pylons.";
   }
 
-  ui::MenuModel* GetOtherMechanismsMenuModel() override { return nullptr; }
-
   void OnBack() override {}
   void OnAccept() override {}
   void OnCancel() override {}
@@ -110,28 +109,23 @@ class TestSheetView : public AuthenticatorRequestSheetView {
 
 class AuthenticatorDialogViewTest : public DialogBrowserTest {
  public:
-  void SetUp() override {
-    // Enable all upcoming features to excerise them for tests.
-    scoped_feature_list_.InitWithFeatures(
-        {features::kWebAuthCable, device::kWebAuthCableSecondFactor,
-         device::kWebAuthPhoneSupport},
-        {});
-    DialogBrowserTest::SetUp();
-  }
-
   // DialogBrowserTest:
   void ShowUi(const std::string& name) override {
-    content::WebContents* const web_contents =
-        browser()->tab_strip_model()->GetActiveWebContents();
-    auto dialog_model = std::make_unique<AuthenticatorRequestDialogModel>(
-        /*relying_party_id=*/"example.com");
+    dialog_model_ = std::make_unique<AuthenticatorRequestDialogModel>(
+        /*web_contents=*/nullptr);
+    dialog_model_->set_relying_party_id("example.com");
 
     if (name == "default") {
-      dialog_model->SetCurrentStepForTesting(
+      dialog_model_->StartFlow(
+          device::FidoRequestHandlerBase::TransportAvailabilityInfo(),
+          /*is_conditional_mediation=*/false);
+      dialog_model_->SetCurrentStepForTesting(
           AuthenticatorRequestDialogModel::Step::kTimedOut);
+      content::WebContents* const web_contents =
+          browser()->tab_strip_model()->GetActiveWebContents();
       AuthenticatorRequestDialogView* dialog =
           test::AuthenticatorRequestDialogViewTestApi::CreateDialogView(
-              web_contents, std::move(dialog_model));
+              web_contents, dialog_model_.get());
       test::AuthenticatorRequestDialogViewTestApi::ShowWithSheet(
           dialog,
           std::make_unique<TestSheetView>(std::make_unique<TestSheetModel>()));
@@ -142,35 +136,40 @@ class AuthenticatorDialogViewTest : public DialogBrowserTest {
           transport_availability;
       transport_availability.available_transports = {
           AuthenticatorTransport::kUsbHumanInterfaceDevice,
-          AuthenticatorTransport::kInternal,
-          AuthenticatorTransport::kCloudAssistedBluetoothLowEnergy};
+          AuthenticatorTransport::kHybrid};
 
       std::array<uint8_t, device::kP256X962Length> public_key = {0};
       AuthenticatorRequestDialogModel::PairedPhone phone("Phone", 0,
                                                          public_key);
-      dialog_model->set_cable_transport_info(
+      dialog_model_->set_cable_transport_info(
           /*extension_is_v2=*/absl::nullopt,
           /*paired_phones=*/{phone},
           /*contact_phone_callback=*/base::DoNothing(), "fido://qrcode");
-      dialog_model->StartFlow(std::move(transport_availability),
-                              /*use_location_bar_bubble=*/false,
-                              /*prefer_native_api=*/false);
+      dialog_model_->StartFlow(std::move(transport_availability),
+                               /*is_conditional_mediation=*/false);
 
       // The dialog is owned by the Views hierarchy so this is a non-owning
       // pointer.
       AuthenticatorRequestDialogView* dialog =
           test::AuthenticatorRequestDialogViewTestApi::CreateDialogView(
               browser()->tab_strip_model()->GetActiveWebContents(),
-              std::move(dialog_model));
+              dialog_model_.get());
 
       // The "manage devices" button should have been shown on this sheet.
+      EXPECT_EQ(
+          reinterpret_cast<AuthenticatorSheetModelBase*>(
+              test::AuthenticatorRequestDialogViewTestApi::GetSheet(dialog)
+                  ->model())
+              ->dialog_model()
+              ->current_step(),
+          AuthenticatorRequestDialogModel::Step::kMechanismSelection);
       EXPECT_TRUE(test::AuthenticatorRequestDialogViewTestApi::GetSheet(dialog)
                       ->model()
                       ->IsManageDevicesButtonVisible());
     }
   }
 
-  base::test::ScopedFeatureList scoped_feature_list_;
+  std::unique_ptr<AuthenticatorRequestDialogModel> dialog_model_;
 };
 
 // Test the dialog with a custom delegate.

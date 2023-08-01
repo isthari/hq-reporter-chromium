@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/notreached.h"
+#include "base/trace_event/trace_event.h"
 #include "base/unguessable_token.h"
 #include "base/win/scoped_handle.h"
 #include "gpu/ipc/common/dxgi_helpers.h"
@@ -112,6 +113,7 @@ bool GpuMemoryBufferTracker::CreateBufferInternal() {
   }
 
   region_ = base::UnsafeSharedMemoryRegion::Create(GetMemorySizeInBytes());
+  mapping_ = region_.Map();
 
   return true;
 }
@@ -146,13 +148,18 @@ GpuMemoryBufferTracker::GetMemoryMappedAccess() {
 
 base::UnsafeSharedMemoryRegion
 GpuMemoryBufferTracker::DuplicateAsUnsafeRegion() {
+  TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("video_and_image_capture"),
+               "GpuMemoryBufferTracker::DuplicateAsUnsafeRegion");
+
   if (!buffer_) {
     return base::UnsafeSharedMemoryRegion();
   }
 
   CHECK(region_.IsValid());
+  CHECK(mapping_.IsValid());
 
-  if (!gpu::CopyDXGIBufferToShMem(buffer_->GetHandle(), region_.Duplicate(),
+  if (!gpu::CopyDXGIBufferToShMem(buffer_->GetHandle(),
+                                  mapping_.GetMemoryAsSpan<uint8_t>(),
                                   d3d_device_.Get(), &staging_texture_)) {
     DLOG(ERROR) << "Couldn't copy DXGI buffer to shmem";
     return base::UnsafeSharedMemoryRegion();

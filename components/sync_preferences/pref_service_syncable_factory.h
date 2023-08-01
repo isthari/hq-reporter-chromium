@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -48,11 +48,15 @@ class PrefServiceSyncableFactory : public PrefServiceFactory {
   void SetPrefModelAssociatorClient(
       PrefModelAssociatorClient* pref_model_associator_client);
 
+  void SetAccountPrefStore(
+      scoped_refptr<PersistentPrefStore> account_pref_store);
+
   std::unique_ptr<PrefServiceSyncable> CreateSyncable(
       scoped_refptr<user_prefs::PrefRegistrySyncable> pref_registry);
 
  private:
   raw_ptr<PrefModelAssociatorClient> pref_model_associator_client_ = nullptr;
+  scoped_refptr<PersistentPrefStore> account_pref_store_;
 };
 
 }  // namespace sync_preferences

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 #include "base/android/jni_android.h"
 #include "base/android/jni_array.h"
 #include "base/android/scoped_java_ref.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
@@ -102,8 +102,8 @@ void AwContentsClientBridgeTest::CertSelected(
 }
 
 TEST_F(AwContentsClientBridgeTest, TestClientCertKeyTypesCorrectlyEncoded) {
-  SSLClientCertType cert_types[2] = {net::CLIENT_CERT_RSA_SIGN,
-                                     net::CLIENT_CERT_ECDSA_SIGN};
+  SSLClientCertType cert_types[2] = {SSLClientCertType::kRsaSign,
+                                     SSLClientCertType::kEcdsaSign};
   std::string expected_names[2] = {"RSA", "ECDSA"};
 
   for (int i = 0; i < 2; i++) {

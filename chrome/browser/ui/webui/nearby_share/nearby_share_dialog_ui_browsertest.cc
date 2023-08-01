@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "chromeos/components/sharesheet/constants.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
@@ -75,13 +76,9 @@ IN_PROC_BROWSER_TEST_F(NearbyShareDialogUITest, RendersComponent) {
   content::WebContents* web_contents = GetWebContentsForNearbyShareHost();
 
   // Assert that we render the nearby-share-app component.
-  int num_nearby_share_app = -1;
-  ASSERT_TRUE(content::ExecuteScriptAndExtractInt(
-      web_contents,
-      "domAutomationController.send("
-      "document.getElementsByTagName('nearby-share-app').length)",
-      &num_nearby_share_app));
-  EXPECT_EQ(1, num_nearby_share_app);
+  EXPECT_EQ(1, content::EvalJs(
+                   web_contents,
+                   "document.getElementsByTagName('nearby-share-app').length"));
 }
 
 IN_PROC_BROWSER_TEST_F(NearbyShareDialogUITest,
@@ -99,19 +96,19 @@ IN_PROC_BROWSER_TEST_F(NearbyShareDialogUITest,
   // Calling 'close' before a Sharesheet controller is registered via
   // |SetSharesheetController| does not result in a crash.
   std::string script = BuildCloseScript(CloseReason::kCancelled);
-  EXPECT_TRUE(content::ExecuteScript(web_contents, script));
+  EXPECT_TRUE(content::ExecJs(web_contents, script));
   EXPECT_FALSE(sharesheet_controller_.last_result);
 
   // The Sharesheet controller gets called on 'close' if it's been registered.
   nearby_ui->SetSharesheetController(&sharesheet_controller_);
-  EXPECT_TRUE(content::ExecuteScript(web_contents, script));
+  EXPECT_TRUE(content::ExecJs(web_contents, script));
   EXPECT_EQ(::sharesheet::SharesheetResult::kCancel,
             sharesheet_controller_.last_result);
 
   // Any subsequent calls to 'close' do not call the Sharesheet controller,
   // since that would result in a crash.
   sharesheet_controller_.last_result.reset();
-  EXPECT_TRUE(content::ExecuteScript(web_contents, script));
+  EXPECT_TRUE(content::ExecJs(web_contents, script));
   EXPECT_FALSE(sharesheet_controller_.last_result);
 }
 
@@ -127,7 +124,7 @@ IN_PROC_BROWSER_TEST_F(NearbyShareDialogUITest, CloseBubbleResults) {
 
     sharesheet_controller_.last_result.reset();
     nearby_ui->SetSharesheetController(&sharesheet_controller_);
-    EXPECT_TRUE(content::ExecuteScript(web_contents, BuildCloseScript(reason)));
+    EXPECT_TRUE(content::ExecJs(web_contents, BuildCloseScript(reason)));
 
     // Verify that the page-closed reason is translated into the correct
     // SharesheetResult and passed into CloseBubble().

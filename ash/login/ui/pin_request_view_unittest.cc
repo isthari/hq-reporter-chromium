@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,8 +22,9 @@
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/work_area_insets.h"
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
+#include "base/memory/raw_ptr.h"
 #include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/time/time.h"
@@ -67,8 +68,9 @@ class PinRequestViewTest : public LoginTestBase,
 
     // If the test did not explicitly dismissed the widget, destroy it now.
     PinRequestWidget* pin_request_widget = PinRequestWidget::Get();
-    if (pin_request_widget)
+    if (pin_request_widget) {
       pin_request_widget->Close(false /* validation success */);
+    }
   }
 
   PinRequestView::SubmissionResult OnPinSubmitted(
@@ -176,7 +178,8 @@ class PinRequestViewTest : public LoginTestBase,
   // Whether the next pin submission will trigger setting an error state.
   bool will_authenticate_ = true;
 
-  PinRequestView* view_ = nullptr;  // Owned by test widget view hierarchy.
+  raw_ptr<PinRequestView, ExperimentalAsh> view_ =
+      nullptr;  // Owned by test widget view hierarchy.
 };
 
 // Tests that back button works.
@@ -520,7 +523,13 @@ TEST_F(PinRequestViewTest, BackwardTabKeyTraversal) {
   EXPECT_TRUE(HasFocusInAnyChildView(test_api.access_code_view()));
 }
 
-using PinRequestWidgetTest = PinRequestViewTest;
+class PinRequestWidgetTest : public PinRequestViewTest {
+ public:
+  PinRequestWidgetTest() { set_start_session(true); }
+  PinRequestWidgetTest(const PinRequestWidgetTest&) = delete;
+  PinRequestWidgetTest& operator=(const PinRequestWidgetTest&) = delete;
+  ~PinRequestWidgetTest() override = default;
+};
 
 // Tests that the widget is properly resized when tablet mode changes.
 TEST_F(PinRequestWidgetTest, WidgetResizingInTabletMode) {
@@ -582,7 +591,7 @@ TEST_F(PinRequestViewTest, VirtualKeyboardHidden) {
 
   ui::GestureEvent event(
       text_field->x(), text_field->y(), 0, base::TimeTicks::Now(),
-      ui::GestureEventDetails(ui::EventType::ET_GESTURE_TAP_DOWN));
+      ui::GestureEventDetails(ui::EventType::ET_GESTURE_TAP));
   text_field->OnGestureEvent(&event);
   base::RunLoop().RunUntilIdle();
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,15 +9,18 @@
 #include <string>
 #include <utility>
 
+#include "ash/app_list/grid_index.h"
 #include "ash/app_list/model/app_icon_load_helper.h"
 #include "ash/app_list/model/app_list_item_observer.h"
 #include "ash/ash_export.h"
-#include "base/memory/ref_counted.h"
+#include "base/memory/raw_ptr.h"
 #include "base/timer/timer.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/compositor/layer_animation_observer.h"
 #include "ui/views/context_menu_controller.h"
 #include "ui/views/controls/button/button.h"
+#include "ui/views/controls/image_view.h"
 
 namespace gfx {
 class Point;
@@ -40,10 +43,12 @@ class AppListConfig;
 class AppListItem;
 class AppListMenuModelAdapter;
 class AppListViewDelegate;
+class DotIndicator;
 
 namespace test {
 class AppsGridViewTest;
 class AppListMainViewTest;
+class RecentAppsViewTest;
 }  // namespace test
 
 // An application icon and title. Commonly part of the AppsGridView, but may be
@@ -63,6 +68,24 @@ class ASH_EXPORT AppListItemView : public views::Button,
 
     // The item is shown in the RecentAppsView.
     kRecentAppsView
+  };
+
+  // Describes the app list item view drag state.
+  enum class DragState {
+    // Item is not being dragged.
+    kNone,
+
+    // Drag is initialized for the item (the owning apps grid considers the view
+    // to be the dragged view), but the item is still not being dragged.
+    // Depending on mouse/touch drag timers, UI may be in either normal, or
+    // dragging state.
+    kInitialized,
+
+    // The item drag is in progress. While in this state, the owning apps grid
+    // view will generally hide the item view, and replace it with a drag icon
+    // widget. The UI should be in dragging state (scaled up and with title
+    // hidden).
+    kStarted,
   };
 
   // The parent apps grid (AppsGridView) or a stub. Not named "Delegate" to
@@ -119,11 +142,27 @@ class ASH_EXPORT AppListItemView : public views::Button,
   AppListItemView& operator=(const AppListItemView&) = delete;
   ~AppListItemView() override;
 
+  // Initializes icon loader. Should be called after the view has been added to
+  // the apps grid view model - otherwise, if icon gets updated synchronously,
+  // it may update the item metadata before the view gets added to the view
+  // model. If the metadata update causes a position change, attempts to move
+  // the item in the view model could crash.
+  void InitializeIconLoader();
+
   // Sets the app list config that should be used to size the app list icon, and
   // margins within the app list item view. The owner should ensure the
   // `AppListItemView` does not outlive the object referenced by
   // `app_list_config_`.
   void UpdateAppListConfig(const AppListConfig* app_list_config);
+
+  // Updates the currently dragged AppListItemView to update the `folder_icon_`.
+  void UpdateDraggedItem(const AppListItem* dragged_item);
+
+  // Updates and repaints the icon view, which could be either `icon_` or
+  // `folder_icon_`.
+  // For `icon_`, update the image icon from AppListItem if `update_item_icon`
+  // is true.
+  void UpdateIconView(bool update_item_icon);
 
   // Sets the icon of this image.
   void SetIcon(const gfx::ImageSkia& icon);
@@ -134,8 +173,6 @@ class ASH_EXPORT AppListItemView : public views::Button,
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
 
   void CancelContextMenu();
-
-  gfx::Point GetDragImageOffset();
 
   void SetAsAttemptedFolderTarget(bool is_target_folder);
 
@@ -152,6 +189,9 @@ class ASH_EXPORT AppListItemView : public views::Button,
   // In a synchronous drag the item view isn't informed directly of the drag
   // ending, so the runner of the drag should call this.
   void OnSyncDragEnd();
+
+  // Returns the view that draws the item view icon.
+  views::View* GetIconView() const;
 
   // Returns the icon bounds relative to AppListItemView.
   gfx::Rect GetIconBounds() const;
@@ -208,17 +248,21 @@ class ASH_EXPORT AppListItemView : public views::Button,
 
   bool HasNotificationBadge();
 
-  void FireMouseDragTimerForTest();
+  bool FireMouseDragTimerForTest();
 
   bool FireTouchDragTimerForTest();
 
   // Whether the context menu on a non-folder app item view is showing.
   bool IsShowingAppMenu() const;
 
+  // Whether the item can be dragged within its `context_`.
+  bool IsItemDraggable() const;
+
   bool is_folder() const { return is_folder_; }
 
   bool IsNotificationIndicatorShownForTest() const;
   GridDelegate* grid_delegate_for_test() { return grid_delegate_; }
+  const gfx::ImageSkia& icon_image_for_test() const { return icon_image_; }
 
   AppListMenuModelAdapter* item_menu_model_adapter() const {
     return item_menu_model_adapter_.get();
@@ -230,49 +274,52 @@ class ASH_EXPORT AppListItemView : public views::Button,
   // Sets the callback which will run after the context menu is shown.
   void SetContextMenuShownCallbackForTest(base::RepeatingClosure closure);
 
+  // Returns the bounds that would be used for the title if there was no blue
+  // dot for new install.
+  gfx::Rect GetDefaultTitleBoundsForTest();
+
+  // Called when the drag registered for this view ends.
+  // `drag_end_callback` passed to `GridDelegate::InitiateDrag()`.
+  void OnDragEnded();
+
+  // Sets the most recent grid index for this item view. Also sets
+  // `has_pending_row_change_` based on whether the grid index change is
+  // considered a row change for the purposes of animating item views between
+  // rows.
+  void SetMostRecentGridIndex(GridIndex new_grid_index, int columns);
+
+  GridIndex most_recent_grid_index() { return most_recent_grid_index_; }
+
+  bool has_pending_row_change() { return has_pending_row_change_; }
+  void reset_has_pending_row_change() { has_pending_row_change_ = false; }
+
+  const ui::Layer* icon_background_layer_for_test() const {
+    if (!icon_background_layer_) {
+      return nullptr;
+    }
+    return icon_background_layer_->layer();
+  }
+  bool is_icon_extended_for_test() const { return is_icon_extended_; }
+  absl::optional<size_t> item_counter_count_for_test() const;
+
  private:
-  friend class AppListItemViewProductivityLauncherTest;
+  class FolderIconView;
+
+  friend class AppListItemViewTest;
   friend class AppListMainViewTest;
   friend class test::AppsGridViewTest;
-
-  class IconImageView;
-  class AppNotificationIndicatorView;
+  friend class RecentAppsViewTest;
 
   enum UIState {
     UI_STATE_NORMAL,              // Normal UI (icon + label)
     UI_STATE_DRAGGING,            // Dragging UI (scaled icon only)
     UI_STATE_DROPPING_IN_FOLDER,  // Folder dropping preview UI
+    UI_STATE_TOUCH_DRAGGING,      // Dragging UI for touch drag (non-scaled icon
+                                  // only)
   };
-
-  // Describes the app list item view drag state.
-  enum class DragState {
-    // Item is not being dragged.
-    kNone,
-
-    // Drag is initialized for the item (the owning apps grid considers the view
-    // to be the dragged view), but the item is still not being dragged.
-    // Depending on mouse/touch drag timers, UI may be in either normal, or
-    // dragging state.
-    kInitialized,
-
-    // The item drag is in progress. While in this state, the owning apps grid
-    // view will generally hide the item view, and replace it with a drag icon
-    // widget. The UI should be in dragging state (scaled up and with title
-    // hidden).
-    kStarted,
-  };
-
-  // gfx::AnimationDelegate:
-  void AnimationProgressed(const gfx::Animation* animation) override;
 
   // Callback used when a menu is closed.
   void OnMenuClosed();
-
-  // Get icon from |item_| and schedule background processing.
-  void UpdateIcon();
-
-  // Update the tooltip text from |item_|.
-  void UpdateTooltip();
 
   void SetUIState(UIState state);
 
@@ -280,8 +327,11 @@ class ASH_EXPORT AppListItemView : public views::Button,
   // normal size.
   void ScaleAppIcon(bool scale_up);
 
-  // Scale app icon to |scale_factor| without animation.
+  // Scales app icon to |scale_factor| without animation.
   void ScaleIconImmediatly(float scale_factor);
+
+  // Updates the bounds of the icon background layer.
+  void UpdateBackgroundLayerBounds();
 
   // Sets |touch_dragging_| flag and updates UI.
   void SetTouchDragging(bool touch_dragging);
@@ -300,14 +350,6 @@ class ASH_EXPORT AppListItemView : public views::Button,
   bool InitiateDrag(const gfx::Point& location,
                     const gfx::Point& root_location);
 
-  // Called when the drag registered for this view starts moving.
-  // `drag_start_callback` passed to `GridDelegate::InitiateDrag()`.
-  void OnDragStarted();
-
-  // Called when the drag registered for this view ends.
-  // `drag_end_callback` passed to `GridDelegate::InitiateDrag()`.
-  void OnDragEnded();
-
   // Callback invoked when a context menu is received after calling
   // |AppListViewDelegate::GetContextMenuModel|.
   void OnContextMenuModelReceived(
@@ -322,7 +364,6 @@ class ASH_EXPORT AppListItemView : public views::Button,
 
   // views::Button overrides:
   bool ShouldEnterPushedState(const ui::Event& event) override;
-  void PaintButtonContents(gfx::Canvas* canvas) override;
 
   // views::View overrides:
   void Layout() override;
@@ -335,6 +376,13 @@ class ASH_EXPORT AppListItemView : public views::Button,
   bool SkipDefaultKeyEventProcessing(const ui::KeyEvent& event) override;
   void OnFocus() override;
   void OnBlur() override;
+  int GetDragOperations(const gfx::Point& press_pt) override;
+  void WriteDragData(const gfx::Point& press_pt, OSExchangeData* data) override;
+  void OnDragDone() override;
+
+  // Called when the drag registered for this view starts moving.
+  // `drag_start_callback` passed to `GridDelegate::InitiateDrag()`.
+  void OnDragStarted();
 
   // AppListItemObserver overrides:
   void ItemIconChanged(AppListConfigType config_type) override;
@@ -347,23 +395,35 @@ class ASH_EXPORT AppListItemView : public views::Button,
   // ui::ImplicitAnimationObserver:
   void OnImplicitAnimationsCompleted() override;
 
-  // Returns the radius of preview circle.
-  int GetPreviewCircleRadius() const;
-
-  // Creates dragged view hover animation if it does not exist.
-  void CreateDraggedViewHoverAnimation();
-
-  // Modifies AppListItemView bounds to match the selected highlight bounds.
-  void AdaptBoundsForSelectionHighlight(gfx::Rect* rect);
-
   // Calculates the transform between the icon scaled by |icon_scale| and the
   // normal size icon.
   gfx::Transform GetScaleTransform(float icon_scale);
 
+  // Updates the icon extended state if another app is dragged onto this item
+  // view, which could be either an app or a folder. `extend_icon` is true if
+  // the icon background is going to extend, shrink the background otherwise.
+  // `animate` specifies if the visual update should be animated or not.
+  void SetBackgroundExtendedState(bool extend_icon, bool animate);
+
+  // Ensures that the layer where the icon background is painted on is created.
+  void EnsureIconBackgroundLayer();
+
+  // Returns the color ID for the app list item background, if the background
+  // needs to be shown.
+  ui::ColorId GetBackgroundLayerColorId() const;
+
+  void OnExtendingAnimationEnded(bool extend_icon);
+
+  // Returns the layer that paints the icon background.
+  ui::Layer* GetIconBackgroundLayer();
+
+  // Initialize the item drag operation if it is available at `location`.
+  bool MaybeStartTouchDrag(const gfx::Point& location);
+
   // The app list config used to layout this view. The initial values is set
   // during view construction, but can be changed by calling
   // `UpdateAppListConfig()`.
-  const AppListConfig* app_list_config_;
+  raw_ptr<const AppListConfig, ExperimentalAsh> app_list_config_;
 
   const bool is_folder_;
 
@@ -371,20 +431,35 @@ class ASH_EXPORT AppListItemView : public views::Button,
   // requests.
   bool waiting_for_context_menu_options_ = false;
 
-  AppListItem* item_weak_;  // Owned by AppListModel. Can be nullptr.
+  raw_ptr<AppListItem, ExperimentalAsh>
+      item_weak_;  // Owned by AppListModel. Can be nullptr.
 
   // Handles dragging and item selection. Might be a stub for items that are not
   // part of an apps grid.
-  GridDelegate* const grid_delegate_;
+  const raw_ptr<GridDelegate, ExperimentalAsh> grid_delegate_;
 
   // AppListControllerImpl by another name.
-  AppListViewDelegate* const view_delegate_;
+  const raw_ptr<AppListViewDelegate, ExperimentalAsh> view_delegate_;
 
-  IconImageView* icon_ = nullptr;  // Strongly typed child view.
-  views::Label* title_ = nullptr;  // Strongly typed child view.
+  // Set to true if the ImageSkia icon in AppListItem is drawn. The refreshed
+  // folder icons are directly drawn on FolderIconView instead of using the
+  // AppListItem icon.
+  const bool use_item_icon_;
+
+  // NOTE: Only one of `icon_` and `folder_icon_` is used for an item view.
+  // The icon view that uses the ImageSkia in AppListItem to draw the icon.
+  raw_ptr<views::ImageView, ExperimentalAsh> icon_ = nullptr;
+  // The folder icon view used for refreshed folders.
+  raw_ptr<FolderIconView, ExperimentalAsh> folder_icon_ = nullptr;
+
+  raw_ptr<views::Label, ExperimentalAsh> title_ = nullptr;
+
+  // The background layer added under the `icon_` layer to paint the background
+  // of the icon.
+  std::unique_ptr<ui::LayerOwner> icon_background_layer_;
 
   // Draws a dot next to the title for newly installed apps.
-  views::View* new_install_dot_ = nullptr;
+  raw_ptr<views::View, ExperimentalAsh> new_install_dot_ = nullptr;
 
   // The context menu model adapter used for app item view.
   std::unique_ptr<AppListMenuModelAdapter> item_menu_model_adapter_;
@@ -406,9 +481,6 @@ class ASH_EXPORT AppListItemView : public views::Button,
 
   // Whether AppsGridView is in cardified state.
   bool in_cardified_grid_ = false;
-
-  // The animation that runs when dragged view enters or exits this view.
-  std::unique_ptr<gfx::SlideAnimation> dragged_view_hover_animation_;
 
   // The radius of preview circle for non-folder item.
   int preview_circle_radius_ = 0;
@@ -438,7 +510,7 @@ class ASH_EXPORT AppListItemView : public views::Button,
 
   // Draws an indicator in the top right corner of the image to represent an
   // active notification.
-  AppNotificationIndicatorView* notification_indicator_ = nullptr;
+  raw_ptr<DotIndicator, ExperimentalAsh> notification_indicator_ = nullptr;
 
   // Indicates the context in which this view is shown.
   const Context context_;
@@ -448,6 +520,25 @@ class ASH_EXPORT AppListItemView : public views::Button,
 
   // Called when the context menu is shown.
   base::RepeatingClosure context_menu_shown_callback_;
+
+  // The most recent location of this item within the app grid.
+  GridIndex most_recent_grid_index_;
+
+  // Whether the last grid index update was a change in position between rows.
+  // Used to determine whether the animation between rows should be used.
+  bool has_pending_row_change_ = false;
+
+  // Whether the context menu removed focus on a view when opening. Used to
+  // determine if the focus should be restored on context menu close.
+  bool focus_removed_by_context_menu_ = false;
+
+  // Whether the `icon_` is in the extended state, where a dragged view entered
+  // this item view.
+  bool is_icon_extended_ = false;
+
+  // Whether the icon background animation is being setup. Used to prevent the
+  // background layer from being deleted during setup.
+  bool setting_up_icon_animation_ = false;
 
   base::WeakPtrFactory<AppListItemView> weak_ptr_factory_{this};
 };

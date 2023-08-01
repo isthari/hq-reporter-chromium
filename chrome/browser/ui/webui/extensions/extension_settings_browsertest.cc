@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,7 @@
 #include "chrome/browser/extensions/unpacked_installer.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/tabs/tab_enums.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -143,7 +144,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionSettingsUIBrowserTest, ViewSource) {
   // Open the view-source of the options page.
   int old_tabs_count = browser()->tab_strip_model()->count();
   content::WebContentsAddedObserver view_source_contents_added_observer;
-  options_contents->GetMainFrame()->ViewSource();
+  options_contents->GetPrimaryMainFrame()->ViewSource();
   content::WebContents* view_source_contents =
       view_source_contents_added_observer.GetWebContents();
   ASSERT_TRUE(view_source_contents);
@@ -156,16 +157,15 @@ IN_PROC_BROWSER_TEST_F(ExtensionSettingsUIBrowserTest, ViewSource) {
             browser()->tab_strip_model()->GetActiveWebContents());
 
   // Verify the contents of the view-source tab.
-  std::string actual_source_text;
   std::string view_source_extraction_script = R"(
       output = "";
       document.querySelectorAll(".line-content").forEach(function(elem) {
           output += elem.innerText;
       });
-      domAutomationController.send(output); )";
-  EXPECT_TRUE(content::ExecuteScriptAndExtractString(
-      view_source_contents, view_source_extraction_script,
-      &actual_source_text));
+      output; )";
+  std::string actual_source_text =
+      content::EvalJs(view_source_contents, view_source_extraction_script)
+          .ExtractString();
   base::FilePath source_path =
       test_data_dir().AppendASCII("options_page_in_view/options.html");
   std::string expected_source_text;
@@ -213,7 +213,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionSettingsUIBrowserTest, ListenerRegistration) {
 
   TabStripModel* tab_strip = browser()->tab_strip_model();
   tab_strip->CloseWebContentsAt(tab_strip->active_index(),
-                                TabStripModel::CLOSE_NONE);
+                                TabCloseTypes::CLOSE_NONE);
   base::RunLoop().RunUntilIdle();
   content::RunAllTasksUntilIdle();
 
@@ -235,7 +235,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionSettingsUIBrowserTest,
 
   // Attempt to add an event listener for the
   // activityLogPrivate.onExtensionActivity event.
-  ASSERT_TRUE(content::ExecuteScript(page_contents, R"(
+  ASSERT_TRUE(content::ExecJs(page_contents, R"(
       let activityLogListener = () => {};
       chrome.activityLogPrivate.onExtensionActivity.addListener(
           activityLogListener);
@@ -262,7 +262,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionsActivityLogTest, TestActivityLogVisible) {
   test_data_dir = test_data_dir.AppendASCII("extensions");
   extensions::ChromeTestExtensionLoader loader(browser()->profile());
 
-  ExtensionTestMessageListener listener("ready", false);
+  ExtensionTestMessageListener listener("ready");
   scoped_refptr<const extensions::Extension> extension = loader.LoadExtension(
       test_data_dir.AppendASCII("activity_log/simple_call"));
   ASSERT_TRUE(listener.WaitUntilSatisfied());
@@ -282,10 +282,10 @@ IN_PROC_BROWSER_TEST_F(ExtensionsActivityLogTest, TestActivityLogVisible) {
   // See chrome/browser/resources/extensions for the Polymer code.
   // This test only serves as an end to end test, and most of the functionality
   // is covered in the JS unit tests.
-  bool has_api_call = false;
-  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      activity_log_contents,
-      R"(let manager = document.querySelector('extensions-manager');
+  EXPECT_EQ(true,
+            content::EvalJs(
+                activity_log_contents,
+                R"(let manager = document.querySelector('extensions-manager');
          let activityLog =
              manager.shadowRoot.querySelector('extensions-activity-log');
          let activityLogHistory =
@@ -301,10 +301,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionsActivityLogTest, TestActivityLogVisible) {
              let item = activityLogHistory.shadowRoot.querySelector(
                  'activity-log-history-item');
              let activityKey = item.shadowRoot.getElementById('activity-key');
-             window.domAutomationController.send(
-                 activityKey.innerText === 'test.sendMessage');
+             return activityKey.innerText === 'test.sendMessage';
          });
-      )",
-      &has_api_call));
-  EXPECT_TRUE(has_api_call);
+      )"));
 }

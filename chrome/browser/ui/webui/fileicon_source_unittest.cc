@@ -1,10 +1,9 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/webui/fileicon_source.h"
 
-#include "base/cxx17_backports.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/strings/strcat.h"
 #include "build/build_config.h"
@@ -29,11 +28,12 @@ class TestFileIconSource : public FileIconSource {
       content::URLDataSource::GotDataCallback callback) override {
     FetchFileIcon_(path, scale_factor, icon_size, callback);
   }
-  MOCK_METHOD4(FetchFileIcon_,
-               void(const base::FilePath& path,
-                    float scale_factor,
-                    IconLoader::IconSize icon_size,
-                    content::URLDataSource::GotDataCallback& callback));
+  MOCK_METHOD(void,
+              FetchFileIcon_,
+              (const base::FilePath& path,
+               float scale_factor,
+               IconLoader::IconSize icon_size,
+               content::URLDataSource::GotDataCallback& callback));
 
   ~TestFileIconSource() override {}
 };
@@ -119,7 +119,7 @@ TEST_F(FileIconSourceTest, FileIconSource_Parse) {
   ui::test::ScopedSetSupportedResourceScaleFactors scoped_supported(
       supported_scale_factors);
 
-  for (unsigned i = 0; i < base::size(kBasicExpectations); i++) {
+  for (unsigned i = 0; i < std::size(kBasicExpectations); i++) {
     auto source = std::make_unique<TestFileIconSource>();
     content::URLDataSource::GotDataCallback callback;
     EXPECT_CALL(

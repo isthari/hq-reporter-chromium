@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,10 +16,10 @@
 #include "content/public/common/content_features.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/content_browser_test.h"
+#include "content/public/test/content_browser_test_content_browser_client.h"
 #include "content/public/test/mock_web_contents_observer.h"
 #include "content/public/test/test_utils.h"
 #include "content/shell/browser/shell.h"
-#include "content/test/test_content_browser_client.h"
 #include "net/cookies/site_for_cookies.h"
 #include "net/dns/mock_host_resolver.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -55,7 +55,8 @@ class WebContentsObserverBrowserTest : public ContentBrowserTest {
   }
 
   RenderFrameHostImpl* top_frame_host() {
-    return static_cast<RenderFrameHostImpl*>(web_contents()->GetMainFrame());
+    return static_cast<RenderFrameHostImpl*>(
+        web_contents()->GetPrimaryMainFrame());
   }
 
   base::test::ScopedFeatureList feature_list_;
@@ -122,7 +123,7 @@ IN_PROC_BROWSER_TEST_F(WebContentsObserverBrowserTest,
 namespace {
 
 class ServiceWorkerAccessContentBrowserClient
-    : public TestContentBrowserClient {
+    : public ContentBrowserTestContentBrowserClient {
  public:
   ServiceWorkerAccessContentBrowserClient() = default;
 
@@ -173,8 +174,6 @@ IN_PROC_BROWSER_TEST_F(WebContentsObserverBrowserTest,
 
   // 2) Set content client and disallow javascript.
   ServiceWorkerAccessContentBrowserClient content_browser_client;
-  ContentBrowserClient* old_client =
-      SetBrowserClientForTesting(&content_browser_client);
   content_browser_client.SetJavascriptAllowed(false);
 
   {
@@ -217,8 +216,6 @@ IN_PROC_BROWSER_TEST_F(WebContentsObserverBrowserTest,
         embedded_test_server()->GetURL("/service_worker/empty.html")));
     run_loop.Run();
   }
-
-  SetBrowserClientForTesting(old_client);
 }
 
 namespace {
@@ -375,8 +372,14 @@ using CookieAccess = CookieTracker::CookieAccessDescription;
 
 }  // namespace
 
+// TODO(https://crbug.com/1288573): Flaky on Mac and Android.
+#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_ANDROID)
+#define MAYBE_CookieCallbacks_MainFrame DISABLED_CookieCallbacks_MainFrame
+#else
+#define MAYBE_CookieCallbacks_MainFrame CookieCallbacks_MainFrame
+#endif
 IN_PROC_BROWSER_TEST_F(WebContentsObserverBrowserTest,
-                       CookieCallbacks_MainFrame) {
+                       MAYBE_CookieCallbacks_MainFrame) {
   CookieTracker cookie_tracker(web_contents());
 
   GURL first_party_url("http://a.com/");
@@ -420,8 +423,16 @@ IN_PROC_BROWSER_TEST_F(WebContentsObserverBrowserTest,
   cookie_tracker.cookie_accesses().clear();
 }
 
+// TODO(https://crbug.com/1288573): Flaky on Mac.
+#if BUILDFLAG(IS_MAC)
+#define MAYBE_CookieCallbacks_MainFrameRedirect \
+  DISABLED_CookieCallbacks_MainFrameRedirect
+#else
+#define MAYBE_CookieCallbacks_MainFrameRedirect \
+  CookieCallbacks_MainFrameRedirect
+#endif
 IN_PROC_BROWSER_TEST_F(WebContentsObserverBrowserTest,
-                       CookieCallbacks_MainFrameRedirect) {
+                       MAYBE_CookieCallbacks_MainFrameRedirect) {
   CookieTracker cookie_tracker(web_contents());
 
   GURL first_party_url("http://a.com/");
@@ -476,8 +487,8 @@ IN_PROC_BROWSER_TEST_F(WebContentsObserverBrowserTest,
   cookie_tracker.cookie_accesses().clear();
 }
 
-// TODO(https://crbug.com/1288573): Flaky on Mac.
-#if BUILDFLAG(IS_MAC)
+// TODO(https://crbug.com/1288573): Flaky on Mac, Android and Windows.
+#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_WIN)
 #define MAYBE_CookieCallbacks_Subframe DISABLED_CookieCallbacks_Subframe
 #else
 #define MAYBE_CookieCallbacks_Subframe CookieCallbacks_Subframe
@@ -541,8 +552,15 @@ IN_PROC_BROWSER_TEST_F(WebContentsObserverBrowserTest,
   cookie_tracker.cookie_accesses().clear();
 }
 
+// TODO(https://crbug.com/1288573): Flaky on Mac.
+// TODO(https://crbug.com/1426973): Fix on android and enable it.
+#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_ANDROID)
+#define MAYBE_CookieCallbacks_Subresource DISABLED_CookieCallbacks_Subresource
+#else
+#define MAYBE_CookieCallbacks_Subresource CookieCallbacks_Subresource
+#endif
 IN_PROC_BROWSER_TEST_F(WebContentsObserverBrowserTest,
-                       CookieCallbacks_Subresource) {
+                       MAYBE_CookieCallbacks_Subresource) {
   CookieTracker cookie_tracker(web_contents());
 
   GURL first_party_url("http://a.com/");
@@ -679,8 +697,7 @@ class WebContentsObserverColorSchemeBrowserTest
   void SetUpCommandLine(base::CommandLine* command_line) override {
     WebContentsObserverBrowserTest::SetUpCommandLine(command_line);
     // ShellContentBrowserClient::OverrideWebkitPrefs() overrides the
-    // prefers-color-scheme according to switches::kForceDarkMode
-    // command line.
+    // prefers-color-scheme according to switches::kForceDarkMode command line.
     if (GetParam() == blink::mojom::PreferredColorScheme::kDark)
       command_line->AppendSwitch(switches::kForceDarkMode);
   }

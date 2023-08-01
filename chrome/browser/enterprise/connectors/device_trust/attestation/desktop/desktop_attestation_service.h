@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,55 +13,75 @@
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
 #include "base/task/task_runner.h"
+#include "chrome/browser/enterprise/connectors/device_trust/attestation/browser/google_keys.h"
 #include "chrome/browser/enterprise/connectors/device_trust/attestation/common/attestation_service.h"
-#include "chrome/browser/enterprise/connectors/device_trust/attestation/desktop/google_keys.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+
+namespace policy {
+class BrowserDMTokenStorage;
+class CloudPolicyStore;
+}  // namespace policy
 
 namespace enterprise_connectors {
 
 class DeviceTrustKeyManager;
-class DeviceTrustSignals;
 
 // This class is in charge of handling the key pair used for attestation. Also
 // provides the methods needed in the handshake between Chrome, an IdP and
 // Verified Access.
 class DesktopAttestationService : public AttestationService {
  public:
-  explicit DesktopAttestationService(DeviceTrustKeyManager* key_manager);
+  explicit DesktopAttestationService(
+      policy::BrowserDMTokenStorage* dm_token_storage,
+      DeviceTrustKeyManager* key_manager,
+      policy::CloudPolicyStore* browser_cloud_policy_store);
   ~DesktopAttestationService() override;
 
   // AttestationService:
   void BuildChallengeResponseForVAChallenge(
       const std::string& challenge,
-      std::unique_ptr<DeviceTrustSignals> signals,
+      base::Value::Dict signals,
+      const std::set<DTCPolicyLevel>& levels,
       AttestationCallback callback) override;
 
  private:
-  void OnPublicKeyExported(const std::string& challenge,
-                           std::unique_ptr<DeviceTrustSignals> signals,
+  void OnChallengeParsed(AttestationCallback callback,
+                         base::Value::Dict signals,
+                         const std::string& serialized_signed_challenge);
+
+  void OnPublicKeyExported(const std::string& serialized_signed_challenge,
+                           base::Value::Dict signals,
+                           const std::set<DTCPolicyLevel>& levels,
                            AttestationCallback callback,
                            absl::optional<std::string> exported_key);
 
-  void OnChallengeValidated(const SignedData& signed_data,
-                            const std::string& exported_public_key,
-                            std::unique_ptr<DeviceTrustSignals> signals,
-                            AttestationCallback callback,
-                            bool is_va_challenge);
+  void OnChallengeValidated(
+      const SignedData& signed_data,
+      const absl::optional<std::string>& exported_public_key,
+      base::Value::Dict signals,
+      const std::set<DTCPolicyLevel>& levels,
+      AttestationCallback callback,
+      bool is_va_challenge);
 
   void OnResponseCreated(AttestationCallback callback,
-                         absl::optional<std::string> serialized_response);
+                         absl::optional<std::string> encrypted_response);
 
-  void OnResponseSigned(
-      AttestationCallback callback,
-      const std::string& serialized_response,
-      absl::optional<std::vector<uint8_t>> encrypted_response);
+  void OnResponseSigned(AttestationCallback callback,
+                        const std::string& encrypted_response,
+                        absl::optional<std::vector<uint8_t>> signed_response);
 
   GoogleKeys google_keys_;
+
+  // Helper for handling DMToken and DeviceID.
+  const raw_ptr<policy::BrowserDMTokenStorage> dm_token_storage_;
 
   // Owned by the CBCMController, which is eventually owned by the browser
   // process. Since the current service is owned at the profile level, this
   // respects the browser shutdown sequence.
   raw_ptr<DeviceTrustKeyManager> key_manager_;
+
+  // Used for retrieving a managed devices customer ID.
+  const raw_ptr<policy::CloudPolicyStore> browser_cloud_policy_store_;
 
   // Runner for tasks needed to be run in the background.
   scoped_refptr<base::TaskRunner> background_task_runner_;

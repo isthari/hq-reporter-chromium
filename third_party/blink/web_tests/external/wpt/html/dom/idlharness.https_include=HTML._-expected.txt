@@ -1,11 +1,13 @@
 This is a testharness.js-based test.
-Found 3772 tests; 3750 PASS, 22 FAIL, 0 TIMEOUT, 0 NOTRUN.
+Found 3883 tests; 3870 PASS, 13 FAIL, 0 TIMEOUT, 0 NOTRUN.
 PASS idl_test setup
 PASS idl_test validation
 PASS Partial interface Document: original interface defined
 PASS Partial interface Document: member names are unique
 PASS Partial interface mixin DocumentOrShadowRoot: original interface mixin defined
 PASS Partial interface mixin DocumentOrShadowRoot: member names are unique
+PASS Partial interface Navigator: original interface defined
+PASS Partial interface Navigator: member names are unique
 PASS Partial interface mixin NavigatorID: original interface mixin defined
 PASS Partial interface mixin NavigatorID: member names are unique
 PASS Partial interface HTMLAnchorElement: original interface defined
@@ -54,8 +56,6 @@ PASS Partial interface HTMLOListElement: original interface defined
 PASS Partial interface HTMLOListElement: member names are unique
 PASS Partial interface HTMLParagraphElement: original interface defined
 PASS Partial interface HTMLParagraphElement: member names are unique
-PASS Partial interface HTMLParamElement: original interface defined
-PASS Partial interface HTMLParamElement: member names are unique
 PASS Partial interface HTMLPreElement: original interface defined
 PASS Partial interface HTMLPreElement: member names are unique
 PASS Partial interface HTMLStyleElement: original interface defined
@@ -83,9 +83,7 @@ PASS Partial interface MouseEvent: member names are unique
 PASS Partial interface UIEvent[2]: member names are unique
 PASS Partial dictionary UIEventInit: member names are unique
 PASS Document includes GlobalEventHandlers: member names are unique
-PASS Document includes DocumentAndElementEventHandlers: member names are unique
 PASS HTMLElement includes GlobalEventHandlers: member names are unique
-PASS HTMLElement includes DocumentAndElementEventHandlers: member names are unique
 PASS HTMLElement includes ElementContentEditable: member names are unique
 PASS HTMLElement includes HTMLOrSVGElement: member names are unique
 PASS HTMLLinkElement includes LinkStyle: member names are unique
@@ -93,6 +91,8 @@ PASS HTMLStyleElement includes LinkStyle: member names are unique
 PASS HTMLBodyElement includes WindowEventHandlers: member names are unique
 PASS HTMLAnchorElement includes HTMLHyperlinkElementUtils: member names are unique
 PASS HTMLAreaElement includes HTMLHyperlinkElementUtils: member names are unique
+PASS HTMLInputElement includes PopoverInvokerElement: member names are unique
+PASS HTMLButtonElement includes PopoverInvokerElement: member names are unique
 PASS CanvasRenderingContext2D includes CanvasState: member names are unique
 PASS CanvasRenderingContext2D includes CanvasTransform: member names are unique
 PASS CanvasRenderingContext2D includes CanvasCompositing: member names are unique
@@ -150,7 +150,6 @@ PASS Window includes WindowLocalStorage: member names are unique
 PASS HTMLFrameSetElement includes WindowEventHandlers: member names are unique
 PASS Element includes ARIAMixin: member names are unique
 PASS SVGElement includes GlobalEventHandlers: member names are unique
-PASS SVGElement includes DocumentAndElementEventHandlers: member names are unique
 PASS SVGElement includes SVGElementInstance: member names are unique
 PASS SVGElement includes HTMLOrSVGElement: member names are unique
 PASS SVGGraphicsElement includes SVGTests: member names are unique
@@ -227,6 +226,7 @@ PASS HTMLElement interface: attribute lang
 PASS HTMLElement interface: attribute translate
 PASS HTMLElement interface: attribute dir
 PASS HTMLElement interface: attribute hidden
+PASS HTMLElement interface: attribute inert
 PASS HTMLElement interface: operation click()
 PASS HTMLElement interface: attribute accessKey
 FAIL HTMLElement interface: attribute accessKeyLabel assert_true: The prototype object must have a property "accessKeyLabel" expected true got false
@@ -236,8 +236,15 @@ PASS HTMLElement interface: attribute autocapitalize
 PASS HTMLElement interface: attribute innerText
 PASS HTMLElement interface: attribute outerText
 PASS HTMLElement interface: operation attachInternals()
+PASS HTMLElement interface: operation showPopover()
+PASS HTMLElement interface: operation hidePopover()
+PASS HTMLElement interface: operation togglePopover(optional boolean)
+PASS HTMLElement interface: attribute popover
 PASS HTMLElement interface: attribute onabort
 PASS HTMLElement interface: attribute onauxclick
+PASS HTMLElement interface: attribute onbeforeinput
+PASS HTMLElement interface: attribute onbeforematch
+PASS HTMLElement interface: attribute onbeforetoggle
 PASS HTMLElement interface: attribute onblur
 PASS HTMLElement interface: attribute oncancel
 PASS HTMLElement interface: attribute oncanplay
@@ -245,10 +252,12 @@ PASS HTMLElement interface: attribute oncanplaythrough
 PASS HTMLElement interface: attribute onchange
 PASS HTMLElement interface: attribute onclick
 PASS HTMLElement interface: attribute onclose
-FAIL HTMLElement interface: attribute oncontextlost assert_true: The prototype object must have a property "oncontextlost" expected true got false
+PASS HTMLElement interface: attribute oncontextlost
 PASS HTMLElement interface: attribute oncontextmenu
-FAIL HTMLElement interface: attribute oncontextrestored assert_true: The prototype object must have a property "oncontextrestored" expected true got false
+PASS HTMLElement interface: attribute oncontextrestored
+PASS HTMLElement interface: attribute oncopy
 PASS HTMLElement interface: attribute oncuechange
+PASS HTMLElement interface: attribute oncut
 PASS HTMLElement interface: attribute ondblclick
 PASS HTMLElement interface: attribute ondrag
 PASS HTMLElement interface: attribute ondragend
@@ -279,6 +288,7 @@ PASS HTMLElement interface: attribute onmousemove
 PASS HTMLElement interface: attribute onmouseout
 PASS HTMLElement interface: attribute onmouseover
 PASS HTMLElement interface: attribute onmouseup
+PASS HTMLElement interface: attribute onpaste
 PASS HTMLElement interface: attribute onpause
 PASS HTMLElement interface: attribute onplay
 PASS HTMLElement interface: attribute onplaying
@@ -287,6 +297,7 @@ PASS HTMLElement interface: attribute onratechange
 PASS HTMLElement interface: attribute onreset
 PASS HTMLElement interface: attribute onresize
 PASS HTMLElement interface: attribute onscroll
+PASS HTMLElement interface: attribute onscrollend
 PASS HTMLElement interface: attribute onsecuritypolicyviolation
 PASS HTMLElement interface: attribute onseeked
 PASS HTMLElement interface: attribute onseeking
@@ -304,9 +315,6 @@ PASS HTMLElement interface: attribute onwebkitanimationiteration
 PASS HTMLElement interface: attribute onwebkitanimationstart
 PASS HTMLElement interface: attribute onwebkittransitionend
 PASS HTMLElement interface: attribute onwheel
-PASS HTMLElement interface: attribute oncopy
-PASS HTMLElement interface: attribute oncut
-PASS HTMLElement interface: attribute onpaste
 PASS HTMLElement interface: attribute contentEditable
 PASS HTMLElement interface: attribute enterKeyHint
 PASS HTMLElement interface: attribute isContentEditable
@@ -324,6 +332,7 @@ PASS HTMLElement interface: document.createElement("noscript") must inherit prop
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "translate" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "dir" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "hidden" with the proper type
+PASS HTMLElement interface: document.createElement("noscript") must inherit property "inert" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "click()" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "accessKey" with the proper type
 FAIL HTMLElement interface: document.createElement("noscript") must inherit property "accessKeyLabel" with the proper type assert_inherits: property "accessKeyLabel" not found in prototype chain
@@ -333,8 +342,16 @@ PASS HTMLElement interface: document.createElement("noscript") must inherit prop
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "innerText" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "outerText" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "attachInternals()" with the proper type
+PASS HTMLElement interface: document.createElement("noscript") must inherit property "showPopover()" with the proper type
+PASS HTMLElement interface: document.createElement("noscript") must inherit property "hidePopover()" with the proper type
+PASS HTMLElement interface: document.createElement("noscript") must inherit property "togglePopover(optional boolean)" with the proper type
+PASS HTMLElement interface: calling togglePopover(optional boolean) on document.createElement("noscript") with too few arguments must throw TypeError
+PASS HTMLElement interface: document.createElement("noscript") must inherit property "popover" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onabort" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onauxclick" with the proper type
+PASS HTMLElement interface: document.createElement("noscript") must inherit property "onbeforeinput" with the proper type
+PASS HTMLElement interface: document.createElement("noscript") must inherit property "onbeforematch" with the proper type
+PASS HTMLElement interface: document.createElement("noscript") must inherit property "onbeforetoggle" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onblur" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "oncancel" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "oncanplay" with the proper type
@@ -342,10 +359,12 @@ PASS HTMLElement interface: document.createElement("noscript") must inherit prop
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onchange" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onclick" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onclose" with the proper type
-FAIL HTMLElement interface: document.createElement("noscript") must inherit property "oncontextlost" with the proper type assert_inherits: property "oncontextlost" not found in prototype chain
+PASS HTMLElement interface: document.createElement("noscript") must inherit property "oncontextlost" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "oncontextmenu" with the proper type
-FAIL HTMLElement interface: document.createElement("noscript") must inherit property "oncontextrestored" with the proper type assert_inherits: property "oncontextrestored" not found in prototype chain
+PASS HTMLElement interface: document.createElement("noscript") must inherit property "oncontextrestored" with the proper type
+PASS HTMLElement interface: document.createElement("noscript") must inherit property "oncopy" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "oncuechange" with the proper type
+PASS HTMLElement interface: document.createElement("noscript") must inherit property "oncut" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "ondblclick" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "ondrag" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "ondragend" with the proper type
@@ -376,6 +395,7 @@ PASS HTMLElement interface: document.createElement("noscript") must inherit prop
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onmouseout" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onmouseover" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onmouseup" with the proper type
+PASS HTMLElement interface: document.createElement("noscript") must inherit property "onpaste" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onpause" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onplay" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onplaying" with the proper type
@@ -384,6 +404,7 @@ PASS HTMLElement interface: document.createElement("noscript") must inherit prop
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onreset" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onresize" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onscroll" with the proper type
+PASS HTMLElement interface: document.createElement("noscript") must inherit property "onscrollend" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onsecuritypolicyviolation" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onseeked" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onseeking" with the proper type
@@ -401,9 +422,6 @@ PASS HTMLElement interface: document.createElement("noscript") must inherit prop
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onwebkitanimationstart" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onwebkittransitionend" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "onwheel" with the proper type
-PASS HTMLElement interface: document.createElement("noscript") must inherit property "oncopy" with the proper type
-PASS HTMLElement interface: document.createElement("noscript") must inherit property "oncut" with the proper type
-PASS HTMLElement interface: document.createElement("noscript") must inherit property "onpaste" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "contentEditable" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "enterKeyHint" with the proper type
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "isContentEditable" with the proper type
@@ -415,6 +433,8 @@ PASS HTMLElement interface: document.createElement("noscript") must inherit prop
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "focus(optional FocusOptions)" with the proper type
 PASS HTMLElement interface: calling focus(optional FocusOptions) on document.createElement("noscript") with too few arguments must throw TypeError
 PASS HTMLElement interface: document.createElement("noscript") must inherit property "blur()" with the proper type
+PASS HTMLElement must be primary interface of Object.assign(document.createElement("noscript"),{popover:"auto"})
+PASS Stringification of Object.assign(document.createElement("noscript"),{popover:"auto"})
 PASS HTMLUnknownElement interface: existence and properties of interface object
 PASS HTMLUnknownElement interface object length
 PASS HTMLUnknownElement interface object name
@@ -482,7 +502,9 @@ PASS HTMLLinkElement interface: attribute sizes
 PASS HTMLLinkElement interface: attribute imageSrcset
 PASS HTMLLinkElement interface: attribute imageSizes
 PASS HTMLLinkElement interface: attribute referrerPolicy
+PASS HTMLLinkElement interface: attribute blocking
 PASS HTMLLinkElement interface: attribute disabled
+PASS HTMLLinkElement interface: attribute fetchPriority
 PASS HTMLLinkElement interface: attribute charset
 PASS HTMLLinkElement interface: attribute rev
 PASS HTMLLinkElement interface: attribute target
@@ -501,7 +523,9 @@ PASS HTMLLinkElement interface: document.createElement("link") must inherit prop
 PASS HTMLLinkElement interface: document.createElement("link") must inherit property "imageSrcset" with the proper type
 PASS HTMLLinkElement interface: document.createElement("link") must inherit property "imageSizes" with the proper type
 PASS HTMLLinkElement interface: document.createElement("link") must inherit property "referrerPolicy" with the proper type
+PASS HTMLLinkElement interface: document.createElement("link") must inherit property "blocking" with the proper type
 PASS HTMLLinkElement interface: document.createElement("link") must inherit property "disabled" with the proper type
+PASS HTMLLinkElement interface: document.createElement("link") must inherit property "fetchPriority" with the proper type
 PASS HTMLLinkElement interface: document.createElement("link") must inherit property "charset" with the proper type
 PASS HTMLLinkElement interface: document.createElement("link") must inherit property "rev" with the proper type
 PASS HTMLLinkElement interface: document.createElement("link") must inherit property "target" with the proper type
@@ -529,11 +553,15 @@ PASS HTMLStyleElement interface object name
 PASS HTMLStyleElement interface: existence and properties of interface prototype object
 PASS HTMLStyleElement interface: existence and properties of interface prototype object's "constructor" property
 PASS HTMLStyleElement interface: existence and properties of interface prototype object's @@unscopables property
+PASS HTMLStyleElement interface: attribute disabled
 PASS HTMLStyleElement interface: attribute media
+PASS HTMLStyleElement interface: attribute blocking
 PASS HTMLStyleElement interface: attribute type
 PASS HTMLStyleElement must be primary interface of document.createElement("style")
 PASS Stringification of document.createElement("style")
+PASS HTMLStyleElement interface: document.createElement("style") must inherit property "disabled" with the proper type
 PASS HTMLStyleElement interface: document.createElement("style") must inherit property "media" with the proper type
+PASS HTMLStyleElement interface: document.createElement("style") must inherit property "blocking" with the proper type
 PASS HTMLStyleElement interface: document.createElement("style") must inherit property "type" with the proper type
 PASS HTMLBodyElement interface: existence and properties of interface object
 PASS HTMLBodyElement interface object length
@@ -882,6 +910,7 @@ PASS HTMLImageElement interface: attribute currentSrc
 PASS HTMLImageElement interface: attribute referrerPolicy
 PASS HTMLImageElement interface: attribute decoding
 PASS HTMLImageElement interface: attribute loading
+PASS HTMLImageElement interface: attribute fetchPriority
 PASS HTMLImageElement interface: operation decode()
 PASS HTMLImageElement interface: attribute name
 PASS HTMLImageElement interface: attribute lowsrc
@@ -908,6 +937,7 @@ PASS HTMLImageElement interface: document.createElement("img") must inherit prop
 PASS HTMLImageElement interface: document.createElement("img") must inherit property "referrerPolicy" with the proper type
 PASS HTMLImageElement interface: document.createElement("img") must inherit property "decoding" with the proper type
 PASS HTMLImageElement interface: document.createElement("img") must inherit property "loading" with the proper type
+PASS HTMLImageElement interface: document.createElement("img") must inherit property "fetchPriority" with the proper type
 PASS HTMLImageElement interface: document.createElement("img") must inherit property "decode()" with the proper type
 PASS HTMLImageElement interface: document.createElement("img") must inherit property "name" with the proper type
 PASS HTMLImageElement interface: document.createElement("img") must inherit property "lowsrc" with the proper type
@@ -934,6 +964,7 @@ PASS HTMLImageElement interface: new Image() must inherit property "currentSrc" 
 PASS HTMLImageElement interface: new Image() must inherit property "referrerPolicy" with the proper type
 PASS HTMLImageElement interface: new Image() must inherit property "decoding" with the proper type
 PASS HTMLImageElement interface: new Image() must inherit property "loading" with the proper type
+PASS HTMLImageElement interface: new Image() must inherit property "fetchPriority" with the proper type
 PASS HTMLImageElement interface: new Image() must inherit property "decode()" with the proper type
 PASS HTMLImageElement interface: new Image() must inherit property "name" with the proper type
 PASS HTMLImageElement interface: new Image() must inherit property "lowsrc" with the proper type
@@ -1071,22 +1102,6 @@ PASS HTMLObjectElement interface: document.createElement("object") must inherit 
 PASS HTMLObjectElement interface: document.createElement("object") must inherit property "codeType" with the proper type
 PASS HTMLObjectElement interface: document.createElement("object") must inherit property "useMap" with the proper type
 PASS HTMLObjectElement interface: document.createElement("object") must inherit property "border" with the proper type
-PASS HTMLParamElement interface: existence and properties of interface object
-PASS HTMLParamElement interface object length
-PASS HTMLParamElement interface object name
-PASS HTMLParamElement interface: existence and properties of interface prototype object
-PASS HTMLParamElement interface: existence and properties of interface prototype object's "constructor" property
-PASS HTMLParamElement interface: existence and properties of interface prototype object's @@unscopables property
-PASS HTMLParamElement interface: attribute name
-PASS HTMLParamElement interface: attribute value
-PASS HTMLParamElement interface: attribute type
-PASS HTMLParamElement interface: attribute valueType
-PASS HTMLParamElement must be primary interface of document.createElement("param")
-PASS Stringification of document.createElement("param")
-PASS HTMLParamElement interface: document.createElement("param") must inherit property "name" with the proper type
-PASS HTMLParamElement interface: document.createElement("param") must inherit property "value" with the proper type
-PASS HTMLParamElement interface: document.createElement("param") must inherit property "type" with the proper type
-PASS HTMLParamElement interface: document.createElement("param") must inherit property "valueType" with the proper type
 PASS HTMLVideoElement interface: existence and properties of interface object
 PASS HTMLVideoElement interface object length
 PASS HTMLVideoElement interface object name
@@ -1660,8 +1675,8 @@ PASS HTMLFormElement interface: attribute method
 PASS HTMLFormElement interface: attribute name
 PASS HTMLFormElement interface: attribute noValidate
 PASS HTMLFormElement interface: attribute target
-FAIL HTMLFormElement interface: attribute rel assert_true: The prototype object must have a property "rel" expected true got false
-FAIL HTMLFormElement interface: attribute relList assert_true: The prototype object must have a property "relList" expected true got false
+PASS HTMLFormElement interface: attribute rel
+PASS HTMLFormElement interface: attribute relList
 PASS HTMLFormElement interface: attribute elements
 PASS HTMLFormElement interface: attribute length
 PASS HTMLFormElement interface: operation submit()
@@ -1680,8 +1695,8 @@ PASS HTMLFormElement interface: document.createElement("form") must inherit prop
 PASS HTMLFormElement interface: document.createElement("form") must inherit property "name" with the proper type
 PASS HTMLFormElement interface: document.createElement("form") must inherit property "noValidate" with the proper type
 PASS HTMLFormElement interface: document.createElement("form") must inherit property "target" with the proper type
-FAIL HTMLFormElement interface: document.createElement("form") must inherit property "rel" with the proper type assert_inherits: property "rel" not found in prototype chain
-FAIL HTMLFormElement interface: document.createElement("form") must inherit property "relList" with the proper type assert_inherits: property "relList" not found in prototype chain
+PASS HTMLFormElement interface: document.createElement("form") must inherit property "rel" with the proper type
+PASS HTMLFormElement interface: document.createElement("form") must inherit property "relList" with the proper type
 PASS HTMLFormElement interface: document.createElement("form") must inherit property "elements" with the proper type
 PASS HTMLFormElement interface: document.createElement("form") must inherit property "length" with the proper type
 PASS HTMLFormElement interface: document.createElement("form") must inherit property "submit()" with the proper type
@@ -1762,8 +1777,11 @@ PASS HTMLInputElement interface: attribute selectionDirection
 PASS HTMLInputElement interface: operation setRangeText(DOMString)
 PASS HTMLInputElement interface: operation setRangeText(DOMString, unsigned long, unsigned long, optional SelectionMode)
 PASS HTMLInputElement interface: operation setSelectionRange(unsigned long, unsigned long, optional DOMString)
+PASS HTMLInputElement interface: operation showPicker()
 PASS HTMLInputElement interface: attribute align
 PASS HTMLInputElement interface: attribute useMap
+PASS HTMLInputElement interface: attribute popoverTargetElement
+PASS HTMLInputElement interface: attribute popoverTargetAction
 PASS HTMLInputElement must be primary interface of document.createElement("input")
 PASS Stringification of document.createElement("input")
 PASS HTMLInputElement interface: document.createElement("input") must inherit property "accept" with the proper type
@@ -1824,8 +1842,11 @@ PASS HTMLInputElement interface: document.createElement("input") must inherit pr
 PASS HTMLInputElement interface: calling setRangeText(DOMString, unsigned long, unsigned long, optional SelectionMode) on document.createElement("input") with too few arguments must throw TypeError
 PASS HTMLInputElement interface: document.createElement("input") must inherit property "setSelectionRange(unsigned long, unsigned long, optional DOMString)" with the proper type
 PASS HTMLInputElement interface: calling setSelectionRange(unsigned long, unsigned long, optional DOMString) on document.createElement("input") with too few arguments must throw TypeError
+PASS HTMLInputElement interface: document.createElement("input") must inherit property "showPicker()" with the proper type
 PASS HTMLInputElement interface: document.createElement("input") must inherit property "align" with the proper type
 PASS HTMLInputElement interface: document.createElement("input") must inherit property "useMap" with the proper type
+PASS HTMLInputElement interface: document.createElement("input") must inherit property "popoverTargetElement" with the proper type
+PASS HTMLInputElement interface: document.createElement("input") must inherit property "popoverTargetAction" with the proper type
 PASS HTMLInputElement must be primary interface of createInput("text")
 PASS Stringification of createInput("text")
 PASS HTMLInputElement interface: createInput("text") must inherit property "accept" with the proper type
@@ -1886,8 +1907,11 @@ PASS HTMLInputElement interface: createInput("text") must inherit property "setR
 PASS HTMLInputElement interface: calling setRangeText(DOMString, unsigned long, unsigned long, optional SelectionMode) on createInput("text") with too few arguments must throw TypeError
 PASS HTMLInputElement interface: createInput("text") must inherit property "setSelectionRange(unsigned long, unsigned long, optional DOMString)" with the proper type
 PASS HTMLInputElement interface: calling setSelectionRange(unsigned long, unsigned long, optional DOMString) on createInput("text") with too few arguments must throw TypeError
+PASS HTMLInputElement interface: createInput("text") must inherit property "showPicker()" with the proper type
 PASS HTMLInputElement interface: createInput("text") must inherit property "align" with the proper type
 PASS HTMLInputElement interface: createInput("text") must inherit property "useMap" with the proper type
+PASS HTMLInputElement interface: createInput("text") must inherit property "popoverTargetElement" with the proper type
+PASS HTMLInputElement interface: createInput("text") must inherit property "popoverTargetAction" with the proper type
 PASS HTMLInputElement must be primary interface of createInput("hidden")
 PASS Stringification of createInput("hidden")
 PASS HTMLInputElement interface: createInput("hidden") must inherit property "accept" with the proper type
@@ -1948,8 +1972,11 @@ PASS HTMLInputElement interface: createInput("hidden") must inherit property "se
 PASS HTMLInputElement interface: calling setRangeText(DOMString, unsigned long, unsigned long, optional SelectionMode) on createInput("hidden") with too few arguments must throw TypeError
 PASS HTMLInputElement interface: createInput("hidden") must inherit property "setSelectionRange(unsigned long, unsigned long, optional DOMString)" with the proper type
 PASS HTMLInputElement interface: calling setSelectionRange(unsigned long, unsigned long, optional DOMString) on createInput("hidden") with too few arguments must throw TypeError
+PASS HTMLInputElement interface: createInput("hidden") must inherit property "showPicker()" with the proper type
 PASS HTMLInputElement interface: createInput("hidden") must inherit property "align" with the proper type
 PASS HTMLInputElement interface: createInput("hidden") must inherit property "useMap" with the proper type
+PASS HTMLInputElement interface: createInput("hidden") must inherit property "popoverTargetElement" with the proper type
+PASS HTMLInputElement interface: createInput("hidden") must inherit property "popoverTargetAction" with the proper type
 PASS HTMLInputElement must be primary interface of createInput("search")
 PASS Stringification of createInput("search")
 PASS HTMLInputElement interface: createInput("search") must inherit property "accept" with the proper type
@@ -2010,8 +2037,11 @@ PASS HTMLInputElement interface: createInput("search") must inherit property "se
 PASS HTMLInputElement interface: calling setRangeText(DOMString, unsigned long, unsigned long, optional SelectionMode) on createInput("search") with too few arguments must throw TypeError
 PASS HTMLInputElement interface: createInput("search") must inherit property "setSelectionRange(unsigned long, unsigned long, optional DOMString)" with the proper type
 PASS HTMLInputElement interface: calling setSelectionRange(unsigned long, unsigned long, optional DOMString) on createInput("search") with too few arguments must throw TypeError
+PASS HTMLInputElement interface: createInput("search") must inherit property "showPicker()" with the proper type
 PASS HTMLInputElement interface: createInput("search") must inherit property "align" with the proper type
 PASS HTMLInputElement interface: createInput("search") must inherit property "useMap" with the proper type
+PASS HTMLInputElement interface: createInput("search") must inherit property "popoverTargetElement" with the proper type
+PASS HTMLInputElement interface: createInput("search") must inherit property "popoverTargetAction" with the proper type
 PASS HTMLInputElement must be primary interface of createInput("tel")
 PASS Stringification of createInput("tel")
 PASS HTMLInputElement interface: createInput("tel") must inherit property "accept" with the proper type
@@ -2072,8 +2102,11 @@ PASS HTMLInputElement interface: createInput("tel") must inherit property "setRa
 PASS HTMLInputElement interface: calling setRangeText(DOMString, unsigned long, unsigned long, optional SelectionMode) on createInput("tel") with too few arguments must throw TypeError
 PASS HTMLInputElement interface: createInput("tel") must inherit property "setSelectionRange(unsigned long, unsigned long, optional DOMString)" with the proper type
 PASS HTMLInputElement interface: calling setSelectionRange(unsigned long, unsigned long, optional DOMString) on createInput("tel") with too few arguments must throw TypeError
+PASS HTMLInputElement interface: createInput("tel") must inherit property "showPicker()" with the proper type
 PASS HTMLInputElement interface: createInput("tel") must inherit property "align" with the proper type
 PASS HTMLInputElement interface: createInput("tel") must inherit property "useMap" with the proper type
+PASS HTMLInputElement interface: createInput("tel") must inherit property "popoverTargetElement" with the proper type
+PASS HTMLInputElement interface: createInput("tel") must inherit property "popoverTargetAction" with the proper type
 PASS HTMLInputElement must be primary interface of createInput("url")
 PASS Stringification of createInput("url")
 PASS HTMLInputElement interface: createInput("url") must inherit property "accept" with the proper type
@@ -2134,8 +2167,11 @@ PASS HTMLInputElement interface: createInput("url") must inherit property "setRa
 PASS HTMLInputElement interface: calling setRangeText(DOMString, unsigned long, unsigned long, optional SelectionMode) on createInput("url") with too few arguments must throw TypeError
 PASS HTMLInputElement interface: createInput("url") must inherit property "setSelectionRange(unsigned long, unsigned long, optional DOMString)" with the proper type
 PASS HTMLInputElement interface: calling setSelectionRange(unsigned long, unsigned long, optional DOMString) on createInput("url") with too few arguments must throw TypeError
+PASS HTMLInputElement interface: createInput("url") must inherit property "showPicker()" with the proper type
 PASS HTMLInputElement interface: createInput("url") must inherit property "align" with the proper type
 PASS HTMLInputElement interface: createInput("url") must inherit property "useMap" with the proper type
+PASS HTMLInputElement interface: createInput("url") must inherit property "popoverTargetElement" with the proper type
+PASS HTMLInputElement interface: createInput("url") must inherit property "popoverTargetAction" with the proper type
 PASS HTMLInputElement must be primary interface of createInput("email")
 PASS Stringification of createInput("email")
 PASS HTMLInputElement interface: createInput("email") must inherit property "accept" with the proper type
@@ -2196,8 +2232,11 @@ PASS HTMLInputElement interface: createInput("email") must inherit property "set
 PASS HTMLInputElement interface: calling setRangeText(DOMString, unsigned long, unsigned long, optional SelectionMode) on createInput("email") with too few arguments must throw TypeError
 PASS HTMLInputElement interface: createInput("email") must inherit property "setSelectionRange(unsigned long, unsigned long, optional DOMString)" with the proper type
 PASS HTMLInputElement interface: calling setSelectionRange(unsigned long, unsigned long, optional DOMString) on createInput("email") with too few arguments must throw TypeError
+PASS HTMLInputElement interface: createInput("email") must inherit property "showPicker()" with the proper type
 PASS HTMLInputElement interface: createInput("email") must inherit property "align" with the proper type
 PASS HTMLInputElement interface: createInput("email") must inherit property "useMap" with the proper type
+PASS HTMLInputElement interface: createInput("email") must inherit property "popoverTargetElement" with the proper type
+PASS HTMLInputElement interface: createInput("email") must inherit property "popoverTargetAction" with the proper type
 PASS HTMLInputElement must be primary interface of createInput("password")
 PASS Stringification of createInput("password")
 PASS HTMLInputElement interface: createInput("password") must inherit property "accept" with the proper type
@@ -2258,8 +2297,11 @@ PASS HTMLInputElement interface: createInput("password") must inherit property "
 PASS HTMLInputElement interface: calling setRangeText(DOMString, unsigned long, unsigned long, optional SelectionMode) on createInput("password") with too few arguments must throw TypeError
 PASS HTMLInputElement interface: createInput("password") must inherit property "setSelectionRange(unsigned long, unsigned long, optional DOMString)" with the proper type
 PASS HTMLInputElement interface: calling setSelectionRange(unsigned long, unsigned long, optional DOMString) on createInput("password") with too few arguments must throw TypeError
+PASS HTMLInputElement interface: createInput("password") must inherit property "showPicker()" with the proper type
 PASS HTMLInputElement interface: createInput("password") must inherit property "align" with the proper type
 PASS HTMLInputElement interface: createInput("password") must inherit property "useMap" with the proper type
+PASS HTMLInputElement interface: createInput("password") must inherit property "popoverTargetElement" with the proper type
+PASS HTMLInputElement interface: createInput("password") must inherit property "popoverTargetAction" with the proper type
 PASS HTMLInputElement must be primary interface of createInput("date")
 PASS Stringification of createInput("date")
 PASS HTMLInputElement interface: createInput("date") must inherit property "accept" with the proper type
@@ -2320,8 +2362,11 @@ PASS HTMLInputElement interface: createInput("date") must inherit property "setR
 PASS HTMLInputElement interface: calling setRangeText(DOMString, unsigned long, unsigned long, optional SelectionMode) on createInput("date") with too few arguments must throw TypeError
 PASS HTMLInputElement interface: createInput("date") must inherit property "setSelectionRange(unsigned long, unsigned long, optional DOMString)" with the proper type
 PASS HTMLInputElement interface: calling setSelectionRange(unsigned long, unsigned long, optional DOMString) on createInput("date") with too few arguments must throw TypeError
+PASS HTMLInputElement interface: createInput("date") must inherit property "showPicker()" with the proper type
 PASS HTMLInputElement interface: createInput("date") must inherit property "align" with the proper type
 PASS HTMLInputElement interface: createInput("date") must inherit property "useMap" with the proper type
+PASS HTMLInputElement interface: createInput("date") must inherit property "popoverTargetElement" with the proper type
+PASS HTMLInputElement interface: createInput("date") must inherit property "popoverTargetAction" with the proper type
 PASS HTMLInputElement must be primary interface of createInput("month")
 PASS Stringification of createInput("month")
 PASS HTMLInputElement interface: createInput("month") must inherit property "accept" with the proper type
@@ -2382,8 +2427,11 @@ PASS HTMLInputElement interface: createInput("month") must inherit property "set
 PASS HTMLInputElement interface: calling setRangeText(DOMString, unsigned long, unsigned long, optional SelectionMode) on createInput("month") with too few arguments must throw TypeError
 PASS HTMLInputElement interface: createInput("month") must inherit property "setSelectionRange(unsigned long, unsigned long, optional DOMString)" with the proper type
 PASS HTMLInputElement interface: calling setSelectionRange(unsigned long, unsigned long, optional DOMString) on createInput("month") with too few arguments must throw TypeError
+PASS HTMLInputElement interface: createInput("month") must inherit property "showPicker()" with the proper type
 PASS HTMLInputElement interface: createInput("month") must inherit property "align" with the proper type
 PASS HTMLInputElement interface: createInput("month") must inherit property "useMap" with the proper type
+PASS HTMLInputElement interface: createInput("month") must inherit property "popoverTargetElement" with the proper type
+PASS HTMLInputElement interface: createInput("month") must inherit property "popoverTargetAction" with the proper type
 PASS HTMLInputElement must be primary interface of createInput("week")
 PASS Stringification of createInput("week")
 PASS HTMLInputElement interface: createInput("week") must inherit property "accept" with the proper type
@@ -2444,8 +2492,11 @@ PASS HTMLInputElement interface: createInput("week") must inherit property "setR
 PASS HTMLInputElement interface: calling setRangeText(DOMString, unsigned long, unsigned long, optional SelectionMode) on createInput("week") with too few arguments must throw TypeError
 PASS HTMLInputElement interface: createInput("week") must inherit property "setSelectionRange(unsigned long, unsigned long, optional DOMString)" with the proper type
 PASS HTMLInputElement interface: calling setSelectionRange(unsigned long, unsigned long, optional DOMString) on createInput("week") with too few arguments must throw TypeError
+PASS HTMLInputElement interface: createInput("week") must inherit property "showPicker()" with the proper type
 PASS HTMLInputElement interface: createInput("week") must inherit property "align" with the proper type
 PASS HTMLInputElement interface: createInput("week") must inherit property "useMap" with the proper type
+PASS HTMLInputElement interface: createInput("week") must inherit property "popoverTargetElement" with the proper type
+PASS HTMLInputElement interface: createInput("week") must inherit property "popoverTargetAction" with the proper type
 PASS HTMLInputElement must be primary interface of createInput("time")
 PASS Stringification of createInput("time")
 PASS HTMLInputElement interface: createInput("time") must inherit property "accept" with the proper type
@@ -2506,8 +2557,11 @@ PASS HTMLInputElement interface: createInput("time") must inherit property "setR
 PASS HTMLInputElement interface: calling setRangeText(DOMString, unsigned long, unsigned long, optional SelectionMode) on createInput("time") with too few arguments must throw TypeError
 PASS HTMLInputElement interface: createInput("time") must inherit property "setSelectionRange(unsigned long, unsigned long, optional DOMString)" with the proper type
 PASS HTMLInputElement interface: calling setSelectionRange(unsigned long, unsigned long, optional DOMString) on createInput("time") with too few arguments must throw TypeError
+PASS HTMLInputElement interface: createInput("time") must inherit property "showPicker()" with the proper type
 PASS HTMLInputElement interface: createInput("time") must inherit property "align" with the proper type
 PASS HTMLInputElement interface: createInput("time") must inherit property "useMap" with the proper type
+PASS HTMLInputElement interface: createInput("time") must inherit property "popoverTargetElement" with the proper type
+PASS HTMLInputElement interface: createInput("time") must inherit property "popoverTargetAction" with the proper type
 PASS HTMLInputElement must be primary interface of createInput("datetime-local")
 PASS Stringification of createInput("datetime-local")
 PASS HTMLInputElement interface: createInput("datetime-local") must inherit property "accept" with the proper type
@@ -2568,8 +2622,11 @@ PASS HTMLInputElement interface: createInput("datetime-local") must inherit prop
 PASS HTMLInputElement interface: calling setRangeText(DOMString, unsigned long, unsigned long, optional SelectionMode) on createInput("datetime-local") with too few arguments must throw TypeError
 PASS HTMLInputElement interface: createInput("datetime-local") must inherit property "setSelectionRange(unsigned long, unsigned long, optional DOMString)" with the proper type
 PASS HTMLInputElement interface: calling setSelectionRange(unsigned long, unsigned long, optional DOMString) on createInput("datetime-local") with too few arguments must throw TypeError
+PASS HTMLInputElement interface: createInput("datetime-local") must inherit property "showPicker()" with the proper type
 PASS HTMLInputElement interface: createInput("datetime-local") must inherit property "align" with the proper type
 PASS HTMLInputElement interface: createInput("datetime-local") must inherit property "useMap" with the proper type
+PASS HTMLInputElement interface: createInput("datetime-local") must inherit property "popoverTargetElement" with the proper type
+PASS HTMLInputElement interface: createInput("datetime-local") must inherit property "popoverTargetAction" with the proper type
 PASS HTMLInputElement must be primary interface of createInput("number")
 PASS Stringification of createInput("number")
 PASS HTMLInputElement interface: createInput("number") must inherit property "accept" with the proper type
@@ -2630,8 +2687,11 @@ PASS HTMLInputElement interface: createInput("number") must inherit property "se
 PASS HTMLInputElement interface: calling setRangeText(DOMString, unsigned long, unsigned long, optional SelectionMode) on createInput("number") with too few arguments must throw TypeError
 PASS HTMLInputElement interface: createInput("number") must inherit property "setSelectionRange(unsigned long, unsigned long, optional DOMString)" with the proper type
 PASS HTMLInputElement interface: calling setSelectionRange(unsigned long, unsigned long, optional DOMString) on createInput("number") with too few arguments must throw TypeError
+PASS HTMLInputElement interface: createInput("number") must inherit property "showPicker()" with the proper type
 PASS HTMLInputElement interface: createInput("number") must inherit property "align" with the proper type
 PASS HTMLInputElement interface: createInput("number") must inherit property "useMap" with the proper type
+PASS HTMLInputElement interface: createInput("number") must inherit property "popoverTargetElement" with the proper type
+PASS HTMLInputElement interface: createInput("number") must inherit property "popoverTargetAction" with the proper type
 PASS HTMLInputElement must be primary interface of createInput("range")
 PASS Stringification of createInput("range")
 PASS HTMLInputElement interface: createInput("range") must inherit property "accept" with the proper type
@@ -2692,8 +2752,11 @@ PASS HTMLInputElement interface: createInput("range") must inherit property "set
 PASS HTMLInputElement interface: calling setRangeText(DOMString, unsigned long, unsigned long, optional SelectionMode) on createInput("range") with too few arguments must throw TypeError
 PASS HTMLInputElement interface: createInput("range") must inherit property "setSelectionRange(unsigned long, unsigned long, optional DOMString)" with the proper type
 PASS HTMLInputElement interface: calling setSelectionRange(unsigned long, unsigned long, optional DOMString) on createInput("range") with too few arguments must throw TypeError
+PASS HTMLInputElement interface: createInput("range") must inherit property "showPicker()" with the proper type
 PASS HTMLInputElement interface: createInput("range") must inherit property "align" with the proper type
 PASS HTMLInputElement interface: createInput("range") must inherit property "useMap" with the proper type
+PASS HTMLInputElement interface: createInput("range") must inherit property "popoverTargetElement" with the proper type
+PASS HTMLInputElement interface: createInput("range") must inherit property "popoverTargetAction" with the proper type
 PASS HTMLInputElement must be primary interface of createInput("color")
 PASS Stringification of createInput("color")
 PASS HTMLInputElement interface: createInput("color") must inherit property "accept" with the proper type
@@ -2754,8 +2817,11 @@ PASS HTMLInputElement interface: createInput("color") must inherit property "set
 PASS HTMLInputElement interface: calling setRangeText(DOMString, unsigned long, unsigned long, optional SelectionMode) on createInput("color") with too few arguments must throw TypeError
 PASS HTMLInputElement interface: createInput("color") must inherit property "setSelectionRange(unsigned long, unsigned long, optional DOMString)" with the proper type
 PASS HTMLInputElement interface: calling setSelectionRange(unsigned long, unsigned long, optional DOMString) on createInput("color") with too few arguments must throw TypeError
+PASS HTMLInputElement interface: createInput("color") must inherit property "showPicker()" with the proper type
 PASS HTMLInputElement interface: createInput("color") must inherit property "align" with the proper type
 PASS HTMLInputElement interface: createInput("color") must inherit property "useMap" with the proper type
+PASS HTMLInputElement interface: createInput("color") must inherit property "popoverTargetElement" with the proper type
+PASS HTMLInputElement interface: createInput("color") must inherit property "popoverTargetAction" with the proper type
 PASS HTMLInputElement must be primary interface of createInput("checkbox")
 PASS Stringification of createInput("checkbox")
 PASS HTMLInputElement interface: createInput("checkbox") must inherit property "accept" with the proper type
@@ -2816,8 +2882,11 @@ PASS HTMLInputElement interface: createInput("checkbox") must inherit property "
 PASS HTMLInputElement interface: calling setRangeText(DOMString, unsigned long, unsigned long, optional SelectionMode) on createInput("checkbox") with too few arguments must throw TypeError
 PASS HTMLInputElement interface: createInput("checkbox") must inherit property "setSelectionRange(unsigned long, unsigned long, optional DOMString)" with the proper type
 PASS HTMLInputElement interface: calling setSelectionRange(unsigned long, unsigned long, optional DOMString) on createInput("checkbox") with too few arguments must throw TypeError
+PASS HTMLInputElement interface: createInput("checkbox") must inherit property "showPicker()" with the proper type
 PASS HTMLInputElement interface: createInput("checkbox") must inherit property "align" with the proper type
 PASS HTMLInputElement interface: createInput("checkbox") must inherit property "useMap" with the proper type
+PASS HTMLInputElement interface: createInput("checkbox") must inherit property "popoverTargetElement" with the proper type
+PASS HTMLInputElement interface: createInput("checkbox") must inherit property "popoverTargetAction" with the proper type
 PASS HTMLInputElement must be primary interface of createInput("radio")
 PASS Stringification of createInput("radio")
 PASS HTMLInputElement interface: createInput("radio") must inherit property "accept" with the proper type
@@ -2878,8 +2947,11 @@ PASS HTMLInputElement interface: createInput("radio") must inherit property "set
 PASS HTMLInputElement interface: calling setRangeText(DOMString, unsigned long, unsigned long, optional SelectionMode) on createInput("radio") with too few arguments must throw TypeError
 PASS HTMLInputElement interface: createInput("radio") must inherit property "setSelectionRange(unsigned long, unsigned long, optional DOMString)" with the proper type
 PASS HTMLInputElement interface: calling setSelectionRange(unsigned long, unsigned long, optional DOMString) on createInput("radio") with too few arguments must throw TypeError
+PASS HTMLInputElement interface: createInput("radio") must inherit property "showPicker()" with the proper type
 PASS HTMLInputElement interface: createInput("radio") must inherit property "align" with the proper type
 PASS HTMLInputElement interface: createInput("radio") must inherit property "useMap" with the proper type
+PASS HTMLInputElement interface: createInput("radio") must inherit property "popoverTargetElement" with the proper type
+PASS HTMLInputElement interface: createInput("radio") must inherit property "popoverTargetAction" with the proper type
 PASS HTMLInputElement must be primary interface of createInput("file")
 PASS Stringification of createInput("file")
 PASS HTMLInputElement interface: createInput("file") must inherit property "accept" with the proper type
@@ -2940,8 +3012,11 @@ PASS HTMLInputElement interface: createInput("file") must inherit property "setR
 PASS HTMLInputElement interface: calling setRangeText(DOMString, unsigned long, unsigned long, optional SelectionMode) on createInput("file") with too few arguments must throw TypeError
 PASS HTMLInputElement interface: createInput("file") must inherit property "setSelectionRange(unsigned long, unsigned long, optional DOMString)" with the proper type
 PASS HTMLInputElement interface: calling setSelectionRange(unsigned long, unsigned long, optional DOMString) on createInput("file") with too few arguments must throw TypeError
+PASS HTMLInputElement interface: createInput("file") must inherit property "showPicker()" with the proper type
 PASS HTMLInputElement interface: createInput("file") must inherit property "align" with the proper type
 PASS HTMLInputElement interface: createInput("file") must inherit property "useMap" with the proper type
+PASS HTMLInputElement interface: createInput("file") must inherit property "popoverTargetElement" with the proper type
+PASS HTMLInputElement interface: createInput("file") must inherit property "popoverTargetAction" with the proper type
 PASS HTMLInputElement must be primary interface of createInput("submit")
 PASS Stringification of createInput("submit")
 PASS HTMLInputElement interface: createInput("submit") must inherit property "accept" with the proper type
@@ -3002,8 +3077,11 @@ PASS HTMLInputElement interface: createInput("submit") must inherit property "se
 PASS HTMLInputElement interface: calling setRangeText(DOMString, unsigned long, unsigned long, optional SelectionMode) on createInput("submit") with too few arguments must throw TypeError
 PASS HTMLInputElement interface: createInput("submit") must inherit property "setSelectionRange(unsigned long, unsigned long, optional DOMString)" with the proper type
 PASS HTMLInputElement interface: calling setSelectionRange(unsigned long, unsigned long, optional DOMString) on createInput("submit") with too few arguments must throw TypeError
+PASS HTMLInputElement interface: createInput("submit") must inherit property "showPicker()" with the proper type
 PASS HTMLInputElement interface: createInput("submit") must inherit property "align" with the proper type
 PASS HTMLInputElement interface: createInput("submit") must inherit property "useMap" with the proper type
+PASS HTMLInputElement interface: createInput("submit") must inherit property "popoverTargetElement" with the proper type
+PASS HTMLInputElement interface: createInput("submit") must inherit property "popoverTargetAction" with the proper type
 PASS HTMLInputElement must be primary interface of createInput("image")
 PASS Stringification of createInput("image")
 PASS HTMLInputElement interface: createInput("image") must inherit property "accept" with the proper type
@@ -3064,8 +3142,11 @@ PASS HTMLInputElement interface: createInput("image") must inherit property "set
 PASS HTMLInputElement interface: calling setRangeText(DOMString, unsigned long, unsigned long, optional SelectionMode) on createInput("image") with too few arguments must throw TypeError
 PASS HTMLInputElement interface: createInput("image") must inherit property "setSelectionRange(unsigned long, unsigned long, optional DOMString)" with the proper type
 PASS HTMLInputElement interface: calling setSelectionRange(unsigned long, unsigned long, optional DOMString) on createInput("image") with too few arguments must throw TypeError
+PASS HTMLInputElement interface: createInput("image") must inherit property "showPicker()" with the proper type
 PASS HTMLInputElement interface: createInput("image") must inherit property "align" with the proper type
 PASS HTMLInputElement interface: createInput("image") must inherit property "useMap" with the proper type
+PASS HTMLInputElement interface: createInput("image") must inherit property "popoverTargetElement" with the proper type
+PASS HTMLInputElement interface: createInput("image") must inherit property "popoverTargetAction" with the proper type
 PASS HTMLInputElement must be primary interface of createInput("reset")
 PASS Stringification of createInput("reset")
 PASS HTMLInputElement interface: createInput("reset") must inherit property "accept" with the proper type
@@ -3126,8 +3207,11 @@ PASS HTMLInputElement interface: createInput("reset") must inherit property "set
 PASS HTMLInputElement interface: calling setRangeText(DOMString, unsigned long, unsigned long, optional SelectionMode) on createInput("reset") with too few arguments must throw TypeError
 PASS HTMLInputElement interface: createInput("reset") must inherit property "setSelectionRange(unsigned long, unsigned long, optional DOMString)" with the proper type
 PASS HTMLInputElement interface: calling setSelectionRange(unsigned long, unsigned long, optional DOMString) on createInput("reset") with too few arguments must throw TypeError
+PASS HTMLInputElement interface: createInput("reset") must inherit property "showPicker()" with the proper type
 PASS HTMLInputElement interface: createInput("reset") must inherit property "align" with the proper type
 PASS HTMLInputElement interface: createInput("reset") must inherit property "useMap" with the proper type
+PASS HTMLInputElement interface: createInput("reset") must inherit property "popoverTargetElement" with the proper type
+PASS HTMLInputElement interface: createInput("reset") must inherit property "popoverTargetAction" with the proper type
 PASS HTMLInputElement must be primary interface of createInput("button")
 PASS Stringification of createInput("button")
 PASS HTMLInputElement interface: createInput("button") must inherit property "accept" with the proper type
@@ -3188,8 +3272,11 @@ PASS HTMLInputElement interface: createInput("button") must inherit property "se
 PASS HTMLInputElement interface: calling setRangeText(DOMString, unsigned long, unsigned long, optional SelectionMode) on createInput("button") with too few arguments must throw TypeError
 PASS HTMLInputElement interface: createInput("button") must inherit property "setSelectionRange(unsigned long, unsigned long, optional DOMString)" with the proper type
 PASS HTMLInputElement interface: calling setSelectionRange(unsigned long, unsigned long, optional DOMString) on createInput("button") with too few arguments must throw TypeError
+PASS HTMLInputElement interface: createInput("button") must inherit property "showPicker()" with the proper type
 PASS HTMLInputElement interface: createInput("button") must inherit property "align" with the proper type
 PASS HTMLInputElement interface: createInput("button") must inherit property "useMap" with the proper type
+PASS HTMLInputElement interface: createInput("button") must inherit property "popoverTargetElement" with the proper type
+PASS HTMLInputElement interface: createInput("button") must inherit property "popoverTargetAction" with the proper type
 PASS HTMLButtonElement interface: existence and properties of interface object
 PASS HTMLButtonElement interface object length
 PASS HTMLButtonElement interface object name
@@ -3213,6 +3300,8 @@ PASS HTMLButtonElement interface: operation checkValidity()
 PASS HTMLButtonElement interface: operation reportValidity()
 PASS HTMLButtonElement interface: operation setCustomValidity(DOMString)
 PASS HTMLButtonElement interface: attribute labels
+PASS HTMLButtonElement interface: attribute popoverTargetElement
+PASS HTMLButtonElement interface: attribute popoverTargetAction
 PASS HTMLButtonElement must be primary interface of document.createElement("button")
 PASS Stringification of document.createElement("button")
 PASS HTMLButtonElement interface: document.createElement("button") must inherit property "disabled" with the proper type
@@ -3233,6 +3322,8 @@ PASS HTMLButtonElement interface: document.createElement("button") must inherit 
 PASS HTMLButtonElement interface: document.createElement("button") must inherit property "setCustomValidity(DOMString)" with the proper type
 PASS HTMLButtonElement interface: calling setCustomValidity(DOMString) on document.createElement("button") with too few arguments must throw TypeError
 PASS HTMLButtonElement interface: document.createElement("button") must inherit property "labels" with the proper type
+PASS HTMLButtonElement interface: document.createElement("button") must inherit property "popoverTargetElement" with the proper type
+PASS HTMLButtonElement interface: document.createElement("button") must inherit property "popoverTargetAction" with the proper type
 PASS HTMLSelectElement interface: existence and properties of interface object
 PASS HTMLSelectElement interface object length
 PASS HTMLSelectElement interface object name
@@ -3570,6 +3661,8 @@ PASS HTMLScriptElement interface: attribute crossOrigin
 PASS HTMLScriptElement interface: attribute text
 PASS HTMLScriptElement interface: attribute integrity
 PASS HTMLScriptElement interface: attribute referrerPolicy
+PASS HTMLScriptElement interface: attribute blocking
+PASS HTMLScriptElement interface: attribute fetchPriority
 PASS HTMLScriptElement interface: operation supports(DOMString)
 PASS HTMLScriptElement interface: attribute charset
 PASS HTMLScriptElement interface: attribute event
@@ -3584,7 +3677,9 @@ PASS HTMLScriptElement interface: document.createElement("script") must inherit 
 PASS HTMLScriptElement interface: document.createElement("script") must inherit property "crossOrigin" with the proper type
 PASS HTMLScriptElement interface: document.createElement("script") must inherit property "text" with the proper type
 PASS HTMLScriptElement interface: document.createElement("script") must inherit property "integrity" with the proper type
-FAIL HTMLScriptElement interface: document.createElement("script") must inherit property "referrerPolicy" with the proper type assert_equals: expected "string" but got "object"
+PASS HTMLScriptElement interface: document.createElement("script") must inherit property "referrerPolicy" with the proper type
+PASS HTMLScriptElement interface: document.createElement("script") must inherit property "blocking" with the proper type
+PASS HTMLScriptElement interface: document.createElement("script") must inherit property "fetchPriority" with the proper type
 PASS HTMLScriptElement interface: document.createElement("script") must inherit property "supports(DOMString)" with the proper type
 PASS HTMLScriptElement interface: calling supports(DOMString) on document.createElement("script") with too few arguments must throw TypeError
 PASS HTMLScriptElement interface: document.createElement("script") must inherit property "charset" with the proper type
@@ -3772,5 +3867,21 @@ PASS Stringification of document.createElement("font")
 PASS HTMLFontElement interface: document.createElement("font") must inherit property "color" with the proper type
 PASS HTMLFontElement interface: document.createElement("font") must inherit property "face" with the proper type
 PASS HTMLFontElement interface: document.createElement("font") must inherit property "size" with the proper type
+PASS HTMLParamElement interface: existence and properties of interface object
+PASS HTMLParamElement interface object length
+PASS HTMLParamElement interface object name
+PASS HTMLParamElement interface: existence and properties of interface prototype object
+PASS HTMLParamElement interface: existence and properties of interface prototype object's "constructor" property
+PASS HTMLParamElement interface: existence and properties of interface prototype object's @@unscopables property
+PASS HTMLParamElement interface: attribute name
+PASS HTMLParamElement interface: attribute value
+PASS HTMLParamElement interface: attribute type
+PASS HTMLParamElement interface: attribute valueType
+PASS HTMLParamElement must be primary interface of document.createElement("param")
+PASS Stringification of document.createElement("param")
+PASS HTMLParamElement interface: document.createElement("param") must inherit property "name" with the proper type
+PASS HTMLParamElement interface: document.createElement("param") must inherit property "value" with the proper type
+PASS HTMLParamElement interface: document.createElement("param") must inherit property "type" with the proper type
+PASS HTMLParamElement interface: document.createElement("param") must inherit property "valueType" with the proper type
 Harness: the test ran to completion.
 

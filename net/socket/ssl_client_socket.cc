@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <string>
 
 #include "base/logging.h"
+#include "base/observer_list.h"
 #include "net/socket/ssl_client_socket_impl.h"
 #include "net/socket/stream_socket.h"
 #include "net/ssl/ssl_client_session_cache.h"
@@ -14,9 +15,7 @@
 
 namespace net {
 
-SSLClientSocket::SSLClientSocket()
-    : signed_cert_timestamps_received_(false),
-      stapled_ocsp_response_received_(false) {}
+SSLClientSocket::SSLClientSocket() = default;
 
 // static
 void SSLClientSocket::SetSSLKeyLogger(std::unique_ptr<SSLKeyLogger> logger) {
@@ -67,6 +66,7 @@ SSLClientContext::SSLClientContext(
     config_ = ssl_config_service_->GetSSLContextConfig();
     ssl_config_service_->AddObserver(this);
   }
+  cert_verifier_->AddObserver(this);
   CertDatabase::GetInstance()->AddObserver(this);
 }
 
@@ -74,6 +74,7 @@ SSLClientContext::~SSLClientContext() {
   if (ssl_config_service_) {
     ssl_config_service_->RemoveObserver(this);
   }
+  cert_verifier_->RemoveObserver(this);
   CertDatabase::GetInstance()->RemoveObserver(this);
 }
 
@@ -130,12 +131,15 @@ void SSLClientContext::RemoveObserver(Observer* observer) {
 }
 
 void SSLClientContext::OnSSLContextConfigChanged() {
-  // TODO(davidben): Should we flush |ssl_client_session_cache_| here? We flush
-  // the socket pools, but not the session cache. While BoringSSL-based servers
-  // never change version or cipher negotiation based on client-offered
-  // sessions, other servers do.
   config_ = ssl_config_service_->GetSSLContextConfig();
-  NotifySSLConfigChanged(false /* not a cert database change */);
+  if (ssl_client_session_cache_) {
+    ssl_client_session_cache_->Flush();
+  }
+  NotifySSLConfigChanged(SSLConfigChangeType::kSSLConfigChanged);
+}
+
+void SSLClientContext::OnCertVerifierChanged() {
+  NotifySSLConfigChanged(SSLConfigChangeType::kCertVerifierChanged);
 }
 
 void SSLClientContext::OnCertDBChanged() {
@@ -144,12 +148,12 @@ void SSLClientContext::OnCertDBChanged() {
   if (ssl_client_session_cache_) {
     ssl_client_session_cache_->Flush();
   }
-  NotifySSLConfigChanged(true /* cert database change */);
+  NotifySSLConfigChanged(SSLConfigChangeType::kCertDatabaseChanged);
 }
 
-void SSLClientContext::NotifySSLConfigChanged(bool is_cert_database_change) {
+void SSLClientContext::NotifySSLConfigChanged(SSLConfigChangeType change_type) {
   for (Observer& observer : observers_) {
-    observer.OnSSLConfigChanged(is_cert_database_change);
+    observer.OnSSLConfigChanged(change_type);
   }
 }
 

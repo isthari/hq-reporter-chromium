@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,16 +6,14 @@
 
 #include <utility>
 
-#include "base/bind.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/functional/bind.h"
+#include "base/task/sequenced_task_runner.h"
 #include "chrome/browser/ash/printing/cups_print_job.h"
 #include "chrome/browser/ash/printing/cups_print_job_manager.h"
 #include "content/public/browser/browser_context.h"
 #include "ui/message_center/public/cpp/notification.h"
 
 namespace ash {
-
-using ::chromeos::CupsPrintJob;
 
 FakeCupsPrintJobManager::FakeCupsPrintJobManager(Profile* profile)
     : CupsPrintJobManager(profile) {
@@ -27,11 +25,11 @@ FakeCupsPrintJobManager::~FakeCupsPrintJobManager() = default;
 bool FakeCupsPrintJobManager::CreatePrintJob(
     const std::string& printer_id,
     const std::string& title,
-    int job_id,
+    uint32_t job_id,
     int total_page_number,
     ::printing::PrintJob::Source source,
     const std::string& source_id,
-    const chromeos::printing::proto::PrintSettings& settings) {
+    const printing::proto::PrintSettings& settings) {
   chromeos::Printer printer(printer_id);
   printer.set_display_name(printer_id);
 
@@ -40,7 +38,7 @@ bool FakeCupsPrintJobManager::CreatePrintJob(
       printer, job_id, title, total_page_number, source, source_id, settings));
 
   // Show the waiting-for-printing notification immediately.
-  base::SequencedTaskRunnerHandle::Get()->PostNonNestableDelayedTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostNonNestableDelayedTask(
       FROM_HERE,
       base::BindOnce(&FakeCupsPrintJobManager::ChangePrintJobState,
                      weak_ptr_factory_.GetWeakPtr(), print_jobs_.back().get()),
@@ -72,7 +70,7 @@ bool FakeCupsPrintJobManager::ResumePrintJob(CupsPrintJob* job) {
   job->set_state(CupsPrintJob::State::STATE_RESUMED);
   NotifyJobResumed(job->GetWeakPtr());
 
-  base::SequencedTaskRunnerHandle::Get()->PostNonNestableDelayedTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostNonNestableDelayedTask(
       FROM_HERE,
       base::BindOnce(&FakeCupsPrintJobManager::ChangePrintJobState,
                      weak_ptr_factory_.GetWeakPtr(), job),
@@ -134,7 +132,7 @@ void FakeCupsPrintJobManager::ChangePrintJobState(CupsPrintJob* job) {
       break;
   }
 
-  base::SequencedTaskRunnerHandle::Get()->PostNonNestableDelayedTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostNonNestableDelayedTask(
       FROM_HERE,
       base::BindOnce(&FakeCupsPrintJobManager::ChangePrintJobState,
                      weak_ptr_factory_.GetWeakPtr(), job),
@@ -142,10 +140,3 @@ void FakeCupsPrintJobManager::ChangePrintJobState(CupsPrintJob* job) {
 }
 
 }  // namespace ash
-
-namespace chromeos {
-// static
-CupsPrintJobManager* CupsPrintJobManager::CreateInstance(Profile* profile) {
-  return new ash::FakeCupsPrintJobManager(profile);
-}
-}  // namespace chromeos

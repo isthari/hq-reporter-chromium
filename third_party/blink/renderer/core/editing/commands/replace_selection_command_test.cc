@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/document_fragment.h"
 #include "third_party/blink/renderer/core/dom/parser_content_policy.h"
+#include "third_party/blink/renderer/core/dom/text.h"
 #include "third_party/blink/renderer/core/editing/frame_selection.h"
 #include "third_party/blink/renderer/core/editing/position.h"
 #include "third_party/blink/renderer/core/editing/selection_template.h"
@@ -88,12 +89,10 @@ bool SetTextAutosizingMultiplier(Document* document, float multiplier) {
   for (LayoutObject* layout_object = document->GetLayoutView(); layout_object;
        layout_object = layout_object->NextInPreOrder()) {
     if (layout_object->Style()) {
-      scoped_refptr<ComputedStyle> modified_style =
-          ComputedStyle::Clone(layout_object->StyleRef());
-      modified_style->SetTextAutosizingMultiplier(multiplier);
-      EXPECT_EQ(multiplier, modified_style->TextAutosizingMultiplier());
-      layout_object->SetModifiedStyleOutsideStyleRecalc(
-          std::move(modified_style), LayoutObject::ApplyStyleChanges::kNo);
+      ComputedStyleBuilder builder(layout_object->StyleRef());
+      builder.SetTextAutosizingMultiplier(multiplier);
+      layout_object->SetStyle(builder.TakeStyle(),
+                              LayoutObject::ApplyStyleChanges::kNo);
       multiplier_set = true;
     }
   }
@@ -181,7 +180,7 @@ TEST_F(ReplaceSelectionCommandTest, SmartPlainTextPaste) {
 
   EXPECT_TRUE(command.Apply());
   // Smart paste inserts a space before pasted text.
-  EXPECT_EQ(u8"<div contenteditable>abc<div>def XYZ|</div></div>",
+  EXPECT_EQ("<div contenteditable>abc<div>def XYZ|</div></div>",
             GetSelectionTextFromBody());
 }
 
@@ -203,7 +202,7 @@ TEST_F(ReplaceSelectionCommandTest, TableAndImages) {
 
   // Should not crash
   EXPECT_TRUE(command.Apply());
-  EXPECT_EQ("<table> <tbody><img><img></tbody><br><img>|<br> </table>",
+  EXPECT_EQ("<table> <tbody><img><img>|</tbody> </table>",
             GetSelectionTextFromBody());
 }
 

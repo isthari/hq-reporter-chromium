@@ -1,9 +1,10 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.signin;
 
+import android.accounts.Account;
 import android.accounts.AccountManager;
 import android.app.Activity;
 import android.content.Context;
@@ -23,6 +24,8 @@ import androidx.annotation.StringRes;
 import androidx.annotation.VisibleForTesting;
 import androidx.fragment.app.Fragment;
 
+import org.chromium.base.Promise;
+import org.chromium.base.supplier.OneshotSupplier;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.enterprise.util.EnterpriseInfo;
 import org.chromium.chrome.browser.firstrun.FirstRunFragment;
@@ -30,8 +33,8 @@ import org.chromium.chrome.browser.firstrun.FirstRunUtils;
 import org.chromium.chrome.browser.firstrun.MobileFreProgress;
 import org.chromium.chrome.browser.firstrun.SkipTosDialogPolicyListener;
 import org.chromium.chrome.browser.privacy.settings.PrivacyPreferencesManagerImpl;
+import org.chromium.chrome.browser.ui.device_lock.DeviceLockCoordinator;
 import org.chromium.chrome.browser.ui.signin.SigninUtils;
-import org.chromium.chrome.browser.ui.signin.fre.FreUMADialogCoordinator;
 import org.chromium.chrome.browser.ui.signin.fre.SigninFirstRunCoordinator;
 import org.chromium.chrome.browser.ui.signin.fre.SigninFirstRunView;
 import org.chromium.components.signin.AccountManagerFacadeProvider;
@@ -43,26 +46,28 @@ import org.chromium.ui.modaldialog.ModalDialogManagerHolder;
  */
 public class SigninFirstRunFragment extends Fragment implements FirstRunFragment,
                                                                 SigninFirstRunCoordinator.Delegate,
-                                                                FreUMADialogCoordinator.Listener {
+                                                                DeviceLockCoordinator.Delegate {
     @VisibleForTesting
     static final int ADD_ACCOUNT_REQUEST_CODE = 1;
 
     // Used as a view holder for the current orientation of the device.
     private FrameLayout mFragmentView;
+    private View mMainView;
     private ModalDialogManager mModalDialogManager;
     private SkipTosDialogPolicyListener mSkipTosDialogPolicyListener;
-    private @Nullable SigninFirstRunCoordinator mSigninFirstRunCoordinator;
+    private SigninFirstRunCoordinator mSigninFirstRunCoordinator;
+    private DeviceLockCoordinator mDeviceLockCoordinator;
     private boolean mExitFirstRunCalled;
-    private boolean mNativeInitialized;
-    private boolean mAllowCrashUpload;
 
     public SigninFirstRunFragment() {}
 
     @Override
     public void onAttach(Context context) {
         super.onAttach(context);
-        getPageDelegate().getPolicyLoadListener().onAvailable(
-                hasPolicies -> notifyCoordinatorWhenNativeAndPolicyAreLoaded());
+        mModalDialogManager = ((ModalDialogManagerHolder) getActivity()).getModalDialogManager();
+        mSigninFirstRunCoordinator = new SigninFirstRunCoordinator(requireContext(),
+                mModalDialogManager, this, PrivacyPreferencesManagerImpl.getInstance());
+
         if (getPageDelegate().isLaunchedFromCct()) {
             mSkipTosDialogPolicyListener = new SkipTosDialogPolicyListener(
                     getPageDelegate().getPolicyLoadListener(), EnterpriseInfo.getInstance(), null);
@@ -70,7 +75,6 @@ public class SigninFirstRunFragment extends Fragment implements FirstRunFragment
                 if (skipTos) exitFirstRun();
             });
         }
-        mModalDialogManager = ((ModalDialogManagerHolder) getActivity()).getModalDialogManager();
     }
 
     @Override
@@ -81,32 +85,32 @@ public class SigninFirstRunFragment extends Fragment implements FirstRunFragment
             mSkipTosDialogPolicyListener.destroy();
             mSkipTosDialogPolicyListener = null;
         }
+        mSigninFirstRunCoordinator.destroy();
     }
 
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
+        // Keep device lock page if it's currently displayed.
+        if (mDeviceLockCoordinator != null) {
+            return;
+        }
         // Inflate the view required for the current configuration and set it as the fragment view.
         mFragmentView.removeAllViews();
-        mFragmentView.addView(inflateFragmentView(
+        mMainView = inflateFragmentView(
                 (LayoutInflater) getActivity().getSystemService(Context.LAYOUT_INFLATER_SERVICE),
-                newConfig));
+                newConfig);
+        mFragmentView.addView(mMainView);
     }
 
     @Override
     public View onCreateView(
             LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
-        mAllowCrashUpload = false;
         mFragmentView = new FrameLayout(getActivity());
-        mFragmentView.addView(inflateFragmentView(inflater, getResources().getConfiguration()));
+        mMainView = inflateFragmentView(inflater, getResources().getConfiguration());
+        mFragmentView.addView(mMainView);
 
         return mFragmentView;
-    }
-
-    @Override
-    public void onDestroy() {
-        super.onDestroy();
-        mSigninFirstRunCoordinator.destroy();
     }
 
     @Override
@@ -132,9 +136,8 @@ public class SigninFirstRunFragment extends Fragment implements FirstRunFragment
 
     /** Implements {@link FirstRunFragment}. */
     @Override
-    public void onNativeInitialized() {
-        mNativeInitialized = true;
-        notifyCoordinatorWhenNativeAndPolicyAreLoaded();
+    public void reset() {
+        mSigninFirstRunCoordinator.reset();
     }
 
     /** Implements {@link SigninFirstRunCoordinator.Delegate}. */
@@ -156,8 +159,14 @@ public class SigninFirstRunFragment extends Fragment implements FirstRunFragment
 
     /** Implements {@link SigninFirstRunCoordinator.Delegate}. */
     @Override
-    public void acceptTermsOfService() {
-        getPageDelegate().acceptTermsOfService(mAllowCrashUpload);
+    public void acceptTermsOfService(boolean allowMetricsAndCrashUploading) {
+        getPageDelegate().acceptTermsOfService(allowMetricsAndCrashUploading);
+    }
+
+    /** Implements {@link SigninFirstRunCoordinator.Delegate}. */
+    @Override
+    public void advanceToNextPage() {
+        getPageDelegate().advanceToNextPage();
     }
 
     /** Implements {@link SigninFirstRunCoordinator.Delegate}. */
@@ -168,20 +177,38 @@ public class SigninFirstRunFragment extends Fragment implements FirstRunFragment
 
     /** Implements {@link SigninFirstRunCoordinator.Delegate}. */
     @Override
+    public void recordNativePolicyAndChildStatusLoadedHistogram() {
+        getPageDelegate().recordNativePolicyAndChildStatusLoadedHistogram();
+    }
+
+    /** Implements {@link SigninFirstRunCoordinator.Delegate}. */
+    @Override
+    public void recordNativeInitializedHistogram() {
+        getPageDelegate().recordNativeInitializedHistogram();
+    }
+
+    /** Implements {@link SigninFirstRunCoordinator.Delegate}. */
+    @Override
     public void showInfoPage(@StringRes int url) {
         getPageDelegate().showInfoPage(url);
     }
 
     /** Implements {@link SigninFirstRunCoordinator.Delegate}. */
     @Override
-    public void openUmaDialog() {
-        new FreUMADialogCoordinator(requireContext(), mModalDialogManager, this, mAllowCrashUpload);
+    public OneshotSupplier<Boolean> getPolicyLoadListener() {
+        return getPageDelegate().getPolicyLoadListener();
     }
 
-    /** Implements {@link FreUMADialogCoordinator.Listener} */
+    /** Implements {@link SigninFirstRunCoordinator.Delegate}. */
     @Override
-    public void onAllowCrashUploadChecked(boolean allowCrashUpload) {
-        mAllowCrashUpload = allowCrashUpload;
+    public OneshotSupplier<Boolean> getChildAccountStatusSupplier() {
+        return getPageDelegate().getChildAccountStatusSupplier();
+    }
+
+    /** Implements {@link SigninFirstRunCoordinator.Delegate}. */
+    @Override
+    public Promise<Void> getNativeInitializationPromise() {
+        return getPageDelegate().getNativeInitializationPromise();
     }
 
     @MainThread
@@ -196,27 +223,52 @@ public class SigninFirstRunFragment extends Fragment implements FirstRunFragment
         }
     }
 
-    private void notifyCoordinatorWhenNativeAndPolicyAreLoaded() {
-        if (mSigninFirstRunCoordinator != null && mNativeInitialized
-                && getPageDelegate().getPolicyLoadListener().get() != null) {
-            mSigninFirstRunCoordinator.onNativeAndPolicyLoaded(
-                    getPageDelegate().getPolicyLoadListener().get());
-            mAllowCrashUpload = !mSigninFirstRunCoordinator.isMetricsReportingDisabledByPolicy();
-        }
-    }
-
     private View inflateFragmentView(LayoutInflater inflater, Configuration configuration) {
         // Since the landscape view has two panes the minimum screenWidth to show it is set to
-        // 600dp per android guideline.
-        final SigninFirstRunView view = (SigninFirstRunView) inflater.inflate(
-                configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-                                && configuration.screenWidthDp >= 600
+        // 600dp for phones.
+        boolean useLandscapeLayout = getPageDelegate().canUseLandscapeLayout()
+                && configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+                && configuration.screenWidthDp >= 600;
+
+        final SigninFirstRunView view = (SigninFirstRunView) inflater.inflate(useLandscapeLayout
                         ? R.layout.signin_first_run_landscape_view
                         : R.layout.signin_first_run_portrait_view,
                 null, false);
-        mSigninFirstRunCoordinator = new SigninFirstRunCoordinator(requireContext(), view,
-                mModalDialogManager, this, PrivacyPreferencesManagerImpl.getInstance());
-        notifyCoordinatorWhenNativeAndPolicyAreLoaded();
+        mSigninFirstRunCoordinator.setView(view);
         return view;
+    }
+
+    /** Implements {@link SigninFirstRunCoordinator.Delegate}. */
+    @Override
+    public void displayDeviceLockPage(Account selectedAccount) {
+        mDeviceLockCoordinator = new DeviceLockCoordinator(
+                true, this, getPageDelegate().getWindowAndroid(), getActivity(), selectedAccount);
+    }
+
+    /** Implements {@link DeviceLockCoordinator.Delegate}. */
+    @Override
+    public void setView(View view) {
+        mFragmentView.removeAllViews();
+        mFragmentView.addView(view);
+    }
+
+    /** Implements {@link DeviceLockCoordinator.Delegate}. */
+    @Override
+    public void onDeviceLockReady() {
+        restoreMainView();
+        mDeviceLockCoordinator.destroy();
+        mDeviceLockCoordinator = null;
+        mSigninFirstRunCoordinator.continueSignIn();
+    }
+
+    /** Implements {@link DeviceLockCoordinator.Delegate}. */
+    @Override
+    public void onDeviceLockRefused() {
+        mSigninFirstRunCoordinator.cancelSignInAndDismiss();
+    }
+
+    private void restoreMainView() {
+        mFragmentView.removeAllViews();
+        mFragmentView.addView(mMainView);
     }
 }

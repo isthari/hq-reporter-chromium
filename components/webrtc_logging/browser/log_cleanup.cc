@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -218,8 +218,8 @@ void DeleteOldAndRecentWebRtcLogFiles(const base::FilePath& log_dir,
   if (update_log_list) {
     log_list =
         RemoveObsoleteEntriesFromLogIndex(log_list, delete_begin_time, now);
-    int written = base::WriteFile(log_list_path, &log_list[0], log_list.size());
-    DPCHECK(written == static_cast<int>(log_list.size()));
+    bool success = base::WriteFile(log_list_path, log_list);
+    DPCHECK(success);
   }
 }
 

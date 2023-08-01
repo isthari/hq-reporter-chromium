@@ -1,21 +1,26 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import <XCTest/XCTest.h>
 
-#include "base/ios/ios_util.h"
-#include "base/mac/foundation_util.h"
+#import "base/ios/ios_util.h"
+#import "base/mac/foundation_util.h"
+#import "ios/chrome/browser/shared/ui/elements/activity_overlay_egtest_util.h"
+#import "ios/chrome/browser/shared/ui/elements/elements_constants.h"
+#import "ios/chrome/browser/signin/fake_system_identity.h"
+#import "ios/chrome/browser/ui/authentication/signin_earl_grey.h"
+#import "ios/chrome/browser/ui/authentication/signin_earl_grey_ui_test_util.h"
 #import "ios/chrome/browser/ui/popup_menu/popup_menu_constants.h"
-#include "ios/chrome/browser/ui/settings/cells/clear_browsing_data_constants.h"
-#include "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/browser/ui/settings/cells/clear_browsing_data_constants.h"
+#import "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_actions.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
-#include "ui/base/l10n/l10n_util.h"
+#import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -23,19 +28,14 @@
 
 namespace {
 
-// Identifier used to find the 'Learn more' link.
-NSString* const kLearnMoreIdentifier = @"Learn more";
+// Identifier used to find the 'Search history' link.
+NSString* const kSearchHistory = @"Search history";
 
 // URL of the help center page.
-char kHelpCenterURL[] = "support.google.com";
-
-// Matcher for the history button in the tools menu.
-id<GREYMatcher> HistoryButton() {
-  return grey_accessibilityID(kToolsMenuHistoryId);
-}
+char kMyActivityURL[] = "myactivity.google.com";
 
 // Matcher for an element with or without the
-// UIAccessibilityTraitSelected accessibility trait depending on |selected|.
+// UIAccessibilityTraitSelected accessibility trait depending on `selected`.
 id<GREYMatcher> ElementIsSelected(BOOL selected) {
   return selected
              ? grey_accessibilityTrait(UIAccessibilityTraitSelected)
@@ -43,7 +43,7 @@ id<GREYMatcher> ElementIsSelected(BOOL selected) {
 }
 
 // Returns a matcher (which always matches) that records the selection
-// state of matched element in |selected| parameter.
+// state of matched element in `selected` parameter.
 id<GREYMatcher> RecordElementSelectionState(BOOL& selected) {
   GREYMatchesBlock matches = ^BOOL(UIView* view) {
     selected = ([view accessibilityTraits] & UIAccessibilityTraitSelected) != 0;
@@ -131,9 +131,10 @@ using chrome_test_util::WindowWithNumber;
     EARL_GREY_TEST_DISABLED(@"Multiple windows can't be opened.");
 
   // TODO(crbug.com/1285974).
-  if ([ChromeEarlGrey isNewOverflowMenuEnabled])
+  if ([ChromeEarlGrey isNewOverflowMenuEnabled]) {
     EARL_GREY_TEST_DISABLED(
         @"Earl Grey doesn't work properly with SwiftUI and multiwindow");
+  }
 
   [ChromeEarlGrey openNewWindow];
   [ChromeEarlGrey waitUntilReadyWindowWithNumber:1];
@@ -255,32 +256,15 @@ using chrome_test_util::WindowWithNumber;
       performAction:grey_tap()];
 }
 
-// Tests that tapping the "Learn more" link opens the help center.
-- (void)testTapLearnMore {
-  [self openClearBrowsingDataDialog];
-
-  [[EarlGrey
-      selectElementWithMatcher:
-          grey_accessibilityID(kClearBrowsingDataViewAccessibilityIdentifier)]
-      performAction:grey_swipeFastInDirection(kGREYDirectionUp)];
-  [[EarlGrey
-      selectElementWithMatcher:grey_allOf(grey_accessibilityLabel(
-                                              kLearnMoreIdentifier),
-                                          grey_kindOfClassName(
-                                              @"UIAccessibilityLinkSubelement"),
-                                          nil)]
-      performAction:chrome_test_util::TapAtPointPercentage(0.95, 0.05)];
-
-  // Check that the URL of the help center was opened.
-  GREYAssertEqual(kHelpCenterURL, [ChromeEarlGrey webStateVisibleURL].host(),
-                  @"Did not navigate to the help center url.");
-}
-
 // Tests that opening the Clear Browsing interface from the History and tapping
-// the "Learn more" link opens the help center.
-- (void)testTapLearnMoreFromHistory {
+// the "Search history" link opens the help center.
+- (void)testTapSearchHistoryFromHistory {
+  FakeSystemIdentity* fakeIdentity = [FakeSystemIdentity fakeIdentity1];
+  [SigninEarlGrey addFakeIdentity:fakeIdentity];
+  [SigninEarlGreyUI signinWithFakeIdentity:fakeIdentity];
   [ChromeEarlGreyUI openToolsMenu];
-  [ChromeEarlGreyUI tapToolsMenuButton:HistoryButton()];
+  [ChromeEarlGreyUI
+      tapToolsMenuButton:chrome_test_util::HistoryDestinationButton()];
   [[EarlGrey selectElementWithMatcher:chrome_test_util::
                                           HistoryClearBrowsingDataButton()]
       performAction:grey_tap()];
@@ -290,16 +274,44 @@ using chrome_test_util::WindowWithNumber;
           grey_accessibilityID(kClearBrowsingDataViewAccessibilityIdentifier)]
       performAction:grey_swipeFastInDirection(kGREYDirectionUp)];
   [[EarlGrey
-      selectElementWithMatcher:grey_allOf(grey_accessibilityLabel(
-                                              kLearnMoreIdentifier),
-                                          grey_kindOfClassName(
-                                              @"UIAccessibilityLinkSubelement"),
-                                          nil)]
+      selectElementWithMatcher:grey_allOf(
+                                   grey_accessibilityLabel(kSearchHistory),
+                                   grey_kindOfClassName(
+                                       @"UIAccessibilityLinkSubelement"),
+                                   nil)]
       performAction:chrome_test_util::TapAtPointPercentage(0.95, 0.05)];
 
   // Check that the URL of the help center was opened.
-  GREYAssertEqual(kHelpCenterURL, [ChromeEarlGrey webStateVisibleURL].host(),
-                  @"Did not navigate to the help center url.");
+  GREYAssertEqual(std::string(kMyActivityURL),
+                  [ChromeEarlGrey webStateVisibleURL].host(),
+                  @"Did not navigate to the search activity url.");
+}
+
+// Sign-in without sync. Clear browsing data.
+- (void)signInOpenCBDAndClearDataWithFakeIdentity:
+    (FakeSystemIdentity*)fakeIdentity {
+  [SigninEarlGrey addFakeIdentity:fakeIdentity];
+  [SigninEarlGreyUI signinWithFakeIdentity:fakeIdentity enableSync:NO];
+
+  [ChromeEarlGreyUI openSettingsMenu];
+  [ChromeEarlGreyUI tapSettingsMenuButton:SettingsMenuPrivacyButton()];
+  [ChromeEarlGreyUI
+      tapPrivacyMenuButton:chrome_test_util::ButtonWithAccessibilityLabelId(
+                               IDS_IOS_CLEAR_BROWSING_DATA_TITLE)];
+  [ChromeEarlGreyUI tapClearBrowsingDataMenuButton:
+                        chrome_test_util::ClearBrowsingDataButton()];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::
+                                          ConfirmClearBrowsingDataButton()]
+      performAction:grey_tap()];
+  WaitForActivityOverlayToDisappear();
+}
+
+// Tests that a user in the `ConsentLevel::kSignin` state will be signed out
+// after clearing their browsing history.
+- (void)testUserSignedInWhenClearingBrowsingData {
+  FakeSystemIdentity* fakeIdentity = [FakeSystemIdentity fakeIdentity1];
+  [self signInOpenCBDAndClearDataWithFakeIdentity:fakeIdentity];
+  [SigninEarlGrey verifySignedInWithFakeIdentity:fakeIdentity];
 }
 
 @end

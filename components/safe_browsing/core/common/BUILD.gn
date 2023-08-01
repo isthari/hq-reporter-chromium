@@ -1,4 +1,4 @@
-# Copyright 2016 The Chromium Authors. All rights reserved.
+# Copyright 2016 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -11,6 +11,8 @@ static_library("safe_browsing_prefs") {
     "safe_browsing_prefs.cc",
     "safe_browsing_prefs.h",
   ]
+
+  configs += [ "//build/config/compiler:wexit_time_destructors" ]
 
   deps = [
     ":common",
@@ -27,6 +29,8 @@ source_set("safe_browsing_policy_handler") {
     "safe_browsing_policy_handler.cc",
     "safe_browsing_policy_handler.h",
   ]
+
+  configs += [ "//build/config/compiler:wexit_time_destructors" ]
 
   deps = [
     ":safe_browsing_prefs",
@@ -59,22 +63,17 @@ source_set("unit_tests") {
     "//testing/gtest",
     "//url:url",
   ]
-
-  if (safe_browsing_mode == 1) {
-    sources += [ "visual_utils_unittest.cc" ]
-    deps += [
-      ":common",
-      "//ui/gfx:color_utils",
-    ]
-  }
 }
 
 source_set("common") {
   sources = [
     "features.cc",
     "features.h",
+    "safe_browsing_settings_metrics.cc",
+    "safe_browsing_settings_metrics.h",
     "safebrowsing_constants.cc",
     "safebrowsing_constants.h",
+    "safebrowsing_referral_methods.h",
     "safebrowsing_switches.cc",
     "safebrowsing_switches.h",
     "utils.cc",
@@ -82,6 +81,8 @@ source_set("common") {
     "web_ui_constants.cc",
     "web_ui_constants.h",
   ]
+
+  configs += [ "//build/config/compiler:wexit_time_destructors" ]
 
   deps = [
     "//base",
@@ -97,18 +98,6 @@ source_set("common") {
     "//services/network/public/mojom",
     "//url/ipc:url_ipc",
   ]
-
-  if (safe_browsing_mode == 1 || safe_browsing_mode == 2) {
-    sources += [
-      "visual_utils.cc",
-      "visual_utils.h",
-    ]
-    deps += [
-      "//components/safe_browsing/core/common/proto:client_model_proto",
-      "//third_party/opencv:emd",
-      "//ui/gfx:color_utils",
-    ]
-  }
 
   public_deps = [ ":interfaces" ]
 }

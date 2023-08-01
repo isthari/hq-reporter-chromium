@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,11 +14,9 @@ import android.widget.TextView;
 import androidx.appcompat.content.res.AppCompatResources;
 import androidx.core.graphics.drawable.DrawableCompat;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.omaha.UpdateMenuItemHelper;
 import org.chromium.chrome.browser.toolbar.menu_button.MenuItemState;
-import org.chromium.chrome.browser.ui.appmenu.AppMenuClickHandler;
 import org.chromium.chrome.browser.ui.appmenu.AppMenuItemProperties;
 import org.chromium.chrome.browser.ui.appmenu.AppMenuUtil;
 import org.chromium.chrome.browser.ui.appmenu.CustomViewBinder;
@@ -31,8 +29,6 @@ import org.chromium.ui.modelutil.PropertyModel;
 class UpdateMenuItemViewBinder implements CustomViewBinder {
     private static final int UPDATE_ITEM_VIEW_TYPE = 0;
     private final MenuItemState mItemState;
-    private Integer mHighlightedItemId;
-    private AppMenuClickHandler mAppMenuClickHandler;
 
     UpdateMenuItemViewBinder() {
         super();
@@ -105,8 +101,8 @@ class UpdateMenuItemViewBinder implements CustomViewBinder {
 
             image.setImageResource(mItemState.icon);
             if (mItemState.iconTintId != 0) {
-                DrawableCompat.setTint(image.getDrawable(),
-                        ApiCompatibilityUtils.getColor(view.getResources(), mItemState.iconTintId));
+                DrawableCompat.setTint(
+                        image.getDrawable(), view.getContext().getColor(mItemState.iconTintId));
             }
         } else if (key == AppMenuItemProperties.ENABLED) {
             view.findViewById(R.id.menu_item_text)

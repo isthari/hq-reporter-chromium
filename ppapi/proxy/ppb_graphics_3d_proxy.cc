@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -46,10 +46,8 @@ gpu::CommandBuffer::State GetErrorState() {
 
 }  // namespace
 
-Graphics3D::Graphics3D(const HostResource& resource,
-                       const gfx::Size& size,
-                       const bool single_buffer)
-    : PPB_Graphics3D_Shared(resource, size), single_buffer(single_buffer) {}
+Graphics3D::Graphics3D(const HostResource& resource, const gfx::Size& size)
+    : PPB_Graphics3D_Shared(resource, size) {}
 
 Graphics3D::~Graphics3D() {
   DestroyGLES2Impl();
@@ -108,7 +106,7 @@ void Graphics3D::EnsureWorkVisible() {
   NOTREACHED();
 }
 
-void Graphics3D::TakeFrontBuffer() {
+void Graphics3D::ResolveAndDetachFramebuffer() {
   NOTREACHED();
 }
 
@@ -126,13 +124,14 @@ int32_t Graphics3D::DoSwapBuffers(const gpu::SyncToken& sync_token,
   DCHECK(!sync_token.HasData());
 
   gpu::gles2::GLES2Implementation* gl = gles2_impl();
-  gl->SwapBuffers(swap_id_++);
 
-  if (!single_buffer || swap_id_ == 1) {
-    PluginDispatcher::GetForResource(this)->Send(
-        new PpapiHostMsg_PPBGraphics3D_TakeFrontBuffer(API_ID_PPB_GRAPHICS_3D,
-                                                       host_resource()));
-  }
+  // Flush current GL commands.
+  gl->ShallowFlushCHROMIUM();
+
+  // Make sure we resolved and detached our frame buffer
+  PluginDispatcher::GetForResource(this)->Send(
+      new PpapiHostMsg_PPBGraphics3D_ResolveAndDetachFramebuffer(
+          API_ID_PPB_GRAPHICS_3D, host_resource()));
 
   gpu::SyncToken new_sync_token;
   gl->GenSyncTokenCHROMIUM(new_sync_token.GetData());
@@ -143,6 +142,14 @@ int32_t Graphics3D::DoSwapBuffers(const gpu::SyncToken& sync_token,
   PluginDispatcher::GetForResource(this)->Send(msg);
 
   return PP_OK_COMPLETIONPENDING;
+}
+
+void Graphics3D::DoResize(gfx::Size size) {
+  // Flush current GL commands.
+  gles2_impl()->ShallowFlushCHROMIUM();
+  PluginDispatcher::GetForResource(this)->Send(
+      new PpapiHostMsg_PPBGraphics3D_Resize(API_ID_PPB_GRAPHICS_3D,
+                                            host_resource(), size));
 }
 
 PPB_Graphics3D_Proxy::PPB_Graphics3D_Proxy(Dispatcher* dispatcher)
@@ -244,8 +251,7 @@ PP_Resource PPB_Graphics3D_Proxy::CreateProxyResource(
     return 0;
 
   scoped_refptr<Graphics3D> graphics_3d(
-      new Graphics3D(result, attrib_helper.offscreen_framebuffer_size,
-                     attrib_helper.single_buffer));
+      new Graphics3D(result, attrib_helper.offscreen_framebuffer_size));
   if (!graphics_3d->Init(share_gles2, capabilities, std::move(shared_state),
                          command_buffer_id)) {
     return 0;
@@ -272,8 +278,9 @@ bool PPB_Graphics3D_Proxy::OnMessageReceived(const IPC::Message& msg) {
                         OnMsgDestroyTransferBuffer)
     IPC_MESSAGE_HANDLER(PpapiHostMsg_PPBGraphics3D_SwapBuffers,
                         OnMsgSwapBuffers)
-    IPC_MESSAGE_HANDLER(PpapiHostMsg_PPBGraphics3D_TakeFrontBuffer,
-                        OnMsgTakeFrontBuffer)
+    IPC_MESSAGE_HANDLER(PpapiHostMsg_PPBGraphics3D_ResolveAndDetachFramebuffer,
+                        OnMsgResolveAndDetachFramebuffer)
+    IPC_MESSAGE_HANDLER(PpapiHostMsg_PPBGraphics3D_Resize, OnMsgResize)
     IPC_MESSAGE_HANDLER(PpapiHostMsg_PPBGraphics3D_EnsureWorkVisible,
                         OnMsgEnsureWorkVisible)
 #endif  // !BUILDFLAG(IS_NACL)
@@ -403,10 +410,18 @@ void PPB_Graphics3D_Proxy::OnMsgSwapBuffers(const HostResource& context,
         enter.callback(), sync_token, size));
 }
 
-void PPB_Graphics3D_Proxy::OnMsgTakeFrontBuffer(const HostResource& context) {
+void PPB_Graphics3D_Proxy::OnMsgResolveAndDetachFramebuffer(
+    const HostResource& context) {
   EnterHostFromHostResource<PPB_Graphics3D_API> enter(context);
   if (enter.succeeded())
-    enter.object()->TakeFrontBuffer();
+    enter.object()->ResolveAndDetachFramebuffer();
+}
+
+void PPB_Graphics3D_Proxy::OnMsgResize(const HostResource& context,
+                                       gfx::Size size) {
+  EnterHostFromHostResource<PPB_Graphics3D_API> enter(context);
+  if (enter.succeeded())
+    enter.object()->ResizeBuffers(size.width(), size.height());
 }
 
 void PPB_Graphics3D_Proxy::OnMsgEnsureWorkVisible(const HostResource& context) {
@@ -414,6 +429,7 @@ void PPB_Graphics3D_Proxy::OnMsgEnsureWorkVisible(const HostResource& context) {
   if (enter.succeeded())
     enter.object()->EnsureWorkVisible();
 }
+
 #endif  // !BUILDFLAG(IS_NACL)
 
 void PPB_Graphics3D_Proxy::OnMsgSwapBuffersACK(const HostResource& resource,

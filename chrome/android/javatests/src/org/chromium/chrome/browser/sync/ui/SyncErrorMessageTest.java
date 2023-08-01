@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,9 +28,9 @@ import org.mockito.MockitoAnnotations;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
+import org.chromium.base.test.util.DoNotBatch;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.Matchers;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.SyncFirstSetupCompleteSource;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
@@ -38,8 +38,9 @@ import org.chromium.chrome.browser.sync.FakeSyncServiceImpl;
 import org.chromium.chrome.browser.sync.SyncTestRule;
 import org.chromium.chrome.browser.sync.settings.SyncSettingsUtils;
 import org.chromium.chrome.browser.sync.settings.SyncSettingsUtils.SyncError;
-import org.chromium.chrome.browser.sync.ui.SyncErrorPromptUtils.SyncErrorPromptType;
+import org.chromium.chrome.browser.sync.ui.SyncErrorMessage.MessageType;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
+import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.util.ChromeRenderTestRule;
 import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.chrome.test.util.browser.sync.SyncTestUtil;
@@ -49,7 +50,6 @@ import org.chromium.components.messages.MessageDispatcher;
 import org.chromium.components.signin.base.GoogleServiceAuthError;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.modelutil.PropertyModel;
-import org.chromium.ui.test.util.DisableAnimationsTestRule;
 
 import java.io.IOException;
 
@@ -57,8 +57,8 @@ import java.io.IOException;
  * Test suites for {@link SyncErrorMessage}.
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
-@EnableFeatures({ChromeFeatureList.MESSAGES_FOR_ANDROID_INFRASTRUCTURE,
-        ChromeFeatureList.MESSAGES_FOR_ANDROID_SYNC_ERROR})
+@DoNotBatch(reason = "TODO(crbug.com/1168590): SyncTestRule doesn't support batching.")
+@EnableFeatures({ChromeFeatureList.MESSAGES_FOR_ANDROID_INFRASTRUCTURE})
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
 public class SyncErrorMessageTest {
     @Mock
@@ -75,15 +75,15 @@ public class SyncErrorMessageTest {
 
     @Rule
     public final ChromeRenderTestRule mRenderTestRule =
-            ChromeRenderTestRule.Builder.withPublicCorpus().setRevision(2).build();
-
-    @Rule
-    public DisableAnimationsTestRule mDisableAnimationsTestRule = new DisableAnimationsTestRule();
+            ChromeRenderTestRule.Builder.withPublicCorpus()
+                    .setRevision(2)
+                    .setBugComponent(ChromeRenderTestRule.Component.SERVICES_SYNC)
+                    .build();
 
     @Before
     public void setUp() {
         MockitoAnnotations.initMocks(this);
-        SyncErrorPromptUtils.resetLastShownTime();
+        SyncErrorMessageImpressionTracker.resetLastShownTime();
         mFakeSyncServiceImpl = (FakeSyncServiceImpl) mSyncTestRule.getSyncService();
         SyncErrorMessage.setMessageDispatcherForTesting(mMessageDispatcher);
         doAnswer((invocation) -> {
@@ -118,7 +118,8 @@ public class SyncErrorMessageTest {
 
         // Resolving the error should dismiss the current message.
         TestThreadUtils.runOnUiThreadBlocking(() -> {
-            mFakeSyncServiceImpl.setFirstSetupComplete(SyncFirstSetupCompleteSource.BASIC_FLOW);
+            mFakeSyncServiceImpl.setInitialSyncFeatureSetupComplete(
+                    SyncFirstSetupCompleteSource.BASIC_FLOW);
         });
         verifyHasDismissedMessage();
     }
@@ -146,7 +147,7 @@ public class SyncErrorMessageTest {
         verifyHasShownMessage();
 
         // Not possible to resolve this error from within chrome unlike the other
-        // SyncErrorPromptType-s.
+        // SyncErrorMessage-s.
     }
 
     @Test
@@ -189,12 +190,12 @@ public class SyncErrorMessageTest {
 
         @SyncError
         int syncError = TestThreadUtils.runOnUiThreadBlockingNoException(() -> {
-            mFakeSyncServiceImpl.setFirstSetupComplete(SyncFirstSetupCompleteSource.BASIC_FLOW);
+            mFakeSyncServiceImpl.setInitialSyncFeatureSetupComplete(
+                    SyncFirstSetupCompleteSource.BASIC_FLOW);
             return SyncSettingsUtils.getSyncError();
         });
 
-        Assert.assertEquals(
-                SyncErrorPromptType.NOT_SHOWN, SyncErrorPromptUtils.getSyncErrorUiType(syncError));
+        Assert.assertEquals(MessageType.NOT_SHOWN, SyncErrorMessage.getMessageType(syncError));
 
         verifyHasNeverShownMessage();
     }
@@ -202,7 +203,7 @@ public class SyncErrorMessageTest {
     @Test
     @LargeTest
     @Feature("RenderTest")
-    public void testSyncErrorMessageForAuthErrorView() throws IOException {
+    public void testSyncErrorMessageForAuthErrorViewModern() throws IOException {
         SyncErrorMessage.setMessageDispatcherForTesting(null);
         mSyncTestRule.setUpAccountAndEnableSyncForTesting();
         mFakeSyncServiceImpl.setAuthError(GoogleServiceAuthError.State.INVALID_GAIA_CREDENTIALS);
@@ -210,7 +211,7 @@ public class SyncErrorMessageTest {
         ViewGroup view = mSyncTestRule.getActivity().findViewById(R.id.message_container);
         // Wait until the message ui is shown.
         CriteriaHelper.pollUiThread(() -> Criteria.checkThat(view.getChildCount(), Matchers.is(1)));
-        mRenderTestRule.render(view, "sync_error_message_auth_error");
+        mRenderTestRule.render(view, "sync_error_message_auth_error_modern");
     }
 
     @Test

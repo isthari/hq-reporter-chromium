@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,8 +30,12 @@ struct Tab {
   // Whether the tab is crashed.
   bool crashed;
 
-  // The URL of the favicon in data scheme.
+  // The URL of the favicon in data scheme for a tab.
   url.mojom.Url? favicon_url;
+
+  // The URL of the favicon in data scheme for an active tab. Allows custom
+  // favicon theming for certain chrome:// URLs.
+  url.mojom.Url? active_favicon_url;
 
   // The group identifier of the tab.
   string? group_id;
@@ -108,9 +112,6 @@ interface PageHandler {
 
   // Ungroup a tab.
   UngroupTab(int32 tab_id);
-
-  // Get colors of the current theme.
-  GetThemeColors() => (map<string, string> colors);
 
   // Get layout of the tab strip.
   GetLayout() => (map<string, string> layout);

@@ -1,4 +1,4 @@
-// Copyright (c) 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define CHROME_TEST_CHROMEDRIVER_SERVER_HTTP_SERVER_H_
 
 #include "base/json/json_reader.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/test/chromedriver/server/http_handler.h"
 #include "net/base/url_util.h"
 #include "net/server/http_server.h"
@@ -44,8 +45,12 @@ class HttpServer : public net::HttpServer::Delegate {
 
   void OnClose(int connection_id) override;
 
+  void Close(int connection_id);
+
   void AcceptWebSocket(int connection_id,
                        const net::HttpServerRequestInfo& request);
+
+  void SendOverWebSocket(int connection_id, const std::string& data);
 
   void SendResponse(int connection_id,
                     const net::HttpServerResponseInfo& response,

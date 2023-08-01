@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -85,11 +85,8 @@ public interface RenderFrameHost {
      *
      * Callers are responsible to ensure that the renderer Frame exists before
      * trying to make a mojo connection to it. This can be done via
-     * isRenderFrameCreated() if the caller is not inside the call-stack of an
+     * isRenderFrameLive() if the caller is not inside the call-stack of an
      * IPC form the renderer (which would guarantee its existence at that time).
-     *
-     * @param pipe The message pipe to be connected to the renderer. If it fails
-     * to make the connection, the pipe will be closed.
      */
     <I extends Interface, P extends Interface.Proxy> P getInterfaceToRendererFrame(
             Interface.Manager<I, P> manager);
@@ -98,7 +95,7 @@ public interface RenderFrameHost {
      * Kills the renderer process when it is detected to be misbehaving and has
      * made a bad request.
      *
-     * @param reason The BadMessageReason code from content::BadMessageReasons.
+     * @param reason The BadMessageReason code from content::bad_message::BadMessageReason.
      */
     void terminateRendererDueToBadMessage(int reason);
 
@@ -121,11 +118,11 @@ public interface RenderFrameHost {
     boolean isIncognito();
 
     /**
-     * See native RenderFrameHost::IsRenderFrameCreated().
+     * See native RenderFrameHost::IsRenderFrameLive().
      *
      * @return {@code true} if render frame is created.
      */
-    boolean isRenderFrameCreated();
+    boolean isRenderFrameLive();
 
     /**
      * @return Whether input events from the renderer are ignored on the browser side.
@@ -177,4 +174,21 @@ public interface RenderFrameHost {
      */
     @LifecycleState
     int getLifecycleState();
+
+    /**
+     * Inserts a VisualStateCallback that's resolved once a visual update has been processed.
+     *
+     * The VisualStateCallback will be inserted in Blink and will be invoked when the contents of
+     * the DOM tree at the moment that the callback was inserted (or later) are submitted to the
+     * compositor in a CompositorFrame. In other words, the following events need to happen before
+     * the callback is invoked:
+     * 1. The DOM tree is committed becoming the pending tree - see ThreadProxy::BeginMainFrame
+     * 2. The pending tree is activated becoming the active tree
+     * 3. The compositor calls Draw and submits a new CompositorFrame to the Viz process.
+     * The callback is synchronously invoked if this is called while being destroyed.
+     *
+     * @param callback the callback to be inserted. The callback takes a single Boolean parameter
+     *     which will be true if the visual state update was successful or false if it was aborted.
+     */
+    void insertVisualStateCallback(Callback<Boolean> callback);
 }

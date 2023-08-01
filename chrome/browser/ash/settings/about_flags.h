@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <map>
 
+#include "base/memory/raw_ptr.h"
 #include "components/flags_ui/pref_service_flags_storage.h"
 
 class PrefService;
@@ -36,7 +37,8 @@ class OwnerFlagsStorage : public ::flags_ui::PrefServiceFlagsStorage {
   bool SetFlags(const std::set<std::string>& flags) override;
 
  private:
-  ownership::OwnerSettingsService* owner_settings_service_;
+  raw_ptr<ownership::OwnerSettingsService, ExperimentalAsh>
+      owner_settings_service_;
 };
 
 // FlagsStorage implementation for Chrome OS startup. It is backed by a set of
@@ -94,14 +96,5 @@ class FeatureFlagsUpdate {
 
 }  // namespace about_flags
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove when Chrome OS code migration is
-// done.
-namespace chromeos {
-namespace about_flags {
-using ::ash::about_flags::OwnerFlagsStorage;
-using ::ash::about_flags::ReadOnlyFlagsStorage;
-}  // namespace about_flags
-}  // namespace chromeos
 
 #endif  // CHROME_BROWSER_ASH_SETTINGS_ABOUT_FLAGS_H_

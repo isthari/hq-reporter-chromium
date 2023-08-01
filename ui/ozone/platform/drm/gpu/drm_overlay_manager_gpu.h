@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,12 @@
 
 #include <vector>
 
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "ui/ozone/platform/drm/gpu/drm_overlay_manager.h"
 
 namespace ui {
+
 class DrmThreadProxy;
 
 // DrmOverlayManager implementation that runs in the GPU process. PostTasks
@@ -35,16 +37,20 @@ class DrmOverlayManagerGpu : public DrmOverlayManager {
       const std::vector<OverlaySurfaceCandidate>& candidates,
       gfx::AcceleratedWidget widget) override;
 
-  void SetClearCacheCallbackIfNecessary();
+  void GetHardwareCapabilities(
+      gfx::AcceleratedWidget widget,
+      HardwareCapabilitiesCallback& receive_callback) override;
+
+  void SetDisplaysConfiguredCallbackIfNecessary();
 
   void ReceiveOverlayValidationResponse(
       gfx::AcceleratedWidget widget,
       const std::vector<OverlaySurfaceCandidate>& candidates,
       const std::vector<OverlayStatus>& status);
 
-  DrmThreadProxy* const drm_thread_proxy_;
+  const raw_ptr<DrmThreadProxy, ExperimentalAsh> drm_thread_proxy_;
 
-  bool has_set_clear_cache_callback_ = false;
+  bool has_set_displays_configured_callback_ = false;
 
   base::WeakPtrFactory<DrmOverlayManagerGpu> weak_ptr_factory_{this};
 };

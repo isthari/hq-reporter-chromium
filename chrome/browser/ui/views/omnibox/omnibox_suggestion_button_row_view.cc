@@ -1,21 +1,26 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/omnibox/omnibox_suggestion_button_row_view.h"
 
-#include "base/bind.h"
+#include "base/feature_list.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
+#include "base/ranges/algorithm.h"
+#include "chrome/browser/ui/color/chrome_color_id.h"
 #include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/omnibox/omnibox_theme.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/chrome_typography.h"
 #include "chrome/browser/ui/views/location_bar/selected_keyword_view.h"
 #include "chrome/browser/ui/views/omnibox/omnibox_match_cell_view.h"
-#include "chrome/browser/ui/views/omnibox/omnibox_popup_contents_view.h"
-#include "components/omnibox/browser/actions/omnibox_pedal.h"
+#include "chrome/browser/ui/views/omnibox/omnibox_popup_view_views.h"
+#include "components/omnibox/browser/actions/omnibox_action.h"
 #include "components/omnibox/browser/omnibox_edit_model.h"
+#include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/omnibox/browser/vector_icons.h"
+#include "components/omnibox/common/omnibox_features.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/vector_icons/vector_icons.h"
 #include "third_party/metrics_proto/omnibox_event.pb.h"
@@ -23,7 +28,9 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/base/window_open_disposition.h"
+#include "ui/base/window_open_disposition_utils.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/accessibility/view_accessibility.h"
@@ -37,6 +44,7 @@
 #include "ui/views/layout/flex_layout.h"
 #include "ui/views/painter.h"
 #include "ui/views/view_class_properties.h"
+#include "ui/views/view_utils.h"
 
 class OmniboxSuggestionRowButton : public views::MdTextButton {
  public:
@@ -44,36 +52,45 @@ class OmniboxSuggestionRowButton : public views::MdTextButton {
   OmniboxSuggestionRowButton(PressedCallback callback,
                              const std::u16string& text,
                              const gfx::VectorIcon& icon,
-                             OmniboxPopupContentsView* popup_contents_view,
+                             OmniboxPopupViewViews* popup_contents_view,
                              OmniboxPopupSelection selection)
       : MdTextButton(std::move(callback), text, CONTEXT_OMNIBOX_PRIMARY),
         icon_(&icon),
         popup_contents_view_(popup_contents_view),
-        selection_(selection),
-        icon_color_(SK_ColorTRANSPARENT) {
+        selection_(selection) {
     SetTriggerableEventFlags(GetTriggerableEventFlags() |
                              ui::EF_MIDDLE_MOUSE_BUTTON);
     views::InstallPillHighlightPathGenerator(this);
-    SetImageLabelSpacing(ChromeLayoutProvider::Get()->GetDistanceMetric(
-        DISTANCE_RELATED_LABEL_HORIZONTAL_LIST));
-    SetCustomPadding(ChromeLayoutProvider::Get()->GetInsetsMetric(
-        INSETS_OMNIBOX_PILL_BUTTON));
-    SetCornerRadius(GetInsets().height() +
-                    GetLayoutConstant(LOCATION_BAR_ICON_SIZE));
 
-    views::InkDrop::Get(this)->SetHighlightOpacity(
-        GetOmniboxStateOpacity(OmniboxPartState::HOVERED));
-    views::InkDrop::Get(this)->SetBaseColorCallback(base::BindRepeating(
-        [](OmniboxSuggestionRowButton* host) {
-          return color_utils::GetColorWithMaxContrast(
-              host->omnibox_bg_color_.value());
-        },
-        this));
+    if (base::FeatureList::IsEnabled(omnibox::kCr2023ActionChips) ||
+        features::GetChromeRefresh2023Level() ==
+            features::ChromeRefresh2023Level::kLevel2) {
+      SetImageLabelSpacing(4);
+      SetCustomPadding(ChromeLayoutProvider::Get()->GetInsetsMetric(
+          INSETS_OMNIBOX_PILL_BUTTON));
+      SetCornerRadius(GetLayoutConstant(TOOLBAR_CORNER_RADIUS));
+    } else {
+      SetImageLabelSpacing(ChromeLayoutProvider::Get()->GetDistanceMetric(
+          DISTANCE_RELATED_LABEL_HORIZONTAL_LIST));
+      SetCustomPadding(ChromeLayoutProvider::Get()->GetInsetsMetric(
+          INSETS_OMNIBOX_PILL_BUTTON));
+      SetCornerRadius(GetInsets().height() +
+                      GetLayoutConstant(LOCATION_BAR_ICON_SIZE));
+    }
 
-    views::FocusRing::Get(this)->SetHasFocusPredicate([=](View* view) {
-      return view->GetVisible() &&
-             popup_contents_view_->GetSelection() == selection_;
-    });
+    auto* const ink_drop = views::InkDrop::Get(this);
+    ink_drop->SetHighlightOpacity(kOmniboxOpacityHovered);
+    SetAnimationDuration(base::TimeDelta());
+    ink_drop->GetInkDrop()->SetHoverHighlightFadeDuration(base::TimeDelta());
+
+    auto* const focus_ring = views::FocusRing::Get(this);
+    focus_ring->SetHasFocusPredicate(base::BindRepeating([](const View* view) {
+      const auto* v = views::AsViewClass<OmniboxSuggestionRowButton>(view);
+      CHECK(v);
+      return v->GetVisible() &&
+             v->popup_contents_view_->GetSelection() == v->selection_;
+    }));
+    focus_ring->SetColorId(kColorOmniboxResultsFocusIndicator);
   }
 
   OmniboxSuggestionRowButton(const OmniboxSuggestionRowButton&) = delete;
@@ -82,10 +99,11 @@ class OmniboxSuggestionRowButton : public views::MdTextButton {
 
   ~OmniboxSuggestionRowButton() override = default;
 
-  void OnOmniboxBackgroundChange(SkColor omnibox_bg_color) {
-    views::FocusRing::Get(this)->SchedulePaint();
-    omnibox_bg_color_ = omnibox_bg_color;
-    UpdateBackgroundColor();
+  void SetThemeState(OmniboxPartState theme_state) {
+    if (theme_state_ == theme_state)
+      return;
+    theme_state_ = theme_state;
+    OnThemeChanged();
   }
 
   OmniboxPopupSelection selection() { return selection_; }
@@ -94,78 +112,90 @@ class OmniboxSuggestionRowButton : public views::MdTextButton {
     MdTextButton::OnThemeChanged();
     // We can't use colors from NativeTheme as the omnibox theme might be
     // different (for example, if the NTP colors are customized).
-    SkColor icon_color =
-        icon_color_ != SK_ColorTRANSPARENT
-            ? icon_color_
-            : GetOmniboxColor(GetThemeProvider(), OmniboxPart::RESULTS_ICON,
-                              OmniboxPartState::NORMAL);
-    SetImage(
-        views::Button::STATE_NORMAL,
-        gfx::CreateVectorIcon(*icon_, GetLayoutConstant(LOCATION_BAR_ICON_SIZE),
-                              icon_color));
-    SetEnabledTextColors(GetOmniboxColor(GetThemeProvider(),
-                                         OmniboxPart::RESULTS_TEXT_DEFAULT,
-                                         OmniboxPartState::NORMAL));
+    const auto* const color_provider = GetColorProvider();
+    const bool selected = theme_state_ == OmniboxPartState::SELECTED;
+    SetImageModel(views::Button::STATE_NORMAL,
+                  ui::ImageModel::FromVectorIcon(
+                      *icon_,
+                      selected ? kColorOmniboxResultsButtonIconSelected
+                               : kColorOmniboxResultsButtonIcon,
+                      GetLayoutConstant(LOCATION_BAR_ICON_SIZE)));
+    SetEnabledTextColors(color_provider->GetColor(
+        selected ? kColorOmniboxResultsTextSelected : kColorOmniboxText));
+    views::InkDrop::Get(this)->SetBaseColorId(
+        selected ? kColorOmniboxResultsButtonInkDropSelected
+                 : kColorOmniboxResultsButtonInkDrop);
+
+    views::FocusRing::Get(this)->SchedulePaint();
   }
 
   void UpdateBackgroundColor() override {
-    if (!omnibox_bg_color_.has_value())
-      return;
-
-    SkColor stroke_color =
-        GetOmniboxColor(GetThemeProvider(), OmniboxPart::RESULTS_BUTTON_BORDER,
-                        OmniboxPartState::NORMAL);
+    const auto* const color_provider = GetColorProvider();
+    const SkColor stroke_color =
+        color_provider->GetColor(kColorOmniboxResultsButtonBorder);
+    const SkColor fill_color =
+        color_provider->GetColor(GetOmniboxBackgroundColorId(theme_state_));
     SetBackground(CreateBackgroundFromPainter(
         views::Painter::CreateRoundRectWith1PxBorderPainter(
-            omnibox_bg_color_.value(), stroke_color, GetCornerRadius())));
+            fill_color, stroke_color, GetCornerRadiusValue())));
   }
 
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override {
-    node_data->SetName(GetAccessibleName());
     // Although this appears visually as a button, expose as a list box option
     // so that it matches the other options within its list box container.
     node_data->role = ax::mojom::Role::kListBoxOption;
+    node_data->SetName(GetAccessibleName());
   }
 
-  void SetIcon(const gfx::VectorIcon& icon,
-               SkColor icon_color = SK_ColorTRANSPARENT) {
-    if (icon_ != &icon || icon_color != icon_color_) {
+  void SetIcon(const gfx::VectorIcon& icon) {
+    if (icon_ != &icon) {
       icon_ = &icon;
-      icon_color_ = icon_color;
       OnThemeChanged();
     }
   }
 
  private:
   raw_ptr<const gfx::VectorIcon> icon_;
-  raw_ptr<OmniboxPopupContentsView> popup_contents_view_;
+  raw_ptr<OmniboxPopupViewViews> popup_contents_view_;
+  OmniboxPartState theme_state_ = OmniboxPartState::NORMAL;
+
   OmniboxPopupSelection selection_;
-  absl::optional<SkColor> omnibox_bg_color_;
-  SkColor icon_color_;
 };
 
 BEGIN_METADATA(OmniboxSuggestionRowButton, views::MdTextButton)
 END_METADATA
 
 OmniboxSuggestionButtonRowView::OmniboxSuggestionButtonRowView(
-    OmniboxPopupContentsView* popup_contents_view,
+    OmniboxPopupViewViews* popup_contents_view,
     OmniboxEditModel* model,
     int model_index)
     : popup_contents_view_(popup_contents_view),
       model_(model),
       model_index_(model_index) {
+  int bottom_margin = ChromeLayoutProvider::Get()->GetDistanceMetric(
+      DISTANCE_OMNIBOX_CELL_VERTICAL_PADDING);
   SetLayoutManager(std::make_unique<views::FlexLayout>())
       ->SetCrossAxisAlignment(views::LayoutAlignment::kStart)
       .SetCollapseMargins(true)
-      .SetInteriorMargin(
-          gfx::Insets(0, OmniboxMatchCellView::GetTextIndent(),
-                      ChromeLayoutProvider::Get()->GetDistanceMetric(
-                          DISTANCE_OMNIBOX_CELL_VERTICAL_PADDING),
-                      0))
+      .SetInteriorMargin(gfx::Insets::TLBR(
+          0, OmniboxMatchCellView::GetTextIndent(), bottom_margin, 0))
       .SetDefault(
           views::kMarginsKey,
-          gfx::Insets(0, ChromeLayoutProvider::Get()->GetDistanceMetric(
-                             views::DISTANCE_RELATED_BUTTON_HORIZONTAL)));
+          gfx::Insets::VH(0, ChromeLayoutProvider::Get()->GetDistanceMetric(
+                                 views::DISTANCE_RELATED_BUTTON_HORIZONTAL)));
+  BuildViews();
+}
+
+void OmniboxSuggestionButtonRowView::BuildViews() {
+  // Clear and reset existing views.
+  {
+    // Reset all raw_ptr instances first to avoid dangling.
+    previous_active_button_ = nullptr;
+    keyword_button_ = nullptr;
+    action_buttons_.clear();
+
+    RemoveAllChildViews();
+  }
 
   // For all of these buttons, the visibility set from UpdateFromModel().
   // The Keyword and Pedal buttons also get their text from there, since the
@@ -179,30 +209,42 @@ OmniboxSuggestionButtonRowView::OmniboxSuggestionButtonRowView(
       std::u16string(), vector_icons::kSearchIcon, popup_contents_view_,
       OmniboxPopupSelection(model_index_,
                             OmniboxPopupSelection::KEYWORD_MODE)));
-  tab_switch_button_ =
-      AddChildView(std::make_unique<OmniboxSuggestionRowButton>(
-          base::BindRepeating(&OmniboxSuggestionButtonRowView::ButtonPressed,
-                              base::Unretained(this),
-                              OmniboxPopupSelection::FOCUSED_BUTTON_TAB_SWITCH),
-          l10n_util::GetStringUTF16(IDS_OMNIBOX_TAB_SUGGEST_HINT),
-          omnibox::kSwitchIcon, popup_contents_view_,
-          OmniboxPopupSelection(
-              model_index_, OmniboxPopupSelection::FOCUSED_BUTTON_TAB_SWITCH)));
-  tab_switch_button_->SetAccessibleName(
-      l10n_util::GetStringUTF16(IDS_ACC_TAB_SWITCH_BUTTON));
-  pedal_button_ = AddChildView(std::make_unique<OmniboxSuggestionRowButton>(
-      base::BindRepeating(&OmniboxSuggestionButtonRowView::ButtonPressed,
-                          base::Unretained(this),
-                          OmniboxPopupSelection::FOCUSED_BUTTON_ACTION),
-      std::u16string(), OmniboxPedal::GetDefaultVectorIcon(),
-      popup_contents_view_,
-      OmniboxPopupSelection(model_index_,
-                            OmniboxPopupSelection::FOCUSED_BUTTON_ACTION)));
+
+  if (!HasMatch()) {
+    // Skip remaining code that depends on `match()`.
+    return;
+  }
+
+  // Only create buttons for existent actions.
+  for (size_t action_index = 0; action_index < match().actions.size();
+       action_index++) {
+    auto* button = AddChildView(std::make_unique<OmniboxSuggestionRowButton>(
+        base::BindRepeating(&OmniboxSuggestionButtonRowView::ButtonPressed,
+                            base::Unretained(this),
+                            OmniboxPopupSelection::FOCUSED_BUTTON_ACTION),
+        std::u16string(), match().actions[action_index]->GetVectorIcon(),
+        popup_contents_view_,
+        OmniboxPopupSelection(model_index_,
+                              OmniboxPopupSelection::FOCUSED_BUTTON_ACTION,
+                              action_index)));
+    action_buttons_.push_back(button);
+  }
 }
 
 OmniboxSuggestionButtonRowView::~OmniboxSuggestionButtonRowView() = default;
 
 void OmniboxSuggestionButtonRowView::UpdateFromModel() {
+  if (!HasMatch()) {
+    // Skip remaining code that depends on `match()`.
+    return;
+  }
+
+  // Only build views if there was a structural change. Without this check,
+  // performance could be impacted by frequent unnecessary rebuilds.
+  if (action_buttons_.size() != match().actions.size()) {
+    BuildViews();
+  }
+
   SetPillButtonVisibility(keyword_button_, OmniboxPopupSelection::KEYWORD_MODE);
   if (keyword_button_->GetVisible()) {
     std::u16string keyword;
@@ -217,43 +259,65 @@ void OmniboxSuggestionButtonRowView::UpdateFromModel() {
         l10n_util::GetStringFUTF16(IDS_ACC_KEYWORD_MODE, names.short_name));
   }
 
-  SetPillButtonVisibility(tab_switch_button_,
-                          OmniboxPopupSelection::FOCUSED_BUTTON_TAB_SWITCH);
-
-  SetPillButtonVisibility(pedal_button_,
-                          OmniboxPopupSelection::FOCUSED_BUTTON_ACTION);
-  if (pedal_button_->GetVisible()) {
-    const auto pedal_strings = match().action->GetLabelStrings();
-    pedal_button_->SetText(pedal_strings.hint);
-    pedal_button_->SetTooltipText(pedal_strings.suggestion_contents);
-    pedal_button_->SetAccessibleName(pedal_strings.accessibility_hint);
-    pedal_button_->SetIcon(match().action->GetVectorIcon(),
-                           match().action->GetVectorIconColor());
+  for (const auto& action_button : action_buttons_) {
+    SetPillButtonVisibility(action_button,
+                            OmniboxPopupSelection::FOCUSED_BUTTON_ACTION);
+    if (action_button->GetVisible()) {
+      const OmniboxAction* action =
+          match().actions[action_button->selection().action_index].get();
+      const auto label_strings = action->GetLabelStrings();
+      action_button->SetText(label_strings.hint);
+      action_button->SetTooltipText(label_strings.suggestion_contents);
+      action_button->SetAccessibleName(label_strings.accessibility_hint);
+      action_button->SetIcon(action->GetVectorIcon());
+    }
   }
 
-  bool is_any_button_visible = keyword_button_->GetVisible() ||
-                               pedal_button_->GetVisible() ||
-                               tab_switch_button_->GetVisible();
+  bool is_any_button_visible =
+      keyword_button_->GetVisible() ||
+      base::ranges::any_of(action_buttons_, [](const auto& action_button) {
+        return action_button->GetVisible();
+      });
   SetVisible(is_any_button_visible);
 }
 
-void OmniboxSuggestionButtonRowView::OnOmniboxBackgroundChange(
-    SkColor omnibox_bg_color) {
-  keyword_button_->OnOmniboxBackgroundChange(omnibox_bg_color);
-  pedal_button_->OnOmniboxBackgroundChange(omnibox_bg_color);
-  tab_switch_button_->OnOmniboxBackgroundChange(omnibox_bg_color);
+void OmniboxSuggestionButtonRowView::SelectionStateChanged() {
+  auto* const active_button = GetActiveButton();
+  if (active_button == previous_active_button_) {
+    return;
+  }
+  if (previous_active_button_) {
+    views::FocusRing::Get(previous_active_button_)->SchedulePaint();
+  }
+  if (active_button) {
+    views::FocusRing::Get(active_button)->SchedulePaint();
+  }
+  previous_active_button_ = active_button;
+}
+
+void OmniboxSuggestionButtonRowView::SetThemeState(
+    OmniboxPartState theme_state) {
+  keyword_button_->SetThemeState(theme_state);
+  for (const auto& action_button : action_buttons_) {
+    action_button->SetThemeState(theme_state);
+  }
 }
 
 views::Button* OmniboxSuggestionButtonRowView::GetActiveButton() const {
   std::vector<OmniboxSuggestionRowButton*> buttons{
-      keyword_button_, tab_switch_button_, pedal_button_};
+      keyword_button_,
+  };
+  buttons.insert(buttons.end(), action_buttons_.begin(), action_buttons_.end());
 
   // Find the button that matches model selection.
-  auto selected_button = std::find_if(
-      buttons.begin(), buttons.end(), [=](OmniboxSuggestionRowButton* button) {
-        return popup_contents_view_->GetSelection() == button->selection();
-      });
+  auto selected_button =
+      base::ranges::find(buttons, popup_contents_view_->GetSelection(),
+                         &OmniboxSuggestionRowButton::selection);
   return selected_button == buttons.end() ? nullptr : *selected_button;
+}
+
+bool OmniboxSuggestionButtonRowView::HasMatch() const {
+  return model_->result().size() > model_index_;
 }
 
 const AutocompleteMatch& OmniboxSuggestionButtonRowView::match() const {
@@ -289,8 +353,7 @@ void OmniboxSuggestionButtonRowView::ButtonPressed(
   } else {
     WindowOpenDisposition disposition =
         ui::DispositionFromEventFlags(event.flags());
-    model_->TriggerPopupSelectionAction(selection, event.time_stamp(),
-                                        disposition);
+    model_->OpenSelection(selection, event.time_stamp(), disposition);
   }
 }
 

@@ -35,9 +35,10 @@
 
 #include "base/task/single_thread_task_runner.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/blink/public/common/subresource_load_metrics.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/loader/request_context_frame_type.mojom-blink-forward.h"
-#include "third_party/blink/public/mojom/timing/worker_timing_container.mojom-blink-forward.h"
+#include "third_party/blink/public/mojom/timing/resource_timing.mojom-blink-forward.h"
 #include "third_party/blink/public/platform/resource_load_info_notifier_wrapper.h"
 #include "third_party/blink/public/platform/resource_request_blocked_reason.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
@@ -53,11 +54,9 @@
 namespace blink {
 
 enum class ResourceType : uint8_t;
-class ClientHintsPreferences;
 class PermissionsPolicy;
 class KURL;
 struct ResourceLoaderOptions;
-class ResourceTimingInfo;
 class WebScopedVirtualTimePauser;
 
 // The FetchContext is an interface for performing context specific processing
@@ -103,13 +102,8 @@ class PLATFORM_EXPORT FetchContext : public GarbageCollected<FetchContext> {
                               WebScopedVirtualTimePauser& virtual_time_pauser,
                               ResourceType);
 
-  // WARNING: |info| can be modified by the implementation of this method
-  // despite the fact that it is given as const-ref. Namely, if
-  // |worker_timing_receiver_| is set implementations may take (move out) the
-  // field.
-  // TODO(shimazu): Fix this. Eventually ResourceTimingInfo should become a mojo
-  // struct and this should take a moved-value of it.
-  virtual void AddResourceTiming(const ResourceTimingInfo&);
+  virtual void AddResourceTiming(mojom::blink::ResourceTimingInfoPtr,
+                                 const AtomicString& initiator_type);
   virtual bool AllowImage(bool, const KURL&) const { return false; }
   virtual absl::optional<ResourceRequestBlockedReason> CanRequest(
       ResourceType,
@@ -148,11 +142,11 @@ class PLATFORM_EXPORT FetchContext : public GarbageCollected<FetchContext> {
   // Populates the ResourceRequest using the given values and information
   // stored in the FetchContext implementation. Used by ResourceFetcher to
   // prepare a ResourceRequest instance at the start of resource loading.
-  virtual void PopulateResourceRequest(ResourceType,
-                                       const ClientHintsPreferences&,
-                                       const FetchParameters::ResourceWidth&,
-                                       ResourceRequest&,
-                                       const ResourceLoaderOptions&);
+  virtual void PopulateResourceRequest(
+      ResourceType,
+      const absl::optional<float> resource_width,
+      ResourceRequest&,
+      const ResourceLoaderOptions&);
 
   // Called when the underlying context is detached. Note that some
   // FetchContexts continue working after detached (e.g., for fetch() operations
@@ -177,11 +171,6 @@ class PLATFORM_EXPORT FetchContext : public GarbageCollected<FetchContext> {
     return false;
   }
 
-  // Returns a receiver corresponding to a request with |request_id|.
-  // Null if the request has not been intercepted by a service worker.
-  virtual mojo::PendingReceiver<mojom::blink::WorkerTimingContainer>
-  TakePendingWorkerTimingReceiver(int request_id);
-
   // Returns a wrapper of ResourceLoadInfoNotifier to notify loading stats.
   virtual std::unique_ptr<ResourceLoadInfoNotifierWrapper>
   CreateResourceLoadInfoNotifierWrapper() {
@@ -190,6 +179,10 @@ class PLATFORM_EXPORT FetchContext : public GarbageCollected<FetchContext> {
 
   // Returns if the request context is for prerendering or not.
   virtual bool IsPrerendering() const { return false; }
+
+  // Update SubresourceLoad metrics.
+  virtual void UpdateSubresourceLoadMetrics(
+      const SubresourceLoadMetrics& subresource_load_metrics) {}
 };
 
 }  // namespace blink

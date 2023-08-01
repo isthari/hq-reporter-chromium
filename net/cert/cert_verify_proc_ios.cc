@@ -1,4 +1,4 @@
-// Copyright (c) 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,22 +15,15 @@
 #include "net/base/net_errors.h"
 #include "net/cert/asn1_util.h"
 #include "net/cert/cert_verify_result.h"
+#include "net/cert/crl_set.h"
 #include "net/cert/ct_serialization.h"
 #include "net/cert/known_roots.h"
 #include "net/cert/test_root_certs.h"
 #include "net/cert/x509_certificate.h"
-#include "net/cert/x509_util_ios.h"
-#include "net/cert/x509_util_ios_and_mac.h"
+#include "net/cert/x509_util.h"
+#include "net/cert/x509_util_apple.h"
 
 using base::ScopedCFTypeRef;
-
-extern "C" {
-// Declared in <Security/SecTrust.h>, available in iOS 12.1.1+
-// TODO(mattm): Remove this weak_import once chromium requires a new enough
-// iOS SDK.
-OSStatus SecTrustSetSignedCertificateTimestamps(SecTrustRef, CFArrayRef)
-    __attribute__((weak_import));
-}  // extern "C"
 
 namespace net {
 
@@ -152,12 +145,10 @@ OSStatus CreateTrustPolicies(ScopedCFTypeRef<CFArrayRef>* policies) {
   if (!local_policies)
     return errSecAllocate;
 
-  SecPolicyRef ssl_policy = SecPolicyCreateBasicX509();
+  base::ScopedCFTypeRef<SecPolicyRef> ssl_policy(SecPolicyCreateBasicX509());
   CFArrayAppendValue(local_policies, ssl_policy);
-  CFRelease(ssl_policy);
-  ssl_policy = SecPolicyCreateSSL(true, nullptr);
+  ssl_policy.reset(SecPolicyCreateSSL(/*server=*/true, /*hostname=*/nullptr));
   CFArrayAppendValue(local_policies, ssl_policy);
-  CFRelease(ssl_policy);
 
   policies->reset(local_policies.release());
   return noErr;
@@ -229,17 +220,9 @@ int BuildAndEvaluateSecTrustRef(CFArrayRef cert_array,
 #endif
   }
 
-  ScopedCFTypeRef<CFMutableArrayRef> tmp_verified_chain(
-      CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks));
-  const CFIndex chain_length = SecTrustGetCertificateCount(tmp_trust);
-  for (CFIndex i = 0; i < chain_length; ++i) {
-    SecCertificateRef chain_cert = SecTrustGetCertificateAtIndex(tmp_trust, i);
-    CFArrayAppendValue(tmp_verified_chain, chain_cert);
-  }
-
   trust_ref->swap(scoped_tmp_trust);
   trust_error->swap(tmp_error);
-  verified_chain->reset(tmp_verified_chain.release());
+  *verified_chain = x509_util::CertificateChainFromSecTrust(tmp_trust);
   *is_trusted = tmp_is_trusted;
   return OK;
 }
@@ -296,7 +279,8 @@ void GetCertChainInfo(CFArrayRef cert_chain, CertVerifyResult* verify_result) {
 
 }  // namespace
 
-CertVerifyProcIOS::CertVerifyProcIOS() {}
+CertVerifyProcIOS::CertVerifyProcIOS(scoped_refptr<CRLSet> crl_set)
+    : CertVerifyProc(std::move(crl_set)) {}
 
 // static
 CertStatus CertVerifyProcIOS::GetCertFailureStatusFromError(CFErrorRef error) {
@@ -411,7 +395,6 @@ int CertVerifyProcIOS::VerifyInternal(
     const std::string& ocsp_response,
     const std::string& sct_list,
     int flags,
-    CRLSet* crl_set,
     const CertificateList& additional_trust_anchors,
     CertVerifyResult* verify_result,
     const NetLogWithSource& net_log) {
@@ -521,6 +504,13 @@ int CertVerifyProcIOS::VerifyInternal(
 
   if (IsCertStatusError(verify_result->cert_status))
     return MapCertStatusToNetError(verify_result->cert_status);
+
+  if (TestRootCerts::HasInstance() &&
+      !verify_result->verified_cert->intermediate_buffers().empty() &&
+      TestRootCerts::GetInstance()->IsKnownRoot(x509_util::CryptoBufferAsSpan(
+          verify_result->verified_cert->intermediate_buffers().back().get()))) {
+    verify_result->is_issued_by_known_root = true;
+  }
 
   LogNameNormalizationMetrics(".IOS", verify_result->verified_cert.get(),
                               verify_result->is_issued_by_known_root);

@@ -1,4 +1,4 @@
-# Copyright 2017 The Chromium Authors. All rights reserved.
+# Copyright 2017 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -17,9 +17,12 @@ component("ukm_recorder") {
   sources = [
     "scheme_constants.cc",
     "scheme_constants.h",
+    "ukm_consent_state.h",
     "ukm_entry_filter.h",
     "ukm_recorder_impl.cc",
     "ukm_recorder_impl.h",
+    "ukm_recorder_observer.cc",
+    "ukm_recorder_observer.h",
   ]
 
   deps = [
@@ -82,14 +85,17 @@ static_library("observers") {
     "observers/history_delete_observer.h",
     "observers/ukm_consent_state_observer.cc",
     "observers/ukm_consent_state_observer.h",
+    "ukm_consent_state.h",
   ]
 
   deps = [
     "//base",
     "//components/history/core/browser",
+    "//components/metrics",
     "//components/sync/base",
-    "//components/sync/driver",
+    "//components/sync/service",
     "//google_apis",
+    "//services/metrics/public/cpp:metrics_cpp",
   ]
 
   public_deps = [ "//components/unified_consent" ]
@@ -136,6 +142,7 @@ source_set("unit_tests") {
     "//components/sync_preferences:test_support",
     "//components/variations",
     "//net:test_support",
+    "//services/metrics",
     "//services/metrics/public/cpp:ukm_builders",
     "//testing/gtest",
     "//third_party/zlib/google:compression_utils",

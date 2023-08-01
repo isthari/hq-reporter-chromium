@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,11 @@
 #include <memory>
 
 #include "base/metrics/field_trial.h"
+#include "base/metrics/field_trial_params.h"
 #include "base/run_loop.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/time/time.h"
-#include "components/safe_browsing/android/safe_browsing_api_handler.h"
+#include "components/safe_browsing/android/safe_browsing_api_handler_bridge.h"
 #include "components/variations/variations_associated_data.h"
 #include "content/public/test/browser_task_environment.h"
 #include "services/network/public/mojom/fetch_api.mojom.h"
@@ -20,15 +22,12 @@ namespace safe_browsing {
 
 namespace {
 
-class TestSafeBrowsingApiHandler : public SafeBrowsingApiHandler {
+class BlackHoleInterceptor : public safe_browsing::UrlCheckInterceptor {
  public:
-  void StartURLCheck(std::unique_ptr<URLCheckCallbackMeta> callback,
-                     const GURL& url,
-                     const SBThreatTypeSet& threat_types) override {}
-  bool StartCSDAllowlistCheck(const GURL& url) override { return false; }
-  bool StartHighConfidenceAllowlistCheck(const GURL& url) override {
-    return false;
-  }
+  void Check(
+      std::unique_ptr<SafeBrowsingApiHandlerBridge::ResponseCallback> callback,
+      const GURL& url) const override {}
+  ~BlackHoleInterceptor() override {}
 };
 
 }  // namespace
@@ -38,7 +37,8 @@ class RemoteDatabaseManagerTest : public testing::Test {
   RemoteDatabaseManagerTest() {}
 
   void SetUp() override {
-    SafeBrowsingApiHandler::SetInstance(&api_handler_);
+    SafeBrowsingApiHandlerBridge::GetInstance().SetInterceptorForTesting(
+        &url_interceptor_);
     db_ = new RemoteSafeBrowsingDatabaseManager();
   }
 
@@ -61,21 +61,14 @@ class RemoteDatabaseManagerTest : public testing::Test {
     if (!types_to_check_val.empty())
       params["types_to_check"] = types_to_check_val;
 
-    ASSERT_TRUE(variations::AssociateVariationParams(experiment_name,
-                                                     group_name, params));
+    ASSERT_TRUE(
+        base::AssociateFieldTrialParams(experiment_name, group_name, params));
   }
 
   content::BrowserTaskEnvironment task_environment_;
-  TestSafeBrowsingApiHandler api_handler_;
+  BlackHoleInterceptor url_interceptor_;
   scoped_refptr<RemoteSafeBrowsingDatabaseManager> db_;
 };
-
-TEST_F(RemoteDatabaseManagerTest, DisabledViaNull) {
-  EXPECT_TRUE(db_->IsSupported());
-
-  SafeBrowsingApiHandler::SetInstance(nullptr);
-  EXPECT_FALSE(db_->IsSupported());
-}
 
 TEST_F(RemoteDatabaseManagerTest, DestinationsToCheckDefault) {
   // Most are true, a few are false.
@@ -119,6 +112,55 @@ TEST_F(RemoteDatabaseManagerTest, DestinationsToCheckFromTrial) {
       network::mojom::RequestDestination::kVideo));
   EXPECT_TRUE(db_->CanCheckRequestDestination(
       network::mojom::RequestDestination::kWorker));
+}
+
+TEST_F(RemoteDatabaseManagerTest,
+       LogCheckUrlForHighConfidenceAllowlistResultsMetrics) {
+  const char kComponentUpdaterResultMatchesSBApiHandlerCheck[] =
+      "SafeBrowsing.Android.RealTimeAllowlist."
+      "ComponentUpdaterResultMatchesSBApiHandlerCheck";
+  base::HistogramTester histogram_tester;
+
+  db_->LogCheckUrlForHighConfidenceAllowlistResults(true, true);
+  histogram_tester.ExpectBucketCount(
+      kComponentUpdaterResultMatchesSBApiHandlerCheck,
+      RemoteSafeBrowsingDatabaseManager::HighConfidenceUrlAllowlistCheckResult::
+          kHandlerAndComponentUpdaterBothMatch,
+      1);
+
+  db_->LogCheckUrlForHighConfidenceAllowlistResults(true, false);
+  histogram_tester.ExpectBucketCount(
+      kComponentUpdaterResultMatchesSBApiHandlerCheck,
+      RemoteSafeBrowsingDatabaseManager::HighConfidenceUrlAllowlistCheckResult::
+          kHandlerMatchAndComponentUpdaterNoMatch,
+      1);
+
+  db_->LogCheckUrlForHighConfidenceAllowlistResults(absl::nullopt, true);
+  histogram_tester.ExpectBucketCount(
+      kComponentUpdaterResultMatchesSBApiHandlerCheck,
+      RemoteSafeBrowsingDatabaseManager::HighConfidenceUrlAllowlistCheckResult::
+          kHandlerUninitializedAndComponentUpdaterMatch,
+      1);
+
+  db_->LogCheckUrlForHighConfidenceAllowlistResults(false, true);
+  histogram_tester.ExpectBucketCount(
+      kComponentUpdaterResultMatchesSBApiHandlerCheck,
+      RemoteSafeBrowsingDatabaseManager::HighConfidenceUrlAllowlistCheckResult::
+          kHandlerNoMatchAndComponentUpdaterMatch,
+      1);
+
+  db_->LogCheckUrlForHighConfidenceAllowlistResults(absl::nullopt, false);
+  histogram_tester.ExpectBucketCount(
+      kComponentUpdaterResultMatchesSBApiHandlerCheck,
+      RemoteSafeBrowsingDatabaseManager::HighConfidenceUrlAllowlistCheckResult::
+          kHandlerUninitializedAndComponentUpdaterNoMatch,
+      1);
+  db_->LogCheckUrlForHighConfidenceAllowlistResults(false, false);
+  histogram_tester.ExpectBucketCount(
+      kComponentUpdaterResultMatchesSBApiHandlerCheck,
+      RemoteSafeBrowsingDatabaseManager::HighConfidenceUrlAllowlistCheckResult::
+          kHandlerAndComponentUpdaterBothNoMatch,
+      1);
 }
 
 }  // namespace safe_browsing

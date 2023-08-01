@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -50,6 +50,9 @@ const std::set<std::string> GetUnconsentedOAuth2Scopes() {
       // Required by Permission Request Creator.
       GaiaConstants::kClassifyUrlKidPermissionOAuth2Scope,
 
+      // Required for IP protection proxy authentication.
+      GaiaConstants::kIpProtectionAuthScope,
+
       // Required by the feedback uploader.
       GaiaConstants::kSupportContentOAuth2Scope,
 
@@ -61,11 +64,23 @@ const std::set<std::string> GetUnconsentedOAuth2Scopes() {
       // devices.  Consent is obtained outside Chrome within Family Link flows.
       GaiaConstants::kKidFamilyReadonlyOAuth2Scope,
 
+      // Required to fetch the ManagedAccounsSigninRestriction policy.
+      GaiaConstants::kSecureConnectOAuth2Scope,
+
+      // Required for requesting Discover feed with personalization without
+      // sync consent. Sync consent isn't required for personalization but can
+      // improve suggestions.
+      GaiaConstants::kFeedOAuth2Scope,
+
+      // Required by k-Anonymity Server (FLEDGE)
+      GaiaConstants::kKAnonymityServiceOAuth2Scope,
+
     // Required by ChromeOS only.
 #if BUILDFLAG(IS_CHROMEOS_ASH)
       GaiaConstants::kAccountsReauthOAuth2Scope,
       GaiaConstants::kAssistantOAuth2Scope,
       GaiaConstants::kAuditRecordingOAuth2Scope,
+      GaiaConstants::kCalendarReadOnlyOAuth2Scope,
       GaiaConstants::kCastBackdropOAuth2Scope,
       GaiaConstants::kClearCutOAuth2Scope,
       GaiaConstants::kCloudTranslationOAuth2Scope,

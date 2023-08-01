@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,6 +22,7 @@
 #include "components/search/search.h"
 #include "components/search_engines/search_engine_type.h"
 #include "components/search_engines/template_url_service.h"
+#include "components/supervised_user/core/common/buildflags.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
@@ -29,9 +30,9 @@
 #include "url/gurl.h"
 
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS)
-#include "chrome/browser/supervised_user/supervised_user_service.h"
 #include "chrome/browser/supervised_user/supervised_user_service_factory.h"
-#include "chrome/browser/supervised_user/supervised_user_url_filter.h"
+#include "components/supervised_user/core/browser/supervised_user_service.h"
+#include "components/supervised_user/core/browser/supervised_user_url_filter.h"  // nogncheck
 #endif
 
 #if !BUILDFLAG(IS_ANDROID)
@@ -139,15 +140,17 @@ bool IsNTPOrRelatedURLHelper(const GURL& url, Profile* profile) {
 
 bool IsURLAllowedForSupervisedUser(const GURL& url, Profile* profile) {
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS)
-  // If this isn't a supervised child user, skip the URL filter check, since it
-  // can be fairly expensive.
-  if (!profile->IsChild())
-    return true;
-  SupervisedUserService* supervised_user_service =
+  supervised_user::SupervisedUserService* supervised_user_service =
       SupervisedUserServiceFactory::GetForProfile(profile);
-  SupervisedUserURLFilter* url_filter = supervised_user_service->GetURLFilter();
+  if (!supervised_user_service ||
+      !supervised_user_service->IsURLFilteringEnabled()) {
+    return true;
+  }
+
+  supervised_user::SupervisedUserURLFilter* url_filter =
+      supervised_user_service->GetURLFilter();
   if (url_filter->GetFilteringBehaviorForURL(url) ==
-          SupervisedUserURLFilter::BLOCK) {
+      supervised_user::SupervisedUserURLFilter::BLOCK) {
     return false;
   }
 #endif
@@ -216,7 +219,7 @@ bool IsRenderedInInstantProcess(content::WebContents* contents,
   return false;
 #else
   content::RenderProcessHost* process_host =
-      contents->GetMainFrame()->GetProcess();
+      contents->GetPrimaryMainFrame()->GetProcess();
   if (!process_host)
     return false;
 
@@ -324,10 +327,8 @@ GURL GetEffectiveURLForInstant(const GURL& url, Profile* profile) {
 
   // Replace the scheme with "chrome-search:", and clear the port, since
   // chrome-search is a scheme without port.
-  url::Replacements<char> replacements;
-  std::string search_scheme(chrome::kChromeSearchScheme);
-  replacements.SetScheme(search_scheme.data(),
-                         url::Component(0, search_scheme.length()));
+  GURL::Replacements replacements;
+  replacements.SetSchemeStr(chrome::kChromeSearchScheme);
   replacements.ClearPort();
 
   // If this is the URL for a server-provided NTP, replace the host with
@@ -337,8 +338,7 @@ GURL GetEffectiveURLForInstant(const GURL& url, Profile* profile) {
   if (details.state == NEW_TAB_URL_VALID &&
       (MatchesOriginAndPath(url, details.url) ||
        IsMatchingServiceWorker(url, details.url))) {
-    replacements.SetHost(remote_ntp_host.c_str(),
-                         url::Component(0, remote_ntp_host.length()));
+    replacements.SetHostStr(remote_ntp_host);
   }
 
   return url.ReplaceComponents(replacements);

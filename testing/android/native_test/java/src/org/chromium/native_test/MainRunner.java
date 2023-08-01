@@ -1,10 +1,11 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.native_test;
 
 import org.chromium.base.annotations.JNINamespace;
+import org.chromium.base.annotations.NativeMethods;
 
 /**
  * This class provides a way to run the native main method.
@@ -20,7 +21,11 @@ public final class MainRunner {
 
     // Maps the file descriptors and executes the main method with the passed in command line.
     public static int runMain(String[] commandLine) {
-        return nativeRunMain(commandLine);
+        return MainRunnerJni.get().runMain(commandLine);
     }
-    private static native int nativeRunMain(String[] commandLine);
+
+    @NativeMethods
+    interface Natives {
+        int runMain(String[] commandLine);
+    }
 }

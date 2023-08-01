@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 
 #include "ash/components/arc/session/arc_service_manager.h"
 #include "ash/components/arc/test/test_browser_context.h"
+#include "base/memory/raw_ptr.h"
 #include "content/public/test/browser_task_environment.h"
 #include "mojo/public/cpp/system/platform_handle.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -31,7 +32,7 @@ class ArcCrashCollectorBridgeTest : public testing::Test {
   content::BrowserTaskEnvironment task_environment_;
   ArcServiceManager arc_service_manager_;
   TestBrowserContext context_;
-  ArcCrashCollectorBridge* const bridge_;
+  const raw_ptr<ArcCrashCollectorBridge, ExperimentalAsh> bridge_;
 };
 
 TEST_F(ArcCrashCollectorBridgeTest, ConstructDestruct) {}
@@ -47,7 +48,7 @@ TEST_F(ArcCrashCollectorBridgeTest, SetBuildProperties) {
 }
 
 // Tests that DumpCrash doesn't crash.
-// TODO(yusukes): Test the behavior beyond just "no crash".
+// TODO(khmel): Test the behavior beyond just "no crash".
 TEST_F(ArcCrashCollectorBridgeTest, DumpCrash) {
   ASSERT_NE(nullptr, bridge());
   bridge()->SetBuildProperties("device", "board", "cpu_abi",
@@ -56,7 +57,7 @@ TEST_F(ArcCrashCollectorBridgeTest, DumpCrash) {
 }
 
 // Tests that DumpNativeCrash doesn't crash.
-// TODO(yusukes): Test the behavior beyond just "no crash".
+// TODO(khmel): Test the behavior beyond just "no crash".
 TEST_F(ArcCrashCollectorBridgeTest, DumpNativeCrash) {
   ASSERT_NE(nullptr, bridge());
   bridge()->SetBuildProperties("device", "board", "cpu_abi",
@@ -66,7 +67,7 @@ TEST_F(ArcCrashCollectorBridgeTest, DumpNativeCrash) {
 }
 
 // Tests that DumpKernelCrash doesn't crash.
-// TODO(yusukes): Test the behavior beyond just "no crash".
+// TODO(khmel): Test the behavior beyond just "no crash".
 TEST_F(ArcCrashCollectorBridgeTest, DumpKernelCrash) {
   ASSERT_NE(nullptr, bridge());
   bridge()->SetBuildProperties("device", "board", "cpu_abi",

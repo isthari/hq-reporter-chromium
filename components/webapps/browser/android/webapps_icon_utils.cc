@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -92,6 +92,25 @@ int WebappsIconUtils::GetIdealShortcutIconSizeInPx() {
   if (g_ideal_shortcut_icon_size == -1)
     GetIconSizes();
   return g_ideal_shortcut_icon_size;
+}
+
+int WebappsIconUtils::GetIdealIconSizeForIconType(
+    webapk::Image::Usage usage,
+    webapk::Image::Purpose purpose) {
+  switch (usage) {
+    case webapk::Image::PRIMARY_ICON:
+      if (purpose == webapk::Image::MASKABLE) {
+        return GetIdealAdaptiveLauncherIconSizeInPx();
+      } else {
+        return GetIdealHomescreenIconSizeInPx();
+      }
+    case webapk::Image::SPLASH_ICON:
+      return GetIdealSplashImageSizeInPx();
+    case webapk::Image::SHORTCUT_ICON:
+      return GetIdealShortcutIconSizeInPx();
+    default:
+      return 0;
+  }
 }
 
 bool WebappsIconUtils::DoesAndroidSupportMaskableIcons() {

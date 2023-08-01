@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,10 @@
 #include <set>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
 #include "base/lazy_instance.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
@@ -56,6 +56,7 @@
 #include "extensions/browser/policy_check.h"
 #include "extensions/browser/preload_check_group.h"
 #include "extensions/browser/requirements_checker.h"
+#include "extensions/common/extension_features.h"
 #include "extensions/common/extension_icon_set.h"
 #include "extensions/common/extension_urls.h"
 #include "extensions/common/file_util.h"
@@ -83,15 +84,16 @@ namespace extensions {
 // static
 scoped_refptr<CrxInstaller> CrxInstaller::CreateSilent(
     ExtensionService* frontend) {
-  return new CrxInstaller(frontend->AsWeakPtr(),
-                          std::unique_ptr<ExtensionInstallPrompt>(), NULL);
+  return new CrxInstaller(frontend->AsExtensionServiceWeakPtr(),
+                          std::unique_ptr<ExtensionInstallPrompt>(), nullptr);
 }
 
 // static
 scoped_refptr<CrxInstaller> CrxInstaller::Create(
     ExtensionService* frontend,
     std::unique_ptr<ExtensionInstallPrompt> client) {
-  return new CrxInstaller(frontend->AsWeakPtr(), std::move(client), NULL);
+  return new CrxInstaller(frontend->AsExtensionServiceWeakPtr(),
+                          std::move(client), nullptr);
 }
 
 // static
@@ -99,7 +101,8 @@ scoped_refptr<CrxInstaller> CrxInstaller::Create(
     ExtensionService* service,
     std::unique_ptr<ExtensionInstallPrompt> client,
     const WebstoreInstaller::Approval* approval) {
-  return new CrxInstaller(service->AsWeakPtr(), std::move(client), approval);
+  return new CrxInstaller(service->AsExtensionServiceWeakPtr(),
+                          std::move(client), approval);
 }
 
 CrxInstaller::CrxInstaller(base::WeakPtr<ExtensionService> service_weak,
@@ -109,7 +112,6 @@ CrxInstaller::CrxInstaller(base::WeakPtr<ExtensionService> service_weak,
       install_directory_(service_weak->install_directory()),
       install_source_(mojom::ManifestLocation::kInternal),
       approved_(false),
-      verification_check_failed_(false),
       expected_manifest_check_level_(
           WebstoreInstaller::MANIFEST_CHECK_LEVEL_STRICT),
       fail_install_if_unexpected_version_(false),
@@ -148,7 +150,8 @@ CrxInstaller::CrxInstaller(base::WeakPtr<ExtensionService> service_weak,
     expected_manifest_check_level_ = approval->manifest_check_level;
     if (expected_manifest_check_level_ !=
         WebstoreInstaller::MANIFEST_CHECK_LEVEL_NONE) {
-      expected_manifest_ = approval->manifest->value()->CreateDeepCopy();
+      expected_manifest_ = std::make_unique<base::Value::Dict>(
+          approval->manifest->value()->Clone());
     }
     expected_id_ = approval->extension_id;
   }
@@ -163,7 +166,7 @@ CrxInstaller::CrxInstaller(base::WeakPtr<ExtensionService> service_weak,
 
 CrxInstaller::~CrxInstaller() {
   DCHECK(!service_weak_ || service_weak_->browser_terminating() ||
-         installer_callback_.is_null());
+         installer_callbacks_.empty());
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   // Ensure |client_| and |install_checker_| data members are destroyed on the
   // UI thread. The |client_| dialog has a weak reference as |this| is its
@@ -271,14 +274,14 @@ void CrxInstaller::UpdateExtensionFromUnpackedCrx(
                  << " because it is not installed";
     if (delete_source_)
       temp_dir_ = unpacked_dir;
-    if (installer_callback_.is_null()) {
+    if (installer_callbacks_.empty()) {
       shared_file_task_runner_->PostTask(
           FROM_HERE, base::BindOnce(&CrxInstaller::CleanupTempFiles, this));
     } else {
       shared_file_task_runner_->PostTaskAndReply(
           FROM_HERE, base::BindOnce(&CrxInstaller::CleanupTempFiles, this),
           base::BindOnce(
-              std::move(installer_callback_),
+              &CrxInstaller::RunInstallerCallbacks, this,
               CrxInstallError(
                   CrxInstallErrorType::OTHER,
                   CrxInstallErrorDetail::UPDATE_NON_EXISTING_EXTENSION)));
@@ -523,7 +526,7 @@ void CrxInstaller::OnUnpackFailure(const CrxInstallError& error) {
 void CrxInstaller::OnUnpackSuccess(
     const base::FilePath& temp_dir,
     const base::FilePath& extension_dir,
-    std::unique_ptr<base::DictionaryValue> original_manifest,
+    std::unique_ptr<base::Value::Dict> original_manifest,
     const Extension* extension,
     const SkBitmap& install_icon,
     declarative_net_request::RulesetInstallPrefs ruleset_install_prefs) {
@@ -539,7 +542,7 @@ void CrxInstaller::OnUnpackSuccess(
 void CrxInstaller::OnUnpackSuccessOnSharedFileThread(
     base::FilePath temp_dir,
     base::FilePath extension_dir,
-    std::unique_ptr<base::DictionaryValue> original_manifest,
+    std::unique_ptr<base::Value::Dict> original_manifest,
     scoped_refptr<const Extension> extension,
     SkBitmap install_icon,
     declarative_net_request::RulesetInstallPrefs ruleset_install_prefs) {
@@ -579,8 +582,7 @@ void CrxInstaller::OnUnpackSuccessOnSharedFileThread(
        expected_version_ == extension->version())) {
     delete_source_ = false;
     if (!content::GetUIThreadTaskRunner({})->PostTask(
-            FROM_HERE,
-            base::BindOnce(std::move(expectations_verified_callback_)))) {
+            FROM_HERE, std::move(expectations_verified_callback_))) {
       NOTREACHED();
     }
   }
@@ -809,25 +811,28 @@ void CrxInstaller::OnInstallPromptDone(
   ExtensionService* service = service_weak_.get();
   switch (payload.result) {
     case ExtensionInstallPrompt::Result::ACCEPTED:
+    case ExtensionInstallPrompt::Result::ACCEPTED_WITH_WITHHELD_PERMISSIONS:
       if (!service || service->browser_terminating())
         return;
 
       // Install (or re-enable) the extension with full permissions.
-      if (update_from_settings_page_)
+      if (update_from_settings_page_) {
+        // TODO(crbug.com/984069): Add support for withholding permissions on
+        // the re-enable prompt here once we know how that should be handled.
+        DCHECK_NE(
+            payload.result,
+            ExtensionInstallPrompt::Result::ACCEPTED_WITH_WITHHELD_PERMISSIONS);
         service->GrantPermissionsAndEnableExtension(extension());
-      else
-        UpdateCreationFlagsAndCompleteInstall(kDontWithholdPermissions);
+      } else {
+        WithholdingBehavior withholding_behavior =
+            payload.result == ExtensionInstallPrompt::Result::
+                                  ACCEPTED_WITH_WITHHELD_PERMISSIONS
+                ? kWithholdPermissions
+                : kDontWithholdPermissions;
+        UpdateCreationFlagsAndCompleteInstall(withholding_behavior);
+      }
       break;
-    case ExtensionInstallPrompt::Result::ACCEPTED_AND_OPTION_CHECKED:
-      if (!service || service->browser_terminating())
-        return;
 
-      // TODO(tjudkins): Add support for withholding permissions on the
-      // re-enable prompt here once we know how that should be handled.
-      DCHECK(!update_from_settings_page_);
-      // Install the extension with permissions withheld.
-      UpdateCreationFlagsAndCompleteInstall(kWithholdPermissions);
-      break;
     case ExtensionInstallPrompt::Result::USER_CANCELED:
       if (!update_from_settings_page_) {
         NotifyCrxInstallComplete(CrxInstallError(
@@ -880,8 +885,8 @@ void CrxInstaller::UpdateCreationFlagsAndCompleteInstall(
   if (ExtensionPrefs::Get(profile())->AllowFileAccess(extension()->id()))
     creation_flags_ |= Extension::ALLOW_FILE_ACCESS;
 
-  if (withholding_behavior == kWithholdPermissions)
-    creation_flags_ |= Extension::WITHHOLD_PERMISSIONS;
+  if (withholding_behavior == WithholdingBehavior::kWithholdPermissions)
+    set_withhold_permissions();
 
   ExtensionManagement* extension_management =
       ExtensionManagementFactory::GetForBrowserContext(profile());
@@ -1114,26 +1119,13 @@ void CrxInstaller::NotifyCrxInstallComplete(
     }
   }
 
-  // Some users (such as the download shelf) need to know when a
-  // CRXInstaller is done.  Listening for the EXTENSION_* events
-  // is problematic because they don't know anything about the
-  // extension before it is unpacked, so they cannot filter based
-  // on the extension.
-  content::NotificationService::current()->Notify(
-      NOTIFICATION_CRX_INSTALLER_DONE, content::Source<CrxInstaller>(this),
-      content::Details<const Extension>(success ? extension() : NULL));
-
   InstallTrackerFactory::GetForBrowserContext(profile())
       ->OnFinishCrxInstall(success ? extension()->id() : expected_id_, success);
 
   if (success)
     ConfirmReEnable();
 
-  if (!installer_callback_.is_null() &&
-      !content::GetUIThreadTaskRunner({})->PostTask(
-          FROM_HERE, base::BindOnce(std::move(installer_callback_), error))) {
-    NOTREACHED();
-  }
+  RunInstallerCallbacks(error);
 
   profile_keep_alive_.reset();
 }
@@ -1219,8 +1211,25 @@ base::SequencedTaskRunner* CrxInstaller::GetUnpackerTaskRunner() {
   return unpacker_task_runner_.get();
 }
 
-void CrxInstaller::set_installer_callback(InstallerResultCallback callback) {
-  installer_callback_ = std::move(callback);
+void CrxInstaller::set_withhold_permissions() {
+  DCHECK(base::FeatureList::IsEnabled(
+      extensions_features::kAllowWithholdingExtensionPermissionsOnInstall));
+  creation_flags_ |= Extension::WITHHOLD_PERMISSIONS;
+}
+
+void CrxInstaller::AddInstallerCallback(InstallerResultCallback callback) {
+  installer_callbacks_.emplace_back(std::move(callback));
+}
+
+void CrxInstaller::RunInstallerCallbacks(
+    const absl::optional<CrxInstallError>& error) {
+  for (InstallerResultCallback& callback : installer_callbacks_) {
+    if (!content::GetUIThreadTaskRunner({})->PostTask(
+            FROM_HERE, base::BindOnce(std::move(callback), error))) {
+      NOTREACHED();
+    }
+  }
+  installer_callbacks_.clear();
 }
 
 void CrxInstaller::set_expectations_verified_callback(

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,13 +34,13 @@ import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ApiCompatibilityUtils;
-import org.chromium.base.BuildInfo;
 import org.chromium.base.Callback;
+import org.chromium.base.ContextUtils;
 import org.chromium.base.compat.ApiHelperForQ;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.chrome.browser.omnibox.geo.VisibleNetworks.VisibleCell;
 import org.chromium.chrome.browser.omnibox.geo.VisibleNetworks.VisibleWifi;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 
 import java.util.Collections;
 import java.util.HashSet;
@@ -76,7 +76,7 @@ class PlatformNetworksManager {
     }
 
     private static WifiInfo getWifiInfo(Context context) {
-        if (BuildInfo.isAtLeastS()) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             // TODO(https://crbug.com/1181393): Look into taking a dependency on net/android and
             // extracting this logic there to a method that can be called from here.
             // On Android S+, need to use NetworkCapabilities to get the WifiInfo.
@@ -116,8 +116,9 @@ class PlatformNetworksManager {
     }
 
     static VisibleWifi getConnectedWifiPreMarshmallow(Context context) {
-        Intent intent = context.getApplicationContext().registerReceiver(
-                null, new IntentFilter(WifiManager.NETWORK_STATE_CHANGED_ACTION));
+        Intent intent =
+                ContextUtils.registerProtectedBroadcastReceiver(context.getApplicationContext(),
+                        null, new IntentFilter(WifiManager.NETWORK_STATE_CHANGED_ACTION));
         if (intent != null) {
             WifiInfo wifiInfo = intent.getParcelableExtra(WifiManager.EXTRA_WIFI_INFO);
             return connectedWifiInfoToVisibleWifi(wifiInfo);
@@ -170,13 +171,13 @@ class PlatformNetworksManager {
 
     static void getAllVisibleCells(Context context, TelephonyManager telephonyManager,
             Callback<Set<VisibleCell>> callback) {
-        if (!hasLocationPermission(context)) {
+        if (!hasLocationPermission(context) || telephonyManager == null) {
             callback.onResult(Collections.emptySet());
             return;
         }
 
         requestCellInfoUpdate(telephonyManager, (cellInfos) -> {
-            PostTask.postTask(UiThreadTaskTraits.DEFAULT,
+            PostTask.postTask(TaskTraits.UI_DEFAULT,
                     () -> callback.onResult(getAllVisibleCellsFromCellInfo(cellInfos)));
         });
     }

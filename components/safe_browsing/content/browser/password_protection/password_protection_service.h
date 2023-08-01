@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "components/safe_browsing/core/browser/password_protection/metrics_util.h"
 #include "components/safe_browsing/core/browser/password_protection/password_protection_service_base.h"
 #include "components/safe_browsing/core/common/proto/csd.pb.h"
+#include "content/public/browser/commit_deferring_condition.h"
 #include "mojo/public/cpp/bindings/remote.h"
 
 namespace content {
@@ -24,12 +25,30 @@ class GURL;
 
 namespace safe_browsing {
 
-class PasswordProtectionNavigationThrottle;
+class PasswordProtectionCommitDeferringCondition;
 class PasswordProtectionRequest;
 
 using ReusedPasswordAccountType =
     LoginReputationClientRequest::PasswordReuseEvent::ReusedPasswordAccountType;
 using password_manager::metrics_util::PasswordType;
+
+using PasswordReuseEvent =
+    safe_browsing::LoginReputationClientRequest::PasswordReuseEvent;
+using ReusedPasswordType = safe_browsing::LoginReputationClientRequest::
+    PasswordReuseEvent::ReusedPasswordType;
+using SyncAccountType =
+    LoginReputationClientRequest::PasswordReuseEvent::SyncAccountType;
+
+struct PasswordReuseInfo {
+  PasswordReuseInfo();
+  PasswordReuseInfo(const PasswordReuseInfo& other);
+  ~PasswordReuseInfo();
+  bool matches_signin_password;
+  ReusedPasswordAccountType reused_password_account_type;
+  std::vector<std::string> matching_domains;
+  uint64_t reused_password_hash;
+  int count{0};
+};
 
 class PasswordProtectionService : public PasswordProtectionServiceBase {
   using PasswordProtectionServiceBase::PasswordProtectionServiceBase;
@@ -39,6 +58,20 @@ class PasswordProtectionService : public PasswordProtectionServiceBase {
   // instance. This function also insert this request object in |requests_| for
   // record keeping.
   void StartRequest(
+      content::WebContents* web_contents,
+      const GURL& main_frame_url,
+      const GURL& password_form_action,
+      const GURL& password_form_frame_url,
+      const std::string& username,
+      PasswordType password_type,
+      const std::vector<password_manager::MatchingReusedCredential>&
+          matching_reused_credentials,
+      LoginReputationClientRequest::TriggerType trigger_type,
+      bool password_field_exists);
+
+  // Same as above but uses a PasswordProtectionRequest that avoids sending
+  // real requests that can be used for testing.
+  void StartRequestForTesting(
       content::WebContents* web_contents,
       const GURL& main_frame_url,
       const GURL& password_form_action,
@@ -102,18 +135,21 @@ class PasswordProtectionService : public PasswordProtectionServiceBase {
       mojo::Remote<mojom::PhishingDetector>* phishing_detector);
 #endif
 
-  // Called when a new navigation is starting. Create throttle if there is a
-  // pending sync password reuse ping or if there is a modal warning dialog
-  // showing in the corresponding web contents.
-  std::unique_ptr<PasswordProtectionNavigationThrottle>
-  MaybeCreateNavigationThrottle(content::NavigationHandle* navigation_handle);
+  // Called when a new navigation is starting to create a deferring condition
+  // if there is a pending sync password reuse ping or if there is a modal
+  // warning dialog showing in the corresponding web contents.
+  std::unique_ptr<PasswordProtectionCommitDeferringCondition>
+  MaybeCreateCommitDeferringCondition(
+      content::NavigationHandle& navigation_handle);
 
  protected:
+  void StartRequestInternal(scoped_refptr<PasswordProtectionRequest> request);
+
   void RemoveWarningRequestsByWebContents(content::WebContents* web_contents);
 
   bool IsModalWarningShowingInWebContents(content::WebContents* web_contents);
 
-  void MaybeHandleDeferredNavigations(
+  void ResumeDeferredNavigationsIfNeeded(
       PasswordProtectionRequest* request) override;
 };
 

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,14 @@
 #include <map>
 #include <memory>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/i18n/rtl.h"
 #include "base/memory/raw_ptr.h"
 #include "base/task/cancelable_task_tracker.h"
 #include "base/types/strong_alias.h"
 #include "components/autofill/core/browser/autofill_client.h"
 #include "components/autofill/core/browser/ui/autofill_popup_delegate.h"
+#include "components/autofill/core/browser/ui/suggestion.h"
 #include "components/autofill/core/common/password_form_fill_data.h"
 #include "components/password_manager/core/browser/password_manager_client.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
@@ -47,24 +48,26 @@ class PasswordAutofillManager : public autofill::AutofillPopupDelegate {
   PasswordAutofillManager(const PasswordAutofillManager&) = delete;
   PasswordAutofillManager& operator=(const PasswordAutofillManager&) = delete;
 
-  virtual ~PasswordAutofillManager();
+  ~PasswordAutofillManager() override;
 
   // AutofillPopupDelegate implementation.
   void OnPopupShown() override;
   void OnPopupHidden() override;
   void OnPopupSuppressed() override;
-  void DidSelectSuggestion(const std::u16string& value,
-                           int frontend_id,
-                           const std::string& backend_id) override;
-  void DidAcceptSuggestion(const std::u16string& value,
-                           int frontend_id,
-                           const std::string& backend_id,
+  void DidSelectSuggestion(
+      const std::u16string& value,
+      autofill::Suggestion::FrontendId frontend_id,
+      const autofill::Suggestion::BackendId& backend_id) override;
+  void DidAcceptSuggestion(const autofill::Suggestion& suggestion,
                            int position) override;
   bool GetDeletionConfirmationText(const std::u16string& value,
-                                   int frontend_id,
+                                   autofill::Suggestion::FrontendId frontend_id,
+                                   autofill::Suggestion::BackendId backend_id,
                                    std::u16string* title,
                                    std::u16string* body) override;
-  bool RemoveSuggestion(const std::u16string& value, int frontend_id) override;
+  bool RemoveSuggestion(const std::u16string& value,
+                        autofill::Suggestion::FrontendId frontend_id,
+                        autofill::Suggestion::BackendId backend_id) override;
   void ClearPreviewedForm() override;
   autofill::PopupType GetPopupType() const override;
   absl::variant<autofill::AutofillDriver*, PasswordManagerDriver*> GetDriver()
@@ -115,11 +118,9 @@ class PasswordAutofillManager : public autofill::AutofillPopupDelegate {
   // A public version of PreviewSuggestion(), only for use in tests.
   bool PreviewSuggestionForTest(const std::u16string& username);
 
-#if defined(UNIT_TEST)
-  void set_autofill_client(autofill::AutofillClient* autofill_client) {
+  void set_autofill_client_for_test(autofill::AutofillClient* autofill_client) {
     autofill_client_ = autofill_client;
   }
-#endif  // defined(UNIT_TEST)
 
  private:
   using ForPasswordField = base::StrongAlias<class ForPasswordFieldTag, bool>;
@@ -154,12 +155,14 @@ class PasswordAutofillManager : public autofill::AutofillPopupDelegate {
   // Attempts to find and fill the suggestions with the user name |username| and
   // the |item_id| indicating the store (account-stored or local). Returns true
   // if it was successful.
-  bool FillSuggestion(const std::u16string& username, int item_id);
+  bool FillSuggestion(const std::u16string& username,
+                      autofill::Suggestion::FrontendId item_id);
 
   // Attempts to find and preview the suggestions with the user name |username|
   // and the |item_id| indicating the store (account-stored or local). Returns
   // true if it was successful.
-  bool PreviewSuggestion(const std::u16string& username, int item_id);
+  bool PreviewSuggestion(const std::u16string& username,
+                         autofill::Suggestion::FrontendId item_id);
 
   // If one of the login mappings in |fill_data| matches |current_username| and
   // |item_id| (indicating whether a credential is stored in account or
@@ -170,7 +173,7 @@ class PasswordAutofillManager : public autofill::AutofillPopupDelegate {
   // Otherwise, returns false and leaves |password_and_meta_data| untouched.
   bool GetPasswordAndMetadataForUsername(
       const std::u16string& current_username,
-      int item_id,
+      autofill::Suggestion::FrontendId item_id,
       const autofill::PasswordFormFillData& fill_data,
       autofill::PasswordAndMetadata* password_and_meta_data);
 
@@ -198,7 +201,7 @@ class PasswordAutofillManager : public autofill::AutofillPopupDelegate {
   // Called when the biometric reauth that guards password filling completes.
   // |frontend_id| identifies the suggestion that was selected for filling.
   void OnBiometricReauthCompleted(const std::u16string& username_value,
-                                  int frontend_id,
+                                  autofill::Suggestion::FrontendId frontend_id,
                                   bool auth_succeded);
 
   // Cancels an ongoing biometric re-authentication. Usually, because
@@ -225,8 +228,8 @@ class PasswordAutofillManager : public autofill::AutofillPopupDelegate {
 
   // Used to trigger a reauthentication prompt based on biometrics that needs
   // to be cleared before the password is filled. Currently only used
-  // on Android.
-  scoped_refptr<device_reauth::BiometricAuthenticator> authenticator_;
+  // on Android, Mac and Windows.
+  scoped_refptr<device_reauth::DeviceAuthenticator> authenticator_;
 
   base::WeakPtrFactory<PasswordAutofillManager> weak_ptr_factory_{this};
 };

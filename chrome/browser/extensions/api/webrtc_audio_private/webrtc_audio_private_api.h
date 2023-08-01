@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 #include <string>
 
 #include "base/memory/raw_ptr.h"
-#include "base/memory/ref_counted.h"
 #include "base/system/system_monitor.h"
 #include "chrome/common/extensions/api/webrtc_audio_private.h"
 #include "content/public/browser/render_process_host.h"
@@ -125,7 +124,7 @@ class WebrtcAudioPrivateGetAssociatedSinkFunction
   // Receives the associated sink ID as HMAC and sends the response.
   void Reply(const std::string& hmac);
 
-  std::unique_ptr<api::webrtc_audio_private::GetAssociatedSink::Params> params_;
+  absl::optional<api::webrtc_audio_private::GetAssociatedSink::Params> params_;
 };
 
 }  // namespace extensions

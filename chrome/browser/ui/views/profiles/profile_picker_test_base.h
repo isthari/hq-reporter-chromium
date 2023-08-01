@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,20 +12,18 @@ class WebContents;
 }
 
 namespace views {
-class View;
 class WebView;
 class Widget;
 }  // namespace views
 
 class GURL;
+class ProfilePickerView;
 
-class ProfilePickerTestBase : public InProcessBrowserTest {
+// Mixin adding getters and helper methods to interact with `ProfilePickerView`.
+class WithProfilePickerTestHelpers {
  public:
-  ProfilePickerTestBase();
-  ~ProfilePickerTestBase() override;
-
   // Returns the ProfilePickerView that is currently displayed.
-  views::View* view();
+  ProfilePickerView* view();
 
   // Returns the widget associated with the profile picker.
   views::Widget* widget();
@@ -33,8 +31,7 @@ class ProfilePickerTestBase : public InProcessBrowserTest {
   // Returns the internal web view for the profile picker.
   views::WebView* web_view();
 
-  // Wait until the widget of the picker gets created and the initialization of
-  // the picker is thus finished (and notably `widget()` is not null).
+  // Forwards to `profiles::testing::WaitForPickerWidgetCreated()`.
   void WaitForPickerWidgetCreated();
 
   // Waits until `target` WebContents stops loading `url`. If no `target` is
@@ -45,10 +42,19 @@ class ProfilePickerTestBase : public InProcessBrowserTest {
 
   // Waits until the picker gets closed.
   void WaitForPickerClosed();
+
+  // Waits until the picker gets closed and asserts it reopens immediately.
   void WaitForPickerClosedAndReopenedImmediately();
 
   // Gets the picker's web contents.
   content::WebContents* web_contents();
+
+  // Gets signin_chrome_sync_dice with appropriate parameters appended:
+  // if in dark mode, "color_scheme=dark", and always "flow=promo".
+  GURL GetSigninChromeSyncDiceUrl();
 };
+
+class ProfilePickerTestBase : public InProcessBrowserTest,
+                              public WithProfilePickerTestHelpers {};
 
 #endif  // CHROME_BROWSER_UI_VIEWS_PROFILES_PROFILE_PICKER_TEST_BASE_H_

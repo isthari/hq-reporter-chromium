@@ -1,4 +1,4 @@
-// Copyright (c) 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,13 @@
 #include <utility>
 #include <vector>
 
-#include "base/callback.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/path_service.h"
+#include "base/ranges/algorithm.h"
 #include "base/test/bind.h"
 #include "build/build_config.h"
 #include "build/buildflag.h"
@@ -24,6 +25,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/chrome_paths.h"
+#include "components/browsing_data/content/browsing_data_test_util.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/download_manager.h"
 #include "content/public/browser/storage_partition.h"
@@ -99,9 +101,9 @@ class CookiesTreeObserver : public CookiesTreeModel::Observer {
       : quit_closure_(std::move(quit_closure)) {}
   ~CookiesTreeObserver() override = default;
 
-  void TreeModelBeginBatch(CookiesTreeModel* model) override {}
+  void TreeModelBeginBatchDeprecated(CookiesTreeModel* model) override {}
 
-  void TreeModelEndBatch(CookiesTreeModel* model) override {
+  void TreeModelEndBatchDeprecated(CookiesTreeModel* model) override {
     std::move(quit_closure_).Run();
   }
 
@@ -139,7 +141,7 @@ BrowsingDataRemoverBrowserTestBase::~BrowsingDataRemoverBrowserTestBase() =
     default;
 
 void BrowsingDataRemoverBrowserTestBase::InitFeatureList(
-    std::vector<base::Feature> enabled_features) {
+    std::vector<base::test::FeatureRef> enabled_features) {
   feature_list_.InitWithFeatures(enabled_features, {});
 }
 
@@ -176,20 +178,14 @@ void BrowsingDataRemoverBrowserTestBase::RunScriptAndCheckResult(
     content::WebContents* web_contents) {
   if (!web_contents)
     web_contents = GetActiveWebContents();
-  std::string data;
-  ASSERT_TRUE(
-      content::ExecuteScriptAndExtractString(web_contents, script, &data));
-  ASSERT_EQ(data, result);
+  ASSERT_EQ(result, content::EvalJs(web_contents, script));
 }
 
 bool BrowsingDataRemoverBrowserTestBase::RunScriptAndGetBool(
     const std::string& script,
     content::WebContents* web_contents) {
   EXPECT_TRUE(web_contents);
-  bool data;
-  EXPECT_TRUE(
-      content::ExecuteScriptAndExtractBool(web_contents, script, &data));
-  return data;
+  return content::EvalJs(web_contents, script).ExtractBool();
 }
 
 void BrowsingDataRemoverBrowserTestBase::VerifyDownloadCount(size_t expected,
@@ -232,7 +228,7 @@ bool BrowsingDataRemoverBrowserTestBase::HasDataForType(
     content::WebContents* web_contents) {
   if (!web_contents)
     web_contents = GetActiveWebContents();
-  return RunScriptAndGetBool("has" + type + "()", web_contents);
+  return browsing_data_test_util::HasDataForType(type, web_contents);
 }
 
 void BrowsingDataRemoverBrowserTestBase::SetDataForType(
@@ -240,8 +236,7 @@ void BrowsingDataRemoverBrowserTestBase::SetDataForType(
     content::WebContents* web_contents) {
   if (!web_contents)
     web_contents = GetActiveWebContents();
-  ASSERT_TRUE(RunScriptAndGetBool("set" + type + "()", web_contents))
-      << "Couldn't create data for: " << type;
+  browsing_data_test_util::SetDataForType(type, web_contents);
 }
 
 int BrowsingDataRemoverBrowserTestBase::GetSiteDataCount(
@@ -373,7 +368,7 @@ bool BrowsingDataRemoverBrowserTestBase::CheckUserDirectoryForString(
           pos < 30 ? 0 : pos - 30,
           std::min(content.size() - 1, pos + hostname.size() + 30));
       LOG(WARNING) << "Found file content: " << file << "\n"
-                   << partial_content << "\n";
+                   << partial_content << "\n" << found;
     }
   }
   return found;
@@ -384,12 +379,7 @@ int BrowsingDataRemoverBrowserTestBase::GetCookiesTreeModelCount(
   int count = 0;
   for (const auto& node : root->children()) {
     EXPECT_GE(node->children().size(), 1u);
-    count += std::count_if(node->children().cbegin(), node->children().cend(),
-                           [](const auto& child) {
-                             // TODO(crbug.com/642955): Include quota nodes.
-                             return child->GetDetailedInfo().node_type !=
-                                    CookieTreeNode::DetailedInfo::TYPE_QUOTA;
-                           });
+    count += node->children().size();
   }
   return count;
 }
@@ -401,10 +391,8 @@ std::string BrowsingDataRemoverBrowserTestBase::GetCookiesTreeModelInfo(
   for (const auto& node : root->children()) {
     info << node->GetTitle() << std::endl;
     for (const auto& child : node->children()) {
-      // Quota nodes are not included in the UI due to crbug.com/642955.
       const auto node_type = child->GetDetailedInfo().node_type;
-      if (node_type != CookieTreeNode::DetailedInfo::TYPE_QUOTA)
-        info << "  " << child->GetTitle() << " " << node_type << std::endl;
+      info << "  " << child->GetTitle() << " " << node_type << std::endl;
     }
   }
   return info.str();
@@ -412,40 +400,16 @@ std::string BrowsingDataRemoverBrowserTestBase::GetCookiesTreeModelInfo(
 
 std::unique_ptr<CookiesTreeModel>
 BrowsingDataRemoverBrowserTestBase::GetCookiesTreeModel(Profile* profile) {
-  content::StoragePartition* storage_partition =
-      profile->GetDefaultStoragePartition();
-  content::ServiceWorkerContext* service_worker_context =
-      storage_partition->GetServiceWorkerContext();
-  storage::FileSystemContext* file_system_context =
-      storage_partition->GetFileSystemContext();
-  content::NativeIOContext* native_io_context =
-      storage_partition->GetNativeIOContext();
-  auto container = std::make_unique<LocalDataContainer>(
-      base::MakeRefCounted<browsing_data::CookieHelper>(
-          storage_partition,
-          CookiesTreeModel::GetCookieDeletionDisabledCallback(profile)),
-      base::MakeRefCounted<browsing_data::DatabaseHelper>(profile),
-      base::MakeRefCounted<browsing_data::LocalStorageHelper>(profile),
-      /*session_storage_helper=*/nullptr,
-      base::MakeRefCounted<browsing_data::IndexedDBHelper>(storage_partition),
-      base::MakeRefCounted<browsing_data::FileSystemHelper>(
-          file_system_context,
-          browsing_data_file_system_util::GetAdditionalFileSystemTypes(),
-          native_io_context),
-      BrowsingDataQuotaHelper::Create(profile),
-      base::MakeRefCounted<browsing_data::ServiceWorkerHelper>(
-          service_worker_context),
-      base::MakeRefCounted<browsing_data::SharedWorkerHelper>(
-          storage_partition),
-      base::MakeRefCounted<browsing_data::CacheStorageHelper>(
-          storage_partition),
-      BrowsingDataMediaLicenseHelper::Create(file_system_context));
+  auto container = LocalDataContainer::CreateFromStoragePartition(
+      profile->GetDefaultStoragePartition(),
+      CookiesTreeModel::GetCookieDeletionDisabledCallback(profile));
   base::RunLoop run_loop;
   CookiesTreeObserver observer(run_loop.QuitClosure());
   auto model = std::make_unique<CookiesTreeModel>(
       std::move(container), profile->GetExtensionSpecialStoragePolicy());
   model->AddCookiesTreeObserver(&observer);
   run_loop.Run();
+  model->RemoveCookiesTreeObserver(&observer);
   return model;
 }
 
@@ -455,9 +419,10 @@ bool BrowsingDataRemoverBrowserTestBase::SetGaiaCookieForProfile(
   GURL google_url = GaiaUrls::GetInstance()->secure_google_url();
   auto cookie = net::CanonicalCookie::CreateUnsafeCookieForTesting(
       "SAPISID", std::string(), "." + google_url.host(), "/", base::Time(),
-      base::Time(), base::Time(), true /* secure */, false /* httponly */,
-      net::CookieSameSite::NO_RESTRICTION, net::COOKIE_PRIORITY_DEFAULT,
-      false /* same_party */);
+      base::Time(), base::Time(), base::Time(), /*secure=*/true,
+      /*httponly=*/false, net::CookieSameSite::NO_RESTRICTION,
+      net::COOKIE_PRIORITY_DEFAULT,
+      /*same_party=*/false);
   bool success = false;
   base::RunLoop loop;
   base::OnceCallback<void(net::CookieAccessResult)> callback =

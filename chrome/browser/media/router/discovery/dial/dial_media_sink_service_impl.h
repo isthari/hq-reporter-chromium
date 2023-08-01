@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,9 +28,10 @@ class DeviceDescriptionService;
 class DialRegistry;
 
 // A service which can be used to start background discovery and resolution of
-// DIAL devices (Smart TVs, Game Consoles, etc.).
-// This class may be created on any thread. All methods, unless otherwise noted,
-// must be invoked on the SequencedTaskRunner given by |task_runner()|.
+// DIAL devices (Smart TVs, Game Consoles, etc.). It is indirectly owned by a
+// singleton that is never freed. It may be created on any thread. All methods,
+// unless otherwise noted, must be invoked on the SequencedTaskRunner given by
+// |task_runner()|.
 class DialMediaSinkServiceImpl : public MediaSinkServiceBase,
                                  public DialRegistry::Client {
  public:
@@ -57,7 +58,7 @@ class DialMediaSinkServiceImpl : public MediaSinkServiceBase,
   virtual void Start();
 
   // MediaSinkServiceBase implementation.
-  void OnUserGesture() override;
+  void DiscoverSinksNow() override;
 
   // Returns the SequencedTaskRunner that should be used to invoke methods on
   // this instance. Can be invoked on any thread.
@@ -82,8 +83,6 @@ class DialMediaSinkServiceImpl : public MediaSinkServiceBase,
   // Marked virtual for tests.
   virtual std::vector<MediaSinkInternal> GetAvailableSinks(
       const std::string& app_name) const;
-
-  void BindLogger(mojo::PendingRemote<mojom::Logger> pending_remote);
 
  protected:
   void SetDescriptionServiceForTest(
@@ -186,11 +185,6 @@ class DialMediaSinkServiceImpl : public MediaSinkServiceBase,
   // Set of sink queries keyed by app name.
   base::flat_map<std::string, std::unique_ptr<SinkQueryByAppCallbackList>>
       sink_queries_;
-
-  // Mojo Remote to the logger owned by the Media Router. The Remote is not
-  // bound until |BindLogger()| is called. Always check if |logger_.is_bound()|
-  // is true before using.
-  mojo::Remote<mojom::Logger> logger_;
 
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
 

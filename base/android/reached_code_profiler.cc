@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,12 +15,12 @@
 #include "base/android/orderfile/orderfile_buildflags.h"
 #include "base/android/reached_addresses_bitset.h"
 #include "base/base_switches.h"
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/important_file_writer.h"
+#include "base/functional/bind.h"
 #include "base/linux_util.h"
 #include "base/logging.h"
 #include "base/no_destructor.h"
@@ -32,6 +32,7 @@
 #include "base/synchronization/lock.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread.h"
+#include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -165,7 +166,8 @@ class ReachedCodeProfiler {
     // Start the interval timer.
     struct itimerspec its;
     memset(&its, 0, sizeof(its));
-    its.it_interval.tv_nsec = sampling_interval.InNanoseconds();
+    its.it_interval.tv_nsec =
+        checked_cast<long>(sampling_interval.InNanoseconds());
     its.it_value = its.it_interval;
     ret = timer_settime(timerid, 0, &its, nullptr);
     if (ret) {
@@ -238,9 +240,8 @@ class ReachedCodeProfiler {
 
     dumping_thread_ =
         std::make_unique<base::Thread>("ReachedCodeProfilerDumpingThread");
-    base::Thread::Options options;
-    options.priority = base::ThreadPriority::BACKGROUND;
-    dumping_thread_->StartWithOptions(std::move(options));
+    dumping_thread_->StartWithOptions(
+        base::Thread::Options(base::ThreadType::kBackground));
     dumping_thread_->task_runner()->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(&DumpToFile, file_path, dumping_thread_->task_runner()),

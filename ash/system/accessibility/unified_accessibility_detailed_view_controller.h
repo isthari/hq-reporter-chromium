@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,13 +9,11 @@
 
 #include "ash/accessibility/accessibility_observer.h"
 #include "ash/system/unified/detailed_view_controller.h"
+#include "base/memory/raw_ptr.h"
 
 namespace ash {
 
-namespace tray {
 class AccessibilityDetailedView;
-}  // namespace tray
-
 class DetailedViewDelegate;
 class UnifiedSystemTrayController;
 
@@ -34,17 +32,21 @@ class UnifiedAccessibilityDetailedViewController
 
   ~UnifiedAccessibilityDetailedViewController() override;
 
-  // DetailedViewControllerBase:
-  views::View* CreateView() override;
+  // DetailedViewController:
+  std::unique_ptr<views::View> CreateView() override;
   std::u16string GetAccessibleName() const override;
 
   // AccessibilityObserver:
   void OnAccessibilityStatusChanged() override;
 
+  AccessibilityDetailedView* accessibility_detailed_view_for_testing() {
+    return view_;
+  }
+
  private:
   const std::unique_ptr<DetailedViewDelegate> detailed_view_delegate_;
 
-  tray::AccessibilityDetailedView* view_ = nullptr;
+  raw_ptr<AccessibilityDetailedView, ExperimentalAsh> view_ = nullptr;
 };
 
 }  // namespace ash

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "base/mac/scoped_nsobject.h"
+#include "base/memory/raw_ptr.h"
 #include "device/bluetooth/bluetooth_remote_gatt_service.h"
 
 @class CBCharacteristic;
@@ -20,11 +21,11 @@
 
 namespace device {
 
-class BluetoothAdapterMac;
 class BluetoothDevice;
+class BluetoothLowEnergyAdapterApple;
+class BluetoothLowEnergyDeviceMac;
 class BluetoothRemoteGattCharacteristicMac;
 class BluetoothRemoteGattDescriptorMac;
-class BluetoothLowEnergyDeviceMac;
 
 class DEVICE_BLUETOOTH_EXPORT BluetoothRemoteGattServiceMac
     : public BluetoothRemoteGattService {
@@ -64,8 +65,8 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothRemoteGattServiceMac
   // discovered.
   void SendNotificationIfComplete();
 
-  // Returns the mac adapter.
-  BluetoothAdapterMac* GetMacAdapter() const;
+  // Returns the LowEnergyBluetooth adapter.
+  BluetoothLowEnergyAdapterApple* GetLowEnergyAdapter() const;
   // Returns CBPeripheral.
   CBPeripheral* GetCBPeripheral() const;
   // Returns CBService.
@@ -78,7 +79,7 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothRemoteGattServiceMac
       CBDescriptor* cb_descriptor) const;
 
   // bluetooth_device_mac_ owns instances of this class.
-  BluetoothLowEnergyDeviceMac* bluetooth_device_mac_;
+  raw_ptr<BluetoothLowEnergyDeviceMac> bluetooth_device_mac_;
   // A service from CBPeripheral.services.
   base::scoped_nsobject<CBService> service_;
   bool is_primary_;

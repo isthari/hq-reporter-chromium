@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -145,7 +145,7 @@ TEST(CookieInclusionStatusTest, RemoveWarningReason) {
       CookieInclusionStatus::WARN_SAMESITE_UNSPECIFIED_CROSS_SITE_CONTEXT));
 }
 
-TEST(CookieInclusionStatusTest, HasDowngradeWarning) {
+TEST(CookieInclusionStatusTest, HasSchemefulDowngradeWarning) {
   std::vector<CookieInclusionStatus::WarningReason> downgrade_warnings = {
       CookieInclusionStatus::WARN_STRICT_LAX_DOWNGRADE_STRICT_SAMESITE,
       CookieInclusionStatus::WARN_STRICT_CROSS_DOWNGRADE_STRICT_SAMESITE,
@@ -155,19 +155,19 @@ TEST(CookieInclusionStatusTest, HasDowngradeWarning) {
   };
 
   CookieInclusionStatus empty_status;
-  EXPECT_FALSE(empty_status.HasDowngradeWarning());
+  EXPECT_FALSE(empty_status.HasSchemefulDowngradeWarning());
 
   CookieInclusionStatus not_downgrade;
   not_downgrade.AddWarningReason(
       CookieInclusionStatus::WARN_SAMESITE_UNSPECIFIED_CROSS_SITE_CONTEXT);
-  EXPECT_FALSE(not_downgrade.HasDowngradeWarning());
+  EXPECT_FALSE(not_downgrade.HasSchemefulDowngradeWarning());
 
   for (auto warning : downgrade_warnings) {
     CookieInclusionStatus status;
     status.AddWarningReason(warning);
     CookieInclusionStatus::WarningReason reason;
 
-    EXPECT_TRUE(status.HasDowngradeWarning(&reason));
+    EXPECT_TRUE(status.HasSchemefulDowngradeWarning(&reason));
     EXPECT_EQ(warning, reason);
   }
 }
@@ -272,6 +272,47 @@ TEST(CookieInclusionStatusTest, ValidateExclusionAndWarningFromWire) {
   warning_reasons = (1u << (CookieInclusionStatus::NUM_WARNING_REASONS - 1));
   EXPECT_TRUE(CookieInclusionStatus::ValidateExclusionAndWarningFromWire(
       exclusion_reasons, warning_reasons));
+}
+
+TEST(CookieInclusionStatusTest, ExcludedByUserPreferences) {
+  CookieInclusionStatus status =
+      CookieInclusionStatus::MakeFromReasonsForTesting(
+          {CookieInclusionStatus::ExclusionReason::EXCLUDE_USER_PREFERENCES});
+  EXPECT_TRUE(status.ExcludedByUserPreferences());
+
+  status = CookieInclusionStatus::MakeFromReasonsForTesting({
+      CookieInclusionStatus::ExclusionReason::EXCLUDE_USER_PREFERENCES,
+      CookieInclusionStatus::ExclusionReason::EXCLUDE_FAILURE_TO_STORE,
+  });
+  EXPECT_FALSE(status.ExcludedByUserPreferences());
+
+  status = CookieInclusionStatus::MakeFromReasonsForTesting({
+      CookieInclusionStatus::ExclusionReason::EXCLUDE_USER_PREFERENCES,
+      CookieInclusionStatus::ExclusionReason::
+          EXCLUDE_THIRD_PARTY_BLOCKED_WITHIN_FIRST_PARTY_SET,
+  });
+  EXPECT_TRUE(status.ExcludedByUserPreferences());
+
+  status = CookieInclusionStatus::MakeFromReasonsForTesting({
+      CookieInclusionStatus::ExclusionReason::
+          EXCLUDE_THIRD_PARTY_BLOCKED_WITHIN_FIRST_PARTY_SET,
+  });
+  EXPECT_FALSE(status.ExcludedByUserPreferences());
+
+  status = CookieInclusionStatus::MakeFromReasonsForTesting({
+      CookieInclusionStatus::ExclusionReason::
+          EXCLUDE_THIRD_PARTY_BLOCKED_WITHIN_FIRST_PARTY_SET,
+      CookieInclusionStatus::ExclusionReason::EXCLUDE_FAILURE_TO_STORE,
+  });
+  EXPECT_FALSE(status.ExcludedByUserPreferences());
+
+  status = CookieInclusionStatus::MakeFromReasonsForTesting({
+      CookieInclusionStatus::ExclusionReason::EXCLUDE_USER_PREFERENCES,
+      CookieInclusionStatus::ExclusionReason::
+          EXCLUDE_THIRD_PARTY_BLOCKED_WITHIN_FIRST_PARTY_SET,
+      CookieInclusionStatus::ExclusionReason::EXCLUDE_FAILURE_TO_STORE,
+  });
+  EXPECT_FALSE(status.ExcludedByUserPreferences());
 }
 
 }  // namespace net

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,8 @@
 #include "ash/accessibility/accessibility_controller_impl.h"
 #include "ash/constants/ash_features.h"
 #include "ash/constants/ash_pref_names.h"
+#include "ash/constants/tray_background_view_catalog.h"
+#include "ash/projector/projector_controller_impl.h"
 #include "ash/public/cpp/shelf_config.h"
 #include "ash/public/cpp/stylus_utils.h"
 #include "ash/public/cpp/system_tray_client.h"
@@ -29,7 +31,9 @@
 #include "ash/system/tray/tray_container.h"
 #include "ash/system/tray/tray_popup_utils.h"
 #include "ash/system/tray/tray_utils.h"
-#include "base/bind.h"
+#include "base/containers/contains.h"
+#include "base/functional/bind.h"
+#include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_macros.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_change_registrar.h"
@@ -39,6 +43,7 @@
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/color/color_id.h"
 #include "ui/compositor/layer.h"
 #include "ui/display/display.h"
 #include "ui/display/manager/display_manager.h"
@@ -70,7 +75,7 @@ constexpr int kPaddingBetweenTitleAndSeparator = 3;
 constexpr int kPaddingBetweenBottomAndLastTrayItem = 8;
 
 // Insets for the title view (dp).
-constexpr gfx::Insets kTitleViewPadding(8, 16, 8, 16);
+constexpr auto kTitleViewPadding = gfx::Insets::TLBR(8, 16, 8, 16);
 
 // Spacing between buttons in the title view (dp).
 constexpr int kTitleViewChildSpacing = 16;
@@ -106,7 +111,11 @@ class BatteryView : public views::View {
     label_->SetEnabledColor(stylus_battery_delegate_.GetColorForBatteryLevel());
     TrayPopupUtils::SetLabelFontList(label_,
                                      TrayPopupUtils::FontStyle::kSmallTitle);
+  }
 
+  // views::View:
+  void OnThemeChanged() override {
+    views::View::OnThemeChanged();
     stylus_battery_delegate_.SetBatteryUpdateCallback(base::BindRepeating(
         &BatteryView::OnBatteryLevelUpdated, base::Unretained(this)));
 
@@ -134,8 +143,8 @@ class BatteryView : public views::View {
 
  private:
   StylusBatteryDelegate stylus_battery_delegate_;
-  views::ImageView* icon_ = nullptr;
-  views::Label* label_ = nullptr;
+  raw_ptr<views::ImageView, ExperimentalAsh> icon_ = nullptr;
+  raw_ptr<views::Label, ExperimentalAsh> label_ = nullptr;
 };
 
 class TitleView : public views::View {
@@ -163,9 +172,8 @@ class TitleView : public views::View {
       AddChildView(std::make_unique<BatteryView>());
 
       auto* separator = AddChildView(std::make_unique<views::Separator>());
-      separator->SetPreferredHeight(GetPreferredSize().height());
-      separator->SetColor(AshColorProvider::Get()->GetContentLayerColor(
-          AshColorProvider::ContentLayerType::kSeparatorColor));
+      separator->SetPreferredLength(GetPreferredSize().height());
+      separator->SetColorId(ui::kColorAshSystemUIMenuSeparator);
     }
 
     help_button_ = AddChildView(std::make_unique<IconButton>(
@@ -175,7 +183,7 @@ class TitleView : public views::View {
             base::BindRepeating(
                 &SystemTrayClient::ShowPaletteHelp,
                 base::Unretained(Shell::Get()->system_tray_model()->client()))),
-        IconButton::Type::kSmall, &kSystemMenuHelpIcon,
+        IconButton::Type::kMedium, &kSystemMenuHelpIcon,
         IDS_ASH_STATUS_TRAY_HELP));
     settings_button_ = AddChildView(std::make_unique<IconButton>(
         base::BindRepeating(
@@ -184,7 +192,7 @@ class TitleView : public views::View {
             base::BindRepeating(
                 &SystemTrayClient::ShowPaletteSettings,
                 base::Unretained(Shell::Get()->system_tray_model()->client()))),
-        IconButton::Type::kSmall, &kSystemMenuSettingsIcon,
+        IconButton::Type::kMedium, &kSystemMenuSettingsIcon,
         IDS_ASH_PALETTE_SETTINGS));
   }
 
@@ -207,9 +215,9 @@ class TitleView : public views::View {
 
   // Unowned pointers to button views so we can determine which button was
   // clicked.
-  views::View* settings_button_;
-  views::View* help_button_;
-  PaletteTray* palette_tray_;
+  raw_ptr<views::View, ExperimentalAsh> settings_button_;
+  raw_ptr<views::View, ExperimentalAsh> help_button_;
+  raw_ptr<PaletteTray, ExperimentalAsh> palette_tray_;
 };
 
 // Used as a Shell pre-target handler to notify PaletteTray of stylus events.
@@ -232,29 +240,34 @@ class StylusEventHandler : public ui::EventHandler {
   }
 
  private:
-  PaletteTray* palette_tray_;
+  raw_ptr<PaletteTray, ExperimentalAsh> palette_tray_;
 };
 
 }  // namespace
 
 PaletteTray::PaletteTray(Shelf* shelf)
-    : TrayBackgroundView(shelf),
+    : TrayBackgroundView(shelf, TrayBackgroundViewCatalogName::kPalette),
       palette_tool_manager_(std::make_unique<PaletteToolManager>(this)),
       welcome_bubble_(std::make_unique<PaletteWelcomeBubble>(this)),
       stylus_event_handler_(std::make_unique<StylusEventHandler>(this)),
       scoped_session_observer_(this) {
+  SetPressedCallback(base::BindRepeating(&PaletteTray::OnPaletteTrayPressed,
+                                         base::Unretained(this)));
+
   PaletteTool::RegisterToolInstances(palette_tool_manager_.get());
 
   SetLayoutManager(std::make_unique<views::FillLayout>());
-  icon_ = new views::ImageView();
-  icon_->SetTooltipText(l10n_util::GetStringUTF16(IDS_ASH_STYLUS_TOOLS_TITLE));
-  UpdateTrayIcon();
 
+  auto icon = std::make_unique<views::ImageView>();
+  icon->SetTooltipText(l10n_util::GetStringUTF16(IDS_ASH_STYLUS_TOOLS_TITLE));
   tray_container()->SetMargin(kTrayIconMainAxisInset, kTrayIconCrossAxisInset);
-  tray_container()->AddChildView(icon_);
+  icon_ = tray_container()->AddChildView(std::move(icon));
+  UpdateTrayIcon();
 
   Shell::Get()->AddShellObserver(this);
   Shell::Get()->window_tree_host_manager()->AddObserver(this);
+
+  shelf->AddObserver(this);
 }
 
 PaletteTray::~PaletteTray() {
@@ -264,6 +277,7 @@ PaletteTray::~PaletteTray() {
   ui::DeviceDataManager::GetInstance()->RemoveObserver(this);
   Shell::Get()->RemoveShellObserver(this);
   Shell::Get()->window_tree_host_manager()->RemoveObserver(this);
+  shelf()->RemoveObserver(this);
 }
 
 // static
@@ -296,8 +310,9 @@ bool PaletteTray::ShouldShowPalette() const {
 
 bool PaletteTray::ShouldShowOnDisplay() {
   if (stylus_utils::IsPaletteEnabledOnEveryDisplay() ||
-      display_has_stylus_for_testing_)
+      display_has_stylus_for_testing_) {
     return true;
+  }
 
   // |widget| is null when this function is called from PaletteTray constructor
   // before it is added to a widget.
@@ -320,10 +335,10 @@ bool PaletteTray::ShouldShowOnDisplay() {
     ids.insert(ids.end(), mirrors.begin(), mirrors.end());
     ids.push_back(display_manager->mirroring_source_id());
   }
+
   for (const ui::TouchscreenDevice& device :
        ui::DeviceDataManager::GetInstance()->GetTouchscreenDevices()) {
-    if (device.has_stylus && std::find(ids.begin(), ids.end(),
-                                       device.target_display_id) != ids.end()) {
+    if (device.has_stylus && base::Contains(ids, device.target_display_id)) {
       return true;
     }
   }
@@ -408,6 +423,19 @@ void PaletteTray::OnLockStateChanged(bool locked) {
     // will open the palette. Make sure to close it if that happens.
     HidePalette();
   }
+}
+
+void PaletteTray::OnShellInitialized() {
+  if (features::IsProjectorEnabled()) {
+    ProjectorControllerImpl* projector_controller =
+        Shell::Get()->projector_controller();
+    projector_session_observation_.Observe(
+        projector_controller->projector_session());
+  }
+}
+
+void PaletteTray::OnShellDestroying() {
+  projector_session_observation_.Reset();
 }
 
 void PaletteTray::OnDisplayConfigurationChanged() {
@@ -526,25 +554,20 @@ void PaletteTray::RecordPaletteOptionsUsage(PaletteTrayOptions option,
                                             PaletteInvocationMethod method) {
   DCHECK_NE(option, PaletteTrayOptions::PALETTE_OPTIONS_COUNT);
 
-  if (method == PaletteInvocationMethod::SHORTCUT) {
-    UMA_HISTOGRAM_ENUMERATION("Ash.Shelf.Palette.Usage.Shortcut", option,
-                              PaletteTrayOptions::PALETTE_OPTIONS_COUNT);
-  } else if (is_bubble_auto_opened_) {
-    UMA_HISTOGRAM_ENUMERATION("Ash.Shelf.Palette.Usage.AutoOpened", option,
-                              PaletteTrayOptions::PALETTE_OPTIONS_COUNT);
-  } else {
+  if (method != PaletteInvocationMethod::SHORTCUT && !is_bubble_auto_opened_) {
     UMA_HISTOGRAM_ENUMERATION("Ash.Shelf.Palette.Usage", option,
                               PaletteTrayOptions::PALETTE_OPTIONS_COUNT);
   }
 }
 
-void PaletteTray::RecordPaletteModeCancellation(PaletteModeCancelType type) {
-  if (type == PaletteModeCancelType::PALETTE_MODE_CANCEL_TYPE_COUNT)
-    return;
-
-  UMA_HISTOGRAM_ENUMERATION(
-      "Ash.Shelf.Palette.ModeCancellation", type,
-      PaletteModeCancelType::PALETTE_MODE_CANCEL_TYPE_COUNT);
+void PaletteTray::OnProjectorSessionActiveStateChanged(bool active) {
+  is_palette_visibility_paused_ = active;
+  if (active) {
+    DeactivateActiveTool();
+    SetVisiblePreferred(false);
+  } else {
+    UpdateIconVisibility();
+  }
 }
 
 void PaletteTray::OnActiveToolChanged() {
@@ -578,27 +601,6 @@ void PaletteTray::Initialize() {
   InitializeWithLocalState();
 }
 
-bool PaletteTray::PerformAction(const ui::Event& event) {
-  if (bubble_) {
-    if (num_actions_in_bubble_ == 0) {
-      RecordPaletteOptionsUsage(PaletteTrayOptions::PALETTE_CLOSED_NO_ACTION,
-                                PaletteInvocationMethod::MENU);
-    }
-    HidePalette();
-    return true;
-  }
-
-  // Do not show the bubble if there was an action on the palette tray while
-  // there was an active tool.
-  if (DeactivateActiveTool()) {
-    SetIsActive(false);
-    return true;
-  }
-
-  ShowBubble();
-  return true;
-}
-
 void PaletteTray::CloseBubble() {
   HidePalette();
 }
@@ -614,7 +616,7 @@ void PaletteTray::ShowBubble() {
   DeactivateActiveTool();
 
   TrayBubbleView::InitParams init_params;
-  init_params.delegate = this;
+  init_params.delegate = GetWeakPtr();
   init_params.parent_window = GetBubbleWindowContainer();
   init_params.anchor_view = nullptr;
   init_params.anchor_mode = TrayBubbleView::AnchorMode::kRect;
@@ -624,7 +626,6 @@ void PaletteTray::ShowBubble() {
   init_params.preferred_width = kPaletteWidth;
   init_params.close_on_deactivate = true;
   init_params.translucent = true;
-  init_params.has_shadow = false;
   init_params.corner_radius = kTrayItemCornerRadius;
   init_params.reroute_event_handler = true;
 
@@ -633,28 +634,19 @@ void PaletteTray::ShowBubble() {
   // rows.
 
   // Create and customize bubble view.
-  TrayBubbleView* bubble_view = new TrayBubbleView(init_params);
+  auto bubble_view = std::make_unique<TrayBubbleView>(init_params);
   bubble_view->set_margins(GetSecondaryBubbleInsets());
   bubble_view->SetBorder(views::CreateEmptyBorder(
-      gfx::Insets(0, 0, kPaddingBetweenBottomAndLastTrayItem, 0)));
-
-  auto setup_layered_view = [](views::View* view) {
-    view->SetPaintToLayer();
-    view->layer()->SetFillsBoundsOpaquely(false);
-  };
+      gfx::Insets::TLBR(0, 0, kPaddingBetweenBottomAndLastTrayItem, 0)));
 
   // Add title.
-  auto* title_view =
-      bubble_view->AddChildView(std::make_unique<TitleView>(this));
-  setup_layered_view(title_view);
+  bubble_view->AddChildView(std::make_unique<TitleView>(this));
 
   // Add horizontal separator between the title and tools.
   auto* separator =
       bubble_view->AddChildView(std::make_unique<views::Separator>());
-  setup_layered_view(separator);
-  separator->SetColor(AshColorProvider::Get()->GetContentLayerColor(
-      AshColorProvider::ContentLayerType::kSeparatorColor));
-  separator->SetBorder(views::CreateEmptyBorder(gfx::Insets(
+  separator->SetColorId(ui::kColorAshSystemUIMenuSeparator);
+  separator->SetBorder(views::CreateEmptyBorder(gfx::Insets::TLBR(
       kPaddingBetweenTitleAndSeparator, 0, kMenuSeparatorVerticalPadding, 0)));
 
   // Add palette tools.
@@ -662,12 +654,12 @@ void PaletteTray::ShowBubble() {
   // ripples.
   std::vector<PaletteToolView> views = palette_tool_manager_->CreateViews();
   for (const PaletteToolView& view : views) {
-    bubble_view->AddChildView(view.view);
-    setup_layered_view(view.view);
+    bubble_view->AddChildView(view.view.get());
   }
 
   // Show the bubble.
-  bubble_ = std::make_unique<TrayBubbleWrapper>(this, bubble_view);
+  bubble_ = std::make_unique<TrayBubbleWrapper>(this);
+  bubble_->ShowBubble(std::move(bubble_view));
   SetIsActive(true);
 }
 
@@ -728,6 +720,26 @@ void PaletteTray::OnPaletteEnabledPrefChanged() {
   }
 }
 
+void PaletteTray::OnPaletteTrayPressed(const ui::Event& event) {
+  if (bubble_) {
+    if (num_actions_in_bubble_ == 0) {
+      RecordPaletteOptionsUsage(PaletteTrayOptions::PALETTE_CLOSED_NO_ACTION,
+                                PaletteInvocationMethod::MENU);
+    }
+    HidePalette();
+    return;
+  }
+
+  // Do not show the bubble if there was an action on the palette tray while
+  // there was an active tool.
+  if (DeactivateActiveTool()) {
+    SetIsActive(false);
+    return;
+  }
+
+  ShowBubble();
+}
+
 void PaletteTray::OnHasSeenStylusPrefChanged() {
   DCHECK(local_state_);
 
@@ -739,8 +751,6 @@ bool PaletteTray::DeactivateActiveTool() {
       palette_tool_manager_->GetActiveTool(PaletteGroup::MODE);
   if (active_tool_id != PaletteToolId::NONE) {
     palette_tool_manager_->DeactivateTool(active_tool_id);
-    RecordPaletteModeCancellation(PaletteToolIdToPaletteModeCancelType(
-        active_tool_id, false /*is_switched*/));
     return true;
   }
 
@@ -758,11 +768,39 @@ void PaletteTray::SetDisplayHasStylusForTesting() {
 
 void PaletteTray::UpdateIconVisibility() {
   bool visible_preferred =
-      is_palette_enabled_ && stylus_utils::HasStylusInput() &&
-      ShouldShowOnDisplay() && palette_utils::IsInUserSession();
+      is_palette_enabled_ && !is_palette_visibility_paused_ &&
+      stylus_utils::HasStylusInput() && ShouldShowOnDisplay() &&
+      palette_utils::IsInUserSession();
   SetVisiblePreferred(visible_preferred);
   if (visible_preferred)
     UpdateLayout();
+}
+
+void PaletteTray::OnAutoHideStateChanged(ShelfAutoHideState state) {
+  if (!bubble_)
+    return;
+
+  // The anchor rect should be placed with the `work_area` + the `PaletteTray`'s
+  // position on the shelf.
+  gfx::Rect work_area = shelf()->GetSystemTrayAnchorRect();
+  gfx::Rect tray_anchor = GetBubbleAnchor()->GetAnchorBoundsInScreen();
+  gfx::Rect anchor_rect;
+  switch (shelf()->alignment()) {
+    case ShelfAlignment::kBottom:
+    case ShelfAlignment::kBottomLocked:
+      anchor_rect =
+          gfx::Rect(base::i18n::IsRTL() ? tray_anchor.x() : tray_anchor.right(),
+                    work_area.bottom(), 0, 0);
+      break;
+    case ShelfAlignment::kLeft:
+      anchor_rect = gfx::Rect(work_area.x(), tray_anchor.bottom(), 0, 0);
+      break;
+    case ShelfAlignment::kRight:
+      anchor_rect = gfx::Rect(work_area.right(), tray_anchor.bottom(), 0, 0);
+      break;
+  }
+
+  bubble_->bubble_view()->ChangeAnchorRect(anchor_rect);
 }
 
 }  // namespace ash

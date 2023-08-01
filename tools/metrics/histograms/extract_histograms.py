@@ -1,4 +1,4 @@
-# Copyright 2013 The Chromium Authors. All rights reserved.
+# Copyright 2013 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 """Extract histogram names from the description XML file.
@@ -68,6 +68,8 @@ except ImportError:  # For Py3 compatibility
 import logging
 import re
 import xml.dom.minidom
+
+import histogram_configuration_model
 
 BASIC_EMAIL_REGEXP = r'^[\w\-\+\%\.]+\@[\w\-\+\%\.]+$'
 
@@ -295,6 +297,7 @@ def ExtractEnumsFromXmlTree(tree):
     enum_dict = {}
     enum_dict['name'] = name
     enum_dict['values'] = {}
+    labels = set()
 
     nodes = list(IterElementsWithTag(enum, 'int'))
 
@@ -311,7 +314,13 @@ def ExtractEnumsFromXmlTree(tree):
         logging.error('Duplicate enum value %d for enum %s', int_value, name)
         have_errors = True
         continue
-      value_dict['label'] = int_tag.getAttribute('label')
+      label = int_tag.getAttribute('label')
+      if label in labels:
+        logging.error('Duplicate enum label "%s" for enum %s', label, name)
+        have_errors = True
+        continue
+      labels.add(label)
+      value_dict['label'] = label
       value_dict['summary'] = _GetTextFromChildNodes(int_tag)
       enum_dict['values'][int_value] = value_dict
 
@@ -373,6 +382,39 @@ def _ExtractOwners(node):
         owners.append(owner_text)
 
   return owners, has_owner
+
+
+def _ExtractImprovementDirection(histogram_node):
+  """Extracts improvement direction from the given histogram element, if any.
+
+  Args:
+    histogram_node: A DOM Element corresponding to a histogram.
+
+  Returns:
+    A tuple, where the first element is the improvement direction, if any;
+    the second element is an error message if the given direction is invalid.
+  """
+  direction = None
+  error = None
+  improvement_nodes = histogram_node.getElementsByTagName('improvement')
+  if not improvement_nodes:
+    return None, None
+  if len(improvement_nodes) > 1:
+    histogram_name = histogram_node.getAttribute('name')
+    error = f'Histogram "{histogram_name}" has multiple <improvement> tags.'
+    return None, error
+
+  improvement_node = improvement_nodes[0]
+  direction = improvement_node.getAttribute('direction')
+  if (direction not in
+      histogram_configuration_model.IMPROVEMENT_DIRECTION_VALID_VALUES):
+    histogram_name = histogram_node.getAttribute('name')
+    error = (
+        f'Histogram "{histogram_name}" has an invalid direction "{direction}" '
+        f'in its <improvement> tag.')
+    return None, error
+
+  return direction, None
 
 
 def _ExtractComponents(histogram):
@@ -573,15 +615,24 @@ def _ExtractHistogramsFromXmlTree(tree, enums):
         have_errors = True
     else:
       logging.error(
-          'Your histogram must have an expiry date. If you are marking a '
+          'Your histogram %s must have an expiry date. If you are marking a '
           'histogram as obsolete, please set the expiry date to the current '
-          'date.')
+          'date.', name)
       have_errors = True
 
     # Find <owner> tag.
     owners, has_owner = _ExtractOwners(histogram)
     if owners:
       histogram_entry['owners'] = owners
+
+    # Find the <improvement> tag, if any.
+    improvement_direction, improvement_error = _ExtractImprovementDirection(
+        histogram)
+    if improvement_direction:
+      histogram_entry['improvement'] = improvement_direction
+    if improvement_error:
+      logging.error(improvement_error)
+      have_errors = True
 
     # Find <component> tag.
     components = _ExtractComponents(histogram)

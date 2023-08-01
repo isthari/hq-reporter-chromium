@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,10 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "content/public/browser/browser_thread.h"
+
+// Enable VLOG level 1.
+#undef ENABLED_VLOG_LEVEL
+#define ENABLED_VLOG_LEVEL 1
 
 namespace arc {
 
@@ -62,6 +66,11 @@ ArcSharesheetBridge::ArcSharesheetBridge(content::BrowserContext* context,
 ArcSharesheetBridge::~ArcSharesheetBridge() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   arc_bridge_service_->sharesheet()->SetHost(nullptr);
+}
+
+// static
+void ArcSharesheetBridge::EnsureFactoryBuilt() {
+  ArcSharesheetBridgeFactory::GetInstance();
 }
 
 }  // namespace arc

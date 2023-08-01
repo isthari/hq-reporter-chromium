@@ -1,11 +1,9 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef COMPONENTS_TRANSLATE_CORE_COMMON_TRANSLATE_METRICS_H_
 #define COMPONENTS_TRANSLATE_CORE_COMMON_TRANSLATE_METRICS_H_
-
-#include <string>
 
 #include "base/time/time.h"
 
@@ -36,20 +34,12 @@ extern const char kTranslatedLanguageDetectionContentLength[];
 enum LanguageVerificationType {
   DEPRECATED_LANGUAGE_VERIFICATION_MODEL_DISABLED,  // obsolete
   LANGUAGE_VERIFICATION_MODEL_ONLY,
-  LANGUAGE_VERIFICATION_UNKNOWN,
-  LANGUAGE_VERIFICATION_MODEL_AGREE,
-  LANGUAGE_VERIFICATION_MODEL_DISAGREE,
-  LANGUAGE_VERIFICATION_TRUST_MODEL,
-  LANGUAGE_VERIFICATION_MODEL_COMPLEMENT_SUB_CODE,
+  LANGUAGE_VERIFICATION_MODEL_UNKNOWN,
+  LANGUAGE_VERIFICATION_MODEL_AGREES,
+  LANGUAGE_VERIFICATION_MODEL_DISAGREES,
+  LANGUAGE_VERIFICATION_MODEL_OVERRIDES,
+  LANGUAGE_VERIFICATION_MODEL_COMPLEMENTS_COUNTRY,
   LANGUAGE_VERIFICATION_MAX,
-};
-
-// Scheme type of pages Chrome is going to translate.
-enum SchemeType {
-  SCHEME_HTTP,
-  SCHEME_HTTPS,
-  SCHEME_OTHERS,
-  SCHEME_MAX,
 };
 
 // Called when CLD verifies Content-Language header.
@@ -66,13 +56,6 @@ void ReportTimeToTranslate(double time_in_msec);
 
 // Called when a translation is triggered.
 void ReportUserActionDuration(base::TimeTicks begin, base::TimeTicks end);
-
-// Called when a translation is triggered.
-void ReportPageScheme(const std::string& scheme);
-
-// Called when CLD agreed on a language which is different, but in the similar
-// language list.
-void ReportSimilarLanguageMatch(bool match);
 
 // Called when the page language is determined.
 void ReportLanguageDeterminedDuration(base::TimeTicks begin,

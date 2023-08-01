@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,12 @@
 
 #include <memory>
 
+#include "base/containers/contains.h"
+#include "base/feature_list.h"
 #include "base/time/time.h"
+#include "net/base/features.h"
 #include "net/base/host_port_pair.h"
-#include "net/third_party/quiche/src/quic/core/quic_connection.h"
+#include "net/third_party/quiche/src/quiche/quic/core/quic_connection.h"
 
 namespace net {
 
@@ -21,17 +24,33 @@ DefaultSupportedQuicVersions() {
   // the ordering received from the server via Alt-Svc. However, cronet offers
   // an addQuicHint() API which uses the first version from this list until
   // it receives Alt-Svc from the server.
-  return quic::ParsedQuicVersionVector{quic::ParsedQuicVersion::RFCv1(),
-                                       quic::ParsedQuicVersion::Draft29(),
-                                       quic::ParsedQuicVersion::Q050()};
+  return quic::ParsedQuicVersionVector{quic::ParsedQuicVersion::RFCv1()};
 }
 
 // Obsolete QUIC supported versions are versions that are supported by the
 // QUIC shared code but that Chrome refuses to use because modern clients
 // should only use versions at least as recent as the oldest default version.
 inline NET_EXPORT_PRIVATE quic::ParsedQuicVersionVector ObsoleteQuicVersions() {
-  return quic::ParsedQuicVersionVector{quic::ParsedQuicVersion::Q043(),
-                                       quic::ParsedQuicVersion::Q046()};
+  return quic::ParsedQuicVersionVector{quic::ParsedQuicVersion::Q046(),
+                                       quic::ParsedQuicVersion::Q050(),
+                                       quic::ParsedQuicVersion::Draft29()};
+}
+
+// All of the QUIC versions that Chrome can support. This is the subset of
+// QUIC versions that the QUIC shared code supports that are not on the list
+// of versions that Chrome considers obsolete.
+inline NET_EXPORT_PRIVATE quic::ParsedQuicVersionVector
+AllSupportedQuicVersions() {
+  quic::ParsedQuicVersionVector obsolete_versions = ObsoleteQuicVersions();
+  quic::ParsedQuicVersionVector all_supported_versions =
+      quic::AllSupportedVersions();
+  quic::ParsedQuicVersionVector filtered_versions;
+  for (const auto& version : all_supported_versions) {
+    if (!base::Contains(obsolete_versions, version)) {
+      filtered_versions.push_back(version);
+    }
+  }
+  return filtered_versions;
 }
 
 // When a connection is idle for 30 seconds it will be closed.
@@ -123,7 +142,8 @@ struct NET_EXPORT QuicParams {
   // If true, connection migration v2 will be used to migrate existing
   // sessions to network when the platform indicates that the default network
   // is changing.
-  bool migrate_sessions_on_network_change_v2 = false;
+  bool migrate_sessions_on_network_change_v2 =
+      base::FeatureList::IsEnabled(features::kMigrateSessionsOnNetworkChangeV2);
   // If true, connection migration v2 may be used to migrate active QUIC
   // sessions to alternative network if current network connectivity is poor.
   bool migrate_sessions_early_v2 = false;
@@ -135,7 +155,7 @@ struct NET_EXPORT QuicParams {
   bool migrate_idle_sessions = false;
   // If true, sessions with open streams will attempt to migrate to a different
   // port when the current path is poor.
-  bool allow_port_migration = false;
+  bool allow_port_migration = true;
   // A session can be migrated if its idle time is within this period.
   base::TimeDelta idle_session_migration_period =
       kDefaultIdleSessionMigrationPeriod;
@@ -157,18 +177,8 @@ struct NET_EXPORT QuicParams {
   // If true, allows QUIC to use alternative services with a different
   // hostname from the origin.
   bool allow_remote_alt_svc = true;
-  // If true, the quic stream factory may race connection from stale dns
-  // result with the original dns resolution
-  bool race_stale_dns_on_connection = false;
-  // If true, the quic session may mark itself as GOAWAY on path degrading.
-  bool go_away_on_path_degrading = false;
-  // If true, bidirectional streams over QUIC will be disabled.
-  bool disable_bidirectional_streams = false;
   // If true, estimate the initial RTT for QUIC connections based on network.
   bool estimate_initial_rtt = false;
-  // If true, client headers will include HTTP/2 stream dependency info
-  // derived from the request priority.
-  bool headers_include_h2_stream_dependency = false;
   // The initial rtt that will be used in crypto handshake if no cached
   // smoothed rtt is present.
   base::TimeDelta initial_rtt_for_handshake;
@@ -179,6 +189,15 @@ struct NET_EXPORT QuicParams {
   // Network Service Type of the socket for iOS. Default is NET_SERVICE_TYPE_BE
   // (best effort).
   int ios_network_service_type = 0;
+  // Delay for the 1st time the alternative service is marked broken.
+  absl::optional<base::TimeDelta> initial_delay_for_broken_alternative_service;
+  // If true, the delay for broke alternative service would be initial_delay *
+  // (1 << broken_count). Otherwise, the delay would be initial_delay, 5min,
+  // 10min and so on.
+  absl::optional<bool> exponential_backoff_on_initial_delay;
+  // If true, delay main job even the request can be sent immediately on an
+  // available SPDY session.
+  bool delay_main_job_with_available_spdy_session = false;
 };
 
 // QuicContext contains QUIC-related variables that are shared across all of the
@@ -186,7 +205,8 @@ struct NET_EXPORT QuicParams {
 class NET_EXPORT_PRIVATE QuicContext {
  public:
   QuicContext();
-  QuicContext(std::unique_ptr<quic::QuicConnectionHelperInterface> helper);
+  explicit QuicContext(
+      std::unique_ptr<quic::QuicConnectionHelperInterface> helper);
   ~QuicContext();
 
   quic::QuicConnectionHelperInterface* helper() { return helper_.get(); }

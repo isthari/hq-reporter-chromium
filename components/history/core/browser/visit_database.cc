@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,6 +19,7 @@
 #include "base/time/time.h"
 #include "components/google/core/common/google_util.h"
 #include "components/history/core/browser/history_backend.h"
+#include "components/history/core/browser/history_types.h"
 #include "components/history/core/browser/url_database.h"
 #include "sql/statement.h"
 #include "sql/transaction.h"
@@ -87,13 +88,39 @@ std::array<std::pair<std::string, std::string>, 4> GetHostSearchBounds(
   return bounds;
 }
 
+// Transition IDs are from possibly-corrupt databases or incorrect IDs due to
+// version skew. Where `transition` isn't valid we fall back on
+// PAGE_TRANSITION_LINK.
+ui::PageTransition PageTransitionFromIntWithFallback(int32_t transition) {
+  return ui::IsValidPageTransitionType(transition)
+             ? ui::PageTransitionFromInt(transition)
+             : ui::PAGE_TRANSITION_LINK;
+}
+
 // Is the transition user-visible.
 bool TransitionIsVisible(int32_t transition) {
-  ui::PageTransition page_transition = ui::PageTransitionFromInt(transition);
+  const ui ::PageTransition page_transition =
+      PageTransitionFromIntWithFallback(transition);
   return (ui::PAGE_TRANSITION_CHAIN_END & transition) != 0 &&
          ui::PageTransitionIsMainFrame(page_transition) &&
          !ui::PageTransitionCoreTypeIs(page_transition,
                                        ui::PAGE_TRANSITION_KEYWORD_GENERATED);
+}
+
+VisitSource VisitSourceFromInt(int value) {
+  auto converted = static_cast<VisitSource>(value);
+  // Verify that `converted` is actually a valid enum value.
+  switch (converted) {
+    case SOURCE_SYNCED:
+    case SOURCE_BROWSED:
+    case SOURCE_EXTENSION:
+    case SOURCE_FIREFOX_IMPORTED:
+    case SOURCE_IE_IMPORTED:
+    case SOURCE_SAFARI_IMPORTED:
+      return converted;
+  }
+  // In cases of database corruption, SOURCE_BROWSED is a safe default value.
+  return SOURCE_BROWSED;
 }
 
 }  // namespace
@@ -111,9 +138,16 @@ bool VisitDatabase::InitVisitTable() {
     // for each row.
     if (!GetDB().Execute(
             "CREATE TABLE visits("
-            "id INTEGER PRIMARY KEY,"
+            // The `id` uses AUTOINCREMENT to support Sync. Chrome Sync uses the
+            // `id` in conjunction with the Client ID as a unique identifier.
+            // If this was not AUTOINCREMENT, deleting a row and creating a new
+            // one could reuse the same `id` for an entirely new visit, which
+            // would confuse Sync, as Sync would be unable to distinguish
+            // an update from a deletion plus a creation.
+            "id INTEGER PRIMARY KEY AUTOINCREMENT,"
             "url INTEGER NOT NULL,"  // key of the URL this corresponds to
             "visit_time INTEGER NOT NULL,"
+            // Although NULLable, our code writes 0 to visits without referrers.
             "from_visit INTEGER,"
             "transition INTEGER DEFAULT 0 NOT NULL,"
             "segment_id INTEGER,"
@@ -121,8 +155,43 @@ bool VisitDatabase::InitVisitTable() {
             // longer used and should NOT be read or written from any longer.
             "visit_duration INTEGER DEFAULT 0 NOT NULL,"
             "incremented_omnibox_typed_score BOOLEAN DEFAULT FALSE NOT NULL,"
-            "opener_visit INTEGER)"))
+            // Although NULLable, our code writes 0 to visits without openers.
+            "opener_visit INTEGER,"
+            // For remote visits synced onto our local machine:
+            //  - `originator_cache_guid` is the unique identifier for the
+            //    machine the visit was originally made on (called the
+            //    "originator" below).
+            //  - `originator_visit_id` is the `id` of the visit row as
+            //    originally assigned by AUTOINCREMENT on the originator.
+            //  - The tuple of (`originator_cache_guid`, `originator_visit_id`)
+            //    is globally unique.
+            //  - `originator_from_visit` and `originator_opener_visit` refer to
+            //    `originator_visit_id`, NOT the local visit IDs.
+            //  - The `from_visit` and `opener_visit` columns are remapped to
+            //    local IDs.
+            // For local visits:
+            //  - Although NULLable, local visits always write an empty string
+            //    and 0s to these columns for implementation simplicity and
+            //    consistency with C++ types. It's harmless, because NULL is
+            //    interpreted that way upon reading anyways.
+            //  - NULL values in the database can occur in the wild for old
+            //    database versions that were migrated, but this is harmless.
+            "originator_cache_guid TEXT,"
+            "originator_visit_id INTEGER,"
+            "originator_from_visit INTEGER,"
+            "originator_opener_visit INTEGER,"
+            // Set to true for visits known to Chrome Sync, which can be:
+            //  1. Remote visits that have been synced to the local machine.
+            //  2. Local visits that have been sent to Sync.
+            "is_known_to_sync BOOLEAN DEFAULT FALSE NOT NULL,"
+            // Specifies whether a navigation should contribute to the Most
+            // Visited tiles in the New Tab Page. Note that setting this to true
+            // (most common case) doesn't guarantee it's relevant for Most
+            // Visited, since other requirements exist (e.g. certain page
+            // transition types).
+            "consider_for_ntp_most_visited BOOLEAN DEFAULT FALSE NOT NULL)")) {
       return false;
+    }
   }
 
   // Visit source table contains the source information for all the visits. To
@@ -153,6 +222,18 @@ bool VisitDatabase::InitVisitTable() {
                        "visits (visit_time)"))
     return false;
 
+  // Create an index over originator visit IDs so that Sync can efficiently
+  // re-map them into local IDs.
+  // Note: Some tests manually create older versions of the DB where the
+  // `originator_visit_id` column doesn't exist yet. In those cases, don't try
+  // creating an index (which would fail).
+  if (GetDB().DoesColumnExist("visits", "originator_visit_id")) {
+    if (!GetDB().Execute(
+            "CREATE INDEX IF NOT EXISTS visits_originator_id_index ON visits "
+            "(originator_visit_id)"))
+      return false;
+  }
+
   return true;
 }
 
@@ -167,14 +248,19 @@ bool VisitDatabase::DropVisitTable() {
 void VisitDatabase::FillVisitRow(sql::Statement& statement, VisitRow* visit) {
   visit->visit_id = statement.ColumnInt64(0);
   visit->url_id = statement.ColumnInt64(1);
-  visit->visit_time = base::Time::FromInternalValue(statement.ColumnInt64(2));
+  visit->visit_time = statement.ColumnTime(2);
   visit->referring_visit = statement.ColumnInt64(3);
-  visit->transition = ui::PageTransitionFromInt(statement.ColumnInt(4));
+  visit->transition = PageTransitionFromIntWithFallback(statement.ColumnInt(4));
   visit->segment_id = statement.ColumnInt64(5);
-  visit->visit_duration =
-      base::TimeDelta::FromInternalValue(statement.ColumnInt64(6));
+  visit->visit_duration = statement.ColumnTimeDelta(6);
   visit->incremented_omnibox_typed_score = statement.ColumnBool(7);
   visit->opener_visit = statement.ColumnInt64(8);
+  visit->originator_cache_guid = statement.ColumnString(9);
+  visit->originator_visit_id = statement.ColumnInt64(10);
+  visit->originator_referring_visit = statement.ColumnInt64(11);
+  visit->originator_opener_visit = statement.ColumnInt64(12);
+  visit->is_known_to_sync = statement.ColumnBool(13);
+  visit->consider_for_ntp_most_visited = statement.ColumnBool(14);
 }
 
 // static
@@ -234,16 +320,26 @@ VisitID VisitDatabase::AddVisit(VisitRow* visit, VisitSource source) {
       SQL_FROM_HERE,
       "INSERT INTO visits "
       "(url, visit_time, from_visit, transition, segment_id, "
-      "visit_duration, incremented_omnibox_typed_score, opener_visit) "
-      "VALUES (?,?,?,?,?,?,?,?)"));
+      "visit_duration, incremented_omnibox_typed_score, opener_visit,"
+      "originator_cache_guid,originator_visit_id,originator_from_visit,"
+      "originator_opener_visit,is_known_to_sync,consider_for_ntp_most_visited) "
+      "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)"));
+  // Although some columns are NULLable, we never write NULL. We write 0 or ""
+  // instead for simplicity. See the CREATE TABLE comments for details.
   statement.BindInt64(0, visit->url_id);
-  statement.BindInt64(1, visit->visit_time.ToInternalValue());
+  statement.BindTime(1, visit->visit_time);
   statement.BindInt64(2, visit->referring_visit);
   statement.BindInt64(3, visit->transition);
   statement.BindInt64(4, visit->segment_id);
-  statement.BindInt64(5, visit->visit_duration.ToInternalValue());
+  statement.BindTimeDelta(5, visit->visit_duration);
   statement.BindBool(6, visit->incremented_omnibox_typed_score);
   statement.BindInt64(7, visit->opener_visit);
+  statement.BindString(8, visit->originator_cache_guid);
+  statement.BindInt64(9, visit->originator_visit_id);
+  statement.BindInt64(10, visit->originator_referring_visit);
+  statement.BindInt64(11, visit->originator_opener_visit);
+  statement.BindBool(12, visit->is_known_to_sync);
+  statement.BindBool(13, visit->consider_for_ntp_most_visited);
 
   if (!statement.Run()) {
     DVLOG(0) << "Failed to execute visit insert statement:  "
@@ -315,6 +411,48 @@ bool VisitDatabase::GetRowForVisit(VisitID visit_id, VisitRow* out_visit) {
   return true;
 }
 
+bool VisitDatabase::GetLastRowForVisitByVisitTime(base::Time visit_time,
+                                                  VisitRow* out_visit) {
+  // In the case of redirects, there may be multiple visits with the same
+  // timestamp. In that case, the one with the largest ID should be the end of
+  // the redirect chain.
+  sql::Statement statement(GetDB().GetCachedStatement(
+      SQL_FROM_HERE,
+      "SELECT" HISTORY_VISIT_ROW_FIELDS
+      "FROM visits WHERE visit_time=? ORDER BY id DESC LIMIT 1"));
+  statement.BindTime(0, visit_time);
+
+  if (!statement.Step())
+    return false;
+
+  FillVisitRow(statement, out_visit);
+
+  // We got a different visit than we asked for, something is wrong.
+  DCHECK_EQ(visit_time, out_visit->visit_time);
+  if (visit_time != out_visit->visit_time)
+    return false;
+
+  return true;
+}
+
+bool VisitDatabase::GetRowForForeignVisit(
+    const std::string& originator_cache_guid,
+    VisitID originator_visit_id,
+    VisitRow* out_visit) {
+  sql::Statement statement(GetDB().GetCachedStatement(
+      SQL_FROM_HERE,
+      "SELECT" HISTORY_VISIT_ROW_FIELDS
+      "FROM visits WHERE originator_cache_guid=? and originator_visit_id=?"));
+  statement.BindString(0, originator_cache_guid);
+  statement.BindInt64(1, originator_visit_id);
+
+  if (!statement.Step())
+    return false;
+
+  FillVisitRow(statement, out_visit);
+  return true;
+}
+
 bool VisitDatabase::UpdateVisitRow(const VisitRow& visit) {
   // Don't store inconsistent data to the database.
   DCHECK_NE(visit.visit_id, visit.referring_visit);
@@ -325,18 +463,32 @@ bool VisitDatabase::UpdateVisitRow(const VisitRow& visit) {
       SQL_FROM_HERE,
       "UPDATE visits SET "
       "url=?,visit_time=?,from_visit=?,transition=?,segment_id=?,"
-      "visit_duration=?,incremented_omnibox_typed_score=?,opener_visit=? "
+      "visit_duration=?,incremented_omnibox_typed_score=?,opener_visit=?,"
+      "originator_cache_guid=?,originator_visit_id=?,is_known_to_sync=?,"
+      "consider_for_ntp_most_visited=? "
       "WHERE id=?"));
+  // Although some columns are NULLable, we never write NULL. We write 0 or ""
+  // instead for simplicity. See the CREATE TABLE comments for details.
   statement.BindInt64(0, visit.url_id);
-  statement.BindInt64(1, visit.visit_time.ToInternalValue());
+  statement.BindTime(1, visit.visit_time);
   statement.BindInt64(2, visit.referring_visit);
   statement.BindInt64(3, visit.transition);
   statement.BindInt64(4, visit.segment_id);
-  statement.BindInt64(5, visit.visit_duration.ToInternalValue());
+  statement.BindTimeDelta(5, visit.visit_duration);
   statement.BindBool(6, visit.incremented_omnibox_typed_score);
   statement.BindInt64(7, visit.opener_visit);
-  statement.BindInt64(8, visit.visit_id);
+  statement.BindString(8, visit.originator_cache_guid);
+  statement.BindInt64(9, visit.originator_visit_id);
+  statement.BindInt64(10, visit.is_known_to_sync);
+  statement.BindInt64(11, visit.consider_for_ntp_most_visited);
+  statement.BindInt64(12, visit.visit_id);
 
+  return statement.Run();
+}
+
+bool VisitDatabase::SetAllVisitsAsNotKnownToSync() {
+  sql::Statement statement(
+      GetDB().GetUniqueStatement("UPDATE visits SET is_known_to_sync=0"));
   return statement.Run();
 }
 
@@ -356,12 +508,19 @@ bool VisitDatabase::GetVisibleVisitsForURL(URLID url_id,
                                            VisitVector* visits) {
   visits->clear();
 
-  sql::Statement statement(GetDB().GetCachedStatement(
-      SQL_FROM_HERE,
-      "SELECT" HISTORY_VISIT_ROW_FIELDS
-      "FROM visits "
-      "WHERE url=? AND visit_time >= ? AND visit_time < ? "
-      "ORDER BY visit_time DESC"));
+  sql::Statement statement;
+  if (options.visit_order == QueryOptions::RECENT_FIRST) {
+    statement.Assign(GetDB().GetCachedStatement(
+        SQL_FROM_HERE, "SELECT" HISTORY_VISIT_ROW_FIELDS "FROM visits "
+                       "WHERE url=? AND visit_time>=? AND visit_time<? "
+                       "ORDER BY visit_time DESC"));
+  } else {
+    statement.Assign(GetDB().GetCachedStatement(
+        SQL_FROM_HERE, "SELECT" HISTORY_VISIT_ROW_FIELDS "FROM visits "
+                       "WHERE url=? AND visit_time>? AND visit_time<=? "
+                       "ORDER BY visit_time ASC"));
+  }
+
   statement.BindInt64(0, url_id);
   statement.BindInt64(1, options.EffectiveBeginTime());
   statement.BindInt64(2, options.EffectiveEndTime());
@@ -378,7 +537,7 @@ bool VisitDatabase::GetVisitsForTimes(const std::vector<base::Time>& times,
         SQL_FROM_HERE, "SELECT" HISTORY_VISIT_ROW_FIELDS "FROM visits "
                        "WHERE visit_time == ?"));
 
-    statement.BindInt64(0, time.ToInternalValue());
+    statement.BindTime(0, time);
 
     if (!FillVisitVector(statement, visits))
       return false;
@@ -399,7 +558,7 @@ bool VisitDatabase::GetAllVisitsInRange(base::Time begin_time,
 
   // See GetVisibleVisitsInRange for more info on how these times are bound.
   int64_t end = end_time.ToInternalValue();
-  statement.BindInt64(0, begin_time.ToInternalValue());
+  statement.BindTime(0, begin_time);
   statement.BindInt64(1, end ? end : std::numeric_limits<int64_t>::max());
   statement.BindInt64(
       2, max_results ? max_results : std::numeric_limits<int64_t>::max());
@@ -423,12 +582,35 @@ bool VisitDatabase::GetVisitsInRangeForTransition(base::Time begin_time,
 
   // See GetVisibleVisitsInRange for more info on how these times are bound.
   int64_t end = end_time.ToInternalValue();
-  statement.BindInt64(0, begin_time.ToInternalValue());
+  statement.BindTime(0, begin_time);
   statement.BindInt64(1, end ? end : std::numeric_limits<int64_t>::max());
   statement.BindInt64(2, ui::PAGE_TRANSITION_CORE_MASK);
   statement.BindInt64(3, transition);
   statement.BindInt64(
       4, max_results ? max_results : std::numeric_limits<int64_t>::max());
+
+  return FillVisitVector(statement, visits);
+}
+
+bool VisitDatabase::GetSomeForeignVisits(VisitID max_visit_id,
+                                         int max_results,
+                                         VisitVector* visits) {
+  DCHECK(visits);
+  visits->clear();
+
+  // Exactly all foreign visits (i.e. coming from a different device) have an
+  // `originator_cache_guid` set. (This does *not* include legacy TypedURL
+  // visits though - those have SOURCE_SYNCED but are otherwise not considered
+  // "foreign".)
+  sql::Statement statement(GetDB().GetCachedStatement(
+      SQL_FROM_HERE,
+      "SELECT" HISTORY_VISIT_ROW_FIELDS
+      "FROM visits "
+      "WHERE originator_cache_guid IS NOT NULL AND originator_cache_guid != '' "
+      "AND id <= ? "
+      "LIMIT ?"));
+  statement.BindInt64(0, max_visit_id);
+  statement.BindInt(1, max_results);
 
   return FillVisitVector(statement, visits);
 }
@@ -454,12 +636,19 @@ bool VisitDatabase::GetVisibleVisitsInRange(const QueryOptions& options,
   visits->clear();
   // The visit_time values can be duplicated in a redirect chain, so we sort
   // by id too, to ensure a consistent ordering just in case.
-  sql::Statement statement(GetDB().GetCachedStatement(
-      SQL_FROM_HERE,
-      "SELECT" HISTORY_VISIT_ROW_FIELDS
-      "FROM visits "
-      "WHERE visit_time >= ? AND visit_time < ? "
-      "ORDER BY visit_time DESC, id DESC"));
+
+  sql::Statement statement;
+  if (options.visit_order == QueryOptions::RECENT_FIRST) {
+    statement.Assign(GetDB().GetCachedStatement(
+        SQL_FROM_HERE, "SELECT" HISTORY_VISIT_ROW_FIELDS "FROM visits "
+                       "WHERE visit_time>=? AND visit_time<? "
+                       "ORDER BY visit_time DESC, id DESC"));
+  } else {
+    statement.Assign(GetDB().GetCachedStatement(
+        SQL_FROM_HERE, "SELECT" HISTORY_VISIT_ROW_FIELDS "FROM visits "
+                       "WHERE visit_time>? AND visit_time<=? "
+                       "ORDER BY visit_time ASC, id DESC"));
+  }
 
   statement.BindInt64(0, options.EffectiveBeginTime());
   statement.BindInt64(1, options.EffectiveEndTime());
@@ -588,9 +777,7 @@ bool VisitDatabase::GetVisibleVisitCountToHost(const GURL& url,
     if (!TransitionIsVisible(statement.ColumnInt(1)))
       continue;
     ++visit_count;
-    min_visit_time =
-        std::min(base::Time::FromInternalValue(statement.ColumnInt64(0)),
-                 min_visit_time);
+    min_visit_time = std::min(statement.ColumnTime(0), min_visit_time);
   }
 
   if (!statement.Succeeded())
@@ -614,17 +801,16 @@ bool VisitDatabase::GetHistoryCount(const base::Time& begin_time,
                                  "FROM visits "
                                  "WHERE visit_time >= ? AND visit_time < ?"));
 
-  statement.BindInt64(0, begin_time.ToInternalValue());
-  statement.BindInt64(1, end_time.ToInternalValue());
+  statement.BindTime(0, begin_time);
+  statement.BindTime(1, end_time);
 
   // Set of (date, url) pairs.
   std::set<std::pair<base::Time, std::string>> url_days;
   while (statement.Step()) {
     if (!TransitionIsVisible(statement.ColumnInt(2)))
       continue;
-    url_days.emplace(
-        base::Time::FromInternalValue(statement.ColumnInt64(1)).LocalMidnight(),
-        statement.ColumnString(0));
+    url_days.emplace(statement.ColumnTime(1).LocalMidnight(),
+                     statement.ColumnString(0));
   }
 
   *count = url_days.size();
@@ -666,13 +852,13 @@ bool VisitDatabase::GetLastVisitToHost(const std::string& host,
   statement.BindString(5, bounds.at(2).second);
   statement.BindString(6, bounds.at(3).first);
   statement.BindString(7, bounds.at(3).second);
-  statement.BindInt64(8, begin_time.ToInternalValue());
-  statement.BindInt64(9, end_time.ToInternalValue());
+  statement.BindTime(8, begin_time);
+  statement.BindTime(9, end_time);
 
   while (statement.Step()) {
     if (ui::PageTransitionIsMainFrame(
-            ui::PageTransitionFromInt(statement.ColumnInt(1)))) {
-      *last_visit = base::Time::FromInternalValue(statement.ColumnInt64(0));
+            PageTransitionFromIntWithFallback(statement.ColumnInt(1)))) {
+      *last_visit = statement.ColumnTime(0);
       return true;
     }
   }
@@ -708,8 +894,8 @@ bool VisitDatabase::GetLastVisitToOrigin(const url::Origin& origin,
       "LIMIT 1"));
   statement.BindString(0, origin_bounds.first);
   statement.BindString(1, origin_bounds.second);
-  statement.BindInt64(2, begin_time.ToInternalValue());
-  statement.BindInt64(3, end_time.ToInternalValue());
+  statement.BindTime(2, begin_time);
+  statement.BindTime(3, end_time);
 
   if (!statement.Step()) {
     // If there are no entries from the statement, the host may not have been
@@ -719,7 +905,7 @@ bool VisitDatabase::GetLastVisitToOrigin(const url::Origin& origin,
     return statement.Succeeded();
   }
 
-  *last_visit = base::Time::FromInternalValue(statement.ColumnInt64(0));
+  *last_visit = statement.ColumnTime(0);
   return true;
 }
 
@@ -740,7 +926,7 @@ bool VisitDatabase::GetLastVisitToURL(const GURL& url,
       "ORDER BY v.visit_time DESC "
       "LIMIT 1"));
   statement.BindString(0, url.spec());
-  statement.BindInt64(1, end_time.ToInternalValue());
+  statement.BindTime(1, end_time);
 
   if (!statement.Step()) {
     // If there are no entries from the statement, the URL may not have been
@@ -750,7 +936,7 @@ bool VisitDatabase::GetLastVisitToURL(const GURL& url,
     return statement.Succeeded();
   }
 
-  *last_visit = base::Time::FromInternalValue(statement.ColumnInt64(0));
+  *last_visit = statement.ColumnTime(0);
   return true;
 }
 
@@ -780,16 +966,15 @@ DailyVisitsResult VisitDatabase::GetDailyVisitsToHost(const GURL& host,
 
   statement.BindString(0, host_bounds.first);
   statement.BindString(1, host_bounds.second);
-  statement.BindInt64(2, begin_time.ToInternalValue());
-  statement.BindInt64(3, end_time.ToInternalValue());
+  statement.BindTime(2, begin_time);
+  statement.BindTime(3, end_time);
 
   std::vector<base::Time> dates;
   while (statement.Step()) {
     if (!TransitionIsVisible(statement.ColumnInt(1)))
       continue;
     ++result.total_visits;
-    dates.push_back(base::Time::FromInternalValue(statement.ColumnInt64(0))
-                        .LocalMidnight());
+    dates.push_back(statement.ColumnTime(0).LocalMidnight());
   }
   std::sort(dates.begin(), dates.end());
   result.days_with_visits =
@@ -807,8 +992,18 @@ bool VisitDatabase::GetStartDate(base::Time* first_visit) {
     *first_visit = base::Time::Now();
     return false;
   }
-  *first_visit = base::Time::FromInternalValue(statement.ColumnInt64(0));
+  *first_visit = statement.ColumnTime(0);
   return true;
+}
+
+VisitID VisitDatabase::GetMaxVisitIDInUse() {
+  sql::Statement statement(
+      GetDB().GetCachedStatement(SQL_FROM_HERE, "SELECT MAX(id) FROM visits"));
+  if (!statement.Step()) {
+    // The visits table must be empty.
+    return kInvalidVisitID;
+  }
+  return statement.ColumnInt64(0);
 }
 
 void VisitDatabase::GetVisitsSource(const VisitVector& visits,
@@ -841,8 +1036,7 @@ void VisitDatabase::GetVisitsSource(const VisitVector& visits,
     // Get the source entries out of the query result.
     while (statement.Step()) {
       std::pair<VisitID, VisitSource> source_entry(
-          statement.ColumnInt64(0),
-          static_cast<VisitSource>(statement.ColumnInt(1)));
+          statement.ColumnInt64(0), VisitSourceFromInt(statement.ColumnInt(1)));
       sources->insert(source_entry);
     }
   }
@@ -854,7 +1048,7 @@ VisitSource VisitDatabase::GetVisitSource(const VisitID visit_id) {
   statement.BindInt64(0, visit_id);
   if (!statement.Step())
     return VisitSource::SOURCE_BROWSED;
-  return static_cast<VisitSource>(statement.ColumnInt(0));
+  return VisitSourceFromInt(statement.ColumnInt(0));
 }
 
 std::vector<DomainVisit>
@@ -944,12 +1138,11 @@ bool VisitDatabase::MigrateVisitsWithoutIncrementedOmniboxTypedScore() {
       VisitRow row;
       row.visit_id = read.ColumnInt64(0);
       row.url_id = read.ColumnInt64(1);
-      row.visit_time = base::Time::FromInternalValue(read.ColumnInt64(2));
+      row.visit_time = read.ColumnTime(2);
       row.referring_visit = read.ColumnInt64(3);
-      row.transition = ui::PageTransitionFromInt(read.ColumnInt(4));
+      row.transition = PageTransitionFromIntWithFallback(read.ColumnInt(4));
       row.segment_id = read.ColumnInt64(5);
-      row.visit_duration =
-          base::TimeDelta::FromInternalValue(read.ColumnInt64(6));
+      row.visit_duration = read.ColumnTimeDelta(6);
       // Check if the visit row is in an invalid state and if it is then
       // leave the new field as the default value.
       if (row.visit_id == row.referring_visit)
@@ -964,11 +1157,11 @@ bool VisitDatabase::MigrateVisitsWithoutIncrementedOmniboxTypedScore() {
           "visit_duration=?,incremented_omnibox_typed_score=? "
           "WHERE id=?"));
       statement.BindInt64(0, row.url_id);
-      statement.BindInt64(1, row.visit_time.ToInternalValue());
+      statement.BindTime(1, row.visit_time);
       statement.BindInt64(2, row.referring_visit);
       statement.BindInt64(3, row.transition);
       statement.BindInt64(4, row.segment_id);
-      statement.BindInt64(5, row.visit_duration.ToInternalValue());
+      statement.BindTimeDelta(5, row.visit_duration);
       statement.BindBool(6, row.incremented_omnibox_typed_score);
       statement.BindInt64(7, row.visit_id);
 
@@ -1047,6 +1240,91 @@ bool VisitDatabase::
          transaction.Commit();
 }
 
+bool VisitDatabase::MigrateVisitsAutoincrementIdAndAddOriginatorColumns() {
+  if (!GetDB().DoesTableExist("visits")) {
+    NOTREACHED() << " Visits table should exist before migration";
+    return false;
+  }
+
+  if (GetDB().DoesColumnExist("visits", "originator_cache_guid") &&
+      GetDB().DoesColumnExist("visits", "originator_visit_id") &&
+      VisitTableContainsAutoincrement()) {
+    return true;
+  }
+
+  sql::Transaction transaction(&GetDB());
+  return transaction.Begin() &&
+         GetDB().Execute(
+             "CREATE TABLE visits_tmp("
+             "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+             "url INTEGER NOT NULL,"  // key of the URL this corresponds to
+             "visit_time INTEGER NOT NULL,"
+             "from_visit INTEGER,"
+             "transition INTEGER DEFAULT 0 NOT NULL,"
+             "segment_id INTEGER,"
+             "visit_duration INTEGER DEFAULT 0 NOT NULL,"
+             "incremented_omnibox_typed_score BOOLEAN DEFAULT FALSE NOT NULL,"
+             "opener_visit INTEGER)") &&
+         GetDB().Execute(
+             "INSERT INTO visits_tmp SELECT "
+             "id, url, visit_time, from_visit, transition, segment_id, "
+             "visit_duration, incremented_omnibox_typed_score, opener_visit "
+             "FROM visits") &&
+         GetDB().Execute(
+             "ALTER TABLE visits_tmp ADD COLUMN originator_cache_guid TEXT") &&
+         GetDB().Execute(
+             "ALTER TABLE visits_tmp ADD COLUMN originator_visit_id INTEGER") &&
+         GetDB().Execute("DROP TABLE visits") &&
+         GetDB().Execute("ALTER TABLE visits_tmp RENAME TO visits") &&
+         transaction.Commit();
+}
+
+bool VisitDatabase::MigrateVisitsAddOriginatorFromVisitAndOpenerVisitColumns() {
+  if (!GetDB().DoesTableExist("visits")) {
+    NOTREACHED() << " Visits table should exist before migration";
+    return false;
+  }
+
+  // Old versions don't have the originator_from_visit or
+  // originator_opener_visit columns; modify the table to add those.
+  if (!GetDB().DoesColumnExist("visits", "originator_from_visit")) {
+    if (!GetDB().Execute("ALTER TABLE visits "
+                         "ADD COLUMN originator_from_visit INTEGER")) {
+      return false;
+    }
+  }
+  if (!GetDB().DoesColumnExist("visits", "originator_opener_visit")) {
+    if (!GetDB().Execute("ALTER TABLE visits "
+                         "ADD COLUMN originator_opener_visit INTEGER")) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+bool VisitDatabase::VisitTableContainsAutoincrement() {
+  // sqlite_schema has columns:
+  //   type - "index" or "table".
+  //   name - name of created element.
+  //   tbl_name - name of element, or target table in case of index.
+  //   rootpage - root page of the element in database file.
+  //   sql - SQL to create the element.
+  sql::Statement statement(
+      GetDB().GetUniqueStatement("SELECT sql FROM sqlite_schema WHERE type = "
+                                 "'table' AND name = 'visits'"));
+
+  // visits table does not exist.
+  if (!statement.Step())
+    return false;
+
+  std::string urls_schema = statement.ColumnString(0);
+  // We check if the whole schema contains "AUTOINCREMENT", since
+  // "AUTOINCREMENT" only can be used for "INTEGER PRIMARY KEY", so we assume no
+  // other columns could contain "AUTOINCREMENT".
+  return urls_schema.find("AUTOINCREMENT") != std::string::npos;
+}
+
 bool VisitDatabase::GetAllVisitedURLRowidsForMigrationToVersion40(
     std::vector<URLID>* visited_url_rowids_sorted) {
   DCHECK(visited_url_rowids_sorted);
@@ -1057,6 +1335,47 @@ bool VisitDatabase::GetAllVisitedURLRowidsForMigrationToVersion40(
     visited_url_rowids_sorted->push_back(statement.ColumnInt64(0));
   }
   return statement.Succeeded();
+}
+
+bool VisitDatabase::MigrateVisitsAddIsKnownToSyncColumn() {
+  if (!GetDB().DoesTableExist("visits")) {
+    NOTREACHED() << " Visits table should exist before migration";
+    return false;
+  }
+
+  if (!GetDB().DoesColumnExist("visits", "is_known_to_sync")) {
+    if (!GetDB().Execute("ALTER TABLE visits "
+                         "ADD COLUMN is_known_to_sync "
+                         "BOOLEAN DEFAULT FALSE NOT NULL")) {
+      return false;
+    }
+
+    // Note we specifically DO NOT update the existing visits that have
+    // `visit_source` == `SOURCE_SYNCED` to have `is_known_to_sync` set to true.
+    //
+    // This is because we don't know if the user has subsequently turned off
+    // Sync, and we only want to flag this on for visits that are CURRENTLY
+    // known to Sync and associated with the current user.
+  }
+
+  return true;
+}
+
+bool VisitDatabase::MigrateVisitsAddConsiderForNewTabPageMostVisitedColumn() {
+  if (!GetDB().DoesTableExist("visits")) {
+    NOTREACHED() << " Visits table should exist before migration";
+    return false;
+  }
+
+  if (!GetDB().DoesColumnExist("visits", "consider_for_ntp_most_visited")) {
+    if (!GetDB().Execute("ALTER TABLE visits "
+                         "ADD COLUMN consider_for_ntp_most_visited "
+                         "BOOLEAN DEFAULT FALSE NOT NULL")) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 }  // namespace history

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include <utility>
 #include <vector>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/win/windows_types.h"
 #include "ui/shell_dialogs/select_file_dialog.h"
 #include "ui/shell_dialogs/shell_dialogs_export.h"
@@ -19,12 +19,6 @@ class FilePath;
 }
 
 namespace ui {
-
-// Implementation detail exported for unit tests.
-SHELL_DIALOGS_EXPORT std::wstring AppendExtensionIfNeeded(
-    const std::wstring& filename,
-    const std::wstring& filter_selected,
-    const std::wstring& suggested_ext);
 
 // Describes a filter for a file dialog.
 struct FileFilterSpec {

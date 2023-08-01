@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,16 +6,16 @@
 
 #import <QuartzCore/QuartzCore.h>
 
-#include "base/strings/sys_string_conversions.h"
-#include "ios/chrome/browser/crash_report/crash_helper.h"
+#import "base/strings/sys_string_conversions.h"
+#import "ios/chrome/browser/crash_report/crash_helper.h"
 #import "ios/chrome/browser/safe_mode/safe_mode_crashing_modules_config.h"
 #import "ios/chrome/browser/safe_mode/safe_mode_util.h"
+#import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/fancy_ui/primary_action_button.h"
-#import "ios/chrome/browser/ui/util/uikit_ui_util.h"
-#include "ios/chrome/common/crash_report/crash_helper.h"
+#import "ios/chrome/common/crash_report/crash_helper.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
-#include "ios/chrome/grit/ios_chromium_strings.h"
-#include "ui/base/device_form_factor.h"
+#import "ios/chrome/grit/ios_chromium_strings.h"
+#import "ui/base/device_form_factor.h"
 #import "ui/gfx/ios/NSString+CrStringDrawing.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -30,9 +30,9 @@ const NSTimeInterval kUploadTotalTime = 5;
 }  // anonymous namespace
 
 @interface SafeModeViewController ()
-// Returns |YES| if any third-party modifications are detected.
+// Returns `YES` if any third-party modifications are detected.
 + (BOOL)detectedThirdPartyMods;
-// Returns |YES| if there are crash reports to upload.
+// Returns `YES` if there are crash reports to upload.
 + (BOOL)hasReportToUpload;
 // Returns a message explaining which, if any, 3rd party modules were detected
 // that may cause Chrome to crash.
@@ -41,16 +41,15 @@ const NSTimeInterval kUploadTotalTime = 5;
 - (void)startUploadProgress;
 // Updates progress bar for crash report upload.
 - (void)pumpUploadProgress;
-// Called when user taps on "Resume Chrome" button. Restores the default
-// Breakpad configuration and notifies the delegate to attempt to start the
-// browser.
+// Called when user taps on "Resume Chrome" button. Notifies the delegate to
+// attempt to start the browser.
 - (void)startBrowserFromSafeMode;
 @end
 
 @implementation SafeModeViewController {
   __weak id<SafeModeViewControllerDelegate> _delegate;
   UIView* _innerView;
-  PrimaryActionButton* _startButton;
+  UIButton* _startButton;
   UILabel* _uploadDescription;
   UIProgressView* _uploadProgress;
   NSDate* _uploadStartTime;
@@ -210,7 +209,7 @@ const NSTimeInterval kUploadTotalTime = 5;
   [self centerView:description afterView:awSnap];
   [_innerView addSubview:description];
 
-  _startButton = [[PrimaryActionButton alloc] init];
+  _startButton = CreatePrimaryActionButton();
   NSString* startText =
       NSLocalizedString(@"IDS_IOS_SAFE_MODE_RELOAD_CHROME", @"");
   [_startButton setTitle:startText forState:UIControlStateNormal];
@@ -297,9 +296,9 @@ const NSTimeInterval kUploadTotalTime = 5;
   NSTimeInterval elapsed =
       [[NSDate date] timeIntervalSinceDate:_uploadStartTime];
   // Theoretically we could stop early when the value returned by
-  // breakpad::GetCrashReportCount() changes, but this is simpler. If we decide
-  // to look for a change in crash report count, then we also probably want to
-  // replace the UIProgressView with a UIActivityIndicatorView.
+  // crash_helper::GetCrashReportCount() changes, but this is simpler. If we
+  // decide to look for a change in crash report count, then we also probably
+  // want to replace the UIProgressView with a UIActivityIndicatorView.
   if (elapsed <= kUploadTotalTime) {
     [_uploadProgress setProgress:elapsed / kUploadTotalTime animated:YES];
   } else {
@@ -315,7 +314,6 @@ const NSTimeInterval kUploadTotalTime = 5;
 }
 
 - (void)startBrowserFromSafeMode {
-  crash_helper::RestoreDefaultConfiguration();
   [_delegate startBrowserFromSafeMode];
 }
 

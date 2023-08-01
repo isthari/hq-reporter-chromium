@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -95,8 +95,8 @@ class ASH_EXPORT OverviewController : public OverviewDelegate,
 
   OverviewSession* overview_session() { return overview_session_.get(); }
 
-  OverviewWallpaperController* overview_wallpaper_controller() {
-    return overview_wallpaper_controller_.get();
+  bool disable_app_id_check_for_saved_desks() const {
+    return disable_app_id_check_for_saved_desks_;
   }
 
   void set_occlusion_pause_duration_for_end_for_test(base::TimeDelta duration) {
@@ -111,6 +111,12 @@ class ASH_EXPORT OverviewController : public OverviewDelegate,
   std::vector<aura::Window*> GetWindowsListInOverviewGridsForTest();
 
  private:
+  friend class SavedDeskTest;
+
+  void set_disable_app_id_check_for_saved_desks(bool val) {
+    disable_app_id_check_for_saved_desks_ = val;
+  }
+
   // Toggle overview mode. Depending on |type| the enter/exit animation will
   // look different.
   void ToggleOverview(
@@ -163,6 +169,14 @@ class ASH_EXPORT OverviewController : public OverviewDelegate,
   base::ObserverList<OverviewObserver> observers_;
 
   std::unique_ptr<views::Widget::PaintAsActiveLock> paint_as_active_lock_;
+
+  // In ash unittests, the `FullRestoreSaveHandler` isn't hooked up so
+  // initialized windows lack an app id. If a window doesn't have a valid app
+  // id, then it won't be tracked by `OverviewGrid` as a supported window and
+  // those windows will be deemed unsupported for Saved Desks. If
+  // `disable_app_id_check_for_saved_desks_` is true, then this check is
+  // omitted so we can test Saved Desks.
+  bool disable_app_id_check_for_saved_desks_ = false;
 
   base::WeakPtrFactory<OverviewController> weak_ptr_factory_{this};
 };

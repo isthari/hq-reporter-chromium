@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,9 @@
 #include "ash/public/cpp/window_properties.h"
 #include "ash/shell.h"
 #include "ash/wm/window_util.h"
-#include "base/bind.h"
 #include "base/containers/cxx20_erase.h"
+#include "base/functional/bind.h"
+#include "base/numerics/safe_conversions.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/apps/app_service/publishers/standalone_browser_extension_apps.h"
@@ -22,7 +23,6 @@
 #include "chrome/browser/ui/ash/shelf/chrome_shelf_controller.h"
 #include "chrome/browser/ui/ash/shelf/chrome_shelf_controller_util.h"
 #include "chrome/browser/ui/ash/shelf/standalone_browser_extension_app_context_menu.h"
-#include "chrome/common/chrome_features.h"
 #include "components/services/app_service/public/cpp/app_types.h"
 #include "components/services/app_service/public/cpp/instance_registry.h"
 #include "ui/base/models/simple_menu_model.h"
@@ -40,31 +40,17 @@ StandaloneBrowserExtensionAppShelfItemController::
     activation_client_observation_.Observe(activation_client);
 
   // Lacros is mutually exclusive with multi-signin. As such, there can only be
-  // a single ash profile active. We grab it from the shelf.
+  // a single ash profile active. We grab it from the profile manager.
   apps::AppServiceProxy* proxy = apps::AppServiceProxyFactory::GetForProfile(
-      ChromeShelfController::instance()->profile());
+      ProfileManager::GetPrimaryUserProfile());
 
-  constexpr bool kAllowPlaceholderIcon = false;
-  constexpr int32_t kIconSize = 48;
-  if (base::FeatureList::IsEnabled(features::kAppServiceLoadIconWithoutMojom)) {
-    apps::IconKey icon_key;
-    auto icon_type = apps::IconType::kStandard;
-    icon_loader_releaser_ = proxy->LoadIconFromIconKey(
-        apps::AppType::kStandaloneBrowserChromeApp, shelf_id.app_id, icon_key,
-        icon_type, kIconSize, kAllowPlaceholderIcon,
-        base::BindOnce(
-            &StandaloneBrowserExtensionAppShelfItemController::OnLoadIcon,
-            weak_factory_.GetWeakPtr()));
-  } else {
-    apps::mojom::IconKeyPtr icon_key = apps::mojom::IconKey::New();
-    auto icon_type = apps::mojom::IconType::kStandard;
-    icon_loader_releaser_ = proxy->LoadIconFromIconKey(
-        apps::mojom::AppType::kStandaloneBrowserChromeApp, shelf_id.app_id,
-        std::move(icon_key), icon_type, kIconSize, kAllowPlaceholderIcon,
-        apps::MojomIconValueToIconValueCallback(base::BindOnce(
-            &StandaloneBrowserExtensionAppShelfItemController::OnLoadIcon,
-            weak_factory_.GetWeakPtr())));
-  }
+  icon_loader_releaser_ = proxy->LoadIconFromIconKey(
+      apps::AppType::kStandaloneBrowserChromeApp, shelf_id.app_id,
+      apps::IconKey(), apps::IconType::kStandard, /*size_hint_in_dip=*/48,
+      /*allow_placeholder_icon=*/false,
+      base::BindOnce(
+          &StandaloneBrowserExtensionAppShelfItemController::OnLoadIcon,
+          weak_factory_.GetWeakPtr()));
 
   context_menu_ = std::make_unique<StandaloneBrowserExtensionAppContextMenu>(
       shelf_id.app_id,
@@ -110,8 +96,9 @@ void StandaloneBrowserExtensionAppShelfItemController::ItemSelected(
 
   std::vector<aura::Window*> filtered_windows;
   for (aura::Window* window : windows_) {
-    if (filter_predicate.Run(window))
+    if (filter_predicate.is_null() || filter_predicate.Run(window)) {
       filtered_windows.push_back(window);
+    }
   }
 
   if (filtered_windows.size() == 0) {
@@ -120,6 +107,7 @@ void StandaloneBrowserExtensionAppShelfItemController::ItemSelected(
     proxy->Launch(app_id(), event->flags(),
                   ShelfLaunchSourceToAppsLaunchSource(source),
                   /*window_info=*/nullptr);
+
     std::move(callback).Run(ash::SHELF_ACTION_NEW_WINDOW_CREATED, {});
     return;
   }
@@ -166,7 +154,8 @@ void StandaloneBrowserExtensionAppShelfItemController::ExecuteCommand(
   // the aura::Windows for destruction. This should almost always work. In rare
   // edge cases, this will cause the wrong window to be selected, but will not
   // cause undefined behavior.
-  if (command_id >= 0 && command_id < context_menu_windows_.size()) {
+  if (command_id >= 0 &&
+      command_id < base::checked_cast<int32_t>(context_menu_windows_.size())) {
     views::Widget* widget = views::Widget::GetWidgetForNativeWindow(
         context_menu_windows_[command_id]);
     AppWindowBase app_window(shelf_id(), widget);

@@ -1,8 +1,9 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/input_method/ui/infolist_window.h"
+#include "base/memory/raw_ptr.h"
 
 #include <stddef.h>
 
@@ -59,8 +60,9 @@ class InfolistBorder : public views::BubbleBorder {
 
 InfolistBorder::InfolistBorder()
     : views::BubbleBorder(views::BubbleBorder::LEFT_CENTER,
-                          views::BubbleBorder::STANDARD_SHADOW,
-                          SK_ColorTRANSPARENT) {}
+                          views::BubbleBorder::STANDARD_SHADOW) {
+  SetColor(SK_ColorTRANSPARENT);
+}
 
 InfolistBorder::~InfolistBorder() {}
 
@@ -108,10 +110,10 @@ class InfolistEntryView : public views::View {
   ui::InfolistEntry entry_;
 
   // The title label. Owned by views hierarchy.
-  views::Label* title_label_;
+  raw_ptr<views::Label, ExperimentalAsh> title_label_;
 
   // The description label. Owned by views hierarchy.
-  views::Label* description_label_;
+  raw_ptr<views::Label, ExperimentalAsh> description_label_;
 };
 
 BEGIN_METADATA(InfolistEntryView, views::View)
@@ -127,16 +129,18 @@ InfolistEntryView::InfolistEntryView(const ui::InfolistEntry& entry,
   title_label_ = new views::Label(entry.title, {title_font_list});
   title_label_->SetPosition(gfx::Point(0, 0));
   title_label_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-  title_label_->SetBorder(views::CreateEmptyBorder(4, 7, 2, 4));
+  title_label_->SetBorder(
+      views::CreateEmptyBorder(gfx::Insets::TLBR(4, 7, 2, 4)));
 
   description_label_ = new views::Label(entry.body, {description_font_list});
   description_label_->SetPosition(gfx::Point(0, 0));
   description_label_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   description_label_->SetMultiLine(true);
   description_label_->SizeToFit(kInfolistEntryWidth);
-  description_label_->SetBorder(views::CreateEmptyBorder(2, 17, 4, 4));
-  AddChildView(title_label_);
-  AddChildView(description_label_);
+  description_label_->SetBorder(
+      views::CreateEmptyBorder(gfx::Insets::TLBR(2, 17, 4, 4)));
+  AddChildView(title_label_.get());
+  AddChildView(description_label_.get());
   UpdateBackground();
 }
 
@@ -165,7 +169,7 @@ void InfolistEntryView::UpdateBackground() {
         1, color_provider->GetColor(ui::kColorFocusableBorderFocused)));
   } else {
     SetBackground(nullptr);
-    SetBorder(views::CreateEmptyBorder(1, 1, 1, 1));
+    SetBorder(views::CreateEmptyBorder(1));
   }
   SchedulePaint();
 }
@@ -199,7 +203,7 @@ InfolistWindow::InfolistWindow(views::View* candidate_window,
   caption_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   caption_label->SetEnabledColor(
       color_provider->GetColor(ui::kColorLabelForeground));
-  caption_label->SetBorder(views::CreateEmptyBorder(2, 2, 2, 2));
+  caption_label->SetBorder(views::CreateEmptyBorder(2));
   caption_label->SetBackground(
       views::CreateSolidBackground(color_utils::AlphaBlend(
           SK_ColorBLACK, color_provider->GetColor(ui::kColorWindowBackground),

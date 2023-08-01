@@ -1,11 +1,11 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import {PrintPreviewModelElement, PrintPreviewPinSettingsElement, State} from 'chrome://print/print_preview.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
-import {fakeDataBind} from 'chrome://webui-test/test_util.js';
+import {fakeDataBind} from 'chrome://webui-test/polymer_test_util.js';
 
 import {triggerInputEvent} from './print_preview_test_utils.js';
 
@@ -15,7 +15,7 @@ suite('PinSettingsTest', function() {
   let model: PrintPreviewModelElement;
 
   setup(function() {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     model = document.createElement('print-preview-model');
     document.body.appendChild(model);
     model.set('settings.pin.available', true);
@@ -30,6 +30,21 @@ suite('PinSettingsTest', function() {
     fakeDataBind(model, pinSection, 'settings');
     document.body.appendChild(pinSection);
     flush();
+  });
+
+  // Pin settings observes |state| which may change
+  // regardless of pin availability, When the pin printing enforced by policy
+  // the checkbox will be true and the initial pin is empty which is invalid
+  // In this scenario setSettingValid assert will fail because the input is
+  // invalid and the pin printing is unavailable. This test make sure there is
+  // check for avaiablity before calling setSettingValid
+  // Regression test for https://crbug.com/1321118
+  test('pin settings unavailable with invalid input', async () => {
+    pinSection.state = State.NOT_READY;
+    model.set('settings.pin.available', false);
+    model.set('settings.pin.value', true);
+    model.set('settings.pinValue.available', false);
+    pinSection.state = State.READY;
   });
 
   // Tests that checking the box or entering the pin value updates the

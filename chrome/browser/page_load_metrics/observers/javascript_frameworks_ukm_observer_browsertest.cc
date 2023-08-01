@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "components/ukm/test_ukm_recorder.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
+#include "content/public/test/fenced_frame_test_util.h"
 #include "content/public/test/test_utils.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
@@ -38,10 +39,19 @@ constexpr char kPreactPageLoad[] = "PreactPageLoad";
 constexpr char kReactPageLoad[] = "ReactPageLoad";
 constexpr char kSveltePageLoad[] = "SveltePageLoad";
 constexpr char kVuePageLoad[] = "VuePageLoad";
+constexpr char kDrupalPageLoad[] = "DrupalPageLoad";
+constexpr char kJoomlaPageLoad[] = "JoomlaPageLoad";
+constexpr char kShopifyPageLoad[] = "ShopifyPageLoad";
+constexpr char kSquarespacePageLoad[] = "SquarespacePageLoad";
+constexpr char kWixPageLoad[] = "WixPageLoad";
+constexpr char kWordPressPageLoad[] = "WordPressPageLoad";
 const std::vector<const char*> all_frameworks = {
-    kGatsbyJsPageLoad, kNextJsPageLoad,  kNuxtJsPageLoad, kSapperPageLoad,
-    kVuePressPageLoad, kAngularPageLoad, kPreactPageLoad, kReactPageLoad,
-    kSveltePageLoad,   kVuePageLoad,
+    kGatsbyJsPageLoad,  kNextJsPageLoad,      kNuxtJsPageLoad,
+    kSapperPageLoad,    kVuePressPageLoad,    kAngularPageLoad,
+    kPreactPageLoad,    kReactPageLoad,       kSveltePageLoad,
+    kVuePageLoad,       kDrupalPageLoad,      kJoomlaPageLoad,
+    kShopifyPageLoad,   kSquarespacePageLoad, kWixPageLoad,
+    kWordPressPageLoad,
 };
 
 }  // namespace
@@ -121,6 +131,34 @@ class JavascriptFrameworksUkmObserverBrowserTest : public InProcessBrowserTest {
     RunFrameworkDetection(all_frameworks, framework_name, url);
   }
 
+  void RunSingleFrameworkDetectionTestForFencedFrames(
+      const std::string& test_url) {
+    StartHttpsServer(net::EmbeddedTestServer::CERT_OK);
+    GURL mainframe_url = https_test_server()->GetURL("/english_page.html");
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), mainframe_url));
+
+    page_load_metrics::PageLoadMetricsTestWaiter waiter(
+        browser()->tab_strip_model()->GetActiveWebContents());
+    waiter.AddPageExpectation(
+        page_load_metrics::PageLoadMetricsTestWaiter::TimingField::kLoadEvent);
+    GURL subframe_url = https_test_server()->GetURL(test_url);
+    content::RenderFrameHost* subframe =
+        fenced_frame_helper_.CreateFencedFrame(browser()
+                                                   ->tab_strip_model()
+                                                   ->GetActiveWebContents()
+                                                   ->GetPrimaryMainFrame(),
+                                               subframe_url);
+    EXPECT_NE(nullptr, subframe);
+    waiter.Wait();
+    CloseAllTabs();
+
+    // No frameworks should be detected.
+    for (const char* framework : all_frameworks) {
+      ExpectMetricCountForUrl(mainframe_url, framework, 1);
+      ExpectMetricValueForUrl(mainframe_url, framework, false);
+    }
+  }
+
  private:
   void RunFrameworkDetection(const std::vector<const char*>& frameworks,
                              const char* framework_name,
@@ -135,6 +173,7 @@ class JavascriptFrameworksUkmObserverBrowserTest : public InProcessBrowserTest {
   }
   std::unique_ptr<ukm::TestAutoSetUkmRecorder> test_ukm_recorder_;
   std::unique_ptr<net::EmbeddedTestServer> https_test_server_;
+  content::test::FencedFrameTestHelper fenced_frame_helper_;
 };
 
 IN_PROC_BROWSER_TEST_F(JavascriptFrameworksUkmObserverBrowserTest,
@@ -280,4 +319,46 @@ IN_PROC_BROWSER_TEST_F(JavascriptFrameworksUkmObserverBrowserTest,
                        VueFrameworkDetected3) {
   RunSingleFrameworkDetectionTest("/page_load_metrics/vue3_page.html",
                                   kVuePageLoad);
+}
+
+IN_PROC_BROWSER_TEST_F(JavascriptFrameworksUkmObserverBrowserTest,
+                       DrupalCMSDetected) {
+  RunSingleFrameworkDetectionTest("/page_load_metrics/drupal_page.html",
+                                  kDrupalPageLoad);
+}
+
+IN_PROC_BROWSER_TEST_F(JavascriptFrameworksUkmObserverBrowserTest,
+                       JoomlaCMSDetected) {
+  RunSingleFrameworkDetectionTest("/page_load_metrics/joomla_page.html",
+                                  kJoomlaPageLoad);
+}
+
+IN_PROC_BROWSER_TEST_F(JavascriptFrameworksUkmObserverBrowserTest,
+                       ShopifyCMSDetected) {
+  RunSingleFrameworkDetectionTest("/page_load_metrics/shopify_page.html",
+                                  kShopifyPageLoad);
+}
+
+IN_PROC_BROWSER_TEST_F(JavascriptFrameworksUkmObserverBrowserTest,
+                       SquarespaceCMSDetected) {
+  RunSingleFrameworkDetectionTest("/page_load_metrics/squarespace_page.html",
+                                  kSquarespacePageLoad);
+}
+
+IN_PROC_BROWSER_TEST_F(JavascriptFrameworksUkmObserverBrowserTest,
+                       WixCMSDetected) {
+  RunSingleFrameworkDetectionTest("/page_load_metrics/wix_page.html",
+                                  kWixPageLoad);
+}
+
+IN_PROC_BROWSER_TEST_F(JavascriptFrameworksUkmObserverBrowserTest,
+                       WordPressCMSDetected) {
+  RunSingleFrameworkDetectionTest("/page_load_metrics/wordpress_page.html",
+                                  kWordPressPageLoad);
+}
+
+IN_PROC_BROWSER_TEST_F(JavascriptFrameworksUkmObserverBrowserTest,
+                       NoFrameworksDetectedInFencedFrame) {
+  RunSingleFrameworkDetectionTestForFencedFrames(
+      "/page_load_metrics/gatsby_page.html");
 }

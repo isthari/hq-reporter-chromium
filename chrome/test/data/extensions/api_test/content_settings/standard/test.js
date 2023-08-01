@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,17 +7,18 @@
 
 var cs = chrome.contentSettings;
 var default_content_settings = {
-  "cookies": "session_only",
-  "images": "allow",
-  "javascript": "block",
-  "popups": "block",
-  "location": "ask",
-  "notifications": "ask",
-  "fullscreen": "ask",
-  "mouselock": "ask",
-  "microphone": "ask",
-  "camera": "ask",
-  "automaticDownloads": "ask"
+  'cookies': 'session_only',
+  'images': 'allow',
+  'javascript': 'block',
+  'popups': 'block',
+  'location': 'ask',
+  'notifications': 'ask',
+  'fullscreen': 'ask',
+  'mouselock': 'ask',
+  'microphone': 'ask',
+  'camera': 'ask',
+  'automaticDownloads': 'ask',
+  'autoVerify': 'allow'
 };
 
 var settings = {
@@ -27,13 +28,17 @@ var settings = {
   'popups': 'allow',
   'location': 'block',
   'notifications': 'block',
-  'fullscreen': 'block',  // Should be ignored.
-  'mouselock': 'block',   // Should be ignored.
-  'plugins': 'block',     // Should be ignored.
+  'fullscreen': 'block',          // Should be ignored.
+  'mouselock': 'block',           // Should be ignored.
+  'plugins': 'block',             // Should be ignored.
+  'unsandboxedPlugins': 'block',  // Should be ignored.
   'microphone': 'block',
   'camera': 'block',
   'automaticDownloads': 'block'
 };
+
+// Settings that do not support site-specific exceptions.
+var globalOnlySettings = {'autoVerify': 'block'};
 
 // List of settings that are expected to return different values than were
 // written, due to deprecation. For example, "fullscreen" is set to "block" but
@@ -43,8 +48,14 @@ var deprecatedSettingsExpectations = {
   // Due to deprecation, these should be "allow", regardless of the setting.
   'fullscreen': 'allow',
   'mouselock': 'allow',
-  'plugins': 'block'
+  // These should be "block", regardless of the setting.
+  'plugins': 'block',
+  'unsandboxedPlugins': 'block'
 };
+
+// List of deprecated APIs. It is expected to return 'block' to get(), and will
+// be ignored to set() and clear().
+var deprecatedExtenionApis = ['plugins', 'unsandboxedPlugins'];
 
 Object.prototype.forEach = function(f) {
   var k;
@@ -96,7 +107,47 @@ chrome.test.runTests([
       }, expect({'setting':setting}, message));
     });
   },
+  function setGlobalContentSettings() {
+    globalOnlySettings.forEach(function(type, setting) {
+      cs[type].set(
+          {
+            'primaryPattern': '<all_urls>',
+            'secondaryPattern': '<all_urls>',
+            'setting': setting
+          },
+          chrome.test.callbackPass());
+    });
+  },
+  function getGlobalSettings() {
+    globalOnlySettings.forEach(function(type, setting) {
+      var message = 'Setting for ' + type + ' should be ' + setting;
+      cs[type].get(
+          {
+            'primaryUrl': 'http://www.google.com',
+            'secondaryUrl': 'http://www.google.com'
+          },
+          expect({'setting': setting}, message));
+    });
+  },
   function invalidSettings() {
+    cs.autoVerify.set(
+        {
+          'primaryPattern': 'http://example.com/*',
+          'secondaryPattern': '<all_urls>',
+          'setting': 'allow'
+        },
+        chrome.test.callbackFail(
+            'Site-specific settings are not allowed for this type. ' +
+            'The URL pattern must be \'<all_urls>\'.'));
+    cs.autoVerify.set(
+        {
+          'primaryPattern': '<all_urls>',
+          'secondaryPattern': 'http://example.com/*',
+          'setting': 'allow'
+        },
+        chrome.test.callbackFail(
+            'Site-specific settings are not allowed for this type. ' +
+            'The URL pattern must be \'<all_urls>\'.'));
     cs.cookies.get({
       'primaryUrl': 'moo'
     }, chrome.test.callbackFail("The URL \"moo\" is invalid."));
@@ -121,8 +172,9 @@ chrome.test.runTests([
     }
     chrome.test.assertTrue(caught);
   },
-  function testPluginsApi_Set() {
-    cs['plugins'].set(
+  function testDeprecatedApi_SetIgnored() {
+    deprecatedExtenionApis.forEach(api => {
+      cs[api].set(
         {
           'primaryPattern': 'https://*.google.com:443/*',
           'secondaryPattern': '<all_urls>',
@@ -132,19 +184,24 @@ chrome.test.runTests([
           chrome.test.assertNoLastError();
           chrome.test.succeed();
         });
+    });
   },
-  function testPluginsApi_Get() {
-    cs['plugins'].get(
-        {'primaryUrl': 'https://drive.google.com:443/*'}, (value) => {
-          chrome.test.assertNoLastError();
-          chrome.test.assertEq({setting: 'block'}, value);
-          chrome.test.succeed();
-        });
+  function testDeprecatedApi_GetBlocked() {
+    deprecatedExtenionApis.forEach(api => {
+      cs[api].get(
+          {'primaryUrl': 'https://drive.google.com:443/*'}, (value) => {
+            chrome.test.assertNoLastError();
+            chrome.test.assertEq({setting: 'block'}, value);
+            chrome.test.succeed();
+          });
+    });
   },
-  function testPluginsApi_Clear() {
-    cs['plugins'].clear({}, () => {
-      chrome.test.assertNoLastError();
-      chrome.test.succeed();
+  function testDeprecatedApi_ClearIgnored() {
+    deprecatedExtenionApis.forEach(api => {
+      cs[api].clear({}, () => {
+        chrome.test.assertNoLastError();
+        chrome.test.succeed();
+      });
     });
   }
 ]);

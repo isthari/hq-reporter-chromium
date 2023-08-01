@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,11 +29,12 @@
 #include "google_apis/gaia/core_account_id.h"
 #include "services/network/public/mojom/content_security_policy.mojom.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/base/webui/resource_path.h"
 #include "ui/base/webui/web_ui_util.h"
 #include "ui/gfx/image/image.h"
-#include "ui/resources/grit/webui_generated_resources.h"
 #include "ui/resources/grit/webui_resources.h"
 
 namespace {
@@ -92,26 +93,30 @@ int GetReauthCloseButtonLabelStringId(
 SigninReauthUI::SigninReauthUI(content::WebUI* web_ui)
     : content::WebUIController(web_ui) {
   Profile* profile = Profile::FromWebUI(web_ui);
-  content::WebUIDataSource* source =
-      content::WebUIDataSource::Create(chrome::kChromeUISigninReauthHost);
-  webui::SetJSModuleDefaults(source);
-  source->SetDefaultResource(IDR_SIGNIN_SIGNIN_REAUTH_SIGNIN_REAUTH_HTML);
+  content::WebUIDataSource* source = content::WebUIDataSource::CreateAndAdd(
+      profile, chrome::kChromeUISigninReauthHost);
 
   static constexpr webui::ResourcePath kResources[] = {
       {"signin_reauth_app.js", IDR_SIGNIN_SIGNIN_REAUTH_SIGNIN_REAUTH_APP_JS},
+      {"signin_reauth_app.html.js",
+       IDR_SIGNIN_SIGNIN_REAUTH_SIGNIN_REAUTH_APP_HTML_JS},
       {"signin_reauth_browser_proxy.js",
        IDR_SIGNIN_SIGNIN_REAUTH_SIGNIN_REAUTH_BROWSER_PROXY_JS},
-      {"signin_shared_css.js", IDR_SIGNIN_SIGNIN_SHARED_CSS_JS},
-      {"signin_vars_css.js", IDR_SIGNIN_SIGNIN_VARS_CSS_JS},
+      {"signin_shared.css.js", IDR_SIGNIN_SIGNIN_SHARED_CSS_JS},
+      {"signin_vars.css.js", IDR_SIGNIN_SIGNIN_VARS_CSS_JS},
       // Resources for the account passwords reauth.
       {"images/signin_reauth_illustration.svg",
        IDR_SIGNIN_SIGNIN_REAUTH_IMAGES_ACCOUNT_PASSWORDS_REAUTH_ILLUSTRATION_SVG},
       {"images/signin_reauth_illustration_dark.svg",
        IDR_SIGNIN_SIGNIN_REAUTH_IMAGES_ACCOUNT_PASSWORDS_REAUTH_ILLUSTRATION_DARK_SVG},
   };
-  source->AddResourcePaths(kResources);
+
+  webui::SetupWebUIDataSource(source, base::make_span(kResources),
+                              IDR_SIGNIN_SIGNIN_REAUTH_SIGNIN_REAUTH_HTML);
 
   source->AddString("accountImageUrl", GetAccountImageURL(profile));
+
+  webui::SetupChromeRefresh2023(source);
 
   signin_metrics::ReauthAccessPoint access_point =
       GetReauthAccessPointForReauthConfirmationURL(
@@ -125,8 +130,6 @@ SigninReauthUI::SigninReauthUI(content::WebUI* web_ui)
                     IDS_ACCOUNT_PASSWORDS_REAUTH_CONFIRM_BUTTON_LABEL);
   AddStringResource(source, "signinReauthCloseLabel",
                     GetReauthCloseButtonLabelStringId(access_point));
-
-  content::WebUIDataSource::Add(profile, source);
 }
 
 SigninReauthUI::~SigninReauthUI() = default;

@@ -1,23 +1,22 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
+import 'chrome://resources/cr_elements/cr_button/cr_button.js';
 import './shimless_rma_shared_css.js';
 import './base_page.js';
 
-import {I18nBehavior, I18nBehaviorInterface} from 'chrome://resources/js/i18n_behavior.m.js';
+import {I18nBehavior, I18nBehaviorInterface} from 'chrome://resources/ash/common/i18n_behavior.js';
 import {html, mixinBehaviors, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {getShimlessRmaService} from './mojo_interface_provider.js';
-import {FinalizationObserverInterface, FinalizationObserverReceiver, FinalizationStatus, ShimlessRmaServiceInterface, StateResult} from './shimless_rma_types.js';
+import {FinalizationError, FinalizationObserverInterface, FinalizationObserverReceiver, FinalizationStatus, RmadErrorCode, ShimlessRmaServiceInterface, StateResult} from './shimless_rma_types.js';
+import {executeThenTransitionState, focusPageTitle} from './shimless_rma_util.js';
 
 /** @type {!Object<!FinalizationStatus, string>} */
 const finalizationStatusTextKeys = {
   [FinalizationStatus.kInProgress]: 'finalizePageProgressText',
   [FinalizationStatus.kComplete]: 'finalizePageCompleteText',
-  [FinalizationStatus.kFailedBlocking]: 'finalizePageFailedBlockingText',
-  [FinalizationStatus.kFailedNonBlocking]: 'finalizePageFailedNonBlockingText',
 };
 
 /**
@@ -25,6 +24,12 @@ const finalizationStatusTextKeys = {
  * 'wrapup-finalize-page' wait for device finalization and hardware verification
  * to be completed.
  */
+
+/**
+ * The prefix for a `FinalizationError` displayed on the Hardware Error page.
+ * @type {number}
+ */
+export const FINALIZATION_ERROR_CODE_PREFIX = 2000;
 
 /**
  * @constructor
@@ -56,18 +61,6 @@ export class WrapupFinalizePage extends WrapupFinalizePageBase {
         type: String,
         value: '',
       },
-
-      /** @protected {boolean} */
-      shouldShowSpinner_: {
-        type: Boolean,
-        value: false,
-      },
-
-      /** @protected {boolean} */
-      shouldShowRetryButton_: {
-        type: Boolean,
-        value: false,
-      },
     };
   }
 
@@ -75,10 +68,8 @@ export class WrapupFinalizePage extends WrapupFinalizePageBase {
     super();
     /** @private {ShimlessRmaServiceInterface} */
     this.shimlessRmaService_ = getShimlessRmaService();
-    /** @private {boolean} */
-    this.finalizationComplete_ = false;
     /**
-     * Receiver responsible for observing hardware write protection state.
+     * Receiver responsible for observing finalization progress and state.
      * @private {?FinalizationObserverReceiver}
      */
     this.finalizationObserverReceiver_ = new FinalizationObserverReceiver(
@@ -88,50 +79,38 @@ export class WrapupFinalizePage extends WrapupFinalizePageBase {
         this.finalizationObserverReceiver_.$.bindNewPipeAndPassRemote());
   }
 
+  /** @override */
+  ready() {
+    super.ready();
+
+    focusPageTitle(this);
+  }
+
   /**
    * @param {!FinalizationStatus} status
    * @param {number} progress
+   * @param {!FinalizationError} error
    */
-  onFinalizationUpdated(status, progress) {
-    this.finalizationMessage_ = this.i18n(finalizationStatusTextKeys[status]);
-    this.finalizationComplete_ = status === FinalizationStatus.kComplete ||
-        status === FinalizationStatus.kFailedNonBlocking;
-    this.dispatchEvent(new CustomEvent(
-        'disable-next-button',
-        {bubbles: true, composed: true, detail: !this.finalizationComplete_},
-        ));
-    this.shouldShowSpinner_ = status === FinalizationStatus.kInProgress;
-    this.shouldShowRetryButton_ =
-        status === FinalizationStatus.kFailedBlocking ||
-        status === FinalizationStatus.kFailedNonBlocking;
-  }
-
-  /** @return {!Promise<!StateResult>} */
-  onNextButtonClick() {
-    if (this.finalizationComplete_) {
-      return this.shimlessRmaService_.finalizationComplete();
-    } else {
-      return Promise.reject(new Error('Finalization is not complete.'));
-    }
-  }
-
-  /** @private */
-  onRetryFinalizationButtonClicked_() {
-    if (!this.shouldShowRetryButton_) {
-      console.error('Finalization has not failed.');
-      return;
-    }
-
-    this.dispatchEvent(new CustomEvent(
-        'transition-state',
-        {
-          bubbles: true,
-          composed: true,
-          detail: (() => {
-            return this.shimlessRmaService_.retryFinalization();
-          })
+  onFinalizationUpdated(status, progress, error) {
+    if (status === FinalizationStatus.kFailedBlocking ||
+        status === FinalizationStatus.kFailedNonBlocking) {
+      this.dispatchEvent(new CustomEvent('fatal-hardware-error', {
+        bubbles: true,
+        composed: true,
+        detail: {
+          rmadErrorCode: RmadErrorCode.kFinalizationFailed,
+          fatalErrorCode: (FINALIZATION_ERROR_CODE_PREFIX + error),
         },
-        ));
+      }));
+    } else {
+      this.finalizationMessage_ = this.i18n(finalizationStatusTextKeys[status]);
+
+      if (status === FinalizationStatus.kComplete) {
+        executeThenTransitionState(
+            this, () => this.shimlessRmaService_.finalizationComplete());
+        return;
+      }
+    }
   }
 }
 

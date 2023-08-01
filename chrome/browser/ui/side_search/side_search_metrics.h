@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,15 +14,10 @@ enum class SideSearchAvailabilityChangeType {
   kMaxValue = kBecomeUnavailable
 };
 
-enum class SideSearchOpenActionType {
-  kTapOnSideSearchToolbarButton = 0,
-  kMaxValue = kTapOnSideSearchToolbarButton
-};
-
-enum class SideSearchCloseActionType {
-  kTapOnSideSearchToolbarButton = 0,
-  kTapOnSideSearchCloseButton = 1,
-  kMaxValue = kTapOnSideSearchCloseButton
+enum class SideSearchPageActionLabelVisibility {
+  kNotVisible = 0,
+  kVisible = 1,
+  kMaxValue = kVisible
 };
 
 enum class SideSearchNavigationType {
@@ -33,10 +28,17 @@ enum class SideSearchNavigationType {
 // End of enums for histograms.
 
 void RecordSideSearchAvailabilityChanged(SideSearchAvailabilityChangeType type);
-void RecordSideSearchOpenAction(SideSearchOpenActionType action);
-void RecordSideSearchCloseAction(SideSearchCloseActionType action);
+void RecordSideSearchPageActionLabelVisibilityOnToggle(
+    SideSearchPageActionLabelVisibility label_visibility);
 void RecordSideSearchNavigation(SideSearchNavigationType type);
-void RecordNavigationCommittedWithinSideSearchCountPerJourney(int count);
-void RecordRedirectionToTabCountPerJourney(int count);
+void RecordNavigationCommittedWithinSideSearchCountPerJourney(
+    bool is_side_contents_helper_created_from_menu_option,
+    int count,
+    bool was_auto_triggered);
+void RecordRedirectionToTabCountPerJourney(
+    bool is_side_contents_helper_created_from_menu_option,
+    int count,
+    bool was_auto_triggered);
+void RecordSideSearchNumTimesReturnedBackToSRP(int count);
 
 #endif  // CHROME_BROWSER_UI_SIDE_SEARCH_SIDE_SEARCH_METRICS_H_

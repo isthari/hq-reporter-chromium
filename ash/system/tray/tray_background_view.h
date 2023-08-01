@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,16 +8,20 @@
 #include <memory>
 
 #include "ash/ash_export.h"
+#include "ash/constants/tray_background_view_catalog.h"
 #include "ash/shelf/shelf_background_animator_observer.h"
 #include "ash/system/model/virtual_keyboard_model.h"
 #include "ash/system/tray/actionable_view.h"
 #include "ash/system/tray/tray_bubble_view.h"
 #include "ash/system/user/login_status.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/views/context_menu_controller.h"
 
 namespace ui {
+class Event;
 enum MenuSourceType;
 }  // namespace ui
 
@@ -43,10 +47,35 @@ class ASH_EXPORT TrayBackgroundView : public ActionableView,
  public:
   METADATA_HEADER(TrayBackgroundView);
 
-  explicit TrayBackgroundView(Shelf* shelf);
+  // Inherit from this class to be notified of events that happen for a specific
+  // `TrayBackgroundView`.
+  class Observer : public base::CheckedObserver {
+   public:
+    // Called when the `TrayBackgroundView`'s preferred visibility changes.
+    // `visible_preferred` is the new preferred visibility.
+    virtual void OnVisiblePreferredChanged(bool visible_preferred) = 0;
+  };
+
+  enum RoundedCornerBehavior {
+    kNotRounded,
+    kStartRounded,
+    kEndRounded,
+    kAllRounded
+  };
+
+  TrayBackgroundView(Shelf* shelf,
+                     TrayBackgroundViewCatalogName catalog_name,
+                     RoundedCornerBehavior corner_behavior = kAllRounded);
   TrayBackgroundView(const TrayBackgroundView&) = delete;
   TrayBackgroundView& operator=(const TrayBackgroundView&) = delete;
   ~TrayBackgroundView() override;
+
+  void AddObserver(Observer* observer);
+  void RemoveObserver(Observer* observer);
+
+  // Overrides default button press handling in `PerformAction()`.
+  void SetPressedCallback(
+      base::RepeatingCallback<void(const ui::Event& event)> pressed_callback);
 
   // Called after the tray has been added to the widget containing it.
   virtual void Initialize();
@@ -80,8 +109,7 @@ class ASH_EXPORT TrayBackgroundView : public ActionableView,
   // showing.
   virtual void CloseBubble() {}
 
-  // Shows the associated tray bubble if one exists. |show_by_click| indicates
-  // whether the showing operation is initiated by mouse or gesture click.
+  // Shows the associated tray bubble if one exists.
   virtual void ShowBubble();
 
   // Calculates the ideal bounds that this view should have depending on the
@@ -100,6 +128,10 @@ class ASH_EXPORT TrayBackgroundView : public ActionableView,
   // Called when the anchor (tray or bubble) may have moved or changed.
   virtual void AnchorUpdated() {}
 
+  // Called after the tray has been activated, and `PerformAction()` has been
+  // called.
+  virtual void OnTrayActivated(const ui::Event& event);
+
   // Called from GetAccessibleNodeData, must return a valid accessible name.
   virtual std::u16string GetAccessibleNameForTray() = 0;
 
@@ -108,8 +140,12 @@ class ASH_EXPORT TrayBackgroundView : public ActionableView,
   // user logs in.
   virtual void HandleLocaleChange() = 0;
 
-  // Called when the bubble is resized.
-  virtual void BubbleResized(const TrayBubbleView* bubble_view);
+  // Updates this bubble about visibility change of *ANY* tray bubble
+  // including itself.
+  // `bubble_widget` is the bubble with visibility change. Please note that it
+  // can be the current bubble as well.
+  virtual void OnAnyBubbleVisibilityChanged(views::Widget* bubble_widget,
+                                            bool visible);
 
   // Hides the bubble associated with |bubble_view|. Called when the widget
   // is closed.
@@ -119,23 +155,11 @@ class ASH_EXPORT TrayBackgroundView : public ActionableView,
   // May close the bubble.
   virtual void ClickedOutsideBubble() = 0;
 
+  // Returns true if tray bubble view is cached when hidden
+  virtual bool CacheBubbleViewForHide() const;
+
   // Updates the background layer.
   virtual void UpdateBackground();
-
-  void SetIsActive(bool is_active);
-  bool is_active() const { return is_active_; }
-
-  TrayContainer* tray_container() const { return tray_container_; }
-  TrayEventFilter* tray_event_filter() { return tray_event_filter_.get(); }
-  Shelf* shelf() { return shelf_; }
-
-  // Updates the visibility of this tray's separator.
-  void set_separator_visibility(bool visible) { separator_visible_ = visible; }
-
-  // Sets whether to show the view when the status area is collapsed.
-  void set_show_when_collapsed(bool show_when_collapsed) {
-    show_when_collapsed_ = show_when_collapsed;
-  }
 
   // Gets the anchor for bubbles, which is tray_container().
   views::View* GetBubbleAnchor() const;
@@ -152,7 +176,7 @@ class ASH_EXPORT TrayBackgroundView : public ActionableView,
   gfx::Rect GetBackgroundBounds() const;
 
   // ActionableView:
-  bool PerformAction(const ui::Event& event) override;
+  bool PerformAction(const ui::Event& event) final;
 
   // Sets whether the tray item should be shown by default (e.g. it is
   // activated). The effective visibility of the tray item is determined by the
@@ -165,8 +189,47 @@ class ASH_EXPORT TrayBackgroundView : public ActionableView,
   // disabled until the returned scoped closure runner is run.
   [[nodiscard]] base::ScopedClosureRunner DisableShowAnimation();
 
+  // Registers a client's request to use custom visibility animations. The
+  // custom animation must be executed by the client; `TrayBackgroundView` does
+  // not run any custom animations (it will simply do nothing rather than run
+  // the default visibility animations). Custom animations will be used until
+  // the returned scoped closure runner is run.
+  [[nodiscard]] base::ScopedClosureRunner SetUseCustomVisibilityAnimations();
+
   // Returns true if the view is showing a context menu.
   bool IsShowingMenu() const;
+
+  // Set the rounded corner behavior for this tray item.
+  void SetRoundedCornerBehavior(RoundedCornerBehavior corner_behavior);
+
+  // Returns the corners based on the `corner_behavior_`;
+  gfx::RoundedCornersF GetRoundedCorners();
+
+  // Returns a weak pointer to this instance.
+  base::WeakPtr<TrayBackgroundView> GetWeakPtr();
+
+  // Checks if we should show bounce in or fade in animation.
+  bool IsShowAnimationEnabled();
+
+  // Callbacks for Animations
+  void OnAnimationAborted();
+  void OnAnimationEnded();
+
+  void SetIsActive(bool is_active);
+  bool is_active() const { return is_active_; }
+
+  TrayContainer* tray_container() const { return tray_container_; }
+  TrayEventFilter* tray_event_filter() { return tray_event_filter_.get(); }
+  Shelf* shelf() { return shelf_; }
+  TrayBackgroundViewCatalogName catalog_name() const { return catalog_name_; }
+
+  // Updates the visibility of this tray's separator.
+  void set_separator_visibility(bool visible) { separator_visible_ = visible; }
+
+  // Sets whether to show the view when the status area is collapsed.
+  void set_show_when_collapsed(bool show_when_collapsed) {
+    show_when_collapsed_ = show_when_collapsed;
+  }
 
  protected:
   // ActionableView:
@@ -198,6 +261,7 @@ class ASH_EXPORT TrayBackgroundView : public ActionableView,
  private:
   class TrayWidgetObserver;
   class TrayBackgroundViewSessionChangeHandler;
+  friend class StatusAreaWidgetQSRevampTest;
 
   void StartVisibilityAnimation(bool visible);
 
@@ -227,10 +291,6 @@ class ASH_EXPORT TrayBackgroundView : public ActionableView,
   // child layers will still be there until all the animation finished.
   std::unique_ptr<ui::Layer> RecreateLayer() override;
 
-  // Callbacks for Animations
-  void OnAnimationAborted();
-  void OnAnimationEnded();
-
   // Applies transformations to the |layer()| to animate the view when
   // SetVisible(false) is called.
   void HideAnimation();
@@ -244,16 +304,17 @@ class ASH_EXPORT TrayBackgroundView : public ActionableView,
   // state.
   bool GetEffectiveVisibility();
 
-  // Checks if we should show bounce in or fade in animation.
-  bool IsShowAnimationEnabled() const {
-    return disable_show_animation_count_ == 0u;
-  }
+  // Checks if we should use custom visibility animations.
+  bool ShouldUseCustomVisibilityAnimations() const;
 
   // The shelf containing the system tray for this view.
-  Shelf* shelf_;
+  raw_ptr<Shelf, ExperimentalAsh> shelf_;
+
+  // The catalog name, used to record metrics on feature integrations.
+  TrayBackgroundViewCatalogName catalog_name_;
 
   // Convenience pointer to the contents view.
-  TrayContainer* tray_container_;
+  raw_ptr<TrayContainer, ExperimentalAsh> tray_container_;
 
   // Determines if the view is active. This changes how  the ink drop ripples
   // behave.
@@ -280,11 +341,23 @@ class ASH_EXPORT TrayBackgroundView : public ActionableView,
   // Number of active requests to disable the bounce-in and fade-in animation.
   size_t disable_show_animation_count_ = 0;
 
+  // Number of active requests to use custom visibility animations.
+  size_t use_custom_visibility_animation_count_ = 0;
+
+  // The shape of this tray which is only applied to the horizontal tray.
+  // Defaults to `kAllRounded`.
+  RoundedCornerBehavior corner_behavior_;
+
+  // Called instead of the default `PerformAction()`.
+  base::RepeatingCallback<void(const ui::Event& event)> pressed_callback_;
+
   std::unique_ptr<TrayWidgetObserver> widget_observer_;
   std::unique_ptr<TrayEventFilter> tray_event_filter_;
   std::unique_ptr<TrayBackgroundViewSessionChangeHandler> handler_;
   std::unique_ptr<ui::SimpleMenuModel> context_menu_model_;
   std::unique_ptr<views::MenuRunner> context_menu_runner_;
+
+  base::ObserverList<Observer> observers_;
 
   base::WeakPtrFactory<TrayBackgroundView> weak_factory_{this};
 };

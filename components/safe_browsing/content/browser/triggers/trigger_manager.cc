@@ -1,16 +1,18 @@
-// Copyright (c) 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/safe_browsing/content/browser/triggers/trigger_manager.h"
 
-#include "base/bind.h"
 #include "base/containers/contains.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/metrics/histogram_functions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/content/browser/base_ui_manager.h"
 #include "components/safe_browsing/content/browser/threat_details.h"
+#include "components/safe_browsing/content/browser/web_contents_key.h"
 #include "components/safe_browsing/core/common/features.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "components/security_interstitials/core/unsafe_resource.h"
@@ -147,15 +149,12 @@ bool TriggerManager::StartCollectingThreatDetails(
     const security_interstitials::UnsafeResource& resource,
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     history::HistoryService* history_service,
-    base::RepeatingCallback<ChromeUserPopulation()>
-        get_user_population_callback,
     ReferrerChainProvider* referrer_chain_provider,
     const SBErrorOptions& error_display_options) {
   TriggerManagerReason unused_reason;
   return StartCollectingThreatDetailsWithReason(
       trigger_type, web_contents, resource, url_loader_factory, history_service,
-      get_user_population_callback, referrer_chain_provider,
-      error_display_options, &unused_reason);
+      referrer_chain_provider, error_display_options, &unused_reason);
 }
 
 bool TriggerManager::StartCollectingThreatDetailsWithReason(
@@ -164,8 +163,6 @@ bool TriggerManager::StartCollectingThreatDetailsWithReason(
     const security_interstitials::UnsafeResource& resource,
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     history::HistoryService* history_service,
-    base::RepeatingCallback<ChromeUserPopulation()>
-        get_user_population_callback,
     ReferrerChainProvider* referrer_chain_provider,
     const SBErrorOptions& error_display_options,
     TriggerManagerReason* reason) {
@@ -176,15 +173,15 @@ bool TriggerManager::StartCollectingThreatDetailsWithReason(
 
   // Ensure we're not already collecting ThreatDetails on this tab. Create an
   // entry in the map for this |web_contents| if it's not there already.
-  DataCollectorsContainer* collectors = &data_collectors_map_[web_contents];
+  DataCollectorsContainer* collectors =
+      &data_collectors_map_[GetWebContentsKey(web_contents)];
   if (collectors->threat_details != nullptr)
     return false;
 
   bool should_trim_threat_details = trigger_type == TriggerType::AD_SAMPLE;
   collectors->threat_details = ThreatDetails::NewThreatDetails(
       ui_manager_, web_contents, resource, url_loader_factory, history_service,
-      get_user_population_callback, referrer_chain_provider,
-      should_trim_threat_details,
+      referrer_chain_provider, should_trim_threat_details,
       base::BindOnce(&TriggerManager::ThreatDetailsDone,
                      weak_factory_.GetWeakPtr()));
   return true;
@@ -192,27 +189,35 @@ bool TriggerManager::StartCollectingThreatDetailsWithReason(
 
 bool TriggerManager::FinishCollectingThreatDetails(
     const TriggerType trigger_type,
-    content::WebContents* web_contents,
+    WebContentsKey web_contents_key,
     const base::TimeDelta& delay,
     bool did_proceed,
     int num_visits,
     const SBErrorOptions& error_display_options) {
   DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
-  // Make sure there's a ThreatDetails collector running on this tab.
-  if (!base::Contains(data_collectors_map_, web_contents))
-    return false;
-  DataCollectorsContainer* collectors = &data_collectors_map_[web_contents];
-  if (collectors->threat_details == nullptr)
-    return false;
-
   // Determine whether a report should be sent.
   bool should_send_report = CanSendReport(error_display_options, trigger_type);
+  bool has_threat_details_in_map =
+      base::Contains(data_collectors_map_, web_contents_key);
+
+  if (should_send_report) {
+    base::UmaHistogramBoolean(
+        "SafeBrowsing.ClientSafeBrowsingReport.HasThreatDetailsForTab",
+        has_threat_details_in_map);
+  }
+
+  // Make sure there's a ThreatDetails collector running on this tab.
+  if (!has_threat_details_in_map)
+    return false;
+  DataCollectorsContainer* collectors = &data_collectors_map_[web_contents_key];
+  if (collectors->threat_details == nullptr)
+    return false;
 
   if (should_send_report) {
     // Find the data collector and tell it to finish collecting data. We expect
     // it to notify us when it's finished so we can clean up references to it.
 
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(&ThreatDetails::FinishCollection,
                        collectors->threat_details->GetWeakPtr(), did_proceed,
@@ -224,27 +229,30 @@ bool TriggerManager::FinishCollectingThreatDetails(
   } else {
     // We aren't telling ThreatDetails to finish the report so we should clean
     // up our map ourselves.
-    ThreatDetailsDone(web_contents);
+    ThreatDetailsDone(web_contents_key);
   }
 
   return should_send_report;
 }
 
-void TriggerManager::ThreatDetailsDone(content::WebContents* web_contents) {
+void TriggerManager::ThreatDetailsDone(WebContentsKey web_contents_key) {
   DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
   // Clean up the ThreatDetailsdata collector on the specified tab.
-  if (!base::Contains(data_collectors_map_, web_contents))
+  if (!base::Contains(data_collectors_map_, web_contents_key)) {
     return;
+  }
 
-  DataCollectorsContainer* collectors = &data_collectors_map_[web_contents];
+  DataCollectorsContainer* collectors = &data_collectors_map_[web_contents_key];
   collectors->threat_details = nullptr;
 }
 
 void TriggerManager::WebContentsDestroyed(content::WebContents* web_contents) {
   DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
-  if (!base::Contains(data_collectors_map_, web_contents))
+  WebContentsKey key = GetWebContentsKey(web_contents);
+  if (!base::Contains(data_collectors_map_, key)) {
     return;
-  data_collectors_map_.erase(web_contents);
+  }
+  data_collectors_map_.erase(key);
 }
 
 TriggerManagerWebContentsHelper::TriggerManagerWebContentsHelper(

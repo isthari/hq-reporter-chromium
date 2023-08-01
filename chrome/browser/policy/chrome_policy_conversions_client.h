@@ -1,10 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_POLICY_CHROME_POLICY_CONVERSIONS_CLIENT_H_
 #define CHROME_BROWSER_POLICY_CHROME_POLICY_CONVERSIONS_CLIENT_H_
 
+#include "base/memory/raw_ptr_exclusion.h"
 #include "build/chromeos_buildflags.h"
 #include "components/policy/core/browser/policy_conversions_client.h"
 
@@ -35,14 +36,16 @@ class ChromePolicyConversionsClient : public PolicyConversionsClient {
   SchemaRegistry* GetPolicySchemaRegistry() const override;
   const ConfigurationPolicyHandlerList* GetHandlerList() const override;
   bool HasUserPolicies() const override;
-  base::Value GetExtensionPolicies(PolicyDomain policy_domain) override;
+  base::Value::List GetExtensionPolicies(PolicyDomain policy_domain) override;
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  base::Value GetDeviceLocalAccountPolicies() override;
-  base::Value GetIdentityFields() override;
+  base::Value::List GetDeviceLocalAccountPolicies() override;
+  base::Value::Dict GetIdentityFields() override;
 #endif
 
  private:
-  Profile* profile_;
+  // This field is not a raw_ptr<> because of missing |.get()| in not-rewritten
+  // platform specific code.
+  RAW_PTR_EXCLUSION Profile* profile_;
 };
 
 }  // namespace policy

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,9 +22,11 @@ AX_BASE_EXPORT const char* ToString(ax::mojom::Event event);
 
 // ax::mojom::Role
 AX_BASE_EXPORT const char* ToString(ax::mojom::Role role);
+AX_BASE_EXPORT ax::mojom::Role StringToRole(const std::string& role);
 
 // ax::mojom::State
 AX_BASE_EXPORT const char* ToString(ax::mojom::State state);
+AX_BASE_EXPORT ax::mojom::State StringToState(const std::string& state);
 
 // ax::mojom::Action
 AX_BASE_EXPORT const char* ToString(ax::mojom::Action action);
@@ -36,25 +38,27 @@ AX_BASE_EXPORT const char* ToString(ax::mojom::ActionFlags action_flags);
 AX_BASE_EXPORT const char* ToString(
     ax::mojom::DefaultActionVerb default_action_verb);
 
-// Returns a localized string that corresponds to the name of the given action.
-AX_BASE_EXPORT std::string ToLocalizedString(
-    ax::mojom::DefaultActionVerb action_verb);
-
 // ax::mojom::Mutation
 AX_BASE_EXPORT const char* ToString(ax::mojom::Mutation mutation);
 
 // ax::mojom::StringAttribute
 AX_BASE_EXPORT const char* ToString(
     ax::mojom::StringAttribute string_attribute);
+AX_BASE_EXPORT ax::mojom::StringAttribute StringToStringAttribute(
+    const std::string& string_attribute);
 
 // ax::mojom::IntAttribute
 AX_BASE_EXPORT const char* ToString(ax::mojom::IntAttribute int_attribute);
+AX_BASE_EXPORT ax::mojom::IntAttribute StringToIntAttribute(
+    const std::string& int_attribute);
 
 // ax::mojom::FloatAttribute
 AX_BASE_EXPORT const char* ToString(ax::mojom::FloatAttribute float_attribute);
 
 // ax::mojom::BoolAttribute
 AX_BASE_EXPORT const char* ToString(ax::mojom::BoolAttribute bool_attribute);
+AX_BASE_EXPORT ax::mojom::BoolAttribute StringToBoolAttribute(
+    const std::string& bool_attribute);
 
 // ax::mojom::IntListAttribute
 AX_BASE_EXPORT const char* ToString(
@@ -109,6 +113,9 @@ AX_BASE_EXPORT const char* ToString(
 // ax::mojom::HasPopup
 AX_BASE_EXPORT const char* ToString(ax::mojom::HasPopup has_popup);
 
+// ax::mojom::IsPopup
+AX_BASE_EXPORT const char* ToString(ax::mojom::IsPopup is_popup);
+
 // ax::mojom::InvalidState
 AX_BASE_EXPORT const char* ToString(ax::mojom::InvalidState invalid_state);
 
@@ -146,11 +153,8 @@ AX_BASE_EXPORT const char* ToString(ax::mojom::ImageAnnotationStatus status);
 // ax::mojom::Dropeffect
 AX_BASE_EXPORT const char* ToString(ax::mojom::Dropeffect dropeffect);
 
-// Convert from the string representation of an enum defined in ax_enums.mojom
-// into the enum value. The first time this is called, builds up a map.
-// Relies on the existence of ui::ToString(enum).
 template <typename T>
-T ParseAXEnum(const char* attribute) {
+bool MaybeParseAXEnum(const char* attribute, T* result) {
   static base::NoDestructor<std::map<std::string, T>> attr_map;
   if (attr_map->empty()) {
     (*attr_map)[""] = T::kNone;
@@ -163,8 +167,21 @@ T ParseAXEnum(const char* attribute) {
     }
   }
   auto iter = attr_map->find(attribute);
-  if (iter != attr_map->end())
-    return iter->second;
+  if (iter != attr_map->end()) {
+    *result = iter->second;
+    return true;
+  }
+  return false;
+}
+
+// Convert from the string representation of an enum defined in ax_enums.mojom
+// into the enum value. The first time this is called, builds up a map.
+// Relies on the existence of ui::ToString(enum).
+template <typename T>
+T ParseAXEnum(const char* attribute) {
+  T result;
+  if (MaybeParseAXEnum(attribute, &result))
+    return result;
 
   LOG(ERROR) << "Could not parse: " << attribute;
   NOTREACHED();

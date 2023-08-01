@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,10 @@
 #include <map>
 #include <string>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/weak_ptr.h"
 #include "base/types/strong_alias.h"
+#include "components/autofill/core/common/mojom/autofill_types.mojom-shared.h"
 #include "components/autofill/core/common/unique_ids.h"
 #include "ui/accessibility/ax_tree_id.h"
 
@@ -27,15 +28,17 @@ namespace password_manager {
 
 class PasswordAutofillManager;
 class PasswordGenerationFrameHelper;
-class PasswordManager;
+class PasswordManagerInterface;
 
 // Interface that allows PasswordManager core code to interact with its driver
 // (i.e., obtain information from it and give information to it).
 class PasswordManagerDriver
     : public base::SupportsWeakPtr<PasswordManagerDriver> {
  public:
+#if BUILDFLAG(IS_ANDROID)
   using ShowVirtualKeyboard =
       base::StrongAlias<class ShowVirtualKeyboardTag, bool>;
+#endif
 
   PasswordManagerDriver() = default;
 
@@ -48,7 +51,7 @@ class PasswordManagerDriver
   virtual int GetId() const = 0;
 
   // Fills forms matching |form_data|.
-  virtual void FillPasswordForm(
+  virtual void SetPasswordFillData(
       const autofill::PasswordFormFillData& form_data) = 0;
 
   // Informs the driver that there are no saved credentials in the password
@@ -78,8 +81,6 @@ class PasswordManagerDriver
       autofill::FieldRendererId generation_element_id,
       const std::u16string& password) {}
 
-  virtual void TouchToFillClosed(ShowVirtualKeyboard show_virtual_keyboard) {}
-
   // Tells the driver to fill the form with the |username| and |password|.
   virtual void FillSuggestion(const std::u16string& username,
                               const std::u16string& password) = 0;
@@ -91,6 +92,12 @@ class PasswordManagerDriver
       const std::u16string& user_provided_credential) {}
 
 #if BUILDFLAG(IS_ANDROID)
+  // Informs the renderer that the keyboard replacing surface (e.g. Touch To
+  // Fill sheet) has been closed. Indicates whether the virtual keyboard should
+  // be shown instead.
+  virtual void KeyboardReplacingSurfaceClosed(
+      ShowVirtualKeyboard show_virtual_keyboard) {}
+
   // Triggers form submission on the last interacted web input element.
   virtual void TriggerFormSubmission() {}
 #endif
@@ -100,14 +107,24 @@ class PasswordManagerDriver
   virtual void PreviewSuggestion(const std::u16string& username,
                                  const std::u16string& password) = 0;
 
+  // Tells the driver to preview a password generation suggestion.
+  virtual void PreviewGenerationSuggestion(const std::u16string& password) = 0;
+
   // Tells the driver to clear previewed password and username fields.
   virtual void ClearPreviewedForm() = 0;
+
+  // Updates the autofill availability state of the DOM node with
+  // |generation_element_id|. It is critical for a11y to keep it updated
+  // to make proper announcements.
+  virtual void SetSuggestionAvailability(
+      autofill::FieldRendererId generation_element_id,
+      const autofill::mojom::AutofillState state) = 0;
 
   // Returns the PasswordGenerationFrameHelper associated with this instance.
   virtual PasswordGenerationFrameHelper* GetPasswordGenerationHelper() = 0;
 
   // Returns the PasswordManager associated with this instance.
-  virtual PasswordManager* GetPasswordManager() = 0;
+  virtual PasswordManagerInterface* GetPasswordManager() = 0;
 
   // Returns the PasswordAutofillManager associated with this instance.
   virtual PasswordAutofillManager* GetPasswordAutofillManager() = 0;
@@ -125,6 +142,9 @@ class PasswordManagerDriver
 
   // Returns the ax tree id associated with this driver.
   virtual ::ui::AXTreeID GetAxTreeId() const = 0;
+
+  // Returns the frame ID of the frame associated with this driver.
+  virtual int GetFrameId() const = 0;
 
   // Returns the last committed URL of the frame.
   virtual const GURL& GetLastCommittedURL() const = 0;

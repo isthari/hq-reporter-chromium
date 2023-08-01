@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,6 @@ import org.chromium.chrome.browser.settings.ChromeManagedPreferenceDelegate;
 import org.chromium.components.browser_ui.settings.FragmentSettingsLauncher;
 import org.chromium.components.browser_ui.settings.ManagedPreferenceDelegate;
 import org.chromium.components.browser_ui.settings.SettingsLauncher;
-import org.chromium.components.browser_ui.settings.TextMessagePreference;
 
 /**
  * Fragment containing Preload Pages settings.
@@ -24,7 +23,7 @@ public class PreloadPagesSettingsFragment extends PreloadPagesSettingsFragmentBa
                    RadioButtonGroupPreloadPagesSettings.OnPreloadPagesStateDetailsRequested,
                    Preference.OnPreferenceChangeListener {
     @VisibleForTesting
-    static final String PREF_TEXT_MANAGED = "text_managed";
+    static final String PREF_MANAGED_DISCLAIMER_TEXT = "managed_disclaimer_text";
     @VisibleForTesting
     static final String PREF_PRELOAD_PAGES = "preload_pages_radio_button_group";
 
@@ -38,7 +37,6 @@ public class PreloadPagesSettingsFragment extends PreloadPagesSettingsFragmentBa
     public static String getPreloadPagesSummaryString(Context context) {
         @PreloadPagesState
         int preloadPagesState = PreloadPagesSettingsBridge.getState();
-        String preloadPagesStateString = "";
         if (preloadPagesState == PreloadPagesState.EXTENDED_PRELOADING) {
             return context.getString(R.string.preload_pages_extended_preloading_title);
         }
@@ -62,10 +60,8 @@ public class PreloadPagesSettingsFragment extends PreloadPagesSettingsFragmentBa
         mPreloadPagesPreference.setManagedPreferenceDelegate(managedPreferenceDelegate);
         mPreloadPagesPreference.setOnPreferenceChangeListener(this);
 
-        TextMessagePreference textManaged = findPreference(PREF_TEXT_MANAGED);
-        textManaged.setManagedPreferenceDelegate(managedPreferenceDelegate);
-        textManaged.setVisible(managedPreferenceDelegate.isPreferenceClickDisabledByPolicy(
-                mPreloadPagesPreference));
+        findPreference(PREF_MANAGED_DISCLAIMER_TEXT).setVisible(
+               managedPreferenceDelegate.isPreferenceClickDisabled(mPreloadPagesPreference));
     }
 
     @Override
@@ -94,7 +90,7 @@ public class PreloadPagesSettingsFragment extends PreloadPagesSettingsFragmentBa
     private ChromeManagedPreferenceDelegate createManagedPreferenceDelegate() {
         return preference -> {
             String key = preference.getKey();
-            assert PREF_TEXT_MANAGED.equals(key)
+            assert PREF_MANAGED_DISCLAIMER_TEXT.equals(key)
                     || PREF_PRELOAD_PAGES.equals(key) : "Wrong preference key: " + key;
             return PreloadPagesSettingsBridge.isNetworkPredictionManaged();
         };

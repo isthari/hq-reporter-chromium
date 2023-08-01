@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,6 +21,7 @@
 #include "base/containers/adapters.h"
 #include "base/containers/contains.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/ranges/algorithm.h"
 #include "chromeos/ui/base/display_util.h"
 #include "chromeos/ui/base/window_state_type.h"
 #include "components/app_restore/window_info.h"
@@ -92,15 +93,13 @@ bool IsRecordingTabletMultiDisplaySplitView() {
 // Number of root windows in split view.
 int NumRootWindowsInSplitViewRecording() {
   auto root_windows = Shell::GetAllRootWindows();
-  return std::count_if(root_windows.begin(), root_windows.end(),
-                       [](aura::Window* root_window) {
-                         return SplitViewController::Get(root_window)
-                             ->split_view_metrics_controller()
-                             ->in_split_view_recording();
-                       });
+  return base::ranges::count_if(root_windows, [](aura::Window* root_window) {
+    return SplitViewController::Get(root_window)
+        ->split_view_metrics_controller()
+        ->in_split_view_recording();
+  });
 }
 
-// Checks if the device is in tablet mode.
 bool InTabletMode() {
   return Shell::Get()->tablet_mode_controller()->InTabletMode();
 }
@@ -139,8 +138,7 @@ bool TopTwoVisibleWindowsBothSnapped(
 // Appends the proper suffix to |prefix| based on whether the device is in
 // tablet mode or not.
 std::string GetHistogramNameWithDeviceUIMode(std::string prefix) {
-  return prefix.append(Shell::Get()->IsInTabletMode() ? ".TabletMode"
-                                                      : ".ClamshellMode");
+  return prefix.append(InTabletMode() ? ".TabletMode" : ".ClamshellMode");
 }
 
 SplitViewMetricsController::DeviceOrientation GetDeviceOrientation(
@@ -363,8 +361,7 @@ void SplitViewMetricsController::OnPostWindowStateTypeChange(
     chromeos::WindowStateType old_type) {
   // We only care if a window is snapped or unsnapped.
   bool is_snapped = window_state->IsSnapped();
-  bool was_snapped = old_type == chromeos::WindowStateType::kPrimarySnapped ||
-                     old_type == chromeos::WindowStateType::kSecondarySnapped;
+  bool was_snapped = chromeos::IsSnappedWindowStateType(old_type);
   if (is_snapped == was_snapped)
     return;
   MaybeStartOrEndRecordBothSnappedClamshellSplitView();
@@ -376,11 +373,6 @@ void SplitViewMetricsController::OnWindowActivated(ActivationReason reason,
   // Reorder the observed windows.
   AddOrStackWindowOnTop(gained_active);
   MaybeStartOrEndRecordBothSnappedClamshellSplitView();
-}
-
-void SplitViewMetricsController::OnDeskAdded(const Desk* desk) {}
-void SplitViewMetricsController::OnDeskRemoved(const Desk* desk) {}
-void SplitViewMetricsController::OnDeskReordered(int old_index, int new_index) {
 }
 
 void SplitViewMetricsController::OnDeskActivationChanged(
@@ -395,12 +387,6 @@ void SplitViewMetricsController::OnDeskActivationChanged(
   // on both sides.
   MaybeStartOrEndRecordBothSnappedClamshellSplitView();
 }
-
-void SplitViewMetricsController::OnDeskSwitchAnimationLaunching() {}
-void SplitViewMetricsController::OnDeskSwitchAnimationFinished() {}
-void SplitViewMetricsController::OnDeskNameChanged(
-    const Desk* desk,
-    const std::u16string& new_name) {}
 
 void SplitViewMetricsController::OnWindowInitialized(aura::Window* window) {
   int32_t* activation_index =
@@ -425,9 +411,8 @@ void SplitViewMetricsController::OnWindowInitialized(aura::Window* window) {
   }
 
   // Check if the recovered window is in the current desk.
-  if (!window_info->desk_id.has_value() ||
-      window_info->desk_id.value() !=
-          DesksController::Get()->GetDeskIndex(current_desk_)) {
+  if (!window_info->desk_guid.is_valid() ||
+      window_info->desk_guid != current_desk_->uuid()) {
     return;
   }
 
@@ -556,8 +541,7 @@ void SplitViewMetricsController::AddOrStackWindowOnTop(aura::Window* window) {
   if (!CanIncludeWindowInMruList(window))
     return;
 
-  auto iter =
-      std::find(observed_windows_.begin(), observed_windows_.end(), window);
+  auto iter = base::ranges::find(observed_windows_, window);
   if (iter == observed_windows_.end()) {
     AddObservedWindow(window);
   } else {
@@ -590,8 +574,9 @@ void SplitViewMetricsController::ClearObservedWindows() {
 
 void SplitViewMetricsController::
     MaybeStartOrEndRecordBothSnappedClamshellSplitView() {
-  if (InTabletMode() || split_view_controller_->InSplitViewMode())
+  if (InTabletMode() || split_view_controller_->InSplitViewMode()) {
     return;
+  }
 
   bool both_snapped = TopTwoVisibleWindowsBothSnapped(observed_windows_);
   if (!in_split_view_recording_ && both_snapped)
@@ -602,8 +587,9 @@ void SplitViewMetricsController::
 
 bool SplitViewMetricsController::
     MaybePauseRecordBothSnappedClamshellSplitView() {
-  if (InTabletMode() || split_view_controller_->InSplitViewMode())
+  if (InTabletMode() || split_view_controller_->InSplitViewMode()) {
     return false;
+  }
 
   if (observed_windows_.size() < 3)
     return false;

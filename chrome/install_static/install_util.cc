@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -408,21 +408,6 @@ const wchar_t* GetSandboxSidPrefix() {
 
 std::string GetSafeBrowsingName() {
   return kSafeBrowsingName;
-}
-
-const char* GetDeviceManagementServerHostName() {
-  static constexpr char kNoRestriction[] = "";
-
-  // If this brand doesn't specify a restriction, return an empty string.
-  if (!*kDeviceManagementServerHostName)
-    return kNoRestriction;
-
-  // Stable and extended stable Google Chrome are restricted to one host.
-  if (GetChromeChannel() == version_info::Channel::STABLE)
-    return kDeviceManagementServerHostName;
-
-  // Otherwise, return an empty string to indicate no restriction.
-  return kNoRestriction;
 }
 
 bool GetCollectStatsConsent() {

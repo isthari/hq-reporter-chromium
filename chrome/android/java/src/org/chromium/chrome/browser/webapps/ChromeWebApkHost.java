@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,9 @@ import org.chromium.base.CommandLine;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.components.webapk.lib.client.ChromeWebApkHostSignature;
 import org.chromium.components.webapk.lib.client.WebApkValidator;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.webapk.lib.client.WebApkIdentityServiceClient;
 
 /**
@@ -61,7 +61,7 @@ public class ChromeWebApkHost {
             ApplicationStatus.registerApplicationStateListener(sListener);
         }
 
-        WebApkIdentityServiceClient.getInstance(UiThreadTaskTraits.DEFAULT)
+        WebApkIdentityServiceClient.getInstance(TaskTraits.UI_DEFAULT)
                 .checkBrowserBacksWebApkAsync(
                         ContextUtils.getApplicationContext(), webApkPackageName, callback);
     }
@@ -69,7 +69,7 @@ public class ChromeWebApkHost {
     /** Disconnect from all of the services of all WebAPKs. */
     public static void disconnectFromAllServices(boolean waitForPendingWork) {
         if (waitForPendingWork && WebApkServiceClient.hasPendingWork()) {
-            PostTask.postDelayedTask(UiThreadTaskTraits.DEFAULT,
+            PostTask.postDelayedTask(TaskTraits.UI_DEFAULT,
                     ChromeWebApkHost::disconnectFromAllServicesImpl,
                     WAIT_FOR_WORK_DISCONNECT_SERVICE_DELAY_MS);
         } else {

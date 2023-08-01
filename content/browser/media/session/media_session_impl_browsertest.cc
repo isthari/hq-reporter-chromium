@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,6 +19,7 @@
 #include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/simple_test_tick_clock.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "content/browser/media/session/audio_focus_delegate.h"
@@ -29,6 +30,7 @@
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/media_session.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/test/back_forward_cache_util.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
@@ -75,7 +77,7 @@ class MockAudioFocusDelegate : public content::AudioFocusDelegate {
   MOCK_METHOD0(AbandonAudioFocus, void());
 
   AudioFocusDelegate::AudioFocusResult RequestAudioFocus(
-      AudioFocusType audio_focus_type) {
+      AudioFocusType audio_focus_type) override {
     if (async_mode_) {
       requests_.push_back(audio_focus_type);
       return AudioFocusDelegate::AudioFocusResult::kDelayed;
@@ -85,7 +87,7 @@ class MockAudioFocusDelegate : public content::AudioFocusDelegate {
     }
   }
 
-  absl::optional<AudioFocusType> GetCurrentFocusType() const {
+  absl::optional<AudioFocusType> GetCurrentFocusType() const override {
     return audio_focus_type_;
   }
 
@@ -244,7 +246,7 @@ class MediaSessionImplBrowserTest : public ContentBrowserTest {
   void EnsureMediaSessionService() {
     mock_media_session_service_ =
         std::make_unique<NiceMock<MockMediaSessionServiceImpl>>(
-            shell()->web_contents()->GetMainFrame());
+            shell()->web_contents()->GetPrimaryMainFrame());
   }
 
   void SetPlaybackState(blink::mojom::MediaSessionPlaybackState state) {
@@ -307,8 +309,8 @@ class MediaSessionImplBrowserTest : public ContentBrowserTest {
     return std::make_unique<net::test_server::BasicHttpResponse>();
   }
 
-  raw_ptr<MediaSessionImpl> media_session_;
-  raw_ptr<MockAudioFocusDelegate> mock_audio_focus_delegate_;
+  raw_ptr<MediaSessionImpl, DanglingUntriaged> media_session_;
+  raw_ptr<MockAudioFocusDelegate, DanglingUntriaged> mock_audio_focus_delegate_;
   std::unique_ptr<MockMediaSessionServiceImpl> mock_media_session_service_;
   net::EmbeddedTestServer favicon_server_;
   base::AtomicSequenceNumber favicon_calls_;
@@ -891,7 +893,7 @@ IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ControlsNoShowForTransientAndRoutedService) {
   EnsureMediaSessionService();
   auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>(
-      shell()->web_contents()->GetMainFrame(),
+      shell()->web_contents()->GetPrimaryMainFrame(),
       media::MediaContentType::Transient);
 
   {
@@ -913,7 +915,7 @@ IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ControlsNoShowForTransientAndPlaybackStateNone) {
   EnsureMediaSessionService();
   auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>(
-      shell()->web_contents()->GetMainFrame(),
+      shell()->web_contents()->GetPrimaryMainFrame(),
       media::MediaContentType::Transient);
 
   {
@@ -938,7 +940,7 @@ IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ControlsShowForTransientAndPlaybackStatePaused) {
   EnsureMediaSessionService();
   auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>(
-      shell()->web_contents()->GetMainFrame(),
+      shell()->web_contents()->GetPrimaryMainFrame(),
       media::MediaContentType::Transient);
 
   {
@@ -963,7 +965,7 @@ IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ControlsShowForTransientAndPlaybackStatePlaying) {
   EnsureMediaSessionService();
   auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>(
-      shell()->web_contents()->GetMainFrame(),
+      shell()->web_contents()->GetPrimaryMainFrame(),
       media::MediaContentType::Transient);
 
   {
@@ -1891,7 +1893,7 @@ IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ActualPlaybackStateWhilePlayerPaused) {
   EnsureMediaSessionService();
   auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>(
-      shell()->web_contents()->GetMainFrame(),
+      shell()->web_contents()->GetPrimaryMainFrame(),
       media::MediaContentType::Persistent);
 
   {
@@ -1946,7 +1948,7 @@ IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ActualPlaybackStateWhilePlayerPlaying) {
   EnsureMediaSessionService();
   auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>(
-      shell()->web_contents()->GetMainFrame(),
+      shell()->web_contents()->GetPrimaryMainFrame(),
       media::MediaContentType::Persistent);
 
   {
@@ -1992,7 +1994,7 @@ IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
                        ActualPlaybackStateWhilePlayerRemoved) {
   EnsureMediaSessionService();
   auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>(
-      shell()->web_contents()->GetMainFrame(),
+      shell()->web_contents()->GetPrimaryMainFrame(),
       media::MediaContentType::Persistent);
 
   {
@@ -2388,7 +2390,7 @@ IN_PROC_BROWSER_TEST_P(MediaSessionImplParamBrowserTest,
 
   // Make sure the service is routed,
   auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>(
-      shell()->web_contents()->GetMainFrame(),
+      shell()->web_contents()->GetPrimaryMainFrame(),
       media::MediaContentType::Persistent);
 
   {
@@ -2684,8 +2686,8 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, UpdateFaviconURL) {
       GURL("https://www.example.org/favicon6.png"),
       blink::mojom::FaviconIconType::kTouchIcon, std::vector<gfx::Size>()));
 
-  media_session_->DidUpdateFaviconURL(shell()->web_contents()->GetMainFrame(),
-                                      favicons);
+  media_session_->DidUpdateFaviconURL(
+      shell()->web_contents()->GetPrimaryMainFrame(), favicons);
 
   {
     std::vector<media_session::MediaImage> expected_images;
@@ -2713,7 +2715,7 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, UpdateFaviconURL) {
   {
     media_session::test::MockMediaSessionMojoObserver observer(*media_session_);
     media_session_->DidUpdateFaviconURL(
-        shell()->web_contents()->GetMainFrame(),
+        shell()->web_contents()->GetPrimaryMainFrame(),
         std::vector<blink::mojom::FaviconURLPtr>());
     observer.WaitForExpectedImagesOfType(
         media_session::mojom::MediaSessionImageType::kSourceIcon,
@@ -2728,8 +2730,8 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
       GURL("https://www.example.org/favicon1.png"),
       blink::mojom::FaviconIconType::kFavicon, std::vector<gfx::Size>()));
 
-  media_session_->DidUpdateFaviconURL(shell()->web_contents()->GetMainFrame(),
-                                      favicons);
+  media_session_->DidUpdateFaviconURL(
+      shell()->web_contents()->GetPrimaryMainFrame(), favicons);
 
   {
     std::vector<media_session::MediaImage> expected_images;
@@ -2975,7 +2977,7 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest,
       shell(), embedded_test_server()->GetURL("example.com",
                                               "/media/session/position.html")));
 
-  auto* main_frame = shell()->web_contents()->GetMainFrame();
+  auto* main_frame = shell()->web_contents()->GetPrimaryMainFrame();
   const base::TimeDelta duration = base::Milliseconds(6060);
 
   {
@@ -3121,8 +3123,8 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplBrowserTest, CacheFaviconImages) {
       favicon_server().GetURL("/favicon.ico"),
       blink::mojom::FaviconIconType::kFavicon, valid_sizes));
 
-  media_session_->DidUpdateFaviconURL(shell()->web_contents()->GetMainFrame(),
-                                      favicons);
+  media_session_->DidUpdateFaviconURL(
+      shell()->web_contents()->GetPrimaryMainFrame(), favicons);
 
   media_session::MediaImage test_image;
   test_image.src = favicon_server().GetURL("/favicon.ico");
@@ -3230,30 +3232,96 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplPrerenderingBrowserTest,
   EXPECT_NE(player_observer->GetAudioOutputSinkId(player_1), "speaker1");
 }
 
+IN_PROC_BROWSER_TEST_F(MediaSessionImplPrerenderingBrowserTest,
+                       DontClearFaviconCacheOnPrerenderNavigation) {
+  {
+    std::vector<media_session::MediaImage> expected_images;
+    media_session::MediaImage test_image;
+    test_image.src =
+        embedded_test_server()->GetURL("example.com", "/favicon.ico");
+    test_image.sizes.emplace_back(kDefaultFaviconSize);
+    expected_images.emplace_back(test_image);
+
+    media_session::test::MockMediaSessionMojoObserver observer(*media_session_);
+
+    observer.WaitForExpectedImagesOfType(
+        media_session::mojom::MediaSessionImageType::kSourceIcon,
+        expected_images);
+  }
+
+  std::vector<gfx::Size> valid_sizes;
+  valid_sizes.emplace_back(gfx::Size(100, 100));
+  valid_sizes.emplace_back(gfx::Size(200, 200));
+
+  GURL test_image_src = favicon_server().GetURL("/favicon.ico");
+  EXPECT_FALSE(media_session_->HasImageCacheForTest(test_image_src));
+
+  std::vector<blink::mojom::FaviconURLPtr> favicons;
+  favicons.emplace_back(blink::mojom::FaviconURL::New(
+      test_image_src, blink::mojom::FaviconIconType::kFavicon, valid_sizes));
+
+  media_session_->DidUpdateFaviconURL(
+      shell()->web_contents()->GetPrimaryMainFrame(), favicons);
+  media_session::MediaImage test_image;
+  test_image.src = test_image_src;
+  test_image.sizes = valid_sizes;
+
+  {
+    EXPECT_EQ(0, get_favicon_calls());
+
+    base::RunLoop run_loop;
+    media_session_->GetMediaImageBitmap(
+        test_image, 100, 100,
+        base::BindLambdaForTesting([&](const SkBitmap&) { run_loop.Quit(); }));
+    run_loop.Run();
+
+    EXPECT_EQ(2, get_favicon_calls());
+  }
+
+  EXPECT_TRUE(media_session_->HasImageCacheForTest(test_image_src));
+
+  // Prerender the next page.
+  auto prerender_url =
+      embedded_test_server()->GetURL("example.com", "/title2.html");
+  int host_id = prerender_helper_.AddPrerender(prerender_url);
+  content::RenderFrameHost* prerender_rfh =
+      prerender_helper_.GetPrerenderedMainFrameHost(host_id);
+  EXPECT_NE(prerender_rfh, nullptr);
+
+  {
+    base::RunLoop run_loop;
+    media_session_->GetMediaImageBitmap(
+        test_image, 100, 100,
+        base::BindLambdaForTesting([&](const SkBitmap&) { run_loop.Quit(); }));
+    run_loop.Run();
+
+    EXPECT_EQ(3, get_favicon_calls());
+  }
+
+  EXPECT_TRUE(media_session_->HasImageCacheForTest(test_image_src));
+}
+
 class MediaSessionImplWithBackForwardCacheBrowserTest
     : public MediaSessionImplBrowserTest {
  protected:
   void SetUpCommandLine(base::CommandLine* command_line) override {
     MediaSessionImplBrowserTest::SetUpCommandLine(command_line);
 
-    std::vector<base::test::ScopedFeatureList::FeatureAndParams>
-        enabled_features;
-    std::map<std::string, std::string> params;
+    feature_list_.InitWithFeaturesAndParameters(
+        GetBasicBackForwardCacheFeatureForTesting(
 #if BUILDFLAG(IS_ANDROID)
-    params["process_binding_strength"] = "NORMAL";
+            {{ features::kBackForwardCache,
+               {
+                 { "process_binding_strength",
+                   "NORMAL" }
+               } }}
 #endif
-    enabled_features.emplace_back(features::kBackForwardCache, params);
-
-    std::vector<base::Feature> disabled_features = {
-        features::kBackForwardCacheMemoryControls,
-    };
-
-    feature_list_.InitWithFeaturesAndParameters(enabled_features,
-                                                disabled_features);
+            ),
+        GetDefaultDisabledBackForwardCacheFeaturesForTesting());
   }
 
-  RenderFrameHost* GetMainFrame() {
-    return shell()->web_contents()->GetMainFrame();
+  RenderFrameHost* GetPrimaryMainFrame() {
+    return shell()->web_contents()->GetPrimaryMainFrame();
   }
 
  private:
@@ -3267,11 +3335,11 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplWithBackForwardCacheBrowserTest,
 
   // Add a player.
   auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>(
-      GetMainFrame(), media::MediaContentType::Persistent);
+      GetPrimaryMainFrame(), media::MediaContentType::Persistent);
   StartNewPlayer(player_observer.get());
   ResolveAudioFocusSuccess();
   EXPECT_TRUE(player_observer->IsPlaying(0));
-  RenderFrameHostImplWrapper frame_host(GetMainFrame());
+  RenderFrameHostImplWrapper frame_host(GetPrimaryMainFrame());
 
   // Navigate to another page. The page is cached in back-forward cache.
   EXPECT_TRUE(NavigateToURL(
@@ -3295,12 +3363,12 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplWithBackForwardCacheBrowserTest,
 
   // Add a player and pause this.
   auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>(
-      GetMainFrame(), media::MediaContentType::Persistent);
+      GetPrimaryMainFrame(), media::MediaContentType::Persistent);
   StartNewPlayer(player_observer.get());
   ResolveAudioFocusSuccess();
   UISuspend();
   EXPECT_FALSE(player_observer->IsPlaying(0));
-  RenderFrameHostImplWrapper frame_host(GetMainFrame());
+  RenderFrameHostImplWrapper frame_host(GetPrimaryMainFrame());
 
   // Navigate to another page. The page is cached in back-forward cache.
   EXPECT_TRUE(NavigateToURL(
@@ -3315,6 +3383,42 @@ IN_PROC_BROWSER_TEST_F(MediaSessionImplWithBackForwardCacheBrowserTest,
   // After the page is restored from back-forward cache, the player observer
   // must be still paused.
   EXPECT_FALSE(player_observer->IsPlaying(0));
+}
+
+IN_PROC_BROWSER_TEST_F(MediaSessionImplWithBackForwardCacheBrowserTest,
+                       CacheClearDoesntAffectCurrentPage) {
+  // The bug this test is protecting against (https://crbug.com/1288620) only
+  // reproduces on pages with an iframe, so load one.
+  EXPECT_TRUE(NavigateToURL(shell(), embedded_test_server()->GetURL(
+                                         "a.test", "/iframe_clipped.html")));
+
+  auto player_observer = std::make_unique<MockMediaSessionPlayerObserver>(
+      GetPrimaryMainFrame(), media::MediaContentType::Persistent);
+
+  // Add a player.
+  StartNewPlayer(player_observer.get());
+  ResolveAudioFocusSuccess();
+  EXPECT_TRUE(player_observer->IsPlaying(0));
+  RenderFrameHostImplWrapper frame_host(GetPrimaryMainFrame());
+
+  // Navigate to another page. The original page is cached in back-forward
+  // cache.
+  EXPECT_TRUE(NavigateToURL(
+      shell(), embedded_test_server()->GetURL("b.test", "/title1.html")));
+  EXPECT_TRUE(frame_host->IsInBackForwardCache());
+
+  // Add a player on the new page
+  StartNewPlayer(player_observer.get());
+  ResolveAudioFocusSuccess();
+  EXPECT_TRUE(player_observer->IsPlaying(1));
+
+  // Evict the page from the back-forward cache.
+  shell()->web_contents()->GetController().GetBackForwardCache().Flush();
+  EXPECT_TRUE(frame_host.WaitUntilRenderFrameDeleted());
+
+  // The page being removed from the back-forward cache should not affect the
+  // play state of the current page.
+  EXPECT_TRUE(player_observer->IsPlaying(1));
 }
 
 }  // namespace content

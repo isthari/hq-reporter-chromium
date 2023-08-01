@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright 2020 The Chromium Authors. All rights reserved.
+# Copyright 2020 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 """A script to generate build.gradle from template and run fetch_all.py
@@ -36,6 +36,28 @@ _ANDROIDX_LATEST_SNAPSHOT_BUILD_INFO_URL = 'https://androidx.dev/snapshots/lates
 
 # Snapshot repository URL with {{version}} placeholder.
 _SNAPSHOT_REPOSITORY_URL = 'https://androidx.dev/snapshots/builds/{{version}}/artifacts/repository'
+
+# When androidx roller is breaking, and a fix is not immenent, use this to pin a
+# broken library to an old known-working version.
+# * The first element of each tuple is the path to the artifact of the latest
+#   version of the library. It could change if the version is rev'ed in a new
+#   snapshot.
+# * The second element is a URL to replace the file with. Find the URL for older
+#   versions of libraries by looking in the BUILD_INFO for the older version
+#   (e.g.: https://androidx.dev/snapshots/builds/8545498/artifacts/BUILD_INFO)
+_OVERRIDES = [
+    # Example:
+    #('androidx_core_core/core-1.9.0-SNAPSHOT.aar',
+    # 'https://androidx.dev/snapshots/builds/8545498/artifacts/repository/'
+    # 'androidx/core/core/1.8.0-SNAPSHOT/core-1.8.0-20220505.122105-1.aar'),
+    ('androidx_recyclerview_recyclerview/recyclerview-1.4.0-SNAPSHOT.aar',
+     'https://androidx.dev/snapshots/builds/9668027/artifacts/repository/'
+     'androidx/recyclerview/recyclerview/1.4.0-SNAPSHOT/'
+     'recyclerview-1.4.0-20230228.234124-1.aar'),
+    ('androidx_credentials_credentials/credentials-1.0.0-SNAPSHOT.aar',
+     'https://dl.google.com/android/maven2/androidx/credentials/credentials/'
+     '1.2.0-alpha03/credentials-1.2.0-alpha03.aar'),
+]
 
 
 def _build_snapshot_repository_url(version):
@@ -89,7 +111,7 @@ def _compute_replacement(dependency_version_map, androidx_repository_url,
 
     if line.strip() == '{{version_overrides}}':
         lines = ['versionOverrideMap = [:]']
-        for dependency, version in dependency_version_map.items():
+        for dependency, version in sorted(dependency_version_map.items()):
             lines.append(f"versionOverrideMap['{dependency}'] = '{version}'")
         return '\n'.join(lines)
 
@@ -137,8 +159,17 @@ def _download_and_parse_build_info():
             build_info_dict = json.loads(f.read())
         dir_list = build_info_dict['target']['dir_list']
 
-        dependency_version_map = _parse_dir_list(dir_list)
-        return (dependency_version_map, version)
+        return dir_list, version
+
+
+def _create_local_dir_list(repo_path):
+    repo_path = repo_path.rstrip('/')
+    prefix_len = len(repo_path) + 1
+    ret = []
+    for dirpath, _, filenames in os.walk(repo_path):
+        for name in filenames:
+            ret.append(os.path.join('repository', dirpath[prefix_len:], name))
+    return ret
 
 
 def _process_build_gradle(dependency_version_map, androidx_repository_url):
@@ -162,7 +193,7 @@ def _process_build_gradle(dependency_version_map, androidx_repository_url):
             out.write(replacement)
 
 
-def _write_cipd_yaml(libs_dir, version, cipd_yaml_path):
+def _write_cipd_yaml(libs_dir, version, cipd_yaml_path, experimental=False):
     """Writes cipd.yaml file at the passed-in path."""
 
     lib_dirs = os.listdir(libs_dir)
@@ -187,12 +218,16 @@ def _write_cipd_yaml(libs_dir, version, cipd_yaml_path):
                 continue
             data_files.append(os.path.join(androidx_rel_lib_dir, lib_file))
 
+    if experimental:
+        package = 'experimental/google.com/' + os.getlogin() + '/androidx'
+    else:
+        package = 'chromium/third_party/androidx'
     contents = [
         '# Copyright 2021 The Chromium Authors. All rights reserved.',
         '# Use of this source code is governed by a BSD-style license that can be',
         '# found in the LICENSE file.',
         '# version: ' + version,
-        'package: chromium/third_party/androidx',
+        'package: ' + package,
         'description: androidx',
         'data:',
     ]
@@ -210,6 +245,9 @@ def main():
                         default=0,
                         action='count',
                         help='Verbose level (multiple times for more)')
+    parser.add_argument('--local-repo',
+                        help='Path to a locally androidx maven repo to use '
+                        'instead of fetching the latest.')
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -217,11 +255,8 @@ def main():
         format='%(levelname).1s %(relativeCreated)6d %(message)s')
 
     libs_dir = os.path.join(_ANDROIDX_PATH, 'libs')
-
-    # Let recipe delete contents of lib directory because it has API to retry
-    # directory deletion if the first deletion attempt does not work.
-    if os.path.exists(libs_dir) and os.listdir(libs_dir):
-        raise Exception('Recipe did not empty \'libs\' directory.')
+    if os.path.exists(libs_dir):
+        shutil.rmtree(libs_dir)
 
     # Files uploaded to cipd are read-only. Delete them because they will be
     # re-generated.
@@ -232,26 +267,42 @@ def main():
         os.path.join(_ANDROIDX_PATH, 'build.gradle'),
     ])
 
-    dependency_version_map, version = _download_and_parse_build_info()
-    androidx_snapshot_repository_url = _build_snapshot_repository_url(version)
+    if args.local_repo:
+        version = 'local'
+        dir_list = _create_local_dir_list(args.local_repo)
+        androidx_snapshot_repository_url = ('file://' +
+                                            os.path.abspath(args.local_repo))
+    else:
+        dir_list, version = _download_and_parse_build_info()
+        androidx_snapshot_repository_url = _build_snapshot_repository_url(
+            version)
+        # Prepend '0' to version to avoid conflicts with previous version format.
+        version = 'cr-0' + version
+
+    dependency_version_map = _parse_dir_list(dir_list)
     _process_build_gradle(dependency_version_map,
                           androidx_snapshot_repository_url)
+    shutil.copyfile(os.path.join(_ANDROIDX_PATH, 'BUILD.gn.template'),
+                    os.path.join(_ANDROIDX_PATH, 'BUILD.gn'))
 
     fetch_all_cmd = [
         _FETCH_ALL_PATH, '--android-deps-dir', _ANDROIDX_PATH,
         '--ignore-vulnerabilities'
-    ]
+    ] + ['-v'] * args.verbose_count
+    # Overrides do not work with local snapshots since the repository_url is
+    # different.
+    if not args.local_repo:
+        for subpath, url in _OVERRIDES:
+            fetch_all_cmd += ['--override-artifact', f'{subpath}:{url}']
     subprocess.run(fetch_all_cmd, check=True)
-
-    # Prepend '0' to version to avoid conflicts with previous version format.
-    version = 'cr-0' + version
 
     version_txt_path = os.path.join(_ANDROIDX_PATH, 'VERSION.txt')
     with open(version_txt_path, 'w') as f:
         f.write(version)
 
     yaml_path = os.path.join(_ANDROIDX_PATH, 'cipd.yaml')
-    _write_cipd_yaml(libs_dir, version, yaml_path)
+    _write_cipd_yaml(libs_dir, version, yaml_path,
+                     experimental=bool(args.local_repo))
 
 
 if __name__ == '__main__':

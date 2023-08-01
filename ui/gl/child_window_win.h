@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,10 @@
 
 #include <windows.h>
 
+namespace gfx {
+class Size;
+}
+
 namespace gl {
 
 // The window DirectComposition renders into needs to be owned by the process
@@ -19,8 +23,7 @@ namespace gl {
 // which is reparented by the browser to be a child of its window.
 class GL_EXPORT ChildWindowWin {
  public:
-  explicit ChildWindowWin(HWND parent_window);
-
+  ChildWindowWin();
   ChildWindowWin(const ChildWindowWin&) = delete;
   ChildWindowWin& operator=(const ChildWindowWin&) = delete;
 
@@ -29,13 +32,13 @@ class GL_EXPORT ChildWindowWin {
   void Initialize();
   HWND window() const { return window_; }
 
+  bool Resize(const gfx::Size& size);
+
   scoped_refptr<base::TaskRunner> GetTaskRunnerForTesting();
 
  private:
   // The window owner thread.
   std::unique_ptr<base::Thread> thread_;
-  // The eventual parent of the window living in the browser process.
-  const HWND parent_window_;
   HWND window_ = nullptr;
   // The window is initially created with this parent window. We need to keep it
   // around so that we can destroy it at the end.

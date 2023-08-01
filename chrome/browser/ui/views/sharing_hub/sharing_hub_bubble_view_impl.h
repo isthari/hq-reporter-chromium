@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,16 +7,14 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/time/time.h"
+#include "chrome/browser/share/share_attempt.h"
 #include "chrome/browser/ui/sharing_hub/sharing_hub_bubble_view.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_bubble_delegate_view.h"
 
 namespace gfx {
 class Canvas;
 }  // namespace gfx
-
-namespace content {
-class WebContents;
-}  // namespace content
 
 namespace sharing_hub {
 
@@ -25,13 +23,14 @@ class SharingHubBubbleActionButton;
 struct SharingHubAction;
 
 // View component of the Sharing Hub bubble that allows users to share/save the
-// current page.
+// current page. The sharing hub bubble also optionally contains a preview of
+// the content being shared.
 class SharingHubBubbleViewImpl : public SharingHubBubbleView,
                                  public LocationBarBubbleDelegateView {
  public:
   // Bubble will be anchored to |anchor_view|.
   SharingHubBubbleViewImpl(views::View* anchor_view,
-                           content::WebContents* web_contents,
+                           share::ShareAttempt attempt,
                            SharingHubBubbleController* controller);
 
   SharingHubBubbleViewImpl(const SharingHubBubbleViewImpl&) = delete;
@@ -68,16 +67,17 @@ class SharingHubBubbleViewImpl : public SharingHubBubbleView,
 
   // Populates the scroll view containing sharing actions.
   void PopulateScrollView(
-      const std::vector<SharingHubAction>& first_party_actions,
-      const std::vector<SharingHubAction>& third_party_actions);
+      const std::vector<SharingHubAction>& first_party_actions);
 
   // Resizes and potentially moves the bubble to fit the content's preferred
   // size.
   void MaybeSizeToContents();
 
-  // A raw pointer is safe since our controller will outlive us (the bubble is
-  // lazily created with the controller).
-  raw_ptr<SharingHubBubbleController> controller_;
+  // A raw pointer is *not* safe here; the controller can be torn down before
+  // the bubble during the window close path, since the bubble will be closed
+  // asynchronously during browser window teardown but the controller will be
+  // destroyed synchronously.
+  base::WeakPtr<SharingHubBubbleController> controller_;
 
   // ScrollView containing the list of share/save actions.
   raw_ptr<views::ScrollView> scroll_view_ = nullptr;
@@ -85,6 +85,14 @@ class SharingHubBubbleViewImpl : public SharingHubBubbleView,
   // The "Share link to" annotation text, which indicates to the user what
   // the 3P target options do.
   raw_ptr<views::Label> share_link_label_ = nullptr;
+
+  // The time that Show() was called. This is reset after the first time the
+  // sharing hub is painted to avoid repeatedly collecting the metric it is used
+  // for.
+  absl::optional<base::Time> show_time_;
+
+  // The share attempt this bubble was opened for.
+  const share::ShareAttempt attempt_;
 
   base::WeakPtrFactory<SharingHubBubbleViewImpl> weak_factory_{this};
 };

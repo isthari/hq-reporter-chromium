@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,8 @@
 #include "chrome/browser/unified_consent/unified_consent_service_factory.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "components/signin/public/base/signin_buildflags.h"
-#include "components/sync/driver/sync_service_impl.h"
-#include "components/sync/test/fake_server/fake_server_network_resources.h"
+#include "components/sync/service/sync_service_impl.h"
+#include "components/sync/test/fake_server_network_resources.h"
 #include "content/public/test/browser_test.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,12 +9,12 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/message_loop/message_pump_type.h"
 #include "base/synchronization/waitable_event.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "chromecast/media/audio/capture_service/message_parsing_utils.h"
 #include "chromecast/media/audio/net/audio_socket_service.h"
 #include "chromecast/net/small_message_socket.h"
@@ -148,6 +148,11 @@ bool CaptureServiceReceiver::Socket::OnMessage(char* data, size_t size) {
     return HandleAudio(data, size);
   }
 
+  if (message_type == capture_service::MessageType::kMetadata) {
+    delegate_->OnCaptureMetadata(data, size);
+    return true;
+  }
+
   LOG(WARNING) << "Receive message with type " << type << " at state "
                << static_cast<int>(state_) << ", ignored.";
   return true;
@@ -186,9 +191,7 @@ CaptureServiceReceiver::CaptureServiceReceiver(
   DCHECK(delegate_);
   base::Thread::Options options;
   options.message_pump_type = base::MessagePumpType::IO;
-  // TODO(b/137106361): Tweak the thread priority once the thread priority for
-  // speech processing gets fixed.
-  options.priority = base::ThreadPriority::DISPLAY;
+  options.thread_type = base::ThreadType::kDisplayCritical;
   CHECK(io_thread_.StartWithOptions(std::move(options)));
   task_runner_ = io_thread_.task_runner();
   DCHECK(task_runner_);

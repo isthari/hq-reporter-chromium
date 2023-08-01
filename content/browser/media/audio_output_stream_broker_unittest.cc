@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,14 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/sync_socket.h"
 #include "base/test/mock_callback.h"
 #include "base/test/task_environment.h"
 #include "base/unguessable_token.h"
+#include "content/public/test/browser_task_environment.h"
 #include "media/base/audio_parameters.h"
 #include "media/mojo/mojom/audio_data_pipe.mojom.h"
 #include "media/mojo/mojom/audio_output_stream.mojom.h"
@@ -25,6 +26,7 @@
 #include "services/audio/public/cpp/fake_stream_factory.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/utility/utility.h"
 
 using ::testing::Test;
 using ::testing::Mock;
@@ -162,7 +164,9 @@ struct TestEnvironment {
 
   void RunUntilIdle() { env.RunUntilIdle(); }
 
-  base::test::TaskEnvironment env;
+  // MediaInternals RenderProcessHost observation setup asserts being run on the
+  // UI thread.
+  BrowserTaskEnvironment env;
   base::UnguessableToken group;
   MockDeleterCallback deleter;
   StrictMock<MockAudioOutputStreamProviderClient> provider_client;
@@ -212,7 +216,7 @@ TEST(AudioOutputStreamBrokerTest, StreamCreationSuccess_Propagates) {
   base::SyncSocket socket1, socket2;
   base::SyncSocket::CreatePair(&socket1, &socket2);
   std::move(stream_request_data.created_callback)
-      .Run({base::in_place, base::UnsafeSharedMemoryRegion::Create(kShMemSize),
+      .Run({absl::in_place, base::UnsafeSharedMemoryRegion::Create(kShMemSize),
             mojo::PlatformHandle(socket1.Take())});
 
   EXPECT_CALL(env.provider_client, OnCreated());

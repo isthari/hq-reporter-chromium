@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@
 #include "ash/accelerometer/accelerometer_types.h"
 #include "ash/constants/app_types.h"
 #include "ash/constants/ash_switches.h"
-#include "ash/display/screen_orientation_controller.h"
 #include "ash/display/screen_orientation_controller_test_api.h"
 #include "ash/shell.h"
 #include "ash/system/screen_layout_observer.h"
@@ -43,13 +42,6 @@ namespace {
 using base::kMeanGravityFloat;
 
 const float kDegreesToRadians = 3.1415926f / 180.0f;
-
-display::ManagedDisplayInfo CreateDisplayInfo(int64_t id,
-                                              const gfx::Rect& bounds) {
-  display::ManagedDisplayInfo info(id, "dummy", false);
-  info.SetBounds(bounds);
-  return info;
-}
 
 void EnableTabletMode(bool enable) {
   Shell::Get()->tablet_mode_controller()->ForceUiTabletModeState(enable);
@@ -358,10 +350,10 @@ TEST_F(ScreenOrientationControllerTest, SplitViewPreventsLock) {
   Lock(child_window2.get(), chromeos::OrientationType::kPortrait);
   ASSERT_TRUE(RotationLocked());
 
-  split_view_controller()->SnapWindow(focus_window1.get(),
-                                      SplitViewController::LEFT);
-  split_view_controller()->SnapWindow(focus_window1.get(),
-                                      SplitViewController::RIGHT);
+  split_view_controller()->SnapWindow(
+      focus_window1.get(), SplitViewController::SnapPosition::kPrimary);
+  split_view_controller()->SnapWindow(
+      focus_window1.get(), SplitViewController::SnapPosition::kSecondary);
   EXPECT_FALSE(RotationLocked());
 
   split_view_controller()->EndSplitView();
@@ -576,9 +568,9 @@ TEST_F(ScreenOrientationControllerTest, RotateInactiveDisplay) {
   const display::Display::Rotation kNewRotation = display::Display::ROTATE_180;
 
   const display::ManagedDisplayInfo internal_display_info =
-      CreateDisplayInfo(kInternalDisplayId, gfx::Rect(0, 0, 600, 500));
+      display::CreateDisplayInfo(kInternalDisplayId, gfx::Rect(0, 0, 600, 500));
   const display::ManagedDisplayInfo external_display_info =
-      CreateDisplayInfo(kExternalDisplayId, gfx::Rect(1, 1, 600, 500));
+      display::CreateDisplayInfo(kExternalDisplayId, gfx::Rect(1, 1, 600, 500));
 
   std::vector<display::ManagedDisplayInfo> display_info_list_two_active;
   display_info_list_two_active.push_back(internal_display_info);
@@ -590,8 +582,8 @@ TEST_F(ScreenOrientationControllerTest, RotateInactiveDisplay) {
   // The display::ManagedDisplayInfo list with two active displays needs to be
   // added first so that the DisplayManager can track the
   // |internal_display_info| as inactive instead of non-existent.
-  display_manager()->UpdateDisplaysWith(display_info_list_two_active);
-  display_manager()->UpdateDisplaysWith(display_info_list_one_active);
+  display_manager()->OnNativeDisplaysChanged(display_info_list_two_active);
+  display_manager()->OnNativeDisplaysChanged(display_info_list_one_active);
 
   display::test::ScopedSetInternalDisplayId set_internal(display_manager(),
                                                          kInternalDisplayId);
@@ -874,7 +866,7 @@ TEST_F(ScreenOrientationControllerTest, GetCurrentAppRequestedOrientationLock) {
 
   // Once `win0` is snapped in splitview, it can no longer lock the rotation.
   SplitViewController::Get(win0->GetRootWindow())
-      ->SnapWindow(win0.get(), SplitViewController::RIGHT);
+      ->SnapWindow(win0.get(), SplitViewController::SnapPosition::kSecondary);
   EXPECT_EQ(
       chromeos::OrientationType::kAny,
       screen_orientation_controller->GetCurrentAppRequestedOrientationLock());

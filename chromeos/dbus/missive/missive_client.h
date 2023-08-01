@@ -1,16 +1,19 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROMEOS_DBUS_MISSIVE_MISSIVE_CLIENT_H_
 #define CHROMEOS_DBUS_MISSIVE_MISSIVE_CLIENT_H_
 
-#include "base/callback.h"
+#include <vector>
+
 #include "base/component_export.h"
+#include "base/functional/callback.h"
 #include "base/memory/weak_ptr.h"
+#include "base/observer_list_types.h"
 #include "base/sequence_checker.h"
 #include "base/task/sequenced_task_runner.h"
-#include "components/reporting/proto/interface.pb.h"
+#include "components/reporting/proto/synced/interface.pb.h"
 #include "components/reporting/proto/synced/record.pb.h"
 #include "components/reporting/proto/synced/record_constants.pb.h"
 #include "components/reporting/util/status.h"
@@ -29,6 +32,19 @@ class COMPONENT_EXPORT(MISSIVE) MissiveClient {
   // Interface with testing functionality. Accessed through GetTestInterface(),
   // only implemented in the fake implementation.
   class TestInterface {
+   public:
+    class Observer : public base::CheckedObserver {
+     public:
+      virtual void OnRecordEnqueued(reporting::Priority priority,
+                                    const reporting::Record& record) = 0;
+    };
+
+    virtual const std::vector<::reporting::Record>& GetEnqueuedRecords(
+        ::reporting::Priority) = 0;
+
+    virtual void AddObserver(Observer* observer) = 0;
+    virtual void RemoveObserver(Observer* observer) = 0;
+
    protected:
     virtual ~TestInterface() = default;
   };
@@ -65,6 +81,9 @@ class COMPONENT_EXPORT(MISSIVE) MissiveClient {
       bool force_confirm) = 0;
   virtual base::WeakPtr<MissiveClient> GetWeakPtr() = 0;
 
+  // Returns 'true' initially, and 'false' after Init() has been called.
+  bool is_disabled() const;
+
   // Returns sequenced task runner.
   scoped_refptr<base::SequencedTaskRunner> origin_task_runner() const;
 
@@ -76,13 +95,11 @@ class COMPONENT_EXPORT(MISSIVE) MissiveClient {
   // Sequenced task runner - must be first member of the class.
   scoped_refptr<base::SequencedTaskRunner> origin_task_runner_;
   SEQUENCE_CHECKER(origin_checker_);
+
+  // Flag indicating that the client has been successfully initialized.
+  bool is_disabled_ GUARDED_BY_CONTEXT(origin_checker_) = true;
 };
 
 }  // namespace chromeos
-
-// TODO(https://crbug.com/1164001): remove when moved to ash.
-namespace ash {
-using ::chromeos::MissiveClient;
-}  // namespace ash
 
 #endif  // CHROMEOS_DBUS_MISSIVE_MISSIVE_CLIENT_H_

@@ -1,16 +1,15 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CONTENT_BROWSER_ATTRIBUTION_REPORTING_ATTRIBUTION_TRIGGER_H_
 #define CONTENT_BROWSER_ATTRIBUTION_REPORTING_ATTRIBUTION_TRIGGER_H_
 
-#include <stdint.h>
-
+#include "components/attribution_reporting/suitable_origin.h"
+#include "components/attribution_reporting/trigger_registration.h"
 #include "content/common/content_export.h"
-#include "net/base/schemeful_site.h"
+#include "services/network/public/cpp/trigger_verification.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
-#include "url/origin.h"
 
 namespace content {
 
@@ -18,61 +17,104 @@ namespace content {
 // the renderer and is now being used by the browser process.
 class CONTENT_EXPORT AttributionTrigger {
  public:
-  // Should only be created with values that the browser process has already
-  // validated. At creation time, |trigger_data_| should already be stripped
-  // to a lower entropy. |conversion_destination| should be filled by a
-  // navigation origin known by the browser process.
-  AttributionTrigger(uint64_t trigger_data,
-                     net::SchemefulSite conversion_destination,
-                     url::Origin reporting_origin,
-                     uint64_t event_source_trigger_data,
-                     int64_t priority,
-                     absl::optional<int64_t> dedup_key);
-  AttributionTrigger(const AttributionTrigger& other);
-  AttributionTrigger& operator=(const AttributionTrigger& other);
-  AttributionTrigger(AttributionTrigger&& other);
-  AttributionTrigger& operator=(AttributionTrigger&& other);
+  // Represents the potential event-level outcomes from attempting to register
+  // a trigger.
+  //
+  // These values are persisted to logs. Entries should not be renumbered and
+  // numeric values should never be reused.
+  enum class EventLevelResult {
+    kSuccess = 0,
+    // The report was stored successfully, but it replaced an existing report
+    // with a lower priority.
+    kSuccessDroppedLowerPriority = 1,
+    kInternalError = 2,
+    kNoCapacityForConversionDestination = 3,
+    kNoMatchingImpressions = 4,
+    kDeduplicated = 5,
+    kExcessiveAttributions = 6,
+    kPriorityTooLow = 7,
+    kDroppedForNoise = 8,
+    kExcessiveReportingOrigins = 9,
+    kNoMatchingSourceFilterData = 10,
+    kProhibitedByBrowserPolicy = 11,
+    kNoMatchingConfigurations = 12,
+    kExcessiveReports = 13,
+    kFalselyAttributedSource = 14,
+    kReportWindowPassed = 15,
+    kNotRegistered = 16,
+    kMaxValue = kNotRegistered,
+  };
+
+  // Represents the potential aggregatable outcomes from attempting to register
+  // a trigger.
+  //
+  // These values are persisted to logs. Entries should not be renumbered and
+  // numeric values should never be reused.
+  enum class AggregatableResult {
+    kSuccess = 0,
+    kInternalError = 1,
+    kNoCapacityForConversionDestination = 2,
+    kNoMatchingImpressions = 3,
+    kExcessiveAttributions = 4,
+    kExcessiveReportingOrigins = 5,
+    kNoHistograms = 6,
+    kInsufficientBudget = 7,
+    kNoMatchingSourceFilterData = 8,
+    kNotRegistered = 9,
+    kProhibitedByBrowserPolicy = 10,
+    kDeduplicated = 11,
+    kReportWindowPassed = 12,
+    kExcessiveReports = 13,
+    kMaxValue = kExcessiveReports,
+  };
+
+  AttributionTrigger(attribution_reporting::SuitableOrigin reporting_origin,
+                     attribution_reporting::TriggerRegistration registration,
+                     attribution_reporting::SuitableOrigin destination_origin,
+                     absl::optional<network::TriggerVerification> verification,
+                     bool is_within_fenced_frame);
+
+  AttributionTrigger(const AttributionTrigger&);
+  AttributionTrigger& operator=(const AttributionTrigger&);
+  AttributionTrigger(AttributionTrigger&&);
+  AttributionTrigger& operator=(AttributionTrigger&&);
   ~AttributionTrigger();
 
-  uint64_t trigger_data() const { return trigger_data_; }
-
-  const net::SchemefulSite& conversion_destination() const {
-    return conversion_destination_;
+  const attribution_reporting::SuitableOrigin& reporting_origin() const {
+    return reporting_origin_;
   }
 
-  const url::Origin& reporting_origin() const { return reporting_origin_; }
-
-  uint64_t event_source_trigger_data() const {
-    return event_source_trigger_data_;
+  const attribution_reporting::TriggerRegistration& registration() const {
+    return registration_;
   }
 
-  int64_t priority() const { return priority_; }
+  attribution_reporting::TriggerRegistration& registration() {
+    return registration_;
+  }
 
-  const absl::optional<int64_t>& dedup_key() const { return dedup_key_; }
+  const attribution_reporting::SuitableOrigin& destination_origin() const {
+    return destination_origin_;
+  }
+
+  bool is_within_fenced_frame() const { return is_within_fenced_frame_; }
+
+  const absl::optional<network::TriggerVerification>& verification() const {
+    return verification_;
+  }
 
  private:
-  // Data associated with trigger.
-  uint64_t trigger_data_;
+  attribution_reporting::SuitableOrigin reporting_origin_;
 
-  // Schemeful site that this conversion event occurred on.
-  net::SchemefulSite conversion_destination_;
+  attribution_reporting::TriggerRegistration registration_;
 
-  // Origin of the conversion redirect url, and the origin that will receive any
-  // reports.
-  url::Origin reporting_origin_;
+  // Origin on which this trigger was registered.
+  attribution_reporting::SuitableOrigin destination_origin_;
 
-  // Event source trigger data specified in conversion redirect. Defaults to 0
-  // if not provided.
-  uint64_t event_source_trigger_data_;
+  // Optional token attesting to the veracity of the trigger.
+  absl::optional<network::TriggerVerification> verification_;
 
-  // Priority specified in conversion redirect. Used to prioritize which reports
-  // to send among multiple different reports for the same attribution source.
-  // Defaults to 0 if not provided.
-  int64_t priority_;
-
-  // Key specified in conversion redirect for deduplication against existing
-  // conversions with the same source. If absent, no deduplication is performed.
-  absl::optional<int64_t> dedup_key_;
+  // Whether the trigger is registered within a fenced frame tree.
+  bool is_within_fenced_frame_;
 };
 
 }  // namespace content

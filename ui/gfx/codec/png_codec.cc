@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 
 #include "base/logging.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/notreached.h"
 #include "base/strings/string_util.h"
 #include "third_party/libpng/png.h"
@@ -221,7 +222,7 @@ void DecodeInfoCallback(png_struct* png_ptr, png_info* info_ptr) {
   if (state->bitmap) {
     if (!state->bitmap->tryAllocN32Pixels(state->width, state->height)) {
       png_error(png_ptr, "Could not allocate bitmap.");
-      NOTREACHED() << "png_error should not return.";
+      NOTREACHED();
       return;
     }
   } else if (state->output) {
@@ -295,8 +296,12 @@ class PngReadStructInfo {
     return true;
   }
 
-  png_struct* png_ptr_;
-  png_info* info_ptr_;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION png_struct* png_ptr_;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION png_info* info_ptr_;
 };
 
 // Holds png struct and info ensuring the proper destruction.
@@ -312,8 +317,12 @@ class PngWriteStructInfo {
     png_destroy_write_struct(&png_ptr_, &info_ptr_);
   }
 
-  png_struct* png_ptr_;
-  png_info* info_ptr_;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION png_struct* png_ptr_;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION png_info* info_ptr_;
 };
 
 // Libpng user error and warning functions which allows us to print libpng
@@ -407,8 +416,8 @@ bool PNGCodec::Decode(const unsigned char* input, size_t input_size,
 
 namespace {
 
-static void AddComments(SkPngEncoder::Options& options,
-                        const std::vector<PNGCodec::Comment>& comments) {
+void AddComments(SkPngEncoder::Options& options,
+                 const std::vector<PNGCodec::Comment>& comments) {
   std::vector<const char*> comment_pointers;
   std::vector<size_t> comment_sizes;
   for (const auto& comment : comments) {
@@ -422,26 +431,28 @@ static void AddComments(SkPngEncoder::Options& options,
       static_cast<int>(comment_pointers.size()));
 }
 
-}  // namespace
-
-static bool EncodeSkPixmap(const SkPixmap& src,
-                           const std::vector<PNGCodec::Comment>& comments,
-                           std::vector<unsigned char>* output,
-                           int zlib_level) {
+bool EncodeSkPixmap(const SkPixmap& src,
+                    const std::vector<PNGCodec::Comment>& comments,
+                    std::vector<unsigned char>* output,
+                    int zlib_level,
+                    bool disable_filters) {
   output->clear();
   VectorWStream dst(output);
 
   SkPngEncoder::Options options;
   AddComments(options, comments);
   options.fZLibLevel = zlib_level;
+  if (disable_filters)
+    options.fFilterFlags = SkPngEncoder::FilterFlag::kNone;
   return SkPngEncoder::Encode(&dst, src, options);
 }
 
-static bool EncodeSkPixmap(const SkPixmap& src,
-                           bool discard_transparency,
-                           const std::vector<PNGCodec::Comment>& comments,
-                           std::vector<unsigned char>* output,
-                           int zlib_level) {
+bool EncodeSkPixmap(const SkPixmap& src,
+                    bool discard_transparency,
+                    const std::vector<PNGCodec::Comment>& comments,
+                    std::vector<unsigned char>* output,
+                    int zlib_level,
+                    bool disable_filters) {
   if (discard_transparency) {
     SkImageInfo opaque_info = src.info().makeAlphaType(kOpaque_SkAlphaType);
     SkBitmap copy;
@@ -458,10 +469,27 @@ static bool EncodeSkPixmap(const SkPixmap& src,
         src.readPixels(opaque_info.makeAlphaType(kUnpremul_SkAlphaType),
                        opaque_pixmap.writable_addr(), opaque_pixmap.rowBytes());
     DCHECK(success);
-    return EncodeSkPixmap(opaque_pixmap, comments, output, zlib_level);
+    return EncodeSkPixmap(opaque_pixmap, comments, output, zlib_level,
+                          disable_filters);
   }
-  return EncodeSkPixmap(src, comments, output, zlib_level);
+  return EncodeSkPixmap(src, comments, output, zlib_level, disable_filters);
 }
+
+bool EncodeSkBitmap(const SkBitmap& input,
+                    bool discard_transparency,
+                    std::vector<unsigned char>* output,
+                    int zlib_level,
+                    bool disable_filters) {
+  SkPixmap src;
+  if (!input.peekPixels(&src)) {
+    return false;
+  }
+  return EncodeSkPixmap(src, discard_transparency,
+                        std::vector<PNGCodec::Comment>(), output, zlib_level,
+                        disable_filters);
+}
+
+}  // namespace
 
 // static
 bool PNGCodec::Encode(const unsigned char* input,
@@ -490,19 +518,7 @@ bool PNGCodec::Encode(const unsigned char* input,
       SkImageInfo::Make(size.width(), size.height(), colorType, alphaType);
   SkPixmap src(info, input, row_byte_width);
   return EncodeSkPixmap(src, discard_transparency, comments, output,
-                        DEFAULT_ZLIB_COMPRESSION);
-}
-
-static bool EncodeSkBitmap(const SkBitmap& input,
-                           bool discard_transparency,
-                           std::vector<unsigned char>* output,
-                           int zlib_level) {
-  SkPixmap src;
-  if (!input.peekPixels(&src)) {
-    return false;
-  }
-  return EncodeSkPixmap(src, discard_transparency,
-                        std::vector<PNGCodec::Comment>(), output, zlib_level);
+                        DEFAULT_ZLIB_COMPRESSION, /* disable_filters= */ false);
 }
 
 // static
@@ -510,7 +526,7 @@ bool PNGCodec::EncodeBGRASkBitmap(const SkBitmap& input,
                                   bool discard_transparency,
                                   std::vector<unsigned char>* output) {
   return EncodeSkBitmap(input, discard_transparency, output,
-                        DEFAULT_ZLIB_COMPRESSION);
+                        DEFAULT_ZLIB_COMPRESSION, /* disable_filters= */ false);
 }
 
 // static
@@ -522,14 +538,15 @@ bool PNGCodec::EncodeA8SkBitmap(const SkBitmap& input,
                   .makeAlphaType(kOpaque_SkAlphaType);
   SkPixmap src(info, input.getAddr(0, 0), input.rowBytes());
   return EncodeSkPixmap(src, std::vector<PNGCodec::Comment>(), output,
-                        DEFAULT_ZLIB_COMPRESSION);
+                        DEFAULT_ZLIB_COMPRESSION, /* disable_filters= */ false);
 }
 
 // static
 bool PNGCodec::FastEncodeBGRASkBitmap(const SkBitmap& input,
                                       bool discard_transparency,
                                       std::vector<unsigned char>* output) {
-  return EncodeSkBitmap(input, discard_transparency, output, Z_BEST_SPEED);
+  return EncodeSkBitmap(input, discard_transparency, output, Z_BEST_SPEED,
+                        /* disable_filters= */ true);
 }
 
 PNGCodec::Comment::Comment(const std::string& k, const std::string& t)

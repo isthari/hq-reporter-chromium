@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,8 @@
 
 #include <stddef.h>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "components/viz/common/quads/shared_quad_state.h"
 #include "components/viz/common/resources/resource_id.h"
 #include "components/viz/common/viz_common_export.h"
@@ -33,22 +34,24 @@ namespace viz {
 // quad's transform maps the content space to the target space.
 class VIZ_COMMON_EXPORT DrawQuad {
  public:
+  // These values are persisted to logs. Entries should not be renumbered and
+  // numeric values should never be reused.
   enum class Material {
-    kInvalid,
-    kDebugBorder,
-    kPictureContent,
+    kInvalid = 0,
+    kDebugBorder = 1,
+    kPictureContent = 2,
     // This is the compositor, pre-aggregation, draw quad.
-    kCompositorRenderPass,
+    kCompositorRenderPass = 3,
     // This is the viz, post-aggregation, draw quad.
-    kAggregatedRenderPass,
-    kSolidColor,
-    kSharedElement,
-    kStreamVideoContent,
-    kSurfaceContent,
-    kTextureContent,
-    kTiledContent,
-    kYuvVideoContent,
-    kVideoHole,
+    kAggregatedRenderPass = 4,
+    kSolidColor = 5,
+    kSharedElement = 6,
+    // kStreamVideoContent = 7,  // Removed. Replaced with kTextureContent.
+    kSurfaceContent = 8,
+    kTextureContent = 9,
+    kTiledContent = 10,
+    kYuvVideoContent = 11,
+    kVideoHole = 12,
     kMaxValue = kVideoHole
   };
 
@@ -73,7 +76,9 @@ class VIZ_COMMON_EXPORT DrawQuad {
   // Stores state common to a large bundle of quads; kept separate for memory
   // efficiency. There is special treatment to reconstruct these pointers
   // during serialization.
-  const SharedQuadState* shared_quad_state;
+  // This field is not a raw_ptr<> because of missing |.get()| in not-rewritten
+  // platform specific code.
+  RAW_PTR_EXCLUSION const SharedQuadState* shared_quad_state;
 
   bool IsDebugQuad() const { return material == Material::kDebugBorder; }
 
@@ -140,6 +145,12 @@ class VIZ_COMMON_EXPORT DrawQuad {
   };
 
   Resources resources;
+
+  template <typename T>
+  const T* DynamicCast() const {
+    return this->material == T::kMaterial ? static_cast<const T*>(this)
+                                          : nullptr;
+  }
 
  protected:
   DrawQuad();

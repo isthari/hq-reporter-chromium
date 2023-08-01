@@ -1,12 +1,12 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/notifications/persistent_notification_handler.h"
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/check_op.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/metrics/histogram_macros.h"
 #include "chrome/browser/notifications/metrics/notification_metrics_logger.h"
 #include "chrome/browser/notifications/metrics/notification_metrics_logger_factory.h"
@@ -14,16 +14,20 @@
 #include "chrome/browser/notifications/notification_permission_context.h"
 #include "chrome/browser/notifications/platform_notification_service_factory.h"
 #include "chrome/browser/notifications/platform_notification_service_impl.h"
+#include "chrome/browser/permissions/notifications_engagement_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
+#include "components/permissions/features.h"
 #include "components/permissions/permission_uma_util.h"
 #include "components/permissions/permission_util.h"
 #include "components/site_engagement/content/site_engagement_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_event_dispatcher.h"
 #include "content/public/browser/permission_controller.h"
-#include "content/public/browser/permission_type.h"
+#include "content/public/browser/permission_result.h"
 #include "content/public/common/persistent_notification_status.h"
+#include "third_party/blink/public/common/permissions/permission_utils.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
 #if BUILDFLAG(ENABLE_BACKGROUND_MODE)
 #include "chrome/browser/profiles/keep_alive/scoped_profile_keep_alive.h"
@@ -105,8 +109,10 @@ void PersistentNotificationHandler::OnClick(
 #endif  // BUILDFLAG(ENABLE_BACKGROUND_MODE)
 
   blink::mojom::PermissionStatus permission_status =
-      profile->GetPermissionController()->GetPermissionStatus(
-          content::PermissionType::NOTIFICATIONS, origin, origin);
+      profile->GetPermissionController()
+          ->GetPermissionResultForOriginWithoutContext(
+              blink::PermissionType::NOTIFICATIONS, url::Origin::Create(origin))
+          .status;
 
   // Don't process click events when the |origin| doesn't have permission. This
   // can't be a DCHECK because of potential races with native notifications.
@@ -127,6 +133,15 @@ void PersistentNotificationHandler::OnClick(
   // thus we log the interaction with the Site Engagement service.
   site_engagement::SiteEngagementService::Get(profile)
       ->HandleNotificationInteraction(origin);
+
+  if (base::FeatureList::IsEnabled(
+          permissions::features::kNotificationInteractionHistory)) {
+    auto* service =
+        NotificationsEngagementServiceFactory::GetForProfile(profile);
+    // This service might be missing for incognito profiles and in tests.
+    if (service)
+      service->RecordNotificationInteraction(origin);
+  }
 
   content::NotificationEventDispatcher::GetInstance()
       ->DispatchNotificationClickEvent(
@@ -202,7 +217,10 @@ void PersistentNotificationHandler::NotificationKeepAliveState::AddKeepAlive(
     event_dispatch_keep_alive_ = std::make_unique<ScopedKeepAlive>(
         keep_alive_origin_, KeepAliveRestartOption::DISABLED);
   }
-  if (profile_pending_dispatch_events_[profile]++ == 0) {
+  // TODO(crbug.com/1153922): Remove IsOffTheRecord() when Incognito profiles
+  // support refcounting.
+  if (!profile->IsOffTheRecord() &&
+      profile_pending_dispatch_events_[profile]++ == 0) {
     event_dispatch_profile_keep_alives_[profile] =
         std::make_unique<ScopedProfileKeepAlive>(profile,
                                                  profile_keep_alive_origin_);
@@ -215,8 +233,12 @@ void PersistentNotificationHandler::NotificationKeepAliveState::RemoveKeepAlive(
   // Reset the keep alive if all in-flight events have been processed.
   if (--pending_dispatch_events_ == 0)
     event_dispatch_keep_alive_.reset();
-  if (--profile_pending_dispatch_events_[profile] == 0)
+  // TODO(crbug.com/1153922): Remove IsOffTheRecord() when Incognito profiles
+  // support refcounting.
+  if (!profile->IsOffTheRecord() &&
+      --profile_pending_dispatch_events_[profile] == 0) {
     event_dispatch_profile_keep_alives_[profile].reset();
+  }
 }
 
 #endif  // BUILDFLAG(ENABLE_BACKGROUND_MODE)

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,11 +12,6 @@ public interface TopBarDelegate {
      * Invoked when the user signals a request for dismissal via the top bar.
      */
     public void dismiss();
-
-    /**
-     * Invoked when the user signals a request to publish the note.
-     */
-    public void publish();
 
     /**
      * Invoked when the user requests the main action to be executed

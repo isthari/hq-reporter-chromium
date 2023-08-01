@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,13 +10,16 @@
 #include "ash/components/arc/video_accelerator/arc_video_accelerator_util.h"
 #include "ash/components/arc/video_accelerator/gpu_arc_video_frame_pool.h"
 #include "ash/components/arc/video_accelerator/protected_buffer_manager.h"
-#include "base/bind.h"
 #include "base/files/scoped_file.h"
+#include "base/functional/bind.h"
+#include "base/memory/platform_shared_memory_region.h"
+#include "base/memory/unsafe_shared_memory_region.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/posix/eintr_wrapper.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "gpu/config/gpu_driver_bug_workarounds.h"
 #include "media/base/decoder_status.h"
 #include "media/base/media_util.h"
 #include "media/base/video_codecs.h"
@@ -24,7 +27,6 @@
 #include "media/base/video_types.h"
 #include "media/gpu/buffer_validation.h"
 #include "media/gpu/chromeos/video_decoder_pipeline.h"
-#include "media/gpu/chromeos/video_frame_converter.h"
 #include "media/gpu/macros.h"
 
 namespace arc {
@@ -79,7 +81,7 @@ void GpuArcVideoDecoder::Initialize(
   DCHECK(!error_state_);
   DCHECK(!client_ && !init_callback_ && !video_frame_pool_);
 
-  client_task_runner_ = base::ThreadTaskRunnerHandle::Get();
+  client_task_runner_ = base::SingleThreadTaskRunner::GetCurrentDefault();
   client_.Bind(std::move(client));
   init_callback_ = std::move(callback);
   video_frame_pool_ = std::make_unique<GpuArcVideoFramePool>(
@@ -101,11 +103,15 @@ void GpuArcVideoDecoder::Initialize(
   }
 
   decoder_ = media::VideoDecoderPipeline::Create(
-      client_task_runner_,
+      // TODO(b/238684141): Wire a meaningful GpuDriverBugWorkarounds or remove
+      // its use.
+      gpu::GpuDriverBugWorkarounds(), client_task_runner_,
       std::make_unique<media::VdaVideoFramePool>(video_frame_pool_->WeakThis(),
                                                  client_task_runner_),
-      std::make_unique<media::VideoFrameConverter>(),
-      std::make_unique<media::NullMediaLog>());
+      /*frame_converter=*/nullptr,
+      media::VideoDecoderPipeline::DefaultPreferredRenderableFourccs(),
+      std::make_unique<media::NullMediaLog>(),
+      /*oop_video_decoder=*/{});
 
   if (!decoder_) {
     VLOGF(1) << "Failed to create video decoder";
@@ -125,8 +131,11 @@ void GpuArcVideoDecoder::Initialize(
   auto output_cb =
       base::BindRepeating(&GpuArcVideoDecoder::OnFrameReady, weak_this_);
 
-  decoder_->Initialize(std::move(vd_config), false, nullptr, std::move(init_cb),
-                       std::move(output_cb), media::WaitingCB());
+  // Decoded video frames are sent "quickly" (i.e. without much buffering)
+  // to SurfaceFlinger, so we consider it a |low_delay| pipeline.
+  decoder_->Initialize(std::move(vd_config), true /* low_delay */, nullptr,
+                       std::move(init_cb), std::move(output_cb),
+                       media::WaitingCB());
   VLOGF(2) << "Number of concurrent decoder instances: " << num_instances_;
 }
 
@@ -395,7 +404,7 @@ scoped_refptr<media::DecoderBuffer> GpuArcVideoDecoder::CreateDecoderBuffer(
     uint32_t bytes_used) {
   // TODO(b/189278506) integrate additional memory buffer verification for
   // protected buffers (see crrev.com/3306795).
-  base::subtle::PlatformSharedMemoryRegion shm_region;
+  base::UnsafeSharedMemoryRegion shm_region;
   if (*secure_mode_) {
     // Use protected shared memory associated with the given file descriptor.
     shm_region = protected_buffer_manager_->GetProtectedSharedMemoryRegionFor(
@@ -410,9 +419,11 @@ scoped_refptr<media::DecoderBuffer> GpuArcVideoDecoder::CreateDecoderBuffer(
       VLOGF(1) << "Failed to get size for fd";
       return nullptr;
     }
-    shm_region = base::subtle::PlatformSharedMemoryRegion::Take(
-        std::move(fd), base::subtle::PlatformSharedMemoryRegion::Mode::kUnsafe,
-        size, base::UnguessableToken::Create());
+    shm_region = base::UnsafeSharedMemoryRegion::Deserialize(
+        base::subtle::PlatformSharedMemoryRegion::Take(
+            std::move(fd),
+            base::subtle::PlatformSharedMemoryRegion::Mode::kUnsafe, size,
+            base::UnguessableToken::Create()));
     if (!shm_region.IsValid()) {
       VLOGF(1) << "Cannot take file descriptor based shared memory";
       return nullptr;

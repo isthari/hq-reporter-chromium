@@ -1,44 +1,57 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/ui/history/history_coordinator.h"
+#import "ios/chrome/browser/ui/history/history_coordinator.h"
 
+#import "base/check.h"
 #import "base/ios/ios_util.h"
-#include "components/history/core/browser/browsing_history_service.h"
-#include "components/keyed_service/core/service_access_type.h"
-#include "components/sync/driver/sync_service.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/history/history_service_factory.h"
-#import "ios/chrome/browser/main/browser.h"
-#import "ios/chrome/browser/main/browser_observer_bridge.h"
+#import "components/history/core/browser/browsing_history_service.h"
+#import "components/keyed_service/core/service_access_type.h"
+#import "components/sync/service/sync_service.h"
+#import "ios/chrome/browser/history/history_service_factory.h"
+#import "ios/chrome/browser/history/web_history_service_factory.h"
 #import "ios/chrome/browser/policy/policy_util.h"
-#include "ios/chrome/browser/sync/sync_service_factory.h"
-#import "ios/chrome/browser/ui/activity_services/activity_params.h"
-#import "ios/chrome/browser/ui/alert_coordinator/action_sheet_coordinator.h"
+#import "ios/chrome/browser/shared/coordinator/alert/action_sheet_coordinator.h"
+#import "ios/chrome/browser/shared/model/browser/browser.h"
+#import "ios/chrome/browser/shared/model/browser/browser_observer_bridge.h"
+#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/ui/table_view/table_view_navigation_controller.h"
+#import "ios/chrome/browser/sync/sync_service_factory.h"
 #import "ios/chrome/browser/ui/history/history_clear_browsing_data_coordinator.h"
+#import "ios/chrome/browser/ui/history/history_coordinator_delegate.h"
 #import "ios/chrome/browser/ui/history/history_mediator.h"
-#include "ios/chrome/browser/ui/history/history_menu_provider.h"
-#include "ios/chrome/browser/ui/history/history_table_view_controller.h"
-#import "ios/chrome/browser/ui/history/history_transitioning_delegate.h"
-#include "ios/chrome/browser/ui/history/history_ui_delegate.h"
-#include "ios/chrome/browser/ui/history/ios_browsing_history_driver.h"
-#include "ios/chrome/browser/ui/history/ios_browsing_history_driver_delegate_bridge.h"
+#import "ios/chrome/browser/ui/history/history_menu_provider.h"
+#import "ios/chrome/browser/ui/history/history_table_view_controller.h"
+#import "ios/chrome/browser/ui/history/history_ui_delegate.h"
+#import "ios/chrome/browser/ui/history/ios_browsing_history_driver.h"
+#import "ios/chrome/browser/ui/history/ios_browsing_history_driver_delegate_bridge.h"
 #import "ios/chrome/browser/ui/history/public/history_presentation_delegate.h"
 #import "ios/chrome/browser/ui/menu/browser_action_factory.h"
 #import "ios/chrome/browser/ui/menu/menu_histograms.h"
 #import "ios/chrome/browser/ui/sharing/sharing_coordinator.h"
-#import "ios/chrome/browser/ui/table_view/table_view_navigation_controller.h"
-#include "ios/chrome/browser/ui/util/ui_util.h"
+#import "ios/chrome/browser/ui/sharing/sharing_params.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
+namespace {
+
+history::WebHistoryService* WebHistoryServiceGetter(
+    base::WeakPtr<ChromeBrowserState> weak_browser_state) {
+  DCHECK(weak_browser_state.get())
+      << "Getter should not be called after ChromeBrowserState destruction.";
+  return ios::WebHistoryServiceFactory::GetForBrowserState(
+      weak_browser_state.get());
+}
+
+}  // anonymous namespace
+
 @interface HistoryCoordinator () <BrowserObserving,
                                   HistoryMenuProvider,
                                   HistoryUIDelegate> {
-  // Provides delegate bridge instance for |_browsingHistoryDriver|.
+  // Provides delegate bridge instance for `_browsingHistoryDriver`.
   std::unique_ptr<IOSBrowsingHistoryDriverDelegateBridge>
       _browsingHistoryDriverDelegate;
   // Provides dependencies and funnels callbacks from BrowsingHistoryService.
@@ -59,10 +72,6 @@
 // Mediator being managed by this Coordinator.
 @property(nonatomic, strong) HistoryMediator* mediator;
 
-// The transitioning delegate used by the history view controller.
-@property(nonatomic, strong)
-    HistoryTransitioningDelegate* historyTransitioningDelegate;
-
 // The coordinator that will present Clear Browsing Data.
 @property(nonatomic, strong)
     HistoryClearBrowsingDataCoordinator* historyClearBrowsingDataCoordinator;
@@ -78,6 +87,7 @@
   self.historyTableViewController = [[HistoryTableViewController alloc] init];
   self.historyTableViewController.browser = self.browser;
   self.historyTableViewController.loadStrategy = self.loadStrategy;
+  self.historyTableViewController.searchTerms = self.searchTerms;
 
   self.historyTableViewController.menuProvider = self;
 
@@ -95,7 +105,9 @@
       std::make_unique<IOSBrowsingHistoryDriverDelegateBridge>(
           self.historyTableViewController);
   _browsingHistoryDriver = std::make_unique<IOSBrowsingHistoryDriver>(
-      self.browser->GetBrowserState(), _browsingHistoryDriverDelegate.get());
+      base::BindRepeating(&WebHistoryServiceGetter,
+                          self.browser->GetBrowserState()->AsWeakPtr()),
+      _browsingHistoryDriverDelegate.get());
   _browsingHistoryService = std::make_unique<history::BrowsingHistoryService>(
       _browsingHistoryDriver.get(),
       ios::HistoryServiceFactory::GetForBrowserState(
@@ -112,21 +124,11 @@
   self.historyTableViewController.presentationDelegate =
       self.presentationDelegate;
 
-  BOOL useCustomPresentation = YES;
-      [self.historyNavigationController
-          setModalPresentationStyle:UIModalPresentationFormSheet];
-      self.historyNavigationController.presentationController.delegate =
-          self.historyTableViewController;
-      useCustomPresentation = NO;
+  [self.historyNavigationController
+      setModalPresentationStyle:UIModalPresentationFormSheet];
+  self.historyNavigationController.presentationController.delegate =
+      self.historyTableViewController;
 
-  if (useCustomPresentation) {
-    self.historyTransitioningDelegate =
-        [[HistoryTransitioningDelegate alloc] init];
-    self.historyNavigationController.transitioningDelegate =
-        self.historyTransitioningDelegate;
-    [self.historyNavigationController
-        setModalPresentationStyle:UIModalPresentationCustom];
-  }
   [self.baseViewController
       presentViewController:self.historyNavigationController
                    animated:YES
@@ -134,11 +136,26 @@
 }
 
 - (void)stop {
-  [self stopWithCompletion:nil];
+  // `stop` is called as part of the UI teardown, which means that the browser
+  // objects may be deleted before the dismiss animation is complete.
+  // Disconnect the historyTableViewController before dismissing it to avoid
+  // it accessing stalled objects.
+  [self.historyTableViewController detachFromBrowser];
+  [self dismissWithCompletion:nil];
+
+  // Clear C++ objects as they may reference objects that will become
+  // unavailable.
+  _browsingHistoryDriver = nullptr;
+  _browsingHistoryService = nullptr;
+  _browsingHistoryDriverDelegate = nullptr;
 }
 
-// This method should always execute the |completionHandler|.
-- (void)stopWithCompletion:(ProceduralBlock)completionHandler {
+- (void)dealloc {
+  self.historyTableViewController.historyService = nullptr;
+}
+
+// This method should always execute the `completionHandler`.
+- (void)dismissWithCompletion:(ProceduralBlock)completionHandler {
   [self.sharingCoordinator stop];
   self.sharingCoordinator = nil;
 
@@ -160,14 +177,15 @@
 }
 
 - (void)dismissHistoryNavigationWithCompletion:(ProceduralBlock)completion {
-  // Make sure to stop |self.historyTableViewController.contextMenuCoordinator|
-  // before dismissing, or |self.historyNavigationController| will dismiss that
+  // Make sure to stop `self.historyTableViewController.contextMenuCoordinator`
+  // before dismissing, or `self.historyNavigationController` will dismiss that
   // instead of itself.
   [self.historyTableViewController.contextMenuCoordinator stop];
   [self.historyNavigationController dismissViewControllerAnimated:YES
                                                        completion:completion];
   self.historyNavigationController = nil;
   self.historyClearBrowsingDataCoordinator = nil;
+  self.historyTableViewController.historyService = nullptr;
   _browsingHistoryDriver = nullptr;
   _browsingHistoryService = nullptr;
   _browsingHistoryDriverDelegate = nullptr;
@@ -176,7 +194,7 @@
 #pragma mark - HistoryUIDelegate
 
 - (void)dismissHistoryWithCompletion:(ProceduralBlock)completionHandler {
-  [self stopWithCompletion:completionHandler];
+  [self.delegate closeHistoryWithCompletion:completionHandler];
 }
 
 - (void)displayPrivacySettings {
@@ -210,11 +228,11 @@
     HistoryCoordinator* strongSelf = weakSelf;
 
     // Record that this context menu was shown to the user.
-    RecordMenuShown(MenuScenario::kHistoryEntry);
+    RecordMenuShown(MenuScenarioHistogram::kHistoryEntry);
 
     BrowserActionFactory* actionFactory = [[BrowserActionFactory alloc]
         initWithBrowser:strongSelf.browser
-               scenario:MenuScenario::kHistoryEntry];
+               scenario:MenuScenarioHistogram::kHistoryEntry];
 
     NSMutableArray<UIMenuElement*>* menuElements =
         [[NSMutableArray alloc] init];
@@ -278,7 +296,7 @@
 // the active regular tab.
 - (void)onOpenedURLInNewTab {
   __weak __typeof(self) weakSelf = self;
-  [self stopWithCompletion:^{
+  [self.delegate closeHistoryWithCompletion:^{
     [weakSelf.presentationDelegate showActiveRegularTabFromHistory];
   }];
 }
@@ -287,20 +305,20 @@
 // the active incognito tab.
 - (void)onOpenedURLInNewIncognitoTab {
   __weak __typeof(self) weakSelf = self;
-  [self stopWithCompletion:^{
+  [self.delegate closeHistoryWithCompletion:^{
     [weakSelf.presentationDelegate showActiveIncognitoTabFromHistory];
   }];
 }
 
-// Triggers the URL sharing flow for the given |URL| and |title|, with the
-// origin |view| representing the UI component for that URL.
+// Triggers the URL sharing flow for the given `URL` and `title`, with the
+// origin `view` representing the UI component for that URL.
 - (void)shareURL:(const GURL&)URL
            title:(NSString*)title
         fromView:(UIView*)view {
-  ActivityParams* params =
-      [[ActivityParams alloc] initWithURL:URL
-                                    title:title
-                                 scenario:ActivityScenario::HistoryEntry];
+  SharingParams* params =
+      [[SharingParams alloc] initWithURL:URL
+                                   title:title
+                                scenario:SharingScenario::HistoryEntry];
   self.sharingCoordinator = [[SharingCoordinator alloc]
       initWithBaseViewController:self.historyTableViewController
                          browser:self.browser

@@ -1,17 +1,21 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/core/loader/resource_load_observer_for_frame.h"
 
-#include "base/stl_util.h"
+#include "base/metrics/histogram_macros.h"
+#include "base/types/optional_util.h"
 #include "components/power_scheduler/power_mode_arbiter.h"
 #include "services/network/public/cpp/cors/cors_error_status.h"
 #include "services/network/public/mojom/cors.mojom-forward.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/security/address_space_feature.h"
+#include "third_party/blink/public/mojom/frame/frame.mojom-blink.h"
 #include "third_party/blink/renderer/core/core_probes_inl.h"
-#include "third_party/blink/renderer/core/frame/deprecation.h"
+#include "third_party/blink/renderer/core/dom/events/event_target.h"
+#include "third_party/blink/renderer/core/frame/attribution_src_loader.h"
+#include "third_party/blink/renderer/core/frame/deprecation/deprecation.h"
 #include "third_party/blink/renderer/core/frame/frame_console.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -73,9 +77,14 @@ void RecordAddressSpaceFeature(LocalFrame* client_frame,
   }
 
   LocalDOMWindow* window = client_frame->DomWindow();
-  absl::optional<WebFeature> feature =
-      AddressSpaceFeature(FetchType::kSubresource, window->AddressSpace(),
-                          window->IsSecureContext(), response.AddressSpace());
+
+  if (response.RemoteIPEndpoint().address().IsZero()) {
+    UseCounter::Count(window, WebFeature::kPrivateNetworkAccessNullIpAddress);
+  }
+
+  absl::optional<WebFeature> feature = AddressSpaceFeature(
+      FetchType::kSubresource, response.ClientAddressSpace(),
+      window->IsSecureContext(), response.AddressSpace());
   if (!feature.has_value()) {
     return;
   }
@@ -97,12 +106,12 @@ ResourceLoadObserverForFrame::ResourceLoadObserverForFrame(
     DocumentLoader& loader,
     Document& document,
     const ResourceFetcherProperties& fetcher_properties)
-    : document_loader_(loader),
-      document_(document),
-      fetcher_properties_(fetcher_properties),
-      power_mode_voter_(
+    : power_mode_voter_(
           power_scheduler::PowerModeArbiter::GetInstance()->NewVoter(
-              "PowerModeVoter.ResourceLoads")) {}
+              "PowerModeVoter.ResourceLoads")),
+      document_loader_(loader),
+      document_(document),
+      fetcher_properties_(fetcher_properties) {}
 ResourceLoadObserverForFrame::~ResourceLoadObserverForFrame() = default;
 
 void ResourceLoadObserverForFrame::DidStartRequest(
@@ -135,7 +144,8 @@ void ResourceLoadObserverForFrame::WillSendRequest(
     const ResourceResponse& redirect_response,
     ResourceType resource_type,
     const ResourceLoaderOptions& options,
-    RenderBlockingBehavior render_blocking_behavior) {
+    RenderBlockingBehavior render_blocking_behavior,
+    const Resource* resource) {
   LocalFrame* frame = document_->GetFrame();
   DCHECK(frame);
   if (redirect_response.IsNull()) {
@@ -144,6 +154,16 @@ void ResourceLoadObserverForFrame::WillSendRequest(
     frame->Loader().Progress().WillStartLoading(request.InspectorId(),
                                                 request.Priority());
   }
+
+  if (!redirect_response.IsNull() &&
+      !redirect_response.HttpHeaderField(http_names::kExpectCT).empty()) {
+    Deprecation::CountDeprecation(frame->DomWindow(),
+                                  mojom::blink::WebFeature::kExpectCTHeader);
+  }
+
+  frame->GetAttributionSrcLoader()->MaybeRegisterAttributionHeaders(
+      request, redirect_response, resource);
+
   probe::WillSendRequest(
       GetProbe(), document_loader_,
       fetcher_properties_->GetFetchClientSettingsObject().GlobalObjectUrl(),
@@ -166,6 +186,50 @@ void ResourceLoadObserverForFrame::DidChangePriority(
   probe::DidChangeResourcePriority(document_->GetFrame(), document_loader_,
                                    identifier, priority);
 }
+
+namespace {
+
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+//
+// Must remain in sync with LinkPrefetchMimeType in
+// tools/metrics/histograms/enums.xml.
+enum class LinkPrefetchMimeType {
+  kUnknown = 0,
+  kHtml = 1,
+  kScript = 2,
+  kStyle = 3,
+  kFont = 4,
+  kImage = 5,
+  kMedia = 6,
+  kMaxValue = kMedia,
+};
+
+void LogLinkPrefetchMimeTypeHistogram(const AtomicString& mime) {
+  // Loosely based on https://mimesniff.spec.whatwg.org/#mime-type-groups.
+  // This could be done properly if needed, but this is just to gather
+  // approximate data.
+  LinkPrefetchMimeType type = LinkPrefetchMimeType::kUnknown;
+  if (mime == "text/html" || mime == "application/xhtml+xml") {
+    type = LinkPrefetchMimeType::kHtml;
+  } else if (mime == "application/javascript" || mime == "text/javascript") {
+    type = LinkPrefetchMimeType::kScript;
+  } else if (mime == "text/css") {
+    type = LinkPrefetchMimeType::kStyle;
+  } else if (mime.StartsWith("font/") || mime.StartsWith("application/font-") ||
+             mime == "application/vnd.ms-fontobject" ||
+             mime == "application/vnd.ms-opentype") {
+    type = LinkPrefetchMimeType::kFont;
+  } else if (mime.StartsWith("image/")) {
+    type = LinkPrefetchMimeType::kImage;
+  } else if (mime.StartsWith("audio/") || mime.StartsWith("video/") ||
+             mime == "application/ogg") {
+    type = LinkPrefetchMimeType::kMedia;
+  }
+  UMA_HISTOGRAM_ENUMERATION("Blink.Prefetch.LinkPrefetchMimeType", type);
+}
+
+}  // namespace
 
 void ResourceLoadObserverForFrame::DidReceiveResponse(
     uint64_t identifier,
@@ -204,6 +268,14 @@ void ResourceLoadObserverForFrame::DidReceiveResponse(
 
   RecordAddressSpaceFeature(frame, response);
 
+  if (!response.HttpHeaderField(http_names::kExpectCT).empty()) {
+    Deprecation::CountDeprecation(frame->DomWindow(),
+                                  mojom::blink::WebFeature::kExpectCTHeader);
+  }
+
+  document_->Loader()->MaybeRecordServiceWorkerFallbackMainResource(
+      response.WasFetchedViaServiceWorker());
+
   std::unique_ptr<AlternateSignedExchangeResourceInfo> alternate_resource_info;
 
   // See if this is a prefetch for a SXG.
@@ -211,9 +283,7 @@ void ResourceLoadObserverForFrame::DidReceiveResponse(
       resource->GetType() == ResourceType::kLinkPrefetch) {
     CountUsage(WebFeature::kLinkRelPrefetchForSignedExchanges);
 
-    if (RuntimeEnabledFeatures::SignedExchangeSubresourcePrefetchEnabled(
-            document_->GetExecutionContext()) &&
-        resource->RedirectChainSize() > 0) {
+    if (resource->RedirectChainSize() > 0) {
       // See if the outer response (which must be the last response in
       // the redirect chain) had provided alternate links for the prefetch.
       alternate_resource_info =
@@ -224,15 +294,25 @@ void ResourceLoadObserverForFrame::DidReceiveResponse(
     }
   }
 
-  PreloadHelper::CanLoadResources resource_loading_policy =
-      response_source == ResponseSource::kFromMemoryCache
-          ? PreloadHelper::kDoNotLoadResources
-          : PreloadHelper::kLoadResourcesAndPreconnect;
+  // Count usage of Content-Disposition header in SVGUse resources.
+  if (resource->Options().initiator_info.name ==
+          fetch_initiator_type_names::kUse &&
+      request.Url().ProtocolIsInHTTPFamily() && response.IsAttachment()) {
+    CountUsage(WebFeature::kContentDispositionInSvgUse);
+  }
+
+  if (resource->GetType() == ResourceType::kLinkPrefetch)
+    LogLinkPrefetchMimeTypeHistogram(response.MimeType());
+
   PreloadHelper::LoadLinksFromHeader(
       response.HttpHeaderField(http_names::kLink), response.CurrentRequestUrl(),
-      *frame, document_, resource_loading_policy, PreloadHelper::kLoadAll,
+      *frame, document_,
+      response_source == ResponseSource::kFromMemoryCache
+          ? PreloadHelper::LoadLinksFromHeaderMode::kSubresourceFromMemoryCache
+          : PreloadHelper::LoadLinksFromHeaderMode::
+                kSubresourceNotFromMemoryCache,
       nullptr /* viewport_description */, std::move(alternate_resource_info),
-      base::OptionalOrNullptr(response.RecursivePrefetchToken()));
+      base::OptionalToPtr(response.RecursivePrefetchToken()));
 
   if (response.HasMajorCertificateErrors()) {
     MixedContentChecker::HandleCertificateError(
@@ -241,11 +321,8 @@ void ResourceLoadObserverForFrame::DidReceiveResponse(
         document_loader_->GetContentSecurityNotifier());
   }
 
-  if (response.IsLegacyTLSVersion()) {
-    frame->Loader().ReportLegacyTLSVersion(
-        response.CurrentRequestUrl(), true /* is_subresource */,
-        resource->GetResourceRequest().IsAdResource());
-  }
+  frame->GetAttributionSrcLoader()->MaybeRegisterAttributionHeaders(
+      request, response, resource);
 
   frame->Loader().Progress().IncrementProgress(identifier, response);
   probe::DidReceiveResourceResponse(GetProbe(), identifier, document_loader_,

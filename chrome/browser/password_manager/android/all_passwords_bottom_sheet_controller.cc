@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,10 @@
 
 #include "base/containers/cxx20_erase.h"
 #include "chrome/browser/password_manager/chrome_password_manager_client.h"
+#include "chrome/browser/safe_browsing/chrome_password_reuse_detection_manager_client.h"
 #include "chrome/browser/ui/android/passwords/all_passwords_bottom_sheet_view.h"
 #include "chrome/browser/ui/android/passwords/all_passwords_bottom_sheet_view_impl.h"
-#include "components/device_reauth/biometric_authenticator.h"
+#include "components/device_reauth/device_authenticator.h"
 #include "components/password_manager/content/browser/content_password_manager_driver.h"
 #include "components/password_manager/content/browser/content_password_manager_driver_factory.h"
 #include "components/password_manager/core/browser/password_form.h"
@@ -21,6 +22,7 @@
 
 using autofill::mojom::FocusedFieldType;
 using password_manager::PasswordManagerClient;
+using safe_browsing::PasswordReuseDetectionManagerClient;
 
 // No-op constructor for tests.
 AllPasswordsBottomSheetController::AllPasswordsBottomSheetController(
@@ -30,13 +32,17 @@ AllPasswordsBottomSheetController::AllPasswordsBottomSheetController(
     password_manager::PasswordStoreInterface* store,
     base::OnceCallback<void()> dismissal_callback,
     FocusedFieldType focused_field_type,
-    PasswordManagerClient* client)
+    PasswordManagerClient* client,
+    PasswordReuseDetectionManagerClient*
+        password_reuse_detection_manager_client)
     : view_(std::move(view)),
       store_(store),
       dismissal_callback_(std::move(dismissal_callback)),
       driver_(std::move(driver)),
       focused_field_type_(focused_field_type),
-      client_(client) {}
+      client_(client),
+      password_reuse_detection_manager_client_(
+          password_reuse_detection_manager_client) {}
 
 AllPasswordsBottomSheetController::AllPasswordsBottomSheetController(
     content::WebContents* web_contents,
@@ -60,12 +66,14 @@ AllPasswordsBottomSheetController::AllPasswordsBottomSheetController(
       factory->GetDriverForFrame(focused_frame);
   driver_ = driver->AsWeakPtr();
   client_ = ChromePasswordManagerClient::FromWebContents(web_contents_);
+  password_reuse_detection_manager_client_ =
+      ChromePasswordReuseDetectionManagerClient::FromWebContents(web_contents_);
 }
 
 AllPasswordsBottomSheetController::~AllPasswordsBottomSheetController() {
   if (authenticator_) {
     authenticator_->Cancel(
-        device_reauth::BiometricAuthRequester::kAllPasswordsList);
+        device_reauth::DeviceAuthRequester::kAllPasswordsList);
   }
 }
 
@@ -87,7 +95,8 @@ gfx::NativeView AllPasswordsBottomSheetController::GetNativeView() {
 
 void AllPasswordsBottomSheetController::OnCredentialSelected(
     const std::u16string username,
-    const std::u16string password) {
+    const std::u16string password,
+    RequestsToFillPassword requests_to_fill_password) {
   const bool is_password_field =
       focused_field_type_ == FocusedFieldType::kFillablePasswordField;
   if (!driver_) {
@@ -95,27 +104,27 @@ void AllPasswordsBottomSheetController::OnCredentialSelected(
     return;
   }
 
-  if (is_password_field) {
+  if (requests_to_fill_password && is_password_field) {
     // `client_` is guaranteed to be valid here.
     // Both the `client_` and `PasswordAccessoryController` are attached to
     // WebContents. And AllPasswordBottomSheetController is owned by
     // PasswordAccessoryController.
     DCHECK(client_);
-    scoped_refptr<device_reauth::BiometricAuthenticator> authenticator =
-        client_->GetBiometricAuthenticator();
-    if (password_manager_util::CanUseBiometricAuth(
-            authenticator.get(),
-            device_reauth::BiometricAuthRequester::kAllPasswordsList)) {
+    scoped_refptr<device_reauth::DeviceAuthenticator> authenticator =
+        client_->GetDeviceAuthenticator();
+    if (password_manager_util::CanUseBiometricAuth(authenticator.get(),
+                                                   client_)) {
       authenticator_ = std::move(authenticator);
       authenticator_->Authenticate(
-          device_reauth::BiometricAuthRequester::kAllPasswordsList,
+          device_reauth::DeviceAuthRequester::kAllPasswordsList,
           base::BindOnce(&AllPasswordsBottomSheetController::OnReauthCompleted,
-                         base::Unretained(this), password));
+                         base::Unretained(this), password),
+          /*use_last_valid_auth=*/true);
       return;
     }
 
     FillPassword(password);
-  } else {
+  } else if (!requests_to_fill_password) {
     driver_->FillIntoFocusedField(is_password_field, username);
   }
   // Consumes the dismissal callback to destroy the native controller and java
@@ -150,5 +159,5 @@ void AllPasswordsBottomSheetController::FillPassword(
   if (!driver_)
     return;
   driver_->FillIntoFocusedField(true, password);
-  client_->OnPasswordSelected(password);
+  password_reuse_detection_manager_client_->OnPasswordSelected(password);
 }

@@ -46,6 +46,7 @@ class PLATFORM_EXPORT JPEGImageDecoder final : public ImageDecoder {
 
   // ImageDecoder:
   String FilenameExtension() const override { return "jpg"; }
+  const AtomicString& MimeType() const override;
   void OnSetData(SegmentReader* data) override;
   gfx::Size DecodedSize() const override { return decoded_size_; }
   bool SetSize(unsigned width, unsigned height) override;
@@ -55,6 +56,9 @@ class PLATFORM_EXPORT JPEGImageDecoder final : public ImageDecoder {
   void DecodeToYUV() override;
   SkYUVColorSpace GetYUVColorSpace() const override;
   Vector<SkISize> GetSupportedDecodeSizes() const override;
+  bool GetGainmapInfoAndData(
+      SkGainmapInfo& outGainmapInfo,
+      scoped_refptr<SegmentReader>& outGainmapData) const override;
 
   bool HasImagePlanes() const { return image_planes_.get(); }
 

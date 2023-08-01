@@ -1,10 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "gpu/command_buffer/service/gr_cache_controller.h"
 
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
+#include "base/memory/raw_ptr.h"
 #include "base/test/test_mock_time_task_runner.h"
 #include "gpu/command_buffer/service/feature_info.h"
 #include "gpu/command_buffer/service/shared_context_state.h"
@@ -14,6 +15,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkImage.h"
+#include "third_party/skia/include/gpu/ganesh/SkImageGanesh.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_share_group.h"
 #include "ui/gl/gl_surface.h"
@@ -26,12 +28,12 @@ namespace raster {
 class GrCacheControllerTest : public testing::Test {
  public:
   void SetUp() override {
-    gl::GLSurfaceTestSupport::InitializeOneOffWithStubBindings();
+    display_ = gl::GLSurfaceTestSupport::InitializeOneOffWithStubBindings();
     gpu::GpuDriverBugWorkarounds workarounds;
 
     scoped_refptr<gl::GLShareGroup> share_group = new gl::GLShareGroup();
     scoped_refptr<gl::GLSurface> surface =
-        gl::init::CreateOffscreenGLSurface(gfx::Size());
+        gl::init::CreateOffscreenGLSurface(display_, gfx::Size());
     scoped_refptr<gl::GLContext> context = gl::init::CreateGLContext(
         share_group.get(), surface.get(), gl::GLContextAttribs());
     ASSERT_TRUE(context->MakeCurrent(surface.get()));
@@ -40,7 +42,7 @@ class GrCacheControllerTest : public testing::Test {
     context_state_ = base::MakeRefCounted<SharedContextState>(
         std::move(share_group), std::move(surface), std::move(context),
         false /* use_virtualized_gl_contexts */, base::DoNothing());
-    context_state_->InitializeGrContext(GpuPreferences(), workarounds, nullptr);
+    context_state_->InitializeSkia(GpuPreferences(), workarounds);
     auto feature_info =
         base::MakeRefCounted<gles2::FeatureInfo>(workarounds, GpuFeatureInfo());
     context_state_->InitializeGL(GpuPreferences(), std::move(feature_info));
@@ -53,7 +55,7 @@ class GrCacheControllerTest : public testing::Test {
     controller_ = nullptr;
     context_state_ = nullptr;
     task_runner_ = nullptr;
-    gl::init::ShutdownGL(false);
+    gl::GLSurfaceTestSupport::ShutdownGL(display_);
   }
 
   GrDirectContext* gr_context() { return context_state_->gr_context(); }
@@ -62,6 +64,7 @@ class GrCacheControllerTest : public testing::Test {
   scoped_refptr<SharedContextState> context_state_;
   scoped_refptr<base::TestMockTimeTaskRunner> task_runner_;
   std::unique_ptr<GrCacheController> controller_;
+  raw_ptr<gl::GLDisplay> display_ = nullptr;
 };
 
 TEST_F(GrCacheControllerTest, PurgeGrCache) {
@@ -71,8 +74,8 @@ TEST_F(GrCacheControllerTest, PurgeGrCache) {
     SkBitmap bm;
     SkImageInfo info = SkImageInfo::MakeN32Premul(10, 10);
     ASSERT_TRUE(bm.tryAllocPixels(info));
-    sk_sp<SkImage> uploaded =
-        SkImage::MakeFromBitmap(bm)->makeTextureImage(gr_context());
+    sk_sp<SkImage> uploaded = SkImages::TextureFromImage(
+        gr_context(), SkImages::RasterFromBitmap(bm));
     ASSERT_TRUE(uploaded);
   }
   EXPECT_GT(gr_context()->getResourceCachePurgeableBytes(), 0u);
@@ -93,8 +96,8 @@ TEST_F(GrCacheControllerTest, ResetPurgeGrCacheOnReuse) {
     SkBitmap bm;
     SkImageInfo info = SkImageInfo::MakeN32Premul(10, 10);
     ASSERT_TRUE(bm.tryAllocPixels(info));
-    sk_sp<SkImage> uploaded =
-        SkImage::MakeFromBitmap(bm)->makeTextureImage(gr_context());
+    sk_sp<SkImage> uploaded = SkImages::TextureFromImage(
+        gr_context(), SkImages::RasterFromBitmap(bm));
     ASSERT_TRUE(uploaded);
   }
   EXPECT_GT(gr_context()->getResourceCachePurgeableBytes(), 0u);

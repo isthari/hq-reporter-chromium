@@ -1,12 +1,16 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.keyboard_accessory.sheet_tabs;
 
+import static org.chromium.chrome.browser.keyboard_accessory.sheet_tabs.AccessorySheetTabProperties.IS_DEFAULT_A11Y_FOCUS_REQUESTED;
+import static org.chromium.chrome.browser.keyboard_accessory.sheet_tabs.AccessorySheetTabProperties.ITEMS;
+
 import androidx.annotation.CallSuper;
 import androidx.annotation.Nullable;
 
+import org.chromium.base.TraceEvent;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.keyboard_accessory.AccessoryAction;
 import org.chromium.chrome.browser.keyboard_accessory.AccessoryTabType;
@@ -18,8 +22,9 @@ import org.chromium.chrome.browser.keyboard_accessory.data.KeyboardAccessoryData
 import org.chromium.chrome.browser.keyboard_accessory.data.KeyboardAccessoryData.PromoCodeInfo;
 import org.chromium.chrome.browser.keyboard_accessory.data.KeyboardAccessoryData.UserInfo;
 import org.chromium.chrome.browser.keyboard_accessory.data.Provider;
-import org.chromium.chrome.browser.keyboard_accessory.sheet_tabs.AccessorySheetTabModel.AccessorySheetDataPiece;
-import org.chromium.chrome.browser.keyboard_accessory.sheet_tabs.AccessorySheetTabModel.AccessorySheetDataPiece.Type;
+import org.chromium.chrome.browser.keyboard_accessory.sheet_tabs.AccessorySheetTabItemsModel.AccessorySheetDataPiece;
+import org.chromium.chrome.browser.keyboard_accessory.sheet_tabs.AccessorySheetTabItemsModel.AccessorySheetDataPiece.Type;
+import org.chromium.chrome.browser.util.ChromeAccessibilityUtil;
 import org.chromium.ui.modelutil.PropertyModel;
 import org.chromium.ui.modelutil.PropertyModelChangeProcessor;
 
@@ -32,7 +37,7 @@ import java.util.List;
  * accessory sheet tab view.
  */
 class AccessorySheetTabMediator implements Provider.Observer<AccessorySheetData> {
-    private final AccessorySheetTabModel mModel;
+    private final PropertyModel mModel;
     private final @AccessoryTabType int mTabType;
     private final @Type int mUserInfoType;
     private final @AccessoryAction int mManageActionToRecord;
@@ -56,10 +61,12 @@ class AccessorySheetTabMediator implements Provider.Observer<AccessorySheetData>
 
     @Override
     public void onItemAvailable(int typeId, AccessorySheetData accessorySheetData) {
-        mModel.set(splitIntoDataPieces(accessorySheetData));
+        TraceEvent.begin("AccessorySheetTabMediator#onItemAvailable");
+        mModel.get(ITEMS).set(splitIntoDataPieces(accessorySheetData));
+        TraceEvent.end("AccessorySheetTabMediator#onItemAvailable");
     }
 
-    AccessorySheetTabMediator(AccessorySheetTabModel model, @AccessoryTabType int tabType,
+    AccessorySheetTabMediator(PropertyModel model, @AccessoryTabType int tabType,
             @Type int userInfoType, @AccessoryAction int manageActionToRecord,
             @Nullable ToggleChangeDelegate toggleChangeDelegate) {
         mModel = model;
@@ -71,7 +78,7 @@ class AccessorySheetTabMediator implements Provider.Observer<AccessorySheetData>
 
     @CallSuper
     void onTabShown() {
-        AccessorySheetTabMetricsRecorder.recordSheetSuggestions(mTabType, mModel);
+        AccessorySheetTabMetricsRecorder.recordSheetSuggestions(mTabType, mModel.get(ITEMS));
 
         // This is a compromise: we log an impression, even if the user didn't scroll down far
         // enough to see it. If we moved it into the view layer (i.e. when the actual button is
@@ -79,6 +86,18 @@ class AccessorySheetTabMediator implements Provider.Observer<AccessorySheetData>
         // down repeatedly.
         ManualFillingMetricsRecorder.recordActionImpression(mManageActionToRecord);
         recordToggleImpression();
+
+        setDefaultA11yFocus();
+    }
+
+    void setDefaultA11yFocus() {
+        if (!ChromeAccessibilityUtil.get().isAccessibilityEnabled()) {
+            return;
+        }
+
+        // Reset the "requested" flag to make sure it takes effect in the binder.
+        mModel.set(IS_DEFAULT_A11Y_FOCUS_REQUESTED, false);
+        mModel.set(IS_DEFAULT_A11Y_FOCUS_REQUESTED, true);
     }
 
     private AccessorySheetDataPiece[] splitIntoDataPieces(AccessorySheetData accessorySheetData) {
@@ -125,21 +144,22 @@ class AccessorySheetTabMediator implements Provider.Observer<AccessorySheetData>
     }
 
     private void updateOptionToggleEnabled() {
-        for (int i = 0; i < mModel.size(); ++i) {
-            AccessorySheetDataPiece data = mModel.get(i);
+        for (int i = 0; i < mModel.get(ITEMS).size(); ++i) {
+            AccessorySheetDataPiece data = mModel.get(ITEMS).get(i);
             if (AccessorySheetDataPiece.getType(data) == Type.OPTION_TOGGLE) {
                 OptionToggle toggle = (OptionToggle) data.getDataPiece();
                 OptionToggle updatedToggle = new OptionToggle(toggle.getDisplayText(),
                         !toggle.isEnabled(), toggle.getActionType(), toggle.getCallback());
-                mModel.update(i, new AccessorySheetDataPiece(updatedToggle, Type.OPTION_TOGGLE));
+                mModel.get(ITEMS).update(
+                        i, new AccessorySheetDataPiece(updatedToggle, Type.OPTION_TOGGLE));
                 break;
             }
         }
     }
 
     private void recordToggleImpression() {
-        for (int i = 0; i < mModel.size(); ++i) {
-            AccessorySheetDataPiece data = mModel.get(i);
+        for (int i = 0; i < mModel.get(ITEMS).size(); ++i) {
+            AccessorySheetDataPiece data = mModel.get(ITEMS).get(i);
             if (AccessorySheetDataPiece.getType(data) == Type.OPTION_TOGGLE) {
                 OptionToggle toggle = (OptionToggle) data.getDataPiece();
                 ManualFillingMetricsRecorder.recordToggleImpression(

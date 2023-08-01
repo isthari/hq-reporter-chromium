@@ -1,5 +1,4 @@
-//
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,13 +16,13 @@
 #include <string>
 #include <vector>
 
+#include "base/component_export.h"
 #include "base/gtest_prod_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/observer_list.h"
 #include "base/win/atl.h"
 #include "third_party/iaccessible2/ia2_api_all.h"
 #include "ui/accessibility/ax_enums.mojom-forward.h"
-#include "ui/accessibility/ax_export.h"
 #include "ui/accessibility/ax_text_utils.h"
 #include "ui/accessibility/platform/ax_platform_node_base.h"
 #include "ui/accessibility/platform/ax_platform_text_boundary.h"
@@ -341,11 +340,13 @@ class AXPlatformRelationWin;
 // A simple interface for a class that wants to be notified when Windows
 // accessibility APIs are used by a client, a strong indication that full
 // accessibility support should be enabled.
-class AX_EXPORT WinAccessibilityAPIUsageObserver {
+class COMPONENT_EXPORT(AX_PLATFORM) WinAccessibilityAPIUsageObserver {
  public:
   WinAccessibilityAPIUsageObserver();
   virtual ~WinAccessibilityAPIUsageObserver();
-  virtual void OnIAccessible2Used() = 0;
+  virtual void OnMSAAUsed() = 0;
+  virtual void OnBasicIAccessible2Used() = 0;
+  virtual void OnAdvancedIAccessible2Used() = 0;
   virtual void OnScreenReaderHoneyPotQueried() = 0;
   virtual void OnAccNameCalled() = 0;
   virtual void OnBasicUIAutomationUsed() = 0;
@@ -359,49 +360,52 @@ class AX_EXPORT WinAccessibilityAPIUsageObserver {
 
 // Get an observer list that allows modules across the codebase to
 // listen to when usage of Windows accessibility APIs is detected.
-extern AX_EXPORT
-    base::ObserverList<WinAccessibilityAPIUsageObserver>::Unchecked&
-    GetWinAccessibilityAPIUsageObserverList();
+extern COMPONENT_EXPORT(
+    AX_PLATFORM) base::ObserverList<WinAccessibilityAPIUsageObserver>::
+    Unchecked& GetWinAccessibilityAPIUsageObserverList();
 
 // Used to simplify calling StartFiringUIAEvents and EndFiringEvents
-class AX_EXPORT WinAccessibilityAPIUsageScopedUIAEventsNotifier {
+class COMPONENT_EXPORT(AX_PLATFORM)
+    WinAccessibilityAPIUsageScopedUIAEventsNotifier {
  public:
   WinAccessibilityAPIUsageScopedUIAEventsNotifier();
   ~WinAccessibilityAPIUsageScopedUIAEventsNotifier();
 };
 
 // TODO(nektar): Remove multithread superclass since we don't support it.
-class AX_EXPORT __declspec(uuid("26f5641a-246d-457b-a96d-07f3fae6acf2"))
-    AXPlatformNodeWin : public CComObjectRootEx<CComMultiThreadModel>,
-                        public IDispatchImpl<IAccessible2_4,
-                                             &IID_IAccessible2_4,
-                                             &LIBID_IAccessible2Lib>,
-                        public IAccessibleEx,
-                        public IAccessibleHypertext,
-                        public IAccessibleTable,
-                        public IAccessibleTable2,
-                        public IAccessibleTableCell,
-                        public IAccessibleValue,
-                        public IAnnotationProvider,
-                        public IExpandCollapseProvider,
-                        public IGridItemProvider,
-                        public IGridProvider,
-                        public IInvokeProvider,
-                        public IRangeValueProvider,
-                        public IRawElementProviderFragment,
-                        public IRawElementProviderSimple2,
-                        public IScrollItemProvider,
-                        public IScrollProvider,
-                        public ISelectionItemProvider,
-                        public ISelectionProvider,
-                        public IServiceProvider,
-                        public ITableItemProvider,
-                        public ITableProvider,
-                        public IToggleProvider,
-                        public IValueProvider,
-                        public IWindowProvider,
-                        public IChromeAccessible,
-                        public AXPlatformNodeBase {
+class COMPONENT_EXPORT(AX_PLATFORM) __declspec(
+    uuid("26f5641a-246d-457b-a96d-07f3fae6acf2")) AXPlatformNodeWin
+    : public CComObjectRootEx<CComMultiThreadModel>,
+      public IDispatchImpl<IAccessible2_4,
+                           &IID_IAccessible2_4,
+                           &LIBID_IAccessible2Lib>,
+      public IAccessibleEx,
+      public IAccessibleHypertext,
+      public IAccessibleTable,
+      public IAccessibleTable2,
+      public IAccessibleTableCell,
+      public IAccessibleTextSelectionContainer,
+      public IAccessibleValue,
+      public IAnnotationProvider,
+      public IExpandCollapseProvider,
+      public IGridItemProvider,
+      public IGridProvider,
+      public IInvokeProvider,
+      public IRangeValueProvider,
+      public IRawElementProviderFragment,
+      public IRawElementProviderSimple2,
+      public IScrollItemProvider,
+      public IScrollProvider,
+      public ISelectionItemProvider,
+      public ISelectionProvider,
+      public IServiceProvider,
+      public ITableItemProvider,
+      public ITableProvider,
+      public IToggleProvider,
+      public IValueProvider,
+      public IWindowProvider,
+      public IChromeAccessible,
+      public AXPlatformNodeBase {
   using IDispatchImpl::Invoke;
 
  public:
@@ -423,6 +427,7 @@ class AX_EXPORT __declspec(uuid("26f5641a-246d-457b-a96d-07f3fae6acf2"))
     COM_INTERFACE_ENTRY(IAccessibleTable)
     COM_INTERFACE_ENTRY(IAccessibleTable2)
     COM_INTERFACE_ENTRY(IAccessibleTableCell)
+    COM_INTERFACE_ENTRY(IAccessibleTextSelectionContainer)
     COM_INTERFACE_ENTRY(IAccessibleValue)
     COM_INTERFACE_ENTRY(IChromeAccessible)
     COM_INTERFACE_ENTRY(IAnnotationProvider)
@@ -985,6 +990,16 @@ class AX_EXPORT __declspec(uuid("26f5641a-246d-457b-a96d-07f3fae6acf2"))
   IFACEMETHODIMP get_table(IUnknown** table) override;
 
   //
+  // IAccessibleTextSelectionContainer methods.
+  //
+
+  IFACEMETHODIMP
+  get_selections(IA2TextSelection** selections, LONG* nSelections) override;
+
+  IFACEMETHODIMP setSelections(LONG nSelections,
+                               IA2TextSelection* selections) override;
+
+  //
   // IAccessibleHypertext methods not implemented.
   //
 
@@ -1134,22 +1149,19 @@ class AX_EXPORT __declspec(uuid("26f5641a-246d-457b-a96d-07f3fae6acf2"))
   void GetRuntimeIdArray(RuntimeIdArray& runtime_id);
 
   // Updates the active composition range and fires UIA text edit event about
-  // composition (active or committed)
+  // composition (active or committed).
   void OnActiveComposition(const gfx::Range& range,
                            const std::u16string& active_composition_text,
                            bool is_composition_committed);
-  // Returns true if there is an active composition
+  // Returns true if there is an active composition.
   bool HasActiveComposition() const;
-  // Returns the start/end offsets of the active composition
+  // Returns the start/end offsets of the active composition.
   gfx::Range GetActiveCompositionOffsets() const;
-
-  // Helper to recursively find live-regions and fire a change event on them
-  void FireLiveRegionChangeRecursive();
 
   // Returns the first ancestor node that is accessible for UIA.
   AXPlatformNodeWin* GetLowestAccessibleElementForUIA();
 
-  // Returns the first |IsTextOnlyObject| descendant using
+  // Returns the first |IsTextOnlyObject| descendant using.
   // depth-first pre-order traversal.
   AXPlatformNodeWin* GetFirstTextOnlyDescendant();
 
@@ -1184,11 +1196,7 @@ class AX_EXPORT __declspec(uuid("26f5641a-246d-457b-a96d-07f3fae6acf2"))
 
   std::vector<std::wstring> ComputeIA2Attributes();
 
-  std::wstring UIAAriaRole();
-
   std::wstring ComputeUIAProperties();
-
-  LONG ComputeUIAControlType();
 
   AXPlatformNodeWin* ComputeUIALabeledBy();
 
@@ -1250,11 +1258,30 @@ class AX_EXPORT __declspec(uuid("26f5641a-246d-457b-a96d-07f3fae6acf2"))
                            SanitizeStringAttributeForIA2);
 
  private:
+  // UIA will use the aria role and the UIA control type to generate a
+  // localized string. When our internal role cannot be described accurately
+  // with the aria role or UIA control type, we should supply our own
+  // localized string.
+  enum class UIALocalizationStrategy {
+    // Localized string should be provided by UIA from on the control type.
+    kDeferToControlType,
+    // Localized string should be provided by UIA from on the aria role.
+    // While we can't direct UIA from where to generate localization, managing
+    // the distinction is needed as UIA pre-Windows 8 cannot generate
+    // localized strings for all aria roles.
+    kDeferToAriaRole,
+    // We should supply our own localized string instead of relying on UIA.
+    kSupply
+  };
+  struct UIARoleProperties {
+    UIALocalizationStrategy localization_strategy;
+    LONG control_type;
+    const wchar_t* aria_role;
+  };
+
   AXPlatformNodeWin* GetParentPlatformNodeWin() const;
 
-  bool ShouldNodeHaveFocusableState() const;
   int GetAnnotationTypeImpl() const;
-  void AugmentNameWithImageAnnotationIfApplicable(std::wstring* name) const;
 
   // Get the value attribute as a Bstr, this means something different depending
   // on the type of element being queried. (e.g. kColorWell uses kColorValue).
@@ -1336,14 +1363,14 @@ class AX_EXPORT __declspec(uuid("26f5641a-246d-457b-a96d-07f3fae6acf2"))
   // argument. The function will skip over any ids that cannot be resolved as
   // valid relation target.
   std::vector<AXPlatformNodeWin*> CreatePlatformNodeVectorFromRelationIdVector(
-      std::vector<int32_t>& relation_id_list);
+      const std::vector<int32_t>& relation_id_list);
 
   // Create a safearray of automation elements from a vector of
   // AXPlatformNodeWin.
   // The caller should validate that all of the given ax platform nodes are
   // valid relation targets.
   SAFEARRAY* CreateUIAElementsSafeArray(
-      std::vector<AXPlatformNodeWin*>& platform_node_list);
+      const std::vector<AXPlatformNodeWin*>& platform_node_list);
 
   // Return an array that contains the center x, y coordinates of the
   // clickable point.
@@ -1399,6 +1426,9 @@ class AX_EXPORT __declspec(uuid("26f5641a-246d-457b-a96d-07f3fae6acf2"))
 
   // Helper method getting the selected status.
   bool ISelectionItemProviderIsSelected() const;
+
+  // Helper method for getting the toggle state.
+  ToggleState GetToggleStateImpl();
 
   // Helper method for IsInaccessibleForUIA.
   bool IsNodeInaccessibleForUIA() const;
@@ -1491,12 +1521,21 @@ class AX_EXPORT __declspec(uuid("26f5641a-246d-457b-a96d-07f3fae6acf2"))
       const std::wstring& active_composition_text,
       bool is_composition_committed);
 
+  // Notifies observers that basic MSAA usage was detected. Only some of the
+  // APIs were chosen to avoid accessibility being enabled unnecessarily or
+  // unexpectedly in a test environment, while still ensuring that clients that
+  // only use MSAA/IAccessible have a way to turn on accessibility.
+  void NotifyObserverForMSAAUsage() const;
+
+  void NotifyAddAXModeFlagsForIA2(const uint32_t ax_modes) const;
   void NotifyAPIObserverForPatternRequest(PATTERNID pattern_id) const;
   void NotifyAPIObserverForPropertyRequest(PROPERTYID property_id) const;
 
   // Return true if the given element is valid enough to be returned as a value
   // for a UIA relation property (e.g. ControllerFor).
   static bool IsValidUiaRelationTarget(AXPlatformNode* ax_platform_node);
+
+  UIARoleProperties GetUIARoleProperties();
 
   // Start and end offsets of an active composition
   gfx::Range active_composition_range_;

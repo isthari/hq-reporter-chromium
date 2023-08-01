@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,11 @@
 
 #include <memory>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/weak_ptr.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
-#include "chrome/browser/ash/crostini/crostini_util.h"
+#include "chrome/browser/ui/views/crostini/crostini_force_close_view.h"
 #include "components/exo/shell_surface_base.h"
 #include "ui/views/widget/widget.h"
 
@@ -72,7 +72,7 @@ void ShellSurfaceForceCloseDelegate::ForceClose() {
   // handling code. If we CloseNow() here it will destroy the dialog's parent
   // widget, destroying the dialog and causing a use-after-free.
   // https://crbug.com/1215247
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&ShellSurfaceForceCloseDelegate::ForceCloseNow,
                                 weak_ptr_factory_.GetWeakPtr()));
 }

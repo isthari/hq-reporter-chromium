@@ -1,17 +1,16 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/smb_client/discovery/netbios_client.h"
 
-#include "base/bind.h"
-#include "chromeos/network/firewall_hole.h"
+#include "base/functional/bind.h"
+#include "chromeos/components/firewall_hole/firewall_hole.h"
 #include "net/base/ip_endpoint.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "services/network/public/mojom/network_context.mojom.h"
 
-namespace ash {
-namespace smb_client {
+namespace ash::smb_client {
 
 namespace {
 
@@ -79,8 +78,8 @@ void NetBiosClient::BindSocket() {
 }
 
 void NetBiosClient::OpenPort(uint16_t port) {
-  FirewallHole::Open(
-      FirewallHole::PortType::UDP, port, "" /* all interfaces */,
+  chromeos::FirewallHole::Open(
+      chromeos::FirewallHole::PortType::kUdp, port, "" /* all interfaces */,
       base::BindOnce(&NetBiosClient::OnOpenPortComplete, AsWeakPtr()));
 }
 
@@ -109,7 +108,7 @@ void NetBiosClient::OnBindComplete(
 }
 
 void NetBiosClient::OnOpenPortComplete(
-    std::unique_ptr<FirewallHole> firewall_hole) {
+    std::unique_ptr<chromeos::FirewallHole> firewall_hole) {
   if (!firewall_hole) {
     LOG(ERROR) << "NetBiosClient: Opening port failed.";
     return;
@@ -183,5 +182,4 @@ std::vector<uint8_t> NetBiosClient::GenerateBroadcastPacket() {
   return packet;
 }
 
-}  // namespace smb_client
-}  // namespace ash
+}  // namespace ash::smb_client

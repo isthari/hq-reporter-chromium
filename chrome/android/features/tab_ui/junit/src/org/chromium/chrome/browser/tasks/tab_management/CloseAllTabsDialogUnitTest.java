@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
 
 import android.content.Context;
 
@@ -20,16 +18,12 @@ import androidx.test.filters.SmallTest;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 import org.robolectric.annotation.Config;
 
-import org.chromium.base.FeatureList;
-import org.chromium.base.metrics.UmaRecorder;
-import org.chromium.base.metrics.UmaRecorderHolder;
 import org.chromium.base.test.BaseRobolectricTestRunner;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.base.test.util.HistogramWatcher;
 import org.chromium.chrome.tab_ui.R;
 import org.chromium.ui.modaldialog.DialogDismissalCause;
 import org.chromium.ui.modaldialog.ModalDialogManager;
@@ -85,119 +79,104 @@ public class CloseAllTabsDialogUnitTest {
     private Context mContext;
     private MockModalDialogManager mMockModalDialogManager;
     private boolean mRunnableCalled;
-    private boolean mShowWarning;
-
-    @Mock
-    private UmaRecorder mUmaRecorder;
 
     @Before
     public void setUp() {
         MockitoAnnotations.initMocks(this);
-        UmaRecorderHolder.setNonNativeDelegate(mUmaRecorder);
         mContext = ApplicationProvider.getApplicationContext();
         mMockModalDialogManager = new MockModalDialogManager();
         mRunnableCalled = false;
-    }
-
-    private void setShowWarning(boolean enableWarning) {
-        mShowWarning = enableWarning;
-        FeatureList.TestValues testValues = new FeatureList.TestValues();
-        testValues.addFieldTrialParamOverride(ChromeFeatureList.CLOSE_ALL_TABS_MODAL_DIALOG,
-                CloseAllTabsDialog.SHOW_CANNOT_UNDO_WARNING, Boolean.toString(enableWarning));
-        FeatureList.setTestValues(testValues);
     }
 
     private ModalDialogManager getModalDialogManager() {
         return mMockModalDialogManager;
     }
 
-    private void verifyModel(boolean willExitOnCloseAll) {
-        final boolean showCannotUndoWarning = willExitOnCloseAll && mShowWarning;
+    private void verifyModel(boolean isIncognito) {
         assertEquals(
                 ModalDialogManager.ModalDialogType.APP, mMockModalDialogManager.getDialogType());
 
         final PropertyModel model = mMockModalDialogManager.getDialogModel();
         assertNotNull(model);
-        assertEquals(mContext.getString(R.string.close_all_tabs_dialog_title),
+        assertEquals(mContext.getString(isIncognito ? R.string.close_all_tabs_dialog_title_incognito
+                                                    : R.string.close_all_tabs_dialog_title),
                 model.get(ModalDialogProperties.TITLE));
-        assertEquals(mContext.getString(showCannotUndoWarning
-                                     ? R.string.close_all_tabs_dialog_warning_message
-                                     : R.string.close_all_tabs_dialog_message),
-                model.get(ModalDialogProperties.MESSAGE));
+        assertEquals(
+                mContext.getString(isIncognito ? R.string.close_all_tabs_dialog_message_incognito
+                                               : R.string.close_all_tabs_dialog_message),
+                model.get(ModalDialogProperties.MESSAGE_PARAGRAPH_1));
         assertEquals(mContext.getString(R.string.menu_close_all_tabs),
                 model.get(ModalDialogProperties.POSITIVE_BUTTON_TEXT));
         assertEquals(mContext.getString(R.string.cancel),
                 model.get(ModalDialogProperties.NEGATIVE_BUTTON_TEXT));
         assertTrue(model.get(ModalDialogProperties.CANCEL_ON_TOUCH_OUTSIDE));
-        assertEquals(ModalDialogProperties.ButtonStyles.PRIMARY_OUTLINE_NEGATIVE_OUTLINE,
+        assertEquals(ModalDialogProperties.ButtonStyles.PRIMARY_FILLED_NEGATIVE_OUTLINE,
                 model.get(ModalDialogProperties.BUTTON_STYLES));
     }
 
-    private void verifyDismissed(boolean willExitOnCloseAll, boolean positiveAction) {
+    private void verifyDismissed() {
         assertNull(mMockModalDialogManager.getDialogModel());
         assertEquals(-1, mMockModalDialogManager.getDialogType());
-        verify(mUmaRecorder, times(1))
-                .recordBooleanHistogram("Tab.CloseAllTabsDialog.ClosedAllTabs."
-                                + ((willExitOnCloseAll && mShowWarning)
-                                                ? "CannotUndoWarning"
-                                                : (willExitOnCloseAll ? "NoWarningImmediateExit"
-                                                                      : "Default")),
-                        positiveAction);
     }
 
     @Test
     @SmallTest
     public void testDialog() {
-        setShowWarning(false);
-        final boolean willExitOnCloseAll = false;
+        final boolean isIncognito = false;
         CloseAllTabsDialog.show(mContext, this::getModalDialogManager,
-                () -> { mRunnableCalled = true; }, willExitOnCloseAll);
-        verifyModel(willExitOnCloseAll);
+                () -> { mRunnableCalled = true; }, isIncognito);
+        verifyModel(isIncognito);
+        HistogramWatcher histograms =
+                HistogramWatcher.newBuilder()
+                        .expectNoRecords("Tab.CloseAllTabsDialog.ClosedAllTabs.Incognito")
+                        .expectBooleanRecord(
+                                "Tab.CloseAllTabsDialog.ClosedAllTabs.NonIncognito", true)
+                        .build();
 
         mMockModalDialogManager.simulateButtonClick(ModalDialogProperties.ButtonType.POSITIVE);
         assertTrue(mRunnableCalled);
-        verifyDismissed(willExitOnCloseAll, true);
+        verifyDismissed();
+        histograms.assertExpected();
     }
 
     @Test
     @SmallTest
-    public void testDialogWithWarning() {
-        setShowWarning(true);
-        final boolean willExitOnCloseAll = true;
+    public void testDismissButton() {
+        final boolean isIncognito = true;
         CloseAllTabsDialog.show(mContext, this::getModalDialogManager,
-                () -> { mRunnableCalled = true; }, willExitOnCloseAll);
-        verifyModel(willExitOnCloseAll);
+                () -> { mRunnableCalled = true; }, isIncognito);
+        verifyModel(isIncognito);
+        HistogramWatcher histograms =
+                HistogramWatcher.newBuilder()
+                        .expectBooleanRecord(
+                                "Tab.CloseAllTabsDialog.ClosedAllTabs.Incognito", false)
+                        .expectNoRecords("Tab.CloseAllTabsDialog.ClosedAllTabs.NonIncognito")
+                        .build();
 
         mMockModalDialogManager.simulateButtonClick(ModalDialogProperties.ButtonType.NEGATIVE);
         assertFalse(mRunnableCalled);
-        verifyDismissed(willExitOnCloseAll, false);
-    }
-
-    @Test
-    @SmallTest
-    public void testDialogImmediateExitNoWarning() {
-        setShowWarning(false);
-        final boolean willExitOnCloseAll = true;
-        CloseAllTabsDialog.show(mContext, this::getModalDialogManager,
-                () -> { mRunnableCalled = true; }, willExitOnCloseAll);
-        verifyModel(willExitOnCloseAll);
-
-        mMockModalDialogManager.simulateButtonClick(ModalDialogProperties.ButtonType.NEGATIVE);
-        assertFalse(mRunnableCalled);
-        verifyDismissed(willExitOnCloseAll, false);
+        verifyDismissed();
+        histograms.assertExpected();
     }
 
     @Test
     @SmallTest
     public void testDismissNoButton() {
-        final boolean willExitOnCloseAll = false;
+        final boolean isIncognito = false;
         CloseAllTabsDialog.show(mContext, this::getModalDialogManager,
-                () -> { mRunnableCalled = true; }, willExitOnCloseAll);
-        verifyModel(willExitOnCloseAll);
+                () -> { mRunnableCalled = true; }, isIncognito);
+        verifyModel(isIncognito);
+        HistogramWatcher histograms =
+                HistogramWatcher.newBuilder()
+                        .expectNoRecords("Tab.CloseAllTabsDialog.ClosedAllTabs.Incognito")
+                        .expectBooleanRecord(
+                                "Tab.CloseAllTabsDialog.ClosedAllTabs.NonIncognito", false)
+                        .build();
 
         mMockModalDialogManager.dismissDialog(mMockModalDialogManager.getDialogModel(),
                 DialogDismissalCause.NAVIGATE_BACK_OR_TOUCH_OUTSIDE);
         assertFalse(mRunnableCalled);
-        verifyDismissed(willExitOnCloseAll, false);
+        verifyDismissed();
+        histograms.assertExpected();
     }
 }

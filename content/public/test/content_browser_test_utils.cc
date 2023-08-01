@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,12 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/files/file_path.h"
-#include "base/guid.h"
+#include "base/functional/bind.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/threading/thread_restrictions.h"
+#include "base/uuid.h"
 #include "build/build_config.h"
 #include "content/browser/browser_main_loop.h"
 #include "content/browser/child_process_security_policy_impl.h"
@@ -139,7 +139,7 @@ void AppModalDialogWaiter::EarlyCallback() {
 }
 
 RenderFrameHost* ConvertToRenderFrameHost(Shell* shell) {
-  return shell->web_contents()->GetMainFrame();
+  return shell->web_contents()->GetPrimaryMainFrame();
 }
 
 void LookupAndLogNameAndIdOfFirstCamera() {
@@ -155,8 +155,14 @@ void LookupAndLogNameAndIdOfFirstCamera() {
             media_stream_manager->video_capture_manager()->EnumerateDevices(
                 base::BindOnce(
                     [](base::OnceClosure quit_closure,
+                       media::mojom::DeviceEnumerationResult result,
                        const media::VideoCaptureDeviceDescriptors&
                            descriptors) {
+                      if (result !=
+                          media::mojom::DeviceEnumerationResult::kSuccess) {
+                        LOG(WARNING) << "Camera enumeration failed";
+                        return;
+                      }
                       if (descriptors.empty()) {
                         LOG(WARNING) << "No camera found";
                         return;
@@ -205,6 +211,14 @@ void IsolateOriginsForTesting(
         url::Origin::Create(GURL(std::string("http://") + hostname + "/")));
   }
 
+  IsolateOriginsForTesting(embedded_test_server, web_contents,
+                           origins_to_isolate);
+}
+
+void IsolateOriginsForTesting(
+    net::test_server::EmbeddedTestServer* embedded_test_server,
+    WebContents* web_contents,
+    std::vector<url::Origin> origins_to_isolate) {
   auto* policy = ChildProcessSecurityPolicyImpl::GetInstance();
   policy->AddFutureIsolatedOrigins(
       origins_to_isolate,
@@ -216,13 +230,14 @@ void IsolateOriginsForTesting(
   scoped_refptr<SiteInstanceImpl> new_site_instance;
   do {
     old_site_instance = static_cast<SiteInstanceImpl*>(
-        web_contents->GetMainFrame()->GetSiteInstance());
-    std::string cross_site_hostname = base::GenerateGUID() + ".com";
+        web_contents->GetPrimaryMainFrame()->GetSiteInstance());
+    std::string cross_site_hostname =
+        base::Uuid::GenerateRandomV4().AsLowercaseString() + ".com";
     EXPECT_TRUE(NavigateToURL(
         web_contents,
         embedded_test_server->GetURL(cross_site_hostname, "/title1.html")));
     new_site_instance = static_cast<SiteInstanceImpl*>(
-        web_contents->GetMainFrame()->GetSiteInstance());
+        web_contents->GetPrimaryMainFrame()->GetSiteInstance());
 
     // The navigation might need to be repeated until we actually swap the
     // SiteInstance (no swap might happen when navigating away from the initial,

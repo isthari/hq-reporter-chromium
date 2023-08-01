@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,14 +6,18 @@
 
 #include <string>
 
+#include "base/memory/raw_ptr.h"
+#include "base/time/time.h"
 #include "chrome/browser/ash/crosapi/browser_util.h"
 #include "chrome/browser/ash/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
-#include "chrome/common/chrome_constants.h"
 #include "chrome/test/base/testing_profile.h"
+#include "chromeos/ash/components/browser_context_helper/browser_context_types.h"
+#include "chromeos/ash/components/settings/cros_settings_names.h"
 #include "chromeos/crosapi/mojom/keystore_service.mojom.h"
 #include "components/user_manager/scoped_user_manager.h"
 #include "content/public/test/browser_task_environment.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using user_manager::User;
@@ -28,7 +32,7 @@ class CrosapiUtilTest : public testing::Test {
   void SetUp() override {
     fake_user_manager_ = new ash::FakeChromeUserManager;
     scoped_user_manager_ = std::make_unique<user_manager::ScopedUserManager>(
-        base::WrapUnique(fake_user_manager_));
+        base::WrapUnique(fake_user_manager_.get()));
     browser_util::RegisterLocalStatePrefs(pref_service_.registry());
   }
 
@@ -46,7 +50,8 @@ class CrosapiUtilTest : public testing::Test {
   // destruction timing.
   content::BrowserTaskEnvironment task_environment_;
   TestingProfile testing_profile_;
-  ash::FakeChromeUserManager* fake_user_manager_ = nullptr;
+  raw_ptr<ash::FakeChromeUserManager, ExperimentalAsh> fake_user_manager_ =
+      nullptr;
   std::unique_ptr<user_manager::ScopedUserManager> scoped_user_manager_;
   TestingPrefServiceSimple pref_service_;
 };
@@ -57,7 +62,7 @@ TEST_F(CrosapiUtilTest, GetInterfaceVersions) {
 
   // Check that a known interface with version > 0 is present and has non-zero
   // version.
-  EXPECT_GT(versions[mojom::KeystoreService::Uuid_], 0);
+  EXPECT_GT(versions[mojom::KeystoreService::Uuid_], 0u);
 
   // Check that the empty token is not present.
   base::Token token;
@@ -67,7 +72,7 @@ TEST_F(CrosapiUtilTest, GetInterfaceVersions) {
 
 TEST_F(CrosapiUtilTest, IsSigninProfileOrBelongsToAffiliatedUserSigninProfile) {
   TestingProfile::Builder builder;
-  builder.SetPath(base::FilePath(FILE_PATH_LITERAL(chrome::kInitialProfile)));
+  builder.SetPath(base::FilePath(ash::kSigninBrowserContextBaseName));
   std::unique_ptr<Profile> signin_profile = builder.Build();
 
   EXPECT_TRUE(browser_util::IsSigninProfileOrBelongsToAffiliatedUser(
@@ -109,8 +114,7 @@ TEST_F(CrosapiUtilTest,
 TEST_F(CrosapiUtilTest,
        IsSigninProfileOrBelongsToAffiliatedUserLockScreenProfile) {
   TestingProfile::Builder builder;
-  builder.SetPath(
-      base::FilePath(FILE_PATH_LITERAL(chrome::kLockScreenProfile)));
+  builder.SetPath(base::FilePath(ash::kLockScreenBrowserContextBaseName));
   std::unique_ptr<Profile> lock_screen_profile = builder.Build();
 
   EXPECT_FALSE(browser_util::IsSigninProfileOrBelongsToAffiliatedUser(
@@ -123,6 +127,13 @@ TEST_F(CrosapiUtilTest, EmptyDeviceSettings) {
             crosapi::mojom::DeviceSettings::OptionalBool::kUnset);
   EXPECT_EQ(settings->device_system_wide_tracing_enabled,
             crosapi::mojom::DeviceSettings::OptionalBool::kUnset);
+  EXPECT_EQ(settings->device_restricted_managed_guest_session_enabled,
+            crosapi::mojom::DeviceSettings::OptionalBool::kUnset);
+  EXPECT_EQ(settings->report_device_network_status,
+            crosapi::mojom::DeviceSettings::OptionalBool::kUnset);
+  EXPECT_TRUE(settings->report_upload_frequency.is_null());
+  EXPECT_TRUE(
+      settings->report_device_network_telemetry_collection_rate_ms.is_null());
 }
 
 TEST_F(CrosapiUtilTest, DeviceSettingsWithData) {
@@ -134,15 +145,36 @@ TEST_F(CrosapiUtilTest, DeviceSettingsWithData) {
   testing_profile_.ScopedCrosSettingsTestHelper()
       ->GetStubbedProvider()
       ->SetBoolean(ash::kAttestationForContentProtectionEnabled, true);
+  testing_profile_.ScopedCrosSettingsTestHelper()
+      ->GetStubbedProvider()
+      ->SetBoolean(ash::kAccountsPrefEphemeralUsersEnabled, false);
+  testing_profile_.ScopedCrosSettingsTestHelper()
+      ->GetStubbedProvider()
+      ->SetBoolean(ash::kDeviceRestrictedManagedGuestSessionEnabled, true);
+  testing_profile_.ScopedCrosSettingsTestHelper()
+      ->GetStubbedProvider()
+      ->SetBoolean(ash::kReportDeviceNetworkStatus, true);
 
-  base::Value allowlist(base::Value::Type::LIST);
-  base::Value ids(base::Value::Type::DICTIONARY);
-  ids.SetIntKey(ash::kUsbDetachableAllowlistKeyVid, 2);
-  ids.SetIntKey(ash::kUsbDetachableAllowlistKeyPid, 3);
+  const int64_t kReportUploadFrequencyMs = base::Hours(1).InMilliseconds();
+  testing_profile_.ScopedCrosSettingsTestHelper()
+      ->GetStubbedProvider()
+      ->SetInteger(ash::kReportUploadFrequency, kReportUploadFrequencyMs);
+
+  const int64_t kReportDeviceNetworkTelemetryCollectionRateMs =
+      base::Minutes(15).InMilliseconds();
+  testing_profile_.ScopedCrosSettingsTestHelper()
+      ->GetStubbedProvider()
+      ->SetInteger(ash::kReportDeviceNetworkTelemetryCollectionRateMs,
+                   kReportDeviceNetworkTelemetryCollectionRateMs);
+
+  base::Value::List allowlist;
+  base::Value::Dict ids;
+  ids.Set(ash::kUsbDetachableAllowlistKeyVid, 2);
+  ids.Set(ash::kUsbDetachableAllowlistKeyPid, 3);
   allowlist.Append(std::move(ids));
 
   testing_profile_.ScopedCrosSettingsTestHelper()->GetStubbedProvider()->Set(
-      ash::kUsbDetachableAllowlist, std::move(allowlist));
+      ash::kUsbDetachableAllowlist, base::Value(std::move(allowlist)));
 
   auto settings = browser_util::GetDeviceSettings();
   testing_profile_.ScopedCrosSettingsTestHelper()
@@ -150,7 +182,11 @@ TEST_F(CrosapiUtilTest, DeviceSettingsWithData) {
 
   EXPECT_EQ(settings->attestation_for_content_protection_enabled,
             crosapi::mojom::DeviceSettings::OptionalBool::kTrue);
-  EXPECT_EQ(settings->usb_detachable_allow_list->usb_device_ids.size(), 1);
+  EXPECT_EQ(settings->device_ephemeral_users_enabled,
+            crosapi::mojom::DeviceSettings::OptionalBool::kFalse);
+  EXPECT_EQ(settings->device_restricted_managed_guest_session_enabled,
+            crosapi::mojom::DeviceSettings::OptionalBool::kTrue);
+  ASSERT_EQ(settings->usb_detachable_allow_list->usb_device_ids.size(), 1u);
   EXPECT_EQ(
       settings->usb_detachable_allow_list->usb_device_ids[0]->has_vendor_id,
       true);
@@ -161,6 +197,11 @@ TEST_F(CrosapiUtilTest, DeviceSettingsWithData) {
       true);
   EXPECT_EQ(settings->usb_detachable_allow_list->usb_device_ids[0]->product_id,
             3);
+  EXPECT_EQ(settings->report_device_network_status,
+            crosapi::mojom::DeviceSettings::OptionalBool::kTrue);
+  EXPECT_EQ(settings->report_upload_frequency->value, kReportUploadFrequencyMs);
+  EXPECT_EQ(settings->report_device_network_telemetry_collection_rate_ms->value,
+            kReportDeviceNetworkTelemetryCollectionRateMs);
 }
 
 }  // namespace crosapi

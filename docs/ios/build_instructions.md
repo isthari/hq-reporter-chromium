@@ -13,8 +13,7 @@ Are you a Google employee? See
 ## System requirements
 
 * A 64-bit Mac running 11.3 or later.
-* [Xcode](https://developer.apple.com/xcode) 13.0 or higher.
-* The current version of the JDK (required for the Closure compiler).
+* [Xcode](https://developer.apple.com/xcode) 13.1 or higher.
 
 ## Install `depot_tools`
 
@@ -117,7 +116,7 @@ solutions = [
       "name": "setup_gn",
       "pattern": ".",
       "action": [
-        "python",
+        "python3",
         "src/ios/build/tools/setup-gn.py",
       ]
     }],
@@ -189,8 +188,8 @@ to share files and configurations while the `group.${prefix}.common` is shared
 with Chromium and other applications from the same organisation and can be used
 to send commands to Chromium.
 
-`${prefix}.chrome.ios.dev.CredentialProviderExtension` needs the AutoFill 
-Credential Provider Entitlement, which corresponds to the key 
+`${prefix}.chrome.ios.dev.CredentialProviderExtension` needs the AutoFill
+Credential Provider Entitlement, which corresponds to the key
 `com.apple.developer.authentication-services.autofill-credential-provider`
 Please refer to Apple's documentation on how to set this up.
 
@@ -248,6 +247,26 @@ then it will be impossible to install the application on a device (Xcode will
 display an error stating that "The application was signed with invalid
 entitlements").
 
+## Building Blink for iOS
+
+The iOS build supports compiling the blink web platform. To compile blink
+set a gn arg in your `.setup-gn` file. Note the blink web platform is
+experimental code and should only be used for analysis.
+
+```
+[gn_args]
+use_blink = true
+```
+Note that only certain targets support blink. `content_shell` being the
+most useful.
+
+```shell
+$ autoninja -C out/Debug-iphonesimulator content_shell
+```
+
+To run on a live device you will need to set the
+`com.apple.developer.kernel.extended-virtual-addressing` entitlement.
+
 ## Running apps from the command line
 
 Any target that is built and runs on the bots (see [below](#Troubleshooting))
@@ -259,7 +278,7 @@ command line, you can use `iossim`. For example, to run a debug build of
 $ out/Debug-iphonesimulator/iossim out/Debug-iphonesimulator/Chromium.app
 ```
 
-With Xcode 9, `iossim` no longer automatically launches the Simulator. This must now
+From Xcode 9 on, `iossim` no longer automatically launches the Simulator. This must now
 be done manually from within Xcode (`Xcode > Open Developer Tool > Simulator`), and
 also must be done *after* running `iossim`.
 
@@ -307,6 +326,23 @@ an older version of Xcode) to be able to run on a specific configuration.
 Go to "Preferences > Components" tab in Xcode to install other simulator images
 (this is the location the setting is in Xcode 9.2; it may be different in other
 version of the tool).
+
+### Remote debugging with DevTools (on Blink for iOS)
+
+Developers are able to remotely use DevTools in a host machine (e.g. Mac) and
+inspect `content_shell` for development.
+
+On the simulator, one just needs to pass the `--remote-debugging-port=9222`
+argument for `content_shell` and in the host machine access it via
+`chrome://inspect`. It is possible to change the default port listening (9222)
+and configure another one via the  "Configure…" button and then "Target
+discovery settings" dialog.
+
+To use DevTools in the remote device it is necessary to also pass the remote
+debugging address argument to `content-shell` so any address could bind for
+debugging: ` --remote-debugging-address=0.0.0.0 --remote-debugging-port=9222`.
+Then in the host machine one needs to configure the IP address of the device in
+the "Target discovery settings" dialog e.g. `192.168.0.102:9222`.
 
 ## Update your checkout
 

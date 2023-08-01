@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -39,6 +39,7 @@ class BulkLeakCheckService : public BulkLeakCheckDelegateInterface,
 
   // Starts the checks or appends |credentials| to the existing queue.
   void CheckUsernamePasswordPairs(
+      LeakDetectionInitiator initiator,
       std::vector<LeakCheckCredential> credentials) override;
 
   // Stops all the current checks immediately.

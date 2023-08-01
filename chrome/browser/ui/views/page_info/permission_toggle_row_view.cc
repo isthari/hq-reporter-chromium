@@ -1,20 +1,25 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/page_info/permission_toggle_row_view.h"
+#include <string>
 
+#include "base/observer_list.h"
+#include "base/strings/string_util.h"
+#include "base/strings/utf_string_conversions.h"
 #include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/page_info/chrome_page_info_ui_delegate.h"
 #include "chrome/browser/ui/views/accessibility/non_accessible_image_view.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/page_info/page_info_navigation_handler.h"
-#include "chrome/browser/ui/views/page_info/page_info_row_view.h"
 #include "chrome/browser/ui/views/page_info/page_info_view_factory.h"
+#include "components/content_settings/core/common/content_settings_types.h"
 #include "components/permissions/features.h"
 #include "components/permissions/permission_util.h"
 #include "components/strings/grit/components_strings.h"
+#include "components/url_formatter/elide_url.h"
 #include "components/vector_icons/vector_icons.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/views/controls/button/image_button.h"
@@ -41,6 +46,22 @@ PermissionToggleRowView::PermissionToggleRowView(
   std::u16string detail = delegate->GetPermissionDetail(permission.type);
   if (!detail.empty())
     row_view_->AddSecondaryLabel(detail);
+
+  if (permission.requesting_origin.has_value()) {
+    std::u16string requesting_origin_string;
+    switch (permission.type) {
+      case ContentSettingsType::STORAGE_ACCESS:
+        requesting_origin_string = l10n_util::GetStringFUTF16(
+            IDS_PAGE_INFO_STORAGE_ACCESS_SECONDARY_TEXT,
+            url_formatter::FormatOriginForSecurityDisplay(
+                *permission.requesting_origin,
+                url_formatter::SchemeDisplay::OMIT_CRYPTOGRAPHIC));
+        break;
+      default:
+        NOTREACHED();
+    }
+    row_view_->AddSecondaryLabel(requesting_origin_string);
+  }
 
   if (permission.source == content_settings::SETTING_SOURCE_USER) {
     // If permission is not allowed because of security reasons, show a label
@@ -92,10 +113,13 @@ void PermissionToggleRowView::InitForUserSource(bool should_show_spacer_view) {
   auto toggle_button = std::make_unique<views::ToggleButton>(
       base::BindRepeating(&PermissionToggleRowView::OnToggleButtonPressed,
                           base::Unretained(this)));
-  toggle_button->SetPreferredSize({toggle_button->GetPreferredSize().width(),
-                                   row_view_->GetFirstLineHeight()});
+  toggle_button->SetID(
+      PageInfoViewFactory::VIEW_ID_PERMISSION_TOGGLE_ROW_TOGGLE_BUTTON);
+  toggle_button->SetPreferredSize(
+      gfx::Size(toggle_button->GetPreferredSize().width(),
+                row_view_->GetFirstLineHeight()));
   toggle_button->SetProperty(views::kMarginsKey,
-                             gfx::Insets(0, icon_label_spacing));
+                             gfx::Insets::VH(0, icon_label_spacing));
   toggle_button->SetAccessibleName(l10n_util::GetStringFUTF16(
       IDS_PAGE_INFO_SELECTOR_TOOLTIP,
       PageInfoUI::PermissionTypeToUIString(permission_.type)));
@@ -124,11 +148,11 @@ void PermissionToggleRowView::InitForUserSource(bool should_show_spacer_view) {
     // permissions to align toggles.
     if (should_show_spacer_view) {
       auto spacer_view = std::make_unique<views::View>();
-      spacer_view->SetPreferredSize({icon_size, icon_size});
+      spacer_view->SetPreferredSize(gfx::Size(icon_size, icon_size));
       spacer_view_ = row_view_->AddControl(std::move(spacer_view));
     } else {
-      toggle_button_->SetProperty(views::kMarginsKey,
-                                  gfx::Insets(0, icon_label_spacing, 0, 0));
+      toggle_button_->SetProperty(
+          views::kMarginsKey, gfx::Insets::TLBR(0, icon_label_spacing, 0, 0));
     }
   }
 }
@@ -141,7 +165,7 @@ void PermissionToggleRowView::InitForManagedSource(
       PageInfoUI::PermissionStateToUIString(delegate, permission_),
       views::style::CONTEXT_LABEL, views::style::STYLE_SECONDARY);
   state_label->SetProperty(views::kMarginsKey,
-                           gfx::Insets(0, icon_label_spacing));
+                           gfx::Insets::VH(0, icon_label_spacing));
   row_view_->AddControl(std::move(state_label));
 
   auto managed_icon = std::make_unique<NonAccessibleImageView>();

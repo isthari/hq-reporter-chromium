@@ -158,8 +158,7 @@ void SVGMarkerElement::setOrientToAngle(SVGAngleTearOff* angle) {
   setAttribute(svg_names::kOrientAttr, AtomicString(target->ValueAsString()));
 }
 
-LayoutObject* SVGMarkerElement::CreateLayoutObject(const ComputedStyle&,
-                                                   LegacyLayout) {
+LayoutObject* SVGMarkerElement::CreateLayoutObject(const ComputedStyle&) {
   return MakeGarbageCollected<LayoutSVGResourceMarker>(this);
 }
 
@@ -170,7 +169,7 @@ bool SVGMarkerElement::SelfHasRelativeLengths() const {
          marker_height_->CurrentValue()->IsRelative();
 }
 
-bool SVGMarkerElement::LayoutObjectIsNeeded(const ComputedStyle&) const {
+bool SVGMarkerElement::LayoutObjectIsNeeded(const DisplayStyle&) const {
   return IsValid() && HasSVGParent();
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "base/memory/raw_ptr_exclusion.h"
 #include "chrome/browser/ui/views/frame/web_contents_close_handler_delegate.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkColor.h"
@@ -35,15 +36,12 @@ class ContentsWebView
   void SetStatusBubble(StatusBubbleViews* status_bubble);
   StatusBubbleViews* GetStatusBubble() const;
 
-  // Allow overriding the view background color. This is used to make a
-  // transparent background for SWAs.
-  void SetBackgroundColorOverride(absl::optional<SkColor> background_color);
+  // Toggles whether the background is visible.
+  void SetBackgroundVisible(bool background_visible);
 
   // WebView overrides:
   bool GetNeedsNotificationWhenVisibleBoundsChange() const override;
   void OnVisibleBoundsChanged() override;
-  void ViewHierarchyChanged(
-      const views::ViewHierarchyChangedDetails& details) override;
   void OnThemeChanged() override;
   void RenderViewReady() override;
   void OnLetterboxingChanged() override;
@@ -56,11 +54,12 @@ class ContentsWebView
   void DestroyClonedLayer() override;
 
  private:
-  absl::optional<SkColor> GetBackgroundColor();
   void UpdateBackgroundColor();
-  StatusBubbleViews* status_bubble_;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION StatusBubbleViews* status_bubble_;
 
-  absl::optional<SkColor> background_color_override_;
+  bool background_visible_ = true;
 
   std::unique_ptr<ui::LayerTreeOwner> cloned_layer_tree_;
 };

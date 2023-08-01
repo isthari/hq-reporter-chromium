@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,11 +10,9 @@
 #include "ash/shelf/shelf.h"
 #include "ash/shelf/shelf_tooltip_bubble.h"
 #include "ash/shelf/shelf_tooltip_delegate.h"
-#include "ash/shelf/shelf_tooltip_preview_bubble.h"
 #include "ash/shelf/shelf_widget.h"
 #include "ash/shell.h"
-#include "base/bind.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/functional/bind.h"
 #include "base/time/time.h"
 #include "ui/aura/window.h"
 #include "ui/events/event.h"
@@ -73,16 +71,8 @@ void ShelfTooltipManager::ShowTooltip(views::View* view) {
       shelf_tooltip_delegate_->GetOpenWindowsForView(view);
 
   const ShelfAlignment alignment = shelf_->alignment();
-  const SkColor shelf_background_color =
-      shelf_->shelf_widget()->GetShelfBackgroundColor();
-  if (switches::ShouldShowShelfHoverPreviews() && open_windows.size() > 0) {
-    bubble_ = new ShelfTooltipPreviewBubble(view, open_windows, this, alignment,
-                                            shelf_background_color);
-  } else {
-    bubble_ =
-        new ShelfTooltipBubble(view, alignment, shelf_background_color,
-                               shelf_tooltip_delegate_->GetTitleForView(view));
-  }
+  bubble_ = new ShelfTooltipBubble(
+      view, alignment, shelf_tooltip_delegate_->GetTitleForView(view));
 
   aura::Window* window = bubble_->GetWidget()->GetNativeWindow();
   ::wm::SetWindowVisibilityAnimationType(
@@ -156,7 +146,7 @@ void ShelfTooltipManager::OnKeyEvent(ui::KeyEvent* event) {
   Close();
 }
 
-void ShelfTooltipManager::WillChangeVisibilityState(
+void ShelfTooltipManager::OnShelfVisibilityStateChanged(
     ShelfVisibilityState new_state) {
   if (new_state == SHELF_HIDDEN)
     Close();

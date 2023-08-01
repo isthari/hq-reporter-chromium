@@ -1,18 +1,19 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/display/cursor_window_controller.h"
 
 #include "ash/accessibility/magnifier/fullscreen_magnifier_controller.h"
+#include "ash/capture_mode/capture_mode_camera_controller.h"
 #include "ash/capture_mode/capture_mode_controller.h"
 #include "ash/capture_mode/capture_mode_session.h"
+#include "ash/color_enhancement/color_enhancement_controller.h"
 #include "ash/constants/ash_constants.h"
 #include "ash/constants/ash_pref_names.h"
 #include "ash/constants/ash_switches.h"
+#include "ash/curtain/security_curtain_controller.h"
 #include "ash/display/display_color_manager.h"
-#include "ash/display/mirror_window_controller.h"
-#include "ash/display/window_tree_host_manager.h"
 #include "ash/fast_ink/cursor/cursor_view.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/root_window_controller.h"
@@ -21,13 +22,12 @@
 #include "base/command_line.h"
 #include "base/metrics/histogram_macros.h"
 #include "components/prefs/pref_service.h"
-#include "ui/aura/cursor/cursors_aura.h"
 #include "ui/aura/env.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_delegate.h"
-#include "ui/aura/window_event_dispatcher.h"
 #include "ui/base/hit_test.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/base/resource/resource_scale_factor.h"
 #include "ui/compositor/paint_recorder.h"
 #include "ui/display/display.h"
 #include "ui/display/manager/display_manager.h"
@@ -37,13 +37,87 @@
 #include "ui/gfx/geometry/point_conversions.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/image/image_skia_operations.h"
+#include "ui/gfx/image/image_skia_source.h"
 #include "ui/views/widget/widget.h"
+#include "ui/wm/core/cursor_util.h"
 
 namespace ash {
+
 namespace {
 
 const int kMinLargeCursorSize = 25;
 const int kMaxLargeCursorSize = 64;
+const int kWideDisplayThreshold = 2400;
+
+SkBitmap GetColorAdjustedBitmap(const gfx::ImageSkiaRep& image_rep,
+                                SkColor cursor_color) {
+  const SkBitmap& bitmap = image_rep.GetBitmap();
+  // Recolor the black and greyscale parts of the image based on
+  // cursor_color_. Do not recolor pure white or tinted portions of the image,
+  // this ensures we do not impact the colored portions of cursors or the
+  // transition between the colored portion and white outline.
+  // TODO(crbug.com/1085442): Programmatically find a way to recolor the white
+  // parts in order to draw a black outline, but without impacting cursors
+  // like noDrop which contained tinted portions. Or, add new assets with
+  // black and white inverted for easier re-coloring.
+  SkBitmap recolored;
+  recolored.allocN32Pixels(bitmap.width(), bitmap.height());
+  recolored.eraseARGB(0, 0, 0, 0);
+  SkCanvas canvas(recolored);
+  canvas.drawImage(bitmap.asImage(), 0, 0);
+  color_utils::HSL cursor_hsl;
+  color_utils::SkColorToHSL(cursor_color, &cursor_hsl);
+  for (int y = 0; y < bitmap.height(); ++y) {
+    for (int x = 0; x < bitmap.width(); ++x) {
+      const SkColor color = bitmap.getColor(x, y);
+      // If the alpha is lower than 1, it's transparent, skip it.
+      if (SkColorGetA(color) < 1) {
+        continue;
+      }
+      // Convert to HSL: We want to change the hue and saturation, and
+      // map the lightness from 0-100 to cursor_hsl.l-100. This means that
+      // things which were black (l=0) become the cursor color lightness, and
+      // things which were white (l=100) stay white.
+      color_utils::HSL hsl;
+      color_utils::SkColorToHSL(color, &hsl);
+      // If it has color, do not change it.
+      if (hsl.s > 0.01) {
+        continue;
+      }
+      color_utils::HSL result;
+      result.h = cursor_hsl.h;
+      result.s = cursor_hsl.s;
+      result.l = hsl.l * (1 - cursor_hsl.l) + cursor_hsl.l;
+      SkPaint paint;
+      paint.setColor(color_utils::HSLToSkColor(result, SkColorGetA(color)));
+      canvas.drawRect(SkRect::MakeXYWH(x, y, 1, 1), paint);
+    }
+  }
+  return recolored;
+}
+
+// The ImageSkiaSource that translate the color of the cursor.
+class CursorImageSource : public gfx::ImageSkiaSource {
+ public:
+  CursorImageSource(gfx::ImageSkia& image_skia, SkColor cursor_color)
+      : image_skia_(image_skia), cursor_color_(cursor_color) {
+    DCHECK_NE(cursor_color_, kDefaultCursorColor);
+  }
+  CursorImageSource(const CursorImageSource&) = delete;
+  CursorImageSource& operator=(const CursorImageSource&) = delete;
+  ~CursorImageSource() override = default;
+
+  // gfx::ImageSkiaSource:
+  gfx::ImageSkiaRep GetImageForScale(float scale) override {
+    const gfx::ImageSkiaRep& rep = image_skia_.GetRepresentation(scale);
+    return gfx::ImageSkiaRep(GetColorAdjustedBitmap(rep, cursor_color_),
+                             rep.scale());
+  }
+
+ private:
+  gfx::ImageSkia image_skia_;
+  SkColor cursor_color_;
+};
 
 }  // namespace
 
@@ -147,21 +221,53 @@ bool CursorWindowController::ShouldEnableCursorCompositing() {
   if (is_cursor_motion_blur_enabled_)
     return true;
 
-  auto* session = CaptureModeController::Get()->capture_mode_session();
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kForceShowCursor)) {
+    return false;
+  }
+
+  auto* controller = CaptureModeController::Get();
+  auto* session = controller->capture_mode_session();
   if (session && session->is_drag_in_progress()) {
     // To ensure the cursor is aligned with the dragged region.
+    return true;
+  }
+
+  if (controller->camera_controller()->is_drag_in_progress()) {
+    // To ensure the cursor is aligned with the dragged camera preview.
+    return true;
+  }
+
+  Shell* shell = Shell::Get();
+  if (shell->security_curtain_controller().IsEnabled()) {
     return true;
   }
 
   // During startup, we may not have a preference service yet. We need to check
   // display manager state first so that we don't accidentally ignore it while
   // early outing when there isn't a PrefService yet.
-  Shell* shell = Shell::Get();
   display::DisplayManager* display_manager = shell->display_manager();
   if ((display_manager->IsInSoftwareMirrorMode()) ||
       display_manager->IsInUnifiedMode() ||
       display_manager->screen_capture_is_active()) {
     return true;
+  }
+
+  // On specific CrOS devices (e.g. herobrine), driving a wide display requires
+  // more display hardware resources than a lower-resolution panel. If a wide
+  // display is connected as an external monitor, we can run out of hardware
+  // planes to display a separate cursor. As a result, we need to force the
+  // software cursor in this scenario.
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kSwCursorOnWideDisplays) &&
+      display_manager->num_connected_displays() > 1) {
+    for (const auto& display : display::Screen::GetScreen()->GetAllDisplays()) {
+      DCHECK(display.is_valid());
+      if (display.is_valid() &&
+          display.size().width() >= kWideDisplayThreshold) {
+        return true;
+      }
+    }
   }
 
   if (shell->fullscreen_magnifier_controller()->IsEnabled())
@@ -190,6 +296,11 @@ bool CursorWindowController::ShouldEnableCursorCompositing() {
                               displays_ctm_support);
     if (displays_ctm_support != DisplayColorManager::DisplayCtmSupport::kAll)
       return true;
+  }
+
+  if (shell->color_enhancement_controller()
+          ->ShouldEnableCursorCompositingForSepia()) {
+    return true;
   }
 
   return prefs->GetBoolean(prefs::kAccessibilityLargeCursorEnabled) ||
@@ -247,6 +358,17 @@ void CursorWindowController::SetDisplay(const display::Display& display) {
   UpdateCursorImage();
 }
 
+void CursorWindowController::OnDockedMagnifierResizingStateChanged(
+    bool is_active) {
+  if (!container_) {
+    return;
+  }
+  const int container_id = is_active ? kShellWindowId_DockedMagnifierContainer
+                                     : kShellWindowId_MouseCursorContainer;
+  SetContainer(
+      RootWindowController::ForWindow(container_)->GetContainer(container_id));
+}
+
 void CursorWindowController::UpdateLocation() {
   if (!cursor_window_)
     return;
@@ -276,9 +398,22 @@ void CursorWindowController::SetVisibility(bool visible) {
   UpdateCursorVisibility();
 }
 
+const aura::Window* CursorWindowController::GetContainerForTest() const {
+  return container_;
+}
+
+SkColor CursorWindowController::GetCursorColorForTest() const {
+  return cursor_color_;
+}
+
+gfx::Rect CursorWindowController::GetBoundsForTest() const {
+  return cursor_window_->GetBoundsInScreen();
+}
+
 void CursorWindowController::SetContainer(aura::Window* container) {
-  if (container_ == container)
+  if (container_ == container) {
     return;
+  }
   container_ = container;
   if (!container) {
     cursor_window_.reset();
@@ -310,46 +445,52 @@ void CursorWindowController::SetContainer(aura::Window* container) {
 void CursorWindowController::SetBoundsInScreenAndRotation(
     const gfx::Rect& bounds,
     display::Display::Rotation rotation) {
-  if (bounds == bounds_in_screen_ && rotation == rotation_)
+  if (bounds == bounds_in_screen_ && rotation == rotation_) {
     return;
+  }
   bounds_in_screen_ = bounds;
   rotation_ = rotation;
-  if (cursor_view_widget_)
+  if (cursor_view_widget_) {
     UpdateCursorView();
+  }
   UpdateLocation();
 }
 
 void CursorWindowController::UpdateCursorImage() {
-  if (!is_cursor_compositing_enabled_)
+  if (!is_cursor_compositing_enabled_) {
     return;
+  }
 
-  // Use the original device scale factor instead of the display's, which
-  // might have been adjusted for the UI scale.
-  const float original_scale = Shell::Get()
-                                   ->display_manager()
-                                   ->GetDisplayInfo(display_.id())
-                                   .device_scale_factor();
-  // And use the nearest resource scale factor.
-  float cursor_scale = ui::GetScaleForResourceScaleFactor(
-      ui::GetSupportedResourceScaleFactor(original_scale));
-
+  float cursor_scale;
   gfx::ImageSkia image;
   gfx::Point hot_point_in_physical_pixels;
   if (cursor_.type() == ui::mojom::CursorType::kCustom) {
     const SkBitmap& bitmap = cursor_.custom_bitmap();
-    if (bitmap.isNull())
+    if (bitmap.isNull()) {
       return;
-    image = gfx::ImageSkia::CreateFrom1xBitmap(bitmap);
+    }
+    cursor_scale = cursor_.image_scale_factor();
+    image = gfx::ImageSkia::CreateFromBitmap(bitmap, cursor_scale);
     hot_point_in_physical_pixels = cursor_.custom_hotspot();
   } else {
+    // Do not use the device scale factor, as the cursor will be scaled
+    // by compositor. HW cursor will not be scaled by display zoom, so the
+    // physical size will be inconsistent.
     int resource_id;
-    if (!aura::GetCursorDataFor(cursor_size_, cursor_.type(), cursor_scale,
-                                &resource_id, &hot_point_in_physical_pixels)) {
+    cursor_scale = ui::GetScaleForResourceScaleFactor(
+        ui::GetSupportedResourceScaleFactorForRescale(
+            display_.device_scale_factor()));
+    if (!wm::GetCursorDataFor(cursor_size_, cursor_.type(), cursor_scale,
+                              &resource_id, &hot_point_in_physical_pixels)) {
       return;
     }
     image =
         *ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(resource_id);
   }
+  // Use `gfx::ToFlooredPoint` as `ImageSkiaRep::GetWidth` is implemented as
+  // `return static_cast<int>(pixel_width() / scale());`.
+  hot_point_ = gfx::ToFlooredPoint(
+      gfx::ConvertPointToDips(hot_point_in_physical_pixels, cursor_scale));
 
   gfx::ImageSkia resized = image;
 
@@ -362,22 +503,21 @@ void CursorWindowController::UpdateCursorImage() {
     float rescale = static_cast<float>(large_cursor_size_in_dip_) /
                     static_cast<float>(image.size().width());
     resized = gfx::ImageSkiaOperations::CreateResizedImage(
-        image, skia::ImageOperations::ResizeMethod::RESIZE_GOOD,
+        image, skia::ImageOperations::ResizeMethod::RESIZE_BEST,
         gfx::ScaleToCeiledSize(image.size(), rescale));
-    hot_point_in_physical_pixels =
-        gfx::ScaleToCeiledPoint(hot_point_in_physical_pixels, rescale);
+    hot_point_ = gfx::ScaleToCeiledPoint(hot_point_, rescale);
   }
 
-  const gfx::ImageSkiaRep& image_rep = resized.GetRepresentation(cursor_scale);
-  delegate_->SetCursorImage(resized.size(),
-                            gfx::ImageSkia::CreateFromBitmap(
-                                GetAdjustedBitmap(image_rep), cursor_scale));
-  // TODO(danakj): Should this be rounded? Or kept as a floating point?
-  hot_point_ = gfx::ToFlooredPoint(
-      gfx::ConvertPointToDips(hot_point_in_physical_pixels, cursor_scale));
+  if (cursor_color_ != kDefaultCursorColor) {
+    resized = gfx::ImageSkia(
+        std::make_unique<CursorImageSource>(resized, cursor_color_),
+        resized.size());
+  }
+
+  delegate_->SetCursorImage(resized.size(), resized);
 
   if (cursor_view_widget_) {
-    static_cast<cursor::CursorView*>(cursor_view_widget_->GetContentsView())
+    static_cast<CursorView*>(cursor_view_widget_->GetContentsView())
         ->SetCursorImage(delegate_->cursor_image(), delegate_->size(),
                          hot_point_);
   }
@@ -405,61 +545,14 @@ void CursorWindowController::UpdateCursorVisibility() {
 }
 
 void CursorWindowController::UpdateCursorView() {
-  cursor_view_widget_ = cursor::CursorView::Create(
-      aura::Env::GetInstance()->last_mouse_location(),
-      is_cursor_motion_blur_enabled_, container_);
+  cursor_view_widget_ =
+      CursorView::Create(aura::Env::GetInstance()->last_mouse_location(),
+                         is_cursor_motion_blur_enabled_, container_);
   UpdateCursorImage();
 }
 
 const gfx::ImageSkia& CursorWindowController::GetCursorImageForTest() const {
   return delegate_->cursor_image();
-}
-
-SkBitmap CursorWindowController::GetAdjustedBitmap(
-    const gfx::ImageSkiaRep& image_rep) const {
-  SkBitmap bitmap = image_rep.GetBitmap();
-  if (cursor_color_ == kDefaultCursorColor)
-    return bitmap;
-  // Recolor the black and greyscale parts of the image based on
-  // cursor_color_. Do not recolor pure white or tinted portions of the image,
-  // this ensures we do not impact the colored portions of cursors or the
-  // transition between the colored portion and white outline.
-  // TODO(crbug.com/1085442): Programmatically find a way to recolor the white
-  // parts in order to draw a black outline, but without impacting cursors
-  // like noDrop which contained tinted portions. Or, add new assets with
-  // black and white inverted for easier re-coloring.
-  SkBitmap recolored;
-  recolored.allocN32Pixels(bitmap.width(), bitmap.height());
-  recolored.eraseARGB(0, 0, 0, 0);
-  SkCanvas canvas(recolored);
-  canvas.drawImage(bitmap.asImage(), 0, 0);
-  color_utils::HSL cursor_hsl;
-  color_utils::SkColorToHSL(cursor_color_, &cursor_hsl);
-  for (int y = 0; y < bitmap.height(); ++y) {
-    for (int x = 0; x < bitmap.width(); ++x) {
-      SkColor color = bitmap.getColor(x, y);
-      // If the alpha is lower than 1, it's transparent, skip it.
-      if (SkColorGetA(color) < 1)
-        continue;
-      // Convert to HSL: We want to change the hue and saturation, and
-      // map the lightness from 0-100 to cursor_hsl.l-100. This means that
-      // things which were black (l=0) become the cursor color lightness, and
-      // things which were white (l=100) stay white.
-      color_utils::HSL hsl;
-      color_utils::SkColorToHSL(color, &hsl);
-      // If it has color, do not change it.
-      if (hsl.s > 0.01)
-        continue;
-      color_utils::HSL result;
-      result.h = cursor_hsl.h;
-      result.s = cursor_hsl.s;
-      result.l = hsl.l * (1 - cursor_hsl.l) + cursor_hsl.l;
-      SkPaint paint;
-      paint.setColor(color_utils::HSLToSkColor(result, SkColorGetA(color)));
-      canvas.drawRect(SkRect::MakeXYWH(x, y, 1, 1), paint);
-    }
-  }
-  return recolored;
 }
 
 }  // namespace ash

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,6 @@
 #define IOS_CHROME_BROWSER_UI_AUTHENTICATION_SIGNIN_SIGNIN_CONSTANTS_H_
 
 #import <Foundation/Foundation.h>
-
-@class ChromeIdentity;
 
 // Sign-in result returned Sign-in result.
 typedef NS_ENUM(NSUInteger, SigninCoordinatorResult) {
@@ -37,8 +35,6 @@ typedef NS_ENUM(NSUInteger, SigninCoordinatorInterruptAction) {
   SigninCoordinatorInterruptActionDismissWithAnimation,
 };
 
-// Name of notification sent when the user has attempted a sign-in.
-extern NSString* const kUserSigninAttemptedNotification;
 // Name of accessibility identifier for the skip sign-in button.
 extern NSString* const kSkipSigninAccessibilityIdentifier;
 // Name of accessibility identifier for the add account button in the sign-in
@@ -51,12 +47,14 @@ extern NSString* const kConfirmationAccessibilityIdentifier;
 extern NSString* const kMoreAccessibilityIdentifier;
 // Name of accessibility identifier for the web sign-in consistency sheet.
 extern NSString* const kWebSigninAccessibilityIdentifier;
-// Name of accessiblity identifier for "Continue As..." button that signs in
-// the primary account user for the web sign-in consistency sheet.
-extern NSString* const kWebSigninContinueAsButtonAccessibilityIdentifier;
+// Name of accessibility identifier for the primary button that signs in
+// the user for the web sign-in consistency sheet.
+extern NSString* const kWebSigninPrimaryButtonAccessibilityIdentifier;
 // Name of accessibility identifier for "Skip" button in the web sign-in
 // consistency sheet.
 extern NSString* const kWebSigninSkipButtonAccessibilityIdentifier;
+// Name of the accessibility identifier for the Tangible Sync view.
+extern NSString* const kTangibleSyncViewAccessibilityIdentifier;
 
 // Action that is required to do to complete the sign-in, or instead of sign-in.
 // This action is in charge of the SigninCoordinator's owner.

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@ import android.content.Context;
 import android.content.res.TypedArray;
 import android.text.Editable;
 import android.text.InputType;
-import android.text.TextWatcher;
 import android.util.AttributeSet;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.EditText;
@@ -17,6 +16,7 @@ import android.widget.TextView;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.ui.KeyboardVisibilityDelegate;
+import org.chromium.ui.text.EmptyTextWatcher;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -90,13 +90,7 @@ public class RadioButtonWithEditText extends RadioButtonWithDescription {
         super.setViewsInternal();
 
         mEditText = (EditText) getPrimaryTextView();
-        mEditText.addTextChangedListener(new TextWatcher() {
-            @Override
-            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-
-            @Override
-            public void onTextChanged(CharSequence s, int start, int before, int count) {}
-
+        mEditText.addTextChangedListener(new EmptyTextWatcher() {
             @Override
             public void afterTextChanged(Editable s) {
                 // Text set through AttributionSet will trigger this function before mListeners

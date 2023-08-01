@@ -1,4 +1,4 @@
-# Copyright 2017 The Chromium Authors. All rights reserved.
+# Copyright 2017 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -36,6 +36,10 @@ class MockWPTGitHub(object):
         self.create_pr_fail_index = create_pr_fail_index
         self.merged_index = merged_index
         self.check_runs = []
+
+    def all_provisional_pull_requests(self):
+        self.calls.append('all_provisional_pull_requests')
+        return self.pull_requests
 
     def all_pull_requests(self, limit=30):
         self.calls.append('all_pull_requests')

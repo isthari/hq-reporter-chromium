@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,29 +32,32 @@ class CORE_EXPORT TextUpdateEvent final : public Event {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  TextUpdateEvent(const TextUpdateEventInit* dict);
-  TextUpdateEvent(const String& update_text,
+  TextUpdateEvent(const AtomicString& type,
+                  const TextUpdateEventInit* initializer);
+  TextUpdateEvent(const AtomicString& type,
+                  const String& update_text,
                   uint32_t update_range_start,
                   uint32_t update_range_end,
-                  uint32_t new_selection_start,
-                  uint32_t new_selection_end);
-  static TextUpdateEvent* Create(const TextUpdateEventInit* dict);
+                  uint32_t selection_start,
+                  uint32_t selection_end);
+  static TextUpdateEvent* Create(const AtomicString& type,
+                                 const TextUpdateEventInit* initializer);
   ~TextUpdateEvent() override;
 
-  String updateText() const;
+  String text() const;
   uint32_t updateRangeStart() const;
   uint32_t updateRangeEnd() const;
-  uint32_t newSelectionStart() const;
-  uint32_t newSelectionEnd() const;
+  uint32_t selectionStart() const;
+  uint32_t selectionEnd() const;
 
   const AtomicString& InterfaceName() const override;
   // member variables to keep track of the event parameters
  private:
-  String update_text_;
+  String text_;
   uint32_t update_range_start_ = 0;
   uint32_t update_range_end_ = 0;
-  uint32_t new_selection_start_ = 0;
-  uint32_t new_selection_end_ = 0;
+  uint32_t selection_start_ = 0;
+  uint32_t selection_end_ = 0;
 };
 
 }  // namespace blink

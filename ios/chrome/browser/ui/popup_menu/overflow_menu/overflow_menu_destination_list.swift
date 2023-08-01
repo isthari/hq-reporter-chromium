@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,40 +36,128 @@ struct OverflowMenuDestinationList: View {
 
     /// Space above the list pushing them down from the grabber.
     static let topMargin: CGFloat = 20
+
+    /// The name for the coordinate space of the scroll view, so children can
+    /// find their positioning in the scroll view.
+    static let coordinateSpaceName = "destinations"
+  }
+
+  /// `PreferenceKey` to track the leading offset of the scroll view.
+  struct ScrollViewLeadingOffset: PreferenceKey {
+    static var defaultValue: CGFloat = .greatestFiniteMagnitude
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+      value = min(value, nextValue())
+    }
+  }
+
+  /// `PreferenceKey` to track the highlighted destination's bounds in its local coordinate space,
+  /// can be transformed to other coordinate space by geometry reader.
+  struct HighlightedDestinationBounds: PreferenceKey {
+    typealias Value = Anchor<CGRect>?
+    static var defaultValue: Value = nil
+    static func reduce(value: inout Value, nextValue: () -> Value) {
+      // AnchorPreference might be nil in the middle of layout.
+      if let next = nextValue() {
+        value = next
+      }
+    }
   }
 
   /// The current dynamic type size.
   @Environment(\.sizeCategory) var sizeCategory
 
+  /// The current environment layout direction.
+  @Environment(\.layoutDirection) var layoutDirection: LayoutDirection
+
   /// The destinations for this view.
   var destinations: [OverflowMenuDestination]
 
+  weak var metricsHandler: PopupMenuMetricsHandler?
+
+  @ObservedObject var uiConfiguration: OverflowMenuUIConfiguration
+
+  /// Tracks the list's current offset, to see when it scrolls. When the offset
+  /// is `nil`, scroll tracking is not set up yet. This is necessary because
+  /// in RTL languages, the scroll view has to manually scroll to the right edge
+  /// of the list first.
+  @State var listOffset: CGFloat? = nil
+
   var body: some View {
-    GeometryReader { geometry in
+    VStack {
+      Spacer(minLength: Constants.topMargin)
+      GeometryReader { geometry in
+        scrollView(in: geometry)
+          .coordinateSpace(name: Constants.coordinateSpaceName)
+          .accessibilityIdentifier(kPopupMenuToolsMenuTableViewId)
+      }
+    }
+    .background(
+      Color("destination_highlight_color").opacity(uiConfiguration.highlightDestinationsRow ? 1 : 0)
+    )
+    .animation(
+      .linear(duration: kMaterialDuration3), value: uiConfiguration.highlightDestinationsRow
+    )
+    .onPreferenceChange(ScrollViewLeadingOffset.self) { newOffset in
+      // Only alert the handler if scroll tracking has started.
+      if let listOffset = listOffset,
+        newOffset != listOffset
+      {
+        metricsHandler?.popupMenuScrolledHorizontally()
+      }
+      // Only update the offset if scroll tracking has started or the newOffset
+      // is approximately 0 (this starts scroll tracking). In RTL mode, the
+      // offset is not exactly 0, so a strict comparison won't work.
+      if listOffset != nil || (listOffset == nil && abs(newOffset) < 1e-9) {
+        listOffset = newOffset
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func scrollView(in geometry: GeometryProxy) -> some View {
+    ScrollViewReader { proxy in
       ScrollView(.horizontal, showsIndicators: false) {
-        let spacing = destinationSpacing(forScreenWidth: geometry.size.width)
-        let layoutParameters: OverflowMenuDestinationView.LayoutParameters =
-          sizeCategory >= .accessibilityMedium
-          ? .horizontal(itemWidth: geometry.size.width - Constants.largeTextSizeSpace)
-          : .vertical(
-            iconSpacing: spacing.iconSpacing,
-            iconPadding: spacing.iconPadding)
+        let spacing = OverflowMenuDestinationList.destinationSpacing(
+          forScreenWidth: geometry.size.width)
+        let layoutParameters = OverflowMenuDestinationList.layoutParameters(
+          forScreenWidth: geometry.size.width, forSizeCategory: sizeCategory)
         let alignment: VerticalAlignment = sizeCategory >= .accessibilityMedium ? .center : .top
 
-        VStack {
-          Spacer(minLength: Constants.topMargin)
-          LazyHStack(alignment: alignment, spacing: 0) {
+        ZStack {
+          HStack(alignment: alignment, spacing: 0) {
+            // Make sure the space to the first icon is constant, so add extra
+            // spacing before the first item.
+            Spacer().frame(width: Constants.iconInitialSpace - spacing.iconSpacing)
             ForEach(destinations) { destination in
               OverflowMenuDestinationView(
-                destination: destination, layoutParameters: layoutParameters)
+                destination: destination, layoutParameters: layoutParameters,
+                highlighted: uiConfiguration.highlightDestination == destination.destination,
+                metricsHandler: metricsHandler
+              ).id(destination.destination)
             }
           }
+
+          GeometryReader { innerGeometry in
+            let frame = innerGeometry.frame(in: .named(Constants.coordinateSpaceName))
+            let parentWidth = geometry.size.width
+
+            // When the view is RTL, the offset should be calculated from the
+            // right edge.
+            let offset = layoutDirection == .leftToRight ? frame.minX : parentWidth - frame.maxX
+
+            Color.clear
+              .preference(key: ScrollViewLeadingOffset.self, value: offset)
+          }
         }
-        // Make sure the space to the first icon is constant, so add extra
-        // spacing before the first item.
-        .padding([.leading], Constants.iconInitialSpace - spacing.iconSpacing)
       }
-      .accessibilityIdentifier(kPopupMenuToolsMenuTableViewId)
+      .onAppear {
+        if destinations.map(\.destination).contains(uiConfiguration.highlightDestination) {
+          proxy.scrollTo(uiConfiguration.highlightDestination)
+        } else if layoutDirection == .rightToLeft {
+          proxy.scrollTo(destinations.first?.destination)
+        }
+        uiConfiguration.destinationListScreenFrame = geometry.frame(in: .global)
+      }
     }
   }
 
@@ -77,7 +165,7 @@ struct OverflowMenuDestinationList: View {
   ///
   /// Returns `nil` for either end if `width` is above or below the largest or
   /// smallest breakpoint.
-  private func findBreakpoints(forScreenWidth width: CGFloat) -> (CGFloat?, CGFloat?) {
+  private static func findBreakpoints(forScreenWidth width: CGFloat) -> (CGFloat?, CGFloat?) {
     // Add extra sentinel values to either end of the breakpoint array.
     let x = zip(
       Constants.lowerWidthBreakpoints, Constants.upperWidthBreakpoints
@@ -96,7 +184,7 @@ struct OverflowMenuDestinationList: View {
   }
 
   /// Calculates the icon spacing and padding for the given `width`.
-  private func destinationSpacing(forScreenWidth width: CGFloat) -> (
+  private static func destinationSpacing(forScreenWidth width: CGFloat) -> (
     iconSpacing: CGFloat, iconPadding: CGFloat
   ) {
     let (lowerBreakpoint, upperBreakpoint) = findBreakpoints(
@@ -129,9 +217,34 @@ struct OverflowMenuDestinationList: View {
     return (iconSpacing: iconSpacing, iconPadding: iconPadding)
   }
 
+  private static func layoutParameters(
+    forScreenWidth width: CGFloat, forSizeCategory sizeCategory: ContentSizeCategory
+  ) -> OverflowMenuDestinationView.LayoutParameters {
+    let spacing = OverflowMenuDestinationList.destinationSpacing(forScreenWidth: width)
+
+    return sizeCategory >= .accessibilityMedium
+      ? .horizontal(itemWidth: width - Constants.largeTextSizeSpace)
+      : .vertical(
+        iconSpacing: spacing.iconSpacing,
+        iconPadding: spacing.iconPadding)
+  }
+
+  public static func numDestinationsVisibleWithoutHorizontalScrolling(
+    forScreenWidth width: CGFloat, forSizeCategory sizeCategory: ContentSizeCategory
+  )
+    -> CGFloat
+  {
+    let layoutParameters = OverflowMenuDestinationList.layoutParameters(
+      forScreenWidth: width, forSizeCategory: sizeCategory)
+    let destinationWidth = OverflowMenuDestinationButton.destinationWidth(
+      forLayoutParameters: layoutParameters)
+
+    return (width / destinationWidth).rounded(.up)
+  }
+
   /// Maps the given `number` from its relative position in `inRange` to its
   /// relative position in `outRange`.
-  private func mapNumber<F: FloatingPoint>(
+  private static func mapNumber<F: FloatingPoint>(
     _ number: F, from inRange: ClosedRange<F>, to outRange: ClosedRange<F>
   ) -> F {
     let scalingFactor =

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include <memory>
 #include <string>
 
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/notifications/notifier_controller.h"
 #include "components/services/app_service/public/cpp/app_registry_cache.h"
@@ -39,6 +40,7 @@ class ArcApplicationNotifierController
                           bool enabled) override;
 
  private:
+  void CallLoadIcons();
   void CallLoadIcon(const std::string& app_id, bool allow_placeholder_icon);
   void OnLoadIcon(const std::string& app_id, apps::IconValuePtr icon_value);
 
@@ -50,8 +52,8 @@ class ArcApplicationNotifierController
       apps::AppRegistryCache* cache) override;
 
   // Needed to load icons for ARC apps.
-  Profile* last_used_profile_ = nullptr;
-  NotifierController::Observer* observer_;
+  raw_ptr<Profile, ExperimentalAsh> last_used_profile_ = nullptr;
+  raw_ptr<NotifierController::Observer, ExperimentalAsh> observer_;
 
   // Used to keep track of all PWA start URLs to prevent creation of duplicate
   // notifier metadata.

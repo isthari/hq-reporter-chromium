@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include <string>
 
-#include "base/bind.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "content/browser/devtools/devtools_background_services_context_impl.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
@@ -51,10 +51,6 @@ void DidFindServiceWorkerRegistration(
     scoped_refptr<ServiceWorkerRegistration> service_worker_registration) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  if (event_type == ServiceWorkerMetrics::EventType::PUSH) {
-    UMA_HISTOGRAM_ENUMERATION("PushMessaging.DeliveryStatus.FindServiceWorker",
-                              service_worker_status);
-  }
   if (service_worker_status != blink::ServiceWorkerStatusCode::kOk) {
     std::move(callback).Run(nullptr /* service_worker_version */,
                             nullptr /* devtools_context */,
@@ -82,7 +78,8 @@ void FindServiceWorkerRegistration(
   // Try to acquire the registration from storage. If it's already live we'll
   // receive it right away. If not, it will be revived from storage.
   service_worker_context->FindReadyRegistrationForId(
-      service_worker_registration_id, blink::StorageKey(origin),
+      service_worker_registration_id,
+      blink::StorageKey::CreateFirstParty(origin),
       base::BindOnce(&DidFindServiceWorkerRegistration, event_type,
                      std::move(devtools_context), std::move(callback)));
 }
@@ -103,8 +100,9 @@ void StartServiceWorkerForDispatch(ServiceWorkerMetrics::EventType event_type,
           partition->GetServiceWorkerContext());
   auto devtools_context =
       base::WrapRefCounted<DevToolsBackgroundServicesContextImpl>(
-          service_worker_context->storage_partition()
-              ->GetDevToolsBackgroundServicesContext());
+          static_cast<DevToolsBackgroundServicesContextImpl*>(
+              service_worker_context->storage_partition()
+                  ->GetDevToolsBackgroundServicesContext()));
 
   FindServiceWorkerRegistration(
       event_type, std::move(service_worker_context),
@@ -175,7 +173,7 @@ void PushMessagingRouter::DeliverMessageToWorker(
     if (payload)
       event_metadata["Payload"] = *payload;
     devtools_context->LogBackgroundServiceEvent(
-        service_worker->registration_id(), service_worker->key().origin(),
+        service_worker->registration_id(), service_worker->key(),
         DevToolsBackgroundService::kPushMessaging, "Push event dispatched",
         message_id, event_metadata);
   }
@@ -189,8 +187,6 @@ void PushMessagingRouter::DeliverMessageEnd(
     PushEventCallback deliver_message_callback,
     blink::ServiceWorkerStatusCode service_worker_status) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  UMA_HISTOGRAM_ENUMERATION("PushMessaging.DeliveryStatus.ServiceWorkerEvent",
-                            service_worker_status);
   blink::mojom::PushEventStatus push_event_status =
       blink::mojom::PushEventStatus::SERVICE_WORKER_ERROR;
   std::string status_description;
@@ -241,7 +237,7 @@ void PushMessagingRouter::DeliverMessageEnd(
       push_event_status !=
           blink::mojom::PushEventStatus::SERVICE_WORKER_ERROR) {
     devtools_context->LogBackgroundServiceEvent(
-        service_worker->registration_id(), service_worker->key().origin(),
+        service_worker->registration_id(), service_worker->key(),
         DevToolsBackgroundService::kPushMessaging, "Push event completed",
         message_id, {{"Status", status_description}});
   }

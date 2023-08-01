@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,8 @@
 
 #include <memory>
 
-#include "net/base/address_list.h"
+#include "base/values.h"
+#include "net/base/ip_endpoint.h"
 #include "net/base/net_export.h"
 #include "net/base/rand_callback.h"
 #include "net/dns/dns_config.h"
@@ -37,7 +38,7 @@ class NET_EXPORT DnsClient {
  public:
   static const int kMaxInsecureFallbackFailures = 16;
 
-  virtual ~DnsClient() {}
+  virtual ~DnsClient() = default;
 
   // Returns true if the DnsClient is able and allowed to make secure DNS
   // transactions and DoH probe runners. If false, secure transactions and DoH
@@ -89,7 +90,7 @@ class NET_EXPORT DnsClient {
 
   // Returns all preset addresses for the specified endpoint, if any are
   // present in the current effective DnsConfig.
-  virtual absl::optional<AddressList> GetPresetAddrs(
+  virtual absl::optional<std::vector<IPEndPoint>> GetPresetAddrs(
       const url::SchemeHostPort& endpoint) const = 0;
 
   // Returns null if the current config is not valid.
@@ -99,6 +100,11 @@ class NET_EXPORT DnsClient {
 
   virtual void IncrementInsecureFallbackFailures() = 0;
   virtual void ClearInsecureFallbackFailures() = 0;
+
+  // Return the effective DNS configuration as a value that can be recorded in
+  // the NetLog. This also synthesizes interpretative data to the Value, e.g.
+  // whether secure and insecure transactions are enabled.
+  virtual base::Value::Dict GetDnsConfigAsValueForNetLog() const = 0;
 
   virtual absl::optional<DnsConfig> GetSystemConfigForTesting() const = 0;
   virtual DnsConfigOverrides GetConfigOverridesForTesting() const = 0;
@@ -114,7 +120,6 @@ class NET_EXPORT DnsClient {
   // the returned DnsClient.
   static std::unique_ptr<DnsClient> CreateClientForTesting(
       NetLog* net_log,
-      ClientSocketFactory* socket_factory,
       const RandIntCallback& rand_int_callback);
 };
 

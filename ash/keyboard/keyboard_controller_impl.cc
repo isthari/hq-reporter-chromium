@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "ash/constants/ash_constants.h"
+#include "ash/constants/ash_features.h"
 #include "ash/constants/ash_pref_names.h"
 #include "ash/keyboard/ui/keyboard_ui_controller.h"
 #include "ash/keyboard/ui/keyboard_ui_factory.h"
@@ -18,9 +19,12 @@
 #include "ash/shelf/shelf.h"
 #include "ash/shell.h"
 #include "ash/shell_delegate.h"
+#include "ash/system/input_device_settings/input_device_settings_controller_impl.h"
 #include "ash/wm/window_util.h"
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/feature_list.h"
+#include "base/functional/bind.h"
+#include "base/metrics/histogram_functions.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_service.h"
@@ -67,13 +71,10 @@ absl::optional<display::Display> GetFirstTouchDisplay() {
 bool GetVirtualKeyboardFeatureValue(PrefService* prefs,
                                     const std::string& feature_path) {
   DCHECK(prefs);
-  const base::Value* features =
-      prefs->GetDictionary(prefs::kAccessibilityVirtualKeyboardFeatures);
+  const base::Value::Dict& features =
+      prefs->GetDict(prefs::kAccessibilityVirtualKeyboardFeatures);
 
-  if (!features)
-    return false;
-
-  return features->FindBoolPath(feature_path).value_or(false);
+  return features.FindBool(feature_path).value_or(false);
 }
 
 }  // namespace
@@ -97,6 +98,11 @@ KeyboardControllerImpl::~KeyboardControllerImpl() {
 // static
 void KeyboardControllerImpl::RegisterProfilePrefs(
     PrefRegistrySimple* registry) {
+  registry->RegisterBooleanPref(
+      ash::prefs::kLongPressDiacriticsEnabled,
+      base::FeatureList::IsEnabled(
+          ash::features::kDiacriticsOnPhysicalKeyboardLongpressDefaultOn),
+      user_prefs::PrefRegistrySyncable::SYNCABLE_OS_PREF);
   registry->RegisterBooleanPref(
       ash::prefs::kXkbAutoRepeatEnabled, ash::kDefaultKeyAutoRepeatEnabled,
       user_prefs::PrefRegistrySyncable::SYNCABLE_OS_PREF);
@@ -269,13 +275,26 @@ void KeyboardControllerImpl::RemoveObserver(
   observers_.RemoveObserver(observer);
 }
 
-KeyRepeatSettings KeyboardControllerImpl::GetKeyRepeatSettings() {
+absl::optional<KeyRepeatSettings>
+KeyboardControllerImpl::GetKeyRepeatSettings() {
+  if (!pref_change_registrar_)
+    return absl::nullopt;
   PrefService* prefs = pref_change_registrar_->prefs();
   bool enabled = prefs->GetBoolean(ash::prefs::kXkbAutoRepeatEnabled);
   int delay_in_ms = prefs->GetInteger(ash::prefs::kXkbAutoRepeatDelay);
   int interval_in_ms = prefs->GetInteger(ash::prefs::kXkbAutoRepeatInterval);
   return KeyRepeatSettings{enabled, base::Milliseconds(delay_in_ms),
                            base::Milliseconds(interval_in_ms)};
+}
+
+bool KeyboardControllerImpl::AreTopRowKeysFunctionKeys() {
+  if (ash::features::IsInputDeviceSettingsSplitEnabled()) {
+    return Shell::Get()
+        ->input_device_settings_controller()
+        ->GetGeneralizedTopRowAreFKeys();
+  }
+  PrefService* prefs = pref_change_registrar_->prefs();
+  return prefs->GetBoolean(ash::prefs::kSendFunctionKeys);
 }
 
 // SessionObserver
@@ -307,6 +326,20 @@ void KeyboardControllerImpl::OnSigninScreenPrefServiceInitialized(
 
 void KeyboardControllerImpl::OnActiveUserPrefServiceChanged(
     PrefService* prefs) {
+  auto account_id = Shell::Get()->session_controller()->GetActiveAccountId();
+  if (prefs && !recorded_accounts_.contains(account_id)) {
+    base::UmaHistogramBoolean(
+        "ChromeOS.Settings.Device.KeyboardAutoRepeatEnabled",
+        prefs->GetBoolean(prefs::kXkbAutoRepeatEnabled));
+    base::UmaHistogramTimes(
+        "ChromeOS.Settings.Device.KeyboardAutoRepeatDelay",
+        base::Milliseconds(prefs->GetInteger(prefs::kXkbAutoRepeatDelay)));
+    base::UmaHistogramTimes(
+        "ChromeOS.Settings.Device.KeyboardAutoRepeatInterval",
+        base::Milliseconds(prefs->GetInteger(prefs::kXkbAutoRepeatInterval)));
+    recorded_accounts_.insert(account_id);
+  }
+
   ObservePrefs(prefs);
 }
 
@@ -317,6 +350,12 @@ void KeyboardControllerImpl::OnActiveUserPrefServiceChanged(
 // active user's PrefService, or the signin screen's PrefService if nobody's
 // logged in yet.
 void KeyboardControllerImpl::ObservePrefs(PrefService* prefs) {
+  if (!prefs) {
+    // Just for testing cases.
+    pref_change_registrar_.reset();
+    return;
+  }
+
   pref_change_registrar_ = std::make_unique<PrefChangeRegistrar>();
   pref_change_registrar_->Init(prefs);
 
@@ -346,7 +385,9 @@ void KeyboardControllerImpl::ObservePrefs(PrefService* prefs) {
 }
 
 void KeyboardControllerImpl::SendKeyRepeatUpdate() {
-  OnKeyRepeatSettingsChanged(GetKeyRepeatSettings());
+  auto key_repeat_settings = GetKeyRepeatSettings();
+  DCHECK(key_repeat_settings.has_value());
+  OnKeyRepeatSettingsChanged(key_repeat_settings.value());
 }
 
 void KeyboardControllerImpl::SendKeyboardConfigUpdate() {

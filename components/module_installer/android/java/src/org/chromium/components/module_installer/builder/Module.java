@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,6 @@ import org.chromium.base.BundleUtils;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.StrictModeContext;
 import org.chromium.base.annotations.JNINamespace;
-import org.chromium.base.annotations.MainDex;
 import org.chromium.base.annotations.NativeMethods;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.components.module_installer.engine.InstallEngine;
@@ -22,12 +21,11 @@ import org.chromium.components.module_installer.util.Timer;
 /**
  * Represents a feature module. Can be used to install the module, access its interface, etc. See
  * {@link ModuleInterface} for how to conveniently create an instance of the module class for a
- * specific feature module. The @MainDex annotation supports module use in the renderer process.
+ * specific feature module.
  *
  * @param <T> The interface of the module
  */
 @JNINamespace("module_installer")
-@MainDex
 public class Module<T> {
     private final String mName;
     private final Class<T> mInterfaceClass;
@@ -194,7 +192,7 @@ public class Module<T> {
      */
     private static Object instantiateReflectively(String moduleName, String className) {
         Context context = ContextUtils.getApplicationContext();
-        if (BundleUtils.isIsolatedSplitInstalled(context, moduleName)) {
+        if (BundleUtils.isIsolatedSplitInstalled(moduleName)) {
             context = BundleUtils.createIsolatedSplitContext(context, moduleName);
         }
         try (StrictModeContext ignored = StrictModeContext.allowDiskReads()) {

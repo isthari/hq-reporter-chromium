@@ -1,10 +1,12 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/login/ui/login_base_bubble_view.h"
 #include "ash/login/ui/login_test_base.h"
 #include "ash/style/ash_color_provider.h"
+#include "base/memory/raw_ptr.h"
+#include "base/memory/weak_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/events/test/event_generator.h"
@@ -14,8 +16,13 @@
 namespace ash {
 
 namespace {
+
 // Total width of the bubble view.
 constexpr int kBubbleTotalWidthDp = 192;
+
+class AnchorView : public views::View,
+                   public base::SupportsWeakPtr<AnchorView> {};
+
 }  // namespace
 
 class LoginBaseBubbleViewTest : public LoginTestBase {
@@ -31,28 +38,29 @@ class LoginBaseBubbleViewTest : public LoginTestBase {
   void SetUp() override {
     LoginTestBase::SetUp();
 
-    anchor_ = new views::View();
+    anchor_ = new AnchorView();
     anchor_->SetSize(gfx::Size(0, 25));
     container_ = new views::View();
     container_->SetLayoutManager(std::make_unique<views::BoxLayout>(
         views::BoxLayout::Orientation::kVertical));
-    container_->AddChildView(anchor_);
+    container_->AddChildView(anchor_.get());
 
     SetWidget(CreateWidgetWithContent(container_));
 
-    bubble_ = new LoginBaseBubbleView(anchor_, widget()->GetNativeView());
+    bubble_ = new LoginBaseBubbleView(anchor_->AsWeakPtr(),
+                                      widget()->GetNativeView());
     auto* label = new views::Label(u"A message", views::style::CONTEXT_LABEL,
                                    views::style::STYLE_PRIMARY);
     bubble_->SetLayoutManager(std::make_unique<views::BoxLayout>(
         views::BoxLayout::Orientation::kVertical));
     bubble_->AddChildView(label);
 
-    container_->AddChildView(bubble_);
+    container_->AddChildView(bubble_.get());
   }
 
-  LoginBaseBubbleView* bubble_;
-  views::View* container_;
-  views::View* anchor_;
+  raw_ptr<LoginBaseBubbleView, ExperimentalAsh> bubble_;
+  raw_ptr<views::View, ExperimentalAsh> container_;
+  raw_ptr<AnchorView, ExperimentalAsh> anchor_;
 };
 
 TEST_F(LoginBaseBubbleViewTest, BasicProperties) {

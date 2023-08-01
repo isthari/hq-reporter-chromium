@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,12 +21,6 @@ void FakeStorageManagerInstance::GetApplicationsSize(
   size->total_data_bytes = 43;
   size->total_cache_bytes = 44;
   std::move(callback).Run(/*succeeded=*/true, std::move(size));
-}
-
-void FakeStorageManagerInstance::DeleteApplicationsCache(
-    DeleteApplicationsCacheCallback callback) {
-  ++num_delete_applications_cache_called_;
-  std::move(callback).Run();
 }
 
 }  // namespace arc

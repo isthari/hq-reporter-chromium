@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,7 @@ namespace ntp_header {
 const CGFloat kAnimationDistance = 42;
 const CGFloat kFakeLocationBarTopConstraint = 4;
 const CGFloat kScrolledToTopOmniboxBottomMargin = 4;
-const CGFloat kHintLabelSidePadding = 37;
+const CGFloat kCenteredHintLabelSidePadding = 37;
 const CGFloat kHintLabelHeightMargin = 2;
 const CGFloat kMaxTopMarginDiff = 4;
 const CGFloat kFakeOmniboxScrolledToTopMargin = 14;

@@ -1,11 +1,11 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <utility>
 
-#include "base/bind.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/threading/thread_restrictions.h"
@@ -16,6 +16,7 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "content/public/test/browser_test.h"
 #include "pdf/pdf.h"
+#include "printing/print_settings.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/gfx/geometry/size_f.h"
 
@@ -67,11 +68,11 @@ base::MappedReadOnlyRegion GetPdfRegion(const char* file_name) {
 base::MappedReadOnlyRegion GetBadDataRegion() {
   static const char kBadData[] = "BADDATA";
   base::MappedReadOnlyRegion pdf_region =
-      base::ReadOnlySharedMemoryRegion::Create(base::size(kBadData));
+      base::ReadOnlySharedMemoryRegion::Create(std::size(kBadData));
   if (!pdf_region.IsValid())
     return pdf_region;
 
-  memcpy(pdf_region.mapping.memory(), kBadData, base::size(kBadData));
+  memcpy(pdf_region.mapping.memory(), kBadData, std::size(kBadData));
   return pdf_region;
 }
 
@@ -137,7 +138,7 @@ class PdfNupConverterClientBrowserTest : public InProcessBrowserTest {
     {
       base::RunLoop run_loop;
       converter->DoNupPdfDocumentConvert(
-          /*document_cookie=*/8, pages_per_sheet,
+          /*document_cookie=*/PrintSettings::NewCookie(), pages_per_sheet,
           /*page_size=*/gfx::Size(612, 792),
           /*printable_area=*/gfx::Rect(612, 792), std::move(pdf_region),
           base::BindOnce(&ResultCallbackImpl, &status, &nup_pdf_region, &called,

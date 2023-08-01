@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,14 +9,14 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "chrome/browser/browser_features.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/metrics/ukm_background_recorder_service.h"
@@ -24,6 +24,7 @@
 #include "chrome/browser/notifications/metrics/notification_metrics_logger_factory.h"
 #include "chrome/browser/notifications/notification_display_service.h"
 #include "chrome/browser/notifications/notification_display_service_factory.h"
+#include "chrome/browser/permissions/notifications_engagement_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_context.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_manager.h"
@@ -31,6 +32,7 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
+#include "components/permissions/features.h"
 #include "components/permissions/permission_uma_util.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_change_registrar.h"
@@ -46,8 +48,10 @@
 #include "third_party/blink/public/mojom/notifications/notification.mojom.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/message_center/public/cpp/notification.h"
 #include "ui/message_center/public/cpp/notification_types.h"
 #include "ui/message_center/public/cpp/notifier_id.h"
+#include "ui/strings/grit/ui_strings.h"
 #include "url/origin.h"
 
 #if !BUILDFLAG(IS_ANDROID)
@@ -178,7 +182,7 @@ void PlatformNotificationServiceImpl::OnContentSettingChanged(
     return;
 
   auto recorder = base::MakeRefCounted<RevokeDeleteCountRecorder>();
-  profile_->ForEachStoragePartition(
+  profile_->ForEachLoadedStoragePartition(
       base::BindRepeating(
           [](scoped_refptr<RevokeDeleteCountRecorder> recorder,
              content::StoragePartition* partition) {
@@ -225,6 +229,15 @@ void PlatformNotificationServiceImpl::DisplayNotification(
   permissions::PermissionUmaUtil::RecordPermissionUsage(
       ContentSettingsType::NOTIFICATIONS, profile_, nullptr,
       notification.origin_url());
+
+  if (base::FeatureList::IsEnabled(
+          permissions::features::kNotificationInteractionHistory)) {
+    auto* service =
+        NotificationsEngagementServiceFactory::GetForProfile(profile_);
+    // This service might be missing for incognito profiles and in tests.
+    if (service)
+      service->RecordNotificationDisplayed(notification.origin_url());
+  }
 }
 
 void PlatformNotificationServiceImpl::DisplayPersistentNotification(
@@ -257,6 +270,15 @@ void PlatformNotificationServiceImpl::DisplayPersistentNotification(
 
   NotificationMetricsLoggerFactory::GetForBrowserContext(profile_)
       ->LogPersistentNotificationShown();
+
+  if (base::FeatureList::IsEnabled(
+          permissions::features::kNotificationInteractionHistory)) {
+    auto* service =
+        NotificationsEngagementServiceFactory::GetForProfile(profile_);
+    // This service might be missing for incognito profiles and in tests.
+    if (service)
+      service->RecordNotificationDisplayed(notification.origin_url());
+  }
 
   permissions::PermissionUmaUtil::RecordPermissionUsage(
       ContentSettingsType::NOTIFICATIONS, profile_, nullptr,
@@ -433,19 +455,17 @@ PlatformNotificationServiceImpl::CreateNotificationFromData(
       message_center::SettingsButtonHandler::INLINE;
 
   absl::optional<WebAppIconAndTitle> web_app_icon_and_title;
-
-  if (base::FeatureList::IsEnabled(
-          features::kDesktopPWAsNotificationIconAndTitle)) {
-    web_app_icon_and_title = FindWebAppIconAndTitle(web_app_hint_url);
-    if (web_app_icon_and_title && notification_resources.badge.isNull()) {
+#if BUILDFLAG(IS_CHROMEOS)
+  web_app_icon_and_title = FindWebAppIconAndTitle(web_app_hint_url);
+  if (web_app_icon_and_title && notification_resources.badge.isNull()) {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-      // ChromeOS: Enables web app theme color only if monochrome web app icon
-      // has been specified. `badge` Notifications API icons must be masked with
-      // the accent color.
-      optional_fields.ignore_accent_color_for_small_image = true;
+    // ChromeOS: Enables web app theme color only if monochrome web app icon
+    // has been specified. `badge` Notifications API icons must be masked with
+    // the accent color.
+    optional_fields.ignore_accent_color_for_small_image = true;
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
-    }
   }
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
   message_center::NotifierId notifier_id(
       origin, web_app_icon_and_title
@@ -457,7 +477,8 @@ PlatformNotificationServiceImpl::CreateNotificationFromData(
   message_center::Notification notification(
       message_center::NOTIFICATION_TYPE_SIMPLE, notification_id,
       notification_data.title, notification_data.body,
-      gfx::Image::CreateFrom1xBitmap(notification_resources.notification_icon),
+      ui::ImageModel::FromImage(gfx::Image::CreateFrom1xBitmap(
+          notification_resources.notification_icon)),
       base::UTF8ToUTF16(origin.host()), origin, notifier_id, optional_fields,
       nullptr /* delegate */);
 
@@ -510,6 +531,35 @@ PlatformNotificationServiceImpl::CreateNotificationFromData(
   if (notification_data.require_interaction)
     notification.set_never_timeout(true);
 
+  notification.set_scenario(message_center::NotificationScenario::DEFAULT);
+  if (base::FeatureList::IsEnabled(features::kIncomingCallNotifications) &&
+      notification_data.scenario ==
+          blink::mojom::NotificationScenario::INCOMING_CALL) {
+    // If the origin is not installed, the notification scenario should be set
+    // to DEFAULT.
+    if (IsActivelyInstalledWebAppScope(web_app_hint_url)) {
+      notification.set_scenario(
+          message_center::NotificationScenario::INCOMING_CALL);
+    } else {
+      notification.set_scenario(message_center::NotificationScenario::DEFAULT);
+    }
+
+    // Create the default incoming call dismiss button and set the button types
+    // accordingly to fit the incoming call scenario - i.e., developer supplied
+    // action buttond are of type ButtonType::ACKNOWLEDGE and the default dimiss
+    // button is of type ButtonType::DISMISS
+    message_center::ButtonInfo default_dismiss_button(
+        l10n_util::GetStringUTF16(IDS_APP_CLOSE));
+    default_dismiss_button.type = message_center::ButtonType::DISMISS;
+    for (auto& button : buttons) {
+      button.type = message_center::ButtonType::ACKNOWLEDGE;
+    }
+    // Insert the default dismiss button at the end of the vector and reset the
+    // notification buttons.
+    buttons.push_back(default_dismiss_button);
+    notification.set_buttons(buttons);
+  }
+
   return notification;
 }
 
@@ -538,13 +588,14 @@ PlatformNotificationServiceImpl::FindWebAppIconAndTitle(
       web_app::WebAppProvider::GetForLocalAppsUnchecked(profile_);
   if (web_app_provider) {
     const absl::optional<web_app::AppId> app_id =
-        web_app_provider->registrar().FindAppWithUrlInScope(web_app_hint_url);
+        web_app_provider->registrar_unsafe().FindAppWithUrlInScope(
+            web_app_hint_url);
     if (app_id) {
       absl::optional<WebAppIconAndTitle> icon_and_title;
       icon_and_title.emplace();
 
       icon_and_title->title = base::UTF8ToUTF16(
-          web_app_provider->registrar().GetAppShortName(*app_id));
+          web_app_provider->registrar_unsafe().GetAppShortName(*app_id));
       icon_and_title->icon =
           web_app_provider->icon_manager().GetMonochromeFavicon(*app_id);
       return icon_and_title;
@@ -553,4 +604,25 @@ PlatformNotificationServiceImpl::FindWebAppIconAndTitle(
 #endif
 
   return absl::nullopt;
+}
+
+bool PlatformNotificationServiceImpl::IsActivelyInstalledWebAppScope(
+    const GURL& web_app_url) const {
+#if BUILDFLAG(IS_ANDROID)
+  // TODO(peter): Investigate whether it makes sense to consider installed
+  // WebAPKs and TWAs on Android here, when depending features are considered.
+  return false;
+#else
+  web_app::WebAppProvider* web_app_provider =
+      web_app::WebAppProvider::GetForLocalAppsUnchecked(profile_);
+  if (!web_app_provider) {
+    return false;
+  }
+
+  const absl::optional<web_app::AppId> app_id =
+      web_app_provider->registrar_unsafe().FindAppWithUrlInScope(web_app_url);
+  return app_id.has_value() &&
+         web_app_provider->registrar_unsafe().IsActivelyInstalled(
+             app_id.value());
+#endif
 }

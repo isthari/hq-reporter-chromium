@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,15 +9,14 @@
 #include <utility>
 
 #include "base/base_paths.h"
-#include "base/bind.h"
 #include "base/feature_list.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/path_service.h"
 #include "base/process/launch.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/task/post_task.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/trace_event/trace_event.h"
@@ -82,7 +81,9 @@ ChromeCleanerRunner::ChromeCleanerRunner(
     ProcessDoneCallback on_process_done,
     scoped_refptr<base::SequencedTaskRunner> task_runner)
     : task_runner_(std::move(task_runner)),
-      cleaner_command_line_(cleaner_executable_path),
+      reporter_invocation_(reporter_invocation),
+      metrics_status_(metrics_status),
+      cleaner_executable_path_(cleaner_executable_path),
       on_prompt_user_(std::move(on_prompt_user)),
       on_connection_closed_(std::move(on_connection_closed)),
       on_process_done_(std::move(on_process_done)) {
@@ -90,24 +91,28 @@ ChromeCleanerRunner::ChromeCleanerRunner(
   DCHECK(on_connection_closed_);
   DCHECK(on_process_done_);
   DCHECK(!cleaner_executable_path.empty());
+}
 
+base::CommandLine
+ChromeCleanerRunner::ConstructCommandLineOnBackgroundThread() {
+  base::CommandLine cleaner_command_line(cleaner_executable_path_);
   // Add the non-IPC switches that should be passed to the Cleaner process.
 
   // Add switches that pass information about this Chrome installation.
-  cleaner_command_line_.AppendSwitchASCII(chrome_cleaner::kChromeVersionSwitch,
-                                          version_info::GetVersionNumber());
-  cleaner_command_line_.AppendSwitchASCII(chrome_cleaner::kChromeChannelSwitch,
-                                          base::NumberToString(ChannelAsInt()));
+  cleaner_command_line.AppendSwitchASCII(chrome_cleaner::kChromeVersionSwitch,
+                                         version_info::GetVersionNumber());
+  cleaner_command_line.AppendSwitchASCII(chrome_cleaner::kChromeChannelSwitch,
+                                         base::NumberToString(ChannelAsInt()));
   base::FilePath chrome_exe_path;
   base::PathService::Get(base::FILE_EXE, &chrome_exe_path);
-  cleaner_command_line_.AppendSwitchPath(chrome_cleaner::kChromeExePathSwitch,
-                                         chrome_exe_path);
+  cleaner_command_line.AppendSwitchPath(chrome_cleaner::kChromeExePathSwitch,
+                                        chrome_exe_path);
   if (!InstallUtil::IsPerUserInstall())
-    cleaner_command_line_.AppendSwitch(
+    cleaner_command_line.AppendSwitch(
         chrome_cleaner::kChromeSystemInstallSwitch);
 
   // Start the cleaner process in scanning mode.
-  cleaner_command_line_.AppendSwitchASCII(
+  cleaner_command_line.AppendSwitchASCII(
       chrome_cleaner::kExecutionModeSwitch,
       base::NumberToString(
           static_cast<int>(chrome_cleaner::ExecutionMode::kScanning)));
@@ -115,49 +120,45 @@ ChromeCleanerRunner::ChromeCleanerRunner(
   // If set, forward the engine flag from the reporter. Otherwise, set the
   // engine flag explicitly to 1.
   const std::string& reporter_engine =
-      reporter_invocation.command_line().GetSwitchValueASCII(
+      reporter_invocation_.command_line().GetSwitchValueASCII(
           chrome_cleaner::kEngineSwitch);
-  cleaner_command_line_.AppendSwitchASCII(
+  cleaner_command_line.AppendSwitchASCII(
       chrome_cleaner::kEngineSwitch,
       reporter_engine.empty() ? "1" : reporter_engine);
 
-  if (reporter_invocation.cleaner_logs_upload_enabled()) {
-    cleaner_command_line_.AppendSwitch(
+  if (reporter_invocation_.cleaner_logs_upload_enabled()) {
+    cleaner_command_line.AppendSwitch(
         chrome_cleaner::kWithScanningModeLogsSwitch);
   }
 
-  cleaner_command_line_.AppendSwitchASCII(
+  cleaner_command_line.AppendSwitchASCII(
       chrome_cleaner::kChromePromptSwitch,
       base::NumberToString(
-          static_cast<int>(reporter_invocation.chrome_prompt())));
+          static_cast<int>(reporter_invocation_.chrome_prompt())));
 
   // If metrics is enabled, we can enable crash reporting in the Chrome Cleaner
   // process.
-  if (metrics_status == ChromeMetricsStatus::kEnabled) {
-    cleaner_command_line_.AppendSwitch(chrome_cleaner::kUmaUserSwitch);
-    cleaner_command_line_.AppendSwitch(
+  if (metrics_status_ == ChromeMetricsStatus::kEnabled) {
+    cleaner_command_line.AppendSwitch(chrome_cleaner::kUmaUserSwitch);
+    cleaner_command_line.AppendSwitch(
         chrome_cleaner::kEnableCrashReportingSwitch);
   }
 
-  const std::string group_name = GetSRTPromptGroupName();
-  if (!group_name.empty()) {
-    cleaner_command_line_.AppendSwitchASCII(
-        chrome_cleaner::kSRTPromptFieldTrialGroupNameSwitch, group_name);
-  }
   // Older versions of the Chrome Cleanup Tool needs this switch to ensure
   // resetting of shortcuts.
-  cleaner_command_line_.AppendSwitch(chrome_cleaner::kResetShortcutsSwitch);
+  cleaner_command_line.AppendSwitch(chrome_cleaner::kResetShortcutsSwitch);
+
+  return cleaner_command_line;
 }
 
 ChromeCleanerRunner::ProcessStatus
 ChromeCleanerRunner::LaunchAndWaitForExitOnBackgroundThread() {
   TRACE_EVENT0("safe_browsing",
                "ChromeCleanerRunner::LaunchAndWaitForExitOnBackgroundThread");
-  auto on_connection_closed = base::BindOnce(
-      &ChromeCleanerRunner::OnConnectionClosed, base::RetainedRef(this));
+  auto on_connection_closed =
+      base::BindOnce(&ChromeCleanerRunner::OnConnectionClosed, this);
   auto actions = std::make_unique<ChromePromptActions>(
-      base::BindOnce(&ChromeCleanerRunner::OnPromptUser,
-                     base::RetainedRef(this)));
+      base::BindOnce(&ChromeCleanerRunner::OnPromptUser, this));
 
   // The channel will make blocking calls to ::WriteFile.
   scoped_refptr<base::SequencedTaskRunner> channel_task_runner =
@@ -170,17 +171,20 @@ ChromeCleanerRunner::LaunchAndWaitForExitOnBackgroundThread() {
                               std::move(actions), channel_task_runner),
       base::OnTaskRunnerDeleter(channel_task_runner));
 
+  base::CommandLine cleaner_command_line =
+      ConstructCommandLineOnBackgroundThread();
+
   base::LaunchOptions launch_options;
-  if (!channel->PrepareForCleaner(&cleaner_command_line_,
+  if (!channel->PrepareForCleaner(cleaner_command_line,
                                   &launch_options.handles_to_inherit)) {
     return ProcessStatus(LaunchStatus::kLaunchFailed);
   }
 
   base::Process cleaner_process =
       g_test_delegate
-          ? g_test_delegate->LaunchTestProcess(cleaner_command_line_,
+          ? g_test_delegate->LaunchTestProcess(cleaner_command_line,
                                                launch_options)
-          : base::LaunchProcess(cleaner_command_line_, launch_options);
+          : base::LaunchProcess(cleaner_command_line, launch_options);
   if (!cleaner_process.IsValid()) {
     channel->CleanupAfterCleanerLaunchFailed();
     return ProcessStatus(LaunchStatus::kLaunchFailed);
@@ -194,8 +198,6 @@ ChromeCleanerRunner::LaunchAndWaitForExitOnBackgroundThread() {
         LaunchStatus::kLaunchSucceededFailedToWaitForCompletion);
   }
 
-  base::UmaHistogramSparse(
-      "SoftwareReporter.Cleaner.ExitCodeFromConnectedProcess", exit_code);
   return ProcessStatus(LaunchStatus::kSuccess, exit_code);
 }
 

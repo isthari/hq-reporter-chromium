@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 
 #include "base/base_paths.h"
 #include "base/files/file_path.h"
-#include "base/files/file_util.h"
 #include "base/path_service.h"
+#include "chrome/updater/util/unittest_util.h"
 #include "chrome/updater/win/tag_extractor.h"
 #include "chrome/updater/win/tag_extractor_impl.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -16,39 +16,25 @@
 namespace updater {
 
 TEST(TagExtractorTest, UntaggedExe) {
-  base::FilePath source_path;
-  ASSERT_TRUE(base::PathService::Get(base::DIR_SOURCE_ROOT, &source_path));
-  const base::FilePath exe_path = source_path.AppendASCII("chrome")
-                                      .AppendASCII("updater")
-                                      .AppendASCII("test")
-                                      .AppendASCII("data")
-                                      .AppendASCII("signed.exe");
-  std::string tag = ExtractTagFromFile(exe_path.value(), TagEncoding::kUtf8);
-  ASSERT_TRUE(tag.empty());
+  ASSERT_TRUE(ExtractTagFromFile(test::GetTestFilePath("signed.exe").value(),
+                                 TagEncoding::kUtf8)
+                  .empty());
 }
 
 TEST(TagExtractorTest, TaggedExeEncodeUtf8) {
-  base::FilePath source_path;
-  ASSERT_TRUE(base::PathService::Get(base::DIR_SOURCE_ROOT, &source_path));
-  const base::FilePath exe_path = source_path.AppendASCII("chrome")
-                                      .AppendASCII("updater")
-                                      .AppendASCII("test")
-                                      .AppendASCII("data")
-                                      .AppendASCII("tagged_encode_utf8.exe");
-  std::string tag = ExtractTagFromFile(exe_path.value(), TagEncoding::kUtf8);
-  ASSERT_STREQ(tag.c_str(), "TestTag123");
+  ASSERT_STREQ(ExtractTagFromFile(
+                   test::GetTestFilePath("tagged_encode_utf8.exe").value(),
+                   TagEncoding::kUtf8)
+                   .c_str(),
+               "TestTag123");
 }
 
 TEST(TagExtractorTest, TaggedExeMagicUtf16) {
-  base::FilePath source_path;
-  ASSERT_TRUE(base::PathService::Get(base::DIR_SOURCE_ROOT, &source_path));
-  const base::FilePath exe_path = source_path.AppendASCII("chrome")
-                                      .AppendASCII("updater")
-                                      .AppendASCII("test")
-                                      .AppendASCII("data")
-                                      .AppendASCII("tagged_magic_utf16.exe");
-  std::string tag = ExtractTagFromFile(exe_path.value(), TagEncoding::kUtf16);
-  ASSERT_STREQ(tag.c_str(), "TestTag123");
+  ASSERT_STREQ(ExtractTagFromFile(
+                   test::GetTestFilePath("tagged_magic_utf16.exe").value(),
+                   TagEncoding::kUtf16)
+                   .c_str(),
+               "TestTag123");
 }
 
 TEST(TagExtractorTest, AdvanceIt) {

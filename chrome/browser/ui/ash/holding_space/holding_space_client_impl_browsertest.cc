@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,19 +13,22 @@
 #include "ash/public/cpp/holding_space/holding_space_metrics.h"
 #include "ash/public/cpp/holding_space/holding_space_model.h"
 #include "ash/public/cpp/holding_space/holding_space_util.h"
-#include "base/callback_helpers.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/callback_helpers.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
+#include "base/strings/strcat.h"
 #include "base/test/bind.h"
 #include "base/unguessable_token.h"
 #include "chrome/browser/ash/file_manager/path_util.h"
 #include "chrome/browser/extensions/component_loader.h"
-#include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/ash/holding_space/holding_space_browsertest_base.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "components/drive/drive_pref_names.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/test/browser_test.h"
 #include "storage/browser/file_system/external_mount_points.h"
 #include "ui/gfx/image/image_skia.h"
@@ -82,26 +85,46 @@ base::FilePath TestFile(Profile* profile, const std::string& relative_path) {
 
 using HoldingSpaceClientImplTest = HoldingSpaceBrowserTestBase;
 
-// Verifies that `HoldingSpaceClient::AddDiagnosticsLog()` works as intended.
-IN_PROC_BROWSER_TEST_F(HoldingSpaceClientImplTest, AddDiagnosticsLog) {
+// Verifies that `HoldingSpaceClient::AddItemOfType()` works as intended.
+IN_PROC_BROWSER_TEST_F(HoldingSpaceClientImplTest, AddItemOfType) {
+  using Type = HoldingSpaceItem::Type;
+
+  // Verify existence of controller, `client`, and `model`.
   ASSERT_TRUE(HoldingSpaceController::Get());
+  auto* client = HoldingSpaceController::Get()->client();
+  ASSERT_TRUE(client);
+  auto* model = HoldingSpaceController::Get()->model();
+  ASSERT_TRUE(model);
 
-  auto* holding_space_client = HoldingSpaceController::Get()->client();
-  ASSERT_TRUE(holding_space_client);
-  auto* holding_space_model = HoldingSpaceController::Get()->model();
-  ASSERT_TRUE(holding_space_model);
+  // Verify `model` is initially empty.
+  size_t expected_count = 0u;
+  EXPECT_EQ(model->items().size(), expected_count);
 
-  // Create a diagnostics log item and verify that it is in the holding space.
+  // Verify client API works for every item type.
+  for (size_t i = 0u; i <= static_cast<int>(Type::kMaxValue); ++i) {
+    // Create the item of the `expected_type` using the client API.
+    const HoldingSpaceItem::Type expected_type = static_cast<Type>(i);
+    const base::FilePath expected_file_path =
+        TestFile(GetProfile(), kTextFilePath);
+    const std::string& expected_id =
+        client->AddItemOfType(expected_type, expected_file_path);
 
-  ASSERT_EQ(0u, holding_space_model->items().size());
-  base::FilePath log_path = TestFile(GetProfile(), kTextFilePath);
-  holding_space_client->AddDiagnosticsLog(log_path);
-  ASSERT_EQ(1u, holding_space_model->items().size());
-  HoldingSpaceItem* diagnostics_log_item =
-      holding_space_model->items()[0].get();
-  EXPECT_EQ(diagnostics_log_item->type(),
-            HoldingSpaceItem::Type::kDiagnosticsLog);
-  EXPECT_EQ(diagnostics_log_item->file_path(), log_path);
+    // Insertion into the model should only fail if the item is a Camera app
+    // item and Camera app integration is disabled.
+    if (expected_id.empty()) {
+      EXPECT_EQ(model->items().size(), expected_count);
+      EXPECT_TRUE(HoldingSpaceItem::IsCameraAppType(expected_type));
+      EXPECT_FALSE(features::IsHoldingSpaceCameraAppIntegrationEnabled());
+      continue;
+    }
+
+    // Verify the item was created as expected.
+    ASSERT_EQ(model->items().size(), ++expected_count);
+    const HoldingSpaceItem* item = model->items().back().get();
+    EXPECT_EQ(item->id(), expected_id);
+    EXPECT_EQ(item->type(), expected_type);
+    EXPECT_EQ(item->file_path(), expected_file_path);
+  }
 }
 
 // Verifies that `HoldingSpaceClient::CopyImageToClipboard()` works as intended
@@ -150,6 +173,22 @@ IN_PROC_BROWSER_TEST_F(HoldingSpaceClientImplTest, CopyImageToClipboard) {
   }
 }
 
+// Verifies that `HoldingSpaceClient::IsDriveDisabled()` works as intended.
+IN_PROC_BROWSER_TEST_F(HoldingSpaceClientImplTest, IsDriveDisabled) {
+  ASSERT_TRUE(HoldingSpaceController::Get());
+
+  auto* holding_space_client = HoldingSpaceController::Get()->client();
+  ASSERT_TRUE(holding_space_client);
+
+  auto* prefs = GetProfile()->GetPrefs();
+  EXPECT_EQ(holding_space_client->IsDriveDisabled(),
+            prefs->GetBoolean(drive::prefs::kDisableDrive));
+  prefs->SetBoolean(drive::prefs::kDisableDrive, true);
+  EXPECT_EQ(holding_space_client->IsDriveDisabled(), true);
+  prefs->SetBoolean(drive::prefs::kDisableDrive, false);
+  EXPECT_EQ(holding_space_client->IsDriveDisabled(), false);
+}
+
 // Verifies that `HoldingSpaceClient::OpenDownloads()` works as intended.
 IN_PROC_BROWSER_TEST_F(HoldingSpaceClientImplTest, OpenDownloads) {
   ASSERT_TRUE(HoldingSpaceController::Get());
@@ -193,10 +232,8 @@ IN_PROC_BROWSER_TEST_F(HoldingSpaceClientImplTest, OpenItems) {
   auto* holding_space_client = HoldingSpaceController::Get()->client();
   ASSERT_TRUE(holding_space_client);
 
-  if (ash::features::IsFileManagerSwaEnabled()) {
-    // OpenItems() depends on the Files app. Install the Files SWA.
-    WaitForTestSystemAppInstall();
-  }
+  // OpenItems() depends on the Files app. Install the Files SWA.
+  WaitForTestSystemAppInstall();
 
   // Verify no failures have yet been recorded.
   base::HistogramTester histogram_tester;

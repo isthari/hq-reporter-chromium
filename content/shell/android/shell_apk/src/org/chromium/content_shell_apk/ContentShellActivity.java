@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -80,7 +80,7 @@ public class ContentShellActivity extends Activity {
 
         if (CommandLine.getInstance().hasSwitch(RUN_WEB_TESTS_SWITCH)) {
             BrowserStartupController.getInstance().startBrowserProcessesSync(
-                    LibraryProcessType.PROCESS_BROWSER, false);
+                    LibraryProcessType.PROCESS_BROWSER, false, false);
         } else {
             BrowserStartupController.getInstance().startBrowserProcessesAsync(
                     LibraryProcessType.PROCESS_BROWSER, true, false,

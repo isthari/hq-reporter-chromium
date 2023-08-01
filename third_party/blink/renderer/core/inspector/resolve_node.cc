@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,10 +16,10 @@ namespace blink {
 
 v8::Local<v8::Value> NodeV8Value(v8::Local<v8::Context> context, Node* node) {
   v8::Isolate* isolate = context->GetIsolate();
-  if (!node || !BindingSecurity::ShouldAllowAccessTo(
-                   CurrentDOMWindow(isolate), node,
-                   BindingSecurity::ErrorReportOption::kDoNotReport))
+  if (!node ||
+      !BindingSecurity::ShouldAllowAccessTo(CurrentDOMWindow(isolate), node)) {
     return v8::Null(isolate);
+  }
   return ToV8(node, context->Global(), isolate);
 }
 

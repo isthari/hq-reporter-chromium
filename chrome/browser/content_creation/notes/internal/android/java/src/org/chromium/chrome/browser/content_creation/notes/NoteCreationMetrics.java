@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -56,6 +56,9 @@ public final class NoteCreationMetrics {
         int NUM_ENTRIES = 2;
     }
 
+    // Max expected number of dynamically loaded templates.
+    private static final int MAX_NUMBER_OF_TEMPLATES = 50;
+
     /**
      * Records metrics related to the user starting the creation flow.
      */
@@ -70,7 +73,7 @@ public final class NoteCreationMetrics {
      *         selected a template and created their note.
      */
     public static void recordNoteTemplateSelected(
-            long duration, int nbChanges, int selectedTemplateId) {
+            long duration, int nbChanges, int selectedTemplateId, int selectedTemplateIndex) {
         RecordHistogram.recordMediumTimesHistogram("NoteCreation.TimeTo.SelectTemplate", duration);
 
         recordNoteCreationFunnel(NoteCreationFunnel.TEMPLATE_SELECTED);

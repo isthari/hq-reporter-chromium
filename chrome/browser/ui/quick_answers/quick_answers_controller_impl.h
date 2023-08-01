@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,12 @@
 #include <memory>
 #include <string>
 
-#include "chrome/browser/ui/quick_answers/quick_answers_access_token_fetcher.h"
-#include "chrome/browser/ui/quick_answers/quick_answers_state_controller.h"
 #include "chromeos/components/quick_answers/public/cpp/controller/quick_answers_controller.h"
 #include "chromeos/components/quick_answers/quick_answers_client.h"
 #include "chromeos/components/quick_answers/quick_answers_model.h"
 #include "ui/gfx/geometry/rect.h"
 
+class QuickAnswersState;
 class QuickAnswersUiController;
 
 // Implementation of QuickAnswerController. It fetches quick answers
@@ -22,9 +21,6 @@ class QuickAnswersUiController;
 class QuickAnswersControllerImpl : public QuickAnswersController,
                                    public quick_answers::QuickAnswersDelegate {
  public:
-  using AccessTokenCallback =
-      base::OnceCallback<void(const std::string& access_token)>;
-
   QuickAnswersControllerImpl();
   QuickAnswersControllerImpl(const QuickAnswersControllerImpl&) = delete;
   QuickAnswersControllerImpl& operator=(const QuickAnswersControllerImpl&) =
@@ -53,13 +49,14 @@ class QuickAnswersControllerImpl : public QuickAnswersController,
 
   QuickAnswersVisibility GetVisibilityForTesting() const override;
 
+  void SetVisibility(QuickAnswersVisibility visibility) override;
+
   // QuickAnswersDelegate:
-  void OnQuickAnswerReceived(
-      std::unique_ptr<quick_answers::QuickAnswer> answer) override;
+  void OnQuickAnswerReceived(std::unique_ptr<quick_answers::QuickAnswersSession>
+                                 quick_answers_session) override;
   void OnNetworkError() override;
   void OnRequestPreprocessFinished(
       const quick_answers::QuickAnswersRequest& processed_request) override;
-  void RequestAccessToken(AccessTokenCallback callback) override;
 
   // Retry sending quick answers request to backend.
   void OnRetryQuickAnswersRequest();
@@ -70,16 +67,21 @@ class QuickAnswersControllerImpl : public QuickAnswersController,
   // Handle user consent result.
   void OnUserConsentResult(bool consented);
 
-  // Open Quick-Answers settings.
-  void OpenQuickAnswersSettings();
-
   QuickAnswersUiController* quick_answers_ui_controller() {
     return quick_answers_ui_controller_.get();
   }
 
- private:
-  void MaybeDismissQuickAnswersConsent();
+  raw_ptr<quick_answers::QuickAnswer> quick_answer() {
+    return quick_answers_session_ ? quick_answers_session_->quick_answer.get()
+                                  : nullptr;
+  }
+  raw_ptr<quick_answers::StructuredResult> structured_result() {
+    return quick_answers_session_
+               ? quick_answers_session_->structured_result.get()
+               : nullptr;
+  }
 
+ private:
   void HandleQuickAnswerRequest(
       const quick_answers::QuickAnswersRequest& request);
 
@@ -104,15 +106,12 @@ class QuickAnswersControllerImpl : public QuickAnswersController,
 
   std::unique_ptr<quick_answers::QuickAnswersClient> quick_answers_client_;
 
-  QuickAnswersStateController quick_answers_state_controller_;
+  std::unique_ptr<QuickAnswersState> quick_answers_state_;
 
   std::unique_ptr<QuickAnswersUiController> quick_answers_ui_controller_;
 
-  std::unique_ptr<QuickAnswersAccessTokenFetcher>
-      quick_answers_access_token_fetcher_;
-
-  // The last received QuickAnswer from client.
-  std::unique_ptr<quick_answers::QuickAnswer> quick_answer_;
+  // The last received `QuickAnswersSession` from client.
+  std::unique_ptr<quick_answers::QuickAnswersSession> quick_answers_session_;
 
   QuickAnswersVisibility visibility_ = QuickAnswersVisibility::kClosed;
 };

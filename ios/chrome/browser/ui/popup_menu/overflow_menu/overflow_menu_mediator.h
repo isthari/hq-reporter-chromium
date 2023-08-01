@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,9 @@
 
 #import <UIKit/UIKit.h>
 
+#import "ios/chrome/browser/follow/follow_action_state.h"
 #import "ios/chrome/browser/ui/browser_container/browser_container_consumer.h"
-#import "ios/chrome/browser/ui/follow/follow_action_state.h"
+#import "ios/chrome/browser/ui/popup_menu/overflow_menu/overflow_menu_swift.h"
 
 namespace bookmarks {
 class BookmarkModel;
@@ -16,13 +17,27 @@ class BookmarkModel;
 namespace feature_engagement {
 class Tracker;
 }
+namespace web {
+class WebState;
+}
+namespace syncer {
+class SyncService;
+}
+
+@protocol ActivityServiceCommands;
 @protocol ApplicationCommands;
-@protocol BrowserCommands;
+@protocol BookmarksCommands;
+@protocol BrowserCoordinatorCommands;
 class BrowserPolicyConnectorIOS;
-@class OverflowMenuModel;
-class OverlayPresenter;
-class PrefService;
 @protocol FindInPageCommands;
+class FollowBrowserAgent;
+class OverlayPresenter;
+@protocol PageInfoCommands;
+@protocol PopupMenuCommands;
+class PrefService;
+@protocol PriceNotificationsCommands;
+class PromosManager;
+class ReadingListBrowserAgent;
 @protocol TextZoomCommands;
 class WebNavigationBrowserAgent;
 class WebStateList;
@@ -39,11 +54,17 @@ class WebStateList;
 @property(nonatomic, assign) WebStateList* webStateList;
 
 // Dispatcher.
-@property(nonatomic, weak) id<ApplicationCommands,
-                              BrowserCommands,
+@property(nonatomic, weak) id<ActivityServiceCommands,
+                              ApplicationCommands,
+                              BrowserCoordinatorCommands,
                               FindInPageCommands,
+                              PriceNotificationsCommands,
                               TextZoomCommands>
     dispatcher;
+
+@property(nonatomic, weak) id<BookmarksCommands> bookmarksCommandsHandler;
+@property(nonatomic, weak) id<PopupMenuCommands> popupMenuCommandsHandler;
+@property(nonatomic, weak) id<PageInfoCommands> pageInfoCommandsHandler;
 
 // Navigation agent for reloading pages.
 @property(nonatomic, assign) WebNavigationBrowserAgent* navigationAgent;
@@ -54,11 +75,16 @@ class WebStateList;
 // BaseViewController for presenting some UI.
 @property(nonatomic, weak) UIViewController* baseViewController;
 
-// The bookmarks model to know if the page is bookmarked.
-@property(nonatomic, assign) bookmarks::BookmarkModel* bookmarkModel;
+// Bookmarks models to know if the page is bookmarked.
+@property(nonatomic, assign)
+    bookmarks::BookmarkModel* localOrSyncableBookmarkModel;
+@property(nonatomic, assign) bookmarks::BookmarkModel* accountBookmarkModel;
 
-// Pref service to retrieve preference values.
-@property(nonatomic, assign) PrefService* prefService;
+// Pref service to retrieve browser state preference values.
+@property(nonatomic, assign) PrefService* browserStatePrefs;
+
+// Pref service to retrieve local state preference values.
+@property(nonatomic, assign) PrefService* localStatePrefs;
 
 // The overlay presenter for OverlayModality::kWebContentArea.  This mediator
 // listens for overlay presentation events to determine whether the "Add to
@@ -73,9 +99,27 @@ class WebStateList;
 // The current browser policy connector.
 @property(nonatomic, assign) BrowserPolicyConnectorIOS* browserPolicyConnector;
 
-// The follow action state. e.g. If the property value is FollowActionStateHide,
-// "Follow" action should be hidden in the overflow menu.
-@property(nonatomic, assign) FollowActionState followActionState;
+// The FollowBrowserAgent used to manage web channels subscriptions.
+@property(nonatomic, assign) FollowBrowserAgent* followBrowserAgent;
+
+// The number of destinations immediately visible to the user when opening the
+// new overflow menu (i.e. the number of "above-the-fold" destinations).
+@property(nonatomic, assign) int visibleDestinationsCount;
+
+// The Sync Service that provides the status of Sync.
+@property(nonatomic, assign) syncer::SyncService* syncService;
+
+// The Promos Manager to alert if the user uses What's New.
+@property(nonatomic, assign) PromosManager* promosManager;
+
+// The ReadingListBrowserAgent used to add urls to reading list.
+@property(nonatomic, assign) ReadingListBrowserAgent* readingListBrowserAgent;
+
+// Updates the pin state of the tab corresponding to the given `webState` in
+// `webStateList`.
++ (void)setTabPinned:(BOOL)pinned
+            webState:(web::WebState*)webState
+        webStateList:(WebStateList*)webStateList;
 
 // Disconnect the mediator.
 - (void)disconnect;

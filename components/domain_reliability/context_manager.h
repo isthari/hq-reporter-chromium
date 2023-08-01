@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,7 +53,7 @@ class DOMAIN_RELIABILITY_EXPORT DomainReliabilityContextManager {
   // |origin_filter| is interpreted as an always-true filter, indicating
   // complete deletion.
   void ClearBeacons(
-      const base::RepeatingCallback<bool(const GURL&)>& origin_filter);
+      const base::RepeatingCallback<bool(const url::Origin&)>& origin_filter);
 
   // Creates and stores a context for the given |config|, which should be for an
   // origin distinct from any existing ones. Returns pointer to the inserted
@@ -65,7 +65,7 @@ class DOMAIN_RELIABILITY_EXPORT DomainReliabilityContextManager {
   // (discarding all queued beacons in the process). A null |origin_filter|
   // is interpreted as an always-true filter, indicating complete deletion.
   void RemoveContexts(
-      const base::RepeatingCallback<bool(const GURL&)>& origin_filter);
+      const base::RepeatingCallback<bool(const url::Origin&)>& origin_filter);
 
   // Finds a context for the exact domain |host|. Otherwise returns nullptr.
   DomainReliabilityContext* GetContext(const std::string& host) const;
@@ -80,8 +80,6 @@ class DOMAIN_RELIABILITY_EXPORT DomainReliabilityContextManager {
   // Called by the Monitor during initialization. Should be called exactly once.
   // |uploader_| needs to be set before any contexts are created.
   void SetUploader(DomainReliabilityUploader* uploader);
-
-  base::Value GetWebUIData() const;
 
   size_t contexts_size_for_testing() const { return contexts_.size(); }
 

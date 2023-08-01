@@ -1,8 +1,9 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/ash/chrome_new_window_client.h"
+#include "base/memory/raw_ptr.h"
 
 #include <string>
 #include <utility>
@@ -22,6 +23,7 @@
 #include "chrome/browser/apps/app_service/intent_util.h"
 #include "chrome/browser/apps/app_service/launch_utils.h"
 #include "chrome/browser/apps/app_service/metrics/app_service_metrics.h"
+#include "chrome/browser/apps/intent_helper/metrics/intent_handling_metrics.h"
 #include "chrome/browser/ash/apps/apk_web_app_service.h"
 #include "chrome/browser/ash/arc/arc_util.h"
 #include "chrome/browser/ash/file_manager/app_id.h"
@@ -29,6 +31,7 @@
 #include "chrome/browser/ash/file_manager/path_util.h"
 #include "chrome/browser/ash/file_manager/url_util.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
+#include "chrome/browser/ash/system_web_apps/system_web_app_manager.h"
 #include "chrome/browser/ash/web_applications/calculator_app/calculator_app_utils.h"
 #include "chrome/browser/ash/web_applications/camera_app/chrome_camera_app_ui_delegate.h"
 #include "chrome/browser/chromeos/arc/arc_web_contents_data.h"
@@ -41,6 +44,7 @@
 #include "chrome/browser/ui/ash/shelf/app_window_base.h"
 #include "chrome/browser/ui/ash/shelf/app_window_shelf_item_controller.h"
 #include "chrome/browser/ui/ash/shelf/chrome_shelf_controller.h"
+#include "chrome/browser/ui/ash/system_web_apps/system_web_app_ui_utils.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_finder.h"
@@ -52,11 +56,9 @@
 #include "chrome/browser/ui/scoped_tabbed_browser_displayer.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
-#include "chrome/browser/ui/web_applications/system_web_app_ui_utils.h"
 #include "chrome/browser/ui/webui/chrome_web_contents_handler.h"
 #include "chrome/browser/ui/webui/settings/chromeos/constants/routes.mojom.h"
 #include "chrome/browser/ui/webui/tab_strip/tab_strip_ui_util.h"
-#include "chrome/browser/web_applications/system_web_apps/system_web_app_manager.h"
 #include "chrome/browser/web_applications/web_app_helpers.h"
 #include "chrome/browser/web_applications/web_app_id.h"
 #include "chrome/browser/web_applications/web_app_id_constants.h"
@@ -66,9 +68,10 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/common/webui_url_constants.h"
 #include "components/arc/intent_helper/arc_intent_helper_bridge.h"
+#include "components/services/app_service/public/cpp/app_launch_util.h"
+#include "components/services/app_service/public/cpp/app_types.h"
 #include "components/services/app_service/public/cpp/intent_util.h"
 #include "components/services/app_service/public/cpp/types_util.h"
-#include "components/services/app_service/public/mojom/types.mojom.h"
 #include "components/sessions/core/tab_restore_service.h"
 #include "components/sessions/core/tab_restore_service_observer.h"
 #include "components/url_formatter/url_fixer.h"
@@ -120,6 +123,9 @@ chrome::FeedbackSource MapToChromeSource(
       return chrome::FeedbackSource::kFeedbackSourceAssistant;
     case ash::NewWindowDelegate::FeedbackSource::kFeedbackSourceQuickAnswers:
       return chrome::FeedbackSource::kFeedbackSourceQuickAnswers;
+    case ash::NewWindowDelegate::FeedbackSource::
+        kFeedbackSourceChannelIndicator:
+      return chrome::FeedbackSource::kFeedbackSourceChannelIndicator;
   }
 }
 
@@ -129,10 +135,6 @@ chrome::FeedbackSource MapToChromeSource(
 // given directory, instead of the default directory.
 bool OpenFilesSwa(Profile* const profile,
                   base::FilePath target_directory = {}) {
-  if (!ash::features::IsFileManagerSwaEnabled()) {
-    return false;
-  }
-
   GURL directory_url;
   if (!target_directory.empty() &&
       !file_manager::util::ConvertAbsoluteFilePathToFileSystemUrl(
@@ -154,12 +156,13 @@ bool OpenFilesSwa(Profile* const profile,
           /*target_name=*/{}, &file_type_info,
           /*file_type_index=*/0,
           /*search_query=*/{},
-          /*show_android_picker_apps=*/false);
+          /*show_android_picker_apps=*/false,
+          /*volume_filter=*/{});
 
-  web_app::SystemAppLaunchParams params;
+  ash::SystemAppLaunchParams params;
   params.url = files_swa_url;
-  web_app::LaunchSystemWebAppAsync(
-      profile, web_app::SystemAppType::FILE_MANAGER, params);
+  ash::LaunchSystemWebAppAsync(profile, ash::SystemWebAppType::FILE_MANAGER,
+                               params);
   return true;
 }
 
@@ -218,9 +221,9 @@ class ChromeNewWindowClient::TabRestoreHelper
   }
 
  private:
-  ChromeNewWindowClient* delegate_;
-  Profile* profile_;
-  sessions::TabRestoreService* tab_restore_service_;
+  raw_ptr<ChromeNewWindowClient, ExperimentalAsh> delegate_;
+  raw_ptr<Profile, ExperimentalAsh> profile_;
+  raw_ptr<sessions::TabRestoreService, ExperimentalAsh> tab_restore_service_;
 };
 
 void ChromeNewWindowClient::NewTab() {
@@ -303,9 +306,76 @@ void ChromeNewWindowClient::NewWindowForDetachingTab(
   std::move(closure).Run(window);
 }
 
+namespace {
+WindowOpenDisposition ToWindowOpenDisposition(
+    ash::NewWindowDelegate::Disposition disposition) {
+  switch (disposition) {
+    case ash::NewWindowDelegate::Disposition::kNewForegroundTab:
+      return WindowOpenDisposition::NEW_FOREGROUND_TAB;
+    case ash::NewWindowDelegate::Disposition::kNewWindow:
+      return WindowOpenDisposition::NEW_WINDOW;
+    case ash::NewWindowDelegate::Disposition::kOffTheRecord:
+      return WindowOpenDisposition::OFF_THE_RECORD;
+    case ash::NewWindowDelegate::Disposition::kSwitchToTab:
+      return WindowOpenDisposition::SWITCH_TO_TAB;
+  }
+}
+}  // namespace
+
 void ChromeNewWindowClient::OpenUrl(const GURL& url,
-                                    bool from_user_interaction) {
-  OpenUrlImpl(url, from_user_interaction);
+                                    OpenUrlFrom from,
+                                    Disposition disposition) {
+  // Opens a URL in a new tab. If the URL is for a chrome://settings page,
+  // opens settings in a new window.
+  Profile* profile = ProfileManager::GetActiveUserProfile();
+  if ((url.SchemeIs(url::kAboutScheme) ||
+       url.SchemeIs(content::kChromeUIScheme))) {
+    // Show browser settings (e.g. chrome://settings). This may open in a window
+    // or a tab depending on feature SplitSettings.
+    if (url.host() == chrome::kChromeUISettingsHost) {
+      std::string sub_page = GetPathAndQuery(url);
+      chrome::ShowSettingsSubPageForProfile(profile, sub_page);
+      return;
+    }
+    // OS settings are shown in a window.
+    if (url.host() == chrome::kChromeUIOSSettingsHost) {
+      std::string sub_page = GetPathAndQuery(url);
+      chrome::SettingsWindowManager::GetInstance()->ShowOSSettings(profile,
+                                                                   sub_page);
+      return;
+    }
+  }
+
+  NavigateParams navigate_params(
+      profile, url,
+      ui::PageTransitionFromInt(ui::PAGE_TRANSITION_LINK |
+                                ui::PAGE_TRANSITION_FROM_API));
+  navigate_params.disposition = ToWindowOpenDisposition(disposition);
+
+  // If the |from| is kUserInteraction, then the page will load with a user
+  // activation. This means it will be able to autoplay media without
+  // restriction.
+  if (from == OpenUrlFrom::kUserInteraction)
+    navigate_params.was_activated = blink::mojom::WasActivatedOption::kYes;
+
+  Navigate(&navigate_params);
+
+  if (navigate_params.browser) {
+    // The browser window might be on another user's desktop, and hence not
+    // visible. Ensure the browser becomes visible on this user's desktop.
+    multi_user_util::MoveWindowToCurrentDesktop(
+        navigate_params.browser->window()->GetNativeWindow());
+  }
+
+  auto* tab = navigate_params.navigated_or_inserted_contents;
+  if (from == OpenUrlFrom::kArc && tab) {
+    // Add a flag to remember this tab originated in the ARC context.
+    tab->SetUserData(&arc::ArcWebContentsData::kArcTransitionFlag,
+                     std::make_unique<arc::ArcWebContentsData>(tab));
+
+    apps::IntentHandlingMetrics::RecordOpenBrowserMetrics(
+        apps::IntentHandlingMetrics::AppType::kArc);
+  }
 }
 
 void ChromeNewWindowClient::OpenCalculator() {
@@ -314,7 +384,7 @@ void ChromeNewWindowClient::OpenCalculator() {
       apps::AppServiceProxyFactory::GetForProfile(profile);
   DCHECK(proxy);
   proxy->Launch(ash::calculator_app::GetInstalledCalculatorAppId(profile),
-                ui::EF_NONE, apps::mojom::LaunchSource::kFromKeyboard);
+                ui::EF_NONE, apps::LaunchSource::kFromKeyboard);
 }
 
 void ChromeNewWindowClient::OpenFileManager() {
@@ -328,19 +398,17 @@ void ChromeNewWindowClient::OpenFileManager() {
   DCHECK(proxy);
 
   auto launch_files_app = [proxy](const apps::AppUpdate& update) {
-    if (update.Readiness() != apps::mojom::Readiness::kReady) {
+    if (update.Readiness() != apps::Readiness::kReady) {
       LOG(WARNING)
           << "Couldn't launch Files app because it isn't ready, readiness: "
-          << update.Readiness();
+          << static_cast<int>(update.Readiness());
       return;
     }
 
-    proxy->Launch(
-        update.AppId(),
-        apps::GetEventFlags(apps::mojom::LaunchContainer::kLaunchContainerNone,
-                            WindowOpenDisposition::NEW_FOREGROUND_TAB,
-                            /*preferred_containner=*/true),
-        apps::mojom::LaunchSource::kFromKeyboard);
+    proxy->Launch(update.AppId(),
+                  apps::GetEventFlags(WindowOpenDisposition::NEW_FOREGROUND_TAB,
+                                      /*prefer_container=*/true),
+                  apps::LaunchSource::kFromKeyboard);
   };
 
   bool result = proxy->AppRegistryCache().ForOneApp(
@@ -364,22 +432,20 @@ void ChromeNewWindowClient::OpenDownloadsFolder() {
 
   auto launch_files_app = [proxy,
                            downloads_path](const apps::AppUpdate& update) {
-    if (update.Readiness() != apps::mojom::Readiness::kReady) {
+    if (update.Readiness() != apps::Readiness::kReady) {
       LOG(WARNING)
           << "Couldn't launch Files app because it isn't ready, readiness: "
-          << update.Readiness();
+          << static_cast<int>(update.Readiness());
       return;
     }
 
-    apps::mojom::FilePathsPtr launch_files = apps::mojom::FilePaths::New();
-    launch_files->file_paths.push_back(downloads_path);
-
+    std::vector<base::FilePath> launch_files;
+    launch_files.push_back(downloads_path);
     proxy->LaunchAppWithFiles(
         update.AppId(),
-        apps::GetEventFlags(apps::mojom::LaunchContainer::kLaunchContainerNone,
-                            WindowOpenDisposition::NEW_FOREGROUND_TAB,
-                            /*preferred_containner=*/true),
-        apps::mojom::LaunchSource::kFromKeyboard, std::move(launch_files));
+        apps::GetEventFlags(WindowOpenDisposition::NEW_FOREGROUND_TAB,
+                            /*prefer_container=*/true),
+        apps::LaunchSource::kFromKeyboard, std::move(launch_files));
   };
 
   bool result = proxy->AppRegistryCache().ForOneApp(
@@ -389,19 +455,7 @@ void ChromeNewWindowClient::OpenDownloadsFolder() {
 
 void ChromeNewWindowClient::OpenCrosh() {
   Profile* profile = ProfileManager::GetActiveUserProfile();
-  if (base::FeatureList::IsEnabled(chromeos::features::kCroshSWA)) {
-    web_app::LaunchSystemWebAppAsync(profile, web_app::SystemAppType::CROSH);
-  } else {
-    chrome::ScopedTabbedBrowserDisplayer displayer(profile);
-    Browser* browser = displayer.browser();
-    content::WebContents* page = browser->OpenURL(content::OpenURLParams(
-        GURL(chrome::kChromeUIUntrustedCroshURL), content::Referrer(),
-        WindowOpenDisposition::NEW_FOREGROUND_TAB,
-        ui::PAGE_TRANSITION_GENERATED, false));
-    browser->window()->Show();
-    browser->window()->Activate();
-    page->Focus();
-  }
+  ash::LaunchSystemWebAppAsync(profile, ash::SystemWebAppType::CROSH);
 }
 
 void ChromeNewWindowClient::OpenGetHelp() {
@@ -436,7 +490,15 @@ void ChromeNewWindowClient::RestoreTab() {
 }
 
 void ChromeNewWindowClient::ShowKeyboardShortcutViewer() {
+  if (ash::features::ShouldOnlyShowNewShortcutApp()) {
+    ShowShortcutCustomizationApp();
+    return;
+  }
   ash::ToggleKeyboardShortcutViewer();
+}
+
+void ChromeNewWindowClient::ShowShortcutCustomizationApp() {
+  chrome::ShowShortcutCustomizationApp(ProfileManager::GetActiveUserProfile());
 }
 
 void ChromeNewWindowClient::ShowTaskManager() {
@@ -444,8 +506,7 @@ void ChromeNewWindowClient::ShowTaskManager() {
 }
 
 void ChromeNewWindowClient::OpenDiagnostics() {
-  if (base::FeatureList::IsEnabled(chromeos::features::kDiagnosticsApp))
-    chrome::ShowDiagnosticsApp(ProfileManager::GetActiveUserProfile());
+  chrome::ShowDiagnosticsApp(ProfileManager::GetActiveUserProfile());
 }
 
 void ChromeNewWindowClient::OpenFeedbackPage(
@@ -457,61 +518,7 @@ void ChromeNewWindowClient::OpenFeedbackPage(
 
 void ChromeNewWindowClient::OpenPersonalizationHub() {
   Profile* const profile = ProfileManager::GetActiveUserProfile();
-  web_app::LaunchSystemWebAppAsync(profile,
-                                   web_app::SystemAppType::PERSONALIZATION);
-}
-
-bool ChromeNewWindowClient::OpenUrlFromArc(const GURL& url) {
-  content::WebContents* tab =
-      OpenUrlImpl(url, false /* from_user_interaction */);
-  if (!tab)
-    return false;
-
-  // Add a flag to remember this tab originated in the ARC context.
-  tab->SetUserData(&arc::ArcWebContentsData::kArcTransitionFlag,
-                   std::make_unique<arc::ArcWebContentsData>(tab));
-  return true;
-}
-
-content::WebContents* ChromeNewWindowClient::OpenUrlImpl(
-    const GURL& url,
-    bool from_user_interaction) {
-  Profile* profile = ProfileManager::GetActiveUserProfile();
-  if ((url.SchemeIs(url::kAboutScheme) ||
-       url.SchemeIs(content::kChromeUIScheme))) {
-    // Show browser settings (e.g. chrome://settings). This may open in a window
-    // or a tab depending on feature SplitSettings.
-    if (url.host() == chrome::kChromeUISettingsHost) {
-      std::string sub_page = GetPathAndQuery(url);
-      chrome::ShowSettingsSubPageForProfile(profile, sub_page);
-      return nullptr;
-    }
-    // OS settings are shown in a window.
-    if (url.host() == chrome::kChromeUIOSSettingsHost) {
-      std::string sub_page = GetPathAndQuery(url);
-      chrome::SettingsWindowManager::GetInstance()->ShowOSSettings(profile,
-                                                                   sub_page);
-      return nullptr;
-    }
-  }
-
-  NavigateParams navigate_params(
-      profile, url,
-      ui::PageTransitionFromInt(ui::PAGE_TRANSITION_LINK |
-                                ui::PAGE_TRANSITION_FROM_API));
-
-  if (from_user_interaction)
-    navigate_params.was_activated = blink::mojom::WasActivatedOption::kYes;
-
-  Navigate(&navigate_params);
-
-  if (navigate_params.browser) {
-    // The browser window might be on another user's desktop, and hence not
-    // visible. Ensure the browser becomes visible on this user's desktop.
-    multi_user_util::MoveWindowToCurrentDesktop(
-        navigate_params.browser->window()->GetNativeWindow());
-  }
-  return navigate_params.navigated_or_inserted_contents;
+  ash::LaunchSystemWebAppAsync(profile, ash::SystemWebAppType::PERSONALIZATION);
 }
 
 void ChromeNewWindowClient::LaunchCameraApp(const std::string& queries,
@@ -519,8 +526,7 @@ void ChromeNewWindowClient::LaunchCameraApp(const std::string& queries,
   DCHECK(IsCameraAppEnabled());
   ChromeCameraAppUIDelegate::CameraAppDialog::ShowIntent(
       queries, arc::GetArcWindow(task_id));
-  apps::RecordAppLaunch(web_app::kCameraAppId,
-                        apps::mojom::LaunchSource::kFromArc);
+  apps::RecordAppLaunch(web_app::kCameraAppId, apps::LaunchSource::kFromArc);
 }
 
 void ChromeNewWindowClient::CloseCameraApp() {
@@ -539,7 +545,7 @@ void ChromeNewWindowClient::CloseCameraApp() {
 
 bool ChromeNewWindowClient::IsCameraAppEnabled() {
   Profile* const profile = ProfileManager::GetActiveUserProfile();
-  auto* provider = web_app::WebAppProvider::GetForSystemWebApps(profile);
-  return provider && provider->system_web_app_manager().IsAppEnabled(
-                         web_app::SystemAppType::CAMERA);
+  auto* swa_manager = ash::SystemWebAppManager::Get(profile);
+  return swa_manager &&
+         swa_manager->IsAppEnabled(ash::SystemWebAppType::CAMERA);
 }

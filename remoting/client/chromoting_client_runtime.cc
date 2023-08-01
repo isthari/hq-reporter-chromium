@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include <memory>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/memory/singleton.h"
 #include "base/message_loop/message_pump_type.h"
@@ -16,8 +16,8 @@
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "build/build_config.h"
 #include "mojo/core/embedder/embedder.h"
-#include "remoting/base/chromium_url_request.h"
 #include "remoting/base/directory_service_client.h"
+#include "remoting/base/mojo_util.h"
 #include "remoting/base/oauth_token_getter_proxy.h"
 #include "remoting/base/telemetry_log_writer.h"
 #include "remoting/base/url_request_context_getter.h"
@@ -40,10 +40,6 @@ ChromotingClientRuntime::ChromotingClientRuntime() {
   ui_task_executor_ = std::make_unique<base::SingleThreadTaskExecutor>(
       base::MessagePumpType::UI);
 
-#if defined(DEBUG)
-  net::URLFetcher::SetIgnoreCertificateRequests(true);
-#endif  // DEBUG
-
   // |ui_task_executor_| runs on the main thread, so |ui_task_runner_| will run
   // on the main thread.  We can not kill the main thread when the message loop
   // becomes idle so the callback function does nothing (as opposed to the
@@ -55,7 +51,7 @@ ChromotingClientRuntime::ChromotingClientRuntime() {
   network_task_runner_ = AutoThread::CreateWithType(
       "native_net", ui_task_runner_, base::MessagePumpType::IO);
 
-  mojo::core::Init();
+  InitializeMojo();
 }
 
 ChromotingClientRuntime::~ChromotingClientRuntime() {

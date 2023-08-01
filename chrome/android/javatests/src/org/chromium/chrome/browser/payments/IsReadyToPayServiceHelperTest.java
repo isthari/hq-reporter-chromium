@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,8 @@ import android.content.ServiceConnection;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
-import android.support.test.InstrumentationRegistry;
 
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.MediumTest;
 
 import org.junit.After;
@@ -178,7 +178,7 @@ public class IsReadyToPayServiceHelperTest {
         mErrorReceived = false;
         Intent intent = new Intent();
         intent.setClassName("mock.package.name", "mock.service.name");
-        Context context = InstrumentationRegistry.getTargetContext();
+        Context context = ApplicationProvider.getApplicationContext();
         IsReadyToPayServiceHelper helper = new IsReadyToPayServiceHelper(
                 context, intent, new IsReadyToPayServiceHelper.ResultHandler() {
                     @Override

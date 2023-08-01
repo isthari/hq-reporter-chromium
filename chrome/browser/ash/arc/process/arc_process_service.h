@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,16 +12,16 @@
 
 #include "ash/components/arc/mojom/process.mojom-forward.h"
 #include "ash/components/arc/session/connection_observer.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/process/process_iterator.h"
 #include "base/task/sequenced_task_runner.h"
+#include "base/time/time.h"
 #include "chrome/browser/ash/arc/process/arc_process.h"
 #include "chrome/browser/ash/process_snapshot_server.h"
 #include "components/keyed_service/core/keyed_service.h"
-#include "services/resource_coordinator/public/cpp/memory_instrumentation/global_memory_dump.h"
-#include "services/resource_coordinator/public/mojom/memory_instrumentation/memory_instrumentation.mojom.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace content {
@@ -144,6 +144,8 @@ class ArcProcessService : public KeyedService,
     PidMap pidmap_;
   };
 
+  static void EnsureFactoryBuilt();
+
  private:
   void OnReceiveProcessList(
       RequestProcessListCallback callback,
@@ -178,7 +180,8 @@ class ArcProcessService : public KeyedService,
   void ContinueAppMemoryInfoRequest(RequestMemoryInfoCallback callback);
   void ContinueSystemMemoryInfoRequest(RequestMemoryInfoCallback callback);
 
-  ArcBridgeService* const arc_bridge_service_;  // Owned by ArcServiceManager.
+  const raw_ptr<ArcBridgeService, ExperimentalAsh>
+      arc_bridge_service_;  // Owned by ArcServiceManager.
 
   // The most recent process snapshot received from the ProcessSnapshotServer.
   base::ProcessIterator::ProcessEntries cached_process_snapshot_;

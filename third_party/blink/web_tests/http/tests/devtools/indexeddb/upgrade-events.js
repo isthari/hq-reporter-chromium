@@ -1,19 +1,22 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {TestRunner} from 'test_runner';
+import {ApplicationTestRunner} from 'application_test_runner';
+
 (async function() {
   TestRunner.addResult(`Tests that deleted databases do not get recreated.\n`);
-  await TestRunner.loadLegacyModule('console'); await TestRunner.loadTestModule('application_test_runner');
+  await TestRunner.loadLegacyModule('console');
     // Note: every test that uses a storage API must manually clean-up state from previous tests.
   await ApplicationTestRunner.resetState();
 
   var indexedDBModel = ApplicationTestRunner.createIndexedDBModel();
   var mainFrameId = TestRunner.resourceTreeModel.mainFrame.id;
-  var securityOrigin = 'http://127.0.0.1:8000';
+  var storageKey = 'http://127.0.0.1:8000/';
   var databaseName = 'testDatabase - ' + self.location;
   var objectStoreName = 'testObjectStore';
-  var databaseId = new Resources.IndexedDBModel.DatabaseId(securityOrigin, databaseName);
+  var databaseId = new Resources.IndexedDBModel.DatabaseId(storageKey, databaseName);
 
   function onConsoleError(callback) {
     var old = console.error;
@@ -50,7 +53,7 @@
     }
   }
 
-  TestRunner.addSniffer(Resources.IndexedDBModel.prototype, 'updateOriginDatabaseNames', fillDatabase, false);
+  TestRunner.addSniffer(Resources.IndexedDBModel.prototype, 'updateStorageKeyDatabaseNames', fillDatabase, false);
 
   function fillDatabase() {
     TestRunner.addResult('Preparing database');
@@ -104,23 +107,23 @@
   }
 
   function checkDatabaseDoesExist(callback) {
-    TestRunner.addSniffer(Resources.IndexedDBModel.prototype, 'updateOriginDatabaseNames', step2, false);
+    TestRunner.addSniffer(Resources.IndexedDBModel.prototype, 'updateStorageKeyDatabaseNames', step2, false);
     indexedDBModel.refreshDatabaseNames();
 
     function step2() {
-      var names = indexedDBModel.databaseNamesBySecurityOrigin[securityOrigin];
-      TestRunner.assertGreaterOrEqual(0, names.indexOf(databaseName), 'Database should exist');
+      var names = indexedDBModel.databaseNamesByStorageKey.get(storageKey);
+      TestRunner.assertEquals(true, names.has(databaseName), 'Database should exist');
       callback();
     }
   }
 
   function checkDatabaseDoesNotExist(callback) {
-    TestRunner.addSniffer(Resources.IndexedDBModel.prototype, 'updateOriginDatabaseNames', step2, false);
+    TestRunner.addSniffer(Resources.IndexedDBModel.prototype, 'updateStorageKeyDatabaseNames', step2, false);
     indexedDBModel.refreshDatabaseNames();
 
     function step2() {
-      var names = indexedDBModel.databaseNamesBySecurityOrigin[securityOrigin];
-      TestRunner.assertEquals(-1, names.indexOf(databaseName), 'Database should not exist');
+      var names = indexedDBModel.databaseNamesByStorageKey.get(storageKey);
+      TestRunner.assertEquals(false, names.has(databaseName), 'Database should not exist');
       callback();
     }
   }

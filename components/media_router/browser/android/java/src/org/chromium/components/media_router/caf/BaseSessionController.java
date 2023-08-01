@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -64,7 +64,7 @@ public abstract class BaseSessionController {
     public void requestSessionLaunch() {
         mRouteCreationInfo = mProvider.getPendingCreateRouteRequestInfo();
         CastUtils.getCastContext().setReceiverApplicationId(
-                mRouteCreationInfo.source.getApplicationId());
+                mRouteCreationInfo.getMediaSource().getApplicationId());
 
         // When the user clicks a route on the MediaRouteChooserDialog, we intercept the click event
         // and do not select the route. Instead the route selection is postponed to here. This will
@@ -73,7 +73,7 @@ public abstract class BaseSessionController {
     }
 
     public MediaSource getSource() {
-        return (mRouteCreationInfo != null) ? mRouteCreationInfo.source : null;
+        return (mRouteCreationInfo != null) ? mRouteCreationInfo.getMediaSource() : null;
     }
 
     public MediaSink getSink() {

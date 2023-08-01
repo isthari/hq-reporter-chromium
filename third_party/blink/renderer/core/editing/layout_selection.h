@@ -22,7 +22,6 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_EDITING_LAYOUT_SELECTION_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_EDITING_LAYOUT_SELECTION_H_
 
-#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/editing/forward.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
@@ -33,12 +32,11 @@ class Rect;
 
 namespace blink {
 
-class InlineTextBox;
 class LayoutObject;
 class LayoutText;
 class NGInlineCursor;
 class NGInlineCursorPosition;
-struct NGTextOffset;
+struct NGTextOffsetRange;
 class FrameSelection;
 struct LayoutSelectionStatus;
 struct LayoutTextSelectionStatus;
@@ -63,16 +61,8 @@ class LayoutSelection final : public GarbageCollected<LayoutSelection> {
   // starts within the position (and ends elsewhere), where kStartAndEnd means
   // the selection both starts and ends within the position. This information is
   // used at paint time to determine the edges of the layout selection.
-  SelectionState ComputeSelectionStateForCursor(
+  SelectionState ComputePaintingSelectionStateForCursor(
       const NGInlineCursorPosition&) const;
-
-  // Compute the layout selection state relative to the InlineTextBox.
-  // E.g. a state of kStart means that the selection starts within the line
-  // (and ends elsewhere), where kStartAndEnd means the selection both starts
-  // and ends within the line. This information is used at paint time to
-  // determine the edges of the layout selection.
-  SelectionState ComputeSelectionStateForInlineTextBox(
-      const InlineTextBox&) const;
 
   static bool IsSelected(const LayoutObject&);
 
@@ -82,7 +72,7 @@ class LayoutSelection final : public GarbageCollected<LayoutSelection> {
 
  private:
   LayoutSelectionStatus ComputeSelectionStatus(const NGInlineCursor&,
-                                               const NGTextOffset&) const;
+                                               const NGTextOffsetRange&) const;
   SelectionState ComputeSelectionStateFromOffsets(SelectionState state,
                                                   unsigned start_offset,
                                                   unsigned end_offset) const;

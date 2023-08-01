@@ -1,10 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import {Navigator} from '../navigator.js';
 import {SwitchAccess} from '../switch_access.js';
-import {SAConstants} from '../switch_access_constants.js';
+import {ErrorType} from '../switch_access_constants.js';
 import {SwitchAccessPredicate} from '../switch_access_predicate.js';
 
 import {BasicNode, BasicRootNode} from './basic_node.js';
@@ -49,7 +49,7 @@ export class DesktopNode extends BasicRootNode {
     }
 
     // Update this DesktopNode's children.
-    const childConstructor = (node) => BasicNode.create(node, this);
+    const childConstructor = node => BasicNode.create(node, this);
     DesktopNode.findAndSetChildren(this, childConstructor);
 
     // Set the new instance of that child to be the focused node.
@@ -73,7 +73,7 @@ export class DesktopNode extends BasicRootNode {
    */
   static build(desktop) {
     const root = new DesktopNode(desktop);
-    const childConstructor = (autoNode) => BasicNode.create(autoNode, root);
+    const childConstructor = autoNode => BasicNode.create(autoNode, root);
 
     DesktopNode.findAndSetChildren(root, childConstructor);
     return root;
@@ -87,7 +87,7 @@ export class DesktopNode extends BasicRootNode {
       // If the desktop node does not behave as expected, we have no basis for
       // recovering. Wait for the next user input.
       throw SwitchAccess.error(
-          SAConstants.ErrorType.MALFORMED_DESKTOP,
+          ErrorType.MALFORMED_DESKTOP,
           'Desktop node must have at least 1 interesting child.',
           false /* shouldRecover */);
     }

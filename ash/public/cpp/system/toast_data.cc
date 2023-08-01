@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,23 +6,53 @@
 
 #include <utility>
 
+#include "ash/strings/grit/ash_strings.h"
+#include "base/time/time.h"
+#include "ui/base/l10n/l10n_util.h"
+
 namespace ash {
+
+namespace {
+
+std::u16string GetDismissText(const std::u16string& custom_dismiss_text,
+                              bool has_dismiss_button) {
+  if (!has_dismiss_button)
+    return {};
+
+  return !custom_dismiss_text.empty()
+             ? custom_dismiss_text
+             : l10n_util::GetStringUTF16(IDS_ASH_TOAST_DISMISS_BUTTON);
+}
+
+}  // namespace
 
 ToastData::ToastData(std::string id,
                      ToastCatalogName catalog_name,
                      const std::u16string& text,
-                     int32_t duration_ms,
+                     base::TimeDelta duration,
                      bool visible_on_lock_screen,
-                     const absl::optional<std::u16string>& dismiss_text)
+                     bool has_dismiss_button,
+                     const std::u16string& custom_dismiss_text,
+                     base::RepeatingClosure dismiss_callback,
+                     const gfx::VectorIcon& leading_icon)
     : id(std::move(id)),
       catalog_name(catalog_name),
       text(text),
-      duration_ms(duration_ms),
+      duration(std::max(duration, kMinimumDuration)),
       visible_on_lock_screen(visible_on_lock_screen),
-      dismiss_text(dismiss_text) {}
+      dismiss_text(GetDismissText(custom_dismiss_text, has_dismiss_button)),
+      dismiss_callback(std::move(dismiss_callback)),
+      leading_icon(&leading_icon),
+      time_created(base::TimeTicks::Now()) {}
 
-ToastData::ToastData(const ToastData& other) = default;
+ToastData::ToastData(ToastData&& other) = default;
+ToastData& ToastData::operator=(ToastData&& other) = default;
 
-ToastData::~ToastData() = default;
+ToastData::~ToastData() {
+  // The toast can get cancelled before it shows, so we only want to run
+  // `expired_callback` if the toast actually did show.
+  if (!time_start_showing.is_null() && expired_callback)
+    std::move(expired_callback).Run();
+}
 
 }  // namespace ash

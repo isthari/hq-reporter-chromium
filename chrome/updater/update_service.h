@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,9 @@
 #include <ostream>
 #include <string>
 
-#include "base/callback_forward.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/ref_counted.h"
 #include "base/version.h"
 #include "chrome/updater/enum_traits.h"
@@ -19,7 +19,6 @@
 namespace updater {
 
 struct RegistrationRequest;
-struct RegistrationResponse;
 
 enum class UpdaterScope;
 
@@ -43,7 +42,7 @@ class UpdateService : public base::RefCountedThreadSafe<UpdateService> {
     kAllowed = 1,
   };
 
-  // Values posted by the completion |callback| as a result of the
+  // Values posted by the completion `callback` as a result of the
   // non-blocking invocation of the service functions. These values are not
   // present in the telemetry pings.
   enum class Result {
@@ -82,6 +81,9 @@ class UpdateService : public base::RefCountedThreadSafe<UpdateService> {
 
     // IPC connection to the remote process failed for some reason.
     kIPCConnectionFailed = 9,
+
+    // Failed to run app installer.
+    kInstallFailed = 10,
 
     // Update EnumTraits<UpdateService::Result> when adding new values.
   };
@@ -163,6 +165,11 @@ class UpdateService : public base::RefCountedThreadSafe<UpdateService> {
     ErrorCategory error_category = ErrorCategory::kNone;
     int error_code = 0;
     int extra_code1 = 0;
+
+    // Results collected from installer result API. See the definition of
+    // `update_client::CrxInstaller::Result` for the meaning of the members.
+    std::string installer_text;
+    std::string installer_cmd_line;
   };
 
   // Urgency of the update service invocation.
@@ -195,59 +202,128 @@ class UpdateService : public base::RefCountedThreadSafe<UpdateService> {
 
   using Callback = base::OnceCallback<void(Result)>;
   using StateChangeCallback = base::RepeatingCallback<void(const UpdateState&)>;
-  using RegisterAppCallback =
-      base::OnceCallback<void(const RegistrationResponse&)>;
+  using InstallerResult = update_client::CrxInstaller::Result;
 
-  // Returns the version of the active updater. In the current implementation,
-  // this value corresponds to kUpdaterVersion. The version object is invalid
-  // if an error occurs.
-  virtual void GetVersion(
-      base::OnceCallback<void(const base::Version&)>) const = 0;
+  // Returns the version of the active updater. The version object is invalid
+  // if an error (including timeout) occurs.
+  virtual void GetVersion(base::OnceCallback<void(const base::Version&)>) = 0;
+
+  // Fetches policies from device management.
+  virtual void FetchPolicies(base::OnceCallback<void(int)> callback) = 0;
 
   // Registers given request to the updater.
   virtual void RegisterApp(const RegistrationRequest& request,
-                           RegisterAppCallback callback) = 0;
+                           base::OnceCallback<void(int)> callback) = 0;
 
   // Gets state of all registered apps.
   virtual void GetAppStates(
-      base::OnceCallback<void(const std::vector<AppState>&)>) const = 0;
+      base::OnceCallback<void(const std::vector<AppState>&)>) = 0;
 
   // Runs periodic tasks such as checking for uninstallation of registered
   // applications or doing background updates for registered applications.
   virtual void RunPeriodicTasks(base::OnceClosure callback) = 0;
 
-  // Initiates an update check for all registered applications. Receives state
-  // change notifications through the repeating |state_update| callback.
-  // Calls |callback| once  the operation is complete.
-  virtual void UpdateAll(StateChangeCallback state_update,
-                         Callback callback) = 0;
+  // DEPRECATED - queries the server for updates, gets an update response, but
+  // does not download, install, or run any payload. This is intended to
+  // support the legacy on-demand Omaha interface but it should not be used
+  // by new code. The parameters are similar to the parameters of `Update`.
+  virtual void CheckForUpdate(
+      const std::string& app_id,
+      Priority priority,
+      PolicySameVersionUpdate policy_same_version_update,
+      StateChangeCallback state_update,
+      Callback callback) = 0;
 
   // Updates specified product. This update may be on-demand.
   //
   // Args:
-  //   |app_id|: ID of app to update.
-  //   |priority|: Priority for processing this update.
-  //   |state_update|: The callback will be invoked every time the update
+  //   `app_id`: ID of app to update.
+  //   `install_data_index`: Index of the server install data.
+  //   `priority`: Priority for processing this update.
+  //   `policy_same_version_update`: Whether a same-version update is allowed.
+  //   `state_update`: The callback will be invoked every time the update
   //     changes state when the engine starts. It will be called on the
   //     sequence used by the update service, so this callback must not block.
   //     It will not be called again after the update has reached a terminal
-  //     state. It will not be called after the completion |callback| is posted.
-  //   |callback|: Posted after the update stops, successfully or otherwise.
+  //     state. It will not be called after the completion `callback` is posted.
+  //   `callback`: Posted after the update stops, successfully or otherwise.
   //
-  // |state_update| arg:
-  //    UpdateState: the new state of this update request.
+  //   `state_update` arg:
+  //     UpdateState: the new state of this update request.
   //
-  // |callback| arg:
-  //    Result: the final result from the update engine.
+  //   `callback` arg:
+  //     Result: the final result from the update engine.
   virtual void Update(const std::string& app_id,
+                      const std::string& install_data_index,
                       Priority priority,
                       PolicySameVersionUpdate policy_same_version_update,
                       StateChangeCallback state_update,
                       Callback callback) = 0;
 
-  // Provides a way to commit data or clean up resources before the task
-  // scheduler is shutting down.
-  virtual void Uninitialize() = 0;
+  // Initiates an update check for all registered applications. Receives state
+  // change notifications through the repeating `state_update` callback.
+  // Calls `callback` once  the operation is complete.
+  virtual void UpdateAll(StateChangeCallback state_update,
+                         Callback callback) = 0;
+
+  // Registers and installs an application from the network.
+  //
+  // Args:
+  //   `registration`: Registration data about the app.
+  //   `client_install_data`: User provided install data.
+  //   `install_data_index`: Index of the server install data. Effective only
+  //     when `client_install_data` is not set.
+  //   `priority`: Priority for processing this update.
+  //   `state_update`: The callback will be invoked every time the update
+  //     changes state when the engine starts. It will be called on the
+  //     sequence used by the update service, so this callback must not block.
+  //     It will not be called again after the update has reached a terminal
+  //     state. It will not be called after the completion `callback` is posted.
+  //   `callback`: Posted after the update stops, successfully or otherwise.
+  //
+  //   `state_update` arg:
+  //     UpdateState: the new state of this update request.
+  //
+  //   `callback` arg:
+  //     Result: the final result from the update engine.
+  virtual void Install(const RegistrationRequest& registration,
+                       const std::string& client_install_data,
+                       const std::string& install_data_index,
+                       Priority priority,
+                       StateChangeCallback state_update,
+                       Callback callback) = 0;
+
+  // Cancels any ongoing installations of the specified product. This does not
+  // interrupt any product installers that are currently running, but does
+  // prevent them from being run if they are not yet downloaded.
+  //
+  // Args:
+  //   `app_id`: ID of the product to cancel installs of.
+  virtual void CancelInstalls(const std::string& app_id) = 0;
+
+  // Install an app by running its installer.
+  // TODO(crbug.com/1286574): perform necessary actions after install, such as
+  // sending install ping and/or run post-install command.
+  //
+  // Args:
+  //   `app_id`: ID of app to install.
+  //   `app_installer`: Offline installer path.
+  //   `arguments`: Arguments to run the installer.
+  //   `install_data`: Server install data extracted from the offline manifest.
+  //   `install_settings`: An optional serialized dictionary to customize the
+  //       installation.
+  //   `state_update` arg:
+  //     UpdateState: the new state of this install request.
+  //
+  //   `callback` arg:
+  //     Result: the final result from the update engine.
+  virtual void RunInstaller(const std::string& app_id,
+                            const base::FilePath& installer_path,
+                            const std::string& install_args,
+                            const std::string& install_data,
+                            const std::string& install_settings,
+                            StateChangeCallback state_update,
+                            Callback callback) = 0;
 
  protected:
   friend class base::RefCountedThreadSafe<UpdateService>;
@@ -255,12 +331,12 @@ class UpdateService : public base::RefCountedThreadSafe<UpdateService> {
   virtual ~UpdateService() = default;
 };
 
-// These specializations must be defined in the |updater| namespace.
+// These specializations must be defined in the `updater` namespace.
 template <>
 struct EnumTraits<UpdateService::Result> {
   using Result = UpdateService::Result;
   static constexpr Result first_elem = Result::kSuccess;
-  static constexpr Result last_elem = Result::kIPCConnectionFailed;
+  static constexpr Result last_elem = Result::kInstallFailed;
 };
 
 template <>
@@ -296,6 +372,13 @@ inline std::ostream& operator<<(
         return "allowed";
     }
   }();
+}
+
+bool operator==(const UpdateService::UpdateState& lhs,
+                const UpdateService::UpdateState& rhs);
+inline bool operator!=(const UpdateService::UpdateState& lhs,
+                       const UpdateService::UpdateState& rhs) {
+  return !(lhs == rhs);
 }
 
 }  // namespace updater

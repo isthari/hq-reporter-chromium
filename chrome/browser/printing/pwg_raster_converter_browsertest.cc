@@ -1,11 +1,12 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/test/base/in_process_browser_test.h"
 
-#include "base/bind.h"
+#include "base/feature_list.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/hash/sha1.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/path_service.h"
@@ -16,28 +17,55 @@
 #include "chrome/browser/printing/pwg_raster_converter.h"
 #include "chrome/common/chrome_paths.h"
 #include "content/public/test/browser_test.h"
+#include "pdf/pdf_features.h"
 #include "printing/mojom/print.mojom.h"
 #include "printing/pdf_render_settings.h"
 #include "printing/pwg_raster_settings.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace printing {
 
 namespace {
 
 // Note that for some reason the generated PWG varies depending on the
-// platform (32 or 64 bits) on Linux.
-#if (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)) && defined(ARCH_CPU_32_BITS)
+// platform (32 or 64 bits) on ChromeOS.
+#if BUILDFLAG(IS_CHROMEOS) && defined(ARCH_CPU_32_BITS)
 constexpr char kPdfToPwgRasterColorTestFile[] = "pdf_to_pwg_raster_test_32.pwg";
+constexpr char kPdfToPwgRasterColorTestSkiaFile[] =
+    "pdf_to_pwg_raster_test_skia_32.pwg";
 constexpr char kPdfToPwgRasterMonoTestFile[] =
     "pdf_to_pwg_raster_mono_test_32.pwg";
+constexpr char kPdfToPwgRasterMonoTestSkiaFile[] =
+    "pdf_to_pwg_raster_mono_test_skia_32.pwg";
 constexpr char kPdfToPwgRasterLongEdgeTestFile[] =
     "pdf_to_pwg_raster_long_edge_test_32.pwg";
+constexpr char kPdfToPwgRasterLongEdgeTestSkiaFile[] =
+    "pdf_to_pwg_raster_long_edge_test_skia_32.pwg";
+#elif (BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)) && defined(ARCH_CPU_ARM64)
+constexpr char kPdfToPwgRasterColorTestFile[] =
+    "pdf_to_pwg_raster_test_arm.pwg";
+constexpr char kPdfToPwgRasterColorTestSkiaFile[] =
+    "pdf_to_pwg_raster_test_skia_arm.pwg";
+constexpr char kPdfToPwgRasterMonoTestFile[] =
+    "pdf_to_pwg_raster_mono_test_arm.pwg";
+constexpr char kPdfToPwgRasterMonoTestSkiaFile[] =
+    "pdf_to_pwg_raster_mono_test_skia_arm.pwg";
+constexpr char kPdfToPwgRasterLongEdgeTestFile[] =
+    "pdf_to_pwg_raster_long_edge_test_arm.pwg";
+constexpr char kPdfToPwgRasterLongEdgeTestSkiaFile[] =
+    "pdf_to_pwg_raster_long_edge_test_skia_arm.pwg";
 #else
 constexpr char kPdfToPwgRasterColorTestFile[] = "pdf_to_pwg_raster_test.pwg";
+constexpr char kPdfToPwgRasterColorTestSkiaFile[] =
+    "pdf_to_pwg_raster_test_skia.pwg";
 constexpr char kPdfToPwgRasterMonoTestFile[] =
     "pdf_to_pwg_raster_mono_test.pwg";
+constexpr char kPdfToPwgRasterMonoTestSkiaFile[] =
+    "pdf_to_pwg_raster_mono_test_skia.pwg";
 constexpr char kPdfToPwgRasterLongEdgeTestFile[] =
     "pdf_to_pwg_raster_long_edge_test.pwg";
+constexpr char kPdfToPwgRasterLongEdgeTestSkiaFile[] =
+    "pdf_to_pwg_raster_long_edge_test_skia.pwg";
 #endif
 
 void ResultCallbackImpl(bool* called,
@@ -58,7 +86,8 @@ void GetPdfData(const char* file_name,
   std::string pdf_data_str;
   ASSERT_TRUE(base::ReadFileToString(pdf_file, &pdf_data_str));
   ASSERT_GT(pdf_data_str.length(), 0U);
-  *pdf_data = base::RefCountedString::TakeString(&pdf_data_str);
+  *pdf_data =
+      base::MakeRefCounted<base::RefCountedString>(std::move(pdf_data_str));
 }
 
 std::string HashData(const char* data, size_t len) {
@@ -94,7 +123,8 @@ class PdfToPwgRasterBrowserTest : public InProcessBrowserTest {
                base::ReadOnlySharedMemoryRegion* pwg_region) {
     bool called = false;
     base::RunLoop run_loop;
-    converter_->Start(pdf_data, conversion_settings, bitmap_settings,
+    converter_->Start(/*use_skia=*/absl::nullopt, pdf_data, conversion_settings,
+                      bitmap_settings,
                       base::BindOnce(&ResultCallbackImpl, &called, pwg_region,
                                      run_loop.QuitClosure()));
     run_loop.Run();
@@ -138,9 +168,10 @@ IN_PROC_BROWSER_TEST_F(PdfToPwgRasterBrowserTest, TestSuccessColor) {
   base::ReadOnlySharedMemoryRegion pwg_region;
   Convert(pdf_data.get(), pdf_settings, pwg_settings,
           /*expect_success=*/true, &pwg_region);
-
-  base::FilePath expected_pwg_file =
-      test_data_dir.AppendASCII(kPdfToPwgRasterColorTestFile);
+  base::FilePath expected_pwg_file = test_data_dir.AppendASCII(
+      base::FeatureList::IsEnabled(chrome_pdf::features::kPdfUseSkiaRenderer)
+          ? kPdfToPwgRasterColorTestSkiaFile
+          : kPdfToPwgRasterColorTestFile);
   ComparePwgOutput(expected_pwg_file, std::move(pwg_region));
 }
 
@@ -166,9 +197,10 @@ IN_PROC_BROWSER_TEST_F(PdfToPwgRasterBrowserTest, TestSuccessMono) {
   base::ReadOnlySharedMemoryRegion pwg_region;
   Convert(pdf_data.get(), pdf_settings, pwg_settings,
           /*expect_success=*/true, &pwg_region);
-
-  base::FilePath expected_pwg_file =
-      test_data_dir.AppendASCII(kPdfToPwgRasterMonoTestFile);
+  base::FilePath expected_pwg_file = test_data_dir.AppendASCII(
+      base::FeatureList::IsEnabled(chrome_pdf::features::kPdfUseSkiaRenderer)
+          ? kPdfToPwgRasterMonoTestSkiaFile
+          : kPdfToPwgRasterMonoTestFile);
   ComparePwgOutput(expected_pwg_file, std::move(pwg_region));
 }
 
@@ -194,9 +226,10 @@ IN_PROC_BROWSER_TEST_F(PdfToPwgRasterBrowserTest, TestSuccessLongDuplex) {
   base::ReadOnlySharedMemoryRegion pwg_region;
   Convert(pdf_data.get(), pdf_settings, pwg_settings,
           /*expect_success=*/true, &pwg_region);
-
-  base::FilePath expected_pwg_file =
-      test_data_dir.AppendASCII(kPdfToPwgRasterLongEdgeTestFile);
+  base::FilePath expected_pwg_file = test_data_dir.AppendASCII(
+      base::FeatureList::IsEnabled(chrome_pdf::features::kPdfUseSkiaRenderer)
+          ? kPdfToPwgRasterLongEdgeTestSkiaFile
+          : kPdfToPwgRasterLongEdgeTestFile);
   ComparePwgOutput(expected_pwg_file, std::move(pwg_region));
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -67,7 +67,6 @@ const char kImeOptionsPage[] = "options_page";
 const char kIndicator[] = "indicator";
 const char kInputComponents[] = "input_components";
 const char kInputView[] = "input_view";
-const char kIsolation[] = "app.isolation";
 const char kKey[] = "key";
 const char kKiosk[] = "kiosk";
 const char kKioskAlwaysUpdate[] = "kiosk.always_update";
@@ -99,6 +98,7 @@ const char kNaClModulesPath[] = "path";
 const char kNativelyConnectable[] = "natively_connectable";
 const char kOfflineEnabled[] = "offline_enabled";
 const char kOmniboxKeyword[] = "omnibox.keyword";
+const char kOptionalHostPermissions[] = "optional_host_permissions";
 const char kOptionalPermissions[] = "optional_permissions";
 const char kOptionsPage[] = "options_page";
 const char kOptionsUI[] = "options_ui";
@@ -157,12 +157,12 @@ const char kWebview[] = "webview";
 const char kWebviewAccessibleResources[] = "accessible_resources";
 const char kWebviewName[] = "name";
 const char kWebviewPartitions[] = "partitions";
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
+const char kFileSystemProviderCapabilities[] =
+    "file_system_provider_capabilities";
 const char kActionHandlers[] = "action_handlers";
 const char kActionHandlerActionKey[] = "action";
 const char kActionHandlerEnabledOnLockScreenKey[] = "enabled_on_lock_screen";
-const char kFileSystemProviderCapabilities[] =
-    "file_system_provider_capabilities";
 #endif
 
 }  // namespace manifest_keys
@@ -175,7 +175,6 @@ const char kBrowserActionCommandEvent[] = "_execute_browser_action";
 const char kIncognitoNotAllowed[] = "not_allowed";
 const char kIncognitoSplit[] = "split";
 const char kIncognitoSpanning[] = "spanning";
-const char kIsolatedStorage[] = "storage";
 const char kKeybindingPlatformChromeOs[] = "chromeos";
 const char kKeybindingPlatformDefault[] = "default";
 const char kKeybindingPlatformLinux[] = "linux";
@@ -273,6 +272,9 @@ const char kDeclarativeNetRequestPermissionNeeded[] =
 const char16_t kDefaultStateShouldNotBeSet[] =
     u"The default_state key cannot be set for browser_action or page_action "
     "keys.";
+const char kExecutionWorldRestrictedToMV3[] =
+    "The 'world' property is restricted to extensions with 'manifest_version' "
+    "set to 3 or higher.";
 const char kExpectString[] = "Expect string value.";
 const char kFileNotFound[] = "File not found: *.";
 const char kHasDifferentialFingerprint[] =
@@ -370,6 +372,8 @@ const char16_t kInvalidFileFiltersList[] = u"Invalid value for 'file_filters'.";
 const char kInvalidFileFilterValue[] =
     "Invalid value for 'file_filters[*]'.";
 const char16_t kInvalidFileHandlers[] = u"Invalid value for 'file_handlers'.";
+const char kInvalidWebFileHandlers[] =
+    "Invalid value for 'file_handlers[*]'. *";
 const char16_t kInvalidFileHandlersTooManyTypesAndExtensions[] =
     u"Too many MIME and extension file_handlers have been declared.";
 const char kInvalidFileHandlerExtension[] =
@@ -391,9 +395,8 @@ const char kInvalidHomepageOverrideURL[] =
     "Invalid value for overriding homepage url: '[*]'.";
 const char kInvalidHomepageURL[] =
     "Invalid value for homepage url: '[*]'.";
-const char kInvalidHostPermission[] =
-    "Invalid value for 'host_permissions[*]'.";
-const char kInvalidHostPermissions[] = "Invalid value for 'host_permissions'.";
+const char kInvalidHostPermission[] = "Invalid value for '*[*]'.";
+const char kInvalidHostPermissions[] = "Invalid value for '*'.";
 const char kInvalidIconKey[] = "Invalid key in icons: \"*\".";
 const char kInvalidIconPath[] =
     "Invalid value for 'icons[\"*\"]'.";
@@ -599,6 +602,7 @@ const char kInvalidWebAccessibleResourcesList[] =
     "Invalid value for 'web_accessible_resources'.";
 const char kInvalidWebAccessibleResource[] =
     "Invalid value for 'web_accessible_resources[*]'. *";
+const char kInvalidSidePanel[] = "Invalid value for 'side_panel'. *";
 const char16_t kInvalidWebview[] = u"Invalid value for 'webview'.";
 const char16_t kInvalidWebviewAccessibleResourcesList[] =
     u"Invalid value for'webview.accessible_resources'.";
@@ -667,10 +671,7 @@ const char kPermissionCannotBeOptional[] =
 const char kPermissionMarkedOptionalAndRequired[] =
     "Optional permission '*' is redundant with the required permissions;"
     "this permission will be omitted.";
-const char kPermissionNotAllowed[] =
-    "Access to permission '*' denied.";
-const char kPermissionNotAllowedInManifest[] =
-    "Permission '*' cannot be specified in the manifest.";
+const char kPermissionNotAllowed[] = "Access to permission '*' denied.";
 const char kPermissionUnknownOrMalformed[] =
     "Permission '*' is unknown or URL pattern is malformed.";
 const char kPluginsRequirementDeprecated[] =
@@ -688,6 +689,8 @@ const char kRulesetCountExceeded[] =
 const char kEnabledRulesetCountExceeded[] =
     "Invalid value for key '*.*': The number of enabled rulesets must be less "
     "than or equal to *.";
+const char kSidePanelManifestDefaultPathError[] =
+    "Side panel file path must exist.";
 const char16_t kTransientBackgroundConflictsWithPersistentBackground[] =
     u"The 'transientBackground' permission cannot be used with a persistent "
     "background page.";
@@ -699,7 +702,23 @@ const char kUnrecognizedManifestProperty[] =
     "Unrecognized property '*' of manifest key '*'.";
 const char16_t kWebRequestConflictsWithLazyBackground[] =
     u"The 'webRequest' API cannot be used with event pages.";
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+const char kInvalidExtensionOriginPopup[] =
+    "The default_popup path specified in the manifest is invalid. Ensure it is "
+    "a path to a file in this extension.";
+const char kNonexistentDefaultPopup[] =
+    "The default_popup file in the manifest doesn't exist. Confirm it exists "
+    "and then reload the extension.";
+const char kCommandActionIncorrectForManifestActionType[] =
+    "The action commands in the manifest do not match the manifest's action "
+    "type and were ignored.";
+#if BUILDFLAG(IS_CHROMEOS)
+const char16_t kInvalidFileSystemProviderMissingCapabilities[] =
+    u"The 'fileSystemProvider' permission requires the "
+    "'file_system_provider_capabilities' section to be specified in the "
+    "manifest.";
+const char kInvalidFileSystemProviderMissingPermission[] =
+    "The 'file_system_provider_capabilities' section requires the "
+    "'fileSystemProvider' permission to be specified in the manifest.";
 const char kDuplicateActionHandlerFound[] =
     "'action_handlers' list contains duplicate entries for the action: \"*\".";
 const char kIllegalPlugins[] =
@@ -713,14 +732,7 @@ const char16_t kInvalidActionHandlersType[] =
     u"Invalid value for 'action_handlers'. Value must be a list of strings or "
     u"a "
     "dictionary with 'action' key.";
-const char16_t kInvalidFileSystemProviderMissingCapabilities[] =
-    u"The 'fileSystemProvider' permission requires the "
-    "'file_system_provider_capabilities' section to be specified in the "
-    "manifest.";
-const char kInvalidFileSystemProviderMissingPermission[] =
-    "The 'file_system_provider_capabilities' section requires the "
-    "'fileSystemProvider' permission to be specified in the manifest.";
-#endif
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 }  // namespace manifest_errors
 

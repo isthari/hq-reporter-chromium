@@ -1,17 +1,18 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {PromiseResolver} from 'chrome://resources/js/promise_resolver.m.js';
+import {PromiseResolver} from 'chrome://resources/ash/common/promise_resolver.js';
 import {fakeDeviceRegions, fakeDeviceSkus, fakeDeviceWhiteLabels} from 'chrome://shimless-rma/fake_data.js';
 import {FakeShimlessRmaService} from 'chrome://shimless-rma/fake_shimless_rma_service.js';
 import {setShimlessRmaServiceForTesting} from 'chrome://shimless-rma/mojo_interface_provider.js';
 import {ReimagingDeviceInformationPage} from 'chrome://shimless-rma/reimaging_device_information_page.js';
-import {assertDeepEquals, assertEquals, assertFalse, assertTrue} from '../../chai_assert.js';
-import {flushTasks} from '../../test_util.js';
+import {ShimlessRma} from 'chrome://shimless-rma/shimless_rma.js';
+import {assertDeepEquals, assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chromeos/chai_assert.js';
+import {flushTasks} from 'chrome://webui-test/polymer_test_util.js';
 
-let fakeSerialNumber = 'serial# 0001';
-let fakeDramPartNumber = 'dram# 0123';
+const fakeSerialNumber = 'serial# 0001';
+const fakeDramPartNumber = 'dram# 0123';
 
 // TODO(gavindodd) how to update selectedIndex and trigger on-change
 // automatically.
@@ -27,20 +28,17 @@ function suppressedComponentOnSelectedChange_(component) {
   component.onSelectedSkuChange_('ignored');
 }
 
-export function reimagingDeviceInformationPageTest() {
+suite('reimagingDeviceInformationPageTest', function() {
   /** @type {?ReimagingDeviceInformationPage} */
   let component = null;
 
   /** @type {?FakeShimlessRmaService} */
   let service = null;
 
-  suiteSetup(() => {
-    service = new FakeShimlessRmaService();
-    setShimlessRmaServiceForTesting(service);
-  });
-
   setup(() => {
     document.body.innerHTML = '';
+    service = new FakeShimlessRmaService();
+    setShimlessRmaServiceForTesting(service);
   });
 
   teardown(() => {
@@ -114,11 +112,11 @@ export function reimagingDeviceInformationPageTest() {
     const skuSelectComponent = component.shadowRoot.querySelector('#skuSelect');
     const dramPartNumberComponent =
         component.shadowRoot.querySelector('#dramPartNumber');
-    let expectedSerialNumber = 'expected serial number';
-    let expectedRegionIndex = 0;
-    let expectedWhiteLabelIndex = 1;
-    let expectedSkuIndex = 2;
-    let expectedDramPartNumber = 'expected dram part number';
+    const expectedSerialNumber = 'expected serial number';
+    const expectedRegionIndex = 0;
+    const expectedWhiteLabelIndex = 1;
+    const expectedSkuIndex = 2;
+    const expectedDramPartNumber = 'expected dram part number';
     serialNumberComponent.value = expectedSerialNumber;
     regionSelectComponent.selectedIndex = expectedRegionIndex;
     whiteLabelSelectComponent.selectedIndex = expectedWhiteLabelIndex;
@@ -146,7 +144,7 @@ export function reimagingDeviceInformationPageTest() {
           return resolver.promise;
         };
 
-    let expectedResult = {foo: 'bar'};
+    const expectedResult = {foo: 'bar'};
     let savedResult;
     component.onNextButtonClick().then((result) => savedResult = result);
     // Resolve to a distinct result to confirm it was not modified.
@@ -166,7 +164,7 @@ export function reimagingDeviceInformationPageTest() {
     await initializeReimagingDeviceInformationPage();
 
     component.allButtonsDisabled = false;
-    let serialNumber = fakeSerialNumber + 'new serial number';
+    const serialNumber = fakeSerialNumber + 'new serial number';
     const serialNumberComponent =
         component.shadowRoot.querySelector('#serialNumber');
     const resetSerialNumberComponent =
@@ -216,7 +214,7 @@ export function reimagingDeviceInformationPageTest() {
         await initializeReimagingDeviceInformationPage();
 
         component.allButtonsDisabled = false;
-        let dramPartNumber = fakeDramPartNumber + 'new part number';
+        const dramPartNumber = fakeDramPartNumber + 'new part number';
         const dramPartNumberComponent =
             component.shadowRoot.querySelector('#dramPartNumber');
         const resetDramPartNumberComponent =
@@ -359,4 +357,4 @@ export function reimagingDeviceInformationPageTest() {
   //
   // test: ReimagingDeviceInformationPageModifyRegionAndReset
   // test: ReimagingDeviceInformationPageModifySkuAndReset
-}
+});

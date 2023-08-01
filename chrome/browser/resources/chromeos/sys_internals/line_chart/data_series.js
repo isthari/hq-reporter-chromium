@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -148,8 +148,9 @@ export class DataSeries {
    */
   updateCacheValues_(startTime, stepSize, count) {
     if (this.cacheStartTime_ == startTime && this.cacheStepSize_ == stepSize &&
-        this.cacheValues_.length == count)
+        this.cacheValues_.length == count) {
       return;
+    }
 
     const /** Array<null|number> */ values = [];
     values.length = count;
@@ -241,7 +242,7 @@ export class DataSeries {
   backfillValuePoint_(valueIndex, dataIndex, boundaryTime) {
     const dataPoints = this.dataPoints_;
     const values = this.cacheValues_;
-    let maxValue = this.cacheMaxValue_;
+    const maxValue = this.cacheMaxValue_;
     if (values[valueIndex] == null && dataIndex > 0 &&
         dataIndex < dataPoints.length) {
       values[valueIndex] = this.dataPointLinearInterpolation(
@@ -288,8 +289,9 @@ export class DataSeries {
    * @return {number}
    */
   static linearInterpolation(x1, y1, x2, y2, x) {
-    if (x1 == x2)
+    if (x1 == x2) {
       return (y1 + y2) / 2;
+    }
     const /** number */ ratio = (x - x1) / (x2 - x1);
     return (y2 - y1) * ratio + y1;
   }

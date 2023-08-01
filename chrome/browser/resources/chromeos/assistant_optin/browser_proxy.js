@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,80 +7,73 @@
  * to interact with the browser.
  */
 
-cr.define('assistant', function() {
-  var requestPrefix = 'login.AssistantOptInFlowScreen.';
+import {addSingletonGetter} from 'chrome://resources/ash/common/cr_deprecated.js';
 
-  /** @interface */
-  class BrowserProxy {
-    /**
-     * Send user action to the handler.
-     * @param {string} screenId ID of the screen.
-     * @param {data} action The user action.
-     */
-    userActed(screenId, action) {}
+const requestPrefix = 'login.AssistantOptInFlowScreen.';
 
-    /**
-     * Notify the screen is shown.
-     * @param {string} screenId ID of the screen.
-     */
-    screenShown(screenId) {}
+/** @interface */
+class BrowserProxy {
+  /**
+   * Send user action to the handler.
+   * @param {string} screenId ID of the screen.
+   * @param {data} action The user action.
+   */
+  userActed(screenId, action) {}
 
-    /** Send timeout signal. */
-    timeout() {}
+  /**
+   * Notify the screen is shown.
+   * @param {string} screenId ID of the screen.
+   */
+  screenShown(screenId) {}
 
-    /** Send flow finished signal. */
-    flowFinished() {}
+  /** Send timeout signal. */
+  timeout() {}
 
-    /**
-     * Send initialized signal.
-     * @param {FlowType} flowType The flow type.
-     */
-    initialized(flowType) {}
+  /** Send flow finished signal. */
+  flowFinished() {}
 
-    /** Send dialog close signal. */
-    dialogClose() {}
+  /**
+   * Send initialized signal.
+   * @param {FlowType} flowType The flow type.
+   */
+  initialized(flowType) {}
+
+  /** Send dialog close signal. */
+  dialogClose() {}
+}
+
+export class BrowserProxyImpl extends BrowserProxy {
+  /** @override */
+  userActed(screenId, action) {
+    chrome.send(requestPrefix + screenId + '.userActed', action);
   }
 
-  /** @implements {assistant.BrowserProxy} */
-  class BrowserProxyImpl {
-    /** @override */
-    userActed(screenId, action) {
-      chrome.send(requestPrefix + screenId + '.userActed', action);
-    }
-
-    /** @override */
-    screenShown(screenId) {
-      chrome.send(requestPrefix + screenId + '.screenShown');
-    }
-
-    /** @override */
-    timeout() {
-      chrome.send(requestPrefix + 'timeout');
-    }
-
-    /** @override */
-    flowFinished() {
-      chrome.send(requestPrefix + 'flowFinished');
-    }
-
-    /** @override */
-    initialized(flowType) {
-      chrome.send(requestPrefix + 'initialized', flowType);
-    }
-
-    /** @override */
-    dialogClose() {
-      chrome.send('dialogClose');
-    }
+  /** @override */
+  screenShown(screenId) {
+    chrome.send(requestPrefix + screenId + '.screenShown');
   }
 
-  // The singleton instance_ is replaced with a test version of this wrapper
-  // during testing.
-  cr.addSingletonGetter(BrowserProxyImpl);
+  /** @override */
+  timeout() {
+    chrome.send(requestPrefix + 'timeout');
+  }
 
-  // #cr_define_end
-  return {
-    BrowserProxy: BrowserProxy,
-    BrowserProxyImpl: BrowserProxyImpl,
-  };
-});
+  /** @override */
+  flowFinished() {
+    chrome.send(requestPrefix + 'flowFinished');
+  }
+
+  /** @override */
+  initialized(flowType) {
+    chrome.send(requestPrefix + 'initialized', flowType);
+  }
+
+  /** @override */
+  dialogClose() {
+    chrome.send('dialogClose');
+  }
+}
+
+// The singleton instance_ is replaced with a test version of this wrapper
+// during testing.
+addSingletonGetter(BrowserProxyImpl);

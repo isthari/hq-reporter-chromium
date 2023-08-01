@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,7 @@
 #include <utility>
 
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/app/vector_icons/vector_icons.h"
-#include "chrome/browser/ui/passwords/manage_passwords_view_utils.h"
+#include "chrome/browser/ui/passwords/ui_utils.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/chrome_typography.h"
 #include "chrome/grit/theme_resources.h"
@@ -154,9 +153,9 @@ void CredentialsItemView::SetStoreIndicatorIcon(
     store_indicator_icon_view_ =
         AddChildView(std::make_unique<views::ImageView>());
     store_indicator_icon_view_->SetCanProcessEventsWithinSubtree(false);
-    store_indicator_icon_view_->SetImage(gfx::CreateVectorIcon(
+    store_indicator_icon_view_->SetImage(ui::ImageModel::FromVectorIcon(
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
-        kGoogleGLogoIcon,
+        vector_icons::kGoogleGLogoIcon,
 #else
         vector_icons::kSyncIcon,
 #endif  // !BUILDFLAG(GOOGLE_CHROME_BRANDING)

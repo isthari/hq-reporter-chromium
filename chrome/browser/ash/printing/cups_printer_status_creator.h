@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,21 +14,21 @@ namespace printing {
 struct PrinterStatus;
 }  // namespace printing
 
-namespace chromeos {
+namespace ash {
 
-class CupsPrinterStatus;
-
-CupsPrinterStatus PrinterStatusToCupsPrinterStatus(
+chromeos::CupsPrinterStatus PrinterStatusToCupsPrinterStatus(
     const std::string& printer_id,
-    const printing::PrinterStatus& printer_status);
+    const printing::PrinterStatus& printer_status,
+    const chromeos::PrinterAuthenticationInfo& auth_info);
 
-CupsPrinterStatus::CupsPrinterStatusReason::Reason PrinterReasonToCupsReason(
+chromeos::CupsPrinterStatus::CupsPrinterStatusReason::Reason
+PrinterReasonToCupsReason(
     const printing::PrinterStatus::PrinterReason::Reason& reason);
 
-CupsPrinterStatus::CupsPrinterStatusReason::Severity
+chromeos::CupsPrinterStatus::CupsPrinterStatusReason::Severity
 PrinterSeverityToCupsSeverity(
     const printing::PrinterStatus::PrinterReason::Severity& severity);
 
-}  // namespace chromeos
+}  // namespace ash
 
 #endif  // CHROME_BROWSER_ASH_PRINTING_CUPS_PRINTER_STATUS_CREATOR_H_

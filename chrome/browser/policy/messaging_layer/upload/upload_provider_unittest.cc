@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -7,15 +7,20 @@
 #include <memory>
 #include <utility>
 
-#include "base/base64.h"
 #include "base/memory/ref_counted.h"
 #include "base/task/thread_pool.h"
 #include "base/test/task_environment.h"
 #include "chrome/browser/policy/messaging_layer/upload/fake_upload_client.h"
 #include "chrome/browser/policy/messaging_layer/upload/upload_client.h"
+#include "chrome/browser/policy/messaging_layer/util/reporting_server_connector.h"
+#include "chrome/browser/policy/messaging_layer/util/reporting_server_connector_test_util.h"
+#include "chrome/browser/policy/messaging_layer/util/test_request_payload.h"
+#include "chrome/browser/policy/messaging_layer/util/test_response_payload.h"
 #include "components/policy/core/common/cloud/dm_token.h"
 #include "components/policy/core/common/cloud/mock_cloud_policy_client.h"
+#include "components/reporting/resources/resource_manager.h"
 #include "components/reporting/util/test_support_callbacks.h"
+#include "content/public/test/browser_task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -42,53 +47,6 @@ MATCHER_P(EqualsProto,
   return true;
 }
 
-// Helper function composes JSON represented as base::Value from Sequence
-// information in request.
-base::Value ValueFromSucceededSequenceInfo(
-    const absl::optional<base::Value> request,
-    bool force_confirm_flag) {
-  EXPECT_TRUE(request.has_value());
-  EXPECT_TRUE(request.value().is_dict());
-  base::Value response(base::Value::Type::DICTIONARY);
-
-  // Retrieve and process data
-  const base::Value* const encrypted_record_list =
-      request.value().FindListKey("encryptedRecord");
-  EXPECT_NE(encrypted_record_list, nullptr);
-  EXPECT_FALSE(encrypted_record_list->GetList().empty());
-
-  // Retrieve and process sequence information
-  const base::Value* seq_info =
-      encrypted_record_list->GetList().rbegin()->FindDictKey(
-          "sequenceInformation");
-  EXPECT_TRUE(seq_info != nullptr);
-  response.SetPath("lastSucceedUploadedRecord", seq_info->Clone());
-
-  // If forceConfirm confirm is expected, set it.
-  if (force_confirm_flag) {
-    response.SetPath("forceConfirm", base::Value(true));
-  }
-
-  // If attach_encryption_settings it true, process that.
-  const auto attach_encryption_settings =
-      request.value().FindBoolKey("attachEncryptionSettings");
-  if (attach_encryption_settings.has_value() &&
-      attach_encryption_settings.value()) {
-    base::Value encryption_settings{base::Value::Type::DICTIONARY};
-    std::string public_key;
-    base::Base64Encode("PUBLIC KEY", &public_key);
-    encryption_settings.SetStringKey("publicKey", public_key);
-    encryption_settings.SetIntKey("publicKeyId", 12345);
-    std::string public_key_signature;
-    base::Base64Encode("PUBLIC KEY SIG", &public_key_signature);
-    encryption_settings.SetStringKey("publicKeySignature",
-                                     public_key_signature);
-    response.SetPath("encryptionSettings", std::move(encryption_settings));
-  }
-
-  return response;
-}
-
 // CloudPolicyClient and UploadClient are not usable outside of a managed
 // environment, to sidestep this we override the functions that normally build
 // and retrieve these clients and provide a MockCloudPolicyClient and a
@@ -96,76 +54,63 @@ base::Value ValueFromSucceededSequenceInfo(
 class TestEncryptedReportingUploadProvider
     : public EncryptedReportingUploadProvider {
  public:
-  explicit TestEncryptedReportingUploadProvider(
+  TestEncryptedReportingUploadProvider(
       UploadClient::ReportSuccessfulUploadCallback report_successful_upload_cb,
-      UploadClient::EncryptionKeyAttachedCallback encryption_key_attached_cb,
-      policy::CloudPolicyClient* cloud_policy_client)
+      UploadClient::EncryptionKeyAttachedCallback encryption_key_attached_cb)
       : EncryptedReportingUploadProvider(
             report_successful_upload_cb,
             encryption_key_attached_cb,
-            /*build_cloud_policy_client_cb=*/
-            base::BindRepeating(
-                [](policy::CloudPolicyClient* cloud_policy_client,
-                   CloudPolicyClientResultCb callback) {
-                  std::move(callback).Run(cloud_policy_client);
-                },
-                base::Unretained(cloud_policy_client)),
             /*upload_client_builder_cb=*/
-            base::BindRepeating(
-                [](policy::CloudPolicyClient* cloud_policy_client,
-                   reporting::UploadClient::CreatedCallback
-                       update_upload_client_cb) {
-                  reporting::FakeUploadClient::Create(
-                      cloud_policy_client, std::move(update_upload_client_cb));
-                })) {}
+            base::BindRepeating(&FakeUploadClient::Create)) {}
 };
 
 class EncryptedReportingUploadProviderTest : public ::testing::Test {
  public:
-  MOCK_METHOD(void,
-              ReportSuccessfulUpload,
-              (reporting::SequenceInformation, bool),
-              ());
-  MOCK_METHOD(void,
-              EncryptionKeyCallback,
-              (reporting::SignedEncryptionInfo),
-              ());
+  MOCK_METHOD(void, ReportSuccessfulUpload, (SequenceInformation, bool), ());
+  MOCK_METHOD(void, EncryptionKeyCallback, (SignedEncryptionInfo), ());
 
  protected:
   void SetUp() override {
-    cloud_policy_client_.SetDMToken(
-        policy::DMToken::CreateValidTokenForTesting("FAKE_DM_TOKEN").value());
+    memory_resource_ =
+        base::MakeRefCounted<ResourceManager>(4u * 1024LLu * 1024LLu);  // 4 MiB
     service_provider_ = std::make_unique<TestEncryptedReportingUploadProvider>(
         base::BindRepeating(
             &EncryptedReportingUploadProviderTest::ReportSuccessfulUpload,
             base::Unretained(this)),
         base::BindRepeating(
             &EncryptedReportingUploadProviderTest::EncryptionKeyCallback,
-            base::Unretained(this)),
-        &cloud_policy_client_);
+            base::Unretained(this)));
 
     record_.set_encrypted_wrapped_record("TEST_DATA");
 
     auto* sequence_information = record_.mutable_sequence_information();
     sequence_information->set_sequencing_id(42);
     sequence_information->set_generation_id(1701);
-    sequence_information->set_priority(reporting::Priority::SLOW_BATCH);
+    sequence_information->set_priority(Priority::SLOW_BATCH);
+  }
+
+  void TearDown() override {
+    EXPECT_THAT(memory_resource_->GetUsed(), Eq(0uL));
   }
 
   Status CallRequestUploadEncryptedRecord(
       bool need_encryption_key,
-      std::unique_ptr<std::vector<EncryptedRecord>> records) {
+      std::vector<EncryptedRecord> records,
+      ScopedReservation scoped_reservation) {
     test::TestEvent<Status> result;
     service_provider_->RequestUploadEncryptedRecords(
-        need_encryption_key, std::move(records), result.cb());
+        need_encryption_key, std::move(records), std::move(scoped_reservation),
+        result.cb());
     return result.result();
   }
 
   // Must be initialized before any other class member.
-  base::test::TaskEnvironment task_environment_;
+  content::BrowserTaskEnvironment task_envrionment_;
 
-  policy::MockCloudPolicyClient cloud_policy_client_;
-  reporting::EncryptedRecord record_;
+  ReportingServerConnector::TestEnvironment test_env_;
+  EncryptedRecord record_;
+
+  scoped_refptr<ResourceManager> memory_resource_;
 
   std::unique_ptr<TestEncryptedReportingUploadProvider> service_provider_;
 };
@@ -176,19 +121,18 @@ TEST_F(EncryptedReportingUploadProviderTest, SuccessfullyUploadsRecord) {
       .WillOnce([&uploaded_event](SequenceInformation seq_info, bool force) {
         std::move(uploaded_event.cb()).Run(std::move(seq_info), force);
       });
-  EXPECT_CALL(cloud_policy_client_, UploadEncryptedReport(_, _, _))
-      .WillOnce(WithArgs<0, 2>(
-          Invoke([](base::Value request,
-                    policy::CloudPolicyClient::ResponseCallback response_cb) {
-            std::move(response_cb)
-                .Run(ValueFromSucceededSequenceInfo(
-                    std::move(request), /*force_confirm_flag=*/false));
-          })));
+  EXPECT_CALL(*test_env_.client(),
+              UploadEncryptedReport(IsDataUploadRequestValid(), _, _))
+      .WillOnce(MakeUploadEncryptedReportAction());
 
-  auto records = std::make_unique<std::vector<EncryptedRecord>>();
-  records->push_back(record_);
+  std::vector<EncryptedRecord> records;
+  records.emplace_back(record_);
+  ScopedReservation record_reservation(records.back().ByteSizeLong(),
+                                       memory_resource_);
+  EXPECT_TRUE(record_reservation.reserved());
   const auto status = CallRequestUploadEncryptedRecord(
-      /*need_encryption_key=*/false, std::move(records));
+      /*need_encryption_key=*/false, std::move(records),
+      std::move(record_reservation));
   EXPECT_OK(status) << status;
   auto uploaded_result = uploaded_event.result();
   EXPECT_THAT(std::get<0>(uploaded_result),

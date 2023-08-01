@@ -1,16 +1,18 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/passwords/test/test_password_manager_client.h"
 
-#include "base/callback_helpers.h"
-#include "components/password_manager/core/browser/password_form_manager_for_ui.h"
-#include "components/password_manager/core/browser/test_password_store.h"
-#include "components/password_manager/core/common/password_manager_pref_names.h"
-#include "components/prefs/pref_registry_simple.h"
-#include "components/prefs/testing_pref_service.h"
-#include "components/safe_browsing/core/common/safe_browsing_prefs.h"
+#import "base/functional/callback_helpers.h"
+#import "base/ranges/algorithm.h"
+#import "base/task/sequenced_task_runner.h"
+#import "components/password_manager/core/browser/password_form_manager_for_ui.h"
+#import "components/password_manager/core/browser/test_password_store.h"
+#import "components/password_manager/core/common/password_manager_pref_names.h"
+#import "components/prefs/pref_registry_simple.h"
+#import "components/prefs/testing_pref_service.h"
+#import "components/safe_browsing/core/common/safe_browsing_prefs.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -90,16 +92,14 @@ bool TestPasswordManagerClient::PromptUserToChooseCredentials(
     CredentialsCallback callback) {
   EXPECT_FALSE(local_forms.empty());
   const password_manager::PasswordForm* form = local_forms[0].get();
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(std::move(callback),
                      base::Owned(new password_manager::PasswordForm(*form))));
   std::vector<password_manager::PasswordForm*> raw_forms(local_forms.size());
-  std::transform(
-      local_forms.begin(), local_forms.end(), raw_forms.begin(),
-      [](const std::unique_ptr<password_manager::PasswordForm>& form) {
-        return form.get();
-      });
+  base::ranges::transform(
+      local_forms, raw_forms.begin(),
+      &std::unique_ptr<password_manager::PasswordForm>::get);
   PromptUserToChooseCredentialsPtr(raw_forms, origin, base::DoNothing());
   return true;
 }

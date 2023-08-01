@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,11 @@
 #define COMPONENTS_SYSTEM_MEDIA_CONTROLS_MAC_REMOTE_COMMAND_CENTER_DELEGATE_H_
 
 #include "base/containers/flat_set.h"
-#include "base/mac/scoped_nsobject.h"
 #include "base/observer_list.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 @class RemoteCommandCenterDelegateCocoa;
 
@@ -22,7 +25,7 @@ class SystemMediaControlsObserver;
 namespace internal {
 
 // Wraps an NSObject which interfaces with the MPRemoteCommandCenter.
-class API_AVAILABLE(macos(10.12.2)) RemoteCommandCenterDelegate {
+class RemoteCommandCenterDelegate {
  public:
   RemoteCommandCenterDelegate();
 
@@ -62,7 +65,7 @@ class API_AVAILABLE(macos(10.12.2)) RemoteCommandCenterDelegate {
 
   bool ShouldSetCommandEnabled(Command command, bool will_enable);
 
-  base::scoped_nsobject<RemoteCommandCenterDelegateCocoa>
+  RemoteCommandCenterDelegateCocoa* __strong
       remote_command_center_delegate_cocoa_;
   base::ObserverList<SystemMediaControlsObserver> observers_;
   base::flat_set<Command> enabled_commands_;

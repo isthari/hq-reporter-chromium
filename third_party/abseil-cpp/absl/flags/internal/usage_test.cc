@@ -20,10 +20,10 @@
 #include <sstream>
 #include <string>
 
+#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/flags/flag.h"
 #include "absl/flags/internal/parse.h"
-#include "absl/flags/internal/path_util.h"
 #include "absl/flags/internal/program_name.h"
 #include "absl/flags/reflection.h"
 #include "absl/flags/usage.h"
@@ -47,8 +47,10 @@ struct UDT {
   UDT(const UDT&) = default;
   UDT& operator=(const UDT&) = default;
 };
-bool AbslParseFlag(absl::string_view, UDT*, std::string*) { return true; }
-std::string AbslUnparseFlag(const UDT&) { return "UDT{}"; }
+static bool AbslParseFlag(absl::string_view, UDT*, std::string*) {
+  return true;
+}
+static std::string AbslUnparseFlag(const UDT&) { return "UDT{}"; }
 
 ABSL_FLAG(UDT, usage_reporting_test_flag_05, {},
           "usage_reporting_test_flag_05 help message");
@@ -103,14 +105,19 @@ class UsageReportingTest : public testing::Test {
 using UsageReportingDeathTest = UsageReportingTest;
 
 TEST_F(UsageReportingDeathTest, TestSetProgramUsageMessage) {
+#if !defined(GTEST_HAS_ABSL) || !GTEST_HAS_ABSL
+  // Check for kTestUsageMessage set in main() below.
   EXPECT_EQ(absl::ProgramUsageMessage(), kTestUsageMessage);
+#else
+  // Check for part of the usage message set by GoogleTest.
+  EXPECT_THAT(absl::ProgramUsageMessage(),
+              ::testing::HasSubstr(
+                  "This program contains tests written using Google Test"));
+#endif
 
-#ifndef _WIN32
-  // TODO(rogeeff): figure out why this does not work on Windows.
   EXPECT_DEATH_IF_SUPPORTED(
       absl::SetProgramUsageMessage("custom usage message"),
-      ".*SetProgramUsageMessage\\(\\) called twice.*");
-#endif
+      ::testing::HasSubstr("SetProgramUsageMessage() called twice"));
 }
 
 // --------------------------------------------------------------------
@@ -248,7 +255,8 @@ path.
 
 TEST_F(UsageReportingTest, TestNoUsageFlags) {
   std::stringstream test_buf;
-  EXPECT_EQ(flags::HandleUsageFlags(test_buf, kTestUsageMessage), -1);
+  EXPECT_EQ(flags::HandleUsageFlags(test_buf, kTestUsageMessage),
+            flags::HelpMode::kNone);
 }
 
 // --------------------------------------------------------------------
@@ -257,7 +265,8 @@ TEST_F(UsageReportingTest, TestUsageFlag_helpshort) {
   flags::SetFlagsHelpMode(flags::HelpMode::kShort);
 
   std::stringstream test_buf;
-  EXPECT_EQ(flags::HandleUsageFlags(test_buf, kTestUsageMessage), 1);
+  EXPECT_EQ(flags::HandleUsageFlags(test_buf, kTestUsageMessage),
+            flags::HelpMode::kShort);
   EXPECT_EQ(test_buf.str(),
             R"(usage_test: Custom usage message
 
@@ -290,7 +299,8 @@ TEST_F(UsageReportingTest, TestUsageFlag_help_simple) {
   flags::SetFlagsHelpMode(flags::HelpMode::kImportant);
 
   std::stringstream test_buf;
-  EXPECT_EQ(flags::HandleUsageFlags(test_buf, kTestUsageMessage), 1);
+  EXPECT_EQ(flags::HandleUsageFlags(test_buf, kTestUsageMessage),
+            flags::HelpMode::kImportant);
   EXPECT_EQ(test_buf.str(),
             R"(usage_test: Custom usage message
 
@@ -324,7 +334,8 @@ TEST_F(UsageReportingTest, TestUsageFlag_help_one_flag) {
   flags::SetFlagsHelpMatchSubstr("usage_reporting_test_flag_06");
 
   std::stringstream test_buf;
-  EXPECT_EQ(flags::HandleUsageFlags(test_buf, kTestUsageMessage), 1);
+  EXPECT_EQ(flags::HandleUsageFlags(test_buf, kTestUsageMessage),
+            flags::HelpMode::kMatch);
   EXPECT_EQ(test_buf.str(),
             R"(usage_test: Custom usage message
 
@@ -348,7 +359,8 @@ TEST_F(UsageReportingTest, TestUsageFlag_help_multiple_flag) {
   flags::SetFlagsHelpMatchSubstr("test_flag");
 
   std::stringstream test_buf;
-  EXPECT_EQ(flags::HandleUsageFlags(test_buf, kTestUsageMessage), 1);
+  EXPECT_EQ(flags::HandleUsageFlags(test_buf, kTestUsageMessage),
+            flags::HelpMode::kMatch);
   EXPECT_EQ(test_buf.str(),
             R"(usage_test: Custom usage message
 
@@ -381,7 +393,8 @@ TEST_F(UsageReportingTest, TestUsageFlag_helppackage) {
   flags::SetFlagsHelpMode(flags::HelpMode::kPackage);
 
   std::stringstream test_buf;
-  EXPECT_EQ(flags::HandleUsageFlags(test_buf, kTestUsageMessage), 1);
+  EXPECT_EQ(flags::HandleUsageFlags(test_buf, kTestUsageMessage),
+            flags::HelpMode::kPackage);
   EXPECT_EQ(test_buf.str(),
             R"(usage_test: Custom usage message
 
@@ -414,7 +427,8 @@ TEST_F(UsageReportingTest, TestUsageFlag_version) {
   flags::SetFlagsHelpMode(flags::HelpMode::kVersion);
 
   std::stringstream test_buf;
-  EXPECT_EQ(flags::HandleUsageFlags(test_buf, kTestUsageMessage), 0);
+  EXPECT_EQ(flags::HandleUsageFlags(test_buf, kTestUsageMessage),
+            flags::HelpMode::kVersion);
 #ifndef NDEBUG
   EXPECT_EQ(test_buf.str(), "usage_test\nDebug build (NDEBUG not #defined)\n");
 #else
@@ -428,7 +442,8 @@ TEST_F(UsageReportingTest, TestUsageFlag_only_check_args) {
   flags::SetFlagsHelpMode(flags::HelpMode::kOnlyCheckArgs);
 
   std::stringstream test_buf;
-  EXPECT_EQ(flags::HandleUsageFlags(test_buf, kTestUsageMessage), 0);
+  EXPECT_EQ(flags::HandleUsageFlags(test_buf, kTestUsageMessage),
+            flags::HelpMode::kOnlyCheckArgs);
   EXPECT_EQ(test_buf.str(), "");
 }
 
@@ -439,7 +454,8 @@ TEST_F(UsageReportingTest, TestUsageFlag_helpon) {
   flags::SetFlagsHelpMatchSubstr("/bla-bla.");
 
   std::stringstream test_buf_01;
-  EXPECT_EQ(flags::HandleUsageFlags(test_buf_01, kTestUsageMessage), 1);
+  EXPECT_EQ(flags::HandleUsageFlags(test_buf_01, kTestUsageMessage),
+            flags::HelpMode::kMatch);
   EXPECT_EQ(test_buf_01.str(),
             R"(usage_test: Custom usage message
 
@@ -453,7 +469,8 @@ path.
   flags::SetFlagsHelpMatchSubstr("/usage_test.");
 
   std::stringstream test_buf_02;
-  EXPECT_EQ(flags::HandleUsageFlags(test_buf_02, kTestUsageMessage), 1);
+  EXPECT_EQ(flags::HandleUsageFlags(test_buf_02, kTestUsageMessage),
+            flags::HelpMode::kMatch);
   EXPECT_EQ(test_buf_02.str(),
             R"(usage_test: Custom usage message
 
@@ -487,8 +504,10 @@ path.
 int main(int argc, char* argv[]) {
   (void)absl::GetFlag(FLAGS_undefok);  // Force linking of parse.cc
   flags::SetProgramInvocationName("usage_test");
+#if !defined(GTEST_HAS_ABSL) || !GTEST_HAS_ABSL
+  // GoogleTest calls absl::SetProgramUsageMessage() already.
   absl::SetProgramUsageMessage(kTestUsageMessage);
+#endif
   ::testing::InitGoogleTest(&argc, argv);
-
   return RUN_ALL_TESTS();
 }

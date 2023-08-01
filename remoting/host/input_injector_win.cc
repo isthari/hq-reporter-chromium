@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,20 +7,19 @@
 #include <stdint.h>
 #include <windows.h>
 
+#include <algorithm>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/compiler_specific.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/win/windows_version.h"
 #include "remoting/base/util.h"
 #include "remoting/host/clipboard.h"
 #include "remoting/host/touch_injector_win.h"
@@ -34,8 +33,8 @@ namespace {
 
 using protocol::ClipboardEvent;
 using protocol::KeyEvent;
-using protocol::TextEvent;
 using protocol::MouseEvent;
+using protocol::TextEvent;
 using protocol::TouchEvent;
 
 // Helper used to call SendInput() API.
@@ -58,12 +57,14 @@ void SendKeyboardInput(uint32_t flags,
     // usually distinguishes keys with the same meaning, e.g. left & right
     // shift.
     input.ki.wScan &= 0xFF;
-    if ((scancode & 0xFF00) != 0x0000)
+    if ((scancode & 0xFF00) != 0x0000) {
       input.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
+    }
   }
 
-  if (SendInput(1, &input, sizeof(INPUT)) == 0)
+  if (SendInput(1, &input, sizeof(INPUT)) == 0) {
     PLOG(ERROR) << "Failed to inject a key event";
+  }
 }
 
 // Parse move related operations from the input MouseEvent, and insert the
@@ -80,8 +81,8 @@ void ParseMouseMoveEvent(const MouseEvent& event, std::vector<INPUT>* output) {
     int width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
     int height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
     if (width > 1 && height > 1) {
-      int x = base::clamp(event.x(), 0, width);
-      int y = base::clamp(event.y(), 0, height);
+      int x = std::clamp(event.x(), 0, width);
+      int y = std::clamp(event.y(), 0, height);
       input.mi.dx = static_cast<int>((x * 65535) / (width - 1));
       input.mi.dy = static_cast<int>((y * 65535) / (height - 1));
       input.mi.dwFlags =
@@ -389,8 +390,9 @@ void InputInjectorWin::Core::HandleKey(const KeyEvent& event) {
           << " to scancode: " << scancode << std::dec;
 
   // Ignore events which can't be mapped.
-  if (scancode == ui::KeycodeConverter::InvalidNativeKeycode())
+  if (scancode == ui::KeycodeConverter::InvalidNativeKeycode()) {
     return;
+  }
 
   if (event.pressed() && !IsLockKey(scancode)) {
     absl::optional<bool> caps_lock;
@@ -448,8 +450,10 @@ void InputInjectorWin::Core::HandleMouse(const MouseEvent& event) {
   ParseMouseWheelEvent(event, &inputs);
 
   if (!inputs.empty()) {
-    if (SendInput(inputs.size(), inputs.data(), sizeof(INPUT)) != inputs.size())
+    if (SendInput(inputs.size(), inputs.data(), sizeof(INPUT)) !=
+        inputs.size()) {
       PLOG(ERROR) << "Failed to inject a mouse event";
+    }
   }
 }
 
@@ -470,7 +474,7 @@ std::unique_ptr<InputInjector> InputInjector::Create(
 
 // static
 bool InputInjector::SupportsTouchEvents() {
-  return base::win::GetVersion() >= base::win::Version::WIN8;
+  return true;
 }
 
 }  // namespace remoting

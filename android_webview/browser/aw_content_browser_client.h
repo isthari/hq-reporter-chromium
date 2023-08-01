@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -76,8 +76,8 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
       cert_verifier::mojom::CertVerifierCreationParams*
           cert_verifier_creation_params) override;
   std::unique_ptr<content::BrowserMainParts> CreateBrowserMainParts(
-      content::MainFunctionParams parameters) override;
-  content::WebContentsViewDelegate* GetWebContentsViewDelegate(
+      bool is_integration_test) override;
+  std::unique_ptr<content::WebContentsViewDelegate> GetWebContentsViewDelegate(
       content::WebContents* web_contents) override;
   void RenderProcessWillLaunch(content::RenderProcessHost* host) override;
   bool IsExplicitNavigation(ui::PageTransition transition) override;
@@ -88,8 +88,6 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
   std::string GetApplicationLocale() override;
   std::string GetAcceptLangs(content::BrowserContext* context) override;
   gfx::ImageSkia GetDefaultFavicon() override;
-  scoped_refptr<content::QuotaPermissionContext> CreateQuotaPermissionContext()
-      override;
   content::GeneratedCodeCacheSettings GetGeneratedCodeCacheSettings(
       content::BrowserContext* context) override;
   void AllowCertificateError(
@@ -97,7 +95,7 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
       int cert_error,
       const net::SSLInfo& ssl_info,
       const GURL& request_url,
-      bool is_main_frame_request,
+      bool is_primary_main_frame_request,
       bool strict_enforcement,
       base::OnceCallback<void(content::CertificateRequestResultType)> callback)
       override;
@@ -150,6 +148,9 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
       content::RenderProcessHost* render_process_host) override;
   void BindMediaServiceReceiver(content::RenderFrameHost* render_frame_host,
                                 mojo::GenericPendingReceiver receiver) override;
+  void RegisterBrowserInterfaceBindersForFrame(
+      content::RenderFrameHost* render_frame_host,
+      mojo::BinderMapWithContext<content::RenderFrameHost*>* map) override;
   std::vector<std::unique_ptr<blink::URLLoaderThrottle>>
   CreateURLLoaderThrottles(
       const network::ResourceRequest& request,
@@ -163,9 +164,10 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
                                 const std::string& request_method,
                                 bool has_user_gesture,
                                 bool is_redirect,
-                                bool is_main_frame,
+                                bool is_outermost_main_frame,
                                 ui::PageTransition transition,
                                 bool* ignore_navigation) override;
+  bool SupportsAvoidUnnecessaryBeforeUnloadCheckSync() override;
   bool CreateThreadPool(base::StringPiece name) override;
   std::unique_ptr<content::LoginDelegate> CreateLoginDelegate(
       const net::AuthChallengeInfo& auth_info,
@@ -179,10 +181,10 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
   bool HandleExternalProtocol(
       const GURL& url,
       content::WebContents::Getter web_contents_getter,
-      int child_id,
       int frame_tree_node_id,
       content::NavigationUIData* navigation_data,
-      bool is_main_frame,
+      bool is_primary_main_frame,
+      bool is_in_fenced_frame_tree,
       network::mojom::WebSandboxFlags sandbox_flags,
       ui::PageTransition page_transition,
       bool has_user_gesture,
@@ -230,11 +232,17 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
       override;
   std::string GetProduct() override;
   std::string GetUserAgent() override;
+  // Override GetUserAgentMetadata API for ContentBrowserClient, it helps
+  // LocalFrameClient get the default user-agent metadata if user-agent isn't
+  // overridden. If Android WebView overrides the user-agent metadata when
+  // calling SetUserAgentOverride in AwSettings, the overridden user-agent
+  // metadata will take effect.
+  blink::UserAgentMetadata GetUserAgentMetadata() override;
   ContentBrowserClient::WideColorGamutHeuristic GetWideColorGamutHeuristic()
       override;
   void LogWebFeatureForCurrentPage(content::RenderFrameHost* render_frame_host,
                                    blink::mojom::WebFeature feature) override;
-  bool ShouldAllowInsecurePrivateNetworkRequests(
+  bool ShouldAllowInsecureLocalNetworkRequests(
       content::BrowserContext* browser_context,
       const url::Origin& origin) override;
   content::SpeechRecognitionManagerDelegate*
@@ -242,6 +250,22 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
   bool HasErrorPage(int http_status_code) override;
   bool SuppressDifferentOriginSubframeJSDialogs(
       content::BrowserContext* browser_context) override;
+  bool ShouldPreconnectNavigation(
+      content::BrowserContext* browser_context) override;
+  void OnDisplayInsecureContent(content::WebContents* web_contents) override;
+  // Allows the embedder to control if Attribution Reporting API operations can
+  // happen in a given context.
+  // For WebView Browser Attribution is explicitly disabled.
+  bool IsAttributionReportingOperationAllowed(
+      content::BrowserContext* browser_context,
+      AttributionReportingOperation operation,
+      content::RenderFrameHost* rfh,
+      const url::Origin* source_origin,
+      const url::Origin* destination_origin,
+      const url::Origin* reporting_origin) override;
+  bool IsWebAttributionReportingAllowed() override;
+  bool ShouldUseOsWebSourceAttributionReporting() override;
+  blink::mojom::OriginTrialsSettingsPtr GetOriginTrialsSettings() override;
 
   AwFeatureListCreator* aw_feature_list_creator() {
     return aw_feature_list_creator_;

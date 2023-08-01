@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,9 @@ package org.chromium.webview_shell.test;
 import static org.chromium.base.test.util.ScalableTimeout.scaleTimeout;
 
 import android.os.Handler;
-import android.support.test.InstrumentationRegistry;
 import android.webkit.WebView;
 
+import androidx.test.InstrumentationRegistry;
 import androidx.test.filters.MediumTest;
 
 import org.junit.Assert;
@@ -20,7 +20,7 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.test.BaseActivityTestRule;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
-import org.chromium.base.test.util.FlakyTest;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.webview_shell.WebPlatformTestsActivity;
 
 import java.util.ArrayList;
@@ -75,7 +75,7 @@ public class WebPlatformTestsActivityTest {
 
     @Test
     @MediumTest
-    @FlakyTest(message = "https://crbug.com/1096214")
+    @DisabledTest(message = "https://crbug.com/1096214")
     public void testOpenCloseWindow() throws Exception {
         final BlockingQueue<Integer> queue = new LinkedBlockingQueue<>();
 

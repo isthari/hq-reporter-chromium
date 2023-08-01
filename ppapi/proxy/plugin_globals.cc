@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 #include "base/task/single_thread_task_runner.h"
 #include "base/task/task_runner.h"
 #include "base/threading/thread.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "ipc/ipc_message.h"
 #include "ipc/ipc_sender.h"
 #include "ppapi/proxy/plugin_dispatcher.h"
@@ -20,7 +19,6 @@
 #include "ppapi/proxy/ppb_message_loop_proxy.h"
 #include "ppapi/proxy/resource_reply_thread_registrar.h"
 #include "ppapi/proxy/udp_socket_filter.h"
-#include "ppapi/shared_impl/ppapi_constants.h"
 #include "ppapi/shared_impl/proxy_lock.h"
 #include "ppapi/thunk/enter.h"
 

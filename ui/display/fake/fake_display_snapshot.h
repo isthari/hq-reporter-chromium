@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "base/files/file_path.h"
 #include "base/memory/raw_ptr.h"
 #include "ui/display/fake/fake_display_export.h"
 #include "ui/display/types/display_constants.h"
@@ -64,11 +65,12 @@ class FAKE_DISPLAY_EXPORT FakeDisplaySnapshot : public DisplaySnapshot {
     Builder& SetType(DisplayConnectionType type);
     Builder& SetBaseConnectorId(uint64_t base_connector_id);
     Builder& SetPathTopology(const std::vector<uint64_t>& path_topology);
-    Builder& SetIsAspectPerservingScaling(bool is_aspect_preserving_scaling);
+    Builder& SetIsAspectPreservingScaling(bool is_aspect_preserving_scaling);
     Builder& SetHasOverscan(bool has_overscan);
     Builder& SetHasColorCorrectionMatrix(bool val);
     Builder& SetColorCorrectionInLinearSpace(bool val);
     Builder& SetName(const std::string& name);
+    Builder& SetSysPath(const base::FilePath& sys_path);
     Builder& SetProductCode(int64_t product_code);
     Builder& SetMaximumCursorSize(const gfx::Size& maximum_cursor_size);
     // Sets physical_size so that the screen has the specified DPI using the
@@ -79,10 +81,14 @@ class FAKE_DISPLAY_EXPORT FakeDisplaySnapshot : public DisplaySnapshot {
     // Sets physical_size for high DPI display.
     Builder& SetHighDPI();
     Builder& SetPrivacyScreen(PrivacyScreenState state);
+    Builder& SetHasContentProtectionKey(bool has_content_protection_key);
     Builder& SetColorSpace(const gfx::ColorSpace& color_space);
     Builder& SetBitsPerChannel(uint32_t bits_per_channel);
     Builder& SetHDRStaticMetadata(
         const gfx::HDRStaticMetadata& hdr_static_metadata);
+    Builder& SetVariableRefreshRateState(
+        VariableRefreshRateState variable_refresh_rate_state);
+    Builder& SetVsyncRateMin(const absl::optional<uint16_t>& vsync_rate_min);
 
    private:
     // Returns a display mode with |size|. If there is no existing mode, insert
@@ -104,9 +110,11 @@ class FAKE_DISPLAY_EXPORT FakeDisplaySnapshot : public DisplaySnapshot {
     bool is_aspect_preserving_scaling_ = false;
     bool has_overscan_ = false;
     PrivacyScreenState privacy_screen_state_ = kNotSupported;
+    bool has_content_protection_key_ = false;
     bool has_color_correction_matrix_ = false;
     bool color_correction_in_linear_space_ = false;
     std::string name_;
+    base::FilePath sys_path_;
     int64_t product_code_ = DisplaySnapshot::kInvalidProductCode;
     gfx::Size maximum_cursor_size_ = gfx::Size(64, 64);
     DisplayModeList modes_;
@@ -115,6 +123,8 @@ class FAKE_DISPLAY_EXPORT FakeDisplaySnapshot : public DisplaySnapshot {
     gfx::ColorSpace color_space_;
     uint32_t bits_per_channel_ = 8u;
     gfx::HDRStaticMetadata hdr_static_metadata_;
+    VariableRefreshRateState variable_refresh_rate_state_ = kVrrNotCapable;
+    absl::optional<uint16_t> vsync_rate_min_ = absl::nullopt;
   };
 
   FakeDisplaySnapshot(int64_t display_id,
@@ -129,9 +139,11 @@ class FAKE_DISPLAY_EXPORT FakeDisplaySnapshot : public DisplaySnapshot {
                       bool is_aspect_preserving_scaling,
                       bool has_overscan,
                       PrivacyScreenState privacy_screen_state,
+                      bool has_content_protection_key_,
                       bool has_color_correction_matrix,
                       bool color_correction_in_linear_space,
                       std::string display_name,
+                      const base::FilePath& sys_path,
                       DisplayModeList modes,
                       const DisplayMode* current_mode,
                       const DisplayMode* native_mode,
@@ -139,7 +151,10 @@ class FAKE_DISPLAY_EXPORT FakeDisplaySnapshot : public DisplaySnapshot {
                       const gfx::Size& maximum_cursor_size,
                       const gfx::ColorSpace& color_space,
                       uint32_t bits_per_channel,
-                      const gfx::HDRStaticMetadata& hdr_static_metadata);
+                      const gfx::HDRStaticMetadata& hdr_static_metadata,
+                      VariableRefreshRateState variable_refresh_rate_state,
+                      const absl::optional<uint16_t>& vsync_rate_min,
+                      const DrmFormatsAndModifiers& drm_formats_and_modifiers);
 
   FakeDisplaySnapshot(const FakeDisplaySnapshot&) = delete;
   FakeDisplaySnapshot& operator=(const FakeDisplaySnapshot&) = delete;

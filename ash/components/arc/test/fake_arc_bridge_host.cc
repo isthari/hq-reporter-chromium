@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,12 +16,9 @@
 #include "ash/components/arc/mojom/bluetooth.mojom.h"
 #include "ash/components/arc/mojom/boot_phase_monitor.mojom.h"
 #include "ash/components/arc/mojom/camera.mojom.h"
-#include "ash/components/arc/mojom/cast_receiver.mojom.h"
-#include "ash/components/arc/mojom/cert_store.mojom.h"
 #include "ash/components/arc/mojom/clipboard.mojom.h"
 #include "ash/components/arc/mojom/compatibility_mode.mojom.h"
 #include "ash/components/arc/mojom/crash_collector.mojom.h"
-#include "ash/components/arc/mojom/dark_theme.mojom.h"
 #include "ash/components/arc/mojom/disk_quota.mojom.h"
 #include "ash/components/arc/mojom/enterprise_reporting.mojom.h"
 #include "ash/components/arc/mojom/file_system.mojom.h"
@@ -30,6 +27,7 @@
 #include "ash/components/arc/mojom/intent_helper.mojom.h"
 #include "ash/components/arc/mojom/keyboard_shortcut.mojom.h"
 #include "ash/components/arc/mojom/keymaster.mojom.h"
+#include "ash/components/arc/mojom/keymint.mojom.h"
 #include "ash/components/arc/mojom/kiosk.mojom.h"
 #include "ash/components/arc/mojom/lock_screen.mojom.h"
 #include "ash/components/arc/mojom/media_session.mojom.h"
@@ -50,9 +48,10 @@
 #include "ash/components/arc/mojom/property.mojom.h"
 #include "ash/components/arc/mojom/rotation_lock.mojom.h"
 #include "ash/components/arc/mojom/screen_capture.mojom.h"
-#include "ash/components/arc/mojom/sensor.mojom.h"
 #include "ash/components/arc/mojom/sharesheet.mojom.h"
 #include "ash/components/arc/mojom/storage_manager.mojom.h"
+#include "ash/components/arc/mojom/system_state.mojom.h"
+#include "ash/components/arc/mojom/system_ui.mojom.h"
 #include "ash/components/arc/mojom/timer.mojom.h"
 #include "ash/components/arc/mojom/tracing.mojom.h"
 #include "ash/components/arc/mojom/tts.mojom.h"
@@ -105,12 +104,6 @@ void FakeArcBridgeHost::OnBootPhaseMonitorInstanceReady(
 void FakeArcBridgeHost::OnCameraInstanceReady(
     mojo::PendingRemote<mojom::CameraInstance> camera_remote) {}
 
-void FakeArcBridgeHost::OnCastReceiverInstanceReady(
-    mojo::PendingRemote<mojom::CastReceiverInstance> cast_receiver_remote) {}
-
-void FakeArcBridgeHost::OnCertStoreInstanceReady(
-    mojo::PendingRemote<mojom::CertStoreInstance> instance_remote) {}
-
 void FakeArcBridgeHost::OnClipboardInstanceReady(
     mojo::PendingRemote<mojom::ClipboardInstance> clipboard_remote) {}
 
@@ -121,9 +114,6 @@ void FakeArcBridgeHost::OnCompatibilityModeInstanceReady(
 void FakeArcBridgeHost::OnCrashCollectorInstanceReady(
     mojo::PendingRemote<mojom::CrashCollectorInstance> crash_collector_remote) {
 }
-
-void FakeArcBridgeHost::OnDarkThemeInstanceReady(
-    mojo::PendingRemote<mojom::DarkThemeInstance> dark_theme_remote) {}
 
 void FakeArcBridgeHost::OnDigitalGoodsInstanceReady(
     mojo::PendingRemote<mojom::DigitalGoodsInstance> digital_goods_remote) {}
@@ -157,6 +147,9 @@ void FakeArcBridgeHost::OnKeyboardShortcutInstanceReady(
 
 void FakeArcBridgeHost::OnKeymasterInstanceReady(
     mojo::PendingRemote<mojom::KeymasterInstance> keymaster_remote) {}
+
+void FakeArcBridgeHost::OnKeyMintInstanceReady(
+    mojo::PendingRemote<mojom::keymint::KeyMintInstance> keymint_remote) {}
 
 void FakeArcBridgeHost::OnKioskInstanceReady(
     mojo::PendingRemote<mojom::KioskInstance> kiosk_remote) {}
@@ -221,19 +214,18 @@ void FakeArcBridgeHost::OnRotationLockInstanceReady(
 void FakeArcBridgeHost::OnScreenCaptureInstanceReady(
     mojo::PendingRemote<mojom::ScreenCaptureInstance> screen_capture_remote) {}
 
-void FakeArcBridgeHost::OnSensorInstanceReady(
-    mojo::PendingRemote<mojom::SensorInstance> sensor_remote) {}
-
 void FakeArcBridgeHost::OnSharesheetInstanceReady(
     mojo::PendingRemote<mojom::SharesheetInstance> sharesheet_remote) {}
-
-void FakeArcBridgeHost::OnSmartCardManagerInstanceReady(
-    mojo::PendingRemote<mojom::SmartCardManagerInstance>
-        smart_cardManager_remote) {}
 
 void FakeArcBridgeHost::OnStorageManagerInstanceReady(
     mojo::PendingRemote<mojom::StorageManagerInstance> storage_manager_remote) {
 }
+
+void FakeArcBridgeHost::OnSystemStateInstanceReady(
+    mojo::PendingRemote<mojom::SystemStateInstance> system_state_remote) {}
+
+void FakeArcBridgeHost::OnSystemUiInstanceReady(
+    mojo::PendingRemote<mojom::SystemUiInstance> system_ui_remote) {}
 
 void FakeArcBridgeHost::OnTimerInstanceReady(
     mojo::PendingRemote<mojom::TimerInstance> timer_remote) {}

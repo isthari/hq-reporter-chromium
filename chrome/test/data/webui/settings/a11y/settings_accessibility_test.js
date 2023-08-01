@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,10 +15,10 @@ GEN_INCLUDE([
  * @constructor
  * @extends {PolymerTest}
  */
-function SettingsAccessibilityV3Test() {}
+function SettingsAccessibilityTest() {}
 
 // Default accessibility audit options. Specify in test definition to use.
-SettingsAccessibilityV3Test.axeOptions = {
+SettingsAccessibilityTest.axeOptions = {
   'rules': {
     // Disable 'skip-link' check since there are few tab stops before the main
     // content.
@@ -33,11 +33,11 @@ SettingsAccessibilityV3Test.axeOptions = {
     // TODO(crbug.com/1224185): Fails when the device is managed (due to
     // violations in <managed-footnote>, happens on some Win bots.
     'link-in-text-block': {enabled: false},
-  }
+  },
 };
 
 // Default accessibility audit options. Specify in test definition to use.
-SettingsAccessibilityV3Test.violationFilter = {
+SettingsAccessibilityTest.violationFilter = {
   'aria-valid-attr': function(nodeResult) {
     const attributeAllowlist = [
       'aria-active-attribute',  // Polymer components use aria-active-attribute.
@@ -66,12 +66,12 @@ SettingsAccessibilityV3Test.violationFilter = {
   },
 };
 
-SettingsAccessibilityV3Test.prototype = {
+SettingsAccessibilityTest.prototype = {
   __proto__: PolymerTest.prototype,
 
   /** @override */
   browsePreload:
-      'chrome://settings/test_loader.html?module=settings/a11y/basic_a11y_v3_test.js&host=webui-test',
+      'chrome://settings/test_loader.html?module=settings/a11y/basic_a11y_v3_test.js',
 
   // Include files that define the mocha tests.
   extraLibraries: [

@@ -1,14 +1,17 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/metrics/structured/external_metrics.h"
+#include "components/metrics/structured/structured_metrics_features.h"
 
 #include <memory>
 
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/logging.h"
+#include "base/strings/string_number_conversions.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "components/metrics/structured/storage.pb.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -22,11 +25,13 @@ using testing::UnorderedElementsAre;
 
 // Make a simple testing proto with one |uma_events| message for each id in
 // |ids|.
-EventsProto MakeTestingProto(const std::vector<uint64_t>& ids) {
+EventsProto MakeTestingProto(const std::vector<uint64_t>& ids,
+                             uint64_t project_name_hash = 0) {
   EventsProto proto;
 
   for (const auto id : ids) {
     auto* event = proto.add_uma_events();
+    event->set_project_name_hash(project_name_hash);
     event->set_profile_event_id(id);
   }
 
@@ -52,7 +57,15 @@ void AssertEqualsTestingProto(const EventsProto& proto,
 
 class ExternalMetricsTest : public testing::Test {
  public:
-  void SetUp() override { ASSERT_TRUE(temp_dir_.CreateUniqueTempDir()); }
+  void SetUp() override {
+    ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
+
+    // TODO(b/181724341): Remove this when the bluetooth metrics feature is
+    // enabled by default.
+    scoped_feature_list_.InitWithFeatures(
+        /*enabled_features=*/{},
+        /*disabled_features=*/{kBluetoothSessionizedMetrics});
+  }
 
   void Init() {
     // We don't use the scheduling feature when testing ExternalMetrics, instead
@@ -63,7 +76,14 @@ class ExternalMetricsTest : public testing::Test {
         temp_dir_.GetPath(), one_hour,
         base::BindRepeating(&ExternalMetricsTest::OnEventsCollected,
                             base::Unretained(this)));
+
+    // For most tests the recording needs to be enabled.
+    EnableRecording();
   }
+
+  void EnableRecording() { external_metrics_->EnableRecording(); }
+
+  void DisableRecording() { external_metrics_->DisableRecording(); }
 
   void CollectEvents() {
     external_metrics_->CollectEvents();
@@ -86,6 +106,7 @@ class ExternalMetricsTest : public testing::Test {
 
   void Wait() { task_environment_.RunUntilIdle(); }
 
+  base::test::ScopedFeatureList scoped_feature_list_;
   base::ScopedTempDir temp_dir_;
   std::unique_ptr<ExternalMetrics> external_metrics_;
   absl::optional<EventsProto> proto_;
@@ -177,13 +198,84 @@ TEST_F(ExternalMetricsTest, FilterBluetoothEvents) {
   for (const auto id : {101, 1, 2, 102, 103, 3, 104}) {
     auto* event = proto.add_uma_events();
     event->set_profile_event_id(id);
-    if (id > 100)
+    if (id > 100) {
       event->set_event_name_hash(event_hash);
+    }
   }
   WriteToDisk("proto", proto);
 
   CollectEvents();
   AssertEqualsTestingProto(proto_.value(), {1, 2, 3});
+}
+
+TEST_F(ExternalMetricsTest, FileNumberReadCappedAndDiscarded) {
+  // Setup feature.
+  base::test::ScopedFeatureList feature_list;
+  const int file_limit = 2;
+  feature_list.InitAndEnableFeatureWithParameters(
+      features::kStructuredMetrics,
+      {{"file_limit", base::NumberToString(file_limit)}});
+
+  Init();
+
+  // File limit is set to 2. Include third file to test that it is omitted and
+  // deleted.
+  WriteToDisk("first", MakeTestingProto({111}));
+  WriteToDisk("second", MakeTestingProto({222}));
+  WriteToDisk("third", MakeTestingProto({333}));
+
+  CollectEvents();
+
+  // Number of events should be capped to the file limit since above records one
+  // event per file.
+  ASSERT_EQ(proto_.value().uma_events().size(), file_limit);
+
+  // And the directory should be empty too.
+  ASSERT_TRUE(base::IsDirectoryEmpty(temp_dir_.GetPath()));
+}
+
+TEST_F(ExternalMetricsTest, FilterDisallowedProjects) {
+  Init();
+  external_metrics_->AddDisallowedProjectForTest(2);
+
+  // Add 3 events with a project of 1 and 2.
+  WriteToDisk("first", MakeTestingProto({111}, 1));
+  WriteToDisk("second", MakeTestingProto({222}, 2));
+  WriteToDisk("third", MakeTestingProto({333}, 1));
+
+  CollectEvents();
+
+  // The events at second should be filtered.
+  ASSERT_EQ(proto_.value().uma_events().size(), 2);
+
+  std::vector<int64_t> ids;
+  for (const auto& event : proto_.value().uma_events()) {
+    ids.push_back(event.profile_event_id());
+  }
+
+  // Validate that only project 1 remains.
+  ASSERT_THAT(ids, UnorderedElementsAre(111, 333));
+
+  // And the directory should be empty too.
+  ASSERT_TRUE(base::IsDirectoryEmpty(temp_dir_.GetPath()));
+}
+
+TEST_F(ExternalMetricsTest, DroppedEventsWhenDisabled) {
+  Init();
+  DisableRecording();
+
+  // Add 3 events with a project of 1 and 2.
+  WriteToDisk("first", MakeTestingProto({111}, 1));
+  WriteToDisk("second", MakeTestingProto({222}, 2));
+  WriteToDisk("third", MakeTestingProto({333}, 1));
+
+  CollectEvents();
+
+  // No events should have been collected.
+  ASSERT_EQ(proto_.value().uma_events().size(), 0);
+
+  // And the directory should be empty too.
+  ASSERT_TRUE(base::IsDirectoryEmpty(temp_dir_.GetPath()));
 }
 
 // TODO(crbug.com/1148168): Add a test for concurrent reading and writing here

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,12 @@
 #include <algorithm>
 #include <utility>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/memory_pressure_listener.h"
 #include "base/memory/memory_pressure_monitor.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/task_traits.h"
 #include "build/build_config.h"
 #include "chrome/browser/paint_preview/services/paint_preview_tab_service_file_mixin.h"
@@ -147,10 +147,11 @@ void PaintPreviewTabService::CaptureTab(int tab_id,
 
   auto key = file_manager->CreateKey(tab_id);
   auto it = tasks_.emplace(
-      tab_id, std::make_unique<TabServiceTask>(
-                  tab_id, key, contents->GetMainFrame()->GetFrameTreeNodeId(),
-                  contents->GetMainFrame()->GetGlobalId(), page_scale_factor, x,
-                  y, std::move(capture_handle)));
+      tab_id,
+      std::make_unique<TabServiceTask>(
+          tab_id, key, contents->GetPrimaryMainFrame()->GetFrameTreeNodeId(),
+          contents->GetPrimaryMainFrame()->GetGlobalId(), page_scale_factor, x,
+          y, std::move(capture_handle)));
   if (!it.second) {
     std::move(callback).Run(Status::kCaptureInProgress);
     return;
@@ -172,7 +173,7 @@ void PaintPreviewTabService::TabClosed(int tab_id) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   // Defer deletions until the cache is ready.
   if (!CacheInitialized()) {
-    base::SequencedTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(&PaintPreviewTabService::TabClosed,
                        weak_ptr_factory_.GetWeakPtr(), tab_id),
@@ -198,7 +199,7 @@ void PaintPreviewTabService::AuditArtifacts(
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   // Defer deletions until the cache is ready.
   if (!CacheInitialized()) {
-    base::SequencedTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(&PaintPreviewTabService::AuditArtifacts,
                        weak_ptr_factory_.GetWeakPtr(), active_tab_ids),
@@ -294,8 +295,8 @@ void PaintPreviewTabService::CaptureTabInternal(
       content::WebContents::FromFrameTreeNodeId(task->frame_tree_node_id());
   auto* rfh = content::RenderFrameHost::FromID(task->frame_routing_id());
   if (!contents || !rfh || contents->IsBeingDestroyed() ||
-      contents->GetMainFrame() != rfh || !rfh->IsActive() ||
-      !rfh->IsRenderFrameCreated() || !rfh->IsRenderFrameLive()) {
+      contents->GetPrimaryMainFrame() != rfh || !rfh->IsActive() ||
+      !rfh->IsRenderFrameLive()) {
     task->OnCaptured(Status::kWebContentsGone);
     return;
   }
@@ -307,7 +308,6 @@ void PaintPreviewTabService::CaptureTabInternal(
                        base::BindOnce(&PaintPreviewTabService::OnAXTreeWritten,
                                       weak_ptr_factory_.GetWeakPtr(), task)),
         ui::kAXModeWebContentsOnly,
-        /* exclude_offscreen= */ false,
         /* max_nodes= */ 5000,
         /* timeout= */ {});
   }

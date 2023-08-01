@@ -22,6 +22,9 @@
 
 #include "third_party/blink/renderer/core/html/html_plugin_element.h"
 
+#include "base/feature_list.h"
+#include "base/ranges/algorithm.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/public/mojom/loader/request_context_frame_type.mojom-blink.h"
 #include "third_party/blink/public/mojom/permissions_policy/permissions_policy.mojom-blink.h"
@@ -76,6 +79,14 @@ String GetMIMETypeFromURL(const KURL& url) {
   return String();
 }
 
+String ResolveMIMEType(const String& specified_type, const KURL& url) {
+  if (!specified_type.empty()) {
+    return specified_type;
+  }
+  // Try to guess the MIME type based off the extension.
+  return GetMIMETypeFromURL(url);
+}
+
 }  // anonymous namespace
 
 const Vector<String>& PluginParameters::Names() const {
@@ -97,17 +108,14 @@ void PluginParameters::AppendNameWithValue(const String& name,
 }
 
 void PluginParameters::MapDataParamToSrc() {
-  auto* src = std::find_if(names_.begin(), names_.end(), [](auto name) {
-    return EqualIgnoringASCIICase(name, "src");
-  });
-
-  if (src != names_.end()) {
+  if (base::ranges::any_of(names_, [](auto name) {
+        return EqualIgnoringASCIICase(name, "src");
+      })) {
     return;
   }
 
-  auto* data = std::find_if(names_.begin(), names_.end(), [](auto name) {
-    return EqualIgnoringASCIICase(name, "data");
-  });
+  auto* data = base::ranges::find_if(
+      names_, [](auto name) { return EqualIgnoringASCIICase(name, "data"); });
 
   if (data != names_.end()) {
     AppendNameWithValue(
@@ -119,6 +127,7 @@ HTMLPlugInElement::HTMLPlugInElement(const QualifiedName& tag_name,
                                      Document& doc,
                                      const CreateElementFlags flags)
     : HTMLFrameOwnerElement(tag_name, doc),
+      ActiveScriptWrappable<HTMLPlugInElement>({}),
       is_delaying_load_event_(false),
       // needs_plugin_update_(!IsCreatedByParser) allows HTMLObjectElement to
       // delay EmbeddedContentView updates until after all children are
@@ -126,11 +135,6 @@ HTMLPlugInElement::HTMLPlugInElement(const QualifiedName& tag_name,
       // simpler to make both classes share the same codepath in this class.
       needs_plugin_update_(!flags.IsCreatedByParser()) {
   SetHasCustomStyleCallbacks();
-  if (auto* context = doc.GetExecutionContext()) {
-    context->GetScheduler()->RegisterStickyFeature(
-        SchedulingPolicy::Feature::kContainsPlugins,
-        {SchedulingPolicy::DisableBackForwardCache()});
-  }
 }
 
 HTMLPlugInElement::~HTMLPlugInElement() {
@@ -344,13 +348,13 @@ void HTMLPlugInElement::DetachLayoutTree(bool performing_reattach) {
   HTMLFrameOwnerElement::DetachLayoutTree(performing_reattach);
 }
 
-LayoutObject* HTMLPlugInElement::CreateLayoutObject(const ComputedStyle& style,
-                                                    LegacyLayout legacy) {
+LayoutObject* HTMLPlugInElement::CreateLayoutObject(
+    const ComputedStyle& style) {
   // Fallback content breaks the DOM->layoutObject class relationship of this
   // class and all superclasses because createObject won't necessarily return
   // a LayoutEmbeddedObject or LayoutEmbeddedContent.
   if (UseFallbackContent())
-    return LayoutObject::CreateObject(this, style, legacy);
+    return LayoutObject::CreateObject(this, style);
 
   if (IsImageType()) {
     LayoutImage* image = MakeGarbageCollected<LayoutImage>(this);
@@ -400,6 +404,8 @@ v8::Local<v8::Object> HTMLPlugInElement::PluginWrapper() {
       // is handled externally. Also note that it is possible to call
       // PluginWrapper before the plugin has gone through the update phase(see
       // https://crbug.com/946709).
+      if (!frame->Client())
+        return v8::Local<v8::Object>();
       plugin_wrapper_.Reset(
           isolate, frame->Client()->GetScriptableObject(*this, isolate));
     }
@@ -537,13 +543,10 @@ bool HTMLPlugInElement::IsFocusableStyle() const {
 
 HTMLPlugInElement::ObjectContentType HTMLPlugInElement::GetObjectContentType()
     const {
-  String mime_type = service_type_;
   KURL url = GetDocument().CompleteURL(url_);
-  if (mime_type.IsEmpty()) {
-    // Try to guess the MIME type based off the extension.
-    mime_type = GetMIMETypeFromURL(url);
-    if (mime_type.IsEmpty())
-      return ObjectContentType::kFrame;
+  String mime_type = ResolveMIMEType(service_type_, url);
+  if (mime_type.empty()) {
+    return ObjectContentType::kFrame;
   }
 
   // If Chrome is started with the --disable-plugins switch, pluginData is 0.
@@ -582,32 +585,30 @@ LayoutEmbeddedObject* HTMLPlugInElement::GetLayoutEmbeddedObject() const {
 // We don't use url_, as it may not be the final URL that the object loads,
 // depending on <param> values.
 bool HTMLPlugInElement::AllowedToLoadFrameURL(const String& url) {
-  KURL complete_url = GetDocument().CompleteURL(url);
-  return !(ContentFrame() && complete_url.ProtocolIsJavaScript() &&
-           !GetExecutionContext()->GetSecurityOrigin()->CanAccess(
-               ContentFrame()->GetSecurityContext()->GetSecurityOrigin()));
+  if (ContentFrame() && ProtocolIsJavaScript(url)) {
+    return GetExecutionContext()->GetSecurityOrigin()->CanAccess(
+        ContentFrame()->GetSecurityContext()->GetSecurityOrigin());
+  }
+  return true;
 }
 
 bool HTMLPlugInElement::RequestObject(const PluginParameters& plugin_params) {
-  if (url_.IsEmpty() && service_type_.IsEmpty())
+  if (url_.empty() && service_type_.empty())
     return false;
 
   if (ProtocolIsJavaScript(url_))
     return false;
 
-  KURL completed_url =
-      url_.IsEmpty() ? KURL() : GetDocument().CompleteURL(url_);
+  KURL completed_url = url_.empty() ? KURL() : GetDocument().CompleteURL(url_);
   if (!AllowedToLoadObject(completed_url, service_type_))
     return false;
 
   ObjectContentType object_type = GetObjectContentType();
   bool handled_externally =
       object_type == ObjectContentType::kExternalPlugin &&
-      AllowedToLoadPlugin(completed_url, service_type_) &&
+      AllowedToLoadPlugin(completed_url) &&
       GetDocument().GetFrame()->Client()->IsPluginHandledExternally(
-          *this, completed_url,
-          service_type_.IsEmpty() ? GetMIMETypeFromURL(completed_url)
-                                  : service_type_);
+          *this, completed_url, ResolveMIMEType(service_type_, completed_url));
   if (handled_externally)
     ResetInstance();
   if (object_type == ObjectContentType::kFrame ||
@@ -634,6 +635,7 @@ bool HTMLPlugInElement::RequestObject(const PluginParameters& plugin_params) {
       SetEmbeddedContentView(ContentFrame()->View());
       DCHECK(OwnedEmbeddedContentView());
     }
+
     // If the plugin element already contains a subframe,
     // loadOrRedirectSubframe will re-use it. Otherwise, it will create a
     // new frame and set it as the LayoutEmbeddedContent's EmbeddedContentView,
@@ -652,8 +654,9 @@ bool HTMLPlugInElement::LoadPlugin(const KURL& url,
                                    const String& mime_type,
                                    const PluginParameters& plugin_params,
                                    bool use_fallback) {
-  if (!AllowedToLoadPlugin(url, mime_type))
+  if (!AllowedToLoadPlugin(url)) {
     return false;
+  }
 
   LocalFrame* frame = GetDocument().GetFrame();
   if (!frame->Loader().AllowPlugins())
@@ -693,14 +696,25 @@ bool HTMLPlugInElement::LoadPlugin(const KURL& url,
     layout_object->GetFrameView()->AddPlugin(plugin);
   }
 
+  // Disable back/forward cache when a document uses a plugin. This is not
+  // done in the constructor since `HTMLPlugInElement` is a base class for
+  // HTMLObjectElement and HTMLEmbedElement which can host child browsing
+  // contexts instead.
+  GetExecutionContext()->GetScheduler()->RegisterStickyFeature(
+      SchedulingPolicy::Feature::kContainsPlugins,
+      {SchedulingPolicy::DisableBackForwardCache()});
+
   GetDocument().SetContainsPlugins();
   // TODO(esprehn): WebPluginContainerImpl::SetCcLayer() also schedules a
   // compositing update, do we need both?
   SetNeedsCompositingUpdate();
+  if (layout_object->HasLayer())
+    layout_object->Layer()->SetNeedsCompositingInputsUpdate();
   return true;
 }
 
 void HTMLPlugInElement::DispatchErrorEvent() {
+  ReportFallbackResourceTimingIfNeeded();
   if (IsA<PluginDocument>(GetDocument()) && GetDocument().LocalOwner()) {
     GetDocument().LocalOwner()->DispatchEvent(
         *Event::Create(event_type_names::kError));
@@ -711,7 +725,7 @@ void HTMLPlugInElement::DispatchErrorEvent() {
 
 bool HTMLPlugInElement::AllowedToLoadObject(const KURL& url,
                                             const String& mime_type) {
-  if (url.IsEmpty() && mime_type.IsEmpty())
+  if (url.IsEmpty() && mime_type.empty())
     return false;
 
   LocalFrame* frame = GetDocument().GetFrame();
@@ -722,7 +736,6 @@ bool HTMLPlugInElement::AllowedToLoadObject(const KURL& url,
   if (MIMETypeRegistry::IsJavaAppletMIMEType(mime_type))
     return false;
 
-  AtomicString declared_mime_type = FastGetAttribute(html_names::kTypeAttr);
   auto* csp = GetExecutionContext()->GetContentSecurityPolicy();
   if (!csp->AllowObjectFromSource(url)) {
     if (auto* layout_object = GetLayoutEmbeddedObject()) {
@@ -734,16 +747,16 @@ bool HTMLPlugInElement::AllowedToLoadObject(const KURL& url,
   }
   // If the URL is empty, a plugin could still be instantiated if a MIME-type
   // is specified.
-  return (!mime_type.IsEmpty() && url.IsEmpty()) ||
+  return (!mime_type.empty() && url.IsEmpty()) ||
          !MixedContentChecker::ShouldBlockFetch(
-             frame, mojom::blink::RequestContextType::OBJECT, url,
+             frame, mojom::blink::RequestContextType::OBJECT,
+             network::mojom::blink::IPAddressSpace::kUnknown, url,
              ResourceRequest::RedirectStatus::kNoRedirect, url,
              /* devtools_id= */ absl::nullopt, ReportingDisposition::kReport,
              GetDocument().Loader()->GetContentSecurityNotifier());
 }
 
-bool HTMLPlugInElement::AllowedToLoadPlugin(const KURL& url,
-                                            const String& mime_type) {
+bool HTMLPlugInElement::AllowedToLoadPlugin(const KURL& url) {
   if (GetExecutionContext()->IsSandboxed(
           network::mojom::blink::WebSandboxFlags::kPlugins)) {
     GetExecutionContext()->AddConsoleMessage(
@@ -807,14 +820,15 @@ void HTMLPlugInElement::ReattachOnPluginChangeIfNeeded() {
 }
 
 void HTMLPlugInElement::UpdateServiceTypeIfEmpty() {
-  if (service_type_.IsEmpty() && ProtocolIs(url_, "data")) {
+  if (service_type_.empty() && ProtocolIs(url_, "data")) {
     service_type_ = MimeTypeFromDataURL(url_);
   }
 }
 
-scoped_refptr<ComputedStyle> HTMLPlugInElement::CustomStyleForLayoutObject(
+scoped_refptr<const ComputedStyle>
+HTMLPlugInElement::CustomStyleForLayoutObject(
     const StyleRecalcContext& style_recalc_context) {
-  scoped_refptr<ComputedStyle> style =
+  scoped_refptr<const ComputedStyle> style =
       OriginalStyleForLayoutObject(style_recalc_context);
   if (IsImageType() && !GetLayoutObject() && style &&
       LayoutObjectIsNeeded(*style)) {

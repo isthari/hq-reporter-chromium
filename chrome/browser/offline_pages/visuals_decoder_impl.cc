@@ -1,11 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/offline_pages/visuals_decoder_impl.h"
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "components/image_fetcher/core/image_decoder.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
@@ -57,7 +57,7 @@ void VisualsDecoderImpl::DecodeAndCropImage(const std::string& thumbnail_data,
   // kPreferredFaviconSize only has an effect for images with multiple frames
   // (.ico) and shouldn't make a difference for thumbnails.
   image_decoder_->DecodeImage(thumbnail_data, kPreferredFaviconSize,
-                              std::move(callback));
+                              /*data_decoder=*/nullptr, std::move(callback));
 }
 
 }  // namespace offline_pages

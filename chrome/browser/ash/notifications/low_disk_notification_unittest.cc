@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 
 #include <utility>
 
-#include "ash/components/settings/cros_settings_names.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/memory/raw_ptr.h"
 #include "base/time/time.h"
 #include "chrome/browser/ash/settings/cros_settings.h"
 #include "chrome/browser/notifications/notification_display_service_tester.h"
@@ -18,8 +18,9 @@
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile_manager.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/userdataauth/fake_userdataauth_client.h"
+#include "chromeos/ash/components/dbus/dbus_thread_manager.h"
+#include "chromeos/ash/components/dbus/userdataauth/fake_userdataauth_client.h"
+#include "chromeos/ash/components/settings/cros_settings_names.h"
 #include "components/user_manager/fake_user_manager.h"
 #include "components/user_manager/scoped_user_manager.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -43,7 +44,7 @@ class LowDiskNotificationTest : public BrowserWithTestWindowTest {
 
   void SetUp() override {
     BrowserWithTestWindowTest::SetUp();
-    chromeos::UserDataAuthClient::InitializeFake();
+    UserDataAuthClient::InitializeFake();
 
     GetCrosSettingsHelper()->ReplaceDeviceSettingsProviderWithStub();
     GetCrosSettingsHelper()->SetBoolean(kDeviceShowLowDiskSpaceNotification,
@@ -69,7 +70,7 @@ class LowDiskNotificationTest : public BrowserWithTestWindowTest {
 
   void TearDown() override {
     low_disk_notification_.reset();
-    chromeos::UserDataAuthClient::Shutdown();
+    UserDataAuthClient::Shutdown();
     BrowserWithTestWindowTest::TearDown();
   }
 
@@ -85,7 +86,8 @@ class LowDiskNotificationTest : public BrowserWithTestWindowTest {
   void OnNotificationAdded() { notification_count_++; }
 
  protected:
-  user_manager::FakeUserManager* user_manager_ = nullptr;
+  raw_ptr<user_manager::FakeUserManager, ExperimentalAsh> user_manager_ =
+      nullptr;
   std::unique_ptr<user_manager::ScopedUserManager> scoped_user_manager_;
   std::unique_ptr<NotificationDisplayServiceTester> tester_;
   std::unique_ptr<LowDiskNotification> low_disk_notification_;

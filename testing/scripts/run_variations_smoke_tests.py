@@ -1,5 +1,5 @@
-#!/usr/bin/env vpython
-# Copyright 2021 The Chromium Authors. All rights reserved.
+#!/usr/bin/env vpython3
+# Copyright 2021 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 """A smoke test to verify Chrome doesn't crash and basic rendering is functional
@@ -7,31 +7,41 @@ when parsing a newly given variations seed.
 """
 
 import argparse
+import http
 import json
 import logging
 import os
 import shutil
+from struct import pack
+import subprocess
 import sys
 import tempfile
 import time
-import six.moves.urllib.error
+from functools import partial
+from http.server import SimpleHTTPRequestHandler
+from pkg_resources import packaging
 from threading import Thread
 
-import common
-import six
+_THIS_DIR = os.path.abspath(os.path.dirname(__file__))
+_CHROMIUM_SRC_DIR = os.path.realpath(os.path.join(_THIS_DIR, '..', '..'))
+# Needed for skia_gold_common import.
+sys.path.append(os.path.join(_CHROMIUM_SRC_DIR, 'build'))
+# Needed to import common without pylint errors.
+sys.path.append(os.path.join(_CHROMIUM_SRC_DIR, 'testing'))
+
+import pkg_resources
+from skia_gold_common.skia_gold_properties import SkiaGoldProperties
+from skia_gold_infra import finch_skia_gold_utils
+
 import variations_seed_access_helper as seed_helper
-from variations_http_test_server import HTTPServer
-from variations_http_test_server import HTTPHandler
 
-if six.PY3:
-  import http
-
-_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-_SRC_DIR = os.path.join(_THIS_DIR, os.path.pardir, os.path.pardir)
-_WEBDRIVER_PATH = os.path.join(_SRC_DIR, 'third_party', 'webdriver', 'pylib')
 _VARIATIONS_TEST_DATA = 'variations_smoke_test_data'
+_VERSION_STRING = 'PRODUCT_VERSION'
+_FLAG_RELEASE_VERSION = packaging.version.parse('105.0.5176.3')
 
-sys.path.insert(0, _WEBDRIVER_PATH)
+
+from scripts import common
+
 from selenium import webdriver
 from selenium.webdriver import ChromeOptions
 from selenium.common.exceptions import NoSuchElementException
@@ -53,6 +63,7 @@ _TEST_CASES = [
         'url': 'http://localhost:8000',
         'expected_id': 'sites-chrome-userheader-title',
         'expected_text': 'The Chromium Projects',
+        'skia_gold_image': 'finch_smoke_render_chromium_org_html',
     },
 ]
 
@@ -63,14 +74,10 @@ def _get_httpd():
   port = 8000
   directory = os.path.join(_THIS_DIR, _VARIATIONS_TEST_DATA, "http_server")
   httpd = None
-  if six.PY3:
-    handler = partial(http.server.SimpleHTTPRequestHandler, directory=directory)
-    httpd = http.server.HTTPServer((hostname, port), handler)
-    httpd.timeout = 0.5
-    httpd.allow_reuse_address = True
-    httpd.server_bind()
-  else:
-    httpd = HTTPServer(directory, (hostname, port))
+  handler = partial(SimpleHTTPRequestHandler, directory=directory)
+  httpd = http.server.HTTPServer((hostname, port), handler)
+  httpd.timeout = 0.5
+  httpd.allow_reuse_address = True
   return httpd
 
 
@@ -92,7 +99,7 @@ def _get_platform():
     'Windows (win32 or cygwin) are supported' % sys.platform)
 
 
-def _find_chrome_binary():
+def _find_chrome_binary(): #pylint: disable=inconsistent-return-statements
   """Finds and returns the relative path to the Chrome binary.
 
   This function assumes that the CWD is the build directory.
@@ -103,11 +110,11 @@ def _find_chrome_binary():
   platform = _get_platform()
   if platform == 'linux':
     return os.path.join('.', 'chrome')
-  elif platform == 'mac':
+  if platform == 'mac':
     chrome_name = 'Google Chrome'
     return os.path.join('.', chrome_name + '.app', 'Contents', 'MacOS',
                             chrome_name)
-  elif platform == 'win':
+  if platform == 'win':
     return os.path.join('.', 'chrome.exe')
 
 
@@ -150,26 +157,85 @@ def _confirm_new_seed_downloaded(user_data_dir,
     wait_timeout_in_sec *= 2
   return False
 
+def _check_chrome_version():
+  path_chrome = os.path.abspath(_find_chrome_binary())
+  OS = _get_platform()
+  #(crbug/158372)
+  if OS == 'win':
+    cmd = ('powershell -command "&{(Get-Item'
+            '\''+ path_chrome + '\').VersionInfo.ProductVersion}"')
+    version = subprocess.run(cmd, check=True,
+                          capture_output=True).stdout.decode('utf-8')
+  else:
+    cmd = [path_chrome, '--version']
+    version = subprocess.run(cmd, check=True,
+                          capture_output=True).stdout.decode('utf-8')
+    #only return the version number portion
+    version = version.strip().split(" ")[-1]
+  return packaging.version.parse(version)
 
-def _run_tests(*args):
+def _inject_seed(user_data_dir, path_chromedriver, chrome_options):
+  # Verify a production version of variations seed was fetched successfully.
+  if not _confirm_new_seed_downloaded(user_data_dir, path_chromedriver,
+                                      chrome_options):
+    logging.error('Failed to fetch variations seed on initial run')
+    # For MacOS, there is sometime the test fail to download seed on initial
+    # run (crbug/1312393)
+    if _get_platform() != 'mac':
+      return 1
+
+  # Inject the test seed.
+  # This is a path as fallback when |seed_helper.load_test_seed_from_file()|
+  # can't find one under src root.
+  hardcoded_seed_path = os.path.join(_THIS_DIR, _VARIATIONS_TEST_DATA,
+                          'variations_seed_beta_%s.json' % _get_platform())
+  seed, signature = seed_helper.load_test_seed_from_file(hardcoded_seed_path)
+  if not seed or not signature:
+    logging.error(
+        'Ill-formed test seed json file: "%s" and "%s" are required',
+        seed_helper.LOCAL_STATE_SEED_NAME,
+        seed_helper.LOCAL_STATE_SEED_SIGNATURE_NAME)
+    return 1
+
+  if not seed_helper.inject_test_seed(seed, signature, user_data_dir):
+    logging.error('Failed to inject the test seed')
+    return 1
+  return 0
+
+def _run_tests(work_dir, skia_util, *args):
   """Runs the smoke tests.
 
   Args:
+    work_dir: A working directory to store screenshots and other artifacts.
+    skia_util: A FinchSkiaGoldUtil used to do pixel test.
     args: Arguments to be passed to the chrome binary.
 
   Returns:
     0 if tests passed, otherwise 1.
   """
+  skia_gold_session = skia_util.SkiaGoldSession
   path_chrome = _find_chrome_binary()
   path_chromedriver = os.path.join('.', 'chromedriver')
+  hardcoded_seed_path = os.path.join(_THIS_DIR, _VARIATIONS_TEST_DATA,
+                             'variations_seed_beta_%s.json' % _get_platform())
+  path_seed = seed_helper.get_test_seed_file_path(hardcoded_seed_path)
 
   user_data_dir = tempfile.mkdtemp()
+  crash_dump_dir = tempfile.mkdtemp()
   _, log_file = tempfile.mkstemp()
+
+  # Crashpad is a separate process and its dump locations is set via env
+  # variable.
+  os.environ['BREAKPAD_DUMP_LOCATION'] = crash_dump_dir
 
   chrome_options = ChromeOptions()
   chrome_options.binary_location = path_chrome
   chrome_options.add_argument('user-data-dir=' + user_data_dir)
   chrome_options.add_argument('log-file=' + log_file)
+  chrome_options.add_argument('variations-test-seed-path=' + path_seed)
+  #TODO(crbug/1342057): Remove this line.
+  chrome_options.add_argument("disable-field-trial-config")
+
   for arg in args:
     chrome_options.add_argument(arg)
 
@@ -180,65 +246,54 @@ def _run_tests(*args):
 
   driver = None
   try:
-    # Verify a production version of variations seed was fetched successfully.
-    if not _confirm_new_seed_downloaded(user_data_dir, path_chromedriver,
-                                        chrome_options):
-      logging.error('Failed to fetch variations seed on initial run')
-      return 1
+    chrome_verison = _check_chrome_version()
+    # If --variations-test-seed-path flag was not implemented in this version
+    if chrome_verison <= _FLAG_RELEASE_VERSION:
+      if _inject_seed(user_data_dir, path_chromedriver, chrome_options) == 1:
+        return 1
 
-    # Inject the test seed.
-    # This is a path as fallback when |seed_helper.load_test_seed_from_file()|
-    # can't find one under src root.
-    hardcoded_seed_path = os.path.join(_THIS_DIR, _VARIATIONS_TEST_DATA,
-                             'variations_seed_beta_%s.json' % _get_platform())
-    seed, signature = seed_helper.load_test_seed_from_file(hardcoded_seed_path)
-    if not seed or not signature:
-      logging.error(
-          'Ill-formed test seed json file: "%s" and "%s" are required',
-          seed_helper.LOCAL_STATE_SEED_NAME,
-          seed_helper.LOCAL_STATE_SEED_SIGNATURE_NAME)
-      return 1
-
-    if not seed_helper.inject_test_seed(seed, signature, user_data_dir):
-      logging.error('Failed to inject the test seed')
-      return 1
-
-    # Starts Chrome again with the test seed injected.
+    # Starts Chrome with the test seed injected.
     driver = webdriver.Chrome(path_chromedriver, chrome_options=chrome_options)
 
     # Run test cases: visit urls and verify certain web elements are rendered
     # correctly.
-    # TODO(crbug.com/1234404): Investigate pixel/layout based testing instead of
-    # DOM based testing to verify that rendering is working properly.
     for t in _TEST_CASES:
       driver.get(t['url'])
+      driver.set_window_size(1280, 1024)
       element = driver.find_element_by_id(t['expected_id'])
       if not element.is_displayed() or t['expected_text'] != element.text:
         logging.error(
             'Test failed because element: "%s" is not visibly found after '
             'visiting url: "%s"', t['expected_text'], t['url'])
         return 1
+      if 'skia_gold_image' in t:
+        image_name = t['skia_gold_image']
+        sc_file = os.path.join(work_dir, image_name + '.png')
+        driver.find_element_by_id('body').screenshot(sc_file)
+        force_dryrun = False
+        if skia_util.IsTryjobRun and skia_util.IsRetryWithoutPatch:
+          force_dryrun = True
+        status, error = skia_gold_session.RunComparison(
+            name=image_name, png_file=sc_file, force_dryrun=force_dryrun)
+        if status:
+          finch_skia_gold_utils.log_skia_gold_status_code(
+              skia_gold_session, image_name, status, error)
+          return status
+
     driver.quit()
 
-    # Verify seed has been updated successfully and it's different from the
-    # injected test seed.
-    #
-    # TODO(crbug.com/1234171): This test expectation may not work correctly when
-    # a field trial config under test does not affect a platform, so it requires
-    # more investigations to figure out the correct behavior.
-    if not _confirm_new_seed_downloaded(user_data_dir, path_chromedriver,
-                                        chrome_options, seed, signature):
-      logging.error('Failed to update seed with a delta')
-      return 1
-
-  except WebDriverException as e:
-    logging.error('Chrome exited abnormally, likely due to a crash.\n%s', e)
-    return 1
   except NoSuchElementException as e:
     logging.error('Failed to find the expected web element.\n%s', e)
     return 1
+  except WebDriverException as e:
+    if os.listdir(crash_dump_dir):
+      logging.error('Chrome crashed and exited abnormally.\n%s', e)
+    else:
+      logging.error('Uncaught WebDriver exception thrown.\n%s', e)
+    return 1
   finally:
     shutil.rmtree(user_data_dir, ignore_errors=True)
+    shutil.rmtree(crash_dump_dir, ignore_errors=True)
 
     # Print logs for debugging purpose.
     with open(log_file) as f:
@@ -246,11 +301,7 @@ def _run_tests(*args):
 
     shutil.rmtree(log_file, ignore_errors=True)
     if driver:
-      try:
-        driver.quit()
-      except six.moves.urllib.error.URLError:
-        # Ignore the error as ChromeDriver may have already exited.
-        pass
+      driver.quit()
 
   return 0
 
@@ -263,14 +314,10 @@ def _start_local_http_server():
   """
   httpd = _get_httpd()
   thread = None
-  if six.PY3:
-    address = "http://{}:{}".format(httpd.server_name, httpd.server_port)
-    logging.info("%s is used as local http server.", address)
-    thread = Thread(target=httpd.serve_forever)
-    thread.setDaemon(True)
-  else:
-    thread = Thread(target=httpd.serve_forever)
-    thread.daemon = True
+  address = "http://{}:{}".format(httpd.server_name, httpd.server_port)
+  logging.info("%s is used as local http server.", address)
+  thread = Thread(target=httpd.serve_forever)
+  thread.setDaemon(True)
   thread.start()
   return httpd
 
@@ -280,17 +327,23 @@ def main_run(args):
   logging.basicConfig(level=logging.INFO)
   parser = argparse.ArgumentParser()
   parser.add_argument('--isolated-script-test-output', type=str)
+  parser.add_argument('--isolated-script-test-filter', type=str)
+  SkiaGoldProperties.AddCommandLineArguments(parser)
   args, rest = parser.parse_known_args()
 
+  temp_dir = tempfile.mkdtemp()
   httpd = _start_local_http_server()
+  skia_util = finch_skia_gold_utils.FinchSkiaGoldUtil(
+      temp_dir, args)
   try:
-    rc = _run_tests(*rest)
+    rc = _run_tests(temp_dir, skia_util, *rest)
     if args.isolated_script_test_output:
       with open(args.isolated_script_test_output, 'w') as f:
         common.record_local_script_results('run_variations_smoke_tests', f, [],
                                            rc == 0)
   finally:
     httpd.shutdown()
+    shutil.rmtree(temp_dir, ignore_errors=True)
 
   return rc
 

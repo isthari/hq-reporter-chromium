@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,15 @@
 
 #include <stddef.h>
 
+#include <string>
+#include <vector>
+
 #include "base/command_line.h"
 #include "base/i18n/number_formatting.h"
 #include "base/i18n/rtl.h"
 #include "base/i18n/time_formatting.h"
 #include "base/process/process_handle.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -307,7 +311,6 @@ TaskManagerTableModel::TaskManagerTableModel(TableViewDelegate* delegate)
     : TaskManagerObserver(base::Milliseconds(kRefreshTimeMS),
                           REFRESH_TYPE_NONE),
       table_view_delegate_(delegate),
-      columns_settings_(new base::DictionaryValue),
       table_model_observer_(nullptr),
       stringifier_(new TaskManagerValuesStringifier),
 #if BUILDFLAG(ENABLE_NACL)
@@ -325,11 +328,11 @@ TaskManagerTableModel::~TaskManagerTableModel() {
   StopUpdating();
 }
 
-int TaskManagerTableModel::RowCount() {
-  return static_cast<int>(tasks_.size());
+size_t TaskManagerTableModel::RowCount() {
+  return tasks_.size();
 }
 
-std::u16string TaskManagerTableModel::GetText(int row, int column) {
+std::u16string TaskManagerTableModel::GetText(size_t row, int column) {
   if (IsSharedByGroup(column) && !IsTaskFirstInGroup(row))
     return std::u16string();
 
@@ -470,7 +473,7 @@ std::u16string TaskManagerTableModel::GetText(int row, int column) {
   }
 }
 
-ui::ImageModel TaskManagerTableModel::GetIcon(int row) {
+ui::ImageModel TaskManagerTableModel::GetIcon(size_t row) {
   return ui::ImageModel::FromImageSkia(
       observed_task_manager()->GetIcon(tasks_[row]));
 }
@@ -480,8 +483,8 @@ void TaskManagerTableModel::SetObserver(
   table_model_observer_ = observer;
 }
 
-int TaskManagerTableModel::CompareValues(int row1,
-                                         int row2,
+int TaskManagerTableModel::CompareValues(size_t row1,
+                                         size_t row2,
                                          int column_id) {
   switch (column_id) {
     case IDS_TASK_MANAGER_TASK_COLUMN:
@@ -634,11 +637,11 @@ int TaskManagerTableModel::CompareValues(int row1,
   }
 }
 
-void TaskManagerTableModel::GetRowsGroupRange(int row_index,
-                                              int* out_start,
-                                              int* out_length) {
-  int i = row_index;
-  int limit = row_index + 1;
+void TaskManagerTableModel::GetRowsGroupRange(size_t row_index,
+                                              size_t* out_start,
+                                              size_t* out_length) {
+  size_t i = row_index;
+  size_t limit = row_index + 1;
   if (!observed_task_manager()->IsRunningInVM(tasks_[row_index])) {
     const base::ProcessId process_id =
         observed_task_manager()->GetProcessId(tasks_[row_index]);
@@ -668,16 +671,16 @@ void TaskManagerTableModel::OnTaskAdded(TaskId id) {
 
   if (table_model_observer_) {
     std::vector<TaskId>::difference_type index =
-        std::find(tasks_.begin(), tasks_.end(), id) - tasks_.begin();
-    table_model_observer_->OnItemsAdded(static_cast<int>(index), 1);
+        base::ranges::find(tasks_, id) - tasks_.begin();
+    table_model_observer_->OnItemsAdded(index, 1);
   }
 }
 
 void TaskManagerTableModel::OnTaskToBeRemoved(TaskId id) {
-  auto index = std::find(tasks_.begin(), tasks_.end(), id);
+  auto index = base::ranges::find(tasks_, id);
   if (index == tasks_.end())
     return;
-  auto removed_index = index - tasks_.begin();
+  auto removed_index = static_cast<size_t>(index - tasks_.begin());
   tasks_.erase(index);
   if (table_model_observer_)
     table_model_observer_->OnItemsRemoved(removed_index, 1);
@@ -689,11 +692,11 @@ void TaskManagerTableModel::OnTasksRefreshed(
   OnRefresh();
 }
 
-void TaskManagerTableModel::ActivateTask(int row_index) {
+void TaskManagerTableModel::ActivateTask(size_t row_index) {
   observed_task_manager()->ActivateTask(tasks_[row_index]);
 }
 
-void TaskManagerTableModel::KillTask(int row_index) {
+void TaskManagerTableModel::KillTask(size_t row_index) {
   observed_task_manager()->KillTask(tasks_[row_index]);
 }
 
@@ -809,7 +812,7 @@ void TaskManagerTableModel::UpdateRefreshTypes(int column_id, bool visibility) {
     RemoveRefreshType(type);
 }
 
-bool TaskManagerTableModel::IsTaskKillable(int row_index) const {
+bool TaskManagerTableModel::IsTaskKillable(size_t row_index) const {
   return observed_task_manager()->IsTaskKillable(tasks_[row_index]);
 }
 
@@ -817,20 +820,16 @@ void TaskManagerTableModel::RetrieveSavedColumnsSettingsAndUpdateTable() {
   if (!g_browser_process->local_state())
     return;
 
-  const base::Value* dictionary =
-      g_browser_process->local_state()->GetDictionary(
+  const base::Value::Dict& dictionary =
+      g_browser_process->local_state()->GetDict(
           prefs::kTaskManagerColumnVisibility);
-  if (!dictionary)
-    return;
 
   // Do a best effort of retrieving the correct settings from the local state.
   // Use the default settings of the value if it fails to be retrieved.
-  const std::string* sorted_col_id =
-      dictionary->FindStringKey(kSortColumnIdKey);
+  const std::string* sorted_col_id = dictionary.FindString(kSortColumnIdKey);
   bool sort_is_ascending =
-      dictionary->FindBoolKey(kSortIsAscendingKey).value_or(true);
+      dictionary.FindBool(kSortIsAscendingKey).value_or(true);
 
-  int current_visible_column_index = 0;
   for (size_t i = 0; i < kColumnsSize; ++i) {
     const int col_id = kColumns[i].id;
     const std::string col_id_key(GetColumnIdAsString(col_id));
@@ -838,12 +837,12 @@ void TaskManagerTableModel::RetrieveSavedColumnsSettingsAndUpdateTable() {
     if (col_id_key.empty())
       continue;
 
-    bool col_visibility = dictionary->FindBoolPath(col_id_key)
+    bool col_visibility = dictionary.FindBoolByDottedPath(col_id_key)
                               .value_or(kColumns[i].default_visibility);
 
-    // If the above FindBoolPath() fails, the |col_visibility| remains at the
-    // default visibility.
-    columns_settings_->SetBoolean(col_id_key, col_visibility);
+    // If the above FindBoolByDottedPath() fails, the |col_visibility| remains
+    // at the default visibility.
+    columns_settings_.SetByDottedPath(col_id_key, col_visibility);
     table_view_delegate_->SetColumnVisibility(col_id, col_visibility);
     UpdateRefreshTypes(col_id, col_visibility);
 
@@ -852,8 +851,6 @@ void TaskManagerTableModel::RetrieveSavedColumnsSettingsAndUpdateTable() {
         table_view_delegate_->SetSortDescriptor(
             TableSortDescriptor(col_id, sort_is_ascending));
       }
-
-      ++current_visible_column_index;
     }
   }
 }
@@ -863,42 +860,40 @@ void TaskManagerTableModel::StoreColumnsSettings() {
   if (!local_state)
     return;
 
-  DictionaryPrefUpdate dict_update(local_state,
+  ScopedDictPrefUpdate dict_update(local_state,
                                    prefs::kTaskManagerColumnVisibility);
 
-  base::DictionaryValue::Iterator it(*columns_settings_);
-  while (!it.IsAtEnd()) {
-    dict_update->SetPath(it.key(), it.value().Clone());
-    it.Advance();
+  for (const auto item : columns_settings_) {
+    dict_update->SetByDottedPath(item.first, item.second.Clone());
   }
 
   // Store the current sort status to be restored again at startup.
   if (!table_view_delegate_->IsTableSorted()) {
-    dict_update->SetStringKey(kSortColumnIdKey, "");
+    dict_update->Set(kSortColumnIdKey, "");
   } else {
     const auto& sort_descriptor = table_view_delegate_->GetSortDescriptor();
-    dict_update->SetStringKey(
-        kSortColumnIdKey,
-        GetColumnIdAsString(sort_descriptor.sorted_column_id));
-    dict_update->SetBoolKey(kSortIsAscendingKey, sort_descriptor.is_ascending);
+    dict_update->Set(kSortColumnIdKey,
+                     GetColumnIdAsString(sort_descriptor.sorted_column_id));
+    dict_update->Set(kSortIsAscendingKey, sort_descriptor.is_ascending);
   }
 }
 
 void TaskManagerTableModel::ToggleColumnVisibility(int column_id) {
   bool new_visibility = !table_view_delegate_->IsColumnVisible(column_id);
   table_view_delegate_->SetColumnVisibility(column_id, new_visibility);
-  columns_settings_->SetBoolean(GetColumnIdAsString(column_id), new_visibility);
+  columns_settings_.SetByDottedPath(GetColumnIdAsString(column_id),
+                                    new_visibility);
   UpdateRefreshTypes(column_id, new_visibility);
 }
 
-int TaskManagerTableModel::GetRowForWebContents(
+absl::optional<size_t> TaskManagerTableModel::GetRowForWebContents(
     content::WebContents* web_contents) {
   TaskId task_id =
       observed_task_manager()->GetTaskIdForWebContents(web_contents);
-  auto index = std::find(tasks_.begin(), tasks_.end(), task_id);
+  auto index = base::ranges::find(tasks_, task_id);
   if (index == tasks_.end())
-    return -1;
-  return static_cast<int>(index - tasks_.begin());
+    return absl::nullopt;
+  return static_cast<size_t>(index - tasks_.begin());
 }
 
 void TaskManagerTableModel::StartUpdating() {
@@ -923,7 +918,7 @@ void TaskManagerTableModel::OnRefresh() {
     table_model_observer_->OnItemsChanged(0, RowCount());
 }
 
-bool TaskManagerTableModel::IsTaskFirstInGroup(int row_index) const {
+bool TaskManagerTableModel::IsTaskFirstInGroup(size_t row_index) const {
   if (row_index == 0)
     return true;
 

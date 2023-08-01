@@ -1,19 +1,24 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_child_layout_context.h"
 
 #include "third_party/blink/renderer/core/layout/ng/ng_block_break_token.h"
+#include "third_party/blink/renderer/core/layout/ng/ng_box_fragment_builder.h"
 
 namespace blink {
 
 namespace {
 
 struct SameSizeAsNGInlineChildLayoutContext {
-  NGLogicalLineItems line_items_;
+  STACK_ALLOCATED();
+
+ public:
+  NGFragmentItemsBuilder items_builder_;
   absl::optional<NGInlineLayoutStateStack> box_states_;
-  void* pointers[2];
+  absl::optional<LayoutUnit> optional_layout_unit;
+  void* pointers[5];
   unsigned number;
   HeapVector<Member<const NGBlockBreakToken>> propagated_float_break_tokens_;
 };
@@ -26,8 +31,28 @@ static_assert(
 
 }  // namespace
 
-NGInlineChildLayoutContext::NGInlineChildLayoutContext() = default;
+NGInlineChildLayoutContext::NGInlineChildLayoutContext(
+    const NGInlineNode& node,
+    NGBoxFragmentBuilder* container_builder,
+    NGLineInfo* line_info)
+    : container_builder_(container_builder),
+      items_builder_(node, container_builder->GetWritingDirection()),
+      line_info_(line_info) {
+  container_builder->SetItemsBuilder(ItemsBuilder());
+}
+
+NGInlineChildLayoutContext::NGInlineChildLayoutContext(
+    const NGInlineNode& node,
+    NGBoxFragmentBuilder* container_builder,
+    NGScoreLineBreakContext* score_line_break_context)
+    : container_builder_(container_builder),
+      items_builder_(node, container_builder->GetWritingDirection()),
+      score_line_break_context_(score_line_break_context) {
+  container_builder->SetItemsBuilder(ItemsBuilder());
+}
+
 NGInlineChildLayoutContext::~NGInlineChildLayoutContext() {
+  container_builder_->SetItemsBuilder(nullptr);
   propagated_float_break_tokens_.clear();
 }
 

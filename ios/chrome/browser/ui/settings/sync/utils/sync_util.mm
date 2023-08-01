@@ -1,36 +1,46 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/settings/sync/utils/sync_util.h"
 
-#include "base/metrics/histogram_macros.h"
-#include "components/infobars/core/infobar_manager.h"
-#include "components/signin/public/identity_manager/identity_manager.h"
-#include "components/strings/grit/components_strings.h"
-#import "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/infobars/infobar_manager_impl.h"
-#include "ios/chrome/browser/signin/identity_manager_factory.h"
-#include "ios/chrome/browser/sync/sync_setup_service.h"
-#include "ios/chrome/browser/sync/sync_setup_service_factory.h"
-#import "ios/chrome/browser/ui/commands/show_signin_command.h"
-#include "ios/chrome/browser/ui/settings/sync/utils/sync_error_infobar_delegate.h"
-#include "ios/chrome/grit/ios_chromium_strings.h"
-#include "ios/chrome/grit/ios_strings.h"
-#include "ui/base/l10n/l10n_util.h"
+#import "base/feature_list.h"
+#import "base/metrics/histogram_macros.h"
+#import "base/notreached.h"
+#import "components/infobars/core/infobar_manager.h"
+#import "components/signin/public/identity_manager/identity_manager.h"
+#import "components/strings/grit/components_strings.h"
+#import "components/sync/base/features.h"
+#import "components/sync/service/sync_service.h"
+#import "ios/chrome/browser/infobars/infobar_manager_impl.h"
+#import "ios/chrome/browser/settings/sync/utils/account_error_ui_info.h"
+#import "ios/chrome/browser/settings/sync/utils/identity_error_util.h"
+#import "ios/chrome/browser/shared/model/browser/browser.h"
+#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/public/commands/application_commands.h"
+#import "ios/chrome/browser/shared/public/commands/browsing_data_commands.h"
+#import "ios/chrome/browser/shared/public/commands/show_signin_command.h"
+#import "ios/chrome/browser/signin/identity_manager_factory.h"
+#import "ios/chrome/browser/sync/sync_service_factory.h"
+#import "ios/chrome/browser/ui/settings/settings_root_view_controlling.h"
+#import "ios/chrome/browser/ui/settings/sync/utils/sync_error_infobar_delegate.h"
+#import "ios/chrome/grit/ios_chromium_strings.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
 namespace {
+
 // Enumerated constants for logging when a sign-in error infobar was shown
 // to the user. This was added for crbug/265352 to quantify how often this
 // bug shows up in the wild. The logged histogram count should be interpreted
 // as a ratio of the number of active sync users.
 // These values are persisted to logs. Entries should not be renumbered and
 // numeric values should never be reused.
-enum InfobarSyncError {
+enum InfobarSyncError : uint8_t {
   SYNC_SIGN_IN_NEEDS_UPDATE = 1,
   // DEPRECATED. No longer recorded.
   // SYNC_SERVICE_UNAVAILABLE = 2
@@ -42,109 +52,233 @@ enum InfobarSyncError {
   kMaxValue = SYNC_TRUSTED_VAULT_RECOVERABILITY_DEGRADED,
 };
 
+// Returns true if the identity error info bar should be used instead of the
+// Sync error info bar. Returns false for the case where
+// SyncService::IsSyncFeatureEnabled() returns true, because
+// GetAccountErrorUIInfo() is guaranteed to return nil.
+bool UseIdentityErrorInfobar(syncer::SyncService* sync_service) {
+  DCHECK(sync_service);
+
+  // TODO(crbug.com/1426861): Consider changing the way we detect that the Sync
+  // feature is enabled in GetAccountErrorUIInfo().
+  return GetAccountErrorUIInfo(sync_service) != nil;
+}
+
+// Gets the the title of the identity error info bar for the given `error`.
+std::u16string GetIdentityErrorInfoBarTitle(
+    syncer::SyncService::UserActionableError error) {
+  switch (error) {
+    case syncer::SyncService::UserActionableError::kNeedsPassphrase:
+      return l10n_util::GetStringUTF16(
+          IDS_IOS_IDENTITY_ERROR_INFOBAR_ENTER_PASSPHRASE_TITLE);
+    case syncer::SyncService::UserActionableError::
+        kNeedsTrustedVaultKeyForPasswords:
+    case syncer::SyncService::UserActionableError::
+        kNeedsTrustedVaultKeyForEverything:
+    case syncer::SyncService::UserActionableError::
+        kTrustedVaultRecoverabilityDegradedForPasswords:
+    case syncer::SyncService::UserActionableError::
+        kTrustedVaultRecoverabilityDegradedForEverything:
+      return l10n_util::GetStringUTF16(
+          IDS_IOS_IDENTITY_ERROR_INFOBAR_VERIFY_ITS_YOU_TITLE);
+    case syncer::SyncService::UserActionableError::kNone:
+    case syncer::SyncService::UserActionableError::kSignInNeedsUpdate:
+    case syncer::SyncService::UserActionableError::kGenericUnrecoverableError:
+      NOTREACHED_NORETURN();
+  }
+}
+
+// Gets the message of the identity error info bar.
+NSString* GetIdentityErrorInfoBarMessage(
+    syncer::SyncService::UserActionableError error) {
+  switch (error) {
+    case syncer::SyncService::UserActionableError::kNeedsPassphrase:
+      return l10n_util::GetNSString(
+          IDS_IOS_IDENTITY_ERROR_INFOBAR_KEEP_USING_YOUR_CHROME_DATA_MESSAGE);
+    case syncer::SyncService::UserActionableError::
+        kNeedsTrustedVaultKeyForPasswords:
+      return l10n_util::GetNSString(
+          IDS_IOS_IDENTITY_ERROR_INFOBAR_KEEP_USING_PASSWORDS_MESSAGE);
+    case syncer::SyncService::UserActionableError::
+        kNeedsTrustedVaultKeyForEverything:
+      return l10n_util::GetNSString(
+          IDS_IOS_IDENTITY_ERROR_INFOBAR_KEEP_USING_YOUR_CHROME_DATA_MESSAGE);
+    case syncer::SyncService::UserActionableError::
+        kTrustedVaultRecoverabilityDegradedForPasswords:
+      return l10n_util::GetNSString(
+          IDS_IOS_IDENTITY_ERROR_INFOBAR_MAKE_SURE_YOU_CAN_ALWAYS_USE_PASSWORDS_MESSAGE);
+    case syncer::SyncService::UserActionableError::
+        kTrustedVaultRecoverabilityDegradedForEverything:
+      return l10n_util::GetNSString(
+          IDS_IOS_IDENTITY_ERROR_INFOBAR_MAKE_SURE_YOU_CAN_ALWAYS_USE_CHROME_DATA_MESSAGE);
+    case syncer::SyncService::UserActionableError::kNone:
+    case syncer::SyncService::UserActionableError::kSignInNeedsUpdate:
+    case syncer::SyncService::UserActionableError::kGenericUnrecoverableError:
+      NOTREACHED_NORETURN();
+  }
+}
+
+NSString* GetIdentityErrorInfoBarButtonLabel(
+    syncer::SyncService::UserActionableError error) {
+  switch (error) {
+    case syncer::SyncService::UserActionableError::kNeedsPassphrase:
+      return l10n_util::GetNSString(
+          IDS_IOS_IDENTITY_ERROR_INFOBAR_ENTER_BUTTON_LABEL);
+    case syncer::SyncService::UserActionableError::
+        kNeedsTrustedVaultKeyForPasswords:
+    case syncer::SyncService::UserActionableError::
+        kNeedsTrustedVaultKeyForEverything:
+    case syncer::SyncService::UserActionableError::
+        kTrustedVaultRecoverabilityDegradedForPasswords:
+    case syncer::SyncService::UserActionableError::
+        kTrustedVaultRecoverabilityDegradedForEverything:
+      return l10n_util::GetNSString(
+          IDS_IOS_IDENTITY_ERROR_INFOBAR_VERIFY_BUTTON_LABEL);
+    case syncer::SyncService::UserActionableError::kNone:
+    case syncer::SyncService::UserActionableError::kSignInNeedsUpdate:
+    case syncer::SyncService::UserActionableError::kGenericUnrecoverableError:
+      NOTREACHED_NORETURN();
+  }
+}
+
 }  // namespace
 
-NSString* GetSyncErrorDescriptionForSyncSetupService(
-    SyncSetupService* syncSetupService) {
-  DCHECK(syncSetupService);
-  SyncSetupService::SyncServiceState syncState =
-      syncSetupService->GetSyncServiceState();
-  switch (syncState) {
-    case SyncSetupService::kNoSyncServiceError:
+NSString* GetSyncErrorDescriptionForSyncService(
+    syncer::SyncService* syncService) {
+  DCHECK(syncService);
+  switch (syncService->GetUserActionableError()) {
+    case syncer::SyncService::UserActionableError::kNone:
       return nil;
-    case SyncSetupService::kSyncServiceSignInNeedsUpdate:
+    case syncer::SyncService::UserActionableError::kSignInNeedsUpdate:
       return l10n_util::GetNSString(IDS_IOS_SYNC_LOGIN_INFO_OUT_OF_DATE);
-    case SyncSetupService::kSyncServiceNeedsPassphrase:
+    case syncer::SyncService::UserActionableError::kNeedsPassphrase:
       return l10n_util::GetNSString(IDS_IOS_SYNC_ENCRYPTION_DESCRIPTION);
-    case SyncSetupService::kSyncServiceNeedsTrustedVaultKey:
-      if (syncSetupService->IsEncryptEverythingEnabled())
-        return l10n_util::GetNSString(IDS_IOS_SYNC_ERROR_DESCRIPTION);
+    case syncer::SyncService::UserActionableError::
+        kNeedsTrustedVaultKeyForEverything:
+      return l10n_util::GetNSString(IDS_IOS_SYNC_ERROR_DESCRIPTION);
+    case syncer::SyncService::UserActionableError::
+        kNeedsTrustedVaultKeyForPasswords:
       // The encryption error affects passwords only as per
       // syncer::AlwaysEncryptedUserTypes().
       return l10n_util::GetNSString(IDS_IOS_SYNC_PASSWORDS_ERROR_DESCRIPTION);
-    case SyncSetupService::kSyncServiceTrustedVaultRecoverabilityDegraded:
-      if (syncSetupService->IsEncryptEverythingEnabled())
-        return l10n_util::GetNSString(
-            IDS_IOS_GOOGLE_SERVICES_SETTINGS_SYNC_FIX_RECOVERABILITY_DEGRADED_FOR_EVERYTHING);
+    case syncer::SyncService::UserActionableError::
+        kTrustedVaultRecoverabilityDegradedForEverything:
+      return l10n_util::GetNSString(
+          IDS_IOS_GOOGLE_SERVICES_SETTINGS_SYNC_FIX_RECOVERABILITY_DEGRADED_FOR_EVERYTHING);
+    case syncer::SyncService::UserActionableError::
+        kTrustedVaultRecoverabilityDegradedForPasswords:
       // The encryption error affects passwords only as per
       // syncer::AlwaysEncryptedUserTypes().
       return l10n_util::GetNSString(
           IDS_IOS_GOOGLE_SERVICES_SETTINGS_SYNC_FIX_RECOVERABILITY_DEGRADED_FOR_PASSWORDS);
-    case SyncSetupService::kSyncServiceServiceUnavailable:
-    case SyncSetupService::kSyncServiceCouldNotConnect:
-    case SyncSetupService::kSyncServiceUnrecoverableError:
+    case syncer::SyncService::UserActionableError::kGenericUnrecoverableError:
       return l10n_util::GetNSString(IDS_IOS_SYNC_STATUS_UNRECOVERABLE_ERROR);
   }
 }
 
+std::u16string GetSyncErrorInfoBarTitleForBrowserState(
+    ChromeBrowserState* browser_state) {
+  DCHECK(browser_state);
+
+  syncer::SyncService* sync_service =
+      SyncServiceFactory::GetForBrowserState(browser_state);
+  DCHECK(sync_service);
+
+  if (UseIdentityErrorInfobar(sync_service)) {
+    DCHECK(!sync_service->IsSyncFeatureEnabled());
+    return GetIdentityErrorInfoBarTitle(sync_service->GetUserActionableError());
+  } else {
+    // There is no title in Sync error info bar.
+    return std::u16string();
+  }
+}
+
 NSString* GetSyncErrorMessageForBrowserState(ChromeBrowserState* browserState) {
-  SyncSetupService* syncSetupService =
-      SyncSetupServiceFactory::GetForBrowserState(browserState);
-  DCHECK(syncSetupService);
-  SyncSetupService::SyncServiceState syncState =
-      syncSetupService->GetSyncServiceState();
-  switch (syncState) {
-    case SyncSetupService::kNoSyncServiceError:
+  syncer::SyncService* syncService =
+      SyncServiceFactory::GetForBrowserState(browserState);
+  DCHECK(syncService);
+
+  const syncer::SyncService::UserActionableError error =
+      syncService->GetUserActionableError();
+
+  if (UseIdentityErrorInfobar(syncService)) {
+    DCHECK(!syncService->IsSyncFeatureEnabled());
+    return GetIdentityErrorInfoBarMessage(error);
+  }
+
+  switch (error) {
+    case syncer::SyncService::UserActionableError::kNone:
       return nil;
-    case SyncSetupService::kSyncServiceSignInNeedsUpdate:
+    case syncer::SyncService::UserActionableError::kSignInNeedsUpdate:
       return l10n_util::GetNSString(IDS_IOS_SYNC_ERROR_INFO_OUT_OF_DATE);
-    case SyncSetupService::kSyncServiceNeedsPassphrase:
+    case syncer::SyncService::UserActionableError::kNeedsPassphrase:
       return l10n_util::GetNSString(IDS_IOS_SYNC_CONFIGURE_ENCRYPTION);
-    case SyncSetupService::kSyncServiceNeedsTrustedVaultKey:
-    case SyncSetupService::kSyncServiceTrustedVaultRecoverabilityDegraded:
-      return GetSyncErrorDescriptionForSyncSetupService(syncSetupService);
-    case SyncSetupService::kSyncServiceServiceUnavailable:
-      return l10n_util::GetNSString(IDS_SYNC_SERVICE_UNAVAILABLE);
-    case SyncSetupService::kSyncServiceCouldNotConnect:
-      return l10n_util::GetNSString(IDS_IOS_SYNC_ERROR_COULD_NOT_CONNECT);
-    case SyncSetupService::kSyncServiceUnrecoverableError:
+    case syncer::SyncService::UserActionableError::
+        kNeedsTrustedVaultKeyForPasswords:
+    case syncer::SyncService::UserActionableError::
+        kNeedsTrustedVaultKeyForEverything:
+    case syncer::SyncService::UserActionableError::
+        kTrustedVaultRecoverabilityDegradedForPasswords:
+    case syncer::SyncService::UserActionableError::
+        kTrustedVaultRecoverabilityDegradedForEverything:
+      return GetSyncErrorDescriptionForSyncService(syncService);
+    case syncer::SyncService::UserActionableError::kGenericUnrecoverableError:
       return l10n_util::GetNSString(IDS_IOS_SYNC_ERROR_UNRECOVERABLE);
   }
 }
 
 NSString* GetSyncErrorButtonTitleForBrowserState(
     ChromeBrowserState* browserState) {
-  SyncSetupService* syncSetupService =
-      SyncSetupServiceFactory::GetForBrowserState(browserState);
-  DCHECK(syncSetupService);
-  SyncSetupService::SyncServiceState syncState =
-      syncSetupService->GetSyncServiceState();
-  switch (syncState) {
-    case SyncSetupService::kSyncServiceSignInNeedsUpdate:
+  DCHECK(browserState);
+
+  syncer::SyncService* syncService =
+      SyncServiceFactory::GetForBrowserState(browserState);
+  DCHECK(syncService);
+
+  const syncer::SyncService::UserActionableError error =
+      syncService->GetUserActionableError();
+
+  if (UseIdentityErrorInfobar(syncService)) {
+    DCHECK(!syncService->IsSyncFeatureEnabled());
+    return GetIdentityErrorInfoBarButtonLabel(error);
+  }
+
+  switch (error) {
+    case syncer::SyncService::UserActionableError::kSignInNeedsUpdate:
       return l10n_util::GetNSString(IDS_IOS_SYNC_UPDATE_CREDENTIALS_BUTTON);
-    case SyncSetupService::kSyncServiceNeedsPassphrase:
+    case syncer::SyncService::UserActionableError::kNeedsPassphrase:
       return l10n_util::GetNSString(IDS_IOS_SYNC_ENTER_PASSPHRASE_BUTTON);
-    case SyncSetupService::kSyncServiceNeedsTrustedVaultKey:
-    case SyncSetupService::kSyncServiceTrustedVaultRecoverabilityDegraded:
+    case syncer::SyncService::UserActionableError::
+        kNeedsTrustedVaultKeyForPasswords:
+    case syncer::SyncService::UserActionableError::
+        kNeedsTrustedVaultKeyForEverything:
+    case syncer::SyncService::UserActionableError::
+        kTrustedVaultRecoverabilityDegradedForPasswords:
+    case syncer::SyncService::UserActionableError::
+        kTrustedVaultRecoverabilityDegradedForEverything:
       return l10n_util::GetNSString(IDS_IOS_SYNC_VERIFY_ITS_YOU_BUTTON);
-    case SyncSetupService::kSyncServiceUnrecoverableError:
+    case syncer::SyncService::UserActionableError::kGenericUnrecoverableError:
       return l10n_util::GetNSString(IDS_IOS_SYNC_SIGN_IN_AGAIN_BUTTON);
-    case SyncSetupService::kNoSyncServiceError:
-    case SyncSetupService::kSyncServiceServiceUnavailable:
-    case SyncSetupService::kSyncServiceCouldNotConnect:
+    case syncer::SyncService::UserActionableError::kNone:
       return nil;
   }
 }
 
-SyncSetupService::SyncServiceState GetSyncStateForBrowserState(
-    ChromeBrowserState* browserState) {
-  SyncSetupService* syncSetupService =
-      SyncSetupServiceFactory::GetForBrowserState(browserState);
-  DCHECK(syncSetupService);
-  return syncSetupService->GetSyncServiceState();
-}
-
-bool ShouldShowSyncSettings(SyncSetupService::SyncServiceState syncState) {
-  switch (syncState) {
-    case SyncSetupService::kSyncServiceCouldNotConnect:
-    case SyncSetupService::kSyncServiceServiceUnavailable:
-    case SyncSetupService::kSyncServiceUnrecoverableError:
-    case SyncSetupService::kNoSyncServiceError:
+bool ShouldShowSyncSettings(syncer::SyncService::UserActionableError error) {
+  switch (error) {
+    case syncer::SyncService::UserActionableError::kGenericUnrecoverableError:
+    case syncer::SyncService::UserActionableError::kNone:
       return true;
-    case SyncSetupService::kSyncServiceSignInNeedsUpdate:
-    case SyncSetupService::kSyncServiceNeedsPassphrase:
-    case SyncSetupService::kSyncServiceNeedsTrustedVaultKey:
-    case SyncSetupService::kSyncServiceTrustedVaultRecoverabilityDegraded:
+    case syncer::SyncService::UserActionableError::kSignInNeedsUpdate:
+    case syncer::SyncService::UserActionableError::kNeedsPassphrase:
+    case syncer::SyncService::UserActionableError::
+        kNeedsTrustedVaultKeyForPasswords:
+    case syncer::SyncService::UserActionableError::
+        kNeedsTrustedVaultKeyForEverything:
+    case syncer::SyncService::UserActionableError::
+        kTrustedVaultRecoverabilityDegradedForPasswords:
+    case syncer::SyncService::UserActionableError::
+        kTrustedVaultRecoverabilityDegradedForEverything:
       return false;
   }
 }
@@ -156,49 +290,56 @@ bool DisplaySyncErrors(ChromeBrowserState* browser_state,
   if (browser_state->IsOffTheRecord())
     return false;
 
-  SyncSetupService* syncSetupService =
-      SyncSetupServiceFactory::GetForBrowserState(browser_state);
-  if (!syncSetupService)
+  syncer::SyncService* syncService =
+      SyncServiceFactory::GetForBrowserState(browser_state);
+  if (!syncService) {
     return false;
+  }
 
-  // Avoid showing the sync error inforbar when sync changes are still pending.
-  // This is particularely requires during first run when the advanced sign-in
-  // settings are being presented on the NTP before sync changes being
-  // committed.
-  if (syncSetupService->HasUncommittedChanges())
-    return false;
+  if (!UseIdentityErrorInfobar(syncService)) {
+    // If the identity error info bar isn't used, fallback to the Sync error
+    // info bar.
 
-  SyncSetupService::SyncServiceState errorState =
-      syncSetupService->GetSyncServiceState();
-  if (IsTransientSyncError(errorState))
-    return false;
+    // Avoid showing the sync error info bar when sync changes are still
+    // pending. This is particularely requires during first run when the
+    // advanced sign-in settings are being presented on the NTP before sync
+    // changes being committed.
+    if (syncService->IsSetupInProgress()) {
+      return false;
+    }
 
-  signin::IdentityManager* identityManager =
-      IdentityManagerFactory::GetForBrowserState(browser_state);
-  if (!identityManager->HasPrimaryAccount(signin::ConsentLevel::kSync))
-    return false;
+    signin::IdentityManager* identityManager =
+        IdentityManagerFactory::GetForBrowserState(browser_state);
+    if (!identityManager->HasPrimaryAccount(signin::ConsentLevel::kSync)) {
+      return false;
+    }
+  }
+
   // Logs when an infobar is shown to user. See crbug/265352.
   InfobarSyncError loggedErrorState;
-  switch (errorState) {
-    case SyncSetupService::kNoSyncServiceError:
-    case SyncSetupService::kSyncServiceCouldNotConnect:
-    case SyncSetupService::kSyncServiceServiceUnavailable:
-      loggedErrorState = kMaxValue;
-      NOTREACHED();
-      break;
-    case SyncSetupService::kSyncServiceSignInNeedsUpdate:
+  switch (syncService->GetUserActionableError()) {
+    case syncer::SyncService::UserActionableError::kNone:
+      // Not an actual error, no need to do anything.
+      return false;
+    case syncer::SyncService::UserActionableError::kSignInNeedsUpdate:
       loggedErrorState = SYNC_SIGN_IN_NEEDS_UPDATE;
       break;
-    case SyncSetupService::kSyncServiceNeedsPassphrase:
+    case syncer::SyncService::UserActionableError::kNeedsPassphrase:
       loggedErrorState = SYNC_NEEDS_PASSPHRASE;
       break;
-    case SyncSetupService::kSyncServiceNeedsTrustedVaultKey:
+    case syncer::SyncService::UserActionableError::
+        kNeedsTrustedVaultKeyForPasswords:
+    case syncer::SyncService::UserActionableError::
+        kNeedsTrustedVaultKeyForEverything:
       loggedErrorState = SYNC_NEEDS_TRUSTED_VAULT_KEY;
       break;
-    case SyncSetupService::kSyncServiceTrustedVaultRecoverabilityDegraded:
+    case syncer::SyncService::UserActionableError::
+        kTrustedVaultRecoverabilityDegradedForPasswords:
+    case syncer::SyncService::UserActionableError::
+        kTrustedVaultRecoverabilityDegradedForEverything:
       loggedErrorState = SYNC_TRUSTED_VAULT_RECOVERABILITY_DEGRADED;
       break;
-    case SyncSetupService::kSyncServiceUnrecoverableError:
+    case syncer::SyncService::UserActionableError::kGenericUnrecoverableError:
       loggedErrorState = SYNC_UNRECOVERABLE_ERROR;
       break;
   }
@@ -210,19 +351,4 @@ bool DisplaySyncErrors(ChromeBrowserState* browser_state,
   DCHECK(infoBarManager);
   return SyncErrorInfoBarDelegate::Create(infoBarManager, browser_state,
                                           presenter);
-}
-
-bool IsTransientSyncError(SyncSetupService::SyncServiceState errorState) {
-  switch (errorState) {
-    case SyncSetupService::kNoSyncServiceError:
-    case SyncSetupService::kSyncServiceCouldNotConnect:
-    case SyncSetupService::kSyncServiceServiceUnavailable:
-      return true;
-    case SyncSetupService::kSyncServiceSignInNeedsUpdate:
-    case SyncSetupService::kSyncServiceNeedsPassphrase:
-    case SyncSetupService::kSyncServiceNeedsTrustedVaultKey:
-    case SyncSetupService::kSyncServiceTrustedVaultRecoverabilityDegraded:
-    case SyncSetupService::kSyncServiceUnrecoverableError:
-      return false;
-  }
 }

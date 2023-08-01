@@ -1,8 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/safe_browsing/generated_safe_browsing_pref.h"
+
+#include "base/ranges/algorithm.h"
 #include "chrome/browser/extensions/api/settings_private/generated_pref_test_base.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
@@ -36,7 +38,7 @@ void ValidateGeneratedPrefSetting(
   EXPECT_EQ(prefs->GetUserPref(prefs::kSafeBrowsingEnhanced)->GetBool(),
             expected_safe_browsing_enhanced);
   EXPECT_EQ(static_cast<SafeBrowsingSetting>(
-                generated_pref->GetPrefObject()->value->GetInt()),
+                generated_pref->GetPrefObject().value->GetInt()),
             pref_value);
 }
 
@@ -178,39 +180,36 @@ void SetupManagedTestConditions(
 }
 
 void ValidateManagedPreference(
-    settings_api::PrefObject* pref,
+    settings_api::PrefObject& pref,
     const SafeBrowsingManagementTestCase& test_case) {
-  EXPECT_EQ(pref->controlled_by, test_case.expected_controlled_by);
+  EXPECT_EQ(pref.controlled_by, test_case.expected_controlled_by);
 
-  EXPECT_EQ(pref->enforcement, test_case.expected_enforcement);
+  EXPECT_EQ(pref.enforcement, test_case.expected_enforcement);
 
   if (test_case.expected_enforced_value != kNoEnforcedValue) {
-    EXPECT_EQ(static_cast<SafeBrowsingSetting>(pref->value->GetInt()),
+    EXPECT_EQ(static_cast<SafeBrowsingSetting>(pref.value->GetInt()),
               test_case.expected_enforced_value);
   }
 
   if (test_case.expected_recommended_value == kNoRecommendedValue) {
-    EXPECT_FALSE(pref->recommended_value);
+    EXPECT_FALSE(pref.recommended_value);
   } else {
     EXPECT_EQ(
-        static_cast<SafeBrowsingSetting>(pref->recommended_value->GetInt()),
+        static_cast<SafeBrowsingSetting>(pref.recommended_value->GetInt()),
         test_case.expected_recommended_value);
   }
 
   // Ensure the user selectable values for the preference are correct.
   std::vector<SafeBrowsingSetting> pref_user_selectable_values;
-  if (pref->user_selectable_values) {
-    for (const auto& value : *pref->user_selectable_values) {
+  if (pref.user_selectable_values) {
+    for (const auto& value : *pref.user_selectable_values) {
       pref_user_selectable_values.push_back(
-          static_cast<SafeBrowsingSetting>(value->GetInt()));
+          static_cast<SafeBrowsingSetting>(value.GetInt()));
     }
   }
-  ASSERT_EQ(pref_user_selectable_values.size(),
-            test_case.expected_user_selectable_values.size());
 
-  EXPECT_TRUE(std::equal(pref_user_selectable_values.begin(),
-                         pref_user_selectable_values.end(),
-                         test_case.expected_user_selectable_values.begin()));
+  EXPECT_TRUE(base::ranges::equal(pref_user_selectable_values,
+                                  test_case.expected_user_selectable_values));
 }
 
 }  // namespace
@@ -296,7 +295,8 @@ TEST_F(GeneratedSafeBrowsingPrefTest, ManagementState) {
     SCOPED_TRACE(scope_message);
     SetupManagedTestConditions(profile.GetTestingPrefService(), test_case);
     auto pref = std::make_unique<GeneratedSafeBrowsingPref>(&profile);
-    ValidateManagedPreference(pref->GetPrefObject().get(), test_case);
+    auto pref_object = pref->GetPrefObject();
+    ValidateManagedPreference(pref_object, test_case);
   }
 }
 

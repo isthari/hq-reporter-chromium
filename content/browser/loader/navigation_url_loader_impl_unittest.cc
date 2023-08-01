@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,14 +11,13 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
-#include "base/task/post_task.h"
 #include "base/unguessable_token.h"
+#include "components/ukm/test_ukm_recorder.h"
 #include "content/browser/loader/navigation_loader_interceptor.h"
 #include "content/browser/loader/navigation_url_loader.h"
-#include "content/browser/loader/single_request_url_loader_factory.h"
 #include "content/browser/renderer_host/frame_tree_node.h"
 #include "content/browser/renderer_host/navigation_request_info.h"
 #include "content/browser/web_package/prefetched_signed_exchange_cache.h"
@@ -30,8 +29,11 @@
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_task_environment.h"
+#include "content/public/test/navigation_simulator.h"
 #include "content/public/test/test_browser_context.h"
+#include "content/public/test/test_renderer_host.h"
 #include "content/test/test_navigation_url_loader_delegate.h"
+#include "content/test/test_web_contents.h"
 #include "ipc/ipc_message.h"
 #include "net/base/load_flags.h"
 #include "net/base/mock_network_change_notifier.h"
@@ -41,17 +43,20 @@
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_context_builder.h"
 #include "ppapi/buildflags/buildflags.h"
+#include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/network/public/cpp/cors/origin_access_list.h"
 #include "services/network/public/cpp/features.h"
+#include "services/network/public/cpp/single_request_url_loader_factory.h"
+#include "services/network/public/cpp/url_loader_completion_status.h"
 #include "services/network/public/mojom/fetch_api.mojom.h"
 #include "services/network/resource_scheduler/resource_scheduler_client.h"
+#include "services/network/test/url_loader_context_for_tests.h"
 #include "services/network/url_loader.h"
 #include "services/network/url_request_context_owner.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/navigation/navigation_params.h"
 #include "third_party/blink/public/mojom/loader/mixed_content.mojom.h"
 #include "third_party/blink/public/mojom/navigation/navigation_params.mojom.h"
-
 #if BUILDFLAG(ENABLE_PLUGINS)
 #include "content/public/browser/plugin_service.h"
 #endif
@@ -65,16 +70,23 @@ class TestNavigationLoaderInterceptor : public NavigationLoaderInterceptor {
   explicit TestNavigationLoaderInterceptor(
       absl::optional<network::ResourceRequest>* most_recent_resource_request)
       : most_recent_resource_request_(most_recent_resource_request) {
-    net::URLRequestContextBuilder context_builder;
-    context_builder.set_proxy_resolution_service(
+    net::URLRequestContextBuilder url_request_context_builder;
+    url_request_context_builder.set_proxy_resolution_service(
         net::ConfiguredProxyResolutionService::CreateDirect());
-    context_ = context_builder.Build();
-    constexpr int child_id = 4;
-    constexpr int route_id = 8;
+    url_request_context_ = url_request_context_builder.Build();
+    url_loader_context_.set_url_request_context(url_request_context_.get());
+
+    constexpr network::ResourceScheduler::ClientId kClientId(3);
     resource_scheduler_client_ =
         base::MakeRefCounted<network::ResourceSchedulerClient>(
-            child_id, route_id, &resource_scheduler_,
-            context_->network_quality_estimator());
+            kClientId, network::IsBrowserInitiated(false), &resource_scheduler_,
+            url_request_context_->network_quality_estimator());
+    url_loader_context_.set_resource_scheduler_client(
+        resource_scheduler_client_);
+
+    url_loader_context_.mutable_factory_params().process_id =
+        network::mojom::kBrowserProcessId;
+    url_loader_context_.mutable_factory_params().is_corb_enabled = false;
   }
 
   ~TestNavigationLoaderInterceptor() override {
@@ -86,9 +98,10 @@ class TestNavigationLoaderInterceptor : public NavigationLoaderInterceptor {
                          BrowserContext* browser_context,
                          LoaderCallback callback,
                          FallbackCallback fallback_callback) override {
-    std::move(callback).Run(base::MakeRefCounted<SingleRequestURLLoaderFactory>(
-        base::BindOnce(&TestNavigationLoaderInterceptor::StartLoader,
-                       base::Unretained(this))));
+    std::move(callback).Run(
+        base::MakeRefCounted<network::SingleRequestURLLoaderFactory>(
+            base::BindOnce(&TestNavigationLoaderInterceptor::StartLoader,
+                           base::Unretained(this))));
   }
 
   void StartLoader(
@@ -96,30 +109,28 @@ class TestNavigationLoaderInterceptor : public NavigationLoaderInterceptor {
       mojo::PendingReceiver<network::mojom::URLLoader> receiver,
       mojo::PendingRemote<network::mojom::URLLoaderClient> client) {
     *most_recent_resource_request_ = resource_request;
-    static network::mojom::URLLoaderFactoryParams params;
-    params.process_id = network::mojom::kBrowserProcessId;
-    params.is_corb_enabled = false;
     url_loader_ = std::make_unique<network::URLLoader>(
-        context_.get(), /*url_loader_factory=*/nullptr,
-        nullptr /* network_context_client */,
+        url_loader_context_,
         base::BindOnce(&TestNavigationLoaderInterceptor::DeleteURLLoader,
                        base::Unretained(this)),
         std::move(receiver), 0 /* options */, resource_request,
         std::move(client), nullptr /* sync_url_loader_client */,
-        TRAFFIC_ANNOTATION_FOR_TESTS, &params,
-        /*coep_reporter=*/nullptr, 0, /* request_id */
+        TRAFFIC_ANNOTATION_FOR_TESTS, 0, /* request_id */
         0 /* keepalive_request_size */,
-        false /* require_network_isolation_key */, resource_scheduler_client_,
         nullptr /* keepalive_statistics_recorder */,
-        nullptr /* header_client */, nullptr /* origin_policy_manager */,
-        nullptr /* trust_token_helper */, kEmptyOriginAccessList,
+        nullptr /* trust_token_helper */,
         mojo::NullRemote() /* cookie_observer */,
+        mojo::NullRemote() /* trust_token_observer */,
         mojo::NullRemote() /* url_loader_network_observer */,
         /*devtools_observer=*/mojo::NullRemote(),
-        /*accept_ch_frame_observer=*/mojo::NullRemote());
+        /*accept_ch_frame_observer=*/mojo::NullRemote(),
+        /*third_party_cookies_enabled=*/true, net::CookieSettingOverrides(),
+        /*cache_transparency_settings=*/nullptr,
+        /*attribution_request_helper=*/nullptr);
   }
 
   bool MaybeCreateLoaderForResponse(
+      const network::URLLoaderCompletionStatus& status,
       const network::ResourceRequest& request,
       network::mojom::URLResponseHeadPtr* response,
       mojo::ScopedDataPipeConsumerHandle* response_body,
@@ -140,7 +151,8 @@ class TestNavigationLoaderInterceptor : public NavigationLoaderInterceptor {
   raw_ptr<absl::optional<network::ResourceRequest>>
       most_recent_resource_request_;  // NOT OWNED.
   network::ResourceScheduler resource_scheduler_;
-  std::unique_ptr<net::URLRequestContext> context_;
+  network::URLLoaderContextForTests url_loader_context_;
+  std::unique_ptr<net::URLRequestContext> url_request_context_;
   scoped_refptr<network::ResourceSchedulerClient> resource_scheduler_client_;
   std::unique_ptr<network::URLLoader> url_loader_;
 
@@ -175,6 +187,23 @@ class NavigationURLLoaderImplTest : public testing::Test {
     task_environment_.reset();
   }
 
+  void SetUp() override {
+    // Do not create TestNavigationURLLoaderFactory as this tests creates
+    // NavigationURLLoaders explicitly and TestNavigationURLLoaderFactory
+    // interferes with that.
+    rvh_test_enabler_ = std::make_unique<RenderViewHostTestEnabler>(
+        RenderViewHostTestEnabler::NavigationURLLoaderFactoryType::kNone);
+    web_contents_ = TestWebContents::Create(
+        browser_context_.get(),
+        SiteInstanceImpl::Create(browser_context_.get()));
+  }
+
+  void TearDown() override {
+    pending_navigation_.reset();
+    web_contents_.reset();
+    rvh_test_enabler_.reset();
+  }
+
   std::unique_ptr<NavigationURLLoader> CreateTestLoader(
       const GURL& url,
       const std::string& headers,
@@ -184,6 +213,12 @@ class NavigationURLLoaderImplTest : public testing::Test {
           blink::NavigationDownloadPolicy(),
       bool is_main_frame = true,
       bool upgrade_if_insecure = false) {
+    // NavigationURLLoader assumes that the corresponding FrameTreeNode has an
+    // associated NavigationRequest.
+    pending_navigation_ = NavigationSimulator::CreateBrowserInitiated(
+        GURL("https://example.com"), web_contents_.get());
+    pending_navigation_->Start();
+
     blink::mojom::BeginNavigationParamsPtr begin_params =
         blink::mojom::BeginNavigationParams::New(
             absl::nullopt /* initiator_frame_token */, headers,
@@ -192,6 +227,7 @@ class NavigationURLLoaderImplTest : public testing::Test {
             blink::mojom::MixedContentContextType::kBlockable,
             false /* is_form_submission */,
             false /* was_initiated_by_link_click */,
+            blink::mojom::ForceHistoryPush::kNo,
             GURL() /* searchable_form_url */,
             std::string() /* searchable_form_encoding */,
             GURL() /* client_side_redirect_url */,
@@ -199,7 +235,12 @@ class NavigationURLLoaderImplTest : public testing::Test {
             nullptr /* trust_token_params */, absl::nullopt /* impression */,
             base::TimeTicks() /* renderer_before_unload_start */,
             base::TimeTicks() /* renderer_before_unload_end */,
-            absl::nullopt /* web_bundle_token */);
+            absl::nullopt /* web_bundle_token */,
+            blink::mojom::NavigationInitiatorActivationAndAdStatus::
+                kDidNotStartWithTransientActivation,
+            false /* is_container_initiated */,
+            false /* is_fullscreen_requested */,
+            false /* has_storage_access */);
 
     auto common_params = blink::CreateCommonNavigationParams();
     common_params->url = url;
@@ -210,6 +251,12 @@ class NavigationURLLoaderImplTest : public testing::Test {
         network::mojom::RequestDestination::kDocument;
     url::Origin origin = url::Origin::Create(url);
 
+    uint32_t frame_tree_node_id =
+        web_contents_->GetPrimaryMainFrame()->GetFrameTreeNodeId();
+
+    bool is_primary_main_frame = is_main_frame;
+    bool is_outermost_main_frame = is_main_frame;
+
     std::unique_ptr<NavigationRequestInfo> request_info(
         std::make_unique<NavigationRequestInfo>(
             std::move(common_params), std::move(begin_params),
@@ -217,19 +264,20 @@ class NavigationURLLoaderImplTest : public testing::Test {
             net::IsolationInfo::Create(
                 net::IsolationInfo::RequestType::kMainFrame, origin, origin,
                 net::SiteForCookies::FromUrl(url)),
-            is_main_frame, false /* are_ancestors_secure */,
-            FrameTreeNode::kFrameTreeNodeInvalidId /* frame_tree_node_id */,
+            is_primary_main_frame, is_outermost_main_frame, is_main_frame,
+            false /* are_ancestors_secure */, frame_tree_node_id,
             false /* report_raw_headers */,
             upgrade_if_insecure /* upgrade_if_insecure */,
             nullptr /* blob_url_loader_factory */,
             base::UnguessableToken::Create() /* devtools_navigation_token */,
             base::UnguessableToken::Create() /* devtools_frame_token */,
-            false /* obey_origin_policy */,
             net::HttpRequestHeaders() /* cors_exempt_headers */,
             nullptr /* client_security_state */,
             absl::nullopt /* devtools_accepted_stream_types */,
             false /* is_pdf */,
-            content::WeakDocumentPtr() /* initiator_document */));
+            content::WeakDocumentPtr() /* initiator_document */,
+            GlobalRenderFrameHostId() /* previous_render_frame_host_id */,
+            false /* allow_cookies_from_browser */));
     std::vector<std::unique_ptr<NavigationLoaderInterceptor>> interceptors;
     most_recent_resource_request_ = absl::nullopt;
     interceptors.push_back(std::make_unique<TestNavigationLoaderInterceptor>(
@@ -241,6 +289,7 @@ class NavigationURLLoaderImplTest : public testing::Test {
         nullptr /* service_worker_handle */,
         nullptr /* prefetched_signed_exchange_cache */, delegate,
         mojo::NullRemote() /* cookie_access_obsever */,
+        mojo::NullRemote() /* trust_token_observer */,
         mojo::NullRemote() /* url_loader_network_observer */,
         /*devtools_observer=*/mojo::NullRemote(), std::move(interceptors));
   }
@@ -323,6 +372,11 @@ class NavigationURLLoaderImplTest : public testing::Test {
   std::unique_ptr<TestBrowserContext> browser_context_;
   net::EmbeddedTestServer http_test_server_;
   absl::optional<network::ResourceRequest> most_recent_resource_request_;
+  std::unique_ptr<RenderViewHostTestEnabler> rvh_test_enabler_;
+  std::unique_ptr<TestWebContents> web_contents_;
+  // NavigationURLLoaderImpl relies on the existence of the
+  // |frame_tree_node->navigation_request()|.
+  std::unique_ptr<NavigationSimulator> pending_navigation_;
 };
 
 TEST_F(NavigationURLLoaderImplTest, IsolationInfoOfMainFrameNavigation) {
@@ -549,6 +603,77 @@ TEST_F(NavigationURLLoaderImplTest, MAYBE_NavigationTimeoutRedirectTest) {
   delegate.WaitForRequestRedirected();
   delegate.WaitForRequestFailed();
   EXPECT_EQ(net::ERR_TIMED_OUT, delegate.net_error());
+}
+
+// Verify that UKMs are recorded when OnAcceptCHFrameReceived is called.
+TEST_F(NavigationURLLoaderImplTest, OnAcceptCHFrameReceivedUKM) {
+  ASSERT_TRUE(http_test_server_.Start());
+  const GURL url = http_test_server_.GetURL("/foo");
+  const url::Origin origin = url::Origin::Create(url);
+  TestNavigationURLLoaderDelegate delegate;
+  std::unique_ptr<NavigationURLLoader> loader = CreateTestLoader(
+      url,
+      base::StringPrintf("%s: %s", net::HttpRequestHeaders::kOrigin,
+                         url.DeprecatedGetOriginAsURL().spec().c_str()),
+      "GET", &delegate, blink::NavigationDownloadPolicy(),
+      true /*is_main_frame*/, false /*upgrade_if_insecure*/);
+  loader->Start();
+
+  // Try recording no hints.
+  {
+    ukm::TestAutoSetUkmRecorder ukm_recorder;
+    static_cast<NavigationURLLoaderImpl*>(loader.get())
+        ->OnAcceptCHFrameReceived(origin, {},
+                                  base::BindOnce([](int32_t) { return; }));
+    auto ukm_entries = ukm_recorder.GetEntriesByName(
+        ukm::builders::ClientHints_AcceptCHFrameUsage::kEntryName);
+    ASSERT_EQ(ukm_entries.size(), 0u);
+  }
+
+  // Try recording one hint.
+  {
+    ukm::TestAutoSetUkmRecorder ukm_recorder;
+    static_cast<NavigationURLLoaderImpl*>(loader.get())
+        ->OnAcceptCHFrameReceived(origin,
+                                  {network::mojom::WebClientHintsType::kDpr},
+                                  base::BindOnce([](int32_t) { return; }));
+    auto ukm_entries = ukm_recorder.GetEntriesByName(
+        ukm::builders::ClientHints_AcceptCHFrameUsage::kEntryName);
+    ASSERT_EQ(ukm_entries.size(), 1u);
+    EXPECT_EQ(*ukm_recorder.GetEntryMetric(
+                  ukm_entries[0],
+                  ukm::builders::ClientHints_AcceptCHFrameUsage::kTypeName),
+              static_cast<int64_t>(network::mojom::WebClientHintsType::kDpr));
+  }
+
+  // Try recording all hints.
+  {
+    ukm::TestAutoSetUkmRecorder ukm_recorder;
+    std::vector<network::mojom::WebClientHintsType> accept_ch_frame;
+    for (int64_t i = 0; i <= static_cast<int64_t>(
+                                 network::mojom::WebClientHintsType::kMaxValue);
+         ++i) {
+      accept_ch_frame.push_back(
+          static_cast<network::mojom::WebClientHintsType>(i));
+    }
+    static_cast<NavigationURLLoaderImpl*>(loader.get())
+        ->OnAcceptCHFrameReceived(origin, accept_ch_frame,
+                                  base::BindOnce([](int32_t) { return; }));
+    auto ukm_entries = ukm_recorder.GetEntriesByName(
+        ukm::builders::ClientHints_AcceptCHFrameUsage::kEntryName);
+    // If you're here because the test is failing when you added a new client
+    // hint be sure to increment the number below and add your new hint to the
+    // enum WebClientHintsType in tools/metrics/histograms/enums.xml.
+    ASSERT_EQ(ukm_entries.size(), 29u);
+    for (int64_t i = 0; i <= static_cast<int64_t>(
+                                 network::mojom::WebClientHintsType::kMaxValue);
+         ++i) {
+      EXPECT_EQ(*ukm_recorder.GetEntryMetric(
+                    ukm_entries[i],
+                    ukm::builders::ClientHints_AcceptCHFrameUsage::kTypeName),
+                i);
+    }
+  }
 }
 
 }  // namespace content

@@ -1,12 +1,14 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef BASE_THREADING_SEQUENCE_LOCAL_STORAGE_MAP_H_
 #define BASE_THREADING_SEQUENCE_LOCAL_STORAGE_MAP_H_
 
+#include "base/auto_reset.h"
 #include "base/base_export.h"
 #include "base/containers/flat_map.h"
+#include "base/memory/raw_ptr_exclusion.h"
 
 namespace base {
 namespace internal {
@@ -61,8 +63,8 @@ class BASE_EXPORT SequenceLocalStorageMap {
    private:
     // `value_` and `destructor_` are not a raw_ptr<...> for performance reasons
     // (based on analysis of sampling profiler data and tab_search:top100:2020).
-    void* value_;
-    DestructorFunc* destructor_;
+    RAW_PTR_EXCLUSION void* value_;
+    RAW_PTR_EXCLUSION DestructorFunc* destructor_;
   };
 
   // Returns the value stored in |slot_id| or nullptr if no value was stored.
@@ -84,7 +86,9 @@ class BASE_EXPORT SequenceLocalStorageMap {
 // SequenceLocalStorageMap::GetForCurrentThread() will return a reference to the
 // SequenceLocalStorageMap object passed to the constructor. There can be only
 // one ScopedSetSequenceLocalStorageMapForCurrentThread instance per scope.
-class BASE_EXPORT ScopedSetSequenceLocalStorageMapForCurrentThread {
+class BASE_EXPORT
+    [[maybe_unused,
+      nodiscard]] ScopedSetSequenceLocalStorageMapForCurrentThread {
  public:
   ScopedSetSequenceLocalStorageMapForCurrentThread(
       SequenceLocalStorageMap* sequence_local_storage);
@@ -95,6 +99,9 @@ class BASE_EXPORT ScopedSetSequenceLocalStorageMapForCurrentThread {
       const ScopedSetSequenceLocalStorageMapForCurrentThread&) = delete;
 
   ~ScopedSetSequenceLocalStorageMapForCurrentThread();
+
+ private:
+  const base::AutoReset<SequenceLocalStorageMap*> resetter_;
 };
 }  // namespace internal
 }  // namespace base

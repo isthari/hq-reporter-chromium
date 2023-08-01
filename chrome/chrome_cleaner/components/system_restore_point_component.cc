@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,9 @@
 #include <stdint.h>
 #include <windows.h>
 
-#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/win/registry.h"
-#include "base/win/windows_version.h"
 
 namespace {
 
@@ -72,19 +70,16 @@ void SystemRestorePointComponent::PreCleanup() {
   if (!set_restore_point_info_fn_)
     return;
 
-  // On Windows8, a registry value needs to be created in order for restore
-  // points to be deterministically created. Attempt to create this value, but
-  // continue with the restore point anyway even if doing so fails. See
-  // http://msdn.microsoft.com/en-us/library/windows/desktop/aa378941.aspx for
-  // more information.
-  if (base::win::GetVersion() >= base::win::Version::WIN8) {
-    base::win::RegKey system_restore_key(HKEY_LOCAL_MACHINE, kSystemRestoreKey,
-                                         KEY_SET_VALUE | KEY_QUERY_VALUE);
-    if (system_restore_key.Valid() &&
-        !system_restore_key.HasValue(kSystemRestoreFrequencyWin8)) {
-      system_restore_key.WriteValue(kSystemRestoreFrequencyWin8,
-                                    static_cast<DWORD>(0));
-    }
+  // A registry value needs to be created in order for restore points to be
+  // deterministically created. Attempt to create this value, but continue with
+  // the restore point anyway even if doing so fails. For more info, see
+  // http://msdn.microsoft.com/en-us/library/windows/desktop/aa378941.aspx.
+  base::win::RegKey system_restore_key(HKEY_LOCAL_MACHINE, kSystemRestoreKey,
+                                       KEY_SET_VALUE | KEY_QUERY_VALUE);
+  if (system_restore_key.Valid() &&
+      !system_restore_key.HasValue(kSystemRestoreFrequencyWin8)) {
+    system_restore_key.WriteValue(kSystemRestoreFrequencyWin8,
+                                  static_cast<DWORD>(0));
   }
 
   // Take a system restore point before doing anything else.
@@ -99,7 +94,7 @@ void SystemRestorePointComponent::PreCleanup() {
   restore_point_spec.dwRestorePtType = APPLICATION_INSTALL;
   restore_point_spec.llSequenceNumber = 0;
   wcsncpy(restore_point_spec.szDescription, product_fullname_.c_str(),
-          base::size(restore_point_spec.szDescription));
+          std::size(restore_point_spec.szDescription));
 
   if (set_restore_point_info_fn_(&restore_point_spec, &state_manager_status)) {
     sequence_number_ = state_manager_status.llSequenceNumber;

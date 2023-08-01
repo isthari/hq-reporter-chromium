@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,11 +10,11 @@
 #include "ash/components/arc/arc_browser_context_keyed_service_factory_base.h"
 #include "ash/components/arc/arc_util.h"
 #include "ash/components/arc/session/arc_bridge_service.h"
-#include "ash/components/arc/session/arc_service_manager.h"
 #include "ash/shell.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/singleton.h"
 #include "base/metrics/histogram_functions.h"
 #include "chromeos/dbus/power/power_policy_controller.h"
@@ -108,7 +108,7 @@ class ArcPowerBridge::WakeLockRequestor {
   const device::mojom::WakeLockType type_;
 
   // The WakeLockProvider implementation we use to request WakeLocks. Not owned.
-  device::mojom::WakeLockProvider* const provider_;
+  const raw_ptr<device::mojom::WakeLockProvider, ExperimentalAsh> provider_;
 
   // Number of outstanding Android requests.
   int num_android_requests_ = 0;
@@ -139,6 +139,10 @@ ArcPowerBridge::ArcPowerBridge(content::BrowserContext* context,
 ArcPowerBridge::~ArcPowerBridge() {
   arc_bridge_service_->power()->RemoveObserver(this);
   arc_bridge_service_->power()->SetHost(nullptr);
+}
+
+void ArcPowerBridge::DisableAndroidIdleControl() {
+  android_idle_control_disabled_ = true;
 }
 
 void ArcPowerBridge::AddObserver(Observer* observer) {
@@ -208,7 +212,7 @@ void ArcPowerBridge::OnAndroidSuspendReady(base::UnguessableToken token) {
     vm_tools::concierge::SuspendVmRequest request;
     request.set_name(kArcVmName);
     request.set_owner_id(user_id_hash_);
-    chromeos::ConciergeClient::Get()->SuspendVm(
+    ash::ConciergeClient::Get()->SuspendVm(
         request, base::BindOnce(&ArcPowerBridge::OnConciergeSuspendVmResponse,
                                 weak_ptr_factory_.GetWeakPtr(), token));
     return;
@@ -233,7 +237,7 @@ void ArcPowerBridge::SuspendDone(base::TimeDelta sleep_duration) {
     vm_tools::concierge::ResumeVmRequest request;
     request.set_name(kArcVmName);
     request.set_owner_id(user_id_hash_);
-    chromeos::ConciergeClient::Get()->ResumeVm(
+    ash::ConciergeClient::Get()->ResumeVm(
         request, base::BindOnce(&ArcPowerBridge::OnConciergeResumeVmResponse,
                                 weak_ptr_factory_.GetWeakPtr()));
     return;
@@ -255,6 +259,9 @@ void ArcPowerBridge::OnConciergeResumeVmResponse(
 }
 
 void ArcPowerBridge::DispatchAndroidResume() {
+  if (android_idle_control_disabled_)
+    return;
+
   mojom::PowerInstance* power_instance =
       ARC_GET_INSTANCE_FOR_METHOD(arc_bridge_service_->power(), Resume);
   if (!power_instance)
@@ -288,8 +295,25 @@ void ArcPowerBridge::PowerChanged(
   power_instance->PowerSupplyInfoChanged();
 }
 
+void ArcPowerBridge::BatterySaverModeStateChanged(
+    const power_manager::BatterySaverModeState& state) {
+  mojom::PowerInstance* power_instance = ARC_GET_INSTANCE_FOR_METHOD(
+      arc_bridge_service_->power(), OnBatterySaverModeStateChanged);
+  if (!power_instance) {
+    return;
+  }
+
+  mojom::BatterySaverModeStatePtr mojo_state =
+      mojom::BatterySaverModeState::New();
+  mojo_state->active = state.enabled();
+  power_instance->OnBatterySaverModeStateChanged(std::move(mojo_state));
+}
+
 void ArcPowerBridge::OnPowerStateChanged(
     chromeos::DisplayPowerState power_state) {
+  if (android_idle_control_disabled_)
+    return;
+
   mojom::PowerInstance* power_instance =
       ARC_GET_INSTANCE_FOR_METHOD(arc_bridge_service_->power(), SetInteractive);
   if (!power_instance)
@@ -396,12 +420,38 @@ void ArcPowerBridge::OnAnrRecoveryFailed(::arc::mojom::AnrType type) {
   base::UmaHistogramEnumeration("Arc.Anr.RecoveryFailed", type);
 }
 
+void ArcPowerBridge::GetBatterySaverModeState(
+    GetBatterySaverModeStateCallback callback) {
+  chromeos::PowerManagerClient::Get()->GetBatterySaverModeState(
+      base::BindOnce(&ArcPowerBridge::OnBatterySaverModeStateReceived,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+}
+
+void ArcPowerBridge::OnBatterySaverModeStateReceived(
+    GetBatterySaverModeStateCallback callback,
+    absl::optional<power_manager::BatterySaverModeState> state) {
+  mojom::BatterySaverModeStatePtr mojo_state =
+      mojom::BatterySaverModeState::New();
+  if (state.has_value()) {
+    mojo_state->active = state->enabled();
+  } else {
+    LOG(ERROR)
+        << "PowerManagerClient::GetBatterySaverModeState reports an error";
+  }
+  std::move(callback).Run(std::move(mojo_state));
+}
+
 void ArcPowerBridge::UpdateAndroidScreenBrightness(double percent) {
   mojom::PowerInstance* power_instance = ARC_GET_INSTANCE_FOR_METHOD(
       arc_bridge_service_->power(), UpdateScreenBrightnessSettings);
   if (!power_instance)
     return;
   power_instance->UpdateScreenBrightnessSettings(percent);
+}
+
+// static
+void ArcPowerBridge::EnsureFactoryBuilt() {
+  ArcPowerBridgeFactory::GetInstance();
 }
 
 }  // namespace arc

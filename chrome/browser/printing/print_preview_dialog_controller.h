@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 
 #include <map>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/ref_counted.h"
 #include "chrome/browser/tab_contents/web_contents_collection.h"
 
@@ -37,10 +37,6 @@ class PrintPreviewDialogController
 
   static PrintPreviewDialogController* GetInstance();
 
-  // Initiate print preview for `initiator`.
-  // Call this instead of GetOrCreatePreviewDialog().
-  static void PrintPreview(content::WebContents* initiator);
-
   // Returns true if `url` is a Print Preview dialog URL (has `chrome://print`
   // origin).
   static bool IsPrintPreviewURL(const GURL& url);
@@ -49,10 +45,8 @@ class PrintPreviewDialogController
   // `chrome-untrusted://print` origin).
   static bool IsPrintPreviewContentURL(const GURL& url);
 
-  // Get/Create the print preview dialog for `initiator`.
-  // Exposed for unit tests.
-  content::WebContents* GetOrCreatePreviewDialog(
-      content::WebContents* initiator);
+  // Initiates print preview for `initiator`.
+  void PrintPreview(content::WebContents* initiator);
 
   // Returns the preview dialog for `contents`.
   // Returns `contents` if `contents` is a preview dialog.
@@ -64,12 +58,16 @@ class PrintPreviewDialogController
   // Returns NULL if no initiator exists for `preview_dialog`.
   content::WebContents* GetInitiator(content::WebContents* preview_dialog);
 
-  // Run `callback` on the dialog of each active print preview operation.
+  // Runs `callback` on the dialog of each active print preview operation.
   void ForEachPreviewDialog(
       base::RepeatingCallback<void(content::WebContents*)> callback);
 
-  // Erase the initiator info associated with `preview_dialog`.
+  // Erases the initiator info associated with `preview_dialog`.
   void EraseInitiatorInfo(content::WebContents* preview_dialog);
+
+  // Exposes GetOrCreatePreviewDialog() for testing.
+  content::WebContents* GetOrCreatePreviewDialogForTesting(
+      content::WebContents* initiator);
 
   bool is_creating_print_preview_dialog() const {
     return is_creating_print_preview_dialog_;
@@ -96,19 +94,24 @@ class PrintPreviewDialogController
   // the initiator or preview WebContents is closed.
   void WebContentsDestroyed(content::WebContents* contents) override;
 
-  // Handles the commit of a navigation entry for `contents`. This is observed
-  // when the renderer for either WebContents is navigated to a different page.
-  void NavigationEntryCommitted(
+  // Handles the commit of a navigation for `contents`. This is observed when
+  // the renderer for either WebContents is navigated to a different page.
+  void DidFinishNavigation(
       content::WebContents* contents,
-      const content::LoadCommittedDetails& details) override;
+      content::NavigationHandle* navigation_handle) override;
 
-  // Helpers for NavigationEntryCommitted().
+  // Helpers for DidFinishNavigation().
   void OnInitiatorNavigated(content::WebContents* initiator,
-                            const content::LoadCommittedDetails& details);
+                            content::NavigationHandle* navigation_handle);
   void OnPreviewDialogNavigated(content::WebContents* preview_dialog,
-                                const content::LoadCommittedDetails& details);
+                                content::NavigationHandle* navigation_handle);
 
-  // Creates a new print preview dialog.
+  // Gets/Creates the print preview dialog for `initiator`.
+  content::WebContents* GetOrCreatePreviewDialog(
+      content::WebContents* initiator);
+
+  // Creates a new print preview dialog if GetOrCreatePreviewDialog() cannot
+  // find a print preview dialog for `initiator`.
   content::WebContents* CreatePrintPreviewDialog(
       content::WebContents* initiator);
 
@@ -124,10 +127,6 @@ class PrintPreviewDialogController
   PrintPreviewDialogMap preview_dialog_map_;
 
   WebContentsCollection web_contents_collection_;
-
-  // True if the controller is waiting for a new preview dialog via
-  // content::NAVIGATION_TYPE_NEW_ENTRY.
-  bool waiting_for_new_preview_page_ = false;
 
   // Whether the PrintPreviewDialogController is in the middle of creating a
   // print preview dialog.

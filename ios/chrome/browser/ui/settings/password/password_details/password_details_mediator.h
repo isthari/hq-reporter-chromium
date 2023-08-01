@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,23 +7,40 @@
 
 #import <Foundation/Foundation.h>
 
+#import "base/mac/foundation_util.h"
+#import "base/memory/scoped_refptr.h"
+#import "ios/chrome/browser/ui/settings/password/password_details/password_details.h"
 #import "ios/chrome/browser/ui/settings/password/password_details/password_details_table_view_controller_delegate.h"
 
 namespace password_manager {
-struct PasswordForm;
+struct CredentialUIEntry;
 }  // namespace password_manager
 
+namespace syncer {
+class SyncService;
+}  // namespace syncer
+
+class PrefService;
 class IOSChromePasswordCheckManager;
 @protocol PasswordDetailsConsumer;
+@protocol PasswordDetailsMediatorDelegate;
 
 // This mediator fetches and organises the credentials for its consumer.
 @interface PasswordDetailsMediator
     : NSObject <PasswordDetailsTableViewControllerDelegate>
 
-// PasswordForm is converted to the PasswordDetails and passed to a consumer.
-- (instancetype)initWithPassword:
-                    (const password_manager::PasswordForm&)passwordForm
-            passwordCheckManager:(IOSChromePasswordCheckManager*)manager
+// Vector of CredentialUIEntry is converted to an array of PasswordDetails and
+// passed to a consumer with the display name (title) for the Password Details
+// view.
+- (instancetype)
+       initWithPasswords:
+           (const std::vector<password_manager::CredentialUIEntry>&)credentials
+             displayName:(NSString*)displayName
+    passwordCheckManager:(scoped_refptr<IOSChromePasswordCheckManager>)manager
+             prefService:(PrefService*)prefService
+             syncService:(syncer::SyncService*)syncService
+                 context:(DetailsContext)context
+                delegate:(id<PasswordDetailsMediatorDelegate>)delegate
     NS_DESIGNATED_INITIALIZER;
 
 - (instancetype)init NS_UNAVAILABLE;
@@ -31,11 +48,27 @@ class IOSChromePasswordCheckManager;
 // Consumer of this mediator.
 @property(nonatomic, weak) id<PasswordDetailsConsumer> consumer;
 
-// Password passed to the mediator.
-@property(nonatomic, readonly) password_manager::PasswordForm password;
-
 // Disconnects the mediator from all observers.
 - (void)disconnect;
+
+// Remove credential from credentials cache.
+- (void)removeCredential:(PasswordDetails*)password;
+
+// Moves credential and its duplicates to account store.
+- (void)moveCredentialToAccountStore:(PasswordDetails*)password;
+
+// Called to handle moving a credential to account store in case of a duplicate
+// conflict. Deletes the outdated password, and moves the local credential if it
+// is the recent one.
+- (void)moveCredentialToAccountStoreWithConflict:(PasswordDetails*)password;
+
+// Called when the user chooses to move a password to account store.
+// Returns YES if the account stores the same username for the website with a
+// different password, NO otherwise.
+- (BOOL)hasPasswordConflictInAccount:(PasswordDetails*)password;
+
+// Dismisses the compromised credential warning.
+- (void)didConfirmWarningDismissalForPassword:(PasswordDetails*)password;
 
 @end
 

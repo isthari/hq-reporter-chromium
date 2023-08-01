@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -147,35 +147,6 @@ class MetricsRecorder {
               GetCountWithoutSnapshot(static_cast<int>(
                   TranslateBrowserMetrics::HrefTranslatePrefsFilterStatus::
                       kBothLanguageAndSiteInBlocklist)));
-  }
-
-  void CheckTranslateTargetLanugageOrigin(int expected_recent_target,
-                                          int expected_language_model,
-                                          int expected_application_ui,
-                                          int expected_accept_languages,
-                                          int expected_default_english) {
-    Snapshot();
-
-    EXPECT_EQ(
-        expected_recent_target,
-        GetCountWithoutSnapshot(static_cast<int>(
-            TranslateBrowserMetrics::TargetLanguageOrigin::kRecentTarget)));
-    EXPECT_EQ(
-        expected_language_model,
-        GetCountWithoutSnapshot(static_cast<int>(
-            TranslateBrowserMetrics::TargetLanguageOrigin::kLanguageModel)));
-    EXPECT_EQ(
-        expected_application_ui,
-        GetCountWithoutSnapshot(static_cast<int>(
-            TranslateBrowserMetrics::TargetLanguageOrigin::kApplicationUI)));
-    EXPECT_EQ(
-        expected_accept_languages,
-        GetCountWithoutSnapshot(static_cast<int>(
-            TranslateBrowserMetrics::TargetLanguageOrigin::kAcceptLanguages)));
-    EXPECT_EQ(
-        expected_default_english,
-        GetCountWithoutSnapshot(static_cast<int>(
-            TranslateBrowserMetrics::TargetLanguageOrigin::kDefaultEnglish)));
   }
 
   void CheckMenuTranslationUnavailableReason(
@@ -355,36 +326,6 @@ TEST(TranslateBrowserMetricsTest, ReportedUnsupportedLanguageAtInitiation) {
   EXPECT_EQ(1, recorder.GetCount(ENGLISH));
 }
 
-TEST(TranslateBrowserMetricsTest, ReportedTranslateSourceLanguage) {
-  const int ENGLISH = -74147910;
-  const int FRENCH = 1704315002;
-
-  MetricsRecorder recorder("Translate.SourceLanguage");
-  EXPECT_EQ(0, recorder.GetTotalCount());
-
-  TranslateBrowserMetrics::ReportTranslateSourceLanguage("en");
-  TranslateBrowserMetrics::ReportTranslateSourceLanguage("fr");
-  TranslateBrowserMetrics::ReportTranslateSourceLanguage("en");
-
-  EXPECT_EQ(2, recorder.GetCount(ENGLISH));
-  EXPECT_EQ(1, recorder.GetCount(FRENCH));
-}
-
-TEST(TranslateBrowserMetricsTest, ReportedTranslateTargetLanguage) {
-  const int ENGLISH = -74147910;
-  const int FRENCH = 1704315002;
-
-  MetricsRecorder recorder("Translate.TargetLanguage");
-  EXPECT_EQ(0, recorder.GetTotalCount());
-
-  TranslateBrowserMetrics::ReportTranslateTargetLanguage("en");
-  TranslateBrowserMetrics::ReportTranslateTargetLanguage("fr");
-  TranslateBrowserMetrics::ReportTranslateTargetLanguage("en");
-
-  EXPECT_EQ(2, recorder.GetCount(ENGLISH));
-  EXPECT_EQ(1, recorder.GetCount(FRENCH));
-}
-
 TEST(TranslateBrowserMetricsTest, ReportTranslateHrefHintStatus) {
   MetricsRecorder recorder("Translate.HrefHint.Status");
   recorder.CheckTranslateHrefHintStatus(0, 0, 0, 0);
@@ -423,26 +364,6 @@ TEST(TranslateBrowserMetricsTest, ReportTranslateHrefHintPrefsFilterStatus) {
       TranslateBrowserMetrics::HrefTranslatePrefsFilterStatus::
           kBothLanguageAndSiteInBlocklist);
   recorder.CheckTranslateHrefHintPrefsFilterStatus(1, 1, 1, 1);
-}
-
-TEST(TranslateBrowserMetricsTest, ReportTranslateTargetLanguageOrigin) {
-  MetricsRecorder recorder("Translate.TargetLanguage.Origin");
-  recorder.CheckTranslateTargetLanugageOrigin(0, 0, 0, 0, 0);
-  TranslateBrowserMetrics::ReportTranslateTargetLanguageOrigin(
-      TranslateBrowserMetrics::TargetLanguageOrigin::kRecentTarget);
-  recorder.CheckTranslateTargetLanugageOrigin(1, 0, 0, 0, 0);
-  TranslateBrowserMetrics::ReportTranslateTargetLanguageOrigin(
-      TranslateBrowserMetrics::TargetLanguageOrigin::kLanguageModel);
-  recorder.CheckTranslateTargetLanugageOrigin(1, 1, 0, 0, 0);
-  TranslateBrowserMetrics::ReportTranslateTargetLanguageOrigin(
-      TranslateBrowserMetrics::TargetLanguageOrigin::kApplicationUI);
-  recorder.CheckTranslateTargetLanugageOrigin(1, 1, 1, 0, 0);
-  TranslateBrowserMetrics::ReportTranslateTargetLanguageOrigin(
-      TranslateBrowserMetrics::TargetLanguageOrigin::kAcceptLanguages);
-  recorder.CheckTranslateTargetLanugageOrigin(1, 1, 1, 1, 0);
-  TranslateBrowserMetrics::ReportTranslateTargetLanguageOrigin(
-      TranslateBrowserMetrics::TargetLanguageOrigin::kDefaultEnglish);
-  recorder.CheckTranslateTargetLanugageOrigin(1, 1, 1, 1, 1);
 }
 
 }  // namespace

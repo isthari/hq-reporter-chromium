@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,14 @@
 #include <list>
 #include <vector>
 
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/functional/callback_helpers.h"
 #include "base/strings/string_number_conversions.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/ash/crostini/crostini_util.h"
+#include "chrome/browser/ash/system_web_apps/system_web_app_manager.h"
+#include "chrome/browser/ash/system_web_apps/test_support/system_web_app_browsertest_base.h"
+#include "chrome/browser/ash/system_web_apps/test_support/test_system_web_app_installation.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/defaults.h"
@@ -20,8 +23,6 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
-#include "chrome/browser/web_applications/system_web_apps/test/system_web_app_browsertest_base.h"
-#include "chrome/browser/web_applications/test/web_app_test.h"
 #include "chrome/browser/web_applications/web_app_helpers.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -262,12 +263,15 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTestChromeOS,
   auto* visible_on_all_desks_browser = browser_list->get(1);
   auto* visible_on_all_desks_window =
       visible_on_all_desks_browser->window()->GetNativeWindow();
-  ASSERT_TRUE(visible_on_all_desks_window->GetProperty(
+
+  EXPECT_EQ("", visible_on_all_desks_browser->initial_workspace());
+
+  EXPECT_TRUE(visible_on_all_desks_window->GetProperty(
                   aura::client::kWindowWorkspaceKey) ==
               aura::client::kWindowWorkspaceVisibleOnAllWorkspaces);
   // Visible on all desks windows should always reside on the active desk,
   // even if there is a desk switch.
-  ASSERT_TRUE(chromeos::DesksHelper::Get(visible_on_all_desks_window)
+  EXPECT_TRUE(chromeos::DesksHelper::Get(visible_on_all_desks_window)
                   ->BelongsToActiveDesk(visible_on_all_desks_window));
 
   RemoveInactiveDesks();
@@ -436,14 +440,14 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTestChromeOS, DISABLED_RestoreMinimized) {
 }
 
 class SystemWebAppSessionRestoreTestChromeOS
-    : public web_app::SystemWebAppManagerBrowserTest {
+    : public TestProfileTypeMixin<ash::SystemWebAppBrowserTestBase> {
  public:
-  SystemWebAppSessionRestoreTestChromeOS()
-      : SystemWebAppManagerBrowserTest(/*install_mock=*/false) {
-    maybe_installation_ =
-        web_app::TestSystemWebAppInstallation::SetUpStandaloneSingleWindowApp();
-    maybe_installation_->set_update_policy(
-        web_app::SystemWebAppManager::UpdatePolicy::kOnVersionChange);
+  SystemWebAppSessionRestoreTestChromeOS() {
+    auto installation =
+        ash::TestSystemWebAppInstallation::SetUpStandaloneSingleWindowApp();
+    installation->set_update_policy(
+        ash::SystemWebAppManager::UpdatePolicy::kOnVersionChange);
+    SetSystemWebAppInstallation(std::move(installation));
   }
 
   ~SystemWebAppSessionRestoreTestChromeOS() override = default;
@@ -457,7 +461,7 @@ IN_PROC_BROWSER_TEST_P(SystemWebAppSessionRestoreTestChromeOS,
   // Wait for the app to install, launch, and load, otherwise the app might not
   // be restored.
   WaitForTestSystemAppInstall();
-  LaunchApp(GetMockAppType());
+  LaunchApp(GetAppType());
 
   auto app_params = Browser::CreateParams::CreateForApp(
       test_app_name1, true, gfx::Rect(), browser()->profile(), true);

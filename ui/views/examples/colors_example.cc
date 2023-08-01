@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,8 +24,7 @@
 #include "ui/views/layout/fill_layout.h"
 #include "ui/views/layout/table_layout.h"
 
-namespace views {
-namespace examples {
+namespace views::examples {
 
 namespace {
 
@@ -68,7 +67,7 @@ void CreateAllColorsView(ScrollView* scroll_view) {
                   TableLayout::ColumnSize::kUsePreferred, 0, 0)
       .AddColumn(LayoutAlignment::kStretch, LayoutAlignment::kStretch, 1.0,
                  TableLayout::ColumnSize::kUsePreferred, 0, 0)
-      .AddRows(70, TableLayout::kFixedSize);
+      .AddRows(71, TableLayout::kFixedSize);
   InsertColorRow(container, COLOR_LABEL_ARGS(kColorWindowBackground));
   InsertColorRow(container, COLOR_LABEL_ARGS(kColorDialogBackground));
   InsertColorRow(container, COLOR_LABEL_ARGS(kColorDialogForeground));
@@ -77,7 +76,8 @@ void CreateAllColorsView(ScrollView* scroll_view) {
   InsertColorRow(container, COLOR_LABEL_ARGS(kColorFocusableBorderUnfocused));
   InsertColorRow(container, COLOR_LABEL_ARGS(kColorButtonForeground));
   InsertColorRow(container, COLOR_LABEL_ARGS(kColorButtonForegroundDisabled));
-  InsertColorRow(container, COLOR_LABEL_ARGS(kColorButtonForegroundUnchecked));
+  InsertColorRow(container,
+                 COLOR_LABEL_ARGS(kColorRadioButtonForegroundUnchecked));
   InsertColorRow(container, COLOR_LABEL_ARGS(kColorButtonBackgroundProminent));
   InsertColorRow(container,
                  COLOR_LABEL_ARGS(kColorButtonBackgroundProminentFocused));
@@ -156,7 +156,8 @@ void CreateAllColorsView(ScrollView* scroll_view) {
   InsertColorRow(container, COLOR_LABEL_ARGS(kColorThrobber));
   InsertColorRow(container, COLOR_LABEL_ARGS(kColorThrobberPreconnect));
   InsertColorRow(container, COLOR_LABEL_ARGS(kColorAlertLowSeverity));
-  InsertColorRow(container, COLOR_LABEL_ARGS(kColorAlertMediumSeverity));
+  InsertColorRow(container, COLOR_LABEL_ARGS(kColorAlertMediumSeverityIcon));
+  InsertColorRow(container, COLOR_LABEL_ARGS(kColorAlertMediumSeverityText));
   InsertColorRow(container, COLOR_LABEL_ARGS(kColorAlertHighSeverity));
   InsertColorRow(container, COLOR_LABEL_ARGS(kColorIcon));
   // Expands the view to allow for scrolling.
@@ -189,5 +190,4 @@ void ColorsExample::CreateExampleView(View* container) {
   container->AddChildView(std::make_unique<AllColorsScrollView>());
 }
 
-}  // namespace examples
-}  // namespace views
+}  // namespace views::examples

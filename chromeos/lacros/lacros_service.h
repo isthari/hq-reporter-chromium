@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,10 +23,13 @@
 #include "base/token.h"
 #include "chromeos/components/sensors/mojom/cros_sensor_service.mojom.h"
 #include "chromeos/crosapi/mojom/account_manager.mojom.h"
+#include "chromeos/crosapi/mojom/automation.mojom.h"
 #include "chromeos/crosapi/mojom/crosapi.mojom.h"
 #include "chromeos/crosapi/mojom/device_attributes.mojom.h"
+#include "chromeos/crosapi/mojom/multi_capture_service.mojom.h"
 #include "chromeos/crosapi/mojom/structured_metrics_service.mojom.h"
 #include "chromeos/crosapi/mojom/video_capture.mojom.h"
+#include "chromeos/crosapi/mojom/volume_manager.mojom.h"
 #include "chromeos/lacros/lacros_service_never_blocking_state.h"
 #include "chromeos/services/machine_learning/public/mojom/machine_learning_service.mojom.h"
 #include "mojo/public/cpp/bindings/generic_pending_receiver.h"
@@ -34,6 +37,12 @@
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+
+namespace media {
+namespace stable::mojom {
+class StableVideoDecoderFactory;
+}  // namespace stable::mojom
+}  // namespace media
 
 namespace chromeos {
 
@@ -57,11 +66,19 @@ class LacrosServiceNeverBlockingState;
 // documented with threading requirements.
 class COMPONENT_EXPORT(CHROMEOS_LACROS) LacrosService {
  public:
+  using ComponentPolicyMap =
+      base::flat_map<policy::PolicyNamespace, base::Value>;
   class Observer {
    public:
     // Called when the new policy data is received from Ash.
     virtual void OnPolicyUpdated(
         const std::vector<uint8_t>& policy_fetch_response) {}
+
+    // Called when policy fetch attempt is made in Ash.
+    virtual void OnPolicyFetchAttempt() {}
+
+    // Called when the new component policy is received from Ash.
+    virtual void OnComponentPolicyUpdated(const ComponentPolicyMap& policy) {}
 
    protected:
     virtual ~Observer() = default;
@@ -95,19 +112,6 @@ class COMPONENT_EXPORT(CHROMEOS_LACROS) LacrosService {
   // For example, "87.0.0.1 dev", "86.0.4240.38 beta".
   void BindReceiver(const std::string& browser_version);
 
-  // Each of these functions guards usage of access to the corresponding remote.
-  // Keep these in alphabetical order.
-  // Most use-cases of these methods can be replaced by IsAvailable(). See
-  // crosapi::mojom::Clipboard for an example.
-  bool IsAccountManagerAvailable() const;
-  bool IsBrowserCdmFactoryAvailable() const;
-  bool IsMediaSessionAudioFocusAvailable() const;
-  bool IsMediaSessionAudioFocusDebugAvailable() const;
-  bool IsMediaSessionControllerAvailable() const;
-  bool IsMetricsReportingAvailable() const;
-  bool IsScreenManagerAvailable() const;
-  bool IsSensorHalClientAvailable() const;
-
   // Methods to add/remove observer. Safe to call from any thread.
   void AddObserver(Observer* obs);
   void RemoveObserver(Observer* obs);
@@ -117,6 +121,46 @@ class COMPONENT_EXPORT(CHROMEOS_LACROS) LacrosService {
   // object.
   // This must be called on the affined sequence.
   void NotifyPolicyUpdated(const std::vector<uint8_t>& policy);
+
+  // Notifies that an attempt to update the device account policy has been made.
+  void NotifyPolicyFetchAttempt();
+
+  // Notifies that the device account component policy is updated with the
+  // input data. Must be called on the affined sequence.
+  void NotifyComponentPolicyUpdated(ComponentPolicyMap policy);
+
+  // Returns whether Ash supports that crosapi.
+  template <typename CrosapiInterface>
+  bool IsSupported() const {
+    return GetInterfaceVersion<CrosapiInterface>() >= 0;
+  }
+
+  // TODO(crbug.com/1434530): remove these specializations in M116 or later
+  // These specialization are needed because of crbug.com/1434530.
+  // Older ash-chrome with this bug won't provide version information about
+  // AutomationFactory, SelectFile, and VolumeManager. Thus, without these
+  // specializations, there will possibly be problems under a version skew
+  // environment (i.e. using older ash with newer lacros).
+  template <>
+  bool IsSupported<crosapi::mojom::AutomationFactory>() const {
+    absl::optional<uint32_t> version = CrosapiVersion();
+    return version &&
+           version.value() >=
+               Crosapi::MethodMinVersions::kBindAutomationFactoryMinVersion;
+  }
+  template <>
+  bool IsSupported<crosapi::mojom::SelectFile>() const {
+    absl::optional<uint32_t> version = CrosapiVersion();
+    return version && version.value() >=
+                          Crosapi::MethodMinVersions::kBindSelectFileMinVersion;
+  }
+  template <>
+  bool IsSupported<crosapi::mojom::VolumeManager>() const {
+    absl::optional<uint32_t> version = CrosapiVersion();
+    return version &&
+           version.value() >=
+               Crosapi::MethodMinVersions::kBindVolumeManagerMinVersion;
+  }
 
   // Returns whether this interface uses the automatic registration system to be
   // available for immediate use at startup. Any crosapi interface can be
@@ -139,6 +183,9 @@ class COMPONENT_EXPORT(CHROMEOS_LACROS) LacrosService {
   // available. This method can only be called from the affine sequence (main
   // thread). The returned remote can only be used on the affine sequence (main
   // thread).
+  // Note that the remote will not be owned by the caller, so callers should
+  // avoid calling methods that would mutate the state of the remote such as
+  // set_disconnect_handler, since only one can be set on a Remote.
   template <typename CrosapiInterface>
   mojo::Remote<CrosapiInterface>& GetRemote() {
     DCHECK_CALLED_ON_VALID_SEQUENCE(affine_sequence_checker_);
@@ -151,7 +198,14 @@ class COMPONENT_EXPORT(CHROMEOS_LACROS) LacrosService {
   // Some clients will want to use mojo::Remotes on arbitrary sequences (e.g.
   // background threads). The following methods allow the client to construct a
   // mojo::Remote bound to an arbitrary sequence, and pass the other endpoint of
-  // the Remote (mojo::PendingReceiver) to ash to set up the interface.
+  // the Remote (mojo::PendingReceiver) to ash to set up the interface. For
+  // other interfaces, such as media::stable::mojom::StableVideoDecoderFactory,
+  // the main reason to use a Bind*() method instead of GetRemote() is not the
+  // threading model, but the fact that the browser may want to maintain
+  // multiple independent mojo::Remotes, and ash-chrome can use this behavior as
+  // useful information (for example, to start one ash-chrome utility video
+  // decoder process per lacros-chrome renderer process in order to host the
+  // implementation of a media::stable::mojom::StableVideoDecoderFactory).
   // --------------------------------------------------------------------------
 
   // This may be called on any thread.
@@ -190,6 +244,11 @@ class COMPONENT_EXPORT(CHROMEOS_LACROS) LacrosService {
       mojo::PendingReceiver<crosapi::mojom::MetricsReporting> receiver);
 
   // This may be called on any thread.
+  void BindRemoteAppsLacrosBridge(
+      mojo::PendingReceiver<
+          chromeos::remote_apps::mojom::RemoteAppsLacrosBridge> receiver);
+
+  // This may be called on any thread.
   void BindScreenManagerReceiver(
       mojo::PendingReceiver<crosapi::mojom::ScreenManager> pending_receiver);
 
@@ -206,39 +265,31 @@ class COMPONENT_EXPORT(CHROMEOS_LACROS) LacrosService {
       mojo::PendingReceiver<crosapi::mojom::VideoCaptureDeviceFactory>
           pending_receiver);
 
-  // BindVideoCaptureDeviceFactory() can only be used if this method returns
-  // true.
-  bool IsVideoCaptureDeviceFactoryAvailable() const;
+  // This may be called on any thread.
+  void BindStableVideoDecoderFactory(
+      mojo::PendingReceiver<media::stable::mojom::StableVideoDecoderFactory>
+          receiver);
 
-  // Returns BrowserInitParams which is passed from ash-chrome. On launching
-  // lacros-chrome from ash-chrome, ash-chrome creates a memory backed file
-  // serializes the BrowserInitParams to it, and the forked/executed
-  // lacros-chrome process inherits the file descriptor. The data is read
-  // in the constructor so is available from the beginning.
-  // Note that, in older versions, ash-chrome passes the data via
-  // LacrosChromeService::Init() mojo call to lacros-chrome. That case is still
-  // handled for backward compatibility, and planned to be removed in the
-  // future (crbug.com/1156033). Though, until the removal, it is recommended
-  // to consider both cases, specifically, at least not to cause a crash.
-  const crosapi::mojom::BrowserInitParams* init_params() const {
-    return init_params_.get();
-  }
+  // Binds video conference manager to lacros-browser clients.
+  void BindVideoConferenceManager(
+      mojo::PendingReceiver<crosapi::mojom::VideoConferenceManager> receiver);
 
   // Returns SystemIdleCache, which uses IdleInfoObserver to observe idle info
   // changes and caches the results. Requires IsIdleServiceAvailable() for full
   // function, and is robust against unavailability.
   SystemIdleCache* system_idle_cache() { return system_idle_cache_.get(); }
 
-  // Returns the version for an ash interface with a given UUID. Returns -1 if
-  // the interface is not found. This is a synchronous version of
-  // mojo::Remote::QueryVersion. It relies on Ash M88. Features that need to
-  // work on M87 or older should not use this.
-  int GetInterfaceVersion(base::Token interface_uuid) const;
-
-  // Sets `init_params_` to the provided value.
-  // Useful for tests that cannot setup a full Lacros test environment with a
-  // working Mojo connection to Ash.
-  void SetInitParamsForTests(crosapi::mojom::BrowserInitParamsPtr init_params);
+  // Returns the version for an ash interface with a given mojom interface,
+  // or -1 if not found.
+  // This is synchronous version of mojo::Remote::QueryVersion for crosapi
+  // interfaces.
+  //
+  // Example code:
+  //    LacrosService::Get()->GetInterfaceVersion<crosapi::mojom::Arc>();
+  template <typename T>
+  int GetInterfaceVersion() const {
+    return GetInterfaceVersionImpl(T::Uuid_);
+  }
 
   using Crosapi = crosapi::mojom::Crosapi;
 
@@ -257,6 +308,17 @@ class COMPONENT_EXPORT(CHROMEOS_LACROS) LacrosService {
             &LacrosServiceNeverBlockingState::BindCrosapiFeatureReceiver<
                 PendingReceiverOrRemote, bind_func>,
             weak_sequenced_state_, std::move(pending_receiver_or_remote)));
+  }
+
+  // Injects remote for a registered crosapi interface.
+  template <typename CrosapiInterface>
+  void InjectRemoteForTesting(
+      mojo::PendingRemote<CrosapiInterface> pending_remote) {
+    DCHECK(IsRegistered<CrosapiInterface>());
+    did_bind_receiver_ = true;
+
+    interfaces_.find(CrosapiInterface::Uuid_)
+        ->second->InjectRemoteForTesting(std::move(pending_remote));
   }
 
  private:
@@ -278,7 +340,14 @@ class COMPONENT_EXPORT(CHROMEOS_LACROS) LacrosService {
     bool IsAvailable() const { return available_; }
 
     // Initialization for the remote and |available_|.
-    virtual void MaybeBind(uint32_t crosapi_version, LacrosService* impl) = 0;
+    virtual void MaybeBind(LacrosService* impl) = 0;
+
+    template <typename CrosapiInterface>
+    void InjectRemoteForTesting(
+        mojo::PendingRemote<CrosapiInterface> pending_remote) {
+      available_ = pending_remote.is_valid();
+      Get<CrosapiInterface>() = mojo::Remote(std::move(pending_remote));
+    }
 
    protected:
     InterfaceEntryBase();
@@ -295,9 +364,6 @@ class COMPONENT_EXPORT(CHROMEOS_LACROS) LacrosService {
   // LacrosServiceNeverBlockingState is an implementation detail of
   // this class.
   friend class LacrosServiceNeverBlockingState;
-
-  // Needs to access |disable_crosapi_for_testing_|.
-  friend class ScopedDisableCrosapiForTesting;
 
   // Forward declare inner class to give it access to private members.
   template <typename CrosapiInterface,
@@ -331,19 +397,13 @@ class COMPONENT_EXPORT(CHROMEOS_LACROS) LacrosService {
             uint32_t MethodMinVersion>
   void ConstructRemote();
 
-  // Tests will set this to |true| which will make all crosapi functionality
-  // unavailable. Should be set from ScopedDisableCrosapiForTesting always.
-  // TODO(https://crbug.com/1131722): Ideally we could stub this out or make
-  // this functional for tests without modifying production code
-  static bool disable_crosapi_for_testing_;
+  // Similar to GetInterfaceVersion(), but taking UUID
+  int GetInterfaceVersionImpl(base::Token interface_uuid) const;
 
   // BrowserService implementation injected by chrome/. Must only be used on the
   // affine sequence.
   // TODO(hidehiko): Remove this.
   std::unique_ptr<crosapi::mojom::BrowserService> browser_service_;
-
-  // Parameters passed from ash-chrome.
-  crosapi::mojom::BrowserInitParamsPtr init_params_;
 
   // Receiver and cache of system idle info updates.
   std::unique_ptr<SystemIdleCache> system_idle_cache_;

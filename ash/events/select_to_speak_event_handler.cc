@@ -1,12 +1,14 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/events/select_to_speak_event_handler.h"
 
 #include "ash/accessibility/accessibility_controller_impl.h"
+#include "ash/accessibility/accessibility_event_handler_manager.h"
 #include "ash/public/cpp/select_to_speak_event_handler_delegate.h"
 #include "ash/shell.h"
+#include "ui/events/types/event_type.h"
 
 namespace ash {
 
@@ -16,12 +18,12 @@ SelectToSpeakEventHandler::SelectToSpeakEventHandler(
     SelectToSpeakEventHandlerDelegate* delegate)
     : delegate_(delegate) {
   DCHECK(delegate_);
-  Shell::Get()->AddPreTargetHandler(this,
-                                    ui::EventTarget::Priority::kAccessibility);
+  Shell::Get()->AddAccessibilityEventHandler(
+      this, AccessibilityEventHandlerManager::HandlerType::kSelectToSpeak);
 }
 
 SelectToSpeakEventHandler::~SelectToSpeakEventHandler() {
-  Shell::Get()->RemovePreTargetHandler(this);
+  Shell::Get()->RemoveAccessibilityEventHandler(this);
 }
 
 bool SelectToSpeakEventHandler::IsSelectToSpeakEnabled() {
@@ -51,12 +53,29 @@ void SelectToSpeakEventHandler::OnKeyEvent(ui::KeyEvent* event) {
   DCHECK(IsSelectToSpeakEnabled());
   DCHECK(event);
 
-  ui::KeyboardCode key_code = event->key_code();
-  bool cancel_event = false;
+  bool pressed = event->type() == ui::ET_KEY_PRESSED;
+  bool released = event->type() == ui::ET_KEY_RELEASED;
+  if (!(pressed || released)) {
+    return;
+  }
 
+  ui::KeyboardCode key_code = event->key_code();
+  if (pressed) {
+    keys_currently_down_.insert(key_code);
+  } else {
+    // This would help us catch any time we get out-of-sync between
+    // Select to Speak and the actual keyboard. However, it shouldn't be
+    // a fatal error since std::set::erase will still work properly
+    // if it can't find the key, and STS will not have propagating bad
+    // behavior if it missed a key press event.
+    DCHECK(keys_currently_down_.find(key_code) != keys_currently_down_.end());
+    keys_currently_down_.erase(key_code);
+  }
+
+  bool cancel_event = false;
   // Update the state when pressing and releasing the Search key (VKEY_LWIN).
   if (key_code == ui::VKEY_LWIN) {
-    if (event->type() == ui::ET_KEY_PRESSED && state_ == INACTIVE) {
+    if (pressed && state_ == INACTIVE) {
       state_ = SEARCH_DOWN;
     } else if (event->type() == ui::ET_KEY_RELEASED) {
       if (state_ == CAPTURING_MOUSE) {
@@ -79,7 +98,7 @@ void SelectToSpeakEventHandler::OnKeyEvent(ui::KeyEvent* event) {
       }
     }
   } else if (key_code == kSpeakSelectionKey) {
-    if (event->type() == ui::ET_KEY_PRESSED &&
+    if (pressed &&
         (state_ == SEARCH_DOWN || state_ == SPEAK_SELECTION_KEY_RELEASED)) {
       // They pressed the S key while search was down.
       // It's possible to press the selection key multiple times to read
@@ -103,7 +122,10 @@ void SelectToSpeakEventHandler::OnKeyEvent(ui::KeyEvent* event) {
   }
 
   // Forward the key to the chrome process for the extension.
-  delegate_->DispatchKeyEvent(*event);
+  // Rather than dispatching the raw key event, we send the total list of keys
+  // currently down. This means the extension cannot get out-of-sync with the
+  // state of the OS if a key event doesn't make it to the extension.
+  delegate_->DispatchKeysCurrentlyDown(keys_currently_down_);
 
   if (cancel_event)
     CancelEvent(event);
@@ -120,6 +142,13 @@ void SelectToSpeakEventHandler::OnMouseEvent(ui::MouseEvent* event) {
       state_ = CAPTURING_MOUSE;
     else if (state_ == SELECTION_REQUESTED)
       state_ = CAPTURING_MOUSE_ONLY;
+  }
+
+  // We don't want mouse events to affect underlying UI when user is about to
+  // select text to speak. (e.g. we don't want a hoverbox to appear/disappear)
+  if (state_ == SELECTION_REQUESTED || state_ == SEARCH_DOWN) {
+    CancelEvent(event);
+    return;
   }
 
   if (state_ == WAIT_FOR_MOUSE_RELEASE &&
@@ -140,10 +169,12 @@ void SelectToSpeakEventHandler::OnMouseEvent(ui::MouseEvent* event) {
       state_ = INACTIVE;
   }
 
+  // Forward the mouse event to the chrome process for the extension.
   delegate_->DispatchMouseEvent(*event);
 
   if (event->type() == ui::ET_MOUSE_PRESSED ||
-      event->type() == ui::ET_MOUSE_RELEASED)
+      event->type() == ui::ET_MOUSE_RELEASED ||
+      event->type() == ui::ET_MOUSE_DRAGGED)
     CancelEvent(event);
 }
 

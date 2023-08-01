@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "third_party/blink/renderer/core/css/css_default_style_sheets.h"
 #include "third_party/blink/renderer/core/css/style_sheet_contents.h"
+#include "third_party/blink/renderer/core/keywords.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
 namespace blink {
@@ -13,11 +14,13 @@ namespace blink {
 namespace {
 
 bool IsPredefinedSymbolMarkerName(const AtomicString& name) {
-  static const char* predefined_symbol_markers[] = {
-      "disc", "square", "circle", "disclosure-open", "disclosure-closed"};
-  for (const char* predefined_name : predefined_symbol_markers) {
-    if (predefined_name == name)
+  static const AtomicString* predefined_symbol_markers[] = {
+      &keywords::kDisc, &keywords::kSquare, &keywords::kCircle,
+      &keywords::kDisclosureOpen, &keywords::kDisclosureClosed};
+  for (const AtomicString* predefined_name : predefined_symbol_markers) {
+    if (*predefined_name == name) {
       return true;
+    }
   }
   return false;
 }
@@ -261,33 +264,33 @@ HashMap<AtomicString, String> CollectUACounterStyleRules() {
   // https://drafts.csswg.org/css-counter-styles-3/#simple-symbolic
 
   // •
-  ua_rules.Set("disc", R"CSS(
+  ua_rules.Set(keywords::kDisc, R"CSS(
     system: cyclic;
     symbols: \2022;
     suffix: " ";
   )CSS");
 
   // ◦
-  ua_rules.Set("circle", R"CSS(
+  ua_rules.Set(keywords::kCircle, R"CSS(
     system: cyclic;
     symbols: \25E6;
     suffix: " ";
   )CSS");
 
   // Note: Spec requires \25FE, but we've always been using \25A0.
-  ua_rules.Set("square", R"CSS(
+  ua_rules.Set(keywords::kSquare, R"CSS(
     system: cyclic;
     symbols: \25A0;
     suffix: " ";
   )CSS");
 
-  ua_rules.Set("disclosure-open", R"CSS(
+  ua_rules.Set(keywords::kDisclosureOpen, R"CSS(
     system: cyclic;
     symbols: \25BE;
     suffix: " ";
   )CSS");
 
-  ua_rules.Set("disclosure-closed", R"CSS(
+  ua_rules.Set(keywords::kDisclosureClosed, R"CSS(
     system: cyclic;
     symbols: \25B8;
     suffix: " ";
@@ -487,8 +490,9 @@ CounterStyleMap* CounterStyleMap::CreateUACounterStyleMap() {
   // For UA counter style map, we only insert the names now, and defer the
   // creation of the CounterStyle objects until requested, so that we don't
   // waste memory on unused rules.
-  for (const AtomicString& name : GetUACounterStyleRules().Keys())
+  for (const AtomicString& name : GetUACounterStyleRules().Keys()) {
     map->counter_styles_.Set(name, nullptr);
+  }
   return map;
 }
 
@@ -512,14 +516,17 @@ CounterStyle& CounterStyleMap::CreateUACounterStyle(const AtomicString& name) {
   DCHECK(counter_style) << "Predefined counter style " << name
                         << " has invalid symbols";
   counter_style->SetIsPredefined();
-  if (IsPredefinedSymbolMarkerName(name))
+  if (IsPredefinedSymbolMarkerName(name)) {
     counter_style->SetIsPredefinedSymbolMarker();
+  }
   counter_styles_.Set(name, counter_style);
 
-  if (counter_style->HasUnresolvedExtends())
+  if (counter_style->HasUnresolvedExtends()) {
     ResolveExtendsFor(*counter_style);
-  if (counter_style->HasUnresolvedFallback())
+  }
+  if (counter_style->HasUnresolvedFallback()) {
     ResolveFallbackFor(*counter_style);
+  }
 
   return *counter_style;
 }

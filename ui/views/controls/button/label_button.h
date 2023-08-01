@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <array>
 #include <memory>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -16,6 +16,7 @@
 #include "ui/gfx/image/image_skia.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/button/label_button_label.h"
+#include "ui/views/controls/focus_ring.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/layout_provider.h"
@@ -49,7 +50,8 @@ class VIEWS_EXPORT LabelButton : public Button, public NativeThemeDelegate {
   virtual gfx::ImageSkia GetImage(ButtonState for_state) const;
   // TODO(http://crbug.com/1100034) prefer SetImageModel over SetImage().
   void SetImage(ButtonState for_state, const gfx::ImageSkia& image);
-  void SetImageModel(ButtonState for_state, const ui::ImageModel& image_model);
+  virtual void SetImageModel(ButtonState for_state,
+                             const ui::ImageModel& image_model);
   bool HasImage(ButtonState for_state) const;
 
   // Gets or sets the text shown on the button.
@@ -66,10 +68,20 @@ class VIEWS_EXPORT LabelButton : public Button, public NativeThemeDelegate {
   void ShrinkDownThenClearText();
 
   // Sets the text color shown for the specified button |for_state| to |color|.
+  // TODO(crbug.com/1421316): Get rid of SkColor versions of these functions in
+  // favor of the ColorId versions.
   void SetTextColor(ButtonState for_state, SkColor color);
 
+  // Sets the text color as above but using ColorId.
+  void SetTextColorId(ButtonState for_state, ui::ColorId color_id);
+
   // Sets the text colors shown for the non-disabled states to |color|.
+  // TODO(crbug.com/1421316): Get rid of SkColor versions of these functions in
+  // favor of the ColorId versions.
   virtual void SetEnabledTextColors(absl::optional<SkColor> color);
+
+  // Sets the text colors shown for the non-disabled states to |color_id|.
+  void SetEnabledTextColorIds(ui::ColorId color_id);
 
   // Gets the current state text color.
   SkColor GetCurrentTextColor() const;
@@ -107,6 +119,10 @@ class VIEWS_EXPORT LabelButton : public Button, public NativeThemeDelegate {
   bool GetImageCentered() const;
   void SetImageCentered(bool image_centered);
 
+  // Sets the corner radius of the focus ring around the button.
+  float GetFocusRingCornerRadius() const;
+  void SetFocusRingCornerRadius(float radius);
+
   // Creates the default border for this button. This can be overridden by
   // subclasses.
   virtual std::unique_ptr<LabelButtonBorder> CreateDefaultBorder() const;
@@ -119,8 +135,9 @@ class VIEWS_EXPORT LabelButton : public Button, public NativeThemeDelegate {
   int GetHeightForWidth(int w) const override;
   void Layout() override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
-  void AddLayerBeneathView(ui::Layer* new_layer) override;
-  void RemoveLayerBeneathView(ui::Layer* old_layer) override;
+  void AddLayerToRegion(ui::Layer* new_layer,
+                        views::LayerRegion region) override;
+  void RemoveLayerFromRegions(ui::Layer* old_layer) override;
 
   // NativeThemeDelegate:
   ui::NativeTheme::Part GetThemePart() const override;
@@ -226,7 +243,7 @@ class VIEWS_EXPORT LabelButton : public Button, public NativeThemeDelegate {
 
   // The image models and colors for each button state.
   ui::ImageModel button_state_image_models_[STATE_COUNT] = {};
-  SkColor button_state_colors_[STATE_COUNT] = {};
+  absl::variant<SkColor, ui::ColorId> button_state_colors_[STATE_COUNT] = {};
 
   // Used to track whether SetTextColor() has been invoked.
   std::array<bool, STATE_COUNT> explicitly_set_colors_ = {};
@@ -245,8 +262,8 @@ class VIEWS_EXPORT LabelButton : public Button, public NativeThemeDelegate {
   // current context;
   bool is_default_ = false;
 
-  // True if current border was set by UpdateThemedBorder.
-  bool border_is_themed_border_ = true;
+  // True if current border was set by SetBorder.
+  bool explicitly_set_border_ = false;
 
   // A flag indicating that this button's image should be aligned with the
   // center of the label when multiline is enabled. This shouldn't be the case
@@ -262,6 +279,9 @@ class VIEWS_EXPORT LabelButton : public Button, public NativeThemeDelegate {
   // text direction) while |this| is laid out as ALIGN_LEFT (alignment matches
   // UI direction).
   gfx::HorizontalAlignment horizontal_alignment_ = gfx::ALIGN_LEFT;
+
+  // Corner radius of the focus ring.
+  float focus_ring_corner_radius_ = FocusRing::kDefaultCornerRadiusDp;
 
   base::CallbackListSubscription paint_as_active_subscription_;
 

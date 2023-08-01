@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,62 +6,62 @@
 
 #import <WebKit/WebKit.h>
 
-#include <memory>
-#include <utility>
+#import <memory>
+#import <utility>
 
-#include "base/mac/foundation_util.h"
-#include "base/scoped_observation.h"
-#include "base/strings/sys_string_conversions.h"
-#include "base/strings/utf_string_conversions.h"
+#import "base/mac/foundation_util.h"
+#import "base/scoped_observation.h"
+#import "base/strings/sys_string_conversions.h"
+#import "base/strings/utf_string_conversions.h"
 #import "base/test/ios/wait_util.h"
-#include "base/test/scoped_feature_list.h"
+#import "base/test/scoped_feature_list.h"
 #import "ios/testing/ocmock_complex_type_helper.h"
 #import "ios/web/common/crw_content_view.h"
 #import "ios/web/common/crw_web_view_content_view.h"
-#include "ios/web/common/features.h"
+#import "ios/web/common/features.h"
 #import "ios/web/common/uikit_ui_util.h"
 #import "ios/web/js_messaging/web_view_js_utils.h"
-#include "ios/web/navigation/block_universal_links_buildflags.h"
+#import "ios/web/navigation/block_universal_links_buildflags.h"
 #import "ios/web/navigation/crw_wk_navigation_states.h"
 #import "ios/web/navigation/navigation_item_impl.h"
 #import "ios/web/navigation/navigation_manager_impl.h"
 #import "ios/web/navigation/wk_navigation_action_policy_util.h"
-#include "ios/web/public/deprecated/url_verification_constants.h"
+#import "ios/web/public/deprecated/url_verification_constants.h"
 #import "ios/web/public/download/download_controller.h"
 #import "ios/web/public/download/download_task.h"
-#include "ios/web/public/navigation/referrer.h"
+#import "ios/web/public/navigation/referrer.h"
 #import "ios/web/public/session/crw_navigation_item_storage.h"
 #import "ios/web/public/session/crw_session_storage.h"
 #import "ios/web/public/test/fakes/crw_fake_web_view_content_view.h"
-#include "ios/web/public/test/fakes/fake_browser_state.h"
-#include "ios/web/public/test/fakes/fake_download_controller_delegate.h"
+#import "ios/web/public/test/fakes/fake_browser_state.h"
+#import "ios/web/public/test/fakes/fake_download_controller_delegate.h"
 #import "ios/web/public/test/fakes/fake_web_client.h"
 #import "ios/web/public/test/fakes/fake_web_state_delegate.h"
-#include "ios/web/public/test/fakes/fake_web_state_observer.h"
+#import "ios/web/public/test/fakes/fake_web_state_observer.h"
 #import "ios/web/public/test/fakes/fake_web_state_policy_decider.h"
 #import "ios/web/public/test/web_view_content_test_util.h"
-#include "ios/web/public/web_state_observer.h"
+#import "ios/web/public/web_state_observer.h"
 #import "ios/web/security/wk_web_view_security_util.h"
 #import "ios/web/test/fakes/crw_fake_back_forward_list.h"
 #import "ios/web/test/fakes/crw_fake_wk_frame_info.h"
 #import "ios/web/test/fakes/crw_fake_wk_navigation_action.h"
-#include "ios/web/test/test_url_constants.h"
+#import "ios/web/test/test_url_constants.h"
 #import "ios/web/test/web_test_with_web_controller.h"
 #import "ios/web/test/wk_web_view_crash_utils.h"
 #import "ios/web/web_state/ui/crw_web_controller.h"
 #import "ios/web/web_state/ui/crw_web_controller_container_view.h"
 #import "ios/web/web_state/web_state_impl.h"
 #import "net/base/mac/url_conversions.h"
-#include "net/cert/x509_util_ios_and_mac.h"
-#include "net/ssl/ssl_info.h"
-#include "net/test/cert_test_util.h"
-#include "net/test/test_data_directory.h"
-#include "testing/gtest/include/gtest/gtest.h"
+#import "net/cert/x509_util_apple.h"
+#import "net/ssl/ssl_info.h"
+#import "net/test/cert_test_util.h"
+#import "net/test/test_data_directory.h"
+#import "testing/gtest/include/gtest/gtest.h"
 #import "testing/gtest_mac.h"
-#include "third_party/ocmock/OCMock/OCMock.h"
-#include "third_party/ocmock/gtest_support.h"
-#include "third_party/ocmock/ocmock_extensions.h"
-#include "url/scheme_host_port.h"
+#import "third_party/ocmock/OCMock/OCMock.h"
+#import "third_party/ocmock/gtest_support.h"
+#import "third_party/ocmock/ocmock_extensions.h"
+#import "url/scheme_host_port.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -124,7 +124,7 @@ const char kTestAppSpecificURL[] = "testwebui://test/";
 
 const char kTestMimeType[] = "application/vnd.test";
 
-// Returns HTML for an optionally zoomable test page with |zoom_state|.
+// Returns HTML for an optionally zoomable test page with `zoom_state`.
 enum PageScalabilityType {
   PAGE_SCALABILITY_DISABLED = 0,
   PAGE_SCALABILITY_ENABLED,
@@ -164,7 +164,7 @@ class CRWWebControllerTest : public WebTestWithWebController {
         WebTestWithWebController::GetWebClient());
   }
 
-  // The value for web view OCMock objects to expect for |-setFrame:|.
+  // The value for web view OCMock objects to expect for `-setFrame:`.
   CGRect GetExpectedWebViewFrame() const {
     CGSize container_view_size = GetAnyKeyWindow().bounds.size;
 
@@ -182,8 +182,8 @@ class CRWWebControllerTest : public WebTestWithWebController {
     WKWebView* result = [OCMockObject mockForClass:[WKWebView class]];
 
     OCMStub([result backForwardList]).andReturn(wk_list);
-    // This uses |andDo| rather than |andReturn| since the URL it returns needs
-    // to change when |test_url_| changes.
+    // This uses `andDo` rather than `andReturn` since the URL it returns needs
+    // to change when `test_url_` changes.
     OCMStub([result URL]).andDo(^(NSInvocation* invocation) {
       [invocation setReturnValue:&test_url_];
     });
@@ -207,6 +207,10 @@ class CRWWebControllerTest : public WebTestWithWebController {
                         context:nullptr]);
     OCMStub([result removeObserver:OCMOCK_ANY forKeyPath:OCMOCK_ANY]);
     OCMStub([result evaluateJavaScript:OCMOCK_ANY
+                     completionHandler:OCMOCK_ANY]);
+    OCMStub([result evaluateJavaScript:OCMOCK_ANY
+                               inFrame:OCMOCK_ANY
+                        inContentWorld:OCMOCK_ANY
                      completionHandler:OCMOCK_ANY]);
     OCMStub([result allowsBackForwardNavigationGestures]);
     OCMStub([result setAllowsBackForwardNavigationGestures:NO]);
@@ -302,7 +306,7 @@ TEST_F(CRWWebControllerTest, RemoveWebViewFromViewHierarchy) {
 
   ASSERT_EQ(web_controller().view, web_view.superview.superview);
 
-  [web_controller() removeWebViewFromViewHierarchy];
+  [web_controller() removeWebViewFromViewHierarchyForShutdown:NO];
   EXPECT_EQ(nil, web_view.superview.superview);
 
   [web_controller() addWebViewToViewHierarchy];
@@ -325,9 +329,22 @@ class JavaScriptDialogPresenterTest : public WebTestWithWebController {
   FakeJavaScriptDialogPresenter* js_dialog_presenter() {
     return web_state_delegate_.GetFakeJavaScriptDialogPresenter();
   }
-  const std::vector<std::unique_ptr<FakeJavaScriptDialog>>&
-  requested_dialogs() {
-    return js_dialog_presenter()->requested_dialogs();
+  const std::vector<std::unique_ptr<FakeJavaScriptAlertDialog>>&
+  requested_alert_dialogs() {
+    return js_dialog_presenter()->requested_alert_dialogs();
+  }
+  const std::vector<std::unique_ptr<FakeJavaScriptConfirmDialog>>&
+  requested_confirm_dialogs() {
+    return js_dialog_presenter()->requested_confirm_dialogs();
+  }
+  const std::vector<std::unique_ptr<FakeJavaScriptPromptDialog>>&
+  requested_prompt_dialogs() {
+    return js_dialog_presenter()->requested_prompt_dialogs();
+  }
+  bool JSDialogPresenterHasDialogs() {
+    return !requested_alert_dialogs().empty() ||
+           !requested_confirm_dialogs().empty() ||
+           !requested_prompt_dialogs().empty();
   }
   const GURL& page_url() { return page_url_; }
 
@@ -338,72 +355,92 @@ class JavaScriptDialogPresenterTest : public WebTestWithWebController {
 
 // Tests that window.alert dialog is shown.
 TEST_F(JavaScriptDialogPresenterTest, Alert) {
-  ASSERT_TRUE(requested_dialogs().empty());
+  ASSERT_FALSE(JSDialogPresenterHasDialogs());
 
   ExecuteJavaScript(@"alert('test')");
 
-  ASSERT_EQ(1U, requested_dialogs().size());
-  auto& dialog = requested_dialogs().front();
+  ASSERT_EQ(1U, requested_alert_dialogs().size());
+  ASSERT_TRUE(requested_confirm_dialogs().empty());
+  ASSERT_TRUE(requested_prompt_dialogs().empty());
+  auto& dialog = requested_alert_dialogs().front();
   EXPECT_EQ(web_state(), dialog->web_state);
   EXPECT_EQ(page_url(), dialog->origin_url);
-  EXPECT_EQ(JAVASCRIPT_DIALOG_TYPE_ALERT, dialog->java_script_dialog_type);
   EXPECT_NSEQ(@"test", dialog->message_text);
-  EXPECT_FALSE(dialog->default_prompt_text);
 }
 
 // Tests that window.confirm dialog is shown and its result is true.
 TEST_F(JavaScriptDialogPresenterTest, ConfirmWithTrue) {
-  ASSERT_TRUE(requested_dialogs().empty());
+  ASSERT_FALSE(JSDialogPresenterHasDialogs());
 
   js_dialog_presenter()->set_callback_success_argument(true);
 
   EXPECT_NSEQ(@YES, ExecuteJavaScript(@"confirm('test')"));
 
-  ASSERT_EQ(1U, requested_dialogs().size());
-  auto& dialog = requested_dialogs().front();
+  ASSERT_TRUE(requested_alert_dialogs().empty());
+  ASSERT_EQ(1U, requested_confirm_dialogs().size());
+  ASSERT_TRUE(requested_prompt_dialogs().empty());
+  auto& dialog = requested_confirm_dialogs().front();
   EXPECT_EQ(web_state(), dialog->web_state);
   EXPECT_EQ(page_url(), dialog->origin_url);
-  EXPECT_EQ(JAVASCRIPT_DIALOG_TYPE_CONFIRM, dialog->java_script_dialog_type);
   EXPECT_NSEQ(@"test", dialog->message_text);
-  EXPECT_FALSE(dialog->default_prompt_text);
 }
 
 // Tests that window.confirm dialog is shown and its result is false.
 TEST_F(JavaScriptDialogPresenterTest, ConfirmWithFalse) {
-  ASSERT_TRUE(requested_dialogs().empty());
+  ASSERT_FALSE(JSDialogPresenterHasDialogs());
 
   EXPECT_NSEQ(@NO, ExecuteJavaScript(@"confirm('test')"));
 
-  ASSERT_EQ(1U, requested_dialogs().size());
-  auto& dialog = requested_dialogs().front();
+  ASSERT_TRUE(requested_alert_dialogs().empty());
+  ASSERT_EQ(1U, requested_confirm_dialogs().size());
+  ASSERT_TRUE(requested_prompt_dialogs().empty());
+  auto& dialog = requested_confirm_dialogs().front();
   EXPECT_EQ(web_state(), dialog->web_state);
   EXPECT_EQ(page_url(), dialog->origin_url);
-  EXPECT_EQ(JAVASCRIPT_DIALOG_TYPE_CONFIRM, dialog->java_script_dialog_type);
   EXPECT_NSEQ(@"test", dialog->message_text);
-  EXPECT_FALSE(dialog->default_prompt_text);
 }
 
 // Tests that window.prompt dialog is shown.
 TEST_F(JavaScriptDialogPresenterTest, Prompt) {
-  ASSERT_TRUE(requested_dialogs().empty());
+  ASSERT_FALSE(JSDialogPresenterHasDialogs());
 
   js_dialog_presenter()->set_callback_user_input_argument(@"Maybe");
 
   EXPECT_NSEQ(@"Maybe", ExecuteJavaScript(@"prompt('Yes?', 'No')"));
 
-  ASSERT_EQ(1U, requested_dialogs().size());
-  auto& dialog = requested_dialogs().front();
+  ASSERT_TRUE(requested_alert_dialogs().empty());
+  ASSERT_TRUE(requested_confirm_dialogs().empty());
+  ASSERT_EQ(1U, requested_prompt_dialogs().size());
+  auto& dialog = requested_prompt_dialogs().front();
   EXPECT_EQ(web_state(), dialog->web_state);
   EXPECT_EQ(page_url(), dialog->origin_url);
-  EXPECT_EQ(JAVASCRIPT_DIALOG_TYPE_PROMPT, dialog->java_script_dialog_type);
   EXPECT_NSEQ(@"Yes?", dialog->message_text);
   EXPECT_NSEQ(@"No", dialog->default_prompt_text);
+}
+
+// Tests that window.prompt dialog is shown even when the given message and
+// default value are empty.
+TEST_F(JavaScriptDialogPresenterTest, PromptEmpty) {
+  ASSERT_FALSE(JSDialogPresenterHasDialogs());
+
+  js_dialog_presenter()->set_callback_user_input_argument(@"Maybe");
+
+  EXPECT_NSEQ(@"Maybe", ExecuteJavaScript(@"prompt('', '')"));
+
+  ASSERT_TRUE(requested_alert_dialogs().empty());
+  ASSERT_TRUE(requested_confirm_dialogs().empty());
+  ASSERT_EQ(1U, requested_prompt_dialogs().size());
+  auto& dialog = requested_prompt_dialogs().front();
+  EXPECT_EQ(web_state(), dialog->web_state);
+  EXPECT_EQ(page_url(), dialog->origin_url);
+  EXPECT_NSEQ(@"", dialog->message_text);
+  EXPECT_NSEQ(@"", dialog->default_prompt_text);
 }
 
 // Tests that window.alert, window.confirm and window.prompt dialogs are not
 // shown if URL of presenting main frame is different from visible URL.
 TEST_F(JavaScriptDialogPresenterTest, DifferentVisibleUrl) {
-  ASSERT_TRUE(requested_dialogs().empty());
+  ASSERT_FALSE(JSDialogPresenterHasDialogs());
 
   // Change visible URL.
   AddPendingItem(GURL("https://pending.test/"), ui::PAGE_TRANSITION_TYPED);
@@ -412,13 +449,13 @@ TEST_F(JavaScriptDialogPresenterTest, DifferentVisibleUrl) {
             web_state()->GetVisibleURL().DeprecatedGetOriginAsURL());
 
   ExecuteJavaScript(@"alert('test')");
-  ASSERT_TRUE(requested_dialogs().empty());
+  ASSERT_TRUE(requested_alert_dialogs().empty());
 
   EXPECT_NSEQ(@NO, ExecuteJavaScript(@"confirm('test')"));
-  ASSERT_TRUE(requested_dialogs().empty());
+  ASSERT_TRUE(requested_confirm_dialogs().empty());
 
   EXPECT_NSEQ([NSNull null], ExecuteJavaScript(@"prompt('Yes?', 'No')"));
-  ASSERT_TRUE(requested_dialogs().empty());
+  ASSERT_TRUE(requested_prompt_dialogs().empty());
 }
 
 // Test fixture for testing visible security state.
@@ -451,22 +488,6 @@ TEST_F(CRWWebControllerInvalidUrlTest, IFrameWithInvalidURL) {
   EXPECT_EQ(url, web_state()->GetLastCommittedURL());
 }
 
-// Real WKWebView is required for CRWWebControllerMessageFromIFrame.
-typedef WebTestWithWebState CRWWebControllerMessageFromIFrame;
-
-// Tests that invalid message from iframe does not cause a crash.
-TEST_F(CRWWebControllerMessageFromIFrame, InvalidMessage) {
-  static NSString* const kHTMLIFrameSendsInvalidMessage =
-      @"<body><iframe name='f'></iframe></body>";
-
-  LoadHtml(kHTMLIFrameSendsInvalidMessage);
-
-  // Sending unknown command from iframe should not cause a crash.
-  ExecuteJavaScript(
-      @"var bad_message = {'command' : 'unknown.command'};"
-       "frames['f'].__gCrWeb.message.invokeOnHost(bad_message);");
-}
-
 // Real WKWebView is required for CRWWebControllerJSExecutionTest.
 typedef WebTestWithWebController CRWWebControllerJSExecutionTest;
 
@@ -475,21 +496,6 @@ TEST_F(CRWWebControllerJSExecutionTest, Execution) {
   LoadHtml(@"<p></p>");
   EXPECT_NSEQ(@YES, ExecuteJavaScript(@"true"));
   EXPECT_NSEQ(@NO, ExecuteJavaScript(@"false"));
-}
-
-// Tests that a script is not executed on windowID mismatch.
-TEST_F(CRWWebControllerJSExecutionTest, WindowIdMissmatch) {
-  LoadHtml(@"<p></p>");
-  // Script is evaluated since windowID is matched.
-  ExecuteJavaScript(@"window.test1 = '1';");
-  EXPECT_NSEQ(@"1", ExecuteJavaScript(@"window.test1"));
-
-  // Change windowID.
-  ExecuteJavaScript(@"__gCrWeb['windowId'] = '';");
-
-  // Script is not evaluated because of windowID mismatch.
-  ExecuteJavaScript(@"window.test2 = '2';");
-  EXPECT_FALSE(ExecuteJavaScript(@"window.test2"));
 }
 
 // Test fixture to test decidePolicyForNavigationResponse:decisionHandler:
@@ -519,6 +525,16 @@ class CRWWebControllerResponseTest : public CRWWebControllerTest {
     OCMStub([navigation_response canShowMIMEType])
         .andReturn(can_show_mime_type);
 
+    // Check whether the NavigationController has been configured to simulate
+    // a POST request (which is required to recreate a correct NSURLRequest
+    // object when mocking the new download API on iOS 15+).
+    NavigationItemImpl* pending_item =
+        web_controller()
+            .webStateImpl->GetNavigationManagerImpl()
+            .GetPendingItemInCurrentOrRestoredSession();
+    const bool has_post_data =
+        pending_item && pending_item->GetPostData() != nil;
+
     // Call decidePolicyForNavigationResponse and wait for decisionHandler's
     // callback.
     __block bool callback_called = false;
@@ -533,9 +549,76 @@ class CRWWebControllerResponseTest : public CRWWebControllerTest {
                             *out_policy = policy;
                             callback_called = true;
                           }];
-    return WaitUntilConditionOrTimeout(kWaitForPageLoadTimeout, ^{
-      return callback_called;
-    });
+    if (!WaitUntilConditionOrTimeout(kWaitForPageLoadTimeout, ^{
+          return callback_called;
+        })) {
+      return false;
+    }
+
+    // When the new download API is enabled (which can only happen on iOS 15),
+    // the interaction is a bit more complex as WebKit will call additional
+    // methods on the WKNavigationDelegate before the DownloadTask is created.
+    // Mock those necessary interactions.
+    if (@available(iOS 15, *)) {
+      if (*out_policy == WKNavigationResponsePolicyDownload) {
+        id mock_download = [OCMockObject mockForClass:[WKDownload class]];
+
+        __block bool delegate_set = false;
+        __block id download_delegate = nil;
+        OCMStub([mock_download setDelegate:[OCMArg any]])
+            .andDo(^(NSInvocation* invocation) {
+              // Using __unsafe_unretained is required to extract the parameter
+              // from the NSInvocation otherwise ARC will over-release.
+              __unsafe_unretained id argument = nil;
+              [invocation getArgument:&argument atIndex:2];
+              download_delegate = argument;
+              delegate_set = true;
+            });
+
+        [navigation_delegate_ webView:mock_web_view_
+                   navigationResponse:navigation_response
+                    didBecomeDownload:mock_download];
+
+        if (!WaitUntilConditionOrTimeout(kWaitForPageLoadTimeout, ^{
+              return delegate_set;
+            })) {
+          return false;
+        }
+
+        NSMutableURLRequest* request =
+            [[NSURLRequest requestWithURL:response.URL] mutableCopy];
+        if (has_post_data) {
+          request.HTTPMethod = @"POST";
+        }
+        OCMStub([mock_download originalRequest]).andReturn(request);
+        OCMStub([mock_download cancel:[OCMArg any]])
+            .andDo(^(NSInvocation* invocation) {
+              // Using __unsafe_unretained is required to extract the parameter
+              // from the NSInvocation otherwise ARC will over-release.
+              __unsafe_unretained void (^block)(NSData* data);
+              [invocation getArgument:&block atIndex:2];
+              block(nil);
+            });
+
+        [download_delegate download:mock_download
+            decideDestinationUsingResponse:response
+                         suggestedFilename:@"filename.txt"
+                         completionHandler:^(NSURL* destination){
+                         }];
+      }
+    }
+
+    return true;
+  }
+
+  // The expectation varies depending on whether the new download API is used
+  // or not (as the new download API requires CRWWKNavigationHandler to return
+  // a different policy). This method returns the expected policy for the test.
+  [[nodiscard]] static WKNavigationResponsePolicy ExpectedPolicyForDownload() {
+    if (@available(iOS 15, *)) {
+      return WKNavigationResponsePolicyDownload;
+    }
+    return WKNavigationResponsePolicyCancel;
   }
 
   DownloadController* download_controller() {
@@ -598,14 +681,14 @@ TEST_F(CRWWebControllerResponseTest,
   WKNavigationResponsePolicy policy = WKNavigationResponsePolicyAllow;
   ASSERT_TRUE(CallDecidePolicyForNavigationResponseWithResponse(
       response, /*for_main_frame=*/YES, /*can_show_mime_type=*/YES, &policy));
-  EXPECT_EQ(WKNavigationResponsePolicyCancel, policy);
+  EXPECT_EQ(ExpectedPolicyForDownload(), policy);
 
   // Verify that download task was created (see crbug.com/949114).
   ASSERT_EQ(1U, download_delegate_->alive_download_tasks().size());
   DownloadTask* task =
       download_delegate_->alive_download_tasks()[0].second.get();
   ASSERT_TRUE(task);
-  EXPECT_TRUE(task->GetIndentifier());
+  EXPECT_TRUE(task->GetIdentifier());
   EXPECT_EQ(kTestDataURL, task->GetOriginalUrl());
   EXPECT_EQ(-1, task->GetTotalBytes());
   EXPECT_TRUE(task->GetContentDisposition().empty());
@@ -656,14 +739,14 @@ TEST_F(CRWWebControllerResponseTest, DownloadForPostRequest) {
   WKNavigationResponsePolicy policy = WKNavigationResponsePolicyAllow;
   ASSERT_TRUE(CallDecidePolicyForNavigationResponseWithResponse(
       response, /*for_main_frame=*/YES, /*can_show_mime_type=*/NO, &policy));
-  EXPECT_EQ(WKNavigationResponsePolicyCancel, policy);
+  EXPECT_EQ(ExpectedPolicyForDownload(), policy);
 
   // Verify that download task was created with POST method (crbug.com/.
   ASSERT_EQ(1U, download_delegate_->alive_download_tasks().size());
   DownloadTask* task =
       download_delegate_->alive_download_tasks()[0].second.get();
   ASSERT_TRUE(task);
-  EXPECT_TRUE(task->GetIndentifier());
+  EXPECT_TRUE(task->GetIdentifier());
   EXPECT_NSEQ(@"POST", task->GetHttpMethod());
 }
 
@@ -680,14 +763,14 @@ TEST_F(CRWWebControllerResponseTest, DownloadWithNSURLResponse) {
   WKNavigationResponsePolicy policy = WKNavigationResponsePolicyAllow;
   ASSERT_TRUE(CallDecidePolicyForNavigationResponseWithResponse(
       response, /*for_main_frame=*/YES, /*can_show_mime_type=*/NO, &policy));
-  EXPECT_EQ(WKNavigationResponsePolicyCancel, policy);
+  EXPECT_EQ(ExpectedPolicyForDownload(), policy);
 
   // Verify that download task was created.
   ASSERT_EQ(1U, download_delegate_->alive_download_tasks().size());
   DownloadTask* task =
       download_delegate_->alive_download_tasks()[0].second.get();
   ASSERT_TRUE(task);
-  EXPECT_TRUE(task->GetIndentifier());
+  EXPECT_TRUE(task->GetIdentifier());
   EXPECT_EQ(kTestURLString, task->GetOriginalUrl());
   EXPECT_EQ(content_length, task->GetTotalBytes());
   EXPECT_EQ("", task->GetContentDisposition());
@@ -709,14 +792,14 @@ TEST_F(CRWWebControllerResponseTest, DownloadWithNSHTTPURLResponse) {
   WKNavigationResponsePolicy policy = WKNavigationResponsePolicyAllow;
   ASSERT_TRUE(CallDecidePolicyForNavigationResponseWithResponse(
       response, /*for_main_frame=*/YES, /*can_show_mime_type=*/NO, &policy));
-  EXPECT_EQ(WKNavigationResponsePolicyCancel, policy);
+  EXPECT_EQ(ExpectedPolicyForDownload(), policy);
 
   // Verify that download task was created.
   ASSERT_EQ(1U, download_delegate_->alive_download_tasks().size());
   DownloadTask* task =
       download_delegate_->alive_download_tasks()[0].second.get();
   ASSERT_TRUE(task);
-  EXPECT_TRUE(task->GetIndentifier());
+  EXPECT_TRUE(task->GetIdentifier());
   EXPECT_EQ(kTestURLString, task->GetOriginalUrl());
   EXPECT_EQ(-1, task->GetTotalBytes());
   EXPECT_EQ(kContentDisposition, task->GetContentDisposition());
@@ -738,7 +821,7 @@ TEST_F(CRWWebControllerResponseTest, DownloadDiscardsPendingUrl) {
   WKNavigationResponsePolicy policy = WKNavigationResponsePolicyAllow;
   ASSERT_TRUE(CallDecidePolicyForNavigationResponseWithResponse(
       response, /*for_main_frame=*/YES, /*can_show_mime_type=*/NO, &policy));
-  EXPECT_EQ(WKNavigationResponsePolicyCancel, policy);
+  EXPECT_EQ(ExpectedPolicyForDownload(), policy);
 
   // Verify that download task was created and pending URL discarded.
   ASSERT_EQ(1U, download_delegate_->alive_download_tasks().size());
@@ -760,21 +843,21 @@ TEST_F(CRWWebControllerResponseTest, IFrameDownloadWithNSHTTPURLResponse) {
   WKNavigationResponsePolicy policy = WKNavigationResponsePolicyAllow;
   ASSERT_TRUE(CallDecidePolicyForNavigationResponseWithResponse(
       response, /*for_main_frame=*/NO, /*can_show_mime_type=*/NO, &policy));
-  EXPECT_EQ(WKNavigationResponsePolicyCancel, policy);
+  EXPECT_EQ(ExpectedPolicyForDownload(), policy);
 
   // Verify that download task was created.
   ASSERT_EQ(1U, download_delegate_->alive_download_tasks().size());
   DownloadTask* task =
       download_delegate_->alive_download_tasks()[0].second.get();
   ASSERT_TRUE(task);
-  EXPECT_TRUE(task->GetIndentifier());
+  EXPECT_TRUE(task->GetIdentifier());
   EXPECT_EQ(kTestURLString, task->GetOriginalUrl());
   EXPECT_EQ(-1, task->GetTotalBytes());
   EXPECT_EQ(kContentDisposition, task->GetContentDisposition());
   EXPECT_EQ("", task->GetMimeType());
 }
 
-// Tests |currentURLWithTrustLevel:| method.
+// Tests `currentURLWithTrustLevel:` method.
 TEST_F(CRWWebControllerTest, CurrentUrlWithTrustLevel) {
   GURL url("http://chromium.test");
   AddPendingItem(url, ui::PAGE_TRANSITION_TYPED);
@@ -807,7 +890,7 @@ class CRWWebControllerPolicyDeciderTest : public CRWWebControllerTest {
   }
   // Calls webView:decidePolicyForNavigationAction:preferences:decisionHandler:
   // callback and waits for decision handler call. Returns false if decision
-  // handler policy parameter didn't match |expected_policy| or if the call
+  // handler policy parameter didn't match `expected_policy` or if the call
   // timed out.
   [[nodiscard]] bool VerifyDecidePolicyForNavigationAction(
       NSURLRequest* request,
@@ -830,7 +913,7 @@ class CRWWebControllerPolicyDeciderTest : public CRWWebControllerTest {
         decidePolicyForNavigationAction:navigation_action
                             preferences:preferences
                         decisionHandler:^(WKNavigationActionPolicy policy,
-                                          WKWebpagePreferences* preferences) {
+                                          WKWebpagePreferences* ignored) {
                           policy_match = expected_policy == policy;
                           callback_called = true;
                         }];
@@ -865,7 +948,7 @@ TEST_F(CRWWebControllerPolicyDeciderTest,
 }
 
 // Tests that URL is allowed in OffTheRecord mode when the
-// |kBlockUniversalLinksInOffTheRecordMode| feature is disabled.
+// `kBlockUniversalLinksInOffTheRecordMode` feature is disabled.
 TEST_F(CRWWebControllerPolicyDeciderTest, AllowOffTheRecordNavigation) {
   GetFakeBrowserState()->SetOffTheRecord(true);
   base::test::ScopedFeatureList feature_list;
@@ -880,7 +963,7 @@ TEST_F(CRWWebControllerPolicyDeciderTest, AllowOffTheRecordNavigation) {
 }
 
 // Tests that URL is allowed in OffTheRecord mode and that universal links are
-// blocked when the |kBlockUniversalLinksInOffTheRecordMode| feature is enabled
+// blocked when the `kBlockUniversalLinksInOffTheRecordMode` feature is enabled
 // and the BLOCK_UNIVERSAL_LINKS_IN_OFF_THE_RECORD_MODE buildflag is set.
 TEST_F(CRWWebControllerPolicyDeciderTest,
        AllowOffTheRecordNavigationBlockUniversalLinks) {
@@ -952,7 +1035,7 @@ TEST_F(CRWWebControllerPolicyDeciderTest, ClosedWebState) {
 }
 
 // Tests that navigations are cancelled if the web state is closed in
-// |ShouldAllowRequest|.
+// `ShouldAllowRequest`.
 TEST_F(CRWWebControllerPolicyDeciderTest, ClosedWebStateInShouldAllowRequest) {
   static CRWWebControllerPolicyDeciderTest* test_fixture = nullptr;
   test_fixture = this;
@@ -985,8 +1068,8 @@ TEST_F(CRWWebControllerPolicyDeciderTest, ClosedWebStateInShouldAllowRequest) {
       url_request, WKNavigationActionPolicyCancel));
 }
 
-// Tests that navigations are allowed if |ShouldAllowRequest| returns a
-// PolicyDecision which returns true from |ShouldAllowNavigation()|.
+// Tests that navigations are allowed if `ShouldAllowRequest` returns a
+// PolicyDecision which returns true from `ShouldAllowNavigation()`.
 TEST_F(CRWWebControllerPolicyDeciderTest, AllowRequest) {
   FakeWebStatePolicyDecider policy_decider(web_state());
   policy_decider.SetShouldAllowRequest(
@@ -998,8 +1081,8 @@ TEST_F(CRWWebControllerPolicyDeciderTest, AllowRequest) {
       url_request, WKNavigationActionPolicyAllow));
 }
 
-// Tests that navigations are cancelled if |ShouldAllowRequest| returns a
-// PolicyDecision which returns false from |ShouldAllowNavigation()|.
+// Tests that navigations are cancelled if `ShouldAllowRequest` returns a
+// PolicyDecision which returns false from `ShouldAllowNavigation()`.
 TEST_F(CRWWebControllerPolicyDeciderTest, CancelRequest) {
   FakeWebStatePolicyDecider policy_decider(web_state());
   policy_decider.SetShouldAllowRequest(
@@ -1011,8 +1094,8 @@ TEST_F(CRWWebControllerPolicyDeciderTest, CancelRequest) {
       url_request, WKNavigationActionPolicyCancel));
 }
 
-// Tests that navigations are cancelled if |ShouldAllowRequest| returns a
-// PolicyDecision which returns true from |ShouldBlockNavigation()|.
+// Tests that navigations are cancelled if `ShouldAllowRequest` returns a
+// PolicyDecision which returns true from `ShouldBlockNavigation()`.
 TEST_F(CRWWebControllerPolicyDeciderTest, CancelRequestAndDisplayError) {
   FakeWebStatePolicyDecider policy_decider(web_state());
   NSError* error = [NSError errorWithDomain:@"Error domain"
@@ -1098,6 +1181,7 @@ TEST_F(WindowOpenByDomTest, DontBlockPopup) {
 }
 
 // Tests that window.close closes the web state.
+// TODO(crbug.com/1307043): Flaky test.
 TEST_F(WindowOpenByDomTest, CloseWindow) {
   delegate_.allow_popups(opener_url_);
   ASSERT_NSEQ(@"[object Window]", OpenWindowByDom());
@@ -1108,6 +1192,7 @@ TEST_F(WindowOpenByDomTest, CloseWindow) {
 
   delegate_.child_windows()[0]->SetDelegate(&delegate_);
   CloseWindow();
+  base::test::ios::SpinRunLoopWithMinDelay(base::Seconds(1));
   base::RunLoop().RunUntilIdle();
 
   EXPECT_TRUE(delegate_.child_windows().empty());
@@ -1126,7 +1211,7 @@ TEST_F(CRWWebControllerTitleTest, TitleChange) {
     TitleObserver(const TitleObserver&) = delete;
     TitleObserver& operator=(const TitleObserver&) = delete;
 
-    // Returns number of times |TitleWasSet| was called.
+    // Returns number of times `TitleWasSet` was called.
     int title_change_count() { return title_change_count_; }
     // WebStateObserver overrides:
     void TitleWasSet(WebState* web_state) override { title_change_count_++; }
@@ -1176,7 +1261,7 @@ TEST_F(CRWWebControllerTitleTest, FragmentChangeNavigationsUsePreviousTitle) {
 // Test fixture for JavaScript execution.
 class ScriptExecutionTest : public WebTestWithWebController {
  protected:
-  // Calls |executeUserJavaScript:completionHandler:|, waits for script
+  // Calls `executeUserJavaScript:completionHandler:`, waits for script
   // execution completion, and synchronously returns the result.
   id ExecuteUserJavaScript(NSString* java_script, NSError** error) {
     __block id script_result = nil;
@@ -1220,11 +1305,10 @@ TEST_F(ScriptExecutionTest, UserScriptOnAppSpecificPage) {
   // Change last committed URL to app-specific URL.
   NavigationManagerImpl& nav_manager =
       [web_controller() webStateImpl]->GetNavigationManagerImpl();
-  nav_manager.AddPendingItem(GURL(kTestAppSpecificURL), Referrer(),
-                             ui::PAGE_TRANSITION_TYPED,
-                             NavigationInitiationType::BROWSER_INITIATED,
-                             /*is_post_navigation=*/false,
-                             /*is_using_https_as_default_scheme=*/false);
+  nav_manager.AddPendingItem(
+      GURL(kTestAppSpecificURL), Referrer(), ui::PAGE_TRANSITION_TYPED,
+      NavigationInitiationType::BROWSER_INITIATED,
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   nav_manager.CommitPendingItem();
 
   NSError* error = nil;

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "base/time/time.h"
 #include "media/base/audio_decoder_config.h"
 #include "media/base/media_export.h"
 #include "media/base/media_log_type_enforcement.h"
@@ -38,8 +39,9 @@ enum class MediaLogProperty {
   // The time at which media starts, in seconds.
   kStartTime,
 
-  // If the video decoder is using a decrypting decoder to playback media.
-  kIsVideoEncrypted,
+  // Whether a Content Decryption Module (CDM) has been successfully attached
+  // to the player.
+  kIsCdmAttached,
 
   // Represents whether the media source supports range requests. A truthful
   // value here means that range requests aren't supported and seeking probably
@@ -103,8 +105,7 @@ MEDIA_LOG_PROPERTY_SUPPORTS_TYPE(kTotalBytes, int64_t);
 MEDIA_LOG_PROPERTY_SUPPORTS_TYPE(kBitrate, int);
 MEDIA_LOG_PROPERTY_SUPPORTS_TYPE(kMaxDuration, float);
 MEDIA_LOG_PROPERTY_SUPPORTS_TYPE(kStartTime, float);
-MEDIA_LOG_PROPERTY_SUPPORTS_TYPE(kIsVideoEncrypted, bool);
-MEDIA_LOG_PROPERTY_SUPPORTS_TYPE(kIsVideoEncrypted, std::string);
+MEDIA_LOG_PROPERTY_SUPPORTS_TYPE(kIsCdmAttached, bool);
 MEDIA_LOG_PROPERTY_SUPPORTS_TYPE(kIsStreaming, bool);
 MEDIA_LOG_PROPERTY_SUPPORTS_TYPE(kFrameUrl, std::string);
 MEDIA_LOG_PROPERTY_SUPPORTS_TYPE(kFrameTitle, std::string);

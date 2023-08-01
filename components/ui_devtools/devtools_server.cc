@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,11 @@
 
 #include <memory>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/format_macros.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
@@ -37,8 +37,7 @@ const base::FilePath::CharType kUIDevToolsActivePortFileName[] =
 void WriteUIDevtoolsPortToFile(base::FilePath output_dir, int port) {
   base::FilePath path = output_dir.Append(kUIDevToolsActivePortFileName);
   std::string port_target_string = base::StringPrintf("%d", port);
-  if (base::WriteFile(path, port_target_string.c_str(),
-                      static_cast<int>(port_target_string.length())) < 0) {
+  if (!base::WriteFile(path, port_target_string)) {
     LOG(ERROR) << "Error writing UIDevTools active port to file";
   }
 }
@@ -100,6 +99,15 @@ std::unique_ptr<UiDevToolsServer> UiDevToolsServer::CreateForViews(
   return server;
 }
 
+void UiDevToolsServer::SetOnSocketConnectedForTesting(
+    base::OnceClosure on_socket_connected) {
+  if (server_) {
+    std::move(on_socket_connected).Run();
+    return;
+  }
+  on_socket_connected_ = std::move(on_socket_connected);
+}
+
 // static
 void UiDevToolsServer::CreateTCPServerSocket(
     mojo::PendingReceiver<network::mojom::TCPServerSocket>
@@ -111,8 +119,11 @@ void UiDevToolsServer::CreateTCPServerSocket(
   // Create the socket using the address 127.0.0.1 to listen on all interfaces.
   net::IPAddress address(127, 0, 0, 1);
   constexpr int kBacklog = 1;
+
+  auto options = network::mojom::TCPServerSocketOptions::New();
+  options->backlog = kBacklog;
   network_context->CreateTCPServerSocket(
-      net::IPEndPoint(address, port), kBacklog,
+      net::IPEndPoint(address, port), std::move(options),
       net::MutableNetworkTrafficAnnotationTag(tag),
       std::move(server_socket_receiver), std::move(callback));
 }
@@ -192,6 +203,8 @@ void UiDevToolsServer::MakeServer(
       }
     }
   }
+  if (on_socket_connected_)
+    std::move(on_socket_connected_).Run();
 }
 
 // HttpServer::Delegate Implementation
@@ -212,8 +225,9 @@ void UiDevToolsServer::OnWebSocketRequest(
   size_t target_id = 0;
   if (info.path.empty() ||
       !base::StringToSizeT(info.path.substr(1), &target_id) ||
-      target_id > clients_.size())
+      target_id >= clients_.size()) {
     return;
+  }
 
   UiDevToolsClient* client = clients_[target_id].get();
   // Only one user can inspect the client at a time

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,6 +42,17 @@ class KEYED_SERVICE_EXPORT DependencyManager {
       DependencyManager* dependency_manager2,
       void* context2);
 
+  // Returns the dependency graph for Keyed Services Factory testing purposes.
+  DependencyGraph& GetDependencyGraphForTesting();
+
+  // After this function is called, any KeyedServiceFactory trying to register
+  // itself will cause a DCHECK. It should have been registered in the
+  // appropriate `EnsureBrowserContextKeyedServiceFactoriesBuilt()` function.
+  // `registration_function_name` param is used to display the right
+  // registration method in the error message.
+  void DoNotAllowKeyedServiceFactoryRegistration(
+      const std::string& registration_function_name_error_message);
+
  protected:
   DependencyManager();
   virtual ~DependencyManager();
@@ -75,7 +86,7 @@ class KEYED_SERVICE_EXPORT DependencyManager {
   void DestroyContextServices(void* context);
 
   // Runtime assertion called as a part of GetServiceForContext() to check if
-  // |context| is considered stale. This will CHECK(false) to avoid a potential 
+  // |context| is considered stale. This will CHECK(false) to avoid a potential
   // use-after-free from services created after context destruction.
   void AssertContextWasntDestroyed(void* context) const;
 
@@ -123,6 +134,8 @@ class KEYED_SERVICE_EXPORT DependencyManager {
 #if DCHECK_IS_ON()
   bool context_services_created_ = false;
 #endif
+  bool do_not_allow_factory_registration_ = false;
+  std::string registration_function_name_error_message_;
 };
 
 #endif  // COMPONENTS_KEYED_SERVICE_CORE_DEPENDENCY_MANAGER_H_

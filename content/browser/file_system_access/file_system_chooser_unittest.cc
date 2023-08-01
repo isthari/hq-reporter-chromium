@@ -1,19 +1,22 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "content/browser/file_system_access/file_system_chooser.h"
 
-#include "base/callback_helpers.h"
+#include <string>
+
 #include "base/containers/contains.h"
 #include "base/files/file_path.h"
-#include "base/run_loop.h"
-#include "base/stl_util.h"
+#include "base/functional/callback_helpers.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/bind.h"
-#include "base/threading/sequenced_task_runner_handle.h"
-#include "content/browser/file_system_access/file_system_chooser_test_helpers.h"
+#include "base/test/test_future.h"
 #include "content/public/test/browser_task_environment.h"
+#include "content/public/test/file_system_chooser_test_helpers.h"
+#include "content/public/test/web_contents_tester.h"
+#include "content/test/test_render_view_host.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/mojom/file_system_access/file_system_access_error.mojom.h"
 #include "ui/shell_dialogs/select_file_dialog.h"
@@ -23,41 +26,45 @@
 
 namespace content {
 
-class FileSystemChooserTest : public testing::Test {
+class FileSystemChooserTest : public RenderViewHostImplTestHarness {
  public:
-  void TearDown() override { ui::SelectFileDialog::SetFactory(nullptr); }
+  void TearDown() override {
+    RenderViewHostImplTestHarness::TearDown();
+    ui::SelectFileDialog::SetFactory(nullptr);
+  }
 
   std::vector<FileSystemChooser::ResultEntry> SyncShowDialog(
+      WebContents* web_contents,
       std::vector<blink::mojom::ChooseFileSystemEntryAcceptsOptionPtr> accepts,
       bool include_accepts_all) {
-    base::RunLoop loop;
-    std::vector<FileSystemChooser::ResultEntry> result;
+    base::test::TestFuture<blink::mojom::FileSystemAccessErrorPtr,
+                           std::vector<FileSystemChooser::ResultEntry>>
+        future;
     FileSystemChooser::CreateAndShow(
-        /*web_contents=*/nullptr,
+        web_contents,
         FileSystemChooser::Options(ui::SelectFileDialog::SELECT_OPEN_FILE,
                                    blink::mojom::AcceptsTypesInfo::New(
                                        std::move(accepts), include_accepts_all),
-                                   base::FilePath(), base::FilePath()),
-        base::BindLambdaForTesting(
-            [&](blink::mojom::FileSystemAccessErrorPtr,
-                std::vector<FileSystemChooser::ResultEntry> entries) {
-              result = std::move(entries);
-              loop.Quit();
-            }),
-        base::ScopedClosureRunner());
-    loop.Run();
-    return result;
+                                   std::u16string(), base::FilePath(),
+                                   base::FilePath()),
+        future.GetCallback(), base::ScopedClosureRunner());
+    return std::get<1>(future.Take());
   }
 
- private:
-  content::BrowserTaskEnvironment task_environment_;
+ protected:
+  std::unique_ptr<content::WebContents> CreateTestWebContents(
+      content::BrowserContext* browser_context) {
+    auto site_instance = content::SiteInstance::Create(browser_context);
+    return content::WebContentsTester::CreateTestWebContents(
+        browser_context, std::move(site_instance));
+  }
 };
 
 TEST_F(FileSystemChooserTest, EmptyAccepts) {
   SelectFileDialogParams dialog_params;
   ui::SelectFileDialog::SetFactory(
       new CancellingSelectFileDialogFactory(&dialog_params));
-  SyncShowDialog({}, /*include_accepts_all=*/true);
+  SyncShowDialog(/*web_contents=*/nullptr, {}, /*include_accepts_all=*/true);
 
   ASSERT_TRUE(dialog_params.file_types);
   EXPECT_TRUE(dialog_params.file_types->include_all_files);
@@ -71,7 +78,7 @@ TEST_F(FileSystemChooserTest, EmptyAcceptsIgnoresIncludeAcceptsAll) {
   SelectFileDialogParams dialog_params;
   ui::SelectFileDialog::SetFactory(
       new CancellingSelectFileDialogFactory(&dialog_params));
-  SyncShowDialog({}, /*include_accepts_all=*/false);
+  SyncShowDialog(/*web_contents=*/nullptr, {}, /*include_accepts_all=*/false);
 
   // Should still include_all_files, even though include_accepts_all was false.
   ASSERT_TRUE(dialog_params.file_types);
@@ -93,7 +100,8 @@ TEST_F(FileSystemChooserTest, AcceptsMimeTypes) {
   accepts.emplace_back(blink::mojom::ChooseFileSystemEntryAcceptsOption::New(
       u"Images", std::vector<std::string>({"image/*"}),
       std::vector<std::string>({})));
-  SyncShowDialog(std::move(accepts), /*include_accepts_all=*/true);
+  SyncShowDialog(/*web_contents=*/nullptr, std::move(accepts),
+                 /*include_accepts_all=*/true);
 
   ASSERT_TRUE(dialog_params.file_types);
   EXPECT_TRUE(dialog_params.file_types->include_all_files);
@@ -131,7 +139,8 @@ TEST_F(FileSystemChooserTest, AcceptsExtensions) {
   accepts.emplace_back(blink::mojom::ChooseFileSystemEntryAcceptsOption::New(
       u"", std::vector<std::string>({}),
       std::vector<std::string>({"text", "js", "text"})));
-  SyncShowDialog(std::move(accepts), /*include_accepts_all=*/true);
+  SyncShowDialog(/*web_contents=*/nullptr, std::move(accepts),
+                 /*include_accepts_all=*/true);
 
   ASSERT_TRUE(dialog_params.file_types);
   EXPECT_TRUE(dialog_params.file_types->include_all_files);
@@ -157,7 +166,8 @@ TEST_F(FileSystemChooserTest, AcceptsExtensionsAndMimeTypes) {
   accepts.emplace_back(blink::mojom::ChooseFileSystemEntryAcceptsOption::New(
       u"", std::vector<std::string>({"image/*"}),
       std::vector<std::string>({"text", "jpg"})));
-  SyncShowDialog(std::move(accepts), /*include_accepts_all=*/false);
+  SyncShowDialog(/*web_contents=*/nullptr, std::move(accepts),
+                 /*include_accepts_all=*/false);
 
   ASSERT_TRUE(dialog_params.file_types);
   EXPECT_FALSE(dialog_params.file_types->include_all_files);
@@ -173,8 +183,8 @@ TEST_F(FileSystemChooserTest, AcceptsExtensionsAndMimeTypes) {
                              FILE_PATH_LITERAL("gif")));
   EXPECT_TRUE(base::Contains(dialog_params.file_types->extensions[0],
                              FILE_PATH_LITERAL("jpeg")));
-  EXPECT_EQ(1, base::STLCount(dialog_params.file_types->extensions[0],
-                              FILE_PATH_LITERAL("jpg")));
+  EXPECT_EQ(1, base::ranges::count(dialog_params.file_types->extensions[0],
+                                   FILE_PATH_LITERAL("jpg")));
 
   ASSERT_EQ(1u,
             dialog_params.file_types->extension_description_overrides.size());
@@ -189,8 +199,9 @@ TEST_F(FileSystemChooserTest, IgnoreShellIntegratedExtensions) {
   accepts.emplace_back(blink::mojom::ChooseFileSystemEntryAcceptsOption::New(
       u"", std::vector<std::string>({}),
       std::vector<std::string>(
-          {"lnk", "foo.lnk", "foo.bar.local", "text", "local"})));
-  SyncShowDialog(std::move(accepts), /*include_accepts_all=*/false);
+          {"lnk", "foo.lnk", "foo.bar.local", "text", "local", "scf", "url"})));
+  SyncShowDialog(/*web_contents=*/nullptr, std::move(accepts),
+                 /*include_accepts_all=*/false);
 
   ASSERT_TRUE(dialog_params.file_types);
   EXPECT_FALSE(dialog_params.file_types->include_all_files);
@@ -212,7 +223,8 @@ TEST_F(FileSystemChooserTest, LocalPath) {
 
   ui::SelectFileDialog::SetFactory(
       new FakeSelectFileDialogFactory({selected_file}));
-  auto results = SyncShowDialog({}, /*include_accepts_all=*/true);
+  auto results = SyncShowDialog(/*web_contents=*/nullptr, {},
+                                /*include_accepts_all=*/true);
   ASSERT_EQ(results.size(), 1u);
   EXPECT_EQ(results[0].type, FileSystemChooser::PathType::kLocal);
   EXPECT_EQ(results[0].path, local_path);
@@ -227,7 +239,8 @@ TEST_F(FileSystemChooserTest, ExternalPath) {
 
   ui::SelectFileDialog::SetFactory(
       new FakeSelectFileDialogFactory({selected_file}));
-  auto results = SyncShowDialog({}, /*include_accepts_all=*/true);
+  auto results = SyncShowDialog(/*web_contents=*/nullptr, {},
+                                /*include_accepts_all=*/true);
   ASSERT_EQ(results.size(), 1u);
   EXPECT_EQ(results[0].type, FileSystemChooser::PathType::kExternal);
   EXPECT_EQ(results[0].path, virtual_path);
@@ -253,7 +266,8 @@ TEST_F(FileSystemChooserTest, DescriptionSanitization) {
       u"Unbalanced RTL \u202e section in a otherwise "
       u"very long description that will be truncated",
       std::vector<std::string>({}), std::vector<std::string>({"js"})));
-  SyncShowDialog(std::move(accepts), /*include_accepts_all=*/false);
+  SyncShowDialog(/*web_contents=*/nullptr, std::move(accepts),
+                 /*include_accepts_all=*/false);
 
   ASSERT_TRUE(dialog_params.file_types);
   ASSERT_EQ(4u,
@@ -268,6 +282,22 @@ TEST_F(FileSystemChooserTest, DescriptionSanitization) {
       u"Unbalanced RTL \u202e section in a "
       u"otherwise very long description t…\u202c",
       dialog_params.file_types->extension_description_overrides[3]);
+}
+
+TEST_F(FileSystemChooserTest, DialogCaller) {
+  std::unique_ptr<WebContents> web_contents =
+      CreateTestWebContents(GetBrowserContext());
+  const GURL gurl("https://www.example.com");
+  content::WebContentsTester::For(web_contents.get())->NavigateAndCommit(gurl);
+
+  SelectFileDialogParams dialog_params;
+  auto* dialog_factory = new CancellingSelectFileDialogFactory(&dialog_params);
+  ui::SelectFileDialog::SetFactory(dialog_factory);
+  SyncShowDialog(web_contents.get(), {}, /*include_accepts_all=*/true);
+
+  const GURL* dialog_caller = dialog_params.caller;
+  ASSERT_TRUE(dialog_caller);
+  ASSERT_EQ(*dialog_caller, gurl);
 }
 
 }  // namespace content

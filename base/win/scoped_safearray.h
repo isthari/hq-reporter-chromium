@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,8 @@
 
 #include "base/base_export.h"
 #include "base/check_op.h"
-#include "base/win/variant_util.h"
+#include "base/memory/raw_ptr_exclusion.h"
+#include "base/win/variant_conversions.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
@@ -32,7 +33,8 @@ class BASE_EXPORT ScopedSafearray {
    public:
     // Type declarations to support std::iterator_traits
     using iterator_category = std::random_access_iterator_tag;
-    using value_type = typename internal::VariantUtil<ElementVartype>::Type;
+    using value_type =
+        typename internal::VariantConverter<ElementVartype>::Type;
     using difference_type = ptrdiff_t;
     using reference = value_type&;
     using const_reference = const value_type&;
@@ -74,8 +76,8 @@ class BASE_EXPORT ScopedSafearray {
     pointer data() { return array_; }
     const_pointer data() const { return array_; }
 
-    reference operator[](int index) { return at(index); }
-    const_reference operator[](int index) const { return at(index); }
+    reference operator[](size_t index) { return at(index); }
+    const_reference operator[](size_t index) const { return at(index); }
 
     reference at(size_t index) {
       DCHECK_NE(array_, nullptr);
@@ -105,7 +107,9 @@ class BASE_EXPORT ScopedSafearray {
       array_size_ = 0U;
     }
 
-    SAFEARRAY* safearray_ = nullptr;
+    // This field is not a raw_ptr<> because it was filtered by the rewriter
+    // for: #union
+    RAW_PTR_EXCLUSION SAFEARRAY* safearray_ = nullptr;
     VARTYPE vartype_ = VT_EMPTY;
     pointer array_ = nullptr;
     size_t array_size_ = 0U;
@@ -142,7 +146,7 @@ class BASE_EXPORT ScopedSafearray {
     VARTYPE vartype;
     HRESULT hr = SafeArrayGetVartype(safearray_, &vartype);
     if (FAILED(hr) ||
-        !internal::VariantUtil<ElementVartype>::IsConvertibleTo(vartype)) {
+        !internal::VariantConverter<ElementVartype>::IsConvertibleTo(vartype)) {
       return absl::nullopt;
     }
 
@@ -202,7 +206,10 @@ class BASE_EXPORT ScopedSafearray {
     DCHECK(SUCCEEDED(hr));
     hr = SafeArrayGetUBound(safearray_, dimension + 1, &upper);
     DCHECK(SUCCEEDED(hr));
-    return (upper - lower + 1);
+    LONG count = upper - lower + 1;
+    // SafeArrays may have negative lower bounds, so check for wraparound.
+    DCHECK_GT(count, 0);
+    return static_cast<size_t>(count);
   }
 
   // Returns the internal pointer.
@@ -214,7 +221,9 @@ class BASE_EXPORT ScopedSafearray {
   bool operator!=(const ScopedSafearray& safearray2) const = delete;
 
  private:
-  SAFEARRAY* safearray_;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION SAFEARRAY* safearray_;
 };
 
 }  // namespace win

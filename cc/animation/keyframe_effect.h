@@ -1,10 +1,11 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CC_ANIMATION_KEYFRAME_EFFECT_H_
 #define CC_ANIMATION_KEYFRAME_EFFECT_H_
 
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -29,6 +30,15 @@ class Animation;
 enum class PauseCondition { kUnconditional, kAfterStart };
 struct PropertyAnimationState;
 
+// Specially designed for a custom property animation on a paint worklet
+// element. It doesn't require an element id to run on the compositor thread.
+// However, our animation system requires the element to be on the property
+// tree in order to keep ticking the animation. Therefore, we use a reserved
+// element id for this animation so that the compositor animation system
+// recognize it. We do not use ElementId because it's an invalid element id.
+inline constexpr ElementId kReservedElementIdForPaintWorklet(
+    std::numeric_limits<ElementId::InternalValue>::max());
+
 // A KeyframeEffect owns a group of KeyframeModels for a single target
 // (identified by an ElementId). It is responsible for managing the
 // KeyframeModels' running states (starting, running, paused, etc), as well as
@@ -49,7 +59,7 @@ class CC_ANIMATION_EXPORT KeyframeEffect : public gfx::KeyframeEffect {
   KeyframeEffect& operator=(const KeyframeEffect&) = delete;
 
   // ElementAnimations object where this controller is listed.
-  scoped_refptr<ElementAnimations> element_animations() const {
+  scoped_refptr<const ElementAnimations> element_animations() const {
     return element_animations_;
   }
 
@@ -88,7 +98,7 @@ class CC_ANIMATION_EXPORT KeyframeEffect : public gfx::KeyframeEffect {
   void UpdateState(bool start_ready_keyframe_models, AnimationEvents* events);
   void UpdateTickingState();
 
-  void Pause(base::TimeDelta pause_offset,
+  void Pause(base::TimeTicks timeline_time,
              PauseCondition = PauseCondition::kUnconditional);
 
   void AddKeyframeModel(
@@ -120,7 +130,7 @@ class CC_ANIMATION_EXPORT KeyframeEffect : public gfx::KeyframeEffect {
   // Returns the maximum scale along any dimension at any destination in active
   // scale animations, or kInvalidScale if there is no active transform
   // animation or the scale cannot be computed.
-  float MaximumScale(ElementListType) const;
+  float MaximumScale(ElementId, ElementListType) const;
 
   // Returns true if there is a keyframe_model that is either currently
   // animating the given property or scheduled to animate this property in the
@@ -169,8 +179,7 @@ class CC_ANIMATION_EXPORT KeyframeEffect : public gfx::KeyframeEffect {
   void MarkKeyframeModelsForDeletion(base::TimeTicks, AnimationEvents* events);
   void MarkFinishedKeyframeModels(base::TimeTicks monotonic_time);
 
-  bool HasElementInActiveList() const;
-  gfx::PointF ScrollOffsetForAnimation() const;
+  absl::optional<gfx::PointF> ScrollOffsetForAnimation() const;
   void GenerateEvent(AnimationEvents* events,
                      const KeyframeModel& keyframe_model,
                      AnimationEvent::Type type,

@@ -124,7 +124,7 @@ Path HTMLAreaElement::GetPath(const LayoutObject* container_object) const {
   if (path_) {
     path = *path_;
   } else {
-    if (coords_.IsEmpty())
+    if (coords_.empty())
       return path;
 
     switch (shape_) {
@@ -222,7 +222,8 @@ void HTMLAreaElement::SetFocused(bool should_be_focused,
 void HTMLAreaElement::UpdateSelectionOnFocus(
     SelectionBehaviorOnFocus selection_behavior,
     const FocusOptions* options) {
-  GetDocument().UpdateStyleAndLayoutTreeForNode(this);
+  GetDocument().UpdateStyleAndLayoutTreeForNode(this,
+                                                DocumentUpdateReason::kFocus);
   if (!IsFocusable())
     return;
 

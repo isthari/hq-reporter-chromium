@@ -2,244 +2,173 @@
 <html>
 <head>
 <meta charset=utf-8>
-<title>List Picker test</title>
+<title>&lt;select&gt;</title>
 <style>
-body {
+  body {
     background-color: #eeffff;
-}
-iframe {
+  }
+  iframe {
     z-index: 2147483647;
-    width: 100px;
-    height: 100px;
+    width: 65px;
+    height: 25px;
     border: 0;
     overflow: hidden;
-}
+  }
 </style>
 </head>
 <body>
 
-<p>This is a testbed for list picker.</p>
+<h3>This is a testbed for &lt;select&gt;</h3>
 
-<div>
-<select id="menu">
-    <option value="0">foo</option>
-    <option value="1">bar</option>
-    <option value="2">bar</option>
-    <optgroup label=bar>
-        <option value="4">bar</option>
-        <option value="5">bar</option>
+<h3>Regular popup &lt;select&gt;
+  <select>
+    <option value="one">One</option>
+    <!-- comment -->
+    <option value="two">Two</option>
+    <optgroup label="Group">
+      <option value="three">Three</option>
+      <option value="four">Four</option>
     </optgroup>
-    <option value="6">bar</option>
-</select>
-<iframe srcdoc="<!DOCTYPE html>"></iframe>
+    <option value="five">Five</option>
+    <option value="six">Six</option>
+  </select>
+</h3>
 
-<ol id="console" style="font-family:monospace;">
-</ol>
+<h3>Multiple &lt;select&gt;
+  <select multiple>
+    <option value="one">One</option>
+    <option value="two">Two</option>
+    <optgroup label="Group">
+      <option value="three">Three</option>
+      <option value="four">Four</option>
+    </optgroup>
+    <option value="five">Five</option>
+    <option value="six">Six</option>
+  </select>
+</h3>
+
+<h3>Inline iframe &lt;select&gt;</h3>
+<div id=iframecontainer></div>
+
+<ol id="console" style="font-family:monospace;"></ol>
 
 <script>
-var pickerArguments = {
-    selectedIndex: 0,
-    children: [{
-            type: "option",
-            label: "foo",
-            title: "",
-            value: 0,
-            ariaLabel: "",
-            disabled: false,
-            style: {
-                color: "black",
-                backgroundColor: "transparent",
-                fontSize: "11px",
-                fontWeight: "400",
-                fontFamily: ["sans-serif"],
-                visibility: "visible",
-                display: "block",
-                direction: "ltr",
-                unicodeBidi: "normal"
-            }
-        }, {
-            type: "option",
-            label: "bar",
-            title: "",
-            value: 1,
-            ariaLabel: "",
-            disabled: false,
-            style: {
-                color: "black",
-                backgroundColor: "transparent",
-                fontSize: "11px",
-                fontWeight: "400",
-                fontFamily: ["sans-serif"],
-                visibility: "visible",
-                display: "block",
-                direction: "ltr",
-                unicodeBidi: "normal"
-            }
-        }, {
-            type: "separator",
-            label: "bar",
-            title: "",
-            value: 2,
-            ariaLabel: "",
-            disabled: false,
-            style: {
-                color: "black",
-                backgroundColor: "transparent",
-                fontSize: "11px",
-                fontWeight: "400",
-                fontFamily: ["sans-serif"],
-                visibility: "visible",
-                display: "block",
-                direction: "ltr",
-                unicodeBidi: "normal"
-            }
-        }, {
-            type: "option",
-            label: "bar",
-            title: "",
-            value: 2,
-            ariaLabel: "",
-            disabled: false,
-            style: {
-                color: "black",
-                backgroundColor: "transparent",
-                fontSize: "11px",
-                fontWeight: "400",
-                fontFamily: ["sans-serif"],
-                visibility: "visible",
-                display: "block",
-                direction: "ltr",
-                unicodeBidi: "normal"
-            }
-        }, {
-        type: "optgroup",
-        label: "foo",
-        title: "",
-        ariaLabel: "",
-        disabled: false,
-        children: [{
-            type: "option",
-            label: "bar",
-            title: "",
-            value: 3,
-            ariaLabel: "",
-            disabled: false,
-            style: {
-                color: "black",
-                backgroundColor: "transparent",
-                fontSize: "11px",
-                fontWeight: "700",
-                fontFamily: ["sans-serif"],
-                visibility: "visible",
-                display: "block",
-                direction: "ltr",
-                unicodeBidi: "normal"
-            }
-        },
-        {
-            type: "option",
-            label: "bar",
-            title: "",
-            value: 4,
-            ariaLabel: "",
-            disabled: false,
-            style: {
-                color: "black",
-                backgroundColor: "transparent",
-                fontSize: "11px",
-                fontWeight: "400",
-                fontFamily: ["sans-serif"],
-                visibility: "visible",
-                display: "block",
-                direction: "ltr",
-                unicodeBidi: "normal"
-            }
-        }],
-        style: {
-            color: "black",
-            backgroundColor: "transparent",
-            fontSize: "11px",
-            fontWeight: "400",
-            fontFamily: ["sans-serif"],
-            visibility: "visible",
-            display: "block",
-            direction: "ltr",
-            unicodeBidi: "normal"
-        }
-    }, {
-        type: "option",
-        label: "bar",
-        title: "",
-        value: 5,
-        ariaLabel: "",
-        disabled: false,
-        style: {
-            color: "black",
-            backgroundColor: "transparent",
-            fontSize: "11px",
-            fontWeight: "400",
-            fontFamily: ["sans-serif"],
-            visibility: "visible",
-            display: "block",
-            direction: "ltr",
-            unicodeBidi: "normal"
-        }
-    }],
-    anchorRectInScreen: {
-        x: 1332,
-        y: 356,
-        width: 64,
-        height: 18,
-    },
-};
-
-function openListPicker(args) {
-    var frame = document.getElementsByTagName('iframe')[0];
-    var doc = frame.contentDocument;
-    doc.documentElement.innerHTML = '<!DOCTYPE html><head></head><body><div id=main>Loading...</div></body>';
-    var commonCssLink = doc.createElement('link');
-    commonCssLink.rel = 'stylesheet';
-    commonCssLink.href = '../../Source/core/html/forms/resources/pickerCommon.css?' + (new Date()).getTime();
-    doc.head.appendChild(commonCssLink);
-    var listPickerCssLink = doc.createElement('link');
-    listPickerCssLink.rel = 'stylesheet';
-    listPickerCssLink.href = '../../Source/core/html/forms/resources/listPicker.css?' + (new Date()).getTime();
-    doc.head.appendChild(listPickerCssLink);
-    var commonJsScript = doc.createElement('script');
-    commonJsScript.src = '../../Source/core/html/forms/resources/pickerCommon.js?' + (new Date()).getTime();
-    doc.body.appendChild(commonJsScript);
-    var listPickerJsScript = doc.createElement('script');
-    listPickerJsScript.src = '../../Source/core/html/forms/resources/listPicker.js?' + (new Date()).getTime();
-    doc.body.appendChild(listPickerJsScript);
-
-    var pagePopupController = {
-        setValue: function(stringValue) {
-            window.log('string="' + stringValue + '"');
-            if (numValue == 0)
-                window.document.getElementById('menu').value = stringValue;
-        },
-        setValueAndClosePopup: function(numValue, stringValue) {
-            window.log('number=' + numValue + ', string="' + stringValue + '"');
-            if (numValue == 0)
-                window.document.getElementById('menu').value = stringValue;
-        },
-    }
-
-    setTimeout(function() {
-        frame.contentWindow.postMessage(JSON.stringify(args), "*");
-        frame.contentWindow.pagePopupController = pagePopupController;
-    }, 100);
-}
-
 function log(str) {
-    var entry = document.createElement('li');
-    entry.innerText = str;
-    document.getElementById('console').appendChild(entry);
+  var entry = document.createElement('li');
+  entry.innerText = str;
+  document.getElementById('console').appendChild(entry);
 }
 
-document.getElementsByTagName('iframe')[0].onload = function () {
-    openListPicker(pickerArguments);
+window.onload = () => {
+  const frame = document.createElement('iframe');
+  iframecontainer.appendChild(frame);
+  const doc = frame.contentDocument;
+
+  // The following code sets up a select element inside an iframe as similarly
+  // as possible to InternalPopupMenu::WriteDocument.
+  // https://source.chromium.org/chromium/chromium/src/+/main:third_party/blink/renderer/core/html/forms/internal_popup_menu.cc;l=277;drc=0dfd772a334cdfbd806a3edb46abde2f4101c4c1
+
+  doc.documentElement.innerHTML = `
+    <head>
+      <meta charset='UTF-8'>
+      <link rel=stylesheet href="../../renderer/core/html/forms/resources/picker_common.css">
+      <link rel=stylesheet href="../../renderer/core/html/forms/resources/list_picker.css">
+    </head>
+    <body>
+      <div id=main>Loading...</div>
+    </body>
+  `;
+
+  frame.contentWindow.dialogArguments = {
+    selectedIndex: 0,
+    baseStyle: {
+      backgroundColor: "rgb(255, 255, 255)",
+      color: "rgb(0, 0, 0)",
+      textTransform: "none",
+      textAlign: "start",
+      fontSize: 13,
+      fontStyle: "normal",
+      fontVariant: "",
+      fontFamily: "Arial",
+    },
+    children: [
+      {
+        label: "One",
+        value: 0,
+        style: {
+        },
+      }, {
+        label: "Two",
+        value: 1,
+        style: {
+        },
+      }, {
+        type: "optgroup",
+        label: "Group",
+        style: {
+        }, children: [
+          {
+            label: "Three",
+            value: 2,
+            style: {
+            },
+          }, {
+            label: "Four",
+            value: 3,
+            style: {
+            },
+          },],
+      }, {
+        label: "Five",
+        value: 4,
+        style: {
+        },
+      }, {
+        label: "Six",
+        value: 5,
+        style: {
+        },
+      },
+    ],
+    anchorRectInScreen: {
+      x: 0,
+      y: 0,
+      width: 59,
+      height: 19,
+    },
+    zoomFactor: 1,
+    scaleFactor: 1,
+    isRTL: false,
+    paddingStart: 4,
+  };
+
+  const pickerCommonJs = doc.createElement('script');
+  pickerCommonJs.src = "../../renderer/core/html/forms/resources/picker_common.js";
+  doc.body.appendChild(pickerCommonJs);
+
+  const listPickerJS = doc.createElement('script');
+  listPickerJS.src = "../../renderer/core/html/forms/resources/list_picker.js";
+  doc.body.appendChild(listPickerJS);
+
+  const pagePopupController = frame.contentWindow.pagePopupController = {
+    setValueAndClosePopup: function(numValue, stringValue) {
+      window.log('index="' + stringValue + '"' + ', value="' +
+       frame.contentWindow.dialogArguments.children[stringValue].label + '"');
+    },
+    setValue: function(value) {
+      window.log('index="' + value + '"' + ', value="' + 
+      frame.contentWindow.dialogArguments.children[value].label + '"');
+    },
+    closePopup: function() { },
+    setMenuListOptionsBoundsInAXTree: function(optionsBounds) { }
+  };
+
+  setTimeout(() => {
+    doc.querySelectorAll("option").forEach(option => {
+    option.append(option.label);
+  })}, 100);
 }
+
 </script>
 </body>
 </html>

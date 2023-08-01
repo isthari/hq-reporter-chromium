@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -52,14 +52,14 @@ public class WebApkIdentityServiceClient {
     /** Manages connections between the browser application and WebAPK Identity services. */
     private WebApkServiceConnectionManager mConnectionManager;
 
-    public static WebApkIdentityServiceClient getInstance(TaskTraits uiThreadTaskTraits) {
+    public static WebApkIdentityServiceClient getInstance(@TaskTraits int uiThreadTaskTraits) {
         if (sInstance == null) {
             sInstance = new WebApkIdentityServiceClient(uiThreadTaskTraits);
         }
         return sInstance;
     }
 
-    private WebApkIdentityServiceClient(TaskTraits uiThreadTaskTraits) {
+    private WebApkIdentityServiceClient(@TaskTraits int uiThreadTaskTraits) {
         mConnectionManager = new WebApkServiceConnectionManager(
                 uiThreadTaskTraits, null /* category */, ACTION_WEBAPK_IDENTITY_SERVICE);
     }

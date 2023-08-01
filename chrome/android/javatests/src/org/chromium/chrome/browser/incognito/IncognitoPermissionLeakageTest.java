@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,7 @@ import static androidx.test.espresso.matcher.ViewMatchers.withText;
 import static org.hamcrest.core.StringContains.containsString;
 import static org.junit.Assert.assertTrue;
 
-import android.support.test.InstrumentationRegistry;
-
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.espresso.Espresso;
 import androidx.test.espresso.NoMatchingViewException;
 import androidx.test.filters.LargeTest;
@@ -35,18 +34,19 @@ import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisabledTest;
-import org.chromium.base.test.util.FlakyTest;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.customtabs.IncognitoCustomTabActivityTestRule;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.incognito.IncognitoDataTestUtils.ActivityType;
 import org.chromium.chrome.browser.incognito.IncognitoDataTestUtils.TestParams;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tab.TabUtils.LoadIfNeededCaller;
 import org.chromium.chrome.test.ChromeJUnit4RunnerDelegate;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.chrome.test.util.browser.LocationSettingsTestUtil;
+import org.chromium.components.browser_ui.modaldialog.ModalDialogTestUtils;
 import org.chromium.content_public.browser.test.util.JavaScriptUtils;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.device.geolocation.LocationProviderOverrider;
@@ -84,7 +84,8 @@ public class IncognitoPermissionLeakageTest {
 
     @Before
     public void setUp() throws TimeoutException {
-        mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
+        mTestServer = EmbeddedTestServer.createAndStartServer(
+                ApplicationProvider.getApplicationContext());
         mPermissionTestPage = mTestServer.getURL(PERMISSION_HTML_PATH);
 
         // Permission related settings.
@@ -94,10 +95,12 @@ public class IncognitoPermissionLeakageTest {
         // Ensuring native is initialized before we access the CCT_INCOGNITO feature flag.
         IncognitoDataTestUtils.fireAndWaitForCctWarmup();
         assertTrue(ChromeFeatureList.isEnabled(ChromeFeatureList.CCT_INCOGNITO));
+        ModalDialogTestUtils.overrideEnableButtonTapProtection(false);
     }
 
     @After
     public void tearDown() {
+        ModalDialogTestUtils.overrideEnableButtonTapProtection(true);
         TestThreadUtils.runOnUiThreadBlocking(
                 () -> IncognitoDataTestUtils.closeTabs(mChromeActivityTestRule));
         mTestServer.stopAndDestroyServer();
@@ -105,7 +108,7 @@ public class IncognitoPermissionLeakageTest {
 
     private void requestLocationPermission(Tab tab) throws TimeoutException, ExecutionException {
         // If tab is frozen then getWebContents may return null
-        TestThreadUtils.runOnUiThreadBlocking(() -> tab.loadIfNeeded());
+        TestThreadUtils.runOnUiThreadBlocking(() -> tab.loadIfNeeded(LoadIfNeededCaller.OTHER));
         CriteriaHelper.pollUiThread(
                 () -> Criteria.checkThat(tab.getWebContents(), Matchers.notNullValue()));
         JavaScriptUtils.executeJavaScriptAndWaitForResult(
@@ -128,6 +131,10 @@ public class IncognitoPermissionLeakageTest {
         Espresso.onView(withText(containsString("Block"))).perform(click());
     }
 
+    /**
+     * A class providing test parameters encapsulating different Activity type pairs spliced on
+     * Regular and Incognito mode.
+     */
     public static class RegularAndIncognito implements ParameterProvider {
         @Override
         public List<ParameterSet> getParameters() {
@@ -141,7 +148,7 @@ public class IncognitoPermissionLeakageTest {
     @Test
     @LargeTest
     @UseMethodParameter(RegularAndIncognito.class)
-    @FlakyTest(message = "https://crbug.com/1103488")
+    @DisabledTest(message = "https://crbug.com/1103488")
     public void testAllowPermissionDoNotLeakBetweenRegularAndIncognito(
             String activityType1, String activityType2) throws Exception {
         ActivityType activity1 = ActivityType.valueOf(activityType1);
@@ -251,7 +258,7 @@ public class IncognitoPermissionLeakageTest {
     @Test
     @LargeTest
     @UseMethodParameter(TestParams.IncognitoToRegular.class)
-    @FlakyTest(message = "https://crbug.com/1103488")
+    @DisabledTest(message = "https://crbug.com/1103488")
     public void testBlockPermissionDoNotLeakFromIncognitoToRegular(
             String incognitoActivityType, String regularActivityType) throws Exception {
         ActivityType incognitoActivity = ActivityType.valueOf(incognitoActivityType);

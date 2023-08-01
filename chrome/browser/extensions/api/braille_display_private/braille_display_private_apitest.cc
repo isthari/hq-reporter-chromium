@@ -1,11 +1,12 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <stddef.h>
 
-#include "base/bind.h"
 #include "base/containers/circular_deque.h"
+#include "base/functional/bind.h"
+#include "base/memory/raw_ptr.h"
 #include "base/threading/thread_restrictions.h"
 #include "chrome/browser/ash/accessibility/accessibility_manager.h"
 #include "chrome/browser/ash/login/lock/screen_locker.h"
@@ -140,7 +141,7 @@ class MockBrlapiConnection : public BrlapiConnection {
     }
   }
 
-  MockBrlapiConnectionData* data_;
+  raw_ptr<MockBrlapiConnectionData, ExperimentalAsh> data_;
   OnDataReadyCallback on_data_ready_;
 };
 
@@ -153,6 +154,7 @@ class BrailleDisplayPrivateApiTest : public ExtensionApiTest {
     connection_data_.display_columns = 0;
     connection_data_.error.brlerrno = BRLAPI_ERROR_SUCCESS;
     connection_data_.reappear_on_disconnect = false;
+    BrailleControllerImpl::GetInstance()->use_self_in_tests_ = true;
     BrailleControllerImpl::GetInstance()->SetCreateBrlapiConnectionForTesting(
         base::BindOnce(&BrailleDisplayPrivateApiTest::CreateBrlapiConnection,
                        base::Unretained(this)));
@@ -347,7 +349,7 @@ IN_PROC_BROWSER_TEST_F(BrailleDisplayPrivateAPIUserTest, KeyEventOnLockScreen) {
 
   // Send key event to both profiles.
   KeyEvent key_event;
-  key_event.command = KEY_COMMAND_LINE_UP;
+  key_event.command = KeyCommand::kLineUp;
   signin_api.OnBrailleKeyEvent(key_event);
   user_api.OnBrailleKeyEvent(key_event);
   EXPECT_EQ(0, signin_delegate->GetEventCount());

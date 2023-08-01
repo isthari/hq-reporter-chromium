@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,12 @@
 #include "components/omnibox/browser/test_omnibox_client.h"
 #include "components/omnibox/browser/test_omnibox_edit_model.h"
 
-TestOmniboxEditModel::TestOmniboxEditModel(OmniboxView* view,
-                                           OmniboxEditController* controller,
-                                           PrefService* pref_service)
-    : OmniboxEditModel(view, controller, std::make_unique<TestOmniboxClient>()),
+TestOmniboxEditModel::TestOmniboxEditModel(
+    OmniboxController* omnibox_controller,
+    OmniboxView* view,
+    OmniboxEditModelDelegate* edit_model_delegate,
+    PrefService* pref_service)
+    : OmniboxEditModel(omnibox_controller, view, edit_model_delegate),
       popup_is_open_(false),
       pref_service_(pref_service) {}
 
@@ -42,14 +44,13 @@ void TestOmniboxEditModel::OnPopupDataChanged(
     bool is_temporary_text,
     const std::u16string& inline_autocompletion,
     const std::u16string& prefix_autocompletion,
-    const SplitAutocompletion& split_autocompletion,
     const std::u16string& keyword,
     bool is_keyword_hint,
-    const std::u16string& additional_text) {
+    const std::u16string& additional_text,
+    const AutocompleteMatch& match) {
   OmniboxEditModel::OnPopupDataChanged(
       temporary_text, is_temporary_text, inline_autocompletion,
-      prefix_autocompletion, split_autocompletion, keyword, is_keyword_hint,
-      additional_text);
+      prefix_autocompletion, keyword, is_keyword_hint, additional_text, match);
   text_ = is_temporary_text ? temporary_text : inline_autocompletion;
   is_temporary_text_ = is_temporary_text;
 }

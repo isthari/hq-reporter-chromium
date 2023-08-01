@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,9 +28,8 @@ import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 import androidx.appcompat.content.res.AppCompatResources;
 import androidx.core.widget.ImageViewCompat;
-import androidx.vectordrawable.graphics.drawable.VectorDrawableCompat;
 
-import org.chromium.base.ApiCompatibilityUtils;
+import org.chromium.components.browser_ui.util.TraceEventVectorDrawableCompat;
 import org.chromium.components.browser_ui.widget.selectable_list.SelectableItemViewBase;
 import org.chromium.components.browser_ui.widget.selectable_list.SelectionDelegate;
 
@@ -119,11 +118,16 @@ public class PickerBitmapView extends SelectableItemViewBase<PickerBitmap> {
         mContext = context;
     }
 
+    @SuppressWarnings("WrongViewCast") // Android lint gets confused: https://crbug.com/1315709
+    private void assignScrim() {
+        mScrim = findViewById(R.id.scrim);
+    }
+
     @Override
     protected void onFinishInflate() {
         super.onFinishInflate();
+        assignScrim();
         mIconView = findViewById(R.id.bitmap_view);
-        mScrim = findViewById(R.id.scrim);
         mSelectedView = findViewById(R.id.selected);
         mUnselectedView = findViewById(R.id.unselected);
         mSpecialTile = findViewById(R.id.special_tile);
@@ -375,11 +379,11 @@ public class PickerBitmapView extends SelectableItemViewBase<PickerBitmap> {
         Resources resources = mContext.getResources();
 
         if (isCameraTile()) {
-            image = VectorDrawableCompat.create(
+            image = TraceEventVectorDrawableCompat.create(
                     resources, R.drawable.ic_photo_camera_grey, mContext.getTheme());
             labelStringId = R.string.photo_picker_camera;
         } else if (isGalleryTile()) {
-            image = VectorDrawableCompat.create(
+            image = TraceEventVectorDrawableCompat.create(
                     resources, R.drawable.ic_collections_grey, mContext.getTheme());
             labelStringId = R.string.photo_picker_browse;
         } else {
@@ -387,7 +391,7 @@ public class PickerBitmapView extends SelectableItemViewBase<PickerBitmap> {
         }
 
         mSpecialTileIcon.setImageDrawable(image);
-        ApiCompatibilityUtils.setImageTintList(mSpecialTileIcon,
+        ImageViewCompat.setImageTintList(mSpecialTileIcon,
                 AppCompatResources.getColorStateList(
                         mContext, R.color.default_icon_color_secondary_tint_list));
         ImageViewCompat.setImageTintMode(mSpecialTileIcon, PorterDuff.Mode.SRC_IN);
@@ -489,7 +493,7 @@ public class PickerBitmapView extends SelectableItemViewBase<PickerBitmap> {
             setEnabled(!anySelection);
         }
 
-        mBackgroundColor = ApiCompatibilityUtils.getColor(resources, bgColorId);
+        mBackgroundColor = mContext.getColor(bgColorId);
         setBackgroundColor(mCategoryView.isZoomSwitchingInEffect() && !special ? Color.TRANSPARENT
                                                                                : mBackgroundColor);
 

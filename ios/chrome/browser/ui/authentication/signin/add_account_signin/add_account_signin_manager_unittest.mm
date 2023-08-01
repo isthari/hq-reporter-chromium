@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,17 +6,21 @@
 
 #import <UIKit/UIKit.h>
 
+#import "base/mac/foundation_util.h"
+#import "base/strings/sys_string_conversions.h"
 #import "base/test/ios/wait_util.h"
 #import "base/test/task_environment.h"
 #import "components/prefs/pref_registry_simple.h"
 #import "components/prefs/testing_pref_service.h"
 #import "components/signin/public/base/signin_pref_names.h"
-#import "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/application_context/application_context.h"
+#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/signin/fake_system_identity.h"
+#import "ios/chrome/browser/signin/fake_system_identity_interaction_manager.h"
+#import "ios/chrome/browser/signin/fake_system_identity_manager.h"
 #import "ios/chrome/browser/signin/identity_manager_factory.h"
-#import "ios/public/provider/chrome/browser/signin/fake_chrome_identity.h"
-#import "ios/public/provider/chrome/browser/signin/fake_chrome_identity_interaction_manager.h"
-#import "ios/public/provider/chrome/browser/signin/fake_chrome_identity_service.h"
 #import "ios/web/common/uikit_ui_util.h"
+#import "testing/gtest_mac.h"
 #import "testing/platform_test.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
 #import "third_party/ocmock/gtest_support.h"
@@ -26,7 +30,7 @@
 #endif
 
 namespace {
-// Constants for configuring a FakeChromeIdentity.
+// Constants for configuring a FakeSystemIdentity.
 const char kTestGaiaID[] = "fooID";
 const char kTestEmail[] = "foo@gmail.com";
 }  // namespace
@@ -38,48 +42,45 @@ class AddAccountSigninManagerTest : public PlatformTest {
     identity_interaction_manager_ = GetIdentityInteractionManager();
   }
 
-  FakeChromeIdentityInteractionManager* GetIdentityInteractionManager() {
-    FakeChromeIdentityInteractionManager* identity_interaction_manager =
-        ios::FakeChromeIdentityService::GetInstanceFromChromeProvider()
-            ->CreateFakeChromeIdentityInteractionManager();
-    fake_identity_ = [FakeChromeIdentity
+  FakeSystemIdentityInteractionManager* GetIdentityInteractionManager() {
+    fake_identity_ = [FakeSystemIdentity
         identityWithEmail:[NSString stringWithUTF8String:kTestEmail]
                    gaiaID:[NSString stringWithUTF8String:kTestGaiaID]
                      name:@"Foo"];
-    FakeChromeIdentityInteractionManager.identity = fake_identity_;
-    return identity_interaction_manager;
+    return base::mac::ObjCCastStrict<FakeSystemIdentityInteractionManager>(
+        fake_system_identity_manager()->CreateInteractionManager());
   }
 
   signin::IdentityManager* GetIdentityManager() {
     return IdentityManagerFactory::GetForBrowserState(browser_state_.get());
   }
 
-  // Registers account preferences that will be used in reauthentication.
-  PrefService* GetPrefService() {
-    TestingPrefServiceSimple* prefs = new TestingPrefServiceSimple();
-    PrefRegistrySimple* registry = prefs->registry();
-    registry->RegisterStringPref(prefs::kGoogleServicesLastUsername,
-                                 kTestEmail);
-    registry->RegisterStringPref(prefs::kGoogleServicesLastAccountId,
-                                 kTestGaiaID);
-    return prefs;
-  }
-
-  void WaitForFakeAddAccountViewPresented() {
+  void WaitForFakeAddAccountViewPresented(NSString* expectedUserEmail) {
+    EXPECT_NSEQ(expectedUserEmail,
+                identity_interaction_manager_.lastStartAuthActivityUserEmail);
     base::test::ios::WaitUntilCondition(^bool() {
-      return identity_interaction_manager_.viewControllerPresented;
+      return identity_interaction_manager_.isActivityViewPresented;
     });
   }
 
   void WaitForFakeAddAccountViewDismissed() {
     base::test::ios::WaitUntilCondition(^bool() {
-      return !identity_interaction_manager_.viewControllerPresented;
+      return !identity_interaction_manager_.isActivityViewPresented;
     });
+  }
+
+  FakeSystemIdentityManager* fake_system_identity_manager() {
+    return FakeSystemIdentityManager::FromSystemIdentityManager(
+        GetApplicationContext()->GetSystemIdentityManager());
   }
 
  protected:
   void SetUp() override {
     PlatformTest::SetUp();
+
+    PrefService* prefs = browser_state_->GetPrefs();
+    prefs->SetString(prefs::kGoogleServicesLastUsername, kTestEmail);
+    prefs->SetString(prefs::kGoogleServicesLastGaiaId, kTestGaiaID);
 
     base_view_controller_ = [[UIViewController alloc] init];
     base_view_controller_.view.backgroundColor = UIColor.blueColor;
@@ -88,7 +89,7 @@ class AddAccountSigninManagerTest : public PlatformTest {
     signin_manager_ = [[AddAccountSigninManager alloc]
         initWithBaseViewController:base_view_controller_
         identityInteractionManager:identity_interaction_manager_
-                       prefService:GetPrefService()
+                       prefService:prefs
                    identityManager:GetIdentityManager()];
     signin_manager_delegate_ =
         OCMStrictProtocolMock(@protocol(AddAccountSigninManagerDelegate));
@@ -108,8 +109,8 @@ class AddAccountSigninManagerTest : public PlatformTest {
   AddAccountSigninManager* signin_manager_ = nil;
   id<AddAccountSigninManagerDelegate> signin_manager_delegate_ = nil;
 
-  FakeChromeIdentityInteractionManager* identity_interaction_manager_ = nil;
-  FakeChromeIdentity* fake_identity_ = nil;
+  FakeSystemIdentityInteractionManager* identity_interaction_manager_ = nil;
+  FakeSystemIdentity* fake_identity_ = nil;
 };
 
 // Verifies the following state in the successful add account flow:
@@ -117,6 +118,7 @@ class AddAccountSigninManagerTest : public PlatformTest {
 //   - Completion callback is called with success state
 TEST_F(AddAccountSigninManagerTest, AddAccountIntent) {
   // Verify that completion was called with success state.
+  FakeSystemIdentityInteractionManager.identity = fake_identity_;
   OCMExpect([signin_manager_delegate_
       addAccountSigninManagerFinishedWithSigninResult:
           SigninCoordinatorResultSuccess
@@ -124,8 +126,8 @@ TEST_F(AddAccountSigninManagerTest, AddAccountIntent) {
 
   [signin_manager_
       showSigninWithIntent:AddAccountSigninIntentAddSecondaryAccount];
-  WaitForFakeAddAccountViewPresented();
-  [identity_interaction_manager_ addAccountViewControllerDidTapSignIn];
+  WaitForFakeAddAccountViewPresented(/*expectedUserEmail=*/nil);
+  [identity_interaction_manager_ simulateDidTapAddAccount];
   WaitForFakeAddAccountViewDismissed();
 }
 
@@ -141,8 +143,8 @@ TEST_F(AddAccountSigninManagerTest, AddAccountIntentWithUserCancel) {
 
   [signin_manager_
       showSigninWithIntent:AddAccountSigninIntentAddSecondaryAccount];
-  WaitForFakeAddAccountViewPresented();
-  [identity_interaction_manager_ addAccountViewControllerDidTapCancel];
+  WaitForFakeAddAccountViewPresented(/*expectedUserEmail=*/nil);
+  [identity_interaction_manager_ simulateDidTapCancel];
   WaitForFakeAddAccountViewDismissed();
 }
 
@@ -159,9 +161,8 @@ TEST_F(AddAccountSigninManagerTest,
 
   [signin_manager_
       showSigninWithIntent:AddAccountSigninIntentAddSecondaryAccount];
-  WaitForFakeAddAccountViewPresented();
-  [identity_interaction_manager_
-      addAccountViewControllerDidThrowUnhandledError];
+  WaitForFakeAddAccountViewPresented(/*expectedUserEmail=*/nil);
+  [identity_interaction_manager_ simulateDidThrowUnhandledError];
   WaitForFakeAddAccountViewDismissed();
 }
 
@@ -174,7 +175,7 @@ TEST_F(AddAccountSigninManagerTest, AddAccountSigninInterrupted) {
 
   [signin_manager_
       showSigninWithIntent:AddAccountSigninIntentAddSecondaryAccount];
-  WaitForFakeAddAccountViewPresented();
+  WaitForFakeAddAccountViewPresented(/*expectedUserEmail=*/nil);
   __block BOOL completionCalled = NO;
   [signin_manager_ interruptAddAccountAnimated:YES
                                     completion:^() {
@@ -189,6 +190,7 @@ TEST_F(AddAccountSigninManagerTest, AddAccountSigninInterrupted) {
 //   - Completion callback is called with success state
 TEST_F(AddAccountSigninManagerTest, ReauthIntentWithSuccess) {
   // Verify that completion was called with canceled result state.
+  FakeSystemIdentityInteractionManager.identity = fake_identity_;
   OCMExpect([signin_manager_delegate_
       addAccountSigninManagerFinishedWithSigninResult:
           SigninCoordinatorResultSuccess
@@ -196,8 +198,9 @@ TEST_F(AddAccountSigninManagerTest, ReauthIntentWithSuccess) {
 
   [signin_manager_
       showSigninWithIntent:AddAccountSigninIntentReauthPrimaryAccount];
-  WaitForFakeAddAccountViewPresented();
-  [identity_interaction_manager_ addAccountViewControllerDidTapSignIn];
+  WaitForFakeAddAccountViewPresented(
+      /*expectedUserEmail=*/base::SysUTF8ToNSString(kTestEmail));
+  [identity_interaction_manager_ simulateDidTapAddAccount];
   WaitForFakeAddAccountViewDismissed();
 }
 
@@ -213,8 +216,34 @@ TEST_F(AddAccountSigninManagerTest, ReauthIntentWithUserCancel) {
 
   [signin_manager_
       showSigninWithIntent:AddAccountSigninIntentReauthPrimaryAccount];
-  WaitForFakeAddAccountViewPresented();
-  [identity_interaction_manager_ addAccountViewControllerDidTapCancel];
+  WaitForFakeAddAccountViewPresented(
+      /*expectedUserEmail=*/base::SysUTF8ToNSString(kTestEmail));
+  [identity_interaction_manager_ simulateDidTapCancel];
+  WaitForFakeAddAccountViewDismissed();
+}
+
+// Verifies the following state in the successful reauth flow:
+//   - No last know sync account in the identity service
+//   - Completion callback is called with success state
+//
+// Regression test for crbug/1443096
+TEST_F(AddAccountSigninManagerTest,
+       ReauthIntentWithSuccessNoLastKnowSyncAccount) {
+  PrefService* prefs = browser_state_->GetPrefs();
+  prefs->ClearPref(prefs::kGoogleServicesLastUsername);
+  prefs->ClearPref(prefs::kGoogleServicesLastGaiaId);
+
+  // Verify that completion was called with canceled result state.
+  FakeSystemIdentityInteractionManager.identity = fake_identity_;
+  OCMExpect([signin_manager_delegate_
+      addAccountSigninManagerFinishedWithSigninResult:
+          SigninCoordinatorResultSuccess
+                                             identity:fake_identity_]);
+
+  [signin_manager_
+      showSigninWithIntent:AddAccountSigninIntentReauthPrimaryAccount];
+  WaitForFakeAddAccountViewPresented(/*expectedUserEmail=*/nil);
+  [identity_interaction_manager_ simulateDidTapAddAccount];
   WaitForFakeAddAccountViewDismissed();
 }
 
@@ -231,9 +260,9 @@ TEST_F(AddAccountSigninManagerTest,
 
   [signin_manager_
       showSigninWithIntent:AddAccountSigninIntentReauthPrimaryAccount];
-  WaitForFakeAddAccountViewPresented();
-  [identity_interaction_manager_
-      addAccountViewControllerDidThrowUnhandledError];
+  WaitForFakeAddAccountViewPresented(
+      /*expectedUserEmail=*/base::SysUTF8ToNSString(kTestEmail));
+  [identity_interaction_manager_ simulateDidThrowUnhandledError];
   WaitForFakeAddAccountViewDismissed();
 }
 
@@ -246,7 +275,8 @@ TEST_F(AddAccountSigninManagerTest, ReauthSigninInterrupted) {
 
   [signin_manager_
       showSigninWithIntent:AddAccountSigninIntentReauthPrimaryAccount];
-  WaitForFakeAddAccountViewPresented();
+  WaitForFakeAddAccountViewPresented(
+      /*expectedUserEmail=*/base::SysUTF8ToNSString(kTestEmail));
   __block BOOL completionCalled = NO;
   [signin_manager_ interruptAddAccountAnimated:YES
                                     completion:^() {

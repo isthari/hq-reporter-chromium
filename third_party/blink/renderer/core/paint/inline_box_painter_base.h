@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,8 +26,9 @@ struct PaintInfo;
 struct PhysicalOffset;
 struct PhysicalRect;
 
-// Common base class for InlineFlowBoxPainter and NGInlineBoxFragmentPainter.
+// Common Base class for NGInlineBoxFragmentPainter.
 // Implements layout agnostic inline box painting behavior.
+// TODO(1229581): Merge with NGInlineBoxFragmentPainter.
 class InlineBoxPainterBase {
   STACK_ALLOCATED();
 

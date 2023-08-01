@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,11 @@
 #include "ash/constants/ash_pref_names.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
-#include "ash/style/ash_color_provider.h"
+#include "ash/style/ash_color_id.h"
+#include "ash/style/dark_light_mode_controller_impl.h"
 #include "ash/system/accessibility/dictation_bubble_view.h"
 #include "ash/test/ash_test_base.h"
 #include "base/test/scoped_feature_list.h"
-#include "chromeos/constants/chromeos_features.h"
-#include "ui/accessibility/accessibility_features.h"
 
 namespace ash {
 
@@ -27,8 +26,6 @@ class DictationBubbleControllerTest : public AshTestBase {
 
   // AshTestBase:
   void SetUp() override {
-    scoped_feature_list_.InitAndEnableFeature(
-        ::features::kExperimentalAccessibilityDictationCommands);
     AshTestBase::SetUp();
     Shell::Get()->accessibility_controller()->dictation().SetEnabled(true);
   }
@@ -95,9 +92,6 @@ class DictationBubbleControllerTest : public AshTestBase {
   std::vector<std::u16string> GetVisibleHints() {
     return GetView()->GetVisibleHintsForTesting();
   }
-
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
 TEST_F(DictationBubbleControllerTest, ShowText) {
@@ -162,13 +156,11 @@ TEST_F(DictationBubbleControllerTest, ShowMacroFailImage) {
 // Verifies that the bubble UI respects the dark mode setting. For convenience
 // purposes, we perform checks on the label's text and background color.
 TEST_F(DictationBubbleControllerTest, DarkMode) {
-  // Enable dark mode feature.
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndEnableFeature(chromeos::features::kDarkLightMode);
-  ASSERT_TRUE(chromeos::features::IsDarkLightModeEnabled());
-  AshColorProvider* color_provider = AshColorProvider::Get();
-  color_provider->OnActiveUserPrefServiceChanged(
+  auto* dark_light_mode_controller = DarkLightModeControllerImpl::Get();
+  dark_light_mode_controller->OnActiveUserPrefServiceChanged(
       Shell::Get()->session_controller()->GetPrimaryUserPrefService());
+  const bool initial_dark_mode_status =
+      dark_light_mode_controller->IsDarkModeEnabled();
 
   // Show bubble UI.
   EXPECT_FALSE(GetView());
@@ -178,21 +170,33 @@ TEST_F(DictationBubbleControllerTest, DarkMode) {
   EXPECT_TRUE(GetView());
   EXPECT_TRUE(IsBubbleVisible());
   EXPECT_EQ(u"Testing", GetBubbleText());
-  EXPECT_FALSE(color_provider->IsDarkModeEnabled());
-  SkColor initial_color = GetLabelTextColor();
-  EXPECT_EQ(initial_color,
-            color_provider->GetContentLayerColor(
-                AshColorProvider::ContentLayerType::kTextColorPrimary));
-  EXPECT_EQ(SK_ColorWHITE, GetLabelBackgroundColor());
+  const SkColor initial_text_color = GetLabelTextColor();
+  const SkColor initial_background_color = GetLabelBackgroundColor();
+  auto* color_provider = GetView()->GetColorProvider();
+  EXPECT_EQ(initial_text_color,
+            color_provider->GetColor(kColorAshTextColorPrimary));
+  EXPECT_EQ(initial_background_color,
+            color_provider->GetColor(ui::kColorDialogBackground));
 
-  // Enable dark mode.
-  Shell::Get()->session_controller()->GetPrimaryUserPrefService()->SetBoolean(
-      prefs::kDarkModeEnabled, true);
-  EXPECT_TRUE(color_provider->IsDarkModeEnabled());
+  // Switch the color mode.
+  dark_light_mode_controller->ToggleColorMode();
+  const bool dark_mode_status = dark_light_mode_controller->IsDarkModeEnabled();
+  ASSERT_NE(initial_dark_mode_status, dark_mode_status);
 
-  // Verify that the text and background colors changed.
-  EXPECT_NE(initial_color, GetLabelTextColor());
-  EXPECT_NE(SK_ColorWHITE, GetLabelBackgroundColor());
+  // Since the color mode has been updated, we need to get the refreshed color
+  // provider.
+  color_provider = GetView()->GetColorProvider();
+
+  // Verify that the text and background colors changed and still have the
+  // right colors according to the color modes.
+  const SkColor text_color = GetLabelTextColor();
+  const SkColor background_color = GetLabelBackgroundColor();
+  EXPECT_NE(text_color, initial_text_color);
+  EXPECT_EQ(text_color, color_provider->GetColor(kColorAshTextColorPrimary));
+  EXPECT_NE(background_color, initial_background_color);
+  EXPECT_EQ(background_color,
+            color_provider->GetColor(ui::kColorDialogBackground));
+
   HideAndCheckExpectations();
 }
 
@@ -204,6 +208,19 @@ TEST_F(DictationBubbleControllerTest, Hints) {
   EXPECT_TRUE(IsBubbleVisible());
 
   EXPECT_TRUE(GetVisibleHints().size() == 0);
+
+  HideAndCheckExpectations();
+}
+
+// Verifies that the UI can be hidden before being shown.
+TEST_F(DictationBubbleControllerTest, HideBeforeShow) {
+  HideAndCheckExpectations();
+
+  EXPECT_TRUE(GetView());
+  Show(DictationBubbleIconType::kStandby, absl::optional<std::u16string>(),
+       absl::optional<std::vector<DictationBubbleHintType>>());
+  EXPECT_TRUE(GetView());
+  EXPECT_TRUE(IsBubbleVisible());
 
   HideAndCheckExpectations();
 }

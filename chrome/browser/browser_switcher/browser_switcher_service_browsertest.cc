@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,12 @@
 
 #include <string.h>
 
-#include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/thread_restrictions.h"
@@ -157,6 +158,7 @@ class BrowserSwitcherServiceTest : public InProcessBrowserTest {
 #endif
   }
 
+#if BUILDFLAG(IS_WIN)
   void SetUseIeSitelist(bool use_ie_sitelist) {
     policy::PolicyMap policies;
     EnableBrowserSwitcher(&policies);
@@ -165,6 +167,7 @@ class BrowserSwitcherServiceTest : public InProcessBrowserTest {
     provider_.UpdateChromePolicy(policies);
     base::RunLoop().RunUntilIdle();
   }
+#endif
 
   void SetExternalUrl(const std::string& url) {
     policy::PolicyMap policies;
@@ -183,7 +186,7 @@ class BrowserSwitcherServiceTest : public InProcessBrowserTest {
 
   void WaitForActionTimeout() {
     base::RunLoop run_loop;
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE, run_loop.QuitClosure(), TestTimeouts::action_timeout());
     run_loop.Run();
   }
@@ -464,10 +467,9 @@ IN_PROC_BROWSER_TEST_F(BrowserSwitcherServiceTest,
                        ExternalGreylistFetchAndParseAfterStartup) {
   policy::PolicyMap policies;
   EnableBrowserSwitcher(&policies);
-  base::Value url_list(base::Value::Type::LIST);
-  url_list.Append("*");
+  auto url_list = base::Value::List().Append("*");
   SetPolicy(&policies, policy::key::kBrowserSwitcherUrlList,
-            std::move(url_list));
+            base::Value(std::move(url_list)));
   SetPolicy(&policies, policy::key::kBrowserSwitcherExternalGreylistUrl,
             base::Value(kAValidUrl));
   policy_provider().UpdateChromePolicy(policies);
@@ -610,24 +612,24 @@ IN_PROC_BROWSER_TEST_F(BrowserSwitcherServiceTest, WritesPrefsToCacheFile) {
   EnableBrowserSwitcher(&policies);
   SetPolicy(&policies, policy::key::kAlternativeBrowserPath,
             base::Value("IExplore.exe"));
-  base::Value alt_params(base::Value::Type::LIST);
+  base::Value::List alt_params;
   alt_params.Append("--bogus-flag");
   SetPolicy(&policies, policy::key::kAlternativeBrowserParameters,
-            std::move(alt_params));
+            base::Value(std::move(alt_params)));
   SetPolicy(&policies, policy::key::kBrowserSwitcherChromePath,
             base::Value("chrome.exe"));
-  base::Value chrome_params(base::Value::Type::LIST);
+  base::Value::List chrome_params;
   chrome_params.Append("--force-dark-mode");
   SetPolicy(&policies, policy::key::kBrowserSwitcherChromeParameters,
-            std::move(chrome_params));
-  base::Value url_list(base::Value::Type::LIST);
+            base::Value(std::move(chrome_params)));
+  base::Value::List url_list;
   url_list.Append("example.com");
   SetPolicy(&policies, policy::key::kBrowserSwitcherUrlList,
-            std::move(url_list));
-  base::Value greylist(base::Value::Type::LIST);
+            base::Value(std::move(url_list)));
+  base::Value::List greylist;
   greylist.Append("foo.example.com");
   SetPolicy(&policies, policy::key::kBrowserSwitcherUrlGreylist,
-            std::move(greylist));
+            base::Value(std::move(greylist)));
   SetPolicy(&policies, policy::key::kBrowserSwitcherParsingMode,
             base::Value(static_cast<int>(ParsingMode::kIESiteListMode)));
   policy_provider().UpdateChromePolicy(policies);
@@ -839,11 +841,10 @@ IN_PROC_BROWSER_TEST_F(BrowserSwitcherServiceTest,
       extensions::ExtensionBuilder()
           .SetLocation(extensions::mojom::ManifestLocation::kInternal)
           .SetID(kLBSExtensionId)
-          .SetManifest(extensions::DictionaryBuilder()
+          .SetManifest(base::Value::Dict()
                            .Set("name", "Legacy Browser Support")
                            .Set("manifest_version", 2)
-                           .Set("version", "5.9")
-                           .Build())
+                           .Set("version", "5.9"))
           .Build();
   extensions::ExtensionSystem::Get(browser()->profile())
       ->extension_service()

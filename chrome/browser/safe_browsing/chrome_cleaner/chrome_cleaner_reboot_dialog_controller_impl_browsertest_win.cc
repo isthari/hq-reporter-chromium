@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -80,7 +80,7 @@ class ChromeCleanerRebootFlowTest : public InProcessBrowserTest {
 
   Browser* CreateBrowserShowingUrl(const GURL& gurl) {
     Browser* browser = Browser::Create(
-        Browser::CreateParams(ProfileManager::GetActiveUserProfile(), true));
+        Browser::CreateParams(ProfileManager::GetLastUsedProfile(), true));
     OpenPage(gurl, browser);
     browser->window()->Show();
     base::RunLoop().RunUntilIdle();
@@ -143,8 +143,10 @@ IN_PROC_BROWSER_TEST_F(ChromeCleanerRebootFlowTest,
   EnsureCompletedExecution();
 }
 
-IN_PROC_BROWSER_TEST_F(ChromeCleanerRebootFlowTest,
-                       OnRebootRequired_SettingsPageActiveWhenBrowserIsOpened) {
+// TODO(crbug/1406828): Re-enable this test
+IN_PROC_BROWSER_TEST_F(
+    ChromeCleanerRebootFlowTest,
+    DISABLED_OnRebootRequired_SettingsPageActiveWhenBrowserIsOpened) {
   auto keep_alive = std::make_unique<ScopedKeepAlive>(
       KeepAliveOrigin::BROWSER, KeepAliveRestartOption::DISABLED);
 

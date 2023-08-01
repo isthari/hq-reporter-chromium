@@ -1,8 +1,9 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/bind.h"
+#include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/path_service.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -26,6 +27,13 @@
 #include "extensions/test/extension_test_message_listener.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/constants/ash_switches.h"
+#include "chrome/browser/ash/login/test/oobe_screen_waiter.h"
+#include "chrome/browser/ash/login/ui/login_display_host.h"
+#include "chrome/browser/ui/webui/ash/login/welcome_screen_handler.h"
+#endif
+
 // Turn these tests off on Mac while we collect data on windows server crashes
 // on mac chromium builders.
 // http://crbug.com/653353
@@ -40,7 +48,7 @@ class WebUIMessageListener : public base::SupportsWeakPtr<WebUIMessageListener>{
  public:
   WebUIMessageListener(content::WebUI* web_ui, const std::string& message)
       : message_loop_(new content::MessageLoopRunner) {
-    web_ui->RegisterDeprecatedMessageCallback(
+    web_ui->RegisterMessageCallback(
         message,
         base::BindRepeating(&WebUIMessageListener::HandleMessage, AsWeakPtr()));
   }
@@ -54,7 +62,7 @@ class WebUIMessageListener : public base::SupportsWeakPtr<WebUIMessageListener>{
   }
 
  private:
-  void HandleMessage(const base::ListValue* test_result) {
+  void HandleMessage(const base::Value::List& test_result) {
     message_loop_->Quit();
   }
 
@@ -83,24 +91,20 @@ class DNDToInputNavigationObserver : public content::WebContentsObserver {
 
 int ExecuteHostScriptAndExtractInt(content::WebContents* web_contents,
                                    const std::string& script) {
-  int result;
-  EXPECT_TRUE(content::ExecuteScriptAndExtractInt(
-      web_contents, "window.domAutomationController.send(" + script + ");",
-      &result));
-  return result;
+  return content::EvalJs(web_contents, script).ExtractInt();
 }
 
 int ExecuteGuestScriptAndExtractInt(content::WebContents* web_contents,
                                     const std::string& web_view_id,
                                     const std::string& script) {
-  int result;
-  EXPECT_TRUE(content::ExecuteScriptAndExtractInt(
-      web_contents,
-      "document.getElementById('" + web_view_id + "').executeScript({ "
-          "code: '" + script + "' }, function (results) {"
-          " window.domAutomationController.send(results[0]);});",
-      &result));
-  return result;
+  return content::EvalJs(web_contents, "document.getElementById('" +
+                                           web_view_id +
+                                           "').executeScript({ "
+                                           "code: '" +
+                                           script +
+                                           "' }, function (results) {"
+                                           " return results[0]);});")
+      .ExtractInt();
 }
 }  // namespace
 #endif
@@ -123,30 +127,44 @@ class WebUIWebViewBrowserTest : public WebUIBrowserTest {
     base::PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir);
     embedded_test_server()->ServeFilesFromDirectory(test_data_dir);
     ASSERT_TRUE(embedded_test_server()->Start());
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+    // Wait for the OOBE WebUI to be shown.
+    ash::OobeScreenWaiter(ash::WelcomeView::kScreenId).Wait();
+    SetWebUIInstance(
+        ash::LoginDisplayHost::default_host()->GetOobeUI()->web_ui());
+#else
+    ASSERT_TRUE(
+        ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
+#endif
   }
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    WebUIBrowserTest::SetUpCommandLine(command_line);
+    // Force showing OOBE WebUI on the ChromeOS ASH configuration.
+    command_line->AppendSwitch(ash::switches::kLoginManager);
+    command_line->AppendSwitch(ash::switches::kForceLoginManagerInTests);
+  }
+#endif
 
   GURL GetTestUrl(const std::string& path) const {
     return embedded_test_server()->base_url().Resolve(path);
   }
 
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
   GURL GetWebViewEnabledWebUIURL() const {
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-    return GURL(chrome::kChromeUIOobeURL).Resolve("/login");
-#else
     return GURL(signin::GetEmbeddedPromoURL(
         signin_metrics::AccessPoint::ACCESS_POINT_START_PAGE,
         signin_metrics::Reason::kForcedSigninPrimaryAccount, false));
-#endif
   }
+#endif
 };
 
 // Checks that hiding and showing the WebUI host page doesn't break guests in
 // it.
 // Regression test for http://crbug.com/515268
 IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, DisplayNone) {
-  ASSERT_TRUE(
-      ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
-
   ASSERT_TRUE(WebUIBrowserTest::RunJavascriptAsyncTest(
       "testDisplayNone", base::Value(GetTestUrl("empty.html").spec())));
 }
@@ -158,65 +176,30 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, DisplayNone) {
 #define MAYBE_ExecuteScriptCode ExecuteScriptCode
 #endif
 IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, MAYBE_ExecuteScriptCode) {
-  ASSERT_TRUE(
-      ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
-
   ASSERT_TRUE(WebUIBrowserTest::RunJavascriptAsyncTest(
       "testExecuteScriptCode", base::Value(GetTestUrl("empty.html").spec())));
 }
 
 IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, ExecuteScriptCodeFromFile) {
-  ASSERT_TRUE(
-      ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
-
   ASSERT_TRUE(WebUIBrowserTest::RunJavascriptAsyncTest(
       "testExecuteScriptCodeFromFile",
       base::Value(GetTestUrl("empty.html").spec())));
 }
 
-// TODO(crbug.com/751907) Flaky on CrOS trybots.
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-#define MAYBE_AddContentScript DISABLED_AddContentScript
-#else
-#define MAYBE_AddContentScript AddContentScript
-#endif
-IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, MAYBE_AddContentScript) {
-  ASSERT_TRUE(
-      ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
-
+IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, AddContentScript) {
   ASSERT_TRUE(WebUIBrowserTest::RunJavascriptAsyncTest(
       "testAddContentScript", base::Value(GetTestUrl("empty.html").spec())));
 }
 
-// TODO(crbug.com/751907) Flaky on CrOS trybots.
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-#define MAYBE_AddMultiContentScripts DISABLED_AddMultiContentScripts
-#else
-#define MAYBE_AddMultiContentScripts AddMultiContentScripts
-#endif
-IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, MAYBE_AddMultiContentScripts) {
-  ASSERT_TRUE(
-      ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
-
+IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, AddMultiContentScripts) {
   ASSERT_TRUE(WebUIBrowserTest::RunJavascriptAsyncTest(
       "testAddMultiContentScripts",
       base::Value(GetTestUrl("empty.html").spec())));
 }
 
-// TODO(crbug.com/751907) Flaky on CrOS trybots.
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-#define MAYBE_AddContentScriptWithSameNameShouldOverwriteTheExistingOne \
-  DISABLED_AddContentScriptWithSameNameShouldOverwriteTheExistingOne
-#else
-#define MAYBE_AddContentScriptWithSameNameShouldOverwriteTheExistingOne \
-  AddContentScriptWithSameNameShouldOverwriteTheExistingOne
-#endif
 IN_PROC_BROWSER_TEST_F(
     WebUIWebViewBrowserTest,
-    MAYBE_AddContentScriptWithSameNameShouldOverwriteTheExistingOne) {
-  ASSERT_TRUE(
-      ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
-
+    AddContentScriptWithSameNameShouldOverwriteTheExistingOne) {
   ASSERT_TRUE(WebUIBrowserTest::RunJavascriptAsyncTest(
       "testAddContentScriptWithSameNameShouldOverwriteTheExistingOne",
       base::Value(GetTestUrl("empty.html").spec())));
@@ -233,25 +216,12 @@ IN_PROC_BROWSER_TEST_F(
 IN_PROC_BROWSER_TEST_F(
     WebUIWebViewBrowserTest,
     MAYBE_AddContentScriptToOneWebViewShouldNotInjectToTheOtherWebView) {
-  ASSERT_TRUE(
-      ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
-
   ASSERT_TRUE(WebUIBrowserTest::RunJavascriptAsyncTest(
       "testAddContentScriptToOneWebViewShouldNotInjectToTheOtherWebView",
       base::Value(GetTestUrl("empty.html").spec())));
 }
 
-// TODO(crbug.com/751907) Flaky on CrOS trybots.
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-#define MAYBE_AddAndRemoveContentScripts DISABLED_AddAndRemoveContentScripts
-#else
-#define MAYBE_AddAndRemoveContentScripts AddAndRemoveContentScripts
-#endif
-IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest,
-                       MAYBE_AddAndRemoveContentScripts) {
-  ASSERT_TRUE(
-      ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
-
+IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, AddAndRemoveContentScripts) {
   ASSERT_TRUE(WebUIBrowserTest::RunJavascriptAsyncTest(
       "testAddAndRemoveContentScripts",
       base::Value(GetTestUrl("empty.html").spec())));
@@ -269,9 +239,6 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest,
 #endif
 IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest,
                        MAYBE_AddContentScriptsWithNewWindowAPI) {
-  ASSERT_TRUE(
-      ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
-
   ASSERT_TRUE(WebUIBrowserTest::RunJavascriptAsyncTest(
       "testAddContentScriptsWithNewWindowAPI",
       base::Value(GetTestUrl("guest_from_opener.html").spec())));
@@ -281,9 +248,6 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest,
 IN_PROC_BROWSER_TEST_F(
     WebUIWebViewBrowserTest,
     DISABLED_ContentScriptIsInjectedAfterTerminateAndReloadWebView) {
-  ASSERT_TRUE(
-      ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
-
   ASSERT_TRUE(WebUIBrowserTest::RunJavascriptAsyncTest(
       "testContentScriptIsInjectedAfterTerminateAndReloadWebView",
       base::Value(GetTestUrl("empty.html").spec())));
@@ -299,25 +263,22 @@ IN_PROC_BROWSER_TEST_F(
 #endif
 IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest,
                        MAYBE_ContentScriptExistsAsLongAsWebViewTagExists) {
-  ASSERT_TRUE(
-      ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
-
   ASSERT_TRUE(WebUIBrowserTest::RunJavascriptAsyncTest(
       "testContentScriptExistsAsLongAsWebViewTagExists",
       base::Value(GetTestUrl("empty.html").spec())));
 }
 
 IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, AddContentScriptWithCode) {
-  ASSERT_TRUE(
-      ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
-
   ASSERT_TRUE(WebUIBrowserTest::RunJavascriptAsyncTest(
       "testAddContentScriptWithCode",
       base::Value(GetTestUrl("empty.html").spec())));
 }
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-// TODO(crbug.com/662673) Flaky on CrOS trybots.
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
+// Incognito on CrOS is tested by the usual AddContentScript - OOBE context is
+// running inside incognito (signin) profile.
+
+// TODO(crbug.com/662673) Flaky
 #define MAYBE_AddContentScriptIncognito DISABLED_AddContentScriptIncognito
 // Right now we only have incognito WebUI on CrOS, but this should
 // theoretically work for all platforms.
@@ -335,12 +296,16 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest,
 #endif
 
 IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, ContextMenuInspectElement) {
-  ASSERT_TRUE(
-      ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL()));
   content::ContextMenuParams params;
-  TestRenderViewContextMenu menu(
-      *browser()->tab_strip_model()->GetActiveWebContents()->GetMainFrame(),
-      params);
+  content::WebContents* web_contents =
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+      // OOBE WebUI.
+      ash::LoginDisplayHost::default_host()->GetOobeWebContents();
+#else
+      browser()->tab_strip_model()->GetActiveWebContents();
+#endif
+
+  TestRenderViewContextMenu menu(*web_contents->GetPrimaryMainFrame(), params);
   EXPECT_FALSE(menu.IsItemPresent(IDC_CONTENT_CONTEXT_INSPECTELEMENT));
 }
 
@@ -357,7 +322,7 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, DISABLED_DragAndDropToInput) {
   // Flush any pending events to make sure we start with a clean slate.
   content::RunAllPendingInMessageLoop();
   content::RenderViewHost* const render_view_host =
-      embedder_web_contents->GetMainFrame()->GetRenderViewHost();
+      embedder_web_contents->GetPrimaryMainFrame()->GetRenderViewHost();
 
   gfx::NativeView view = embedder_web_contents->GetNativeView();
   view->SetBounds(gfx::Rect(0, 0, 400, 400));
@@ -402,8 +367,8 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, DISABLED_DragAndDropToInput) {
   // RenderWidgetHosts in order to work with OOPIFs. See crbug.com/647249.
 
   {
-    EXPECT_TRUE(content::ExecuteScript(embedder_web_contents,
-                                       "console.log('step1: Drag Enter')"));
+    EXPECT_TRUE(content::ExecJs(embedder_web_contents,
+                                "console.log('step1: Drag Enter')"));
 
     WebUIMessageListener listener(embedder_web_contents->GetWebUI(),
                                   "Step1: destNode gets dragenter");
@@ -415,8 +380,8 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, DISABLED_DragAndDropToInput) {
   }
 
   {
-    EXPECT_TRUE(content::ExecuteScript(embedder_web_contents,
-                                       "console.log('step2: Drag Over')"));
+    EXPECT_TRUE(content::ExecJs(embedder_web_contents,
+                                "console.log('step2: Drag Over')"));
 
     WebUIMessageListener listener(embedder_web_contents->GetWebUI(),
                                   "Step2: destNode gets dragover");
@@ -427,8 +392,8 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, DISABLED_DragAndDropToInput) {
   }
 
   {
-    EXPECT_TRUE(content::ExecuteScript(embedder_web_contents,
-                                       "console.log('step3: Drop')"));
+    EXPECT_TRUE(
+        content::ExecJs(embedder_web_contents, "console.log('step3: Drop')"));
 
     DNDToInputNavigationObserver observer(embedder_web_contents);
     WebUIMessageListener listener(embedder_web_contents->GetWebUI(),

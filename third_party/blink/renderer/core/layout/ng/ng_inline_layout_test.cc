@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,8 +32,6 @@ class NGInlineLayoutTest : public SimTest {
 };
 
 TEST_F(NGInlineLayoutTest, BlockWithSingleTextNode) {
-  ScopedLayoutNGForTest layout_ng(true);
-
   SimRequest main_resource("https://example.com/", "text/html");
   LoadURL("https://example.com/");
   main_resource.Complete(
@@ -47,9 +45,9 @@ TEST_F(NGInlineLayoutTest, BlockWithSingleTextNode) {
   NGConstraintSpace constraint_space = ConstraintSpaceForElement(block_flow);
   NGBlockNode node(block_flow);
 
-  NGFragmentGeometry fragment_geometry =
-      CalculateInitialFragmentGeometry(constraint_space, node);
-  scoped_refptr<const NGLayoutResult> result =
+  NGFragmentGeometry fragment_geometry = CalculateInitialFragmentGeometry(
+      constraint_space, node, /* break_token */ nullptr);
+  const NGLayoutResult* result =
       NGBlockLayoutAlgorithm({node, fragment_geometry, constraint_space})
           .Layout();
   EXPECT_TRUE(result);
@@ -61,8 +59,6 @@ TEST_F(NGInlineLayoutTest, BlockWithSingleTextNode) {
 }
 
 TEST_F(NGInlineLayoutTest, BlockWithTextAndAtomicInline) {
-  ScopedLayoutNGForTest layout_ng(true);
-
   SimRequest main_resource("https://example.com/", "text/html");
   LoadURL("https://example.com/");
   main_resource.Complete("<div id=\"target\">Hello <img>.</div>");
@@ -76,8 +72,9 @@ TEST_F(NGInlineLayoutTest, BlockWithTextAndAtomicInline) {
   NGBlockNode node(block_flow);
 
   NGFragmentGeometry fragment_geometry =
-      CalculateInitialFragmentGeometry(constraint_space, node);
-  scoped_refptr<const NGLayoutResult> result =
+      CalculateInitialFragmentGeometry(constraint_space, node,
+                                       /* break_token */ nullptr);
+  const NGLayoutResult* result =
       NGBlockLayoutAlgorithm({node, fragment_geometry, constraint_space})
           .Layout();
   EXPECT_TRUE(result);
@@ -89,9 +86,6 @@ TEST_F(NGInlineLayoutTest, BlockWithTextAndAtomicInline) {
   auto first_child = To<NGInlineNode>(node.FirstChild());
   EXPECT_EQ(expected_text.ToString(),
             StringView(first_child.ItemsData(false).text_content, 0, 8));
-
-  // Delete the line box tree to avoid leaks in the test.
-  block_flow->DeleteLineBoxTree();
 }
 
 }  // namespace blink

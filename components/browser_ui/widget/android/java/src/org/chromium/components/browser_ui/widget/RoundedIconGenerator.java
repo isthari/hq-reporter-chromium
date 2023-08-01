@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@ import android.graphics.RectF;
 import android.text.TextPaint;
 import android.text.TextUtils;
 
+import androidx.annotation.ColorInt;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
@@ -99,7 +100,7 @@ public class RoundedIconGenerator {
     /**
      * Sets the background color to use when generating icons.
      */
-    public void setBackgroundColor(int color) {
+    public void setBackgroundColor(@ColorInt int color) {
         mBackgroundPaint.setColor(color);
     }
 

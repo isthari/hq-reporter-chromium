@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,19 +8,26 @@
 #include <iterator>
 #include <string>
 #include <utility>
+#include <vector>
 
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/containers/flat_set.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
 #include "base/metrics/field_trial_params.h"
+#include "base/no_destructor.h"
 #include "base/strings/string_split.h"
 #include "build/build_config.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/child_process_security_policy.h"
 #include "content/public/browser/content_browser_client.h"
+#include "content/public/browser/site_isolation_mode.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
-#include "url/gurl.h"
+#include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/common/switches.h"
+#include "url/origin.h"
 
 namespace content {
 
@@ -89,6 +96,21 @@ bool SiteIsolationPolicy::UseDedicatedProcessesForAllSites() {
   // group - such assignment should be final.
   return GetContentClient() &&
          GetContentClient()->browser()->ShouldEnableStrictSiteIsolation();
+}
+
+// static
+bool SiteIsolationPolicy::AreIsolatedSandboxedIframesEnabled() {
+  // This feature is controlled by kIsolateSandboxedIframes, and depends on
+  // partial Site Isolation being enabled. It also requires new base URL
+  // behavior, so it implicitly causes
+  // blink::features::IsNewBaseUrlInheritanceBehaviorEnabled() to return true,
+  // and can't be enabled if the new base URL behavior has been disabled by
+  // enterprise policy.
+  return base::FeatureList::IsEnabled(
+             blink::features::kIsolateSandboxedIframes) &&
+         !IsSiteIsolationDisabled(SiteIsolationMode::kPartialSiteIsolation) &&
+         !base::CommandLine::ForCurrentProcess()->HasSwitch(
+             blink::switches::kDisableNewBaseUrlInheritanceBehavior);
 }
 
 // static
@@ -182,6 +204,19 @@ bool SiteIsolationPolicy::IsOriginAgentClusterEnabled() {
 }
 
 // static
+bool SiteIsolationPolicy::AreOriginAgentClustersEnabledByDefault(
+    BrowserContext* browser_context) {
+  // OriginAgentClusters are enabled by default if OriginAgentCluster and
+  // kOriginAgentClusterDefaultEnabled are enabled, and if there is no
+  // enterprise policy forbidding it.
+  return IsOriginAgentClusterEnabled() &&
+         base::FeatureList::IsEnabled(
+             blink::features::kOriginAgentClusterDefaultEnabled) &&
+         !GetContentClient()->browser()->ShouldDisableOriginAgentClusterDefault(
+             browser_context);
+}
+
+// static
 bool SiteIsolationPolicy::IsSiteIsolationForCOOPEnabled() {
   // If the user has explicitly enabled site isolation for COOP sites from the
   // command line, honor this regardless of policies that may disable site
@@ -216,11 +251,6 @@ bool SiteIsolationPolicy::ShouldPersistIsolatedCOOPSites() {
 
   return features::kSiteIsolationForCrossOriginOpenerPolicyShouldPersistParam
       .Get();
-}
-
-// static
-bool SiteIsolationPolicy::IsSiteIsolationForGuestsEnabled() {
-  return base::FeatureList::IsEnabled(features::kSiteIsolationForGuests);
 }
 
 // static
@@ -274,8 +304,31 @@ void SiteIsolationPolicy::ApplyGlobalIsolatedOrigins() {
 }
 
 // static
+bool SiteIsolationPolicy::ShouldUrlUseApplicationIsolationLevel(
+    BrowserContext* browser_context,
+    const GURL& url) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  return GetContentClient()->browser()->ShouldUrlUseApplicationIsolationLevel(
+      browser_context, url);
+}
+
+// static
 void SiteIsolationPolicy::DisableFlagCachingForTesting() {
   g_disable_flag_caching_for_tests = true;
+}
+
+// static
+bool SiteIsolationPolicy::IsProcessIsolationForFencedFramesEnabled() {
+  // If the user has explicitly enabled process isolation for fenced frames from
+  // the command line, honor this regardless of policies that may disable site
+  // isolation.
+  if (base::FeatureList::GetInstance()->IsFeatureOverriddenFromCommandLine(
+          features::kIsolateFencedFrames.name,
+          base::FeatureList::OVERRIDE_ENABLE_FEATURE)) {
+    return true;
+  }
+  return UseDedicatedProcessesForAllSites() &&
+         base::FeatureList::IsEnabled(features::kIsolateFencedFrames);
 }
 
 }  // namespace content

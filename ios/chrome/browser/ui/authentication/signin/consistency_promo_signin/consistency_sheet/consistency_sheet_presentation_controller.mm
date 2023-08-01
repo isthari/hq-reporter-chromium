@@ -1,15 +1,15 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/authentication/signin/consistency_promo_signin/consistency_sheet/consistency_sheet_presentation_controller.h"
 
 #import "base/check_op.h"
+#import "ios/chrome/browser/shared/ui/util/accessibility_close_menu_button.h"
+#import "ios/chrome/browser/shared/ui/util/image/image_util.h"
+#import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/authentication/signin/consistency_promo_signin/consistency_sheet/consistency_sheet_constants.h"
 #import "ios/chrome/browser/ui/authentication/signin/consistency_promo_signin/consistency_sheet/consistency_sheet_navigation_controller.h"
-#import "ios/chrome/browser/ui/image_util/image_util.h"
-#import "ios/chrome/browser/ui/util/accessibility_close_menu_button.h"
-#import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -154,7 +154,7 @@ constexpr CGFloat kBackgroundDimmerViewAlpha = .4;
 - (void)containerViewDidLayoutSubviews {
   [super containerViewDidLayoutSubviews];
   if (!self.presented) {
-    // By updating the dimmer view frame in |dismissalTransitionWillBegin|, this
+    // By updating the dimmer view frame in `dismissalTransitionWillBegin`, this
     // method is called. This method should not update the presented view frame,
     // while being dismissed, to avoid unwanted glitches.
     return;

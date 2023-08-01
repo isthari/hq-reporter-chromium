@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/chrome_typography.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chromeos/components/kiosk/kiosk_utils.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -483,8 +484,7 @@ SadTabView::SadTabView(content::WebContents* web_contents, SadTabKind kind)
   // does.
   set_owned_by_client();
 
-  SetBackground(
-      views::CreateThemedSolidBackground(this, ui::kColorDialogBackground));
+  SetBackground(views::CreateThemedSolidBackground(ui::kColorDialogBackground));
   ChromeLayoutProvider* provider = ChromeLayoutProvider::Get();
   auto* layout = SetLayoutManager(std::make_unique<views::BoxLayout>(
       views::BoxLayout::Orientation::kVertical,
@@ -506,11 +506,11 @@ SadTabView::SadTabView(content::WebContents* web_contents, SadTabKind kind)
   // Crashed tab image.
   auto* image = container->AddChildView(std::make_unique<views::ImageView>());
   image->SetImage(
-      gfx::CreateVectorIcon(kCrashedTabIcon, 48, gfx::kChromeIconGrey));
+      ui::ImageModel::FromVectorIcon(kCrashedTabIcon, ui::kColorIcon, 48));
   const int unrelated_vertical_spacing =
       provider->GetDistanceMetric(views::DISTANCE_UNRELATED_CONTROL_VERTICAL);
   image->SetProperty(views::kMarginsKey,
-                     gfx::Insets(0, 0, unrelated_vertical_spacing, 0));
+                     gfx::Insets::TLBR(0, 0, unrelated_vertical_spacing, 0));
   image->SetProperty(views::kCrossAxisAlignmentKey,
                      views::LayoutAlignment::kStart);
 
@@ -523,7 +523,7 @@ SadTabView::SadTabView(content::WebContents* web_contents, SadTabKind kind)
   title_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   constexpr int kTitleBottomSpacing = 13;
   title_->SetProperty(views::kMarginsKey,
-                      gfx::Insets(0, 0, kTitleBottomSpacing, 0));
+                      gfx::Insets::TLBR(0, 0, kTitleBottomSpacing, 0));
 
   // Message and optional bulleted list.
   message_ = container->AddChildView(
@@ -541,21 +541,25 @@ SadTabView::SadTabView(content::WebContents* web_contents, SadTabKind kind)
   container
       ->AddChildView(CreateErrorCodeLabel(GetErrorCodeFormatString(),
                                           GetCrashedErrorCode()))
-      ->SetProperty(
-          views::kMarginsKey,
-          gfx::Insets(kTitleBottomSpacing, 0, unrelated_vertical_spacing, 0));
+      ->SetProperty(views::kMarginsKey,
+                    gfx::Insets::TLBR(kTitleBottomSpacing, 0,
+                                      unrelated_vertical_spacing, 0));
 
   // Bottom row: help link, action button.
   auto* actions_container =
       container->AddChildView(std::make_unique<views::FlexLayoutView>());
   actions_container->SetCrossAxisAlignment(views::LayoutAlignment::kCenter);
-  auto* help_link =
-      actions_container->AddChildView(std::make_unique<views::Link>(
-          l10n_util::GetStringUTF16(GetHelpLinkTitle())));
-  help_link->SetCallback(base::BindRepeating(
-      &SadTab::PerformAction, base::Unretained(this), Action::HELP_LINK));
-  help_link->SetProperty(views::kTableVertAlignKey,
-                         views::LayoutAlignment::kCenter);
+  // Do not show the help link in the kiosk session to prevent escape from a
+  // kiosk app.
+  if (!chromeos::IsKioskSession()) {
+    auto* help_link =
+        actions_container->AddChildView(std::make_unique<views::Link>(
+            l10n_util::GetStringUTF16(GetHelpLinkTitle())));
+    help_link->SetCallback(base::BindRepeating(
+        &SadTab::PerformAction, base::Unretained(this), Action::HELP_LINK));
+    help_link->SetProperty(views::kTableVertAlignKey,
+                           views::LayoutAlignment::kCenter);
+  }
   action_button_ =
       actions_container->AddChildView(std::make_unique<views::MdTextButton>(
           base::BindRepeating(&SadTabView::PerformAction,
@@ -641,8 +645,7 @@ void SadTabView::OnBoundsChanged(const gfx::Rect& previous_bounds) {
   title_->SizeToFit(max_width);
 }
 
-SadTab* SadTab::Create(content::WebContents* web_contents,
-                       SadTabKind kind) {
+SadTab* SadTab::Create(content::WebContents* web_contents, SadTabKind kind) {
   return new SadTabView(web_contents, kind);
 }
 

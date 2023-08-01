@@ -1,55 +1,62 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // Include test fixture.
-GEN_INCLUDE([
-  '../chromevox/testing/chromevox_next_e2e_test_base.js',
-  'repeated_event_handler.js'
-]);
+GEN_INCLUDE(['testing/common_e2e_test_base.js']);
 
 /** Test fixture for array_util.js. */
-RepeatedEventHandlerTest = class extends ChromeVoxNextE2ETest {};
+AccessibilityExtensionRepeatedEventHandlerTest =
+    class extends CommonE2ETestBase {
+  /** @override */
+  async setUpDeferred() {
+    await super.setUpDeferred();
 
-TEST_F('RepeatedEventHandlerTest', 'RepeatedEventHandledOnce', function() {
-  this.runWithLoadedTree('', (root) => {
-    this.handlerCallCount = 0;
-    const handler = () => this.handlerCallCount++;
+    await importModule('EventGenerator', '/common/event_generator.js');
+    await importModule('KeyCode', '/common/key_code.js');
+    await importModule(
+        'RepeatedEventHandler', '/common/repeated_event_handler.js');
+  }
+};
 
-    const repeatedHandler = new RepeatedEventHandler(root, 'focus', handler);
+AX_TEST_F(
+    'AccessibilityExtensionRepeatedEventHandlerTest',
+    'RepeatedEventHandledOnce', async function() {
+      const root = await this.runWithLoadedTree('');
+      this.handlerCallCount = 0;
+      const handler = () => this.handlerCallCount++;
 
-    // Simulate events being fired.
-    repeatedHandler.onEvent_();
-    repeatedHandler.onEvent_();
-    repeatedHandler.onEvent_();
-    repeatedHandler.onEvent_();
-    repeatedHandler.onEvent_();
+      const repeatedHandler = new RepeatedEventHandler(root, 'focus', handler);
 
-    // Yield before verify how many times the handler was called.
-    setTimeout(
-        this.newCallback(() => assertEquals(this.handlerCallCount, 1)), 0);
-  });
-});
+      // Simulate events being fired.
+      repeatedHandler.onEvent_();
+      repeatedHandler.onEvent_();
+      repeatedHandler.onEvent_();
+      repeatedHandler.onEvent_();
+      repeatedHandler.onEvent_();
 
-TEST_F(
-    'RepeatedEventHandlerTest', 'NoEventsHandledAfterStopListening',
-    function() {
-      this.runWithLoadedTree('', (root) => {
-        this.handlerCallCount = 0;
-        const handler = () => this.handlerCallCount++;
+      // Yield before verify how many times the handler was called.
+      setTimeout(
+          this.newCallback(() => assertEquals(this.handlerCallCount, 1)), 0);
+    });
 
-        const repeatedHandler =
-            new RepeatedEventHandler(root, 'focus', handler);
+AX_TEST_F(
+    'AccessibilityExtensionRepeatedEventHandlerTest',
+    'NoEventsHandledAfterStopListening', async function() {
+      const root = await this.runWithLoadedTree('');
+      this.handlerCallCount = 0;
+      const handler = () => this.handlerCallCount++;
 
-        // Simulate events being fired.
-        repeatedHandler.onEvent_();
-        repeatedHandler.onEvent_();
-        repeatedHandler.onEvent_();
+      const repeatedHandler = new RepeatedEventHandler(root, 'focus', handler);
 
-        repeatedHandler.stop();
+      // Simulate events being fired.
+      repeatedHandler.onEvent_();
+      repeatedHandler.onEvent_();
+      repeatedHandler.onEvent_();
 
-        // Yield before verifying how many times the handler was called.
-        setTimeout(
-            this.newCallback(() => assertEquals(this.handlerCallCount, 0)), 0);
-      });
+      repeatedHandler.stop();
+
+      // Yield before verifying how many times the handler was called.
+      setTimeout(
+          this.newCallback(() => assertEquals(this.handlerCallCount, 0)), 0);
     });

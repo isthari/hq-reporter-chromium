@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,21 +22,25 @@ public class WebContentsFactory {
     public WebContentsFactory() {}
 
     /**
+     * For capturing where WebContentsImpl is created.
+     */
+    private static class WebContentsCreationException extends RuntimeException {
+        WebContentsCreationException() {
+            super("vvv This is where WebContents was created. vvv");
+        }
+    }
+
+    /**
      * A factory method to build a {@link WebContents} object.
      * @param profile         The profile with which the {@link WebContents} should be built.
      * @param initiallyHidden Whether or not the {@link WebContents} should be initially hidden.
+     * @param initializeRenderer Whether or not the {@link WebContents} should initialize renderer.
      * @return                A newly created {@link WebContents} object.
      */
-    // TODO(https://crbug.com/1099138): Remove static for unit-testability.
-    public static WebContents createWebContents(Profile profile, boolean initiallyHidden) {
-        return WebContentsFactoryJni.get().createWebContents(profile, initiallyHidden, false);
-    }
-
-    // TODO(https://crbug.com/1033955): Remove after check discard error is fixed.
-    private static WebContents createWebContents(
+    public static WebContents createWebContents(
             Profile profile, boolean initiallyHidden, boolean initializeRenderer) {
         return WebContentsFactoryJni.get().createWebContents(
-                profile, initiallyHidden, initializeRenderer);
+                profile, initiallyHidden, initializeRenderer, new WebContentsCreationException());
     }
 
     /**
@@ -54,7 +58,7 @@ public class WebContentsFactory {
 
     @NativeMethods
     interface Natives {
-        WebContents createWebContents(
-                Profile profile, boolean initiallyHidden, boolean initializeRenderer);
+        WebContents createWebContents(Profile profile, boolean initiallyHidden,
+                boolean initializeRenderer, Throwable javaCreator);
     }
 }

@@ -1,114 +1,142 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/system/unified/unified_slider_view.h"
 
-#include "ash/style/ash_color_provider.h"
-#include "ash/system/tray/tray_popup_utils.h"
+#include <memory>
+
+#include "ash/constants/ash_features.h"
+#include "ash/constants/quick_settings_catalogs.h"
+#include "ash/system/tray/tray_constants.h"
+#include "ash/system/unified/quick_settings_metrics_util.h"
+#include "ash/system/unified/quick_settings_slider.h"
+#include "base/check_op.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/base/models/image_model.h"
+#include "ui/chromeos/styles/cros_tokens_color_mappings.h"
+#include "ui/color/color_id.h"
 #include "ui/compositor/layer.h"
+#include "ui/events/keycodes/keyboard_codes_posix.h"
+#include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/label.h"
+#include "ui/views/controls/slider.h"
 #include "ui/views/layout/box_layout.h"
-#include "ui/views/view_class_properties.h"
+#include "ui/views/layout/fill_layout.h"
 #include "ui/views/widget/widget.h"
 
 namespace ash {
 
-using ContentLayerType = AshColorProvider::ContentLayerType;
-
 namespace {
 
-// Custom the slider to use different colors.
-class SystemSlider : public views::Slider {
- public:
-  explicit SystemSlider(views::SliderListener* listener = nullptr)
-      : views::Slider(listener) {}
-  SystemSlider(const SystemSlider&) = delete;
-  SystemSlider& operator=(const SystemSlider&) = delete;
-  ~SystemSlider() override {}
+constexpr auto kQsSliderRowPadding = gfx::Insets::TLBR(0, 12, 4, 16);
+constexpr auto kQsSliderBorder = gfx::Insets::TLBR(4, 4, 4, 16);
 
- private:
-  // views::Slider:
-  SkColor GetThumbColor() const override {
-    using Type = AshColorProvider::ContentLayerType;
-    return AshColorProvider::Get()->GetContentLayerColor(
-        (style() == RenderingStyle::kMinimalStyle) ? Type::kSliderColorInactive
-                                                   : Type::kSliderColorActive);
-  }
-
-  // views::Slider:
-  SkColor GetTroughColor() const override {
-    return AshColorProvider::Get()->GetSecondToneColor(GetThumbColor());
-  }
-
-  // views::View:
-  void OnThemeChanged() override {
-    views::Slider::OnThemeChanged();
-    SchedulePaint();
-  }
-};
-
-// A slider that ignores inputs.
-class ReadOnlySlider : public SystemSlider {
- public:
-  ReadOnlySlider() : SystemSlider() {}
-  ReadOnlySlider(const ReadOnlySlider&) = delete;
-  ReadOnlySlider& operator=(const ReadOnlySlider&) = delete;
-  ~ReadOnlySlider() override {}
-
- private:
-  // views::View:
-  bool OnMousePressed(const ui::MouseEvent& event) override { return false; }
-  bool OnMouseDragged(const ui::MouseEvent& event) override { return false; }
-  void OnMouseReleased(const ui::MouseEvent& event) override {}
-  bool OnKeyPressed(const ui::KeyEvent& event) override { return false; }
-  const char* GetClassName() const override { return "ReadOnlySlider"; }
-
-  // ui::EventHandler:
-  void OnGestureEvent(ui::GestureEvent* event) override {}
-};
-
-std::unique_ptr<views::Slider> CreateSlider(UnifiedSliderListener* listener,
-                                            bool readonly) {
-  return readonly ? std::make_unique<ReadOnlySlider>()
-                  : std::make_unique<SystemSlider>(listener);
+std::unique_ptr<views::Slider> CreateSlider(
+    UnifiedSliderListener* listener,
+    bool read_only,
+    QuickSettingsSlider::Style slider_style) {
+  return read_only
+             ? std::make_unique<ReadOnlySlider>(slider_style)
+             : std::make_unique<QuickSettingsSlider>(listener, slider_style);
 }
 
 }  // namespace
+
+void UnifiedSliderListener::TrackToggleUMA(bool target_toggle_state) {
+  CHECK_NE(GetCatalogName(), QsSliderCatalogName::kUnknown);
+  quick_settings_metrics_util::RecordQsSliderToggle(
+      GetCatalogName(), /*enable=*/target_toggle_state);
+}
+
+void UnifiedSliderListener::TrackValueChangeUMA(bool going_up) {
+  CHECK_NE(GetCatalogName(), QsSliderCatalogName::kUnknown);
+  quick_settings_metrics_util::RecordQsSliderValueChange(GetCatalogName(),
+                                                         /*going_up=*/going_up);
+}
 
 UnifiedSliderView::UnifiedSliderView(views::Button::PressedCallback callback,
                                      UnifiedSliderListener* listener,
                                      const gfx::VectorIcon& icon,
                                      int accessible_name_id,
-                                     bool readonly)
-    : button_(
-          AddChildView(std::make_unique<IconButton>(std::move(callback),
-                                                    IconButton::Type::kSmall,
-                                                    &icon,
-                                                    accessible_name_id,
-                                                    /*is_togglable=*/true,
-                                                    /*has_border=*/true))),
-      slider_(AddChildView(CreateSlider(listener, readonly))) {
-  auto* layout = SetLayoutManager(std::make_unique<views::BoxLayout>(
-      views::BoxLayout::Orientation::kHorizontal, kUnifiedSliderRowPadding,
-      kUnifiedSliderViewSpacing));
+                                     bool read_only,
+                                     QuickSettingsSlider::Style slider_style)
+    : icon_(&icon), callback_(callback) {
+  if (!features::IsQsRevampEnabled()) {
+    button_ = AddChildView(std::make_unique<IconButton>(
+        std::move(callback), IconButton::Type::kMedium, &icon,
+        accessible_name_id,
+        /*is_togglable=*/true,
+        /*has_border=*/true));
 
-  // Prevent an accessibility event while initiallizing this view. Typically
-  // the first update of the slider value is conducted by the caller function
-  // to reflect the current value.
+    slider_ = AddChildView(CreateSlider(listener, read_only, slider_style));
+
+    auto* layout = SetLayoutManager(std::make_unique<views::BoxLayout>(
+        views::BoxLayout::Orientation::kHorizontal, kUnifiedSliderRowPadding,
+        kUnifiedSliderViewSpacing));
+
+    // Prevent an accessibility event while initiallizing this view. Typically
+    // the first update of the slider value is conducted by the caller function
+    // to reflect the current value.
+    slider_->SetEnableAccessibilityEvents(false);
+
+    slider_->GetViewAccessibility().OverrideName(
+        l10n_util::GetStringUTF16(accessible_name_id));
+    slider_->SetBorder(views::CreateEmptyBorder(kUnifiedSliderPadding));
+    slider_->SetPreferredSize(gfx::Size(0, kTrayItemSize));
+    layout->SetFlexForView(slider_, 1);
+    layout->set_cross_axis_alignment(
+        views::BoxLayout::CrossAxisAlignment::kCenter);
+
+    // Adds a layer to set it non-opaque. Otherwise the previous draw of thumb
+    // will stay.
+    SetPaintToLayer();
+    layer()->SetFillsBoundsOpaquely(false);
+    return;
+  }
+
+  slider_ = AddChildView(CreateSlider(listener, read_only, slider_style));
+  slider_->SetBorder(views::CreateEmptyBorder(kQsSliderBorder));
+  // Sets `slider_` to have a `BoxLayout` to align the child view
+  // `slider_button_` to the left.
+  auto* slider_layout =
+      slider_->SetLayoutManager(std::make_unique<views::BoxLayout>(
+          views::BoxLayout::Orientation::kHorizontal));
+  slider_layout->set_main_axis_alignment(
+      views::BoxLayout::MainAxisAlignment::kStart);
+
+  const bool is_default_style =
+      (slider_style == QuickSettingsSlider::Style::kDefault ||
+       slider_style == QuickSettingsSlider::Style::kDefaultMuted);
+  slider_button_ = slider_->AddChildView(std::make_unique<IconButton>(
+      std::move(callback),
+      is_default_style ? IconButton::Type::kMediumFloating
+                       : IconButton::Type::kLargeFloating,
+      &icon, accessible_name_id,
+      /*is_togglable=*/true,
+      /*has_border=*/true));
+  slider_button_->SetIconColorId(cros_tokens::kCrosSysSystemOnPrimaryContainer);
+  slider_button_->SetFocusBehavior(FocusBehavior::NEVER);
+
+  // Prevent an accessibility event while initiallizing this view.
+  // Typically the first update of the slider value is conducted by the
+  // caller function to reflect the current value.
   slider_->SetEnableAccessibilityEvents(false);
-
   slider_->GetViewAccessibility().OverrideName(
       l10n_util::GetStringUTF16(accessible_name_id));
-  slider_->SetBorder(views::CreateEmptyBorder(kUnifiedSliderPadding));
-  slider_->SetPreferredSize(gfx::Size(0, kTrayItemSize));
-  layout->SetFlexForView(slider_, 1);
+
+  auto* layout = SetLayoutManager(std::make_unique<views::BoxLayout>(
+      views::BoxLayout::Orientation::kHorizontal, kQsSliderRowPadding,
+      kSliderChildrenViewSpacing));
+  layout->SetFlexForView(slider_, /*flex=*/1);
   layout->set_cross_axis_alignment(
       views::BoxLayout::CrossAxisAlignment::kCenter);
 
+  // Adds a layer to set it non-opaque. Otherwise the full part of the slider
+  // will be drawn on top of the previous draw.
   SetPaintToLayer();
   layer()->SetFillsBoundsOpaquely(false);
 }
@@ -119,32 +147,39 @@ void UnifiedSliderView::SetSliderValue(float value, bool by_user) {
   // It should allow the case GetWidget() returning null, so that initial
   // position can be properly set by controllers before the view is attached to
   // a widget.
-  if (GetWidget() && GetWidget()->IsClosed())
+  if (GetWidget() && GetWidget()->IsClosed()) {
     return;
+  }
 
   slider_->SetValue(value);
-  if (by_user)
+  if (by_user) {
     slider_->SetEnableAccessibilityEvents(true);
-}
-
-const char* UnifiedSliderView::GetClassName() const {
-  return "UnifiedSliderView";
+  }
 }
 
 UnifiedSliderView::~UnifiedSliderView() = default;
 
-void UnifiedSliderView::CreateToastLabel() {
-  toast_label_ = AddChildView(std::make_unique<views::Label>());
-  TrayPopupUtils::SetLabelFontList(toast_label_,
-                                   TrayPopupUtils::FontStyle::kPodMenuHeader);
+void UnifiedSliderView::OnEvent(ui::Event* event) {
+  if (!event->IsKeyEvent()) {
+    views::View::OnEvent(event);
+    return;
+  }
+
+  auto* key_event = event->AsKeyEvent();
+  auto key_code = key_event->key_code();
+
+  // Only handles press event to avoid handling the event again when the key is
+  // released.
+  if (features::IsQsRevampEnabled() && key_code == ui::VKEY_RETURN &&
+      key_event->type() == ui::EventType::ET_KEY_PRESSED) {
+    slider_button_->NotifyClick(*event);
+    return;
+  }
+
+  views::View::OnEvent(event);
 }
 
-void UnifiedSliderView::OnThemeChanged() {
-  views::View::OnThemeChanged();
-  if (toast_label_) {
-    toast_label_->SetEnabledColor(AshColorProvider::Get()->GetContentLayerColor(
-        AshColorProvider::ContentLayerType::kTextColorPrimary));
-  }
-}
+BEGIN_METADATA(UnifiedSliderView, views::View)
+END_METADATA
 
 }  // namespace ash

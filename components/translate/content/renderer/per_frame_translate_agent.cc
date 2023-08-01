@@ -1,4 +1,4 @@
-// Copyright (c) 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,15 +6,16 @@
 
 #include <string>
 
-#include "base/bind.h"
 #include "base/check_op.h"
 #include "base/compiler_specific.h"
+#include "base/functional/bind.h"
 #include "base/json/string_escape.h"
 #include "base/location.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/notreached.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "components/translate/content/renderer/isolated_world_util.h"
 #include "components/translate/core/common/translate_constants.h"
 #include "components/translate/core/common/translate_metrics.h"
@@ -25,6 +26,7 @@
 #include "content/public/renderer/render_frame.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
+#include "third_party/blink/public/platform/scheduler/web_agent_group_scheduler.h"
 #include "third_party/blink/public/web/web_document.h"
 #include "third_party/blink/public/web/web_language_detection_details.h"
 #include "third_party/blink/public/web/web_local_frame.h"
@@ -72,7 +74,7 @@ PerFrameTranslateAgent::PerFrameTranslateAgent(
     int world_id,
     blink::AssociatedInterfaceRegistry* registry)
     : content::RenderFrameObserver(render_frame), world_id_(world_id) {
-  registry->AddInterface(base::BindRepeating(
+  registry->AddInterface<mojom::TranslateAgent>(base::BindRepeating(
       &PerFrameTranslateAgent::BindReceiver, base::Unretained(this)));
 }
 
@@ -124,9 +126,6 @@ void PerFrameTranslateAgent::TranslateFrame(const std::string& translate_script,
   source_lang_ = (source_lang != kUnknownLanguageCode) ? source_lang
                                                        : kAutoDetectionLanguage;
   target_lang_ = target_lang;
-
-  GURL url(render_frame()->GetWebFrame()->GetDocument().Url());
-  ReportPageScheme(url.scheme());
 
   EnsureIsolatedWorldInitialized(world_id_);
 
@@ -212,12 +211,16 @@ bool PerFrameTranslateAgent::ExecuteScriptAndGetBoolResult(
   if (!local_frame)
     return fallback;
 
-  v8::HandleScope handle_scope(v8::Isolate::GetCurrent());
+  v8::HandleScope handle_scope(
+      local_frame->GetAgentGroupScheduler()->Isolate());
   WebScriptSource source = WebScriptSource(WebString::FromASCII(script));
   v8::Local<v8::Value> result =
       local_frame->ExecuteScriptInIsolatedWorldAndReturnValue(
           world_id_, source, blink::BackForwardCacheAware::kAllow);
-  DCHECK(result->IsBoolean());
+
+  if (result.IsEmpty() || !result->IsBoolean()) {
+    return fallback;
+  }
 
   return result.As<v8::Boolean>()->Value();
 }
@@ -229,13 +232,16 @@ std::string PerFrameTranslateAgent::ExecuteScriptAndGetStringResult(
   if (!local_frame)
     return std::string();
 
-  v8::Isolate* isolate = v8::Isolate::GetCurrent();
+  v8::Isolate* isolate = local_frame->GetAgentGroupScheduler()->Isolate();
   v8::HandleScope handle_scope(isolate);
   WebScriptSource source = WebScriptSource(WebString::FromASCII(script));
   v8::Local<v8::Value> result =
       local_frame->ExecuteScriptInIsolatedWorldAndReturnValue(
           world_id_, source, blink::BackForwardCacheAware::kAllow);
-  DCHECK(result->IsString());
+
+  if (result.IsEmpty() || !result->IsString()) {
+    return std::string();
+  }
 
   v8::Local<v8::String> v8_str = result.As<v8::String>();
   int length = v8_str->Utf8Length(isolate);
@@ -254,12 +260,16 @@ double PerFrameTranslateAgent::ExecuteScriptAndGetDoubleResult(
   if (!local_frame)
     return 0.0;
 
-  v8::HandleScope handle_scope(v8::Isolate::GetCurrent());
+  v8::HandleScope handle_scope(
+      local_frame->GetAgentGroupScheduler()->Isolate());
   WebScriptSource source = WebScriptSource(WebString::FromASCII(script));
   v8::Local<v8::Value> result =
       local_frame->ExecuteScriptInIsolatedWorldAndReturnValue(
           world_id_, source, blink::BackForwardCacheAware::kAllow);
-  DCHECK(result->IsNumber());
+
+  if (result.IsEmpty() || !result->IsNumber()) {
+    return 0.0;
+  }
 
   return result.As<v8::Number>()->Value();
 }
@@ -271,12 +281,16 @@ int64_t PerFrameTranslateAgent::ExecuteScriptAndGetIntegerResult(
   if (!local_frame)
     return 0;
 
-  v8::HandleScope handle_scope(v8::Isolate::GetCurrent());
+  v8::HandleScope handle_scope(
+      local_frame->GetAgentGroupScheduler()->Isolate());
   WebScriptSource source = WebScriptSource(WebString::FromASCII(script));
   v8::Local<v8::Value> result =
       local_frame->ExecuteScriptInIsolatedWorldAndReturnValue(
           world_id_, source, blink::BackForwardCacheAware::kAllow);
-  DCHECK(result->IsNumber());
+
+  if (result.IsEmpty() || !result->IsNumber()) {
+    return 0;
+  }
 
   return result.As<v8::Integer>()->Value();
 }
@@ -288,7 +302,7 @@ void PerFrameTranslateAgent::CheckTranslateStatus(int check_count) {
   // First check if there was an error.
   if (HasTranslationFailed()) {
     NotifyBrowserTranslationFailed(
-        static_cast<translate::TranslateErrors::Type>(GetErrorCode()));
+        static_cast<translate::TranslateErrors>(GetErrorCode()));
     return;  // There was an error.
   }
 
@@ -346,8 +360,8 @@ void PerFrameTranslateAgent::TranslateFrameImpl(int try_count) {
   DCHECK_LT(try_count, kMaxTranslateInitCheckAttempts);
   if (!IsTranslateLibReady()) {
     // There was an error during initialization of library.
-    TranslateErrors::Type error =
-        static_cast<translate::TranslateErrors::Type>(GetErrorCode());
+    TranslateErrors error =
+        static_cast<translate::TranslateErrors>(GetErrorCode());
     if (error != TranslateErrors::NONE) {
       NotifyBrowserTranslationFailed(error);
       return;
@@ -359,7 +373,7 @@ void PerFrameTranslateAgent::TranslateFrameImpl(int try_count) {
       NotifyBrowserTranslationFailed(TranslateErrors::TRANSLATION_TIMEOUT);
       return;
     }
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(&PerFrameTranslateAgent::TranslateFrameImpl,
                        weak_method_factory_.GetWeakPtr(), try_count),
@@ -377,7 +391,7 @@ void PerFrameTranslateAgent::TranslateFrameImpl(int try_count) {
   if (!StartTranslation()) {
     DCHECK(HasTranslationFailed());
     NotifyBrowserTranslationFailed(
-        static_cast<translate::TranslateErrors::Type>(GetErrorCode()));
+        static_cast<translate::TranslateErrors>(GetErrorCode()));
     return;
   }
   // Check the status of the translation.
@@ -391,7 +405,7 @@ void PerFrameTranslateAgent::TranslateFrameImpl(int try_count) {
 }
 
 void PerFrameTranslateAgent::NotifyBrowserTranslationFailed(
-    TranslateErrors::Type error) {
+    TranslateErrors error) {
   DCHECK(translate_callback_pending_);
   // Notify the browser there was an error.
   std::move(translate_callback_pending_)

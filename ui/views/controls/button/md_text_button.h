@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "ui/base/ui_base_types.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/focus_ring.h"
 #include "ui/views/style/typography.h"
@@ -28,9 +29,16 @@ class VIEWS_EXPORT MdTextButton : public LabelButton {
 
   ~MdTextButton() override;
 
-  // See |is_prominent_|.
+  // TODO(crbug.com/1406008): Remove the use of Prominent state and use button
+  // style state instead.
   void SetProminent(bool is_prominent);
   bool GetProminent() const;
+
+  void SetStyle(ui::ButtonStyle button_style);
+  ui::ButtonStyle GetStyle() const;
+
+  // Returns the hover color depending on the button style.
+  SkColor GetHoverColor(ui::ButtonStyle button_style);
 
   // See |bg_color_override_|.
   void SetBgColorOverride(const absl::optional<SkColor>& color);
@@ -38,8 +46,9 @@ class VIEWS_EXPORT MdTextButton : public LabelButton {
 
   // Override the default corner radius of the round rect used for the
   // background and ink drop effects.
-  void SetCornerRadius(float radius);
-  float GetCornerRadius() const;
+  void SetCornerRadius(absl::optional<float> radius);
+  absl::optional<float> GetCornerRadius() const;
+  float GetCornerRadiusValue() const;
 
   // See |custom_padding_|.
   void SetCustomPadding(const absl::optional<gfx::Insets>& padding);
@@ -51,11 +60,14 @@ class VIEWS_EXPORT MdTextButton : public LabelButton {
   void SetText(const std::u16string& text) override;
   PropertyEffects UpdateStyleToIndicateDefaultStatus() override;
   void StateChanged(ButtonState old_state) override;
+  void SetImageModel(ButtonState for_state,
+                     const ui::ImageModel& image_model) override;
 
  protected:
   // View:
   void OnFocus() override;
   void OnBlur() override;
+  void OnBoundsChanged(const gfx::Rect& previous_bounds) override;
 
  private:
   void UpdatePadding();
@@ -65,13 +77,13 @@ class VIEWS_EXPORT MdTextButton : public LabelButton {
   void UpdateBackgroundColor() override;
   void UpdateColors();
 
-  // True if this button uses prominent styling (blue fill, etc.).
-  bool is_prominent_ = false;
+  ui::ButtonStyle style_ = ui::ButtonStyle::kDefault;
 
   // When set, this provides the background color.
   absl::optional<SkColor> bg_color_override_;
 
-  float corner_radius_ = 0.0f;
+  // Used to set the corner radius of the button.
+  absl::optional<float> corner_radius_;
 
   // Used to override default padding.
   absl::optional<gfx::Insets> custom_padding_;
@@ -79,9 +91,10 @@ class VIEWS_EXPORT MdTextButton : public LabelButton {
 
 BEGIN_VIEW_BUILDER(VIEWS_EXPORT, MdTextButton, LabelButton)
 VIEW_BUILDER_PROPERTY(bool, Prominent)
+VIEW_BUILDER_PROPERTY(absl::optional<float>, CornerRadius)
 VIEW_BUILDER_PROPERTY(absl::optional<SkColor>, BgColorOverride)
-VIEW_BUILDER_PROPERTY(float, CornerRadius)
 VIEW_BUILDER_PROPERTY(absl::optional<gfx::Insets>, CustomPadding)
+VIEW_BUILDER_PROPERTY(ui::ButtonStyle, Style)
 END_VIEW_BUILDER
 
 }  // namespace views

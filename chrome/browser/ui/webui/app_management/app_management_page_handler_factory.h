@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "chrome/browser/ui/webui/app_management/app_management_page_handler.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
@@ -14,12 +15,12 @@
 
 class Profile;
 
-class AppManagementPageHandler;
-
 class AppManagementPageHandlerFactory
     : public app_management::mojom::PageHandlerFactory {
  public:
-  explicit AppManagementPageHandlerFactory(Profile* profile);
+  AppManagementPageHandlerFactory(
+      Profile* profile,
+      std::unique_ptr<AppManagementPageHandler::Delegate> delegate);
 
   AppManagementPageHandlerFactory(const AppManagementPageHandlerFactory&) =
       delete;
@@ -38,12 +39,13 @@ class AppManagementPageHandlerFactory
       mojo::PendingReceiver<app_management::mojom::PageHandler> receiver)
       override;
 
+  raw_ptr<Profile> profile_;
+
+  std::unique_ptr<AppManagementPageHandler::Delegate> delegate_;
   std::unique_ptr<AppManagementPageHandler> page_handler_;
 
   mojo::Receiver<app_management::mojom::PageHandlerFactory>
       page_factory_receiver_{this};
-
-  Profile* profile_;
 };
 
 #endif  // CHROME_BROWSER_UI_WEBUI_APP_MANAGEMENT_APP_MANAGEMENT_PAGE_HANDLER_FACTORY_H_

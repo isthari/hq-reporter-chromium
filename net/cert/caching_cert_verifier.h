@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "base/gtest_prod_util.h"
+#include "base/time/time.h"
 #include "net/base/completion_once_callback.h"
 #include "net/base/expiring_cache.h"
 #include "net/base/net_export.h"
@@ -34,6 +35,7 @@ namespace net {
 // above for meaningful changes and the practical utility of being able to
 // cache results when they're not expected to change.
 class NET_EXPORT CachingCertVerifier : public CertVerifier,
+                                       public CertVerifier::Observer,
                                        public CertDatabase::Observer {
  public:
   // Creates a CachingCertVerifier that will use |verifier| to perform the
@@ -53,20 +55,24 @@ class NET_EXPORT CachingCertVerifier : public CertVerifier,
              std::unique_ptr<Request>* out_req,
              const NetLogWithSource& net_log) override;
   void SetConfig(const Config& config) override;
+  void AddObserver(CertVerifier::Observer* observer) override;
+  void RemoveObserver(CertVerifier::Observer* observer) override;
 
  private:
   FRIEND_TEST_ALL_PREFIXES(CachingCertVerifierTest, CacheHit);
   FRIEND_TEST_ALL_PREFIXES(CachingCertVerifierTest, CacheHitCTResultsCached);
-  FRIEND_TEST_ALL_PREFIXES(CachingCertVerifierTest, Visitor);
-  FRIEND_TEST_ALL_PREFIXES(CachingCertVerifierTest, AddsEntries);
   FRIEND_TEST_ALL_PREFIXES(CachingCertVerifierTest, DifferentCACerts);
+  FRIEND_TEST_ALL_PREFIXES(CachingCertVerifierCacheClearingTest,
+                           CacheClearedSyncVerification);
+  FRIEND_TEST_ALL_PREFIXES(CachingCertVerifierCacheClearingTest,
+                           CacheClearedAsyncVerification);
 
   // CachedResult contains the result of a certificate verification.
   struct NET_EXPORT_PRIVATE CachedResult {
     CachedResult();
     ~CachedResult();
 
-    int error;                // The return value of CertVerifier::Verify.
+    int error = ERR_FAILED;   // The return value of CertVerifier::Verify.
     CertVerifyResult result;  // The output of CertVerifier::Verify.
   };
 
@@ -117,6 +123,9 @@ class NET_EXPORT CachingCertVerifier : public CertVerifier,
                         const CertVerifyResult& verify_result,
                         int error);
 
+  // CertVerifier::Observer methods:
+  void OnCertVerifierChanged() override;
+
   // CertDatabase::Observer methods:
   void OnCertDBChanged() override;
 
@@ -128,11 +137,11 @@ class NET_EXPORT CachingCertVerifier : public CertVerifier,
 
   std::unique_ptr<CertVerifier> verifier_;
 
-  uint32_t config_id_;
+  uint32_t config_id_ = 0u;
   CertVerificationCache cache_;
 
-  uint64_t requests_;
-  uint64_t cache_hits_;
+  uint64_t requests_ = 0u;
+  uint64_t cache_hits_ = 0u;
 };
 
 }  // namespace net

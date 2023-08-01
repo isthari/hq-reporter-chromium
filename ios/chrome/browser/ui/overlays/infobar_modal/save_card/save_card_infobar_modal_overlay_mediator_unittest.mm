@@ -1,30 +1,30 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/overlays/infobar_modal/save_card/save_card_infobar_modal_overlay_mediator.h"
 
-#include "base/bind.h"
-#include "base/feature_list.h"
-#include "base/guid.h"
-#include "base/strings/sys_string_conversions.h"
-#include "components/autofill/core/browser/autofill_client.h"
-#include "components/autofill/core/browser/autofill_test_utils.h"
-#include "components/autofill/core/browser/data_model/credit_card.h"
-#include "components/autofill/core/browser/payments/autofill_save_card_infobar_delegate_mobile.h"
-#include "components/autofill/core/browser/payments/test_legal_message_line.h"
-#include "components/signin/public/identity_manager/account_info.h"
-#include "ios/chrome/browser/infobars/infobar_ios.h"
-#include "ios/chrome/browser/overlays/public/infobar_modal/save_card_infobar_modal_overlay_request_config.h"
+#import "base/feature_list.h"
+#import "base/functional/bind.h"
+#import "base/strings/sys_string_conversions.h"
+#import "base/uuid.h"
+#import "components/autofill/core/browser/autofill_client.h"
+#import "components/autofill/core/browser/autofill_test_utils.h"
+#import "components/autofill/core/browser/data_model/credit_card.h"
+#import "components/autofill/core/browser/payments/autofill_save_card_infobar_delegate_mobile.h"
+#import "components/autofill/core/browser/payments/test_legal_message_line.h"
+#import "components/signin/public/identity_manager/account_info.h"
+#import "ios/chrome/browser/infobars/infobar_ios.h"
+#import "ios/chrome/browser/overlays/public/infobar_modal/save_card_infobar_modal_overlay_request_config.h"
 #import "ios/chrome/browser/overlays/public/infobar_modal/save_card_infobar_modal_overlay_responses.h"
-#include "ios/chrome/browser/overlays/test/fake_overlay_request_callback_installer.h"
-#include "ios/chrome/browser/ui/autofill/save_card_message_with_links.h"
-#include "ios/chrome/browser/ui/infobars/modals/infobar_save_card_modal_consumer.h"
+#import "ios/chrome/browser/overlays/test/fake_overlay_request_callback_installer.h"
+#import "ios/chrome/browser/ui/autofill/save_card_message_with_links.h"
+#import "ios/chrome/browser/ui/infobars/modals/infobar_save_card_modal_consumer.h"
 #import "ios/chrome/browser/ui/overlays/infobar_modal/save_card/save_card_infobar_modal_overlay_mediator_delegate.h"
-#include "testing/gtest_mac.h"
-#include "testing/platform_test.h"
+#import "testing/gtest_mac.h"
+#import "testing/platform_test.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
-#include "third_party/ocmock/gtest_support.h"
+#import "third_party/ocmock/gtest_support.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -82,19 +82,12 @@ class SaveCardInfobarModalOverlayMediatorTest : public PlatformTest {
         autofill::LegalMessageLines(
             {autofill::TestLegalMessageLine("Test message")});
     std::unique_ptr<autofill::AutofillSaveCardInfoBarDelegateMobile> delegate =
-        std::make_unique<autofill::AutofillSaveCardInfoBarDelegateMobile>(
-            /*upload=*/true, autofill::AutofillClient::SaveCreditCardOptions(),
-            autofill::CreditCard(base::GenerateGUID(),
-                                 "https://www.example.com/"),
-            legal_message_lines,
-            base::BindOnce(
-                ^(autofill::AutofillClient::SaveCardOfferUserDecision
-                      user_decision,
-                  const autofill::AutofillClient::UserProvidedCardDetails&
-                      user_provided_card_details){
-                }),
-            autofill::AutofillClient::LocalSaveCardPromptCallback(),
-            AccountInfo());
+        autofill::AutofillSaveCardInfoBarDelegateMobile::CreateForUploadSave(
+            autofill::AutofillClient::SaveCreditCardOptions(),
+            autofill::CreditCard(
+                base::Uuid::GenerateRandomV4().AsLowercaseString(),
+                "https://www.example.com/"),
+            base::DoNothing(), legal_message_lines, AccountInfo());
     delegate_ = delegate.get();
     infobar_ = std::make_unique<InfoBarIOS>(InfobarType::kInfobarTypeSaveCard,
                                             std::move(delegate));
@@ -125,8 +118,7 @@ class SaveCardInfobarModalOverlayMediatorTest : public PlatformTest {
 
 // Tests that a SaveCardInfobarModalOverlayMediator correctly sets up its
 // consumer.
-// TODO(crbug.com/1098117): Re-enable test.
-TEST_F(SaveCardInfobarModalOverlayMediatorTest, DISABLED_SetUpConsumer) {
+TEST_F(SaveCardInfobarModalOverlayMediatorTest, SetUpConsumer) {
   FakeSaveCardModalConsumer* consumer =
       [[FakeSaveCardModalConsumer alloc] init];
   mediator_.consumer = consumer;

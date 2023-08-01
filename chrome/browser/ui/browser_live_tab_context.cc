@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "base/feature_list.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/token.h"
 #include "base/values.h"
 #include "chrome/browser/apps/app_service/web_contents_app_id_utils.h"
@@ -15,6 +16,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/closed_tab_cache.h"
 #include "chrome/browser/sessions/closed_tab_cache_service_factory.h"
+#include "chrome/browser/sessions/session_service_utils.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_finder.h"
@@ -29,6 +31,7 @@
 #include "chrome/common/buildflags.h"
 #include "components/sessions/content/content_live_tab.h"
 #include "components/sessions/content/content_platform_specific_tab_data.h"
+#include "components/sessions/core/session_types.h"
 #include "components/tab_groups/tab_group_id.h"
 #include "components/tab_groups/tab_group_visual_data.h"
 #include "content/public/browser/navigation_controller.h"
@@ -38,9 +41,9 @@
 #include "chrome/browser/sessions/tab_loader.h"
 #endif
 
-#if BUILDFLAG(ENABLE_SIDE_SEARCH)
+#if defined(TOOLKIT_VIEWS)
 #include "chrome/browser/ui/side_search/side_search_utils.h"
-#endif
+#endif  // defined(TOOLKIT_VIEWS)
 
 using content::NavigationController;
 using content::SessionStorageNamespace;
@@ -76,6 +79,11 @@ SessionID BrowserLiveTabContext::GetSessionID() const {
   return browser_->session_id();
 }
 
+sessions::SessionWindow::WindowType BrowserLiveTabContext::GetWindowType()
+    const {
+  return WindowTypeForBrowserType(browser_->type());
+}
+
 int BrowserLiveTabContext::GetTabCount() const {
   return browser_->tab_strip_model()->count();
 }
@@ -106,7 +114,7 @@ std::map<std::string, std::string> BrowserLiveTabContext::GetExtraDataForTab(
     int index) const {
   std::map<std::string, std::string> extra_data;
 
-#if BUILDFLAG(ENABLE_SIDE_SEARCH)
+#if defined(TOOLKIT_VIEWS)
   if (IsSideSearchEnabled(browser_->profile())) {
     absl::optional<std::pair<std::string, std::string>> side_search_data =
         side_search::MaybeGetSideSearchTabRestoreData(
@@ -114,23 +122,14 @@ std::map<std::string, std::string> BrowserLiveTabContext::GetExtraDataForTab(
     if (side_search_data.has_value())
       extra_data.insert(side_search_data.value());
   }
-#endif  // BUILDFLAG(ENABLE_SIDE_SEARCH)
+#endif  // defined(TOOLKIT_VIEWS)
 
   return extra_data;
 }
 
 std::map<std::string, std::string>
 BrowserLiveTabContext::GetExtraDataForWindow() const {
-  std::map<std::string, std::string> extra_data;
-
-#if BUILDFLAG(ENABLE_SIDE_SEARCH)
-  if (IsSideSearchEnabled(browser_->profile())) {
-    side_search::MaybeAddSideSearchWindowRestoreData(
-        browser_->window()->IsSideSearchPanelVisible(), extra_data);
-  }
-#endif  // BUILDFLAG(ENABLE_SIDE_SEARCH)
-
-  return extra_data;
+  return std::map<std::string, std::string>();
 }
 
 absl::optional<tab_groups::TabGroupId> BrowserLiveTabContext::GetTabGroupForTab(
@@ -221,6 +220,10 @@ sessions::LiveTab* BrowserLiveTabContext::AddRestoredTab(
         user_agent_override, extra_data, false /* from_session_restore */);
   }
 
+  // Record the metrics for restoring closed tabs. Set to true when the tab is
+  // restored from closed tab cache and false otherwise.
+  UMA_HISTOGRAM_BOOLEAN("Tab.RestoreClosedTab", restored_from_closed_tab_cache);
+
   // Only update the metadata if the group doesn't already exist since the
   // existing group has the latest metadata, which may have changed from the
   // time the tab was closed.
@@ -282,6 +285,7 @@ void BrowserLiveTabContext::CloseTab() {
 // static
 sessions::LiveTabContext* BrowserLiveTabContext::Create(
     Profile* profile,
+    sessions::SessionWindow::WindowType type,
     const std::string& app_name,
     const gfx::Rect& bounds,
     ui::WindowShowState show_state,
@@ -291,10 +295,17 @@ sessions::LiveTabContext* BrowserLiveTabContext::Create(
   std::unique_ptr<Browser::CreateParams> create_params;
   if (ShouldCreateAppWindowForAppName(profile, app_name)) {
     // Only trusted app popup windows should ever be restored.
-    create_params = std::make_unique<Browser::CreateParams>(
-        Browser::CreateParams::CreateForApp(app_name, true /* trusted_source */,
-                                            bounds, profile,
-                                            true /* user_gesture */));
+    if (type == sessions::SessionWindow::TYPE_APP_POPUP) {
+      create_params = std::make_unique<Browser::CreateParams>(
+          Browser::CreateParams::CreateForAppPopup(
+              app_name, /*trusted_source=*/true, bounds, profile,
+              /*user_gesture=*/true));
+    } else {
+      create_params = std::make_unique<Browser::CreateParams>(
+          Browser::CreateParams::CreateForApp(app_name, /*trusted_source=*/true,
+                                              bounds, profile,
+                                              /*user_gesture=*/true));
+    }
   } else {
     create_params = std::make_unique<Browser::CreateParams>(
         Browser::CreateParams(profile, true));
@@ -305,10 +316,6 @@ sessions::LiveTabContext* BrowserLiveTabContext::Create(
   create_params->initial_workspace = workspace;
   create_params->user_title = user_title;
   Browser* browser = Browser::Create(*create_params.get());
-
-#if BUILDFLAG(ENABLE_SIDE_SEARCH)
-  browser->window()->MaybeRestoreSideSearchStatePerWindow(extra_data);
-#endif  // BUILDFLAG(ENABLE_SIDE_SEARCH)
 
   return browser->live_tab_context();
 }

@@ -1,16 +1,15 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// clang-format off
-// #import 'chrome://os-settings/chromeos/os_settings.js';
-
-// #import {PluginVmBrowserProxyImpl, PermissionType, createBoolPermission, AppManagementStore, updateSelectedAppId, getPermissionValueBool, convertOptionalBoolToBool} from 'chrome://os-settings/chromeos/os_settings.js';
-// #import {TestPluginVmBrowserProxy} from './test_plugin_vm_browser_proxy.m.js';
-// #import {setupFakeHandler, replaceStore, replaceBody, getPermissionCrToggleByType, getPermissionToggleByType} from './test_util.m.js';
-// clang-format on
-
 'use strict';
+
+import {PluginVmBrowserProxyImpl, AppManagementStore, updateSelectedAppId} from 'chrome://os-settings/os_settings.js';
+import {createBoolPermission} from 'chrome://resources/cr_components/app_management/permission_util.js';
+import {convertOptionalBoolToBool, getPermissionValueBool} from 'chrome://resources/cr_components/app_management/util.js';
+import {TestPluginVmBrowserProxy} from './test_plugin_vm_browser_proxy.js';
+import {setupFakeHandler, replaceStore, replaceBody, getPermissionCrToggleByType, getPermissionToggleByType} from './test_util.js';
+import {AppType, OptionalBool, PermissionType} from 'chrome://resources/cr_components/app_management/app_management.mojom-webui.js';
 
 suite('<app-management-plugin-vm-detail-view>', function() {
   /** @enum {number} */
@@ -26,8 +25,7 @@ suite('<app-management-plugin-vm-detail-view>', function() {
   let appId;
 
   function getPermissionBoolByType(permissionType) {
-    return app_management.util.getPermissionValueBool(
-        pluginVmDetailView.app_, permissionType);
+    return getPermissionValueBool(pluginVmDetailView.app_, permissionType);
   }
 
   function isCrToggleChecked(permissionType) {
@@ -45,7 +43,7 @@ suite('<app-management-plugin-vm-detail-view>', function() {
   }
 
   function getSelectedAppFromStore() {
-    const storeData = app_management.AppManagementStore.getInstance().data;
+    const storeData = AppManagementStore.getInstance().data;
     return storeData.apps[storeData.selectedAppId];
   }
 
@@ -77,22 +75,31 @@ suite('<app-management-plugin-vm-detail-view>', function() {
 
   async function checkAndAcceptDialog(textId) {
     assertEquals(
-        pluginVmDetailView.$$('cr-dialog div[slot="body"]').textContent,
+        pluginVmDetailView.shadowRoot
+            .querySelector('cr-dialog div[slot="body"]')
+            .textContent,
         loadTimeData.getString(textId));
-    pluginVmDetailView.$$('cr-dialog cr-button.action-button').click();
+    pluginVmDetailView.shadowRoot
+        .querySelector('cr-dialog cr-button.action-button')
+        .click();
     await fakeHandler.flushPipesForTesting();
   }
 
   async function checkAndCancelDialog(textId, cancelByEsc) {
     assertEquals(
-        pluginVmDetailView.$$('cr-dialog div[slot="body"]').textContent,
+        pluginVmDetailView.shadowRoot
+            .querySelector('cr-dialog div[slot="body"]')
+            .textContent,
         loadTimeData.getString(textId));
     if (cancelByEsc) {
       // When <esc> is used to cancel the button, <cr-dialog> will fire a
       // "cancel" event.
-      pluginVmDetailView.$$(`cr-dialog`).dispatchEvent(new Event('cancel'));
+      pluginVmDetailView.shadowRoot.querySelector(`cr-dialog`)
+          .dispatchEvent(new Event('cancel'));
     } else {
-      pluginVmDetailView.$$(`cr-dialog cr-button.cancel-button`).click();
+      pluginVmDetailView.shadowRoot
+          .querySelector(`cr-dialog cr-button.cancel-button`)
+          .click();
     }
     await fakeHandler.flushPipesForTesting();
   }
@@ -107,7 +114,7 @@ suite('<app-management-plugin-vm-detail-view>', function() {
 
   setup(async function() {
     pluginVmBrowserProxy = new TestPluginVmBrowserProxy();
-    settings.PluginVmBrowserProxyImpl.instance_ = pluginVmBrowserProxy;
+    PluginVmBrowserProxyImpl.setInstanceForTesting(pluginVmBrowserProxy);
     fakeHandler = setupFakeHandler();
     replaceStore();
 
@@ -131,13 +138,12 @@ suite('<app-management-plugin-vm-detail-view>', function() {
 
     // Add an app, and make it the currently selected app.
     const options = {
-      type: apps.mojom.AppType.kPluginVm,
-      permissions: permissions
+      type: AppType.kPluginVm,
+      permissions: permissions,
     };
     const app = await fakeHandler.addApp(null, options);
     appId = app.id;
-    app_management.AppManagementStore.getInstance().dispatch(
-        app_management.actions.updateSelectedAppId(appId));
+    AppManagementStore.getInstance().dispatch(updateSelectedAppId(appId));
 
     pluginVmDetailView =
         document.createElement('app-management-plugin-vm-detail-view');
@@ -147,7 +153,7 @@ suite('<app-management-plugin-vm-detail-view>', function() {
 
   test('App is rendered correctly', function() {
     assertEquals(
-        app_management.AppManagementStore.getInstance().data.selectedAppId,
+        AppManagementStore.getInstance().data.selectedAppId,
         pluginVmDetailView.app_.id);
   });
 
@@ -162,13 +168,15 @@ suite('<app-management-plugin-vm-detail-view>', function() {
 
             // Toggle off.
             await clickToggle(permissionType);
-            assertFalse(!!pluginVmDetailView.$$('cr-dialog'));
+            assertFalse(
+                !!pluginVmDetailView.shadowRoot.querySelector('cr-dialog'));
             assertFalse(getPermissionBoolByType(permissionType));
             assertFalse(isCrToggleChecked(permissionType));
 
             // Toggle on.
             await clickToggle(permissionType);
-            assertFalse(!!pluginVmDetailView.$$('cr-dialog'));
+            assertFalse(
+                !!pluginVmDetailView.shadowRoot.querySelector('cr-dialog'));
             assertTrue(getPermissionBoolByType(permissionType));
             assertTrue(isCrToggleChecked(permissionType));
           }));
@@ -231,27 +239,24 @@ suite('<app-management-plugin-vm-detail-view>', function() {
                   })));
 
   test('Pin to shelf toggle', async function() {
-    const pinToShelfItem = pluginVmDetailView.$['pin-to-shelf-setting'];
-    const toggle = pinToShelfItem.$['toggle-row'].$.toggle;
+    const pinToShelfItem = pluginVmDetailView.$.pinToShelfSetting;
+    const toggle = pinToShelfItem.$.toggleRow.$.toggle;
 
     assertFalse(toggle.checked);
     assertEquals(
         toggle.checked,
-        app_management.util.convertOptionalBoolToBool(
-            getSelectedAppFromStore().isPinned));
+        convertOptionalBoolToBool(getSelectedAppFromStore().isPinned));
     pinToShelfItem.click();
     await fakeHandler.flushPipesForTesting();
     assertTrue(toggle.checked);
     assertEquals(
         toggle.checked,
-        app_management.util.convertOptionalBoolToBool(
-            getSelectedAppFromStore().isPinned));
+        convertOptionalBoolToBool(getSelectedAppFromStore().isPinned));
     pinToShelfItem.click();
     await fakeHandler.flushPipesForTesting();
     assertFalse(toggle.checked);
     assertEquals(
         toggle.checked,
-        app_management.util.convertOptionalBoolToBool(
-            getSelectedAppFromStore().isPinned));
+        convertOptionalBoolToBool(getSelectedAppFromStore().isPinned));
   });
 });

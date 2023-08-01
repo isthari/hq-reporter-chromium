@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 package org.chromium.components.browser_ui.widget.tile;
@@ -8,6 +8,8 @@ import android.view.View;
 import android.view.ViewGroup.MarginLayoutParams;
 import android.widget.ImageView;
 import android.widget.TextView;
+
+import androidx.core.widget.ImageViewCompat;
 
 import org.chromium.components.browser_ui.widget.R;
 import org.chromium.ui.modelutil.PropertyKey;
@@ -27,6 +29,9 @@ public class TileViewBinder {
         } else if (propertyKey == TileViewProperties.ICON) {
             final ImageView iconView = view.findViewById(R.id.tile_view_icon);
             iconView.setImageDrawable(model.get(TileViewProperties.ICON));
+        } else if (propertyKey == TileViewProperties.ICON_TINT) {
+            final ImageView iconView = view.findViewById(R.id.tile_view_icon);
+            ImageViewCompat.setImageTintList(iconView, model.get(TileViewProperties.ICON_TINT));
         } else if (propertyKey == TileViewProperties.BADGE_VISIBLE) {
             final View badgeView = view.findViewById(R.id.offline_badge);
             final boolean isVisible = model.get(TileViewProperties.BADGE_VISIBLE);

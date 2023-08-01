@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,6 +19,7 @@
 #include "base/message_loop/message_pump_type.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/task/current_thread.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_executor.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "build/build_config.h"
@@ -38,7 +39,7 @@
 #endif
 
 #if !BUILDFLAG(INTEGRATED_MODE)
-#include "components/cronet/android/cronet_jni_registration.h"
+#include "components/cronet/android/cronet_jni_registration_generated.h"
 #include "components/cronet/android/cronet_library_loader.h"
 #endif
 
@@ -87,7 +88,7 @@ bool OnInitThread() {
 jint CronetOnLoad(JavaVM* vm, void* reserved) {
   base::android::InitVM(vm);
   JNIEnv* env = base::android::AttachCurrentThread();
-  if (!RegisterMainDexNatives(env) || !RegisterNonMainDexNatives(env)) {
+  if (!RegisterNatives(env)) {
     return -1;
   }
   if (!base::android::OnJNIOnLoadInit())
@@ -168,9 +169,11 @@ void EnsureInitialized() {
 
 std::unique_ptr<net::ProxyConfigService> CreateProxyConfigService(
     const scoped_refptr<base::SequencedTaskRunner>& io_task_runner) {
+  // Note: CreateSystemProxyConfigService internally assumes that
+  // base::SingleThreadTaskRunner::GetCurrentDefault() == JNI communication
+  // thread.
   std::unique_ptr<net::ProxyConfigService> service =
-      net::ConfiguredProxyResolutionService::CreateSystemProxyConfigService(
-          io_task_runner);
+      net::ProxyConfigService::CreateSystemProxyConfigService(io_task_runner);
   // If a PAC URL is present, ignore it and use the address and port of
   // Android system's local HTTP proxy server. See: crbug.com/432539.
   // TODO(csharrison) Architect the wrapper better so we don't need to cast for

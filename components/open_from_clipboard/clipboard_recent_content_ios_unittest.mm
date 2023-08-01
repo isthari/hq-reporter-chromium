@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 
 #include <memory>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #import "base/test/ios/wait_util.h"
@@ -68,6 +68,7 @@ NSTimeInterval kMaxAge = 60 * 60 * 1;
 - (instancetype)initWithMaxAge:(NSTimeInterval)maxAge
              authorizedSchemes:(NSArray*)authorizedSchemes
                   userDefaults:(NSUserDefaults*)groupUserDefaults
+         onlyUseClipboardAsync:(BOOL)onlyUseClipboardAsync
                         uptime:(NSTimeInterval)uptime;
 
 @end
@@ -79,10 +80,12 @@ NSTimeInterval kMaxAge = 60 * 60 * 1;
 - (instancetype)initWithMaxAge:(NSTimeInterval)maxAge
              authorizedSchemes:(NSSet*)authorizedSchemes
                   userDefaults:(NSUserDefaults*)groupUserDefaults
+         onlyUseClipboardAsync:(BOOL)onlyUseClipboardAsync
                         uptime:(NSTimeInterval)uptime {
   self = [super initWithMaxAge:maxAge
              authorizedSchemes:authorizedSchemes
                   userDefaults:groupUserDefaults
+         onlyUseClipboardAsync:onlyUseClipboardAsync
                       delegate:nil];
   if (self) {
     _fakeUptime = uptime;
@@ -120,13 +123,14 @@ class ClipboardRecentContentIOSTest : public ::testing::Test {
     ClipboardRecentContentImplIOSWithFakeUptime*
         clipboard_content_implementation =
             [[ClipboardRecentContentImplIOSWithFakeUptime alloc]
-                   initWithMaxAge:kMaxAge
-                authorizedSchemes:@[
-                  base::SysUTF8ToNSString(kRecognizedScheme),
-                  base::SysUTF8ToNSString(application_scheme)
-                ]
-                     userDefaults:[NSUserDefaults standardUserDefaults]
-                           uptime:time_delta.InSecondsF()];
+                       initWithMaxAge:kMaxAge
+                    authorizedSchemes:@[
+                      base::SysUTF8ToNSString(kRecognizedScheme),
+                      base::SysUTF8ToNSString(application_scheme)
+                    ]
+                         userDefaults:[NSUserDefaults standardUserDefaults]
+                onlyUseClipboardAsync:NO
+                               uptime:time_delta.InSecondsF()];
 
     clipboard_content_ =
         std::make_unique<ClipboardRecentContentIOSWithFakeUptime>(

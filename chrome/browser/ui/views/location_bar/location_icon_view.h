@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 
 #include "base/memory/raw_ptr.h"
 #include "chrome/browser/ui/views/location_bar/icon_label_bubble_view.h"
-#include "components/feature_engagement/public/tracker.h"
 #include "components/omnibox/browser/location_bar_model.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 
@@ -19,10 +18,7 @@ namespace security_state {
 enum SecurityLevel;
 }
 
-class Profile;
-
 // Use a LocationIconView to display an icon on the leading side of the edit
-// field. It shows the user's current action (while the user is editing), or the
 // page security status (after navigation has completed), or extension name (if
 // the URL is a chrome-extension:// URL).
 class LocationIconView : public IconLabelBubbleView {
@@ -66,8 +62,7 @@ class LocationIconView : public IconLabelBubbleView {
 
   LocationIconView(const gfx::FontList& font_list,
                    IconLabelBubbleView::Delegate* parent_delegate,
-                   Delegate* delegate,
-                   Profile* profile);
+                   Delegate* delegate);
   LocationIconView(const LocationIconView&) = delete;
   LocationIconView& operator=(const LocationIconView&) = delete;
   ~LocationIconView() override;
@@ -77,10 +72,10 @@ class LocationIconView : public IconLabelBubbleView {
   bool OnMouseDragged(const ui::MouseEvent& event) override;
   SkColor GetForegroundColor() const override;
   bool ShouldShowSeparator() const override;
+  bool ShouldShowLabelAfterAnimation() const override;
   bool ShowBubble(const ui::Event& event) override;
   bool IsBubbleShowing() const override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
-  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   void AddedToWidget() override;
   void OnThemeChanged() override;
 
@@ -112,6 +107,7 @@ class LocationIconView : public IconLabelBubbleView {
  protected:
   // IconLabelBubbleView:
   bool IsTriggerableEvent(const ui::Event& event) override;
+  void UpdateBorder() override;
 
  private:
   // Returns what the minimum size would be if the preferred size were |size|.
@@ -125,8 +121,14 @@ class LocationIconView : public IconLabelBubbleView {
   // If |suppress_animations| is true, the text change will not be animated.
   void UpdateTextVisibility(bool suppress_animations);
 
+  // Updates the accessible properties based on if we are editing or empty.
+  void SetAccessibleProperties(bool is_initialization);
+
   // Updates Icon based on the current state and theme.
   void UpdateIcon();
+
+  // Updates background based on the current state and theme.
+  void UpdateBackground() override;
 
   // Handles the arrival of an asynchronously fetched icon.
   void OnIconFetched(const gfx::Image& image);
@@ -140,9 +142,7 @@ class LocationIconView : public IconLabelBubbleView {
   // location icon was updated.
   bool was_editing_or_empty_ = false;
 
-  raw_ptr<Delegate> delegate_;
-
-  raw_ptr<feature_engagement::Tracker> feature_engagement_tracker_;
+  raw_ptr<Delegate, DanglingUntriaged> delegate_;
 
   // Used to scope the lifetime of asynchronous icon fetch callbacks to the
   // lifetime of the object. Weak pointers issued by this factory are

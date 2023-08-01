@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,10 @@
 #define ASH_COMPONENTS_ARC_MEMORY_PRESSURE_ARC_MEMORY_PRESSURE_BRIDGE_H_
 
 #include "ash/components/arc/metrics/arc_metrics_service.h"
+#include "ash/components/arc/session/connection_observer.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
-#include "chromeos/dbus/resourced/resourced_client.h"
+#include "chromeos/ash/components/dbus/resourced/resourced_client.h"
 #include "components/keyed_service/core/keyed_service.h"
 
 namespace content {
@@ -20,7 +22,8 @@ class ArcBridgeService;
 
 class ArcMemoryPressureBridge
     : public KeyedService,
-      public chromeos::ResourcedClient::ArcVmObserver {
+      public ash::ResourcedClient::ArcVmObserver,
+      public ConnectionObserver<mojom::ProcessInstance> {
  public:
   // Returns singleton instance for the given BrowserContext,
   // or nullptr if the browser |context| is not allowed to use ARC.
@@ -38,8 +41,15 @@ class ArcMemoryPressureBridge
   ~ArcMemoryPressureBridge() override;
 
   // Implements ResourcedClient::ArcVmObserver.
-  void OnMemoryPressure(chromeos::ResourcedClient::PressureLevelArcVm level,
+  void OnMemoryPressure(ash::ResourcedClient::PressureLevelArcVm level,
                         uint64_t reclaim_target_kb) override;
+
+  // ConnectionObserver<mojom::ProcessInstance> overrides.
+  // We use the OnConnectionClosed method to know when we should reset
+  // memory_pressure_in_flight_.
+  void OnConnectionClosed() override;
+
+  static void EnsureFactoryBuilt();
 
  private:
   // Called by Mojo when the memory pressure call into ARCVM completes.
@@ -47,8 +57,9 @@ class ArcMemoryPressureBridge
   // reclaimed - An estimate of the number of bytes freed.
   void OnHostMemoryPressureComplete(uint32_t killed, uint64_t reclaimed);
 
-  ArcBridgeService* const arc_bridge_service_;  // Owned by ArcServiceManager.
-  ArcMetricsService* const arc_metrics_service_;
+  const raw_ptr<ArcBridgeService, ExperimentalAsh>
+      arc_bridge_service_;  // Owned by ArcServiceManager.
+  const raw_ptr<ArcMetricsService, ExperimentalAsh> arc_metrics_service_;
 
   // Set between OnMemoryPressure and OnHostMemoryPressureComplete, so we can
   // throttle calls into ARCVM if it is unresponsive.

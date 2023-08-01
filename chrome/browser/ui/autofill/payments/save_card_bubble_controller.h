@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,7 +22,6 @@ class Profile;
 namespace autofill {
 
 class CreditCard;
-class AutofillBubbleBase;
 enum class BubbleType;
 
 // Interface that exposes controller functionality to save card bubbles.
@@ -56,17 +55,13 @@ class SaveCardBubbleController {
   virtual std::u16string GetDeclineButtonText() const = 0;
 
   // Returns the account info of the signed-in user.
-  virtual const AccountInfo& GetAccountInfo() const = 0;
+  virtual const AccountInfo& GetAccountInfo() = 0;
 
   // Returns the profile.
   virtual Profile* GetProfile() const = 0;
 
   // Returns the card that will be uploaded if the user accepts.
   virtual const CreditCard& GetCard() const = 0;
-
-  // Returns the currently active save card bubble view. Can be nullptr if no
-  // bubble is visible.
-  virtual AutofillBubbleBase* GetSaveCardBubbleView() const = 0;
 
   // Returns whether the dialog should include a textfield requesting the user
   // to confirm/provide cardholder name.

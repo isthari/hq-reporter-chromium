@@ -1,24 +1,24 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/settings/language/add_language_table_view_controller.h"
 
-#include "base/mac/foundation_util.h"
-#include "base/metrics/histogram_macros.h"
-#import "ios/chrome/browser/ui/list_model/list_item+Controller.h"
+#import "base/mac/foundation_util.h"
+#import "base/metrics/histogram_macros.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
+#import "ios/chrome/browser/shared/ui/list_model/list_item+Controller.h"
+#import "ios/chrome/browser/shared/ui/table_view/table_view_navigation_controller_constants.h"
+#import "ios/chrome/browser/shared/ui/table_view/table_view_utils.h"
+#import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/settings/language/cells/language_item.h"
 #import "ios/chrome/browser/ui/settings/language/language_settings_data_source.h"
 #import "ios/chrome/browser/ui/settings/language/language_settings_histograms.h"
 #import "ios/chrome/browser/ui/settings/language/language_settings_ui_constants.h"
-#import "ios/chrome/browser/ui/table_view/table_view_navigation_controller_constants.h"
-#import "ios/chrome/browser/ui/table_view/table_view_utils.h"
-#include "ios/chrome/browser/ui/ui_feature_flags.h"
-#import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
-#include "ios/chrome/grit/ios_strings.h"
-#include "ui/base/l10n/l10n_util_mac.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "ui/base/l10n/l10n_util_mac.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -36,7 +36,10 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
 }  // namespace
 
-@interface AddLanguageTableViewController () <UISearchResultsUpdating>
+@interface AddLanguageTableViewController () <UISearchResultsUpdating> {
+  // Whether Settings have been dismissed.
+  BOOL _settingsAreDismissed;
+}
 
 // The data source passed to this instance.
 @property(nonatomic, strong) id<LanguageSettingsDataSource> dataSource;
@@ -103,10 +106,6 @@ typedef NS_ENUM(NSInteger, ItemType) {
   // Place the search bar in the navigation bar.
   self.navigationItem.searchController = self.searchController;
   self.navigationItem.hidesSearchBarWhenScrolling = NO;
-  // Center the search bar vertically so it looks centered in the header when
-  // searching in iPad and in landscape mode.
-  self.searchController.searchBar.searchFieldBackgroundPositionAdjustment =
-      UIOffsetMake(0.0f, kTableViewNavigationVerticalOffsetForSearchHeader);
 
   // Scrim.
   self.scrimView = [[UIControl alloc] init];
@@ -120,29 +119,6 @@ typedef NS_ENUM(NSInteger, ItemType) {
            forControlEvents:UIControlEventTouchUpInside];
 
   [self loadModel];
-}
-
-- (void)viewWillAppear:(BOOL)animated {
-  [super viewWillAppear:animated];
-
-  // Center search bar's cancel button vertically so it looks centered in the
-  // header when searching in iPad and in landscape mode.
-  UIOffset offset =
-      UIOffsetMake(0.0f, kTableViewNavigationVerticalOffsetForSearchHeader);
-  UIBarButtonItem* cancelButton = [UIBarButtonItem
-      appearanceWhenContainedInInstancesOfClasses:@ [[UISearchBar class]]];
-  [cancelButton setTitlePositionAdjustment:offset
-                             forBarMetrics:UIBarMetricsDefault];
-}
-
-- (void)viewWillDisappear:(BOOL)animated {
-  [super viewWillDisappear:animated];
-
-  // Restore the origin offset for the cancel button proxy style to default.
-  UIBarButtonItem* cancelButton = [UIBarButtonItem
-      appearanceWhenContainedInInstancesOfClasses:@ [[UISearchBar class]]];
-  [cancelButton setTitlePositionAdjustment:UIOffsetZero
-                             forBarMetrics:UIBarMetricsDefault];
 }
 
 #pragma mark - ChromeTableViewController
@@ -192,6 +168,22 @@ typedef NS_ENUM(NSInteger, ItemType) {
   [self updateLanguagesSectionFromDataSource:NO];
 }
 
+#pragma mark - SettingsControllerProtocol
+
+- (void)reportDismissalUserAction {
+}
+
+- (void)reportBackUserAction {
+}
+
+- (void)settingsWillBeDismissed {
+  DCHECK(!_settingsAreDismissed);
+
+  // No-op as there are no C++ objects or observers.
+
+  _settingsAreDismissed = YES;
+}
+
 #pragma mark - Public methods
 
 - (void)supportedLanguagesListChanged {
@@ -202,7 +194,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
 #pragma mark - Helper methods
 
 // Populates the language items in the language section. Queries the data source
-// if |fromDataSource| is true. Otherwise uses the previously loaded items.
+// if `fromDataSource` is true. Otherwise uses the previously loaded items.
 - (void)populateLanguagesSectionFromDataSource:(BOOL)fromDataSource {
   TableViewModel* model = self.tableViewModel;
 
@@ -227,7 +219,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
 }
 
 // Reloads the language items in the language section. Queries the data source
-// if |fromDataSource| is true. Otherwise uses the previously loaded items.
+// if `fromDataSource` is true. Otherwise uses the previously loaded items.
 - (void)updateLanguagesSectionFromDataSource:(BOOL)fromDataSource {
   // Update the model.
   [self.tableViewModel

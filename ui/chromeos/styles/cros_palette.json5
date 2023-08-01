@@ -1,4 +1,4 @@
-/* Copyright 2020 The Chromium Authors. All rights reserved.
+/* Copyright 2020 The Chromium Authors
  * Use of this source code is governed by a BSD_style license that can be
  * found in the LICENSE file. */
 
@@ -13,6 +13,9 @@
     proto: {
       field_name: 'palette_colors',
       field_id: 1,
+    },
+    ColorMappings: {
+      set_name: 'LegacySemantic'
     },
   },
   colors: {

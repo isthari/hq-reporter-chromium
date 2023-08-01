@@ -1,13 +1,14 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/optimization_guide/optimization_guide_web_contents_observer.h"
 
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/optimization_guide/chrome_hints_manager.h"
 #include "chrome/browser/optimization_guide/optimization_guide_keyed_service.h"
 #include "chrome/browser/optimization_guide/optimization_guide_keyed_service_factory.h"
-#include "chrome/browser/prefetch/no_state_prefetch/no_state_prefetch_manager_factory.h"
+#include "chrome/browser/preloading/prefetch/no_state_prefetch/no_state_prefetch_manager_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "components/no_state_prefetch/browser/no_state_prefetch_manager.h"
 #include "components/optimization_guide/core/hints_fetcher.h"
@@ -130,7 +131,7 @@ void OptimizationGuideWebContentsObserver::DidFinishNavigation(
       NavigationHandleData::GetForNavigationHandle(*navigation_handle);
   if (!navigation_handle_data)
     return;
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(
           &OptimizationGuideWebContentsObserver::NotifyNavigationFinish,
@@ -139,18 +140,24 @@ void OptimizationGuideWebContentsObserver::DidFinishNavigation(
           navigation_handle->GetRedirectChain()));
 }
 
+void OptimizationGuideWebContentsObserver::WebContentsDestroyed() {
+  // The web contents are being destroyed. Stop observing.
+  Observe(/*web_contents=*/nullptr);
+}
+
 void OptimizationGuideWebContentsObserver::PostFetchHintsUsingManager() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  if (!web_contents()
-           ->GetMainFrame()
-           ->GetLastCommittedURL()
-           .SchemeIsHTTPOrHTTPS())
+  if (!web_contents() || !web_contents()
+                              ->GetPrimaryMainFrame()
+                              ->GetLastCommittedURL()
+                              .SchemeIsHTTPOrHTTPS()) {
     return;
+  }
 
   if (!optimization_guide_keyed_service_)
     return;
 
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(
           &OptimizationGuideWebContentsObserver::FetchHintsUsingManager,
@@ -179,7 +186,6 @@ void OptimizationGuideWebContentsObserver::NotifyNavigationFinish(
     std::unique_ptr<OptimizationGuideNavigationData> navigation_data,
     const std::vector<GURL>& navigation_redirect_chain) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-
   if (optimization_guide_keyed_service_) {
     optimization_guide_keyed_service_->OnNavigationFinish(
         navigation_redirect_chain);
@@ -189,12 +195,18 @@ void OptimizationGuideWebContentsObserver::NotifyNavigationFinish(
   // happening for the navigation that can happen after commit, such as a fetch
   // for the navigation successfully completing (which is not guaranteed to come
   // back before commit, if at all).
+  if (!web_contents()) {
+    return;
+  }
   PageData& page_data = GetPageData(web_contents()->GetPrimaryPage());
   page_data.SetNavigationData(std::move(navigation_data));
 }
 
 void OptimizationGuideWebContentsObserver::FlushLastNavigationData() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  if (!web_contents()) {
+    return;
+  }
   PageData& page_data = GetPageData(web_contents()->GetPrimaryPage());
   page_data.SetNavigationData(nullptr);
 }

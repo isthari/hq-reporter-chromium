@@ -1,30 +1,32 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/infobars/modals/infobar_password_table_view_controller.h"
 
-#include "base/mac/foundation_util.h"
-#include "base/metrics/user_metrics.h"
-#include "base/metrics/user_metrics_action.h"
-#include "base/notreached.h"
-#include "ios/chrome/browser/infobars/infobar_metrics_recorder.h"
+#import "base/mac/foundation_util.h"
+#import "base/metrics/user_metrics.h"
+#import "base/metrics/user_metrics_action.h"
+#import "base/notreached.h"
+#import "ios/chrome/browser/infobars/infobar_metrics_recorder.h"
 #import "ios/chrome/browser/passwords/ios_chrome_password_infobar_metrics_recorder.h"
+#import "ios/chrome/browser/shared/ui/symbols/symbols.h"
+#import "ios/chrome/browser/shared/ui/table_view/cells/table_view_text_button_item.h"
+#import "ios/chrome/browser/shared/ui/table_view/cells/table_view_text_edit_item.h"
+#import "ios/chrome/browser/shared/ui/table_view/chrome_table_view_styler.h"
+#import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/infobars/modals/infobar_modal_constants.h"
 #import "ios/chrome/browser/ui/infobars/modals/infobar_password_modal_delegate.h"
-#import "ios/chrome/browser/ui/table_view/cells/table_view_cells_constants.h"
-#import "ios/chrome/browser/ui/table_view/cells/table_view_text_button_item.h"
-#import "ios/chrome/browser/ui/table_view/cells/table_view_text_edit_item.h"
-#import "ios/chrome/browser/ui/table_view/chrome_table_view_styler.h"
-#import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
-#include "ios/chrome/grit/ios_strings.h"
-#include "ui/base/l10n/l10n_util.h"
+#import "ios/chrome/common/ui/table_view/table_view_cells_constants.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
+namespace {
 typedef NS_ENUM(NSInteger, SectionIdentifier) {
   SectionIdentifierContent = kSectionIdentifierEnumZero,
 };
@@ -36,6 +38,9 @@ typedef NS_ENUM(NSInteger, ItemType) {
   ItemTypeSaveCredentials,
   ItemTypeCancel,
 };
+
+const CGFloat kSymbolSize = 15;
+}  // namespace
 
 @interface InfobarPasswordTableViewController () <UITextFieldDelegate>
 // Properties backing InfobarPasswordModalConsumer interface.
@@ -114,10 +119,11 @@ typedef NS_ENUM(NSInteger, ItemType) {
                            target:self
                            action:@selector(dismissInfobarModal)];
   cancelButton.accessibilityIdentifier = kInfobarModalCancelButton;
-  UIImage* settingsImage = [[UIImage imageNamed:@"infobar_settings_icon"]
-      imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+
+  UIImage* gearImage = DefaultSymbolWithPointSize(kSettingsFilledSymbol,
+                                                  kInfobarSymbolPointSize);
   UIBarButtonItem* settingsButton = [[UIBarButtonItem alloc]
-      initWithImage:settingsImage
+      initWithImage:gearImage
               style:UIBarButtonItemStylePlain
              target:self
              action:@selector(presentPasswordSettings)];
@@ -157,7 +163,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
   TableViewTextEditItem* URLItem =
       [[TableViewTextEditItem alloc] initWithType:ItemTypeURL];
-  URLItem.textFieldName =
+  URLItem.fieldNameLabelText =
       l10n_util::GetNSString(IDS_IOS_SHOW_PASSWORD_VIEW_SITE);
   URLItem.textFieldValue = self.URL;
   URLItem.hideIcon = YES;
@@ -166,7 +172,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
   self.originalUsername = self.username;
   self.usernameItem =
       [[TableViewTextEditItem alloc] initWithType:ItemTypeUsername];
-  self.usernameItem.textFieldName =
+  self.usernameItem.fieldNameLabelText =
       l10n_util::GetNSString(IDS_IOS_SHOW_PASSWORD_VIEW_USERNAME);
   self.usernameItem.textFieldValue = self.username;
   self.usernameItem.returnKeyType = UIReturnKeyDone;
@@ -177,11 +183,11 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
   self.passwordItem =
       [[TableViewTextEditItem alloc] initWithType:ItemTypePassword];
-  self.passwordItem.textFieldName =
+  self.passwordItem.fieldNameLabelText =
       l10n_util::GetNSString(IDS_IOS_SHOW_PASSWORD_VIEW_PASSWORD);
   self.passwordItem.textFieldValue = self.maskedPassword;
   self.passwordItem.identifyingIcon =
-      [UIImage imageNamed:@"infobar_reveal_password_icon"];
+      DefaultSymbolWithPointSize(kShowActionSymbol, kSymbolSize);
   self.passwordItem.identifyingIconEnabled = YES;
   self.passwordItem.hideIcon = YES;
   self.passwordItem.identifyingIconAccessibilityLabel = l10n_util::GetNSString(
@@ -364,7 +370,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
   self.passwordMasked = !self.passwordMasked;
   if (self.passwordMasked) {
     self.passwordItem.identifyingIcon =
-        [UIImage imageNamed:@"infobar_reveal_password_icon"];
+        DefaultSymbolWithPointSize(kShowActionSymbol, kSymbolSize);
     self.passwordItem.textFieldValue = self.maskedPassword;
     self.passwordItem.identifyingIconAccessibilityLabel =
         l10n_util::GetNSString(
@@ -373,7 +379,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
         recordModalEvent:MobileMessagesPasswordsModalEvent::MaskedPassword];
   } else {
     self.passwordItem.identifyingIcon =
-        [UIImage imageNamed:@"infobar_hide_password_icon"];
+        DefaultSymbolWithPointSize(kHideActionSymbol, kSymbolSize);
     self.passwordItem.textFieldValue = self.unmaskedPassword;
     self.passwordItem.identifyingIconAccessibilityLabel =
         l10n_util::GetNSString(

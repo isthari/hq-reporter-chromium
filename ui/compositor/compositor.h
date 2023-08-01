@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,17 +10,20 @@
 #include <memory>
 #include <unordered_set>
 
-#include "base/callback_forward.h"
 #include "base/containers/flat_map.h"
 #include "base/containers/flat_set.h"
+#include "base/functional/callback_forward.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/observer_list.h"
 #include "base/power_monitor/power_observer.h"
+#include "base/scoped_observation_traits.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "cc/metrics/events_metrics_manager.h"
 #include "cc/metrics/frame_sequence_tracker.h"
 #include "cc/paint/element_id.h"
 #include "cc/trees/layer_tree_host.h"
@@ -31,10 +34,13 @@
 #include "components/viz/common/surfaces/frame_sink_id.h"
 #include "components/viz/common/surfaces/subtree_capture_id.h"
 #include "components/viz/host/host_frame_sink_client.h"
+#include "mojo/public/cpp/bindings/associated_remote.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
+#include "services/viz/privileged/mojom/compositing/display_private.mojom.h"
+#include "services/viz/privileged/mojom/compositing/external_begin_frame_controller.mojom.h"
 #include "services/viz/privileged/mojom/compositing/vsync_parameter_observer.mojom-forward.h"
-#include "skia/ext/skia_matrix_44.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "third_party/skia/include/core/SkM44.h"
 #include "ui/compositor/compositor_animation_observer.h"
 #include "ui/compositor/compositor_export.h"
 #include "ui/compositor/compositor_lock.h"
@@ -42,6 +48,7 @@
 #include "ui/compositor/layer_animator_collection.h"
 #include "ui/compositor/throughput_tracker.h"
 #include "ui/compositor/throughput_tracker_host.h"
+#include "ui/display/types/display_constants.h"
 #include "ui/gfx/display_color_spaces.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/geometry/vector2d.h"
@@ -59,8 +66,9 @@ class AnimationTimeline;
 class Layer;
 class LayerTreeDebugState;
 class LayerTreeFrameSink;
+class LayerTreeSettings;
 class TaskGraphRunner;
-}
+}  // namespace cc
 
 namespace gfx {
 namespace mojom {
@@ -69,7 +77,7 @@ class DelegatedInkPointRenderer;
 struct PresentationFeedback;
 class Rect;
 class Size;
-}
+}  // namespace gfx
 
 namespace gpu {
 class GpuMemoryBufferManager;
@@ -154,7 +162,8 @@ class COMPOSITOR_EXPORT Compositor : public base::PowerSuspendObserver,
              bool enable_pixel_canvas,
              bool use_external_begin_frame_control = false,
              bool force_software_compositor = false,
-             bool enable_compositing_based_throttling = false);
+             bool enable_compositing_based_throttling = false,
+             size_t memory_limit_when_visible_mb = 0);
 
   Compositor(const Compositor&) = delete;
   Compositor& operator=(const Compositor&) = delete;
@@ -166,10 +175,12 @@ class COMPOSITOR_EXPORT Compositor : public base::PowerSuspendObserver,
   void AddChildFrameSink(const viz::FrameSinkId& frame_sink_id);
   void RemoveChildFrameSink(const viz::FrameSinkId& frame_sink_id);
 
-  void SetLayerTreeFrameSink(std::unique_ptr<cc::LayerTreeFrameSink> surface,
-                             viz::mojom::DisplayPrivate* display_private);
-  void SetExternalBeginFrameController(viz::mojom::ExternalBeginFrameController*
-                                           external_begin_frame_controller);
+  void SetLayerTreeFrameSink(
+      std::unique_ptr<cc::LayerTreeFrameSink> surface,
+      mojo::AssociatedRemote<viz::mojom::DisplayPrivate> display_private);
+  void SetExternalBeginFrameController(
+      mojo::AssociatedRemote<viz::mojom::ExternalBeginFrameController>
+          external_begin_frame_controller);
 
   // Called when a child surface is about to resize.
   void OnChildResizing();
@@ -186,6 +197,16 @@ class COMPOSITOR_EXPORT Compositor : public base::PowerSuspendObserver,
   Layer* root_layer() { return root_layer_; }
   void SetRootLayer(Layer* root_layer);
 
+  // HideHelper temporarily hides the root layer and replaces it with a
+  // temporary layer, without calling SetRootLayer (but doing much of the work
+  // that SetRootLayer does).  During that time we must disable ticking
+  // of animations, since animations that animate layers that are not in
+  // cc's layer tree must not tick.  These methods make those changes
+  // and record/reflect that state.
+  void DisableAnimations();
+  void EnableAnimations();
+  bool animations_are_enabled() const { return animations_are_enabled_; }
+
   cc::AnimationTimeline* GetAnimationTimeline() const;
 
   // The scale factor of the device that this compositor is
@@ -194,10 +215,8 @@ class COMPOSITOR_EXPORT Compositor : public base::PowerSuspendObserver,
 
   // Gets and sets the color matrix used to transform the output colors of what
   // this compositor renders.
-  const skia::Matrix44& display_color_matrix() const {
-    return display_color_matrix_;
-  }
-  void SetDisplayColorMatrix(const skia::Matrix44& matrix);
+  const SkM44& display_color_matrix() const { return display_color_matrix_; }
+  void SetDisplayColorMatrix(const SkM44& matrix);
 
   // Where possible, draws are scissored to a damage region calculated from
   // changes to layer properties.  This bypasses that and indicates that
@@ -229,6 +248,12 @@ class COMPOSITOR_EXPORT Compositor : public base::PowerSuspendObserver,
   void SetDisplayColorSpaces(
       const gfx::DisplayColorSpaces& display_color_spaces);
 
+#if BUILDFLAG(IS_MAC)
+  // Set the current CGDirectDisplayID and update the private client.
+  void SetVSyncDisplayID(const int64_t display_id);
+  int64_t display_id() const;
+#endif
+
   const gfx::DisplayColorSpaces& display_color_spaces() const {
     return display_color_spaces_;
   }
@@ -237,6 +262,19 @@ class COMPOSITOR_EXPORT Compositor : public base::PowerSuspendObserver,
   void SetDisplayTransformHint(gfx::OverlayTransform hint);
   gfx::OverlayTransform display_transform_hint() const {
     return host_->display_transform_hint();
+  }
+
+  const viz::LocalSurfaceId& local_surface_id_from_parent() const {
+    return host_->local_surface_id_from_parent();
+  }
+
+  void SetLocalSurfaceIdFromParent(
+      const viz::LocalSurfaceId& local_surface_id_from_parent) {
+    host_->SetLocalSurfaceIdFromParent(local_surface_id_from_parent);
+  }
+
+  void SetExternalPageScaleFactor(float scale) {
+    host_->SetExternalPageScaleFactor(scale, false);
   }
 
   // Returns the size of the widget that is being drawn to in pixel coordinates.
@@ -266,6 +304,12 @@ class COMPOSITOR_EXPORT Compositor : public base::PowerSuspendObserver,
                                  base::TimeDelta interval);
   void AddVSyncParameterObserver(
       mojo::PendingRemote<viz::mojom::VSyncParameterObserver> observer);
+
+  // Sets and caches the maximum vsync interval, to be applied to the
+  // |display_private_| when possible, for use with variable refresh rates. An
+  // absent value indicates that VRR is not enabled.
+  void SetMaxVrrInterval(
+      const absl::optional<base::TimeDelta>& max_vrr_interval);
 
   // Sets the widget for the compositor to render into.
   void SetAcceleratedWidget(gfx::AcceleratedWidget widget);
@@ -305,18 +349,30 @@ class COMPOSITOR_EXPORT Compositor : public base::PowerSuspendObserver,
   std::unique_ptr<CompositorLock> GetCompositorLock(
       CompositorLockClient* client,
       base::TimeDelta timeout = base::Milliseconds(kCompositorLockTimeoutMs)) {
-    return lock_manager_.GetCompositorLock(client, timeout,
-                                           host_->DeferMainFrameUpdate());
+    return lock_manager_.GetCompositorLock(
+        client, timeout,
+        base::DoNothingWithBoundArgs(host_->DeferMainFrameUpdate()));
   }
+
+  // Registers a callback that is run when the presentation feedback for the
+  // next submitted frame is received (it's entirely possible some frames may be
+  // dropped between the time this is called and the callback is run).
+  // See ui/gfx/presentation_feedback.h for details on the args (TimeTicks is
+  // always non-zero).
+  // Note that since this might be called on failed presentations, it is
+  // deprecated in favor of `RequestSuccessfulPresentationTimeForNextFrame()`
+  // which will be called only after a successful presentation.
+  using PresentationTimeCallback =
+      base::OnceCallback<void(const gfx::PresentationFeedback&)>;
+  void RequestPresentationTimeForNextFrame(PresentationTimeCallback callback);
 
   // Registers a callback that is run when the next frame successfully makes it
   // to the screen (it's entirely possible some frames may be dropped between
   // the time this is called and the callback is run).
-  // See ui/gfx/presentation_feedback.h for details on the args (TimeTicks is
-  // always non-zero).
-  using PresentationTimeCallback =
-      base::OnceCallback<void(const gfx::PresentationFeedback&)>;
-  void RequestPresentationTimeForNextFrame(PresentationTimeCallback callback);
+  using SuccessfulPresentationTimeCallback =
+      base::OnceCallback<void(base::TimeTicks)>;
+  void RequestSuccessfulPresentationTimeForNextFrame(
+      SuccessfulPresentationTimeCallback callback);
 
   void IssueExternalBeginFrame(
       const viz::BeginFrameArgs& args,
@@ -326,14 +382,24 @@ class COMPOSITOR_EXPORT Compositor : public base::PowerSuspendObserver,
   // Creates a ThroughputTracker for tracking this Compositor.
   ThroughputTracker RequestNewThroughputTracker();
 
-  // Returns a percentage representing average throughput of last X seconds.
-  uint32_t GetAverageThroughput() const;
+  // Returns a percentage of dropped frames of the last second.
+  double GetPercentDroppedFrames() const;
+
+  // Activates a scoped monitor for the current event to track its metrics.
+  // `done_callback` is called when the monitor goes out of scope.
+  std::unique_ptr<cc::EventsMetricsManager::ScopedMonitor>
+  GetScopedEventMetricsMonitor(
+      cc::EventsMetricsManager::ScopedMonitor::DoneCallback done_callback);
 
   // LayerTreeHostClient implementation.
   void WillBeginMainFrame() override {}
-  void DidBeginMainFrame() override {}
+  void DidBeginMainFrame() override;
   void OnDeferMainFrameUpdatesChanged(bool) override {}
-  void OnDeferCommitsChanged(bool, cc::PaintHoldingReason) override {}
+  void OnDeferCommitsChanged(
+      bool,
+      cc::PaintHoldingReason,
+      absl::optional<cc::PaintHoldingCommitTrigger>) override {}
+  void OnCommitRequested() override {}
   void WillUpdateLayers() override {}
   void DidUpdateLayers() override;
   void BeginMainFrame(const viz::BeginFrameArgs& args) override;
@@ -429,9 +495,14 @@ class COMPOSITOR_EXPORT Compositor : public base::PowerSuspendObserver,
   virtual void SetDelegatedInkPointRenderer(
       mojo::PendingReceiver<gfx::mojom::DelegatedInkPointRenderer> receiver);
 
+  const cc::LayerTreeSettings& GetLayerTreeSettings() const;
+
  private:
   friend class base::RefCounted<Compositor>;
   friend class TotalAnimationThroughputReporter;
+  friend class TestCompositorHost;
+
+  static void SendDamagedRectsRecursive(Layer* layer);
 
   // Called when collected metrics for the tracker of |tracker_id| is ready.
   void ReportMetricsForTracker(
@@ -442,18 +513,15 @@ class COMPOSITOR_EXPORT Compositor : public base::PowerSuspendObserver,
 
   raw_ptr<ui::ContextFactory> context_factory_;
 
-  // |display_private_| can be null for:
+  // |display_private_| can be unbound for:
   // 1. Tests that don't set |display_private_|.
   // 2. Intermittently on creation or if there is some kind of error (GPU crash,
   //    GL context loss, etc.) that triggers reinitializing message pipes to the
   //    GPU process RootCompositorFrameSinkImpl.
-  // Therefore, it should always be null checked for safety before use.
-  //
-  // These pointers are owned by |context_factory_|, and must be reset before
-  // calling RemoveCompositor();
-  raw_ptr<viz::mojom::DisplayPrivate> display_private_ = nullptr;
-  raw_ptr<viz::mojom::ExternalBeginFrameController>
-      external_begin_frame_controller_ = nullptr;
+  // Therefore, it should always be checked for safety before use.
+  mojo::AssociatedRemote<viz::mojom::DisplayPrivate> display_private_;
+  mojo::AssociatedRemote<viz::mojom::ExternalBeginFrameController>
+      external_begin_frame_controller_;
 
   std::unique_ptr<PendingBeginFrameArgs> pending_begin_frame_args_;
 
@@ -467,6 +535,11 @@ class COMPOSITOR_EXPORT Compositor : public base::PowerSuspendObserver,
   gfx::AcceleratedWidget widget_ = gfx::kNullAcceleratedWidget;
   // A sequence number of a current compositor frame for use with metrics.
   int activated_frame_count_ = 0;
+
+#if BUILDFLAG(IS_MAC)
+  // Current CGDirectDisplayID for the screen.
+  int64_t display_id_ = display::kInvalidDisplayId;
+#endif
 
   // Current vsync refresh rate per second. Initialized to 60hz as a reasonable
   // value until first begin frame arrives with the real refresh rate.
@@ -487,6 +560,7 @@ class COMPOSITOR_EXPORT Compositor : public base::PowerSuspendObserver,
   base::TimeTicks vsync_timebase_;
   base::TimeDelta vsync_interval_ = viz::BeginFrameArgs::DefaultInterval();
   bool has_vsync_params_ = false;
+  absl::optional<base::TimeDelta> max_vrr_interval_ = absl::nullopt;
 
   const bool use_external_begin_frame_control_;
   const bool force_software_compositor_;
@@ -499,7 +573,7 @@ class COMPOSITOR_EXPORT Compositor : public base::PowerSuspendObserver,
   scoped_refptr<cc::AnimationTimeline> animation_timeline_;
   std::unique_ptr<ScopedAnimationDurationScaleMode> slow_animations_;
 
-  skia::Matrix44 display_color_matrix_;
+  SkM44 display_color_matrix_;
   gfx::DisplayColorSpaces display_color_spaces_;
 
   bool output_is_secure_ = false;
@@ -517,6 +591,15 @@ class COMPOSITOR_EXPORT Compositor : public base::PowerSuspendObserver,
 
   // Set in DisableSwapUntilResize and reset when a resize happens.
   bool disabled_swap_until_resize_ = false;
+
+  bool animations_are_enabled_ = true;
+
+  // This together with the animatinos observer list carries the "last
+  // animation finished" state to the next BeginMainFrame so that it could
+  // notify observers if needed. It is set in AddAnimationObserver and
+  // Cleared in BeginMainFrame when there are no animation observers.
+  // See go/report-ux-metrics-at-painting for details.
+  bool animation_started_ = false;
 
   TrackerId next_throughput_tracker_id_ = 1u;
   struct TrackerState {
@@ -543,5 +626,22 @@ class COMPOSITOR_EXPORT Compositor : public base::PowerSuspendObserver,
 };
 
 }  // namespace ui
+
+namespace base {
+
+template <>
+struct ScopedObservationTraits<ui::Compositor,
+                               ui::CompositorAnimationObserver> {
+  static void AddObserver(ui::Compositor* source,
+                          ui::CompositorAnimationObserver* observer) {
+    source->AddAnimationObserver(observer);
+  }
+  static void RemoveObserver(ui::Compositor* source,
+                             ui::CompositorAnimationObserver* observer) {
+    source->RemoveAnimationObserver(observer);
+  }
+};
+
+}  // namespace base
 
 #endif  // UI_COMPOSITOR_COMPOSITOR_H_

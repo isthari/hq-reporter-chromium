@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@ import androidx.annotation.IntDef;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.BuildInfo;
-import org.chromium.base.ContextUtils;
 import org.chromium.base.ObserverList;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.components.content_settings.ContentSettingValues;
@@ -183,10 +182,10 @@ public class PermissionDialogController
         // have the correct resources in some cases (e.g. WebLayer).
         Context context = mDialogDelegate.getWindow().getContext().get();
 
-        // It's possible for the activity to be null if we reach here just after the user
+        // It's possible for the context to be null if we reach here just after the user
         // backgrounds the browser and cleanup has happened. In that case, we can't show a prompt,
         // so act as though the user dismissed it.
-        if (ContextUtils.activityFromContext(context) == null) {
+        if (context == null) {
             // TODO(timloh): This probably doesn't work, as this happens synchronously when creating
             // the PermissionPromptAndroid, so the PermissionRequestManager won't be ready yet.
             mDialogDelegate.onDismiss();
@@ -194,14 +193,16 @@ public class PermissionDialogController
             return;
         }
 
+        mModalDialogManager = mDialogDelegate.getWindow().getModalDialogManager();
+
         // The tab may have navigated or been closed while we were waiting for Chrome Home to close.
-        if (mDialogDelegate == null) {
+        // For some embedders (e.g. WebEngine) the layout might not be inflated and so the
+        // ModalDialogManager is not available.
+        if (mDialogDelegate == null || mModalDialogManager == null) {
             mState = State.NOT_SHOWING;
             scheduleDisplay();
             return;
         }
-
-        mModalDialogManager = mDialogDelegate.getWindow().getModalDialogManager();
 
         mDialogModel = PermissionDialogModel.getModel(
                 this, mDialogDelegate, () -> showFilteredTouchEventDialog(context));
@@ -232,7 +233,7 @@ public class PermissionDialogController
                         .with(ModalDialogProperties.TITLE,
                                 context.getString(R.string.overlay_detected_dialog_title,
                                         BuildInfo.getInstance().hostPackageLabel))
-                        .with(ModalDialogProperties.MESSAGE,
+                        .with(ModalDialogProperties.MESSAGE_PARAGRAPH_1,
                                 context.getResources().getString(
                                         R.string.overlay_detected_dialog_message))
                         .with(ModalDialogProperties.POSITIVE_BUTTON_TEXT, context.getResources(),

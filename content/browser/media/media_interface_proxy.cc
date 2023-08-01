@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,8 @@
 #include <string>
 #include <tuple>
 
-#include "base/bind.h"
+#include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/memory/raw_ptr.h"
 #include "base/no_destructor.h"
@@ -33,6 +34,7 @@
 #include "media/mojo/buildflags.h"
 #include "media/mojo/mojom/frame_interface_factory.mojom.h"
 #include "media/mojo/mojom/media_service.mojom.h"
+#include "media/mojo/mojom/stable/stable_video_decoder.mojom.h"
 #include "mojo/public/cpp/bindings/callback_helpers.h"
 #include "mojo/public/cpp/bindings/remote_set.h"
 
@@ -47,7 +49,7 @@
 #if BUILDFLAG(ENABLE_LIBRARY_CDMS)
 #include "base/feature_list.h"
 #include "base/metrics/histogram_macros.h"
-#include "content/browser/media/cdm_storage_impl.h"
+#include "content/browser/media/media_license_manager.h"
 #include "media/base/key_system_names.h"
 #include "media/mojo/mojom/cdm_service.mojom.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
@@ -70,6 +72,11 @@
 #include "content/browser/media/flinging_renderer.h"
 #include "media/mojo/services/mojo_renderer_service.h"  // nogncheck
 #endif
+
+#if BUILDFLAG(ALLOW_OOP_VIDEO_DECODER)
+#include "content/public/browser/stable_video_decoder_factory.h"
+#include "media/base/media_switches.h"
+#endif  // BUILDFLAG(ALLOW_OOP_VIDEO_DECODER)
 
 namespace content {
 
@@ -158,10 +165,20 @@ class FrameInterfaceFactoryImpl : public media::mojom::FrameInterfaceFactory,
   void CreateCdmStorage(
       mojo::PendingReceiver<media::mojom::CdmStorage> receiver) override {
 #if BUILDFLAG(ENABLE_LIBRARY_CDMS)
-    if (cdm_type_.id.is_zero())
+    if (cdm_type_.is_zero())
       return;
 
-    CdmStorageImpl::Create(render_frame_host_, cdm_type_, std::move(receiver));
+    MediaLicenseManager* media_license_manager =
+        static_cast<StoragePartitionImpl*>(
+            render_frame_host_->GetStoragePartition())
+            ->GetMediaLicenseManager();
+    DCHECK(media_license_manager);
+
+    auto storage_key =
+        static_cast<RenderFrameHostImpl*>(render_frame_host_)->storage_key();
+    media_license_manager->OpenCdmStorage(
+        MediaLicenseManager::BindingContext(storage_key, cdm_type_),
+        std::move(receiver));
 #endif
   }
 
@@ -255,11 +272,28 @@ void MediaInterfaceProxy::CreateAudioDecoder(
 }
 
 void MediaInterfaceProxy::CreateVideoDecoder(
-    mojo::PendingReceiver<media::mojom::VideoDecoder> receiver) {
+    mojo::PendingReceiver<media::mojom::VideoDecoder> receiver,
+    mojo::PendingRemote<media::stable::mojom::StableVideoDecoder>
+        dst_video_decoder) {
   DCHECK(thread_checker_.CalledOnValidThread());
+  // The browser process cannot act as a proxy for video decoding and clients
+  // should not attempt to use it that way.
+  DCHECK(!dst_video_decoder);
+
   InterfaceFactory* factory = media_interface_factory_ptr_->Get();
-  if (factory)
-    factory->CreateVideoDecoder(std::move(receiver));
+  if (!factory)
+    return;
+
+  mojo::PendingRemote<media::stable::mojom::StableVideoDecoder>
+      oop_video_decoder;
+#if BUILDFLAG(ALLOW_OOP_VIDEO_DECODER)
+  if (media::IsOutOfProcessVideoDecodingEnabled()) {
+    render_frame_host().GetProcess()->CreateStableVideoDecoder(
+        oop_video_decoder.InitWithNewPipeAndPassReceiver());
+  }
+#endif  // BUILDFLAG(ALLOW_OOP_VIDEO_DECODER)
+  factory->CreateVideoDecoder(std::move(receiver),
+                              std::move(oop_video_decoder));
 }
 
 void MediaInterfaceProxy::CreateAudioEncoder(
@@ -339,7 +373,9 @@ void MediaInterfaceProxy::CreateMediaFoundationRenderer(
     mojo::PendingRemote<media::mojom::MediaLog> media_log_remote,
     mojo::PendingReceiver<media::mojom::Renderer> receiver,
     mojo::PendingReceiver<media::mojom::MediaFoundationRendererExtension>
-        renderer_extension_receiver) {
+        renderer_extension_receiver,
+    mojo::PendingRemote<media::mojom::MediaFoundationRendererClientExtension>
+        client_extension_remote) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DVLOG(1) << __func__ << ": this=" << this;
 
@@ -349,7 +385,8 @@ void MediaInterfaceProxy::CreateMediaFoundationRenderer(
   if (factory) {
     factory->CreateMediaFoundationRenderer(
         std::move(media_log_remote), std::move(receiver),
-        std::move(renderer_extension_receiver));
+        std::move(renderer_extension_receiver),
+        std::move(client_extension_remote));
   }
 }
 #endif  // BUILDFLAG(IS_WIN)
@@ -539,10 +576,7 @@ media::mojom::CdmFactory* MediaInterfaceProxy::ConnectToCdmService(
 
   auto* browser_context = render_frame_host().GetBrowserContext();
   auto& site = render_frame_host().GetSiteInstance()->GetSiteURL();
-  // TODO(crbug.com/1231162): Refactor GetCdmService() to only take a CdmInfo
-  // object. The current arguments are redundant.
-  auto& cdm_service =
-      GetCdmService(cdm_info.type.id, browser_context, site, cdm_info);
+  auto& cdm_service = GetCdmService(browser_context, site, cdm_info);
 
   mojo::Remote<media::mojom::CdmFactory> cdm_factory_remote;
   cdm_service.CreateCdmFactory(cdm_factory_remote.BindNewPipeAndPassReceiver(),

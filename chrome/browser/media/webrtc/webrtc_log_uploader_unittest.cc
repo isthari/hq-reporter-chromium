@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,17 +9,17 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
-#include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/test/task_environment.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/test/test_future.h"
 #include "base/time/time.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -190,8 +190,8 @@ class WebRtcLogUploaderTest : public testing::Test {
 
   void FlushRunLoop() {
     base::RunLoop run_loop;
-    base::SequencedTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                     run_loop.QuitClosure());
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, run_loop.QuitClosure());
     run_loop.Run();
   }
 
@@ -281,12 +281,8 @@ TEST_F(WebRtcLogUploaderTest, AddRtpDumpsToPostedData) {
   const std::string incoming_dump_content = "dummy incoming";
   const std::string outgoing_dump_content = "dummy outgoing";
 
-  base::WriteFile(incoming_dump,
-                  &incoming_dump_content[0],
-                  incoming_dump_content.size());
-  base::WriteFile(outgoing_dump,
-                  &outgoing_dump_content[0],
-                  outgoing_dump_content.size());
+  base::WriteFile(incoming_dump, incoming_dump_content);
+  base::WriteFile(outgoing_dump, outgoing_dump_content);
 
   WebRtcLogUploader::UploadDoneData upload_done_data;
   upload_done_data.paths.directory = temp_dir.GetPath().AppendASCII("log");
@@ -300,15 +296,67 @@ TEST_F(WebRtcLogUploaderTest, AddRtpDumpsToPostedData) {
   base::RunLoop run_loop;
   webrtc_log_uploader->background_task_runner()->PostTaskAndReply(
       FROM_HERE,
-      base::BindOnce(&WebRtcLogUploader::LoggingStoppedDoUpload,
+      base::BindOnce(&WebRtcLogUploader::OnLoggingStopped,
                      base::Unretained(webrtc_log_uploader.get()),
                      std::move(log), std::make_unique<WebRtcLogMetaDataMap>(),
-                     std::move(upload_done_data)),
+                     std::move(upload_done_data),
+                     /*is_text_log_upload_allowed=*/true),
       run_loop.QuitClosure());
   run_loop.Run();
 
   VerifyRtpDumpInMultipart(post_data, "rtpdump_recv", incoming_dump_content);
   VerifyRtpDumpInMultipart(post_data, "rtpdump_send", outgoing_dump_content);
+
+  webrtc_log_uploader->Shutdown();
+  FlushRunLoop();
+}
+
+TEST_F(WebRtcLogUploaderTest, DisableUploadOfMultipartData) {
+  base::test::TestFuture<bool, const std::string&, const std::string&> future;
+  base::ScopedTempDir temp_dir;
+  ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
+
+  std::unique_ptr<WebRtcLogUploader> webrtc_log_uploader(
+      new WebRtcLogUploader());
+
+  std::string post_data;
+  webrtc_log_uploader->OverrideUploadWithBufferForTesting(&post_data);
+
+  // Create the fake dump files.
+  const base::FilePath incoming_dump = temp_dir.GetPath().AppendASCII("recv");
+  const base::FilePath outgoing_dump = temp_dir.GetPath().AppendASCII("send");
+  const std::string incoming_dump_content = "dummy incoming";
+  const std::string outgoing_dump_content = "dummy outgoing";
+
+  base::WriteFile(incoming_dump, &incoming_dump_content[0],
+                  incoming_dump_content.size());
+  base::WriteFile(outgoing_dump, &outgoing_dump_content[0],
+                  outgoing_dump_content.size());
+
+  WebRtcLogUploader::UploadDoneData upload_done_data;
+
+  upload_done_data.paths.directory = temp_dir.GetPath().AppendASCII("log");
+  upload_done_data.paths.incoming_rtp_dump = incoming_dump;
+  upload_done_data.paths.outgoing_rtp_dump = outgoing_dump;
+  upload_done_data.callback = future.GetCallback();
+
+  std::unique_ptr<WebRtcLogBuffer> log(new WebRtcLogBuffer());
+  log->SetComplete();
+
+  base::RunLoop run_loop;
+  webrtc_log_uploader->background_task_runner()->PostTaskAndReply(
+      FROM_HERE,
+      base::BindOnce(&WebRtcLogUploader::OnLoggingStopped,
+                     base::Unretained(webrtc_log_uploader.get()),
+                     std::move(log), std::make_unique<WebRtcLogMetaDataMap>(),
+                     std::move(upload_done_data),
+                     /*is_text_log_upload_allowed=*/false),
+      run_loop.QuitClosure());
+  run_loop.Run();
+
+  EXPECT_FALSE(future.Get<0>());
+  EXPECT_EQ("", future.Get<1>());
+  EXPECT_EQ(WebRtcLogUploader::kLogUploadDisabledMsg, future.Get<2>());
 
   webrtc_log_uploader->Shutdown();
   FlushRunLoop();

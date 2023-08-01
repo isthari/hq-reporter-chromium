@@ -26,6 +26,7 @@
 
 #include "third_party/blink/renderer/core/dom/element_traversal.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
+#include "third_party/blink/renderer/core/dom/focus_params.h"
 #include "third_party/blink/renderer/core/dom/id_target_observer.h"
 #include "third_party/blink/renderer/core/dom/node_traversal.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -46,7 +47,7 @@
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/page/validation_message_client.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
-#include "third_party/blink/renderer/platform/text/bidi_text_run.h"
+#include "third_party/blink/renderer/platform/text/bidi_paragraph.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 
 namespace blink {
@@ -89,7 +90,9 @@ ListedElement::ListedElement()
       will_validate_initialized_(false),
       will_validate_(true),
       is_valid_(true),
-      validity_is_dirty_(false) {}
+      validity_is_dirty_(false),
+      is_element_disabled_(false),
+      is_readonly_(false) {}
 
 ListedElement::~ListedElement() {
   // We can't call setForm here because it contains virtual calls.
@@ -116,7 +119,7 @@ void ListedElement::DidMoveToNewDocument(Document& old_document) {
 void ListedElement::InsertedInto(ContainerNode& insertion_point) {
   ancestor_disabled_state_ = AncestorDisabledState::kUnknown;
   // Force traversal to find ancestor
-  may_have_field_set_ancestor_ = true;
+  may_have_fieldset_ancestor_ = true;
   data_list_ancestor_state_ = DataListAncestorState::kUnknown;
   UpdateWillValidateCache();
 
@@ -143,7 +146,7 @@ void ListedElement::InsertedInto(ContainerNode& insertion_point) {
 
   // Trigger for elements outside of forms.
   if (!form_ && insertion_point.isConnected())
-    element.GetDocument().DidAssociateFormControl(&element);
+    element.GetDocument().DidAddOrRemoveFormRelatedElement(&element);
 
   InvalidateShadowIncludingAncestorForms(insertion_point);
 }
@@ -184,6 +187,14 @@ void ListedElement::RemovedFrom(ContainerNode& insertion_point) {
   }
 
   InvalidateShadowIncludingAncestorForms(insertion_point);
+
+  if (base::FeatureList::IsEnabled(
+          blink::features::kAutofillDetectRemovedFormControls) &&
+      insertion_point.isConnected()) {
+    // We don't insist on form_ being non-null as the form does not take care of
+    // reporting the removal.
+    element.GetDocument().DidAddOrRemoveFormRelatedElement(&element);
+  }
 }
 
 HTMLFormElement* ListedElement::FindAssociatedForm(
@@ -249,7 +260,7 @@ void ListedElement::WillChangeForm() {
 void ListedElement::DidChangeForm() {
   if (!form_was_set_by_parser_ && form_ && form_->isConnected()) {
     auto& element = ToHTMLElement();
-    element.GetDocument().DidAssociateFormControl(&element);
+    element.GetDocument().DidAddOrRemoveFormRelatedElement(&element);
   }
   FormOwnerSetNeedsValidityCheck();
 }
@@ -264,7 +275,7 @@ void ListedElement::FormOwnerSetNeedsValidityCheck() {
 void ListedElement::FieldSetAncestorsSetNeedsValidityCheck(Node* node) {
   if (!node)
     return;
-  if (!may_have_field_set_ancestor_)
+  if (!may_have_fieldset_ancestor_)
     return;
   for (auto* field_set =
            Traversal<HTMLFieldSetElement>::FirstAncestorOrSelf(*node);
@@ -305,8 +316,7 @@ bool ListedElement::RecalcWillValidate() const {
   }
   return data_list_ancestor_state_ ==
              DataListAncestorState::kNotInsideDataList &&
-         !element.IsDisabledFormControl() &&
-         !element.FastHasAttribute(html_names::kReadonlyAttr);
+         !element.IsDisabledFormControl() && !is_readonly_;
 }
 
 bool ListedElement::WillValidate() const {
@@ -347,7 +357,7 @@ void ListedElement::UpdateWillValidateCache() {
 }
 
 bool ListedElement::CustomError() const {
-  return !custom_validation_message_.IsEmpty();
+  return !custom_validation_message_.empty();
 }
 
 bool ListedElement::HasBadInput() const {
@@ -422,8 +432,8 @@ void ListedElement::FindCustomValidationMessageTextDirection(
     TextDirection& message_dir,
     String& sub_message,
     TextDirection& sub_message_dir) {
-  message_dir = DetermineDirectionality(message);
-  if (!sub_message.IsEmpty()) {
+  message_dir = BidiParagraph::BaseDirectionForStringOrLtr(message);
+  if (!sub_message.empty()) {
     sub_message_dir = ToHTMLElement().GetLayoutObject()->Style()->Direction();
   }
 }
@@ -445,7 +455,7 @@ void ListedElement::UpdateVisibleValidationMessage() {
   TextDirection message_dir = TextDirection::kLtr;
   TextDirection sub_message_dir = TextDirection::kLtr;
   String sub_message = ValidationSubMessage().StripWhiteSpace();
-  if (message.IsEmpty()) {
+  if (message.empty()) {
     client->HideValidationMessage(element);
   } else {
     FindCustomValidationMessageTextDirection(message, message_dir, sub_message,
@@ -511,36 +521,20 @@ void ListedElement::ShowValidationMessage() {
   Element& element = ValidationAnchor();
   element.scrollIntoViewIfNeeded(false);
   if (element.IsFocusable())
-    element.focus();
+    element.Focus(FocusParams(/*gate_on_user_activation=*/true));
   else
-    ToHTMLElement().focus();
+    ToHTMLElement().Focus(FocusParams(/*gate_on_user_activation=*/true));
   UpdateVisibleValidationMessage();
 }
 
 bool ListedElement::reportValidity() {
   List unhandled_invalid_controls;
   bool is_valid = checkValidity(&unhandled_invalid_controls);
-  if (is_valid || unhandled_invalid_controls.IsEmpty())
+  if (is_valid || unhandled_invalid_controls.empty())
     return is_valid;
   DCHECK_EQ(unhandled_invalid_controls.size(), 1u);
   DCHECK_EQ(unhandled_invalid_controls[0].Get(), this);
-  // Update layout now before calling IsFocusable(), which has
-  // !LayoutObject()->NeedsLayout() assertion.
-  HTMLElement& element = ToHTMLElement();
-  element.GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kForm);
-  if (element.IsFocusable()) {
-    ShowValidationMessage();
-    return false;
-  }
-  if (element.GetDocument().GetFrame()) {
-    String message(
-        "An invalid form control with name='%name' is not focusable.");
-    message.Replace("%name", GetName());
-    element.GetDocument().AddConsoleMessage(
-        MakeGarbageCollected<ConsoleMessage>(
-            mojom::ConsoleMessageSource::kRendering,
-            mojom::ConsoleMessageLevel::kError, message));
-  }
+  ShowValidationMessage();
   return false;
 }
 
@@ -579,29 +573,31 @@ void ListedElement::SetNeedsValidityCheck() {
     element.GetDocument()
         .GetTaskRunner(TaskType::kDOMManipulation)
         ->PostTask(FROM_HERE,
-                   WTF::Bind(&ListedElement::UpdateVisibleValidationMessage,
-                             WrapPersistent(this)));
+                   WTF::BindOnce(&ListedElement::UpdateVisibleValidationMessage,
+                                 WrapPersistent(this)));
   }
 }
 
 void ListedElement::DisabledAttributeChanged() {
-  UpdateWillValidateCache();
   HTMLElement& element = ToHTMLElement();
+  is_element_disabled_ = element.FastHasAttribute(html_names::kDisabledAttr);
+  UpdateWillValidateCache();
   element.PseudoStateChanged(CSSSelector::kPseudoDisabled);
   element.PseudoStateChanged(CSSSelector::kPseudoEnabled);
   DisabledStateMightBeChanged();
 }
 
 void ListedElement::ReadonlyAttributeChanged() {
+  is_readonly_ = ToHTMLElement().FastHasAttribute(html_names::kReadonlyAttr);
   UpdateWillValidateCache();
 }
 
 void ListedElement::UpdateAncestorDisabledState() const {
-  if (!may_have_field_set_ancestor_) {
+  if (!may_have_fieldset_ancestor_) {
     ancestor_disabled_state_ = AncestorDisabledState::kEnabled;
     return;
   }
-  may_have_field_set_ancestor_ = false;
+  may_have_fieldset_ancestor_ = false;
   // <fieldset> element of which |disabled| attribute affects the
   // target element.
   HTMLFieldSetElement* disabled_fieldset_ancestor = nullptr;
@@ -612,15 +608,17 @@ void ListedElement::UpdateAncestorDisabledState() const {
       last_legend_ancestor = ancestor;
       continue;
     }
-    if (!IsA<HTMLFieldSetElement>(*ancestor))
-      continue;
-    may_have_field_set_ancestor_ = true;
-    if (ancestor->IsDisabledFormControl()) {
-      auto* fieldset = To<HTMLFieldSetElement>(ancestor);
-      if (last_legend_ancestor && last_legend_ancestor == fieldset->Legend())
-        continue;
-      disabled_fieldset_ancestor = fieldset;
-      break;
+    if (HTMLFieldSetElement* fieldset_ancestor =
+            DynamicTo<HTMLFieldSetElement>(ancestor)) {
+      may_have_fieldset_ancestor_ = true;
+      if (fieldset_ancestor->is_element_disabled_) {
+        if (last_legend_ancestor &&
+            last_legend_ancestor == fieldset_ancestor->Legend()) {
+          continue;
+        }
+        disabled_fieldset_ancestor = fieldset_ancestor;
+        break;
+      }
     }
   }
   ancestor_disabled_state_ = disabled_fieldset_ancestor
@@ -634,7 +632,7 @@ void ListedElement::AncestorDisabledStateWasChanged() {
 }
 
 bool ListedElement::IsActuallyDisabled() const {
-  if (ToHTMLElement().FastHasAttribute(html_names::kDisabledAttr))
+  if (is_element_disabled_)
     return true;
   if (ancestor_disabled_state_ == AncestorDisabledState::kUnknown)
     UpdateAncestorDisabledState();

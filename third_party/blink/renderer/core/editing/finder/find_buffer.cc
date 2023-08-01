@@ -1,9 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/core/editing/finder/find_buffer.h"
 
+#include "base/time/time.h"
 #include "third_party/blink/renderer/core/css/style_change_reason.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
@@ -40,7 +41,7 @@ bool ShouldIgnoreContents(const Node& node) {
   return (!element->ShouldSerializeEndTag() &&
           !IsA<HTMLInputElement>(*element)) ||
          (IsA<TextControlElement>(*element) &&
-          !To<TextControlElement>(*element).SuggestedValue().IsEmpty()) ||
+          !To<TextControlElement>(*element).SuggestedValue().empty()) ||
          IsA<HTMLIFrameElement>(*element) || IsA<HTMLImageElement>(*element) ||
          IsA<HTMLMeterElement>(*element) || IsA<HTMLObjectElement>(*element) ||
          IsA<HTMLProgressElement>(*element) ||
@@ -54,17 +55,24 @@ bool ShouldIgnoreContents(const Node& node) {
               DisplayLockActivationReason::kFindInPage));
 }
 
-// Returns the first ancestor that isn't searchable. In other words, either
-// ShouldIgnoreContents() returns true for it or it has a display: none style.
-// Returns nullptr if no such ancestor exists.
-Node* GetNonSearchableAncestor(const Node& node) {
+// Returns the first ancestor element that isn't searchable. In other words,
+// either ShouldIgnoreContents() returns true for it or it has a display: none
+// style.  Returns nullptr if no such ancestor exists.
+Node* GetOutermostNonSearchableAncestor(const Node& node) {
+  Node* display_none = nullptr;
   for (Node& ancestor : FlatTreeTraversal::InclusiveAncestorsOf(node)) {
-    const ComputedStyle* style = ancestor.EnsureComputedStyle();
-    if (ancestor.IsDocumentNode())
-      return nullptr;
-    if ((style && style->Display() == EDisplay::kNone) ||
-        ShouldIgnoreContents(ancestor))
-      return &ancestor;
+    Element* element_ancestor = DynamicTo<Element>(&ancestor);
+    if (!element_ancestor)
+      continue;
+    const ComputedStyle* style = element_ancestor->GetComputedStyle();
+    if (!style || style->IsEnsuredInDisplayNone()) {
+      display_none = element_ancestor;
+      continue;
+    }
+    if (ShouldIgnoreContents(*element_ancestor))
+      return element_ancestor;
+    if (display_none)
+      return display_none;
   }
   return nullptr;
 }
@@ -75,7 +83,7 @@ template <class Direction>
 Node* GetVisibleTextNode(Node& start_node) {
   Node* node = &start_node;
   // Move to outside display none subtree if we're inside one.
-  while (Node* ancestor = GetNonSearchableAncestor(*node)) {
+  while (Node* ancestor = GetOutermostNonSearchableAncestor(*node)) {
     if (!ancestor)
       return nullptr;
     node = Direction::NextSkippingSubtree(*ancestor);
@@ -173,7 +181,7 @@ EphemeralRangeInFlatTree FindBuffer::FindMatchInRange(
       }
     }
 
-    if (GetNonSearchableAncestor(*node)) {
+    if (GetOutermostNonSearchableAncestor(*node)) {
       node = FlatTreeTraversal::NextSkippingChildren(*node);
       continue;
     }
@@ -296,7 +304,7 @@ FindBuffer::Results FindBuffer::FindMatches(const WebString& search_text,
   // We should return empty result if it's impossible to get a match (buffer is
   // empty or too short), or when something went wrong in layout, in which case
   // |offset_mapping_| is null.
-  if (buffer_.IsEmpty() || search_text.length() > buffer_.size() ||
+  if (buffer_.empty() || search_text.length() > buffer_.size() ||
       !offset_mapping_)
     return Results();
   String search_text_16_bit = search_text;
@@ -466,10 +474,8 @@ void FindBuffer::AddTextToBuffer(const Text& text_node,
 
     if (UNLIKELY(!offset_mapping_)) {
       // TODO(crbug.com/955678): There are certain cases where we fail to
-      // compute // |NGOffsetMapping| due to failures in layout. As the root
-      // cause is hard to fix at the moment, we work around it here so that the
-      // production build doesn't crash.
-      NOTREACHED();
+      // compute the |NGOffsetMapping| due to failures in layout. As the root
+      // cause is hard to fix at the moment, we just work around it here.
       return;
     }
   }
@@ -528,7 +534,7 @@ FindBuffer::Results::Iterator FindBuffer::Results::begin() const {
   if (empty_result_)
     return end();
   text_searcher_->SetOffset(0);
-  return Iterator(*find_buffer_, text_searcher_, search_text_);
+  return Iterator(*find_buffer_, text_searcher_);
 }
 
 FindBuffer::Results::Iterator FindBuffer::Results::end() const {
@@ -561,8 +567,7 @@ unsigned FindBuffer::Results::CountForTesting() const {
 
 // Findbuffer::Results::Iterator implementation.
 FindBuffer::Results::Iterator::Iterator(const FindBuffer& find_buffer,
-                                        TextSearcherICU* text_searcher,
-                                        const String& search_text)
+                                        TextSearcherICU* text_searcher)
     : find_buffer_(&find_buffer),
       text_searcher_(text_searcher),
       has_match_(true) {

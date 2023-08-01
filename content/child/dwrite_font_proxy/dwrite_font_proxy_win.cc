@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,18 +9,19 @@
 
 #include <utility>
 
-#include "base/bind.h"
 #include "base/check_op.h"
 #include "base/debug/crash_logging.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/trace_event/trace_event.h"
 #include "content/child/dwrite_font_proxy/dwrite_localized_strings_win.h"
 #include "content/public/child/child_thread.h"
+#include "third_party/blink/public/common/thread_safe_browser_interface_broker_proxy.h"
 
 namespace mswr = Microsoft::WRL;
 
@@ -36,8 +37,9 @@ namespace {
 // TODO(https://crbug.com/1089390): Remove this feature when the experiment is
 // complete. If the experiment shows a significant input delay improvement,
 // replace with a more refined mitigation for pages that access many fonts.
-const base::Feature kLimitFontFamilyNamesPerRenderer{
-    "LimitFontFamilyNamesPerRenderer", base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kLimitFontFamilyNamesPerRenderer,
+             "LimitFontFamilyNamesPerRenderer",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 constexpr size_t kFamilyNamesLimit = 20;
 
 // Family names that opted-out from the limit enforced by
@@ -198,13 +200,13 @@ HRESULT DWriteFontCollectionProxy::FindFamilyName(
   HRESULT hr = S_OK;
   if (absl::optional<UINT32> family_index = FindFamilyIndex(family_name, &hr)) {
     DCHECK_EQ(hr, S_OK);
-    DCHECK_NE(*family_index, UINT32_MAX);
+    DCHECK(IsValidFamilyIndex(*family_index));
     *index = *family_index;
     *exists = TRUE;
   } else {
     // |hr| can be failures, or |S_OK| if the |family_name| is not found.
     *exists = FALSE;
-    *index = UINT32_MAX;
+    *index = kFamilyNotFound;
   }
   return hr;
 }
@@ -217,7 +219,7 @@ absl::optional<UINT32> DWriteFontCollectionProxy::FindFamilyIndex(
     base::AutoLock families_lock(families_lock_);
     auto iter = family_names_.find(family_name);
     if (iter != family_names_.end()) {
-      if (iter->second != UINT_MAX)
+      if (iter->second != kFamilyNotFound)
         return iter->second;
       return absl::nullopt;
     }
@@ -245,8 +247,9 @@ absl::optional<UINT32> DWriteFontCollectionProxy::FindFamilyIndex(
     DCHECK(family_names_.find(family_name) == family_names_.end() ||
            family_names_[family_name] == family_index);
     family_names_[family_name] = family_index;
-    if (UNLIKELY(family_index == UINT32_MAX))
+    if (UNLIKELY(family_index == kFamilyNotFound))
       return absl::nullopt;
+    DCHECK(IsValidFamilyIndex(family_index));
 
     if (DWriteFontFamilyProxy* family =
             GetOrCreateFamilyLockRequired(family_index)) {
@@ -274,8 +277,13 @@ void DWriteFontCollectionProxy::PrewarmFamily(
     const blink::WebString& family_name) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  if (!prewarm_task_runner_)
+  if (!prewarm_task_runner_) {
+    // |BindHostReceiverOnMainThread| requires |ChildThread::Get()|, but it may
+    // not be available in some tests. Disable the prewarmer.
+    if (UNLIKELY(!ChildThread::Get()))
+      return;
     InitializePrewarmer();
+  }
 
   DCHECK(prewarm_task_runner_);
   prewarm_task_runner_->PostTask(
@@ -374,7 +382,6 @@ HRESULT DWriteFontCollectionProxy::CreateEnumeratorFromKey(
   const uint32_t* family_index =
       reinterpret_cast<const uint32_t*>(collection_key);
 
-  std::vector<base::FilePath> file_names;
   std::vector<base::File> file_handles;
   {
     // The Mojo call cannot be asynchronous because CreateEnumeratorFromKey is
@@ -383,30 +390,22 @@ HRESULT DWriteFontCollectionProxy::CreateEnumeratorFromKey(
     // (CreateEnumeratorFromKey can be invoked from the main thread or the
     // ThreadPool).
     base::ScopedAllowBaseSyncPrimitives allow_sync;
-    if (!GetFontProxy().GetFontFiles(*family_index, &file_names,
-                                     &file_handles)) {
+    if (!GetFontProxy().GetFontFileHandles(*family_index, &file_handles)) {
       LogFontProxyError(GET_FONT_FILES_SEND_FAILED);
       return E_FAIL;
     }
   }
 
   std::vector<HANDLE> handles;
-  handles.reserve(file_names.size() + file_handles.size());
-  for (const base::FilePath& file_name : file_names) {
-    // This leaks the handles, since they are used as the reference key to
-    // CreateStreamFromKey, and DirectWrite requires the reference keys to
-    // remain valid for the lifetime of the loader. The loader is the font
-    // collection proxy, which remains alive for the lifetime of the renderer.
-    HANDLE handle =
-        CreateFile(file_name.value().c_str(), GENERIC_READ, FILE_SHARE_READ,
-                   NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (handle != INVALID_HANDLE_VALUE)
-      handles.push_back(handle);
-  }
+  handles.reserve(file_handles.size());
   for (auto& file_handle : file_handles) {
     handles.push_back(file_handle.TakePlatformFile());
   }
 
+  // This leaks the handles, since they are used as the reference key to
+  // CreateStreamFromKey, and DirectWrite requires the reference keys to
+  // remain valid for the lifetime of the loader. The loader is the font
+  // collection proxy, which remains alive for the lifetime of the renderer.
   HRESULT hr = mswr::MakeAndInitialize<FontFileEnumerator>(
       font_file_enumerator, factory, this, &handles);
 
@@ -454,7 +453,7 @@ HRESULT DWriteFontCollectionProxy::RuntimeClassInitialize(
   factory_ = factory;
   if (proxy)
     font_proxy_.GetOrCreateValue().Bind(std::move(proxy));
-  main_task_runner_ = base::ThreadTaskRunnerHandle::Get();
+  main_task_runner_ = base::SingleThreadTaskRunner::GetCurrentDefault();
   // |prewarm_task_runner_| needs to be initialized later because ThreadPool is
   // not setup yet when |this| is instantiated. See |InitializePrewarmer|.
 
@@ -528,6 +527,8 @@ bool DWriteFontCollectionProxy::LoadFamilyNames(
 
 DWriteFontFamilyProxy* DWriteFontCollectionProxy::GetOrCreateFamilyLockRequired(
     UINT32 family_index) {
+  DCHECK(IsValidFamilyIndex(family_index));
+
   if (family_index < families_.size()) {
     if (DWriteFontFamilyProxy* family = families_[family_index].Get())
       return family;
@@ -563,6 +564,14 @@ blink::mojom::DWriteFontProxy& DWriteFontCollectionProxy::GetFontProxy() {
     }
   }
   return *font_proxy;
+}
+
+void DWriteFontCollectionProxy::BindFontProxyUsingBroker(
+    blink::ThreadSafeBrowserInterfaceBrokerProxy* interface_broker) {
+  mojo::Remote<blink::mojom::DWriteFontProxy>& font_proxy =
+      font_proxy_.GetOrCreateValue();
+  DCHECK(!font_proxy);
+  interface_broker->GetInterface(font_proxy.BindNewPipeAndPassReceiver());
 }
 
 void DWriteFontCollectionProxy::BindFontProxy(

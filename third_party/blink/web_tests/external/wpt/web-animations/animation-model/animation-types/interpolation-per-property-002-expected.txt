@@ -1,5 +1,5 @@
 This is a testharness.js-based test.
-Found 329 tests; 317 PASS, 12 FAIL, 0 TIMEOUT, 0 NOTRUN.
+Found 350 tests; 339 PASS, 11 FAIL, 0 TIMEOUT, 0 NOTRUN.
 PASS Setup
 PASS isolation (type: discrete) has testInterpolation function
 PASS isolation uses discrete animation when animating between "auto" and "isolate" with linear easing
@@ -27,6 +27,13 @@ PASS lighting-color supports animating as color of hsl()
 PASS lighting-color supports animating as color of #RGBa
 PASS lighting-color supports animating as color of rgba()
 PASS lighting-color supports animating as color of hsla()
+PASS line-height (type: discrete) has testInterpolation function
+PASS line-height uses discrete animation when animating between "normal" and "10px" with linear easing
+PASS line-height uses discrete animation when animating between "normal" and "10px" with effect easing
+PASS line-height uses discrete animation when animating between "normal" and "10px" with keyframe easing
+PASS line-height uses discrete animation when animating between "normal" and "10" with linear easing
+PASS line-height uses discrete animation when animating between "normal" and "10" with effect easing
+PASS line-height uses discrete animation when animating between "normal" and "10" with keyframe easing
 PASS list-style-image (type: discrete) has testInterpolation function
 FAIL list-style-image uses discrete animation when animating between "url("http://localhost/test-1")" and "url("http://localhost/test-2")" with linear easing assert_equals: The value should be url("http://localhost/test-1") at 499ms expected "url(\"http://localhost/test-1\")" but got "-webkit-cross-fade(url(\"http://localhost/test-1\"), url(\"http://localhost/test-2\"), 0.499)"
 FAIL list-style-image uses discrete animation when animating between "url("http://localhost/test-1")" and "url("http://localhost/test-2")" with effect easing assert_equals: The value should be url("http://localhost/test-1") at 940ms expected "url(\"http://localhost/test-1\")" but got "-webkit-cross-fade(url(\"http://localhost/test-1\"), url(\"http://localhost/test-2\"), 0.428259)"
@@ -154,6 +161,16 @@ PASS scroll-behavior (type: discrete) has testInterpolation function
 PASS scroll-behavior uses discrete animation when animating between "auto" and "smooth" with linear easing
 PASS scroll-behavior uses discrete animation when animating between "auto" and "smooth" with effect easing
 PASS scroll-behavior uses discrete animation when animating between "auto" and "smooth" with keyframe easing
+PASS scrollbar-width (type: discrete) has testInterpolation function
+PASS scrollbar-width uses discrete animation when animating between "auto" and "thin" with linear easing
+PASS scrollbar-width uses discrete animation when animating between "auto" and "thin" with effect easing
+PASS scrollbar-width uses discrete animation when animating between "auto" and "thin" with keyframe easing
+PASS scrollbar-width uses discrete animation when animating between "auto" and "none" with linear easing
+PASS scrollbar-width uses discrete animation when animating between "auto" and "none" with effect easing
+PASS scrollbar-width uses discrete animation when animating between "auto" and "none" with keyframe easing
+PASS scrollbar-width uses discrete animation when animating between "thin" and "none" with linear easing
+PASS scrollbar-width uses discrete animation when animating between "thin" and "none" with effect easing
+PASS scrollbar-width uses discrete animation when animating between "thin" and "none" with keyframe easing
 PASS shape-outside (type: discrete) has testInterpolation function
 PASS shape-outside uses discrete animation when animating between "url("http://localhost/test-1")" and "url("http://localhost/test-2")" with linear easing
 PASS shape-outside uses discrete animation when animating between "url("http://localhost/test-1")" and "url("http://localhost/test-2")" with effect easing
@@ -258,6 +275,10 @@ PASS text-transform (type: discrete) has testInterpolation function
 PASS text-transform uses discrete animation when animating between "capitalize" and "uppercase" with linear easing
 PASS text-transform uses discrete animation when animating between "capitalize" and "uppercase" with effect easing
 PASS text-transform uses discrete animation when animating between "capitalize" and "uppercase" with keyframe easing
+PASS text-wrap (type: discrete) has testInterpolation function
+PASS text-wrap uses discrete animation when animating between "wrap" and "nowrap" with linear easing
+PASS text-wrap uses discrete animation when animating between "wrap" and "nowrap" with effect easing
+PASS text-wrap uses discrete animation when animating between "wrap" and "nowrap" with keyframe easing
 PASS touch-action (type: discrete) has testInterpolation function
 PASS touch-action uses discrete animation when animating between "auto" and "none" with linear easing
 PASS touch-action uses discrete animation when animating between "auto" and "none" with effect easing
@@ -298,7 +319,7 @@ PASS translate (type: translateList) has testInterpolation function
 PASS translate with two unspecified values
 PASS translate with one unspecified value
 PASS translate with all three values specified
-FAIL translate with combination of percentages and lengths assert_equals: The value should be calc(0% + 200px) calc(25% - 50.5px) 200px at 500ms expected "calc(0% + 200px) calc(25% - 50.5px) 200px" but got "200px calc(25% - 50.5px) 200px"
+PASS translate with combination of percentages and lengths
 PASS scale (type: scaleList) has testInterpolation function
 PASS scale with two unspecified values
 PASS scale with one unspecified value

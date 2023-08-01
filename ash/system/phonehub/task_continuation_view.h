@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,9 @@
 #define ASH_SYSTEM_PHONEHUB_TASK_CONTINUATION_VIEW_H_
 
 #include "ash/ash_export.h"
-#include "ash/components/phonehub/phone_model.h"
 #include "base/gtest_prod_util.h"
+#include "base/memory/raw_ptr.h"
+#include "chromeos/ash/components/phonehub/phone_model.h"
 #include "ui/views/view.h"
 #include "ui/views/view_model.h"
 
@@ -64,9 +65,10 @@ class ASH_EXPORT TaskContinuationView : public views::View,
   // Update the chips to display current phone status.
   void Update();
 
-  phonehub::PhoneModel* phone_model_ = nullptr;
-  phonehub::UserActionRecorder* user_action_recorder_ = nullptr;
-  TaskChipsView* chips_view_ = nullptr;
+  raw_ptr<phonehub::PhoneModel, ExperimentalAsh> phone_model_ = nullptr;
+  raw_ptr<phonehub::UserActionRecorder, ExperimentalAsh> user_action_recorder_ =
+      nullptr;
+  raw_ptr<TaskChipsView, ExperimentalAsh> chips_view_ = nullptr;
 };
 
 }  // namespace ash

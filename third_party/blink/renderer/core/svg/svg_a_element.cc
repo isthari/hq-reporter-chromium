@@ -34,7 +34,6 @@
 #include "third_party/blink/renderer/core/html/html_anchor_element.h"
 #include "third_party/blink/renderer/core/html/parser/html_parser_idioms.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_inline.h"
-#include "third_party/blink/renderer/core/layout/svg/layout_svg_text.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_transformable_container.h"
 #include "third_party/blink/renderer/core/loader/frame_load_request.h"
 #include "third_party/blink/renderer/core/loader/frame_loader.h"
@@ -68,7 +67,7 @@ void SVGAElement::Trace(Visitor* visitor) const {
 String SVGAElement::title() const {
   // If the xlink:title is set (non-empty string), use it.
   const AtomicString& title = FastGetAttribute(xlink_names::kTitleAttr);
-  if (!title.IsEmpty())
+  if (!title.empty())
     return title;
 
   // Otherwise, use the title of this element.
@@ -97,8 +96,7 @@ void SVGAElement::SvgAttributeChanged(const SvgAttributeChangedParams& params) {
   SVGGraphicsElement::SvgAttributeChanged(params);
 }
 
-LayoutObject* SVGAElement::CreateLayoutObject(const ComputedStyle&,
-                                              LegacyLayout) {
+LayoutObject* SVGAElement::CreateLayoutObject(const ComputedStyle&) {
   auto* svg_element = DynamicTo<SVGElement>(parentNode());
   if (svg_element && svg_element->IsTextContent())
     return MakeGarbageCollected<LayoutSVGInline>(this);
@@ -129,7 +127,7 @@ void SVGAElement::DefaultEventHandler(Event& event) {
       }
 
       AtomicString target(svg_target_->CurrentValue()->Value());
-      if (target.IsEmpty() && FastGetAttribute(xlink_names::kShowAttr) == "new")
+      if (target.empty() && FastGetAttribute(xlink_names::kShowAttr) == "new")
         target = AtomicString("_blank");
       event.SetDefaultHandled();
 
@@ -140,6 +138,8 @@ void SVGAElement::DefaultEventHandler(Event& event) {
           GetDocument().domWindow(),
           ResourceRequest(GetDocument().CompleteURL(url)));
       frame_request.SetNavigationPolicy(NavigationPolicyFromEvent(&event));
+      frame_request.SetClientRedirectReason(
+          ClientNavigationReason::kAnchorClick);
       frame_request.SetTriggeringEventInfo(
           event.isTrusted()
               ? mojom::blink::TriggeringEventInfo::kFromTrustedEvent
@@ -171,7 +171,7 @@ int SVGAElement::DefaultTabIndex() const {
 }
 
 bool SVGAElement::SupportsFocus() const {
-  if (HasEditableStyle(*this))
+  if (IsEditable(*this))
     return SVGGraphicsElement::SupportsFocus();
   // If not a link we should still be able to focus the element if it has
   // tabIndex.
@@ -206,7 +206,7 @@ bool SVGAElement::IsKeyboardFocusable() const {
 bool SVGAElement::CanStartSelection() const {
   if (!IsLink())
     return SVGElement::CanStartSelection();
-  return HasEditableStyle(*this);
+  return IsEditable(*this);
 }
 
 bool SVGAElement::WillRespondToMouseClickEvents() {

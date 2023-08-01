@@ -1,9 +1,11 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/platform/graphics/paint/paint_chunk.h"
 
+#include "third_party/blink/renderer/platform/graphics/paint/drawing_display_item.h"
+#include "third_party/blink/renderer/platform/graphics/paint/paint_artifact.h"
 #include "third_party/blink/renderer/platform/wtf/size_assertions.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
@@ -28,9 +30,8 @@ bool PointerValueEquals(const std::unique_ptr<T>& a,
 struct SameSizeAsPaintChunk {
   wtf_size_t begin_index;
   wtf_size_t end_index;
-  Color background_color;
-  float background_color_area;
   PaintChunk::Id id;
+  PaintChunk::BackgroundColorInfo background_color;
   PropertyTreeState properties;
   gfx::Rect bounds;
   gfx::Rect drawable_bounds;
@@ -76,10 +77,11 @@ static String ToStringImpl(const PaintChunk& c, const String& id_string) {
   StringBuilder sb;
   sb.AppendFormat(
       "PaintChunk(begin=%u, end=%u, id=%s cacheable=%d props=(%s) bounds=%s "
-      "rect_known_to_be_opaque=%s effectively_invisible=%d",
+      "rect_known_to_be_opaque=%s effectively_invisible=%d drawscontent=%d",
       c.begin_index, c.end_index, id_string.Utf8().c_str(), c.is_cacheable,
       c.properties.ToString().Utf8().c_str(), c.bounds.ToString().c_str(),
-      c.rect_known_to_be_opaque.ToString().c_str(), c.effectively_invisible);
+      c.rect_known_to_be_opaque.ToString().c_str(), c.effectively_invisible,
+      c.DrawsContent());
   if (c.hit_test_data) {
     sb.Append(", hit_test_data=");
     sb.Append(c.hit_test_data->ToString());

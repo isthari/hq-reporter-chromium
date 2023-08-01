@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,6 +19,7 @@
 
 namespace blink {
 class WebFrameWidget;
+class WebHitTestResult;
 class WebView;
 }
 
@@ -35,8 +36,6 @@ class AwRenderFrameExt : public content::RenderFrameObserver,
   AwRenderFrameExt(const AwRenderFrameExt&) = delete;
   AwRenderFrameExt& operator=(const AwRenderFrameExt&) = delete;
 
-  static AwRenderFrameExt* FromRenderFrame(content::RenderFrame* render_frame);
-
  private:
   ~AwRenderFrameExt() override;
 
@@ -47,6 +46,7 @@ class AwRenderFrameExt : public content::RenderFrameObserver,
   void DidCommitProvisionalLoad(ui::PageTransition transition) override;
 
   void FocusedElementChanged(const blink::WebElement& element) override;
+  void DidCreateDocumentElement() override;
   void OnDestruct() override;
 
   // mojom::LocalMainFrame overrides:
@@ -62,6 +62,8 @@ class AwRenderFrameExt : public content::RenderFrameObserver,
 
   void BindLocalMainFrame(
       mojo::PendingAssociatedReceiver<mojom::LocalMainFrame> pending_receiver);
+
+  void HandleHitTestResult(const blink::WebHitTestResult& result);
 
   const mojo::AssociatedRemote<mojom::FrameHost>& GetFrameHost();
 

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -49,7 +49,6 @@ class SplitViewDividerHandlerView : public views::View {
 
   // views::View:
   void OnPaint(gfx::Canvas* canvas) override;
-  void OnThemeChanged() override;
 
   // Handles the animations for starting and ending dragging.
   std::unique_ptr<SelectionAnimation> selection_animation_;

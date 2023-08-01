@@ -1,14 +1,16 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.download;
 
+import static androidx.test.espresso.matcher.ViewMatchers.assertThat;
+
 import android.app.DownloadManager;
 import android.content.Context;
 import android.content.Intent;
-import android.support.test.InstrumentationRegistry;
 
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.MediumTest;
 import androidx.test.filters.SmallTest;
 
@@ -39,6 +41,7 @@ import org.chromium.components.offline_items_collection.OfflineItemState;
 import org.chromium.components.offline_items_collection.UpdateDelta;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.test.EmbeddedTestServer;
+import org.chromium.url.GURL;
 
 import java.io.ByteArrayInputStream;
 import java.util.HashSet;
@@ -68,7 +71,7 @@ public class OMADownloadHandlerTest {
     }
 
     private Context getTestContext() {
-        return new AdvancedMockContext(InstrumentationRegistry.getTargetContext());
+        return new AdvancedMockContext(ApplicationProvider.getApplicationContext());
     }
 
     /**
@@ -84,6 +87,17 @@ public class OMADownloadHandlerTest {
         @Override
         public void onDownloadStarted() {
             mDownloadStarted = true;
+        }
+
+        @Override
+        public void showIncognitoDownloadMessage(Callback<Boolean> callback) {}
+
+        @Override
+        public void addDownloadInterstitialSource(GURL originalUrl) {}
+
+        @Override
+        public boolean isDownloadInterstitialItem(GURL originalUrl, String guid) {
+            return false;
         }
 
         @Override
@@ -245,7 +259,7 @@ public class OMADownloadHandlerTest {
         Assert.assertEquals(info.getValue(OMADownloadHandler.OMA_DESCRIPTION), "testjpg");
         Assert.assertEquals(info.getValue(OMADownloadHandler.OMA_NEXT_URL), "http://nexturl.html");
         List<String> types = info.getTypes();
-        Assert.assertThat(
+        assertThat(
                 types, Matchers.containsInAnyOrder("image/jpeg", MimeUtils.OMA_DRM_MESSAGE_MIME));
     }
 
@@ -369,8 +383,8 @@ public class OMADownloadHandlerTest {
     @MediumTest
     @Feature({"Download"})
     public void testEnqueueOMADownloads() {
-        EmbeddedTestServer testServer =
-                EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
+        EmbeddedTestServer testServer = EmbeddedTestServer.createAndStartServer(
+                ApplicationProvider.getApplicationContext());
         Context context = getTestContext();
 
         OMADownloadHandler.OMAInfo omaInfo = new OMAInfo();

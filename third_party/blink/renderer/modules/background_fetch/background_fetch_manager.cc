@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 
 #include "base/memory/scoped_refptr.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/ranges/algorithm.h"
 #include "services/network/public/mojom/ip_address_space.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_union_request_requestorusvstringsequence_usvstring.h"
@@ -19,7 +20,6 @@
 #include "third_party/blink/renderer/core/fetch/body_stream_buffer.h"
 #include "third_party/blink/renderer/core/fetch/request.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
-#include "third_party/blink/renderer/core/frame/deprecation.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/modules/background_fetch/background_fetch_bridge.h"
 #include "third_party/blink/renderer/modules/background_fetch/background_fetch_icon_loader.h"
@@ -83,7 +83,7 @@ bool ShouldBlockCredentials(ExecutionContext* execution_context,
   // "A URL includes credentials if its username or password is not the empty
   // string."
   // https://url.spec.whatwg.org/#include-credentials
-  return !request_url.User().IsEmpty() || !request_url.Pass().IsEmpty();
+  return !request_url.User().empty() || !request_url.Pass().empty();
 }
 
 bool ShouldBlockScheme(const KURL& request_url) {
@@ -100,30 +100,6 @@ bool ShouldBlockDanglingMarkup(const KURL& request_url) {
   // https://github.com/whatwg/fetch/issues/546
   return request_url.PotentiallyDanglingMarkup() &&
          request_url.ProtocolIsInHTTPFamily();
-}
-
-bool ShouldBlockGateWayAttacks(ExecutionContext* execution_context,
-                               const KURL& request_url) {
-  if (RuntimeEnabledFeatures::CorsRFC1918Enabled()) {
-    network::mojom::IPAddressSpace requestor_space =
-        execution_context->AddressSpace();
-
-    // TODO(mkwst): This only checks explicit IP addresses. We'll have to move
-    // all this up to //net and //content in order to have any real impact on
-    // gateway attacks. That turns out to be a TON of work (crbug.com/378566).
-    network::mojom::IPAddressSpace target_space =
-        network::mojom::IPAddressSpace::kPublic;
-    if (network_utils::IsReservedIPAddress(request_url.Host()))
-      target_space = network::mojom::IPAddressSpace::kPrivate;
-    if (SecurityOrigin::Create(request_url)->IsLocalhost())
-      target_space = network::mojom::IPAddressSpace::kLocal;
-
-    bool is_external_request = requestor_space > target_space;
-    if (is_external_request)
-      return true;
-  }
-
-  return false;
 }
 
 scoped_refptr<BlobDataHandle> ExtractBlobHandle(
@@ -168,26 +144,19 @@ ScriptPromise BackgroundFetchManager::fetch(
     return ScriptPromise();
   }
 
-  LocalDOMWindow* const window = LocalDOMWindow::From(script_state);
-  if (window && window->GetFrame()->IsInFencedFrameTree()) {
+  ExecutionContext* execution_context = ExecutionContext::From(script_state);
+  if (execution_context->IsInFencedFrame()) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kNotAllowedError,
-        "backgroundFetch is not allowed in a fenced frame tree.");
+        "backgroundFetch is not allowed in fenced frames.");
     return ScriptPromise();
   }
 
-  bool has_requests_with_body;
   Vector<mojom::blink::FetchAPIRequestPtr> fetch_api_requests =
-      CreateFetchAPIRequestVector(script_state, requests, exception_state,
-                                  &has_requests_with_body);
-  if (exception_state.HadException())
+      CreateFetchAPIRequestVector(script_state, requests, exception_state);
+  if (exception_state.HadException()) {
     return ScriptPromise();
-
-  // Record whether any requests had a body. If there were, reject the promise.
-  UMA_HISTOGRAM_BOOLEAN("BackgroundFetch.HasRequestsWithBody",
-                        has_requests_with_body);
-
-  ExecutionContext* execution_context = ExecutionContext::From(script_state);
+  }
 
   // A HashSet to find whether there are any duplicate requests within the
   // fetch. https://bugs.chromium.org/p/chromium/issues/detail?id=871174.
@@ -247,20 +216,14 @@ ScriptPromise BackgroundFetchManager::fetch(
                                  exception_state);
     }
 
-    if (ShouldBlockGateWayAttacks(execution_context, request_url)) {
-      return RejectWithTypeError(script_state, request_url,
-                                 "Requestor IP address space doesn't match the "
-                                 "target address space.",
-                                 exception_state);
-    }
-
     kurls.insert(request_url);
   }
 
   UMA_HISTOGRAM_BOOLEAN("BackgroundFetch.HasDuplicateRequests",
                         kurls.size() != fetch_api_requests.size());
 
-  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(
+      script_state, exception_state.GetContext());
   ScriptPromise promise = resolver->Promise();
 
   // Pick the best icon, and load it.
@@ -271,16 +234,16 @@ ScriptPromise BackgroundFetchManager::fetch(
     BackgroundFetchIconLoader* loader =
         MakeGarbageCollected<BackgroundFetchIconLoader>();
     loaders_.push_back(loader);
-    loader->Start(
-        bridge_.Get(), execution_context, options->icons(),
-        WTF::Bind(&BackgroundFetchManager::DidLoadIcons, WrapPersistent(this),
-                  id, std::move(fetch_api_requests), std::move(options_ptr),
-                  WrapPersistent(resolver), WrapWeakPersistent(loader)));
+    loader->Start(bridge_.Get(), execution_context, options->icons(),
+                  resolver->WrapCallbackInScriptScope(WTF::BindOnce(
+                      &BackgroundFetchManager::DidLoadIcons,
+                      WrapPersistent(this), id, std::move(fetch_api_requests),
+                      std::move(options_ptr), WrapWeakPersistent(loader))));
     return promise;
   }
 
   DidLoadIcons(id, std::move(fetch_api_requests), std::move(options_ptr),
-               resolver, nullptr, SkBitmap(),
+               nullptr, resolver, SkBitmap(),
                -1 /* ideal_to_chosen_icon_size */);
   return promise;
 }
@@ -289,29 +252,25 @@ void BackgroundFetchManager::DidLoadIcons(
     const String& id,
     Vector<mojom::blink::FetchAPIRequestPtr> requests,
     mojom::blink::BackgroundFetchOptionsPtr options,
-    ScriptPromiseResolver* resolver,
     BackgroundFetchIconLoader* loader,
+    ScriptPromiseResolver* resolver,
     const SkBitmap& icon,
     int64_t ideal_to_chosen_icon_size) {
   if (loader)
-    loaders_.erase(std::find(loaders_.begin(), loaders_.end(), loader));
+    loaders_.erase(base::ranges::find(loaders_, loader));
 
   auto ukm_data = mojom::blink::BackgroundFetchUkmData::New();
   ukm_data->ideal_to_chosen_icon_size = ideal_to_chosen_icon_size;
-  bridge_->Fetch(
-      id, std::move(requests), std::move(options), icon, std::move(ukm_data),
-      WTF::Bind(&BackgroundFetchManager::DidFetch, WrapPersistent(this),
-                WrapPersistent(resolver), base::Time::Now()));
+  bridge_->Fetch(id, std::move(requests), std::move(options), icon,
+                 std::move(ukm_data),
+                 resolver->WrapCallbackInScriptScope(WTF::BindOnce(
+                     &BackgroundFetchManager::DidFetch, WrapPersistent(this))));
 }
 
 void BackgroundFetchManager::DidFetch(
     ScriptPromiseResolver* resolver,
-    base::Time time_started,
     mojom::blink::BackgroundFetchError error,
     BackgroundFetchRegistration* registration) {
-  UMA_HISTOGRAM_TIMES("BackgroundFetch.Manager.FetchDuration",
-                      base::Time::Now() - time_started);
-
   ScriptState* script_state = resolver->GetScriptState();
   ScriptState::Scope scope(script_state);
 
@@ -343,8 +302,8 @@ void BackgroundFetchManager::DidFetch(
           "There is no service worker available to service the fetch."));
       return;
     case mojom::blink::BackgroundFetchError::QUOTA_EXCEEDED:
-      resolver->Reject(MakeGarbageCollected<DOMException>(
-          DOMExceptionCode::kQuotaExceededError, "Quota exceeded."));
+      resolver->RejectWithDOMException(DOMExceptionCode::kQuotaExceededError,
+                                       "Quota exceeded.");
       return;
     case mojom::blink::BackgroundFetchError::REGISTRATION_LIMIT_EXCEEDED:
       resolver->Reject(V8ThrowException::CreateTypeError(
@@ -368,28 +327,29 @@ ScriptPromise BackgroundFetchManager::get(ScriptState* script_state,
   if (!registration_->active())
     return ScriptPromise::CastUndefined(script_state);
 
-  LocalDOMWindow* const window = LocalDOMWindow::From(script_state);
-  if (window && window->GetFrame()->IsInFencedFrameTree()) {
+  ExecutionContext* execution_context = ExecutionContext::From(script_state);
+  if (execution_context->IsInFencedFrame()) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kNotAllowedError,
-        "backgroundFetch is not allowed in a fenced frame tree.");
+        "backgroundFetch is not allowed in fenced frames.");
     return ScriptPromise();
   }
 
   ScriptState::Scope scope(script_state);
 
-  if (id.IsEmpty()) {
+  if (id.empty()) {
     exception_state.ThrowTypeError("The provided id is invalid.");
     return ScriptPromise();
   }
 
-  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(
+      script_state, exception_state.GetContext());
   ScriptPromise promise = resolver->Promise();
 
   bridge_->GetRegistration(
-      id, WTF::Bind(&BackgroundFetchManager::DidGetRegistration,
-                    WrapPersistent(this), WrapPersistent(resolver),
-                    base::Time::Now()));
+      id,
+      resolver->WrapCallbackInScriptScope(WTF::BindOnce(
+          &BackgroundFetchManager::DidGetRegistration, WrapPersistent(this))));
 
   return promise;
 }
@@ -399,13 +359,10 @@ Vector<mojom::blink::FetchAPIRequestPtr>
 BackgroundFetchManager::CreateFetchAPIRequestVector(
     ScriptState* script_state,
     const V8UnionRequestInfoOrRequestOrUSVStringSequence* requests,
-    ExceptionState& exception_state,
-    bool* has_requests_with_body) {
+    ExceptionState& exception_state) {
   DCHECK(requests);
-  DCHECK(has_requests_with_body);
 
   Vector<mojom::blink::FetchAPIRequestPtr> fetch_api_requests;
-  *has_requests_with_body = false;
 
   switch (requests->GetContentType()) {
     case V8UnionRequestInfoOrRequestOrUSVStringSequence::ContentType::
@@ -414,12 +371,12 @@ BackgroundFetchManager::CreateFetchAPIRequestVector(
           requests->GetAsRequestOrUSVStringSequence();
 
       // Throw a TypeError when the developer has passed an empty sequence.
-      if (request_vector.IsEmpty()) {
+      if (request_vector.empty()) {
         exception_state.ThrowTypeError(kEmptyRequestSequenceErrorMessage);
         return {};
       }
 
-      fetch_api_requests.ReserveCapacity(request_vector.size());
+      fetch_api_requests.reserve(request_vector.size());
       for (const auto& request_info : request_vector) {
         Request* request = nullptr;
         switch (request_info->GetContentType()) {
@@ -433,7 +390,6 @@ BackgroundFetchManager::CreateFetchAPIRequestVector(
               return {};
             break;
         }
-        *has_requests_with_body |= request->HasBody();
         fetch_api_requests.push_back(request->CreateFetchAPIRequest());
         fetch_api_requests.back()->blob =
             ExtractBlobHandle(request, exception_state);
@@ -445,7 +401,6 @@ BackgroundFetchManager::CreateFetchAPIRequestVector(
     case V8UnionRequestInfoOrRequestOrUSVStringSequence::ContentType::
         kRequest: {
       Request* request = requests->GetAsRequest();
-      *has_requests_with_body = request->HasBody();
       fetch_api_requests.push_back(request->CreateFetchAPIRequest());
       fetch_api_requests.back()->blob =
           ExtractBlobHandle(request, exception_state);
@@ -459,7 +414,6 @@ BackgroundFetchManager::CreateFetchAPIRequestVector(
           script_state, requests->GetAsUSVString(), exception_state);
       if (exception_state.HadException())
         return {};
-      *has_requests_with_body = request->HasBody();
       fetch_api_requests.push_back(request->CreateFetchAPIRequest());
       fetch_api_requests.back()->blob =
           ExtractBlobHandle(request, exception_state);
@@ -472,12 +426,8 @@ BackgroundFetchManager::CreateFetchAPIRequestVector(
 
 void BackgroundFetchManager::DidGetRegistration(
     ScriptPromiseResolver* resolver,
-    base::Time time_started,
     mojom::blink::BackgroundFetchError error,
     BackgroundFetchRegistration* registration) {
-  UMA_HISTOGRAM_TIMES("BackgroundFetch.Manager.GetDuration",
-                      base::Time::Now() - time_started);
-
   ScriptState* script_state = resolver->GetScriptState();
   ScriptState::Scope scope(script_state);
 
@@ -492,14 +442,14 @@ void BackgroundFetchManager::DidGetRegistration(
       return;
     case mojom::blink::BackgroundFetchError::STORAGE_ERROR:
       DCHECK(!registration);
-      resolver->Reject(MakeGarbageCollected<DOMException>(
+      resolver->RejectWithDOMException(
           DOMExceptionCode::kAbortError,
-          "Failed to get registration due to I/O error."));
+          "Failed to get registration due to I/O error.");
       return;
     case mojom::blink::BackgroundFetchError::SERVICE_WORKER_UNAVAILABLE:
-      resolver->Reject(MakeGarbageCollected<DOMException>(
+      resolver->RejectWithDOMException(
           DOMExceptionCode::kInvalidStateError,
-          "There's no service worker available to service the fetch."));
+          "There's no service worker available to service the fetch.");
       return;
     case mojom::blink::BackgroundFetchError::DUPLICATED_DEVELOPER_ID:
     case mojom::blink::BackgroundFetchError::INVALID_ARGUMENT:
@@ -515,11 +465,11 @@ void BackgroundFetchManager::DidGetRegistration(
 
 ScriptPromise BackgroundFetchManager::getIds(ScriptState* script_state,
                                              ExceptionState& exception_state) {
-  LocalDOMWindow* const window = LocalDOMWindow::From(script_state);
-  if (window && window->GetFrame()->IsInFencedFrameTree()) {
+  ExecutionContext* execution_context = ExecutionContext::From(script_state);
+  if (execution_context->IsInFencedFrame()) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kNotAllowedError,
-        "backgroundFetch is not allowed in a fenced frame tree.");
+        "backgroundFetch is not allowed in fenced frames.");
     return ScriptPromise();
   }
 
@@ -530,24 +480,20 @@ ScriptPromise BackgroundFetchManager::getIds(ScriptState* script_state,
                                v8::Array::New(script_state->GetIsolate()));
   }
 
-  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(
+      script_state, exception_state.GetContext());
   ScriptPromise promise = resolver->Promise();
 
-  bridge_->GetDeveloperIds(WTF::Bind(
-      &BackgroundFetchManager::DidGetDeveloperIds, WrapPersistent(this),
-      WrapPersistent(resolver), base::Time::Now()));
+  bridge_->GetDeveloperIds(resolver->WrapCallbackInScriptScope(WTF::BindOnce(
+      &BackgroundFetchManager::DidGetDeveloperIds, WrapPersistent(this))));
 
   return promise;
 }
 
 void BackgroundFetchManager::DidGetDeveloperIds(
     ScriptPromiseResolver* resolver,
-    base::Time time_started,
     mojom::blink::BackgroundFetchError error,
     const Vector<String>& developer_ids) {
-  UMA_HISTOGRAM_TIMES("BackgroundFetch.Manager.GetIdsDuration",
-                      base::Time::Now() - time_started);
-
   ScriptState::Scope scope(resolver->GetScriptState());
 
   switch (error) {
@@ -555,10 +501,10 @@ void BackgroundFetchManager::DidGetDeveloperIds(
       resolver->Resolve(developer_ids);
       return;
     case mojom::blink::BackgroundFetchError::STORAGE_ERROR:
-      DCHECK(developer_ids.IsEmpty());
-      resolver->Reject(MakeGarbageCollected<DOMException>(
+      DCHECK(developer_ids.empty());
+      resolver->RejectWithDOMException(
           DOMExceptionCode::kAbortError,
-          "Failed to get registration IDs due to I/O error."));
+          "Failed to get registration IDs due to I/O error.");
       return;
     case mojom::blink::BackgroundFetchError::DUPLICATED_DEVELOPER_ID:
     case mojom::blink::BackgroundFetchError::INVALID_ARGUMENT:

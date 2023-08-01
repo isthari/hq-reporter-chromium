@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,14 @@ import './accessibility_features.mojom-lite.js';
 import './action_toolbar.js';
 import './scanning_fonts_css.js';
 import './scanning_shared_css.js';
-import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.m.js';
+import './strings.m.js';
+import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
+import 'chrome://resources/polymer/v3_0/iron-media-query/iron-media-query.js';
 import 'chrome://resources/polymer/v3_0/paper-progress/paper-progress.js';
 
-import {assert} from 'chrome://resources/js/assert.m.js';
-import {I18nBehavior} from 'chrome://resources/js/i18n_behavior.m.js';
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+import {I18nBehavior} from 'chrome://resources/ash/common/i18n_behavior.js';
+import {loadTimeData} from 'chrome://resources/ash/common/load_time_data.m.js';
+import {assert} from 'chrome://resources/ash/common/assert.js';
 import {afterNextRender, html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {getAccessibilityFeaturesInterface} from './mojo_interface_provider.js';
@@ -75,6 +77,19 @@ Polymer({
     appState: {
       type: Number,
       observer: 'onAppStateChange_',
+    },
+
+    /** @protected {boolean} */
+    isDarkModeEnabled_: {
+      type: Boolean,
+    },
+
+    /** @protected {boolean} */
+    isJellyEnabled_: {
+      type: Boolean,
+      value: () => {
+        return loadTimeData.getBoolean('isJellyEnabledForScanningApp');
+      },
     },
 
     /**
@@ -227,11 +242,12 @@ Polymer({
         '--scanned-image-margin-bottom', SCANNED_IMG_MARGIN_BOTTOM_PX + 'px');
 
     // parseFloat() is used to convert the string returned by
-    // getComputedStyleValue() into a number ("642px" --> 642).
+    // styleMap.get() into a number ("642px" --> 642).
+    const styleMap = this.computedStyleMap();
     this.actionToolbarHeight_ =
-        parseFloat(this.getComputedStyleValue('--action-toolbar-height'));
+        parseFloat(styleMap.get('--action-toolbar-height').toString());
     this.actionToolbarWidth_ =
-        parseFloat(this.getComputedStyleValue('--action-toolbar-width'));
+        parseFloat(styleMap.get('--action-toolbar-width').toString());
 
     this.forceHiddenElementsVisibleObserverReceiver_ =
         new ash.common.mojom.ForceHiddenElementsVisibleObserverReceiver(
@@ -575,6 +591,11 @@ Polymer({
     this.style.setProperty('--action-toolbar-left', leftPosition + 'px');
   },
 
+  /** @param {boolean} enabled */
+  setIsJellyEnabledForTesting(enabled) {
+    this.isJellyEnabled_ = enabled;
+  },
+
   /**
    * Called when the "show-remove-page-dialog" event fires from the action
    * toolbar button click.
@@ -763,5 +784,15 @@ Polymer({
   getScannedImageAriaLabel_(index) {
     return this.i18n(
         'multiPageImageAriaLabel', index + 1, this.objectUrls.length);
+  },
+
+  /**
+   * Determines correct SVG for "ready to scan" based on dark mode.
+   * @protected
+   * @return {string}
+   */
+  getReadyToScanSvgSrc_() {
+    return this.isDarkModeEnabled_ ? 'svg/ready_to_scan_dark.svg' :
+                                     'svg/ready_to_scan.svg';
   },
 });

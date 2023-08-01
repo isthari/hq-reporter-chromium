@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -114,12 +114,8 @@ std::string SearchTermsData::GoogleBaseSearchByImageURLValue() const {
   const std::string kGoogleHomepageURLPath = std::string("searchbyimage/");
 
 #if !BUILDFLAG(IS_IOS) && !BUILDFLAG(IS_ANDROID)
-  // If both LensStandalone and LensRegionSearch features are enabled,
-  // LensStandalone parameters will take precedence even if the values differ.
   if (base::FeatureList::IsEnabled(lens::features::kLensStandalone)) {
-    return lens::features::GetHomepageURLForImageSearch();
-  } else if (base::FeatureList::IsEnabled(lens::features::kLensRegionSearch)) {
-    return lens::features::GetHomepageURLForRegionSearch();
+    return lens::features::GetHomepageURLForLens();
   }
 #endif  // !BUILDFLAG(IS_IOS) && !BUILDFLAG(IS_ANDROID)
 
@@ -154,11 +150,13 @@ std::string SearchTermsData::GetSearchClient() const {
   return std::string();
 }
 
-std::string SearchTermsData::GetSuggestClient() const {
+std::string SearchTermsData::GetSuggestClient(
+    RequestSource request_source) const {
   return std::string();
 }
 
-std::string SearchTermsData::GetSuggestRequestIdentifier() const {
+std::string SearchTermsData::GetSuggestRequestIdentifier(
+    RequestSource request_source) const {
   return std::string();
 }
 

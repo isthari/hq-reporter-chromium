@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,13 @@
 
 #include <memory>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/platform/peerconnection/audio_codec_factory.h"
 #include "third_party/blink/renderer/platform/peerconnection/video_codec_factory.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/hash_set.h"
+#include "third_party/blink/renderer/platform/wtf/text/string_hash.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
@@ -40,10 +41,11 @@ class PLATFORM_EXPORT WebrtcEncodingInfoHandler {
   // https://wicg.github.io/media-capabilities/#media-capabilities-interface
   using OnMediaCapabilitiesEncodingInfoCallback =
       base::OnceCallback<void(bool, bool)>;
-  void EncodingInfo(const absl::optional<String> audio_mime_type,
-                    const absl::optional<String> video_mime_type,
-                    const absl::optional<String> video_scalability_mode,
-                    OnMediaCapabilitiesEncodingInfoCallback callback) const;
+  void EncodingInfo(
+      const absl::optional<webrtc::SdpAudioFormat> sdp_audio_format,
+      const absl::optional<webrtc::SdpVideoFormat> sdp_video_format,
+      const absl::optional<String> video_scalability_mode,
+      OnMediaCapabilitiesEncodingInfoCallback callback) const;
 
  private:
   std::unique_ptr<webrtc::VideoEncoderFactory> video_encoder_factory_;

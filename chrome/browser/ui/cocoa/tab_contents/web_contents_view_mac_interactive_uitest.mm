@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #import "base/mac/scoped_nsobject.h"
 #include "base/run_loop.h"
+#import "base/task/single_thread_task_runner.h"
 #include "base/test/bind.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -83,7 +84,7 @@ IN_PROC_BROWSER_TEST_F(WebContentsViewMacInteractiveTest,
                 // loop which will close the tab (and cancel tracking in
                 // ~PopupMenuHelper()) and quit the outer run loop to continue
                 // the test.
-                base::ThreadTaskRunnerHandle::Get()->PostTask(
+                base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
                     FROM_HERE, base::BindLambdaForTesting([&] {
                       browser()->tab_strip_model()->CloseWebContentsAt(1, 0);
                     }));

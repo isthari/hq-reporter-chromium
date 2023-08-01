@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,9 @@ import static org.junit.Assert.assertTrue;
 
 import android.os.StrictMode;
 import android.os.StrictMode.ThreadPolicy;
-import android.support.test.InstrumentationRegistry;
 
 import androidx.core.content.ContextCompat;
+import androidx.test.InstrumentationRegistry;
 import androidx.test.filters.SmallTest;
 
 import org.junit.Test;
@@ -30,11 +30,11 @@ import java.io.FileOutputStream;
 @RunWith(BaseJUnit4ClassRunner.class)
 public class ThreadStrictModeInterceptorTest {
     /**
-     * Test that the penalty is not notified about whitelisted strict mode exceptions.
+     * Test that the penalty is not notified about permitted strict mode exceptions.
      */
     @Test
     @SmallTest
-    public void testWhitelisted() {
+    public void testPermitted() {
         CallbackHelper strictModeDetector = new CallbackHelper();
         ThreadStrictModeInterceptor.Builder threadInterceptor =
                 new ThreadStrictModeInterceptor.Builder();
@@ -52,11 +52,11 @@ public class ThreadStrictModeInterceptorTest {
     }
 
     /**
-     * Test that the penalty is notified about non-whitelisted strict mode exceptions.
+     * Test that the penalty is notified about unpermitted strict mode exceptions.
      */
     @Test
     @SmallTest
-    public void testNotWhitelisted() {
+    public void testNotPermitted() {
         CallbackHelper strictModeDetector = new CallbackHelper();
         ThreadStrictModeInterceptor.Builder threadInterceptor =
                 new ThreadStrictModeInterceptor.Builder();
@@ -73,8 +73,7 @@ public class ThreadStrictModeInterceptorTest {
 
     private void doDiskWrite() {
         File dataDir = ContextCompat.getDataDir(InstrumentationRegistry.getTargetContext());
-        File prefsDir = new File(dataDir, "shared_prefs");
-        File outFile = new File(prefsDir, "random.txt");
+        File outFile = new File(dataDir, "random.txt");
         try (FileOutputStream out = new FileOutputStream(outFile)) {
             out.write(1);
         } catch (Exception e) {

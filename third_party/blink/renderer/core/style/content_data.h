@@ -37,7 +37,6 @@ namespace blink {
 
 class ComputedStyle;
 class LayoutObject;
-enum class LegacyLayout;
 class PseudoElement;
 class TreeScope;
 
@@ -53,8 +52,7 @@ class ContentData : public GarbageCollected<ContentData> {
   virtual bool IsNone() const { return false; }
 
   virtual LayoutObject* CreateLayoutObject(PseudoElement&,
-                                           const ComputedStyle&,
-                                           LegacyLayout) const = 0;
+                                           const ComputedStyle&) const = 0;
 
   virtual ContentData* Clone() const;
 
@@ -92,12 +90,12 @@ class ImageContentData final : public ContentData {
 
   bool IsImage() const override { return true; }
   LayoutObject* CreateLayoutObject(PseudoElement&,
-                                   const ComputedStyle&,
-                                   LegacyLayout) const override;
+                                   const ComputedStyle&) const override;
 
   bool Equals(const ContentData& data) const override {
-    if (!data.IsImage())
+    if (!data.IsImage()) {
       return false;
+    }
     return *static_cast<const ImageContentData&>(data).GetImage() ==
            *GetImage();
   }
@@ -131,12 +129,12 @@ class TextContentData final : public ContentData {
 
   bool IsText() const override { return true; }
   LayoutObject* CreateLayoutObject(PseudoElement&,
-                                   const ComputedStyle&,
-                                   LegacyLayout) const override;
+                                   const ComputedStyle&) const override;
 
   bool Equals(const ContentData& data) const override {
-    if (!data.IsText())
+    if (!data.IsText()) {
       return false;
+    }
     return static_cast<const TextContentData&>(data).GetText() == GetText();
   }
 
@@ -164,12 +162,12 @@ class AltTextContentData final : public ContentData {
 
   bool IsAltText() const override { return true; }
   LayoutObject* CreateLayoutObject(PseudoElement&,
-                                   const ComputedStyle&,
-                                   LegacyLayout) const override;
+                                   const ComputedStyle&) const override;
 
   bool Equals(const ContentData& data) const override {
-    if (!data.IsAltText())
+    if (!data.IsAltText()) {
       return false;
+    }
     return static_cast<const AltTextContentData&>(data).GetText() == GetText();
   }
 
@@ -202,8 +200,7 @@ class CounterContentData final : public ContentData {
 
   bool IsCounter() const override { return true; }
   LayoutObject* CreateLayoutObject(PseudoElement&,
-                                   const ComputedStyle&,
-                                   LegacyLayout) const override;
+                                   const ComputedStyle&) const override;
 
   const AtomicString& Identifier() const { return identifier_; }
   const AtomicString& ListStyle() const { return list_style_; }
@@ -219,8 +216,9 @@ class CounterContentData final : public ContentData {
   }
 
   bool Equals(const ContentData& data) const override {
-    if (!data.IsCounter())
+    if (!data.IsCounter()) {
       return false;
+    }
     const CounterContentData& other =
         static_cast<const CounterContentData&>(data);
     return Identifier() == other.Identifier() &&
@@ -253,12 +251,12 @@ class QuoteContentData final : public ContentData {
 
   bool IsQuote() const override { return true; }
   LayoutObject* CreateLayoutObject(PseudoElement&,
-                                   const ComputedStyle&,
-                                   LegacyLayout) const override;
+                                   const ComputedStyle&) const override;
 
   bool Equals(const ContentData& data) const override {
-    if (!data.IsQuote())
+    if (!data.IsQuote()) {
       return false;
+    }
     return static_cast<const QuoteContentData&>(data).Quote() == Quote();
   }
 
@@ -285,8 +283,7 @@ class NoneContentData final : public ContentData {
 
   bool IsNone() const override { return true; }
   LayoutObject* CreateLayoutObject(PseudoElement&,
-                                   const ComputedStyle&,
-                                   LegacyLayout) const override;
+                                   const ComputedStyle&) const override;
 
   bool Equals(const ContentData& data) const override { return data.IsNone(); }
 
@@ -317,12 +314,15 @@ inline bool operator==(const ContentData& a, const ContentData& b) {
 // element, there can be at most one piece of image content data, followed by
 // some optional alternative text.
 inline bool ShouldUseContentDataForElement(const ContentData* content_data) {
-  if (!content_data)
+  if (!content_data) {
     return false;
-  if (!content_data->IsImage())
+  }
+  if (!content_data->IsImage()) {
     return false;
-  if (content_data->Next() && !content_data->Next()->IsAltText())
+  }
+  if (content_data->Next() && !content_data->Next()->IsAltText()) {
     return false;
+  }
 
   return true;
 }

@@ -1,14 +1,16 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "android_webview/browser/gfx/aw_draw_fn_impl.h"
 
+#include <sys/prctl.h>
 #include <utility>
 
 #include "android_webview/browser/gfx/aw_vulkan_context_provider.h"
 #include "android_webview/browser_jni_headers/AwDrawFnImpl_jni.h"
 #include "base/android/build_info.h"
+#include "base/threading/platform_thread.h"
 #include "base/trace_event/trace_event.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -16,7 +18,7 @@
 #include "gpu/config/gpu_switches.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
 #include "third_party/skia/include/gpu/GrDirectContext.h"
-#include "third_party/skia/src/gpu/vk/GrVkSecondaryCBDrawContext.h"
+#include "third_party/skia/include/private/chromium/GrVkSecondaryCBDrawContext.h"
 #include "ui/gfx/color_space.h"
 
 using base::android::JavaParamRef;
@@ -26,6 +28,11 @@ namespace android_webview {
 
 namespace {
 
+BASE_FEATURE(kCheckDrawFunctorThread,
+             "CheckDrawFunctorThread",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
+// Set once during process-wide initialization.
 AwDrawFnFunctionTable* g_draw_fn_function_table = nullptr;
 
 void OnSyncWrapper(int functor, void* data, AwDrawFn_OnSyncParams* params) {
@@ -139,10 +146,10 @@ HardwareRendererDrawParams CreateHRDrawParams(T* params,
   if (color_space)
     hr_params.color_space = gfx::ColorSpace(*color_space);
 
-  static_assert(base::size(decltype(params->transform){}) ==
-                    base::size(hr_params.transform),
+  static_assert(std::size(decltype(params->transform){}) ==
+                    std::size(hr_params.transform),
                 "transform size mismatch");
-  for (size_t i = 0; i < base::size(hr_params.transform); ++i) {
+  for (size_t i = 0; i < std::size(hr_params.transform); ++i) {
     hr_params.transform[i] = params->transform[i];
   }
 
@@ -246,6 +253,23 @@ void AwDrawFnImpl::OnSync(AwDrawFn_OnSyncParams* params) {
 }
 
 void AwDrawFnImpl::OnContextDestroyed() {
+  if (render_thread_id_) {
+    auto current_id = base::PlatformThread::CurrentId();
+    if (render_thread_id_.value() != current_id) {
+      constexpr size_t kBufferLen = 64;
+      char name[kBufferLen] = {};
+      int err = prctl(PR_GET_NAME, name);
+
+      if (!err) {
+        LOG(FATAL) << "OnContextDestroyed called on: " << current_id << "/"
+                   << name << " rt: " << render_thread_id_.value();
+      } else {
+        LOG(FATAL) << "OnContextDestroyed called on: " << current_id
+                   << " rt: " << render_thread_id_.value();
+      }
+    }
+  }
+
   if (interop_)
     interop_->MakeGLContextCurrentIgnoreFailure();
 
@@ -261,6 +285,11 @@ void AwDrawFnImpl::OnContextDestroyed() {
 }
 
 void AwDrawFnImpl::DrawGL(AwDrawFn_DrawGLParams* params) {
+  if (!render_thread_id_ &&
+      base::FeatureList::IsEnabled(kCheckDrawFunctorThread)) {
+    render_thread_id_ = base::PlatformThread::CurrentId();
+  }
+
   auto color_space = params->version >= 2 ? CreateColorSpace(params) : nullptr;
   HardwareRendererDrawParams hr_params =
       CreateHRDrawParams(params, color_space.get());
@@ -270,6 +299,11 @@ void AwDrawFnImpl::DrawGL(AwDrawFn_DrawGLParams* params) {
 }
 
 void AwDrawFnImpl::InitVk(AwDrawFn_InitVkParams* params) {
+  if (!render_thread_id_ &&
+      base::FeatureList::IsEnabled(kCheckDrawFunctorThread)) {
+    render_thread_id_ = base::PlatformThread::CurrentId();
+  }
+
   // We should never have a |vulkan_context_provider_| if we are calling VkInit.
   // This means context destroyed was not correctly called.
   DCHECK(!vulkan_context_provider_);

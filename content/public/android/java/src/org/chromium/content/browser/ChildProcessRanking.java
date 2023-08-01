@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -246,17 +246,6 @@ public class ChildProcessRanking implements Iterable<ChildProcessConnection> {
     public ChildProcessConnection getLowestRankedConnection() {
         if (mRankings.isEmpty()) return null;
         return mRankings.get(mRankings.size() - 1).connection;
-    }
-
-    /**
-     * @return reverse rank. Eg lowest ranked connection will have value 0.
-     */
-    public int getReverseRank(ChildProcessConnection connection) {
-        assert connection != null;
-        assert mRankings.size() > 0;
-        int i = indexOf(connection);
-        assert i != -1;
-        return mRankings.size() - 1 - i;
     }
 
     private int indexOf(ChildProcessConnection connection) {

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,12 +11,13 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.when;
 
 import android.content.Context;
-import android.support.test.InstrumentationRegistry;
 
 import androidx.preference.Preference;
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.MediumTest;
 import androidx.test.filters.SmallTest;
 
+import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -26,8 +27,12 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
 import org.chromium.base.test.util.CallbackHelper;
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.chrome.browser.password_check.PasswordCheck;
 import org.chromium.chrome.browser.password_check.PasswordCheckFactory;
+import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
+import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
 import org.chromium.chrome.browser.safety_check.SafetyCheckProperties.SafeBrowsingState;
 import org.chromium.chrome.browser.safety_check.SafetyCheckProperties.UpdatesState;
 import org.chromium.chrome.browser.settings.SettingsActivityTestRule;
@@ -85,7 +90,7 @@ public class SafetyCheckSettingsFragmentTest {
     @SmallTest
     public void testLastRunTimestampStrings() {
         long t0 = 12345;
-        Context context = InstrumentationRegistry.getTargetContext();
+        Context context = ApplicationProvider.getApplicationContext();
         // Start time not set - returns an empty string.
         assertEquals("", SafetyCheckViewBinder.getLastRunTimestampText(context, 0, 123));
         assertEquals("Checked just now",
@@ -110,6 +115,14 @@ public class SafetyCheckSettingsFragmentTest {
 
     private void createFragmentAndModel() {
         mSettingsActivityTestRule.startSettingsActivity();
+        mFragment = (SafetyCheckSettingsFragment) mSettingsActivityTestRule.getFragment();
+        TestThreadUtils.runOnUiThreadBlocking(
+                () -> { mModel = SafetyCheckCoordinator.createModelAndMcp(mFragment); });
+    }
+
+    private void createFragmentAndModelByBundle(boolean safetyCheckImmediateRun) {
+        mSettingsActivityTestRule.startSettingsActivity(
+                SafetyCheckSettingsFragment.createBundle(safetyCheckImmediateRun));
         mFragment = (SafetyCheckSettingsFragment) mSettingsActivityTestRule.getFragment();
         TestThreadUtils.runOnUiThreadBlocking(
                 () -> { mModel = SafetyCheckCoordinator.createModelAndMcp(mFragment); });
@@ -146,7 +159,7 @@ public class SafetyCheckSettingsFragmentTest {
 
         assertEquals("", passwords.getSummary());
         assertEquals("", safeBrowsing.getSummary());
-        assertEquals(InstrumentationRegistry.getTargetContext().getString(
+        assertEquals(ApplicationProvider.getApplicationContext().getString(
                              R.string.safety_check_updates_outdated),
                 updates.getSummary());
     }
@@ -196,5 +209,29 @@ public class SafetyCheckSettingsFragmentTest {
         assertEquals(1, passwordsClicked.getCallCount());
         assertEquals(0, safeBrowsingClicked.getCallCount());
         assertEquals(1, updatesClicked.getCallCount());
+    }
+
+    @Test
+    @MediumTest
+    public void testSafetyCheckDoNotImmediatelyRunByDefault() {
+        createFragmentAndModelByBundle(/*safetyCheckImmediateRun=*/false);
+        assertEquals(false, mFragment.shouldRunSafetyCheckImmediately());
+        assertEquals(0,
+                SharedPreferencesManager.getInstance().readLong(
+                        ChromePreferenceKeys.SETTINGS_SAFETY_CHECK_LAST_RUN_TIMESTAMP, 0));
+    }
+
+    @Test
+    @MediumTest
+    public void testSafetyCheckImmediatelyRunByBundle() {
+        createFragmentAndModelByBundle(/*safetyCheckImmediateRun=*/true);
+
+        // Make sure the safety check was ran.
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat(
+                    SharedPreferencesManager.getInstance().readLong(
+                            ChromePreferenceKeys.SETTINGS_SAFETY_CHECK_LAST_RUN_TIMESTAMP, 0),
+                    Matchers.not(0));
+        });
     }
 }

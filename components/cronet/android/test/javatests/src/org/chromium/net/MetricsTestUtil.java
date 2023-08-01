@@ -1,21 +1,19 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.net;
 
-import static org.junit.Assert.assertEquals;
+import static com.google.common.truth.Truth.assertThat;
+
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
-
-import android.os.ConditionVariable;
 
 import java.util.Date;
 import java.util.LinkedList;
 import java.util.NoSuchElementException;
 import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
 
 /**
  * Classes which are useful for testing Cronet's metrics implementation and are needed in more than
@@ -41,47 +39,6 @@ public class MetricsTestUtil {
             } catch (NoSuchElementException e) {
                 throw new RuntimeException("Task was removed during iteration", e);
             }
-        }
-    }
-
-    /**
-     * RequestFinishedInfo.Listener for testing, which saves the RequestFinishedInfo
-     */
-    public static class TestRequestFinishedListener extends RequestFinishedInfo.Listener {
-        private final ConditionVariable mBlock;
-        private RequestFinishedInfo mRequestInfo;
-
-        // TODO(mgersh): it's weird that you can use either this constructor or blockUntilDone() but
-        // not both. Either clean it up or document why it has to work this way.
-        public TestRequestFinishedListener(Executor executor) {
-            super(executor);
-            mBlock = new ConditionVariable();
-        }
-
-        public TestRequestFinishedListener() {
-            super(Executors.newSingleThreadExecutor());
-            mBlock = new ConditionVariable();
-        }
-
-        public RequestFinishedInfo getRequestInfo() {
-            return mRequestInfo;
-        }
-
-        @Override
-        public void onRequestFinished(RequestFinishedInfo requestInfo) {
-            assertNull("onRequestFinished called repeatedly", mRequestInfo);
-            assertNotNull(requestInfo);
-            mRequestInfo = requestInfo;
-            mBlock.open();
-        }
-
-        public void blockUntilDone() {
-            mBlock.block();
-        }
-
-        public void reset() {
-            mBlock.close();
-            mRequestInfo = null;
         }
     }
 
@@ -158,20 +115,20 @@ public class MetricsTestUtil {
     public static void checkRequestFinishedInfo(
             RequestFinishedInfo info, String url, Date startTime, Date endTime) {
         assertNotNull("RequestFinishedInfo.Listener must be called", info);
-        assertEquals(url, info.getUrl());
+        assertThat(info.getUrl()).isEqualTo(url);
         assertNotNull(info.getResponseInfo());
         assertNull(info.getException());
         RequestFinishedInfo.Metrics metrics = info.getMetrics();
         assertNotNull("RequestFinishedInfo.getMetrics() must not be null", metrics);
         // Check old (deprecated) timing metrics
-        assertTrue(metrics.getTotalTimeMs() >= 0);
-        assertTrue(metrics.getTotalTimeMs() >= metrics.getTtfbMs());
+        assertThat(metrics.getTotalTimeMs()).isAtLeast(0L);
+        assertThat(metrics.getTotalTimeMs()).isAtLeast(metrics.getTtfbMs());
         // Check new timing metrics
         checkTimingMetrics(metrics, startTime, endTime);
         assertNull(metrics.getPushStart());
         assertNull(metrics.getPushEnd());
         // Check data use metrics
-        assertTrue(metrics.getSentByteCount() > 0);
-        assertTrue(metrics.getReceivedByteCount() > 0);
+        assertThat(metrics.getSentByteCount()).isGreaterThan(0L);
+        assertThat(metrics.getReceivedByteCount()).isGreaterThan(0L);
     }
 }

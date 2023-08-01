@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,8 +17,9 @@ import android.widget.TextView;
 
 import androidx.annotation.Nullable;
 
-import org.chromium.base.supplier.BooleanSupplier;
 import org.chromium.chrome.browser.device.DeviceClassManager;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.omnibox.OmniboxFeatures;
 import org.chromium.chrome.browser.omnibox.styles.OmniboxResourceProvider;
 import org.chromium.chrome.browser.tabmodel.IncognitoStateProvider;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
@@ -27,7 +28,10 @@ import org.chromium.chrome.browser.toolbar.IncognitoToggleTabLayout;
 import org.chromium.chrome.browser.toolbar.NewTabButton;
 import org.chromium.chrome.browser.toolbar.R;
 import org.chromium.chrome.browser.toolbar.TabCountProvider;
+import org.chromium.chrome.browser.toolbar.menu_button.MenuButton;
+import org.chromium.chrome.browser.toolbar.top.TopToolbarCoordinator.ToolbarAlphaInOverviewObserver;
 import org.chromium.chrome.browser.ui.theme.BrandedColorScheme;
+import org.chromium.chrome.browser.util.ChromeAccessibilityUtil;
 import org.chromium.components.browser_ui.styles.ChromeColors;
 import org.chromium.components.browser_ui.widget.animation.CancelAwareAnimatorListener;
 import org.chromium.components.browser_ui.widget.animation.Interpolators;
@@ -36,6 +40,8 @@ import org.chromium.components.browser_ui.widget.highlight.ViewHighlighter.Highl
 import org.chromium.components.browser_ui.widget.highlight.ViewHighlighter.HighlightShape;
 import org.chromium.ui.base.DeviceFormFactor;
 import org.chromium.ui.widget.OptimizedFrameLayout;
+
+import java.util.function.BooleanSupplier;
 
 /** The tab switcher mode top toolbar */
 public class TabSwitcherModeTopToolbar extends OptimizedFrameLayout
@@ -52,9 +58,9 @@ public class TabSwitcherModeTopToolbar extends OptimizedFrameLayout
     // as the button for creating new tab, the incognito toggle is hidden.
     private @Nullable View mNewTabViewButton;
 
-    // The following three buttons are not used when Duet is enabled.
+    // The following two buttons are not used when Duet is enabled.
     private @Nullable NewTabButton mNewTabImageButton;
-    private @Nullable ToggleTabStackButton mToggleTabStackButton;
+    private @Nullable MenuButton mMenuButton;
 
     private int mPrimaryColor;
     private @BrandedColorScheme int mBrandedColorScheme;
@@ -63,8 +69,10 @@ public class TabSwitcherModeTopToolbar extends OptimizedFrameLayout
     private boolean mShouldShowNewTabVariation;
 
     private ObjectAnimator mVisiblityAnimator;
+    private @Nullable ToolbarAlphaInOverviewObserver mToolbarAlphaInOverviewObserver;
 
     private boolean mIsGridTabSwitcherEnabled;
+    private boolean mIsFullscreenToolbar;
     private boolean mShowZoomingAnimation;
 
     public TabSwitcherModeTopToolbar(Context context, AttributeSet attrs) {
@@ -77,7 +85,7 @@ public class TabSwitcherModeTopToolbar extends OptimizedFrameLayout
 
         mNewTabImageButton = findViewById(R.id.new_tab_button);
         mNewTabViewButton = findViewById(R.id.new_tab_view);
-        mToggleTabStackButton = findViewById(R.id.tab_switcher_mode_tab_switcher_button);
+        mMenuButton = findViewById(R.id.menu_button_wrapper);
 
         // TODO(twellington): Try to make NewTabButton responsible for handling its own clicks.
         //                    TabSwitcherBottomToolbarCoordinator also uses NewTabButton and
@@ -88,15 +96,18 @@ public class TabSwitcherModeTopToolbar extends OptimizedFrameLayout
         mNewTabViewButton.setOnClickListener(this);
     }
 
-    void initialize(boolean isGridTabSwitcherEnabled, boolean isTabToGtsAnimationEnabled,
-            BooleanSupplier isIncognitoModeEnabledSupplier) {
+    void initialize(boolean isGridTabSwitcherEnabled, boolean isFullscreenToolbar,
+            boolean isTabToGtsAnimationEnabled, BooleanSupplier isIncognitoModeEnabledSupplier,
+            ToolbarColorObserverManager toolbarColorObserverManager) {
         mIsGridTabSwitcherEnabled = isGridTabSwitcherEnabled;
+        mIsFullscreenToolbar = isFullscreenToolbar;
         mShowZoomingAnimation = isGridTabSwitcherEnabled && isTabToGtsAnimationEnabled;
         mIsIncognitoModeEnabledSupplier = isIncognitoModeEnabledSupplier;
+        mToolbarAlphaInOverviewObserver = toolbarColorObserverManager;
 
         mNewTabImageButton.setGridTabSwitcherEnabled(isGridTabSwitcherEnabled);
         mNewTabImageButton.setStartSurfaceEnabled(false);
-        updateTabSwitchingElements(shouldShowIncognitoToggle());
+        setIncognitoToggleVisibility(shouldShowIncognitoToggle());
         updateNewTabButtonVisibility();
     }
 
@@ -120,13 +131,12 @@ public class TabSwitcherModeTopToolbar extends OptimizedFrameLayout
             mNewTabImageButton.destroy();
             mNewTabImageButton = null;
         }
-        if (mToggleTabStackButton != null) {
-            mToggleTabStackButton.destroy();
-            mToggleTabStackButton = null;
-        }
         if (mIncognitoToggleTabLayout != null) {
             mIncognitoToggleTabLayout.destroy();
             mIncognitoToggleTabLayout = null;
+        }
+        if (mToolbarAlphaInOverviewObserver != null) {
+            mToolbarAlphaInOverviewObserver = null;
         }
     }
 
@@ -135,6 +145,19 @@ public class TabSwitcherModeTopToolbar extends OptimizedFrameLayout
      * @param inTabSwitcherMode Whether or not tab switcher mode should be shown or hidden.
      */
     void setTabSwitcherMode(boolean inTabSwitcherMode) {
+        // TODO(https://crbug.com/914868): Use consistent logic here for setting clickable/enabled
+        // on mIncognitoToggleTabLayout & mNewTabButton?
+        if (!inTabSwitcherMode) {
+            if (mIncognitoToggleTabLayout != null) mIncognitoToggleTabLayout.setClickable(false);
+        } else {
+            if (mNewTabImageButton != null) mNewTabImageButton.setEnabled(true);
+            if (mNewTabViewButton != null) mNewTabViewButton.setEnabled(true);
+        }
+
+        // Skip the animations and visibility logic when Tablet GTS polish param is enabled, since
+        // they will instead be handled by the container view.
+        if (mIsFullscreenToolbar) return;
+
         if (mVisiblityAnimator != null) mVisiblityAnimator.cancel();
 
         setVisibility(View.VISIBLE);
@@ -150,15 +173,6 @@ public class TabSwitcherModeTopToolbar extends OptimizedFrameLayout
         mVisiblityAnimator.setDuration(duration);
         if (mShowZoomingAnimation && inTabSwitcherMode) mVisiblityAnimator.setStartDelay(duration);
         mVisiblityAnimator.setInterpolator(Interpolators.LINEAR_INTERPOLATOR);
-
-        // TODO(https://crbug.com/914868): Use consistent logic here for setting clickable/enabled
-        // on mIncognitoToggleTabLayout & mNewTabButton?
-        if (!inTabSwitcherMode) {
-            if (mIncognitoToggleTabLayout != null) mIncognitoToggleTabLayout.setClickable(false);
-        } else {
-            if (mNewTabImageButton != null) mNewTabImageButton.setEnabled(true);
-            if (mNewTabViewButton != null) mNewTabViewButton.setEnabled(true);
-        }
 
         mVisiblityAnimator.addListener(new CancelAwareAnimatorListener() {
             @Override
@@ -176,19 +190,33 @@ public class TabSwitcherModeTopToolbar extends OptimizedFrameLayout
                 mVisiblityAnimator = null;
             }
         });
+        // Notify the observer that the toolbar alpha value is changed and pass the rendering
+        // toolbar alpha value to the observer.
+        if (OmniboxFeatures.shouldMatchToolbarAndStatusBarColor()) {
+            mVisiblityAnimator.addUpdateListener(animation -> {
+                Object alphaValue = animation.getAnimatedValue();
+                if (mToolbarAlphaInOverviewObserver != null && alphaValue instanceof Float) {
+                    mToolbarAlphaInOverviewObserver.onToolbarAlphaInOverviewChanged(
+                            (Float) alphaValue);
+                }
+            });
+        }
+
+        // If the accessibility layout is showing the transition is immediate.
+        boolean skipAnimation = DeviceClassManager.enableAccessibilityLayout(getContext());
+
+        // When animating into the TabSwitcherMode when the GTS supports accessibility then the
+        // transition should also be immediate if touch exploration is enabled as the animation
+        // causes races in the Android accessibility focus framework.
+        skipAnimation |=
+                (inTabSwitcherMode && ChromeFeatureList.sTabGroupsContinuationAndroid.isEnabled()
+                        && ChromeFeatureList.sTabGroupsAndroid.isEnabled()
+                        && DeviceClassManager.GTS_ACCESSIBILITY_SUPPORT.getValue()
+                        && ChromeAccessibilityUtil.get().isTouchExplorationEnabled());
 
         mVisiblityAnimator.start();
-
-        if (DeviceClassManager.enableAccessibilityLayout(getContext())) mVisiblityAnimator.end();
-    }
-
-    /**
-     * Sets the OnClickListener that will be notified when the TabSwitcher button is pressed.
-     * @param listener The callback that will be notified when the TabSwitcher button is pressed.
-     */
-    void setOnTabSwitcherClickHandler(View.OnClickListener listener) {
-        if (mToggleTabStackButton != null) {
-            mToggleTabStackButton.setOnTabSwitcherClickHandler(listener);
+        if (skipAnimation) {
+            mVisiblityAnimator.end();
         }
     }
 
@@ -201,14 +229,19 @@ public class TabSwitcherModeTopToolbar extends OptimizedFrameLayout
     }
 
     /**
+     * A method to toggle the enabled state of the new tab view button.
+     */
+    void setNewTabButtonEnabled(boolean enabled) {
+        mNewTabViewButton.setEnabled(enabled);
+        mNewTabImageButton.setEnabled(enabled);
+    }
+
+    /**
      * @param tabCountProvider The {@link TabCountProvider} used to observe the number of tabs in
      *                         the current model.
      */
     void setTabCountProvider(TabCountProvider tabCountProvider) {
         mTabCountProvider = tabCountProvider;
-        if (mToggleTabStackButton != null) {
-            mToggleTabStackButton.setTabCountProvider(tabCountProvider);
-        }
         if (mIncognitoToggleTabLayout != null) {
             mIncognitoToggleTabLayout.setTabCountProvider(tabCountProvider);
         }
@@ -252,14 +285,11 @@ public class TabSwitcherModeTopToolbar extends OptimizedFrameLayout
 
     /** Called when incognito tab existence changes. */
     void onIncognitoTabsExistenceChanged(boolean doesExist) {
+        setIncognitoToggleVisibility(doesExist);
         boolean shouldShowNewTabVariation = shouldShowNewTabVariation(doesExist);
         if (shouldShowNewTabVariation == mShouldShowNewTabVariation) return;
 
         mShouldShowNewTabVariation = shouldShowNewTabVariation;
-
-        if (mIncognitoToggleTabLayout != null) {
-            mIncognitoToggleTabLayout.setVisibility(mShouldShowNewTabVariation ? GONE : VISIBLE);
-        }
         updateNewTabButtonVisibility();
     }
 
@@ -309,17 +339,17 @@ public class TabSwitcherModeTopToolbar extends OptimizedFrameLayout
 
         mBrandedColorScheme = brandedColorScheme;
 
-        if (mToggleTabStackButton != null) {
-            mToggleTabStackButton.setBrandedColorScheme(brandedColorScheme);
-        }
-
+        final ColorStateList tint =
+                ThemeUtils.getThemedToolbarIconTint(getContext(), brandedColorScheme);
         if (mNewTabViewButton != null) {
-            final ColorStateList tint =
-                    ThemeUtils.getThemedToolbarIconTint(getContext(), brandedColorScheme);
             ((ImageView) mNewTabViewButton.findViewById(R.id.new_tab_view_button))
                     .setImageTintList(tint);
             final TextView newTabViewDesc = mNewTabViewButton.findViewById(R.id.new_tab_view_desc);
-            newTabViewDesc.setTextColor(tint.getDefaultColor());
+            newTabViewDesc.setTextColor(tint);
+        }
+
+        if (mMenuButton != null) {
+            mMenuButton.onTintChanged(tint, brandedColorScheme);
         }
     }
 
@@ -347,6 +377,7 @@ public class TabSwitcherModeTopToolbar extends OptimizedFrameLayout
     }
 
     private void setIncognitoToggleVisibility(boolean showIncognitoToggle) {
+        if (!shouldShowIncognitoToggle()) return;
         if (mIncognitoToggleTabLayout == null) {
             if (showIncognitoToggle) inflateIncognitoToggle();
         } else {
@@ -354,23 +385,19 @@ public class TabSwitcherModeTopToolbar extends OptimizedFrameLayout
         }
     }
 
-    private void setToggleTabStackButtonVisibility(boolean showToggleTabStackButton) {
-        if (mToggleTabStackButton == null) return;
-        mToggleTabStackButton.setVisibility(showToggleTabStackButton ? View.VISIBLE : View.GONE);
-    }
-
-    private void updateTabSwitchingElements(boolean showIncognitoToggle) {
-        setIncognitoToggleVisibility(showIncognitoToggle);
-        setToggleTabStackButtonVisibility(!showIncognitoToggle);
-    }
-
     /**
      * @return Whether or not incognito toggle should be visible based on the enabled features,
      *         incognito status and form-factor.
      */
     private boolean shouldShowIncognitoToggle() {
-        return mIsGridTabSwitcherEnabled && mIsIncognitoModeEnabledSupplier.getAsBoolean()
-                && !DeviceFormFactor.isNonMultiDisplayContextOnTablet(getContext());
+        boolean accessibilityEnabled = DeviceClassManager.enableAccessibilityLayout(getContext());
+
+        // TODO(crbug.com/1434937): Remove top toggle (and update "New Tab" button logic,
+        //  accordingly) for the a11y switcher, since that variant has the bottom toggle showing.
+        return (mIsGridTabSwitcherEnabled || accessibilityEnabled)
+                && mIsIncognitoModeEnabledSupplier.getAsBoolean()
+                && (!DeviceFormFactor.isNonMultiDisplayContextOnTablet(getContext())
+                        || mIsFullscreenToolbar);
     }
 
     /**

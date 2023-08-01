@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,7 +25,8 @@ void SetPosition(struct wl_client* client,
   auto* test_subsurface =
       GetUserDataAs<TestSubSurface>(test_augmented_subsurface->sub_surface());
   DCHECK(test_subsurface);
-  test_subsurface->SetPosition(wl_fixed_to_double(x), wl_fixed_to_double(y));
+  test_subsurface->SetPositionImpl(wl_fixed_to_double(x),
+                                   wl_fixed_to_double(y));
 }
 
 }  // namespace

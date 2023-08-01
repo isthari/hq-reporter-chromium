@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,22 +8,31 @@
 #include <string>
 #include <utility>
 
+#include "ash/app_list/app_list_metrics.h"
 #include "ash/app_list/app_list_util.h"
 #include "ash/app_list/app_list_view_delegate.h"
 #include "ash/app_list/model/search/search_result.h"
 #include "ash/bubble/bubble_utils.h"
 #include "ash/constants/ash_features.h"
+#include "ash/public/cpp/app_list/app_list_features.h"
 #include "ash/public/cpp/style/color_provider.h"
 #include "ash/resources/vector_icons/vector_icons.h"
+#include "ash/session/session_controller_impl.h"
+#include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
-#include "ash/style/highlight_border.h"
 #include "ash/style/style_util.h"
-#include "base/bind.h"
+#include "ash/style/typography.h"
+#include "base/functional/bind.h"
 #include "base/strings/string_util.h"
+#include "chromeos/constants/chromeos_features.h"
 #include "extensions/common/constants.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/base/models/menu_separator_types.h"
 #include "ui/base/models/simple_menu_model.h"
+#include "ui/chromeos/styles/cros_tokens_color_mappings.h"
+#include "ui/color/color_id.h"
+#include "ui/compositor/layer.h"
 #include "ui/gfx/image/image_skia_operations.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/animation/ink_drop.h"
@@ -33,6 +42,7 @@
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/menu/menu_runner.h"
+#include "ui/views/highlight_border.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/flex_layout.h"
 #include "ui/views/vector_icons.h"
@@ -44,20 +54,18 @@ constexpr int kIconSize = 20;
 constexpr int kCircleRadius = 18;
 
 constexpr int kBetweenChildPadding = 16;
-constexpr gfx::Insets kInteriorMarginClamshell(7, 8, 7, 16);
-constexpr gfx::Insets kInteriorMarginTablet(13, 16, 13, 20);
+constexpr auto kInteriorMarginClamshell = gfx::Insets::TLBR(7, 8, 7, 16);
+constexpr auto kInteriorMarginTablet = gfx::Insets::TLBR(13, 16, 13, 20);
 
 constexpr int kViewCornerRadiusClamshell = 8;
 constexpr int kViewCornerRadiusTablet = 20;
 constexpr int kTaskMinWidth = 204;
 constexpr int kTaskMaxWidth = 264;
 
-gfx::ImageSkia CreateIconWithCircleBackground(const gfx::ImageSkia& icon) {
+gfx::ImageSkia CreateIconWithCircleBackground(const gfx::ImageSkia& icon,
+                                              SkColor color) {
   return gfx::ImageSkiaOperations::CreateImageWithCircleBackground(
-      kCircleRadius,
-      ColorProvider::Get()->GetControlsLayerColor(
-          ColorProvider::ControlsLayerType::kControlBackgroundColorInactive),
-      icon);
+      kCircleRadius, color, icon);
 }
 
 int GetCornerRadius(bool tablet_mode) {
@@ -68,7 +76,10 @@ int GetCornerRadius(bool tablet_mode) {
 
 ContinueTaskView::ContinueTaskView(AppListViewDelegate* view_delegate,
                                    bool tablet_mode)
-    : view_delegate_(view_delegate), is_tablet_mode_(tablet_mode) {
+    : view_delegate_(view_delegate) {
+  SetPaintToLayer();
+  layer()->SetFillsBoundsOpaquely(false);
+
   SetFocusBehavior(FocusBehavior::ALWAYS);
   SetCallback(base::BindRepeating(&ContinueTaskView::OnButtonPressed,
                                   base::Unretained(this)));
@@ -80,25 +91,52 @@ ContinueTaskView::ContinueTaskView(AppListViewDelegate* view_delegate,
   views::HighlightPathGenerator::Install(this,
                                          std::move(ink_drop_highlight_path));
   SetInstallFocusRingOnFocus(true);
-  views::FocusRing::Get(this)->SetColor(
-      ColorProvider::Get()->GetControlsLayerColor(
-          ColorProvider::ControlsLayerType::kFocusRingColor));
+
+  const bool is_jelly_enabled = chromeos::features::IsJellyEnabled();
+  const ui::ColorId focus_ring_color =
+      is_jelly_enabled
+          ? static_cast<ui::ColorId>(cros_tokens::kCrosSysFocusRing)
+          : ui::kColorAshFocusRing;
+  views::FocusRing::Get(this)->SetColorId(focus_ring_color);
   SetFocusPainter(nullptr);
 
   views::InkDrop::Get(this)->SetMode(views::InkDropHost::InkDropMode::ON);
+  views::InkDrop::Get(this)->GetInkDrop()->SetShowHighlightOnHover(false);
   SetHasInkDropActionOnClick(true);
   SetShowInkDropWhenHotTracked(false);
 
-  StyleUtil::ConfigureInkDropAttributes(
-      this, StyleUtil::kBaseColor | StyleUtil::kInkDropOpacity);
+  if (is_jelly_enabled) {
+    StyleUtil::ConfigureInkDropAttributes(
+        this, StyleUtil::kBaseColor | StyleUtil::kInkDropOpacity,
+        tablet_mode ? cros_tokens::kCrosSysRippleNeutralOnSubtle
+                    : cros_tokens::kCrosSysHoverOnSubtle);
+  } else {
+    StyleUtil::ConfigureInkDropAttributes(
+        this, StyleUtil::kBaseColor | StyleUtil::kInkDropOpacity);
+  }
 
-  UpdateStyleForTabletMode();
+  if (tablet_mode) {
+    layer()->SetBackgroundBlur(ColorProvider::kBackgroundBlurSigma);
+    layer()->SetBackdropFilterQuality(ColorProvider::kBackgroundBlurQuality);
+    layer()->SetRoundedCornerRadius(
+        gfx::RoundedCornersF(GetCornerRadius(/*tablet_mode=*/true)));
 
-  views::BoxLayout* layout_manager =
-      SetLayoutManager(std::make_unique<views::BoxLayout>(
-          views::BoxLayout::Orientation::kHorizontal,
-          tablet_mode ? kInteriorMarginTablet : kInteriorMarginClamshell,
-          kBetweenChildPadding));
+    const ui::ColorId background_color =
+        is_jelly_enabled
+            ? static_cast<ui::ColorId>(cros_tokens::kCrosSysSystemBaseElevated)
+            : kColorAshShieldAndBase60;
+    SetBackground(views::CreateThemedSolidBackground(background_color));
+    SetBorder(std::make_unique<views::HighlightBorder>(
+        GetCornerRadius(/*tablet_mode=*/true),
+        is_jelly_enabled
+            ? views::HighlightBorder::Type::kHighlightBorderNoShadow
+            : views::HighlightBorder::Type::kHighlightBorder2));
+  }
+
+  auto* layout_manager = SetLayoutManager(std::make_unique<views::BoxLayout>(
+      views::BoxLayout::Orientation::kHorizontal,
+      tablet_mode ? kInteriorMarginTablet : kInteriorMarginClamshell,
+      kBetweenChildPadding));
   layout_manager->set_cross_axis_alignment(
       views::BoxLayout::CrossAxisAlignment::kCenter);
 
@@ -114,11 +152,25 @@ ContinueTaskView::ContinueTaskView(AppListViewDelegate* view_delegate,
 
   title_ = label_container->AddChildView(
       std::make_unique<views::Label>(std::u16string()));
+  if (is_jelly_enabled) {
+    bubble_utils::ApplyStyle(title_, TypographyToken::kCrosButton1,
+                             cros_tokens::kCrosSysOnSurface);
+  } else {
+    bubble_utils::ApplyStyle(title_, TypographyToken::kCrosBody1);
+  }
   title_->SetAccessibleName(std::u16string());
   title_->SetHorizontalAlignment(gfx::HorizontalAlignment::ALIGN_LEFT);
-  title_->SetElideBehavior(gfx::ElideBehavior::ELIDE_MIDDLE);
+  title_->SetElideBehavior(gfx::ElideBehavior::ELIDE_TAIL);
+
   subtitle_ = label_container->AddChildView(
       std::make_unique<views::Label>(std::u16string()));
+  if (is_jelly_enabled) {
+    bubble_utils::ApplyStyle(subtitle_, TypographyToken::kCrosAnnotation1,
+                             cros_tokens::kCrosSysOnSurfaceVariant);
+  } else {
+    bubble_utils::ApplyStyle(subtitle_, TypographyToken::kCrosAnnotation1,
+                             kColorAshTextColorSecondary);
+  }
   subtitle_->SetHorizontalAlignment(gfx::HorizontalAlignment::ALIGN_LEFT);
   subtitle_->SetElideBehavior(gfx::ElideBehavior::ELIDE_MIDDLE);
 
@@ -131,9 +183,7 @@ ContinueTaskView::~ContinueTaskView() {}
 
 void ContinueTaskView::OnThemeChanged() {
   views::View::OnThemeChanged();
-  bubble_utils::ApplyStyle(title_, bubble_utils::LabelStyle::kBody);
-  bubble_utils::ApplyStyle(subtitle_, bubble_utils::LabelStyle::kSubtitle);
-  UpdateStyleForTabletMode();
+  UpdateIcon();
 }
 
 gfx::Size ContinueTaskView::GetMaximumSize() const {
@@ -156,12 +206,48 @@ void ContinueTaskView::OnButtonPressed(const ui::Event& event) {
   OpenResult(event.flags());
 }
 
-void ContinueTaskView::SetIcon(const gfx::ImageSkia& icon) {
+void ContinueTaskView::UpdateIcon() {
+  if (!result()) {
+    icon_->SetImage(gfx::ImageSkia());
+    return;
+  }
+
+  if (!GetWidget()) {
+    return;
+  }
+
+  gfx::ImageSkia icon;
+
+  // TODO(b/278271038): After changing the type of icon in
+  // `SearchResultIconInfo` from `ImageSkia` to `ImageModel`, please make sure
+  // get rid of `badge_icon` here; and use the `icon` instead. Also, you need to
+  // replace `SetBadgeIcon` in `DesksAdminTemplateResult` to `SetIcon`.
+  if (!result()->badge_icon().IsEmpty()) {
+    icon = result()->badge_icon().Rasterize(GetColorProvider());
+  } else {
+    icon = result()->chip_icon();
+  }
+
   icon_->SetImage(CreateIconWithCircleBackground(
       icon.size() == GetIconSize()
           ? icon
           : gfx::ImageSkiaOperations::CreateResizedImage(
-                icon, skia::ImageOperations::RESIZE_BEST, GetIconSize())));
+                icon, skia::ImageOperations::RESIZE_BEST, GetIconSize()),
+      GetColorProvider()->GetColor(GetIconBackgroundColorId())));
+}
+
+ui::ColorId ContinueTaskView::GetIconBackgroundColorId() const {
+  if (result()->result_type() == AppListSearchResultType::kZeroStateHelpApp) {
+    if (chromeos::features::IsJellyEnabled()) {
+      return cros_tokens::kCrosSysPrimary;
+    }
+    return kColorAshControlBackgroundColorActive;
+  }
+
+  if (chromeos::features::IsJellyEnabled()) {
+    return cros_tokens::kCrosSysSystemOnBase;
+  }
+  return kColorAshControlBackgroundColorInactive;
 }
 
 gfx::Size ContinueTaskView::GetIconSize() const {
@@ -177,16 +263,16 @@ void ContinueTaskView::UpdateResult() {
   views::InkDrop::Get(this)->GetInkDrop()->AnimateToState(
       views::InkDropState::HIDDEN);
   CloseContextMenu();
+  UpdateIcon();
 
   if (!result()) {
-    SetIcon(gfx::ImageSkia());
     title_->SetText(std::u16string());
     subtitle_->SetText(std::u16string());
-    GetViewAccessibility().OverrideName(std::u16string());
+    GetViewAccessibility().OverrideName(
+        std::u16string(), ax::mojom::NameFrom::kAttributeExplicitlyEmpty);
     return;
   }
 
-  SetIcon(result()->chip_icon());
   title_->SetText(result()->title());
   subtitle_->SetText(result()->details());
 
@@ -205,20 +291,21 @@ void ContinueTaskView::SetResult(SearchResult* result) {
   search_result_observation_.Reset();
 
   result_ = result;
-  if (result_)
-    search_result_observation_.Observe(result_);
-
-  UpdateResult();
+  if (result_) {
+    search_result_observation_.Observe(result_.get());
+    UpdateResult();
+  }
 }
 
 void ContinueTaskView::ShowContextMenuForViewImpl(
     views::View* source,
     const gfx::Point& point,
     ui::MenuSourceType source_type) {
+  // May be null if the result got reset, and the task view is animating out.
   if (!result())
     return;
 
-  int run_types = views::MenuRunner::USE_TOUCHABLE_LAYOUT |
+  int run_types = views::MenuRunner::USE_ASH_SYS_UI_LAYOUT |
                   views::MenuRunner::CONTEXT_MENU |
                   views::MenuRunner::FIXED_ANCHOR;
 
@@ -229,11 +316,11 @@ void ContinueTaskView::ShowContextMenuForViewImpl(
       source->GetWidget(), nullptr /*button_controller*/,
       source->GetBoundsInScreen(), views::MenuAnchorPosition::kBubbleTopRight,
       source_type);
-  views::InkDrop::Get(this)->GetInkDrop()->AnimateToState(
-      views::InkDropState::ACTIVATED);
+  views::InkDrop::Get(this)->GetInkDrop()->SnapToActivated();
 }
 
 void ContinueTaskView::ExecuteCommand(int command_id, int event_flags) {
+  CloseContextMenu();
   switch (command_id) {
     case ContinueTaskCommandId::kOpenResult:
       OpenResult(event_flags);
@@ -241,25 +328,43 @@ void ContinueTaskView::ExecuteCommand(int command_id, int event_flags) {
     case ContinueTaskCommandId::kRemoveResult:
       RemoveResult();
       break;
+    case ContinueTaskCommandId::kHideContinueSection:
+      view_delegate_->SetHideContinueSection(true);
+      break;
     default:
       NOTREACHED();
   }
 }
 
 ui::SimpleMenuModel* ContinueTaskView::BuildMenuModel() {
+  DCHECK(result_);
   context_menu_model_ = std::make_unique<ui::SimpleMenuModel>(this);
   context_menu_model_->AddItemWithIcon(
       ContinueTaskCommandId::kOpenResult,
       l10n_util::GetStringUTF16(
           IDS_ASH_LAUNCHER_CONTINUE_SECTION_CONTEXT_MENU_OPEN),
-      ui::ImageModel::FromVectorIcon(kLaunchIcon));
+      ui::ImageModel::FromVectorIcon(kLaunchIcon,
+                                     ui::kColorAshSystemUIMenuIcon));
 
-  context_menu_model_->AddItemWithIcon(
-      ContinueTaskCommandId::kRemoveResult,
-      l10n_util::GetStringUTF16(
-          IDS_ASH_LAUNCHER_CONTINUE_SECTION_CONTEXT_MENU_REMOVE),
-      ui::ImageModel::FromVectorIcon(kRemoveOutlineIcon));
+  // We won't create the `Remove suggestion` option for admin templates.
+  // Reference: b/273800982.
+  if (result_->result_type() != AppListSearchResultType::kDesksAdminTemplate) {
+    context_menu_model_->AddItemWithIcon(
+        ContinueTaskCommandId::kRemoveResult,
+        l10n_util::GetStringUTF16(
+            IDS_ASH_LAUNCHER_CONTINUE_SECTION_CONTEXT_MENU_REMOVE),
+        ui::ImageModel::FromVectorIcon(kRemoveOutlineIcon,
+                                       ui::kColorAshSystemUIMenuIcon));
+  }
 
+  if (Shell::Get()->IsInTabletMode()) {
+    context_menu_model_->AddSeparator(ui::NORMAL_SEPARATOR);
+    context_menu_model_->AddItemWithIcon(
+        ContinueTaskCommandId::kHideContinueSection,
+        l10n_util::GetStringUTF16(IDS_ASH_LAUNCHER_HIDE_CONTINUE_SECTION),
+        ui::ImageModel::FromVectorIcon(kLauncherHideContinueSectionIcon,
+                                       ui::kColorAshSystemUIMenuIcon));
+  }
   return context_menu_model_.get();
 }
 
@@ -269,18 +374,35 @@ void ContinueTaskView::MenuClosed(ui::SimpleMenuModel* menu) {
 }
 
 void ContinueTaskView::OpenResult(int event_flags) {
-  DCHECK(result());
+  // May be null if the result got reset, and the task view is animating out.
+  if (!result())
+    return;
+
   view_delegate_->OpenSearchResult(
-      result()->id(), result()->result_type(), event_flags,
+      result()->id(), event_flags,
       AppListLaunchedFrom::kLaunchedFromContinueTask,
       AppListLaunchType::kSearchResult, index_in_container(),
       false /* launch_as_default */);
 }
 
+ContinueTaskView::TaskResultType ContinueTaskView::GetTaskResultType() {
+  switch (result()->result_type()) {
+    case AppListSearchResultType::kZeroStateFile:
+      return TaskResultType::kLocalFile;
+    case AppListSearchResultType::kZeroStateDrive:
+      return TaskResultType::kDriveFile;
+    default:
+      NOTREACHED();
+  }
+  return TaskResultType::kUnknown;
+}
+
 void ContinueTaskView::RemoveResult() {
-  // TODO(crbug.com/1264530): The ML service may change the way Search Results
-  // are removed.
-  DCHECK(result());
+  // May be null if the result got reset, and the task view is animating out.
+  if (!result())
+    return;
+
+  LogMetricsOnResultRemoved();
   view_delegate_->InvokeSearchResultAction(result()->id(),
                                            SearchResultActionType::kRemove);
 }
@@ -295,19 +417,11 @@ void ContinueTaskView::CloseContextMenu() {
   context_menu_runner_->Cancel();
 }
 
-void ContinueTaskView::UpdateStyleForTabletMode() {
-  // Do nothing if the view is not in tablet mode.
-  if (!is_tablet_mode_)
-    return;
+void ContinueTaskView::LogMetricsOnResultRemoved() {
+  RecordCumulativeContinueSectionResultRemovedNumber();
 
-  SetBackground(views::CreateRoundedRectBackground(
-      ColorProvider::Get()->GetBaseLayerColor(
-          ColorProvider::BaseLayerType::kTransparent80),
-      GetCornerRadius(/*tablet_mode=*/true)));
-  SetBorder(std::make_unique<HighlightBorder>(
-      GetCornerRadius(/*tablet_mode=*/true),
-      HighlightBorder::Type::kHighlightBorder2,
-      /*use_light_colors=*/false));
+  base::UmaHistogramEnumeration("Apps.AppList.Search.ContinueResultRemoved",
+                                GetTaskResultType(), TaskResultType::kMaxValue);
 }
 
 BEGIN_METADATA(ContinueTaskView, views::View)

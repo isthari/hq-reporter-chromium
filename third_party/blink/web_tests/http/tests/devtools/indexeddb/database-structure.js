@@ -1,18 +1,21 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {TestRunner} from 'test_runner';
+import {ApplicationTestRunner} from 'application_test_runner';
+
 (async function() {
   TestRunner.addResult(`Tests that database names are correctly loaded and saved in IndexedDBModel.\n`);
-  await TestRunner.loadLegacyModule('console'); await TestRunner.loadTestModule('application_test_runner');
+  await TestRunner.loadLegacyModule('console');
     // Note: every test that uses a storage API must manually clean-up state from previous tests.
   await ApplicationTestRunner.resetState();
 
   var indexedDBModel = ApplicationTestRunner.createIndexedDBModel();
   var mainFrameId = TestRunner.resourceTreeModel.mainFrame.id;
   var databaseName = 'testDatabase1';
-  var securityOrigin = 'http://127.0.0.1:8000';
-  var databaseId = new Resources.IndexedDBModel.DatabaseId(securityOrigin, databaseName);
+  var storageKey = 'http://127.0.0.1:8000/';
+  var databaseId = new Resources.IndexedDBModel.DatabaseId(storageKey, databaseName);
 
   function dumpDatabase() {
     TestRunner.addResult('Dumping database:');
@@ -43,14 +46,14 @@
     TestRunner.addResult('');
   }
 
-  TestRunner.addSniffer(Resources.IndexedDBModel.prototype, 'updateOriginDatabaseNames', step2, false);
+  TestRunner.addSniffer(Resources.IndexedDBModel.prototype, 'updateStorageKeyDatabaseNames', step2, false);
 
   function step2() {
     ApplicationTestRunner.createDatabase(mainFrameId, databaseName, step3);
   }
 
   function step3() {
-    TestRunner.addSniffer(Resources.IndexedDBModel.prototype, 'updateOriginDatabaseNames', step4, false);
+    TestRunner.addSniffer(Resources.IndexedDBModel.prototype, 'updateStorageKeyDatabaseNames', step4, false);
     indexedDBModel.refreshDatabaseNames();
   }
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -89,9 +89,11 @@ extern const char kTabIndexNotFoundError[];
 extern const char kNotFoundNextPageError[];
 extern const char kTabNotFoundError[];
 extern const char kCannotDiscardTab[];
+extern const char kCannotDuplicateTab[];
 extern const char kCannotFindTabToDiscard[];
 extern const char kTabStripNotEditableError[];
 extern const char kTabStripNotEditableQueryError[];
+extern const char kTabStripDoesNotSupportTabGroupsError[];
 extern const char kNoHighlightedTabError[];
 extern const char kNoSelectedTabError[];
 extern const char kIncognitoModeIsDisabled[];
@@ -102,6 +104,7 @@ extern const char kNotImplementedError[];
 extern const char kSupportedInWindowsOnlyError[];
 extern const char kInvalidWindowTypeError[];
 extern const char kInvalidWindowStateError[];
+extern const char kInvalidWindowBoundsError[];
 extern const char kScreenshotsDisabled[];
 extern const char kScreenshotsDisabledByDlp[];
 extern const char kCannotUpdateMuteCaptured[];

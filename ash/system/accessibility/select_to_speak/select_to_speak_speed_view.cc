@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include "ash/system/accessibility/select_to_speak/select_to_speak_constants.h"
 #include "ash/system/tray/hover_highlight_view.h"
 #include "ash/system/tray/tray_popup_utils.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/strings/stringprintf.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
@@ -39,7 +39,7 @@ SelectToSpeakSpeedView::SelectToSpeakSpeedView(Delegate* delegate,
 void SelectToSpeakSpeedView::SetInitialSpeechRate(double initial_speech_rate) {
   RemoveAllChildViews();
 
-  for (size_t i = 0; i < base::size(kSelectToSpeakSpeechRates); i++) {
+  for (size_t i = 0; i < std::size(kSelectToSpeakSpeechRates); i++) {
     double option_speed = kSelectToSpeakSpeechRates[i];
     bool is_selected = option_speed == initial_speech_rate;
     // Add 1 to the index, because view IDs cannot be 0.
@@ -60,7 +60,7 @@ void SelectToSpeakSpeedView::AddMenuItem(int option_id,
 
 void SelectToSpeakSpeedView::OnViewClicked(views::View* sender) {
   unsigned int speed_index = sender->GetID() - 1;
-  if (speed_index >= 0 && speed_index < base::size(kSelectToSpeakSpeechRates)) {
+  if (speed_index >= 0 && speed_index < std::size(kSelectToSpeakSpeechRates)) {
     delegate_->OnSpeechRateSelected(kSelectToSpeakSpeechRates[speed_index]);
   }
 }

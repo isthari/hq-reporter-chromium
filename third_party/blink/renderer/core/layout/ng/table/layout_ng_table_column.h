@@ -1,10 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_TABLE_LAYOUT_NG_TABLE_COLUMN_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_TABLE_LAYOUT_NG_TABLE_COLUMN_H_
 
+#include "base/notreached.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/layout_box.h"
 
@@ -38,6 +39,10 @@ class CORE_EXPORT LayoutNGTableColumn : public LayoutBox {
   // Clears needs-layout for child columns too.
   void ClearNeedsLayoutForChildren() const;
 
+  LayoutSize Size() const override;
+
+  LayoutPoint Location() const override;
+
   // LayoutObject methods start.
 
   const char* GetName() const override {
@@ -67,6 +72,11 @@ class CORE_EXPORT LayoutNGTableColumn : public LayoutBox {
     return false;
   }
 
+  void SetColumnIndex(wtf_size_t column_idx) {
+    NOT_DESTROYED();
+    column_idx_ = column_idx;
+  }
+
  protected:
   // Required by LayoutBox, but not used.
   MinMaxSizes ComputeIntrinsicLogicalWidths() const override {
@@ -78,6 +88,12 @@ class CORE_EXPORT LayoutNGTableColumn : public LayoutBox {
   bool IsOfType(LayoutObjectType type) const override {
     NOT_DESTROYED();
     return type == kLayoutObjectTableCol || LayoutBox::IsOfType(type);
+  }
+
+  // Table row doesn't paint background by itself.
+  bool ComputeCanCompositeBackgroundAttachmentFixed() const override {
+    NOT_DESTROYED();
+    return false;
   }
 
  private:
@@ -107,13 +123,14 @@ class CORE_EXPORT LayoutNGTableColumn : public LayoutBox {
  private:
   unsigned span_ = 1;
   LayoutObjectChildList children_;
+  wtf_size_t column_idx_;
 };
 
 // wtf/casting.h helper.
 template <>
 struct DowncastTraits<LayoutNGTableColumn> {
   static bool AllowFrom(const LayoutObject& object) {
-    return object.IsLayoutTableCol() && object.IsLayoutNGObject();
+    return object.IsLayoutTableCol();
   }
 };
 

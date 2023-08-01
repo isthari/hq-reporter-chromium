@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,18 +10,12 @@
 
 namespace autofill {
 
-class ContentAutofillRouter;
-
 // Exposes some testing operations for ContentAutofillDriver.
 class ContentAutofillDriverTestApi {
  public:
   explicit ContentAutofillDriverTestApi(ContentAutofillDriver* driver)
       : driver_(driver) {
     DCHECK(driver_);
-  }
-
-  ContentAutofillRouter& autofill_router() {
-    return *driver_->autofill_router_;
   }
 
   void SetFrameAndFormMetaData(FormData& form, FormFieldData* field) const {
@@ -31,6 +25,8 @@ class ContentAutofillDriverTestApi {
   FormData GetFormWithFrameAndFormMetaData(const FormData& form) const {
     return driver_->GetFormWithFrameAndFormMetaData(form);
   }
+
+  bool should_suppress_keyboard() { return driver_->should_suppress_keyboard_; }
 
  private:
   // Non-null pointer to wrapped ContentAutofillDriver.

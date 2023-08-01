@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,11 @@
 #include <unordered_set>
 #include <utility>
 
-#include "base/cxx17_backports.h"
 #include "base/memory/ref_counted.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/no_destructor.h"
+#include "base/observer_list.h"
 #include "base/sequence_checker.h"
 #include "base/strings/string_util.h"
 #include "base/synchronization/lock.h"
@@ -32,14 +33,12 @@
 
 #if BUILDFLAG(IS_WIN)
 #include "net/base/network_change_notifier_win.h"
-// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
-// of lacros-chrome is complete.
-#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#elif BUILDFLAG(IS_LINUX)
 #include "net/base/network_change_notifier_linux.h"
 #elif BUILDFLAG(IS_APPLE)
 #include "net/base/network_change_notifier_mac.h"
-#elif BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_ANDROID)
-#include "net/base/network_change_notifier_posix.h"
+#elif BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID)
+#include "net/base/network_change_notifier_passive.h"
 #elif BUILDFLAG(IS_FUCHSIA)
 #include "net/base/network_change_notifier_fuchsia.h"
 #endif
@@ -67,13 +66,14 @@ base::Lock& NetworkChangeNotifierCreationLock() {
 
 class MockNetworkChangeNotifier : public NetworkChangeNotifier {
  public:
-  MockNetworkChangeNotifier(
+  explicit MockNetworkChangeNotifier(
       std::unique_ptr<SystemDnsConfigChangeNotifier> dns_config_notifier)
       : NetworkChangeNotifier(
             NetworkChangeCalculatorParams(),
             dns_config_notifier.get(),
             // Omit adding observers from the constructor as that would prevent
-            // construction when SequencedTaskRunnerHandle isn't set.
+            // construction when SingleThreadTaskRunner::CurrentDefaultHandle
+            // isn't set.
             /* omit_observers_in_constructor_for_testing=*/true),
         dns_config_notifier_(std::move(dns_config_notifier)) {}
 
@@ -91,25 +91,22 @@ class MockNetworkChangeNotifier : public NetworkChangeNotifier {
 
 // static
 bool NetworkChangeNotifier::test_notifications_only_ = false;
-// static
-const NetworkChangeNotifier::NetworkHandle
-    NetworkChangeNotifier::kInvalidNetworkHandle = -1;
 
 NetworkChangeNotifier::NetworkChangeCalculatorParams::
     NetworkChangeCalculatorParams() = default;
 
-// Calculates NetworkChange signal from IPAddress and ConnectionType signals.
+// Calculates NetworkChange signal from IPAddress, ConnectionCost, and
+// ConnectionType signals.
 class NetworkChangeNotifier::NetworkChangeCalculator
     : public ConnectionTypeObserver,
+      public ConnectionCostObserver,
       public IPAddressObserver {
  public:
   explicit NetworkChangeCalculator(const NetworkChangeCalculatorParams& params)
-      : params_(params),
-        have_announced_(false),
-        last_announced_connection_type_(CONNECTION_NONE),
-        pending_connection_type_(CONNECTION_NONE) {
+      : params_(params) {
     DCHECK(g_network_change_notifier);
     AddConnectionTypeObserver(this);
+    AddConnectionCostObserver(this);
     AddIPAddressObserver(this);
   }
 
@@ -119,6 +116,7 @@ class NetworkChangeNotifier::NetworkChangeCalculator
   ~NetworkChangeCalculator() override {
     DCHECK(thread_checker_.CalledOnValidThread());
     RemoveConnectionTypeObserver(this);
+    RemoveConnectionCostObserver(this);
     RemoveIPAddressObserver(this);
   }
 
@@ -141,6 +139,12 @@ class NetworkChangeNotifier::NetworkChangeCalculator
         : params_.connection_type_online_delay_;
     // Cancels any previous timer.
     timer_.Start(FROM_HERE, delay, this, &NetworkChangeCalculator::Notify);
+  }
+
+  // NetworkChangeNotifier::ConnectionCostObserver implementation.
+  void OnConnectionCostChanged(ConnectionCost cost) override {
+    base::UmaHistogramEnumeration("Net.NetworkChangeNotifier.NewConnectionCost",
+                                  cost, CONNECTION_COST_LAST);
   }
 
  private:
@@ -169,11 +173,11 @@ class NetworkChangeNotifier::NetworkChangeCalculator
   const NetworkChangeCalculatorParams params_;
 
   // Indicates if NotifyObserversOfNetworkChange has been called yet.
-  bool have_announced_;
+  bool have_announced_ = false;
   // Last value passed to NotifyObserversOfNetworkChange.
-  ConnectionType last_announced_connection_type_;
+  ConnectionType last_announced_connection_type_ = CONNECTION_NONE;
   // Value to pass to NotifyObserversOfNetworkChange when Notify is called.
-  ConnectionType pending_connection_type_;
+  ConnectionType pending_connection_type_ = CONNECTION_NONE;
   // Used to delay notifications so duplicates can be combined.
   base::OneShotTimer timer_;
 
@@ -184,35 +188,38 @@ class NetworkChangeNotifier::NetworkChangeCalculator
 class NetworkChangeNotifier::ObserverList {
  public:
   ObserverList()
-      : ip_address_observer_list_(new base::ObserverListThreadSafe<
-                                  NetworkChangeNotifier::IPAddressObserver>(
-            base::ObserverListPolicy::EXISTING_ONLY)),
-        connection_type_observer_list_(
-            new base::ObserverListThreadSafe<
-                NetworkChangeNotifier::ConnectionTypeObserver>(
+      : ip_address_observer_list_(
+            base::MakeRefCounted<base::ObserverListThreadSafe<
+                NetworkChangeNotifier::IPAddressObserver>>(
                 base::ObserverListPolicy::EXISTING_ONLY)),
-        resolver_state_observer_list_(new base::ObserverListThreadSafe<
-                                      NetworkChangeNotifier::DNSObserver>(
-            base::ObserverListPolicy::EXISTING_ONLY)),
+        connection_type_observer_list_(
+            base::MakeRefCounted<base::ObserverListThreadSafe<
+                NetworkChangeNotifier::ConnectionTypeObserver>>(
+                base::ObserverListPolicy::EXISTING_ONLY)),
+        resolver_state_observer_list_(
+            base::MakeRefCounted<base::ObserverListThreadSafe<
+                NetworkChangeNotifier::DNSObserver>>(
+                base::ObserverListPolicy::EXISTING_ONLY)),
         network_change_observer_list_(
-            new base::ObserverListThreadSafe<
-                NetworkChangeNotifier::NetworkChangeObserver>(
+            base::MakeRefCounted<base::ObserverListThreadSafe<
+                NetworkChangeNotifier::NetworkChangeObserver>>(
                 base::ObserverListPolicy::EXISTING_ONLY)),
         max_bandwidth_observer_list_(
-            new base::ObserverListThreadSafe<
-                NetworkChangeNotifier::MaxBandwidthObserver>(
+            base::MakeRefCounted<base::ObserverListThreadSafe<
+                NetworkChangeNotifier::MaxBandwidthObserver>>(
                 base::ObserverListPolicy::EXISTING_ONLY)),
-        network_observer_list_(new base::ObserverListThreadSafe<
-                               NetworkChangeNotifier::NetworkObserver>(
-            base::ObserverListPolicy::EXISTING_ONLY)),
+        network_observer_list_(
+            base::MakeRefCounted<base::ObserverListThreadSafe<
+                NetworkChangeNotifier::NetworkObserver>>(
+                base::ObserverListPolicy::EXISTING_ONLY)),
         connection_cost_observer_list_(
-            new base::ObserverListThreadSafe<
-                NetworkChangeNotifier::ConnectionCostObserver>(
+            base::MakeRefCounted<base::ObserverListThreadSafe<
+                NetworkChangeNotifier::ConnectionCostObserver>>(
                 base::ObserverListPolicy::EXISTING_ONLY)),
         default_network_active_observer_list_(
-            new base::ObserverListThreadSafe<DefaultNetworkActiveObserver>(
-                base::ObserverListPolicy::EXISTING_ONLY)),
-        connection_cost_observers_added_(false) {}
+            base::MakeRefCounted<
+                base::ObserverListThreadSafe<DefaultNetworkActiveObserver>>(
+                base::ObserverListPolicy::EXISTING_ONLY)) {}
 
   ObserverList(const ObserverList&) = delete;
   ObserverList& operator=(const ObserverList&) = delete;
@@ -246,7 +253,7 @@ class NetworkChangeNotifier::ObserverList {
   // Indicates if connection cost observer was added before
   // network_change_notifier was initialized, if so ConnectionCostObserverAdded
   // is invoked from constructor.
-  std::atomic_bool connection_cost_observers_added_;
+  std::atomic_bool connection_cost_observers_added_ = false;
 };
 
 class NetworkChangeNotifier::SystemDnsConfigObserver
@@ -295,8 +302,10 @@ std::unique_ptr<NetworkChangeNotifier> NetworkChangeNotifier::CreateIfNeeded(
       return nullptr;
   }
 
-  if (g_network_change_notifier_factory)
-    return g_network_change_notifier_factory->CreateInstance();
+  if (g_network_change_notifier_factory) {
+    return g_network_change_notifier_factory->CreateInstanceWithInitialTypes(
+        initial_type, initial_subtype);
+  }
 
 #if BUILDFLAG(IS_WIN)
   std::unique_ptr<NetworkChangeNotifierWin> network_change_notifier =
@@ -304,15 +313,15 @@ std::unique_ptr<NetworkChangeNotifier> NetworkChangeNotifier::CreateIfNeeded(
   network_change_notifier->WatchForAddressChange();
   return network_change_notifier;
 #elif BUILDFLAG(IS_ANDROID)
-  // Fallback to use NetworkChangeNotifierPosix if NetworkChangeNotifierFactory
-  // is not set. Currently used for tests and when running network
-  // service in a separate process.
-  return std::make_unique<NetworkChangeNotifierPosix>(initial_type,
-                                                      initial_subtype);
-#elif BUILDFLAG(IS_CHROMEOS_ASH)
-  return std::make_unique<NetworkChangeNotifierPosix>(initial_type,
-                                                      initial_subtype);
-#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+  // Fallback to use NetworkChangeNotifierPassive if
+  // NetworkChangeNotifierFactory is not set. Currently used for tests and when
+  // running network service in a separate process.
+  return std::make_unique<NetworkChangeNotifierPassive>(initial_type,
+                                                        initial_subtype);
+#elif BUILDFLAG(IS_CHROMEOS)
+  return std::make_unique<NetworkChangeNotifierPassive>(initial_type,
+                                                        initial_subtype);
+#elif BUILDFLAG(IS_LINUX)
   return std::make_unique<NetworkChangeNotifierLinux>(
       std::unordered_set<std::string>());
 #elif BUILDFLAG(IS_APPLE)
@@ -322,7 +331,7 @@ std::unique_ptr<NetworkChangeNotifier> NetworkChangeNotifier::CreateIfNeeded(
       /*require_wlan=*/false);
 #else
   NOTIMPLEMENTED();
-  return NULL;
+  return nullptr;
 #endif
 }
 
@@ -460,7 +469,8 @@ void NetworkChangeNotifier::GetConnectedNetworks(NetworkList* network_list) {
 
 // static
 NetworkChangeNotifier::ConnectionType
-NetworkChangeNotifier::GetNetworkConnectionType(NetworkHandle network) {
+NetworkChangeNotifier::GetNetworkConnectionType(
+    handles::NetworkHandle network) {
   DCHECK(AreNetworkHandlesSupported());
   return g_network_change_notifier
              ? g_network_change_notifier->GetCurrentNetworkConnectionType(
@@ -469,12 +479,11 @@ NetworkChangeNotifier::GetNetworkConnectionType(NetworkHandle network) {
 }
 
 // static
-NetworkChangeNotifier::NetworkHandle
-NetworkChangeNotifier::GetDefaultNetwork() {
+handles::NetworkHandle NetworkChangeNotifier::GetDefaultNetwork() {
   DCHECK(AreNetworkHandlesSupported());
   return g_network_change_notifier
              ? g_network_change_notifier->GetCurrentDefaultNetwork()
-             : kInvalidNetworkHandle;
+             : handles::kInvalidNetworkHandle;
 }
 
 // static
@@ -501,7 +510,7 @@ const char* NetworkChangeNotifier::ConnectionTypeToString(
       "CONNECTION_2G",      "CONNECTION_3G",        "CONNECTION_4G",
       "CONNECTION_NONE",    "CONNECTION_BLUETOOTH", "CONNECTION_5G",
   };
-  static_assert(base::size(kConnectionTypeNames) ==
+  static_assert(std::size(kConnectionTypeNames) ==
                     NetworkChangeNotifier::CONNECTION_LAST + 1,
                 "ConnectionType name count should match");
   if (type < CONNECTION_UNKNOWN || type > CONNECTION_LAST) {
@@ -513,12 +522,22 @@ const char* NetworkChangeNotifier::ConnectionTypeToString(
 
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
 // static
-const internal::AddressTrackerLinux*
-NetworkChangeNotifier::GetAddressTracker() {
-  return g_network_change_notifier ?
-        g_network_change_notifier->GetAddressTrackerInternal() : NULL;
+AddressMapOwnerLinux* NetworkChangeNotifier::GetAddressMapOwner() {
+  return g_network_change_notifier
+             ? g_network_change_notifier->GetAddressMapOwnerInternal()
+             : nullptr;
 }
-#endif
+#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+
+#if BUILDFLAG(IS_FUCHSIA)
+// static
+const internal::NetworkInterfaceCache*
+NetworkChangeNotifier::GetNetworkInterfaceCache() {
+  return g_network_change_notifier
+             ? g_network_change_notifier->GetNetworkInterfaceCacheInternal()
+             : nullptr;
+}
+#endif  // BUILDFLAG(IS_FUCHSIA)
 
 // static
 bool NetworkChangeNotifier::IsOffline() {
@@ -561,29 +580,29 @@ NetworkChangeNotifier::ConnectionTypeFromInterfaceList(
     const NetworkInterfaceList& interfaces) {
   bool first = true;
   ConnectionType result = CONNECTION_NONE;
-  for (size_t i = 0; i < interfaces.size(); ++i) {
+  for (const auto& network_interface : interfaces) {
 #if BUILDFLAG(IS_WIN)
-    if (interfaces[i].friendly_name == "Teredo Tunneling Pseudo-Interface")
+    if (network_interface.friendly_name == "Teredo Tunneling Pseudo-Interface")
       continue;
 #endif
 #if BUILDFLAG(IS_APPLE)
     // Ignore link-local addresses as they aren't globally routable.
     // Mac assigns these to disconnected interfaces like tunnel interfaces
     // ("utun"), airdrop interfaces ("awdl"), and ethernet ports ("en").
-    if (interfaces[i].address.IsLinkLocal())
+    if (network_interface.address.IsLinkLocal())
       continue;
 #endif
 
     // Remove VMware network interfaces as they're internal and should not be
     // used to determine the network connection type.
-    if (base::ToLowerASCII(interfaces[i].friendly_name).find("vmnet") !=
+    if (base::ToLowerASCII(network_interface.friendly_name).find("vmnet") !=
         std::string::npos) {
       continue;
     }
     if (first) {
       first = false;
-      result = interfaces[i].type;
-    } else if (result != interfaces[i].type) {
+      result = network_interface.type;
+    } else if (result != network_interface.type) {
       return CONNECTION_UNKNOWN;
     }
   }
@@ -856,9 +875,15 @@ NetworkChangeNotifier::NetworkChangeNotifier(
 }
 
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
-const internal::AddressTrackerLinux*
-NetworkChangeNotifier::GetAddressTrackerInternal() const {
-  return NULL;
+AddressMapOwnerLinux* NetworkChangeNotifier::GetAddressMapOwnerInternal() {
+  return nullptr;
+}
+#endif
+
+#if BUILDFLAG(IS_FUCHSIA)
+const internal::NetworkInterfaceCache*
+NetworkChangeNotifier::GetNetworkInterfaceCacheInternal() const {
+  return nullptr;
 }
 #endif
 
@@ -901,13 +926,12 @@ void NetworkChangeNotifier::GetCurrentConnectedNetworks(
 
 NetworkChangeNotifier::ConnectionType
 NetworkChangeNotifier::GetCurrentNetworkConnectionType(
-    NetworkHandle network) const {
+    handles::NetworkHandle network) const {
   return CONNECTION_UNKNOWN;
 }
 
-NetworkChangeNotifier::NetworkHandle
-NetworkChangeNotifier::GetCurrentDefaultNetwork() const {
-  return kInvalidNetworkHandle;
+handles::NetworkHandle NetworkChangeNotifier::GetCurrentDefaultNetwork() const {
+  return handles::kInvalidNetworkHandle;
 }
 
 SystemDnsConfigChangeNotifier*
@@ -968,7 +992,7 @@ void NetworkChangeNotifier::NotifyObserversOfDNSChange() {
 // static
 void NetworkChangeNotifier::NotifyObserversOfSpecificNetworkChange(
     NetworkChangeType type,
-    NetworkHandle network) {
+    handles::NetworkHandle network) {
   if (g_network_change_notifier &&
       !NetworkChangeNotifier::test_notifications_only_) {
     g_network_change_notifier->NotifyObserversOfSpecificNetworkChangeImpl(
@@ -1035,7 +1059,7 @@ void NetworkChangeNotifier::NotifyObserversOfMaxBandwidthChangeImpl(
 
 void NetworkChangeNotifier::NotifyObserversOfSpecificNetworkChangeImpl(
     NetworkChangeType type,
-    NetworkHandle network) {
+    handles::NetworkHandle network) {
   switch (type) {
     case NetworkChangeType::kConnected:
       GetObserverList().network_observer_list_->Notify(

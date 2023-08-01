@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,18 +6,21 @@
 #include <memory>
 
 #include "base/barrier_closure.h"
-#include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
+#include "base/memory/read_only_shared_memory_region.h"
+#include "base/memory/scoped_refptr.h"
+#include "base/memory/shared_memory_mapping.h"
 #include "base/numerics/math_constants.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/test/bind.h"
 #include "base/test/task_environment.h"
+#include "base/test/test_future.h"
 #include "base/threading/thread_restrictions.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/chromeos_buildflags.h"
 #include "services/device/generic_sensor/generic_sensor_consts.h"
 #include "services/device/generic_sensor/linux/sensor_data_linux.h"
@@ -63,8 +66,7 @@ constexpr double kMagnetometerScalingValue = 0.000001;
 
 void WriteValueToFile(const base::FilePath& path, double value) {
   const std::string str = base::NumberToString(value);
-  int bytes_written = base::WriteFile(path, str.data(), str.size());
-  EXPECT_EQ(static_cast<size_t>(bytes_written), str.size());
+  EXPECT_TRUE(base::WriteFile(path, str));
 }
 
 std::string ReadValueFromFile(const base::FilePath& path,
@@ -134,18 +136,10 @@ class MockSensorDeviceManager : public SensorDeviceManager {
   MOCK_METHOD1(GetUdevDeviceGetDevnode, std::string(udev_device* dev));
   MOCK_METHOD2(GetUdevDeviceGetSysattrValue,
                std::string(udev_device*, const std::string&));
-  MOCK_METHOD0(Start, void());
+  MOCK_METHOD0(MaybeStartEnumeration, void());
 
   const base::FilePath& GetSensorsBasePath() const {
     return sensors_dir_.GetPath();
-  }
-
-  void EnumerationReady() {
-    bool success = delegate_task_runner_->PostTask(
-        FROM_HERE,
-        base::BindOnce(&SensorDeviceManager::Delegate::OnSensorNodesEnumerated,
-                       delegate_));
-    ASSERT_TRUE(success);
   }
 
   void DeviceAdded() {
@@ -282,10 +276,9 @@ class PlatformSensorAndProviderLinuxTest : public ::testing::Test {
   // devices are added, tells manager its ready.
   void SetServiceStart() {
     auto* manager = mock_sensor_device_manager();
-    EXPECT_CALL(*manager, Start()).WillOnce(Invoke([manager]() {
-      manager->DeviceAdded();
-      manager->EnumerationReady();
-    }));
+    EXPECT_CALL(*manager, MaybeStartEnumeration())
+        .WillOnce(Invoke([manager]() { manager->DeviceAdded(); }))
+        .WillRepeatedly(Return());
   }
 
   // Waits before OnSensorReadingChanged is called.
@@ -525,10 +518,11 @@ TEST_F(PlatformSensorAndProviderLinuxTest,
 
 // Tests that Ambient Light sensor is correctly read.
 TEST_F(PlatformSensorAndProviderLinuxTest, CheckAmbientLightReadings) {
-  mojo::ScopedSharedBufferHandle handle = provider_->CloneSharedBufferHandle();
-  mojo::ScopedSharedBufferMapping mapping = handle->MapAtOffset(
-      sizeof(SensorReadingSharedBuffer),
-      SensorReadingSharedBuffer::GetOffset(SensorType::AMBIENT_LIGHT));
+  base::ReadOnlySharedMemoryRegion region =
+      provider_->CloneSharedMemoryRegion();
+  base::ReadOnlySharedMemoryMapping mapping = region.MapAt(
+      SensorReadingSharedBuffer::GetOffset(mojom::SensorType::AMBIENT_LIGHT),
+      sizeof(SensorReadingSharedBuffer));
 
   double sensor_value[kSensorValuesSize] = {50};
   InitializeSupportedSensor(SensorType::AMBIENT_LIGHT, kZero, kZero, kZero,
@@ -547,8 +541,8 @@ TEST_F(PlatformSensorAndProviderLinuxTest, CheckAmbientLightReadings) {
   EXPECT_TRUE(sensor->StartListening(client.get(), configuration));
   WaitOnSensorReadingChangedEvent(client.get(), sensor->GetType());
 
-  SensorReadingSharedBuffer* buffer =
-      static_cast<SensorReadingSharedBuffer*>(mapping.get());
+  const SensorReadingSharedBuffer* buffer =
+      static_cast<const SensorReadingSharedBuffer*>(mapping.memory());
   EXPECT_THAT(buffer->reading.als.value, 50);
 
   EXPECT_TRUE(sensor->StopListening(client.get(), configuration));
@@ -557,10 +551,11 @@ TEST_F(PlatformSensorAndProviderLinuxTest, CheckAmbientLightReadings) {
 // Tests that Accelerometer readings are correctly converted.
 TEST_F(PlatformSensorAndProviderLinuxTest,
        CheckAccelerometerReadingConversion) {
-  mojo::ScopedSharedBufferHandle handle = provider_->CloneSharedBufferHandle();
-  mojo::ScopedSharedBufferMapping mapping = handle->MapAtOffset(
-      sizeof(SensorReadingSharedBuffer),
-      SensorReadingSharedBuffer::GetOffset(SensorType::ACCELEROMETER));
+  base::ReadOnlySharedMemoryRegion region =
+      provider_->CloneSharedMemoryRegion();
+  base::ReadOnlySharedMemoryMapping mapping = region.MapAt(
+      SensorReadingSharedBuffer::GetOffset(SensorType::ACCELEROMETER),
+      sizeof(SensorReadingSharedBuffer));
 
   // As long as WaitOnSensorReadingChangedEvent() waits until client gets a
   // a notification about readings changed, the frequency file must not be
@@ -588,8 +583,8 @@ TEST_F(PlatformSensorAndProviderLinuxTest,
   EXPECT_TRUE(sensor->StartListening(client.get(), configuration));
   WaitOnSensorReadingChangedEvent(client.get(), sensor->GetType());
 
-  SensorReadingSharedBuffer* buffer =
-      static_cast<SensorReadingSharedBuffer*>(mapping.get());
+  const SensorReadingSharedBuffer* buffer =
+      static_cast<const SensorReadingSharedBuffer*>(mapping.memory());
   double scaling = kAccelerometerScalingValue;
   EXPECT_THAT(buffer->reading.accel.x,
               RoundAccelerometerValue(
@@ -616,10 +611,11 @@ TEST_F(PlatformSensorAndProviderLinuxTest,
 
 // Tests that LinearAcceleration sensor is successfully created and works.
 TEST_F(PlatformSensorAndProviderLinuxTest, CheckLinearAcceleration) {
-  mojo::ScopedSharedBufferHandle handle = provider_->CloneSharedBufferHandle();
-  mojo::ScopedSharedBufferMapping mapping = handle->MapAtOffset(
-      sizeof(SensorReadingSharedBuffer),
-      SensorReadingSharedBuffer::GetOffset(SensorType::LINEAR_ACCELERATION));
+  base::ReadOnlySharedMemoryRegion region =
+      provider_->CloneSharedMemoryRegion();
+  base::ReadOnlySharedMemoryMapping mapping = region.MapAt(
+      SensorReadingSharedBuffer::GetOffset(SensorType::LINEAR_ACCELERATION),
+      sizeof(SensorReadingSharedBuffer));
   double sensor_values[kSensorValuesSize] = {0, 0, -base::kMeanGravityDouble};
   InitializeSupportedSensor(SensorType::ACCELEROMETER,
                             kAccelerometerFrequencyValue, kZero, kZero,
@@ -641,8 +637,8 @@ TEST_F(PlatformSensorAndProviderLinuxTest, CheckLinearAcceleration) {
   int kApproximateExpectedAcceleration = 6;
   WaitOnSensorReadingChangedEvent(client.get(), sensor->GetType());
 
-  SensorReadingSharedBuffer* buffer =
-      static_cast<SensorReadingSharedBuffer*>(mapping.get());
+  const SensorReadingSharedBuffer* buffer =
+      static_cast<const SensorReadingSharedBuffer*>(mapping.memory());
   EXPECT_THAT(buffer->reading.accel.x, 0.0);
   EXPECT_THAT(buffer->reading.accel.y, 0.0);
   EXPECT_THAT(static_cast<int>(buffer->reading.accel.z),
@@ -653,10 +649,11 @@ TEST_F(PlatformSensorAndProviderLinuxTest, CheckLinearAcceleration) {
 
 // Tests that Gyroscope readings are correctly converted.
 TEST_F(PlatformSensorAndProviderLinuxTest, CheckGyroscopeReadingConversion) {
-  mojo::ScopedSharedBufferHandle handle = provider_->CloneSharedBufferHandle();
-  mojo::ScopedSharedBufferMapping mapping = handle->MapAtOffset(
-      sizeof(SensorReadingSharedBuffer),
-      SensorReadingSharedBuffer::GetOffset(SensorType::GYROSCOPE));
+  base::ReadOnlySharedMemoryRegion region =
+      provider_->CloneSharedMemoryRegion();
+  base::ReadOnlySharedMemoryMapping mapping =
+      region.MapAt(SensorReadingSharedBuffer::GetOffset(SensorType::GYROSCOPE),
+                   sizeof(SensorReadingSharedBuffer));
 
   // As long as WaitOnSensorReadingChangedEvent() waits until client gets a
   // a notification about readings changed, the frequency file must not be
@@ -683,8 +680,8 @@ TEST_F(PlatformSensorAndProviderLinuxTest, CheckGyroscopeReadingConversion) {
   EXPECT_TRUE(sensor->StartListening(client.get(), configuration));
   WaitOnSensorReadingChangedEvent(client.get(), sensor->GetType());
 
-  SensorReadingSharedBuffer* buffer =
-      static_cast<SensorReadingSharedBuffer*>(mapping.get());
+  const SensorReadingSharedBuffer* buffer =
+      static_cast<const SensorReadingSharedBuffer*>(mapping.memory());
   double scaling = kGyroscopeScalingValue;
   EXPECT_THAT(buffer->reading.gyro.x,
               RoundGyroscopeValue(scaling *
@@ -701,10 +698,11 @@ TEST_F(PlatformSensorAndProviderLinuxTest, CheckGyroscopeReadingConversion) {
 
 // Tests that Magnetometer readings are correctly converted.
 TEST_F(PlatformSensorAndProviderLinuxTest, CheckMagnetometerReadingConversion) {
-  mojo::ScopedSharedBufferHandle handle = provider_->CloneSharedBufferHandle();
-  mojo::ScopedSharedBufferMapping mapping = handle->MapAtOffset(
-      sizeof(SensorReadingSharedBuffer),
-      SensorReadingSharedBuffer::GetOffset(SensorType::MAGNETOMETER));
+  base::ReadOnlySharedMemoryRegion region =
+      provider_->CloneSharedMemoryRegion();
+  base::ReadOnlySharedMemoryMapping mapping = region.MapAt(
+      SensorReadingSharedBuffer::GetOffset(SensorType::MAGNETOMETER),
+      sizeof(SensorReadingSharedBuffer));
 
   // As long as WaitOnSensorReadingChangedEvent() waits until client gets a
   // a notification about readings changed, the frequency file must not be
@@ -732,8 +730,8 @@ TEST_F(PlatformSensorAndProviderLinuxTest, CheckMagnetometerReadingConversion) {
   EXPECT_TRUE(sensor->StartListening(client.get(), configuration));
   WaitOnSensorReadingChangedEvent(client.get(), sensor->GetType());
 
-  SensorReadingSharedBuffer* buffer =
-      static_cast<SensorReadingSharedBuffer*>(mapping.get());
+  const SensorReadingSharedBuffer* buffer =
+      static_cast<const SensorReadingSharedBuffer*>(mapping.memory());
   double scaling = kMagnetometerScalingValue * kMicroteslaInGauss;
   EXPECT_THAT(buffer->reading.magn.x,
               scaling * (sensor_values[0] + kMagnetometerOffsetValue));
@@ -750,10 +748,11 @@ TEST_F(PlatformSensorAndProviderLinuxTest, CheckMagnetometerReadingConversion) {
 // mojom::ReportingMode::CONTINUOUS.
 TEST_F(PlatformSensorAndProviderLinuxTest,
        SensorClientGetReadingChangedNotificationWhenSensorIsInContinuousMode) {
-  mojo::ScopedSharedBufferHandle handle = provider_->CloneSharedBufferHandle();
-  mojo::ScopedSharedBufferMapping mapping = handle->MapAtOffset(
-      sizeof(SensorReadingSharedBuffer),
-      SensorReadingSharedBuffer::GetOffset(SensorType::AMBIENT_LIGHT));
+  base::ReadOnlySharedMemoryRegion region =
+      provider_->CloneSharedMemoryRegion();
+  base::ReadOnlySharedMemoryMapping mapping = region.MapAt(
+      SensorReadingSharedBuffer::GetOffset(SensorType::AMBIENT_LIGHT),
+      sizeof(SensorReadingSharedBuffer));
 
   double sensor_value[kSensorValuesSize] = {50};
   // Set a non-zero frequency here and sensor's reporting mode will be
@@ -777,8 +776,8 @@ TEST_F(PlatformSensorAndProviderLinuxTest,
 
   WaitOnSensorReadingChangedEvent(client.get(), sensor->GetType());
 
-  SensorReadingSharedBuffer* buffer =
-      static_cast<SensorReadingSharedBuffer*>(mapping.get());
+  const SensorReadingSharedBuffer* buffer =
+      static_cast<const SensorReadingSharedBuffer*>(mapping.memory());
   EXPECT_THAT(buffer->reading.als.value, 50);
 
   EXPECT_TRUE(sensor->StopListening(client.get(), configuration));
@@ -1018,6 +1017,62 @@ TEST_F(PlatformSensorAndProviderLinuxTest,
 
   ASSERT_TRUE(accelerometer);
   ASSERT_TRUE(linear_acceleration);
+}
+
+// Tests that queued sensor creation requests are all processed.
+TEST_F(PlatformSensorAndProviderLinuxTest, SensorCreationQueueManagement) {
+  double sensor_values[kSensorValuesSize] = {1, 2, 3};
+  InitializeSupportedSensor(SensorType::ACCELEROMETER,
+                            kAccelerometerFrequencyValue, kZero, kZero,
+                            sensor_values);
+  InitializeSupportedSensor(SensorType::AMBIENT_LIGHT,
+                            kAccelerometerFrequencyValue, kZero, kZero,
+                            sensor_values);
+
+  SetServiceStart();
+
+  using CreateSensorFuture =
+      base::test::TestFuture<scoped_refptr<PlatformSensor>>;
+
+  CreateSensorFuture accelerometer1;
+  CreateSensorFuture accelerometer2;
+  CreateSensorFuture als;
+  provider_->CreateSensor(SensorType::ACCELEROMETER,
+                          accelerometer1.GetCallback());
+  provider_->CreateSensor(SensorType::ACCELEROMETER,
+                          accelerometer2.GetCallback());
+  provider_->CreateSensor(SensorType::AMBIENT_LIGHT, als.GetCallback());
+
+  // Sensor creation is asynchronous. Expect false until polling the futures.
+  EXPECT_FALSE(provider_->GetSensor(SensorType::ACCELEROMETER));
+  EXPECT_FALSE(provider_->GetSensor(SensorType::AMBIENT_LIGHT));
+
+  ASSERT_TRUE(accelerometer1.Get());
+  ASSERT_TRUE(accelerometer2.Get());
+  ASSERT_TRUE(als.Get());
+  ASSERT_TRUE(provider_->GetSensor(SensorType::ACCELEROMETER));
+  ASSERT_TRUE(provider_->GetSensor(SensorType::AMBIENT_LIGHT));
+}
+
+// Tests that there are no crashes if PlatformSensorProviderLinux is destroyed
+// before DidEnumerateSensors() is called.
+TEST_F(PlatformSensorAndProviderLinuxTest, EarlyProviderDeletion) {
+  double sensor_values[kSensorValuesSize] = {1, 2, 3};
+  InitializeSupportedSensor(SensorType::ACCELEROMETER,
+                            kAccelerometerFrequencyValue, kZero, kZero,
+                            sensor_values);
+  SetServiceStart();
+
+  provider_->CreateSensor(
+      SensorType::ACCELEROMETER,
+      base::BindOnce([](scoped_refptr<PlatformSensor>) {
+        NOTREACHED() << "CreateSensor() callback should not have been called";
+      }));
+
+  // Delete the provider synchronously before DidEnumerateSensors() is called
+  // and run all pending asynchronous tasks.
+  provider_.reset();
+  task_environment_.RunUntilIdle();
 }
 
 }  // namespace device

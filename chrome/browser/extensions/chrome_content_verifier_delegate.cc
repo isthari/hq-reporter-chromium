@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,20 +14,20 @@
 #include "base/containers/contains.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/strings/escape.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/syslog_logging.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/version.h"
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "build/config/chromebox_for_meetings/buildflags.h"
 #include "chrome/browser/extensions/corrupted_extension_reinstaller.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/install_verifier.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension_constants.h"
-#include "chromeos/components/chromebox_for_meetings/buildflags/buildflags.h"
 #include "extensions/browser/disable_reason.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
@@ -40,7 +40,6 @@
 #include "extensions/common/manifest_url_handlers.h"
 #include "extensions/common/switches.h"
 #include "net/base/backoff_entry.h"
-#include "net/base/escape.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/extensions/extension_assets_manager_chromeos.h"
@@ -174,7 +173,7 @@ GURL ChromeContentVerifierDelegate::GetSignatureFetchUrl(
   // ManifestFetchData class that can be shared for use here.
   std::string id_part = "id=" + extension_id;
   std::string version_part = "v=" + version.GetString();
-  std::string x_value = net::EscapeQueryParamValue(
+  std::string x_value = base::EscapeQueryParamValue(
       base::JoinString({"uc", "installsource=signature", id_part, version_part},
                        "&"),
       true);
@@ -208,8 +207,6 @@ void ChromeContentVerifierDelegate::VerifyFailed(
   }
 
   ExtensionService* service = system->extension_service();
-  PendingExtensionManager* pending_manager =
-      service->pending_extension_manager();
   CorruptedExtensionReinstaller* corrupted_extension_reinstaller =
       service->corrupted_extension_reinstaller();
 
@@ -234,8 +231,8 @@ void ChromeContentVerifierDelegate::VerifyFailed(
     // TODO(https://crbug.com/1044572): Schedule the extension for reinstall.
     if (!info.is_from_webstore) {
       if (!base::Contains(would_be_reinstalled_ids_, extension_id)) {
-        pending_manager->RecordPolicyReinstallReason(
-            PendingExtensionManager::PolicyReinstallReason::
+        corrupted_extension_reinstaller->RecordPolicyReinstallReason(
+            CorruptedExtensionReinstaller::PolicyReinstallReason::
                 NO_UNSIGNED_HASHES_FOR_NON_WEBSTORE_SKIP);
         would_be_reinstalled_ids_.insert(extension_id);
       }
@@ -250,21 +247,22 @@ void ChromeContentVerifierDelegate::VerifyFailed(
 
   if (!should_disable) {
     if (!base::Contains(would_be_disabled_ids_, extension_id)) {
-      UMA_HISTOGRAM_BOOLEAN("Extensions.CorruptExtensionWouldBeDisabled", true);
       would_be_disabled_ids_.insert(extension_id);
     }
     return;
   }
 
   if (info.should_repair) {
-    if (pending_manager->IsReinstallForCorruptionExpected(extension_id))
+    if (corrupted_extension_reinstaller->IsReinstallForCorruptionExpected(
+            extension_id))
       return;
-    pending_manager->ExpectReinstallForCorruption(
+    corrupted_extension_reinstaller->ExpectReinstallForCorruption(
         extension_id,
-        info.is_from_webstore ? PendingExtensionManager::PolicyReinstallReason::
-                                    CORRUPTION_DETECTED_WEBSTORE
-                              : PendingExtensionManager::PolicyReinstallReason::
-                                    CORRUPTION_DETECTED_NON_WEBSTORE,
+        info.is_from_webstore
+            ? CorruptedExtensionReinstaller::PolicyReinstallReason::
+                  CORRUPTION_DETECTED_WEBSTORE
+            : CorruptedExtensionReinstaller::PolicyReinstallReason::
+                  CORRUPTION_DETECTED_NON_WEBSTORE,
         extension->location());
     service->DisableExtension(extension_id, disable_reason::DISABLE_CORRUPTED);
     // Attempt to reinstall.
@@ -276,7 +274,6 @@ void ChromeContentVerifierDelegate::VerifyFailed(
   service->DisableExtension(extension_id, disable_reason::DISABLE_CORRUPTED);
   ExtensionPrefs::Get(context_)->IncrementPref(
       extensions::kCorruptedDisableCount);
-  UMA_HISTOGRAM_BOOLEAN("Extensions.CorruptExtensionBecameDisabled", true);
   UMA_HISTOGRAM_ENUMERATION("Extensions.CorruptExtensionDisabledReason", reason,
                             ContentVerifyJob::FAILURE_REASON_MAX);
 }

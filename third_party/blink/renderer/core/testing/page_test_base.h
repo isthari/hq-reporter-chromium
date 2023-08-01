@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,9 +21,11 @@ class TickClock;
 
 namespace blink {
 
+class AnimationClock;
 class BrowserInterfaceBrokerProxy;
 class Document;
 class FrameSelection;
+class LayoutObject;
 class LocalFrame;
 class PendingAnimations;
 class StyleEngine;
@@ -45,6 +47,8 @@ class PageTestBase : public testing::Test, public ScopedMockOverlayScrollbars {
     // |interface_broker| argument.
     void Install(blink::BrowserInterfaceBrokerProxy& interface_broker);
 
+    MockClipboardHost* clipboard_host() { return &host_; }
+
    private:
     void BindClipboardHost(mojo::ScopedMessagePipeHandle handle);
 
@@ -65,7 +69,8 @@ class PageTestBase : public testing::Test, public ScopedMockOverlayScrollbars {
   void SetUp(gfx::Size);
   void SetupPageWithClients(ChromeClient* = nullptr,
                             LocalFrameClient* = nullptr,
-                            FrameSettingOverrideFunction = nullptr);
+                            FrameSettingOverrideFunction = nullptr,
+                            gfx::Size size = gfx::Size(800, 600));
   // TODO(shanmuga.m@samsung.com): These two function to be unified.
   void SetBodyContent(const std::string&);
   void SetBodyInnerHTML(const String&);
@@ -99,9 +104,16 @@ class PageTestBase : public testing::Test, public ScopedMockOverlayScrollbars {
   // See external/wpt/css/fonts/ahem/README for more about the 'Ahem' font.
   static void LoadAhem(LocalFrame&);
 
+  // Install the font specified by `font_path` as `family_name` in `frame`.
+  static void LoadFontFromFile(LocalFrame& fame,
+                               String font_path,
+                               const AtomicString& family_name);
+
   static void LoadNoto(LocalFrame&);
 
   static std::string ToSimpleLayoutTree(const LayoutObject& layout_object);
+
+  void SetPreferCompositingToLCDText(bool enable);
 
  protected:
   void LoadAhem();

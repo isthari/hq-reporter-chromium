@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@ package org.chromium.chrome.browser.privacy.settings;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.support.test.InstrumentationRegistry;
 
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.SmallTest;
 
 import org.junit.Assert;
@@ -18,7 +18,6 @@ import org.junit.runner.RunWith;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.test.UiThreadTest;
 import org.chromium.base.test.util.AdvancedMockContext;
-import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.test.ChromeBrowserTestRule;
@@ -38,14 +37,16 @@ public class PrivacyPreferencesManagerImplNativeTest {
     @Feature({"Android-AppBase"})
     public void testSyncUsageAndCrashReporting() {
         PermissionContext context =
-                new PermissionContext(InstrumentationRegistry.getTargetContext());
+                new PermissionContext(ApplicationProvider.getApplicationContext());
         SharedPreferences pref = ContextUtils.getAppSharedPreferences();
         PrivacyPreferencesManagerImpl preferenceManager =
                 new PrivacyPreferencesManagerImpl(context);
 
         // Setup prefs to be out of sync.
         PrivacyPreferencesManagerImpl.getInstance().setMetricsReportingEnabled(false);
-        pref.edit().putBoolean(ChromePreferenceKeys.PRIVACY_METRICS_REPORTING, true).apply();
+        pref.edit()
+                .putBoolean(ChromePreferenceKeys.PRIVACY_METRICS_REPORTING_PERMITTED_BY_USER, true)
+                .apply();
 
         preferenceManager.syncUsageAndCrashReportingPrefs();
         Assert.assertTrue("Native preference should be True ",
@@ -56,21 +57,22 @@ public class PrivacyPreferencesManagerImplNativeTest {
     @SmallTest
     @Feature({"Android-AppBase"})
     @UiThreadTest
-    @DisabledTest(message = "crbug.com/700500")
     public void testSetUsageAndCrashReporting() {
         PermissionContext context =
-                new PermissionContext(InstrumentationRegistry.getTargetContext());
+                new PermissionContext(ApplicationProvider.getApplicationContext());
         SharedPreferences pref = ContextUtils.getAppSharedPreferences();
         PrivacyPreferencesManagerImpl preferenceManager =
                 new PrivacyPreferencesManagerImpl(context);
 
         preferenceManager.setUsageAndCrashReporting(true);
-        Assert.assertTrue(pref.getBoolean(ChromePreferenceKeys.PRIVACY_METRICS_REPORTING, false));
+        Assert.assertTrue(pref.getBoolean(
+                ChromePreferenceKeys.PRIVACY_METRICS_REPORTING_PERMITTED_BY_USER, false));
         Assert.assertTrue("Native preference should be True ",
                 PrivacyPreferencesManagerImpl.getInstance().isMetricsReportingEnabled());
 
         preferenceManager.setUsageAndCrashReporting(false);
-        Assert.assertFalse(pref.getBoolean(ChromePreferenceKeys.PRIVACY_METRICS_REPORTING, false));
+        Assert.assertFalse(pref.getBoolean(
+                ChromePreferenceKeys.PRIVACY_METRICS_REPORTING_PERMITTED_BY_USER, false));
         Assert.assertFalse("Native preference should be False ",
                 PrivacyPreferencesManagerImpl.getInstance().isMetricsReportingEnabled());
     }

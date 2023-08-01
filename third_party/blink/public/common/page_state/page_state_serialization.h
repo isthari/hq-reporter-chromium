@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,9 +34,11 @@ struct BLINK_COMMON_EXPORT ExplodedHttpBody {
 };
 
 struct BLINK_COMMON_EXPORT ExplodedFrameState {
+  // When adding a new member, also add it to ExplodedFrameState::assign.
   absl::optional<std::u16string> url_string;
   absl::optional<std::u16string> referrer;
   absl::optional<url::Origin> initiator_origin;
+  absl::optional<std::u16string> initiator_base_url_string;
   absl::optional<std::u16string> target;
   absl::optional<std::u16string> state_object;
   std::vector<absl::optional<std::u16string>> document_state;
@@ -54,10 +56,10 @@ struct BLINK_COMMON_EXPORT ExplodedFrameState {
   absl::optional<std::u16string> scroll_anchor_selector;
   gfx::PointF scroll_anchor_offset;
   uint64_t scroll_anchor_simhash = 0;
-  absl::optional<std::u16string> app_history_key;
-  absl::optional<std::u16string> app_history_id;
-  absl::optional<std::u16string> app_history_state;
-  bool protect_url_in_app_history = false;
+  absl::optional<std::u16string> navigation_api_key;
+  absl::optional<std::u16string> navigation_api_id;
+  absl::optional<std::u16string> navigation_api_state;
+  bool protect_url_in_navigation_api = false;
   std::vector<ExplodedFrameState> children;
 
   ExplodedFrameState();

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,11 @@
 
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/containers/contains.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/run_loop.h"
+#include "base/task/single_thread_task_runner.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/external_install_info.h"
 #include "extensions/browser/updater/extension_downloader.h"
@@ -32,18 +33,22 @@ void DownloaderTestDelegate::AddResponse(const ExtensionId& extension_id,
       std::make_pair(base::Version(version_string), crx_path);
 }
 
-const std::vector<std::unique_ptr<ManifestFetchData>>&
-DownloaderTestDelegate::requests() {
+const std::vector<ExtensionDownloaderTask>& DownloaderTestDelegate::requests() {
   return requests_;
 }
 
 void DownloaderTestDelegate::StartUpdateCheck(
     ExtensionDownloader* downloader,
     ExtensionDownloaderDelegate* delegate,
-    std::unique_ptr<ManifestFetchData> fetch_data) {
-  requests_.push_back(std::move(fetch_data));
-  const ManifestFetchData* data = requests_.back().get();
-  const ExtensionIdSet extension_ids = data->GetExtensionIds();
+    std::vector<ExtensionDownloaderTask> tasks) {
+  ExtensionIdSet extension_ids;
+  std::set<int> request_ids;
+  for (ExtensionDownloaderTask& task : tasks) {
+    extension_ids.insert(task.id);
+    request_ids.insert(task.request_id);
+  }
+  for (ExtensionDownloaderTask& task : tasks)
+    requests_.push_back(std::move(task));
   for (const auto& id : extension_ids) {
     if (base::Contains(responses_, id)) {
       CRXFileInfo crx_info(responses_[id].second, GetTestVerifierFormat());
@@ -53,13 +58,13 @@ void DownloaderTestDelegate::StartUpdateCheck(
       // immeditately, because the calling code isn't expecting a synchronous
       // response (in non-test situations there are at least 2 network
       // requests needed before a file could be returned).
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE,
           base::BindOnce(
               &ExtensionDownloaderDelegate::OnExtensionDownloadFinished,
               base::Unretained(delegate), crx_info,
               false /* pass_file_ownership */, GURL(),
-              ExtensionDownloaderDelegate::PingResult(), data->request_ids(),
+              ExtensionDownloaderDelegate::PingResult(), request_ids,
               ExtensionDownloaderDelegate::InstallCallback()));
     }
   }

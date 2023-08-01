@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,11 @@
 #include <map>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/guid.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/uuid.h"
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/profiles/profile.h"
@@ -41,10 +42,8 @@ using autofill::AutofillWebDataServiceObserverOnDBSequence;
 using autofill::CreditCard;
 using autofill::FormFieldData;
 using autofill::PersonalDataManager;
-using autofill::PersonalDataManagerObserver;
 using base::WaitableEvent;
 using sync_datatype_helper::test;
-using testing::_;
 
 namespace {
 
@@ -208,9 +207,9 @@ AutofillProfile CreateAutofillProfile(ProfileType type) {
 AutofillProfile CreateUniqueAutofillProfile() {
   AutofillProfile profile;
   autofill::test::SetProfileInfoWithGuid(
-      &profile, base::GenerateGUID().c_str(), "First", "Middle", "Last",
-      "email@domain.tld", "Company", "123 Main St", "Apt 456", "Nowhere", "OK",
-      "73038", "US", "12345678910");
+      &profile, base::Uuid::GenerateRandomV4().AsLowercaseString().c_str(),
+      "First", "Middle", "Last", "email@domain.tld", "Company", "123 Main St",
+      "Apt 456", "Nowhere", "OK", "73038", "US", "12345678910");
   profile.FinalizeAfterImport();
   return profile;
 }
@@ -288,10 +287,7 @@ void SetProfiles(int profile, std::vector<AutofillProfile>* autofill_profiles) {
   EXPECT_CALL(personal_data_observer, OnPersonalDataChanged())
       .Times(testing::AnyNumber());
 
-  // TODO(crbug.com/997629): Remove after investigation is over.
-  DLOG(WARNING) << "SetProfiles " << autofill_profiles->size();
-
-  pdm->SetProfiles(autofill_profiles);
+  pdm->SetProfilesForAllSources(autofill_profiles);
 
   run_loop.Run();
   pdm->RemoveObserver(&personal_data_observer);
@@ -324,7 +320,7 @@ void UpdateProfile(int profile,
                    const std::string& guid,
                    const AutofillType& type,
                    const std::u16string& value,
-                   autofill::structured_address::VerificationStatus status) {
+                   autofill::VerificationStatus status) {
   std::vector<AutofillProfile> profiles;
   for (AutofillProfile* p : GetAllAutoFillProfiles(profile)) {
     profiles.push_back(*p);
@@ -467,5 +463,5 @@ void AutofillProfileChecker::OnPersonalDataChanged() {
   CheckExitCondition();
 }
 
-PersonalDataLoadedObserverMock::PersonalDataLoadedObserverMock() {}
-PersonalDataLoadedObserverMock::~PersonalDataLoadedObserverMock() {}
+PersonalDataLoadedObserverMock::PersonalDataLoadedObserverMock() = default;
+PersonalDataLoadedObserverMock::~PersonalDataLoadedObserverMock() = default;

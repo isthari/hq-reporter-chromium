@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,7 @@ package org.chromium.chrome.browser.payments;
 import android.os.Handler;
 import android.view.KeyEvent;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
-import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.Spinner;
 import android.widget.TextView;
@@ -24,6 +22,7 @@ import org.junit.runners.model.Statement;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
@@ -32,8 +31,6 @@ import org.chromium.base.test.util.UrlUtils;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.autofill.CardUnmaskPrompt;
 import org.chromium.chrome.browser.autofill.CardUnmaskPrompt.CardUnmaskObserverForTest;
-import org.chromium.chrome.browser.autofill.prefeditor.EditorObserverForTest;
-import org.chromium.chrome.browser.autofill.prefeditor.EditorTextField;
 import org.chromium.chrome.browser.payments.ChromePaymentRequestFactory.ChromePaymentRequestDelegateImpl;
 import org.chromium.chrome.browser.payments.ChromePaymentRequestFactory.ChromePaymentRequestDelegateImplObserverForTest;
 import org.chromium.chrome.browser.payments.ui.PaymentRequestSection.OptionSection;
@@ -41,16 +38,15 @@ import org.chromium.chrome.browser.payments.ui.PaymentRequestSection.OptionSecti
 import org.chromium.chrome.browser.payments.ui.PaymentRequestUI;
 import org.chromium.chrome.browser.payments.ui.PaymentRequestUI.PaymentRequestObserverForTest;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.components.autofill.prefeditor.EditorObserverForTest;
 import org.chromium.components.payments.AbortReason;
 import org.chromium.components.payments.PayerData;
 import org.chromium.components.payments.PaymentApp;
 import org.chromium.components.payments.PaymentAppFactoryDelegate;
 import org.chromium.components.payments.PaymentAppFactoryInterface;
 import org.chromium.components.payments.PaymentAppService;
-import org.chromium.components.payments.PaymentFeatureList;
 import org.chromium.components.payments.PaymentRequestService;
 import org.chromium.components.payments.PaymentRequestService.PaymentRequestServiceObserverForTest;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.test.util.DOMUtils;
 import org.chromium.content_public.browser.test.util.JavaScriptUtils;
@@ -76,83 +72,79 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * Custom ActivityTestRule for integration test for payments.
  */
-public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
+/*package*/ class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
         implements PaymentRequestObserverForTest, PaymentRequestServiceObserverForTest,
                    ChromePaymentRequestDelegateImplObserverForTest, CardUnmaskObserverForTest,
                    EditorObserverForTest {
     @IntDef({AppPresence.NO_APPS, AppPresence.HAVE_APPS})
     @Retention(RetentionPolicy.SOURCE)
-    public @interface AppPresence {
+    /* package */ @interface AppPresence {
         /** Flag for a factory without payment apps. */
-        public static final int NO_APPS = 0;
+        static final int NO_APPS = 0;
 
         /** Flag for a factory with payment apps. */
-        public static final int HAVE_APPS = 1;
+        static final int HAVE_APPS = 1;
     }
 
     @IntDef({AppSpeed.FAST_APP, AppSpeed.SLOW_APP})
     @Retention(RetentionPolicy.SOURCE)
-    public @interface AppSpeed {
+    /* package */ @interface AppSpeed {
         /** Flag for installing a payment app that responds to its invocation fast. */
-        public static final int FAST_APP = 0;
+        static final int FAST_APP = 0;
 
         /** Flag for installing a payment app that responds to its invocation slowly. */
-        public static final int SLOW_APP = 1;
+        static final int SLOW_APP = 1;
     }
 
     @IntDef({FactorySpeed.FAST_FACTORY, FactorySpeed.SLOW_FACTORY})
     @Retention(RetentionPolicy.SOURCE)
-    public @interface FactorySpeed {
+    /* package */ @interface FactorySpeed {
         /** Flag for a factory that immediately creates a payment app. */
-        public static final int FAST_FACTORY = 0;
+        static final int FAST_FACTORY = 0;
 
         /** Flag for a factory that creates a payment app with a delay. */
-        public static final int SLOW_FACTORY = 1;
+        static final int SLOW_FACTORY = 1;
     }
 
     /** The expiration month dropdown index for December. */
-    public static final int DECEMBER = 11;
+    /* package */ static final int DECEMBER = 11;
 
     /** The expiration year dropdown index for the next year. */
-    public static final int NEXT_YEAR = 1;
+    /* package */ static final int NEXT_YEAR = 1;
 
     /**
      * The billing address dropdown index for the first billing address. Index 0 is for the
      * "Select" hint.
      */
-    public static final int FIRST_BILLING_ADDRESS = 1;
-
-    /** Command line flag to enable payment details modifiers in tests. */
-    public static final String ENABLE_WEB_PAYMENTS_MODIFIERS =
-            "enable-features=" + PaymentFeatureList.WEB_PAYMENTS_MODIFIERS;
+    /* package */ static final int FIRST_BILLING_ADDRESS = 1;
 
     /** Command line flag to enable experimental web platform features in tests. */
-    public static final String ENABLE_EXPERIMENTAL_WEB_PLATFORM_FEATURES =
+    /* package */ static final String ENABLE_EXPERIMENTAL_WEB_PLATFORM_FEATURES =
             "enable-experimental-web-platform-features";
 
-    final PaymentsCallbackHelper<PaymentRequestUI> mReadyForInput;
-    final PaymentsCallbackHelper<PaymentRequestUI> mReadyToPay;
-    final PaymentsCallbackHelper<PaymentRequestUI> mSelectionChecked;
-    final PaymentsCallbackHelper<PaymentRequestUI> mResultReady;
-    final PaymentsCallbackHelper<CardUnmaskPrompt> mReadyForUnmaskInput;
-    final PaymentsCallbackHelper<CardUnmaskPrompt> mReadyToUnmask;
-    final PaymentsCallbackHelper<CardUnmaskPrompt> mUnmaskValidationDone;
-    final PaymentsCallbackHelper<CardUnmaskPrompt> mSubmitRejected;
-    final CallbackHelper mReadyToEdit;
-    final CallbackHelper mEditorValidationError;
-    final CallbackHelper mEditorTextUpdate;
-    final CallbackHelper mDismissed;
-    final CallbackHelper mUnableToAbort;
-    final CallbackHelper mBillingAddressChangeProcessed;
-    final CallbackHelper mShowFailed;
-    final CallbackHelper mCanMakePaymentQueryResponded;
-    final CallbackHelper mHasEnrolledInstrumentQueryResponded;
-    final CallbackHelper mExpirationMonthChange;
-    final CallbackHelper mPaymentResponseReady;
-    final CallbackHelper mCompleteHandled;
-    final CallbackHelper mRendererClosedMojoConnection;
+    private final PaymentsCallbackHelper<PaymentRequestUI> mReadyForInput;
+    private final PaymentsCallbackHelper<PaymentRequestUI> mReadyToPay;
+    private final PaymentsCallbackHelper<PaymentRequestUI> mSelectionChecked;
+    private final PaymentsCallbackHelper<PaymentRequestUI> mResultReady;
+    private final PaymentsCallbackHelper<CardUnmaskPrompt> mReadyForUnmaskInput;
+    private final PaymentsCallbackHelper<CardUnmaskPrompt> mReadyToUnmask;
+    private final PaymentsCallbackHelper<CardUnmaskPrompt> mUnmaskValidationDone;
+    private final PaymentsCallbackHelper<CardUnmaskPrompt> mSubmitRejected;
+    private final CallbackHelper mReadyToEdit;
+    private final CallbackHelper mEditorValidationError;
+    private final CallbackHelper mEditorTextUpdate;
+    private final CallbackHelper mDismissed;
+    private final CallbackHelper mUnableToAbort;
+    private final CallbackHelper mBillingAddressChangeProcessed;
+    private final CallbackHelper mShowFailed;
+    private final CallbackHelper mCanMakePaymentQueryResponded;
+    private final CallbackHelper mHasEnrolledInstrumentQueryResponded;
+    private final CallbackHelper mExpirationMonthChange;
+    private final CallbackHelper mPaymentResponseReady;
+    private final CallbackHelper mCompleteHandled;
+    private final CallbackHelper mRendererClosedMojoConnection;
     private ChromePaymentRequestDelegateImpl mChromePaymentRequestDelegateImpl;
-    PaymentRequestUI mUI;
+    private PaymentRequestUI mUI;
 
     private final boolean mDelayStartActivity;
 
@@ -162,40 +154,25 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
 
     private CardUnmaskPrompt mCardUnmaskPrompt;
 
-    private final MainActivityStartCallback mCallback;
-
     /**
      * Creates an instance of PaymentRequestTestRule.
      * @param testFileName The file name of an test page in //components/test/data/payments,
      *         'about:blank', or a data url which starts with 'data:'.
      */
-    public PaymentRequestTestRule(String testFileName) {
-        this(testFileName, null);
+    /* package */ PaymentRequestTestRule(String testFileName) {
+        this(testFileName, false);
     }
 
     /**
      * Creates an instance of PaymentRequestTestRule.
      * @param testFileName The file name of an test page in //components/test/data/payments,
      *         'about:blank', or a data url which starts with 'data:'.
-     * @param callback A callback that is invoked on the start of the main activity.
-     */
-    public PaymentRequestTestRule(String testFileName, MainActivityStartCallback callback) {
-        this(testFileName, callback, false);
-    }
-
-    /**
-     * Creates an instance of PaymentRequestTestRule.
-     * @param testFileName The file name of an test page in //components/test/data/payments,
-     *         'about:blank', or a data url which starts with 'data:'.
-     * @param callback A callback that is invoked on the start of the main activity.
      * @param delayStartActivity Whether to delay the start of the main activity. When true, {@link
-     *         #startMainActivity()} needs to be called to start the main activity; otherwise, the
-     *         main activity would start automatically.
+     *         #startMainActivityWithURL()} needs to be called to start the main activity;
+     *         otherwise, the main activity would start automatically.
      */
-    public PaymentRequestTestRule(
-            String testFileName, MainActivityStartCallback callback, boolean delayStartActivity) {
-        this(testFileName, /*pathPrefix=*/"components/test/data/payments/", callback,
-                delayStartActivity);
+    /* package */ PaymentRequestTestRule(String testFileName, boolean delayStartActivity) {
+        this(testFileName, /*pathPrefix=*/"components/test/data/payments/", delayStartActivity);
     }
 
     /**
@@ -203,20 +180,12 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
      * pathPrefix and testFileName combined into a path relative to the repository root. For
      * example, if testFileName is "merchant.html", pathPrefix is "components/test/data/payments/",
      * the method would look for a test page at "components/test/data/payments/merchant.html".
-     * This method is used by the //clank tests.
      * @param testFileName The file name of the test page.
      * @param pathPrefix The prefix path to testFileName.
      * @param delayStartActivity Whether to delay the start of the main activity.
-     * @return The created instance.
      */
-    public static PaymentRequestTestRule createWithPathPrefix(
-            String testFileName, String pathPrefix, boolean delayStartActivity) {
-        assert pathPrefix.endsWith("/");
-        return new PaymentRequestTestRule(testFileName, pathPrefix, null, delayStartActivity);
-    }
-
-    private PaymentRequestTestRule(String testFilePath, String pathPrefix,
-            MainActivityStartCallback callback, boolean delayStartActivity) {
+    private PaymentRequestTestRule(
+            String testFilePath, String pathPrefix, boolean delayStartActivity) {
         super();
         mReadyForInput = new PaymentsCallbackHelper<>();
         mReadyToPay = new PaymentsCallbackHelper<>();
@@ -245,23 +214,16 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
         } else {
             mTestFilePath = UrlUtils.getIsolatedTestFilePath(pathPrefix + testFilePath);
         }
-        mCallback = callback;
         mDelayStartActivity = delayStartActivity;
     }
 
-    public void startMainActivity() {
-        startMainActivityWithURL(mTestFilePath);
+    /* package */ void setObserversAndWaitForInitialPageLoad() throws TimeoutException {
         try {
             // TODO(crbug.com/1144303): Figure out what these tests need to wait on to not be flaky
             // instead of sleeping.
             Thread.sleep(2000);
         } catch (Exception ex) {
         }
-    }
-
-    // public is used so as to be visible to the payment tests in //clank.
-    public void openPage() throws TimeoutException {
-        onMainActivityStarted();
         ThreadUtils.runOnUiThreadBlocking(() -> {
             mWebContentsRef.set(getActivity().getCurrentWebContents());
             PaymentRequestUI.setEditorObserverForTest(PaymentRequestTestRule.this);
@@ -271,110 +233,83 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
                     PaymentRequestTestRule.this);
             CardUnmaskPrompt.setObserverForTest(PaymentRequestTestRule.this);
         });
-        assertWaitForPageScaleFactorMatch(1);
+        assertWaitForPageScaleFactorMatch(0.5f);
     }
 
-    public PaymentsCallbackHelper<PaymentRequestUI> getReadyForInput() {
+    /* package */ PaymentsCallbackHelper<PaymentRequestUI> getReadyForInput() {
         return mReadyForInput;
     }
-    public PaymentsCallbackHelper<PaymentRequestUI> getReadyToPay() {
+    /* package */ PaymentsCallbackHelper<PaymentRequestUI> getReadyToPay() {
         return mReadyToPay;
     }
-    public PaymentsCallbackHelper<PaymentRequestUI> getSelectionChecked() {
+    /* package */ PaymentsCallbackHelper<PaymentRequestUI> getSelectionChecked() {
         return mSelectionChecked;
     }
-    public PaymentsCallbackHelper<PaymentRequestUI> getResultReady() {
+    /* package */ PaymentsCallbackHelper<PaymentRequestUI> getResultReady() {
         return mResultReady;
     }
-    public PaymentsCallbackHelper<CardUnmaskPrompt> getReadyForUnmaskInput() {
+    /* package */ PaymentsCallbackHelper<CardUnmaskPrompt> getReadyForUnmaskInput() {
         return mReadyForUnmaskInput;
     }
-    public PaymentsCallbackHelper<CardUnmaskPrompt> getReadyToUnmask() {
+    /* package */ PaymentsCallbackHelper<CardUnmaskPrompt> getReadyToUnmask() {
         return mReadyToUnmask;
     }
-    public PaymentsCallbackHelper<CardUnmaskPrompt> getUnmaskValidationDone() {
+    /* package */ PaymentsCallbackHelper<CardUnmaskPrompt> getUnmaskValidationDone() {
         return mUnmaskValidationDone;
     }
-    public PaymentsCallbackHelper<CardUnmaskPrompt> getSubmitRejected() {
+    /* package */ PaymentsCallbackHelper<CardUnmaskPrompt> getSubmitRejected() {
         return mSubmitRejected;
     }
-    public CallbackHelper getReadyToEdit() {
+    /* package */ CallbackHelper getReadyToEdit() {
         return mReadyToEdit;
     }
-    public CallbackHelper getEditorValidationError() {
+    /* package */ CallbackHelper getEditorValidationError() {
         return mEditorValidationError;
     }
-    public CallbackHelper getEditorTextUpdate() {
+    /* package */ CallbackHelper getEditorTextUpdate() {
         return mEditorTextUpdate;
     }
-    public CallbackHelper getDismissed() {
+    /* package */ CallbackHelper getDismissed() {
         return mDismissed;
     }
-    public CallbackHelper getUnableToAbort() {
+    /* package */ CallbackHelper getUnableToAbort() {
         return mUnableToAbort;
     }
-    public CallbackHelper getBillingAddressChangeProcessed() {
+    /* package */ CallbackHelper getBillingAddressChangeProcessed() {
         return mBillingAddressChangeProcessed;
     }
-    public CallbackHelper getShowFailed() {
+    /* package */ CallbackHelper getShowFailed() {
         return mShowFailed;
     }
-    public CallbackHelper getCanMakePaymentQueryResponded() {
+    /* package */ CallbackHelper getCanMakePaymentQueryResponded() {
         return mCanMakePaymentQueryResponded;
     }
-    public CallbackHelper getHasEnrolledInstrumentQueryResponded() {
+    /* package */ CallbackHelper getHasEnrolledInstrumentQueryResponded() {
         return mHasEnrolledInstrumentQueryResponded;
     }
-    public CallbackHelper getExpirationMonthChange() {
+    /* package */ CallbackHelper getExpirationMonthChange() {
         return mExpirationMonthChange;
     }
-    public CallbackHelper getPaymentResponseReady() {
+    /* package */ CallbackHelper getPaymentResponseReady() {
         return mPaymentResponseReady;
     }
-    public CallbackHelper getCompleteHandled() {
+    /* package */ CallbackHelper getCompleteHandled() {
         return mCompleteHandled;
     }
-    public CallbackHelper getRendererClosedMojoConnection() {
+    /* package */ CallbackHelper getRendererClosedMojoConnection() {
         return mRendererClosedMojoConnection;
     }
-    public PaymentRequestUI getPaymentRequestUI() {
+    /* package */ PaymentRequestUI getPaymentRequestUI() {
         return mUI;
     }
 
-    protected void triggerUIAndWait(PaymentsCallbackHelper<PaymentRequestUI> helper)
-            throws TimeoutException {
-        openPageAndClickNodeAndWait("buy", helper);
-        mUI = helper.getTarget();
-    }
-
-    protected void openPageAndClickNodeAndWait(String nodeId, CallbackHelper helper)
-            throws TimeoutException {
-        openPage();
-        clickNodeAndWait(nodeId, helper);
-    }
-
-    protected void openPageAndClickBuyAndWait(CallbackHelper helper) throws TimeoutException {
-        openPageAndClickNodeAndWait("buy", helper);
-    }
-
-    protected void openPageAndClickNode(String nodeId) throws TimeoutException {
-        openPage();
-        clickNode(nodeId);
-    }
-
-    protected void triggerUIAndWait(String nodeId, PaymentsCallbackHelper<PaymentRequestUI> helper)
-            throws TimeoutException {
-        openPageAndClickNodeAndWait(nodeId, helper);
-        mUI = helper.getTarget();
-    }
-
-    protected void reTriggerUIAndWait(String nodeId,
+    /* package */ void triggerUIAndWait(String nodeId,
             PaymentsCallbackHelper<PaymentRequestUI> helper) throws TimeoutException {
         clickNodeAndWait(nodeId, helper);
         mUI = helper.getTarget();
     }
 
-    protected void retryPaymentRequest(String validationErrors, CallbackHelper helper)
+    /* package */ void retryPaymentRequest(String validationErrors, CallbackHelper helper)
             throws TimeoutException {
         int callCount = helper.getCallCount();
         JavaScriptUtils.executeJavaScriptAndWaitForResult(
@@ -382,29 +317,57 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
         helper.waitForCallback(callCount);
     }
 
-    protected String executeJavaScriptAndWaitForResult(String script) throws TimeoutException {
+    /**
+     * Executes a snippet of JavaScript code in the current tab, and returns the result of the
+     * snippet. The JavaScript code is run without a user gesture, and any async result (i.e.,
+     * Promise) is not waited for.
+     */
+    /* package */ String executeJavaScriptAndWaitForResult(String script) throws TimeoutException {
         return JavaScriptUtils.executeJavaScriptAndWaitForResult(mWebContentsRef.get(), script);
     }
 
-    // public is used so as to be visible to the payment tests in //clank.
-    public String runJavascriptWithAsyncResult(String script) throws TimeoutException {
-        return JavaScriptUtils.runJavascriptWithAsyncResult(mWebContentsRef.get(), script);
+    /**
+     * Executes a snippet of JavaScript code in the current tab, and waits for a given UI event to
+     * occur. The JavaScript code is run with a user gesture present, and any async result (i.e.,
+     * Promise) is not waited for.
+     */
+    /* package */ void runJavaScriptAndWaitForUIEvent(String code, CallbackHelper helper)
+            throws TimeoutException {
+        int callCount = helper.getCallCount();
+        runJavaScriptCodeWithUserGestureInCurrentTab(code);
+        helper.waitForCallback(callCount);
+    }
+
+    /**
+     * Executes a snippet of JavaScript code in the current tab, and waits for the promise it
+     * returns to settle with some value or to reject with an error message; returning the result as
+     * a String in either case. The JavaScript code is run with a user gesture present.
+     *
+     * @param promiseCode a JavaScript snippet that will return a promise
+     */
+    /* package */ String runJavaScriptAndWaitForPromise(String promiseCode)
+            throws TimeoutException {
+        String code = promiseCode + ".then(result => domAutomationController.send(result))"
+                + ".catch(error => domAutomationController.send(error));";
+        return JavaScriptUtils.runJavascriptWithUserGestureAndAsyncResult(getWebContents(), code);
     }
 
     /** Clicks on an HTML node. */
-    protected void clickNodeAndWait(String nodeId, CallbackHelper helper) throws TimeoutException {
+    /* package */ void clickNodeAndWait(String nodeId, CallbackHelper helper)
+            throws TimeoutException {
         int callCount = helper.getCallCount();
         clickNode(nodeId);
         helper.waitForCallback(callCount);
     }
 
     /** Clicks on an HTML node. */
-    protected void clickNode(String nodeId) throws TimeoutException {
+    /* package */ void clickNode(String nodeId) throws TimeoutException {
+        DOMUtils.waitForNonZeroNodeBounds(mWebContentsRef.get(), nodeId);
         DOMUtils.clickNode(mWebContentsRef.get(), nodeId);
     }
 
     /** Clicks on an element in the payments UI. */
-    protected void clickAndWait(int resourceId, CallbackHelper helper) throws TimeoutException {
+    /* package */ void clickAndWait(int resourceId, CallbackHelper helper) throws TimeoutException {
         int callCount = helper.getCallCount();
         CriteriaHelper.pollUiThread(() -> {
             boolean canClick = mUI.isAcceptingUserInput();
@@ -415,7 +378,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
     }
 
     /** Clicks on an element in the "Order summary" section of the payments UI. */
-    protected void clickInOrderSummaryAndWait(CallbackHelper helper) throws TimeoutException {
+    /* package */ void clickInOrderSummaryAndWait(CallbackHelper helper) throws TimeoutException {
         int callCount = helper.getCallCount();
         ThreadUtils.runOnUiThreadBlocking(() -> {
             mUI.getOrderSummarySectionForTest().findViewById(R.id.payments_section).performClick();
@@ -424,7 +387,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
     }
 
     /** Clicks on an element in the "Shipping address" section of the payments UI. */
-    protected void clickInShippingAddressAndWait(final int resourceId, CallbackHelper helper)
+    /* package */ void clickInShippingAddressAndWait(final int resourceId, CallbackHelper helper)
             throws TimeoutException {
         int callCount = helper.getCallCount();
         ThreadUtils.runOnUiThreadBlocking(() -> {
@@ -434,7 +397,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
     }
 
     /** Clicks on an element in the "Payment" section of the payments UI. */
-    protected void clickInPaymentMethodAndWait(final int resourceId, CallbackHelper helper)
+    /* package */ void clickInPaymentMethodAndWait(final int resourceId, CallbackHelper helper)
             throws TimeoutException {
         int callCount = helper.getCallCount();
         ThreadUtils.runOnUiThreadBlocking(() -> {
@@ -444,7 +407,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
     }
 
     /** Clicks on an element in the "Contact Info" section of the payments UI. */
-    protected void clickInContactInfoAndWait(final int resourceId, CallbackHelper helper)
+    /* package */ void clickInContactInfoAndWait(final int resourceId, CallbackHelper helper)
             throws TimeoutException {
         int callCount = helper.getCallCount();
         ThreadUtils.runOnUiThreadBlocking(() -> {
@@ -453,17 +416,8 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
         helper.waitForCallback(callCount);
     }
 
-    /** Clicks on an element in the editor UI for credit cards. */
-    protected void clickInCardEditorAndWait(final int resourceId, CallbackHelper helper)
-            throws TimeoutException {
-        int callCount = helper.getCallCount();
-        ThreadUtils.runOnUiThreadBlocking(
-                () -> { mUI.getCardEditorDialog().findViewById(resourceId).performClick(); });
-        helper.waitForCallback(callCount);
-    }
-
     /** Clicks on an element in the editor UI. */
-    protected void clickInEditorAndWait(final int resourceId, CallbackHelper helper)
+    /* package */ void clickInEditorAndWait(final int resourceId, CallbackHelper helper)
             throws TimeoutException {
         int callCount = helper.getCallCount();
         ThreadUtils.runOnUiThreadBlocking(
@@ -471,10 +425,10 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
         helper.waitForCallback(callCount);
     }
 
-    protected void clickAndroidBackButtonInEditorAndWait(CallbackHelper helper)
+    /* package */ void clickAndroidBackButtonInEditorAndWait(CallbackHelper helper)
             throws TimeoutException {
         int callCount = helper.getCallCount();
-        PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT, () -> {
+        PostTask.runOrPostTask(TaskTraits.UI_DEFAULT, () -> {
             mUI.getEditorDialog().dispatchKeyEvent(
                     new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK));
             mUI.getEditorDialog().dispatchKeyEvent(
@@ -484,7 +438,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
     }
 
     /** Clicks on a button in the card unmask UI. */
-    protected void clickCardUnmaskButtonAndWait(final int dialogButtonId, CallbackHelper helper)
+    /* package */ void clickCardUnmaskButtonAndWait(final int dialogButtonId, CallbackHelper helper)
             throws TimeoutException {
         int callCount = helper.getCallCount();
         ThreadUtils.runOnUiThreadBlocking(() -> {
@@ -495,7 +449,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
     }
 
     /** Gets the retry error message. */
-    protected String getRetryErrorMessage() {
+    /* package */ String getRetryErrorMessage() {
         return ThreadUtils.runOnUiThreadBlockingNoException(
                 ()
                         -> ((TextView) mUI.getDialogForTest().findViewById(R.id.retry_error))
@@ -504,19 +458,19 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
     }
 
     /** Gets the button state for the shipping summary section. */
-    protected int getShippingAddressSectionButtonState() {
+    /* package */ int getShippingAddressSectionButtonState() {
         return ThreadUtils.runOnUiThreadBlockingNoException(
                 () -> mUI.getShippingAddressSectionForTest().getEditButtonState());
     }
 
     /** Gets the button state for the contact details section. */
-    protected int getContactDetailsButtonState() {
+    /* package */ int getContactDetailsButtonState() {
         return ThreadUtils.runOnUiThreadBlockingNoException(
                 () -> mUI.getContactDetailsSectionForTest().getEditButtonState());
     }
 
     /** Returns the label of the payment app at the specified |index|. */
-    protected String getPaymentAppLabel(final int index) {
+    /* package */ String getPaymentAppLabel(final int index) {
         return ThreadUtils.runOnUiThreadBlockingNoException(
                 ()
                         -> ((OptionSection) mUI.getPaymentMethodSectionForTest())
@@ -526,7 +480,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
     }
 
     /** Returns the label of the selected payment app. */
-    protected String getSelectedPaymentAppLabel() {
+    /* package */ String getSelectedPaymentAppLabel() {
         return ThreadUtils.runOnUiThreadBlockingNoException(() -> {
             OptionSection section = ((OptionSection) mUI.getPaymentMethodSectionForTest());
             int size = section.getNumberOfOptionLabelsForTest();
@@ -540,13 +494,13 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
     }
 
     /** Returns the total amount in order summary section. */
-    protected String getOrderSummaryTotal() {
+    /* package */ String getOrderSummaryTotal() {
         return ThreadUtils.runOnUiThreadBlockingNoException(
                 () -> mUI.getOrderSummaryTotalTextViewForTest().getText().toString());
     }
 
     /** Returns the amount text corresponding to the line item at the specified |index|. */
-    protected String getLineItemAmount(int index) {
+    /* package */ String getLineItemAmount(int index) {
         return ThreadUtils.runOnUiThreadBlockingNoException(
                 ()
                         -> mUI.getOrderSummarySectionForTest()
@@ -557,7 +511,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
     }
 
     /** Returns the amount text corresponding to the line item at the specified |index|. */
-    protected int getNumberOfLineItems() {
+    /* package */ int getNumberOfLineItems() {
         return ThreadUtils.runOnUiThreadBlockingNoException(
                 () -> mUI.getOrderSummarySectionForTest().getNumberOfLineItemsForTest());
     }
@@ -566,7 +520,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
      * Returns the label corresponding to the contact detail suggestion at the specified
      * |suggestionIndex|.
      */
-    protected String getContactDetailsSuggestionLabel(final int suggestionIndex) {
+    /* package */ String getContactDetailsSuggestionLabel(final int suggestionIndex) {
         return ThreadUtils.runOnUiThreadBlockingNoException(
                 ()
                         -> ((OptionSection) mUI.getContactDetailsSectionForTest())
@@ -576,7 +530,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
     }
 
     /** Returns the number of payment apps. */
-    protected int getNumberOfPaymentApps() {
+    /* package */ int getNumberOfPaymentApps() {
         return ThreadUtils.runOnUiThreadBlockingNoException(
                 ()
                         -> ((OptionSection) mUI.getPaymentMethodSectionForTest())
@@ -587,7 +541,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
      * Returns the label corresponding to the payment method suggestion at the specified
      * |suggestionIndex|.
      */
-    protected String getPaymentMethodSuggestionLabel(final int suggestionIndex) {
+    /* package */ String getPaymentMethodSuggestionLabel(final int suggestionIndex) {
         Assert.assertTrue(suggestionIndex < getNumberOfPaymentApps());
 
         return ThreadUtils.runOnUiThreadBlockingNoException(
@@ -599,7 +553,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
     }
 
     /** Returns the number of contact detail suggestions. */
-    protected int getNumberOfContactDetailSuggestions() {
+    /* package */ int getNumberOfContactDetailSuggestions() {
         return ThreadUtils.runOnUiThreadBlockingNoException(
                 ()
                         -> ((OptionSection) mUI.getContactDetailsSectionForTest())
@@ -610,7 +564,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
      * Returns the label corresponding to the shipping address suggestion at the specified
      * |suggestionIndex|.
      */
-    protected String getShippingAddressSuggestionLabel(final int suggestionIndex) {
+    /* package */ String getShippingAddressSuggestionLabel(final int suggestionIndex) {
         Assert.assertTrue(suggestionIndex < getNumberOfShippingAddressSuggestions());
 
         return ThreadUtils.runOnUiThreadBlockingNoException(
@@ -621,7 +575,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
                                    .toString());
     }
 
-    protected String getShippingAddressSummary() {
+    /* package */ String getShippingAddressSummary() {
         return ThreadUtils.runOnUiThreadBlockingNoException(
                 ()
                         -> mUI.getShippingAddressSectionForTest()
@@ -630,7 +584,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
                                    .toString());
     }
 
-    protected String getShippingOptionSummary() {
+    /* package */ String getShippingOptionSummary() {
         return ThreadUtils.runOnUiThreadBlockingNoException(
                 ()
                         -> mUI.getShippingOptionSectionForTest()
@@ -639,7 +593,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
                                    .toString());
     }
 
-    protected String getShippingOptionCostSummaryOnBottomSheet() {
+    /* package */ String getShippingOptionCostSummaryOnBottomSheet() {
         return ThreadUtils.runOnUiThreadBlockingNoException(
                 ()
                         -> mUI.getShippingOptionSectionForTest()
@@ -648,7 +602,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
                                    .toString());
     }
 
-    protected String getShippingAddressWarningLabel() {
+    /* package */ String getShippingAddressWarningLabel() {
         return ThreadUtils.runOnUiThreadBlockingNoException(() -> {
             View view = mUI.getShippingAddressSectionForTest().findViewById(
                     R.id.payments_warning_label);
@@ -657,7 +611,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
         });
     }
 
-    protected String getShippingAddressDescriptionLabel() {
+    /* package */ String getShippingAddressDescriptionLabel() {
         return ThreadUtils.runOnUiThreadBlockingNoException(() -> {
             View view = mUI.getShippingAddressSectionForTest().findViewById(
                     R.id.payments_description_label);
@@ -666,16 +620,11 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
         });
     }
 
-    /** Returns the focused view in the card editor view. */
-    protected View getCardEditorFocusedView() {
-        return mUI.getCardEditorDialog().getCurrentFocus();
-    }
-
     /**
      * Clicks on the label corresponding to the shipping address suggestion at the specified
      * |suggestionIndex|.
      */
-    protected void clickOnShippingAddressSuggestionOptionAndWait(
+    /* package */ void clickOnShippingAddressSuggestionOptionAndWait(
             final int suggestionIndex, CallbackHelper helper) throws TimeoutException {
         Assert.assertTrue(suggestionIndex < getNumberOfShippingAddressSuggestions());
 
@@ -692,7 +641,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
      * Clicks on the label corresponding to the payment method suggestion at the specified
      * |suggestionIndex|.
      */
-    protected void clickOnPaymentMethodSuggestionOptionAndWait(
+    /* package */ void clickOnPaymentMethodSuggestionOptionAndWait(
             final int suggestionIndex, CallbackHelper helper) throws TimeoutException {
         Assert.assertTrue(suggestionIndex < getNumberOfPaymentApps());
 
@@ -709,7 +658,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
      * Clicks on the label corresponding to the contact info suggestion at the specified
      * |suggestionIndex|.
      */
-    protected void clickOnContactInfoSuggestionOptionAndWait(
+    /* package */ void clickOnContactInfoSuggestionOptionAndWait(
             final int suggestionIndex, CallbackHelper helper) throws TimeoutException {
         Assert.assertTrue(suggestionIndex < getNumberOfContactDetailSuggestions());
 
@@ -726,7 +675,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
      * Clicks on the edit icon corresponding to the payment method suggestion at the specified
      * |suggestionIndex|.
      */
-    protected void clickOnPaymentMethodSuggestionEditIconAndWait(
+    /* package */ void clickOnPaymentMethodSuggestionEditIconAndWait(
             final int suggestionIndex, CallbackHelper helper) throws TimeoutException {
         Assert.assertTrue(suggestionIndex < getNumberOfPaymentApps());
 
@@ -743,28 +692,28 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
     /**
      * Returns the summary text of the shipping address section.
      */
-    protected String getShippingAddressSummaryLabel() {
+    /* package */ String getShippingAddressSummaryLabel() {
         return getShippingAddressSummary();
     }
 
     /**
      * Returns the summary text of the shipping option section.
      */
-    protected String getShippingOptionSummaryLabel() {
+    /* package */ String getShippingOptionSummaryLabel() {
         return getShippingOptionSummary();
     }
 
     /**
      * Returns the cost text of the shipping option section on the bottom sheet.
      */
-    protected String getShippingOptionCostSummaryLabelOnBottomSheet() {
+    /* package */ String getShippingOptionCostSummaryLabelOnBottomSheet() {
         return getShippingOptionCostSummaryOnBottomSheet();
     }
 
     /**
      * Returns the number of shipping address suggestions.
      */
-    protected int getNumberOfShippingAddressSuggestions() {
+    /* package */ int getNumberOfShippingAddressSuggestions() {
         return ThreadUtils.runOnUiThreadBlockingNoException(
                 ()
                         -> ((OptionSection) mUI.getShippingAddressSectionForTest())
@@ -772,67 +721,21 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
     }
 
     /** Returns the {@link OptionRow} at the given index for the shipping address section. */
-    protected OptionRow getShippingAddressOptionRowAtIndex(final int index) {
+    /* package */ OptionRow getShippingAddressOptionRowAtIndex(final int index) {
         return ThreadUtils.runOnUiThreadBlockingNoException(
                 ()
                         -> ((OptionSection) mUI.getShippingAddressSectionForTest())
                                    .getOptionRowAtIndex(index));
     }
 
-    /** Returns the selected spinner value in the editor UI for credit cards. */
-    protected String getSpinnerSelectionTextInCardEditor(final int dropdownIndex) {
-        return ThreadUtils.runOnUiThreadBlockingNoException(
-                ()
-                        -> mUI.getCardEditorDialog()
-                                   .getDropdownFieldsForTest()
-                                   .get(dropdownIndex)
-                                   .getSelectedItem()
-                                   .toString());
-    }
-
-    /** Returns the spinner value at the specified position in the editor UI for credit cards. */
-    protected String getSpinnerTextAtPositionInCardEditor(
-            final int dropdownIndex, final int itemPosition) {
-        return ThreadUtils.runOnUiThreadBlockingNoException(
-                ()
-                        -> mUI.getCardEditorDialog()
-                                   .getDropdownFieldsForTest()
-                                   .get(dropdownIndex)
-                                   .getItemAtPosition(itemPosition)
-                                   .toString());
-    }
-
-    /** Returns the number of items offered by the spinner in the editor UI for credit cards. */
-    protected int getSpinnerItemCountInCardEditor(final int dropdownIndex) {
-        return ThreadUtils.runOnUiThreadBlockingNoException(
-                ()
-                        -> mUI.getCardEditorDialog()
-                                   .getDropdownFieldsForTest()
-                                   .get(dropdownIndex)
-                                   .getCount());
-    }
-
     /** Returns the error message visible to the user in the credit card unmask prompt. */
-    protected String getUnmaskPromptErrorMessage() {
+    /* package */ String getUnmaskPromptErrorMessage() {
         return mCardUnmaskPrompt.getErrorMessage();
     }
 
-    /** Selects the spinner value in the editor UI for credit cards. */
-    protected void setSpinnerSelectionsInCardEditorAndWait(
-            final int[] selections, CallbackHelper helper) throws TimeoutException {
-        int callCount = helper.getCallCount();
-        ThreadUtils.runOnUiThreadBlocking(() -> {
-            List<Spinner> fields = mUI.getCardEditorDialog().getDropdownFieldsForTest();
-            for (int i = 0; i < selections.length && i < fields.size(); i++) {
-                fields.get(i).setSelection(selections[i]);
-            }
-        });
-        helper.waitForCallback(callCount);
-    }
-
     /** Selects the spinner value in the editor UI. */
-    protected void setSpinnerSelectionInEditorAndWait(final int selection, CallbackHelper helper)
-            throws TimeoutException {
+    /* package */ void setSpinnerSelectionInEditorAndWait(
+            final int selection, CallbackHelper helper) throws TimeoutException {
         int callCount = helper.getCallCount();
         ThreadUtils.runOnUiThreadBlocking(
                 ()
@@ -841,25 +744,8 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
         helper.waitForCallback(callCount);
     }
 
-    /** Directly sets the text in the editor UI for credit cards. */
-    protected void setTextInCardEditorAndWait(final String[] values, CallbackHelper helper)
-            throws TimeoutException {
-        int callCount = helper.getCallCount();
-        ThreadUtils.runOnUiThreadBlocking(() -> {
-            ViewGroup contents = (ViewGroup) mUI.getCardEditorDialog().findViewById(R.id.contents);
-            Assert.assertNotNull(contents);
-            for (int i = 0, j = 0; i < contents.getChildCount() && j < values.length; i++) {
-                View view = contents.getChildAt(i);
-                if (view instanceof EditorTextField) {
-                    ((EditorTextField) view).getEditText().setText(values[j++]);
-                }
-            }
-        });
-        helper.waitForCallback(callCount);
-    }
-
     /** Directly sets the text in the editor UI. */
-    protected void setTextInEditorAndWait(final String[] values, CallbackHelper helper)
+    /* package */ void setTextInEditorAndWait(final String[] values, CallbackHelper helper)
             throws TimeoutException {
         int callCount = helper.getCallCount();
         ThreadUtils.runOnUiThreadBlocking(() -> {
@@ -872,19 +758,8 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
         helper.waitForCallback(callCount);
     }
 
-    /** Directly sets the checkbox selection in the editor UI for credit cards. */
-    protected void selectCheckboxAndWait(final int resourceId, final boolean isChecked,
-            CallbackHelper helper) throws TimeoutException {
-        int callCount = helper.getCallCount();
-        ThreadUtils.runOnUiThreadBlocking(
-                ()
-                        -> ((CheckBox) mUI.getCardEditorDialog().findViewById(resourceId))
-                                   .setChecked(isChecked));
-        helper.waitForCallback(callCount);
-    }
-
     /** Directly sets the text in the card unmask UI. */
-    protected void setTextInCardUnmaskDialogAndWait(final int resourceId, final String input,
+    /* package */ void setTextInCardUnmaskDialogAndWait(final int resourceId, final String input,
             CallbackHelper helper) throws TimeoutException {
         int callCount = helper.getCallCount();
         ThreadUtils.runOnUiThreadBlocking(() -> {
@@ -898,7 +773,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
     }
 
     /** Directly sets the text in the expired card unmask UI. */
-    protected void setTextInExpiredCardUnmaskDialogAndWait(final int[] resourceIds,
+    /* package */ void setTextInExpiredCardUnmaskDialogAndWait(final int[] resourceIds,
             final String[] values, CallbackHelper helper) throws TimeoutException {
         assert resourceIds.length == values.length;
         int callCount = helper.getCallCount();
@@ -929,7 +804,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
     }
 
     /** Verifies the contents of the test webpage. */
-    protected void expectResultContains(final String[] contents) {
+    /* package */ void expectResultContains(final String[] contents) {
         CriteriaHelper.pollInstrumentationThread(() -> {
             try {
                 String result = DOMUtils.getNodeContents(mWebContentsRef.get(), "result");
@@ -947,7 +822,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
     }
 
     /** Will fail if the OptionRow at |index| is not selected in Contact Details.*/
-    protected void expectContactDetailsRowIsSelected(final int index) {
+    /* package */ void expectContactDetailsRowIsSelected(final int index) {
         CriteriaHelper.pollInstrumentationThread(() -> {
             boolean isSelected = ((OptionSection) mUI.getContactDetailsSectionForTest())
                                          .getOptionRowAtIndex(index)
@@ -958,7 +833,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
     }
 
     /** Will fail if the OptionRow at |index| is not selected in Shipping Address section.*/
-    protected void expectShippingAddressRowIsSelected(final int index) {
+    /* package */ void expectShippingAddressRowIsSelected(final int index) {
         CriteriaHelper.pollInstrumentationThread(() -> {
             boolean isSelected = ((OptionSection) mUI.getShippingAddressSectionForTest())
                                          .getOptionRowAtIndex(index)
@@ -969,7 +844,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
     }
 
     /** Will fail if the OptionRow at |index| is not selected in PaymentMethod section.*/
-    protected void expectPaymentMethodRowIsSelected(final int index) {
+    /* package */ void expectPaymentMethodRowIsSelected(final int index) {
         CriteriaHelper.pollInstrumentationThread(() -> {
             boolean isSelected = ((OptionSection) mUI.getPaymentMethodSectionForTest())
                                          .getOptionRowAtIndex(index)
@@ -984,7 +859,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
      *
      * @param abortReason The only bucket in the abort histogram that should have a record.
      */
-    protected void assertOnlySpecificAbortMetricLogged(int abortReason) {
+    /* package */ void assertOnlySpecificAbortMetricLogged(int abortReason) {
         for (int i = 0; i < AbortReason.MAX; ++i) {
             Assert.assertEquals(
                     String.format(Locale.getDefault(), "Found %d instead of %d", i, abortReason),
@@ -1012,12 +887,6 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
                 () -> mUI.getEditorDialog().findViewById(R.id.editor_container));
     }
 
-    /** Allows to skip UI into paymenthandler for"basic-card". */
-    protected void enableSkipUIForBasicCard() {
-        ThreadUtils.runOnUiThreadBlocking(
-                () -> mChromePaymentRequestDelegateImpl.setSkipUiForBasicCard());
-    }
-
     @Override
     public void onPaymentRequestReadyForInput(PaymentRequestUI ui) {
         ThreadUtils.assertOnUiThread();
@@ -1043,6 +912,11 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
     public void onEditorTextUpdate() {
         ThreadUtils.assertOnUiThread();
         mEditorTextUpdate.notifyCalled();
+    }
+
+    @Override
+    public void onEditorConfirmationDialogShown() {
+        // Not used.
     }
 
     @Override
@@ -1169,7 +1043,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
          *
          * @return The UI that is ready for input.
          */
-        public T getTarget() {
+        /* package */ T getTarget() {
             return mTarget;
         }
 
@@ -1178,7 +1052,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
          *
          * @param target The UI that is ready for input.
          */
-        public void notifyCalled(T target) {
+        /* package */ void notifyCalled(T target) {
             ThreadUtils.assertOnUiThread();
             mTarget = target;
             notifyCalled();
@@ -1194,7 +1068,7 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
      */
     /* package */ TestFactory addPaymentAppFactory(
             @AppPresence int appPresence, @FactorySpeed int factorySpeed) {
-        return addPaymentAppFactory("https://bobpay.com", appPresence, factorySpeed);
+        return addPaymentAppFactory("https://bobpay.test", appPresence, factorySpeed);
     }
 
     /**
@@ -1309,26 +1183,17 @@ public class PaymentRequestTestRule extends ChromeTabbedActivityTestRule
         public void dismissInstrument() {}
     }
 
-    public void onMainActivityStarted() throws TimeoutException {
-        if (mCallback != null) {
-            mCallback.onMainActivityStarted();
-        }
-    }
-
     @Override
     public Statement apply(final Statement base, Description description) {
         return super.apply(new Statement() {
             @Override
             public void evaluate() throws Throwable {
-                if (!mDelayStartActivity) startMainActivity();
+                if (!mDelayStartActivity) {
+                    startMainActivityWithURL(mTestFilePath);
+                    setObserversAndWaitForInitialPageLoad();
+                }
                 base.evaluate();
             }
         }, description);
-    }
-
-    /** The interface for being notified of the main activity startup. */
-    public interface MainActivityStartCallback {
-        /** Called when the main activity has started up. */
-        void onMainActivityStarted() throws TimeoutException;
     }
 }

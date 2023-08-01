@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,14 @@
 
 #include <bitset>
 #include <cstddef>
+#include <initializer_list>
 #include <type_traits>
 #include <utility>
 
+#include "base/check.h"
 #include "base/check_op.h"
 #include "base/memory/raw_ptr.h"
+#include "build/build_config.h"
 
 namespace base {
 
@@ -63,7 +66,8 @@ class EnumSet {
   static const size_t kValueCount =
       GetUnderlyingValue(kMaxValue) - GetUnderlyingValue(kMinValue) + 1;
 
-  static_assert(kMinValue < kMaxValue, "min value must be less than max value");
+  static_assert(kMinValue <= kMaxValue,
+                "min value must be no greater than max value");
 
  private:
   // Declaration needed by Iterator.
@@ -147,7 +151,7 @@ class EnumSet {
       return i;
     }
 
-    raw_ptr<const EnumBitSet> enums_;
+    raw_ptr<const EnumBitSet, DanglingUntriaged> enums_;
     size_t i_;
   };
 
@@ -162,22 +166,30 @@ class EnumSet {
     return bitstring << shift_amount;
   }
 
-  template <class... T>
-  static constexpr uint64_t bitstring(T... values) {
-    uint64_t converted[] = {single_val_bitstring(values)...};
+  // TODO(crbug/1444105): This should be private (not needed externally and
+  // dangerous to use).
+  static constexpr uint64_t bitstring(const std::initializer_list<E>& values) {
     uint64_t result = 0;
-    for (uint64_t e : converted)
-      result |= e;
+    for (E value : values) {
+      result |= single_val_bitstring(value);
+    }
     return result;
   }
 
-  template <class... T>
-  constexpr EnumSet(E head, T... tail)
-      : EnumSet(EnumBitSet(bitstring(head, tail...))) {}
+  constexpr EnumSet(std::initializer_list<E> values)
+      : EnumSet(EnumBitSet(bitstring(values))) {}
 
   // Returns an EnumSet with all possible values.
   static constexpr EnumSet All() {
-    return EnumSet(EnumBitSet((1ULL << kValueCount) - 1));
+    if (kValueCount == 0) {
+      return EnumSet();
+    }
+    // Since `1 << kValueCount` may trigger shift-count-overflow warning if
+    // the `kValueCount` is 64, instead of returning `(1 << kValueCount) - 1`,
+    // the bitmask will be constructed from two parts: the most significant bits
+    // and the remaining.
+    uint64_t mask = 1ULL << (kValueCount - 1);
+    return EnumSet(EnumBitSet(mask - 1 + mask));
   }
 
   // Returns an EnumSet with all the values from start to end, inclusive.
@@ -252,6 +264,15 @@ class EnumSet {
   // Removes all values from our set.
   void Clear() { enums_.reset(); }
 
+  // Conditionally puts or removes `value`, based on `should_be_present`.
+  void PutOrRemove(E value, bool should_be_present) {
+    if (should_be_present) {
+      Put(value);
+    } else {
+      Remove(value);
+    }
+  }
+
   // Returns true iff the given value is in range and a member of our set.
   constexpr bool Has(E value) const {
     return InRange(value) && enums_[ToIndex(value)];
@@ -260,6 +281,11 @@ class EnumSet {
   // Returns true iff the given set is a subset of our set.
   bool HasAll(EnumSet other) const {
     return (enums_ & other.enums_) == other.enums_;
+  }
+
+  // Returns true if the given set contains any value of our set.
+  bool HasAny(EnumSet other) const {
+    return (enums_ & other.enums_).count() > 0;
   }
 
   // Returns true iff our set is empty.

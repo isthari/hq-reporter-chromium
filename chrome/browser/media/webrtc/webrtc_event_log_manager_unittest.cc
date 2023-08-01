@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,12 +16,11 @@
 #include <vector>
 
 #include "base/big_endian.h"
-#include "base/bind.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
@@ -29,11 +28,11 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/test/gtest_util.h"
 #include "base/test/scoped_command_line.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/simple_test_clock.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -41,7 +40,6 @@
 #include "chrome/browser/media/webrtc/webrtc_event_log_manager_unittest_helpers.h"
 #include "chrome/browser/policy/profile_policy_connector.h"
 #include "chrome/browser/prefs/browser_prefs.h"
-#include "chrome/browser/supervised_user/supervised_user_constants.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
@@ -49,6 +47,7 @@
 #include "chrome/test/base/testing_profile.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/testing_pref_store.h"
+#include "components/supervised_user/core/common/buildflags.h"
 #include "components/sync_preferences/pref_service_mock_factory.h"
 #include "components/sync_preferences/pref_service_syncable.h"
 #include "content/public/browser/global_routing_id.h"
@@ -198,7 +197,7 @@ class NullWebRtcEventLogUploader : public WebRtcEventLogUploader {
     EXPECT_TRUE(cancellation_expected_);
     was_cancelled_ = true;
     if (callback_) {
-      base::SequencedTaskRunnerHandle::Get()->PostTask(
+      base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE,
           base::BindOnce(std::move(callback_), log_file_.path, false));
     }
@@ -709,7 +708,7 @@ class WebRtcEventLogManagerTestBase : public ::testing::Test {
         is_managed_profile);
     if (is_supervised) {
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS)
-      profile_builder.SetSupervisedUserId(supervised_users::kChildAccountSUID);
+      profile_builder.SetIsSupervisedProfile();
 #endif
     }
     std::unique_ptr<TestingProfile> profile = profile_builder.Build();
@@ -1356,7 +1355,7 @@ class FileListExpectingWebRtcEventLogUploader : public WebRtcEventLogUploader {
                                           bool result,
                                           UploadResultCallback callback)
       : log_file_(log_file) {
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), log_file_.path, result));
   }
 
@@ -2312,7 +2311,7 @@ TEST_F(WebRtcEventLogManagerTest,
   }
 
   // All log files must be created in their own context's directory.
-  for (size_t i = 0; i < base::size(browser_contexts); ++i) {
+  for (size_t i = 0; i < std::size(browser_contexts); ++i) {
     ASSERT_TRUE(file_paths[i]);
     EXPECT_TRUE(browser_contexts[i]->GetPath().IsParent(*file_paths[i]));
   }
@@ -2565,9 +2564,9 @@ TEST_F(WebRtcEventLogManagerTest,
 
 TEST_F(WebRtcEventLogManagerTest, DifferentRemoteLogsMayHaveDifferentMaximums) {
   const std::string logs[2] = {"abra", "cadabra"};
-  std::vector<absl::optional<base::FilePath>> file_paths(base::size(logs));
+  std::vector<absl::optional<base::FilePath>> file_paths(std::size(logs));
   std::vector<PeerConnectionKey> keys;
-  for (size_t i = 0; i < base::size(logs); ++i) {
+  for (size_t i = 0; i < std::size(logs); ++i) {
     keys.push_back(GetPeerConnectionKey(rph_.get(), i));
     ON_CALL(remote_observer_, OnRemoteLogStarted(keys[i], _, _))
         .WillByDefault(Invoke(SaveFilePathTo(&file_paths[i])));
@@ -2879,7 +2878,7 @@ TEST_F(WebRtcEventLogManagerTest,
 
   base::FilePath::StringPieceType extensions[] = {
       kWebRtcEventLogUncompressedExtension, kWebRtcEventLogGzippedExtension};
-  ASSERT_LE(base::size(extensions), kMaxPendingRemoteBoundWebRtcEventLogs)
+  ASSERT_LE(std::size(extensions), kMaxPendingRemoteBoundWebRtcEventLogs)
       << "Lacking test coverage.";
 
   // Avoid arbitrary ordering due to files being created in the same second.
@@ -2892,7 +2891,7 @@ TEST_F(WebRtcEventLogManagerTest,
     time += base::Seconds(1);
 
     const auto& extension = extensions[ext];
-    ext = (ext + 1) % base::size(extensions);
+    ext = (ext + 1) % std::size(extensions);
 
     base::FilePath file_path;
     base::File file;
@@ -4009,18 +4008,17 @@ std::unique_ptr<user_manager::ScopedUserManager>
 WebRtcEventLogManagerTestPolicy::GetScopedUserManager(
     user_manager::UserType user_type) {
   const AccountId kAccountId = AccountId::FromUserEmailGaiaId("name", "id");
-  auto mock_user_manager =
-      std::make_unique<testing::NiceMock<ash::FakeChromeUserManager>>();
+  auto fake_user_manager = std::make_unique<ash::FakeChromeUserManager>();
   // On Chrome OS, there are different user types, some of which can be
   // affiliated with the device if the device is enterprise-enrolled, i.e. the
   // logged in account belongs to the org that owns the device. For our
   // purposes here, affiliation does not matter for the determination of the
   // policy default, so we can set it to false here. We do not need a user
   // to profile mapping either, so profile can be a nullptr.
-  mock_user_manager->AddUserWithAffiliationAndTypeAndProfile(
+  fake_user_manager->AddUserWithAffiliationAndTypeAndProfile(
       kAccountId, /*is_affiliated*/ false, user_type, /*profile*/ nullptr);
   return std::make_unique<user_manager::ScopedUserManager>(
-      std::move(mock_user_manager));
+      std::move(fake_user_manager));
 }
 #endif
 

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,15 +6,18 @@
 
 #import <MediaPlayer/MediaPlayer.h>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/mac/mac_util.h"
 #include "base/notreached.h"
 #include "base/strings/sys_string_conversions.h"
 #include "components/system_media_controls/mac/now_playing_info_center_delegate_cocoa.h"
 #include "skia/ext/skia_utils_mac.h"
 
-namespace system_media_controls {
-namespace internal {
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
+
+namespace system_media_controls::internal {
 
 namespace {
 
@@ -37,8 +40,8 @@ MPNowPlayingPlaybackState PlaybackStatusToMPNowPlayingPlaybackState(
 }  // anonymous namespace
 
 NowPlayingInfoCenterDelegate::NowPlayingInfoCenterDelegate() {
-  now_playing_info_center_delegate_cocoa_.reset(
-      [[NowPlayingInfoCenterDelegateCocoa alloc] init]);
+  now_playing_info_center_delegate_cocoa_ =
+      [[NowPlayingInfoCenterDelegateCocoa alloc] init];
 }
 
 NowPlayingInfoCenterDelegate::~NowPlayingInfoCenterDelegate() {
@@ -106,21 +109,19 @@ void NowPlayingInfoCenterDelegate::UpdatePlaybackStatusAndPosition() {
       setCurrentPlaybackDate:
           [NSDate dateWithTimeIntervalSince1970:time_since_epoch.InSecondsF()]];
   [now_playing_info_center_delegate_cocoa_
-      setDuration:[NSNumber numberWithFloat:position.duration().InSecondsF()]];
+      setDuration:@(position.duration().InSecondsF())];
 
   // If we're not currently playing, then set the rate to zero.
   double rate =
       (playback_status == SystemMediaControls::PlaybackStatus::kPlaying)
           ? position.playback_rate()
           : 0;
+  [now_playing_info_center_delegate_cocoa_ setPlaybackRate:@(rate)];
   [now_playing_info_center_delegate_cocoa_
-      setPlaybackRate:[NSNumber numberWithDouble:rate]];
-  [now_playing_info_center_delegate_cocoa_
-      setElapsedPlaybackTime:
-          [NSNumber numberWithFloat:position
-                                        .GetPositionAtTime(
-                                            position.last_updated_time())
-                                        .InSecondsF()]];
+      setElapsedPlaybackTime:@(position
+                                   .GetPositionAtTime(
+                                       position.last_updated_time())
+                                   .InSecondsF())];
 
   [now_playing_info_center_delegate_cocoa_ updateNowPlayingInfo];
 }
@@ -132,5 +133,4 @@ void NowPlayingInfoCenterDelegate::ClearMetadata() {
   timer_->Stop();
 }
 
-}  // namespace internal
-}  // namespace system_media_controls
+}  // namespace system_media_controls::internal

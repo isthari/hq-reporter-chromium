@@ -40,20 +40,16 @@ class CORE_EXPORT HTMLFieldSetElement final : public HTMLFormControlElement {
   HTMLLegendElement* Legend() const;
   HTMLCollection* elements();
 
-  // Reattach layout tree for all children but not the element itself. This is
-  // only used for reattaching fieldset children when the fieldset is a query
-  // container for size container queries.
-  void ReattachLayoutTreeChildren() {
-    Element::ReattachLayoutTreeChildren(base::PassKey<HTMLFieldSetElement>());
-  }
+  bool IsDisabledFormControl() const override;
 
  protected:
   void DisabledAttributeChanged() override;
+  void AncestorDisabledStateWasChanged() override;
 
  private:
   bool IsEnumeratable() const override { return true; }
   bool SupportsFocus() const override;
-  LayoutObject* CreateLayoutObject(const ComputedStyle&, LegacyLayout) override;
+  LayoutObject* CreateLayoutObject(const ComputedStyle&) override;
   LayoutBox* GetLayoutBoxForScrolling() const override;
   void DidRecalcStyle(const StyleRecalcChange change) override;
   const AtomicString& FormControlType() const override;

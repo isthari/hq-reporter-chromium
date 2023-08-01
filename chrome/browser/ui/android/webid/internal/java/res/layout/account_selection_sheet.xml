@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Copyright 2021 The Chromium Authors. All rights reserved.
-     Use of this source code is governed by a BSD-style license that can be
-     found in the LICENSE file. -->
+<!--
+Copyright 2021 The Chromium Authors
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
 
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
@@ -9,17 +11,28 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_height="match_parent"
     android:layout_width="match_parent"
+    android:paddingBottom="8dp"
     android:orientation="vertical">
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/sheet_item_list"
+    <include layout="@layout/account_selection_header_item"
+        android:id="@+id/header_view_item" />
+    <FrameLayout
+        android:id="@+id/sheet_item_list_container"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:layout_marginEnd="@dimen/account_selection_sheet_horizontal_margin"
-        android:layout_marginStart="@dimen/account_selection_sheet_horizontal_margin"
-        android:clipToPadding="false"
-        android:paddingBottom="@dimen/account_selection_sheet_item_padding_bottom"
-        android:divider="@null"
-        tools:listitem="@layout/account_selection_account_item"/>
+        android:layout_height="match_parent">
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/sheet_item_list"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:clipToPadding="false"
+            android:divider="@null"
+            tools:listitem="@layout/account_selection_account_item"/>
+      </FrameLayout>
+
+    <include layout="@layout/account_selection_continue_button"
+        android:id="@+id/account_selection_continue_btn"
+        android:visibility="gone"/>
+    <include layout="@layout/account_selection_data_sharing_consent_item"
+        android:id="@+id/user_data_sharing_consent"
+        android:visibility="gone"/>
 </LinearLayout>

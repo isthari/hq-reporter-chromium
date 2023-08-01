@@ -1,16 +1,18 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/global_media_controls/media_toolbar_button_view.h"
 
 #include "base/feature_list.h"
+#include "base/observer_list.h"
 #include "base/strings/pattern.h"
 #include "build/build_config.h"
 #include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/feature_engagement/tracker_factory.h"
 #include "chrome/browser/language/language_model_manager_factory.h"
 #include "chrome/browser/media/router/media_router_feature.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_element_identifiers.h"
@@ -26,12 +28,14 @@
 #include "components/feature_engagement/public/tracker.h"
 #include "components/language/core/browser/language_model.h"
 #include "components/language/core/browser/language_model_manager.h"
+#include "components/live_caption/caption_util.h"
 #include "components/vector_icons/vector_icons.h"
 #include "media/base/media_switches.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/pointer/touch_ui_controller.h"
 #include "ui/base/theme_provider.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/native_theme/native_theme.h"
 #include "ui/views/accessibility/view_accessibility.h"
@@ -54,7 +58,10 @@ MediaToolbarButtonView::MediaToolbarButtonView(
   button_controller()->set_notify_action(
       views::ButtonController::NotifyAction::kOnPress);
   SetFlipCanvasOnPaintForRTLUI(false);
-  SetVectorIcons(kMediaToolbarButtonIcon, kMediaToolbarButtonTouchIcon);
+  SetVectorIcons(features::IsChromeRefresh2023()
+                     ? kMediaToolbarButtonChromeRefreshIcon
+                     : kMediaToolbarButtonIcon,
+                 kMediaToolbarButtonTouchIcon);
   SetTooltipText(
       l10n_util::GetStringUTF16(IDS_GLOBAL_MEDIA_CONTROLS_ICON_TOOLTIP_TEXT));
   GetViewAccessibility().OverrideHasPopup(ax::mojom::HasPopup::kDialog);
@@ -108,7 +115,7 @@ void MediaToolbarButtonView::Enable() {
   // before there is a valid widget to anchor anything to. Previously any
   // attempt to display an IPH at this point would have simply failed, so this
   // is not a behavioral change (see crbug.com/1291170).
-  if (browser_->window() && media::IsLiveCaptionFeatureEnabled()) {
+  if (browser_->window() && captions::IsLiveCaptionFeatureSupported()) {
     // Live Caption multi language is only enabled when SODA is also enabled.
     if (base::FeatureList::IsEnabled(media::kLiveCaptionMultiLanguage)) {
       browser_->window()->MaybeShowFeaturePromo(

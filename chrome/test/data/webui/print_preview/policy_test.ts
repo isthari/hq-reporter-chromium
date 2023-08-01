@@ -1,18 +1,17 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import {BackgroundGraphicsModeRestriction, CrButtonElement, CrCheckboxElement, NativeInitialSettings, NativeLayerImpl, PluginProxyImpl, PolicyObjectEntry, PrintPreviewAppElement, PrintPreviewPluralStringProxyImpl, SerializedSettings} from 'chrome://print/print_preview.js';
-// <if expr="chromeos_ash or chromeos_lacros">
+// <if expr="is_chromeos">
 import {ColorModeRestriction, DuplexMode, DuplexModeRestriction, PinModeRestriction} from 'chrome://print/print_preview.js';
 // </if>
 
-import {assert} from 'chrome://resources/js/assert.m.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {assertEquals, assertFalse} from 'chrome://webui-test/chai_assert.js';
 import {TestPluralStringProxy} from 'chrome://webui-test/test_plural_string_proxy.js';
 
-// <if expr="chromeos_ash or chromeos_lacros">
+// <if expr="is_chromeos">
 import {setNativeLayerCrosInstance} from './native_layer_cros_stub.js';
 // </if>
 
@@ -32,21 +31,23 @@ const policy_tests = {
     DuplexPolicy: 'duplex policy',
     PinPolicy: 'pin policy',
     PrintPdfAsImageAvailability: 'print as image available for PDF policy',
-    PrintPdfAsImageDefault: 'print as image option default for PDF policy'
+    PrintPdfAsImageDefault: 'print as image option default for PDF policy',
   },
 };
 
 Object.assign(window, {policy_tests: policy_tests});
 
-type AllowedDefaultModePolicySetup = {
-  settingName: string,
-  serializedSettingName?: string, allowedMode: any, defaultMode: any,
-};
+interface AllowedDefaultModePolicySetup {
+  settingName: string;
+  serializedSettingName?: string;
+  allowedMode: any;
+  defaultMode: any;
+}
 
 class PolicyTestPluralStringProxy extends TestPluralStringProxy {
-  text: string = '';
+  override text: string = '';
 
-  getPluralString(messageName: string, itemCount: number) {
+  override getPluralString(messageName: string, itemCount: number) {
     if (messageName === 'sheetsLimitErrorMessage') {
       this.methodCalled('getPluralString', {messageName, itemCount});
     }
@@ -63,14 +64,14 @@ suite(policy_tests.suiteName, function() {
    */
   function loadInitialSettings(initialSettings: NativeInitialSettings):
       Promise<void> {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     const nativeLayer = new NativeLayerStub();
     nativeLayer.setInitialSettings(initialSettings);
     nativeLayer.setLocalDestinations(
         [{deviceName: initialSettings.printerName, printerName: 'FooName'}]);
     nativeLayer.setPageCount(3);
     NativeLayerImpl.setInstance(nativeLayer);
-    // <if expr="chromeos_ash or chromeos_lacros">
+    // <if expr="is_chromeos">
     setNativeLayerCrosInstance();
     // </if>
     const pluginProxy = new TestPluginProxy();
@@ -83,7 +84,7 @@ suite(policy_tests.suiteName, function() {
     return Promise
         .all([
           nativeLayer.whenCalled('getInitialSettings'),
-          nativeLayer.whenCalled('getPrinterCapabilities')
+          nativeLayer.whenCalled('getPrinterCapabilities'),
         ])
         .then(function() {
           flush();
@@ -163,7 +164,7 @@ suite(policy_tests.suiteName, function() {
   }
 
   // Tests different scenarios of applying header/footer policy.
-  test(assert(policy_tests.TestNames.HeaderFooterPolicy), async () => {
+  test(policy_tests.TestNames.HeaderFooterPolicy, async () => {
     const tests = [
       {
         // No policies.
@@ -199,14 +200,14 @@ suite(policy_tests.suiteName, function() {
         defaultMode: false,
         expectedDisabled: false,
         expectedChecked: false,
-      }
+      },
     ];
     for (const subtestParams of tests) {
       await doAllowedDefaultModePoliciesSetup([{
         settingName: 'headerFooter',
         serializedSettingName: 'isHeaderFooterEnabled',
         allowedMode: subtestParams.allowedMode,
-        defaultMode: subtestParams.defaultMode
+        defaultMode: subtestParams.defaultMode,
       }]);
       toggleMoreSettings();
       const checkbox = getCheckbox('headerFooter');
@@ -216,7 +217,7 @@ suite(policy_tests.suiteName, function() {
   });
 
   // Tests different scenarios of applying background graphics policy.
-  test(assert(policy_tests.TestNames.CssBackgroundPolicy), async () => {
+  test(policy_tests.TestNames.CssBackgroundPolicy, async () => {
     const tests = [
       {
         // No policies.
@@ -254,14 +255,14 @@ suite(policy_tests.suiteName, function() {
         defaultMode: BackgroundGraphicsModeRestriction.DISABLED,
         expectedDisabled: false,
         expectedChecked: false,
-      }
+      },
     ];
     for (const subtestParams of tests) {
       await doAllowedDefaultModePoliciesSetup([{
         settingName: 'cssBackground',
         serializedSettingName: 'isCssBackgroundEnabled',
         allowedMode: subtestParams.allowedMode,
-        defaultMode: subtestParams.defaultMode
+        defaultMode: subtestParams.defaultMode,
       }]);
       toggleMoreSettings();
       const checkbox = getCheckbox('cssBackground');
@@ -271,7 +272,7 @@ suite(policy_tests.suiteName, function() {
   });
 
   // Tests different scenarios of applying default paper policy.
-  test(assert(policy_tests.TestNames.MediaSizePolicy), async () => {
+  test(policy_tests.TestNames.MediaSizePolicy, async () => {
     const tests = [
       {
         // No policies.
@@ -287,14 +288,14 @@ suite(policy_tests.suiteName, function() {
         // Change default paper size setting.
         defaultMode: {width: 215900, height: 215900},
         expectedName: 'CUSTOM',
-      }
+      },
     ];
     for (const subtestParams of tests) {
       await doAllowedDefaultModePoliciesSetup([{
         settingName: 'mediaSize',
         serializedSettingName: undefined,
         allowedMode: undefined,
-        defaultMode: subtestParams.defaultMode
+        defaultMode: subtestParams.defaultMode,
       }]);
       toggleMoreSettings();
       const mediaSettingsSelect =
@@ -308,7 +309,7 @@ suite(policy_tests.suiteName, function() {
     }
   });
 
-  test(assert(policy_tests.TestNames.SheetsPolicy), async () => {
+  test(policy_tests.TestNames.SheetsPolicy, async () => {
     const pluralString = new PolicyTestPluralStringProxy();
     PrintPreviewPluralStringProxyImpl.setInstance(pluralString);
     pluralString.text = 'Exceeds limit of 1 sheet of paper';
@@ -353,7 +354,7 @@ suite(policy_tests.suiteName, function() {
         expectedDisabled: true,
         expectedHidden: false,
         expectedNonEmptyErrorMessage: true,
-      }
+      },
     ];
     for (const subtestParams of tests) {
       await doValuePolicySetup('sheets', subtestParams.maxSheets);
@@ -380,9 +381,9 @@ suite(policy_tests.suiteName, function() {
     }
   });
 
-  // <if expr="chromeos_ash or chromeos_lacros">
+  // <if expr="is_chromeos">
   // Tests different scenarios of color printing policy.
-  test(assert(policy_tests.TestNames.ColorPolicy), async () => {
+  test(policy_tests.TestNames.ColorPolicy, async () => {
     const tests = [
       {
         // No policies.
@@ -446,7 +447,7 @@ suite(policy_tests.suiteName, function() {
         settingName: 'color',
         serializedSettingName: 'isColorEnabled',
         allowedMode: subtestParams.allowedMode,
-        defaultMode: subtestParams.defaultMode
+        defaultMode: subtestParams.defaultMode,
       }]);
       const colorSettingsSelect =
           page.shadowRoot!.querySelector('print-preview-sidebar')!.shadowRoot!
@@ -459,12 +460,12 @@ suite(policy_tests.suiteName, function() {
   });
 
   // Tests different scenarios of duplex printing policy.
-  test(assert(policy_tests.TestNames.DuplexPolicy), async () => {
+  test(policy_tests.TestNames.DuplexPolicy, async () => {
     const tests = [
       {
         // No policies.
-        allowedMode: undefined,
-        defaultMode: undefined,
+        allowedMode: DuplexModeRestriction.UNSET,
+        defaultMode: DuplexModeRestriction.UNSET,
         expectedChecked: false,
         expectedOpened: false,
         expectedDisabled: false,
@@ -472,7 +473,7 @@ suite(policy_tests.suiteName, function() {
       },
       {
         // No restriction, default set to SIMPLEX.
-        allowedMode: undefined,
+        allowedMode: DuplexModeRestriction.UNSET,
         defaultMode: DuplexModeRestriction.SIMPLEX,
         expectedChecked: false,
         expectedOpened: false,
@@ -480,26 +481,8 @@ suite(policy_tests.suiteName, function() {
         expectedValue: DuplexMode.LONG_EDGE,
       },
       {
-        // No restriction, default set to UNSET.
-        allowedMode: undefined,
-        defaultMode: DuplexModeRestriction.UNSET,
-        expectedChecked: true,
-        expectedOpened: true,
-        expectedDisabled: false,
-        expectedValue: DuplexMode.LONG_EDGE,
-      },
-      {
-        // Allowed mode set to UNSET.
-        allowedMode: DuplexModeRestriction.UNSET,
-        defaultMode: undefined,
-        expectedChecked: false,
-        expectedOpened: false,
-        expectedDisabled: false,
-        expectedValue: DuplexMode.LONG_EDGE,
-      },
-      {
         // No restriction, default set to LONG_EDGE.
-        allowedMode: undefined,
+        allowedMode: DuplexModeRestriction.UNSET,
         defaultMode: DuplexModeRestriction.LONG_EDGE,
         expectedChecked: true,
         expectedOpened: true,
@@ -508,7 +491,7 @@ suite(policy_tests.suiteName, function() {
       },
       {
         // No restriction, default set to SHORT_EDGE.
-        allowedMode: undefined,
+        allowedMode: DuplexModeRestriction.UNSET,
         defaultMode: DuplexModeRestriction.SHORT_EDGE,
         expectedChecked: true,
         expectedOpened: true,
@@ -516,58 +499,58 @@ suite(policy_tests.suiteName, function() {
         expectedValue: DuplexMode.SHORT_EDGE,
       },
       {
-        // No restriction, default set to DUPLEX.
-        allowedMode: undefined,
-        defaultMode: DuplexModeRestriction.DUPLEX,
-        expectedChecked: true,
-        expectedOpened: true,
-        expectedDisabled: false,
-        expectedValue: DuplexMode.LONG_EDGE,
-      },
-      {
-        // No restriction, default set to SHORT_EDGE.
+        // Restricted to SIMPLEX.
         allowedMode: DuplexModeRestriction.SIMPLEX,
-        defaultMode: undefined,
+        defaultMode: DuplexModeRestriction.UNSET,
         expectedChecked: false,
         expectedOpened: false,
         expectedDisabled: false,
         expectedValue: DuplexMode.LONG_EDGE,
       },
       {
-        // Restricted to LONG_EDGE.
-        allowedMode: DuplexModeRestriction.LONG_EDGE,
-        defaultMode: undefined,
-        expectedChecked: true,
-        expectedOpened: true,
-        expectedDisabled: true,
-        expectedValue: DuplexMode.LONG_EDGE,
-      },
-      {
-        // Restricted to SHORT_EDGE.
-        allowedMode: DuplexModeRestriction.SHORT_EDGE,
-        defaultMode: undefined,
-        expectedChecked: true,
-        expectedOpened: true,
-        expectedDisabled: true,
-        expectedValue: DuplexMode.SHORT_EDGE,
-      },
-      {
         // Restricted to DUPLEX.
         allowedMode: DuplexModeRestriction.DUPLEX,
-        defaultMode: undefined,
+        defaultMode: DuplexModeRestriction.UNSET,
         expectedChecked: true,
         expectedOpened: true,
         expectedDisabled: false,
         expectedValue: DuplexMode.LONG_EDGE,
       },
       {
-        // Restricted to SHORT_EDGE, default is ignored.
-        allowedMode: DuplexModeRestriction.SHORT_EDGE,
+        // Restricted to DUPLEX, default set to SHORT_EDGE.
+        allowedMode: DuplexModeRestriction.DUPLEX,
+        defaultMode: DuplexModeRestriction.SHORT_EDGE,
+        expectedChecked: true,
+        expectedOpened: true,
+        expectedDisabled: false,
+        expectedValue: DuplexMode.SHORT_EDGE,
+      },
+      {
+        // Restricted to DUPLEX, default set to SHORT_EDGE.
+        allowedMode: DuplexModeRestriction.DUPLEX,
         defaultMode: DuplexModeRestriction.LONG_EDGE,
         expectedChecked: true,
         expectedOpened: true,
-        expectedDisabled: true,
-        expectedValue: DuplexMode.SHORT_EDGE,
+        expectedDisabled: false,
+        expectedValue: DuplexMode.LONG_EDGE,
+      },
+      {
+        // Restricted to DUPLEX, default is ignored.
+        allowedMode: DuplexModeRestriction.DUPLEX,
+        defaultMode: DuplexModeRestriction.SIMPLEX,
+        expectedChecked: true,
+        expectedOpened: true,
+        expectedDisabled: false,
+        expectedValue: DuplexMode.LONG_EDGE,
+      },
+      {
+        // Restricted to SIMPLEX, default is ignored.
+        allowedMode: DuplexModeRestriction.SIMPLEX,
+        defaultMode: DuplexModeRestriction.LONG_EDGE,
+        expectedChecked: false,
+        expectedOpened: false,
+        expectedDisabled: false,
+        expectedValue: DuplexMode.LONG_EDGE,
       },
     ];
     for (const subtestParams of tests) {
@@ -575,7 +558,7 @@ suite(policy_tests.suiteName, function() {
         settingName: 'duplex',
         serializedSettingName: 'isDuplexEnabled',
         allowedMode: subtestParams.allowedMode,
-        defaultMode: subtestParams.defaultMode
+        defaultMode: subtestParams.defaultMode,
       }]);
       toggleMoreSettings();
       const duplexSettingsSection =
@@ -595,7 +578,7 @@ suite(policy_tests.suiteName, function() {
   });
 
   // Tests different scenarios of pin printing policy.
-  test(assert(policy_tests.TestNames.PinPolicy), async () => {
+  test(policy_tests.TestNames.PinPolicy, async () => {
     const tests = [
       {
         // No policies.
@@ -713,7 +696,7 @@ suite(policy_tests.suiteName, function() {
   // Tests different scenarios of PDF print as image option policy.
   // Should be available only for PDF when the policy explicitly allows print
   // as image, and hidden the rest of the cases.
-  test(assert(policy_tests.TestNames.PrintPdfAsImageAvailability), async () => {
+  test(policy_tests.TestNames.PrintPdfAsImageAvailability, async () => {
     const tests = [
       {
         // No policies with modifiable content.
@@ -758,7 +741,7 @@ suite(policy_tests.suiteName, function() {
             settingName: 'printPdfAsImageAvailability',
             serializedSettingName: 'isRasterizeEnabled',
             allowedMode: subtestParams.allowedMode,
-            defaultMode: undefined
+            defaultMode: undefined,
           }],
           /*isPdf=*/ subtestParams.isPdf);
       toggleMoreSettings();
@@ -775,9 +758,9 @@ suite(policy_tests.suiteName, function() {
   // The policy controls if it defaults to set.Test behavior varies by platform
   // since the option's availability is policy controlled for Windows and macOS
   // but is always available for Linux and ChromeOS.
-  test(assert(policy_tests.TestNames.PrintPdfAsImageDefault), async () => {
+  test(policy_tests.TestNames.PrintPdfAsImageDefault, async () => {
     const tests = [
-      // <if expr="is_linux or chromeos">
+      // <if expr="is_linux or chromeos_ash or chromeos_lacros">
       {
         // `availableAllowedMode` is irrelevant, option is always present.
         // No policy for default of "Print as image" option.
@@ -836,7 +819,7 @@ suite(policy_tests.suiteName, function() {
               serializedSettingName: undefined,
               allowedMode: undefined,
               defaultMode: subtestParams.selectedDefaultMode,
-            }
+            },
           ],
           /*isPdf=*/ true);
       toggleMoreSettings();

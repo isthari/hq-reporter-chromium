@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 
 #include <set>
 
+#include "base/apple/bridging.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/mac/foundation_util.h"
@@ -17,12 +18,16 @@
 #include "chrome/common/mac/app_mode_common.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
+
 namespace app_mode {
 
 namespace {
 
 struct PathAndStructure {
-  NSString* framework_dylib_path;  // weak
+  NSString* __strong framework_dylib_path;
   bool is_new_app_structure;
 };
 
@@ -37,8 +42,9 @@ absl::optional<PathAndStructure> GetFrameworkDylibPathAndStructure(
     @"Versions", version, @(chrome::kFrameworkExecutableName)
   ]];
 
-  if ([[NSFileManager defaultManager] fileExistsAtPath:path])
+  if ([NSFileManager.defaultManager fileExistsAtPath:path]) {
     return PathAndStructure{path, true};
+  }
 
   // OLD STYLE:
   // Chromium.app/Contents/Versions/<version>/Chromium Framework.framework/
@@ -48,8 +54,9 @@ absl::optional<PathAndStructure> GetFrameworkDylibPathAndStructure(
     @"Versions", @"A", @(chrome::kFrameworkExecutableName)
   ]];
 
-  if ([[NSFileManager defaultManager] fileExistsAtPath:path])
+  if ([NSFileManager.defaultManager fileExistsAtPath:path]) {
     return PathAndStructure{path, false};
+  }
 
   return absl::nullopt;
 }
@@ -64,7 +71,7 @@ bool IsPathValidForBundle(const base::FilePath& bundle_path,
 
   NSString* ns_bundle_path = base::SysUTF8ToNSString(bundle_path.value());
   NSBundle* bundle = [NSBundle bundleWithPath:ns_bundle_path];
-  if (!bundle || ![bundle_id isEqualToString:[bundle bundleIdentifier]]) {
+  if (!bundle || ![bundle_id isEqualToString:bundle.bundleIdentifier]) {
     return false;
   }
 
@@ -77,13 +84,10 @@ bool FindChromeBundle(NSString* bundle_id, base::FilePath* out_bundle) {
   // Retrieve the last-run Chrome bundle location.
   base::FilePath last_run_bundle_path;
   {
-    using base::mac::CFToNSCast;
-    using base::mac::CFCastStrict;
-    using base::mac::NSToCFCast;
-    NSString* cr_bundle_path_ns =
-        [CFToNSCast(CFCastStrict<CFStringRef>(CFPreferencesCopyAppValue(
-            NSToCFCast(app_mode::kLastRunAppBundlePathPrefsKey),
-            NSToCFCast(bundle_id)))) autorelease];
+    NSString* cr_bundle_path_ns = base::apple::CFToNSOwnershipCast(
+        base::mac::CFCastStrict<CFStringRef>(CFPreferencesCopyAppValue(
+            base::apple::NSToCFPtrCast(app_mode::kLastRunAppBundlePathPrefsKey),
+            base::apple::NSToCFPtrCast(bundle_id))));
     last_run_bundle_path = base::mac::NSStringToFilePath(cr_bundle_path_ns);
   }
 
@@ -97,7 +101,7 @@ bool FindChromeBundle(NSString* bundle_id, base::FilePath* out_bundle) {
         runningApplicationsWithBundleIdentifier:bundle_id];
     for (NSRunningApplication* running_application : running_applications) {
       base::FilePath bundle_path =
-          base::mac::NSURLToFilePath([running_application bundleURL]);
+          base::mac::NSURLToFilePath(running_application.bundleURL);
       DCHECK(!bundle_path.empty());
       running_bundle_paths.insert(bundle_path);
     }
@@ -126,14 +130,12 @@ bool FindChromeBundle(NSString* bundle_id, base::FilePath* out_bundle) {
   // Finally, search the filesystem for a bundle. If several copies of the
   // bundle are present, this will select one arbitrarily.
   {
-    // Note that IsPathValidForBundle is guaranteed to be true for
-    // `bundle_path` because absolutePathForAppBundleWithIdentifier returned
-    // it.
-    NSWorkspace* ws = [NSWorkspace sharedWorkspace];
-    NSString* bundle_path =
-        [ws absolutePathForAppBundleWithIdentifier:bundle_id];
-    if (bundle_path) {
-      *out_bundle = base::mac::NSStringToFilePath(bundle_path);
+    // Note that `IsPathValidForBundle` is guaranteed to be true for
+    // `bundle_path` because URLForApplicationWithBundleIdentifier returned it.
+    NSURL* url = [NSWorkspace.sharedWorkspace
+        URLForApplicationWithBundleIdentifier:bundle_id];
+    if (url) {
+      *out_bundle = base::mac::NSURLToFilePath(url);
       return true;
     }
   }
@@ -194,7 +196,7 @@ bool GetChromeBundleInfo(const base::FilePath& chrome_bundle,
 
   // A few sanity checks.
   BOOL is_directory;
-  BOOL exists = [[NSFileManager defaultManager]
+  BOOL exists = [NSFileManager.defaultManager
       fileExistsAtPath:framework_path_and_structure->framework_dylib_path
            isDirectory:&is_directory];
   if (!exists || is_directory)
@@ -219,7 +221,7 @@ bool GetChromeBundleInfo(const base::FilePath& chrome_bundle,
   }
 
   // Everything is OK; copy the output parameters.
-  *executable_path = base::mac::NSStringToFilePath([cr_bundle executablePath]);
+  *executable_path = base::mac::NSStringToFilePath(cr_bundle.executablePath);
   *framework_path = base::mac::NSStringToFilePath(cr_framework_path);
   *framework_dylib_path = base::mac::NSStringToFilePath(
       framework_path_and_structure->framework_dylib_path);

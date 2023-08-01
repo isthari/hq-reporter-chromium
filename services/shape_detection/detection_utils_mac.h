@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,27 +8,28 @@
 #import <CoreImage/CoreImage.h>
 #import <Foundation/Foundation.h>
 #import <Vision/Vision.h>
-#include <os/availability.h>
 
 #include <memory>
 
-#include "base/callback.h"
-#include "base/mac/scoped_nsobject.h"
+#include "base/functional/callback.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/geometry/rect_f.h"
 
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
+
 namespace shape_detection {
 
-// Takes a ScopedSharedBufferHandle with dimensions and produces a new CIImage
-// with the same contents, or a null scoped_nsobject is something goes wrong.
-base::scoped_nsobject<CIImage> CreateCIImageFromSkBitmap(
-    const SkBitmap& bitmap);
+// Takes a ScopedSharedBufferHandle with dimensions and returns a new CIImage
+// with the same contents, or nil if something goes wrong.
+CIImage* CIImageFromSkBitmap(const SkBitmap& bitmap);
 
 gfx::RectF ConvertCGToGfxCoordinates(CGRect bounds, int height);
 
 // This class submits an image analysis request for asynchronous execution on a
 // dispatch queue with default priority.
-class API_AVAILABLE(macos(10.13)) VisionAPIAsyncRequestMac {
+class VisionAPIAsyncRequestMac {
  public:
   // A callback run when the asynchronous execution completes. The callback is
   // repeating for the instance.
@@ -57,7 +58,7 @@ class API_AVAILABLE(macos(10.13)) VisionAPIAsyncRequestMac {
                            Class request_class,
                            NSArray<VNBarcodeSymbology>* symbology_hints);
 
-  base::scoped_nsobject<VNRequest> request_;
+  VNRequest* __strong request_;
   const Callback callback_;
 };
 

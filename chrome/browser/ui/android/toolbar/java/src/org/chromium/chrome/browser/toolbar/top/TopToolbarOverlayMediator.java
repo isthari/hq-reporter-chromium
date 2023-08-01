@@ -1,10 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.toolbar.top;
 
 import android.content.Context;
+import android.view.View;
 
 import androidx.annotation.ColorInt;
 import androidx.annotation.VisibleForTesting;
@@ -13,7 +14,6 @@ import org.chromium.base.Callback;
 import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.chrome.browser.browser_controls.BrowserControlsStateProvider;
 import org.chromium.chrome.browser.browser_controls.BrowserControlsUtils;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.layouts.LayoutStateProvider;
 import org.chromium.chrome.browser.layouts.LayoutStateProvider.LayoutStateObserver;
 import org.chromium.chrome.browser.layouts.LayoutType;
@@ -22,6 +22,7 @@ import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.theme.ThemeUtils;
 import org.chromium.chrome.browser.theme.TopUiThemeColorProvider;
+import org.chromium.chrome.browser.toolbar.ToolbarFeatures;
 import org.chromium.components.browser_ui.widget.ClipDrawableProgressBar;
 import org.chromium.ui.base.DeviceFormFactor;
 import org.chromium.ui.modelutil.PropertyModel;
@@ -63,7 +64,10 @@ public class TopToolbarOverlayMediator {
     private boolean mIsVisibilityManuallyControlled;
 
     /** Whether the android view for this overlay is visible. */
-    private boolean mIsAndroidViewVisible;
+    private boolean mIsToolbarAndroidViewVisible;
+
+    /** Whether the parent of the view for this overlay is visible. */
+    private boolean mIsBrowserControlsAndroidViewVisible;
 
     /** Whether the overlay should be visible despite other signals. */
     private boolean mManualVisibility;
@@ -85,14 +89,13 @@ public class TopToolbarOverlayMediator {
         mTopUiThemeColorProvider = topUiThemeColorProvider;
         mModel = model;
         mIsVisibilityManuallyControlled = manualVisibilityControl;
-
         mIsOnValidLayout = (mLayoutStateProvider.getActiveLayoutType() & layoutsToShowOn) > 0;
         updateVisibility();
 
         mSceneChangeObserver = new LayoutStateObserver() {
             @Override
-            public void onStartedShowing(@LayoutType int layout, boolean showToolbar) {
-                mIsOnValidLayout = (layout & layoutsToShowOn) > 0;
+            public void onStartedShowing(@LayoutType int layoutType) {
+                mIsOnValidLayout = (layoutType & layoutsToShowOn) > 0;
                 updateVisibility();
             }
         };
@@ -105,6 +108,7 @@ public class TopToolbarOverlayMediator {
             updateVisibility();
             updateThemeColor(tab);
             updateProgress();
+            updateAnonymize(tab);
         };
         mTabObserver = new CurrentTabObserver(tabSupplier, new EmptyTabObserver() {
             @Override
@@ -121,6 +125,7 @@ public class TopToolbarOverlayMediator {
             public void onContentChanged(Tab tab) {
                 updateVisibility();
                 updateThemeColor(tab);
+                updateAnonymize(tab);
             }
         }, activityTabCallback);
 
@@ -140,8 +145,20 @@ public class TopToolbarOverlayMediator {
                 updateShadowState();
                 updateVisibility();
             }
+
+            @Override
+            public void onAndroidControlsVisibilityChanged(int visibility) {
+                if (ToolbarFeatures.shouldSuppressCaptures()) {
+                    mIsBrowserControlsAndroidViewVisible = visibility == View.VISIBLE;
+                    updateShadowState();
+                }
+            }
         };
         mBrowserControlsStateProvider.addObserver(mBrowserControlsObserver);
+        if (ToolbarFeatures.shouldSuppressCaptures()) {
+            mIsBrowserControlsAndroidViewVisible =
+                    mBrowserControlsStateProvider.getAndroidControlsVisibility() == View.VISIBLE;
+        }
     }
 
     /**
@@ -149,7 +166,7 @@ public class TopToolbarOverlayMediator {
      * @param isVisible Whether the android view is visible.
      */
     void setIsAndroidViewVisible(boolean isVisible) {
-        mIsAndroidViewVisible = isVisible;
+        mIsToolbarAndroidViewVisible = isVisible;
         updateShadowState();
     }
 
@@ -158,10 +175,16 @@ public class TopToolbarOverlayMediator {
      * android view is not shown.
      */
     private void updateShadowState() {
-        boolean drawControlsAsTexture =
-                BrowserControlsUtils.drawControlsAsTexture(mBrowserControlsStateProvider);
-        boolean showShadow = drawControlsAsTexture || !mIsAndroidViewVisible
+        boolean drawControlsAsTexture;
+        if (ToolbarFeatures.shouldSuppressCaptures()) {
+            drawControlsAsTexture = !mIsBrowserControlsAndroidViewVisible;
+        } else {
+            drawControlsAsTexture =
+                    BrowserControlsUtils.drawControlsAsTexture(mBrowserControlsStateProvider);
+        }
+        boolean showShadow = drawControlsAsTexture || !mIsToolbarAndroidViewVisible
                 || mIsVisibilityManuallyControlled;
+
         mModel.set(TopToolbarOverlayProperties.SHOW_SHADOW, showShadow);
     }
 
@@ -210,10 +233,8 @@ public class TopToolbarOverlayMediator {
         // Update and set the progress info to trigger an update; the PROGRESS_BAR_INFO
         // property skips the object equality check.
         mProgressInfoCallback.onResult(mModel.get(TopToolbarOverlayProperties.PROGRESS_BAR_INFO));
-        if (!ChromeFeatureList.isEnabled(ChromeFeatureList.DISABLE_COMPOSITED_PROGRESS_BAR)) {
-            mModel.set(TopToolbarOverlayProperties.PROGRESS_BAR_INFO,
-                    mModel.get(TopToolbarOverlayProperties.PROGRESS_BAR_INFO));
-        }
+        mModel.set(TopToolbarOverlayProperties.PROGRESS_BAR_INFO,
+                mModel.get(TopToolbarOverlayProperties.PROGRESS_BAR_INFO));
     }
 
     /** @return Whether this component is in tablet mode. */
@@ -235,9 +256,17 @@ public class TopToolbarOverlayMediator {
         if (mIsVisibilityManuallyControlled) {
             mModel.set(TopToolbarOverlayProperties.VISIBLE, mManualVisibility && mIsOnValidLayout);
         } else {
-            mModel.set(TopToolbarOverlayProperties.VISIBLE,
+            boolean visibility =
                     !BrowserControlsUtils.areBrowserControlsOffScreen(mBrowserControlsStateProvider)
-                            && mIsOnValidLayout);
+                    && mIsOnValidLayout;
+            mModel.set(TopToolbarOverlayProperties.VISIBLE, visibility);
+        }
+    }
+
+    private void updateAnonymize(Tab tab) {
+        if (!mIsVisibilityManuallyControlled && ToolbarFeatures.shouldSuppressCaptures()) {
+            boolean isNativePage = tab.isNativePage();
+            mModel.set(TopToolbarOverlayProperties.ANONYMIZE, isNativePage);
         }
     }
 

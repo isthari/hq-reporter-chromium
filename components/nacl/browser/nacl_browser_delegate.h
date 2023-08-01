@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 
 #include <string>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "content/public/browser/browser_ppapi_host.h"
 
 class GURL;
@@ -32,7 +32,7 @@ class NaClBrowserDelegate {
   // Show an infobar to the user to indicate the client architecture was not
   // covered by the manifest.
   virtual void ShowMissingArchInfobar(int render_process_id,
-                                      int render_view_id) = 0;
+                                      int render_frame_id) = 0;
   // Returns whether dialogs are allowed. This is used to decide if to add the
   // command line switch kNoErrorDialogs.
   virtual bool DialogsAreSuppressed() = 0;

@@ -1,4 +1,4 @@
-# Copyright (c) 2012 The Chromium Authors. All rights reserved.
+# Copyright 2012 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -20,6 +20,8 @@ SYSTEM_WIDE_DESKTOP_ENTRIES_DIR = $(DESTDIR)/usr/share/applications
 
 CORE_LIBNAME = $(BUILD_DIR)/libremoting_core.so
 CORE_DEBUGFILE = $(CORE_LIBNAME).debug
+CRASH_UPLOADER_PROGNAME = $(BUILD_DIR)/remoting_crash_uploader
+CRASH_UPLOADER_DEBUGFILE = $(CRASH_UPLOADER_PROGNAME).debug
 ME2ME_PROGNAME = $(BUILD_DIR)/remoting_me2me_host
 ME2ME_DEBUGFILE = $(ME2ME_PROGNAME).debug
 START_PROGNAME = $(BUILD_DIR)/remoting_start_host
@@ -72,9 +74,15 @@ install:
 	install -m 0644 \
 	  "$(BUILD_DIR)/remoting/com.google.chrome.remote_assistance-firefox.json" \
 	  "$(FIREFOX_NATIVE_MESSAGING_DIR)/com.google.chrome.remote_assistance.json"
+	install -m 0644 \
+	  "$(BUILD_DIR)/remoting/com.google.chrome.remote_webauthn.json" \
+	  "$(CHROME_NATIVE_MESSAGING_DIR)/com.google.chrome.remote_webauthn.json"
 
 	install "$(CORE_LIBNAME)" "$(INSTALL_DIR)/libremoting_core.so"
 	eu-strip -f "$(CORE_DEBUGFILE)" "$(INSTALL_DIR)/libremoting_core.so"
+
+	install "$(CRASH_UPLOADER_PROGNAME)" "$(INSTALL_DIR)/crash-uploader"
+	eu-strip -f "$(CRASH_UPLOADER_DEBUGFILE)" "$(INSTALL_DIR)/crash-uploader"
 
 	install "$(ME2ME_PROGNAME)" \
 	  "$(INSTALL_DIR)/chrome-remote-desktop-host"
@@ -120,6 +128,7 @@ install:
 	install -m 0644 \
 	  "$(SRC_DIR)/remoting/host/installer/linux/chrome-remote-desktop@.service" \
 	  "$(SYSTEMD_UNIT_DIR)/chrome-remote-desktop@.service"
+
 	# Mask the SysV-style init script under systemd so both don't end up enabled.
 	ln -s /dev/null "$(SYSTEMD_UNIT_DIR)/chrome-remote-desktop.service"
 

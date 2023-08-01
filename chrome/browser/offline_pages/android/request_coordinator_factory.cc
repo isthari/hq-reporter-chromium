@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/memory/singleton.h"
-#include "base/task/post_task.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "chrome/browser/browser_process.h"
@@ -20,7 +19,6 @@
 #include "chrome/browser/ui/android/tab_model/tab_model.h"
 #include "chrome/browser/ui/android/tab_model/tab_model_list.h"
 #include "chrome/common/chrome_constants.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/offline_pages/core/background/offliner.h"
 #include "components/offline_pages/core/background/offliner_policy.h"
 #include "components/offline_pages/core/background/request_coordinator.h"
@@ -35,6 +33,8 @@ class NetworkQualityTracker;
 }
 
 namespace offline_pages {
+
+namespace {
 
 class ActiveTabInfo : public RequestCoordinator::ActiveTabInfo {
  public:
@@ -62,10 +62,17 @@ class ActiveTabInfo : public RequestCoordinator::ActiveTabInfo {
   raw_ptr<Profile> profile_;
 };
 
+}  // namespace
+
 RequestCoordinatorFactory::RequestCoordinatorFactory()
-    : BrowserContextKeyedServiceFactory(
+    : ProfileKeyedServiceFactory(
           "OfflineRequestCoordinator",
-          BrowserContextDependencyManager::GetInstance()) {
+          ProfileSelections::Builder()
+              .WithRegular(ProfileSelection::kOriginalOnly)
+              // TODO(crbug.com/1418376): Check if this service is needed in
+              // Guest mode.
+              .WithGuest(ProfileSelection::kOriginalOnly)
+              .Build()) {
   // Depends on OfflinePageModelFactory in SimpleDependencyManager.
 }
 

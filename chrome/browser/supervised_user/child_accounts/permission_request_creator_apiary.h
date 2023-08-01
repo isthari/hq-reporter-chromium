@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
-#include "chrome/browser/supervised_user/permission_request_creator.h"
+#include "components/supervised_user/core/browser/permission_request_creator.h"
 #include "google_apis/gaia/google_service_auth_error.h"
 
 class GURL;
@@ -26,7 +26,8 @@ namespace network {
 class SharedURLLoaderFactory;
 }
 
-class PermissionRequestCreatorApiary : public PermissionRequestCreator {
+class PermissionRequestCreatorApiary
+    : public supervised_user::PermissionRequestCreator {
  public:
   PermissionRequestCreatorApiary(
       signin::IdentityManager* identity_manager,

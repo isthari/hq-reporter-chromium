@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "components/autofill/core/common/mojom/autofill_types.mojom.h"
 #include "content/public/renderer/render_frame_observer.h"
 #include "third_party/blink/public/web/web_input_element.h"
+#include "third_party/blink/public/web/web_local_frame_observer.h"
 
 namespace blink {
 class WebFormElementObserver;
@@ -22,7 +23,8 @@ namespace autofill {
 // TODO(crbug.com/785531): Track the select and checkbox change.
 // This class is used to track user's change of form or WebFormControlElement,
 // notifies observers of form's change and submission.
-class FormTracker : public content::RenderFrameObserver {
+class FormTracker : public content::RenderFrameObserver,
+                    public blink::WebLocalFrameObserver {
  public:
   // The interface implemented by observer to get notification of form's change
   // and submission.
@@ -62,7 +64,7 @@ class FormTracker : public content::RenderFrameObserver {
     virtual ~Observer() {}
   };
 
-  FormTracker(content::RenderFrame* render_frame);
+  explicit FormTracker(content::RenderFrame* render_frame);
 
   FormTracker(const FormTracker&) = delete;
   FormTracker& operator=(const FormTracker&) = delete;
@@ -104,9 +106,28 @@ class FormTracker : public content::RenderFrameObserver {
       const GURL& url,
       absl::optional<blink::WebNavigationType> navigation_type) override;
   void WillDetach() override;
-  void WillSendSubmitEvent(const blink::WebFormElement& form) override;
   void WillSubmitForm(const blink::WebFormElement& form) override;
   void OnDestruct() override;
+
+  // The RenderFrame* is nullptr while the AutofillAgent that owns this
+  // FormTracker is pending deletion, between OnDestruct() and ~FormTracker().
+  content::RenderFrame* unsafe_render_frame() const {
+    return content::RenderFrameObserver::render_frame();
+  }
+
+  // Use unsafe_render_frame() instead.
+  template <typename T = int>
+  content::RenderFrame* render_frame(T* = 0) const {
+    static_assert(
+        std::is_void_v<T>,
+        "Beware that the RenderFrame may become nullptr by OnDestruct() "
+        "because AutofillAgent destructs itself asynchronously. Use "
+        "unsafe_render_frame() instead and make test that it is non-nullptr.");
+  }
+
+  // content::WebLocalFrameObserver:
+  void OnFrameDetached() override;
+  void WillSendSubmitEvent(const blink::WebFormElement& form) override;
 
   // Called in a posted task by textFieldDidChange() to work-around a WebKit bug
   // http://bugs.webkit.org/show_bug.cgi?id=16976 , we also don't want to

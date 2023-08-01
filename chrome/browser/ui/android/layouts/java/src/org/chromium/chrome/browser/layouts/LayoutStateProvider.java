@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,13 +13,12 @@ public interface LayoutStateProvider {
      * An observer that is notified when the {@link Layout} state changes.
      */
     interface LayoutStateObserver {
-        // TODO(crbug.com/1108496): Reiterate to see whether the showToolbar param is needed.
         /**
          * Called when Layout starts showing.
+         *
          * @param layoutType LayoutType of the started showing Layout.
-         * @param showToolbar Whether or not to show the normal toolbar when animating into the
          */
-        default void onStartedShowing(@LayoutType int layoutType, boolean showToolbar) {}
+        default void onStartedShowing(@LayoutType int layoutType) {}
 
         /**
          * Called when Layout finishes showing.
@@ -32,12 +31,8 @@ public interface LayoutStateProvider {
         /**
          * Called when Layout starts hiding.
          * @param layoutType LayoutType of the started hiding Layout.
-         * @param showToolbar    Whether or not to show the normal toolbar when animating out of
-         *                       showing Layout.
-         * @param delayAnimation Whether or not to delay any related animations until after Layout
          */
-        default void onStartedHiding(
-                @LayoutType int layoutType, boolean showToolbar, boolean delayAnimation) {}
+        default void onStartedHiding(@LayoutType int layoutType) {}
 
         /**
          * Called when Layout finishes hiding.
@@ -54,13 +49,28 @@ public interface LayoutStateProvider {
     }
 
     /**
-     * @return Whether or not the {@link Layout} is visible.
-     * @param layoutType whether the {@link Layout} give {@link LayoutType} is visible.
+     * Determines whether the layout for a specific type is visible.
+     * @return {@code true} if the {@link Layout} is visible, {@code false} otherwise.
+     * @param layoutType The {@link LayoutType} of the {@link Layout} that is visible.
      */
     boolean isLayoutVisible(@LayoutType int layoutType);
 
     /**
-     * Get the type of the layout that is currently active.
+     * Determines whether a layout has started and is in the process of hiding.
+     * @return {@code true} if the {@link Layout} is starting to hide, {@code false} otherwise.
+     * @param layoutType The {@link LayoutType} of the {@link Layout} that is starting to hide.
+     */
+    boolean isLayoutStartingToHide(@LayoutType int layoutType);
+
+    /**
+     * Determines whether a layout has started and is in the process of showing.
+     * @return {@code true} if the {@link Layout} is starting to show, {@code false} otherwise.
+     * @param layoutType The {@link LayoutType} of the {@link Layout} that is starting to show.
+     */
+    boolean isLayoutStartingToShow(@LayoutType int layoutType);
+
+    /**
+     * Gets the type of the layout that is currently active.
      * @return The {@link LayoutType} of the active layout.
      */
     @LayoutType

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,6 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
-import org.chromium.base.test.util.MetricsUtils.HistogramDelta;
 
 /**
  * Tests for the Java API for recording UMA histograms.
@@ -87,7 +86,7 @@ public class RecordHistogramTest {
      */
     @Test
     @SmallTest
-    public void testRecordCountHistogram() {
+    public void testRecordCount1MHistogram() {
         String histogram = "HelloWorld.CountMetric";
         HistogramDelta zeroCount = new HistogramDelta(histogram, 0);
         HistogramDelta oneCount = new HistogramDelta(histogram, 1);
@@ -99,25 +98,25 @@ public class RecordHistogramTest {
         Assert.assertEquals(0, twoCount.getDelta());
         Assert.assertEquals(0, eightThousandCount.getDelta());
 
-        RecordHistogram.recordCountHistogram(histogram, 0);
+        RecordHistogram.recordCount1MHistogram(histogram, 0);
         Assert.assertEquals(1, zeroCount.getDelta());
         Assert.assertEquals(0, oneCount.getDelta());
         Assert.assertEquals(0, twoCount.getDelta());
         Assert.assertEquals(0, eightThousandCount.getDelta());
 
-        RecordHistogram.recordCountHistogram(histogram, 0);
+        RecordHistogram.recordCount1MHistogram(histogram, 0);
         Assert.assertEquals(2, zeroCount.getDelta());
         Assert.assertEquals(0, oneCount.getDelta());
         Assert.assertEquals(0, twoCount.getDelta());
         Assert.assertEquals(0, eightThousandCount.getDelta());
 
-        RecordHistogram.recordCountHistogram(histogram, 2);
+        RecordHistogram.recordCount1MHistogram(histogram, 2);
         Assert.assertEquals(2, zeroCount.getDelta());
         Assert.assertEquals(0, oneCount.getDelta());
         Assert.assertEquals(1, twoCount.getDelta());
         Assert.assertEquals(0, eightThousandCount.getDelta());
 
-        RecordHistogram.recordCountHistogram(histogram, 8000);
+        RecordHistogram.recordCount1MHistogram(histogram, 8000);
         Assert.assertEquals(2, zeroCount.getDelta());
         Assert.assertEquals(0, oneCount.getDelta());
         Assert.assertEquals(1, twoCount.getDelta());
@@ -192,5 +191,36 @@ public class RecordHistogramTest {
         Assert.assertEquals(2, zeroCount.getDelta());
         Assert.assertEquals(0, oneCount.getDelta());
         Assert.assertEquals(1, twoCount.getDelta());
+    }
+
+    /**
+     * Helper class that snapshots the given bucket of the given UMA histogram on its creation,
+     * allowing to inspect the number of samples recorded during its lifetime.
+     */
+    private static class HistogramDelta {
+        private final String mHistogram;
+        private final int mSampleValue;
+
+        private final int mInitialCount;
+
+        private int get() {
+            return RecordHistogram.getHistogramValueCountForTesting(mHistogram, mSampleValue);
+        }
+
+        /**
+         * Snapshots the given bucket of the given histogram.
+         * @param histogram name of the histogram to snapshot
+         * @param sampleValue the bucket that contains this value will be snapshot
+         */
+        public HistogramDelta(String histogram, int sampleValue) {
+            mHistogram = histogram;
+            mSampleValue = sampleValue;
+            mInitialCount = get();
+        }
+
+        /** Returns the number of samples of the snapshot bucket recorded since creation */
+        public int getDelta() {
+            return get() - mInitialCount;
+        }
     }
 }

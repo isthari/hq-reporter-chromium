@@ -1,23 +1,21 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/crosapi/network_settings_service_ash.h"
 
 #include "ash/constants/ash_pref_names.h"
-#include "base/callback.h"
+#include "base/test/repeating_test_future.h"
 #include "chrome/browser/ash/crosapi/network_settings_translation.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/testing_browser_process.h"
+#include "chromeos/ash/components/dbus/shill/shill_profile_client.h"
+#include "chromeos/ash/components/dbus/shill/shill_service_client.h"
+#include "chromeos/ash/components/network/network_state_handler.h"
 #include "chromeos/crosapi/mojom/network_settings_service.mojom.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/shill/shill_profile_client.h"
-#include "chromeos/dbus/shill/shill_service_client.h"
-#include "chromeos/network/network_state.h"
-#include "chromeos/network/network_state_handler.h"
 #include "components/policy/core/browser/browser_policy_connector.h"
 #include "components/policy/core/common/mock_configuration_policy_provider.h"
 #include "components/policy/core/common/policy_map.h"
@@ -29,9 +27,7 @@
 #include "components/proxy_config/proxy_config_pref_names.h"
 #include "components/proxy_config/proxy_prefs.h"
 #include "content/public/test/browser_test.h"
-#include "net/base/proxy_server.h"
 #include "third_party/cros_system_api/dbus/shill/dbus-constants.h"
-#include "url/url_constants.h"
 
 namespace {
 
@@ -80,22 +76,19 @@ class TestObserver : public crosapi::mojom::NetworkSettingsObserver {
   TestObserver& operator=(const TestObserver&) = delete;
   ~TestObserver() override = default;
 
-  void SetQuitClosure(base::OnceClosure quit_closure) {
-    quit_closure_ = std::move(quit_closure);
-  }
-
   // crosapi::mojom::NetworkSettingsObserver:
   void OnProxyChanged(crosapi::mojom::ProxyConfigPtr proxy_config) override {
-    proxy_config_ = std::move(proxy_config);
-    if (quit_closure_) {
-      std::move(quit_closure_).Run();
-    }
+    future_.AddValue(std::move(proxy_config));
   }
-  crosapi::mojom::ProxyConfigPtr proxy_config_;
+
+  crosapi::mojom::ProxyConfigPtr WaitForProxyConfig() { return future_.Take(); }
+
   mojo::Receiver<crosapi::mojom::NetworkSettingsObserver> receiver_{this};
 
+  bool AreAllProxyUpdatesRead() { return future_.IsEmpty(); }
+
  private:
-  base::OnceClosure quit_closure_;
+  base::test::RepeatingTestFuture<crosapi::mojom::ProxyConfigPtr> future_;
 };
 }  // namespace
 
@@ -138,14 +131,10 @@ class NetworkSettingsServiceAshTest : public InProcessBrowserTest {
   }
 
   void SetupNetworkEnvironment() {
-    chromeos::ShillProfileClient::TestInterface* profile_test =
-        chromeos::DBusThreadManager::Get()
-            ->GetShillProfileClient()
-            ->GetTestInterface();
-    chromeos::ShillServiceClient::TestInterface* service_test =
-        chromeos::DBusThreadManager::Get()
-            ->GetShillServiceClient()
-            ->GetTestInterface();
+    ash::ShillProfileClient::TestInterface* profile_test =
+        ash::ShillProfileClient::Get()->GetTestInterface();
+    ash::ShillServiceClient::TestInterface* service_test =
+        ash::ShillServiceClient::Get()->GetTestInterface();
 
     profile_test->AddProfile(kUserProfilePath, "user");
 
@@ -164,10 +153,8 @@ class NetworkSettingsServiceAshTest : public InProcessBrowserTest {
   void ConnectWifiNetworkService(const std::string& service_path,
                                  const std::string& guid,
                                  const std::string& ssid) {
-    chromeos::ShillServiceClient::TestInterface* service_test =
-        chromeos::DBusThreadManager::Get()
-            ->GetShillServiceClient()
-            ->GetTestInterface();
+    ash::ShillServiceClient::TestInterface* service_test =
+        ash::ShillServiceClient::Get()->GetTestInterface();
 
     service_test->AddService(service_path, guid, ssid, shill::kTypeWifi,
                              shill::kStateOnline, true /* add_to_visible */);
@@ -185,20 +172,15 @@ class NetworkSettingsServiceAshTest : public InProcessBrowserTest {
 // changes and propagates the network configurations to observers via the mojo
 // API.
 IN_PROC_BROWSER_TEST_F(NetworkSettingsServiceAshTest, ProxyConfigUpdate) {
-  base::RunLoop run_loop;
-  observer_->SetQuitClosure(run_loop.QuitClosure());
   SetOncPolicy(kONCPolicyWifi0Proxy, policy::POLICY_SCOPE_USER);
-  // Wait for the `observer` to get the proxy configurations from the ONC
-  // policy.
-  run_loop.Run();
 
-  ASSERT_TRUE(observer_->proxy_config_);
-  ASSERT_TRUE(observer_->proxy_config_->proxy_settings->is_manual());
+  auto result = observer_->WaitForProxyConfig();
   crosapi::mojom::ProxySettingsManualPtr manual =
-      std::move(observer_->proxy_config_->proxy_settings->get_manual());
-  ASSERT_EQ(manual->http_proxies.size(), 1);
+      std::move(result->proxy_settings->get_manual());
+  ASSERT_EQ(manual->http_proxies.size(), 1u);
   EXPECT_EQ(manual->http_proxies[0]->host, "proxyhost");
   EXPECT_EQ(manual->http_proxies[0]->port, 3128);
+  EXPECT_TRUE(result->extension.is_null());
 }
 
 // Test suite for testing the AshNetworkSettingsService with proxies set via
@@ -216,22 +198,26 @@ class NetworkSettingsServiceAshExtensionTest
  protected:
   // This method simulates sending an extension controlled proxy config from
   // Lacros to Ash.
-  void SendExtensionProxyConfig(base::Value proxy_dict, bool can_be_disabled) {
+  void SendExtensionProxyConfig(base::Value::Dict proxy_dict,
+                                bool can_be_disabled) {
     ProxyConfigDictionary proxy_config_dict(std::move(proxy_dict));
     auto proxy_config =
         crosapi::ProxyConfigToCrosapiProxy(&proxy_config_dict,
-                                           /*wpad_url=*/GURL(""));
+                                           /*dhcp_wpad_url=*/GURL(""));
     proxy_config->extension = crosapi::mojom::ExtensionControllingProxy::New();
     proxy_config->extension->name = kExtensionName;
     proxy_config->extension->id = kExtensionId;
     proxy_config->extension->can_be_disabled = can_be_disabled;
     network_service_ash_->SetExtensionProxy(std::move(proxy_config));
 
-    base::Value expected_pref(base::Value::Type::DICTIONARY);
-    expected_pref.SetStringKey(kPrefExtensionNameKey, kExtensionName);
-    expected_pref.SetStringKey(kPrefExtensionIdKey, kExtensionId);
-    expected_pref.SetBoolKey(kPrefExtensionCanDisabled, can_be_disabled);
-    WaitForLacrosProxyControllingExtensionPref(std::move(expected_pref));
+    base::Value::Dict expected_pref =
+        base::Value::Dict()
+            .Set(kPrefExtensionNameKey, kExtensionName)
+            .Set(kPrefExtensionIdKey, kExtensionId)
+            .Set(kPrefExtensionCanDisabled, can_be_disabled);
+
+    WaitForLacrosProxyControllingExtensionPref(
+        base::Value(std::move(expected_pref)));
   }
 
   void WaitForLacrosProxyControllingExtensionPref(
@@ -254,34 +240,35 @@ IN_PROC_BROWSER_TEST_F(NetworkSettingsServiceAshExtensionTest,
   ASSERT_TRUE(extension_proxy_pref);
 
   // Emulate receiving an initial proxy config from lacros-chrome.
-  base::Value proxy_config = ProxyConfigDictionary::CreatePacScript(
-      kPacUrl, /*is_pac_mandatory=*/true);
+  base::Value::Dict proxy_config =
+      ProxyConfigDictionary::CreatePacScript(kPacUrl, /*pac_mandatory=*/true);
+
   SendExtensionProxyConfig(proxy_config.Clone(),
                            /*can_be_disabled=*/true);
+
+  auto result = observer_->WaitForProxyConfig();
+  ASSERT_FALSE(result.is_null());
+  ASSERT_FALSE(result->extension.is_null());
+  EXPECT_EQ(result->extension->name, kExtensionName);
+  EXPECT_EQ(result->extension->id, kExtensionId);
+
   EXPECT_EQ(*(proxy_pref->GetValue()), proxy_config);
-  EXPECT_EQ(
-      *extension_proxy_pref->GetValue()->FindStringKey(kPrefExtensionNameKey),
-      kExtensionName);
-  EXPECT_EQ(
-      *extension_proxy_pref->GetValue()->FindStringKey(kPrefExtensionIdKey),
-      kExtensionId);
-  EXPECT_EQ(
-      extension_proxy_pref->GetValue()->FindBoolKey(kPrefExtensionCanDisabled),
-      true);
-  // Send an update.
-  SendExtensionProxyConfig(proxy_config.Clone(),
-                           /*can_be_disabled=*/false);
-  EXPECT_EQ(
-      extension_proxy_pref->GetValue()->FindBoolKey(kPrefExtensionCanDisabled),
-      false);
+  EXPECT_EQ(*extension_proxy_pref->GetValue()->GetDict().FindString(
+                kPrefExtensionNameKey),
+            kExtensionName);
+  EXPECT_EQ(*extension_proxy_pref->GetValue()->GetDict().FindString(
+                kPrefExtensionIdKey),
+            kExtensionId);
+  EXPECT_EQ(extension_proxy_pref->GetValue()->GetDict().FindBool(
+                kPrefExtensionCanDisabled),
+            true);
 
-  // Send another update - clear.
   network_service_ash_->ClearExtensionProxy();
-  WaitForLacrosProxyControllingExtensionPref(
-      base::Value(base::Value::Type::DICTIONARY));
 
-  EXPECT_EQ(*(extension_proxy_pref->GetValue()),
-            base::Value(base::Value::Type::DICTIONARY));
+  result = observer_->WaitForProxyConfig();
+  ASSERT_FALSE(result.is_null());
+  EXPECT_TRUE(result->extension.is_null());
+  EXPECT_EQ(*(extension_proxy_pref->GetValue()), base::Value::Dict());
   // proxy_mode=system is the default value (see
   // PrefProxyConfigTrackerImpl::RegisterProfilePrefs).
   EXPECT_EQ(*(proxy_pref->GetValue()), ProxyConfigDictionary::CreateSystem());
@@ -292,10 +279,17 @@ IN_PROC_BROWSER_TEST_F(NetworkSettingsServiceAshExtensionTest,
 // via policy and then verifies that the direct proxy is applied.
 IN_PROC_BROWSER_TEST_F(NetworkSettingsServiceAshExtensionTest,
                        UserPolicyHasPrecedence) {
-  base::Value pac_proxy = ProxyConfigDictionary::CreatePacScript(
-      kPacUrl, /*is_pac_mandatory=*/true);
+  base::Value::Dict pac_proxy =
+      ProxyConfigDictionary::CreatePacScript(kPacUrl,
+                                             /*pac_mandatory=*/true);
   SendExtensionProxyConfig(pac_proxy.Clone(),
                            /*can_be_disabled=*/true);
+
+  auto result = observer_->WaitForProxyConfig();
+  ASSERT_FALSE(result->extension.is_null());
+  EXPECT_EQ(result->extension->name, kExtensionName);
+  EXPECT_EQ(result->extension->id, kExtensionId);
+
   // Set proxy by policy.
   policy::PolicyMap policy;
   policy.Set(policy::key::kProxyMode, policy::POLICY_LEVEL_MANDATORY,
@@ -303,19 +297,19 @@ IN_PROC_BROWSER_TEST_F(NetworkSettingsServiceAshExtensionTest,
              base::Value(ProxyPrefs::kAutoDetectProxyModeName), nullptr);
   provider_.UpdateChromePolicy(policy);
 
-  const base::Value* proxy_pref =
-      browser()->profile()->GetPrefs()->GetDictionary(
-          proxy_config::prefs::kProxy);
-  ASSERT_TRUE(proxy_pref);
-  EXPECT_EQ(*proxy_pref, ProxyConfigDictionary::CreateAutoDetect());
+  const base::Value::Dict& proxy_pref =
+      browser()->profile()->GetPrefs()->GetDict(proxy_config::prefs::kProxy);
+  EXPECT_EQ(proxy_pref, ProxyConfigDictionary::CreateAutoDetect());
 
   // The kLacrosProxyControllingExtension pref which is used to display the
   // extension controlling the proxy should also be reset.
-  const base::Value* extension_proxy_pref =
-      browser()->profile()->GetPrefs()->GetDictionary(
+  const base::Value::Dict& extension_proxy_pref =
+      browser()->profile()->GetPrefs()->GetDict(
           ash::prefs::kLacrosProxyControllingExtension);
-  ASSERT_TRUE(extension_proxy_pref);
-  EXPECT_EQ(*extension_proxy_pref, base::Value(base::Value::Type::DICTIONARY));
+  EXPECT_TRUE(extension_proxy_pref.empty());
+
+  result = observer_->WaitForProxyConfig();
+  EXPECT_TRUE(result->extension.is_null());
 }
 
 // Same as the `UserPolicyHasPrecedence` test, but with reverse order of proxies
@@ -332,20 +326,18 @@ IN_PROC_BROWSER_TEST_F(NetworkSettingsServiceAshExtensionTest,
 
   ProxyConfigDictionary proxy_config_dict(
       ProxyConfigDictionary::CreatePacScript(kPacUrl,
-                                             /*is_pac_mandatory=*/true));
-  auto proxy_config = crosapi::ProxyConfigToCrosapiProxy(&proxy_config_dict,
-                                                         /*wpad_url=*/GURL(""));
+                                             /*pac_mandatory=*/true));
+  auto proxy_config = crosapi::ProxyConfigToCrosapiProxy(
+      &proxy_config_dict, /*dhcp_wpad_url=*/GURL(""));
   proxy_config->extension = crosapi::mojom::ExtensionControllingProxy::New();
   proxy_config->extension->name = kExtensionName;
   proxy_config->extension->id = kExtensionId;
   proxy_config->extension->can_be_disabled = true;
   network_service_ash_->SetExtensionProxy(std::move(proxy_config));
   base::RunLoop().RunUntilIdle();
-  const base::Value* proxy_pref =
-      browser()->profile()->GetPrefs()->GetDictionary(
-          proxy_config::prefs::kProxy);
-  ASSERT_TRUE(proxy_pref);
-  EXPECT_EQ(*proxy_pref, ProxyConfigDictionary::CreateDirect());
+  const base::Value::Dict& proxy_pref =
+      browser()->profile()->GetPrefs()->GetDict(proxy_config::prefs::kProxy);
+  EXPECT_EQ(proxy_pref, ProxyConfigDictionary::CreateDirect());
 }
 
 // Proxies set by extensions in the primary profile should have priority in Ash
@@ -357,29 +349,28 @@ IN_PROC_BROWSER_TEST_F(NetworkSettingsServiceAshExtensionTest,
                        OncPolicyHasLowerPriority) {
   SetOncPolicy(kONCPolicyWifi0Proxy, policy::POLICY_SCOPE_USER);
 
-  EXPECT_TRUE(observer_->proxy_config_->proxy_settings->is_manual());
-  {
-    base::RunLoop run_loop;
-    observer_->SetQuitClosure(run_loop.QuitClosure());
-    base::Value pac_proxy = ProxyConfigDictionary::CreatePacScript(
-        kPacUrl, /*is_pac_mandatory=*/true);
-    SendExtensionProxyConfig(pac_proxy.Clone(),
-                             /*can_be_disabled=*/true);
-    // Wait for the `observer` to get the proxy
-    // configurations from the extension.
-    run_loop.Run();
-  }
-  ASSERT_TRUE(observer_->proxy_config_);
-  EXPECT_TRUE(observer_->proxy_config_->proxy_settings->is_pac());
+  auto result = observer_->WaitForProxyConfig();
+  EXPECT_TRUE(result->proxy_settings->is_manual());
 
-  {
-    base::RunLoop run_loop;
-    observer_->SetQuitClosure(run_loop.QuitClosure());
-    network_service_ash_->ClearExtensionProxy();
-    run_loop.Run();
-  }
-  ASSERT_TRUE(observer_->proxy_config_);
-  EXPECT_TRUE(observer_->proxy_config_->proxy_settings->is_manual());
+  base::Value::Dict pac_proxy =
+      ProxyConfigDictionary::CreatePacScript(kPacUrl,
+                                             /*pac_mandatory=*/true);
+  SendExtensionProxyConfig(pac_proxy.Clone(),
+                           /*can_be_disabled=*/true);
+
+  result = observer_->WaitForProxyConfig();
+  ASSERT_TRUE(result);
+  EXPECT_TRUE(result->proxy_settings->is_pac());
+  ASSERT_FALSE(result->extension.is_null());
+  EXPECT_EQ(result->extension->name, kExtensionName);
+  EXPECT_EQ(result->extension->id, kExtensionId);
+
+  network_service_ash_->ClearExtensionProxy();
+
+  result = observer_->WaitForProxyConfig();
+  ASSERT_TRUE(result);
+  EXPECT_TRUE(result->proxy_settings->is_manual());
+  EXPECT_TRUE(result->extension.is_null());
 }
 
 // Same as the `OncPolicyHasLowerPriority` test, but with reverse order of
@@ -387,24 +378,24 @@ IN_PROC_BROWSER_TEST_F(NetworkSettingsServiceAshExtensionTest,
 // to proxy source and not the latest applied config.
 IN_PROC_BROWSER_TEST_F(NetworkSettingsServiceAshExtensionTest,
                        ExtensionHasHigherPriorityThanOncPolicy) {
-  {
-    base::RunLoop run_loop;
-    observer_->SetQuitClosure(run_loop.QuitClosure());
-    base::Value pac_proxy = ProxyConfigDictionary::CreatePacScript(
-        kPacUrl, /*is_pac_mandatory=*/true);
-    SendExtensionProxyConfig(pac_proxy.Clone(),
-                             /*can_be_disabled=*/true);
-    // Wait for the `observer` to get the proxy
-    // configurations from the extension.
-    run_loop.Run();
-  }
+  base::Value::Dict pac_proxy =
+      ProxyConfigDictionary::CreatePacScript(kPacUrl,
+                                             /*pac_mandatory=*/true);
+  SendExtensionProxyConfig(pac_proxy.Clone(),
+                           /*can_be_disabled=*/true);
 
   // Set a manual proxy.
   SetOncPolicy(kONCPolicyWifi0Proxy, policy::POLICY_SCOPE_USER);
 
+  auto result = observer_->WaitForProxyConfig();
+  EXPECT_TRUE(observer_->AreAllProxyUpdatesRead());
+
   // Expect that the PAC proxy set by the extension is still active.
-  ASSERT_TRUE(observer_->proxy_config_);
-  EXPECT_TRUE(observer_->proxy_config_->proxy_settings->is_pac());
+  ASSERT_TRUE(result);
+  EXPECT_TRUE(result->proxy_settings->is_pac());
+  ASSERT_FALSE(result->extension.is_null());
+  EXPECT_EQ(result->extension->name, kExtensionName);
+  EXPECT_EQ(result->extension->id, kExtensionId);
 }
 
 }  // namespace crosapi

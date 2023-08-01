@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_ASH_WEB_APPLICATIONS_PERSONALIZATION_APP_PERSONALIZATION_APP_WALLPAPER_PROVIDER_IMPL_H_
 
 #include "ash/webui/personalization_app/personalization_app_wallpaper_provider.h"
+#include "base/memory/raw_ptr.h"
 
 #include <stdint.h>
 
@@ -22,7 +23,8 @@
 #include "base/files/file.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
-#include "components/account_id/account_id.h"
+#include "chrome/browser/ash/wallpaper_handlers/wallpaper_fetcher_delegate.h"
+#include "content/public/browser/web_ui_data_source.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
@@ -45,21 +47,28 @@ class WebUI;
 
 namespace wallpaper_handlers {
 class BackdropCollectionInfoFetcher;
+class WallpaperFetcherDelegate;
 class BackdropImageInfoFetcher;
 class GooglePhotosAlbumsFetcher;
-class GooglePhotosCountFetcher;
+class GooglePhotosSharedAlbumsFetcher;
+class GooglePhotosEnabledFetcher;
 class GooglePhotosPhotosFetcher;
 }  // namespace wallpaper_handlers
 
 class Profile;
 
+namespace ash::personalization_app {
+
 // Implemented in //chrome because this relies on chrome |wallpaper_handlers|
 // code.
 class PersonalizationAppWallpaperProviderImpl
-    : public ash::PersonalizationAppWallpaperProvider,
+    : public PersonalizationAppWallpaperProvider,
       ash::WallpaperControllerObserver {
  public:
-  explicit PersonalizationAppWallpaperProviderImpl(content::WebUI* web_ui);
+  PersonalizationAppWallpaperProviderImpl(
+      content::WebUI* web_ui,
+      std::unique_ptr<wallpaper_handlers::WallpaperFetcherDelegate>
+          wallpaper_fetcher_delegate);
 
   PersonalizationAppWallpaperProviderImpl(
       const PersonalizationAppWallpaperProviderImpl&) = delete;
@@ -75,12 +84,24 @@ class PersonalizationAppWallpaperProviderImpl
       mojo::PendingReceiver<ash::personalization_app::mojom::WallpaperProvider>
           receiver) override;
 
+  void GetWallpaperAsJpegBytes(
+      content::WebUIDataSource::GotDataCallback callback) override;
+
+  // Not all users can see google photos. Requires a gaia account to be able to
+  // fetch photos.
+  bool IsEligibleForGooglePhotos() override;
+
   // ash::personalization_app::mojom::WallpaperProvider:
 
   // Configure the window to be transparent so that the user can trigger a "full
   // screen preview" mode. This allows the user to see through the app window to
   // see the chosen wallpaper. This is safe to call multiple times in a row.
   void MakeTransparent() override;
+
+  // Configure the window to be opaque so that after exiting the "full screen
+  // preview" mode, the transparent background will be reversed. This is safe
+  // to call multiple times in a row.
+  void MakeOpaque() override;
 
   void FetchCollections(FetchCollectionsCallback callback) override;
 
@@ -92,11 +113,21 @@ class PersonalizationAppWallpaperProviderImpl
       const absl::optional<std::string>& resume_token,
       FetchGooglePhotosAlbumsCallback callback) override;
 
-  void FetchGooglePhotosCount(FetchGooglePhotosCountCallback callback) override;
+  void FetchGooglePhotosSharedAlbums(
+      const absl::optional<std::string>& resume_token,
+      FetchGooglePhotosAlbumsCallback callback) override;
+
+  void FetchGooglePhotosEnabled(
+      FetchGooglePhotosEnabledCallback callback) override;
 
   void FetchGooglePhotosPhotos(
+      const absl::optional<std::string>& item_id,
+      const absl::optional<std::string>& album_id,
       const absl::optional<std::string>& resume_token,
       FetchGooglePhotosPhotosCallback callback) override;
+
+  void GetDefaultImageThumbnail(
+      GetDefaultImageThumbnailCallback callback) override;
 
   void GetLocalImages(GetLocalImagesCallback callback) override;
 
@@ -108,24 +139,41 @@ class PersonalizationAppWallpaperProviderImpl
           observer) override;
 
   // ash::WallpaperControllerObserver:
-  void OnWallpaperChanged() override;
+  void OnWallpaperResized() override;
 
   // ash::WallpaperControllerObserver:
   void OnWallpaperPreviewEnded() override;
 
   // ash::personalization_app::mojom::WallpaperProvider:
-  void SelectWallpaper(uint64_t image_asset_id,
+  void SelectWallpaper(uint64_t unit_id,
                        bool preview_mode,
                        SelectWallpaperCallback callback) override;
+
+  void SelectDefaultImage(SelectDefaultImageCallback callback) override;
 
   void SelectLocalImage(const base::FilePath& path,
                         ash::WallpaperLayout layout,
                         bool preview_mode,
                         SelectLocalImageCallback callback) override;
 
-  void SetCustomWallpaperLayout(ash::WallpaperLayout layout) override;
+  void SelectGooglePhotosPhoto(
+      const std::string& id,
+      ash::WallpaperLayout layout,
+      bool preview_mode,
+      SelectGooglePhotosPhotoCallback callback) override;
 
-  void SetDailyRefreshCollectionId(const std::string& collection_id) override;
+  void SelectGooglePhotosAlbum(
+      const std::string& album_id,
+      SelectGooglePhotosAlbumCallback callback) override;
+
+  void GetGooglePhotosDailyRefreshAlbumId(
+      GetGooglePhotosDailyRefreshAlbumIdCallback callback) override;
+
+  void SetCurrentWallpaperLayout(ash::WallpaperLayout layout) override;
+
+  void SetDailyRefreshCollectionId(
+      const std::string& collection_id,
+      SetDailyRefreshCollectionIdCallback callback) override;
 
   void GetDailyRefreshCollectionId(
       GetDailyRefreshCollectionIdCallback callback) override;
@@ -140,19 +188,20 @@ class PersonalizationAppWallpaperProviderImpl
   void CancelPreviewWallpaper() override;
 
   wallpaper_handlers::GooglePhotosAlbumsFetcher*
-  SetGooglePhotosAlbumsFetcherForTest(
-      std::unique_ptr<wallpaper_handlers::GooglePhotosAlbumsFetcher> fetcher);
+  GetOrCreateGooglePhotosAlbumsFetcher();
 
-  wallpaper_handlers::GooglePhotosCountFetcher*
-  SetGooglePhotosCountFetcherForTest(
-      std::unique_ptr<wallpaper_handlers::GooglePhotosCountFetcher> fetcher);
+  wallpaper_handlers::GooglePhotosSharedAlbumsFetcher*
+  GetOrCreateGooglePhotosSharedAlbumsFetcher();
+
+  wallpaper_handlers::GooglePhotosEnabledFetcher*
+  GetOrCreateGooglePhotosEnabledFetcher();
 
   wallpaper_handlers::GooglePhotosPhotosFetcher*
-  SetGooglePhotosPhotosFetcherForTest(
-      std::unique_ptr<wallpaper_handlers::GooglePhotosPhotosFetcher> fetcher);
+  GetOrCreateGooglePhotosPhotosFetcher();
 
  private:
   friend class PersonalizationAppWallpaperProviderImplTest;
+  friend class PersonalizationAppWallpaperProviderImplGooglePhotosTest;
 
   void OnFetchCollections(bool success,
                           const std::vector<backdrop::Collection>& collections);
@@ -164,6 +213,18 @@ class PersonalizationAppWallpaperProviderImpl
       const std::string& collection_id,
       const std::vector<backdrop::Image>& images);
 
+  void OnFetchGooglePhotosEnabled(
+      FetchGooglePhotosEnabledCallback callback,
+      ash::personalization_app::mojom::GooglePhotosEnablementState state);
+
+  void OnFetchGooglePhotosPhotos(
+      absl::optional<std::string> album_id,
+      FetchGooglePhotosPhotosCallback callback,
+      mojo::StructPtr<mojom::FetchGooglePhotosPhotosResponse> response);
+
+  void OnGetDefaultImage(GetDefaultImageThumbnailCallback callback,
+                         const gfx::ImageSkia& image);
+
   void OnGetLocalImages(GetLocalImagesCallback callback,
                         const std::vector<base::FilePath>& images);
 
@@ -171,31 +232,42 @@ class PersonalizationAppWallpaperProviderImpl
                                 const SkBitmap* bitmap,
                                 base::File::Error error);
 
-  // Called after attempting selecting an online wallpaper. Will be dropped if
+  // Called after attempting to select an online wallpaper. Will be dropped if
   // new requests come in.
   void OnOnlineWallpaperSelected(bool success);
 
-  // Called after attempting selecting a local image. Will be dropped if new
+  // Called after attempting to select a Google Photos wallpaper. Will be
+  // dropped if new requests come in.
+  void OnGooglePhotosWallpaperSelected(bool success);
+
+  // Called after attempting to select a local image. Will be dropped if new
   // requests come in.
   void OnLocalImageSelected(bool success);
 
-  // Called after attempting updating a daily refresh wallpaper. Will be dropped
-  // if new requests come in.
+  // Called after attempting to update a daily refresh wallpaper. Will be
+  // dropped if new requests come in.
   void OnDailyRefreshWallpaperUpdated(bool success);
+
+  // Called after forching the current wallpaper image to refresh as part of
+  // toggling on daily refresh mode.
+  void OnDailyRefreshWallpaperForced(bool success);
 
   void FindAttribution(
       const ash::WallpaperInfo& info,
-      const GURL& wallpaper_data_url,
       const absl::optional<std::vector<backdrop::Collection>>& collections);
 
-  void FindAttributionInCollection(
+  void FindImageMetadataInCollection(
       const ash::WallpaperInfo& info,
-      const GURL& wallpaper_data_url,
       std::size_t current_index,
       const absl::optional<std::vector<backdrop::Collection>>& collections,
       bool success,
       const std::string& collection_id,
       const std::vector<backdrop::Image>& images);
+
+  void SendGooglePhotosAttribution(
+      const ash::WallpaperInfo& info,
+      mojo::StructPtr<ash::personalization_app::mojom::GooglePhotosPhoto> photo,
+      bool success);
 
   // Called when the user sets an image, or cancels/confirms preview wallpaper.
   // If a new image is set in preview mode, will minimize all windows except the
@@ -220,23 +292,40 @@ class PersonalizationAppWallpaperProviderImpl
   std::unique_ptr<wallpaper_handlers::GooglePhotosAlbumsFetcher>
       google_photos_albums_fetcher_;
 
-  // Fetches the number of photos in the user's Google Photos library.
+  // Fetches the Google Photos albums shared with the user. Constructed lazily
+  // at the time of the first request and then persists for the rest of the
+  // delegate's lifetime, unless preemptively or subsequently replaced by a mock
+  // in a test.
+  std::unique_ptr<wallpaper_handlers::GooglePhotosSharedAlbumsFetcher>
+      google_photos_shared_albums_fetcher_;
+
+  // Fetches the state of the user's permission to access Google Photos data.
   // Constructed lazily at the time of the first request and then persists for
   // the rest of the delegate's lifetime, unless preemptively or subsequently
   // replaced by a mock in a test.
-  std::unique_ptr<wallpaper_handlers::GooglePhotosCountFetcher>
-      google_photos_count_fetcher_;
+  std::unique_ptr<wallpaper_handlers::GooglePhotosEnabledFetcher>
+      google_photos_enabled_fetcher_;
 
-  // Fetches the visible photos in the user's Google Photos library. Constructed
+  // Fetches visible photos from the user's Google Photos library. Constructed
   // lazily at the time of the first request and then persists for the rest of
   // the delegate's lifetime, unless preemptively or subsequently replaced by a
   // mock in a test.
   std::unique_ptr<wallpaper_handlers::GooglePhotosPhotosFetcher>
       google_photos_photos_fetcher_;
 
+  // Set to true when an enabled Google Photos enterprise setting is fetched
+  // from the server. Attempting to select a Google Photos wallpaper or fetch
+  // Google Photos data other than the enterprise setting itself will fail if
+  // this value is false.
+  bool is_google_photos_enterprise_enabled_ = false;
+
   SelectWallpaperCallback pending_select_wallpaper_callback_;
 
   SelectLocalImageCallback pending_select_local_image_callback_;
+
+  SelectGooglePhotosPhotoCallback pending_select_google_photos_photo_callback_;
+
+  base::OnceCallback<void(bool success)> pending_set_daily_refresh_callback_;
 
   UpdateDailyRefreshWallpaperCallback
       pending_update_daily_refresh_wallpaper_callback_;
@@ -262,23 +351,32 @@ class PersonalizationAppWallpaperProviderImpl
           type(in_type) {}
   };
 
-  // Store a mapping of valid image asset_ids to their ImageInfo to validate
-  // user wallpaper selections.
-  std::map<uint64_t, ImageInfo> image_asset_id_map_;
+  // Stores the mapping of valid image unit_ids and their image variants. This
+  // is filled when a user first visits the Wallpaper subpage of Personalization
+  // App.
+  std::map<uint64_t, std::vector<ImageInfo>> image_unit_id_map_;
+
+  // Stores the mapping of Google Photos album id to its photos' dedup keys.
+  // Used to determine whether an album contains the currently selected
+  // wallpaper image.
+  std::map<std::string, std::set<std::string>> album_id_dedup_key_map_;
 
   // When local images are fetched, store the valid file paths in the set. This
   // is checked when the SWA requests thumbnail data or sets an image as the
   // user's background.
   std::set<base::FilePath> local_images_;
 
-  content::WebUI* const web_ui_ = nullptr;
+  const raw_ptr<content::WebUI, ExperimentalAsh> web_ui_ = nullptr;
 
   // Pointer to profile of user that opened personalization SWA. Not owned.
-  Profile* const profile_ = nullptr;
+  const raw_ptr<Profile, ExperimentalAsh> profile_ = nullptr;
 
   base::ScopedObservation<ash::WallpaperController,
                           ash::WallpaperControllerObserver>
       wallpaper_controller_observer_{this};
+
+  const std::unique_ptr<wallpaper_handlers::WallpaperFetcherDelegate>
+      wallpaper_fetcher_delegate_;
 
   // Place near bottom of class so this is cleaned up before any pending
   // callbacks are dropped.
@@ -300,5 +398,7 @@ class PersonalizationAppWallpaperProviderImpl
   base::WeakPtrFactory<PersonalizationAppWallpaperProviderImpl>
       weak_ptr_factory_{this};
 };
+
+}  // namespace ash::personalization_app
 
 #endif  // CHROME_BROWSER_ASH_WEB_APPLICATIONS_PERSONALIZATION_APP_PERSONALIZATION_APP_WALLPAPER_PROVIDER_IMPL_H_

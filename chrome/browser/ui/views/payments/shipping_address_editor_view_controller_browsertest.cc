@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -169,7 +169,7 @@ class DISABLED_PaymentRequestShippingAddressEditorTest
         dialog_view()->GetViewByID(EditorViewController::GetInputFieldViewId(
             autofill::ADDRESS_HOME_COUNTRY)));
     DCHECK(country_combobox);
-    int selected_country_row = country_combobox->GetSelectedRow();
+    size_t selected_country_row = country_combobox->GetSelectedRow().value();
     autofill::CountryComboboxModel* country_model =
         static_cast<autofill::CountryComboboxModel*>(
             country_combobox->GetModel());
@@ -187,14 +187,14 @@ class DISABLED_PaymentRequestShippingAddressEditorTest
     autofill::CountryComboboxModel* country_model =
         static_cast<autofill::CountryComboboxModel*>(
             country_combobox->GetModel());
-    int i = 0;
+    size_t i = 0;
     for (; i < country_model->GetItemCount(); i++) {
       if (country_model->GetItemAt(i) == country_name)
         break;
     }
     country_combobox->SetSelectedRow(i);
     country_combobox->OnBlur();
-    WaitForObservedEvent();
+    ASSERT_TRUE(WaitForObservedEvent());
   }
 
   PersonalDataLoadedObserverMock personal_data_observer_;
@@ -281,8 +281,8 @@ IN_PROC_BROWSER_TEST_F(DISABLED_PaymentRequestShippingAddressEditorTest,
       .WillOnce(QuitMessageLoop(&data_loop));
   views::View* editor_sheet = dialog_view()->GetViewByID(
       static_cast<int>(DialogViewID::SHIPPING_ADDRESS_EDITOR_SHEET));
-  editor_sheet->AcceleratorPressed(
-      ui::Accelerator(ui::VKEY_RETURN, ui::EF_NONE));
+  EXPECT_TRUE(editor_sheet->AcceleratorPressed(
+      ui::Accelerator(ui::VKEY_RETURN, ui::EF_NONE)));
   data_loop.Run();
 
   personal_data_manager->RemoveObserver(&personal_data_observer_);
@@ -364,7 +364,7 @@ IN_PROC_BROWSER_TEST_F(DISABLED_PaymentRequestShippingAddressEditorTest,
       dialog_view()->GetViewByID(EditorViewController::GetInputFieldViewId(
           autofill::ADDRESS_HOME_COUNTRY)));
   ASSERT_NE(nullptr, country_combobox);
-  ASSERT_EQ(0, country_combobox->GetSelectedRow());
+  ASSERT_EQ(0u, country_combobox->GetSelectedRow());
   autofill::CountryComboboxModel* country_model =
       static_cast<autofill::CountryComboboxModel*>(
           country_combobox->GetModel());
@@ -390,11 +390,11 @@ IN_PROC_BROWSER_TEST_F(DISABLED_PaymentRequestShippingAddressEditorTest,
           static_cast<autofill::RegionComboboxModel*>(
               region_combobox->GetModel());
       if (use_regions1) {
-        ASSERT_EQ(2, region_model->GetItemCount());
+        ASSERT_EQ(2u, region_model->GetItemCount());
         EXPECT_EQ(u"---", region_model->GetItemAt(0));
         EXPECT_EQ(u"region1a", region_model->GetItemAt(1));
       } else {
-        ASSERT_EQ(3, region_model->GetItemCount());
+        ASSERT_EQ(3u, region_model->GetItemCount());
         EXPECT_EQ(u"---", region_model->GetItemAt(0));
         EXPECT_EQ(u"region2a", region_model->GetItemAt(1));
         EXPECT_EQ(u"region2b", region_model->GetItemAt(2));
@@ -409,7 +409,7 @@ IN_PROC_BROWSER_TEST_F(DISABLED_PaymentRequestShippingAddressEditorTest,
     country_combobox = nullptr;
     country_model = nullptr;
     region_combobox = nullptr;
-    WaitForObservedEvent();
+    ASSERT_TRUE(WaitForObservedEvent());
 
     // Some types could have been lost in previous countries and may now
     // available in this country.
@@ -437,8 +437,7 @@ IN_PROC_BROWSER_TEST_F(DISABLED_PaymentRequestShippingAddressEditorTest,
         dialog_view()->GetViewByID(EditorViewController::GetInputFieldViewId(
             autofill::ADDRESS_HOME_COUNTRY)));
     DCHECK(country_combobox);
-    EXPECT_EQ(country_index,
-              static_cast<size_t>(country_combobox->GetSelectedRow()));
+    EXPECT_EQ(country_index, country_combobox->GetSelectedRow().value());
     country_model = static_cast<autofill::CountryComboboxModel*>(
         country_combobox->GetModel());
     ASSERT_EQ(num_countries, country_model->countries().size());
@@ -508,7 +507,7 @@ IN_PROC_BROWSER_TEST_F(DISABLED_PaymentRequestShippingAddressEditorTest,
   ResetEventWaiter(DialogEvent::EDITOR_VIEW_UPDATED);
   test_region_data_loader_.SendAsynchronousData(
       std::vector<std::pair<std::string, std::string>>());
-  WaitForObservedEvent();
+  ASSERT_TRUE(WaitForObservedEvent());
 
   // Now any textual value can be set for the ADDRESS_HOME_STATE.
   SetFieldTestValue(autofill::ADDRESS_HOME_STATE);
@@ -610,7 +609,7 @@ IN_PROC_BROWSER_TEST_F(DISABLED_PaymentRequestShippingAddressEditorTest,
 }
 
 // Flaky on ozone: https://crbug.com/1216184
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
 #define MAYBE_FocusFirstField_Name DISABLED_FocusFirstField_Name
 #else
 #define MAYBE_FocusFirstField_Name FocusFirstField_Name
@@ -639,7 +638,7 @@ IN_PROC_BROWSER_TEST_F(DISABLED_PaymentRequestShippingAddressEditorTest,
 }
 
 // Flaky on ozone: https://crbug.com/1216184
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
 #define MAYBE_FocusFirstInvalidField_NotName \
   DISABLED_FocusFirstInvalidField_NotName
 #else
@@ -1362,7 +1361,7 @@ IN_PROC_BROWSER_TEST_F(DISABLED_PaymentRequestShippingAddressEditorTest,
                                DialogEvent::SHIPPING_ADDRESS_EDITOR_OPENED});
   ClickOnChildInListViewAndWait(/*child_index=*/0, /*num_children=*/1,
                                 DialogViewID::SHIPPING_ADDRESS_SHEET_LIST_VIEW);
-  WaitForObservedEvent();
+  ASSERT_TRUE(WaitForObservedEvent());
 
   EXPECT_EQ(u"ADDRESS LINE ERROR",
             GetErrorLabelForType(autofill::ADDRESS_HOME_STREET_ADDRESS));

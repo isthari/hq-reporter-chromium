@@ -1,13 +1,13 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef IOS_CHROME_BROWSER_DEVICE_SHARING_DEVICE_SHARING_BROWSER_AGENT_H_
 #define IOS_CHROME_BROWSER_DEVICE_SHARING_DEVICE_SHARING_BROWSER_AGENT_H_
 
-#import "ios/chrome/browser/main/browser_observer.h"
-#import "ios/chrome/browser/main/browser_user_data.h"
-#import "ios/chrome/browser/web_state_list/web_state_list_observer.h"
+#import "ios/chrome/browser/shared/model/browser/browser_observer.h"
+#import "ios/chrome/browser/shared/model/browser/browser_user_data.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list_observer.h"
 #import "ios/web/public/web_state_observer.h"
 
 class ActiveWebStateObservationForwarder;
@@ -19,8 +19,8 @@ class Browser;
 // browser states, all updates clear the shared URL.
 class DeviceSharingBrowserAgent
     : public BrowserUserData<DeviceSharingBrowserAgent>,
-      WebStateListObserver,
-      BrowserObserver,
+      public WebStateListObserver,
+      public BrowserObserver,
       public web::WebStateObserver {
  public:
   // Not copyable or moveable
@@ -33,9 +33,10 @@ class DeviceSharingBrowserAgent
   void UpdateForActiveBrowser();
 
  private:
-  explicit DeviceSharingBrowserAgent(Browser* browser);
   friend class BrowserUserData<DeviceSharingBrowserAgent>;
   BROWSER_USER_DATA_KEY_DECL();
+
+  explicit DeviceSharingBrowserAgent(Browser* browser);
 
   // Update the active URL for the current web state of the browser.
   void UpdateForActiveWebState();
@@ -59,9 +60,9 @@ class DeviceSharingBrowserAgent
 
   // The Browser this agent is associated with.
   Browser* browser_;
-  // Whether the browser state assoicated with |browser_| is inocgnito or not.
+  // Whether the browser state assoicated with `browser_` is inocgnito or not.
   const bool is_incognito_ = true;
-  // Observer for the active web state in |browser_|'s browser list.
+  // Observer for the active web state in `browser_`'s browser list.
   std::unique_ptr<ActiveWebStateObservationForwarder>
       active_web_state_observer_;
 };

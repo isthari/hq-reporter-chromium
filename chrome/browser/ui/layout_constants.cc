@@ -1,32 +1,22 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/layout_constants.h"
 
+#include "base/feature_list.h"
 #include "base/notreached.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/ui_features.h"
+#include "components/omnibox/browser/omnibox_field_trial.h"
+#include "components/omnibox/common/omnibox_features.h"
 #include "ui/base/pointer/touch_ui_controller.h"
+#include "ui/base/ui_base_features.h"
+#include "ui/gfx/geometry/insets.h"
 
-#if BUILDFLAG(IS_MAC)
-int GetCocoaLayoutConstant(LayoutConstant constant) {
-  switch (constant) {
-    case BOOKMARK_BAR_HEIGHT:
-      return 28;
-    case BOOKMARK_BAR_NTP_HEIGHT:
-      return 39;
-    case BOOKMARK_BAR_HEIGHT_NO_OVERLAP:
-      return GetCocoaLayoutConstant(BOOKMARK_BAR_HEIGHT) - 2;
-    case BOOKMARK_BAR_NTP_PADDING:
-      return (GetCocoaLayoutConstant(BOOKMARK_BAR_NTP_HEIGHT) -
-              GetCocoaLayoutConstant(BOOKMARK_BAR_HEIGHT)) /
-             2;
-    default:
-      return GetLayoutConstant(constant);
-  }
-}
-#endif
+#if BUILDFLAG(IS_CHROMEOS)
+#include "chromeos/constants/chromeos_features.h"
+#endif  // IS_CHROMEOS
 
 int GetLayoutConstant(LayoutConstant constant) {
   const bool touch_ui = ui::TouchUiController::Get()->touch_ui();
@@ -39,8 +29,6 @@ int GetLayoutConstant(LayoutConstant constant) {
              kBookmarkBarAttachedVerticalMargin;
     case BOOKMARK_BAR_BUTTON_HEIGHT:
       return touch_ui ? 36 : 28;
-    case BOOKMARK_BAR_NTP_HEIGHT:
-      return touch_ui ? GetLayoutConstant(BOOKMARK_BAR_HEIGHT) : 39;
     case WEB_APP_MENU_BUTTON_SIZE:
       return 24;
     case WEB_APP_PAGE_ACTION_ICON_SIZE:
@@ -55,10 +43,33 @@ int GetLayoutConstant(LayoutConstant constant) {
       return 3;
     case LOCATION_BAR_ELEMENT_PADDING:
       return touch_ui ? 3 : 2;
+    case LOCATION_BAR_PAGE_INFO_ICON_VERTICAL_PADDING:
+      return touch_ui ? 3 : 5;
+    case LOCATION_BAR_LEADING_DECORATION_EDGE_PADDING:
+      // TODO(manukh): See comment in `LocationBarView::Layout()`. We have too
+      //   many feature permutations that would affect this and other layout
+      //   constants. So instead of spreading the permutation logic here and
+      //   elsewhere, its consolidated in `Layout()` and will be moved back here
+      //   once we decide on a permutation.
+      NOTREACHED_NORETURN();
+    case LOCATION_BAR_TRAILING_DECORATION_EDGE_PADDING:
+      return touch_ui ? 3 : 12;
     case LOCATION_BAR_HEIGHT:
-      return touch_ui ? 36 : 28;
+      if (base::FeatureList::IsEnabled(omnibox::kOmniboxSteadyStateHeight) ||
+          features::GetChromeRefresh2023Level() ==
+              features::ChromeRefresh2023Level::kLevel2) {
+        return touch_ui ? 36 : 34;
+      } else {
+        return touch_ui ? 36 : 28;
+      }
     case LOCATION_BAR_ICON_SIZE:
       return touch_ui ? 20 : 16;
+    case LOCATION_BAR_LEADING_ICON_SIZE:
+      return GetLayoutConstant(LOCATION_BAR_ICON_SIZE);
+    case LOCATION_BAR_TRAILING_ICON_SIZE:
+      return OmniboxFieldTrial::IsChromeRefreshIconsEnabled()
+                 ? 20
+                 : GetLayoutConstant(LOCATION_BAR_ICON_SIZE);
     case TAB_AFTER_TITLE_PADDING:
       return touch_ui ? 8 : 4;
     case TAB_ALERT_INDICATOR_CAPTURE_ICON_WIDTH:
@@ -66,6 +77,11 @@ int GetLayoutConstant(LayoutConstant constant) {
     case TAB_ALERT_INDICATOR_ICON_WIDTH:
       return touch_ui ? 12 : 16;
     case TAB_HEIGHT:
+#if BUILDFLAG(IS_CHROMEOS)
+      if (chromeos::features::IsJellyrollEnabled()) {
+        return 34 + GetLayoutConstant(TABSTRIP_TOOLBAR_OVERLAP);
+      }
+#endif  // IS_CHROMEOS
       return (touch_ui ? 41 : 34) + GetLayoutConstant(TABSTRIP_TOOLBAR_OVERLAP);
     case TAB_PRE_TITLE_PADDING:
       return 8;
@@ -80,13 +96,32 @@ int GetLayoutConstant(LayoutConstant constant) {
         return 0;
       return 1;
     case TOOLBAR_BUTTON_HEIGHT:
-      return touch_ui ? 48 : 28;
+      if (base::FeatureList::IsEnabled(features::kChromeRefresh2023)) {
+        return touch_ui ? 48 : 34;
+      } else {
+        return touch_ui ? 48 : 28;
+      }
     case TOOLBAR_ELEMENT_PADDING:
       return touch_ui ? 0 : 4;
+    case TOOLBAR_ICON_DEFAULT_MARGIN:
+      if (base::FeatureList::IsEnabled(features::kChromeRefresh2023)) {
+        return touch_ui ? 0 : 2;
+      } else {
+        return GetLayoutConstant(TOOLBAR_ELEMENT_PADDING);
+      }
     case TOOLBAR_STANDARD_SPACING:
-      return touch_ui ? 12 : 8;
+      if (base::FeatureList::IsEnabled(features::kChromeRefresh2023)) {
+        return touch_ui ? 12 : 9;
+      } else {
+        return touch_ui ? 12 : 8;
+      }
     case PAGE_INFO_ICON_SIZE:
+      return base::FeatureList::IsEnabled(features::kChromeRefresh2023) ? 20
+                                                                        : 16;
+    case DOWNLOAD_ICON_SIZE:
       return 16;
+    case TOOLBAR_CORNER_RADIUS:
+      return 8;
     default:
       break;
   }
@@ -97,11 +132,20 @@ int GetLayoutConstant(LayoutConstant constant) {
 gfx::Insets GetLayoutInsets(LayoutInset inset) {
   const bool touch_ui = ui::TouchUiController::Get()->touch_ui();
   switch (inset) {
-    case LOCATION_BAR_ICON_INTERIOR_PADDING:
-      return touch_ui ? gfx::Insets(5, 10) : gfx::Insets(4, 8);
+    case DOWNLOAD_ICON:
+      return gfx::Insets(4);
 
-    case TOOLBAR_BUTTON:
-      return gfx::Insets(touch_ui ? 12 : 6);
+    case DOWNLOAD_ROW:
+      return gfx::Insets::VH(8, 16);
+
+    case LOCATION_BAR_ICON_INTERIOR_PADDING:
+      return touch_ui ? gfx::Insets::VH(5, 10) : gfx::Insets::VH(4, 8);
+
+    case LOCATION_BAR_PAGE_INFO_ICON_PADDING:
+      return touch_ui ? gfx::Insets::VH(5, 10) : gfx::Insets::VH(4, 4);
+
+    case LOCATION_BAR_PAGE_ACTION_ICON_PADDING:
+      return touch_ui ? gfx::Insets::VH(5, 10) : gfx::Insets::VH(2, 2);
 
     case TOOLBAR_ACTION_VIEW: {
       // TODO(afakhry): Unify all toolbar button sizes on all platforms.
@@ -109,8 +153,22 @@ gfx::Insets GetLayoutInsets(LayoutInset inset) {
       return gfx::Insets(touch_ui ? 10 : 0);
     }
 
+    case TOOLBAR_BUTTON:
+      return gfx::Insets(
+          touch_ui ? 12
+                   : (base::FeatureList::IsEnabled(features::kChromeRefresh2023)
+                          ? 7
+                          : 6));
+
     case TOOLBAR_INTERIOR_MARGIN:
-      return touch_ui ? gfx::Insets() : gfx::Insets(4, 8);
+      if (base::FeatureList::IsEnabled(features::kChromeRefresh2023)) {
+        return touch_ui ? gfx::Insets() : gfx::Insets::VH(6, 5);
+      } else {
+        return touch_ui ? gfx::Insets() : gfx::Insets::VH(4, 8);
+      }
+
+    case WEBUI_TAB_STRIP_TOOLBAR_INTERIOR_MARGIN:
+      return gfx::Insets::VH(4, 0);
   }
   NOTREACHED();
   return gfx::Insets();

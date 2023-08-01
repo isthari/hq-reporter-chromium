@@ -1,19 +1,22 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.net;
 
-import static org.junit.Assert.assertEquals;
+import static com.google.common.truth.Truth.assertThat;
+
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import static org.chromium.net.CronetTestRule.getContext;
 
 import android.os.ConditionVariable;
-import android.support.test.runner.AndroidJUnit4;
 
+import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.filters.SmallTest;
+
+import com.google.common.collect.Range;
 
 import org.junit.After;
 import org.junit.Before;
@@ -22,7 +25,6 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 
-import org.chromium.base.test.util.Feature;
 import org.chromium.net.CronetTestRule.CronetTestFramework;
 import org.chromium.net.CronetTestRule.OnlyRunNativeCronet;
 import org.chromium.net.TestUrlRequestCallback.ResponseStep;
@@ -79,7 +81,6 @@ public class GetStatusTest {
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     public void testSimpleGet() throws Exception {
         String url = NativeTestServer.getEchoMethodURL();
         TestUrlRequestCallback callback = new TestUrlRequestCallback();
@@ -93,7 +94,7 @@ public class GetStatusTest {
         urlRequest.getStatus(statusListener0);
         statusListener0.waitUntilOnStatusCalled();
         assertTrue(statusListener0.mOnStatusCalled);
-        assertEquals(Status.INVALID, statusListener0.mStatus);
+        assertThat(statusListener0.mStatus).isEqualTo(Status.INVALID);
 
         urlRequest.start();
 
@@ -102,12 +103,10 @@ public class GetStatusTest {
         urlRequest.getStatus(statusListener1);
         statusListener1.waitUntilOnStatusCalled();
         assertTrue(statusListener1.mOnStatusCalled);
-        assertTrue("Status is :" + statusListener1.mStatus, statusListener1.mStatus >= Status.IDLE);
-        assertTrue("Status is :" + statusListener1.mStatus,
-                statusListener1.mStatus <= Status.READING_RESPONSE);
-
+        assertThat(statusListener1.mStatus)
+                .isIn(Range.closed(Status.IDLE, Status.READING_RESPONSE));
         callback.waitForNextStep();
-        assertEquals(ResponseStep.ON_RESPONSE_STARTED, callback.mResponseStep);
+        assertThat(callback.mResponseStep).isEqualTo(ResponseStep.ON_RESPONSE_STARTED);
         callback.startNextRead(urlRequest);
 
         // Should receive a valid status.
@@ -115,11 +114,11 @@ public class GetStatusTest {
         urlRequest.getStatus(statusListener2);
         statusListener2.waitUntilOnStatusCalled();
         assertTrue(statusListener2.mOnStatusCalled);
-        assertTrue(statusListener1.mStatus >= Status.IDLE);
-        assertTrue(statusListener1.mStatus <= Status.READING_RESPONSE);
+        assertThat(statusListener1.mStatus)
+                .isIn(Range.closed(Status.IDLE, Status.READING_RESPONSE));
 
         callback.waitForNextStep();
-        assertEquals(ResponseStep.ON_READ_COMPLETED, callback.mResponseStep);
+        assertThat(callback.mResponseStep).isEqualTo(ResponseStep.ON_READ_COMPLETED);
 
         callback.startNextRead(urlRequest);
         callback.blockForDone();
@@ -130,18 +129,17 @@ public class GetStatusTest {
         urlRequest.getStatus(statusListener3);
         statusListener3.waitUntilOnStatusCalled();
         assertTrue(statusListener3.mOnStatusCalled);
-        assertEquals(Status.INVALID, statusListener3.mStatus);
+        assertThat(statusListener3.mStatus).isEqualTo(Status.INVALID);
 
-        assertEquals(200, callback.mResponseInfo.getHttpStatusCode());
-        assertEquals("GET", callback.mResponseAsString);
+        assertThat(callback.mResponseInfo.getHttpStatusCode()).isEqualTo(200);
+        assertThat(callback.mResponseAsString).isEqualTo("GET");
     }
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     public void testInvalidLoadState() throws Exception {
         try {
-            UrlRequestBase.convertLoadState(LoadState.WAITING_FOR_APPCACHE);
+            UrlRequestBase.convertLoadState(LoadState.OBSOLETE_WAITING_FOR_APPCACHE);
             fail();
         } catch (IllegalArgumentException e) {
             // Expected because LoadState.WAITING_FOR_APPCACHE is not mapped.
@@ -154,7 +152,6 @@ public class GetStatusTest {
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     // Regression test for crbug.com/606872.
     @OnlyRunNativeCronet
     public void testGetStatusForUpload() throws Exception {
@@ -191,7 +188,7 @@ public class GetStatusTest {
         assertTrue(statusListener.mOnStatusCalled);
         // The request should be in IDLE state because GetStatusOnNetworkThread
         // is called before |url_request_| is initialized and started.
-        assertEquals(Status.IDLE, statusListener.mStatus);
+        assertThat(statusListener.mStatus).isEqualTo(Status.IDLE);
         // Resume the UploadDataProvider.
         block.open();
 
@@ -199,11 +196,11 @@ public class GetStatusTest {
         callback.blockForDone();
         dataProvider.assertClosed();
 
-        assertEquals(4, dataProvider.getUploadedLength());
-        assertEquals(1, dataProvider.getNumReadCalls());
-        assertEquals(0, dataProvider.getNumRewindCalls());
+        assertThat(dataProvider.getUploadedLength()).isEqualTo(4);
+        assertThat(dataProvider.getNumReadCalls()).isEqualTo(1);
+        assertThat(dataProvider.getNumRewindCalls()).isEqualTo(0);
 
-        assertEquals(200, callback.mResponseInfo.getHttpStatusCode());
-        assertEquals("test", callback.mResponseAsString);
+        assertThat(callback.mResponseInfo.getHttpStatusCode()).isEqualTo(200);
+        assertThat(callback.mResponseAsString).isEqualTo("test");
     }
 }

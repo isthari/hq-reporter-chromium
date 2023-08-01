@@ -1,9 +1,12 @@
-# Copyright 2020 The Chromium Authors. All rights reserved.
+# Copyright 2020 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
 import os
-from chrome_ent_test.infra.core import category, environment, before_all, test
+from chrome_ent_test.infra.core import before_all
+from chrome_ent_test.infra.core import category
+from chrome_ent_test.infra.core import environment
+from chrome_ent_test.infra.core import test
 from infra import ChromeEnterpriseTestCase
 
 
@@ -20,8 +23,8 @@ class WebProtectFileDownloadTest(ChromeEnterpriseTestCase):
 
   @before_all
   def setup(self):
-    self.InstallChrome('webprotect-1')
     self.EnableUITest('webprotect-1')
+    self.InstallChrome('webprotect-1')
 
   @test
   def test_malware_scan_download(self):

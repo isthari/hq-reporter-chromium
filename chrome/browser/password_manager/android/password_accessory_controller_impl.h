@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,10 +26,6 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_user_data.h"
 #include "url/gurl.h"
-
-namespace password_manager {
-class ContentPasswordManagerDriver;
-}  // namespace password_manager
 
 class ManualFillingController;
 class AllPasswordsBottomSheetController;
@@ -69,6 +65,7 @@ class PasswordAccessoryControllerImpl
       bool is_manual_generation_available) override;
   void OnGenerationRequested(
       autofill::password_generation::PasswordGenerationType type) override;
+  void UpdateCredManReentryUi() override;
 
   // Like |CreateForWebContents|, it creates the controller and attaches it to
   // the given |web_contents|. Upon creation, a |credential_cache| is required
@@ -83,19 +80,9 @@ class PasswordAccessoryControllerImpl
   static void CreateForWebContentsForTesting(
       content::WebContents* web_contents,
       password_manager::CredentialCache* credential_cache,
-      base::WeakPtr<ManualFillingController> mf_controller,
+      base::WeakPtr<ManualFillingController> manual_filling_controller,
       password_manager::PasswordManagerClient* password_client,
       PasswordDriverSupplierForFocusedFrame driver_supplier);
-
-  // True if the focus event was sent for the current focused frame or if it is
-  // a blur event and no frame is focused. This check avoids reacting to
-  // obsolete events that arrived in an unexpected order.
-  // TODO(crbug.com/968162): Introduce the concept of active frame to the
-  // accessory controller and move this check in the controller.
-  static bool ShouldAcceptFocusEvent(
-      content::WebContents* web_contents,
-      password_manager::ContentPasswordManagerDriver* driver,
-      autofill::mojom::FocusedFieldType focused_field_type);
 
   // Returns true if the current site attached to `web_contents_` has a SECURE
   // security level.
@@ -108,6 +95,16 @@ class PasswordAccessoryControllerImpl
     security_level_for_testing_ = security_level;
   }
 #endif
+ protected:
+  // This constructor can also be used by |CreateForWebContentsForTesting|
+  // to inject a fake |ManualFillingController| and a fake
+  // |PasswordManagerClient|.
+  PasswordAccessoryControllerImpl(
+      content::WebContents* web_contents,
+      password_manager::CredentialCache* credential_cache,
+      base::WeakPtr<ManualFillingController> manual_filling_controller,
+      password_manager::PasswordManagerClient* password_client,
+      PasswordDriverSupplierForFocusedFrame driver_supplier);
 
  private:
   friend class content::WebContentsUserData<PasswordAccessoryControllerImpl>;
@@ -131,16 +128,6 @@ class PasswordAccessoryControllerImpl
     // If true, manual generation will be available for the focused field.
     bool is_manual_generation_available = false;
   };
-
-  // This constructor can also be used by |CreateForWebContentsForTesting|
-  // to inject a fake |ManualFillingController| and a fake
-  // |PasswordManagerClient|.
-  PasswordAccessoryControllerImpl(
-      content::WebContents* web_contents,
-      password_manager::CredentialCache* credential_cache,
-      base::WeakPtr<ManualFillingController> mf_controller,
-      password_manager::PasswordManagerClient* password_client,
-      PasswordDriverSupplierForFocusedFrame driver_supplier);
 
   // Enables or disables saving for the focused origin. This involves removing
   // or adding blocklisted entry in the |PasswordStore|.
@@ -185,18 +172,20 @@ class PasswordAccessoryControllerImpl
   content::WebContents& GetWebContents() const;
 
   // Keeps track of credentials which are stored for all origins in this tab.
-  raw_ptr<password_manager::CredentialCache> credential_cache_ = nullptr;
+  raw_ptr<password_manager::CredentialCache, DanglingUntriaged>
+      credential_cache_ = nullptr;
 
   // The password accessory controller object to forward client requests to.
-  base::WeakPtr<ManualFillingController> mf_controller_;
+  base::WeakPtr<ManualFillingController> manual_filling_controller_;
 
   // The password manager client is used to update the save passwords status
   // for the currently focused origin.
-  raw_ptr<password_manager::PasswordManagerClient> password_client_ = nullptr;
+  raw_ptr<password_manager::PasswordManagerClient, DanglingUntriaged>
+      password_client_ = nullptr;
 
   // The authenticator used to trigger a biometric re-auth before filling.
   // null, if there is no ongoing authentication.
-  scoped_refptr<device_reauth::BiometricAuthenticator> authenticator_;
+  scoped_refptr<device_reauth::DeviceAuthenticator> authenticator_;
 
   // Information about the currently focused field. This is the only place
   // allowed to store frame-specific data. If a new field is focused or focus is

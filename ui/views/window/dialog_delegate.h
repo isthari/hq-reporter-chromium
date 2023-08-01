@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,10 +10,12 @@
 #include <utility>
 
 #include "base/compiler_specific.h"
+#include "base/observer_list.h"
 #include "base/time/time.h"
 #include "ui/accessibility/ax_enums.mojom-forward.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/base/ui_base_types.h"
+#include "ui/views/controls/button/md_text_button.h"
 #include "ui/views/metadata/view_factory.h"
 #include "ui/views/view.h"
 #include "ui/views/views_export.h"
@@ -25,7 +27,6 @@ namespace views {
 class BubbleFrameView;
 class DialogClientView;
 class DialogObserver;
-class LabelButton;
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -35,6 +36,11 @@ class LabelButton;
 //  dialog box Window. The window that is displayed uses this interface to
 //  determine how it should be displayed and notify the delegate object of
 //  certain events.
+//
+//  If possible, it is better to compose DialogDelegate rather than subclassing
+//  it; it has many setters, including some inherited from WidgetDelegate, that
+//  let you set properties on it without overriding virtuals. Doing this also
+//  means you do not need to deal with implementing ::DeleteDelegate().
 //
 ///////////////////////////////////////////////////////////////////////////////
 class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
@@ -63,6 +69,9 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
     // Prefer to use this field (via SetButtonLabel) rather than override
     // GetDialogButtonLabel - see https://crbug.com/1011446
     std::u16string button_labels[ui::DIALOG_BUTTON_LAST + 1];
+
+    // Styles of each button on this dialog. If empty a style will be derived.
+    absl::optional<ui::ButtonStyle> button_styles[ui::DIALOG_BUTTON_LAST + 1];
 
     // A bitmask of buttons (from ui::DialogButton) that are enabled in this
     // dialog. It's legal for a button to be marked enabled that isn't present
@@ -120,8 +129,19 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
   // Returns the label of the specified dialog button.
   std::u16string GetDialogButtonLabel(ui::DialogButton button) const;
 
+  // Returns the style of the specific dialog button.
+  ui::ButtonStyle GetDialogButtonStyle(ui::DialogButton button) const;
+
+  // Returns true if `button` should be the default button.
+  bool GetIsDefault(ui::DialogButton button) const;
+
   // Returns whether the specified dialog button is enabled.
   virtual bool IsDialogButtonEnabled(ui::DialogButton button) const;
+
+  // Returns true if we should ignore key pressed event handling of `button`.
+  virtual bool ShouldIgnoreButtonPressedEventHandling(
+      View* button,
+      const ui::Event& event) const;
 
   // For Dialog boxes, if there is a "Cancel" button or no dialog button at all,
   // this is called when the user presses the "Cancel" button.  This function
@@ -172,10 +192,17 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
   // will only be created when use_custom_frame() is true.
   BubbleFrameView* GetBubbleFrameView() const;
 
+  // A helper for accessing the DialogClientView object contained by this
+  // delegate's Window. This function can return nullptr if the |client_view| is
+  // a DialogClientView subclass which also has metadata or overrides
+  // GetClassName().
+  const DialogClientView* GetDialogClientView() const;
+  DialogClientView* GetDialogClientView();
+
   // Helpers for accessing parts of the DialogClientView without needing to know
   // about DialogClientView. Do not call these before OnWidgetInitialized().
-  views::LabelButton* GetOkButton() const;
-  views::LabelButton* GetCancelButton() const;
+  views::MdTextButton* GetOkButton() const;
+  views::MdTextButton* GetCancelButton() const;
   views::View* GetExtraView() const;
 
   // Helper for accessing the footnote view. Unlike the three methods just
@@ -192,6 +219,16 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
   // IsDialogButtonEnabled() or manually manipulating the dialog buttons.
   // TODO(https://crbug.com/1011446): Make this private.
   void DialogModelChanged();
+
+  // Input protection is triggered upon prompt creation and updated on
+  // visibility changes. Other situations such as top window changes in certain
+  // situations should trigger the input protection manually by calling this
+  // method. Input protection protects against certain kinds of clickjacking.
+  // Essentially it prevents clicks that happen within a user's double click
+  // interval from when the protection is started as well as any following
+  // clicks that happen in shorter succession than the user's double click
+  // interval. Refer to InputEventActivationProtector for more information.
+  void TriggerInputProtection();
 
   void set_use_round_corners(bool round) { params_.round_corners = round; }
   void set_corner_radius(int corner_radius) {
@@ -210,6 +247,8 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
   void SetDefaultButton(int button);
   void SetButtons(int buttons);
   void SetButtonLabel(ui::DialogButton button, std::u16string label);
+  void SetButtonStyle(ui::DialogButton button,
+                      absl::optional<ui::ButtonStyle> style);
   void SetButtonEnabled(ui::DialogButton button, bool enabled);
 
   // Called when the user presses the dialog's "OK" button or presses the dialog
@@ -270,7 +309,7 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
   // initialized.
   // NOT_TAIL_CALLED forces the calling function to appear on the stack in
   // crash dumps. https://crbug.com/1215247
-  void NOT_TAIL_CALLED AcceptDialog();
+  NOT_TAIL_CALLED void AcceptDialog();
   void CancelDialog();
 
   // This method invokes the behavior that *would* happen if this dialog's
@@ -310,11 +349,6 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
   std::unique_ptr<View> DisownFootnoteView();
 
  private:
-  // A helper for accessing the DialogClientView object contained by this
-  // delegate's Window.
-  const DialogClientView* GetDialogClientView() const;
-  DialogClientView* GetDialogClientView();
-
   // Runs a close callback, ensuring that at most one close callback is ever
   // run.
   void RunCloseCallback(base::OnceClosure callback);
@@ -327,9 +361,6 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
 
   // Use a fixed dialog width for dialog. Used by DialogClientView.
   int fixed_width_ = 0;
-
-  // The time the dialog is created.
-  base::TimeTicks creation_time_;
 
   // Dialog parameters for this dialog.
   Params params_;
@@ -357,6 +388,12 @@ class VIEWS_EXPORT DialogDelegate : public WidgetDelegate {
 // to call View's GetWidget() for the common case where a DialogDelegate
 // implementation is-a View. Note that DialogDelegateView is not owned by
 // view's hierarchy and is expected to be deleted on DeleteDelegate call.
+//
+// It is best not to add new uses of this class, and instead to subclass View
+// directly and have a DialogDelegate member that you configure - essentially,
+// to compose with DialogDelegate rather than inheriting from it.
+// DialogDelegateView has unusual lifetime semantics that you can avoid dealing
+// with, and your class will be smaller.
 class VIEWS_EXPORT DialogDelegateView : public DialogDelegate, public View {
  public:
   METADATA_HEADER(DialogDelegateView);
@@ -377,7 +414,7 @@ template View* DialogDelegate::SetExtraView<View>(std::unique_ptr<View>);
 template View* DialogDelegate::SetFootnoteView<View>(std::unique_ptr<View>);
 
 BEGIN_VIEW_BUILDER(VIEWS_EXPORT, DialogDelegateView, View)
-VIEW_BUILDER_PROPERTY(ax::mojom::Role, AccessibleRole)
+VIEW_BUILDER_PROPERTY(ax::mojom::Role, AccessibleWindowRole)
 VIEW_BUILDER_PROPERTY(std::u16string, AccessibleTitle)
 VIEW_BUILDER_PROPERTY(bool, CanMaximize)
 VIEW_BUILDER_PROPERTY(bool, CanMinimize)
@@ -386,38 +423,17 @@ VIEW_BUILDER_VIEW_TYPE_PROPERTY(views::View, ExtraView)
 VIEW_BUILDER_VIEW_TYPE_PROPERTY(views::View, FootnoteView)
 VIEW_BUILDER_PROPERTY(bool, FocusTraversesOut)
 VIEW_BUILDER_PROPERTY(bool, EnableArrowKeyTraversal)
-VIEW_BUILDER_PROPERTY(gfx::ImageSkia, Icon)
-VIEW_BUILDER_PROPERTY(gfx::ImageSkia, AppIcon)
+VIEW_BUILDER_PROPERTY(ui::ImageModel, Icon)
+VIEW_BUILDER_PROPERTY(ui::ImageModel, AppIcon)
 VIEW_BUILDER_PROPERTY(ui::ModalType, ModalType)
 VIEW_BUILDER_PROPERTY(bool, OwnedByWidget)
 VIEW_BUILDER_PROPERTY(bool, ShowCloseButton)
 VIEW_BUILDER_PROPERTY(bool, ShowIcon)
 VIEW_BUILDER_PROPERTY(bool, ShowTitle)
-// Manually define the SetTitle methods to resolve the overloads properly.
-BuilderT& SetTitle(const std::u16string& value) & {
-  auto setter = std::make_unique<::views::internal::PropertySetter<
-      ViewClass_, std::u16string,
-      decltype((static_cast<void (WidgetDelegate::*)(const std::u16string&)>(
-          &ViewClass_::SetTitle))),
-      &WidgetDelegate::SetTitle>>(value);
-  ::views::internal::ViewBuilderCore::AddPropertySetter(std::move(setter));
-  return *static_cast<BuilderT*>(this);
-}
-BuilderT&& SetTitle(const std::u16string& value) && {
-  return std::move(this->SetTitle(value));
-}
-BuilderT& SetTitle(int value) & {
-  auto setter = std::make_unique<::views::internal::PropertySetter<
-      ViewClass_, int,
-      decltype(
-          (static_cast<void (WidgetDelegate::*)(int)>(&ViewClass_::SetTitle))),
-      &WidgetDelegate::SetTitle>>(value);
-  ::views::internal::ViewBuilderCore::AddPropertySetter(std::move(setter));
-  return *static_cast<BuilderT*>(this);
-}
-BuilderT&& SetTitle(int value) && {
-  return std::move(this->SetTitle(value));
-}
+VIEW_BUILDER_OVERLOAD_METHOD_CLASS(WidgetDelegate,
+                                   SetTitle,
+                                   const std::u16string&)
+VIEW_BUILDER_OVERLOAD_METHOD_CLASS(WidgetDelegate, SetTitle, int)
 #if defined(USE_AURA)
 VIEW_BUILDER_PROPERTY(bool, CenterTitle)
 #endif

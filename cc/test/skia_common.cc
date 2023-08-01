@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,11 @@
 #include <utility>
 #include <vector>
 
+#include "base/base_paths.h"
+#include "base/check.h"
 #include "base/containers/span.h"
+#include "base/files/file_util.h"
+#include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "cc/paint/display_item_list.h"
 #include "cc/paint/draw_image.h"
@@ -19,9 +23,17 @@
 #include "cc/paint/paint_image_builder.h"
 #include "cc/paint/skottie_wrapper.h"
 #include "cc/test/fake_paint_image_generator.h"
+#include "third_party/skia/include/core/SkBitmap.h"
+#include "third_party/skia/include/core/SkCanvas.h"
+#include "third_party/skia/include/core/SkColorSpace.h"
+#include "third_party/skia/include/core/SkImage.h"
 #include "third_party/skia/include/core/SkImageGenerator.h"
+#include "third_party/skia/include/core/SkImageInfo.h"
 #include "third_party/skia/include/core/SkPixmap.h"
+#include "third_party/skia/include/core/SkRefCnt.h"
+#include "third_party/skia/include/core/SkYUVAPixmaps.h"
 #include "third_party/skia/include/gpu/GrDirectContext.h"
+#include "third_party/skia/include/gpu/ganesh/SkImageGanesh.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/skia_conversions.h"
 
@@ -215,7 +227,7 @@ PaintImage CreateBitmapImage(const gfx::Size& size, SkColorType color_type) {
   bitmap.eraseColor(SK_AlphaTRANSPARENT);
   return PaintImageBuilder::WithDefault()
       .set_id(PaintImage::GetNextId())
-      .set_image(SkImage::MakeFromBitmap(bitmap),
+      .set_image(SkImages::RasterFromBitmap(bitmap),
                  PaintImage::GetNextContentId())
       .TakePaintImage();
 }
@@ -251,6 +263,24 @@ scoped_refptr<SkottieWrapper> CreateSkottieFromString(base::StringPiece json) {
       std::vector<uint8_t>(json_span.begin(), json_span.end()));
 }
 
+std::string LoadSkottieFileFromTestData(
+    base::FilePath::StringPieceType animation_file_name) {
+  base::FilePath animation_path;
+  CHECK(base::PathService::Get(base::DIR_SRC_TEST_DATA_ROOT, &animation_path));
+  animation_path = animation_path.AppendASCII("cc/test/data/lottie")
+                       .Append(base::FilePath(animation_file_name));
+  std::string animation_json;
+  CHECK(base::ReadFileToString(animation_path, &animation_json))
+      << animation_path;
+  return animation_json;
+}
+
+scoped_refptr<SkottieWrapper> CreateSkottieFromTestDataDir(
+    base::FilePath::StringPieceType animation_file_name) {
+  return CreateSkottieFromString(
+      LoadSkottieFileFromTestData(animation_file_name));
+}
+
 PaintImage CreateNonDiscardablePaintImage(const gfx::Size& size) {
   auto context = GrDirectContext::MakeMock(nullptr);
   SkBitmap bitmap;
@@ -260,9 +290,9 @@ PaintImage CreateNonDiscardablePaintImage(const gfx::Size& size) {
   bitmap.eraseColor(SK_AlphaTRANSPARENT);
   return PaintImageBuilder::WithDefault()
       .set_id(PaintImage::GetNextId())
-      .set_texture_image(
-          SkImage::MakeFromBitmap(bitmap)->makeTextureImage(context.get()),
-          PaintImage::GetNextContentId())
+      .set_texture_image(SkImages::TextureFromImage(
+                             context.get(), SkImages::RasterFromBitmap(bitmap)),
+                         PaintImage::GetNextContentId())
       .TakePaintImage();
 }
 

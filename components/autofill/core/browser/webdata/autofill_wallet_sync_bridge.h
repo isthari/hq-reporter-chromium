@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -56,10 +56,10 @@ class AutofillWalletSyncBridge : public base::SupportsUserData::Data,
   // ModelTypeSyncBridge implementation.
   std::unique_ptr<syncer::MetadataChangeList> CreateMetadataChangeList()
       override;
-  absl::optional<syncer::ModelError> MergeSyncData(
+  absl::optional<syncer::ModelError> MergeFullSyncData(
       std::unique_ptr<syncer::MetadataChangeList> metadata_change_list,
       syncer::EntityChangeList entity_data) override;
-  absl::optional<syncer::ModelError> ApplySyncChanges(
+  absl::optional<syncer::ModelError> ApplyIncrementalSyncChanges(
       std::unique_ptr<syncer::MetadataChangeList> metadata_change_list,
       syncer::EntityChangeList entity_changes) override;
   void GetData(StorageKeyList storage_keys, DataCallback callback) override;
@@ -67,8 +67,8 @@ class AutofillWalletSyncBridge : public base::SupportsUserData::Data,
   std::string GetClientTag(const syncer::EntityData& entity_data) override;
   std::string GetStorageKey(const syncer::EntityData& entity_data) override;
   bool SupportsIncrementalUpdates() const override;
-  void ApplyStopSyncChanges(std::unique_ptr<syncer::MetadataChangeList>
-                                delete_metadata_change_list) override;
+  void ApplyDisableSyncChanges(std::unique_ptr<syncer::MetadataChangeList>
+                                   delete_metadata_change_list) override;
 
   // Retrieves all Wallet Data from local table, converts to EntityData and
   // sends all Wallet Data to the |callback| and keeps all the strings in their
@@ -138,11 +138,8 @@ class AutofillWalletSyncBridge : public base::SupportsUserData::Data,
   // processor so that it can start tracking changes.
   void LoadMetadata();
 
-  // TODO(crbug/com/1196021): Clean up duplicate functions and use it for
-  // logging only.
-  // Checks whether any virtual card metadata for new_data is new and make
-  // corresponding changes.
-  void ProcessVirtualCardMetadataChanges(
+  // Logs virtual card metadata changes.
+  void LogVirtualCardMetadataChanges(
       const std::vector<std::unique_ptr<CreditCard>>& old_data,
       const std::vector<CreditCard>& new_data);
 

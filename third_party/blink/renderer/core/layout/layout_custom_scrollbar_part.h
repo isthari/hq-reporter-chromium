@@ -26,6 +26,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_CUSTOM_SCROLLBAR_PART_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_CUSTOM_SCROLLBAR_PART_H_
 
+#include "base/notreached.h"
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/layout_replaced.h"
 #include "third_party/blink/renderer/core/scroll/scroll_types.h"
 
@@ -36,10 +38,14 @@ class ScrollableArea;
 
 class CORE_EXPORT LayoutCustomScrollbarPart final : public LayoutReplaced {
  public:
-  static LayoutCustomScrollbarPart* CreateAnonymous(Document*,
-                                                    ScrollableArea*,
-                                                    CustomScrollbar* = nullptr,
-                                                    ScrollbarPart = kNoPart);
+  static LayoutCustomScrollbarPart* CreateAnonymous(
+      Document*,
+      ScrollableArea*,
+      CustomScrollbar* = nullptr,
+      ScrollbarPart = kNoPart,
+      bool suppress_use_counters = false);
+
+  void Trace(Visitor*) const override;
 
   const char* GetName() const override {
     NOT_DESTROYED();
@@ -64,6 +70,13 @@ class CORE_EXPORT LayoutCustomScrollbarPart final : public LayoutReplaced {
   // available.
   int ComputeLength() const;
 
+  // Update the overridden location and size.
+  void SetOverriddenFrameRect(const LayoutRect& rect);
+  // Rerturn the overridden location set by SetOverriddenFrameRect();
+  LayoutPoint Location() const override;
+  // Rerturn the overridden size set by SetOverriddenFrameRect();
+  LayoutSize Size() const override;
+
   LayoutUnit MarginTop() const override;
   LayoutUnit MarginBottom() const override;
   LayoutUnit MarginLeft() const override;
@@ -79,7 +92,10 @@ class CORE_EXPORT LayoutCustomScrollbarPart final : public LayoutReplaced {
     return scrollable_area_;
   }
 
-  LayoutCustomScrollbarPart(ScrollableArea*, CustomScrollbar*, ScrollbarPart);
+  LayoutCustomScrollbarPart(ScrollableArea*,
+                            CustomScrollbar*,
+                            ScrollbarPart,
+                            bool suppress_use_counters);
 
  private:
   void UpdateFromStyle() override;
@@ -134,10 +150,11 @@ class CORE_EXPORT LayoutCustomScrollbarPart final : public LayoutReplaced {
   int ComputeWidth(int container_width) const;
   int ComputeHeight(int container_height) const;
 
-  UntracedMember<ScrollableArea> scrollable_area_;
-  UntracedMember<CustomScrollbar> scrollbar_;
-
+  Member<ScrollableArea> scrollable_area_;
+  Member<CustomScrollbar> scrollbar_;
+  LayoutRect overridden_rect_;
   ScrollbarPart part_;
+  bool suppress_use_counters_ = false;
 };
 
 template <>

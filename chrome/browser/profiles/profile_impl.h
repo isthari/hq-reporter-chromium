@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,7 +34,7 @@ class PrefService;
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 namespace ash {
-class KioskTest;
+class KioskBaseTest;
 class LocaleChangeGuard;
 class Preferences;
 }  // namespace ash
@@ -44,10 +44,17 @@ namespace base {
 class SequencedTaskRunner;
 }
 
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+namespace extensions {
+class VolumeListProviderLacros;
+}  // namespace extensions
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
+
 namespace policy {
 class AsyncPolicyProvider;
 class ConfigurationPolicyProvider;
 class ProfilePolicyConnector;
+class ProfileCloudPolicyManager;
 }  // namespace policy
 
 namespace sync_preferences {
@@ -86,18 +93,23 @@ class ProfileImpl : public Profile {
       override;
   content::BackgroundFetchDelegate* GetBackgroundFetchDelegate() override;
   content::BackgroundSyncController* GetBackgroundSyncController() override;
+  content::ReduceAcceptLanguageControllerDelegate*
+  GetReduceAcceptLanguageControllerDelegate() override;
   std::string GetMediaDeviceIDSalt() override;
-  download::InProgressDownloadManager* RetriveInProgressDownloadManager()
-      override;
+  std::unique_ptr<download::InProgressDownloadManager>
+  RetrieveInProgressDownloadManager() override;
   content::FileSystemAccessPermissionContext*
   GetFileSystemAccessPermissionContext() override;
   content::ContentIndexProvider* GetContentIndexProvider() override;
-  content::FederatedIdentityActiveSessionPermissionContextDelegate*
-  GetFederatedIdentityActiveSessionPermissionContext() override;
-  content::FederatedIdentityRequestPermissionContextDelegate*
-  GetFederatedIdentityRequestPermissionContext() override;
-  content::FederatedIdentitySharingPermissionContextDelegate*
-  GetFederatedIdentitySharingPermissionContext() override;
+  content::FederatedIdentityApiPermissionContextDelegate*
+  GetFederatedIdentityApiPermissionContext() override;
+  content::FederatedIdentityAutoReauthnPermissionContextDelegate*
+  GetFederatedIdentityAutoReauthnPermissionContext() override;
+  content::FederatedIdentityPermissionContextDelegate*
+  GetFederatedIdentityPermissionContext() override;
+  content::KAnonymityServiceDelegate* GetKAnonymityServiceDelegate() override;
+  content::OriginTrialsControllerDelegate* GetOriginTrialsControllerDelegate()
+      override;
 
   // Profile implementation:
   scoped_refptr<base::SequencedTaskRunner> GetIOTaskRunner() override;
@@ -131,10 +143,9 @@ class ProfileImpl : public Profile {
   policy::SchemaRegistryService* GetPolicySchemaRegistryService() override;
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   policy::UserCloudPolicyManagerAsh* GetUserCloudPolicyManagerAsh() override;
-  policy::ActiveDirectoryPolicyManager* GetActiveDirectoryPolicyManager()
-      override;
 #else
   policy::UserCloudPolicyManager* GetUserCloudPolicyManager() override;
+  policy::ProfileCloudPolicyManager* GetProfileCloudPolicyManager() override;
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   policy::ProfilePolicyConnector* GetProfilePolicyConnector() override;
   const policy::ProfilePolicyConnector* GetProfilePolicyConnector()
@@ -167,7 +178,7 @@ class ProfileImpl : public Profile {
 
  private:
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  friend class ash::KioskTest;
+  friend class ash::KioskBaseTest;
 #endif
   friend class Profile;
   FRIEND_TEST_ALL_PREFIXES(StartupBrowserCreatorTest,
@@ -242,7 +253,6 @@ class ProfileImpl : public Profile {
   //   which can be:
   //     - |user_cloud_policy_manager_|;
   //     - |user_cloud_policy_manager_ash_|;
-  //     - or |active_directory_policy_manager_|.
   // - configuration_policy_provider() depends on |schema_registry_service_|
 
   std::unique_ptr<policy::SchemaRegistryService> schema_registry_service_;
@@ -252,13 +262,15 @@ class ProfileImpl : public Profile {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   std::unique_ptr<policy::UserCloudPolicyManagerAsh>
       user_cloud_policy_manager_ash_;
-  std::unique_ptr<policy::ActiveDirectoryPolicyManager>
-      active_directory_policy_manager_;
 #else
   std::unique_ptr<policy::UserCloudPolicyManager> user_cloud_policy_manager_;
+  std::unique_ptr<policy::ProfileCloudPolicyManager>
+      profile_cloud_policy_manager_;
 #endif
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
   std::unique_ptr<policy::AsyncPolicyProvider> user_policy_provider_;
+  // Provider (monitor and dispatcher) of volume list updates.
+  std::unique_ptr<extensions::VolumeListProviderLacros> volume_list_provider_;
 #endif
 
   std::unique_ptr<policy::ProfilePolicyConnector> profile_policy_connector_;

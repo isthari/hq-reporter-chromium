@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include <fidl/fuchsia.ui.views/cpp/hlcpp_conversion.h>
 #include <fuchsia/ui/views/cpp/fidl.h>
 #include <lib/ui/scenic/cpp/view_token_pair.h>
 
@@ -18,6 +19,7 @@
 #include "base/no_destructor.h"
 #include "base/notreached.h"
 #include "base/task/current_thread.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "ui/base/cursor/cursor_factory.h"
@@ -114,7 +116,7 @@ class OzonePlatformScenic : public OzonePlatform,
       auto view_tokens = scenic::ViewTokenPair::New();
       properties.view_token = std::move(view_tokens.view_token);
       properties.view_ref_pair = scenic::ViewRefPair::New();
-      ::ui::fuchsia::GetScenicViewPresenter().Run(
+      properties.view_controller = ::ui::fuchsia::GetScenicViewPresenter().Run(
           std::move(view_tokens.view_holder_token),
           CloneViewRef(properties.view_ref_pair.view_ref));
     }
@@ -127,7 +129,6 @@ class OzonePlatformScenic : public OzonePlatform,
     static base::NoDestructor<OzonePlatform::PlatformProperties> properties;
     static bool initialised = false;
     if (!initialised) {
-      properties->needs_view_token = true;
       properties->message_pump_type_for_gpu = base::MessagePumpType::IO;
       properties->supports_vulkan_swap_chain = true;
 
@@ -150,11 +151,13 @@ class OzonePlatformScenic : public OzonePlatform,
   void InitScreen(PlatformScreen* screen) override {}
 
   std::unique_ptr<InputMethod> CreateInputMethod(
-      internal::InputMethodDelegate* delegate,
+      ImeKeyEventDispatcher* ime_key_event_dispatcher,
       gfx::AcceleratedWidget widget) override {
     return std::make_unique<InputMethodFuchsia>(
         window_manager_->GetWindow(widget)->is_virtual_keyboard_enabled(),
-        delegate, window_manager_->GetWindow(widget)->CloneViewRef());
+        ime_key_event_dispatcher,
+        fidl::HLCPPToNatural(
+            window_manager_->GetWindow(widget)->CloneViewRef()));
   }
 
   bool InitializeUI(const InitParams& params) override {
@@ -176,7 +179,7 @@ class OzonePlatformScenic : public OzonePlatform,
     if (!surface_factory_)
       surface_factory_ = std::make_unique<ScenicSurfaceFactory>();
 
-    if (base::ThreadTaskRunnerHandle::IsSet())
+    if (base::SingleThreadTaskRunner::HasCurrentDefault())
       BindInMainProcessIfNecessary();
 
     return true;
@@ -201,10 +204,17 @@ class OzonePlatformScenic : public OzonePlatform,
     overlay_manager_ = std::make_unique<OverlayManagerScenic>();
   }
 
+  const PlatformRuntimeProperties& GetPlatformRuntimeProperties() override {
+    static OzonePlatform::PlatformRuntimeProperties properties;
+    properties.supports_native_pixmaps = true;
+    properties.supports_overlays = true;
+    return properties;
+  }
+
   void AddInterfaces(mojo::BinderMap* binders) override {
     binders->Add<mojom::ScenicGpuService>(
         scenic_gpu_service_->GetBinderCallback(),
-        base::ThreadTaskRunnerHandle::Get());
+        base::SingleThreadTaskRunner::GetCurrentDefault());
   }
 
   bool IsNativePixmapConfigSupported(gfx::BufferFormat format,

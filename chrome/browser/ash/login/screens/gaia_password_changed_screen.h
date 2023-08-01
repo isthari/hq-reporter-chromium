@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,19 @@
 
 #include <string>
 
+#include "base/functional/callback.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/ash/login/screens/base_screen.h"
-// TODO(https://crbug.com/1164001): move to forward declaration.
-#include "chrome/browser/ui/webui/chromeos/login/gaia_password_changed_screen_handler.h"
+#include "chrome/browser/ash/login/wizard_context.h"
+#include "chromeos/ash/components/login/auth/public/authentication_error.h"
 #include "components/account_id/account_id.h"
 
 namespace ash {
+
+class AuthFactorEditor;
+class AuthPerformer;
+class GaiaPasswordChangedView;
+class MountPerformer;
 
 // Controller for the tpm error screen.
 class GaiaPasswordChangedScreen : public BaseScreen {
@@ -22,14 +28,18 @@ class GaiaPasswordChangedScreen : public BaseScreen {
 
   enum class Result {
     CANCEL,
-    RESYNC,
-    MIGRATE,
+    CONTINUE_LOGIN,
+    RECREATE_USER,
+    CRYPTOHOME_ERROR,
   };
+
+  static std::string GetResultString(Result result);
 
   using ScreenExitCallback = base::RepeatingCallback<void(Result result)>;
 
-  explicit GaiaPasswordChangedScreen(const ScreenExitCallback& exit_callback,
-                                     GaiaPasswordChangedView* view);
+  explicit GaiaPasswordChangedScreen(
+      const ScreenExitCallback& exit_callback,
+      base::WeakPtr<GaiaPasswordChangedView> view);
   GaiaPasswordChangedScreen(const GaiaPasswordChangedScreen&) = delete;
   GaiaPasswordChangedScreen& operator=(const GaiaPasswordChangedScreen&) =
       delete;
@@ -44,41 +54,46 @@ class GaiaPasswordChangedScreen : public BaseScreen {
     kMigrateUserData = 1,
     kCancel = 2,
     kIncorrectOldPassword = 3,
-    kMaxValue = kIncorrectOldPassword
+    kIgnoreRecovery = 4,
+    kSetupRecovery = 5,
+    kMaxValue = kSetupRecovery
   };
-
-  // Called when the screen is being destroyed. This should call Unbind() on the
-  // associated View if this class is destroyed before that.
-  void OnViewDestroyed(GaiaPasswordChangedView* view);
-
-  void MigrateUserData(const std::string& old_password);
-
-  void Configure(const AccountId& account_id, bool after_incorrect_attempt);
 
  private:
   // BaseScreen:
   void ShowImpl() override;
   void HideImpl() override;
-  void OnUserAction(const std::string& action_id) override;
+  void OnUserAction(const base::Value::List& args) override;
+
+  void FinishWithResult(Result result);
+
+  void AttemptAuthentication(const std::string& old_password);
+  void OnPasswordAuthentication(std::unique_ptr<UserContext> user_context,
+                                absl::optional<AuthenticationError> error);
+  void OnGetConfiguration(std::unique_ptr<UserContext> user_context,
+                          absl::optional<AuthenticationError> error);
+  void OnPasswordUpdated(std::unique_ptr<UserContext> user_context,
+                         absl::optional<AuthenticationError> error);
+  void RecreateUser();
+  void OnRemovedUserDirectory(std::unique_ptr<UserContext> user_context,
+                              absl::optional<AuthenticationError> error);
 
   void CancelPasswordChangedFlow();
   void OnCookiesCleared();
 
-  AccountId account_id_;
-  bool show_error_ = false;
+  // Used for authentication attempt, cleared upon screen exit.
+  std::unique_ptr<AuthPerformer> auth_performer_;
+  // Used for changing password, cleared upon screen exit.
+  std::unique_ptr<AuthFactorEditor> factor_editor_;
+  // Used for deleting home directory, cleared upon screen exit.
+  std::unique_ptr<MountPerformer> mount_performer_;
 
-  GaiaPasswordChangedView* view_ = nullptr;
+  base::WeakPtr<GaiaPasswordChangedView> view_;
   ScreenExitCallback exit_callback_;
 
   base::WeakPtrFactory<GaiaPasswordChangedScreen> weak_factory_{this};
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
-// source migration is finished.
-namespace chromeos {
-using ::ash::GaiaPasswordChangedScreen;
-}
 
 #endif  // CHROME_BROWSER_ASH_LOGIN_SCREENS_GAIA_PASSWORD_CHANGED_SCREEN_H_

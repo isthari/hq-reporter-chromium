@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,12 @@
 
 #include "ash/login/ui/views_utils.h"
 #include "ash/public/cpp/shell_window_ids.h"
+#include "ash/screen_util.h"
 #include "ash/shell.h"
+#include "ash/style/ash_color_id.h"
 #include "ash/style/ash_color_provider.h"
+#include "base/debug/dump_without_crashing.h"
+#include "base/memory/raw_ptr.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/aura/client/focus_change_observer.h"
 #include "ui/aura/client/focus_client.h"
@@ -58,8 +62,9 @@ class LoginBubbleHandler : public ui::EventHandler {
 
   // ui::EventHandler:
   void OnMouseEvent(ui::MouseEvent* event) override {
-    if (event->type() == ui::ET_MOUSE_PRESSED)
+    if (event->type() == ui::ET_MOUSE_PRESSED) {
       ProcessPressedEvent(event->AsLocatedEvent());
+    }
   }
 
   void OnGestureEvent(ui::GestureEvent* event) override {
@@ -75,8 +80,9 @@ class LoginBubbleHandler : public ui::EventHandler {
       return;
     }
 
-    if (!bubble_->GetVisible())
+    if (!bubble_->GetVisible()) {
       return;
+    }
 
     // Hide the bubble if the bubble opener is about to lose focus from tab
     // traversal.
@@ -85,25 +91,29 @@ class LoginBubbleHandler : public ui::EventHandler {
       return;
     }
 
-    if (login_views_utils::HasFocusInAnyChildView(bubble_))
+    if (login_views_utils::HasFocusInAnyChildView(bubble_)) {
       return;
+    }
 
-    if (!bubble_->is_persistent())
+    if (!bubble_->is_persistent()) {
       bubble_->Hide();
+    }
   }
 
  private:
   void ProcessPressedEvent(const ui::LocatedEvent* event) {
-    if (!bubble_->GetVisible())
+    if (!bubble_->GetVisible()) {
       return;
+    }
 
     gfx::Point screen_location = event->location();
     ::wm::ConvertPointToScreen(static_cast<aura::Window*>(event->target()),
                                &screen_location);
 
     // Don't do anything with clicks inside the bubble.
-    if (bubble_->GetBoundsInScreen().Contains(screen_location))
+    if (bubble_->GetBoundsInScreen().Contains(screen_location)) {
       return;
+    }
 
     // Let the bubble opener handle clicks on itself.
     if (bubble_->GetBubbleOpener() &&
@@ -112,19 +122,20 @@ class LoginBubbleHandler : public ui::EventHandler {
       return;
     }
 
-    if (!bubble_->is_persistent())
+    if (!bubble_->is_persistent()) {
       bubble_->Hide();
+    }
   }
 
-  LoginBaseBubbleView* bubble_;
+  raw_ptr<LoginBaseBubbleView, ExperimentalAsh> bubble_;
 };
 
-LoginBaseBubbleView::LoginBaseBubbleView(views::View* anchor_view)
-    : LoginBaseBubbleView(anchor_view, nullptr) {}
+LoginBaseBubbleView::LoginBaseBubbleView(base::WeakPtr<views::View> anchor_view)
+    : LoginBaseBubbleView(std::move(anchor_view), nullptr) {}
 
-LoginBaseBubbleView::LoginBaseBubbleView(views::View* anchor_view,
+LoginBaseBubbleView::LoginBaseBubbleView(base::WeakPtr<views::View> anchor_view,
                                          aura::Window* parent_window)
-    : anchor_view_(anchor_view),
+    : anchor_view_(std::move(anchor_view)),
       bubble_handler_(std::make_unique<LoginBubbleHandler>(this)) {
   views::BoxLayout* layout_manager =
       SetLayoutManager(std::make_unique<views::BoxLayout>(
@@ -133,12 +144,15 @@ LoginBaseBubbleView::LoginBaseBubbleView(views::View* anchor_view,
   layout_manager->set_cross_axis_alignment(
       views::BoxLayout::CrossAxisAlignment::kStart);
 
+  SetBackground(views::CreateThemedRoundedRectBackground(
+      kColorAshShieldAndBase80, kBubbleBorderRadius));
   SetVisible(false);
 }
 
 void LoginBaseBubbleView::EnsureLayer() {
-  if (layer())
+  if (layer()) {
     return;
+  }
   // Layer rendering is needed for animation.
   SetPaintToLayer();
   SkColor background_color = AshColorProvider::Get()->GetBaseLayerColor(
@@ -152,8 +166,9 @@ void LoginBaseBubbleView::EnsureLayer() {
 LoginBaseBubbleView::~LoginBaseBubbleView() = default;
 
 void LoginBaseBubbleView::Show() {
-  if (layer())
+  if (layer()) {
     layer()->GetAnimator()->RemoveObserver(this);
+  }
 
   SetSize(GetPreferredSize());
   SetPosition(CalculatePosition());
@@ -176,8 +191,9 @@ LoginButton* LoginBaseBubbleView::GetBubbleOpener() const {
 }
 
 gfx::Point LoginBaseBubbleView::CalculatePosition() {
-  if (!GetAnchorView())
+  if (!GetAnchorView()) {
     return gfx::Point();
+  }
 
   // Views' positions are defined in the parents' coordinate system. Therefore,
   // the position of the bubble needs to be returned in its parent's coordinate
@@ -236,8 +252,12 @@ gfx::Point LoginBaseBubbleView::CalculatePosition() {
   return result;
 }
 
-void LoginBaseBubbleView::SetAnchorView(views::View* anchor_view) {
-  anchor_view_ = anchor_view;
+void LoginBaseBubbleView::SetAnchorView(
+    base::WeakPtr<views::View> anchor_view) {
+  if (layer()) {
+    layer()->GetAnimator()->StopAnimating();
+  }
+  anchor_view_ = std::move(anchor_view);
 }
 
 void LoginBaseBubbleView::OnLayerAnimationEnded(
@@ -276,14 +296,6 @@ void LoginBaseBubbleView::OnBlur() {
   Hide();
 }
 
-void LoginBaseBubbleView::OnThemeChanged() {
-  views::View::OnThemeChanged();
-  SkColor background_color = AshColorProvider::Get()->GetBaseLayerColor(
-      AshColorProvider::BaseLayerType::kTransparent80);
-  SetBackground(views::CreateRoundedRectBackground(background_color,
-                                                   kBubbleBorderRadius));
-}
-
 void LoginBaseBubbleView::SetPadding(int horizontal_padding,
                                      int vertical_padding) {
   horizontal_padding_ = horizontal_padding;
@@ -298,14 +310,32 @@ gfx::Rect LoginBaseBubbleView::GetBoundsAvailableToShowBubble() const {
   return bounds;
 }
 
+views::View* LoginBaseBubbleView::GetAnchorView() const {
+  if (anchor_view_.WasInvalidated()) {
+    // TODO(crbug.com/1171827): This is to detect dangling anchor_view_
+    // pointers. This should not cause a crash, but is still indicative of UI
+    // bugs.
+    base::debug::DumpWithoutCrashing();
+    NOTREACHED();
+  }
+  return anchor_view_.get();
+}
+
 gfx::Rect LoginBaseBubbleView::GetRootViewBounds() const {
+  if (!GetAnchorView()) {
+    return gfx::Rect();
+  }
+
   return GetAnchorView()->GetWidget()->GetRootView()->GetLocalBounds();
 }
 
 gfx::Rect LoginBaseBubbleView::GetWorkArea() const {
-  return display::Screen::GetScreen()
-      ->GetDisplayNearestWindow(GetAnchorView()->GetWidget()->GetNativeWindow())
-      .work_area();
+  if (!GetAnchorView()) {
+    return gfx::Rect();
+  }
+
+  return screen_util::GetDisplayWorkAreaBoundsInParentForLockScreen(
+      GetAnchorView()->GetWidget()->GetNativeWindow());
 }
 
 void LoginBaseBubbleView::ScheduleAnimation(bool visible) {
@@ -316,8 +346,9 @@ void LoginBaseBubbleView::ScheduleAnimation(bool visible) {
                          nullptr /*event*/);
   }
 
-  if (layer())
+  if (layer()) {
     layer()->GetAnimator()->StopAnimating();
+  }
 
   EnsureLayer();
   float opacity_start = 0.0f;

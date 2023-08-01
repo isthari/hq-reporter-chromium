@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser.h"
+#include "third_party/blink/renderer/core/css/resolver/style_resolver.h"
 #include "third_party/blink/renderer/core/css/style_engine.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/html/canvas/html_canvas_element.h"
@@ -36,24 +37,31 @@ CanvasFontCache::CanvasFontCache(Document& document)
   default_font_description.SetFamily(font_family);
   default_font_description.SetSpecifiedSize(defaultFontSize);
   default_font_description.SetComputedSize(defaultFontSize);
-  default_font_style_ = document.GetStyleResolver().CreateComputedStyle();
-  default_font_style_->SetFontDescription(default_font_description);
+  ComputedStyleBuilder builder =
+      document.IsActive()
+          ? document.GetStyleResolver().CreateComputedStyleBuilder()
+          : ComputedStyleBuilder(*ComputedStyle::CreateInitialStyleSingleton());
+  builder.SetFontDescription(default_font_description);
+  default_font_style_ = builder.TakeStyle();
 }
 
 CanvasFontCache::~CanvasFontCache() {
 }
 
 unsigned CanvasFontCache::MaxFonts() {
-  return MemoryPressureListenerRegistry::IsLowEndDevice()
+  return MemoryPressureListenerRegistry::
+                 IsLowEndDeviceOrPartialLowEndModeEnabled()
              ? CanvasFontCacheMaxFontsLowEnd
              : CanvasFontCacheMaxFonts;
 }
 
 unsigned CanvasFontCache::HardMaxFonts() {
-  return document_->hidden() ? CanvasFontCacheHiddenMaxFonts
-                             : (MemoryPressureListenerRegistry::IsLowEndDevice()
-                                    ? CanvasFontCacheHardMaxFontsLowEnd
-                                    : CanvasFontCacheHardMaxFonts);
+  return document_->hidden()
+             ? CanvasFontCacheHiddenMaxFonts
+             : (MemoryPressureListenerRegistry::
+                        IsLowEndDeviceOrPartialLowEndModeEnabled()
+                    ? CanvasFontCacheHardMaxFontsLowEnd
+                    : CanvasFontCacheHardMaxFonts);
 }
 
 bool CanvasFontCache::GetFontUsingDefaultStyle(HTMLCanvasElement& element,
@@ -73,18 +81,21 @@ bool CanvasFontCache::GetFontUsingDefaultStyle(HTMLCanvasElement& element,
   if (!parsed_style)
     return false;
 
-  scoped_refptr<ComputedStyle> font_style =
-      ComputedStyle::Clone(*default_font_style_.get());
-  document_->GetStyleEngine().ComputeFont(element, font_style.get(),
-                                          *parsed_style);
-  fonts_resolved_using_default_style_.insert(font_string,
-                                             font_style->GetFont());
+  fonts_resolved_using_default_style_.insert(
+      font_string, document_->GetStyleEngine().ComputeFont(
+                       element, *default_font_style_, *parsed_style));
   resolved_font = fonts_resolved_using_default_style_.find(font_string)->value;
   return true;
 }
 
 MutableCSSPropertyValueSet* CanvasFontCache::ParseFont(
     const String& font_string) {
+  // When the page becomes hidden it should trigger PruneAll(). In case this
+  // did not happen, prune here. See crbug.com/1421699.
+  if (fetched_fonts_.size() > HardMaxFonts()) {
+    PruneAll();
+  }
+
   MutableCSSPropertyValueSet* parsed_style;
   MutableStylePropertyMap::iterator i = fetched_fonts_.find(font_string);
   if (i != fetched_fonts_.end()) {
@@ -116,7 +127,7 @@ MutableCSSPropertyValueSet* CanvasFontCache::ParseFont(
 void CanvasFontCache::DidProcessTask(const base::PendingTask& pending_task) {
   DCHECK(pruning_scheduled_);
   DCHECK(main_cache_purge_preventer_);
-  while (fetched_fonts_.size() > MaxFonts()) {
+  while (fetched_fonts_.size() > std::min(MaxFonts(), HardMaxFonts())) {
     fetched_fonts_.erase(font_lru_list_.back());
     fonts_resolved_using_default_style_.erase(font_lru_list_.back());
     font_lru_list_.pop_back();
@@ -135,8 +146,12 @@ void CanvasFontCache::SchedulePruningIfNeeded() {
   pruning_scheduled_ = true;
 }
 
-bool CanvasFontCache::IsInCache(const String& font_string) {
+bool CanvasFontCache::IsInCache(const String& font_string) const {
   return fetched_fonts_.find(font_string) != fetched_fonts_.end();
+}
+
+unsigned int CanvasFontCache::GetCacheSize() const {
+  return fetched_fonts_.size();
 }
 
 void CanvasFontCache::PruneAll() {

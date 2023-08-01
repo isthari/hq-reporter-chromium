@@ -49,10 +49,10 @@ LinkRelAttribute::LinkRelAttribute()
       is_service_worker_(false),
       is_canonical_(false),
       is_monetization_(false),
-      is_web_bundle_(false) {}
+      is_dictionary_(false) {}
 
 LinkRelAttribute::LinkRelAttribute(const String& rel) : LinkRelAttribute() {
-  if (rel.IsEmpty())
+  if (rel.empty())
     return;
   String rel_copy = rel;
   rel_copy.Replace('\n', ' ');
@@ -94,9 +94,10 @@ LinkRelAttribute::LinkRelAttribute(const String& rel) : LinkRelAttribute() {
       is_canonical_ = true;
     } else if (EqualIgnoringASCIICase(link_type, "monetization")) {
       is_monetization_ = true;
-    } else if (EqualIgnoringASCIICase(link_type, "webbundle")) {
-      is_web_bundle_ = true;
+    } else if (EqualIgnoringASCIICase(link_type, "dictionary")) {
+      is_dictionary_ = true;
     }
+
     // Adding or removing a value here requires you to update
     // RelList::supportedTokens()
   }

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,14 @@
 #include <memory>
 #include <utility>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ref.h"
 #include "base/memory/weak_ptr.h"
+#include "base/time/time.h"
 #include "components/feed/core/proto/v2/wire/reliability_logging_enums.pb.h"
 #include "components/feed/core/proto/v2/wire/response.pb.h"
 #include "components/feed/core/v2/enums.h"
 #include "components/feed/core/v2/feed_network.h"
-#include "components/feed/core/v2/launch_reliability_logger.h"
 #include "components/feed/core/v2/protocol_translator.h"
 #include "components/feed/core/v2/public/stream_type.h"
 #include "components/feed/core/v2/public/types.h"
@@ -23,12 +24,15 @@
 #include "components/feed/core/v2/tasks/load_stream_from_store_task.h"
 #include "components/feed/core/v2/tasks/upload_actions_task.h"
 #include "components/feed/core/v2/types.h"
+#include "components/feed/core/v2/view_demotion.h"
 #include "components/offline_pages/task/task.h"
 #include "components/version_info/channel.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace feed {
 class FeedStream;
+class LaunchReliabilityLogger;
+struct DocViewDigest;
 
 // Loads the stream model from storage or network. If data is refreshed from the
 // network, it is persisted to |FeedStore| by overwriting any existing stream
@@ -51,6 +55,9 @@ class LoadStreamTask : public offline_pages::Task {
     // Abort the background refresh if there's already unread content.
     bool abort_if_unread_content = false;
     bool refresh_even_when_not_stale = false;
+    // The Entry point for a singlewebfeed stream
+    SingleWebFeedEntryPoint single_feed_entry_point =
+        SingleWebFeedEntryPoint::kOther;
   };
 
   struct Result {
@@ -68,7 +75,7 @@ class LoadStreamTask : public offline_pages::Task {
     // Age of content loaded from local storage. Zero if none was loaded.
     base::TimeDelta stored_content_age;
     // Set of content IDs present in the feed.
-    ContentIdSet content_ids;
+    ContentHashSet content_ids;
     LoadType load_type = LoadType::kInitialLoad;
     std::unique_ptr<StreamModelUpdateRequest> update_request;
     absl::optional<RequestSchedule> request_schedule;
@@ -87,6 +94,10 @@ class LoadStreamTask : public offline_pages::Task {
     // Reliability logging feed launch result: CARDS_UNSPECIFIED if loading is
     // successful.
     feedwire::DiscoverLaunchResult launch_result;
+
+    // The entry point for a Single Web Feed.
+    SingleWebFeedEntryPoint single_feed_entry_point =
+        SingleWebFeedEntryPoint::kOther;
   };
 
   LoadStreamTask(const Options& options,
@@ -106,9 +117,17 @@ class LoadStreamTask : public offline_pages::Task {
   bool CheckPreconditions();
   void PassedPreconditions();
 
-  void LoadFromNetwork(
+  void UploadActions(
+      std::vector<feedstore::StoredAction> pending_actions_from_store);
+  void SendFeedQueryRequest();
+
+  void LoadFromNetwork1(
       std::vector<feedstore::StoredAction> pending_actions_from_store,
       bool need_to_read_pending_actions);
+  void LoadFromNetwork2(
+      std::vector<feedstore::StoredAction> pending_actions_from_store,
+      bool need_to_read_pending_actions,
+      DocViewDigest doc_view_digest);
   void LoadFromStoreComplete(LoadStreamFromStoreTask::Result result);
   void UploadActionsComplete(UploadActionsTask::Result result);
   void QueryApiRequestComplete(
@@ -119,17 +138,21 @@ class LoadStreamTask : public offline_pages::Task {
   void RequestFinished(LaunchResult result);
   void Done(LaunchResult result);
 
+  LaunchReliabilityLogger& GetLaunchReliabilityLogger() const;
+
   Options options_;
-  FeedStream& stream_;  // Unowned.
+  const raw_ref<FeedStream> stream_;  // Unowned.
   std::unique_ptr<LoadStreamFromStoreTask> load_from_store_task_;
   std::unique_ptr<StreamModelUpdateRequest> stale_store_state_;
+
+  std::vector<DocViewCount> doc_view_counts_;
 
   // Information to be stuffed in |Result|.
   LoadStreamStatus load_from_store_status_ = LoadStreamStatus::kNoStatus;
   absl::optional<NetworkResponseInfo> network_response_info_;
   bool loaded_new_content_from_network_ = false;
   base::TimeDelta stored_content_age_;
-  ContentIdSet content_ids_;
+  ContentHashSet content_ids_;
   Experiments experiments_;
   std::unique_ptr<StreamModelUpdateRequest> update_request_;
   absl::optional<RequestSchedule> request_schedule_;
@@ -142,9 +165,9 @@ class LoadStreamTask : public offline_pages::Task {
   base::OnceCallback<void(Result)> done_callback_;
   std::unique_ptr<UploadActionsTask> upload_actions_task_;
   std::unique_ptr<UploadActionsTask::Result> upload_actions_result_;
-  LaunchReliabilityLogger& launch_reliability_logger_;
   int64_t server_receive_timestamp_ns_ = 0l;
   int64_t server_send_timestamp_ns_ = 0l;
+  bool is_web_feed_subscriber_ = false;
   base::WeakPtrFactory<LoadStreamTask> weak_ptr_factory_{this};
 };
 

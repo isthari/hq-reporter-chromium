@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -57,9 +57,7 @@ class ContentIndexTest : public ContentBrowserTest {
   }
 
   std::string RunScriptWithResult(const std::string& script) {
-    return EvalJs(shell_->web_contents(), script,
-                  EXECUTE_SCRIPT_USE_MANUAL_REPLY)
-        .ExtractString();
+    return EvalJs(shell_->web_contents(), script).ExtractString();
   }
 
   // Runs |script| and expects it to complete successfully.
@@ -85,9 +83,9 @@ class ContentIndexTest : public ContentBrowserTest {
 
  private:
   std::unique_ptr<net::EmbeddedTestServer> https_server_;
-  raw_ptr<ShellContentIndexProvider> provider_;
-  raw_ptr<ContentIndexContext> context_;
-  raw_ptr<Shell> shell_;
+  raw_ptr<ShellContentIndexProvider, DanglingUntriaged> provider_;
+  raw_ptr<ContentIndexContext, DanglingUntriaged> context_;
+  raw_ptr<Shell, DanglingUntriaged> shell_;
 };
 
 IN_PROC_BROWSER_TEST_F(ContentIndexTest, GetIcons) {

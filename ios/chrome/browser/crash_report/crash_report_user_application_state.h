@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #import "ios/chrome/browser/crash_report/crash_report_multi_parameter.h"
 
 // This class is a singleton to manage the user_application_state element of the
-// breakpad report.
+// crash report.
 @interface CrashReportUserApplicationState : CrashReportMultiParameter
 
 + (CrashReportUserApplicationState*)sharedInstance;

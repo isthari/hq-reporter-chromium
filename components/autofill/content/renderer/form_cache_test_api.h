@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,17 +33,15 @@ class FormCacheTestApi {
     return form_cache_->initial_select_values_.size();
   }
 
+  size_t initial_selectmenu_values_size() {
+    return form_cache_->initial_selectmenu_values_.size();
+  }
+
   size_t initial_checked_state_size() {
     return form_cache_->initial_checked_state_.size();
   }
 
   size_t parsed_forms_size() { return form_cache_->parsed_forms_.size(); }
-
-  // TODO(crbug/1215333): Remove once the `AutofillUseNewFormExtraction` feature
-  // is launched.
-  size_t parsed_forms_by_renderer_id_size() {
-    return form_cache_->parsed_forms_by_renderer_id_.size();
-  }
 
  private:
   FormCache* form_cache_;

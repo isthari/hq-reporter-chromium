@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -37,13 +37,12 @@ extern NSString* const kOverscrollActionsDidEnd;
 // Finally the overscrollActionsController:didTriggerActionAtIndex: method is
 // called when an action has been triggered.
 @protocol OverscrollActionsControllerDelegate<NSObject>
-// Called when an action has been triggered.
-// The action index holds the current triggered action which are numbered left
-// to right.
-// TODO(crbug.com/1272486) : Separate action handling for overscroll from UI
-// management.
-- (void)overscrollActionsController:(OverscrollActionsController*)controller
-                   didTriggerAction:(OverscrollAction)action;
+// Called when a New Tab action has been triggered.
+- (void)overscrollActionNewTab:(OverscrollActionsController*)controller;
+// Called when a Close Tab action has been triggered.
+- (void)overscrollActionCloseTab:(OverscrollActionsController*)controller;
+// Called when a Refresh action has been triggered.
+- (void)overscrollActionRefresh:(OverscrollActionsController*)controller;
 // Should return true when the delegate wants to enable the overscroll actions.
 - (BOOL)shouldAllowOverscrollActionsForOverscrollActionsController:
     (OverscrollActionsController*)controller;
@@ -121,9 +120,9 @@ extern NSString* const kOverscrollActionsDidEnd;
 // notifications. After this call the controller ceases to function and will
 // clear its delegate.
 - (void)invalidate;
-// Schedules call to |invalidate| at the end of the current action. This lets
+// Schedules call to `invalidate` at the end of the current action. This lets
 // the animation finish before invalidating the controller.
-// If no action is running, calls |invalidate| immediately.
+// If no action is running, calls `invalidate` immediately.
 - (void)scheduleInvalidate;
 // Force the controller to switch to NO_PULL_STARTED state.
 - (void)clear;

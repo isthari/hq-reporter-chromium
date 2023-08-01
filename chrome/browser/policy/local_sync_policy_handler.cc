@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,9 +26,11 @@ LocalSyncPolicyHandler::~LocalSyncPolicyHandler() {}
 
 void LocalSyncPolicyHandler::ApplyPolicySettings(const PolicyMap& policies,
                                                  PrefValueMap* prefs) {
-  const base::Value* value = policies.GetValue(policy_name());
+  const base::Value* value =
+      policies.GetValue(policy_name(), base::Value::Type::STRING);
   std::string string_value;
-  if (value && value->GetAsString(&string_value)) {
+  if (value) {
+    string_value = value->GetString();
     base::FilePath::StringType expanded_value =
 #if BUILDFLAG(IS_WIN)
         policy::path_parser::ExpandPathVariables(

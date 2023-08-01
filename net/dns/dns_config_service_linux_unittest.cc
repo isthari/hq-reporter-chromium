@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,22 +11,21 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/cancelable_callback.h"
 #include "base/check.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/run_loop.h"
 #include "base/sys_byteorder.h"
-#include "base/task/post_task.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/task_environment.h"
 #include "base/test/test_waitable_event.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "net/base/ip_address.h"
 #include "net/base/test_completion_callback.h"
 #include "net/dns/dns_config.h"
@@ -82,7 +81,7 @@ void InitializeResState(res_state res) {
   res->dnsrch[0] = res->defdname;
   res->dnsrch[1] = res->defdname + sizeof("chromium.org");
 
-  for (unsigned i = 0; i < base::size(kNameserversIPv4) && i < MAXNS; ++i) {
+  for (unsigned i = 0; i < std::size(kNameserversIPv4) && i < MAXNS; ++i) {
     struct sockaddr_in sa;
     sa.sin_family = AF_INET;
     sa.sin_port = base::HostToNet16(NS_DEFAULTPORT + i);
@@ -93,7 +92,7 @@ void InitializeResState(res_state res) {
 
   // Install IPv6 addresses, replacing the corresponding IPv4 addresses.
   unsigned nscount6 = 0;
-  for (unsigned i = 0; i < base::size(kNameserversIPv6) && i < MAXNS; ++i) {
+  for (unsigned i = 0; i < std::size(kNameserversIPv6) && i < MAXNS; ++i) {
     if (!kNameserversIPv6[i])
       continue;
     // Must use malloc to mimic res_ninit. Expect to be freed in
@@ -121,13 +120,13 @@ void InitializeExpectedConfig(DnsConfig* config) {
   config->search.push_back("example.com");
 
   config->nameservers.clear();
-  for (unsigned i = 0; i < base::size(kNameserversIPv4) && i < MAXNS; ++i) {
+  for (unsigned i = 0; i < std::size(kNameserversIPv4) && i < MAXNS; ++i) {
     IPAddress ip;
     EXPECT_TRUE(ip.AssignFromIPLiteral(kNameserversIPv4[i]));
     config->nameservers.emplace_back(ip, NS_DEFAULTPORT + i);
   }
 
-  for (unsigned i = 0; i < base::size(kNameserversIPv6) && i < MAXNS; ++i) {
+  for (unsigned i = 0; i < std::size(kNameserversIPv6) && i < MAXNS; ++i) {
     if (!kNameserversIPv6[i])
       continue;
     IPAddress ip;
@@ -223,7 +222,7 @@ class BlockingHelper {
   base::TestWaitableEvent block_event_;
   base::TestWaitableEvent blocker_event_;
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_ =
-      base::ThreadTaskRunnerHandle::Get();
+      base::SingleThreadTaskRunner::GetCurrentDefault();
 };
 
 class TestScopedResState : public ScopedResState {
@@ -277,7 +276,7 @@ class TestResolvReader : public ResolvReader {
 
  private:
   std::unique_ptr<TestScopedResState> value_;
-  BlockingHelper* blocking_helper_ = nullptr;
+  raw_ptr<BlockingHelper> blocking_helper_ = nullptr;
 };
 
 class TestNsswitchReader : public NsswitchReader {
@@ -312,8 +311,8 @@ class DnsConfigServiceLinuxTest : public ::testing::Test,
 
  protected:
   internal::DnsConfigServiceLinux service_;
-  TestResolvReader* resolv_reader_;
-  TestNsswitchReader* nsswitch_reader_;
+  raw_ptr<TestResolvReader> resolv_reader_;
+  raw_ptr<TestNsswitchReader> nsswitch_reader_;
 };
 
 // Regression test to verify crash does not occur if DnsConfigServiceLinux
@@ -880,7 +879,7 @@ TEST_F(DnsConfigServiceLinuxTest, RejectsNsswitchResolve) {
   EXPECT_TRUE(config->unhandled_options);
 }
 
-TEST_F(DnsConfigServiceLinuxTest, AcceptsNsswitchNis) {
+TEST_F(DnsConfigServiceLinuxTest, RejectsNsswitchNis) {
   auto res = std::make_unique<struct __res_state>();
   InitializeResState(res.get());
   resolv_reader_->set_value(std::move(res));
@@ -897,7 +896,7 @@ TEST_F(DnsConfigServiceLinuxTest, AcceptsNsswitchNis) {
 
   ASSERT_TRUE(config.has_value());
   EXPECT_TRUE(config->IsValid());
-  EXPECT_FALSE(config->unhandled_options);
+  EXPECT_TRUE(config->unhandled_options);
 }
 
 TEST_F(DnsConfigServiceLinuxTest, RejectsWithBadNisNotFoundAction) {

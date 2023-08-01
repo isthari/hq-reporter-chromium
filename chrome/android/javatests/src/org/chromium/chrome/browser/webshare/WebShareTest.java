@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@ package org.chromium.chrome.browser.webshare;
 
 import android.content.Intent;
 import android.net.Uri;
-import android.support.test.InstrumentationRegistry;
 
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.MediumTest;
 
 import org.junit.After;
@@ -23,7 +23,6 @@ import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
-import org.chromium.chrome.browser.share.ShareHelper;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
@@ -58,6 +57,8 @@ public class WebShareTest {
     private static final String TEST_FILE_OGG = "/content/test/data/android/webshare-ogg.html";
     private static final String TEST_FILE_MANY = "/content/test/data/android/webshare-many.html";
     private static final String TEST_FILE_LARGE = "/content/test/data/android/webshare-large.html";
+    private static final String TEST_FILE_SEPARATOR =
+            "/content/test/data/android/webshare-separator.html";
     private static final String TEST_LONG_TEXT = "/content/test/data/android/webshare-long.html";
 
     private EmbeddedTestServer mTestServer;
@@ -95,7 +96,8 @@ public class WebShareTest {
     public void setUp() throws Exception {
         NativeLibraryTestUtils.loadNativeLibraryNoBrowserProcess();
 
-        mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
+        mTestServer = EmbeddedTestServer.createAndStartServer(
+                ApplicationProvider.getApplicationContext());
 
         mTab = sActivityTestRule.getActivity().getActivityTab();
         mUpdateWaiter = new WebShareUpdateWaiter();
@@ -110,10 +112,6 @@ public class WebShareTest {
             TestThreadUtils.runOnUiThreadBlocking(() -> mTab.removeObserver(mUpdateWaiter));
         }
         if (mTestServer != null) mTestServer.stopAndDestroyServer();
-
-        // Clean up some state that might have been changed by tests.
-        ShareHelper.setForceCustomChooserForTesting(false);
-        ShareHelper.setFakeIntentReceiverForTesting(null);
     }
 
     /**
@@ -209,6 +207,22 @@ public class WebShareTest {
                 mUpdateWaiter.waitForUpdate());
     }
 
+    /**
+     * Verify WebShare fails if share of file name '/' is called from a user gesture.
+     * @throws Exception
+     */
+    @Test
+    @MediumTest
+    @Feature({"WebShare"})
+    public void testWebShareSeparator() throws Exception {
+        sActivityTestRule.loadUrl(mTestServer.getURL(TEST_FILE_SEPARATOR));
+        // Click (instead of directly calling the JavaScript function) to simulate a user gesture.
+        TouchCommon.singleClickView(mTab.getView());
+        Assert.assertEquals("Fail: NotAllowedError: "
+                        + "Failed to execute 'share' on 'Navigator': Permission denied",
+                mUpdateWaiter.waitForUpdate());
+    }
+
     private static void verifyDeliveredIntent(Intent intent) {
         Assert.assertNotNull(intent);
         Assert.assertEquals(Intent.ACTION_SEND, intent.getAction());
@@ -221,7 +235,8 @@ public class WebShareTest {
 
     private static String getFileContents(Uri fileUri) throws Exception {
         InputStream inputStream =
-                InstrumentationRegistry.getContext().getContentResolver().openInputStream(fileUri);
+                ApplicationProvider.getApplicationContext().getContentResolver().openInputStream(
+                        fileUri);
         byte[] buffer = new byte[1024];
         int position = 0;
         int read;

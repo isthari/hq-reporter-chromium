@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,19 +9,18 @@
 #include <vector>
 
 #include "ash/public/cpp/debug_utils.h"
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/check.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/location.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/task/post_task.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "chrome/browser/support_tool/data_collector.h"
-#include "components/feedback/pii_types.h"
-#include "components/feedback/redaction_tool.h"
+#include "components/feedback/redaction_tool/pii_types.h"
+#include "components/feedback/redaction_tool/redaction_tool.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/re2/src/re2/re2.h"
 #include "third_party/re2/src/re2/stringpiece.h"
@@ -59,13 +58,13 @@ UIHierarchyData::UIHierarchyData(UIHierarchyData&& ui_hierarchy_data) = default;
 bool UiHierarchyDataCollector::WriteOutputFile(
     std::string ui_hierarchy_data,
     base::FilePath target_directory,
-    std::set<feedback::PIIType> pii_types_to_keep) {
-  if (pii_types_to_keep.count(feedback::PIIType::kUIHierarchyWindowTitles) ==
+    std::set<redaction::PIIType> pii_types_to_keep) {
+  if (pii_types_to_keep.count(redaction::PIIType::kUIHierarchyWindowTitles) ==
       0) {
     ui_hierarchy_data = RemoveWindowTitles(ui_hierarchy_data);
   }
   return base::WriteFile(
-      target_directory.Append(FILE_PATH_LITERAL("ui_hierarchy")),
+      target_directory.Append(FILE_PATH_LITERAL("ui_hierarchy.txt")),
       ui_hierarchy_data);
 }
 
@@ -85,12 +84,12 @@ std::string UiHierarchyDataCollector::RemoveWindowTitles(
 
   while (re2::RE2::Consume(&input, regex_pattern, &skipped_part,
                            &matched_window_title)) {
-    skipped_part.AppendToString(&redacted);
+    redacted.append(skipped_part.data(), skipped_part.size());
     redacted += "title=<REDACTED>\n";
   }
   // Append the rest of the input to `redacted`. Only the unmatched last part
   // will be present in the `input` as we're using Consume() function.
-  input.AppendToString(&redacted);
+  redacted.append(input.data(), input.size());
   return redacted;
 }
 
@@ -110,7 +109,7 @@ const PIIMap& UiHierarchyDataCollector::GetDetectedPII() {
 void UiHierarchyDataCollector::CollectDataAndDetectPII(
     DataCollectorDoneCallback on_data_collected_callback,
     scoped_refptr<base::SequencedTaskRunner> task_runner_for_redaction_tool,
-    scoped_refptr<feedback::RedactionToolContainer> redaction_tool_container) {
+    scoped_refptr<redaction::RedactionToolContainer> redaction_tool_container) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   UIHierarchyData ui_hierarchy_data = CollectUiHierarchyData();
   InsertIntoPIIMap(ui_hierarchy_data.window_titles);
@@ -121,10 +120,10 @@ void UiHierarchyDataCollector::CollectDataAndDetectPII(
 }
 
 void UiHierarchyDataCollector::ExportCollectedDataWithPII(
-    std::set<feedback::PIIType> pii_types_to_keep,
+    std::set<redaction::PIIType> pii_types_to_keep,
     base::FilePath target_directory,
     scoped_refptr<base::SequencedTaskRunner> task_runner_for_redaction_tool,
-    scoped_refptr<feedback::RedactionToolContainer> redaction_tool_container,
+    scoped_refptr<redaction::RedactionToolContainer> redaction_tool_container,
     DataCollectorDoneCallback on_exported_callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   base::ThreadPool::PostTaskAndReplyWithResult(
@@ -152,7 +151,7 @@ void UiHierarchyDataCollector::OnDataExportDone(
 void UiHierarchyDataCollector::InsertIntoPIIMap(
     const std::vector<std::string>& window_titles) {
   std::set<std::string>& pii_window_titles =
-      pii_map_[feedback::PIIType::kUIHierarchyWindowTitles];
+      pii_map_[redaction::PIIType::kUIHierarchyWindowTitles];
   for (auto const& title : window_titles)
     pii_window_titles.insert(title);
 }

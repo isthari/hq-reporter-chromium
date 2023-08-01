@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,16 +6,13 @@
 
 #include <memory>
 
-#include "base/bind.h"
-#include "base/metrics/histogram_macros.h"
-#include "base/timer/elapsed_timer.h"
+#include "base/functional/bind.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_notification_types.h"
+#include "chrome/browser/extensions/chrome_content_browser_client_extensions_part.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/navigation_throttle.h"
-#include "content/public/browser/notification_service.h"
 #include "extensions/browser/api/scripting/scripting_utils.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/user_script_manager.h"
@@ -43,8 +40,6 @@ class UserScriptListener::Throttle
     should_defer_ = false;
     // Only resume the request if |this| has deferred it.
     if (did_defer_) {
-      UMA_HISTOGRAM_TIMES("Extensions.ThrottledNetworkRequestDelay",
-                          timer_->Elapsed());
       Resume();
     }
   }
@@ -54,7 +49,6 @@ class UserScriptListener::Throttle
     // Only defer requests if Resume has not yet been called.
     if (should_defer_) {
       did_defer_ = true;
-      timer_ = std::make_unique<base::ElapsedTimer>();
       return DEFER;
     }
     return PROCEED;
@@ -67,7 +61,6 @@ class UserScriptListener::Throttle
  private:
   bool should_defer_ = true;
   bool did_defer_ = false;
-  std::unique_ptr<base::ElapsedTimer> timer_;
 };
 
 struct UserScriptListener::ProfileData {
@@ -84,13 +77,18 @@ UserScriptListener::UserScriptListener() {
   if (g_browser_process->profile_manager()) {
     for (auto* profile :
          g_browser_process->profile_manager()->GetLoadedProfiles()) {
+      // Some profiles cannot have extensions, such as the System Profile.
+      if (extensions::ChromeContentBrowserClientExtensionsPart::
+              AreExtensionsDisabledForProfile(profile)) {
+        continue;
+      }
+
       extension_registry_observations_.AddObservation(
           ExtensionRegistry::Get(profile));
     }
-  }
 
-  registrar_.Add(this, chrome::NOTIFICATION_PROFILE_ADDED,
-                 content::NotificationService::AllSources());
+    profile_manager_observation_.Observe(g_browser_process->profile_manager());
+  }
 }
 
 std::unique_ptr<NavigationThrottle>
@@ -106,6 +104,10 @@ UserScriptListener::CreateNavigationThrottle(
 
 void UserScriptListener::OnScriptsLoaded(content::BrowserContext* context) {
   UserScriptsReady(context);
+}
+
+void UserScriptListener::StartTearDown() {
+  profile_manager_observation_.Reset();
 }
 
 void UserScriptListener::SetUserScriptsNotReadyForTesting(
@@ -211,20 +213,16 @@ void UserScriptListener::CollectURLPatterns(content::BrowserContext* context,
                    dynamic_patterns.end());
 }
 
-void UserScriptListener::Observe(int type,
-                                 const content::NotificationSource& source,
-                                 const content::NotificationDetails& details) {
-  switch (type) {
-    case chrome::NOTIFICATION_PROFILE_ADDED: {
-      Profile* profile = content::Source<Profile>(source).ptr();
-      auto* registry = ExtensionRegistry::Get(profile);
-      DCHECK(!extension_registry_observations_.IsObservingSource(registry));
-      extension_registry_observations_.AddObservation(registry);
-      break;
-    }
-    default:
-      NOTREACHED();
+void UserScriptListener::OnProfileAdded(Profile* profile) {
+  if (extensions::ChromeContentBrowserClientExtensionsPart::
+          AreExtensionsDisabledForProfile(profile)) {
+    return;
   }
+
+  auto* registry = ExtensionRegistry::Get(profile);
+  DCHECK(registry);
+  DCHECK(!extension_registry_observations_.IsObservingSource(registry));
+  extension_registry_observations_.AddObservation(registry);
 }
 
 void UserScriptListener::OnExtensionLoaded(

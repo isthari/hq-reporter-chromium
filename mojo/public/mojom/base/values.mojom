@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,9 +27,7 @@ union Value {
 
 // Interfaces that only want to handle a value of dictionary or list type
 // should use base.mojom.DictionaryValue or base.mojom.ListValue in the method
-// declaration. Though both of these types are mapped to base::Value in C++,
-// the generated deserialization will guarantee that the method is only invoked
-// with a base::Value of the correct subtype.
+// declaration.
 [Stable]
 struct DictionaryValue {
   map<string, Value> storage;

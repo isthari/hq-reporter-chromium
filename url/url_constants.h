@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -46,14 +46,14 @@ COMPONENT_EXPORT(URL) extern const char kJavaScriptScheme[];
 COMPONENT_EXPORT(URL) extern const char16_t kJavaScriptScheme16[];
 COMPONENT_EXPORT(URL) extern const char kMailToScheme[];
 COMPONENT_EXPORT(URL) extern const char16_t kMailToScheme16[];
-COMPONENT_EXPORT(URL) extern const char kQuicTransportScheme[];
-COMPONENT_EXPORT(URL) extern const char16_t kQuicTransportScheme16[];
 COMPONENT_EXPORT(URL) extern const char kTelScheme[];
 COMPONENT_EXPORT(URL) extern const char16_t kTelScheme16[];
 COMPONENT_EXPORT(URL) extern const char kUrnScheme[];
 COMPONENT_EXPORT(URL) extern const char16_t kUrnScheme16[];
 COMPONENT_EXPORT(URL) extern const char kUuidInPackageScheme[];
 COMPONENT_EXPORT(URL) extern const char16_t kUuidInPackageScheme16[];
+COMPONENT_EXPORT(URL) extern const char kWebcalScheme[];
+COMPONENT_EXPORT(URL) extern const char16_t kWebcalScheme16[];
 COMPONENT_EXPORT(URL) extern const char kWsScheme[];
 COMPONENT_EXPORT(URL) extern const char16_t kWsScheme16[];
 COMPONENT_EXPORT(URL) extern const char kWssScheme[];

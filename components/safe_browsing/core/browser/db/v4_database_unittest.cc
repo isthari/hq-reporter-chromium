@@ -1,16 +1,18 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <unordered_map>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/debug/leak_annotations.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/run_loop.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/test/task_environment.h"
+#include "base/test/test_future.h"
 #include "base/test/test_simple_task_runner.h"
 #include "components/safe_browsing/core/browser/db/v4_database.h"
 #include "components/safe_browsing/core/browser/db/v4_store.h"
@@ -25,14 +27,15 @@ class FakeV4Store : public V4Store {
               const bool hash_prefix_matches)
       : V4Store(
             task_runner,
-            base::FilePath(store_path.value() + FILE_PATH_LITERAL(".store"))),
+            base::FilePath(store_path.value() + FILE_PATH_LITERAL(".store")),
+            std::make_unique<InMemoryHashPrefixMap>()),
         hash_prefix_should_match_(hash_prefix_matches) {}
 
-  HashPrefix GetMatchingHashPrefix(const FullHash& full_hash) override {
-    return hash_prefix_should_match_ ? full_hash : HashPrefix();
+  HashPrefixStr GetMatchingHashPrefix(const FullHashStr& full_hash) override {
+    return hash_prefix_should_match_ ? full_hash : HashPrefixStr();
   }
 
-  bool HasValidData() const override { return true; }
+  bool HasValidData() override { return true; }
 
   void set_hash_prefix_matches(bool hash_prefix_matches) {
     hash_prefix_should_match_ = hash_prefix_matches;
@@ -65,6 +68,9 @@ class V4DatabaseTest : public PlatformTest {
  public:
   V4DatabaseTest()
       : task_runner_(new base::TestSimpleTaskRunner),
+        v4_database_(std::unique_ptr<V4Database, base::OnTaskRunnerDeleter>(
+            nullptr,
+            base::OnTaskRunnerDeleter(nullptr))),
         linux_malware_id_(LINUX_PLATFORM, URL, MALWARE_THREAT),
         win_malware_id_(WINDOWS_PLATFORM, URL, MALWARE_THREAT) {}
 
@@ -91,6 +97,8 @@ class V4DatabaseTest : public PlatformTest {
 
   void TearDown() override {
     V4Database::RegisterStoreFactoryForTest(nullptr);
+    v4_database_.reset();
+    WaitForTasksOnTaskRunner();
     PlatformTest::TearDown();
   }
 
@@ -116,7 +124,7 @@ class V4DatabaseTest : public PlatformTest {
   void DatabaseUpdated() {}
 
   void NewDatabaseReadyWithExpectedStorePathsAndIds(
-      std::unique_ptr<V4Database> v4_database) {
+      std::unique_ptr<V4Database, base::OnTaskRunnerDeleter> v4_database) {
     ASSERT_TRUE(v4_database);
     ASSERT_TRUE(v4_database->store_map_);
 
@@ -199,7 +207,7 @@ class V4DatabaseTest : public PlatformTest {
   }
 
   scoped_refptr<base::TestSimpleTaskRunner> task_runner_;
-  std::unique_ptr<V4Database> v4_database_;
+  std::unique_ptr<V4Database, base::OnTaskRunnerDeleter> v4_database_;
   base::FilePath database_dirname_;
   base::ScopedTempDir temp_dir_;
   base::test::TaskEnvironment task_environment_;
@@ -354,9 +362,12 @@ TEST_F(V4DatabaseTest, TestAllStoresMatchFullHash) {
   EXPECT_EQ(true, created_and_called_back_);
 
   StoresToCheck stores_to_check({linux_malware_id_, win_malware_id_});
-  StoreAndHashPrefixes store_and_hash_prefixes;
-  v4_database_->GetStoresMatchingFullHash("anything", stores_to_check,
-                                          &store_and_hash_prefixes);
+  base::test::TestFuture<FullHashToStoreAndHashPrefixesMap> results;
+  v4_database_->GetStoresMatchingFullHash({"anything"}, stores_to_check,
+                                          results.GetCallback());
+  WaitForTasksOnTaskRunner();
+  FullHashToStoreAndHashPrefixesMap map = results.Get();
+  StoreAndHashPrefixes store_and_hash_prefixes = map["anything"];
   EXPECT_EQ(2u, store_and_hash_prefixes.size());
   StoresToCheck stores_found;
   for (const auto& it : store_and_hash_prefixes) {
@@ -376,10 +387,13 @@ TEST_F(V4DatabaseTest, TestNoStoreMatchesFullHash) {
   WaitForTasksOnTaskRunner();
   EXPECT_EQ(true, created_and_called_back_);
 
-  StoreAndHashPrefixes store_and_hash_prefixes;
+  base::test::TestFuture<FullHashToStoreAndHashPrefixesMap> results;
   v4_database_->GetStoresMatchingFullHash(
-      "anything", StoresToCheck({linux_malware_id_, win_malware_id_}),
-      &store_and_hash_prefixes);
+      {"anything"}, StoresToCheck({linux_malware_id_, win_malware_id_}),
+      results.GetCallback());
+  WaitForTasksOnTaskRunner();
+  FullHashToStoreAndHashPrefixesMap map = results.Get();
+  StoreAndHashPrefixes store_and_hash_prefixes = map["anything"];
   EXPECT_TRUE(store_and_hash_prefixes.empty());
 }
 
@@ -400,10 +414,13 @@ TEST_F(V4DatabaseTest, TestSomeStoresMatchFullHash) {
       v4_database_->store_map_->at(win_malware_id_).get());
   store->set_hash_prefix_matches(true);
 
-  StoreAndHashPrefixes store_and_hash_prefixes;
+  base::test::TestFuture<FullHashToStoreAndHashPrefixesMap> results;
   v4_database_->GetStoresMatchingFullHash(
-      "anything", StoresToCheck({linux_malware_id_, win_malware_id_}),
-      &store_and_hash_prefixes);
+      {"anything"}, StoresToCheck({linux_malware_id_, win_malware_id_}),
+      results.GetCallback());
+  WaitForTasksOnTaskRunner();
+  FullHashToStoreAndHashPrefixesMap map = results.Get();
+  StoreAndHashPrefixes store_and_hash_prefixes = map["anything"];
   EXPECT_EQ(1u, store_and_hash_prefixes.size());
   EXPECT_EQ(store_and_hash_prefixes.begin()->list_id, win_malware_id_);
   EXPECT_FALSE(store_and_hash_prefixes.begin()->hash_prefix.empty());
@@ -423,9 +440,12 @@ TEST_F(V4DatabaseTest, TestSomeStoresMatchFullHashBecauseOfStoresToMatch) {
   EXPECT_EQ(true, created_and_called_back_);
 
   // Don't add win_malware_id_ to the StoresToCheck.
-  StoreAndHashPrefixes store_and_hash_prefixes;
+  base::test::TestFuture<FullHashToStoreAndHashPrefixesMap> results;
   v4_database_->GetStoresMatchingFullHash(
-      "anything", StoresToCheck({linux_malware_id_}), &store_and_hash_prefixes);
+      {"anything"}, StoresToCheck({linux_malware_id_}), results.GetCallback());
+  WaitForTasksOnTaskRunner();
+  FullHashToStoreAndHashPrefixesMap map = results.Get();
+  StoreAndHashPrefixes store_and_hash_prefixes = map["anything"];
   EXPECT_EQ(1u, store_and_hash_prefixes.size());
   EXPECT_EQ(store_and_hash_prefixes.begin()->list_id, linux_malware_id_);
   EXPECT_FALSE(store_and_hash_prefixes.begin()->hash_prefix.empty());
@@ -469,7 +489,7 @@ TEST_F(V4DatabaseTest, VerifyChecksumCancelled) {
       &V4DatabaseTest::VerifyChecksumCallback, base::Unretained(this)));
   EXPECT_FALSE(verify_checksum_called_back_);
   // Destroy database.
-  V4Database::Destroy(std::move(v4_database_));
+  v4_database_.reset();
   WaitForTasksOnTaskRunner();
   // Callback should not be called since database is destroyed.
   EXPECT_FALSE(verify_checksum_called_back_);
@@ -538,7 +558,7 @@ TEST_F(V4DatabaseTest, UsingWeakPtrDropsCallback) {
 
   // Step 3: Before V4Store::ApplyUpdate gets executed on the task runner,
   // destroy the database. This posts ~V4Database() on the task runner.
-  V4Database::Destroy(std::move(v4_database_));
+  v4_database_.reset();
 
   // Step 4: Wait for the task runner to go to completion. The test should
   // finish to completion and the |null_callback| should not get called.

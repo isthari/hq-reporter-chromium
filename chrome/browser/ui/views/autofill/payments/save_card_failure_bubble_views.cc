@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -38,6 +38,14 @@ SaveCardFailureBubbleViews::CreateMainContentView() {
     main_view->AddChildView(explanation_label);
   }
   return main_view;
+}
+
+void SaveCardFailureBubbleViews::Init() {
+  SaveCardBubbleViews::Init();
+  gfx::Insets parent_margin = margins();
+  set_margins(
+      parent_margin.set_bottom(ChromeLayoutProvider::Get()->GetDistanceMetric(
+          views::DISTANCE_DIALOG_CONTENT_MARGIN_BOTTOM_TEXT)));
 }
 
 }  // namespace autofill

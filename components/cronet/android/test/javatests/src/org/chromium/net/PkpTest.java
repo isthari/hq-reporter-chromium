@@ -1,21 +1,20 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.net;
 
-import static org.junit.Assert.assertEquals;
+import static com.google.common.truth.Truth.assertThat;
+
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import static org.chromium.net.CronetTestRule.SERVER_CERT_PEM;
-import static org.chromium.net.CronetTestRule.SERVER_KEY_PKCS8_PEM;
 import static org.chromium.net.CronetTestRule.getContext;
 import static org.chromium.net.CronetTestRule.getTestStorage;
+import static org.chromium.net.Http2TestServer.SERVER_CERT_PEM;
 
-import android.support.test.runner.AndroidJUnit4;
-
+import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.filters.SmallTest;
 
 import org.json.JSONObject;
@@ -25,7 +24,6 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import org.chromium.base.test.util.Feature;
 import org.chromium.net.CronetTestRule.OnlyRunNativeCronet;
 import org.chromium.net.test.util.CertTestUtil;
 
@@ -66,10 +64,8 @@ public class PkpTest {
         if (mTestRule.testingJavaImpl()) {
             return;
         }
-        // Start HTTP2 Test Server
         System.loadLibrary("cronet_tests");
-        assertTrue(Http2TestServer.startHttp2TestServer(
-                getContext(), SERVER_CERT_PEM, SERVER_KEY_PKCS8_PEM));
+        assertTrue(Http2TestServer.startHttp2TestServer(getContext()));
         mServerHost = "test.example.com";
         mServerUrl = "https://" + mServerHost + ":" + Http2TestServer.getServerPort();
         mDomain = mServerHost.substring(mServerHost.indexOf('.') + 1, mServerHost.length());
@@ -89,7 +85,6 @@ public class PkpTest {
      */
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     public void testErrorCodeIfPinDoesNotMatch() throws Exception {
         createCronetEngineBuilder(ENABLE_PINNING_BYPASS_FOR_LOCAL_ANCHORS, KNOWN_ROOT);
@@ -109,7 +104,6 @@ public class PkpTest {
      */
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     public void testSuccessIfPinMatches() throws Exception {
         createCronetEngineBuilder(ENABLE_PINNING_BYPASS_FOR_LOCAL_ANCHORS, KNOWN_ROOT);
@@ -133,7 +127,6 @@ public class PkpTest {
      */
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     public void testIncludeSubdomainsFlagEqualTrue() throws Exception {
         createCronetEngineBuilder(ENABLE_PINNING_BYPASS_FOR_LOCAL_ANCHORS, KNOWN_ROOT);
@@ -154,7 +147,6 @@ public class PkpTest {
      */
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     public void testIncludeSubdomainsFlagEqualFalse() throws Exception {
         createCronetEngineBuilder(ENABLE_PINNING_BYPASS_FOR_LOCAL_ANCHORS, KNOWN_ROOT);
@@ -175,7 +167,6 @@ public class PkpTest {
      */
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     public void testSuccessIfNoPinSpecified() throws Exception {
         createCronetEngineBuilder(ENABLE_PINNING_BYPASS_FOR_LOCAL_ANCHORS, KNOWN_ROOT);
@@ -195,7 +186,6 @@ public class PkpTest {
      */
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     public void testSoonExpiringPin() throws Exception {
         createCronetEngineBuilder(ENABLE_PINNING_BYPASS_FOR_LOCAL_ANCHORS, KNOWN_ROOT);
@@ -216,7 +206,6 @@ public class PkpTest {
      */
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     public void testRecentlyExpiredPin() throws Exception {
         createCronetEngineBuilder(ENABLE_PINNING_BYPASS_FOR_LOCAL_ANCHORS, KNOWN_ROOT);
@@ -237,7 +226,6 @@ public class PkpTest {
      */
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     public void testLocalTrustAnchorPinningEnforced() throws Exception {
         createCronetEngineBuilder(DISABLE_PINNING_BYPASS_FOR_LOCAL_ANCHORS, UNKNOWN_ROOT);
@@ -258,7 +246,6 @@ public class PkpTest {
      */
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     public void testLocalTrustAnchorPinningNotEnforced() throws Exception {
         createCronetEngineBuilder(ENABLE_PINNING_BYPASS_FOR_LOCAL_ANCHORS, UNKNOWN_ROOT);
@@ -278,7 +265,6 @@ public class PkpTest {
      */
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     public void testPinsAreNotPersisted() throws Exception {
         createCronetEngineBuilder(ENABLE_PINNING_BYPASS_FOR_LOCAL_ANCHORS, KNOWN_ROOT);
@@ -305,7 +291,6 @@ public class PkpTest {
      */
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     public void testHostNameArgumentValidation() throws Exception {
         createCronetEngineBuilder(ENABLE_PINNING_BYPASS_FOR_LOCAL_ANCHORS, KNOWN_ROOT);
         final String label63 = "123456789-123456789-123456789-123456789-123456789-123456789-123";
@@ -363,7 +348,6 @@ public class PkpTest {
      */
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     public void testNullArguments() throws Exception {
         createCronetEngineBuilder(ENABLE_PINNING_BYPASS_FOR_LOCAL_ANCHORS, KNOWN_ROOT);
         verifyExceptionWhenAddPkpArgumentIsNull(true, false, false);
@@ -379,7 +363,6 @@ public class PkpTest {
      */
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     public void testIllegalArgumentExceptionWhenPinValueIsSHA1() throws Exception {
         createCronetEngineBuilder(ENABLE_PINNING_BYPASS_FOR_LOCAL_ANCHORS, KNOWN_ROOT);
         byte[] sha1 = new byte[20];
@@ -415,7 +398,7 @@ public class PkpTest {
                     + ((NetworkException) mListener.mError).getCronetInternalErrorCode());
         }
         assertNotNull("Expected non-null response from the server", mListener.mResponseInfo);
-        assertEquals(200, mListener.mResponseInfo.getHttpStatusCode());
+        assertThat(mListener.mResponseInfo.getHttpStatusCode()).isEqualTo(200);
     }
 
     private void createCronetEngineBuilder(boolean bypassPinningForLocalAnchors, boolean knownRoot)

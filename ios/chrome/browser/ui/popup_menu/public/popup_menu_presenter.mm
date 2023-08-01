@@ -1,14 +1,13 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/popup_menu/public/popup_menu_presenter.h"
 
-#include "base/check.h"
+#import "base/check.h"
 #import "ios/chrome/browser/ui/popup_menu/public/popup_menu_presenter_delegate.h"
 #import "ios/chrome/browser/ui/popup_menu/public/popup_menu_view_controller.h"
 #import "ios/chrome/browser/ui/popup_menu/public/popup_menu_view_controller_delegate.h"
-#import "ios/chrome/browser/ui/util/named_guide.h"
 #import "ios/chrome/common/material_timing.h"
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
 
@@ -44,7 +43,6 @@ const CGFloat kDamping = 0.85;
 
 @synthesize baseViewController = _baseViewController;
 @synthesize delegate = _delegate;
-@synthesize guideName = _guideName;
 @synthesize popupViewController = _popupViewController;
 @synthesize initialConstraints = _initialConstraints;
 @synthesize presentedConstraints = _presentedConstraints;
@@ -111,12 +109,10 @@ const CGFloat kDamping = 0.85;
                                               constant:-kMinWidthDifference]
       .active = YES;
 
-  UILayoutGuide* namedGuide =
-      [NamedGuide guideWithName:self.guideName
-                           view:self.baseViewController.view];
+  UILayoutGuide* layoutGuide = self.layoutGuide;
   self.initialConstraints = @[
-    [popup.centerXAnchor constraintEqualToAnchor:namedGuide.centerXAnchor],
-    [popup.centerYAnchor constraintEqualToAnchor:namedGuide.centerYAnchor],
+    [popup.centerXAnchor constraintEqualToAnchor:layoutGuide.centerXAnchor],
+    [popup.centerYAnchor constraintEqualToAnchor:layoutGuide.centerYAnchor],
   ];
   [self setUpPresentedConstraints];
 
@@ -181,10 +177,10 @@ const CGFloat kDamping = 0.85;
 
 #pragma mark - Private
 
-// Animate the |animations| then execute |completion|.
+// Animate the `animations` then execute `completion`.
 - (void)animate:(void (^)(void))animation
     withCompletion:(void (^)(BOOL finished))completion {
-  [UIView animateWithDuration:ios::material::kDuration1
+  [UIView animateWithDuration:kMaterialDuration1
                         delay:0
        usingSpringWithDamping:kDamping
         initialSpringVelocity:0
@@ -193,34 +189,33 @@ const CGFloat kDamping = 0.85;
                    completion:completion];
 }
 
-// Sets |presentedConstraints| up, such as they are positioning the popup
-// relatively to the |guideName| layout guide. The popup is positioned closest
-// to the layout guide, by default it is presented below the layout guide,
-// aligned on its leading edge. However, it is respecting the safe area bounds.
+// Sets `presentedConstraints` up, such as they are positioning the popup
+// relatively to `layoutGuide`. The popup is positioned closest to the layout
+// guide, by default it is presented below the layout guide, aligned on its
+// leading edge. However, it is respecting the safe area bounds.
 - (void)setUpPresentedConstraints {
   UIView* parentView = self.baseViewController.view;
   UIView* container = self.popupViewController.contentContainer;
 
-  UILayoutGuide* namedGuide = [NamedGuide guideWithName:self.guideName
-                                                   view:parentView];
+  UILayoutGuide* layoutGuide = self.layoutGuide;
   CGRect guideFrame =
-      [self.popupViewController.view convertRect:namedGuide.layoutFrame
-                                        fromView:namedGuide.owningView];
+      [self.popupViewController.view convertRect:layoutGuide.layoutFrame
+                                        fromView:layoutGuide.owningView];
 
   NSLayoutConstraint* verticalPositioning = nil;
   if (CGRectGetMaxY(guideFrame) + kMinHeight >
       CGRectGetHeight(parentView.frame)) {
     // Display above.
     verticalPositioning =
-        [container.bottomAnchor constraintEqualToAnchor:namedGuide.topAnchor];
+        [container.bottomAnchor constraintEqualToAnchor:layoutGuide.topAnchor];
   } else {
     // Display below.
     verticalPositioning =
-        [container.topAnchor constraintEqualToAnchor:namedGuide.bottomAnchor];
+        [container.topAnchor constraintEqualToAnchor:layoutGuide.bottomAnchor];
   }
 
   NSLayoutConstraint* center = [container.centerXAnchor
-      constraintEqualToAnchor:namedGuide.centerXAnchor];
+      constraintEqualToAnchor:layoutGuide.centerXAnchor];
   center.priority = UILayoutPriorityDefaultHigh;
 
   id<LayoutGuideProvider> safeArea = parentView.safeAreaLayoutGuide;

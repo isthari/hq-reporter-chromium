@@ -1,13 +1,13 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/eye_dropper/eye_dropper_view_mac.h"
 
+#include <Carbon/Carbon.h>  // For keycode names in Carbon's Event.h.
 #import <Cocoa/Cocoa.h>
 
-// Include Carbon to use the keycode names in Carbon's Event.h
-#include <Carbon/Carbon.h>
+#include <memory>
 
 #include "chrome/browser/ui/views/eye_dropper/eye_dropper_view.h"
 #include "content/public/browser/render_frame_host.h"
@@ -35,19 +35,26 @@ EyeDropperViewMac::EyeDropperViewMac(content::EyeDropperListener* listener)
   }
 }
 
-EyeDropperViewMac::~EyeDropperViewMac() {}
+EyeDropperViewMac::~EyeDropperViewMac() = default;
+
+struct EyeDropperView::PreEventDispatchHandler::ObjCStorage {
+  id click_event_tap = nil;
+  id notification_observer = nil;
+};
 
 EyeDropperView::PreEventDispatchHandler::PreEventDispatchHandler(
     EyeDropperView* view,
     gfx::NativeView parent)
-    : view_(view) {
+    : view_(view), objc_storage_(std::make_unique<ObjCStorage>()) {
   // Ensure that this handler is called before color popup handler.
-  clickEventTap_ = [NSEvent
-      addLocalMonitorForEventsMatchingMask:NSAnyEventMask
+  objc_storage_->click_event_tap = [NSEvent
+      addLocalMonitorForEventsMatchingMask:NSEventMaskAny
                                    handler:^NSEvent*(NSEvent* event) {
                                      NSEventType eventType = [event type];
-                                     if (eventType == NSLeftMouseDown ||
-                                         eventType == NSRightMouseDown) {
+                                     if (eventType ==
+                                             NSEventTypeLeftMouseDown ||
+                                         eventType ==
+                                             NSEventTypeRightMouseDown) {
                                        view_->OnColorSelected();
                                        return nil;
                                      } else if (eventType ==
@@ -64,7 +71,7 @@ EyeDropperView::PreEventDispatchHandler::PreEventDispatchHandler(
   // menubar.
   NSNotificationCenter* notificationCenter =
       [NSNotificationCenter defaultCenter];
-  notificationObserver_ =
+  objc_storage_->notification_observer =
       [notificationCenter addObserverForName:NSMenuDidBeginTrackingNotification
                                       object:[NSApp mainMenu]
                                        queue:[NSOperationQueue mainQueue]
@@ -74,16 +81,16 @@ EyeDropperView::PreEventDispatchHandler::PreEventDispatchHandler(
 }
 
 EyeDropperView::PreEventDispatchHandler::~PreEventDispatchHandler() {
-  if (clickEventTap_) {
-    [NSEvent removeMonitor:clickEventTap_];
-    clickEventTap_ = nil;
+  if (objc_storage_->click_event_tap) {
+    [NSEvent removeMonitor:objc_storage_->click_event_tap];
+    objc_storage_->click_event_tap = nil;
   }
 
-  if (notificationObserver_) {
+  if (objc_storage_->notification_observer) {
     NSNotificationCenter* notificationCenter =
         [NSNotificationCenter defaultCenter];
-    [notificationCenter removeObserver:notificationObserver_];
-    notificationObserver_ = nil;
+    [notificationCenter removeObserver:objc_storage_->notification_observer];
+    objc_storage_->notification_observer = nil;
   }
 }
 

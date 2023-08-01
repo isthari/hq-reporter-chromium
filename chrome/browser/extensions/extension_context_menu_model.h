@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,9 +11,9 @@
 #include "base/memory/raw_ptr.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/models/simple_menu_model.h"
+#include "url/origin.h"
 
 class Browser;
-class GURL;
 class Profile;
 
 namespace content {
@@ -42,6 +42,10 @@ class ExtensionContextMenuModel : public ui::SimpleMenuModel,
     PAGE_ACCESS_RUN_ON_SITE,
     PAGE_ACCESS_RUN_ON_ALL_SITES,
     PAGE_ACCESS_LEARN_MORE,
+    PAGE_ACCESS_ALL_EXTENSIONS_GRANTED,
+    PAGE_ACCESS_ALL_EXTENSIONS_BLOCKED,
+    PAGE_ACCESS_PERMISSIONS_PAGE,
+    VIEW_WEB_PERMISSIONS,
     // NOTE: If you update this, you probably need to update the
     // ContextMenuAction enum below.
   };
@@ -66,7 +70,9 @@ class ExtensionContextMenuModel : public ui::SimpleMenuModel,
     kPageAccessRunOnSite = 9,
     kPageAccessRunOnAllSites = 10,
     kPageAccessLearnMore = 11,
-    kMaxValue = kPageAccessLearnMore,
+    kPageAccessPermissionsPage = 12,
+    kViewWebPermissions = 13,
+    kMaxValue = kViewWebPermissions,
   };
 
   // Location where the context menu is open from.
@@ -74,8 +80,9 @@ class ExtensionContextMenuModel : public ui::SimpleMenuModel,
 
   // The current visibility of the extension; this affects the "pin" / "unpin"
   // strings in the menu.
-  // TODO(devlin): Rename this "PinState" when we finish removing the old UI
-  // bits.
+  // TODO(crbug.com/1416359): Rename this "PinState" when we finish removing the
+  // old UI bits and move outside this class (pin state is not tied to the
+  // context menu).
   enum ButtonVisibility {
     // The extension is pinned on the toolbar.
     PINNED,
@@ -128,21 +135,19 @@ class ExtensionContextMenuModel : public ui::SimpleMenuModel,
   }
 
  private:
-  void InitMenu(const Extension* extension, ButtonVisibility button_visibility);
+  void InitMenu(const Extension* extension, bool can_show_icon_in_toolbar);
 
-  void CreatePageAccessSubmenu(const Extension* extension);
+  // Adds the page access items based on the current site setting pointed by
+  // `web_contents`.
+  void CreatePageAccessItems(const Extension* extension,
+                             content::WebContents* web_contents);
 
   // Returns true if the given page access command is enabled in the menu.
   bool IsPageAccessCommandEnabled(const Extension& extension,
-                                  const GURL& url,
                                   int command_id) const;
 
   void HandlePageAccessCommand(int command_id,
                                const Extension* extension) const;
-
-  // Logs a user action when an option is selected in the page access section of
-  // the context menu.
-  void LogPageAccessAction(int command_id) const;
 
   // Gets the extension we are displaying the menu for. Returns NULL if the
   // extension has been uninstalled and no longer exists.
@@ -174,8 +179,6 @@ class ExtensionContextMenuModel : public ui::SimpleMenuModel,
   // The visibility of the button at the time the menu opened.
   ButtonVisibility button_visibility_;
 
-  const bool can_show_icon_in_toolbar_;
-
   // Menu matcher for context menu items specified by the extension.
   std::unique_ptr<ContextMenuMatcher> extension_items_;
 
@@ -186,6 +189,12 @@ class ExtensionContextMenuModel : public ui::SimpleMenuModel,
   absl::optional<ContextMenuAction> action_taken_;
 
   ContextMenuSource source_;
+
+  // The origin used for populating the page access items.
+  // TODO(crbug.com/1435117): Web contents may change while the menu is open,
+  // which may affect the context menu contents. We should dynamically update
+  // the context menu, or close it when this happens.
+  url::Origin origin_;
 };
 
 }  // namespace extensions

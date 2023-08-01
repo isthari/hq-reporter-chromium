@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,11 @@
 #define CC_TREES_EFFECT_NODE_H_
 
 #include "cc/cc_export.h"
-#include "cc/document_transition/document_transition_shared_element_id.h"
 #include "cc/paint/element_id.h"
 #include "cc/paint/filter_operations.h"
-#include "components/viz/common/shared_element_resource_id.h"
+#include "cc/view_transition/view_transition_element_id.h"
 #include "components/viz/common/surfaces/subtree_capture_id.h"
+#include "components/viz/common/view_transition_element_resource_id.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkBlendMode.h"
 #include "ui/gfx/geometry/mask_filter_info.h"
@@ -50,7 +50,8 @@ enum class RenderSurfaceReason : uint8_t {
   kCopyRequest,
   kMirrored,
   kSubtreeIsBeingCaptured,
-  kDocumentTransitionParticipant,
+  kViewTransitionParticipant,
+  kGradientMask,
   // This must be the last value because it's used in tracing code to know the
   // number of reasons.
   kTest,
@@ -63,17 +64,16 @@ struct CC_EXPORT EffectNode {
   EffectNode(const EffectNode& other);
   ~EffectNode();
 
-  enum StableIdLabels { INVALID_STABLE_ID = 0 };
-
   // The node index of this node in the effect tree node vector.
   int id;
   // The node index of the parent node in the effect tree node vector.
   int parent_id;
-  // An opaque, unique, stable identifer for this effect that persists across
+
+  // An opaque, unique, stable identifier for this effect that persists across
   // frame commits. This id is used only for internal implementation
   // details such as RenderSurface and RenderPass ids, and should not
   // be assumed to have semantic meaning.
-  uint64_t stable_id;
+  ElementId element_id;
 
   float opacity;
   float screen_space_opacity;
@@ -165,13 +165,14 @@ struct CC_EXPORT EffectNode {
   int closest_ancestor_with_cached_render_surface_id;
   int closest_ancestor_with_copy_request_id;
   int closest_ancestor_being_captured_id;
+  int closest_ancestor_with_shared_element_id;
 
-  // Represents a shared element id for the document transition API.
-  DocumentTransitionSharedElementId document_transition_shared_element_id;
+  // Represents a DOM element id for the view transition API.
+  ViewTransitionElementId view_transition_shared_element_id;
 
   // Represents a resource id for a resource cached or generated in the Viz
   // process.
-  viz::SharedElementResourceId shared_element_resource_id;
+  viz::ViewTransitionElementResourceId view_transition_element_resource_id;
 
   bool HasRenderSurface() const {
     return render_surface_reason != RenderSurfaceReason::kNone;

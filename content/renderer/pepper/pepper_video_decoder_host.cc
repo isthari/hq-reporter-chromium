@@ -1,4 +1,4 @@
-// Copyright (c) 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,12 @@
 
 #include <stddef.h>
 
-#include "base/bind.h"
+#include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/unsafe_shared_memory_region.h"
+#include "base/metrics/histogram_functions.h"
+#include "base/ranges/algorithm.h"
 #include "build/build_config.h"
 #include "content/common/pepper_file_util.h"
 #include "content/public/common/content_client.h"
@@ -39,6 +42,36 @@ using ppapi::thunk::PPB_Graphics3D_API;
 namespace content {
 
 namespace {
+
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum class HardwareAccelerationBehavior : int {
+  kOther = 0,
+
+  // The PepperVideoDecoderHost used a hardware decoder backed by the legacy
+  // VideoDecodeAccelerator path from beginning to end.
+  kHardwareDecoderOnlyWithoutMojoVideoDecoder = 1,
+
+  // The PepperVideoDecoderHost initialized (and possibly started using) a
+  // hardware decoder backed by the legacy VideoDecodeAccelerator path but then
+  // fell back to software decoding.
+  kHardwareDecoderWithoutMojoVideoDecoderAndThenSoftwareDecoder = 2,
+
+  // The PepperVideoDecoderHost used a hardware decoder backed by the newer
+  // MojoVideoDecoder path from beginning to end.
+  kHardwareDecoderOnlyWithMojoVideoDecoder = 3,
+
+  // The PepperVideoDecoderHost initialized (and possibly started using) a
+  // hardware decoder backed by the newer MojoVideoDecoder path but then fell
+  // back to software decoding.
+  kHardwareDecoderWithMojoVideoDecoderAndThenSoftwareDecoder = 4,
+
+  // The PepperVideoDecoderHost used a software video decoder from beginning to
+  // end.
+  kSoftwareDecoderOnly = 5,
+
+  kMaxValue = kSoftwareDecoderOnly
+};
 
 media::VideoCodecProfile PepperToMediaVideoProfile(PP_VideoProfile profile) {
   switch (profile) {
@@ -105,7 +138,23 @@ PepperVideoDecoderHost::PepperVideoDecoderHost(RendererPpapiHost* host,
     : ResourceHost(host->GetPpapiHost(), instance, resource),
       renderer_ppapi_host_(host) {}
 
-PepperVideoDecoderHost::~PepperVideoDecoderHost() {}
+PepperVideoDecoderHost::~PepperVideoDecoderHost() {
+  auto hw_behavior = HardwareAccelerationBehavior::kOther;
+  if (software_fallback_used_) {
+    if (mojo_video_decoder_path_initialized_) {
+      hw_behavior = HardwareAccelerationBehavior::
+          kHardwareDecoderWithMojoVideoDecoderAndThenSoftwareDecoder;
+    } else {
+      hw_behavior = HardwareAccelerationBehavior::kSoftwareDecoderOnly;
+    }
+  } else if (mojo_video_decoder_path_initialized_) {
+    hw_behavior =
+        HardwareAccelerationBehavior::kHardwareDecoderOnlyWithMojoVideoDecoder;
+  }
+
+  base::UmaHistogramEnumeration(
+      "Media.PepperVideoDecoder.HardwareAccelerationBehavior", hw_behavior);
+}
 
 int32_t PepperVideoDecoderHost::OnResourceMessageReceived(
     const IPC::Message& msg,
@@ -158,19 +207,20 @@ int32_t PepperVideoDecoderHost::OnHostMsgInitialize(
   min_picture_count_ = min_picture_count;
 
   if (acceleration != PP_HARDWAREACCELERATION_NONE) {
-    // This is not synchronous, but subsequent IPC messages will be buffered, so
-    // it is okay to immediately send IPC messages.
-    if (command_buffer->channel()) {
-      decoder_ = base::WrapUnique<media::VideoDecodeAccelerator>(
-          new media::GpuVideoDecodeAcceleratorHost(command_buffer));
-      media::VideoDecodeAccelerator::Config vda_config(profile_);
-      vda_config.supported_output_formats.assign(
-          {media::PIXEL_FORMAT_XRGB, media::PIXEL_FORMAT_ARGB});
-      if (decoder_->Initialize(vda_config, this)) {
-        initialized_ = true;
-        return PP_OK;
-      }
+    uint32_t shim_texture_pool_size = media::limits::kMaxVideoFrames + 1;
+    shim_texture_pool_size =
+        std::max(shim_texture_pool_size, min_picture_count_);
+    auto new_decoder = VideoDecoderShim::Create(this, shim_texture_pool_size,
+                                                /*use_hw_decoder=*/true);
+    if (new_decoder &&
+        new_decoder->Initialize(media::VideoDecodeAccelerator::Config(profile_),
+                                this)) {
+      decoder_.reset(new_decoder.release());
+      initialized_ = true;
+      mojo_video_decoder_path_initialized_ = true;
+      return PP_OK;
     }
+
     decoder_.reset();
     if (acceleration == PP_HARDWAREACCELERATION_ONLY)
       return PP_ERROR_NOTSUPPORTED;
@@ -260,10 +310,7 @@ int32_t PepperVideoDecoderHost::OnHostMsgDecode(
 
   shm_buffers_[shm_id].busy = true;
   decoder_->Decode(media::BitstreamBuffer(
-      decode_id,
-      base::UnsafeSharedMemoryRegion::TakeHandleForSerialization(
-          shm_buffers_[shm_id].region.Duplicate()),
-      size));
+      decode_id, shm_buffers_[shm_id].region.Duplicate(), size));
 
   return PP_OK_COMPLETIONPENDING;
 }
@@ -412,12 +459,6 @@ void PepperVideoDecoderHost::PictureReady(const media::Picture& picture) {
   CHECK(it->second == PictureBufferState::ASSIGNED);
   it->second = PictureBufferState::IN_USE;
 
-  if (software_fallback_used_) {
-    media::ReportPepperVideoDecoderOutputPictureCountSW(coded_size_.height());
-  } else {
-    media::ReportPepperVideoDecoderOutputPictureCountHW(coded_size_.height());
-  }
-
   // Don't bother validating the visible rect, since the plugin process is less
   // trusted than the gpu process.
   PP_Rect visible_rect = PP_FromGfxRect(picture.visible_rect());
@@ -515,8 +556,8 @@ bool PepperVideoDecoderHost::TryFallbackToSoftwareDecoder() {
   uint32_t shim_texture_pool_size = media::limits::kMaxVideoFrames + 1;
   shim_texture_pool_size = std::max(shim_texture_pool_size,
                                     min_picture_count_);
-  std::unique_ptr<VideoDecoderShim> new_decoder(
-      new VideoDecoderShim(this, shim_texture_pool_size));
+  std::unique_ptr<VideoDecoderShim> new_decoder(VideoDecoderShim::Create(
+      this, shim_texture_pool_size, /*use_hw_decoder=*/false));
   if (!new_decoder->Initialize(media::VideoDecodeAccelerator::Config(profile_),
                                this)) {
     return false;
@@ -560,9 +601,7 @@ bool PepperVideoDecoderHost::TryFallbackToSoftwareDecoder() {
   for (const PendingDecode& decode : pending_decodes_) {
     DCHECK(shm_buffers_[decode.shm_id].busy);
     decoder_->Decode(media::BitstreamBuffer(
-        decode.decode_id,
-        base::UnsafeSharedMemoryRegion::TakeHandleForSerialization(
-            shm_buffers_[decode.shm_id].region.Duplicate()),
+        decode.decode_id, shm_buffers_[decode.shm_id].region.Duplicate(),
         decode.size));
   }
 
@@ -576,10 +615,8 @@ bool PepperVideoDecoderHost::TryFallbackToSoftwareDecoder() {
 
 PepperVideoDecoderHost::PendingDecodeList::iterator
 PepperVideoDecoderHost::GetPendingDecodeById(int32_t decode_id) {
-  return std::find_if(pending_decodes_.begin(), pending_decodes_.end(),
-                      [decode_id](const PendingDecode& item) {
-                        return item.decode_id == decode_id;
-                      });
+  return base::ranges::find(pending_decodes_, decode_id,
+                            &PendingDecode::decode_id);
 }
 
 }  // namespace content

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,116 +6,120 @@
 
 #include <shlobj.h>
 #include <windows.h>
+
 #include <memory>
 #include <string>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
-#include "base/cxx17_backports.h"
+#include "base/check.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
+#include "base/path_service.h"
 #include "base/process/launch.h"
 #include "base/process/process.h"
 #include "base/strings/stringprintf.h"
 #include "base/win/scoped_com_initializer.h"
 #include "chrome/installer/util/install_service_work_item.h"
-#include "chrome/installer/util/install_util.h"
-#include "chrome/installer/util/work_item_list.h"
-#include "chrome/updater/app/server/win/updater_idl.h"
-#include "chrome/updater/app/server/win/updater_internal_idl.h"
-#include "chrome/updater/app/server/win/updater_legacy_idl.h"
+#include "chrome/installer/util/registry_util.h"
 #include "chrome/updater/constants.h"
 #include "chrome/updater/updater_scope.h"
-#include "chrome/updater/util.h"
+#include "chrome/updater/util/util.h"
+#include "chrome/updater/util/win_util.h"
 #include "chrome/updater/win/setup/setup_util.h"
-#include "chrome/updater/win/task_scheduler.h"
 #include "chrome/updater/win/win_constants.h"
-#include "chrome/updater/win/win_util.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace updater {
 namespace {
 
-void DeleteComServer(UpdaterScope scope, HKEY root, bool uninstall_all) {
+void DeleteComServer(UpdaterScope scope, bool uninstall_all) {
   for (const CLSID& clsid : JoinVectors(
            GetSideBySideServers(scope),
            uninstall_all ? GetActiveServers(scope) : std::vector<CLSID>())) {
-    InstallUtil::DeleteRegistryKey(root, GetComServerClsidRegistryPath(clsid),
+    installer::DeleteRegistryKey(UpdaterScopeToHKeyRoot(scope),
+                                 GetComServerClsidRegistryPath(clsid),
+                                 WorkItem::kWow64Default);
+
+    const std::wstring progid(GetProgIdForClsid(clsid));
+    if (!progid.empty()) {
+      installer::DeleteRegistryKey(UpdaterScopeToHKeyRoot(scope),
+                                   GetComProgIdRegistryPath(progid),
                                    WorkItem::kWow64Default);
+    }
   }
 }
 
 void DeleteComService(bool uninstall_all) {
-  DCHECK(::IsUserAnAdmin());
+  CHECK(::IsUserAnAdmin());
 
   for (const GUID& appid :
        JoinVectors(GetSideBySideServers(UpdaterScope::kSystem),
                    uninstall_all ? GetActiveServers(UpdaterScope::kSystem)
                                  : std::vector<CLSID>())) {
-    InstallUtil::DeleteRegistryKey(HKEY_LOCAL_MACHINE,
-                                   GetComServerAppidRegistryPath(appid),
-                                   WorkItem::kWow64Default);
+    installer::DeleteRegistryKey(HKEY_LOCAL_MACHINE,
+                                 GetComServerAppidRegistryPath(appid),
+                                 WorkItem::kWow64Default);
   }
 
   for (const bool is_internal_service : {true, false}) {
-    if (!uninstall_all && !is_internal_service)
-      continue;
-
     const std::wstring service_name = GetServiceName(is_internal_service);
     if (!installer::InstallServiceWorkItem::DeleteService(
             service_name.c_str(), UPDATER_KEY, {}, {})) {
       LOG(WARNING) << "DeleteService [" << service_name << "] failed.";
+    } else {
+      VLOG(1) << "DeleteService [" << service_name << "] succeeded.";
     }
   }
 }
 
-void DeleteComInterfaces(HKEY root, bool uninstall_all) {
+void DeleteComInterfaces(UpdaterScope scope, bool uninstall_all) {
   for (const IID& iid : JoinVectors(
-           GetSideBySideInterfaces(),
-           uninstall_all ? GetActiveInterfaces() : std::vector<IID>())) {
+           GetSideBySideInterfaces(scope),
+           uninstall_all ? GetActiveInterfaces(scope) : std::vector<IID>())) {
     for (const auto& reg_path :
          {GetComIidRegistryPath(iid), GetComTypeLibRegistryPath(iid)}) {
-      InstallUtil::DeleteRegistryKey(root, reg_path, WorkItem::kWow64Default);
+      installer::DeleteRegistryKey(UpdaterScopeToHKeyRoot(scope), reg_path,
+                                   WorkItem::kWow64Default);
     }
   }
 }
 
-void DeleteGoogleUpdateEntries(UpdaterScope scope, HKEY root) {
-  InstallUtil::DeleteRegistryKey(root, UPDATER_KEY, KEY_WOW64_32KEY);
+void DeleteGoogleUpdateFilesAndKeys(UpdaterScope scope) {
+  installer::DeleteRegistryKey(UpdaterScopeToHKeyRoot(scope), UPDATER_KEY,
+                               KEY_WOW64_32KEY);
 
   const absl::optional<base::FilePath> target_path =
       GetGoogleUpdateExePath(scope);
-  if (target_path)
-    base::DeleteFile(*target_path);
+  if (target_path) {
+    base::DeletePathRecursively(target_path->DirName());
+  }
 }
 
 int RunUninstallScript(UpdaterScope scope, bool uninstall_all) {
   const absl::optional<base::FilePath> versioned_dir =
-      GetVersionedDirectory(scope);
+      GetVersionedInstallDirectory(scope);
   if (!versioned_dir) {
-    LOG(ERROR) << "GetVersionedDirectory failed.";
-    return -1;
+    LOG(ERROR) << "GetVersionedInstallDirectory failed.";
+    return kErrorNoVersionedDirectory;
   }
-  const absl::optional<base::FilePath> base_dir = GetBaseDirectory(scope);
-  if (scope == UpdaterScope::kSystem && !base_dir) {
-    LOG(ERROR) << "GetBaseDirectory failed.";
-    return -1;
+  const absl::optional<base::FilePath> base_dir = GetInstallDirectory(scope);
+  if (IsSystemInstall(scope) && !base_dir) {
+    LOG(ERROR) << "GetInstallDirectory failed.";
+    return kErrorNoBaseDirectory;
   }
 
-  wchar_t cmd_path[MAX_PATH] = {0};
-  DWORD size = ExpandEnvironmentStrings(L"%SystemRoot%\\System32\\cmd.exe",
-                                        cmd_path, base::size(cmd_path));
-  if (!size || size >= MAX_PATH)
-    return -1;
+  base::FilePath cmd_exe_path;
+  if (!base::PathService::Get(base::DIR_SYSTEM, &cmd_exe_path)) {
+    return kErrorPathServiceFailed;
+  }
+  cmd_exe_path = cmd_exe_path.Append(L"cmd.exe");
 
   const base::FilePath script_path =
       versioned_dir->AppendASCII(kUninstallScript);
 
-  std::wstring cmdline = cmd_path;
-  base::StringAppendF(
-      &cmdline, L" /Q /C \"\"%ls\" --dir=\"%ls\"\"",
+  const std::wstring cmdline = base::StringPrintf(
+      L"\"%ls\" /Q /C \"\"%ls\" --dir=\"%ls\"\"", cmd_exe_path.value().c_str(),
       script_path.value().c_str(),
       (uninstall_all ? base_dir : versioned_dir)->value().c_str());
   base::LaunchOptions options;
@@ -126,9 +130,9 @@ int RunUninstallScript(UpdaterScope scope, bool uninstall_all) {
   base::Process process = base::LaunchProcess(cmdline, options);
   if (!process.IsValid()) {
     LOG(ERROR) << "Failed to create process " << cmdline;
-    return -1;
+    return kErrorProcessLaunchFailed;
   }
-  return 0;
+  return kErrorOk;
 }
 
 // Reverses the changes made by setup. This is a best effort uninstall:
@@ -142,9 +146,7 @@ int RunUninstallScript(UpdaterScope scope, bool uninstall_all) {
 // the function uninstalls only the internal updater.
 int UninstallImpl(UpdaterScope scope, bool uninstall_all) {
   VLOG(1) << __func__ << ", scope: " << scope;
-  DCHECK(scope == UpdaterScope::kUser || ::IsUserAnAdmin());
-  HKEY key =
-      scope == UpdaterScope::kSystem ? HKEY_LOCAL_MACHINE : HKEY_CURRENT_USER;
+  CHECK(!IsSystemInstall(scope) || ::IsUserAnAdmin());
 
   auto scoped_com_initializer =
       std::make_unique<base::win::ScopedCOMInitializer>(
@@ -153,25 +155,18 @@ int UninstallImpl(UpdaterScope scope, bool uninstall_all) {
   updater::UnregisterWakeTask(scope);
 
   if (uninstall_all) {
-    std::unique_ptr<WorkItemList> uninstall_list(
-        WorkItem::CreateWorkItemList());
-    uninstall_list->AddDeleteRegKeyWorkItem(key, UPDATER_KEY, KEY_WOW64_32KEY);
-    if (!uninstall_list->Do()) {
-      LOG(ERROR) << "Failed to delete the registry keys.";
-      uninstall_list->Rollback();
-      return -1;
-    }
+    DeleteGoogleUpdateFilesAndKeys(scope);
   }
 
-  DeleteComInterfaces(key, uninstall_all);
-  if (scope == UpdaterScope::kSystem)
+  DeleteComInterfaces(scope, uninstall_all);
+  if (IsSystemInstall(scope)) {
     DeleteComService(uninstall_all);
-  DeleteComServer(scope, key, uninstall_all);
+  }
+  DeleteComServer(scope, uninstall_all);
 
-  if (scope == UpdaterScope::kUser)
+  if (!IsSystemInstall(scope)) {
     UnregisterUserRunAtStartup(GetTaskNamePrefix(scope));
-
-  DeleteGoogleUpdateEntries(scope, key);
+  }
 
   return RunUninstallScript(scope, uninstall_all);
 }

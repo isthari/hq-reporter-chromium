@@ -1,15 +1,15 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.components.infobars;
 
 import android.content.Context;
-import android.support.test.InstrumentationRegistry;
 import android.view.View;
 import android.view.View.MeasureSpec;
 import android.view.ViewGroup.LayoutParams;
 
+import androidx.test.InstrumentationRegistry;
 import androidx.test.filters.SmallTest;
 
 import org.junit.Assert;
@@ -20,6 +20,7 @@ import org.junit.runner.RunWith;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
 import org.chromium.base.test.UiThreadTest;
 import org.chromium.components.infobars.InfoBarControlLayout.ControlLayoutParams;
+import org.chromium.components.infobars.test.R;
 
 /**
  * Tests for InfoBarControlLayout.  This suite doesn't check for specific details, like margins

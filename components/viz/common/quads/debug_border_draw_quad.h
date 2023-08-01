@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,22 +13,24 @@ namespace viz {
 
 class VIZ_COMMON_EXPORT DebugBorderDrawQuad : public DrawQuad {
  public:
+  static constexpr Material kMaterial = Material::kDebugBorder;
+
   DebugBorderDrawQuad();
 
   void SetNew(const SharedQuadState* shared_quad_state,
               const gfx::Rect& rect,
               const gfx::Rect& visible_rect,
-              SkColor c,
+              SkColor4f c,
               int w);
 
   void SetAll(const SharedQuadState* shared_quad_state,
               const gfx::Rect& rect,
               const gfx::Rect& visible_rect,
               bool needs_blending,
-              SkColor c,
+              SkColor4f c,
               int w);
 
-  SkColor color = SK_ColorTRANSPARENT;
+  SkColor4f color = SkColors::kTransparent;
   int width = 0;
 
   static const DebugBorderDrawQuad* MaterialCast(const DrawQuad*);

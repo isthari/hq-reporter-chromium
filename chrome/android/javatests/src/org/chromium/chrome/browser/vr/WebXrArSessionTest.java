@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,6 @@ package org.chromium.chrome.browser.vr;
 
 import static org.chromium.chrome.browser.vr.WebXrArTestFramework.PAGE_LOAD_TIMEOUT_S;
 import static org.chromium.chrome.browser.vr.WebXrArTestFramework.POLL_TIMEOUT_SHORT_MS;
-
-import android.os.Build;
 
 import androidx.test.filters.MediumTest;
 
@@ -23,7 +21,6 @@ import org.chromium.base.test.params.ParameterAnnotations.UseRunnerDelegate;
 import org.chromium.base.test.params.ParameterSet;
 import org.chromium.base.test.params.ParameterizedRunner;
 import org.chromium.base.test.util.CommandLineFlags;
-import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.modaldialog.ChromeModalDialogTestUtils;
 import org.chromium.chrome.browser.vr.rules.XrActivityRestriction;
@@ -45,7 +42,6 @@ import java.util.concurrent.TimeoutException;
 @UseRunnerDelegate(ChromeJUnit4RunnerDelegate.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE,
         "enable-features=WebXR,WebXRARModule,WebXRHitTest,LogJsConsoleMessages"})
-@MinAndroidSdkLevel(Build.VERSION_CODES.N) // WebXR for AR is only supported on N+
 public class WebXrArSessionTest {
     @ClassParameter
     private static List<ParameterSet> sClassParams =
@@ -89,10 +85,9 @@ public class WebXrArSessionTest {
     public void testArPermissionPersistance() {
         mWebXrArTestFramework.loadFileAndAwaitInitialization(
                 "test_ar_request_session_succeeds", PAGE_LOAD_TIMEOUT_S);
-        WebContents contents = mWebXrArTestFramework.getCurrentWebContents();
 
         // Start new session, accepting the consent prompt
-        mWebXrArTestFramework.enterSessionWithUserGestureOrFail(contents);
+        mWebXrArTestFramework.enterSessionWithUserGestureOrFail(/*needsCameraPermission=*/false);
         mWebXrArTestFramework.endSession();
         mWebXrArTestFramework.assertNoJavaScriptErrors();
         mWebXrArTestFramework.pollJavaScriptBooleanOrFail(
@@ -136,7 +131,7 @@ public class WebXrArSessionTest {
         WebContents contents = mWebXrArTestFramework.getCurrentWebContents();
 
         // Start new session, accepting the consent prompt
-        mWebXrArTestFramework.enterSessionWithUserGestureOrFail(contents);
+        mWebXrArTestFramework.enterSessionWithUserGestureOrFail(/*needsCameraPermission=*/false);
         mWebXrArTestFramework.assertNoJavaScriptErrors();
 
         // Trigger a new permission prompt to show when tapping on the canvas, then tap on it.

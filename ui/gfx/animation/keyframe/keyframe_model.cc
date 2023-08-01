@@ -1,12 +1,12 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ui/gfx/animation/keyframe/keyframe_model.h"
 
-#include "base/cxx17_backports.h"
 #include "base/memory/ptr_util.h"
 #include "base/notreached.h"
+#include "base/time/time.h"
 
 namespace gfx {
 namespace {
@@ -22,7 +22,7 @@ static const char* const s_runStateNames[] = {"WAITING_FOR_TARGET_AVAILABILITY",
                                               "ABORTED_BUT_NEEDS_COMPLETION"};
 
 static_assert(static_cast<int>(KeyframeModel::LAST_RUN_STATE) + 1 ==
-                  base::size(s_runStateNames),
+                  std::size(s_runStateNames),
               "RunStateEnumSize should equal the number of elements in "
               "s_runStateNames");
 
@@ -92,7 +92,8 @@ KeyframeModel::Phase KeyframeModel::CalculatePhase(
   base::TimeDelta before_active_boundary_time =
       std::max(opposite_time_offset, base::TimeDelta());
   if (local_time < before_active_boundary_time ||
-      (local_time == before_active_boundary_time && playback_rate_ < 0)) {
+      (local_time == before_active_boundary_time && playback_rate_ < 0 &&
+       !active_at_boundary_)) {
     return KeyframeModel::Phase::BEFORE;
   }
   // TODO(crbug.com/909794): By spec end time = max(start delay + duration +
@@ -112,7 +113,8 @@ KeyframeModel::Phase KeyframeModel::CalculatePhase(
         std::max(opposite_time_offset + active_duration, base::TimeDelta());
   }
   if (local_time > active_after_boundary_time ||
-      (local_time == active_after_boundary_time && playback_rate_ > 0)) {
+      (local_time == active_after_boundary_time && playback_rate_ > 0 &&
+       !active_at_boundary_)) {
     return KeyframeModel::Phase::AFTER;
   }
   return KeyframeModel::Phase::ACTIVE;

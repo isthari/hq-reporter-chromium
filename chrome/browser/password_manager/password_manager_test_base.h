@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
 #include "chrome/browser/ssl/cert_verifier_browser_test.h"
@@ -100,7 +101,8 @@ class BubbleObserver {
   void WaitForSaveUnsyncedCredentialsPrompt() const;
 
  private:
-  const raw_ptr<ManagePasswordsUIController> passwords_ui_controller_;
+  const raw_ptr<ManagePasswordsUIController, DanglingUntriaged>
+      passwords_ui_controller_;
 };
 
 // A helper class that synchronously waits until the password store handles a
@@ -221,7 +223,9 @@ class PasswordManagerBrowserTestBase : public CertVerifierBrowserTest {
  private:
   net::EmbeddedTestServer https_test_server_;
   // A tab with some hooks injected.
-  content::WebContents* web_contents_;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION content::WebContents* web_contents_;
 
   base::CallbackListSubscription create_services_subscription_;
 };

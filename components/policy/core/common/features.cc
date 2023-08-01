@@ -1,44 +1,46 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/policy/core/common/features.h"
 
+#include "google_apis/gaia/gaia_constants.h"
+
 namespace policy {
 
 namespace features {
 
-const base::Feature kDefaultChromeAppsMigration{
-    "EnableDefaultAppsMigration", base::FEATURE_ENABLED_BY_DEFAULT};
+BASE_FEATURE(kCrowdstrikeSignalReporting,
+             "CrowdstrikeSignalReporting",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
-const base::Feature kPolicyBlocklistThrottleRequiresPoliciesLoaded{
-    "PolicyBlocklistThrottleRequiresPoliciesLoaded",
-    base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kEnableUserCloudSigninRestrictionPolicyFetcher,
+             "UserCloudSigninRestrictionPolicyFetcher",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-const base::FeatureParam<base::TimeDelta>
-    kPolicyBlocklistThrottlePolicyLoadTimeout{
-        &kPolicyBlocklistThrottleRequiresPoliciesLoaded,
-        "PolicyBlocklistThrottlePolicyLoadTimeout", base::Seconds(20)};
+#if BUILDFLAG(IS_ANDROID)
+BASE_FEATURE(kListPoliciesAcceptCommaSeparatedStringsAndroid,
+             "ListPoliciesAcceptCommaSeparatedStringsAndroid",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-const base::Feature kUploadBrowserDeviceIdentifier{
-    "UploadBrowserDeviceIdentifier", base::FEATURE_ENABLED_BY_DEFAULT};
+BASE_FEATURE(kPolicyLogsPageAndroid,
+             "PolicyLogsPageAndroid",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-const base::Feature kLoginEventReporting{"LoginEventReporting",
-                                         base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kSafeSitesFilterBehaviorPolicyAndroid,
+             "SafeSitesFilterBehaviorPolicyAndroid",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+#endif  // BUILDFLAG(IS_ANDROID)
 
-const base::Feature kPasswordBreachEventReporting{
-    "PasswordBreachEventReporting", base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kPolicyMergeMultiSource,
+             "PolicyMergeMultiSource",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-const base::Feature kChromeManagementPageAndroid{
-    "ChromeManagementPageAndroid", base::FEATURE_DISABLED_BY_DEFAULT};
-
-const base::Feature kEnableUserCloudSigninRestrictionPolicyFetcher{
-    "UserCloudSigninRestrictionPolicyFetcher",
-    base::FEATURE_DISABLED_BY_DEFAULT};
-
-const base::Feature kActivateMetricsReportingEnabledPolicyAndroid{
-    "ActivateMetricsReportingEnabledPolicyAndroid",
-    base::FEATURE_DISABLED_BY_DEFAULT};
+#if BUILDFLAG(IS_IOS)
+BASE_FEATURE(kPolicyLogsPageIOS,
+             "PolicyLogsPageIOS",
+             base::FEATURE_ENABLED_BY_DEFAULT);
+#endif  // BUILDFLAG(IS_IOS)
 
 }  // namespace features
 

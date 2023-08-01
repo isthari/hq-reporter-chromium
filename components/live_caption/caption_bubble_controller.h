@@ -1,4 +1,4 @@
-// Copyright (c) 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,16 @@
 #include <memory>
 #include <string>
 
-#include "media/mojo/mojom/speech_recognition_service.mojom.h"
+#include "components/live_caption/views/caption_bubble.h"
+#include "media/mojo/mojom/speech_recognition.mojom.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/native_theme/caption_style.h"
+
+class PrefService;
+
+namespace content {
+class BrowserContext;
+}
 
 namespace captions {
 
@@ -27,12 +34,14 @@ class CaptionBubbleContext;
 //
 class CaptionBubbleController {
  public:
-  CaptionBubbleController() = default;
+  explicit CaptionBubbleController() = default;
   virtual ~CaptionBubbleController() = default;
   CaptionBubbleController(const CaptionBubbleController&) = delete;
   CaptionBubbleController& operator=(const CaptionBubbleController&) = delete;
 
-  static std::unique_ptr<CaptionBubbleController> Create();
+  static std::unique_ptr<CaptionBubbleController> Create(
+      PrefService* profile_prefs,
+      const std::string& application_locale);
 
   // Called when a transcription is received from the service. Returns whether
   // the transcription result was set on the caption bubble successfully.
@@ -42,7 +51,11 @@ class CaptionBubbleController {
       const media::SpeechRecognitionResult& result) = 0;
 
   // Called when the speech service has an error.
-  virtual void OnError(CaptionBubbleContext* caption_bubble_context) = 0;
+  virtual void OnError(
+      CaptionBubbleContext* caption_bubble_context,
+      CaptionBubbleErrorType error_type,
+      OnErrorClickedCallback error_clicked_callback,
+      OnDoNotShowAgainClickedCallback error_silenced_callback) = 0;
 
   // Called when the audio stream has ended.
   virtual void OnAudioStreamEnd(
@@ -52,12 +65,10 @@ class CaptionBubbleController {
   virtual void UpdateCaptionStyle(
       absl::optional<ui::CaptionStyle> caption_style) = 0;
 
- private:
-  friend class LiveCaptionControllerTest;
-  friend class LiveCaptionSpeechRecognitionHostTest;
-
   virtual bool IsWidgetVisibleForTesting() = 0;
+  virtual bool IsGenericErrorMessageVisibleForTesting() = 0;
   virtual std::string GetBubbleLabelTextForTesting() = 0;
+  virtual void CloseActiveModelForTesting() = 0;
 };
 
 }  // namespace captions

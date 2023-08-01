@@ -1,15 +1,14 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef IOS_CHROME_BROWSER_CRASH_REPORT_CRASH_HELPER_H_
 #define IOS_CHROME_BROWSER_CRASH_REPORT_CRASH_HELPER_H_
 
+#include "base/feature_list.h"
+#include "base/time/time.h"
 
 namespace crash_helper {
-
-// Sync the kCrashpadIOS feature to kCrashpadStartOnNextRun NSUserDefault.
-void SyncCrashpadEnabledOnNextRun();
 
 // Starts the crash handlers. This must be run as soon as possible to catch
 // early crashes.
@@ -21,12 +20,8 @@ void SetEnabled(bool enabled);
 // Process and begin uploading pending crash reports if application is active.
 // If application state is inactive or backgrounded, this is a no-op. Can be
 // called multiple times, but will only take effect the first time (when app
-// state is active) for Crashpad. For Breakpad, this can be called to start
-// uploads and restart uploads after -PauseBreakpadUploads() is called.
+// state is active).
 void UploadCrashReports();
-
-// For breakpad, it is necessary to pause uploads when entering the background.
-void PauseBreakpadUploads();
 
 // Process any pending crashpad reports, and mark them as
 // 'uploaded_in_recovery_mode'.
@@ -37,7 +32,7 @@ void ProcessIntermediateReportsForSafeMode();
 int GetPendingCrashReportCount();
 
 // Gets the number of pending crash reports on a background thread and invokes
-// |callback| with the result when complete.
+// `callback` with the result when complete.
 void GetPendingCrashReportCount(void (^callback)(int));
 
 // Check if there is currently a crash report to upload. This function will wait
@@ -52,8 +47,8 @@ void WillStartCrashRestoration();
 // in recovery mode.
 void StartUploadingReportsInRecoveryMode();
 
-// Resets the Breakpad configuration from the main bundle.
-void RestoreDefaultConfiguration();
+// Deletes any reports that were recorded or uploaded within the time range.
+void ClearReportsBetween(base::Time delete_begin, base::Time delete_end);
 
 }  // namespace crash_helper
 

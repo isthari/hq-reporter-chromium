@@ -1,11 +1,13 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <string>
+
 #include "base/base64url.h"
 #include "base/base_switches.h"
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/utf_string_conversions.h"
@@ -143,7 +145,8 @@ class AutofillServerTest : public InProcessBrowserTest {
     // instead of data urls.
     scoped_feature_list_.InitWithFeatures(
         // Enabled.
-        {features::kAutofillAllowNonHttpActivation},
+        {features::test::kAutofillAllowNonHttpActivation,
+         features::test::kAutofillServerCommunication},
         // Disabled.
         {});
 
@@ -160,6 +163,7 @@ class AutofillServerTest : public InProcessBrowserTest {
   }
 
  private:
+  test::AutofillBrowserTestEnvironment autofill_test_environment_;
   base::test::ScopedFeatureList scoped_feature_list_;
 };
 
@@ -169,7 +173,7 @@ MATCHER_P(EqualsUploadProto, expected_const, "") {
   if (!request.ParseFromString(arg))
     return false;
 
-  // Remove metadata because it is randomised and won't match.
+  // Remove metadata because it is randomized and won't match.
   EXPECT_EQ(request.upload().has_randomized_form_metadata(),
             expected.upload().has_randomized_form_metadata());
   request.mutable_upload()->clear_randomized_form_metadata();
@@ -223,7 +227,7 @@ IN_PROC_BROWSER_TEST_F(AutofillServerTest,
       "</script>";
 
   AutofillPageQueryRequest query;
-  query.set_client_version(GetProductNameAndVersionForUserAgent());
+  query.set_client_version(std::string(GetProductNameAndVersionForUserAgent()));
   auto* query_form = query.add_forms();
   query_form->set_signature(15916856893790176210U);
 
@@ -247,7 +251,8 @@ IN_PROC_BROWSER_TEST_F(AutofillServerTest,
   AutofillUploadRequest request;
   AutofillUploadContents* upload = request.mutable_upload();
   upload->set_submission(true);
-  upload->set_client_version(GetProductNameAndVersionForUserAgent());
+  upload->set_client_version(
+      std::string(GetProductNameAndVersionForUserAgent()));
   upload->set_form_signature(15916856893790176210U);
   upload->set_autofill_used(false);
 
@@ -258,32 +263,22 @@ IN_PROC_BROWSER_TEST_F(AutofillServerTest,
   // The resulting bit mask in this test is hard-coded to capture regressions in
   // the calculation of the mask.
 
-  // TODO(crbug.com/1103421): Clean legacy implementation once structured names
-  // are fully launched.
-  // For structured names, there is additional data for new name types present.
-
-  const bool structured_names = base::FeatureList::IsEnabled(
-      features::kAutofillEnableSupportForMoreStructureInNames);
-  const bool structured_address = base::FeatureList::IsEnabled(
-      features::kAutofillEnableSupportForMoreStructureInAddresses);
-  const bool honorific_prefix = base::FeatureList::IsEnabled(
-      features::kAutofillEnableSupportForHonorificPrefixes);
-
-  // Combinations of honorific_prefix without structured_names are omitted
-  // because honorific_prefix can only be enabled ontop of structured_names.
-  if (structured_names && !structured_address && !honorific_prefix) {
-    upload->set_data_present("1f7e000378000008000400000004");
-  } else if (structured_names && honorific_prefix && !structured_address) {
-    upload->set_data_present("1f7e00037800000800040000000404");
-  } else if (structured_names && !honorific_prefix && structured_address) {
-    upload->set_data_present("1f7e0003780000080004000001c4");
-  } else if (structured_names && honorific_prefix && structured_address) {
-    upload->set_data_present("1f7e0003780000080004000001c404");
-  } else if (!structured_names && !honorific_prefix && structured_address) {
-    upload->set_data_present("1f7e0003780000080004000001c");
+  std::string data_present;
+  if (base::FeatureList::IsEnabled(
+          features::kAutofillEnableSupportForHonorificPrefixes)) {
+    data_present = "1f7e0003f80000080004000001c46418";
   } else {
-    upload->set_data_present("1f7e0003780000080004");
+    data_present = "1f7e0003f80000080004000001c46018";
   }
+
+  // TODO(crbug.com/1311937): Additional phone number trunk types are present
+  // if AutofillEnableSupportForPhoneNumberTrunkTypes is enabled. Clean-up
+  // implementation when launched.
+  if (base::FeatureList::IsEnabled(
+          features::kAutofillEnableSupportForPhoneNumberTrunkTypes)) {
+    data_present.rbegin()[1] = '7';
+  }
+  upload->set_data_present(data_present);
 
   upload->set_passwords_revealed(false);
   upload->set_submission_event(
@@ -327,7 +322,7 @@ IN_PROC_BROWSER_TEST_F(AutofillServerTest, AlwaysQueryForPasswordFields) {
       "</form>";
 
   AutofillPageQueryRequest query;
-  query.set_client_version(GetProductNameAndVersionForUserAgent());
+  query.set_client_version(std::string(GetProductNameAndVersionForUserAgent()));
   auto* query_form = query.add_forms();
   query_form->set_signature(8900697631820480876U);
 

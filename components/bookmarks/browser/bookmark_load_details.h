@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,10 @@
 #include "base/memory/scoped_refptr.h"
 #include "components/bookmarks/browser/bookmark_client.h"
 #include "components/bookmarks/browser/bookmark_node.h"
+
+namespace base {
+class TimeTicks;
+}
 
 namespace bookmarks {
 
@@ -53,6 +57,13 @@ class BookmarkLoadDetails {
   void set_model_meta_info_map(const BookmarkNode::MetaInfoMap& meta_info_map) {
     model_meta_info_map_ = meta_info_map;
   }
+  const BookmarkNode::MetaInfoMap& model_unsynced_meta_info_map() const {
+    return model_unsynced_meta_info_map_;
+  }
+  void set_model_unsynced_meta_info_map(
+      const BookmarkNode::MetaInfoMap& model_unsynced_meta_info_map) {
+    model_unsynced_meta_info_map_ = model_unsynced_meta_info_map;
+  }
 
   // Max id of the nodes.
   void set_max_id(int64_t max_id) { max_id_ = max_id; }
@@ -77,9 +88,9 @@ class BookmarkLoadDetails {
   void set_ids_reassigned(bool value) { ids_reassigned_ = value; }
   bool ids_reassigned() const { return ids_reassigned_; }
 
-  // Whether new GUIDs were assigned to Bookmarks that lacked them.
-  void set_guids_reassigned(bool value) { guids_reassigned_ = value; }
-  bool guids_reassigned() const { return guids_reassigned_; }
+  // Whether new UUIDs were assigned to Bookmarks that lacked them.
+  void set_uuids_reassigned(bool value) { uuids_reassigned_ = value; }
+  bool uuids_reassigned() const { return uuids_reassigned_; }
 
   // Returns the string blob representing the sync metadata in the json file.
   // The string blob is set during decode time upon the call to Bookmark::Load.
@@ -91,23 +102,29 @@ class BookmarkLoadDetails {
   void CreateUrlIndex();
   UrlIndex* url_index() { return url_index_.get(); }
 
+  base::TimeTicks load_start() { return load_start_; }
+
  private:
   std::unique_ptr<BookmarkNode> root_node_;
-  raw_ptr<BookmarkNode> root_node_ptr_;
-  raw_ptr<BookmarkPermanentNode> bb_node_ = nullptr;
-  raw_ptr<BookmarkPermanentNode> other_folder_node_ = nullptr;
-  raw_ptr<BookmarkPermanentNode> mobile_folder_node_ = nullptr;
+  raw_ptr<BookmarkNode, DanglingUntriaged> root_node_ptr_;
+  raw_ptr<BookmarkPermanentNode, DanglingUntriaged> bb_node_ = nullptr;
+  raw_ptr<BookmarkPermanentNode, DanglingUntriaged> other_folder_node_ =
+      nullptr;
+  raw_ptr<BookmarkPermanentNode, DanglingUntriaged> mobile_folder_node_ =
+      nullptr;
   LoadManagedNodeCallback load_managed_node_callback_;
   std::unique_ptr<TitledUrlIndex> index_;
   BookmarkNode::MetaInfoMap model_meta_info_map_;
+  BookmarkNode::MetaInfoMap model_unsynced_meta_info_map_;
   int64_t max_id_ = 1;
   std::string computed_checksum_;
   std::string stored_checksum_;
   bool ids_reassigned_ = false;
-  bool guids_reassigned_ = false;
+  bool uuids_reassigned_ = false;
   scoped_refptr<UrlIndex> url_index_;
   // A string blob represetning the sync metadata stored in the json file.
   std::string sync_metadata_str_;
+  base::TimeTicks load_start_;
 };
 
 }  // namespace bookmarks

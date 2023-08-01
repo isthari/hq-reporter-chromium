@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,12 @@
  * @fileoverview The way these tests work is as follows:
  * C++ in net_internals_ui_browsertest.cc does any necessary setup, and then
  * calls the entry point for a test with RunJavascriptTest.  The called
- * function can then use the assert/expect functions defined in test_api.js.
+ * function can then use the assert functions defined in test_api.js.
  * All callbacks from the browser are wrapped in such a way that they can
- * also use the assert/expect functions.
+ * also use the assert functions.
  *
  * A test ends when testDone is called.  This can be done by the test itself,
- * but will also be done by the test framework when an assert/expect test fails
+ * but will also be done by the test framework when an assert test fails
  * or an exception is thrown.
  */
 GEN_INCLUDE(
@@ -59,10 +59,46 @@ NetInternalsDnsViewTest.prototype = {
 
   browsePreload:
       'chrome://net-internals/index.html?module=net_internals/dns_view_test.js',
+
+  /** @param {string} testName The name of the test to run. */
+  runMochaTest: function(testName) {
+    runMochaTest(dns_view_test.suiteName, testName);
+  },
 };
 
+TEST_F('NetInternalsDnsViewTest', 'ResolveHostWithoutAlternative', function() {
+  this.runMochaTest(dns_view_test.TestNames.ResolveHostWithoutAlternative);
+});
+
+TEST_F(
+    'NetInternalsDnsViewTest', 'ResolveHostWithHTTP2Alternative', function() {
+      this.runMochaTest(
+          dns_view_test.TestNames.ResolveHostWithHTTP2Alternative);
+    });
+
+TEST_F(
+    'NetInternalsDnsViewTest', 'ResolveHostWithHTTP3Alternative', function() {
+      this.runMochaTest(
+          dns_view_test.TestNames.ResolveHostWithHTTP3Alternative);
+    });
+
+TEST_F('NetInternalsDnsViewTest', 'ResolveHostWithECHAlternative', function() {
+  this.runMochaTest(dns_view_test.TestNames.ResolveHostWithECHAlternative);
+});
+
+TEST_F(
+    'NetInternalsDnsViewTest', 'ResolveHostWithMultipleAlternatives',
+    function() {
+      this.runMochaTest(
+          dns_view_test.TestNames.ResolveHostWithMultipleAlternatives);
+    });
+
+TEST_F('NetInternalsDnsViewTest', 'ErrorNameNotResolved', function() {
+  this.runMochaTest(dns_view_test.TestNames.ErrorNameNotResolved);
+});
+
 TEST_F('NetInternalsDnsViewTest', 'ClearCache', function() {
-  mocha.run();
+  this.runMochaTest(dns_view_test.TestNames.ClearCache);
 });
 
 /**
@@ -136,50 +172,3 @@ TEST_F('NetInternalsDomainSecurityPolicyViewTest', 'AddOverwrite', function() {
 TEST_F('NetInternalsDomainSecurityPolicyViewTest', 'AddTwice', function() {
   this.runMochaTest(domain_security_policy_view_test.TestNames.AddTwice);
 });
-
-TEST_F(
-    'NetInternalsDomainSecurityPolicyViewTest', 'ExpectCTQueryNotFound',
-    function() {
-      this.runMochaTest(
-          domain_security_policy_view_test.TestNames.ExpectCTQueryNotFound);
-    });
-
-TEST_F(
-    'NetInternalsDomainSecurityPolicyViewTest', 'ExpectCTQueryError',
-    function() {
-      this.runMochaTest(
-          domain_security_policy_view_test.TestNames.ExpectCTQueryError);
-    });
-
-TEST_F(
-    'NetInternalsDomainSecurityPolicyViewTest', 'ExpectCTAddDelete',
-    function() {
-      this.runMochaTest(
-          domain_security_policy_view_test.TestNames.ExpectCTAddDelete);
-    });
-
-TEST_F(
-    'NetInternalsDomainSecurityPolicyViewTest', 'ExpectCTAddFail', function() {
-      this.runMochaTest(
-          domain_security_policy_view_test.TestNames.ExpectCTAddFail);
-    });
-
-TEST_F(
-    'NetInternalsDomainSecurityPolicyViewTest', 'ExpectCTAddOverwrite',
-    function() {
-      this.runMochaTest(
-          domain_security_policy_view_test.TestNames.ExpectCTAddOverwrite);
-    });
-
-TEST_F(
-    'NetInternalsDomainSecurityPolicyViewTest', 'ExpectCTAddTwice', function() {
-      this.runMochaTest(
-          domain_security_policy_view_test.TestNames.ExpectCTAddTwice);
-    });
-
-TEST_F(
-    'NetInternalsDomainSecurityPolicyViewTest', 'ExpectCTTestReport',
-    function() {
-      this.runMochaTest(
-          domain_security_policy_view_test.TestNames.ExpectCTTestReport);
-    });

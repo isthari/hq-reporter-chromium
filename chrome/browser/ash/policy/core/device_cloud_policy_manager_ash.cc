@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,61 +9,53 @@
 #include <memory>
 #include <utility>
 
-#include "ash/components/settings/cros_settings_names.h"
-#include "ash/components/settings/cros_settings_provider.h"
-#include "ash/constants/ash_features.h"
 #include "ash/constants/ash_paths.h"
 #include "ash/constants/ash_switches.h"
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/path_service.h"
-#include "base/strings/string_number_conversions.h"
-#include "base/system/sys_info.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
 #include "chrome/browser/ash/attestation/attestation_policy_observer.h"
 #include "chrome/browser/ash/attestation/enrollment_certificate_uploader_impl.h"
 #include "chrome/browser/ash/attestation/enrollment_id_upload_manager.h"
 #include "chrome/browser/ash/attestation/machine_certificate_uploader_impl.h"
-#include "chrome/browser/ash/login/enrollment/auto_enrollment_controller.h"
+#include "chrome/browser/ash/login/reporting/lock_unlock_reporter.h"
 #include "chrome/browser/ash/login/reporting/login_logout_reporter.h"
 #include "chrome/browser/ash/policy/core/device_cloud_policy_store_ash.h"
 #include "chrome/browser/ash/policy/core/policy_pref_names.h"
+#include "chrome/browser/ash/policy/core/reporting_user_tracker.h"
+#include "chrome/browser/ash/policy/enrollment/auto_enrollment_type_checker.h"
 #include "chrome/browser/ash/policy/networking/euicc_status_uploader.h"
 #include "chrome/browser/ash/policy/remote_commands/device_commands_factory_ash.h"
 #include "chrome/browser/ash/policy/reporting/metrics_reporting/metric_reporting_manager.h"
+#include "chrome/browser/ash/policy/reporting/os_updates/os_updates_reporter.h"
 #include "chrome/browser/ash/policy/reporting/user_added_removed/user_added_removed_reporter.h"
 #include "chrome/browser/ash/policy/rsu/lookup_key_uploader.h"
 #include "chrome/browser/ash/policy/server_backed_state/server_backed_state_keys_broker.h"
 #include "chrome/browser/ash/policy/status_collector/device_status_collector.h"
-#include "chrome/browser/ash/policy/status_collector/legacy_device_status_collector.h"
 #include "chrome/browser/ash/policy/status_collector/managed_session_service.h"
 #include "chrome/browser/ash/policy/uploading/heartbeat_scheduler.h"
 #include "chrome/browser/ash/policy/uploading/status_uploader.h"
 #include "chrome/browser/ash/policy/uploading/system_log_uploader.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/system/statistics_provider.h"
-#include "chromeos/tpm/install_attributes.h"
+#include "chromeos/ash/components/install_attributes/install_attributes.h"
+#include "chromeos/ash/components/system/statistics_provider.h"
 #include "components/policy/core/common/cloud/cloud_external_data_manager.h"
 #include "components/policy/core/common/cloud/cloud_policy_core.h"
 #include "components/policy/core/common/cloud/cloud_policy_service.h"
 #include "components/policy/core/common/cloud/cloud_policy_store.h"
 #include "components/policy/core/common/cloud/policy_invalidation_scope.h"
-#include "components/policy/core/common/policy_types.h"
 #include "components/policy/core/common/remote_commands/remote_commands_factory.h"
 #include "components/policy/core/common/schema_registry.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/network_service_instance.h"
-#include "crypto/sha2.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
-#include "url/gurl.h"
-
-namespace em = enterprise_management;
 
 namespace policy {
 
@@ -82,7 +74,7 @@ constexpr base::TimeDelta kDeviceStatusUploadFrequency = base::Hours(3);
 
 // Checks whether forced re-enrollment is enabled.
 bool IsForcedReEnrollmentEnabled() {
-  return ash::AutoEnrollmentController::IsFREEnabled();
+  return AutoEnrollmentTypeChecker::IsFREEnabled();
 }
 
 }  // namespace
@@ -102,9 +94,23 @@ DeviceCloudPolicyManagerAsh::DeviceCloudPolicyManagerAsh(
       external_data_manager_(std::move(external_data_manager)),
       state_keys_broker_(state_keys_broker),
       task_runner_(task_runner),
-      local_state_(nullptr) {}
+      local_state_(nullptr),
+      helper_(std::make_unique<reporting::UserEventReporterHelper>(
+          reporting::Destination::UNDEFINED_DESTINATION)) {}
 
 DeviceCloudPolicyManagerAsh::~DeviceCloudPolicyManagerAsh() = default;
+
+void DeviceCloudPolicyManagerAsh::Init(SchemaRegistry* registry) {
+  ConfigurationPolicyProvider::Init(registry);
+
+  store()->AddObserver(this);
+
+  // If the underlying store is already initialized, pretend it was loaded now.
+  // Note: It is not enough to just copy OnStoreLoaded's contents here because
+  // subclasses can override it.
+  if (store()->is_initialized())
+    OnStoreLoaded(store());
+}
 
 void DeviceCloudPolicyManagerAsh::Initialize(PrefService* local_state) {
   CHECK(local_state);
@@ -128,7 +134,9 @@ void DeviceCloudPolicyManagerAsh::RemoveDeviceCloudPolicyManagerObserver(
 
 // Keep clean up order as the reversed creation order.
 void DeviceCloudPolicyManagerAsh::Shutdown() {
+  os_updates_reporter_.reset();
   metric_reporting_manager_.reset();
+  lock_unlock_reporter_.reset();
   login_logout_reporter_.reset();
   user_added_removed_reporter_.reset();
   heartbeat_scheduler_.reset();
@@ -144,6 +152,8 @@ void DeviceCloudPolicyManagerAsh::Shutdown() {
 
 // static
 void DeviceCloudPolicyManagerAsh::RegisterPrefs(PrefRegistrySimple* registry) {
+  ReportingUserTracker::RegisterPrefs(registry);
+
   registry->RegisterDictionaryPref(::prefs::kServerBackedDeviceState);
   registry->RegisterBooleanPref(::prefs::kRemoveUsersRemoteCommand, false);
   registry->RegisterStringPref(::prefs::kLastRsuDeviceIdUploaded,
@@ -179,7 +189,7 @@ DeviceCloudPolicyManagerAsh::GetZeroTouchEnrollmentMode() {
 
 void DeviceCloudPolicyManagerAsh::StartConnection(
     std::unique_ptr<CloudPolicyClient> client_to_connect,
-    chromeos::InstallAttributes* install_attributes) {
+    ash::InstallAttributes* install_attributes) {
   CHECK(!service());
 
   // Set state keys here so the first policy fetch submits them to the server.
@@ -216,10 +226,8 @@ void DeviceCloudPolicyManagerAsh::StartConnection(
   lookup_key_uploader_ = std::make_unique<LookupKeyUploader>(
       device_store(), g_browser_process->local_state(),
       enrollment_certificate_uploader_.get());
-  if (ash::features::IsESimPolicyEnabled()) {
-    euicc_status_uploader_ = std::make_unique<EuiccStatusUploader>(
-        client(), g_browser_process->local_state());
-  }
+  euicc_status_uploader_ = std::make_unique<EuiccStatusUploader>(
+      client(), g_browser_process->local_state());
 
   // Don't create a MachineCertificateUploader or start the
   // AttestationPolicyObserver if machine cert requests are disabled.
@@ -244,44 +252,27 @@ void DeviceCloudPolicyManagerAsh::StartConnection(
   // themselves track the current state of the monitoring settings and only
   // perform monitoring if it is active.
   if (install_attributes->IsCloudManaged()) {
-    managed_session_service_ =
-        std::make_unique<policy::ManagedSessionService>();
+    CreateManagedSessionServiceAndReporters();
     CreateStatusUploader(managed_session_service_.get());
     syslog_uploader_ =
         std::make_unique<SystemLogUploader>(nullptr, task_runner_);
     heartbeat_scheduler_ = std::make_unique<HeartbeatScheduler>(
         g_browser_process->gcm_driver(), client(), device_store_.get(),
         install_attributes->GetDeviceId(), task_runner_);
-    login_logout_reporter_ = ash::reporting::LoginLogoutReporter::Create(
-        managed_session_service_.get());
-    user_added_removed_reporter_ =
-        ::reporting::UserAddedRemovedReporter::Create(
-            managed_session_service_.get());
     metric_reporting_manager_ = reporting::MetricReportingManager::Create(
         managed_session_service_.get());
+    os_updates_reporter_ = reporting::OsUpdatesReporter::Create();
   }
 
   NotifyConnected();
 }
 
-void DeviceCloudPolicyManagerAsh::Unregister(UnregisterCallback callback) {
-  if (!service()) {
-    LOG(ERROR) << "Tried to unregister but DeviceCloudPolicyManagerAsh is "
-               << "not connected.";
-    std::move(callback).Run(false);
+void DeviceCloudPolicyManagerAsh::OnPolicyStoreReady(
+    ash::InstallAttributes* install_attributes) {
+  if (!install_attributes->IsCloudManaged()) {
     return;
   }
-
-  service()->Unregister(std::move(callback));
-}
-
-void DeviceCloudPolicyManagerAsh::Disconnect() {
-  status_uploader_.reset();
-  syslog_uploader_.reset();
-  heartbeat_scheduler_.reset();
-  core()->Disconnect();
-
-  NotifyDisconnected();
+  CreateManagedSessionServiceAndReporters();
 }
 
 void DeviceCloudPolicyManagerAsh::SetSigninProfileSchemaRegistry(
@@ -289,6 +280,67 @@ void DeviceCloudPolicyManagerAsh::SetSigninProfileSchemaRegistry(
   DCHECK(!signin_profile_forwarding_schema_registry_);
   signin_profile_forwarding_schema_registry_ =
       std::make_unique<ForwardingSchemaRegistry>(schema_registry);
+  NotifyGotRegistry();
+}
+
+void DeviceCloudPolicyManagerAsh::OnUserManagerCreated(
+    user_manager::UserManager* user_manager) {
+  user_manager_observation_.Observe(user_manager);
+  reporting_user_tracker_ =
+      std::make_unique<ReportingUserTracker>(user_manager);
+}
+
+void DeviceCloudPolicyManagerAsh::OnUserManagerWillBeDestroyed(
+    user_manager::UserManager* user_manager) {
+  // DeviceStatusCollector internally holds the reference to the
+  // ReportingUserTracker instance, so should be released via Shutdown()
+  // before this is reached.
+  DCHECK(!status_uploader_);
+  reporting_user_tracker_.reset();
+  user_manager_observation_.Reset();
+}
+
+void DeviceCloudPolicyManagerAsh::OnUserToBeRemoved(
+    const AccountId& account_id) {
+  // This logic needs to be consistent with UserAddedRemovedReporter.
+  if (!helper_->ReportingEnabled(ash::kReportDeviceLoginLogout)) {
+    return;
+  }
+  const user_manager::User* user =
+      user_manager::UserManager::Get()->FindUser(account_id);
+  if (!user || user->IsKioskType() ||
+      user->GetType() == user_manager::USER_TYPE_PUBLIC_ACCOUNT ||
+      user->GetType() == user_manager::USER_TYPE_GUEST) {
+    return;
+  }
+
+  const std::string email = account_id.GetUserEmail();
+  users_to_be_removed_.insert_or_assign(
+      account_id, reporting_user_tracker_->ShouldReportUser(email));
+}
+
+void DeviceCloudPolicyManagerAsh::OnUserRemoved(
+    const AccountId& account_id,
+    user_manager::UserRemovalReason reason) {
+  // This logic needs to be consistent with UserAddedRemovedReporter.
+  auto it = users_to_be_removed_.find(account_id);
+  if (it == users_to_be_removed_.end()) {
+    return;
+  }
+
+  bool is_affiliated_user = it->second;
+  users_to_be_removed_.erase(it);
+
+  // Check the pref, after we update the tracking map.
+  if (!helper_->ReportingEnabled(ash::kReportDeviceLoginLogout)) {
+    return;
+  }
+
+  // Unlike UserAddedRemovedReporter, instead of reporting, we cache
+  // the removed user here.
+  // They're going to be reported, once the reporter instance is created.
+  removed_users_.emplace_back(
+      RemovedUser{is_affiliated_user ? account_id.GetUserEmail() : "", reason});
 }
 
 void DeviceCloudPolicyManagerAsh::OnStateKeysUpdated() {
@@ -303,34 +355,45 @@ void DeviceCloudPolicyManagerAsh::NotifyConnected() {
     observer.OnDeviceCloudPolicyManagerConnected();
 }
 
-void DeviceCloudPolicyManagerAsh::NotifyDisconnected() {
+void DeviceCloudPolicyManagerAsh::NotifyGotRegistry() {
   for (auto& observer : observers_)
-    observer.OnDeviceCloudPolicyManagerDisconnected();
+    observer.OnDeviceCloudPolicyManagerGotRegistry();
 }
 
 void DeviceCloudPolicyManagerAsh::CreateStatusUploader(
     ManagedSessionService* managed_session_service) {
-  std::unique_ptr<StatusCollector> collector;
-  bool granular_reporting_enabled;
-  ash::CrosSettings* settings = ash::CrosSettings::Get();
-
-  if (!settings->GetBoolean(ash::kEnableDeviceGranularReporting,
-                            &granular_reporting_enabled)) {
-    granular_reporting_enabled = true;
-  }
-
-  if (granular_reporting_enabled) {
-    collector = std::make_unique<DeviceStatusCollector>(
-        local_state_, chromeos::system::StatisticsProvider::GetInstance(),
-        managed_session_service);
-  } else {
-    collector = std::make_unique<LegacyDeviceStatusCollector>(
-        local_state_, chromeos::system::StatisticsProvider::GetInstance());
-  }
+  CHECK(reporting_user_tracker_.get());
+  auto collector = std::make_unique<DeviceStatusCollector>(
+      local_state_, reporting_user_tracker_.get(),
+      ash::system::StatisticsProvider::GetInstance(), managed_session_service);
 
   status_uploader_ = std::make_unique<StatusUploader>(
       client(), std::move(collector), task_runner_,
       kDeviceStatusUploadFrequency);
+}
+
+void DeviceCloudPolicyManagerAsh::CreateManagedSessionServiceAndReporters() {
+  if (managed_session_service_) {
+    return;
+  }
+
+  if (auto* user_manager = user_manager::UserManager::Get()) {
+    user_manager->RemoveObserver(this);
+  }
+
+  managed_session_service_ = std::make_unique<ManagedSessionService>();
+  login_logout_reporter_ = ash::reporting::LoginLogoutReporter::Create(
+      managed_session_service_.get());
+
+  user_added_removed_reporter_ = ::reporting::UserAddedRemovedReporter::Create(
+      std::move(users_to_be_removed_), managed_session_service_.get());
+  for (const auto& [user_email, reason] : removed_users_) {
+    user_added_removed_reporter_->ProcessRemovedUser(user_email, reason);
+  }
+  removed_users_.clear();
+
+  lock_unlock_reporter_ = ash::reporting::LockUnlockReporter::Create(
+      managed_session_service_.get());
 }
 
 }  // namespace policy

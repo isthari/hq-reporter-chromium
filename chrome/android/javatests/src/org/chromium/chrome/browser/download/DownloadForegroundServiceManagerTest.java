@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,8 +12,8 @@ import static org.chromium.chrome.browser.notifications.NotificationConstants.DE
 
 import android.app.Notification;
 import android.content.Context;
-import android.support.test.InstrumentationRegistry;
 
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.SmallTest;
 
 import org.junit.Before;
@@ -115,7 +115,7 @@ public final class DownloadForegroundServiceManagerTest {
     @Before
     public void setUp() {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
-            mContext = new AdvancedMockContext(InstrumentationRegistry.getTargetContext());
+            mContext = new AdvancedMockContext(ApplicationProvider.getApplicationContext());
             mDownloadServiceManager = new MockDownloadForegroundServiceManager();
 
             mNotification =

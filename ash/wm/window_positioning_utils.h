@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,8 +25,6 @@ namespace ash {
 
 // We force at least this many DIPs for any window on the screen.
 const int kMinimumOnScreenArea = 25;
-
-const float kDefaultSnapRatio = 0.5f;
 
 // In clamshell mode, users can snap left/right for horizontal display and
 // top/bottom for vertical display. For primary-landscape-oriented display,
@@ -55,8 +53,14 @@ ASH_EXPORT void AdjustBoundsToEnsureMinimumWindowVisibility(
     const gfx::Rect& visible_area,
     gfx::Rect* bounds);
 
-// Returns the bounds of a snapped window for a given snap |type| in clamshell
-// mode, with default snapped ratio |kDefaultSnapRatio|, in parent coordinates.
+// Returns the bounds of a snapped window for a given snap |type| and
+// |snap_ratio| in clamshell mode.
+ASH_EXPORT gfx::Rect GetSnappedWindowBoundsInParent(aura::Window* window,
+                                                    SnapViewType type,
+                                                    float snap_ratio);
+
+// Returns the bounds of a snapped window with default snapped ratio
+// |kDefaultSnapRatio|, in parent coordinates.
 ASH_EXPORT gfx::Rect GetDefaultSnappedWindowBoundsInParent(aura::Window* window,
                                                            SnapViewType type);
 

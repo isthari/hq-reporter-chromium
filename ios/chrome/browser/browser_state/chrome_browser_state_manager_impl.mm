@@ -1,37 +1,41 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/browser_state/chrome_browser_state_manager_impl.h"
+#import "ios/chrome/browser/browser_state/chrome_browser_state_manager_impl.h"
 
-#include <stdint.h>
-#include <utility>
+#import <stdint.h>
+#import <utility>
 
-#include "base/bind.h"
-#include "base/files/file_enumerator.h"
-#include "base/files/file_path.h"
-#include "base/metrics/histogram_macros.h"
-#include "base/path_service.h"
-#include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
-#include "base/task/sequenced_task_runner.h"
-#include "base/task/thread_pool.h"
-#include "base/threading/scoped_blocking_call.h"
-#include "components/prefs/pref_service.h"
-#include "components/signin/ios/browser/active_state_manager.h"
-#include "components/signin/public/identity_manager/identity_manager.h"
-#include "ios/chrome/browser/application_context.h"
-#include "ios/chrome/browser/browser_state/browser_state_info_cache.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state_impl.h"
-#include "ios/chrome/browser/browser_state/off_the_record_chrome_browser_state_impl.h"
-#include "ios/chrome/browser/browser_state_metrics/browser_state_metrics.h"
-#include "ios/chrome/browser/chrome_constants.h"
-#include "ios/chrome/browser/chrome_paths.h"
-#include "ios/chrome/browser/pref_names.h"
-#include "ios/chrome/browser/signin/account_consistency_service_factory.h"
-#include "ios/chrome/browser/signin/account_reconcilor_factory.h"
-#include "ios/chrome/browser/signin/identity_manager_factory.h"
-#include "ios/chrome/browser/unified_consent/unified_consent_service_factory.h"
+#import "base/files/file_enumerator.h"
+#import "base/files/file_path.h"
+#import "base/functional/bind.h"
+#import "base/metrics/histogram_macros.h"
+#import "base/path_service.h"
+#import "base/strings/utf_string_conversions.h"
+#import "base/task/sequenced_task_runner.h"
+#import "base/task/thread_pool.h"
+#import "base/threading/scoped_blocking_call.h"
+#import "components/optimization_guide/core/optimization_guide_features.h"
+#import "components/prefs/pref_service.h"
+#import "components/signin/ios/browser/active_state_manager.h"
+#import "components/signin/public/identity_manager/identity_manager.h"
+#import "ios/chrome/browser/browser_state/chrome_browser_state_impl.h"
+#import "ios/chrome/browser/browser_state/constants.h"
+#import "ios/chrome/browser/browser_state/off_the_record_chrome_browser_state_impl.h"
+#import "ios/chrome/browser/browser_state_metrics/browser_state_metrics.h"
+#import "ios/chrome/browser/optimization_guide/optimization_guide_service.h"
+#import "ios/chrome/browser/optimization_guide/optimization_guide_service_factory.h"
+#import "ios/chrome/browser/paths/paths.h"
+#import "ios/chrome/browser/push_notification/push_notification_browser_state_service_factory.h"
+#import "ios/chrome/browser/segmentation_platform/segmentation_platform_service_factory.h"
+#import "ios/chrome/browser/shared/model/application_context/application_context.h"
+#import "ios/chrome/browser/shared/model/browser_state/browser_state_info_cache.h"
+#import "ios/chrome/browser/shared/model/prefs/pref_names.h"
+#import "ios/chrome/browser/signin/account_consistency_service_factory.h"
+#import "ios/chrome/browser/signin/account_reconcilor_factory.h"
+#import "ios/chrome/browser/signin/identity_manager_factory.h"
+#import "ios/chrome/browser/unified_consent/unified_consent_service_factory.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -51,7 +55,7 @@ int64_t ComputeFilesSize(const base::FilePath& directory,
   return running_size;
 }
 
-// Simple task to log the size of the browser state at |path|.
+// Simple task to log the size of the browser state at `path`.
 void BrowserStateSizeTask(const base::FilePath& path) {
   const int64_t kBytesInOneMB = 1024 * 1024;
 
@@ -212,6 +216,19 @@ void ChromeBrowserStateManagerImpl::DoFinalInitForServices(
   // Initialization needs to happen after the browser context is available
   // because UnifiedConsentService's dependencies needs the URL context getter.
   UnifiedConsentServiceFactory::GetForBrowserState(browser_state);
+
+  // Initialization needs to happen after the browser context is available
+  // because because IOSChromeMetricsServiceAccessor requires browser_state
+  // to be registered in the ChromeBrowserStateManager.
+  if (optimization_guide::features::IsOptimizationHintsEnabled()) {
+    OptimizationGuideServiceFactory::GetForBrowserState(browser_state)
+        ->DoFinalInit(BackgroundDownloadServiceFactory::GetForBrowserState(
+            browser_state));
+  }
+  segmentation_platform::SegmentationPlatformServiceFactory::GetForBrowserState(
+      browser_state);
+
+  PushNotificationBrowserStateServiceFactory::GetForBrowserState(browser_state);
 }
 
 void ChromeBrowserStateManagerImpl::AddBrowserStateToCache(

@@ -1,14 +1,13 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-
-#include <array>
 
 #include <Foundation/Foundation.h>
 #include <Security/Security.h>
 
-#include "base/strings/string_number_conversions.h"
+#include <array>
 
+#include "base/strings/string_number_conversions.h"
 #include "base/test/task_environment.h"
 #include "device/fido/fido_constants.h"
 #include "device/fido/fido_test_data.h"
@@ -20,9 +19,12 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-namespace device {
-namespace fido {
-namespace mac {
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
+
+namespace device::fido::mac {
+
 namespace {
 
 using test::TestCallbackReceiver;
@@ -36,7 +38,7 @@ CtapGetAssertionRequest MakeTestRequest() {
   return CtapGetAssertionRequest(kRpId, test_data::kClientDataJson);
 }
 
-bool MakeCredential() API_AVAILABLE(macos(10.12.2)) {
+bool MakeCredential() {
   TestCallbackReceiver<CtapDeviceResponseCode,
                        absl::optional<AuthenticatorMakeCredentialResponse>>
       callback_receiver;
@@ -55,20 +57,19 @@ bool MakeCredential() API_AVAILABLE(macos(10.12.2)) {
   callback_receiver.WaitForCallback();
   auto result = callback_receiver.TakeResult();
   CtapDeviceResponseCode error = std::get<0>(result);
-  auto opt_response = std::move(std::get<1>(result));
-  return error == CtapDeviceResponseCode::kSuccess && opt_response;
+  auto opt_responses = std::move(std::get<1>(result));
+  return error == CtapDeviceResponseCode::kSuccess && opt_responses;
 }
 
 // For demo purposes only. This test does a Touch ID user prompt. It will fail
 // on incompatible hardware and crash if not code signed or lacking the
 // keychain-access-group entitlement.
-TEST(GetAssertionOperationTest, DISABLED_TestRun)
-API_AVAILABLE(macos(10.12.2)) {
+TEST(GetAssertionOperationTest, DISABLED_TestRun) {
   base::test::TaskEnvironment task_environment;
   ASSERT_TRUE(MakeCredential());
 
   TestCallbackReceiver<CtapDeviceResponseCode,
-                       absl::optional<AuthenticatorGetAssertionResponse>>
+                       std::vector<AuthenticatorGetAssertionResponse>>
       callback_receiver;
   auto request = MakeTestRequest();
   TouchIdCredentialStore credential_store(
@@ -81,12 +82,11 @@ API_AVAILABLE(macos(10.12.2)) {
   auto result = callback_receiver.TakeResult();
   CtapDeviceResponseCode error = std::get<0>(result);
   EXPECT_EQ(CtapDeviceResponseCode::kSuccess, error);
-  auto opt_response = std::move(std::get<1>(result));
-  ASSERT_TRUE(opt_response);
-  ASSERT_TRUE(opt_response->credential);
-  EXPECT_FALSE(opt_response->credential->id.empty());
+  auto opt_responses = std::move(std::get<1>(result));
+  ASSERT_EQ(opt_responses.size(), 1u);
+  EXPECT_FALSE(opt_responses.at(0).credential->id.empty());
 }
+
 }  // namespace
-}  // namespace mac
-}  // namespace fido
-}  // namespace device
+
+}  // namespace device::fido::mac

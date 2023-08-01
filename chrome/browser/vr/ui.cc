@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,18 +11,14 @@
 
 #include "chrome/browser/vr/ui.h"
 
-#include "base/bind.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/numerics/math_constants.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "chrome/browser/vr/content_input_delegate.h"
 #include "chrome/browser/vr/elements/content_element.h"
-#include "chrome/browser/vr/elements/keyboard.h"
 #include "chrome/browser/vr/elements/text_input.h"
-#include "chrome/browser/vr/keyboard_delegate.h"
-#include "chrome/browser/vr/keyboard_delegate_for_testing.h"
 #include "chrome/browser/vr/model/assets.h"
 #include "chrome/browser/vr/model/model.h"
 #include "chrome/browser/vr/model/omnibox_suggestions.h"
@@ -34,8 +30,6 @@
 #include "chrome/browser/vr/speech_recognizer.h"
 #include "chrome/browser/vr/ui_browser_interface.h"
 #include "chrome/browser/vr/ui_element_renderer.h"
-#include "chrome/browser/vr/ui_input_manager.h"
-#include "chrome/browser/vr/ui_input_manager_for_testing.h"
 #include "chrome/browser/vr/ui_renderer.h"
 #include "chrome/browser/vr/ui_scene.h"
 #include "chrome/browser/vr/ui_scene_constants.h"
@@ -110,49 +104,15 @@ UiElementName UserFriendlyElementNameToUiElementName(
 
 }  // namespace
 
-Ui::Ui(UiBrowserInterface* browser,
-       PlatformInputHandler* content_input_forwarder,
-       std::unique_ptr<KeyboardDelegate> keyboard_delegate,
-       std::unique_ptr<TextInputDelegate> text_input_delegate,
-       std::unique_ptr<AudioDelegate> audio_delegate,
-       const UiInitialState& ui_initial_state)
-    : Ui(browser,
-         std::make_unique<ContentInputDelegate>(content_input_forwarder),
-         std::move(keyboard_delegate),
-         std::move(text_input_delegate),
-         std::move(audio_delegate),
-         ui_initial_state) {}
-
-Ui::Ui(UiBrowserInterface* browser,
-       std::unique_ptr<ContentInputDelegate> content_input_delegate,
-       std::unique_ptr<KeyboardDelegate> keyboard_delegate,
-       std::unique_ptr<TextInputDelegate> text_input_delegate,
-       std::unique_ptr<AudioDelegate> audio_delegate,
-       const UiInitialState& ui_initial_state)
+Ui::Ui(UiBrowserInterface* browser, const UiInitialState& ui_initial_state)
     : browser_(browser),
       scene_(std::make_unique<UiScene>()),
-      model_(std::make_unique<Model>()),
-      content_input_delegate_(std::move(content_input_delegate)),
-      input_manager_(std::make_unique<UiInputManager>(scene_.get())),
-      keyboard_delegate_(std::move(keyboard_delegate)),
-      text_input_delegate_(std::move(text_input_delegate)),
-      audio_delegate_(std::move(audio_delegate)) {
+      model_(std::make_unique<Model>()) {
   UiInitialState state = ui_initial_state;
-  if (text_input_delegate_) {
-    text_input_delegate_->SetRequestFocusCallback(
-        base::BindRepeating(&Ui::RequestFocus, base::Unretained(this)));
-    text_input_delegate_->SetRequestUnfocusCallback(
-        base::BindRepeating(&Ui::RequestUnfocus, base::Unretained(this)));
-  }
-  if (keyboard_delegate_) {
-    keyboard_delegate_->SetUiInterface(this);
-    state.supports_selection = keyboard_delegate_->SupportsSelection();
-  }
   InitializeModel(state);
 
-  UiSceneCreator(browser, scene_.get(), this, content_input_delegate_.get(),
-                 keyboard_delegate_.get(), text_input_delegate_.get(),
-                 audio_delegate_.get(), model_.get())
+  UiSceneCreator(browser, scene_.get(), this, nullptr, nullptr, nullptr,
+                 model_.get())
       .CreateScene();
 }
 
@@ -312,7 +272,6 @@ void Ui::SetOmniboxSuggestions(std::vector<OmniboxSuggestion> suggestions) {
 
 void Ui::ShowSoftInput(bool show) {
   if (model_->needs_keyboard_update) {
-    browser_->OnUnsupportedMode(UiUnsupportedMode::kNeedsKeyboardUpdate);
     return;
   }
   model_->editing_web_input = show;
@@ -321,17 +280,7 @@ void Ui::ShowSoftInput(bool show) {
 void Ui::UpdateWebInputIndices(int selection_start,
                                int selection_end,
                                int composition_start,
-                               int composition_end) {
-  content_input_delegate_->OnWebInputIndicesChanged(
-      selection_start, selection_end, composition_start, composition_end,
-      base::BindOnce(
-          [](Model* model, const TextInputInfo& new_state) {
-            EditedText web_input_text = model->web_input_text_field_info;
-            web_input_text.current = new_state;
-            model->set_web_input_text_field_info(std::move(web_input_text));
-          },
-          base::Unretained(model_.get())));
-}
+                               int composition_end) {}
 
 void Ui::SetAlertDialogEnabled(bool enabled,
                                PlatformUiInputDelegate* delegate,
@@ -385,45 +334,15 @@ void Ui::CancelPlatformToast() {
   model_->platform_toast.reset();
 }
 
-void Ui::OnGlInitialized(GlTextureLocation textures_location,
-                         unsigned int content_texture_id,
-                         unsigned int content_overlay_texture_id,
-                         unsigned int platform_ui_texture_id) {
+void Ui::OnGlInitialized() {
   ui_element_renderer_ = std::make_unique<UiElementRenderer>();
   ui_renderer_ =
       std::make_unique<UiRenderer>(scene_.get(), ui_element_renderer_.get());
   provider_ = SkiaSurfaceProviderFactory::Create();
   scene_->OnGlInitialized(provider_.get());
-  model_->content_texture_id = content_texture_id;
-  model_->content_overlay_texture_id = content_overlay_texture_id;
-  model_->content_location = textures_location;
-  model_->content_overlay_location = textures_location;
-  model_->hosted_platform_ui.texture_id = platform_ui_texture_id;
 }
 
-void Ui::RequestFocus(int element_id) {
-  input_manager_->RequestFocus(element_id);
-}
-
-void Ui::RequestUnfocus(int element_id) {
-  input_manager_->RequestUnfocus(element_id);
-}
-
-void Ui::OnInputEdited(const EditedText& info) {
-  input_manager_->OnInputEdited(info);
-}
-
-void Ui::OnInputCommitted(const EditedText& info) {
-  input_manager_->OnInputCommitted(info);
-}
-
-void Ui::OnKeyboardHidden() {
-  input_manager_->OnKeyboardHidden();
-}
-
-void Ui::OnPause() {
-  input_manager_->OnPause();
-}
+void Ui::OnPause() {}
 
 void Ui::OnMenuButtonClicked() {
   if (!model_->gvr_input_support) {
@@ -441,18 +360,13 @@ void Ui::OnMenuButtonClicked() {
   }
 
   if (model_->hosted_platform_ui.hosted_ui_enabled) {
-    browser_->CloseHostedDialog();
     return;
   }
 
   // Menu button click exits the WebVR presentation and fullscreen.
   browser_->ExitPresent();
-  browser_->ExitFullscreen();
 
   switch (model_->get_last_opaque_mode()) {
-    case kModeVoiceSearch:
-      browser_->SetVoiceSearchActive(false);
-      break;
     case kModeEditingOmnibox:
       model_->pop_mode(kModeEditingOmnibox);
       break;
@@ -466,10 +380,6 @@ void Ui::OnControllersUpdated(
     const ReticleModel& reticle_model) {
   model_->controllers = controller_models;
   model_->reticle = reticle_model;
-  for (auto& controller : model_->controllers) {
-    controller.resting_in_viewport =
-        input_manager_->ControllerRestingInViewport();
-  }
 }
 
 void Ui::OnProjMatrixChanged(const gfx::Transform& proj_matrix) {
@@ -489,14 +399,6 @@ void Ui::OnWebXrTimeoutImminent() {
 void Ui::OnWebXrTimedOut() {
   if (model_->web_vr_enabled())
     model_->web_vr.state = kWebVrTimedOut;
-}
-
-void Ui::OnSwapContents(int new_content_id) {
-  content_input_delegate_->OnSwapContents(new_content_id);
-}
-
-void Ui::OnContentBoundsChanged(int width, int height) {
-  content_input_delegate_->SetSize(width, height);
 }
 
 void Ui::Dump(bool include_bindings) {
@@ -534,20 +436,6 @@ void Ui::OnAssetsLoaded(AssetsLoadStatus status,
 
   ColorScheme::UpdateForComponent(component_version);
   model_->background_loaded = true;
-
-  if (audio_delegate_) {
-    std::vector<std::pair<SoundId, std::unique_ptr<std::string>&>> sounds = {
-        {kSoundButtonHover, assets->button_hover_sound},
-        {kSoundButtonClick, assets->button_click_sound},
-        {kSoundBackButtonClick, assets->back_button_click_sound},
-        {kSoundInactiveButtonClick, assets->inactive_button_click_sound},
-    };
-    audio_delegate_->ResetSounds();
-    for (auto& sound : sounds) {
-      if (sound.second)
-        audio_delegate_->RegisterSound(sound.first, std::move(sound.second));
-    }
-  }
 }
 
 void Ui::OnAssetsUnavailable() {
@@ -581,21 +469,6 @@ bool Ui::GetElementVisibilityForTesting(UserFriendlyElementName element_name) {
   return target_element->IsVisible();
 }
 
-void Ui::SetUiInputManagerForTesting(bool enabled) {
-  if (enabled) {
-    DCHECK(input_manager_for_testing_ == nullptr)
-        << "Attempted to set test UiInputManager while already using it";
-    input_manager_for_testing_ =
-        std::make_unique<UiInputManagerForTesting>(scene_.get());
-    input_manager_for_testing_.swap(input_manager_);
-  } else {
-    DCHECK(input_manager_for_testing_ != nullptr)
-        << "Attempted to unset test UiInputManager while not using it";
-    input_manager_for_testing_.swap(input_manager_);
-    input_manager_for_testing_.reset();
-  }
-}
-
 void Ui::InitializeModel(const UiInitialState& ui_initial_state) {
   model_->speech.has_or_can_request_record_audio_permission =
       ui_initial_state.has_or_can_request_record_audio_permission;
@@ -616,18 +489,6 @@ void Ui::InitializeModel(const UiInitialState& ui_initial_state) {
   model_->gvr_input_support = ui_initial_state.gvr_input_support;
 }
 
-void Ui::AcceptDoffPromptForTesting() {
-  DCHECK(model_->active_modal_prompt_type != kModalPromptTypeNone);
-  auto* prompt = scene_->GetUiElementByName(kExitPrompt);
-  DCHECK(prompt);
-  auto* button = prompt->GetDescendantByType(kTypePromptPrimaryButton);
-  DCHECK(button);
-  button->OnHoverEnter({0.5f, 0.5f}, base::TimeTicks::Now());
-  button->OnButtonDown({0.5f, 0.5f}, base::TimeTicks::Now());
-  button->OnButtonUp({0.5f, 0.5f}, base::TimeTicks::Now());
-  button->OnHoverLeave(base::TimeTicks::Now());
-}
-
 gfx::Point3F Ui::GetTargetPointForTesting(UserFriendlyElementName element_name,
                                           const gfx::PointF& position) {
   auto* target_element = scene()->GetUiElementByName(
@@ -637,52 +498,15 @@ gfx::Point3F Ui::GetTargetPointForTesting(UserFriendlyElementName element_name,
   // the actual element.
   auto scaled_position = ScalePoint(position, target_element->size().width(),
                                     target_element->size().height());
-  gfx::Point3F target(scaled_position.x(), scaled_position.y(), 0.0f);
-  target_element->ComputeTargetWorldSpaceTransform().TransformPoint(&target);
+  gfx::Point3F target =
+      target_element->ComputeTargetWorldSpaceTransform().MapPoint(
+          gfx::Point3F(scaled_position));
   // We do hit testing with respect to the eye position (world origin), so we
   // need to project the target point into the background.
   gfx::Vector3dF direction = target - kOrigin;
   direction.GetNormalized(&direction);
   return kOrigin +
          gfx::ScaleVector3d(direction, scene()->background_distance());
-}
-
-void Ui::PerformKeyboardInputForTesting(KeyboardTestInput keyboard_input) {
-  DCHECK(keyboard_delegate_);
-  if (keyboard_input.action == KeyboardTestAction::kRevertToRealKeyboard) {
-    if (using_keyboard_delegate_for_testing_) {
-      DCHECK(static_cast<KeyboardDelegateForTesting*>(keyboard_delegate_.get())
-                 ->IsQueueEmpty())
-          << "Attempted to revert to real keyboard with input still queued";
-      using_keyboard_delegate_for_testing_ = false;
-      keyboard_delegate_for_testing_.swap(keyboard_delegate_);
-      static_cast<Keyboard*>(
-          scene_->GetUiElementByName(UiElementName::kKeyboard))
-          ->SetKeyboardDelegate(keyboard_delegate_.get());
-      text_input_delegate_->SetUpdateInputCallback(
-          base::BindRepeating(&KeyboardDelegate::UpdateInput,
-                              base::Unretained(keyboard_delegate_.get())));
-    }
-    return;
-  }
-  if (!using_keyboard_delegate_for_testing_) {
-    using_keyboard_delegate_for_testing_ = true;
-    if (!keyboard_delegate_for_testing_) {
-      keyboard_delegate_for_testing_ =
-          std::make_unique<KeyboardDelegateForTesting>();
-      keyboard_delegate_for_testing_->SetUiInterface(this);
-    }
-    keyboard_delegate_for_testing_.swap(keyboard_delegate_);
-    static_cast<Keyboard*>(scene_->GetUiElementByName(UiElementName::kKeyboard))
-        ->SetKeyboardDelegate(keyboard_delegate_.get());
-    text_input_delegate_->SetUpdateInputCallback(
-        base::BindRepeating(&KeyboardDelegate::UpdateInput,
-                            base::Unretained(keyboard_delegate_.get())));
-  }
-  if (keyboard_input.action != KeyboardTestAction::kEnableMockedKeyboard) {
-    static_cast<KeyboardDelegateForTesting*>(keyboard_delegate_.get())
-        ->QueueKeyboardInputForTesting(keyboard_input);
-  }
 }
 
 void Ui::SetVisibleExternalPromptNotification(
@@ -700,14 +524,6 @@ ContentElement* Ui::GetContentElement() {
 
 bool Ui::IsContentVisibleAndOpaque() {
   return GetContentElement()->IsVisibleAndOpaque();
-}
-
-void Ui::SetContentUsesQuadLayer(bool uses_quad_layer) {
-  return GetContentElement()->SetUsesQuadLayer(uses_quad_layer);
-}
-
-gfx::Transform Ui::GetContentWorldSpaceTransform() {
-  return GetContentElement()->world_space_transform();
 }
 
 bool Ui::OnBeginFrame(base::TimeTicks current_time,
@@ -728,21 +544,6 @@ void Ui::Draw(const vr::RenderInfo& info) {
   ui_renderer_->Draw(info);
 }
 
-void Ui::DrawContent(const float (&uv_transform)[16],
-                     float xborder,
-                     float yborder) {
-  if (!model_->content_texture_id || !model_->content_overlay_texture_id)
-    return;
-  ui_element_renderer_->DrawTextureCopy(model_->content_texture_id,
-                                        uv_transform, xborder, yborder);
-  if (!GetContentElement()->GetOverlayTextureEmpty()) {
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-    ui_element_renderer_->DrawTextureCopy(model_->content_overlay_texture_id,
-                                          uv_transform, xborder, yborder);
-  }
-}
-
 void Ui::DrawWebXr(int texture_data_handle, const float (&uv_transform)[16]) {
   if (!texture_data_handle)
     return;
@@ -760,12 +561,9 @@ bool Ui::HasWebXrOverlayElementsToDraw() {
 
 void Ui::HandleInput(base::TimeTicks current_time,
                      const RenderInfo& render_info,
-                     const ControllerModel& controller_model,
                      ReticleModel* reticle_model,
                      InputEventList* input_event_list) {
   HandleMenuButtonEvents(input_event_list);
-  input_manager_->HandleInput(current_time, render_info, controller_model,
-                              reticle_model, input_event_list);
 }
 
 void Ui::HandleMenuButtonEvents(InputEventList* input_event_list) {
@@ -776,7 +574,7 @@ void Ui::HandleMenuButtonEvents(InputEventList* input_event_list) {
         case InputEvent::kMenuButtonClicked:
           // Post a task, rather than calling directly, to avoid modifying UI
           // state in the midst of frame rendering.
-          base::ThreadTaskRunnerHandle::Get()->PostTask(
+          base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
               FROM_HERE,
               base::BindOnce(&Ui::OnMenuButtonClicked, base::Unretained(this)));
           break;
@@ -829,19 +627,14 @@ FovRectangle Ui::GetMinimalFov(const gfx::Transform& view_matrix,
   bool has_visible_element = false;
 
   for (const auto* element : elements) {
-    gfx::Point3F left_bottom{-0.5, -0.5, 0};
-    gfx::Point3F left_top{-0.5, 0.5, 0};
-    gfx::Point3F right_bottom{0.5, -0.5, 0};
-    gfx::Point3F right_top{0.5, 0.5, 0};
-
     gfx::Transform transform = element->world_space_transform();
-    transform.ConcatTransform(view_matrix);
+    transform.PostConcat(view_matrix);
 
     // Transform to view space.
-    transform.TransformPoint(&left_bottom);
-    transform.TransformPoint(&left_top);
-    transform.TransformPoint(&right_bottom);
-    transform.TransformPoint(&right_top);
+    gfx::Point3F left_bottom = transform.MapPoint(gfx::Point3F(-0.5, -0.5, 0));
+    gfx::Point3F left_top = transform.MapPoint(gfx::Point3F(-0.5, 0.5, 0));
+    gfx::Point3F right_bottom = transform.MapPoint(gfx::Point3F(0.5, -0.5, 0));
+    gfx::Point3F right_top = transform.MapPoint(gfx::Point3F(0.5, 0.5, 0));
 
     // Project point to Z near plane in view space.
     left_bottom.Scale(-z_near / left_bottom.z());
@@ -867,10 +660,10 @@ FovRectangle Ui::GetMinimalFov(const gfx::Transform& view_matrix,
     }
 
     // Clamp to Z near plane's boundary.
-    bounds_left = base::clamp(bounds_left, z_near_left, z_near_right);
-    bounds_right = base::clamp(bounds_right, z_near_left, z_near_right);
-    bounds_bottom = base::clamp(bounds_bottom, z_near_bottom, z_near_top);
-    bounds_top = base::clamp(bounds_top, z_near_bottom, z_near_top);
+    bounds_left = std::clamp(bounds_left, z_near_left, z_near_right);
+    bounds_right = std::clamp(bounds_right, z_near_left, z_near_right);
+    bounds_bottom = std::clamp(bounds_bottom, z_near_bottom, z_near_top);
+    bounds_top = std::clamp(bounds_top, z_near_bottom, z_near_top);
 
     left = std::min(bounds_left, left);
     right = std::max(bounds_right, right);
@@ -905,16 +698,10 @@ extern "C" {
 CreateUiFunction CreateUi;
 __attribute__((visibility("default"))) UiInterface* CreateUi(
     UiBrowserInterface* browser,
-    PlatformInputHandler* content_input_forwarder,
-    std::unique_ptr<KeyboardDelegate> keyboard_delegate,
-    std::unique_ptr<TextInputDelegate> text_input_delegate,
-    std::unique_ptr<AudioDelegate> audio_delegate,
     const UiInitialState& ui_initial_state) {
-  return new Ui(browser, content_input_forwarder, std::move(keyboard_delegate),
-                std::move(text_input_delegate), std::move(audio_delegate),
-                ui_initial_state);
+  return new Ui(browser, ui_initial_state);
 }
 }  // extern "C"
-#endif  // defined(OS_ANDROID
+#endif  // BUILDFLAG(IS_ANDROID)
 
 }  // namespace vr

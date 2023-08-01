@@ -1,21 +1,21 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/toolbar/secondary_toolbar_view.h"
 
-#include "base/check.h"
+#import "base/check.h"
+#import "base/notreached.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
+#import "ios/chrome/browser/shared/ui/util/rtl_geometry.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_button_factory.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_configuration.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_tab_grid_button.h"
-#import "ios/chrome/browser/ui/toolbar/buttons/toolbar_tools_menu_button.h"
-#import "ios/chrome/browser/ui/toolbar_container/toolbar_collapsing.h"
-#import "ios/chrome/browser/ui/util/named_guide.h"
-#include "ios/chrome/browser/ui/util/rtl_geometry.h"
+#import "ios/chrome/browser/ui/toolbar/public/toolbar_constants.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
-#include "ui/gfx/ios/uikit_util.h"
+#import "ui/gfx/ios/uikit_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -23,9 +23,43 @@
 
 namespace {
 const CGFloat kToolsMenuOffset = -7;
+
+// Vertical stack view for `SecondaryToolbarView` containing the
+// `locationBarContainer` and `buttonStackView`.
+UIStackView* SecondaryToolbarVerticalStackView() {
+  UIStackView* verticalStackView = [[UIStackView alloc] init];
+  verticalStackView.translatesAutoresizingMaskIntoConstraints = NO;
+  verticalStackView.axis = UILayoutConstraintAxisVertical;
+  verticalStackView.spacing = kTopButtonsBottomMargin;
+  verticalStackView.distribution = UIStackViewDistributionFill;
+  verticalStackView.alignment = UIStackViewAlignmentCenter;
+  return verticalStackView;
+}
+
+// Button shown when the view is collapsed to exit fullscreen.
+UIButton* SecondaryToolbarCollapsedToolbarButton() {
+  UIButton* collapsedToolbarButton = [[UIButton alloc] init];
+  collapsedToolbarButton.translatesAutoresizingMaskIntoConstraints = NO;
+  collapsedToolbarButton.hidden = YES;
+  return collapsedToolbarButton;
+}
+
+// Container for the location bar view.
+UIView* SecondaryToolbarLocationBarContainerView(
+    ToolbarButtonFactory* buttonFactory) {
+  UIView* locationBarContainer = [[UIView alloc] init];
+  locationBarContainer.translatesAutoresizingMaskIntoConstraints = NO;
+  locationBarContainer.backgroundColor = [buttonFactory.toolbarConfiguration
+      locationBarBackgroundColorWithVisibility:1];
+  [locationBarContainer
+      setContentHuggingPriority:UILayoutPriorityDefaultLow
+                        forAxis:UILayoutConstraintAxisHorizontal];
+  return locationBarContainer;
+}
+
 }  // namespace
 
-@interface SecondaryToolbarView ()<ToolbarCollapsing>
+@interface SecondaryToolbarView ()
 // Factory used to create the buttons.
 @property(nonatomic, strong) ToolbarButtonFactory* buttonFactory;
 
@@ -35,31 +69,48 @@ const CGFloat kToolsMenuOffset = -7;
 // Separator above the toolbar, redefined as readwrite.
 @property(nonatomic, strong, readwrite) UIView* separator;
 
-// The stack view containing the buttons.
-@property(nonatomic, strong) UIStackView* stackView;
+// The stack view containing the buttons, redefined as readwrite.
+@property(nonatomic, strong, readwrite) UIStackView* buttonStackView;
+// The stack view containing `locationBarContainer` and `buttonStackView`.
+@property(nonatomic, strong) UIStackView* verticalStackView;
 
 // Button to navigate back, redefined as readwrite.
 @property(nonatomic, strong, readwrite) ToolbarButton* backButton;
 // Buttons to navigate forward, redefined as readwrite.
 @property(nonatomic, strong, readwrite) ToolbarButton* forwardButton;
 // Button to display the tools menu, redefined as readwrite.
-@property(nonatomic, strong, readwrite) ToolbarToolsMenuButton* toolsMenuButton;
+@property(nonatomic, strong, readwrite) ToolbarButton* toolsMenuButton;
 // Button to display the tab grid, redefined as readwrite.
 @property(nonatomic, strong, readwrite) ToolbarTabGridButton* tabGridButton;
 // Button to create a new tab, redefined as readwrite.
 @property(nonatomic, strong, readwrite) ToolbarButton* openNewTabButton;
+
+#pragma mark** Location bar. **
+// Location bar containing the omnibox.
+@property(nonatomic, strong) UIView* locationBarView;
+// Container for the location bar, redefined as readwrite.
+@property(nonatomic, strong, readwrite) UIView* locationBarContainer;
+// The height of the container for the location bar, redefined as readwrite.
+@property(nonatomic, strong, readwrite)
+    NSLayoutConstraint* locationBarContainerHeight;
+// Button taking the full size of the toolbar. Expands the toolbar when tapped,
+// redefined as readwrite.
+@property(nonatomic, strong, readwrite) UIButton* collapsedToolbarButton;
 
 @end
 
 @implementation SecondaryToolbarView
 
 @synthesize allButtons = _allButtons;
-@synthesize buttonFactory = _buttonFactory;
-@synthesize stackView = _stackView;
 @synthesize backButton = _backButton;
+@synthesize buttonFactory = _buttonFactory;
+@synthesize buttonStackView = _buttonStackView;
+@synthesize collapsedToolbarButton = _collapsedToolbarButton;
 @synthesize forwardButton = _forwardButton;
-@synthesize toolsMenuButton = _toolsMenuButton;
+@synthesize locationBarContainer = _locationBarContainer;
+@synthesize locationBarContainerHeight = _locationBarContainerHeight;
 @synthesize openNewTabButton = _openNewTabButton;
+@synthesize toolsMenuButton = _toolsMenuButton;
 @synthesize tabGridButton = _tabGridButton;
 
 #pragma mark - Public
@@ -79,18 +130,6 @@ const CGFloat kToolsMenuOffset = -7;
   return CGSizeMake(UIViewNoIntrinsicMetric, kSecondaryToolbarHeight);
 }
 
-- (void)willMoveToWindow:(UIWindow*)newWindow {
-  [super willMoveToWindow:newWindow];
-  [NamedGuide guideWithName:kSecondaryToolbarGuide view:self].constrainedView =
-      nil;
-}
-
-- (void)didMoveToWindow {
-  [super didMoveToWindow];
-  [NamedGuide guideWithName:kSecondaryToolbarGuide view:self].constrainedView =
-      self;
-}
-
 #pragma mark - Setup
 
 // Sets all the subviews and constraints of the view.
@@ -108,6 +147,7 @@ const CGFloat kToolsMenuOffset = -7;
 
   UIView* contentView = self;
 
+  // Toolbar buttons.
   self.backButton = [self.buttonFactory backButton];
   self.forwardButton = [self.buttonFactory forwardButton];
   self.openNewTabButton = [self.buttonFactory openNewTabButton];
@@ -125,29 +165,76 @@ const CGFloat kToolsMenuOffset = -7;
     self.tabGridButton, self.toolsMenuButton
   ];
 
+  // Separator.
   self.separator = [[UIView alloc] init];
   self.separator.backgroundColor = [UIColor colorNamed:kToolbarShadowColor];
   self.separator.translatesAutoresizingMaskIntoConstraints = NO;
   [self addSubview:self.separator];
 
-  self.stackView =
+  // Button StackView.
+  self.buttonStackView =
       [[UIStackView alloc] initWithArrangedSubviews:self.allButtons];
-  self.stackView.distribution = UIStackViewDistributionEqualSpacing;
-  self.stackView.translatesAutoresizingMaskIntoConstraints = NO;
-  [contentView addSubview:self.stackView];
+  self.buttonStackView.distribution = UIStackViewDistributionEqualSpacing;
+  self.buttonStackView.translatesAutoresizingMaskIntoConstraints = NO;
 
-  id<LayoutGuideProvider> safeArea = self.safeAreaLayoutGuide;
+  UILayoutGuide* safeArea = self.safeAreaLayoutGuide;
+
+  if (IsBottomOmniboxSteadyStateEnabled()) {
+    self.verticalStackView = SecondaryToolbarVerticalStackView();
+    self.collapsedToolbarButton = SecondaryToolbarCollapsedToolbarButton();
+    self.locationBarContainer =
+        SecondaryToolbarLocationBarContainerView(self.buttonFactory);
+
+    [contentView addSubview:self.verticalStackView];
+    [contentView addSubview:self.collapsedToolbarButton];
+    [self.verticalStackView addArrangedSubview:self.locationBarContainer];
+    [self.verticalStackView addArrangedSubview:self.buttonStackView];
+
+    // VerticalStackView constraints.
+    AddSameConstraintsToSides(
+        self.verticalStackView, self,
+        LayoutSides::kTop | LayoutSides::kLeading | LayoutSides::kTrailing);
+
+    // CollapsedToolbarButton constraints.
+    AddSameConstraints(self, self.collapsedToolbarButton);
+
+    // LocationBarView constraints.
+    if (self.locationBarView) {
+      AddSameConstraints(self.locationBarView, self.locationBarContainer);
+    }
+
+    // LocationBarContainer constraints. The constant value is set by the VC.
+    self.locationBarContainerHeight =
+        [self.locationBarContainer.heightAnchor constraintEqualToConstant:0];
+    self.locationBarTopConstraint = [self.locationBarContainer.topAnchor
+        constraintEqualToAnchor:self.topAnchor];
+
+    [NSLayoutConstraint activateConstraints:@[
+      self.locationBarTopConstraint,
+      self.locationBarContainerHeight,
+      [self.locationBarContainer.leadingAnchor
+          constraintEqualToAnchor:safeArea.leadingAnchor
+                         constant:kExpandedLocationBarHorizontalMargin],
+      [self.locationBarContainer.trailingAnchor
+          constraintEqualToAnchor:safeArea.trailingAnchor
+                         constant:-kExpandedLocationBarHorizontalMargin],
+    ]];
+
+  } else {  // Bottom omnibox flag disabled.
+    [contentView addSubview:self.buttonStackView];
+    [self.buttonStackView.topAnchor
+        constraintEqualToAnchor:self.topAnchor
+                       constant:kBottomButtonsBottomMargin]
+        .active = YES;
+  }
 
   [NSLayoutConstraint activateConstraints:@[
-    [self.stackView.leadingAnchor
+    [self.buttonStackView.leadingAnchor
         constraintEqualToAnchor:safeArea.leadingAnchor
                        constant:kAdaptiveToolbarMargin],
-    [self.stackView.trailingAnchor
+    [self.buttonStackView.trailingAnchor
         constraintEqualToAnchor:safeArea.trailingAnchor
                        constant:-kAdaptiveToolbarMargin],
-    [self.stackView.topAnchor
-        constraintEqualToAnchor:self.topAnchor
-                       constant:kBottomButtonsBottomMargin],
 
     [self.separator.leadingAnchor constraintEqualToAnchor:self.leadingAnchor],
     [self.separator.trailingAnchor constraintEqualToAnchor:self.trailingAnchor],
@@ -174,6 +261,29 @@ const CGFloat kToolsMenuOffset = -7;
 
 - (MDCProgressView*)progressBar {
   return nil;
+}
+
+- (void)setLocationBarView:(UIView*)locationBarView {
+  CHECK(IsBottomOmniboxSteadyStateEnabled());
+  if (_locationBarView == locationBarView) {
+    return;
+  }
+
+  if ([_locationBarView superview] == self.locationBarContainer) {
+    [_locationBarView removeFromSuperview];
+  }
+  _locationBarView = locationBarView;
+
+  locationBarView.translatesAutoresizingMaskIntoConstraints = NO;
+  [locationBarView setContentHuggingPriority:UILayoutPriorityDefaultLow
+                                     forAxis:UILayoutConstraintAxisHorizontal];
+
+  if (!self.locationBarContainer || !locationBarView) {
+    return;
+  }
+
+  [self.locationBarContainer addSubview:locationBarView];
+  AddSameConstraints(self.locationBarView, self.locationBarContainer);
 }
 
 #pragma mark - ToolbarCollapsing

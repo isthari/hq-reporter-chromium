@@ -1,4 +1,4 @@
-# Copyright 2014 The Chromium Authors. All rights reserved.
+# Copyright 2014 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -42,14 +42,16 @@ source_set("app_shell_lib") {
     "//components/feedback",
     "//components/feedback/content:factory",
     "//components/guest_view/browser",
+    "//components/guest_view/common:mojom",
     "//components/guest_view/renderer",
     "//components/keep_alive_registry",
     "//components/keyed_service/content:content",
     "//components/nacl/common:buildflags",
     "//components/network_session_configurator/common",
+    "//components/origin_trials:browser",
+    "//components/origin_trials:common",
     "//components/pref_registry",
     "//components/prefs",
-    "//components/services/app_service/public/mojom",
     "//components/sessions",
     "//components/storage_monitor",
     "//components/update_client",
@@ -61,9 +63,6 @@ source_set("app_shell_lib") {
     "//extensions:extensions_resources",
     "//extensions:shell_and_test_pak",
     "//extensions/browser",
-    "//extensions/browser:core_api_provider",
-    "//extensions/browser/api",
-    "//extensions/browser/api/messaging",
     "//extensions/browser/kiosk",
     "//extensions/browser/updater",
     "//extensions/common",
@@ -173,6 +172,7 @@ source_set("app_shell_lib") {
       "browser/shell_native_app_window_mac.h",
       "browser/shell_native_app_window_mac.mm",
     ]
+    configs += [ "//build/config/compiler:enable_arc" ]
   }
 
   if (is_chromeos_ash) {
@@ -195,7 +195,6 @@ source_set("app_shell_lib") {
       "browser/shell_native_app_window_aura.h",
     ]
     deps += [
-      "//ui/aura/cursor",
       "//ui/base/cursor",
       "//ui/base/cursor/mojom:cursor_type",
       "//ui/platform_window",
@@ -218,8 +217,11 @@ source_set("app_shell_lib") {
     ]
   }
 
-  if (is_chromeos_ash || is_chromeos_lacros) {
-    deps += [ "//chromeos/dbus/constants" ]
+  if (is_chromeos) {
+    deps += [
+      "//chromeos/dbus/constants",
+      "//chromeos/dbus/power",
+    ]
   }
 
   if (is_chromeos_ash) {
@@ -228,15 +230,16 @@ source_set("app_shell_lib") {
       "browser/shell_screen.h",
     ]
     deps += [
-      "//ash/components/audio",
-      "//ash/components/disks",
       "//ash/constants",
-      "//chromeos/dbus",
-      "//chromeos/dbus/audio",
-      "//chromeos/dbus/hermes",
-      "//chromeos/dbus/power",
-      "//chromeos/login/login_state",
-      "//chromeos/network",
+      "//chromeos/ash/components/audio",
+      "//chromeos/ash/components/dbus",
+      "//chromeos/ash/components/dbus/audio",
+      "//chromeos/ash/components/dbus/cros_disks",
+      "//chromeos/ash/components/dbus/hermes",
+      "//chromeos/ash/components/dbus/shill",
+      "//chromeos/ash/components/disks",
+      "//chromeos/ash/components/login/login_state",
+      "//chromeos/ash/components/network",
       "//ui/chromeos",
       "//ui/display/manager",
     ]
@@ -254,14 +257,19 @@ source_set("app_shell_lib") {
     deps += [
       "//components/nacl/browser",
       "//components/nacl/common",
-      "//components/nacl/loader",
       "//components/nacl/renderer",
       "//components/nacl/renderer/plugin:nacl_trusted_plugin",
       "//ppapi/shared_impl:shared_impl",
     ]
 
-    if (is_linux || is_chromeos) {
-      deps += [ "//components/nacl/loader:nacl_helper" ]
+    # TODO(https://crbug.com/1299021): These dependencies might be
+    # redundant given that we were able to disable them, apparently without
+    # negative consequences, for the ARM32-NaCl-on-ARM64 case.
+    if (target_cpu != "arm64") {
+      deps += [ "//components/nacl/loader" ]
+      if (is_linux || is_chromeos) {
+        deps += [ "//components/nacl/loader:nacl_helper" ]
+      }
     }
   }
 }
@@ -351,16 +359,19 @@ test("app_shell_unittests") {
     ]
   }
 
+  if (is_chromeos) {
+    deps += [ "//chromeos/dbus/power" ]
+  }
+
   if (is_chromeos_ash) {
     sources += [
       "browser/shell_audio_controller_chromeos_unittest.cc",
       "browser/shell_screen_unittest.cc",
     ]
     deps += [
-      "//ash/components/audio",
-      "//chromeos/dbus:test_support",
-      "//chromeos/dbus/audio",
-      "//chromeos/dbus/power",
+      "//chromeos/ash/components/audio",
+      "//chromeos/ash/components/dbus:test_support",
+      "//chromeos/ash/components/dbus/audio",
     ]
   }
 
@@ -383,6 +394,8 @@ source_set("browser_tests") {
   sources = [
     "browser/api/runtime/runtime_apitest.cc",
     "browser/shell_browsertest.cc",
+    "test/extensions_render_view_test.cc",
+    "test/extensions_render_view_test.h",
     "test/shell_apitest.cc",
     "test/shell_apitest.h",
     "test/shell_test.cc",

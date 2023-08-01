@@ -1,15 +1,12 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.device.bluetooth;
 
-import android.annotation.TargetApi;
 import android.bluetooth.le.ScanFilter;
-import android.os.Build;
 
 import org.chromium.base.annotations.CalledByNative;
-import org.chromium.base.annotations.JNIAdditionalImport;
 import org.chromium.base.annotations.JNINamespace;
 
 import java.util.List;
@@ -19,8 +16,6 @@ import java.util.List;
  * This is currently only used for testing the ChromeBluetoothScanFilterBuilder.
  */
 @JNINamespace("device")
-@JNIAdditionalImport(Wrappers.class)
-@TargetApi(Build.VERSION_CODES.M)
 final class ChromeBluetoothScanFilter {
     private ScanFilter mScanFilter;
 

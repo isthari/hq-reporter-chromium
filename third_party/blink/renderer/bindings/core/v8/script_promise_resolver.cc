@@ -1,12 +1,15 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 
 #include "third_party/blink/public/platform/task_type.h"
+#include "third_party/blink/renderer/bindings/core/v8/capture_source_location.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
+#include "third_party/blink/renderer/platform/bindings/source_location.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 
 #if DCHECK_IS_ON()
@@ -15,6 +18,27 @@
 #endif
 
 namespace blink {
+
+class ScriptPromiseResolver::ExceptionStateScope final : public ExceptionState {
+  STACK_ALLOCATED();
+
+ public:
+  explicit ExceptionStateScope(ScriptPromiseResolver* resolver)
+      : ExceptionState(resolver->script_state_->GetIsolate(),
+                       resolver->exception_context_),
+        resolver_(resolver) {
+    CHECK_NE(resolver->exception_context_.GetContext(),
+             ExceptionContext::Context::kEmpty);
+  }
+  ~ExceptionStateScope() {
+    DCHECK(HadException());
+    resolver_->Reject(GetException());
+    ClearException();
+  }
+
+ private:
+  ScriptPromiseResolver* resolver_;
+};
 
 ScriptPromiseResolver::ScriptPromiseResolver(ScriptState* script_state)
     : ExecutionContextLifecycleObserver(ExecutionContext::From(script_state)),
@@ -25,6 +49,15 @@ ScriptPromiseResolver::ScriptPromiseResolver(ScriptState* script_state)
     state_ = kDetached;
     resolver_.Clear();
   }
+}
+
+ScriptPromiseResolver::ScriptPromiseResolver(
+    ScriptState* script_state,
+    const ExceptionContext& exception_context)
+    : ScriptPromiseResolver(script_state) {
+  exception_context_ = exception_context;
+  class_like_name_ = exception_context.GetClassName();
+  property_like_name_ = exception_context.GetPropertyName();
 }
 
 ScriptPromiseResolver::~ScriptPromiseResolver() = default;
@@ -61,6 +94,31 @@ void ScriptPromiseResolver::Reject(ExceptionState& exception_state) {
   exception_state.ClearException();
 }
 
+void ScriptPromiseResolver::RejectWithDOMException(
+    DOMExceptionCode exception_code,
+    const String& message) {
+  ExceptionStateScope(this).ThrowDOMException(exception_code, message);
+}
+
+void ScriptPromiseResolver::RejectWithSecurityError(
+    const String& sanitized_message,
+    const String& unsanitized_message) {
+  ExceptionStateScope(this).ThrowSecurityError(sanitized_message,
+                                               unsanitized_message);
+}
+
+void ScriptPromiseResolver::RejectWithTypeError(const String& message) {
+  ExceptionStateScope(this).ThrowTypeError(message);
+}
+
+void ScriptPromiseResolver::RejectWithRangeError(const String& message) {
+  ExceptionStateScope(this).ThrowRangeError(message);
+}
+
+void ScriptPromiseResolver::RejectWithWasmCompileError(const String& message) {
+  ExceptionStateScope(this).ThrowWasmCompileError(message);
+}
+
 void ScriptPromiseResolver::Detach() {
   if (state_ == kDetached)
     return;
@@ -86,6 +144,10 @@ void ScriptPromiseResolver::KeepAliveWhilePending() {
 void ScriptPromiseResolver::ResolveOrRejectImmediately() {
   DCHECK(!GetExecutionContext()->IsContextDestroyed());
   DCHECK(!GetExecutionContext()->IsContextPaused());
+
+  probe::WillHandlePromise(GetExecutionContext(), script_state_,
+                           state_ == kResolving, class_like_name_,
+                           property_like_name_);
   {
     if (state_ == kResolving) {
       resolver_.Resolve(value_.Get(script_state_->GetIsolate()));
@@ -100,8 +162,8 @@ void ScriptPromiseResolver::ResolveOrRejectImmediately() {
 void ScriptPromiseResolver::ScheduleResolveOrReject() {
   deferred_resolve_task_ = PostCancellableTask(
       *GetExecutionContext()->GetTaskRunner(TaskType::kMicrotask), FROM_HERE,
-      WTF::Bind(&ScriptPromiseResolver::ResolveOrRejectDeferred,
-                WrapPersistent(this)));
+      WTF::BindOnce(&ScriptPromiseResolver::ResolveOrRejectDeferred,
+                    WrapPersistent(this)));
 }
 
 void ScriptPromiseResolver::ResolveOrRejectDeferred() {

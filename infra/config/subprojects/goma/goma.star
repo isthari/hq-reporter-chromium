@@ -1,8 +1,10 @@
-# Copyright 2020 The Chromium Authors. All rights reserved.
+# Copyright 2020 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-load("//lib/builders.star", "builder", "cpu", "defaults", "goma", "os", "xcode")
+load("//lib/builder_config.star", "builder_config")
+load("//lib/builders.star", "builder", "builders", "cpu", "defaults", "goma", "os", "xcode")
+load("//lib/structs.star", "structs")
 
 luci.bucket(
     name = "goma",
@@ -24,12 +26,12 @@ luci.bucket(
 
 defaults.bucket.set("goma")
 defaults.build_numbers.set(True)
-defaults.cores.set(8)
 defaults.cpu.set(cpu.X86_64)
 defaults.executable.set("recipe:chromium")
 defaults.execution_timeout.set(3 * time.hour)
 defaults.os.set(os.LINUX_DEFAULT)
 defaults.pool.set("luci.chromium.ci")
+defaults.free_space.set(builders.free_space.standard)
 defaults.service_account.set(
     "goma-release-testing@chops-service-accounts.iam.gserviceaccount.com",
 )
@@ -49,7 +51,7 @@ def fyi_goma_rbe_canary_builder(
         *,
         name,
         goma_backend = goma.backend.RBE_PROD,
-        os = os.LINUX_BIONIC_SWITCH_TO_DEFAULT,
+        os = os.LINUX_DEFAULT,
         **kwargs):
     return builder(
         name = name,
@@ -62,182 +64,285 @@ def fyi_goma_rbe_canary_builder(
 
 fyi_goma_rbe_canary_builder(
     name = "Linux Builder Goma RBE Canary",
+    builder_spec = builder_config.copy_from(
+        "ci/Linux Builder",
+        lambda spec: structs.evolve(
+            spec,
+            chromium_config = structs.extend(
+                spec.chromium_config,
+                apply_configs = [
+                    "goma_canary",
+                    "goma_use_local",
+                ],
+            ),
+            build_gs_bucket = "chromium-fyi-archive",
+        ),
+    ),
 )
 
 fyi_goma_rbe_canary_builder(
     name = "Mac Builder (dbg) Goma RBE Canary (clobber)",
-    cores = 4,
-    goma_jobs = goma.jobs.J80,
+    builder_spec = builder_config.copy_from(
+        "ci/Mac Builder (dbg)",
+        lambda spec: structs.evolve(
+            spec,
+            chromium_config = structs.extend(
+                spec.chromium_config,
+                apply_configs = [
+                    "goma_canary",
+                    "clobber",
+                ],
+            ),
+            build_gs_bucket = "chromium-fyi-archive",
+        ),
+    ),
     os = os.MAC_DEFAULT,
+    goma_jobs = goma.jobs.J80,
 )
 
 fyi_goma_rbe_canary_builder(
     name = "Mac M1 Builder (dbg) Goma RBE Canary (clobber)",
+    builder_spec = builder_config.copy_from(
+        "ci/Mac Builder (dbg)",
+        lambda spec: structs.evolve(
+            spec,
+            chromium_config = structs.extend(
+                spec.chromium_config,
+                apply_configs = [
+                    "goma_canary",
+                    "clobber",
+                ],
+            ),
+            build_gs_bucket = "chromium-fyi-archive",
+        ),
+    ),
     cores = None,
-    goma_jobs = goma.jobs.J80,
-    os = os.MAC_11,
+    os = os.MAC_DEFAULT,
     cpu = cpu.ARM64,
+    goma_jobs = goma.jobs.J80,
 )
 
 fyi_goma_rbe_canary_builder(
     name = "android-archive-dbg-goma-rbe-ats-canary",
+    builder_spec = builder_config.builder_spec(
+        gclient_config = builder_config.gclient_config(
+            config = "chromium",
+            apply_configs = ["android"],
+        ),
+        chromium_config = builder_config.chromium_config(
+            config = "android",
+            apply_configs = [
+                "mb",
+                "download_vr_test_apks",
+                "goma_canary",
+            ],
+            build_config = builder_config.build_config.DEBUG,
+            target_bits = 32,
+            target_platform = builder_config.target_platform.ANDROID,
+        ),
+        android_config = builder_config.android_config(config = "main_builder"),
+        build_gs_bucket = "chromium-fyi-archive",
+    ),
     goma_enable_ats = True,
 )
 
 fyi_goma_rbe_canary_builder(
     name = "android-archive-dbg-goma-rbe-canary",
+    builder_spec = builder_config.builder_spec(
+        gclient_config = builder_config.gclient_config(
+            config = "chromium",
+            apply_configs = ["android"],
+        ),
+        chromium_config = builder_config.chromium_config(
+            config = "android",
+            apply_configs = [
+                "mb",
+                "download_vr_test_apks",
+                "goma_canary",
+            ],
+            build_config = builder_config.build_config.DEBUG,
+            target_bits = 32,
+            target_platform = builder_config.target_platform.ANDROID,
+        ),
+        android_config = builder_config.android_config(config = "main_builder"),
+        build_gs_bucket = "chromium-fyi-archive",
+    ),
 )
 
 fyi_goma_rbe_canary_builder(
     name = "chromeos-amd64-generic-rel-goma-rbe-canary",
+    builder_spec = builder_config.copy_from(
+        "ci/chromeos-amd64-generic-rel",
+        lambda spec: structs.evolve(
+            spec,
+            chromium_config = structs.extend(
+                spec.chromium_config,
+                apply_configs = "goma_canary",
+            ),
+            build_gs_bucket = "chromium-fyi-archive",
+        ),
+    ),
     goma_enable_ats = True,
 )
 
 fyi_goma_rbe_canary_builder(
     name = "ios-device-goma-rbe-canary-clobber",
+    builder_spec = builder_config.copy_from(
+        "ci/ios-device",
+        lambda spec: structs.evolve(
+            spec,
+            chromium_config = structs.extend(
+                spec.chromium_config,
+                apply_configs = [
+                    "goma_canary",
+                    "clobber",
+                ],
+            ),
+            build_gs_bucket = "chromium-fyi-archive",
+        ),
+    ),
     cores = None,
-    os = os.MAC_11,
-    xcode = xcode.x13main,
+    os = os.MAC_DEFAULT,
+    xcode = xcode.x14main,
 )
 
 fyi_goma_rbe_canary_builder(
     name = "linux-archive-rel-goma-rbe-ats-canary",
+    builder_spec = builder_config.copy_from(
+        "ci/linux-archive-rel",
+        lambda spec: structs.evolve(
+            spec,
+            chromium_config = structs.extend(
+                spec.chromium_config,
+                apply_configs = [
+                    "goma_canary",
+                ],
+            ),
+            build_gs_bucket = "chromium-fyi-archive",
+        ),
+    ),
     goma_enable_ats = True,
 )
 
 fyi_goma_rbe_canary_builder(
     name = "linux-archive-rel-goma-rbe-canary",
+    builder_spec = builder_config.copy_from(
+        "ci/linux-archive-rel",
+        lambda spec: structs.evolve(
+            spec,
+            chromium_config = structs.extend(
+                spec.chromium_config,
+                apply_configs = [
+                    "goma_canary",
+                ],
+            ),
+            build_gs_bucket = "chromium-fyi-archive",
+        ),
+    ),
 )
 
 fyi_goma_rbe_canary_builder(
     name = "mac-archive-rel-goma-rbe-canary",
-    cores = 4,
-    goma_jobs = goma.jobs.J80,
+    builder_spec = builder_config.copy_from(
+        "ci/mac-archive-rel",
+        lambda spec: structs.evolve(
+            spec,
+            chromium_config = structs.extend(
+                spec.chromium_config,
+                apply_configs = [
+                    "goma_canary",
+                ],
+            ),
+            build_gs_bucket = "chromium-fyi-archive",
+        ),
+    ),
     os = os.MAC_DEFAULT,
+    goma_jobs = goma.jobs.J80,
 )
 
 fyi_goma_rbe_canary_builder(
     name = "Win Builder (dbg) Goma RBE Canary",
-    goma_enable_ats = False,
+    builder_spec = builder_config.copy_from(
+        "ci/Win Builder (dbg)",
+        lambda spec: structs.evolve(
+            spec,
+            chromium_config = structs.extend(
+                spec.chromium_config,
+                apply_configs = [
+                    "goma_canary",
+                ],
+            ),
+            build_gs_bucket = "chromium-fyi-archive",
+        ),
+    ),
     os = os.WINDOWS_DEFAULT,
+    goma_enable_ats = False,
 )
 
 fyi_goma_rbe_canary_builder(
     name = "Win Builder Goma RBE Canary",
-    goma_enable_ats = False,
+    builder_spec = builder_config.copy_from(
+        "ci/Win Builder",
+        lambda spec: structs.evolve(
+            spec,
+            chromium_config = structs.extend(
+                spec.chromium_config,
+                apply_configs = [
+                    "goma_canary",
+                    "goma_use_local",
+                ],
+            ),
+            build_gs_bucket = "chromium-fyi-archive",
+        ),
+    ),
     os = os.WINDOWS_DEFAULT,
-)
-
-fyi_goma_rbe_canary_builder(
-    name = "Win Builder Goma RBE Canary (clobber)",
     goma_enable_ats = False,
-    os = os.WINDOWS_DEFAULT,
 )
 
 fyi_goma_rbe_canary_builder(
     name = "Win Builder (dbg) Goma RBE ATS Canary",
-    goma_enable_ats = True,
+    builder_spec = builder_config.copy_from(
+        "ci/Win Builder (dbg)",
+        lambda spec: structs.evolve(
+            spec,
+            chromium_config = structs.extend(
+                spec.chromium_config,
+                apply_configs = [
+                    "goma_canary",
+                ],
+            ),
+            build_gs_bucket = "chromium-fyi-archive",
+        ),
+    ),
     os = os.WINDOWS_DEFAULT,
+    goma_enable_ats = True,
 )
 
 fyi_goma_rbe_canary_builder(
     name = "Win Builder Goma RBE ATS Canary",
-    goma_enable_ats = True,
+    builder_spec = builder_config.copy_from(
+        "ci/Win Builder",
+        lambda spec: structs.evolve(
+            spec,
+            chromium_config = structs.extend(
+                spec.chromium_config,
+                apply_configs = [
+                    "goma_canary",
+                    "goma_use_local",
+                ],
+            ),
+            build_gs_bucket = "chromium-fyi-archive",
+        ),
+    ),
     os = os.WINDOWS_DEFAULT,
-)
-
-def fyi_goma_rbe_latest_client_builder(
-        *,
-        name,
-        goma_backend = goma.backend.RBE_PROD,
-        os = os.LINUX_BIONIC_SWITCH_TO_DEFAULT,
-        **kwargs):
-    return builder(
-        name = name,
-        builder_group = "chromium.goma.fyi",
-        execution_timeout = 10 * time.hour,
-        goma_backend = goma_backend,
-        os = os,
-        **kwargs
-    )
-
-fyi_goma_rbe_latest_client_builder(
-    name = "Linux Builder Goma RBE Latest Client",
-)
-
-fyi_goma_rbe_latest_client_builder(
-    name = "Mac Builder (dbg) Goma RBE Latest Client (clobber)",
-    cores = 4,
-    goma_jobs = goma.jobs.J80,
-    os = os.MAC_DEFAULT,
-)
-
-fyi_goma_rbe_latest_client_builder(
-    name = "Win Builder (dbg) Goma RBE Latest Client",
-    goma_enable_ats = False,
-    os = os.WINDOWS_DEFAULT,
-)
-
-fyi_goma_rbe_latest_client_builder(
-    name = "Win Builder Goma RBE Latest Client",
-    goma_enable_ats = False,
-    os = os.WINDOWS_DEFAULT,
-)
-
-fyi_goma_rbe_latest_client_builder(
-    name = "Win Builder (dbg) Goma RBE ATS Latest Client",
     goma_enable_ats = True,
-    os = os.WINDOWS_DEFAULT,
-)
-
-fyi_goma_rbe_latest_client_builder(
-    name = "Win Builder Goma RBE ATS Latest Client",
-    goma_enable_ats = True,
-    os = os.WINDOWS_DEFAULT,
-)
-
-fyi_goma_rbe_latest_client_builder(
-    name = "android-archive-dbg-goma-rbe-ats-latest",
-    goma_enable_ats = True,
-)
-
-fyi_goma_rbe_latest_client_builder(
-    name = "android-archive-dbg-goma-rbe-latest",
-)
-
-fyi_goma_rbe_latest_client_builder(
-    name = "chromeos-amd64-generic-rel-goma-rbe-latest",
-    goma_enable_ats = True,
-)
-
-fyi_goma_rbe_latest_client_builder(
-    name = "ios-device-goma-rbe-latest-clobber",
-    cores = None,
-    os = os.MAC_11,
-    xcode = xcode.x13main,
-)
-
-fyi_goma_rbe_latest_client_builder(
-    name = "linux-archive-rel-goma-rbe-ats-latest",
-    goma_enable_ats = True,
-)
-
-fyi_goma_rbe_latest_client_builder(
-    name = "linux-archive-rel-goma-rbe-latest",
-)
-
-fyi_goma_rbe_latest_client_builder(
-    name = "mac-archive-rel-goma-rbe-latest",
-    cores = 4,
-    goma_jobs = goma.jobs.J80,
-    os = os.MAC_DEFAULT,
 )
 
 def goma_builder(
         *,
         name,
         builderless = False,
-        os = os.LINUX_XENIAL_OR_BIONIC_SWITCH_TO_DEFAULT,
+        os = os.LINUX_DEFAULT,
         **kwargs):
     return builder(
         name = name,
@@ -249,65 +354,59 @@ def goma_builder(
 
 goma_builder(
     name = "Chromium Android ARM 32-bit Goma RBE Staging",
+    builder_spec = builder_config.builder_spec(
+        gclient_config = builder_config.gclient_config(
+            config = "chromium",
+            apply_configs = ["android"],
+        ),
+        chromium_config = builder_config.chromium_config(
+            config = "chromium",
+            apply_configs = ["goma_failfast"],
+            target_bits = 32,
+            target_platform = builder_config.target_platform.ANDROID,
+        ),
+        android_config = builder_config.android_config(config = "main_builder_mb"),
+    ),
+    execution_timeout = 5 * time.hour,
     goma_backend = goma.backend.RBE_STAGING,
-    execution_timeout = 4 * time.hour,
-)
-
-goma_builder(
-    name = "Chromium Android ARM 32-bit Goma RBE ToT",
-    goma_backend = goma.backend.RBE_TOT,
-    goma_enable_ats = False,
-    execution_timeout = 4 * time.hour,
-)
-
-goma_builder(
-    name = "Chromium Android ARM 32-bit Goma RBE ToT (ATS)",
-    goma_backend = goma.backend.RBE_TOT,
-    goma_enable_ats = True,
-    execution_timeout = 4 * time.hour,
 )
 
 goma_builder(
     name = "Chromium Linux Goma RBE Staging",
-    goma_backend = goma.backend.RBE_STAGING,
-)
-
-goma_builder(
-    name = "Chromium Linux Goma RBE Staging (clobber)",
+    builder_spec = builder_config.builder_spec(
+        gclient_config = builder_config.gclient_config(config = "chromium"),
+        chromium_config = builder_config.chromium_config(
+            config = "chromium",
+            apply_configs = [
+                "mb",
+                "goma_failfast",
+            ],
+            target_bits = 64,
+        ),
+    ),
     goma_backend = goma.backend.RBE_STAGING,
 )
 
 goma_builder(
     name = "Chromium Linux Goma RBE Staging (dbg)",
-    goma_backend = goma.backend.RBE_STAGING,
-)
-
-goma_builder(
-    name = "Chromium Linux Goma RBE Staging (dbg) (clobber)",
+    builder_spec = builder_config.builder_spec(
+        gclient_config = builder_config.gclient_config(config = "chromium"),
+        chromium_config = builder_config.chromium_config(
+            config = "chromium",
+            apply_configs = [
+                "mb",
+                "goma_failfast",
+            ],
+            target_bits = 64,
+        ),
+    ),
     goma_backend = goma.backend.RBE_STAGING,
 )
 
 goma_builder(
     name = "chromeos-amd64-generic-rel-goma-rbe-staging",
+    builder_spec = builder_config.copy_from("ci/chromeos-amd64-generic-rel"),
     goma_backend = goma.backend.RBE_STAGING,
-    goma_enable_ats = True,
-)
-
-goma_builder(
-    name = "Chromium Linux Goma RBE ToT",
-    goma_backend = goma.backend.RBE_TOT,
-    goma_enable_ats = False,
-)
-
-goma_builder(
-    name = "Chromium Linux Goma RBE ToT (ATS)",
-    goma_backend = goma.backend.RBE_TOT,
-    goma_enable_ats = True,
-)
-
-goma_builder(
-    name = "chromeos-amd64-generic-rel-goma-rbe-tot",
-    goma_backend = goma.backend.RBE_TOT,
     goma_enable_ats = True,
 )
 
@@ -318,37 +417,41 @@ def goma_mac_builder(
         **kwargs):
     return goma_builder(
         name = name,
-        cores = 4,
         goma_jobs = goma.jobs.J80,
         os = os,
         **kwargs
     )
 
 goma_mac_builder(
-    name = "Chromium iOS Goma RBE ToT",
-    goma_backend = goma.backend.RBE_TOT,
-    os = os.MAC_11,
-    xcode = xcode.x13main,
-)
-
-goma_mac_builder(
     name = "Chromium Mac Goma RBE Staging",
-    goma_backend = goma.backend.RBE_STAGING,
-)
-
-goma_mac_builder(
-    name = "Chromium Mac Goma RBE Staging (clobber)",
+    builder_spec = builder_config.builder_spec(
+        gclient_config = builder_config.gclient_config(config = "chromium"),
+        chromium_config = builder_config.chromium_config(
+            config = "chromium",
+            apply_configs = [
+                "mb",
+                "goma_failfast",
+            ],
+            target_bits = 64,
+        ),
+    ),
     goma_backend = goma.backend.RBE_STAGING,
 )
 
 goma_mac_builder(
     name = "Chromium Mac Goma RBE Staging (dbg)",
+    builder_spec = builder_config.builder_spec(
+        gclient_config = builder_config.gclient_config(config = "chromium"),
+        chromium_config = builder_config.chromium_config(
+            config = "chromium",
+            apply_configs = [
+                "mb",
+                "goma_failfast",
+            ],
+            target_bits = 64,
+        ),
+    ),
     goma_backend = goma.backend.RBE_STAGING,
-)
-
-goma_mac_builder(
-    name = "Chromium Mac Goma RBE ToT",
-    goma_backend = goma.backend.RBE_TOT,
 )
 
 def goma_windows_builder(
@@ -366,36 +469,34 @@ def goma_windows_builder(
 
 goma_windows_builder(
     name = "Chromium Win Goma RBE Staging",
+    builder_spec = builder_config.builder_spec(
+        gclient_config = builder_config.gclient_config(config = "chromium"),
+        chromium_config = builder_config.chromium_config(
+            config = "chromium",
+            apply_configs = [
+                "mb",
+                "goma_failfast",
+            ],
+            target_bits = 64,
+        ),
+    ),
     goma_backend = goma.backend.RBE_STAGING,
-    goma_enable_ats = False,
-)
-
-goma_windows_builder(
-    name = "Chromium Win Goma RBE Staging (clobber)",
-    goma_backend = goma.backend.RBE_STAGING,
-    goma_enable_ats = False,
-)
-
-goma_windows_builder(
-    name = "Chromium Win Goma RBE ToT",
-    goma_backend = goma.backend.RBE_TOT,
     goma_enable_ats = False,
 )
 
 goma_windows_builder(
     name = "Chromium Win Goma RBE ATS Staging",
+    builder_spec = builder_config.builder_spec(
+        gclient_config = builder_config.gclient_config(config = "chromium"),
+        chromium_config = builder_config.chromium_config(
+            config = "chromium",
+            apply_configs = [
+                "mb",
+                "goma_failfast",
+            ],
+            target_bits = 64,
+        ),
+    ),
     goma_backend = goma.backend.RBE_STAGING,
-    goma_enable_ats = True,
-)
-
-goma_windows_builder(
-    name = "Chromium Win Goma RBE ATS Staging (clobber)",
-    goma_backend = goma.backend.RBE_STAGING,
-    goma_enable_ats = True,
-)
-
-goma_windows_builder(
-    name = "Chromium Win Goma RBE ATS ToT",
-    goma_backend = goma.backend.RBE_TOT,
     goma_enable_ats = True,
 )

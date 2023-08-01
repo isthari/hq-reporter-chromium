@@ -1,10 +1,9 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <stdint.h>
 
-#include "base/cxx17_backports.h"
 #include "build/build_config.h"
 #include "cc/layers/solid_color_layer.h"
 #include "cc/paint/paint_image.h"
@@ -58,13 +57,12 @@ SkColor kCSSTestColors[] = {
     0x00000000   // transparent
 };
 
-const int kCSSTestColorsCount = base::size(kCSSTestColors);
+const int kCSSTestColorsCount = std::size(kCSSTestColors);
 
 using RenderPassOptions = uint32_t;
 const uint32_t kUseMasks = 1 << 0;
 const uint32_t kUseAntialiasing = 1 << 1;
 const uint32_t kUseColorMatrix = 1 << 2;
-const uint32_t kForceShaders = 1 << 3;
 
 class LayerTreeHostBlendingPixelTest
     : public LayerTreeHostPixelResourceTest,
@@ -73,9 +71,9 @@ class LayerTreeHostBlendingPixelTest
  public:
   LayerTreeHostBlendingPixelTest()
       : LayerTreeHostPixelResourceTest(resource_type()),
-        force_antialiasing_(false),
-        force_blending_with_shaders_(false) {
-    pixel_comparator_ = std::make_unique<FuzzyPixelOffByOneComparator>(true);
+        force_antialiasing_(false) {
+    pixel_comparator_ =
+        std::make_unique<AlphaDiscardingFuzzyPixelOffByOneComparator>();
   }
 
   RasterTestConfig resource_type() const {
@@ -94,8 +92,6 @@ class LayerTreeHostBlendingPixelTest
       override {
     viz::RendererSettings modified_renderer_settings = renderer_settings;
     modified_renderer_settings.force_antialiasing = force_antialiasing_;
-    modified_renderer_settings.force_blending_with_shaders =
-        force_blending_with_shaders_;
     return LayerTreeHostPixelResourceTest::CreateLayerTreeFrameSink(
         modified_renderer_settings, refresh_rate, compositor_context_provider,
         worker_context_provider);
@@ -106,7 +102,7 @@ class LayerTreeHostBlendingPixelTest
     const int kLaneWidth = width;
     const int kLaneHeight = height / kCSSTestColorsCount;
     sk_sp<SkSurface> backing_store =
-        SkSurface::MakeRasterN32Premul(width, height);
+        SkSurfaces::Raster(SkImageInfo::MakeN32Premul(width, height));
     SkCanvas* canvas = backing_store->getCanvas();
     canvas->clear(SK_ColorTRANSPARENT);
     for (int i = 0; i < kCSSTestColorsCount; ++i) {
@@ -134,8 +130,8 @@ class LayerTreeHostBlendingPixelTest
   void SetupMaskLayer(scoped_refptr<Layer> layer) {
     gfx::Size bounds = layer->bounds();
 
-    sk_sp<SkSurface> surface =
-        SkSurface::MakeRasterN32Premul(bounds.width(), bounds.height());
+    sk_sp<SkSurface> surface = SkSurfaces::Raster(
+        SkImageInfo::MakeN32Premul(bounds.width(), bounds.height()));
     SkCanvas* canvas = surface->getCanvas();
     SkPaint paint;
     paint.setColor(SK_ColorWHITE);
@@ -212,10 +208,6 @@ class LayerTreeHostBlendingPixelTest
     const int kRootWidth = 2;
     const int kRootHeight = kRootWidth * kCSSTestColorsCount;
 
-    // Force shaders only applies to gl renderer.
-    if (renderer_type_ != viz::RendererType::kGL && flags & kForceShaders)
-      return;
-
     SCOPED_TRACE(TestTypeToString());
     SCOPED_TRACE(SkBlendMode_Name(current_blend_mode()));
 
@@ -230,22 +222,13 @@ class LayerTreeHostBlendingPixelTest
     CreateBlendingColorLayers(kRootWidth, kRootHeight, background.get(), flags);
 
     force_antialiasing_ = (flags & kUseAntialiasing);
-    force_blending_with_shaders_ = (flags & kForceShaders);
 
-    if ((renderer_type_ == viz::RendererType::kGL && force_antialiasing_) ||
-        renderer_type_ == viz::RendererType::kSkiaVk) {
+    if (renderer_type_ == viz::RendererType::kSkiaVk) {
       // Blending results might differ with one pixel.
-      float percentage_pixels_error = 35.f;
-      float percentage_pixels_small_error = 0.f;
-      float average_error_allowed_in_bad_pixels = 1.f;
-      int large_error_allowed = 1;
-      int small_error_allowed = 0;
-
       pixel_comparator_ = std::make_unique<FuzzyPixelComparator>(
-          false,  // discard_alpha
-          percentage_pixels_error, percentage_pixels_small_error,
-          average_error_allowed_in_bad_pixels, large_error_allowed,
-          small_error_allowed);
+          FuzzyPixelComparator()
+              .SetErrorPixelsPercentageLimit(35.f)
+              .SetAbsErrorLimit(1));
     }
 
     RunPixelResourceTest(root, CreateBlendingWithRenderPassExpected(
@@ -253,7 +236,6 @@ class LayerTreeHostBlendingPixelTest
   }
 
   bool force_antialiasing_;
-  bool force_blending_with_shaders_;
   FakeContentLayerClient mask_client_;
   FakeContentLayerClient backdrop_client_;
   SkColor misc_opaque_color_ = 0xffc86464;
@@ -262,17 +244,14 @@ class LayerTreeHostBlendingPixelTest
 std::vector<RasterTestConfig> const kTestCases = {
     {viz::RendererType::kSoftware, TestRasterType::kBitmap},
 #if BUILDFLAG(ENABLE_GL_BACKEND_TESTS)
-#if BUILDFLAG(ENABLE_GL_RENDERER_TESTS)
-    {viz::RendererType::kGL, TestRasterType::kZeroCopy},
-#endif  // BUILDFLAG(ENABLE_GL_RENDERER_TESTS)
     {viz::RendererType::kSkiaGL, TestRasterType::kGpu},
 #endif  // BUILDFLAG(ENABLE_GL_BACKEND_TESTS)
 #if BUILDFLAG(ENABLE_VULKAN_BACKEND_TESTS)
     {viz::RendererType::kSkiaVk, TestRasterType::kGpu},
 #endif  // BUILDFLAG(ENABLE_VULKAN_BACKEND_TESTS)
-#if BUILDFLAG(ENABLE_DAWN_BACKEND_TESTS)
-    {viz::RendererType::kSkiaDawn, TestRasterType::kGpu},
-#endif  // BUILDFLAG(ENABLE_DAWN_BACKEND_TESTS)
+#if BUILDFLAG(ENABLE_SKIA_GRAPHITE_TESTS)
+    {viz::RendererType::kSkiaGraphite, TestRasterType::kGpu},
+#endif  // BUILDFLAG(ENABLE_SKIA_GRAPHITE_TESTS)
 };
 
 INSTANTIATE_TEST_SUITE_P(
@@ -422,44 +401,6 @@ TEST_P(LayerTreeHostBlendingPixelTest,
 TEST_P(LayerTreeHostBlendingPixelTest,
        BlendingWithRenderPassWithMaskColorMatrixAA) {
   RunBlendingWithRenderPass(kUseMasks | kUseAntialiasing | kUseColorMatrix);
-}
-
-TEST_P(LayerTreeHostBlendingPixelTest, BlendingWithRenderPassShaders) {
-  RunBlendingWithRenderPass(kForceShaders);
-}
-
-TEST_P(LayerTreeHostBlendingPixelTest, BlendingWithRenderPassShadersAA) {
-  RunBlendingWithRenderPass(kUseAntialiasing | kForceShaders);
-}
-
-TEST_P(LayerTreeHostBlendingPixelTest, BlendingWithRenderPassShadersWithMask) {
-  RunBlendingWithRenderPass(kUseMasks | kForceShaders);
-}
-
-TEST_P(LayerTreeHostBlendingPixelTest,
-       BlendingWithRenderPassShadersWithMaskAA) {
-  RunBlendingWithRenderPass(kUseMasks | kUseAntialiasing | kForceShaders);
-}
-
-TEST_P(LayerTreeHostBlendingPixelTest,
-       BlendingWithRenderPassShadersColorMatrix) {
-  RunBlendingWithRenderPass(kUseColorMatrix | kForceShaders);
-}
-
-TEST_P(LayerTreeHostBlendingPixelTest,
-       BlendingWithRenderPassShadersColorMatrixAA) {
-  RunBlendingWithRenderPass(kUseAntialiasing | kUseColorMatrix | kForceShaders);
-}
-
-TEST_P(LayerTreeHostBlendingPixelTest,
-       BlendingWithRenderPassShadersWithMaskColorMatrix) {
-  RunBlendingWithRenderPass(kUseMasks | kUseColorMatrix | kForceShaders);
-}
-
-TEST_P(LayerTreeHostBlendingPixelTest,
-       BlendingWithRenderPassShadersWithMaskColorMatrixAA) {
-  RunBlendingWithRenderPass(kUseMasks | kUseAntialiasing | kUseColorMatrix |
-                            kForceShaders);
 }
 
 }  // namespace

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,13 +30,13 @@ import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.SwipeRefreshHandler;
 import org.chromium.chrome.browser.browser_controls.BrowserControlsStateProvider;
 import org.chromium.chrome.browser.compositor.CompositorViewHolder;
+import org.chromium.chrome.browser.contextmenu.ContextMenuUtils;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.fullscreen.FullscreenManager;
 import org.chromium.chrome.browser.fullscreen.FullscreenOptions;
 import org.chromium.chrome.browser.init.ChromeActivityNativeDelegate;
 import org.chromium.chrome.browser.media.PictureInPicture;
 import org.chromium.chrome.browser.night_mode.WebContentsDarkModeController;
-import org.chromium.chrome.browser.notifications.WebPlatformNotificationMetrics;
 import org.chromium.chrome.browser.policy.PolicyAuditor;
 import org.chromium.chrome.browser.policy.PolicyAuditor.AuditEvent;
 import org.chromium.chrome.browser.profiles.Profile;
@@ -51,6 +51,7 @@ import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelUtils;
 import org.chromium.chrome.browser.tasks.tab_management.TabUiFeatureUtilities;
 import org.chromium.content_public.browser.WebContents;
+import org.chromium.content_public.common.ResourceRequestBody;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.modaldialog.DialogDismissalCause;
 import org.chromium.ui.modaldialog.ModalDialogManager;
@@ -113,6 +114,14 @@ public class ActivityTabWebContentsDelegateAndroid extends TabWebContentsDelegat
                 tab.removeObserver(this);
             }
         });
+    }
+
+    @Override
+    public void openNewTab(GURL url, String extraHeaders, ResourceRequestBody postData,
+            int disposition, boolean isRendererInitiated) {
+        // New tabs are handled by the tab model (see
+        // TabWebContentsDelegateAndroid::OpenURLFromTab().
+        assert false;
     }
 
     @Override
@@ -190,8 +199,10 @@ public class ActivityTabWebContentsDelegateAndroid extends TabWebContentsDelegat
                 RecordUserAction.record("LinkNavigationOpenedInForegroundTab");
             } else if (disposition == WindowOpenDisposition.NEW_POPUP) {
                 PolicyAuditor auditor = AppHooks.get().getPolicyAuditor();
-                auditor.notifyAuditEvent(ContextUtils.getApplicationContext(),
-                        AuditEvent.OPEN_POPUP_URL_SUCCESS, url.getSpec(), "");
+                if (auditor != null) {
+                    auditor.notifyAuditEvent(ContextUtils.getApplicationContext(),
+                            AuditEvent.OPEN_POPUP_URL_SUCCESS, url.getSpec(), "");
+                }
             }
         }
 
@@ -213,8 +224,6 @@ public class ActivityTabWebContentsDelegateAndroid extends TabWebContentsDelegat
             Log.e(TAG, "Tab not initialized before calling activateContents().  Bailing out.");
             return;
         }
-
-        WebPlatformNotificationMetrics.getInstance().onTabFocused();
 
         // Do nothing if the tab can currently be interacted with by the user.
         if (mTab.isUserInteractable()) return;
@@ -367,10 +376,29 @@ public class ActivityTabWebContentsDelegateAndroid extends TabWebContentsDelegat
     }
 
     @Override
-    public void enterFullscreenModeForTab(boolean prefersNavigationBar) {
+    public int getVirtualKeyboardHeight() {
+        if (mActivity == null) return 0;
+
+        View rootView = mActivity.getWindow().getDecorView().getRootView();
+        return mTab.getWindowAndroid().getKeyboardDelegate().calculateTotalKeyboardHeight(rootView);
+    }
+
+    @Override
+    public void enterFullscreenModeForTab(boolean prefersNavigationBar, boolean prefersStatusBar) {
         if (mFullscreenManager != null) {
-            mFullscreenManager.onEnterFullscreen(mTab, new FullscreenOptions(prefersNavigationBar));
+            mFullscreenManager.onEnterFullscreen(
+                    mTab, new FullscreenOptions(prefersNavigationBar, prefersStatusBar));
         }
+    }
+
+    @Override
+    public void fullscreenStateChangedForTab(
+            boolean prefersNavigationBar, boolean prefersStatusBar) {
+        // State-only changes are useful for recursive fullscreen activation. Early out if
+        // fullscreen mode is not on.
+        if (mFullscreenManager == null || !mFullscreenManager.getPersistentFullscreenMode()) return;
+        mFullscreenManager.onEnterFullscreen(
+                mTab, new FullscreenOptions(prefersNavigationBar, prefersStatusBar));
     }
 
     @Override
@@ -449,7 +477,7 @@ public class ActivityTabWebContentsDelegateAndroid extends TabWebContentsDelegat
                         .with(ModalDialogProperties.CONTROLLER, dialogController)
                         .with(ModalDialogProperties.TITLE, resources,
                                 R.string.http_post_warning_title)
-                        .with(ModalDialogProperties.MESSAGE,
+                        .with(ModalDialogProperties.MESSAGE_PARAGRAPH_1,
                                 resources.getString(R.string.http_post_warning))
                         .with(ModalDialogProperties.POSITIVE_BUTTON_TEXT, resources,
                                 R.string.http_post_warning_resend)
@@ -459,5 +487,10 @@ public class ActivityTabWebContentsDelegateAndroid extends TabWebContentsDelegat
                         .build();
 
         modalDialogManager.showDialog(dialogModel, ModalDialogManager.ModalDialogType.TAB, true);
+    }
+
+    @Override
+    protected boolean isModalContextMenu() {
+        return !ContextMenuUtils.usePopupContextMenuForContext(mActivity);
     }
 }

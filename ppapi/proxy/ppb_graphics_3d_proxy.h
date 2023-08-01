@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,9 +36,7 @@ class PpapiCommandBufferProxy;
 
 class PPAPI_PROXY_EXPORT Graphics3D : public PPB_Graphics3D_Shared {
  public:
-  Graphics3D(const HostResource& resource,
-             const gfx::Size& size,
-             const bool single_buffer);
+  Graphics3D(const HostResource& resource, const gfx::Size& size);
 
   Graphics3D(const Graphics3D&) = delete;
   Graphics3D& operator=(const Graphics3D&) = delete;
@@ -63,7 +61,7 @@ class PPAPI_PROXY_EXPORT Graphics3D : public PPB_Graphics3D_Shared {
       int32_t start,
       int32_t end) override;
   void EnsureWorkVisible() override;
-  void TakeFrontBuffer() override;
+  void ResolveAndDetachFramebuffer() override;
 
  private:
   // PPB_Graphics3D_Shared overrides.
@@ -71,11 +69,9 @@ class PPAPI_PROXY_EXPORT Graphics3D : public PPB_Graphics3D_Shared {
   gpu::GpuControl* GetGpuControl() override;
   int32_t DoSwapBuffers(const gpu::SyncToken& sync_token,
                         const gfx::Size& size) override;
+  void DoResize(gfx::Size size) override;
 
   std::unique_ptr<PpapiCommandBufferProxy> command_buffer_;
-
-  uint64_t swap_id_ = 0;
-  bool single_buffer = false;
 };
 
 class PPB_Graphics3D_Proxy : public InterfaceProxy {
@@ -127,8 +123,10 @@ class PPB_Graphics3D_Proxy : public InterfaceProxy {
   void OnMsgSwapBuffers(const HostResource& context,
                         const gpu::SyncToken& sync_token,
                         const gfx::Size& size);
-  void OnMsgTakeFrontBuffer(const HostResource& context);
   void OnMsgEnsureWorkVisible(const HostResource& context);
+  void OnMsgResolveAndDetachFramebuffer(const HostResource& context);
+  void OnMsgResize(const HostResource& context, gfx::Size size);
+
   // Renderer->plugin message handlers.
   void OnMsgSwapBuffersACK(const HostResource& context,
                            int32_t pp_error);

@@ -1,15 +1,17 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/updater/policy/manager.h"
+#include "base/memory/scoped_refptr.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace updater {
 
-TEST(PolicyManager, GetPolicyManager) {
-  std::unique_ptr<PolicyManagerInterface> policy_manager(GetPolicyManager());
-  ASSERT_TRUE(policy_manager->IsManaged());
+TEST(PolicyManager, GetDefaultValuesPolicyManager) {
+  scoped_refptr<PolicyManagerInterface> policy_manager(
+      GetDefaultValuesPolicyManager());
+  ASSERT_TRUE(policy_manager->HasActiveDevicePolicies());
 }
 
 TEST(PolicyManager, UpdateSuppressedTimes) {

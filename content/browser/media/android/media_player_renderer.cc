@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include <memory>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "content/browser/android/scoped_surface_request_manager.h"
 #include "content/browser/media/android/media_player_renderer_web_contents_observer.h"
 #include "content/browser/media/android/media_resource_getter_impl.h"
@@ -17,7 +17,6 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/render_process_host.h"
-#include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_client.h"
 #include "media/base/android/media_service_throttler.h"
@@ -116,7 +115,7 @@ void MediaPlayerRenderer::CreateMediaPlayer(
 
   media_player_ = std::make_unique<media::MediaPlayerBridge>(
       url_params.media_url, url_params.site_for_cookies,
-      url_params.top_frame_origin, user_agent,
+      url_params.top_frame_origin, url_params.has_storage_access, user_agent,
       false,  // hide_url_log
       this,   // MediaPlayerBridge::Client
       url_params.allow_credentials, url_params.is_hls);
@@ -207,6 +206,10 @@ base::TimeDelta MediaPlayerRenderer::GetMediaTime() {
   return media_player_->GetCurrentTime();
 }
 
+media::RendererType MediaPlayerRenderer::GetRendererType() {
+  return media::RendererType::kMediaPlayer;
+}
+
 media::MediaResourceGetter* MediaPlayerRenderer::GetMediaResourceGetter() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (!media_resource_getter_.get()) {
@@ -219,11 +222,8 @@ media::MediaResourceGetter* MediaPlayerRenderer::GetMediaResourceGetter() {
       return nullptr;
 
     BrowserContext* context = host->GetBrowserContext();
-    StoragePartition* partition = host->GetStoragePartition();
-    storage::FileSystemContext* file_system_context =
-        partition ? partition->GetFileSystemContext() : nullptr;
     media_resource_getter_ = std::make_unique<MediaResourceGetterImpl>(
-        context, file_system_context, render_process_id_, routing_id_);
+        context, render_process_id_, routing_id_);
   }
   return media_resource_getter_.get();
 }

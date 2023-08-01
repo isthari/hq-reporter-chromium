@@ -1,13 +1,16 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
+#include "base/task/bind_post_task.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/scoped_feature_list.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "content/browser/browser_main_loop.h"
@@ -20,7 +23,6 @@
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/content_browser_test.h"
-#include "media/base/bind_to_current_loop.h"
 #include "media/base/media_switches.h"
 #include "media/capture/video_capture_types.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -51,10 +53,16 @@ class MockVideoCaptureControllerEventHandler
                     int buffer_id));
   MOCK_METHOD2(OnBufferDestroyed,
                void(const VideoCaptureControllerID&, int buffer_id));
+  MOCK_METHOD1(OnCaptureConfigurationChanged,
+               void(const VideoCaptureControllerID&));
+  MOCK_METHOD2(OnNewCropVersion,
+               void(const VideoCaptureControllerID&, uint32_t crop_version));
   MOCK_METHOD3(OnBufferReady,
                void(const VideoCaptureControllerID& id,
                     const ReadyBuffer& fullsized_buffer,
                     const std::vector<ReadyBuffer>& downscaled_buffers));
+  MOCK_METHOD1(OnFrameWithEmptyRegionCapture,
+               void(const VideoCaptureControllerID&));
   MOCK_METHOD1(OnStarted, void(const VideoCaptureControllerID&));
   MOCK_METHOD1(OnEnded, void(const VideoCaptureControllerID&));
   MOCK_METHOD2(OnError,
@@ -156,7 +164,7 @@ class VideoCaptureBrowserTest : public ContentBrowserTest,
     // VideoCaptureControllerEventHandler. To satisfy this, we have to post our
     // invocation to the end of the IO message queue.
     if (post_to_end_of_message_queue) {
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE,
           base::BindOnce(
               &VideoCaptureBrowserTest::TearDownCaptureDeviceOnIOThread,
@@ -204,7 +212,9 @@ class VideoCaptureBrowserTest : public ContentBrowserTest,
 
   void OnDeviceDescriptorsReceived(
       base::OnceClosure continuation,
+      media::mojom::DeviceEnumerationResult result,
       const media::VideoCaptureDeviceDescriptors& descriptors) {
+    ASSERT_EQ(media::mojom::DeviceEnumerationResult::kSuccess, result);
     ASSERT_TRUE(params_.device_index_to_use < descriptors.size());
     const auto& descriptor = descriptors[params_.device_index_to_use];
     blink::MediaStreamDevice media_stream_device(
@@ -236,8 +246,10 @@ class VideoCaptureBrowserTest : public ContentBrowserTest,
   base::test::ScopedFeatureList scoped_feature_list_;
 
   TestParams params_;
-  raw_ptr<MediaStreamManager> media_stream_manager_ = nullptr;
-  raw_ptr<VideoCaptureManager> video_capture_manager_ = nullptr;
+  raw_ptr<MediaStreamManager, DanglingUntriaged> media_stream_manager_ =
+      nullptr;
+  raw_ptr<VideoCaptureManager, DanglingUntriaged> video_capture_manager_ =
+      nullptr;
   base::UnguessableToken session_id_;
   const VideoCaptureControllerID stub_client_id_ =
       base::UnguessableToken::Create();
@@ -251,7 +263,7 @@ IN_PROC_BROWSER_TEST_P(VideoCaptureBrowserTest, StartAndImmediatelyStop) {
   SetUpRequiringBrowserMainLoopOnMainThread();
   base::RunLoop run_loop;
   base::OnceClosure quit_run_loop_on_current_thread_cb =
-      media::BindToCurrentLoop(run_loop.QuitClosure());
+      base::BindPostTaskToCurrentDefault(run_loop.QuitClosure());
   base::OnceClosure after_start_continuation =
       base::BindOnce(&VideoCaptureBrowserTest::TearDownCaptureDeviceOnIOThread,
                      base::Unretained(this),
@@ -274,13 +286,6 @@ IN_PROC_BROWSER_TEST_P(VideoCaptureBrowserTest, StartAndImmediatelyStop) {
 #endif
 IN_PROC_BROWSER_TEST_P(VideoCaptureBrowserTest,
                        MAYBE_ReceiveFramesFromFakeCaptureDevice) {
-#if BUILDFLAG(IS_MAC)
-  if (base::mac::IsOS10_12()) {
-    // Flaky on MacOS 10.12. https://crbug.com/938074
-    return;
-  }
-#endif
-
   // Only fake device with index 2 delivers MJPEG.
   if (params_.exercise_accelerated_jpeg_decoding &&
       params_.device_index_to_use != 2) {
@@ -295,7 +300,7 @@ IN_PROC_BROWSER_TEST_P(VideoCaptureBrowserTest,
   base::RunLoop run_loop;
 
   base::OnceClosure quit_run_loop_on_current_thread_cb =
-      media::BindToCurrentLoop(run_loop.QuitClosure());
+      base::BindPostTaskToCurrentDefault(run_loop.QuitClosure());
   base::OnceClosure finish_test_cb =
       base::BindOnce(&VideoCaptureBrowserTest::TearDownCaptureDeviceOnIOThread,
                      base::Unretained(this),

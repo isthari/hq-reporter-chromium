@@ -1,13 +1,14 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/passwords/test/mock_ios_chrome_save_passwords_infobar_delegate.h"
 
-#include "base/memory/ptr_util.h"
-#include "base/strings/sys_string_conversions.h"
-#include "components/password_manager/core/browser/mock_password_form_manager_for_ui.h"
-#include "components/password_manager/core/browser/password_manager_metrics_util.h"
+#import "base/memory/ptr_util.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/password_manager/core/browser/mock_password_form_manager_for_ui.h"
+#import "components/password_manager/core/browser/password_manager_metrics_util.h"
+#import "third_party/abseil-cpp/absl/types/optional.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -33,25 +34,32 @@ std::unique_ptr<password_manager::PasswordFormManagerForUI> CreateFormManager(
 
 // static
 std::unique_ptr<MockIOSChromeSavePasswordInfoBarDelegate>
-MockIOSChromeSavePasswordInfoBarDelegate::Create(NSString* username,
-                                                 NSString* password,
-                                                 const GURL& url) {
+MockIOSChromeSavePasswordInfoBarDelegate::Create(
+    NSString* username,
+    NSString* password,
+    const GURL& url,
+    absl::optional<std::string> account_to_store_password) {
   std::unique_ptr<password_manager::PasswordForm> form =
       std::make_unique<password_manager::PasswordForm>();
   form->username_value = base::SysNSStringToUTF16(username);
   form->password_value = base::SysNSStringToUTF16(password);
   return base::WrapUnique(new MockIOSChromeSavePasswordInfoBarDelegate(
-      std::move(form), std::make_unique<GURL>(url)));
+      std::move(form), std::make_unique<GURL>(url), account_to_store_password));
 }
 
 MockIOSChromeSavePasswordInfoBarDelegate::
     MockIOSChromeSavePasswordInfoBarDelegate(
         std::unique_ptr<password_manager::PasswordForm> form,
-        std::unique_ptr<GURL> url)
+        std::unique_ptr<GURL> url,
+        absl::optional<std::string> account_to_store_password)
     : IOSChromeSavePasswordInfoBarDelegate(
-          /*user_email=*/@"foobar@gmail.com",
-          /*is_sync_user=*/false,
+          account_to_store_password,
           /*password_update=*/false,
+          account_to_store_password.has_value()
+              ? password_manager::metrics_util::
+                    PasswordAccountStorageUserState::kSyncUser
+              : password_manager::metrics_util::
+                    PasswordAccountStorageUserState::kSignedOutUser,
           CreateFormManager(form.get(), url.get())),
       form_(std::move(form)),
       url_(std::move(url)) {}

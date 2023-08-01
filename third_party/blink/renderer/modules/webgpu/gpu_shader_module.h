@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,12 +28,17 @@ class GPUShaderModule : public DawnObject<WGPUShaderModule> {
   GPUShaderModule(const GPUShaderModule&) = delete;
   GPUShaderModule& operator=(const GPUShaderModule&) = delete;
 
-  ScriptPromise compilationInfo(ScriptState* script_state);
+  ScriptPromise getCompilationInfo(ScriptState* script_state);
 
  private:
   void OnCompilationInfoCallback(ScriptPromiseResolver* resolver,
                                  WGPUCompilationInfoRequestStatus status,
                                  const WGPUCompilationInfo* info);
+
+  void setLabelImpl(const String& value) override {
+    std::string utf8_label = value.Utf8();
+    GetProcs().shaderModuleSetLabel(GetHandle(), utf8_label.c_str());
+  }
 };
 
 }  // namespace blink

@@ -1,16 +1,20 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/exo/wayland/clients/test/client_version_test.h"
 
 #include <alpha-compositing-unstable-v1-client-protocol.h>
+#include <aura-shell-server-protocol.h>
+#include <chrome-color-management-server-protocol.h>
+#include <content-type-v1-server-protocol.h>
 #include <cursor-shapes-unstable-v1-server-protocol.h>
 #include <extended-drag-unstable-v1-server-protocol.h>
 #include <gaming-input-unstable-v2-server-protocol.h>
 #include <idle-inhibit-unstable-v1-server-protocol.h>
 #include <keyboard-configuration-unstable-v1-server-protocol.h>
 #include <keyboard-extension-unstable-v1-server-protocol.h>
+#include <keyboard-shortcuts-inhibit-unstable-v1-server-protocol.h>
 #include <notification-shell-unstable-v1-server-protocol.h>
 #include <overlay-prioritizer-server-protocol.h>
 #include <pointer-constraints-unstable-v1-server-protocol.h>
@@ -63,6 +67,7 @@ struct Globals {
   std::unique_ptr<wl_shell> wl_shell;
   std::unique_ptr<wl_seat> wl_seat;
   std::unique_ptr<wp_presentation> wp_presentation;
+  std::unique_ptr<zaura_output_manager> zaura_output_manager;
   std::unique_ptr<zaura_shell> zaura_shell;
   std::unique_ptr<zwp_linux_dmabuf_v1> zwp_linux_dmabuf_v1;
   std::unique_ptr<wl_subcompositor> wl_subcompositor;
@@ -74,6 +79,7 @@ struct Globals {
       zwp_linux_explicit_synchronization_v1;
   std::unique_ptr<zcr_vsync_feedback_v1> zcr_vsync_feedback_v1;
   std::unique_ptr<wl_data_device_manager> wl_data_device_manager;
+  std::unique_ptr<wp_content_type_manager_v1> wp_content_type_manager_v1;
   std::unique_ptr<wp_viewporter> wp_viewporter;
   std::unique_ptr<zxdg_shell_v6> zxdg_shell_v6;
   std::unique_ptr<xdg_wm_base> xdg_wm_base;
@@ -81,11 +87,14 @@ struct Globals {
   std::unique_ptr<zcr_secure_output_v1> zcr_secure_output_v1;
   std::unique_ptr<zcr_alpha_compositing_v1> zcr_alpha_compositing_v1;
   std::unique_ptr<zcr_stylus_v2> zcr_stylus_v2;
+  std::unique_ptr<zcr_color_manager_v1> zcr_color_manager_v1;
   std::unique_ptr<zcr_cursor_shapes_v1> zcr_cursor_shapes_v1;
   std::unique_ptr<zcr_gaming_input_v2> zcr_gaming_input_v2;
   std::unique_ptr<zcr_text_input_extension_v1> zcr_text_input_extension_v1;
   std::unique_ptr<zcr_keyboard_configuration_v1> zcr_keyboard_configuration_v1;
   std::unique_ptr<zcr_keyboard_extension_v1> zcr_keyboard_extension_v1;
+  std::unique_ptr<zwp_keyboard_shortcuts_inhibit_manager_v1>
+      zwp_keyboard_shortcuts_inhibit_manager_v1;
   std::unique_ptr<zcr_notification_shell_v1> zcr_notification_shell_v1;
   std::unique_ptr<zcr_remote_shell_v1> zcr_remote_shell_v1;
   std::unique_ptr<zcr_remote_shell_v2> zcr_remote_shell_v2;
@@ -100,6 +109,8 @@ struct Globals {
   std::unique_ptr<zxdg_output_manager_v1> zxdg_output_manager_v1;
   std::unique_ptr<weston_test> weston_test;
   std::unique_ptr<zwp_idle_inhibit_manager_v1> zwp_idle_inhibit_manager_v1;
+  std::unique_ptr<wp_single_pixel_buffer_manager_v1>
+      wp_single_pixel_buffer_manager_v1;
 };
 
 typedef void (*InterfaceRegistryCallback)(Globals*,
@@ -152,6 +163,7 @@ void RegistryHandler(void* data,
           REGISTRY_CALLBACK(wl_shell, wl_shell),
           REGISTRY_CALLBACK(wl_seat, wl_seat),
           REGISTRY_CALLBACK(wp_presentation, wp_presentation),
+          REGISTRY_CALLBACK(zaura_output_manager, zaura_output_manager),
           REGISTRY_CALLBACK(zaura_shell, zaura_shell),
           REGISTRY_CALLBACK(zwp_linux_dmabuf_v1, zwp_linux_dmabuf_v1),
           REGISTRY_CALLBACK(wl_subcompositor, wl_subcompositor),
@@ -163,6 +175,10 @@ void RegistryHandler(void* data,
                             zwp_linux_explicit_synchronization_v1),
           REGISTRY_CALLBACK(zcr_vsync_feedback_v1, zcr_vsync_feedback_v1),
           REGISTRY_CALLBACK(wl_data_device_manager, wl_data_device_manager),
+          REGISTRY_CALLBACK(wp_content_type_manager_v1,
+                            wp_content_type_manager_v1),
+          REGISTRY_CALLBACK(wp_single_pixel_buffer_manager_v1,
+                            wp_single_pixel_buffer_manager_v1),
           REGISTRY_CALLBACK(wp_viewporter, wp_viewporter),
           REGISTRY_CALLBACK(zxdg_shell_v6, zxdg_shell_v6),
           REGISTRY_CALLBACK(xdg_wm_base, xdg_wm_base),
@@ -171,12 +187,15 @@ void RegistryHandler(void* data,
           REGISTRY_CALLBACK(zcr_secure_output_v1, zcr_secure_output_v1),
           REGISTRY_CALLBACK(zcr_alpha_compositing_v1, zcr_alpha_compositing_v1),
           REGISTRY_CALLBACK(zcr_stylus_v2, zcr_stylus_v2),
+          REGISTRY_CALLBACK(zcr_color_manager_v1, zcr_color_manager_v1),
           REGISTRY_CALLBACK(zcr_cursor_shapes_v1, zcr_cursor_shapes_v1),
           REGISTRY_CALLBACK(zcr_gaming_input_v2, zcr_gaming_input_v2),
           REGISTRY_CALLBACK(zcr_keyboard_configuration_v1,
                             zcr_keyboard_configuration_v1),
           REGISTRY_CALLBACK(zcr_keyboard_extension_v1,
                             zcr_keyboard_extension_v1),
+          REGISTRY_CALLBACK(zwp_keyboard_shortcuts_inhibit_manager_v1,
+                            zwp_keyboard_shortcuts_inhibit_manager_v1),
           REGISTRY_CALLBACK(zcr_notification_shell_v1,
                             zcr_notification_shell_v1),
           REGISTRY_CALLBACK(zcr_remote_shell_v1, zcr_remote_shell_v1),

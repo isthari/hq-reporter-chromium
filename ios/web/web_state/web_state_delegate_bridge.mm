@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -68,6 +68,20 @@ JavaScriptDialogPresenter* WebStateDelegateBridge::GetJavaScriptDialogPresenter(
     return [delegate_ javaScriptDialogPresenterForWebState:source];
   }
   return nullptr;
+}
+
+void WebStateDelegateBridge::HandlePermissionsDecisionRequest(
+    WebState* source,
+    NSArray<NSNumber*>* permissions,
+    WebStatePermissionDecisionHandler handler) API_AVAILABLE(ios(15.0)) {
+  if ([delegate_ respondsToSelector:@selector(webState:
+                                        handlePermissions:decisionHandler:)]) {
+    [delegate_ webState:source
+        handlePermissions:permissions
+          decisionHandler:handler];
+  } else {
+    handler(PermissionDecisionShowDefaultPrompt);
+  }
 }
 
 void WebStateDelegateBridge::OnAuthRequired(

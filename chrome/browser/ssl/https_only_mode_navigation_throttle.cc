@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,30 +6,27 @@
 
 #include "base/feature_list.h"
 #include "base/metrics/histogram_functions.h"
-#include "base/task/post_task.h"
 #include "base/time/time.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ssl/https_only_mode_tab_helper.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "components/security_interstitials/content/security_interstitial_tab_helper.h"
+#include "components/security_interstitials/core/https_only_mode_metrics.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
 #include "net/base/net_errors.h"
+
+using security_interstitials::https_only_mode::Event;
+using security_interstitials::https_only_mode::RecordHttpsFirstModeNavigation;
 
 namespace {
 
 // Time that the throttle will wait before canceling the upgraded navigation and
 // showing the HTTPS-Only Mode interstitial.
 base::TimeDelta g_fallback_delay = base::Seconds(3);
-
-// Helper to record an HTTPS-First Mode navigation event.
-void RecordHttpsFirstModeNavigation(
-    HttpsOnlyModeNavigationThrottle::Event event) {
-  base::UmaHistogramEnumeration("Security.HttpsFirstMode.NavigationEvent",
-                                event);
-}
 
 }  // namespace
 
@@ -92,18 +89,27 @@ HttpsOnlyModeNavigationThrottle::WillFailRequest() {
   auto* tab_helper = HttpsOnlyModeTabHelper::FromWebContents(contents);
   if (tab_helper->is_navigation_upgraded()) {
     // Record failure type metrics for upgraded navigations.
-    RecordHttpsFirstModeNavigation(Event::kUpgradeFailed);
+    RecordHttpsFirstModeNavigation(
+        Event::kUpgradeFailed,
+        security_interstitials::https_only_mode::HttpInterstitialState{});
     if (net::IsCertificateError(handle->GetNetErrorCode())) {
-      RecordHttpsFirstModeNavigation(Event::kUpgradeCertError);
+      RecordHttpsFirstModeNavigation(
+          Event::kUpgradeCertError,
+          security_interstitials::https_only_mode::HttpInterstitialState{});
     } else if (handle->GetNetErrorCode() == net::ERR_TIMED_OUT) {
-      RecordHttpsFirstModeNavigation(Event::kUpgradeTimedOut);
+      RecordHttpsFirstModeNavigation(
+          Event::kUpgradeTimedOut,
+          security_interstitials::https_only_mode::HttpInterstitialState{});
     } else {
-      RecordHttpsFirstModeNavigation(Event::kUpgradeNetError);
+      RecordHttpsFirstModeNavigation(
+          Event::kUpgradeNetError,
+          security_interstitials::https_only_mode::HttpInterstitialState{});
     }
 
     std::unique_ptr<security_interstitials::HttpsOnlyModeBlockingPage>
         blocking_page = blocking_page_factory_->CreateHttpsOnlyModeBlockingPage(
-            contents, handle->GetURL());
+            contents, handle->GetURL(),
+            security_interstitials::https_only_mode::HttpInterstitialState());
     std::string interstitial_html = blocking_page->GetHTMLContents();
     security_interstitials::SecurityInterstitialTabHelper::
         AssociateBlockingPage(handle, std::move(blocking_page));
@@ -147,7 +153,9 @@ HttpsOnlyModeNavigationThrottle::WillRedirectRequest() {
     bool timer_started =
         navigation_handle()->SetNavigationTimeout(g_fallback_delay);
     if (timer_started) {
-      RecordHttpsFirstModeNavigation(Event::kUpgradeAttempted);
+      RecordHttpsFirstModeNavigation(
+          Event::kUpgradeAttempted,
+          security_interstitials::https_only_mode::HttpInterstitialState{});
     }
   }
 
@@ -160,7 +168,9 @@ HttpsOnlyModeNavigationThrottle::WillProcessResponse() {
   auto* tab_helper = HttpsOnlyModeTabHelper::FromWebContents(
                         navigation_handle()->GetWebContents());
   if (tab_helper->is_navigation_upgraded()) {
-    RecordHttpsFirstModeNavigation(Event::kUpgradeSucceeded);
+    RecordHttpsFirstModeNavigation(
+        Event::kUpgradeSucceeded,
+        security_interstitials::https_only_mode::HttpInterstitialState{});
     tab_helper->set_is_navigation_upgraded(false);
   }
 

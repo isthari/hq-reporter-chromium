@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,8 +14,9 @@
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/wm/window_state.h"
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/memory/raw_ptr.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/window.h"
 #include "ui/display/manager/display_manager.h"
@@ -46,7 +47,7 @@ class LoginTestWidgetDelegate : public views::WidgetDelegate {
   bool CanActivate() const override { return true; }
 
  private:
-  views::Widget* widget_;
+  raw_ptr<views::Widget, ExperimentalAsh> widget_;
 };
 
 }  // namespace
@@ -200,8 +201,7 @@ TEST_F(LockLayoutManagerTest, AccessibilityPanel) {
       display::Screen::GetScreen()->GetPrimaryDisplay();
 
   gfx::Rect target_bounds = primary_display.bounds();
-  target_bounds.Inset(0 /* left */, accessibility_panel_height /* top */,
-                      0 /* right */, 0 /* bottom */);
+  target_bounds.Inset(gfx::Insets().set_top(accessibility_panel_height));
 
   EXPECT_EQ(target_bounds, window->GetBoundsInScreen());
 
@@ -211,8 +211,7 @@ TEST_F(LockLayoutManagerTest, AccessibilityPanel) {
   SetAccessibilityPanelHeight(accessibility_panel_height);
 
   target_bounds = primary_display.bounds();
-  target_bounds.Inset(0 /* left */, accessibility_panel_height /* top */,
-                      0 /* right */, 0 /* bottom */);
+  target_bounds.Inset(gfx::Insets().set_top(accessibility_panel_height));
 
   EXPECT_EQ(target_bounds, window->GetBoundsInScreen());
 }
@@ -360,7 +359,7 @@ TEST_F(LockLayoutManagerTest, AccessibilityPanelWithMultipleMonitors) {
 
   gfx::Rect target_bounds =
       display::Screen::GetScreen()->GetPrimaryDisplay().bounds();
-  target_bounds.Inset(0, kAccessibilityPanelHeight, 0, 0);
+  target_bounds.Inset(gfx::Insets::TLBR(kAccessibilityPanelHeight, 0, 0, 0));
   EXPECT_EQ(target_bounds, window->GetBoundsInScreen());
 
   // Restore window with bounds in the second display, the window should be

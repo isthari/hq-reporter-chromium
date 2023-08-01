@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,9 @@
 #import "components/pref_registry/pref_registry_syncable.h"
 #import "components/sync_preferences/pref_service_mock_factory.h"
 #import "components/sync_preferences/pref_service_syncable.h"
-#import "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
-#import "ios/chrome/browser/pref_names.h"
-#import "ios/chrome/browser/prefs/browser_prefs.h"
+#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/prefs/browser_prefs.h"
+#import "ios/chrome/browser/shared/model/prefs/pref_names.h"
 #import "ios/web/public/test/web_task_environment.h"
 #import "testing/platform_test.h"
 
@@ -26,7 +26,7 @@ class UserApprovedAccountListManagerTest : public PlatformTest {
   // Returns AccountInfo1.
   CoreAccountInfo GetAccountInfo1() {
     CoreAccountInfo account_info;
-    account_info.account_id = CoreAccountId("test1");
+    account_info.account_id = CoreAccountId::FromGaiaId("test1");
     account_info.gaia = "test1";
     account_info.email = "test1@gmail.com";
     return account_info;
@@ -35,7 +35,7 @@ class UserApprovedAccountListManagerTest : public PlatformTest {
   // Returns AccountInfo2.
   CoreAccountInfo GetAccountInfo2() {
     CoreAccountInfo account_info;
-    account_info.account_id = CoreAccountId("test2");
+    account_info.account_id = CoreAccountId::FromGaiaId("test2");
     account_info.gaia = "test2";
     account_info.email = "test2@gmail.com";
     return account_info;

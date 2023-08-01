@@ -1,8 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/core/editing/substring_util.h"
+
+#include <CoreFoundation/CoreFoundation.h>
 
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/web/web_script_source.h"
@@ -14,6 +16,10 @@
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
 #include "third_party/blink/renderer/platform/testing/url_test_helpers.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 namespace blink {
 
@@ -51,25 +57,26 @@ TEST_F(SubStringUtilTest, SubstringUtil) {
       static_cast<WebLocalFrameImpl*>(web_view->MainFrame());
 
   gfx::Point baseline_point;
-  NSAttributedString* result = SubstringUtil::AttributedSubstringInRange(
-      frame->GetFrame(), 10, 3, &baseline_point);
-  ASSERT_TRUE(!!result);
+  base::ScopedCFTypeRef<CFAttributedStringRef> result =
+      SubstringUtil::AttributedSubstringInRange(frame->GetFrame(), 10, 3,
+                                                baseline_point);
+  ASSERT_TRUE(result);
 
   gfx::Point point(baseline_point);
-  result = SubstringUtil::AttributedWordAtPoint(frame->FrameWidgetImpl(), point,
-                                                baseline_point);
-  ASSERT_TRUE(!!result);
+  result.reset(SubstringUtil::AttributedWordAtPoint(frame->FrameWidgetImpl(),
+                                                    point, baseline_point));
+  ASSERT_TRUE(result);
 
   web_view->SetZoomLevel(3);
 
-  result = SubstringUtil::AttributedSubstringInRange(frame->GetFrame(), 5, 5,
-                                                     &baseline_point);
-  ASSERT_TRUE(!!result);
+  result.reset(SubstringUtil::AttributedSubstringInRange(frame->GetFrame(), 5,
+                                                         5, baseline_point));
+  ASSERT_TRUE(result);
 
   point = baseline_point;
-  result = SubstringUtil::AttributedWordAtPoint(frame->FrameWidgetImpl(), point,
-                                                baseline_point);
-  ASSERT_TRUE(!!result);
+  result.reset(SubstringUtil::AttributedWordAtPoint(frame->FrameWidgetImpl(),
+                                                    point, baseline_point));
+  ASSERT_TRUE(result);
 }
 
 TEST_F(SubStringUtilTest, SubstringUtilBaselinePoint) {
@@ -82,12 +89,11 @@ TEST_F(SubStringUtilTest, SubstringUtilBaselinePoint) {
       static_cast<WebLocalFrameImpl*>(web_view->MainFrame());
 
   gfx::Point old_point;
-  SubstringUtil::AttributedSubstringInRange(frame->GetFrame(), 3, 1,
-                                            &old_point);
+  SubstringUtil::AttributedSubstringInRange(frame->GetFrame(), 3, 1, old_point);
 
   gfx::Point new_point;
   SubstringUtil::AttributedSubstringInRange(frame->GetFrame(), 3, 20,
-                                            &new_point);
+                                            new_point);
 
   EXPECT_EQ(old_point.x(), new_point.x());
   EXPECT_EQ(old_point.y(), new_point.y());
@@ -101,19 +107,19 @@ TEST_F(SubStringUtilTest, SubstringUtilPinchZoom) {
   web_view->MainFrameWidget()->Resize(gfx::Size(400, 400));
   WebLocalFrameImpl* frame =
       static_cast<WebLocalFrameImpl*>(web_view->MainFrame());
-  NSAttributedString* result = nil;
 
   gfx::Point baseline_point;
-  result = SubstringUtil::AttributedSubstringInRange(frame->GetFrame(), 10, 3,
-                                                     &baseline_point);
-  ASSERT_TRUE(!!result);
+  base::ScopedCFTypeRef<CFAttributedStringRef> result =
+      SubstringUtil::AttributedSubstringInRange(frame->GetFrame(), 10, 3,
+                                                baseline_point);
+  ASSERT_TRUE(result);
 
   web_view->SetPageScaleFactor(3);
 
   gfx::Point point_after_zoom;
-  result = SubstringUtil::AttributedSubstringInRange(frame->GetFrame(), 10, 3,
-                                                     &point_after_zoom);
-  ASSERT_TRUE(!!result);
+  result.reset(SubstringUtil::AttributedSubstringInRange(frame->GetFrame(), 10,
+                                                         3, point_after_zoom));
+  ASSERT_TRUE(result);
 
   // We won't have moved by a full factor of 3 because of the translations, but
   // we should move by a factor of >2.
@@ -135,13 +141,14 @@ TEST_F(SubStringUtilTest, SubstringUtilIframe) {
       To<LocalFrame>(main_frame->GetFrame()->Tree().FirstChild()));
 
   gfx::Point baseline_point;
-  NSAttributedString* result = SubstringUtil::AttributedSubstringInRange(
-      child_frame->GetFrame(), 11, 7, &baseline_point);
+  base::ScopedCFTypeRef<CFAttributedStringRef> result =
+      SubstringUtil::AttributedSubstringInRange(child_frame->GetFrame(), 11, 7,
+                                                baseline_point);
   ASSERT_NE(result, nullptr);
 
   gfx::Point point(baseline_point);
-  result = SubstringUtil::AttributedWordAtPoint(main_frame->FrameWidgetImpl(),
-                                                point, baseline_point);
+  result.reset(SubstringUtil::AttributedWordAtPoint(
+      main_frame->FrameWidgetImpl(), point, baseline_point));
   ASSERT_NE(result, nullptr);
 
   int y_before_change = baseline_point.y();
@@ -151,8 +158,8 @@ TEST_F(SubStringUtilTest, SubstringUtilIframe) {
       "document.querySelector('iframe').style.marginTop = '100px';"));
 
   point = gfx::Point(point.x(), point.y() + 100);
-  result = SubstringUtil::AttributedWordAtPoint(main_frame->FrameWidgetImpl(),
-                                                point, baseline_point);
+  result.reset(SubstringUtil::AttributedWordAtPoint(
+      main_frame->FrameWidgetImpl(), point, baseline_point));
   ASSERT_NE(result, nullptr);
 
   EXPECT_EQ(y_before_change, baseline_point.y() - 100);

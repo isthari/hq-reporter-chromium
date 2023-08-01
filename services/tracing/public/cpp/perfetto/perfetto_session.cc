@@ -1,9 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 
+#include "base/task/sequenced_task_runner.h"
 #include "services/tracing/public/cpp/perfetto/perfetto_session.h"
 #include "services/tracing/public/cpp/perfetto/trace_packet_tokenizer.h"
 
@@ -91,8 +92,7 @@ void ReadTraceAsJson(
     }
   }
   if (!args.has_more)
-    task_runner->PostTask(FROM_HERE,
-                          base::BindOnce(std::move(on_data_complete_callback)));
+    task_runner->PostTask(FROM_HERE, std::move(on_data_complete_callback));
 }
 
 void ReadTraceAsProtobuf(

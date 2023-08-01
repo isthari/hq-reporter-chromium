@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,19 +9,22 @@ import android.view.View.OnClickListener;
 import android.view.View.OnLongClickListener;
 import android.view.ViewStub;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.Callback;
 import org.chromium.base.CallbackController;
-import org.chromium.base.supplier.BooleanSupplier;
-import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.browser.device.DeviceClassManager;
+import org.chromium.chrome.browser.layouts.LayoutType;
 import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.search_engines.TemplateUrlServiceFactory;
 import org.chromium.chrome.browser.tabmodel.IncognitoStateProvider;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.theme.ThemeColorProvider;
 import org.chromium.chrome.browser.toolbar.ButtonData;
+import org.chromium.chrome.browser.toolbar.ButtonDataProvider;
 import org.chromium.chrome.browser.toolbar.R;
 import org.chromium.chrome.browser.toolbar.TabCountProvider;
 import org.chromium.chrome.browser.toolbar.TabSwitcherButtonCoordinator;
@@ -34,6 +37,8 @@ import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.ui.modelutil.PropertyModel;
 import org.chromium.ui.modelutil.PropertyModelChangeProcessor;
 
+import java.util.function.BooleanSupplier;
+
 /**
  * The controller for the StartSurfaceToolbar. This class handles all interactions that the
  * StartSurfaceToolbar has with the outside world. Lazily creates the tab toolbar the first time
@@ -43,6 +48,9 @@ public class StartSurfaceToolbarCoordinator {
     private final StartSurfaceToolbarMediator mToolbarMediator;
     private final ViewStub mStub;
     private final PropertyModel mPropertyModel;
+    private final TopToolbarInteractabilityManager mTopToolbarInteractabilityManager;
+    private final boolean mShouldCreateLogoInToolbar;
+
     private PropertyModelChangeProcessor mPropertyModelChangeProcessor;
     private StartSurfaceToolbarView mView;
     private TabModelSelector mTabModelSelector;
@@ -54,19 +62,17 @@ public class StartSurfaceToolbarCoordinator {
     private OnLongClickListener mTabSwitcherLongClickListener;
     private MenuButtonCoordinator mMenuButtonCoordinator;
     private CallbackController mCallbackController = new CallbackController();
+    private boolean mIsNativeInitialized;
 
     StartSurfaceToolbarCoordinator(ViewStub startSurfaceToolbarStub,
-            UserEducationHelper userEducationHelper,
-            ObservableSupplier<Boolean> identityDiscStateSupplier, ThemeColorProvider provider,
-            MenuButtonCoordinator menuButtonCoordinator,
+            UserEducationHelper userEducationHelper, ButtonDataProvider identityDiscController,
+            ThemeColorProvider provider, MenuButtonCoordinator menuButtonCoordinator,
             Supplier<ButtonData> identityDiscButtonSupplier, boolean isGridTabSwitcherEnabled,
-            ObservableSupplier<Boolean> homepageEnabledSupplier,
-            ObservableSupplier<Boolean> startSurfaceAsHomepageSupplier,
-            ObservableSupplier<Boolean> homepageManagedByPolicySupplier,
-            OnClickListener homeButtonOnClickHandler, boolean isTabGroupsAndroidContinuationEnabled,
+            boolean isTabToGtsAnimationEnabled, boolean isTabGroupsAndroidContinuationEnabled,
             BooleanSupplier isIncognitoModeEnabledSupplier,
-            ObservableSupplier<Profile> profileSupplier,
-            Callback<LoadUrlParams> logoClickedCallback) {
+            Callback<LoadUrlParams> logoClickedCallback, boolean isRefactorEnabled,
+            boolean shouldCreateLogoInToolbar, Callback<Boolean> finishedTransitionCallback,
+            ToolbarColorObserverManager toolbarColorObserverManager) {
         mStub = startSurfaceToolbarStub;
 
         mPropertyModel =
@@ -75,12 +81,15 @@ public class StartSurfaceToolbarCoordinator {
                                 !StartSurfaceConfiguration
                                          .START_SURFACE_HIDE_INCOGNITO_SWITCH_NO_TAB.getValue())
                         .with(StartSurfaceToolbarProperties.MENU_IS_VISIBLE, true)
-                        .with(StartSurfaceToolbarProperties.IS_VISIBLE, true)
+                        .with(StartSurfaceToolbarProperties.IS_VISIBLE, false)
                         .with(StartSurfaceToolbarProperties.GRID_TAB_SWITCHER_ENABLED,
                                 isGridTabSwitcherEnabled)
                         .build();
 
-        mToolbarMediator = new StartSurfaceToolbarMediator(mPropertyModel,
+        mShouldCreateLogoInToolbar = shouldCreateLogoInToolbar;
+        boolean isTabToGtsFadeAnimationEnabled = isTabToGtsAnimationEnabled
+                && !DeviceClassManager.enableAccessibilityLayout(mStub.getContext());
+        mToolbarMediator = new StartSurfaceToolbarMediator(mStub.getContext(), mPropertyModel,
                 (iphCommandBuilder)
                         -> {
                     // TODO(crbug.com/865801): Replace the null check with an assert after fixing or
@@ -90,19 +99,16 @@ public class StartSurfaceToolbarCoordinator {
                             iphCommandBuilder.setAnchorView(mView.getIdentityDiscView()).build());
                 },
                 StartSurfaceConfiguration.START_SURFACE_HIDE_INCOGNITO_SWITCH_NO_TAB.getValue(),
-                StartSurfaceConfiguration.HOME_BUTTON_ON_GRID_TAB_SWITCHER.getValue(),
-                menuButtonCoordinator, identityDiscStateSupplier, identityDiscButtonSupplier,
-                homepageEnabledSupplier, startSurfaceAsHomepageSupplier,
-                homepageManagedByPolicySupplier, homeButtonOnClickHandler,
-                StartSurfaceConfiguration.TAB_COUNT_BUTTON_ON_START_SURFACE.getValue(),
-                isTabGroupsAndroidContinuationEnabled, userEducationHelper,
-                isIncognitoModeEnabledSupplier,
-                StartSurfaceConfiguration.shouldShowAnimationsForFinale()
-                        && !DeviceClassManager.enableAccessibilityLayout(mStub.getContext()),
-                profileSupplier, logoClickedCallback);
+                menuButtonCoordinator, identityDiscController, identityDiscButtonSupplier,
+                isTabToGtsFadeAnimationEnabled, isTabGroupsAndroidContinuationEnabled,
+                isIncognitoModeEnabledSupplier, logoClickedCallback, isRefactorEnabled,
+                StartSurfaceConfiguration.IS_DOODLE_SUPPORTED.getValue(), shouldCreateLogoInToolbar,
+                finishedTransitionCallback, toolbarColorObserverManager);
 
         mThemeColorProvider = provider;
         mMenuButtonCoordinator = menuButtonCoordinator;
+        mTopToolbarInteractabilityManager = new TopToolbarInteractabilityManager(
+                enabled -> mToolbarMediator.setNewTabEnabled(enabled));
     }
 
     /**
@@ -195,20 +201,23 @@ public class StartSurfaceToolbarCoordinator {
 
     /**
      * Called when start surface state is changed.
-     * @param newState The new {@link StartSurfaceState}.
+     * @param newState The new {@link StartSurfaceState}. Should be removed after refactor is
+     *         enabled.
      * @param shouldShowStartSurfaceToolbar Whether or not should show start surface toolbar.
+     * @param newLayoutType The new {@link LayoutType}. Only used when refactor is enabled.
      */
-    void onStartSurfaceStateChanged(
-            @StartSurfaceState int newState, boolean shouldShowStartSurfaceToolbar) {
+    void onStartSurfaceStateChanged(@Nullable @StartSurfaceState Integer newState,
+            boolean shouldShowStartSurfaceToolbar, @Nullable @LayoutType Integer newLayoutType) {
         if (shouldShowStartSurfaceToolbar && !isInflated()) inflate();
-        mToolbarMediator.onStartSurfaceStateChanged(newState, shouldShowStartSurfaceToolbar);
+        mToolbarMediator.onStartSurfaceStateChanged(
+                newState == null ? StartSurfaceState.NOT_SHOWN : newState,
+                shouldShowStartSurfaceToolbar,
+                newLayoutType == null ? LayoutType.NONE : newLayoutType);
     }
 
-    /**
-     * Called when default search engine changes.
-     */
-    void onDefaultSearchEngineChanged() {
-        mToolbarMediator.onDefaultSearchEngineChanged();
+    void initLogoWithNative() {
+        mIsNativeInitialized = true;
+        mToolbarMediator.initLogoWithNative();
     }
 
     /**
@@ -220,11 +229,20 @@ public class StartSurfaceToolbarCoordinator {
     }
 
     /**
-     * @param toolbarHeight The height of start surface toolbar.
      * @return Whether or not toolbar phone layout view should be shown.
      */
-    boolean shouldShowRealSearchBox(int toolbarHeight) {
-        return mToolbarMediator.shouldShowRealSearchBox(toolbarHeight);
+    boolean shouldShowRealSearchBox() {
+        boolean isBigLogoShownInContent = !mShouldCreateLogoInToolbar && mIsNativeInitialized
+                && TemplateUrlServiceFactory.getForProfile(Profile.getLastUsedRegularProfile())
+                           .doesDefaultSearchEngineHaveLogo();
+        // This value should be equal to
+        // |fakeSearchBoxToRealSearchBoxTop + realVerticalMargin| in
+        // StartSurfaceCoordinator#initializeOffsetChangedListener
+        int fakeSearchBoxMarginToScreenTop = getDimenPixel(R.dimen.toolbar_height_no_shadow)
+                + (isBigLogoShownInContent
+                                ? getDimenPixel(R.dimen.start_surface_content_logo_height)
+                                : getDimenPixel(R.dimen.start_surface_fake_search_box_top_margin));
+        return mToolbarMediator.shouldShowRealSearchBox(fakeSearchBoxMarginToScreenTop);
     }
 
     /** Returns whether it's on the start surface homepage.*/
@@ -232,11 +250,20 @@ public class StartSurfaceToolbarCoordinator {
         return mToolbarMediator.isOnHomepage();
     }
 
+    boolean isShowingTabSwitcher() {
+        return mToolbarMediator.isOnGridTabSwitcher();
+    }
+
     /**
      * @param highlight If the new tab button should be highlighted.
      */
     void setNewTabButtonHighlight(boolean highlight) {
         mToolbarMediator.setNewTabButtonHighlight(highlight);
+    }
+
+    @NonNull
+    TopToolbarInteractabilityManager getTopToolbarInteractabilityManager() {
+        return mTopToolbarInteractabilityManager;
     }
 
     private void inflate() {
@@ -248,31 +275,31 @@ public class StartSurfaceToolbarCoordinator {
         mPropertyModelChangeProcessor = PropertyModelChangeProcessor.create(
                 mPropertyModel, mView, StartSurfaceToolbarViewBinder::bind);
 
-        mToolbarMediator.setHomeButtonView(mView.findViewById(R.id.home_button_on_tab_switcher));
         mToolbarMediator.onLogoViewReady(mView.findViewById(R.id.logo));
 
-        if (StartSurfaceConfiguration.TAB_COUNT_BUTTON_ON_START_SURFACE.getValue()) {
-            mTabSwitcherButtonView = mView.findViewById(R.id.start_tab_switcher_button);
-            if (mTabSwitcherLongClickListener != null) {
-                mTabSwitcherButtonView.setOnLongClickListener(mTabSwitcherLongClickListener);
-                mTabSwitcherLongClickListener = null;
-            }
-            mTabSwitcherButtonCoordinator =
-                    new TabSwitcherButtonCoordinator(mTabSwitcherButtonView);
-            mTabSwitcherButtonCoordinator.setThemeColorProvider(mThemeColorProvider);
-            if (mTabCountProvider != null) {
-                mTabSwitcherButtonCoordinator.setTabCountProvider(mTabCountProvider);
-                mTabCountProvider = null;
-            }
-            if (mTabSwitcherClickListener != null) {
-                mTabSwitcherButtonCoordinator.setTabSwitcherListener(mTabSwitcherClickListener);
-                mTabSwitcherClickListener = null;
-            }
+        mTabSwitcherButtonView = mView.findViewById(R.id.start_tab_switcher_button);
+        if (mTabSwitcherLongClickListener != null) {
+            mTabSwitcherButtonView.setOnLongClickListener(mTabSwitcherLongClickListener);
+            mTabSwitcherLongClickListener = null;
+        }
+        mTabSwitcherButtonCoordinator = new TabSwitcherButtonCoordinator(mTabSwitcherButtonView);
+        mTabSwitcherButtonCoordinator.setThemeColorProvider(mThemeColorProvider);
+        if (mTabCountProvider != null) {
+            mTabSwitcherButtonCoordinator.setTabCountProvider(mTabCountProvider);
+            mTabCountProvider = null;
+        }
+        if (mTabSwitcherClickListener != null) {
+            mTabSwitcherButtonCoordinator.setTabSwitcherListener(mTabSwitcherClickListener);
+            mTabSwitcherClickListener = null;
         }
     }
 
     private boolean isInflated() {
         return mView != null;
+    }
+
+    private int getDimenPixel(int id) {
+        return mStub.getResources().getDimensionPixelOffset(id);
     }
 
     @VisibleForTesting

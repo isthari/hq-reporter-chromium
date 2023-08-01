@@ -1,16 +1,18 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/toolbar/chrome_labs_button.h"
+
+#include "base/memory/raw_ptr.h"
 #include "base/test/scoped_feature_list.h"
 #include "chrome/browser/about_flags.h"
+#include "chrome/browser/ui/toolbar/chrome_labs_model.h"
 #include "chrome/browser/ui/toolbar/chrome_labs_prefs.h"
 #include "chrome/browser/ui/ui_features.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/test_with_browser_view.h"
 #include "chrome/browser/ui/views/toolbar/chrome_labs_bubble_view.h"
-#include "chrome/browser/ui/views/toolbar/chrome_labs_bubble_view_model.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
 #include "chrome/browser/unexpire_flags.h"
 #include "components/flags_ui/feature_entry_macros.h"
@@ -38,23 +40,11 @@ constexpr char kFakeGaiaId[] = "1234567890";
 #endif
 
 const char kFirstTestFeatureId[] = "feature-1";
-const base::Feature kTestFeature1{"FeatureName1",
-                                  base::FEATURE_ENABLED_BY_DEFAULT};
+BASE_FEATURE(kTestFeature1, "FeatureName1", base::FEATURE_ENABLED_BY_DEFAULT);
 const char kSecondTestFeatureId[] = "feature-2";
-const base::Feature kTestFeature2{"FeatureName2",
-                                  base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kTestFeature2, "FeatureName2", base::FEATURE_DISABLED_BY_DEFAULT);
 const char kExpiredFlagTestFeatureId[] = "expired-feature";
-const base::Feature kTestFeatureExpired{"Expired",
-                                        base::FEATURE_DISABLED_BY_DEFAULT};
-
-// Experiment platform to use for feature flags.
-unsigned short GetPlatformToUse() {
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
-  return flags_ui::FlagsState::GetCurrentPlatform() | flags_ui::kOsCrOS;
-#else
-  return flags_ui::FlagsState::GetCurrentPlatform();
-#endif
-}
+BASE_FEATURE(kTestFeatureExpired, "Expired", base::FEATURE_DISABLED_BY_DEFAULT);
 
 }  // namespace
 
@@ -64,12 +54,12 @@ class ChromeLabsButtonTest : public TestWithBrowserView {
       :
 #if BUILDFLAG(IS_CHROMEOS_ASH)
         user_manager_(new ash::FakeChromeUserManager()),
-        user_manager_enabler_(base::WrapUnique(user_manager_)),
+        user_manager_enabler_(base::WrapUnique(user_manager_.get())),
 #endif
 
-        scoped_feature_entries_(
-            {{kFirstTestFeatureId, "", "", GetPlatformToUse(),
-              FEATURE_VALUE_TYPE(kTestFeature1)}}) {
+        scoped_feature_entries_({{kFirstTestFeatureId, "", "",
+                                  flags_ui::FlagsState::GetCurrentPlatform(),
+                                  FEATURE_VALUE_TYPE(kTestFeature1)}}) {
   }
   void SetUp() override {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -92,7 +82,7 @@ class ChromeLabsButtonTest : public TestWithBrowserView {
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
  protected:
-  ash::FakeChromeUserManager* user_manager_;
+  raw_ptr<ash::FakeChromeUserManager, ExperimentalAsh> user_manager_;
   user_manager::ScopedUserManager user_manager_enabler_;
 #endif
 
@@ -106,13 +96,13 @@ class ChromeLabsButtonTest : public TestWithBrowserView {
 TEST_F(ChromeLabsButtonTest, ShowAndHideChromeLabsBubbleOnPress) {
   ChromeLabsButton* labs_button =
       browser_view()->toolbar()->chrome_labs_button();
-  ChromeLabsCoordinator* coordinator =
-      labs_button->GetChromeLabsCoordinatorForTesting();
+  ChromeLabsCoordinator* coordinator = labs_button->GetChromeLabsCoordinator();
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   ash::OwnerSettingsServiceAsh* service_ =
       ash::OwnerSettingsServiceAshFactory::GetForBrowserContext(GetProfile());
-  labs_button->SetShouldCircumventDeviceCheckForTesting(true);
+  labs_button->GetChromeLabsCoordinator()
+      ->SetShouldCircumventDeviceCheckForTesting(true);
 #endif
 
   EXPECT_FALSE(coordinator->BubbleExists());
@@ -233,9 +223,9 @@ class ChromeLabsButtonOnlyExpiredFeaturesAvailableTest
     : public TestWithBrowserView {
  public:
   ChromeLabsButtonOnlyExpiredFeaturesAvailableTest()
-      : scoped_feature_entries_(
-            {{kExpiredFlagTestFeatureId, "", "", GetPlatformToUse(),
-              FEATURE_VALUE_TYPE(kTestFeatureExpired)}}) {
+      : scoped_feature_entries_({{kExpiredFlagTestFeatureId, "", "",
+                                  flags_ui::FlagsState::GetCurrentPlatform(),
+                                  FEATURE_VALUE_TYPE(kTestFeatureExpired)}}) {
     flags::testing::SetFlagExpiration(kExpiredFlagTestFeatureId, 0);
   }
   void SetUp() override {

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include "ash/ash_export.h"
 #include "ash/public/cpp/pagination/pagination_model_observer.h"
+#include "base/memory/raw_ptr.h"
 #include "ui/views/view.h"
 #include "ui/views/view_model.h"
 
@@ -57,6 +58,9 @@ class ASH_EXPORT FeaturePodsContainerView : public views::View,
   // Make sure button is visible by switching page if needed.
   void EnsurePageWithButton(views::View* button);
 
+  // PaginationModelObserver
+  void SelectedPageChanged(int old_selected, int new_selected) override;
+
   // views::View:
   gfx::Size CalculatePreferredSize() const override;
   void ChildVisibilityChanged(View* child) override;
@@ -104,10 +108,10 @@ class ASH_EXPORT FeaturePodsContainerView : public views::View,
   // PaginationModelObserver:
   void TransitionChanged() override;
 
-  UnifiedSystemTrayController* const controller_;
+  const raw_ptr<UnifiedSystemTrayController, ExperimentalAsh> controller_;
 
   // Owned by UnifiedSystemTrayModel.
-  PaginationModel* const pagination_model_;
+  const raw_ptr<PaginationModel, ExperimentalAsh> pagination_model_;
 
   // The last |expanded_amount| passed to SetExpandedAmount().
   double expanded_amount_;

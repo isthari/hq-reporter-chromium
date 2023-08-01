@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include <utility>
 
-#include "base/bind.h"
 #include "base/debug/alias.h"
+#include "base/functional/bind.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "ui/accessibility/ax_enums.mojom.h"
@@ -90,7 +90,7 @@ bool Button::DefaultButtonControllerDelegate::ShouldEnterHoveredState() {
 }
 
 InkDrop* Button::DefaultButtonControllerDelegate::GetInkDrop() {
-  return InkDrop::Get(button())->GetInkDrop();
+  return InkDrop::Get(button()->ink_drop_view())->GetInkDrop();
 }
 
 int Button::DefaultButtonControllerDelegate::GetDragOperations(
@@ -124,6 +124,30 @@ Button::PressedCallback& Button::PressedCallback::operator=(PressedCallback&&) =
 
 Button::PressedCallback::~PressedCallback() = default;
 
+Button::ScopedAnchorHighlight::ScopedAnchorHighlight(
+    base::WeakPtr<Button> button)
+    : button_(button) {}
+Button::ScopedAnchorHighlight::~ScopedAnchorHighlight() {
+  if (button_) {
+    button_->ReleaseAnchorHighlight();
+  }
+}
+Button::ScopedAnchorHighlight::ScopedAnchorHighlight(
+    Button::ScopedAnchorHighlight&&) = default;
+
+// We need to implement this one manually because the default move assignment
+// operator does not call the destructor on `this`. That leads to us failing to
+// release our reference on `button_`.
+Button::ScopedAnchorHighlight& Button::ScopedAnchorHighlight::operator=(
+    Button::ScopedAnchorHighlight&& other) {
+  if (button_) {
+    button_->ReleaseAnchorHighlight();
+  }
+
+  button_ = std::move(other.button_);
+  return *this;
+}
+
 // static
 constexpr Button::ButtonState Button::kButtonStates[STATE_COUNT];
 
@@ -151,7 +175,7 @@ Button::ButtonState Button::GetButtonStateFrom(ui::NativeTheme::State state) {
     case ui::NativeTheme::kPressed:
       return Button::STATE_PRESSED;
     case ui::NativeTheme::kNumStates:
-      NOTREACHED();
+      NOTREACHED_NORETURN();
   }
   return Button::STATE_NORMAL;
 }
@@ -161,11 +185,15 @@ Button::~Button() = default;
 void Button::SetTooltipText(const std::u16string& tooltip_text) {
   if (tooltip_text == tooltip_text_)
     return;
+
+  if (GetAccessibleName().empty() || GetAccessibleName() == tooltip_text_) {
+    SetAccessibleName(tooltip_text);
+  }
+
   tooltip_text_ = tooltip_text;
   OnSetTooltipText(tooltip_text);
   TooltipTextChanged();
   OnPropertyChanged(&tooltip_text_, kPropertyEffectsNone);
-  NotifyAccessibilityEvent(ax::mojom::Event::kTextChanged, true);
 }
 
 std::u16string Button::GetTooltipText() const {
@@ -176,16 +204,11 @@ void Button::SetCallback(PressedCallback callback) {
   callback_ = std::move(callback);
 }
 
-void Button::SetAccessibleName(const std::u16string& name) {
-  if (name == accessible_name_)
-    return;
-  accessible_name_ = name;
-  OnPropertyChanged(&accessible_name_, kPropertyEffectsNone);
-  NotifyAccessibilityEvent(ax::mojom::Event::kTextChanged, true);
-}
-
-const std::u16string& Button::GetAccessibleName() const {
-  return accessible_name_.empty() ? tooltip_text_ : accessible_name_;
+void Button::AdjustAccessibleName(std::u16string& new_name,
+                                  ax::mojom::NameFrom& name_from) {
+  if (new_name.empty()) {
+    new_name = tooltip_text_;
+  }
 }
 
 Button::ButtonState Button::GetState() const {
@@ -196,9 +219,7 @@ void Button::SetState(ButtonState state) {
   if (state == state_)
     return;
 
-  if (animate_on_state_change_ &&
-      (!is_throbbing_ || !hover_animation_.is_animating())) {
-    is_throbbing_ = false;
+  if (animate_on_state_change_) {
     if ((state_ == STATE_HOVERED) && (state == STATE_NORMAL)) {
       // For HOVERED -> NORMAL, animate from hovered (1) to not hovered (0).
       hover_animation_.Hide();
@@ -230,20 +251,6 @@ void Button::SetTag(int tag) {
     return;
   tag_ = tag;
   OnPropertyChanged(&tag_, kPropertyEffectsNone);
-}
-
-void Button::StartThrobbing(int cycles_til_stop) {
-  if (!animate_on_state_change_)
-    return;
-  is_throbbing_ = true;
-  hover_animation_.StartThrobbing(cycles_til_stop);
-}
-
-void Button::StopThrobbing() {
-  if (hover_animation_.is_animating()) {
-    hover_animation_.Stop();
-    SchedulePaint();
-  }
 }
 
 void Button::SetAnimationDuration(base::TimeDelta duration) {
@@ -339,10 +346,10 @@ void Button::SetHotTracked(bool is_hot_tracked) {
   if (state_ != STATE_DISABLED) {
     SetState(is_hot_tracked ? STATE_HOVERED : STATE_NORMAL);
     if (show_ink_drop_when_hot_tracked_) {
-      InkDrop::Get(this)->AnimateToState(is_hot_tracked
-                                             ? views::InkDropState::ACTIVATED
-                                             : views::InkDropState::HIDDEN,
-                                         nullptr);
+      InkDrop::Get(ink_drop_view_)
+          ->AnimateToState(is_hot_tracked ? views::InkDropState::ACTIVATED
+                                          : views::InkDropState::HIDDEN,
+                           nullptr);
     }
   }
 
@@ -359,10 +366,18 @@ void Button::SetFocusPainter(std::unique_ptr<Painter> focus_painter) {
 }
 
 void Button::SetHighlighted(bool highlighted) {
-  InkDrop::Get(this)->AnimateToState(highlighted
-                                         ? views::InkDropState::ACTIVATED
-                                         : views::InkDropState::DEACTIVATED,
-                                     nullptr);
+  InkDrop::Get(ink_drop_view_)
+      ->AnimateToState(highlighted ? views::InkDropState::ACTIVATED
+                                   : views::InkDropState::DEACTIVATED,
+                       nullptr);
+}
+
+Button::ScopedAnchorHighlight Button::AddAnchorHighlight() {
+  if (0 == anchor_count_++) {
+    SetHighlighted(true);
+  }
+
+  return ScopedAnchorHighlight(GetWeakPtr());
 }
 
 base::CallbackListSubscription Button::AddStateChangedCallback(
@@ -415,6 +430,15 @@ gfx::Point Button::GetMenuPosition() const {
   return menu_position;
 }
 
+void Button::SetInkDropView(View* view) {
+  if (ink_drop_view_ == view) {
+    return;
+  }
+
+  InkDrop::Remove(ink_drop_view_);
+  ink_drop_view_ = view;
+}
+
 bool Button::OnMousePressed(const ui::MouseEvent& event) {
   return button_controller_->OnMousePressed(event);
 }
@@ -430,17 +454,18 @@ bool Button::OnMouseDragged(const ui::MouseEvent& event) {
     if (HitTestPoint(event.location())) {
       SetState(should_enter_pushed ? STATE_PRESSED : STATE_HOVERED);
       if (should_show_pending &&
-          InkDrop::Get(this)->GetInkDrop()->GetTargetInkDropState() ==
+          InkDrop::Get(ink_drop_view_)->GetInkDrop()->GetTargetInkDropState() ==
               views::InkDropState::HIDDEN) {
-        InkDrop::Get(this)->AnimateToState(views::InkDropState::ACTION_PENDING,
-                                           &event);
+        InkDrop::Get(ink_drop_view_)
+            ->AnimateToState(views::InkDropState::ACTION_PENDING, &event);
       }
     } else {
       SetState(STATE_NORMAL);
       if (should_show_pending &&
-          InkDrop::Get(this)->GetInkDrop()->GetTargetInkDropState() ==
+          InkDrop::Get(ink_drop_view_)->GetInkDrop()->GetTargetInkDropState() ==
               views::InkDropState::ACTION_PENDING) {
-        InkDrop::Get(this)->AnimateToState(views::InkDropState::HIDDEN, &event);
+        InkDrop::Get(ink_drop_view_)
+            ->AnimateToState(views::InkDropState::HIDDEN, &event);
       }
     }
   }
@@ -457,9 +482,9 @@ void Button::OnMouseCaptureLost() {
   // applies everywhere so gather any feedback and update.
   if (state_ != STATE_DISABLED)
     SetState(STATE_NORMAL);
-  InkDrop::Get(this)->AnimateToState(views::InkDropState::HIDDEN,
-                                     nullptr /* event */);
-  InkDrop::Get(this)->GetInkDrop()->SetHovered(false);
+  InkDrop::Get(ink_drop_view_)
+      ->AnimateToState(views::InkDropState::HIDDEN, nullptr /* event */);
+  InkDrop::Get(ink_drop_view_)->GetInkDrop()->SetHovered(false);
   View::OnMouseCaptureLost();
 }
 
@@ -514,9 +539,9 @@ void Button::ShowContextMenu(const gfx::Point& p,
   if (state_ != STATE_DISABLED)
     SetState(STATE_NORMAL);
   if (hide_ink_drop_when_showing_context_menu_) {
-    InkDrop::Get(this)->GetInkDrop()->SetHovered(false);
-    InkDrop::Get(this)->AnimateToState(InkDropState::HIDDEN,
-                                       nullptr /* event */);
+    InkDrop::Get(ink_drop_view_)->GetInkDrop()->SetHovered(false);
+    InkDrop::Get(ink_drop_view_)
+        ->AnimateToState(InkDropState::HIDDEN, nullptr /* event */);
   }
   View::ShowContextMenu(p, source_type);
 }
@@ -526,7 +551,8 @@ void Button::OnDragDone() {
   // (since disabled buttons may still be able to be dragged).
   if (state_ != STATE_DISABLED)
     SetState(STATE_NORMAL);
-  InkDrop::Get(this)->AnimateToState(InkDropState::HIDDEN, nullptr /* event */);
+  InkDrop::Get(ink_drop_view_)
+      ->AnimateToState(InkDropState::HIDDEN, nullptr /* event */);
 }
 
 void Button::OnPaint(gfx::Canvas* canvas) {
@@ -536,8 +562,7 @@ void Button::OnPaint(gfx::Canvas* canvas) {
 }
 
 void Button::GetAccessibleNodeData(ui::AXNodeData* node_data) {
-  node_data->role = ax::mojom::Role::kButton;
-  node_data->SetName(GetAccessibleName());
+  View::GetAccessibleNodeData(node_data);
   if (!GetEnabled())
     node_data->SetRestriction(ax::mojom::Restriction::kDisabled);
 
@@ -585,10 +610,11 @@ void Button::OnBlur() {
   View::OnBlur();
   if (IsHotTracked() || state_ == STATE_PRESSED) {
     SetState(STATE_NORMAL);
-    if (InkDrop::Get(this)->GetInkDrop()->GetTargetInkDropState() !=
-        views::InkDropState::HIDDEN)
-      InkDrop::Get(this)->AnimateToState(views::InkDropState::HIDDEN,
-                                         nullptr /* event */);
+    if (InkDrop::Get(ink_drop_view_)->GetInkDrop()->GetTargetInkDropState() !=
+        views::InkDropState::HIDDEN) {
+      InkDrop::Get(ink_drop_view_)
+          ->AnimateToState(views::InkDropState::HIDDEN, nullptr /* event */);
+    }
     // TODO(bruthig) : Fix Buttons to work well when multiple input
     // methods are interacting with a button. e.g. By animating to HIDDEN here
     // it is possible for a Mouse Release to trigger an action however there
@@ -612,17 +638,20 @@ Button::Button(PressedCallback callback)
   SetInstallFocusRingOnFocus(true);
   button_controller_ = std::make_unique<ButtonController>(
       this, std::make_unique<DefaultButtonControllerDelegate>(this));
-  InkDrop::Get(this)->SetCreateInkDropCallback(base::BindRepeating(
-      [](Button* button) {
-        std::unique_ptr<InkDrop> ink_drop =
-            InkDrop::CreateInkDropForFloodFillRipple(InkDrop::Get(button));
-        ink_drop->SetShowHighlightOnFocus(!FocusRing::Get(button));
-        return ink_drop;
-      },
-      base::Unretained(this)));
+  InkDrop::Get(ink_drop_view_)
+      ->SetCreateInkDropCallback(base::BindRepeating(
+          [](Button* button) {
+            std::unique_ptr<InkDrop> ink_drop =
+                InkDrop::CreateInkDropForFloodFillRipple(InkDrop::Get(button));
+            ink_drop->SetShowHighlightOnFocus(!FocusRing::Get(button));
+            return ink_drop;
+          },
+          base::Unretained(this)));
   // TODO(pbos): Investigate not setting a default color so that we can DCHECK
   // if one hasn't been set.
-  InkDrop::Get(this)->SetBaseColor(gfx::kPlaceholderColor);
+  InkDrop::Get(ink_drop_view_)->SetBaseColor(gfx::kPlaceholderColor);
+
+  SetAccessibilityProperties(ax::mojom::Role::kButton);
 }
 
 void Button::RequestFocusFromEvent() {
@@ -632,8 +661,9 @@ void Button::RequestFocusFromEvent() {
 
 void Button::NotifyClick(const ui::Event& event) {
   if (has_ink_drop_action_on_click_) {
-    InkDrop::Get(this)->AnimateToState(InkDropState::ACTION_TRIGGERED,
-                                       ui::LocatedEvent::FromIfValid(&event));
+    InkDrop::Get(ink_drop_view_)
+        ->AnimateToState(InkDropState::ACTION_TRIGGERED,
+                         ui::LocatedEvent::FromIfValid(&event));
   }
 
   // If we have an associated help context ID, notify that system that we have
@@ -650,12 +680,13 @@ void Button::NotifyClick(const ui::Event& event) {
 
 void Button::OnClickCanceled(const ui::Event& event) {
   if (ShouldUpdateInkDropOnClickCanceled()) {
-    if (InkDrop::Get(this)->GetInkDrop()->GetTargetInkDropState() ==
+    if (InkDrop::Get(ink_drop_view_)->GetInkDrop()->GetTargetInkDropState() ==
             views::InkDropState::ACTION_PENDING ||
-        InkDrop::Get(this)->GetInkDrop()->GetTargetInkDropState() ==
+        InkDrop::Get(ink_drop_view_)->GetInkDrop()->GetTargetInkDropState() ==
             views::InkDropState::ALTERNATE_ACTION_PENDING) {
-      InkDrop::Get(this)->AnimateToState(views::InkDropState::HIDDEN,
-                                         ui::LocatedEvent::FromIfValid(&event));
+      InkDrop::Get(ink_drop_view_)
+          ->AnimateToState(views::InkDropState::HIDDEN,
+                           ui::LocatedEvent::FromIfValid(&event));
     }
   }
 }
@@ -702,6 +733,10 @@ bool Button::ShouldEnterHoveredState() {
   return check_mouse_position && IsMouseHovered();
 }
 
+base::WeakPtr<Button> Button::GetWeakPtr() {
+  return weak_ptr_factory_.GetWeakPtr();
+}
+
 void Button::OnEnabledChanged() {
   if (GetEnabled() ? (state_ != STATE_DISABLED) : (state_ == STATE_DISABLED))
     return;
@@ -709,15 +744,22 @@ void Button::OnEnabledChanged() {
   if (GetEnabled()) {
     bool should_enter_hover_state = ShouldEnterHoveredState();
     SetState(should_enter_hover_state ? STATE_HOVERED : STATE_NORMAL);
-    InkDrop::Get(this)->GetInkDrop()->SetHovered(should_enter_hover_state);
+    InkDrop::Get(ink_drop_view_)
+        ->GetInkDrop()
+        ->SetHovered(should_enter_hover_state);
   } else {
     SetState(STATE_DISABLED);
-    InkDrop::Get(this)->GetInkDrop()->SetHovered(false);
+    InkDrop::Get(ink_drop_view_)->GetInkDrop()->SetHovered(false);
+  }
+}
+
+void Button::ReleaseAnchorHighlight() {
+  if (0 == --anchor_count_) {
+    SetHighlighted(false);
   }
 }
 
 BEGIN_METADATA(Button, View)
-ADD_PROPERTY_METADATA(std::u16string, AccessibleName)
 ADD_PROPERTY_METADATA(PressedCallback, Callback)
 ADD_PROPERTY_METADATA(bool, AnimateOnStateChange)
 ADD_PROPERTY_METADATA(bool, HasInkDropActionOnClick)

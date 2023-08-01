@@ -49,10 +49,6 @@ template("nacl_toolchain") {
       # We do not support component builds with the NaCl toolchains.
       is_component_build = false
 
-      # We do not support tcmalloc in the NaCl toolchains.
-      use_allocator = "none"
-      use_allocator_shim = false
-
       # We do not support clang profiling in the NaCl toolchains.
       use_clang_profiling = false
       use_clang_coverage = false
@@ -67,6 +63,10 @@ template("nacl_toolchain") {
           # TODO(ukai): non linux?
           rbe_cc_cfg_file = "${rbe_cfg_dir}/nacl/rewrapper_linux.cfg"
         }
+      }
+
+      if (use_remoteexec_links) {
+        rbe_link_cfg_file = "${rbe_cfg_dir}/nacl/rewrapper_linux_link.cfg"
       }
     }
   }

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,10 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
+#include "base/numerics/checked_math.h"
 #include "base/trace_event/trace_event.h"
 #include "mojo/core/configuration.h"
 #include "mojo/core/core.h"
@@ -162,7 +163,8 @@ MojoResult DataPipeProducerDispatcher::WriteData(
 
 MojoResult DataPipeProducerDispatcher::BeginWriteData(
     void** buffer,
-    uint32_t* buffer_num_bytes) {
+    uint32_t* buffer_num_bytes,
+    MojoBeginWriteDataFlags flags) {
   base::AutoLock lock(lock_);
   if (!shared_ring_buffer_.IsValid() || in_transit_)
     return MOJO_RESULT_INVALID_ARGUMENT;
@@ -349,14 +351,20 @@ DataPipeProducerDispatcher::Deserialize(const void* data,
     return nullptr;
   }
 
+  absl::optional<base::UnguessableToken> buffer_guid =
+      base::UnguessableToken::Deserialize(state->buffer_guid_high,
+                                          state->buffer_guid_low);
+  if (!buffer_guid.has_value()) {
+    AssertNotExtractingHandlesFromMessage();
+    return nullptr;
+  }
+
   auto region_handle = CreateSharedMemoryRegionHandleFromPlatformHandles(
       std::move(handles[0]), PlatformHandle());
   auto region = base::subtle::PlatformSharedMemoryRegion::Take(
       std::move(region_handle),
       base::subtle::PlatformSharedMemoryRegion::Mode::kUnsafe,
-      state->options.capacity_num_bytes,
-      base::UnguessableToken::Deserialize(state->buffer_guid_high,
-                                          state->buffer_guid_low));
+      state->options.capacity_num_bytes, buffer_guid.value());
   auto ring_buffer =
       base::UnsafeSharedMemoryRegion::Deserialize(std::move(region));
   if (!ring_buffer.IsValid()) {
@@ -530,8 +538,10 @@ void DataPipeProducerDispatcher::UpdateSignalsStateNoLock() {
         TRACE_EVENT0("ipc",
                      "DataPipeProducerDispatcher received DATA_WAS_READ");
 
-        if (static_cast<size_t>(available_capacity_) + m->num_bytes >
-            options_.capacity_num_bytes) {
+        uint32_t new_available_capacity;
+        if (!base::CheckAdd(available_capacity_, m->num_bytes)
+                 .AssignIfValid(&new_available_capacity) ||
+            new_available_capacity > options_.capacity_num_bytes) {
           DLOG(ERROR) << "Consumer claims to have read too many bytes.";
           break;
         }
@@ -541,7 +551,7 @@ void DataPipeProducerDispatcher::UpdateSignalsStateNoLock() {
                  << " bytes were read. [control_port=" << control_port_.name()
                  << "]";
 
-        available_capacity_ += m->num_bytes;
+        available_capacity_ = new_available_capacity;
       }
     } while (message_event);
   }

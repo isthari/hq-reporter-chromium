@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "build/build_config.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
 #include "components/viz/host/host_frame_sink_client.h"
+#include "content/browser/renderer_host/cursor_manager.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
 #include "content/browser/renderer_host/render_widget_host_view_child_frame.h"
@@ -23,6 +24,7 @@
 #include "content/public/test/mock_render_process_host.h"
 #include "content/public/test/test_renderer_host.h"
 #include "third_party/blink/public/common/web_preferences/web_preferences.h"
+#include "ui/base/cursor/cursor.h"
 #include "ui/base/ime/dummy_text_input_client.h"
 #include "ui/base/layout.h"
 #include "ui/base/page_transition_types.h"
@@ -50,7 +52,6 @@ class Rect;
 namespace content {
 
 class FrameTree;
-class SiteInstance;
 class TestRenderFrameHost;
 class TestPageBroadcast;
 class TestWebContents;
@@ -109,7 +110,7 @@ class TestRenderWidgetHostView : public RenderWidgetHostViewBase,
                    const gfx::Rect& anchor_rect) override {}
   void Focus() override {}
   void SetIsLoading(bool is_loading) override {}
-  void UpdateCursor(const WebCursor& cursor) override;
+  void UpdateCursor(const ui::Cursor& cursor) override;
   void RenderProcessGone() override;
   void ShowWithVisibility(PageVisibilityState page_visibility) override;
   void Destroy() override;
@@ -127,6 +128,7 @@ class TestRenderWidgetHostView : public RenderWidgetHostViewBase,
   std::unique_ptr<SyntheticGestureTarget> CreateSyntheticGestureTarget()
       override;
   ui::Compositor* GetCompositor() override;
+  CursorManager* GetCursorManager() override;
 
   bool is_showing() const { return is_showing_; }
   bool is_occluded() const { return is_occluded_; }
@@ -136,7 +138,7 @@ class TestRenderWidgetHostView : public RenderWidgetHostViewBase,
   void OnFrameTokenChanged(uint32_t frame_token,
                            base::TimeTicks activation_time) override;
 
-  const WebCursor& last_cursor() const { return last_cursor_; }
+  const ui::Cursor& last_cursor() const { return last_cursor_; }
 
   void SetCompositor(ui::Compositor* compositor) { compositor_ = compositor; }
 
@@ -159,9 +161,9 @@ class TestRenderWidgetHostView : public RenderWidgetHostViewBase,
       const DisplayFeature* display_feature) override;
   void NotifyHostAndDelegateOnWasShown(
       blink::mojom::RecordContentToVisibleTimeRequestPtr) override;
-  void RequestPresentationTimeFromHostOrDelegate(
+  void RequestSuccessfulPresentationTimeFromHostOrDelegate(
       blink::mojom::RecordContentToVisibleTimeRequestPtr) override;
-  void CancelPresentationTimeRequestForHostAndDelegate() override;
+  void CancelSuccessfulPresentationTimeRequestForHostAndDelegate() override;
 
   viz::FrameSinkId frame_sink_id_;
 
@@ -169,8 +171,10 @@ class TestRenderWidgetHostView : public RenderWidgetHostViewBase,
   bool is_showing_;
   bool is_occluded_;
   PageVisibilityState page_visibility_ = PageVisibilityState::kHidden;
+#if !BUILDFLAG(IS_IOS)
   ui::DummyTextInputClient text_input_client_;
-  WebCursor last_cursor_;
+#endif
+  ui::Cursor last_cursor_;
 
   // Latest capture sequence number which is incremented when the caller
   // requests surfaces be synchronized via
@@ -187,6 +191,8 @@ class TestRenderWidgetHostView : public RenderWidgetHostViewBase,
   absl::optional<DisplayFeature> display_feature_;
 
   raw_ptr<ui::Compositor> compositor_ = nullptr;
+
+  CursorManager cursor_manager_;
 };
 
 // TestRenderWidgetHostViewChildFrame -----------------------------------------
@@ -259,19 +265,22 @@ class TestRenderWidgetHostViewChildFrame
 class TestRenderViewHost : public RenderViewHostImpl,
                            public RenderViewHostTester {
  public:
-  TestRenderViewHost(FrameTree* frame_tree,
-                     SiteInstance* instance,
-                     std::unique_ptr<RenderWidgetHostImpl> widget,
-                     RenderViewHostDelegate* delegate,
-                     int32_t routing_id,
-                     int32_t main_frame_routing_id,
-                     bool swapped_out);
+  TestRenderViewHost(
+      FrameTree* frame_tree,
+      SiteInstanceGroup* group,
+      const StoragePartitionConfig& storage_partition_config,
+      std::unique_ptr<RenderWidgetHostImpl> widget,
+      RenderViewHostDelegate* delegate,
+      int32_t routing_id,
+      int32_t main_frame_routing_id,
+      scoped_refptr<BrowsingContextState> main_browsing_context_state,
+      CreateRenderViewHostCase create_case);
 
   TestRenderViewHost(const TestRenderViewHost&) = delete;
   TestRenderViewHost& operator=(const TestRenderViewHost&) = delete;
 
   // RenderViewHostImpl overrides.
-  MockRenderProcessHost* GetProcess() override;
+  MockRenderProcessHost* GetProcess() const override;
   bool CreateRenderView(
       const absl::optional<blink::FrameToken>& opener_frame_token,
       int proxy_route_id,
@@ -343,16 +352,16 @@ class RenderViewHostImplTestHarness : public RenderViewHostTestHarness {
   // RVH/RFH getters are shorthand for oft-used bits of web_contents().
 
   // test_rvh() is equivalent to any of the following:
-  //   contents()->GetMainFrame()->GetRenderViewHost()
+  //   contents()->GetPrimaryMainFrame()->GetRenderViewHost()
   //   contents()->GetRenderViewHost()
   //   static_cast<TestRenderViewHost*>(rvh())
   //
   // Since most functionality will eventually shift from RVH to RFH, you may
-  // prefer to use the GetMainFrame() method in tests.
+  // prefer to use the GetPrimaryMainFrame() method in tests.
   TestRenderViewHost* test_rvh();
 
-  // main_test_rfh() is equivalent to contents()->GetMainFrame()
-  // TODO(nick): Replace all uses with contents()->GetMainFrame()
+  // main_test_rfh() is equivalent to contents()->GetPrimaryMainFrame()
+  // TODO(nick): Replace all uses with contents()->GetPrimaryMainFrame()
   TestRenderFrameHost* main_test_rfh();
 
  private:

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,9 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
+#include "base/task/single_thread_task_runner.h"
 #include "components/payments/content/payment_method_manifest_table.h"
 #include "components/payments/content/web_app_manifest_section_table.h"
 #include "components/payments/core/secure_payment_confirmation_credential.h"
@@ -136,24 +137,28 @@ PaymentManifestWebDataService::AddSecurePaymentConfirmationCredentialImpl(
 WebDataServiceBase::Handle
 PaymentManifestWebDataService::GetSecurePaymentConfirmationCredentials(
     std::vector<std::vector<uint8_t>> credential_ids,
+    const std::string& relying_party_id,
     WebDataServiceConsumer* consumer) {
   return wdbs_->ScheduleDBTaskWithResult(
       FROM_HERE,
       base::BindOnce(&PaymentManifestWebDataService::
                          GetSecurePaymentConfirmationCredentialsImpl,
-                     this, std::move(credential_ids)),
+                     this, std::move(credential_ids),
+                     std::move(relying_party_id)),
       consumer);
 }
 
 std::unique_ptr<WDTypedResult>
 PaymentManifestWebDataService::GetSecurePaymentConfirmationCredentialsImpl(
     std::vector<std::vector<uint8_t>> credential_ids,
+    const std::string& relying_party_id,
     WebDatabase* db) {
   return std::make_unique<WDResult<
       std::vector<std::unique_ptr<SecurePaymentConfirmationCredential>>>>(
       SECURE_PAYMENT_CONFIRMATION,
       PaymentMethodManifestTable::FromWebDatabase(db)
-          ->GetSecurePaymentConfirmationCredentials(std::move(credential_ids)));
+          ->GetSecurePaymentConfirmationCredentials(
+              std::move(credential_ids), std::move(relying_party_id)));
 }
 
 void PaymentManifestWebDataService::ClearSecurePaymentConfirmationCredentials(

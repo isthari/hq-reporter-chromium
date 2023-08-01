@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,8 @@
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "components/cloud_devices/common/description_items.h"
+#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/size.h"
 
 // Defines printer options, CDD and CJT items.
 // https://developers.google.com/cloud-print/docs/cdd
@@ -90,8 +92,8 @@ class RangeVendorCapability {
   }
 
   bool IsValid() const;
-  bool LoadFrom(const base::Value& dict);
-  void SaveTo(base::Value* dict) const;
+  bool LoadFrom(const base::Value::Dict& dict);
+  void SaveTo(base::Value::Dict* dict) const;
 
  private:
   ValueType value_type_;
@@ -145,8 +147,8 @@ class TypedValueVendorCapability {
   }
 
   bool IsValid() const;
-  bool LoadFrom(const base::Value& dict);
-  void SaveTo(base::Value* dict) const;
+  bool LoadFrom(const base::Value::Dict& dict);
+  void SaveTo(base::Value::Dict* dict) const;
 
  private:
   ValueType value_type_;
@@ -185,8 +187,8 @@ class VendorCapability {
   }
 
   bool IsValid() const;
-  bool LoadFrom(const base::Value& dict);
-  void SaveTo(base::Value* dict) const;
+  bool LoadFrom(const base::Value::Dict& dict);
+  void SaveTo(base::Value::Dict* dict) const;
 
  private:
   void InternalCleanup();
@@ -201,6 +203,18 @@ class VendorCapability {
     SelectVendorCapability select_capability_;
     TypedValueVendorCapability typed_value_capability_;
   };
+};
+
+struct VendorItem {
+  VendorItem();
+  VendorItem(const std::string& id, const std::string& value);
+
+  bool IsValid() const;
+  bool operator==(const VendorItem& other) const;
+  bool operator!=(const VendorItem& other) const { return !(*this == other); }
+
+  std::string id;
+  std::string value;
 };
 
 enum class ColorType {
@@ -461,14 +475,26 @@ enum class MediaType {
 struct Media {
   Media();
 
+  // Page size will be set to the default size um for `type`. Printable area
+  // will be set to match the page size.
   explicit Media(MediaType type);
 
-  Media(MediaType type, int32_t width_um, int32_t height_um);
+  // Printable area will be set to `size_um`.
+  Media(MediaType type, const gfx::Size& size_um);
+
+  Media(MediaType type,
+        const gfx::Size& size_um,
+        const gfx::Rect& printable_area_um);
+
+  // Printable area will be set to `size_um`.
+  Media(const std::string& custom_display_name,
+        const std::string& vendor_id,
+        const gfx::Size& size_um);
 
   Media(const std::string& custom_display_name,
         const std::string& vendor_id,
-        int32_t width_um,
-        int32_t height_um);
+        const gfx::Size& size_um,
+        const gfx::Rect& printable_area_um);
 
   Media(const Media& other);
   Media& operator=(const Media& other);
@@ -480,11 +506,11 @@ struct Media {
   bool operator!=(const Media& other) const { return !(*this == other); }
 
   MediaType type;
-  int32_t width_um;
-  int32_t height_um;
+  gfx::Size size_um;
   bool is_continuous_feed;
   std::string custom_display_name;
   std::string vendor_id;
+  gfx::Rect printable_area_um;
 };
 
 struct Interval {
@@ -515,6 +541,7 @@ class PageRangeTraits;
 class CollateTraits;
 class CopiesCapabilityTraits;
 class CopiesTicketItemTraits;
+class VendorItemTraits;
 
 typedef ListCapability<ContentType, ContentTypeTraits> ContentTypesCapability;
 typedef ValueCapability<PwgRasterConfig, PwgRasterConfigTraits>
@@ -552,6 +579,7 @@ typedef TicketItem<int32_t, CopiesTicketItemTraits> CopiesTicketItem;
 typedef TicketItem<PageRange, PageRangeTraits> PageRangeTicketItem;
 typedef TicketItem<bool, CollateTraits> CollateTicketItem;
 typedef TicketItem<bool, ReverseTraits> ReverseTicketItem;
+typedef ListTicketItem<VendorItem, VendorItemTraits> VendorTicketItems;
 
 }  // namespace printer
 

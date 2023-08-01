@@ -1,46 +1,47 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/toolbar/toolbar_mediator.h"
 
-#include <memory>
+#import <memory>
 
-#include "base/files/scoped_temp_dir.h"
+#import "base/files/scoped_temp_dir.h"
 #import "base/mac/foundation_util.h"
-#include "base/strings/sys_string_conversions.h"
-#include "base/strings/utf_string_conversions.h"
-#include "components/open_from_clipboard/clipboard_recent_content.h"
-#include "components/open_from_clipboard/fake_clipboard_recent_content.h"
-#include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
-#include "ios/chrome/browser/chrome_url_constants.h"
-#import "ios/chrome/browser/main/test_browser.h"
-#include "ios/chrome/browser/policy/policy_features.h"
+#import "base/strings/sys_string_conversions.h"
+#import "base/strings/utf_string_conversions.h"
+#import "components/open_from_clipboard/clipboard_recent_content.h"
+#import "components/open_from_clipboard/fake_clipboard_recent_content.h"
 #import "ios/chrome/browser/policy/policy_util.h"
-#import "ios/chrome/browser/ui/commands/application_commands.h"
-#import "ios/chrome/browser/ui/commands/command_dispatcher.h"
-#import "ios/chrome/browser/ui/commands/load_query_commands.h"
-#import "ios/chrome/browser/ui/commands/qr_scanner_commands.h"
+#import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
+#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/url/chrome_url_constants.h"
+#import "ios/chrome/browser/shared/model/web_state_list/test/fake_web_state_list_delegate.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list_observer_bridge.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_opener.h"
+#import "ios/chrome/browser/shared/public/commands/application_commands.h"
+#import "ios/chrome/browser/shared/public/commands/browser_coordinator_commands.h"
+#import "ios/chrome/browser/shared/public/commands/command_dispatcher.h"
+#import "ios/chrome/browser/shared/public/commands/load_query_commands.h"
+#import "ios/chrome/browser/shared/public/commands/qr_scanner_commands.h"
 #import "ios/chrome/browser/ui/menu/browser_action_factory.h"
 #import "ios/chrome/browser/ui/toolbar/test/toolbar_test_navigation_manager.h"
 #import "ios/chrome/browser/ui/toolbar/toolbar_consumer.h"
-#include "ios/chrome/browser/web_state_list/fake_web_state_list_delegate.h"
-#include "ios/chrome/browser/web_state_list/web_state_list.h"
-#import "ios/chrome/browser/web_state_list/web_state_list_observer_bridge.h"
-#import "ios/chrome/browser/web_state_list/web_state_opener.h"
-#include "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/browser/web/web_navigation_browser_agent.h"
+#import "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/providers/voice_search/test_voice_search.h"
 #import "ios/public/provider/chrome/browser/voice_search/voice_search_api.h"
 #import "ios/web/public/test/fakes/fake_navigation_context.h"
 #import "ios/web/public/test/fakes/fake_navigation_manager.h"
 #import "ios/web/public/test/fakes/fake_web_state.h"
-#include "ios/web/public/test/web_task_environment.h"
+#import "ios/web/public/test/web_task_environment.h"
 #import "ios/web/public/web_state_observer_bridge.h"
-#include "testing/gtest_mac.h"
-#include "testing/platform_test.h"
+#import "testing/gtest_mac.h"
+#import "testing/platform_test.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
-#include "third_party/ocmock/gtest_support.h"
-#include "ui/base/l10n/l10n_util.h"
+#import "third_party/ocmock/gtest_support.h"
+#import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -55,7 +56,7 @@
 
 namespace {
 
-MenuScenario kTestMenuScenario = MenuScenario::kHistoryEntry;
+MenuScenarioHistogram kTestMenuScenario = MenuScenarioHistogram::kHistoryEntry;
 
 static const int kNumberOfWebStates = 3;
 static const char kTestUrl[] = "http://www.chromium.org";
@@ -69,6 +70,7 @@ class ToolbarMediatorTest : public PlatformTest {
 
     chrome_browser_state_ = test_cbs_builder.Build();
     test_browser_ = std::make_unique<TestBrowser>(chrome_browser_state_.get());
+    WebNavigationBrowserAgent::CreateForBrowser(test_browser_.get());
 
     std::unique_ptr<ToolbarTestNavigationManager> navigation_manager =
         std::make_unique<ToolbarTestNavigationManager>();
@@ -79,6 +81,8 @@ class ToolbarMediatorTest : public PlatformTest {
     test_web_state_->SetLoading(true);
     web_state_ = test_web_state_.get();
     mediator_ = [[TestToolbarMediator alloc] init];
+    mediator_.navigationBrowserAgent =
+        WebNavigationBrowserAgent::FromBrowser(test_browser_.get());
     mediator_.actionFactory =
         [[BrowserActionFactory alloc] initWithBrowser:test_browser_.get()
                                              scenario:kTestMenuScenario];
@@ -97,6 +101,12 @@ class ToolbarMediatorTest : public PlatformTest {
     [test_browser_->GetCommandDispatcher()
         startDispatchingToTarget:mock_application_settings_commands_handler_
                      forProtocol:@protocol(ApplicationSettingsCommands)];
+
+    mock_browser_coordinator_commands_handler_ =
+        OCMStrictProtocolMock(@protocol(BrowserCoordinatorCommands));
+    [test_browser_->GetCommandDispatcher()
+        startDispatchingToTarget:mock_browser_coordinator_commands_handler_
+                     forProtocol:@protocol(BrowserCoordinatorCommands)];
 
     mock_qr_scanner_commands_handler_ =
         OCMStrictProtocolMock(@protocol(QRScannerCommands));
@@ -160,6 +170,7 @@ class ToolbarMediatorTest : public PlatformTest {
   id strict_consumer_;
   id mock_application_commands_handler_;
   id mock_application_settings_commands_handler_;
+  id mock_browser_coordinator_commands_handler_;
   id mock_qr_scanner_commands_handler_;
   id mock_load_query_commands_handler_;
   std::unique_ptr<TestChromeBrowserState> chrome_browser_state_;
@@ -443,22 +454,21 @@ TEST_F(ToolbarMediatorTest, MenuElements) {
   UIMenu* tab_grid_menu =
       [mediator_ menuForButtonOfType:AdaptiveToolbarButtonTypeTabGrid];
 
-  ASSERT_EQ(2U, tab_grid_menu.children.count);
+  ASSERT_EQ(3U, tab_grid_menu.children.count);
 
-  ASSERT_TRUE([tab_grid_menu.children[0] isKindOfClass:[UIMenu class]]);
-  UIMenu* open_tab_menu = (UIMenu*)tab_grid_menu.children[0];
-  ASSERT_EQ(2U, open_tab_menu.children.count);
-  for (UIMenuElement* element in open_tab_menu.children) {
-    ASSERT_TRUE([element isKindOfClass:[UIAction class]]);
-    UIAction* action = (UIAction*)element;
-    EXPECT_EQ(0U, action.attributes);
-  }
-
-  ASSERT_TRUE([tab_grid_menu.children[1] isKindOfClass:[UIAction class]]);
-  UIAction* close_tab = (UIAction*)tab_grid_menu.children[1];
+  ASSERT_TRUE([tab_grid_menu.children[0] isKindOfClass:[UIAction class]]);
+  UIAction* close_tab = (UIAction*)tab_grid_menu.children[0];
   EXPECT_NSEQ(l10n_util::GetNSString(IDS_IOS_TOOLS_MENU_CLOSE_TAB),
               close_tab.title);
   EXPECT_EQ(UIMenuElementAttributesDestructive, close_tab.attributes);
+
+  ASSERT_TRUE([tab_grid_menu.children[1] isKindOfClass:[UIAction class]]);
+  UIAction* action = (UIAction*)tab_grid_menu.children[1];
+  EXPECT_EQ(0U, action.attributes);
+
+  ASSERT_TRUE([tab_grid_menu.children[2] isKindOfClass:[UIAction class]]);
+  action = (UIAction*)tab_grid_menu.children[2];
+  EXPECT_EQ(0U, action.attributes);
 }
 
 // Tests the back/forward items for the menu.

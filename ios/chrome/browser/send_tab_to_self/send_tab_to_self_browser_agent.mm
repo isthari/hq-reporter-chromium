@@ -1,33 +1,32 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/send_tab_to_self/send_tab_to_self_browser_agent.h"
+#import "ios/chrome/browser/send_tab_to_self/send_tab_to_self_browser_agent.h"
 
-#include <memory>
-#include <string>
-#include <vector>
+#import <memory>
+#import <string>
+#import <vector>
 
 #import <Foundation/Foundation.h>
 
-#include "base/check.h"
-#include "base/notreached.h"
-#include "base/strings/sys_string_conversions.h"
-#include "base/strings/utf_string_conversions.h"
-#include "components/infobars/core/infobar.h"
-#include "components/infobars/core/infobar_manager.h"
-#include "components/send_tab_to_self/send_tab_to_self_model.h"
-#include "components/send_tab_to_self/send_tab_to_self_sync_service.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/infobars/infobar_ios.h"
-#include "ios/chrome/browser/infobars/infobar_manager_impl.h"
+#import "base/check.h"
+#import "base/notreached.h"
+#import "base/strings/sys_string_conversions.h"
+#import "base/strings/utf_string_conversions.h"
+#import "components/infobars/core/infobar.h"
+#import "components/infobars/core/infobar_manager.h"
+#import "components/send_tab_to_self/metrics_util.h"
+#import "components/send_tab_to_self/send_tab_to_self_model.h"
+#import "components/send_tab_to_self/send_tab_to_self_sync_service.h"
+#import "ios/chrome/browser/infobars/infobar_ios.h"
+#import "ios/chrome/browser/infobars/infobar_manager_impl.h"
 #import "ios/chrome/browser/infobars/infobar_utils.h"
-#import "ios/chrome/browser/main/browser.h"
-#include "ios/chrome/browser/send_tab_to_self/ios_send_tab_to_self_infobar_delegate.h"
-#include "ios/chrome/browser/sync/send_tab_to_self_sync_service_factory.h"
-#import "ios/chrome/browser/web_state_list/web_state_list.h"
-#import "ios/web/public/navigation/navigation_item.h"
-#import "ios/web/public/navigation/navigation_manager.h"
+#import "ios/chrome/browser/send_tab_to_self/ios_send_tab_to_self_infobar_delegate.h"
+#import "ios/chrome/browser/shared/model/browser/browser.h"
+#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/sync/send_tab_to_self_sync_service_factory.h"
 #import "ios/web/public/web_state.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -41,32 +40,11 @@ SendTabToSelfBrowserAgent::SendTabToSelfBrowserAgent(Browser* browser)
       model_(SendTabToSelfSyncServiceFactory::GetForBrowserState(
                  browser_->GetBrowserState())
                  ->GetSendTabToSelfModel()) {
-  model_->AddObserver(this);
-  browser_->AddObserver(this);
+  model_observation_.Observe(model_);
+  browser_observation_.Observe(browser_);
 }
 
-SendTabToSelfBrowserAgent::~SendTabToSelfBrowserAgent() {}
-
-void SendTabToSelfBrowserAgent::SendCurrentTabToDevice(
-    NSString* target_device_id) {
-  web::WebState* web_state = browser_->GetWebStateList()->GetActiveWebState();
-  if (!web_state) {
-    return;
-  }
-
-  web::NavigationItem* current_item =
-      web_state->GetNavigationManager()->GetLastCommittedItem();
-  if (!current_item) {
-    return;
-  }
-
-  GURL url = current_item->GetURL();
-  std::string title = base::UTF16ToUTF8(current_item->GetTitle());
-  base::Time navigation_time = current_item->GetTimestamp();
-  std::string target_device = base::SysNSStringToUTF8(target_device_id);
-
-  model_->AddEntry(url, title, navigation_time, target_device);
-}
+SendTabToSelfBrowserAgent::~SendTabToSelfBrowserAgent() = default;
 
 void SendTabToSelfBrowserAgent::SendTabToSelfModelLoaded() {
   // TODO(crbug.com/949756): Push changes that happened before the model was
@@ -88,10 +66,13 @@ void SendTabToSelfBrowserAgent::EntriesAddedRemotely(
     // becomes visible again, or if the user changes tab or creates a new tab.
     if (web_state) {
       pending_web_state_ = web_state;
-      pending_web_state_->AddObserver(this);
+      web_state_observation_.Reset();
+      web_state_observation_.Observe(pending_web_state_);
     }
 
-    browser_->GetWebStateList()->AddObserver(this);
+    if (!web_state_list_observation_.IsObserving()) {
+      web_state_list_observation_.Observe(browser_->GetWebStateList());
+    }
 
     // Pick the most recent entry since only one Infobar can be shown at a time.
     // TODO(crbug.com/944602): Create a function that returns the most recently
@@ -143,20 +124,18 @@ void SendTabToSelfBrowserAgent::WebStateDestroyed(web::WebState* web_state) {
   DCHECK(pending_web_state_);
   DCHECK(pending_web_state_ == web_state);
 
-  pending_web_state_->RemoveObserver(this);
+  web_state_observation_.Reset();
   pending_web_state_ = nullptr;
 }
 
 void SendTabToSelfBrowserAgent::BrowserDestroyed(Browser* browser) {
-  model_->RemoveObserver(this);
+  model_observation_.Reset();
 
-  browser_->GetWebStateList()->RemoveObserver(this);
+  web_state_list_observation_.Reset();
 
-  if (pending_web_state_) {
-    pending_web_state_->RemoveObserver(this);
-  }
+  web_state_observation_.Reset();
 
-  browser_->RemoveObserver(this);
+  browser_observation_.Reset();
 }
 
 void SendTabToSelfBrowserAgent::DisplayInfoBar(
@@ -169,6 +148,8 @@ void SendTabToSelfBrowserAgent::DisplayInfoBar(
     return;
   }
 
+  send_tab_to_self::RecordNotificationShown();
+
   infobar_manager->AddInfoBar(CreateConfirmInfoBar(
       send_tab_to_self::IOSSendTabToSelfInfoBarDelegate::Create(entry,
                                                                 model_)));
@@ -177,10 +158,8 @@ void SendTabToSelfBrowserAgent::DisplayInfoBar(
 void SendTabToSelfBrowserAgent::CleanUpObserversAndVariables() {
   pending_entry_ = nullptr;
 
-  browser_->GetWebStateList()->RemoveObserver(this);
+  web_state_list_observation_.Reset();
 
-  if (pending_web_state_) {
-    pending_web_state_->RemoveObserver(this);
-    pending_web_state_ = nullptr;
-  }
+  web_state_observation_.Reset();
+  pending_web_state_ = nullptr;
 }

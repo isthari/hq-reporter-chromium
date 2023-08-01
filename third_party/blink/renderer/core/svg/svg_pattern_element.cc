@@ -200,8 +200,7 @@ void SVGPatternElement::InvalidateDependentPatterns() {
   });
 }
 
-LayoutObject* SVGPatternElement::CreateLayoutObject(const ComputedStyle&,
-                                                    LegacyLayout) {
+LayoutObject* SVGPatternElement::CreateLayoutObject(const ComputedStyle&) {
   return MakeGarbageCollected<LayoutSVGResourcePattern>(this);
 }
 
@@ -246,7 +245,7 @@ static void SetPatternAttributes(const SVGPatternElement& element,
 
   if (!attributes.HasPatternContentElement() &&
       ElementTraversal::FirstWithin(element))
-    attributes.SetPatternContentElement(&element);
+    attributes.SetPatternContentElement(element);
 }
 
 const SVGPatternElement* SVGPatternElement::ReferencedElement() const {
@@ -254,11 +253,11 @@ const SVGPatternElement* SVGPatternElement::ReferencedElement() const {
       TargetElementFromIRIString(HrefString(), GetTreeScope()));
 }
 
-void SVGPatternElement::CollectPatternAttributes(
-    PatternAttributes& attributes) const {
+PatternAttributes SVGPatternElement::CollectPatternAttributes() const {
   HeapHashSet<Member<const SVGPatternElement>> processed_patterns;
   const SVGPatternElement* current = this;
 
+  PatternAttributes attributes;
   while (true) {
     SetPatternAttributes(*current, attributes);
     processed_patterns.insert(current);
@@ -274,6 +273,30 @@ void SVGPatternElement::CollectPatternAttributes(
     if (processed_patterns.Contains(current))
       break;
   }
+
+  // Fill out any ("complex") empty fields with values from this element (where
+  // these values should equal the initial values).
+  if (!attributes.HasX()) {
+    attributes.SetX(x()->CurrentValue());
+  }
+  if (!attributes.HasY()) {
+    attributes.SetY(y()->CurrentValue());
+  }
+  if (!attributes.HasWidth()) {
+    attributes.SetWidth(width()->CurrentValue());
+  }
+  if (!attributes.HasHeight()) {
+    attributes.SetHeight(height()->CurrentValue());
+  }
+  if (!attributes.HasPreserveAspectRatio()) {
+    attributes.SetPreserveAspectRatio(preserveAspectRatio()->CurrentValue());
+  }
+  DCHECK(attributes.X());
+  DCHECK(attributes.Y());
+  DCHECK(attributes.Width());
+  DCHECK(attributes.Height());
+  DCHECK(attributes.PreserveAspectRatio());
+  return attributes;
 }
 
 AffineTransform SVGPatternElement::LocalCoordinateSpaceTransform(

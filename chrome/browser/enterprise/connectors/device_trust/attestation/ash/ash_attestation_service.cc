@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,16 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/check.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/json/json_writer.h"
 #include "base/time/time.h"
+#include "base/values.h"
 #include "chrome/browser/ash/attestation/tpm_challenge_key_result.h"
 #include "chrome/browser/ash/attestation/tpm_challenge_key_with_timeout.h"
 #include "chrome/browser/enterprise/connectors/device_trust/attestation/common/attestation_utils.h"
+#include "chrome/browser/enterprise/connectors/device_trust/common/common_types.h"
 #include "chrome/browser/enterprise/connectors/device_trust/common/metrics_utils.h"
 
 namespace enterprise_connectors {
@@ -45,10 +48,17 @@ AshAttestationService::AshAttestationService(Profile* profile)
 AshAttestationService::~AshAttestationService() = default;
 
 void AshAttestationService::BuildChallengeResponseForVAChallenge(
-    const std::string& challenge,
-    std::unique_ptr<attestation::DeviceTrustSignals> signals,
+    const std::string& serialized_signed_challenge,
+    base::Value::Dict signals,
+    const std::set<DTCPolicyLevel>& levels,
     AttestationCallback callback) {
-  DCHECK(signals);
+  std::string signals_json;
+  if (!base::JSONWriter::Write(signals, &signals_json)) {
+    std::move(callback).Run(
+        {std::string(), DTAttestationResult::kFailedToSerializeSignals});
+    return;
+  }
+
   auto tpm_key_challenger =
       std::make_unique<ash::attestation::TpmChallengeKeyWithTimeout>();
   auto* tpm_key_challenger_ptr = tpm_key_challenger.get();
@@ -57,8 +67,10 @@ void AshAttestationService::BuildChallengeResponseForVAChallenge(
       base::BindOnce(&AshAttestationService::ReturnResult,
                      weak_factory_.GetWeakPtr(), std::move(tpm_key_challenger),
                      std::move(callback)),
-      JsonChallengeToProtobufChallenge(challenge), /*register_key=*/false,
-      /*key_name_for_spkac=*/std::string(), /*signals=*/*signals);
+      serialized_signed_challenge, /*register_key=*/false,
+      /*key_crypto_type=*/::attestation::KEY_TYPE_RSA,
+      /*key_name_for_spkac=*/std::string(),
+      /*signals=*/signals_json);
 }
 
 void AshAttestationService::ReturnResult(
@@ -70,11 +82,13 @@ void AshAttestationService::ReturnResult(
   if (result.IsSuccess()) {
     encoded_response =
         ProtobufChallengeToJsonChallenge(result.challenge_response);
-    LogAttestationResult(DTAttestationResult::kSuccess);
   } else {
-    LogAttestationResult(ToAttestationResult(result.result_code));
+    LOG(ERROR) << "Device Trust TPM error: " << result.GetErrorMessage();
   }
-  std::move(callback).Run(encoded_response);
+  std::move(callback).Run(
+      {encoded_response, encoded_response.empty()
+                             ? ToAttestationResult(result.result_code)
+                             : DTAttestationResult::kSuccess});
 }
 
 }  // namespace enterprise_connectors

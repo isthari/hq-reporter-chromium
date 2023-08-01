@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,16 +6,14 @@
 
 #include <memory>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/json/json_writer.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/stringprintf.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/values.h"
 #include "components/sync/base/model_type.h"
 #include "net/http/http_status_code.h"
-#include "net/url_request/url_fetcher.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/mojom/fetch_api.mojom-shared.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
@@ -32,9 +30,11 @@ const char kPrivateTopicNameKey[] = "privateTopicName";
 const std::string* GetTopicName(const base::Value& value) {
   if (!value.is_dict())
     return nullptr;
-  if (value.FindBoolKey("isPublic").value_or(false))
-    return value.FindStringKey(kPublicTopicNameKey);
-  return value.FindStringKey(kPrivateTopicNameKey);
+  const base::Value::Dict& dict = value.GetDict();
+  if (dict.FindBool("isPublic").value_or(false)) {
+    return dict.FindString(kPublicTopicNameKey);
+  }
+  return dict.FindString(kPrivateTopicNameKey);
 }
 
 bool IsNetworkError(int net_error) {
@@ -115,26 +115,10 @@ void PerUserTopicSubscriptionRequest::Start(
   DCHECK(request_completed_callback_.is_null()) << "Request already running!";
   request_completed_callback_ = std::move(callback);
 
-  if (type_ == UNSUBSCRIBE &&
-      base::FeatureList::IsEnabled(kInvalidationsSkipUnsubscription)) {
-    // If the kInvalidationsSkipUnsubscription feature is enabled, don't send an
-    // actual unsubscription request and instead just report failure. Net error
-    // 499 is somewhat arbitrarily chosen (it's a non-standard code for "client
-    // closed request" which vaguely makes sense in this context); the important
-    // part is that it'll be reported as a non-retryable failure.
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE,
-        base::BindOnce(
-            &PerUserTopicSubscriptionRequest::OnURLFetchCompleteInternal,
-            weak_ptr_factory_.GetWeakPtr(),
-            /*net_error=*/net::ERR_HTTP_RESPONSE_CODE_FAILURE,
-            /*response_code=*/499, /*response_body=*/nullptr));
-  } else {
-    simple_loader_->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
-        loader_factory,
-        base::BindOnce(&PerUserTopicSubscriptionRequest::OnURLFetchComplete,
-                       weak_ptr_factory_.GetWeakPtr()));
-  }
+  simple_loader_->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
+      loader_factory,
+      base::BindOnce(&PerUserTopicSubscriptionRequest::OnURLFetchComplete,
+                     weak_ptr_factory_.GetWeakPtr()));
 }
 
 void PerUserTopicSubscriptionRequest::OnURLFetchComplete(
@@ -156,9 +140,8 @@ void PerUserTopicSubscriptionRequest::OnURLFetchCompleteInternal(
   if (IsNetworkError(net_error)) {
     RecordRequestStatus(SubscriptionStatus::kNetworkFailure, type_, topic_,
                         net_error, response_code);
-    RunCompletedCallbackAndMaybeDie(
-        Status(StatusCode::FAILED, base::StringPrintf("Network Error")),
-        std::string());
+    RunCompletedCallbackAndMaybeDie(Status(StatusCode::FAILED, "Network Error"),
+                                    std::string());
     // Potentially dead after the above invocation; nothing to do except return.
     return;
   }
@@ -192,9 +175,8 @@ void PerUserTopicSubscriptionRequest::OnURLFetchCompleteInternal(
   if (!response_body || response_body->empty()) {
     RecordRequestStatus(SubscriptionStatus::kParsingFailure, type_, topic_,
                         net_error, response_code);
-    RunCompletedCallbackAndMaybeDie(
-        Status(StatusCode::FAILED, base::StringPrintf("Body missing")),
-        std::string());
+    RunCompletedCallbackAndMaybeDie(Status(StatusCode::FAILED, "Body missing"),
+                                    std::string());
     // Potentially dead after the above invocation; nothing to do except return.
     return;
   }
@@ -207,28 +189,20 @@ void PerUserTopicSubscriptionRequest::OnURLFetchCompleteInternal(
 
 void PerUserTopicSubscriptionRequest::OnJsonParse(
     data_decoder::DataDecoder::ValueOrError result) {
-  if (!result.value) {
-    RecordRequestStatus(SubscriptionStatus::kParsingFailure, type_, topic_);
-    RunCompletedCallbackAndMaybeDie(
-        Status(StatusCode::FAILED, base::StringPrintf("Body parse error")),
-        std::string());
+  if (const auto topic_name = result.transform(GetTopicName);
+      topic_name.has_value() && *topic_name) {
+    RecordRequestStatus(SubscriptionStatus::kSuccess, type_, topic_);
+    RunCompletedCallbackAndMaybeDie(Status(StatusCode::SUCCESS, std::string()),
+                                    **topic_name);
     // Potentially dead after the above invocation; nothing to do except return.
     return;
   }
-
-  const std::string* topic_name = GetTopicName(*result.value);
-  if (topic_name) {
-    RecordRequestStatus(SubscriptionStatus::kSuccess, type_, topic_);
-    RunCompletedCallbackAndMaybeDie(Status(StatusCode::SUCCESS, std::string()),
-                                    *topic_name);
-    // Potentially dead after the above invocation; nothing to do except return.
-  } else {
-    RecordRequestStatus(SubscriptionStatus::kParsingFailure, type_, topic_);
-    RunCompletedCallbackAndMaybeDie(
-        Status(StatusCode::FAILED, base::StringPrintf("Missing topic name")),
-        std::string());
-    // Potentially dead after the above invocation; nothing to do except return.
-  }
+  RecordRequestStatus(SubscriptionStatus::kParsingFailure, type_, topic_);
+  RunCompletedCallbackAndMaybeDie(
+      Status(StatusCode::FAILED,
+             result.has_value() ? "Missing topic name" : "Body parse error"),
+      std::string());
+  // Potentially dead after the above invocation; nothing to do except return.
 }
 
 void PerUserTopicSubscriptionRequest::RunCompletedCallbackAndMaybeDie(
@@ -342,11 +316,11 @@ HttpRequestHeaders PerUserTopicSubscriptionRequest::Builder::BuildHeaders()
 }
 
 std::string PerUserTopicSubscriptionRequest::Builder::BuildBody() const {
-  base::Value request(base::Value::Type::DICTIONARY);
+  base::Value::Dict request;
 
-  request.SetStringKey("public_topic_name", topic_);
+  request.Set("public_topic_name", topic_);
   if (topic_is_public_)
-    request.SetBoolKey("is_public", true);
+    request.Set("is_public", true);
 
   std::string request_json;
   bool success = base::JSONWriter::Write(request, &request_json);

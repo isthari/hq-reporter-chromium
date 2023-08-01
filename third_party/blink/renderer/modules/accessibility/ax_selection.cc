@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -349,7 +349,10 @@ void AXSelection::UpdateSelectionIfNecessary() {
 
 bool AXSelection::Select(const AXSelectionBehavior selection_behavior) {
   if (!IsValid()) {
-    NOTREACHED() << "Trying to select an invalid accessibility selection.";
+    // TODO(crbug.com/1409881): Make sure this no longer fires then turn this
+    // block into CHECK(IsValid());
+    DUMP_WILL_BE_NOTREACHED_NORETURN()
+        << "Trying to select an invalid accessibility selection.";
     return false;
   }
 
@@ -368,7 +371,7 @@ bool AXSelection::Select(const AXSelectionBehavior selection_behavior) {
     // TextControl::SetSelectionRange deliberately does not set focus. But if
     // we're updating the selection, the text control should be focused.
     ScheduleSelectEvent(text_control);
-    text_control.focus();
+    text_control.Focus();
     return true;
   }
 

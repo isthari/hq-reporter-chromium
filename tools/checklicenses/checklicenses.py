@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright (c) 2012 The Chromium Authors. All rights reserved.
+# Copyright 2012 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -114,9 +114,6 @@ PATH_SPECIFIC_ALLOWLISTED_LICENSES = {
     'base/third_party/icu': [  # http://crbug.com/98087
         'UNKNOWN',
     ],
-    'base/third_party/libevent': [  # http://crbug.com/98309
-        'UNKNOWN',
-    ],
     'buildtools/third_party/libc++/trunk/test': [
         # http://llvm.org/bugs/show_bug.cgi?id=25980
         'UNKNOWN',
@@ -128,15 +125,6 @@ PATH_SPECIFIC_ALLOWLISTED_LICENSES = {
     'buildtools/third_party/libc++/trunk/utils/not': ['UNKNOWN'],
     'buildtools/third_party/libc++/trunk/utils/sym_check': ['UNKNOWN'],
     'buildtools/third_party/libc++abi/trunk/test': ['UNKNOWN'],
-    'chrome/common/extensions/docs/examples': [  # http://crbug.com/98092
-        'UNKNOWN',
-    ],
-    # This contains files copied from elsewhere from the tree. Since the copied
-    # directories might have suppressions below (like simplejson), allowlist the
-    # whole directory. This is also not shipped code.
-    'chrome/common/extensions/docs/server2/third_party': [
-        'UNKNOWN',
-    ],
     'native_client': [  # http://crbug.com/98099
         'UNKNOWN',
     ],
@@ -221,8 +209,13 @@ PATH_SPECIFIC_ALLOWLISTED_LICENSES = {
         'UNKNOWN',
     ],
 
+    # TODO(crbug.com/1447924): remove buildtools path
     # http://crbug.com/333508
     'buildtools/clang_format/script': [
+        'UNKNOWN',
+    ],
+    # http://crbug.com/333508
+    'third_party/clang_format/script': [
         'UNKNOWN',
     ],
     'third_party/devscripts': [
@@ -402,6 +395,9 @@ PATH_SPECIFIC_ALLOWLISTED_LICENSES = {
     'third_party/lcov/contrib/galaxy/genflat.pl': [
         'GPL (v2 or later)',
     ],
+    'third_party/libevent': [  # http://crbug.com/98309
+        'UNKNOWN',
+    ],
     'third_party/libjpeg_turbo': [  # http://crbug.com/98314
         'UNKNOWN',
     ],
@@ -497,13 +493,6 @@ PATH_SPECIFIC_ALLOWLISTED_LICENSES = {
     ],
     'third_party/pdfium/third_party/libtiff/uvcode.h': [
         'UNKNOWN',
-    ],
-    'third_party/talloc': [
-        'GPL (v3 or later)',
-        'UNKNOWN',  # http://crbug.com/98588
-    ],
-    'third_party/tcmalloc': [
-        'UNKNOWN',  # http://crbug.com/98589
     ],
     # MIT license but some files contain no licensing info. e.g. autogen.sh.
     # Files missing licensing info are not shipped.

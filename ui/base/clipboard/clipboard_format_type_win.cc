@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -63,11 +63,6 @@ std::string ClipboardFormatType::WebCustomFormatName(int index) {
 }
 
 // static
-std::string ClipboardFormatType::WebCustomFormatMapName() {
-  return "Web Custom Format Map";
-}
-
-// static
 ClipboardFormatType ClipboardFormatType::CustomPlatformType(
     const std::string& format_string) {
   // Once these formats are registered, `RegisterClipboardFormat` just returns
@@ -80,9 +75,7 @@ ClipboardFormatType ClipboardFormatType::CustomPlatformType(
 // static
 const ClipboardFormatType& ClipboardFormatType::WebCustomFormatMap() {
   static base::NoDestructor<ClipboardFormatType> format(
-      ::RegisterClipboardFormat(
-          base::ASCIIToWide(ClipboardFormatType::WebCustomFormatMapName())
-              .c_str()));
+      ::RegisterClipboardFormat(L"Web Custom Format Map"));
   return *format;
 }
 
@@ -107,7 +100,7 @@ ClipboardFormatType ClipboardFormatType::GetType(
       ::RegisterClipboardFormat(base::ASCIIToWide(format_string).c_str()));
 }
 
-// The following formats can be referenced by ClipboardUtilWin::GetPlainText.
+// The following formats can be referenced by clipboard_util::GetPlainText.
 // Clipboard formats are initialized in a thread-safe manner, using static
 // initialization. COM requires this thread-safe initialization.
 // TODO(dcheng): We probably need to make static initialization of "known"

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,53 +7,49 @@ package org.chromium.chrome.browser.payments;
 import androidx.test.filters.MediumTest;
 
 import org.junit.Assert;
-import org.junit.ClassRule;
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.autofill.AutofillTestHelper;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.AutofillProfile;
-import org.chromium.chrome.browser.autofill.PersonalDataManager.CreditCard;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.payments.PaymentRequestTestRule.AppSpeed;
-import org.chromium.chrome.browser.payments.PaymentRequestTestRule.MainActivityStartCallback;
 import org.chromium.chrome.browser.payments.PaymentRequestTestRule.TestPay;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
+import org.chromium.chrome.test.R;
 import org.chromium.components.payments.PaymentAppFactoryDelegate;
 import org.chromium.components.payments.PaymentAppFactoryInterface;
 import org.chromium.components.payments.PaymentAppService;
-import org.chromium.ui.test.util.DisableAnimationsTestRule;
 
 import java.util.concurrent.TimeoutException;
 
 /** A payment integration test that sorting payment apps by frecency. */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
-public class PaymentRequestPaymentAppsSortingTest implements MainActivityStartCallback {
-    // Disable animations to reduce flakiness.
-    @ClassRule
-    public static DisableAnimationsTestRule sNoAnimationsRule = new DisableAnimationsTestRule();
-
+public class PaymentRequestPaymentAppsSortingTest {
     @Rule
-    public PaymentRequestTestRule mPaymentRequestTestRule = new PaymentRequestTestRule(
-            "payment_request_alicepay_bobpay_charliepay_and_cards_test.html", this);
+    public PaymentRequestTestRule mPaymentRequestTestRule =
+            new PaymentRequestTestRule("payment_request_alicepay_bobpay_charliepay_test.html");
 
-    @Override
-    public void onMainActivityStarted() throws TimeoutException {
+    @Before
+    public void setUp() throws TimeoutException {
         AutofillTestHelper helper = new AutofillTestHelper();
-        String billingAddressId = helper.setProfile(
-                new AutofillProfile("", "https://example.com", true, "" /* honorific prefix */,
-                        "Jon Doe", "Google", "340 Main St", "CA", "Los Angeles", "", "90291", "",
-                        "US", "310-310-6000", "jon.doe@gmail.com", "en-US"));
-        // Visa card with complete set of information. This payment method is always listed
-        // behind non-autofill payment apps in payment request.
-        helper.setCreditCard(new CreditCard("", "https://example.com", true, true, "Jon Doe",
-                "4111111111111111", "", "12", "2050", "visa", R.drawable.visa_card,
-                billingAddressId, "" /* serverId */));
+        String billingAddressId = helper.setProfile(AutofillProfile.builder()
+                                                            .setFullName("Jon Doe")
+                                                            .setCompanyName("Google")
+                                                            .setStreetAddress("340 Main St")
+                                                            .setRegion("CA")
+                                                            .setLocality("Los Angeles")
+                                                            .setPostalCode("90291")
+                                                            .setCountryCode("US")
+                                                            .setPhoneNumber("310-310-6000")
+                                                            .setEmailAddress("jon.doe@gmail.com")
+                                                            .setLanguageCode("en-US")
+                                                            .build());
     }
 
     @Test
@@ -62,9 +58,9 @@ public class PaymentRequestPaymentAppsSortingTest implements MainActivityStartCa
     public void testPaymentAppsSortingByFrecency() throws TimeoutException {
         // Install a payment app with Bob Pay and Alice Pay, and another payment app with Charlie
         // Pay.
-        TestPay appA = new TestPay("https://alicepay.com", AppSpeed.FAST_APP);
-        TestPay appB = new TestPay("https://bobpay.com", AppSpeed.FAST_APP);
-        TestPay appC = new TestPay("https://charliepay.com", AppSpeed.FAST_APP);
+        TestPay appA = new TestPay("https://alicepay.test", AppSpeed.FAST_APP);
+        TestPay appB = new TestPay("https://bobpay.test", AppSpeed.FAST_APP);
+        TestPay appC = new TestPay("https://charliepay.test", AppSpeed.FAST_APP);
         PaymentAppService.getInstance().addFactory(new PaymentAppFactoryInterface() {
             @Override
             public void create(PaymentAppFactoryDelegate delegate) {
@@ -96,23 +92,16 @@ public class PaymentRequestPaymentAppsSortingTest implements MainActivityStartCa
         PaymentPreferencesUtil.setPaymentAppUseCountForTest(charliePayId, 15);
         PaymentPreferencesUtil.setPaymentAppLastUseDate(charliePayId, 15);
 
-        mPaymentRequestTestRule.triggerUIAndWait(mPaymentRequestTestRule.getReadyToPay());
+        mPaymentRequestTestRule.triggerUIAndWait("buy", mPaymentRequestTestRule.getReadyToPay());
         mPaymentRequestTestRule.clickInPaymentMethodAndWait(
                 R.id.payments_section, mPaymentRequestTestRule.getReadyForInput());
 
         // Checks Charlie Pay is listed at the first position.
-        Assert.assertEquals(4, mPaymentRequestTestRule.getNumberOfPaymentApps());
+        Assert.assertEquals(3, mPaymentRequestTestRule.getNumberOfPaymentApps());
         Assert.assertEquals(
-                "https://charliepay.com", mPaymentRequestTestRule.getPaymentAppLabel(0));
-        Assert.assertEquals("https://bobpay.com", mPaymentRequestTestRule.getPaymentAppLabel(1));
-        Assert.assertEquals("https://alicepay.com", mPaymentRequestTestRule.getPaymentAppLabel(2));
-        // \u0020\...\u2060 is four dots ellipsis, \u202A is the Left-To-Right Embedding (LTE) mark,
-        // \u202C is the Pop Directional Formatting (PDF) mark. Expected string with form
-        // 'Visa  <LRE>****1111<PDF>\nJoe Doe'.
-        Assert.assertEquals(
-                "Visa\u0020\u0020\u202A\u2022\u2060\u2006\u2060\u2022\u2060\u2006\u2060\u2022"
-                        + "\u2060\u2006\u2060\u2022\u2060\u2006\u20601111\u202C\nJon Doe",
-                mPaymentRequestTestRule.getPaymentAppLabel(3));
+                "https://charliepay.test", mPaymentRequestTestRule.getPaymentAppLabel(0));
+        Assert.assertEquals("https://bobpay.test", mPaymentRequestTestRule.getPaymentAppLabel(1));
+        Assert.assertEquals("https://alicepay.test", mPaymentRequestTestRule.getPaymentAppLabel(2));
 
         // Cancel the Payment Request.
         mPaymentRequestTestRule.clickAndWait(
@@ -130,30 +119,23 @@ public class PaymentRequestPaymentAppsSortingTest implements MainActivityStartCa
         PaymentPreferencesUtil.setPaymentAppUseCountForTest(alicePayId, 20);
         PaymentPreferencesUtil.setPaymentAppLastUseDate(alicePayId, 20);
 
-        mPaymentRequestTestRule.reTriggerUIAndWait("buy", mPaymentRequestTestRule.getReadyToPay());
+        mPaymentRequestTestRule.triggerUIAndWait("buy", mPaymentRequestTestRule.getReadyToPay());
         mPaymentRequestTestRule.clickInPaymentMethodAndWait(
                 R.id.payments_section, mPaymentRequestTestRule.getReadyForInput());
 
         // Checks Alice Pay is listed at the first position. Checks Bob Pay is listed at the second
         // position together with Alice Pay since they come from the same app.
-        Assert.assertEquals(4, mPaymentRequestTestRule.getNumberOfPaymentApps());
-        Assert.assertEquals("https://alicepay.com", mPaymentRequestTestRule.getPaymentAppLabel(0));
+        Assert.assertEquals(3, mPaymentRequestTestRule.getNumberOfPaymentApps());
+        Assert.assertEquals("https://alicepay.test", mPaymentRequestTestRule.getPaymentAppLabel(0));
         Assert.assertEquals(
-                "https://charliepay.com", mPaymentRequestTestRule.getPaymentAppLabel(1));
-        Assert.assertEquals("https://bobpay.com", mPaymentRequestTestRule.getPaymentAppLabel(2));
-        // \u0020\...\u2060 is four dots ellipsis, \u202A is the Left-To-Right Embedding (LTE) mark,
-        // \u202C is the Pop Directional Formatting (PDF) mark. Expected string with form
-        // 'Visa  <LRE>****1111<PDF>\nJoe Doe'.
-        Assert.assertEquals(
-                "Visa\u0020\u0020\u202A\u2022\u2060\u2006\u2060\u2022\u2060\u2006\u2060\u2022"
-                        + "\u2060\u2006\u2060\u2022\u2060\u2006\u20601111\u202C\nJon Doe",
-                mPaymentRequestTestRule.getPaymentAppLabel(3));
+                "https://charliepay.test", mPaymentRequestTestRule.getPaymentAppLabel(1));
+        Assert.assertEquals("https://bobpay.test", mPaymentRequestTestRule.getPaymentAppLabel(2));
 
         mPaymentRequestTestRule.clickAndWait(
                 R.id.button_primary, mPaymentRequestTestRule.getDismissed());
         // Checks Alice Pay is selected as the default payment method.
         mPaymentRequestTestRule.expectResultContains(
-                new String[] {"https://alicepay.com", "\"transaction\"", "1337"});
+                new String[] {"https://alicepay.test", "\"transaction\"", "1337"});
 
         // Checks Alice Pay use count is increased by one after completing a payment request with
         // it.

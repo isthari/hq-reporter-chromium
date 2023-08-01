@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "base/test/test_simple_task_runner.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/safe_browsing/content/browser/triggers/mock_trigger_manager.h"
+#include "components/safe_browsing/content/browser/web_contents_key.h"
 #include "components/safe_browsing/core/common/features.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
@@ -50,8 +51,7 @@ class AdSamplerTriggerTest : public content::RenderViewHostTestHarness {
 
   void CreateTriggerWithFrequency(const size_t denominator) {
     safe_browsing::AdSamplerTrigger::CreateForWebContents(
-        web_contents(), &trigger_manager_, &prefs_, nullptr, nullptr,
-        base::NullCallback(), nullptr);
+        web_contents(), &trigger_manager_, &prefs_, nullptr, nullptr, nullptr);
 
     safe_browsing::AdSamplerTrigger* ad_sampler =
         safe_browsing::AdSamplerTrigger::FromWebContents(web_contents());
@@ -69,7 +69,7 @@ class AdSamplerTriggerTest : public content::RenderViewHostTestHarness {
 
   // Returns the final RenderFrameHost after navigation commits.
   RenderFrameHost* NavigateMainFrame(const std::string& url) {
-    return NavigateFrame(url, web_contents()->GetMainFrame());
+    return NavigateFrame(url, web_contents()->GetPrimaryMainFrame());
   }
 
   // Returns the final RenderFrameHost after navigation commits.
@@ -84,6 +84,10 @@ class AdSamplerTriggerTest : public content::RenderViewHostTestHarness {
   void WaitForTaskRunnerIdle() {
     task_runner_->RunUntilIdle();
     base::RunLoop().RunUntilIdle();
+  }
+
+  WebContentsKey web_contents_key() {
+    return GetWebContentsKey(web_contents());
   }
 
   MockTriggerManager* get_trigger_manager() { return &trigger_manager_; }
@@ -101,7 +105,7 @@ TEST_F(AdSamplerTriggerTest, TriggerDisabledBySamplingFrequency) {
   // zero, which disables the trigger.
   CreateTriggerWithFrequency(kAdSamplerFrequencyDisabled);
   EXPECT_CALL(*get_trigger_manager(),
-              StartCollectingThreatDetails(_, _, _, _, _, _, _, _))
+              StartCollectingThreatDetails(_, _, _, _, _, _, _))
       .Times(0);
   EXPECT_CALL(*get_trigger_manager(),
               FinishCollectingThreatDetails(_, _, _, _, _, _))
@@ -123,12 +127,12 @@ TEST_F(AdSamplerTriggerTest, TriggerDisabledBySamplingFrequency) {
                                       NO_SAMPLE_AD_SKIPPED_FOR_FREQUENCY, 2);
 }
 
-TEST_F(AdSamplerTriggerTest, DISABLED_PageWithNoAds) {
+TEST_F(AdSamplerTriggerTest, PageWithNoAds) {
   // Make sure the trigger doesn't fire when there are no ads on the page.
   CreateTriggerWithFrequency(/*denominator=*/1);
 
   EXPECT_CALL(*get_trigger_manager(),
-              StartCollectingThreatDetails(_, _, _, _, _, _, _, _))
+              StartCollectingThreatDetails(_, _, _, _, _, _, _))
       .Times(0);
   EXPECT_CALL(*get_trigger_manager(),
               FinishCollectingThreatDetails(_, _, _, _, _, _))
@@ -151,12 +155,12 @@ TEST_F(AdSamplerTriggerTest, PageWithMultipleAds) {
   CreateTriggerWithFrequency(/*denominator=*/1);
   EXPECT_CALL(*get_trigger_manager(),
               StartCollectingThreatDetails(TriggerType::AD_SAMPLE,
-                                           web_contents(), _, _, _, _, _, _))
+                                           web_contents(), _, _, _, _, _))
       .Times(2)
       .WillRepeatedly(Return(true));
   EXPECT_CALL(*get_trigger_manager(),
               FinishCollectingThreatDetails(TriggerType::AD_SAMPLE,
-                                            web_contents(), _, _, _, _))
+                                            web_contents_key(), _, _, _, _))
       .Times(2);
 
   // This page contains two ads - one identifiable by its URL, the other by the
@@ -184,12 +188,12 @@ TEST_F(AdSamplerTriggerTest, ReportRejectedByTriggerManager) {
   CreateTriggerWithFrequency(/*denominator=*/1);
   EXPECT_CALL(*get_trigger_manager(),
               StartCollectingThreatDetails(TriggerType::AD_SAMPLE,
-                                           web_contents(), _, _, _, _, _, _))
+                                           web_contents(), _, _, _, _, _))
       .Times(1)
       .WillOnce(Return(false));
   EXPECT_CALL(*get_trigger_manager(),
               FinishCollectingThreatDetails(TriggerType::AD_SAMPLE,
-                                            web_contents(), _, _, _, _))
+                                            web_contents_key(), _, _, _, _))
       .Times(0);
 
   // One ad on the page, identified by its URL.
@@ -216,7 +220,7 @@ TEST(AdSamplerTriggerTestFinch, FrequencyDenominatorFeature) {
   // given.
   content::BrowserTaskEnvironment task_environment;
   AdSamplerTrigger trigger_default(nullptr, nullptr, nullptr, nullptr, nullptr,
-                                   base::NullCallback(), nullptr);
+                                   nullptr);
 
   EXPECT_EQ(kAdSamplerDefaultFrequency,
             trigger_default.sampler_frequency_denominator_);
@@ -232,7 +236,7 @@ TEST(AdSamplerTriggerTestFinch, FrequencyDenominatorFeature) {
       safe_browsing::kAdSamplerTriggerFeature, feature_params);
 
   AdSamplerTrigger trigger_finch(nullptr, nullptr, nullptr, nullptr, nullptr,
-                                 base::NullCallback(), nullptr);
+                                 nullptr);
   EXPECT_EQ(kDenominatorInt, trigger_finch.sampler_frequency_denominator_);
 }
 }  // namespace safe_browsing

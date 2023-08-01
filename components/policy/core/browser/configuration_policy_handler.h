@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,13 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
 #include "base/compiler_specific.h"
+#include "base/functional/callback.h"
 #include "base/values.h"
+#include "components/policy/core/common/policy_map.h"
 #include "components/policy/core/common/schema.h"
 #include "components/policy/policy_export.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class PrefValueMap;
 
@@ -51,6 +53,9 @@ class POLICY_EXPORT ConfigurationPolicyHandler {
 
   // Processes the policies handled by this ConfigurationPolicyHandler and sets
   // the appropriate preferences in |prefs|.
+  //
+  // This method should only be called after |CheckPolicySettings()| returns
+  // true.
   virtual void ApplyPolicySettingsWithParameters(
       const PolicyMap& policies,
       const PolicyHandlerParameters& parameters,
@@ -76,6 +81,7 @@ class POLICY_EXPORT ConfigurationPolicyHandler {
 // subclassed to handle policies that have a name.
 class POLICY_EXPORT NamedPolicyHandler : public ConfigurationPolicyHandler {
  public:
+  // TODO: migrate named policy handlers from char* to base::StringPiece
   explicit NamedPolicyHandler(const char* policy_name);
   ~NamedPolicyHandler() override;
   NamedPolicyHandler(const NamedPolicyHandler&) = delete;
@@ -103,11 +109,22 @@ class POLICY_EXPORT TypeCheckingPolicyHandler : public NamedPolicyHandler {
   bool CheckPolicySettings(const PolicyMap& policies,
                            PolicyErrorMap* errors) override;
 
+  static bool CheckPolicySettings(const char* policy,
+                                  base::Value::Type value_type,
+                                  const PolicyMap::Entry* entry,
+                                  PolicyErrorMap* errors);
+
  protected:
   // Runs policy checks and returns the policy value if successful.
   bool CheckAndGetValue(const PolicyMap& policies,
                         PolicyErrorMap* errors,
                         const base::Value** value);
+
+  static bool CheckAndGetValue(const char* policy,
+                               base::Value::Type value_type,
+                               const PolicyMap::Entry* entry,
+                               PolicyErrorMap* errors,
+                               const base::Value** value);
 
  private:
   // The type the value of the policy should have.
@@ -142,16 +159,18 @@ class POLICY_EXPORT ListPolicyHandler : public TypeCheckingPolicyHandler {
 
   // Implement this method to apply the |filtered_list| of values of type
   // |list_entry_type_| as returned from CheckAndGetList() to |prefs|.
-  virtual void ApplyList(base::Value filtered_list, PrefValueMap* prefs) = 0;
+  virtual void ApplyList(base::Value::List filtered_list,
+                         PrefValueMap* prefs) = 0;
 
  private:
   // Checks whether the policy value is indeed a list, filters out all entries
   // that are not of type |list_entry_type_| or where CheckListEntry() returns
-  // false, and returns the |filtered_list| if not nullptr. Sets errors for
-  // filtered list entries if |errors| is not nullptr.
+  // false, and appends to |filtered_list| if present. If the value is missing,
+  // |filtered_list| is cleared. Sets errors for filtered list entries if
+  // |errors| is not nullptr.
   bool CheckAndGetList(const policy::PolicyMap& policies,
                        policy::PolicyErrorMap* errors,
-                       base::Value* filtered_list);
+                       absl::optional<base::Value::List>& filtered_list);
 
   // Expected value type for list entries. All other types are filtered out.
   base::Value::Type list_entry_type_;
@@ -255,7 +274,7 @@ class POLICY_EXPORT StringMappingListPolicyHandler
   // Attempts to convert the list in |input| to |output| according to the table,
   // returns false on errors.
   bool Convert(const base::Value* input,
-               base::ListValue* output,
+               base::Value::List* output,
                PolicyErrorMap* errors);
 
   // Helper method that converts from a policy value string to the associated
@@ -438,12 +457,6 @@ class POLICY_EXPORT SimpleJsonStringSchemaValidatingPolicyHandler
                           PolicyErrorMap* errors,
                           int index);
 
-  // Returns a string describing where an error occurred - |index| is the index
-  // of the string where the error occurred if the root value is a list, and
-  // ignored otherwise. |json_error_path| describes where the error occurred
-  // inside a JSON string (this can be empty).
-  std::string ErrorPath(int index, std::string json_error_path);
-
   // Record to UMA that this policy failed validation due to an error in one or
   // more embedded JSON strings - either unparsable, or didn't match the schema.
   void RecordJsonError();
@@ -521,6 +534,19 @@ class POLICY_EXPORT SimpleDeprecatingPolicyHandler
  private:
   std::unique_ptr<NamedPolicyHandler> legacy_policy_handler_;
   std::unique_ptr<NamedPolicyHandler> new_policy_handler_;
+};
+
+// A schema policy handler for complex policies that only accept cloud sources.
+class POLICY_EXPORT CloudOnlyPolicyHandler
+    : public SchemaValidatingPolicyHandler {
+ public:
+  CloudOnlyPolicyHandler(const char* policy_name,
+                         Schema schema,
+                         SchemaOnErrorStrategy strategy);
+  ~CloudOnlyPolicyHandler() override;
+
+  bool CheckPolicySettings(const PolicyMap& policies,
+                           PolicyErrorMap* errors) override;
 };
 
 }  // namespace policy

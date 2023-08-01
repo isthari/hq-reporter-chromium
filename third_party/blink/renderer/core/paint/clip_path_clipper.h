@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,17 +35,14 @@ class CORE_EXPORT ClipPathClipper {
   static absl::optional<gfx::RectF> LocalClipPathBoundingBox(
       const LayoutObject&);
 
-  // Returns true if the object has a clip-path that must be implemented with
-  // a mask.
-  static bool ShouldUseMaskBasedClip(const LayoutObject&);
-
   // The argument |clip_path_owner| is the layout object that owns the
   // ClipPathOperation we are currently processing. Usually it is the
   // same as the layout object getting clipped, but in the case of nested
   // clip-path, it could be one of the SVG clip path in the chain.
   // Returns the path if the clip-path can use path-based clip.
   static absl::optional<Path> PathBasedClip(
-      const LayoutObject& clip_path_owner);
+      const LayoutObject& clip_path_owner,
+      const bool is_in_block_fragmentation);
 };
 
 }  // namespace blink

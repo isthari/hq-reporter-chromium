@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/platform/platform.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_testing.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -13,6 +14,8 @@
 #include "third_party/blink/renderer/core/script/classic_script.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 #include "third_party/blink/renderer/platform/heap/thread_state.h"
+#include "third_party/blink/renderer/platform/scheduler/public/web_scheduling_priority.h"
+#include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "third_party/blink/renderer/platform/wtf/wtf_size_t.h"
 
 namespace blink {
@@ -33,26 +36,17 @@ class DOMSchedulerTest : public PageTestBase {
         GetFrame().DomWindow());
   }
 
-  wtf_size_t GetTrackedSignalCount() const {
+  wtf_size_t GetDynamicPriorityTaskQueueCount() const {
     return scheduler_->signal_to_task_queue_map_.size();
   }
 
-  wtf_size_t GetDynamicPriorityTaskQueueCount() const {
-    wtf_size_t count = 0;
-    for (const auto& it : scheduler_->signal_to_task_queue_map_) {
-      if (!scheduler_->fixed_priority_task_queues_.Contains(it.value)) {
-        ++count;
-      }
-    }
-    return count;
-  }
+  DOMScheduler* GetScheduler() { return scheduler_.Get(); }
 
  private:
   Persistent<DOMScheduler> scheduler_;
 };
 
-TEST_F(DOMSchedulerTest, ImplicitTaskSignalCreation) {
-  EXPECT_EQ(GetTrackedSignalCount(), 0u);
+TEST_F(DOMSchedulerTest, FixedPriorityTasksDontCreateTaskQueues) {
   EXPECT_EQ(GetDynamicPriorityTaskQueueCount(), 0u);
 
   const char* kScript =
@@ -64,29 +58,11 @@ TEST_F(DOMSchedulerTest, ImplicitTaskSignalCreation) {
       "scheduler.postTask(() => {}, {priority: 'background'});";
   ExecuteScript(kScript);
 
-  // We create and track a new implicit TaskSignal each time we see a fixed
-  // priority, but they should map to existing, fixed-priority task queues.
-  EXPECT_EQ(GetTrackedSignalCount(), 6u);
   EXPECT_EQ(GetDynamicPriorityTaskQueueCount(), 0u);
 }
 
-TEST_F(DOMSchedulerTest, ImplicitTaskSignalReused) {
-  EXPECT_EQ(GetTrackedSignalCount(), 0u);
-  EXPECT_EQ(GetDynamicPriorityTaskQueueCount(), 0u);
-
-  const char* kScript =
-      "const signal = scheduler.currentTaskSignal;"
-      "scheduler.postTask(() => {}, {signal});"
-      "scheduler.postTask(() => {}, {signal});"
-      "scheduler.postTask(() => {}, {signal});";
-  ExecuteScript(kScript);
-
-  EXPECT_EQ(GetTrackedSignalCount(), 1u);
-  EXPECT_EQ(GetDynamicPriorityTaskQueueCount(), 0u);
-}
-
-TEST_F(DOMSchedulerTest, ImplicitTaskSignalWithAbortSignal) {
-  EXPECT_EQ(GetTrackedSignalCount(), 0u);
+TEST_F(DOMSchedulerTest,
+       FixedPriorityTasksWithAbortSignalDontCreateTaskQueues) {
   EXPECT_EQ(GetDynamicPriorityTaskQueueCount(), 0u);
 
   const char* kScript1 =
@@ -95,19 +71,15 @@ TEST_F(DOMSchedulerTest, ImplicitTaskSignalWithAbortSignal) {
       "scheduler.postTask(() => {}, {signal});";
   ExecuteScript(kScript1);
 
-  EXPECT_EQ(GetTrackedSignalCount(), 1u);
   EXPECT_EQ(GetDynamicPriorityTaskQueueCount(), 0u);
 
-  // This causes another implicit signal to be created.
   const char* kScript2 = "scheduler.postTask(() => {}, {signal});";
   ExecuteScript(kScript2);
 
-  EXPECT_EQ(GetTrackedSignalCount(), 2u);
   EXPECT_EQ(GetDynamicPriorityTaskQueueCount(), 0u);
 }
 
 TEST_F(DOMSchedulerTest, DynamicPriorityTaskQueueCreation) {
-  EXPECT_EQ(GetTrackedSignalCount(), 0u);
   EXPECT_EQ(GetDynamicPriorityTaskQueueCount(), 0u);
 
   const char* kScript1 =
@@ -116,7 +88,6 @@ TEST_F(DOMSchedulerTest, DynamicPriorityTaskQueueCreation) {
       "scheduler.postTask(() => {}, {signal: signal1});";
   ExecuteScript(kScript1);
 
-  EXPECT_EQ(GetTrackedSignalCount(), 1u);
   EXPECT_EQ(GetDynamicPriorityTaskQueueCount(), 1u);
 
   const char* kScript2 =
@@ -125,12 +96,10 @@ TEST_F(DOMSchedulerTest, DynamicPriorityTaskQueueCreation) {
       "scheduler.postTask(() => {}, {signal: signal2});";
   ExecuteScript(kScript2);
 
-  EXPECT_EQ(GetTrackedSignalCount(), 2u);
   EXPECT_EQ(GetDynamicPriorityTaskQueueCount(), 2u);
 }
 
 TEST_F(DOMSchedulerTest, DynamicPriorityTaskQueueCreationReuseSignal) {
-  EXPECT_EQ(GetTrackedSignalCount(), 0u);
   EXPECT_EQ(GetDynamicPriorityTaskQueueCount(), 0u);
 
   const char* kScript =
@@ -141,12 +110,11 @@ TEST_F(DOMSchedulerTest, DynamicPriorityTaskQueueCreationReuseSignal) {
       "scheduler.postTask(() => {}, {signal});";
   ExecuteScript(kScript);
 
-  EXPECT_EQ(GetTrackedSignalCount(), 1u);
   EXPECT_EQ(GetDynamicPriorityTaskQueueCount(), 1u);
 }
 
 TEST_F(DOMSchedulerTest, DynamicPriorityTaskQueueGarbageCollection) {
-  EXPECT_EQ(GetTrackedSignalCount(), 0u);
+  EXPECT_EQ(GetDynamicPriorityTaskQueueCount(), 0u);
 
   // Schedule a task but let the associated signal go out of scope. The dynamic
   // priority task queue should stay alive until after the task runs.
@@ -159,21 +127,36 @@ TEST_F(DOMSchedulerTest, DynamicPriorityTaskQueueGarbageCollection) {
       "test();";
   ExecuteScript(kScript);
 
-  EXPECT_EQ(GetTrackedSignalCount(), 1u);
   EXPECT_EQ(GetDynamicPriorityTaskQueueCount(), 1u);
 
   // The signal and controller are out of scope in JS, but the task queue
   // should remain alive and tracked since the task hasn't run yet.
   ThreadState::Current()->CollectAllGarbageForTesting();
-  EXPECT_EQ(GetTrackedSignalCount(), 1u);
   EXPECT_EQ(GetDynamicPriorityTaskQueueCount(), 1u);
 
   // Running the scheduled task and running garbage collection should now cause
   // the siganl to be untracked and the task queue to be destroyed.
   platform()->RunUntilIdle();
   ThreadState::Current()->CollectAllGarbageForTesting();
-  EXPECT_EQ(GetTrackedSignalCount(), 0u);
   EXPECT_EQ(GetDynamicPriorityTaskQueueCount(), 0u);
+}
+
+class DOMSchedulerTestWithCompositionDisabled : public DOMSchedulerTest {
+ public:
+  DOMSchedulerTestWithCompositionDisabled()
+      : scoped_signal_composition_(false) {}
+
+ private:
+  ScopedAbortSignalCompositionForTest scoped_signal_composition_;
+};
+
+TEST_F(DOMSchedulerTestWithCompositionDisabled, FixedPriorirtySignal) {
+  // Regression test for crbug.com/1431940.
+  V8TestingScope scope;
+  auto* signal = GetScheduler()->GetFixedPriorityTaskSignal(
+      scope.GetScriptState(), WebSchedulingPriority::kUserVisiblePriority);
+  // This should not crash.
+  signal->HasPendingActivity();
 }
 
 }  // namespace blink

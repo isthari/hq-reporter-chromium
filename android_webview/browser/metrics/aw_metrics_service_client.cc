@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,10 +13,16 @@
 #include "base/android/callback_android.h"
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
+#include "base/base_paths_android.h"
 #include "base/feature_list.h"
+#include "base/files/file_util.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/persistent_histogram_allocator.h"
+#include "base/path_service.h"
+#include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
 #include "base/time/time.h"
+#include "base/trace_event/trace_event.h"
 #include "components/metrics/metrics_pref_names.h"
 #include "components/metrics/metrics_service.h"
 #include "components/prefs/pref_service.h"
@@ -27,6 +33,8 @@ namespace android_webview {
 namespace prefs {
 const char kMetricsAppPackageNameLoggingRule[] =
     "aw_metrics_app_package_name_logging_rule";
+const char kAppPackageNameLoggingRuleLastUpdateTime[] =
+    "aw_metrics_app_package_name_logging_rule_last_update";
 }  // namespace prefs
 
 namespace {
@@ -44,17 +52,26 @@ const int kStableSampledInRatePerMille = 20;
 // exercise the out-of-sample code path.
 const int kBetaDevCanarySampledInRatePerMille = 990;
 
-// As a mitigation to preserve use privacy, the privacy team has asked that we
-// upload package name with no more than 10% of UMA clients. This is to mitigate
-// fingerprinting for users on low-usage applications (if an app only has a
-// a small handful of users, there's a very good chance many of them won't be
-// uploading UMA records due to sampling). Do not change this constant without
-// consulting with the privacy team.
-const int kPackageNameLimitRatePerMille = 100;
+// The fraction of UMA clients for whom package name data is uploaded. This
+// threshold and the corresponding privacy requirements are described in more
+// detail at http://shortn/_CzfDUxTxm2 (internal document). We also have public
+// documentation for metrics collection in WebView more generally (see
+// https://developer.android.com/guide/webapps/webview-privacy).
+//
+// Do not change this constant without seeking privacy approval with the teams
+// outlined in the internal document above.
+const int kPackageNameLimitRatePerMille = 100;  // (10% of UMA clients)
 
 AwMetricsServiceClient* g_aw_metrics_service_client = nullptr;
 
+bool IsAppPackageNameServerSideAllowlistEnabled() {
+  return base::FeatureList::IsEnabled(
+      android_webview::features::kWebViewAppsPackageNamesServerSideAllowlist);
+}
+
 }  // namespace
+
+const base::TimeDelta kRecordAppDataDirectorySizeDelay = base::Seconds(10);
 
 AwMetricsServiceClient::Delegate::Delegate() = default;
 AwMetricsServiceClient::Delegate::~Delegate() = default;
@@ -86,6 +103,9 @@ int32_t AwMetricsServiceClient::GetProduct() {
 }
 
 int AwMetricsServiceClient::GetSampleRatePerMille() const {
+  if (base::FeatureList::IsEnabled(features::kWebViewServerSideSampling)) {
+    return 1000;
+  }
   // Down-sample unknown channel as a precaution in case it ends up being
   // shipped to Stable users.
   version_info::Channel channel = version_info::android::GetChannel();
@@ -97,12 +117,6 @@ int AwMetricsServiceClient::GetSampleRatePerMille() const {
 }
 
 std::string AwMetricsServiceClient::GetAppPackageNameIfLoggable() {
-  if (!base::FeatureList::IsEnabled(
-          android_webview::features::kWebViewAppsPackageNamesAllowlist)) {
-    // Revert to the default implementation.
-    return ::metrics::AndroidMetricsServiceClient::
-        GetAppPackageNameIfLoggable();
-  }
   AndroidMetricsServiceClient::InstallerPackageType installer_type =
       GetInstallerPackageType();
   // Always record the app package name of system apps even if it's not in the
@@ -116,18 +130,29 @@ std::string AwMetricsServiceClient::GetAppPackageNameIfLoggable() {
 }
 
 bool AwMetricsServiceClient::ShouldRecordPackageName() {
-  if (!base::FeatureList::IsEnabled(
-          android_webview::features::kWebViewAppsPackageNamesAllowlist)) {
-    // Revert to the default implementation of using a random sample to decide
-    // whether to record the app package name or not.
-    return ::metrics::AndroidMetricsServiceClient::ShouldRecordPackageName();
+  // Record app package name when app consent, user consent,
+  // and server-side allowlist is used
+  if (IsAppPackageNameServerSideAllowlistEnabled()) {
+    return true;
   }
-
   base::UmaHistogramEnumeration(
       "Android.WebView.Metrics.PackagesAllowList.RecordStatus",
       package_name_record_status_);
-  return cached_package_name_record_.has_value() &&
-         cached_package_name_record_.value().IsAppPackageNameAllowed();
+
+  if (!cached_package_name_record_.has_value() ||
+      !cached_package_name_record_.value().IsAppPackageNameAllowed()) {
+    return false;
+  }
+  // Recording as a count not times histogram because time histograms offers
+  // reacording (milliseconds and microseconds) which is too granular. Expiry
+  // time can range from 0 up to 6 weeks (1008 hours). Although values over 1000
+  // will go to the max bucket, it should be fine for this, as we care only
+  // about small buckets when the allowlist is about to expire.
+  base::UmaHistogramCounts1000(
+      "Android.WebView.Metrics.PackagesAllowList.TimeToExpire",
+      (cached_package_name_record_.value().GetExpiryDate() - base::Time::Now())
+          .InHours());
+  return true;
 }
 
 void AwMetricsServiceClient::SetAppPackageNameLoggingRule(
@@ -151,8 +176,8 @@ void AwMetricsServiceClient::SetAppPackageNameLoggingRule(
 
   PrefService* local_state = pref_service();
   DCHECK(local_state);
-  local_state->Set(prefs::kMetricsAppPackageNameLoggingRule,
-                   record.value().ToDictionary());
+  local_state->SetDict(prefs::kMetricsAppPackageNameLoggingRule,
+                       record.value().ToDictionary());
   cached_package_name_record_ = record;
   package_name_record_status_ =
       AppPackageNameLoggingRuleStatus::kNewVersionLoaded;
@@ -171,7 +196,7 @@ AwMetricsServiceClient::GetCachedAppPackageNameLoggingRule() {
   PrefService* local_state = pref_service();
   DCHECK(local_state);
   cached_package_name_record_ = AppPackageNameLoggingRule::FromDictionary(
-      *(local_state->Get(prefs::kMetricsAppPackageNameLoggingRule)));
+      local_state->GetDict(prefs::kMetricsAppPackageNameLoggingRule));
   if (cached_package_name_record_.has_value()) {
     package_name_record_status_ =
         AppPackageNameLoggingRuleStatus::kNotLoadedUseCache;
@@ -179,8 +204,51 @@ AwMetricsServiceClient::GetCachedAppPackageNameLoggingRule() {
   return cached_package_name_record_;
 }
 
+base::Time AwMetricsServiceClient::GetAppPackageNameLoggingRuleLastUpdateTime()
+    const {
+  PrefService* local_state = pref_service();
+  DCHECK(local_state);
+  return local_state->GetTime(prefs::kAppPackageNameLoggingRuleLastUpdateTime);
+}
+
+void AwMetricsServiceClient::SetAppPackageNameLoggingRuleLastUpdateTime(
+    base::Time update_time) {
+  PrefService* local_state = pref_service();
+  DCHECK(local_state);
+  local_state->SetTime(prefs::kAppPackageNameLoggingRuleLastUpdateTime,
+                       update_time);
+}
+
+// Used below in AwMetricsServiceClient::OnMetricsStart.
+void RecordAppDataDirectorySize() {
+  TRACE_EVENT_BEGIN0("android_webview", "RecordAppDataDirectorySize");
+  base::TimeTicks start_time = base::TimeTicks::Now();
+
+  base::FilePath app_data_dir;
+  base::PathService::Get(base::DIR_ANDROID_APP_DATA, &app_data_dir);
+  int64_t bytes = base::ComputeDirectorySize(app_data_dir);
+  // Record size up to 100MB
+  base::UmaHistogramCounts100000("Android.WebView.AppDataDirectory.Size",
+                                 bytes / 1024);
+
+  base::UmaHistogramMediumTimes(
+      "Android.WebView.AppDataDirectory.TimeToComputeSize",
+      base::TimeTicks::Now() - start_time);
+  TRACE_EVENT_END0("android_webview", "RecordAppDataDirectorySize");
+}
+
 void AwMetricsServiceClient::OnMetricsStart() {
   delegate_->AddWebViewAppStateObserver(this);
+  if (base::FeatureList::IsEnabled(
+          android_webview::features::kWebViewRecordAppDataDirectorySize) &&
+      IsReportingEnabled()) {
+    // Calculating directory size can be fairly expensive, so only do this when
+    // we are certain that the UMA histogram will be logged to the server.
+    base::ThreadPool::PostDelayedTask(
+        FROM_HERE, {base::MayBlock(), base::TaskPriority::BEST_EFFORT},
+        base::BindOnce(&RecordAppDataDirectorySize),
+        kRecordAppDataDirectorySizeDelay);
+  }
 }
 
 void AwMetricsServiceClient::OnMetricsNotStarted() {}
@@ -227,8 +295,9 @@ void AwMetricsServiceClient::RegisterAdditionalMetricsProviders(
 void AwMetricsServiceClient::RegisterMetricsPrefs(
     PrefRegistrySimple* registry) {
   RegisterPrefs(registry);
-  registry->RegisterDictionaryPref(prefs::kMetricsAppPackageNameLoggingRule,
-                                   base::Value(base::Value::Type::DICTIONARY));
+  registry->RegisterDictionaryPref(prefs::kMetricsAppPackageNameLoggingRule);
+  registry->RegisterTimePref(prefs::kAppPackageNameLoggingRuleLastUpdateTime,
+                             base::Time());
 }
 
 // static

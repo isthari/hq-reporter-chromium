@@ -1,13 +1,12 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef IOS_CHROME_BROWSER_BROWSING_DATA_BROWSING_DATA_REMOVER_IMPL_H_
 #define IOS_CHROME_BROWSER_BROWSING_DATA_BROWSING_DATA_REMOVER_IMPL_H_
 
-
-#include "base/callback.h"
 #include "base/containers/queue.h"
+#include "base/functional/callback.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
 #include "base/task/cancelable_task_tracker.h"
@@ -67,7 +66,7 @@ class BrowsingDataRemoverImpl : public BrowsingDataRemover {
     base::Time task_started;
   };
 
-  // Setter for |is_removing_|; DCHECKs that we can only start removing if we're
+  // Setter for `is_removing_`; DCHECKs that we can only start removing if we're
   // not already removing, and vice-versa.
   void SetRemoving(bool is_removing);
 

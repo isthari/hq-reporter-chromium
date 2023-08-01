@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,12 @@
 
 #include <string>
 
-#include "ash/constants/ash_features.h"
-#include "ash/style/ash_color_provider.h"
 #include "ash/webui/file_manager/resources/grit/file_manager_swa_resources.h"
 #include "ash/webui/file_manager/url_constants.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/ash/file_manager/file_tasks.h"
 #include "chrome/browser/ash/web_applications/system_web_app_install_utils.h"
+#include "chrome/browser/web_applications/mojom/user_display_mode.mojom.h"
 #include "chrome/browser/web_applications/web_app_constants.h"
 #include "chrome/browser/web_applications/web_app_install_info.h"
 #include "chrome/grit/generated_resources.h"
@@ -68,21 +68,48 @@ std::unique_ptr<WebAppInstallInfo> CreateWebAppInfoForFileManager() {
       },
       *info);
 
-  auto* color_provider = ash::AshColorProvider::Get();
-  info->theme_color =
-      color_provider->GetBackgroundColorInMode(/*use_dark_mode=*/false);
-  info->dark_mode_theme_color =
-      color_provider->GetBackgroundColorInMode(/*use_dark_mode=*/true);
+  info->theme_color = cros_styles::ResolveColor(
+      cros_styles::ColorName::kBgColor, /*is_dark_mode=*/false);
+  info->dark_mode_theme_color = cros_styles::ResolveColor(
+      cros_styles::ColorName::kBgColor, /*is_dark_mode=*/true);
   info->background_color = info->theme_color;
   info->dark_mode_background_color = info->dark_mode_theme_color;
   info->display_mode = blink::mojom::DisplayMode::kStandalone;
-  info->user_display_mode = blink::mojom::DisplayMode::kStandalone;
+  info->user_display_mode = web_app::mojom::UserDisplayMode::kStandalone;
+
+  // NOTE: when adding new formats to the extension list below, don't
+  // forget to also update file_manager/manifest.json.
 
   // Add File Handlers. NOTE: Order of handlers matters.
   // Archives:
   AppendFileHandler(*info, "mount-archive",
-                    {"7z", "bz2", "crx", "gz", "iso", "rar", "tar", "tbz",
-                     "tbz2", "tgz", "zip"});
+                    {
+                        "7z",     //
+                        "bz",     //
+                        "bz2",    //
+                        "crx",    //
+                        "gz",     //
+                        "iso",    //
+                        "lz",     //
+                        "lzma",   //
+                        "rar",    //
+                        "tar",    //
+                        "taz",    //
+                        "tb2",    //
+                        "tbz",    //
+                        "tbz2",   //
+                        "tgz",    //
+                        "tlz",    //
+                        "tlzma",  //
+                        "txz",    //
+                        "tz",     //
+                        "tz2",    //
+                        "tzst",   //
+                        "xz",     //
+                        "z",      //
+                        "zip",    //
+                        "zst",    //
+                    });
 
   // Drive & Google Docs:
   AppendFileHandler(*info, "open-hosted-generic",
@@ -90,6 +117,24 @@ std::unique_ptr<WebAppInstallInfo> CreateWebAppInfoForFileManager() {
   AppendFileHandler(*info, "open-hosted-gdoc", {"gdoc"});
   AppendFileHandler(*info, "open-hosted-gsheet", {"gsheet"});
   AppendFileHandler(*info, "open-hosted-gslides", {"gslides"});
+
+  // Office Docs - Web Drive:
+  AppendFileHandler(*info,
+                    ::file_manager::file_tasks::kActionIdWebDriveOfficeWord,
+                    {"doc", "docx"});
+  AppendFileHandler(*info,
+                    ::file_manager::file_tasks::kActionIdWebDriveOfficeExcel,
+                    {"xls", "xlsm", "xlsx"});
+  AppendFileHandler(
+      *info, ::file_manager::file_tasks::kActionIdWebDriveOfficePowerPoint,
+      {"ppt", "pptx"});
+
+  // Office Docs - Microsoft 365: Alongside Web Drive, Files app has Microsoft
+  // 365 as a second file handler for Office files, (action ID:
+  // `::file_manager::file_tasks::kActionIdOpenInOffice`). However, the app
+  // service doesn't handle registering the same app twice to handle the same
+  // files in two different ways. Hence, file_tasks is responsible for adding
+  // this "open-in-office" file handler manually, when relevant.
 
   // View in the browser (with mime-type):
   AppendFileHandler(*info, "view-pdf", {"pdf"}, "application/pdf");
@@ -109,14 +154,10 @@ std::unique_ptr<WebAppInstallInfo> CreateWebAppInfoForFileManager() {
 }
 
 FileManagerSystemAppDelegate::FileManagerSystemAppDelegate(Profile* profile)
-    : web_app::SystemWebAppDelegate(
-          web_app::SystemAppType::FILE_MANAGER,
-          "File Manager",
-          GURL(kChromeUIFileManagerURL),
-          profile,
-          web_app::OriginTrialsMap(
-              {{web_app::GetOrigin(kChromeUIFileManagerURL),
-                {"FileHandling"}}})) {}
+    : ash::SystemWebAppDelegate(ash::SystemWebAppType::FILE_MANAGER,
+                                "File Manager",
+                                GURL(kChromeUIFileManagerURL),
+                                profile) {}
 
 std::unique_ptr<WebAppInstallInfo> FileManagerSystemAppDelegate::GetWebAppInfo()
     const {
@@ -127,22 +168,21 @@ bool FileManagerSystemAppDelegate::ShouldCaptureNavigations() const {
   return true;
 }
 
-bool FileManagerSystemAppDelegate::ShouldReuseExistingWindow() const {
-  return false;
+Browser* FileManagerSystemAppDelegate::GetWindowForLaunch(
+    Profile* profile,
+    const GURL& url) const {
+  return nullptr;
 }
 
 bool FileManagerSystemAppDelegate::IsAppEnabled() const {
-  return ash::features::IsFileManagerSwaEnabled();
+  return true;
 }
 
 bool FileManagerSystemAppDelegate::ShouldShowNewWindowMenuOption() const {
   return true;
 }
 
-std::vector<web_app::AppId>
+std::vector<std::string>
 FileManagerSystemAppDelegate::GetAppIdsToUninstallAndReplace() const {
-  if (ash::features::IsFileManagerSwaEnabled()) {
-    return {extension_misc::kFilesManagerAppId};
-  }
-  return {};
+  return {extension_misc::kFilesManagerAppId};
 }

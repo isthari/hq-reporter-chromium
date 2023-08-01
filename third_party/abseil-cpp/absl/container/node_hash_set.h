@@ -74,6 +74,10 @@ struct NodeHashSetPolicy;
 // absl/hash/hash.h for information on extending Abseil hashing to user-defined
 // types.
 //
+// Using `absl::node_hash_set` at interface boundaries in dynamically loaded
+// libraries (e.g. .dll, .so) is unsupported due to way `absl::Hash` values may
+// be randomized across dynamically loaded libraries.
+//
 // Example:
 //
 //   // Create a node hash set of three strings
@@ -330,7 +334,7 @@ class node_hash_set
   // for the past-the-end iterator, which is invalidated.
   //
   // `swap()` requires that the node hash set's hashing and key equivalence
-  // functions be Swappable, and are exchaged using unqualified calls to
+  // functions be Swappable, and are exchanged using unqualified calls to
   // non-member `swap()`. If the set's allocator has
   // `std::allocator_traits<allocator_type>::propagate_on_container_swap::value`
   // set to `true`, the allocators are also exchanged using an unqualified call

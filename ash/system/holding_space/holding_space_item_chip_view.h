@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 #define ASH_SYSTEM_HOLDING_SPACE_HOLDING_SPACE_ITEM_CHIP_VIEW_H_
 
 #include "ash/ash_export.h"
-#include "ash/public/cpp/holding_space/holding_space_image.h"
 #include "ash/system/holding_space/holding_space_animation_registry.h"
 #include "ash/system/holding_space/holding_space_item_view.h"
 #include "ui/base/metadata/metadata_header_macros.h"
@@ -20,8 +19,8 @@ class Label;
 namespace ash {
 
 class HoldingSpaceItem;
-class HoldingSpaceProgressIndicator;
 class HoldingSpaceViewDelegate;
+class ProgressIndicator;
 class RoundedImageView;
 
 // A button with an image derived from a file's thumbnail and file's name as the
@@ -69,7 +68,7 @@ class ASH_EXPORT HoldingSpaceItemChipView : public HoldingSpaceItemView {
   views::View* secondary_action_container_ = nullptr;
   views::ImageButton* secondary_action_pause_ = nullptr;
   views::ImageButton* secondary_action_resume_ = nullptr;
-  HoldingSpaceProgressIndicator* progress_indicator_ = nullptr;
+  ProgressIndicator* progress_indicator_ = nullptr;
 
   base::CallbackListSubscription image_skia_changed_subscription_;
   base::CallbackListSubscription progress_ring_animation_changed_subscription_;

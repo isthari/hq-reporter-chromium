@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,9 +11,9 @@
 #include <utility>
 
 #include "base/base64.h"
-#include "base/bind.h"
 #include "base/check_op.h"
 #include "base/compiler_specific.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
@@ -23,6 +23,7 @@
 #include "crypto/random.h"
 #include "net/base/io_buffer.h"
 #include "net/base/ip_endpoint.h"
+#include "net/http/http_network_session.h"
 #include "net/http/http_request_headers.h"
 #include "net/http/http_request_info.h"
 #include "net/http/http_response_body_drainer.h"
@@ -70,14 +71,14 @@ std::string MissingHeaderMessage(const std::string& header_name) {
 
 std::string GenerateHandshakeChallenge() {
   std::string raw_challenge(websockets::kRawChallengeLength, '\0');
-  crypto::RandBytes(base::data(raw_challenge), raw_challenge.length());
+  crypto::RandBytes(std::data(raw_challenge), raw_challenge.length());
   std::string encoded_challenge;
   base::Base64Encode(raw_challenge, &encoded_challenge);
   return encoded_challenge;
 }
 
 GetHeaderResult GetSingleHeaderValue(const HttpResponseHeaders* headers,
-                                     const base::StringPiece& name,
+                                     base::StringPiece name,
                                      std::string* value) {
   size_t iter = 0;
   size_t num_values = 0;
@@ -117,7 +118,8 @@ bool ValidateUpgrade(const HttpResponseHeaders* headers,
     return false;
   }
 
-  if (!base::LowerCaseEqualsASCII(value, websockets::kWebSocketLowercase)) {
+  if (!base::EqualsCaseInsensitiveASCII(value,
+                                        websockets::kWebSocketLowercase)) {
     *failure_message =
         "'Upgrade' header value is not 'WebSocket': " + value;
     return false;
@@ -159,10 +161,11 @@ bool ValidateConnection(const HttpResponseHeaders* headers,
   return true;
 }
 
-base::Value NetLogFailureParam(int net_error, const std::string& message) {
-  base::Value dict(base::Value::Type::DICTIONARY);
-  dict.SetIntKey("net_error", net_error);
-  dict.SetStringKey("message", message);
+base::Value::Dict NetLogFailureParam(int net_error,
+                                     const std::string& message) {
+  base::Value::Dict dict;
+  dict.Set("net_error", net_error);
+  dict.Set("message", message);
   return dict;
 }
 
@@ -176,10 +179,8 @@ WebSocketBasicHandshakeStream::WebSocketBasicHandshakeStream(
     std::vector<std::string> requested_extensions,
     WebSocketStreamRequestAPI* request,
     WebSocketEndpointLockManager* websocket_endpoint_lock_manager)
-    : result_(HandshakeResult::INCOMPLETE),
-      state_(std::move(connection), using_proxy),
+    : state_(std::move(connection), using_proxy),
       connect_delegate_(connect_delegate),
-      http_response_info_(nullptr),
       requested_sub_protocols_(std::move(requested_sub_protocols)),
       requested_extensions_(std::move(requested_extensions)),
       stream_request_(request),
@@ -198,14 +199,19 @@ WebSocketBasicHandshakeStream::~WebSocketBasicHandshakeStream() {
   RecordHandshakeResult(result_);
 }
 
+void WebSocketBasicHandshakeStream::RegisterRequest(
+    const HttpRequestInfo* request_info) {
+  DCHECK(request_info);
+  DCHECK(request_info->traffic_annotation.is_valid());
+  request_info_ = request_info;
+}
+
 int WebSocketBasicHandshakeStream::InitializeStream(
-    const HttpRequestInfo* request_info,
     bool can_send_early,
     RequestPriority priority,
     const NetLogWithSource& net_log,
     CompletionOnceCallback callback) {
-  DCHECK(request_info->traffic_annotation.is_valid());
-  url_ = request_info->url;
+  url_ = request_info_->url;
   net_log_ = net_log;
   // The WebSocket may receive a socket in the early data state from
   // HttpNetworkTransaction, which means it must call ConfirmHandshake() for
@@ -217,7 +223,9 @@ int WebSocketBasicHandshakeStream::InitializeStream(
   // Data after the WebSockets handshake may not be replayable, but the
   // handshake is guaranteed to be confirmed once the HTTP response is received.
   DCHECK(can_send_early);
-  state_.Initialize(request_info, priority, net_log);
+  state_.Initialize(request_info_, priority, net_log);
+  // RequestInfo is no longer needed after this point.
+  request_info_ = nullptr;
   return OK;
 }
 
@@ -356,11 +364,11 @@ void WebSocketBasicHandshakeStream::GetSSLCertRequestInfo(
   parser()->GetSSLCertRequestInfo(cert_request_info);
 }
 
-bool WebSocketBasicHandshakeStream::GetRemoteEndpoint(IPEndPoint* endpoint) {
+int WebSocketBasicHandshakeStream::GetRemoteEndpoint(IPEndPoint* endpoint) {
   if (!state_.connection() || !state_.connection()->socket())
-    return false;
+    return ERR_SOCKET_NOT_CONNECTED;
 
-  return state_.connection()->socket()->GetPeerAddress(endpoint) == OK;
+  return state_.connection()->socket()->GetPeerAddress(endpoint);
 }
 
 void WebSocketBasicHandshakeStream::PopulateNetErrorDetails(
@@ -369,8 +377,8 @@ void WebSocketBasicHandshakeStream::PopulateNetErrorDetails(
 }
 
 void WebSocketBasicHandshakeStream::Drain(HttpNetworkSession* session) {
-  HttpResponseBodyDrainer* drainer = new HttpResponseBodyDrainer(this);
-  drainer->Start(session);
+  session->StartResponseDrainer(
+      std::make_unique<HttpResponseBodyDrainer>(this));
   // |drainer| will delete itself.
 }
 
@@ -379,7 +387,8 @@ void WebSocketBasicHandshakeStream::SetPriority(RequestPriority priority) {
   // gone, then copy whatever has happened there over here.
 }
 
-HttpStream* WebSocketBasicHandshakeStream::RenewStreamForAuth() {
+std::unique_ptr<HttpStream>
+WebSocketBasicHandshakeStream::RenewStreamForAuth() {
   DCHECK(IsResponseBodyComplete());
   DCHECK(!parser()->IsMoreDataBuffered());
   // The HttpStreamParser object still has a pointer to the connection. Just to
@@ -394,7 +403,7 @@ HttpStream* WebSocketBasicHandshakeStream::RenewStreamForAuth() {
 
   stream_request_->OnBasicHandshakeStreamCreated(handshake_stream.get());
 
-  return handshake_stream.release();
+  return handshake_stream;
 }
 
 const std::set<std::string>& WebSocketBasicHandshakeStream::GetDnsAliases()
@@ -425,6 +434,14 @@ std::unique_ptr<WebSocketStream> WebSocketBasicHandshakeStream::Upgrade() {
   }
 
   return basic_stream;
+}
+
+bool WebSocketBasicHandshakeStream::CanReadFromStream() const {
+  auto* connection = state_.connection();
+  if (!connection) {
+    return false;
+  }
+  return connection->socket();
 }
 
 base::WeakPtr<WebSocketHandshakeStreamBase>

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,11 @@
 
 #include <utility>
 
-#include "base/callback.h"
-#include "base/callback_helpers.h"
-#include "base/guid.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/time/time.h"
+#include "base/uuid.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "remoting/base/protobuf_http_client.h"
 #include "remoting/base/protobuf_http_request.h"
@@ -164,7 +164,8 @@ void FtlMessagingClient::SendMessage(
   DCHECK(succeeded);
 
   request->mutable_message()->set_message(serialized_message);
-  request->mutable_message()->set_message_id(base::GenerateGUID());
+  request->mutable_message()->set_message_id(
+      base::Uuid::GenerateRandomV4().AsLowercaseString());
   request->mutable_message()->set_message_type(
       ftl::InboxMessage_MessageType_CHROMOTING_MESSAGE);
   request->mutable_message()->set_message_class(

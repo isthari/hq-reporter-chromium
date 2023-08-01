@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -41,19 +41,13 @@ uint64_t GetNumUintBytes(uint64_t value) {
 
 }  // namespace
 
-WebBundleBuilder::WebBundleBuilder(const std::string& fallback_url,
-                                   const std::string& manifest_url,
-                                   BundleVersion version,
+WebBundleBuilder::WebBundleBuilder(BundleVersion version,
                                    bool allow_invalid_utf8_strings_for_testing)
-    : fallback_url_(fallback_url), version_(version) {
+    : version_(version) {
+  // Currently the only supported bundle format is b2.
+  DCHECK_EQ(version_, BundleVersion::kB2);
   writer_config_.allow_invalid_utf8_for_testing =
       allow_invalid_utf8_strings_for_testing;
-  if (!manifest_url.empty() && version == BundleVersion::kB1) {
-    AddSection("manifest", GetCborValueOfURL(manifest_url));
-  }
-  if (version == BundleVersion::kB2 && !fallback_url_.empty()) {
-    AddSection("primary", GetCborValueOfURL(fallback_url_));
-  }
 }
 WebBundleBuilder::~WebBundleBuilder() = default;
 
@@ -64,10 +58,16 @@ cbor::Value WebBundleBuilder::GetCborValueOfURL(base::StringPiece url) {
   return cbor::Value(url);
 }
 
+void WebBundleBuilder::AddExchange(const GURL& url,
+                                   const Headers& response_headers,
+                                   base::StringPiece payload) {
+  AddExchange(url.spec(), response_headers, payload);
+}
+
 void WebBundleBuilder::AddExchange(base::StringPiece url,
                                    const Headers& response_headers,
                                    base::StringPiece payload) {
-  AddIndexEntry(url, "", {AddResponse(response_headers, payload)});
+  AddIndexEntry(url, AddResponse(response_headers, payload));
 }
 
 WebBundleBuilder::ResponseLocation WebBundleBuilder::AddResponse(
@@ -85,16 +85,15 @@ WebBundleBuilder::ResponseLocation WebBundleBuilder::AddResponse(
 }
 
 void WebBundleBuilder::AddIndexEntry(
+    const GURL& url,
+    const ResponseLocation& response_location) {
+  AddIndexEntry(url.spec(), response_location);
+}
+
+void WebBundleBuilder::AddIndexEntry(
     base::StringPiece url,
-    base::StringPiece variants_value,
-    std::vector<ResponseLocation> response_locations) {
-  // 'b2' version does not include |variants_value| in the response array.
-  if (version_ != BundleVersion::kB1) {
-    DCHECK_LE(response_locations.size(), 1u);
-  }
-  delayed_index_.insert(
-      {std::string(url), std::make_pair(std::string(variants_value),
-                                        std::move(response_locations))});
+    const ResponseLocation& response_location) {
+  delayed_index_.insert({std::string{url}, response_location});
 }
 
 void WebBundleBuilder::AddSection(base::StringPiece name, cbor::Value section) {
@@ -103,12 +102,12 @@ void WebBundleBuilder::AddSection(base::StringPiece name, cbor::Value section) {
   sections_.emplace_back(std::move(section));
 }
 
-void WebBundleBuilder::AddAuthority(cbor::Value::MapValue authority) {
-  authorities_.emplace_back(std::move(authority));
+void WebBundleBuilder::AddPrimaryURL(const GURL& url) {
+  AddPrimaryURL(url.spec());
 }
 
-void WebBundleBuilder::AddVouchedSubset(cbor::Value::MapValue vouched_subset) {
-  vouched_subsets_.emplace_back(std::move(vouched_subset));
+void WebBundleBuilder::AddPrimaryURL(base::StringPiece url) {
+  AddSection("primary", GetCborValueOfURL(url));
 }
 
 std::vector<uint8_t> WebBundleBuilder::CreateBundle() {
@@ -119,66 +118,22 @@ std::vector<uint8_t> WebBundleBuilder::CreateBundle() {
   int64_t initial_offset = 1 + GetNumUintBytes(responses_.size());
   cbor::Value::MapValue index;
   for (auto& entry : delayed_index_) {
-    auto& index_entry = entry.second;
+    const ResponseLocation& location = entry.second;
     cbor::Value::ArrayValue index_value_array;
-    if (version_ == BundleVersion::kB1) {
-      index_value_array.emplace_back(CreateByteString(index_entry.first));
-    }
-    for (auto& location : index_entry.second) {
-      index_value_array.emplace_back(location.offset + initial_offset);
-      index_value_array.emplace_back(location.length);
-    }
+    index_value_array.emplace_back(location.offset + initial_offset);
+    index_value_array.emplace_back(location.length);
     index.insert(
         {GetCborValueOfURL(entry.first), cbor::Value(index_value_array)});
   }
   AddSection("index", cbor::Value(index));
-  if (!authorities_.empty() || !vouched_subsets_.empty()) {
-    cbor::Value::ArrayValue signatures_section;
-    signatures_section.emplace_back(std::move(authorities_));
-    signatures_section.emplace_back(std::move(vouched_subsets_));
-    AddSection("signatures", cbor::Value(std::move(signatures_section)));
-  }
   AddSection("responses", cbor::Value(responses_));
   return CreateTopLevel();
 }
 
-cbor::Value WebBundleBuilder::CreateEncodedSigned(
-    base::StringPiece validity_url,
-    base::StringPiece auth_sha256,
-    int64_t date,
-    int64_t expires,
-    base::StringPiece url,
-    base::StringPiece header_sha256,
-    base::StringPiece payload_integrity_header) {
-  cbor::Value::ArrayValue subset_hash_value;
-  subset_hash_value.emplace_back(CreateByteString(""));  // variants-value
-  subset_hash_value.emplace_back(CreateByteString(header_sha256));
-  subset_hash_value.emplace_back(payload_integrity_header);
-
-  cbor::Value::MapValue subset_hashes;
-  subset_hashes.emplace(GetCborValueOfURL(url), std::move(subset_hash_value));
-
-  cbor::Value::MapValue signed_subset;
-  signed_subset.emplace("validity-url", validity_url);
-  signed_subset.emplace("auth-sha256", CreateByteString(auth_sha256));
-  signed_subset.emplace("date", date);
-  signed_subset.emplace("expires", expires);
-  signed_subset.emplace("subset-hashes", std::move(subset_hashes));
-  return cbor::Value(Encode(cbor::Value(signed_subset)));
-}
-
 std::vector<uint8_t> WebBundleBuilder::CreateTopLevel() {
   cbor::Value::ArrayValue toplevel_array;
-  toplevel_array.emplace_back(
-      CreateByteString(u8"\U0001F310\U0001F4E6"));  // "🌐📦"
-  if (version_ == BundleVersion::kB1) {
-    toplevel_array.emplace_back(
-        CreateByteString(base::StringPiece("b1\0\0", 4)));
-    toplevel_array.emplace_back(GetCborValueOfURL(fallback_url_));
-  } else {
-    toplevel_array.emplace_back(
-        CreateByteString(base::StringPiece("b2\0\0", 4)));
-  }
+  toplevel_array.emplace_back(CreateByteString("🌐📦"));
+  toplevel_array.emplace_back(CreateByteString(base::StringPiece("b2\0\0", 4)));
   toplevel_array.emplace_back(Encode(cbor::Value(section_lengths_)));
   toplevel_array.emplace_back(sections_);
   // Put a dummy 8-byte bytestring.

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@ import android.content.Context;
 import org.chromium.base.Log;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.NativeMethods;
-import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.task.AsyncTask;
 import org.chromium.chrome.browser.AppHooks;
 import org.chromium.chrome.browser.partnercustomizations.PartnerBrowserCustomizations;
@@ -23,7 +22,7 @@ import javax.annotation.concurrent.GuardedBy;
 
 /**
  * Reads bookmarks from the partner content provider (if any).
-*/
+ */
 public class PartnerBookmarksReader {
     private static final String TAG = "PartnerBMReader";
     private static Set<FaviconUpdateObserver> sFaviconUpdateObservers = new HashSet<>();
@@ -157,9 +156,6 @@ public class PartnerBookmarksReader {
         FetchFaviconCallback callback = new FetchFaviconCallback() {
             @Override
             public void onFaviconFetched(@FaviconFetchResult int result) {
-                RecordHistogram.recordEnumeratedHistogram(
-                        "PartnerBookmark.FaviconThrottleFetchResult", result,
-                        FaviconFetchResult.UMA_BOUNDARY);
                 synchronized (mProgressLock) {
                     if (result == FaviconFetchResult.SUCCESS_FROM_SERVER) {
                         // If we've fetched a new favicon from a server, store a flag to indicate
@@ -238,10 +234,6 @@ public class PartnerBookmarksReader {
         }
     }
 
-    void recordPartnerBookmarkCount(int count) {
-        RecordHistogram.recordCount100Histogram("PartnerBookmark.Count2", count);
-    }
-
     /** Handles fetching partner bookmarks in a background thread. */
     private class ReadBookmarksTask extends AsyncTask<Void> {
         private final Object mRootSync = new Object();
@@ -270,16 +262,15 @@ public class PartnerBookmarksReader {
 
                 // Check for duplicate ids.
                 if (idMap.containsKey(bookmark.mId)) {
-                    Log.i(TAG, "Duplicate bookmark id: "
-                            +  bookmark.mId + ". Dropping bookmark.");
+                    Log.i(TAG, "Duplicate bookmark id: " + bookmark.mId + ". Dropping bookmark.");
                     continue;
                 }
 
                 // Check for duplicate URLs.
                 if (!bookmark.mIsFolder && urlSet.contains(bookmark.mUrl)) {
-                    Log.i(TAG, "More than one bookmark pointing to "
-                            + bookmark.mUrl
-                            + ". Keeping only the first one for consistency with Chromium.");
+                    Log.i(TAG,
+                            "More than one bookmark pointing to " + bookmark.mUrl + ". "
+                                    + "Keeping only the first one for consistency with Chromium.");
                     continue;
                 }
 
@@ -287,8 +278,6 @@ public class PartnerBookmarksReader {
                 urlSet.add(bookmark.mUrl);
             }
             bookmarkIterator.close();
-            int count = urlSet.size();
-            recordPartnerBookmarkCount(count);
 
             // Recreate the folder hierarchy and read it.
             recreateFolderHierarchy(idMap);
@@ -349,10 +338,8 @@ public class PartnerBookmarksReader {
                 try {
                     synchronized (mRootSync) {
                         bookmark.mNativeId =
-                                onBookmarkPush(
-                                        bookmark.mUrl, bookmark.mTitle,
-                                        bookmark.mIsFolder, bookmark.mParentId,
-                                        bookmark.mFavicon, bookmark.mTouchicon);
+                                onBookmarkPush(bookmark.mUrl, bookmark.mTitle, bookmark.mIsFolder,
+                                        bookmark.mParentId, bookmark.mFavicon, bookmark.mTouchicon);
                     }
                 } catch (IllegalArgumentException e) {
                     Log.w(TAG, "Error inserting bookmark " + bookmark.mTitle, e);
@@ -366,8 +353,8 @@ public class PartnerBookmarksReader {
             if (bookmark.mIsFolder) {
                 for (PartnerBookmark entry : bookmark.mEntries) {
                     if (entry.mParent != bookmark) {
-                        Log.w(TAG, "Hierarchy error in bookmark '"
-                                + bookmark.mTitle + "'. Skipping.");
+                        Log.w(TAG,
+                                "Hierarchy error in bookmark '" + bookmark.mTitle + "'. Skipping.");
                         continue;
                     }
                     entry.mParentId = bookmark.mNativeId;

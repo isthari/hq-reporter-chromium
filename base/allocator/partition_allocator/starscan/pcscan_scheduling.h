@@ -1,4 +1,4 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,14 +8,13 @@
 #include <atomic>
 #include <cstdint>
 
+#include "base/allocator/partition_allocator/partition_alloc_base/compiler_specific.h"
+#include "base/allocator/partition_allocator/partition_alloc_base/component_export.h"
+#include "base/allocator/partition_allocator/partition_alloc_base/thread_annotations.h"
+#include "base/allocator/partition_allocator/partition_alloc_base/time/time.h"
 #include "base/allocator/partition_allocator/partition_lock.h"
-#include "base/base_export.h"
-#include "base/callback.h"
-#include "base/compiler_specific.h"
-#include "base/time/time.h"
 
-namespace base {
-namespace internal {
+namespace partition_alloc::internal {
 
 class PCScanScheduler;
 
@@ -34,9 +33,9 @@ struct QuarantineData final {
   std::atomic<size_t> epoch{0u};
 };
 
-class BASE_EXPORT PCScanSchedulingBackend {
+class PA_COMPONENT_EXPORT(PARTITION_ALLOC) PCScanSchedulingBackend {
  public:
-  explicit inline constexpr PCScanSchedulingBackend(PCScanScheduler&);
+  inline constexpr explicit PCScanSchedulingBackend(PCScanScheduler&);
   // No virtual destructor to allow constant initialization of PCScan as
   // static global which directly embeds LimitBackend as default backend.
 
@@ -66,7 +65,7 @@ class BASE_EXPORT PCScanSchedulingBackend {
 
   // Invoked by PCScan to ask for a new timeout for a scheduled PCScan task.
   // Only invoked if scheduler requests a delayed scan at some point.
-  virtual TimeDelta UpdateDelayedSchedule();
+  virtual base::TimeDelta UpdateDelayedSchedule();
 
  protected:
   inline bool SchedulingDisabled() const;
@@ -78,11 +77,12 @@ class BASE_EXPORT PCScanSchedulingBackend {
 };
 
 // Scheduling backend that just considers a single hard limit.
-class BASE_EXPORT LimitBackend final : public PCScanSchedulingBackend {
+class PA_COMPONENT_EXPORT(PARTITION_ALLOC) LimitBackend final
+    : public PCScanSchedulingBackend {
  public:
   static constexpr double kQuarantineSizeFraction = 0.1;
 
-  explicit inline constexpr LimitBackend(PCScanScheduler&);
+  inline constexpr explicit LimitBackend(PCScanScheduler&);
 
   bool LimitReached() final;
   void UpdateScheduleAfterScan(size_t, base::TimeDelta, size_t) final;
@@ -98,7 +98,7 @@ class BASE_EXPORT LimitBackend final : public PCScanSchedulingBackend {
 // workload.
 //
 // See constants below for trigger mechanisms.
-class BASE_EXPORT MUAwareTaskBasedBackend final
+class PA_COMPONENT_EXPORT(PARTITION_ALLOC) MUAwareTaskBasedBackend final
     : public PCScanSchedulingBackend {
  public:
   using ScheduleDelayedScanFunc = void (*)(int64_t delay_in_microseconds);
@@ -109,7 +109,7 @@ class BASE_EXPORT MUAwareTaskBasedBackend final
   bool LimitReached() final;
   size_t ScanStarted() final;
   void UpdateScheduleAfterScan(size_t, base::TimeDelta, size_t) final;
-  TimeDelta UpdateDelayedSchedule() final;
+  base::TimeDelta UpdateDelayedSchedule() final;
 
  private:
   // Limit triggering the scheduler. If `kTargetMutatorUtilizationPercent` is
@@ -129,9 +129,9 @@ class BASE_EXPORT MUAwareTaskBasedBackend final
   // Callback to schedule a delayed scan.
   const ScheduleDelayedScanFunc schedule_delayed_scan_;
 
-  PartitionLock scheduler_lock_;
-  size_t hard_limit_ GUARDED_BY(scheduler_lock_){0};
-  base::TimeTicks earliest_next_scan_time_ GUARDED_BY(scheduler_lock_);
+  Lock scheduler_lock_;
+  size_t hard_limit_ PA_GUARDED_BY(scheduler_lock_){0};
+  base::TimeTicks earliest_next_scan_time_ PA_GUARDED_BY(scheduler_lock_);
 
   friend class PartitionAllocPCScanMUAwareTaskBasedBackendTest;
 };
@@ -140,7 +140,7 @@ class BASE_EXPORT MUAwareTaskBasedBackend final
 // path for freeing objects. The scheduler holds data needed to invoke a
 // `PCScanSchedulingBackend` upon hitting a limit. The backend implements
 // the actual scheduling strategy and is in charge of maintaining limits.
-class BASE_EXPORT PCScanScheduler final {
+class PA_COMPONENT_EXPORT(PARTITION_ALLOC) PCScanScheduler final {
  public:
   inline constexpr PCScanScheduler();
 
@@ -149,7 +149,7 @@ class BASE_EXPORT PCScanScheduler final {
 
   // Account freed `bytes`. Returns true if scan should be triggered
   // immediately, and false otherwise.
-  ALWAYS_INLINE bool AccountFreed(size_t bytes);
+  PA_ALWAYS_INLINE bool AccountFreed(size_t bytes);
 
   size_t epoch() const {
     return quarantine_data_.epoch.load(std::memory_order_relaxed);
@@ -188,7 +188,7 @@ QuarantineData& PCScanSchedulingBackend::GetQuarantineData() {
 constexpr LimitBackend::LimitBackend(PCScanScheduler& scheduler)
     : PCScanSchedulingBackend(scheduler) {}
 
-bool PCScanScheduler::AccountFreed(size_t size) {
+PA_ALWAYS_INLINE bool PCScanScheduler::AccountFreed(size_t size) {
   const size_t size_before =
       quarantine_data_.current_size.fetch_add(size, std::memory_order_relaxed);
   return (size_before + size >
@@ -196,7 +196,6 @@ bool PCScanScheduler::AccountFreed(size_t size) {
          backend_->LimitReached();
 }
 
-}  // namespace internal
-}  // namespace base
+}  // namespace partition_alloc::internal
 
 #endif  // BASE_ALLOCATOR_PARTITION_ALLOCATOR_STARSCAN_PCSCAN_SCHEDULING_H_

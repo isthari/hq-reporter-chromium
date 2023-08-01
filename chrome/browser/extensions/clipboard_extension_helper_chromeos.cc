@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,14 @@
 #include <memory>
 #include <utility>
 
+#include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/atomic_flag.h"
 #include "chrome/browser/image_decoder/image_decoder.h"
 #include "content/public/browser/browser_thread.h"
+#include "ui/base/clipboard/clipboard_content_type.h"
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
 
 using content::BrowserThread;
@@ -40,13 +42,13 @@ class ClipboardExtensionHelper::ClipboardImageDataDecoder
 
     ImageDecoder::ImageCodec codec = ImageDecoder::DEFAULT_CODEC;
     switch (type) {
-      case clipboard::IMAGE_TYPE_PNG:
+      case clipboard::ImageType::kPng:
         codec = ImageDecoder::PNG_CODEC;
         break;
-      case clipboard::IMAGE_TYPE_JPEG:
+      case clipboard::ImageType::kJpeg:
         codec = ImageDecoder::DEFAULT_CODEC;
         break;
-      case clipboard::IMAGE_TYPE_NONE:
+      case clipboard::ImageType::kNone:
         NOTREACHED();
         break;
     }
@@ -72,7 +74,7 @@ class ClipboardExtensionHelper::ClipboardImageDataDecoder
   }
 
  private:
-  ClipboardExtensionHelper* owner_;  // Not owned.
+  raw_ptr<ClipboardExtensionHelper> owner_;  // Not owned.
   bool has_request_pending_ = false;
 };
 
@@ -118,10 +120,12 @@ void ClipboardExtensionHelper::OnImageDecoded(const SkBitmap& bitmap) {
       scw.WriteImage(bitmap);
 
     for (const clipboard::AdditionalDataItem& item : additonal_items_) {
-      if (item.type == clipboard::DATA_ITEM_TYPE_TEXTPLAIN)
+      if (item.type == clipboard::DataItemType::kTextPlain) {
         scw.WriteText(base::UTF8ToUTF16(item.data));
-      else if (item.type == clipboard::DATA_ITEM_TYPE_TEXTHTML)
-        scw.WriteHTML(base::UTF8ToUTF16(item.data), std::string());
+      } else if (item.type == clipboard::DataItemType::kTextHtml) {
+        scw.WriteHTML(base::UTF8ToUTF16(item.data), std::string(),
+                      ui::ClipboardContentType::kSanitized);
+      }
     }
   }
   std::move(image_save_success_callback_).Run();

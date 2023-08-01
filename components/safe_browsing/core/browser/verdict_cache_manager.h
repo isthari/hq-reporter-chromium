@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,8 +16,13 @@
 #include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/history_service_observer.h"
 #include "components/keyed_service/core/keyed_service.h"
+#include "components/prefs/pref_change_registrar.h"
+#include "components/prefs/pref_service.h"
+#include "components/safe_browsing/core/browser/hashprefix_realtime/hash_realtime_cache.h"
+#include "components/safe_browsing/core/browser/safe_browsing_sync_observer.h"
 #include "components/safe_browsing/core/common/proto/csd.pb.h"
 #include "components/safe_browsing/core/common/proto/realtimeapi.pb.h"
+#include "components/safe_browsing/core/common/proto/safebrowsingv5_alpha1.pb.h"
 #include "url/gurl.h"
 
 class HostContentSettingsMap;
@@ -31,9 +36,10 @@ using ReusedPasswordAccountType =
 class VerdictCacheManager : public history::HistoryServiceObserver,
                             public KeyedService {
  public:
-  explicit VerdictCacheManager(
-      history::HistoryService* history_service,
-      scoped_refptr<HostContentSettingsMap> content_settings);
+  VerdictCacheManager(history::HistoryService* history_service,
+                      scoped_refptr<HostContentSettingsMap> content_settings,
+                      PrefService* pref_service,
+                      std::unique_ptr<SafeBrowsingSyncObserver> sync_observer);
   VerdictCacheManager(const VerdictCacheManager&) = delete;
   VerdictCacheManager& operator=(const VerdictCacheManager&) = delete;
   VerdictCacheManager(VerdictCacheManager&&) = delete;
@@ -71,19 +77,25 @@ class VerdictCacheManager : public history::HistoryServiceObserver,
   size_t GetStoredPhishGuardVerdictCount(
       LoginReputationClientRequest::TriggerType trigger_type);
 
-  // Stores |verdict| in |content_settings_| based on its |url|, |verdict| and
+  // Stores |verdict| in |content_settings_| based on its |verdict| and
   // |receive_time|.
-  void CacheRealTimeUrlVerdict(const GURL& url,
-                               const RTLookupResponse& verdict,
+  void CacheRealTimeUrlVerdict(const RTLookupResponse& verdict,
                                const base::Time& receive_time);
 
   // Looks up |content_settings_| to find the cached verdict response. If
   // verdict is not available or is expired, return VERDICT_TYPE_UNSPECIFIED.
   // Otherwise, the most matching theat info will be copied to out_threat_info.
-  // Can be called on any thread.
+  // |out_is_verdict_from_past_initialization| represents whether the verdict
+  // was set before the current VerdictCacheManager instance was initialized,
+  // and is used only for logging. The parameter is only set if the unexpired
+  // cache entry was found. Can be called on any thread.
   RTLookupResponse::ThreatInfo::VerdictType GetCachedRealTimeUrlVerdict(
       const GURL& url,
-      RTLookupResponse::ThreatInfo* out_threat_info);
+      RTLookupResponse::ThreatInfo* out_threat_info,
+      absl::optional<bool>* out_is_verdict_from_past_initialization);
+
+  safe_browsing::ClientSideDetectionType
+  GetCachedRealTimeUrlClientSideDetectionType(const GURL& url);
 
   // Creates a page load token that is tied with the hostname of the |url|.
   // The token is stored in memory.
@@ -93,12 +105,31 @@ class VerdictCacheManager : public history::HistoryServiceObserver,
   // token if the token is not found.
   ChromeUserPopulation::PageLoadToken GetPageLoadToken(const GURL& url);
 
+  // Stores the results of a hash-prefix real-time lookup into a cache object.
+  void CacheHashPrefixRealTimeLookupResults(
+      const std::vector<std::string>& requested_hash_prefixes,
+      const std::vector<V5::FullHash>& response_full_hashes,
+      const V5::Duration& cache_duration);
+
+  // Searches the hash-prefix real-time cache object for the requested
+  // |hash_prefixes|. |skip_logging| specifies whether metric logging should be
+  // skipped when this function is called.
+  // TODO(crbug.com/1432308): [Also TODO(thefrog)] Remove |skip_logging|
+  // parameter after investigation is complete.
+  std::unordered_map<std::string, std::vector<V5::FullHash>>
+  GetCachedHashPrefixRealTimeLookupResults(
+      const std::set<std::string>& hash_prefixes,
+      bool skip_logging);
+
   // Overridden from history::HistoryServiceObserver.
   void OnURLsDeleted(history::HistoryService* history_service,
                      const history::DeletionInfo& deletion_info) override;
 
   void HistoryServiceBeingDeleted(
       history::HistoryService* history_service) override;
+
+  // Called by browsing data remover.
+  void OnCookiesDeleted();
 
   // Returns true if an artificial unsafe URL has been provided using
   // command-line flags.
@@ -110,6 +141,7 @@ class VerdictCacheManager : public history::HistoryServiceObserver,
 
  private:
   friend class SafeBrowsingBlockingPageRealTimeUrlCheckTest;
+  friend class VerdictCacheManagerTest;
   FRIEND_TEST_ALL_PREFIXES(VerdictCacheManagerTest, TestCleanUpExpiredVerdict);
   FRIEND_TEST_ALL_PREFIXES(VerdictCacheManagerTest,
                            TestCleanUpExpiredVerdictWithInvalidEntry);
@@ -123,6 +155,16 @@ class VerdictCacheManager : public history::HistoryServiceObserver,
   FRIEND_TEST_ALL_PREFIXES(VerdictCacheManagerTest,
                            TestCleanUpVerdictOlderThanUpperBound);
 
+  // Enum representing the reason why page load tokens are cleared. Used to log
+  // histograms. Entries must not be removed or reordered.
+  enum class ClearReason {
+    kSafeBrowsingStateChanged = 0,
+    kCookiesDeleted = 1,
+    kSyncStateChanged = 2,
+
+    kMaxValue = kSyncStateChanged
+  };
+
   void ScheduleNextCleanUpAfterInterval(base::TimeDelta interval);
 
   // Removes all the expired verdicts from cache.
@@ -130,6 +172,8 @@ class VerdictCacheManager : public history::HistoryServiceObserver,
   void CleanUpExpiredPhishGuardVerdicts();
   void CleanUpExpiredRealTimeUrlCheckVerdicts();
   void CleanUpExpiredPageLoadTokens();
+  void CleanUpAllPageLoadTokens(ClearReason reason);
+  void CleanUpExpiredHashPrefixRealTimeLookupResults();
 
   // Helper method to remove content settings when URLs are deleted. If
   // |all_history| is true, removes all cached verdicts. Otherwise it removes
@@ -138,8 +182,9 @@ class VerdictCacheManager : public history::HistoryServiceObserver,
                                           const history::URLRows& deleted_rows);
   bool RemoveExpiredPhishGuardVerdicts(
       LoginReputationClientRequest::TriggerType trigger_type,
-      base::Value* cache_dictionary);
-  bool RemoveExpiredRealTimeUrlCheckVerdicts(base::Value* cache_dictionary);
+      base::Value::Dict& cache_dictionary);
+  bool RemoveExpiredRealTimeUrlCheckVerdicts(
+      base::Value::Dict& cache_dictionary);
 
   size_t GetPhishGuardVerdictCountForURL(
       const GURL& url,
@@ -180,6 +225,19 @@ class VerdictCacheManager : public history::HistoryServiceObserver,
   scoped_refptr<HostContentSettingsMap> content_settings_;
 
   base::OneShotTimer cleanup_timer_;
+
+  PrefChangeRegistrar pref_change_registrar_;
+
+  std::unique_ptr<SafeBrowsingSyncObserver> sync_observer_;
+
+  // The local cache object for hash-prefix real-time lookups.
+  std::unique_ptr<HashRealTimeCache> hash_realtime_cache_ =
+      std::make_unique<HashRealTimeCache>();
+
+  bool is_shut_down_ = false;
+
+  // Represents the time the VerdictCacheManager object was constructed.
+  base::Time time_initialized_;
 
   base::WeakPtrFactory<VerdictCacheManager> weak_factory_{this};
 

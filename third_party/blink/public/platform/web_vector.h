@@ -95,7 +95,9 @@ class WebVector {
 
   WebVector(const WebVector<T>& other) : data_(other.data_) {}
 
-  template <typename C>
+  template <typename C,
+            typename = decltype(std::declval<C>().begin()),
+            typename = decltype(std::declval<C>().end())>
   WebVector(const C& other) : data_(other.begin(), other.end()) {}
 
   WebVector(WebVector<T>&& other) noexcept { Swap(other); }
@@ -158,8 +160,8 @@ class WebVector {
     return data_[i];
   }
 
-  T* Data() { return data_.data(); }
-  const T* Data() const { return data_.data(); }
+  T* data() { return data_.data(); }
+  const T* data() const { return data_.data(); }
 
   iterator begin() { return data_.begin(); }
   iterator end() { return data_.end(); }

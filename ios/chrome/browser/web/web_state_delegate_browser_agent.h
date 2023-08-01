@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,11 @@
 
 #include "base/scoped_multi_source_observation.h"
 #include "base/scoped_observation.h"
-#include "ios/chrome/browser/main/browser_observer.h"
-#include "ios/chrome/browser/main/browser_user_data.h"
+#include "ios/chrome/browser/shared/model/browser/browser_observer.h"
+#include "ios/chrome/browser/shared/model/browser/browser_user_data.h"
+#include "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#include "ios/chrome/browser/shared/model/web_state_list/web_state_list_observer.h"
 #import "ios/chrome/browser/ui/dialogs/overlay_java_script_dialog_presenter.h"
-#include "ios/chrome/browser/web_state_list/web_state_list.h"
-#include "ios/chrome/browser/web_state_list/web_state_list_observer.h"
 #include "ios/web/public/web_state_delegate.h"
 #include "ios/web/public/web_state_observer.h"
 
@@ -40,10 +40,6 @@ class WebStateDelegateBrowserAgent
   WebStateDelegateBrowserAgent(const WebStateDelegateBrowserAgent&) = delete;
   WebStateDelegateBrowserAgent& operator=(const WebStateDelegateBrowserAgent&) =
       delete;
-
-  // Factory.
-  static void CreateForBrowser(Browser* browser,
-                               TabInsertionBrowserAgent* tab_insertion_agent);
 
   // Sets the UI providers to be used for WebStateDelegate tasks that require
   // them.
@@ -97,6 +93,11 @@ class WebStateDelegateBrowserAgent
       base::OnceCallback<void(bool)> callback) override;
   web::JavaScriptDialogPresenter* GetJavaScriptDialogPresenter(
       web::WebState* source) override;
+  void HandlePermissionsDecisionRequest(
+      web::WebState* source,
+      NSArray<NSNumber*>* permissions,
+      web::WebStatePermissionDecisionHandler handler) override
+      API_AVAILABLE(ios(15.0));
   void OnAuthRequired(web::WebState* source,
                       NSURLProtectionSpace* protection_space,
                       NSURLCredential* proposed_credential,

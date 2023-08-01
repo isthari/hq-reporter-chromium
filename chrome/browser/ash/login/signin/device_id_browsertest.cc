@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,18 +11,21 @@
 #include "base/files/file_util.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
-#include "base/run_loop.h"
-#include "chrome/browser/ash/login/test/fake_gaia_mixin.h"
+#include "base/path_service.h"
+#include "base/test/test_future.h"
 #include "chrome/browser/ash/login/test/js_checker.h"
 #include "chrome/browser/ash/login/test/oobe_base_test.h"
 #include "chrome/browser/ash/login/test/oobe_screen_waiter.h"
 #include "chrome/browser/ash/login/test/session_manager_state_waiter.h"
 #include "chrome/browser/ash/login/ui/login_display_host.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/signin/chrome_device_id_helper.h"
-#include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/gaia_screen_handler.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/test/base/fake_gaia_mixin.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "chromeos/dbus/constants/dbus_paths.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/public/base/signin_pref_names.h"
 #include "components/user_manager/known_user.h"
@@ -54,7 +57,7 @@ class DeviceIDTest : public OobeBaseTest,
   }
 
   void SetUpOnMainThread() override {
-    user_removal_loop_ = std::make_unique<base::RunLoop>();
+    user_removal_signal_ = std::make_unique<base::test::TestFuture<void>>();
     OobeBaseTest::SetUpOnMainThread();
     LoadRefreshTokenToDeviceIdMap();
     user_manager::UserManager::Get()->AddObserver(this);
@@ -67,7 +70,8 @@ class DeviceIDTest : public OobeBaseTest,
   }
 
   std::string GetDeviceId(const AccountId& account_id) {
-    return user_manager::known_user::GetDeviceId(account_id);
+    user_manager::KnownUser known_user(g_browser_process->local_state());
+    return known_user.GetDeviceId(account_id);
   }
 
   std::string GetDeviceIdFromProfile(const AccountId& account_id) {
@@ -104,6 +108,10 @@ class DeviceIDTest : public OobeBaseTest,
                     const std::string& gaia_id) {
     WaitForGaiaPageLoad();
 
+    // On a real device the first user would create the install attributes file,
+    // emulate that, so the following users don't try to establish ownership.
+    EnsureInstallAttributesCreated();
+
     FakeGaia::MergeSessionParams params;
     params.email = user_id;
     params.refresh_token = refresh_token;
@@ -127,12 +135,14 @@ class DeviceIDTest : public OobeBaseTest,
 
   void RemoveUser(const AccountId& account_id) {
     ASSERT_TRUE(LoginScreenTestApi::RemoveUser(account_id));
-    user_removal_loop_->Run();
+    EXPECT_TRUE(user_removal_signal_->Wait());
   }
 
  private:
   void LocalStateChanged(user_manager::UserManager* manager) override {
-    user_removal_loop_->Quit();
+    if (user_removal_signal_ && !user_removal_signal_->IsReady()) {
+      user_removal_signal_->SetValue();
+    }
   }
 
   base::FilePath GetRefreshTokenToDeviceIdMapFilePath() const {
@@ -146,12 +156,11 @@ class DeviceIDTest : public OobeBaseTest,
     if (!base::ReadFileToString(GetRefreshTokenToDeviceIdMapFilePath(),
                                 &file_contents))
       return;
-    std::unique_ptr<base::Value> value(
-        base::JSONReader::ReadDeprecated(file_contents));
-    base::DictionaryValue* dictionary;
-    EXPECT_TRUE(value->GetAsDictionary(&dictionary));
+    absl::optional<base::Value> value = base::JSONReader::Read(file_contents);
+    EXPECT_TRUE(value->is_dict());
+    base::Value::Dict& dictionary = value->GetDict();
     FakeGaia::RefreshTokenToDeviceIdMap map;
-    for (auto item : dictionary->DictItems()) {
+    for (auto item : dictionary) {
       ASSERT_TRUE(item.second.is_string());
       map[item.first] = item.second.GetString();
     }
@@ -159,16 +168,26 @@ class DeviceIDTest : public OobeBaseTest,
   }
 
   void SaveRefreshTokenToDeviceIdMap() {
-    base::DictionaryValue dictionary;
+    base::Value::Dict dictionary;
     for (const auto& kv :
          fake_gaia_.fake_gaia()->refresh_token_to_device_id_map())
-      dictionary.SetKey(kv.first, base::Value(kv.second));
+      dictionary.Set(kv.first, kv.second);
     std::string json;
     EXPECT_TRUE(base::JSONWriter::Write(dictionary, &json));
     EXPECT_TRUE(base::WriteFile(GetRefreshTokenToDeviceIdMapFilePath(), json));
   }
 
-  std::unique_ptr<base::RunLoop> user_removal_loop_;
+  void EnsureInstallAttributesCreated() {
+    base::FilePath install_attrs_path = base::PathService::CheckedGet(
+        chromeos::dbus_paths::FILE_INSTALL_ATTRIBUTES);
+    base::ScopedAllowBlockingForTesting allow_blocking;
+    if (!base::PathExists(install_attrs_path)) {
+      EXPECT_TRUE(
+          base::WriteFile(install_attrs_path, "fake_install_attributes_data"));
+    }
+  }
+
+  std::unique_ptr<base::test::TestFuture<void>> user_removal_signal_;
   FakeGaiaMixin fake_gaia_{&mixin_host_};
 };
 
@@ -231,8 +250,14 @@ IN_PROC_BROWSER_TEST_F(DeviceIDTest, PRE_NewUsers) {
   RemoveUser(AccountId::FromUserEmail(kSecondUserEmail));
 }
 
+// crbug.com/1304049
+#if BUILDFLAG(IS_LINUX)
+#define MAYBE_NewUsers DISABLED_NewUsers
+#else
+#define MAYBE_NewUsers NewUsers
+#endif  // BUILDFLAG(IS_LINUX)
 // Add the second user back. Verify that device ID has been changed.
-IN_PROC_BROWSER_TEST_F(DeviceIDTest, NewUsers) {
+IN_PROC_BROWSER_TEST_F(DeviceIDTest, MAYBE_NewUsers) {
   EXPECT_TRUE(GetDeviceId(AccountId::FromUserEmail(kSecondUserEmail)).empty());
   ASSERT_TRUE(LoginScreenTestApi::ClickAddUserButton());
   SignInOnline(kSecondUserEmail, kSecondUserPassword, kSecondUserRefreshToken2,
@@ -259,7 +284,8 @@ IN_PROC_BROWSER_TEST_F(DeviceIDTest, PRE_Migration) {
 
   // Can't use SetKnownUserDeviceId here, because it forbids changing a device
   // ID.
-  user_manager::known_user::SetStringPref(
+  user_manager::KnownUser known_user(g_browser_process->local_state());
+  known_user.SetStringPref(
       AccountId::FromUserEmail(FakeGaiaMixin::kFakeUserEmail), "device_id",
       std::string());
 }
@@ -290,7 +316,8 @@ IN_PROC_BROWSER_TEST_F(DeviceIDTest, PRE_LegacyUsers) {
 
   // Can't use SetKnownUserDeviceId here, because it forbids changing a device
   // ID.
-  user_manager::known_user::SetStringPref(
+  user_manager::KnownUser known_user(g_browser_process->local_state());
+  known_user.SetStringPref(
       AccountId::FromUserEmail(FakeGaiaMixin::kFakeUserEmail), "device_id",
       std::string());
 }

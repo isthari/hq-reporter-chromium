@@ -1,4 +1,4 @@
-# Copyright 2017 The Chromium Authors. All rights reserved.
+# Copyright 2017 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -8,8 +8,8 @@ import("//chrome/process_version_rc_template.gni")
 
 message_compiler("eventlog_messages") {
   visibility = [
-    "//chrome/common",
     ":eventlog_provider",
+    "//chrome/common:common_lib",
   ]
 
   sources = [ "eventlog_messages.mc" ]
@@ -38,4 +38,23 @@ shared_library("eventlog_provider") {
     ":eventlog_messages",
     ":eventlog_provider_dll_version",
   ]
+}
+
+# The delay load hook must be a source_set to ensure that it has external
+# linkage and will correctly emplace over the correct symbols in delayimp.lib at
+# link time.
+source_set("delay_load_failure_hook") {
+  sources = [ "delay_load_failure_hook.cc" ]
+  deps = [
+    ":delay_load_failure_support",
+    "//base",
+  ]
+}
+
+source_set("delay_load_failure_support") {
+  sources = [
+    "delay_load_failure_support.cc",
+    "delay_load_failure_support.h",
+  ]
+  deps = [ "//base" ]
 }

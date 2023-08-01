@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,22 +6,22 @@
 
 #include <stdint.h>
 
-#include <memory>
 #include <string>
 #include <vector>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/scoped_observation.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/chromeos_buildflags.h"
 #include "content/public/browser/ax_event_notification_details.h"
 #include "content/public/browser/browser_accessibility_state.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_plugin_guest_manager.h"
 #include "content/public/browser/media_player_id.h"
 #include "content/public/browser/media_session.h"
-#include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_widget_host.h"
@@ -36,7 +36,10 @@
 #include "extensions/common/api/automation_internal.h"
 #include "extensions/common/extension_messages.h"
 #include "extensions/common/manifest_handlers/automation.h"
+#include "extensions/common/mojom/automation_query.mojom.h"
 #include "extensions/common/permissions/permissions_data.h"
+#include "mojo/public/cpp/bindings/associated_remote.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
 #include "ui/accessibility/ax_action_data.h"
 #include "ui/accessibility/ax_action_handler_base.h"
 #include "ui/accessibility/ax_action_handler_registry.h"
@@ -64,63 +67,37 @@ const char kNodeDestroyed[] =
 // Handles sending and receiving IPCs for a single querySelector request. On
 // creation, sends the request IPC, and is destroyed either when the response is
 // received or the renderer is destroyed.
-class QuerySelectorHandler : public content::WebContentsObserver {
+class QuerySelectorHandler {
  public:
   QuerySelectorHandler(
-      content::WebContents* web_contents,
-      int request_id,
+      blink::AssociatedInterfaceProvider* interface_provider,
       int acc_obj_id,
-      const std::u16string& query,
+      const std::string& query,
       extensions::AutomationInternalQuerySelectorFunction::Callback callback)
-      : content::WebContentsObserver(web_contents),
-        request_id_(request_id),
-        callback_(std::move(callback)) {
-    content::RenderFrameHost* rfh = web_contents->GetMainFrame();
-
-    rfh->Send(new ExtensionMsg_AutomationQuerySelector(
-        rfh->GetRoutingID(), request_id, acc_obj_id, query));
+      : callback_(std::move(callback)) {
+    interface_provider->GetInterface(&automation_query_);
+    automation_query_->QuerySelector(
+        acc_obj_id, query,
+        base::BindOnce(&QuerySelectorHandler::OnQueryResponse,
+                       base::Unretained(this)));
+    automation_query_.set_disconnect_handler(
+        base::BindOnce(&QuerySelectorHandler::HandleAutomationQueryRemoteError,
+                       base::Unretained(this)));
   }
 
-  ~QuerySelectorHandler() override {}
-
-  bool OnMessageReceived(const IPC::Message& message,
-                         content::RenderFrameHost* render_frame_host) override {
-    if (message.type() != ExtensionHostMsg_AutomationQuerySelector_Result::ID)
-      return false;
-
-    // There may be several requests in flight; check this response matches.
-    int message_request_id = 0;
-    base::PickleIterator iter(message);
-    if (!iter.ReadInt(&message_request_id))
-      return false;
-
-    if (message_request_id != request_id_)
-      return false;
-
-    IPC_BEGIN_MESSAGE_MAP(QuerySelectorHandler, message)
-      IPC_MESSAGE_HANDLER(ExtensionHostMsg_AutomationQuerySelector_Result,
-                          OnQueryResponse)
-    IPC_END_MESSAGE_MAP()
-    return true;
-  }
-
-  void WebContentsDestroyed() override {
-    std::move(callback_).Run(kRendererDestroyed, 0);
-    delete this;
-  }
+  ~QuerySelectorHandler() = default;
 
  private:
-  void OnQueryResponse(int request_id,
-                       ExtensionHostMsg_AutomationQuerySelector_Error error,
-                       int result_acc_obj_id) {
+  void OnQueryResponse(int32_t result_acc_obj_id,
+                       extensions::mojom::AutomationQueryError error) {
     std::string error_string;
-    switch (error.value) {
-      case ExtensionHostMsg_AutomationQuerySelector_Error::kNone:
+    switch (error) {
+      case extensions::mojom::AutomationQueryError::kNone:
         break;
-      case ExtensionHostMsg_AutomationQuerySelector_Error::kNoDocument:
+      case extensions::mojom::AutomationQueryError::kNoDocument:
         error_string = kNoDocument;
         break;
-      case ExtensionHostMsg_AutomationQuerySelector_Error::kNodeDestroyed:
+      case extensions::mojom::AutomationQueryError::kNodeDestroyed:
         error_string = kNodeDestroyed;
         break;
     }
@@ -128,15 +105,266 @@ class QuerySelectorHandler : public content::WebContentsObserver {
     delete this;
   }
 
-  int request_id_;
+  void HandleAutomationQueryRemoteError() {
+    std::move(callback_).Run(kRendererDestroyed, 0);
+    delete this;
+  }
+
   extensions::AutomationInternalQuerySelectorFunction::Callback callback_;
+
+  // Handles sending IPCs for a single querySelector request.
+  mojo::AssociatedRemote<extensions::mojom::AutomationQuery> automation_query_;
 };
 
-}  // namespace
+// Helper function to convert extension action to ax action.
+// |extension_id| can be the empty string.
+// |data| is an out param.
+AutomationInternalPerformActionFunction::Result ConvertToAXActionData(
+    const ui::AXTreeID& tree_id,
+    int32_t automation_node_id,
+    const std::string& action_type_string,
+    int request_id,
+    const base::Value::Dict& additional_properties,
+    const std::string& extension_id,
+    ui::AXActionData* action) {
+  AutomationInternalPerformActionFunction::Result validation_error_result;
+  validation_error_result.validation_success = false;
+  AutomationInternalPerformActionFunction::Result success_result;
+  success_result.validation_success = true;
+  action->target_tree_id = tree_id;
+  action->source_extension_id = extension_id;
+  action->target_node_id = automation_node_id;
+  action->request_id = request_id;
+  api::automation::ActionType action_type =
+      api::automation::ParseActionType(action_type_string);
+  switch (action_type) {
+    case api::automation::ActionType::kBlur:
+      action->action = ax::mojom::Action::kBlur;
+      break;
+    case api::automation::ActionType::kClearAccessibilityFocus:
+      action->action = ax::mojom::Action::kClearAccessibilityFocus;
+      break;
+    case api::automation::ActionType::kDecrement:
+      action->action = ax::mojom::Action::kDecrement;
+      break;
+    case api::automation::ActionType::kDoDefault:
+      action->action = ax::mojom::Action::kDoDefault;
+      break;
+    case api::automation::ActionType::kIncrement:
+      action->action = ax::mojom::Action::kIncrement;
+      break;
+    case api::automation::ActionType::kFocus:
+      action->action = ax::mojom::Action::kFocus;
+      break;
+    case api::automation::ActionType::kGetImageData: {
+      api::automation_internal::GetImageDataParams get_image_data_params;
+      bool result = api::automation_internal::GetImageDataParams::Populate(
+          additional_properties, get_image_data_params);
+      if (!result) {
+        return validation_error_result;
+      }
+      action->action = ax::mojom::Action::kGetImageData;
+      action->target_rect = gfx::Rect(0, 0, get_image_data_params.max_width,
+                                      get_image_data_params.max_height);
+      break;
+    }
+    case api::automation::ActionType::kHitTest: {
+      api::automation_internal::HitTestParams hit_test_params;
+      bool result = api::automation_internal::HitTestParams::Populate(
+          additional_properties, hit_test_params);
+      if (!result) {
+        return validation_error_result;
+      }
+      action->action = ax::mojom::Action::kHitTest;
+      action->target_point = gfx::Point(hit_test_params.x, hit_test_params.y);
+      action->hit_test_event_to_fire = ui::ParseAXEnum<ax::mojom::Event>(
+          hit_test_params.event_to_fire.c_str());
+      if (action->hit_test_event_to_fire == ax::mojom::Event::kNone) {
+        return success_result;
+      }
+      break;
+    }
+    case api::automation::ActionType::kLoadInlineTextBoxes:
+      action->action = ax::mojom::Action::kLoadInlineTextBoxes;
+      break;
+    case api::automation::ActionType::kSetAccessibilityFocus:
+      action->action = ax::mojom::Action::kSetAccessibilityFocus;
+      break;
+    case api::automation::ActionType::kScrollToMakeVisible:
+      action->action = ax::mojom::Action::kScrollToMakeVisible;
+      action->horizontal_scroll_alignment =
+          ax::mojom::ScrollAlignment::kScrollAlignmentCenter;
+      action->vertical_scroll_alignment =
+          ax::mojom::ScrollAlignment::kScrollAlignmentCenter;
+      action->scroll_behavior =
+          ax::mojom::ScrollBehavior::kDoNotScrollIfVisible;
+      break;
+    case api::automation::ActionType::kScrollBackward:
+      action->action = ax::mojom::Action::kScrollBackward;
+      break;
+    case api::automation::ActionType::kScrollForward:
+      action->action = ax::mojom::Action::kScrollForward;
+      break;
+    case api::automation::ActionType::kScrollUp:
+      action->action = ax::mojom::Action::kScrollUp;
+      break;
+    case api::automation::ActionType::kScrollDown:
+      action->action = ax::mojom::Action::kScrollDown;
+      break;
+    case api::automation::ActionType::kScrollLeft:
+      action->action = ax::mojom::Action::kScrollLeft;
+      break;
+    case api::automation::ActionType::kScrollRight:
+      action->action = ax::mojom::Action::kScrollRight;
+      break;
+    case api::automation::ActionType::kSetSelection: {
+      api::automation_internal::SetSelectionParams selection_params;
+      bool result = api::automation_internal::SetSelectionParams::Populate(
+          additional_properties, selection_params);
+      if (!result) {
+        return validation_error_result;
+      }
+      action->anchor_node_id = automation_node_id;
+      action->anchor_offset = selection_params.anchor_offset;
+      action->focus_node_id = selection_params.focus_node_id;
+      action->focus_offset = selection_params.focus_offset;
+      action->action = ax::mojom::Action::kSetSelection;
+      break;
+    }
+    case api::automation::ActionType::kShowContextMenu: {
+      action->action = ax::mojom::Action::kShowContextMenu;
+      break;
+    }
+    case api::automation::ActionType::
+        kSetSequentialFocusNavigationStartingPoint: {
+      action->action =
+          ax::mojom::Action::kSetSequentialFocusNavigationStartingPoint;
+      break;
+    }
+    case api::automation::ActionType::kCustomAction: {
+      api::automation_internal::PerformCustomActionParams
+          perform_custom_action_params;
+      bool result =
+          api::automation_internal::PerformCustomActionParams::Populate(
+              additional_properties, perform_custom_action_params);
+      if (!result) {
+        return validation_error_result;
+      }
+      action->action = ax::mojom::Action::kCustomAction;
+      action->custom_action_id = perform_custom_action_params.custom_action_id;
+      break;
+    }
+    case api::automation::ActionType::kReplaceSelectedText: {
+      api::automation_internal::ReplaceSelectedTextParams
+          replace_selected_text_params;
+      bool result =
+          api::automation_internal::ReplaceSelectedTextParams::Populate(
+              additional_properties, replace_selected_text_params);
+      if (!result) {
+        return validation_error_result;
+      }
+      action->action = ax::mojom::Action::kReplaceSelectedText;
+      action->value = replace_selected_text_params.value;
+      break;
+    }
+    case api::automation::ActionType::kSetValue: {
+      api::automation_internal::SetValueParams set_value_params;
+      bool result = api::automation_internal::SetValueParams::Populate(
+          additional_properties, set_value_params);
+      if (!result) {
+        return validation_error_result;
+      }
+      action->action = ax::mojom::Action::kSetValue;
+      action->value = set_value_params.value;
+      break;
+    }
+    case api::automation::ActionType::kScrollToPoint: {
+      api::automation_internal::ScrollToPointParams scroll_to_point_params;
+      bool result = api::automation_internal::ScrollToPointParams::Populate(
+          additional_properties, scroll_to_point_params);
+      if (!result) {
+        return validation_error_result;
+      }
+      action->action = ax::mojom::Action::kScrollToPoint;
+      action->target_point =
+          gfx::Point(scroll_to_point_params.x, scroll_to_point_params.y);
+      break;
+    }
+    case api::automation::ActionType::kScrollToPositionAtRowColumn: {
+      api::automation_internal::ScrollToPositionAtRowColumnParams params;
+      bool result =
+          api::automation_internal::ScrollToPositionAtRowColumnParams::Populate(
+              additional_properties, params);
+      if (!result) {
+        return validation_error_result;
+      }
+      action->action = ax::mojom::Action::kScrollToPositionAtRowColumn;
+      action->row_column = std::pair(params.row, params.column);
+      break;
+    }
+    case api::automation::ActionType::kSetScrollOffset: {
+      api::automation_internal::SetScrollOffsetParams set_scroll_offset_params;
+      bool result = api::automation_internal::SetScrollOffsetParams::Populate(
+          additional_properties, set_scroll_offset_params);
+      if (!result) {
+        return validation_error_result;
+      }
+      action->action = ax::mojom::Action::kSetScrollOffset;
+      action->target_point =
+          gfx::Point(set_scroll_offset_params.x, set_scroll_offset_params.y);
+      break;
+    }
+    case api::automation::ActionType::kGetTextLocation: {
+      api::automation_internal::GetTextLocationDataParams
+          get_text_location_params;
+      bool result =
+          api::automation_internal::GetTextLocationDataParams::Populate(
+              additional_properties, get_text_location_params);
+      if (!result) {
+        return validation_error_result;
+      }
+      action->action = ax::mojom::Action::kGetTextLocation;
+      action->start_index = get_text_location_params.start_index;
+      action->end_index = get_text_location_params.end_index;
+      break;
+    }
+    case api::automation::ActionType::kShowTooltip:
+      action->action = ax::mojom::Action::kShowTooltip;
+      break;
+    case api::automation::ActionType::kHideTooltip:
+      action->action = ax::mojom::Action::kHideTooltip;
+      break;
+    case api::automation::ActionType::kCollapse:
+      action->action = ax::mojom::Action::kCollapse;
+      break;
+    case api::automation::ActionType::kExpand:
+      action->action = ax::mojom::Action::kExpand;
+      break;
+    case api::automation::ActionType::kResumeMedia:
+      action->action = ax::mojom::Action::kResumeMedia;
+      break;
+    case api::automation::ActionType::kStartDuckingMedia:
+      action->action = ax::mojom::Action::kStartDuckingMedia;
+      break;
+    case api::automation::ActionType::kStopDuckingMedia:
+      action->action = ax::mojom::Action::kStopDuckingMedia;
+      break;
+    case api::automation::ActionType::kSuspendMedia:
+      action->action = ax::mojom::Action::kSuspendMedia;
+      break;
+    case api::automation::ActionType::kLongClick:
+      action->action = ax::mojom::Action::kLongClick;
+      break;
+    case api::automation::ActionType::kAnnotatePageImages:
+    case api::automation::ActionType::kSignalEndOfTest:
+    case api::automation::ActionType::kInternalInvalidateTree:
+    case api::automation::ActionType::kNone:
+      break;
+  }
+  return success_result;
+}
 
-using OldAXTreeIdMap = std::map<content::NavigationHandle*, ui::AXTreeID>;
-base::LazyInstance<OldAXTreeIdMap>::DestructorAtExit g_old_ax_tree =
-    LAZY_INSTANCE_INITIALIZER;
+}  // namespace
 
 // Helper class that receives accessibility data from |WebContents|.
 class AutomationWebContentsObserver
@@ -166,34 +394,6 @@ class AutomationWebContentsObserver
         std::move(content_event_bundle.events));
   }
 
-  void DidStartNavigation(content::NavigationHandle* navigation) override {
-    content::RenderFrameHost* previous_rfh = content::RenderFrameHost::FromID(
-        navigation->GetPreviousRenderFrameHostId());
-    if (previous_rfh)
-      g_old_ax_tree.Get()[navigation] = previous_rfh->GetAXTreeID();
-  }
-
-  void DidFinishNavigation(content::NavigationHandle* navigation) override {
-    ui::AXTreeID old_ax_tree = g_old_ax_tree.Get()[navigation];
-    g_old_ax_tree.Get().erase(navigation);
-
-    if (old_ax_tree == ui::AXTreeIDUnknown())
-      return;
-
-    ui::AXTreeID new_ax_tree = ui::AXTreeIDUnknown();
-
-    // If navigation was canceled, render frame host will not
-    // be set and there is no new tree.
-    if (navigation->HasCommitted() && navigation->GetRenderFrameHost())
-      new_ax_tree = navigation->GetRenderFrameHost()->GetAXTreeID();
-
-    if (old_ax_tree == new_ax_tree)
-      return;
-
-    AutomationEventRouter::GetInstance()->DispatchTreeDestroyedEvent(
-        old_ax_tree, browser_context_);
-  }
-
   void AccessibilityLocationChangesReceived(
       const std::vector<content::AXLocationChangeNotificationDetails>& details)
       override {
@@ -205,16 +405,6 @@ class AutomationWebContentsObserver
       AutomationEventRouter* router = AutomationEventRouter::GetInstance();
       router->DispatchAccessibilityLocationChange(dst);
     }
-  }
-
-  void RenderFrameDeleted(
-      content::RenderFrameHost* render_frame_host) override {
-    ui::AXTreeID tree_id = render_frame_host->GetAXTreeID();
-    if (tree_id == ui::AXTreeIDUnknown())
-      return;
-
-    AutomationEventRouter::GetInstance()->DispatchTreeDestroyedEvent(
-        tree_id, browser_context_);
   }
 
   void MediaStartedPlaying(const MediaPlayerInfo& video_type,
@@ -255,15 +445,50 @@ class AutomationWebContentsObserver
       return;
 
     ui::AXMode new_mode = web_contents()->GetAccessibilityMode();
-    uint8_t flags = ui::kAXModeWebContentsOnly.mode();
+    uint8_t flags = ui::kAXModeWebContentsOnly.flags();
     new_mode.set_mode(flags, false);
     web_contents()->SetAccessibilityMode(std::move(new_mode));
   }
 
   void ExtensionListenerAdded() override {
     // This call resets accessibility.
-    if (web_contents())
+    if (web_contents()) {
       web_contents()->EnableWebContentsOnlyAccessibilityMode();
+
+      // On ChromeOS Ash, the automation api is the native accessibility api.
+      // For the purposes of tracking web contents accessibility like other
+      // desktop platforms, record the same UMA metric as those platforms.
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+      UMA_HISTOGRAM_ENUMERATION(
+          "Accessibility.ModeFlag",
+          ui::AXMode::ModeFlagHistogramValue::UMA_AX_MODE_WEB_CONTENTS,
+          ui::AXMode::ModeFlagHistogramValue::UMA_AX_MODE_MAX);
+      UMA_HISTOGRAM_ENUMERATION(
+          "Accessibility.ModeFlag",
+          ui::AXMode::ModeFlagHistogramValue::UMA_AX_MODE_INLINE_TEXT_BOXES,
+          ui::AXMode::ModeFlagHistogramValue::UMA_AX_MODE_MAX);
+      UMA_HISTOGRAM_ENUMERATION(
+          "Accessibility.ModeFlag",
+          ui::AXMode::ModeFlagHistogramValue::UMA_AX_MODE_SCREEN_READER,
+          ui::AXMode::ModeFlagHistogramValue::UMA_AX_MODE_MAX);
+      UMA_HISTOGRAM_ENUMERATION(
+          "Accessibility.ModeFlag",
+          ui::AXMode::ModeFlagHistogramValue::UMA_AX_MODE_HTML,
+          ui::AXMode::ModeFlagHistogramValue::UMA_AX_MODE_MAX);
+      UMA_HISTOGRAM_ENUMERATION(
+          "Accessibility.ModeFlag",
+          ui::AXMode::ModeFlagHistogramValue::UMA_AX_MODE_HTML_METADATA,
+          ui::AXMode::ModeFlagHistogramValue::UMA_AX_MODE_MAX);
+      UMA_HISTOGRAM_ENUMERATION(
+          "Accessibility.ModeFlag",
+          ui::AXMode::ModeFlagHistogramValue::UMA_AX_MODE_LABEL_IMAGES,
+          ui::AXMode::ModeFlagHistogramValue::UMA_AX_MODE_MAX);
+      UMA_HISTOGRAM_ENUMERATION(
+          "Accessibility.ModeFlag",
+          ui::AXMode::ModeFlagHistogramValue::UMA_AX_MODE_PDF,
+          ui::AXMode::ModeFlagHistogramValue::UMA_AX_MODE_MAX);
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+    }
   }
 
  private:
@@ -275,7 +500,7 @@ class AutomationWebContentsObserver
             *web_contents),
         browser_context_(web_contents->GetBrowserContext()) {
     if (web_contents->IsCurrentlyAudible()) {
-      content::RenderFrameHost* rfh = web_contents->GetMainFrame();
+      content::RenderFrameHost* rfh = web_contents->GetPrimaryMainFrame();
       if (!rfh)
         return;
 
@@ -307,13 +532,13 @@ ExtensionFunction::ResponseAction AutomationInternalEnableTabFunction::Run() {
   EXTENSION_FUNCTION_VALIDATE(automation_info);
 
   using api::automation_internal::EnableTab::Params;
-  std::unique_ptr<Params> params(Params::Create(args()));
-  EXTENSION_FUNCTION_VALIDATE(params.get());
-  content::WebContents* contents = NULL;
+  absl::optional<Params> params = Params::Create(args());
+  EXTENSION_FUNCTION_VALIDATE(params);
+  content::WebContents* contents = nullptr;
   AutomationInternalApiDelegate* automation_api_delegate =
       ExtensionsAPIClient::Get()->GetAutomationInternalApiDelegate();
   int tab_id = -1;
-  if (params->args.tab_id.get()) {
+  if (params->args.tab_id) {
     tab_id = *params->args.tab_id;
     std::string error_string;
     if (!automation_api_delegate->GetTabById(tab_id, browser_context(),
@@ -329,7 +554,7 @@ ExtensionFunction::ResponseAction AutomationInternalEnableTabFunction::Run() {
     tab_id = automation_api_delegate->GetTabId(contents);
   }
 
-  content::RenderFrameHost* rfh = contents->GetMainFrame();
+  content::RenderFrameHost* rfh = contents->GetPrimaryMainFrame();
   if (!rfh)
     return RespondNow(Error("Could not enable accessibility for active tab"));
 
@@ -339,7 +564,6 @@ ExtensionFunction::ResponseAction AutomationInternalEnableTabFunction::Run() {
   }
 
   AutomationWebContentsObserver::CreateForWebContents(contents);
-  contents->EnableWebContentsOnlyAccessibilityMode();
 
   ui::AXTreeID ax_tree_id = rfh->GetAXTreeID();
 
@@ -351,9 +575,11 @@ ExtensionFunction::ResponseAction AutomationInternalEnableTabFunction::Run() {
   AutomationEventRouter::GetInstance()->RegisterListenerForOneTree(
       extension_id(), source_process_id(), GetSenderWebContents(), ax_tree_id);
 
+  api::automation_internal::EnableTabCallbackInfo info;
+  info.tab_id = tab_id;
+  info.tree_id = ax_tree_id.ToString();
   return RespondNow(
-      ArgumentList(api::automation_internal::EnableTab::Results::Create(
-          ax_tree_id.ToString(), tab_id)));
+      ArgumentList(api::automation_internal::EnableTab::Results::Create(info)));
 }
 
 absl::optional<std::string> AutomationInternalEnableTreeFunction::EnableTree(
@@ -375,7 +601,7 @@ absl::optional<std::string> AutomationInternalEnableTreeFunction::EnableTree(
 
   // Only call this if this is the root of a frame tree, to avoid resetting
   // the accessibility state multiple times.
-  if (!rfh->GetParent())
+  if (rfh->IsInPrimaryMainFrame())
     contents->EnableWebContentsOnlyAccessibilityMode();
 
   return absl::nullopt;
@@ -384,8 +610,8 @@ absl::optional<std::string> AutomationInternalEnableTreeFunction::EnableTree(
 ExtensionFunction::ResponseAction AutomationInternalEnableTreeFunction::Run() {
   using api::automation_internal::EnableTree::Params;
 
-  std::unique_ptr<Params> params(Params::Create(args()));
-  EXTENSION_FUNCTION_VALIDATE(params.get());
+  absl::optional<Params> params = Params::Create(args());
+  EXTENSION_FUNCTION_VALIDATE(params);
 
   ui::AXTreeID ax_tree_id = ui::AXTreeID::FromString(params->tree_id);
   absl::optional<std::string> error = EnableTree(ax_tree_id, extension_id());
@@ -394,237 +620,6 @@ ExtensionFunction::ResponseAction AutomationInternalEnableTreeFunction::Run() {
   } else {
     return RespondNow(NoArguments());
   }
-}
-
-AutomationInternalPerformActionFunction::Result
-AutomationInternalPerformActionFunction::ConvertToAXActionData(
-    const ui::AXTreeID& tree_id,
-    int32_t automation_node_id,
-    const std::string& action_type_string,
-    int request_id,
-    const base::DictionaryValue& additional_properties,
-    const std::string& extension_id,
-    ui::AXActionData* action) {
-  AutomationInternalPerformActionFunction::Result validation_error_result;
-  validation_error_result.validation_success = false;
-  AutomationInternalPerformActionFunction::Result success_result;
-  success_result.validation_success = true;
-  action->target_tree_id = tree_id;
-  action->source_extension_id = extension_id;
-  action->target_node_id = automation_node_id;
-  action->request_id = request_id;
-  api::automation::ActionType action_type =
-      api::automation::ParseActionType(action_type_string);
-  switch (action_type) {
-    case api::automation::ACTION_TYPE_BLUR:
-      action->action = ax::mojom::Action::kBlur;
-      break;
-    case api::automation::ACTION_TYPE_CLEARACCESSIBILITYFOCUS:
-      action->action = ax::mojom::Action::kClearAccessibilityFocus;
-      break;
-    case api::automation::ACTION_TYPE_DECREMENT:
-      action->action = ax::mojom::Action::kDecrement;
-      break;
-    case api::automation::ACTION_TYPE_DODEFAULT:
-      action->action = ax::mojom::Action::kDoDefault;
-      break;
-    case api::automation::ACTION_TYPE_INCREMENT:
-      action->action = ax::mojom::Action::kIncrement;
-      break;
-    case api::automation::ACTION_TYPE_FOCUS:
-      action->action = ax::mojom::Action::kFocus;
-      break;
-    case api::automation::ACTION_TYPE_GETIMAGEDATA: {
-      api::automation_internal::GetImageDataParams get_image_data_params;
-      bool result = api::automation_internal::GetImageDataParams::Populate(
-          additional_properties, &get_image_data_params);
-      if (!result) {
-        return validation_error_result;
-      }
-      action->action = ax::mojom::Action::kGetImageData;
-      action->target_rect = gfx::Rect(0, 0, get_image_data_params.max_width,
-                                      get_image_data_params.max_height);
-      break;
-    }
-    case api::automation::ACTION_TYPE_HITTEST: {
-      api::automation_internal::HitTestParams hit_test_params;
-      bool result = api::automation_internal::HitTestParams::Populate(
-          additional_properties, &hit_test_params);
-      if (!result) {
-        return validation_error_result;
-      }
-      action->action = ax::mojom::Action::kHitTest;
-      action->target_point = gfx::Point(hit_test_params.x, hit_test_params.y);
-      action->hit_test_event_to_fire = ui::ParseAXEnum<ax::mojom::Event>(
-          hit_test_params.event_to_fire.c_str());
-      if (action->hit_test_event_to_fire == ax::mojom::Event::kNone) {
-        return success_result;
-      }
-      break;
-    }
-    case api::automation::ACTION_TYPE_LOADINLINETEXTBOXES:
-      action->action = ax::mojom::Action::kLoadInlineTextBoxes;
-      break;
-    case api::automation::ACTION_TYPE_SETACCESSIBILITYFOCUS:
-      action->action = ax::mojom::Action::kSetAccessibilityFocus;
-      break;
-    case api::automation::ACTION_TYPE_SCROLLTOMAKEVISIBLE:
-      action->action = ax::mojom::Action::kScrollToMakeVisible;
-      action->horizontal_scroll_alignment =
-          ax::mojom::ScrollAlignment::kScrollAlignmentCenter;
-      action->vertical_scroll_alignment =
-          ax::mojom::ScrollAlignment::kScrollAlignmentCenter;
-      action->scroll_behavior =
-          ax::mojom::ScrollBehavior::kDoNotScrollIfVisible;
-      break;
-    case api::automation::ACTION_TYPE_SCROLLBACKWARD:
-      action->action = ax::mojom::Action::kScrollBackward;
-      break;
-    case api::automation::ACTION_TYPE_SCROLLFORWARD:
-      action->action = ax::mojom::Action::kScrollForward;
-      break;
-    case api::automation::ACTION_TYPE_SCROLLUP:
-      action->action = ax::mojom::Action::kScrollUp;
-      break;
-    case api::automation::ACTION_TYPE_SCROLLDOWN:
-      action->action = ax::mojom::Action::kScrollDown;
-      break;
-    case api::automation::ACTION_TYPE_SCROLLLEFT:
-      action->action = ax::mojom::Action::kScrollLeft;
-      break;
-    case api::automation::ACTION_TYPE_SCROLLRIGHT:
-      action->action = ax::mojom::Action::kScrollRight;
-      break;
-    case api::automation::ACTION_TYPE_SETSELECTION: {
-      api::automation_internal::SetSelectionParams selection_params;
-      bool result = api::automation_internal::SetSelectionParams::Populate(
-          additional_properties, &selection_params);
-      if (!result) {
-        return validation_error_result;
-      }
-      action->anchor_node_id = automation_node_id;
-      action->anchor_offset = selection_params.anchor_offset;
-      action->focus_node_id = selection_params.focus_node_id;
-      action->focus_offset = selection_params.focus_offset;
-      action->action = ax::mojom::Action::kSetSelection;
-      break;
-    }
-    case api::automation::ACTION_TYPE_SHOWCONTEXTMENU: {
-      action->action = ax::mojom::Action::kShowContextMenu;
-      break;
-    }
-    case api::automation::
-        ACTION_TYPE_SETSEQUENTIALFOCUSNAVIGATIONSTARTINGPOINT: {
-      action->action =
-          ax::mojom::Action::kSetSequentialFocusNavigationStartingPoint;
-      break;
-    }
-    case api::automation::ACTION_TYPE_CUSTOMACTION: {
-      api::automation_internal::PerformCustomActionParams
-          perform_custom_action_params;
-      bool result =
-          api::automation_internal::PerformCustomActionParams::Populate(
-              additional_properties, &perform_custom_action_params);
-      if (!result) {
-        return validation_error_result;
-      }
-      action->action = ax::mojom::Action::kCustomAction;
-      action->custom_action_id = perform_custom_action_params.custom_action_id;
-      break;
-    }
-    case api::automation::ACTION_TYPE_REPLACESELECTEDTEXT: {
-      api::automation_internal::ReplaceSelectedTextParams
-          replace_selected_text_params;
-      bool result =
-          api::automation_internal::ReplaceSelectedTextParams::Populate(
-              additional_properties, &replace_selected_text_params);
-      if (!result) {
-        return validation_error_result;
-      }
-      action->action = ax::mojom::Action::kReplaceSelectedText;
-      action->value = replace_selected_text_params.value;
-      break;
-    }
-    case api::automation::ACTION_TYPE_SETVALUE: {
-      api::automation_internal::SetValueParams set_value_params;
-      bool result = api::automation_internal::SetValueParams::Populate(
-          additional_properties, &set_value_params);
-      if (!result) {
-        return validation_error_result;
-      }
-      action->action = ax::mojom::Action::kSetValue;
-      action->value = set_value_params.value;
-      break;
-    }
-    case api::automation::ACTION_TYPE_SCROLLTOPOINT: {
-      api::automation_internal::ScrollToPointParams scroll_to_point_params;
-      bool result = api::automation_internal::ScrollToPointParams::Populate(
-          additional_properties, &scroll_to_point_params);
-      if (!result) {
-        return validation_error_result;
-      }
-      action->action = ax::mojom::Action::kScrollToPoint;
-      action->target_point =
-          gfx::Point(scroll_to_point_params.x, scroll_to_point_params.y);
-      break;
-    }
-    case api::automation::ACTION_TYPE_SETSCROLLOFFSET: {
-      api::automation_internal::SetScrollOffsetParams set_scroll_offset_params;
-      bool result = api::automation_internal::SetScrollOffsetParams::Populate(
-          additional_properties, &set_scroll_offset_params);
-      if (!result) {
-        return validation_error_result;
-      }
-      action->action = ax::mojom::Action::kSetScrollOffset;
-      action->target_point =
-          gfx::Point(set_scroll_offset_params.x, set_scroll_offset_params.y);
-      break;
-    }
-    case api::automation::ACTION_TYPE_GETTEXTLOCATION: {
-      api::automation_internal::GetTextLocationDataParams
-          get_text_location_params;
-      bool result =
-          api::automation_internal::GetTextLocationDataParams::Populate(
-              additional_properties, &get_text_location_params);
-      if (!result) {
-        return validation_error_result;
-      }
-      action->action = ax::mojom::Action::kGetTextLocation;
-      action->start_index = get_text_location_params.start_index;
-      action->end_index = get_text_location_params.end_index;
-      break;
-    }
-    case api::automation::ACTION_TYPE_SHOWTOOLTIP:
-      action->action = ax::mojom::Action::kShowTooltip;
-      break;
-    case api::automation::ACTION_TYPE_HIDETOOLTIP:
-      action->action = ax::mojom::Action::kHideTooltip;
-      break;
-    case api::automation::ACTION_TYPE_COLLAPSE:
-      action->action = ax::mojom::Action::kCollapse;
-      break;
-    case api::automation::ACTION_TYPE_EXPAND:
-      action->action = ax::mojom::Action::kExpand;
-      break;
-    case api::automation::ACTION_TYPE_RESUMEMEDIA:
-      action->action = ax::mojom::Action::kResumeMedia;
-      break;
-    case api::automation::ACTION_TYPE_STARTDUCKINGMEDIA:
-      action->action = ax::mojom::Action::kStartDuckingMedia;
-      break;
-    case api::automation::ACTION_TYPE_STOPDUCKINGMEDIA:
-      action->action = ax::mojom::Action::kStopDuckingMedia;
-      break;
-    case api::automation::ACTION_TYPE_SUSPENDMEDIA:
-      action->action = ax::mojom::Action::kSuspendMedia;
-      break;
-    case api::automation::ACTION_TYPE_ANNOTATEPAGEIMAGES:
-    case api::automation::ACTION_TYPE_SIGNALENDOFTEST:
-    case api::automation::ACTION_TYPE_INTERNALINVALIDATETREE:
-    case api::automation::ACTION_TYPE_NONE:
-      break;
-  }
-  return success_result;
 }
 
 AutomationInternalPerformActionFunction::Result::Result() = default;
@@ -705,11 +700,10 @@ AutomationInternalPerformActionFunction::Run() {
   EXTENSION_FUNCTION_VALIDATE(automation_info && automation_info->interact);
 
   using api::automation_internal::PerformAction::Params;
-  std::unique_ptr<Params> params(Params::Create(args()));
-  EXTENSION_FUNCTION_VALIDATE(params.get());
+  absl::optional<Params> params = Params::Create(args());
+  EXTENSION_FUNCTION_VALIDATE(params);
 
-  int* request_id_ptr = params->args.request_id.get();
-  int request_id = request_id_ptr ? *request_id_ptr : -1;
+  int request_id = params->args.request_id.value_or(-1);
 
   ui::AXActionData data;
   Result result = ConvertToAXActionData(
@@ -759,6 +753,21 @@ AutomationInternalEnableDesktopFunction::Run() {
 #endif  // defined(USE_AURA)
 }
 
+ExtensionFunction::ResponseAction
+AutomationInternalDisableDesktopFunction::Run() {
+#if defined(USE_AURA)
+  const AutomationInfo* automation_info = AutomationInfo::Get(extension());
+  if (!automation_info || !automation_info->desktop)
+    return RespondNow(Error("desktop permission must be requested"));
+
+  AutomationEventRouter::GetInstance()->UnregisterListenerWithDesktopPermission(
+      source_process_id());
+  return RespondNow(NoArguments());
+#else
+  return RespondNow(Error("getDesktop is unsupported by this platform"));
+#endif  // defined(USE_AURA)
+}
+
 // static
 int AutomationInternalQuerySelectorFunction::query_request_id_counter_ = 0;
 
@@ -768,8 +777,8 @@ AutomationInternalQuerySelectorFunction::Run() {
   EXTENSION_FUNCTION_VALIDATE(automation_info);
 
   using api::automation_internal::QuerySelector::Params;
-  std::unique_ptr<Params> params(Params::Create(args()));
-  EXTENSION_FUNCTION_VALIDATE(params.get());
+  absl::optional<Params> params = Params::Create(args());
+  EXTENSION_FUNCTION_VALIDATE(params);
 
   content::RenderFrameHost* rfh = content::RenderFrameHost::FromAXTreeID(
       ui::AXTreeID::FromString(params->args.tree_id));
@@ -778,15 +787,10 @@ AutomationInternalQuerySelectorFunction::Run() {
         Error("domQuerySelector query sent on non-web or destroyed tree."));
   }
 
-  content::WebContents* contents =
-      content::WebContents::FromRenderFrameHost(rfh);
-
-  int request_id = query_request_id_counter_++;
-  std::u16string selector = base::UTF8ToUTF16(params->args.selector);
-
   // QuerySelectorHandler handles IPCs and deletes itself on completion.
   new QuerySelectorHandler(
-      contents, request_id, params->args.automation_node_id, selector,
+      rfh->GetRemoteAssociatedInterfaces(), params->args.automation_node_id,
+      params->args.selector,
       base::BindOnce(&AutomationInternalQuerySelectorFunction::OnResponse,
                      this));
 
@@ -801,7 +805,7 @@ void AutomationInternalQuerySelectorFunction::OnResponse(
     return;
   }
 
-  Respond(OneArgument(base::Value(result_acc_obj_id)));
+  Respond(WithArguments(result_acc_obj_id));
 }
 
 }  // namespace extensions

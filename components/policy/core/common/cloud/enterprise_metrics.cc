@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -77,11 +77,69 @@ const char kMetricUserRemoteCommandReceived[] =
 // Enterprise.UserRemoteCommand.Executed.BrowserClearBrowsingData
 // Enterprise.UserRemoteCommand.Executed.DeviceResetEuicc
 // Enterprise.UserRemoteCommand.Executed.BrowserRotateAttestationCredential
+// Enterprise.UserRemoteCommand.Executed.FetchCrdAvailabilityInfo
+// Enterprise.UserRemoteCommand.Executed.FetchSupportPacket
 const char kMetricUserRemoteCommandExecutedTemplate[] =
     "Enterprise.UserRemoteCommand.Executed.%s";
 
 const char kMetricDeviceRemoteCommandReceived[] =
     "Enterprise.DeviceRemoteCommand.Received";
+
+// Expands To:
+// Enterprise.DeviceRemoteCommand.Crd.Unknown.UnknownUserSession.Result
+// Enterprise.DeviceRemoteCommand.Crd.Unknown.AutoLaunchedKioskSession.Result
+// Enterprise.DeviceRemoteCommand.Crd.Unknown.ManuallyLaunchedKioskSession.Result
+// Enterprise.DeviceRemoteCommand.Crd.Unknown.AffiliatedUserSession.Result
+// Enterprise.DeviceRemoteCommand.Crd.Unknown.UnaffiliatedUserSession.Result
+// Enterprise.DeviceRemoteCommand.Crd.Unknown.ManagedGuestSession.Result
+// Enterprise.DeviceRemoteCommand.Crd.Unknown.GuestSession.Result
+// Enterprise.DeviceRemoteCommand.Crd.Unknown.NoUserSession.Result
+// Enterprise.DeviceRemoteCommand.Crd.RemoteAccess.UnknownUserSession.Result
+// Enterprise.DeviceRemoteCommand.Crd.RemoteAccess.AutoLaunchedKioskSession.Result
+// Enterprise.DeviceRemoteCommand.Crd.RemoteAccess.ManuallyLaunchedKioskSession.Result
+// Enterprise.DeviceRemoteCommand.Crd.RemoteAccess.AffiliatedUserSession.Result
+// Enterprise.DeviceRemoteCommand.Crd.RemoteAccess.UnaffiliatedUserSession.Result
+// Enterprise.DeviceRemoteCommand.Crd.RemoteAccess.ManagedGuestSession.Result
+// Enterprise.DeviceRemoteCommand.Crd.RemoteAccess.GuestSession.Result
+// Enterprise.DeviceRemoteCommand.Crd.RemoteAccess.NoUserSession.Result
+// Enterprise.DeviceRemoteCommand.Crd.RemoteSupport.UnknownUserSession.Result
+// Enterprise.DeviceRemoteCommand.Crd.RemoteSupport.AutoLaunchedKioskSession.Result
+// Enterprise.DeviceRemoteCommand.Crd.RemoteSupport.ManuallyLaunchedKioskSession.Result
+// Enterprise.DeviceRemoteCommand.Crd.RemoteSupport.AffiliatedUserSession.Result
+// Enterprise.DeviceRemoteCommand.Crd.RemoteSupport.UnaffiliatedUserSession.Result
+// Enterprise.DeviceRemoteCommand.Crd.RemoteSupport.ManagedGuestSession.Result
+// Enterprise.DeviceRemoteCommand.Crd.RemoteSupport.GuestSession.Result
+// Enterprise.DeviceRemoteCommand.Crd.RemoteSupport.NoUserSession.Result
+const char kMetricDeviceRemoteCommandCrdResultTemplate[] =
+    "Enterprise.DeviceRemoteCommand.Crd.%s.%s.Result";
+
+// ExpandsTo:
+// Enterprise.DeviceRemoteCommand.Crd.RemoteAccess.UnknownUserSession.SessionDuration
+// Enterprise.DeviceRemoteCommand.Crd.RemoteAccess.AutoLaunchedKioskSession.SessionDuration
+// Enterprise.DeviceRemoteCommand.Crd.RemoteAccess.ManuallyLaunchedKioskSession.SessionDuration
+// Enterprise.DeviceRemoteCommand.Crd.RemoteAccess.AffiliatedUserSession.SessionDuration
+// Enterprise.DeviceRemoteCommand.Crd.RemoteAccess.UnaffiliatedUserSession.SessionDuration
+// Enterprise.DeviceRemoteCommand.Crd.RemoteAccess.ManagedGuestSession.SessionDuration
+// Enterprise.DeviceRemoteCommand.Crd.RemoteAccess.GuestSession.SessionDuration
+// Enterprise.DeviceRemoteCommand.Crd.RemoteAccess.NoUserSession.SessionDuration
+// Enterprise.DeviceRemoteCommand.Crd.RemoteSupport.UnknownUserSession.SessionDuration
+// Enterprise.DeviceRemoteCommand.Crd.RemoteSupport.AutoLaunchedKioskSession.SessionDuration
+// Enterprise.DeviceRemoteCommand.Crd.RemoteSupport.ManuallyLaunchedKioskSession.SessionDuration
+// Enterprise.DeviceRemoteCommand.Crd.RemoteSupport.AffiliatedUserSession.SessionDuration
+// Enterprise.DeviceRemoteCommand.Crd.RemoteSupport.UnaffiliatedUserSession.SessionDuration
+// Enterprise.DeviceRemoteCommand.Crd.RemoteSupport.ManagedGuestSession.SessionDuration
+// Enterprise.DeviceRemoteCommand.Crd.RemoteSupport.GuestSession.SessionDuration
+// Enterprise.DeviceRemoteCommand.Crd.RemoteSupport.NoUserSession.SessionDuration
+// Enterprise.DeviceRemoteCommand.Crd.Unknown.UnknownUserSession.SessionDuration
+// Enterprise.DeviceRemoteCommand.Crd.Unknown.AutoLaunchedKioskSession.SessionDuration
+// Enterprise.DeviceRemoteCommand.Crd.Unknown.ManuallyLaunchedKioskSession.SessionDuration
+// Enterprise.DeviceRemoteCommand.Crd.Unknown.AffiliatedUserSession.SessionDuration
+// Enterprise.DeviceRemoteCommand.Crd.Unknown.UnaffiliatedUserSession.SessionDuration
+// Enterprise.DeviceRemoteCommand.Crd.Unknown.ManagedGuestSession.SessionDuration
+// Enterprise.DeviceRemoteCommand.Crd.Unknown.GuestSession.SessionDuration
+// Enterprise.DeviceRemoteCommand.Crd.Unknown.NoUserSession.SessionDuration
+const char kMetricDeviceRemoteCommandCrdSessionDurationTemplate[] =
+    "Enterprise.DeviceRemoteCommand.Crd.%s.%s.SessionDuration";
 
 // Expands to:
 // Enterprise.DeviceRemoteCommand.Executed.CommandEchoTest
@@ -100,6 +158,7 @@ const char kMetricDeviceRemoteCommandReceived[] =
 // Enterprise.DeviceRemoteCommand.Executed.BrowserClearBrowsingData
 // Enterprise.DeviceRemoteCommand.Executed.DeviceResetEuicc
 // Enterprise.DeviceRemoteCommand.Executed.BrowserRotateAttestationCredential
+// Enterprise.DeviceRemoteCommand.Executed.FetchCrdAvailabilityInfo
 const char kMetricDeviceRemoteCommandExecutedTemplate[] =
     "Enterprise.DeviceRemoteCommand.Executed.%s";
 
@@ -123,6 +182,7 @@ const char kMetricCBCMRemoteCommandReceived[] =
 // Enterprise.CBCMRemoteCommand.Executed.BrowserClearBrowsingData
 // Enterprise.CBCMRemoteCommand.Executed.DeviceResetEuicc
 // Enterprise.CBCMRemoteCommand.Executed.BrowserRotateAttestationCredential
+// Enterprise.CBCMRemoteCommand.Executed.FetchCrdAvailabilityInfo
 const char kMetricCBCMRemoteCommandExecutedTemplate[] =
     "Enterprise.CBCMRemoteCommand.Executed.%s";
 
@@ -140,7 +200,6 @@ const char kUMAHashDanceProtocolTime[] =
     "Enterprise.AutoEnrollmentProtocolTime";
 const char kUMAHashDanceBucketDownloadTime[] =
     "Enterprise.AutoEnrollmentBucketDownloadTime";
-const char kUMAHashDanceExtraTime[] = "Enterprise.AutoEnrollmentExtraTime";
 const char kUMAHashDanceRequestStatus[] =
     "Enterprise.AutoEnrollmentRequestStatus";
 const char kUMAHashDanceNetworkErrorCode[] =
@@ -148,5 +207,59 @@ const char kUMAHashDanceNetworkErrorCode[] =
 
 const char kUMASuffixInitialEnrollment[] = ".InitialEnrollment";
 const char kUMASuffixFRE[] = ".ForcedReenrollment";
+
+const char kUMAStateDeterminationDeviceIdentifierStatus[] =
+    "Enterprise.StateDetermination.DeviceIdentifierStatus";
+const char kUMAStateDeterminationEnabled[] =
+    "Enterprise.StateDetermination.Enabled";
+const char kUMAStateDeterminationEmbargoDatePassed[] =
+    "Enterprise.StateDetermination.EmbargoDatePassed";
+const char kUMAStateDeterminationKillSwitchFetchNetworkErrorCode[] =
+    "Enterprise.StateDetermination.KillSwitchFetch.NetworkErrorCode";
+const char kUMAStateDeterminationKillSwitchFetchNumTries[] =
+    "Enterprise.StateDetermination.KillSwitchFetch.NumTries";
+const char kUMAStateDeterminationOnFlex[] =
+    "Enterprise.StateDetermination.OnFlex";
+const char kUMAStateDeterminationOwnershipStatus[] =
+    "Enterprise.StateDetermination.OwnershipStatus";
+const char kUMAStateDeterminationPsmReportedAvailableState[] =
+    "Enterprise.StateDetermination.PsmReportedAvailableState";
+const char kUMAStateDeterminationPsmRlweOprfRequestDmStatusCode[] =
+    "Enterprise.StateDetermination.PsmRlweOprfRequest.DmStatusCode";
+const char kUMAStateDeterminationPsmRlweOprfRequestNetworkErrorCode[] =
+    "Enterprise.StateDetermination.PsmRlweOprfRequest.NetworkErrorCode";
+const char kUMAStateDeterminationPsmRlweQueryRequestDmStatusCode[] =
+    "Enterprise.StateDetermination.PsmRlweQueryRequest.DmStatusCode";
+const char kUMAStateDeterminationPsmRlweQueryRequestNetworkErrorCode[] =
+    "Enterprise.StateDetermination.PsmRlweQueryRequest.NetworkErrorCode";
+const char kUMAStateDeterminationStateKeysRetrieved[] =
+    "Enterprise.StateDetermination.StateKeysRetrieved";
+const char kUMAStateDeterminationStateRequestDmStatusCode[] =
+    "Enterprise.StateDetermination.StateRequest.DmStatusCode";
+const char kUMAStateDeterminationStateRequestNetworkErrorCode[] =
+    "Enterprise.StateDetermination.StateRequest.NetworkErrorCode";
+const char kUMAStateDeterminationStateReturned[] =
+    "Enterprise.StateDetermination.StateReturned";
+const char kUMAStateDeterminationStepDuration[] =
+    "Enterprise.StateDetermination.StepDuration";
+const char kUMAStateDeterminationSystemClockSynchronized[] =
+    "Enterprise.StateDetermination.SystemClockSynchronized";
+const char kUMAStateDeterminationTotalDurationByState[] =
+    "Enterprise.StateDetermination.TotalDurationByState";
+const char kUMAStateDeterminationTotalDuration[] =
+    "Enterprise.StateDetermination.TotalDuration";
+
+const char kUMASuffixConnectionError[] = ".ConnectionError";
+const char kUMASuffixDisabled[] = ".Disabled";
+const char kUMASuffixEnrollment[] = ".Enrollment";
+const char kUMASuffixNoEnrollment[] = ".NoEnrollment";
+const char kUMASuffixServerError[] = ".ServerError";
+
+const char kUMASuffixOPRFRequest[] = ".OPRFRequest";
+const char kUMASuffixOwnershipCheck[] = ".OwnershipCheck";
+const char kUMASuffixQueryRequest[] = ".QueryRequest";
+const char kUMASuffixStateKeyRetrieval[] = ".StateKeyRetrieval";
+const char kUMASuffixStateRequest[] = ".StateRequest";
+const char kUMASuffixSystemClockSync[] = ".SystemClockSync";
 
 }  // namespace policy

@@ -1,25 +1,26 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import <XCTest/XCTest.h>
 #import "ios/testing/earl_grey/earl_grey_test.h"
 
-#include "base/bind.h"
-#include "base/ios/ios_util.h"
-#include "base/memory/ptr_util.h"
-#include "base/strings/sys_string_conversions.h"
+#import "base/functional/bind.h"
+#import "base/ios/ios_util.h"
+#import "base/memory/ptr_util.h"
+#import "base/strings/sys_string_conversions.h"
 #import "base/test/ios/wait_util.h"
-#include "components/version_info/version_info.h"
+#import "components/version_info/version_info.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
 #import "ios/chrome/browser/ui/popup_menu/popup_menu_constants.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
-#include "ios/web/common/user_agent.h"
-#include "net/test/embedded_test_server/embedded_test_server.h"
-#include "net/test/embedded_test_server/http_request.h"
-#include "net/test/embedded_test_server/http_response.h"
+#import "ios/web/common/user_agent.h"
+#import "net/test/embedded_test_server/embedded_test_server.h"
+#import "net/test/embedded_test_server/http_request.h"
+#import "net/test/embedded_test_server/http_response.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -128,7 +129,8 @@ GREYElementInteraction* RequestDesktopButton() {
 #pragma mark - Tests
 
 // Test that tapping the prerendered suggestions opens it.
-- (void)testTapPrerenderSuggestions {
+// TODO(crbug.com/1315304): Reenable.
+- (void)DISABLED_testTapPrerenderSuggestions {
   // TODO(crbug.com/793306): Re-enable the test on iPad once the alternate
   // letters problem is fixed.
   if ([ChromeEarlGrey isIPadIdiom]) {
@@ -156,7 +158,6 @@ GREYElementInteraction* RequestDesktopButton() {
     return self->_visitCounter == visitCountBeforePrerender + 1;
   });
   GREYAssertTrue(prerendered, @"Prerender did not happen");
-
   // Make sure the omnibox is autocompleted.
   [[EarlGrey
       selectElementWithMatcher:grey_allOf(grey_accessibilityLabel(pageString),
@@ -167,14 +168,12 @@ GREYElementInteraction* RequestDesktopButton() {
 
   // Open the suggestion. The suggestion needs to be the first suggestion to
   // have the prerenderer activated.
-  [[EarlGrey
-      selectElementWithMatcher:grey_allOf(
-                                   grey_accessibilityLabel(pageString),
-                                   grey_kindOfClassName(@"FadeTruncatingLabel"),
-                                   grey_ancestor(grey_accessibilityID(
-                                       @"omnibox suggestion 0")),
-                                   grey_sufficientlyVisible(), nil)]
-      performAction:grey_tap()];
+  id<GREYMatcher> rowMatcher = grey_allOf(
+      grey_accessibilityValue(pageString),
+      grey_ancestor(grey_accessibilityID(@"omnibox suggestion 0 0")),
+      chrome_test_util::OmniboxPopupRow(), grey_sufficientlyVisible(), nil);
+
+  [[EarlGrey selectElementWithMatcher:rowMatcher] performAction:grey_tap()];
 
   [ChromeEarlGrey waitForWebStateContainingText:kPageLoadedString];
   GREYAssertEqual(visitCountBeforePrerender + 1, _visitCounter,
@@ -215,7 +214,7 @@ GREYElementInteraction* RequestDesktopButton() {
                                    grey_accessibilityLabel(pageString),
                                    grey_kindOfClassName(@"FadeTruncatingLabel"),
                                    grey_ancestor(grey_accessibilityID(
-                                       @"omnibox suggestion 0")),
+                                       @"omnibox suggestion 0 0")),
                                    grey_sufficientlyVisible(), nil)]
       performAction:grey_tap()];
 

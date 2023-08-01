@@ -51,7 +51,7 @@ class TaskAPIFactory {
       const char* buffer_data,
       size_t buffer_size,
       std::unique_ptr<tflite::OpResolver> resolver =
-          absl::make_unique<tflite_shims::ops::builtin::BuiltinOpResolver>(),
+          absl::make_unique<tflite::ops::builtin::BuiltinOpResolver>(),
       int num_threads = 1,
       const tflite::proto::ComputeSettings& compute_settings =
           tflite::proto::ComputeSettings()) {
@@ -69,7 +69,7 @@ class TaskAPIFactory {
   static tflite::support::StatusOr<std::unique_ptr<T>> CreateFromFile(
       const std::string& file_name,
       std::unique_ptr<tflite::OpResolver> resolver =
-          absl::make_unique<tflite_shims::ops::builtin::BuiltinOpResolver>(),
+          absl::make_unique<tflite::ops::builtin::BuiltinOpResolver>(),
       int num_threads = 1,
       const tflite::proto::ComputeSettings& compute_settings =
           tflite::proto::ComputeSettings()) {
@@ -86,7 +86,7 @@ class TaskAPIFactory {
   static tflite::support::StatusOr<std::unique_ptr<T>> CreateFromFileDescriptor(
       int file_descriptor,
       std::unique_ptr<tflite::OpResolver> resolver =
-          absl::make_unique<tflite_shims::ops::builtin::BuiltinOpResolver>(),
+          absl::make_unique<tflite::ops::builtin::BuiltinOpResolver>(),
       int num_threads = 1,
       const tflite::proto::ComputeSettings& compute_settings =
           tflite::proto::ComputeSettings()) {
@@ -104,8 +104,8 @@ class TaskAPIFactory {
   static tflite::support::
       StatusOr<std::unique_ptr<T>> CreateFromExternalFileProto(
           const ExternalFile* external_file,
-          std::unique_ptr<tflite::OpResolver> resolver = absl::make_unique<
-              tflite_shims::ops::builtin::BuiltinOpResolver>(),
+          std::unique_ptr<tflite::OpResolver> resolver =
+              absl::make_unique<tflite::ops::builtin::BuiltinOpResolver>(),
           int num_threads = 1,
           const tflite::proto::ComputeSettings& compute_settings =
               tflite::proto::ComputeSettings()) {
@@ -123,7 +123,7 @@ class TaskAPIFactory {
   static tflite::support::StatusOr<std::unique_ptr<T>> CreateFromBaseOptions(
       const BaseOptions* base_options,
       std::unique_ptr<tflite::OpResolver> resolver =
-          absl::make_unique<tflite_shims::ops::builtin::BuiltinOpResolver>()) {
+          absl::make_unique<tflite::ops::builtin::BuiltinOpResolver>()) {
     if (!base_options->has_model_file()) {
       return CreateStatusWithPayload(
           absl::StatusCode::kInvalidArgument,
@@ -143,10 +143,15 @@ class TaskAPIFactory {
     }
 
     auto engine = absl::make_unique<TfLiteEngine>(std::move(resolver));
+    tflite::proto::ComputeSettings compute_settings(
+        base_options->compute_settings());
+    if (compute_settings.has_settings_to_test_locally()) {
+      RETURN_IF_ERROR(SetMiniBenchmarkFileNameFromBaseOptions(compute_settings,
+                                                              base_options));
+    }
     RETURN_IF_ERROR(engine->BuildModelFromExternalFileProto(
-        &base_options->model_file(), base_options->compute_settings()));
-    return CreateFromTfLiteEngine<T>(std::move(engine),
-                                     base_options->compute_settings());
+        &base_options->model_file(), compute_settings));
+    return CreateFromTfLiteEngine<T>(std::move(engine), compute_settings);
   }
 
  private:
@@ -172,6 +177,10 @@ class TaskAPIFactory {
     RETURN_IF_ERROR(engine->InitInterpreter(compute_settings));
     return absl::make_unique<T>(std::move(engine));
   }
+
+  static absl::Status SetMiniBenchmarkFileNameFromBaseOptions(
+      tflite::proto::ComputeSettings& compute_settings,
+      const BaseOptions* base_options);
 };
 
 }  // namespace core

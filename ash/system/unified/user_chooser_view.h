@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define ASH_SYSTEM_UNIFIED_USER_CHOOSER_VIEW_H_
 
 #include "ash/media/media_controller_impl.h"
+#include "base/memory/raw_ptr.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/view.h"
 
@@ -46,9 +47,9 @@ class UserItemButton : public views::Button {
 
  private:
   const int user_index_;
-  views::ImageView* const capture_icon_;
-  views::Label* const name_;
-  views::Label* const email_;
+  const raw_ptr<views::ImageView, ExperimentalAsh> capture_icon_;
+  const raw_ptr<views::Label, ExperimentalAsh> name_;
+  const raw_ptr<views::Label, ExperimentalAsh> email_;
 };
 
 // A detailed view of user chooser.

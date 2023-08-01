@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,27 +11,26 @@
 #include <tuple>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
-#include "base/task/single_thread_task_runner.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/feature_list.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
 #include "base/types/pass_key.h"
-#include "net/base/escape.h"
-#include "net/url_request/url_request.h"
-#include "storage/browser/blob/shareable_file_reference.h"
 #include "storage/browser/file_system/async_file_util.h"
+#include "storage/browser/file_system/copy_or_move_hook_delegate.h"
 #include "storage/browser/file_system/copy_or_move_operation_delegate.h"
 #include "storage/browser/file_system/file_observers.h"
 #include "storage/browser/file_system/file_system_backend.h"
 #include "storage/browser/file_system/file_system_context.h"
+#include "storage/browser/file_system/file_system_features.h"
 #include "storage/browser/file_system/file_system_file_util.h"
 #include "storage/browser/file_system/file_system_util.h"
 #include "storage/browser/file_system/remove_operation_delegate.h"
-#include "storage/browser/file_system/sandbox_file_system_backend.h"
+#include "storage/browser/file_system/sandbox_file_system_backend_delegate.h"
 #include "storage/browser/quota/quota_manager_proxy.h"
 #include "storage/common/file_system/file_system_types.h"
-#include "storage/common/file_system/file_system_util.h"
 #include "third_party/blink/public/common/storage_key/storage_key.h"
 
 namespace storage {
@@ -73,7 +72,7 @@ void FileSystemOperationImpl::CreateFile(const FileSystemURL& url,
   DCHECK(SetPendingOperationType(kOperationCreateFile));
 
   auto split_callback = base::SplitOnceCallback(std::move(callback));
-  GetUsageAndQuotaThenRunTask(
+  GetBucketSpaceRemainingAndRunTask(
       url,
       base::BindOnce(&FileSystemOperationImpl::DoCreateFile,
                      weak_factory_.GetWeakPtr(), url,
@@ -89,7 +88,7 @@ void FileSystemOperationImpl::CreateDirectory(const FileSystemURL& url,
   DCHECK(SetPendingOperationType(kOperationCreateDirectory));
 
   auto split_callback = base::SplitOnceCallback(std::move(callback));
-  GetUsageAndQuotaThenRunTask(
+  GetBucketSpaceRemainingAndRunTask(
       url,
       base::BindOnce(&FileSystemOperationImpl::DoCreateDirectory,
                      weak_factory_.GetWeakPtr(), url,
@@ -103,15 +102,16 @@ void FileSystemOperationImpl::Copy(
     const FileSystemURL& dest_url,
     CopyOrMoveOptionSet options,
     ErrorBehavior error_behavior,
-    const CopyOrMoveProgressCallback& progress_callback,
+    std::unique_ptr<CopyOrMoveHookDelegate> copy_or_move_hook_delegate,
     StatusCallback callback) {
+  DCHECK(copy_or_move_hook_delegate);
   DCHECK(SetPendingOperationType(kOperationCopy));
   DCHECK(!recursive_operation_delegate_);
 
   recursive_operation_delegate_ = std::make_unique<CopyOrMoveOperationDelegate>(
       file_system_context(), src_url, dest_url,
       CopyOrMoveOperationDelegate::OPERATION_COPY, options, error_behavior,
-      progress_callback,
+      std::move(copy_or_move_hook_delegate),
       base::BindOnce(&FileSystemOperationImpl::DidFinishOperation,
                      weak_factory_.GetWeakPtr(), std::move(callback)));
   recursive_operation_delegate_->RunRecursively();
@@ -122,14 +122,15 @@ void FileSystemOperationImpl::Move(
     const FileSystemURL& dest_url,
     CopyOrMoveOptionSet options,
     ErrorBehavior error_behavior,
-    const CopyOrMoveProgressCallback& progress_callback,
+    std::unique_ptr<CopyOrMoveHookDelegate> copy_or_move_hook_delegate,
     StatusCallback callback) {
+  DCHECK(copy_or_move_hook_delegate);
   DCHECK(SetPendingOperationType(kOperationMove));
   DCHECK(!recursive_operation_delegate_);
   recursive_operation_delegate_ = std::make_unique<CopyOrMoveOperationDelegate>(
       file_system_context(), src_url, dest_url,
       CopyOrMoveOperationDelegate::OPERATION_MOVE, options, error_behavior,
-      progress_callback,
+      std::move(copy_or_move_hook_delegate),
       base::BindOnce(&FileSystemOperationImpl::DidFinishOperation,
                      weak_factory_.GetWeakPtr(), std::move(callback)));
   recursive_operation_delegate_->RunRecursively();
@@ -224,7 +225,7 @@ void FileSystemOperationImpl::Truncate(const FileSystemURL& url,
   DCHECK(SetPendingOperationType(kOperationTruncate));
 
   auto split_callback = base::SplitOnceCallback(std::move(callback));
-  GetUsageAndQuotaThenRunTask(
+  GetBucketSpaceRemainingAndRunTask(
       url,
       base::BindOnce(&FileSystemOperationImpl::DoTruncate,
                      weak_factory_.GetWeakPtr(), url,
@@ -246,7 +247,7 @@ void FileSystemOperationImpl::TouchFile(const FileSystemURL& url,
 }
 
 void FileSystemOperationImpl::OpenFile(const FileSystemURL& url,
-                                       int file_flags,
+                                       uint32_t file_flags,
                                        OpenFileCallback callback) {
   DCHECK(SetPendingOperationType(kOperationOpenFile));
 
@@ -258,7 +259,7 @@ void FileSystemOperationImpl::OpenFile(const FileSystemURL& url,
   }
 
   auto split_callback = base::SplitOnceCallback(std::move(callback));
-  GetUsageAndQuotaThenRunTask(
+  GetBucketSpaceRemainingAndRunTask(
       url,
       base::BindOnce(&FileSystemOperationImpl::DoOpenFile,
                      weak_factory_.GetWeakPtr(), url,
@@ -303,7 +304,7 @@ void FileSystemOperationImpl::CopyInForeignFile(
   DCHECK(SetPendingOperationType(kOperationCopyInForeignFile));
 
   auto split_callback = base::SplitOnceCallback(std::move(callback));
-  GetUsageAndQuotaThenRunTask(
+  GetBucketSpaceRemainingAndRunTask(
       dest_url,
       base::BindOnce(&FileSystemOperationImpl::DoCopyInForeignFile,
                      weak_factory_.GetWeakPtr(), src_local_disk_file_path,
@@ -340,12 +341,18 @@ void FileSystemOperationImpl::CopyFileLocal(
   // Don't just DCHECK src_url.IsInSameFileSystem(dest_url). We don't care if
   // the two URLs are mounted in two different isolated file systems. As long
   // as their origin and type are the same, they are part of the same file
-  // system, and local operations are allowed.
-  DCHECK_EQ(src_url.origin(), dest_url.origin());
+  // system, and local operations are allowed. See https://crbug.com/1396116.
+  if (base::FeatureList::IsEnabled(
+          features::kFileSystemURLComparatorsTreatOpaqueOriginAsNoOrigin)) {
+    DCHECK(src_url.origin() == dest_url.origin() ||
+           (src_url.origin().opaque() && dest_url.origin().opaque()));
+  } else {
+    DCHECK_EQ(src_url.origin(), dest_url.origin());
+  }
   DCHECK_EQ(src_url.type(), dest_url.type());
 
   auto split_callback = base::SplitOnceCallback(std::move(callback));
-  GetUsageAndQuotaThenRunTask(
+  GetBucketSpaceRemainingAndRunTask(
       dest_url,
       base::BindOnce(&FileSystemOperationImpl::DoCopyFileLocal,
                      weak_factory_.GetWeakPtr(), src_url, dest_url, options,
@@ -362,12 +369,18 @@ void FileSystemOperationImpl::MoveFileLocal(const FileSystemURL& src_url,
   // Don't just DCHECK src_url.IsInSameFileSystem(dest_url). We don't care if
   // the two URLs are mounted in two different isolated file systems. As long
   // as their origin and type are the same, they are part of the same file
-  // system, and local operations are allowed.
-  DCHECK_EQ(src_url.origin(), dest_url.origin());
+  // system, and local operations are allowed. See https://crbug.com/1396116.
+  if (base::FeatureList::IsEnabled(
+          features::kFileSystemURLComparatorsTreatOpaqueOriginAsNoOrigin)) {
+    DCHECK(src_url.origin() == dest_url.origin() ||
+           (src_url.origin().opaque() && dest_url.origin().opaque()));
+  } else {
+    DCHECK_EQ(src_url.origin(), dest_url.origin());
+  }
   DCHECK_EQ(src_url.type(), dest_url.type());
 
   auto split_callback = base::SplitOnceCallback(std::move(callback));
-  GetUsageAndQuotaThenRunTask(
+  GetBucketSpaceRemainingAndRunTask(
       dest_url,
       base::BindOnce(&FileSystemOperationImpl::DoMoveFileLocal,
                      weak_factory_.GetWeakPtr(), src_url, dest_url, options,
@@ -400,16 +413,15 @@ FileSystemOperationImpl::FileSystemOperationImpl(
   weak_ptr_ = weak_factory_.GetWeakPtr();
 
   DCHECK(operation_context_.get());
-  operation_context_->DetachFromSequence();
   async_file_util_ = file_system_context_->GetAsyncFileUtil(url.type());
   DCHECK(async_file_util_);
 }
 
-void FileSystemOperationImpl::GetUsageAndQuotaThenRunTask(
+void FileSystemOperationImpl::GetBucketSpaceRemainingAndRunTask(
     const FileSystemURL& url,
     base::OnceClosure task,
     base::OnceClosure error_callback) {
-  QuotaManagerProxy* quota_manager_proxy =
+  const scoped_refptr<QuotaManagerProxy>& quota_manager_proxy =
       file_system_context()->quota_manager_proxy();
   if (!quota_manager_proxy ||
       !file_system_context()->GetQuotaUtil(url.type())) {
@@ -421,28 +433,28 @@ void FileSystemOperationImpl::GetUsageAndQuotaThenRunTask(
     return;
   }
 
+  BucketLocator bucket =
+      url.bucket().value_or(BucketLocator::ForDefaultBucket(url.storage_key()));
+  bucket.type = FileSystemTypeToQuotaStorageType(url.type());
+
   DCHECK(quota_manager_proxy);
-  quota_manager_proxy->GetUsageAndQuota(
-      blink::StorageKey(url.origin()),
-      FileSystemTypeToQuotaStorageType(url.type()),
-      base::SequencedTaskRunnerHandle::Get(),
-      base::BindOnce(&FileSystemOperationImpl::DidGetUsageAndQuotaAndRunTask,
+  quota_manager_proxy->GetBucketSpaceRemaining(
+      bucket, base::SequencedTaskRunner::GetCurrentDefault(),
+      base::BindOnce(&FileSystemOperationImpl::DidGetBucketSpaceRemaining,
                      weak_ptr_, std::move(task), std::move(error_callback)));
 }
 
-void FileSystemOperationImpl::DidGetUsageAndQuotaAndRunTask(
+void FileSystemOperationImpl::DidGetBucketSpaceRemaining(
     base::OnceClosure task,
     base::OnceClosure error_callback,
-    blink::mojom::QuotaStatusCode status,
-    int64_t usage,
-    int64_t quota) {
-  if (status != blink::mojom::QuotaStatusCode::kOk) {
-    LOG(WARNING) << "Got unexpected quota error : " << static_cast<int>(status);
+    QuotaErrorOr<int64_t> space_left) {
+  if (!space_left.has_value()) {
+    LOG(WARNING) << "Got unexpected quota error";
     std::move(error_callback).Run();
     return;
   }
 
-  operation_context_->set_allowed_bytes_growth(quota - usage);
+  operation_context_->set_allowed_bytes_growth(space_left.value());
   std::move(task).Run();
 }
 
@@ -511,7 +523,7 @@ void FileSystemOperationImpl::DoTruncate(const FileSystemURL& url,
 
 void FileSystemOperationImpl::DoOpenFile(const FileSystemURL& url,
                                          OpenFileCallback callback,
-                                         int file_flags) {
+                                         uint32_t file_flags) {
   async_file_util_->CreateOrOpen(
       std::move(operation_context_), url, file_flags,
       base::BindOnce(&DidOpenFile, file_system_context_, weak_ptr_,

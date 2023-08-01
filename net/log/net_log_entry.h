@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,10 +11,6 @@
 #include "net/log/net_log_event_type.h"
 #include "net/log/net_log_source.h"
 
-namespace base {
-class Value;
-}
-
 namespace net {
 
 // Represents an event that was sent to a NetLog observer, including the
@@ -25,7 +21,7 @@ struct NET_EXPORT NetLogEntry {
               NetLogSource source,
               NetLogEventPhase phase,
               base::TimeTicks time,
-              base::Value params);
+              base::Value::Dict params);
 
   ~NetLogEntry();
 
@@ -33,8 +29,8 @@ struct NET_EXPORT NetLogEntry {
   NetLogEntry(NetLogEntry&& entry);
   NetLogEntry& operator=(NetLogEntry&& entry);
 
-  // Serializes the specified event to a Value.
-  base::Value ToValue() const;
+  // Serializes the specified event to a Dict.
+  base::Value::Dict ToDict() const;
 
   // NetLogEntry is not copy constructible, however copying is useful for
   // unittests.
@@ -47,7 +43,7 @@ struct NET_EXPORT NetLogEntry {
   NetLogSource source;
   NetLogEventPhase phase;
   base::TimeTicks time;
-  base::Value params;
+  base::Value::Dict params;
 };
 
 }  // namespace net

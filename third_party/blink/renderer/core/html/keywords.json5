@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,8 +45,8 @@
     "search",
     "send",
 
-    // importance attribute / Priority Hints
-    // https://wicg.github.io/priority-hints/#solution-0
+    // fetchpriority attribute / Priority Hints
+    // https://wicg.github.io/priority-hints/#solution
     "high",
     "low",
     "auto",
@@ -73,6 +73,15 @@
     "eager",
     "auto",
 
+    // popover attribute (experimental)
+    // https://github.com/openui/open-ui/blob/main/research/src/pages/popup/popup.research.explainer.mdx
+    "auto",
+    "hint",
+    "async",
+    "show",
+    "hide",
+    "toggle",
+
     // referrerpolicy attribute
     // https://w3c.github.io/webappsec-referrer-policy/#referrer-policies
     "no-referrer",
@@ -95,5 +104,42 @@
     // https://github.com/MicrosoftEdge/MSEdgeExplainers/blob/master/VirtualKeyboardPolicy/explainer.md
     "auto",
     "manual",
+
+    // shadowrootmode attribute
+    // https://github.com/whatwg/html/pull/5465
+    "open",
+    "closed",
+
+    // visibilityState
+    // https://w3c.github.io/page-visibility/#visibilitystate-enum
+    "hidden",
+    "visible",
+
+    // Blocking attributes
+    // https://html.spec.whatwg.org/C/#blocking-attribute
+    "render",
+
+    // dropEffect IDL attribute
+    // https://html.spec.whatwg.org/C/#dom-datatransfer-dropeffect
+    "none",
+
+    // Various Aria attribute values
+    // https://www.w3.org/TR/wai-aria-1.1/#valuetype_true-false
+    "false",
+    "true",
+
+    // ol[type] https://html.spec.whatwg.org/C/#attr-ol-type and
+    // symbolic predefined counter style
+    // https://drafts.csswg.org/css-counter-styles-3/#simple-symbolic
+    "decimal",
+    "lower-roman",
+    "upper-roman",
+    "lower-alpha",
+    "upper-alpha",
+    "disc",
+    "circle",
+    "square",
+    "disclosure-open",
+    "disclosure-closed",
   ],
 }

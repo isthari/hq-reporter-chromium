@@ -1,5 +1,5 @@
-#!/usr/bin/env vpython
-# Copyright 2019 The Chromium Authors. All rights reserved.
+#!/usr/bin/env vpython3
+# Copyright 2019 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -165,12 +165,6 @@ TESTS_REF = """
                             "testStatus": {
                               "_value": "Failure"
                             },
-                            "duration" : {
-                              "_type" : {
-                                 "_name" : "Double"
-                              },
-                              "_value" : "45.258606716156"
-                            },
                             "identifier": {
                               "_value": "PageStateTestCase\/testZeroContentOffsetAfterLoad"
                             },
@@ -180,7 +174,7 @@ TESTS_REF = """
                           },
                           {
                             "testStatus": {
-                              "_value": "Success"
+                              "_value": "Expected Failure"
                             },
                             "duration" : {
                               "_type" : {
@@ -193,6 +187,23 @@ TESTS_REF = """
                             },
                             "name": {
                               "_value": "testMethod2"
+                            }
+                          },
+                          {
+                            "testStatus": {
+                              "_value": "Skipped"
+                            },
+                            "duration" : {
+                              "_type" : {
+                                 "_name" : "Double"
+                              },
+                              "_value" : "0.0606716156"
+                            },
+                            "identifier": {
+                              "_value": "PageStateTestCase/testMethod3"
+                            },
+                            "name": {
+                              "_value": "testMethod3"
                             }
                           }]
                         }
@@ -503,8 +514,10 @@ class XCode11LogParserTest(test_runner_test.TestCase):
         'file: , line: \n'
         'Immediately halt execution of testcase '
         '(EarlGreyInternalTestInterruptException)\n')
-    expected_expected_tests = set(
-        ['PageStateTestCase/testMethod1', 'PageStateTestCase/testMethod2'])
+    expected_expected_tests = set([
+        'PageStateTestCase/testMethod1', 'PageStateTestCase/testMethod2',
+        'PageStateTestCase/testMethod3'
+    ])
     results = xcode_log_parser.Xcode11LogParser()._get_test_statuses(
         OUTPUT_PATH)
     self.assertEqual(expected_expected_tests, results.expected_tests())
@@ -513,12 +526,15 @@ class XCode11LogParserTest(test_runner_test.TestCase):
       if test_result.name == 'PageStateTestCase/testZeroContentOffsetAfterLoad':
         seen_failed_test = True
         self.assertEqual(test_result.test_log, expected_failure_log)
-        self.assertEqual(test_result.duration, 45258)
+        self.assertEqual(test_result.duration, None)
         crash_file_name = (
-            'attempt_0_PageStateTestCase_testZeroContentOffsetAfterLoad_1.crash'
+            'attempt_0_PageStateTestCase_testZeroContentOffsetAfterLoad_'
+            'Crash_3F0A2B1C-7ADA-436E-A54C-D4C39B8411F8.crash'
         )
         jpeg_file_name = (
-            'attempt_0_PageStateTestCase_testZeroContentOffsetAfterLoad_2.jpeg')
+            'attempt_0_PageStateTestCase_testZeroContentOffsetAfterLoad'
+            '_kXCTAttachmentLegacyScreenImageData_1'
+            '_6CED1FE5-96CA-47EA-9852-6FADED687262.jpeg')
         self.assertDictEqual(
             {
                 crash_file_name: '/tmp/%s' % crash_file_name,
@@ -528,6 +544,8 @@ class XCode11LogParserTest(test_runner_test.TestCase):
         self.assertEqual(test_result.duration, 35384)
       if test_result.name == 'PageStateTestCase/testMethod2':
         self.assertEqual(test_result.duration, 28988)
+      if test_result.name == 'PageStateTestCase/testMethod3':
+        self.assertEqual(test_result.duration, 60)
 
     self.assertTrue(seen_failed_test)
 
@@ -537,8 +555,10 @@ class XCode11LogParserTest(test_runner_test.TestCase):
   @mock.patch('os.path.exists', autospec=True)
   @mock.patch('xcode_log_parser.Xcode11LogParser._xcresulttool_get')
   def testCollectTestTesults(self, mock_root, mock_exist_file, *args):
-    expected_passed = set(
-        ['PageStateTestCase/testMethod1', 'PageStateTestCase/testMethod2'])
+    expected_passed = set([
+        'PageStateTestCase/testMethod1', 'PageStateTestCase/testMethod2',
+        'PageStateTestCase/testMethod3'
+    ])
     expected_failed = set(['PageStateTestCase/testZeroContentOffsetAfterLoad'])
 
     mock_root.side_effect = _xcresulttool_get_side_effect
@@ -548,7 +568,7 @@ class XCode11LogParserTest(test_runner_test.TestCase):
 
     # Length ensures no duplicate results from |_get_test_statuses| and
     # |_list_of_failed_tests|.
-    self.assertEqual(len(results.test_results), 3)
+    self.assertEqual(len(results.test_results), 4)
     self.assertEqual(expected_passed, results.expected_tests())
     self.assertEqual(expected_failed, results.unexpected_tests())
     # Ensure format.
@@ -605,14 +625,16 @@ class XCode11LogParserTest(test_runner_test.TestCase):
         'xcresulttool', 'export', '--type', 'file', '--id',
         'SCREENSHOT_REF_ID_IN_FAILURE_SUMMARIES', '--path', XCRESULT_PATH,
         '--output-path',
-        '/tmp/attempt_0_PageStateTestCase_testZeroContentOffsetAfterLoad_2.jpeg'
+        '/tmp/attempt_0_PageStateTestCase_testZeroContentOffsetAfterLoad'
+        '_kXCTAttachmentLegacyScreenImageData_1'
+        '_6CED1FE5-96CA-47EA-9852-6FADED687262.jpeg'
     ])
     mock_process.assert_any_call([
         'xcresulttool', 'export', '--type', 'file', '--id',
         'CRASH_REF_ID_IN_ACTIVITY_SUMMARIES', '--path', XCRESULT_PATH,
         '--output-path',
-        '/tmp/attempt_0_PageStateTestCase_testZeroContentOffsetAfterLoad_1'
-        '.crash'
+        '/tmp/attempt_0_PageStateTestCase_testZeroContentOffsetAfterLoad'
+        '_Crash_3F0A2B1C-7ADA-436E-A54C-D4C39B8411F8.crash'
     ])
     # Ensures screenshots in activitySummaries are not copied.
     self.assertEqual(2, mock_process.call_count)

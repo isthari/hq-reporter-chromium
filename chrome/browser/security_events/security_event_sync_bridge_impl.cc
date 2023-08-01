@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,9 @@
 #include <vector>
 
 #include "base/big_endian.h"
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/check_op.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/strings/string_number_conversions.h"
 #include "build/build_config.h"
@@ -89,18 +89,19 @@ SecurityEventSyncBridgeImpl::CreateMetadataChangeList() {
   return syncer::ModelTypeStore::WriteBatch::CreateMetadataChangeList();
 }
 
-absl::optional<syncer::ModelError> SecurityEventSyncBridgeImpl::MergeSyncData(
+absl::optional<syncer::ModelError>
+SecurityEventSyncBridgeImpl::MergeFullSyncData(
     std::unique_ptr<syncer::MetadataChangeList> metadata_change_list,
     syncer::EntityChangeList entity_data) {
   DCHECK(entity_data.empty());
   DCHECK(change_processor()->IsTrackingMetadata());
   DCHECK(!change_processor()->TrackedAccountId().empty());
-  return ApplySyncChanges(std::move(metadata_change_list),
-                          std::move(entity_data));
+  return ApplyIncrementalSyncChanges(std::move(metadata_change_list),
+                                     std::move(entity_data));
 }
 
 absl::optional<syncer::ModelError>
-SecurityEventSyncBridgeImpl::ApplySyncChanges(
+SecurityEventSyncBridgeImpl::ApplyIncrementalSyncChanges(
     std::unique_ptr<syncer::MetadataChangeList> metadata_change_list,
     syncer::EntityChangeList entity_changes) {
   std::unique_ptr<syncer::ModelTypeStore::WriteBatch> write_batch =
@@ -143,13 +144,10 @@ std::string SecurityEventSyncBridgeImpl::GetStorageKey(
   return GetStorageKeyFromSpecifics(entity_data.specifics.security_event());
 }
 
-void SecurityEventSyncBridgeImpl::ApplyStopSyncChanges(
+void SecurityEventSyncBridgeImpl::ApplyDisableSyncChanges(
     std::unique_ptr<syncer::MetadataChangeList> delete_metadata_change_list) {
-  if (delete_metadata_change_list) {
-    store_->DeleteAllDataAndMetadata(
-        base::BindOnce(&SecurityEventSyncBridgeImpl::OnCommit,
-                       weak_ptr_factory_.GetWeakPtr()));
-  }
+  store_->DeleteAllDataAndMetadata(base::BindOnce(
+      &SecurityEventSyncBridgeImpl::OnCommit, weak_ptr_factory_.GetWeakPtr()));
 }
 
 void SecurityEventSyncBridgeImpl::OnStoreCreated(

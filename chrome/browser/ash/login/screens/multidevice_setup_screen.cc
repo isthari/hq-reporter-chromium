@@ -1,22 +1,40 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/login/screens/multidevice_setup_screen.h"
 
+#include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/logging.h"
+#include "base/memory/weak_ptr.h"
 #include "base/metrics/histogram_macros.h"
+#include "chrome/browser/ash/device_sync/device_sync_client_factory.h"
 #include "chrome/browser/ash/login/users/chrome_user_manager_util.h"
+#include "chrome/browser/ash/login/wizard_context.h"
 #include "chrome/browser/ash/multidevice_setup/multidevice_setup_client_factory.h"
 #include "chrome/browser/ash/multidevice_setup/oobe_completion_tracker_factory.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/ui/webui/chromeos/login/multidevice_setup_screen_handler.h"
-#include "chromeos/services/multidevice_setup/public/cpp/multidevice_setup_client.h"
-#include "chromeos/services/multidevice_setup/public/cpp/oobe_completion_tracker.h"
+#include "chrome/browser/ui/webui/ash/login/multidevice_setup_screen_handler.h"
+#include "chromeos/ash/services/device_sync/public/cpp/device_sync_client.h"
+#include "chromeos/ash/services/multidevice_setup/public/cpp/multidevice_setup_client.h"
+#include "chromeos/ash/services/multidevice_setup/public/cpp/oobe_completion_tracker.h"
+
+// Enable VLOG level 1.
+#undef ENABLED_VLOG_LEVEL
+#define ENABLED_VLOG_LEVEL 1
 
 namespace ash {
+
 namespace {
+
+// Passing "--quick-start-phone-instance-id" on the command line will implement
+// the Unified Setup UI enhancements with the ID provided in the switch. This is
+// for testing only and in the future this ID will be retrieved and saved to the
+// OOBE WizardContext on the QuickStartScreen, not the MultideviceSetupScreen.
+// TODO(b/234655072): Delete this once quick start flow is implemented.
+constexpr char kQuickStartPhoneInstanceIDSwitch[] =
+    "quick-start-phone-instance-id";
 
 constexpr const char kAcceptedSetupUserAction[] = "setup-accepted";
 constexpr const char kDeclinedSetupUserAction[] = "setup-declined";
@@ -34,18 +52,21 @@ std::string MultiDeviceSetupScreen::GetResultString(Result result) {
 }
 
 MultiDeviceSetupScreen::MultiDeviceSetupScreen(
-    MultiDeviceSetupScreenView* view,
+    base::WeakPtr<MultiDeviceSetupScreenView> view,
     const ScreenExitCallback& exit_callback)
     : BaseScreen(MultiDeviceSetupScreenView::kScreenId,
                  OobeScreenPriority::DEFAULT),
-      view_(view),
+      view_(std::move(view)),
       exit_callback_(exit_callback) {
   DCHECK(view_);
-  view_->Bind(this);
 }
 
 MultiDeviceSetupScreen::~MultiDeviceSetupScreen() {
-  view_->Bind(nullptr);
+  if (skipped_ && !skipped_reason_determined_) {
+    RecordOobeMultideviceScreenSkippedReasonHistogram(
+        OobeMultideviceScreenSkippedReason::
+            kDestroyedBeforeReasonCouldBeDetermined);
+  }
 }
 
 void MultiDeviceSetupScreen::TryInitSetupClient() {
@@ -56,34 +77,67 @@ void MultiDeviceSetupScreen::TryInitSetupClient() {
   }
 }
 
-bool MultiDeviceSetupScreen::MaybeSkip(WizardContext* /*context*/) {
+bool MultiDeviceSetupScreen::MaybeSkip(WizardContext& context) {
   // Only attempt the setup flow for non-guest users.
-  if (chrome_user_manager_util::IsPublicSessionOrEphemeralLogin()) {
+  if (context.skip_post_login_screens_for_tests ||
+      chrome_user_manager_util::IsPublicSessionOrEphemeralLogin()) {
     exit_callback_.Run(Result::NOT_APPLICABLE);
+    RecordOobeMultideviceScreenSkippedReasonHistogram(
+        OobeMultideviceScreenSkippedReason::kPublicSessionOrEphemeralLogin);
+    skipped_ = true;
     return true;
   }
 
   TryInitSetupClient();
-  // If there is no eligible multi-device host phone or if there is a phone and
-  // it has already been set, skip the setup flow.
+
+  // Skip if the setup client wasn't successfully initialized.
   if (!setup_client_) {
+    RecordOobeMultideviceScreenSkippedReasonHistogram(
+        OobeMultideviceScreenSkippedReason::kSetupClientNotInitialized);
     exit_callback_.Run(Result::NOT_APPLICABLE);
-    return true;
-  }
-  if (setup_client_->GetHostStatus().first !=
-      chromeos::multidevice_setup::mojom::HostStatus::
-          kEligibleHostExistsButNoHostSet) {
-    VLOG(1) << "Skipping MultiDevice setup screen; host status: "
-            << setup_client_->GetHostStatus().first;
-    exit_callback_.Run(Result::NOT_APPLICABLE);
+    skipped_ = true;
     return true;
   }
 
-  return false;
+  // TODO(b/234655072): Delete this once quick start flow is implemented. This
+  // is for testing only and context.quick_start_phone_instance_id should be set
+  // from the QuickStartScreen.
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  if (command_line->HasSwitch(kQuickStartPhoneInstanceIDSwitch)) {
+    context.quick_start_phone_instance_id =
+        command_line->GetSwitchValueASCII(kQuickStartPhoneInstanceIDSwitch);
+  }
+
+  // Use WizardContext here to check if user already connected phone during
+  // Quick Start. If so, the multidevice setup screen will display UI
+  // enhancements.
+  const std::string& phone_instance_id = context.quick_start_phone_instance_id;
+  if (!phone_instance_id.empty()) {
+    setup_client_->SetQuickStartPhoneInstanceID(phone_instance_id);
+  }
+
+  // Do not skip if potential host exists but none is set yet.
+  if (setup_client_->GetHostStatus().first ==
+      multidevice_setup::mojom::HostStatus::kEligibleHostExistsButNoHostSet) {
+    skipped_ = false;
+    return false;
+  }
+
+  skipped_ = true;
+  VLOG(1) << "Skipping MultiDevice setup screen; host status: "
+          << setup_client_->GetHostStatus().first;
+  exit_callback_.Run(Result::NOT_APPLICABLE);
+
+  // Determine underlying reason why the screen is being skipped.
+  GetBetterTogetherMetadataStatus();
+
+  return true;
 }
 
 void MultiDeviceSetupScreen::ShowImpl() {
-  view_->Show();
+  if (view_) {
+    view_->Show();
+  }
 
   // Record that user was presented with setup flow to prevent spam
   // notifications from suggesting setup in the future.
@@ -94,11 +148,11 @@ void MultiDeviceSetupScreen::ShowImpl() {
   oobe_completion_tracker->MarkOobeShown();
 }
 
-void MultiDeviceSetupScreen::HideImpl() {
-  view_->Hide();
-}
+void MultiDeviceSetupScreen::HideImpl() {}
 
-void MultiDeviceSetupScreen::OnUserAction(const std::string& action_id) {
+void MultiDeviceSetupScreen::OnUserAction(const base::Value::List& args) {
+  const std::string& action_id = args[0].GetString();
+
   if (action_id == kAcceptedSetupUserAction) {
     RecordMultiDeviceSetupOOBEUserChoiceHistogram(
         MultiDeviceSetupOOBEUserChoice::kAccepted);
@@ -108,9 +162,132 @@ void MultiDeviceSetupScreen::OnUserAction(const std::string& action_id) {
         MultiDeviceSetupOOBEUserChoice::kDeclined);
     exit_callback_.Run(Result::NEXT);
   } else {
-    BaseScreen::OnUserAction(action_id);
+    BaseScreen::OnUserAction(args);
     NOTREACHED();
   }
+}
+
+void MultiDeviceSetupScreen::GetBetterTogetherMetadataStatus() {
+  if (!device_sync_client_) {
+    device_sync_client_ = device_sync::DeviceSyncClientFactory::GetForProfile(
+        ProfileManager::GetActiveUserProfile());
+  }
+
+  device_sync_client_->GetBetterTogetherMetadataStatus(
+      base::BindOnce(&MultiDeviceSetupScreen::OnGetBetterTogetherMetadataStatus,
+                     weak_factory_.GetWeakPtr()));
+}
+
+void MultiDeviceSetupScreen::OnGetBetterTogetherMetadataStatus(
+    device_sync::BetterTogetherMetadataStatus status) {
+  switch (status) {
+    case device_sync::BetterTogetherMetadataStatus::kMetadataDecrypted:
+      // If the better together metadata status is in its expected final state,
+      // then we know that device sync successfully finished. Investigate the
+      // host status for more granular information.
+      setup_client_->GetHostStatus().first ==
+              multidevice_setup::mojom::HostStatus::kNoEligibleHosts
+          ? RecordOobeMultideviceScreenSkippedReasonHistogram(
+                OobeMultideviceScreenSkippedReason::
+                    kDeviceSyncFinishedAndNoEligibleHostPhone)
+          : RecordOobeMultideviceScreenSkippedReasonHistogram(
+                OobeMultideviceScreenSkippedReason::kHostPhoneAlreadySet);
+      return;
+    case device_sync::BetterTogetherMetadataStatus::
+        kWaitingToProcessDeviceMetadata:
+      [[fallthrough]];
+    case device_sync::BetterTogetherMetadataStatus::kGroupPrivateKeyMissing:
+      // If the better together metadata status is
+      // kWaitingToProcessDeviceMetadata or kGroupPrivateKeyMissing, we must
+      // inspect the group private key status to get a more granular
+      // understanding.
+      GetGroupPrivateKeyStatus();
+      return;
+    case device_sync::BetterTogetherMetadataStatus::
+        kStatusUnavailableBecauseDeviceSyncIsNotInitialized:
+      RecordOobeMultideviceScreenSkippedReasonHistogram(
+          OobeMultideviceScreenSkippedReason::
+              kDeviceSyncNotInitializedDuringBetterTogetherMetadataStatusFetch);
+      return;
+    case device_sync::BetterTogetherMetadataStatus::
+        kStatusUnavailableBecauseNoDeviceSyncerSet:
+      RecordOobeMultideviceScreenSkippedReasonHistogram(
+          OobeMultideviceScreenSkippedReason::
+              kNoDeviceSyncerSetDuringBetterTogetherMetadataStatusFetch);
+      return;
+    case device_sync::BetterTogetherMetadataStatus::kEncryptedMetadataEmpty:
+      RecordOobeMultideviceScreenSkippedReasonHistogram(
+          OobeMultideviceScreenSkippedReason::kEncryptedMetadataEmpty);
+      return;
+  }
+}
+
+void MultiDeviceSetupScreen::GetGroupPrivateKeyStatus() {
+  if (!device_sync_client_) {
+    device_sync_client_ = device_sync::DeviceSyncClientFactory::GetForProfile(
+        ProfileManager::GetActiveUserProfile());
+  }
+
+  device_sync_client_->GetGroupPrivateKeyStatus(
+      base::BindOnce(&MultiDeviceSetupScreen::OnGetGroupPrivateKeyStatus,
+                     weak_factory_.GetWeakPtr()));
+}
+
+void MultiDeviceSetupScreen::OnGetGroupPrivateKeyStatus(
+    device_sync::GroupPrivateKeyStatus status) {
+  switch (status) {
+    case device_sync::GroupPrivateKeyStatus::kWaitingForGroupPrivateKey:
+      RecordOobeMultideviceScreenSkippedReasonHistogram(
+          OobeMultideviceScreenSkippedReason::kWaitingForGroupPrivateKey);
+      return;
+    case device_sync::GroupPrivateKeyStatus::
+        kNoEncryptedGroupPrivateKeyReceived:
+      RecordOobeMultideviceScreenSkippedReasonHistogram(
+          OobeMultideviceScreenSkippedReason::
+              kNoEncryptedGroupPrivateKeyReceived);
+      return;
+    case device_sync::GroupPrivateKeyStatus::kEncryptedGroupPrivateKeyEmpty:
+      RecordOobeMultideviceScreenSkippedReasonHistogram(
+          OobeMultideviceScreenSkippedReason::kEncryptedGroupPrivateKeyEmpty);
+      return;
+    case device_sync::GroupPrivateKeyStatus::
+        kLocalDeviceSyncBetterTogetherKeyMissing:
+      RecordOobeMultideviceScreenSkippedReasonHistogram(
+          OobeMultideviceScreenSkippedReason::
+              kLocalDeviceSyncBetterTogetherKeyMissing);
+      return;
+    case device_sync::GroupPrivateKeyStatus::kGroupPrivateKeyDecryptionFailed:
+      RecordOobeMultideviceScreenSkippedReasonHistogram(
+          OobeMultideviceScreenSkippedReason::kGroupPrivateKeyDecryptionFailed);
+      return;
+    case device_sync::GroupPrivateKeyStatus::
+        kStatusUnavailableBecauseDeviceSyncIsNotInitialized:
+      RecordOobeMultideviceScreenSkippedReasonHistogram(
+          OobeMultideviceScreenSkippedReason::
+              kDeviceSyncNotInitializedDuringGroupPrivateKeyStatusFetch);
+      return;
+    case device_sync::GroupPrivateKeyStatus::
+        kStatusUnavailableBecauseNoDeviceSyncerSet:
+      RecordOobeMultideviceScreenSkippedReasonHistogram(
+          OobeMultideviceScreenSkippedReason::
+              kNoDeviceSyncerSetDuringGroupPrivateKeyStatusFetch);
+      return;
+    case device_sync::GroupPrivateKeyStatus::
+        kGroupPrivateKeySuccessfullyDecrypted:
+      // This is the expected finished status of the GroupPrivateKey. If this
+      // point is reached, there's no known reason why the setup client wouldn't
+      // be initialized.
+      RecordOobeMultideviceScreenSkippedReasonHistogram(
+          OobeMultideviceScreenSkippedReason::kUnknown);
+      return;
+  }
+}
+
+void MultiDeviceSetupScreen::RecordOobeMultideviceScreenSkippedReasonHistogram(
+    OobeMultideviceScreenSkippedReason reason) {
+  skipped_reason_determined_ = true;
+  UMA_HISTOGRAM_ENUMERATION(
+      "OOBE.StepShownStatus.Multidevice-setup-screen.Skipped", reason);
 }
 
 void MultiDeviceSetupScreen::RecordMultiDeviceSetupOOBEUserChoiceHistogram(

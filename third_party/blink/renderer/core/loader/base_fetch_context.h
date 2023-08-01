@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,7 +22,8 @@
 
 namespace blink {
 
-class ConsoleMessage;
+class ClientHintsPreferences;
+class DetachableConsoleLogger;
 class DOMWrapperWorld;
 class DetachableResourceFetcherProperties;
 class KURL;
@@ -34,7 +35,7 @@ class WebSocketHandshakeThrottle;
 // frame
 struct ClientHintImageInfo {
   float dpr;
-  FetchParameters::ResourceWidth resource_width;
+  absl::optional<float> resource_width;
   absl::optional<int> viewport_width;
   absl::optional<int> viewport_height;
 };
@@ -74,6 +75,10 @@ class CORE_EXPORT BaseFetchContext : public FetchContext {
     return *fetcher_properties_;
   }
 
+  DetachableConsoleLogger& GetDetachableConsoleLogger() const {
+    return *console_logger_;
+  }
+
   virtual void CountUsage(mojom::WebFeature) const = 0;
   virtual void CountDeprecation(mojom::WebFeature) const = 0;
   virtual net::SiteForCookies GetSiteForCookies() const = 0;
@@ -95,15 +100,6 @@ class CORE_EXPORT BaseFetchContext : public FetchContext {
       ResourceType type,
       const FetchInitiatorInfo& initiator_info) override;
 
-  // Returns whether a request to |url| is a conversion registration request.
-  // Conversion registration requests are redirects to a well-known conversion
-  // registration endpoint.
-  virtual bool SendConversionRequestInsteadOfRedirecting(
-      const KURL& url,
-      const absl::optional<ResourceRequest::RedirectInfo>& redirect_info,
-      ReportingDisposition reporting_disposition,
-      const String& devtools_request_id) const;
-
   void AddClientHintsIfNecessary(
       const ClientHintsPreferences& hints_preferences,
       const url::Origin& resource_origin,
@@ -112,12 +108,13 @@ class CORE_EXPORT BaseFetchContext : public FetchContext {
       const PermissionsPolicy* policy,
       const absl::optional<ClientHintImageInfo>& image_info,
       const absl::optional<WTF::AtomicString>& prefers_color_scheme,
+      const absl::optional<WTF::AtomicString>& prefers_reduced_motion,
       ResourceRequest& request);
 
  protected:
-  explicit BaseFetchContext(
-      const DetachableResourceFetcherProperties& properties)
-      : fetcher_properties_(properties) {}
+  BaseFetchContext(const DetachableResourceFetcherProperties& properties,
+                   DetachableConsoleLogger* logger)
+      : fetcher_properties_(properties), console_logger_(logger) {}
 
   // Used for security checks.
   virtual bool AllowScriptFromSource(const KURL&) const = 0;
@@ -136,6 +133,7 @@ class CORE_EXPORT BaseFetchContext : public FetchContext {
   virtual bool IsSVGImageChromeClient() const = 0;
   virtual bool ShouldBlockFetchByMixedContentCheck(
       mojom::blink::RequestContextType request_context,
+      network::mojom::blink::IPAddressSpace target_address_space,
       const absl::optional<ResourceRequest::RedirectInfo>& redirect_info,
       const KURL& url,
       ReportingDisposition reporting_disposition,
@@ -145,16 +143,12 @@ class CORE_EXPORT BaseFetchContext : public FetchContext {
   virtual const KURL& Url() const = 0;
   virtual ContentSecurityPolicy* GetContentSecurityPolicy() const = 0;
 
-  // TODO(yhirano): Remove this.
-  virtual void AddConsoleMessage(ConsoleMessage*) const = 0;
-
-  void AddBackForwardCacheExperimentHTTPHeaderIfNeeded(
-      ResourceRequest& request);
-
   virtual ExecutionContext* GetExecutionContext() const = 0;
 
  private:
   const Member<const DetachableResourceFetcherProperties> fetcher_properties_;
+
+  const Member<DetachableConsoleLogger> console_logger_;
 
   void PrintAccessDeniedMessage(const KURL&) const;
 
@@ -178,9 +172,7 @@ class CORE_EXPORT BaseFetchContext : public FetchContext {
       ResourceRequest::RedirectStatus redirect_status,
       ContentSecurityPolicy::CheckHeaderType) const;
 
-  enum class ClientHintsMode { kLegacy, kStandard };
-  bool ShouldSendClientHint(ClientHintsMode mode,
-                            const PermissionsPolicy*,
+  bool ShouldSendClientHint(const PermissionsPolicy*,
                             const url::Origin&,
                             bool is_1p_origin,
                             network::mojom::blink::WebClientHintsType,

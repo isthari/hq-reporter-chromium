@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -97,13 +97,16 @@ class FileLockImpl : public mojom::FileLock {
 
 }  // namespace
 
-FilesystemImpl::FilesystemImpl(const base::FilePath& root) : root_(root) {}
+FilesystemImpl::FilesystemImpl(const base::FilePath& root,
+                               ClientType client_type)
+    : root_(root), client_type_(client_type) {}
 
 FilesystemImpl::~FilesystemImpl() = default;
 
 void FilesystemImpl::Clone(mojo::PendingReceiver<mojom::Directory> receiver) {
-  mojo::MakeSelfOwnedReceiver(std::make_unique<FilesystemImpl>(root_),
-                              std::move(receiver));
+  mojo::MakeSelfOwnedReceiver(
+      std::make_unique<FilesystemImpl>(root_, client_type_),
+      std::move(receiver));
 }
 
 void FilesystemImpl::PathExists(const base::FilePath& path,
@@ -117,19 +120,18 @@ void FilesystemImpl::GetEntries(const base::FilePath& path,
   const base::FilePath full_path = MakeAbsolute(path);
   base::FileErrorOr<std::vector<base::FilePath>> result =
       GetDirectoryEntries(full_path, mode);
-  if (result.is_error()) {
-    std::move(callback).Run(result.error(), std::vector<base::FilePath>());
+  if (!result.has_value()) {
+    std::move(callback).Run(result.error(), {});
     return;
   }
 
   // Fix up the absolute paths to be relative to |path|.
   std::vector<base::FilePath> entries;
-  std::vector<base::FilePath::StringType> root_components;
-  full_path.GetComponents(&root_components);
+  std::vector<base::FilePath::StringType> root_components =
+      full_path.GetComponents();
   const size_t num_components_to_strip = root_components.size();
   for (const auto& entry : result.value()) {
-    std::vector<base::FilePath::StringType> components;
-    entry.GetComponents(&components);
+    std::vector<base::FilePath::StringType> components = entry.GetComponents();
     base::FilePath relative_path;
     for (size_t i = num_components_to_strip; i < components.size(); ++i)
       relative_path = relative_path.Append(components[i]);
@@ -188,6 +190,11 @@ void FilesystemImpl::OpenFile(const base::FilePath& path,
     default:
       NOTREACHED();
       break;
+  }
+
+  if (client_type_ == ClientType::kUntrusted) {
+    // This file may be passed to an untrusted process.
+    flags = base::File::AddFlagsForPassingToUntrustedProcess(flags);
   }
 
   const base::FilePath full_path = MakeAbsolute(path);
@@ -256,7 +263,7 @@ void FilesystemImpl::RenameFile(const base::FilePath& old_path,
 void FilesystemImpl::LockFile(const base::FilePath& path,
                               LockFileCallback callback) {
   base::FileErrorOr<base::File> result = LockFileLocal(MakeAbsolute(path));
-  if (result.is_error()) {
+  if (!result.has_value()) {
     std::move(callback).Run(result.error(), mojo::NullRemote());
     return;
   }
@@ -283,15 +290,15 @@ base::FileErrorOr<base::File> FilesystemImpl::LockFileLocal(
   base::File file(path, base::File::FLAG_OPEN_ALWAYS | base::File::FLAG_READ |
                             base::File::FLAG_WRITE);
   if (!file.IsValid())
-    return file.error_details();
+    return base::unexpected(file.error_details());
 
   if (!GetLockTable().AddLock(path))
-    return base::File::FILE_ERROR_IN_USE;
+    return base::unexpected(base::File::FILE_ERROR_IN_USE);
 
 #if !BUILDFLAG(IS_FUCHSIA)
   base::File::Error error = file.Lock(base::File::LockMode::kExclusive);
   if (error != base::File::FILE_OK)
-    return error;
+    return base::unexpected(error);
 #endif
 
   return file;
@@ -344,7 +351,7 @@ FilesystemImpl::GetDirectoryEntries(const base::FilePath& path,
     entries.push_back(entry);
   }
   if (enumerator.GetError() != base::File::FILE_OK)
-    return enumerator.GetError();
+    return base::unexpected(enumerator.GetError());
   return entries;
 }
 

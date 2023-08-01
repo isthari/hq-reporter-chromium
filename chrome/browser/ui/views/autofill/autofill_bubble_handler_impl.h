@@ -1,4 +1,4 @@
-// Copyright (c) 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,7 +23,9 @@ namespace autofill {
 class AutofillBubbleBase;
 class LocalCardMigrationBubbleController;
 class SaveCardBubbleController;
+class IbanBubbleController;
 class SaveUPIBubble;
+enum class IbanBubbleType;
 
 class AutofillBubbleHandlerImpl : public AutofillBubbleHandler,
                                   public PersonalDataManagerObserver,
@@ -43,6 +45,11 @@ class AutofillBubbleHandlerImpl : public AutofillBubbleHandler,
       content::WebContents* web_contents,
       SaveCardBubbleController* controller,
       bool is_user_gesture) override;
+  AutofillBubbleBase* ShowIbanBubble(content::WebContents* web_contents,
+                                     IbanBubbleController* controller,
+                                     bool is_user_gesture,
+                                     IbanBubbleType bubble_type) override;
+
   AutofillBubbleBase* ShowLocalCardMigrationBubble(
       content::WebContents* web_contents,
       LocalCardMigrationBubbleController* controller,
@@ -73,6 +80,11 @@ class AutofillBubbleHandlerImpl : public AutofillBubbleHandler,
       content::WebContents* web_contents,
       VirtualCardEnrollBubbleController* controller,
       bool is_user_gesture) override;
+  AutofillBubbleBase* ShowMandatoryReauthBubble(
+      content::WebContents* web_contents,
+      MandatoryReauthBubbleController* controller,
+      bool is_user_gesture,
+      MandatoryReauthBubbleType bubble_type) override;
 
   void OnPasswordSaved() override;
 
@@ -86,9 +98,10 @@ class AutofillBubbleHandlerImpl : public AutofillBubbleHandler,
   // Executes highlight animation on toolbar's avatar icon.
   void ShowAvatarHighlightAnimation();
 
-  raw_ptr<Browser> browser_ = nullptr;
+  raw_ptr<Browser, DanglingUntriaged> browser_ = nullptr;
 
-  raw_ptr<ToolbarButtonProvider> toolbar_button_provider_ = nullptr;
+  raw_ptr<ToolbarButtonProvider, DanglingUntriaged> toolbar_button_provider_ =
+      nullptr;
 
   // Whether a save local card sign in promo bubble could pop up from the avatar
   // button after the highlight animation finishes.

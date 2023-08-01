@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,9 @@ import {View} from './view.js';
 interface UIArgs {
   text?: I18nString;
   label?: I18nString;
+  icon?: string;
   templateId?: string;
+  primary?: boolean;
 }
 
 /**
@@ -25,22 +27,28 @@ interface UIArgs {
  */
 export class Option<T> {
   readonly exitValue?: T;
+
   readonly hasPopup: boolean|null;
+
   readonly callback: (() => void)|null;
+
   /**
-   * @param UIArgs Arguments to create corresponding UI.
-   * @param handlerParams Sets |exitValue| if the review page will exit with
-   *     this value when option selected. Sets |callback| for the function get
-   *     executed when option selected.
+   * @param uiArgs Arguments to create corresponding UI.
+   * @param params Handler parameters.
+   * @param params.exitValue If set, the review page will exit with this value
+   *     when option selected.
+   * @param params.callback If set, the function get executed when option
+   *     selected.
+   * @param params.hasPopup Sets aria-haspopup for the option.
    */
   constructor(readonly uiArgs: UIArgs, {exitValue, callback, hasPopup}: {
-    exitValue?: T;
-    callback?: (() => void);
-    hasPopup?: boolean;
+    exitValue?: T,
+    callback?: (() => void),
+    hasPopup?: boolean,
   }) {
     this.exitValue = exitValue;
     this.hasPopup = hasPopup ?? null;
-    this.callback = callback || null;
+    this.callback = callback ?? null;
   }
 }
 
@@ -48,41 +56,45 @@ export class Option<T> {
  * Templates to create container of options button group.
  */
 export enum ButtonGroupTemplate {
-  positive = 'review-positive-button-group-template',
-  negative = 'review-negative-button-group-template',
-  intent = 'review-intent-button-group-template',
+  INTENT = 'review-intent-button-group-template',
+  NEGATIVE = 'review-negative-button-group-template',
+  POSITIVE = 'review-positive-button-group-template',
 }
 
 /**
  * Group of review options.
  */
 export class OptionGroup<T> {
-  readonly options: Option<T>[];
+  readonly options: Array<Option<T>>;
+
   readonly template: ButtonGroupTemplate;
 
-  /** Constructs Options. */
   constructor({options, template}:
-                  {options: Array<Option<T>>; template: ButtonGroupTemplate;}) {
+                  {options: Array<Option<T>>, template: ButtonGroupTemplate}) {
     this.options = options;
     this.template = template;
   }
 }
 
+type ButtonGroups<T> = Array<{optionGroup: OptionGroup<T>, el: HTMLDivElement}>;
+
 /**
  * View controller for review page.
  */
-export class Review<T> extends View {
+export class Review extends View {
   protected readonly image: HTMLElement;
+
   protected readonly video: HTMLVideoElement;
-  private btnGroups: Array<{optionGroup: OptionGroup<T>, el: HTMLDivElement}> =
-      [];
+
+  private btnGroups: ButtonGroups<unknown> = [];
+
   private primaryBtn: HTMLButtonElement|null;
 
   /**
    * Constructs the review view.
    */
   constructor(private readonly viewName: ViewName = ViewName.REVIEW) {
-    super(viewName, {defaultFocusSelector: '.primary'});
+    super(viewName, {defaultFocusSelector: '.primary', dismissByEsc: true});
 
     this.image = dom.getFrom(this.root, '.review-image', HTMLElement);
     this.video = dom.getFrom(this.root, '.review-video', HTMLVideoElement);
@@ -97,8 +109,10 @@ export class Review<T> extends View {
     try {
       await new Promise<void>((resolve, reject) => {
         image.onload = () => resolve();
-        image.onerror = (e) =>
-            reject(new Error(`Failed to load review document image: ${e}`));
+        image.addEventListener('error', (e) => {
+          const msg = `Failed to load review document image: ${e.message}`;
+          reject(new Error(msg));
+        }, {once: true});
         image.src = URL.createObjectURL(blob);
       });
     } catch (e) {
@@ -131,62 +145,74 @@ export class Review<T> extends View {
   /**
    * Starts review.
    */
-  async startReview(...optionGroups: Array<OptionGroup<T>>): Promise<T|null> {
+  async startReview<T>(...optionGroups: Array<OptionGroup<T>>):
+      Promise<T|null> {
     // Remove all existing button groups and buttons.
     for (const group of this.btnGroups) {
       group.el.remove();
     }
-    this.btnGroups = [];
+    const btnGroups: ButtonGroups<T> = [];
+    this.btnGroups = btnGroups;
 
     // Create new button groups and buttons.
     this.primaryBtn = null;
     const onSelected = new WaitableEvent<T|null>();
     for (const group of optionGroups) {
       const templ = instantiateTemplate(`#${group.template}`);
-      this.btnGroups.push(
+      btnGroups.push(
           {optionGroup: group, el: dom.getFrom(templ, 'div', HTMLDivElement)});
       this.root.appendChild(templ);
     }
-    for (const btnGroup of this.btnGroups) {
-      const addButton =
-          ({uiArgs: {text, label, templateId}, exitValue, callback, hasPopup}:
-               Option<T|null>) => {
-            const templ = instantiateTemplate(
-                templateId !== undefined ? `#${templateId}` :
-                                           '#text-button-template');
-            const btn = dom.getFrom(templ, 'button', HTMLButtonElement);
-            if (text !== undefined) {
-              btn.setAttribute('i18n-text', text);
-            }
-            if (label !== undefined) {
-              btn.setAttribute('i18n-label', label);
-            }
-            if (this.primaryBtn === null) {
-              btn.classList.add('primary');
-              this.primaryBtn = btn;
-            } else {
-              btn.classList.add('secondary');
-            }
-            if (hasPopup !== null) {
-              btn.setAttribute('aria-haspopup', hasPopup.toString());
-            }
-            btn.onclick = () => {
-              if (callback !== null) {
-                callback();
-              }
-              if (exitValue !== undefined) {
-                onSelected.signal(exitValue);
-              }
-            };
-            btnGroup.el.appendChild(templ);
-          };
+    for (const btnGroup of btnGroups) {
+      const addButton = ({
+        uiArgs: {text, label, icon, templateId, primary},
+        exitValue,
+        callback,
+        hasPopup,
+      }: Option<T|null>) => {
+        const templ = instantiateTemplate(
+            templateId !== undefined ? `#${templateId}` :
+                                       '#text-button-template');
+        const btn = dom.getFrom(templ, 'button', HTMLButtonElement);
+        if (text !== undefined) {
+          btn.setAttribute('i18n-text', text);
+        }
+        if (label !== undefined) {
+          btn.setAttribute('i18n-label', label);
+        }
+        if (icon !== undefined) {
+          const iconEl = document.createElement('svg-wrapper');
+          iconEl.name = icon;
+          btn.prepend(iconEl);
+        }
+        if (this.primaryBtn === null && primary === true) {
+          btn.classList.add('primary');
+          this.primaryBtn = btn;
+        } else {
+          btn.classList.add('secondary');
+        }
+        if (hasPopup !== null) {
+          btn.setAttribute('aria-haspopup', hasPopup.toString());
+        }
+        btn.onclick = () => {
+          if (callback !== null) {
+            callback();
+          }
+          if (exitValue !== undefined) {
+            onSelected.signal(exitValue);
+          }
+        };
+        btnGroup.el.appendChild(templ);
+      };
       for (const opt of btnGroup.optionGroup.options) {
         addButton(opt);
       }
       setupI18nElements(btnGroup.el);
     }
-
-    nav.open(this.viewName);
+    // The promise are indirectly awaited by waiting on onSelected.
+    void nav.open(this.viewName).closed.then(() => {
+      onSelected.signal(null);
+    });
     const result = await onSelected.wait();
     nav.close(this.viewName);
     return result;

@@ -91,8 +91,9 @@ class CORE_EXPORT FillLayer {
   const FillLayer* Next() const { return next_; }
   FillLayer* Next() { return next_; }
   FillLayer* EnsureNext() {
-    if (!next_)
+    if (!next_) {
       next_ = new FillLayer(GetType());
+    }
     return next_;
   }
 
@@ -206,8 +207,6 @@ class CORE_EXPORT FillLayer {
 
   bool VisuallyEqual(const FillLayer&) const;
 
-  bool ImagesAreLoaded() const;
-
   bool ImageOccludesNextLayers(const Document&, const ComputedStyle&) const;
   bool HasRepeatXY() const;
   bool ClipOccludesNextLayers() const;
@@ -302,8 +301,9 @@ class CORE_EXPORT FillLayer {
   bool LayerPropertiesEqual(const FillLayer&) const;
 
   void ComputeCachedPropertiesIfNeeded() const {
-    if (!cached_properties_computed_)
+    if (!cached_properties_computed_) {
       ComputeCachedProperties();
+    }
   }
   void ComputeCachedProperties() const;
 

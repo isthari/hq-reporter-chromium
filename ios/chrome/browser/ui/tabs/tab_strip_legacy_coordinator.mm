@@ -1,10 +1,11 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/tabs/tab_strip_legacy_coordinator.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#import "ios/chrome/browser/main/browser.h"
+
+#import "ios/chrome/browser/shared/model/browser/browser.h"
+#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
 #import "ios/chrome/browser/ui/tabs/requirements/tab_strip_presentation.h"
 #import "ios/chrome/browser/ui/tabs/tab_strip_controller.h"
 
@@ -20,15 +21,15 @@
 @end
 
 @implementation TabStripLegacyCoordinator
-@synthesize longPressDelegate = _longPressDelegate;
 @synthesize presentationProvider = _presentationProvider;
 @synthesize started = _started;
 @synthesize tabStripController = _tabStripController;
 @synthesize animationWaitDuration = _animationWaitDuration;
+@synthesize baseViewController = _baseViewController;
 
-- (void)setLongPressDelegate:(id<PopupMenuLongPressDelegate>)longPressDelegate {
-  _longPressDelegate = longPressDelegate;
-  self.tabStripController.longPressDelegate = longPressDelegate;
+- (instancetype)initWithBrowser:(Browser*)browser {
+  DCHECK(browser);
+  return [super initWithBaseViewController:nil browser:browser];
 }
 
 - (UIView<TabStripContaining>*)view {
@@ -64,6 +65,10 @@
   self.tabStripController.panGestureHandler = panGestureHandler;
 }
 
+- (id<ViewRevealingAnimatee>)animatee {
+  return self.tabStripController.animatee;
+}
+
 #pragma mark - ChromeCoordinator
 
 - (void)start {
@@ -71,11 +76,12 @@
   DCHECK(self.presentationProvider);
   TabStripStyle style =
       self.browser->GetBrowserState()->IsOffTheRecord() ? INCOGNITO : NORMAL;
-  self.tabStripController =
-      [[TabStripController alloc] initWithBrowser:self.browser style:style];
+  self.tabStripController = [[TabStripController alloc]
+      initWithBaseViewController:self.baseViewController
+                         browser:self.browser
+                           style:style];
   self.tabStripController.presentationProvider = self.presentationProvider;
   self.tabStripController.animationWaitDuration = self.animationWaitDuration;
-  self.tabStripController.longPressDelegate = self.longPressDelegate;
   [self.presentationProvider showTabStripView:[self.tabStripController view]];
   self.started = YES;
 }

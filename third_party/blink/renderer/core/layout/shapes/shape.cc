@@ -113,8 +113,8 @@ std::unique_ptr<Shape> Shape::CreateShape(const BasicShape* basic_shape,
       gfx::PointF center =
           PointForCenterCoordinate(circle->CenterX(), circle->CenterY(),
                                    gfx::SizeF(box_width, box_height));
-      float radius =
-          circle->FloatValueForRadiusInBox(gfx::SizeF(box_width, box_height));
+      float radius = circle->FloatValueForRadiusInBox(
+          center, gfx::SizeF(box_width, box_height));
       gfx::PointF logical_center = PhysicalPointToLogical(
           center, logical_box_size.Height().ToFloat(), writing_mode);
 
@@ -238,7 +238,7 @@ static bool ExtractImageData(Image* image,
 
   // Set |surface| to draw directly to |contents|.
   const SkSurfaceProps disable_lcd_props(0, kUnknown_SkPixelGeometry);
-  sk_sp<SkSurface> surface = SkSurface::MakeRasterDirect(
+  sk_sp<SkSurface> surface = SkSurfaces::WrapPixels(
       dst_info, contents.Data(), dst_info.minRowBytes(), &disable_lcd_props);
   if (!surface)
     return false;
@@ -251,7 +251,7 @@ static bool ExtractImageData(Image* image,
   gfx::RectF image_source_rect(gfx::SizeF(image->Size()));
   gfx::Rect image_dest_rect(image_size);
   SkiaPaintCanvas canvas(surface->getCanvas());
-  canvas.clear(SK_ColorTRANSPARENT);
+  canvas.clear(SkColors::kTransparent);
   ImageDrawOptions draw_options;
   draw_options.respect_orientation = respect_orientation;
   draw_options.clamping_mode = Image::kDoNotClampImageToSourceRect;

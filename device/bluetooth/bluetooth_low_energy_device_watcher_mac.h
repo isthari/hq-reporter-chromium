@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,13 +9,12 @@
 #include <memory>
 #include <string>
 
-#include "base/callback.h"
 #include "base/files/file_path.h"
 #include "base/files/file_path_watcher.h"
+#include "base/functional/callback.h"
 #include "base/memory/ref_counted.h"
 #include "base/sequence_checker.h"
 #include "base/task/cancelable_task_tracker.h"
-#include "base/task/post_task.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "device/bluetooth/bluetooth_export.h"
@@ -72,7 +71,7 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothLowEnergyDeviceWatcherMac
   }
 
  private:
-  friend class BluetoothAdapterMac;
+  friend class BluetoothLowEnergyAdapterApple;
   friend class base::RefCountedThreadSafe<BluetoothLowEnergyDeviceWatcherMac>;
 
   void AddBluetoothPropertyListFileWatcher();

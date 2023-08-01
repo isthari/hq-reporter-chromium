@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,14 +27,27 @@ TermMatches FindTermMatches(std::u16string find_text,
                             bool allow_prefix_matching = true,
                             bool allow_mid_word_matching = false);
 
+// A utility function called by `FindTermMatches` to find valid matches in text
+// for the given terms. Matched terms are sorted, deduped, and possibly
+// filtered-by-word-boundary. If `allow_mid_word_matching` is false, the
+// returned terms will be filtered-by-word-boundary. E.g., for `find_text` "ho
+// to ie", `text` "how to tie a tie", and `allow_mid_word_matching` false, this
+// will return "[ho]w [to] tie a tie". On the other hand, for
+// |allow_mid_word_matching| true, this will return "[ho]w [to] t[ie] a t[ie]."
+TermMatches FindTermMatchesForTerms(const String16Vector& find_terms,
+                                    const WordStarts& find_terms_word_starts,
+                                    const std::u16string& cleaned_text,
+                                    const WordStarts& text_word_starts,
+                                    bool allow_mid_word_matching = false);
+
 // Return an ACMatchClassifications structure given the |matches| to highlight.
 // |matches| can be retrieved from calling FindTermMatches. |text_length| should
 // be the full length (not the length of the truncated text clean returns) of
-// the text being classified. It is used to ensure the the trailing
-// classification is correct; i.e. if matches end at 20, and text_length is
-// greater than 20, ClassifyTermMatches will add a non_match_style
-// classification with offset 20. |match_style| and |non_match_style| specify
-// the classifications to use for matched and non-matched text.
+// the text being classified. It is used to ensure the trailing classification
+// is correct; i.e. if matches end at 20, and text_length is greater than 20,
+// ClassifyTermMatches will add a non_match_style classification with offset 20.
+// |match_style| and |non_match_style| specify the classifications to use for
+// matched and non-matched text.
 ACMatchClassifications ClassifyTermMatches(TermMatches matches,
                                            size_t text_length,
                                            int match_style,

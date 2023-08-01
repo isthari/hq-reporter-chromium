@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,13 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "chrome/services/sharing/nearby/platform/atomic_boolean.h"
 
-namespace location {
 namespace nearby {
 namespace chrome {
 
@@ -107,11 +107,11 @@ std::shared_ptr<api::Cancelable> ScheduledExecutor::Schedule(
   timer_task_runner_->PostTask(
       FROM_HERE,
       base::BindOnce(&ScheduledExecutor::StartTimerWithId,
-                     base::Unretained(this), id,
+                     timer_task_runner_weak_factory_.GetWeakPtr(), id,
                      base::Microseconds(absl::ToInt64Microseconds(duration))));
 
-  return std::make_shared<CancelableTask>(
-      base::BindOnce(&TryCancelTask, weak_factory_.GetWeakPtr(), id));
+  return std::make_shared<CancelableTask>(base::BindOnce(
+      &TryCancelTask, cancelable_task_weak_factory_.GetWeakPtr(), id));
 }
 
 void ScheduledExecutor::StartTimerWithId(const base::UnguessableToken& id,
@@ -125,9 +125,10 @@ void ScheduledExecutor::StartTimerWithId(const base::UnguessableToken& id,
     return;
 
   it->second->timer.SetTaskRunner(timer_task_runner_);
-  it->second->timer.Start(FROM_HERE, delay,
-                          base::BindOnce(&ScheduledExecutor::RunTaskWithId,
-                                         base::Unretained(this), id));
+  it->second->timer.Start(
+      FROM_HERE, delay,
+      base::BindOnce(&ScheduledExecutor::RunTaskWithId,
+                     timer_task_runner_weak_factory_.GetWeakPtr(), id));
 }
 
 void ScheduledExecutor::StopTimerWithIdAndDeleteTaskEntry(
@@ -177,10 +178,9 @@ bool ScheduledExecutor::OnTaskCancelled(const base::UnguessableToken& id) {
   timer_task_runner_->PostTask(
       FROM_HERE,
       base::BindOnce(&ScheduledExecutor::StopTimerWithIdAndDeleteTaskEntry,
-                     base::Unretained(this), id));
+                     timer_task_runner_weak_factory_.GetWeakPtr(), id));
   return true;
 }
 
 }  // namespace chrome
 }  // namespace nearby
-}  // namespace location

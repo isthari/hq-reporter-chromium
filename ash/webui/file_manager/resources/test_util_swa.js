@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -44,35 +44,32 @@ test.util.registerRemoteTestUtils = () => {
  */
 test.swaTestMessageListener = (request) => {
   request.contentWindow = window.contentWindow || window;
-  test.util.executeTestMessage(request, (response) => {
-    response = response === undefined ? '@undefined@' : response;
-    window.domAutomationController.send(JSON.stringify(response));
+  return new Promise(resolve => {
+    test.util.executeTestMessage(request, (response) => {
+      response = response === undefined ? '@undefined@' : response;
+      resolve(JSON.stringify(response));
+    });
   });
 };
 
 let testUtilsLoaded = false;
 
-test.swaLoadTestUtils = async (sendResults=true) => {
+test.swaLoadTestUtils = async () => {
   const scriptUrl = './runtime_loaded_test_util_swa.js';
-  let result = false;
   try {
     console.log('Loading ' + scriptUrl);
     await new ScriptLoader(scriptUrl, {type: 'module'}).load();
     testUtilsLoaded = true;
-    result = true;
-  } finally {
-    if (sendResults) {
-      window.domAutomationController.send(result);
-    }
+    return true;
+  } catch {
+    return false;
   }
-
-  return result;
 };
 
 test.getSwaAppId = async () => {
   if (!testUtilsLoaded) {
-    await test.swaLoadTestUtils(false);
+    await test.swaLoadTestUtils();
   }
 
-  window.domAutomationController.send(String(window.appID));
+  return String(window.appID);
 };

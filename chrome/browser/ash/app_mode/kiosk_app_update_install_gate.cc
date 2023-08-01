@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,7 @@ KioskAppUpdateInstallGate::KioskAppUpdateInstallGate(Profile* profile)
     : profile_(profile),
       registry_(extensions::ExtensionRegistry::Get(profile)) {}
 
-KioskAppUpdateInstallGate::~KioskAppUpdateInstallGate() {}
+KioskAppUpdateInstallGate::~KioskAppUpdateInstallGate() = default;
 
 extensions::InstallGate::Action KioskAppUpdateInstallGate::ShouldDelay(
     const extensions::Extension* extension,

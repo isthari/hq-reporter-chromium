@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,8 @@ package org.chromium.chrome.browser.paint_preview;
 import static org.chromium.base.test.util.Batch.PER_CLASS;
 import static org.chromium.chrome.browser.paint_preview.TabbedPaintPreviewTest.assertAttachedAndShown;
 
-import android.support.test.uiautomator.UiObjectNotFoundException;
-
 import androidx.test.filters.MediumTest;
+import androidx.test.uiautomator.UiObjectNotFoundException;
 
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -25,7 +24,6 @@ import org.mockito.Mockito;
 
 import org.chromium.base.Callback;
 import org.chromium.base.test.util.Batch;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.paint_preview.services.PaintPreviewTabService;
 import org.chromium.chrome.browser.tab.Tab;

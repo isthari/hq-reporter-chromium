@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,44 +8,53 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <cmath>
 #include <memory>
 #include <string>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 #include "base/auto_reset.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/i18n/rtl.h"
 #include "base/json/json_writer.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/memory/read_only_shared_memory_region.h"
 #include "base/memory/shared_memory_mapping.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/process/process_handle.h"
+#include "base/run_loop.h"
+#include "base/strings/escape.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "components/grit/components_resources.h"
+#include "components/printing/common/print_params.h"
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_thread.h"
 #include "mojo/public/cpp/bindings/pending_associated_remote.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
-#include "net/base/escape.h"
 #include "printing/buildflags/buildflags.h"
 #include "printing/metafile_skia.h"
 #include "printing/mojom/print.mojom.h"
+#include "printing/page_number.h"
 #include "printing/print_job_constants.h"
 #include "printing/units.h"
+#include "services/metrics/public/cpp/ukm_source_id.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_registry.h"
 #include "third_party/blink/public/common/css/page_orientation.h"
 #include "third_party/blink/public/common/frame/frame_owner_element_type.h"
+#include "third_party/blink/public/common/page/browsing_context_group_info.h"
 #include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/common/web_preferences/web_preferences.h"
+#include "third_party/blink/public/mojom/fenced_frame/fenced_frame.mojom.h"
 #include "third_party/blink/public/mojom/page/widget.mojom.h"
 #include "third_party/blink/public/mojom/widget/platform_widget.mojom.h"
 #include "third_party/blink/public/platform/platform.h"
@@ -73,6 +82,7 @@
 #include "third_party/blink/public/web/web_view_client.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/geometry/size_f.h"
 
 #if BUILDFLAG(ENABLE_TAGGED_PDF)
 #include "ui/accessibility/ax_tree_update.h"
@@ -99,7 +109,12 @@ enum PrintPreviewHelperEvents {
   PREVIEW_EVENT_MAX,
 };
 
-constexpr double kMinDpi = 1.0;
+// The result for `CalculatePrintParamsForCss()`. `content_size` is used to
+// prevent integer truncation when calculating scaled content sizes.
+struct PrintParamsWithFloatingSize {
+  mojom::PrintParamsPtr params;
+  gfx::SizeF content_size;
+};
 
 // Also set in third_party/WebKit/Source/core/page/PrintContext.h
 constexpr float kPrintingMinimumShrinkFactor = 1.33333333f;
@@ -137,13 +152,6 @@ int GetDPI(const mojom::PrintParams& print_params) {
   return static_cast<int>(
       std::max(print_params.dpi.width(), print_params.dpi.height()));
 #endif  // BUILDFLAG(IS_APPLE)
-}
-
-bool PrintMsg_Print_Params_IsValid(const mojom::PrintParams& params) {
-  return !params.content_size.IsEmpty() && !params.page_size.IsEmpty() &&
-         !params.printable_area.IsEmpty() && params.document_cookie &&
-         params.dpi.width() > kMinDpi && params.dpi.height() > kMinDpi &&
-         params.margin_top >= 0 && params.margin_left >= 0;
 }
 
 // Helper function to check for fit to page
@@ -219,12 +227,13 @@ mojom::PrintParamsPtr GetCssPrintParams(blink::WebLocalFrame* frame,
   return page_css_params;
 }
 
-double FitPrintParamsToPage(const mojom::PrintParams& page_params,
-                            mojom::PrintParams* params_to_fit) {
-  double content_width =
-      static_cast<double>(params_to_fit->content_size.width());
-  double content_height =
-      static_cast<double>(params_to_fit->content_size.height());
+double FitPrintParamsToPage(
+    const mojom::PrintParams& page_params,
+    PrintParamsWithFloatingSize& params_with_floating_size) {
+  mojom::PrintParamsPtr& params_to_fit = params_with_floating_size.params;
+  gfx::SizeF& content_size = params_with_floating_size.content_size;
+  double content_width = static_cast<double>(content_size.width());
+  double content_height = static_cast<double>(content_size.height());
   int default_page_size_height = page_params.page_size.height();
   int default_page_size_width = page_params.page_size.width();
   int css_page_size_height = params_to_fit->page_size.height();
@@ -252,13 +261,15 @@ double FitPrintParamsToPage(const mojom::PrintParams& page_params,
       (params_to_fit->margin_left * scale_factor));
   params_to_fit->content_size = gfx::Size(static_cast<int>(content_width),
                                           static_cast<int>(content_height));
+  content_size = gfx::SizeF(content_width, content_height);
   params_to_fit->page_size = page_params.page_size;
   return scale_factor;
 }
 
 mojom::PageSizeMarginsPtr CalculatePageLayoutFromPrintParams(
-    const mojom::PrintParams& params,
+    const PrintParamsWithFloatingSize& params_with_floating_size,
     double scale_factor) {
+  const mojom::PrintParams& params = *params_with_floating_size.params;
   bool fit_to_page = IsPrintScalingOptionFitToPage(params);
   int dpi = GetDPI(params);
   int content_width = params.content_size.width();
@@ -267,10 +278,12 @@ mojom::PageSizeMarginsPtr CalculatePageLayoutFromPrintParams(
   // Otherwise we will get negative margins.
   bool scale = fit_to_page || params.print_to_pdf;
   if (scale && scale_factor >= PrintRenderFrameHelper::kEpsilon) {
-    content_width =
-        static_cast<int>(static_cast<double>(content_width) * scale_factor);
-    content_height =
-        static_cast<int>(static_cast<double>(content_height) * scale_factor);
+    // `content_size` is used to properly calculate the `content_width` and
+    // `content_height` when multiplied by `scale_factor`. This avoids integer
+    // truncation which would occur with a gfx::Size.
+    const gfx::SizeF& content_size = params_with_floating_size.content_size;
+    content_width = std::round(content_size.width() * scale_factor);
+    content_height = std::round(content_size.height() * scale_factor);
   }
 
   int margin_bottom =
@@ -311,18 +324,18 @@ void EnsureOrientationMatches(const mojom::PrintParams& css_params,
                 page_params->printable_area.width()));
 }
 
-void ComputeWebKitPrintParamsInDesiredDpi(
+blink::WebPrintParams ComputeWebKitPrintParamsInDesiredDpi(
     const mojom::PrintParams& print_params,
-    bool source_is_pdf,
-    blink::WebPrintParams* webkit_print_params) {
+    bool source_is_pdf) {
+  blink::WebPrintParams webkit_print_params;
   int dpi = GetDPI(print_params);
-  webkit_print_params->printer_dpi = dpi;
+  webkit_print_params.printer_dpi = dpi;
   if (source_is_pdf) {
     // The |scale_factor| in print_params comes from the |scale_factor| in
     // PrintSettings, which converts an integer percentage between 10 and 200
     // to a float in PrintSettingsFromJobSettings. As a result, it can be
     // converted back safely for the integer |scale_factor| in WebPrintParams.
-    webkit_print_params->scale_factor =
+    webkit_print_params.scale_factor =
         static_cast<int>(print_params.scale_factor * 100);
 
 #if BUILDFLAG(IS_APPLE)
@@ -330,43 +343,45 @@ void ComputeWebKitPrintParamsInDesiredDpi(
     // correct except when rastering PDFs, which uses |printer_dpi|, and the
     // value for |printer_dpi| is too low. Adjust that here.
     // See https://crbug.com/943462
-    webkit_print_params->printer_dpi = kDefaultPdfDpi;
+    webkit_print_params.printer_dpi = kDefaultPdfDpi;
 #endif
 
     if (print_params.rasterize_pdf && print_params.rasterize_pdf_dpi > 0)
-      webkit_print_params->printer_dpi = print_params.rasterize_pdf_dpi;
+      webkit_print_params.printer_dpi = print_params.rasterize_pdf_dpi;
   }
-  webkit_print_params->rasterize_pdf = print_params.rasterize_pdf;
-  webkit_print_params->print_scaling_option = print_params.print_scaling_option;
+  webkit_print_params.rasterize_pdf = print_params.rasterize_pdf;
+  webkit_print_params.print_scaling_option = print_params.print_scaling_option;
 
-  webkit_print_params->print_content_area.set_size(gfx::Size(
+  webkit_print_params.print_content_area.set_size(gfx::Size(
       ConvertUnit(print_params.content_size.width(), dpi, kPointsPerInch),
       ConvertUnit(print_params.content_size.height(), dpi, kPointsPerInch)));
 
-  webkit_print_params->printable_area = gfx::Rect(
+  webkit_print_params.printable_area = gfx::Rect(
       ConvertUnit(print_params.printable_area.x(), dpi, kPointsPerInch),
       ConvertUnit(print_params.printable_area.y(), dpi, kPointsPerInch),
       ConvertUnit(print_params.printable_area.width(), dpi, kPointsPerInch),
       ConvertUnit(print_params.printable_area.height(), dpi, kPointsPerInch));
 
-  webkit_print_params->paper_size = gfx::Size(
+  webkit_print_params.paper_size = gfx::Size(
       ConvertUnit(print_params.page_size.width(), dpi, kPointsPerInch),
       ConvertUnit(print_params.page_size.height(), dpi, kPointsPerInch));
 
   // The following settings is for N-up mode.
-  webkit_print_params->pages_per_sheet = print_params.pages_per_sheet;
+  webkit_print_params.pages_per_sheet = print_params.pages_per_sheet;
+
+  return webkit_print_params;
 }
 
-bool IsPrintingNodeOrPdfFrame(blink::WebLocalFrame* frame,
-                              const blink::WebNode& node) {
+bool IsPrintingPdfFrame(blink::WebLocalFrame* frame,
+                        const blink::WebNode& node) {
   blink::WebPlugin* plugin = frame->GetPluginToPrint(node);
   return plugin && plugin->SupportsPaginatedPrint();
 }
 
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW)
-bool IsPrintToPdfRequested(const base::DictionaryValue& job_settings) {
+bool IsPrintToPdfRequested(const base::Value::Dict& job_settings) {
   mojom::PrinterType type = static_cast<mojom::PrinterType>(
-      job_settings.FindIntKey(kSettingPrinterType).value());
+      job_settings.FindInt(kSettingPrinterType).value());
   return type == mojom::PrinterType::kPdf;
 }
 
@@ -446,10 +461,9 @@ gfx::Size GetPdfPageSize(const gfx::Size& page_size, int dpi) {
                    ConvertUnit(page_size.height(), dpi, kPointsPerInch));
 }
 
-ScalingType ScalingTypeFromJobSettings(
-    const base::DictionaryValue& job_settings) {
-  int scaling_type = job_settings.FindIntKey(kSettingScalingType).value();
-  return static_cast<ScalingType>(scaling_type);
+ScalingType ScalingTypeFromJobSettings(const base::Value::Dict& job_settings) {
+  return static_cast<ScalingType>(
+      job_settings.FindInt(kSettingScalingType).value());
 }
 
 // Returns the print scaling option to retain/scale/crop the source page size
@@ -470,7 +484,7 @@ mojom::PrintScalingOption GetPrintScalingOption(
     blink::WebLocalFrame* frame,
     const blink::WebNode& node,
     bool source_is_html,
-    const base::DictionaryValue& job_settings,
+    const base::Value::Dict& job_settings,
     const mojom::PrintParams& params) {
   if (params.print_to_pdf)
     return mojom::PrintScalingOption::kSourceSize;
@@ -504,24 +518,31 @@ gfx::Size ScaleAndRoundSize(gfx::Size original, double scaling) {
                    ScaleAndRound(original.height(), scaling));
 }
 
-mojom::PrintParamsPtr CalculatePrintParamsForCss(
+PrintParamsWithFloatingSize CalculatePrintParamsForCss(
     blink::WebLocalFrame* frame,
     uint32_t page_index,
     const mojom::PrintParams& page_params,
     bool ignore_css_margins,
     bool fit_to_page,
     double* scale_factor) {
+  PrintParamsWithFloatingSize params_with_floating_size;
+  gfx::SizeF& content_size = params_with_floating_size.content_size;
   mojom::PrintParamsPtr css_params =
       GetCssPrintParams(frame, page_index, page_params);
 
   mojom::PrintParamsPtr params = page_params.Clone();
   EnsureOrientationMatches(*css_params, params.get());
+  content_size = gfx::SizeF(params->content_size.width() / *scale_factor,
+                            params->content_size.height() / *scale_factor);
+  params->content_size.SetSize(static_cast<int>(content_size.width()),
+                               static_cast<int>(content_size.height()));
+  if (ignore_css_margins && fit_to_page) {
+    params_with_floating_size.params = std::move(params);
+    return params_with_floating_size;
+  }
 
-  params->content_size = ScaleAndRoundSize(params->content_size, *scale_factor);
-  if (ignore_css_margins && fit_to_page)
-    return params;
-
-  mojom::PrintParamsPtr result_params = std::move(css_params);
+  params_with_floating_size.params = std::move(css_params);
+  mojom::PrintParamsPtr& result_params = params_with_floating_size.params;
   // If not printing a pdf or fitting to page, scale the page size.
   bool scale = !params->print_to_pdf;
   double page_scaling = scale ? *scale_factor : 1.0f;
@@ -547,19 +568,23 @@ mojom::PrintParamsPtr CalculatePrintParamsForCss(
     int default_margin_bottom = params->page_size.height() -
                                 params->content_size.height() -
                                 params->margin_top;
-    result_params->content_size =
-        gfx::Size(result_params->page_size.width() -
-                      result_params->margin_left - default_margin_right,
-                  result_params->page_size.height() -
-                      result_params->margin_top - default_margin_bottom);
+    int content_width = result_params->page_size.width() -
+                        result_params->margin_left - default_margin_right;
+    int content_height = result_params->page_size.height() -
+                         result_params->margin_top - default_margin_bottom;
+    result_params->content_size = gfx::Size(content_width, content_height);
+    content_size = gfx::SizeF(result_params->content_size);
+
   } else {
     // Using the CSS parameters. Scale CSS content size.
+    content_size =
+        gfx::SizeF(result_params->content_size.width() / *scale_factor,
+                   result_params->content_size.height() / *scale_factor);
     result_params->content_size =
         ScaleAndRoundSize(result_params->content_size, *scale_factor);
     if (fit_to_page) {
-      double factor = FitPrintParamsToPage(*params, result_params.get());
-      if (scale_factor)
-        *scale_factor *= factor;
+      double factor = FitPrintParamsToPage(*params, params_with_floating_size);
+      *scale_factor *= factor;
     } else {
       // Already scaled the page, need to also scale the CSS margins since they
       // are begin applied
@@ -570,11 +595,12 @@ mojom::PrintParamsPtr CalculatePrintParamsForCss(
     }
   }
 
-  return result_params;
+  return params_with_floating_size;
 }
 
-bool CopyMetafileDataToReadOnlySharedMem(const MetafileSkia& metafile,
-                                         mojom::DidPrintContentParams* params) {
+bool CopyMetafileDataToReadOnlySharedMem(
+    const MetafileSkia& metafile,
+    base::ReadOnlySharedMemoryRegion* region) {
   uint32_t buf_size = metafile.GetDataSize();
   if (buf_size == 0)
     return false;
@@ -590,7 +616,18 @@ bool CopyMetafileDataToReadOnlySharedMem(const MetafileSkia& metafile,
   if (!metafile.GetData(region_mapping.mapping.memory(), buf_size))
     return false;
 
-  params->metafile_data_region = std::move(region_mapping.region);
+  *region = std::move(region_mapping.region);
+  return true;
+}
+
+bool CopyMetafileDataToDidPrintContentParams(
+    const MetafileSkia& metafile,
+    mojom::DidPrintContentParams* params) {
+  base::ReadOnlySharedMemoryRegion region;
+  if (!CopyMetafileDataToReadOnlySharedMem(metafile, &region))
+    return false;
+
+  params->metafile_data_region = std::move(region);
   params->subframe_content_info = metafile.GetSubframeContentInfo();
   return true;
 }
@@ -708,12 +745,13 @@ void PrintRenderFrameHelper::PrintHeaderAndFooter(
       /*client=*/nullptr,
       /*is_hidden=*/false, /*is_prerendering=*/false,
       /*is_inside_portal=*/false,
-      /*is_fenced_frame=*/false,
+      /*fenced_frame_mode=*/absl::nullopt,
       /*compositing_enabled=*/false, /*widgets_never_composited=*/false,
       /*opener=*/nullptr, mojo::NullAssociatedReceiver(),
       *source_frame.GetAgentGroupScheduler(),
       /*session_storage_namespace_id=*/base::EmptyString(),
-      /*page_base_background_color=*/absl::nullopt);
+      /*page_base_background_color=*/absl::nullopt,
+      blink::BrowsingContextGroupInfo::CreateUnique());
   web_view->GetSettings()->SetJavaScriptEnabled(true);
 
   class HeaderAndFooterClient final : public blink::WebLocalFrameClient {
@@ -733,7 +771,8 @@ void PrintRenderFrameHelper::PrintHeaderAndFooter(
 
   HeaderAndFooterClient frame_client;
   blink::WebLocalFrame* frame = blink::WebLocalFrame::CreateMainFrame(
-      web_view, &frame_client, nullptr, blink::LocalFrameToken(), nullptr);
+      web_view, &frame_client, nullptr, blink::LocalFrameToken(),
+      blink::DocumentToken(), nullptr);
 
   mojo::AssociatedRemote<blink::mojom::FrameWidget> frame_widget;
   mojo::PendingAssociatedReceiver<blink::mojom::FrameWidget>
@@ -764,24 +803,24 @@ void PrintRenderFrameHelper::PrintHeaderAndFooter(
   // Load page with script to avoid async operations.
   ExecuteScript(frame, kPageLoadScriptFormat, html);
 
-  auto options = std::make_unique<base::DictionaryValue>();
-  options->SetDoubleKey(kSettingHeaderFooterDate, base::Time::Now().ToJsTime());
-  options->SetDoubleKey("width", page_size.width());
-  options->SetDoubleKey("height", page_size.height());
-  options->SetDoubleKey("topMargin", page_layout.margin_top);
-  options->SetDoubleKey("bottomMargin", page_layout.margin_bottom);
-  options->SetDoubleKey("leftMargin", page_layout.margin_left);
-  options->SetDoubleKey("rightMargin", page_layout.margin_right);
-  options->SetIntKey("pageNumber", base::checked_cast<int>(page_number));
-  options->SetIntKey("totalPages", base::checked_cast<int>(total_pages));
-  options->SetStringKey("url", params.url);
+  base::Value::Dict options;
+  options.Set(kSettingHeaderFooterDate, base::Time::Now().ToJsTime());
+  options.Set("width", static_cast<double>(page_size.width()));
+  options.Set("height", static_cast<double>(page_size.height()));
+  options.Set("topMargin", page_layout.margin_top);
+  options.Set("bottomMargin", page_layout.margin_bottom);
+  options.Set("leftMargin", page_layout.margin_left);
+  options.Set("rightMargin", page_layout.margin_right);
+  options.Set("pageNumber", base::checked_cast<int>(page_number));
+  options.Set("totalPages", base::checked_cast<int>(total_pages));
+  options.Set("url", params.url);
   std::u16string title = source_frame.GetDocument().Title().Utf16();
-  options->SetStringKey("title", title.empty() ? params.title : title);
-  options->SetStringKey("headerTemplate", params.header_template);
-  options->SetStringKey("footerTemplate", params.footer_template);
-  options->SetBoolKey("isRtl", base::i18n::IsRTL());
+  options.Set("title", title.empty() ? params.title : title);
+  options.Set("headerTemplate", params.header_template);
+  options.Set("footerTemplate", params.footer_template);
+  options.Set("isRtl", base::i18n::IsRTL());
 
-  ExecuteScript(frame, kPageSetupScriptFormat, *options);
+  ExecuteScript(frame, kPageSetupScriptFormat, base::Value(std::move(options)));
 
   blink::WebPrintParams webkit_params(page_size);
   webkit_params.printer_dpi = GetDPI(params);
@@ -794,19 +833,19 @@ void PrintRenderFrameHelper::PrintHeaderAndFooter(
 }
 
 // static - Not anonymous so that platform implementations can use it.
-float PrintRenderFrameHelper::RenderPageContent(blink::WebLocalFrame* frame,
-                                                uint32_t page_number,
-                                                const gfx::Rect& canvas_area,
-                                                const gfx::Rect& content_area,
-                                                double scale_factor,
-                                                cc::PaintCanvas* canvas) {
+void PrintRenderFrameHelper::RenderPageContent(blink::WebLocalFrame* frame,
+                                               uint32_t page_number,
+                                               const gfx::Rect& canvas_area,
+                                               const gfx::Rect& content_area,
+                                               double scale_factor,
+                                               cc::PaintCanvas* canvas) {
   TRACE_EVENT1("print", "PrintRenderFrameHelper::RenderPageContent",
                "page_number", page_number);
 
   cc::PaintCanvasAutoRestore auto_restore(canvas, true);
   canvas->translate((content_area.x() - canvas_area.x()) / scale_factor,
                     (content_area.y() - canvas_area.y()) / scale_factor);
-  return frame->PrintPage(page_number, canvas);
+  frame->PrintPage(page_number, canvas);
 }
 
 // Class that calls the Begin and End print functions on the frame and changes
@@ -858,10 +897,11 @@ class PrepareFrameAndViewForPrint : public blink::WebViewClient,
       const blink::FramePolicy& frame_policy,
       const blink::WebFrameOwnerProperties& frame_owner_properties,
       blink::FrameOwnerElementType owner_type,
-      blink::WebPolicyContainerBindParams policy_container_bind_params)
-      override;
+      blink::WebPolicyContainerBindParams policy_container_bind_params,
+      ukm::SourceId document_ukm_source_id,
+      FinishChildFrameCreationFn finish_creation) override;
   void FrameDetached() override;
-  std::unique_ptr<blink::WebURLLoaderFactory> CreateURLLoaderFactory() override;
+  scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory() override;
 
   void CallOnReady();
   void ResizeForPrinting();
@@ -869,6 +909,7 @@ class PrepareFrameAndViewForPrint : public blink::WebViewClient,
   void CopySelection(const WebPreferences& preferences);
   void ComputeScalingAndPrintParams(blink::WebLocalFrame* frame,
                                     mojom::PrintParamsPtr& print_params,
+                                    std::string* selection,
                                     bool is_pdf,
                                     bool ignore_css_margins,
                                     bool fit_to_page);
@@ -905,7 +946,7 @@ PrepareFrameAndViewForPrint::PrepareFrameAndViewForPrint(
   TRACE_EVENT0("print", "PrepareFrameAndViewForPrint");
 
   mojom::PrintParamsPtr print_params = params.Clone();
-  bool source_is_pdf = IsPrintingNodeOrPdfFrame(frame, node_to_print_);
+  bool source_is_pdf = IsPrintingPdfFrame(frame, node_to_print_);
   if (should_print_selection_only_) {
     // Save the parameters for use in `CopySelection()`.
     selection_only_print_params_ = std::move(print_params);
@@ -915,8 +956,9 @@ PrepareFrameAndViewForPrint::PrepareFrameAndViewForPrint(
   } else {
     bool fit_to_page =
         ignore_css_margins && IsPrintScalingOptionFitToPage(*print_params);
-    ComputeScalingAndPrintParams(frame, print_params, source_is_pdf,
-                                 ignore_css_margins, fit_to_page);
+    ComputeScalingAndPrintParams(frame, print_params, /*selection=*/nullptr,
+                                 source_is_pdf, ignore_css_margins,
+                                 fit_to_page);
   }
 }
 
@@ -945,7 +987,7 @@ void PrepareFrameAndViewForPrint::ResizeForPrinting() {
 
   // Plugins do not need to be resized. Resizing the PDF plugin causes a
   // flicker in the top left corner behind the preview. See crbug.com/739973.
-  if (IsPrintingNodeOrPdfFrame(frame(), node_to_print_))
+  if (IsPrintingPdfFrame(frame(), node_to_print_))
     return;
 
   prev_view_size_ = frame()->LocalRoot()->FrameWidget()->Size();
@@ -976,12 +1018,15 @@ void PrepareFrameAndViewForPrint::CopySelectionIfNeeded(
 void PrepareFrameAndViewForPrint::CopySelection(
     const WebPreferences& preferences) {
   ResizeForPrinting();
-  ComputeScalingAndPrintParams(frame(), selection_only_print_params_,
+  std::string html;
+  ComputeScalingAndPrintParams(frame(), selection_only_print_params_, &html,
                                /*is_pdf=*/false,
                                /*ignore_css_margins=*/false,
                                /*fit_to_page=*/false);
-  std::string html = frame()->SelectionAsMarkup().Utf8();
   RestoreSize();
+
+  // Save the URL before `frame_` gets reset below.
+  GURL original_url = frame()->GetDocument().Url();
 
   // Create a new WebView with the same settings as the current display one.
   // Except that we disable javascript (don't want any active content running
@@ -994,16 +1039,18 @@ void PrepareFrameAndViewForPrint::CopySelection(
       /*is_hidden=*/false,
       /*is_prerendering=*/false,
       /*is_inside_portal=*/false,
-      /*is_fenced_frame=*/false,
+      /*fenced_frame_mode=*/absl::nullopt,
       /*compositing_enabled=*/false,
       /*widgets_never_composited=*/false,
       /*opener=*/nullptr, mojo::NullAssociatedReceiver(),
       agent_group_scheduler_,
       /*session_storage_namespace_id=*/base::EmptyString(),
-      /*page_base_background_color=*/absl::nullopt);
+      /*page_base_background_color=*/absl::nullopt,
+      blink::BrowsingContextGroupInfo::CreateUnique());
   blink::WebView::ApplyWebPreferences(prefs, web_view);
   blink::WebLocalFrame* main_frame = blink::WebLocalFrame::CreateMainFrame(
-      web_view, this, nullptr, blink::LocalFrameToken(), nullptr);
+      web_view, this, nullptr, blink::LocalFrameToken(), blink::DocumentToken(),
+      nullptr);
   frame_.Reset(main_frame);
   mojo::AssociatedRemote<blink::mojom::FrameWidget> frame_widget;
   mojo::PendingAssociatedReceiver<blink::mojom::FrameWidget>
@@ -1034,7 +1081,8 @@ void PrepareFrameAndViewForPrint::CopySelection(
   // When loading is done this will call didStopLoading() and that will do the
   // actual printing.
   auto params = std::make_unique<blink::WebNavigationParams>();
-  params->url = GURL(url::kAboutBlankURL);
+  // Use the original URL, so relative links can stay as such.
+  params->url = original_url;
   blink::WebNavigationParams::FillStaticResponse(params.get(), "text/html",
                                                  "UTF-8", std::move(html));
   navigation_control_->CommitNavigation(std::move(params),
@@ -1044,20 +1092,25 @@ void PrepareFrameAndViewForPrint::CopySelection(
 void PrepareFrameAndViewForPrint::ComputeScalingAndPrintParams(
     blink::WebLocalFrame* frame,
     mojom::PrintParamsPtr& print_params,
+    std::string* selection,
     bool is_pdf,
     bool ignore_css_margins,
     bool fit_to_page) {
-  ComputeWebKitPrintParamsInDesiredDpi(*print_params, is_pdf,
-                                       &web_print_params_);
+  web_print_params_ =
+      ComputeWebKitPrintParamsInDesiredDpi(*print_params, is_pdf);
   frame->PrintBegin(web_print_params_, node_to_print_);
   double scale_factor = PrintRenderFrameHelper::GetScaleFactor(
       print_params->scale_factor, is_pdf);
-  print_params = CalculatePrintParamsForCss(frame, /*page_index=*/0,
-                                            *print_params, ignore_css_margins,
-                                            fit_to_page, &scale_factor);
+  PrintParamsWithFloatingSize params_with_floating_size =
+      CalculatePrintParamsForCss(frame, /*page_index=*/0, *print_params,
+                                 ignore_css_margins, fit_to_page,
+                                 &scale_factor);
+  print_params = std::move(params_with_floating_size.params);
+  if (selection)
+    *selection = frame->SelectionAsMarkup().Utf8();
   frame->PrintEnd();
-  ComputeWebKitPrintParamsInDesiredDpi(*print_params, is_pdf,
-                                       &web_print_params_);
+  web_print_params_ =
+      ComputeWebKitPrintParamsInDesiredDpi(*print_params, is_pdf);
 }
 
 void PrepareFrameAndViewForPrint::DidStopLoading() {
@@ -1083,7 +1136,9 @@ blink::WebLocalFrame* PrepareFrameAndViewForPrint::CreateChildFrame(
     const blink::FramePolicy& frame_policy,
     const blink::WebFrameOwnerProperties& frame_owner_properties,
     blink::FrameOwnerElementType frame_owner_type,
-    blink::WebPolicyContainerBindParams policy_container_bind_params) {
+    blink::WebPolicyContainerBindParams policy_container_bind_params,
+    ukm::SourceId document_ukm_source_id,
+    FinishChildFrameCreationFn finish_creation) {
   // This is called when printing a selection and when this selection contains
   // an iframe. This is not supported yet. An empty rectangle will be displayed
   // instead.
@@ -1099,10 +1154,10 @@ void PrepareFrameAndViewForPrint::FrameDetached() {
   frame_.Reset(nullptr);
 }
 
-std::unique_ptr<blink::WebURLLoaderFactory>
-PrepareFrameAndViewForPrint::CreateURLLoaderFactory() {
+scoped_refptr<network::SharedURLLoaderFactory>
+PrepareFrameAndViewForPrint::GetURLLoaderFactory() {
   blink::WebLocalFrame* frame = original_frame_.GetFrame();
-  return frame->Client()->CreateURLLoaderFactory();
+  return frame->Client()->GetURLLoaderFactory();
 }
 
 void PrepareFrameAndViewForPrint::CallOnReady() {
@@ -1115,7 +1170,7 @@ void PrepareFrameAndViewForPrint::RestoreSize() {
     return;
 
   // Do not restore plugins, since they are not resized.
-  if (IsPrintingNodeOrPdfFrame(frame(), node_to_print_))
+  if (IsPrintingPdfFrame(frame(), node_to_print_))
     return;
 
   frame()->LocalRoot()->FrameWidget()->Resize(prev_view_size_);
@@ -1165,9 +1220,10 @@ PrintRenderFrameHelper::PrintRenderFrameHelper(
   if (!delegate_->IsPrintPreviewEnabled())
     DisablePreview();
 
-  render_frame->GetAssociatedInterfaceRegistry()->AddInterface(
-      base::BindRepeating(&PrintRenderFrameHelper::BindPrintRenderFrameReceiver,
-                          weak_ptr_factory_.GetWeakPtr()));
+  render_frame->GetAssociatedInterfaceRegistry()
+      ->AddInterface<mojom::PrintRenderFrame>(base::BindRepeating(
+          &PrintRenderFrameHelper::BindPrintRenderFrameReceiver,
+          weak_ptr_factory_.GetWeakPtr()));
 }
 
 PrintRenderFrameHelper::~PrintRenderFrameHelper() {}
@@ -1179,6 +1235,9 @@ void PrintRenderFrameHelper::DisablePreview() {
 
 const mojo::AssociatedRemote<mojom::PrintManagerHost>&
 PrintRenderFrameHelper::GetPrintManagerHost() {
+  // We should not make calls back to the host while handling PrintWithParams().
+  DCHECK(!print_with_params_callback_);
+
   if (!print_manager_host_) {
     render_frame()->GetRemoteAssociatedInterfaces()->GetInterface(
         &print_manager_host_);
@@ -1194,7 +1253,12 @@ PrintRenderFrameHelper::GetPrintManagerHost() {
 bool PrintRenderFrameHelper::IsScriptInitiatedPrintAllowed(
     blink::WebLocalFrame* frame,
     bool user_initiated) {
-  if (!is_printing_enabled_ || !delegate_->IsScriptedPrintEnabled())
+  if (!delegate_->IsScriptedPrintEnabled())
+    return false;
+
+  bool printing_enabled = false;
+  GetPrintManagerHost()->IsPrintingEnabled(&printing_enabled);
+  if (!printing_enabled)
     return false;
 
   // If preview is enabled, then the print dialog is tab modal, and the user
@@ -1307,6 +1371,54 @@ void PrintRenderFrameHelper::PrintRequestedPages() {
   // just return.
 }
 
+void PrintRenderFrameHelper::PrintWithParams(
+    mojom::PrintPagesParamsPtr settings,
+    PrintWithParamsCallback callback) {
+  ScopedIPC scoped_ipc(weak_ptr_factory_.GetWeakPtr());
+  if (ipc_nesting_level_ > kAllowedIpcDepthForPrint) {
+    std::move(callback).Run(mojom::PrintWithParamsResult::NewFailureReason(
+        mojom::PrintFailureReason::kGeneralFailure));
+    return;
+  }
+
+  if (print_with_params_callback_) {
+    std::move(callback).Run(mojom::PrintWithParamsResult::NewFailureReason(
+        mojom::PrintFailureReason::kPrintingInProgress));
+    return;
+  }
+
+  blink::WebLocalFrame* frame = render_frame()->GetWebFrame();
+  frame->DispatchBeforePrintEvent(/*print_client=*/nullptr);
+  // Don't print if the RenderFrame is gone.
+  if (render_frame_gone_) {
+    std::move(callback).Run(mojom::PrintWithParamsResult::NewFailureReason(
+        mojom::PrintFailureReason::kGeneralFailure));
+    return;
+  }
+
+  print_with_params_callback_ = std::move(callback);
+
+  // If we are printing a frame with an internal PDF plugin element, find the
+  // plugin node and print that instead.
+  auto plugin_node = delegate_->GetPdfElement(frame);
+
+  // TODO(caseq): have this logic on the caller side?
+  const bool fit_to_paper = !IsPrintingPdfFrame(frame, plugin_node);
+  settings->params->print_scaling_option =
+      fit_to_paper && !settings->params->prefer_css_page_size
+          ? mojom::PrintScalingOption::kFitToPrintableArea
+          : mojom::PrintScalingOption::kSourceSize;
+  SetPrintPagesParams(*settings);
+  prep_frame_view_ = std::make_unique<PrepareFrameAndViewForPrint>(
+      *settings->params, frame, plugin_node, /* ignore_css_margins=*/false);
+
+  PrintPages();
+  FinishFramePrinting();
+
+  if (!render_frame_gone_)
+    frame->DispatchAfterPrintEvent();
+}
+
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW)
 void PrintRenderFrameHelper::PrintForSystemDialog() {
   ScopedIPC scoped_ipc(weak_ptr_factory_.GetWeakPtr());
@@ -1346,16 +1458,20 @@ void PrintRenderFrameHelper::SetPrintPreviewUI(
 }
 
 void PrintRenderFrameHelper::InitiatePrintPreview(
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     mojo::PendingAssociatedRemote<mojom::PrintRenderer> print_renderer,
+#endif
     bool has_selection) {
   ScopedIPC scoped_ipc(weak_ptr_factory_.GetWeakPtr());
   if (ipc_nesting_level_ > kAllowedIpcDepthForPrint)
     return;
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   if (print_renderer) {
     print_renderer_.Bind(std::move(print_renderer));
     print_preview_context_.SetIsForArc(true);
   }
+#endif
 
   blink::WebLocalFrame* frame = render_frame()->GetWebFrame();
 
@@ -1372,17 +1488,19 @@ void PrintRenderFrameHelper::InitiatePrintPreview(
                       /*already_notified_frame=*/false);
 }
 
-void PrintRenderFrameHelper::PrintPreview(base::Value settings) {
+void PrintRenderFrameHelper::PrintPreview(base::Value::Dict settings) {
   ScopedIPC scoped_ipc(weak_ptr_factory_.GetWeakPtr());
   if (ipc_nesting_level_ > kAllowedIpcDepthForPrint)
     return;
 
   print_preview_context_.OnPrintPreview();
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   if (print_preview_context_.IsForArc()) {
     base::UmaHistogramEnumeration("Arc.PrintPreview.PreviewEvent",
                                   PREVIEW_EVENT_REQUESTED, PREVIEW_EVENT_MAX);
   }
+#endif
 
   if (!print_preview_context_.source_frame()) {
     DidFinishPrinting(FAIL_PREVIEW);
@@ -1391,19 +1509,17 @@ void PrintRenderFrameHelper::PrintPreview(base::Value settings) {
 
   if (!UpdatePrintSettings(print_preview_context_.source_frame(),
                            print_preview_context_.source_node(),
-                           base::Value::AsDictionaryValue(settings))) {
-    if (print_preview_context_.last_error() != PREVIEW_ERROR_BAD_SETTING) {
-      DidFinishPrinting(INVALID_SETTINGS);
-    } else {
-      DidFinishPrinting(FAIL_PREVIEW);
-    }
+                           settings.Clone())) {
+    DidFinishPrinting(INVALID_SETTINGS);
     return;
   }
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Save the job settings if a PrintRenderer will be used to create the preview
   // document.
   if (print_renderer_)
     print_renderer_job_settings_ = std::move(settings);
+#endif
 
   // Set the options from document if we are previewing a pdf and send a
   // message to browser.
@@ -1494,8 +1610,8 @@ void PrintRenderFrameHelper::PrintFrameContent(
   // failure, as DispatchAfterPrintEvent() still need to be called.
   mojom::DidPrintContentParamsPtr printed_frame_params =
       mojom::DidPrintContentParams::New();
-  if (CopyMetafileDataToReadOnlySharedMem(metafile,
-                                          printed_frame_params.get())) {
+  if (CopyMetafileDataToDidPrintContentParams(metafile,
+                                              printed_frame_params.get())) {
     std::move(callback).Run(params->document_cookie,
                             std::move(printed_frame_params));
   } else {
@@ -1514,15 +1630,79 @@ void PrintRenderFrameHelper::PrintingDone(bool success) {
   DidFinishPrinting(success ? OK : FAIL_PRINT);
 }
 
-void PrintRenderFrameHelper::SetPrintingEnabled(bool enabled) {
-  ScopedIPC scoped_ipc(weak_ptr_factory_.GetWeakPtr());
-  is_printing_enabled_ = enabled;
+void PrintRenderFrameHelper::ConnectToPdfRenderer() {
+  // Deliberately do nothing.
 }
 
 void PrintRenderFrameHelper::PrintNodeUnderContextMenu() {
   ScopedIPC scoped_ipc(weak_ptr_factory_.GetWeakPtr());
   PrintNode(render_frame()->GetWebFrame()->ContextMenuNode());
 }
+
+#if BUILDFLAG(ENABLE_PRINT_CONTENT_ANALYSIS)
+void PrintRenderFrameHelper::SnapshotForContentAnalysis(
+    SnapshotForContentAnalysisCallback callback) {
+  // Use default print params to snapshot the page.
+  mojom::PrintPagesParams print_pages_params;
+  GetPrintManagerHost()->GetDefaultPrintSettings(&print_pages_params.params);
+  if (!print_pages_params.params) {
+    LOG(ERROR) << "GetDefaultPrintSettings() failed";
+    std::move(callback).Run(nullptr);
+    return;
+  }
+
+  CHECK(PrintMsgPrintParamsIsValid(*print_pages_params.params));
+  ContentProxySet typeface_content_info;
+  auto metafile = std::make_unique<MetafileSkia>(
+      print_pages_params.params->printed_doc_type,
+      print_pages_params.params->document_cookie);
+  CHECK(metafile->Init());
+  metafile->UtilizeTypefaceContext(&typeface_content_info);
+
+  blink::WebLocalFrame* frame = render_frame()->GetWebFrame();
+  blink::WebNode node = delegate_->GetPdfElement(frame);
+  bool is_pdf = IsPrintingPdfFrame(frame, node);
+  blink::WebPrintParams web_print_params =
+      ComputeWebKitPrintParamsInDesiredDpi(*print_pages_params.params, is_pdf);
+  uint32_t page_count = frame->PrintBegin(web_print_params, node);
+  if (page_count == 0) {
+    frame->PrintEnd();
+    metafile->FinishDocument();
+    LOG(ERROR) << "PrintBegin() returned 0 pages";
+    std::move(callback).Run(nullptr);
+    return;
+  }
+
+  GetPrintManagerHost()->DidGetPrintedPagesCount(
+      print_pages_params.params->document_cookie, page_count);
+
+  for (size_t page_index = 0; page_index < page_count; ++page_index) {
+    PrintPageInternal(
+        *print_pages_params.params, page_index, page_count,
+        GetScaleFactor(print_pages_params.params->scale_factor, is_pdf), frame,
+        metafile.get());
+  }
+  frame->PrintEnd();
+  metafile->FinishDocument();
+
+  mojom::DidPrintDocumentParamsPtr page_params =
+      mojom::DidPrintDocumentParams::New();
+  page_params->content = mojom::DidPrintContentParams::New();
+
+  if (!CopyMetafileDataToDidPrintContentParams(*metafile,
+                                               page_params->content.get())) {
+    LOG(ERROR) << "CopyMetafileDataToDidPrintContentParams() failed";
+    std::move(callback).Run(nullptr);
+    return;
+  }
+
+  page_params->document_cookie = print_pages_params.params->document_cookie;
+#if BUILDFLAG(IS_WIN)
+  page_params->physical_offsets = printer_printable_area_.origin();
+#endif
+  std::move(callback).Run(std::move(page_params));
+}
+#endif  // BUILDFLAG(ENABLE_PRINT_CONTENT_ANALYSIS)
 
 void PrintRenderFrameHelper::GetPageSizeAndContentAreaFromPageLayout(
     const mojom::PageSizeMargins& page_layout_in_points,
@@ -1540,11 +1720,10 @@ void PrintRenderFrameHelper::GetPageSizeAndContentAreaFromPageLayout(
 }
 
 void PrintRenderFrameHelper::UpdateFrameMarginsCssInfo(
-    const base::DictionaryValue& settings) {
-  absl::optional<int> margins_type = settings.FindIntKey(kSettingMarginsType);
-  ignore_css_margins_ = margins_type.value_or(static_cast<int>(
-                            mojom::MarginType::kDefaultMargins)) !=
-                        static_cast<int>(mojom::MarginType::kDefaultMargins);
+    const base::Value::Dict& settings) {
+  constexpr int kDefault = static_cast<int>(mojom::MarginType::kDefaultMargins);
+  int margins_type = settings.FindInt(kSettingMarginsType).value_or(kDefault);
+  ignore_css_margins_ = margins_type != kDefault;
 }
 
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW)
@@ -1589,8 +1768,12 @@ void PrintRenderFrameHelper::OnFramePreparedForPreviewDocument() {
   }
 
   CreatePreviewDocumentResult result = CreatePreviewDocument();
-  if (result != CREATE_IN_PROGRESS)
-    DidFinishPrinting(result == CREATE_SUCCESS ? OK : FAIL_PREVIEW);
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  if (result == CREATE_IN_PROGRESS)
+    return;
+#endif
+
+  DidFinishPrinting(result == CREATE_SUCCESS ? OK : FAIL_PREVIEW);
 }
 
 PrintRenderFrameHelper::CreatePreviewDocumentResult
@@ -1598,26 +1781,39 @@ PrintRenderFrameHelper::CreatePreviewDocument() {
   if (!print_pages_params_ || CheckForCancel() || !preview_ui_)
     return CREATE_FAIL;
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   if (print_preview_context_.IsForArc()) {
     base::UmaHistogramEnumeration("Arc.PrintPreview.PreviewEvent",
                                   PREVIEW_EVENT_CREATE_DOCUMENT,
                                   PREVIEW_EVENT_MAX);
   }
+#endif
 
   const mojom::PrintParams& print_params = *print_pages_params_->params;
-  const std::vector<uint32_t>& pages = print_pages_params_->pages;
 
   bool require_document_metafile =
-      print_renderer_ ||
       print_params.printed_doc_type != mojom::SkiaDocumentType::kMSKP;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  require_document_metafile = require_document_metafile || print_renderer_;
+#endif
+
   if (!print_preview_context_.CreatePreviewDocument(
-          std::move(prep_frame_view_), pages, print_params.printed_doc_type,
-          print_params.document_cookie, require_document_metafile)) {
+          std::move(prep_frame_view_), print_pages_params_->pages,
+          print_params.printed_doc_type, print_params.document_cookie,
+          require_document_metafile)) {
     return CREATE_FAIL;
   }
 
-  double scale_factor = GetScaleFactor(print_params.scale_factor,
-                                       !print_preview_context_.IsModifiable());
+  // If tagged PDF exporting is enabled, we also need to capture an
+  // accessibility tree. AXTreeSnapshotter should stay alive through the end of
+  // the scope of printing, because text drawing commands are only annotated
+  // with a DOMNodeId if accessibility is enabled.
+  if (delegate_->ShouldGenerateTaggedPDF())
+    snapshotter_ = render_frame()->CreateAXTreeSnapshotter(ui::AXMode::kPDF);
+
+  double scale_factor =
+      GetScaleFactor(print_params.scale_factor,
+                     /*is_pdf=*/!print_preview_context_.IsModifiable());
 
   mojom::PageSizeMarginsPtr default_page_layout =
       ComputePageLayoutInPointsForCss(print_preview_context_.prepared_frame(),
@@ -1650,6 +1846,7 @@ PrintRenderFrameHelper::CreatePreviewDocument() {
   if (CheckForCancel())
     return CREATE_FAIL;
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // If a PrintRenderer has been provided, use it to create the preview
   // document.
   if (print_renderer_) {
@@ -1661,6 +1858,7 @@ PrintRenderFrameHelper::CreatePreviewDocument() {
                        print_params.document_cookie, begin_time));
     return CREATE_IN_PROGRESS;
   }
+#endif
 
   if (print_pages_params_->params->printed_doc_type ==
       mojom::SkiaDocumentType::kMSKP) {
@@ -1729,12 +1927,12 @@ bool PrintRenderFrameHelper::RenderPreviewPage(uint32_t page_number) {
   render_metafile->UtilizeTypefaceContext(
       print_preview_context_.typeface_content_info());
   base::TimeTicks begin_time = base::TimeTicks::Now();
-  double scale_factor = GetScaleFactor(print_params.scale_factor,
-                                       !print_preview_context_.IsModifiable());
+  double scale_factor =
+      GetScaleFactor(print_params.scale_factor,
+                     /*is_pdf=*/!print_preview_context_.IsModifiable());
   PrintPageInternal(print_params, page_number,
                     print_preview_context_.total_page_count(), scale_factor,
-                    print_preview_context_.prepared_frame(), render_metafile,
-                    nullptr, nullptr);
+                    print_preview_context_.prepared_frame(), render_metafile);
   print_preview_context_.RenderedPreviewPage(base::TimeTicks::Now() -
                                              begin_time);
 
@@ -1768,9 +1966,9 @@ bool PrintRenderFrameHelper::FinalizePrintReadyDocument() {
   // separate print renderer (e.g., not print compositor).
   MetafileSkia* metafile = print_preview_context_.metafile();
   if (metafile) {
-    if (!CopyMetafileDataToReadOnlySharedMem(*metafile,
-                                             preview_params->content.get())) {
-      LOG(ERROR) << "CopyMetafileDataToReadOnlySharedMem failed";
+    if (!CopyMetafileDataToDidPrintContentParams(
+            *metafile, preview_params->content.get())) {
+      LOG(ERROR) << "CopyMetafileDataToDidPrintContentParams failed";
       print_preview_context_.set_error(PREVIEW_ERROR_METAFILE_COPY_FAILED);
       return false;
     }
@@ -1791,6 +1989,7 @@ bool PrintRenderFrameHelper::FinalizePrintReadyDocument() {
   return true;
 }
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 void PrintRenderFrameHelper::OnPreviewDocumentCreated(
     int document_cookie,
     base::TimeTicks begin_time,
@@ -1807,6 +2006,7 @@ void PrintRenderFrameHelper::OnPreviewDocumentCreated(
       ProcessPreviewDocument(begin_time, std::move(preview_document_region));
   DidFinishPrinting(success ? OK : FAIL_PREVIEW);
 }
+#endif
 
 bool PrintRenderFrameHelper::ProcessPreviewDocument(
     base::TimeTicks begin_time,
@@ -1872,10 +2072,6 @@ int PrintRenderFrameHelper::GetFitToPageScaleFactor(
   return static_cast<int>(100.0f * std::min(scale_width, scale_height));
 }
 #endif  // BUILDFLAG(ENABLE_PRINT_PREVIEW)
-
-bool PrintRenderFrameHelper::IsPrintingEnabled() const {
-  return is_printing_enabled_;
-}
 
 void PrintRenderFrameHelper::PrintNode(const blink::WebNode& node) {
   if (node.IsNull() || !node.GetDocument().GetFrame()) {
@@ -1963,20 +2159,20 @@ void PrintRenderFrameHelper::Print(blink::WebLocalFrame* frame,
       return;
 
     // GetPrintSettingsFromUser() could return nullptr when
-    // |print_manager_host_| is closed.
-    if (!print_settings)
+    // |print_manager_host_| is closed, or when the user cancels.
+    if (!print_settings) {
+      if (print_manager_host_) {
+        // Release resources and fail silently if the user cancels.
+        DidFinishPrinting(OK);
+      }
       return;
+    }
 
     print_settings->params->print_scaling_option =
         print_settings->params->prefer_css_page_size
             ? mojom::PrintScalingOption::kSourceSize
             : scaling_option;
     SetPrintPagesParams(*print_settings);
-    if (print_settings->params->dpi.IsEmpty() ||
-        !print_settings->params->document_cookie) {
-      DidFinishPrinting(OK);  // Release resources and fail silently on failure.
-      return;
-    }
   }
 
   // Render Pages for printing.
@@ -1988,6 +2184,19 @@ void PrintRenderFrameHelper::Print(blink::WebLocalFrame* frame,
 }
 
 void PrintRenderFrameHelper::DidFinishPrinting(PrintingResult result) {
+  // Code in PrintPagesNative() handles the success case firing the callback,
+  // so if we get here with the pending callback it must be the failure case.
+  if (print_with_params_callback_) {
+    DCHECK_NE(result, OK);
+    std::move(print_with_params_callback_)
+        .Run(mojom::PrintWithParamsResult::NewFailureReason(
+            result == INVALID_PAGE_RANGE
+                ? mojom::PrintFailureReason::kInvalidPageRange
+                : mojom::PrintFailureReason::kGeneralFailure));
+    Reset();
+    return;
+  }
+
   int cookie =
       print_pages_params_ ? print_pages_params_->params->document_cookie : 0;
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW)
@@ -2003,9 +2212,13 @@ void PrintRenderFrameHelper::DidFinishPrinting(PrintingResult result) {
       DCHECK(!notify_browser_of_print_failure_);
       break;
 
+    case INVALID_PAGE_RANGE:
     case FAIL_PRINT:
       if (notify_browser_of_print_failure_ && print_pages_params_) {
-        GetPrintManagerHost()->PrintingFailed(cookie);
+        GetPrintManagerHost()->PrintingFailed(
+            cookie, result == INVALID_PAGE_RANGE
+                        ? mojom::PrintFailureReason::kInvalidPageRange
+                        : mojom::PrintFailureReason::kGeneralFailure);
       }
       break;
 
@@ -2030,10 +2243,19 @@ void PrintRenderFrameHelper::DidFinishPrinting(PrintingResult result) {
       break;
 #endif  // BUILDFLAG(ENABLE_PRINT_PREVIEW)
   }
+
+  Reset();
+}
+
+void PrintRenderFrameHelper::Reset() {
   prep_frame_view_.reset();
   print_pages_params_.reset();
   notify_browser_of_print_failure_ = true;
   snapshotter_.reset();
+
+  // The callback is supposed to be consumed at this point meaning we
+  // reported results to the PrintWithParams() caller.
+  DCHECK(!print_with_params_callback_);
 }
 
 void PrintRenderFrameHelper::OnFramePreparedForPrintPages() {
@@ -2054,45 +2276,38 @@ void PrintRenderFrameHelper::PrintPages() {
     return DidFinishPrinting(FAIL_PRINT);
   }
 
-  const mojom::PrintPagesParams& params = *print_pages_params_;
-  const mojom::PrintParams& print_params = *params.params;
-
   // TODO(vitalybuka): should be page_count or valid pages from params.pages.
   // See http://crbug.com/161576
-  GetPrintManagerHost()->DidGetPrintedPagesCount(print_params.document_cookie,
-                                                 page_count);
-
-  if (print_params.preview_ui_id < 0) {
-    // Printing for system dialog.
-    int printed_count = params.pages.empty() ? page_count : params.pages.size();
-    base::UmaHistogramCounts1M("PrintPreview.PageCount.SystemDialog",
-                               printed_count);
+  if (!print_with_params_callback_) {
+    GetPrintManagerHost()->DidGetPrintedPagesCount(
+        print_pages_params_->params->document_cookie, page_count);
   }
 
-  bool is_pdf = IsPrintingNodeOrPdfFrame(prep_frame_view_->frame(),
-                                         prep_frame_view_->node());
-  if (!PrintPagesNative(prep_frame_view_->frame(), page_count, is_pdf)) {
+  std::vector<uint32_t> pages_to_print =
+      PageNumber::GetPages(print_pages_params_->pages, page_count);
+  if (pages_to_print.empty())
+    return DidFinishPrinting(INVALID_PAGE_RANGE);
+  if (!PrintPagesNative(prep_frame_view_->frame(), page_count,
+                        pages_to_print)) {
     LOG(ERROR) << "Printing failed.";
     return DidFinishPrinting(FAIL_PRINT);
   }
 }
 
-bool PrintRenderFrameHelper::PrintPagesNative(blink::WebLocalFrame* frame,
-                                              uint32_t page_count,
-                                              bool is_pdf) {
+bool PrintRenderFrameHelper::PrintPagesNative(
+    blink::WebLocalFrame* frame,
+    uint32_t page_count,
+    const std::vector<uint32_t>& printed_pages) {
+  DCHECK(!printed_pages.empty());
+
   const mojom::PrintPagesParams& params = *print_pages_params_;
   const mojom::PrintParams& print_params = *params.params;
 
-  std::vector<uint32_t> printed_pages = GetPrintedPages(params, page_count);
-  if (printed_pages.empty())
-    return false;
-
+  // Provide a typeface context to use with serializing to the print compositor.
   ContentProxySet typeface_content_info;
   MetafileSkia metafile(print_params.printed_doc_type,
                         print_params.document_cookie);
   CHECK(metafile.Init());
-
-  // Provide a typeface context to use with serializing to the print compositor.
   metafile.UtilizeTypefaceContext(&typeface_content_info);
 
   // If tagged PDF exporting is enabled, we also need to capture an
@@ -2103,30 +2318,21 @@ bool PrintRenderFrameHelper::PrintPagesNative(blink::WebLocalFrame* frame,
   std::unique_ptr<content::AXTreeSnapshotter> snapshotter;
   if (delegate_->ShouldGenerateTaggedPDF()) {
     snapshotter = render_frame()->CreateAXTreeSnapshotter(ui::AXMode::kPDF);
-    snapshotter->Snapshot(/* exclude_offscreen= */ false,
-                          /* max_node_count= */ 0,
+    snapshotter->Snapshot(/* max_node_count= */ 0,
                           /* timeout= */ {}, &metafile.accessibility_tree());
   }
 
   mojom::DidPrintDocumentParamsPtr page_params =
       mojom::DidPrintDocumentParams::New();
   page_params->content = mojom::DidPrintContentParams::New();
-  gfx::Size* page_size_in_dpi;
-  gfx::Rect* content_area_in_dpi;
-#if BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_WIN)
-  page_size_in_dpi = &page_params->page_size;
-  content_area_in_dpi = &page_params->content_area;
-#else
-  page_size_in_dpi = nullptr;
-  content_area_in_dpi = nullptr;
-#endif
-  PrintPageInternal(print_params, printed_pages[0], page_count,
-                    GetScaleFactor(print_params.scale_factor, is_pdf), frame,
-                    &metafile, page_size_in_dpi, content_area_in_dpi);
-  for (size_t i = 1; i < printed_pages.size(); ++i) {
-    PrintPageInternal(print_params, printed_pages[i], page_count,
+  page_params->page_size = print_params.page_size;
+  page_params->content_area = gfx::Rect(print_params.page_size);
+  bool is_pdf =
+      IsPrintingPdfFrame(prep_frame_view_->frame(), prep_frame_view_->node());
+  for (uint32_t printed_page : printed_pages) {
+    PrintPageInternal(print_params, printed_page, page_count,
                       GetScaleFactor(print_params.scale_factor, is_pdf), frame,
-                      &metafile, nullptr, nullptr);
+                      &metafile);
   }
 
   // blink::printEnd() for PDF should be called before metafile is closed.
@@ -2134,8 +2340,8 @@ bool PrintRenderFrameHelper::PrintPagesNative(blink::WebLocalFrame* frame,
 
   metafile.FinishDocument();
 
-  if (!CopyMetafileDataToReadOnlySharedMem(metafile,
-                                           page_params->content.get())) {
+  if (!CopyMetafileDataToDidPrintContentParams(metafile,
+                                               page_params->content.get())) {
     return false;
   }
 
@@ -2143,6 +2349,14 @@ bool PrintRenderFrameHelper::PrintPagesNative(blink::WebLocalFrame* frame,
 #if BUILDFLAG(IS_WIN)
   page_params->physical_offsets = printer_printable_area_.origin();
 #endif
+
+  if (print_with_params_callback_) {
+    std::move(print_with_params_callback_)
+        .Run(mojom::PrintWithParamsResult::NewParams(std::move(page_params)));
+    Reset();
+    return true;
+  }
+
   bool completed = false;
   GetPrintManagerHost()->DidPrintDocument(std::move(page_params), &completed);
   return completed;
@@ -2161,29 +2375,12 @@ PrintRenderFrameHelper::ComputePageLayoutInPointsForCss(
     bool ignore_css_margins,
     double* scale_factor) {
   double input_scale_factor = *scale_factor;
-  mojom::PrintParamsPtr params = CalculatePrintParamsForCss(
-      frame, page_index, page_params, ignore_css_margins,
-      IsPrintScalingOptionFitToPage(page_params), scale_factor);
-  return CalculatePageLayoutFromPrintParams(*params, input_scale_factor);
-}
-
-// static - Not anonymous so that platform implementations can use it.
-std::vector<uint32_t> PrintRenderFrameHelper::GetPrintedPages(
-    const mojom::PrintPagesParams& params,
-    uint32_t page_count) {
-  std::vector<uint32_t> printed_pages;
-  if (params.pages.empty()) {
-    for (uint32_t i = 0; i < page_count; ++i) {
-      printed_pages.push_back(i);
-    }
-  } else {
-    for (uint32_t page : params.pages) {
-      if (page != kInvalidPageIndex && page < page_count) {
-        printed_pages.push_back(page);
-      }
-    }
-  }
-  return printed_pages;
+  PrintParamsWithFloatingSize params_with_floating_size =
+      CalculatePrintParamsForCss(
+          frame, page_index, page_params, ignore_css_margins,
+          IsPrintScalingOptionFitToPage(page_params), scale_factor);
+  return CalculatePageLayoutFromPrintParams(params_with_floating_size,
+                                            input_scale_factor);
 }
 
 void PrintRenderFrameHelper::IPCReceived() {
@@ -2201,42 +2398,40 @@ void PrintRenderFrameHelper::IPCProcessed() {
   --ipc_nesting_level_;
   if (ipc_nesting_level_ == 0 && render_frame_gone_ && !delete_pending_) {
     delete_pending_ = true;
-    base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, this);
+    base::SingleThreadTaskRunner::GetCurrentDefault()->DeleteSoon(FROM_HERE,
+                                                                  this);
   }
 }
 
 bool PrintRenderFrameHelper::InitPrintSettings(bool fit_to_paper_size) {
-  mojom::PrintPagesParams settings;
-  settings.params = mojom::PrintParams::New();
-  GetPrintManagerHost()->GetDefaultPrintSettings(&settings.params);
-
-  // Check if the printer returned any settings, if the settings is empty, we
-  // can safely assume there are no printer drivers configured. So we safely
-  // terminate.
-  bool result = true;
-  if (!PrintMsg_Print_Params_IsValid(*settings.params))
-    result = false;
-
   // Reset to default values.
   ignore_css_margins_ = false;
-  settings.pages.clear();
+
+  mojom::PrintPagesParams settings;
+  GetPrintManagerHost()->GetDefaultPrintSettings(&settings.params);
+
+  // Check if the printer returned any settings, if the settings are null,
+  // assume there are no printer drivers configured. So safely terminate.
+  if (!settings.params) {
+    // Caller will reset `print_pages_params_`.
+    return false;
+  }
 
   settings.params->print_scaling_option =
       fit_to_paper_size ? mojom::PrintScalingOption::kFitToPrintableArea
                         : mojom::PrintScalingOption::kSourceSize;
-
   SetPrintPagesParams(settings);
-  return result;
+  return true;
 }
 
 bool PrintRenderFrameHelper::CalculateNumberOfPages(blink::WebLocalFrame* frame,
                                                     const blink::WebNode& node,
                                                     uint32_t* number_of_pages) {
   DCHECK(frame);
-  bool fit_to_paper_size = !IsPrintingNodeOrPdfFrame(frame, node);
+  bool fit_to_paper_size = !IsPrintingPdfFrame(frame, node);
   if (!InitPrintSettings(fit_to_paper_size)) {
+    // Browser triggered this code path. It already knows about the failure.
     notify_browser_of_print_failure_ = false;
-    GetPrintManagerHost()->ShowInvalidPrinterSettingsError();
     return false;
   }
 
@@ -2269,68 +2464,36 @@ PrintRenderFrameHelper::SetOptionsFromPdfDocument() {
 bool PrintRenderFrameHelper::UpdatePrintSettings(
     blink::WebLocalFrame* frame,
     const blink::WebNode& node,
-    const base::DictionaryValue& passed_job_settings) {
-  if (passed_job_settings.DictEmpty()) {
-    // TODO(thestig): Remove this block in the future, when we are certain this
-    // is not reachable.
-    NOTREACHED();
-    print_preview_context_.set_error(PREVIEW_ERROR_BAD_SETTING);
-    return false;
-  }
+    base::Value::Dict passed_job_settings) {
+  CHECK(!passed_job_settings.empty());
 
-  base::DictionaryValue modified_job_settings;
-  const base::DictionaryValue* job_settings;
-  bool source_is_html = !IsPrintingNodeOrPdfFrame(frame, node);
+  base::Value::Dict modified_job_settings;
+  const base::Value::Dict* job_settings;
+  bool source_is_html = !IsPrintingPdfFrame(frame, node);
   if (source_is_html) {
     job_settings = &passed_job_settings;
   } else {
-    modified_job_settings.MergeDictionary(&passed_job_settings);
-    modified_job_settings.SetBoolKey(kSettingHeaderFooterEnabled, false);
-    modified_job_settings.SetIntKey(
-        kSettingMarginsType, static_cast<int>(mojom::MarginType::kNoMargins));
+    modified_job_settings.Merge(std::move(passed_job_settings));
+    modified_job_settings.Set(kSettingHeaderFooterEnabled, false);
+    modified_job_settings.Set(kSettingMarginsType,
+                              static_cast<int>(mojom::MarginType::kNoMargins));
     job_settings = &modified_job_settings;
   }
 
-  // Send the cookie so that UpdatePrintSettings can reuse PrinterQuery when
-  // possible.
-  int cookie =
-      print_pages_params_ ? print_pages_params_->params->document_cookie : 0;
   mojom::PrintPagesParamsPtr settings;
-  bool canceled = false;
-  GetPrintManagerHost()->UpdatePrintSettings(cookie, job_settings->Clone(),
-                                             &settings, &canceled);
-
-  // If mojom::PrintManagerHost is disconnected in the browser after calling
-  // UpdatePrintSettings(), |settings| could be null.
+  GetPrintManagerHost()->UpdatePrintSettings(job_settings->Clone(), &settings);
   if (!settings) {
     print_preview_context_.set_error(PREVIEW_ERROR_EMPTY_PRINTER_SETTINGS);
     return false;
   }
 
-  if (canceled) {
-    notify_browser_of_print_failure_ = false;
-    return false;
-  }
-
-  // TODO(dhoss): Replace deprecated base::DictionaryValue::Get<Type>() calls
-  if (!job_settings->GetInteger(kPreviewUIID,
-                                &settings->params->preview_ui_id)) {
-    NOTREACHED();
-    print_preview_context_.set_error(PREVIEW_ERROR_BAD_SETTING);
-    return false;
-  }
+  settings->params->preview_ui_id = job_settings->FindInt(kPreviewUIID).value();
 
   // Validate expected print preview settings.
-  absl::optional<bool> is_first_request =
-      job_settings->FindBoolKey(kIsFirstRequest);
-  if (!job_settings->GetInteger(kPreviewRequestID,
-                                &settings->params->preview_request_id) ||
-      !is_first_request.has_value()) {
-    NOTREACHED();
-    print_preview_context_.set_error(PREVIEW_ERROR_BAD_SETTING);
-    return false;
-  }
-  settings->params->is_first_request = is_first_request.value();
+  settings->params->is_first_request =
+      job_settings->FindBool(kIsFirstRequest).value();
+  settings->params->preview_request_id =
+      job_settings->FindInt(kPreviewRequestID).value();
 
   settings->params->print_to_pdf = IsPrintToPdfRequested(*job_settings);
   UpdateFrameMarginsCssInfo(*job_settings);
@@ -2338,12 +2501,7 @@ bool PrintRenderFrameHelper::UpdatePrintSettings(
       frame, node, source_is_html, *job_settings, *settings->params);
 
   SetPrintPagesParams(*settings);
-
-  if (PrintMsg_Print_Params_IsValid(*settings->params))
-    return true;
-
-  print_preview_context_.set_error(PREVIEW_ERROR_INVALID_PRINTER_SETTINGS);
-  return false;
+  return true;
 }
 #endif  // BUILDFLAG(ENABLE_PRINT_PREVIEW)
 
@@ -2360,11 +2518,10 @@ mojom::PrintPagesParamsPtr PrintRenderFrameHelper::GetPrintSettingsFromUser(
   params->has_selection = frame->HasSelection();
   params->expected_pages_count = expected_pages_count;
   mojom::MarginType margin_type = mojom::MarginType::kDefaultMargins;
-  if (IsPrintingNodeOrPdfFrame(frame, node))
+  if (IsPrintingPdfFrame(frame, node))
     margin_type = GetMarginsForPdf(frame, node, *print_pages_params_->params);
   params->margin_type = margin_type;
   params->is_scripted = is_scripted;
-  params->is_modifiable = !IsPrintingNodeOrPdfFrame(frame, node);
 
   GetPrintManagerHost()->DidShowPrintDialog();
 
@@ -2411,22 +2568,13 @@ bool PrintRenderFrameHelper::RenderPagesForPrint(blink::WebLocalFrame* frame,
   return true;
 }
 
-#if !BUILDFLAG(IS_APPLE)
 void PrintRenderFrameHelper::PrintPageInternal(const mojom::PrintParams& params,
                                                uint32_t page_number,
                                                uint32_t page_count,
                                                double scale_factor,
                                                blink::WebLocalFrame* frame,
-                                               MetafileSkia* metafile,
-                                               gfx::Size* page_size_in_dpi,
-                                               gfx::Rect* content_area_in_dpi) {
+                                               MetafileSkia* metafile) {
   double css_scale_factor = scale_factor;
-
-  // Save the original page size here to avoid rounding errors incurred by
-  // converting to pixels and back and by scaling the page for reflow and
-  // scaling back. Windows uses |page_size_in_dpi| for the actual page size
-  // so requires an accurate value.
-  gfx::Size original_page_size = params.page_size;
   mojom::PageSizeMarginsPtr page_layout_in_points =
       ComputePageLayoutInPointsForCss(frame, page_number, params,
                                       ignore_css_margins_, &css_scale_factor);
@@ -2436,26 +2584,11 @@ void PrintRenderFrameHelper::PrintPageInternal(const mojom::PrintParams& params,
   GetPageSizeAndContentAreaFromPageLayout(*page_layout_in_points, &page_size,
                                           &content_area);
 
-  // Calculate the actual page size and content area in dpi.
-  if (page_size_in_dpi)
-    *page_size_in_dpi = original_page_size;
-
-  if (content_area_in_dpi) {
-    // Output PDF matches paper size and should be printer edge to edge.
-    *content_area_in_dpi =
-        gfx::Rect(0, 0, page_size_in_dpi->width(), page_size_in_dpi->height());
-  }
-
   gfx::Rect canvas_area =
       params.display_header_footer ? gfx::Rect(page_size) : content_area;
 
-  // TODO(thestig): Figure out why Linux is different.
-#if BUILDFLAG(IS_WIN)
   float webkit_page_shrink_factor = frame->GetPrintPageShrink(page_number);
   float final_scale_factor = css_scale_factor * webkit_page_shrink_factor;
-#else
-  float final_scale_factor = css_scale_factor;
-#endif
 
   cc::PaintCanvas* canvas = metafile->GetVectorCanvasForNewPage(
       page_size, canvas_area, final_scale_factor, params.page_orientation);
@@ -2465,29 +2598,18 @@ void PrintRenderFrameHelper::PrintPageInternal(const mojom::PrintParams& params,
   canvas->SetPrintingMetafile(metafile);
 
   if (params.display_header_footer) {
-#if BUILDFLAG(IS_WIN)
-    const float fudge_factor = 1;
-#else
-    // TODO(thestig): Figure out why Linux needs this. It is almost certainly
-    // |kPrintingMinimumShrinkFactor| from Blink.
-    const float fudge_factor = kPrintingMinimumShrinkFactor;
-#endif
     // |page_number| is 0-based, so 1 is added.
     PrintHeaderAndFooter(canvas, page_number + 1, page_count, *frame,
-                         final_scale_factor / fudge_factor,
-                         *page_layout_in_points, params);
+                         final_scale_factor, *page_layout_in_points, params);
   }
 
-  float webkit_scale_factor =
-      RenderPageContent(frame, page_number, canvas_area, content_area,
-                        final_scale_factor, canvas);
-  DCHECK_GT(webkit_scale_factor, 0.0f);
+  RenderPageContent(frame, page_number, canvas_area, content_area,
+                    final_scale_factor, canvas);
 
   // Done printing. Close the canvas to retrieve the compiled metafile.
   bool ret = metafile->FinishPage();
   DCHECK(ret);
 }
-#endif  // !BUILDFLAG(IS_APPLE)
 
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW)
 void PrintRenderFrameHelper::ShowScriptedPrintPreview() {
@@ -2504,7 +2626,7 @@ void PrintRenderFrameHelper::WaitForLoad(PrintPreviewRequestType type) {
   on_stop_loading_closure_ =
       base::BindOnce(&PrintRenderFrameHelper::RequestPrintPreview,
                      weak_ptr_factory_.GetWeakPtr(), type, true);
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&PrintRenderFrameHelper::DidFinishLoadForPrinting,
                      weak_ptr_factory_.GetWeakPtr()),
@@ -2524,19 +2646,16 @@ void PrintRenderFrameHelper::RequestPrintPreview(PrintPreviewRequestType type,
     is_loading_ = print_preview_context_.source_frame()->WillPrintSoon();
   }
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   const bool is_from_arc = print_preview_context_.IsForArc();
+#endif
   const bool is_modifiable = print_preview_context_.IsModifiable();
   const bool has_selection = print_preview_context_.HasSelection();
 
-  // If tagged PDF exporting is enabled, we also need to capture an
-  // accessibility tree. AXTreeSnapshotter should stay alive through the end of
-  // the scope of printing, because text drawing commands are only annotated
-  // with a DOMNodeId if accessibility is enabled.
-  if (delegate_->ShouldGenerateTaggedPDF())
-    snapshotter_ = render_frame()->CreateAXTreeSnapshotter(ui::AXMode::kPDF);
-
   auto params = mojom::RequestPrintPreviewParams::New();
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   params->is_from_arc = is_from_arc;
+#endif
   params->is_modifiable = is_modifiable;
   params->has_selection = has_selection;
   switch (type) {
@@ -2557,7 +2676,7 @@ void PrintRenderFrameHelper::RequestPrintPreview(PrintPreviewRequestType type,
         WaitForLoad(type);
         return;
       }
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE,
           base::BindOnce(&PrintRenderFrameHelper::ShowScriptedPrintPreview,
                          weak_ptr_factory_.GetWeakPtr()));
@@ -2615,10 +2734,12 @@ void PrintRenderFrameHelper::RequestPrintPreview(PrintPreviewRequestType type,
     }
   }
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   if (print_preview_context_.IsForArc()) {
     base::UmaHistogramEnumeration("Arc.PrintPreview.PreviewEvent",
                                   PREVIEW_EVENT_INITIATED, PREVIEW_EVENT_MAX);
   }
+#endif
   GetPrintManagerHost()->RequestPrintPreview(std::move(params));
 }
 
@@ -2660,8 +2781,7 @@ bool PrintRenderFrameHelper::PreviewPageRendered(
   // http://crbug.com/1039817
   if (snapshotter_ && page_number == 0) {
     ui::AXTreeUpdate accessibility_tree;
-    snapshotter_->Snapshot(/* exclude_offscreen= */ false,
-                           /* max_node_count= */ 0,
+    snapshotter_->Snapshot(/* max_node_count= */ 0,
                            /* timeout= */ {}, &accessibility_tree);
     GetPrintManagerHost()->SetAccessibilityTree(
         print_pages_params_->params->document_cookie, accessibility_tree);
@@ -2670,9 +2790,9 @@ bool PrintRenderFrameHelper::PreviewPageRendered(
 
   auto preview_page_params = mojom::DidPreviewPageParams::New();
   preview_page_params->content = mojom::DidPrintContentParams::New();
-  if (!CopyMetafileDataToReadOnlySharedMem(
+  if (!CopyMetafileDataToDidPrintContentParams(
           *metafile, preview_page_params->content.get())) {
-    LOG(ERROR) << "CopyMetafileDataToReadOnlySharedMem failed";
+    LOG(ERROR) << "CopyMetafileDataToDidPrintContentParams failed";
     print_preview_context_.set_error(PREVIEW_ERROR_METAFILE_COPY_FAILED);
     return false;
   }
@@ -2736,7 +2856,7 @@ void PrintRenderFrameHelper::PrintPreviewContext::OnPrintPreview() {
 
 bool PrintRenderFrameHelper::PrintPreviewContext::CreatePreviewDocument(
     std::unique_ptr<PrepareFrameAndViewForPrint> prepared_frame,
-    const std::vector<uint32_t>& pages,
+    const PageRanges& pages,
     mojom::SkiaDocumentType doc_type,
     int document_cookie,
     bool require_document_metafile) {
@@ -2761,24 +2881,14 @@ bool PrintRenderFrameHelper::PrintPreviewContext::CreatePreviewDocument(
   }
 
   current_page_index_ = 0;
-  pages_to_render_ = pages;
-  // Sort and make unique.
-  std::sort(pages_to_render_.begin(), pages_to_render_.end());
-  pages_to_render_.resize(
-      std::unique(pages_to_render_.begin(), pages_to_render_.end()) -
-      pages_to_render_.begin());
-  // Remove invalid pages.
-  pages_to_render_.resize(std::lower_bound(pages_to_render_.begin(),
-                                           pages_to_render_.end(),
-                                           total_page_count_) -
-                          pages_to_render_.begin());
-
-  if (pages_to_render_.empty()) {
-    // Render all pages.
-    pages_to_render_.reserve(total_page_count_);
-    for (uint32_t i = 0; i < total_page_count_; ++i)
-      pages_to_render_.push_back(i);
-  }
+  pages_to_render_ = PageNumber::GetPages(pages, total_page_count_);
+  // If preview settings along with specified ranges resulted in 0 pages,
+  // (e.g. page "2" with a document of a single page), print the entire
+  // document. This is a legacy behavior that only makes sense for preview,
+  // where the client expects that and will adjust page ranges based on
+  // actual document returned.
+  if (pages_to_render_.empty())
+    pages_to_render_ = PageNumber::GetPages({}, total_page_count_);
   print_ready_metafile_page_count_ = pages_to_render_.size();
 
   document_render_time_ = base::TimeDelta();
@@ -2791,7 +2901,6 @@ void PrintRenderFrameHelper::PrintPreviewContext::RenderedPreviewPage(
     const base::TimeDelta& page_time) {
   DCHECK_EQ(RENDERING, state_);
   document_render_time_ += page_time;
-  base::UmaHistogramTimes("PrintPreview.RenderPDFPageTime", page_time);
 }
 
 void PrintRenderFrameHelper::PrintPreviewContext::RenderedPreviewDocument(
@@ -2842,9 +2951,12 @@ void PrintRenderFrameHelper::PrintPreviewContext::Failed(bool report_error) {
   state_ = INITIALIZED;
   if (report_error) {
     DCHECK_NE(PREVIEW_ERROR_NONE, error_);
-    base::UmaHistogramEnumeration(is_for_arc_ ? "Arc.PrintPreview.RendererError"
-                                              : "PrintPreview.RendererError",
-                                  error_, PREVIEW_ERROR_LAST_ENUM);
+    const char* name = "PrintPreview.RendererError";
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+    if (is_for_arc_)
+      name = "Arc.PrintPreview.RendererError";
+#endif
+    base::UmaHistogramEnumeration(name, error_, PREVIEW_ERROR_LAST_ENUM);
   }
   ClearContext();
 }
@@ -2860,10 +2972,12 @@ bool PrintRenderFrameHelper::PrintPreviewContext::IsRendering() const {
   return state_ == RENDERING || state_ == DONE;
 }
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 bool PrintRenderFrameHelper::PrintPreviewContext::IsForArc() const {
   DCHECK_NE(state_, UNINITIALIZED);
   return is_for_arc_;
 }
+#endif
 
 bool PrintRenderFrameHelper::PrintPreviewContext::IsPlugin() const {
   DCHECK(state_ != UNINITIALIZED);
@@ -2890,9 +3004,11 @@ bool PrintRenderFrameHelper::PrintPreviewContext::IsFinalPageRendered() const {
   return static_cast<size_t>(current_page_index_) == pages_to_render_.size();
 }
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 void PrintRenderFrameHelper::PrintPreviewContext::SetIsForArc(bool is_for_arc) {
   is_for_arc_ = is_for_arc;
 }
+#endif
 
 void PrintRenderFrameHelper::PrintPreviewContext::set_error(
     enum PrintPreviewErrorBuckets error) {
@@ -2965,11 +3081,12 @@ void PrintRenderFrameHelper::PrintPreviewContext::ClearContext() {
 
 void PrintRenderFrameHelper::PrintPreviewContext::CalculatePluginAttributes() {
   is_plugin_ = !!source_frame()->GetPluginToPrint(source_node_);
-  is_modifiable_ = !IsPrintingNodeOrPdfFrame(source_frame(), source_node_);
+  is_modifiable_ = !IsPrintingPdfFrame(source_frame(), source_node_);
 }
 
 void PrintRenderFrameHelper::SetPrintPagesParams(
     const mojom::PrintPagesParams& settings) {
+  CHECK(PrintMsgPrintParamsIsValid(*settings.params));
   print_pages_params_ = settings.Clone();
 }
 

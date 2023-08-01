@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,10 @@
 #include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/system_tray_test_api.h"
 #include "ash/public/cpp/test/shell_test_api.h"
-#include "base/bind.h"
+#include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
+#include "base/path_service.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_path_override.h"
 #include "base/test/task_environment.h"
@@ -29,16 +31,19 @@
 #include "chrome/browser/ash/login/test/test_predicate_waiter.h"
 #include "chrome/browser/ash/login/ui/login_display_host.h"
 #include "chrome/browser/ash/login/wizard_controller.h"
+#include "chrome/browser/ash/settings/cros_settings.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/speech/extension_api/tts_engine_extension_api.h"
-#include "chrome/browser/ui/webui/chromeos/login/enable_debugging_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
-#include "chrome/browser/ui/webui/chromeos/login/welcome_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/enable_debugging_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/gaia_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/oobe_ui.h"
+#include "chrome/browser/ui/webui/ash/login/welcome_screen_handler.h"
+#include "chrome/common/chrome_paths.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/interactive_test_utils.h"
+#include "chromeos/ash/components/settings/cros_settings_names.h"
+#include "chromeos/ash/components/system/fake_statistics_provider.h"
 #include "chromeos/dbus/constants/dbus_switches.h"
-#include "chromeos/system/fake_statistics_provider.h"
 #include "components/language/core/browser/pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/test/browser_test.h"
@@ -47,6 +52,7 @@
 #include "ui/base/ime/ash/extension_ime_util.h"
 
 namespace ash {
+
 namespace {
 
 const char kStartupManifestEnglish[] =
@@ -80,14 +86,17 @@ const test::UIPath kActivateChromeVoxButton = {"connect", "welcomeScreen",
 const char kSetAvailableVoices[] = R"(
       chrome.tts.getVoices = function(callback) {
         callback([
-          {'lang': 'en-US', 'voiceName': 'Chrome OS US English'},
-          {'lang': 'fr-FR', 'voiceName': 'Chrome OS français'}
+          {'lang': 'en-US', 'voiceName': 'ChromeOS US English'},
+          {'lang': 'fr-FR', 'voiceName': 'ChromeOS français'}
         ]);
       };)";
 
 const char kChromeVoxHintLaptopSpokenString[] =
-    "Do you want to activate ChromeVox, the built-in screen reader for Chrome "
-    "OS? If so, press the space bar.";
+    "Do you want to activate ChromeVox, the built-in screen reader for "
+    "ChromeOS? If so, press the space bar.";
+
+constexpr const char kWelcomeScreenLocaleChangeMetric[] =
+    "OOBE.WelcomeScreen.UserChangedLocale";
 
 void ToggleAccessibilityFeature(const std::string& feature_name,
                                 bool new_value) {
@@ -116,12 +125,20 @@ class WelcomeScreenBrowserTest : public OobeBaseTest {
   bool SetUpUserDataDirectory() override {
     if (!OobeBaseTest::SetUpUserDataDirectory())
       return false;
+
     EXPECT_TRUE(data_dir_.CreateUniqueTempDir());
     const base::FilePath startup_manifest =
         data_dir_.GetPath().AppendASCII("startup_manifest.json");
     EXPECT_TRUE(base::WriteFile(startup_manifest, kStartupManifestEnglish));
     path_override_ = std::make_unique<base::ScopedPathOverride>(
         FILE_STARTUP_CUSTOMIZATION_MANIFEST, startup_manifest);
+
+    // Make sure chrome paths are overridden before proceeding - this is usually
+    // done in chrome main, which has not happened yet.
+    base::FilePath user_data_dir;
+    EXPECT_TRUE(base::PathService::Get(chrome::DIR_USER_DATA, &user_data_dir));
+    RegisterStubPathOverrides(user_data_dir);
+
     return true;
   }
 
@@ -144,20 +161,8 @@ class WelcomeScreenBrowserTest : public OobeBaseTest {
   base::ScopedTempDir data_dir_;
 };
 
-class WelcomeScreenSystemDevModeBrowserTest : public WelcomeScreenBrowserTest {
- public:
-  WelcomeScreenSystemDevModeBrowserTest() = default;
-  ~WelcomeScreenSystemDevModeBrowserTest() override = default;
-
-  // WelcomeScreenBrowserTest:
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    WelcomeScreenBrowserTest::SetUpCommandLine(command_line);
-    command_line->AppendSwitch(chromeos::switches::kSystemDevMode);
-  }
-};
-
 IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest, WelcomeScreenElements) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
 
   test::OobeJS().ExpectVisiblePath({"connect", "welcomeScreen"});
   test::OobeJS().ExpectHiddenPath({"connect", "accessibilityScreen"});
@@ -178,19 +183,19 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest, WelcomeScreenElements) {
 // for measurements during OOBE speedup work. Also verifies OOBE.WebUI.LoadTime
 // metric.
 IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest, OobeStartupTime) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   histogram_tester_.ExpectTotalCount("OOBE.WebUI.LoadTime.FirstRun", 1);
 }
 
 IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest, WelcomeScreenNext) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   test::OobeJS().TapOnPath({"connect", "welcomeScreen", "getStarted"});
   WaitForScreenExit();
 }
 
 // Set of browser tests for Welcome Screen Language options.
 IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest, WelcomeScreenLanguageFlow) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   test::OobeJS().TapOnPath(
       {"connect", "welcomeScreen", "languageSelectionButton"});
 
@@ -201,7 +206,7 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest, WelcomeScreenLanguageFlow) {
 
 IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest,
                        WelcomeScreenLanguageElements) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   test::OobeJS().TapOnPath(
       {"connect", "welcomeScreen", "languageSelectionButton"});
 
@@ -213,7 +218,7 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest,
                        WelcomeScreenLanguageSelection) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
 
   test::OobeJS().TapOnPath(
       {"connect", "welcomeScreen", "languageSelectionButton"});
@@ -243,7 +248,7 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest,
                        WelcomeScreenKeyboardSelection) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   test::OobeJS().TapOnPath(
       {"connect", "welcomeScreen", "languageSelectionButton"});
 
@@ -266,7 +271,7 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest,
 // Set of browser tests for Welcome Screen Accessibility options.
 IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest,
                        WelcomeScreenAccessibilityFlow) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   test::OobeJS().TapOnPath(
       {"connect", "welcomeScreen", "accessibilitySettingsButton"});
 
@@ -277,7 +282,7 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest,
                        WelcomeScreenAccessibilitySpokenFeedback) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   test::OobeJS().TapOnPath(
       {"connect", "welcomeScreen", "accessibilitySettingsButton"});
 
@@ -299,7 +304,7 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest,
                        WelcomeScreenAccessibilityLargeCursor) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   test::OobeJS().TapOnPath(
       {"connect", "welcomeScreen", "accessibilitySettingsButton"});
 
@@ -321,7 +326,7 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest,
                        WelcomeScreenAccessibilityHighContrast) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   test::OobeJS().TapOnPath(
       {"connect", "welcomeScreen", "accessibilitySettingsButton"});
 
@@ -343,7 +348,7 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest,
                        WelcomeScreenAccessibilitySelectToSpeak) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   test::OobeJS().TapOnPath(
       {"connect", "welcomeScreen", "accessibilitySettingsButton"});
 
@@ -365,7 +370,7 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest,
                        WelcomeScreenAccessibilityScreenMagnifier) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   test::OobeJS().TapOnPath(
       {"connect", "welcomeScreen", "accessibilitySettingsButton"});
 
@@ -387,7 +392,7 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest,
                        WelcomeScreenAccessibilityDockedMagnifier) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   test::OobeJS().TapOnPath(
       {"connect", "welcomeScreen", "accessibilitySettingsButton"});
 
@@ -411,10 +416,10 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest, PRE_SelectedLanguage) {
   EXPECT_EQ(
       StartupCustomizationDocument::GetInstance()->initial_locale_default(),
       "en-US");
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   const std::string locale = "ru";
   test::LanguageReloadObserver observer(welcome_screen());
-  welcome_screen()->SetApplicationLocale(locale);
+  welcome_screen()->SetApplicationLocale(locale, /*is_from_ui*/ true);
   observer.Wait();
 
   EXPECT_EQ(g_browser_process->local_state()->GetString(
@@ -437,7 +442,7 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest, SelectedLanguage) {
 }
 
 IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest, A11yVirtualKeyboard) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   test::OobeJS().TapOnPath(
       {"connect", "welcomeScreen", "accessibilitySettingsButton"});
 
@@ -457,9 +462,58 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest, A11yVirtualKeyboard) {
   histogram_tester_.ExpectTotalCount("OOBE.WelcomeScreen.A11yUserActions", 2);
 }
 
+// Set of tests for the OOBE.WelcomeScreen.UserChangedLocale
+IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest, UserChangedLocaleMetric) {
+  test::WaitForWelcomeScreen();
+  // We need to proceed to the next screen because metric is written right
+  // before we call exit_callback_().
+  test::OobeJS().TapOnPath({"connect", "welcomeScreen", "getStarted"});
+  WaitForScreenExit();
+  histogram_tester_.ExpectTotalCount(kWelcomeScreenLocaleChangeMetric, 1);
+  histogram_tester_.ExpectUniqueSample(kWelcomeScreenLocaleChangeMetric, false,
+                                       1);
+}
+
+IN_PROC_BROWSER_TEST_F(WelcomeScreenBrowserTest,
+                       UserChangedLocaleMetricAfterUILocaleChange) {
+  test::WaitForWelcomeScreen();
+
+  test::OobeJS().TapOnPath(
+      {"connect", "welcomeScreen", "languageSelectionButton"});
+  EXPECT_EQ(g_browser_process->GetApplicationLocale(), "en-US");
+
+  test::OobeJS().ExpectEQ(kCurrentLang, std::string("English (United States)"));
+
+  test::LanguageReloadObserver observer(welcome_screen());
+  test::OobeJS().SelectElementInPath("fr",
+                                     {"connect", "languageSelect", "select"});
+  observer.Wait();
+  test::OobeJS().ExpectEQ(kCurrentLang, std::string("français"));
+  EXPECT_EQ(g_browser_process->GetApplicationLocale(), "fr");
+
+  test::OobeJS().TapOnPath({"connect", "welcomeScreen", "getStarted"});
+  WaitForScreenExit();
+
+  histogram_tester_.ExpectTotalCount(kWelcomeScreenLocaleChangeMetric, 1);
+  histogram_tester_.ExpectUniqueSample(kWelcomeScreenLocaleChangeMetric, true,
+                                       1);
+}
+
+class WelcomeScreenSystemDevModeBrowserTest : public WelcomeScreenBrowserTest {
+ public:
+  WelcomeScreenSystemDevModeBrowserTest() = default;
+  ~WelcomeScreenSystemDevModeBrowserTest() override = default;
+
+  // WelcomeScreenBrowserTest:
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    WelcomeScreenBrowserTest::SetUpCommandLine(command_line);
+    command_line->AppendSwitch(chromeos::switches::kSystemDevMode);
+  }
+};
+
 IN_PROC_BROWSER_TEST_F(WelcomeScreenSystemDevModeBrowserTest,
                        DebuggerModeTest) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   test::OobeJS().ClickOnPath(
       {"connect", "welcomeScreen", "enableDebuggingButton"});
 
@@ -472,6 +526,23 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenSystemDevModeBrowserTest,
       {"debugging", "removeProtectionCancelButton"});
   test::OobeJS().ExpectVisiblePath({"debugging", "help-link"});
   test::OobeJS().ClickOnPath({"debugging", "removeProtectionCancelButton"});
+}
+
+class WelcomeScreenHandsOffBrowserTest : public WelcomeScreenBrowserTest {
+ public:
+  WelcomeScreenHandsOffBrowserTest() = default;
+  ~WelcomeScreenHandsOffBrowserTest() override = default;
+
+  // WelcomeScreenBrowserTest:
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    WelcomeScreenBrowserTest::SetUpCommandLine(command_line);
+    command_line->AppendSwitchASCII(
+        switches::kEnterpriseEnableZeroTouchEnrollment, "hands-off");
+  }
+};
+
+IN_PROC_BROWSER_TEST_F(WelcomeScreenHandsOffBrowserTest, SkipScreen) {
+  WaitForScreenExit();
 }
 
 class WelcomeScreenTimezone : public WelcomeScreenBrowserTest {
@@ -501,7 +572,7 @@ class WelcomeScreenTimezone : public WelcomeScreenBrowserTest {
 };
 
 IN_PROC_BROWSER_TEST_F(WelcomeScreenTimezone, ChangeTimezoneFlow) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   test::OobeJS().TapOnPath(
       {"connect", "welcomeScreen", "timezoneSettingsButton"});
 
@@ -579,17 +650,19 @@ class WelcomeScreenChromeVoxHintTest : public WelcomeScreenBrowserTest {
 
 // Assert that the ChromeVox hint gives speech output and shows a dialog.
 // Clicking the 'activate' button in the dialog should activate ChromeVox.
-IN_PROC_BROWSER_TEST_F(WelcomeScreenChromeVoxHintTest, LaptopClick) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
-  // A sanity check to ensure the ChromeVox hint idle detector is disabled for
-  // this and similar tests.
+// crbug.com/1341515 Disabled due to flakiness.
+IN_PROC_BROWSER_TEST_F(WelcomeScreenChromeVoxHintTest, DISABLED_LaptopClick) {
+  test::WaitForWelcomeScreen();
+  // A consistency check to ensure the ChromeVox hint idle detector is disabled
+  // for this and similar tests.
   ASSERT_FALSE(IdleDetectionActivatedForTesting());
   TtsExtensionEngine::GetInstance()->DisableBuiltInTTSEngineForTesting();
   test::ExecuteOobeJS(kSetAvailableVoices);
   test::SpeechMonitor monitor;
   test::OobeJS().ExpectAttributeEQ("open", kChromeVoxHintDialog, false);
   GiveChromeVoxHintForTesting();
-  // A sanity check to ensure we stop idle detection after the hint is given.
+  // A consistency check to ensure we stop idle detection after the hint is
+  // given.
   ASSERT_TRUE(IdleDetectionCancelledForTesting());
   monitor.ExpectSpeech(kChromeVoxHintLaptopSpokenString);
   monitor.Call([this]() {
@@ -613,7 +686,7 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenChromeVoxHintTest, LaptopClick) {
 // Assert that the ChromeVox hint gives speech output and shows a dialog.
 // Pressing the space bar while the dialog is open should activate ChromeVox.
 IN_PROC_BROWSER_TEST_F(WelcomeScreenChromeVoxHintTest, LaptopSpaceBar) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   TtsExtensionEngine::GetInstance()->DisableBuiltInTTSEngineForTesting();
   test::ExecuteOobeJS(kSetAvailableVoices);
   test::SpeechMonitor monitor;
@@ -642,7 +715,7 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenChromeVoxHintTest, LaptopSpaceBar) {
 
 // Tests the ChromeVox hint speech given in tablet mode.
 IN_PROC_BROWSER_TEST_F(WelcomeScreenChromeVoxHintTest, Tablet) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   TtsExtensionEngine::GetInstance()->DisableBuiltInTTSEngineForTesting();
   test::ExecuteOobeJS(kSetAvailableVoices);
   ShellTestApi().SetTabletModeEnabledForTest(true);
@@ -650,21 +723,24 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenChromeVoxHintTest, Tablet) {
   GiveChromeVoxHintForTesting();
   monitor.ExpectSpeech(
       "Do you want to activate ChromeVox, the built-in screen reader for "
-      "Chrome OS? If so, press and hold both volume keys for five seconds.");
+      "ChromeOS? If so, press and hold both volume keys for five seconds.");
   monitor.Replay();
   WaitForSpokenSuccessMetric();
 }
 
 // Tests that the ChromeVox hint can be spoken, even if the necessary voice
 // hasn't loaded when the idle detector has fired.
-IN_PROC_BROWSER_TEST_F(WelcomeScreenChromeVoxHintTest, VoicesChanged) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+// TODO(b/283990894) - Re-enable test.
+IN_PROC_BROWSER_TEST_F(WelcomeScreenChromeVoxHintTest, DISABLED_VoicesChanged) {
   TtsExtensionEngine::GetInstance()->DisableBuiltInTTSEngineForTesting();
   const std::string set_no_english_voice = R"(
-    chrome.tts.getVoices = function(callback) {
-      callback([{'lang': 'fr-FR', 'voiceName': 'Chrome OS français'}]);
-    };)";
+  chrome.tts.getVoices = function(callback) {
+    callback([{'lang': 'fr-FR', 'voiceName': 'ChromeOS français'}]);
+  };)";
   test::ExecuteOobeJS(set_no_english_voice);
+
+  test::WaitForWelcomeScreen();
+
   test::SpeechMonitor monitor;
   test::OobeJS().ExpectAttributeEQ("open", kChromeVoxHintDialog, false);
   GiveChromeVoxHintForTesting();
@@ -677,8 +753,8 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenChromeVoxHintTest, VoicesChanged) {
   const std::string load_english_voice = R"(
     chrome.tts.getVoices = function(callback) {
       callback([
-        {'lang': 'fr-FR', 'voiceName': 'Chrome OS français'},
-        {'lang': 'en-US', 'voiceName': 'Chrome OS US English'},
+        {'lang': 'fr-FR', 'voiceName': 'ChromeOS français'},
+        {'lang': 'en-US', 'voiceName': 'ChromeOS US English'},
       ]);
     };
     window.speechSynthesis.dispatchEvent(new Event('voiceschanged'));
@@ -692,14 +768,14 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenChromeVoxHintTest, VoicesChanged) {
 // Assert that clicking on one of the three buttons on the welcome screen
 // cancels the ChromeVox hint.
 IN_PROC_BROWSER_TEST_F(WelcomeScreenChromeVoxHintTest, CancelHint) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   ASSERT_FALSE(IdleDetectionCancelledForTesting());
   test::OobeJS().ClickOnPath(
       {"connect", "welcomeScreen", "accessibilitySettingsButton"});
   ASSERT_TRUE(IdleDetectionCancelledForTesting());
 }
 
-#if BUILDFLAG(IS_CHROMEOS) && !defined(NDEBUG)
+#if !defined(NDEBUG)
 #define MAYBE_ActivateChromeVoxBeforeHint DISABLED_ActivateChromeVoxBeforeHint
 #else
 #define MAYBE_ActivateChromeVoxBeforeHint ActivateChromeVoxBeforeHint
@@ -708,7 +784,7 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenChromeVoxHintTest, CancelHint) {
 // timeout.
 IN_PROC_BROWSER_TEST_F(WelcomeScreenChromeVoxHintTest,
                        MAYBE_ActivateChromeVoxBeforeHint) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   ASSERT_FALSE(IdleDetectionCancelledForTesting());
   ToggleAccessibilityFeature("accessibility-spoken-feedback", true);
   ASSERT_TRUE(AccessibilityManager::Get()->IsSpokenFeedbackEnabled());
@@ -719,7 +795,7 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenChromeVoxHintTest,
 // dialog.
 IN_PROC_BROWSER_TEST_F(WelcomeScreenChromeVoxHintTest,
                        DISABLED_ActivateChromeVoxAfterHint) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   TtsExtensionEngine::GetInstance()->DisableBuiltInTTSEngineForTesting();
   test::ExecuteOobeJS(kSetAvailableVoices);
   test::OobeJS().ExpectAttributeEQ("open", kChromeVoxHintDialog, false);
@@ -735,7 +811,7 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenChromeVoxHintTest,
 // Assert that we can dismiss the ChromeVox hint dialog and that the appropriate
 // metrics get recorded.
 IN_PROC_BROWSER_TEST_F(WelcomeScreenChromeVoxHintTest, DismissAfterHint) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   TtsExtensionEngine::GetInstance()->DisableBuiltInTTSEngineForTesting();
   test::ExecuteOobeJS(kSetAvailableVoices);
   test::OobeJS().ExpectAttributeEQ("open", kChromeVoxHintDialog, false);
@@ -753,7 +829,7 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenChromeVoxHintTest, DismissAfterHint) {
 // focus when using tab.
 // TODO(crbug/1161398): The test is flaky.
 IN_PROC_BROWSER_TEST_F(WelcomeScreenChromeVoxHintTest, DISABLED_TrapFocus) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   TtsExtensionEngine::GetInstance()->DisableBuiltInTTSEngineForTesting();
   test::ExecuteOobeJS(kSetAvailableVoices);
   test::OobeJS().ExpectAttributeEQ("open", kChromeVoxHintDialog, false);
@@ -787,8 +863,8 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenChromeVoxHintTest, DISABLED_TrapFocus) {
 // Verifies that the ChromeVox idle detector is cancelled when
 // skipToLoginForTesting is called.
 IN_PROC_BROWSER_TEST_F(WelcomeScreenChromeVoxHintTest, SkipToLoginForTesting) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
-  test::ExecuteOobeJS("Oobe.skipToLoginForTesting()");
+  test::WaitForWelcomeScreen();
+  WizardController::default_controller()->SkipToLoginForTesting();
   OobeScreenWaiter(GaiaView::kScreenId).Wait();
 
   EXPECT_TRUE(IdleDetectionCancelledForTesting());
@@ -797,7 +873,7 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenChromeVoxHintTest, SkipToLoginForTesting) {
 // Verifies that the ChromeVox idle detector is cancelled when the status tray
 // is shown.
 IN_PROC_BROWSER_TEST_F(WelcomeScreenChromeVoxHintTest, StatusTray) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   ASSERT_FALSE(IdleDetectionCancelledForTesting());
   SystemTrayTestApi::Create()->ShowBubble();
   ASSERT_TRUE(IdleDetectionCancelledForTesting());
@@ -805,7 +881,7 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenChromeVoxHintTest, StatusTray) {
 
 // Verifies that TTS output stops after the user has closed the dialog.
 IN_PROC_BROWSER_TEST_F(WelcomeScreenChromeVoxHintTest, StopSpeechAfterClose) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   TtsExtensionEngine::GetInstance()->DisableBuiltInTTSEngineForTesting();
   test::ExecuteOobeJS(kSetAvailableVoices);
   const std::string set_is_speaking = R"(
@@ -845,7 +921,7 @@ class WelcomeScreenInternationalChromeVoxHintTest
 // Tests the ChromeVox hint speech can be given in a language other than
 // English.
 IN_PROC_BROWSER_TEST_F(WelcomeScreenInternationalChromeVoxHintTest, SpeakHint) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   TtsExtensionEngine::GetInstance()->DisableBuiltInTTSEngineForTesting();
   test::ExecuteOobeJS(kSetAvailableVoices);
   test::SpeechMonitor monitor;
@@ -859,13 +935,13 @@ IN_PROC_BROWSER_TEST_F(WelcomeScreenInternationalChromeVoxHintTest, SpeakHint) {
 // available voice can be loaded.
 IN_PROC_BROWSER_TEST_F(WelcomeScreenInternationalChromeVoxHintTest,
                        DefaultAnnouncement) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   TtsExtensionEngine::GetInstance()->DisableBuiltInTTSEngineForTesting();
   // Load an English voice, but do not load a French voice.
   // Also set the timeout for the fallback hint to 0 MS.
   const std::string set_no_french_voice = R"(
     chrome.tts.getVoices = function(callback) {
-      callback([{'lang': 'en-US', 'voiceName': 'Chrome OS US English'}]);
+      callback([{'lang': 'en-US', 'voiceName': 'ChromeOS US English'}]);
     };)";
   const std::string set_default_hint_timeout_ms = R"(
     document.getElementById('connect').DEFAULT_CHROMEVOX_HINT_TIMEOUT_MS_ = 0;

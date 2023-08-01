@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@ package org.chromium.chrome.browser.merchant_viewer;
 import android.content.Context;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 import android.widget.FrameLayout;
 
 import androidx.annotation.VisibleForTesting;
@@ -27,6 +28,7 @@ import org.chromium.components.thinwebview.ThinWebView;
 import org.chromium.components.thinwebview.ThinWebViewConstraints;
 import org.chromium.components.thinwebview.ThinWebViewFactory;
 import org.chromium.ui.base.IntentRequestTracker;
+import org.chromium.ui.base.ViewUtils;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.modelutil.PropertyModel;
 import org.chromium.ui.modelutil.PropertyModelChangeProcessor;
@@ -92,12 +94,22 @@ public class MerchantTrustBottomSheetCoordinator implements View.OnLayoutChangeL
 
         createToolbarView();
         createThinWebView();
+
+        View toolbarView = mToolbarView.getView();
+        ViewTreeObserver observer = toolbarView.getViewTreeObserver();
+        observer.addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
+            @Override
+            public boolean onPreDraw() {
+                toolbarView.getViewTreeObserver().removeOnPreDrawListener(this);
+                setThinWebViewLayout();
+                return true;
+            }
+        });
+
         mMediator.setupSheetWebContents(mThinWebView, mToolbarModel);
-        mSheetContent = new MerchantTrustBottomSheetContent(mToolbarView.getView(),
-                mThinWebView.getView(), () -> mMediator.getVerticalScrollOffset(), () -> {
-                    closeSheet();
-                    return true;
-                });
+        mSheetContent =
+                new MerchantTrustBottomSheetContent(mToolbarView.getView(), mThinWebView.getView(),
+                        () -> mMediator.getVerticalScrollOffset(), this::closeSheet);
 
         mBottomSheetObserver = new EmptyBottomSheetObserver() {
             private int mCloseReason;
@@ -174,6 +186,10 @@ public class MerchantTrustBottomSheetCoordinator implements View.OnLayoutChangeL
     private void createThinWebView() {
         mThinWebView = ThinWebViewFactory.create(
                 mContext, new ThinWebViewConstraints(), mIntentRequestTracker);
+        setThinWebViewLayout();
+    }
+
+    private void setThinWebViewLayout() {
         mThinWebView.getView().setLayoutParams(new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 (int) (getMaxViewHeight() * MerchantTrustBottomSheetContent.FULL_HEIGHT_RATIO)
@@ -216,7 +232,8 @@ public class MerchantTrustBottomSheetCoordinator implements View.OnLayoutChangeL
         layoutParams.height =
                 (int) (maxViewHeight * MerchantTrustBottomSheetContent.FULL_HEIGHT_RATIO)
                 - mToolbarView.getToolbarHeightPx();
-        mThinWebView.getView().requestLayout();
+        ViewUtils.requestLayout(
+                mThinWebView.getView(), "MerchantTrustBottomSheetCoordinator.onLayoutChange");
         mCurrentMaxViewHeight = maxViewHeight;
     }
 

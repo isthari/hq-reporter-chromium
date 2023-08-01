@@ -1,10 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_ASH_POLICY_DLP_DLP_WINDOW_OBSERVER_H_
 #define CHROME_BROWSER_ASH_POLICY_DLP_DLP_WINDOW_OBSERVER_H_
 
+#include "base/memory/raw_ptr.h"
 #include "ui/aura/window_observer.h"
 
 namespace aura {
@@ -24,21 +25,23 @@ class DlpWindowObserver : public aura::WindowObserver {
     virtual void OnWindowOcclusionChanged(aura::Window* window) = 0;
 
     virtual void OnWindowDestroying(aura::Window* window) = 0;
+
+    virtual void OnWindowTitleChanged(aura::Window* window) = 0;
   };
 
   DlpWindowObserver(aura::Window* window, Delegate* delegate);
+  DlpWindowObserver(const DlpWindowObserver&) = delete;
+  DlpWindowObserver& operator=(const DlpWindowObserver&) = delete;
   ~DlpWindowObserver() override;
 
   // aura::WindowObserver overrides:
   void OnWindowDestroying(aura::Window* window) override;
   void OnWindowOcclusionChanged(aura::Window* window) override;
+  void OnWindowTitleChanged(aura::Window* window) override;
 
  private:
-  DlpWindowObserver(const DlpWindowObserver&) = delete;
-  DlpWindowObserver& operator=(const DlpWindowObserver&) = delete;
-
-  aura::Window* window_;
-  Delegate* delegate_;
+  raw_ptr<aura::Window, ExperimentalAsh> window_;
+  raw_ptr<Delegate, ExperimentalAsh> delegate_;
 };
 
 }  // namespace policy

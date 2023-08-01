@@ -1,10 +1,11 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.net;
 
-import static junit.framework.Assert.assertEquals;
+import static com.google.common.truth.Truth.assertThat;
+
 import static junit.framework.Assert.assertFalse;
 import static junit.framework.Assert.assertNotNull;
 import static junit.framework.Assert.assertNull;
@@ -52,6 +53,10 @@ public class TestUrlRequestCallback extends UrlRequest.Callback {
 
     // Whether to permit calls on the network thread.
     private boolean mAllowDirectExecutor;
+
+    // The executor thread will block on this after reaching a terminal method.
+    // Terminal methods are (onSucceeded, onFailed or onCancelled)
+    private ConditionVariable mBlockOnTerminalState = new ConditionVariable(true);
 
     // Conditionally fail on certain steps.
     private FailureType mFailureType = FailureType.NONE;
@@ -138,6 +143,20 @@ public class TestUrlRequestCallback extends UrlRequest.Callback {
     public TestUrlRequestCallback(ExecutorService executorService) {
         mExecutorService = executorService;
         fillInExecutorThread();
+    }
+
+    /**
+     * This blocks the callback executor thread once it has reached a final state callback.
+     * In order to continue execution, this method must be called again and providing {@code false}
+     * to continue execution.
+     * @param blockOnTerminalState the state to set for the executor thread
+     */
+    public void setBlockOnTerminalState(boolean blockOnTerminalState) {
+        if (blockOnTerminalState) {
+            mBlockOnTerminalState.close();
+        } else {
+            mBlockOnTerminalState.open();
+        }
     }
 
     public void setAutoAdvance(boolean autoAdvance) {
@@ -260,6 +279,7 @@ public class TestUrlRequestCallback extends UrlRequest.Callback {
         mResponseStep = ResponseStep.ON_SUCCEEDED;
         mResponseInfo = info;
         openDone();
+        mBlockOnTerminalState.block();
         maybeThrowCancelOrPause(request);
     }
 
@@ -279,10 +299,10 @@ public class TestUrlRequestCallback extends UrlRequest.Callback {
         assertFalse(mOnCanceledCalled);
         assertNull(mError);
         if (mCallbackExceptionThrown) {
-            assertTrue(error instanceof CallbackException);
+            assertThat(error).isInstanceOf(CallbackException.class);
             assertContains("Exception received from UrlRequest.Callback", error.getMessage());
             assertNotNull(error.getCause());
-            assertTrue(error.getCause() instanceof IllegalStateException);
+            assertThat(error).hasCauseThat().isInstanceOf(IllegalStateException.class);
             assertContains("Listener Exception.", error.getCause().getMessage());
         }
 
@@ -290,6 +310,7 @@ public class TestUrlRequestCallback extends UrlRequest.Callback {
         mOnErrorCalled = true;
         mError = error;
         openDone();
+        mBlockOnTerminalState.block();
         maybeThrowCancelOrPause(request);
     }
 
@@ -305,6 +326,7 @@ public class TestUrlRequestCallback extends UrlRequest.Callback {
         mResponseStep = ResponseStep.ON_CANCELED;
         mOnCanceledCalled = true;
         openDone();
+        mBlockOnTerminalState.block();
         maybeThrowCancelOrPause(request);
     }
 
@@ -330,7 +352,7 @@ public class TestUrlRequestCallback extends UrlRequest.Callback {
 
     private void checkExecutorThread() {
         if (!mAllowDirectExecutor) {
-            assertEquals(mExecutorThread, Thread.currentThread());
+            assertThat(Thread.currentThread()).isEqualTo(mExecutorThread);
         }
     }
 

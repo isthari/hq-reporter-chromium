@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,11 +12,14 @@
 #include "base/containers/circular_deque.h"
 #include "base/containers/flat_map.h"
 #include "base/files/scoped_file.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/timer/timer.h"
 #include "ui/gfx/gpu_fence_handle.h"
 #include "ui/gfx/presentation_feedback.h"
 #include "ui/ozone/platform/wayland/common/wayland_object.h"
-#include "ui/ozone/platform/wayland/mojom/wayland_overlay_config.mojom.h"
+#include "ui/ozone/platform/wayland/common/wayland_overlay_config.h"
+#include "ui/ozone/platform/wayland/common/wayland_presentation_info.h"
 
 namespace ui {
 
@@ -32,13 +35,22 @@ class WaylandSubsurface;
 // presented and released.
 struct WaylandFrame {
  public:
-  WaylandFrame(
-      WaylandSurface* root_surface,
-      ui::ozone::mojom::WaylandOverlayConfigPtr root_config,
-      base::circular_deque<std::pair<WaylandSubsurface*,
-                                     ui::ozone::mojom::WaylandOverlayConfigPtr>>
-          subsurfaces_to_overlays = {},
-      bool expects_ack = true);
+  // A frame originated from gpu process, and hence, requires acknowledgements.
+  WaylandFrame(uint32_t frame_id,
+               int64_t seq,
+               WaylandSurface* root_surface,
+               wl::WaylandOverlayConfig root_config,
+               base::circular_deque<
+                   std::pair<WaylandSubsurface*, wl::WaylandOverlayConfig>>
+                   subsurfaces_to_overlays = {});
+
+  // A frame that does not require acknowledgements.
+  WaylandFrame(WaylandSurface* root_surface,
+               wl::WaylandOverlayConfig root_config,
+               base::circular_deque<
+                   std::pair<WaylandSubsurface*, wl::WaylandOverlayConfig>>
+                   subsurfaces_to_overlays = {});
+
   WaylandFrame() = delete;
   WaylandFrame(const WaylandFrame&) = delete;
   WaylandFrame& operator=(const WaylandFrame&) = delete;
@@ -47,18 +59,13 @@ struct WaylandFrame {
  private:
   friend class WaylandFrameManager;
 
-  WaylandSurface* root_surface;
-  ui::ozone::mojom::WaylandOverlayConfigPtr root_config;
-  base::circular_deque<
-      std::pair<WaylandSubsurface*, ui::ozone::mojom::WaylandOverlayConfigPtr>>
+  uint32_t frame_id;
+  raw_ptr<WaylandSurface, DanglingUntriaged> root_surface;
+  wl::WaylandOverlayConfig root_config;
+  base::circular_deque<std::pair<WaylandSubsurface*, wl::WaylandOverlayConfig>>
       subsurfaces_to_overlays;
 
   base::flat_map<WaylandSurface*, WaylandBufferHandle*> submitted_buffers;
-
-  // ID of one of the buffers that will be attached to the subsurfaces. If none
-  // of the buffers will be attached, this is |root_config->buffer_id|.
-  // Used to invoke buffer_manager_host OnSubmission and OnPrensentation calls.
-  uint32_t buffer_id;
 
   // An indicator that there are buffers destrotyed before frame playback. This
   // frame should be skipped.
@@ -73,7 +80,7 @@ struct WaylandFrame {
   // for this frame.
   base::ScopedFD merged_release_fence_fd;
   // Whether this frame has had OnSubmission sent for it.
-  bool submission_acked = false;
+  bool submission_acked;
 
   // The wayland object identifying this feedback.
   wl::Object<struct wp_presentation_feedback> pending_feedback;
@@ -81,7 +88,11 @@ struct WaylandFrame {
   // Wayland server has not arrived yet.
   absl::optional<gfx::PresentationFeedback> feedback = absl::nullopt;
   // Whether this frame has had OnPresentation sent for it.
-  bool presentation_acked = false;
+  bool presentation_acked;
+
+  // The sequence ID for this frame. This is used to know when the proper
+  // buffers associated with a configure arrive.
+  [[maybe_unused]] int64_t seq = -1;
 };
 
 // This is the frame update manager that configures graphical window/surface
@@ -115,20 +126,33 @@ class WaylandFrameManager {
   // Similar to ClearStates(), but does not clear submitted frames.
   void Hide();
 
+  static base::TimeDelta GetPresentationFlushTimerDurationForTesting();
+
  private:
   void PlayBackFrame(std::unique_ptr<WaylandFrame> frame);
+  void DiscardFrame(std::unique_ptr<WaylandFrame> frame);
+
   // Configures |surface| but does not commit wl_surface states yet.
   void ApplySurfaceConfigure(WaylandFrame* frame,
                              WaylandSurface* surface,
-                             ui::ozone::mojom::WaylandOverlayConfigPtr& config,
+                             wl::WaylandOverlayConfig& config,
                              bool needs_opaque_region);
 
   void MaybeProcessSubmittedFrames();
-  void ProcessOldSubmittedFrame(WaylandFrame* frame,
-                                gfx::GpuFenceHandle release_fence_handle);
+  void ProcessOldSubmittedFrame(WaylandFrame* frame);
+
+  // Gets presentation feedback information ready to be sent for submitted
+  // frames. Also updates `presentation_acked` of corresponding frames to true.
+  std::vector<wl::WaylandPresentationInfo> GetReadyPresentations();
+  bool HaveReadyPresentations() const;
+
+  // Clears submitted frames that are fully released and have already sent
+  // presentation feedback info.
+  void ClearProcessedSubmittedFrames();
+
   void OnExplicitBufferRelease(WaylandSurface* surface,
                                struct wl_buffer* wl_buffer,
-                               absl::optional<int32_t> fence);
+                               base::ScopedFD fence);
   void OnWlBufferRelease(WaylandSurface* surface, struct wl_buffer* wl_buffer);
 
   // wl_callback_listener
@@ -164,7 +188,23 @@ class WaylandFrameManager {
   // feedbacks if the number is too big.
   void VerifyNumberOfSubmittedFrames();
 
-  WaylandWindow* const window_;
+  // Verifies wl_buffers for the given |frame| exist. If they do not yet exist,
+  // a callback to |MaybeProcessPendingFrame| is set and false is returned.
+  // If the frame contains a buffer id for an invalid WaylandBufferHandle, the
+  // |frame::buffer_lost| is set and false is returned. That means that the
+  // frame must not be used for the further submission.
+  bool EnsureWlBuffersExist(WaylandFrame& frame);
+
+  // Immediately clears submitted_buffers in the 1st in-flight submitted_frame.
+  // This unblocks the pipeline.
+  // TODO(crbug.com/1358908): Remove related workaround once CrOS side fix
+  // stablizes.
+  void FreezeTimeout();
+
+  void UpdatePresentationFlushTimer();
+  void OnPresentationFlushTimerFired();
+
+  const raw_ptr<WaylandWindow> window_;
 
   // When RecordFrame() is called, a Frame is pushed to |pending_frames_|. See
   // RecordFrame().
@@ -175,7 +215,15 @@ class WaylandFrameManager {
   base::circular_deque<std::unique_ptr<WaylandFrame>> submitted_frames_;
 
   // Non-owned pointer to the main connection.
-  WaylandConnection* const connection_;
+  const raw_ptr<WaylandConnection> connection_;
+
+  // Set when invalid frame data is sent and the gpu process must be terminated.
+  std::string fatal_error_message_;
+
+  uint32_t frames_in_flight_ = 0;
+  base::OneShotTimer freeze_timeout_timer_;
+
+  base::OneShotTimer presentation_flush_timer_;
 
   base::WeakPtrFactory<WaylandFrameManager> weak_factory_;
 };

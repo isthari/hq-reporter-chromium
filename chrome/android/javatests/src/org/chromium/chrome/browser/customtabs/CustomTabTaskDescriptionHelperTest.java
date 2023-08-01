@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@ import android.app.ActivityManager;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
-import android.os.Build;
 
 import androidx.annotation.NonNull;
 import androidx.test.filters.MediumTest;
@@ -21,11 +20,8 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.test.util.CommandLineFlags;
-import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.base.test.util.Restriction;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.browserservices.intents.WebappConstants;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
@@ -33,6 +29,7 @@ import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.webapps.WebappActivity;
 import org.chromium.chrome.browser.webapps.WebappActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
+import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.chrome.test.util.browser.ThemeTestUtils;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
@@ -44,7 +41,6 @@ import org.chromium.ui.test.util.UiRestriction;
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
-@MinAndroidSdkLevel(Build.VERSION_CODES.LOLLIPOP_MR1)
 public class CustomTabTaskDescriptionHelperTest {
     @Rule
     public WebappActivityTestRule mWebappActivityTestRule = new WebappActivityTestRule();
@@ -127,8 +123,7 @@ public class CustomTabTaskDescriptionHelperTest {
         mWebappActivityTestRule.loadUrl(pageWithoutThemeColorUrl);
         int defaultThemeColor = computeDefaultThemeColor(webappActivity);
         ThemeTestUtils.waitForThemeColor(webappActivity, defaultThemeColor);
-        int defaultTaskDescriptionColor = ApiCompatibilityUtils.getColor(
-                webappActivity.getResources(), R.color.default_primary_color);
+        int defaultTaskDescriptionColor = webappActivity.getColor(R.color.default_primary_color);
         assertEquals(defaultTaskDescriptionColor, fetchTaskDescriptionColor(webappActivity));
     }
 

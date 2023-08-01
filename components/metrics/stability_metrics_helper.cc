@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,7 +34,6 @@
 #endif
 
 namespace metrics {
-
 namespace {
 
 enum RendererType {
@@ -46,6 +45,7 @@ enum RendererType {
   RENDERER_TYPE_COUNT
 };
 
+#if !BUILDFLAG(IS_ANDROID)
 // Converts an exit code into something that can be inserted into our
 // histograms (which expect non-negative numbers less than MAX_INT).
 int MapCrashExitCodeForHistogram(int exit_code) {
@@ -64,6 +64,7 @@ void RecordChildKills(RendererType histogram_type) {
   base::UmaHistogramEnumeration("BrowserRenderProcessHost.ChildKills",
                                 histogram_type, RENDERER_TYPE_COUNT);
 }
+#endif  // !BUILDFLAG(IS_ANDROID)
 
 }  // namespace
 
@@ -74,6 +75,7 @@ StabilityMetricsHelper::StabilityMetricsHelper(PrefService* local_state)
 
 StabilityMetricsHelper::~StabilityMetricsHelper() {}
 
+#if BUILDFLAG(IS_ANDROID)
 void StabilityMetricsHelper::ProvideStabilityMetrics(
     SystemProfileProto* system_profile_proto) {
   SystemProfileProto_Stability* stability_proto =
@@ -84,97 +86,32 @@ void StabilityMetricsHelper::ProvideStabilityMetrics(
     stability_proto->set_page_load_count(count);
     local_state_->SetInteger(prefs::kStabilityPageLoadCount, 0);
   }
-
-  count = local_state_->GetInteger(prefs::kStabilityChildProcessCrashCount);
-  if (count) {
-    stability_proto->set_child_process_crash_count(count);
-    local_state_->SetInteger(prefs::kStabilityChildProcessCrashCount, 0);
-  }
-
-  count = local_state_->GetInteger(prefs::kStabilityGpuCrashCount);
-  if (count) {
-    stability_proto->set_gpu_crash_count(count);
-    local_state_->SetInteger(prefs::kStabilityGpuCrashCount, 0);
-  }
-
-  count = local_state_->GetInteger(prefs::kStabilityRendererCrashCount);
-  if (count) {
-    stability_proto->set_renderer_crash_count(count);
-    local_state_->SetInteger(prefs::kStabilityRendererCrashCount, 0);
-  }
-
-  count = local_state_->GetInteger(prefs::kStabilityRendererFailedLaunchCount);
-  if (count) {
-    stability_proto->set_renderer_failed_launch_count(count);
-    local_state_->SetInteger(prefs::kStabilityRendererFailedLaunchCount, 0);
-  }
-
   count = local_state_->GetInteger(prefs::kStabilityRendererLaunchCount);
   if (count) {
     stability_proto->set_renderer_launch_count(count);
     local_state_->SetInteger(prefs::kStabilityRendererLaunchCount, 0);
   }
-
-  count =
-      local_state_->GetInteger(prefs::kStabilityExtensionRendererCrashCount);
-  if (count) {
-    stability_proto->set_extension_renderer_crash_count(count);
-    local_state_->SetInteger(prefs::kStabilityExtensionRendererCrashCount, 0);
-  }
-
-  count = local_state_->GetInteger(
-      prefs::kStabilityExtensionRendererFailedLaunchCount);
-  if (count) {
-    stability_proto->set_extension_renderer_failed_launch_count(count);
-    local_state_->SetInteger(
-        prefs::kStabilityExtensionRendererFailedLaunchCount, 0);
-  }
-
-  count =
-      local_state_->GetInteger(prefs::kStabilityExtensionRendererLaunchCount);
-  if (count) {
-    stability_proto->set_extension_renderer_launch_count(count);
-    local_state_->SetInteger(prefs::kStabilityExtensionRendererLaunchCount, 0);
-  }
 }
 
 void StabilityMetricsHelper::ClearSavedStabilityMetrics() {
-  // Clear all the prefs used in this class in UMA reports.
-  local_state_->SetInteger(prefs::kStabilityChildProcessCrashCount, 0);
-  local_state_->SetInteger(prefs::kStabilityExtensionRendererCrashCount, 0);
-  local_state_->SetInteger(prefs::kStabilityExtensionRendererFailedLaunchCount,
-                           0);
-  local_state_->SetInteger(prefs::kStabilityExtensionRendererLaunchCount, 0);
-  local_state_->SetInteger(prefs::kStabilityGpuCrashCount, 0);
   local_state_->SetInteger(prefs::kStabilityPageLoadCount, 0);
-  local_state_->SetInteger(prefs::kStabilityRendererCrashCount, 0);
-  local_state_->SetInteger(prefs::kStabilityRendererFailedLaunchCount, 0);
   local_state_->SetInteger(prefs::kStabilityRendererLaunchCount, 0);
 }
+#endif  // BUILDFLAG(IS_ANDROID)
 
 // static
 void StabilityMetricsHelper::RegisterPrefs(PrefRegistrySimple* registry) {
-  registry->RegisterIntegerPref(prefs::kStabilityChildProcessCrashCount, 0);
-  registry->RegisterIntegerPref(prefs::kStabilityExtensionRendererCrashCount,
-                                0);
-  registry->RegisterIntegerPref(
-      prefs::kStabilityExtensionRendererFailedLaunchCount, 0);
-  registry->RegisterIntegerPref(prefs::kStabilityExtensionRendererLaunchCount,
-                                0);
-  registry->RegisterIntegerPref(prefs::kStabilityGpuCrashCount, 0);
+#if BUILDFLAG(IS_ANDROID)
   registry->RegisterIntegerPref(prefs::kStabilityPageLoadCount, 0);
-  registry->RegisterIntegerPref(prefs::kStabilityRendererCrashCount, 0);
-  registry->RegisterIntegerPref(prefs::kStabilityRendererFailedLaunchCount, 0);
   registry->RegisterIntegerPref(prefs::kStabilityRendererLaunchCount, 0);
+#endif  // BUILDFLAG(IS_ANDROID)
 }
 
 void StabilityMetricsHelper::IncreaseRendererCrashCount() {
-  IncrementPrefValue(prefs::kStabilityRendererCrashCount);
   RecordStabilityEvent(StabilityEventType::kRendererCrash);
 }
 
 void StabilityMetricsHelper::IncreaseGpuCrashCount() {
-  IncrementPrefValue(prefs::kStabilityGpuCrashCount);
   RecordStabilityEvent(StabilityEventType::kGpuCrash);
 }
 
@@ -182,6 +119,7 @@ void StabilityMetricsHelper::BrowserUtilityProcessLaunched(
     const std::string& metrics_name) {
   uint32_t hash = variations::HashName(metrics_name);
   base::UmaHistogramSparse("ChildProcess.Launched.UtilityProcessHash", hash);
+  RecordStabilityEvent(StabilityEventType::kUtilityLaunch);
 }
 
 void StabilityMetricsHelper::BrowserUtilityProcessCrashed(
@@ -215,16 +153,14 @@ void StabilityMetricsHelper::BrowserUtilityProcessLaunchFailed(
   // trigger a Stability Event.
 }
 
-void StabilityMetricsHelper::BrowserChildProcessCrashed() {
-  IncrementPrefValue(prefs::kStabilityChildProcessCrashCount);
-  RecordStabilityEvent(StabilityEventType::kChildProcessCrash);
-}
-
 void StabilityMetricsHelper::LogLoadStarted() {
+#if BUILDFLAG(IS_ANDROID)
   IncrementPrefValue(prefs::kStabilityPageLoadCount);
+#endif
   RecordStabilityEvent(StabilityEventType::kPageLoad);
 }
 
+#if !BUILDFLAG(IS_ANDROID)
 void StabilityMetricsHelper::LogRendererCrash(bool was_extension_process,
                                               base::TerminationStatus status,
                                               int exit_code) {
@@ -241,19 +177,11 @@ void StabilityMetricsHelper::LogRendererCrash(bool was_extension_process,
 #if !BUILDFLAG(ENABLE_EXTENSIONS)
         NOTREACHED();
 #endif
-        IncrementPrefValue(prefs::kStabilityExtensionRendererCrashCount);
-#if BUILDFLAG(IS_WIN)
-        // TODO(crbug/1291000): Remove the scheduled Local State write if it
-        // doesn't help to resolve the extension renderer crash discrepancy.
-        local_state_->CommitPendingWrite();
-#endif
         RecordStabilityEvent(StabilityEventType::kExtensionCrash);
-
         base::UmaHistogramSparse("CrashExitCodes.Extension",
                                  MapCrashExitCodeForHistogram(exit_code));
       } else {
         IncreaseRendererCrashCount();
-
         base::UmaHistogramSparse("CrashExitCodes.Renderer",
                                  MapCrashExitCodeForHistogram(exit_code));
       }
@@ -264,11 +192,6 @@ void StabilityMetricsHelper::LogRendererCrash(bool was_extension_process,
     case base::TERMINATION_STATUS_PROCESS_WAS_KILLED:
       RecordChildKills(histogram_type);
       break;
-#if BUILDFLAG(IS_ANDROID)
-    case base::TERMINATION_STATUS_OOM_PROTECTED:
-      // TODO(wfh): Check if this should be a Kill or a Crash on Android.
-      break;
-#endif
 #if BUILDFLAG(IS_CHROMEOS)
     case base::TERMINATION_STATUS_PROCESS_WAS_KILLED_BY_OOM:
       RecordChildKills(histogram_type);
@@ -306,16 +229,17 @@ void StabilityMetricsHelper::LogRendererCrash(bool was_extension_process,
       break;
   }
 }
+#endif  // !BUILDFLAG(IS_ANDROID)
 
 void StabilityMetricsHelper::LogRendererLaunched(bool was_extension_process) {
   auto metric = was_extension_process
                     ? StabilityEventType::kExtensionRendererLaunch
                     : StabilityEventType::kRendererLaunch;
-  auto* pref = was_extension_process
-                   ? prefs::kStabilityExtensionRendererLaunchCount
-                   : prefs::kStabilityRendererLaunchCount;
   RecordStabilityEvent(metric);
-  IncrementPrefValue(pref);
+#if BUILDFLAG(IS_ANDROID)
+  if (!was_extension_process)
+    IncrementPrefValue(prefs::kStabilityRendererLaunchCount);
+#endif  // BUILDFLAG(IS_ANDROID)
 }
 
 void StabilityMetricsHelper::LogRendererLaunchFailed(
@@ -323,31 +247,12 @@ void StabilityMetricsHelper::LogRendererLaunchFailed(
   auto metric = was_extension_process
                     ? StabilityEventType::kExtensionRendererFailedLaunch
                     : StabilityEventType::kRendererFailedLaunch;
-  auto* pref = was_extension_process
-                   ? prefs::kStabilityExtensionRendererFailedLaunchCount
-                   : prefs::kStabilityRendererFailedLaunchCount;
   RecordStabilityEvent(metric);
-  IncrementPrefValue(pref);
 }
 
 void StabilityMetricsHelper::IncrementPrefValue(const char* path) {
   int value = local_state_->GetInteger(path);
   local_state_->SetInteger(path, value + 1);
-}
-
-void StabilityMetricsHelper::LogRendererHang() {
-#if BUILDFLAG(IS_ANDROID)
-  base::android::ApplicationState app_state =
-      base::android::ApplicationStatusListener::GetState();
-  bool is_foreground =
-      app_state == base::android::APPLICATION_STATE_HAS_RUNNING_ACTIVITIES ||
-      app_state == base::android::APPLICATION_STATE_HAS_PAUSED_ACTIVITIES;
-  base::UmaHistogramBoolean("ChildProcess.HungRendererInForeground",
-                            is_foreground);
-#endif
-  base::UmaHistogramMemoryMB(
-      "ChildProcess.HungRendererAvailableMemoryMB",
-      base::SysInfo::AmountOfAvailablePhysicalMemory() / 1024 / 1024);
 }
 
 // static

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,6 +22,29 @@ const char kBackgroundHistogramDocWriteBlockParseBlockedOnScriptLoad[] =
     "Background";
 }  // namespace internal
 
+page_load_metrics::PageLoadMetricsObserver::ObservePolicy
+DocumentWritePageLoadMetricsObserver::OnFencedFramesStart(
+    content::NavigationHandle* navigation_handle,
+    const GURL& currently_committed_url) {
+  // This class is interested in events that are dispatched only for the primary
+  // page or preprocessed by PageLoadTracker to be per-outermost page. So, no
+  // need to forward events at the observer layer.
+  return STOP_OBSERVING;
+}
+
+page_load_metrics::PageLoadMetricsObserver::ObservePolicy
+DocumentWritePageLoadMetricsObserver::OnPrerenderStart(
+    content::NavigationHandle* navigation_handle,
+    const GURL& currently_committed_url) {
+  // This class measures effect of `document.write()` on parsing and FCP.
+  // As `document.write()` is strongly discouraged [1], we think it is enough to
+  // record non prerendered case and this class doesn't support prerendering.
+  //
+  // [1]
+  // https://html.spec.whatwg.org/multipage/dynamic-markup-insertion.html#dom-document-write-dev
+  return STOP_OBSERVING;
+}
+
 void DocumentWritePageLoadMetricsObserver::OnFirstContentfulPaintInPage(
     const page_load_metrics::mojom::PageLoadTiming& timing) {
   if (GetDelegate().GetMainFrameMetadata().behavior_flags &
@@ -30,39 +53,11 @@ void DocumentWritePageLoadMetricsObserver::OnFirstContentfulPaintInPage(
   }
 }
 
-void DocumentWritePageLoadMetricsObserver::
-    OnFirstMeaningfulPaintInMainFrameDocument(
-        const page_load_metrics::mojom::PageLoadTiming& timing) {
-  if (GetDelegate().GetMainFrameMetadata().behavior_flags &
-      blink::LoadingBehaviorFlag::kLoadingBehaviorDocumentWriteBlock) {
-    LogDocumentWriteBlockFirstMeaningfulPaint(timing);
-  }
-}
-
 void DocumentWritePageLoadMetricsObserver::OnParseStop(
     const page_load_metrics::mojom::PageLoadTiming& timing) {
   if (GetDelegate().GetMainFrameMetadata().behavior_flags &
       blink::LoadingBehaviorFlag::kLoadingBehaviorDocumentWriteBlock) {
     LogDocumentWriteBlockParseStop(timing);
-  }
-}
-
-// Note: The first meaningful paint calculation in the core observer filters
-// out pages which had user interaction before the first meaningful paint.
-// Because the counts of those instances are low (< 2%), just log everything
-// here for simplicity. If this ends up being unreliable (the 2% is just from
-// canary), the page_load_metrics API should be altered to return the values
-// the consumer wants.
-void DocumentWritePageLoadMetricsObserver::
-    LogDocumentWriteBlockFirstMeaningfulPaint(
-        const page_load_metrics::mojom::PageLoadTiming& timing) {
-  if (page_load_metrics::WasStartedInForegroundOptionalEventInForeground(
-          timing.paint_timing->first_meaningful_paint, GetDelegate())) {
-    PAGE_LOAD_HISTOGRAM(
-        "PageLoad.Clients.DocWrite.Block.Experimental.PaintTiming."
-        "ParseStartToFirstMeaningfulPaint",
-        timing.paint_timing->first_meaningful_paint.value() -
-            timing.parse_timing->parse_start.value());
   }
 }
 

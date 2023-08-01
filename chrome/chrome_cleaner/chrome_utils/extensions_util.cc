@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,10 +13,10 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/containers/contains.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/strings/utf_string_conversions.h"
@@ -74,7 +74,7 @@ const wchar_t kMasterPreferencesFileName[] = L"master_preferences";
 void GetForcelistPoliciesForAccessMask(
     REGSAM access_mask,
     std::vector<ExtensionPolicyRegistryEntry>* policies) {
-  for (size_t i = 0; i < base::size(extension_forcelist_keys); ++i) {
+  for (size_t i = 0; i < std::size(extension_forcelist_keys); ++i) {
     base::win::RegistryValueIterator forcelist_it(
         extension_forcelist_keys[i].hkey, extension_forcelist_keys[i].path,
         access_mask);
@@ -107,9 +107,9 @@ void GetExtensionSettingsPoliciesFromParsedJson(
   base::ScopedClosureRunner closure(
       base::BindOnce(&ParseTasksRemainingCounter::Decrement, counter.get()));
 
-  base::DictionaryValue* extension_settings = nullptr;
-  if (!json.has_value() || !json->is_dict() ||
-      !json->GetAsDictionary(&extension_settings)) {
+  base::Value::Dict* extension_settings =
+      json.has_value() ? json->GetIfDict() : nullptr;
+  if (!extension_settings) {
     LOG(ERROR) << "Could not read JSON from " << registry_key.hkey << "\\"
                << registry_key.path;
     if (error.has_value()) {
@@ -120,15 +120,16 @@ void GetExtensionSettingsPoliciesFromParsedJson(
 
   scoped_refptr<RefValue> saved_json =
       base::WrapRefCounted(new RefValue(json->Clone()));
-  for (auto entry : extension_settings->DictItems()) {
+  for (auto entry : *extension_settings) {
     const std::wstring& extension_id = base::UTF8ToWide(entry.first);
     const base::Value& settings_value = entry.second;
 
     if (settings_value.is_dict()) {
-      const base::Value* installation_mode =
-          settings_value.FindKey(kExtensionSettingsInstallationModeName);
-      if (installation_mode && installation_mode->GetString() ==
-                                   kExtensionSettingsForceInstalledValue) {
+      const std::string* installation_mode =
+          settings_value.GetDict().FindString(
+              kExtensionSettingsInstallationModeName);
+      if (installation_mode &&
+          *installation_mode == kExtensionSettingsForceInstalledValue) {
         policies->emplace_back(
             extension_id, registry_key.hkey, registry_key.path,
             kExtensionSettingsRegistryEntryName, type, saved_json);
@@ -142,7 +143,7 @@ void GetExtensionSettingsPoliciesForAccessMask(
     JsonParserAPI* json_parser,
     std::vector<ExtensionPolicyRegistryEntry>* policies,
     scoped_refptr<ParseTasksRemainingCounter> counter) {
-  for (size_t i = 0; i < base::size(extension_settings_keys); ++i) {
+  for (size_t i = 0; i < std::size(extension_settings_keys); ++i) {
     RegKeyPath key(extension_settings_keys[i].hkey,
                    extension_settings_keys[i].path, access_mask);
     std::wstring extension_settings;
@@ -177,9 +178,9 @@ void GetDefaultExtensionsFromParsedJson(
   base::ScopedClosureRunner closure(
       base::BindOnce(&ParseTasksRemainingCounter::Decrement, counter.get()));
 
-  base::DictionaryValue* default_extensions = nullptr;
-  if (!json.has_value() || !json->is_dict() ||
-      !json->GetAsDictionary(&default_extensions)) {
+  base::Value::Dict* default_extensions =
+      json.has_value() ? json->GetIfDict() : nullptr;
+  if (!default_extensions) {
     LOG(ERROR) << "Could not read JSON from " << SanitizePath(extensions_file);
     if (error.has_value()) {
       LOG(ERROR) << "JSON parser error " << error.value();
@@ -189,7 +190,7 @@ void GetDefaultExtensionsFromParsedJson(
 
   scoped_refptr<RefValue> saved_json =
       base::WrapRefCounted(new RefValue(json->Clone()));
-  for (auto entry : default_extensions->DictItems()) {
+  for (auto entry : *default_extensions) {
     std::wstring extension_id = base::UTF8ToWide(entry.first);
     if (!base::Contains(default_extension_whitelist, extension_id)) {
       policies->emplace_back(extension_id, extensions_file, saved_json);
@@ -206,9 +207,9 @@ void GetMasterPreferencesExtensionsFromParsedJson(
   base::ScopedClosureRunner closure(
       base::BindOnce(&ParseTasksRemainingCounter::Decrement, counter.get()));
 
-  base::DictionaryValue* master_preferences = nullptr;
-  if (!json.has_value() || !json->is_dict() ||
-      !json->GetAsDictionary(&master_preferences)) {
+  base::Value::Dict* master_preferences =
+      json.has_value() ? json->GetIfDict() : nullptr;
+  if (!master_preferences) {
     LOG(ERROR) << "Could not read JSON from " << SanitizePath(extensions_file);
     if (error.has_value()) {
       LOG(ERROR) << "JSON parser error " << error.value();
@@ -216,16 +217,14 @@ void GetMasterPreferencesExtensionsFromParsedJson(
     return;
   }
 
-  base::Value* extension_settings = master_preferences->FindPathOfType(
-      {"extensions", "settings"}, base::Value::Type::DICTIONARY);
-  if (extension_settings == nullptr)
+  base::Value::Dict* extension_settings_dictionary =
+      master_preferences->FindDictByDottedPath("extensions.settings");
+  if (!extension_settings_dictionary)
     return;
 
-  base::DictionaryValue* extension_settings_dictionary;
-  extension_settings->GetAsDictionary(&extension_settings_dictionary);
   scoped_refptr<RefValue> saved_json =
       base::WrapRefCounted(new RefValue(json->Clone()));
-  for (auto entry : extension_settings_dictionary->DictItems()) {
+  for (auto entry : *extension_settings_dictionary) {
     std::wstring extension_id = base::UTF8ToWide(entry.first);
     policies->emplace_back(extension_id, extensions_file, saved_json);
   }

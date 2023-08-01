@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,6 +28,13 @@ MediaValuesCached::MediaValuesCachedData::MediaValuesCachedData(
     // MediaValuesCachedData values.
     viewport_width = MediaValues::CalculateViewportWidth(frame);
     viewport_height = MediaValues::CalculateViewportHeight(frame);
+    small_viewport_width = MediaValues::CalculateSmallViewportWidth(frame);
+    small_viewport_height = MediaValues::CalculateSmallViewportHeight(frame);
+    large_viewport_width = MediaValues::CalculateLargeViewportWidth(frame);
+    large_viewport_height = MediaValues::CalculateLargeViewportHeight(frame);
+    dynamic_viewport_width = MediaValues::CalculateDynamicViewportWidth(frame);
+    dynamic_viewport_height =
+        MediaValues::CalculateDynamicViewportHeight(frame);
     device_width = MediaValues::CalculateDeviceWidth(frame);
     device_height = MediaValues::CalculateDeviceHeight(frame);
     device_pixel_ratio = MediaValues::CalculateDevicePixelRatio(frame);
@@ -40,20 +47,25 @@ MediaValuesCached::MediaValuesCachedData::MediaValuesCachedData(
     available_pointer_types =
         MediaValues::CalculateAvailablePointerTypes(frame);
     primary_hover_type = MediaValues::CalculatePrimaryHoverType(frame);
+    output_device_update_ability_type =
+        MediaValues::CalculateOutputDeviceUpdateAbilityType(frame);
     available_hover_types = MediaValues::CalculateAvailableHoverTypes(frame);
     em_size = MediaValues::CalculateEmSize(frame);
-    // Use 0.5em as the fallback for ex and ch units. CalculateEx/ChSize() would
-    // trigger unconditional font metrics retrieval for MediaValuesCached
-    // regardless of whether they are being used in a media query. In addition
-    // to unnecessary load font data, it also causes these two tests to fail for
-    // some reason:
+    // Use 0.5em as the fallback for ex, ch, ic, and lh units. CalculateEx()
+    // etc would trigger unconditional font metrics retrieval for
+    // MediaValuesCached regardless of whether they are being used in a media
+    // query.
+    //
+    // If this is changed, beware that tests like this may start failing because
+    // font loading may be triggered before the call to
+    // testRunner.setTextSubpixelPositioning(true):
     //
     // virtual/text-antialias/sub-pixel/text-scaling-pixel.html
-    // virtual/highdpi-threaded/external/wpt/css/css-paint-api/hidpi/device-pixel-ratio.https.html
     ex_size = em_size / 2.0;
     ch_size = em_size / 2.0;
+    ic_size = em_size;
+    line_height = em_size;
     three_d_enabled = MediaValues::CalculateThreeDEnabled(frame);
-    immersive_mode = MediaValues::CalculateInImmersiveMode(frame);
     strict_mode = MediaValues::CalculateStrictMode(frame);
     display_mode = MediaValues::CalculateDisplayMode(frame);
     media_type = MediaValues::CalculateMediaType(frame);
@@ -83,6 +95,61 @@ MediaValues* MediaValuesCached::Copy() const {
   return MakeGarbageCollected<MediaValuesCached>(data_);
 }
 
+float MediaValuesCached::EmFontSize(float zoom) const {
+  DCHECK_EQ(1.0f, zoom);
+  return data_.em_size;
+}
+
+float MediaValuesCached::RemFontSize(float zoom) const {
+  DCHECK_EQ(1.0f, zoom);
+  // For media queries rem and em units are both based on the initial font.
+  return data_.em_size;
+}
+
+float MediaValuesCached::ExFontSize(float zoom) const {
+  DCHECK_EQ(1.0f, zoom);
+  return data_.ex_size;
+}
+
+float MediaValuesCached::RexFontSize(float zoom) const {
+  DCHECK_EQ(1.0f, zoom);
+  // For media queries rex and ex units are both based on the initial font.
+  return data_.ex_size;
+}
+
+float MediaValuesCached::ChFontSize(float zoom) const {
+  DCHECK_EQ(1.0f, zoom);
+  return data_.ch_size;
+}
+
+float MediaValuesCached::RchFontSize(float zoom) const {
+  DCHECK_EQ(1.0f, zoom);
+  // For media queries rch and ch units are both based on the initial font.
+  return data_.ch_size;
+}
+
+float MediaValuesCached::IcFontSize(float zoom) const {
+  DCHECK_EQ(1.0f, zoom);
+  return data_.ic_size;
+}
+
+float MediaValuesCached::RicFontSize(float zoom) const {
+  DCHECK_EQ(1.0f, zoom);
+  // For media queries ric and ic units are both based on the initial font.
+  return data_.ic_size;
+}
+
+float MediaValuesCached::LineHeight(float zoom) const {
+  DCHECK_EQ(1.0f, zoom);
+  return data_.line_height;
+}
+
+float MediaValuesCached::RootLineHeight(float zoom) const {
+  DCHECK_EQ(1.0f, zoom);
+  // For media queries rlh and lh units are both based on the initial font.
+  return data_.line_height;
+}
+
 double MediaValuesCached::ViewportWidth() const {
   return data_.viewport_width;
 }
@@ -91,21 +158,36 @@ double MediaValuesCached::ViewportHeight() const {
   return data_.viewport_height;
 }
 
-float MediaValuesCached::EmSize() const {
-  return data_.em_size;
+double MediaValuesCached::SmallViewportWidth() const {
+  return data_.small_viewport_width;
 }
 
-float MediaValuesCached::RemSize() const {
-  // For media queries rem and em units are both based on the initial font.
-  return data_.em_size;
+double MediaValuesCached::SmallViewportHeight() const {
+  return data_.small_viewport_height;
 }
 
-float MediaValuesCached::ExSize() const {
-  return data_.ex_size;
+double MediaValuesCached::LargeViewportWidth() const {
+  return data_.large_viewport_width;
 }
 
-float MediaValuesCached::ChSize() const {
-  return data_.ch_size;
+double MediaValuesCached::LargeViewportHeight() const {
+  return data_.large_viewport_height;
+}
+
+double MediaValuesCached::DynamicViewportWidth() const {
+  return data_.dynamic_viewport_width;
+}
+
+double MediaValuesCached::DynamicViewportHeight() const {
+  return data_.dynamic_viewport_height;
+}
+
+double MediaValuesCached::ContainerWidth() const {
+  return SmallViewportWidth();
+}
+
+double MediaValuesCached::ContainerHeight() const {
+  return SmallViewportHeight();
 }
 
 int MediaValuesCached::DeviceWidth() const {
@@ -144,16 +226,17 @@ mojom::blink::HoverType MediaValuesCached::PrimaryHoverType() const {
   return data_.primary_hover_type;
 }
 
+mojom::blink::OutputDeviceUpdateAbilityType
+MediaValuesCached::OutputDeviceUpdateAbilityType() const {
+  return data_.output_device_update_ability_type;
+}
+
 int MediaValuesCached::AvailableHoverTypes() const {
   return data_.available_hover_types;
 }
 
 bool MediaValuesCached::ThreeDEnabled() const {
   return data_.three_d_enabled;
-}
-
-bool MediaValuesCached::InImmersiveMode() const {
-  return data_.immersive_mode;
 }
 
 bool MediaValuesCached::StrictMode() const {

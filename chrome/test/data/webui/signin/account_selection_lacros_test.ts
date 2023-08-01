@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,10 @@ import 'chrome://profile-picker/lazy_load.js';
 
 import {AccountSelectionLacrosElement} from 'chrome://profile-picker/lazy_load.js';
 import {AvailableAccount, ensureLazyLoaded, ManageProfilesBrowserProxyImpl} from 'chrome://profile-picker/profile_picker.js';
-import {webUIListenerCallback} from 'chrome://resources/js/cr.m.js';
+import {webUIListenerCallback} from 'chrome://resources/js/cr.js';
 import {assertEquals, assertTrue} from 'chrome://webui-test/chai_assert.js';
-import {flushTasks, isChildVisible, waitBeforeNextRender} from 'chrome://webui-test/test_util.js';
+import {flushTasks, waitBeforeNextRender} from 'chrome://webui-test/polymer_test_util.js';
+import {isChildVisible} from 'chrome://webui-test/test_util.js';
 
 import {TestManageProfilesBrowserProxy} from './test_manage_profiles_browser_proxy.js';
 
@@ -31,11 +32,15 @@ import {TestManageProfilesBrowserProxy} from './test_manage_profiles_browser_pro
                                      }));
     }
 
-    async function verifyLoadSignInProfileCreationFlowCalled(gaiaId: string) {
-      const args =
-          await browserProxy.whenCalled('loadSignInProfileCreationFlow');
+    async function verifySelectNewAccountCalled() {
+      await browserProxy.whenCalled('selectNewAccount');
+      browserProxy.resetResolver('selectNewAccount');
+    }
+
+    async function verifySelectExistingAccountLacrosCalled(gaiaId: string) {
+      const args = await browserProxy.whenCalled('selectExistingAccountLacros');
       assertEquals(args[1], gaiaId);
-      browserProxy.resetResolver('loadSignInProfileCreationFlow');
+      browserProxy.resetResolver('selectExistingAccountLacros');
     }
 
     setup(async function() {
@@ -51,7 +56,7 @@ import {TestManageProfilesBrowserProxy} from './test_manage_profiles_browser_pro
           },
           '', '/account-selection-lacros');
 
-      document.body.innerHTML = '';
+      document.body.innerHTML = window.trustedTypes!.emptyHTML;
       testElement = document.createElement('account-selection-lacros');
       testElement.profileThemeInfo = browserProxy.profileThemeInfo;
       document.body.append(testElement);
@@ -67,6 +72,12 @@ import {TestManageProfilesBrowserProxy} from './test_manage_profiles_browser_pro
 
     test('BackButton', function() {
       assertEquals(isChildVisible(testElement, '#backButton'), withinFlow);
+    });
+
+    test('GuestLink', async function() {
+      testElement.shadowRoot!.querySelector<HTMLElement>(
+                                 '#guestModeLink')!.click();
+      return browserProxy.whenCalled('openDeviceGuestLinkLacros');
     });
 
     test('accountButtons', async function() {
@@ -92,14 +103,34 @@ import {TestManageProfilesBrowserProxy} from './test_manage_profiles_browser_pro
           '.account-button');
       assertTrue(!!buttons);
       assertEquals(buttons.length, 3);
-      // Click account buttons.
-      buttons[0]!.click();
-      await verifyLoadSignInProfileCreationFlowCalled('gaia-id-0');
-      buttons[1]!.click();
-      await verifyLoadSignInProfileCreationFlowCalled('gaia-id-1');
       // Click "Use another account".
-      buttons[2]!.click();
-      await verifyLoadSignInProfileCreationFlowCalled('');
+      buttons[0]!.click();
+      await verifySelectNewAccountCalled();
+      // Click account buttons.
+      buttons[1]!.click();
+      await verifySelectExistingAccountLacrosCalled('gaia-id-0');
+    });
+
+    test('accountButtonsDisabledAfterClick', async function() {
+      flushTasks();
+      // Add some accounts.
+      webUIListenerCallback(
+          'available-accounts-changed', generateAccountsList(3));
+      flushTasks();
+      const accountsButtons =
+          testElement.shadowRoot!.querySelectorAll<HTMLButtonElement>(
+              '#buttonsContainer > button');
+      assertTrue(!!accountsButtons);
+      assertEquals(accountsButtons.length, 3);
+      accountsButtons[0]!.click();
+      accountsButtons.forEach(button => {
+        assertTrue(button.disabled);
+      });
+      const otherAccountButton =
+          testElement.shadowRoot!.querySelector<HTMLButtonElement>(
+              '#other-account-button');
+      assertTrue(!!otherAccountButton);
+      assertTrue(otherAccountButton.disabled);
     });
   });
 });

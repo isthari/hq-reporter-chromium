@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,11 @@ package org.chromium.chrome.browser.ui.quickactionsearchwidget;
 
 import android.app.Activity;
 import android.content.Intent;
-import android.support.test.InstrumentationRegistry;
-import android.support.test.runner.lifecycle.Stage;
 import android.text.TextUtils;
 import android.view.View;
+
+import androidx.test.platform.app.InstrumentationRegistry;
+import androidx.test.runner.lifecycle.Stage;
 
 import org.junit.Assert;
 
@@ -66,8 +67,8 @@ class QuickActionSearchWidgetTestUtils {
             Tab activityTab = activity.getActivityTab();
             Criteria.checkThat(activityTab, Matchers.notNullValue());
             Criteria.checkThat(activityTab.getUrl(), Matchers.notNullValue());
-            Criteria.checkThat(activityTab.getUrl().getSpec(),
-                    Matchers.startsWith(UrlConstants.CHROME_DINO_URL));
+            Criteria.checkThat(
+                    activityTab.getUrl().getSpec(), Matchers.equalTo(UrlConstants.CHROME_DINO_URL));
         });
     }
 

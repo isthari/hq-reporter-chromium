@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 #include "chromeos/crosapi/mojom/structured_metrics_service.mojom.h"
 #include "chromeos/lacros/lacros_service.h"
 #include "components/metrics/structured/event.h"
-#include "components/metrics/structured/event_base.h"
 #include "components/metrics/structured/structured_metrics_client.h"
 #include "mojo/public/cpp/bindings/remote.h"
 
@@ -65,7 +64,7 @@ void LacrosStructuredMetricsRecorder::RecordEvent(Event&& event) {
     for (auto& observer : observers_)
       observer.OnFlush();
 
-    remote->Record(enqueued_events_);
+    remote->Record(std::move(enqueued_events_));
     enqueued_events_.clear();
   }
 
@@ -74,16 +73,8 @@ void LacrosStructuredMetricsRecorder::RecordEvent(Event&& event) {
     observer.OnRecord(event);
 
   std::vector<Event> events;
-  events.push_back(std::move(event));
-  remote->Record(events);
-}
-
-// TODO(crbug.com/1249222): Delete this once migration is complete.
-//
-// EventBase should not be used with the mojo API and this function call
-// will be removed in the future.
-void LacrosStructuredMetricsRecorder::Record(EventBase&& event_base) {
-  VLOG(2) << "LacrosStructuredMetricsRecorder should use event.";
+  events.emplace_back(std::move(event));
+  remote->Record(std::move(events));
 }
 
 bool LacrosStructuredMetricsRecorder::IsReadyToRecord() const {

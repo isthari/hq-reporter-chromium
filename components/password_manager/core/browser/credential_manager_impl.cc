@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 #include "components/password_manager/core/browser/credential_manager_impl.h"
@@ -7,13 +7,14 @@
 
 #include <string>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/metrics/user_metrics.h"
 #include "components/password_manager/core/browser/credential_manager_logger.h"
 #include "components/password_manager/core/browser/credential_manager_pending_request_task.h"
 #include "components/password_manager/core/browser/credential_manager_utils.h"
 #include "components/password_manager/core/browser/form_fetcher_impl.h"
 #include "components/password_manager/core/browser/form_saver.h"
+#include "components/password_manager/core/browser/leak_detection/leak_detection_request_utils.h"
 #include "components/password_manager/core/browser/password_manager_util.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 
@@ -28,17 +29,12 @@ void RunGetCallback(GetCallback callback, const CredentialInfo& info) {
 }  // namespace
 
 CredentialManagerImpl::CredentialManagerImpl(PasswordManagerClient* client)
-    : client_(client), leak_delegate_(client) {
-  auto_signin_enabled_.Init(prefs::kCredentialsEnableAutosignin,
-                            client_->GetPrefs());
-}
+    : client_(client), leak_delegate_(client) {}
 
 CredentialManagerImpl::~CredentialManagerImpl() = default;
 
 void CredentialManagerImpl::Store(const CredentialInfo& credential,
                                   StoreCallback callback) {
-  DCHECK_NE(CredentialType::CREDENTIAL_TYPE_EMPTY, credential.type);
-
   const url::Origin origin = GetOrigin();
   if (password_manager_util::IsLoggingActive(client_)) {
     CredentialManagerLogger(client_->GetLogManager())
@@ -48,7 +44,8 @@ void CredentialManagerImpl::Store(const CredentialInfo& credential,
   // Send acknowledge response back.
   std::move(callback).Run();
 
-  if (!client_->IsSavingAndFillingEnabled(origin.GetURL()))
+  if (credential.type == CredentialType::CREDENTIAL_TYPE_EMPTY ||
+      !client_->IsSavingAndFillingEnabled(origin.GetURL()))
     return;
 
   client_->NotifyStorePasswordCalled();
@@ -57,8 +54,9 @@ void CredentialManagerImpl::Store(const CredentialInfo& credential,
       CreatePasswordFormFromCredentialInfo(credential, origin));
 
   // Check whether a stored password credential was leaked.
-  if (credential.type == CredentialType::CREDENTIAL_TYPE_PASSWORD)
-    leak_delegate_.StartLeakCheck(*form);
+  if (credential.type == CredentialType::CREDENTIAL_TYPE_PASSWORD) {
+    leak_delegate_.StartLeakCheck(LeakDetectionInitiator::kSignInCheck, *form);
+  }
 
   std::string signon_realm = origin.GetURL().spec();
   PasswordFormDigest observed_digest(PasswordForm::Scheme::kHtml, signon_realm,
@@ -123,20 +121,11 @@ void CredentialManagerImpl::Get(CredentialMediationRequirement mediation,
     return;
   }
   // Return an empty credential for incognito mode.
-  if (client_->IsIncognito()) {
+  if (client_->IsOffTheRecord()) {
     // Callback with empty credential info.
     std::move(callback).Run(CredentialManagerError::SUCCESS, CredentialInfo());
     LogCredentialManagerGetResult(
         metrics_util::CredentialManagerGetResult::kNoneIncognito, mediation);
-    return;
-  }
-  // Return an empty credential while autofill-assistant is running.
-  if (client_->IsAutofillAssistantUIVisible()) {
-    // Callback with empty credential info.
-    std::move(callback).Run(CredentialManagerError::SUCCESS, CredentialInfo());
-    LogCredentialManagerGetResult(
-        metrics_util::CredentialManagerGetResult::kNoneAutofillAssistant,
-        mediation);
     return;
   }
   // Return an empty credential if zero-click is required but disabled.
@@ -165,7 +154,7 @@ void CredentialManagerImpl::Get(CredentialMediationRequirement mediation,
 }
 
 bool CredentialManagerImpl::IsZeroClickAllowed() const {
-  return *auto_signin_enabled_ && !client_->IsIncognito();
+  return client_->IsAutoSignInEnabled() && !client_->IsOffTheRecord();
 }
 
 PasswordFormDigest CredentialManagerImpl::GetSynthesizedFormForOrigin() const {

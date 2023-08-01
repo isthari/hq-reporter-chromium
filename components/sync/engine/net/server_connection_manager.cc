@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,9 @@
 
 #include <ostream>
 
+#include "base/check_is_test.h"
 #include "base/metrics/histogram.h"
+#include "base/observer_list.h"
 #include "build/build_config.h"
 #include "components/sync/engine/cancelation_signal.h"
 #include "components/sync/engine/net/url_translator.h"
@@ -63,13 +65,6 @@ HttpResponse HttpResponse::ForNetError(int net_error_code) {
 }
 
 // static
-HttpResponse HttpResponse::ForIoError() {
-  HttpResponse response;
-  response.server_status = IO_ERROR;
-  return response;
-}
-
-// static
 HttpResponse HttpResponse::ForUnspecifiedError() {
   HttpResponse response;
   response.server_status = CONNECTION_UNAVAILABLE;
@@ -91,9 +86,19 @@ HttpResponse HttpResponse::ForHttpStatusCode(int http_status_code) {
 }
 
 // static
-HttpResponse HttpResponse::ForSuccess() {
+HttpResponse HttpResponse::ForSuccessForTest() {
+  CHECK_IS_TEST();
   HttpResponse response;
   response.server_status = SERVER_CONNECTION_OK;
+  response.http_status_code = net::HTTP_OK;
+  return response;
+}
+
+// static
+HttpResponse HttpResponse::ForIoErrorForTest() {
+  CHECK_IS_TEST();
+  HttpResponse response;
+  response.server_status = IO_ERROR;
   return response;
 }
 

@@ -1,14 +1,15 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CONTENT_PUBLIC_TEST_PRERENDER_TEST_UTIL_H_
 #define CONTENT_PUBLIC_TEST_PRERENDER_TEST_UTIL_H_
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/test/scoped_feature_list.h"
 #include "content/public/browser/prerender_trigger_type.h"
 #include "content/public/browser/render_frame_host.h"
+#include "content/public/common/isolated_world_ids.h"
 #include "content/public/test/browser_test_utils.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_request.h"
@@ -78,6 +79,20 @@ class PrerenderHostObserver {
   std::unique_ptr<PrerenderHostObserverImpl> impl_;
 };
 
+// Enables appropriate features for Prerender2.
+// This also disables the memory requirement of Prerender2 on Android so that
+// test can run on any bot.
+class ScopedPrerenderFeatureList {
+ public:
+  ScopedPrerenderFeatureList();
+  ScopedPrerenderFeatureList(const ScopedPrerenderFeatureList&) = delete;
+  ScopedPrerenderFeatureList& operator=(const ScopedPrerenderFeatureList&) =
+      delete;
+
+ private:
+  base::test::ScopedFeatureList feature_list_;
+};
+
 // Browser tests can use this class to more conveniently leverage prerendering.
 class PrerenderTestHelper {
  public:
@@ -113,8 +128,16 @@ class PrerenderTestHelper {
   //
   // AddPrerenderAsync() is the same as AddPrerender(), but does not wait until
   // the completion of prerendering.
-  int AddPrerender(const GURL& prerendering_url);
-  void AddPrerenderAsync(const GURL& prerendering_url);
+  int AddPrerender(const GURL& prerendering_url,
+                   int32_t world_id = ISOLATED_WORLD_ID_GLOBAL);
+  void AddPrerenderAsync(const GURL& prerendering_url,
+                         int32_t world_id = ISOLATED_WORLD_ID_GLOBAL);
+  void AddPrerenderWithTargetHintAsync(const GURL& prerendering_url,
+                                       const std::string& target_hint);
+
+  // Adds multiple URLs to the speculation rules at the same time. This function
+  // doesn't wait for the completion of prerendering.
+  void AddMultiplePrerenderAsync(const std::vector<GURL>& prerendering_urls);
 
   // Starts prerendering and returns a PrerenderHandle that should be kept alive
   // until prerender activation. Note that it returns before the completion of
@@ -127,6 +150,9 @@ class PrerenderTestHelper {
 
   // This navigates, but does not activate, the prerendered page.
   void NavigatePrerenderedPage(int host_id, const GURL& gurl);
+
+  // This cancels the prerendered page.
+  void CancelPrerenderedPage(int host_id);
 
   // Navigates the primary page to the URL and waits until the completion of
   // the navigation.
@@ -172,10 +198,26 @@ class PrerenderTestHelper {
   std::map<std::string, int> request_count_by_path_ GUARDED_BY(lock_);
   std::map<std::string, net::test_server::HttpRequest::HeaderMap>
       request_headers_by_path_ GUARDED_BY(lock_);
-  base::test::ScopedFeatureList feature_list_;
+  ScopedPrerenderFeatureList feature_list_;
   base::OnceClosure monitor_callback_ GUARDED_BY(lock_);
   base::Lock lock_;
   WebContents::Getter get_web_contents_fn_;
+};
+
+// This test delegate is used for prerender-tests, in order to support
+// prerendering going through the WebContentsDelegate.
+class ScopedPrerenderWebContentsDelegate : public WebContentsDelegate {
+ public:
+  explicit ScopedPrerenderWebContentsDelegate(WebContents& web_contents);
+
+  ~ScopedPrerenderWebContentsDelegate() override;
+
+  // WebContentsDelegate override.
+  PreloadingEligibility IsPrerender2Supported(
+      WebContents& web_contents) override;
+
+ private:
+  base::WeakPtr<WebContents> web_contents_;
 };
 
 }  // namespace test

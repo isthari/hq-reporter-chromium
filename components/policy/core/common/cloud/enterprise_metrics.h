@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -145,8 +145,10 @@ enum MetricEnrollment {
   // Enrollment failed: dev mode would be blocked but this is prevented by a
   // command-line switch.
   kMetricEnrollmentMayNotBlockDevMode = 64,
+  // Enrollment failed: Packaged license device invalid for KIOSK.
+  kMetricEnrollmentInvalidPackagedDeviceForKIOSK = 65,
   // Max value for use with enumeration histogram UMA functions.
-  kMaxValue = kMetricEnrollmentIllegalAccountForPackagedEDULicense
+  kMaxValue = kMetricEnrollmentInvalidPackagedDeviceForKIOSK
 };
 
 // Events related to policy refresh.
@@ -245,6 +247,10 @@ POLICY_EXPORT extern const char
 POLICY_EXPORT extern const char kMetricUserRemoteCommandReceived[];
 POLICY_EXPORT extern const char kMetricUserRemoteCommandExecutedTemplate[];
 
+POLICY_EXPORT extern const char kMetricDeviceRemoteCommandCrdResultTemplate[];
+POLICY_EXPORT extern const char
+    kMetricDeviceRemoteCommandCrdSessionDurationTemplate[];
+
 POLICY_EXPORT extern const char kMetricDeviceRemoteCommandReceived[];
 POLICY_EXPORT extern const char kMetricDeviceRemoteCommandExecutedTemplate[];
 
@@ -272,6 +278,51 @@ POLICY_EXPORT extern const char kUMAHashDanceNetworkErrorCode[];
 POLICY_EXPORT extern const char kUMASuffixInitialEnrollment[];
 // Suffix for Forced Re-Enrollment.
 POLICY_EXPORT extern const char kUMASuffixFRE[];
+
+// Histograpms for the unified state determination.
+POLICY_EXPORT extern const char kUMAStateDeterminationDeviceIdentifierStatus[];
+POLICY_EXPORT extern const char kUMAStateDeterminationEmbargoDatePassed[];
+POLICY_EXPORT extern const char kUMAStateDeterminationEnabled[];
+POLICY_EXPORT extern const char
+    kUMAStateDeterminationKillSwitchFetchNetworkErrorCode[];
+POLICY_EXPORT extern const char kUMAStateDeterminationKillSwitchFetchNumTries[];
+POLICY_EXPORT extern const char kUMAStateDeterminationOnFlex[];
+POLICY_EXPORT extern const char kUMAStateDeterminationOwnershipStatus[];
+POLICY_EXPORT extern const char
+    kUMAStateDeterminationPsmReportedAvailableState[];
+POLICY_EXPORT extern const char
+    kUMAStateDeterminationPsmRlweOprfRequestDmStatusCode[];
+POLICY_EXPORT extern const char
+    kUMAStateDeterminationPsmRlweOprfRequestNetworkErrorCode[];
+POLICY_EXPORT extern const char
+    kUMAStateDeterminationPsmRlweQueryRequestDmStatusCode[];
+POLICY_EXPORT extern const char
+    kUMAStateDeterminationPsmRlweQueryRequestNetworkErrorCode[];
+POLICY_EXPORT extern const char kUMAStateDeterminationStateKeysRetrieved[];
+POLICY_EXPORT extern const char
+    kUMAStateDeterminationStateRequestDmStatusCode[];
+POLICY_EXPORT extern const char
+    kUMAStateDeterminationStateRequestNetworkErrorCode[];
+POLICY_EXPORT extern const char kUMAStateDeterminationStateReturned[];
+POLICY_EXPORT extern const char kUMAStateDeterminationStepDuration[];
+POLICY_EXPORT extern const char kUMAStateDeterminationSystemClockSynchronized[];
+POLICY_EXPORT extern const char kUMAStateDeterminationTotalDurationByState[];
+POLICY_EXPORT extern const char kUMAStateDeterminationTotalDuration[];
+
+// Suffixes added to kUMAStateDeterminationTotalDurationByState.
+POLICY_EXPORT extern const char kUMASuffixConnectionError[];
+POLICY_EXPORT extern const char kUMASuffixDisabled[];
+POLICY_EXPORT extern const char kUMASuffixEnrollment[];
+POLICY_EXPORT extern const char kUMASuffixNoEnrollment[];
+POLICY_EXPORT extern const char kUMASuffixServerError[];
+
+// Suffixes added to kUMAStateDeterminationStepDuration.
+POLICY_EXPORT extern const char kUMASuffixOPRFRequest[];
+POLICY_EXPORT extern const char kUMASuffixOwnershipCheck[];
+POLICY_EXPORT extern const char kUMASuffixQueryRequest[];
+POLICY_EXPORT extern const char kUMASuffixStateKeyRetrieval[];
+POLICY_EXPORT extern const char kUMASuffixStateRequest[];
+POLICY_EXPORT extern const char kUMASuffixSystemClockSync[];
 
 }  // namespace policy
 

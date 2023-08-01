@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 #include <windows.h>
 
 #include <cguid.h>
-#include <ctype.h>
 
+#include "base/strings/string_util.h"
 #include "chrome/install_static/buildflags.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -30,10 +30,11 @@ namespace {
 // alphanumeric nor a period.
 MATCHER(ContainsIllegalProgIdChar, "") {
   const wchar_t* scan = arg;
-  wint_t c;
+  wchar_t c;
   while ((c = *scan++) != 0) {
-    if (!iswalnum(c) && c != L'.')
+    if (!base::IsAsciiAlphaNumeric(c) && c != L'.') {
       return true;
+    }
   }
   return false;
 }

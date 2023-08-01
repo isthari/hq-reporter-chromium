@@ -1,10 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_SERVICES_SHARING_NEARBY_PLATFORM_BLUETOOTH_SOCKET_H_
 #define CHROME_SERVICES_SHARING_NEARBY_PLATFORM_BLUETOOTH_SOCKET_H_
 
+#include "base/memory/raw_ref.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/synchronization/lock.h"
 #include "chrome/services/sharing/nearby/platform/bidirectional_stream.h"
@@ -12,13 +13,12 @@
 #include "device/bluetooth/public/mojom/adapter.mojom.h"
 #include "mojo/public/cpp/bindings/shared_remote.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
-#include "third_party/nearby/src/cpp/platform/api/bluetooth_classic.h"
+#include "third_party/nearby/src/internal/platform/implementation/bluetooth_classic.h"
 
 namespace base {
 class SequencedTaskRunner;
 }  // namespace base
 
-namespace location {
 namespace nearby {
 namespace chrome {
 
@@ -75,7 +75,7 @@ class BluetoothSocket : public api::BluetoothSocket {
   // BluetoothSocket is expected to own it (within |remote_device_|). In this
   // case, |remote_device_ref_| is a reference to |remote_device_|.
   absl::optional<chrome::BluetoothDevice> remote_device_;
-  api::BluetoothDevice& remote_device_ref_;
+  const raw_ref<api::BluetoothDevice, ExperimentalAsh> remote_device_ref_;
 
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
   mojo::SharedRemote<bluetooth::mojom::Socket> socket_;
@@ -84,6 +84,5 @@ class BluetoothSocket : public api::BluetoothSocket {
 
 }  // namespace chrome
 }  // namespace nearby
-}  // namespace location
 
 #endif  // CHROME_SERVICES_SHARING_NEARBY_PLATFORM_BLUETOOTH_SOCKET_H_

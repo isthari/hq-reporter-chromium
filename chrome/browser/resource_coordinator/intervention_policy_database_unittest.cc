@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -43,9 +43,7 @@ void WriteProtoToFile(
   }
   std::string serialized_proto;
   EXPECT_TRUE(proto.SerializeToString(&serialized_proto));
-  EXPECT_EQ(static_cast<int>(serialized_proto.length()),
-            base::WriteFile(path, serialized_proto.c_str(),
-                            serialized_proto.length()));
+  EXPECT_TRUE(base::WriteFile(path, serialized_proto));
 }
 
 }  // namespace
@@ -89,8 +87,8 @@ TEST_F(InterventionPolicyDatabaseTest, EndToEnd) {
                                                 OriginInterventions::DEFAULT));
   WriteProtoToFile(proto_path, policy_map);
 
-  GetDatabase()->InitializeDatabaseWithProtoFile(
-      proto_path, base::Version(), base::Value(base::Value::Type::DICTIONARY));
+  GetDatabase()->InitializeDatabaseWithProtoFile(proto_path, base::Version(),
+                                                 base::Value::Dict());
 
   WaitForDatabaseToBeInitialized();
 

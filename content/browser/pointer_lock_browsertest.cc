@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -142,16 +142,6 @@ class PointerLockBrowserTest : public ContentBrowserTest {
 
  protected:
   MockPointerLockWebContentsDelegate web_contents_delegate_;
-};
-
-class PointerLockBrowserTestWithOptions : public PointerLockBrowserTest {
- public:
-  PointerLockBrowserTestWithOptions() {
-    feature_list_.InitAndEnableFeature(features::kPointerLockOptions);
-  }
-
- private:
-  base::test::ScopedFeatureList feature_list_;
 };
 
 namespace {
@@ -458,9 +448,9 @@ IN_PROC_BROWSER_TEST_F(PointerLockBrowserTest,
 
   // Request a pointer lock to the inner WebContents's document.body.
   EXPECT_EQ(true, PointerLockHelper::RequestPointerLockOnBody(
-                      inner_contents->GetMainFrame()));
+                      inner_contents->GetPrimaryMainFrame()));
   EXPECT_EQ(true, PointerLockHelper::IsPointerLockOnBody(
-                      inner_contents->GetMainFrame()));
+                      inner_contents->GetPrimaryMainFrame()));
 
   // Root (platform) RenderWidgetHostView should have the pointer locked.
   EXPECT_TRUE(root->current_frame_host()->GetView()->IsMouseLocked());
@@ -468,7 +458,7 @@ IN_PROC_BROWSER_TEST_F(PointerLockBrowserTest,
   // The widget doing the lock is the one from the inner WebContents. A link
   // to that RWH is saved into the outer webcontents.
   RenderWidgetHost* expected_lock_widget =
-      inner_contents->GetMainFrame()->GetView()->GetRenderWidgetHost();
+      inner_contents->GetPrimaryMainFrame()->GetView()->GetRenderWidgetHost();
   EXPECT_EQ(expected_lock_widget, web_contents()->GetMouseLockWidget());
   EXPECT_EQ(expected_lock_widget, web_contents()->mouse_lock_widget_);
   EXPECT_EQ(expected_lock_widget,
@@ -720,7 +710,7 @@ IN_PROC_BROWSER_TEST_F(PointerLockBrowserTest, PointerLockOnDroppedElem) {
   EXPECT_TRUE(ExecJs(shell(), "", EXECUTE_SCRIPT_NO_USER_GESTURE));
 }
 
-IN_PROC_BROWSER_TEST_F(PointerLockBrowserTestWithOptions,
+IN_PROC_BROWSER_TEST_F(PointerLockBrowserTest,
                        PointerLockRequestUnadjustedMovement) {
   GURL main_url(embedded_test_server()->GetURL(
       "a.com", "/cross_site_iframe_factory.html?a(b)"));
@@ -782,8 +772,7 @@ IN_PROC_BROWSER_TEST_F(PointerLockBrowserTestWithOptions,
 
 #if defined(USE_AURA)
 // Flaky on all platforms http://crbug.com/1198612.
-IN_PROC_BROWSER_TEST_F(PointerLockBrowserTestWithOptions,
-                       DISABLED_UnadjustedMovement) {
+IN_PROC_BROWSER_TEST_F(PointerLockBrowserTest, DISABLED_UnadjustedMovement) {
   GURL main_url(embedded_test_server()->GetURL(
       "a.com", "/cross_site_iframe_factory.html?a(b)"));
   EXPECT_TRUE(NavigateToURL(shell(), main_url));
@@ -865,7 +854,7 @@ IN_PROC_BROWSER_TEST_F(PointerLockBrowserTestWithOptions,
 // options inside a Child view gets piped to the proper places and gives
 // the proper unsupported error(this option is only supported on Windows
 // This was prompted by this bug: https://crbug.com/1062702
-IN_PROC_BROWSER_TEST_F(PointerLockBrowserTestWithOptions,
+IN_PROC_BROWSER_TEST_F(PointerLockBrowserTest,
                        MAYBE_ChangeUnadjustedMovementFailure) {
   GURL main_url(embedded_test_server()->GetURL(
       "a.com", "/cross_site_iframe_factory.html?a(b)"));
@@ -913,7 +902,7 @@ IN_PROC_BROWSER_TEST_F(PointerLockBrowserTestWithOptions,
 // options inside a Child view gets piped to the proper places and updates
 // the option(this option is only supported on Windows).
 // This was prompted by this bug: https://crbug.com/1062702
-IN_PROC_BROWSER_TEST_F(PointerLockBrowserTestWithOptions,
+IN_PROC_BROWSER_TEST_F(PointerLockBrowserTest,
                        ChangeUnadjustedMovementSuccess) {
   GURL main_url(embedded_test_server()->GetURL(
       "a.com", "/cross_site_iframe_factory.html?a(b)"));

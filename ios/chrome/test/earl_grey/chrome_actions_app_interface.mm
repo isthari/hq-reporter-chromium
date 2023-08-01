@@ -1,13 +1,12 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/test/earl_grey/chrome_actions_app_interface.h"
 
 #import "base/mac/foundation_util.h"
-#import "ios/chrome/browser/ui/collection_view/cells/collection_view_switch_item.h"
-#import "ios/chrome/browser/ui/table_view/cells/table_view_switch_cell.h"
-#import "ios/chrome/browser/ui/table_view/cells/table_view_switch_item.h"
+#import "ios/chrome/browser/shared/ui/table_view/cells/table_view_switch_cell.h"
+#import "ios/chrome/browser/shared/ui/table_view/cells/table_view_switch_item.h"
 #import "ios/chrome/test/app/tab_test_util.h"
 #import "ios/testing/earl_grey/earl_grey_app.h"
 #import "ios/web/public/test/earl_grey/web_view_actions.h"
@@ -18,7 +17,33 @@
 #endif
 
 namespace {
+
+// Action to swipe left on 150pt.
+NSArray<NSValue*>* SwipeLeft(CGPoint startPoint) {
+  const CGFloat total_length = 150;
+  const int number_of_frames = 30;
+  const CGFloat deltaX = total_length / number_of_frames;
+  // Initial displacement to trigger a swipe.
+  const int initial_displacement = 10;
+  const int beginning = ceil(initial_displacement / deltaX);
+
+  NSMutableArray* touchPath = [[NSMutableArray alloc] init];
+  [touchPath addObject:[NSValue valueWithCGPoint:startPoint]];
+
+  for (int i = beginning; i < number_of_frames; i++) {
+    CGPoint point = CGPointMake(startPoint.x - i * deltaX, startPoint.y);
+    [touchPath addObject:[NSValue valueWithCGPoint:point]];
+  }
+
+  [touchPath addObject:[NSValue valueWithCGPoint:CGPointMake(startPoint.x -
+                                                                 total_length,
+                                                             startPoint.y)]];
+
+  return touchPath;
+}
+
 NSString* kChromeActionsErrorDomain = @"ChromeActionsError";
+
 }  // namespace
 
 @implementation ChromeActionsAppInterface : NSObject
@@ -62,36 +87,8 @@ NSString* kChromeActionsErrorDomain = @"ChromeActionsError";
             }
             UISwitch* switchView = switchCell.switchView;
             if (switchView.on != on) {
-              id<GREYAction> longPressAction = [GREYActions
-                  actionForLongPressWithDuration:kGREYLongPressDefaultDuration];
-              success = [longPressAction perform:switchView error:errorOrNil];
-              return;
-            }
-            success = YES;
-          });
-          return success;
-        }];
-}
-
-+ (id<GREYAction>)turnSyncSwitchOn:(BOOL)on {
-  id<GREYMatcher> constraints = grey_not(grey_systemAlertViewShown());
-  NSString* actionName = [NSString
-      stringWithFormat:@"Turn sync switch to %@ state", on ? @"ON" : @"OFF"];
-  return [GREYActionBlock
-      actionWithName:actionName
-         constraints:constraints
-        performBlock:^BOOL(id syncSwitchCell, __strong NSError** errorOrNil) {
-          // EG2 executes actions on a background thread by default. Since this
-          // action interacts with UI, kick it over to the main thread.
-          __block BOOL success = NO;
-          grey_dispatch_sync_on_main_thread(^{
-            TableViewSwitchCell* switchCell =
-                base::mac::ObjCCastStrict<TableViewSwitchCell>(syncSwitchCell);
-            UISwitch* switchView = switchCell.switchView;
-            if (switchView.on != on) {
-              id<GREYAction> longPressAction = [GREYActions
-                  actionForLongPressWithDuration:kGREYLongPressDefaultDuration];
-              success = [longPressAction perform:switchView error:errorOrNil];
+              id<GREYAction> action = [GREYActions actionForTurnSwitchOn:on];
+              success = [action perform:switchView error:errorOrNil];
               return;
             }
             success = YES;
@@ -102,7 +99,12 @@ NSString* kChromeActionsErrorDomain = @"ChromeActionsError";
 
 + (id<GREYAction>)tapWebElement:(ElementSelector*)selector {
   return web::WebViewTapElement(chrome_test_util::GetCurrentWebState(),
-                                selector);
+                                selector, /*verified*/ true);
+}
+
++ (id<GREYAction>)tapWebElementUnverified:(ElementSelector*)selector {
+  return web::WebViewTapElement(chrome_test_util::GetCurrentWebState(),
+                                selector, /*verified*/ false);
 }
 
 + (id<GREYAction>)scrollToTop {
@@ -150,6 +152,39 @@ NSString* kChromeActionsErrorDomain = @"ChromeActionsError";
   return [GREYActionBlock actionWithName:actionName
                              constraints:constraints
                             performBlock:actionBlock];
+}
+
++ (id<GREYAction>)swipeToShowDeleteButton {
+  return [GREYActionBlock
+      actionWithName:@"Swipe to display delete button"
+         constraints:nil
+        performBlock:^(UIView* element, NSError* __strong* errorOrNil) {
+          if ([element window] == nil) {
+            NSString* errorDescription = [NSString
+                stringWithFormat:
+                    @"Cannot swipe on this view as it has no window and "
+                    @"isn't a window itself:\n%@",
+                    [element grey_description]];
+            *errorOrNil = [NSError
+                errorWithDomain:@"No window available"
+                           code:0
+                       userInfo:@{@"Failure Reason" : (errorDescription)}];
+            // Indicates that the action failed.
+            return NO;
+          }
+          CGRect accessibilityFrame = element.accessibilityFrame;
+          CGPoint startPoint = CGPointMake(
+              accessibilityFrame.origin.x + accessibilityFrame.size.width * 0.5,
+              accessibilityFrame.origin.y +
+                  accessibilityFrame.size.height * 0.5);
+          // Invoke a custom selector that animates the window of the element.
+          [GREYSyntheticEvents touchAlongPath:SwipeLeft(startPoint)
+                             relativeToWindow:[element window]
+                                  forDuration:1
+                                      timeout:10];
+          // Indicates that the action was executed successfully.
+          return YES;
+        }];
 }
 
 @end

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,6 @@ import android.app.Dialog;
 import android.os.Bundle;
 
 import androidx.appcompat.app.AlertDialog;
-
-import org.chromium.chrome.browser.password_check.internal.R;
 
 /**
  * Shows the dialog that confirms the user really wants to delete a credential.
@@ -30,7 +28,7 @@ public class PasswordCheckDeletionDialogFragment extends PasswordCheckDialogFrag
     @Override
     public Dialog onCreateDialog(Bundle savedInstanceState) {
         return new AlertDialog
-                .Builder(getActivity(), R.style.Theme_Chromium_AlertDialog_NoActionBar)
+                .Builder(getActivity(), R.style.ThemeOverlay_BrowserUI_AlertDialog_NoActionBar)
                 .setTitle(R.string.password_entry_edit_delete_credential_dialog_title)
                 .setPositiveButton(
                         R.string.password_entry_edit_delete_credential_dialog_confirm, mHandler)

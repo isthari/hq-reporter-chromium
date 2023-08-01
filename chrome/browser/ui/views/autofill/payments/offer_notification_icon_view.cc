@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include "components/strings/grit/components_strings.h"
 #include "components/vector_icons/vector_icons.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/paint_vector_icon.h"
 
 namespace autofill {
@@ -26,7 +27,13 @@ OfferNotificationIconView::OfferNotificationIconView(
     : PageActionIconView(command_updater,
                          IDC_OFFERS_AND_REWARDS_FOR_PAGE,
                          icon_label_bubble_delegate,
-                         page_action_icon_delegate) {}
+                         page_action_icon_delegate,
+                         "PaymentsOfferNotification") {
+  SetAccessibilityProperties(
+      /*role*/ absl::nullopt,
+      l10n_util::GetStringUTF16(
+          IDS_AUTOFILL_OFFERS_REMINDER_ICON_TOOLTIP_TEXT));
+}
 
 OfferNotificationIconView::~OfferNotificationIconView() = default;
 
@@ -51,12 +58,6 @@ void OfferNotificationIconView::UpdateImpl() {
   SetVisible(command_enabled);
 }
 
-std::u16string OfferNotificationIconView::GetTextForTooltipAndAccessibleName()
-    const {
-  return l10n_util::GetStringUTF16(
-      IDS_AUTOFILL_OFFERS_REMINDER_ICON_TOOLTIP_TEXT);
-}
-
 void OfferNotificationIconView::OnExecuting(
     PageActionIconView::ExecuteSource execute_source) {}
 
@@ -64,13 +65,12 @@ const gfx::VectorIcon& OfferNotificationIconView::GetVectorIcon() const {
   return kLocalOfferFlippedIcon;
 }
 
-const char* OfferNotificationIconView::GetClassName() const {
-  return "OfferNotificationIconView";
-}
-
 OfferNotificationBubbleController* OfferNotificationIconView::GetController()
     const {
   return OfferNotificationBubbleController::Get(GetWebContents());
 }
+
+BEGIN_METADATA(OfferNotificationIconView, PageActionIconView)
+END_METADATA
 
 }  // namespace autofill

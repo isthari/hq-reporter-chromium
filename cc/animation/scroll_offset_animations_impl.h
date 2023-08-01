@@ -1,4 +1,4 @@
-// Copyright (c) 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -61,6 +61,7 @@ class CC_ANIMATION_EXPORT ScrollOffsetAnimationsImpl
                                       const gfx::Vector2dF& adjustment);
 
   void ScrollAnimationAbort(bool needs_completion);
+  void AnimatingElementRemovedByCommit();
 
   // AnimationDelegate implementation.
   void NotifyAnimationStarted(base::TimeTicks monotonic_time,

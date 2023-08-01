@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,9 @@
 #include "base/strings/string_number_conversions.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
-#include "chrome/browser/themes/theme_properties.h"
+#include "chrome/browser/ui/browser_element_identifiers.h"
 #include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/color/chrome_color_id.h"
 #include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/tabs/tab_types.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
@@ -22,6 +23,7 @@
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/pointer/touch_ui_controller.h"
 #include "ui/base/theme_provider.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/compositor/compositor.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/scoped_canvas.h"
@@ -30,6 +32,7 @@
 #include "ui/views/animation/ink_drop_impl.h"
 #include "ui/views/animation/ink_drop_mask.h"
 #include "ui/views/controls/highlight_path_generator.h"
+#include "ui/views/view_class_properties.h"
 #include "ui/views/widget/widget.h"
 
 #if BUILDFLAG(IS_WIN)
@@ -64,6 +67,24 @@ NewTabButton::NewTabButton(TabStrip* tab_strip, PressedCallback callback)
                            ui::EF_MIDDLE_MOUSE_BUTTON);
 #endif
 
+  if (features::IsChromeRefresh2023()) {
+    foreground_frame_active_color_id_ =
+        kColorNewTabButtonCRForegroundFrameActive;
+    foreground_frame_inactive_color_id_ =
+        kColorNewTabButtonCRForegroundFrameInactive;
+    background_frame_active_color_id_ =
+        kColorNewTabButtonCRBackgroundFrameActive;
+    background_frame_inactive_color_id_ =
+        kColorNewTabButtonCRBackgroundFrameInactive;
+  } else {
+    foreground_frame_active_color_id_ = kColorNewTabButtonForegroundFrameActive;
+    foreground_frame_inactive_color_id_ =
+        kColorNewTabButtonForegroundFrameInactive;
+    background_frame_active_color_id_ = kColorNewTabButtonBackgroundFrameActive;
+    background_frame_inactive_color_id_ =
+        kColorNewTabButtonBackgroundFrameInactive;
+  }
+
   ink_drop_container_ =
       AddChildView(std::make_unique<views::InkDropContainerView>());
 
@@ -76,17 +97,24 @@ NewTabButton::NewTabButton(TabStrip* tab_strip, PressedCallback callback)
       this, std::make_unique<NewTabButton::HighlightPathGenerator>());
 
   SetFocusBehavior(FocusBehavior::ACCESSIBLE_ONLY);
+
+  SetProperty(views::kElementIdentifierKey, kNewTabButtonElementId);
 }
 
 NewTabButton::~NewTabButton() {
   // TODO(pbos): Revisit explicit removal of InkDrop for classes that override
-  // Add/RemoveLayerBeneathView(). This is done so that the InkDrop doesn't
+  // Add/RemoveLayerFromRegions(). This is done so that the InkDrop doesn't
   // access the non-override versions in ~View.
   views::InkDrop::Remove(this);
 }
 
 void NewTabButton::FrameColorsChanged() {
-  UpdateInkDropBaseColor();
+  const auto* const color_provider = GetColorProvider();
+  views::FocusRing::Get(this)->SetColorId(kColorNewTabButtonFocusRing);
+  views::InkDrop::Get(this)->SetBaseColor(
+      color_provider->GetColor(tab_strip_->ShouldPaintAsActiveFrame()
+                                   ? kColorNewTabButtonInkDropFrameActive
+                                   : kColorNewTabButtonInkDropFrameInactive));
   SchedulePaint();
 }
 
@@ -94,24 +122,71 @@ void NewTabButton::AnimateToStateForTesting(views::InkDropState state) {
   views::InkDrop::Get(this)->GetInkDrop()->AnimateToState(state);
 }
 
-void NewTabButton::AddLayerBeneathView(ui::Layer* new_layer) {
-  ink_drop_container_->AddLayerBeneathView(new_layer);
+void NewTabButton::AddLayerToRegion(ui::Layer* new_layer,
+                                    views::LayerRegion region) {
+  ink_drop_container_->AddLayerToRegion(new_layer, region);
 }
 
-void NewTabButton::RemoveLayerBeneathView(ui::Layer* old_layer) {
-  ink_drop_container_->RemoveLayerBeneathView(old_layer);
+void NewTabButton::RemoveLayerFromRegions(ui::Layer* old_layer) {
+  ink_drop_container_->RemoveLayerFromRegions(old_layer);
 }
 
 SkColor NewTabButton::GetForegroundColor() const {
-  const SkColor background_color = tab_strip_->GetTabBackgroundColor(
-      TabActive::kInactive, BrowserFrameActiveState::kUseCurrent);
-  return tab_strip_->GetTabForegroundColor(TabActive::kInactive,
-                                           background_color);
+  if (features::IsChromeRefresh2023()) {
+    return GetColorProvider()->GetColor(
+        tab_strip_->ShouldPaintAsActiveFrame()
+            ? foreground_frame_active_color_id_
+            : foreground_frame_inactive_color_id_);
+  }
+  return tab_strip_->GetTabForegroundColor(TabActive::kInactive);
+}
+
+int NewTabButton::GetCornerRadius() const {
+  return ChromeLayoutProvider::Get()->GetCornerRadiusMetric(
+      views::Emphasis::kMaximum, GetContentsBounds().size());
+}
+
+SkPath NewTabButton::GetBorderPath(const gfx::Point& origin,
+                                   float scale,
+                                   bool extend_to_top) const {
+  gfx::PointF scaled_origin(origin);
+  scaled_origin.Scale(scale);
+  const float radius = GetCornerRadius() * scale;
+
+  SkPath path;
+  if (extend_to_top) {
+    path.moveTo(scaled_origin.x(), 0);
+    const float diameter = radius * 2;
+    path.rLineTo(diameter, 0);
+    path.rLineTo(0, scaled_origin.y() + radius);
+    path.rArcTo(radius, radius, 0, SkPath::kSmall_ArcSize, SkPathDirection::kCW,
+                -diameter, 0);
+    path.close();
+  } else {
+    path.addCircle(scaled_origin.x() + radius, scaled_origin.y() + radius,
+                   radius);
+  }
+  return path;
 }
 
 void NewTabButton::OnBoundsChanged(const gfx::Rect& previous_bounds) {
   ImageButton::OnBoundsChanged(previous_bounds);
   ink_drop_container_->SetBoundsRect(GetLocalBounds());
+}
+
+void NewTabButton::AddedToWidget() {
+  paint_as_active_subscription_ =
+      GetWidget()->RegisterPaintAsActiveChangedCallback(base::BindRepeating(
+          &NewTabButton::FrameColorsChanged, base::Unretained(this)));
+}
+
+void NewTabButton::RemovedFromWidget() {
+  paint_as_active_subscription_ = {};
+}
+
+void NewTabButton::OnThemeChanged() {
+  views::ImageButton::OnThemeChanged();
+  FrameColorsChanged();
 }
 
 #if BUILDFLAG(IS_WIN)
@@ -174,11 +249,6 @@ bool NewTabButton::GetHitTestMask(SkPath* mask) const {
   return true;
 }
 
-int NewTabButton::GetCornerRadius() const {
-  return ChromeLayoutProvider::Get()->GetCornerRadiusMetric(
-      views::Emphasis::kMaximum, GetContentsBounds().size());
-}
-
 void NewTabButton::PaintFill(gfx::Canvas* canvas) const {
   gfx::ScopedCanvas scoped_canvas(canvas);
   canvas->UndoDeviceScaleFactor();
@@ -209,7 +279,10 @@ void NewTabButton::PaintFill(gfx::Canvas* canvas) const {
         contents_bounds.y(), x_scale, scale, 0, 0, SkTileMode::kRepeat,
         SkTileMode::kRepeat, &flags);
   } else {
-    flags.setColor(GetButtonFillColor());
+    flags.setColor(GetColorProvider()->GetColor(
+        tab_strip_->ShouldPaintAsActiveFrame()
+            ? background_frame_active_color_id_
+            : background_frame_inactive_color_id_));
   }
 
   canvas->DrawPath(GetBorderPath(gfx::Point(), scale, false), flags);
@@ -236,42 +309,6 @@ void NewTabButton::PaintIcon(gfx::Canvas* canvas) {
 
   // Vertical stroke.
   canvas->DrawLine(gfx::PointF(center, start), gfx::PointF(center, end), flags);
-}
-
-SkColor NewTabButton::GetButtonFillColor() const {
-  return GetThemeProvider()->GetDisplayProperty(
-             ThemeProperties::SHOULD_FILL_BACKGROUND_TAB_COLOR)
-             ? tab_strip_->GetTabBackgroundColor(
-                   TabActive::kInactive, BrowserFrameActiveState::kUseCurrent)
-             : SK_ColorTRANSPARENT;
-}
-
-SkPath NewTabButton::GetBorderPath(const gfx::Point& origin,
-                                   float scale,
-                                   bool extend_to_top) const {
-  gfx::PointF scaled_origin(origin);
-  scaled_origin.Scale(scale);
-  const float radius = GetCornerRadius() * scale;
-
-  SkPath path;
-  if (extend_to_top) {
-    path.moveTo(scaled_origin.x(), 0);
-    const float diameter = radius * 2;
-    path.rLineTo(diameter, 0);
-    path.rLineTo(0, scaled_origin.y() + radius);
-    path.rArcTo(radius, radius, 0, SkPath::kSmall_ArcSize, SkPathDirection::kCW,
-                -diameter, 0);
-    path.close();
-  } else {
-    path.addCircle(scaled_origin.x() + radius, scaled_origin.y() + radius,
-                   radius);
-  }
-  return path;
-}
-
-void NewTabButton::UpdateInkDropBaseColor() {
-  views::InkDrop::Get(this)->SetBaseColor(
-      color_utils::GetColorWithMaxContrast(GetButtonFillColor()));
 }
 
 BEGIN_METADATA(NewTabButton, views::ImageButton)

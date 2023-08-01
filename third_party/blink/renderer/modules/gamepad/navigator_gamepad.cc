@@ -30,6 +30,7 @@
 #include "device/gamepad/public/cpp/gamepads.h"
 #include "third_party/blink/public/common/privacy_budget/identifiability_metric_builder.h"
 #include "third_party/blink/public/common/privacy_budget/identifiability_study_settings.h"
+#include "third_party/blink/public/mojom/frame/user_activation_notification_type.mojom-blink.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -66,8 +67,6 @@ const char kSecureContextBlocked[] =
     "Access to the feature \"gamepad\" requires a secure context";
 const char kFeaturePolicyBlocked[] =
     "Access to the feature \"gamepad\" is disallowed by permissions policy.";
-const char kFencedFrameBlocked[] =
-    "getGamepad is not allowed in a fenced frame tree.";
 
 NavigatorGamepad& NavigatorGamepad::From(Navigator& navigator) {
   NavigatorGamepad* supplement =
@@ -84,7 +83,7 @@ namespace {
 void RecordGamepadsForIdentifiabilityStudy(
     ExecutionContext* context,
     HeapVector<Member<Gamepad>> gamepads) {
-  if (!context || !IdentifiabilityStudySettings::Get()->ShouldSample(
+  if (!context || !IdentifiabilityStudySettings::Get()->ShouldSampleSurface(
                       IdentifiableSurface::FromTypeAndToken(
                           IdentifiableSurface::Type::kWebFeature,
                           WebFeature::kGetGamepads)))
@@ -129,13 +128,6 @@ HeapVector<Member<Gamepad>> NavigatorGamepad::getGamepads(
 
   auto* navigator_gamepad = &NavigatorGamepad::From(navigator);
 
-  // TODO(https://crbug.com/1011006): Remove fenced frame specific code when
-  // permission policy implements the Gamepad API support.
-  if (navigator.DomWindow()->GetFrame()->IsInFencedFrameTree()) {
-    exception_state.ThrowSecurityError(kFencedFrameBlocked);
-    return HeapVector<Member<Gamepad>>();
-  }
-
   ExecutionContext* context = navigator_gamepad->GetExecutionContext();
   if (!context || !context->IsSecureContext()) {
     if (base::FeatureList::IsEnabled(::features::kRestrictGamepadAccess)) {
@@ -154,22 +146,10 @@ HeapVector<Member<Gamepad>> NavigatorGamepad::getGamepads(
     }
   }
 
-  if (!context->IsFeatureEnabled(
-          mojom::blink::PermissionsPolicyFeature::kGamepad)) {
-    if (base::FeatureList::IsEnabled(::features::kRestrictGamepadAccess)) {
-      exception_state.ThrowSecurityError(kFeaturePolicyBlocked);
-      return HeapVector<Member<Gamepad>>();
-    } else {
-      context->AddConsoleMessage(
-          MakeGarbageCollected<ConsoleMessage>(
-              mojom::blink::ConsoleMessageSource::kJavaScript,
-              mojom::blink::ConsoleMessageLevel::kWarning,
-              "getGamepad will now require a Permission Policy. "
-              "Please update your application accordingly. "
-              "For more information see "
-              "https://github.com/w3c/gamepad/pull/112"),
-          /*discard_duplicates=*/true);
-    }
+  if (!context || !context->IsFeatureEnabled(
+                      mojom::blink::PermissionsPolicyFeature::kGamepad)) {
+    exception_state.ThrowSecurityError(kFeaturePolicyBlocked);
+    return HeapVector<Member<Gamepad>>();
   }
 
   HeapVector<Member<Gamepad>> result =
@@ -197,7 +177,8 @@ HeapVector<Member<Gamepad>> NavigatorGamepad::Gamepads() {
 
   ExecutionContext* context = DomWindow();
 
-  if (DomWindow() && DomWindow()->GetFrame()->IsCrossOriginToMainFrame()) {
+  if (DomWindow() &&
+      DomWindow()->GetFrame()->IsCrossOriginToOutermostMainFrame()) {
     UseCounter::Count(context, WebFeature::kGetGamepadsFromCrossOriginSubframe);
   }
 
@@ -255,6 +236,31 @@ GamepadHapticActuator* NavigatorGamepad::GetVibrationActuatorForGamepad(
   return vibration_actuators_[pad_index].Get();
 }
 
+void NavigatorGamepad::SetTouchEvents(const Gamepad& gamepad,
+                                      GamepadTouchVector& touch_events,
+                                      unsigned count,
+                                      const device::GamepadTouch* data) {
+  int pad_index = gamepad.index();
+  DCHECK_GE(pad_index, 0);
+
+  auto& id = next_touch_id_[pad_index];
+  auto& id_map = touch_id_map_[pad_index];
+
+  uint32_t the_id = 0u;
+  TouchIdMap the_id_map{};
+  for (unsigned i = 0u; i < count; ++i) {
+    if (auto search = id_map.find(data[i].touch_id); search != id_map.end()) {
+      the_id = search->value;
+    } else {
+      the_id = id++;
+    }
+    the_id_map.Set(data[i].touch_id, the_id);
+    touch_events[i]->UpdateValuesFrom(data[i], the_id);
+  }
+
+  id_map = std::move(the_id_map);
+}
+
 void NavigatorGamepad::Trace(Visitor* visitor) const {
   visitor->Trace(gamepads_);
   visitor->Trace(gamepads_back_);
@@ -268,18 +274,11 @@ void NavigatorGamepad::Trace(Visitor* visitor) const {
 
 bool NavigatorGamepad::StartUpdatingIfAttached() {
   // The frame must be attached to start updating.
-  if (!DomWindow()) {
-    return false;
+  if (DomWindow()) {
+    StartUpdating();
+    return true;
   }
-
-  // TODO(https://crbug.com/1011006): Remove fenced frame specific code when
-  // permission policy implements the Gamepad API support.
-  if (DomWindow()->GetFrame()->IsInFencedFrameTree()) {
-    return false;
-  }
-
-  StartUpdating();
-  return true;
+  return false;
 }
 
 void NavigatorGamepad::DidUpdateData() {

@@ -1,19 +1,22 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/web/public/js_messaging/java_script_feature.h"
+#import "ios/web/public/js_messaging/java_script_feature.h"
 
 #import <Foundation/Foundation.h>
 
-#include "base/bind.h"
+#import "base/functional/bind.h"
 #import "base/strings/sys_string_conversions.h"
-#include "base/time/time.h"
+#import "base/time/time.h"
 #import "ios/web/js_messaging/java_script_content_world.h"
 #import "ios/web/js_messaging/java_script_feature_manager.h"
-#include "ios/web/js_messaging/page_script_util.h"
-#include "ios/web/js_messaging/web_frame_internal.h"
+#import "ios/web/js_messaging/page_script_util.h"
+#import "ios/web/js_messaging/web_frame_internal.h"
+#import "ios/web/public/js_messaging/content_world.h"
 #import "ios/web/public/js_messaging/web_frame.h"
+#import "ios/web/public/js_messaging/web_frames_manager.h"
+#import "ios/web/public/web_state.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -21,9 +24,9 @@
 
 namespace {
 
-// Returns a JavaScript safe string based on |script_filename|. This is used as
+// Returns a JavaScript safe string based on `script_filename`. This is used as
 // a unique identifier for a given script and passed to
-// |MakeScriptInjectableOnce| which ensures JS isn't executed multiple times due
+// `MakeScriptInjectableOnce` which ensures JS isn't executed multiple times due
 // to duplicate injection.
 NSString* InjectionTokenForScript(NSString* script_filename) {
   NSMutableCharacterSet* validCharacters =
@@ -86,7 +89,7 @@ NSString* JavaScriptFeature::FeatureScript::GetScriptString() const {
   }
   // WKUserScript instances will automatically be re-injected by WebKit when the
   // document is re-created, even though the JavaScript context will not be
-  // re-created. So the script needs to be wrapped in |MakeScriptInjectableOnce|
+  // re-created. So the script needs to be wrapped in `MakeScriptInjectableOnce`
   // so that is is not re-injected.
   return MakeScriptInjectableOnce(
       InjectionTokenForScript(script_filename),
@@ -133,9 +136,12 @@ JavaScriptFeature::JavaScriptFeature(
 
 JavaScriptFeature::~JavaScriptFeature() = default;
 
-JavaScriptFeature::ContentWorld JavaScriptFeature::GetSupportedContentWorld()
-    const {
+ContentWorld JavaScriptFeature::GetSupportedContentWorld() const {
   return supported_world_;
+}
+
+WebFramesManager* JavaScriptFeature::GetWebFramesManager(WebState* web_state) {
+  return web_state->GetWebFramesManager(GetSupportedContentWorld());
 }
 
 const std::vector<const JavaScriptFeature::FeatureScript>
@@ -160,7 +166,7 @@ JavaScriptFeature::GetScriptMessageHandler() const {
   }
 
   return base::BindRepeating(&JavaScriptFeature::ScriptMessageReceived,
-                             weak_factory_.GetWeakPtr());
+                             weak_factory_.GetMutableWeakPtr());
 }
 
 void JavaScriptFeature::ScriptMessageReceived(WebState* web_state,
@@ -169,7 +175,7 @@ void JavaScriptFeature::ScriptMessageReceived(WebState* web_state,
 bool JavaScriptFeature::CallJavaScriptFunction(
     WebFrame* web_frame,
     const std::string& function_name,
-    const std::vector<base::Value>& parameters) {
+    const base::Value::List& parameters) {
   DCHECK(web_frame);
 
   JavaScriptFeatureManager* feature_manager =
@@ -187,7 +193,7 @@ bool JavaScriptFeature::CallJavaScriptFunction(
 bool JavaScriptFeature::CallJavaScriptFunction(
     WebFrame* web_frame,
     const std::string& function_name,
-    const std::vector<base::Value>& parameters,
+    const base::Value::List& parameters,
     base::OnceCallback<void(const base::Value*)> callback,
     base::TimeDelta timeout) {
   DCHECK(web_frame);

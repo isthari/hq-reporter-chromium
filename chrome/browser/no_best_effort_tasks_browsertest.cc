@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "base/run_loop.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/sequenced_task_runner.h"
 #include "build/build_config.h"
 #include "build/buildflag.h"
 #include "chrome/browser/chrome_content_browser_client.h"
@@ -172,14 +173,14 @@ IN_PROC_BROWSER_TEST_F(NoBestEffortTasksTest, LoadExtensionAndSendMessages) {
   ASSERT_TRUE(have_test_data_dir);
   extension_dir = extension_dir.AppendASCII("extensions")
                       .AppendASCII("no_best_effort_tasks_test_extension");
+  extensions::TestExtensionRegistryObserver observer(
+      extensions::ExtensionRegistry::Get(browser()->profile()));
   extensions::UnpackedInstaller::Create(
       extensions::ExtensionSystem::Get(browser()->profile())
           ->extension_service())
       ->Load(extension_dir);
   scoped_refptr<const extensions::Extension> extension =
-      extensions::TestExtensionRegistryObserver(
-          extensions::ExtensionRegistry::Get(browser()->profile()))
-          .WaitForExtensionReady();
+      observer.WaitForExtensionReady();
   ASSERT_TRUE(extension);
   ASSERT_EQ(kExtensionId, extension->id());
 
@@ -215,14 +216,14 @@ IN_PROC_BROWSER_TEST_F(NoBestEffortTasksTest, LoadExtensionAndSendMessages) {
                         request_reply_javascript);
     if (result.error.empty()) {
       LOG(INFO) << "Got a response from the extension.";
-      EXPECT_TRUE(result.value.FindBoolKey("pong").value_or(false));
+      EXPECT_TRUE(result.value.GetDict().FindBool("pong").value_or(false));
       break;
     }
     // An error indicates the extension's message listener isn't up yet. Wait a
     // little before trying again.
     LOG(INFO) << "Waiting for the extension's message listener...";
     base::RunLoop run_loop;
-    base::SequencedTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE, run_loop.QuitClosure(), kSendMessageRetryPeriod);
     run_loop.Run();
   }

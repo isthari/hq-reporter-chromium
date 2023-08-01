@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,10 +10,10 @@ import android.text.TextUtils;
 import androidx.annotation.Nullable;
 
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.components.payments.PaymentApp;
 import org.chromium.components.payments.PaymentAppType;
 import org.chromium.components.payments.SupportedDelegations;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.payments.mojom.PaymentDetailsModifier;
 import org.chromium.payments.mojom.PaymentItem;
 import org.chromium.payments.mojom.PaymentMethodData;
@@ -43,7 +43,7 @@ import java.util.Set;
      */
     /* package */ MockPaymentApp(String identifier, @Nullable String name, Drawable icon,
             String[] supportedMethodNames, @Nullable SupportedDelegations supportedDelegations) {
-        super(identifier, name == null ? "" : name, "test@bobpay.com", icon);
+        super(identifier, name == null ? "" : name, "test@bobpay.test", icon);
         mSupportedMethodNames = new HashSet<>(Arrays.asList(supportedMethodNames));
         mSupportedDelegations = supportedDelegations;
     }
@@ -80,8 +80,8 @@ import java.util.Set;
             Map<String, PaymentDetailsModifier> modifiers, PaymentOptions paymentOptions,
             List<PaymentShippingOption> shippingOptions,
             PaymentApp.InstrumentDetailsCallback callback) {
-        PostTask.postTask(UiThreadTaskTraits.DEFAULT,
-                () -> callback.onInstrumentDetailsError("Not implemented"));
+        PostTask.postTask(
+                TaskTraits.UI_DEFAULT, () -> callback.onInstrumentDetailsError("Not implemented"));
     }
 
     @Override

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,17 +26,8 @@ const char kDisableWaylandIme[] = "disable-wayland-ime";
 // See https://crbug.com/1220274
 const char kUseWaylandExplicitGrab[] = "use-wayland-explicit-grab";
 
-// Use normal priority (ThreadPriority::NORMAL) for Wayland event watcher
-// thread ("wayland-fd"). See https://crbug.com/1262133
-const char kUseWaylandNormalThreadPriority[] =
-    "use-wayland-normal-thread-priority";
-
 // Disable explicit DMA-fences
 const char kDisableExplicitDmaFences[] = "disable-explicit-dma-fences";
-
-// Disable running as system compositor.
-const char kDisableRunningAsSystemCompositor[] =
-    "disable-running-as-system-compositor";
 
 // Disable buffer bandwidth compression
 const char kDisableBufferBWCompression[] = "disable-buffer-bw-compression";

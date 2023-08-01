@@ -1,10 +1,14 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ui/native_theme/native_theme_mac.h"
 
 #include "testing/gtest/include/gtest/gtest.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 namespace ui {
 
@@ -27,7 +31,7 @@ TEST(NativeThemeMacTest, GetPlatformHighContrastColorScheme) {
   ASSERT_TRUE(native_theme);
 
   native_theme->set_forced_colors(false);
-  native_theme->set_preferred_contrast(PrefContrast::kNoPreference);
+  native_theme->SetPreferredContrast(PrefContrast::kNoPreference);
   native_theme->set_preferred_color_scheme(PrefScheme::kDark);
   EXPECT_EQ(native_theme->GetPlatformHighContrastColorScheme(), kNone);
 
@@ -35,7 +39,7 @@ TEST(NativeThemeMacTest, GetPlatformHighContrastColorScheme) {
   EXPECT_EQ(native_theme->GetPlatformHighContrastColorScheme(), kNone);
 
   native_theme->set_forced_colors(true);
-  native_theme->set_preferred_contrast(PrefContrast::kMore);
+  native_theme->SetPreferredContrast(PrefContrast::kMore);
   native_theme->set_preferred_color_scheme(PrefScheme::kDark);
   EXPECT_EQ(native_theme->GetPlatformHighContrastColorScheme(), kNone);
 
@@ -43,7 +47,7 @@ TEST(NativeThemeMacTest, GetPlatformHighContrastColorScheme) {
   EXPECT_EQ(native_theme->GetPlatformHighContrastColorScheme(), kNone);
 
   native_theme->set_forced_colors(false);
-  native_theme->set_preferred_contrast(PrefContrast::kNoPreference);
+  native_theme->SetPreferredContrast(PrefContrast::kNoPreference);
   EXPECT_EQ(native_theme->GetPlatformHighContrastColorScheme(), kNone);
 }
 

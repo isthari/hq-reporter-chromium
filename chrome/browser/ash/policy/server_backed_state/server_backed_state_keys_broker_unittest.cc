@@ -1,15 +1,15 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/policy/server_backed_state/server_backed_state_keys_broker.h"
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_mock_time_message_loop_task_runner.h"
 #include "base/test/task_environment.h"
-#include "chromeos/dbus/session_manager/fake_session_manager_client.h"
+#include "chromeos/ash/components/dbus/session_manager/fake_session_manager_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace policy {
@@ -49,7 +49,7 @@ class ServerBackedStateKeysBrokerTest : public testing::Test {
  protected:
   base::test::SingleThreadTaskEnvironment task_environment_;
   base::ScopedMockTimeMessageLoopTaskRunner mocked_main_runner_;
-  chromeos::FakeSessionManagerClient fake_session_manager_client_;
+  ash::FakeSessionManagerClient fake_session_manager_client_;
   ServerBackedStateKeysBroker broker_;
   std::vector<std::string> state_keys_;
   bool updated_;

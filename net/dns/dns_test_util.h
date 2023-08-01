@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,12 +14,14 @@
 #include <utility>
 #include <vector>
 
-#include "base/cxx17_backports.h"
+#include "base/containers/span.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
-#include "net/base/address_list.h"
+#include "base/values.h"
+#include "net/base/connection_endpoint_metadata.h"
+#include "net/base/ip_endpoint.h"
 #include "net/dns/dns_client.h"
 #include "net/dns/dns_config.h"
 #include "net/dns/dns_response.h"
@@ -66,7 +68,7 @@ static const char* const kT0IpAddresses[] = {
 static const char kT0CanonName[] = "www.l.google.com";
 static const base::TimeDelta kT0Ttl = base::Seconds(0x000000e4);
 // +1 for the CNAME record.
-static const unsigned kT0RecordCount = base::size(kT0IpAddresses) + 1;
+static const unsigned kT0RecordCount = std::size(kT0IpAddresses) + 1;
 
 //-----------------------------------------------------------------------------
 // Query/response set for codereview.chromium.org, ID is fixed to 1.
@@ -96,7 +98,7 @@ static const char* const kT1IpAddresses[] = {
 static const char kT1CanonName[] = "ghs.l.google.com";
 static const base::TimeDelta kT1Ttl = base::Seconds(0x0000010b);
 // +1 for the CNAME record.
-static const unsigned kT1RecordCount = base::size(kT1IpAddresses) + 1;
+static const unsigned kT1RecordCount = std::size(kT1IpAddresses) + 1;
 
 //-----------------------------------------------------------------------------
 // Query/response set for www.ccs.neu.edu, ID is fixed to 2.
@@ -125,7 +127,7 @@ static const char* const kT2IpAddresses[] = {
 static const char kT2CanonName[] = "vulcan.ccs.neu.edu";
 static const base::TimeDelta kT2Ttl = base::Seconds(0x0000012c);
 // +1 for the CNAME record.
-static const unsigned kT2RecordCount = base::size(kT2IpAddresses) + 1;
+static const unsigned kT2RecordCount = std::size(kT2IpAddresses) + 1;
 
 //-----------------------------------------------------------------------------
 // Query/response set for www.google.az, ID is fixed to 3.
@@ -167,7 +169,7 @@ static const char* const kT3IpAddresses[] = {
 static const char kT3CanonName[] = "www.l.google.com";
 static const base::TimeDelta kT3Ttl = base::Seconds(0x00000015);
 // +2 for the CNAME records, +1 for TXT record.
-static const unsigned kT3RecordCount = base::size(kT3IpAddresses) + 3;
+static const unsigned kT3RecordCount = std::size(kT3IpAddresses) + 3;
 
 //-----------------------------------------------------------------------------
 // Query/response set for www.gstatic.com, ID is fixed to 0.
@@ -187,7 +189,7 @@ static const uint8_t kT4ResponseDatagram[] = {
 
 static const char* const kT4IpAddresses[] = {"172.217.6.195"};
 static const base::TimeDelta kT4Ttl = base::Seconds(0x0000012b);
-static const unsigned kT4RecordCount = base::size(kT0IpAddresses);
+static const unsigned kT4RecordCount = std::size(kT0IpAddresses);
 
 class AddressSorter;
 class DnsClient;
@@ -217,6 +219,17 @@ DnsResourceRecord BuildTestHttpsAliasRecord(
     std::string name,
     base::StringPiece alias_name,
     base::TimeDelta ttl = base::Days(1));
+
+std::pair<uint16_t, std::string> BuildTestHttpsServiceAlpnParam(
+    const std::vector<std::string>& alpns);
+
+std::pair<uint16_t, std::string> BuildTestHttpsServiceEchConfigParam(
+    base::span<const uint8_t> ech_config_list);
+
+std::pair<uint16_t, std::string> BuildTestHttpsServiceMandatoryParam(
+    std::vector<uint16_t> param_key_list);
+
+std::pair<uint16_t, std::string> BuildTestHttpsServicePortParam(uint16_t port);
 
 // `params` is a mapping from service param keys to a string containing the
 // encoded bytes of a service param value (without the value length prefix which
@@ -285,7 +298,8 @@ struct MockDnsClientRule {
     // "Succeed" but with an unparsable response.
     kMalformed,
     // Immediately records a test failure if queried. Used to catch unexpected
-    // queries.
+    // queries. Alternately, if combined with `MockDnsClientRule::delay`, fails
+    // only if the query is allowed to complete without being cancelled.
     kUnexpected,
 
     // Results in the response in |Result::response| or, if null, results in a
@@ -337,7 +351,6 @@ class MockDnsTransactionFactory : public DnsTransactionFactory {
   std::unique_ptr<DnsTransaction> CreateTransaction(
       std::string hostname,
       uint16_t qtype,
-      DnsTransactionFactory::CallbackType callback,
       const NetLogWithSource&,
       bool secure,
       SecureDnsMode secure_dns_mode,
@@ -347,7 +360,7 @@ class MockDnsTransactionFactory : public DnsTransactionFactory {
   std::unique_ptr<DnsProbeRunner> CreateDohProbeRunner(
       ResolveContext* resolve_context) override;
 
-  void AddEDNSOption(const OptRecordRdata::Opt& opt) override;
+  void AddEDNSOption(std::unique_ptr<OptRecordRdata::Opt> opt) override;
 
   SecureDnsMode GetSecureDnsModeForTest() override;
 
@@ -401,11 +414,12 @@ class MockDnsClient : public DnsClient {
   AddressSorter* GetAddressSorter() override;
   void IncrementInsecureFallbackFailures() override;
   void ClearInsecureFallbackFailures() override;
+  base::Value::Dict GetDnsConfigAsValueForNetLog() const override;
   absl::optional<DnsConfig> GetSystemConfigForTesting() const override;
   DnsConfigOverrides GetConfigOverridesForTesting() const override;
   void SetTransactionFactoryForTesting(
       std::unique_ptr<DnsTransactionFactory> factory) override;
-  absl::optional<AddressList> GetPresetAddrs(
+  absl::optional<std::vector<IPEndPoint>> GetPresetAddrs(
       const url::SchemeHostPort& endpoint) const override;
 
   // Completes all DnsTransactions that were delayed by a rule.
@@ -426,7 +440,7 @@ class MockDnsClient : public DnsClient {
     preset_endpoint_ = std::move(endpoint);
   }
 
-  void set_preset_addrs(AddressList preset_addrs) {
+  void set_preset_addrs(std::vector<IPEndPoint> preset_addrs) {
     preset_addrs_ = std::move(preset_addrs);
   }
 
@@ -458,7 +472,7 @@ class MockDnsClient : public DnsClient {
   std::unique_ptr<MockDnsTransactionFactory> factory_;
   std::unique_ptr<AddressSorter> address_sorter_;
   absl::optional<url::SchemeHostPort> preset_endpoint_;
-  absl::optional<AddressList> preset_addrs_;
+  absl::optional<std::vector<IPEndPoint>> preset_addrs_;
 };
 
 }  // namespace net

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,16 +7,16 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/values.h"
 #include "base/version.h"
 #include "chrome/browser/android/explore_sites/catalog.pb.h"
-#include "chrome/browser/android/explore_sites/explore_sites_bridge.h"
 #include "chrome/browser/android/explore_sites/explore_sites_feature.h"
 #include "chrome/browser/android/explore_sites/explore_sites_types.h"
 #include "chrome/browser/android/explore_sites/url_util.h"
@@ -160,16 +160,6 @@ void ExploreSitesFetcher::Start() {
         net::HttpRequestHeaders::kAcceptLanguage, accept_languages_);
   }
 
-  // Get field trial value, if any.
-  std::string tag = base::GetFieldTrialParamValueByFeature(
-      chrome::android::kExploreSites,
-      chrome::android::explore_sites::
-          kExploreSitesHeadersExperimentParameterName);
-
-  if (!tag.empty()) {
-    resource_request->headers.SetHeader("X-Goog-Chrome-Experiment-Tag", tag);
-  }
-
   url_loader_ = network::SimpleURLLoader::Create(std::move(resource_request),
                                                  traffic_annotation);
 
@@ -180,7 +170,7 @@ void ExploreSitesFetcher::Start() {
 }
 
 float ExploreSitesFetcher::DeviceDelegate::GetScaleFactorFromDevice() {
-  return ExploreSitesBridge::GetScaleFactorFromDevice();
+  return 1.5f;
 }
 
 void ExploreSitesFetcher::SetDeviceDelegateForTest(
@@ -219,7 +209,6 @@ void ExploreSitesFetcher::OnSimpleLoaderComplete(
 ExploreSitesRequestStatus ExploreSitesFetcher::HandleResponseCode() {
   int response_code = -1;
   int net_error = url_loader_->NetError();
-  base::UmaHistogramSparse("ExploreSites.FetcherNetErrorCode", -net_error);
 
   if (url_loader_->ResponseInfo() && url_loader_->ResponseInfo()->headers)
     response_code = url_loader_->ResponseInfo()->headers->response_code();
@@ -230,9 +219,6 @@ ExploreSitesRequestStatus ExploreSitesFetcher::HandleResponseCode() {
                ? ExploreSitesRequestStatus::kShouldSuspendBlockedByAdministrator
                : ExploreSitesRequestStatus::kFailure;
   }
-
-  base::UmaHistogramSparse("ExploreSites.FetcherHttpResponseCode",
-                           response_code);
 
   if (response_code < 200 || response_code > 299) {
     DVLOG(1) << "HTTP status: " << response_code;
@@ -256,7 +242,7 @@ void ExploreSitesFetcher::RetryWithBackoff() {
     return;
   }
 
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&ExploreSitesFetcher::Start, weak_factory_.GetWeakPtr()),
       backoff_entry_->GetTimeUntilRelease());

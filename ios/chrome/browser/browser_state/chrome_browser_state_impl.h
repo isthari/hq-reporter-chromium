@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,13 @@
 
 #include <memory>
 
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#include "base/task/sequenced_task_runner.h"
 #include "ios/chrome/browser/browser_state/chrome_browser_state_impl_io_data.h"
+#include "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
 
 namespace policy {
 class SchemaRegistry;
+class UserCloudPolicyManager;
 }
 
 namespace sync_preferences {
@@ -40,12 +42,14 @@ class ChromeBrowserStateImpl final : public ChromeBrowserState {
   void DestroyOffTheRecordChromeBrowserState() override;
   PrefProxyConfigTracker* GetProxyConfigTracker() override;
   BrowserStatePolicyConnector* GetPolicyConnector() override;
-  PrefService* GetPrefs() override;
+  policy::UserCloudPolicyManager* GetUserCloudPolicyManager() override;
+  sync_preferences::PrefServiceSyncable* GetSyncablePrefs() override;
   ChromeBrowserStateIOData* GetIOData() override;
   void ClearNetworkingHistorySince(base::Time time,
                                    base::OnceClosure completion) override;
   net::URLRequestContextGetter* CreateRequestContext(
       ProtocolHandlerMap* protocol_handlers) override;
+  base::WeakPtr<ChromeBrowserState> AsWeakPtr() override;
 
   // BrowserState:
   bool IsOffTheRecord() const override;
@@ -65,9 +69,9 @@ class ChromeBrowserStateImpl final : public ChromeBrowserState {
   base::FilePath state_path_;
 
   // The incognito ChromeBrowserState instance that is associated with this
-  // ChromeBrowserState instance. NULL if |GetOffTheRecordChromeBrowserState()|
+  // ChromeBrowserState instance. NULL if `GetOffTheRecordChromeBrowserState()`
   // has never been called or has not been called since
-  // |DestroyOffTheRecordChromeBrowserState()|.
+  // `DestroyOffTheRecordChromeBrowserState()`.
   std::unique_ptr<ChromeBrowserState> otr_state_;
   base::FilePath otr_state_path_;
 
@@ -77,18 +81,22 @@ class ChromeBrowserStateImpl final : public ChromeBrowserState {
   //  that the declaration occurs AFTER things it depends on as destruction
   //  happens in reverse order of declaration.
 
-  // |policy_connector_| and its associated |policy_schema_registry_| must
-  // outlive |prefs_|.
+  // `policy_connector_` and its associated `policy_schema_registry_` must
+  // outlive `prefs_`. `policy_connector_` depends on the policy provider
+  // `user_cloud_policy_manager_` which depends on `policy_schema_registry_`.
   std::unique_ptr<policy::SchemaRegistry> policy_schema_registry_;
+  std::unique_ptr<policy::UserCloudPolicyManager> user_cloud_policy_manager_;
   std::unique_ptr<BrowserStatePolicyConnector> policy_connector_;
 
-  // Keep |prefs_| above the rest for destruction order because |io_data_| and
-  // others store pointers to |prefs_| and shall be destructed first.
+  // Keep `prefs_` above the rest for destruction order because `io_data_` and
+  // others store pointers to `prefs_` and shall be destructed first.
   scoped_refptr<user_prefs::PrefRegistrySyncable> pref_registry_;
   std::unique_ptr<sync_preferences::PrefServiceSyncable> prefs_;
   std::unique_ptr<ChromeBrowserStateImplIOData::Handle> io_data_;
 
   std::unique_ptr<PrefProxyConfigTracker> pref_proxy_config_tracker_;
+
+  base::WeakPtrFactory<ChromeBrowserStateImpl> weak_ptr_factory_{this};
 
   // STOP!!!! DO NOT ADD ANY MORE ITEMS HERE!!!!
   //

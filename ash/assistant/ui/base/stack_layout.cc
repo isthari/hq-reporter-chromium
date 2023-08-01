@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include <numeric>
 
+#include "base/ranges/algorithm.h"
 #include "ui/views/view.h"
 
 namespace ash {
@@ -38,8 +39,8 @@ int StackLayout::GetPreferredHeightForWidth(const views::View* host,
   if (children.empty())
     return 0;
   std::vector<int> heights(children.size());
-  std::transform(
-      children.cbegin(), children.cend(), heights.begin(),
+  base::ranges::transform(
+      children, heights.begin(),
       [width](const views::View* v) { return v->GetHeightForWidth(width); });
   return *std::max_element(heights.cbegin(), heights.cend());
 }

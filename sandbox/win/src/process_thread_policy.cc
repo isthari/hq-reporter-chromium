@@ -1,15 +1,17 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "sandbox/win/src/process_thread_policy.h"
 
+#include <ntstatus.h>
 #include <stdint.h>
 
 #include <memory>
 #include <string>
 
 #include "base/memory/free_deleter.h"
+#include "base/win/nt_status.h"
 #include "sandbox/win/src/ipc_tags.h"
 #include "sandbox/win/src/nt_internals.h"
 #include "sandbox/win/src/policy_engine_opcodes.h"
@@ -47,55 +49,6 @@ NTSTATUS ProcessPolicy::OpenThreadAction(const ClientInfo& client_info,
   return status;
 }
 
-NTSTATUS ProcessPolicy::OpenProcessAction(const ClientInfo& client_info,
-                                          uint32_t desired_access,
-                                          uint32_t process_id,
-                                          HANDLE* handle) {
-  *handle = nullptr;
-
-  if (client_info.process_id != process_id)
-    return STATUS_ACCESS_DENIED;
-
-  OBJECT_ATTRIBUTES attributes = {0};
-  attributes.Length = sizeof(attributes);
-  CLIENT_ID client_id = {0};
-  client_id.UniqueProcess =
-      reinterpret_cast<PVOID>(static_cast<ULONG_PTR>(client_info.process_id));
-  HANDLE local_handle = nullptr;
-  NTSTATUS status = GetNtExports()->OpenProcess(&local_handle, desired_access,
-                                                &attributes, &client_id);
-  if (NT_SUCCESS(status)) {
-    if (!::DuplicateHandle(::GetCurrentProcess(), local_handle,
-                           client_info.process, handle, 0, false,
-                           DUPLICATE_CLOSE_SOURCE | DUPLICATE_SAME_ACCESS)) {
-      return STATUS_ACCESS_DENIED;
-    }
-  }
-
-  return status;
-}
-
-NTSTATUS ProcessPolicy::OpenProcessTokenAction(const ClientInfo& client_info,
-                                               HANDLE process,
-                                               uint32_t desired_access,
-                                               HANDLE* handle) {
-  *handle = nullptr;
-  if (CURRENT_PROCESS != process)
-    return STATUS_ACCESS_DENIED;
-
-  HANDLE local_handle = nullptr;
-  NTSTATUS status = GetNtExports()->OpenProcessToken(
-      client_info.process, desired_access, &local_handle);
-  if (NT_SUCCESS(status)) {
-    if (!::DuplicateHandle(::GetCurrentProcess(), local_handle,
-                           client_info.process, handle, 0, false,
-                           DUPLICATE_CLOSE_SOURCE | DUPLICATE_SAME_ACCESS)) {
-      return STATUS_ACCESS_DENIED;
-    }
-  }
-  return status;
-}
-
 NTSTATUS ProcessPolicy::OpenProcessTokenExAction(const ClientInfo& client_info,
                                                  HANDLE process,
                                                  uint32_t desired_access,
@@ -118,7 +71,7 @@ NTSTATUS ProcessPolicy::OpenProcessTokenExAction(const ClientInfo& client_info,
   return status;
 }
 
-DWORD ProcessPolicy::CreateThreadAction(
+NTSTATUS ProcessPolicy::CreateThreadAction(
     const ClientInfo& client_info,
     const SIZE_T stack_size,
     const LPTHREAD_START_ROUTINE start_address,
@@ -131,7 +84,7 @@ DWORD ProcessPolicy::CreateThreadAction(
       ::CreateRemoteThread(client_info.process, nullptr, stack_size,
                            start_address, parameter, creation_flags, thread_id);
   if (!local_handle) {
-    return ::GetLastError();
+    return base::win::GetLastNtStatus();
   }
   if (!::DuplicateHandle(::GetCurrentProcess(), local_handle,
                          client_info.process, handle, 0, false,

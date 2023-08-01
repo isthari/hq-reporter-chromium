@@ -1,11 +1,23 @@
-<style include="diagnostics-shared diagnostics-fonts">
+<style include="diagnostics-shared">
+  :host-context(body.jelly-enabled) ::slotted([slot=title]) {
+    font: var(--cros-button-1-font);
+  }
+
+  :host-context(body.jelly-enabled) .card-wrapper {
+    border-radius: 16px;
+    box-shadow: none;
+  }
+
   ::slotted([slot=chip]) {
     background-color: var(--diagnostics-chip-bg-color);
     border-radius: 16px;
   }
 
   ::slotted([slot=title]) {
-    @apply --diagnostics-card-title-font;
+    color: var(--cros-text-color-secondary);
+    font-family: var(--diagnostics-roboto-font-family);
+    font-size: 14px;
+    font-weight: var(--diagnostics-medium-font-weight);
   }
 
   ::slotted([slot=left-panel]) {
@@ -21,8 +33,8 @@
 
   .card-header {
     display: flex;
-    justify-content: space-between;
     height: 20px;
+    justify-content: space-between;
     padding-top: 10px;
   }
 

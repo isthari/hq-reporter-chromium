@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,11 +15,6 @@ namespace content {
 KeyboardEventProcessingResult RenderWidgetHostDelegate::PreHandleKeyboardEvent(
     const NativeWebKeyboardEvent& event) {
   return KeyboardEventProcessingResult::NOT_HANDLED;
-}
-
-bool RenderWidgetHostDelegate::PreHandleMouseEvent(
-    const blink::WebMouseEvent& event) {
-  return false;
 }
 
 bool RenderWidgetHostDelegate::HandleMouseEvent(
@@ -132,11 +127,6 @@ bool RenderWidgetHostDelegate::IsWidgetForPrimaryMainFrame(
   return false;
 }
 
-VisibleTimeRequestTrigger*
-RenderWidgetHostDelegate::GetVisibleTimeRequestTrigger() {
-  return nullptr;
-}
-
 ukm::SourceId RenderWidgetHostDelegate::GetCurrentPageUkmSourceId() {
   return ukm::kInvalidSourceId;
 }
@@ -147,6 +137,10 @@ bool RenderWidgetHostDelegate::IsShowingContextMenuOnPage() const {
 
 bool RenderWidgetHostDelegate::IsPortal() {
   return false;
+}
+
+int RenderWidgetHostDelegate::GetVirtualKeyboardResizeHeight() {
+  return 0;
 }
 
 }  // namespace content

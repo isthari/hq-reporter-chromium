@@ -1,13 +1,16 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.ui.android.webid;
 
 import android.view.View;
+import android.widget.FrameLayout;
 
 import androidx.annotation.Nullable;
+import androidx.recyclerview.widget.RecyclerView;
 
+import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetContent;
 
@@ -17,9 +20,16 @@ import org.chromium.components.browser_ui.bottomsheet.BottomSheetContent;
  * bottom sheet content.
  */
 public class AccountSelectionBottomSheetContent implements BottomSheetContent {
+    /**
+     * The maximum number of accounts that should be fully visible when the
+     * the account picker is displayed.
+     */
+    private static final float MAX_VISIBLE_ACCOUNTS = 2.5f;
     private final View mContentView;
     private final Supplier<Integer> mScrollOffsetSupplier;
-    private @Nullable Supplier<Boolean> mBackPressHandler;
+    private @Nullable Runnable mBackPressHandler;
+    private final ObservableSupplierImpl<Boolean> mBackPressStateChangedSupplier =
+            new ObservableSupplierImpl<>();
 
     /**
      * Constructs the AccountSelection bottom sheet view.
@@ -29,8 +39,40 @@ public class AccountSelectionBottomSheetContent implements BottomSheetContent {
         mScrollOffsetSupplier = scrollOffsetSupplier;
     }
 
-    public void setBackPressHandler(Supplier<Boolean> backPressHandler) {
+    /**
+     * Updates the sheet content back press handling behavior. This should be invoked during an
+     * event that updates the back press handling behavior of the sheet content.
+     * @param backPressHandler A runnable that will be invoked by the sheet content to handle a back
+     *         press. A null value indicates that back press will not be handled by the content.
+     */
+    public void setCustomBackPressBehavior(@Nullable Runnable backPressHandler) {
         mBackPressHandler = backPressHandler;
+        mBackPressStateChangedSupplier.set(backPressHandler != null);
+    }
+
+    public void computeAndUpdateAccountListHeight() {
+        // {@link mContentView} is null for some tests.
+        if (mContentView == null) return;
+
+        View sheetContainer = mContentView.findViewById(R.id.sheet_item_list_container);
+        // When we're in the multi-account chooser and there are more than {@link
+        // MAX_VISIBLE_ACCOUNTS} accounts, resize the list so that only {@link MAX_VISIBLE_ACCOUNTS}
+        // accounts and part of the next one are visible.
+        RecyclerView sheetItemListView = sheetContainer.findViewById(R.id.sheet_item_list);
+        int numAccounts = sheetItemListView.getAdapter().getItemCount();
+        if (numAccounts > MAX_VISIBLE_ACCOUNTS) {
+            sheetItemListView.measure(
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+            int measuredHeight = sheetItemListView.getMeasuredHeight();
+            int containerHeight =
+                    Math.round(((float) measuredHeight / numAccounts) * MAX_VISIBLE_ACCOUNTS);
+            sheetContainer.getLayoutParams().height = containerHeight;
+        } else {
+            // Need to set the height here in case it was changed by a previous {@link
+            // computeAndUpdateAccountListHeight()} call.
+            sheetContainer.getLayoutParams().height = FrameLayout.LayoutParams.WRAP_CONTENT;
+        }
     }
 
     @Override
@@ -65,7 +107,7 @@ public class AccountSelectionBottomSheetContent implements BottomSheetContent {
 
     @Override
     public boolean swipeToDismissEnabled() {
-        return false;
+        return true;
     }
 
     @Override
@@ -90,7 +132,21 @@ public class AccountSelectionBottomSheetContent implements BottomSheetContent {
 
     @Override
     public boolean handleBackPress() {
-        return mBackPressHandler != null && mBackPressHandler.get();
+        if (mBackPressHandler != null) {
+            mBackPressHandler.run();
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    public ObservableSupplierImpl<Boolean> getBackPressStateChangedSupplier() {
+        return mBackPressStateChangedSupplier;
+    }
+
+    @Override
+    public void onBackPressed() {
+        handleBackPress();
     }
 
     @Override

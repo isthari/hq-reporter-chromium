@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,9 @@
 #include <utility>
 
 #include "base/atomic_ref_count.h"
-#include "base/callback_helpers.h"
 #include "base/containers/circular_deque.h"
 #include "base/feature_list.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
@@ -38,6 +38,8 @@
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/webrtc/webrtc_video_frame_adapter.h"
 #include "third_party/blink/renderer/platform/webrtc/webrtc_video_utils.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_base.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_std.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/webrtc/api/video/video_frame.h"
 #include "third_party/webrtc/api/video_codecs/vp9_profile.h"
@@ -155,8 +157,8 @@ class RTCVideoDecoderStreamAdapter::InternalDemuxerStream
 
   ~InternalDemuxerStream() override = default;
 
-  // DemuxerStream
-  void Read(ReadCB read_cb) override {
+  // DemuxerStream, only return one buffer at a time so we ignore the count.
+  void Read(uint32_t /*count*/, ReadCB read_cb) override {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     DCHECK(!pending_read_);
     pending_read_ = std::move(read_cb);
@@ -178,10 +180,10 @@ class RTCVideoDecoderStreamAdapter::InternalDemuxerStream
     return DemuxerStream::VIDEO;
   }
 
-  Liveness liveness() const override {
+  media::StreamLiveness liveness() const override {
     // Select low-delay mode.
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-    return Liveness::LIVENESS_LIVE;
+    return media::StreamLiveness::kLive;
   }
 
   void EnableBitstreamConverter() override {
@@ -212,7 +214,7 @@ class RTCVideoDecoderStreamAdapter::InternalDemuxerStream
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     buffers_.clear();
     if (pending_read_)
-      std::move(pending_read_).Run(DemuxerStream::Status::kAborted, nullptr);
+      std::move(pending_read_).Run(DemuxerStream::Status::kAborted, {});
   }
 
   // If enabled, we'll drop any queued buffers when we're given a keyframe.
@@ -237,8 +239,7 @@ class RTCVideoDecoderStreamAdapter::InternalDemuxerStream
     // change first, and keep the buffer for the next call.
     if (buffers_.front()->new_config) {
       config_ = std::move(*(buffers_.front()->new_config));
-      std::move(pending_read_)
-          .Run(DemuxerStream::Status::kConfigChanged, nullptr);
+      std::move(pending_read_).Run(DemuxerStream::Status::kConfigChanged, {});
       return;
     }
 
@@ -246,7 +247,7 @@ class RTCVideoDecoderStreamAdapter::InternalDemuxerStream
     buffers_.pop_front();
 
     std::move(pending_read_)
-        .Run(DemuxerStream::Status::kOk, std::move(pending_buffer->buffer));
+        .Run(DemuxerStream::Status::kOk, {std::move(pending_buffer->buffer)});
   }
 
   media::VideoDecoderConfig config_;
@@ -268,7 +269,7 @@ class RTCVideoDecoderStreamAdapter::InternalDemuxerStream
 std::unique_ptr<RTCVideoDecoderStreamAdapter>
 RTCVideoDecoderStreamAdapter::Create(
     media::GpuVideoAcceleratorFactories* gpu_factories,
-    media::DecoderFactory* decoder_factory,
+    base::WeakPtr<media::DecoderFactory> decoder_factory,
     scoped_refptr<base::SequencedTaskRunner> media_task_runner,
     const gfx::ColorSpace& render_color_space,
     const webrtc::SdpVideoFormat& format) {
@@ -276,9 +277,6 @@ RTCVideoDecoderStreamAdapter::Create(
 
   const webrtc::VideoCodecType video_codec_type =
       webrtc::PayloadStringToCodecType(format.name);
-
-  if (!Platform::Current()->IsWebRtcHWH264DecodingEnabled(video_codec_type))
-    return nullptr;
 
   // Bail early for unknown codecs.
   if (WebRtcToMediaVideoCodec(video_codec_type) == media::VideoCodec::kUnknown)
@@ -324,7 +322,7 @@ RTCVideoDecoderStreamAdapter::Create(
 
 RTCVideoDecoderStreamAdapter::RTCVideoDecoderStreamAdapter(
     media::GpuVideoAcceleratorFactories* gpu_factories,
-    media::DecoderFactory* decoder_factory,
+    base::WeakPtr<media::DecoderFactory> decoder_factory,
     scoped_refptr<base::SequencedTaskRunner> media_task_runner,
     const gfx::ColorSpace& render_color_space,
     const media::VideoDecoderConfig& config,
@@ -498,36 +496,21 @@ int32_t RTCVideoDecoderStreamAdapter::Decode(
     // changed to handle SW decoding and not return
     // WEBRTC_VIDEO_CODEC_FALLBACK_SOFTWARE.
 
-    // This dapater is diffrent from rtc_video_decoder_dapater.
-    // Consider two cases:
-    // 1. If it's hardware decoder, the D3D11 supports decoding the VP9 kSVC
-    // stream, but DXVA not. Currently just a reasonably temporary measure. Once
-    // the DXVA supports decoding VP9 kSVC stream, the boolen
-    // |need_fallback_to_software| should be removed, and if the OS is windows
-    // but not win7, we will return true in 'Vp9HwSupportForSpatialLayers'
-    // instead of false to Media Capability.
-    // 2. If it's software(libvpx) decoder, currently libvpx can decode vp9 kSVC
+    // This adapter is different from rtc_video_decoder_adapter.
+    // If it's software(libvpx) decoder, currently libvpx can decode vp9 kSVC
     // stream properly. So only when |decoder_info_.is_hardware_accelerated| is
     // true, we will do the decoder capability check.
     if (video_codec_type_ == webrtc::kVideoCodecVP9 &&
         input_image.SpatialIndex().value_or(0) > 0 &&
-        !RTCVideoDecoderAdapter::Vp9HwSupportForSpatialLayers() &&
+        !RTCVideoDecoderAdapter::Vp9HwSupportForSpatialLayers(
+            video_decoder_type_) &&
         decoder_configured_ && decoder_info_.is_hardware_accelerated) {
-      bool need_fallback_to_software = true;
-#if BUILDFLAG(IS_WIN)
-      if (video_decoder_type_ == media::VideoDecoderType::kD3D11 &&
-          base::FeatureList::IsEnabled(media::kD3D11Vp9kSVCHWDecoding)) {
-        need_fallback_to_software = false;
-      }
-#endif
-      if (need_fallback_to_software) {
-        DLOG(ERROR) << __func__
-                    << " fallback to software due to decoder doesn't support "
-                       "decoding VP9 multiple spatial layers.";
-        RecordRTCVideoDecoderFallbackReason(
-            config_.codec(), RTCVideoDecoderFallbackReason::kSpatialLayers);
-        return WEBRTC_VIDEO_CODEC_FALLBACK_SOFTWARE;
-      }
+      DLOG(ERROR) << __func__
+                  << " fallback to software due to decoder doesn't support "
+                     "decoding VP9 multiple spatial layers.";
+      RecordRTCVideoDecoderFallbackReason(
+          config_.codec(), RTCVideoDecoderFallbackReason::kSpatialLayers);
+      return WEBRTC_VIDEO_CODEC_FALLBACK_SOFTWARE;
     }
   }
 
@@ -760,19 +743,21 @@ void RTCVideoDecoderStreamAdapter::InitializeOnMediaThread(
   media::RequestOverlayInfoCB request_overlay_cb = base::DoNothing();
   auto create_decoders_cb = base::BindRepeating(
       [](scoped_refptr<base::SequencedTaskRunner> task_runner,
-         media::DecoderFactory* decoder_factory,
+         base::WeakPtr<media::DecoderFactory> decoder_factory,
          media::GpuVideoAcceleratorFactories* gpu_factories,
          const gfx::ColorSpace render_color_space, media::MediaLog* media_log,
          const media::RequestOverlayInfoCB& request_overlay_cb) {
         std::vector<std::unique_ptr<media::VideoDecoder>> video_decoders;
-        decoder_factory->CreateVideoDecoders(
-            std::move(task_runner), gpu_factories, media_log,
-            request_overlay_cb, render_color_space, &video_decoders);
+        media::DecoderFactory* decoder_factory_ptr = decoder_factory.get();
+        if (decoder_factory_ptr) {
+          decoder_factory_ptr->CreateVideoDecoders(
+              std::move(task_runner), gpu_factories, media_log,
+              request_overlay_cb, render_color_space, &video_decoders);
+        }
         return video_decoders;
       },
-      media_task_runner_, base::Unretained(decoder_factory_),
-      base::Unretained(gpu_factories_), render_color_space_, media_log_.get(),
-      std::move(request_overlay_cb));
+      media_task_runner_, decoder_factory_, base::Unretained(gpu_factories_),
+      render_color_space_, media_log_.get(), std::move(request_overlay_cb));
 
   decoder_stream_ = std::make_unique<media::VideoDecoderStream>(
       std::move(traits), media_task_runner_, std::move(create_decoders_cb),
@@ -1071,10 +1056,14 @@ void RTCVideoDecoderStreamAdapter::OnDecoderChanged(
   decoder_info_.is_hardware_accelerated = decoder->IsPlatformDecoder();
   video_decoder_type_ = decoder->GetDecoderType();
 
-  // In order not to break RTC statistics collection, name these in a way that
-  // third_party/webrtc/video/receive_statistics_proxy2.cc understands.
+  // In order not to break the RTC statistics collection, name these
+  // software(libvpx and FFmpeg) decoders in a way that
+  // third_party/webrtc/video/receive_statistics_proxy2.cc can understand.
   if (decoder->IsPlatformDecoder()) {
-    decoder_info_.implementation_name = kExternalDecoderName;
+    std::string implementation_name_suffix =
+        " (" + media::GetDecoderName(decoder->GetDecoderType()) + ")";
+    decoder_info_.implementation_name =
+        kExternalDecoderName + implementation_name_suffix;
     return;
   }
 

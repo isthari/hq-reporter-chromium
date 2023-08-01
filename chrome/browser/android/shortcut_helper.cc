@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,15 +12,17 @@
 #include "base/android/jni_android.h"
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
-#include "base/bind.h"
-#include "base/guid.h"
+#include "base/functional/bind.h"
+#include "base/uuid.h"
 #include "chrome/android/chrome_jni_headers/ShortcutHelper_jni.h"
 #include "components/webapps/browser/android/shortcut_info.h"
 #include "content/public/browser/manifest_icon_downloader.h"
 #include "content/public/browser/web_contents.h"
+#include "services/metrics/public/cpp/ukm_builders.h"
 #include "ui/android/color_utils_android.h"
 #include "ui/gfx/android/java_bitmap.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
 using base::android::JavaParamRef;
 using base::android::ScopedJavaLocalRef;
@@ -31,8 +33,7 @@ namespace {
 void AddWebappWithSkBitmap(content::WebContents* web_contents,
                            const webapps::ShortcutInfo& info,
                            const std::string& webapp_id,
-                           const SkBitmap& icon_bitmap,
-                           bool is_icon_maskable) {
+                           const SkBitmap& icon_bitmap) {
   // Send the data to the Java side to create the shortcut.
   JNIEnv* env = base::android::AttachCurrentThread();
   ScopedJavaLocalRef<jstring> java_webapp_id =
@@ -57,7 +58,7 @@ void AddWebappWithSkBitmap(content::WebContents* web_contents,
   Java_ShortcutHelper_addWebapp(
       env, java_webapp_id, java_url, java_scope_url, java_user_title, java_name,
       java_short_name, java_best_primary_icon_url, java_bitmap,
-      is_icon_maskable, static_cast<int>(info.display),
+      info.is_primary_icon_maskable, static_cast<int>(info.display),
       static_cast<int>(info.orientation), info.source,
       ui::OptionalSkColorToJavaColor(info.theme_color),
       ui::OptionalSkColorToJavaColor(info.background_color));
@@ -73,8 +74,7 @@ void AddWebappWithSkBitmap(content::WebContents* web_contents,
 // Adds a shortcut which opens in a browser tab to the launcher.
 void AddShortcutWithSkBitmap(const webapps::ShortcutInfo& info,
                              const std::string& id,
-                             const SkBitmap& icon_bitmap,
-                             bool is_icon_maskable) {
+                             const SkBitmap& icon_bitmap) {
   JNIEnv* env = base::android::AttachCurrentThread();
   ScopedJavaLocalRef<jstring> java_id =
       base::android::ConvertUTF8ToJavaString(env, id);
@@ -89,8 +89,25 @@ void AddShortcutWithSkBitmap(const webapps::ShortcutInfo& info,
   if (!icon_bitmap.drawsNothing())
     java_bitmap = gfx::ConvertToJavaBitmap(icon_bitmap);
   Java_ShortcutHelper_addShortcut(env, java_id, java_url, java_user_title,
-                                  java_bitmap, is_icon_maskable, info.source,
-                                  java_best_primary_icon_url);
+                                  java_bitmap, info.is_primary_icon_maskable,
+                                  info.source, java_best_primary_icon_url);
+}
+
+void RecordAddToHomeScreenUKM(
+    content::WebContents* web_contents,
+    const webapps::ShortcutInfo& info,
+    webapps::InstallableStatusCode installable_status) {
+  if (!web_contents)
+    return;
+
+  ukm::SourceId source_id =
+      web_contents->GetPrimaryMainFrame()->GetPageUkmSourceId();
+  ukm::builders::Webapp_AddToHomeScreen(source_id)
+      .SetDisplayMode(static_cast<int>(info.display))
+      .SetShortcutReason(static_cast<int>(installable_status))
+      .SetSameAsManifestStartUrl(info.url.spec() ==
+                                 web_contents->GetLastCommittedURL().spec())
+      .Record(ukm::UkmRecorder::Get());
 }
 
 }  // anonymous namespace
@@ -100,21 +117,17 @@ void ShortcutHelper::AddToLauncherWithSkBitmap(
     content::WebContents* web_contents,
     const webapps::ShortcutInfo& info,
     const SkBitmap& icon_bitmap,
-    bool is_icon_maskable) {
-  std::string webapp_id = base::GenerateGUID();
+    webapps::InstallableStatusCode installable_status) {
+  RecordAddToHomeScreenUKM(web_contents, info, installable_status);
+
+  std::string webapp_id = base::Uuid::GenerateRandomV4().AsLowercaseString();
   if (info.display == blink::mojom::DisplayMode::kStandalone ||
       info.display == blink::mojom::DisplayMode::kFullscreen ||
       info.display == blink::mojom::DisplayMode::kMinimalUi) {
-    AddWebappWithSkBitmap(web_contents, info, webapp_id, icon_bitmap,
-                          is_icon_maskable);
+    AddWebappWithSkBitmap(web_contents, info, webapp_id, icon_bitmap);
     return;
   }
-  AddShortcutWithSkBitmap(info, webapp_id, icon_bitmap, is_icon_maskable);
-}
-
-void ShortcutHelper::ShowWebApkInstallInProgressToast() {
-  Java_ShortcutHelper_showWebApkInstallInProgressToast(
-      base::android::AttachCurrentThread());
+  AddShortcutWithSkBitmap(info, webapp_id, icon_bitmap);
 }
 
 // static
@@ -138,7 +151,8 @@ bool ShortcutHelper::DoesOriginContainAnyInstalledWebApk(const GURL& origin) {
   DCHECK_EQ(origin, origin.DeprecatedGetOriginAsURL());
   JNIEnv* env = base::android::AttachCurrentThread();
   base::android::ScopedJavaLocalRef<jstring> java_origin =
-      base::android::ConvertUTF8ToJavaString(env, origin.spec());
+      base::android::ConvertUTF8ToJavaString(
+          env, url::Origin::Create(origin).Serialize());
   return Java_ShortcutHelper_doesOriginContainAnyInstalledWebApk(env,
                                                                  java_origin);
 }
@@ -148,7 +162,8 @@ bool ShortcutHelper::DoesOriginContainAnyInstalledTrustedWebActivity(
   DCHECK_EQ(origin, origin.DeprecatedGetOriginAsURL());
   JNIEnv* env = base::android::AttachCurrentThread();
   base::android::ScopedJavaLocalRef<jstring> java_origin =
-      base::android::ConvertUTF8ToJavaString(env, origin.spec());
+      base::android::ConvertUTF8ToJavaString(
+          env, url::Origin::Create(origin).Serialize());
   return Java_ShortcutHelper_doesOriginContainAnyInstalledTwa(env, java_origin);
 }
 

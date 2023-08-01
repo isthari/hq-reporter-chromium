@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -96,9 +96,9 @@ IN_PROC_BROWSER_TEST_P(ImmersiveModeBrowserViewTestNoWebUiTabStrip,
   EXPECT_FALSE(frame_view->caption_button_container_->GetVisible());
 
   // An immersive reveal shows the buttons and the top of the frame.
-  std::unique_ptr<ImmersiveRevealedLock> revealed_lock(
+  std::unique_ptr<ImmersiveRevealedLock> revealed_lock =
       immersive_mode_controller->GetRevealedLock(
-          ImmersiveModeController::ANIMATE_REVEAL_NO));
+          ImmersiveModeController::ANIMATE_REVEAL_NO);
   EXPECT_TRUE(immersive_mode_controller->IsRevealed());
   EXPECT_TRUE(frame_view->GetShouldPaint());
   // Caption button container is visible again.
@@ -113,21 +113,21 @@ IN_PROC_BROWSER_TEST_P(ImmersiveModeBrowserViewTestNoWebUiTabStrip,
                    ->GetBoundsForTabStripRegion(
                        browser_view->tab_strip_region_view()->GetMinimumSize())
                    .bottom());
-  EXPECT_FALSE(frame_view->caption_button_container_->GetVisible());
+  EXPECT_FALSE(frame_view->caption_button_container()->GetVisible());
 
   // Repeat test but without tab fullscreen.
   ExitFullscreenModeForTabAndWait(browser(), web_contents);
 
   // Immersive reveal should have same behavior as before.
-  revealed_lock.reset(immersive_mode_controller->GetRevealedLock(
-      ImmersiveModeController::ANIMATE_REVEAL_NO));
+  revealed_lock = immersive_mode_controller->GetRevealedLock(
+      ImmersiveModeController::ANIMATE_REVEAL_NO);
   EXPECT_TRUE(immersive_mode_controller->IsRevealed());
   EXPECT_TRUE(frame_view->GetShouldPaint());
   EXPECT_LT(0, frame_view
                    ->GetBoundsForTabStripRegion(
                        browser_view->tab_strip_region_view()->GetMinimumSize())
                    .bottom());
-  EXPECT_TRUE(frame_view->caption_button_container_->GetVisible());
+  EXPECT_TRUE(frame_view->caption_button_container()->GetVisible());
 
   // Ending the reveal. Immersive browser should have the same behavior as full
   // screen, i.e., having an origin of (0,0).
@@ -137,7 +137,7 @@ IN_PROC_BROWSER_TEST_P(ImmersiveModeBrowserViewTestNoWebUiTabStrip,
                    ->GetBoundsForTabStripRegion(
                        browser_view->tab_strip_region_view()->GetMinimumSize())
                    .bottom());
-  EXPECT_FALSE(frame_view->caption_button_container_->GetVisible());
+  EXPECT_FALSE(frame_view->caption_button_container()->GetVisible());
 
   // Exiting immersive fullscreen should make the caption buttons and the frame
   // visible again.
@@ -152,7 +152,7 @@ IN_PROC_BROWSER_TEST_P(ImmersiveModeBrowserViewTestNoWebUiTabStrip,
                    ->GetBoundsForTabStripRegion(
                        browser_view->tab_strip_region_view()->GetMinimumSize())
                    .bottom());
-  EXPECT_TRUE(frame_view->caption_button_container_->GetVisible());
+  EXPECT_TRUE(frame_view->caption_button_container()->GetVisible());
 }
 
 // Tests IDC_SELECT_TAB_0, IDC_SELECT_NEXT_TAB, IDC_SELECT_PREVIOUS_TAB and
@@ -217,9 +217,9 @@ IN_PROC_BROWSER_TEST_P(ImmersiveModeBrowserViewTestNoWebUiTabStrip,
   EXPECT_FALSE(browser()->window()->IsMaximized());
   EXPECT_FALSE(browser_view->immersive_mode_controller()->IsRevealed());
 
-  std::unique_ptr<ImmersiveRevealedLock> revealed_lock(
+  std::unique_ptr<ImmersiveRevealedLock> revealed_lock =
       browser_view->immersive_mode_controller()->GetRevealedLock(
-          ImmersiveModeController::ANIMATE_REVEAL_NO));
+          ImmersiveModeController::ANIMATE_REVEAL_NO);
   EXPECT_TRUE(browser_view->immersive_mode_controller()->IsRevealed());
 
   ImmersiveModeTester tester(browser());
@@ -270,9 +270,9 @@ IN_PROC_BROWSER_TEST_P(ImmersiveModeBrowserViewTest,
   EXPECT_FALSE(browser->window()->IsMaximized());
   EXPECT_FALSE(browser_view->immersive_mode_controller()->IsRevealed());
 
-  std::unique_ptr<ImmersiveRevealedLock> revealed_lock(
+  std::unique_ptr<ImmersiveRevealedLock> revealed_lock =
       browser_view->immersive_mode_controller()->GetRevealedLock(
-          ImmersiveModeController::ANIMATE_REVEAL_NO));
+          ImmersiveModeController::ANIMATE_REVEAL_NO);
   EXPECT_TRUE(browser_view->immersive_mode_controller()->IsRevealed());
 
   ImmersiveModeTester tester(browser);

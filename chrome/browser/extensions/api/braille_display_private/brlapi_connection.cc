@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,10 @@
 
 #include <string>
 
-#include "base/cxx17_backports.h"
 #include "base/files/file_descriptor_watcher_posix.h"
 #include "base/logging.h"
 #include "base/memory/free_deleter.h"
+#include "base/memory/raw_ptr.h"
 #include "base/system/sys_info.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -55,7 +55,7 @@ class BrlapiConnectionImpl : public BrlapiConnection {
   bool CheckConnected();
   ConnectResult ConnectResultForError();
 
-  LibBrlapiLoader* libbrlapi_loader_;
+  raw_ptr<LibBrlapiLoader, ExperimentalAsh> libbrlapi_loader_;
   std::unique_ptr<brlapi_handle_t, base::FreeDeleter> handle_;
   std::unique_ptr<base::FileDescriptorWatcher::Controller> fd_controller_;
 };
@@ -118,7 +118,7 @@ BrlapiConnection::ConnectResult BrlapiConnectionImpl::Connect(
   };
   if (libbrlapi_loader_->brlapi__acceptKeys(handle_.get(),
                                             brlapi_rangeType_command, extraKeys,
-                                            base::size(extraKeys)) < 0) {
+                                            std::size(extraKeys)) < 0) {
     LOG(ERROR) << "Couldn't acceptKeys: " << BrlapiStrError();
     Disconnect();
     return CONNECT_ERROR_RETRY;

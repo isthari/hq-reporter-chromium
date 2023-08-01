@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,9 @@
 #include "base/containers/contains.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/sequenced_task_runner.h"
 #include "build/build_config.h"
+#include "components/content_relationship_verification/response_header_verifier.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
@@ -18,6 +20,7 @@
 #include "content/public/browser/web_contents.h"
 #include "third_party/blink/public/mojom/navigation/was_activated_option.mojom-shared.h"
 #include "ui/base/page_transition_types.h"
+#include "weblayer/browser/browser_impl.h"
 #include "weblayer/browser/navigation_entry_data.h"
 #include "weblayer/browser/navigation_ui_data_impl.h"
 #include "weblayer/browser/page_impl.h"
@@ -86,15 +89,32 @@ class NavigationControllerImpl::NavigationThrottleImpl
   ~NavigationThrottleImpl() override = default;
 
   void ScheduleCancel() { should_cancel_ = true; }
+  void ScheduleBlock() { should_block_ = true; }
 
   // content::NavigationThrottle:
   ThrottleCheckResult WillStartRequest() override {
-    return should_cancel_ ? CANCEL : PROCEED;
+    if (should_cancel_) {
+      return CANCEL;
+    }
+
+    if (should_block_) {
+      return BLOCK_REQUEST;
+    }
+
+    return PROCEED;
   }
 
   ThrottleCheckResult WillRedirectRequest() override {
     controller_->WillRedirectRequest(this, navigation_handle());
-    return should_cancel_ ? CANCEL : PROCEED;
+    if (should_cancel_) {
+      return CANCEL;
+    }
+
+    if (should_block_) {
+      return BLOCK_REQUEST;
+    }
+
+    return PROCEED;
   }
 
   const char* GetNameForLogging() override {
@@ -104,10 +124,11 @@ class NavigationControllerImpl::NavigationThrottleImpl
  private:
   raw_ptr<NavigationControllerImpl> controller_;
   bool should_cancel_ = false;
+  bool should_block_ = false;
 };
 
 NavigationControllerImpl::NavigationControllerImpl(TabImpl* tab)
-    : WebContentsObserver(tab->web_contents()) {}
+    : WebContentsObserver(tab->web_contents()), tab_(tab) {}
 
 NavigationControllerImpl::~NavigationControllerImpl() = default;
 
@@ -122,6 +143,9 @@ NavigationControllerImpl::CreateNavigationThrottle(
   auto* navigation = navigation_map_[handle].get();
   if (navigation->should_stop_when_throttle_created())
     throttle->ScheduleCancel();
+  if (navigation->should_block_when_throttle_created()) {
+    throttle->ScheduleBlock();
+  }
   return throttle;
 }
 
@@ -150,8 +174,7 @@ void NavigationControllerImpl::OnFirstContentfulPaint(
   int64_t first_contentful_paint_ms = first_contentful_paint.InMilliseconds();
   Java_NavigationControllerImpl_onFirstContentfulPaint2(
       AttachCurrentThread(), java_controller_,
-      (navigation_start - base::TimeTicks()).InMicroseconds(),
-      first_contentful_paint_ms);
+      navigation_start.ToUptimeMillis(), first_contentful_paint_ms);
 #endif
 
   for (auto& observer : observers_)
@@ -168,8 +191,7 @@ void NavigationControllerImpl::OnLargestContentfulPaint(
       largest_contentful_paint.InMilliseconds();
   Java_NavigationControllerImpl_onLargestContentfulPaint(
       AttachCurrentThread(), java_controller_,
-      (navigation_start - base::TimeTicks()).InMicroseconds(),
-      largest_contentful_paint_ms);
+      navigation_start.ToUptimeMillis(), largest_contentful_paint_ms);
 #endif
 
   for (auto& observer : observers_)
@@ -363,9 +385,10 @@ void NavigationControllerImpl::Stop() {
 }
 
 int NavigationControllerImpl::GetNavigationListSize() {
-  content::NavigationEntry* current_entry =
-      web_contents()->GetController().GetLastCommittedEntry();
-  if (current_entry && current_entry->IsInitialEntry()) {
+  if (web_contents()
+          ->GetController()
+          .GetLastCommittedEntry()
+          ->IsInitialEntry()) {
     // If we're currently on the initial NavigationEntry, no navigation has
     // committed, so the initial NavigationEntry should not be part of the
     // "Navigation List", and we should return 0 as the navigation list size.
@@ -378,9 +401,10 @@ int NavigationControllerImpl::GetNavigationListSize() {
 }
 
 int NavigationControllerImpl::GetNavigationListCurrentIndex() {
-  content::NavigationEntry* current_entry =
-      web_contents()->GetController().GetLastCommittedEntry();
-  if (current_entry && current_entry->IsInitialEntry()) {
+  if (web_contents()
+          ->GetController()
+          .GetLastCommittedEntry()
+          ->IsInitialEntry()) {
     // If we're currently on the initial NavigationEntry, no navigation has
     // committed, so the initial NavigationEntry should not be part of the
     // "Navigation List", and we should return -1 as the current index. This
@@ -459,6 +483,22 @@ void NavigationControllerImpl::DidStartNavigation(
 
   if (java_controller_) {
     JNIEnv* env = AttachCurrentThread();
+
+    if (navigation->GetURL().SchemeIsHTTPOrHTTPS()) {
+      TRACE_EVENT0("weblayer", "Java_NavigationControllerImpl_isUrlAllowed");
+
+      ScopedJavaLocalRef<jstring> jstring_url =
+          base::android::ConvertUTF8ToJavaString(env,
+                                                 navigation->GetURL().spec());
+
+      jboolean is_allowed = Java_NavigationControllerImpl_isUrlAllowed(
+          env, java_controller_, jstring_url);
+
+      if (!is_allowed) {
+        navigation->set_should_block_when_throttle_created();
+      }
+    }
+
     {
       TRACE_EVENT0("weblayer",
                    "Java_NavigationControllerImpl_createNavigation");
@@ -558,6 +598,24 @@ void NavigationControllerImpl::DidFinishNavigation(
   if (navigation_handle->HasCommitted() &&
       navigation_handle->GetNetErrorCode() == net::OK &&
       !navigation_handle->IsErrorPage()) {
+    if (!navigation_handle->IsSameDocument()) {
+      content_relationship_verification::ResponseHeaderVerificationResult
+          header_verification_result =
+              content_relationship_verification::ResponseHeaderVerifier::Verify(
+                  tab_->browser()->GetPackageName(),
+                  navigation->GetNormalizedHeader(
+                      content_relationship_verification::
+                          kEmbedderAncestorHeader));
+
+      bool allowed_or_missing_consent =
+          header_verification_result ==
+              content_relationship_verification::
+                  ResponseHeaderVerificationResult::kAllow ||
+          header_verification_result ==
+              content_relationship_verification::
+                  ResponseHeaderVerificationResult::kMissing;
+      navigation->set_consenting_content(allowed_or_missing_consent);
+    }
 #if BUILDFLAG(IS_ANDROID)
     if (java_controller_) {
       TRACE_EVENT0("weblayer",
@@ -576,6 +634,7 @@ void NavigationControllerImpl::DidFinishNavigation(
     }
   } else {
 #if BUILDFLAG(IS_ANDROID)
+    navigation->set_consenting_content(false);
     if (java_controller_) {
       TRACE_EVENT0("weblayer",
                    "Java_NavigationControllerImpl_navigationFailed");
@@ -597,9 +656,10 @@ void NavigationControllerImpl::DidFinishNavigation(
   // any delays from surface sync, ie a frame submitted by renderer may not
   // be displayed immediately. Such situations should be rare however, so
   // this should be good enough for the purposes needed.
-  web_contents()->GetMainFrame()->InsertVisualStateCallback(base::BindOnce(
-      &NavigationControllerImpl::OldPageNoLongerRendered,
-      weak_ptr_factory_.GetWeakPtr(), navigation_handle->GetURL()));
+  web_contents()->GetPrimaryMainFrame()->InsertVisualStateCallback(
+      base::BindOnce(&NavigationControllerImpl::OldPageNoLongerRendered,
+                     weak_ptr_factory_.GetWeakPtr(),
+                     navigation_handle->GetURL()));
 
   navigation_map_.erase(navigation_map_.find(navigation_handle));
 }
@@ -700,7 +760,7 @@ void NavigationControllerImpl::DoNavigate(
 void NavigationControllerImpl::ScheduleDelayedLoad(
     std::unique_ptr<content::NavigationController::LoadURLParams> params) {
   delayed_load_params_ = std::move(params);
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&NavigationControllerImpl::ProcessDelayedLoad,
                                 weak_ptr_factory_.GetWeakPtr()));
 }

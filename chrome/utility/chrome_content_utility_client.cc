@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,25 +10,20 @@
 
 #include "base/command_line.h"
 #include "base/files/file_path.h"
-#include "base/lazy_instance.h"
 #include "base/path_service.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/profiler/thread_profiler.h"
 #include "chrome/common/profiler/thread_profiler_configuration.h"
 #include "chrome/utility/browser_exposed_utility_interfaces.h"
 #include "chrome/utility/services.h"
+#include "components/heap_profiling/in_process/heap_profiler_controller.h"
+#include "components/metrics/call_stack_profile_builder.h"
 #include "content/public/child/child_thread.h"
 #include "content/public/common/content_switches.h"
 #include "sandbox/policy/mojom/sandbox.mojom.h"
 #include "sandbox/policy/sandbox_type.h"
-
-namespace {
-
-base::LazyInstance<ChromeContentUtilityClient::NetworkBinderCreationCallback>::
-    Leaky g_network_binder_creation_callback = LAZY_INSTANCE_INITIALIZER;
-
-}  // namespace
 
 ChromeContentUtilityClient::ChromeContentUtilityClient() = default;
 
@@ -53,12 +48,6 @@ void ChromeContentUtilityClient::ExposeInterfacesToBrowser(
     ExposeElevatedChromeUtilityInterfacesToBrowser(binders);
 }
 
-void ChromeContentUtilityClient::RegisterNetworkBinders(
-    service_manager::BinderRegistry* registry) {
-  if (g_network_binder_creation_callback.Get())
-    std::move(g_network_binder_creation_callback.Get()).Run(registry);
-}
-
 void ChromeContentUtilityClient::UtilityThreadStarted() {
   // Only builds message pipes for utility processes which enable sampling
   // profilers.
@@ -66,16 +55,23 @@ void ChromeContentUtilityClient::UtilityThreadStarted() {
       base::CommandLine::ForCurrentProcess();
   const std::string process_type =
       command_line->GetSwitchValueASCII(switches::kProcessType);
-  if (process_type ==
-          switches::kUtilityProcess &&  // An in-process utility thread may run
-                                        // in other processes, only set up
-                                        // collector in a utility process.
-      ThreadProfilerConfiguration::Get()
-          ->IsProfilerEnabledForCurrentProcess()) {
-    mojo::PendingRemote<metrics::mojom::CallStackProfileCollector> collector;
-    content::ChildThread::Get()->BindHostReceiver(
-        collector.InitWithNewPipeAndPassReceiver());
-    ThreadProfiler::SetCollectorForChildProcess(std::move(collector));
+  // An in-process utility thread may run in other processes, only set up
+  // collector in a utility process.
+  if (process_type == switches::kUtilityProcess) {
+    // The HeapProfilerController should have been created in
+    // ChromeMainDelegate::PostEarlyInitialization.
+    using HeapProfilerController = heap_profiling::HeapProfilerController;
+    DCHECK_NE(HeapProfilerController::GetProfilingEnabled(),
+              HeapProfilerController::ProfilingEnabled::kNoController);
+    if (ThreadProfiler::ShouldCollectProfilesForChildProcess() ||
+        HeapProfilerController::GetProfilingEnabled() ==
+            HeapProfilerController::ProfilingEnabled::kEnabled) {
+      mojo::PendingRemote<metrics::mojom::CallStackProfileCollector> collector;
+      content::ChildThread::Get()->BindHostReceiver(
+          collector.InitWithNewPipeAndPassReceiver());
+      metrics::CallStackProfileBuilder::
+          SetParentProfileCollectorForChildProcess(std::move(collector));
+    }
   }
 }
 
@@ -96,10 +92,4 @@ void ChromeContentUtilityClient::PostIOThreadCreated(
 void ChromeContentUtilityClient::RegisterIOThreadServices(
     mojo::ServiceFactory& services) {
   return ::RegisterIOThreadServices(services);
-}
-
-// static
-void ChromeContentUtilityClient::SetNetworkBinderCreationCallback(
-    NetworkBinderCreationCallback callback) {
-  g_network_binder_creation_callback.Get() = std::move(callback);
 }

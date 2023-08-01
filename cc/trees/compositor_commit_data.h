@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -96,9 +96,14 @@ struct CC_EXPORT CompositorCommitData {
       BrowserControlsState::kBoth;
   bool browser_controls_constraint_changed = false;
 
-  // Set to true when a scroll gesture being handled on the compositor has
-  // ended.
-  bool scroll_gesture_did_end = false;
+  struct ScrollEndInfo {
+    // Set to true when a scroll gesture being handled on the compositor has
+    // ended.
+    bool scroll_gesture_did_end = false;
+
+    bool gesture_affects_outer_viewport_scroll = false;
+  };
+  ScrollEndInfo scroll_end_data;
 
   // Tracks whether there is an ongoing compositor-driven animation for a
   // scroll.

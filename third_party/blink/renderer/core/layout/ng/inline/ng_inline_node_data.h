@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,14 +17,27 @@ class NGInlineItemsBuilderTemplate;
 // Data which is required for inline nodes.
 struct CORE_EXPORT NGInlineNodeData final : NGInlineItemsData {
  public:
+  NGInlineNodeData() = default;
   bool IsBidiEnabled() const { return is_bidi_enabled_; }
   TextDirection BaseDirection() const {
     return static_cast<TextDirection>(base_direction_);
   }
 
+  bool HasInitialLetterBox() const { return has_initial_letter_box_; }
   bool HasRuby() const { return has_ruby_; }
 
   bool IsBlockLevel() const { return is_block_level_; }
+
+  // True if this node can't use the bisection in `NGParagraphLineBreaker`.
+  bool IsBisectLineBreakDisabled() const {
+    return is_bisect_line_break_disabled_;
+  }
+  // True if this node can't use the `NGScorehLineBreaker`, that can be
+  // determined by `CollectInlines`. Conditions that can change without
+  // `CollectInlines` are in `NGLineBreaker::ShouldDisableScoreLineBreak()`.
+  bool IsScoreLineBreakDisabled() const {
+    return is_score_line_break_disabled_;
+  }
 
   const NGInlineItemsData& ItemsData(bool is_first_line) const {
     return !is_first_line || !first_line_items_
@@ -59,6 +72,16 @@ struct CORE_EXPORT NGInlineNodeData final : NGInlineItemsData {
   unsigned is_bidi_enabled_ : 1;
   unsigned base_direction_ : 1;  // TextDirection
 
+  // True if this node contains initial letter box. This value is used for
+  // clearing. To control whether subsequent blocks overlap with initial
+  // letter[1].
+  //   ****** his node ends here.
+  //     *    This text from subsequent block one.
+  //     *    This text from subsequent block two.
+  //     *    This text from subsequent block three.
+  // [1] https://drafts.csswg.org/css-inline/#initial-letter-paragraphs
+  unsigned has_initial_letter_box_ : 1;
+
   // The node contains <ruby>.
   unsigned has_ruby_ : 1;
 
@@ -72,6 +95,9 @@ struct CORE_EXPORT NGInlineNodeData final : NGInlineItemsData {
   // May not be able to use line caches even when the line or earlier lines are
   // not dirty.
   unsigned changes_may_affect_earlier_lines_ : 1;
+
+  unsigned is_bisect_line_break_disabled_ : 1;
+  unsigned is_score_line_break_disabled_ : 1;
 };
 
 }  // namespace blink

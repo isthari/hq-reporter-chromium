@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,22 +14,20 @@ public class NativeLibraryLoadedStatus {
      * Interface for querying native method availability.
      */
     public interface NativeLibraryLoadedStatusProvider {
-        boolean areMainDexNativeMethodsReady();
         boolean areNativeMethodsReady();
     }
 
     private static NativeLibraryLoadedStatusProvider sProvider;
 
-    public static void checkLoaded(boolean isMainDex) {
+    public static void checkLoaded() {
         // Necessary to make sure all of these calls are stripped in release builds.
         if (!BuildConfig.ENABLE_ASSERTS) return;
 
         if (sProvider == null) return;
 
-        boolean nativeMethodsReady = isMainDex ? sProvider.areMainDexNativeMethodsReady()
-                                               : sProvider.areNativeMethodsReady();
-        if (!nativeMethodsReady) {
-            throw new JniException("Native method called before the native library was ready.");
+        if (!sProvider.areNativeMethodsReady()) {
+            throw new JniException(
+                    String.format("Native method called before the native library was ready."));
         }
     }
 

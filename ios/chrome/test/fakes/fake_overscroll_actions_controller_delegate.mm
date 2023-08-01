@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,9 +18,16 @@
   return self;
 }
 
-- (void)overscrollActionsController:(OverscrollActionsController*)controller
-                   didTriggerAction:(OverscrollAction)action {
-  _selectedAction = action;
+- (void)overscrollActionNewTab:(OverscrollActionsController*)controller {
+  _selectedAction = OverscrollAction::NEW_TAB;
+}
+
+- (void)overscrollActionCloseTab:(OverscrollActionsController*)controller {
+  _selectedAction = OverscrollAction::CLOSE_TAB;
+}
+
+- (void)overscrollActionRefresh:(OverscrollActionsController*)controller {
+  _selectedAction = OverscrollAction::REFRESH;
 }
 
 - (BOOL)shouldAllowOverscrollActionsForOverscrollActionsController:

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/observer_list.h"
 #include "base/timer/elapsed_timer.h"
 #include "components/password_manager/core/browser/leak_detection/bulk_leak_check.h"
 #include "components/password_manager/core/browser/leak_detection/leak_detection_check_factory_impl.h"
@@ -41,9 +42,6 @@ BulkLeakCheckService::MetricsReporter::~MetricsReporter() {
     base::UmaHistogramCounts1000(
         "PasswordManager.BulkCheck.CheckedCredentialsOnErrorOrCanceled",
         credential_count_);
-    base::UmaHistogramCounts100(
-        "PasswordManager.BulkCheck.LeaksFoundOnErrorOrCanceled",
-        leaked_credential_count_);
   } else {
     base::UmaHistogramMediumTimes("PasswordManager.BulkCheck.Time",
                                   timer_since_start_.Elapsed());
@@ -90,6 +88,7 @@ BulkLeakCheckService::BulkLeakCheckService(
 BulkLeakCheckService::~BulkLeakCheckService() = default;
 
 void BulkLeakCheckService::CheckUsernamePasswordPairs(
+    LeakDetectionInitiator initiator,
     std::vector<password_manager::LeakCheckCredential> credentials) {
   DVLOG(0) << "Bulk password check, start " << credentials.size();
   if (credentials.empty()) {
@@ -107,7 +106,7 @@ void BulkLeakCheckService::CheckUsernamePasswordPairs(
   if (bulk_leak_check_) {
     DCHECK_EQ(State::kRunning, state_);
     // The check is already running. Append the credentials to the list.
-    bulk_leak_check_->CheckCredentials(std::move(credentials));
+    bulk_leak_check_->CheckCredentials(initiator, std::move(credentials));
     // Notify the observers because the number of pending credentials changed.
     NotifyStateChanged();
     return;
@@ -123,7 +122,7 @@ void BulkLeakCheckService::CheckUsernamePasswordPairs(
   // The state is 'running now'. CheckCredentials() can trigger OnError() that
   // will change it to something else.
   state_ = State::kRunning;
-  bulk_leak_check_->CheckCredentials(std::move(credentials));
+  bulk_leak_check_->CheckCredentials(initiator, std::move(credentials));
   // Notify the observers after the call because the number of pending
   // credentials after CheckCredentials.
   NotifyStateChanged();

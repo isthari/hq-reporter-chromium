@@ -1,10 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/extensions/api/printing/printing_api_utils.h"
 
-#include "base/json/json_reader.h"
+#include "base/test/values_test_util.h"
 #include "chromeos/crosapi/mojom/local_printer.mojom.h"
 #include "chromeos/printing/printer_configuration.h"
 #include "printing/backend/print_backend.h"
@@ -15,6 +15,9 @@
 namespace extensions {
 
 namespace idl = api::printing;
+
+using testing::Contains;
+using testing::Pair;
 
 namespace {
 
@@ -30,6 +33,8 @@ constexpr int kVerticalDpi = 400;
 constexpr int kMediaSizeWidth = 210000;
 constexpr int kMediaSizeHeight = 297000;
 constexpr char kMediaSizeVendorId[] = "iso_a4_210x297mm";
+constexpr char kVendorItemId[] = "finishings";
+constexpr char kVendorItemValue[] = "trim";
 
 constexpr char kCjt[] = R"(
     {
@@ -56,6 +61,49 @@ constexpr char kCjt[] = R"(
           "height_microns": 297000,
           "vendor_id": "iso_a4_210x297mm"
         },
+        "vendor_ticket_item": [
+          {
+            "id": "finishings",
+            "value": "trim"
+          }
+        ],
+        "collate": {
+          "collate": false
+        }
+      }
+    })";
+
+constexpr char kInvalidVendorItemCjt[] = R"(
+    {
+      "version": "1.0",
+      "print": {
+        "color": {
+          "type": "STANDARD_MONOCHROME"
+        },
+        "duplex": {
+          "type": "NO_DUPLEX"
+        },
+        "page_orientation": {
+          "type": "LANDSCAPE"
+        },
+        "copies": {
+          "copies": 5
+        },
+        "dpi": {
+          "horizontal_dpi": 300,
+          "vertical_dpi": 400
+        },
+        "media_size": {
+          "width_microns": 210000,
+          "height_microns": 297000,
+          "vendor_id": "iso_a4_210x297mm"
+        },
+        "vendor_ticket_item": [
+          {
+            "id": "invalid-id",
+            "value": "invalid-value"
+          }
+        ],
         "collate": {
           "collate": false
         }
@@ -155,10 +203,9 @@ TEST(PrintingApiUtilsTest, PrinterToIdl) {
 }
 
 TEST(PrintingApiUtilsTest, ParsePrintTicket) {
-  absl::optional<base::Value> cjt_ticket = base::JSONReader::Read(kCjt);
-  ASSERT_TRUE(cjt_ticket);
+  base::Value::Dict cjt_ticket = base::test::ParseJsonDict(kCjt);
   std::unique_ptr<printing::PrintSettings> settings =
-      ParsePrintTicket(std::move(*cjt_ticket));
+      ParsePrintTicket(std::move(cjt_ticket));
 
   ASSERT_TRUE(settings);
   EXPECT_EQ(printing::mojom::ColorModel::kGray, settings->color());
@@ -170,13 +217,20 @@ TEST(PrintingApiUtilsTest, ParsePrintTicket) {
             settings->requested_media().size_microns);
   EXPECT_EQ(kMediaSizeVendorId, settings->requested_media().vendor_id);
   EXPECT_FALSE(settings->collate());
+  EXPECT_THAT(settings->advanced_settings(),
+              Contains(Pair(kVendorItemId, kVendorItemValue)));
+}
+
+TEST(PrintingApiUtilsTest, ParsePrintTicketInvalidVendorItem) {
+  base::Value::Dict cjt_ticket =
+      base::test::ParseJsonDict(kInvalidVendorItemCjt);
+  EXPECT_FALSE(ParsePrintTicket(std::move(cjt_ticket)));
 }
 
 TEST(PrintingApiUtilsTest, ParsePrintTicket_IncompleteCjt) {
-  absl::optional<base::Value> incomplete_cjt_ticket =
-      base::JSONReader::Read(kIncompleteCjt);
-  ASSERT_TRUE(incomplete_cjt_ticket);
-  EXPECT_FALSE(ParsePrintTicket(std::move(*incomplete_cjt_ticket)));
+  base::Value::Dict incomplete_cjt_ticket =
+      base::test::ParseJsonDict(kIncompleteCjt);
+  EXPECT_FALSE(ParsePrintTicket(std::move(incomplete_cjt_ticket)));
 }
 
 TEST(PrintingApiUtilsTest, CheckSettingsAndCapabilitiesCompatibility) {

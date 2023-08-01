@@ -1,18 +1,18 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/ui/app_list/arc/arc_app_dialog.h"
+#include "base/memory/raw_ptr.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_dialog.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/ash/app_list/app_list_controller_delegate.h"
+#include "chrome/browser/ash/app_list/app_service/app_service_app_icon_loader.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_list_prefs.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_utils.h"
+#include "chrome/browser/ash/app_list/arc/arc_usb_host_permission_manager.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/app_list/app_list_controller_delegate.h"
-#include "chrome/browser/ui/app_list/app_service/app_service_app_icon_loader.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
-#include "chrome/browser/ui/app_list/arc/arc_usb_host_permission_manager.h"
-#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/constrained_window/constrained_window_views.h"
@@ -69,11 +69,11 @@ class ArcAppDialogView : public views::DialogDelegateView,
   void OnDialogAccepted();
   void OnDialogCancelled();
 
-  views::ImageView* icon_view_ = nullptr;
+  raw_ptr<views::ImageView, ExperimentalAsh> icon_view_ = nullptr;
 
   std::unique_ptr<AppServiceAppIconLoader> icon_loader_;
 
-  Profile* const profile_;
+  const raw_ptr<Profile, ExperimentalAsh> profile_;
 
   const std::string app_id_;
   ArcAppConfirmCallback confirm_callback_;
@@ -143,8 +143,6 @@ ArcAppDialogView::ArcAppDialogView(Profile* profile,
   gfx::NativeWindow parent =
       controller ? controller->GetAppListWindow() : nullptr;
   constrained_window::CreateBrowserModalDialogViews(this, parent)->Show();
-
-  chrome::RecordDialogCreation(chrome::DialogIdentifier::ARC_APP);
 }
 
 ArcAppDialogView::~ArcAppDialogView() {

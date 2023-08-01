@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,6 +21,16 @@ import java.lang.ref.WeakReference;
  * A {@link BroadcastReceiver} that manages the interaction with the active Custom Tab.
  */
 public class BottomBarManager extends BroadcastReceiver {
+    /**
+     * A {@link BroadcastReceiver} that receives the swipe-up gesture on the Custom Tab bottom bar.
+     */
+    public static class SwipeUpReceiver extends BroadcastReceiver {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            Toast.makeText(context, "Swiped up!", Toast.LENGTH_SHORT).show();
+        }
+    }
+
     private static WeakReference<MediaPlayer> sMediaPlayerWeakRef;
 
     @Override
@@ -74,7 +84,7 @@ public class BottomBarManager extends BroadcastReceiver {
      */
     public static PendingIntent getOnClickPendingIntent(Context context) {
         Intent broadcastIntent = new Intent(context, BottomBarManager.class);
-        return PendingIntent.getBroadcast(context, 0, broadcastIntent, 0);
+        return PendingIntent.getBroadcast(context, 0, broadcastIntent, PendingIntent.FLAG_MUTABLE);
     }
 
     /**

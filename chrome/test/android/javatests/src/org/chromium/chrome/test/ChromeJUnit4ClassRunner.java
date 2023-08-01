@@ -1,13 +1,13 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.test;
 
 import android.content.Context;
-import android.os.Build;
-import android.support.test.InstrumentationRegistry;
 import android.text.TextUtils;
+
+import androidx.test.core.app.ApplicationProvider;
 
 import org.junit.rules.TestRule;
 import org.junit.runners.model.InitializationError;
@@ -15,6 +15,7 @@ import org.junit.runners.model.InitializationError;
 import org.chromium.base.CommandLine;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.StrictModeContext;
+import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.RestrictionSkipCheck;
 import org.chromium.base.test.util.SkipCheck;
 import org.chromium.chrome.test.util.ChromeRestriction;
@@ -47,7 +48,7 @@ public class ChromeJUnit4ClassRunner extends ContentJUnit4ClassRunner {
     @Override
     protected List<SkipCheck> getSkipChecks() {
         return addToList(super.getSkipChecks(),
-                new ChromeRestrictionSkipCheck(InstrumentationRegistry.getTargetContext()));
+                new ChromeRestrictionSkipCheck(ApplicationProvider.getApplicationContext()));
     }
 
     @Override
@@ -57,8 +58,14 @@ public class ChromeJUnit4ClassRunner extends ContentJUnit4ClassRunner {
 
     @Override
     protected List<TestRule> getDefaultTestRules() {
-        return addToList(super.getDefaultTestRules(), new Features.InstrumentationProcessor(),
-                new DisableAnimationsTestRule());
+        List<TestRule> rules = super.getDefaultTestRules();
+        Class<?> clazz = getTestClass().getJavaClass();
+        if (!clazz.isAnnotationPresent(Batch.class)
+                || !clazz.getAnnotation(Batch.class).value().equals(Batch.UNIT_TESTS)) {
+            rules = addToList(rules, new Features.InstrumentationProcessor());
+        }
+
+        return addToList(rules, new DisableAnimationsTestRule());
     }
 
     private static class ChromeRestrictionSkipCheck extends RestrictionSkipCheck {
@@ -140,10 +147,6 @@ public class ChromeJUnit4ClassRunner extends ContentJUnit4ClassRunner {
             }
         }
 
-        private boolean isOnStandaloneVrDevice() {
-            return Build.DEVICE.equals("vega");
-        }
-
         private boolean isVrDonEnabled() {
             // We can't directly check whether the VR DON flow is enabled since we don't have
             // permission to read the VrCore settings file. Instead, pass a flag.
@@ -182,24 +185,13 @@ public class ChromeJUnit4ClassRunner extends ContentJUnit4ClassRunner {
                 boolean daydreamViewPaired = isDaydreamViewPaired();
                 if (TextUtils.equals(
                             restriction, ChromeRestriction.RESTRICTION_TYPE_VIEWER_DAYDREAM)
-                        && (!daydreamViewPaired || isOnStandaloneVrDevice())) {
+                        && !daydreamViewPaired) {
                     return true;
                 } else if (TextUtils.equals(restriction,
                                    ChromeRestriction.RESTRICTION_TYPE_VIEWER_NON_DAYDREAM)
                         && daydreamViewPaired) {
                     return true;
                 }
-            }
-            if (TextUtils.equals(restriction, ChromeRestriction.RESTRICTION_TYPE_STANDALONE)) {
-                return !isOnStandaloneVrDevice();
-            }
-            if (TextUtils.equals(restriction,
-                        ChromeRestriction.RESTRICTION_TYPE_VIEWER_DAYDREAM_OR_STANDALONE)) {
-                // Standalone devices are considered to have Daydream View paired.
-                return !isDaydreamViewPaired();
-            }
-            if (TextUtils.equals(restriction, ChromeRestriction.RESTRICTION_TYPE_SVR)) {
-                return isOnStandaloneVrDevice();
             }
             if (TextUtils.equals(restriction, ChromeRestriction.RESTRICTION_TYPE_VR_DON_ENABLED)) {
                 return !isVrDonEnabled();

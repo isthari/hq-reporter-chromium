@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -44,6 +44,9 @@ public interface SigninManager {
          * Invoked once all startup checks are done and signing-in becomes allowed, or disallowed.
          */
         default void onSignInAllowedChanged() {}
+
+        /** Notifies observers when {@link #isSignOutAllowed()} value changes. */
+        default void onSignOutAllowedChanged() {}
     }
 
     /**
@@ -87,13 +90,6 @@ public interface SigninManager {
     IdentityManager getIdentityManager();
 
     /**
-     * Notifies the SigninManager that the First Run check has completed.
-     *
-     * The user will be allowed to sign-in once this is signaled.
-     */
-    void onFirstRunCheckDone();
-
-    /**
      * Returns true if sign in can be started now.
      */
     boolean isSigninAllowed();
@@ -109,10 +105,11 @@ public interface SigninManager {
     boolean isSigninDisabledByPolicy();
 
     /**
-     * @return Whether true if the current user is not demo user and the user has a reasonable
-     *         Google Play Services installed.
+     * Returns whether the user can sign-in (maybe after an update to Google Play services).
+     * @param requireUpdatedPlayServices Indicates whether an updated version of play services is
+     *         required or not.
      */
-    boolean isSigninSupported();
+    boolean isSigninSupported(boolean requireUpdatedPlayServices);
 
     /**
      * @return Whether force sign-in is enabled by policy.
@@ -137,11 +134,12 @@ public interface SigninManager {
      *   - Wait for AccountTrackerService to be seeded.
      *   - Complete sign-in with the native IdentityManager.
      *   - Call the callback if provided.
-     *
-     * @param account The account to sign in to.
+     *  @param account The account to sign in to.
+     * @param accessPoint {@link SigninAccessPoint} that initiated the sign-in flow.
      * @param callback Optional callback for when the sign-in process is finished.
      */
-    void signin(Account account, @Nullable SignInCallback callback);
+    void signin(
+            Account account, @SigninAccessPoint int accessPoint, @Nullable SignInCallback callback);
 
     /**
      * Starts the sign-in flow, and executes the callback when finished.
@@ -153,13 +151,12 @@ public interface SigninManager {
      *   - If managed, wait for the policy to be fetched.
      *   - Complete sign-in with the native IdentityManager.
      *   - Call the callback if provided.
-     *
+     *  @param account The account to sign in to.
      * @param accessPoint {@link SigninAccessPoint} that initiated the sign-in flow.
-     * @param account The account to sign in to.
      * @param callback Optional callback for when the sign-in process is finished.
      */
     void signinAndEnableSync(
-            @SigninAccessPoint int accessPoint, Account account, @Nullable SignInCallback callback);
+            Account account, @SigninAccessPoint int accessPoint, @Nullable SignInCallback callback);
 
     /**
      * Schedules the runnable to be invoked after all sign-in, sign-out, or sync data wipe operation
@@ -168,6 +165,23 @@ public interface SigninManager {
      */
     @MainThread
     void runAfterOperationInProgress(Runnable runnable);
+
+    /**
+     * Revokes sync consent (which disables the sync feature). This method should only be called
+     * for child accounts.
+     *
+     * @param signoutSource describes the event driving disabling sync (e.g.
+     *         {@link SignoutReason.USER_CLICKED_TURN_OFF_SYNC_SETTINGS}).
+     * @param signOutCallback Callback to notify about progress.
+     * @param forceWipeUserData Whether user selected to wipe all device data.
+     */
+    void revokeSyncConsent(@SignoutReason int signoutSource, SignOutCallback signOutCallback,
+            boolean forceWipeUserData);
+
+    /**
+     * Returns true if sign out can be started now.
+     */
+    boolean isSignOutAllowed();
 
     /**
      * Invokes signOut with no callback.

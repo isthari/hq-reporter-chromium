@@ -35,14 +35,46 @@
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/modules/mediastream/identifiability_metrics.h"
-#include "third_party/blink/renderer/modules/mediastream/media_error_state.h"
-#include "third_party/blink/renderer/modules/mediastream/user_media_controller.h"
+#include "third_party/blink/renderer/modules/mediastream/user_media_client.h"
 #include "third_party/blink/renderer/modules/mediastream/user_media_request.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/privacy_budget/identifiability_digest_helpers.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 
 namespace blink {
+
+namespace {
+class V8Callbacks final : public blink::UserMediaRequest::Callbacks {
+ public:
+  V8Callbacks(V8NavigatorUserMediaSuccessCallback* success_callback,
+              V8NavigatorUserMediaErrorCallback* error_callback)
+      : success_callback_(success_callback), error_callback_(error_callback) {}
+  ~V8Callbacks() override = default;
+
+  void Trace(Visitor* visitor) const override {
+    visitor->Trace(success_callback_);
+    visitor->Trace(error_callback_);
+    UserMediaRequest::Callbacks::Trace(visitor);
+  }
+
+  void OnSuccess(const MediaStreamVector& streams,
+                 CaptureController* capture_controller) override {
+    DCHECK_EQ(streams.size(), 1u);
+    success_callback_->InvokeAndReportException(nullptr, streams[0]);
+  }
+
+  void OnError(ScriptWrappable* callback_this_value,
+               const V8MediaStreamError* error,
+               CaptureController* capture_controller,
+               UserMediaRequestResult result) override {
+    error_callback_->InvokeAndReportException(callback_this_value, error);
+  }
+
+ private:
+  Member<V8NavigatorUserMediaSuccessCallback> success_callback_;
+  Member<V8NavigatorUserMediaErrorCallback> error_callback_;
+};
+}  // namespace
 
 void NavigatorMediaStream::getUserMedia(
     Navigator& navigator,
@@ -56,40 +88,41 @@ void NavigatorMediaStream::getUserMedia(
   if (!navigator.DomWindow()) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kNotSupportedError,
-        "No user media controller available; is this a detached window?");
+        "No user media client available; is this a detached window?");
     return;
   }
 
-  UserMediaController* user_media =
-      UserMediaController::From(navigator.DomWindow());
+  UserMediaClient* user_media = UserMediaClient::From(navigator.DomWindow());
+  // Navigator::DomWindow() should not return a non-null detached window, so we
+  // should also successfully get a UserMediaClient from it.
+  DCHECK(user_media) << "Missing UserMediaClient on a non-null DomWindow";
+
   IdentifiableSurface surface;
   constexpr IdentifiableSurface::Type surface_type =
       IdentifiableSurface::Type::kNavigator_GetUserMedia;
-  if (IdentifiabilityStudySettings::Get()->IsTypeAllowed(surface_type)) {
+  if (IdentifiabilityStudySettings::Get()->ShouldSampleType(surface_type)) {
     surface = IdentifiableSurface::FromTypeAndToken(
         surface_type, TokenFromConstraints(options));
   }
-  MediaErrorState error_state;
+
   UserMediaRequest* request = UserMediaRequest::Create(
-      navigator.DomWindow(), user_media, options, success_callback,
-      error_callback, error_state, surface);
+      navigator.DomWindow(), user_media, UserMediaRequestType::kUserMedia,
+      options,
+      MakeGarbageCollected<V8Callbacks>(success_callback, error_callback),
+      exception_state, surface);
   if (!request) {
-    DCHECK(error_state.HadException());
-    if (error_state.CanGenerateException()) {
-      error_state.RaiseException(exception_state);
-    } else {
-      error_callback->InvokeAndReportException(nullptr,
-                                               error_state.CreateError());
-    }
+    DCHECK(exception_state.HadException());
     RecordIdentifiabilityMetric(
         surface, navigator.GetExecutionContext(),
-        IdentifiabilityBenignStringToken(error_state.GetErrorMessage()));
+        IdentifiabilityBenignStringToken(exception_state.Message()));
     return;
   }
 
   String error_message;
   if (!request->IsSecureContextUse(error_message)) {
-    request->Fail(UserMediaRequest::Error::kSecurityError, error_message);
+    request->Fail(
+        mojom::blink::MediaStreamRequestResult::INVALID_SECURITY_ORIGIN,
+        error_message);
     RecordIdentifiabilityMetric(
         surface, navigator.GetExecutionContext(),
         IdentifiabilityBenignStringToken(error_message));

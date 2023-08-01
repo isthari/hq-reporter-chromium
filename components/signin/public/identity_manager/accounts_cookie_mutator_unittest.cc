@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/bind.h"
@@ -23,6 +23,7 @@
 #include "components/signin/public/identity_manager/set_accounts_in_cookie_result.h"
 #include "components/signin/public/identity_manager/test_identity_manager_observer.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
+#include "google_apis/gaia/core_account_id.h"
 #include "google_apis/gaia/gaia_auth_fetcher.h"
 #include "google_apis/gaia/gaia_constants.h"
 #include "google_apis/gaia/gaia_urls.h"
@@ -70,8 +71,10 @@ class AccountsCookieMutatorTest
   const CoreAccountId kTestOtherUnavailableAccountId;
 
   AccountsCookieMutatorTest()
-      : kTestUnavailableAccountId("unavailable_account_id"),
-        kTestOtherUnavailableAccountId("other_unavailable_account_id"),
+      : kTestUnavailableAccountId(
+            CoreAccountId::FromGaiaId("unavailable_account_id")),
+        kTestOtherUnavailableAccountId(
+            CoreAccountId::FromGaiaId("other_unavailable_account_id")),
         test_signin_client_(&prefs_),
         identity_test_env_(/*test_url_loader_factory=*/nullptr,
                            &prefs_,

@@ -1,10 +1,12 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {TestRunner} from 'test_runner';
+import {BindingsTestRunner} from 'bindings_test_runner';
+
 (async function() {
   TestRunner.addResult(`Ensure that if a file that should be ignored is changed on the filesystem it does not propogate events.\n`);
-  await TestRunner.loadTestModule('bindings_test_runner');
 
   TestRunner.addResult('Creating filesystem');
   var fs = new BindingsTestRunner.TestFileSystem('/var/www');

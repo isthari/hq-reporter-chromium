@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,9 +35,9 @@ const Schema* SchemaMap::GetSchema(const PolicyNamespace& ns) const {
   return it == map->end() ? nullptr : &it->second;
 }
 
-void SchemaMap::FilterBundle(PolicyBundle* bundle,
+void SchemaMap::FilterBundle(PolicyBundle& bundle,
                              bool drop_invalid_component_policies) const {
-  for (auto& bundle_item : *bundle) {
+  for (auto& bundle_item : bundle) {
     const PolicyNamespace& ns = bundle_item.first;
     PolicyMap& policy_map = bundle_item.second;
 
@@ -67,10 +67,10 @@ void SchemaMap::FilterBundle(PolicyBundle* bundle,
       PolicyMap::Entry& entry = it_map->second;
       const Schema policy_schema = schema->GetProperty(policy_name);
 
-      const bool has_value = entry.value();
+      const bool has_value = entry.value_unsafe();
       const bool is_valid =
           has_value &&
-          policy_schema.Normalize(entry.value(), SCHEMA_ALLOW_UNKNOWN,
+          policy_schema.Normalize(entry.value_unsafe(), SCHEMA_ALLOW_UNKNOWN,
                                   /* out_error_path=*/nullptr,
                                   /* out_error=*/nullptr,
                                   /* out_changed=*/nullptr);

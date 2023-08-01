@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,10 +11,10 @@
 #import "ios/chrome/browser/overlays/public/overlay_request_queue.h"
 #import "ios/chrome/browser/overlays/public/overlay_response.h"
 #import "ios/chrome/browser/overlays/public/web_content_area/http_auth_overlay.h"
-#import "ios/chrome/browser/ui/dialogs/nsurl_protection_space_util.h"
-
+#import "ios/chrome/browser/permissions/permissions_tab_helper.h"
 #import "ios/chrome/browser/snapshots/snapshot_tab_helper.h"
 #import "ios/chrome/browser/ui/context_menu/context_menu_configuration_provider.h"
+#import "ios/chrome/browser/ui/dialogs/nsurl_protection_space_util.h"
 #import "ios/chrome/browser/url_loading/url_loading_browser_agent.h"
 #import "ios/chrome/browser/url_loading/url_loading_params.h"
 #import "ios/chrome/browser/web/blocked_popup_tab_helper.h"
@@ -48,19 +48,6 @@ void OnHTTPAuthOverlayFinished(web::WebStateDelegate::AuthCallback callback,
   std::move(callback).Run(nil, nil);
 }
 }  // namespace
-
-// static
-void WebStateDelegateBrowserAgent::CreateForBrowser(
-    Browser* browser,
-    TabInsertionBrowserAgent* tab_insertion_agent) {
-  DCHECK(browser);
-
-  if (!FromBrowser(browser)) {
-    browser->SetUserData(UserDataKey(),
-                         base::WrapUnique(new WebStateDelegateBrowserAgent(
-                             browser, tab_insertion_agent)));
-  }
-}
 
 WebStateDelegateBrowserAgent::WebStateDelegateBrowserAgent(
     Browser* browser,
@@ -186,11 +173,6 @@ web::WebState* WebStateDelegateBrowserAgent::CreateNewWebState(
 }
 
 void WebStateDelegateBrowserAgent::CloseWebState(web::WebState* source) {
-  security_interstitials::IOSBlockingPageTabHelper* helper =
-      security_interstitials::IOSBlockingPageTabHelper::FromWebState(source);
-  DCHECK(source->HasOpener() ||
-         !source->GetNavigationManager()->GetItemCount() ||
-         helper->GetCurrentBlockingPage() != nullptr);
   int index = web_state_list_->GetIndexOfWebState(source);
   if (index != WebStateList::kInvalidIndex)
     web_state_list_->CloseWebStateAt(index, WebStateList::CLOSE_USER_ACTION);
@@ -211,7 +193,8 @@ web::WebState* WebStateDelegateBrowserAgent::OpenURLFromWebState(
       return tab_insertion_agent_->InsertWebState(
           load_params, source, false, TabInsertion::kPositionAutomatically,
           (params.disposition == WindowOpenDisposition::NEW_BACKGROUND_TAB),
-          /*inherit_opener=*/false);
+          /*inherit_opener=*/false, /*should_show_start_surface=*/false,
+          /*should_skip_new_tab_animation=*/false);
     }
     case WindowOpenDisposition::CURRENT_TAB: {
       source->GetNavigationManager()->LoadURLWithParams(load_params);
@@ -220,7 +203,9 @@ web::WebState* WebStateDelegateBrowserAgent::OpenURLFromWebState(
     case WindowOpenDisposition::NEW_POPUP: {
       return tab_insertion_agent_->InsertWebState(
           load_params, source, true, TabInsertion::kPositionAutomatically,
-          /*in_background=*/false, /*inherit_opener=*/false);
+          /*in_background=*/false, /*inherit_opener=*/false,
+          /*should_show_start_surface=*/false,
+          /*should_skip_new_tab_animation=*/false);
     }
     default:
       NOTIMPLEMENTED();
@@ -245,6 +230,15 @@ web::JavaScriptDialogPresenter*
 WebStateDelegateBrowserAgent::GetJavaScriptDialogPresenter(
     web::WebState* source) {
   return &java_script_dialog_presenter_;
+}
+
+void WebStateDelegateBrowserAgent::HandlePermissionsDecisionRequest(
+    web::WebState* source,
+    NSArray<NSNumber*>* permissions,
+    web::WebStatePermissionDecisionHandler handler) API_AVAILABLE(ios(15.0)) {
+  PermissionsTabHelper::FromWebState(source)
+      ->PresentPermissionsDecisionDialogWithCompletionHandler(permissions,
+                                                              handler);
 }
 
 void WebStateDelegateBrowserAgent::OnAuthRequired(

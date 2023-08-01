@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -93,6 +93,8 @@ class MEDIA_EXPORT AudioManagerAndroid : public AudioManagerBase {
 
   bool IsUsingAAudioForTesting() { return UseAAudio(); }
 
+  static int GetSinkAudioEncodingFormats();
+
  protected:
   void ShutdownOnAudioThread() override;
   AudioParameters GetPreferredOutputStreamParameters(
@@ -108,12 +110,19 @@ class MEDIA_EXPORT AudioManagerAndroid : public AudioManagerBase {
   bool IsAudioLowLatencySupported();
   int GetAudioLowLatencyOutputFrameSize();
   int GetOptimalOutputFrameSize(int sample_rate, int channels);
+  AudioParameters GetAudioFormatsSupportedBySinkDevice(
+      const std::string& output_device_id,
+      const ChannelLayoutConfig& channel_layout_config,
+      int sample_rate,
+      int buffer_size);
 
   void DoSetMuteOnAudioThread(bool muted);
   void DoSetVolumeOnAudioThread(double volume);
 
   // Returns whether or not we can and should use AAudio.
   bool UseAAudio();
+  bool UseAAudioOutput();
+  bool UseAAudioInput();
 
   // Java AudioManager instance.
   base::android::ScopedJavaGlobalRef<jobject> j_audio_manager_;

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -951,7 +951,7 @@ message Selector {
     _INTERNAL_LIST_BOX = 4;
     _INTERNAL_MEDIA_CONTROLS_OVERLAY_CAST_BUTTON = 5;
     _INTERNAL_MULTI_SELECT_FOCUS = 6;
-    _INTERNAL_POPUP_OPEN = 7;
+    _INTERNAL_POPUP_HIDDEN = 7;
     _INTERNAL_SHADOW_HOST_HAS_APPEARANCE = 8;
     _INTERNAL_SPATIAL_NAVIGATION_FOCUS = 9;
     _INTERNAL_VIDEO_PERSISTENT = 10;
@@ -1013,31 +1013,33 @@ message Selector {
     PAST = 66;
     PLACEHOLDER = 67;
     PLACEHOLDER_SHOWN = 68;
-    READ_ONLY = 69;
-    READ_WRITE = 70;
-    REQUIRED = 71;
-    RIGHT = 72;
-    ROOT = 73;
-    SCOPE = 74;
-    SELECTION = 75;
-    SINGLE_BUTTON = 76;
-    START = 77;
-    TARGET = 78;
-    VALID = 79;
-    VERTICAL = 80;
-    VISITED = 81;
-    WINDOW_INACTIVE = 82;
-    _WEBKIT_ANY = 83;
-    HOST_CONTEXT = 84;
-    LANG = 85;
-    NOT = 86;
-    NTH_CHILD = 87;
-    NTH_LAST_CHILD = 88;
-    NTH_LAST_OF_TYPE = 89;
-    NTH_OF_TYPE = 90;
-    SLOTTED = 91;
-    XR_OVERLAY = 92;
-    INVALID_PSEUDO_VALUE = 93;
+    POPOVER_OPEN = 69;
+    READ_ONLY = 70;
+    READ_WRITE = 71;
+    REQUIRED = 72;
+    RIGHT = 73;
+    ROOT = 74;
+    SCOPE = 75;
+    SELECTION = 76;
+    SINGLE_BUTTON = 77;
+    START = 78;
+    TARGET = 79;
+    TOP_LAYER = 80;
+    VALID = 81;
+    VERTICAL = 82;
+    VISITED = 83;
+    WINDOW_INACTIVE = 84;
+    _WEBKIT_ANY = 85;
+    HOST_CONTEXT = 86;
+    LANG = 87;
+    NOT = 88;
+    NTH_CHILD = 89;
+    NTH_LAST_CHILD = 90;
+    NTH_LAST_OF_TYPE = 91;
+    NTH_OF_TYPE = 92;
+    SLOTTED = 93;
+    XR_OVERLAY = 94;
+    INVALID_PSEUDO_VALUE = 95;
   }
   optional PseudoValueId pseudo_value_id = 4;
   required Combinator combinator = 5;
@@ -1137,9 +1139,8 @@ message Input {
     kHTMLStandardMode = 0;
     kHTMLQuirksMode = 1;
     kSVGAttributeMode = 2;
-    kCSSViewportRuleMode = 3;
-    kCSSFontFaceRuleMode = 4;
-    kUASheetMode = 5;
+    kCSSFontFaceRuleMode = 3;
+    kUASheetMode = 4;
   }
   enum SecureContextMode {
     kInsecureContext = 0;

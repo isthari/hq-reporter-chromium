@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -52,7 +52,7 @@ bool ProxyOverriddenBubbleDelegate::ShouldIncludeExtension(
 
   ExtensionPrefs* prefs = ExtensionPrefs::Get(profile());
   base::TimeDelta since_install =
-      base::Time::Now() - prefs->GetInstallTime(extension->id());
+      base::Time::Now() - prefs->GetLastUpdateTime(extension->id());
   if (since_install.InDays() < kDaysSinceInstallMin)
     return false;
 

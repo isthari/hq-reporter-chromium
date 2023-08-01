@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,10 @@
 
 #include "base/mac/scoped_nsobject.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+#ifdef LEAK_SANITIZER
+#include <sanitizer/lsan_interface.h>
+#endif
 
 @interface ScopedSendingEventTestCrApp : NSApplication <CrAppControlProtocol> {
  @private
@@ -24,7 +28,19 @@ namespace {
 
 class ScopedSendingEventTest : public testing::Test {
  public:
-  ScopedSendingEventTest() : app_([[ScopedSendingEventTestCrApp alloc] init]) {
+  ScopedSendingEventTest() {
+#ifdef LEAK_SANITIZER
+    // NSApplication's `init` creates a helper object and writes it to an
+    // AppKit-owned static unconditionally. This is not cleaned up on
+    // NSApplication dealloc.
+    // When we create a new NSApplication, as we do when we run multiple
+    // tests in this suite, a new object is created and stomps on the old
+    // static.
+    // This needs a scoped disabler instead of just ignoring the app
+    // object since the leak is a side-effect of object creation.
+    __lsan::ScopedDisabler disable;
+#endif
+    app_.reset([[ScopedSendingEventTestCrApp alloc] init]);
     NSApp = app_.get();
   }
   ~ScopedSendingEventTest() override { NSApp = nil; }

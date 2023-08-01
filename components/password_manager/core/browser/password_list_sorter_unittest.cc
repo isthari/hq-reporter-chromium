@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,9 @@
 #include <vector>
 
 #include "base/strings/utf_string_conversions.h"
+#include "components/password_manager/core/browser/passkey_credential.h"
 #include "components/password_manager/core/browser/password_form.h"
+#include "components/password_manager/core/browser/ui/credential_ui_entry.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
@@ -201,6 +203,53 @@ TEST(PasswordListSorterTest, EntriesDifferingByStoreShouldMapToSameKey) {
 
   EXPECT_EQ(CreateSortKey(account_form, IgnoreStore(true)),
             CreateSortKey(profile_form, IgnoreStore(true)));
+}
+
+TEST(PasswordListSorterTest, CreateUsernamePasswordSortKey) {
+  PasswordForm form;
+  form.signon_realm = "https://g.com/";
+  form.url = GURL(form.signon_realm);
+  form.blocked_by_user = false;
+  form.username_value = u"username00";
+  form.password_value = u"password01";
+
+  EXPECT_EQ(CreateUsernamePasswordSortKey(form), "username00 password01 -");
+}
+
+TEST(PasswordListSorterTest,
+     CreateUsernamePasswordSortKeyWithFederationOrigin) {
+  PasswordForm form;
+  form.signon_realm = "https://g.com/";
+  form.url = GURL(form.signon_realm);
+  form.username_value = u"username00";
+  form.password_value = u"password01";
+  form.federation_origin = url::Origin::Create(GURL("https://google.com/"));
+
+  EXPECT_EQ(CreateUsernamePasswordSortKey(form),
+            "username00 password01 google.com");
+}
+
+TEST(PasswordListSorterTest, CreateUsernamePasswordSortKeyBlockedByUser) {
+  PasswordForm form;
+  form.signon_realm = "https://g.com/";
+  form.url = GURL(form.signon_realm);
+  form.blocked_by_user = true;
+
+  EXPECT_EQ(CreateUsernamePasswordSortKey(form), "g.com");
+}
+
+TEST(PasswordListSorterTest, PasskeyVsPasswordSortKey) {
+  PasswordForm form;
+  form.signon_realm = "https://test.com/";
+  form.url = GURL(form.signon_realm);
+  form.username_value = u"lora";
+  CredentialUIEntry password(std::move(form));
+
+  PasskeyCredential passkey_credential(PasskeyCredential::Source::kAndroidPhone,
+                                       "test.com", {}, {}, "lora");
+  CredentialUIEntry passkey(std::move(passkey_credential));
+
+  EXPECT_NE(CreateSortKey(password), CreateSortKey(passkey));
 }
 
 }  // namespace password_manager

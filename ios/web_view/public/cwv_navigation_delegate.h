@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,26 +13,66 @@
 NS_ASSUME_NONNULL_BEGIN
 
 @class CWVDownloadTask;
+@class CWVLookalikeURLHandler;
+@class CWVNavigationAction;
+@class CWVNavigationResponse;
 @class CWVSSLErrorHandler;
+@class CWVUnsafeURLHandler;
 @class CWVWebView;
+
+typedef NS_ENUM(NSInteger, CWVNavigationActionPolicy) {
+  // Cancel the navigation
+  CWVNavigationActionPolicyCancel,
+  // Allow the navigation to continue.
+  CWVNavigationActionPolicyAllow,
+};
+
+typedef NS_ENUM(NSInteger, CWVNavigationResponsePolicy) {
+  // Cancel the navigation
+  CWVNavigationResponsePolicyCancel,
+  // Allow the navigation to continue.
+  CWVNavigationResponsePolicyAllow,
+};
 
 // Navigation delegate protocol for CWVWebViews.  Allows embedders to hook
 // page loading and receive events for navigation.
 @protocol CWVNavigationDelegate<NSObject>
 @optional
 
-// Asks delegate if WebView should start the load. WebView will
-// load the request if this method is not implemented.
+// DEPRECATED: Use `-[CWVNavigationDelegate
+// webView:decidePolicyForNavigationAction:decisionHandler:]` instead, this
+// method will not work when recommended API is implemented.
+//
+// Asks delegate if WebView should start the load. WebView will load the request
+// if this method is not implemented.
 - (BOOL)webView:(CWVWebView*)webView
     shouldStartLoadWithRequest:(NSURLRequest*)request
                 navigationType:(CWVNavigationType)navigationType;
 
-// Asks delegate if WebView should continue the load. WebView
-// will load the response if this method is not implemented.
-// |forMainFrame| indicates whether the frame being navigated is the main frame.
+// DEPRECATED: Use `-[CWVNavigationDelegate
+// webView:decidePolicyForNavigationResponse:decisionHandler:]` instead, this
+// method will not work when recommended API is implemented.
+//
+// Asks delegate if WebView should continue the load. WebView will load the
+// response if this method is not implemented. `forMainFrame` indicates whether
+// the frame being navigated is the main frame.
 - (BOOL)webView:(CWVWebView*)webView
     shouldContinueLoadWithResponse:(NSURLResponse*)response
                       forMainFrame:(BOOL)forMainFrame;
+
+// Decides whether to allow or cancel a navigation. WebView will load the
+// response if this method is not implemented.
+- (void)webView:(CWVWebView*)webView
+    decidePolicyForNavigationAction:(CWVNavigationAction*)navigationAction
+                    decisionHandler:
+                        (void (^)(CWVNavigationActionPolicy))decisionHandler;
+
+// Decides whether to allow or cancel a navigation after its response is known.
+// WebView will load the response if this method is not implemented.
+- (void)webView:(CWVWebView*)webView
+    decidePolicyForNavigationResponse:(CWVNavigationResponse*)navigationResponse
+                      decisionHandler:(void (^)(CWVNavigationResponsePolicy))
+                                          decisionHandler;
 
 // Notifies the delegate that main frame navigation has started.
 // Deprecated, use |webViewDidStartNavigation| instead.
@@ -57,6 +97,20 @@ NS_ASSUME_NONNULL_BEGIN
 // potentially override and ignore it.
 - (void)webView:(CWVWebView*)webView
     handleSSLErrorWithHandler:(CWVSSLErrorHandler*)handler;
+
+// Notifies the delegate of an attempt to load a lookalike URL.
+// |handler| used to communicate the attempt to the user, and allow them to
+// override if desired.
+// If this method is not implemented, the lookalike URL will load normally.
+- (void)webView:(CWVWebView*)webView
+    handleLookalikeURLWithHandler:(CWVLookalikeURLHandler*)handler;
+
+// Notifies the delegate of an attempt to load an unsafe URL.
+// |handler| used to communicate the attempt to the user, and allow them to
+// override if desired.
+// If this method is not implemented, the URL will continue to load normally.
+- (void)webView:(CWVWebView*)webView
+    handleUnsafeURLWithHandler:(CWVUnsafeURLHandler*)handler;
 
 // Called when the web view requests to start downloading a file.
 //

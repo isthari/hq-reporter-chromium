@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,6 +33,9 @@ struct Activity {
     MEDIA,
 
     // The activity is a message. The extra data is the port ID.
+    MESSAGE,
+
+    // The activity is a message port opening. The extra data is the port ID.
     MESSAGE_PORT,
 
     // The activity is meant to keep the background page alive while

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,25 +8,38 @@
 
 #include "ash/constants/app_types.h"
 #include "ash/metrics/pip_uma.h"
+#include "ash/public/cpp/accelerators.h"
 #include "ash/public/cpp/shelf_config.h"
 #include "ash/public/cpp/window_properties.h"
+#include "ash/screen_util.h"
+#include "ash/shelf/shelf.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/test/test_window_builder.h"
+#include "ash/wm/desks/desks_test_util.h"
+#include "ash/wm/overview/overview_item.h"
+#include "ash/wm/overview/overview_test_util.h"
 #include "ash/wm/pip/pip_positioner.h"
+#include "ash/wm/splitview/split_view_controller.h"
+#include "ash/wm/splitview/split_view_divider.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
+#include "ash/wm/window_resizer.h"
 #include "ash/wm/window_state_util.h"
 #include "ash/wm/window_util.h"
 #include "ash/wm/wm_event.h"
+#include "ash/wm/wm_metrics.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "chromeos/ui/base/window_state_type.h"
+#include "chromeos/ui/frame/caption_buttons/snap_controller.h"
+#include "chromeos/ui/frame/multitask_menu/multitask_menu_metrics.h"
 #include "chromeos/ui/wm/features.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/test/test_window_delegate.h"
 #include "ui/aura/window.h"
 #include "ui/base/hit_test.h"
 #include "ui/compositor/layer.h"
+#include "ui/compositor/layer_animator.h"
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
 #include "ui/display/screen.h"
 #include "ui/events/test/event_generator.h"
@@ -82,23 +95,23 @@ TEST_F(WindowStateTest, SnapWindowBasic) {
   std::unique_ptr<aura::Window> window(
       CreateTestWindowInShellWithBounds(gfx::Rect(100, 100, 100, 100)));
   WindowState* window_state = WindowState::Get(window.get());
-  const WMEvent snap_left(WM_EVENT_SNAP_PRIMARY);
-  window_state->OnWMEvent(&snap_left);
+  const WindowSnapWMEvent snap_primary(WM_EVENT_SNAP_PRIMARY);
+  window_state->OnWMEvent(&snap_primary);
   gfx::Rect expected = gfx::Rect(kPrimaryDisplayWorkAreaBounds.x(),
                                  kPrimaryDisplayWorkAreaBounds.y(),
                                  kPrimaryDisplayWorkAreaBounds.width() / 2,
                                  kPrimaryDisplayWorkAreaBounds.height());
   EXPECT_EQ(expected.ToString(), window->GetBoundsInScreen().ToString());
 
-  const WMEvent snap_right(WM_EVENT_SNAP_SECONDARY);
-  window_state->OnWMEvent(&snap_right);
+  const WindowSnapWMEvent snap_secondary(WM_EVENT_SNAP_SECONDARY);
+  window_state->OnWMEvent(&snap_secondary);
   expected.set_x(kPrimaryDisplayWorkAreaBounds.right() - expected.width());
   EXPECT_EQ(expected.ToString(), window->GetBoundsInScreen().ToString());
 
   // Move the window to the secondary display.
   window->SetBoundsInScreen(gfx::Rect(600, 0, 100, 100), GetSecondaryDisplay());
 
-  window_state->OnWMEvent(&snap_right);
+  window_state->OnWMEvent(&snap_secondary);
   expected = gfx::Rect(kSecondaryDisplayWorkAreaBounds.x() +
                            kSecondaryDisplayWorkAreaBounds.width() / 2,
                        kSecondaryDisplayWorkAreaBounds.y(),
@@ -106,9 +119,34 @@ TEST_F(WindowStateTest, SnapWindowBasic) {
                        kSecondaryDisplayWorkAreaBounds.height());
   EXPECT_EQ(expected.ToString(), window->GetBoundsInScreen().ToString());
 
-  window_state->OnWMEvent(&snap_left);
+  window_state->OnWMEvent(&snap_primary);
   expected.set_x(kSecondaryDisplayWorkAreaBounds.x());
   EXPECT_EQ(expected.ToString(), window->GetBoundsInScreen().ToString());
+}
+
+// Test snapped window bounds when the work area length is odd. For multiresize
+// functionality to work, it is important that the snapped windows exactly
+// touch. An odd work area length makes this requirement tricky because the
+// window widths must be unequal to add up to an odd number.
+TEST_F(WindowStateTest, SnapWindowOddWorkAreaLength) {
+  UpdateDisplay("1517x805");
+  const gfx::Rect work_area =
+      display::Screen::GetScreen()->GetPrimaryDisplay().work_area();
+  ASSERT_EQ(0, work_area.x());
+  ASSERT_EQ(1517, work_area.width());
+
+  std::unique_ptr<aura::Window> left_window(
+      CreateTestWindowInShellWithBounds(gfx::Rect(100, 100, 100, 100)));
+  std::unique_ptr<aura::Window> right_window(
+      CreateTestWindowInShellWithBounds(gfx::Rect(100, 100, 100, 100)));
+  const WindowSnapWMEvent snap_primary(WM_EVENT_SNAP_PRIMARY);
+  const WindowSnapWMEvent snap_secondary(WM_EVENT_SNAP_SECONDARY);
+  WindowState::Get(left_window.get())->OnWMEvent(&snap_primary);
+  WindowState::Get(right_window.get())->OnWMEvent(&snap_secondary);
+  EXPECT_EQ(gfx::Rect(0, work_area.y(), 758, work_area.bottom()),
+            left_window->GetBoundsInScreen());
+  EXPECT_EQ(gfx::Rect(758, work_area.y(), 759, work_area.bottom()),
+            right_window->GetBoundsInScreen());
 }
 
 // Test how the minimum width and maximize behavior specified by the
@@ -127,8 +165,8 @@ TEST_F(WindowStateTest, SnapWindowMinimumSizeLandscape) {
   delegate.set_minimum_size(gfx::Size(kMinimumWidth, 0));
   WindowState* window_state = WindowState::Get(window.get());
   EXPECT_TRUE(window_state->CanSnap());
-  const WMEvent snap_right(WM_EVENT_SNAP_SECONDARY);
-  window_state->OnWMEvent(&snap_right);
+  const WindowSnapWMEvent snap_secondary(WM_EVENT_SNAP_SECONDARY);
+  window_state->OnWMEvent(&snap_secondary);
   // Expect right snap with the minimum width.
   const gfx::Rect expected_right_snap(kWorkAreaBounds.width() - kMinimumWidth,
                                       kWorkAreaBounds.y(), kMinimumWidth,
@@ -429,6 +467,28 @@ TEST_F(WindowStateTest, TestIgnoreTooBigMinimumSize) {
   EXPECT_EQ(work_area_size.ToString(), window->bounds().size().ToString());
 }
 
+// Test that the maximum size specified by aura::WindowDelegate gets respected.
+TEST_F(WindowStateTest, TestRespectMaximumSize) {
+  aura::test::TestWindowDelegate delegate;
+  constexpr gfx::Size max_size(300, 250);
+  constexpr gfx::Size smaller_size(100, 100);
+  constexpr gfx::Size larger_size(500, 400);
+
+  delegate.set_maximum_size(max_size);
+
+  std::unique_ptr<aura::Window> window(CreateTestWindowInShellWithDelegate(
+      &delegate, -1, gfx::Rect(larger_size)));
+
+  // Check that the window has the correct maximum size.
+  EXPECT_EQ(max_size, window->bounds().size());
+
+  window->SetBounds(gfx::Rect(smaller_size));
+  EXPECT_EQ(smaller_size, window->bounds().size());
+
+  window->SetBounds(gfx::Rect(larger_size));
+  EXPECT_EQ(max_size, window->bounds().size());
+}
+
 // Tests UpdateSnapRatio. (1) It should have ratio reset when window
 // enters snapped state; (2) it should update ratio on bounds event when
 // snapped.
@@ -441,8 +501,8 @@ TEST_F(WindowStateTest, UpdateSnapWidthRatioTest) {
       &delegate, -1, gfx::Rect(100, 100, 100, 100)));
   delegate.set_window_component(HTRIGHT);
   WindowState* window_state = WindowState::Get(window.get());
-  const WMEvent cycle_snap_left(WM_EVENT_CYCLE_SNAP_PRIMARY);
-  window_state->OnWMEvent(&cycle_snap_left);
+  const WindowSnapWMEvent cycle_snap_primary(WM_EVENT_CYCLE_SNAP_PRIMARY);
+  window_state->OnWMEvent(&cycle_snap_primary);
   EXPECT_EQ(WindowStateType::kPrimarySnapped, window_state->GetStateType());
   gfx::Rect expected =
       gfx::Rect(kWorkAreaBounds.x(), kWorkAreaBounds.y(),
@@ -464,13 +524,13 @@ TEST_F(WindowStateTest, UpdateSnapWidthRatioTest) {
   EXPECT_EQ(0.75f, *window_state->snap_ratio());
 
   // Another cycle snap left event will restore window state to normal.
-  window_state->OnWMEvent(&cycle_snap_left);
+  window_state->OnWMEvent(&cycle_snap_primary);
   EXPECT_EQ(WindowStateType::kNormal, window_state->GetStateType());
-  EXPECT_FALSE(window_state->snap_ratio());
+  EXPECT_TRUE(window_state->snap_ratio());
 
   // Another cycle snap left event will snap window and reset snapped width
   // ratio.
-  window_state->OnWMEvent(&cycle_snap_left);
+  window_state->OnWMEvent(&cycle_snap_primary);
   EXPECT_EQ(WindowStateType::kPrimarySnapped, window_state->GetStateType());
   EXPECT_EQ(0.5f, *window_state->snap_ratio());
 }
@@ -493,7 +553,7 @@ TEST_F(WindowStateTest, SnapSnappedWindow) {
           .Build();
   delegate.set_window_component(HTCAPTION);
   WindowState* window_state = WindowState::Get(window.get());
-  const WMEvent cycle_snap_primary(WM_EVENT_CYCLE_SNAP_PRIMARY);
+  const WindowSnapWMEvent cycle_snap_primary(WM_EVENT_CYCLE_SNAP_PRIMARY);
   window_state->OnWMEvent(&cycle_snap_primary);
 
   // Snap window to primary position (left).
@@ -538,10 +598,10 @@ TEST_F(WindowStateTest, RestoreBounds) {
   gfx::Rect restore_bounds = window->GetBoundsInScreen();
   restore_bounds.set_width(restore_bounds.width() + 1);
   window_state->SetRestoreBoundsInScreen(restore_bounds);
-  const WMEvent snap_left(WM_EVENT_SNAP_PRIMARY);
-  window_state->OnWMEvent(&snap_left);
-  const WMEvent snap_right(WM_EVENT_SNAP_SECONDARY);
-  window_state->OnWMEvent(&snap_right);
+  const WindowSnapWMEvent snap_primary(WM_EVENT_SNAP_PRIMARY);
+  window_state->OnWMEvent(&snap_primary);
+  const WindowSnapWMEvent snap_secondary(WM_EVENT_SNAP_SECONDARY);
+  window_state->OnWMEvent(&snap_secondary);
   EXPECT_NE(restore_bounds.ToString(), window->GetBoundsInScreen().ToString());
   EXPECT_EQ(restore_bounds.ToString(),
             window_state->GetRestoreBoundsInScreen().ToString());
@@ -555,7 +615,7 @@ TEST_F(WindowStateTest, RestoreBounds) {
   EXPECT_EQ(restore_bounds.ToString(),
             window_state->GetRestoreBoundsInScreen().ToString());
 
-  window_state->OnWMEvent(&snap_left);
+  window_state->OnWMEvent(&snap_primary);
   EXPECT_NE(restore_bounds.ToString(), window->GetBoundsInScreen().ToString());
   EXPECT_NE(maximized_bounds.ToString(),
             window->GetBoundsInScreen().ToString());
@@ -577,8 +637,8 @@ TEST_F(WindowStateTest, AutoManaged) {
   window->Show();
 
   window_state->Maximize();
-  const WMEvent snap_right(WM_EVENT_SNAP_SECONDARY);
-  window_state->OnWMEvent(&snap_right);
+  const WindowSnapWMEvent snap_secondary(WM_EVENT_SNAP_SECONDARY);
+  window_state->OnWMEvent(&snap_secondary);
 
   const gfx::Rect kWorkAreaBounds =
       display::Screen::GetScreen()->GetPrimaryDisplay().work_area();
@@ -778,6 +838,253 @@ TEST_F(WindowStateTest, FullscreenMinimizedSwitching) {
   ASSERT_TRUE(window_state->IsMaximized());
 }
 
+TEST_F(WindowStateTest, FullscreenToCurrentDisplayExplicitly) {
+  UpdateDisplay("800x600,1024x768");
+  const auto& displays = display_manager()->active_display_list();
+  ASSERT_EQ(displays.size(), 2u);
+  EXPECT_EQ(displays[0].size(), gfx::Size(800, 600));
+  EXPECT_EQ(displays[1].size(), gfx::Size(1024, 768));
+
+  display::Screen* screen = display::Screen::GetScreen();
+
+  // Start from the 1st display.
+  const gfx::Rect initial_bounds(100, 10, 200, 100);
+  std::unique_ptr<aura::Window> window(
+      CreateTestWindowInShellWithBounds(initial_bounds));
+  EXPECT_EQ(screen->GetDisplayNearestWindow(window.get()).id(),
+            displays[0].id());
+  WindowState* window_state = WindowState::Get(window.get());
+  EXPECT_FALSE(window_state->IsFullscreen());
+
+  // Fullscreen onto current display explicitly.
+  ::wm::SetWindowFullscreen(window.get(), true, displays[0].id());
+  EXPECT_TRUE(window_state->IsFullscreen());
+  EXPECT_EQ(screen->GetDisplayNearestWindow(window.get()).id(),
+            displays[0].id());
+  EXPECT_EQ(window_state->GetCurrentBoundsInScreen(), displays[0].bounds());
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), initial_bounds);
+
+  // Restore back to current display.
+  ToggleFullScreen(window_state, nullptr);
+  EXPECT_TRUE(window_state->IsNormalStateType());
+  EXPECT_EQ(screen->GetDisplayNearestWindow(window.get()).id(),
+            displays[0].id());
+  EXPECT_EQ(window_state->GetCurrentBoundsInScreen(), initial_bounds);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), gfx::Rect());
+}
+
+TEST_F(WindowStateTest, FullscreenToAnotherDisplayFromNormal) {
+  UpdateDisplay("800x600,1024x768,1280x720");
+  const auto& displays = display_manager()->active_display_list();
+  ASSERT_EQ(displays.size(), 3u);
+  EXPECT_EQ(displays[0].size(), gfx::Size(800, 600));
+  EXPECT_EQ(displays[1].size(), gfx::Size(1024, 768));
+  EXPECT_EQ(displays[2].size(), gfx::Size(1280, 720));
+
+  display::Screen* screen = display::Screen::GetScreen();
+
+  // Start from the 2nd display.
+  const gfx::Rect initial_bounds(900, 10, 200, 100);
+  std::unique_ptr<aura::Window> window(
+      CreateTestWindowInShellWithBounds(initial_bounds));
+  EXPECT_EQ(screen->GetDisplayNearestWindow(window.get()).id(),
+            displays[1].id());
+  WindowState* window_state = WindowState::Get(window.get());
+  EXPECT_FALSE(window_state->IsFullscreen());
+
+  // Fullscreen onto 3rd display.
+  ::wm::SetWindowFullscreen(window.get(), true, displays[2].id());
+  EXPECT_TRUE(window_state->IsFullscreen());
+  EXPECT_EQ(screen->GetDisplayNearestWindow(window.get()).id(),
+            displays[2].id());
+  EXPECT_EQ(window_state->GetCurrentBoundsInScreen(), displays[2].bounds());
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), initial_bounds);
+
+  // Restore back to 2nd display.
+  ToggleFullScreen(window_state, nullptr);
+  EXPECT_TRUE(window_state->IsNormalStateType());
+  EXPECT_EQ(screen->GetDisplayNearestWindow(window.get()).id(),
+            displays[1].id());
+  EXPECT_EQ(window_state->GetCurrentBoundsInScreen(), initial_bounds);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), gfx::Rect());
+}
+
+TEST_F(WindowStateTest, FullscreenToAnotherDisplayFromOtherStates) {
+  UpdateDisplay("800x600,1024x768,1280x720");
+  const auto& displays = display_manager()->active_display_list();
+  ASSERT_EQ(displays.size(), 3u);
+  EXPECT_EQ(displays[0].size(), gfx::Size(800, 600));
+  EXPECT_EQ(displays[1].size(), gfx::Size(1024, 768));
+  EXPECT_EQ(displays[2].size(), gfx::Size(1280, 720));
+
+  display::Screen* screen = display::Screen::GetScreen();
+
+  // Start from the 2nd display.
+  const gfx::Rect initial_bounds(900, 10, 200, 100);
+  std::unique_ptr<aura::Window> window(
+      CreateTestWindowInShellWithBounds(initial_bounds));
+  EXPECT_EQ(screen->GetDisplayNearestWindow(window.get()).id(),
+            displays[1].id());
+  WindowState* window_state = WindowState::Get(window.get());
+  EXPECT_FALSE(window_state->IsFullscreen());
+
+  const WindowSnapWMEvent snap_right_event(WM_EVENT_SNAP_SECONDARY);
+  window_state->OnWMEvent(&snap_right_event);
+  EXPECT_TRUE(window_state->IsSnapped());
+  EXPECT_EQ(screen->GetDisplayNearestWindow(window.get()).id(),
+            displays[1].id());
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), initial_bounds);
+  const gfx::Rect snapped_bounds = window_state->GetCurrentBoundsInScreen();
+
+  window_state->Maximize();
+  EXPECT_TRUE(window_state->IsMaximized());
+  EXPECT_EQ(screen->GetDisplayNearestWindow(window.get()).id(),
+            displays[1].id());
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), initial_bounds);
+  const gfx::Rect maximized_bounds = window_state->GetCurrentBoundsInScreen();
+  EXPECT_EQ(maximized_bounds, displays[1].work_area());
+
+  // Fullscreen onto 3rd display.
+  ::wm::SetWindowFullscreen(window.get(), true, displays[2].id());
+  EXPECT_TRUE(window_state->IsFullscreen());
+  EXPECT_EQ(screen->GetDisplayNearestWindow(window.get()).id(),
+            displays[2].id());
+  EXPECT_EQ(window_state->GetCurrentBoundsInScreen(), displays[2].bounds());
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), initial_bounds);
+
+  // Restore back to 2nd display maximized.
+  ToggleFullScreen(window_state, nullptr);
+  EXPECT_TRUE(window_state->IsMaximized());
+  EXPECT_EQ(screen->GetDisplayNearestWindow(window.get()).id(),
+            displays[1].id());
+  EXPECT_EQ(window_state->GetCurrentBoundsInScreen(), maximized_bounds);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), initial_bounds);
+
+  // Restore again back to snapped.
+  window_state->Restore();
+  EXPECT_TRUE(window_state->IsSnapped());
+  EXPECT_EQ(screen->GetDisplayNearestWindow(window.get()).id(),
+            displays[1].id());
+  EXPECT_EQ(window_state->GetCurrentBoundsInScreen(), snapped_bounds);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), initial_bounds);
+
+  // Restore again back to normal state.
+  window_state->Restore();
+  EXPECT_TRUE(window_state->IsNormalStateType());
+  EXPECT_EQ(screen->GetDisplayNearestWindow(window.get()).id(),
+            displays[1].id());
+  EXPECT_EQ(window_state->GetCurrentBoundsInScreen(), initial_bounds);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), gfx::Rect());
+}
+
+TEST_F(WindowStateTest, FullscreenToAnotherDisplayFromFullscreen) {
+  UpdateDisplay("800x600,1024x768,1280x720");
+  const auto& displays = display_manager()->active_display_list();
+  ASSERT_EQ(displays.size(), 3u);
+  EXPECT_EQ(displays[0].size(), gfx::Size(800, 600));
+  EXPECT_EQ(displays[1].size(), gfx::Size(1024, 768));
+  EXPECT_EQ(displays[2].size(), gfx::Size(1280, 720));
+
+  display::Screen* screen = display::Screen::GetScreen();
+
+  // Start from the 2nd display.
+  const gfx::Rect initial_bounds(900, 10, 200, 100);
+  std::unique_ptr<aura::Window> window(
+      CreateTestWindowInShellWithBounds(initial_bounds));
+  EXPECT_EQ(screen->GetDisplayNearestWindow(window.get()).id(),
+            displays[1].id());
+  WindowState* window_state = WindowState::Get(window.get());
+  EXPECT_FALSE(window_state->IsFullscreen());
+
+  // Fullscreen onto 2nd display.
+  ToggleFullScreen(window_state, nullptr);
+  EXPECT_TRUE(window_state->IsFullscreen());
+  EXPECT_EQ(screen->GetDisplayNearestWindow(window.get()).id(),
+            displays[1].id());
+  EXPECT_EQ(window_state->GetCurrentBoundsInScreen(), displays[1].bounds());
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), initial_bounds);
+
+  // Fullscreen onto 3rd display.
+  ::wm::SetWindowFullscreen(window.get(), true, displays[2].id());
+  EXPECT_TRUE(window_state->IsFullscreen());
+  EXPECT_EQ(screen->GetDisplayNearestWindow(window.get()).id(),
+            displays[2].id());
+  EXPECT_EQ(window_state->GetCurrentBoundsInScreen(), displays[2].bounds());
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), initial_bounds);
+
+  // Restore back to normal state.
+  ToggleFullScreen(window_state, nullptr);
+  EXPECT_TRUE(window_state->IsNormalStateType());
+  EXPECT_EQ(screen->GetDisplayNearestWindow(window.get()).id(),
+            displays[1].id());
+  EXPECT_EQ(window_state->GetCurrentBoundsInScreen(), initial_bounds);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), gfx::Rect());
+}
+
+TEST_F(WindowStateTest, FullscreenToAnotherDisplayWithMinimize) {
+  UpdateDisplay("800x600,1024x768,1280x720");
+  const auto& displays = display_manager()->active_display_list();
+  ASSERT_EQ(displays.size(), 3u);
+  EXPECT_EQ(displays[0].size(), gfx::Size(800, 600));
+  EXPECT_EQ(displays[1].size(), gfx::Size(1024, 768));
+  EXPECT_EQ(displays[2].size(), gfx::Size(1280, 720));
+
+  display::Screen* screen = display::Screen::GetScreen();
+
+  // Start from the 2nd display.
+  const gfx::Rect initial_bounds(900, 10, 200, 100);
+  std::unique_ptr<aura::Window> window(
+      CreateTestWindowInShellWithBounds(initial_bounds));
+  EXPECT_EQ(screen->GetDisplayNearestWindow(window.get()).id(),
+            displays[1].id());
+  WindowState* window_state = WindowState::Get(window.get());
+  EXPECT_FALSE(window_state->IsFullscreen());
+
+  window_state->Maximize();
+  EXPECT_TRUE(window_state->IsMaximized());
+  EXPECT_EQ(screen->GetDisplayNearestWindow(window.get()).id(),
+            displays[1].id());
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), initial_bounds);
+  const gfx::Rect maximized_bounds = window_state->GetCurrentBoundsInScreen();
+  EXPECT_EQ(maximized_bounds, displays[1].work_area());
+
+  // Fullscreen onto 3rd display.
+  ::wm::SetWindowFullscreen(window.get(), true, displays[2].id());
+  EXPECT_TRUE(window_state->IsFullscreen());
+  EXPECT_EQ(screen->GetDisplayNearestWindow(window.get()).id(),
+            displays[2].id());
+  EXPECT_EQ(window_state->GetCurrentBoundsInScreen(), displays[2].bounds());
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), initial_bounds);
+
+  // Minimize and restore.
+  window_state->Minimize();
+  EXPECT_TRUE(window_state->IsMinimized());
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), initial_bounds);
+
+  window_state->Restore();
+  EXPECT_TRUE(window_state->IsFullscreen());
+  EXPECT_EQ(screen->GetDisplayNearestWindow(window.get()).id(),
+            displays[2].id());
+  EXPECT_EQ(window_state->GetCurrentBoundsInScreen(), displays[2].bounds());
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), initial_bounds);
+
+  // Restore back to 2nd display snapped.
+  ToggleFullScreen(window_state, nullptr);
+  EXPECT_TRUE(window_state->IsMaximized());
+  EXPECT_EQ(screen->GetDisplayNearestWindow(window.get()).id(),
+            displays[1].id());
+  EXPECT_EQ(window_state->GetCurrentBoundsInScreen(), maximized_bounds);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), initial_bounds);
+
+  // Restore again back to normal state.
+  window_state->Restore();
+  EXPECT_TRUE(window_state->IsNormalStateType());
+  EXPECT_EQ(screen->GetDisplayNearestWindow(window.get()).id(),
+            displays[1].id());
+  EXPECT_EQ(window_state->GetCurrentBoundsInScreen(), initial_bounds);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), gfx::Rect());
+}
+
 TEST_F(WindowStateTest, CanConsumeSystemKeys) {
   std::unique_ptr<aura::Window> window(
       CreateTestWindowInShellWithBounds(gfx::Rect(100, 100, 100, 100)));
@@ -942,125 +1249,174 @@ TEST_F(WindowStateTest, OpacityChange) {
   EXPECT_TRUE(window_state->IsNormalStateType());
   EXPECT_TRUE(window->GetTransparent());
 
-  const WMEvent snap_left(WM_EVENT_SNAP_PRIMARY);
-  window_state->OnWMEvent(&snap_left);
+  const WindowSnapWMEvent snap_primary(WM_EVENT_SNAP_PRIMARY);
+  window_state->OnWMEvent(&snap_primary);
   EXPECT_FALSE(window->GetTransparent());
 
   window_state->Restore();
   EXPECT_TRUE(window->GetTransparent());
 
-  const WMEvent snap_right(WM_EVENT_SNAP_SECONDARY);
-  window_state->OnWMEvent(&snap_left);
+  const WindowSnapWMEvent snap_secondary(WM_EVENT_SNAP_SECONDARY);
+  window_state->OnWMEvent(&snap_primary);
   EXPECT_FALSE(window->GetTransparent());
 
-  window_state->OnWMEvent(&snap_left);
+  window_state->OnWMEvent(&snap_primary);
   EXPECT_FALSE(window->GetTransparent());
 }
 
 // Tests the basic functionalties related to window state restore history stack.
 TEST_F(WindowStateTest, WindowStateRestoreHistoryBasicFunctionalites) {
+  UpdateDisplay("800x600");
+  const gfx::Rect fullscreen_bounds = GetPrimaryDisplay().bounds();
+  const gfx::Rect work_area_bounds = GetPrimaryDisplay().work_area();
+  const gfx::Size snap_window_size(work_area_bounds.width() / 2,
+                                   work_area_bounds.height());
+
   // Start with kDefault window state.
-  std::unique_ptr<aura::Window> window = CreateAppWindow();
+  const gfx::Rect default_bounds(20, 10, 200, 150);
+  std::unique_ptr<aura::Window> window = CreateAppWindow(default_bounds);
   WindowState* window_state = WindowState::Get(window.get());
   EXPECT_TRUE(window_state->IsNormalStateType());
+  EXPECT_EQ(window->GetBoundsInScreen(), default_bounds);
 
-  const std::vector<chromeos::WindowStateType>& restore_stack =
+  const std::vector<WindowState::RestoreState>& restore_stack =
       window_state->window_state_restore_history_for_testing();
   EXPECT_TRUE(restore_stack.empty());
   EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kNormal);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), gfx::Rect());
 
   // Transition to kPrimarySnapped window state.
-  const WMEvent snap_left(WM_EVENT_SNAP_PRIMARY);
-  window_state->OnWMEvent(&snap_left);
-  EXPECT_EQ(restore_stack.size(), 1u);
-  EXPECT_EQ(restore_stack[0], WindowStateType::kDefault);
+  const WindowSnapWMEvent snap_primary(WM_EVENT_SNAP_PRIMARY);
+  window_state->OnWMEvent(&snap_primary);
+  EXPECT_EQ(window->GetBoundsInScreen(), gfx::Rect(snap_window_size));
+  ASSERT_EQ(restore_stack.size(), 1u);
+  EXPECT_EQ(
+      restore_stack[0],
+      (WindowState::RestoreState{.window_state_type = WindowStateType::kDefault,
+                                 .actual_bounds_in_screen = default_bounds}));
   EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kNormal);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), default_bounds);
 
   // Then transition to kMaximized window state.
   const WMEvent maximize_event(WM_EVENT_MAXIMIZE);
   window_state->OnWMEvent(&maximize_event);
-  EXPECT_EQ(restore_stack.size(), 2u);
-  EXPECT_EQ(restore_stack[0], WindowStateType::kDefault);
-  EXPECT_EQ(restore_stack[1], WindowStateType::kPrimarySnapped);
+  EXPECT_EQ(window->GetBoundsInScreen(), work_area_bounds);
+  ASSERT_EQ(restore_stack.size(), 2u);
+  EXPECT_EQ(restore_stack[0].window_state_type, WindowStateType::kDefault);
+  EXPECT_EQ(restore_stack[1],
+            (WindowState::RestoreState{
+                .window_state_type = WindowStateType::kPrimarySnapped,
+                .actual_bounds_in_screen = gfx::Rect(snap_window_size),
+                .restore_bounds_in_screen = default_bounds}));
   EXPECT_EQ(window_state->GetRestoreWindowState(),
             WindowStateType::kPrimarySnapped);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), default_bounds);
 
   // Then transition to kFullscreen window state.
   const WMEvent fullscreen_event(WM_EVENT_FULLSCREEN);
   window_state->OnWMEvent(&fullscreen_event);
-  EXPECT_EQ(restore_stack.size(), 3u);
-  EXPECT_EQ(restore_stack[0], WindowStateType::kDefault);
-  EXPECT_EQ(restore_stack[1], WindowStateType::kPrimarySnapped);
-  EXPECT_EQ(restore_stack[2], WindowStateType::kMaximized);
+  EXPECT_EQ(window->GetBoundsInScreen(), fullscreen_bounds);
+  ASSERT_EQ(restore_stack.size(), 3u);
+  EXPECT_EQ(restore_stack[0].window_state_type, WindowStateType::kDefault);
+  EXPECT_EQ(restore_stack[1].window_state_type,
+            WindowStateType::kPrimarySnapped);
+  EXPECT_EQ(restore_stack[2],
+            (WindowState::RestoreState{
+                .window_state_type = WindowStateType::kMaximized,
+                .actual_bounds_in_screen = work_area_bounds,
+                .restore_bounds_in_screen = default_bounds}));
   EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kMaximized);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), default_bounds);
 
   // Then transition to kMinimized window state.
   const WMEvent minimized_event(WM_EVENT_MINIMIZE);
   window_state->OnWMEvent(&minimized_event);
-  EXPECT_EQ(restore_stack.size(), 4u);
-  EXPECT_EQ(restore_stack[0], WindowStateType::kDefault);
-  EXPECT_EQ(restore_stack[1], WindowStateType::kPrimarySnapped);
-  EXPECT_EQ(restore_stack[2], WindowStateType::kMaximized);
-  EXPECT_EQ(restore_stack[3], WindowStateType::kFullscreen);
+  ASSERT_EQ(restore_stack.size(), 4u);
+  EXPECT_EQ(restore_stack[0].window_state_type, WindowStateType::kDefault);
+  EXPECT_EQ(restore_stack[1].window_state_type,
+            WindowStateType::kPrimarySnapped);
+  EXPECT_EQ(restore_stack[2].window_state_type, WindowStateType::kMaximized);
+  EXPECT_EQ(restore_stack[3],
+            (WindowState::RestoreState{
+                .window_state_type = WindowStateType::kFullscreen,
+                .actual_bounds_in_screen = fullscreen_bounds,
+                .restore_bounds_in_screen = default_bounds}));
   EXPECT_EQ(window_state->GetRestoreWindowState(),
             WindowStateType::kFullscreen);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), default_bounds);
 
   // Then start restore from here. It should restore back to kFullscreen window
   // state.
   window_state->Restore();
+  EXPECT_EQ(window->GetBoundsInScreen(), fullscreen_bounds);
   EXPECT_EQ(window_state->GetStateType(), WindowStateType::kFullscreen);
-  EXPECT_EQ(restore_stack.size(), 3u);
-  EXPECT_EQ(restore_stack[0], WindowStateType::kDefault);
-  EXPECT_EQ(restore_stack[1], WindowStateType::kPrimarySnapped);
-  EXPECT_EQ(restore_stack[2], WindowStateType::kMaximized);
+  ASSERT_EQ(restore_stack.size(), 3u);
+  EXPECT_EQ(restore_stack[0].window_state_type, WindowStateType::kDefault);
+  EXPECT_EQ(restore_stack[1].window_state_type,
+            WindowStateType::kPrimarySnapped);
+  EXPECT_EQ(restore_stack[2].window_state_type, WindowStateType::kMaximized);
   EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kMaximized);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), default_bounds);
 
   // Then restore back to kMaximized window state.
   window_state->Restore();
+  EXPECT_EQ(window->GetBoundsInScreen(), work_area_bounds);
   EXPECT_EQ(window_state->GetStateType(), WindowStateType::kMaximized);
-  EXPECT_EQ(restore_stack.size(), 2u);
-  EXPECT_EQ(restore_stack[0], WindowStateType::kDefault);
-  EXPECT_EQ(restore_stack[1], WindowStateType::kPrimarySnapped);
+  ASSERT_EQ(restore_stack.size(), 2u);
+  EXPECT_EQ(restore_stack[0].window_state_type, WindowStateType::kDefault);
+  EXPECT_EQ(restore_stack[1].window_state_type,
+            WindowStateType::kPrimarySnapped);
   EXPECT_EQ(window_state->GetRestoreWindowState(),
             WindowStateType::kPrimarySnapped);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), default_bounds);
 
   // Then restore back to kPrimarySnapped window state.
   window_state->Restore();
+  EXPECT_EQ(window->GetBoundsInScreen(), gfx::Rect(snap_window_size));
   EXPECT_EQ(window_state->GetStateType(), WindowStateType::kPrimarySnapped);
-  EXPECT_EQ(restore_stack.size(), 1u);
-  EXPECT_EQ(restore_stack[0], WindowStateType::kDefault);
+  ASSERT_EQ(restore_stack.size(), 1u);
+  EXPECT_EQ(restore_stack[0].window_state_type, WindowStateType::kDefault);
   EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kNormal);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), default_bounds);
 
   // Then restore back to kNormal window state.
   window_state->Restore();
+  EXPECT_EQ(window->GetBoundsInScreen(), default_bounds);
   EXPECT_EQ(window_state->GetStateType(), WindowStateType::kNormal);
   EXPECT_TRUE(restore_stack.empty());
   EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kNormal);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), gfx::Rect());
 
   // Restore a kNormal window state window will keep the window's kNormal window
   // state.
   window_state->Restore();
+  EXPECT_EQ(window->GetBoundsInScreen(), default_bounds);
   EXPECT_EQ(window_state->GetStateType(), WindowStateType::kNormal);
   EXPECT_TRUE(restore_stack.empty());
   EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kNormal);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), gfx::Rect());
 }
 
 // Tests that window state transitioning from higher to lower layer will erase
 // the window state restore history in between.
 TEST_F(WindowStateTest, TransitionFromHighToLowerLayerEraseRestoreHistory) {
+  UpdateDisplay("800x600");
+
   // Start with kDefault window state.
-  std::unique_ptr<aura::Window> window = CreateAppWindow();
+  const gfx::Rect default_bounds(20, 10, 200, 150);
+  std::unique_ptr<aura::Window> window = CreateAppWindow(default_bounds);
   WindowState* window_state = WindowState::Get(window.get());
   EXPECT_TRUE(window_state->IsNormalStateType());
 
-  const std::vector<chromeos::WindowStateType>& restore_stack =
+  const std::vector<WindowState::RestoreState>& restore_stack =
       window_state->window_state_restore_history_for_testing();
   EXPECT_TRUE(restore_stack.empty());
   EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kNormal);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), gfx::Rect());
 
   // Transition to kPrimarySnapped window state.
-  const WMEvent snap_left(WM_EVENT_SNAP_PRIMARY);
-  window_state->OnWMEvent(&snap_left);
+  const WindowSnapWMEvent snap_primary(WM_EVENT_SNAP_PRIMARY);
+  window_state->OnWMEvent(&snap_primary);
 
   // Then transition to kMaximized window state.
   const WMEvent maximize_event(WM_EVENT_MAXIMIZE);
@@ -1069,34 +1425,41 @@ TEST_F(WindowStateTest, TransitionFromHighToLowerLayerEraseRestoreHistory) {
   // Then transition to kFullscreen window state.
   const WMEvent fullscreen_event(WM_EVENT_FULLSCREEN);
   window_state->OnWMEvent(&fullscreen_event);
-  EXPECT_EQ(restore_stack.size(), 3u);
-  EXPECT_EQ(restore_stack[0], WindowStateType::kDefault);
-  EXPECT_EQ(restore_stack[1], WindowStateType::kPrimarySnapped);
-  EXPECT_EQ(restore_stack[2], WindowStateType::kMaximized);
+  ASSERT_EQ(restore_stack.size(), 3u);
+  EXPECT_EQ(restore_stack[0].window_state_type, WindowStateType::kDefault);
+  EXPECT_EQ(restore_stack[1].window_state_type,
+            WindowStateType::kPrimarySnapped);
+  EXPECT_EQ(restore_stack[2].window_state_type, WindowStateType::kMaximized);
   EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kMaximized);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), default_bounds);
 
   // Now transition back to kPrimarySnapped window state. It should have erased
   // any restore history after kPrimarySnapped.
-  window_state->OnWMEvent(&snap_left);
-  EXPECT_EQ(restore_stack.size(), 1u);
-  EXPECT_EQ(restore_stack[0], WindowStateType::kDefault);
+  window_state->OnWMEvent(&snap_primary);
+  ASSERT_EQ(restore_stack.size(), 1u);
+  EXPECT_EQ(restore_stack[0].window_state_type, WindowStateType::kDefault);
   EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kNormal);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), default_bounds);
 }
 
 // Tests the restore behaviors when window state transitions in the same layer.
 // There are 3 cases: {kNormal & kDefault}, {kPrimarySnapped &
 // kSecondarySnapped}, and {kMinimized & kPip}.
 TEST_F(WindowStateTest, TransitionInTheSameLayerKeepSameRestoreHistory) {
+  UpdateDisplay("800x600");
+
   // First we test kNormal & kDefault.
   // Start with kDefault window state.
-  std::unique_ptr<aura::Window> window = CreateAppWindow();
+  const gfx::Rect default_bounds(20, 10, 200, 150);
+  std::unique_ptr<aura::Window> window = CreateAppWindow(default_bounds);
   WindowState* window_state = WindowState::Get(window.get());
   EXPECT_TRUE(window_state->IsNormalStateType());
 
-  const std::vector<chromeos::WindowStateType>& restore_stack =
+  const std::vector<WindowState::RestoreState>& restore_stack =
       window_state->window_state_restore_history_for_testing();
   EXPECT_TRUE(restore_stack.empty());
   EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kNormal);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), gfx::Rect());
 
   // Transition to kNormal window state. Since it's on the same layer as
   // kDefault, kDefault won't be pushed into the restore history stack.
@@ -1104,164 +1467,338 @@ TEST_F(WindowStateTest, TransitionInTheSameLayerKeepSameRestoreHistory) {
   window_state->OnWMEvent(&normal_event);
   EXPECT_TRUE(restore_stack.empty());
   EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kNormal);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), gfx::Rect());
 
   // Test kPrimarySnapped & kSecondarySnapped.
   // Transition to kPrimarySnapped window state.
-  const WMEvent snap_left(WM_EVENT_SNAP_PRIMARY);
-  window_state->OnWMEvent(&snap_left);
-  EXPECT_EQ(restore_stack.size(), 1u);
-  EXPECT_EQ(restore_stack[0], WindowStateType::kNormal);
+  const WindowSnapWMEvent snap_primary(WM_EVENT_SNAP_PRIMARY);
+  window_state->OnWMEvent(&snap_primary);
+  ASSERT_EQ(restore_stack.size(), 1u);
+  EXPECT_EQ(restore_stack[0].window_state_type, WindowStateType::kNormal);
   EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kNormal);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), default_bounds);
 
   // Transition to kSecondarySnapped window state. Since it's on the same layer
   // as kPrimarySnapped, kPrimarySnapped won't be pushed into the restore
   // history stack.
-  const WMEvent snap_right(WM_EVENT_SNAP_SECONDARY);
-  window_state->OnWMEvent(&snap_right);
-  EXPECT_EQ(restore_stack.size(), 1u);
-  EXPECT_EQ(restore_stack[0], WindowStateType::kNormal);
+  const WindowSnapWMEvent snap_secondary(WM_EVENT_SNAP_SECONDARY);
+  window_state->OnWMEvent(&snap_secondary);
+  ASSERT_EQ(restore_stack.size(), 1u);
+  EXPECT_EQ(restore_stack[0].window_state_type, WindowStateType::kNormal);
   EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kNormal);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), default_bounds);
 
   // Test kMinimized & kPip.
   // Transition to kMinimized window state.
   const WMEvent minimized_event(WM_EVENT_MINIMIZE);
   window_state->OnWMEvent(&minimized_event);
-  EXPECT_EQ(restore_stack.size(), 2u);
-  EXPECT_EQ(restore_stack[0], WindowStateType::kNormal);
-  EXPECT_EQ(restore_stack[1], WindowStateType::kSecondarySnapped);
+  ASSERT_EQ(restore_stack.size(), 2u);
+  EXPECT_EQ(restore_stack[0].window_state_type, WindowStateType::kNormal);
+  EXPECT_EQ(restore_stack[1].window_state_type,
+            WindowStateType::kSecondarySnapped);
   EXPECT_EQ(window_state->GetRestoreWindowState(),
             WindowStateType::kSecondarySnapped);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), default_bounds);
 
   // Transition to kPip Window state. Since it's on the same layer as
   // kMinimized, kMinimized won't be pushed into the restore history stack.
   const WMEvent pip_event(WM_EVENT_PIP);
   window_state->OnWMEvent(&pip_event);
-  EXPECT_EQ(restore_stack.size(), 2u);
-  EXPECT_EQ(restore_stack[0], WindowStateType::kNormal);
-  EXPECT_EQ(restore_stack[1], WindowStateType::kSecondarySnapped);
+  ASSERT_EQ(restore_stack.size(), 2u);
+  EXPECT_EQ(restore_stack[0].window_state_type, WindowStateType::kNormal);
+  EXPECT_EQ(restore_stack[1].window_state_type,
+            WindowStateType::kSecondarySnapped);
   EXPECT_EQ(window_state->GetRestoreWindowState(),
             WindowStateType::kSecondarySnapped);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), default_bounds);
 }
 
 // Test the restore behaviors of kPinned and kTrustedPinned window state. They
 // are different with kFullscreen restore behaviors.
 TEST_F(WindowStateTest, PinnedRestoreTest) {
+  UpdateDisplay("800x600");
+  const gfx::Rect fullscreen_bounds = GetPrimaryDisplay().bounds();
+  const gfx::Rect work_area_bounds = GetPrimaryDisplay().work_area();
+
   // Start with kDefault window state.
-  std::unique_ptr<aura::Window> window = CreateAppWindow();
+  const gfx::Rect default_bounds(20, 10, 200, 150);
+  std::unique_ptr<aura::Window> window = CreateAppWindow(default_bounds);
   WindowState* window_state = WindowState::Get(window.get());
   EXPECT_TRUE(window_state->IsNormalStateType());
 
-  const std::vector<chromeos::WindowStateType>& restore_stack =
+  const std::vector<WindowState::RestoreState>& restore_stack =
       window_state->window_state_restore_history_for_testing();
   EXPECT_TRUE(restore_stack.empty());
   EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kNormal);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), gfx::Rect());
 
   // Transition to kPrimarySnapped window state.
-  const WMEvent snap_left(WM_EVENT_SNAP_PRIMARY);
-  window_state->OnWMEvent(&snap_left);
+  const WindowSnapWMEvent snap_primary(WM_EVENT_SNAP_PRIMARY);
+  window_state->OnWMEvent(&snap_primary);
 
   // Then transition to kMaximized window state.
   const WMEvent maximize_event(WM_EVENT_MAXIMIZE);
   window_state->OnWMEvent(&maximize_event);
-  EXPECT_EQ(restore_stack.size(), 2u);
-  EXPECT_EQ(restore_stack[0], WindowStateType::kDefault);
-  EXPECT_EQ(restore_stack[1], WindowStateType::kPrimarySnapped);
+  ASSERT_EQ(restore_stack.size(), 2u);
+  EXPECT_EQ(restore_stack[0].window_state_type, WindowStateType::kDefault);
+  EXPECT_EQ(restore_stack[1].window_state_type,
+            WindowStateType::kPrimarySnapped);
   EXPECT_EQ(window_state->GetRestoreWindowState(),
             WindowStateType::kPrimarySnapped);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), default_bounds);
 
   // Then transition to kPinned window state. Since kPinned window state is not
   // supported in the window state restore history layer, the restore history
   // stack will be cleared. It can only restore back to kNormal window state.
   const WMEvent pinned_event(WM_EVENT_PIN);
   window_state->OnWMEvent(&pinned_event);
+  EXPECT_EQ(window->GetBoundsInScreen(), fullscreen_bounds);
   EXPECT_TRUE(restore_stack.empty());
   EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kNormal);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), gfx::Rect());
 
   window_state->Restore();
+  EXPECT_EQ(window->GetBoundsInScreen(), work_area_bounds);
   EXPECT_EQ(window_state->GetStateType(), WindowStateType::kNormal);
   EXPECT_TRUE(restore_stack.empty());
   EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kNormal);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), gfx::Rect());
 
   // Same should happen for kTrustedPinned as well.
-  window_state->OnWMEvent(&snap_left);
+  window_state->OnWMEvent(&snap_primary);
   window_state->OnWMEvent(&maximize_event);
-  EXPECT_EQ(restore_stack.size(), 2u);
+  ASSERT_EQ(restore_stack.size(), 2u);
   EXPECT_EQ(window_state->GetRestoreWindowState(),
             WindowStateType::kPrimarySnapped);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), work_area_bounds);
 
   const WMEvent trusted_pinned_event(WM_EVENT_TRUSTED_PIN);
   window_state->OnWMEvent(&trusted_pinned_event);
+  EXPECT_EQ(window->GetBoundsInScreen(), fullscreen_bounds);
   EXPECT_TRUE(restore_stack.empty());
   EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kNormal);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), gfx::Rect());
 
   window_state->Restore();
+  EXPECT_EQ(window->GetBoundsInScreen(), work_area_bounds);
   EXPECT_EQ(window_state->GetStateType(), WindowStateType::kNormal);
   EXPECT_TRUE(restore_stack.empty());
   EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kNormal);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), gfx::Rect());
 }
 
 // Test the restore behaviors of kMinimized and kPip window state. They are both
 // viewed as the final state in the restore layer.
 TEST_F(WindowStateTest, MinimizedAndPipRestoreTest) {
+  UpdateDisplay("800x600");
+
   // Start with kDefault window state.
-  std::unique_ptr<aura::Window> window = CreateAppWindow();
+  const gfx::Rect default_bounds(20, 10, 200, 150);
+  std::unique_ptr<aura::Window> window = CreateAppWindow(default_bounds);
   WindowState* window_state = WindowState::Get(window.get());
   EXPECT_TRUE(window_state->IsNormalStateType());
 
-  const std::vector<chromeos::WindowStateType>& restore_stack =
+  const std::vector<WindowState::RestoreState>& restore_stack =
       window_state->window_state_restore_history_for_testing();
   EXPECT_TRUE(restore_stack.empty());
   EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kNormal);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), gfx::Rect());
 
   // Maximize the window.
   const WMEvent maximize_event(WM_EVENT_MAXIMIZE);
   window_state->OnWMEvent(&maximize_event);
-  EXPECT_EQ(restore_stack.size(), 1u);
-  EXPECT_EQ(restore_stack[0], WindowStateType::kDefault);
+  ASSERT_EQ(restore_stack.size(), 1u);
+  EXPECT_EQ(restore_stack[0].window_state_type, WindowStateType::kDefault);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), default_bounds);
 
   // kPip window can be minimized to kMinimized window state, but restoring from
   // kMinimized window state can't restore back to kPip window state.
   const WMEvent pip_event(WM_EVENT_PIP);
   window_state->OnWMEvent(&pip_event);
-  EXPECT_EQ(restore_stack.size(), 2u);
-  EXPECT_EQ(restore_stack[0], WindowStateType::kDefault);
-  EXPECT_EQ(restore_stack[1], WindowStateType::kMaximized);
+  ASSERT_EQ(restore_stack.size(), 2u);
+  EXPECT_EQ(restore_stack[0].window_state_type, WindowStateType::kDefault);
+  EXPECT_EQ(restore_stack[1].window_state_type, WindowStateType::kMaximized);
   EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kMaximized);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), default_bounds);
 
   const WMEvent minimized_event(WM_EVENT_MINIMIZE);
   window_state->OnWMEvent(&minimized_event);
-  EXPECT_EQ(restore_stack.size(), 2u);
-  EXPECT_EQ(restore_stack[0], WindowStateType::kDefault);
-  EXPECT_EQ(restore_stack[1], WindowStateType::kMaximized);
+  ASSERT_EQ(restore_stack.size(), 2u);
+  EXPECT_EQ(restore_stack[0].window_state_type, WindowStateType::kDefault);
+  EXPECT_EQ(restore_stack[1].window_state_type, WindowStateType::kMaximized);
   EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kMaximized);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), default_bounds);
 
   // Restore the minimized window. It should go back to pre-pip window state.
   window_state->Restore();
   EXPECT_EQ(window_state->GetStateType(), WindowStateType::kMaximized);
-  EXPECT_EQ(restore_stack.size(), 1u);
-  EXPECT_EQ(restore_stack[0], WindowStateType::kDefault);
+  ASSERT_EQ(restore_stack.size(), 1u);
+  EXPECT_EQ(restore_stack[0].window_state_type, WindowStateType::kDefault);
   EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kNormal);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), default_bounds);
 
   // Similarly, if the pre-pip window state is kMinimized, restoring from kPip
   // should go back to the pre-minimized window state.
   window_state->OnWMEvent(&minimized_event);
-  EXPECT_EQ(restore_stack.size(), 2u);
-  EXPECT_EQ(restore_stack[0], WindowStateType::kDefault);
-  EXPECT_EQ(restore_stack[1], WindowStateType::kMaximized);
+  ASSERT_EQ(restore_stack.size(), 2u);
+  EXPECT_EQ(restore_stack[0].window_state_type, WindowStateType::kDefault);
+  EXPECT_EQ(restore_stack[1].window_state_type, WindowStateType::kMaximized);
   EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kMaximized);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), default_bounds);
 
   window_state->OnWMEvent(&pip_event);
-  EXPECT_EQ(restore_stack.size(), 2u);
-  EXPECT_EQ(restore_stack[0], WindowStateType::kDefault);
-  EXPECT_EQ(restore_stack[1], WindowStateType::kMaximized);
+  ASSERT_EQ(restore_stack.size(), 2u);
+  EXPECT_EQ(restore_stack[0].window_state_type, WindowStateType::kDefault);
+  EXPECT_EQ(restore_stack[1].window_state_type, WindowStateType::kMaximized);
   EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kMaximized);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), default_bounds);
 
   // Restore the Pip window. It should go back to pre-minimized window state.
   window_state->Restore();
   EXPECT_EQ(window_state->GetStateType(), WindowStateType::kMaximized);
-  EXPECT_EQ(restore_stack.size(), 1u);
-  EXPECT_EQ(restore_stack[0], WindowStateType::kDefault);
+  ASSERT_EQ(restore_stack.size(), 1u);
+  EXPECT_EQ(restore_stack[0].window_state_type, WindowStateType::kDefault);
   EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kNormal);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), default_bounds);
+}
+
+TEST_F(WindowStateTest, HorizontalMaximizeThenMinimizeAndRestore) {
+  UpdateDisplay("800x600");
+  const gfx::Rect work_area_bounds = GetPrimaryDisplay().work_area();
+
+  // Start with kDefault window state.
+  const gfx::Rect default_bounds(20, 10, 200, 150);
+  std::unique_ptr<aura::Window> window = CreateAppWindow(default_bounds);
+  WindowState* window_state = WindowState::Get(window.get());
+  EXPECT_TRUE(window_state->IsNormalStateType());
+
+  const std::vector<WindowState::RestoreState>& restore_stack =
+      window_state->window_state_restore_history_for_testing();
+  EXPECT_TRUE(restore_stack.empty());
+  EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kNormal);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), gfx::Rect());
+
+  const gfx::Rect horizontal_maximize_bounds(
+      0, default_bounds.y(), work_area_bounds.width(), default_bounds.height());
+  const WMEvent horizontal_maximize_event(WM_EVENT_TOGGLE_HORIZONTAL_MAXIMIZE);
+  window_state->OnWMEvent(&horizontal_maximize_event);
+  EXPECT_EQ(window->GetBoundsInScreen(), horizontal_maximize_bounds);
+  EXPECT_TRUE(restore_stack.empty());
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), default_bounds);
+
+  const WMEvent minimize_event(WM_EVENT_MINIMIZE);
+  window_state->OnWMEvent(&minimize_event);
+  ASSERT_EQ(restore_stack.size(), 1u);
+  EXPECT_EQ(restore_stack[0],
+            (WindowState::RestoreState{
+                .window_state_type = WindowStateType::kDefault,
+                .actual_bounds_in_screen = horizontal_maximize_bounds,
+                .restore_bounds_in_screen = default_bounds}));
+  EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kNormal);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), default_bounds);
+
+  // Unminimize should restore back to horizontally maximized bounds while
+  // maintaining restore bounds.
+  window_state->Restore();
+  EXPECT_EQ(window->GetBoundsInScreen(), horizontal_maximize_bounds);
+  EXPECT_EQ(window_state->GetStateType(), WindowStateType::kNormal);
+  EXPECT_TRUE(restore_stack.empty());
+  EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kNormal);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), default_bounds);
+}
+
+TEST_F(WindowStateTest, HorizontalMaximizeThenMaximizeAndRestore) {
+  UpdateDisplay("800x600");
+  const gfx::Rect work_area_bounds = GetPrimaryDisplay().work_area();
+
+  // Start with kDefault window state.
+  const gfx::Rect default_bounds(20, 10, 200, 150);
+  std::unique_ptr<aura::Window> window = CreateAppWindow(default_bounds);
+  WindowState* window_state = WindowState::Get(window.get());
+  EXPECT_TRUE(window_state->IsNormalStateType());
+
+  const std::vector<WindowState::RestoreState>& restore_stack =
+      window_state->window_state_restore_history_for_testing();
+  EXPECT_TRUE(restore_stack.empty());
+  EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kNormal);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), gfx::Rect());
+
+  const gfx::Rect horizontal_maximize_bounds(
+      0, default_bounds.y(), work_area_bounds.width(), default_bounds.height());
+  const WMEvent horizontal_maximize_event(WM_EVENT_TOGGLE_HORIZONTAL_MAXIMIZE);
+  window_state->OnWMEvent(&horizontal_maximize_event);
+  EXPECT_EQ(window->GetBoundsInScreen(), horizontal_maximize_bounds);
+  EXPECT_TRUE(restore_stack.empty());
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), default_bounds);
+
+  const WMEvent maximize_event(WM_EVENT_MAXIMIZE);
+  window_state->OnWMEvent(&maximize_event);
+  ASSERT_EQ(restore_stack.size(), 1u);
+  EXPECT_EQ(restore_stack[0],
+            (WindowState::RestoreState{
+                .window_state_type = WindowStateType::kDefault,
+                .actual_bounds_in_screen = horizontal_maximize_bounds,
+                .restore_bounds_in_screen = default_bounds}));
+  EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kNormal);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), default_bounds);
+
+  // Restore from maximized should go back to default bounds, not the
+  // horizontally maximized bounds.
+  window_state->Restore();
+  EXPECT_EQ(window->GetBoundsInScreen(), default_bounds);
+  EXPECT_EQ(window_state->GetStateType(), WindowStateType::kNormal);
+  EXPECT_TRUE(restore_stack.empty());
+  EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kNormal);
+}
+
+TEST_F(WindowStateTest, SnapThenResize) {
+  UpdateDisplay("800x600");
+  const gfx::Rect work_area_bounds = GetPrimaryDisplay().work_area();
+
+  // Start with kDefault window state.
+  constexpr gfx::Rect default_bounds(20, 10, 200, 150);
+  std::unique_ptr<aura::Window> window = CreateAppWindow(default_bounds);
+  WindowState* window_state = WindowState::Get(window.get());
+  EXPECT_TRUE(window_state->IsNormalStateType());
+
+  const std::vector<WindowState::RestoreState>& restore_stack =
+      window_state->window_state_restore_history_for_testing();
+  EXPECT_TRUE(restore_stack.empty());
+  EXPECT_EQ(window_state->GetRestoreWindowState(), WindowStateType::kNormal);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), gfx::Rect());
+
+  // Important! Change the restore bounds, so they are not the same. This will
+  // create a conflict between the window's current bounds and the restore
+  // bounds when restoring.
+  constexpr gfx::Rect moved_bounds(10, 10, 200, 150);
+  window->SetBounds(moved_bounds);
+  window_state->SetRestoreBoundsInScreen(default_bounds);
+
+  const WindowSnapWMEvent snap_left_event(WM_EVENT_SNAP_PRIMARY);
+  const gfx::Rect snapped_left_bounds(0, 0, work_area_bounds.width() / 2,
+                                      work_area_bounds.height());
+  window_state->OnWMEvent(&snap_left_event);
+  EXPECT_EQ(window->GetBoundsInScreen(), snapped_left_bounds);
+  EXPECT_EQ(restore_stack.size(), 1U);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), default_bounds);
+
+  const int resize = 100;
+  const gfx::Rect resized_bounds(0, resize, work_area_bounds.width() / 2,
+                                 work_area_bounds.height() - resize);
+  {
+    // Drag the top of the window to unsnap and resize.
+    ui::test::EventGenerator* generator = GetEventGenerator();
+    generator->MoveMouseTo(snapped_left_bounds.top_center().x(),
+                           snapped_left_bounds.top_center().y());
+    generator->PressLeftButton();
+    generator->MoveMouseTo(snapped_left_bounds.top_center().x(), resize);
+    generator->ReleaseLeftButton();
+  }
+
+  EXPECT_TRUE(window_state->IsNormalStateType());
+  EXPECT_TRUE(restore_stack.empty());
+  EXPECT_EQ(window_state->GetCurrentBoundsInScreen(), resized_bounds);
+  EXPECT_EQ(window_state->GetRestoreBoundsInScreen(), gfx::Rect());
 }
 
 // Tests the restore behavior for default or normal window.
@@ -1280,42 +1817,112 @@ TEST_F(WindowStateTest, NormalOrDefaultRestore) {
   EXPECT_EQ(window_state->GetStateType(), WindowStateType::kNormal);
 }
 
-// Test WindowStateTest functionalities with portrait display. This test is
-// parameterized to enable vertical layout or horizontal layout snap in
-// portrait display.
-class PortraitDisplayWindowStateTest
-    : public AshTestBase,
-      public ::testing::WithParamInterface<bool> {
- public:
-  PortraitDisplayWindowStateTest() = default;
-  PortraitDisplayWindowStateTest(const PortraitDisplayWindowStateTest&) =
-      delete;
-  PortraitDisplayWindowStateTest& operator=(
-      const PortraitDisplayWindowStateTest&) = delete;
-  ~PortraitDisplayWindowStateTest() override = default;
+TEST_F(WindowStateTest, WindowSnapActionSourceUmaMetrics) {
+  UpdateDisplay("800x600");
+  base::HistogramTester histograms;
+  std::unique_ptr<aura::Window> window(CreateAppWindow());
+  WindowState* window_state = WindowState::Get(window.get());
 
-  bool IsVerticalSnapEnabled() const { return GetParam(); }
+  // Use WMEvent to directly snap the window.
+  WindowSnapWMEvent snap_primary(WM_EVENT_SNAP_PRIMARY);
+  window_state->OnWMEvent(&snap_primary);
+  histograms.ExpectBucketCount(kWindowSnapActionSourceHistogram,
+                               WindowSnapActionSource::kNotSpecified, 1);
+  window_state->Maximize();
 
-  // WindowStateTest:
-  void SetUp() override {
-    if (GetParam()) {
-      scoped_feature_list_.InitAndEnableFeature(
-          chromeos::wm::features::kVerticalSnap);
-    } else {
-      scoped_feature_list_.InitAndDisableFeature(
-          chromeos::wm::features::kVerticalSnap);
-    }
-    AshTestBase::SetUp();
-    UpdateDisplay("600x900");
-  }
+  // Drag the window to the screen edge to snap.
+  std::unique_ptr<WindowResizer> resizer(CreateWindowResizer(
+      window.get(), gfx::PointF(), HTCAPTION, ::wm::WINDOW_MOVE_SOURCE_TOUCH));
+  resizer->Drag(gfx::PointF(0, 400), 0);
+  resizer->CompleteDrag();
+  resizer.reset();
+  histograms.ExpectBucketCount(kWindowSnapActionSourceHistogram,
+                               WindowSnapActionSource::kDragWindowToEdgeToSnap,
+                               1);
+  histograms.ExpectBucketCount(kWindowSnapActionSourceHistogram,
+                               WindowSnapActionSource::kNotSpecified, 1);
+  window_state->Maximize();
 
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
-};
+  // Use keyboard to snap a window.
+  AcceleratorController::Get()->PerformActionIfEnabled(
+      AcceleratorAction::kWindowCycleSnapLeft, {});
+  histograms.ExpectBucketCount(kWindowSnapActionSourceHistogram,
+                               WindowSnapActionSource::kKeyboardShortcutToSnap,
+                               1);
+  histograms.ExpectBucketCount(kWindowSnapActionSourceHistogram,
+                               WindowSnapActionSource::kNotSpecified, 1);
+  window_state->Maximize();
+
+  // Restore the maximized window to snap window state.
+  window_state->Restore();
+  histograms.ExpectBucketCount(
+      kWindowSnapActionSourceHistogram,
+      WindowSnapActionSource::kSnapByWindowStateRestore, 1);
+  histograms.ExpectBucketCount(kWindowSnapActionSourceHistogram,
+                               WindowSnapActionSource::kNotSpecified, 1);
+  window_state->Maximize();
+
+  // Drag or select overview window to snap window.
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  EnterOverview();
+  ASSERT_TRUE(GetOverviewSession());
+  const gfx::Point center_point =
+      gfx::ToRoundedPoint(GetOverviewSession()
+                              ->GetOverviewItemForWindow(window.get())
+                              ->target_bounds()
+                              .CenterPoint());
+  generator->MoveMouseTo(center_point);
+  generator->DragMouseTo(gfx::Point(0, 400));
+  histograms.ExpectBucketCount(
+      kWindowSnapActionSourceHistogram,
+      WindowSnapActionSource::kDragOrSelectOverviewWindowToSnap, 1);
+  histograms.ExpectBucketCount(kWindowSnapActionSourceHistogram,
+                               WindowSnapActionSource::kNotSpecified, 1);
+  window_state->Maximize();
+
+  Shell::Get()->tablet_mode_controller()->SetEnabledForTest(true);
+  EXPECT_TRUE(Shell::Get()->tablet_mode_controller()->InTabletMode());
+
+  // Use keyboard to snap the window in tablet mode.
+  AcceleratorController::Get()->PerformActionIfEnabled(
+      AcceleratorAction::kWindowCycleSnapLeft, {});
+  histograms.ExpectBucketCount(kWindowSnapActionSourceHistogram,
+                               WindowSnapActionSource::kKeyboardShortcutToSnap,
+                               2);
+  histograms.ExpectBucketCount(kWindowSnapActionSourceHistogram,
+                               WindowSnapActionSource::kNotSpecified, 1);
+
+  // Auto-snap in splitview.
+  std::unique_ptr<aura::Window> window2(CreateAppWindow());
+  histograms.ExpectBucketCount(kWindowSnapActionSourceHistogram,
+                               WindowSnapActionSource::kAutoSnapInSplitView, 1);
+  histograms.ExpectBucketCount(kWindowSnapActionSourceHistogram,
+                               WindowSnapActionSource::kNotSpecified, 1);
+
+  // Resize in splitview.
+  auto* split_view_controller =
+      SplitViewController::Get(Shell::GetPrimaryRootWindow());
+  auto* split_view_divider = split_view_controller->split_view_divider();
+  gfx::Rect divider_bounds =
+      split_view_divider->GetDividerBoundsInScreen(false);
+  split_view_controller->StartResizeWithDivider(divider_bounds.CenterPoint());
+  gfx::Rect display_bounds =
+      screen_util::GetDisplayWorkAreaBoundsInScreenForActiveDeskContainer(
+          window.get());
+  gfx::Point resize_point(display_bounds.width() * 0.33f, 0);
+  split_view_controller->ResizeWithDivider(resize_point);
+  // This should not cause any metrics change.
+  histograms.ExpectBucketCount(kWindowSnapActionSourceHistogram,
+                               WindowSnapActionSource::kNotSpecified, 1);
+  split_view_controller->EndResizeWithDivider(resize_point);
+  histograms.ExpectBucketCount(kWindowSnapActionSourceHistogram,
+                               WindowSnapActionSource::kNotSpecified, 1);
+}
 
 // Test how the minimum height specified by the aura::WindowDelegate affects
 // snapping in portrait display layout.
-TEST_P(PortraitDisplayWindowStateTest, SnapWindowMinimumSizePortrait) {
+TEST_F(WindowStateTest, SnapWindowMinimumSizePortrait) {
+  UpdateDisplay("600x900");
   const gfx::Rect kWorkAreaBounds =
       display::Screen::GetScreen()->GetPrimaryDisplay().work_area();
 
@@ -1327,29 +1934,114 @@ TEST_P(PortraitDisplayWindowStateTest, SnapWindowMinimumSizePortrait) {
   // a half screen width in horizontal snap layout and snap a window with a
   // minimum height that is longer than a half screen height in vertical snap
   // layout.
-  const gfx::Size kMinimumSize =
-      IsVerticalSnapEnabled() ? gfx::Size(0, 500) : gfx::Size(400, 0);
+  const gfx::Size kMinimumSize = gfx::Size(0, 500);
   delegate.set_minimum_size(kMinimumSize);
   WindowState* window_state = WindowState::Get(window.get());
   EXPECT_TRUE(window_state->CanSnap());
-  const WMEvent snap_right(WM_EVENT_SNAP_SECONDARY);
-  window_state->OnWMEvent(&snap_right);
+  const WindowSnapWMEvent snap_secondary(WM_EVENT_SNAP_SECONDARY);
+  window_state->OnWMEvent(&snap_secondary);
   // Expect right snap for horizontal snap layout with the minimum width and
   // bottom snap for vertical snap layout with the minimum height.
-  const gfx::Rect expected_snap =
-      IsVerticalSnapEnabled()
-          ? gfx::Rect(kWorkAreaBounds.x(),
-                      kWorkAreaBounds.height() - kMinimumSize.height(),
-                      kWorkAreaBounds.width(), kMinimumSize.height())
-          : gfx::Rect(kWorkAreaBounds.width() - kMinimumSize.width(),
-                      kWorkAreaBounds.y(), kMinimumSize.width(),
-                      kWorkAreaBounds.height());
+  const gfx::Rect expected_snap = gfx::Rect(
+      kWorkAreaBounds.x(), kWorkAreaBounds.height() - kMinimumSize.height(),
+      kWorkAreaBounds.width(), kMinimumSize.height());
   EXPECT_EQ(expected_snap, window->GetBoundsInScreen());
 }
 
-INSTANTIATE_TEST_SUITE_P(All,
-                         PortraitDisplayWindowStateTest,
-                         ::testing::Bool());
+class WindowStateMetricsTest : public AshTestBase {
+ public:
+  WindowStateMetricsTest()
+      : AshTestBase(base::test::TaskEnvironment::TimeSource::MOCK_TIME) {}
+
+  void AdvanceClock(base::TimeDelta delta) {
+    task_environment()->AdvanceClock(delta);
+    task_environment()->RunUntilIdle();
+  }
+};
+
+TEST_F(WindowStateMetricsTest, PartialSplitDuration) {
+  base::HistogramTester histogram_tester;
+  const std::string kHistogramName =
+      chromeos::kPartialSplitDurationHistogramName;
+  std::unique_ptr<aura::Window> window(CreateAppWindow());
+  WindowState* window_state = WindowState::Get(window.get());
+
+  auto* desks_controller = DesksController::Get();
+  NewDesk();
+  ASSERT_EQ(2u, desks_controller->desks().size());
+
+  // Partial split for 30 seconds, then maximize. Test that it records 0 since
+  // it has been less than 1 minute.
+  WindowSnapWMEvent partial_event(WM_EVENT_SNAP_PRIMARY,
+                                  chromeos::kTwoThirdSnapRatio);
+  window_state->OnWMEvent(&partial_event);
+  AdvanceClock(base::Seconds(30));
+  window_state->Maximize();
+  histogram_tester.ExpectBucketCount(kHistogramName, 0, 1);
+
+  // Partial split for 3 minutes, then minimize. Test that it records.
+  window_state->OnWMEvent(&partial_event);
+  AdvanceClock(base::Minutes(3));
+  window_state->Minimize();
+  histogram_tester.ExpectBucketCount(kHistogramName, 3, 1);
+
+  // Partial split for 3 hours, then default split. Test that it records
+  // in the 180 minute bucket.
+  window_state->OnWMEvent(&partial_event);
+  AdvanceClock(base::Hours(3));
+  WindowSnapWMEvent snap_event(WM_EVENT_SNAP_PRIMARY);
+  window_state->OnWMEvent(&snap_event);
+  histogram_tester.ExpectBucketCount(kHistogramName, 180, 1);
+
+  // Partial split for 3 minutes, then change display work area, then wait 3
+  // minutes, then drag to resize. Test that it continues recording through the
+  // work area change but stops when the snap ratio is adjusted.
+  window_state->OnWMEvent(&partial_event);
+  AdvanceClock(base::Minutes(3));
+  GetPrimaryShelf()->SetAlignment(ShelfAlignment::kLeft);
+  AdvanceClock(base::Minutes(3));
+  const int kIncreasedWidth = 225;
+  ui::test::EventGenerator* generator = GetEventGenerator();
+  generator->MoveMouseTo(window->bounds().right(), window->bounds().y());
+  generator->PressLeftButton();
+  generator->MoveMouseTo(window->bounds().right() + kIncreasedWidth,
+                         window->bounds().y());
+  generator->ReleaseLeftButton();
+  histogram_tester.ExpectBucketCount(kHistogramName, 6, 1);
+
+  // Partial split for 3 minutes, then activate desk 2. Test that it
+  // records as the partial window is no longer active and visible.
+  window_state->OnWMEvent(&partial_event);
+  AdvanceClock(base::Minutes(3));
+  ActivateDesk(desks_controller->desks()[1].get());
+  histogram_tester.ExpectBucketCount(kHistogramName, 3, 2);
+
+  // Activate desk 1. The partial window will be visible again and start the
+  // recording. Test that sending the window to desk 2 records the duration.
+  ActivateDesk(desks_controller->desks()[0].get());
+  AdvanceClock(base::Minutes(3));
+  desks_controller->SendToDeskAtIndex(window.get(), 1);
+  histogram_tester.ExpectBucketCount(kHistogramName, 3, 3);
+
+  // Activate desk 2 with the partial window, wait 1 minute, create another
+  // partial window, wait another minute, then close both windows. Test that
+  // window 1 records in the 2 minute bucket, and window 2 in the 1 minute
+  // bucket.
+  ActivateDesk(desks_controller->desks()[1].get());
+  AdvanceClock(base::Minutes(1));
+  std::unique_ptr<aura::Window> window2(CreateAppWindow());
+  WindowSnapWMEvent partial_secondary(WM_EVENT_SNAP_SECONDARY,
+                                      chromeos::kOneThirdSnapRatio);
+  WindowState::Get(window2.get())->OnWMEvent(&partial_secondary);
+  AdvanceClock(base::Minutes(1));
+  window.reset();
+  window2.reset();
+  histogram_tester.ExpectBucketCount(kHistogramName, 2, 1);
+  histogram_tester.ExpectBucketCount(kHistogramName, 1, 1);
+
+  // TODO(sophiewen): Determine whether to stop recording if a partial split
+  // window swaps sides, e.g. from one third to two thirds.
+}
 
 // TODO(skuhne): Add more unit test to verify the correctness for the restore
 // operation.

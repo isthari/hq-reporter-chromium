@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,14 @@
 #include <memory>
 #include <string>
 
+#include "base/memory/weak_ptr.h"
 #include "chrome/browser/ash/file_system_provider/icon_set.h"
 #include "chrome/browser/ash/file_system_provider/provided_file_system_info.h"
 #include "chrome/browser/ash/file_system_provider/provided_file_system_interface.h"
 #include "chrome/browser/ash/file_system_provider/provider_interface.h"
 #include "components/services/app_service/public/cpp/app_registry_cache.h"
 #include "extensions/common/extension_id.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class Profile;
 
@@ -24,22 +26,18 @@ class ExtensionRegistry;
 namespace ash {
 namespace file_system_provider {
 
-// Holds information for a providing extension.
-struct ProvidingExtensionInfo {
-  ProvidingExtensionInfo();
-  ~ProvidingExtensionInfo();
-
-  extensions::ExtensionId extension_id;
-  std::string name;
-  extensions::FileSystemProviderCapabilities capabilities;
-};
+class RequestDispatcher;
+class ODFSMetrics;
 
 class ExtensionProvider : public ProviderInterface,
                           public apps::AppRegistryCache::Observer {
  public:
   ExtensionProvider(Profile* profile,
-                    const extensions::ExtensionId& extension_id,
-                    const ProvidingExtensionInfo& info);
+                    ProviderId id,
+                    Capabilities capabilities,
+                    std::string name,
+                    absl::optional<IconSet> icon_set);
+
   ~ExtensionProvider() override;
 
   // Returns a provider instance for the specified extension. If the extension
@@ -56,18 +54,30 @@ class ExtensionProvider : public ProviderInterface,
   const ProviderId& GetId() const override;
   const std::string& GetName() const override;
   const IconSet& GetIconSet() const override;
-  bool RequestMount(Profile* profile) override;
+  RequestManager* GetRequestManager() override;
+  bool RequestMount(Profile* profile, RequestMountCallback callback) override;
 
  private:
+  // This method is only partially functional since non-app extensions are not
+  // registered with the app service.
+  void ObserveAppServiceForIcons(Profile* profile);
+
   // apps::AppRegistryCache::Observer overrides:
   void OnAppUpdate(const apps::AppUpdate& update) override;
   void OnAppRegistryCacheWillBeDestroyed(
       apps::AppRegistryCache* cache) override;
 
+  void OnLacrosOperationForwarded(int request_id, base::File::Error error);
+
   ProviderId provider_id_;
   Capabilities capabilities_;
   std::string name_;
   IconSet icon_set_;
+  std::unique_ptr<RequestDispatcher> request_dispatcher_;
+  std::unique_ptr<ODFSMetrics> odfs_metrics_;
+  std::unique_ptr<RequestManager> request_manager_;
+
+  base::WeakPtrFactory<ExtensionProvider> weak_ptr_factory_{this};
 };
 
 }  // namespace file_system_provider

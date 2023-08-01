@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,6 +19,8 @@ namespace arc {
 AccessibilityInfoDataWrapper::AccessibilityInfoDataWrapper(
     AXTreeSourceArc* tree_source)
     : tree_source_(tree_source) {}
+
+AccessibilityInfoDataWrapper::~AccessibilityInfoDataWrapper() = default;
 
 void AccessibilityInfoDataWrapper::Serialize(ui::AXNodeData* out_data) const {
   out_data->id = GetId();

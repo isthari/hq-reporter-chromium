@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -39,13 +39,11 @@ import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.Feature;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.batch.BlankCTATabInitialStateRule;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.content_public.browser.RenderCoordinates;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.test.util.RenderTestRule;
@@ -58,7 +56,6 @@ import java.util.concurrent.TimeoutException;
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
-@Features.EnableFeatures({ChromeFeatureList.SCROLL_CAPTURE})
 @Batch(Batch.PER_CLASS)
 public class ScrollCaptureCallbackRenderTest {
     @ClassRule
@@ -70,10 +67,12 @@ public class ScrollCaptureCallbackRenderTest {
             new BlankCTATabInitialStateRule(sActivityTestRule, false);
 
     @Rule
-    public RenderTestRule mRenderTestRule = RenderTestRule.Builder.withPublicCorpus()
-                                                    .setRevision(2)
-                                                    .setDescription("new test html")
-                                                    .build();
+    public RenderTestRule mRenderTestRule =
+            RenderTestRule.Builder.withPublicCorpus()
+                    .setRevision(2)
+                    .setDescription("new test html")
+                    .setBugComponent(RenderTestRule.Component.UI_BROWSER_SHARING)
+                    .build();
 
     private ScrollCaptureCallbackDelegate mCallback;
     private Tab mTab;

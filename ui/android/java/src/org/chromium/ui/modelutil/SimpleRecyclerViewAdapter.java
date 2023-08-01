@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -60,7 +60,7 @@ public class SimpleRecyclerViewAdapter
     }
 
     /** The data that is shown in the list. */
-    private final ModelList mListData;
+    protected final ModelList mListData;
 
     /** The observer that watches the data for changes. */
     private final ListObserver<Void> mListObserver;

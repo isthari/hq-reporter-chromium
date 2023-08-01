@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 // On Mac, one can't make shortcuts with command-line arguments. Instead, we
@@ -11,13 +11,15 @@
 #include <vector>
 
 #include "base/allocator/early_zone_registration_mac.h"
+#include "base/apple/bundle_locations.h"
 #include "base/at_exit.h"
-#include "base/bind.h"
+#include "base/base_switches.h"
 #include "base/check.h"
 #include "base/command_line.h"
+#include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
-#include "base/mac/bundle_locations.h"
+#include "base/functional/bind.h"
 #include "base/mac/mac_logging.h"
 #include "base/message_loop/message_pump_type.h"
 #include "base/run_loop.h"
@@ -34,6 +36,7 @@
 #include "chrome/common/mac/app_mode_common.h"
 #include "components/crash/core/app/crashpad.h"
 #include "mojo/core/embedder/embedder.h"
+#include "mojo/core/embedder/features.h"
 #include "mojo/core/embedder/scoped_ipc_support.h"
 #include "ui/accelerated_widget_mac/window_resize_helper_mac.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -77,9 +80,9 @@ int APP_SHIM_ENTRY_POINT_NAME(const app_mode::ChromeAppModeInfo* info) {
     chrome::RegisterPathProvider();
 
     // Set bundle paths. This loads the bundles.
-    base::mac::SetOverrideOuterBundlePath(
+    base::apple::SetOverrideOuterBundlePath(
         base::FilePath(info->chrome_outer_bundle_path));
-    base::mac::SetOverrideFrameworkBundlePath(
+    base::apple::SetOverrideFrameworkBundlePath(
         base::FilePath(info->chrome_framework_path));
 
     // Note that `info->user_data_dir` for shims contains the app data path,
@@ -93,12 +96,12 @@ int APP_SHIM_ENTRY_POINT_NAME(const app_mode::ChromeAppModeInfo* info) {
 
     // Calculate the preferred locale used by Chrome. We can't use
     // l10n_util::OverrideLocaleWithCocoaLocale() because it calls
-    // [base::mac::OuterBundle() preferredLocalizations] which gets
+    // [base::apple::OuterBundle() preferredLocalizations] which gets
     // localizations from the bundle of the running app (i.e. it is equivalent
     // to [[NSBundle mainBundle] preferredLocalizations]) instead of the target
     // bundle.
     NSArray* preferred_languages = [NSLocale preferredLanguages];
-    NSArray* supported_languages = [base::mac::OuterBundle() localizations];
+    NSArray* supported_languages = [base::apple::OuterBundle() localizations];
     std::string preferred_localization;
     for (NSString* language in preferred_languages) {
       // We must convert the "-" separator to "_" to be compatible with
@@ -133,7 +136,32 @@ int APP_SHIM_ENTRY_POINT_NAME(const app_mode::ChromeAppModeInfo* info) {
     base::Thread* io_thread = new base::Thread("CrAppShimIO");
     io_thread->StartWithOptions(std::move(io_thread_options));
 
-    mojo::core::Init();
+    // It's necessary to initialize a FeatureList and call Mojo's InitFeatures()
+    // to ensure we're using the same IPC implementation as the browser.
+    auto feature_list = std::make_unique<base::FeatureList>();
+    if (info->mojo_ipcz_config ==
+        app_mode::MojoIpczConfig::kUseCommandLineFeatures) {
+      const auto& command_line = *base::CommandLine::ForCurrentProcess();
+      feature_list->InitializeFromCommandLine(
+          command_line.GetSwitchValueASCII(switches::kEnableFeatures),
+          command_line.GetSwitchValueASCII(switches::kDisableFeatures));
+
+    } else {
+      const bool mojo_ipcz_enabled =
+          info->mojo_ipcz_config == app_mode::MojoIpczConfig::kEnabled;
+      feature_list->RegisterExtraFeatureOverrides(
+          {{mojo::core::kMojoIpcz,
+            mojo_ipcz_enabled ? base::FeatureList::OVERRIDE_ENABLE_FEATURE
+                              : base::FeatureList::OVERRIDE_DISABLE_FEATURE}});
+    }
+    base::FeatureList::SetInstance(std::move(feature_list));
+    mojo::core::InitFeatures();
+
+    // We're using an isolated Mojo connection between the browser and this
+    // process, so this process must act as a broker.
+    mojo::core::Configuration config;
+    config.is_broker_process = true;
+    mojo::core::Init(config);
     mojo::core::ScopedIPCSupport ipc_support(
         io_thread->task_runner(),
         mojo::core::ScopedIPCSupport::ShutdownPolicy::FAST);

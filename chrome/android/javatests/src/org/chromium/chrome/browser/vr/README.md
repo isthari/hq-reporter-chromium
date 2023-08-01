@@ -101,11 +101,6 @@ third_party/gvr-android-sdk/test-apks/vr_services/vr_services_current.apk` to
 ensure that the VrCore version used is the one used for automated testing at
 whatever your current git revision is.
 
-For AR tests, you'll likely want to use `--additional-apk
-third_party/arcore-android-sdk/test-apks/arcore/arcore_current.apk` to ensure
-that the ArCore version used is the one used for automated testing at whatever
-your current git revision is.
-
 **NOTE** Using this argument for VR on most Pixel devices will fail, as VrCore
 is pre-installed as a system app. This can be dealt with in the following ways:
 
@@ -113,7 +108,7 @@ is pre-installed as a system app. This can be dealt with in the following ways:
   [here](go/vrcore/building-and-running). This will permanently solve the issue
   unless you reflash your device.
 * Use `--replace-system-package
-  com.google.vr.vrcore,//third_party/gvr-android-sdk/test-apks/vr_services/vr_services_current.apk`
+  //third_party/gvr-android-sdk/test-apks/vr_services/vr_services_current.apk`
   instead. This will take significantly longer, as it requires rebooting, and
   must be done every time you run the tests.
 * Skip this argument entirely and just ensure that the VrCore version on the

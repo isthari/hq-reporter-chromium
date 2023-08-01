@@ -31,9 +31,6 @@ import optparse
 import unittest
 
 from blinkpy.common.host_mock import MockHost
-from blinkpy.common.system.output_capture import OutputCapture
-from blinkpy.web_tests.models.test_configuration import (
-    TestConfiguration, TestConfigurationConverter)
 from blinkpy.web_tests.models.test_expectations import (
     TestExpectations, SystemConfigurationRemover, ParseError)
 from blinkpy.web_tests.models.typ_types import ResultType, Expectation
@@ -346,7 +343,6 @@ class SystemConfigurationRemoverTests(Base):
         expectations_dict = {self._general_exp_filename: content}
         test_expectations = TestExpectations(self._port, expectations_dict)
         self._system_config_remover = SystemConfigurationRemover(
-            self._port.host.filesystem,
             test_expectations)
 
     def test_remove_mac_version_from_mac_expectation(self):

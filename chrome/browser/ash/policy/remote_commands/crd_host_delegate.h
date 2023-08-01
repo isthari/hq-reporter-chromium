@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,8 @@
 
 #include <memory>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "chrome/browser/ash/policy/remote_commands/device_command_start_crd_session_job.h"
-#include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "remoting/host/chromeos/chromeos_enterprise_params.h"
 #include "remoting/host/mojom/remote_support.mojom-forward.h"
 
@@ -50,7 +49,9 @@ class CrdHostDelegate : public DeviceCommandStartCrdSessionJob::Delegate {
   void StartCrdHostAndGetCode(
       const SessionParameters& parameters,
       DeviceCommandStartCrdSessionJob::AccessCodeCallback success_callback,
-      DeviceCommandStartCrdSessionJob::ErrorCallback error_callback) override;
+      DeviceCommandStartCrdSessionJob::ErrorCallback error_callback,
+      DeviceCommandStartCrdSessionJob::SessionEndCallback
+          session_finished_callback) override;
 
  private:
   class CrdHostSession;

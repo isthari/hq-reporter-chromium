@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,32 +7,18 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/check_op.h"
-#include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/run_loop.h"
-#include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/threading/thread_restrictions.h"
-#include "chrome/updater/constants.h"
-#include "chrome/updater/tag.h"
 #include "chrome/updater/updater_scope.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace updater {
 
-constexpr base::StringPiece App::kThreadPoolName;
-
-App::App() : updater_scope_(GetUpdaterScope()) {}
-
+App::App() = default;
 App::~App() = default;
 
-void App::InitializeThreadPool() {
-  base::ThreadPoolInstance::CreateAndStartWithDefaultParams(kThreadPoolName);
-}
-
 int App::Run() {
-  InitializeThreadPool();
   Initialize();
   int exit_code = 0;
   {
@@ -48,13 +34,14 @@ int App::Run() {
     runloop.Run();
   }
   Uninitialize();
-
-  // Shutting down the thread pool involves joining threads.
-  base::ThreadPoolInstance::Get()->Shutdown();
   return exit_code;
 }
 
 void App::Shutdown(int exit_code) {
+  CHECK(!quit_.is_null()) << "App was shutdown previously.";
+
+  // TODO(crbug.com/1422360): for non-silent scenarios where UI is not
+  // otherwise shown, some UI is needed here.
   std::move(quit_).Run(exit_code);
 }
 

@@ -1,10 +1,12 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {TestRunner} from 'test_runner';
+import {SecurityTestRunner} from 'security_test_runner';
+
 (async function() {
   TestRunner.addResult(`Tests that the Main Origin is assigned even if there is no matching Request.\n`);
-  await TestRunner.loadTestModule('security_test_runner');
   await TestRunner.showPanel('security');
 
   TestRunner.mainTarget.model(Security.SecurityModel)
@@ -20,7 +22,7 @@
   // Fire a Main Frame Navigation event without firing a NetworkRequest first.
   TestRunner.mainTarget.model(SDK.ResourceTreeModel)
       .dispatchEventToListeners(
-          SDK.ResourceTreeModel.Events.MainFrameNavigated, TestRunner.resourceTreeModel.mainFrame);
+          SDK.ResourceTreeModel.Events.PrimaryPageChanged, {frame: TestRunner.resourceTreeModel.mainFrame, type: 'Navigation'});
   // Validate that this set the MainOrigin in the sidebar
   const detectedMainOrigin = Security.SecurityPanel.instance().sidebarTree.mainOrigin;
   TestRunner.addResult('Detected main origin: ' + detectedMainOrigin);

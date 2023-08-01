@@ -1,13 +1,15 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/threading/thread_local_storage.h"
 
+#include <algorithm>
 #include <atomic>
 
 #include "base/check_op.h"
 #include "base/compiler_specific.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/notreached.h"
 #include "base/synchronization/lock.h"
 #include "build/build_config.h"
@@ -141,7 +143,7 @@ static_assert(static_cast<int>(TlsVectorState::kUninitialized) == 0,
               "kUninitialized must be null");
 
 // The maximum number of slots in our thread local storage stack.
-constexpr int kThreadLocalStorageSize = 256;
+constexpr size_t kThreadLocalStorageSize = 256;
 
 enum TlsStatus {
   FREE,
@@ -153,12 +155,15 @@ struct TlsMetadata {
   base::ThreadLocalStorage::TLSDestructorFunc destructor;
   // Incremented every time a slot is reused. Used to detect reuse of slots.
   uint32_t version;
+  // Tracks slot creation order. Used to destroy slots in the reverse order:
+  // from last created to first created.
+  uint32_t sequence_num;
 };
 
 struct TlsVectorEntry {
   // `data` is not a raw_ptr<...> for performance reasons (based on analysis of
   // sampling profiler data and tab_search:top100:2020).
-  void* data;
+  RAW_PTR_EXCLUSION void* data;
 
   uint32_t version;
 };
@@ -171,10 +176,11 @@ base::Lock* GetTLSMetadataLock() {
 }
 TlsMetadata g_tls_metadata[kThreadLocalStorageSize];
 size_t g_last_assigned_slot = 0;
+uint32_t g_sequence_num = 0;
 
 // The maximum number of times to try to clear slots by calling destructors.
 // Use pthread naming convention for clarity.
-constexpr int kMaxDestructorIterations = kThreadLocalStorageSize;
+constexpr size_t kMaxDestructorIterations = kThreadLocalStorageSize;
 
 // Sets the value and state of the vector.
 void SetTlsVectorValue(PlatformThreadLocalStorage::TLSKey key,
@@ -201,6 +207,10 @@ TlsVectorState GetTlsVectorStateAndValue(void* tls_value,
 // Returns the tls vector and state using the tls key.
 TlsVectorState GetTlsVectorStateAndValue(PlatformThreadLocalStorage::TLSKey key,
                                          TlsVectorEntry** entry = nullptr) {
+// Only on x86_64, the implementation is not stable on ARM64. For instance, in
+// macOS 11, the TPIDRRO_EL0 registers holds the CPU index in the low bits,
+// which is not the case in macOS 12. See libsyscall/os/tsd.h in XNU
+// (_os_tsd_get_direct() is used by pthread_getspecific() internally).
 #if BUILDFLAG(IS_MAC) && defined(ARCH_CPU_X86_64)
   // On macOS, pthread_getspecific() is in libSystem, so a call to it has to go
   // through PLT. However, and contrary to some other platforms, *all* TLS keys
@@ -318,24 +328,44 @@ void OnThreadExitInternal(TlsVectorEntry* tls_data) {
   SetTlsVectorValue(key, stack_allocated_tls_data, TlsVectorState::kDestroying);
   delete[] tls_data;  // Our last dependence on an allocator.
 
-  // Snapshot the TLS Metadata so we don't have to lock on every access.
-  TlsMetadata tls_metadata[kThreadLocalStorageSize];
-  {
-    base::AutoLock auto_lock(*GetTLSMetadataLock());
-    memcpy(tls_metadata, g_tls_metadata, sizeof(g_tls_metadata));
-  }
-
-  int remaining_attempts = kMaxDestructorIterations;
+  size_t remaining_attempts = kMaxDestructorIterations + 1;
   bool need_to_scan_destructors = true;
   while (need_to_scan_destructors) {
     need_to_scan_destructors = false;
-    // Try to destroy the first-created-slot (which is slot 1) in our last
-    // destructor call. That user was able to function, and define a slot with
-    // no other services running, so perhaps it is a basic service (like an
-    // allocator) and should also be destroyed last. If we get the order wrong,
-    // then we'll iterate several more times, so it is really not that critical
-    // (but it might help).
-    for (int slot = 0; slot < kThreadLocalStorageSize; ++slot) {
+
+    // Snapshot the TLS Metadata so we don't have to lock on every access.
+    TlsMetadata tls_metadata[kThreadLocalStorageSize];
+    {
+      base::AutoLock auto_lock(*GetTLSMetadataLock());
+      memcpy(tls_metadata, g_tls_metadata, sizeof(g_tls_metadata));
+    }
+
+    // We destroy slots in reverse order (i.e. destroy the first-created slot
+    // last), for the following reasons:
+    // 1) Slots that are created early belong to basic services (like an
+    // allocator) and might have to be recreated by destructors of other
+    // services. So we save iterations here by destroying them last.
+    // 2) Perfetto tracing service allocates a slot early and relies on it to
+    // keep emitting trace events while destructors of other slots are called,
+    // so it's important to keep it live to avoid use-after-free errors.
+    // To achieve this, we sort all slots in the order of decreasing sequence
+    // numbers.
+    struct OrderedSlot {
+      uint32_t sequence_num;
+      uint16_t slot;
+    } slot_destruction_order[kThreadLocalStorageSize];
+    for (uint16_t i = 0; i < kThreadLocalStorageSize; ++i) {
+      slot_destruction_order[i].sequence_num = tls_metadata[i].sequence_num;
+      slot_destruction_order[i].slot = i;
+    }
+    std::sort(std::begin(slot_destruction_order),
+              std::end(slot_destruction_order),
+              [](const OrderedSlot& s1, const OrderedSlot& s2) {
+                return s1.sequence_num > s2.sequence_num;
+              });
+
+    for (const auto& ordered_slot : slot_destruction_order) {
+      size_t slot = ordered_slot.slot;
       void* tls_value = stack_allocated_tls_data[slot].data;
       if (!tls_value || tls_metadata[slot].status == TlsStatus::FREE ||
           stack_allocated_tls_data[slot].version != tls_metadata[slot].version)
@@ -352,7 +382,8 @@ void OnThreadExitInternal(TlsVectorEntry* tls_data) {
       // vector again. This is a pthread standard.
       need_to_scan_destructors = true;
     }
-    if (--remaining_attempts <= 0) {
+
+    if (--remaining_attempts == 0) {
       NOTREACHED();  // Destructors might not have been called.
       break;
     }
@@ -428,7 +459,7 @@ void ThreadLocalStorage::Slot::Initialize(TLSDestructorFunc destructor) {
   // Grab a new slot.
   {
     base::AutoLock auto_lock(*GetTLSMetadataLock());
-    for (int i = 0; i < kThreadLocalStorageSize; ++i) {
+    for (size_t i = 0; i < kThreadLocalStorageSize; ++i) {
       // Tracking the last assigned slot is an attempt to find the next
       // available slot within one iteration. Under normal usage, slots remain
       // in use for the lifetime of the process (otherwise before we reclaimed
@@ -439,6 +470,7 @@ void ThreadLocalStorage::Slot::Initialize(TLSDestructorFunc destructor) {
       if (g_tls_metadata[slot_candidate].status == TlsStatus::FREE) {
         g_tls_metadata[slot_candidate].status = TlsStatus::IN_USE;
         g_tls_metadata[slot_candidate].destructor = destructor;
+        g_tls_metadata[slot_candidate].sequence_num = ++g_sequence_num;
         g_last_assigned_slot = slot_candidate;
         DCHECK_EQ(kInvalidSlotValue, slot_);
         slot_ = slot_candidate;
@@ -447,12 +479,10 @@ void ThreadLocalStorage::Slot::Initialize(TLSDestructorFunc destructor) {
       }
     }
   }
-  CHECK_NE(slot_, kInvalidSlotValue);
   CHECK_LT(slot_, kThreadLocalStorageSize);
 }
 
 void ThreadLocalStorage::Slot::Free() {
-  DCHECK_NE(slot_, kInvalidSlotValue);
   DCHECK_LT(slot_, kThreadLocalStorageSize);
   {
     base::AutoLock auto_lock(*GetTLSMetadataLock());
@@ -470,7 +500,6 @@ void* ThreadLocalStorage::Slot::Get() const {
   DCHECK_NE(state, TlsVectorState::kDestroyed);
   if (!tls_data)
     return nullptr;
-  DCHECK_NE(slot_, kInvalidSlotValue);
   DCHECK_LT(slot_, kThreadLocalStorageSize);
   // Version mismatches means this slot was previously freed.
   if (tls_data[slot_].version != version_)
@@ -488,7 +517,6 @@ void ThreadLocalStorage::Slot::Set(void* value) {
       return;
     tls_data = ConstructTlsVector();
   }
-  DCHECK_NE(slot_, kInvalidSlotValue);
   DCHECK_LT(slot_, kThreadLocalStorageSize);
   tls_data[slot_].data = value;
   tls_data[slot_].version = version_;

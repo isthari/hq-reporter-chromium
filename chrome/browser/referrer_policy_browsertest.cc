@@ -1,11 +1,11 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <memory>
 
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -258,11 +258,15 @@ class ReferrerPolicyTest : public InProcessBrowserTest {
       mouse_event.button = button;
       mouse_event.SetPositionInWidget(15, 15);
       mouse_event.click_count = 1;
-      tab->GetMainFrame()->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(
-          mouse_event);
+      tab->GetPrimaryMainFrame()
+          ->GetRenderViewHost()
+          ->GetWidget()
+          ->ForwardMouseEvent(mouse_event);
       mouse_event.SetType(blink::WebInputEvent::Type::kMouseUp);
-      tab->GetMainFrame()->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(
-          mouse_event);
+      tab->GetPrimaryMainFrame()
+          ->GetRenderViewHost()
+          ->GetWidget()
+          ->ForwardMouseEvent(mouse_event);
     }
 
     if (disposition == WindowOpenDisposition::CURRENT_TAB) {
@@ -655,7 +659,7 @@ IN_PROC_BROWSER_TEST_F(ReferrerPolicyTest, IFrame) {
   ASSERT_TRUE(ui_test_utils::NavigateToURL(
       browser(),
       https_server_.GetURL("/referrer_policy/referrer-policy-iframe.html")));
-  EXPECT_TRUE(content::ExecuteScript(
+  EXPECT_TRUE(content::ExecJs(
       tab,
       std::string("var frame = document.createElement('iframe');frame.src ='") +
           embedded_test_server()
@@ -670,29 +674,28 @@ IN_PROC_BROWSER_TEST_F(ReferrerPolicyTest, IFrame) {
   content::RenderFrameHost* frame = content::FrameMatchingPredicate(
       tab->GetPrimaryPage(),
       base::BindRepeating(&content::FrameIsChildOfMainFrame));
-  std::string title;
-  EXPECT_TRUE(content::ExecuteScriptAndExtractString(
-      frame,
-      "window.domAutomationController.send(document.title)",
-      &title));
+  std::string title = content::EvalJs(frame, "document.title").ExtractString();
   EXPECT_EQ("Referrer is " + https_server_.GetURL("/").spec(), title);
 
   // Reload the iframe.
   expected_title = u"reset";
   title_watcher = std::make_unique<content::TitleWatcher>(tab, expected_title);
-  EXPECT_TRUE(content::ExecuteScript(tab, "document.title = 'reset'"));
+  EXPECT_TRUE(content::ExecJs(tab, "document.title = 'reset'"));
   EXPECT_EQ(expected_title, title_watcher->WaitAndGetTitle());
+  frame = content::FrameMatchingPredicate(
+      tab->GetPrimaryPage(),
+      base::BindRepeating(&content::FrameIsChildOfMainFrame));
 
   expected_title = u"loaded";
   title_watcher = std::make_unique<content::TitleWatcher>(tab, expected_title);
-  EXPECT_TRUE(content::ExecuteScript(frame, "location.reload()"));
+  EXPECT_TRUE(content::ExecJs(frame, "location.reload()"));
   EXPECT_EQ(expected_title, title_watcher->WaitAndGetTitle());
+  frame = content::FrameMatchingPredicate(
+      tab->GetPrimaryPage(),
+      base::BindRepeating(&content::FrameIsChildOfMainFrame));
 
   // Verify that the full url of the iframe was used as referrer.
-  EXPECT_TRUE(content::ExecuteScriptAndExtractString(
-      frame,
-      "window.domAutomationController.send(document.title)",
-      &title));
+  title = content::EvalJs(frame, "document.title").ExtractString();
   EXPECT_EQ(
       "Referrer is " + embedded_test_server()
                            ->GetURL("/referrer_policy/referrer-policy-log.html")
@@ -774,7 +777,7 @@ IN_PROC_BROWSER_TEST_F(ReferrerPolicyTest,
 //
 // These tests assume a default policy of no-referrer-when-downgrade.
 struct ReferrerOverrideParams {
-  absl::optional<base::Feature> feature_to_enable;
+  absl::optional<base::test::FeatureRef> feature_to_enable;
   network::mojom::ReferrerPolicy baseline_policy;
   network::mojom::ReferrerPolicy expected_policy;
 
@@ -844,8 +847,10 @@ class ReferrerOverrideTest
       public ::testing::WithParamInterface<ReferrerOverrideParams> {
  public:
   ReferrerOverrideTest() {
-    if (GetParam().feature_to_enable)
-      scoped_feature_list_.InitAndEnableFeature(*GetParam().feature_to_enable);
+    if (GetParam().feature_to_enable) {
+      scoped_feature_list_.InitAndEnableFeature(
+          *GetParam().feature_to_enable.value());
+    }
   }
 
  protected:
@@ -931,9 +936,10 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::ValuesIn(kReferrerOverrideParams),
     [](const ::testing::TestParamInfo<ReferrerOverrideParams>& info)
         -> std::string {
-      if (info.param.feature_to_enable)
+      if (info.param.feature_to_enable) {
         return base::StringPrintf("Param%s",
-                                  info.param.feature_to_enable->name);
+                                  info.param.feature_to_enable.value()->name);
+      }
       return "NoFeature";
     });
 

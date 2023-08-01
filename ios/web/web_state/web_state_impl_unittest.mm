@@ -1,30 +1,33 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/web/web_state/web_state_impl.h"
 
-#include <stddef.h>
+#import <stddef.h>
 
-#include <memory>
+#import <memory>
 
 #import <OCMock/OCMock.h>
 
-#include "base/base64.h"
-#include "base/bind.h"
-#include "base/logging.h"
-#include "base/mac/foundation_util.h"
+#import "base/base64.h"
+#import "base/functional/bind.h"
+#import "base/logging.h"
+#import "base/mac/foundation_util.h"
 #import "base/strings/sys_string_conversions.h"
-#include "base/test/gmock_callback_support.h"
+#import "base/task/sequenced_task_runner.h"
+#import "base/test/gmock_callback_support.h"
 #import "base/test/ios/wait_util.h"
-#include "base/test/scoped_feature_list.h"
-#include "ios/web/common/features.h"
+#import "base/test/scoped_feature_list.h"
+#import "components/sessions/core/session_id.h"
+#import "ios/web/common/features.h"
 #import "ios/web/common/uikit_ui_util.h"
+#import "ios/web/js_messaging/web_frames_manager_impl.h"
 #import "ios/web/navigation/navigation_context_impl.h"
 #import "ios/web/navigation/navigation_item_impl.h"
 #import "ios/web/navigation/serializable_user_data_manager_impl.h"
 #import "ios/web/navigation/wk_navigation_util.h"
-#include "ios/web/public/deprecated/global_web_state_observer.h"
+#import "ios/web/public/deprecated/global_web_state_observer.h"
 #import "ios/web/public/navigation/navigation_item.h"
 #import "ios/web/public/navigation/web_state_policy_decider.h"
 #import "ios/web/public/session/crw_navigation_item_storage.h"
@@ -36,21 +39,21 @@
 #import "ios/web/public/test/fakes/fake_web_frame.h"
 #import "ios/web/public/test/fakes/fake_web_state_delegate.h"
 #import "ios/web/public/test/fakes/fake_web_state_observer.h"
-#include "ios/web/public/test/web_test.h"
+#import "ios/web/public/test/web_test.h"
 #import "ios/web/public/test/web_view_content_test_util.h"
 #import "ios/web/public/ui/context_menu_params.h"
 #import "ios/web/public/ui/java_script_dialog_presenter.h"
 #import "ios/web/public/web_state_delegate.h"
-#include "ios/web/public/web_state_observer.h"
+#import "ios/web/public/web_state_observer.h"
 #import "ios/web/web_state/global_web_state_event_tracker.h"
 #import "ios/web/web_state/ui/crw_web_controller.h"
-#include "ios/web/web_state/web_state_policy_decider_test_util.h"
-#include "net/http/http_response_headers.h"
-#include "net/http/http_util.h"
-#include "testing/gmock/include/gmock/gmock.h"
-#include "testing/gtest/include/gtest/gtest.h"
+#import "ios/web/web_state/web_state_policy_decider_test_util.h"
+#import "net/http/http_response_headers.h"
+#import "net/http/http_util.h"
+#import "testing/gmock/include/gmock/gmock.h"
+#import "testing/gtest/include/gtest/gtest.h"
 #import "testing/gtest_mac.h"
-#include "url/gurl.h"
+#import "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -119,40 +122,18 @@ class MockWebStatePolicyDecider : public WebStatePolicyDecider {
  public:
   explicit MockWebStatePolicyDecider(WebState* web_state)
       : WebStatePolicyDecider(web_state) {}
-  virtual ~MockWebStatePolicyDecider() {}
+  ~MockWebStatePolicyDecider() override {}
 
   MOCK_METHOD3(ShouldAllowRequest,
                void(NSURLRequest* request,
                     WebStatePolicyDecider::RequestInfo request_info,
                     WebStatePolicyDecider::PolicyDecisionCallback callback));
-
-  MOCK_METHOD2(ShouldAllowErrorPageToBeDisplayed,
-               bool(NSURLResponse* response, bool for_main_frame));
   MOCK_METHOD3(ShouldAllowResponse,
                void(NSURLResponse* response,
                     WebStatePolicyDecider::ResponseInfo response_info,
                     WebStatePolicyDecider::PolicyDecisionCallback callback));
   MOCK_METHOD0(WebStateDestroyed, void());
 };
-
-// Test callback for script commands.
-// Sets |is_called| to true if it is called, and checks that the parameters
-// match their expected values.
-void HandleScriptCommand(bool* is_called,
-                         base::Value* expected_value,
-                         const GURL& expected_url,
-                         bool expected_user_is_interacting,
-                         web::WebFrame* expected_sender_frame,
-                         const base::Value& value,
-                         const GURL& url,
-                         bool user_is_interacting,
-                         web::WebFrame* sender_frame) {
-  *is_called = true;
-  EXPECT_TRUE(expected_value->Equals(&value));
-  EXPECT_EQ(expected_url, url);
-  EXPECT_EQ(expected_user_is_interacting, user_is_interacting);
-  EXPECT_EQ(expected_sender_frame, sender_frame);
-}
 
 }  // namespace
 
@@ -172,49 +153,23 @@ class WebStateImplTest : public web::WebTest {
     web_state_->GetNavigationManagerImpl().AddPendingItem(
         GURL::EmptyGURL(), web::Referrer(), ui::PAGE_TRANSITION_LINK,
         NavigationInitiationType::RENDERER_INITIATED,
-        /*is_post_navigation=*/false,
-        /*is_using_https_as_default_scheme=*/false);
+        /*is_post_navigation=*/false, HttpsUpgradeType::kNone);
     web_state_->GetNavigationManagerImpl().CommitPendingItem();
   }
 
   std::unique_ptr<WebStateImpl> web_state_;
 };
 
-// Tests WebState::Getter default implementation.
-TEST_F(WebStateImplTest, DefaultGetter) {
-  WebState::Getter getter = web_state_->CreateDefaultGetter();
-  ASSERT_FALSE(getter.is_null());
+// Tests WebState::GetWeakPtr.
+TEST_F(WebStateImplTest, GetWeakPtr) {
+  base::WeakPtr<WebState> weak_ptr = web_state_->GetWeakPtr();
 
-  // Verify that the getter returns |web_state_| if executed before
-  // deallocation.
-  EXPECT_EQ(web_state_.get(), getter.Run());
+  // Verify that `weak_ptr` points to `web_state_`.
+  EXPECT_EQ(weak_ptr.get(), web_state_.get());
 
-  // Destroy |web_state_| and verify that the getter returns nullptr if executed
-  // after destruction.
-  web_state_ = nullptr;
-  EXPECT_FALSE(getter.Run());
-}
-
-// Tests WebState::OnceGetter default implementation before WebState
-// destruction.
-TEST_F(WebStateImplTest, DefaultOnceGetterBeforeDestruction) {
-  WebState::OnceGetter getter = web_state_->CreateDefaultOnceGetter();
-  ASSERT_FALSE(getter.is_null());
-
-  // Verify that the getter returns |web_state_| if executed before
-  // deallocation.
-  EXPECT_EQ(web_state_.get(), std::move(getter).Run());
-}
-
-// Tests WebState::OnceGetter default implementation after WebState destruction.
-TEST_F(WebStateImplTest, DefaultOnceGetterAfterDestruction) {
-  WebState::OnceGetter getter = web_state_->CreateDefaultOnceGetter();
-  ASSERT_FALSE(getter.is_null());
-
-  // Destroy |web_state_| and verify that the getter returns nullptr if executed
-  // after destruction.
-  web_state_ = nullptr;
-  EXPECT_FALSE(std::move(getter).Run());
+  // Verify that `weak_ptr` is null after `web_state_` destruction.
+  web_state_.reset();
+  EXPECT_EQ(weak_ptr.get(), nullptr);
 }
 
 TEST_F(WebStateImplTest, WebUsageEnabled) {
@@ -305,23 +260,6 @@ TEST_F(WebStateImplTest, ObserverTest) {
             actual_favicon_url.icon_sizes[0].width());
   EXPECT_EQ(favicon_url.icon_sizes[0].height(),
             actual_favicon_url.icon_sizes[0].height());
-
-  // Test that WebFrameDidBecomeAvailable() is called.
-  ASSERT_FALSE(observer->web_frame_available_info());
-  auto main_frame = FakeWebFrame::CreateMainWebFrame(GURL::EmptyGURL());
-  WebFrame* main_frame_ptr = main_frame.get();
-  web_state_->WebFrameBecameAvailable(std::move(main_frame));
-  ASSERT_TRUE(observer->web_frame_available_info());
-  EXPECT_EQ(web_state_.get(), observer->web_frame_available_info()->web_state);
-  EXPECT_EQ(main_frame_ptr, observer->web_frame_available_info()->web_frame);
-
-  // Test that WebFrameWillBecomeUnavailable() is called.
-  ASSERT_FALSE(observer->web_frame_unavailable_info());
-  web_state_->WebFrameBecameUnavailable(main_frame_ptr->GetFrameId());
-  ASSERT_TRUE(observer->web_frame_unavailable_info());
-  EXPECT_EQ(web_state_.get(),
-            observer->web_frame_unavailable_info()->web_state);
-  EXPECT_EQ(main_frame_ptr, observer->web_frame_unavailable_info()->web_frame);
 
   // Test that RenderProcessGone() is called.
   SetIgnoreRenderProcessCrashesDuringTesting(true);
@@ -467,17 +405,16 @@ TEST_F(WebStateImplTest, DelegateTest) {
   FakeJavaScriptDialogPresenter* presenter =
       delegate.GetFakeJavaScriptDialogPresenter();
   EXPECT_FALSE(delegate.get_java_script_dialog_presenter_called());
-  EXPECT_TRUE(presenter->requested_dialogs().empty());
+  EXPECT_TRUE(presenter->requested_alert_dialogs().empty());
   EXPECT_FALSE(presenter->cancel_dialogs_called());
 
   __block bool callback_called = false;
-  web_state_->RunJavaScriptDialog(GURL(), JAVASCRIPT_DIALOG_TYPE_ALERT, @"",
-                                  nil, base::BindOnce(^(bool, NSString*) {
-                                    callback_called = true;
-                                  }));
+  web_state_->RunJavaScriptAlertDialog(GURL(), @"", base::BindOnce(^() {
+                                         callback_called = true;
+                                       }));
 
   EXPECT_TRUE(delegate.get_java_script_dialog_presenter_called());
-  EXPECT_EQ(1U, presenter->requested_dialogs().size());
+  EXPECT_EQ(1U, presenter->requested_alert_dialogs().size());
   EXPECT_TRUE(callback_called);
 
   EXPECT_FALSE(presenter->cancel_dialogs_called());
@@ -673,38 +610,6 @@ TEST_F(WebStateImplTest, PolicyDeciderTest) {
     EXPECT_TRUE(policy_decision.ShouldCancelNavigation());
   }
 
-  NSURL* error_url = [NSURL URLWithString:@"chrome://invalid"];
-  NSURLResponse* error_response =
-      [[NSURLResponse alloc] initWithURL:error_url
-                                MIMEType:@"text/html"
-                   expectedContentLength:0
-                        textEncodingName:nil];
-
-  const WebStatePolicyDecider::RequestInfo error_request_info_main_frame(
-      ui::PageTransition::PAGE_TRANSITION_LINK,
-      /*target_main_frame=*/true,
-      /*target_frame_is_cross_origin=*/false,
-      /*has_user_gesture=*/false);
-  EXPECT_CALL(decider, ShouldAllowErrorPageToBeDisplayed(error_response, true))
-      .Times(1)
-      .WillOnce(Return(true));
-  EXPECT_CALL(decider2, ShouldAllowErrorPageToBeDisplayed(error_response, true))
-      .Times(1)
-      .WillOnce(Return(true));
-  EXPECT_TRUE(
-      web_state_->ShouldAllowErrorPageToBeDisplayed(error_response, true));
-
-  // If at least one decider doesn't allow displaying error pages, web state
-  // shouldn't allow them either.
-  EXPECT_CALL(decider, ShouldAllowErrorPageToBeDisplayed(error_response, true))
-      .Times(1)
-      .WillOnce(Return(true));
-  EXPECT_CALL(decider2, ShouldAllowErrorPageToBeDisplayed(error_response, true))
-      .Times(1)
-      .WillOnce(Return(false));
-  EXPECT_FALSE(
-      web_state_->ShouldAllowErrorPageToBeDisplayed(error_response, true));
-
   EXPECT_CALL(decider, WebStateDestroyed()).Times(1);
   EXPECT_CALL(decider2, WebStateDestroyed()).Times(1);
   web_state_.reset();
@@ -803,111 +708,13 @@ TEST_F(WebStateImplTest, AsyncShouldAllowResponseTest) {
   EXPECT_EQ(policy_decision.GetDisplayError().code, error2.code);
 }
 
-// Tests that script command callbacks are called correctly.
-TEST_F(WebStateImplTest, ScriptCommand) {
-  // Set up three script command callbacks.
-  const std::string kPrefix1("prefix1");
-  const std::string kCommand1("prefix1.command1");
-  base::Value value_1(base::Value::Type::DICTIONARY);
-  value_1.SetStringKey("a", "b");
-  const GURL kUrl1("http://foo");
-  bool is_called_1 = false;
-  auto main_frame = FakeWebFrame::CreateMainWebFrame(GURL::EmptyGURL());
-  base::CallbackListSubscription subscription_1 =
-      web_state_->AddScriptCommandCallback(
-          base::BindRepeating(
-              &HandleScriptCommand, &is_called_1, &value_1, kUrl1,
-              /*expected_user_is_interacting*/ false, main_frame.get()),
-          kPrefix1);
-
-  const std::string kPrefix2("prefix2");
-  const std::string kCommand2("prefix2.command2");
-  base::Value value_2(base::Value::Type::DICTIONARY);
-  value_2.SetStringKey("c", "d");
-  const GURL kUrl2("http://bar");
-  bool is_called_2 = false;
-  base::CallbackListSubscription subscription_2 =
-      web_state_->AddScriptCommandCallback(
-          base::BindRepeating(
-              &HandleScriptCommand, &is_called_2, &value_2, kUrl2,
-              /*expected_user_is_interacting*/ false, main_frame.get()),
-          kPrefix2);
-
-  const std::string kPrefix3("prefix3");
-  const std::string kCommand3("prefix3.command3");
-  base::Value value_3(base::Value::Type::DICTIONARY);
-  value_3.SetStringKey("e", "f");
-  const GURL kUrl3("http://iframe");
-  bool is_called_3 = false;
-  auto subframe = FakeWebFrame::CreateChildWebFrame(GURL::EmptyGURL());
-  base::CallbackListSubscription subscription_3 =
-      web_state_->AddScriptCommandCallback(
-          base::BindRepeating(
-              &HandleScriptCommand, &is_called_3, &value_3, kUrl3,
-              /*expected_user_is_interacting*/ false, subframe.get()),
-          kPrefix3);
-
-  // Check that a irrelevant or invalid command does not trigger the callbacks.
-  web_state_->OnScriptCommandReceived("wohoo.blah", value_1, kUrl1,
-                                      /*user_is_interacting*/ false,
-                                      /*sender_frame*/ main_frame.get());
-  EXPECT_FALSE(is_called_1);
-  EXPECT_FALSE(is_called_2);
-  EXPECT_FALSE(is_called_3);
-
-  web_state_->OnScriptCommandReceived("prefix1ButMissingDot", value_1, kUrl1,
-                                      /*user_is_interacting*/ false,
-                                      /*sender_frame*/ main_frame.get());
-  EXPECT_FALSE(is_called_1);
-  EXPECT_FALSE(is_called_2);
-  EXPECT_FALSE(is_called_3);
-
-  // Check that only the callback matching the prefix is called, with the
-  // expected parameters and return value;
-
-  web_state_->OnScriptCommandReceived(kCommand1, value_1, kUrl1,
-                                      /*user_is_interacting*/ false,
-
-                                      /*sender_frame*/ main_frame.get());
-  EXPECT_TRUE(is_called_1);
-  EXPECT_FALSE(is_called_2);
-  EXPECT_FALSE(is_called_3);
-  is_called_1 = false;
-  // Check that sending message from iframe sets |is_main_frame| to false.
-  web_state_->OnScriptCommandReceived(kCommand3, value_3, kUrl3,
-                                      /*user_is_interacting*/ false,
-
-                                      /*sender_frame*/ subframe.get());
-  EXPECT_FALSE(is_called_1);
-  EXPECT_FALSE(is_called_2);
-  EXPECT_TRUE(is_called_3);
-  is_called_3 = false;
-
-  // Remove the callback and check it is no longer called.
-  subscription_1 = {};
-  web_state_->OnScriptCommandReceived(kCommand1, value_1, kUrl1,
-                                      /*user_is_interacting*/ false,
-                                      /*sender_frame*/ main_frame.get());
-  EXPECT_FALSE(is_called_1);
-  EXPECT_FALSE(is_called_2);
-  EXPECT_FALSE(is_called_3);
-
-  // Check that a false return value is forwarded correctly.
-  web_state_->OnScriptCommandReceived(kCommand2, value_2, kUrl2,
-                                      /*user_is_interacting*/ false,
-                                      /*sender_frame*/ main_frame.get());
-  EXPECT_FALSE(is_called_1);
-  EXPECT_TRUE(is_called_2);
-  EXPECT_FALSE(is_called_3);
-}
-
 // Tests that WebState::CreateParams::created_with_opener is translated to
 // WebState::HasOpener() return values.
 TEST_F(WebStateImplTest, CreatedWithOpener) {
   // Verify that the HasOpener() returns false if not specified in the create
   // params.
   EXPECT_FALSE(web_state_->HasOpener());
-  // Set |created_with_opener| to true and verify that HasOpener() returns true.
+  // Set `created_with_opener` to true and verify that HasOpener() returns true.
   WebState::CreateParams params_with_opener =
       WebState::CreateParams(GetBrowserState());
   params_with_opener.created_with_opener = true;
@@ -976,6 +783,7 @@ TEST_F(WebStateImplTest, UncommittedRestoreSession) {
   GURL url("http://test.com");
   CRWSessionStorage* session_storage = [[CRWSessionStorage alloc] init];
   session_storage.stableIdentifier = [[NSUUID UUID] UUIDString];
+  session_storage.uniqueIdentifier = SessionID::NewUnique();
   session_storage.lastCommittedItemIndex = 0;
   CRWNavigationItemStorage* item_storage =
       [[CRWNavigationItemStorage alloc] init];
@@ -986,7 +794,7 @@ TEST_F(WebStateImplTest, UncommittedRestoreSession) {
   web::WebState::CreateParams params(GetBrowserState());
   WebStateImpl web_state(params, session_storage);
 
-  // After restoring |web_state| change the uncommitted state's user data.
+  // After restoring `web_state` change the uncommitted state's user data.
   web::SerializableUserDataManager* user_data_manager =
       web::SerializableUserDataManager::FromWebState(&web_state);
   user_data_manager->AddSerializableData(@(1), @"user_data_key");
@@ -1026,7 +834,7 @@ TEST_F(WebStateImplTest, BuildStorageDuringRestore) {
                   GURL("https://chromium.test/2"),
                   GURL("https://chromium.test/3")};
   std::vector<std::unique_ptr<NavigationItem>> items;
-  for (size_t index = 0; index < base::size(urls); ++index) {
+  for (size_t index = 0; index < std::size(urls); ++index) {
     items.push_back(NavigationItem::Create());
     items.back()->SetURL(urls[index]);
   }
@@ -1051,13 +859,14 @@ TEST_F(WebStateImplTest, BuildStorageDuringRestore) {
 
   // Now wait until the last committed item is fully loaded, and
   // lastCommittedItemIndex goes back to 0.
-  EXPECT_TRUE(WaitUntilConditionOrTimeout(kWaitForPageLoadTimeout, ^{
+  auto block = ^{
     EXPECT_FALSE(
         wk_navigation_util::IsWKInternalUrl(web_state_->GetVisibleURL()));
 
     return !web_state_->GetNavigationManager()->GetPendingItem() &&
            !web_state_->IsLoading() && web_state_->GetLoadingProgress() == 1.0;
-  }));
+  };
+  EXPECT_TRUE(WaitUntilConditionOrTimeout(kWaitForPageLoadTimeout, block));
   session_storage = web_state_->BuildSessionStorage();
   EXPECT_EQ(0, session_storage.lastCommittedItemIndex);
 
@@ -1078,10 +887,7 @@ TEST_F(WebStateImplTest, DisallowSnapshotsDuringDialogPresentation) {
   // presented.
   delegate.GetFakeJavaScriptDialogPresenter()->set_callback_execution_paused(
       true);
-  web_state_->RunJavaScriptDialog(GURL(), JAVASCRIPT_DIALOG_TYPE_ALERT,
-                                  @"message", @"",
-                                  base::BindOnce(^(bool, NSString*){
-                                  }));
+  web_state_->RunJavaScriptAlertDialog(GURL(), @"message", base::DoNothing());
 
   // Verify that CanTakeSnapshot() returns no while the dialog is presented.
   EXPECT_FALSE(web_state_->CanTakeSnapshot());
@@ -1104,10 +910,7 @@ TEST_F(WebStateImplTest, VerifyDialogRunningBoolean) {
   // presented.
   delegate.GetFakeJavaScriptDialogPresenter()->set_callback_execution_paused(
       true);
-  web_state_->RunJavaScriptDialog(GURL(), JAVASCRIPT_DIALOG_TYPE_ALERT,
-                                  @"message", @"",
-                                  base::BindOnce(^(bool, NSString*){
-                                  }));
+  web_state_->RunJavaScriptAlertDialog(GURL(), @"message", base::DoNothing());
 
   // Verify that IsJavaScriptDialogRunning() returns true while the dialog is
   // presented.
@@ -1141,10 +944,7 @@ TEST_F(WebStateImplTest, CreateFullPagePdfJavaScriptDialog) {
     // presented.
     delegate.GetFakeJavaScriptDialogPresenter()->set_callback_execution_paused(
         true);
-    web_state_->RunJavaScriptDialog(GURL(), JAVASCRIPT_DIALOG_TYPE_ALERT,
-                                    @"message", @"",
-                                    base::BindOnce(^(bool, NSString*){
-                                    }));
+    web_state_->RunJavaScriptAlertDialog(GURL(), @"message", base::DoNothing());
 
     // Attempt to create a PDF for this page and validate that it return nil.
     __block NSData* callback_data_when_dialog = nil;
@@ -1228,6 +1028,28 @@ TEST_F(WebStateImplTest, VisibilitychangeEventFired) {
   [web_state_->GetView() removeFromSuperview];
 }
 
+// Test that changing visibility update the WebState last active time.
+TEST_F(WebStateImplTest, LastActiveTimeUpdatedWhenBecomeVisible) {
+  base::Time last_active_time = web_state_->GetLastActiveTime();
+  base::Time creation_time = web_state_->GetCreationTime();
+
+  // Spin the RunLoop a bit to ensure that the active time changes.
+  {
+    base::RunLoop run_loop;
+    base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
+        FROM_HERE, run_loop.QuitClosure(), base::Milliseconds(1));
+    run_loop.Run();
+  }
+
+  // Check that the last active time has not changed.
+  EXPECT_EQ(web_state_->GetLastActiveTime(), last_active_time);
+
+  // Mark the WebState has visible. The last active time should be updated.
+  web_state_->WasShown();
+  EXPECT_GT(web_state_->GetLastActiveTime(), last_active_time);
+  EXPECT_EQ(web_state_->GetCreationTime(), creation_time);
+}
+
 // Tests that WebState sessionState data doesn't load things with unsafe
 // restore.
 TEST_F(WebStateImplTest, MixedSafeUnsafeRestore) {
@@ -1246,7 +1068,7 @@ TEST_F(WebStateImplTest, MixedSafeUnsafeRestore) {
                   GURL("https://chromium.test/2"),
                   GURL("https://chromium.test/3")};
   std::vector<std::unique_ptr<NavigationItem>> items;
-  for (size_t index = 0; index < base::size(urls); ++index) {
+  for (size_t index = 0; index < std::size(urls); ++index) {
     items.push_back(NavigationItem::Create());
     items.back()->SetURL(urls[index]);
   }
@@ -1268,7 +1090,7 @@ TEST_F(WebStateImplTest, MixedSafeUnsafeRestore) {
   scoped_feature_list.Reset();
   scoped_feature_list.InitWithFeatures({features::kSynthesizedRestoreSession},
                                        {});
-  for (size_t index = 0; index < base::size(urls); ++index) {
+  for (size_t index = 0; index < std::size(urls); ++index) {
     items.push_back(NavigationItem::Create());
     items.back()->SetURL(urls[index]);
   }

@@ -1,8 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "android_webview/browser/js_java_interaction/aw_web_message_host_factory.h"
+
+#include <string>
 
 #include "android_webview/browser/js_java_interaction/js_reply_proxy.h"
 #include "android_webview/browser_jni_headers/WebMessageListenerHolder_jni.h"
@@ -14,7 +16,8 @@
 #include "components/js_injection/browser/web_message.h"
 #include "components/js_injection/browser/web_message_host.h"
 #include "components/js_injection/common/origin_matcher.h"
-#include "content/public/browser/android/app_web_message_port.h"
+#include "content/public/browser/android/message_payload.h"
+#include "content/public/browser/android/message_port_helper.h"
 
 namespace android_webview {
 namespace {
@@ -37,12 +40,11 @@ class AwWebMessageHost : public js_injection::WebMessageHost {
   void OnPostMessage(
       std::unique_ptr<js_injection::WebMessage> message) override {
     JNIEnv* env = base::android::AttachCurrentThread();
-    base::android::ScopedJavaGlobalRef<jobjectArray> jports =
-        content::AppWebMessagePort::WrapJavaArray(env,
-                                                  std::move(message->ports));
+    base::android::ScopedJavaLocalRef<jobjectArray> jports =
+        content::android::CreateJavaMessagePort(std::move(message->ports));
     Java_WebMessageListenerHolder_onPostMessage(
         env, listener_,
-        base::android::ConvertUTF16ToJavaString(env, message->message),
+        content::android::ConvertWebMessagePayloadToJava(message->message),
         base::android::ConvertUTF8ToJavaString(env, origin_string_),
         is_main_frame_, jports, reply_proxy_.GetJavaPeer());
   }

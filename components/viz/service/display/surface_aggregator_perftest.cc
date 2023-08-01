@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -113,7 +113,7 @@ class SurfaceAggregatorPerfTest : public VizPerfTest {
       for (int j = 0; j < num_textures; j++) {
         const gfx::Size size(1, 2);
         TransferableResource resource = TransferableResource::MakeSoftware(
-            SharedBitmap::GenerateId(), size, ResourceFormat::RGBA_8888);
+            SharedBitmap::GenerateId(), size, SinglePlaneFormat::kRGBA_8888);
         resource.id = ResourceId(j);
         frame_builder.AddTransferableResource(resource);
 
@@ -126,7 +126,7 @@ class SurfaceAggregatorPerfTest : public VizPerfTest {
         bool premultiplied_alpha = false;
         const gfx::PointF uv_top_left;
         const gfx::PointF uv_bottom_right;
-        SkColor background_color = SK_ColorGREEN;
+        SkColor4f background_color = SkColors::kGreen;
         const float vertex_opacity[4] = {0.f, 0.f, 1.f, 1.f};
         bool flipped = false;
         bool nearest_neighbor = false;
@@ -146,7 +146,7 @@ class SurfaceAggregatorPerfTest : public VizPerfTest {
             SurfaceRange(absl::nullopt,
                          SurfaceId(FrameSinkId(1, i),
                                    LocalSurfaceId(i, child_tokens[i - 1]))),
-            SK_ColorWHITE, /*stretch_content_to_fill_bounds=*/false);
+            SkColors::kWhite, /*stretch_content_to_fill_bounds=*/false);
       }
 
       frame_builder.AddRenderPass(std::move(pass));
@@ -175,7 +175,7 @@ class SurfaceAggregatorPerfTest : public VizPerfTest {
               SurfaceId(FrameSinkId(1, num_surfaces),
                         LocalSurfaceId(num_surfaces,
                                        child_tokens[num_surfaces - 1]))),
-          SK_ColorWHITE, /*stretch_content_to_fill_bounds=*/false);
+          SkColors::kWhite, /*stretch_content_to_fill_bounds=*/false);
 
       pass->output_rect = gfx::Rect(0, 0, 100, 100);
 
@@ -231,7 +231,8 @@ class SurfaceAggregatorPerfTest : public VizPerfTest {
           // Create the resource if we haven't yet.
           if (created_resources.find(resource_id) == created_resources.end()) {
             created_resources[resource_id] = TransferableResource::MakeSoftware(
-                SharedBitmap::GenerateId(), quad->rect.size(), RGBA_8888);
+                SharedBitmap::GenerateId(), quad->rect.size(),
+                SinglePlaneFormat::kRGBA_8888);
             created_resources[resource_id].id = resource_id;
           }
           resource_data_map_[frame_sink_id]
@@ -485,9 +486,9 @@ class SurfaceAggregatorPerfTest : public VizPerfTest {
   }
 
   std::string GetHistogramStats(base::HistogramBase* histogram) {
-    base::Value graph_dict = histogram->ToGraphDict();
+    base::Value::Dict graph_dict = histogram->ToGraphDict();
     // The header contains the sample count and the mean.
-    return *graph_dict.FindStringKey("header");
+    return *graph_dict.FindString("header");
   }
 
  protected:

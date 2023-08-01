@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,23 @@ window.onload = () => {
   const content = document.querySelector('#content');
   let contentUrl;
 
+  /**
+   * Identifies every message to load an content. Used to check if the current
+   * load is still valid after an async operation.
+   *
+   * @type {number}
+   */
+  let loadId = 0;
+
   window.addEventListener('message', event => {
-    if (event.origin !== FILES_APP_SWA_ORIGIN &&
-        event.origin !== LEGACY_FILES_APP_ORIGIN) {
+    if (event.origin !== FILES_APP_SWA_ORIGIN) {
       console.error('Unknown origin: ' + event.origin);
       return;
+    }
+
+    const currentLoadId = ++loadId;
+    function isValidLoad() {
+      return currentLoadId === loadId;
     }
 
     // Release Object URLs generated with URL.createObjectURL.
@@ -27,7 +39,6 @@ window.onload = () => {
     const data = event.data;
 
     const sourceContent = data.sourceContent;
-
     switch (sourceContent.dataType) {
       case 'url':
         contentUrl = /** @type {string} */ (sourceContent.data);
@@ -46,16 +57,27 @@ window.onload = () => {
         contentChanged(null);
         fetch(contentUrl)
             .then((response) => {
+              if (!isValidLoad()) {
+                return;
+              }
               return response.text();
             })
             .then((text) => {
+              if (!isValidLoad()) {
+                return;
+              }
               content.textContent = text;
               contentChanged(text);
             });
         break;
       case 'audio':
       case 'video':
-        content.onloadeddata = (e) => contentChanged(e.target.src);
+        content.onloadeddata = (e) => {
+          if (!isValidLoad()) {
+            return;
+          }
+          contentChanged(e.target.src);
+        };
         content.src = contentUrl;
         break;
       case 'image':
@@ -64,8 +86,11 @@ window.onload = () => {
 
         const image = new Image();
         image.onload = (e) => {
-          contentChanged(e.target.src);
           document.body.appendChild(content);
+          if (!isValidLoad()) {
+            return;
+          }
+          contentChanged(e.target.src);
           content.src = e.target.src;
         };
 
@@ -76,7 +101,7 @@ window.onload = () => {
         image.src = contentUrl;
         break;
       default:
-        content.onload = (e) => contentChanged(e.target.src);
+        content.onload = (e) => isValidLoad() && contentChanged(e.target.src);
         content.src = contentUrl;
         break;
     }

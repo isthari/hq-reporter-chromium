@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,15 @@
 #include <memory>
 
 #include "base/containers/queue.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/time/time.h"
 #include "chrome/browser/ash/borealis/borealis_context.h"
 #include "chrome/browser/ash/borealis/borealis_context_manager.h"
 #include "chrome/browser/ash/borealis/infra/described.h"
 #include "chrome/browser/ash/borealis/infra/transition.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chromeos/dbus/concierge/concierge_client.h"
+#include "chromeos/ash/components/dbus/concierge/concierge_client.h"
 
 namespace borealis {
 
@@ -22,9 +24,8 @@ class BorealisTask;
 
 // The Borealis Context Manager is a keyed service responsible for managing
 // the Borealis VM startup flow and guaranteeing its state to other processes.
-class BorealisContextManagerImpl
-    : public BorealisContextManager,
-      public chromeos::ConciergeClient::VmObserver {
+class BorealisContextManagerImpl : public BorealisContextManager,
+                                   public ash::ConciergeClient::VmObserver {
  public:
   explicit BorealisContextManagerImpl(Profile* profile);
   BorealisContextManagerImpl(const BorealisContextManagerImpl&) = delete;
@@ -42,8 +43,8 @@ class BorealisContextManagerImpl
   virtual base::queue<std::unique_ptr<BorealisTask>> GetTasks();
 
  private:
-  // TODO(b/): remove this once the context manager impl is a
-  // BorealisStateManager.
+  // Empty marker struct used to distinguish running (which is a
+  // BorealisContext) from not running.
   struct NotRunning {};
 
   // The startup transition is used to move the context manager from
@@ -67,7 +68,7 @@ class BorealisContextManagerImpl
     // Transition overrides.
     void Start(std::unique_ptr<NotRunning> current_state) override;
 
-    Profile* const profile_;
+    const raw_ptr<Profile, ExperimentalAsh> profile_;
     base::TimeTicks start_tick_;
     std::unique_ptr<BorealisContext> context_;
     base::queue<std::unique_ptr<BorealisTask>> task_queue_;
@@ -86,7 +87,7 @@ class BorealisContextManagerImpl
   BorealisContextManager::ContextOrFailure GetResult(
       const Startup::Result& completion_result);
 
-  // chromeos::ConciergeClient::VmObserver:
+  // ash::ConciergeClient::VmObserver:
   void OnVmStarted(const vm_tools::concierge::VmStartedSignal& signal) override;
   void OnVmStopped(const vm_tools::concierge::VmStoppedSignal& signal) override;
 
@@ -96,7 +97,7 @@ class BorealisContextManagerImpl
 
   void ShutDownBorealisIfRunning();
 
-  Profile* const profile_;
+  const raw_ptr<Profile, ExperimentalAsh> profile_;
 
   std::unique_ptr<Startup> in_progress_startup_;
   std::unique_ptr<BorealisContext> context_;

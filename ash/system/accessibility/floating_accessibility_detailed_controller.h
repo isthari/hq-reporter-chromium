@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,14 +8,13 @@
 #include "ash/ash_export.h"
 #include "ash/system/tray/detailed_view_delegate.h"
 #include "ash/system/tray/tray_bubble_view.h"
+#include "base/memory/raw_ptr.h"
 #include "ui/views/bubble/bubble_border.h"
 #include "ui/wm/public/activation_change_observer.h"
 
 namespace ash {
 
-namespace tray {
 class AccessibilityDetailedView;
-}
 
 // Controller for the detailed view of accessibility floating menu.
 class ASH_EXPORT FloatingAccessibilityDetailedController
@@ -46,6 +45,7 @@ class ASH_EXPORT FloatingAccessibilityDetailedController
  private:
   friend class FloatingAccessibilityControllerTest;
   class DetailedBubbleView;
+
   // DetailedViewDelegate:
   views::Button* CreateBackButton(
       views::Button::PressedCallback callback) override;
@@ -59,11 +59,11 @@ class ASH_EXPORT FloatingAccessibilityDetailedController
                          aura::Window* gained_active,
                          aura::Window* lost_active) override;
 
-  DetailedBubbleView* bubble_view_ = nullptr;
-  views::Widget* bubble_widget_ = nullptr;
-  tray::AccessibilityDetailedView* detailed_view_ = nullptr;
+  raw_ptr<DetailedBubbleView, ExperimentalAsh> bubble_view_ = nullptr;
+  raw_ptr<views::Widget, ExperimentalAsh> bubble_widget_ = nullptr;
+  raw_ptr<AccessibilityDetailedView, ExperimentalAsh> detailed_view_ = nullptr;
 
-  Delegate* const delegate_;  // Owns us.
+  const raw_ptr<Delegate, ExperimentalAsh> delegate_;  // Owns us.
 };
 
 }  // namespace ash

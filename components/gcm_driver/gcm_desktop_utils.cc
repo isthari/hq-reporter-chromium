@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -57,7 +57,7 @@ GCMClient::ChromeChannel GetChannel(version_info::Channel channel) {
 }
 
 std::string GetVersion() {
-  return version_info::GetVersionNumber();
+  return std::string(version_info::GetVersionNumber());
 }
 
 GCMClient::ChromeBuildInfo GetChromeBuildInfo(

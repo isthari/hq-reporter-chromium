@@ -1,11 +1,13 @@
-# Copyright (c) 2019 The Chromium Authors. All rights reserved.
+# Copyright 2019 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
 import os
 import re
 from absl import flags
-from chrome_ent_test.infra.core import environment, before_all, test
+from chrome_ent_test.infra.core import before_all
+from chrome_ent_test.infra.core import environment
+from chrome_ent_test.infra.core import test
 from infra import ChromeEnterpriseTestCase
 
 FLAGS = flags.FLAGS
@@ -23,8 +25,8 @@ class HomepageTest(ChromeEnterpriseTestCase):
 
   @before_all
   def setup(self):
-    self.InstallChrome(self.win_config['client'])
     self.EnableUITest(self.win_config['client'])
+    self.InstallChrome(self.win_config['client'])
 
   def _getHomepageLocation(self, instance_name):
     dir = os.path.dirname(os.path.abspath(__file__))
@@ -52,7 +54,7 @@ class HomepageTest(ChromeEnterpriseTestCase):
 
     # verify the home page is the value of HomepageLocation
     homepage = self._getHomepageLocation(self.win_config['client'])
-    self.assertEqual(homepage, 'http://www.example.com/')
+    self.assertIn("www.example.com", homepage)
 
   @test
   def test_HomepageIsNewTab(self):

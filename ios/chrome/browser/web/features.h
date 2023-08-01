@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,25 +6,30 @@
 #define IOS_CHROME_BROWSER_WEB_FEATURES_H_
 
 #include "base/feature_list.h"
-#include "build/build_config.h"
 
 namespace web {
 
+// Feature flag to enable lockdown mode within browser.
+BASE_DECLARE_FEATURE(kBrowserLockdownModeAvailable);
+
+// Returns true if the use of Browser Lockdown Mode is enabled.
+bool IsBrowserLockdownModeEnabled();
+
 // Feature flag to tie the default zoom level for webpages to the current
 // dynamic type setting.
-extern const base::Feature kWebPageDefaultZoomFromDynamicType;
+BASE_DECLARE_FEATURE(kWebPageDefaultZoomFromDynamicType);
 
 // Used to enable a different method of zooming web pages.
-extern const base::Feature kWebPageAlternativeTextZoom;
+BASE_DECLARE_FEATURE(kWebPageAlternativeTextZoom);
+
+// Reneables text zoom on iPad.
+BASE_DECLARE_FEATURE(kWebPageTextZoomIPad);
 
 // Feature flag for to use native session restoration.
-extern const base::Feature kRestoreSessionFromCache;
+BASE_DECLARE_FEATURE(kRestoreSessionFromCache);
 
-// When enabled, the major version number returned by Chrome will be forced to
-// 100.  This feature is only applicable for M96-M99 and will be removed after
-// M99.  The purpose of this feature is to allow users to test and proactively
-// fix any issues as Chrome approaches a 3-digit major version number.
-extern const base::Feature kForceMajorVersion100InUserAgent;
+// Whether native session restoration cache is enabled.
+bool UseNativeSessionRestorationCache();
 
 }  // namespace web
 

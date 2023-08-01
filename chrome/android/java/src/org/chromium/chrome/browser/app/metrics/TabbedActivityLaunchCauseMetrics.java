@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -86,6 +86,10 @@ public class TabbedActivityLaunchCauseMetrics extends LaunchCauseMetrics {
         if (IntentUtils.safeGetBooleanExtra(
                     launchIntent, IntentHandler.EXTRA_FROM_OPEN_IN_BROWSER, false)) {
             return LaunchCause.OPEN_IN_BROWSER_FROM_MENU;
+        }
+
+        if (Intent.ACTION_SEND.equals(launchIntent.getAction())) {
+            return LaunchCause.SHARE_INTENT;
         }
 
         @IntentHandler.ExternalAppId

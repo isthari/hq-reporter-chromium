@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/test/task_environment.h"
 #include "chrome/browser/media/router/discovery/dial/dial_app_discovery_service.h"
 #include "chrome/browser/media/router/providers/dial/dial_internal_message_util.h"
@@ -113,7 +113,7 @@ class DialActivityManagerTest : public testing::Test {
 
   MOCK_METHOD2(OnStopAppResult,
                void(const absl::optional<std::string>&,
-                    RouteRequestResult::ResultCode));
+                    mojom::RouteRequestResultCode));
 
   std::unique_ptr<DialActivity> FailToStopApp() {
     auto activity =
@@ -132,7 +132,8 @@ class DialActivityManagerTest : public testing::Test {
     loader_factory_.AddResponse(
         app_instance_url, network::mojom::URLResponseHead::New(), "",
         network::URLLoaderCompletionStatus(net::HTTP_SERVICE_UNAVAILABLE));
-    EXPECT_CALL(*this, OnStopAppResult(_, Not(RouteRequestResult::OK)));
+    EXPECT_CALL(*this,
+                OnStopAppResult(_, Not(mojom::RouteRequestResultCode::OK)));
     base::RunLoop().RunUntilIdle();
     return activity;
   }
@@ -248,20 +249,20 @@ TEST_F(DialActivityManagerTest, StopApp) {
   TestLaunchApp(*activity, absl::nullopt, app_instance_url);
 
   auto can_stop = manager_.CanStopApp(activity->route.media_route_id());
-  EXPECT_EQ(can_stop.second, RouteRequestResult::OK);
+  EXPECT_EQ(can_stop.second, mojom::RouteRequestResultCode::OK);
   manager_.SetExpectedRequest(app_instance_url, "DELETE", absl::nullopt);
   StopApp(activity->route.media_route_id());
   testing::Mock::VerifyAndClearExpectations(this);
 
   // // The result should not be OK because there is a pending request.
   can_stop = manager_.CanStopApp(activity->route.media_route_id());
-  EXPECT_NE(can_stop.second, RouteRequestResult::OK);
+  EXPECT_NE(can_stop.second, mojom::RouteRequestResultCode::OK);
 
   loader_factory_.AddResponse(app_instance_url,
                               network::mojom::URLResponseHead::New(), "",
                               network::URLLoaderCompletionStatus());
   EXPECT_CALL(*this, OnStopAppResult(testing::Eq(absl::nullopt),
-                                     RouteRequestResult::OK));
+                                     mojom::RouteRequestResultCode::OK));
   base::RunLoop().RunUntilIdle();
 
   EXPECT_TRUE(manager_.GetRoutes().empty());
@@ -285,7 +286,7 @@ TEST_F(DialActivityManagerTest, StopAppUseFallbackURL) {
                               network::mojom::URLResponseHead::New(), "",
                               network::URLLoaderCompletionStatus());
   EXPECT_CALL(*this, OnStopAppResult(testing::Eq(absl::nullopt),
-                                     RouteRequestResult::OK));
+                                     mojom::RouteRequestResultCode::OK));
   base::RunLoop().RunUntilIdle();
 
   EXPECT_TRUE(manager_.GetRoutes().empty());
@@ -299,8 +300,11 @@ TEST_F(DialActivityManagerTest, StopAppFails) {
           CreateParsedDialAppInfoPtr("YouTube", DialAppState::kRunning),
           DialAppInfoResultCode::kOk));
 
-  EXPECT_TRUE(manager_.GetActivity(activity->route.media_route_id()));
-  EXPECT_FALSE(manager_.GetRoutes().empty());
+  // Even if we fail to terminate an app, we remove it from the list of routes
+  // tracked by DialActivityManager. This is done because manually stopping Cast
+  // session from DIAL device is not reflected on Chrome side.
+  EXPECT_FALSE(manager_.GetActivity(activity->route.media_route_id()));
+  EXPECT_TRUE(manager_.GetRoutes().empty());
 }
 
 TEST_F(DialActivityManagerTest, TryToStopAppThatIsAlreadyStopped) {

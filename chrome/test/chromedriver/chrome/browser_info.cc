@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <stddef.h>
 
 #include <memory>
+#include <string>
 
 #include "base/json/json_reader.h"
 #include "base/strings/string_number_conversions.h"
@@ -26,21 +27,25 @@ BrowserInfo::BrowserInfo()
 BrowserInfo::~BrowserInfo() {}
 
 Status ParseBrowserInfo(const std::string& data, BrowserInfo* browser_info) {
-  std::unique_ptr<base::Value> value = base::JSONReader::ReadDeprecated(data);
-  if (!value.get())
+  absl::optional<base::Value> value = base::JSONReader::Read(data);
+  if (!value) {
     return Status(kUnknownError, "version info not in JSON");
+  }
 
-  if (!value->is_dict())
+  auto* dict = value->GetIfDict();
+  if (!dict) {
     return Status(kUnknownError, "version info not a dictionary");
+  }
 
-  const base::Value* android_package = value->FindKey("Android-Package");
+  const base::Value* android_package = dict->Find("Android-Package");
   if (android_package) {
-    if (!android_package->is_string())
+    if (!android_package->is_string()) {
       return Status(kUnknownError, "'Android-Package' is not a string");
+    }
     browser_info->android_package = android_package->GetString();
   }
 
-  const std::string* browser_string = value->FindStringKey("Browser");
+  const std::string* browser_string = dict->FindString("Browser");
   if (!browser_string)
     return Status(kUnknownError, "version doesn't include 'Browser'");
 
@@ -52,11 +57,11 @@ Status ParseBrowserInfo(const std::string& data, BrowserInfo* browser_info) {
   // "webSocketDebuggerUrl" is only returned on Chrome 62.0.3178 and above,
   // thus it's not an error if it's missing.
   const std::string* web_socket_url_in =
-      value->FindStringKey("webSocketDebuggerUrl");
+      dict->FindString("webSocketDebuggerUrl");
   if (web_socket_url_in)
     browser_info->web_socket_url = *web_socket_url_in;
 
-  const std::string* blink_version = value->FindStringKey("WebKit-Version");
+  const std::string* blink_version = dict->FindString("WebKit-Version");
   if (!blink_version)
     return Status(kUnknownError, "version doesn't include 'WebKit-Version'");
 

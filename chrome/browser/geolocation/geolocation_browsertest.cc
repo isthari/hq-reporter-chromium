@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,11 @@
 
 #include <string>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
+#include "base/strings/escape.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -34,7 +35,6 @@
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/prerender_test_util.h"
-#include "net/base/escape.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "services/device/public/cpp/test/scoped_geolocation_overrider.h"
@@ -43,16 +43,13 @@
 namespace {
 
 std::string GetErrorCodePermissionDenied() {
-  return base::NumberToString(static_cast<int>(
-      device::mojom::Geoposition::ErrorCode::PERMISSION_DENIED));
+  return base::NumberToString(
+      static_cast<int>(device::mojom::GeopositionErrorCode::kPermissionDenied));
 }
 
 std::string RunScript(content::RenderFrameHost* render_frame_host,
                       const std::string& script) {
-  std::string result;
-  EXPECT_TRUE(content::ExecuteScriptAndExtractString(render_frame_host, script,
-                                                     &result));
-  return result;
+  return content::EvalJs(render_frame_host, script).ExtractString();
 }
 
 // IFrameLoader ---------------------------------------------------------------
@@ -101,7 +98,7 @@ IFrameLoader::IFrameLoader(Browser* browser, int iframe_id, const GURL& url)
   std::string script(base::StringPrintf(
       "window.domAutomationController.send(addIFrame(%d, \"%s\"));",
       iframe_id, url.spec().c_str()));
-  web_contents->GetMainFrame()->ExecuteJavaScriptForTests(
+  web_contents->GetPrimaryMainFrame()->ExecuteJavaScriptForTests(
       base::UTF8ToUTF16(script), base::NullCallback());
 
   quit_closure_ = run_loop.QuitWhenIdleClosure();
@@ -110,9 +107,8 @@ IFrameLoader::IFrameLoader(Browser* browser, int iframe_id, const GURL& url)
   EXPECT_EQ(base::StringPrintf("\"%d\"", iframe_id), javascript_response_);
   content::WebContentsObserver::Observe(nullptr);
   // Now that we loaded the iframe, let's fetch its src.
-  script = base::StringPrintf(
-      "window.domAutomationController.send(getIFrameSrc(%d))", iframe_id);
-  iframe_url_ = GURL(RunScript(web_contents->GetMainFrame(), script));
+  script = base::StringPrintf("getIFrameSrc(%d)", iframe_id);
+  iframe_url_ = GURL(RunScript(web_contents->GetPrimaryMainFrame(), script));
 }
 
 IFrameLoader::~IFrameLoader() {
@@ -239,7 +235,7 @@ class GeolocationBrowserTest : public InProcessBrowserTest {
   std::unique_ptr<device::ScopedGeolocationOverrider> geolocation_overrider_;
 
   // The current Browser as set in Initialize. May be for an incognito profile.
-  raw_ptr<Browser> current_browser_ = nullptr;
+  raw_ptr<Browser, DanglingUntriaged> current_browser_ = nullptr;
 
  private:
   // Calls watchPosition() in JavaScript and accepts or denies the resulting
@@ -251,7 +247,8 @@ class GeolocationBrowserTest : public InProcessBrowserTest {
   std::string html_for_tests_ = "/geolocation/simple.html";
 
   // The frame where the JavaScript calls will run.
-  raw_ptr<content::RenderFrameHost> render_frame_host_ = nullptr;
+  raw_ptr<content::RenderFrameHost, DanglingUntriaged> render_frame_host_ =
+      nullptr;
 
   // The urls for the iframes loaded by LoadIFrames.
   std::vector<GURL> iframe_urls_;
@@ -303,7 +300,7 @@ void GeolocationBrowserTest::SetFrameForScriptExecution(
   render_frame_host_ = nullptr;
 
   if (frame_name.empty()) {
-    render_frame_host_ = web_contents()->GetMainFrame();
+    render_frame_host_ = web_contents()->GetPrimaryMainFrame();
   } else {
     render_frame_host_ = content::FrameMatchingPredicate(
         web_contents()->GetPrimaryPage(),
@@ -364,9 +361,7 @@ void GeolocationBrowserTest::ExpectValueFromScriptForFrame(
     const std::string& expected,
     const std::string& function,
     content::RenderFrameHost* render_frame_host) {
-  std::string script(base::StringPrintf(
-      "window.domAutomationController.send(%s)", function.c_str()));
-  EXPECT_EQ(expected, RunScript(render_frame_host, script));
+  EXPECT_EQ(expected, RunScript(render_frame_host, function));
 }
 
 void GeolocationBrowserTest::ExpectValueFromScript(
@@ -377,17 +372,13 @@ void GeolocationBrowserTest::ExpectValueFromScript(
 
 bool GeolocationBrowserTest::SetPositionAndWaitUntilUpdated(double latitude,
                                                             double longitude) {
-  content::DOMMessageQueue dom_message_queue;
-
   fake_latitude_ = latitude;
   fake_longitude_ = longitude;
 
   geolocation_overrider_->UpdateLocation(fake_latitude_, fake_longitude_);
 
-  std::string result;
-  if (!dom_message_queue.WaitForMessage(&result))
-    return false;
-  return result == "\"geoposition-updated\"";
+  return content::EvalJs(render_frame_host_, "geopositionUpdates.pop();")
+             .ExtractString() == "geoposition-updated";
 }
 
 // Tests ----------------------------------------------------------------------
@@ -532,7 +523,8 @@ IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, InvalidUrlRequest) {
   content::WebContents* original_tab = web_contents();
   ExpectValueFromScript(GetErrorCodePermissionDenied(),
                         "requestGeolocationFromInvalidUrl()");
-  ExpectValueFromScriptForFrame("1", "isAlive()", original_tab->GetMainFrame());
+  ExpectValueFromScriptForFrame("1", "isAlive()",
+                                original_tab->GetPrimaryMainFrame());
 }
 
 IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, NoPromptBeforeStart) {
@@ -603,7 +595,7 @@ IN_PROC_BROWSER_TEST_F(GeolocationBrowserTest, TabDestroyed) {
   // valid when the test was written, but now it just prints "Scripts may close
   // only the windows that were opened by it."
   std::string script = "window.domAutomationController.send(window.close())";
-  ASSERT_TRUE(content::ExecuteScript(web_contents(), script));
+  ASSERT_TRUE(content::ExecJs(web_contents(), script));
 }
 
 class GeolocationPrerenderBrowserTest : public GeolocationBrowserTest {

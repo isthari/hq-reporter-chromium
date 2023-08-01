@@ -1,37 +1,41 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/web_applications/test/web_app_install_test_utils.h"
 
 #include "base/command_line.h"
+#include "base/containers/enum_set.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/bind.h"
+#include "base/test/test_future.h"
 #include "build/build_config.h"
-#include "chrome/browser/web_applications/system_web_apps/test/test_system_web_app_manager.h"
+#include "chrome/browser/web_applications/mojom/user_display_mode.mojom.h"
 #include "chrome/browser/web_applications/test/fake_web_app_provider.h"
+#include "chrome/browser/web_applications/web_app_command_scheduler.h"
 #include "chrome/browser/web_applications/web_app_constants.h"
 #include "chrome/browser/web_applications/web_app_helpers.h"
 #include "chrome/browser/web_applications/web_app_install_finalizer.h"
 #include "chrome/browser/web_applications/web_app_install_info.h"
-#include "chrome/browser/web_applications/web_app_install_manager.h"
 #include "chrome/browser/web_applications/web_app_install_utils.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
+#include "chrome/browser/web_applications/web_app_sources.h"
 #include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_switches.h"
+#include "components/webapps/browser/install_result_code.h"
+#include "components/webapps/browser/installable/installable_metrics.h"
+#include "components/webapps/browser/uninstall_result_code.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
-#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || \
-    (BUILDFLAG(IS_LINUX) && !BUILDFLAG(IS_CHROMEOS_LACROS))
-#include "chrome/browser/web_applications/os_integration_manager.h"
-#include "chrome/browser/web_applications/url_handler_manager.h"
-#include "components/services/app_service/public/cpp/url_handler_info.h"
-#endif
-
 namespace web_app {
 namespace test {
+namespace {
+using WebAppSourcesSet = base::EnumSet<WebAppManagement::Type,
+                                       WebAppManagement::kMinValue,
+                                       WebAppManagement::kMaxValue>;
+}
 
 void WaitUntilReady(WebAppProvider* provider) {
   if (provider->on_registry_ready().is_signaled())
@@ -42,51 +46,44 @@ void WaitUntilReady(WebAppProvider* provider) {
   run_loop.Run();
 }
 
+void WaitUntilWebAppProviderAndSubsystemsReady(WebAppProvider* provider) {
+  WaitUntilReady(provider);
+
+  if (provider->on_external_managers_synchronized().is_signaled()) {
+    return;
+  }
+
+  base::RunLoop run_loop;
+  provider->on_external_managers_synchronized().Post(FROM_HERE,
+                                                     run_loop.QuitClosure());
+  run_loop.Run();
+}
+
 void AwaitStartWebAppProviderAndSubsystems(Profile* profile) {
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
-      switches::kDisablePreinstalledApps);
+      switches::kDisableDefaultApps);
   FakeWebAppProvider* provider = FakeWebAppProvider::Get(profile);
   DCHECK(provider);
-  provider->SetRunSubsystemStartupTasks(true);
-  // Use a TestSystemWebAppManager to skip system web apps being auto-installed
-  // on |Start|.
-  provider->SetSystemWebAppManager(
-      std::make_unique<web_app::TestSystemWebAppManager>(profile));
-  provider->Start();
-  WaitUntilReady(provider);
+  provider->StartWithSubsystems();
+  WaitUntilWebAppProviderAndSubsystemsReady(provider);
 }
 
 AppId InstallDummyWebApp(Profile* profile,
                          const std::string& app_name,
-                         const GURL& start_url) {
-  const AppId app_id = GenerateAppId(/*manifest_id=*/absl::nullopt, start_url);
-  WebAppInstallInfo web_app_info;
+                         const GURL& start_url,
+                         const webapps::WebappInstallSource install_source) {
+  auto web_app_info = std::make_unique<WebAppInstallInfo>();
 
-  web_app_info.start_url = start_url;
-  web_app_info.scope = start_url;
-  web_app_info.title = base::UTF8ToUTF16(app_name);
-  web_app_info.description = base::UTF8ToUTF16(app_name);
-  web_app_info.user_display_mode = DisplayMode::kStandalone;
+  web_app_info->start_url = start_url;
+  web_app_info->scope = start_url;
+  web_app_info->title = base::UTF8ToUTF16(app_name);
+  web_app_info->description = base::UTF8ToUTF16(app_name);
+  web_app_info->user_display_mode = mojom::UserDisplayMode::kStandalone;
+  web_app_info->install_url = start_url;
 
-  WebAppInstallFinalizer::FinalizeOptions options;
-  options.install_source = webapps::WebappInstallSource::EXTERNAL_DEFAULT;
-
-  // In unit tests, we do not have Browser or WebContents instances.
-  // Hence we use FinalizeInstall instead of InstallWebAppFromManifest
-  // to install the web app.
-  base::RunLoop run_loop;
-  WebAppProvider::GetForTest(profile)->install_finalizer().FinalizeInstall(
-      web_app_info, options,
-      base::BindLambdaForTesting(
-          [&](const AppId& installed_app_id, InstallResultCode code) {
-            EXPECT_EQ(installed_app_id, app_id);
-            EXPECT_EQ(code, InstallResultCode::kSuccessNewInstall);
-            run_loop.Quit();
-          }));
-  run_loop.Run();
-  // Allow updates to be published to App Service listeners.
-  base::RunLoop().RunUntilIdle();
-  return app_id;
+  return InstallWebApp(profile, std::move(web_app_info),
+                       /*overwrite_existing_manifest_fields=*/true,
+                       install_source);
 }
 
 AppId InstallWebApp(Profile* profile,
@@ -102,12 +99,15 @@ AppId InstallWebApp(Profile* profile,
   auto* provider = WebAppProvider::GetForTest(profile);
   DCHECK(provider);
   WaitUntilReady(provider);
-  provider->install_manager().InstallWebAppFromInfo(
+  // In unit tests, we do not have Browser or WebContents instances. Hence we
+  // use `InstallFromInfoCommand` instead of `FetchManifestAndInstallCommand` or
+  // `WebAppInstallCommand` to install the web app.
+  provider->scheduler().InstallFromInfo(
       std::move(web_app_info), overwrite_existing_manifest_fields,
-      ForInstallableSite::kYes, install_source,
+      install_source,
       base::BindLambdaForTesting(
-          [&](const AppId& installed_app_id, InstallResultCode code) {
-            EXPECT_EQ(InstallResultCode::kSuccessNewInstall, code);
+          [&](const AppId& installed_app_id, webapps::InstallResultCode code) {
+            EXPECT_EQ(webapps::InstallResultCode::kSuccessNewInstall, code);
             app_id = installed_app_id;
             run_loop.Quit();
           }));
@@ -118,54 +118,65 @@ AppId InstallWebApp(Profile* profile,
   return app_id;
 }
 
-#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || \
-    (BUILDFLAG(IS_LINUX) && !BUILDFLAG(IS_CHROMEOS_LACROS))
-AppId InstallWebAppWithUrlHandlers(
-    Profile* profile,
-    const GURL& start_url,
-    const std::u16string& app_name,
-    const std::vector<apps::UrlHandlerInfo>& url_handlers) {
-  std::unique_ptr<WebAppInstallInfo> info =
-      std::make_unique<WebAppInstallInfo>();
-  info->start_url = start_url;
-  info->title = app_name;
-  info->user_display_mode = DisplayMode::kStandalone;
-  info->url_handlers = url_handlers;
-  web_app::AppId app_id =
-      web_app::test::InstallWebApp(profile, std::move(info));
-
-  auto& url_handler_manager = WebAppProvider::GetForTest(profile)
-                                  ->os_integration_manager()
-                                  .url_handler_manager_for_testing();
-
-  base::RunLoop run_loop;
-  url_handler_manager.RegisterUrlHandlers(
-      app_id, base::BindLambdaForTesting([&](Result result) {
-        EXPECT_EQ(Result::kOk, result);
-        run_loop.Quit();
-      }));
-  run_loop.Run();
-  // Allow updates to be published to App Service listeners.
-  base::RunLoop().RunUntilIdle();
-  return app_id;
-}
-#endif
-
 void UninstallWebApp(Profile* profile, const AppId& app_id) {
   WebAppProvider* const provider = WebAppProvider::GetForTest(profile);
   base::RunLoop run_loop;
 
-  DCHECK(provider->install_finalizer().CanUserUninstallWebApp(app_id));
+  DCHECK(provider->registrar_unsafe().CanUserUninstallWebApp(app_id));
   provider->install_finalizer().UninstallWebApp(
       app_id, webapps::WebappUninstallSource::kAppMenu,
-      base::BindLambdaForTesting([&](bool uninstalled) {
-        EXPECT_TRUE(uninstalled);
+      base::BindLambdaForTesting([&](webapps::UninstallResultCode code) {
+        EXPECT_EQ(code, webapps::UninstallResultCode::kSuccess);
         run_loop.Quit();
       }));
 
   run_loop.Run();
   // Allow updates to be published to App Service listeners.
   base::RunLoop().RunUntilIdle();
+}
+
+bool UninstallAllWebApps(Profile* profile) {
+  bool success = true;
+  auto* provider = WebAppProvider::GetForTest(profile);
+  if (!provider)
+    return false;
+  std::vector<AppId> app_ids = provider->registrar_unsafe().GetAppIds();
+  for (auto& app_id : app_ids) {
+    const WebApp* app = provider->registrar_unsafe().GetAppById(app_id);
+    WebAppSourcesSet sources =
+        WebAppSourcesSet::FromEnumBitmask(app->GetSources().to_ullong());
+
+    // Non-user installs first, as they block user uninstalls.
+    for (WebAppManagement::Type source : sources) {
+      if (source == WebAppManagement::kSync)
+        continue;
+      base::test::TestFuture<webapps::UninstallResultCode> result;
+      provider->install_finalizer().UninstallExternalWebApp(
+          app_id, source, webapps::WebappUninstallSource::kTestCleanup,
+          result.GetCallback());
+      if (!result.Wait() ||
+          result.Get() == webapps::UninstallResultCode::kError) {
+        LOG(ERROR) << "Error uninstalling " << app_id;
+        success = false;
+      }
+    }
+
+    // User uninstalls now, which should be unblocked now.
+    for (WebAppManagement::Type source : sources) {
+      if (source != WebAppManagement::kSync)
+        continue;
+      base::test::TestFuture<webapps::UninstallResultCode> result;
+      provider->install_finalizer().UninstallWebApp(
+          app_id, webapps::WebappUninstallSource::kTestCleanup,
+          result.GetCallback());
+      if (!result.Wait() ||
+          result.Get() == webapps::UninstallResultCode::kError) {
+        LOG(ERROR) << "Error uninstalling " << app_id;
+        success = false;
+      }
+    }
+  }
+  return success;
 }
 
 }  // namespace test

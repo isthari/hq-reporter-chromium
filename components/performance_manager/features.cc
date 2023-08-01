@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,71 +7,149 @@
 
 #include "components/performance_manager/public/features.h"
 
+#include "base/feature_list.h"
 #include "base/metrics/field_trial_params.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 
-namespace performance_manager {
-namespace features {
+namespace performance_manager::features {
 
-const base::Feature kRunOnMainThread{"RunOnMainThread",
-                                     base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kRunOnMainThread,
+             "RunOnMainThread",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
+BASE_FEATURE(kRunOnDedicatedThreadPoolThread,
+             "RunOnDedicatedThreadPoolThread",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
 #if !BUILDFLAG(IS_ANDROID)
-const base::Feature kUrgentDiscardingFromPerformanceManager {
-  "UrgentDiscardingFromPerformanceManager",
-// Ash Chrome uses memory pressure evaluator instead of performance manager to
-// discard tabs.
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_LINUX)
-      base::FEATURE_DISABLED_BY_DEFAULT
+BASE_FEATURE(kBackgroundTabLoadingFromPerformanceManager,
+             "BackgroundTabLoadingFromPerformanceManager",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
+BASE_FEATURE(kPerformanceControlsPerformanceSurvey,
+             "PerformanceControlsPerformanceSurvey",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
+BASE_FEATURE(kPerformanceControlsBatteryPerformanceSurvey,
+             "PerformanceControlsBatteryPerformanceSurvey",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
+BASE_FEATURE(kPerformanceControlsHighEfficiencyOptOutSurvey,
+             "PerformanceControlsHighEfficiencyOptOutSurvey",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
+BASE_FEATURE(kPerformanceControlsBatterySaverOptOutSurvey,
+             "PerformanceControlsBatterySaverOptOutSurvey",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
+const base::FeatureParam<base::TimeDelta>
+    kPerformanceControlsBatterySurveyLookback{
+        &kPerformanceControlsBatteryPerformanceSurvey, "battery_lookback",
+        base::Days(8)};
+
+BASE_FEATURE(kHeuristicMemorySaver,
+             "HeuristicMemorySaver",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
+// If 0, uses a default value from heuristic_memory_saver_policy.cc.
+const base::FeatureParam<base::TimeDelta>
+    kHeuristicMemorySaverThresholdReachedHeartbeatInterval{
+        &kHeuristicMemorySaver, "threshold_reached_heartbeat_interval",
+        base::TimeDelta()};
+const base::FeatureParam<base::TimeDelta>
+    kHeuristicMemorySaverThresholdNotReachedHeartbeatInterval{
+        &kHeuristicMemorySaver, "threshold_not_reached_heartbeat_interval",
+        base::TimeDelta()};
+const base::FeatureParam<base::TimeDelta>
+    kHeuristicMemorySaverMinimumTimeInBackground{&kHeuristicMemorySaver,
+                                                 "minimum_time_in_background",
+                                                 base::TimeDelta()};
+
+// If < 0, uses a default value from heuristic_memory_saver_policy.cc.
+const base::FeatureParam<int>
+    kHeuristicMemorySaverAvailableMemoryThresholdPercent{
+        &kHeuristicMemorySaver, "threshold_percent", -1};
+const base::FeatureParam<int> kHeuristicMemorySaverAvailableMemoryThresholdMb{
+    &kHeuristicMemorySaver, "threshold_mb", -1};
+const base::FeatureParam<int> kHeuristicMemorySaverPageCacheDiscountMac{
+    &kHeuristicMemorySaver, "mac_page_cache_available_percent", -1};
+
+BASE_FEATURE(kForceHeuristicMemorySaver,
+             "ForceHeuristicMemorySaver",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
+BASE_FEATURE(kHighEfficiencyMultistateMode,
+             "HighEfficiencyMultistateMode",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+BASE_FEATURE(kDiscardedTabTreatment,
+             "DiscardedTabTreatment",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+BASE_FEATURE(kMemoryUsageInHovercards,
+             "MemoryUsageInHovercards",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+BASE_FEATURE(kDiscardExceptionsImprovements,
+             "DiscardExceptionsImprovements",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+BASE_FEATURE(kMemorySavingsReportingImprovements,
+             "MemorySavingsReportingImprovements",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
+const base::FeatureParam<base::TimeDelta> kExpandedHighEfficiencyChipFrequency{
+    &kMemorySavingsReportingImprovements,
+    "expanded_high_efficiency_chip_frequency", base::Days(1)};
+
+const base::FeatureParam<int> kExpandedHighEfficiencyChipThresholdBytes{
+    &kMemorySavingsReportingImprovements,
+    "expanded_high_efficiency_chip_threshold_bytes", 200 * 1024 * 1024};
+
+const base::FeatureParam<base::TimeDelta>
+    kExpandedHighEfficiencyChipDiscardedDuration{
+        &kMemorySavingsReportingImprovements,
+        "expanded_high_efficiency_chip_discarded_duration", base::Hours(6)};
+
+const base::FeatureParam<int> kHighEfficiencyChartPmf25PercentileBytes{
+    &kMemorySavingsReportingImprovements,
+    "high_efficiency_chart_pmf_25_percentile_bytes", 62 * 1024 * 1024};
+const base::FeatureParam<int> kHighEfficiencyChartPmf50PercentileBytes{
+    &kMemorySavingsReportingImprovements,
+    "high_efficiency_chart_pmf_50_percentile_bytes", 112 * 1024 * 1024};
+const base::FeatureParam<int> kHighEfficiencyChartPmf75PercentileBytes{
+    &kMemorySavingsReportingImprovements,
+    "high_efficiency_chart_pmf_75_percentile_bytes", 197 * 1024 * 1024};
+
+const base::FeatureParam<double> kDiscardedTabTreatmentOpacity{
+    &kDiscardedTabTreatment, "discard_tab_treatment_opacity", 0.3};
+
+const base::FeatureParam<int> kDiscardedTabTreatmentOption{
+    &kDiscardedTabTreatment, "discard_tab_treatment_option",
+    static_cast<int>(DiscardTabTreatmentOptions::kFadeFullsizedFavicon)};
+
+BASE_FEATURE(kUseDeviceBatterySaverChromeOS,
+             "UseDeviceBatterySaverChromeOS",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
+#endif
+
+BASE_FEATURE(kBFCachePerformanceManagerPolicy,
+             "BFCachePerformanceManagerPolicy",
+#if !BUILDFLAG(IS_ANDROID)
+             base::FEATURE_ENABLED_BY_DEFAULT
 #else
-      base::FEATURE_ENABLED_BY_DEFAULT
+             base::FEATURE_DISABLED_BY_DEFAULT
 #endif
-};
+);
 
-UrgentDiscardingParams::UrgentDiscardingParams() = default;
-UrgentDiscardingParams::UrgentDiscardingParams(
-    const UrgentDiscardingParams& rhs) = default;
-UrgentDiscardingParams::~UrgentDiscardingParams() = default;
+BASE_FEATURE(kUrgentPageDiscarding,
+             "UrgentPageDiscarding",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-constexpr base::FeatureParam<int> UrgentDiscardingParams::kDiscardStrategy;
+BASE_FEATURE(kPageTimelineMonitor,
+             "PageTimelineMonitor",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-// static
-UrgentDiscardingParams UrgentDiscardingParams::GetParams() {
-  UrgentDiscardingParams params = {};
-  params.discard_strategy_ = static_cast<DiscardStrategy>(
-      UrgentDiscardingParams::kDiscardStrategy.Get());
-  return params;
-}
+const base::FeatureParam<base::TimeDelta> kPageTimelineStateIntervalTime{
+    &kPageTimelineMonitor, "time_between_collect_slice", base::Minutes(5)};
 
-const base::Feature kBackgroundTabLoadingFromPerformanceManager{
-    "BackgroundTabLoadingFromPerformanceManager",
-    base::FEATURE_DISABLED_BY_DEFAULT};
-
-const base::Feature kHighPMFDiscardPolicy{"HighPMFDiscardPolicy",
-                                          base::FEATURE_DISABLED_BY_DEFAULT};
-#endif
-
-const base::Feature kBFCachePerformanceManagerPolicy{
-    "BFCachePerformanceManagerPolicy", base::FEATURE_DISABLED_BY_DEFAULT};
-
-constexpr base::FeatureParam<bool>
-    BFCachePerformanceManagerPolicyParams::kFlushOnModeratePressure;
-
-constexpr base::FeatureParam<int>
-    BFCachePerformanceManagerPolicyParams::kDelayToFlushBackgroundTabInSeconds;
-
-// static
-BFCachePerformanceManagerPolicyParams
-BFCachePerformanceManagerPolicyParams::GetParams() {
-  BFCachePerformanceManagerPolicyParams params;
-  params.flush_on_moderate_pressure_ =
-      BFCachePerformanceManagerPolicyParams::kFlushOnModeratePressure.Get();
-  params.delay_to_flush_background_tab_ = base::Seconds(
-      BFCachePerformanceManagerPolicyParams::kDelayToFlushBackgroundTabInSeconds
-          .Get());
-  return params;
-}
-
-}  // namespace features
-}  // namespace performance_manager
+}  // namespace performance_manager::features

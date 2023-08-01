@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,30 +6,31 @@ package org.chromium.chrome.browser.omnibox.voice;
 
 import android.Manifest;
 import android.content.Intent;
-import android.content.pm.ResolveInfo;
 import android.speech.RecognizerIntent;
 
 import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
 
-import org.chromium.base.FeatureList;
 import org.chromium.base.PackageManagerUtils;
 import org.chromium.base.ThreadUtils;
-import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.flags.MutableFlagWithSafeDefault;
 import org.chromium.chrome.browser.preferences.Pref;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.profiles.ProfileManager;
 import org.chromium.components.prefs.PrefService;
 import org.chromium.components.user_prefs.UserPrefs;
-import org.chromium.ui.base.AndroidPermissionDelegate;
-
-import java.util.List;
+import org.chromium.ui.permissions.AndroidPermissionDelegate;
 
 /**
  * Utilities related to voice recognition.
  */
 public class VoiceRecognitionUtil {
     private static Boolean sHasRecognitionIntentHandler;
+    private static Boolean sIsVoiceSearchEnabledForTesting;
+    private static MutableFlagWithSafeDefault sVoiceSearchAudioCapturePolicyFlag =
+            new MutableFlagWithSafeDefault(
+                    ChromeFeatureList.VOICE_SEARCH_AUDIO_CAPTURE_POLICY, false);
 
     /**
      * Returns whether voice search is enabled.
@@ -49,8 +50,9 @@ public class VoiceRecognitionUtil {
      */
     public static boolean isVoiceSearchEnabled(
             AndroidPermissionDelegate androidPermissionDelegate) {
-        assert LibraryLoader.getInstance().isInitialized()
-            : "Premature call to check VoiceSearch eligibility may not return reliable information";
+        if (sIsVoiceSearchEnabledForTesting != null) {
+            return sIsVoiceSearchEnabledForTesting.booleanValue();
+        }
 
         if (androidPermissionDelegate == null) return false;
         if (!androidPermissionDelegate.hasPermission(Manifest.permission.RECORD_AUDIO)
@@ -78,12 +80,7 @@ public class VoiceRecognitionUtil {
      * @return true if the Enterprise policies permit execution of a voice search.
      */
     public static boolean isVoiceSearchPermittedByPolicy(boolean strictPolicyCheck) {
-        assert LibraryLoader.getInstance().isInitialized()
-            : "Premature call to check VoiceSearch eligibility may not return reliable information";
-
-        if (FeatureList.isInitialized()
-                && ChromeFeatureList.isEnabled(
-                        ChromeFeatureList.VOICE_SEARCH_AUDIO_CAPTURE_POLICY)) {
+        if (sVoiceSearchAudioCapturePolicyFlag.isEnabled()) {
             // If the PrefService isn't initialized yet we won't know here whether or not voice
             // search is allowed by policy. In that case, treat voice search as enabled but check
             // again when a Profile is set and PrefService becomes available.
@@ -95,6 +92,21 @@ public class VoiceRecognitionUtil {
             return prefService == null || prefService.getBoolean(Pref.AUDIO_CAPTURE_ALLOWED);
         }
         return true;
+    }
+
+    /**
+     * Set whether voice search is enabled. Should be reset back to null after the test has
+     * finished.
+     * @param isVoiceSearchEnabled
+     */
+    @VisibleForTesting
+    public static void setIsVoiceSearchEnabledForTesting(@Nullable Boolean isVoiceSearchEnabled) {
+        sIsVoiceSearchEnabledForTesting = isVoiceSearchEnabled;
+    }
+
+    @VisibleForTesting
+    static void setHasRecognitionIntentHandlerForTesting(@Nullable Boolean hasIntentHandler) {
+        sHasRecognitionIntentHandler = hasIntentHandler;
     }
 
     /** Returns the PrefService for the active Profile, or null if no profile has been loaded. */
@@ -115,9 +127,8 @@ public class VoiceRecognitionUtil {
     public static boolean isRecognitionIntentPresent(boolean useCachedValue) {
         ThreadUtils.assertOnUiThread();
         if (sHasRecognitionIntentHandler == null || !useCachedValue) {
-            List<ResolveInfo> activities = PackageManagerUtils.queryIntentActivities(
-                    new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH), 0);
-            sHasRecognitionIntentHandler = !activities.isEmpty();
+            sHasRecognitionIntentHandler = PackageManagerUtils.canResolveActivity(
+                    new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH));
         }
 
         return sHasRecognitionIntentHandler;

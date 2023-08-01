@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,8 @@
 #include <map>
 
 #include <memory>
+#include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "build/build_config.h"
@@ -165,16 +167,23 @@ class NavigationControllerImpl : public NavigationController,
   void CancelDelayedLoad();
   void ProcessDelayedLoad();
 
+  // |tab_| owns |this|.
+  raw_ptr<TabImpl> tab_;
+
   base::ObserverList<NavigationObserver>::Unchecked observers_;
   std::map<content::NavigationHandle*, std::unique_ptr<NavigationImpl>>
       navigation_map_;
 
   // If non-null then processing is inside DidStartNavigation() and
   // |navigation_starting_| is the NavigationImpl that was created.
-  NavigationImpl* navigation_starting_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION NavigationImpl* navigation_starting_ = nullptr;
 
   // Set to non-null while in WillRedirectRequest().
-  NavigationThrottleImpl* active_throttle_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION NavigationThrottleImpl* active_throttle_ = nullptr;
 
 #if BUILDFLAG(IS_ANDROID)
   base::android::ScopedJavaGlobalRef<jobject> java_controller_;

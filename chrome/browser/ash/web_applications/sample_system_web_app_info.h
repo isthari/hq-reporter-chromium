@@ -1,13 +1,12 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_ASH_WEB_APPLICATIONS_SAMPLE_SYSTEM_WEB_APP_INFO_H_
 #define CHROME_BROWSER_ASH_WEB_APPLICATIONS_SAMPLE_SYSTEM_WEB_APP_INFO_H_
 
-#include "chrome/browser/web_applications/system_web_apps/system_web_app_background_task.h"
-#include "chrome/browser/web_applications/system_web_apps/system_web_app_delegate.h"
-#include "chrome/browser/web_applications/system_web_apps/system_web_app_types.h"
+#include "chrome/browser/ash/system_web_apps/types/system_web_app_background_task_info.h"
+#include "chrome/browser/ash/system_web_apps/types/system_web_app_delegate.h"
 
 struct WebAppInstallInfo;
 
@@ -15,16 +14,16 @@ struct WebAppInstallInfo;
 #error Demo Mode should only be included in unofficial builds.
 #endif
 
-class SampleSystemAppDelegate : public web_app::SystemWebAppDelegate {
+class SampleSystemAppDelegate : public ash::SystemWebAppDelegate {
  public:
   explicit SampleSystemAppDelegate(Profile* profile);
 
-  // web_app::SystemWebAppDelegate overrides:
+  // ash::SystemWebAppDelegate overrides:
   std::unique_ptr<WebAppInstallInfo> GetWebAppInfo() const override;
   bool ShouldCaptureNavigations() const override;
-  bool ShouldReuseExistingWindow() const override;
+  Browser* GetWindowForLaunch(Profile* profile, const GURL& url) const override;
   bool ShouldShowNewWindowMenuOption() const override;
-  absl::optional<web_app::SystemAppBackgroundTaskInfo> GetTimerInfo()
+  absl::optional<ash::SystemWebAppBackgroundTaskInfo> GetTimerInfo()
       const override;
 };
 

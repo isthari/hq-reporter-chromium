@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,8 @@
 #include <memory>
 #include <vector>
 
+#include "chrome/browser/ash/system_web_apps/types/system_web_app_delegate.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/web_applications/system_web_apps/system_web_app_delegate.h"
-#include "chrome/browser/web_applications/system_web_apps/system_web_app_types.h"
 #include "chrome/common/webui_url_constants.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
@@ -20,17 +19,16 @@ class Browser;
 
 namespace ash {
 
-class HelpAppSystemAppDelegate : public web_app::SystemWebAppDelegate {
+class HelpAppSystemAppDelegate : public SystemWebAppDelegate {
  public:
   explicit HelpAppSystemAppDelegate(Profile* profile);
 
-  // web_app::SystemWebAppDelegate overrides:
+  // SystemWebAppDelegate overrides:
   std::unique_ptr<WebAppInstallInfo> GetWebAppInfo() const override;
   gfx::Rect GetDefaultBounds(Browser*) const override;
   gfx::Size GetMinimumWindowSize() const override;
   std::vector<int> GetAdditionalSearchTerms() const override;
-  absl::optional<web_app::SystemAppBackgroundTaskInfo> GetTimerInfo()
-      const override;
+  absl::optional<SystemWebAppBackgroundTaskInfo> GetTimerInfo() const override;
   bool ShouldCaptureNavigations() const override;
 };
 

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,8 +34,13 @@ class OpenedFrameTracker {
   // opener for opened frames to point to the new frame being swapped in.
   void TransferTo(Frame*) const;
 
+  // Explicitly break opener references from opened frames when removing
+  // a frame from the DOM, rather than relying on weak fields + GC to
+  // non-deterministically clear them later.
+  void Dispose();
+
  private:
-  HeapHashSet<WeakMember<Frame>> opened_frames_;
+  HeapHashSet<Member<Frame>> opened_frames_;
 };
 
 }  // namespace blink

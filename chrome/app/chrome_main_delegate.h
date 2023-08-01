@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,9 @@
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/startup_data.h"
 #include "chrome/common/chrome_content_client.h"
+#include "components/memory_system/memory_system.h"
 #include "content/public/app/content_main_delegate.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
 class CommandLine;
@@ -28,7 +30,7 @@ class TracingSamplerProfiler;
 }
 
 class ChromeContentBrowserClient;
-class HeapProfilerController;
+class ChromeContentUtilityClient;
 
 // Chrome implementation of ContentMainDelegate.
 class ChromeMainDelegate : public content::ContentMainDelegate {
@@ -49,7 +51,7 @@ class ChromeMainDelegate : public content::ContentMainDelegate {
 
  protected:
   // content::ContentMainDelegate:
-  bool BasicStartupComplete(int* exit_code) override;
+  absl::optional<int> BasicStartupComplete() override;
   void PreSandboxStartup() override;
   void SandboxInitialized(const std::string& process_type) override;
   absl::variant<int, content::MainFunctionParams> RunProcess(
@@ -61,10 +63,10 @@ class ChromeMainDelegate : public content::ContentMainDelegate {
                           delegates) override;
   void ZygoteForked() override;
 #endif
-  void PreBrowserMain() override;
-  void PostEarlyInitialization(bool is_running_tests) override;
-  bool ShouldCreateFeatureList() override;
-  void PostFieldTrialInitialization() override;
+  absl::optional<int> PreBrowserMain() override;
+  absl::optional<int> PostEarlyInitialization(InvokedIn invoked_in) override;
+  bool ShouldCreateFeatureList(InvokedIn invoked_in) override;
+  bool ShouldInitializeMojo(InvokedIn invoked_in) override;
 #if BUILDFLAG(IS_WIN)
   bool ShouldHandleConsoleControlEvents() override;
 #endif
@@ -75,21 +77,28 @@ class ChromeMainDelegate : public content::ContentMainDelegate {
   content::ContentRendererClient* CreateContentRendererClient() override;
   content::ContentUtilityClient* CreateContentUtilityClient() override;
 
+  // Initialization that happens in all process types.
+  void CommonEarlyInitialization();
+
+  // Initializes |tracing_sampler_profiler_|. Deletes any existing
+  // |tracing_sampler_profiler_| as well.
+  void SetupTracing();
+
 #if BUILDFLAG(IS_MAC)
   void InitMacCrashReporter(const base::CommandLine& command_line,
                             const std::string& process_type);
   void SetUpInstallerPreferences(const base::CommandLine& command_line);
 #endif  // BUILDFLAG(IS_MAC)
 
-  ChromeContentClient chrome_content_client_;
+  void InitializeMemorySystem();
 
   std::unique_ptr<ChromeContentBrowserClient> chrome_content_browser_client_;
-
+  std::unique_ptr<ChromeContentUtilityClient> chrome_content_utility_client_;
   std::unique_ptr<tracing::TracingSamplerProfiler> tracing_sampler_profiler_;
 
-  // The controller schedules UMA heap profiles collections and forwarding down
-  // the reporting pipeline.
-  std::unique_ptr<HeapProfilerController> heap_profiler_controller_;
+  ChromeContentClient chrome_content_client_;
+
+  memory_system::MemorySystem memory_system_;
 
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
   std::unique_ptr<chromeos::LacrosService> lacros_service_;

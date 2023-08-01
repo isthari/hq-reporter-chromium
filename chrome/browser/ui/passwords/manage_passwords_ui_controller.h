@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,7 @@
 #include "components/password_manager/core/browser/password_manager_client.h"
 #include "components/password_manager/core/browser/password_store_interface.h"
 #include "components/password_manager/core/browser/ui/post_save_compromised_helper.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
 
@@ -37,6 +38,10 @@ class PasswordFeatureManager;
 class PasswordFormManagerForUI;
 class PostSaveCompromisedHelper;
 }  // namespace password_manager
+
+namespace {
+constexpr int kMaxNumberOfTimesBiometricAuthForFillingPromoWillBeShown = 3;
+}
 
 class AccountChooserPrompt;
 struct AccountInfo;
@@ -98,10 +103,14 @@ class ManagePasswordsUIController
       const std::vector<const password_manager::PasswordForm*>*
           federated_matches) override;
   void OnCredentialLeak(password_manager::CredentialLeakType leak_dialog_type,
-                        const GURL& origin) override;
+                        const GURL& url,
+                        const std::u16string& username) override;
   void OnShowMoveToAccountBubble(
       std::unique_ptr<password_manager::PasswordFormManagerForUI> form_to_move)
       override;
+  void OnBiometricAuthenticationForFilling(PrefService* prefs) override;
+  void ShowBiometricActivationConfirmation() override;
+  void OnBiometricAuthBeforeFillingDeclined() override;
 
   virtual void NotifyUnsyncedCredentialsWillBeDeleted(
       std::vector<password_manager::PasswordForm> unsynced_credentials);
@@ -169,15 +178,18 @@ class ManagePasswordsUIController
       password_manager::ManagePasswordsReferrer referrer) override;
   void EnableSync(const AccountInfo& account) override;
   void OnDialogHidden() override;
-  bool AuthenticateUser() override;
+  void AuthenticateUserWithMessage(const std::u16string& message,
+                                   AvailabilityCallback callback) override;
   void AuthenticateUserForAccountStoreOptInAndSavePassword(
       const std::u16string& username,
       const std::u16string& password) override;
   void AuthenticateUserForAccountStoreOptInAndMovePassword() override;
   void AuthenticateUserForAccountStoreOptInAfterSavingLocallyAndMovePassword()
       override;
-  bool ArePasswordsRevealedWhenBubbleIsOpened() const override;
-
+  // Skips user os level authentication during the life time of the returned
+  // object. To be used in tests of flows that require user authentication.
+  [[nodiscard]] std::unique_ptr<base::AutoReset<bool>>
+  BypassUserAuthtForTesting();
 #if defined(UNIT_TEST)
   // Overwrites the client for |passwords_data_|.
   void set_client(password_manager::PasswordManagerClient* client) {
@@ -211,22 +223,17 @@ class ManagePasswordsUIController
   // Check if |web_contents()| is attached to some Browser. Mocked in tests.
   virtual bool HasBrowserWindow() const;
 
-  // True if the bubble is to be opened automatically or after re-auth.
-  bool ShouldBubblePopUp() const {
-    return IsAutomaticallyOpeningBubble() ||
-           bubble_status_ == BubbleStatus::SHOULD_POP_UP_AFTER_REAUTH;
-  }
-
   // Returns whether the bubble is currently open.
   bool IsShowingBubbleForTest() const { return IsShowingBubble(); }
 
   // content::WebContentsObserver:
-  void DidFinishNavigation(
-      content::NavigationHandle* navigation_handle) override;
+  void PrimaryPageChanged(content::Page& page) override;
   void OnVisibilityChanged(content::Visibility visibility) override;
 
  private:
   friend class content::WebContentsUserData<ManagePasswordsUIController>;
+
+  void OnReauthCompleted();
 
   // PasswordsLeakDialogDelegate:
   void NavigateToPasswordCheckup(
@@ -238,8 +245,6 @@ class ManagePasswordsUIController
     // The bubble is to be popped up in the next call to
     // UpdateBubbleAndIconVisibility().
     SHOULD_POP_UP,
-    // The bubble is to be reopened after re-authentication.
-    SHOULD_POP_UP_AFTER_REAUTH,
     SHOWN,
     // Same as SHOWN but the icon is to be updated when the bubble is closed.
     SHOWN_PENDING_ICON_UPDATE,
@@ -249,6 +254,13 @@ class ManagePasswordsUIController
     return bubble_status_ == BubbleStatus::SHOWN ||
            bubble_status_ == BubbleStatus::SHOWN_PENDING_ICON_UPDATE;
   }
+
+  // Returns whether saving credentials prompts for the current form in
+  // |passwords_data_| is blocked due to explicit action of the user asking to
+  // never save passwords for this form, or because the user ignored the bubble
+  // multiple times that the browser will automatically suppress further save
+  // prompts.
+  bool IsSavingPromptBlockedExplicitlyOrImplicitly() const;
 
   // Returns the timeout for the manual save fallback.
   static base::TimeDelta GetTimeoutForSaveFallback();
@@ -266,17 +278,6 @@ class ManagePasswordsUIController
 
   // content::WebContentsObserver:
   void WebContentsDestroyed() override;
-
-  // Requests authentication and reopens the bubble if the controller still
-  // exists and is in a pending state.
-  void RequestAuthenticationAndReopenBubble();
-
-  // Re-opens the bubble. The password in the reopened bubble will be revealed
-  // if the authentication was successful.
-  void ReopenBubbleAfterAuth(bool auth_is_successful);
-
-  // Shows an authentication dialog and returns true if auth is successful.
-  virtual bool ShowAuthenticationDialog();
 
   // Gets invoked gaia reauth flow is finished. If the reauth was successful,
   // and the |form_manager| is still the same, |username| and |password| are
@@ -315,6 +316,9 @@ class ManagePasswordsUIController
           password_manager::MovePasswordToAccountStoreHelper>>::iterator
           done_helper_it);
 
+  // Cancels current authentication and releases |biometric_authenticator_|.
+  void CancelAnyOngoingBiometricAuth();
+
   // Timeout in seconds for the manual fallback for saving.
   static int save_fallback_timeout_in_seconds_;
 
@@ -336,13 +340,19 @@ class ManagePasswordsUIController
   // fallback).
   base::OneShotTimer save_fallback_timer_;
 
-  // True iff bubble should pop up with revealed password value.
-  bool are_passwords_revealed_when_next_bubble_is_opened_;
-
   // Contains the helpers currently executing moving tasks. This will almost
   // always contain either 0 or 1 items.
   std::list<std::unique_ptr<password_manager::MovePasswordToAccountStoreHelper>>
       move_to_account_store_helpers_;
+
+  scoped_refptr<device_reauth::DeviceAuthenticator> biometric_authenticator_;
+
+  // Used to bypass user authentication in integration tests.
+  bool bypass_user_auth_for_testing_ = false;
+
+#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)
+  bool was_biometric_authentication_for_filling_promo_shown_ = false;
+#endif
 
   // The bubbles of different types can pop up unpredictably superseding each
   // other. However, closing the bubble may affect the state of

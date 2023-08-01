@@ -1,4 +1,4 @@
-// Copyright (c) 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,9 @@
 #include "components/content_settings/core/browser/content_settings_global_value_map.h"
 #include "components/content_settings/core/browser/content_settings_observable_provider.h"
 
+namespace supervised_user {
 class SupervisedUserSettingsService;
+}  // namespace supervised_user
 
 namespace content_settings {
 
@@ -20,8 +22,8 @@ namespace content_settings {
 // of a supervised user.
 class SupervisedProvider : public ObservableProvider {
  public:
-  explicit SupervisedProvider(
-      SupervisedUserSettingsService* supervised_user_settings_service);
+  explicit SupervisedProvider(supervised_user::SupervisedUserSettingsService*
+                                  supervised_user_settings_service);
 
   SupervisedProvider(const SupervisedProvider&) = delete;
   SupervisedProvider& operator=(const SupervisedProvider&) = delete;
@@ -46,7 +48,7 @@ class SupervisedProvider : public ObservableProvider {
 
  private:
   // Callback on receiving settings from the supervised user settings service.
-  void OnSupervisedSettingsAvailable(const base::DictionaryValue* settings);
+  void OnSupervisedSettingsAvailable(const base::Value::Dict& settings);
 
   GlobalValueMap value_map_;
 

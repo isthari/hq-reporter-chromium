@@ -1,8 +1,10 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.push_messaging;
+
+import static androidx.test.espresso.matcher.ViewMatchers.assertThat;
 
 import android.annotation.SuppressLint;
 import android.app.Notification;
@@ -182,6 +184,7 @@ public class PushMessagingTest implements PushMessagingServiceObserver.Listener 
     @Test
     @MediumTest
     @Feature({"Browser", "PushMessaging"})
+    @DisabledTest(message = "Disabled for flakiness, see https://crbug.com/1442707")
     public void testPushPermissionGranted() throws TimeoutException {
         // Notifications permission should initially be prompt.
         Assert.assertEquals("\"default\"", runScriptBlocking("Notification.permission"));
@@ -257,7 +260,7 @@ public class PushMessagingTest implements PushMessagingServiceObserver.Listener 
         // After grace runs out a default notification will be shown.
         sendPushAndWaitForCallback(appIdAndSenderId);
         NotificationEntry notificationEntry = mNotificationTestRule.waitForNotification();
-        Assert.assertThat(
+        assertThat(
                 notificationEntry.tag, Matchers.containsString("user_visible_auto_notification"));
 
         // When another push does show a notification, the default notification is automatically

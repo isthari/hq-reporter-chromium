@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,12 +11,10 @@ import androidx.annotation.Nullable;
 
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.annotations.CalledByNative;
-import org.chromium.base.annotations.JNIAdditionalImport;
 import org.chromium.base.annotations.NativeMethods;
 import org.chromium.base.task.PostTask;
-import org.chromium.components.payments.PaymentApp;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.components.payments.PaymentFeatureList;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.payments.mojom.PaymentEventResponseType;
 import org.chromium.url.GURL;
@@ -27,7 +25,6 @@ import java.util.Map;
 /**
  * Native bridge for interacting with service worker based payment apps.
  */
-@JNIAdditionalImport({PaymentApp.class})
 public class ServiceWorkerPaymentAppBridge {
     private static final String TAG = "SWPaymentApp";
 
@@ -62,7 +59,7 @@ public class ServiceWorkerPaymentAppBridge {
         ThreadUtils.assertOnUiThread();
 
         if (!PaymentFeatureList.isEnabled(PaymentFeatureList.SERVICE_WORKER_PAYMENT_APPS)) {
-            PostTask.postTask(UiThreadTaskTraits.DEFAULT, new Runnable() {
+            PostTask.postTask(TaskTraits.UI_DEFAULT, new Runnable() {
                 @Override
                 public void run() {
                     callback.onHasServiceWorkerPaymentAppsResponse(false);
@@ -83,7 +80,7 @@ public class ServiceWorkerPaymentAppBridge {
         ThreadUtils.assertOnUiThread();
 
         if (!PaymentFeatureList.isEnabled(PaymentFeatureList.SERVICE_WORKER_PAYMENT_APPS)) {
-            PostTask.postTask(UiThreadTaskTraits.DEFAULT, new Runnable() {
+            PostTask.postTask(TaskTraits.UI_DEFAULT, new Runnable() {
                 @Override
                 public void run() {
                     callback.onGetServiceWorkerPaymentAppsInfo(

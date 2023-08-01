@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 
+#include "base/memory/raw_ptr.h"
 #include "extensions/browser/api/messaging/native_message_host.h"
 
 namespace base {
@@ -91,7 +92,8 @@ class VmSKForwardingNativeMessageHost : public extensions::NativeMessageHost {
   const std::string json_message_to_send_;
 
   // Unowned. |client_| must outlive this instance.
-  extensions::NativeMessageHost::Client* client_ = nullptr;
+  raw_ptr<extensions::NativeMessageHost::Client, ExperimentalAsh> client_ =
+      nullptr;
 };
 
 }  // namespace guest_os

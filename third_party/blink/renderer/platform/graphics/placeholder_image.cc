@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <utility>
 
-#include "base/cxx17_backports.h"
 #include "cc/paint/paint_flags.h"
 #include "third_party/blink/public/resources/grit/blink_image_resources.h"
 #include "third_party/blink/public/strings/grit/blink_strings.h"
@@ -87,14 +86,17 @@ void DrawCenteredIcon(cc::PaintCanvas* canvas,
 
 FontDescription CreatePlaceholderFontDescription(float scale_factor) {
   FontDescription description;
-  description.FirstFamily().SetFamily("Roboto", FontFamily::Type::kFamilyName);
+  description.FirstFamily().SetFamily(font_family_names::kRoboto,
+                                      FontFamily::Type::kFamilyName);
 
   scoped_refptr<SharedFontFamily> helvetica_neue = SharedFontFamily::Create();
-  helvetica_neue->SetFamily("Helvetica Neue", FontFamily::Type::kFamilyName);
+  helvetica_neue->SetFamily(font_family_names::kHelveticaNeue,
+                            FontFamily::Type::kFamilyName);
   scoped_refptr<SharedFontFamily> helvetica = SharedFontFamily::Create();
-  helvetica->SetFamily("Helvetica", FontFamily::Type::kFamilyName);
+  helvetica->SetFamily(font_family_names::kHelvetica,
+                       FontFamily::Type::kFamilyName);
   scoped_refptr<SharedFontFamily> arial = SharedFontFamily::Create();
-  arial->SetFamily("Arial", FontFamily::Type::kFamilyName);
+  arial->SetFamily(font_family_names::kArial, FontFamily::Type::kFamilyName);
 
   helvetica->AppendFamily(std::move(arial));
   helvetica_neue->AppendFamily(std::move(helvetica));
@@ -132,7 +134,7 @@ String FormatOriginalResourceSizeBytes(int64_t bytes) {
   // Find the smallest unit that can represent |bytes| in 3 digits or less.
   // Round up to the next higher unit if possible when it would take 4 digits to
   // display the amount, e.g. 1000 KB will be rounded up to 1 MB.
-  for (; units < kUnitsResourceIds + (base::size(kUnitsResourceIds) - 1) &&
+  for (; units < kUnitsResourceIds + (std::size(kUnitsResourceIds) - 1) &&
          bytes >= denomenator * 1000;
        ++units, denomenator *= 1024) {
   }
@@ -245,20 +247,19 @@ PaintImage PlaceholderImage::PaintImageForCurrentFrame() {
   const gfx::Rect dest_rect(size_);
   if (paint_record_for_current_frame_) {
     return builder
-        .set_paint_record(paint_record_for_current_frame_, dest_rect,
+        .set_paint_record(*paint_record_for_current_frame_, dest_rect,
                           paint_record_content_id_)
         .TakePaintImage();
   }
 
   PaintRecorder paint_recorder;
-  Draw(paint_recorder.beginRecording(gfx::RectToSkRect(dest_rect)),
-       cc::PaintFlags(), gfx::RectF(dest_rect), gfx::RectF(dest_rect),
-       ImageDrawOptions());
+  Draw(paint_recorder.beginRecording(), cc::PaintFlags(), gfx::RectF(dest_rect),
+       gfx::RectF(dest_rect), ImageDrawOptions());
 
   paint_record_for_current_frame_ = paint_recorder.finishRecordingAsPicture();
   paint_record_content_id_ = PaintImage::GetNextContentId();
   return builder
-      .set_paint_record(paint_record_for_current_frame_, dest_rect,
+      .set_paint_record(*paint_record_for_current_frame_, dest_rect,
                         paint_record_content_id_)
       .TakePaintImage();
 }
@@ -269,7 +270,7 @@ void PlaceholderImage::SetIconAndTextScaleFactor(
     return;
   icon_and_text_scale_factor_ = icon_and_text_scale_factor;
   cached_text_width_.reset();
-  paint_record_for_current_frame_.reset();
+  paint_record_for_current_frame_ = absl::nullopt;
 }
 
 void PlaceholderImage::Draw(cc::PaintCanvas* canvas,
@@ -295,7 +296,7 @@ void PlaceholderImage::Draw(cc::PaintCanvas* canvas,
     return;
   }
 
-  if (text_.IsEmpty()) {
+  if (text_.empty()) {
     DrawCenteredIcon(canvas, base_flags, dest_rect,
                      draw_options.sampling_options,
                      icon_and_text_scale_factor_);
@@ -352,7 +353,7 @@ void PlaceholderImage::Draw(cc::PaintCanvas* canvas,
       canvas, TextRunPaintInfo(TextRun(text_)),
       gfx::PointF(text_x, feature_y + icon_and_text_scale_factor_ *
                                           (kTextPaddingY + kFontSize)),
-      Font::kUseFallbackIfFontNotReady, 1.0f, flags);
+      Font::kUseFallbackIfFontNotReady, flags);
 }
 
 void PlaceholderImage::DrawPattern(GraphicsContext& context,

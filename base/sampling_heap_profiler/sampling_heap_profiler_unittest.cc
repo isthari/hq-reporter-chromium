@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,8 @@
 #include <stdlib.h>
 #include <cinttypes>
 
-#include "base/allocator/allocator_shim.h"
+#include "base/allocator/dispatcher/dispatcher.h"
+#include "base/allocator/partition_allocator/shim/allocator_shim.h"
 #include "base/debug/alias.h"
 #include "base/memory/raw_ptr.h"
 #include "base/rand_util.h"
@@ -17,15 +18,32 @@
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+
 namespace base {
+
+using ScopedSuppressRandomnessForTesting =
+    PoissonAllocationSampler::ScopedSuppressRandomnessForTesting;
+using base::allocator::dispatcher::AllocationSubsystem;
 
 class SamplingHeapProfilerTest : public ::testing::Test {
  public:
   void SetUp() override {
 #if BUILDFLAG(IS_APPLE)
-    allocator::InitializeAllocatorShim();
+    allocator_shim::InitializeAllocatorShim();
 #endif
     SamplingHeapProfiler::Init();
+
+    // Ensure the PoissonAllocationSampler starts in the default state.
+    ASSERT_FALSE(PoissonAllocationSampler::AreHookedSamplesMuted());
+    ASSERT_FALSE(PoissonAllocationSampler::ScopedMuteThreadSamples::IsMuted());
+    ASSERT_FALSE(ScopedSuppressRandomnessForTesting::IsSuppressed());
+
+    allocator::dispatcher::Dispatcher::GetInstance().InitializeForTesting(
+        PoissonAllocationSampler::Get());
+  }
+
+  void TearDown() override {
+    allocator::dispatcher::Dispatcher::GetInstance().ResetForTesting();
   }
 
   size_t GetNextSample(size_t mean_interval) {
@@ -52,7 +70,7 @@ class SamplesCollector : public PoissonAllocationSampler::SamplesObserver {
   void SampleAdded(void* address,
                    size_t size,
                    size_t,
-                   PoissonAllocationSampler::AllocatorType,
+                   AllocationSubsystem,
                    const char*) override {
     if (sample_added || size != watch_size_)
       return;
@@ -74,9 +92,9 @@ class SamplesCollector : public PoissonAllocationSampler::SamplesObserver {
 };
 
 TEST_F(SamplingHeapProfilerTest, SampleObserver) {
+  ScopedSuppressRandomnessForTesting suppress;
   SamplesCollector collector(10000);
   auto* sampler = PoissonAllocationSampler::Get();
-  sampler->SuppressRandomnessForTest(true);
   sampler->SetSamplingInterval(1024);
   sampler->AddSamplesObserver(&collector);
   void* volatile p = malloc(10000);
@@ -87,9 +105,9 @@ TEST_F(SamplingHeapProfilerTest, SampleObserver) {
 }
 
 TEST_F(SamplingHeapProfilerTest, SampleObserverMuted) {
+  ScopedSuppressRandomnessForTesting suppress;
   SamplesCollector collector(10000);
   auto* sampler = PoissonAllocationSampler::Get();
-  sampler->SuppressRandomnessForTest(true);
   sampler->SetSamplingInterval(1024);
   sampler->AddSamplesObserver(&collector);
   {
@@ -103,7 +121,7 @@ TEST_F(SamplingHeapProfilerTest, SampleObserverMuted) {
 }
 
 TEST_F(SamplingHeapProfilerTest, IntervalRandomizationSanity) {
-  PoissonAllocationSampler::Get()->SuppressRandomnessForTest(false);
+  ASSERT_FALSE(ScopedSuppressRandomnessForTesting::IsSuppressed());
   constexpr int iterations = 50;
   constexpr size_t target = 10000000;
   int sum = 0;
@@ -160,8 +178,8 @@ class MyThread2 : public SimpleThread {
 };
 
 void CheckAllocationPattern(void (*allocate_callback)()) {
+  ASSERT_FALSE(ScopedSuppressRandomnessForTesting::IsSuppressed());
   auto* profiler = SamplingHeapProfiler::Get();
-  PoissonAllocationSampler::Get()->SuppressRandomnessForTest(false);
   profiler->SetSamplingInterval(10240);
   base::TimeTicks t0 = base::TimeTicks::Now();
   std::map<size_t, size_t> sums;
@@ -243,13 +261,13 @@ TEST_F(SamplingHeapProfilerTest, MAYBE_MANUAL_SamplerMicroBenchmark) {
 
   base::TimeTicks t0 = base::TimeTicks::Now();
   for (int i = 1; i <= kNumAllocations; ++i) {
-    sampler->RecordAlloc(
-        reinterpret_cast<void*>(static_cast<intptr_t>(i)), allocation_size,
-        PoissonAllocationSampler::AllocatorType::kMalloc, nullptr);
+    sampler->OnAllocation(reinterpret_cast<void*>(static_cast<intptr_t>(i)),
+                          allocation_size, AllocationSubsystem::kAllocatorShim,
+                          nullptr);
   }
   base::TimeTicks t1 = base::TimeTicks::Now();
   for (int i = 1; i <= kNumAllocations; ++i)
-    sampler->RecordFree(reinterpret_cast<void*>(static_cast<intptr_t>(i)));
+    sampler->OnFree(reinterpret_cast<void*>(static_cast<intptr_t>(i)));
   base::TimeTicks t2 = base::TimeTicks::Now();
 
   printf(
@@ -309,10 +327,10 @@ TEST_F(SamplingHeapProfilerTest, MAYBE_ConcurrentStartStop) {
 }
 
 TEST_F(SamplingHeapProfilerTest, HookedAllocatorMuted) {
+  ScopedSuppressRandomnessForTesting suppress;
   EXPECT_FALSE(PoissonAllocationSampler::AreHookedSamplesMuted());
 
   auto* sampler = PoissonAllocationSampler::Get();
-  sampler->SuppressRandomnessForTest(true);
   sampler->SetSamplingInterval(1024);
 
   {
@@ -333,9 +351,9 @@ TEST_F(SamplingHeapProfilerTest, HookedAllocatorMuted) {
     // Manual allocations should be captured.
     sampler->AddSamplesObserver(&collector);
     void* const kAddress = reinterpret_cast<void*>(0x1234);
-    sampler->RecordAlloc(kAddress, 10000,
-                         PoissonAllocationSampler::kManualForTesting, nullptr);
-    sampler->RecordFree(kAddress);
+    sampler->OnAllocation(kAddress, 10000,
+                          AllocationSubsystem::kManualForTesting, nullptr);
+    sampler->OnFree(kAddress);
     sampler->RemoveSamplesObserver(&collector);
     EXPECT_TRUE(collector.sample_added);
     EXPECT_TRUE(collector.sample_removed);

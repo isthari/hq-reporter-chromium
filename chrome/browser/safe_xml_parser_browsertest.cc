@@ -1,11 +1,11 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <memory>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/json/json_reader.h"
 #include "base/strings/string_piece.h"
 #include "base/token.h"
@@ -42,14 +42,15 @@ class SafeXmlParserTest : public InProcessBrowserTest {
     SCOPED_TRACE(xml);
 
     base::RunLoop run_loop;
-    std::unique_ptr<base::Value> expected_value;
+    absl::optional<base::Value> expected_value;
     if (!expected_json.empty()) {
-      expected_value = base::JSONReader::ReadDeprecated(expected_json);
+      expected_value = base::JSONReader::Read(expected_json);
       DCHECK(expected_value) << "Bad test, incorrect JSON: " << expected_json;
     }
 
     data_decoder::DataDecoder::ParseXmlIsolated(
         std::string(xml),
+        data_decoder::mojom::XmlParser::WhitespaceBehavior::kIgnore,
         base::BindOnce(&SafeXmlParserTest::XmlParsingDone,
                        base::Unretained(this), run_loop.QuitClosure(),
                        std::move(expected_value)));
@@ -58,17 +59,15 @@ class SafeXmlParserTest : public InProcessBrowserTest {
 
  private:
   void XmlParsingDone(base::OnceClosure quit_loop_closure,
-                      std::unique_ptr<base::Value> expected_value,
+                      absl::optional<base::Value> expected_value,
                       data_decoder::DataDecoder::ValueOrError result) {
     base::ScopedClosureRunner runner(std::move(quit_loop_closure));
-    if (!expected_value) {
-      EXPECT_FALSE(result.value);
-      EXPECT_TRUE(result.error);
-      return;
+    if (expected_value) {
+      ASSERT_TRUE(result.has_value());
+      EXPECT_EQ(*expected_value, *result);
+    } else {
+      EXPECT_FALSE(result.has_value());
     }
-    EXPECT_FALSE(result.error);
-    ASSERT_TRUE(result.value);
-    EXPECT_EQ(*expected_value, *result.value);
   }
 };
 

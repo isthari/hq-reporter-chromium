@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,18 +11,22 @@
 
 #include "base/component_export.h"
 #include "base/containers/linked_list.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ref.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/timer/timer.h"
+#include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "net/base/isolation_info.h"
 #include "net/cookies/canonical_cookie.h"
 #include "net/cookies/cookie_change_dispatcher.h"
 #include "net/cookies/cookie_inclusion_status.h"
 #include "net/cookies/cookie_partition_key_collection.h"
+#include "net/cookies/cookie_setting_override.h"
 #include "net/cookies/cookie_store.h"
-#include "net/cookies/first_party_set_metadata.h"
+#include "net/first_party_sets/first_party_set_metadata.h"
 #include "services/network/public/mojom/cookie_access_observer.mojom.h"
 #include "services/network/public/mojom/restricted_cookie_manager.mojom.h"
 #include "url/gurl.h"
@@ -56,6 +60,15 @@ class CookieSettings;
 class COMPONENT_EXPORT(NETWORK_SERVICE) RestrictedCookieManager
     : public mojom::RestrictedCookieManager {
  public:
+  // Callback to record metrics about IPCs received.
+  class UmaMetricsUpdater {
+   public:
+    UmaMetricsUpdater();
+    virtual ~UmaMetricsUpdater();
+    // Called on the same sequence the RestrictedCookieManager was created on.
+    virtual void OnGetCookiesString() = 0;
+  };
+
   // All the pointers passed to the constructor are expected to point to
   // objects that will outlive `this`.
   //
@@ -72,15 +85,19 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) RestrictedCookieManager
   // `first_party_set_metadata` should have been previously computed by
   // `ComputeFirstPartySetMetadata` using the same `origin`, `cookie_store` and
   // `isolation_info` as were passed in here.
+  //
+  // `metrics_updater` if not null will be used to record metrics about IPCs
+  // serviced.
   RestrictedCookieManager(
       mojom::RestrictedCookieManagerRole role,
       net::CookieStore* cookie_store,
       const CookieSettings& cookie_settings,
       const url::Origin& origin,
       const net::IsolationInfo& isolation_info,
+      const net::CookieSettingOverrides& cookie_setting_overrides,
       mojo::PendingRemote<mojom::CookieAccessObserver> cookie_observer,
-      bool first_party_sets_enabled,
-      net::FirstPartySetMetadata first_party_set_metadata);
+      net::FirstPartySetMetadata first_party_set_metadata,
+      UmaMetricsUpdater* metrics_updater = nullptr);
 
   RestrictedCookieManager(const RestrictedCookieManager&) = delete;
   RestrictedCookieManager& operator=(const RestrictedCookieManager&) = delete;
@@ -96,11 +113,12 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) RestrictedCookieManager
   void OverrideIsolationInfoForTesting(
       const net::IsolationInfo& new_isolation_info);
 
-  const CookieSettings& cookie_settings() const { return cookie_settings_; }
+  const CookieSettings& cookie_settings() const { return *cookie_settings_; }
 
   void GetAllForUrl(const GURL& url,
                     const net::SiteForCookies& site_for_cookies,
                     const url::Origin& top_frame_origin,
+                    bool has_storage_access,
                     mojom::CookieManagerGetOptionsPtr options,
                     GetAllForUrlCallback callback) override;
 
@@ -108,29 +126,42 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) RestrictedCookieManager
                           const GURL& url,
                           const net::SiteForCookies& site_for_cookies,
                           const url::Origin& top_frame_origin,
+                          bool has_storage_access,
+                          net::CookieInclusionStatus status,
                           SetCanonicalCookieCallback callback) override;
 
   void AddChangeListener(
       const GURL& url,
       const net::SiteForCookies& site_for_cookies,
       const url::Origin& top_frame_origin,
+      bool has_storage_access,
       mojo::PendingRemote<mojom::CookieChangeListener> listener,
       AddChangeListenerCallback callback) override;
 
   void SetCookieFromString(const GURL& url,
                            const net::SiteForCookies& site_for_cookies,
                            const url::Origin& top_frame_origin,
+                           bool has_storage_access,
                            const std::string& cookie,
                            SetCookieFromStringCallback callback) override;
 
   void GetCookiesString(const GURL& url,
                         const net::SiteForCookies& site_for_cookies,
                         const url::Origin& top_frame_origin,
+                        bool has_storage_access,
                         GetCookiesStringCallback callback) override;
   void CookiesEnabledFor(const GURL& url,
                          const net::SiteForCookies& site_for_cookies,
                          const url::Origin& top_frame_origin,
+                         bool has_storage_access,
                          CookiesEnabledForCallback callback) override;
+
+  // If this instance owns its receiver bind and store it using
+  // |pending_receiver|.
+  void InstallReceiver(
+      mojo::PendingReceiver<mojom::RestrictedCookieManager> pending_receiver,
+      scoped_refptr<base::SequencedTaskRunner> task_runner,
+      base::OnceClosure on_disconnect_callback);
 
   // Computes the First-Party Set metadata corresponding to the given `origin`,
   // `cookie_store`, and `isolation_info`.
@@ -154,6 +185,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) RestrictedCookieManager
       const GURL& url,
       const net::SiteForCookies& site_for_cookies,
       const url::Origin& top_frame_origin,
+      bool has_storage_access,
       const net::CookieOptions& net_options,
       mojom::CookieManagerGetOptionsPtr options,
       GetAllForUrlCallback callback,
@@ -211,9 +243,23 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) RestrictedCookieManager
       base::OnceClosure done_closure,
       net::FirstPartySetMetadata first_party_set_metadata);
 
+  // Computes the CookieSettingOverrides to be used by this instance.
+  net::CookieSettingOverrides GetCookieSettingOverrides(
+      bool has_storage_access) const;
+
+  void OnCookiesAccessed(network::mojom::CookieAccessDetailsPtr details);
+
+  void CallCookiesAccessed();
+
   const mojom::RestrictedCookieManagerRole role_;
   const raw_ptr<net::CookieStore> cookie_store_;
-  const CookieSettings& cookie_settings_;
+  const raw_ref<const CookieSettings> cookie_settings_;
+
+  // The minimal subset of overrides to use when accessing cookies via this
+  // instance. Additional overrides may be added to the set returned by
+  // GetCookieSettingOverrides, depending on additional factors not known at
+  // construction or that may change after construction.
+  const net::CookieSettingOverrides cookie_setting_overrides_;
 
   url::Origin origin_;
 
@@ -245,7 +291,18 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) RestrictedCookieManager
   // update filtering.
   CookieAccessesByURLAndSite recent_cookie_accesses_;
 
-  const bool first_party_sets_enabled_;
+  bool same_party_attribute_enabled_;
+
+  // This class can optionally bind its Receiver. If that's the case it's stored
+  // done with this variable.
+  mojo::Receiver<mojom::RestrictedCookieManager> receiver_;
+
+  const raw_ptr<UmaMetricsUpdater> metrics_updater_;
+
+  // Stores queued cookie access events that will be sent after a short delay, controlled by
+  // `cookies_access_timer_`.
+  std::vector<network::mojom::CookieAccessDetailsPtr> cookie_access_details_;
+  base::RetainingOneShotTimer cookies_access_timer_;
 
   base::WeakPtrFactory<RestrictedCookieManager> weak_ptr_factory_{this};
 };

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,11 @@ package org.chromium.android_webview.test;
 
 import static org.chromium.android_webview.test.AwActivityTestRule.WAIT_TIMEOUT_MS;
 
-import android.support.test.InstrumentationRegistry;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 
+import androidx.test.InstrumentationRegistry;
 import androidx.test.filters.MediumTest;
 
 import org.hamcrest.Matchers;
@@ -77,7 +77,6 @@ public class AwContentsClientFullScreenTest {
     @Feature({"AndroidWebView"})
     @DisableHardwareAccelerationForTest
     @Test
-    @DisabledTest(message = "crbug.com/618749") // turning this on as an experiment.
     public void testFullscreenVideoInSoftwareModeDoesNotDeadlock() throws Throwable {
         // Although fullscreen video is not supported without hardware acceleration
         // we should not deadlock if apps try to use it.
@@ -101,7 +100,6 @@ public class AwContentsClientFullScreenTest {
     @MediumTest
     @Feature({"AndroidWebView"})
     @Test
-    @DisabledTest(message = "crbug.com/618749")
     public void testOnShowAndHideCustomViewWithCallback_video() throws Throwable {
         doTestOnShowAndHideCustomViewWithCallback(VIDEO_TEST_URL);
     }
@@ -109,7 +107,6 @@ public class AwContentsClientFullScreenTest {
     @MediumTest
     @Feature({"AndroidWebView"})
     @Test
-    @DisabledTest(message = "crbug.com/618749")
     public void testOnShowAndHideCustomViewWithCallback_videoInsideDiv() throws Throwable {
         doTestOnShowAndHideCustomViewWithCallback(VIDEO_INSIDE_DIV_TEST_URL);
     }
@@ -122,7 +119,6 @@ public class AwContentsClientFullScreenTest {
     @MediumTest
     @Feature({"AndroidWebView"})
     @Test
-    @DisabledTest(message = "crbug.com/618749")
     public void testOnShowAndHideCustomViewWithJavascript_video() throws Throwable {
         doTestOnShowAndHideCustomViewWithJavascript(VIDEO_TEST_URL);
     }
@@ -130,7 +126,6 @@ public class AwContentsClientFullScreenTest {
     @MediumTest
     @Feature({"AndroidWebView"})
     @Test
-    @DisabledTest(message = "crbug.com/618749")
     public void testOnShowAndHideCustomViewWithJavascript_videoInsideDiv() throws Throwable {
         doTestOnShowAndHideCustomViewWithJavascript(VIDEO_INSIDE_DIV_TEST_URL);
     }
@@ -144,7 +139,6 @@ public class AwContentsClientFullScreenTest {
     @Feature({"AndroidWebView"})
     @Test
     // Originally flaked only in multi-process mode (http://crbug.com/616501)
-    @DisabledTest(message = "crbug.com/618749")
     public void testOnShowAndHideCustomViewWithBackKey_video() throws Throwable {
         doTestOnShowAndHideCustomViewWithBackKey(VIDEO_TEST_URL);
     }
@@ -152,7 +146,6 @@ public class AwContentsClientFullScreenTest {
     @MediumTest
     @Feature({"AndroidWebView"})
     @Test
-    @DisabledTest(message = "crbug.com/618749")
     public void testOnShowAndHideCustomViewWithBackKey_videoInsideDiv() throws Throwable {
         doTestOnShowAndHideCustomViewWithBackKey(VIDEO_INSIDE_DIV_TEST_URL);
     }
@@ -284,6 +277,7 @@ public class AwContentsClientFullScreenTest {
     @MediumTest
     @Feature({"AndroidWebView"})
     @Test
+    @DisabledTest(message = "Flaky, see crbug.com/1425963")
     public void testPowerSaveBlockerIsTransferredToFullscreen() throws Throwable {
         Assert.assertFalse(DOMUtils.isFullscreen(getWebContentsOnUiThread()));
         loadTestPage(VIDEO_INSIDE_DIV_TEST_URL);

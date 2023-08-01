@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include "ash/components/arc/compat_mode/arc_resize_lock_pref_delegate.h"
 #include "ash/components/arc/compat_mode/compat_mode_button_controller.h"
+#include "base/memory/raw_ptr.h"
 #include "base/scoped_multi_source_observation.h"
 #include "base/scoped_observation.h"
 #include "components/keyed_service/core/keyed_service.h"
@@ -57,6 +58,8 @@ class ArcResizeLockManager : public KeyedService,
     pref_delegate_ = delegate;
   }
 
+  static void EnsureFactoryBuilt();
+
  private:
   friend class ArcResizeLockManagerTest;
 
@@ -65,7 +68,12 @@ class ArcResizeLockManager : public KeyedService,
   void UpdateResizeLockState(aura::Window* window);
   void UpdateShadow(aura::Window* window);
 
-  ArcResizeLockPrefDelegate* pref_delegate_{nullptr};
+  // virtual for unittest.
+  virtual void ShowSplashScreenDialog(aura::Window* window,
+                                      bool is_fully_locked);
+
+  raw_ptr<ArcResizeLockPrefDelegate, DanglingUntriaged | ExperimentalAsh>
+      pref_delegate_{nullptr};
 
   // Using unique_ptr to allow unittest to override.
   std::unique_ptr<CompatModeButtonController> compat_mode_button_controller_;

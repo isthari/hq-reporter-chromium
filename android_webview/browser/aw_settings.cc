@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,16 +7,21 @@
 #include <memory>
 
 #include "android_webview/browser/aw_browser_context.h"
+#include "android_webview/browser/aw_client_hints_controller_delegate.h"
 #include "android_webview/browser/aw_content_browser_client.h"
 #include "android_webview/browser/aw_contents.h"
+#include "android_webview/browser/aw_contents_origin_matcher.h"
 #include "android_webview/browser/aw_dark_mode.h"
 #include "android_webview/browser/renderer_host/aw_render_view_host_ext.h"
 #include "android_webview/browser_jni_headers/AwSettings_jni.h"
 #include "android_webview/common/aw_content_client.h"
+#include "android_webview/common/aw_features.h"
 #include "base/android/jni_android.h"
+#include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
 #include "base/memory/raw_ptr.h"
 #include "base/supports_user_data.h"
+#include "components/embedder_support/user_agent_utils.h"
 #include "components/viz/common/features.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
@@ -26,8 +31,11 @@
 #include "content/public/browser/web_contents.h"
 #include "net/http/http_util.h"
 #include "services/network/public/mojom/network_context.mojom.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/common/renderer_preferences/renderer_preferences.h"
 #include "third_party/blink/public/mojom/webpreferences/web_preferences.mojom.h"
+#include "url/gurl.h"
+#include "url/origin.h"
 
 using base::android::ConvertJavaStringToUTF16;
 using base::android::ConvertUTF8ToJavaString;
@@ -73,10 +81,7 @@ AwSettings::AwSettings(JNIEnv* env,
                        jobject obj,
                        content::WebContents* web_contents)
     : WebContentsObserver(web_contents),
-      renderer_prefs_initialized_(false),
-      javascript_can_open_windows_automatically_(false),
-      allow_third_party_cookies_(false),
-      allow_file_access_(false),
+      xrw_allowlist_matcher_(base::MakeRefCounted<AwContentsOriginMatcher>()),
       aw_settings_(env, obj) {
   web_contents->SetUserData(kAwSettingsUserDataKey,
                             std::make_unique<AwSettingsUserData>(this));
@@ -103,6 +108,14 @@ bool AwSettings::GetAllowThirdPartyCookies() {
   return allow_third_party_cookies_;
 }
 
+bool AwSettings::GetJavaScriptEnabled() {
+  return javascript_enabled_;
+}
+
+AwSettings::MixedContentMode AwSettings::GetMixedContentMode() {
+  return mixed_content_mode_;
+}
+
 void AwSettings::Destroy(JNIEnv* env, const JavaParamRef<jobject>& obj) {
   delete this;
 }
@@ -114,6 +127,27 @@ AwSettings* AwSettings::FromWebContents(content::WebContents* web_contents) {
 bool AwSettings::GetAllowSniffingFileUrls() {
   JNIEnv* env = base::android::AttachCurrentThread();
   return Java_AwSettings_getAllowSniffingFileUrls(env);
+}
+
+AwSettings::RequestedWithHeaderMode
+AwSettings::GetDefaultRequestedWithHeaderMode() {
+  // If the control feature is not enabled, the default is the old behavior,
+  // which is to send the app package name.
+  if (!base::FeatureList::IsEnabled(
+          features::kWebViewXRequestedWithHeaderControl))
+    return AwSettings::RequestedWithHeaderMode::APP_PACKAGE_NAME;
+
+  int configuredValue = features::kWebViewXRequestedWithHeaderMode.Get();
+  switch (configuredValue) {
+    case AwSettings::RequestedWithHeaderMode::CONSTANT_WEBVIEW:
+      return AwSettings::RequestedWithHeaderMode::CONSTANT_WEBVIEW;
+    case AwSettings::RequestedWithHeaderMode::NO_HEADER:
+      return AwSettings::RequestedWithHeaderMode::NO_HEADER;
+    default:
+      // If the field trial config is broken for some reason, use the
+      // package name.
+      return AwSettings::RequestedWithHeaderMode::APP_PACKAGE_NAME;
+  }
 }
 
 AwRenderViewHostExt* AwSettings::GetAwRenderViewHostExt() {
@@ -154,7 +188,9 @@ void AwSettings::UpdateEverythingLocked(JNIEnv* env,
   UpdateOffscreenPreRasterLocked(env, obj);
   UpdateWillSuppressErrorStateLocked(env, obj);
   UpdateCookiePolicyLocked(env, obj);
+  UpdateJavaScriptPolicyLocked(env, obj);
   UpdateAllowFileAccessLocked(env, obj);
+  UpdateMixedContentModeLocked(env, obj);
 }
 
 void AwSettings::UpdateUserAgentLocked(JNIEnv* env,
@@ -167,9 +203,32 @@ void AwSettings::UpdateUserAgentLocked(JNIEnv* env,
   bool ua_overidden = !!str;
 
   if (ua_overidden) {
-    std::string override = base::android::ConvertJavaStringToUTF8(str);
-    web_contents()->SetUserAgentOverride(
-        blink::UserAgentOverride::UserAgentOnly(override), true);
+    std::string ua_string_override =
+        base::android::ConvertJavaStringToUTF8(str);
+    std::string ua_default = GetUserAgent();
+    blink::UserAgentOverride override_ua_with_metadata;
+    override_ua_with_metadata.ua_string_override = ua_string_override;
+
+    // If kUACHOverrideBlank is enabled, set user-agent metadata with the
+    // default blank value.
+    if (!ua_string_override.empty() &&
+        base::FeatureList::IsEnabled(blink::features::kUACHOverrideBlank)) {
+      override_ua_with_metadata.ua_metadata_override =
+          blink::UserAgentMetadata();
+    }
+
+    // If the override user-agent is not empty and contains the default
+    // user-agent, then we propagate the default user-agent client hints.
+    if (base::FeatureList::IsEnabled(blink::features::kUserAgentClientHint) &&
+        !ua_string_override.empty() &&
+        ua_string_override.find(ua_default) != std::string::npos) {
+      override_ua_with_metadata.ua_metadata_override =
+          AwClientHintsControllerDelegate::GetUserAgentMetadataOverrideBrand(
+              AwBrowserContext::GetDefault()->GetPrefService());
+    }
+
+    // Set overridden user-agent and default client hints metadata if applied.
+    web_contents()->SetUserAgentOverride(override_ua_with_metadata, true);
   }
 
   content::NavigationController& controller = web_contents()->GetController();
@@ -277,6 +336,15 @@ void AwSettings::UpdateCookiePolicyLocked(JNIEnv* env,
       Java_AwSettings_getAcceptThirdPartyCookiesLocked(env, obj);
 }
 
+void AwSettings::UpdateJavaScriptPolicyLocked(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj) {
+  if (!web_contents())
+    return;
+
+  javascript_enabled_ = Java_AwSettings_getJavaScriptEnabledLocked(env, obj);
+}
+
 void AwSettings::UpdateOffscreenPreRasterLocked(
     JNIEnv* env,
     const JavaParamRef<jobject>& obj) {
@@ -293,6 +361,16 @@ void AwSettings::UpdateAllowFileAccessLocked(JNIEnv* env,
     return;
 
   allow_file_access_ = Java_AwSettings_getAllowFileAccess(env, obj);
+}
+
+void AwSettings::UpdateMixedContentModeLocked(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj) {
+  if (!web_contents())
+    return;
+
+  mixed_content_mode_ = static_cast<MixedContentMode>(
+      Java_AwSettings_getMixedContentMode(env, obj));
 }
 
 void AwSettings::RenderViewHostChanged(content::RenderViewHost* old_host,
@@ -511,17 +589,68 @@ void AwSettings::PopulateWebPreferencesLocked(JNIEnv* env,
         Java_AwSettings_getForceDarkBehaviorLocked(env, obj),
         Java_AwSettings_isAlgorithmicDarkeningAllowedLocked(env, obj));
   }
+
+  // WebView does not support WebAuthn yet. See crbug.com/1284805.
+  web_prefs->disable_webauthn = true;
 }
 
-bool AwSettings::IsDarkMode(JNIEnv* env, const JavaParamRef<jobject>& obj) {
+bool AwSettings::IsForceDarkApplied(JNIEnv* env,
+                                    const JavaParamRef<jobject>& obj) {
   if (AwDarkMode* aw_dark_mode = AwDarkMode::FromWebContents(web_contents())) {
-    return aw_dark_mode->is_dark_mode();
+    return aw_dark_mode->is_force_dark_applied();
   }
   return false;
 }
 
+bool AwSettings::PrefersDarkFromTheme(JNIEnv* env,
+                                      const JavaParamRef<jobject>& obj) {
+  if (AwDarkMode* aw_dark_mode = AwDarkMode::FromWebContents(web_contents())) {
+    return aw_dark_mode->prefers_dark_from_theme();
+  }
+  return false;
+}
+
+void AwSettings::SetEnterpriseAuthenticationAppLinkPolicyEnabled(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    jboolean enabled) {
+  enterprise_authentication_app_link_policy_enabled_ = enabled;
+}
+
+bool AwSettings::GetEnterpriseAuthenticationAppLinkPolicyEnabled(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj) {
+  return enterprise_authentication_app_link_policy_enabled();
+}
+
 bool AwSettings::GetAllowFileAccess() {
   return allow_file_access_;
+}
+
+base::android::ScopedJavaLocalRef<jobjectArray>
+AwSettings::UpdateXRequestedWithAllowListOriginMatcher(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobjectArray>& jrules) {
+  std::vector<std::string> rules;
+  base::android::AppendJavaStringArrayToStringVector(env, jrules, &rules);
+  std::vector<std::string> bad_rules =
+      xrw_allowlist_matcher_->UpdateRuleList(rules);
+  return base::android::ToJavaArrayOfStrings(env, bad_rules);
+}
+
+void AwSettings::SetRestrictSensitiveWebContentEnabled(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    jboolean enabled) {
+  restrict_sensitive_web_content_enabled_ = enabled;
+}
+
+bool AwSettings::GetRestrictSensitiveWebContentEnabled() {
+  return restrict_sensitive_web_content_enabled();
+}
+
+scoped_refptr<AwContentsOriginMatcher> AwSettings::xrw_allowlist_matcher() {
+  return xrw_allowlist_matcher_;
 }
 
 static jlong JNI_AwSettings_Init(JNIEnv* env,

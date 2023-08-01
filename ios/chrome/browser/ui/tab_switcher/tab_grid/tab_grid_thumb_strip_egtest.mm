@@ -1,13 +1,13 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/ios/ios_util.h"
+#import "base/ios/ios_util.h"
 #import "base/test/ios/wait_util.h"
-#import "ios/chrome/browser/ui/fullscreen/fullscreen_features.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/tab_grid_constants.h"
+#import "ios/chrome/browser/ui/tab_switcher/test/query_title_server_util.h"
 #import "ios/chrome/browser/ui/thumb_strip/thumb_strip_feature.h"
-#import "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/test/earl_grey/chrome_actions.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
@@ -15,9 +15,10 @@
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
 #import "ios/testing/earl_grey/app_launch_configuration.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
-#include "net/test/embedded_test_server/http_request.h"
-#include "net/test/embedded_test_server/http_response.h"
-#include "net/test/embedded_test_server/request_handler_util.h"
+#import "ios/web/common/features.h"
+#import "net/test/embedded_test_server/http_request.h"
+#import "net/test/embedded_test_server/http_response.h"
+#import "net/test/embedded_test_server/request_handler_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -32,19 +33,6 @@ using chrome_test_util::TabGridOpenTabsPanelButton;
 using chrome_test_util::WebStateScrollViewMatcher;
 
 namespace {
-
-// net::EmbeddedTestServer handler that responds with the request's query as the
-// title and body.
-std::unique_ptr<net::test_server::HttpResponse> HandleQueryTitle(
-    const net::test_server::HttpRequest& request) {
-  std::unique_ptr<net::test_server::BasicHttpResponse> http_response(
-      new net::test_server::BasicHttpResponse);
-  http_response->set_content_type("text/html");
-  http_response->set_content("<html><head><title>" + request.GetURL().query() +
-                             "</title></head><body>" +
-                             request.GetURL().query() + "</body></html>");
-  return std::move(http_response);
-}
 
 // Returns a matcher making sure element is not hidden.
 id<GREYMatcher> isNotHidden() {
@@ -75,16 +63,13 @@ id<GREYMatcher> cellWithLabel(NSString* label) {
 - (AppLaunchConfiguration)appConfigurationForTestCase {
   AppLaunchConfiguration config;
   config.features_enabled.push_back(kExpandedTabStrip);
-  config.features_disabled.push_back(
-      fullscreen::features::kSmoothScrollingDefault);
+  config.features_disabled.push_back(web::features::kSmoothScrollingDefault);
   return config;
 }
 
 // Sets up the EmbeddedTestServer as needed for tests.
 - (void)setUpTestServer {
-  self.testServer->RegisterDefaultHandler(base::BindRepeating(
-      net::test_server::HandlePrefixedRequest, "/querytitle",
-      base::BindRepeating(&HandleQueryTitle)));
+  RegisterQueryTitleHandler(self.testServer);
   GREYAssertTrue(self.testServer->Start(), @"Test server failed to start");
 }
 
@@ -99,7 +84,7 @@ id<GREYMatcher> cellWithLabel(NSString* label) {
 
   [self setUpTestServer];
 
-  const GURL URL = self.testServer->GetURL("/querytitle?Tab1");
+  const GURL URL = GetQueryTitleURL(self.testServer, @"Tab1");
 
   [ChromeEarlGrey loadURL:URL];
   [ChromeEarlGrey waitForWebStateContainingText:"Tab1"];
@@ -117,7 +102,7 @@ id<GREYMatcher> cellWithLabel(NSString* label) {
   [[EarlGrey
       selectElementWithMatcher:grey_allOf(
                                    grey_kindOfClassName(@"PlusSignCell"),
-                                   grey_accessibilityLabel(@"Create new tab."),
+                                   grey_accessibilityLabel(@"Create New Tab"),
                                    nil)]
       assertWithMatcher:grey_minimumVisiblePercent(1)];
 
@@ -142,7 +127,7 @@ id<GREYMatcher> cellWithLabel(NSString* label) {
   [[EarlGrey
       selectElementWithMatcher:grey_allOf(
                                    grey_kindOfClassName(@"PlusSignCell"),
-                                   grey_accessibilityLabel(@"Create new tab."),
+                                   grey_accessibilityLabel(@"Create New Tab"),
                                    nil)]
       assertWithMatcher:grey_minimumVisiblePercent(1)];
   [[EarlGrey
@@ -159,7 +144,7 @@ id<GREYMatcher> cellWithLabel(NSString* label) {
   [[EarlGrey
       selectElementWithMatcher:grey_allOf(
                                    grey_kindOfClassName(@"PlusSignCell"),
-                                   grey_accessibilityLabel(@"Create new tab."),
+                                   grey_accessibilityLabel(@"Create New Tab"),
                                    nil)] assertWithMatcher:grey_notVisible()];
   // Even when visible, this button has a visibility percent of around 0.15
   // because it is mostly a gradient.
@@ -178,7 +163,7 @@ id<GREYMatcher> cellWithLabel(NSString* label) {
 
   [self setUpTestServer];
 
-  const GURL URL = self.testServer->GetURL("/querytitle?Tab1");
+  const GURL URL = GetQueryTitleURL(self.testServer, @"Tab1");
 
   // A relative X-position in a view far to the trailing side.
   CGFloat trailingPercentage = [ChromeEarlGrey isRTL] ? 0.02 : 0.98;
@@ -230,7 +215,7 @@ id<GREYMatcher> cellWithLabel(NSString* label) {
 
   [self setUpTestServer];
 
-  const GURL URL = self.testServer->GetURL("/querytitle?Tab1");
+  const GURL URL = GetQueryTitleURL(self.testServer, @"Tab1");
   [ChromeEarlGrey loadURL:URL];
   [ChromeEarlGrey waitForWebStateContainingText:"Tab1"];
 
@@ -264,7 +249,7 @@ id<GREYMatcher> cellWithLabel(NSString* label) {
 
   [self setUpTestServer];
 
-  const GURL URL = self.testServer->GetURL("/querytitle?Tab1");
+  const GURL URL = GetQueryTitleURL(self.testServer, @"Tab1");
 
   [ChromeEarlGrey loadURL:URL];
   [ChromeEarlGrey waitForWebStateContainingText:"Tab1"];
@@ -282,7 +267,7 @@ id<GREYMatcher> cellWithLabel(NSString* label) {
   [[EarlGrey
       selectElementWithMatcher:grey_allOf(
                                    grey_kindOfClassName(@"PlusSignCell"),
-                                   grey_accessibilityLabel(@"Create new tab."),
+                                   grey_accessibilityLabel(@"Create New Tab"),
                                    nil)]
       assertWithMatcher:grey_minimumVisiblePercent(1)];
 
@@ -331,7 +316,7 @@ id<GREYMatcher> cellWithLabel(NSString* label) {
 
   [self setUpTestServer];
 
-  const GURL URL = self.testServer->GetURL("/querytitle?Tab1");
+  const GURL URL = GetQueryTitleURL(self.testServer, @"Tab1");
 
   [ChromeEarlGrey loadURL:URL];
   [ChromeEarlGrey waitForWebStateContainingText:"Tab1"];
@@ -353,7 +338,7 @@ id<GREYMatcher> cellWithLabel(NSString* label) {
   [[[EarlGrey
       selectElementWithMatcher:grey_allOf(
                                    grey_kindOfClassName(@"PlusSignCell"),
-                                   grey_accessibilityLabel(@"Create new tab."),
+                                   grey_accessibilityLabel(@"Create New Tab"),
                                    nil)]
       assertWithMatcher:grey_minimumVisiblePercent(1)]
       performAction:grey_tap()];
@@ -372,7 +357,7 @@ id<GREYMatcher> cellWithLabel(NSString* label) {
 
   [self setUpTestServer];
 
-  const GURL URL = self.testServer->GetURL("/querytitle?Tab1");
+  const GURL URL = GetQueryTitleURL(self.testServer, @"Tab1");
 
   [ChromeEarlGrey loadURL:URL];
   [ChromeEarlGrey waitForWebStateContainingText:"Tab1"];

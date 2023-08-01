@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -50,7 +50,7 @@ TEST_F(DefaultGeolocationPolicyHandlerTest, BlockGeolocation) {
   UpdateProviderPolicy(policy);
   const base::Value* value = nullptr;
   EXPECT_TRUE(store_->GetValue(arc::prefs::kArcLocationServiceEnabled, &value));
-  EXPECT_TRUE(base::Value(false).Equals(value));
+  EXPECT_EQ(base::Value(false), *value);
 }
 
 TEST_F(DefaultGeolocationPolicyHandlerTest, AskGeolocation) {

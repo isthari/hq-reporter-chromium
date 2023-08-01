@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,17 +6,20 @@
 
 #include "ash/constants/app_types.h"
 #include "ash/constants/ash_features.h"
+#include "ash/drag_drop/tab_drag_drop_windows_hider.h"
 #include "ash/public/cpp/new_window_delegate.h"
-#include "ash/public/cpp/presentation_time_recorder.h"
 #include "ash/public/cpp/window_properties.h"
 #include "ash/screen_util.h"
 #include "ash/shell.h"
 #include "ash/shell_delegate.h"
+#include "ash/wm/overview/overview_controller.h"
+#include "ash/wm/overview/overview_session.h"
 #include "ash/wm/splitview/split_view_constants.h"
 #include "ash/wm/splitview/split_view_controller.h"
 #include "ash/wm/splitview/split_view_drag_indicators.h"
 #include "ash/wm/splitview/split_view_utils.h"
-#include "ash/wm/tablet_mode/tablet_mode_browser_window_drag_session_windows_hider.h"
+#include "ash/wm/tablet_mode/tablet_mode_window_state.h"
+#include "ash/wm/wm_metrics.h"
 #include "base/pickle.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chromeos/crosapi/cpp/lacros_startup_state.h"
@@ -26,6 +29,7 @@
 #include "ui/base/dragdrop/os_exchange_data.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animator.h"
+#include "ui/compositor/presentation_time_recorder.h"
 #include "ui/compositor/scoped_layer_animation_settings.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/wm/core/coordinate_conversion.h"
@@ -66,6 +70,14 @@ bool IsLacrosWindow(const aura::Window* window) {
   return app_type == AppType::LACROS;
 }
 
+// Returns the overview session if overview mode is active, otherwise returns
+// nullptr.
+OverviewSession* GetOverviewSession() {
+  return Shell::Get()->overview_controller()->InOverviewSession()
+             ? Shell::Get()->overview_controller()->overview_session()
+             : nullptr;
+}
+
 }  // namespace
 
 // static
@@ -90,6 +102,7 @@ TabDragDropDelegate::TabDragDropDelegate(
       start_location_in_screen_(start_location_in_screen) {
   DCHECK(root_window_);
   DCHECK(source_window_);
+  source_window_->AddObserver(this);
   source_window_->SetProperty(kIsSourceWindowForDrag, true);
   split_view_drag_indicators_ =
       std::make_unique<SplitViewDragIndicators>(root_window_);
@@ -102,6 +115,15 @@ TabDragDropDelegate::TabDragDropDelegate(
 
 TabDragDropDelegate::~TabDragDropDelegate() {
   tab_dragging_recorder_.reset();
+
+  if (!source_window_) {
+    return;
+  }
+
+  source_window_->RemoveObserver(this);
+
+  if (source_window_->is_destroying())
+    return;
 
   if (!source_window_->GetProperty(kIsSourceWindowForDrag))
     return;
@@ -116,7 +138,7 @@ void TabDragDropDelegate::DragUpdate(const gfx::Point& location_in_screen) {
       screen_util::GetDisplayWorkAreaBoundsInScreenForActiveDeskContainer(
           root_window_);
 
-  const SplitViewController::SnapPosition snap_position =
+  SplitViewController::SnapPosition snap_position =
       ::ash::GetSnapPositionForLocation(
           Shell::GetPrimaryRootWindow(), location_in_screen,
           start_location_in_screen_,
@@ -128,6 +150,9 @@ void TabDragDropDelegate::DragUpdate(const gfx::Point& location_in_screen) {
           /*vertical_edge_inset=*/area.height() *
                   kHighlightScreenPrimaryAxisRatio +
               kHighlightScreenEdgePaddingDp);
+  if (ShouldPreventSnapToTheEdge(location_in_screen))
+    snap_position = SplitViewController::SnapPosition::kNone;
+
   split_view_drag_indicators_->SetWindowDraggingState(
       SplitViewDragIndicators::ComputeWindowDraggingState(
           true, SplitViewDragIndicators::WindowDraggingState::kFromTop,
@@ -149,36 +174,61 @@ void TabDragDropDelegate::DropAndDeleteSelf(
       source_window_, drop_data, std::move(closure));
 }
 
+void TabDragDropDelegate::OnWindowDestroying(aura::Window* window) {
+  if (source_window_ == window) {
+    windows_hider_.reset();
+    source_window_->RemoveObserver(this);
+    source_window_ = nullptr;
+  }
+}
+
 void TabDragDropDelegate::OnNewBrowserWindowCreated(
     const gfx::Point& location_in_screen,
     aura::Window* new_window) {
-  auto is_lacros = IsLacrosWindow(source_window_);
-  if (!new_window && is_lacros &&
-      !crosapi::lacros_startup_state::IsLacrosPrimaryEnabled()) {
-    LOG(ERROR)
-        << "New browser window creation for tab detaching failed.\n"
-        << "Check whether about:flags#lacros-primary is enabled or "
-        << "--enable-features=LacrosPrimary is passed in when launching Ash";
+  // `source_window_` could reset to nullptr during the drag.
+  if (!source_window_) {
+    DCHECK(!new_window);
     return;
   }
 
-  DCHECK(new_window) << "New browser window creation for tab detaching failed.";
+  auto is_lacros = IsLacrosWindow(source_window_);
+
+  // https://crbug.com/1286203:
+  // It's possible new window is created when the dragged WebContents
+  // closes itself during the drag session.
+  if (!new_window) {
+    if (is_lacros && !crosapi::lacros_startup_state::IsLacrosPrimaryEnabled()) {
+      LOG(ERROR)
+          << "New browser window creation for tab detaching failed.\n"
+          << "Check whether about:flags#lacros-primary is enabled or "
+          << "--enable-features=LacrosPrimary is passed in when launching Ash";
+    }
+    return;
+  }
+
   const gfx::Rect area =
       screen_util::GetDisplayWorkAreaBoundsInScreenForActiveDeskContainer(
           root_window_);
 
-  SplitViewController::SnapPosition snap_position = ash::GetSnapPosition(
-      root_window_, new_window, location_in_screen, start_location_in_screen_,
-      /*snap_distance_from_edge=*/kDistanceFromEdgeDp,
-      /*minimum_drag_distance=*/kMinimumDragToSnapDistanceDp,
-      /*horizontal_edge_inset=*/area.width() *
-              kHighlightScreenPrimaryAxisRatio +
-          kHighlightScreenEdgePaddingDp,
-      /*vertical_edge_inset=*/area.height() * kHighlightScreenPrimaryAxisRatio +
-          kHighlightScreenEdgePaddingDp);
+  SplitViewController::SnapPosition snap_position_in_snapping_zone =
+      ash::GetSnapPosition(
+          root_window_, new_window, location_in_screen,
+          start_location_in_screen_,
+          /*snap_distance_from_edge=*/kDistanceFromEdgeDp,
+          /*minimum_drag_distance=*/kMinimumDragToSnapDistanceDp,
+          /*horizontal_edge_inset=*/area.width() *
+                  kHighlightScreenPrimaryAxisRatio +
+              kHighlightScreenEdgePaddingDp,
+          /*vertical_edge_inset=*/area.height() *
+                  kHighlightScreenPrimaryAxisRatio +
+              kHighlightScreenEdgePaddingDp);
+  if (ShouldPreventSnapToTheEdge(location_in_screen))
+    snap_position_in_snapping_zone = SplitViewController::SnapPosition::kNone;
 
-  if (snap_position == SplitViewController::SnapPosition::NONE)
+  if (snap_position_in_snapping_zone ==
+      SplitViewController::SnapPosition::kNone) {
     RestoreSourceWindowBounds();
+  }
 
   // This must be done after restoring the source window's bounds since
   // otherwise the SetBounds() call may have no effect.
@@ -190,16 +240,31 @@ void TabDragDropDelegate::OnNewBrowserWindowCreated(
   // If it's already in split view mode, either snap the new window
   // to the left or the right depending on the drop location.
   const bool in_split_view_mode = split_view_controller->InSplitViewMode();
+  SplitViewController::SnapPosition snap_position =
+      snap_position_in_snapping_zone;
   if (in_split_view_mode) {
     snap_position =
         split_view_controller->ComputeSnapPosition(location_in_screen);
   }
 
-  if (snap_position == SplitViewController::SnapPosition::NONE)
+  if (snap_position == SplitViewController::SnapPosition::kNone)
     return;
 
-  split_view_controller->SnapWindow(new_window, snap_position,
-                                    /*activate_window=*/true);
+  OverviewSession* overview_session = GetOverviewSession();
+  // If overview session is present on the other side and the new window is
+  // about to snap to that side but not in the snapping zone then drop the new
+  // window into overview.
+  if (overview_session &&
+      snap_position_in_snapping_zone ==
+          SplitViewController::SnapPosition::kNone &&
+      split_view_controller->GetPositionOfSnappedWindow(source_window_) !=
+          snap_position) {
+    overview_session->MergeWindowIntoOverviewForWebUITabStrip(new_window);
+  } else {
+    split_view_controller->SnapWindow(new_window, snap_position,
+                                      WindowSnapActionSource::kDragTabToSnap,
+                                      /*activate_window=*/true);
+  }
 
   // Do not snap the source window if already in split view mode.
   if (in_split_view_mode)
@@ -209,14 +274,25 @@ void TabDragDropDelegate::OnNewBrowserWindowCreated(
   // interacting with. When dropping into split view, it makes the most
   // sense to snap this window to the opposite side. Do this.
   SplitViewController::SnapPosition opposite_position =
-      (snap_position == SplitViewController::SnapPosition::LEFT)
-          ? SplitViewController::SnapPosition::RIGHT
-          : SplitViewController::SnapPosition::LEFT;
+      (snap_position == SplitViewController::SnapPosition::kPrimary)
+          ? SplitViewController::SnapPosition::kSecondary
+          : SplitViewController::SnapPosition::kPrimary;
 
   // |source_window_| is itself a child window of the browser since it
   // hosts web content (specifically, the tab strip WebUI). Snap its
   // toplevel window which is the browser window.
-  split_view_controller->SnapWindow(source_window_, opposite_position);
+  split_view_controller->SnapWindow(source_window_, opposite_position,
+                                    WindowSnapActionSource::kDragTabToSnap);
+}
+
+bool TabDragDropDelegate::ShouldPreventSnapToTheEdge(
+    const gfx::Point& location_in_screen) {
+  SplitViewController* const split_view_controller =
+      SplitViewController::Get(source_window_);
+  return !split_view_controller->InSplitViewMode() &&
+         split_view_controller->IsLayoutHorizontal(source_window_) &&
+         location_in_screen.y() <
+             Shell::Get()->shell_delegate()->GetBrowserWebUITabStripHeight();
 }
 
 void TabDragDropDelegate::UpdateSourceWindowBoundsIfNecessary(
@@ -229,13 +305,11 @@ void TabDragDropDelegate::UpdateSourceWindowBoundsIfNecessary(
     return;
 
   if (!windows_hider_) {
-    windows_hider_ =
-        std::make_unique<TabletModeBrowserWindowDragSessionWindowsHider>(
-            source_window_, nullptr);
+    windows_hider_ = std::make_unique<TabDragDropWindowsHider>(source_window_);
   }
 
   gfx::Rect new_source_window_bounds;
-  if (candidate_snap_position == SplitViewController::SnapPosition::NONE) {
+  if (candidate_snap_position == SplitViewController::SnapPosition::kNone) {
     const gfx::Rect area =
         screen_util::GetDisplayWorkAreaBoundsInScreenForActiveDeskContainer(
             root_window_);
@@ -250,9 +324,9 @@ void TabDragDropDelegate::UpdateSourceWindowBoundsIfNecessary(
     }
   } else {
     const SplitViewController::SnapPosition opposite_position =
-        (candidate_snap_position == SplitViewController::SnapPosition::LEFT)
-            ? SplitViewController::SnapPosition::RIGHT
-            : SplitViewController::SnapPosition::LEFT;
+        (candidate_snap_position == SplitViewController::SnapPosition::kPrimary)
+            ? SplitViewController::SnapPosition::kSecondary
+            : SplitViewController::SnapPosition::kPrimary;
     new_source_window_bounds =
         SplitViewController::Get(source_window_)
             ->GetSnappedWindowBoundsInScreen(opposite_position, source_window_);
@@ -271,8 +345,18 @@ void TabDragDropDelegate::UpdateSourceWindowBoundsIfNecessary(
 
 void TabDragDropDelegate::RestoreSourceWindowBounds() {
   if (SplitViewController::Get(source_window_)
-          ->IsWindowInSplitView(source_window_))
+          ->IsWindowInSplitView(source_window_)) {
     return;
+  }
+
+  auto* window_state = WindowState::Get(source_window_);
+  if (window_state->IsFloated()) {
+    // This will notify `FloatController` to find the ideal floated window
+    // bounds in tablet mode.
+    TabletModeWindowState::UpdateWindowPosition(
+        window_state, WindowState::BoundsChangeAnimationType::kNone);
+    return;
+  }
 
   const gfx::Rect area =
       screen_util::GetDisplayWorkAreaBoundsInScreenForActiveDeskContainer(

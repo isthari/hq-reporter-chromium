@@ -1,40 +1,40 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/web/navigation/navigation_manager_impl.h"
 
-#include <array>
-#include <string>
+#import <array>
+#import <string>
 
-#include "base/bind.h"
-#include "base/strings/sys_string_conversions.h"
-#include "base/strings/utf_string_conversions.h"
+#import "base/functional/bind.h"
+#import "base/strings/escape.h"
+#import "base/strings/sys_string_conversions.h"
+#import "base/strings/utf_string_conversions.h"
 #import "base/test/ios/wait_util.h"
-#include "base/test/metrics/histogram_tester.h"
-#include "base/test/scoped_feature_list.h"
-#include "ios/web/common/features.h"
+#import "base/test/metrics/histogram_tester.h"
+#import "base/test/scoped_feature_list.h"
+#import "ios/web/common/features.h"
 #import "ios/web/navigation/navigation_manager_delegate.h"
 #import "ios/web/navigation/navigation_manager_impl.h"
 #import "ios/web/navigation/wk_navigation_util.h"
 #import "ios/web/public/navigation/navigation_item.h"
-#include "ios/web/public/navigation/reload_type.h"
-#include "ios/web/public/test/fakes/fake_browser_state.h"
+#import "ios/web/public/navigation/reload_type.h"
+#import "ios/web/public/test/fakes/fake_browser_state.h"
 #import "ios/web/public/test/fakes/fake_navigation_manager.h"
 #import "ios/web/public/test/fakes/fake_web_state.h"
 #import "ios/web/public/web_client.h"
 #import "ios/web/test/fakes/crw_fake_back_forward_list.h"
-#include "ios/web/test/test_url_constants.h"
+#import "ios/web/test/test_url_constants.h"
 #import "ios/web/web_state/ui/crw_web_view_navigation_proxy.h"
-#include "net/base/escape.h"
 #import "net/base/mac/url_conversions.h"
-#include "testing/gmock/include/gmock/gmock.h"
-#include "testing/gtest/include/gtest/gtest.h"
+#import "testing/gmock/include/gmock/gmock.h"
+#import "testing/gtest/include/gtest/gtest.h"
 #import "testing/gtest_mac.h"
-#include "testing/platform_test.h"
-#include "third_party/ocmock/OCMock/OCMock.h"
-#include "url/scheme_host_port.h"
-#include "url/url_util.h"
+#import "testing/platform_test.h"
+#import "third_party/ocmock/OCMock/OCMock.h"
+#import "url/scheme_host_port.h"
+#import "url/url_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -50,7 +50,7 @@ namespace {
 // NavigationManagerTest fixture. Scheme will be changed to kTestWebUIScheme.
 const char kSchemeToRewrite[] = "navigationmanagerschemetorewrite";
 
-// Replaces |kSchemeToRewrite| scheme with |kTestWebUIScheme|.
+// Replaces `kSchemeToRewrite` scheme with `kTestWebUIScheme`.
 bool UrlRewriter(GURL* url, BrowserState* browser_state) {
   if (url->scheme() == kSchemeToRewrite) {
     GURL::Replacements scheme_replacements;
@@ -65,7 +65,7 @@ bool UrlRewriter(GURL* url, BrowserState* browser_state) {
 // installed into NavigationManager by a test case.
 const char kRewrittenQueryParam[] = "navigationmanagerrewrittenquery";
 
-// Appends |kRewrittenQueryParam| to |url|.
+// Appends `kRewrittenQueryParam` to `url`.
 bool AppendingUrlRewriter(GURL* url, BrowserState* browser_state) {
   GURL::Replacements query_replacements;
   query_replacements.SetQueryStr(kRewrittenQueryParam);
@@ -114,7 +114,6 @@ struct ItemInfoToBeRestored {
   GURL url;
   GURL virtual_url;
   UserAgentType user_agent;
-  PageDisplayState display_state;
 };
 
 }  // namespace
@@ -137,9 +136,9 @@ class NavigationManagerTest : public PlatformTest {
     manager_->SetBrowserState(&browser_state_);
   }
 
-  // Returns the value of the "#session=" URL hash component from |url|.
+  // Returns the value of the "#session=" URL hash component from `url`.
   static std::string ExtractRestoredSession(const GURL& url) {
-    std::string decoded = net::UnescapeBinaryURLComponent(url.ref());
+    std::string decoded = base::UnescapeBinaryURLComponent(url.ref());
     return decoded.substr(
         strlen(wk_navigation_util::kRestoreSessionSessionHashPrefix));
   }
@@ -194,8 +193,7 @@ TEST_F(NavigationManagerTest, GetPendingItemIndexWithoutPendingEntry) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com"];
   navigation_manager()->CommitPendingItem();
@@ -208,8 +206,7 @@ TEST_F(NavigationManagerTest, GetPendingItemIndexWithPendingEntry) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com"];
   navigation_manager()->CommitPendingItem();
@@ -217,8 +214,7 @@ TEST_F(NavigationManagerTest, GetPendingItemIndexWithPendingEntry) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/0"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   EXPECT_EQ(-1, navigation_manager()->GetPendingItemIndex());
 }
 
@@ -227,8 +223,7 @@ TEST_F(NavigationManagerTest, SetAndGetPendingItemIndex) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.test"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   [mock_wk_list_ setCurrentURL:@"http://www.url.test"];
   navigation_manager()->CommitPendingItem();
 
@@ -241,8 +236,7 @@ TEST_F(NavigationManagerTest, GetPendingItemIndexWithIndexedPendingEntry) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com"];
   navigation_manager()->CommitPendingItem();
@@ -250,8 +244,7 @@ TEST_F(NavigationManagerTest, GetPendingItemIndexWithIndexedPendingEntry) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/0"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/0"
                   backListURLs:@[ @"http://www.url.com" ]
@@ -281,8 +274,7 @@ TEST_F(NavigationManagerTest, GetPendingItemIgnoringDelegate) {
   navigation_manager()->AddPendingItem(
       url, Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   EXPECT_NE(item.get(), navigation_manager()->GetPendingItem());
   ASSERT_TRUE(navigation_manager()->GetPendingItem());
@@ -295,8 +287,7 @@ TEST_F(NavigationManagerTest, GetPendingItemWithIndexedPendingEntry) {
   navigation_manager()->AddPendingItem(
       url, Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   [mock_wk_list_ setCurrentURL:@"http://www.url.test"];
   navigation_manager()->CommitPendingItem();
   navigation_manager()->SetPendingItemIndex(0);
@@ -322,8 +313,7 @@ TEST_F(NavigationManagerTest, CanGoBackWithSingleCommitedItem) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com"];
   navigation_manager()->CommitPendingItem();
@@ -337,16 +327,14 @@ TEST_F(NavigationManagerTest, CanGoBackWithMultipleCommitedItems) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   [mock_wk_list_ setCurrentURL:@"http://www.url.com"];
   navigation_manager()->CommitPendingItem();
 
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/0"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/0"
                   backListURLs:@[ @"http://www.url.com" ]
@@ -356,8 +344,7 @@ TEST_F(NavigationManagerTest, CanGoBackWithMultipleCommitedItems) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/1"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_
         setCurrentURL:@"http://www.url.com/1"
@@ -394,8 +381,7 @@ TEST_F(NavigationManagerTest, CanGoForwardWithSingleCommitedItem) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/"];
   navigation_manager()->CommitPendingItem();
 
@@ -408,8 +394,7 @@ TEST_F(NavigationManagerTest, CanGoForwardWithMultipleCommitedEntries) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com"];
   navigation_manager()->CommitPendingItem();
@@ -417,8 +402,7 @@ TEST_F(NavigationManagerTest, CanGoForwardWithMultipleCommitedEntries) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/0"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/0"
                   backListURLs:@[ @"http://www.url.com" ]
@@ -428,8 +412,7 @@ TEST_F(NavigationManagerTest, CanGoForwardWithMultipleCommitedEntries) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/1"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_
         setCurrentURL:@"http://www.url.com/1"
@@ -464,8 +447,7 @@ TEST_F(NavigationManagerTest, OffsetsWithoutPendingIndex) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/0"), Referrer(), ui::PAGE_TRANSITION_LINK,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/0"];
   navigation_manager()->CommitPendingItem();
@@ -474,8 +456,7 @@ TEST_F(NavigationManagerTest, OffsetsWithoutPendingIndex) {
       GURL("http://www.url.com/redirect"), Referrer(),
       ui::PAGE_TRANSITION_CLIENT_REDIRECT,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/redirect"
                   backListURLs:@[ @"http://www.url.com/0" ]
@@ -485,8 +466,7 @@ TEST_F(NavigationManagerTest, OffsetsWithoutPendingIndex) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/1"), Referrer(), ui::PAGE_TRANSITION_LINK,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/1"
                   backListURLs:@[
@@ -498,8 +478,7 @@ TEST_F(NavigationManagerTest, OffsetsWithoutPendingIndex) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/2"), Referrer(), ui::PAGE_TRANSITION_LINK,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/2"
                   backListURLs:@[
@@ -513,8 +492,7 @@ TEST_F(NavigationManagerTest, OffsetsWithoutPendingIndex) {
       GURL("http://www.url.com/redirect"), Referrer(),
       ui::PAGE_TRANSITION_CLIENT_REDIRECT,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/redirect"
                   backListURLs:@[
@@ -535,33 +513,33 @@ TEST_F(NavigationManagerTest, ReplacePendingItemIfDifferentURL) {
   navigation_manager()->AddPendingItem(
       existing_url, Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   ASSERT_TRUE(navigation_manager()->GetPendingItem());
   EXPECT_EQ(existing_url, navigation_manager()->GetPendingItem()->GetURL());
-  EXPECT_FALSE(navigation_manager()->GetPendingItem()->IsUpgradedToHttps());
+  EXPECT_EQ(web::HttpsUpgradeType::kNone,
+            navigation_manager()->GetPendingItem()->GetHttpsUpgradeType());
   EXPECT_EQ(0, navigation_manager()->GetItemCount());
 
   GURL new_url1 = GURL("http://www.new1.com");
   navigation_manager()->AddPendingItem(
       new_url1, Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   ASSERT_TRUE(navigation_manager()->GetPendingItem());
   EXPECT_EQ(new_url1, navigation_manager()->GetPendingItem()->GetURL());
-  EXPECT_FALSE(navigation_manager()->GetPendingItem()->IsUpgradedToHttps());
+  EXPECT_EQ(web::HttpsUpgradeType::kNone,
+            navigation_manager()->GetPendingItem()->GetHttpsUpgradeType());
   EXPECT_EQ(0, navigation_manager()->GetItemCount());
 
   GURL new_url2 = GURL("http://www.new2.com");
   navigation_manager()->AddPendingItem(
       new_url2, Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/true);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kHttpsOnlyMode);
   ASSERT_TRUE(navigation_manager()->GetPendingItem());
   EXPECT_EQ(new_url2, navigation_manager()->GetPendingItem()->GetURL());
-  EXPECT_TRUE(navigation_manager()->GetPendingItem()->IsUpgradedToHttps());
+  EXPECT_EQ(web::HttpsUpgradeType::kHttpsOnlyMode,
+            navigation_manager()->GetPendingItem()->GetHttpsUpgradeType());
   EXPECT_EQ(0, navigation_manager()->GetItemCount());
 }
 
@@ -573,20 +551,19 @@ TEST_F(NavigationManagerTest, NotReplaceSameUrlPendingItemIfNotFormSubmission) {
   navigation_manager()->AddPendingItem(
       existing_url, Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   ASSERT_TRUE(navigation_manager()->GetPendingItem());
   EXPECT_TRUE(ui::PageTransitionCoreTypeIs(
       navigation_manager()->GetPendingItem()->GetTransitionType(),
       ui::PAGE_TRANSITION_TYPED));
-  EXPECT_FALSE(navigation_manager()->GetPendingItem()->IsUpgradedToHttps());
+  EXPECT_EQ(web::HttpsUpgradeType::kNone,
+            navigation_manager()->GetPendingItem()->GetHttpsUpgradeType());
   EXPECT_EQ(0, navigation_manager()->GetItemCount());
 
   navigation_manager()->AddPendingItem(
       existing_url, Referrer(), ui::PAGE_TRANSITION_LINK,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   ASSERT_TRUE(navigation_manager()->GetPendingItem());
 
   // NavigationManagerImpl assumes that AddPendingItem() is only called for
@@ -600,10 +577,10 @@ TEST_F(NavigationManagerTest, NotReplaceSameUrlPendingItemIfNotFormSubmission) {
   navigation_manager()->AddPendingItem(
       existing_url, Referrer(), ui::PAGE_TRANSITION_LINK,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/true);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kHttpsOnlyMode);
   ASSERT_TRUE(navigation_manager()->GetPendingItem());
-  EXPECT_TRUE(navigation_manager()->GetPendingItem()->IsUpgradedToHttps());
+  EXPECT_EQ(web::HttpsUpgradeType::kHttpsOnlyMode,
+            navigation_manager()->GetPendingItem()->GetHttpsUpgradeType());
 }
 
 // Tests that when given a pending item, adding a new pending item with the same
@@ -614,38 +591,38 @@ TEST_F(NavigationManagerTest, ReplaceSameUrlPendingItemIfFormSubmission) {
   navigation_manager()->AddPendingItem(
       existing_url, Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   ASSERT_TRUE(navigation_manager()->GetPendingItem());
   EXPECT_TRUE(ui::PageTransitionCoreTypeIs(
       navigation_manager()->GetPendingItem()->GetTransitionType(),
       ui::PAGE_TRANSITION_TYPED));
-  EXPECT_FALSE(navigation_manager()->GetPendingItem()->IsUpgradedToHttps());
+  EXPECT_EQ(web::HttpsUpgradeType::kNone,
+            navigation_manager()->GetPendingItem()->GetHttpsUpgradeType());
   EXPECT_EQ(0, navigation_manager()->GetItemCount());
 
   navigation_manager()->AddPendingItem(
       existing_url, Referrer(), ui::PAGE_TRANSITION_FORM_SUBMIT,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   ASSERT_TRUE(navigation_manager()->GetPendingItem());
   EXPECT_TRUE(ui::PageTransitionCoreTypeIs(
       navigation_manager()->GetPendingItem()->GetTransitionType(),
       ui::PAGE_TRANSITION_FORM_SUBMIT));
-  EXPECT_FALSE(navigation_manager()->GetPendingItem()->IsUpgradedToHttps());
+  EXPECT_EQ(web::HttpsUpgradeType::kNone,
+            navigation_manager()->GetPendingItem()->GetHttpsUpgradeType());
   EXPECT_EQ(0, navigation_manager()->GetItemCount());
 
   // Try again with a pending item that uses https as the default scheme.
   navigation_manager()->AddPendingItem(
       existing_url, Referrer(), ui::PAGE_TRANSITION_FORM_SUBMIT,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/true);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kHttpsOnlyMode);
   ASSERT_TRUE(navigation_manager()->GetPendingItem());
   EXPECT_TRUE(ui::PageTransitionCoreTypeIs(
       navigation_manager()->GetPendingItem()->GetTransitionType(),
       ui::PAGE_TRANSITION_FORM_SUBMIT));
-  EXPECT_TRUE(navigation_manager()->GetPendingItem()->IsUpgradedToHttps());
+  EXPECT_EQ(web::HttpsUpgradeType::kHttpsOnlyMode,
+            navigation_manager()->GetPendingItem()->GetHttpsUpgradeType());
   EXPECT_EQ(0, navigation_manager()->GetItemCount());
 }
 
@@ -657,8 +634,7 @@ TEST_F(NavigationManagerTest, NotReplaceSameUrlPendingItemIfOverrideInherit) {
   navigation_manager()->AddPendingItem(
       existing_url, Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   ASSERT_TRUE(navigation_manager()->GetPendingItem());
   EXPECT_TRUE(ui::PageTransitionCoreTypeIs(
@@ -669,8 +645,7 @@ TEST_F(NavigationManagerTest, NotReplaceSameUrlPendingItemIfOverrideInherit) {
   navigation_manager()->AddPendingItem(
       existing_url, Referrer(), ui::PAGE_TRANSITION_LINK,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   ASSERT_TRUE(navigation_manager()->GetPendingItem());
 
@@ -689,37 +664,37 @@ TEST_F(NavigationManagerTest, ReplaceSameUrlPendingItem) {
   navigation_manager()->AddPendingItem(
       existing_url, Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   ASSERT_TRUE(navigation_manager()->GetPendingItem());
   EXPECT_TRUE(ui::PageTransitionCoreTypeIs(
       navigation_manager()->GetPendingItem()->GetTransitionType(),
       ui::PAGE_TRANSITION_TYPED));
-  EXPECT_FALSE(navigation_manager()->GetPendingItem()->IsUpgradedToHttps());
+  EXPECT_EQ(web::HttpsUpgradeType::kNone,
+            navigation_manager()->GetPendingItem()->GetHttpsUpgradeType());
   EXPECT_EQ(0, navigation_manager()->GetItemCount());
 
   navigation_manager()->AddPendingItem(
       existing_url, Referrer(), ui::PAGE_TRANSITION_RELOAD,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   ASSERT_TRUE(navigation_manager()->GetPendingItem());
   EXPECT_TRUE(ui::PageTransitionCoreTypeIs(
       navigation_manager()->GetPendingItem()->GetTransitionType(),
       ui::PAGE_TRANSITION_RELOAD));
-  EXPECT_FALSE(navigation_manager()->GetPendingItem()->IsUpgradedToHttps());
+  EXPECT_EQ(web::HttpsUpgradeType::kNone,
+            navigation_manager()->GetPendingItem()->GetHttpsUpgradeType());
   EXPECT_EQ(0, navigation_manager()->GetItemCount());
 
   navigation_manager()->AddPendingItem(
       existing_url, Referrer(), ui::PAGE_TRANSITION_RELOAD,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/true);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kHttpsOnlyMode);
   ASSERT_TRUE(navigation_manager()->GetPendingItem());
   EXPECT_TRUE(ui::PageTransitionCoreTypeIs(
       navigation_manager()->GetPendingItem()->GetTransitionType(),
       ui::PAGE_TRANSITION_RELOAD));
-  EXPECT_TRUE(navigation_manager()->GetPendingItem()->IsUpgradedToHttps());
+  EXPECT_EQ(web::HttpsUpgradeType::kHttpsOnlyMode,
+            navigation_manager()->GetPendingItem()->GetHttpsUpgradeType());
   EXPECT_EQ(0, navigation_manager()->GetItemCount());
 }
 
@@ -730,8 +705,7 @@ TEST_F(NavigationManagerTest, ReplaceSameUrlPendingItemFromDesktop) {
   navigation_manager()->AddPendingItem(
       existing_url, Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   ASSERT_TRUE(navigation_manager()->GetPendingItem());
   navigation_manager()->GetPendingItem()->SetUserAgentType(
       UserAgentType::DESKTOP);
@@ -740,31 +714,32 @@ TEST_F(NavigationManagerTest, ReplaceSameUrlPendingItemFromDesktop) {
       ui::PAGE_TRANSITION_TYPED));
   EXPECT_EQ(web::UserAgentType::DESKTOP,
             navigation_manager()->GetPendingItem()->GetUserAgentType());
-  EXPECT_FALSE(navigation_manager()->GetPendingItem()->IsUpgradedToHttps());
+  EXPECT_EQ(web::HttpsUpgradeType::kNone,
+            navigation_manager()->GetPendingItem()->GetHttpsUpgradeType());
   EXPECT_EQ(0, navigation_manager()->GetItemCount());
 
   navigation_manager()->AddPendingItem(
       existing_url, Referrer(), ui::PAGE_TRANSITION_RELOAD,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   ASSERT_TRUE(navigation_manager()->GetPendingItem());
   EXPECT_TRUE(ui::PageTransitionCoreTypeIs(
       navigation_manager()->GetPendingItem()->GetTransitionType(),
       ui::PAGE_TRANSITION_RELOAD));
-  EXPECT_FALSE(navigation_manager()->GetPendingItem()->IsUpgradedToHttps());
+  EXPECT_EQ(web::HttpsUpgradeType::kNone,
+            navigation_manager()->GetPendingItem()->GetHttpsUpgradeType());
   EXPECT_EQ(0, navigation_manager()->GetItemCount());
 
   navigation_manager()->AddPendingItem(
       existing_url, Referrer(), ui::PAGE_TRANSITION_RELOAD,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/true);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kHttpsOnlyMode);
   ASSERT_TRUE(navigation_manager()->GetPendingItem());
   EXPECT_TRUE(ui::PageTransitionCoreTypeIs(
       navigation_manager()->GetPendingItem()->GetTransitionType(),
       ui::PAGE_TRANSITION_RELOAD));
-  EXPECT_TRUE(navigation_manager()->GetPendingItem()->IsUpgradedToHttps());
+  EXPECT_EQ(web::HttpsUpgradeType::kHttpsOnlyMode,
+            navigation_manager()->GetPendingItem()->GetHttpsUpgradeType());
   EXPECT_EQ(0, navigation_manager()->GetItemCount());
 }
 
@@ -775,8 +750,7 @@ TEST_F(NavigationManagerTest, AddPendingItemIfDiffernetURL) {
   navigation_manager()->AddPendingItem(
       existing_url, Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.existing.com"];
   OCMStub([mock_web_view_ URL])
@@ -792,25 +766,22 @@ TEST_F(NavigationManagerTest, AddPendingItemIfDiffernetURL) {
   navigation_manager()->AddPendingItem(
       new_url, Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   ASSERT_TRUE(navigation_manager()->GetPendingItem());
   EXPECT_EQ(new_url, navigation_manager()->GetPendingItem()->GetURL());
-  EXPECT_FALSE(navigation_manager()->GetPendingItem()->IsUpgradedToHttps());
+  EXPECT_EQ(web::HttpsUpgradeType::kNone,
+            navigation_manager()->GetPendingItem()->GetHttpsUpgradeType());
   EXPECT_EQ(1, navigation_manager()->GetItemCount());
 }
 
 // Tests that when the last committed item exists, adding a pending item with
 // the same URL fails if the new item is not form submission.
 TEST_F(NavigationManagerTest, NotAddSameUrlPendingItemIfNotFormSubmission) {
-  feature_.InitAndEnableFeature(
-      web::features::kCreatePendingItemForPostFormSubmission);
   GURL existing_url = GURL("http://www.existing.com");
   navigation_manager()->AddPendingItem(
       existing_url, Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.existing.com"];
   OCMStub([mock_web_view_ URL])
@@ -827,8 +798,7 @@ TEST_F(NavigationManagerTest, NotAddSameUrlPendingItemIfNotFormSubmission) {
   navigation_manager()->AddPendingItem(
       existing_url, Referrer(), ui::PAGE_TRANSITION_LINK,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   // NavigationManagerImpl assumes that AddPendingItem() is only called for
   // new navigation, so it always creates a new pending item.
@@ -845,14 +815,11 @@ TEST_F(NavigationManagerTest, NotAddSameUrlPendingItemIfNotFormSubmission) {
 // the same URL updates the existing committed item if the form submission isn't
 // using POST.
 TEST_F(NavigationManagerTest, NotAddSameUrlPendingItemIfGETFormSubmission) {
-  feature_.InitAndEnableFeature(
-      web::features::kCreatePendingItemForPostFormSubmission);
   GURL existing_url = GURL("http://www.existing.com");
   navigation_manager()->AddPendingItem(
       existing_url, Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.existing.com"];
   OCMStub([mock_web_view_ URL])
@@ -870,8 +837,7 @@ TEST_F(NavigationManagerTest, NotAddSameUrlPendingItemIfGETFormSubmission) {
   navigation_manager()->AddPendingItem(
       existing_url, Referrer(), ui::PAGE_TRANSITION_FORM_SUBMIT,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   ASSERT_TRUE(navigation_manager()->GetPendingItem());
   EXPECT_EQ(navigation_manager()->GetPendingItem(),
             navigation_manager()->GetLastCommittedItem());
@@ -884,14 +850,11 @@ TEST_F(NavigationManagerTest, NotAddSameUrlPendingItemIfGETFormSubmission) {
 // Tests that when the last committed item exists, adding a pending item with
 // the same URL creates a new pending item if the form submission is using POST.
 TEST_F(NavigationManagerTest, AddSameUrlPendingItemIfPOSTFormSubmission) {
-  feature_.InitAndEnableFeature(
-      web::features::kCreatePendingItemForPostFormSubmission);
   GURL existing_url = GURL("http://www.existing.com");
   navigation_manager()->AddPendingItem(
       existing_url, Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.existing.com"];
   OCMStub([mock_web_view_ URL])
@@ -909,8 +872,7 @@ TEST_F(NavigationManagerTest, AddSameUrlPendingItemIfPOSTFormSubmission) {
   navigation_manager()->AddPendingItem(
       existing_url, Referrer(), ui::PAGE_TRANSITION_FORM_SUBMIT,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/true,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/true, web::HttpsUpgradeType::kNone);
   ASSERT_TRUE(navigation_manager()->GetPendingItem());
   EXPECT_NE(navigation_manager()->GetPendingItem(),
             navigation_manager()->GetLastCommittedItem());
@@ -922,14 +884,11 @@ TEST_F(NavigationManagerTest, AddSameUrlPendingItemIfPOSTFormSubmission) {
 // Tests that when the last committed item exists, adding a pending item with
 // the same URL fails if the user agent override option is INHERIT.
 TEST_F(NavigationManagerTest, NotAddSameUrlPendingItemIfOverrideInherit) {
-  feature_.InitAndEnableFeature(
-      web::features::kCreatePendingItemForPostFormSubmission);
   GURL existing_url = GURL("http://www.existing.com");
   navigation_manager()->AddPendingItem(
       existing_url, Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.existing.com"];
   OCMStub([mock_web_view_ URL])
@@ -945,8 +904,7 @@ TEST_F(NavigationManagerTest, NotAddSameUrlPendingItemIfOverrideInherit) {
   navigation_manager()->AddPendingItem(
       existing_url, Referrer(), ui::PAGE_TRANSITION_LINK,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   // NavigationManagerImpl assumes that AddPendingItem() is only called for
   // new navigation, so it always creates a new pending item.
@@ -962,14 +920,11 @@ TEST_F(NavigationManagerTest, NotAddSameUrlPendingItemIfOverrideInherit) {
 // Tests that when the last committed item exists, adding a pending item with
 // the same URL succeeds.
 TEST_F(NavigationManagerTest, AddSameUrlPendingItem) {
-  feature_.InitAndEnableFeature(
-      web::features::kCreatePendingItemForPostFormSubmission);
   GURL existing_url = GURL("http://www.existing.com");
   navigation_manager()->AddPendingItem(
       existing_url, Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.existing.com"];
   OCMStub([mock_web_view_ URL])
@@ -985,8 +940,7 @@ TEST_F(NavigationManagerTest, AddSameUrlPendingItem) {
   navigation_manager()->AddPendingItem(
       existing_url, Referrer(), ui::PAGE_TRANSITION_RELOAD,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   ASSERT_TRUE(navigation_manager()->GetPendingItem());
   EXPECT_EQ(navigation_manager()->GetPendingItem(),
@@ -997,7 +951,7 @@ TEST_F(NavigationManagerTest, AddSameUrlPendingItem) {
   EXPECT_EQ(1, navigation_manager()->GetItemCount());
 }
 
-// Tests that calling |Reload| with web::ReloadType::NORMAL is no-op when there
+// Tests that calling `Reload` with web::ReloadType::NORMAL is no-op when there
 // are no pending or committed items.
 TEST_F(NavigationManagerTest, ReloadEmptyWithNormalType) {
   ASSERT_FALSE(navigation_manager()->GetPendingItem());
@@ -1011,15 +965,14 @@ TEST_F(NavigationManagerTest, ReloadEmptyWithNormalType) {
   ASSERT_FALSE(navigation_manager()->GetLastCommittedItem());
 }
 
-// Tests that calling |Reload| with web::ReloadType::NORMAL leaves the url of
+// Tests that calling `Reload` with web::ReloadType::NORMAL leaves the url of
 // the renderer initiated pending item unchanged when there is one.
 TEST_F(NavigationManagerTest, ReloadRendererPendingItemWithNormalType) {
   GURL url_before_reload = GURL("http://www.url.com");
   navigation_manager()->AddPendingItem(
       url_before_reload, Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::RENDERER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   EXPECT_CALL(navigation_manager_delegate(), Reload()).Times(1);
   navigation_manager()->Reload(web::ReloadType::NORMAL,
@@ -1030,15 +983,14 @@ TEST_F(NavigationManagerTest, ReloadRendererPendingItemWithNormalType) {
             navigation_manager()->GetPendingItem()->GetURL());
 }
 
-// Tests that calling |Reload| with web::ReloadType::NORMAL leaves the url of
+// Tests that calling `Reload` with web::ReloadType::NORMAL leaves the url of
 // the user initiated pending item unchanged when there is one.
 TEST_F(NavigationManagerTest, ReloadUserPendingItemWithNormalType) {
   GURL url_before_reload = GURL("http://www.url.com");
   navigation_manager()->AddPendingItem(
       url_before_reload, Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   EXPECT_CALL(navigation_manager_delegate(), Reload()).Times(1);
   navigation_manager()->Reload(web::ReloadType::NORMAL,
@@ -1049,14 +1001,13 @@ TEST_F(NavigationManagerTest, ReloadUserPendingItemWithNormalType) {
             navigation_manager()->GetPendingItem()->GetURL());
 }
 
-// Tests that calling |Reload| with web::ReloadType::NORMAL leaves the url of
+// Tests that calling `Reload` with web::ReloadType::NORMAL leaves the url of
 // the last committed item unchanged when there is no pending item.
 TEST_F(NavigationManagerTest, ReloadLastCommittedItemWithNormalType) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/0"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/0"];
   navigation_manager()->CommitPendingItem();
@@ -1065,8 +1016,7 @@ TEST_F(NavigationManagerTest, ReloadLastCommittedItemWithNormalType) {
   navigation_manager()->AddPendingItem(
       url_before_reload, Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/1"
                   backListURLs:@[ @"http://www.url.com/0" ]
@@ -1082,7 +1032,7 @@ TEST_F(NavigationManagerTest, ReloadLastCommittedItemWithNormalType) {
             navigation_manager()->GetLastCommittedItem()->GetURL());
 }
 
-// Tests that calling |Reload| with web::ReloadType::NORMAL leaves the url of
+// Tests that calling `Reload` with web::ReloadType::NORMAL leaves the url of
 // the last committed item unchanged when there is no pending item, but there
 // forward items after last committed item.
 TEST_F(NavigationManagerTest,
@@ -1090,8 +1040,7 @@ TEST_F(NavigationManagerTest,
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/0"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/0"];
   navigation_manager()->CommitPendingItem();
@@ -1100,8 +1049,7 @@ TEST_F(NavigationManagerTest,
   navigation_manager()->AddPendingItem(
       url_before_reload, Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/1"
                   backListURLs:@[ @"http://www.url.com/0" ]
@@ -1111,8 +1059,7 @@ TEST_F(NavigationManagerTest,
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/2"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_
         setCurrentURL:@"http://www.url.com/2"
@@ -1132,7 +1079,7 @@ TEST_F(NavigationManagerTest,
             navigation_manager()->GetLastCommittedItem()->GetURL());
 }
 
-// Tests that calling |Reload| with web::ReloadType::ORIGINAL_REQUEST_URL is
+// Tests that calling `Reload` with web::ReloadType::ORIGINAL_REQUEST_URL is
 // no-op when there are no pending or committed items.
 TEST_F(NavigationManagerTest, ReloadEmptyWithOriginalType) {
   ASSERT_FALSE(navigation_manager()->GetPendingItem());
@@ -1146,15 +1093,14 @@ TEST_F(NavigationManagerTest, ReloadEmptyWithOriginalType) {
   ASSERT_FALSE(navigation_manager()->GetLastCommittedItem());
 }
 
-// Tests that calling |Reload| with web::ReloadType::ORIGINAL_REQUEST_URL
+// Tests that calling `Reload` with web::ReloadType::ORIGINAL_REQUEST_URL
 // changes the renderer initiated pending item's url to its original request url
 // when there is one.
 TEST_F(NavigationManagerTest, ReloadRendererPendingItemWithOriginalType) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::RENDERER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   ASSERT_TRUE(navigation_manager()->GetPendingItem());
   GURL expected_original_url = GURL("http://www.url.com/original");
   navigation_manager()->GetPendingItem()->SetOriginalRequestURL(
@@ -1169,15 +1115,14 @@ TEST_F(NavigationManagerTest, ReloadRendererPendingItemWithOriginalType) {
             navigation_manager()->GetPendingItem()->GetURL());
 }
 
-// Tests that calling |Reload| with web::ReloadType::ORIGINAL_REQUEST_URL
+// Tests that calling `Reload` with web::ReloadType::ORIGINAL_REQUEST_URL
 // changes the user initiated pending item's url to its original request url
 // when there is one.
 TEST_F(NavigationManagerTest, ReloadUserPendingItemWithOriginalType) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   ASSERT_TRUE(navigation_manager()->GetPendingItem());
   GURL expected_original_url = GURL("http://www.url.com/original");
   navigation_manager()->GetPendingItem()->SetOriginalRequestURL(
@@ -1192,15 +1137,14 @@ TEST_F(NavigationManagerTest, ReloadUserPendingItemWithOriginalType) {
             navigation_manager()->GetPendingItem()->GetURL());
 }
 
-// Tests that calling |Reload| with web::ReloadType::ORIGINAL_REQUEST_URL
+// Tests that calling `Reload` with web::ReloadType::ORIGINAL_REQUEST_URL
 // changes the last committed item's url to its original request url when there
 // is no pending item.
 TEST_F(NavigationManagerTest, ReloadLastCommittedItemWithOriginalType) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/0"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/0"];
   navigation_manager()->CommitPendingItem();
@@ -1208,8 +1152,7 @@ TEST_F(NavigationManagerTest, ReloadLastCommittedItemWithOriginalType) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/1"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   GURL expected_original_url = GURL("http://www.url.com/1/original");
   ASSERT_TRUE(navigation_manager()->GetPendingItem());
   navigation_manager()->GetPendingItem()->SetOriginalRequestURL(
@@ -1229,7 +1172,7 @@ TEST_F(NavigationManagerTest, ReloadLastCommittedItemWithOriginalType) {
             navigation_manager()->GetLastCommittedItem()->GetURL());
 }
 
-// Tests that calling |Reload| with web::ReloadType::ORIGINAL_REQUEST_URL
+// Tests that calling `Reload` with web::ReloadType::ORIGINAL_REQUEST_URL
 // changes the last committed item's url to its original request url when there
 // is no pending item, but there are forward items after last committed item.
 TEST_F(NavigationManagerTest,
@@ -1237,8 +1180,7 @@ TEST_F(NavigationManagerTest,
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/0"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/0"];
   navigation_manager()->CommitPendingItem();
@@ -1246,8 +1188,7 @@ TEST_F(NavigationManagerTest,
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/1"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   GURL expected_original_url = GURL("http://www.url.com/1/original");
   ASSERT_TRUE(navigation_manager()->GetPendingItem());
   navigation_manager()->GetPendingItem()->SetOriginalRequestURL(
@@ -1261,8 +1202,7 @@ TEST_F(NavigationManagerTest,
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/2"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/2"
                   backListURLs:@[
@@ -1290,8 +1230,7 @@ TEST_F(NavigationManagerTest, ReloadWithUserAgentType) {
   navigation_manager()->AddPendingItem(
       url, Referrer(), ui::PAGE_TRANSITION_TYPED,
       NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   GURL virtual_url("http://www.1.com/virtual");
   navigation_manager()->GetPendingItem()->SetVirtualURL(virtual_url);
   [mock_wk_list_ setCurrentURL:@"http://www.1.com"];
@@ -1320,8 +1259,7 @@ TEST_F(NavigationManagerTest, ReloadWithUserAgentTypeOnRedirect) {
   navigation_manager()->AddPendingItem(
       url, Referrer(), ui::PAGE_TRANSITION_TYPED,
       NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   [mock_wk_list_ setCurrentURL:@"http://www.1.com"];
   navigation_manager()->CommitPendingItem();
 
@@ -1329,8 +1267,7 @@ TEST_F(NavigationManagerTest, ReloadWithUserAgentTypeOnRedirect) {
       GURL("http://www.redirect.com"), Referrer(),
       ui::PAGE_TRANSITION_CLIENT_REDIRECT,
       NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/redirect"
                   backListURLs:@[ @"http://www.1.com" ]
                forwardListURLs:nil];
@@ -1351,8 +1288,7 @@ TEST_F(NavigationManagerTest, ReloadWithUserAgentTypeOnNewTabRedirect) {
   navigation_manager()->AddPendingItem(
       url, Referrer(), ui::PAGE_TRANSITION_CLIENT_REDIRECT,
       NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   [mock_wk_list_ setCurrentURL:@"http://www.1.com"];
   navigation_manager()->CommitPendingItem();
 
@@ -1372,8 +1308,7 @@ TEST_F(NavigationManagerTest, ReloadWithUserAgentTypeOnIntenalUrl) {
   navigation_manager()->AddPendingItem(
       url, Referrer(), ui::PAGE_TRANSITION_TYPED,
       NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   GURL virtual_url("http://www.1.com/virtual");
   navigation_manager()
       ->GetPendingItemInCurrentOrRestoredSession()
@@ -1397,8 +1332,7 @@ TEST_F(NavigationManagerTest, RewritingAppSpecificUrls) {
   navigation_manager()->AddPendingItem(
       url1, Referrer(), ui::PAGE_TRANSITION_LINK,
       web::NavigationInitiationType::RENDERER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   EXPECT_EQ(url1, navigation_manager()->GetPendingItem()->GetURL());
 
   // URL should not be rewritten because last committed URL is not app-specific.
@@ -1409,8 +1343,7 @@ TEST_F(NavigationManagerTest, RewritingAppSpecificUrls) {
   navigation_manager()->AddPendingItem(
       url2, Referrer(), ui::PAGE_TRANSITION_LINK,
       web::NavigationInitiationType::RENDERER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   EXPECT_EQ(url2, navigation_manager()->GetPendingItem()->GetURL());
 
   // URL should not be rewritten for user initiated reload navigations.
@@ -1419,8 +1352,7 @@ TEST_F(NavigationManagerTest, RewritingAppSpecificUrls) {
   navigation_manager()->AddPendingItem(
       url_reload, Referrer(), ui::PAGE_TRANSITION_RELOAD,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   EXPECT_EQ(url_reload, navigation_manager()->GetPendingItem()->GetURL());
 
   // URL should be rewritten for user initiated navigations.
@@ -1428,8 +1360,7 @@ TEST_F(NavigationManagerTest, RewritingAppSpecificUrls) {
   navigation_manager()->AddPendingItem(
       url3, Referrer(), ui::PAGE_TRANSITION_LINK,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   GURL rewritten_url3(
       url::SchemeHostPort(kTestWebUIScheme, "test3", 0).Serialize());
   EXPECT_EQ(rewritten_url3, navigation_manager()->GetPendingItem()->GetURL());
@@ -1444,8 +1375,7 @@ TEST_F(NavigationManagerTest, RewritingAppSpecificUrls) {
   navigation_manager()->AddPendingItem(
       url4, Referrer(), ui::PAGE_TRANSITION_LINK,
       web::NavigationInitiationType::RENDERER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   GURL rewritten_url4(
       url::SchemeHostPort(kTestWebUIScheme, "test4", 0).Serialize());
   EXPECT_EQ(rewritten_url4, navigation_manager()->GetPendingItem()->GetURL());
@@ -1457,8 +1387,7 @@ TEST_F(NavigationManagerTest, ApplyTransientRewriters) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.0.com"), Referrer(), ui::PAGE_TRANSITION_LINK,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   NavigationItem* pending_item = navigation_manager()->GetPendingItem();
   EXPECT_EQ(kRewrittenQueryParam, pending_item->GetURL().query());
@@ -1469,8 +1398,7 @@ TEST_F(NavigationManagerTest, ApplyTransientRewriters) {
   navigation_manager()->AddPendingItem(
       url, Referrer(), ui::PAGE_TRANSITION_LINK,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   EXPECT_EQ(url, navigation_manager()->GetPendingItem()->GetURL());
 }
@@ -1488,8 +1416,7 @@ TEST_F(NavigationManagerTest, GetIndexOfItem) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/0"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   mock_wk_list_.currentItem = wk_item0;
   navigation_manager()->CommitPendingItem();
@@ -1498,8 +1425,7 @@ TEST_F(NavigationManagerTest, GetIndexOfItem) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/1"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   mock_wk_list_.currentItem = wk_item1;
   mock_wk_list_.backList = @[ wk_item0 ];
@@ -1520,8 +1446,7 @@ TEST_F(NavigationManagerTest, TestBackwardForwardItems) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/0"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/0"];
   navigation_manager()->CommitPendingItem();
@@ -1529,8 +1454,7 @@ TEST_F(NavigationManagerTest, TestBackwardForwardItems) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/1"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/1"
                   backListURLs:@[ @"http://www.url.com/0" ]
@@ -1540,8 +1464,7 @@ TEST_F(NavigationManagerTest, TestBackwardForwardItems) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/2"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_
         setCurrentURL:@"http://www.url.com/2"
@@ -1572,21 +1495,18 @@ TEST_F(NavigationManagerTest, TestBackwardForwardItems) {
 TEST_F(NavigationManagerTest, Restore) {
   ItemInfoToBeRestored restore_information[3];
   restore_information[0] = {GURL("http://www.url.com/0"),
-                            GURL("http://virtual/0"), UserAgentType::MOBILE,
-                            PageDisplayState()};
+                            GURL("http://virtual/0"), UserAgentType::MOBILE};
   restore_information[1] = {GURL("http://www.url.com/1"), GURL(),
-                            UserAgentType::AUTOMATIC, PageDisplayState()};
+                            UserAgentType::AUTOMATIC};
   restore_information[2] = {GURL("http://www.url.com/2"),
-                            GURL("http://virtual/2"), UserAgentType::DESKTOP,
-                            PageDisplayState()};
+                            GURL("http://virtual/2"), UserAgentType::DESKTOP};
 
   std::vector<std::unique_ptr<NavigationItem>> items;
-  for (size_t index = 0; index < base::size(restore_information); ++index) {
+  for (size_t index = 0; index < std::size(restore_information); ++index) {
     items.push_back(NavigationItem::Create());
     items.back()->SetURL(restore_information[index].url);
     items.back()->SetVirtualURL(restore_information[index].virtual_url);
     items.back()->SetUserAgentType(restore_information[index].user_agent);
-    items.back()->SetPageDisplayState(restore_information[index].display_state);
   }
 
   // Call Restore() and check that the NavigationItems are in the correct order
@@ -1631,7 +1551,7 @@ TEST_F(NavigationManagerTest, Restore) {
   EXPECT_EQ(restore_information[1].url,
             navigation_manager()->GetLastCommittedItem()->GetURL());
 
-  for (size_t i = 0; i < base::size(restore_information); ++i) {
+  for (size_t i = 0; i < std::size(restore_information); ++i) {
     NavigationItem* navigation_item = navigation_manager()->GetItemAtIndex(i);
     EXPECT_EQ(restore_information[i].url, navigation_item->GetURL());
 
@@ -1646,8 +1566,6 @@ TEST_F(NavigationManagerTest, Restore) {
       EXPECT_EQ(restore_information[i].user_agent,
                 navigation_item->GetUserAgentType());
     }
-    EXPECT_EQ(restore_information[i].display_state,
-              navigation_item->GetPageDisplayState());
   }
 
   histogram_tester_.ExpectTotalCount(kRestoreNavigationItemCount, 1);
@@ -1661,8 +1579,7 @@ TEST_F(NavigationManagerTest, NewPendingItemIsHiddenFromHistory) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/0"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/0"];
   navigation_manager()->CommitPendingItem();
@@ -1670,8 +1587,7 @@ TEST_F(NavigationManagerTest, NewPendingItemIsHiddenFromHistory) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/1"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/1"
                   backListURLs:@[ @"http://www.url.com/0" ]
@@ -1681,8 +1597,7 @@ TEST_F(NavigationManagerTest, NewPendingItemIsHiddenFromHistory) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/2"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   EXPECT_EQ(1, navigation_manager()->GetLastCommittedItemIndex());
   EXPECT_TRUE(navigation_manager()->GetPendingItem());
@@ -1700,8 +1615,7 @@ TEST_F(NavigationManagerTest, PendingItemIsVisibleIfNewAndUserInitiated) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/0"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   ASSERT_TRUE(navigation_manager()->GetVisibleItem());
   EXPECT_EQ("http://www.url.com/0",
@@ -1715,8 +1629,7 @@ TEST_F(NavigationManagerTest, PendingItemIsVisibleIfNewAndUserInitiated) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/1"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   ASSERT_TRUE(navigation_manager()->GetVisibleItem());
   EXPECT_EQ("http://www.url.com/1",
@@ -1730,8 +1643,7 @@ TEST_F(NavigationManagerTest, PendingItemIsNotVisibleIfNotUserInitiated) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/0"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::RENDERER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   EXPECT_EQ(nullptr, navigation_manager()->GetVisibleItem());
 }
@@ -1740,8 +1652,7 @@ TEST_F(NavigationManagerTest, PendingItemIsNotVisibleIfNotNewNavigation) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/0"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::RENDERER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/0"];
   navigation_manager()->CommitPendingItem();
@@ -1749,8 +1660,7 @@ TEST_F(NavigationManagerTest, PendingItemIsNotVisibleIfNotNewNavigation) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/1"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::RENDERER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/1"
                   backListURLs:@[ @"http://www.url.com/0" ]
@@ -1767,8 +1677,7 @@ TEST_F(NavigationManagerTest, PendingItemIsNotVisibleIfNotNewNavigation) {
       GURL("http://www.url.com/0"), Referrer(),
       ui::PAGE_TRANSITION_FORWARD_BACK,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   ASSERT_EQ(0, navigation_manager()->GetPendingItemIndex());
 
   delegate_.SetWebState(&web_state_);
@@ -1789,8 +1698,7 @@ TEST_F(NavigationManagerTest, VisibleItemDefaultsToLastCommittedItem) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/0"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::RENDERER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/0"];
   navigation_manager()->CommitPendingItem();
@@ -1798,8 +1706,7 @@ TEST_F(NavigationManagerTest, VisibleItemDefaultsToLastCommittedItem) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/1"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::RENDERER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   OCMStub([mock_web_view_ URL])
       .andReturn([[NSURL alloc] initWithString:@"http://www.url.com/0"]);
@@ -1810,7 +1717,7 @@ TEST_F(NavigationManagerTest, VisibleItemDefaultsToLastCommittedItem) {
             navigation_manager()->GetVisibleItem()->GetURL().spec());
 }
 
-// Tests that |extra_headers| and |post_data| from WebLoadParams are added to
+// Tests that `extra_headers` and `post_data` from WebLoadParams are added to
 // the new navigation item if they are present.
 TEST_F(NavigationManagerTest, LoadURLWithParamsWithExtraHeadersAndPostData) {
   NavigationManager::WebLoadParams params(GURL("http://www.url.com/0"));
@@ -1843,8 +1750,7 @@ TEST_F(NavigationManagerTest, LoadURLWithParamsSavesStateOnCurrentItem) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/0"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/0"];
   navigation_manager()->CommitPendingItem();
@@ -1871,7 +1777,7 @@ TEST_F(NavigationManagerTest, LoadURLWithParamsSavesStateOnCurrentItem) {
   EXPECT_TRUE(ui::PageTransitionCoreTypeIs(pending_item->GetTransitionType(),
                                            ui::PAGE_TRANSITION_TYPED));
   EXPECT_FALSE(pending_item->HasPostData());
-  EXPECT_FALSE(pending_item->IsUpgradedToHttps());
+  EXPECT_EQ(web::HttpsUpgradeType::kNone, pending_item->GetHttpsUpgradeType());
 }
 
 TEST_F(NavigationManagerTest, UpdatePendingItemWithoutPendingItem) {
@@ -1883,8 +1789,7 @@ TEST_F(NavigationManagerTest, UpdatePendingItemWithPendingItem) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   navigation_manager()->UpdatePendingItemUrl(GURL("http://another.url.com"));
 
   ASSERT_TRUE(navigation_manager()->GetPendingItem());
@@ -1897,8 +1802,7 @@ TEST_F(NavigationManagerTest,
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com"];
   navigation_manager()->CommitPendingItem();
@@ -1914,16 +1818,14 @@ TEST_F(NavigationManagerTest, GoToIndexDifferentDocument) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/0"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/0"];
   navigation_manager()->CommitPendingItem();
 
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/1"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/1"
                   backListURLs:@[ @"http://www.url.com/0" ]
                forwardListURLs:nil];
@@ -1947,16 +1849,14 @@ TEST_F(NavigationManagerTest, GoToIndexSameDocument) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/0"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/0"];
   navigation_manager()->CommitPendingItem();
 
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/0#hash"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   static_cast<NavigationItemImpl*>(navigation_manager()->GetPendingItem())
       ->SetIsCreatedFromHashChange(true);
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/0#hash"
@@ -1984,8 +1884,7 @@ TEST_F(NavigationManagerTest, CommitNilPendingItem) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/0"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/1"
                   backListURLs:nil
@@ -2022,14 +1921,12 @@ TEST_F(NavigationManagerTest, CommitNonNilPendingItem) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.test/0"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   navigation_manager()->CommitPendingItem();
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.test/1"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   navigation_manager()->CommitPendingItem();
   SimulateGoToIndex(0);
   mock_wk_list_.backList = @[ mock_wk_list_.currentItem ];
@@ -2078,8 +1975,7 @@ TEST_F(NavigationManagerTest, GetCurrentItemImpl) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/0"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/0"];
   navigation_manager()->CommitPendingItem();
   NavigationItem* last_committed_item =
@@ -2090,8 +1986,7 @@ TEST_F(NavigationManagerTest, GetCurrentItemImpl) {
   navigation_manager()->AddPendingItem(
       GURL("http://www.url.com/1"), Referrer(), ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   NavigationItem* pending_item = navigation_manager()->GetPendingItem();
   ASSERT_NE(pending_item, nullptr);
   EXPECT_EQ(pending_item, navigation_manager()->GetCurrentItemImpl());
@@ -2103,8 +1998,7 @@ TEST_F(NavigationManagerTest, UpdateCurrentItemForReplaceState) {
       Referrer(GURL("http://referrer.com"), ReferrerPolicyDefault),
       ui::PAGE_TRANSITION_TYPED,
       web::NavigationInitiationType::BROWSER_INITIATED,
-      /*is_post_navigation=*/false,
-      /*is_using_https_as_default_scheme=*/false);
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   // Tests that pending item can be replaced.
   GURL replace_page_url("http://www.url.com/replace");
@@ -2170,7 +2064,7 @@ TEST_F(NavigationManagerTest, SyncAfterItemAtIndex) {
                                            item->GetTransitionType()));
   EXPECT_EQ(UserAgentType::NONE, item->GetUserAgentType());
   EXPECT_FALSE(item->GetTimestamp().is_null());
-  EXPECT_FALSE(item->IsUpgradedToHttps());
+  EXPECT_EQ(web::HttpsUpgradeType::kNone, item->GetHttpsUpgradeType());
 }
 
 // Tests that Referrer is inferred from the previous WKBackForwardListItem.
@@ -2231,7 +2125,7 @@ TEST_F(NavigationManagerTest, SyncInGetLastCommittedItemForAppSpecificURL) {
   manager_->AddPendingItem(url, Referrer(), ui::PAGE_TRANSITION_TYPED,
                            web::NavigationInitiationType::BROWSER_INITIATED,
                            /*is_post_navigation=*/false,
-                           /*is_using_https_as_default_scheme=*/false);
+                           web::HttpsUpgradeType::kNone);
   NavigationItem* pending_item = manager_->GetPendingItem();
   ASSERT_TRUE(pending_item);
   ASSERT_TRUE(web::GetWebClient()->IsAppSpecificURL(pending_item->GetURL()));
@@ -2248,11 +2142,10 @@ TEST_F(NavigationManagerTest, SyncInGetLastCommittedItemForAppSpecificURL) {
 // WKBackForwardList and the pending item NavigationItemImpl will be used.
 TEST_F(NavigationManagerTest, GetItemAtIndexAfterCommitPending) {
   // Simulate a main frame navigation.
-  manager_->AddPendingItem(GURL("http://www.0.com"), Referrer(),
-                           ui::PAGE_TRANSITION_TYPED,
-                           web::NavigationInitiationType::BROWSER_INITIATED,
-                           /*is_post_navigation=*/false,
-                           /*is_using_https_as_default_scheme=*/false);
+  manager_->AddPendingItem(
+      GURL("http://www.0.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
+      web::NavigationInitiationType::BROWSER_INITIATED,
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   NavigationItem* pending_item0 = manager_->GetPendingItem();
 
   [mock_wk_list_ setCurrentURL:@"http://www.0.com"];
@@ -2266,11 +2159,10 @@ TEST_F(NavigationManagerTest, GetItemAtIndexAfterCommitPending) {
                                            item->GetTransitionType()));
 
   // Simulate a second main frame navigation.
-  manager_->AddPendingItem(GURL("http://www.2.com"), Referrer(),
-                           ui::PAGE_TRANSITION_TYPED,
-                           web::NavigationInitiationType::BROWSER_INITIATED,
-                           /*is_post_navigation=*/false,
-                           /*is_using_https_as_default_scheme=*/false);
+  manager_->AddPendingItem(
+      GURL("http://www.2.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
+      web::NavigationInitiationType::BROWSER_INITIATED,
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   NavigationItem* pending_item2 = manager_->GetPendingItem();
 
   // Simulate an iframe navigation between the two main frame navigations.
@@ -2320,11 +2212,10 @@ TEST_F(NavigationManagerTest, ReusePendingItemForHistoryNavigation) {
   mock_wk_list_.forwardList = @[ wk_item1 ];
   OCMStub([mock_web_view_ URL])
       .andReturn([[NSURL alloc] initWithString:@"http://www.0.com"]);
-  manager_->AddPendingItem(GURL("http://www.0.com"), Referrer(),
-                           ui::PAGE_TRANSITION_TYPED,
-                           web::NavigationInitiationType::BROWSER_INITIATED,
-                           /*is_post_navigation=*/false,
-                           /*is_using_https_as_default_scheme=*/false);
+  manager_->AddPendingItem(
+      GURL("http://www.0.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
+      web::NavigationInitiationType::BROWSER_INITIATED,
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   EXPECT_EQ(original_item0, manager_->GetPendingItem());
 
@@ -2336,21 +2227,19 @@ TEST_F(NavigationManagerTest, ReusePendingItemForHistoryNavigation) {
                   backListURLs:nil
                forwardListURLs:nil];
   original_item0 = manager_->GetItemAtIndex(0);
-  manager_->AddPendingItem(GURL("http://www.0.com"), Referrer(),
-                           ui::PAGE_TRANSITION_RELOAD,
-                           web::NavigationInitiationType::BROWSER_INITIATED,
-                           /*is_post_navigation=*/false,
-                           /*is_using_https_as_default_scheme=*/false);
+  manager_->AddPendingItem(
+      GURL("http://www.0.com"), Referrer(), ui::PAGE_TRANSITION_RELOAD,
+      web::NavigationInitiationType::BROWSER_INITIATED,
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   EXPECT_EQ(original_item0, manager_->GetPendingItem());
 }
 
 // Tests that transient URL rewriters are only applied to a new pending item.
 TEST_F(NavigationManagerTest, TransientURLRewritersOnlyUsedForPendingItem) {
-  manager_->AddPendingItem(GURL("http://www.0.com"), Referrer(),
-                           ui::PAGE_TRANSITION_TYPED,
-                           NavigationInitiationType::BROWSER_INITIATED,
-                           /*is_post_navigation=*/false,
-                           /*is_using_https_as_default_scheme=*/false);
+  manager_->AddPendingItem(
+      GURL("http://www.0.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
+      NavigationInitiationType::BROWSER_INITIATED,
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   // Install transient URL rewriters.
   manager_->AddTransientURLRewriter(&AppendingUrlRewriter);
@@ -2361,21 +2250,19 @@ TEST_F(NavigationManagerTest, TransientURLRewritersOnlyUsedForPendingItem) {
   EXPECT_EQ(GURL("http://www.0.com"), item0->GetURL());
 
   // Transient URL rewriters are applied to a new pending item.
-  manager_->AddPendingItem(GURL("http://www.2.com"), Referrer(),
-                           ui::PAGE_TRANSITION_TYPED,
-                           NavigationInitiationType::BROWSER_INITIATED,
-                           /*is_post_navigation=*/false,
-                           /*is_using_https_as_default_scheme=*/false);
+  manager_->AddPendingItem(
+      GURL("http://www.2.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
+      NavigationInitiationType::BROWSER_INITIATED,
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   EXPECT_EQ(kRewrittenQueryParam, manager_->GetPendingItem()->GetURL().query());
 }
 
 // Tests DiscardNonCommittedItems discards pending items.
 TEST_F(NavigationManagerTest, DiscardNonCommittedItems) {
-  manager_->AddPendingItem(GURL("http://www.0.com"), Referrer(),
-                           ui::PAGE_TRANSITION_TYPED,
-                           web::NavigationInitiationType::BROWSER_INITIATED,
-                           /*is_post_navigation=*/false,
-                           /*is_using_https_as_default_scheme=*/false);
+  manager_->AddPendingItem(
+      GURL("http://www.0.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
+      web::NavigationInitiationType::BROWSER_INITIATED,
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   EXPECT_NE(nullptr, manager_->GetPendingItem());
 
@@ -2387,18 +2274,16 @@ TEST_F(NavigationManagerTest, DiscardNonCommittedItems) {
 TEST_F(NavigationManagerTest, GoBack) {
   ASSERT_FALSE(manager_->CanGoBack());
 
-  manager_->AddPendingItem(GURL("http://www.0.com"), Referrer(),
-                           ui::PAGE_TRANSITION_TYPED,
-                           web::NavigationInitiationType::BROWSER_INITIATED,
-                           /*is_post_navigation=*/false,
-                           /*is_using_https_as_default_scheme=*/false);
+  manager_->AddPendingItem(
+      GURL("http://www.0.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
+      web::NavigationInitiationType::BROWSER_INITIATED,
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   [mock_wk_list_ setCurrentURL:@"http://www.0.com"];
 
-  manager_->AddPendingItem(GURL("http://www.1.com"), Referrer(),
-                           ui::PAGE_TRANSITION_TYPED,
-                           web::NavigationInitiationType::BROWSER_INITIATED,
-                           /*is_post_navigation=*/false,
-                           /*is_using_https_as_default_scheme=*/false);
+  manager_->AddPendingItem(
+      GURL("http://www.1.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
+      web::NavigationInitiationType::BROWSER_INITIATED,
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   [mock_wk_list_ setCurrentURL:@"http://www.1.com"
                   backListURLs:@[ @"http://www.0.com" ]
                forwardListURLs:nil];
@@ -2417,19 +2302,17 @@ TEST_F(NavigationManagerTest, GoBack) {
 // Tests that going forward is always delegated to the underlying WKWebView
 // without any sanity checks such as whether any forward history exists.
 TEST_F(NavigationManagerTest, GoForward) {
-  manager_->AddPendingItem(GURL("http://www.0.com"), Referrer(),
-                           ui::PAGE_TRANSITION_TYPED,
-                           web::NavigationInitiationType::BROWSER_INITIATED,
-                           /*is_post_navigation=*/false,
-                           /*is_using_https_as_default_scheme=*/false);
+  manager_->AddPendingItem(
+      GURL("http://www.0.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
+      web::NavigationInitiationType::BROWSER_INITIATED,
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   [mock_wk_list_ setCurrentURL:@"http://www.0.com"];
   manager_->CommitPendingItem();
 
-  manager_->AddPendingItem(GURL("http://www.1.com"), Referrer(),
-                           ui::PAGE_TRANSITION_TYPED,
-                           web::NavigationInitiationType::BROWSER_INITIATED,
-                           /*is_post_navigation=*/false,
-                           /*is_using_https_as_default_scheme=*/false);
+  manager_->AddPendingItem(
+      GURL("http://www.1.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
+      web::NavigationInitiationType::BROWSER_INITIATED,
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   [mock_wk_list_ setCurrentURL:@"http://www.1.com"
                   backListURLs:@[ @"http://www.0.com" ]
                forwardListURLs:nil];
@@ -2448,19 +2331,17 @@ TEST_F(NavigationManagerTest, GoForward) {
 
 // Tests that going forward clears uncommitted items.
 TEST_F(NavigationManagerTest, GoForwardShouldDiscardsUncommittedItems) {
-  manager_->AddPendingItem(GURL("http://www.0.com"), Referrer(),
-                           ui::PAGE_TRANSITION_TYPED,
-                           web::NavigationInitiationType::BROWSER_INITIATED,
-                           /*is_post_navigation=*/false,
-                           /*is_using_https_as_default_scheme=*/false);
+  manager_->AddPendingItem(
+      GURL("http://www.0.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
+      web::NavigationInitiationType::BROWSER_INITIATED,
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   [mock_wk_list_ setCurrentURL:@"http://www.0.com"];
   manager_->CommitPendingItem();
 
-  manager_->AddPendingItem(GURL("http://www.1.com"), Referrer(),
-                           ui::PAGE_TRANSITION_TYPED,
-                           web::NavigationInitiationType::BROWSER_INITIATED,
-                           /*is_post_navigation=*/false,
-                           /*is_using_https_as_default_scheme=*/false);
+  manager_->AddPendingItem(
+      GURL("http://www.1.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
+      web::NavigationInitiationType::BROWSER_INITIATED,
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   [mock_wk_list_ setCurrentURL:@"http://www.1.com"
                   backListURLs:@[ @"http://www.0.com" ]
                forwardListURLs:nil];
@@ -2468,11 +2349,10 @@ TEST_F(NavigationManagerTest, GoForwardShouldDiscardsUncommittedItems) {
   [mock_wk_list_ moveCurrentToIndex:0];
   ASSERT_TRUE(manager_->CanGoForward());
 
-  manager_->AddPendingItem(GURL("http://www.0.com"), Referrer(),
-                           ui::PAGE_TRANSITION_TYPED,
-                           web::NavigationInitiationType::BROWSER_INITIATED,
-                           /*is_post_navigation=*/false,
-                           /*is_using_https_as_default_scheme=*/false);
+  manager_->AddPendingItem(
+      GURL("http://www.0.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
+      web::NavigationInitiationType::BROWSER_INITIATED,
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   EXPECT_NE(nullptr, manager_->GetPendingItem());
 
@@ -2489,31 +2369,28 @@ TEST_F(NavigationManagerTest, GoForwardShouldDiscardsUncommittedItems) {
 
 // Tests CanGoToOffset API for positive, negative and zero delta.
 TEST_F(NavigationManagerTest, CanGoToOffset) {
-  manager_->AddPendingItem(GURL("http://www.url.com/0"), Referrer(),
-                           ui::PAGE_TRANSITION_LINK,
-                           web::NavigationInitiationType::BROWSER_INITIATED,
-                           /*is_post_navigation=*/false,
-                           /*is_using_https_as_default_scheme=*/false);
+  manager_->AddPendingItem(
+      GURL("http://www.url.com/0"), Referrer(), ui::PAGE_TRANSITION_LINK,
+      web::NavigationInitiationType::BROWSER_INITIATED,
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/0"];
   manager_->CommitPendingItem();
 
-  manager_->AddPendingItem(GURL("http://www.url.com/1"), Referrer(),
-                           ui::PAGE_TRANSITION_LINK,
-                           web::NavigationInitiationType::BROWSER_INITIATED,
-                           /*is_post_navigation=*/false,
-                           /*is_using_https_as_default_scheme=*/false);
+  manager_->AddPendingItem(
+      GURL("http://www.url.com/1"), Referrer(), ui::PAGE_TRANSITION_LINK,
+      web::NavigationInitiationType::BROWSER_INITIATED,
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/1"
                   backListURLs:@[ @"http://www.url.com/0" ]
                forwardListURLs:nil];
   manager_->CommitPendingItem();
 
-  manager_->AddPendingItem(GURL("http://www.url.com/2"), Referrer(),
-                           ui::PAGE_TRANSITION_LINK,
-                           web::NavigationInitiationType::BROWSER_INITIATED,
-                           /*is_post_navigation=*/false,
-                           /*is_using_https_as_default_scheme=*/false);
+  manager_->AddPendingItem(
+      GURL("http://www.url.com/2"), Referrer(), ui::PAGE_TRANSITION_LINK,
+      web::NavigationInitiationType::BROWSER_INITIATED,
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   [mock_wk_list_
         setCurrentURL:@"http://www.url.com/2"
@@ -2569,11 +2446,10 @@ TEST_F(NavigationManagerTest, CanGoToOffset) {
   [mock_wk_list_ moveCurrentToIndex:1];
   OCMExpect([mock_web_view_ URL])
       .andReturn([[NSURL alloc] initWithString:@"http://www.url.com/1"]);
-  manager_->AddPendingItem(GURL("http://www.url.com/1"), Referrer(),
-                           ui::PAGE_TRANSITION_LINK,
-                           web::NavigationInitiationType::BROWSER_INITIATED,
-                           /*is_post_navigation=*/false,
-                           /*is_using_https_as_default_scheme=*/false);
+  manager_->AddPendingItem(
+      GURL("http://www.url.com/1"), Referrer(), ui::PAGE_TRANSITION_LINK,
+      web::NavigationInitiationType::BROWSER_INITIATED,
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   EXPECT_EQ(3, manager_->GetItemCount());
   EXPECT_EQ(2, manager_->GetLastCommittedItemIndex());
@@ -2635,19 +2511,17 @@ TEST_F(NavigationManagerTest, RestoreSessionResetsHistory) {
   // Sets up the navigation history with 2 entries, and a pending back-forward
   // navigation so that last_committed_item_index is 1, pending_item_index is 0,
   // and previous_item_index is 0. Basically, none of them is -1.
-  manager_->AddPendingItem(GURL("http://www.url.com/0"), Referrer(),
-                           ui::PAGE_TRANSITION_TYPED,
-                           web::NavigationInitiationType::BROWSER_INITIATED,
-                           /*is_post_navigation=*/false,
-                           /*is_using_https_as_default_scheme=*/false);
+  manager_->AddPendingItem(
+      GURL("http://www.url.com/0"), Referrer(), ui::PAGE_TRANSITION_TYPED,
+      web::NavigationInitiationType::BROWSER_INITIATED,
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/0"];
   manager_->CommitPendingItem();
 
-  manager_->AddPendingItem(GURL("http://www.url.com/1"), Referrer(),
-                           ui::PAGE_TRANSITION_TYPED,
-                           web::NavigationInitiationType::BROWSER_INITIATED,
-                           /*is_post_navigation=*/false,
-                           /*is_using_https_as_default_scheme=*/false);
+  manager_->AddPendingItem(
+      GURL("http://www.url.com/1"), Referrer(), ui::PAGE_TRANSITION_TYPED,
+      web::NavigationInitiationType::BROWSER_INITIATED,
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   [mock_wk_list_ setCurrentURL:@"http://www.url.com/1"
                   backListURLs:@[ @"http://www.url.com/0" ]
                forwardListURLs:nil];
@@ -2656,11 +2530,10 @@ TEST_F(NavigationManagerTest, RestoreSessionResetsHistory) {
   [mock_wk_list_ moveCurrentToIndex:0];
   OCMStub([mock_web_view_ URL])
       .andReturn([NSURL URLWithString:@"http://www.url.com/0"]);
-  manager_->AddPendingItem(GURL("http://www.url.com/0"), Referrer(),
-                           ui::PAGE_TRANSITION_TYPED,
-                           web::NavigationInitiationType::BROWSER_INITIATED,
-                           /*is_post_navigation=*/false,
-                           /*is_using_https_as_default_scheme=*/false);
+  manager_->AddPendingItem(
+      GURL("http://www.url.com/0"), Referrer(), ui::PAGE_TRANSITION_TYPED,
+      web::NavigationInitiationType::BROWSER_INITIATED,
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   EXPECT_EQ(1, manager_->GetLastCommittedItemIndex());
   EXPECT_EQ(0, manager_->GetPendingItemIndex());
@@ -2725,11 +2598,10 @@ TEST_F(NavigationManagerTest, EmptyWindowOpenNavigation) {
       .andReturn(net::NSURLWithGURL(GURL(url::kAboutBlankURL)));
   mock_wk_list_.currentItem = nil;
 
-  manager_->AddPendingItem(GURL(url::kAboutBlankURL), Referrer(),
-                           ui::PAGE_TRANSITION_LINK,
-                           web::NavigationInitiationType::RENDERER_INITIATED,
-                           /*is_post_navigation=*/false,
-                           /*is_using_https_as_default_scheme=*/false);
+  manager_->AddPendingItem(
+      GURL(url::kAboutBlankURL), Referrer(), ui::PAGE_TRANSITION_LINK,
+      web::NavigationInitiationType::RENDERER_INITIATED,
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   const NavigationItem* pending_item = manager_->GetPendingItem();
   ASSERT_TRUE(pending_item);
@@ -2765,11 +2637,10 @@ TEST_F(NavigationManagerTest, EmptyWindowOpenNavigation) {
 
   // Add another navigation and verify that it replaces the empty window open
   // item.
-  manager_->AddPendingItem(GURL("http://www.2.com"), Referrer(),
-                           ui::PAGE_TRANSITION_TYPED,
-                           web::NavigationInitiationType::BROWSER_INITIATED,
-                           /*is_post_navigation=*/false,
-                           /*is_using_https_as_default_scheme=*/false);
+  manager_->AddPendingItem(
+      GURL("http://www.2.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
+      web::NavigationInitiationType::BROWSER_INITIATED,
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
 
   const NavigationItem* pending_item_2 = manager_->GetPendingItem();
   ASSERT_TRUE(pending_item_2);
@@ -2990,30 +2861,49 @@ TEST_F(NavigationManagerDetachedModeTest, CachedPlaceholders) {
 
 // Tests that pending item is set to serializable when appropriate.
 TEST_F(NavigationManagerDetachedModeTest, NotSerializable) {
-  manager_->AddPendingItem(GURL("http://www.0.com"), Referrer(),
-                           ui::PAGE_TRANSITION_TYPED,
-                           web::NavigationInitiationType::BROWSER_INITIATED,
-                           /*is_post_navigation=*/false,
-                           /*is_using_https_as_default_scheme=*/false);
+  manager_->AddPendingItem(
+      GURL("http://www.0.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
+      web::NavigationInitiationType::BROWSER_INITIATED,
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   EXPECT_FALSE(manager_->GetPendingItemInCurrentOrRestoredSession()
                    ->ShouldSkipSerialization());
 
   manager_->SetWKWebViewNextPendingUrlNotSerializable(GURL("http://www.1.com"));
-  manager_->AddPendingItem(GURL("http://www.1.com"), Referrer(),
-                           ui::PAGE_TRANSITION_TYPED,
-                           web::NavigationInitiationType::BROWSER_INITIATED,
-                           /*is_post_navigation=*/false,
-                           /*is_using_https_as_default_scheme=*/false);
+  manager_->AddPendingItem(
+      GURL("http://www.1.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
+      web::NavigationInitiationType::BROWSER_INITIATED,
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   EXPECT_TRUE(manager_->GetPendingItemInCurrentOrRestoredSession()
                   ->ShouldSkipSerialization());
 
-  manager_->AddPendingItem(GURL("http://www.1.com"), Referrer(),
-                           ui::PAGE_TRANSITION_TYPED,
-                           web::NavigationInitiationType::BROWSER_INITIATED,
-                           /*is_post_navigation=*/false,
-                           /*is_using_https_as_default_scheme=*/false);
+  manager_->AddPendingItem(
+      GURL("http://www.1.com"), Referrer(), ui::PAGE_TRANSITION_TYPED,
+      web::NavigationInitiationType::BROWSER_INITIATED,
+      /*is_post_navigation=*/false, web::HttpsUpgradeType::kNone);
   EXPECT_FALSE(manager_->GetPendingItemInCurrentOrRestoredSession()
                    ->ShouldSkipSerialization());
+}
+
+// Tests that GetVisibleWebViewURL() returns a cached GURL.
+TEST_F(NavigationManagerTest, TestGetVisibleWebViewOriginURLCache) {
+  NavigationManagerImpl manager;
+  manager.SetDelegate(&delegate_);
+  manager.SetBrowserState(&browser_state_);
+
+  NavigationManagerImpl::WKWebViewCache& cache = manager.web_view_cache_;
+
+  GURL gurl("http://www.existing.com");
+  __block NSURL* nsurl = [NSURL URLWithString:@"http://www.existing.com"];
+  OCMStub([mock_web_view_ URL]).andDo(^(NSInvocation* invocation) {
+    [invocation setReturnValue:&nsurl];
+  });
+  EXPECT_EQ(gurl, cache.GetVisibleWebViewOriginURL());
+
+  // Change mock_web_view_'s URL.
+  nsurl = [NSURL URLWithString:@"http://www.anotherexisting.com"];
+  EXPECT_NE(gurl, cache.GetVisibleWebViewOriginURL());
+  EXPECT_EQ(GURL("http://www.anotherexisting.com"),
+            cache.GetVisibleWebViewOriginURL());
 }
 
 }  // namespace web

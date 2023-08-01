@@ -1,14 +1,17 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/android/compositor/layer/toolbar_layer.h"
 
-#include "cc/layers/nine_patch_layer.h"
-#include "cc/layers/solid_color_layer.h"
-#include "cc/layers/ui_resource_layer.h"
+#include "base/feature_list.h"
 #include "cc/resources/scoped_ui_resource.h"
+#include "cc/slim/layer.h"
+#include "cc/slim/nine_patch_layer.h"
+#include "cc/slim/solid_color_layer.h"
+#include "cc/slim/ui_resource_layer.h"
 #include "chrome/browser/android/compositor/resources/toolbar_resource.h"
+#include "chrome/browser/flags/android/chrome_feature_list.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/android/resources/nine_patch_resource.h"
 #include "ui/android/resources/resource_manager.h"
@@ -21,7 +24,7 @@ scoped_refptr<ToolbarLayer> ToolbarLayer::Create(
   return base::WrapRefCounted(new ToolbarLayer(resource_manager));
 }
 
-scoped_refptr<cc::Layer> ToolbarLayer::layer() {
+scoped_refptr<cc::slim::Layer> ToolbarLayer::layer() {
   return layer_;
 }
 
@@ -54,7 +57,9 @@ void ToolbarLayer::PushResource(int toolbar_resource_id,
   toolbar_background_layer_->SetBounds(resource->toolbar_rect().size());
   toolbar_background_layer_->SetPosition(
       gfx::PointF(resource->toolbar_rect().origin()));
-  toolbar_background_layer_->SetBackgroundColor(toolbar_background_color);
+  // TODO(crbug/1308932): Remove FromColor and make all SkColor4f.
+  toolbar_background_layer_->SetBackgroundColor(
+      SkColor4f::FromColor(toolbar_background_color));
 
   bool url_bar_visible = resource->location_bar_content_rect().width() != 0;
   url_bar_background_layer_->SetHideLayerAndSubtree(!url_bar_visible);
@@ -110,7 +115,7 @@ void ToolbarLayer::PushResource(int toolbar_resource_id,
   layer_->SetPosition(gfx::PointF(x_offset, y_offset));
 }
 
-int ToolbarLayer::GetIndexOfLayer(scoped_refptr<cc::Layer> layer) {
+int ToolbarLayer::GetIndexOfLayer(scoped_refptr<cc::slim::Layer> layer) {
   for (unsigned int i = 0; i < layer_->children().size(); ++i) {
     if (layer_->children()[i] == layer)
       return i;
@@ -138,8 +143,9 @@ void ToolbarLayer::UpdateProgressBar(int progress_bar_x,
     progress_bar_background_layer_->SetBounds(
         gfx::Size(progress_bar_background_width,
                   progress_bar_background_height));
+    // TODO(crbug/1308932): Remove FromColor and make all SkColor4f.
     progress_bar_background_layer_->SetBackgroundColor(
-        progress_bar_background_color);
+        SkColor4f::FromColor(progress_bar_background_color));
   }
 
   bool is_progress_bar_visible = SkColorGetA(progress_bar_background_color);
@@ -149,7 +155,9 @@ void ToolbarLayer::UpdateProgressBar(int progress_bar_x,
         gfx::PointF(progress_bar_x, progress_bar_y));
     progress_bar_layer_->SetBounds(
         gfx::Size(progress_bar_width, progress_bar_height));
-    progress_bar_layer_->SetBackgroundColor(progress_bar_color);
+    // TODO(crbug/1308932): Remove FromColor and make all SkColor4f.
+    progress_bar_layer_->SetBackgroundColor(
+        SkColor4f::FromColor(progress_bar_color));
   }
 }
 
@@ -157,19 +165,20 @@ void ToolbarLayer::SetOpacity(float opacity) {
   toolbar_background_layer_->SetOpacity(opacity);
   url_bar_background_layer_->SetOpacity(opacity);
   bitmap_layer_->SetOpacity(opacity);
+
   progress_bar_layer_->SetOpacity(opacity);
   progress_bar_background_layer_->SetOpacity(opacity);
 }
 
 ToolbarLayer::ToolbarLayer(ui::ResourceManager* resource_manager)
     : resource_manager_(resource_manager),
-      layer_(cc::Layer::Create()),
-      toolbar_background_layer_(cc::SolidColorLayer::Create()),
-      url_bar_background_layer_(cc::NinePatchLayer::Create()),
-      bitmap_layer_(cc::UIResourceLayer::Create()),
-      progress_bar_layer_(cc::SolidColorLayer::Create()),
-      progress_bar_background_layer_(cc::SolidColorLayer::Create()),
-      debug_layer_(cc::SolidColorLayer::Create()) {
+      layer_(cc::slim::Layer::Create()),
+      toolbar_background_layer_(cc::slim::SolidColorLayer::Create()),
+      url_bar_background_layer_(cc::slim::NinePatchLayer::Create()),
+      bitmap_layer_(cc::slim::UIResourceLayer::Create()),
+      progress_bar_layer_(cc::slim::SolidColorLayer::Create()),
+      progress_bar_background_layer_(cc::slim::SolidColorLayer::Create()),
+      debug_layer_(cc::slim::SolidColorLayer::Create()) {
   toolbar_background_layer_->SetIsDrawable(true);
   layer_->AddChild(toolbar_background_layer_);
 
@@ -189,7 +198,7 @@ ToolbarLayer::ToolbarLayer(ui::ResourceManager* resource_manager)
   layer_->AddChild(progress_bar_layer_);
 
   debug_layer_->SetIsDrawable(true);
-  debug_layer_->SetBackgroundColor(SK_ColorGREEN);
+  debug_layer_->SetBackgroundColor(SkColors::kGreen);
   debug_layer_->SetOpacity(0.5f);
 }
 

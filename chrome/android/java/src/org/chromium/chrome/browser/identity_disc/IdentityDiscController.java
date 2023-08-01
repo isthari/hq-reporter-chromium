@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,9 @@ package org.chromium.chrome.browser.identity_disc;
 import android.content.Context;
 import android.graphics.drawable.Drawable;
 
-import androidx.annotation.DimenRes;
-import androidx.annotation.IntDef;
+import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
+import androidx.appcompat.content.res.AppCompatResources;
 
 import org.chromium.base.Callback;
 import org.chromium.base.ObserverList;
@@ -16,20 +17,28 @@ import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.layouts.LayoutType;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
 import org.chromium.chrome.browser.lifecycle.NativeInitObserver;
 import org.chromium.chrome.browser.ntp.NewTabPage;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.settings.MainSettings;
 import org.chromium.chrome.browser.settings.SettingsLauncherImpl;
+import org.chromium.chrome.browser.signin.SyncConsentActivityLauncherImpl;
+import org.chromium.chrome.browser.signin.services.DisplayableProfileData;
 import org.chromium.chrome.browser.signin.services.IdentityServicesProvider;
 import org.chromium.chrome.browser.signin.services.ProfileDataCache;
+import org.chromium.chrome.browser.signin.services.SigninManager;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tasks.ReturnToChromeUtil;
 import org.chromium.chrome.browser.toolbar.ButtonData;
 import org.chromium.chrome.browser.toolbar.ButtonData.ButtonSpec;
 import org.chromium.chrome.browser.toolbar.ButtonDataImpl;
 import org.chromium.chrome.browser.toolbar.ButtonDataProvider;
+import org.chromium.chrome.browser.toolbar.adaptive.AdaptiveToolbarButtonVariant;
 import org.chromium.chrome.browser.user_education.IPHCommandBuilder;
+import org.chromium.chrome.browser.util.BrowserUiUtils;
 import org.chromium.chrome.features.start_surface.StartSurfaceState;
 import org.chromium.components.browser_ui.settings.SettingsLauncher;
 import org.chromium.components.feature_engagement.EventConstants;
@@ -39,9 +48,7 @@ import org.chromium.components.signin.base.CoreAccountInfo;
 import org.chromium.components.signin.identitymanager.ConsentLevel;
 import org.chromium.components.signin.identitymanager.IdentityManager;
 import org.chromium.components.signin.identitymanager.PrimaryAccountChangeEvent;
-
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
+import org.chromium.components.signin.metrics.SigninAccessPoint;
 
 /**
  * Handles displaying IdentityDisc on toolbar depending on several conditions
@@ -49,21 +56,6 @@ import java.lang.annotation.RetentionPolicy;
  */
 public class IdentityDiscController implements NativeInitObserver, ProfileDataCache.Observer,
                                                IdentityManager.Observer, ButtonDataProvider {
-    // Visual state of Identity Disc.
-    @Retention(RetentionPolicy.SOURCE)
-    @IntDef({IdentityDiscState.NONE, IdentityDiscState.SMALL, IdentityDiscState.LARGE})
-    private @interface IdentityDiscState {
-        // Identity Disc is hidden.
-        int NONE = 0;
-
-        // Small Identity Disc is shown.
-        int SMALL = 1;
-
-        // Large Identity Disc is shown.
-        int LARGE = 2;
-        int MAX = 3;
-    }
-
     // Context is used for fetching resources and launching preferences page.
     private final Context mContext;
     private ActivityLifecycleDispatcher mActivityLifecycleDispatcher;
@@ -73,23 +65,22 @@ public class IdentityDiscController implements NativeInitObserver, ProfileDataCa
     // We observe IdentityManager to receive primary account state change notifications.
     private IdentityManager mIdentityManager;
 
-    // ProfileDataCache facilitates retrieving profile picture. Separate objects are maintained
-    // for different visual states to cache profile pictures of different size.
-    // mProfileDataCache[IdentityDiscState.NONE] should always be null since in this state
-    // Identity Disc is not visible.
-    private ProfileDataCache mProfileDataCache[] = new ProfileDataCache[IdentityDiscState.MAX];
+    // ProfileDataCache facilitates retrieving profile picture.
+    private ProfileDataCache mProfileDataCache;
 
-    // Identity disc visibility state.
-    @IdentityDiscState
-    private int mState = IdentityDiscState.NONE;
+    // Whether the identity disc is visible.
+    private boolean mIsIdentityDiscShown;
 
     private ButtonDataImpl mButtonData;
     private ObserverList<ButtonDataObserver> mObservers = new ObserverList<>();
     private boolean mNativeIsInitialized;
 
+    private boolean mIsTabNtp;
+    private boolean mIsStartSurface;
+
     /**
      *
-     * @param context The Context for retrieving resources, launching preference activiy, etc.
+     * @param context The Context for retrieving resources, launching preference activity, etc.
      * @param activityLifecycleDispatcher Dispatcher for activity lifecycle events, e.g. native
      *         initialization completing.
      */
@@ -104,16 +95,13 @@ public class IdentityDiscController implements NativeInitObserver, ProfileDataCa
         mButtonData = new ButtonDataImpl(/*canShow=*/false, /*drawable=*/null,
                 /*onClickListener=*/
                 view
-                -> {
-                    recordIdentityDiscUsed();
-                    SettingsLauncher settingsLauncher = new SettingsLauncherImpl();
-                    settingsLauncher.launchSettingsActivity(mContext, MainSettings.class);
-                },
-                R.string.accessibility_toolbar_btn_identity_disc, /*supportsTinting=*/false,
+                -> onClick(),
+                mContext.getString(R.string.accessibility_toolbar_btn_identity_disc),
+                /*supportsTinting=*/false,
                 new IPHCommandBuilder(mContext.getResources(),
                         FeatureConstants.IDENTITY_DISC_FEATURE, R.string.iph_identity_disc_text,
                         R.string.iph_identity_disc_accessibility_text),
-                /*isEnabled=*/true);
+                /*isEnabled=*/true, AdaptiveToolbarButtonVariant.UNKNOWN);
     }
 
     /**
@@ -140,8 +128,8 @@ public class IdentityDiscController implements NativeInitObserver, ProfileDataCa
 
     @Override
     public ButtonData get(Tab tab) {
-        boolean isNtp = tab != null && tab.getNativePage() instanceof NewTabPage;
-        if (!isNtp) {
+        mIsTabNtp = tab != null && tab.getNativePage() instanceof NewTabPage;
+        if (!mIsTabNtp) {
             mButtonData.setCanShow(false);
             return mButtonData;
         }
@@ -150,10 +138,17 @@ public class IdentityDiscController implements NativeInitObserver, ProfileDataCa
         return mButtonData;
     }
 
-    public ButtonData getForStartSurface(@StartSurfaceState int overviewModeState) {
-        if (overviewModeState != StartSurfaceState.SHOWN_HOMEPAGE) {
+    public ButtonData getForStartSurface(
+            @StartSurfaceState int overviewModeState, @LayoutType int layoutType) {
+        if ((ReturnToChromeUtil.isStartSurfaceRefactorEnabled(mContext)
+                    && layoutType != LayoutType.START_SURFACE)
+                || (!ReturnToChromeUtil.isStartSurfaceRefactorEnabled(mContext)
+                        && overviewModeState != StartSurfaceState.SHOWN_HOMEPAGE)) {
+            mIsStartSurface = false;
             mButtonData.setCanShow(false);
             return mButtonData;
+        } else {
+            mIsStartSurface = true;
         }
 
         calculateButtonData();
@@ -167,61 +162,69 @@ public class IdentityDiscController implements NativeInitObserver, ProfileDataCa
         }
 
         String email = CoreAccountInfo.getEmailFrom(getSignedInAccountInfo());
-        mState = email == null ? IdentityDiscState.NONE : IdentityDiscState.SMALL;
-        ensureProfileDataCache(email, mState);
+        if (ChromeFeatureList.isEnabled(ChromeFeatureList.IDENTITY_STATUS_CONSISTENCY)) {
+            mIsIdentityDiscShown = true;
+        } else {
+            mIsIdentityDiscShown = email != null;
+        }
+        ensureProfileDataCache(mIsIdentityDiscShown);
 
-        if (mState != IdentityDiscState.NONE) {
+        if (mIsIdentityDiscShown) {
             mButtonData.setButtonSpec(
-                    buttonSpecWithDrawable(mButtonData.getButtonSpec(), getProfileImage(email)));
+                    buttonSpecWithDrawableAndDescription(mButtonData.getButtonSpec(), email));
             mButtonData.setCanShow(true);
         } else {
             mButtonData.setCanShow(false);
         }
     }
 
-    private static ButtonSpec buttonSpecWithDrawable(ButtonSpec buttonSpec, Drawable drawable) {
-        if (buttonSpec.getDrawable() == drawable) return buttonSpec;
+    private ButtonSpec buttonSpecWithDrawableAndDescription(
+            ButtonSpec buttonSpec, @Nullable String email) {
+        Drawable drawable = getProfileImage(email);
+        if (!ChromeFeatureList.isEnabled(ChromeFeatureList.IDENTITY_STATUS_CONSISTENCY)
+                && (buttonSpec.getDrawable() == drawable)) {
+            return buttonSpec;
+        }
+
+        String contentDescription = getContentDescription(email);
         return new ButtonSpec(drawable, buttonSpec.getOnClickListener(),
-                buttonSpec.getContentDescriptionResId(), buttonSpec.getSupportsTinting(),
-                buttonSpec.getIPHCommandBuilder());
+                /*onLongClickListener=*/null, contentDescription, buttonSpec.getSupportsTinting(),
+                buttonSpec.getIPHCommandBuilder(), AdaptiveToolbarButtonVariant.UNKNOWN,
+                buttonSpec.getActionChipLabelResId());
     }
 
     /**
      * Creates and initializes ProfileDataCache if it wasn't created previously. Subscribes
      * IdentityDiscController for profile data updates.
      */
-    private void ensureProfileDataCache(String accountName, @IdentityDiscState int state) {
-        if (state == IdentityDiscState.NONE || mProfileDataCache[state] != null) return;
+    private void ensureProfileDataCache(boolean isIdentityDiscShown) {
+        if (!isIdentityDiscShown || mProfileDataCache != null) return;
 
-        @DimenRes
-        int dimension_id =
-                (state == IdentityDiscState.SMALL) ? R.dimen.toolbar_identity_disc_size
-                                                   : R.dimen.toolbar_identity_disc_size_duet;
-        ProfileDataCache profileDataCache =
-                ProfileDataCache.createWithoutBadge(mContext, dimension_id);
-        profileDataCache.addObserver(this);
-        mProfileDataCache[state] = profileDataCache;
+        mProfileDataCache =
+                ProfileDataCache.createWithoutBadge(mContext, R.dimen.toolbar_identity_disc_size);
+        mProfileDataCache.addObserver(this);
     }
 
     /**
      * Returns Profile picture Drawable. The size of the image corresponds to current visual state.
      */
-    private Drawable getProfileImage(String accountName) {
-        assert mState != IdentityDiscState.NONE;
-        return mProfileDataCache[mState].getProfileDataOrDefault(accountName).getImage();
+    private Drawable getProfileImage(@Nullable String email) {
+        assert mIsIdentityDiscShown;
+        if (shouldUseSignedOutAvatar(email)) {
+            return AppCompatResources.getDrawable(mContext, R.drawable.account_circle);
+        }
+        return mProfileDataCache.getProfileDataOrDefault(email).getImage();
     }
 
     /**
-     * Hides IdentityDisc and resets all ProfileDataCache objects. Used for flushing cached images
+     * Resets ProfileDataCache. Used for flushing cached image
      * when sign-in state changes.
      */
     private void resetIdentityDiscCache() {
-        for (int i = 0; i < IdentityDiscState.MAX; i++) {
-            if (mProfileDataCache[i] != null) {
-                assert i != IdentityDiscState.NONE;
-                mProfileDataCache[i].removeObserver(this);
-                mProfileDataCache[i] = null;
-            }
+        if (mProfileDataCache != null) {
+            assert mIsIdentityDiscShown;
+            mProfileDataCache.removeObserver(this);
+            mProfileDataCache = null;
         }
     }
 
@@ -236,8 +239,8 @@ public class IdentityDiscController implements NativeInitObserver, ProfileDataCa
      */
     @Override
     public void onProfileDataUpdated(String accountEmail) {
-        if (mState == IdentityDiscState.NONE) return;
-        assert mProfileDataCache[mState] != null;
+        if (!mIsIdentityDiscShown) return;
+        assert mProfileDataCache != null;
 
         if (accountEmail.equals(CoreAccountInfo.getEmailFrom(getSignedInAccountInfo()))) {
             /**
@@ -254,17 +257,17 @@ public class IdentityDiscController implements NativeInitObserver, ProfileDataCa
     /**
      * Implements {@link IdentityManager.Observer}.
      *
-     * IdentityDisc should be shown as long as the user is signed in. Whether the user is syncing
-     * or not should not matter.
+     * IdentityDisc should be shown as long as the user is signed in or IDENTITY_STATUS_CONSISTENCY
+     * is enabled. Whether the user is syncing or not should not matter.
      */
     @Override
     public void onPrimaryAccountChanged(PrimaryAccountChangeEvent eventDetails) {
         switch (eventDetails.getEventTypeFor(ConsentLevel.SIGNIN)) {
             case PrimaryAccountChangeEvent.Type.SET:
-                resetIdentityDiscCache();
                 notifyObservers(true);
                 break;
             case PrimaryAccountChangeEvent.Type.CLEARED:
+                resetIdentityDiscCache();
                 notifyObservers(false);
                 break;
             case PrimaryAccountChangeEvent.Type.NONE:
@@ -282,11 +285,9 @@ public class IdentityDiscController implements NativeInitObserver, ProfileDataCa
             mActivityLifecycleDispatcher = null;
         }
 
-        for (int i = 0; i < IdentityDiscState.MAX; i++) {
-            if (mProfileDataCache[i] != null) {
-                mProfileDataCache[i].removeObserver(this);
-                mProfileDataCache[i] = null;
-            }
+        if (mProfileDataCache != null) {
+            mProfileDataCache.removeObserver(this);
+            mProfileDataCache = null;
         }
 
         if (mIdentityManager != null) {
@@ -302,9 +303,12 @@ public class IdentityDiscController implements NativeInitObserver, ProfileDataCa
     /**
      * Records IdentityDisc usage with feature engagement tracker. This signal can be used to decide
      * whether to show in-product help.
+     * We also record the clicking actions on the profile icon in histograms.
      */
     private void recordIdentityDiscUsed() {
-        assert mProfileSupplier != null && mProfileSupplier.get() != null;
+        BrowserUiUtils.recordIdentityDiscClicked(mIsStartSurface, mIsTabNtp);
+
+        assert isProfileInitialized();
         Tracker tracker = TrackerFactory.getTrackerForProfile(mProfileSupplier.get());
         tracker.notifyEvent(EventConstants.IDENTITY_DISC_USED);
         RecordUserAction.record("MobileToolbarIdentityDiscTap");
@@ -337,5 +341,60 @@ public class IdentityDiscController implements NativeInitObserver, ProfileDataCa
             mIdentityManager.addObserver(this);
             notifyObservers(true);
         }
+    }
+
+    private String getContentDescription(@Nullable String email) {
+        if (!ChromeFeatureList.isEnabled(ChromeFeatureList.IDENTITY_STATUS_CONSISTENCY)) {
+            return mContext.getString(R.string.accessibility_toolbar_btn_identity_disc);
+        }
+
+        if (email == null) {
+            return mContext.getString(R.string.accessibility_toolbar_btn_signed_out_identity_disc);
+        }
+
+        DisplayableProfileData profileData = mProfileDataCache.getProfileDataOrDefault(email);
+        String userName = profileData.getFullName();
+        if (profileData.hasDisplayableEmailAddress()) {
+            return mContext.getString(
+                    R.string.accessibility_toolbar_btn_identity_disc_with_name_and_email, userName,
+                    email);
+        }
+
+        return mContext.getString(
+                R.string.accessibility_toolbar_btn_identity_disc_with_name, userName);
+    }
+
+    private boolean isProfileInitialized() {
+        return mProfileSupplier != null && mProfileSupplier.get() != null;
+    }
+
+    @VisibleForTesting
+    void onClick() {
+        if (!isProfileInitialized()) {
+            return;
+        }
+        recordIdentityDiscUsed();
+
+        SigninManager signinManager = IdentityServicesProvider.get().getSigninManager(
+                Profile.getLastUsedRegularProfile());
+        if (getSignedInAccountInfo() == null && !signinManager.isSigninDisabledByPolicy()) {
+            SyncConsentActivityLauncherImpl.get().launchActivityIfAllowed(
+                    mContext, SigninAccessPoint.NTP_SIGNED_OUT_ICON);
+        } else {
+            SettingsLauncher settingsLauncher = new SettingsLauncherImpl();
+            settingsLauncher.launchSettingsActivity(mContext, MainSettings.class);
+        }
+    }
+
+    @VisibleForTesting
+    boolean isProfileDataCacheEmpty() {
+        return mProfileDataCache == null;
+    }
+
+    private static boolean shouldUseSignedOutAvatar(@Nullable String email) {
+        boolean isIdentityStatusConsistencyEnabled =
+                ChromeFeatureList.isEnabled(ChromeFeatureList.IDENTITY_STATUS_CONSISTENCY);
+        boolean isUserSignedOut = email == null;
+        return isIdentityStatusConsistencyEnabled && isUserSignedOut;
     }
 }

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 
 #include "base/strings/strcat.h"
 #include "base/strings/string_piece.h"
+#include "components/country_codes/country_codes.h"
 #include "components/language/core/common/locale_util.h"
 
 namespace language {
@@ -28,12 +29,9 @@ struct LanguageCodePair {
 //
 // If this table is updated, please sync this with the synonym table in
 // chrome/browser/resources/settings/languages_page/languages.js.
-const LanguageCodePair kChromeToTranslateLanguageMap[] = {
+const LanguageCodePair kTranslateOnlySynonyms[] = {
     {"no", "nb"},
-    {"tl", "fil"},
-};
-const LanguageCodePair kTranslateToChromeLanguageMap[] = {
-    {"tl", "fil"},
+    {"id", "in"},
 };
 
 // Some languages have changed codes over the years and sometimes the older
@@ -44,6 +42,7 @@ const LanguageCodePair kTranslateToChromeLanguageMap[] = {
 const LanguageCodePair kLanguageCodeSynonyms[] = {
     {"iw", "he"},
     {"jw", "jv"},
+    {"tl", "fil"},
 };
 
 // Some Chinese language codes are compatible with zh-TW or zh-CN in terms of
@@ -59,37 +58,56 @@ const LanguageCodePair kLanguageCodeChineseCompatiblePairs[] = {
 
 }  // namespace
 
+bool OverrideTranslateTriggerInIndia() {
+#if BUILDFLAG(IS_ANDROID)
+  return country_codes::GetCurrentCountryCode() == "IN";
+#else
+  return false;
+#endif
+}
+
+OverrideLanguageModel GetOverrideLanguageModel() {
+  // Note: when there are multiple possible override models, the overrides
+  // ordering is important as it allows us to have concurrent overrides in
+  // experiment without having to partition them explicitly.
+  if (OverrideTranslateTriggerInIndia()) {
+    return OverrideLanguageModel::GEO;
+  }
+
+  return OverrideLanguageModel::DEFAULT;
+}
+
 void ToTranslateLanguageSynonym(std::string* language) {
   // Get the base language (e.g. "es" for "es-MX")
   base::StringPiece main_part = language::SplitIntoMainAndTail(*language).first;
-  if (main_part.empty())
+  if (main_part.empty()) {
     return;
-
-  // Chinese is a special case: we do not return the main_part only.
-  // There is not a single base language, but two: traditional and simplified.
-  // The kLanguageCodeChineseCompatiblePairs list contains the relation between
-  // various Chinese locales. We need to return the code from that mapping
-  // instead of the main_part.
-  // Note that "zh" does not have any mapping and as such we leave it as is. See
-  // https://crbug/798512 for more info.
-  for (const auto& language_pair : kLanguageCodeChineseCompatiblePairs) {
-    if (*language == language_pair.chrome_language) {
-      *language = language_pair.translate_language;
-      return;
-    }
   }
+
   if (main_part == "zh") {
+    // Chinese is a special case, there can be two base languages: traditional
+    // and simplified. The kLanguageCodeChineseCompatiblePairs list contains the
+    // relation between various Chinese locales. We need to return the code from
+    // that mapping - if it exists.
+    for (const auto& language_pair : kLanguageCodeChineseCompatiblePairs) {
+      if (*language == language_pair.chrome_language) {
+        *language = language_pair.translate_language;
+        return;
+      }
+    }
+    // Note that "zh" does not have any mapping and as such we leave it as is.
+    // See https://crbug/798512 for more info.
     return;
   }
 
-  for (const auto& language_pair : kChromeToTranslateLanguageMap) {
+  for (const auto& language_pair : kTranslateOnlySynonyms) {
     if (main_part == language_pair.chrome_language) {
       *language = language_pair.translate_language;
       return;
     }
   }
 
-  // Apply linear search here because number of items in the list is just four.
+  // Apply linear search here because number of items in the list is just three.
   for (const auto& language_pair : kLanguageCodeSynonyms) {
     if (main_part == language_pair.chrome_language) {
       *language = language_pair.translate_language;
@@ -102,18 +120,12 @@ void ToTranslateLanguageSynonym(std::string* language) {
 }
 
 void ToChromeLanguageSynonym(std::string* language) {
-  for (const auto& language_pair : kTranslateToChromeLanguageMap) {
-    if (*language == language_pair.translate_language) {
-      *language = language_pair.chrome_language;
-      return;
-    }
+  auto [main_part, tail_part] = language::SplitIntoMainAndTail(*language);
+  if (main_part.empty()) {
+    return;
   }
 
-  auto [main_part, tail_part] = language::SplitIntoMainAndTail(*language);
-  if (main_part.empty())
-    return;
-
-  // Apply linear search here because number of items in the list is just four.
+  // Apply linear search here because number of items in the list is just three.
   for (const auto& language_pair : kLanguageCodeSynonyms) {
     if (main_part == language_pair.translate_language) {
       main_part = language_pair.chrome_language;

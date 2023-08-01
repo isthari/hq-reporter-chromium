@@ -1,18 +1,18 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/media/history/media_history_playback_table.h"
 #include "chrome/browser/media/history/media_history_store.h"
 
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/media/history/media_history_contents_observer.h"
@@ -81,66 +81,54 @@ class MediaHistoryBrowserTest : public InProcessBrowserTest,
   static bool SetupPageAndStartPlaying(Browser* browser, const GURL& url) {
     EXPECT_TRUE(ui_test_utils::NavigateToURL(browser, url));
 
-    bool played = false;
-    EXPECT_TRUE(content::ExecuteScriptAndExtractBool(
-        browser->tab_strip_model()->GetActiveWebContents(),
-        "attemptPlayVideo();", &played));
-    return played;
+    return content::EvalJs(browser->tab_strip_model()->GetActiveWebContents(),
+                           "attemptPlayVideo();")
+        .ExtractBool();
   }
 
   static bool SetupPageAndStartPlayingAudioOnly(Browser* browser,
                                                 const GURL& url) {
     EXPECT_TRUE(ui_test_utils::NavigateToURL(browser, url));
 
-    bool played = false;
-    EXPECT_TRUE(content::ExecuteScriptAndExtractBool(
-        browser->tab_strip_model()->GetActiveWebContents(),
-        "attemptPlayAudioOnly();", &played));
-    return played;
+    return content::EvalJs(browser->tab_strip_model()->GetActiveWebContents(),
+                           "attemptPlayAudioOnly();")
+        .ExtractBool();
   }
 
   static bool SetupPageAndStartPlayingVideoOnly(Browser* browser,
                                                 const GURL& url) {
     EXPECT_TRUE(ui_test_utils::NavigateToURL(browser, url));
 
-    bool played = false;
-    EXPECT_TRUE(content::ExecuteScriptAndExtractBool(
-        browser->tab_strip_model()->GetActiveWebContents(),
-        "attemptPlayVideoOnly();", &played));
-    return played;
+    return content::EvalJs(browser->tab_strip_model()->GetActiveWebContents(),
+                           "attemptPlayVideoOnly();")
+        .ExtractBool();
   }
 
   static bool EnterPictureInPicture(Browser* browser) {
-    bool success = false;
-    return content::ExecuteScriptAndExtractBool(
-               browser->tab_strip_model()->GetActiveWebContents(),
-               "enterPictureInPicture();", &success) &&
-           success;
+    return content::EvalJs(browser->tab_strip_model()->GetActiveWebContents(),
+                           "enterPictureInPicture();")
+        .ExtractBool();
   }
 
   static bool SetMediaMetadata(Browser* browser) {
-    return content::ExecuteScript(
-        browser->tab_strip_model()->GetActiveWebContents(),
-        "setMediaMetadata();");
+    return content::ExecJs(browser->tab_strip_model()->GetActiveWebContents(),
+                           "setMediaMetadata();");
   }
 
   static bool SetMediaMetadataWithArtwork(Browser* browser) {
-    return content::ExecuteScript(
-        browser->tab_strip_model()->GetActiveWebContents(),
-        "setMediaMetadataWithArtwork();");
+    return content::ExecJs(browser->tab_strip_model()->GetActiveWebContents(),
+                           "setMediaMetadataWithArtwork();");
   }
 
   static bool FinishPlaying(Browser* browser) {
-    return content::ExecuteScript(
-        browser->tab_strip_model()->GetActiveWebContents(), "finishPlaying();");
+    return content::ExecJs(browser->tab_strip_model()->GetActiveWebContents(),
+                           "finishPlaying();");
   }
 
   static bool WaitForSignificantPlayback(Browser* browser) {
-    bool seeked = false;
-    EXPECT_TRUE(content::ExecuteScriptAndExtractBool(
-        browser->tab_strip_model()->GetActiveWebContents(),
-        "waitForSignificantPlayback();", &seeked));
-    return seeked;
+    return content::EvalJs(browser->tab_strip_model()->GetActiveWebContents(),
+                           "waitForSignificantPlayback();")
+        .ExtractBool();
   }
 
   static std::vector<mojom::MediaHistoryPlaybackSessionRowPtr>
@@ -626,7 +614,7 @@ IN_PROC_BROWSER_TEST_P(MediaHistoryBrowserTest, DISABLED_GetPlaybackSessions) {
     // Start the first page again and seek to 4 seconds in with different
     // metadata.
     EXPECT_TRUE(SetupPageAndStartPlaying(browser, GetTestURL()));
-    EXPECT_TRUE(content::ExecuteScript(
+    EXPECT_TRUE(content::ExecJs(
         browser->tab_strip_model()->GetActiveWebContents(), "seekToFour()"));
 
     media_session::test::MockMediaSessionMojoObserver observer(
@@ -733,16 +721,8 @@ IN_PROC_BROWSER_TEST_P(MediaHistoryBrowserTest, DISABLED_GetPlaybackSessions) {
               GetPlaybackSessionsSync(GetOTRMediaHistoryService(browser), 2));
   }
 }
-
-// TODO(crbug.com/1176025): Flaking on Linux.
-#if BUILDFLAG(IS_LINUX)
-#define MAYBE_SaveImagesWithDifferentSessions \
-  DISABLED_SaveImagesWithDifferentSessions
-#else
-#define MAYBE_SaveImagesWithDifferentSessions SaveImagesWithDifferentSessions
-#endif
 IN_PROC_BROWSER_TEST_P(MediaHistoryBrowserTest,
-                       MAYBE_SaveImagesWithDifferentSessions) {
+                       DISABLED_SaveImagesWithDifferentSessions) {
   auto* browser = CreateBrowserFromParam();
   auto expected_metadata = GetExpectedMetadata();
   auto expected_artwork = GetExpectedArtwork();
@@ -785,9 +765,9 @@ IN_PROC_BROWSER_TEST_P(MediaHistoryBrowserTest,
   {
     // Start a second session on a different URL.
     EXPECT_TRUE(SetupPageAndStartPlaying(browser, GetTestAltURL()));
-    EXPECT_TRUE(content::ExecuteScript(
-        browser->tab_strip_model()->GetActiveWebContents(),
-        "setMediaMetadataWithAltArtwork();"));
+    EXPECT_TRUE(
+        content::ExecJs(browser->tab_strip_model()->GetActiveWebContents(),
+                        "setMediaMetadataWithAltArtwork();"));
 
     media_session::test::MockMediaSessionMojoObserver observer(
         *GetMediaSession(browser));
@@ -1079,8 +1059,10 @@ IN_PROC_BROWSER_TEST_P(MediaHistoryBrowserTest,
   EXPECT_TRUE(sessions.empty());
 }
 
-IN_PROC_BROWSER_TEST_P(MediaHistoryBrowserTest,
-                       DoNotRecordSessionForVideoOnlyInPictureInPicture) {
+// TODO(crbug.com/1310805): Fix flakiness and re-enable this test.
+IN_PROC_BROWSER_TEST_P(
+    MediaHistoryBrowserTest,
+    DISABLED_DoNotRecordSessionForVideoOnlyInPictureInPicture) {
   auto* browser = CreateBrowserFromParam();
 
   ASSERT_TRUE(SetupPageAndStartPlayingVideoOnly(browser, GetTestURL()));
@@ -1123,10 +1105,19 @@ IN_PROC_BROWSER_TEST_P(MediaHistoryBrowserTest,
   web_contents->WasHidden();
 
   // Wait for significant playback in the background tab.
-  bool seeked = false;
-  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      web_contents, "waitForSignificantPlayback();", &seeked));
-  ASSERT_TRUE(seeked);
+  ASSERT_EQ(true,
+            content::EvalJs(web_contents, "waitForSignificantPlayback();"));
+
+  // Create another browser. This is important in the incognito case as
+  // destroying `browser` (which happens from CloseAllTabs()) will delete the
+  // incognito profile, which deletes MediaHistoryKeyedService.. Creating
+  // another browser referencing the incognito profile ensure the profiles is
+  // not destroyed. Note that this is only done for incognito as for
+  // non-incognito CreateBrowserFromParam() does not create it a new Browser,
+  // it returns browser().
+  Browser* incognito_browser_to_prevent_early_shutdown = nullptr;
+  if (GetParam() == TestState::kIncognito)
+    incognito_browser_to_prevent_early_shutdown = CreateBrowserFromParam();
 
   // Close all the tabs to trigger any saving.
   browser->tab_strip_model()->CloseAllTabs();
@@ -1140,6 +1131,11 @@ IN_PROC_BROWSER_TEST_P(MediaHistoryBrowserTest,
     ASSERT_EQ(1u, playbacks.size());
     EXPECT_GE(base::Seconds(2), playbacks[0]->watchtime);
   }
+
+  if (incognito_browser_to_prevent_early_shutdown) {
+    incognito_browser_to_prevent_early_shutdown->tab_strip_model()
+        ->CloseAllTabs();
+  }
 }
 
 IN_PROC_BROWSER_TEST_P(MediaHistoryBrowserTest, DoNotRecordWatchtime_Muted) {
@@ -1149,16 +1145,24 @@ IN_PROC_BROWSER_TEST_P(MediaHistoryBrowserTest, DoNotRecordWatchtime_Muted) {
   // Setup the test page and mute the player.
   auto* web_contents = browser->tab_strip_model()->GetActiveWebContents();
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser, GetTestURL()));
-  ASSERT_TRUE(content::ExecuteScript(web_contents, "mute();"));
+  ASSERT_TRUE(content::ExecJs(web_contents, "mute();"));
 
   // Start playing the video.
-  bool played = false;
-  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      web_contents, "attemptPlayVideo();", &played));
-  ASSERT_TRUE(played);
+  ASSERT_EQ(true, content::EvalJs(web_contents, "attemptPlayVideo();"));
 
   // Wait for significant playback in the muted tab.
   WaitForSignificantPlayback(browser);
+
+  // Create another browser. This is important in the incognito case as
+  // destroying `browser` (which happens from CloseAllTabs()) will delete the
+  // incognito profile, which deletes MediaHistoryKeyedService.. Creating
+  // another browser referencing the incognito profile ensure the profiles is
+  // not destroyed. Note that this is only done for incognito as for
+  // non-incognito CreateBrowserFromParam() does not create it a new Browser,
+  // it returns browser().
+  Browser* incognito_browser_to_prevent_early_shutdown = nullptr;
+  if (GetParam() == TestState::kIncognito)
+    incognito_browser_to_prevent_early_shutdown = CreateBrowserFromParam();
 
   // Close all the tabs to trigger any saving.
   browser->tab_strip_model()->CloseAllTabs();
@@ -1169,6 +1173,11 @@ IN_PROC_BROWSER_TEST_P(MediaHistoryBrowserTest, DoNotRecordWatchtime_Muted) {
   // No playbacks should have been saved since we were muted.
   auto playbacks = GetPlaybacksSync(service);
   EXPECT_TRUE(playbacks.empty());
+
+  if (incognito_browser_to_prevent_early_shutdown) {
+    incognito_browser_to_prevent_early_shutdown->tab_strip_model()
+        ->CloseAllTabs();
+  }
 }
 
 class MediaHistoryForPrerenderBrowserTest : public MediaHistoryBrowserTest {
@@ -1192,7 +1201,7 @@ class MediaHistoryForPrerenderBrowserTest : public MediaHistoryBrowserTest {
   content::WebContents* web_contents() { return web_contents_; }
 
  protected:
-  raw_ptr<content::WebContents> web_contents_ = nullptr;
+  raw_ptr<content::WebContents, DanglingUntriaged> web_contents_ = nullptr;
   content::test::PrerenderTestHelper prerender_helper_;
   base::test::ScopedFeatureList feature_list_;
 };

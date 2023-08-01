@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,13 +6,19 @@
 
 #include <memory>
 
+#include "base/memory/scoped_refptr.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/task/thread_pool.h"
+#include "base/test/task_environment.h"
+#include "base/time/time.h"
 #include "media/base/video_codecs.h"
 #include "media/base/video_frame.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/platform/scheduler/test/renderer_scheduler_test_support.h"
 #include "third_party/blink/renderer/modules/mediarecorder/video_track_recorder.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_media.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 
@@ -22,7 +28,7 @@ namespace {
 struct TestParam {
   absl::optional<media::VideoCodecProfile> profile;
   absl::optional<uint8_t> level;
-  int32_t bitrate;
+  uint32_t bitrate;
 };
 
 const int kFrameWidth = 64;
@@ -45,40 +51,30 @@ class H264EncoderFixture : public ::testing::Test {
  public:
   H264EncoderFixture(absl::optional<media::VideoCodecProfile> profile,
                      absl::optional<uint8_t> level,
-                     int32_t bitrate)
+                     uint32_t bitrate)
       : profile_(profile),
         level_(level),
         bitrate_(bitrate),
-        testing_render_thread_([]() {
-          auto* th = new base::Thread("TestingRenderThread");
-          th->Start();
-          return th;
-        }()),
-        encoder_(base::MakeRefCounted<H264Encoder>(
+        encoder_(
+            scheduler::GetSingleThreadTaskRunnerForTesting(),
             ConvertToBaseRepeatingCallback(
                 CrossThreadBindRepeating(&H264EncoderFixture::OnEncodedVideo,
                                          CrossThreadUnretained(this))),
             VideoTrackRecorder::CodecProfile(VideoTrackRecorder::CodecId::kH264,
                                              profile_,
                                              level_),
-            bitrate_,
-            testing_render_thread_->task_runner())) {}
+            bitrate_) {}
 
   H264EncoderFixture(const H264EncoderFixture&) = delete;
   H264EncoderFixture& operator=(const H264EncoderFixture&) = delete;
 
  protected:
   void EncodeFrame() {
-    frame_encoded_.Reset();
-    auto video_frame =
-        media::VideoFrame::CreateBlackFrame({kFrameWidth, kFrameHeight});
-    PostCrossThreadTask(
-        *testing_render_thread_->task_runner().get(), FROM_HERE,
-        CrossThreadBindOnce(&VideoTrackRecorder::Encoder::StartFrameEncode,
-                            CrossThreadUnretained(encoder_.get()), video_frame,
-                            std::vector<scoped_refptr<media::VideoFrame>>(),
-                            base::TimeTicks::Now()));
-    frame_encoded_.Wait();
+    encoder_.StartFrameEncode(
+        CrossThreadBindRepeating(base::TimeTicks::Now),
+        media::VideoFrame::CreateBlackFrame({kFrameWidth, kFrameHeight}),
+        std::vector<scoped_refptr<media::VideoFrame>>(),
+        base::TimeTicks::Now());
   }
 
   std::pair<media::VideoCodecProfile, uint8_t> GetProfileLevelForTesting() {
@@ -110,7 +106,7 @@ class H264EncoderFixture : public ::testing::Test {
         {LEVEL_5_2, 52},
     });
 
-    SEncParamExt params = encoder_->GetEncoderOptionForTesting();
+    SEncParamExt params = encoder_.GetEncoderOptionForTesting();
 
     const auto eProfileIdc = params.sSpatialLayers[0].uiProfileIdc;
     if (!kEProfileIdcToProfile.Contains(eProfileIdc)) {
@@ -125,22 +121,16 @@ class H264EncoderFixture : public ::testing::Test {
             kELevelIdcToLevel.find(eLevelIdc)->value};
   }
 
-  void OnEncodedVideo(const media::WebmMuxer::VideoParameters& params,
+  void OnEncodedVideo(const media::Muxer::VideoParameters& params,
                       std::string encoded_data,
                       std::string encoded_alpha,
                       base::TimeTicks capture_timestamp,
-                      bool is_key_frame) {
-    frame_encoded_.Signal();
-  }
+                      bool is_key_frame) {}
 
- private:
   const absl::optional<media::VideoCodecProfile> profile_;
   const absl::optional<uint8_t> level_;
-  const int32_t bitrate_;
-  // Serves as IO thread pushing/retrieving frames.
-  std::unique_ptr<base::Thread> testing_render_thread_;
-  const scoped_refptr<H264Encoder> encoder_;
-  base::WaitableEvent frame_encoded_;
+  const uint32_t bitrate_;
+  H264Encoder encoder_;
 };
 
 class H264EncoderParameterTest

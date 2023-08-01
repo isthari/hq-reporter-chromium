@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@ import android.view.View;
 import android.widget.ListView;
 
 import org.chromium.base.Callback;
-import org.chromium.chrome.browser.ui.appmenu.internal.R;
 import org.chromium.ui.modelutil.MVCListAdapter.ModelList;
 import org.chromium.ui.modelutil.PropertyModel;
 
@@ -45,7 +44,7 @@ public class AppMenuTestSupport {
     public static void onOptionsItemSelected(AppMenuCoordinator coordinator, int itemId) {
         ((AppMenuCoordinatorImpl) coordinator)
                 .getAppMenuHandlerImplForTesting()
-                .onOptionsItemSelected(itemId, false);
+                .onOptionsItemSelected(itemId);
     }
 
     /**
@@ -144,5 +143,24 @@ public class AppMenuTestSupport {
      */
     public static int getStandardMenuItemTextViewId() {
         return R.id.menu_item_text;
+    }
+
+    /**
+     * @param coordinator The {@link AppMenuCoordinator} associated with the app menu being tested.
+     * @param id The id of the menu item
+     * @return the index of the menu item (specified by id) in the menuModelList
+     */
+    public static int findIndexOfMenuItemById(AppMenuCoordinator coordinator, int id) {
+        ModelList menuModelList = AppMenuTestSupport.getMenuModelList(coordinator);
+        if (menuModelList == null) return -1;
+
+        for (int i = 0; i < menuModelList.size(); i++) {
+            PropertyModel model = menuModelList.get(i).model;
+            if (model.get(AppMenuItemProperties.MENU_ITEM_ID) == id) {
+                return i;
+            }
+        }
+
+        return -1;
     }
 }

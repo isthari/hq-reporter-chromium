@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,9 +15,7 @@ namespace weblayer {
 class BrowserImpl;
 class BrowserListObserver;
 
-#if BUILDFLAG(IS_ANDROID)
 class BrowserListProxy;
-#endif
 
 // Tracks the set of browsers.
 class BrowserList {
@@ -53,9 +51,7 @@ class BrowserList {
 
   base::flat_set<BrowserImpl*> browsers_;
   base::ObserverList<BrowserListObserver> observers_;
-#if BUILDFLAG(IS_ANDROID)
   std::unique_ptr<BrowserListProxy> browser_list_proxy_;
-#endif
 };
 
 }  // namespace weblayer

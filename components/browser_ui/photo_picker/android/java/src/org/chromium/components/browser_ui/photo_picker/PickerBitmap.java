@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,6 @@ import android.net.Uri;
 
 import androidx.annotation.IntDef;
 import androidx.annotation.VisibleForTesting;
-
-import org.chromium.base.ApiCompatibilityUtils;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -101,7 +99,7 @@ public class PickerBitmap implements Comparable<PickerBitmap> {
      */
     @Override
     public int compareTo(PickerBitmap other) {
-        return ApiCompatibilityUtils.compareLong(other.mLastModified, mLastModified);
+        return Long.compare(other.mLastModified, mLastModified);
     }
 
     /**

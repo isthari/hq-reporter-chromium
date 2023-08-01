@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <mach/mach.h>
 #include <malloc/malloc.h>
 
-#include "base/allocator/buildflags.h"
+#include "base/allocator/partition_allocator/partition_alloc_buildflags.h"
 
 // BASE_EXPORT tends to be defined as soon as anything from //base is included.
 #if defined(BASE_EXPORT)
@@ -31,6 +31,7 @@ void abort_report_np(const char* fmt, ...);
 }
 
 namespace {
+
 malloc_zone_t* GetDefaultMallocZone() {
   // malloc_default_zone() does not return... the default zone, but the
   // initial one. The default one is the first element of the default zone
@@ -39,8 +40,9 @@ malloc_zone_t* GetDefaultMallocZone() {
   vm_address_t* zones = nullptr;
   kern_return_t result =
       malloc_get_all_zones(mach_task_self(), nullptr, &zones, &zone_count);
-  if (result != KERN_SUCCESS)
+  if (result != KERN_SUCCESS) {
     abort_report_np("Cannot enumerate malloc() zones");
+  }
   return reinterpret_cast<malloc_zone_t*>(zones[0]);
 }
 
@@ -148,6 +150,11 @@ void EarlyMallocZoneRegistration() {
     return g_default_zone->batch_free(g_default_zone, to_be_freed,
                                       num_to_be_freed);
   };
+#if PA_TRY_FREE_DEFAULT_IS_AVAILABLE
+  g_delegating_zone.try_free_default = [](malloc_zone_t* zone, void* ptr) {
+    return g_default_zone->try_free_default(g_default_zone, ptr);
+  };
+#endif
 
   // Diagnostics and debugging.
   //
@@ -227,8 +234,9 @@ void EarlyMallocZoneRegistration() {
   // |g_delegating_zone|...|g_default_zone|purgeable_zone|
 
   // Sanity check.
-  if (GetDefaultMallocZone() != &g_delegating_zone)
+  if (GetDefaultMallocZone() != &g_delegating_zone) {
     abort_report_np("Failed to install the delegating zone as default.");
+  }
 }
 
 void AllowDoublePartitionAllocZoneRegistration() {
@@ -236,8 +244,9 @@ void AllowDoublePartitionAllocZoneRegistration() {
   vm_address_t* zones = nullptr;
   kern_return_t result =
       malloc_get_all_zones(mach_task_self(), nullptr, &zones, &zone_count);
-  if (result != KERN_SUCCESS)
+  if (result != KERN_SUCCESS) {
     abort_report_np("Cannot enumerate malloc() zones");
+  }
 
   // If PartitionAlloc is one of the zones, *change* its name so that
   // registration can happen multiple times. This works because zone

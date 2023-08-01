@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,17 +12,22 @@
 #include "ash/drag_drop/drag_image_view.h"
 #include "ash/public/cpp/shelf_config.h"
 #include "ash/public/cpp/shelf_model.h"
-#include "ash/shelf/gradient_layer_delegate.h"
 #include "ash/shelf/scroll_arrow_view.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shelf/shelf_button_delegate.h"
 #include "ash/shelf/shelf_container_view.h"
 #include "ash/shelf/shelf_tooltip_delegate.h"
 #include "ash/shelf/shelf_view.h"
-#include "base/callback_helpers.h"
 #include "base/cancelable_callback.h"
+#include "base/functional/callback_helpers.h"
+#include "base/memory/raw_ptr.h"
+#include "base/memory/weak_ptr.h"
+#include "base/time/time.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animation_observer.h"
-#include "ui/views/animation/ink_drop_host_view.h"
+#include "ui/gfx/geometry/linear_gradient.h"
+#include "ui/views/animation/ink_drop_host.h"
 #include "ui/views/context_menu_controller.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/widget/unique_widget_ptr.h"
@@ -32,8 +37,11 @@ namespace views {
 class FocusSearch;
 }
 
-namespace ash {
+namespace ui {
 class PresentationTimeRecorder;
+}
+
+namespace ash {
 
 class ASH_EXPORT ScrollableShelfView : public views::AccessiblePaneView,
                                        public ShelfView::Delegate,
@@ -145,8 +153,12 @@ class ASH_EXPORT ScrollableShelfView : public views::AccessiblePaneView,
   LayoutStrategy layout_strategy_for_test() const { return layout_strategy_; }
   gfx::Vector2dF scroll_offset_for_test() const { return scroll_offset_; }
 
-  int first_tappable_app_index() { return first_tappable_app_index_; }
-  int last_tappable_app_index() { return last_tappable_app_index_; }
+  absl::optional<size_t> first_tappable_app_index() const {
+    return first_tappable_app_index_;
+  }
+  absl::optional<size_t> last_tappable_app_index() const {
+    return last_tappable_app_index_;
+  }
 
   void set_default_last_focusable_child(bool default_last_focusable_child) {
     default_last_focusable_child_ = default_last_focusable_child;
@@ -245,6 +257,8 @@ class ASH_EXPORT ScrollableShelfView : public views::AccessiblePaneView,
   void HandleAccessibleActionScrollToMakeVisible(ShelfButton* button) override;
   std::unique_ptr<ScopedActiveInkDropCount> CreateScopedActiveInkDropCount(
       const ShelfButton* sender) override;
+  void OnButtonWillBeRemoved() override;
+  void OnAppButtonActivated(const ShelfButton* button) override;
 
   // ContextMenuController:
   void ShowContextMenuForViewImpl(views::View* source,
@@ -323,10 +337,11 @@ class ASH_EXPORT ScrollableShelfView : public views::AccessiblePaneView,
   float CalculateTargetOffsetAfterScroll(float start_offset,
                                          float scroll_distance) const;
 
-  // Calculates the bounds of the gradient zone before/after the shelf
+  // Updates the bounds of the gradient zone before/after the shelf
   // container.
-  GradientLayerDelegate::FadeZone CalculateStartGradientZone() const;
-  GradientLayerDelegate::FadeZone CalculateEndGradientZone() const;
+  void UpdateGradientMask();
+  void CalculateHorizontalGradient(gfx::LinearGradient* gradient_mask);
+  void CalculateVerticalGradient(gfx::LinearGradient* gradient_mask);
 
   // Updates the visibility of gradient zones.
   void UpdateGradientZoneState();
@@ -334,10 +349,6 @@ class ASH_EXPORT ScrollableShelfView : public views::AccessiblePaneView,
   // Updates the gradient zone if the gradient zone's target bounds are
   // different from the actual values.
   void MaybeUpdateGradientZone();
-
-  void PaintGradientZone(
-      const GradientLayerDelegate::FadeZone& start_gradient_zone,
-      const GradientLayerDelegate::FadeZone& end_gradient_zone);
 
   bool ShouldApplyMaskLayerGradientZone() const;
 
@@ -356,9 +367,9 @@ class ASH_EXPORT ScrollableShelfView : public views::AccessiblePaneView,
   // layout strategy and offset along the main axis (that is the x-axis when
   // shelf is horizontally aligned or the y-axis if the shelf is vertically
   // aligned).
-  std::pair<int, int> CalculateTappableIconIndices(
-      LayoutStrategy layout_strategy,
-      int scroll_distance_on_main_axis) const;
+  std::pair<absl::optional<size_t>, absl::optional<size_t>>
+  CalculateTappableIconIndices(LayoutStrategy layout_strategy,
+                               int scroll_distance_on_main_axis) const;
 
   views::View* FindFirstFocusableChild();
   views::View* FindLastFocusableChild();
@@ -462,15 +473,15 @@ class ASH_EXPORT ScrollableShelfView : public views::AccessiblePaneView,
   LayoutStrategy layout_strategy_ = kNotShowArrowButtons;
 
   // Child views Owned by views hierarchy.
-  ScrollArrowView* left_arrow_ = nullptr;
-  ScrollArrowView* right_arrow_ = nullptr;
-  ShelfContainerView* shelf_container_view_ = nullptr;
+  raw_ptr<ScrollArrowView, ExperimentalAsh> left_arrow_ = nullptr;
+  raw_ptr<ScrollArrowView, ExperimentalAsh> right_arrow_ = nullptr;
+  raw_ptr<ShelfContainerView, ExperimentalAsh> shelf_container_view_ = nullptr;
 
   // Available space to accommodate child views. It is mirrored for the
   // horizontal shelf under RTL.
   gfx::Rect available_space_;
 
-  ShelfView* shelf_view_ = nullptr;
+  raw_ptr<ShelfView, ExperimentalAsh> shelf_view_ = nullptr;
 
   // Defines the padding space inside the scrollable shelf. It is decided by the
   // current padding strategy. Note that `edge_padding_insets_` is mirrored
@@ -500,13 +511,11 @@ class ASH_EXPORT ScrollableShelfView : public views::AccessiblePaneView,
   LayoutStrategy layout_strategy_before_main_axis_scrolling_ =
       kNotShowArrowButtons;
 
-  std::unique_ptr<GradientLayerDelegate> gradient_layer_delegate_;
-
   std::unique_ptr<views::FocusSearch> focus_search_;
 
   // The index of the first/last tappable app index.
-  int first_tappable_app_index_ = -1;
-  int last_tappable_app_index_ = -1;
+  absl::optional<size_t> first_tappable_app_index_ = absl::nullopt;
+  absl::optional<size_t> last_tappable_app_index_ = absl::nullopt;
 
   // The number of corner buttons whose ink drop is activated.
   int activated_corner_buttons_ = 0;
@@ -530,7 +539,7 @@ class ASH_EXPORT ScrollableShelfView : public views::AccessiblePaneView,
   // Waiting time before flipping the page.
   base::TimeDelta page_flip_time_threshold_;
 
-  TestObserver* test_observer_ = nullptr;
+  raw_ptr<TestObserver, ExperimentalAsh> test_observer_ = nullptr;
 
   // If page flip timer is active for shelf item drag, the last known drag item
   // bounds in screen coordinates.
@@ -543,9 +552,11 @@ class ASH_EXPORT ScrollableShelfView : public views::AccessiblePaneView,
   bool layer_clip_in_non_overflow_ = false;
 
   // Records the presentation time for the scrollable shelf dragging.
-  std::unique_ptr<PresentationTimeRecorder> presentation_time_recorder_;
+  std::unique_ptr<ui::PresentationTimeRecorder> presentation_time_recorder_;
 
   base::ScopedClosureRunner force_show_hotseat_resetter_;
+
+  base::WeakPtrFactory<ScrollableShelfView> weak_ptr_factory_{this};
 };
 
 }  // namespace ash

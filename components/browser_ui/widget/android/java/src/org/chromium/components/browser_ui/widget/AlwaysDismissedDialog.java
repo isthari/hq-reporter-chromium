@@ -1,11 +1,10 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.components.browser_ui.widget;
 
 import android.app.Activity;
-import android.app.Dialog;
 
 import org.chromium.base.ActivityState;
 import org.chromium.base.ApplicationStatus;
@@ -17,7 +16,7 @@ import org.chromium.base.ApplicationStatus;
  * DialogFragments ensure that dismiss() is called as well.
  */
 public class AlwaysDismissedDialog
-        extends Dialog implements ApplicationStatus.ActivityStateListener {
+        extends ChromeDialog implements ApplicationStatus.ActivityStateListener {
     public AlwaysDismissedDialog(Activity ownerActivity, int theme) {
         super(ownerActivity, theme);
         ApplicationStatus.registerStateListenerForActivity(this, ownerActivity);

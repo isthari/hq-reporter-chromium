@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@ import androidx.annotation.VisibleForTesting;
 
 import org.chromium.net.CronetException;
 import org.chromium.net.InlineExecutionProhibitedException;
+import org.chromium.net.RequestFinishedInfo;
 import org.chromium.net.UploadDataProvider;
 import org.chromium.net.UrlResponseInfo;
 import org.chromium.net.impl.CallbackExceptionImpl;
@@ -21,6 +22,8 @@ import org.chromium.net.impl.JavaUrlRequestUtils.CheckedRunnable;
 import org.chromium.net.impl.JavaUrlRequestUtils.DirectPreventingExecutor;
 import org.chromium.net.impl.JavaUrlRequestUtils.State;
 import org.chromium.net.impl.Preconditions;
+import org.chromium.net.impl.RefCountDelegate;
+import org.chromium.net.impl.RequestFinishedInfoImpl;
 import org.chromium.net.impl.UrlRequestBase;
 import org.chromium.net.impl.UrlResponseInfoImpl;
 
@@ -28,8 +31,11 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
+import java.nio.channels.Channels;
+import java.nio.channels.WritableByteChannel;
 import java.util.AbstractMap;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -51,12 +57,15 @@ final class FakeUrlRequest extends UrlRequestBase {
     private final Executor mUserExecutor;
     // The {@link Executor} provided by the engine used to break up callback loops.
     private final Executor mExecutor;
+    // The Annotations provided by the engine during the creation of this request.
+    private final Collection<Object> mRequestAnnotations;
     // The {@link FakeCronetController} that will provide responses for this request.
     private final FakeCronetController mFakeCronetController;
     // The fake {@link CronetEngine} that should be notified when this request starts and stops.
     private final FakeCronetEngine mFakeCronetEngine;
     // Source of thread safety for this class.
-    private final Object mLock = new Object();
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    final Object mLock = new Object();
     // True if direct execution is allowed for this request.
     private final boolean mAllowDirectExecutor;
     // The chain of URL's this request has received.
@@ -65,6 +74,10 @@ final class FakeUrlRequest extends UrlRequestBase {
     // The list of HTTP headers used by this request to establish a connection.
     @GuardedBy("mLock")
     private final ArrayList<Map.Entry<String, String>> mAllHeadersList = new ArrayList<>();
+    // The exception that is thrown by the request. This is the same exception as the one in
+    // onFailed
+    @GuardedBy("mLock")
+    private CronetException mCronetException;
     // The current URL this request is connecting to.
     @GuardedBy("mLock")
     private String mCurrentUrl;
@@ -184,7 +197,8 @@ final class FakeUrlRequest extends UrlRequestBase {
     FakeUrlRequest(Callback callback, Executor userExecutor, Executor executor, String url,
             boolean allowDirectExecutor, boolean trafficStatsTagSet, int trafficStatsTag,
             final boolean trafficStatsUidSet, final int trafficStatsUid,
-            FakeCronetController fakeCronetController, FakeCronetEngine fakeCronetEngine) {
+            FakeCronetController fakeCronetController, FakeCronetEngine fakeCronetEngine,
+            Collection<Object> requestAnnotations) {
         if (url == null) {
             throw new NullPointerException("URL is required");
         }
@@ -202,6 +216,7 @@ final class FakeUrlRequest extends UrlRequestBase {
         mFakeCronetController = fakeCronetController;
         mFakeCronetEngine = fakeCronetEngine;
         mAllowDirectExecutor = allowDirectExecutor;
+        mRequestAnnotations = requestAnnotations;
     }
 
     @Override
@@ -272,6 +287,7 @@ final class FakeUrlRequest extends UrlRequestBase {
                 } finally {
                     if (!transitionedState) {
                         cleanup();
+                        mFakeCronetEngine.onRequestFinished();
                     }
                 }
                 mUrlChain.add(mCurrentUrl);
@@ -390,11 +406,13 @@ final class FakeUrlRequest extends UrlRequestBase {
                     }
                 });
             } else {
-                if (setTerminalState(State.COMPLETE)) {
+                final RefCountDelegate inflightDoneCallbackCount = setTerminalState(State.COMPLETE);
+                if (inflightDoneCallbackCount != null) {
                     mUserExecutor.execute(new Runnable() {
                         @Override
                         public void run() {
                             mCallback.onSucceeded(FakeUrlRequest.this, info);
+                            inflightDoneCallbackCount.decrement();
                         }
                     });
                 }
@@ -435,11 +453,13 @@ final class FakeUrlRequest extends UrlRequestBase {
     public void cancel() {
         synchronized (mLock) {
             final UrlResponseInfo info = mUrlResponseInfo;
-            if (setTerminalState(State.CANCELLED)) {
+            final RefCountDelegate inflightDoneCallbackCount = setTerminalState(State.CANCELLED);
+            if (inflightDoneCallbackCount != null) {
                 mUserExecutor.execute(new Runnable() {
                     @Override
                     public void run() {
                         mCallback.onCanceled(FakeUrlRequest.this, info);
+                        inflightDoneCallbackCount.decrement();
                     }
                 });
             }
@@ -516,8 +536,11 @@ final class FakeUrlRequest extends UrlRequestBase {
      */
     private void tryToFailWithException(CronetException e) {
         synchronized (mLock) {
-            if (setTerminalState(State.ERROR)) {
+            mCronetException = e;
+            final RefCountDelegate inflightDoneCallbackCount = setTerminalState(State.ERROR);
+            if (inflightDoneCallbackCount != null) {
                 mCallback.onFailed(FakeUrlRequest.this, mUrlResponseInfo, e);
+                inflightDoneCallbackCount.decrement();
             }
         }
     }
@@ -559,21 +582,52 @@ final class FakeUrlRequest extends UrlRequestBase {
      *
      * @param terminalState the terminal state to set; one of {@link State.ERROR},
      * {@link State.COMPLETE}, or {@link State.CANCELLED}
-     * @return true if the terminal state has been set.
+     * @return a refcount to decrement after the terminal callback is called, or
+     * null if the terminal state wasn't set.
      */
     @GuardedBy("mLock")
-    private boolean setTerminalState(@State int terminalState) {
+    private RefCountDelegate setTerminalState(@State int terminalState) {
         switch (mState) {
             case State.NOT_STARTED:
                 throw new IllegalStateException("Can't enter terminal state before start");
             case State.ERROR: // fallthrough
             case State.COMPLETE: // fallthrough
             case State.CANCELLED:
-                return false; // Already in a terminal state
+                return null; // Already in a terminal state
             default: {
                 mState = terminalState;
+                final RefCountDelegate inflightDoneCallbackCount =
+                        new RefCountDelegate(mFakeCronetEngine::onRequestFinished);
+                reportRequestFinished(inflightDoneCallbackCount);
                 cleanup();
-                return true;
+                return inflightDoneCallbackCount;
+            }
+        }
+    }
+
+    private void reportRequestFinished(RefCountDelegate inflightDoneCallbackCount) {
+        synchronized (mLock) {
+            mFakeCronetEngine.reportRequestFinished(
+                    new FakeRequestFinishedInfo(mCurrentUrl, mRequestAnnotations,
+                            getRequestFinishedReason(), mUrlResponseInfo, mCronetException),
+                    inflightDoneCallbackCount);
+        }
+    }
+
+    @RequestFinishedInfoImpl.FinishedReason
+    @GuardedBy("mLock")
+    private int getRequestFinishedReason() {
+        synchronized (mLock) {
+            switch (mState) {
+                case State.COMPLETE:
+                    return RequestFinishedInfo.SUCCEEDED;
+                case State.ERROR:
+                    return RequestFinishedInfo.FAILED;
+                case State.CANCELLED:
+                    return RequestFinishedInfo.CANCELED;
+                default:
+                    throw new IllegalStateException(
+                            "Request should be in terminal state before calling getRequestFinishedReason");
             }
         }
     }
@@ -636,13 +690,10 @@ final class FakeUrlRequest extends UrlRequestBase {
      */
     private void enterUploadErrorState(final Throwable error) {
         synchronized (mLock) {
-            mUserExecutor.execute(new Runnable() {
-                @Override
-                public void run() {
-                    tryToFailWithException(new CronetExceptionImpl(
-                            "Exception received from UploadDataProvider", error));
-                }
-            });
+            executeCheckedRunnable(
+                    ()
+                            -> tryToFailWithException(new CronetExceptionImpl(
+                                    "Exception received from UploadDataProvider", error)));
         }
     }
 
@@ -653,7 +704,8 @@ final class FakeUrlRequest extends UrlRequestBase {
      */
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
     final class FakeDataSink extends JavaUploadDataSinkBase {
-        private final ByteArrayOutputStream mTotalUploadStream = new ByteArrayOutputStream();
+        private final ByteArrayOutputStream mBodyStream = new ByteArrayOutputStream();
+        private final WritableByteChannel mBodyChannel = Channels.newChannel(mBodyStream);
 
         FakeDataSink(final Executor userExecutor, Executor executor, UploadDataProvider provider) {
             super(userExecutor, executor, provider);
@@ -691,8 +743,7 @@ final class FakeUrlRequest extends UrlRequestBase {
 
         @Override
         protected int processSuccessfulRead(ByteBuffer buffer) throws IOException {
-            mTotalUploadStream.write(buffer.array(), buffer.arrayOffset(), buffer.remaining());
-            return buffer.remaining();
+            return mBodyChannel.write(buffer);
         }
 
         /**
@@ -702,7 +753,7 @@ final class FakeUrlRequest extends UrlRequestBase {
         @Override
         protected void finish() throws IOException {
             synchronized (mLock) {
-                mRequestBody = mTotalUploadStream.toByteArray();
+                mRequestBody = mBodyStream.toByteArray();
                 fakeConnect();
             }
         }

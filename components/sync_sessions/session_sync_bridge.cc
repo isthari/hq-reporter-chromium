@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,13 +10,12 @@
 #include <set>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/raw_ptr.h"
 #include "base/task/sequenced_task_runner.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/time.h"
 #include "components/sync/base/client_tag_hash.h"
 #include "components/sync/base/time.h"
@@ -35,8 +34,6 @@ namespace {
 
 using sync_pb::SessionSpecifics;
 using syncer::MetadataChangeList;
-using syncer::ModelTypeStore;
-using syncer::ModelTypeSyncBridge;
 
 // Default time without activity after which a session is considered stale and
 // becomes a candidate for garbage collection.
@@ -132,7 +129,7 @@ SessionSyncBridge::CreateMetadataChangeList() {
   return std::make_unique<syncer::InMemoryMetadataChangeList>();
 }
 
-absl::optional<syncer::ModelError> SessionSyncBridge::MergeSyncData(
+absl::optional<syncer::ModelError> SessionSyncBridge::MergeFullSyncData(
     std::unique_ptr<MetadataChangeList> metadata_change_list,
     syncer::EntityChangeList entity_data) {
   DCHECK(!syncing_);
@@ -140,8 +137,8 @@ absl::optional<syncer::ModelError> SessionSyncBridge::MergeSyncData(
 
   StartLocalSessionEventHandler();
 
-  return ApplySyncChanges(std::move(metadata_change_list),
-                          std::move(entity_data));
+  return ApplyIncrementalSyncChanges(std::move(metadata_change_list),
+                                     std::move(entity_data));
 }
 
 void SessionSyncBridge::StartLocalSessionEventHandler() {
@@ -167,9 +164,17 @@ void SessionSyncBridge::StartLocalSessionEventHandler() {
   // well as the processor.
   local_session_event_router_->StartRoutingTo(
       syncing_->local_session_event_handler.get());
+
+  // Initializing |syncing_| influences the behavior of the public API, because
+  // GetOpenTabsUIDelegate() transitions from returning nullptr to returning an
+  // actual delegate. The nullptr has specifics semantics documented in the
+  // SessionSyncService API, so interested parties (subscribed to changes)
+  // should be notified that the value changed. https://crbug.com/1422634.
+  notify_foreign_session_updated_cb_.Run();
 }
 
-absl::optional<syncer::ModelError> SessionSyncBridge::ApplySyncChanges(
+absl::optional<syncer::ModelError>
+SessionSyncBridge::ApplyIncrementalSyncChanges(
     std::unique_ptr<MetadataChangeList> metadata_change_list,
     syncer::EntityChangeList entity_changes) {
   DCHECK(change_processor()->IsTrackingMetadata());
@@ -275,19 +280,30 @@ std::string SessionSyncBridge::GetStorageKey(
   return SessionStore::GetStorageKey(entity_data.specifics.session());
 }
 
-void SessionSyncBridge::ApplyStopSyncChanges(
+bool SessionSyncBridge::IsEntityDataValid(
+    const syncer::EntityData& entity_data) const {
+  return SessionStore::AreValidSpecifics(entity_data.specifics.session());
+}
+
+void SessionSyncBridge::ApplyDisableSyncChanges(
     std::unique_ptr<MetadataChangeList> delete_metadata_change_list) {
   DCHECK(store_);
-  local_session_event_router_->Stop();
-  if (delete_metadata_change_list) {
-    store_->DeleteAllDataAndMetadata();
 
-    // Ensure that we clear on-demand favicons that were downloaded using user
-    // synced history data, especially by HistoryUiFaviconRequestHandler. We do
-    // it upon disabling of sessions sync to have symmetry with the condition
-    // checked inside that layer to allow downloads (sessions sync enabled).
-    sessions_client_->ClearAllOnDemandFavicons();
-  }
+  local_session_event_router_->Stop();
+  store_->DeleteAllDataAndMetadata();
+
+  // Ensure that we clear on-demand favicons that were downloaded using user
+  // synced history data, especially by HistoryUiFaviconRequestHandler. We do
+  // it upon disabling of sessions sync to have symmetry with the condition
+  // checked inside that layer to allow downloads (sessions sync enabled).
+  sessions_client_->ClearAllOnDemandFavicons();
+
+  syncing_.reset();
+}
+
+void SessionSyncBridge::OnSyncPaused() {
+  DCHECK(store_);
+  local_session_event_router_->Stop();
   syncing_.reset();
 }
 
@@ -302,7 +318,7 @@ SessionSyncBridge::CreateLocalSessionWriteBatch() {
     syncing_->local_data_out_of_sync = false;
     // We use PostTask() to avoid interferring with the ongoing handling of
     // local changes that triggered this function.
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&SessionSyncBridge::ResubmitLocalSession,
                                   weak_ptr_factory_.GetWeakPtr()));
   }
@@ -330,8 +346,8 @@ void SessionSyncBridge::OnSyncStarting(
   // |store_| may be already initialized if sync was previously started and
   // then stopped.
   if (store_) {
-    // If initial sync was already done, MergeSyncData() will never be called so
-    // we need to start syncing local changes.
+    // If initial sync was already done, MergeFullSyncData() will never be
+    // called so we need to start syncing local changes.
     if (change_processor()->IsTrackingMetadata()) {
       StartLocalSessionEventHandler();
     }
@@ -362,8 +378,8 @@ void SessionSyncBridge::OnStoreInitialized(
 
   change_processor()->ModelReadyToSync(std::move(metadata_batch));
 
-  // If initial sync was already done, MergeSyncData() will never be called so
-  // we need to start syncing local changes.
+  // If initial sync was already done, MergeFullSyncData() will never be called
+  // so we need to start syncing local changes.
   if (change_processor()->IsTrackingMetadata()) {
     StartLocalSessionEventHandler();
   }
@@ -389,9 +405,9 @@ void SessionSyncBridge::DoGarbageCollection(SessionStore::WriteBatch* batch) {
   for (const auto* session :
        store_->tracker()->LookupAllForeignSessions(SyncedSessionTracker::RAW)) {
     const base::TimeDelta session_age =
-        base::Time::Now() - session->modified_time;
+        base::Time::Now() - session->GetModifiedTime();
     if (session_age > kStaleSessionThreshold) {
-      const std::string session_tag = session->session_tag;
+      const std::string session_tag = session->GetSessionTag();
       DVLOG(1) << "Found stale session " << session_tag << " with age "
                << session_age.InDays() << " days, deleting.";
       DeleteForeignSessionWithBatch(session_tag, batch);

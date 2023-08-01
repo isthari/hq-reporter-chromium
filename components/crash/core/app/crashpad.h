@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "base/files/file_path.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 #if BUILDFLAG(IS_APPLE)
 #include "base/mac/scoped_mach_port.h"
@@ -42,7 +43,7 @@ class CrashReportDatabase;
 
 namespace crash_reporter {
 
-#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS)
 bool IsCrashpadEnabled();
 #endif
 
@@ -85,7 +86,7 @@ bool InitializeCrashpad(bool initial_client, const std::string& process_type);
 // current executable if |exe_path| is empty with a command line argument of
 // --type=crashpad-handler. If |user_data_dir| is non-empty, it is added to the
 // handler's command line for use by Chrome Crashpad extensions.
-void InitializeCrashpadWithEmbeddedHandler(bool initial_client,
+bool InitializeCrashpadWithEmbeddedHandler(bool initial_client,
                                            const std::string& process_type,
                                            const std::string& user_data_dir,
                                            const base::FilePath& exe_path);
@@ -97,7 +98,7 @@ void InitializeCrashpadWithEmbeddedHandler(bool initial_client,
 // In this situation the exe_path is not sufficient to allow spawning a crash
 // handler through the DLL so |initial_arguments| needs to be passed to
 // specify the DLL entry point.
-void InitializeCrashpadWithDllEmbeddedHandler(
+bool InitializeCrashpadWithDllEmbeddedHandler(
     bool initial_client,
     const std::string& process_type,
     const std::string& user_data_dir,
@@ -175,8 +176,11 @@ void CrashWithoutDumping(const std::string& message);
 #endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) ||
         // BUILDFLAG(IS_ANDROID)
 
-// Returns the Crashpad database path, only valid in the browser.
-base::FilePath GetCrashpadDatabasePath();
+// Returns the Crashpad database path, only valid in the browser. This will
+// return absl::nullopt if crashpad has not yet been initialized. On Windows,
+// this will also return absl::nullopt if running as part of browser_tests, as
+// there is no crash reporting in that configuration.
+absl::optional<base::FilePath> GetCrashpadDatabasePath();
 
 // Deletes any reports that were recorded or uploaded within the time range.
 void ClearReportsBetween(const base::Time& begin, const base::Time& end);
@@ -221,12 +225,6 @@ void StartProcessingPendingReports();
 #endif
 
 #if BUILDFLAG(IS_ANDROID)
-// This is used by WebView to generate a dump on behalf of the embedding app.
-// This function can only be called from the browser process. Returns `true` on
-// success.
-class CrashReporterClient;
-bool DumpWithoutCrashingForClient(CrashReporterClient* client);
-
 // If a CrashReporterClient has enabled sanitization, this function specifies
 // regions of memory which are allowed to be collected by Crashpad.
 void AllowMemoryRange(void* begin, size_t size);

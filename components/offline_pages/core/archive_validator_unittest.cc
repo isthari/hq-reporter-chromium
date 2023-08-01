@@ -1,13 +1,13 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/offline_pages/core/archive_validator.h"
 
-#include "base/callback.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/callback.h"
 #include "base/path_service.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -100,7 +100,7 @@ base::FilePath ArchiveValidatorTest::CreateFileWithContent(
     return base::FilePath();
   base::FilePath temp_file_path =
       temp_dir_.GetPath().Append(FILE_PATH_LITERAL("foo.txt"));
-  base::WriteFile(temp_file_path, content.c_str(), content.length());
+  base::WriteFile(temp_file_path, content);
   return temp_file_path;
 }
 

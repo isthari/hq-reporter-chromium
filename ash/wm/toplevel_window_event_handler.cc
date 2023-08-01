@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,20 +7,20 @@
 #include "ash/constants/app_types.h"
 #include "ash/public/cpp/window_properties.h"
 #include "ash/shell.h"
+#include "ash/wm/multi_display/multi_display_metrics_controller.h"
 #include "ash/wm/resize_shadow.h"
 #include "ash/wm/resize_shadow_controller.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/window_resizer.h"
 #include "ash/wm/window_state_observer.h"
 #include "ash/wm/window_util.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/env.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_delegate.h"
 #include "ui/aura/window_event_dispatcher.h"
-#include "ui/aura/window_observer.h"
 #include "ui/aura/window_tracker.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/base/cursor/mojom/cursor_type.mojom-shared.h"
@@ -140,7 +140,7 @@ class ToplevelWindowEventHandler::ScopedWindowResizer
                                   chromeos::WindowStateType type) override;
 
  private:
-  ToplevelWindowEventHandler* handler_;
+  raw_ptr<ToplevelWindowEventHandler, ExperimentalAsh> handler_;
   std::unique_ptr<WindowResizer> resizer_;
 
   // Whether ScopedWindowResizer grabbed capture.
@@ -211,6 +211,11 @@ ToplevelWindowEventHandler::ToplevelWindowEventHandler()
 
 ToplevelWindowEventHandler::~ToplevelWindowEventHandler() {
   Shell::Get()->window_tree_host_manager()->RemoveObserver(this);
+  // It's possible that `ToplevelWindowEventHandler` was not removed as the
+  // window observer of its observed window `gesture_target_` yet, so remove it
+  // here to avoid hitting the CHECK error in WindowObserver's destructor.
+  // Please see https://crbug.com/1378259 for more details.
+  UpdateGestureTarget(nullptr);
 }
 
 void ToplevelWindowEventHandler::OnDisplayMetricsChanged(
@@ -606,8 +611,9 @@ aura::Window* ToplevelWindowEventHandler::GetTargetForClientAreaGesture(
     return nullptr;
   }
 
-  if (toplevel->GetProperty(aura::client::kAppType) ==
-      static_cast<int>(AppType::BROWSER)) {
+  auto app_type = toplevel->GetProperty(aura::client::kAppType);
+  if (app_type == static_cast<int>(AppType::BROWSER) ||
+      app_type == static_cast<int>(AppType::LACROS)) {
     return nullptr;
   }
 
@@ -643,7 +649,9 @@ bool ToplevelWindowEventHandler::PrepareForDrag(
     int window_component,
     ::wm::WindowMoveSource source,
     bool grab_capture) {
-  if (window_resizer_)
+  // Do not allow resizing if there is already one in progress or if the
+  // window's state is not managed by the window manager.
+  if (window_resizer_ || !WindowState::Get(window))
     return false;
 
   std::unique_ptr<WindowResizer> resizer(
@@ -652,6 +660,8 @@ bool ToplevelWindowEventHandler::PrepareForDrag(
     return false;
   window_resizer_ = std::make_unique<ScopedWindowResizer>(
       this, std::move(resizer), grab_capture);
+  Shell::Get()->multi_display_metrics_controller()->OnWindowMovedOrResized(
+      window);
   return true;
 }
 
@@ -731,8 +741,9 @@ void ToplevelWindowEventHandler::HandleDrag(aura::Window* target,
   if (!window_resizer_)
     return;
   gfx::PointF location_in_parent = event->location_f();
-  aura::Window::ConvertPointToTarget(target, target->parent(),
-                                     &location_in_parent);
+  aura::Window::ConvertPointToTarget(
+      target, window_resizer_->resizer()->GetTarget()->parent(),
+      &location_in_parent);
   window_resizer_->resizer()->Drag(location_in_parent, event->flags());
   event->StopPropagation();
 }

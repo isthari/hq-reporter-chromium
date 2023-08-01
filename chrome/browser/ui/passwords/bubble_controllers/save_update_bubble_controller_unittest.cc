@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,12 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_samples.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "base/test/mock_callback.h"
 #include "base/test/simple_test_clock.h"
 #include "chrome/browser/password_manager/password_store_factory.h"
 #include "chrome/browser/signin/chrome_signin_client_factory.h"
@@ -30,7 +31,7 @@
 #include "components/password_manager/core/browser/statistics_table.h"
 #include "components/password_manager/core/common/credential_manager_types.h"
 #include "components/password_manager/core/common/password_manager_ui.h"
-#include "components/sync/driver/test_sync_service.h"
+#include "components/sync/test/test_sync_service.h"
 #include "components/ukm/test_ukm_recorder.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_task_environment.h"
@@ -66,6 +67,13 @@ constexpr char kUIDismissalReasonUpdateMetric[] =
 std::unique_ptr<KeyedService> BuildTestSyncService(
     content::BrowserContext* context) {
   return std::make_unique<syncer::TestSyncService>();
+}
+
+void SetupAccountPasswordStore(syncer::TestSyncService* sync_service) {
+  sync_service->GetUserSettings()->SetSelectedTypes(
+      /*sync_everything=*/false,
+      /*types=*/{syncer::UserSelectableType::kPasswords});
+  sync_service->SetHasSyncConsent(false);
 }
 
 }  // namespace
@@ -117,6 +125,11 @@ class SaveUpdateBubbleControllerTest : public ::testing::Test {
   PrefService* prefs() { return profile_->GetPrefs(); }
 
   TestingProfile* profile() { return profile_.get(); }
+
+  syncer::TestSyncService* sync_service() {
+    return static_cast<syncer::TestSyncService*>(
+        SyncServiceFactory::GetForProfile(profile()));
+  }
 
   password_manager::MockPasswordStoreInterface* GetStore() {
     return static_cast<password_manager::MockPasswordStoreInterface*>(
@@ -262,19 +275,6 @@ SaveUpdateBubbleControllerTest::GetCurrentForms() const {
   forms.push_back(
       std::make_unique<password_manager::PasswordForm>(preferred_form));
   return forms;
-}
-
-// Tests that the controller reads the value of
-// ArePasswordsRevealedWhenBubbleIsOpened() before invoking OnBubbleShown()
-// since the latter resets the value returned by the former. (crbug.com/1049085)
-TEST_F(SaveUpdateBubbleControllerTest,
-       ArePasswordsRevealedWhenBubbleIsOpenedBeforeOnBubbleShown) {
-  {
-    testing::InSequence s;
-    EXPECT_CALL(*delegate(), ArePasswordsRevealedWhenBubbleIsOpened());
-    EXPECT_CALL(*delegate(), OnBubbleShown());
-  }
-  PretendPasswordWaiting();
 }
 
 TEST_F(SaveUpdateBubbleControllerTest, CloseWithoutInteraction) {
@@ -633,8 +633,6 @@ TEST_P(SaveUpdateBubbleControllerPasswordRevealingTest,
               : "USER_ACTION"));
 
   pending_password().form_has_autofilled_value = form_has_autofilled_value;
-  EXPECT_CALL(*delegate(), ArePasswordsRevealedWhenBubbleIsOpened())
-      .WillOnce(Return(false));
   EXPECT_CALL(*delegate(), BubbleIsManualFallbackForSaving())
       .WillRepeatedly(Return(is_manual_fallback_for_saving));
 
@@ -649,12 +647,21 @@ TEST_P(SaveUpdateBubbleControllerPasswordRevealingTest,
             controller()->password_revealing_requires_reauth());
 
   if (reauth_expected) {
-    EXPECT_CALL(*delegate(), AuthenticateUser())
-        .WillOnce(Return(!does_os_support_user_auth));
-    EXPECT_EQ(controller()->RevealPasswords(), !does_os_support_user_auth);
+    EXPECT_CALL(*delegate(), AuthenticateUserWithMessage)
+        .WillOnce(testing::WithArg<1>(testing::Invoke(
+            [&](PasswordsModelDelegate::AvailabilityCallback callback) {
+              std::move(callback).Run(!does_os_support_user_auth);
+            })));
+    base::MockCallback<PasswordsModelDelegate::AvailabilityCallback>
+        mock_callback;
+    EXPECT_CALL(mock_callback, Run(!does_os_support_user_auth));
+    controller()->ShouldRevealPasswords(mock_callback.Get());
   } else {
-    EXPECT_CALL(*delegate(), AuthenticateUser()).Times(0);
-    EXPECT_TRUE(controller()->RevealPasswords());
+    EXPECT_CALL(*delegate(), AuthenticateUserWithMessage).Times(0);
+    base::MockCallback<PasswordsModelDelegate::AvailabilityCallback>
+        mock_callback;
+    EXPECT_CALL(mock_callback, Run(true));
+    controller()->ShouldRevealPasswords(mock_callback.Get());
   }
 }
 
@@ -669,36 +676,14 @@ INSTANTIATE_TEST_SUITE_P(
             PasswordBubbleControllerBase::DisplayReason::kAutomatic,
             PasswordBubbleControllerBase::DisplayReason::kUserAction)));
 
-TEST_F(SaveUpdateBubbleControllerTest, EyeIcon_BubbleReopenedAfterAuth) {
-  // Checks re-authentication is not needed if the bubble is opened right after
-  // successful authentication.
-  pending_password().form_has_autofilled_value = true;
-  // After successful authentication this value is set to true.
-  EXPECT_CALL(*delegate(), ArePasswordsRevealedWhenBubbleIsOpened())
-      .WillOnce(Return(true));
-  PretendPasswordWaiting(
-      PasswordBubbleControllerBase::DisplayReason::kUserAction);
-
-  EXPECT_FALSE(controller()->password_revealing_requires_reauth());
-  EXPECT_TRUE(controller()->RevealPasswords());
-}
-
 TEST_F(SaveUpdateBubbleControllerTest, PasswordsRevealedReported) {
   PretendPasswordWaiting();
 
   EXPECT_CALL(*delegate(), OnPasswordsRevealed());
-  EXPECT_TRUE(controller()->RevealPasswords());
-}
-
-TEST_F(SaveUpdateBubbleControllerTest, PasswordsRevealedReportedAfterReauth) {
-  // The bubble is opened after reauthentication and the passwords are revealed.
-  pending_password().form_has_autofilled_value = true;
-  // After successful authentication this value is set to true.
-  EXPECT_CALL(*delegate(), ArePasswordsRevealedWhenBubbleIsOpened())
-      .WillOnce(Return(true));
-  EXPECT_CALL(*delegate(), OnPasswordsRevealed());
-  PretendPasswordWaiting(
-      PasswordBubbleControllerBase::DisplayReason::kUserAction);
+  base::MockCallback<PasswordsModelDelegate::AvailabilityCallback>
+      mock_callback;
+  EXPECT_CALL(mock_callback, Run(true));
+  controller()->ShouldRevealPasswords(mock_callback.Get());
 }
 
 TEST_F(SaveUpdateBubbleControllerTest, DisableEditing) {
@@ -713,6 +698,7 @@ TEST_F(SaveUpdateBubbleControllerTest, DisableEditing) {
 
 TEST_F(SaveUpdateBubbleControllerTest,
        UpdateAccountStoreAffectsTheAccountStore) {
+  SetupAccountPasswordStore(sync_service());
   EXPECT_CALL(*delegate(), GetPendingPassword())
       .WillOnce(ReturnRef(pending_password()));
   std::vector<std::unique_ptr<password_manager::PasswordForm>> forms;
@@ -724,11 +710,14 @@ TEST_F(SaveUpdateBubbleControllerTest,
   EXPECT_CALL(*delegate(), GetCurrentForms()).WillOnce(ReturnRef(forms));
   SetUpWithState(password_manager::ui::PENDING_PASSWORD_UPDATE_STATE,
                  PasswordBubbleControllerBase::DisplayReason::kAutomatic);
-  EXPECT_TRUE(controller()->IsCurrentStateAffectingTheAccountStore());
+  EXPECT_TRUE(
+      controller()->IsCurrentStateAffectingPasswordsStoredInTheGoogleAccount());
 }
 
 TEST_F(SaveUpdateBubbleControllerTest,
        UpdateProfileStoreDoesnotAffectTheAccountStore) {
+  SetupAccountPasswordStore(sync_service());
+
   EXPECT_CALL(*delegate(), GetPendingPassword())
       .WillOnce(ReturnRef(pending_password()));
   std::vector<std::unique_ptr<password_manager::PasswordForm>> forms;
@@ -740,10 +729,12 @@ TEST_F(SaveUpdateBubbleControllerTest,
   EXPECT_CALL(*delegate(), GetCurrentForms()).WillOnce(ReturnRef(forms));
   SetUpWithState(password_manager::ui::PENDING_PASSWORD_UPDATE_STATE,
                  PasswordBubbleControllerBase::DisplayReason::kAutomatic);
-  EXPECT_FALSE(controller()->IsCurrentStateAffectingTheAccountStore());
+  EXPECT_FALSE(
+      controller()->IsCurrentStateAffectingPasswordsStoredInTheGoogleAccount());
 }
 
 TEST_F(SaveUpdateBubbleControllerTest, UpdateBothStoresAffectsTheAccountStore) {
+  SetupAccountPasswordStore(sync_service());
   EXPECT_CALL(*delegate(), GetPendingPassword())
       .WillOnce(ReturnRef(pending_password()));
 
@@ -763,23 +754,28 @@ TEST_F(SaveUpdateBubbleControllerTest, UpdateBothStoresAffectsTheAccountStore) {
   EXPECT_CALL(*delegate(), GetCurrentForms()).WillOnce(ReturnRef(forms));
   SetUpWithState(password_manager::ui::PENDING_PASSWORD_UPDATE_STATE,
                  PasswordBubbleControllerBase::DisplayReason::kAutomatic);
-  EXPECT_TRUE(controller()->IsCurrentStateAffectingTheAccountStore());
+  EXPECT_TRUE(
+      controller()->IsCurrentStateAffectingPasswordsStoredInTheGoogleAccount());
 }
 
 TEST_F(SaveUpdateBubbleControllerTest,
        SaveInAccountStoreAffectsTheAccountStore) {
+  SetupAccountPasswordStore(sync_service());
   ON_CALL(*password_feature_manager(), GetDefaultPasswordStore)
       .WillByDefault(
           Return(password_manager::PasswordForm::Store::kAccountStore));
   PretendPasswordWaiting();
-  EXPECT_TRUE(controller()->IsCurrentStateAffectingTheAccountStore());
+  EXPECT_TRUE(
+      controller()->IsCurrentStateAffectingPasswordsStoredInTheGoogleAccount());
 }
 
 TEST_F(SaveUpdateBubbleControllerTest,
        SaveInProfileStoreDoesntAffectTheAccountStore) {
+  SetupAccountPasswordStore(sync_service());
   ON_CALL(*password_feature_manager(), GetDefaultPasswordStore)
       .WillByDefault(
           Return(password_manager::PasswordForm::Store::kProfileStore));
   PretendPasswordWaiting();
-  EXPECT_FALSE(controller()->IsCurrentStateAffectingTheAccountStore());
+  EXPECT_FALSE(
+      controller()->IsCurrentStateAffectingPasswordsStoredInTheGoogleAccount());
 }

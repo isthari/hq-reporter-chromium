@@ -1,14 +1,14 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/signin/core/browser/account_investigator.h"
 
-#include <algorithm>
 #include <iterator>
 
 #include "base/base64.h"
 #include "base/hash/sha1.h"
+#include "base/ranges/algorithm.h"
 #include "base/time/time.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
@@ -159,20 +159,17 @@ std::string AccountInvestigator::HashAccounts(
     const std::vector<ListedAccount>& signed_in_accounts,
     const std::vector<ListedAccount>& signed_out_accounts) {
   std::vector<std::string> sorted_ids(signed_in_accounts.size());
-  std::transform(
-      std::begin(signed_in_accounts), std::end(signed_in_accounts),
-      std::back_inserter(sorted_ids), [](const ListedAccount& account) {
-        return std::string(kSignedInHashPrefix) + account.id.ToString();
-      });
-  std::transform(
-      std::begin(signed_out_accounts), std::end(signed_out_accounts),
-      std::back_inserter(sorted_ids), [](const ListedAccount& account) {
-        return std::string(kSignedOutHashPrefix) + account.id.ToString();
-      });
+  base::ranges::transform(signed_in_accounts, std::back_inserter(sorted_ids),
+                          [](const ListedAccount& account) {
+                            return kSignedInHashPrefix + account.id.ToString();
+                          });
+  base::ranges::transform(signed_out_accounts, std::back_inserter(sorted_ids),
+                          [](const ListedAccount& account) {
+                            return kSignedOutHashPrefix + account.id.ToString();
+                          });
   std::sort(sorted_ids.begin(), sorted_ids.end());
   std::ostringstream stream;
-  std::copy(sorted_ids.begin(), sorted_ids.end(),
-            std::ostream_iterator<std::string>(stream));
+  base::ranges::copy(sorted_ids, std::ostream_iterator<std::string>(stream));
 
   // PrefService will slightly mangle some undisplayable characters, by encoding
   // in Base64 we are sure to have all safe characters that PrefService likes.
@@ -189,28 +186,27 @@ AccountRelation AccountInvestigator::DiscernRelation(
   if (signed_in_accounts.empty() && signed_out_accounts.empty()) {
     return AccountRelation::EMPTY_COOKIE_JAR;
   }
-  auto signed_in_match_iter = std::find_if(
-      signed_in_accounts.begin(), signed_in_accounts.end(),
-      [&info](const ListedAccount& account) { return AreSame(info, account); });
-  auto signed_out_match_iter = std::find_if(
-      signed_out_accounts.begin(), signed_out_accounts.end(),
-      [&info](const ListedAccount& account) { return AreSame(info, account); });
-  if (signed_in_match_iter != signed_in_accounts.end()) {
+  if (base::ranges::any_of(signed_in_accounts,
+                           [&info](const ListedAccount& account) {
+                             return AreSame(info, account);
+                           })) {
     if (signed_in_accounts.size() == 1) {
       return signed_out_accounts.empty()
                  ? AccountRelation::SINGLE_SIGNED_IN_MATCH_NO_SIGNED_OUT
                  : AccountRelation::SINGLE_SINGED_IN_MATCH_WITH_SIGNED_OUT;
-    } else {
-      return AccountRelation::ONE_OF_SIGNED_IN_MATCH_ANY_SIGNED_OUT;
     }
-  } else if (signed_out_match_iter != signed_out_accounts.end()) {
+    return AccountRelation::ONE_OF_SIGNED_IN_MATCH_ANY_SIGNED_OUT;
+  }
+  if (base::ranges::any_of(signed_out_accounts,
+                           [&info](const ListedAccount& account) {
+                             return AreSame(info, account);
+                           })) {
     if (signed_in_accounts.empty()) {
       return signed_out_accounts.size() == 1
                  ? AccountRelation::NO_SIGNED_IN_SINGLE_SIGNED_OUT_MATCH
                  : AccountRelation::NO_SIGNED_IN_ONE_OF_SIGNED_OUT_MATCH;
-    } else {
-      return AccountRelation::WITH_SIGNED_IN_ONE_OF_SIGNED_OUT_MATCH;
     }
+    return AccountRelation::WITH_SIGNED_IN_ONE_OF_SIGNED_OUT_MATCH;
   }
 
   return signed_in_accounts.empty()

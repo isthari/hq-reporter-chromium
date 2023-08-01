@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,15 @@
 #include <map>
 #include <tuple>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/test/bind.h"
 #include "base/test/task_environment.h"
+#include "base/time/time.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
+#include "mojo/public/cpp/bindings/receiver.h"
 #include "net/base/test_completion_callback.h"
 #include "net/cert/cert_status_flags.h"
 #include "net/cert/cert_verifier.h"
@@ -48,6 +50,15 @@ CreateUnconnectedURLLoaderFactory() {
   return url_loader_factory;
 }
 
+class CertVerifierObserverWaiter : public net::CertVerifier::Observer {
+ public:
+  void OnCertVerifierChanged() override { run_loop_.Quit(); }
+  void Wait() { run_loop_.Run(); }
+
+ private:
+  base::RunLoop run_loop_;
+};
+
 class MojoCertVerifierTest : public PlatformTest {
  public:
   MojoCertVerifierTest()
@@ -55,6 +66,7 @@ class MojoCertVerifierTest : public PlatformTest {
         cv_service_receiver_(&dummy_cv_service_),
         mojo_cert_verifier_(
             cv_service_receiver_.BindNewPipeAndPassRemote(),
+            cv_service_client_.BindNewPipeAndPassReceiver(),
             CreateUnconnectedURLLoaderFactory(),
             base::BindRepeating(&MojoCertVerifierTest::ReconnectCb,
                                 base::Unretained(this))) {
@@ -151,6 +163,10 @@ class MojoCertVerifierTest : public PlatformTest {
     EXPECT_EQ(start_time, std::get<2>(received_netlogsources_[params]));
   }
 
+  void SimulateClientOnCertVerifierChanged() {
+    cv_service_client_->OnCertVerifierChanged();
+  }
+
  private:
   std::map<net::CertVerifier::RequestParams,
            mojo::Remote<mojom::CertVerifierRequest>>
@@ -163,6 +179,7 @@ class MojoCertVerifierTest : public PlatformTest {
 
   MojoCertVerifierTest::DummyCVService dummy_cv_service_;
   mojo::Receiver<mojom::CertVerifierService> cv_service_receiver_;
+  mojo::Remote<mojom::CertVerifierServiceClient> cv_service_client_;
 
   MojoCertVerifier mojo_cert_verifier_;
 
@@ -365,6 +382,17 @@ TEST_F(MojoCertVerifierTest, ReconnectorCallsCb) {
       dummy_url_loader_factory_remote.InitWithNewPipeAndPassReceiver());
 
   run_loop.Run();
+}
+
+// Tests that a OnCertVerifierChanged message received from the
+// CertVerifierServiceClient creates notifications to the
+// CertVerifier::Observers registered with CertVerifier::AddObserver.
+TEST_F(MojoCertVerifierTest, ClientOnCertVerifierChangedIsProxiedToObservers) {
+  CertVerifierObserverWaiter observer;
+  mojo_cert_verifier()->AddObserver(&observer);
+  SimulateClientOnCertVerifierChanged();
+  observer.Wait();
+  mojo_cert_verifier()->RemoveObserver(&observer);
 }
 
 }  // namespace cert_verifier

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include "base/memory/scoped_refptr.h"
 #include "base/task/sequenced_task_runner.h"
+#include "base/time/time.h"
 #include "media/base/status.h"
 #include "media/base/video_frame.h"
 #include "media/gpu/chromeos/chromeos_status.h"
@@ -17,31 +18,27 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 
-namespace gpu {
-class GpuMemoryBufferFactory;
-}  // namespace gpu
-
 namespace media {
 
 // Forward declare for use in AsPlatformVideoFramePool.
 class PlatformVideoFramePool;
 
 // Interface for allocating and managing DMA-buf VideoFrame. The client should
-// set a task runner first, and guarantee both GetFrame() and the destructor are
-// executed on this task runner.
-// Note: other public methods might be called at different thread. The
-// implementation must be thread-safe.
+// set a task runner first via set_parent_task_runner(), and guarantee that
+// Initialize(), GetFrame(), GetGpuBufferLayout() and the destructor are
+// executed on this task runner. Note: other public methods might be called at
+// different thread. The implementation must be thread-safe.
 class MEDIA_GPU_EXPORT DmabufVideoFramePool {
  public:
   using DmabufId = const std::vector<base::ScopedFD>*;
 
   using CreateFrameCB =
       base::RepeatingCallback<CroStatus::Or<scoped_refptr<VideoFrame>>(
-          gpu::GpuMemoryBufferFactory*,
           VideoPixelFormat,
           const gfx::Size&,
           const gfx::Rect&,
           const gfx::Size&,
+          bool,
           bool,
           base::TimeDelta)>;
 
@@ -73,7 +70,8 @@ class MEDIA_GPU_EXPORT DmabufVideoFramePool {
       const gfx::Rect& visible_rect,
       const gfx::Size& natural_size,
       size_t max_num_frames,
-      bool use_protected) = 0;
+      bool use_protected,
+      bool use_linear_buffers = false) = 0;
 
   // Returns a frame from the pool with the layout that is returned by the
   // previous Initialize() method and zero timestamp. Returns nullptr if the
@@ -95,6 +93,13 @@ class MEDIA_GPU_EXPORT DmabufVideoFramePool {
   // which will cause new ones to be allocated. This method must be called on
   // |parent_task_runner_| because it may invalidate weak ptrs.
   virtual void ReleaseAllFrames() = 0;
+
+  // Detailed information of the allocated GpuBufferLayout. Only valid after a
+  // successful Initialize() call, otherwise returns absl::nullopt.
+  virtual absl::optional<GpuBufferLayout> GetGpuBufferLayout() = 0;
+
+  // Returns true if and only if the pool is a mock pool used for testing.
+  virtual bool IsFakeVideoFramePool();
 
  protected:
   scoped_refptr<base::SequencedTaskRunner> parent_task_runner_;

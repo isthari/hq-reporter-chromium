@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,14 @@
 #import "base/allocator/partition_allocator/partition_alloc.h"
 #import "base/ios/ios_util.h"
 #import "base/mac/foundation_util.h"
+#import "base/numerics/safe_conversions.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
+#import "ios/chrome/browser/shared/ui/symbols/symbols.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_strip/tab_strip_cell.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_strip/tab_strip_mediator.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_strip/tab_strip_view_layout.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_switcher_item.h"
+#import "ios/chrome/common/button_configuration_util.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -29,6 +33,9 @@ const CGFloat kNewTabButtonWidth = 44;
 // Default image insets for the new tab button.
 const CGFloat kNewTabButtonLeadingImageInset = -10.0;
 const CGFloat kNewTabButtonBottomImageInset = -2.0;
+
+const CGFloat kSymbolSize = 18;
+
 }  // namespace
 
 @interface TabStripViewController () <TabStripCellDelegate>
@@ -36,10 +43,10 @@ const CGFloat kNewTabButtonBottomImageInset = -2.0;
 @property(nonatomic, strong) UIButton* buttonNewTab;
 // The local model backing the collection view.
 @property(nonatomic, strong) NSMutableArray<TabSwitcherItem*>* items;
-// Identifier of the selected item. This value is disregarded if |self.items| is
+// Identifier of the selected item. This value is disregarded if `self.items` is
 // empty.
 @property(nonatomic, copy) NSString* selectedItemID;
-// Index of the selected item in |items|.
+// Index of the selected item in `items`.
 @property(nonatomic, readonly) NSUInteger selectedIndex;
 // Constraints that are used when the button needs to be kept next to the last
 // cell.
@@ -69,13 +76,28 @@ const CGFloat kNewTabButtonBottomImageInset = -2.0;
   self.buttonNewTab = [[UIButton alloc] init];
   self.buttonNewTab.translatesAutoresizingMaskIntoConstraints = NO;
   self.buttonNewTab.imageView.contentMode = UIViewContentModeCenter;
-  UIImage* buttonNewTabImage = [[UIImage imageNamed:@"tabstrip_new_tab"]
-      imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+  UIImage* buttonNewTabImage =
+      DefaultSymbolWithPointSize(kPlusSymbol, kSymbolSize);
   [self.buttonNewTab setImage:buttonNewTabImage forState:UIControlStateNormal];
   [self.buttonNewTab.imageView setTintColor:[UIColor colorNamed:kGrey500Color]];
-  UIEdgeInsets imageInsets = UIEdgeInsetsMake(0, kNewTabButtonLeadingImageInset,
-                                              kNewTabButtonBottomImageInset, 0);
-  self.buttonNewTab.imageEdgeInsets = imageInsets;
+
+  // TODO(crbug.com/1418068): Simplify after minimum version required is >=
+  // iOS 15.
+  if (base::ios::IsRunningOnIOS15OrLater() &&
+      IsUIButtonConfigurationEnabled()) {
+    if (@available(iOS 15, *)) {
+      UIButtonConfiguration* buttonConfiguration =
+          [UIButtonConfiguration plainButtonConfiguration];
+      buttonConfiguration.contentInsets = NSDirectionalEdgeInsetsMake(
+          0, kNewTabButtonLeadingImageInset, kNewTabButtonBottomImageInset, 0);
+      self.buttonNewTab.configuration = buttonConfiguration;
+    }
+  } else {
+    UIEdgeInsets imageInsets = UIEdgeInsetsMake(
+        0, kNewTabButtonLeadingImageInset, kNewTabButtonBottomImageInset, 0);
+    SetImageEdgeInsets(self.buttonNewTab, imageInsets);
+  }
+
   [self.view addSubview:self.buttonNewTab];
   [NSLayoutConstraint activateConstraints:@[
     [self.buttonNewTab.trailingAnchor
@@ -119,7 +141,7 @@ const CGFloat kNewTabButtonBottomImageInset = -2.0;
                                 forIndexPath:indexPath]);
 
   [self configureCell:cell withItem:item];
-  cell.selected = (self.selectedItemID == cell.itemIdentifier) ? YES : NO;
+  cell.selected = [cell hasIdentifier:self.selectedItemID];
   return cell;
 }
 
@@ -171,20 +193,20 @@ const CGFloat kNewTabButtonBottomImageInset = -2.0;
 - (void)replaceItemID:(NSString*)itemID withItem:(TabSwitcherItem*)item {
   if ([self indexOfItemWithID:itemID] == NSNotFound)
     return;
-  // Consistency check: |item|'s ID is either |itemID| or not in |items|.
+  // Consistency check: `item`'s ID is either `itemID` or not in `items`.
   DCHECK([item.identifier isEqualToString:itemID] ||
          [self indexOfItemWithID:item.identifier] == NSNotFound);
   NSUInteger index = [self indexOfItemWithID:itemID];
   self.items[index] = item;
   TabStripCell* cell = (TabStripCell*)[self.collectionView
       cellForItemAtIndexPath:CreateIndexPath(index)];
-  // |cell| may be nil if it is scrolled offscreen.
+  // `cell` may be nil if it is scrolled offscreen.
   if (cell)
     [self configureCell:cell withItem:item];
 }
 
 - (void)selectItemWithID:(NSString*)selectedItemID {
-  if (self.selectedItemID == selectedItemID)
+  if ([self.selectedItemID isEqualToString:selectedItemID])
     return;
 
   [self.collectionView
@@ -208,29 +230,27 @@ const CGFloat kNewTabButtonBottomImageInset = -2.0;
 
 #pragma mark - Private
 
-// Configures |cell|'s title synchronously, and favicon asynchronously with
-// information from |item|. Updates the |cell|'s theme to this view controller's
+// Configures `cell`'s title synchronously, and favicon asynchronously with
+// information from `item`. Updates the `cell`'s theme to this view controller's
 // theme.
 - (void)configureCell:(TabStripCell*)cell withItem:(TabSwitcherItem*)item {
   if (item) {
     cell.delegate = self;
     cell.itemIdentifier = item.identifier;
     cell.titleLabel.text = item.title;
-    NSString* itemIdentifier = item.identifier;
-    [self.faviconDataSource
-        faviconForIdentifier:itemIdentifier
-                  completion:^(UIImage* icon) {
-                    // Only update the icon if the cell is not
-                    // already reused for another item.
-                    if (cell.itemIdentifier == itemIdentifier)
-                      cell.faviconView.image = icon;
-                  }];
-    cell.selected = (cell.itemIdentifier == self.selectedItemID) ? YES : NO;
+    [item fetchFavicon:^(TabSwitcherItem* innerItem, UIImage* icon) {
+      // Only update the icon if the cell is not
+      // already reused for another item.
+      if ([cell hasIdentifier:innerItem.identifier]) {
+        cell.faviconView.image = icon;
+      }
+    }];
+    cell.selected = [cell hasIdentifier:self.selectedItemID];
   }
 }
 
-// Returns the index in |self.items| of the first item whose identifier is
-// |identifier|.
+// Returns the index in `self.items` of the first item whose identifier is
+// `identifier`.
 - (NSUInteger)indexOfItemWithID:(NSString*)identifier {
   auto selectedTest =
       ^BOOL(TabSwitcherItem* item, NSUInteger index, BOOL* stop) {

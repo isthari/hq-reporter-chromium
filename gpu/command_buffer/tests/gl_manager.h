@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,11 +17,10 @@
 #include "gpu/command_buffer/common/context_creation_attribs.h"
 #include "gpu/command_buffer/service/feature_info.h"
 #include "gpu/command_buffer/service/gpu_tracer.h"
-#include "gpu/command_buffer/service/image_manager.h"
 #include "gpu/command_buffer/service/mailbox_manager_impl.h"
 #include "gpu/command_buffer/service/passthrough_discardable_manager.h"
 #include "gpu/command_buffer/service/service_discardable_manager.h"
-#include "gpu/command_buffer/service/shared_image_manager.h"
+#include "gpu/command_buffer/service/shared_image/shared_image_manager.h"
 #include "gpu/config/gpu_feature_info.h"
 #include "gpu/config/gpu_preferences.h"
 #include "ui/gfx/geometry/size.h"
@@ -39,7 +38,6 @@ namespace gpu {
 
 class CommandBufferDirect;
 class GpuMemoryBufferFactory;
-class ImageFactory;
 class MailboxManager;
 class TransferBuffer;
 
@@ -75,8 +73,8 @@ class GLManager : private GpuControl {
     bool multisampled = false;
     // Whether the backbuffer has an alpha channel.
     bool backbuffer_alpha = true;
-    // The ImageFactory to use to generate images for the backbuffer.
-    raw_ptr<gpu::ImageFactory> image_factory = nullptr;
+    // If we should use native gmb for backbuffer.
+    bool should_use_native_gmb_for_backbuffer = false;
     // Whether to preserve the backbuffer after a call to SwapBuffers().
     bool preserve_backbuffer = false;
     // Shared memory limits
@@ -145,10 +143,6 @@ class GLManager : private GpuControl {
   // GpuControl implementation.
   void SetGpuControlClient(GpuControlClient*) override;
   const Capabilities& GetCapabilities() const override;
-  int32_t CreateImage(ClientBuffer buffer,
-                      size_t width,
-                      size_t height) override;
-  void DestroyImage(int32_t id) override;
   void SignalQuery(uint32_t query, base::OnceClosure callback) override;
   void CreateGpuFence(uint32_t gpu_fence_id, ClientGpuFence source) override;
   void GetGpuFence(uint32_t gpu_fence_id,
@@ -165,7 +159,6 @@ class GLManager : private GpuControl {
                        base::OnceClosure callback) override;
   void WaitSyncToken(const gpu::SyncToken& sync_token) override;
   bool CanWaitUnverifiedSyncToken(const gpu::SyncToken& sync_token) override;
-  void SetDisplayTransform(gfx::OverlayTransform transform) override;
 
   size_t GetSharedMemoryBytesAllocated() const;
   ContextType GetContextType() const;
@@ -183,7 +176,6 @@ class GLManager : private GpuControl {
 
   gles2::MailboxManagerImpl owned_mailbox_manager_;
   gles2::TraceOutputter outputter_;
-  gles2::ImageManager image_manager_;
   std::unique_ptr<ServiceDiscardableManager> discardable_manager_;
   std::unique_ptr<PassthroughDiscardableManager>
       passthrough_discardable_manager_;

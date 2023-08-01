@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,26 +12,30 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
 #include "base/callback_list.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "components/keyed_service/core/keyed_service.h"
-#include "components/safe_browsing/core/browser/db/database_manager.h"
 #include "extensions/browser/blocklist_state.h"
+
+class PrefService;
 
 namespace content {
 class BrowserContext;
 }
 
+namespace safe_browsing {
+class SafeBrowsingDatabaseManager;
+}
+
 namespace extensions {
 
 class BlocklistStateFetcher;
-class ExtensionPrefs;
 
 // The blocklist of extensions backed by safe browsing.
-class Blocklist : public KeyedService, public base::SupportsWeakPtr<Blocklist> {
+class Blocklist : public KeyedService {
  public:
   class Observer {
    public:
@@ -47,22 +51,6 @@ class Blocklist : public KeyedService, public base::SupportsWeakPtr<Blocklist> {
     raw_ptr<Blocklist> blocklist_;
   };
 
-  class ScopedDatabaseManagerForTest {
-   public:
-    explicit ScopedDatabaseManagerForTest(
-        scoped_refptr<safe_browsing::SafeBrowsingDatabaseManager>
-            database_manager);
-
-    ScopedDatabaseManagerForTest(const ScopedDatabaseManagerForTest&) = delete;
-    ScopedDatabaseManagerForTest& operator=(
-        const ScopedDatabaseManagerForTest&) = delete;
-
-    ~ScopedDatabaseManagerForTest();
-
-   private:
-    scoped_refptr<safe_browsing::SafeBrowsingDatabaseManager> original_;
-  };
-
   using BlocklistStateMap = std::map<std::string, BlocklistState>;
 
   using GetBlocklistedIDsCallback =
@@ -73,7 +61,9 @@ class Blocklist : public KeyedService, public base::SupportsWeakPtr<Blocklist> {
 
   using IsBlocklistedCallback = base::OnceCallback<void(BlocklistState)>;
 
-  explicit Blocklist(ExtensionPrefs* prefs);
+  using DatabaseReadyCallback = base::OnceCallback<void(bool)>;
+
+  explicit Blocklist(PrefService* profile_prefs);
 
   Blocklist(const Blocklist&) = delete;
   Blocklist& operator=(const Blocklist&) = delete;
@@ -123,7 +113,13 @@ class Blocklist : public KeyedService, public base::SupportsWeakPtr<Blocklist> {
   void AddObserver(Observer* observer);
   void RemoveObserver(Observer* observer);
 
+  // Invokes the callback method with a boolean indicating
+  // whether the database is ready.
+  void IsDatabaseReady(DatabaseReadyCallback callback);
+
  private:
+  friend class ScopedDatabaseManagerForTest;
+
   // Use via ScopedDatabaseManagerForTest.
   static void SetDatabaseManager(
       scoped_refptr<safe_browsing::SafeBrowsingDatabaseManager>
@@ -165,6 +161,10 @@ class Blocklist : public KeyedService, public base::SupportsWeakPtr<Blocklist> {
   // is a pair of [vector of string ids to check, response closure].
   std::list<std::pair<std::vector<std::string>, base::OnceClosure>>
       state_requests_;
+
+  raw_ptr<PrefService> profile_prefs_ = nullptr;
+
+  base::WeakPtrFactory<Blocklist> weak_ptr_factory_{this};
 };
 
 }  // namespace extensions

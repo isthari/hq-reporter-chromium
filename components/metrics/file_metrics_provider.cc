@@ -1,33 +1,35 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/metrics/file_metrics_provider.h"
 
-#include <memory>
+#include <stddef.h>
 
-#include "base/bind.h"
+#include <memory>
+#include <vector>
+
 #include "base/command_line.h"
 #include "base/containers/flat_map.h"
-#include "base/cxx17_backports.h"
 #include "base/feature_list.h"
 #include "base/files/file.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/files/memory_mapped_file.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_base.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/persistent_histogram_allocator.h"
 #include "base/metrics/persistent_memory_allocator.h"
+#include "base/metrics/ranges_manager.h"
 #include "base/strings/string_piece.h"
-#include "base/task/post_task.h"
+#include "base/strings/stringprintf.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/task_runner.h"
-#include "base/task/task_runner_util.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "components/metrics/metrics_pref_names.h"
 #include "components/metrics/metrics_service.h"
@@ -38,7 +40,6 @@
 #include "components/prefs/scoped_user_pref_update.h"
 
 namespace metrics {
-
 namespace {
 
 // These structures provide values used to define how files are opened and
@@ -55,10 +56,8 @@ struct SourceOptions {
   bool is_read_only;
 };
 
-enum : int {
-  // Opening a file typically requires at least these flags.
-  STD_OPEN = base::File::FLAG_OPEN | base::File::FLAG_READ,
-};
+// Opening a file typically requires at least these flags.
+constexpr int STD_OPEN = base::File::FLAG_OPEN | base::File::FLAG_READ;
 
 constexpr SourceOptions kSourceOptions[] = {
     // SOURCE_HISTOGRAMS_ATOMIC_FILE
@@ -198,10 +197,7 @@ FileMetricsProvider::Params::Params(const base::FilePath& path,
 FileMetricsProvider::Params::~Params() {}
 
 FileMetricsProvider::FileMetricsProvider(PrefService* local_state)
-    : task_runner_(CreateBackgroundTaskRunner()),
-      pref_service_(local_state),
-      main_task_runner_(base::ThreadTaskRunnerHandle::Get()) {
-  DCHECK(main_task_runner_);
+    : task_runner_(CreateBackgroundTaskRunner()), pref_service_(local_state) {
   base::StatisticsRecorder::RegisterHistogramProvider(
       weak_factory_.GetWeakPtr());
 }
@@ -212,7 +208,7 @@ void FileMetricsProvider::RegisterSource(const Params& params) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   // Ensure that kSourceOptions has been filled for this type.
-  DCHECK_GT(base::size(kSourceOptions), static_cast<size_t>(params.type));
+  DCHECK_GT(std::size(kSourceOptions), static_cast<size_t>(params.type));
 
   std::unique_ptr<SourceInfo> source(new SourceInfo(params));
 
@@ -390,10 +386,13 @@ void FileMetricsProvider::FinishedWithSource(SourceInfo* source,
   }
 }
 
-void FileMetricsProvider::CheckAndMergeMetricSourcesOnTaskRunner(
+// static
+std::vector<size_t> FileMetricsProvider::CheckAndMergeMetricSourcesOnTaskRunner(
     SourceInfoList* sources) {
   // This method has all state information passed in |sources| and is intended
   // to run on a worker thread rather than the UI thread.
+  std::vector<size_t> samples_counts;
+
   for (std::unique_ptr<SourceInfo>& source : *sources) {
     AccessResult result;
     do {
@@ -418,9 +417,17 @@ void FileMetricsProvider::CheckAndMergeMetricSourcesOnTaskRunner(
           break;
 
         if (source->association == ASSOCIATE_INTERNAL_PROFILE_SAMPLES_COUNTER) {
-          RecordFileMetadataOnTaskRunner(source.get());
+          samples_counts.push_back(CollectFileMetadataFromSource(source.get()));
         } else {
-          MergeHistogramDeltasFromSource(source.get());
+          size_t histograms_count =
+              MergeHistogramDeltasFromSource(source.get());
+          if (!source->prefs_key.empty()) {
+            base::UmaHistogramCounts1000(
+                base::StringPrintf(
+                    "UMA.FileMetricsProvider.%s.MergedHistogramsCount",
+                    source->prefs_key.c_str()),
+                histograms_count);
+          }
         }
         DCHECK(source->read_complete);
       }
@@ -438,6 +445,8 @@ void FileMetricsProvider::CheckAndMergeMetricSourcesOnTaskRunner(
     if (source->found_files && source->found_files->empty())
       source->found_files.reset();
   }
+
+  return samples_counts;
 }
 
 // This method has all state information passed in |source| and is intended
@@ -567,13 +576,13 @@ FileMetricsProvider::AccessResult FileMetricsProvider::CheckAndMapMetricSource(
 }
 
 // static
-void FileMetricsProvider::MergeHistogramDeltasFromSource(SourceInfo* source) {
+size_t FileMetricsProvider::MergeHistogramDeltasFromSource(SourceInfo* source) {
   DCHECK(source->allocator);
   base::PersistentHistogramAllocator::Iterator histogram_iter(
       source->allocator.get());
 
   const bool read_only = kSourceOptions[source->type].is_read_only;
-  int histogram_count = 0;
+  size_t histogram_count = 0;
   while (true) {
     std::unique_ptr<base::HistogramBase> histogram = histogram_iter.GetNext();
     if (!histogram)
@@ -592,12 +601,14 @@ void FileMetricsProvider::MergeHistogramDeltasFromSource(SourceInfo* source) {
   source->read_complete = true;
   DVLOG(1) << "Reported " << histogram_count << " histograms from "
            << source->path.value();
+  return histogram_count;
 }
 
 // static
 void FileMetricsProvider::RecordHistogramSnapshotsFromSource(
     base::HistogramSnapshotManager* snapshot_manager,
-    SourceInfo* source) {
+    SourceInfo* source,
+    base::HistogramBase::Flags required_flags) {
   DCHECK_NE(SOURCE_HISTOGRAMS_ACTIVE_FILE, source->type);
 
   base::PersistentHistogramAllocator::Iterator histogram_iter(
@@ -608,8 +619,10 @@ void FileMetricsProvider::RecordHistogramSnapshotsFromSource(
     std::unique_ptr<base::HistogramBase> histogram = histogram_iter.GetNext();
     if (!histogram)
       break;
-    snapshot_manager->PrepareFinalDelta(histogram.get());
-    ++histogram_count;
+    if (histogram->HasFlags(required_flags)) {
+      snapshot_manager->PrepareFinalDelta(histogram.get());
+      ++histogram_count;
+    }
   }
 
   source->read_complete = true;
@@ -674,31 +687,39 @@ bool FileMetricsProvider::ProvideIndependentMetricsOnTaskRunner(
     base::HistogramSnapshotManager* snapshot_manager) {
   if (PersistentSystemProfile::GetSystemProfile(
           *source->allocator->memory_allocator(), system_profile_proto)) {
+    // Pass a custom RangesManager so that we do not register the BucketRanges
+    // with the global statistics recorder. Otherwise, it could add unnecessary
+    // contention, and a low amount of extra memory that will never be released.
+    source->allocator->SetRangesManager(new base::RangesManager());
     system_profile_proto->mutable_stability()->set_from_previous_run(true);
-    RecordHistogramSnapshotsFromSource(snapshot_manager, source);
+    RecordHistogramSnapshotsFromSource(
+        snapshot_manager, source,
+        /*required_flags=*/base::HistogramBase::kUmaTargetedHistogramFlag);
     return true;
   }
 
   return false;
 }
 
-void FileMetricsProvider::AppendToSamplesCountPref(size_t samples_count) {
-  ListPrefUpdate update(pref_service_,
-                        metrics::prefs::kMetricsFileMetricsMetadata);
-  update->Append(static_cast<int>(samples_count));
+void FileMetricsProvider::AppendToSamplesCountPref(
+    std::vector<size_t> samples_counts) {
+  ScopedListPrefUpdate update(pref_service_,
+                              metrics::prefs::kMetricsFileMetricsMetadata);
+  for (size_t samples_count : samples_counts) {
+    update->Append(static_cast<int>(samples_count));
+  }
 }
 
-void FileMetricsProvider::RecordFileMetadataOnTaskRunner(SourceInfo* source) {
+// static
+size_t FileMetricsProvider::CollectFileMetadataFromSource(SourceInfo* source) {
   base::HistogramBase::Count samples_count = 0;
   base::PersistentHistogramAllocator::Iterator it{source->allocator.get()};
   std::unique_ptr<base::HistogramBase> histogram;
   while ((histogram = it.GetNext()) != nullptr) {
     samples_count += histogram->SnapshotFinalDelta()->TotalCount();
   }
-  main_task_runner_->PostTask(
-      FROM_HERE, base::BindOnce(&FileMetricsProvider::AppendToSamplesCountPref,
-                                base::Unretained(this), samples_count));
   source->read_complete = true;
+  return samples_count;
 }
 
 void FileMetricsProvider::ScheduleSourcesCheck() {
@@ -713,17 +734,21 @@ void FileMetricsProvider::ScheduleSourcesCheck() {
   // because that must complete before the reply runs.
   SourceInfoList* check_list = new SourceInfoList();
   std::swap(sources_to_check_, *check_list);
-  task_runner_->PostTaskAndReply(
+  task_runner_->PostTaskAndReplyWithResult(
       FROM_HERE,
       base::BindOnce(
           &FileMetricsProvider::CheckAndMergeMetricSourcesOnTaskRunner,
-          base::Unretained(this), base::Unretained(check_list)),
+          base::Unretained(check_list)),
       base::BindOnce(&FileMetricsProvider::RecordSourcesChecked,
                      weak_factory_.GetWeakPtr(), base::Owned(check_list)));
 }
 
-void FileMetricsProvider::RecordSourcesChecked(SourceInfoList* checked) {
+void FileMetricsProvider::RecordSourcesChecked(
+    SourceInfoList* checked,
+    std::vector<size_t> samples_counts) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  AppendToSamplesCountPref(std::move(samples_counts));
 
   // Sources that still have an allocator at this point are read/write "active"
   // files that may need their contents merged on-demand. If there is no
@@ -820,8 +845,8 @@ void FileMetricsProvider::ProvideIndependentMetrics(
   DCHECK(source->allocator);
 
   // Do the actual work as a background task.
-  base::PostTaskAndReplyWithResult(
-      task_runner_.get(), FROM_HERE,
+  task_runner_->PostTaskAndReplyWithResult(
+      FROM_HERE,
       base::BindOnce(
           &FileMetricsProvider::ProvideIndependentMetricsOnTaskRunner,
           source_ptr, system_profile_proto, snapshot_manager),
@@ -844,7 +869,20 @@ void FileMetricsProvider::ProvideIndependentMetricsCleanup(
   ScheduleSourcesCheck();
 
   // Execute the chained callback.
+  // TODO(crbug/1052796): Remove the UMA timer code, which is currently used to
+  // determine if it is worth to finalize independent logs in the background
+  // by measuring the time it takes to execute the callback
+  // MetricsService::PrepareProviderMetricsLogDone().
+  base::TimeTicks start_time = base::TimeTicks::Now();
   std::move(done_callback).Run(success);
+  if (success) {
+    // We don't use the SCOPED_UMA_HISTOGRAM_TIMER macro because we want to
+    // measure the time it takes to finalize an independent log, and that only
+    // happens when |success| is true.
+    base::UmaHistogramTimes(
+        "UMA.IndependentLog.FileMetricsProvider.FinalizeTime",
+        base::TimeTicks::Now() - start_time);
+  }
 }
 
 bool FileMetricsProvider::HasPreviousSessionData() {
@@ -902,8 +940,11 @@ void FileMetricsProvider::RecordInitialHistogramSnapshots(
     DCHECK(!source->read_complete);
     DCHECK(source->allocator);
 
-    // Dump all histograms contained within the source to the snapshot-manager.
-    RecordHistogramSnapshotsFromSource(snapshot_manager, source.get());
+    // Dump all stability histograms contained within the source to the
+    // snapshot-manager.
+    RecordHistogramSnapshotsFromSource(
+        snapshot_manager, source.get(),
+        /*required_flags=*/base::HistogramBase::kUmaStabilityHistogramFlag);
 
     // Update the last-seen time so it isn't read again unless it changes.
     RecordSourceAsRead(source.get());
@@ -924,21 +965,21 @@ bool FileMetricsProvider::SimulateIndependentMetrics() {
     return false;
   }
 
-  ListPrefUpdate list_value(pref_service_,
-                            metrics::prefs::kMetricsFileMetricsMetadata);
-  if (list_value->GetList().empty())
+  ScopedListPrefUpdate list_pref(pref_service_,
+                                 metrics::prefs::kMetricsFileMetricsMetadata);
+  base::Value::List& list_value = list_pref.Get();
+  if (list_value.empty())
     return false;
 
-  base::Value::ListView mutable_list = list_value->GetList();
   size_t count = pref_service_->GetInteger(
       metrics::prefs::kStabilityFileMetricsUnsentSamplesCount);
   pref_service_->SetInteger(
       metrics::prefs::kStabilityFileMetricsUnsentSamplesCount,
-      mutable_list[0].GetInt() + count);
+      list_value[0].GetInt() + count);
   pref_service_->SetInteger(
       metrics::prefs::kStabilityFileMetricsUnsentFilesCount,
-      list_value->GetList().size() - 1);
-  list_value->EraseListIter(mutable_list.begin());
+      list_value.size() - 1);
+  list_value.erase(list_value.begin());
 
   return true;
 }

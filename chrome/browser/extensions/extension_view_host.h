@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -50,12 +50,13 @@ class ExtensionViewHost
 
   ~ExtensionViewHost() override;
 
-  Browser* browser() { return browser_; }
-
   void set_view(ExtensionView* view) { view_ = view; }
   ExtensionView* view() { return view_; }
 
   void SetAssociatedWebContents(content::WebContents* web_contents);
+
+  // Returns the browser associated with this ExtensionViewHost.
+  virtual Browser* GetBrowser();
 
   // Handles keyboard events that were not handled by HandleKeyboardEvent().
   // Platform specific implementation may override this method to handle the
@@ -74,7 +75,7 @@ class ExtensionViewHost
       content::WebContents* source,
       const content::OpenURLParams& params) override;
   bool ShouldAllowRendererInitiatedCrossProcessNavigation(
-      bool is_main_frame_navigation) override;
+      bool is_outermost_main_frame_navigation) override;
   content::KeyboardEventProcessingResult PreHandleKeyboardEvent(
       content::WebContents* source,
       const content::NativeWebKeyboardEvent& event) override;
@@ -122,11 +123,14 @@ class ExtensionViewHost
   // mojom::ViewType::kExtensionPopup.
   bool IsEscapeInPopup(const content::NativeWebKeyboardEvent& event) const;
 
-  // The browser associated with the ExtensionView, if any.
+  // The browser associated with the ExtensionView, if any. Note: since this
+  // ExtensionViewHost could be associated with a browser even if `browser_` is
+  // null (see ExtensionSidePanelViewHost), this variable should not be used
+  // directly. Instead, use GetBrowser().
   raw_ptr<Browser> browser_;
 
   // View that shows the rendered content in the UI.
-  raw_ptr<ExtensionView> view_ = nullptr;
+  raw_ptr<ExtensionView, DanglingUntriaged> view_ = nullptr;
 
   // The relevant WebContents associated with this ExtensionViewHost, if any.
   base::WeakPtr<content::WebContents> associated_web_contents_;

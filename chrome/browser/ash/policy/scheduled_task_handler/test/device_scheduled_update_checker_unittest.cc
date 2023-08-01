@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,14 +10,15 @@
 #include <string>
 #include <utility>
 
-#include "ash/components/settings/timezone_settings.h"
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "base/json/json_reader.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
+#include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "base/time/clock.h"
 #include "base/time/time.h"
@@ -30,17 +31,18 @@
 #include "chrome/browser/ash/policy/scheduled_task_handler/test/scheduled_task_test_util.h"
 #include "chrome/browser/ash/settings/scoped_testing_cros_settings.h"
 #include "chrome/browser/ash/settings/stub_cros_settings_provider.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/test/base/testing_browser_process.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/ash/components/dbus/shill/shill_clients.h"
+#include "chromeos/ash/components/dbus/update_engine/fake_update_engine_client.h"
+#include "chromeos/ash/components/dbus/update_engine/update_engine_client.h"
+#include "chromeos/ash/components/install_attributes/stub_install_attributes.h"
+#include "chromeos/ash/components/network/network_handler.h"
+#include "chromeos/ash/components/network/network_state_handler.h"
+#include "chromeos/ash/components/network/network_state_test_helper.h"
+#include "chromeos/ash/components/settings/timezone_settings.h"
 #include "chromeos/dbus/power/fake_power_manager_client.h"
 #include "chromeos/dbus/power/power_manager_client.h"
-#include "chromeos/dbus/shill/shill_clients.h"
-#include "chromeos/dbus/update_engine/fake_update_engine_client.h"
-#include "chromeos/dbus/update_engine/update_engine_client.h"
-#include "chromeos/network/network_handler.h"
-#include "chromeos/network/network_state_handler.h"
-#include "chromeos/network/network_state_test_helper.h"
-#include "chromeos/tpm/stub_install_attributes.h"
 #include "components/policy/core/common/policy_service.h"
 #include "services/device/public/cpp/test/test_wake_lock_provider.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -72,7 +74,7 @@ class DeviceScheduledUpdateCheckerForTest
  public:
   DeviceScheduledUpdateCheckerForTest(
       ash::CrosSettings* cros_settings,
-      chromeos::NetworkStateHandler* network_state_handler,
+      ash::NetworkStateHandler* network_state_handler,
       std::unique_ptr<ScheduledTaskExecutor> task_executor)
       : DeviceScheduledUpdateChecker(cros_settings,
                                      network_state_handler,
@@ -122,20 +124,14 @@ class DeviceScheduledUpdateCheckerTest : public testing::Test {
     ScopedWakeLock::OverrideWakeLockProviderBinderForTesting(
         base::BindRepeating(&device::TestWakeLockProvider::BindReceiver,
                             base::Unretained(&wake_lock_provider_)));
-    auto fake_update_engine_client =
-        std::make_unique<chromeos::FakeUpdateEngineClient>();
-    fake_update_engine_client_ = fake_update_engine_client.get();
-    chromeos::DBusThreadManager::Initialize();
-    chromeos::DBusThreadManager::GetSetterForTesting()->SetUpdateEngineClient(
-        std::move(fake_update_engine_client));
-
+    fake_update_engine_client_ =
+        ash::UpdateEngineClient::InitializeFakeForTest();
     chromeos::PowerManagerClient::InitializeFake();
     chromeos::FakePowerManagerClient::Get()->set_tick_clock(
         task_environment_.GetMockTickClock());
 
-    network_state_test_helper_ =
-        std::make_unique<chromeos::NetworkStateTestHelper>(
-            true /* use_default_devices_and_services */);
+    network_state_test_helper_ = std::make_unique<ash::NetworkStateTestHelper>(
+        true /* use_default_devices_and_services */);
 
     auto task_executor = std::make_unique<FakeScheduledTaskExecutor>(
         task_environment_.GetMockClock());
@@ -156,7 +152,7 @@ class DeviceScheduledUpdateCheckerTest : public testing::Test {
     device_scheduled_update_checker_.reset();
     network_state_test_helper_.reset();
     chromeos::PowerManagerClient::Shutdown();
-    chromeos::DBusThreadManager::Shutdown();
+    ash::UpdateEngineClient::Shutdown();
     ScopedWakeLock::OverrideWakeLockProviderBinderForTesting(
         base::NullCallback());
   }
@@ -212,11 +208,11 @@ class DeviceScheduledUpdateCheckerTest : public testing::Test {
 
   // Sets a daily update check policy and returns true iff it's scheduled
   // correctly. |hours_from_now| must be > 0.
-  bool CheckDailyUpdateCheck(int hours_fom_now) {
-    DCHECK_GT(hours_fom_now, 0);
-    // Calculate time from one hour from now and set the update check policy to
+  bool CheckDailyUpdateCheck(int hours_from_now) {
+    DCHECK_GT(hours_from_now, 0);
+    // Calculate delay using |hours_from_now| and set the update check policy to
     // happen daily at that time.
-    base::TimeDelta delay_from_now = base::Hours(hours_fom_now);
+    base::TimeDelta delay_from_now = base::Hours(hours_from_now);
     auto policy_and_next_update_check_time =
         scheduled_task_test_util::CreatePolicy(
             scheduled_task_executor_->GetTimeZone(),
@@ -354,18 +350,18 @@ class DeviceScheduledUpdateCheckerTest : public testing::Test {
 
   base::test::TaskEnvironment task_environment_;
   // Owned by |device_scheduled_update_checker_|
-  FakeScheduledTaskExecutor* scheduled_task_executor_;
+  raw_ptr<FakeScheduledTaskExecutor, ExperimentalAsh> scheduled_task_executor_;
   std::unique_ptr<DeviceScheduledUpdateCheckerForTest>
       device_scheduled_update_checker_;
   ash::ScopedTestingCrosSettings cros_settings_;
-  chromeos::FakeUpdateEngineClient* fake_update_engine_client_;
-  std::unique_ptr<chromeos::NetworkStateTestHelper> network_state_test_helper_;
+  raw_ptr<ash::FakeUpdateEngineClient, ExperimentalAsh>
+      fake_update_engine_client_;
+  std::unique_ptr<ash::NetworkStateTestHelper> network_state_test_helper_;
   device::TestWakeLockProvider wake_lock_provider_;
 
  private:
-  chromeos::ScopedStubInstallAttributes test_install_attributes_{
-      chromeos::StubInstallAttributes::CreateCloudManaged("fake-domain",
-                                                          "fake-id")};
+  ash::ScopedStubInstallAttributes test_install_attributes_{
+      ash::StubInstallAttributes::CreateCloudManaged("fake-domain", "fake-id")};
 };
 
 TEST_F(DeviceScheduledUpdateCheckerTest, CheckIfDailyUpdateCheckIsScheduled) {
@@ -988,6 +984,36 @@ TEST_F(DeviceScheduledUpdateCheckerTest, CheckUpdateCheckHardTimeout) {
   expected_update_check_requests = 2;
   task_environment_.FastForwardBy(
       base::Days(1) -
+      update_checker_internal::kOsAndPoliciesUpdateCheckHardTimeout);
+  EXPECT_TRUE(CheckStats(expected_update_checks, expected_update_check_requests,
+                         expected_update_check_completions));
+}
+
+// Check that the facility is disabled when the RTC wake support feature is
+// disabled.
+TEST_F(DeviceScheduledUpdateCheckerTest, DisabledFeature) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndDisableFeature(
+      ::features::kSupportsRtcWakeOver24Hours);
+
+  base::TimeDelta delay_from_now = base::Hours(1);
+  auto policy_and_next_update_check_time =
+      scheduled_task_test_util::CreatePolicy(
+          scheduled_task_executor_->GetTimeZone(),
+          scheduled_task_executor_->GetCurrentTime(), delay_from_now,
+          ScheduledTaskExecutor::Frequency::kDaily, kTaskTimeFieldName);
+
+  cros_settings_.device_settings()->Set(
+      ash::kDeviceScheduledUpdateCheck,
+      std::move(policy_and_next_update_check_time.first));
+  task_environment_.FastForwardBy(delay_from_now);
+
+  // No check should happen when kSupportsRtcWakeOver24Hours is off.
+  int expected_update_checks = 0;
+  int expected_update_check_requests = 0;
+  int expected_update_check_completions = 0;
+
+  task_environment_.FastForwardBy(
       update_checker_internal::kOsAndPoliciesUpdateCheckHardTimeout);
   EXPECT_TRUE(CheckStats(expected_update_checks, expected_update_check_requests,
                          expected_update_check_completions));

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,12 +9,13 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/containers/contains.h"
 #include "base/containers/cxx20_erase.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/notreached.h"
 #include "base/trace_event/trace_event.h"
 #include "base/trace_event/traced_value.h"
 #include "components/viz/common/frame_sinks/begin_frame_args.h"
@@ -73,18 +74,18 @@ const char* FrameSequenceTracker::GetFrameSequenceTrackerTypeName(
       return "CanvasAnimation";
     case FrameSequenceTrackerType::kJSAnimation:
       return "JSAnimation";
+    case FrameSequenceTrackerType::kSETMainThreadAnimation:
+      return "SETMainThreadAnimation";
+    case FrameSequenceTrackerType::kSETCompositorAnimation:
+      return "SETCompositorAnimation";
     case FrameSequenceTrackerType::kMaxType:
       return "";
   }
 }
 
-FrameSequenceTracker::FrameSequenceTracker(
-    FrameSequenceTrackerType type,
-    ThroughputUkmReporter* throughput_ukm_reporter)
+FrameSequenceTracker::FrameSequenceTracker(FrameSequenceTrackerType type)
     : custom_sequence_id_(-1),
-      metrics_(
-          std::make_unique<FrameSequenceMetrics>(type,
-                                                 throughput_ukm_reporter)) {
+      metrics_(std::make_unique<FrameSequenceMetrics>(type)) {
   DCHECK_LT(type, FrameSequenceTrackerType::kMaxType);
   DCHECK(type != FrameSequenceTrackerType::kCustom);
   // TODO(crbug.com/1158439): remove the trace event once the validation is
@@ -99,8 +100,7 @@ FrameSequenceTracker::FrameSequenceTracker(
     FrameSequenceMetrics::CustomReporter custom_reporter)
     : custom_sequence_id_(custom_sequence_id),
       metrics_(std::make_unique<FrameSequenceMetrics>(
-          FrameSequenceTrackerType::kCustom,
-          /*ukm_reporter=*/nullptr)) {
+          FrameSequenceTrackerType::kCustom)) {
   DCHECK_GT(custom_sequence_id_, 0);
   metrics_->SetCustomReporter(std::move(custom_reporter));
 }
@@ -156,9 +156,6 @@ void FrameSequenceTracker::ReportBeginImplFrame(
                          args.frames_throttled_since_last);
   impl_throughput().frames_expected +=
       begin_impl_frame_data_.previous_sequence_delta;
-#if DCHECK_IS_ON()
-  ++impl_throughput().frames_received;
-#endif
 
   if (first_frame_timestamp_.is_null())
     first_frame_timestamp_ = args.frame_time;
@@ -274,14 +271,6 @@ void FrameSequenceTracker::ReportSubmitFrame(
     return;
   }
 
-#if DCHECK_IS_ON()
-  DCHECK(is_inside_frame_) << TRACKER_DCHECK_MSG;
-  DCHECK_LT(impl_throughput().frames_processed,
-            impl_throughput().frames_received)
-      << TRACKER_DCHECK_MSG;
-  ++impl_throughput().frames_processed;
-#endif
-
   last_processed_impl_sequence_ = ack.frame_id.sequence_number;
   if (first_submitted_frame_ == 0)
     first_submitted_frame_ = frame_token;
@@ -384,23 +373,10 @@ void FrameSequenceTracker::ReportFrameEnd(
     DCHECK_GT(impl_throughput().frames_expected,
               impl_throughput().frames_produced)
         << TRACKER_DCHECK_MSG;
-    DCHECK_GE(impl_throughput().frames_produced,
-              impl_throughput().frames_ontime)
-        << TRACKER_DCHECK_MSG;
     --impl_throughput().frames_expected;
     metrics()->NotifyNoUpdateForJankReporter(
         FrameInfo::SmoothEffectDrivingThread::kCompositor,
         args.frame_id.sequence_number, args.interval);
-#if DCHECK_IS_ON()
-    ++impl_throughput().frames_processed;
-    // If these two are the same, it means that each impl frame is either
-    // no-damage or submitted. That's expected, so we don't need those in the
-    // output of DCHECK.
-    if (impl_throughput().frames_processed == impl_throughput().frames_received)
-      ignored_trace_char_count_ = frame_sequence_trace_.str().size();
-    else
-      NOTREACHED() << TRACKER_DCHECK_MSG;
-#endif
     begin_impl_frame_data_.previous_sequence = 0;
   }
   // last_submitted_frame_ == 0 means the last impl frame has been presented.
@@ -464,19 +440,8 @@ void FrameSequenceTracker::ReportFramePresented(
       (feedback.interval.is_zero() ? viz::BeginFrameArgs::DefaultInterval()
                                    : feedback.interval);
   DCHECK(!vsync_interval.is_zero()) << TRACKER_DCHECK_MSG;
-  base::TimeTicks safe_deadline_for_frame =
-      last_frame_presentation_timestamp_ + vsync_interval * 1.5;
-
   const bool was_presented = !feedback.failed();
   if (was_presented && submitted_frame_since_last_presentation) {
-    if (!last_frame_presentation_timestamp_.is_null() &&
-        (safe_deadline_for_frame < feedback.timestamp)) {
-      DCHECK_LE(impl_throughput().frames_ontime,
-                impl_throughput().frames_produced)
-          << TRACKER_DCHECK_MSG;
-      ++impl_throughput().frames_ontime;
-    }
-
     DCHECK_LT(impl_throughput().frames_produced,
               impl_throughput().frames_expected)
         << TRACKER_DCHECK_MSG;
@@ -509,16 +474,6 @@ void FrameSequenceTracker::ReportFramePresented(
       metrics()->ComputeJank(FrameInfo::SmoothEffectDrivingThread::kMain,
                              frame_token, feedback.timestamp, vsync_interval);
     }
-    if (main_frames_.size() < size_before_erase) {
-      if (!last_frame_presentation_timestamp_.is_null() &&
-          (safe_deadline_for_frame < feedback.timestamp)) {
-        DCHECK_LE(main_throughput().frames_ontime,
-                  main_throughput().frames_produced)
-            << TRACKER_DCHECK_MSG;
-        ++main_throughput().frames_ontime;
-      }
-    }
-    last_frame_presentation_timestamp_ = feedback.timestamp;
 
     if (checkerboarding_.last_frame_had_checkerboarding) {
       DCHECK(!checkerboarding_.last_frame_timestamp.is_null())
@@ -629,8 +584,6 @@ void FrameSequenceTracker::ReportMainFrameCausedNoDamage(
   DCHECK_GT(main_throughput().frames_expected,
             main_throughput().frames_produced)
       << TRACKER_DCHECK_MSG;
-  DCHECK_GE(main_throughput().frames_produced, main_throughput().frames_ontime)
-      << TRACKER_DCHECK_MSG;
   last_no_main_damage_sequence_ = args.frame_id.sequence_number;
   --main_throughput().frames_expected;
   metrics()->NotifyNoUpdateForJankReporter(
@@ -705,11 +658,6 @@ bool FrameSequenceTracker::ShouldReportMetricsNow(
 }
 
 std::unique_ptr<FrameSequenceMetrics> FrameSequenceTracker::TakeMetrics() {
-#if DCHECK_IS_ON()
-  DCHECK_EQ(impl_throughput().frames_received,
-            impl_throughput().frames_processed)
-      << frame_sequence_trace_.str().substr(ignored_trace_char_count_);
-#endif
   return std::move(metrics_);
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 
 #include <string>
 
-#include "base/callback_forward.h"
+#include "content/public/test/browser_test_utils.h"
 
 namespace base {
 class Value;
@@ -17,8 +17,7 @@ namespace content {
 class BrowserContext;
 }  // namespace content
 
-namespace extensions {
-namespace browsertest_util {
+namespace extensions::browsertest_util {
 
 // Determine if a user activation notification should be triggered before
 // executing a script
@@ -27,18 +26,18 @@ enum class ScriptUserActivation {
   kDontActivate,
 };
 
-// Waits until |script| calls "window.domAutomationController.send(result)",
-// where |result| is a string, and returns |result|. Fails the test and returns
-// an empty string if |extension_id| isn't installed in |context| or doesn't
-// have a background page, or if executing the script fails. The argument
-// |script_user_activation| determines if the script should be executed after a
-// user activation.
-std::string ExecuteScriptInBackgroundPage(
+// Waits until |script| calls "chrome.test.sendScriptResult(result)",
+// where |result| is a serializable value, and returns |result|. Fails
+// the test and returns an empty base::Value if |extension_id| isn't
+// installed in |context| or doesn't have a background page, or if
+// executing the script fails. The argument |script_user_activation|
+// determines if the script should be executed after a user activation.
+base::Value ExecuteScriptInBackgroundPage(
     content::BrowserContext* context,
     const std::string& extension_id,
     const std::string& script,
     ScriptUserActivation script_user_activation =
-        ScriptUserActivation::kActivate);
+        ScriptUserActivation::kDontActivate);
 
 // Same as ExecuteScriptInBackgroundPage, but doesn't wait for the script
 // to return a result. Fails the test and returns false if |extension_id|
@@ -48,16 +47,25 @@ bool ExecuteScriptInBackgroundPageNoWait(content::BrowserContext* context,
                                          const std::string& extension_id,
                                          const std::string& script);
 
-// Executes the given `script` in the context of the background service worker
-// registered by the extension with the given `extension_id`. If non-empty,
-// `callback` is invoked with the result of the execution.
-void ExecuteScriptInServiceWorker(
-    content::BrowserContext* browser_context,
+// Waits until |script| calls "window.domAutomationController.send(result)",
+// where |result| is a string, and returns |result|. Fails the test and returns
+// an empty string if |extension_id| isn't installed in |context| or doesn't
+// have a background page, or if executing the script fails. The argument
+// |script_user_activation| determines if the script should be executed after a
+// user activation.
+std::string ExecuteScriptInBackgroundPageDeprecated(
+    content::BrowserContext* context,
     const std::string& extension_id,
     const std::string& script,
-    base::OnceCallback<void(base::Value)> callback);
+    ScriptUserActivation script_user_activation =
+        ScriptUserActivation::kDontActivate);
 
-}  // namespace browsertest_util
-}  // namespace extensions
+// Synchronously stops the service worker registered by the extension with the
+// given `extension_id` at global scope. The extension must be installed and
+// enabled.
+void StopServiceWorkerForExtensionGlobalScope(content::BrowserContext* context,
+                                              const std::string& extension_id);
+
+}  // namespace extensions::browsertest_util
 
 #endif  // EXTENSIONS_BROWSER_BROWSERTEST_UTIL_H_

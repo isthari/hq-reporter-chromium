@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,17 +14,11 @@
 namespace syncer {
 namespace {
 
-std::string ComputeNigoriName(const Nigori& nigori) {
-  std::string key_name;
-  nigori.Permute(Nigori::Password, kNigoriKeyName, &key_name);
-  return key_name;
-}
-
 // Note that |key_name| is redundant but computing the name from |nigori| can be
 // expensive.
 sync_pb::NigoriKey NigoriToProto(const Nigori& nigori,
                                  const std::string& key_name) {
-  DCHECK_EQ(key_name, ComputeNigoriName(nigori));
+  DCHECK_EQ(key_name, nigori.GetKeyName());
 
   sync_pb::NigoriKey proto;
   proto.set_deprecated_name(key_name);
@@ -57,8 +51,8 @@ NigoriKeyBag NigoriKeyBag::CreateFromProto(const sync_pb::NigoriKeyBag& proto) {
   NigoriKeyBag output;
   for (const sync_pb::NigoriKey& key : proto.key()) {
     if (output.AddKeyFromProto(key).empty()) {
-      // TODO(crbug.com/922900): Consider propagating this error to callers such
-      // that they can do smarter handling.
+      // TODO(crbug.com/1368018): Consider propagating this error to callers
+      // such that they can do smarter handling.
       DLOG(ERROR) << "Invalid NigoriKey protocol buffer message.";
     }
   }
@@ -108,7 +102,7 @@ sync_pb::NigoriKey NigoriKeyBag::ExportKey(const std::string& key_name) const {
 
 std::string NigoriKeyBag::AddKey(std::unique_ptr<Nigori> nigori) {
   DCHECK(nigori);
-  const std::string key_name = ComputeNigoriName(*nigori);
+  const std::string key_name = nigori->GetKeyName();
   if (key_name.empty()) {
     NOTREACHED();
     return key_name;
@@ -124,7 +118,7 @@ std::string NigoriKeyBag::AddKeyFromProto(const sync_pb::NigoriKey& key) {
     return std::string();
   }
 
-  const std::string key_name = ComputeNigoriName(*nigori);
+  const std::string key_name = nigori->GetKeyName();
   if (key_name.empty()) {
     return std::string();
   }
@@ -147,15 +141,12 @@ bool NigoriKeyBag::EncryptWithKey(
   DCHECK(encrypted_output);
   DCHECK(HasKey(key_name));
 
-  encrypted_output->Clear();
-
-  if (!nigori_map_.find(key_name)->second->Encrypt(
-          input, encrypted_output->mutable_blob())) {
-    DLOG(ERROR) << "Failed to encrypt data.";
-    return false;
-  }
-
+  encrypted_output->set_blob(
+      nigori_map_.find(key_name)->second->Encrypt(input));
   encrypted_output->set_key_name(key_name);
+
+  // TODO(crbug.com/1368018): returned value is always true, update interface
+  // to return void or `encrypted_output`.
   return true;
 }
 

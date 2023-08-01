@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,10 @@
 
 #include <utility>
 
-#include "base/bind.h"
 #include "base/feature_list.h"
-#include "base/task/post_task.h"
+#include "base/functional/bind.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -22,7 +23,7 @@
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
-#include "services/video_capture/device_factory_media_to_mojo_adapter.h"
+#include "services/video_capture/device_factory_impl.h"
 #include "services/video_capture/testing_controls_impl.h"
 #include "services/video_capture/video_source_provider_impl.h"
 #include "services/video_capture/virtual_device_enabled_device_factory.h"
@@ -41,6 +42,11 @@
 #include "chromeos/lacros/lacros_service.h"
 #include "services/video_capture/lacros/device_factory_adapter_lacros.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
+
+#if BUILDFLAG(IS_LINUX)
+#include "media/capture/capture_switches.h"
+#include "services/viz/public/cpp/gpu/context_provider_command_buffer.h"
+#endif  // BUILDFLAG(IS_LINUX)
 
 namespace video_capture {
 
@@ -103,6 +109,93 @@ class VideoCaptureServiceImpl::GpuDependenciesContext {
       this};
 };
 
+#if BUILDFLAG(IS_LINUX)
+// Intended usage of this class is to create viz::Gpu in utility process and
+// connect to viz::GpuClient of browser process, which will call to Gpu service.
+// Also, this class holds the viz::ContextProvider to listen and monitor Gpu
+// context lost event. The viz::Gpu and viz::ContextProvider need be created in
+// the main thread of utility process. The |main_task_runner_| is initialized as
+// the default single thread task runner of main thread. The
+// viz::ContextProvider will call BindToCurrentSequence on |main_task_runner_|
+// sequence of main thread. Then, the gpu context lost event will be called in
+// the |main_task_runner_| sequence, which will be notified to the
+// media::VideoCaptureGpuMemoryBufferManager.
+class VideoCaptureServiceImpl::VizGpuContextProvider
+    : public viz::ContextLostObserver {
+ public:
+  VizGpuContextProvider(std::unique_ptr<viz::Gpu> viz_gpu)
+      : main_task_runner_(base::SingleThreadTaskRunner::GetCurrentDefault()),
+        viz_gpu_(std::move(viz_gpu)) {
+    StartContextProviderIfNeeded();
+  }
+  ~VizGpuContextProvider() override {
+    // Ensure destroy context provider and not receive callbacks before clear up
+    // |viz_gpu_|
+    if (context_provider_) {
+      context_provider_.reset();
+    }
+  }
+
+  // viz::ContextLostObserver implementation.
+  void OnContextLost() override {
+    context_provider_->RemoveObserver(this);
+    context_provider_.reset();
+
+    StartContextProviderIfNeeded();
+  }
+
+ private:
+  void StartContextProviderIfNeeded() {
+    DCHECK_EQ(context_provider_, nullptr);
+    DCHECK(main_task_runner_->BelongsToCurrentThread());
+
+    if (!viz_gpu_) {
+      return;
+    }
+
+    scoped_refptr<gpu::GpuChannelHost> gpu_channel_host =
+        viz_gpu_->GetGpuChannel();
+    if (!gpu_channel_host || gpu_channel_host->IsLost()) {
+      gpu_channel_host = viz_gpu_->EstablishGpuChannelSync();
+    }
+
+    if (!gpu_channel_host) {
+      return;
+    }
+
+    scoped_refptr<viz::ContextProvider> context_provider =
+        base::MakeRefCounted<viz::ContextProviderCommandBuffer>(
+            std::move(gpu_channel_host), viz_gpu_->GetGpuMemoryBufferManager(),
+            0 /* stream ID */, gpu::SchedulingPriority::kNormal,
+            gpu::kNullSurfaceHandle,
+            GURL(std::string("chrome://gpu/VideoCapture")),
+            false /* automatic flushes */, false /* support locking */,
+            false /* support grcontext */,
+            gpu::SharedMemoryLimits::ForMailboxContext(),
+            gpu::ContextCreationAttribs(),
+            viz::command_buffer_metrics::ContextType::VIDEO_CAPTURE);
+
+    const gpu::ContextResult context_result =
+        context_provider->BindToCurrentSequence();
+    if (context_result != gpu::ContextResult::kSuccess) {
+      LOG(ERROR) << "Bind context provider failed.";
+      return;
+    }
+
+    context_provider->AddObserver(this);
+    context_provider_ = std::move(context_provider);
+  }
+
+  // Task runner for operating |viz_gpu_| and
+  // |context_provider_| on. This must be the main service thread as the
+  // |viz_gpu_| required.
+  scoped_refptr<base::SingleThreadTaskRunner> main_task_runner_;
+  std::unique_ptr<viz::Gpu> viz_gpu_;
+  scoped_refptr<viz::ContextProvider> context_provider_;
+  base::WeakPtrFactory<VizGpuContextProvider> weak_ptr_factory_{this};
+};
+#endif  // BUILDFLAG(IS_LINUX)
+
 VideoCaptureServiceImpl::VideoCaptureServiceImpl(
     mojo::PendingReceiver<mojom::VideoCaptureService> receiver,
     scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner)
@@ -110,7 +203,10 @@ VideoCaptureServiceImpl::VideoCaptureServiceImpl(
       ui_task_runner_(std::move(ui_task_runner)) {}
 
 VideoCaptureServiceImpl::~VideoCaptureServiceImpl() {
-  factory_receivers_.Clear();
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  factory_receivers_ash_.Clear();
+  device_factory_ash_adapter_.reset();
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   device_factory_.reset();
 
   if (gpu_dependencies_context_) {
@@ -135,24 +231,19 @@ void VideoCaptureServiceImpl::ConnectToCameraAppDeviceBridge(
   media::CameraAppDeviceBridgeImpl::GetInstance()->BindReceiver(
       std::move(receiver));
 }
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
-void VideoCaptureServiceImpl::ConnectToDeviceFactory(
-    mojo::PendingReceiver<mojom::DeviceFactory> receiver) {
+void VideoCaptureServiceImpl::BindVideoCaptureDeviceFactory(
+    mojo::PendingReceiver<crosapi::mojom::VideoCaptureDeviceFactory> receiver) {
   LazyInitializeDeviceFactory();
-  factory_receivers_.Add(device_factory_.get(), std::move(receiver));
+  factory_receivers_ash_.Add(device_factory_ash_adapter_.get(),
+                             std::move(receiver));
 }
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 void VideoCaptureServiceImpl::ConnectToVideoSourceProvider(
     mojo::PendingReceiver<mojom::VideoSourceProvider> receiver) {
   LazyInitializeVideoSourceProvider();
   video_source_provider_->AddClient(std::move(receiver));
-}
-
-void VideoCaptureServiceImpl::SetRetryCount(int32_t count) {
-#if BUILDFLAG(IS_MAC)
-  media::VideoCaptureDeviceFactoryMac::SetGetDevicesInfoRetryCount(count);
-#endif
 }
 
 void VideoCaptureServiceImpl::BindControlsForTesting(
@@ -164,6 +255,15 @@ void VideoCaptureServiceImpl::BindControlsForTesting(
 void VideoCaptureServiceImpl::LazyInitializeGpuDependenciesContext() {
   if (!gpu_dependencies_context_)
     gpu_dependencies_context_ = std::make_unique<GpuDependenciesContext>();
+
+#if BUILDFLAG(IS_LINUX)
+  if (switches::IsVideoCaptureUseGpuMemoryBufferEnabled()) {
+    if (!viz_gpu_context_provider_) {
+      viz_gpu_context_provider_ =
+          std::make_unique<VizGpuContextProvider>(std::move(viz_gpu_));
+    }
+  }
+#endif  // BUILDFLAG(IS_LINUX)
 }
 
 void VideoCaptureServiceImpl::LazyInitializeDeviceFactory() {
@@ -184,12 +284,15 @@ void VideoCaptureServiceImpl::LazyInitializeDeviceFactory() {
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   device_factory_ = std::make_unique<VirtualDeviceEnabledDeviceFactory>(
-      std::make_unique<DeviceFactoryMediaToMojoAdapter>(
+      std::make_unique<DeviceFactoryImpl>(
           std::move(video_capture_system),
           base::BindRepeating(
               &GpuDependenciesContext::CreateJpegDecodeAccelerator,
               gpu_dependencies_context_->GetWeakPtr()),
           gpu_dependencies_context_->GetTaskRunner()));
+  device_factory_ash_adapter_ =
+      std::make_unique<crosapi::VideoCaptureDeviceFactoryAsh>(
+          device_factory_.get());
 #elif BUILDFLAG(IS_CHROMEOS_LACROS)
   // LacrosService might be null in unit tests.
   auto* lacros_service = chromeos::LacrosService::Get();
@@ -197,7 +300,8 @@ void VideoCaptureServiceImpl::LazyInitializeDeviceFactory() {
   // For requests for fake (including file) video capture device factory, we
   // don't need to forward the request to Ash-Chrome.
   if (!media::ShouldUseFakeVideoCaptureDeviceFactory() && lacros_service &&
-      lacros_service->IsVideoCaptureDeviceFactoryAvailable()) {
+      lacros_service
+          ->IsSupported<crosapi::mojom::VideoCaptureDeviceFactory>()) {
     mojo::PendingRemote<crosapi::mojom::VideoCaptureDeviceFactory>
         device_factory_ash;
     lacros_service->BindVideoCaptureDeviceFactory(
@@ -210,13 +314,11 @@ void VideoCaptureServiceImpl::LazyInitializeDeviceFactory() {
         << "Connected to an older version of ash. Use device factory in "
            "Lacros-Chrome which is backed by Linux VCD instead of CrOS VCD.";
     device_factory_ = std::make_unique<VirtualDeviceEnabledDeviceFactory>(
-        std::make_unique<DeviceFactoryMediaToMojoAdapter>(
-            std::move(video_capture_system)));
+        std::make_unique<DeviceFactoryImpl>(std::move(video_capture_system)));
   }
 #else
   device_factory_ = std::make_unique<VirtualDeviceEnabledDeviceFactory>(
-      std::make_unique<DeviceFactoryMediaToMojoAdapter>(
-          std::move(video_capture_system)));
+      std::make_unique<DeviceFactoryImpl>(std::move(video_capture_system)));
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 }
 
@@ -235,5 +337,18 @@ void VideoCaptureServiceImpl::LazyInitializeVideoSourceProvider() {
 void VideoCaptureServiceImpl::OnLastSourceProviderClientDisconnected() {
   video_source_provider_.reset();
 }
+
+#if BUILDFLAG(IS_WIN)
+void VideoCaptureServiceImpl::OnGpuInfoUpdate(const CHROME_LUID& luid) {
+  LazyInitializeDeviceFactory();
+  device_factory_->OnGpuInfoUpdate(luid);
+}
+#endif
+
+#if BUILDFLAG(IS_LINUX)
+void VideoCaptureServiceImpl::SetVizGpu(std::unique_ptr<viz::Gpu> viz_gpu) {
+  viz_gpu_ = std::move(viz_gpu);
+}
+#endif
 
 }  // namespace video_capture

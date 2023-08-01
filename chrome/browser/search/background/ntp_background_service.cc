@@ -1,16 +1,18 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/search/background/ntp_background_service.h"
 
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/observer_list.h"
 #include "base/strings/strcat.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/browser/search/background/ntp_background.pb.h"
 #include "chrome/browser/search/background/ntp_backgrounds.h"
+#include "components/search/ntp_features.h"
 #include "components/version_info/version_info.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
@@ -24,8 +26,11 @@ namespace {
 // Command line param to override the collections base URL, e.g. for testing.
 constexpr char kCollectionsBaseUrlCmdlineSwitch[] = "collections-base-url";
 
-// The default base URL to download collections.
+// The default base URL to download prod collections.
 constexpr char kCollectionsBaseUrl[] = "https://clients3.google.com";
+
+// The default base URL to download alpha collections.
+constexpr char kAlphaCollectionsBaseUrl[] = "https://clients5.google.com";
 
 // The MIME type of the POST data sent to the server.
 constexpr char kProtoMimeType[] = "application/x-protobuf";
@@ -57,6 +62,9 @@ GURL GetUrl(base::StringPiece path) {
                   kCollectionsBaseUrlCmdlineSwitch)
                   ? base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
                         kCollectionsBaseUrlCmdlineSwitch)
+              : base::FeatureList::IsEnabled(
+                    ntp_features::kNtpAlphaBackgroundCollections)
+                  ? kAlphaCollectionsBaseUrl
                   : kCollectionsBaseUrl)
       .Resolve(path);
 }
@@ -125,6 +133,11 @@ void NtpBackgroundService::FetchCollectionInfo() {
   // milestone post release.
   request.add_filtering_label(base::StrCat(
       {kFilteringLabel, ".M", version_info::GetMajorVersionNumber()}));
+  // Add filtering for Panorama feature.
+  if (base::FeatureList::IsEnabled(ntp_features::kCustomizeChromeSidePanel)) {
+    request.add_filtering_label(base::StrCat({kFilteringLabel, ".panorama"}));
+  }
+
   std::string serialized_proto;
   request.SerializeToString(&serialized_proto);
 
@@ -363,6 +376,16 @@ void NtpBackgroundService::OnNextImageInfoFetchComplete(
   next_image_resume_token_ = image_response.resume_token();
 
   NotifyObservers(FetchComplete::NEXT_IMAGE_INFO);
+}
+
+const std::vector<CollectionInfo>& NtpBackgroundService::collection_info()
+    const {
+  return collection_info_;
+}
+
+const std::vector<CollectionImage>& NtpBackgroundService::collection_images()
+    const {
+  return collection_images_;
 }
 
 void NtpBackgroundService::AddObserver(NtpBackgroundServiceObserver* observer) {

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,11 +12,12 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/scoped_refptr.h"
 #include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/eye_dropper.h"
+#include "content/public/browser/fullscreen_types.h"
 #include "content/public/browser/invalidate_type.h"
 #include "content/public/browser/media_stream_request.h"
 #include "content/public/browser/serial_chooser.h"
@@ -48,6 +49,7 @@ class WeakPtr;
 namespace blink {
 namespace mojom {
 class FileChooserParams;
+class WindowFeatures;
 }
 }  // namespace blink
 
@@ -60,7 +62,6 @@ class RenderFrameHost;
 class RenderWidgetHost;
 class SessionStorageNamespace;
 class SiteInstance;
-class WebContentsImpl;
 struct ContextMenuParams;
 struct DropData;
 struct MediaPlayerWatchTime;
@@ -90,6 +91,7 @@ enum class ProtocolHandlerSecurityLevel;
 
 namespace content {
 
+class AudioStreamBrokerFactory;
 struct OpenURLParams;
 
 enum class KeyboardEventProcessingResult;
@@ -129,7 +131,7 @@ class CONTENT_EXPORT WebContentsDelegate {
   // transfer to a different process between the start of the network load and
   // commit.  Defaults to true.
   virtual bool ShouldAllowRendererInitiatedCrossProcessNavigation(
-      bool is_main_frame_navigation);
+      bool is_outermost_main_frame_navigation);
 
   // Called to inform the delegate that the WebContents's navigation state
   // changed. The |changed_flags| indicates the parts of the navigation state
@@ -141,20 +143,22 @@ class CONTENT_EXPORT WebContentsDelegate {
   // security state changed and that security UI should be updated.
   virtual void VisibleSecurityStateChanged(WebContents* source) {}
 
-  // Creates a new tab with the already-created WebContents |new_contents|.
+  // Creates a new tab with the already-created WebContents `new_contents`.
   // The window for the added contents should be reparented correctly when this
-  // method returns. |target_url| is set to the value provided when
-  // |new_contents| was created. If |disposition| is NEW_POPUP, |initial_rect|
-  // should hold the initial position and size. If |was_blocked| is non-nullptr,
-  // then |*was_blocked| will be set to true if the popup gets blocked, and left
+  // method returns. `target_url` is set to the value provided when
+  // `new_contents` was created. If `disposition` is NEW_POPUP,
+  // `window_features` should hold the initial position, size and other
+  // properties of the window. If `was_blocked` is non-nullptr, then
+  // `*was_blocked` will be set to true if the popup gets blocked, and left
   // unchanged otherwise.
-  virtual void AddNewContents(WebContents* source,
-                              std::unique_ptr<WebContents> new_contents,
-                              const GURL& target_url,
-                              WindowOpenDisposition disposition,
-                              const gfx::Rect& initial_rect,
-                              bool user_gesture,
-                              bool* was_blocked) {}
+  virtual void AddNewContents(
+      WebContents* source,
+      std::unique_ptr<WebContents> new_contents,
+      const GURL& target_url,
+      WindowOpenDisposition disposition,
+      const blink::mojom::WindowFeatures& window_features,
+      bool user_gesture,
+      bool* was_blocked) {}
 
   // Selects the specified contents, bringing its container to the front.
   virtual void ActivateContents(WebContents* contents) {}
@@ -166,9 +170,9 @@ class CONTENT_EXPORT WebContentsDelegate {
   // in UI elements. It is generally true for different-document navigations and
   // false for most same-document navigations (because same-documents are
   // typically instantaneous so there's no point in flickering the UI). The
-  // exception is appHistory's transitionWhile, which is the sole type of
-  // same-document navigation that is asynchronous, and therefore a UI change is
-  // sensible.
+  // exception is the navigation API's intercept(), which is the sole type
+  // of same-document navigation that is asynchronous, and therefore a UI change
+  // is sensible.
   virtual void LoadingStateChanged(WebContents* source,
                                    bool should_show_loading_ui) {}
 
@@ -315,7 +319,7 @@ class CONTENT_EXPORT WebContentsDelegate {
   // CreateCustomWebContents() below to provide their own WebContents.
   virtual bool IsWebContentsCreationOverridden(
       SiteInstance* source_site_instance,
-      content::mojom::WindowContainerType window_container_type,
+      mojom::WindowContainerType window_container_type,
       const GURL& opener_url,
       const std::string& frame_name,
       const GURL& target_url);
@@ -389,15 +393,12 @@ class CONTENT_EXPORT WebContentsDelegate {
   virtual void RendererResponsive(WebContents* source,
                                   RenderWidgetHost* render_widget_host) {}
 
-  // Invoked when a primary main frame navigation occurs.
-  virtual void DidNavigatePrimaryMainFramePostCommit(WebContents* source) {}
-
   // Returns a pointer to a service to manage JavaScript dialogs. May return
   // nullptr in which case dialogs aren't shown.
   virtual JavaScriptDialogManager* GetJavaScriptDialogManager(
       WebContents* source);
 
-#if BUILDFLAG(IS_ANDROID)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_MAC)
   // Called when color chooser should open. Returns the opened color chooser.
   // Returns nullptr if we failed to open the color chooser. The color chooser
   // is only supported/required for Android.
@@ -405,7 +406,7 @@ class CONTENT_EXPORT WebContentsDelegate {
       WebContents* web_contents,
       SkColor color,
       const std::vector<blink::mojom::ColorSuggestionPtr>& suggestions);
-#endif
+#endif  // BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_MAC)
 
   // Called when an eye dropper should open. Returns the eye dropper window.
   // The eye dropper is responsible for calling listener->ColorSelected() or
@@ -458,7 +459,12 @@ class CONTENT_EXPORT WebContentsDelegate {
   // Called when the renderer puts a tab out of fullscreen mode.
   virtual void ExitFullscreenModeForTab(WebContents*) {}
 
+  // Returns true if `web_contents` is, or is transitioning to, tab-fullscreen.
   virtual bool IsFullscreenForTabOrPending(const WebContents* web_contents);
+
+  // Returns fullscreen state information about the given `web_contents`.
+  virtual FullscreenState GetFullscreenState(
+      const WebContents* web_contents) const;
 
   // Returns the actual display mode of the top-level browsing context.
   // For example, it should return 'blink::mojom::DisplayModeFullscreen'
@@ -538,10 +544,9 @@ class CONTENT_EXPORT WebContentsDelegate {
   // request is denied, a call should be made to |callback| with an empty list
   // of devices. |request| has the details of the request (e.g. which of audio
   // and/or video devices are requested, and lists of available devices).
-  virtual void RequestMediaAccessPermission(
-      WebContents* web_contents,
-      const MediaStreamRequest& request,
-      content::MediaResponseCallback callback);
+  virtual void RequestMediaAccessPermission(WebContents* web_contents,
+                                            const MediaStreamRequest& request,
+                                            MediaResponseCallback callback);
 
   // Checks if we have permission to access the microphone or camera. Note that
   // this does not query the user. |type| must be MEDIA_DEVICE_AUDIO_CAPTURE
@@ -563,6 +568,12 @@ class CONTENT_EXPORT WebContentsDelegate {
   // For example, this returns an extension name for title instead of extension
   // url.
   virtual std::string GetTitleForMediaControls(WebContents* web_contents);
+
+  // Returns AudioStreamBrokerFactory to use to create AudioStreamBroker when
+  // creating audio I/O streams. Returned `AudioStreamBrokerFactory` is used and
+  // deleted on the IO thread.
+  virtual std::unique_ptr<AudioStreamBrokerFactory>
+  CreateAudioStreamBrokerFactory(WebContents* web_contents);
 
 #if BUILDFLAG(IS_ANDROID)
   // Returns true if the given media should be blocked to load.
@@ -594,7 +605,7 @@ class CONTENT_EXPORT WebContentsDelegate {
   // default behavior is suppressed.
   virtual bool SaveFrame(const GURL& url,
                          const Referrer& referrer,
-                         content::RenderFrameHost* rfh);
+                         RenderFrameHost* rfh);
 
   // Called when a suspicious navigation of the main frame has been blocked.
   // Allows the delegate to provide some UI to let the user know about the
@@ -633,6 +644,7 @@ class CONTENT_EXPORT WebContentsDelegate {
   virtual int GetBottomControlsMinHeight();
   virtual bool ShouldAnimateBrowserControlsHeightChanges();
   virtual bool DoBrowserControlsShrinkRendererSize(WebContents* web_contents);
+  virtual int GetVirtualKeyboardHeight(WebContents* web_contents);
   // Returns true if the top controls should only expand at the top of the page,
   // so they'll only be visible if the page is scrolled to the top.
   virtual bool OnlyExpandTopControlsAtPageTop();
@@ -645,7 +657,7 @@ class CONTENT_EXPORT WebContentsDelegate {
   // Requests to print an out-of-process subframe for the specified WebContents.
   // |rect| is the rectangular area where its content resides in its parent
   // frame. |document_cookie| is a unique id for a printed document associated
-  // with a print job. |subframe_host| is the render frame host of the subframe
+  // with a print job. |subframe_host| is the RenderFrameHost of the subframe
   // to be printed.
   virtual void PrintCrossProcessSubframe(WebContents* web_contents,
                                          const gfx::Rect& rect,
@@ -656,7 +668,7 @@ class CONTENT_EXPORT WebContentsDelegate {
   // Requests to capture a paint preview of a subframe for the specified
   // WebContents. |rect| is the rectangular area where its content resides in
   // its parent frame. |guid| is a globally unique identitier for an entire
-  // paint preview. |render_frame_host| is the render frame host of the subframe
+  // paint preview. |render_frame_host| is the RenderFrameHost of the subframe
   // to be captured.
   virtual void CapturePaintPreviewOfSubframe(
       WebContents* web_contents,
@@ -674,6 +686,14 @@ class CONTENT_EXPORT WebContentsDelegate {
   // Picture-in-Picture mode has ended.
   virtual void ExitPictureInPicture() {}
 
+#if BUILDFLAG(IS_ANDROID)
+  // Updates information to determine whether a user gesture should carryover to
+  // future navigations. This is needed so navigations within a certain
+  // timeframe of a request initiated by a gesture will be treated as if they
+  // were initiated by a gesture too, otherwise the navigation may be blocked.
+  virtual void UpdateUserGestureCarryoverInfo(WebContents* web_contents) {}
+#endif
+
   // Returns true if lazy loading of images and frames should be enabled.
   virtual bool ShouldAllowLazyLoad();
 
@@ -681,8 +701,11 @@ class CONTENT_EXPORT WebContentsDelegate {
   // indication that the cache will be used.
   virtual bool IsBackForwardCacheSupported();
 
-  // Returns true is prerender2 is supported.
-  virtual bool IsPrerender2Supported();
+  // Returns PreloadingEligibility::kEligible if Prerender2 (see
+  // content/browser/preloading/prerender/README.md for details) is supported.
+  // If it is not supported, returns the reason.
+  virtual PreloadingEligibility IsPrerender2Supported(
+      WebContents& web_contents);
 
   // Requests the delegate to replace |predecessor_contents| with
   // |portal_contents| in the container that holds |predecessor_contents|. If
@@ -706,21 +729,6 @@ class CONTENT_EXPORT WebContentsDelegate {
   // eviction and displayed until a new frame is generated. If false, a white
   // solid color is displayed instead.
   virtual bool ShouldShowStaleContentOnEviction(WebContents* source);
-
-  // Returns the user-visible WebContents that is responsible for the activity
-  // in the provided WebContents. For example, this delegate may be aware that
-  // the contents is embedded in some other contents, or hosts background
-  // activity on behalf of a user-visible tab which should be used to display
-  // dialogs and similar affordances to the user.
-  //
-  // This may be distinct from the outer web contents (for example, the
-  // responsible contents may logically "own" a contents but not currently embed
-  // it for rendering).
-  //
-  // For most delegates (where the WebContents is a tab, window or other
-  // directly user-visible feature), simply returning the contents is
-  // appropriate.
-  virtual WebContents* GetResponsibleWebContents(WebContents* web_contents);
 
   // Invoked when media playback is interrupted or completed.
   virtual void MediaWatchTimeChanged(const MediaPlayerWatchTime& watch_time) {}

@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,12 +19,12 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
-import android.support.test.InstrumentationRegistry;
 import android.util.Pair;
 import android.view.KeyEvent;
 import android.view.View;
 import android.webkit.JavascriptInterface;
 
+import androidx.test.InstrumentationRegistry;
 import androidx.test.filters.LargeTest;
 import androidx.test.filters.MediumTest;
 import androidx.test.filters.SmallTest;
@@ -43,6 +43,7 @@ import org.chromium.android_webview.AwSettings;
 import org.chromium.android_webview.renderer_priority.RendererPriority;
 import org.chromium.android_webview.test.TestAwContentsClient.OnDownloadStartHelper;
 import org.chromium.android_webview.test.util.CommonResources;
+import org.chromium.android_webview.test.util.GraphicsTestUtils;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
 import org.chromium.base.metrics.RecordHistogram;
@@ -68,7 +69,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -224,6 +224,24 @@ public class AwContentsTest {
     @Test
     @SmallTest
     @Feature({"AndroidWebView"})
+    public void testGoBackGoForwardWithoutSessionHistory() throws Throwable {
+        mActivityTestRule.startBrowserProcess();
+        mActivityTestRule.runOnUiThread(() -> {
+            AwContents awContents =
+                    mActivityTestRule.createAwTestContainerView(mContentsClient).getAwContents();
+
+            Assert.assertFalse(awContents.canGoBack());
+            Assert.assertFalse(awContents.canGoForward());
+            // If no back/forward entries exist, then calling these should do nothing and not crash
+            // or fail asserts.
+            awContents.goBack();
+            awContents.goForward();
+        });
+    }
+
+    @Test
+    @SmallTest
+    @Feature({"AndroidWebView"})
     public void testBackgroundColorInDarkMode() throws Throwable {
         mActivityTestRule.startBrowserProcess();
         mActivityTestRule.runOnUiThread(() -> {
@@ -234,7 +252,7 @@ public class AwContentsTest {
             Assert.assertEquals(awContents.getEffectiveBackgroundColorForTesting(), Color.WHITE);
 
             awSettings.setForceDarkMode(AwSettings.FORCE_DARK_ON);
-            Assert.assertTrue(awSettings.isDarkMode());
+            Assert.assertTrue(awSettings.isForceDarkApplied());
             Assert.assertEquals(awContents.getEffectiveBackgroundColorForTesting(), Color.BLACK);
 
             awContents.setBackgroundColor(Color.RED);
@@ -952,45 +970,6 @@ public class AwContentsTest {
         Assert.assertEquals("chrome://safe-browsing/", awContents.getLastCommittedUrl());
     }
 
-    private void pollForQuadrantColors(AwTestContainerView testView, int[] expectedQuadrantColors)
-            throws Throwable {
-        int[] lastQuadrantColors = null;
-        // Poll for 10s in case raster is slow.
-        for (int i = 0; i < 100; ++i) {
-            final CallbackHelper callbackHelper = new CallbackHelper();
-            final Object[] resultHolder = new Object[1];
-            mActivityTestRule.runOnUiThread(() -> {
-                testView.readbackQuadrantColors((int[] result) -> {
-                    resultHolder[0] = result;
-                    callbackHelper.notifyCalled();
-                });
-            });
-            try {
-                callbackHelper.waitForFirst();
-            } catch (TimeoutException e) {
-                Log.w(TAG, "Timeout", e);
-                continue;
-            }
-            int[] quadrantColors = (int[]) resultHolder[0];
-            lastQuadrantColors = quadrantColors;
-            if (quadrantColors != null && expectedQuadrantColors[0] == quadrantColors[0]
-                    && expectedQuadrantColors[1] == quadrantColors[1]
-                    && expectedQuadrantColors[2] == quadrantColors[2]
-                    && expectedQuadrantColors[3] == quadrantColors[3]) {
-                return;
-            }
-            Thread.sleep(100);
-        }
-        Assert.assertNotNull(lastQuadrantColors);
-        // If this test is failing for your CL, then chances are your change is breaking Android
-        // WebView hardware rendering. Please build the "real" webview and check if this is the
-        // case and if so, fix your CL.
-        Assert.assertEquals(expectedQuadrantColors[0], lastQuadrantColors[0]);
-        Assert.assertEquals(expectedQuadrantColors[1], lastQuadrantColors[1]);
-        Assert.assertEquals(expectedQuadrantColors[2], lastQuadrantColors[2]);
-        Assert.assertEquals(expectedQuadrantColors[3], lastQuadrantColors[3]);
-    }
-
     private void doHardwareRenderingSmokeTest() throws Throwable {
         AwTestContainerView testView =
                 mActivityTestRule.createAwTestContainerViewOnMainSync(mContentsClient);
@@ -1016,7 +995,7 @@ public class AwContentsTest {
         int expectedQuadrantColors[] = {Color.rgb(255, 0, 0), Color.rgb(0, 255, 0),
                 Color.rgb(0, 0, 255), Color.rgb(128, 128, 128)};
 
-        pollForQuadrantColors(testView, expectedQuadrantColors);
+        GraphicsTestUtils.pollForQuadrantColors(testView, expectedQuadrantColors);
     }
 
     @Test
@@ -1037,6 +1016,7 @@ public class AwContentsTest {
                 "Pixel",
                 "Pixel 2",
                 "Pixel 3",
+                "Pixel 4a",
         };
         if (!Arrays.asList(supportedModels).contains(Build.MODEL)) {
             Log.w(TAG, "Skipping vulkan test on unknown device: " + Build.MODEL);
@@ -1144,7 +1124,7 @@ public class AwContentsTest {
     @SmallTest
     public void testLoadUrlRecordsScheme_http() {
         // No need to spin up a web server, since we don't care if the load ever succeeds.
-        final String httpUrlWithNoRealPage = "http://some.origin/some/path.html";
+        final String httpUrlWithNoRealPage = "http://some.origin.test/some/path.html";
         loadUrlAndCheckScheme(httpUrlWithNoRealPage, AwContents.UrlScheme.HTTP_SCHEME);
     }
 
@@ -1238,7 +1218,7 @@ public class AwContentsTest {
         }
     }
 
-    // This test verifies that Private Network Access' secure context
+    // This test verifies that Local Network Access' secure context
     // restriction (feature flag BlockInsecurePrivateNetworkRequests) does not
     // apply to Webview: insecure private network requests are allowed.
     //
@@ -1247,7 +1227,7 @@ public class AwContentsTest {
     @Feature({"AndroidWebView"})
     @CommandLineFlags.Add(ContentSwitches.HOST_RESOLVER_RULES + "=MAP * 127.0.0.1")
     @SmallTest
-    public void testInsecurePrivateNetworkAccess() throws Throwable {
+    public void testInsecureLocalNetworkAccess() throws Throwable {
         mActivityTestRule.startBrowserProcess();
         final AwTestContainerView testContainer =
                 mActivityTestRule.createAwTestContainerViewOnMainSync(mContentsClient);
@@ -1448,7 +1428,7 @@ public class AwContentsTest {
                     Color.rgb(255, 0, 0),
                     Color.rgb(255, 0, 0),
             };
-            pollForQuadrantColors(testView, expectedQuadrantColors);
+            GraphicsTestUtils.pollForQuadrantColors(testView, expectedQuadrantColors);
             assertThat(RenderProcessHostUtils.getCurrentRenderProcessCount(), greaterThan(1));
 
             // Click iframe to navigate. This exercises hit testing code paths.
@@ -1465,7 +1445,7 @@ public class AwContentsTest {
                     Color.rgb(0, 0, 255),
                     Color.rgb(0, 0, 255),
             };
-            pollForQuadrantColors(testView, expectedQuadrantColors);
+            GraphicsTestUtils.pollForQuadrantColors(testView, expectedQuadrantColors);
             assertThat(RenderProcessHostUtils.getCurrentRenderProcessCount(), greaterThan(1));
         } finally {
             webServer.shutdown();

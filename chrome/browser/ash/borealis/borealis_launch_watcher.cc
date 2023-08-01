@@ -1,10 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/borealis/borealis_launch_watcher.h"
 
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 
 namespace borealis {
@@ -13,11 +13,11 @@ BorealisLaunchWatcher::BorealisLaunchWatcher(Profile* profile,
                                              std::string vm_name)
     : owner_id_(ash::ProfileHelper::GetUserIdHashFromProfile(profile)),
       vm_name_(vm_name) {
-  chromeos::CiceroneClient::Get()->AddObserver(this);
+  ash::CiceroneClient::Get()->AddObserver(this);
 }
 
 BorealisLaunchWatcher::~BorealisLaunchWatcher() {
-  chromeos::CiceroneClient::Get()->RemoveObserver(this);
+  ash::CiceroneClient::Get()->RemoveObserver(this);
 }
 
 void BorealisLaunchWatcher::AwaitLaunch(OnLaunchCallback callback) {
@@ -25,7 +25,7 @@ void BorealisLaunchWatcher::AwaitLaunch(OnLaunchCallback callback) {
     std::move(callback).Run(container_started_signal_->container_name());
   } else {
     if (callback_queue_.empty()) {
-      base::SequencedTaskRunnerHandle::Get()->PostDelayedTask(
+      base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
           FROM_HERE,
           base::BindOnce(&BorealisLaunchWatcher::TimeoutCallback,
                          weak_factory_.GetWeakPtr()),

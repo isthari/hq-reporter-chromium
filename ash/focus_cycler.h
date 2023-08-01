@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,8 @@
 #include <vector>
 
 #include "ash/ash_export.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
 
 namespace views {
 class Widget;
@@ -55,7 +56,7 @@ class ASH_EXPORT FocusCycler {
   std::vector<views::Widget*> widgets_;
 
   // See description above getter.
-  views::Widget* widget_activating_;
+  raw_ptr<views::Widget, ExperimentalAsh> widget_activating_;
 };
 
 }  // namespace ash

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,11 @@
 
 #include <vector>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/test/bind.h"
 #include "base/test/mock_callback.h"
+#include "base/time/time.h"
 #include "chrome/browser/android/explore_sites/explore_sites_schema.h"
-#include "components/offline_pages/core/offline_store_utils.h"
 #include "components/offline_pages/task/task.h"
 #include "components/offline_pages/task/task_test_base.h"
 #include "sql/database.h"
@@ -50,8 +50,7 @@ std::vector<ActivityInfo> GetAllActivitiesSync(sql::Database* db) {
   sql::Statement statement(
       db->GetCachedStatement(SQL_FROM_HERE, kGetAllActivitiesSql));
   while (statement.Step()) {
-    base::Time time =
-        offline_pages::store_utils::FromDatabaseTime(statement.ColumnInt64(0));
+    base::Time time = statement.ColumnTime(0);
     int category_type = statement.ColumnInt(1);
     std::string url = statement.ColumnString(2);
     result.push_back({time, category_type, url});
@@ -115,7 +114,7 @@ void ClearActivitiesTaskTest::InsertActivity(base::Time time,
   ExecuteSync(base::BindLambdaForTesting([&](sql::Database* db) {
     sql::Statement statement(
         db->GetCachedStatement(SQL_FROM_HERE, kInsertActivitySql));
-    statement.BindInt64(0, offline_pages::store_utils::ToDatabaseTime(time));
+    statement.BindTime(0, time);
     statement.BindInt(1, category_type);
     statement.BindString(2, url);
     return statement.Run();

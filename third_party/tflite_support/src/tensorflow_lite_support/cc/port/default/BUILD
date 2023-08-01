@@ -1,4 +1,5 @@
 package(
+    default_applicable_licenses = ["//tensorflow_lite_support:license"],
     default_visibility = [
         "//tensorflow_lite_support/cc/port:__subpackages__",
         "//tensorflow_lite_support/cc/test:__subpackages__",
@@ -40,12 +41,12 @@ cc_library(
         "@org_tensorflow//tensorflow/lite:framework",
         "@org_tensorflow//tensorflow/lite:minimal_logging",
         "@org_tensorflow//tensorflow/lite/c:common",
-        "@org_tensorflow//tensorflow/lite/experimental/acceleration/configuration:nnapi_plugin",
+        "@org_tensorflow//tensorflow/lite/acceleration/configuration:nnapi_plugin",
         "@org_tensorflow//tensorflow/lite/delegates:interpreter_utils",
-        "@org_tensorflow//tensorflow/lite/experimental/acceleration/configuration:configuration_cc_proto",
-        "@org_tensorflow//tensorflow/lite/experimental/acceleration/configuration:delegate_registry",
-        "@org_tensorflow//tensorflow/lite/experimental/acceleration/configuration:flatbuffer_to_proto",
-        "@org_tensorflow//tensorflow/lite/experimental/acceleration/configuration:proto_to_flatbuffer",
+        "@org_tensorflow//tensorflow/lite/acceleration/configuration:configuration_cc_proto",
+        "@org_tensorflow//tensorflow/lite/acceleration/configuration:delegate_registry",
+        "@org_tensorflow//tensorflow/lite/acceleration/configuration:flatbuffer_to_proto",
+        "@org_tensorflow//tensorflow/lite/acceleration/configuration:proto_to_flatbuffer",
         "@org_tensorflow//tensorflow/lite/experimental/acceleration/mini_benchmark",
         "//tensorflow_lite_support/cc/port:status_macros",
     ] + select({

@@ -50,6 +50,18 @@
     await this._logMessage(message, expectError, styleSheetId);
   }
 
+  async setSupportsText(styleSheetId, expectError, options) {
+    options.styleSheetId = styleSheetId;
+    var message = await this._dp.CSS.setSupportsText(options);
+    await this._logMessage(message, expectError, styleSheetId);
+  }
+
+  async setScopeText(styleSheetId, expectError, options) {
+    options.styleSheetId = styleSheetId;
+    var message = await this._dp.CSS.setScopeText(options);
+    await this._logMessage(message, expectError, styleSheetId);
+  }
+
   async addRule(styleSheetId, expectError, options) {
     options.styleSheetId = styleSheetId;
     var message = await this._dp.CSS.addRule(options);
@@ -95,6 +107,20 @@
     const supportsLine = supports.map(s => s.text).join(' ');
     if (supportsLine.length) {
       this._indentLog(baseIndent, '@supports ' + supportsLine);
+      baseIndent += 4;
+    }
+
+    const layers = rule.layers|| [];
+    const layersLine = layers.map(s => s.text).join('.');
+    if (layersLine.length) {
+      this._indentLog(baseIndent, '@layer ' + layersLine);
+      baseIndent += 4;
+    }
+
+    const scopes = rule.scopes || [];
+    const scopesLine = scopes.map(s => s.text).join(' ');
+    if (scopesLine.length) {
+      this._indentLog(baseIndent, '@scope ' + scopesLine);
       baseIndent += 4;
     }
 
@@ -157,6 +183,22 @@
           continue;
         this.dumpRuleMatch(ruleMatch);
       }
+    }
+  }
+
+  async loadAndDumpCSSPositionFallbacksForNode(nodeId) {
+    var {result} =
+        await this._dp.CSS.getMatchedStylesForNode({'nodeId': nodeId});
+    this._testRunner.log('Dumping CSS position-fallback rules: ');
+    for (var cssPositionFallbackRule of result.cssPositionFallbackRules) {
+      this._testRunner.log(
+          '@position-fallback ' + cssPositionFallbackRule.name.text + ' {');
+      for (var tryRule of cssPositionFallbackRule.tryRules) {
+        this._indentLog(4, '@try {');
+        this.dumpStyle(tryRule.style, 4);
+        this._indentLog(4, '}');
+      }
+      this._testRunner.log('}');
     }
   }
 

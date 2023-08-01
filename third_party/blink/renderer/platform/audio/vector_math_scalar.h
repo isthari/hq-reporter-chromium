@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,8 @@
 
 #include <algorithm>
 #include <cmath>
+
+#include "base/check_op.h"
 #include "third_party/blink/renderer/platform/audio/audio_array.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
 
@@ -14,7 +16,7 @@ namespace blink {
 namespace vector_math {
 namespace scalar {
 
-static ALWAYS_INLINE void Conv(const float* source_p,
+ALWAYS_INLINE static void Conv(const float* source_p,
                                int source_stride,
                                const float* filter_p,
                                int filter_stride,
@@ -306,7 +308,7 @@ static ALWAYS_INLINE void Conv(const float* source_p,
 #undef CONVOLVE_ONE_SAMPLE
 }
 
-static ALWAYS_INLINE void Vadd(const float* source1p,
+ALWAYS_INLINE static void Vadd(const float* source1p,
                                int source_stride1,
                                const float* source2p,
                                int source_stride2,
@@ -322,7 +324,7 @@ static ALWAYS_INLINE void Vadd(const float* source1p,
   }
 }
 
-static ALWAYS_INLINE void Vsub(const float* source1p,
+ALWAYS_INLINE static void Vsub(const float* source1p,
                                int source_stride1,
                                const float* source2p,
                                int source_stride2,
@@ -338,7 +340,7 @@ static ALWAYS_INLINE void Vsub(const float* source1p,
   }
 }
 
-static ALWAYS_INLINE void Vclip(const float* source_p,
+ALWAYS_INLINE static void Vclip(const float* source_p,
                                 int source_stride,
                                 const float* low_threshold_p,
                                 const float* high_threshold_p,
@@ -353,7 +355,7 @@ static ALWAYS_INLINE void Vclip(const float* source_p,
   }
 }
 
-static ALWAYS_INLINE void Vmaxmgv(const float* source_p,
+ALWAYS_INLINE static void Vmaxmgv(const float* source_p,
                                   int source_stride,
                                   float* max_p,
                                   uint32_t frames_to_process) {
@@ -364,7 +366,7 @@ static ALWAYS_INLINE void Vmaxmgv(const float* source_p,
   }
 }
 
-static ALWAYS_INLINE void Vmul(const float* source1p,
+ALWAYS_INLINE static void Vmul(const float* source1p,
                                int source_stride1,
                                const float* source2p,
                                int source_stride2,
@@ -380,7 +382,7 @@ static ALWAYS_INLINE void Vmul(const float* source1p,
   }
 }
 
-static ALWAYS_INLINE void Vsma(const float* source_p,
+ALWAYS_INLINE static void Vsma(const float* source_p,
                                int source_stride,
                                const float* scale,
                                float* dest_p,
@@ -395,7 +397,7 @@ static ALWAYS_INLINE void Vsma(const float* source_p,
   }
 }
 
-static ALWAYS_INLINE void Vsmul(const float* source_p,
+ALWAYS_INLINE static void Vsmul(const float* source_p,
                                 int source_stride,
                                 const float* scale,
                                 float* dest_p,
@@ -410,7 +412,7 @@ static ALWAYS_INLINE void Vsmul(const float* source_p,
   }
 }
 
-static ALWAYS_INLINE void Vsadd(const float* source_p,
+ALWAYS_INLINE static void Vsadd(const float* source_p,
                                 int source_stride,
                                 const float* addend,
                                 float* dest_p,
@@ -425,7 +427,7 @@ static ALWAYS_INLINE void Vsadd(const float* source_p,
   }
 }
 
-static ALWAYS_INLINE void Vsvesq(const float* source_p,
+ALWAYS_INLINE static void Vsvesq(const float* source_p,
                                  int source_stride,
                                  float* sum_p,
                                  uint32_t frames_to_process) {
@@ -437,7 +439,7 @@ static ALWAYS_INLINE void Vsvesq(const float* source_p,
   }
 }
 
-static ALWAYS_INLINE void Zvmul(const float* real1p,
+ALWAYS_INLINE static void Zvmul(const float* real1p,
                                 const float* imag1p,
                                 const float* real2p,
                                 const float* imag2p,

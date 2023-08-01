@@ -1,8 +1,10 @@
+# mypy: allow-untyped-defs
+
 import os
 import shutil
 import sys
 import logging
-from distutils.spawn import find_executable
+from shutil import which
 
 # The `pkg_resources` module is provided by `setuptools`, which is itself a
 # dependency of `virtualenv`. Tolerate its absence so that this module may be
@@ -20,12 +22,12 @@ from tools.wpt.utils import call
 
 logger = logging.getLogger(__name__)
 
-class Virtualenv(object):
+class Virtualenv:
     def __init__(self, path, skip_virtualenv_setup):
         self.path = path
         self.skip_virtualenv_setup = skip_virtualenv_setup
         if not skip_virtualenv_setup:
-            self.virtualenv = find_executable("virtualenv")
+            self.virtualenv = which("virtualenv")
             if not self.virtualenv:
                 raise ValueError("virtualenv must be installed and on the PATH")
             self._working_set = None
@@ -55,7 +57,7 @@ class Virtualenv(object):
 
     @property
     def pip_path(self):
-        path = find_executable("pip3", self.bin_path)
+        path = which("pip3", path=self.bin_path)
         if path is None:
             raise ValueError("pip3 not found")
         return path
@@ -76,7 +78,7 @@ class Virtualenv(object):
             if IS_WIN:
                 site_packages = os.path.join(base, "Lib", "site-packages")
             else:
-                site_packages = os.path.join(base, "lib", "python{}".format(sys.version[:3]), "site-packages")
+                site_packages = os.path.join(base, "lib", f"python{sys.version[:3]}", "site-packages")
 
         return site_packages
 
@@ -119,17 +121,22 @@ class Virtualenv(object):
         # occurs while packages are in the process of being published.
         call(self.pip_path, "install", "--prefer-binary", *requirements)
 
-    def install_requirements(self, requirements_path):
-        with open(requirements_path) as f:
-            try:
-                self.working_set.require(f.read())
-            except Exception:
-                pass
-            else:
-                return
+    def install_requirements(self, *requirements_paths):
+        install = []
+        # Check which requirements are already satisfied, to skip calling pip
+        # at all in the case that we've already installed everything, and to
+        # minimise the installs in other cases.
+        for requirements_path in requirements_paths:
+            with open(requirements_path) as f:
+                try:
+                    self.working_set.require(f.read())
+                except Exception:
+                    install.append(requirements_path)
 
-        # `--prefer-binary` guards against race conditions when installation
-        # occurs while packages are in the process of being published.
-        call(
-            self.pip_path, "install", "--prefer-binary", "-r", requirements_path
-        )
+        if install:
+            # `--prefer-binary` guards against race conditions when installation
+            # occurs while packages are in the process of being published.
+            cmd = [self.pip_path, "install", "--prefer-binary"]
+            for path in install:
+                cmd.extend(["-r", path])
+            call(*cmd)

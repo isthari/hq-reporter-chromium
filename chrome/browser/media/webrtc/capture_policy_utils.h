@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@ class GURL;
 class PrefService;
 
 namespace content {
+class BrowserContext;
 class WebContents;
 }
 
@@ -58,6 +59,18 @@ void FilterMediaList(std::vector<DesktopMediaList::Type>& media_types,
                      AllowedScreenCaptureLevel capture_level);
 
 void ShowCaptureTerminatedDialog(content::WebContents* contents);
+
+// TODO(crbug.com/1342069): Use Origin instead of GURL.
+bool IsGetAllScreensMediaAllowed(content::BrowserContext* context,
+                                 const GURL& url);
+
+bool IsGetAllScreensMediaAllowedForAnySite(content::BrowserContext* context);
+
+#if !BUILDFLAG(IS_ANDROID)
+bool IsTransientActivationRequiredForGetDisplayMedia(
+    content::WebContents* contents);
+#endif  // !BUILDFLAG(IS_ANDROID)
+
 }  // namespace capture_policy
 
 #endif  // CHROME_BROWSER_MEDIA_WEBRTC_CAPTURE_POLICY_UTILS_H_

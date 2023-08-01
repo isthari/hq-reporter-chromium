@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,9 +28,14 @@ class LayoutNGButton final : public LayoutNGFlexibleBox {
     return true;
   }
 
+  static bool ShouldCountWrongBaseline(const LayoutBox& button_box,
+                                       const ComputedStyle& style,
+                                       const ComputedStyle* parent_style);
+
  private:
-  void UpdateAnonymousChildStyle(const LayoutObject* child,
-                                 ComputedStyle& child_style) const override;
+  void UpdateAnonymousChildStyle(
+      const LayoutObject* child,
+      ComputedStyleBuilder& child_style_builder) const override;
 
   bool IsOfType(LayoutObjectType type) const override {
     NOT_DESTROYED();

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,6 +26,7 @@ import org.chromium.base.test.BaseRobolectricTestRunner;
  * Test AwNonembeddedUmaReplayer.
  */
 @RunWith(BaseRobolectricTestRunner.class)
+@SuppressWarnings("DoNotMock") // Ok to mock UmaRecorder since this is testing metrics.
 public class AwNonembeddedUmaReplayerTest {
     @Mock
     private UmaRecorder mUmaRecorder;

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,13 @@
 #define IOS_CHROME_BROWSER_UI_BROWSER_VIEW_BROWSER_COORDINATOR_H_
 
 #include "base/ios/block_types.h"
-#import "ios/chrome/browser/ui/coordinators/chrome_coordinator.h"
+#import "ios/chrome/browser/shared/coordinator/chrome_coordinator/chrome_coordinator.h"
+#import "ios/chrome/browser/ui/settings/sync/utils/sync_presenter.h"
 
 @class BrowserViewController;
 
 // Coordinator for BrowserViewController.
-@interface BrowserCoordinator : ChromeCoordinator
+@interface BrowserCoordinator : ChromeCoordinator <SyncPresenter>
 
 // The main view controller.
 @property(nonatomic, strong, readonly) BrowserViewController* viewController;
@@ -21,6 +22,9 @@
 // not active, the UI will not react to changes in the tab model, so generally
 // an inactive BVC should not be visible.
 @property(nonatomic, assign, getter=isActive) BOOL active;
+
+// Returns whether or not text to speech is playing.
+@property(nonatomic, assign, readonly, getter=isPlayingTTS) BOOL playingTTS;
 
 // Clears any presented state on BVC.
 - (void)clearPresentedStateWithCompletion:(ProceduralBlock)completion

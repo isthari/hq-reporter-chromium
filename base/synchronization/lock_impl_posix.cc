@@ -1,14 +1,13 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/synchronization/lock_impl.h"
 
+#include <ostream>
 #include <string>
 
-#include "base/base_export.h"
 #include "base/check_op.h"
-#include "base/debug/activity_tracker.h"
 #include "base/posix/safe_strerror.h"
 #include "base/synchronization/lock.h"
 #include "base/synchronization/synchronization_buildflags.h"
@@ -30,9 +29,7 @@ const char* AdditionalHintForSystemErrorCode(int error_code) {
 }
 #endif  // DCHECK_IS_ON()
 
-}  // namespace
-
-BASE_EXPORT std::string SystemErrorCodeToString(int error_code) {
+std::string SystemErrorCodeToString(int error_code) {
 #if DCHECK_IS_ON()
   return base::safe_strerror(error_code) + ". " +
          AdditionalHintForSystemErrorCode(error_code);
@@ -40,6 +37,20 @@ BASE_EXPORT std::string SystemErrorCodeToString(int error_code) {
   return std::string();
 #endif  // DCHECK_IS_ON()
 }
+
+}  // namespace
+
+#if DCHECK_IS_ON()
+// These are out-of-line so that the .h file doesn't have to include ostream.
+void dcheck_trylock_result(int rv) {
+  DCHECK(rv == 0 || rv == EBUSY)
+      << ". " << base::internal::SystemErrorCodeToString(rv);
+}
+
+void dcheck_unlock_result(int rv) {
+  DCHECK_EQ(rv, 0) << ". " << strerror(rv);
+}
+#endif
 
 // Determines which platforms can consider using priority inheritance locks. Use
 // this define for platform code that may not compile if priority inheritance
@@ -80,8 +91,7 @@ LockImpl::~LockImpl() {
   DCHECK_EQ(rv, 0) << ". " << SystemErrorCodeToString(rv);
 }
 
-void LockImpl::LockInternalWithTracking() {
-  base::debug::ScopedLockAcquireActivity lock_activity(this);
+void LockImpl::LockInternal() {
   int rv = pthread_mutex_lock(&native_handle_);
   DCHECK_EQ(rv, 0) << ". " << SystemErrorCodeToString(rv);
 }

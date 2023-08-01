@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,15 +30,14 @@ import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.browser.ui.appmenu.AppMenuHandler.AppMenuItemType;
-import org.chromium.chrome.browser.ui.appmenu.internal.R;
+import org.chromium.chrome.browser.ui.appmenu.test.R;
 import org.chromium.chrome.test.ChromeJUnit4RunnerDelegate;
 import org.chromium.chrome.test.util.ChromeRenderTestRule;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.modelutil.LayoutViewBuilder;
 import org.chromium.ui.modelutil.ModelListAdapter;
 import org.chromium.ui.modelutil.PropertyModel;
-import org.chromium.ui.test.util.DisableAnimationsTestRule;
-import org.chromium.ui.test.util.DummyUiActivity;
+import org.chromium.ui.test.util.BlankUiTestActivity;
 import org.chromium.ui.test.util.NightModeTestUtils;
 
 import java.io.IOException;
@@ -59,13 +58,13 @@ public class AppMenuItemViewBinderRenderTest {
                     new ParameterSet().value(true, false).name("NightMode_MenuItemDisabled"));
 
     @ClassRule
-    public static DisableAnimationsTestRule disableAnimationsRule = new DisableAnimationsTestRule();
-    @ClassRule
-    public static BaseActivityTestRule<DummyUiActivity> mActivityTestRule =
-            new BaseActivityTestRule<>(DummyUiActivity.class);
+    public static BaseActivityTestRule<BlankUiTestActivity> sActivityTestRule =
+            new BaseActivityTestRule<>(BlankUiTestActivity.class);
     @Rule
     public ChromeRenderTestRule mRenderTestRule =
-            ChromeRenderTestRule.Builder.withPublicCorpus().build();
+            ChromeRenderTestRule.Builder.withPublicCorpus()
+                    .setBugComponent(ChromeRenderTestRule.Component.UI_BROWSER_MOBILE_APP_MENU)
+                    .build();
     private static Activity sActivity;
     private static ListView sListView;
     private static View sContentView;
@@ -87,17 +86,17 @@ public class AppMenuItemViewBinderRenderTest {
 
     public AppMenuItemViewBinderRenderTest(boolean nightMode, boolean menuItemEnabled) {
         mMenuItemEnabled = menuItemEnabled;
-        NightModeTestUtils.setUpNightModeForDummyUiActivity(nightMode);
+        NightModeTestUtils.setUpNightModeForBlankUiTestActivity(nightMode);
         mRenderTestRule.setNightModeEnabled(nightMode);
         mRenderTestRule.setVariantPrefix(menuItemEnabled ? "MenuItemEnabled" : "MenuItemDisabled");
     }
 
     @Before
     public void setUpTest() throws Exception {
-        mActivityTestRule.launchActivity(null);
+        sActivityTestRule.launchActivity(null);
 
         TestThreadUtils.runOnUiThreadBlocking(() -> {
-            sActivity = mActivityTestRule.getActivity();
+            sActivity = sActivityTestRule.getActivity();
             mMenuList = new ModelListAdapter.ModelList();
             mModelListAdapter = new ModelListAdapter(mMenuList);
 
@@ -131,7 +130,7 @@ public class AppMenuItemViewBinderRenderTest {
 
     @AfterClass
     public static void afterClass() {
-        NightModeTestUtils.tearDownNightModeForDummyUiActivity();
+        NightModeTestUtils.tearDownNightModeForBlankUiTestActivity();
     }
 
     private PropertyModel createStandardMenuItem(

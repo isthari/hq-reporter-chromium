@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,13 @@
 #include "base/types/pass_key.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/network/public/mojom/chunked_data_pipe_getter.mojom-blink.h"
+#include "third_party/blink/public/platform/scheduler/web_scoped_virtual_time_pauser.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/abort_signal.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
+#include "third_party/blink/renderer/core/fetch/bytes_uploader.h"
 #include "third_party/blink/renderer/core/fetch/fetch_data_loader.h"
 #include "third_party/blink/renderer/core/streams/underlying_source_base.h"
 #include "third_party/blink/renderer/platform/bindings/trace_wrapper_v8_reference.h"
@@ -21,7 +23,6 @@
 
 namespace blink {
 
-class BytesUploader;
 class EncodedFormData;
 class ExceptionState;
 class ReadableStream;
@@ -69,7 +70,11 @@ class CORE_EXPORT BodyStreamBuffer final : public UnderlyingSourceBase,
   scoped_refptr<EncodedFormData> DrainAsFormData();
   void DrainAsChunkedDataPipeGetter(
       ScriptState*,
-      mojo::PendingReceiver<network::mojom::blink::ChunkedDataPipeGetter>);
+      mojo::PendingReceiver<network::mojom::blink::ChunkedDataPipeGetter>,
+      BytesUploader::Client* client);
+  // While loading is in progress, a SelfKeepAlive is used to prevent this
+  // object from being garbage collected. If the context is destroyed, the
+  // SelfKeepAlive is cleared. See https://crbug.com/1292744 for details.
   void StartLoading(FetchDataLoader*,
                     FetchDataLoader::Client* /* client */,
                     ExceptionState&);
@@ -78,7 +83,6 @@ class CORE_EXPORT BodyStreamBuffer final : public UnderlyingSourceBase,
   // UnderlyingSourceBase
   ScriptPromise pull(ScriptState*) override;
   ScriptPromise Cancel(ScriptState*, ScriptValue reason) override;
-  bool HasPendingActivity() const override;
   void ContextDestroyed() override;
 
   // BytesConsumer::Client
@@ -147,18 +151,25 @@ class CORE_EXPORT BodyStreamBuffer final : public UnderlyingSourceBase,
   // We need this to ensure that we detect that abort has been signalled
   // correctly.
   Member<AbortSignal> signal_;
+  // We need to keep the abort algorithms alive for the duration of the load.
+  Member<AbortSignal::AlgorithmHandle> stream_buffer_abort_handle_;
+  Member<AbortSignal::AlgorithmHandle> loader_client_abort_handle_;
   // CachedMetadata handler used for loading compiled WASM code.
   Member<ScriptCachedMetadataHandler> cached_metadata_handler_;
   // Additional side data associated with this body stream.  It should only be
   // retained until the body is drained or starts loading.  Client code, such
   // as service workers, can call TakeSideDataBlob() prior to consumption.
   scoped_refptr<BlobDataHandle> side_data_blob_;
+  WebScopedVirtualTimePauser virtual_time_pauser_;
   bool stream_needs_more_ = false;
   bool made_from_readable_stream_;
   bool in_process_data_ = false;
 
   // TODO(ricea): Remove remaining uses of |stream_broken_|.
   bool stream_broken_ = false;
+
+  // Used to remain alive when there's a loader_.
+  SelfKeepAlive<BodyStreamBuffer> keep_alive_;
 };
 
 }  // namespace blink

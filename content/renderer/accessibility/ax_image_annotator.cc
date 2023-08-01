@@ -1,10 +1,9 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "content/renderer/accessibility/ax_image_annotator.h"
 
-#include <ctype.h>
 #include <utility>
 #include <vector>
 
@@ -15,11 +14,12 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
+#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "content/public/common/content_client.h"
+#include "content/public/renderer/render_frame.h"
 #include "content/renderer/accessibility/ax_image_stopwords.h"
-#include "content/renderer/render_frame_impl.h"
 #include "crypto/sha2.h"
 #include "services/metrics/public/cpp/mojo_ukm_recorder.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
@@ -32,6 +32,7 @@
 #include "ui/accessibility/accessibility_features.h"
 #include "ui/accessibility/ax_role_properties.h"
 #include "ui/gfx/geometry/size.h"
+#include "ui/gfx/geometry/transform.h"
 #include "url/gurl.h"
 
 namespace content {
@@ -377,10 +378,8 @@ SkBitmap AXImageAnnotator::GetImageData(const blink::WebAXObject& image) {
 void AXImageAnnotator::OnImageAnnotated(
     const blink::WebAXObject& image,
     image_annotation::mojom::AnnotateImageResultPtr result) {
-  if (!blink::WebAXObject::MaybeUpdateLayoutAndCheckValidity(
-          image.GetDocument())) {
-    return;
-  }
+  DCHECK(render_accessibility_->GetAXContext());
+  render_accessibility_->GetAXContext()->UpdateAXForAllDocuments();
 
   if (!base::Contains(image_annotations_, image.AxID()))
     return;
@@ -396,7 +395,7 @@ void AXImageAnnotator::OnImageAnnotated(
     // Get the image size as minimum and maximum dimension.
     blink::WebAXObject offset_container;
     gfx::RectF bounds;
-    skia::Matrix44 container_transform;
+    gfx::Transform container_transform;
     bool clips_children = false;
     image.GetRelativeBounds(offset_container, bounds, container_transform,
                             &clips_children);
@@ -502,6 +501,10 @@ void AXImageAnnotator::OnImageAnnotated(
       case image_annotation::mojom::AnnotationType::kIcon: {
         int icon_message_id = GetMessageIdForIconEnum(annotation->text);
 
+        // Skip unrecognized icon annotation enum.
+        if (icon_message_id == 0)
+          continue;
+
         DCHECK(GetContentClient());
         contextualized_strings.push_back(base::UTF16ToUTF8(
             GetContentClient()->GetLocalizedString(icon_message_id)));
@@ -516,10 +519,11 @@ void AXImageAnnotator::OnImageAnnotated(
     int last_meaningful_char = annotation->text.length() - 1;
     while (last_meaningful_char >= 0) {
       bool is_whitespace_or_punct =
-          isspace(annotation->text[last_meaningful_char]) ||
-          ispunct(annotation->text[last_meaningful_char]);
-      if (!is_whitespace_or_punct)
+          base::IsAsciiWhitespace(annotation->text[last_meaningful_char]) ||
+          base::IsAsciiPunctuation(annotation->text[last_meaningful_char]);
+      if (!is_whitespace_or_punct) {
         break;
+      }
       last_meaningful_char--;
     }
 

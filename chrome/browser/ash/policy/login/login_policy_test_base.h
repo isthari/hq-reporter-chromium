@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,10 @@
 #include <memory>
 #include <string>
 
-#include "chrome/browser/ash/login/test/embedded_policy_test_server_mixin.h"
-#include "chrome/browser/ash/login/test/fake_gaia_mixin.h"
 #include "chrome/browser/ash/login/test/login_manager_mixin.h"
 #include "chrome/browser/ash/login/test/oobe_base_test.h"
+#include "chrome/browser/ash/policy/test_support/embedded_policy_test_server_mixin.h"
+#include "chrome/test/base/fake_gaia_mixin.h"
 #include "components/account_id/account_id.h"
 
 namespace enterprise_management {
@@ -59,7 +59,7 @@ class LoginPolicyTestBase : public ash::OobeBaseTest {
 
   const AccountId& account_id() const { return account_id_; }
 
-  ash::FakeGaiaMixin fake_gaia_{&mixin_host_};
+  FakeGaiaMixin fake_gaia_{&mixin_host_};
   ash::EmbeddedPolicyTestServerMixin policy_test_server_mixin_{&mixin_host_};
   ash::LoginManagerMixin login_manager_{&mixin_host_};
 

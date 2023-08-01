@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.Batch;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.content_public.browser.test.ContentJUnit4ClassRunner;
 import org.chromium.ui.base.ime.TextInputAction;
@@ -60,6 +61,7 @@ public class ImeInputActionTest {
     @Test
     @SmallTest
     @Feature({"TextInput"})
+    @DisabledTest(message = "crbug.com/1426226")
     public void testShowAndHideInputAction() throws Throwable {
         Assert.assertNotNull(mRule.getInputMethodManagerWrapper().getInputConnection());
         checkInputAction("contenteditable_default", TextInputType.CONTENT_EDITABLE,

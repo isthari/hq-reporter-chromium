@@ -68,14 +68,13 @@ HTMLSourceElement::~HTMLSourceElement() = default;
 
 void HTMLSourceElement::CreateMediaQueryList(const AtomicString& media) {
   RemoveMediaQueryListListener();
-  if (media.IsEmpty()) {
+  if (media.empty()) {
     media_query_list_ = nullptr;
     return;
   }
 
   ExecutionContext* execution_context = GetExecutionContext();
-  scoped_refptr<MediaQuerySet> set =
-      MediaQuerySet::Create(media, execution_context);
+  MediaQuerySet* set = MediaQuerySet::Create(media, execution_context);
   media_query_list_ = MakeGarbageCollected<MediaQueryList>(
       execution_context, &GetDocument().GetMediaQueryMatcher(), set);
   AddMediaQueryListListener();
@@ -96,9 +95,9 @@ Node::InsertionNotificationRequest HTMLSourceElement::InsertedInto(
   auto* html_picture_element = parent == insertion_point
                                    ? DynamicTo<HTMLPictureElement>(parent)
                                    : nullptr;
-  if (html_picture_element)
-    html_picture_element->SourceOrMediaChanged();
-
+  if (html_picture_element) {
+    html_picture_element->SourceChanged(ImageSourceChangeType::kAdded);
+  }
   return kInsertionDone;
 }
 
@@ -112,7 +111,7 @@ void HTMLSourceElement::RemovedFrom(ContainerNode& removal_root) {
   if (auto* picture = DynamicTo<HTMLPictureElement>(parent)) {
     RemoveMediaQueryListListener();
     if (was_removed_from_parent)
-      picture->SourceOrMediaChanged();
+      picture->SourceChanged(ImageSourceChangeType::kRemoved);
   }
   HTMLElement::RemovedFrom(removal_root);
 }
@@ -140,8 +139,8 @@ void HTMLSourceElement::ScheduleErrorEvent() {
 
   pending_error_event_ = PostCancellableTask(
       *GetDocument().GetTaskRunner(TaskType::kDOMManipulation), FROM_HERE,
-      WTF::Bind(&HTMLSourceElement::DispatchPendingEvent,
-                WrapPersistent(this)));
+      WTF::BindOnce(&HTMLSourceElement::DispatchPendingEvent,
+                    WrapPersistent(this)));
 }
 
 void HTMLSourceElement::CancelPendingErrorEvent() {
@@ -166,7 +165,7 @@ void HTMLSourceElement::AttributeChanged(
   const QualifiedName& name = params.name;
   if (name == html_names::kWidthAttr || name == html_names::kHeightAttr) {
     if (auto* picture = DynamicTo<HTMLPictureElement>(parentElement()))
-      picture->SourceAttributeChanged();
+      picture->SourceDimensionChanged();
   }
 
   HTMLElement::AttributeChanged(params);
@@ -185,14 +184,16 @@ void HTMLSourceElement::ParseAttribute(
     CreateMediaQueryList(params.new_value);
   if (name == html_names::kSrcsetAttr || name == html_names::kSizesAttr ||
       name == html_names::kMediaAttr || name == html_names::kTypeAttr) {
-    if (auto* picture = DynamicTo<HTMLPictureElement>(parentElement()))
-      picture->SourceOrMediaChanged();
+    if (auto* picture = DynamicTo<HTMLPictureElement>(parentElement())) {
+      picture->SourceChanged(ImageSourceChangeType::kAttribute);
+    }
   }
 }
 
 void HTMLSourceElement::NotifyMediaQueryChanged() {
-  if (auto* picture = DynamicTo<HTMLPictureElement>(parentElement()))
-    picture->SourceOrMediaChanged();
+  if (auto* picture = DynamicTo<HTMLPictureElement>(parentElement())) {
+    picture->SourceChanged(ImageSourceChangeType::kMedia);
+  }
 }
 
 void HTMLSourceElement::Trace(Visitor* visitor) const {

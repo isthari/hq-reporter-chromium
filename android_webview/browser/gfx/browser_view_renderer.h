@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,10 +15,11 @@
 #include "android_webview/browser/gfx/compositor_frame_producer.h"
 #include "android_webview/browser/gfx/parent_compositor_draw_constraints.h"
 #include "android_webview/browser/gfx/root_frame_sink_proxy.h"
-#include "base/callback.h"
 #include "base/cancelable_callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/trace_event/trace_event.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
 #include "content/public/browser/android/synchronous_compositor.h"
@@ -46,6 +47,8 @@ class RootFrameSinkProxy;
 
 // Interface for all the WebView-specific content rendering operations.
 // Provides software and hardware rendering and the Capture Picture API.
+//
+// Lifetime: WebView
 class BrowserViewRenderer : public content::SynchronousCompositorClient,
                             public CompositorFrameProducer,
                             public RootFrameSinkProxyClient {
@@ -170,6 +173,7 @@ class BrowserViewRenderer : public content::SynchronousCompositorClient,
       CompositorFrameConsumer* compositor_frame_consumer) override;
   void OnViewTreeForceDarkStateChanged(
       bool view_tree_force_dark_state) override;
+  void ChildSurfaceWasEvicted() override;
 
   void SetActiveFrameSinkId(const viz::FrameSinkId& frame_sink_id);
 
@@ -179,6 +183,10 @@ class BrowserViewRenderer : public content::SynchronousCompositorClient,
       viz::FrameSinkId frame_sink_id,
       uint32_t layer_tree_frame_sink_id,
       std::vector<viz::ReturnedResource> resources) override;
+  void OnCompositorFrameTransitionDirectiveProcessed(
+      viz::FrameSinkId frame_sink_id,
+      uint32_t layer_tree_frame_sink_id,
+      uint32_t sequence_id) override;
 
   // Visible for testing.
   content::SynchronousCompositor* GetActiveCompositorForTesting() const {

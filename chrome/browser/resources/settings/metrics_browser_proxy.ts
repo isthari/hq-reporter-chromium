@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,8 +34,11 @@ export enum PrivacyElementInteractions {
   COOKIE_DETAILS_REMOVE_ALL = 17,
   COOKIE_DETAILS_REMOVE_ITEM = 18,
   SITE_DETAILS_CLEAR_DATA = 19,
-  // Leave this at the end.
-  COUNT = 20,
+  THIRD_PARTY_COOKIES_ALLOW = 20,
+  THIRD_PARTY_COOKIES_BLOCK_IN_INCOGNITO = 21,
+  THIRD_PARTY_COOKIES_BLOCK = 22,
+  // Max value should be updated whenever new entries are added.
+  MAX_VALUE = 23,
 }
 
 /**
@@ -53,15 +56,63 @@ export enum SafetyCheckInteractions {
   PASSWORDS_MANAGE_COMPROMISED_PASSWORDS = 2,
   SAFE_BROWSING_MANAGE = 3,
   EXTENSIONS_REVIEW = 4,
+  // Deprecated in https://crbug.com/1407233.
   CHROME_CLEANER_REBOOT = 5,
+  // Deprecated in https://crbug.com/1407233.
   CHROME_CLEANER_REVIEW_INFECTED_STATE = 6,
   PASSWORDS_CARET_NAVIGATION = 7,
   SAFE_BROWSING_CARET_NAVIGATION = 8,
   EXTENSIONS_CARET_NAVIGATION = 9,
+  // Deprecated in https://crbug.com/1407233.
   CHROME_CLEANER_CARET_NAVIGATION = 10,
   PASSWORDS_MANAGE_WEAK_PASSWORDS = 11,
-  // Leave this at the end.
-  COUNT = 12,
+  UNUSED_SITE_PERMISSIONS_REVIEW = 12,
+  // Max value should be updated whenever new entries are added.
+  MAX_VALUE = 13,
+}
+
+/**
+ * Contains all safety check notifications module interactions.
+ *
+ * These values are persisted to logs. Entries should not be renumbered and
+ * numeric values should never be reused.
+ *
+ * Must be kept in sync with the SafetyCheckNotificationsModuleInteractions enum
+ * in histograms/enums.xml
+ */
+export enum SafetyCheckNotificationsModuleInteractions {
+  BLOCK = 0,
+  BLOCK_ALL = 1,
+  IGNORE = 2,
+  MINIMIZE = 3,
+  RESET = 4,
+  UNDO_BLOCK = 5,
+  UNDO_IGNORE = 6,
+  UNDO_RESET = 7,
+  OPEN_REVIEW_UI = 8,
+  // Max value should be updated whenever new entries are added.
+  MAX_VALUE = 9,
+}
+
+/**
+ * Contains all safety check unused site permissions module interactions.
+ *
+ * These values are persisted to logs. Entries should not be renumbered and
+ * numeric values should never be reused.
+ *
+ * Must be kept in sync with the
+ * SafetyChecUnusedSitePermissionsModuleInteractions enum in
+ * histograms/enums.xml
+ */
+export enum SafetyCheckUnusedSitePermissionsModuleInteractions {
+  OPEN_REVIEW_UI = 0,
+  ALLOW_AGAIN = 1,
+  ACKNOWLEDGE_ALL = 2,
+  UNDO_ALLOW_AGAIN = 3,
+  UNDO_ACKNOWLEDGE_ALL = 4,
+  MINIMIZE = 5,
+  // Max value should be updated whenever new entries are added.
+  MAX_VALUE = 6,
 }
 
 /**
@@ -81,8 +132,8 @@ export enum SafeBrowsingInteractions {
   SAFE_BROWSING_STANDARD_PROTECTION_EXPAND_ARROW_CLICKED = 5,
   SAFE_BROWSING_DISABLE_SAFE_BROWSING_DIALOG_CONFIRMED = 6,
   SAFE_BROWSING_DISABLE_SAFE_BROWSING_DIALOG_DENIED = 7,
-  // Leave this at the end.
-  COUNT = 8,
+  // Max value should be updated whenever new entries are added.
+  MAX_VALUE = 8,
 }
 
 /**
@@ -91,7 +142,8 @@ export enum SafeBrowsingInteractions {
  * These values are persisted to logs. Entries should not be renumbered and
  * numeric values should never be reused.
  *
- * Must be kept in sync with SettingsPrivacyGuideInteractions in emus.xml.
+ * Must be kept in sync with SettingsPrivacyGuideInteractions in emus.xml and
+ * PrivacyGuideInteractions in privacy_guide/privacy_guide.h.
  */
 export enum PrivacyGuideInteractions {
   WELCOME_NEXT_BUTTON = 0,
@@ -104,8 +156,8 @@ export enum PrivacyGuideInteractions {
   PROMO_ENTRY = 7,
   SWAA_COMPLETION_LINK = 8,
   PRIVACY_SANDBOX_COMPLETION_LINK = 9,
-  // Leave this at the end.
-  COUNT = 10,
+  // Max value should be updated whenever new entries are added.
+  MAX_VALUE = 10,
 }
 
 /**
@@ -117,7 +169,8 @@ export enum PrivacyGuideInteractions {
  * These values are persisted to logs. Entries should not be renumbered and
  * numeric values should never be reused.
  *
- * Must be kept in sync with SettingsPrivacyGuideSettingsStates in enums.xml.
+ * Must be kept in sync with SettingsPrivacyGuideSettingsStates in enums.xml and
+ * PrivacyGuideSettingsStates in privacy_guide/privacy_guide.h.
  */
 export enum PrivacyGuideSettingsStates {
   MSBB_ON_TO_ON = 0,
@@ -136,8 +189,34 @@ export enum PrivacyGuideSettingsStates {
   SAFE_BROWSING_ENHANCED_TO_STANDARD = 13,
   SAFE_BROWSING_STANDARD_TO_ENHANCED = 14,
   SAFE_BROWSING_STANDARD_TO_STANDARD = 15,
+  // Max value should be updated whenever new entries are added.
+  MAX_VALUE = 16,
+}
+
+/**
+ * This enum is used with metrics to record when a step in the privacy guide is
+ * eligible to be shown and/or reached by the user.
+ *
+ * These values are persisted to logs. Entries should not be renumbered and
+ * numeric values should never be reused.
+ *
+ * Must be kept in sync with SettingsPrivacyGuideStepsEligibleAndReached in
+ * emus.xml and PrivacyGuideStepsEligibleAndReached in
+ * privacy_guide/privacy_guide.h.
+ */
+export enum PrivacyGuideStepsEligibleAndReached {
+  MSBB_ELIGIBLE = 0,
+  MSBB_REACHED = 1,
+  HISTORY_SYNC_ELIGIBLE = 2,
+  HISTORY_SYNC_REACHED = 3,
+  SAFE_BROWSING_ELIGIBLE = 4,
+  SAFE_BROWSING_REACHED = 5,
+  COOKIES_ELIGIBLE = 6,
+  COOKIES_REACHED = 7,
+  COMPLETION_ELIGIBLE = 8,
+  COMPLETION_REACHED = 9,
   // Leave this at the end.
-  COUNT = 16,
+  COUNT = 10,
 }
 
 export interface MetricsBrowserProxy {
@@ -152,6 +231,46 @@ export interface MetricsBrowserProxy {
    * Settings.SafetyCheck.Interactions histogram
    */
   recordSafetyCheckInteractionHistogram(interaction: SafetyCheckInteractions):
+      void;
+
+  /**
+   * Helper function that calls recordHistogram for
+   * Settings.SafetyCheck.NotificationsListCount histogram.
+   */
+  recordSafetyCheckNotificationsListCountHistogram(suggestions: number): void;
+
+  /**
+   * Helper function that calls recordHistogram for the
+   * Settings.SafetyCheck.NotificationsModuleInteractions histogram
+   */
+  recordSafetyCheckNotificationsModuleInteractionsHistogram(
+      interaction: SafetyCheckNotificationsModuleInteractions): void;
+
+  /**
+   * Helper function that calls recordBooleanHistogram for the
+   * Settings.SafetyCheck.NotificationsModuleEntryPointShown histogram
+   */
+  recordSafetyCheckNotificationsModuleEntryPointShown(visible: boolean): void;
+
+  /**
+   * Helper function that calls recordHistogram for
+   * Settings.SafetyCheck.UnusedSitePermissionsListCount histogram.
+   */
+  recordSafetyCheckUnusedSitePermissionsListCountHistogram(suggestions: number):
+      void;
+
+  /**
+   * Helper function that calls recordHistogram for the
+   * Settings.SafetyCheck.UnusedSitePermissionsModuleInteractions histogram
+   */
+  recordSafetyCheckUnusedSitePermissionsModuleInteractionsHistogram(
+      interaction: SafetyCheckUnusedSitePermissionsModuleInteractions): void;
+
+  /**
+   * Helper function that calls recordBooleanHistogram for the
+   * Settings.SafetyCheck.UnusedSitePermissionsModuleEntryPointShown histogram
+   */
+  recordSafetyCheckUnusedSitePermissionsModuleEntryPointShown(visible: boolean):
       void;
 
   /**
@@ -187,6 +306,19 @@ export interface MetricsBrowserProxy {
    */
   recordPrivacyGuideSettingsStatesHistogram(state: PrivacyGuideSettingsStates):
       void;
+
+  /**
+   * Helper function that calls recordHistogram for the
+   * Settings.PrivacyGuide.FlowLength histogram
+   */
+  recordPrivacyGuideFlowLengthHistogram(steps: number): void;
+
+  /**
+   * Helper function that calls recordHistogram for the
+   * Settings.PrivacyGuide.StepsEligibleAndReached histogram
+   */
+  recordPrivacyGuideStepsEligibleAndReachedHistogram(
+      status: PrivacyGuideStepsEligibleAndReached): void;
 }
 
 export class MetricsBrowserProxyImpl implements MetricsBrowserProxy {
@@ -196,15 +328,66 @@ export class MetricsBrowserProxyImpl implements MetricsBrowserProxy {
 
   recordSafetyCheckInteractionHistogram(interaction: SafetyCheckInteractions) {
     chrome.send('metricsHandler:recordInHistogram', [
-      'Settings.SafetyCheck.Interactions', interaction,
-      SafetyCheckInteractions.COUNT
+      'Settings.SafetyCheck.Interactions',
+      interaction,
+      SafetyCheckInteractions.MAX_VALUE,
+    ]);
+  }
+
+  recordSafetyCheckNotificationsListCountHistogram(suggestions: number) {
+    chrome.send('metricsHandler:recordInHistogram', [
+      'Settings.SafetyCheck.NotificationsListCount',
+      suggestions, 99 /*max value for Notification suggestions*/,
+    ]);
+  }
+
+  recordSafetyCheckNotificationsModuleInteractionsHistogram(
+      interaction: SafetyCheckNotificationsModuleInteractions) {
+    chrome.send('metricsHandler:recordInHistogram', [
+      'Settings.SafetyCheck.NotificationsModuleInteractions',
+      interaction,
+      SafetyCheckNotificationsModuleInteractions.MAX_VALUE,
+    ]);
+  }
+
+  recordSafetyCheckNotificationsModuleEntryPointShown(visible: boolean) {
+    chrome.send('metricsHandler:recordBooleanHistogram', [
+      'Settings.SafetyCheck.NotificationsModuleEntryPointShown',
+      visible,
+    ]);
+  }
+
+  recordSafetyCheckUnusedSitePermissionsListCountHistogram(suggestions:
+                                                               number) {
+    chrome.send('metricsHandler:recordInHistogram', [
+      'Settings.SafetyCheck.UnusedSitePermissionsListCount',
+      suggestions,
+      99 /*max value for length of revoked permissions list*/,
+    ]);
+  }
+
+  recordSafetyCheckUnusedSitePermissionsModuleInteractionsHistogram(
+      interaction: SafetyCheckUnusedSitePermissionsModuleInteractions) {
+    chrome.send('metricsHandler:recordInHistogram', [
+      'Settings.SafetyCheck.UnusedSitePermissionsModuleInteractions',
+      interaction,
+      SafetyCheckUnusedSitePermissionsModuleInteractions.MAX_VALUE,
+    ]);
+  }
+
+  recordSafetyCheckUnusedSitePermissionsModuleEntryPointShown(visible:
+                                                                  boolean) {
+    chrome.send('metricsHandler:recordBooleanHistogram', [
+      'Settings.SafetyCheck.UnusedSitePermissionsModuleEntryPointShown',
+      visible,
     ]);
   }
 
   recordSettingsPageHistogram(interaction: PrivacyElementInteractions) {
     chrome.send('metricsHandler:recordInHistogram', [
-      'Settings.PrivacyElementInteractions', interaction,
-      PrivacyElementInteractions.COUNT
+      'Settings.PrivacyElementInteractions',
+      interaction,
+      PrivacyElementInteractions.MAX_VALUE,
     ]);
   }
 
@@ -213,30 +396,50 @@ export class MetricsBrowserProxyImpl implements MetricsBrowserProxy {
     // TODO(crbug.com/1124491): Set the correct suffix for
     // SafeBrowsing.Settings.UserAction. Use the .Default suffix for now.
     chrome.send('metricsHandler:recordInHistogram', [
-      'SafeBrowsing.Settings.UserAction.Default', interaction,
-      SafeBrowsingInteractions.COUNT
+      'SafeBrowsing.Settings.UserAction.Default',
+      interaction,
+      SafeBrowsingInteractions.MAX_VALUE,
     ]);
   }
 
   recordPrivacyGuideNextNavigationHistogram(interaction:
                                                 PrivacyGuideInteractions) {
     chrome.send('metricsHandler:recordInHistogram', [
-      'Settings.PrivacyGuide.NextNavigation', interaction,
-      PrivacyGuideInteractions.COUNT
+      'Settings.PrivacyGuide.NextNavigation',
+      interaction,
+      PrivacyGuideInteractions.MAX_VALUE,
     ]);
   }
 
   recordPrivacyGuideEntryExitHistogram(interaction: PrivacyGuideInteractions) {
     chrome.send('metricsHandler:recordInHistogram', [
-      'Settings.PrivacyGuide.EntryExit', interaction,
-      PrivacyGuideInteractions.COUNT
+      'Settings.PrivacyGuide.EntryExit',
+      interaction,
+      PrivacyGuideInteractions.MAX_VALUE,
     ]);
   }
 
   recordPrivacyGuideSettingsStatesHistogram(state: PrivacyGuideSettingsStates) {
     chrome.send('metricsHandler:recordInHistogram', [
-      'Settings.PrivacyGuide.SettingsStates', state,
-      PrivacyGuideSettingsStates.COUNT
+      'Settings.PrivacyGuide.SettingsStates',
+      state,
+      PrivacyGuideSettingsStates.MAX_VALUE,
+    ]);
+  }
+
+  recordPrivacyGuideFlowLengthHistogram(steps: number) {
+    chrome.send('metricsHandler:recordInHistogram', [
+      'Settings.PrivacyGuide.FlowLength', steps,
+      5, /*max number of the settings related steps in privacy guide is 4*/
+    ]);
+  }
+
+  recordPrivacyGuideStepsEligibleAndReachedHistogram(
+      status: PrivacyGuideStepsEligibleAndReached) {
+    chrome.send('metricsHandler:recordInHistogram', [
+      'Settings.PrivacyGuide.StepsEligibleAndReached',
+      status,
+      PrivacyGuideStepsEligibleAndReached.COUNT,
     ]);
   }
 

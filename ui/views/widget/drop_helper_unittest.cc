@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "ui/base/dragdrop/drop_target_event.h"
 #include "ui/base/dragdrop/mojom/drag_drop_types.mojom.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
+#include "ui/compositor/layer_tree_owner.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/views/test/views_test_base.h"
 #include "ui/views/view.h"
@@ -50,7 +51,8 @@ class TestDropTargetView : public views::View {
   gfx::Point drop_location_;
 
   void PerformDrop(const ui::DropTargetEvent& event,
-                   ui::mojom::DragOperation& output_drag_op) {
+                   ui::mojom::DragOperation& output_drag_op,
+                   std::unique_ptr<ui::LayerTreeOwner> drag_image_layer_owner) {
     drop_location_ = event.location();
     output_drag_op = ui::mojom::DragOperation::kCopy;
   }
@@ -103,15 +105,13 @@ TEST_F(DropHelperTest, DropCoordinates) {
       drop_helper->GetDropCallback(*data, target, drag_operation);
   ASSERT_TRUE(callback);
 
-  // This location is currently unused in DropHelper.
-  gfx::PointF dummy_location = {255, 255};
-  ui::mojom::DragOperation output_op = ui::mojom::DragOperation::kNone;
-  ui::DropTargetEvent event(*data, dummy_location, dummy_location,
-                            drag_operation);
-
   // Perform the drop.
-  std::move(callback).Run(event, std::move(data), output_op);
+  ui::mojom::DragOperation output_op = ui::mojom::DragOperation::kNone;
+  std::move(callback).Run(std::move(data), output_op,
+                          /*drag_image_layer_owner=*/nullptr);
 
+  // The test view always executes a copy operation.
+  EXPECT_EQ(output_op, ui::mojom::DragOperation::kCopy);
   // Verify the location of the drop is centered in the target view.
   EXPECT_EQ(drop_target->drop_location(), gfx::Point(50, 25));
 }

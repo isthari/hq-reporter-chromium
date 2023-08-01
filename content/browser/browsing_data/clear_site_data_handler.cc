@@ -1,25 +1,23 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "content/browser/browsing_data/clear_site_data_handler.h"
 
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "content/browser/buckets/bucket_utils.h"
 #include "content/public/browser/browser_context.h"
-#include "content/public/browser/browsing_data_filter_builder.h"
-#include "content/public/browser/browsing_data_remover.h"
 #include "content/public/browser/clear_site_data_utils.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
 #include "net/base/load_flags.h"
-#include "net/base/registry_controlled_domains/registry_controlled_domain.h"
-#include "net/http/http_response_headers.h"
 #include "services/network/public/cpp/is_potentially_trustworthy.h"
+#include "third_party/blink/public/common/features_generated.h"
 
 namespace content {
 
@@ -29,6 +27,8 @@ namespace {
 const char kDatatypeWildcard[] = "\"*\"";
 const char kDatatypeCookies[] = "\"cookies\"";
 const char kDatatypeStorage[] = "\"storage\"";
+const char kDatatypeStorageBucketPrefix[] = "\"storage:";
+const char kDatatypeStorageBucketSuffix[] = "\"";
 const char kDatatypeCache[] = "\"cache\"";
 
 // Pretty-printed log output.
@@ -41,11 +41,39 @@ bool AreExperimentalFeaturesEnabled() {
       switches::kEnableExperimentalWebPlatformFeatures);
 }
 
+enum LoggableEventMask {
+  CLEAR_SITE_DATA_NO_RECOGNIZABLE_TYPES = 0,
+  CLEAR_SITE_DATA_COOKIES = 1 << 0,
+  CLEAR_SITE_DATA_STORAGE = 1 << 1,
+  CLEAR_SITE_DATA_CACHE = 1 << 2,
+  CLEAR_SITE_DATA_BUCKETS = 1 << 3,
+  CLEAR_SITE_DATA_MAX_VALUE = 1 << 4,
+};
+
+void LogEvent(int event) {
+  UMA_HISTOGRAM_ENUMERATION("Storage.ClearSiteDataHeader.Parameters", event,
+                            static_cast<int>(CLEAR_SITE_DATA_MAX_VALUE));
+}
+
 // Represents the parameters as a single number to be recorded in a histogram.
-int ParametersMask(bool clear_cookies, bool clear_storage, bool clear_cache) {
-  return static_cast<int>(clear_cookies) * (1 << 0) +
-         static_cast<int>(clear_storage) * (1 << 1) +
-         static_cast<int>(clear_cache) * (1 << 2);
+int ParametersMask(bool clear_cookies,
+                   bool clear_storage,
+                   bool clear_cache,
+                   bool has_buckets) {
+  int mask = CLEAR_SITE_DATA_NO_RECOGNIZABLE_TYPES;
+  if (clear_cookies) {
+    mask = mask | CLEAR_SITE_DATA_COOKIES;
+  }
+  if (clear_storage) {
+    mask = mask | CLEAR_SITE_DATA_STORAGE;
+  }
+  if (clear_cache) {
+    mask = mask | CLEAR_SITE_DATA_CACHE;
+  }
+  if (has_buckets) {
+    mask = mask | CLEAR_SITE_DATA_BUCKETS;
+  }
+  return mask;
 }
 
 // Outputs a single |formatted_message| on the UI thread.
@@ -53,7 +81,8 @@ void OutputFormattedMessage(WebContents* web_contents,
                             blink::mojom::ConsoleMessageLevel level,
                             const std::string& formatted_text) {
   if (web_contents)
-    web_contents->GetMainFrame()->AddMessageToConsole(level, formatted_text);
+    web_contents->GetPrimaryMainFrame()->AddMessageToConsole(level,
+                                                             formatted_text);
 }
 
 }  // namespace
@@ -109,9 +138,12 @@ void ClearSiteDataHandler::HandleHeader(
     const std::string& header_value,
     int load_flags,
     const absl::optional<net::CookiePartitionKey>& cookie_partition_key,
+    const absl::optional<blink::StorageKey>& storage_key,
+    bool partitioned_state_allowed_only,
     base::OnceClosure callback) {
   ClearSiteDataHandler handler(browser_context_getter, web_contents_getter, url,
                                header_value, load_flags, cookie_partition_key,
+                               storage_key, partitioned_state_allowed_only,
                                std::move(callback),
                                std::make_unique<ConsoleMessagesDelegate>());
   handler.HandleHeaderAndOutputConsoleMessages();
@@ -123,10 +155,12 @@ bool ClearSiteDataHandler::ParseHeaderForTesting(
     bool* clear_cookies,
     bool* clear_storage,
     bool* clear_cache,
+    std::set<std::string>* storage_buckets_to_remove,
     ConsoleMessagesDelegate* delegate,
     const GURL& current_url) {
-  return ClearSiteDataHandler::ParseHeader(header, clear_cookies, clear_storage,
-                                           clear_cache, delegate, current_url);
+  return ClearSiteDataHandler::ParseHeader(
+      header, clear_cookies, clear_storage, clear_cache,
+      storage_buckets_to_remove, delegate, current_url);
 }
 
 ClearSiteDataHandler::ClearSiteDataHandler(
@@ -136,6 +170,8 @@ ClearSiteDataHandler::ClearSiteDataHandler(
     const std::string& header_value,
     int load_flags,
     const absl::optional<net::CookiePartitionKey>& cookie_partition_key,
+    const absl::optional<blink::StorageKey>& storage_key,
+    bool partitioned_state_allowed_only,
     base::OnceClosure callback,
     std::unique_ptr<ConsoleMessagesDelegate> delegate)
     : browser_context_getter_(browser_context_getter),
@@ -144,6 +180,8 @@ ClearSiteDataHandler::ClearSiteDataHandler(
       header_value_(header_value),
       load_flags_(load_flags),
       cookie_partition_key_(cookie_partition_key),
+      storage_key_(storage_key),
+      partitioned_state_allowed_only_(partitioned_state_allowed_only),
       callback_(std::move(callback)),
       delegate_(std::move(delegate)) {
   DCHECK(browser_context_getter_);
@@ -199,20 +237,17 @@ bool ClearSiteDataHandler::Run() {
   bool clear_cookies;
   bool clear_storage;
   bool clear_cache;
+  std::set<std::string> storage_buckets_to_remove;
 
-  if (!ClearSiteDataHandler::ParseHeader(header_value_, &clear_cookies,
-                                         &clear_storage, &clear_cache,
-                                         delegate_.get(), url_)) {
+  if (!ClearSiteDataHandler::ParseHeader(
+          header_value_, &clear_cookies, &clear_storage, &clear_cache,
+          &storage_buckets_to_remove, delegate_.get(), url_)) {
     return false;
   }
 
-  // Record the call parameters.
-  UMA_HISTOGRAM_ENUMERATION(
-      "Navigation.ClearSiteData.Parameters",
-      ParametersMask(clear_cookies, clear_storage, clear_cache), (1 << 3));
-
   ExecuteClearingTask(
       origin, clear_cookies, clear_storage, clear_cache,
+      storage_buckets_to_remove,
       base::BindOnce(&ClearSiteDataHandler::TaskFinished,
                      base::TimeTicks::Now(), std::move(delegate_),
                      web_contents_getter_, std::move(callback_)));
@@ -221,15 +256,18 @@ bool ClearSiteDataHandler::Run() {
 }
 
 // static
-bool ClearSiteDataHandler::ParseHeader(const std::string& header,
-                                       bool* clear_cookies,
-                                       bool* clear_storage,
-                                       bool* clear_cache,
-                                       ConsoleMessagesDelegate* delegate,
-                                       const GURL& current_url) {
+bool ClearSiteDataHandler::ParseHeader(
+    const std::string& header,
+    bool* clear_cookies,
+    bool* clear_storage,
+    bool* clear_cache,
+    std::set<std::string>* storage_buckets_to_remove,
+    ConsoleMessagesDelegate* delegate,
+    const GURL& current_url) {
   if (!base::IsStringASCII(header)) {
     delegate->AddMessage(current_url, "Must only contain ASCII characters.",
                          blink::mojom::ConsoleMessageLevel::kError);
+    LogEvent(CLEAR_SITE_DATA_NO_RECOGNIZABLE_TYPES);
     return false;
   }
 
@@ -241,25 +279,44 @@ bool ClearSiteDataHandler::ParseHeader(const std::string& header,
       header, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
   std::string output_types;
 
-  for (unsigned i = 0; i < input_types.size(); i++) {
-    bool* data_type = nullptr;
+  if (AreExperimentalFeaturesEnabled() &&
+      std::find(input_types.begin(), input_types.end(), kDatatypeWildcard) !=
+          input_types.end()) {
+    input_types.push_back(kDatatypeCookies);
+    input_types.push_back(kDatatypeStorage);
+    input_types.push_back(kDatatypeCache);
+  }
 
-    if (AreExperimentalFeaturesEnabled() &&
-        input_types[i] == kDatatypeWildcard) {
-      input_types.push_back(kDatatypeCookies);
-      input_types.push_back(kDatatypeStorage);
-      input_types.push_back(kDatatypeCache);
+  for (auto& input_type : input_types) {
+    // Match here if the beginning is '"storage:' and ends with '"'.
+    if (base::FeatureList::IsEnabled(blink::features::kStorageBuckets) &&
+        base::StartsWith(input_type, kDatatypeStorageBucketPrefix) &&
+        base::EndsWith(input_type, kDatatypeStorageBucketSuffix)) {
+      const int prefix_len = strlen(kDatatypeStorageBucketPrefix);
+
+      const std::string bucket_name = input_type.substr(
+          prefix_len, input_type.length() -
+                          (prefix_len + strlen(kDatatypeStorageBucketSuffix)));
+
+      if (IsValidBucketName(bucket_name))
+        storage_buckets_to_remove->insert(bucket_name);
+
+      // Exit the loop and continue since for buckets, there are no booleans
+      // and the logic later would cause a crash.
       continue;
-    } else if (input_types[i] == kDatatypeCookies) {
+    }
+
+    bool* data_type = nullptr;
+    if (input_type == kDatatypeCookies) {
       data_type = clear_cookies;
-    } else if (input_types[i] == kDatatypeStorage) {
+    } else if (input_type == kDatatypeStorage) {
       data_type = clear_storage;
-    } else if (input_types[i] == kDatatypeCache) {
+    } else if (input_type == kDatatypeCache) {
       data_type = clear_cache;
     } else {
       delegate->AddMessage(
           current_url,
-          base::StringPrintf("Unrecognized type: %s.", input_types[i].c_str()),
+          base::StringPrintf("Unrecognized type: %s.", input_type.c_str()),
           blink::mojom::ConsoleMessageLevel::kError);
       continue;
     }
@@ -272,13 +329,27 @@ bool ClearSiteDataHandler::ParseHeader(const std::string& header,
     *data_type = true;
     if (!output_types.empty())
       output_types += kConsoleMessageDatatypeSeparator;
-    output_types += input_types[i];
+    output_types += input_type;
   }
 
-  if (!*clear_cookies && !*clear_storage && !*clear_cache) {
+  if (!*clear_cookies && !*clear_storage && !*clear_cache &&
+      storage_buckets_to_remove->empty()) {
     delegate->AddMessage(current_url, "No recognized types specified.",
                          blink::mojom::ConsoleMessageLevel::kError);
+    LogEvent(CLEAR_SITE_DATA_NO_RECOGNIZABLE_TYPES);
     return false;
+  }
+
+  if (*clear_storage && !storage_buckets_to_remove->empty()) {
+    // `clear_storage` and `clear_storage_buckets` cannot both be true. When
+    // that happens, `clear_storage` stays true and we empty `storage_buckets
+    // _to_remove`
+    delegate->AddMessage(current_url,
+                         "All the buckets related to this url will be "
+                         "cleared. When passing type 'storage', any "
+                         "additional buckets specifiers are ignored.",
+                         blink::mojom::ConsoleMessageLevel::kWarning);
+    storage_buckets_to_remove->clear();
   }
 
   // Pretty-print which types are to be cleared.
@@ -293,17 +364,25 @@ bool ClearSiteDataHandler::ParseHeader(const std::string& header,
   delegate->AddMessage(current_url, console_output,
                        blink::mojom::ConsoleMessageLevel::kInfo);
 
+  // Note that presence of headers is also logged in WebRequest.ResponseHeader
+  LogEvent(ParametersMask(*clear_cookies, *clear_storage, *clear_cache,
+                          !storage_buckets_to_remove->empty()));
+
   return true;
 }
 
-void ClearSiteDataHandler::ExecuteClearingTask(const url::Origin& origin,
-                                               bool clear_cookies,
-                                               bool clear_storage,
-                                               bool clear_cache,
-                                               base::OnceClosure callback) {
+void ClearSiteDataHandler::ExecuteClearingTask(
+    const url::Origin& origin,
+    bool clear_cookies,
+    bool clear_storage,
+    bool clear_cache,
+    const std::set<std::string>& storage_buckets_to_remove,
+    base::OnceClosure callback) {
   ClearSiteData(browser_context_getter_, origin, clear_cookies, clear_storage,
-                clear_cache, true /*avoid_closing_connections*/,
-                cookie_partition_key_, std::move(callback));
+                clear_cache, storage_buckets_to_remove,
+                true /*avoid_closing_connections*/, cookie_partition_key_,
+                storage_key_, partitioned_state_allowed_only_,
+                std::move(callback));
 }
 
 // static
@@ -313,10 +392,6 @@ void ClearSiteDataHandler::TaskFinished(
     base::RepeatingCallback<WebContents*()> web_contents_getter,
     base::OnceClosure callback) {
   DCHECK(!clearing_started.is_null());
-
-  UMA_HISTOGRAM_CUSTOM_TIMES("Navigation.ClearSiteData.Duration",
-                             base::TimeTicks::Now() - clearing_started,
-                             base::Milliseconds(1), base::Seconds(1), 50);
 
   // TODO(crbug.com/876931): Delay output until next frame for navigations.
   delegate->OutputMessages(web_contents_getter);

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,6 +22,11 @@ class DEVICE_BLUETOOTH_EXPORT FakeFlossManagerClient
       const base::RepeatingCallback<void(Observer*)>& notify) const;
 
   void SetAdapterPowered(int adapter, bool powered);
+
+  void Init(dbus::Bus* bus,
+            const std::string& service_name,
+            const int adapter_index,
+            base::OnceClosure on_ready) override;
 
  private:
   base::WeakPtrFactory<FakeFlossManagerClient> weak_ptr_factory_{this};

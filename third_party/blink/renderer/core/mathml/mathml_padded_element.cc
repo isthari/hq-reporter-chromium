@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,53 +13,52 @@ MathMLPaddedElement::MathMLPaddedElement(Document& document)
     : MathMLRowElement(mathml_names::kMpaddedTag, document) {}
 
 void MathMLPaddedElement::AddMathBaselineIfNeeded(
-    ComputedStyle& style,
+    ComputedStyleBuilder& builder,
     const CSSToLengthConversionData& conversion_data) {
   if (auto length_or_percentage_value = AddMathLengthToComputedStyle(
-          conversion_data, mathml_names::kHeightAttr, AllowPercentages::kNo))
-    style.SetMathBaseline(std::move(*length_or_percentage_value));
+          conversion_data, mathml_names::kHeightAttr, AllowPercentages::kNo,
+          CSSPrimitiveValue::ValueRange::kNonNegative)) {
+    builder.SetMathBaseline(std::move(*length_or_percentage_value));
+  }
 }
 
 void MathMLPaddedElement::AddMathPaddedDepthIfNeeded(
-    ComputedStyle& style,
+    ComputedStyleBuilder& builder,
     const CSSToLengthConversionData& conversion_data) {
   if (auto length_or_percentage_value = AddMathLengthToComputedStyle(
-          conversion_data, mathml_names::kDepthAttr, AllowPercentages::kNo))
-    style.SetMathPaddedDepth(std::move(*length_or_percentage_value));
+          conversion_data, mathml_names::kDepthAttr, AllowPercentages::kNo,
+          CSSPrimitiveValue::ValueRange::kNonNegative)) {
+    builder.SetMathPaddedDepth(std::move(*length_or_percentage_value));
+  }
 }
 
 void MathMLPaddedElement::AddMathPaddedLSpaceIfNeeded(
-    ComputedStyle& style,
+    ComputedStyleBuilder& builder,
     const CSSToLengthConversionData& conversion_data) {
   if (auto length_or_percentage_value = AddMathLengthToComputedStyle(
-          conversion_data, mathml_names::kLspaceAttr))
-    style.SetMathLSpace(std::move(*length_or_percentage_value));
+          conversion_data, mathml_names::kLspaceAttr, AllowPercentages::kNo,
+          CSSPrimitiveValue::ValueRange::kNonNegative)) {
+    builder.SetMathLSpace(std::move(*length_or_percentage_value));
+  }
 }
 
 void MathMLPaddedElement::AddMathPaddedVOffsetIfNeeded(
-    ComputedStyle& style,
+    ComputedStyleBuilder& builder,
     const CSSToLengthConversionData& conversion_data) {
   if (auto length_or_percentage_value = AddMathLengthToComputedStyle(
-          conversion_data, mathml_names::kVoffsetAttr))
-    style.SetMathPaddedVOffset(std::move(*length_or_percentage_value));
+          conversion_data, mathml_names::kVoffsetAttr, AllowPercentages::kNo)) {
+    builder.SetMathPaddedVOffset(std::move(*length_or_percentage_value));
+  }
 }
 
 void MathMLPaddedElement::ParseAttribute(
     const AttributeModificationParams& param) {
   if (param.name == mathml_names::kLspaceAttr ||
       param.name == mathml_names::kVoffsetAttr) {
-    // TODO(crbug.com/1121113): Isn't it enough to set needs style recalc and
-    // let the style system perform proper layout and paint invalidation?
     SetNeedsStyleRecalc(
         kLocalStyleChange,
         StyleChangeReasonForTracing::Create(style_change_reason::kAttribute));
-    if (GetLayoutObject() && GetLayoutObject()->IsMathML()) {
-      GetLayoutObject()
-          ->SetNeedsLayoutAndIntrinsicWidthsRecalcAndFullPaintInvalidation(
-              layout_invalidation_reason::kAttributeChanged);
-    }
   }
-
   MathMLRowElement::ParseAttribute(param);
 }
 
@@ -75,9 +74,11 @@ void MathMLPaddedElement::CollectStyleForPresentationAttribute(
     const AtomicString& value,
     MutableCSSPropertyValueSet* style) {
   if (name == mathml_names::kWidthAttr) {
-    if (!value.EndsWith('%')) {
+    if (const CSSPrimitiveValue* width_value =
+            ParseMathLength(name, AllowPercentages::kNo,
+                            CSSPrimitiveValue::ValueRange::kNonNegative)) {
       AddPropertyToPresentationAttributeStyle(style, CSSPropertyID::kWidth,
-                                              value);
+                                              *width_value);
     }
   } else {
     MathMLElement::CollectStyleForPresentationAttribute(name, value, style);
@@ -85,12 +86,11 @@ void MathMLPaddedElement::CollectStyleForPresentationAttribute(
 }
 
 LayoutObject* MathMLPaddedElement::CreateLayoutObject(
-    const ComputedStyle& style,
-    LegacyLayout legacy) {
-  DCHECK(!style.IsDisplayMathType() || legacy != LegacyLayout::kForce);
+    const ComputedStyle& style) {
   if (!RuntimeEnabledFeatures::MathMLCoreEnabled() ||
-      !style.IsDisplayMathType())
-    return MathMLElement::CreateLayoutObject(style, legacy);
+      !style.IsDisplayMathType()) {
+    return MathMLElement::CreateLayoutObject(style);
+  }
   return MakeGarbageCollected<LayoutNGMathMLBlockWithAnonymousMrow>(this);
 }
 

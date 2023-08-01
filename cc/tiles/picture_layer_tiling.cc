@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,6 @@
 
 #include "base/check_op.h"
 #include "base/containers/flat_map.h"
-#include "base/cxx17_backports.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/trace_event/trace_event.h"
 #include "base/trace_event/traced_value.h"
@@ -90,9 +89,9 @@ Tile* PictureLayerTiling::CreateTile(const Tile::CreateInfo& info) {
 
   all_tiles_done_ = false;
   std::unique_ptr<Tile> tile = client_->CreateTile(info);
-  Tile* raw_ptr = tile.get();
+  Tile* tile_ptr = tile.get();
   tiles_[key] = std::move(tile);
-  return raw_ptr;
+  return tile_ptr;
 }
 
 void PictureLayerTiling::CreateMissingTilesInLiveTilesRect() {
@@ -501,7 +500,8 @@ PictureLayerTiling::CoverageIterator::operator++() {
 
     int inset_left = std::max(0, min_left - current_geometry_rect_.x());
     int inset_top = std::max(0, min_top - current_geometry_rect_.y());
-    current_geometry_rect_.Inset(inset_left, inset_top, 0, 0);
+    current_geometry_rect_.Inset(
+        gfx::Insets::TLBR(inset_top, inset_left, 0, 0));
 
 #if DCHECK_IS_ON()
     // Sometimes we run into an extreme case where we are at the edge of integer
@@ -538,7 +538,7 @@ gfx::Rect PictureLayerTiling::CoverageIterator::ComputeGeometryRect() const {
     // 255 * (1 - (1 - 1/1024) * (1 - 1/1024)) ~= 0.498
     // i.e. The color value can never flip over a rounding threshold.
     constexpr float epsilon = 1.f / 1024.f;
-    texel_extent.Inset(-epsilon, -epsilon);
+    texel_extent.Inset(-epsilon);
   }
 
   // Convert texel_extent to coverage scale, which is what we have to report
@@ -555,14 +555,14 @@ gfx::Rect PictureLayerTiling::CoverageIterator::ComputeGeometryRect() const {
     // sampled as the AA fragment shader clamps sample coordinate and
     // antialiasing itself.
     const TilingData& data = tiling_->tiling_data_;
-    candidate.Inset(
-        tile_i_ ? 0 : -candidate.x(), tile_j_ ? 0 : -candidate.y(),
-        (tile_i_ != data.num_tiles_x() - 1)
-            ? 0
-            : candidate.right() - coverage_rect_max_bounds_.width(),
+    candidate.Inset(gfx::Insets::TLBR(
+        tile_j_ ? 0 : -candidate.y(), tile_i_ ? 0 : -candidate.x(),
         (tile_j_ != data.num_tiles_y() - 1)
             ? 0
-            : candidate.bottom() - coverage_rect_max_bounds_.height());
+            : candidate.bottom() - coverage_rect_max_bounds_.height(),
+        (tile_i_ != data.num_tiles_x() - 1)
+            ? 0
+            : candidate.right() - coverage_rect_max_bounds_.width()));
   }
 
   candidate.Intersect(coverage_rect_);
@@ -621,7 +621,7 @@ void PictureLayerTiling::ComputeTilePriorityRects(
       &visible_rect_in_layer_space, &skewport_in_layer_space,
       &soon_border_rect_in_layer_space, &eventually_rect_in_layer_space};
   gfx::Rect output_rects[4];
-  for (size_t i = 0; i < base::size(input_rects); ++i)
+  for (size_t i = 0; i < std::size(input_rects); ++i)
     output_rects[i] = EnclosingContentsRectFromLayerRect(*input_rects[i]);
   // Make sure the eventually rect is aligned to tile bounds.
   output_rects[3] =

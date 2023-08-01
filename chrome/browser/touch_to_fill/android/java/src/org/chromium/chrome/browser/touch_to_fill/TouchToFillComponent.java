@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,9 @@ import android.content.Context;
 
 import androidx.annotation.IntDef;
 
+import org.chromium.chrome.browser.touch_to_fill.common.BottomSheetFocusHelper;
 import org.chromium.chrome.browser.touch_to_fill.data.Credential;
+import org.chromium.chrome.browser.touch_to_fill.data.WebAuthnCredential;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
 import org.chromium.url.GURL;
 
@@ -30,13 +32,14 @@ public interface TouchToFillComponent {
      * TODO(crbug.com/1013134): Deduplicate the Java and C++ enum.
      */
     @IntDef({UserAction.SELECT_CREDENTIAL, UserAction.DISMISS, UserAction.SELECT_MANAGE_PASSWORDS,
-            UserAction.MAX_VALUE})
+            UserAction.SELECT_WEBAUTHN_CREDENTIAL, UserAction.MAX_VALUE})
     @Retention(RetentionPolicy.SOURCE)
     @interface UserAction {
         int SELECT_CREDENTIAL = 0;
         int DISMISS = 1;
         int SELECT_MANAGE_PASSWORDS = 2;
-        int MAX_VALUE = SELECT_MANAGE_PASSWORDS;
+        int SELECT_WEBAUTHN_CREDENTIAL = 3;
+        int MAX_VALUE = SELECT_WEBAUTHN_CREDENTIAL;
     }
 
     /**
@@ -46,8 +49,16 @@ public interface TouchToFillComponent {
     interface Delegate {
         /**
          * Called when the user select one of the credentials shown in the TouchToFillComponent.
+         * @param credential The selected {@link Credential}.
          */
         void onCredentialSelected(Credential credential);
+
+        /**
+         * Called when the user select one of the Web Authentication credentials shown in the
+         * TouchToFillComponent.
+         * @param credential The selected {@link WebAuthnCredential}.
+         */
+        void onWebAuthnCredentialSelected(WebAuthnCredential credential);
 
         /**
          * Called when the user dismisses the TouchToFillComponent. Not called if a suggestion was
@@ -57,8 +68,9 @@ public interface TouchToFillComponent {
 
         /**
          * Called when the user selects the "Manage Passwords" option.
+         * @param passkeysShown True when the sheet contained passkey credentials.
          */
-        void onManagePasswordsSelected();
+        void onManagePasswordsSelected(boolean passkeysShown);
     }
 
     /**
@@ -66,14 +78,24 @@ public interface TouchToFillComponent {
      * @param context A {@link Context} to create views and retrieve resources.
      * @param sheetController A {@link BottomSheetController} used to show/hide the sheet.
      * @param delegate A {@link Delegate} that handles dismiss events.
+     * @param bottomSheetFocusHelper A {@link BottomSheetFocusHelper} used to restore accessibility
+     *         focus after the BottomSheet closes.
      */
-    void initialize(Context context, BottomSheetController sheetController, Delegate delegate);
+    void initialize(Context context, BottomSheetController sheetController, Delegate delegate,
+            BottomSheetFocusHelper bottomSheetFocusHelper);
 
     /**
      * Displays the given credentials in a new bottom sheet.
      * @param url A {@link String} that contains the URL to display credentials for.
      * @param isOriginSecure A {@link boolean} that indicates whether the current origin is secure.
+     * @param webauthnCredentials A list of {@link WebAuthnCredential}s that will be displayed.
      * @param credentials A list of {@link Credential}s that will be displayed.
+     * @param triggerSubmission A {@link boolean} that indicates whether a form should be submitted
+     *         after filling.
+     * @param managePasskeysHidesPasswords A {@link boolean} that indicates whether managing
+     *         passkeys will show a screen that does not provide password management.
      */
-    void showCredentials(GURL url, boolean isOriginSecure, List<Credential> credentials);
+    void showCredentials(GURL url, boolean isOriginSecure,
+            List<WebAuthnCredential> webauthnCredentials, List<Credential> credentials,
+            boolean triggerSubmission, boolean managePasskeysHidesPasswords);
 }

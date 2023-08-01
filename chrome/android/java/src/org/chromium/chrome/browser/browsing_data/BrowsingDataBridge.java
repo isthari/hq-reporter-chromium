@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -119,16 +119,6 @@ public final class BrowsingDataBridge {
         BrowsingDataBridgeJni.get().clearBrowsingData(BrowsingDataBridge.this, getProfile(),
                 dataTypes, timePeriod, excludedDomains, excludedDomainReasons, ignoredDomains,
                 ignoredDomainReasons);
-    }
-
-    /**
-     * Clear SameSite=None cookies and related storage asynchronously.
-     * @param callback Invoked when the clearing is done.
-     * @param clearStorage If true, clears any storage associated with SameSite=None cookies.
-     */
-    public void clearSameSiteNoneData(Runnable callback) {
-        BrowsingDataBridgeJni.get().clearSameSiteNoneData(
-                BrowsingDataBridge.this, getProfile(), callback);
     }
 
     /**
@@ -263,7 +253,6 @@ public final class BrowsingDataBridge {
         void clearBrowsingData(BrowsingDataBridge caller, Profile profile, int[] dataTypes,
                 int timePeriod, String[] excludedDomains, int[] excludedDomainReasons,
                 String[] ignoredDomains, int[] ignoredDomainReasons);
-        void clearSameSiteNoneData(BrowsingDataBridge caller, Profile profile, Runnable callback);
         void requestInfoAboutOtherFormsOfBrowsingHistory(BrowsingDataBridge caller, Profile profile,
                 OtherFormsOfBrowsingHistoryListener listener);
         void fetchImportantSites(Profile profile, ImportantSitesCallback callback);

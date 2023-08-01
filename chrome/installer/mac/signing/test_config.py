@@ -1,4 +1,4 @@
-# Copyright 2019 The Chromium Authors. All rights reserved.
+# Copyright 2019 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -12,13 +12,18 @@ class TestConfig(config.CodeSignConfig):
                  installer_identity='[INSTALLER-IDENTITY]',
                  notary_user='[NOTARY-USER]',
                  notary_password='[NOTARY-PASSWORD]',
-                 notary_asc_provider=None):
-        super(TestConfig,
-              self).__init__(identity, installer_identity, notary_user,
-                             notary_password, notary_asc_provider)
+                 **kwargs):
+        if 'notary_team_id' not in kwargs:
+            kwargs['notary_team_id'] = '[NOTARY-TEAM]'
+        super(TestConfig, self).__init__(identity, installer_identity,
+                                         notary_user, notary_password, **kwargs)
 
     @staticmethod
     def is_chrome_branded():
+        return True
+
+    @property
+    def enable_updater(self):
         return True
 
     @property
@@ -52,9 +57,20 @@ class TestConfigNonChromeBranded(TestConfig):
     def is_chrome_branded():
         return False
 
+    @property
+    def enable_updater(self):
+        return False
+
 
 class TestConfigInjectGetTaskAllow(TestConfig):
 
     @property
     def inject_get_task_allow_entitlement(self):
         return True
+
+
+class TestConfigNotarizationToolOverride(TestConfig):
+
+    @property
+    def notarization_tool_path(self):
+        return f'/fun/bin/{self.notarization_tool}.custom'

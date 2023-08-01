@@ -1,11 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {Destination, DestinationConnectionStatus, DestinationOrigin, DestinationType, Error, Margins, MeasurementSystem, MeasurementSystemUnitType, NativeLayerImpl, PluginProxyImpl, PreviewAreaState, PrintPreviewPreviewAreaElement, Size, State} from 'chrome://print/print_preview.js';
-import {assert} from 'chrome://resources/js/assert.m.js';
+import {Destination, DestinationOrigin, Error, Margins, MeasurementSystem, MeasurementSystemUnitType, NativeLayerImpl, PluginProxyImpl, PreviewAreaState, PrintPreviewPreviewAreaElement, Size, State} from 'chrome://print/print_preview.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
-import {fakeDataBind} from 'chrome://webui-test/test_util.js';
+import {fakeDataBind} from 'chrome://webui-test/polymer_test_util.js';
 
 import {NativeLayerStub} from './native_layer_stub.js';
 import {getCddTemplate} from './print_preview_test_utils.js';
@@ -35,7 +34,7 @@ suite(preview_area_test.suiteName, function() {
     pluginProxy = new TestPluginProxy();
     PluginProxyImpl.setInstance(pluginProxy);
 
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     const model = document.createElement('print-preview-model');
     document.body.appendChild(model);
     model.setSetting('pages', [1, 2, 3]);
@@ -43,9 +42,8 @@ suite(preview_area_test.suiteName, function() {
     document.body.appendChild(previewArea);
     previewArea.settings = model.settings;
     fakeDataBind(model, previewArea, 'settings');
-    previewArea.destination = new Destination(
-        'FooDevice', DestinationType.LOCAL, DestinationOrigin.LOCAL, 'FooName',
-        DestinationConnectionStatus.ONLINE);
+    previewArea.destination =
+        new Destination('FooDevice', DestinationOrigin.LOCAL, 'FooName');
     previewArea.destination.capabilities =
         getCddTemplate('FooDevice').capabilities;
     previewArea.error = Error.NONE;
@@ -59,7 +57,7 @@ suite(preview_area_test.suiteName, function() {
   });
 
   /** Validate some preview area state transitions work as expected. */
-  test(assert(preview_area_test.TestNames.StateChanges), function() {
+  test(preview_area_test.TestNames.StateChanges, function() {
     // Simulate starting the preview.
     const whenPreviewStarted = nativeLayer.whenCalled('getPreview');
     previewArea.state = State.READY;
@@ -84,8 +82,7 @@ suite(preview_area_test.suiteName, function() {
       // If destination capabilities fetch fails, the invalid printer error
       // will be set by the destination settings.
       previewArea.destination = new Destination(
-          'InvalidDevice', DestinationType.LOCAL, DestinationOrigin.LOCAL,
-          'InvalidName', DestinationConnectionStatus.ONLINE);
+          'InvalidDevice', DestinationOrigin.LOCAL, 'InvalidName');
       previewArea.state = State.ERROR;
       previewArea.error = Error.INVALID_PRINTER;
       assertEquals(PreviewAreaState.ERROR, previewArea.previewState);
@@ -101,7 +98,7 @@ suite(preview_area_test.suiteName, function() {
   });
 
   /** Validate preview area sets tabindex correctly based on viewport size. */
-  test(assert(preview_area_test.TestNames.ViewportSizeChanges), function() {
+  test(preview_area_test.TestNames.ViewportSizeChanges, function() {
     // Simulate starting the preview.
     const whenPreviewStarted = nativeLayer.whenCalled('getPreview');
     previewArea.state = State.READY;

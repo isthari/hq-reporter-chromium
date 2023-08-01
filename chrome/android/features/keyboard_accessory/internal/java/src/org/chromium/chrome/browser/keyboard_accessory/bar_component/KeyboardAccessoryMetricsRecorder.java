@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -71,13 +71,12 @@ class KeyboardAccessoryMetricsRecorder {
                 return;
             }
             if (propertyKey == KeyboardAccessoryProperties.BOTTOM_OFFSET_PX
-                    || propertyKey == KeyboardAccessoryProperties.KEYBOARD_TOGGLE_VISIBLE
-                    || propertyKey == KeyboardAccessoryProperties.SHEET_TITLE
-                    || propertyKey == KeyboardAccessoryProperties.SHOW_KEYBOARD_CALLBACK
                     || propertyKey == KeyboardAccessoryProperties.SKIP_CLOSING_ANIMATION
                     || propertyKey == KeyboardAccessoryProperties.DISABLE_ANIMATIONS_FOR_TESTING
                     || propertyKey == KeyboardAccessoryProperties.SHOW_SWIPING_IPH
-                    || propertyKey == KeyboardAccessoryProperties.OBFUSCATED_CHILD_AT_CALLBACK) {
+                    || propertyKey == KeyboardAccessoryProperties.OBFUSCATED_CHILD_AT_CALLBACK
+                    || propertyKey == KeyboardAccessoryProperties.HAS_SUGGESTIONS
+                    || propertyKey == KeyboardAccessoryProperties.ANIMATION_LISTENER) {
                 return;
             }
             assert false : "Every property update needs to be handled explicitly!";

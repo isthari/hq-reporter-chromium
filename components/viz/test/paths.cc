@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,9 +20,9 @@ bool PathProvider(int key, base::FilePath* result) {
       if (!base::PathService::Get(base::DIR_SOURCE_ROOT, &cur))
         return false;
       cur = cur.Append(FILE_PATH_LITERAL("components"));
-      cur = cur.Append(FILE_PATH_LITERAL("viz"));
       cur = cur.Append(FILE_PATH_LITERAL("test"));
       cur = cur.Append(FILE_PATH_LITERAL("data"));
+      cur = cur.Append(FILE_PATH_LITERAL("viz"));
       if (!base::PathExists(cur))  // we don't want to create this
         return false;
       break;

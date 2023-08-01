@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -89,7 +89,8 @@ bool OptionalTransceiverDirectionFromStringWithStopped(
 
 webrtc::RtpTransceiverInit ToRtpTransceiverInit(
     ExecutionContext* context,
-    const RTCRtpTransceiverInit* init) {
+    const RTCRtpTransceiverInit* init,
+    const String& kind) {
   webrtc::RtpTransceiverInit webrtc_init;
   absl::optional<webrtc::RtpTransceiverDirection> direction;
   if (init->hasDirection() &&
@@ -104,7 +105,7 @@ webrtc::RtpTransceiverInit ToRtpTransceiverInit(
   DCHECK(init->hasSendEncodings());
   for (const auto& encoding : init->sendEncodings()) {
     webrtc_init.send_encodings.push_back(
-        ToRtpEncodingParameters(context, encoding));
+        ToRtpEncodingParameters(context, encoding, kind));
   }
   return webrtc_init;
 }
@@ -129,7 +130,7 @@ RTCRtpTransceiver::RTCRtpTransceiver(
 }
 
 String RTCRtpTransceiver::mid() const {
-  return platform_transceiver_->Mid();
+  return mid_;
 }
 
 RTCRtpSender* RTCRtpTransceiver::sender() const {
@@ -141,7 +142,9 @@ RTCRtpReceiver* RTCRtpTransceiver::receiver() const {
 }
 
 bool RTCRtpTransceiver::stopped() const {
-  return stopped_;
+  // Non-standard attribute reflecting being "stopping", whether or not we are
+  // "stopped" per current_direction_.
+  return direction_ == "stopped";
 }
 
 String RTCRtpTransceiver::direction() const {
@@ -161,9 +164,14 @@ void RTCRtpTransceiver::setDirection(String direction,
                                       "The peer connection is closed.");
     return;
   }
-  if (stopped_) {
+  if (current_direction_ == "stopped") {
     exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
                                       "The transceiver is stopped.");
+    return;
+  }
+  if (direction_ == "stopped") {
+    exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
+                                      "The transceiver is stopping.");
     return;
   }
   webrtc::RTCError error =
@@ -180,18 +188,27 @@ String RTCRtpTransceiver::currentDirection() const {
 }
 
 void RTCRtpTransceiver::UpdateMembers() {
-  stopped_ = platform_transceiver_->Stopped();
+  if (current_direction_ == "stopped") {
+    // No need to update, stopped is a permanent state. Also: on removal, the
+    // state of `platform_transceiver_` becomes obsolete and may not reflect
+    // being stopped, so let's not update the members anymore.
+    return;
+  }
+  mid_ = platform_transceiver_->Mid();
   direction_ = TransceiverDirectionToString(platform_transceiver_->Direction());
   current_direction_ = OptionalTransceiverDirectionToString(
       platform_transceiver_->CurrentDirection());
   fired_direction_ = platform_transceiver_->FiredDirection();
 }
 
-void RTCRtpTransceiver::OnPeerConnectionClosed() {
-  receiver_->track()->Component()->Source()->SetReadyState(
-      MediaStreamSource::kReadyStateMuted);
-  stopped_ = true;
-  current_direction_ = String();  // null
+void RTCRtpTransceiver::OnTransceiverStopped() {
+  receiver_->set_streams(MediaStreamVector());
+  mid_ = String();
+  direction_ =
+      TransceiverDirectionToString(webrtc::RtpTransceiverDirection::kStopped);
+  current_direction_ =
+      TransceiverDirectionToString(webrtc::RtpTransceiverDirection::kStopped);
+  fired_direction_ = webrtc::RtpTransceiverDirection::kStopped;
 }
 
 RTCRtpTransceiverPlatform* RTCRtpTransceiver::platform_transceiver() const {
@@ -222,12 +239,17 @@ bool RTCRtpTransceiver::FiredDirectionHasRecv() const {
 }
 
 void RTCRtpTransceiver::stop(ExceptionState& exception_state) {
+  if (pc_->IsClosed()) {
+    exception_state.ThrowDOMException(DOMExceptionCode::kInvalidStateError,
+                                      "The peer connection is closed.");
+    return;
+  }
   webrtc::RTCError error = platform_transceiver_->Stop();
   if (!error.ok()) {
     ThrowExceptionFromRTCError(error, exception_state);
     return;
   }
-  stopped_ = true;
+  // We should become stopping, but negotiation is needed to become stopped.
   UpdateMembers();
 }
 
@@ -235,7 +257,7 @@ void RTCRtpTransceiver::setCodecPreferences(
     const HeapVector<Member<RTCRtpCodecCapability>>& codecs,
     ExceptionState& exception_state) {
   Vector<webrtc::RtpCodecCapability> codec_preferences;
-  codec_preferences.ReserveCapacity(codecs.size());
+  codec_preferences.reserve(codecs.size());
   for (const auto& codec : codecs) {
     codec_preferences.emplace_back();
     auto& webrtc_codec = codec_preferences.back();
@@ -290,18 +312,18 @@ void RTCRtpTransceiver::setCodecPreferences(
   }
 }
 
-void RTCRtpTransceiver::setOfferedRtpHeaderExtensions(
-    const HeapVector<Member<RTCRtpHeaderExtensionCapability>>&
-        header_extensions_to_offer,
+void RTCRtpTransceiver::setHeaderExtensionsToNegotiate(
+    const HeapVector<Member<RTCRtpHeaderExtensionCapability>>& extensions,
     ExceptionState& exception_state) {
   Vector<webrtc::RtpHeaderExtensionCapability> webrtc_hdr_exts;
-  auto webrtc_offered_exts = platform_transceiver_->HeaderExtensionsToOffer();
+  auto webrtc_offered_exts =
+      platform_transceiver_->GetHeaderExtensionsToNegotiate();
   int id = 1;
-  for (const auto& hdr_ext : header_extensions_to_offer) {
+  for (const auto& hdr_ext : extensions) {
     // Handle invalid requests for mandatory extensions as per
     // https://w3c.github.io/webrtc-extensions/#rtcrtptransceiver-interface
     // Step 2.1 (not handled on the WebRTC level).
-    if (hdr_ext->uri().IsEmpty()) {
+    if (hdr_ext->uri().empty()) {
       exception_state.ThrowTypeError("The extension URL cannot be empty.");
       return;
     }
@@ -318,7 +340,7 @@ void RTCRtpTransceiver::setOfferedRtpHeaderExtensions(
                                  *direction);
   }
   webrtc::RTCError status =
-      platform_transceiver_->SetOfferedRtpHeaderExtensions(
+      platform_transceiver_->SetHeaderExtensionsToNegotiate(
           std::move(webrtc_hdr_exts));
   if (status.type() == webrtc::RTCErrorType::UNSUPPORTED_PARAMETER) {
     // TODO(crbug.com/1051821): support DOMExceptionCode::kNotSupportedError in
@@ -333,8 +355,8 @@ void RTCRtpTransceiver::setOfferedRtpHeaderExtensions(
 }
 
 HeapVector<Member<RTCRtpHeaderExtensionCapability>>
-RTCRtpTransceiver::headerExtensionsToOffer() const {
-  auto webrtc_exts = platform_transceiver_->HeaderExtensionsToOffer();
+RTCRtpTransceiver::getHeaderExtensionsToNegotiate() const {
+  auto webrtc_exts = platform_transceiver_->GetHeaderExtensionsToNegotiate();
   HeapVector<Member<RTCRtpHeaderExtensionCapability>> exts;
   for (const auto& webrtc_ext : webrtc_exts) {
     auto* ext = MakeGarbageCollected<RTCRtpHeaderExtensionCapability>();
@@ -346,8 +368,8 @@ RTCRtpTransceiver::headerExtensionsToOffer() const {
 }
 
 HeapVector<Member<RTCRtpHeaderExtensionCapability>>
-RTCRtpTransceiver::headerExtensionsNegotiated() const {
-  auto webrtc_exts = platform_transceiver_->HeaderExtensionsNegotiated();
+RTCRtpTransceiver::getNegotiatedHeaderExtensions() const {
+  auto webrtc_exts = platform_transceiver_->GetNegotiatedHeaderExtensions();
   HeapVector<Member<RTCRtpHeaderExtensionCapability>> exts;
   for (const auto& webrtc_ext : webrtc_exts) {
     auto* ext = MakeGarbageCollected<RTCRtpHeaderExtensionCapability>();

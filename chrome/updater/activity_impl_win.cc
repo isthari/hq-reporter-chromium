@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,17 +6,17 @@
 
 #include <string>
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/logging.h"
 #include "base/strings/strcat.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/win/registry.h"
 #include "base/win/windows_types.h"
 #include "chrome/updater/updater_scope.h"
+#include "chrome/updater/util/win_util.h"
 #include "chrome/updater/win/user_info.h"
 #include "chrome/updater/win/win_constants.h"
-#include "chrome/updater/win/win_util.h"
 
 namespace updater {
 namespace {
@@ -25,10 +25,6 @@ using ProcessActiveBitUnderKeyCallback =
     base::RepeatingCallback<bool(HKEY, const std::wstring&)>;
 
 constexpr wchar_t kDidRun[] = L"dr";
-
-std::wstring GetAppClientStateKey(const std::string& id) {
-  return base::StrCat({CLIENT_STATE_KEY, base::ASCIIToWide(id)});
-}
 
 bool GetActiveBitUnderKey(HKEY rootkey, const std::wstring& key_name) {
   base::win::RegKey key;
@@ -139,9 +135,7 @@ void ClearSystemActiveBit(const std::string& id) {
 bool GetActiveBit(UpdaterScope scope, const std::string& id) {
   switch (scope) {
     case UpdaterScope::kUser:
-      // TODO(crbug/1159498): Standardize registry access.
       return GetUserActiveBit(id);
-
     case UpdaterScope::kSystem:
       return GetSystemActiveBit(id);
   }
@@ -150,10 +144,8 @@ bool GetActiveBit(UpdaterScope scope, const std::string& id) {
 void ClearActiveBit(UpdaterScope scope, const std::string& id) {
   switch (scope) {
     case UpdaterScope::kUser:
-      // TODO(crbug/1159498): Standardize registry access.
       ClearUserActiveBit(id);
       break;
-
     case UpdaterScope::kSystem:
       ClearSystemActiveBit(id);
       break;

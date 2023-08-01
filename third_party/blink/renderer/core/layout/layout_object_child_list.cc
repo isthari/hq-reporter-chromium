@@ -95,8 +95,16 @@ LayoutObject* LayoutObjectChildList::RemoveChildNode(
   DCHECK_EQ(old_child->Parent(), owner);
   DCHECK_EQ(this, owner->VirtualChildren());
 
-  if (old_child->IsFloatingOrOutOfFlowPositioned())
-    To<LayoutBox>(old_child)->RemoveFloatingOrPositionedChildFromBlockLists();
+  if (RuntimeEnabledFeatures::LayoutDisableBrokenFloatInvalidationEnabled()) {
+    if (!owner->DocumentBeingDestroyed() &&
+        old_child->IsOutOfFlowPositioned()) {
+      LayoutBlock::RemovePositionedObject(To<LayoutBox>(old_child));
+    }
+  } else {
+    if (old_child->IsFloatingOrOutOfFlowPositioned()) {
+      To<LayoutBox>(old_child)->RemoveFloatingOrPositionedChildFromBlockLists();
+    }
+  }
 
   if (!owner->DocumentBeingDestroyed()) {
     // So that we'll get the appropriate dirty bit set (either that a normal
@@ -106,24 +114,17 @@ LayoutObject* LayoutObjectChildList::RemoveChildNode(
     if (notify_layout_object && old_child->EverHadLayout()) {
       old_child->SetNeedsLayoutAndIntrinsicWidthsRecalc(
           layout_invalidation_reason::kRemovedFromLayout);
-      if (old_child->IsOutOfFlowPositioned() &&
-          RuntimeEnabledFeatures::LayoutNGEnabled())
-        old_child->MarkParentForOutOfFlowPositionedChange();
+      if (old_child->IsOutOfFlowPositioned() || old_child->IsColumnSpanAll()) {
+        old_child->MarkParentForSpannerOrOutOfFlowPositionedChange();
+      }
     }
     InvalidatePaintOnRemoval(*old_child);
   }
-
-  // If we have a line box wrapper, delete it.
-  if (old_child->IsBox())
-    To<LayoutBox>(old_child)->DeleteLineBoxWrapper();
 
   if (!owner->DocumentBeingDestroyed()) {
     if (notify_layout_object) {
       LayoutCounter::LayoutObjectSubtreeWillBeDetached(old_child);
       old_child->WillBeRemovedFromTree();
-    } else if (old_child->IsBox() &&
-               To<LayoutBox>(old_child)->IsOrthogonalWritingModeRoot()) {
-      To<LayoutBox>(old_child)->UnmarkOrthogonalWritingModeRoot();
     }
 
     if (old_child->IsInLayoutNGInlineFormattingContext()) {
@@ -232,23 +233,14 @@ void LayoutObjectChildList::InsertChildNode(LayoutObject* owner,
   if (owner->HasSubtreeChangeListenerRegistered())
     new_child->RegisterSubtreeChangeListenerOnDescendants(true);
 
-  if (UNLIKELY(!new_child->IsLayoutNGObject())) {
-    if (owner->ForceLegacyLayout()) {
-      new_child->SetForceLegacyLayout();
-    } else if (const auto* element = DynamicTo<Element>(new_child->GetNode())) {
-      if (element->ShouldForceLegacyLayout())
-        new_child->SetForceLegacyLayout();
-    }
-  }
-
   // Mark the ancestor chain for paint invalidation checking.
   owner->SetShouldCheckForPaintInvalidation();
 
   new_child->SetNeedsLayoutAndIntrinsicWidthsRecalc(
       layout_invalidation_reason::kAddedToLayout);
-  if (new_child->IsOutOfFlowPositioned() &&
-      RuntimeEnabledFeatures::LayoutNGEnabled())
-    new_child->MarkParentForOutOfFlowPositionedChange();
+  if (new_child->IsOutOfFlowPositioned() || new_child->IsColumnSpanAll()) {
+    new_child->MarkParentForSpannerOrOutOfFlowPositionedChange();
+  }
   new_child->SetShouldDoFullPaintInvalidation(
       PaintInvalidationReason::kAppeared);
   new_child->AddSubtreePaintPropertyUpdateReason(

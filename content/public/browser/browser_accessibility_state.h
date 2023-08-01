@@ -1,12 +1,12 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CONTENT_PUBLIC_BROWSER_BROWSER_ACCESSIBILITY_STATE_H_
 #define CONTENT_PUBLIC_BROWSER_BROWSER_ACCESSIBILITY_STATE_H_
 
-#include "base/callback_forward.h"
 #include "base/callback_list.h"
+#include "base/functional/callback_forward.h"
 #include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/browser_context.h"
@@ -52,6 +52,10 @@ class CONTENT_EXPORT BrowserAccessibilityState {
 
   // Called when screen reader client is detected.
   virtual void OnScreenReaderDetected() = 0;
+
+  // Called when screen reader client that had been detected is no longer
+  // running.
+  virtual void OnScreenReaderStopped() = 0;
 
   // Returns true if the browser should be customized for accessibility.
   virtual bool IsAccessibleBrowser() = 0;

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -78,8 +78,9 @@ void NotificationMenuController::OnNotificationRemoved(
   // |root_menu_|, and remove the entry from the model.
   root_menu_->RemoveMenuItem(notification_menu_view_->parent());
   app_menu_model_adapter_->model()->RemoveItemAt(
-      app_menu_model_adapter_->model()->GetIndexOfCommandId(
-          NOTIFICATION_CONTAINER));
+      app_menu_model_adapter_->model()
+          ->GetIndexOfCommandId(NOTIFICATION_CONTAINER)
+          .value());
   notification_menu_view_ = nullptr;
 
   // Notify the root MenuItemView so it knows to resize and re-calculate the
@@ -130,7 +131,7 @@ void NotificationMenuController::InitializeNotificationMenuView() {
   views::MenuItemView* container =
       root_menu_->AppendMenuItem(NOTIFICATION_CONTAINER);
   notification_menu_view_ = new NotificationMenuView(this, this, app_id_);
-  container->AddChildView(notification_menu_view_);
+  container->AddChildView(notification_menu_view_.get());
 
   for (auto* notification :
        message_center::MessageCenter::Get()->FindNotificationsByAppId(

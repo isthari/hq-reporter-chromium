@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,8 @@ TerminalUIConfig::TerminalUIConfig()
 TerminalUIConfig::~TerminalUIConfig() = default;
 
 std::unique_ptr<content::WebUIController>
-TerminalUIConfig::CreateWebUIController(content::WebUI* web_ui) {
+TerminalUIConfig::CreateWebUIController(content::WebUI* web_ui,
+                                        const GURL& url) {
   return std::make_unique<TerminalUI>(web_ui);
 }
 

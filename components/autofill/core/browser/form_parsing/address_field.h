@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,9 @@
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "components/autofill/core/browser/autofill_type.h"
 #include "components/autofill/core/browser/form_parsing/form_field.h"
-#include "components/autofill/core/browser/pattern_provider/pattern_provider.h"
 #include "components/autofill/core/common/language_code.h"
 
 namespace autofill {
@@ -27,13 +27,14 @@ class AddressField : public FormField {
  public:
   static std::unique_ptr<FormField> Parse(AutofillScanner* scanner,
                                           const LanguageCode& page_language,
+                                          PatternSource pattern_source,
                                           LogManager* log_manager);
 
   AddressField(const AddressField&) = delete;
   AddressField& operator=(const AddressField&) = delete;
 
  protected:
-  void AddClassifications(FieldCandidatesMap* field_candidates) const override;
+  void AddClassifications(FieldCandidatesMap& field_candidates) const override;
 
  private:
   // When parsing a field's label and name separately with a given pattern:
@@ -47,36 +48,51 @@ class AddressField : public FormField {
   explicit AddressField(LogManager* log_manager);
 
   bool ParseCompany(AutofillScanner* scanner,
-                    const LanguageCode& page_language);
+                    const LanguageCode& page_language,
+                    PatternSource pattern_source);
 
   bool ParseAddress(AutofillScanner* scanner,
-                    const LanguageCode& page_language);
+                    const LanguageCode& page_language,
+                    PatternSource pattern_source);
 
   bool ParseAddressFieldSequence(AutofillScanner* scanner,
-                                 const LanguageCode& page_language);
+                                 const LanguageCode& page_language,
+                                 PatternSource pattern_source);
 
   bool ParseAddressLines(AutofillScanner* scanner,
-                         const LanguageCode& page_language);
+                         const LanguageCode& page_language,
+                         PatternSource pattern_source);
 
   bool ParseCountry(AutofillScanner* scanner,
-                    const LanguageCode& page_language);
+                    const LanguageCode& page_language,
+                    PatternSource pattern_source);
 
   bool ParseZipCode(AutofillScanner* scanner,
-                    const LanguageCode& page_language);
+                    const LanguageCode& page_language,
+                    PatternSource pattern_source);
 
   bool ParseDependentLocality(AutofillScanner* scanner,
-                              const LanguageCode& page_language);
+                              const LanguageCode& page_language,
+                              PatternSource pattern_source);
 
-  bool ParseCity(AutofillScanner* scanner, const LanguageCode& page_language);
+  bool ParseCity(AutofillScanner* scanner,
+                 const LanguageCode& page_language,
+                 PatternSource pattern_source);
 
-  bool ParseState(AutofillScanner* scanner, const LanguageCode& page_language);
+  bool ParseState(AutofillScanner* scanner,
+                  const LanguageCode& page_language,
+                  PatternSource pattern_source);
+
+  bool ParseLandmark(AutofillScanner* scanner,
+                     const LanguageCode& page_language,
+                     PatternSource pattern_source);
 
   // Parses the current field pointed to by |scanner|, if it exists, and tries
   // to determine if the field's type corresponds to one of the following:
-  // dependent locality, city, state, country, zip, or none of those.
-  bool ParseDependentLocalityCityStateCountryZipCode(
-      AutofillScanner* scanner,
-      const LanguageCode& page_language);
+  // dependent locality, city, state, country, zip, landmark or none of those.
+  bool ParseAddressField(AutofillScanner* scanner,
+                         const LanguageCode& page_language,
+                         PatternSource pattern_source);
 
   // Like ParseFieldSpecifics(), but applies |pattern| against the name and
   // label of the current field separately. If the return value is
@@ -87,7 +103,7 @@ class AddressField : public FormField {
       AutofillScanner* scanner,
       const std::u16string& pattern,
       MatchParams match_type,
-      const std::vector<MatchingPattern>& patterns,
+      base::span<const MatchPatternRef> patterns,
       AutofillField** match,
       const RegExLogging& logging);
 
@@ -96,39 +112,81 @@ class AddressField : public FormField {
   // Otherwise |scanner| rewinds and the field is cleared.
   ParseNameLabelResult ParseNameAndLabelForZipCode(
       AutofillScanner* scanner,
-      const LanguageCode& page_language);
+      const LanguageCode& page_language,
+      PatternSource pattern_source);
 
   ParseNameLabelResult ParseNameAndLabelForDependentLocality(
       AutofillScanner* scanner,
-      const LanguageCode& page_language);
+      const LanguageCode& page_language,
+      PatternSource pattern_source);
 
   ParseNameLabelResult ParseNameAndLabelForCity(
       AutofillScanner* scanner,
-      const LanguageCode& page_language);
+      const LanguageCode& page_language,
+      PatternSource pattern_source);
 
   ParseNameLabelResult ParseNameAndLabelForCountry(
       AutofillScanner* scanner,
-      const LanguageCode& page_language);
+      const LanguageCode& page_language,
+      PatternSource pattern_source);
+
+  ParseNameLabelResult ParseNameAndLabelForLandmark(
+      AutofillScanner* scanner,
+      const LanguageCode& page_language,
+      PatternSource pattern_source);
 
   ParseNameLabelResult ParseNameAndLabelForState(
       AutofillScanner* scanner,
-      const LanguageCode& page_language);
+      const LanguageCode& page_language,
+      PatternSource pattern_source);
 
   raw_ptr<LogManager> log_manager_;
-  AutofillField* company_ = nullptr;
-  AutofillField* street_name_ = nullptr;
-  AutofillField* house_number_ = nullptr;
-  AutofillField* address1_ = nullptr;
-  AutofillField* address2_ = nullptr;
-  AutofillField* address3_ = nullptr;
-  AutofillField* street_address_ = nullptr;
-  AutofillField* apartment_number_ = nullptr;
-  AutofillField* dependent_locality_ = nullptr;
-  AutofillField* city_ = nullptr;
-  AutofillField* state_ = nullptr;
-  AutofillField* zip_ = nullptr;
-  AutofillField* zip4_ = nullptr;  // optional ZIP+4; we don't fill this yet.
-  AutofillField* country_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION AutofillField* company_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION AutofillField* street_name_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION AutofillField* house_number_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION AutofillField* address1_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION AutofillField* address2_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION AutofillField* address3_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION AutofillField* street_address_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION AutofillField* apartment_number_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION AutofillField* dependent_locality_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION AutofillField* city_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION AutofillField* state_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION AutofillField* zip_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION AutofillField* zip4_ =
+      nullptr;  // optional ZIP+4; we don't fill this yet.
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION AutofillField* country_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION AutofillField* landmark_ = nullptr;
 };
 
 }  // namespace autofill

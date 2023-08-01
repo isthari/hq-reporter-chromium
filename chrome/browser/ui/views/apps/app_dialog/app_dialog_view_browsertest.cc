@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,22 +8,24 @@
 #include "ash/components/arc/test/arc_util_test_support.h"
 #include "ash/components/arc/test/connection_holder_util.h"
 #include "ash/components/arc/test/fake_app_instance.h"
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
+#include "base/test/bind.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_icon.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_list_prefs.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ash/arc/arc_util.h"
 #include "chrome/browser/ash/arc/session/arc_session_manager.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_icon.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/test/test_browser_dialog.h"
 #include "chrome/browser/ui/views/apps/app_dialog/app_block_dialog_view.h"
 #include "chrome/browser/ui/views/apps/app_dialog/app_pause_dialog_view.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "components/services/app_service/public/cpp/app_types.h"
 #include "content/public/test/browser_test.h"
 
 class AppDialogViewBrowserTest : public DialogBrowserTest {
@@ -73,12 +75,10 @@ class AppDialogViewBrowserTest : public DialogBrowserTest {
   apps::AppServiceProxy* app_service_proxy() { return app_service_proxy_; }
 
   bool IsAppPaused() {
-    app_service_proxy()->FlushMojoCallsForTesting();
-
     bool is_app_paused = false;
     app_service_proxy()->AppRegistryCache().ForOneApp(
         app_id(), [&is_app_paused](const apps::AppUpdate& update) {
-          is_app_paused = (update.Paused() == apps::mojom::OptionalBool::kTrue);
+          is_app_paused = (update.Paused().value_or(false));
         });
     return is_app_paused;
   }
@@ -106,10 +106,8 @@ class AppDialogViewBrowserTest : public DialogBrowserTest {
       app_service_proxy_->SetDialogCreatedCallbackForTesting(
           run_loop.QuitClosure());
       app_instance_->SendRefreshAppList(apps);
-      app_service_proxy_->FlushMojoCallsForTesting();
-      app_service_proxy_->Launch(
-          app_id_, ui::EventFlags::EF_NONE,
-          apps::mojom::LaunchSource::kFromChromeInternal);
+      app_service_proxy_->Launch(app_id_, ui::EF_NONE,
+                                 apps::LaunchSource::kFromChromeInternal);
     } else {
       std::map<std::string, apps::PauseData> pause_data;
       pause_data[app_id_].hours = 3;
@@ -125,12 +123,11 @@ class AppDialogViewBrowserTest : public DialogBrowserTest {
     EXPECT_EQ(ui::DIALOG_BUTTON_OK, ActiveView(name)->GetDialogButtons());
 
     if (name == "block") {
-      app_service_proxy_->FlushMojoCallsForTesting();
       bool state_is_set = false;
       app_service_proxy_->AppRegistryCache().ForOneApp(
           app_id_, [&state_is_set](const apps::AppUpdate& update) {
-            state_is_set = (update.Readiness() ==
-                            apps::mojom::Readiness::kDisabledByPolicy);
+            state_is_set =
+                (update.Readiness() == apps::Readiness::kDisabledByPolicy);
           });
 
       EXPECT_TRUE(state_is_set);
@@ -144,8 +141,8 @@ class AppDialogViewBrowserTest : public DialogBrowserTest {
 
  private:
   std::string app_id_;
-  apps::AppServiceProxy* app_service_proxy_ = nullptr;
-  ArcAppListPrefs* arc_app_list_pref_ = nullptr;
+  raw_ptr<apps::AppServiceProxy, ExperimentalAsh> app_service_proxy_ = nullptr;
+  raw_ptr<ArcAppListPrefs, ExperimentalAsh> arc_app_list_pref_ = nullptr;
   std::unique_ptr<arc::FakeAppInstance> app_instance_;
 };
 

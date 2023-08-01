@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,15 @@
 #include <cmath>
 
 #include "base/auto_reset.h"
-#include "base/bind.h"
 #include "base/feature_list.h"
-#include "base/guid.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
+#include "base/memory/raw_ptr.h"
 #include "base/no_destructor.h"
 #include "base/task/thread_pool.h"
 #include "base/time/default_tick_clock.h"
+#include "base/uuid.h"
 #include "build/build_config.h"
 #include "cc/layers/layer.h"
 #include "components/autofill/content/browser/content_autofill_driver_factory.h"
@@ -28,10 +30,6 @@
 #include "components/find_in_page/find_tab_helper.h"
 #include "components/find_in_page/find_types.h"
 #include "components/infobars/content/content_infobar_manager.h"
-#include "components/js_injection/browser/js_communication_host.h"
-#include "components/js_injection/browser/web_message_host.h"
-#include "components/js_injection/browser/web_message_host_factory.h"
-#include "components/metrics/content/content_stability_metrics_provider.h"
 #include "components/permissions/permission_manager.h"
 #include "components/permissions/permission_request_manager.h"
 #include "components/permissions/permission_result.h"
@@ -43,6 +41,7 @@
 #include "components/translate/core/browser/translate_manager.h"
 #include "components/ukm/content/source_url_recorder.h"
 #include "components/webapps/browser/installable/installable_manager.h"
+#include "components/webapps/browser/installable/ml_installability_promoter.h"
 #include "components/webrtc/media_stream_devices_controller.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -51,14 +50,18 @@
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
+#include "content/public/browser/permission_controller.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/renderer_preferences_util.h"
 #include "content/public/browser/web_contents.h"
+#include "third_party/blink/public/common/permissions/permission_utils.h"
 #include "third_party/blink/public/common/renderer_preferences/renderer_preferences.h"
 #include "third_party/blink/public/common/web_preferences/web_preferences.h"
 #include "third_party/blink/public/mojom/context_menu/context_menu.mojom.h"
+#include "third_party/blink/public/mojom/mediastream/media_stream.mojom.h"
+#include "third_party/blink/public/mojom/permissions/permission_status.mojom.h"
 #include "third_party/blink/public/mojom/window_features/window_features.mojom.h"
 #include "ui/base/window_open_disposition.h"
 #include "weblayer/browser/autofill_client_impl.h"
@@ -71,14 +74,12 @@
 #include "weblayer/browser/file_select_helper.h"
 #include "weblayer/browser/host_content_settings_map_factory.h"
 #include "weblayer/browser/i18n_util.h"
-#include "weblayer/browser/js_communication/web_message_host_factory_wrapper.h"
 #include "weblayer/browser/navigation_controller_impl.h"
 #include "weblayer/browser/navigation_entry_data.h"
 #include "weblayer/browser/no_state_prefetch/prerender_tab_helper.h"
 #include "weblayer/browser/page_load_metrics_initialize.h"
 #include "weblayer/browser/page_specific_content_settings_delegate.h"
 #include "weblayer/browser/password_manager_driver_factory.h"
-#include "weblayer/browser/permissions/permission_manager_factory.h"
 #include "weblayer/browser/persistence/browser_persister.h"
 #include "weblayer/browser/popup_navigation_delegate_impl.h"
 #include "weblayer/browser/profile_impl.h"
@@ -88,8 +89,6 @@
 #include "weblayer/browser/weblayer_features.h"
 #include "weblayer/common/isolated_world_ids.h"
 #include "weblayer/public/fullscreen_delegate.h"
-#include "weblayer/public/js_communication/web_message.h"
-#include "weblayer/public/js_communication/web_message_host_factory.h"
 #include "weblayer/public/new_tab_delegate.h"
 #include "weblayer/public/tab_observer.h"
 
@@ -114,19 +113,17 @@
 #include "components/safe_browsing/android/remote_database_manager.h"
 #include "components/safe_browsing/content/browser/safe_browsing_navigation_observer.h"
 #include "components/safe_browsing/content/browser/safe_browsing_tab_observer.h"
+#include "components/site_engagement/content/site_engagement_helper.h"
+#include "components/site_engagement/content/site_engagement_service.h"
 #include "components/translate/core/browser/translate_manager.h"
 #include "ui/android/view_android.h"
 #include "ui/gfx/android/java_bitmap.h"
-#include "weblayer/browser/browser_controls_container_view.h"
-#include "weblayer/browser/browser_controls_navigation_state_handler.h"
-#include "weblayer/browser/controls_visibility_reason.h"
 #include "weblayer/browser/java/jni/TabImpl_jni.h"
 #include "weblayer/browser/javascript_tab_modal_dialog_manager_delegate_android.h"
-#include "weblayer/browser/js_communication/web_message_host_factory_proxy.h"
 #include "weblayer/browser/safe_browsing/safe_browsing_navigation_observer_manager_factory.h"
 #include "weblayer/browser/safe_browsing/weblayer_safe_browsing_tab_observer_delegate.h"
 #include "weblayer/browser/translate_client_impl.h"
-#include "weblayer/browser/url_bar/trusted_cdn_observer.h"
+#include "weblayer/browser/webapps/weblayer_app_banner_manager_android.h"
 #include "weblayer/browser/weblayer_factory_impl_android.h"
 #include "weblayer/browser/webrtc/media_stream_manager.h"
 #include "weblayer/common/features.h"
@@ -195,7 +192,7 @@ void OpenCaptivePortalLoginTabInWebContents(
 constexpr int kWebContentsUserDataKey = 0;
 
 struct UserData : public base::SupportsUserData::Data {
-  TabImpl* tab = nullptr;
+  raw_ptr<TabImpl> tab = nullptr;
 };
 
 #if BUILDFLAG(IS_ANDROID)
@@ -322,7 +319,8 @@ TabImpl::TabImpl(ProfileImpl* profile,
                  const std::string& guid)
     : profile_(profile),
       web_contents_(std::move(web_contents)),
-      guid_(guid.empty() ? base::GenerateGUID() : guid) {
+      guid_(guid.empty() ? base::Uuid::GenerateRandomV4().AsLowercaseString()
+                         : guid) {
   GetTabs().insert(this);
   DCHECK(web_contents_);
   // This code path is hit when the page requests a new tab, which should
@@ -381,8 +379,6 @@ TabImpl::TabImpl(ProfileImpl* profile,
 
   InitializePageLoadMetricsForWebContents(web_contents_.get());
   ukm::InitializeSourceUrlRecorderForWebContents(web_contents_.get());
-  metrics::ContentStabilityMetricsProvider::SetupWebContentsObserver(
-      web_contents_.get());
 
 #if BUILDFLAG(IS_ANDROID)
   javascript_dialogs::TabModalDialogManager::CreateForWebContents(
@@ -390,17 +386,16 @@ TabImpl::TabImpl(ProfileImpl* profile,
       std::make_unique<JavaScriptTabModalDialogManagerDelegateAndroid>(
           web_contents_.get()));
 
-  browser_controls_navigation_state_handler_ =
-      std::make_unique<BrowserControlsNavigationStateHandler>(
-          web_contents_.get(), this);
-
-  TrustedCDNObserver::CreateForWebContents(web_contents_.get());
-
   if (base::FeatureList::IsEnabled(
           features::kWebLayerClientSidePhishingDetection)) {
     safe_browsing::SafeBrowsingTabObserver::CreateForWebContents(
         web_contents_.get(),
         std::make_unique<WebLayerSafeBrowsingTabObserverDelegate>());
+  }
+
+  if (site_engagement::SiteEngagementService::IsEnabled()) {
+    site_engagement::SiteEngagementService::Helper::CreateForWebContents(
+        web_contents_.get());
   }
 
   auto* browser_context =
@@ -427,6 +422,12 @@ TabImpl::TabImpl(ProfileImpl* profile,
   PrerenderTabHelper::CreateForWebContents(web_contents_.get());
 
   webapps::InstallableManager::CreateForWebContents(web_contents_.get());
+  webapps::MLInstallabilityPromoter::CreateForWebContents(web_contents_.get());
+
+#if BUILDFLAG(IS_ANDROID)
+  // Must be created after InstallableManager and MLInstallabilityPromoter.
+  WebLayerAppBannerManagerAndroid::CreateForWebContents(web_contents_.get());
+#endif
 }
 
 TabImpl::~TabImpl() {
@@ -434,23 +435,12 @@ TabImpl::~TabImpl() {
 
   GetFindTabHelper()->RemoveObserver(this);
 
-  // Delete the WebContents and related objects that may be observing
-  // the WebContents now to avoid calling back when this object is partially
-  // deleted. DidFinishNavigation() may be called while deleting WebContents,
-  // so stop observing first. Similarly WebContents destructor can callback to
-  // delegate such as NavigationStateChanged, so clear its Delegate as well.
-#if BUILDFLAG(IS_ANDROID)
-  browser_controls_navigation_state_handler_.reset();
-#endif
   Observe(nullptr);
   web_contents_->SetDelegate(nullptr);
   if (navigation_controller_->should_delay_web_contents_deletion()) {
     // Some user-data on WebContents directly or indirectly references this.
     // Remove that linkage to avoid use-after-free.
     web_contents_->RemoveUserData(&kWebContentsUserDataKey);
-    web_contents_->RemoveUserData(
-        autofill::ContentAutofillDriverFactory::
-            kContentAutofillDriverFactoryWebContentsUserDataKey);
     // Have Profile handle the task posting to ensure the WebContents is
     // deleted before Profile. To do otherwise means it would be possible for
     // the Profile to outlive the WebContents, which is problematic (crash).
@@ -467,7 +457,7 @@ TabImpl* TabImpl::FromWebContents(content::WebContents* web_contents) {
 
   UserData* user_data = reinterpret_cast<UserData*>(
       web_contents->GetUserData(&kWebContentsUserDataKey));
-  return user_data ? user_data->tab : nullptr;
+  return user_data ? user_data->tab.get() : nullptr;
 }
 
 // static
@@ -535,12 +525,12 @@ void TabImpl::ExecuteScript(const std::u16string& script,
                             bool use_separate_isolate,
                             JavaScriptResultCallback callback) {
   if (use_separate_isolate) {
-    web_contents_->GetMainFrame()->ExecuteJavaScriptInIsolatedWorld(
+    web_contents_->GetPrimaryMainFrame()->ExecuteJavaScriptInIsolatedWorld(
         script, std::move(callback), ISOLATED_WORLD_ID_WEBLAYER);
   } else {
     content::RenderFrameHost::AllowInjectingJavaScript();
-    web_contents_->GetMainFrame()->ExecuteJavaScript(script,
-                                                     std::move(callback));
+    web_contents_->GetPrimaryMainFrame()->ExecuteJavaScript(
+        script, std::move(callback));
   }
 }
 
@@ -557,30 +547,10 @@ const std::map<std::string, std::string>& TabImpl::GetData() {
   return data_;
 }
 
-std::u16string TabImpl::AddWebMessageHostFactory(
-    std::unique_ptr<WebMessageHostFactory> factory,
-    const std::u16string& js_object_name,
-    const std::vector<std::string>& allowed_origin_rules) {
-  if (!js_communication_host_) {
-    js_communication_host_ =
-        std::make_unique<js_injection::JsCommunicationHost>(
-            web_contents_.get());
-  }
-  return js_communication_host_->AddWebMessageHostFactory(
-      std::make_unique<WebMessageHostFactoryWrapper>(std::move(factory)),
-      js_object_name, allowed_origin_rules);
-}
-
-void TabImpl::RemoveWebMessageHostFactory(
-    const std::u16string& js_object_name) {
-  if (js_communication_host_)
-    js_communication_host_->RemoveWebMessageHostFactory(js_object_name);
-}
-
 void TabImpl::ExecuteScriptWithUserGestureForTests(
     const std::u16string& script) {
-  web_contents_->GetMainFrame()->ExecuteJavaScriptWithUserGestureForTests(
-      script);
+  web_contents_->GetPrimaryMainFrame()
+      ->ExecuteJavaScriptWithUserGestureForTests(script, base::NullCallback());
 }
 
 std::unique_ptr<FaviconFetcher> TabImpl::CreateFaviconFetcher(
@@ -671,16 +641,10 @@ ScopedJavaLocalRef<jobject> TabImpl::GetWebContents(JNIEnv* env) {
   return web_contents_->GetJavaWebContents();
 }
 
-void TabImpl::SetBrowserControlsContainerViews(
-    JNIEnv* env,
-    jlong native_top_controls_container_view,
-    jlong native_bottom_controls_container_view) {
-  top_controls_container_view_ =
-      reinterpret_cast<BrowserControlsContainerView*>(
-          native_top_controls_container_view);
-  bottom_controls_container_view_ =
-      reinterpret_cast<BrowserControlsContainerView*>(
-          native_bottom_controls_container_view);
+void TabImpl::SetJavaImpl(JNIEnv* env, const JavaParamRef<jobject>& impl) {
+  // This should only be called early on and only once.
+  DCHECK(!java_impl_);
+  java_impl_ = impl;
 }
 
 void TabImpl::ExecuteScript(JNIEnv* env,
@@ -693,12 +657,6 @@ void TabImpl::ExecuteScript(JNIEnv* env,
                 base::BindOnce(&HandleJavaScriptResult, jcallback));
 }
 
-void TabImpl::SetJavaImpl(JNIEnv* env, const JavaParamRef<jobject>& impl) {
-  // This should only be called early on and only once.
-  DCHECK(!java_impl_);
-  java_impl_ = impl;
-}
-
 void TabImpl::InitializeAutofillIfNecessary(JNIEnv* env) {
   if (g_system_autofill_disabled_for_testing)
     return;
@@ -706,17 +664,6 @@ void TabImpl::InitializeAutofillIfNecessary(JNIEnv* env) {
           web_contents_.get())) {
     InitializeAutofillDriver();
   }
-}
-
-void TabImpl::UpdateBrowserControlsConstraint(JNIEnv* env,
-                                              jint constraint,
-                                              jboolean animate) {
-  current_browser_controls_visibility_constraint_ =
-      static_cast<cc::BrowserControlsState>(constraint);
-  // Passing BOTH here means that it doesn't matter what state the controls are
-  // currently in; don't change the current state unless it's incompatible with
-  // the new constraint.
-  UpdateBrowserControlsState(cc::BrowserControlsState::kBoth, animate);
 }
 
 ScopedJavaLocalRef<jstring> TabImpl::GetGuid(JNIEnv* env) {
@@ -753,28 +700,10 @@ TabImpl::ScreenShotErrors TabImpl::PrepareForCaptureScreenShot(
   if (src_rect->IsEmpty())
     return ScreenShotErrors::kEmptyViewport;
 
-  const int reduced_height =
-      src_rect->height() -
-      top_controls_container_view_->GetContentHeightDelta() -
-      bottom_controls_container_view_->GetContentHeightDelta();
-  if (reduced_height <= 0)
-    return ScreenShotErrors::kHiddenByControls;
-  src_rect->set_height(reduced_height);
-
   *output_size = gfx::ScaleToCeiledSize(src_rect->size(), scale, scale);
   if (output_size->IsEmpty())
     return ScreenShotErrors::kScaledToEmpty;
   return ScreenShotErrors::kNone;
-}
-
-void TabImpl::UpdateBrowserControlsState(cc::BrowserControlsState new_state,
-                                         bool animate) {
-  if (base::FeatureList::IsEnabled(kImmediatelyHideBrowserControlsForTest))
-    animate = false;
-  // The constraint is managed by Java code, so re-use the existing constraint
-  // and only update the desired state.
-  web_contents_->UpdateBrowserControlsState(
-      current_browser_controls_visibility_constraint_, new_state, animate);
 }
 
 void TabImpl::CaptureScreenShot(
@@ -818,33 +747,6 @@ base::android::ScopedJavaLocalRef<jobjectArray> TabImpl::GetData(JNIEnv* env) {
     flattened_map.push_back(kv.second);
   }
   return base::android::ToJavaArrayOfStrings(env, flattened_map);
-}
-
-jboolean TabImpl::IsRendererControllingBrowserControlsOffsets(JNIEnv* env) {
-  return browser_controls_navigation_state_handler_
-      ->IsRendererControllingOffsets();
-}
-
-base::android::ScopedJavaLocalRef<jstring> TabImpl::RegisterWebMessageCallback(
-    JNIEnv* env,
-    const base::android::JavaParamRef<jstring>& js_object_name,
-    const base::android::JavaParamRef<jobjectArray>& js_origins,
-    const base::android::JavaParamRef<jobject>& client) {
-  auto proxy = std::make_unique<WebMessageHostFactoryProxy>(client);
-  std::vector<std::string> origins;
-  base::android::AppendJavaStringArrayToStringVector(env, js_origins, &origins);
-  std::u16string result = AddWebMessageHostFactory(
-      std::move(proxy),
-      base::android::ConvertJavaStringToUTF16(env, js_object_name), origins);
-  return base::android::ConvertUTF16ToJavaString(env, result);
-}
-
-void TabImpl::UnregisterWebMessageCallback(
-    JNIEnv* env,
-    const base::android::JavaParamRef<jstring>& js_object_name) {
-  std::u16string name;
-  base::android::ConvertJavaStringToUTF16(env, js_object_name, &name);
-  RemoveWebMessageHostFactory(name);
 }
 
 jboolean TabImpl::CanTranslate(JNIEnv* env) {
@@ -1039,68 +941,6 @@ void TabImpl::RunFileChooser(
                                    params);
 }
 
-int TabImpl::GetTopControlsHeight() {
-#if BUILDFLAG(IS_ANDROID)
-  return top_controls_container_view_
-             ? top_controls_container_view_->GetControlsHeight()
-             : 0;
-#else
-  return 0;
-#endif
-}
-
-int TabImpl::GetTopControlsMinHeight() {
-#if BUILDFLAG(IS_ANDROID)
-  return top_controls_container_view_
-             ? top_controls_container_view_->GetMinHeight()
-             : 0;
-#else
-  return 0;
-#endif
-}
-
-int TabImpl::GetBottomControlsHeight() {
-#if BUILDFLAG(IS_ANDROID)
-  return bottom_controls_container_view_
-             ? bottom_controls_container_view_->GetControlsHeight()
-             : 0;
-#else
-  return 0;
-#endif
-}
-
-bool TabImpl::DoBrowserControlsShrinkRendererSize(
-    content::WebContents* web_contents) {
-#if BUILDFLAG(IS_ANDROID)
-  TRACE_EVENT0("weblayer", "Java_TabImpl_doBrowserControlsShrinkRendererSize");
-  return Java_TabImpl_doBrowserControlsShrinkRendererSize(AttachCurrentThread(),
-                                                          java_impl_);
-#else
-  return false;
-#endif
-}
-
-bool TabImpl::ShouldAnimateBrowserControlsHeightChanges() {
-#if BUILDFLAG(IS_ANDROID)
-  return top_controls_container_view_
-             ? top_controls_container_view_
-                   ->ShouldAnimateBrowserControlsHeightChanges()
-             : false;
-#else
-  return false;
-#endif
-}
-
-bool TabImpl::OnlyExpandTopControlsAtPageTop() {
-#if BUILDFLAG(IS_ANDROID)
-  return top_controls_container_view_
-             ? top_controls_container_view_->OnlyExpandControlsAtPageTop()
-             : false;
-#else
-  return false;
-#endif
-}
-
 bool TabImpl::IsBackForwardCacheSupported() {
   return true;
 }
@@ -1113,8 +953,9 @@ void TabImpl::RequestMediaAccessPermission(
   MediaStreamManager::FromWebContents(web_contents)
       ->RequestMediaAccessPermission(request, std::move(callback));
 #else
-  std::move(callback).Run(
-      {}, blink::mojom::MediaStreamRequestResult::NOT_SUPPORTED, nullptr);
+  std::move(callback).Run(blink::mojom::StreamDevicesSet(),
+                          blink::mojom::MediaStreamRequestResult::NOT_SUPPORTED,
+                          nullptr);
 #endif
 }
 
@@ -1124,15 +965,25 @@ bool TabImpl::CheckMediaAccessPermission(
     blink::mojom::MediaStreamType type) {
   DCHECK(type == blink::mojom::MediaStreamType::DEVICE_AUDIO_CAPTURE ||
          type == blink::mojom::MediaStreamType::DEVICE_VIDEO_CAPTURE);
-  ContentSettingsType content_settings_type =
+  blink::PermissionType permission_type =
       type == blink::mojom::MediaStreamType::DEVICE_AUDIO_CAPTURE
-          ? ContentSettingsType::MEDIASTREAM_MIC
-          : ContentSettingsType::MEDIASTREAM_CAMERA;
-  return PermissionManagerFactory::GetForBrowserContext(
-             render_frame_host->GetBrowserContext())
-             ->GetPermissionStatusForFrame(content_settings_type,
-                                           render_frame_host, security_origin)
-             .content_setting == CONTENT_SETTING_ALLOW;
+          ? blink::PermissionType::AUDIO_CAPTURE
+          : blink::PermissionType::VIDEO_CAPTURE;
+
+  // TODO(crbug.com/1321100): Remove `security_origin`.
+  if (render_frame_host->GetLastCommittedOrigin().GetURL() != security_origin) {
+    return false;
+  }
+  // It is OK to ignore `security_origin` because it will be calculated from
+  // `render_frame_host` and we always ignore `requesting_origin` for
+  // `AUDIO_CAPTURE` and `VIDEO_CAPTURE`.
+  // `render_frame_host->GetMainFrame()->GetLastCommittedOrigin()` will be used
+  // instead.
+  return render_frame_host->GetBrowserContext()
+             ->GetPermissionController()
+             ->GetPermissionStatusForCurrentDocument(permission_type,
+                                                     render_frame_host) ==
+         blink::mojom::PermissionStatus::GRANTED;
 }
 
 void TabImpl::EnterFullscreenModeForTab(
@@ -1161,11 +1012,6 @@ void TabImpl::ExitFullscreenModeForTab(content::WebContents* web_contents) {
     enter_fullscreen_on_gained_active_ = false;
   else
     fullscreen_delegate_->ExitFullscreen();
-#if BUILDFLAG(IS_ANDROID)
-  // Attempt to show browser controls when exiting fullscreen.
-  SetBrowserControlsConstraint(ControlsVisibilityReason::kFullscreen,
-                               cc::BrowserControlsState::kBoth);
-#endif
 }
 
 bool TabImpl::IsFullscreenForTabOrPending(
@@ -1179,13 +1025,14 @@ blink::mojom::DisplayMode TabImpl::GetDisplayMode(
                         : blink::mojom::DisplayMode::kBrowser;
 }
 
-void TabImpl::AddNewContents(content::WebContents* source,
-                             std::unique_ptr<content::WebContents> new_contents,
-                             const GURL& target_url,
-                             WindowOpenDisposition disposition,
-                             const gfx::Rect& initial_rect,
-                             bool user_gesture,
-                             bool* was_blocked) {
+void TabImpl::AddNewContents(
+    content::WebContents* source,
+    std::unique_ptr<content::WebContents> new_contents,
+    const GURL& target_url,
+    WindowOpenDisposition disposition,
+    const blink::mojom::WindowFeatures& window_features,
+    bool user_gesture,
+    bool* was_blocked) {
   if (!new_tab_delegate_) {
     *was_blocked = true;
     return;
@@ -1284,59 +1131,6 @@ void TabImpl::OnFindResultAvailable(content::WebContents* web_contents) {
 #endif
 }
 
-#if BUILDFLAG(IS_ANDROID)
-void TabImpl::OnBrowserControlsStateStateChanged(
-    ControlsVisibilityReason reason,
-    cc::BrowserControlsState state) {
-  SetBrowserControlsConstraint(reason, state);
-}
-
-void TabImpl::OnUpdateBrowserControlsStateBecauseOfProcessSwitch(
-    bool did_commit) {
-  // This matches the logic of updateAfterRendererProcessSwitch() and
-  // updateEnabledState() in Chrome's TabBrowserControlsConstraintsHelper.
-  if (did_commit &&
-      current_browser_controls_visibility_constraint_ ==
-          cc::BrowserControlsState::kShown &&
-      top_controls_container_view_ &&
-      top_controls_container_view_->IsFullyVisible()) {
-    // The top-control is fully visible, don't animate this else the controls
-    // bounce around.
-    UpdateBrowserControlsState(cc::BrowserControlsState::kShown, false);
-  } else {
-    if (did_commit && current_browser_controls_visibility_constraint_ ==
-                          cc::BrowserControlsState::kBoth) {
-      // If the current state is kBoth, then
-      // TabImpl::UpdateBrowserControlsState() is going to call
-      // WebContents::UpdateBrowserControlsState() with both current and
-      // constraints set to kBoth. cc does
-      // nothing in this case. During a navigation the top-view needs to be
-      // shown. To force the top-view to show, supply
-      // kShown. This path is only hit if top-view
-      // is configured to only-expand-at-top, as in this case the top-view isn't
-      // forced shown during a page load.
-      //
-      // It's entirely possible the scroll offset is changed as part of the
-      // loading process (such as happens with back/forward navigation or
-      // links part way down a page). Trying to detect this and compensate
-      // here is likely to be racy, so the top-view is always shown.
-      const bool animate =
-          !base::FeatureList::IsEnabled(kImmediatelyHideBrowserControlsForTest);
-      web_contents_->UpdateBrowserControlsState(
-          cc::BrowserControlsState::kBoth, cc::BrowserControlsState::kShown,
-          animate);
-      // This falls through to call UpdateBrowserControlsState() again to
-      // ensure the constraint is set back to BOTH.
-    }
-    UpdateBrowserControlsState(
-        cc::BrowserControlsState::kBoth,
-        current_browser_controls_visibility_constraint_ !=
-            cc::BrowserControlsState::kHidden);
-  }
-}
-
-#endif
-
 void TabImpl::DidChangeVisibleSecurityState() {
   UpdateBrowserVisibleSecurityStateIfNecessary();
 }
@@ -1364,13 +1158,6 @@ void TabImpl::UpdateRendererPrefs(bool should_sync_prefs) {
 }
 
 #if BUILDFLAG(IS_ANDROID)
-void TabImpl::SetBrowserControlsConstraint(
-    ControlsVisibilityReason reason,
-    cc::BrowserControlsState constraint) {
-  Java_TabImpl_setBrowserControlsVisibilityConstraint(
-      base::android::AttachCurrentThread(), java_impl_,
-      static_cast<int>(reason), static_cast<int>(constraint));
-}
 
 void TabImpl::InitializeAutofillForTests() {
   InitializeAutofillDriver();
@@ -1383,17 +1170,6 @@ void TabImpl::InitializeAutofillDriver() {
   DCHECK(autofill::AutofillProvider::FromWebContents(web_contents));
 
   AutofillClientImpl::CreateForWebContents(web_contents);
-
-  autofill::AutofillManager::AutofillDownloadManagerState
-      enable_autofill_download_manager =
-          autofill::AutofillProvider::is_download_manager_disabled_for_testing()
-              ? autofill::AutofillManager::DISABLE_AUTOFILL_DOWNLOAD_MANAGER
-              : autofill::AutofillManager::ENABLE_AUTOFILL_DOWNLOAD_MANAGER;
-
-  autofill::ContentAutofillDriverFactory::CreateForWebContentsAndDelegate(
-      web_contents, AutofillClientImpl::FromWebContents(web_contents),
-      i18n::GetApplicationLocale(), enable_autofill_download_manager,
-      base::BindRepeating(&autofill::AndroidAutofillManager::Create));
 }
 
 #endif  // BUILDFLAG(IS_ANDROID)
@@ -1430,11 +1206,6 @@ void TabImpl::EnterFullscreenImpl() {
                      weak_ptr_factory_for_fullscreen_exit_.GetWeakPtr());
   base::AutoReset<bool> reset(&processing_enter_fullscreen_, true);
   fullscreen_delegate_->EnterFullscreen(std::move(exit_fullscreen_closure));
-#if BUILDFLAG(IS_ANDROID)
-  // Make sure browser controls cannot show when the tab is fullscreen.
-  SetBrowserControlsConstraint(ControlsVisibilityReason::kFullscreen,
-                               cc::BrowserControlsState::kHidden);
-#endif
 }
 
 }  // namespace weblayer

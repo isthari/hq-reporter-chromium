@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 #include "chrome/test/chromedriver/log_replay/chrome_replay_impl.h"
@@ -13,6 +13,8 @@ ChromeReplayImpl::ChromeReplayImpl(
     std::unique_ptr<DevToolsClient> websocket_client,
     std::vector<std::unique_ptr<DevToolsEventListener>>
         devtools_event_listeners,
+    absl::optional<MobileDevice> mobile_device,
+    SyncWebSocketFactory socket_factory,
     std::string page_load_strategy,
     base::Process process,
     const base::CommandLine& command,
@@ -22,6 +24,8 @@ ChromeReplayImpl::ChromeReplayImpl(
     : ChromeDesktopImpl(std::move(http_client),
                         std::move(websocket_client),
                         std::move(devtools_event_listeners),
+                        std::move(mobile_device),
+                        std::move(socket_factory),
                         page_load_strategy,
                         std::move(process),
                         command,
@@ -29,7 +33,7 @@ ChromeReplayImpl::ChromeReplayImpl(
                         extension_dir,
                         network_emulation_enabled) {}
 
-ChromeReplayImpl::~ChromeReplayImpl() {}
+ChromeReplayImpl::~ChromeReplayImpl() = default;
 
 Status ChromeReplayImpl::QuitImpl() {
   return Status(kOk);

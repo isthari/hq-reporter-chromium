@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,15 +7,14 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/read_only_shared_memory_region.h"
 #include "base/memory/shared_memory_mapping.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/test/test_switches.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "cc/raster/raster_buffer_provider.h"
 #include "cc/test/fake_output_surface_client.h"
@@ -29,10 +28,8 @@
 #include "components/viz/common/quads/compositor_frame_metadata.h"
 #include "components/viz/common/resources/bitmap_allocation.h"
 #include "components/viz/common/resources/shared_bitmap.h"
-#include "components/viz/service/display/display_resource_provider_gl.h"
 #include "components/viz/service/display/display_resource_provider_skia.h"
 #include "components/viz/service/display/display_resource_provider_software.h"
-#include "components/viz/service/display/gl_renderer.h"
 #include "components/viz/service/display/output_surface_client.h"
 #include "components/viz/service/display/software_output_device.h"
 #include "components/viz/service/display/software_renderer.h"
@@ -69,8 +66,8 @@ PixelTest::PixelTest(GraphicsBackend backend)
   if (backend == kSkiaVulkan) {
     scoped_feature_list_.InitAndEnableFeature(features::kVulkan);
     init_vulkan = true;
-  } else if (backend == kSkiaDawn) {
-    scoped_feature_list_.InitAndEnableFeature(features::kSkiaDawn);
+  } else if (backend == kSkiaGraphite) {
+    scoped_feature_list_.InitAndEnableFeature(features::kSkiaGraphite);
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
     init_vulkan = true;
 #elif BUILDFLAG(IS_WIN)
@@ -131,7 +128,6 @@ bool PixelTest::RunPixelTestWithReadbackTargetAndArea(
         disable_picture_quad_image_filtering_);
   }
 
-  renderer_->DecideRenderPassAllocationsForFrame(*pass_list);
   float device_scale_factor = 1.f;
   renderer_->DrawFrame(pass_list, device_scale_factor, device_viewport_size_,
                        display_color_spaces_,
@@ -142,8 +138,6 @@ bool PixelTest::RunPixelTestWithReadbackTargetAndArea(
   renderer_->SwapBuffersSkipped();
 
   // Wait for the readback to complete.
-  if (output_surface_->context_provider())
-    output_surface_->context_provider()->ContextGL()->Finish();
   run_loop.Run();
 
   return PixelsMatchReference(ref_file, comparator);
@@ -168,7 +162,6 @@ bool PixelTest::RunPixelTest(viz::AggregatedRenderPassList* pass_list,
         disable_picture_quad_image_filtering_);
   }
 
-  renderer_->DecideRenderPassAllocationsForFrame(*pass_list);
   float device_scale_factor = 1.f;
   renderer_->DrawFrame(pass_list, device_scale_factor, device_viewport_size_,
                        display_color_spaces_,
@@ -179,8 +172,6 @@ bool PixelTest::RunPixelTest(viz::AggregatedRenderPassList* pass_list,
   renderer_->SwapBuffersSkipped();
 
   // Wait for the readback to complete.
-  if (output_surface_->context_provider())
-    output_surface_->context_provider()->ContextGL()->Finish();
   run_loop.Run();
 
   // Need to wrap |ref_pixels| in a SkBitmap.
@@ -236,8 +227,8 @@ bool PixelTest::PixelsMatchReference(const base::FilePath& ref_file,
 base::WritableSharedMemoryMapping PixelTest::AllocateSharedBitmapMemory(
     const viz::SharedBitmapId& id,
     const gfx::Size& size) {
-  base::MappedReadOnlyRegion shm =
-      viz::bitmap_allocation::AllocateSharedBitmap(size, viz::RGBA_8888);
+  base::MappedReadOnlyRegion shm = viz::bitmap_allocation::AllocateSharedBitmap(
+      size, viz::SinglePlaneFormat::kRGBA_8888);
   this->shared_bitmap_manager_->ChildAllocatedSharedBitmap(shm.region.Map(),
                                                            id);
   return std::move(shm.mapping);
@@ -254,44 +245,9 @@ viz::ResourceId PixelTest::AllocateAndFillSoftwareResource(
   source.readPixels(info, mapping.memory(), info.minRowBytes(), 0, 0);
 
   return child_resource_provider_->ImportResource(
-      viz::TransferableResource::MakeSoftware(shared_bitmap_id, size,
-                                              viz::RGBA_8888),
+      viz::TransferableResource::MakeSoftware(
+          shared_bitmap_id, size, viz::SinglePlaneFormat::kRGBA_8888),
       base::DoNothing());
-}
-
-void PixelTest::SetUpGLWithoutRenderer(
-    gfx::SurfaceOrigin output_surface_origin) {
-  enable_pixel_output_ = std::make_unique<gl::DisableNullDrawGLBindings>();
-
-  auto context_provider =
-      base::MakeRefCounted<viz::TestInProcessContextProvider>(
-          /*enable_gles2_interface=*/true, /*support_locking=*/false,
-          viz::RasterInterfaceType::None);
-  gpu::ContextResult result = context_provider->BindToCurrentThread();
-  DCHECK_EQ(result, gpu::ContextResult::kSuccess);
-  output_surface_ = std::make_unique<PixelTestOutputSurface>(
-      std::move(context_provider), output_surface_origin);
-  output_surface_->BindToClient(output_surface_client_.get());
-
-  child_context_provider_ =
-      base::MakeRefCounted<viz::TestInProcessContextProvider>(
-          /*enable_gles2_interface=*/true, /*support_locking=*/false,
-          viz::RasterInterfaceType::None);
-  result = child_context_provider_->BindToCurrentThread();
-  DCHECK_EQ(result, gpu::ContextResult::kSuccess);
-  child_resource_provider_ = std::make_unique<viz::ClientResourceProvider>();
-}
-
-void PixelTest::SetUpGLRenderer(gfx::SurfaceOrigin output_surface_origin) {
-  SetUpGLWithoutRenderer(output_surface_origin);
-  auto resource_provider = std::make_unique<viz::DisplayResourceProviderGL>(
-      output_surface_->context_provider());
-  renderer_ = std::make_unique<viz::GLRenderer>(
-      &renderer_settings_, &debug_settings_, output_surface_.get(),
-      resource_provider.get(), nullptr, base::ThreadTaskRunnerHandle::Get());
-  resource_provider_ = std::move(resource_provider);
-  renderer_->Initialize();
-  renderer_->SetVisible(true);
 }
 
 void PixelTest::SetUpSkiaRenderer(gfx::SurfaceOrigin output_surface_origin) {
@@ -321,9 +277,8 @@ void PixelTest::SetUpSkiaRenderer(gfx::SurfaceOrigin output_surface_origin) {
   // Set up the client side context provider, etc
   child_context_provider_ =
       base::MakeRefCounted<viz::TestInProcessContextProvider>(
-          /*enable_gles2_interface=*/true, /*support_locking=*/false,
-          viz::RasterInterfaceType::None);
-  gpu::ContextResult result = child_context_provider_->BindToCurrentThread();
+          viz::TestContextType::kGLES2, /*support_locking=*/false);
+  gpu::ContextResult result = child_context_provider_->BindToCurrentSequence();
   DCHECK_EQ(result, gpu::ContextResult::kSuccess);
   child_resource_provider_ = std::make_unique<viz::ClientResourceProvider>();
 }
@@ -335,14 +290,10 @@ void PixelTest::TearDown() {
   child_context_provider_.reset();
 
   // Tear down the skia renderer.
+  software_renderer_ = nullptr;
   renderer_.reset();
   resource_provider_.reset();
   output_surface_.reset();
-}
-
-void PixelTest::EnableExternalStencilTest() {
-  static_cast<PixelTestOutputSurface*>(output_surface_.get())
-      ->set_has_external_stencil_test(true);
 }
 
 void PixelTest::SetUpSoftwareRenderer() {

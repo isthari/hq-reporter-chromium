@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,8 @@
 #include "base/containers/flat_map.h"
 #include "base/files/file_path.h"
 #include "base/memory/raw_ptr.h"
+#include "base/observer_list.h"
+#include "base/time/time.h"
 #include "chrome/browser/enterprise/connectors/common.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/safe_browsing/cloud_content_scanning/binary_upload_service.h"
@@ -41,8 +43,8 @@ class DeepScanningRequest : public download::DownloadItem::Observer {
     TRIGGER_UNKNOWN = 0,
 
     // The trigger is the prompt in the download shelf, shown for Advanced
-    // Protection users.
-    TRIGGER_APP_PROMPT = 1,
+    // Protection or Enhanced Protection users.
+    TRIGGER_CONSUMER_PROMPT = 1,
 
     // The trigger is the enterprise policy.
     TRIGGER_POLICY = 2,
@@ -180,6 +182,9 @@ class DeepScanningRequest : public download::DownloadItem::Observer {
   // conjunction with the corresponding policy value.
   bool ReportOnlyScan();
 
+  // Acknowledge the request's handling to the service provider.
+  void AcknowledgeRequest(EventResult event_result);
+
   // The download item to scan. This is unowned, and could become nullptr if the
   // download is destroyed.
   raw_ptr<download::DownloadItem> item_;
@@ -245,6 +250,10 @@ class DeepScanningRequest : public download::DownloadItem::Observer {
   // Cached callbacks to report scanning results until the final `event_result_`
   // is known. The callbacks in this list should be called in FinishRequest.
   base::OnceCallbackList<void(EventResult result)> report_callbacks_;
+
+  // The request tokens of all the requests that make up the user action
+  // represented by this ContentAnalysisDelegate instance.
+  std::vector<std::string> request_tokens_;
 
   base::WeakPtrFactory<DeepScanningRequest> weak_ptr_factory_;
 };

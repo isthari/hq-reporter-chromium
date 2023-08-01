@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,7 @@ class Profile;
 
 namespace predictors {
 
-extern const char kSpeculativePreconnectFeatureName[];
-extern const base::Feature kSpeculativePreconnectFeature;
+BASE_DECLARE_FEATURE(kSpeculativePreconnectFeature);
 
 // Returns whether the speculative preconnect feature is enabled.
 bool IsPreconnectFeatureEnabled();
@@ -51,6 +50,9 @@ enum class HintOrigin {
 
   // Triggered by optimization guide.
   OPTIMIZATION_GUIDE,
+
+  // Triggered by bookmark bar.
+  BOOKMARK_BAR,
 };
 
 // Gets the string that can be used to record histograms for the hint origin.

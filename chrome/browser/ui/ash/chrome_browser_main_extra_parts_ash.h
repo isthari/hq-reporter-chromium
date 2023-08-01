@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,15 +8,19 @@
 #include <memory>
 
 #include "chrome/browser/chrome_browser_main_extra_parts.h"
+#include "chrome/browser/ui/ash/in_session_auth_token_provider_impl.h"
 #include "chrome/common/buildflags.h"
 
 namespace ash {
+class ArcWindowWatcher;
+class NetworkPortalNotificationController;
 class NewWindowDelegateProvider;
 class NightLightClient;
+class VideoConferenceTrayController;
 }  // namespace ash
 
-namespace chromeos {
-class NetworkPortalNotificationController;
+namespace game_mode {
+class GameModeController;
 }
 
 namespace policy {
@@ -25,19 +29,19 @@ class DisplaySettingsHandler;
 
 class AccessibilityControllerClient;
 class AmbientClientImpl;
+class AppAccessNotifier;
 class AppListClientImpl;
 class ArcOpenUrlDelegateImpl;
 class AshShellInit;
 class AshWebViewFactoryImpl;
 class CastConfigControllerMediaRouter;
-class DesksTemplatesClient;
+class DesksClient;
 class ImeControllerClientImpl;
 class InSessionAuthDialogClient;
 class LoginScreenClientImpl;
 class MediaClientImpl;
-class MicrophoneMuteNotificationDelegateImpl;
 class MobileDataNotifications;
-class NetworkConnectDelegateChromeOS;
+class NetworkConnectDelegate;
 class NightLightClient;
 class ProjectorAppClientImpl;
 class ProjectorClientImpl;
@@ -84,7 +88,7 @@ class ChromeBrowserMainExtraPartsAsh : public ChromeBrowserMainExtraParts {
   std::unique_ptr<UserProfileLoadedObserver> user_profile_loaded_observer_;
 
   // Initialized in PreProfileInit in all configs before Shell init:
-  std::unique_ptr<NetworkConnectDelegateChromeOS> network_connect_delegate_;
+  std::unique_ptr<NetworkConnectDelegate> network_connect_delegate_;
   std::unique_ptr<CastConfigControllerMediaRouter>
       cast_config_controller_media_router_;
 
@@ -96,9 +100,12 @@ class ChromeBrowserMainExtraPartsAsh : public ChromeBrowserMainExtraParts {
       accessibility_controller_client_;
   std::unique_ptr<AppListClientImpl> app_list_client_;
   std::unique_ptr<ash::NewWindowDelegateProvider> new_window_delegate_provider_;
+  std::unique_ptr<ash::ArcWindowWatcher> arc_window_watcher_;
   std::unique_ptr<ArcOpenUrlDelegateImpl> arc_open_url_delegate_impl_;
   std::unique_ptr<ImeControllerClientImpl> ime_controller_client_;
   std::unique_ptr<InSessionAuthDialogClient> in_session_auth_dialog_client_;
+  std::unique_ptr<ash::InSessionAuthTokenProviderImpl>
+      in_session_auth_token_provider_;
   std::unique_ptr<ScreenOrientationDelegateChromeos>
       screen_orientation_delegate_;
   std::unique_ptr<SessionControllerClientImpl> session_controller_client_;
@@ -107,17 +114,18 @@ class ChromeBrowserMainExtraPartsAsh : public ChromeBrowserMainExtraParts {
   std::unique_ptr<TabletModePageBehavior> tablet_mode_page_behavior_;
   std::unique_ptr<VpnListForwarder> vpn_list_forwarder_;
   std::unique_ptr<WallpaperControllerClientImpl> wallpaper_controller_client_;
-  std::unique_ptr<ProjectorAppClientImpl> projector_app_client_;
   std::unique_ptr<ProjectorClientImpl> projector_client_;
+  std::unique_ptr<ProjectorAppClientImpl> projector_app_client_;
   std::unique_ptr<QuickAnswersController> quick_answers_controller_;
-  // TODO(stevenjb): Move NetworkPortalNotificationController to c/b/ui/ash and
-  // elim chromeos:: namespace. https://crbug.com/798569.
-  std::unique_ptr<chromeos::NetworkPortalNotificationController>
+  std::unique_ptr<game_mode::GameModeController> game_mode_controller_;
+  std::unique_ptr<ash::NetworkPortalNotificationController>
       network_portal_notification_controller_;
+  std::unique_ptr<ash::VideoConferenceTrayController>
+      video_conference_tray_controller_;
 
   std::unique_ptr<internal::ChromeShelfControllerInitializer>
       chrome_shelf_controller_initializer_;
-  std::unique_ptr<DesksTemplatesClient> desks_templates_client_;
+  std::unique_ptr<DesksClient> desks_client_;
 
 #if BUILDFLAG(ENABLE_WAYLAND_SERVER)
   std::unique_ptr<ExoParts> exo_parts_;
@@ -126,8 +134,7 @@ class ChromeBrowserMainExtraPartsAsh : public ChromeBrowserMainExtraParts {
   // Initialized in PostProfileInit in all configs:
   std::unique_ptr<LoginScreenClientImpl> login_screen_client_;
   std::unique_ptr<MediaClientImpl> media_client_;
-  std::unique_ptr<MicrophoneMuteNotificationDelegateImpl>
-      microphone_mute_notification_delegate_;
+  std::unique_ptr<AppAccessNotifier> app_access_notifier_;
   std::unique_ptr<policy::DisplaySettingsHandler> display_settings_handler_;
   std::unique_ptr<AshWebViewFactoryImpl> ash_web_view_factory_;
 

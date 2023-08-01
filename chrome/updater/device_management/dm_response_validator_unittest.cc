@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,11 @@
 #include <memory>
 #include <utility>
 
-#include "chrome/updater/constants.h"
 #include "chrome/updater/device_management/dm_cached_policy_info.h"
 #include "chrome/updater/device_management/dm_message.h"
 #include "chrome/updater/device_management/dm_policy_builder_for_testing.h"
 #include "chrome/updater/protos/omaha_settings.pb.h"
-#include "chrome/updater/unittest_util.h"
+#include "chrome/updater/util/unittest_util.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -34,7 +33,7 @@ void DMResponseValidatorTests::GetCachedInfoWithPublicKey(
     CachedPolicyInfo& cached_info) const {
   std::unique_ptr<::enterprise_management::DeviceManagementResponse>
       dm_response = GetDefaultTestingPolicyFetchDMResponse(
-          true /* first_request */, false /* rotate_to_new_key */,
+          /*first_request=*/true, /*rotate_to_new_key=*/false,
           DMPolicyBuilderForTesting::SigningOption::kSignNormally);
 
   EXPECT_EQ(dm_response->policy_response().responses_size(), 1);
@@ -61,7 +60,7 @@ DMResponseValidatorTests::GetDMResponseWithOmahaPolicy(
 TEST_F(DMResponseValidatorTests, ValidationOKWithoutPublicKey) {
   std::unique_ptr<::enterprise_management::DeviceManagementResponse>
       dm_response = GetDefaultTestingPolicyFetchDMResponse(
-          true /* first_request */, false /* rotate_to_new_key */,
+          /*first_request=*/true, /*rotate_to_new_key=*/false,
           DMPolicyBuilderForTesting::SigningOption::kSignNormally);
 
   EXPECT_EQ(dm_response->policy_response().responses_size(), 1);
@@ -78,17 +77,19 @@ TEST_F(DMResponseValidatorTests, ValidationOKWithoutPublicKey) {
 }
 
 TEST_F(DMResponseValidatorTests, ValidationOKWithPublicKey) {
+  // Cached info should be created before parsing next policy response.
+  CachedPolicyInfo cached_info;
+  GetCachedInfoWithPublicKey(cached_info);
+
   std::unique_ptr<::enterprise_management::DeviceManagementResponse>
       dm_response = GetDefaultTestingPolicyFetchDMResponse(
-          false /* first_request */, false /* rotate_to_new_key */,
+          /*first_request=*/false, /*rotate_to_new_key=*/false,
           DMPolicyBuilderForTesting::SigningOption::kSignNormally);
 
   EXPECT_EQ(dm_response->policy_response().responses_size(), 1);
   const ::enterprise_management::PolicyFetchResponse& response =
       dm_response->policy_response().responses(0);
 
-  CachedPolicyInfo cached_info;
-  GetCachedInfoWithPublicKey(cached_info);
   DMResponseValidator validator(cached_info, "test-dm-token", "test-device-id");
   PolicyValidationResult validation_result;
   EXPECT_TRUE(validator.ValidatePolicyResponse(response, validation_result));
@@ -100,7 +101,7 @@ TEST_F(DMResponseValidatorTests, ValidationOKWithPublicKey) {
 TEST_F(DMResponseValidatorTests, UnexpectedDMToken) {
   std::unique_ptr<::enterprise_management::DeviceManagementResponse>
       dm_response = GetDefaultTestingPolicyFetchDMResponse(
-          true /* first_request */, false /* rotate_to_new_key */,
+          /*first_request=*/true, /*rotate_to_new_key=*/false,
           DMPolicyBuilderForTesting::SigningOption::kSignNormally);
 
   EXPECT_EQ(dm_response->policy_response().responses_size(), 1);
@@ -120,7 +121,7 @@ TEST_F(DMResponseValidatorTests, UnexpectedDMToken) {
 TEST_F(DMResponseValidatorTests, UnexpectedDeviceID) {
   std::unique_ptr<::enterprise_management::DeviceManagementResponse>
       dm_response = GetDefaultTestingPolicyFetchDMResponse(
-          true /* first_request */, false /* rotate_to_new_key */,
+          /*first_request=*/true, /*rotate_to_new_key=*/false,
           DMPolicyBuilderForTesting::SigningOption::kSignNormally);
 
   EXPECT_EQ(dm_response->policy_response().responses_size(), 1);
@@ -142,7 +143,7 @@ TEST_F(DMResponseValidatorTests, NoCachedPublicKey) {
   // request.
   std::unique_ptr<::enterprise_management::DeviceManagementResponse>
       dm_response = GetDefaultTestingPolicyFetchDMResponse(
-          false /* first_request */, false /* rotate_to_new_key */,
+          /*first_request=*/false, /*rotate_to_new_key=*/false,
           DMPolicyBuilderForTesting::SigningOption::kSignNormally);
 
   EXPECT_EQ(dm_response->policy_response().responses_size(), 1);
@@ -160,18 +161,20 @@ TEST_F(DMResponseValidatorTests, NoCachedPublicKey) {
 }
 
 TEST_F(DMResponseValidatorTests, BadSignedPublicKey) {
+  // Cached info should be created before parsing next policy response.
+  CachedPolicyInfo cached_info;
+  GetCachedInfoWithPublicKey(cached_info);
+
   // Validation should fail if the public key is not signed properly.
   std::unique_ptr<::enterprise_management::DeviceManagementResponse>
       dm_response = GetDefaultTestingPolicyFetchDMResponse(
-          true /* first_request */, false /* rotate_to_new_key */,
+          /*first_request=*/true, /*rotate_to_new_key=*/false,
           DMPolicyBuilderForTesting::SigningOption::kSignNormally);
 
   EXPECT_EQ(dm_response->policy_response().responses_size(), 1);
   const ::enterprise_management::PolicyFetchResponse& response =
       dm_response->policy_response().responses(0);
 
-  CachedPolicyInfo cached_info;
-  GetCachedInfoWithPublicKey(cached_info);
   DMResponseValidator validator(cached_info, "test-dm-token", "test-device-id");
   PolicyValidationResult validation_result;
   EXPECT_FALSE(validator.ValidatePolicyResponse(response, validation_result));
@@ -186,7 +189,7 @@ TEST_F(DMResponseValidatorTests, BadSignedPolicyData) {
   // Validation should fail if policy data is not signed properly.
   std::unique_ptr<::enterprise_management::DeviceManagementResponse>
       dm_response = GetDefaultTestingPolicyFetchDMResponse(
-          true /* first_request */, false /* rotate_to_new_key */,
+          /*first_request=*/true, /*rotate_to_new_key=*/false,
           DMPolicyBuilderForTesting::SigningOption::kTamperDataSignature);
 
   EXPECT_EQ(dm_response->policy_response().responses_size(), 1);
@@ -213,11 +216,11 @@ TEST_F(DMResponseValidatorTests, OmahaPolicyWithBadValues) {
   omaha_settings.set_proxy_mode("weird_proxy_mode");
   omaha_settings.set_proxy_server("unexpected_proxy");
   omaha_settings.set_proxy_pac_url("foo.c/proxy.pa");
-  omaha_settings.set_install_default(edm::INSTALL_DISABLED);
+  omaha_settings.set_install_default(edm::INSTALL_DEFAULT_DISABLED);
   omaha_settings.set_update_default(edm::MANUAL_UPDATES_ONLY);
 
   edm::ApplicationSettings app;
-  app.set_app_guid(kChromeAppId);
+  app.set_app_guid(test::kChromeAppId);
 
   app.set_install(edm::INSTALL_DISABLED);
   app.set_update(edm::AUTOMATIC_UPDATES_ONLY);

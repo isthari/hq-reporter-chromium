@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,14 +8,14 @@
 #import <Foundation/Foundation.h>
 #import "base/ios/block_types.h"
 #import "components/signin/public/base/signin_metrics.h"
-#include "components/sync/driver/sync_service.h"
+#include "components/sync/service/sync_service.h"
 #import "ios/chrome/browser/ui/authentication/signin/signin_constants.h"
 
 @class AuthenticationFlow;
 class AuthenticationService;
 class ChromeAccountManagerService;
-@class ChromeIdentity;
 class SyncSetupService;
+@protocol SystemIdentity;
 
 namespace consent_auditor {
 class ConsentAuditor;
@@ -32,7 +32,7 @@ class UnifiedConsentService;
 // Delegate that handles interactions with unified consent screen.
 @protocol UserSigninMediatorDelegate
 
-// Returns the state of the |settingsLinkWasTapped| parameter in
+// Returns the state of the `settingsLinkWasTapped` parameter in
 // UnifiedConsentCoordinator.
 - (BOOL)userSigninMediatorGetSettingsLinkWasTapped;
 
@@ -53,7 +53,7 @@ class UnifiedConsentService;
 // User's sign-in state before starting the coordinator.
 @property(nonatomic, assign, readonly) IdentitySigninState signinStateOnStart;
 // Users's sign-in identity before starting the coordinator.
-@property(nonatomic, strong, readonly) ChromeIdentity* signinIdentityOnStart;
+@property(nonatomic, strong, readonly) id<SystemIdentity> signinIdentityOnStart;
 
 @end
 
@@ -83,13 +83,13 @@ class UnifiedConsentService;
 // Enters the authentication state following identity selection. If there is an
 // error transitions to the identity selection state, otherwise enters the final
 // authentication completed state.
-- (void)authenticateWithIdentity:(ChromeIdentity*)identity
+- (void)authenticateWithIdentity:(id<SystemIdentity>)identity
               authenticationFlow:(AuthenticationFlow*)authenticationFlow;
 
 // Reverts the sign-in operation.
 - (void)cancelSignin;
 
-// Cancels and dismisses with animation if |animated| the authentication flow
+// Cancels and dismisses with animation if `animated` the authentication flow
 // when sign-in is in progress.
 - (void)cancelAndDismissAuthenticationFlowAnimated:(BOOL)animated
                                         completion:(ProceduralBlock)completion;

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,10 @@ class RenderFrameHost;
 // RenderFrameHost which is inactive (see RenderFrameHost::IsActive) and
 // test that they handle it correctly.
 void LeaveInPendingDeletionState(RenderFrameHost* rfh);
+
+// Runs a check to determine whether the runtime-enabled feature, third-party
+// storage partitioning, is disabled in the current frame.
+bool IsDisableThirdPartyStoragePartitioningEnabled(RenderFrameHost* rfh);
 
 }  // namespace content
 

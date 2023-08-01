@@ -1,8 +1,10 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.components.browser_ui.banners;
+
+import static org.chromium.cc.mojom.RootScrollOffsetUpdateFrequency.ALL_UPDATES;
 
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
@@ -18,10 +20,11 @@ import android.view.animation.Interpolator;
 import android.widget.FrameLayout;
 
 import androidx.annotation.IntDef;
+import androidx.annotation.Nullable;
 
 import org.chromium.base.MathUtils;
 import org.chromium.content_public.browser.GestureListenerManager;
-import org.chromium.content_public.browser.GestureStateListenerWithScroll;
+import org.chromium.content_public.browser.GestureStateListener;
 import org.chromium.content_public.browser.WebContents;
 
 import java.lang.annotation.Retention;
@@ -58,7 +61,8 @@ public abstract class SwipableOverlayView extends FrameLayout {
     private static final long ANIMATION_DURATION_MS = 250;
 
     /** Detects when the user is dragging the WebContents. */
-    private final GestureStateListenerWithScroll mGestureStateListener;
+    @Nullable
+    protected final GestureStateListener mGestureStateListener;
 
     /** Listens for changes in the layout. */
     private final View.OnLayoutChangeListener mLayoutChangeListener;
@@ -93,8 +97,19 @@ public abstract class SwipableOverlayView extends FrameLayout {
      * @param attrs Attributes from the XML layout inflation.
      */
     public SwipableOverlayView(Context context, AttributeSet attrs) {
+        this(context, attrs, true);
+    }
+
+    /**
+     * Creates a SwipableOverlayView.
+     * @param context Context for acquiring resources.
+     * @param attrs Attributes from the XML layout inflation.
+     * @param hideOnScroll Whether this view should observe user's gesture and then auto-hide when
+     *                     page is scrolled down.
+     */
+    public SwipableOverlayView(Context context, AttributeSet attrs, boolean hideOnScroll) {
         super(context, attrs);
-        mGestureStateListener = createGestureStateListener();
+        mGestureStateListener = hideOnScroll ? createGestureStateListener() : null;
         mGestureState = Gesture.NONE;
         mLayoutChangeListener = createLayoutChangeListener();
         mInterpolator = new DecelerateInterpolator(1.0f);
@@ -115,12 +130,17 @@ public abstract class SwipableOverlayView extends FrameLayout {
         mWebContents = webContents;
         // See comment in onLayout() as to why the listener is only attached if mTotalHeight is > 0.
         if (mWebContents != null && mTotalHeight > 0) {
-            GestureListenerManager.fromWebContents(mWebContents).addListener(mGestureStateListener);
+            GestureListenerManager.fromWebContents(mWebContents)
+                    .addListener(mGestureStateListener, ALL_UPDATES);
         }
     }
 
     public WebContents getWebContents() {
         return mWebContents;
+    }
+
+    protected int getTotalHeight() {
+        return mTotalHeight;
     }
 
     protected void addToParentView(ViewGroup parentView) {
@@ -202,10 +222,10 @@ public abstract class SwipableOverlayView extends FrameLayout {
 
         // Adding a listener to GestureListenerManager results in extra IPCs on every frame, which
         // is very costly. Only attach the listener if needed.
-        if (mWebContents != null) {
+        if (mWebContents != null && mGestureStateListener != null) {
             if (mTotalHeight > 0) {
                 GestureListenerManager.fromWebContents(mWebContents)
-                        .addListener(mGestureStateListener);
+                        .addListener(mGestureStateListener, ALL_UPDATES);
             } else {
                 GestureListenerManager.fromWebContents(mWebContents)
                         .removeListener(mGestureStateListener);
@@ -218,10 +238,10 @@ public abstract class SwipableOverlayView extends FrameLayout {
     /**
      * Creates a listener than monitors the WebContents for scrolls and flings.
      * The listener updates the location of this View to account for the user's gestures.
-     * @return GestureStateListenerWithScroll to send to the WebContents.
+     * @return GestureStateListener to send to the WebContents.
      */
-    private GestureStateListenerWithScroll createGestureStateListener() {
-        return new GestureStateListenerWithScroll() {
+    private GestureStateListener createGestureStateListener() {
+        return new GestureStateListener() {
             /** Tracks the previous event's scroll offset to determine if a scroll is up or down. */
             private int mLastScrollOffsetY;
 
@@ -232,7 +252,8 @@ public abstract class SwipableOverlayView extends FrameLayout {
             private float mInitialExtentY;
 
             @Override
-            public void onFlingStartGesture(int scrollOffsetY, int scrollExtentY) {
+            public void onFlingStartGesture(
+                    int scrollOffsetY, int scrollExtentY, boolean isDirectionUp) {
                 if (!isAllowedToAutoHide() || !cancelCurrentAnimation()) return;
                 resetInternalScrollState(scrollOffsetY, scrollExtentY);
                 mGestureState = Gesture.FLINGING;
@@ -260,7 +281,8 @@ public abstract class SwipableOverlayView extends FrameLayout {
             }
 
             @Override
-            public void onScrollStarted(int scrollOffsetY, int scrollExtentY) {
+            public void onScrollStarted(
+                    int scrollOffsetY, int scrollExtentY, boolean isDirectionUp) {
                 if (!isAllowedToAutoHide() || !cancelCurrentAnimation()) return;
                 resetInternalScrollState(scrollOffsetY, scrollExtentY);
                 mLastScrollOffsetY = scrollOffsetY;

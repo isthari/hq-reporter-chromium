@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/functional/callback.h"
 #include "components/omnibox/browser/autocomplete_controller.h"
 #include "components/omnibox/browser/autocomplete_scheme_classifier.h"
 #include "components/omnibox/browser/mock_autocomplete_provider_client.h"
@@ -58,7 +59,7 @@ bool TestOmniboxClient::IsPasteAndGoEnabled() const {
   return true;
 }
 
-const SessionID& TestOmniboxClient::GetSessionID() const {
+SessionID TestOmniboxClient::GetSessionID() const {
   return session_id_;
 }
 
@@ -69,6 +70,11 @@ void TestOmniboxClient::SetBookmarkModel(
 
 bookmarks::BookmarkModel* TestOmniboxClient::GetBookmarkModel() {
   return bookmark_model_;
+}
+
+AutocompleteControllerEmitter*
+TestOmniboxClient::GetAutocompleteControllerEmitter() {
+  return nullptr;
 }
 
 TemplateURLService* TestOmniboxClient::GetTemplateURLService() {
@@ -91,6 +97,10 @@ bool TestOmniboxClient::ShouldDefaultTypedNavigationsToHttps() const {
 
 int TestOmniboxClient::GetHttpsPortForTesting() const {
   return 0;
+}
+
+bool TestOmniboxClient::IsUsingFakeHttpsForHttpsUpgradeTesting() const {
+  return false;
 }
 
 gfx::Image TestOmniboxClient::GetSizedIcon(

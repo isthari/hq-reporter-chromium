@@ -30,9 +30,12 @@
 #include <utility>
 
 #include "base/atomic_sequence_num.h"
+#include "base/feature_list.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/common/indexeddb/web_idb_types.h"
+#include "third_party/blink/public/mojom/frame/lifecycle.mojom-blink.h"
 #include "third_party/blink/public/mojom/indexeddb/indexeddb.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/serialization/serialized_script_value.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_union_string_stringsequence.h"
@@ -40,17 +43,18 @@
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/dom/events/event_queue.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/modules/indexed_db_names.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_any.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_event_dispatcher.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_index.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_key_path.h"
-#include "third_party/blink/renderer/modules/indexeddb/idb_tracing.h"
 #include "third_party/blink/renderer/modules/indexeddb/idb_version_change_event.h"
 #include "third_party/blink/renderer/modules/indexeddb/web_idb_transaction.h"
 #include "third_party/blink/renderer/platform/bindings/exception_code.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+#include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 
@@ -97,18 +101,20 @@ IDBDatabase::IDBDatabase(
     mojo::PendingAssociatedReceiver<mojom::blink::IDBDatabaseCallbacks>
         callbacks_receiver,
     mojo::PendingRemote<mojom::blink::ObservedFeature> connection_lifetime)
-    : ExecutionContextLifecycleObserver(context),
+    : ActiveScriptWrappable<IDBDatabase>({}),
+      ExecutionContextLifecycleObserver(context),
       backend_(std::move(backend)),
       connection_lifetime_(std::move(connection_lifetime)),
       event_queue_(
           MakeGarbageCollected<EventQueue>(context, TaskType::kDatabaseAccess)),
-      callbacks_receiver_(this, context),
-      feature_handle_for_scheduler_(
-          context
-              ? context->GetScheduler()->RegisterFeature(
-                    SchedulingPolicy::Feature::kIndexedDBConnection,
-                    {SchedulingPolicy::DisableBackForwardCache()})
-              : FrameOrWorkerScheduler::SchedulingAffectingFeatureHandle()) {
+      callbacks_receiver_(this, context) {
+  if (!base::FeatureList::IsEnabled(
+          features::kAllowPageWithIDBConnectionInBFCache) &&
+      context) {
+    feature_handle_for_scheduler_ = context->GetScheduler()->RegisterFeature(
+        SchedulingPolicy::Feature::kIndexedDBConnection,
+        {SchedulingPolicy::DisableBackForwardCache()});
+  }
   callbacks_receiver_.Bind(std::move(callbacks_receiver),
                            context->GetTaskRunner(TaskType::kDatabaseAccess));
 }
@@ -165,7 +171,7 @@ void IDBDatabase::TransactionFinished(const IDBTransaction* transaction) {
     version_change_transaction_ = nullptr;
   }
 
-  if (close_pending_ && transactions_.IsEmpty())
+  if (close_pending_ && transactions_.empty())
     CloseConnection();
 }
 
@@ -177,7 +183,7 @@ void IDBDatabase::ForcedClose() {
 }
 
 void IDBDatabase::VersionChange(int64_t old_version, int64_t new_version) {
-  IDB_TRACE("IDBDatabase::onVersionChange");
+  TRACE_EVENT0("IndexedDB", "IDBDatabase::onVersionChange");
   if (!GetExecutionContext())
     return;
 
@@ -230,7 +236,7 @@ IDBObjectStore* IDBDatabase::createObjectStore(
     const IDBKeyPath& key_path,
     bool auto_increment,
     ExceptionState& exception_state) {
-  IDB_TRACE("IDBDatabase::createObjectStore");
+  TRACE_EVENT0("IndexedDB", "IDBDatabase::createObjectStore");
 
   if (!version_change_transaction_) {
     exception_state.ThrowDOMException(
@@ -260,7 +266,7 @@ IDBObjectStore* IDBDatabase::createObjectStore(
   }
 
   if (auto_increment && ((key_path.GetType() == mojom::IDBKeyPathType::String &&
-                          key_path.GetString().IsEmpty()) ||
+                          key_path.GetString().empty()) ||
                          key_path.GetType() == mojom::IDBKeyPathType::Array)) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kInvalidAccessError,
@@ -295,7 +301,7 @@ IDBObjectStore* IDBDatabase::createObjectStore(
 
 void IDBDatabase::deleteObjectStore(const String& name,
                                     ExceptionState& exception_state) {
-  IDB_TRACE("IDBDatabase::deleteObjectStore");
+  TRACE_EVENT0("IndexedDB", "IDBDatabase::deleteObjectStore");
   if (!version_change_transaction_) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kInvalidStateError,
@@ -335,7 +341,7 @@ IDBTransaction* IDBDatabase::transaction(
     const String& mode_string,
     const IDBTransactionOptions* options,
     ExceptionState& exception_state) {
-  IDB_TRACE("IDBDatabase::transaction");
+  TRACE_EVENT0("IndexedDB", "IDBDatabase::transaction");
 
   HashSet<String> scope;
   DCHECK(store_names);
@@ -368,7 +374,7 @@ IDBTransaction* IDBDatabase::transaction(
     return nullptr;
   }
 
-  if (scope.IsEmpty()) {
+  if (scope.empty()) {
     exception_state.ThrowDOMException(DOMExceptionCode::kInvalidAccessError,
                                       "The storeNames parameter was empty.");
     return nullptr;
@@ -421,7 +427,7 @@ IDBTransaction* IDBDatabase::transaction(
 }
 
 void IDBDatabase::close() {
-  IDB_TRACE("IDBDatabase::close");
+  TRACE_EVENT0("IndexedDB", "IDBDatabase::close");
   if (close_pending_)
     return;
 
@@ -429,13 +435,13 @@ void IDBDatabase::close() {
   close_pending_ = true;
   feature_handle_for_scheduler_.reset();
 
-  if (transactions_.IsEmpty())
+  if (transactions_.empty())
     CloseConnection();
 }
 
 void IDBDatabase::CloseConnection() {
   DCHECK(close_pending_);
-  DCHECK(transactions_.IsEmpty());
+  DCHECK(transactions_.empty());
 
   if (backend_) {
     backend_->Close();
@@ -462,7 +468,7 @@ void IDBDatabase::EnqueueEvent(Event* event) {
 }
 
 DispatchEventResult IDBDatabase::DispatchEventInternal(Event& event) {
-  IDB_TRACE("IDBDatabase::dispatchEvent");
+  TRACE_EVENT0("IndexedDB", "IDBDatabase::dispatchEvent");
 
   event.SetTarget(this);
 
@@ -552,6 +558,14 @@ void IDBDatabase::ContextDestroyed() {
   }
 
   connection_lifetime_.reset();
+}
+
+void IDBDatabase::ContextEnteredBackForwardCache() {
+  if (features::IsAllowPageWithIDBConnectionAndTransactionInBFCacheEnabled()) {
+    if (backend_) {
+      backend_->DidBecomeInactive();
+    }
+  }
 }
 
 const AtomicString& IDBDatabase::InterfaceName() const {

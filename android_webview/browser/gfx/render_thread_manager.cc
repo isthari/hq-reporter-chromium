@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,14 +9,15 @@
 
 #include "android_webview/browser/gfx/compositor_frame_producer.h"
 #include "android_webview/browser/gfx/gpu_service_webview.h"
-#include "android_webview/browser/gfx/hardware_renderer_viz.h"
+#include "android_webview/browser/gfx/hardware_renderer.h"
 #include "android_webview/browser/gfx/scoped_app_gl_state_restore.h"
 #include "android_webview/browser/gfx/task_queue_webview.h"
 #include "android_webview/common/aw_features.h"
 #include "android_webview/public/browser/draw_gl.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
 #include "base/trace_event/traced_value.h"
@@ -116,10 +117,7 @@ void RenderThreadManager::PostParentDrawDataToChildCompositorOnRT(
   {
     base::AutoLock lock(lock_);
     parent_draw_constraints_ = parent_draw_constraints;
-    // FrameTimingDetails are a sequence and it's ok to drop something in
-    // the middle of the sequence. This also means its ok to drop the details
-    // from early returned frames from WaitAndPruneFrameQueue as well.
-    timing_details_ = std::move(timing_details);
+    timing_details_.insert(timing_details.begin(), timing_details.end());
     presented_frame_token_ = frame_token;
     frame_sink_id_for_presentation_feedbacks_ = frame_sink_id;
   }
@@ -212,7 +210,7 @@ void RenderThreadManager::DrawOnRT(bool save_restore,
       getter = root_frame_sink_getter_;
     }
     DCHECK(getter);
-    hardware_renderer_ = std::make_unique<HardwareRendererViz>(
+    hardware_renderer_ = std::make_unique<HardwareRenderer>(
         this, std::move(getter), vulkan_context_provider_);
     hardware_renderer_->CommitFrame();
   }
@@ -240,6 +238,11 @@ void RenderThreadManager::DestroyHardwareRendererOnRT(bool save_restore,
     hardware_renderer_->AbandonContext();
 
   hardware_renderer_.reset();
+
+  ui_loop_->PostTask(
+      FROM_HERE,
+      base::BindOnce(&CompositorFrameProducer::ChildSurfaceWasEvicted,
+                     producer_weak_ptr_));
 }
 
 void RenderThreadManager::RemoveFromCompositorFrameProducerOnUI() {
@@ -261,6 +264,11 @@ void RenderThreadManager::SetCompositorFrameProducer(
   producer_weak_ptr_ = compositor_frame_producer->GetWeakPtr();
 
   base::AutoLock lock(lock_);
+  root_frame_sink_getter_ = std::move(root_frame_sink_getter);
+}
+
+void RenderThreadManager::SetRootFrameSinkGetterForTesting(
+    RootFrameSinkGetter root_frame_sink_getter) {
   root_frame_sink_getter_ = std::move(root_frame_sink_getter);
 }
 

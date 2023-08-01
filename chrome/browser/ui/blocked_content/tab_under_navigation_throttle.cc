@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,9 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/check.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_macros.h"
@@ -27,7 +27,6 @@
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "components/pref_registry/pref_registry_syncable.h"
-#include "components/ukm/content/source_url_recorder.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
@@ -43,8 +42,7 @@
 #include "url/gurl.h"
 
 #if BUILDFLAG(IS_ANDROID)
-#include "chrome/browser/ui/android/infobars/framebust_block_infobar.h"
-#include "chrome/browser/ui/interventions/framebust_block_message_delegate.h"
+#include "chrome/browser/android/framebust_intervention/framebust_blocked_delegate_android.h"
 #else
 #include "chrome/browser/ui/blocked_content/framebust_block_tab_helper.h"
 #endif
@@ -55,46 +53,13 @@
 
 namespace {
 
-void LogAction(TabUnderNavigationThrottle::Action action) {
-  UMA_HISTOGRAM_ENUMERATION("Tab.TabUnderAction", action,
-                            TabUnderNavigationThrottle::Action::kCount);
-}
-
-#if BUILDFLAG(IS_ANDROID)
-typedef FramebustBlockMessageDelegate::InterventionOutcome InterventionOutcome;
-
-TabUnderNavigationThrottle::Action GetActionForOutcome(
-    InterventionOutcome outcome) {
-  switch (outcome) {
-    case InterventionOutcome::kAccepted:
-      return TabUnderNavigationThrottle::Action::kAcceptedIntervention;
-    case InterventionOutcome::kDeclinedAndNavigated:
-      return TabUnderNavigationThrottle::Action::kClickedThrough;
-  }
-  NOTREACHED();
-}
-
-void LogOutcome(InterventionOutcome outcome) {
-  LogAction(GetActionForOutcome(outcome));
-}
-#else
-void OnListItemClicked(const GURL& url, size_t index, size_t total_size) {
-  LogAction(TabUnderNavigationThrottle::Action::kClickedThrough);
-  UMA_HISTOGRAM_ENUMERATION(
-      "Tab.TabUnder.ClickThroughPosition",
-      blocked_content::GetListItemPositionFromDistance(index, total_size));
-}
-#endif
-
 void LogTabUnderAttempt(content::NavigationHandle* handle) {
-  LogAction(TabUnderNavigationThrottle::Action::kDidTabUnder);
-
   // The source id should generally be set, except for very rare circumstances
   // where the popup opener tab helper is not observing at the time the
   // previous navigation commit.
   ukm::UkmRecorder* ukm_recorder = ukm::UkmRecorder::Get();
   ukm::SourceId opener_source_id =
-      ukm::GetSourceIdForWebContentsDocument(handle->GetWebContents());
+      handle->GetWebContents()->GetPrimaryMainFrame()->GetPageUkmSourceId();
   if (opener_source_id != ukm::kInvalidSourceId && ukm_recorder) {
     ukm::builders::AbusiveExperienceHeuristic_TabUnder(opener_source_id)
         .SetDidTabUnder(true)
@@ -104,8 +69,9 @@ void LogTabUnderAttempt(content::NavigationHandle* handle) {
 
 }  // namespace
 
-const base::Feature TabUnderNavigationThrottle::kBlockTabUnders{
-    "BlockTabUnders", base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kBlockTabUnders,
+             "BlockTabUnders",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
 // static
 std::unique_ptr<content::NavigationThrottle>
@@ -184,10 +150,6 @@ TabUnderNavigationThrottle::MaybeBlockNavigation() {
 
   seen_tab_under_ = true;
   content::WebContents* contents = navigation_handle()->GetWebContents();
-  auto* popup_opener =
-      blocked_content::PopupOpenerTabHelper::FromWebContents(contents);
-  DCHECK(popup_opener);
-  popup_opener->OnDidTabUnder();
 
   LogTabUnderAttempt(navigation_handle());
 
@@ -195,9 +157,8 @@ TabUnderNavigationThrottle::MaybeBlockNavigation() {
     const std::string error =
         base::StringPrintf(kBlockTabUnderFormatMessage,
                            navigation_handle()->GetURL().spec().c_str());
-    contents->GetMainFrame()->AddMessageToConsole(
+    contents->GetPrimaryMainFrame()->AddMessageToConsole(
         blink::mojom::ConsoleMessageLevel::kError, error.c_str());
-    LogAction(Action::kBlocked);
     ShowUI();
     return content::NavigationThrottle::CANCEL;
   }
@@ -208,13 +169,21 @@ void TabUnderNavigationThrottle::ShowUI() {
   content::WebContents* web_contents = navigation_handle()->GetWebContents();
   const GURL& url = navigation_handle()->GetURL();
 #if BUILDFLAG(IS_ANDROID)
-  FramebustBlockInfoBar::Show(
-      web_contents, std::make_unique<FramebustBlockMessageDelegate>(
-                        web_contents, url, base::BindOnce(&LogOutcome)));
+  blocked_content::FramebustBlockedMessageDelegate::CreateForWebContents(
+      web_contents);
+  blocked_content::FramebustBlockedMessageDelegate*
+      framebust_blocked_message_delegate =
+          blocked_content::FramebustBlockedMessageDelegate::FromWebContents(
+              web_contents);
+  framebust_blocked_message_delegate->ShowMessage(
+      url,
+      HostContentSettingsMapFactory::GetForProfile(
+          web_contents->GetBrowserContext()),
+      base::NullCallback());
 #else
   if (auto* tab_helper =
           FramebustBlockTabHelper::FromWebContents(web_contents)) {
-    tab_helper->AddBlockedUrl(url, base::BindOnce(&OnListItemClicked));
+    tab_helper->AddBlockedUrl(url, base::NullCallback());
   }
 #endif
 }
@@ -240,7 +209,6 @@ bool TabUnderNavigationThrottle::TabUndersAllowedBySettings() const {
 
 content::NavigationThrottle::ThrottleCheckResult
 TabUnderNavigationThrottle::WillStartRequest() {
-  LogAction(Action::kStarted);
   return MaybeBlockNavigation();
 }
 

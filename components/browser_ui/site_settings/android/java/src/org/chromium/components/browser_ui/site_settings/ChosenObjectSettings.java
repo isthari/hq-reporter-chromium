@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,11 +18,12 @@ import androidx.appcompat.widget.SearchView;
 import androidx.core.view.MenuItemCompat;
 import androidx.preference.Preference;
 import androidx.preference.PreferenceScreen;
-import androidx.vectordrawable.graphics.drawable.VectorDrawableCompat;
 
 import org.chromium.build.BuildConfig;
 import org.chromium.components.browser_ui.settings.ChromeImageViewPreference;
+import org.chromium.components.browser_ui.settings.CustomDividerFragment;
 import org.chromium.components.browser_ui.settings.ManagedPreferencesUtils;
+import org.chromium.components.browser_ui.util.TraceEventVectorDrawableCompat;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -32,7 +33,8 @@ import java.util.Locale;
  * Shows a particular chosen object (e.g. a USB device) and the list of sites that have been
  * granted access to it by the user.
  */
-public class ChosenObjectSettings extends SiteSettingsPreferenceFragment {
+public class ChosenObjectSettings
+        extends SiteSettingsPreferenceFragment implements CustomDividerFragment {
     public static final String EXTRA_OBJECT_INFOS = "org.chromium.chrome.preferences.object_infos";
     public static final String EXTRA_SITES = "org.chromium.chrome.preferences.site_set";
     public static final String EXTRA_CATEGORY =
@@ -59,7 +61,6 @@ public class ChosenObjectSettings extends SiteSettingsPreferenceFragment {
     @Override
     @SuppressWarnings("unchecked")
     public void onActivityCreated(Bundle savedInstanceState) {
-        setDivider(null);
         int contentSettingsType = getArguments().getInt(EXTRA_CATEGORY);
         mCategory = SiteSettingsCategory.createFromContentSettingsType(
                 getSiteSettingsDelegate().getBrowserContextHandle(), contentSettingsType);
@@ -73,6 +74,11 @@ public class ChosenObjectSettings extends SiteSettingsPreferenceFragment {
         setHasOptionsMenu(true);
 
         super.onActivityCreated(savedInstanceState);
+    }
+
+    @Override
+    public boolean hasDivider() {
+        return false;
     }
 
     /**
@@ -122,7 +128,7 @@ public class ChosenObjectSettings extends SiteSettingsPreferenceFragment {
         if (getSiteSettingsDelegate().isHelpAndFeedbackEnabled()) {
             MenuItem help = menu.add(
                     Menu.NONE, R.id.menu_id_site_settings_help, Menu.NONE, R.string.menu_help);
-            help.setIcon(VectorDrawableCompat.create(
+            help.setIcon(TraceEventVectorDrawableCompat.create(
                     getResources(), R.drawable.ic_help_and_feedback, getContext().getTheme()));
         }
     }
@@ -239,7 +245,8 @@ public class ChosenObjectSettings extends SiteSettingsPreferenceFragment {
         header.setTitle(titleText);
         header.setImageView(R.drawable.ic_delete_white_24dp,
                 R.string.website_settings_revoke_all_permissions_for_device, (View view) -> {
-                    new AlertDialog.Builder(getContext(), R.style.Theme_Chromium_AlertDialog)
+                    new AlertDialog
+                            .Builder(getContext(), R.style.ThemeOverlay_BrowserUI_AlertDialog)
                             .setTitle(R.string.reset)
                             .setMessage(dialogMsg)
                             .setPositiveButton(R.string.reset,
@@ -293,7 +300,7 @@ public class ChosenObjectSettings extends SiteSettingsPreferenceFragment {
                 }
 
                 @Override
-                public boolean isPreferenceClickDisabledByPolicy(Preference preference) {
+                public boolean isPreferenceClickDisabled(Preference preference) {
                     return false;
                 }
             });

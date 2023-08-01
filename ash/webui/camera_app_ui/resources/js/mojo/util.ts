@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,7 @@ addUnloadCallback(() => {
   windowUnload.signal();
 });
 
-const NEVER_SETTLED_PROMISE: Promise<never> = new Promise(
+const NEVER_SETTLED_PROMISE = new Promise<never>(
     () => {
         // This doesn't call the resolve function so the Promise will never
         // be resolved or rejected.
@@ -29,12 +29,12 @@ const NEVER_SETTLED_PROMISE: Promise<never> = new Promise(
  *     response or will never be resolved if the window unload is about to
  *     happen.
  */
-async function wrapMojoResponse<T>(call: Promise<T>|undefined): Promise<T> {
+async function wrapMojoResponse(call: unknown): Promise<unknown> {
   const result = await Promise.race([windowUnload.wait(), call]);
   if (windowUnload.isSignaled()) {
     return NEVER_SETTLED_PROMISE;
   }
-  return result as T;
+  return result;
 }
 
 const mojoResponseHandler: ProxyHandler<MojoEndpoint> = {
@@ -58,6 +58,7 @@ const mojoResponseHandler: ProxyHandler<MojoEndpoint> = {
 /**
  * Closes the given mojo endpoint once the page is unloaded.
  * Reference b/176139064.
+ *
  * @param endpoint The mojo endpoint.
  */
 function closeWhenUnload(endpoint: MojoEndpoint) {
@@ -66,10 +67,14 @@ function closeWhenUnload(endpoint: MojoEndpoint) {
 
 /**
  * Returns a mojo |endpoint| and returns a proxy of it.
+ *
  * @return The proxy of the given endpoint.
  */
 export function wrapEndpoint<T extends MojoEndpoint>(endpoint: T): T {
   closeWhenUnload(endpoint);
+  // The mojoResponseHandler is designed to be able to handle all mojo
+  // connection proxies.
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
   return new Proxy(endpoint, mojoResponseHandler as ProxyHandler<T>);
 }
 

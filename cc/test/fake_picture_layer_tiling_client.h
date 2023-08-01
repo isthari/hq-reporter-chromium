@@ -1,9 +1,11 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CC_TEST_FAKE_PICTURE_LAYER_TILING_CLIENT_H_
 #define CC_TEST_FAKE_PICTURE_LAYER_TILING_CLIENT_H_
+
+#include <memory>
 
 #include "base/memory/raw_ptr.h"
 #include "cc/raster/raster_source.h"

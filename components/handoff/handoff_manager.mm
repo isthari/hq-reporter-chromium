@@ -1,12 +1,10 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/handoff/handoff_manager.h"
 
 #include "base/check.h"
-#include "base/mac/objc_release_properties.h"
-#include "base/mac/scoped_nsobject.h"
 #include "base/notreached.h"
 #include "base/strings/sys_string_conversions.h"
 #include "build/build_config.h"
@@ -21,10 +19,14 @@
 #include "base/mac/mac_util.h"
 #endif
 
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
+
 @interface HandoffManager ()
 
 // The active user activity.
-@property(nonatomic, retain) NSUserActivity* userActivity;
+@property(nonatomic, strong) NSUserActivity* userActivity;
 
 // Whether the URL of the current tab should be exposed for Handoff.
 - (BOOL)shouldUseActiveURL;
@@ -36,7 +38,6 @@
 
 @implementation HandoffManager {
   GURL _activeURL;
-  NSUserActivity* _userActivity;
   handoff::Origin _origin;
 }
 
@@ -64,11 +65,6 @@
   return self;
 }
 
-- (void)dealloc {
-  base::mac::ReleaseProperties(self);
-  [super dealloc];
-}
-
 - (void)updateActiveURL:(const GURL&)url {
   _activeURL = url;
   [self updateUserActivity];
@@ -94,20 +90,20 @@
   }
 
   // No change to the user activity.
-  const GURL userActivityURL(net::GURLWithNSURL(self.userActivity.webpageURL));
-  if (userActivityURL == _activeURL)
+  const GURL userActivityURL = net::GURLWithNSURL(self.userActivity.webpageURL);
+  if (userActivityURL == _activeURL) {
     return;
+  }
 
   // Invalidate the old user activity and make a new one.
   [self.userActivity invalidate];
 
-  base::scoped_nsobject<NSUserActivity> userActivity([[NSUserActivity alloc]
-      initWithActivityType:NSUserActivityTypeBrowsingWeb]);
-  self.userActivity = userActivity;
+  self.userActivity = [[NSUserActivity alloc]
+      initWithActivityType:NSUserActivityTypeBrowsingWeb];
   self.userActivity.webpageURL = net::NSURLWithGURL(_activeURL);
   NSString* origin = handoff::StringFromOrigin(_origin);
   DCHECK(origin);
-  self.userActivity.userInfo = @{ handoff::kOriginKey : origin };
+  self.userActivity.userInfo = @{handoff::kOriginKey : origin};
   [self.userActivity becomeCurrent];
 }
 

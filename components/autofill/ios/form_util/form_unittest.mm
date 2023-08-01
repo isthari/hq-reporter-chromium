@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 #import "components/autofill/ios/form_util/form_util_java_script_feature.h"
 #include "components/autofill/ios/form_util/test_form_activity_observer.h"
 #import "ios/web/public/browser_state.h"
-#import "ios/web/public/js_messaging/web_frame_util.h"
 #import "ios/web/public/js_messaging/web_frames_manager.h"
 #import "ios/web/public/test/fakes/fake_web_client.h"
 #import "ios/web/public/test/js_test_util.h"
@@ -55,7 +54,10 @@ class FormJsTest : public AutofillTestWithWebState {
   web::WebFrame* WaitForMainFrame() {
     __block web::WebFrame* main_frame = nullptr;
     EXPECT_TRUE(WaitUntilConditionOrTimeout(kWaitForJSCompletionTimeout, ^bool {
-      main_frame = web_state()->GetWebFramesManager()->GetMainWebFrame();
+      web::WebFramesManager* frames_manager =
+          autofill::FormUtilJavaScriptFeature::GetInstance()
+              ->GetWebFramesManager(web_state());
+      main_frame = frames_manager->GetMainWebFrame();
       return main_frame != nullptr;
     }));
     return main_frame;

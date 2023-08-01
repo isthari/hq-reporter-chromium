@@ -1,22 +1,24 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "extensions/browser/api/bluetooth_low_energy/bluetooth_low_energy_api.h"
 
 #include <stdint.h>
+
 #include <algorithm>
 #include <iterator>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/memory/weak_ptr.h"
+#include "base/types/cxx23_to_underlying.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "content/public/browser/browser_thread.h"
@@ -30,7 +32,6 @@
 #include "extensions/browser/api/extensions_api_client.h"
 #include "extensions/browser/kiosk/kiosk_delegate.h"
 #include "extensions/common/api/bluetooth/bluetooth_manifest_data.h"
-#include "extensions/common/api/bluetooth_low_energy.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_id.h"
 #include "extensions/common/switches.h"
@@ -145,27 +146,22 @@ void DoWorkCallback(base::OnceCallback<T()> callback) {
   std::move(callback).Run();
 }
 
-std::unique_ptr<device::BluetoothAdvertisement::ManufacturerData>
-CreateManufacturerData(
-    std::vector<apibtle::ManufacturerData>* manufacturer_data) {
-  std::unique_ptr<device::BluetoothAdvertisement::ManufacturerData>
-      created_data(new device::BluetoothAdvertisement::ManufacturerData());
-  for (const auto& it : *manufacturer_data) {
-    std::vector<uint8_t> data(it.data.size());
-    std::copy(it.data.begin(), it.data.end(), data.begin());
-    (*created_data)[it.id] = data;
+device::BluetoothAdvertisement::ManufacturerData CreateManufacturerData(
+    const std::vector<apibtle::ManufacturerData>& manufacturer_data) {
+  device::BluetoothAdvertisement::ManufacturerData created_data;
+  for (const auto& it : manufacturer_data) {
+    std::vector<uint8_t> data(it.data.begin(), it.data.end());
+    created_data[it.id] = std::move(data);
   }
   return created_data;
 }
 
-std::unique_ptr<device::BluetoothAdvertisement::ServiceData> CreateServiceData(
-    std::vector<apibtle::ServiceData>* service_data) {
-  std::unique_ptr<device::BluetoothAdvertisement::ServiceData> created_data(
-      new device::BluetoothAdvertisement::ServiceData());
-  for (const auto& it : *service_data) {
-    std::vector<uint8_t> data(it.data.size());
-    std::copy(it.data.begin(), it.data.end(), data.begin());
-    (*created_data)[it.uuid] = data;
+device::BluetoothAdvertisement::ServiceData CreateServiceData(
+    const std::vector<apibtle::ServiceData>& service_data) {
+  device::BluetoothAdvertisement::ServiceData created_data;
+  for (const auto& it : service_data) {
+    std::vector<uint8_t> data(it.data.begin(), it.data.end());
+    created_data[it.uuid] = std::move(data);
   }
   return created_data;
 }
@@ -190,76 +186,79 @@ device::BluetoothGattCharacteristic::Properties GetBluetoothProperties(
       device::BluetoothGattCharacteristic::PROPERTY_NONE;
 
   static_assert(
-      apibtle::CHARACTERISTIC_PROPERTY_LAST == 14,
+      base::to_underlying(apibtle::CharacteristicProperty::kMaxValue) == 14,
       "Update required if the number of characteristic properties changes.");
 
-  if (HasProperty(api_properties, apibtle::CHARACTERISTIC_PROPERTY_BROADCAST)) {
+  if (HasProperty(api_properties,
+                  apibtle::CharacteristicProperty::kBroadcast)) {
     properties |= device::BluetoothGattCharacteristic::PROPERTY_BROADCAST;
   }
 
-  if (HasProperty(api_properties, apibtle::CHARACTERISTIC_PROPERTY_READ)) {
+  if (HasProperty(api_properties, apibtle::CharacteristicProperty::kRead)) {
     properties |= device::BluetoothGattCharacteristic::PROPERTY_READ;
   }
 
   if (HasProperty(api_properties,
-                  apibtle::CHARACTERISTIC_PROPERTY_WRITEWITHOUTRESPONSE)) {
+                  apibtle::CharacteristicProperty::kWriteWithoutResponse)) {
     properties |=
         device::BluetoothGattCharacteristic::PROPERTY_WRITE_WITHOUT_RESPONSE;
   }
 
-  if (HasProperty(api_properties, apibtle::CHARACTERISTIC_PROPERTY_WRITE)) {
+  if (HasProperty(api_properties, apibtle::CharacteristicProperty::kWrite)) {
     properties |= device::BluetoothGattCharacteristic::PROPERTY_WRITE;
   }
 
-  if (HasProperty(api_properties, apibtle::CHARACTERISTIC_PROPERTY_NOTIFY)) {
+  if (HasProperty(api_properties, apibtle::CharacteristicProperty::kNotify)) {
     properties |= device::BluetoothGattCharacteristic::PROPERTY_NOTIFY;
   }
 
-  if (HasProperty(api_properties, apibtle::CHARACTERISTIC_PROPERTY_INDICATE)) {
+  if (HasProperty(api_properties, apibtle::CharacteristicProperty::kIndicate)) {
     properties |= device::BluetoothGattCharacteristic::PROPERTY_INDICATE;
   }
 
-  if (HasProperty(api_properties,
-                  apibtle::CHARACTERISTIC_PROPERTY_AUTHENTICATEDSIGNEDWRITES)) {
+  if (HasProperty(
+          api_properties,
+          apibtle::CharacteristicProperty::kAuthenticatedSignedWrites)) {
     properties |= device::BluetoothGattCharacteristic::
         PROPERTY_AUTHENTICATED_SIGNED_WRITES;
   }
 
   if (HasProperty(api_properties,
-                  apibtle::CHARACTERISTIC_PROPERTY_EXTENDEDPROPERTIES)) {
+                  apibtle::CharacteristicProperty::kExtendedProperties)) {
     properties |=
         device::BluetoothGattCharacteristic::PROPERTY_EXTENDED_PROPERTIES;
   }
 
   if (HasProperty(api_properties,
-                  apibtle::CHARACTERISTIC_PROPERTY_RELIABLEWRITE)) {
+                  apibtle::CharacteristicProperty::kReliableWrite)) {
     properties |= device::BluetoothGattCharacteristic::PROPERTY_RELIABLE_WRITE;
   }
 
   if (HasProperty(api_properties,
-                  apibtle::CHARACTERISTIC_PROPERTY_WRITABLEAUXILIARIES)) {
+                  apibtle::CharacteristicProperty::kWritableAuxiliaries)) {
     properties |=
         device::BluetoothGattCharacteristic::PROPERTY_WRITABLE_AUXILIARIES;
   }
 
   if (HasProperty(api_properties,
-                  apibtle::CHARACTERISTIC_PROPERTY_ENCRYPTREAD)) {
+                  apibtle::CharacteristicProperty::kEncryptRead)) {
     properties |= device::BluetoothGattCharacteristic::PROPERTY_READ_ENCRYPTED;
   }
 
   if (HasProperty(api_properties,
-                  apibtle::CHARACTERISTIC_PROPERTY_ENCRYPTWRITE)) {
+                  apibtle::CharacteristicProperty::kEncryptWrite)) {
     properties |= device::BluetoothGattCharacteristic::PROPERTY_WRITE_ENCRYPTED;
   }
 
   if (HasProperty(api_properties,
-                  apibtle::CHARACTERISTIC_PROPERTY_ENCRYPTAUTHENTICATEDREAD)) {
+                  apibtle::CharacteristicProperty::kEncryptAuthenticatedRead)) {
     properties |= device::BluetoothGattCharacteristic::
         PROPERTY_READ_ENCRYPTED_AUTHENTICATED;
   }
 
-  if (HasProperty(api_properties,
-                  apibtle::CHARACTERISTIC_PROPERTY_ENCRYPTAUTHENTICATEDWRITE)) {
+  if (HasProperty(
+          api_properties,
+          apibtle::CharacteristicProperty::kEncryptAuthenticatedWrite)) {
     properties |= device::BluetoothGattCharacteristic::
         PROPERTY_WRITE_ENCRYPTED_AUTHENTICATED;
   }
@@ -273,39 +272,39 @@ device::BluetoothGattCharacteristic::Permissions GetBluetoothPermissions(
       device::BluetoothGattCharacteristic::PERMISSION_NONE;
 
   static_assert(
-      apibtle::DESCRIPTOR_PERMISSION_LAST == 6,
+      base::to_underlying(apibtle::DescriptorPermission::kMaxValue) == 6,
       "Update required if the number of descriptor permissions changes.");
 
-  if (HasPermission(api_permissions, apibtle::DESCRIPTOR_PERMISSION_READ)) {
+  if (HasPermission(api_permissions, apibtle::DescriptorPermission::kRead)) {
     permissions |= device::BluetoothGattCharacteristic::PERMISSION_READ;
   }
 
-  if (HasPermission(api_permissions, apibtle::DESCRIPTOR_PERMISSION_WRITE)) {
+  if (HasPermission(api_permissions, apibtle::DescriptorPermission::kWrite)) {
     permissions |= device::BluetoothGattCharacteristic::PERMISSION_WRITE;
   }
 
   if (HasPermission(api_permissions,
-                    apibtle::DESCRIPTOR_PERMISSION_ENCRYPTEDREAD)) {
+                    apibtle::DescriptorPermission::kEncryptedRead)) {
     permissions |=
         device::BluetoothGattCharacteristic::PERMISSION_READ_ENCRYPTED;
   }
 
   if (HasPermission(api_permissions,
-                    apibtle::DESCRIPTOR_PERMISSION_ENCRYPTEDWRITE)) {
+                    apibtle::DescriptorPermission::kEncryptedWrite)) {
     permissions |=
         device::BluetoothGattCharacteristic::PERMISSION_WRITE_ENCRYPTED;
   }
 
   if (HasPermission(
           api_permissions,
-          apibtle::DESCRIPTOR_PERMISSION_ENCRYPTEDAUTHENTICATEDREAD)) {
+          apibtle::DescriptorPermission::kEncryptedAuthenticatedRead)) {
     permissions |= device::BluetoothGattCharacteristic::
         PERMISSION_READ_ENCRYPTED_AUTHENTICATED;
   }
 
   if (HasPermission(
           api_permissions,
-          apibtle::DESCRIPTOR_PERMISSION_ENCRYPTEDAUTHENTICATEDWRITE)) {
+          apibtle::DescriptorPermission::kEncryptedAuthenticatedWrite)) {
     permissions |= device::BluetoothGattCharacteristic::
         PERMISSION_WRITE_ENCRYPTED_AUTHENTICATED;
   }
@@ -347,7 +346,7 @@ BluetoothLowEnergyAPI::BluetoothLowEnergyAPI(BrowserContext* context)
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 }
 
-BluetoothLowEnergyAPI::~BluetoothLowEnergyAPI() {}
+BluetoothLowEnergyAPI::~BluetoothLowEnergyAPI() = default;
 
 void BluetoothLowEnergyAPI::Shutdown() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
@@ -358,7 +357,8 @@ namespace api {
 BluetoothLowEnergyExtensionFunction::BluetoothLowEnergyExtensionFunction()
     : event_router_(nullptr) {}
 
-BluetoothLowEnergyExtensionFunction::~BluetoothLowEnergyExtensionFunction() {}
+BluetoothLowEnergyExtensionFunction::~BluetoothLowEnergyExtensionFunction() =
+    default;
 
 ExtensionFunction::ResponseAction BluetoothLowEnergyExtensionFunction::Run() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
@@ -384,6 +384,15 @@ ExtensionFunction::ResponseAction BluetoothLowEnergyExtensionFunction::Run() {
   return RespondLater();
 }
 
+void BluetoothLowEnergyExtensionFunction::EmptyResponse() {
+  return Respond(NoArguments());
+}
+
+void BluetoothLowEnergyExtensionFunction::RespondWithErrorStatus(
+    BluetoothLowEnergyEventRouter::Status status) {
+  Respond(Error(StatusToString(status)));
+}
+
 void BluetoothLowEnergyExtensionFunction::PreDoWork() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
@@ -396,9 +405,9 @@ void BluetoothLowEnergyExtensionFunction::PreDoWork() {
   DoWork();
 }
 
-BLEPeripheralExtensionFunction::BLEPeripheralExtensionFunction() {}
+BLEPeripheralExtensionFunction::BLEPeripheralExtensionFunction() = default;
 
-BLEPeripheralExtensionFunction::~BLEPeripheralExtensionFunction() {}
+BLEPeripheralExtensionFunction::~BLEPeripheralExtensionFunction() = default;
 
 ExtensionFunction::ResponseAction BLEPeripheralExtensionFunction::Run() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
@@ -415,13 +424,15 @@ ExtensionFunction::ResponseAction BLEPeripheralExtensionFunction::Run() {
   return BluetoothLowEnergyExtensionFunction::Run();
 }
 
-BluetoothLowEnergyConnectFunction::BluetoothLowEnergyConnectFunction() {}
+BluetoothLowEnergyConnectFunction::BluetoothLowEnergyConnectFunction() =
+    default;
 
-BluetoothLowEnergyConnectFunction::~BluetoothLowEnergyConnectFunction() {}
+BluetoothLowEnergyConnectFunction::~BluetoothLowEnergyConnectFunction() =
+    default;
 
 bool BluetoothLowEnergyConnectFunction::ParseParams() {
   params_ = apibtle::Connect::Params::Create(args());
-  return params_.get() != nullptr;
+  return params_.has_value();
 }
 
 void BluetoothLowEnergyConnectFunction::DoWork() {
@@ -436,9 +447,8 @@ void BluetoothLowEnergyConnectFunction::DoWork() {
   }
 
   bool persistent = false;  // Not persistent by default.
-  apibtle::ConnectProperties* properties = params_->properties.get();
-  if (properties)
-    persistent = properties->persistent;
+  if (params_->properties)
+    persistent = params_->properties->persistent;
 
   event_router->Connect(
       persistent, extension(), params_->device_address,
@@ -449,19 +459,21 @@ void BluetoothLowEnergyConnectFunction::DoWork() {
 void BluetoothLowEnergyConnectFunction::ConnectCallback(
     BluetoothLowEnergyEventRouter::Status status) {
   if (status != BluetoothLowEnergyEventRouter::kStatusSuccess) {
-    Respond(Error(StatusToString(status)));
+    RespondWithErrorStatus(status);
     return;
   }
-  Respond(NoArguments());
+  EmptyResponse();
 }
 
-BluetoothLowEnergyDisconnectFunction::BluetoothLowEnergyDisconnectFunction() {}
+BluetoothLowEnergyDisconnectFunction::BluetoothLowEnergyDisconnectFunction() =
+    default;
 
-BluetoothLowEnergyDisconnectFunction::~BluetoothLowEnergyDisconnectFunction() {}
+BluetoothLowEnergyDisconnectFunction::~BluetoothLowEnergyDisconnectFunction() =
+    default;
 
 bool BluetoothLowEnergyDisconnectFunction::ParseParams() {
   params_ = apibtle::Disconnect::Params::Create(args());
-  return params_.get() != nullptr;
+  return params_.has_value();
 }
 
 void BluetoothLowEnergyDisconnectFunction::DoWork() {
@@ -477,28 +489,21 @@ void BluetoothLowEnergyDisconnectFunction::DoWork() {
 
   event_router->Disconnect(
       extension(), params_->device_address,
-      base::BindOnce(&BluetoothLowEnergyDisconnectFunction::SuccessCallback,
+      base::BindOnce(&BluetoothLowEnergyDisconnectFunction::EmptyResponse,
                      this),
-      base::BindOnce(&BluetoothLowEnergyDisconnectFunction::ErrorCallback,
-                     this));
+      base::BindOnce(
+          &BluetoothLowEnergyDisconnectFunction::RespondWithErrorStatus, this));
 }
 
-void BluetoothLowEnergyDisconnectFunction::SuccessCallback() {
-  Respond(NoArguments());
-}
+BluetoothLowEnergyGetServiceFunction::BluetoothLowEnergyGetServiceFunction() =
+    default;
 
-void BluetoothLowEnergyDisconnectFunction::ErrorCallback(
-    BluetoothLowEnergyEventRouter::Status status) {
-  Respond(Error(StatusToString(status)));
-}
-
-BluetoothLowEnergyGetServiceFunction::BluetoothLowEnergyGetServiceFunction() {}
-
-BluetoothLowEnergyGetServiceFunction::~BluetoothLowEnergyGetServiceFunction() {}
+BluetoothLowEnergyGetServiceFunction::~BluetoothLowEnergyGetServiceFunction() =
+    default;
 
 bool BluetoothLowEnergyGetServiceFunction::ParseParams() {
   params_ = apibtle::GetService::Params::Create(args());
-  return params_.get() != nullptr;
+  return params_.has_value();
 }
 
 void BluetoothLowEnergyGetServiceFunction::DoWork() {
@@ -512,15 +517,13 @@ void BluetoothLowEnergyGetServiceFunction::DoWork() {
     return;
   }
 
-  apibtle::Service service;
-  BluetoothLowEnergyEventRouter::Status status =
-      event_router->GetService(params_->service_id, &service);
-  if (status != BluetoothLowEnergyEventRouter::kStatusSuccess) {
-    Respond(Error(StatusToString(status)));
+  auto service = event_router->GetService(params_->service_id);
+  if (!service.has_value()) {
+    RespondWithErrorStatus(service.error());
     return;
   }
 
-  Respond(ArgumentList(apibtle::GetService::Results::Create(service)));
+  Respond(ArgumentList(apibtle::GetService::Results::Create(*service)));
 }
 
 BluetoothLowEnergyGetServicesFunction::BluetoothLowEnergyGetServicesFunction() {
@@ -531,7 +534,7 @@ BluetoothLowEnergyGetServicesFunction::
 
 bool BluetoothLowEnergyGetServicesFunction::ParseParams() {
   params_ = apibtle::GetServices::Params::Create(args());
-  return params_.get() != nullptr;
+  return params_.has_value();
 }
 
 void BluetoothLowEnergyGetServicesFunction::DoWork() {
@@ -545,13 +548,13 @@ void BluetoothLowEnergyGetServicesFunction::DoWork() {
     return;
   }
 
-  BluetoothLowEnergyEventRouter::ServiceList service_list;
-  if (!event_router->GetServices(params_->device_address, &service_list)) {
+  auto service_list = event_router->GetServices(params_->device_address);
+  if (!service_list) {
     Respond(Error(kErrorNotFound));
     return;
   }
 
-  Respond(ArgumentList(apibtle::GetServices::Results::Create(service_list)));
+  Respond(ArgumentList(apibtle::GetServices::Results::Create(*service_list)));
 }
 
 BluetoothLowEnergyGetCharacteristicFunction::
@@ -562,7 +565,7 @@ BluetoothLowEnergyGetCharacteristicFunction::
 
 bool BluetoothLowEnergyGetCharacteristicFunction::ParseParams() {
   params_ = apibtle::GetCharacteristic::Params::Create(args());
-  return params_.get() != nullptr;
+  return params_.has_value();
 }
 
 void BluetoothLowEnergyGetCharacteristicFunction::DoWork() {
@@ -576,20 +579,17 @@ void BluetoothLowEnergyGetCharacteristicFunction::DoWork() {
     return;
   }
 
-  apibtle::Characteristic characteristic;
-  BluetoothLowEnergyEventRouter::Status status =
-      event_router->GetCharacteristic(extension(), params_->characteristic_id,
-                                      &characteristic);
-  if (status != BluetoothLowEnergyEventRouter::kStatusSuccess) {
-    Respond(Error(StatusToString(status)));
+  auto characteristic =
+      event_router->GetCharacteristic(extension(), params_->characteristic_id);
+  if (!characteristic.has_value()) {
+    RespondWithErrorStatus(characteristic.error());
     return;
   }
 
   // Manually construct the result instead of using
   // apibtle::GetCharacteristic::Result::Create as it doesn't convert lists of
   // enums correctly.
-  Respond(OneArgument(base::Value::FromUniquePtrValue(
-      apibtle::CharacteristicToValue(&characteristic))));
+  Respond(WithArguments(apibtle::CharacteristicToValue(*characteristic)));
 }
 
 BluetoothLowEnergyGetCharacteristicsFunction::
@@ -600,7 +600,7 @@ BluetoothLowEnergyGetCharacteristicsFunction::
 
 bool BluetoothLowEnergyGetCharacteristicsFunction::ParseParams() {
   params_ = apibtle::GetCharacteristics::Params::Create(args());
-  return params_.get() != nullptr;
+  return params_.has_value();
 }
 
 void BluetoothLowEnergyGetCharacteristicsFunction::DoWork() {
@@ -614,23 +614,22 @@ void BluetoothLowEnergyGetCharacteristicsFunction::DoWork() {
     return;
   }
 
-  BluetoothLowEnergyEventRouter::CharacteristicList characteristic_list;
-  BluetoothLowEnergyEventRouter::Status status =
-      event_router->GetCharacteristics(extension(), params_->service_id,
-                                       &characteristic_list);
-  if (status != BluetoothLowEnergyEventRouter::kStatusSuccess) {
-    Respond(Error(StatusToString(status)));
+  auto characteristic_list =
+      event_router->GetCharacteristics(extension(), params_->service_id);
+  if (!characteristic_list.has_value()) {
+    RespondWithErrorStatus(characteristic_list.error());
     return;
   }
 
   // Manually construct the result instead of using
   // apibtle::GetCharacteristics::Result::Create as it doesn't convert lists of
   // enums correctly.
-  std::unique_ptr<base::ListValue> result(new base::ListValue());
-  for (apibtle::Characteristic& characteristic : characteristic_list)
-    result->Append(apibtle::CharacteristicToValue(&characteristic));
+  base::Value::List result;
+  for (apibtle::Characteristic& characteristic : *characteristic_list) {
+    result.Append(apibtle::CharacteristicToValue(characteristic));
+  }
 
-  Respond(OneArgument(base::Value::FromUniquePtrValue(std::move(result))));
+  Respond(WithArguments(std::move(result)));
 }
 
 BluetoothLowEnergyGetIncludedServicesFunction::
@@ -641,7 +640,7 @@ BluetoothLowEnergyGetIncludedServicesFunction::
 
 bool BluetoothLowEnergyGetIncludedServicesFunction::ParseParams() {
   params_ = apibtle::GetIncludedServices::Params::Create(args());
-  return params_.get() != nullptr;
+  return params_.has_value();
 }
 
 void BluetoothLowEnergyGetIncludedServicesFunction::DoWork() {
@@ -655,16 +654,14 @@ void BluetoothLowEnergyGetIncludedServicesFunction::DoWork() {
     return;
   }
 
-  BluetoothLowEnergyEventRouter::ServiceList service_list;
-  BluetoothLowEnergyEventRouter::Status status =
-      event_router->GetIncludedServices(params_->service_id, &service_list);
-  if (status != BluetoothLowEnergyEventRouter::kStatusSuccess) {
-    Respond(Error(StatusToString(status)));
+  auto service_list = event_router->GetIncludedServices(params_->service_id);
+  if (!service_list.has_value()) {
+    RespondWithErrorStatus(service_list.error());
     return;
   }
 
   Respond(ArgumentList(
-      apibtle::GetIncludedServices::Results::Create(service_list)));
+      apibtle::GetIncludedServices::Results::Create(*service_list)));
 }
 
 BluetoothLowEnergyGetDescriptorFunction::
@@ -675,7 +672,7 @@ BluetoothLowEnergyGetDescriptorFunction::
 
 bool BluetoothLowEnergyGetDescriptorFunction::ParseParams() {
   params_ = apibtle::GetDescriptor::Params::Create(args());
-  return params_.get() != nullptr;
+  return params_.has_value();
 }
 
 void BluetoothLowEnergyGetDescriptorFunction::DoWork() {
@@ -689,19 +686,17 @@ void BluetoothLowEnergyGetDescriptorFunction::DoWork() {
     return;
   }
 
-  apibtle::Descriptor descriptor;
-  BluetoothLowEnergyEventRouter::Status status = event_router->GetDescriptor(
-      extension(), params_->descriptor_id, &descriptor);
-  if (status != BluetoothLowEnergyEventRouter::kStatusSuccess) {
-    Respond(Error(StatusToString(status)));
+  auto descriptor =
+      event_router->GetDescriptor(extension(), params_->descriptor_id);
+  if (!descriptor.has_value()) {
+    RespondWithErrorStatus(descriptor.error());
     return;
   }
 
   // Manually construct the result instead of using
   // apibtle::GetDescriptor::Result::Create as it doesn't convert lists of enums
   // correctly.
-  Respond(OneArgument(base::Value::FromUniquePtrValue(
-      apibtle::DescriptorToValue(&descriptor))));
+  Respond(WithArguments(apibtle::DescriptorToValue(*descriptor)));
 }
 
 BluetoothLowEnergyGetDescriptorsFunction::
@@ -712,7 +707,7 @@ BluetoothLowEnergyGetDescriptorsFunction::
 
 bool BluetoothLowEnergyGetDescriptorsFunction::ParseParams() {
   params_ = apibtle::GetDescriptors::Params::Create(args());
-  return params_.get() != nullptr;
+  return params_.has_value();
 }
 
 void BluetoothLowEnergyGetDescriptorsFunction::DoWork() {
@@ -726,22 +721,22 @@ void BluetoothLowEnergyGetDescriptorsFunction::DoWork() {
     return;
   }
 
-  BluetoothLowEnergyEventRouter::DescriptorList descriptor_list;
-  BluetoothLowEnergyEventRouter::Status status = event_router->GetDescriptors(
-      extension(), params_->characteristic_id, &descriptor_list);
-  if (status != BluetoothLowEnergyEventRouter::kStatusSuccess) {
-    Respond(Error(StatusToString(status)));
+  auto descriptor_list =
+      event_router->GetDescriptors(extension(), params_->characteristic_id);
+  if (!descriptor_list.has_value()) {
+    RespondWithErrorStatus(descriptor_list.error());
     return;
   }
 
   // Manually construct the result instead of using
   // apibtle::GetDescriptors::Result::Create as it doesn't convert lists of
   // enums correctly.
-  std::unique_ptr<base::ListValue> result(new base::ListValue());
-  for (apibtle::Descriptor& descriptor : descriptor_list)
-    result->Append(apibtle::DescriptorToValue(&descriptor));
+  base::Value::List result;
+  for (apibtle::Descriptor& descriptor : *descriptor_list) {
+    result.Append(apibtle::DescriptorToValue(descriptor));
+  }
 
-  Respond(OneArgument(base::Value::FromUniquePtrValue(std::move(result))));
+  Respond(WithArguments(std::move(result)));
 }
 
 BluetoothLowEnergyReadCharacteristicValueFunction::
@@ -752,7 +747,7 @@ BluetoothLowEnergyReadCharacteristicValueFunction::
 
 bool BluetoothLowEnergyReadCharacteristicValueFunction::ParseParams() {
   params_ = apibtle::ReadCharacteristicValue::Params::Create(args());
-  return params_.get() != nullptr;
+  return params_.has_value();
 }
 
 void BluetoothLowEnergyReadCharacteristicValueFunction::DoWork() {
@@ -772,33 +767,25 @@ void BluetoothLowEnergyReadCharacteristicValueFunction::DoWork() {
       base::BindOnce(
           &BluetoothLowEnergyReadCharacteristicValueFunction::SuccessCallback,
           this),
-      base::BindOnce(
-          &BluetoothLowEnergyReadCharacteristicValueFunction::ErrorCallback,
-          this));
+      base::BindOnce(&BluetoothLowEnergyReadCharacteristicValueFunction::
+                         RespondWithErrorStatus,
+                     this));
 }
 
 void BluetoothLowEnergyReadCharacteristicValueFunction::SuccessCallback() {
   // Obtain info on the characteristic and see whether or not the characteristic
   // is still around.
-  apibtle::Characteristic characteristic;
-  BluetoothLowEnergyEventRouter::Status status =
-      GetEventRouter(browser_context())
-          ->GetCharacteristic(extension(), instance_id_, &characteristic);
-  if (status != BluetoothLowEnergyEventRouter::kStatusSuccess) {
-    Respond(Error(StatusToString(status)));
+  auto characteristic = GetEventRouter(browser_context())
+                            ->GetCharacteristic(extension(), instance_id_);
+  if (!characteristic.has_value()) {
+    RespondWithErrorStatus(characteristic.error());
     return;
   }
 
   // Manually construct the result instead of using
   // apibtle::GetCharacteristic::Result::Create as it doesn't convert lists of
   // enums correctly.
-  Respond(OneArgument(base::Value::FromUniquePtrValue(
-      apibtle::CharacteristicToValue(&characteristic))));
-}
-
-void BluetoothLowEnergyReadCharacteristicValueFunction::ErrorCallback(
-    BluetoothLowEnergyEventRouter::Status status) {
-  Respond(Error(StatusToString(status)));
+  Respond(WithArguments(apibtle::CharacteristicToValue(*characteristic)));
 }
 
 BluetoothLowEnergyWriteCharacteristicValueFunction::
@@ -809,7 +796,7 @@ BluetoothLowEnergyWriteCharacteristicValueFunction::
 
 bool BluetoothLowEnergyWriteCharacteristicValueFunction::ParseParams() {
   params_ = apibtle::WriteCharacteristicValue::Params::Create(args());
-  return params_.get() != nullptr;
+  return params_.has_value();
 }
 
 void BluetoothLowEnergyWriteCharacteristicValueFunction::DoWork() {
@@ -829,18 +816,13 @@ void BluetoothLowEnergyWriteCharacteristicValueFunction::DoWork() {
       base::BindOnce(
           &BluetoothLowEnergyWriteCharacteristicValueFunction::SuccessCallback,
           this),
-      base::BindOnce(
-          &BluetoothLowEnergyWriteCharacteristicValueFunction::ErrorCallback,
-          this));
+      base::BindOnce(&BluetoothLowEnergyWriteCharacteristicValueFunction::
+                         RespondWithErrorStatus,
+                     this));
 }
 
 void BluetoothLowEnergyWriteCharacteristicValueFunction::SuccessCallback() {
   Respond(ArgumentList(apibtle::WriteCharacteristicValue::Results::Create()));
-}
-
-void BluetoothLowEnergyWriteCharacteristicValueFunction::ErrorCallback(
-    BluetoothLowEnergyEventRouter::Status status) {
-  Respond(Error(StatusToString(status)));
 }
 
 BluetoothLowEnergyStartCharacteristicNotificationsFunction::
@@ -851,7 +833,7 @@ BluetoothLowEnergyStartCharacteristicNotificationsFunction::
 
 bool BluetoothLowEnergyStartCharacteristicNotificationsFunction::ParseParams() {
   params_ = apibtle::StartCharacteristicNotifications::Params::Create(args());
-  return params_.get() != nullptr;
+  return params_.has_value();
 }
 
 void BluetoothLowEnergyStartCharacteristicNotificationsFunction::DoWork() {
@@ -866,30 +848,19 @@ void BluetoothLowEnergyStartCharacteristicNotificationsFunction::DoWork() {
   }
 
   bool persistent = false;  // Not persistent by default.
-  apibtle::NotificationProperties* properties = params_->properties.get();
-  if (properties)
-    persistent = properties->persistent;
+  if (params_->properties)
+    persistent = params_->properties->persistent;
 
   event_router->StartCharacteristicNotifications(
       persistent, extension(), params_->characteristic_id,
       base::BindOnce(
           &BluetoothLowEnergyStartCharacteristicNotificationsFunction::
-              SuccessCallback,
+              EmptyResponse,
           this),
       base::BindOnce(
           &BluetoothLowEnergyStartCharacteristicNotificationsFunction::
-              ErrorCallback,
+              RespondWithErrorStatus,
           this));
-}
-
-void BluetoothLowEnergyStartCharacteristicNotificationsFunction::
-    SuccessCallback() {
-  Respond(NoArguments());
-}
-
-void BluetoothLowEnergyStartCharacteristicNotificationsFunction::ErrorCallback(
-    BluetoothLowEnergyEventRouter::Status status) {
-  Respond(Error(StatusToString(status)));
 }
 
 BluetoothLowEnergyStopCharacteristicNotificationsFunction::
@@ -900,7 +871,7 @@ BluetoothLowEnergyStopCharacteristicNotificationsFunction::
 
 bool BluetoothLowEnergyStopCharacteristicNotificationsFunction::ParseParams() {
   params_ = apibtle::StopCharacteristicNotifications::Params::Create(args());
-  return params_.get() != nullptr;
+  return params_.has_value();
 }
 
 void BluetoothLowEnergyStopCharacteristicNotificationsFunction::DoWork() {
@@ -918,22 +889,12 @@ void BluetoothLowEnergyStopCharacteristicNotificationsFunction::DoWork() {
       extension(), params_->characteristic_id,
       base::BindOnce(
           &BluetoothLowEnergyStopCharacteristicNotificationsFunction::
-              SuccessCallback,
+              EmptyResponse,
           this),
       base::BindOnce(
           &BluetoothLowEnergyStopCharacteristicNotificationsFunction::
-              ErrorCallback,
+              RespondWithErrorStatus,
           this));
-}
-
-void BluetoothLowEnergyStopCharacteristicNotificationsFunction::
-    SuccessCallback() {
-  Respond(NoArguments());
-}
-
-void BluetoothLowEnergyStopCharacteristicNotificationsFunction::ErrorCallback(
-    BluetoothLowEnergyEventRouter::Status status) {
-  Respond(Error(StatusToString(status)));
 }
 
 BluetoothLowEnergyReadDescriptorValueFunction::
@@ -944,7 +905,7 @@ BluetoothLowEnergyReadDescriptorValueFunction::
 
 bool BluetoothLowEnergyReadDescriptorValueFunction::ParseParams() {
   params_ = apibtle::ReadDescriptorValue::Params::Create(args());
-  return params_.get() != nullptr;
+  return params_.has_value();
 }
 
 void BluetoothLowEnergyReadDescriptorValueFunction::DoWork() {
@@ -964,32 +925,25 @@ void BluetoothLowEnergyReadDescriptorValueFunction::DoWork() {
       base::BindOnce(
           &BluetoothLowEnergyReadDescriptorValueFunction::SuccessCallback,
           this),
-      base::BindOnce(
-          &BluetoothLowEnergyReadDescriptorValueFunction::ErrorCallback, this));
+      base::BindOnce(&BluetoothLowEnergyReadDescriptorValueFunction::
+                         RespondWithErrorStatus,
+                     this));
 }
 
 void BluetoothLowEnergyReadDescriptorValueFunction::SuccessCallback() {
   // Obtain info on the descriptor and see whether or not the descriptor is
   // still around.
-  apibtle::Descriptor descriptor;
-  BluetoothLowEnergyEventRouter::Status status =
-      GetEventRouter(browser_context())
-          ->GetDescriptor(extension(), instance_id_, &descriptor);
-  if (status != BluetoothLowEnergyEventRouter::kStatusSuccess) {
-    Respond(Error(StatusToString(status)));
+  auto descriptor = GetEventRouter(browser_context())
+                        ->GetDescriptor(extension(), instance_id_);
+  if (!descriptor.has_value()) {
+    RespondWithErrorStatus(descriptor.error());
     return;
   }
 
   // Manually construct the result instead of using
   // apibtle::GetDescriptor::Results::Create as it doesn't convert lists of
   // enums correctly.
-  Respond(OneArgument(base::Value::FromUniquePtrValue(
-      apibtle::DescriptorToValue(&descriptor))));
-}
-
-void BluetoothLowEnergyReadDescriptorValueFunction::ErrorCallback(
-    BluetoothLowEnergyEventRouter::Status status) {
-  Respond(Error(StatusToString(status)));
+  Respond(WithArguments(apibtle::DescriptorToValue(*descriptor)));
 }
 
 BluetoothLowEnergyWriteDescriptorValueFunction::
@@ -1000,7 +954,7 @@ BluetoothLowEnergyWriteDescriptorValueFunction::
 
 bool BluetoothLowEnergyWriteDescriptorValueFunction::ParseParams() {
   params_ = apibtle::WriteDescriptorValue::Params::Create(args());
-  return params_.get() != nullptr;
+  return params_.has_value();
 }
 
 void BluetoothLowEnergyWriteDescriptorValueFunction::DoWork() {
@@ -1020,18 +974,13 @@ void BluetoothLowEnergyWriteDescriptorValueFunction::DoWork() {
       base::BindOnce(
           &BluetoothLowEnergyWriteDescriptorValueFunction::SuccessCallback,
           this),
-      base::BindOnce(
-          &BluetoothLowEnergyWriteDescriptorValueFunction::ErrorCallback,
-          this));
+      base::BindOnce(&BluetoothLowEnergyWriteDescriptorValueFunction::
+                         RespondWithErrorStatus,
+                     this));
 }
 
 void BluetoothLowEnergyWriteDescriptorValueFunction::SuccessCallback() {
   Respond(ArgumentList(apibtle::WriteDescriptorValue::Results::Create()));
-}
-
-void BluetoothLowEnergyWriteDescriptorValueFunction::ErrorCallback(
-    BluetoothLowEnergyEventRouter::Status status) {
-  Respond(Error(StatusToString(status)));
 }
 
 BluetoothLowEnergyAdvertisementFunction::
@@ -1087,7 +1036,7 @@ BluetoothLowEnergyRegisterAdvertisementFunction::
 
 bool BluetoothLowEnergyRegisterAdvertisementFunction::ParseParams() {
   params_ = apibtle::RegisterAdvertisement::Params::Create(args());
-  return params_.get() != nullptr;
+  return params_.has_value();
 }
 
 void BluetoothLowEnergyRegisterAdvertisementFunction::DoWork() {
@@ -1103,8 +1052,7 @@ void BluetoothLowEnergyRegisterAdvertisementFunction::DoWork() {
 
   std::unique_ptr<device::BluetoothAdvertisement::Data> advertisement_data(
       new device::BluetoothAdvertisement::Data(
-          params_->advertisement.type ==
-                  apibtle::AdvertisementType::ADVERTISEMENT_TYPE_BROADCAST
+          params_->advertisement.type == apibtle::AdvertisementType::kBroadcast
               ? device::BluetoothAdvertisement::AdvertisementType::
                     ADVERTISEMENT_TYPE_BROADCAST
               : device::BluetoothAdvertisement::AdvertisementType::
@@ -1116,11 +1064,11 @@ void BluetoothLowEnergyRegisterAdvertisementFunction::DoWork() {
       std::move(params_->advertisement.solicit_uuids));
   if (params_->advertisement.manufacturer_data) {
     advertisement_data->set_manufacturer_data(
-        CreateManufacturerData(params_->advertisement.manufacturer_data.get()));
+        CreateManufacturerData(*params_->advertisement.manufacturer_data));
   }
   if (params_->advertisement.service_data) {
     advertisement_data->set_service_data(
-        CreateServiceData(params_->advertisement.service_data.get()));
+        CreateServiceData(*params_->advertisement.service_data));
   }
 
   event_router->adapter()->RegisterAdvertisement(
@@ -1166,7 +1114,7 @@ BluetoothLowEnergyUnregisterAdvertisementFunction::
 
 bool BluetoothLowEnergyUnregisterAdvertisementFunction::ParseParams() {
   params_ = apibtle::UnregisterAdvertisement::Params::Create(args());
-  return params_.get() != nullptr;
+  return params_.has_value();
 }
 
 void BluetoothLowEnergyUnregisterAdvertisementFunction::DoWork() {
@@ -1175,7 +1123,7 @@ void BluetoothLowEnergyUnregisterAdvertisementFunction::DoWork() {
 
   // If we don't have an initialized adapter, unregistering is a no-op.
   if (!event_router->HasAdapter()) {
-    Respond(NoArguments());
+    EmptyResponse();
     return;
   }
 
@@ -1198,7 +1146,7 @@ void BluetoothLowEnergyUnregisterAdvertisementFunction::DoWork() {
 void BluetoothLowEnergyUnregisterAdvertisementFunction::SuccessCallback(
     int advertisement_id) {
   RemoveAdvertisement(advertisement_id);
-  Respond(NoArguments());
+  EmptyResponse();
 }
 
 void BluetoothLowEnergyUnregisterAdvertisementFunction::ErrorCallback(
@@ -1234,13 +1182,13 @@ void BluetoothLowEnergyResetAdvertisingFunction::DoWork() {
 
   // If the adapter is not initialized, there is nothing to reset.
   if (!event_router->HasAdapter()) {
-    Respond(NoArguments());
+    EmptyResponse();
     return;
   }
 
   const std::unordered_set<int>* advertisement_ids = GetAdvertisementIds();
   if (!advertisement_ids || advertisement_ids->empty()) {
-    Respond(NoArguments());
+    EmptyResponse();
     return;
   }
 
@@ -1252,15 +1200,11 @@ void BluetoothLowEnergyResetAdvertisingFunction::DoWork() {
   }
 
   event_router->adapter()->ResetAdvertising(
-      base::BindOnce(
-          &BluetoothLowEnergyResetAdvertisingFunction::SuccessCallback, this),
+      base::BindOnce(&BluetoothLowEnergyResetAdvertisingFunction::EmptyResponse,
+                     this),
       base::BindOnce(&BluetoothLowEnergyResetAdvertisingFunction::ErrorCallback,
                      this));
 #endif
-}
-
-void BluetoothLowEnergyResetAdvertisingFunction::SuccessCallback() {
-  Respond(NoArguments());
 }
 
 void BluetoothLowEnergyResetAdvertisingFunction::ErrorCallback(
@@ -1278,7 +1222,7 @@ BluetoothLowEnergySetAdvertisingIntervalFunction::
 
 bool BluetoothLowEnergySetAdvertisingIntervalFunction::ParseParams() {
   params_ = apibtle::SetAdvertisingInterval::Params::Create(args());
-  return params_.get() != nullptr;
+  return params_.has_value();
 }
 
 void BluetoothLowEnergySetAdvertisingIntervalFunction::DoWork() {
@@ -1289,16 +1233,12 @@ void BluetoothLowEnergySetAdvertisingIntervalFunction::DoWork() {
       base::Milliseconds(params_->min_interval),
       base::Milliseconds(params_->max_interval),
       base::BindOnce(
-          &BluetoothLowEnergySetAdvertisingIntervalFunction::SuccessCallback,
+          &BluetoothLowEnergySetAdvertisingIntervalFunction::EmptyResponse,
           this),
       base::BindOnce(
           &BluetoothLowEnergySetAdvertisingIntervalFunction::ErrorCallback,
           this));
 #endif
-}
-
-void BluetoothLowEnergySetAdvertisingIntervalFunction::SuccessCallback() {
-  Respond(NoArguments());
 }
 
 void BluetoothLowEnergySetAdvertisingIntervalFunction::ErrorCallback(
@@ -1327,7 +1267,7 @@ bool BluetoothLowEnergyCreateServiceFunction::ParseParams() {
 // Causes link error on Windows. API will never be on Windows, so #ifdefing.
 #if !BUILDFLAG(IS_WIN)
   params_ = apibtle::CreateService::Params::Create(args());
-  return params_.get() != nullptr;
+  return params_.has_value();
 #else
   return true;
 #endif
@@ -1363,7 +1303,7 @@ BluetoothLowEnergyCreateCharacteristicFunction::
 
 bool BluetoothLowEnergyCreateCharacteristicFunction::ParseParams() {
   params_ = apibtle::CreateCharacteristic::Params::Create(args());
-  return params_.get() != nullptr;
+  return params_.has_value();
 }
 
 void BluetoothLowEnergyCreateCharacteristicFunction::DoWork() {
@@ -1399,7 +1339,7 @@ BluetoothLowEnergyCreateDescriptorFunction::
 
 bool BluetoothLowEnergyCreateDescriptorFunction::ParseParams() {
   params_ = apibtle::CreateDescriptor::Params::Create(args());
-  return params_.get() != nullptr;
+  return params_.has_value();
 }
 
 void BluetoothLowEnergyCreateDescriptorFunction::DoWork() {
@@ -1430,25 +1370,17 @@ BluetoothLowEnergyRegisterServiceFunction::
 
 bool BluetoothLowEnergyRegisterServiceFunction::ParseParams() {
   params_ = apibtle::RegisterService::Params::Create(args());
-  return params_.get() != nullptr;
+  return params_.has_value();
 }
 
 void BluetoothLowEnergyRegisterServiceFunction::DoWork() {
   event_router_->RegisterGattService(
       extension(), params_->service_id,
+      base::BindOnce(&BluetoothLowEnergyRegisterServiceFunction::EmptyResponse,
+                     this),
       base::BindOnce(
-          &BluetoothLowEnergyRegisterServiceFunction::SuccessCallback, this),
-      base::BindOnce(&BluetoothLowEnergyRegisterServiceFunction::ErrorCallback,
-                     this));
-}
-
-void BluetoothLowEnergyRegisterServiceFunction::SuccessCallback() {
-  Respond(NoArguments());
-}
-
-void BluetoothLowEnergyRegisterServiceFunction::ErrorCallback(
-    BluetoothLowEnergyEventRouter::Status status) {
-  Respond(Error(StatusToString(status)));
+          &BluetoothLowEnergyRegisterServiceFunction::RespondWithErrorStatus,
+          this));
 }
 
 // unregisterService:
@@ -1461,25 +1393,17 @@ BluetoothLowEnergyUnregisterServiceFunction::
 
 bool BluetoothLowEnergyUnregisterServiceFunction::ParseParams() {
   params_ = apibtle::UnregisterService::Params::Create(args());
-  return params_.get() != nullptr;
+  return params_.has_value();
 }
 
 void BluetoothLowEnergyUnregisterServiceFunction::DoWork() {
   event_router_->UnregisterGattService(
       extension(), params_->service_id,
       base::BindOnce(
-          &BluetoothLowEnergyUnregisterServiceFunction::SuccessCallback, this),
+          &BluetoothLowEnergyUnregisterServiceFunction::EmptyResponse, this),
       base::BindOnce(
-          &BluetoothLowEnergyUnregisterServiceFunction::ErrorCallback, this));
-}
-
-void BluetoothLowEnergyUnregisterServiceFunction::SuccessCallback() {
-  Respond(NoArguments());
-}
-
-void BluetoothLowEnergyUnregisterServiceFunction::ErrorCallback(
-    BluetoothLowEnergyEventRouter::Status status) {
-  Respond(Error(StatusToString(status)));
+          &BluetoothLowEnergyUnregisterServiceFunction::RespondWithErrorStatus,
+          this));
 }
 
 // notifyCharacteristicValueChanged:
@@ -1492,7 +1416,7 @@ BluetoothLowEnergyNotifyCharacteristicValueChangedFunction::
 
 bool BluetoothLowEnergyNotifyCharacteristicValueChangedFunction::ParseParams() {
   params_ = apibtle::NotifyCharacteristicValueChanged::Params::Create(args());
-  return params_.get() != nullptr;
+  return params_.has_value();
 }
 
 void BluetoothLowEnergyNotifyCharacteristicValueChangedFunction::DoWork() {
@@ -1506,25 +1430,23 @@ void BluetoothLowEnergyNotifyCharacteristicValueChangedFunction::DoWork() {
   uint8_vector.assign(params_->notification.value.begin(),
                       params_->notification.value.end());
 
-  bool indicate = params_->notification.should_indicate.get()
-                      ? *params_->notification.should_indicate
-                      : false;
+  bool indicate = params_->notification.should_indicate.value_or(false);
   device::BluetoothLocalGattCharacteristic::NotificationStatus status =
       characteristic->NotifyValueChanged(nullptr, uint8_vector, indicate);
 
   switch (status) {
     case device::BluetoothLocalGattCharacteristic::NOTIFICATION_SUCCESS:
-      Respond(NoArguments());
-      break;
+      EmptyResponse();
+      return;
     case device::BluetoothLocalGattCharacteristic::NOTIFY_PROPERTY_NOT_SET:
       Respond(Error(kErrorNotifyPropertyNotSet));
-      break;
+      return;
     case device::BluetoothLocalGattCharacteristic::INDICATE_PROPERTY_NOT_SET:
       Respond(Error(kErrorIndicatePropertyNotSet));
-      break;
+      return;
     case device::BluetoothLocalGattCharacteristic::SERVICE_NOT_REGISTERED:
       Respond(Error(kErrorServiceNotRegistered));
-      break;
+      return;
     default:
       LOG(ERROR) << "Unknown notification error!";
       Respond(Error(kErrorUnknownNotificationError));
@@ -1541,7 +1463,7 @@ BluetoothLowEnergyRemoveServiceFunction::
 
 bool BluetoothLowEnergyRemoveServiceFunction::ParseParams() {
   params_ = apibtle::RemoveService::Params::Create(args());
-  return params_.get() != nullptr;
+  return params_.has_value();
 }
 
 void BluetoothLowEnergyRemoveServiceFunction::DoWork() {
@@ -1566,7 +1488,7 @@ BluetoothLowEnergySendRequestResponseFunction::
 
 bool BluetoothLowEnergySendRequestResponseFunction::ParseParams() {
   params_ = apibtle::SendRequestResponse::Params::Create(args());
-  return params_.get() != nullptr;
+  return params_.has_value();
 }
 
 void BluetoothLowEnergySendRequestResponseFunction::DoWork() {

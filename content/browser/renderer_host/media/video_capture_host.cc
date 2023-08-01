@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,10 @@
 
 #include <memory>
 
-#include "base/bind.h"
-#include "base/callback_forward.h"
-#include "base/callback_helpers.h"
 #include "base/containers/contains.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_forward.h"
+#include "base/functional/callback_helpers.h"
 #include "base/token.h"
 #include "base/unguessable_token.h"
 #include "content/browser/browser_main_loop.h"
@@ -86,9 +86,10 @@ void VideoCaptureHost::Create(
     mojo::PendingReceiver<media::mojom::VideoCaptureHost> receiver) {
   DVLOG(1) << __func__;
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  mojo::MakeSelfOwnedReceiver(std::make_unique<VideoCaptureHost>(
-                                  render_process_id, media_stream_manager),
-                              std::move(receiver));
+  media_stream_manager->RegisterVideoCaptureHost(
+      std::make_unique<VideoCaptureHost>(render_process_id,
+                                         media_stream_manager),
+      std::move(receiver));
 }
 
 VideoCaptureHost::~VideoCaptureHost() {
@@ -122,6 +123,18 @@ void VideoCaptureHost::OnError(const VideoCaptureControllerID& controller_id,
       FROM_HERE,
       base::BindOnce(&VideoCaptureHost::DoError, weak_factory_.GetWeakPtr(),
                      controller_id, error));
+}
+
+void VideoCaptureHost::OnCaptureConfigurationChanged(
+    const VideoCaptureControllerID& controller_id) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+
+  if (!base::Contains(controllers_, controller_id) ||
+      !base::Contains(device_id_to_observer_map_, controller_id)) {
+    return;
+  }
+
+  media_stream_manager_->OnCaptureConfigurationChanged(controller_id);
 }
 
 void VideoCaptureHost::OnNewBuffer(
@@ -160,6 +173,12 @@ void VideoCaptureHost::OnBufferReady(
   if (!base::Contains(device_id_to_observer_map_, controller_id))
     return;
 
+  if (region_capture_rect_ != buffer.frame_info->metadata.region_capture_rect) {
+    region_capture_rect_ = buffer.frame_info->metadata.region_capture_rect;
+    media_stream_manager_->OnRegionCaptureRectChanged(controller_id,
+                                                      region_capture_rect_);
+  }
+
   media::mojom::ReadyBufferPtr mojom_buffer = media::mojom::ReadyBuffer::New(
       buffer.buffer_id, buffer.frame_info->Clone());
   std::vector<media::mojom::ReadyBufferPtr> mojom_scaled_buffers;
@@ -170,6 +189,20 @@ void VideoCaptureHost::OnBufferReady(
   }
   device_id_to_observer_map_[controller_id]->OnBufferReady(
       std::move(mojom_buffer), std::move(mojom_scaled_buffers));
+}
+
+void VideoCaptureHost::OnFrameWithEmptyRegionCapture(
+    const VideoCaptureControllerID& controller_id) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+
+  if (controllers_.find(controller_id) == controllers_.end())
+    return;
+
+  if (region_capture_rect_ != absl::nullopt) {
+    region_capture_rect_ = absl::nullopt;
+    media_stream_manager_->OnRegionCaptureRectChanged(controller_id,
+                                                      region_capture_rect_);
+  }
 }
 
 void VideoCaptureHost::OnEnded(const VideoCaptureControllerID& controller_id) {
@@ -207,6 +240,8 @@ void VideoCaptureHost::Start(
            << ", device_id=" << device_id << ", format="
            << media::VideoCaptureFormat::ToString(params.requested_format);
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("video_and_image_capture"),
+               "VideoCaptureHost::Start");
 
   if (!params.IsValid()) {
     mojo::ReportBadMessage("Invalid video capture params.");
@@ -235,6 +270,8 @@ void VideoCaptureHost::Start(
 void VideoCaptureHost::Stop(const base::UnguessableToken& device_id) {
   DVLOG(1) << __func__ << " " << device_id;
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("video_and_image_capture"),
+               "VideoCaptureHost::Stop");
 
   const VideoCaptureControllerID& controller_id(device_id);
 
@@ -252,6 +289,8 @@ void VideoCaptureHost::Stop(const base::UnguessableToken& device_id) {
 void VideoCaptureHost::Pause(const base::UnguessableToken& device_id) {
   DVLOG(1) << __func__ << " " << device_id;
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("video_and_image_capture"),
+               "VideoCaptureHost::Pause");
 
   VideoCaptureControllerID controller_id(device_id);
   auto it = controllers_.find(controller_id);
@@ -272,6 +311,8 @@ void VideoCaptureHost::Resume(const base::UnguessableToken& device_id,
                               const media::VideoCaptureParams& params) {
   DVLOG(1) << __func__ << " " << device_id;
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("video_and_image_capture"),
+               "VideoCaptureHost::Resume");
 
   if (!params.IsValid()) {
     mojo::ReportBadMessage("Invalid video capture params.");
@@ -368,6 +409,19 @@ void VideoCaptureHost::OnFrameDropped(
     controller->OnFrameDropped(reason);
 }
 
+void VideoCaptureHost::OnNewCropVersion(const base::UnguessableToken& device_id,
+                                        uint32_t crop_version) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+
+  const VideoCaptureControllerID controller_id(device_id);
+  if (!base::Contains(controllers_, controller_id) ||
+      !base::Contains(device_id_to_observer_map_, controller_id)) {
+    return;
+  }
+
+  device_id_to_observer_map_[controller_id]->OnNewCropVersion(crop_version);
+}
+
 void VideoCaptureHost::OnLog(const base::UnguessableToken& device_id,
                              const std::string& message) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
@@ -433,8 +487,7 @@ void VideoCaptureHost::OnControllerAdded(
     if (base::Contains(device_id_to_observer_map_, controller_id)) {
       device_id_to_observer_map_[device_id]->OnStateChanged(
           media::mojom::VideoCaptureResult::NewErrorCode(
-              media::VideoCaptureError::
-                  kVideoCaptureControllerInvalidOrUnsupportedVideoCaptureParametersRequested));
+              media::VideoCaptureError::kVideoCaptureControllerInvalid));
     }
     controllers_.erase(controller_id);
     return;

@@ -23,6 +23,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_TEXT_FRAGMENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_TEXT_FRAGMENT_H_
 
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/editing/editing_utilities.h"
 #include "third_party/blink/renderer/core/layout/layout_text.h"
 #include "third_party/blink/renderer/platform/heap/member.h"
@@ -39,22 +40,24 @@ class FirstLetterPseudoElement;
 // node.
 class CORE_EXPORT LayoutTextFragment : public LayoutText {
  public:
-  LayoutTextFragment(Node*, StringImpl*, int start_offset, int length);
+  LayoutTextFragment(Node*, const String&, int start_offset, int length);
   ~LayoutTextFragment() override;
 
   static LayoutTextFragment* Create(Node*,
-                                    StringImpl*,
+                                    const String&,
                                     int start_offset,
-                                    int length,
-                                    LegacyLayout);
+                                    int length);
+  static LayoutTextFragment* CreateAnonymous(PseudoElement&, const String&);
   static LayoutTextFragment* CreateAnonymous(PseudoElement&,
-                                             StringImpl*,
-                                             LegacyLayout);
-  static LayoutTextFragment* CreateAnonymous(PseudoElement&,
-                                             StringImpl*,
+                                             const String&,
                                              unsigned start,
-                                             unsigned length,
-                                             LegacyLayout);
+                                             unsigned length);
+  static LayoutTextFragment* CreateAnonymous(Document&,
+                                             const String&,
+                                             unsigned start,
+                                             unsigned length);
+
+  void Trace(Visitor*) const override;
 
   Position PositionForCaretOffset(unsigned) const override;
   absl::optional<unsigned> CaretOffsetForPosition(
@@ -74,22 +77,20 @@ class CORE_EXPORT LayoutTextFragment : public LayoutText {
     return Start();
   }
 
-  void SetContentString(StringImpl*);
-  StringImpl* ContentString() const {
+  void SetContentString(const String&);
+  const String& ContentString() const {
     NOT_DESTROYED();
-    return content_string_.get();
+    return content_string_;
   }
   // The complete text is all of the text in the associated DOM text node.
-  scoped_refptr<StringImpl> CompleteText() const;
+  String CompleteText() const;
   // The fragment text is the text which will be used by this
   // LayoutTextFragment. For things like first-letter this may differ from the
   // completeText as we maybe using only a portion of the text nodes content.
 
-  scoped_refptr<StringImpl> OriginalText() const override;
+  String OriginalText() const override;
 
-  void SetTextFragment(scoped_refptr<StringImpl>,
-                       unsigned start,
-                       unsigned length);
+  void SetTextFragment(String, unsigned start, unsigned length);
 
   void TransformText() override;
 
@@ -126,6 +127,11 @@ class CORE_EXPORT LayoutTextFragment : public LayoutText {
   void WillBeDestroyed() override;
 
  private:
+  void InsertedIntoTree() final {
+    NOT_DESTROYED();
+    valid_ng_items_ = false;
+    LayoutText::InsertedIntoTree();
+  }
   LayoutBlock* BlockForAccompanyingFirstLetter() const;
   UChar PreviousCharacter() const override;
   void TextDidChange() override;
@@ -133,13 +139,14 @@ class CORE_EXPORT LayoutTextFragment : public LayoutText {
   void UpdateHitTestResult(HitTestResult&,
                            const PhysicalOffset&) const override;
 
+  DOMNodeId OwnerNodeId() const final;
+
   unsigned start_;
   unsigned fragment_length_;
   bool is_remaining_text_layout_object_;
-  scoped_refptr<StringImpl> content_string_;
-  // Reference back to FirstLetterPseudoElement; cleared by
-  // FirstLetterPseudoElement::detachLayoutTree() if it goes away first.
-  UntracedMember<FirstLetterPseudoElement> first_letter_pseudo_element_;
+  String content_string_;
+
+  Member<FirstLetterPseudoElement> first_letter_pseudo_element_;
 };
 
 template <>

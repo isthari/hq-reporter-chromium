@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -56,7 +56,6 @@ namespace media_router {
 namespace {
 
 constexpr char kRouteId[] = "route1";
-constexpr char kSinkDescription[] = "description";
 constexpr char kSinkId[] = "sink1";
 constexpr char kSinkName[] = "sink name";
 constexpr char kSourceId[] = "source1";
@@ -80,12 +79,13 @@ class MockControllerObserver : public CastDialogController::Observer {
       controller_->RemoveObserver(this);
   }
 
-  MOCK_METHOD1(OnModelUpdated, void(const CastDialogModel& model));
-  void OnControllerInvalidated() {
+  MOCK_METHOD(void, OnModelUpdated, (const CastDialogModel& model), (override));
+  MOCK_METHOD(void, OnCastingStarted, (), (override));
+  void OnControllerDestroying() override {
     controller_ = nullptr;
-    OnControllerInvalidatedInternal();
+    OnControllerDestroyingInternal();
   }
-  MOCK_METHOD0(OnControllerInvalidatedInternal, void());
+  MOCK_METHOD(void, OnControllerDestroyingInternal, ());
 
  private:
   raw_ptr<CastDialogController> controller_ = nullptr;
@@ -149,8 +149,8 @@ class MediaRouterViewsUITest : public ChromeRenderViewHostTestHarness {
     ON_CALL(*mock_router_, GetLogger()).WillByDefault(Return(logger_.get()));
 
     CreateSessionServiceTabHelper(web_contents());
-    ui_ = std::make_unique<MediaRouterUI>(web_contents());
-    ui_->InitWithDefaultMediaSourceAndMirroring();
+    ui_ =
+        MediaRouterUI::CreateWithDefaultMediaSourceAndMirroring(web_contents());
   }
 
   void TearDown() override {
@@ -172,15 +172,15 @@ class MediaRouterViewsUITest : public ChromeRenderViewHostTestHarness {
     content::RenderFrameHostTester::CommitPendingLoad(
         &web_contents()->GetController());
     CreateSessionServiceTabHelper(web_contents());
-    ui_ = std::make_unique<MediaRouterUI>(web_contents());
-    ui_->InitWithDefaultMediaSourceAndMirroring();
+    ui_ =
+        MediaRouterUI::CreateWithDefaultMediaSourceAndMirroring(web_contents());
   }
 
   // These methods are used so that we don't have to friend each test case that
   // calls the private methods.
-  void NotifyUiOnResultsUpdated(
+  void NotifyUiOnSinksUpdated(
       const std::vector<MediaSinkWithCastModes>& sinks) {
-    ui_->OnResultsUpdated(sinks);
+    ui_->OnSinksUpdated(sinks);
   }
   void NotifyUiOnRoutesUpdated(const std::vector<MediaRoute>& routes) {
     ui_->OnRoutesUpdated(routes);
@@ -189,14 +189,29 @@ class MediaRouterViewsUITest : public ChromeRenderViewHostTestHarness {
   void StartTabCasting(bool is_incognito) {
     MediaSource media_source = MediaSource::ForTab(
         sessions::SessionTabHelper::IdForTab(web_contents()).id());
+    MediaRouteResponseCallback callback;
     EXPECT_CALL(
         *mock_router_,
         CreateRouteInternal(media_source.id(), kSinkId, _, web_contents(), _,
-                            base::Seconds(60), is_incognito));
+                            base::Seconds(60), is_incognito))
+        .WillOnce(SaveArgWithMove<4>(&callback));
     MediaSink sink{CreateCastSink(kSinkId, kSinkName)};
     for (MediaSinksObserver* sinks_observer : media_sinks_observers_)
       sinks_observer->OnSinksUpdated({sink}, std::vector<url::Origin>());
     ui_->StartCasting(kSinkId, MediaCastMode::TAB_MIRROR);
+    Mock::VerifyAndClearExpectations(mock_router_);
+
+    NiceMock<MockControllerObserver> observer(ui_.get());
+    EXPECT_CALL(observer, OnCastingStarted());
+    std::string presentation_id = "presentationId";
+    MediaRoute::Id route_id =
+        MediaRoute::GetMediaRouteId(presentation_id, kSinkId, media_source);
+    MediaRoute route(route_id, media_source, kSinkId,
+                     /* description */ std::string(),
+                     /* is_local */ true);
+    std::unique_ptr<RouteRequestResult> result =
+        RouteRequestResult::FromSuccess(route, presentation_id);
+    std::move(callback).Run(/* connection */ nullptr, *result);
   }
 
   void StartCastingAndExpectTimeout(MediaCastMode cast_mode,
@@ -204,7 +219,7 @@ class MediaRouterViewsUITest : public ChromeRenderViewHostTestHarness {
                                     int timeout_seconds) {
     NiceMock<MockControllerObserver> observer(ui_.get());
     MediaSink sink{CreateCastSink(kSinkId, kSinkName)};
-    ui_->OnResultsUpdated({{sink, {cast_mode}}});
+    ui_->OnSinksUpdated({{sink, {cast_mode}}});
     MediaRouteResponseCallback callback;
     EXPECT_CALL(*mock_router_,
                 CreateRouteInternal(_, _, _, _, _,
@@ -221,7 +236,7 @@ class MediaRouterViewsUITest : public ChromeRenderViewHostTestHarness {
                     expected_issue_title);
         }));
     std::unique_ptr<RouteRequestResult> result = RouteRequestResult::FromError(
-        "Timed out", RouteRequestResult::TIMED_OUT);
+        "Timed out", mojom::RouteRequestResultCode::TIMED_OUT);
     std::move(callback).Run(nullptr, *result);
   }
 
@@ -240,9 +255,10 @@ class MediaRouterViewsUITest : public ChromeRenderViewHostTestHarness {
         base::BindOnce(&PresentationRequestCallbacks::Error,
                        base::Unretained(request_callbacks.get())));
     StartPresentationContext* context_ptr = start_presentation_context_.get();
-    ui_->set_start_presentation_context_for_test(
+    ui_->media_route_starter()->set_start_presentation_context_for_test(
         std::move(start_presentation_context_));
-    ui_->OnDefaultPresentationChanged(&context_ptr->presentation_request());
+    ui_->media_route_starter()->OnDefaultPresentationChanged(
+        &context_ptr->presentation_request());
     return request_callbacks;
   }
 
@@ -281,7 +297,7 @@ TEST_F(MediaRouterViewsUITest, NotifyObserver) {
             base::Contains(ui_sink.cast_modes, MediaCastMode::TAB_MIRROR));
         EXPECT_EQ(sink.icon_type(), ui_sink.icon_type);
       })));
-  NotifyUiOnResultsUpdated({sink_with_cast_modes});
+  NotifyUiOnSinksUpdated({sink_with_cast_modes});
 
   MediaRoute route(kRouteId, MediaSource(kSourceId), kSinkId, "", true);
   EXPECT_CALL(observer, OnModelUpdated(_))
@@ -295,7 +311,7 @@ TEST_F(MediaRouterViewsUITest, NotifyObserver) {
           })));
   NotifyUiOnRoutesUpdated({route});
 
-  EXPECT_CALL(observer, OnControllerInvalidatedInternal());
+  EXPECT_CALL(observer, OnControllerDestroyingInternal());
   ui_.reset();
 }
 
@@ -303,16 +319,13 @@ TEST_F(MediaRouterViewsUITest, SinkFriendlyName) {
   NiceMock<MockControllerObserver> observer(ui_.get());
 
   MediaSink sink{CreateCastSink(kSinkId, kSinkName)};
-  sink.set_description(kSinkDescription);
   MediaSinkWithCastModes sink_with_cast_modes(sink);
-  const char* separator = u8" \u2010 ";
   EXPECT_CALL(observer, OnModelUpdated(_))
       .WillOnce(Invoke([&](const CastDialogModel& model) {
-        EXPECT_EQ(base::UTF8ToUTF16(sink.name() + separator +
-                                    sink.description().value()),
+        EXPECT_EQ(base::UTF8ToUTF16(sink.name()),
                   model.media_sinks()[0].friendly_name);
       }));
-  NotifyUiOnResultsUpdated({sink_with_cast_modes});
+  NotifyUiOnSinksUpdated({sink_with_cast_modes});
 }
 
 TEST_F(MediaRouterViewsUITest, SetDialogHeader) {
@@ -341,7 +354,8 @@ TEST_F(MediaRouterViewsUITest, SetDialogHeader) {
   // An https origin is included in the dialog header without the scheme.
   content::PresentationRequest presentation_request(
       content::GlobalRenderFrameHostId(), {presentation_url}, https_origin);
-  ui_->OnDefaultPresentationChanged(&presentation_request);
+  ui_->media_route_starter()->OnDefaultPresentationChanged(
+      &presentation_request);
   EXPECT_EQ(l10n_util::GetStringFUTF16(IDS_MEDIA_ROUTER_PRESENTATION_CAST_MODE,
                                        base::UTF8ToUTF16(https_origin.host())),
             current_header);
@@ -350,7 +364,8 @@ TEST_F(MediaRouterViewsUITest, SetDialogHeader) {
   // mirroring header.
   presentation_request = content::PresentationRequest(
       content::GlobalRenderFrameHostId(), {presentation_url}, url::Origin());
-  ui_->OnDefaultPresentationChanged(&presentation_request);
+  ui_->media_route_starter()->OnDefaultPresentationChanged(
+      &presentation_request);
   EXPECT_EQ(l10n_util::GetStringUTF16(IDS_MEDIA_ROUTER_TAB_MIRROR_CAST_MODE),
             current_header);
 
@@ -369,7 +384,8 @@ TEST_F(MediaRouterViewsUITest, SetDialogHeader) {
 
   presentation_request = content::PresentationRequest(
       content::GlobalRenderFrameHostId(), {presentation_url}, extension_origin);
-  ui_->OnDefaultPresentationChanged(&presentation_request);
+  ui_->media_route_starter()->OnDefaultPresentationChanged(
+      &presentation_request);
   EXPECT_EQ(l10n_util::GetStringFUTF16(IDS_MEDIA_ROUTER_PRESENTATION_CAST_MODE,
                                        std::u16string(u"Test Extension")),
             current_header);
@@ -440,19 +456,18 @@ TEST_F(MediaRouterViewsUITest, DisconnectingState) {
   NotifyUiOnRoutesUpdated({});
 }
 
+#if !BUILDFLAG(IS_ANDROID)
 TEST_F(MediaRouterViewsUITest, AddAndRemoveIssue) {
   MediaSink sink1{CreateCastSink("sink_id1", "Sink 1")};
   MediaSink sink2{CreateCastSink("sink_id2", "Sink 2")};
-  NotifyUiOnResultsUpdated({{sink1, {MediaCastMode::TAB_MIRROR}},
-                            {sink2, {MediaCastMode::TAB_MIRROR}}});
+  NotifyUiOnSinksUpdated({{sink1, {MediaCastMode::TAB_MIRROR}},
+                          {sink2, {MediaCastMode::TAB_MIRROR}}});
 
   NiceMock<MockControllerObserver> observer(ui_.get());
   NiceMock<MockIssuesObserver> issues_observer(mock_router_->GetIssueManager());
   issues_observer.Init();
   const std::string issue_title("Issue 1");
-  IssueInfo issue(issue_title, IssueInfo::Action::DISMISS,
-                  IssueInfo::Severity::WARNING);
-  issue.sink_id = sink2.id();
+  IssueInfo issue(issue_title, IssueInfo::Severity::WARNING, sink2.id());
   Issue::Id issue_id = -1;
 
   EXPECT_CALL(issues_observer, OnIssue)
@@ -477,38 +492,58 @@ TEST_F(MediaRouterViewsUITest, AddAndRemoveIssue) {
       })));
   mock_router_->GetIssueManager()->ClearIssue(issue_id);
 }
+#endif  // !BUILDFLAG(IS_ANDROID)
 
-TEST_F(MediaRouterViewsUITest, RouteCreationTimeoutForTab) {
-  StartCastingAndExpectTimeout(
-      MediaCastMode::TAB_MIRROR,
-      l10n_util::GetStringUTF8(
-          IDS_MEDIA_ROUTER_ISSUE_CREATE_ROUTE_TIMEOUT_FOR_TAB),
-      60);
-}
-
-TEST_F(MediaRouterViewsUITest, RouteCreationTimeoutForDesktop) {
-#if BUILDFLAG(IS_MAC)
-  if (base::mac::IsAtLeastOS10_15())
-    set_screen_capture_allowed_for_testing(true);
-#endif
-
-  StartCastingAndExpectTimeout(
-      MediaCastMode::DESKTOP_MIRROR,
-      l10n_util::GetStringUTF8(
-          IDS_MEDIA_ROUTER_ISSUE_CREATE_ROUTE_TIMEOUT_FOR_DESKTOP),
-      120);
-}
-
-TEST_F(MediaRouterViewsUITest, RouteCreationTimeoutForPresentation) {
+TEST_F(MediaRouterViewsUITest, RouteCreationTimeout) {
   content::PresentationRequest presentation_request(
       {0, 0}, {GURL("https://presentationurl.com")},
       url::Origin::Create(GURL("https://frameurl.fakeurl")));
-  ui_->OnDefaultPresentationChanged(&presentation_request);
+  ui_->media_route_starter()->OnDefaultPresentationChanged(
+      &presentation_request);
   StartCastingAndExpectTimeout(
       MediaCastMode::PRESENTATION,
-      l10n_util::GetStringFUTF8(IDS_MEDIA_ROUTER_ISSUE_CREATE_ROUTE_TIMEOUT,
-                                u"frameurl.fakeurl"),
+      l10n_util::GetStringFUTF8(
+          IDS_MEDIA_ROUTER_ISSUE_CREATE_ROUTE_TIMEOUT_WITH_HOSTNAME,
+          u"frameurl.fakeurl"),
       20);
+}
+
+TEST_F(MediaRouterViewsUITest, RouteCreationTimeoutIssueTitle) {
+  NiceMock<MockIssuesObserver> issues_observer(mock_router_->GetIssueManager());
+  issues_observer.Init();
+
+  EXPECT_CALL(issues_observer, OnIssue).WillOnce(Invoke([](const Issue& issue) {
+    EXPECT_EQ(l10n_util::GetStringFUTF8(
+                  IDS_MEDIA_ROUTER_ISSUE_CREATE_ROUTE_TIMEOUT_WITH_HOSTNAME,
+                  u"presentation_source_name"),
+              issue.info().title);
+  }));
+  ui_->SendIssueForRouteTimeout(MediaCastMode::PRESENTATION, "sink_id",
+                                u"presentation_source_name");
+  mock_router_->GetIssueManager()->ClearAllIssues();
+
+  EXPECT_CALL(issues_observer, OnIssue).WillOnce(Invoke([](const Issue& issue) {
+    EXPECT_EQ(l10n_util::GetStringUTF8(
+                  IDS_MEDIA_ROUTER_ISSUE_CREATE_ROUTE_TIMEOUT_FOR_TAB),
+              issue.info().title);
+  }));
+  ui_->SendIssueForRouteTimeout(MediaCastMode::TAB_MIRROR, "sink_id", u"");
+  mock_router_->GetIssueManager()->ClearAllIssues();
+
+  EXPECT_CALL(issues_observer, OnIssue).WillOnce(Invoke([](const Issue& issue) {
+    EXPECT_EQ(l10n_util::GetStringUTF8(
+                  IDS_MEDIA_ROUTER_ISSUE_CREATE_ROUTE_TIMEOUT_FOR_DESKTOP),
+              issue.info().title);
+  }));
+  ui_->SendIssueForRouteTimeout(MediaCastMode::DESKTOP_MIRROR, "sink_id", u"");
+  mock_router_->GetIssueManager()->ClearAllIssues();
+
+  EXPECT_CALL(issues_observer, OnIssue).WillOnce(Invoke([](const Issue& issue) {
+    EXPECT_EQ(
+        l10n_util::GetStringUTF8(IDS_MEDIA_ROUTER_ISSUE_CREATE_ROUTE_TIMEOUT),
+        issue.info().title);
+  }));
+  ui_->SendIssueForRouteTimeout(MediaCastMode::REMOTE_PLAYBACK, "sink_id", u"");
 }
 
 #if BUILDFLAG(IS_MAC)
@@ -521,7 +556,7 @@ TEST_F(MediaRouterViewsUITest, DesktopMirroringFailsWhenDisallowedOnMac) {
   set_screen_capture_allowed_for_testing(false);
   MockControllerObserver observer(ui_.get());
   MediaSink sink{CreateCastSink(kSinkId, kSinkName)};
-  ui_->OnResultsUpdated({{sink, {MediaCastMode::DESKTOP_MIRROR}}});
+  ui_->OnSinksUpdated({{sink, {MediaCastMode::DESKTOP_MIRROR}}});
   for (MediaSinksObserver* sinks_observer : media_sinks_observers_)
     sinks_observer->OnSinksUpdated({sink}, std::vector<url::Origin>());
 
@@ -537,9 +572,9 @@ TEST_F(MediaRouterViewsUITest, DesktopMirroringFailsWhenDisallowedOnMac) {
 #endif
 
 TEST_F(MediaRouterViewsUITest, SortedSinks) {
-  NotifyUiOnResultsUpdated({{CreateCastSink("sink3", "B sink"), {}},
-                            {CreateCastSink("sink2", "A sink"), {}},
-                            {CreateCastSink("sink1", "B sink"), {}}});
+  NotifyUiOnSinksUpdated({{CreateCastSink("sink3", "B sink"), {}},
+                          {CreateCastSink("sink2", "A sink"), {}},
+                          {CreateCastSink("sink1", "B sink"), {}}});
 
   // Sort first by name, then by ID.
   const auto& sorted_sinks = ui_->GetEnabledSinks();
@@ -549,7 +584,7 @@ TEST_F(MediaRouterViewsUITest, SortedSinks) {
 }
 
 TEST_F(MediaRouterViewsUITest, SortSinksByIconType) {
-  NotifyUiOnResultsUpdated(
+  NotifyUiOnSinksUpdated(
       {{MediaSink{"id1", "B sink", SinkIconType::CAST_AUDIO_GROUP,
                   mojom::MediaRouteProviderId::CAST},
         {}},
@@ -641,7 +676,7 @@ TEST_F(MediaRouterViewsUITest, UpdateSinksWhenDialogMovesToAnotherDisplay) {
       display_observer_unique.get();
   ui_->display_observer_ = std::move(display_observer_unique);
 
-  NotifyUiOnResultsUpdated(
+  NotifyUiOnSinksUpdated(
       {{CreateWiredDisplaySink(display_sink_id1, "sink"), {}},
        {CreateWiredDisplaySink(display_sink_id2, "sink"), {}},
        {CreateDialSink("id3", "sink"), {}}});
@@ -652,10 +687,7 @@ TEST_F(MediaRouterViewsUITest, UpdateSinksWhenDialogMovesToAnotherDisplay) {
       .WillOnce(WithArg<0>([&](const CastDialogModel& model) {
         const auto& sinks = model.media_sinks();
         EXPECT_EQ(2u, sinks.size());
-        EXPECT_TRUE(std::find_if(sinks.begin(), sinks.end(),
-                                 [&](const UIMediaSink& sink) {
-                                   return sink.id == display_sink_id1;
-                                 }) == sinks.end());
+        EXPECT_FALSE(base::Contains(sinks, display_sink_id1, &UIMediaSink::id));
       }));
   ui_->UpdateSinks();
   Mock::VerifyAndClearExpectations(&observer);
@@ -666,13 +698,41 @@ TEST_F(MediaRouterViewsUITest, UpdateSinksWhenDialogMovesToAnotherDisplay) {
       .WillOnce(WithArg<0>([&](const CastDialogModel& model) {
         const auto& sinks = model.media_sinks();
         EXPECT_EQ(2u, sinks.size());
-        EXPECT_TRUE(std::find_if(sinks.begin(), sinks.end(),
-                                 [&](const UIMediaSink& sink) {
-                                   return sink.id == display_sink_id2;
-                                 }) == sinks.end());
+        EXPECT_FALSE(base::Contains(sinks, display_sink_id2, &UIMediaSink::id));
       }));
   display_observer->set_display(display2);
   ui_->UpdateSinks();
+}
+
+TEST_F(MediaRouterViewsUITest, FreezeRoute) {
+  EXPECT_CALL(*mock_router_, GetMirroringMediaControllerHost(kRouteId));
+  ui_->FreezeRoute(kRouteId);
+}
+
+TEST_F(MediaRouterViewsUITest, UnfreezeRoute) {
+  EXPECT_CALL(*mock_router_, GetMirroringMediaControllerHost(kRouteId));
+  ui_->UnfreezeRoute(kRouteId);
+}
+
+TEST_F(MediaRouterViewsUITest, OnFreezeInfoChanged) {
+  MockControllerObserver observer;
+
+  EXPECT_CALL(observer, OnModelUpdated(_))
+      .WillOnce(WithArg<0>(Invoke([](const CastDialogModel& model) {
+        EXPECT_TRUE(model.media_sinks().empty());
+      })));
+  ui_->AddObserver(&observer);
+
+  // Calling OnFreezeInfoChanged will trigger the UI to UpdateSinks, which we
+  // can detect through OnModelUpdated.
+  EXPECT_CALL(observer, OnModelUpdated(_))
+      .WillOnce(WithArg<0>(Invoke([](const CastDialogModel& model) {
+        EXPECT_TRUE(model.media_sinks().empty());
+      })));
+  ui_->OnFreezeInfoChanged();
+
+  EXPECT_CALL(observer, OnControllerDestroyingInternal());
+  ui_.reset();
 }
 
 class MediaRouterViewsUIIncognitoTest : public MediaRouterViewsUITest {

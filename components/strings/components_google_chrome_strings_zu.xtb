@@ -8,7 +8,6 @@
 <translation id="2588322182880276190">Ilogo ye-Chrome</translation>
 <translation id="3444832043240812445">Leli khasi libonisa kuphela ulwazi lokuphahlazeka kwakho kwakamuva uma ngabe <ph name="BEGIN_LINK" />unika amandla ukubikwa kokuphahlazeka<ph name="END_LINK" />.</translation>
 <translation id="3875312571075912821">Vumela i-Chrome ukufinyelela inethiwekhi kuzilungiselelo zakho zohlelo lokuvikela noma isilwi magciwane.</translation>
-<translation id="4010643444566880169">I-Chrome OS ayiqedanga ukusethwa kwayo kwasekuqaleni.</translation>
 <translation id="5005121315113832363">Leli khasi livinjwe yi-Chrome</translation>
 <translation id="6011049234605203654">Hamba
           kumenyu ye-Chrome &gt;
@@ -39,4 +38,6 @@
 <translation id="8187289872471304532">Hamba ku-
           Izinhlelo zokusebenza &gt; Okuncamelayo kwesistimu &gt; Inethiwekhi &gt; Okuthuthukisiwe &gt; Ommeleli
           uphinde uyekele ukukhetha noma yibaphi abammeleli abakhethiwe.</translation>
+<translation id="8232971017369963250">I-Chrome yenziwe yenzeke iphrojekthi yomthombo ovulekile we-<ph name="BEGIN_LINK_CHROMIUM" />Chromium<ph name="END_LINK_CHROMIUM" />.</translation>
+<translation id="8279509328145658601">I-Chrome iphinda yenziwe enye <ph name="BEGIN_LINK_OSS" />isofthiwe yomthombo ovulekile<ph name="END_LINK_OSS" />.</translation>
 </translationbundle>

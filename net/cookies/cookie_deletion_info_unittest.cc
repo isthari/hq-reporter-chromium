@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -88,6 +88,7 @@ TEST(CookieDeletionInfoTest, CookieDeletionInfoMatchSessionControl) {
       /*creation=*/base::Time::Now(),
       /*expiration=*/base::Time::Max(),
       /*last_access=*/base::Time::Now(),
+      /*last_update=*/base::Time::Now(),
       /*secure=*/true,
       /*httponly=*/false, CookieSameSite::NO_RESTRICTION,
       CookiePriority::COOKIE_PRIORITY_DEFAULT,
@@ -98,6 +99,7 @@ TEST(CookieDeletionInfoTest, CookieDeletionInfoMatchSessionControl) {
       /*creation=*/base::Time::Now(),
       /*expiration=*/base::Time(),
       /*last_access=*/base::Time::Now(),
+      /*last_update=*/base::Time::Now(),
       /*secure=*/true,
       /*httponly=*/false, CookieSameSite::NO_RESTRICTION,
       CookiePriority::COOKIE_PRIORITY_DEFAULT,
@@ -149,6 +151,7 @@ TEST(CookieDeletionInfoTest, CookieDeletionInfoMatchHost) {
       /*creation=*/base::Time::Now(),
       /*expiration=*/base::Time::Max(),
       /*last_access=*/base::Time::Now(),
+      /*last_update=*/base::Time::Now(),
       /*secure=*/true,
       /*httponly=*/false, CookieSameSite::NO_RESTRICTION,
       CookiePriority::COOKIE_PRIORITY_DEFAULT,
@@ -160,6 +163,7 @@ TEST(CookieDeletionInfoTest, CookieDeletionInfoMatchHost) {
       /*creation=*/base::Time::Now(),
       /*expiration=*/base::Time::Max(),
       /*last_access=*/base::Time::Now(),
+      /*last_update=*/base::Time::Now(),
       /*secure=*/true,
       /*httponly=*/false, CookieSameSite::NO_RESTRICTION,
       CookiePriority::COOKIE_PRIORITY_DEFAULT,
@@ -224,6 +228,7 @@ TEST(CookieDeletionInfoTest, CookieDeletionInfoMatchName) {
       /*creation=*/base::Time::Now(),
       /*expiration=*/base::Time::Max(),
       /*last_access=*/base::Time::Now(),
+      /*last_update=*/base::Time::Now(),
       /*secure=*/true,
       /*httponly=*/false, CookieSameSite::NO_RESTRICTION,
       CookiePriority::COOKIE_PRIORITY_DEFAULT,
@@ -234,6 +239,7 @@ TEST(CookieDeletionInfoTest, CookieDeletionInfoMatchName) {
       /*creation=*/base::Time::Now(),
       /*expiration=*/base::Time::Max(),
       /*last_access=*/base::Time::Now(),
+      /*last_update=*/base::Time::Now(),
       /*secure=*/true,
       /*httponly=*/false, CookieSameSite::NO_RESTRICTION,
       CookiePriority::COOKIE_PRIORITY_DEFAULT,
@@ -260,6 +266,7 @@ TEST(CookieDeletionInfoTest, CookieDeletionInfoMatchValue) {
       /*creation=*/base::Time::Now(),
       /*expiration=*/base::Time::Max(),
       /*last_access=*/base::Time::Now(),
+      /*last_update=*/base::Time::Now(),
       /*secure=*/true,
       /*httponly=*/false, CookieSameSite::NO_RESTRICTION,
       CookiePriority::COOKIE_PRIORITY_DEFAULT,
@@ -270,6 +277,7 @@ TEST(CookieDeletionInfoTest, CookieDeletionInfoMatchValue) {
       /*creation=*/base::Time::Now(),
       /*expiration=*/base::Time::Max(),
       /*last_access=*/base::Time::Now(),
+      /*last_update=*/base::Time::Now(),
       /*secure=*/true,
       /*httponly=*/false, CookieSameSite::NO_RESTRICTION,
       CookiePriority::COOKIE_PRIORITY_DEFAULT,
@@ -296,6 +304,7 @@ TEST(CookieDeletionInfoTest, CookieDeletionInfoMatchUrl) {
       /*creation=*/base::Time::Now(),
       /*expiration=*/base::Time::Max(),
       /*last_access=*/base::Time::Now(),
+      /*last_update=*/base::Time::Now(),
       /*secure=*/true,
       /*httponly=*/false, CookieSameSite::NO_RESTRICTION,
       CookiePriority::COOKIE_PRIORITY_DEFAULT,
@@ -349,6 +358,7 @@ TEST(CookieDeletionInfoTest, CookieDeletionInfoDomainMatchesDomain) {
         /*creation=*/base::Time::FromDoubleT(kTestMinEpoch + 1),
         /*expiration=*/base::Time::Max(),
         /*last_access=*/base::Time::FromDoubleT(kTestMinEpoch + 1),
+        /*last_update=*/base::Time::Now(),
         /*secure=*/true,
         /*httponly=*/false,
         /*same_site=*/CookieSameSite::NO_RESTRICTION,
@@ -417,6 +427,7 @@ TEST(CookieDeletionInfoTest, CookieDeletionInfoMatchesDomainList) {
         /*creation=*/base::Time::Now(),
         /*expiration=*/base::Time::Max(),
         /*last_access=*/base::Time::Now(),
+        /*last_update=*/base::Time::Now(),
         /*secure=*/false,
         /*httponly=*/false,
         /*same_site=*/CookieSameSite::NO_RESTRICTION,
@@ -581,6 +592,49 @@ TEST(CookieDeletionInfoTest, MatchesCookiePartitionKeyCollection) {
     CookieDeletionInfo delete_info;
     delete_info.cookie_partition_key_collection =
         test_case.filter_cookie_partition_key_collection;
+    EXPECT_EQ(
+        test_case.expects_match,
+        delete_info.Matches(
+            *cookie, CookieAccessParams{
+                         net::CookieAccessSemantics::UNKNOWN,
+                         /*delegate_treats_url_as_trustworthy=*/false,
+                         CookieSamePartyStatus::kNoSamePartyEnforcement}));
+  }
+}
+
+TEST(CookieDeletionInfoTest, MatchesExcludeUnpartitionedCookies) {
+  struct TestCase {
+    const std::string desc;
+    const absl::optional<CookiePartitionKey> cookie_partition_key;
+    bool partitioned_state_only;
+    bool expects_match;
+  } test_cases[] = {
+      {"Unpartitioned cookie not excluded", absl::nullopt, false, true},
+      {"Unpartitioned cookie excluded", absl::nullopt, true, false},
+      {"Partitioned cookie when unpartitioned not excluded",
+       CookiePartitionKey::FromURLForTesting(GURL("https://foo.com")), false,
+       true},
+      {"Partitioned cookie when unpartitioned excluded",
+       CookiePartitionKey::FromURLForTesting(GURL("https://foo.com")), true,
+       true},
+      {"Nonced partitioned cookie when unpartitioned not excluded",
+       CookiePartitionKey::FromURLForTesting(GURL("https://foo.com"),
+                                             base::UnguessableToken::Create()),
+       false, true},
+      {"Nonced partitioned cookie when unpartitioned excluded",
+       CookiePartitionKey::FromURLForTesting(GURL("https://foo.com"),
+                                             base::UnguessableToken::Create()),
+       true, true},
+  };
+
+  for (const auto& test_case : test_cases) {
+    SCOPED_TRACE(test_case.desc);
+    auto cookie = CanonicalCookie::Create(
+        GURL("https://www.example.com"),
+        "__Host-foo=bar; Secure; Path=/; Partitioned", base::Time::Now(),
+        /*server_time=*/absl::nullopt, test_case.cookie_partition_key);
+    CookieDeletionInfo delete_info;
+    delete_info.partitioned_state_only = test_case.partitioned_state_only;
     EXPECT_EQ(
         test_case.expects_match,
         delete_info.Matches(

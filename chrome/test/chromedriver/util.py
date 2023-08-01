@@ -1,4 +1,4 @@
-# Copyright (c) 2012 The Chromium Authors. All rights reserved.
+# Copyright 2012 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -18,7 +18,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import urllib
 import zipfile
 
 import requests
@@ -192,30 +191,6 @@ def RunCommand(cmd, cwd=None, fileName=None):
   return process.returncode
 
 
-def DoesUrlExist(url):
-  """Determines whether a resource exists at the given URL.
-
-  Args:
-    url: URL to be verified.
-
-  Returns:
-    True if url exists, otherwise False.
-  """
-  parsed = urllib.parse.urlparse(url)
-  try:
-    conn = http.client.HTTPConnection(parsed.netloc)
-    conn.request('HEAD', parsed.path)
-    response = conn.getresponse()
-  except http.client.HTTPException:
-    return False
-  finally:
-    conn.close()
-  # Follow both permanent (301) and temporary (302) redirects.
-  if response.status == 302 or response.status == 301:
-    return DoesUrlExist(response.getheader('location'))
-  return response.status == 200
-
-
 def MarkBuildStepStart(name):
   print('@@@BUILD_STEP %s@@@' % name)
   sys.stdout.flush()
@@ -362,7 +337,7 @@ def TryUploadingResultToResultSink(results):
           # identify an artifact within the test result.
           'artifacts': {
                'stack_trace': {
-                    'contents': base64.b64encode(stack_trace),
+                    'contents': base64.b64encode(stack_trace.encode()).decode(),
                },
           },
       })
@@ -392,4 +367,3 @@ def TryUploadingResultToResultSink(results):
     data=json.dumps({'testResults': test_results})
   )
   res.raise_for_status()
-

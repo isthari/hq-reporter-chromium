@@ -1,4 +1,4 @@
-# Copyright 2022 The Chromium Authors. All rights reserved.
+# Copyright 2022 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -15,10 +15,22 @@ generate_grd("build_grd") {
   grd_prefix = "ash_os_feedback_untrusted"
   out_grd = "$target_gen_dir/${grd_prefix}_resources.grd"
 
-  input_files = [ "untrusted_index.html" ]
+  input_files = [
+    "illustrations/illo_load_content_error.svg",
+    "illustrations/illo_network_unavailable.svg",
+    "illustrations/load_content_error_darkmode.svg",
+    "illustrations/load_content_error_lightmode.svg",
+    "illustrations/network_unavailable_darkmode.svg",
+    "illustrations/network_unavailable_lightmode.svg",
+    "untrusted_index.html",
+    "untrusted_index.js",
+  ]
   input_files_base_dir = rebase_path(".", "//")
 
   manifest_files = []
 
-  deps = []
+  deps = [
+    "//ash/webui/common/resources:build_ts",
+    "//ui/webui/resources/cr_components/color_change_listener:build_ts",
+  ]
 }

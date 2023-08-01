@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,11 +23,17 @@ class RootFrameSinkProxyClient {
       viz::FrameSinkId frame_sink_id,
       uint32_t layer_tree_frame_sink_id,
       std::vector<viz::ReturnedResource> resources) = 0;
+  virtual void OnCompositorFrameTransitionDirectiveProcessed(
+      viz::FrameSinkId frame_sink_id,
+      uint32_t layer_tree_frame_sink_id,
+      uint32_t sequence_id) = 0;
 };
 
 // Per-AwContents object. Straddles UI and Viz thread. Public methods should be
 // called on the UI thread unless otherwise specified. Mostly used for creating
 // RootFrameSink and routing calls to it.
+//
+// Lifetime: WebView
 class RootFrameSinkProxy : public viz::BeginFrameObserverBase {
  public:
   RootFrameSinkProxy(
@@ -67,9 +73,17 @@ class RootFrameSinkProxy : public viz::BeginFrameObserverBase {
   void ReturnResourcesOnViz(viz::FrameSinkId frame_sink_id,
                             uint32_t layer_tree_frame_sink_id,
                             std::vector<viz::ReturnedResource> resources);
+  void OnCompositorFrameTransitionDirectiveProcessedOnViz(
+      viz::FrameSinkId frame_sink_id,
+      uint32_t layer_tree_frame_sink_id,
+      uint32_t sequence_id);
   void ReturnResourcesOnUI(viz::FrameSinkId frame_sink_id,
                            uint32_t layer_tree_frame_sink_id,
                            std::vector<viz::ReturnedResource> resources);
+  void OnCompositorFrameTransitionDirectiveProcessedOnUI(
+      viz::FrameSinkId frame_sink_id,
+      uint32_t layer_tree_frame_sink_id,
+      uint32_t sequence_id);
 
   bool BeginFrame(const viz::BeginFrameArgs& args);
 

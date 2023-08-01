@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,10 +10,6 @@
 #include "base/scoped_observation.h"
 #include "components/query_tiles/logger.h"
 #include "content/public/browser/web_ui_message_handler.h"
-
-namespace base {
-class ListValue;
-}  // namespace base
 
 class Profile;
 
@@ -38,11 +34,11 @@ class QueryTilesInternalsUIMessageHandler
   void OnJavascriptAllowed() override;
   void OnJavascriptDisallowed() override;
 
-  void HandleGetServiceStatus(const base::ListValue* args);
-  void HandleGetTileData(const base::ListValue* args);
-  void HandleStartFetch(const base::ListValue* args);
-  void HandlePurgeDb(const base::ListValue* args);
-  void HandleSetServerUrl(const base::ListValue* args);
+  void HandleGetServiceStatus(const base::Value::List& args);
+  void HandleGetTileData(const base::Value::List& args);
+  void HandleStartFetch(const base::Value::List& args);
+  void HandlePurgeDb(const base::Value::List& args);
+  void HandleSetServerUrl(const base::Value::List& args);
 
   raw_ptr<query_tiles::TileService> tile_service_;
 

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,6 +45,7 @@ class AssistantWebContainerCaptionButtonModel
       case views::CAPTION_BUTTON_ICON_ZOOM:
       case views::CAPTION_BUTTON_ICON_LOCATION:
       case views::CAPTION_BUTTON_ICON_CENTER:
+      case views::CAPTION_BUTTON_ICON_FLOAT:
       case views::CAPTION_BUTTON_ICON_CUSTOM:
       case views::CAPTION_BUTTON_ICON_COUNT:
         return false;

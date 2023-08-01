@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,15 +12,13 @@
 #include "ash/constants/ash_pref_names.h"
 #include "ash/public/cpp/shelf_test_api.h"
 #include "ash/public/cpp/test/shell_test_api.h"
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "chrome/browser/ash/accessibility/accessibility_manager.h"
 #include "chrome/browser/ash/login/login_pref_names.h"
 #include "chrome/browser/ash/login/marketing_backend_connector.h"
-#include "chrome/browser/ash/login/test/embedded_policy_test_server_mixin.h"
-#include "chrome/browser/ash/login/test/fake_gaia_mixin.h"
 #include "chrome/browser/ash/login/test/js_checker.h"
 #include "chrome/browser/ash/login/test/local_state_mixin.h"
 #include "chrome/browser/ash/login/test/login_manager_mixin.h"
@@ -30,14 +28,17 @@
 #include "chrome/browser/ash/login/test/user_policy_mixin.h"
 #include "chrome/browser/ash/login/ui/login_display_host.h"
 #include "chrome/browser/ash/login/wizard_controller.h"
+#include "chrome/browser/ash/policy/test_support/embedded_policy_test_server_mixin.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
-#include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/marketing_opt_in_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/gaia_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/marketing_opt_in_screen_handler.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
+#include "chrome/test/base/fake_gaia_mixin.h"
+#include "chromeos/constants/chromeos_features.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/test/browser_test.h"
 #include "mojo/public/c/system/trap.h"
@@ -45,6 +46,10 @@
 namespace ash {
 namespace {
 
+const test::UIPath kChromebookGameTitle = {"marketing-opt-in",
+                                           "marketingOptInGameDeviceTitle"};
+const test::UIPath kChromebookGameSubtitle = {
+    "marketing-opt-in", "marketingOptInGameDeviceSubtitle"};
 const test::UIPath kChromebookEmailToggle = {"marketing-opt-in",
                                              "chromebookUpdatesOption"};
 const test::UIPath kChromebookEmailToggleDiv = {"marketing-opt-in",
@@ -194,6 +199,9 @@ void MarketingOptInScreenTest::SetUpOnMainThread() {
   GetScreen()->set_ingore_pref_sync_for_testing(true);
 
   OobeBaseTest::SetUpOnMainThread();
+  auto* wizard_context = LoginDisplayHost::default_host()->GetWizardContext();
+  wizard_context->is_branded_build = true;
+  wizard_context->defer_oobe_flow_finished_for_tests = true;
 }
 
 MarketingOptInScreen* MarketingOptInScreenTest::GetScreen() {
@@ -498,8 +506,13 @@ class MarketingTestCountryCodes : public MarketingOptInScreenTestWithRequest,
 
 // Tests that the given timezone resolves to the correct location and
 // generates a request for the server with the correct region code.
-// TODO(crbug.com/1268208): Fix flaky test.
-IN_PROC_BROWSER_TEST_P(MarketingTestCountryCodes, CountryCodes) {
+// TODO(crbug.com/1369443): Fix flaky test.
+#if BUILDFLAG(IS_LINUX)
+#define MAYBE_CountryCodes DISABLED_CountryCodes
+#else
+#define MAYBE_CountryCodes CountryCodes
+#endif
+IN_PROC_BROWSER_TEST_P(MarketingTestCountryCodes, MAYBE_CountryCodes) {
   const RegionToCodeMap param = GetParam();
   ShowMarketingOptInScreen();
   OobeScreenWaiter(MarketingOptInScreenView::kScreenId).Wait();
@@ -617,6 +630,63 @@ IN_PROC_BROWSER_TEST_F(MarketingOptInScreenTestChildUser, DisabledForChild) {
       "OOBE.StepCompletionTimeByExitReason.Marketing-opt-in.Next", 0);
   histogram_tester_.ExpectTotalCount("OOBE.StepCompletionTime.Marketing-opt-in",
                                      0);
+}
+
+class MarketingOptInScreenTestNotBrandedChrome
+    : public MarketingOptInScreenTest {
+ protected:
+  void SetUpOnMainThread() override {
+    MarketingOptInScreenTest::SetUpOnMainThread();
+    LoginDisplayHost::default_host()->GetWizardContext()->is_branded_build =
+        false;
+  }
+};
+
+IN_PROC_BROWSER_TEST_F(MarketingOptInScreenTestNotBrandedChrome,
+                       SkippedNotBrandedBuild) {
+  ShowMarketingOptInScreen();
+  WaitForScreenExit();
+  EXPECT_EQ(screen_result_.value(),
+            MarketingOptInScreen::Result::NOT_APPLICABLE);
+}
+
+class MarketingOptInScreenTestGameDevice : public MarketingOptInScreenTest {
+ public:
+  MarketingOptInScreenTestGameDevice() {
+    feature_list_.Reset();
+    feature_list_.InitWithFeatures(
+        {
+            ::features::kOobeMarketingDoubleOptInCountriesSupported,
+            ::features::kOobeMarketingAdditionalCountriesSupported,
+            chromeos::features::kCloudGamingDevice,
+        },
+        {});
+  }
+};
+
+IN_PROC_BROWSER_TEST_F(MarketingOptInScreenTestGameDevice,
+                       ScreenElementsVisible) {
+  PerformLogin();
+  OobeScreenExitWaiter(GetFirstSigninScreen()).Wait();
+  // Expect the screen to not have been shown before.
+  EXPECT_FALSE(ProfileManager::GetActiveUserProfile()->GetPrefs()->GetBoolean(
+      prefs::kOobeMarketingOptInScreenFinished));
+  LoginDisplayHost::default_host()->StartWizard(
+      MarketingOptInScreenView::kScreenId);
+
+  OobeScreenWaiter(MarketingOptInScreenView::kScreenId).Wait();
+  // check the Screen is Visible
+  test::OobeJS().ExpectVisiblePath(
+      {"marketing-opt-in", "marketingOptInOverviewDialog"});
+  // check the correct game mode title is visible
+  test::OobeJS().ExpectVisiblePath(kChromebookGameTitle);
+  // check the correct game mode description is visible
+  test::OobeJS().ExpectVisiblePath(kChromebookGameSubtitle);
+  TapOnGetStartedAndWaitForScreenExit();
+
+  // Expect the screen to be marked as shown.
+  EXPECT_TRUE(ProfileManager::GetActiveUserProfile()->GetPrefs()->GetBoolean(
+      prefs::kOobeMarketingOptInScreenFinished));
 }
 
 }  // namespace

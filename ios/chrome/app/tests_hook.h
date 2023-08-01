@@ -1,10 +1,13 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef IOS_CHROME_APP_TESTS_HOOK_H_
 #define IOS_CHROME_APP_TESTS_HOOK_H_
 
+#include <memory>
+
+class SystemIdentityManager;
 namespace policy {
 class ConfigurationPolicyProvider;
 }
@@ -15,6 +18,11 @@ namespace tests_hook {
 // required entitlements.
 // This is used by internal code.
 bool DisableAppGroupAccess();
+
+// Returns true if client-side field trials should be disabled, so
+// that their associated base::Features always use the default
+// behavior, avoiding unexpected randomness during testing.
+bool DisableClientSideFieldTrials();
 
 // Returns true if ContentSuggestions should be disabled to allow other tests to
 // run unimpeded.
@@ -32,6 +40,10 @@ bool DisableFirstRun();
 // prompt displaying for the omnibox.
 bool DisableGeolocation();
 
+// Returns true if the Promo Manager should avoid displaying full-screen promos
+// on app startup to allow tests to run unimpeded.
+bool DisablePromoManagerFullScreenPromos();
+
 // Returns true if the upgrade sign-in promo should be disabled to allow other
 // tests to run unimpeded.
 bool DisableUpgradeSigninPromo();
@@ -45,9 +57,17 @@ bool DisableUpdateService();
 // Return true if it should be disabled.
 bool DisableMainThreadFreezeDetection();
 
+// Returns true if any app launch promos should delay themselves so EGTests
+// can start before checking if the promo appears.
+bool DelayAppLaunchPromos();
+
 // Returns a policy provider that should be installed as the platform policy
 // provider when testing. May return nullptr.
 policy::ConfigurationPolicyProvider* GetOverriddenPlatformPolicyProvider();
+
+// Allow overriding the SystemIdentityManager factory. The real factory will
+// be used if this hook returns null.
+std::unique_ptr<SystemIdentityManager> CreateSystemIdentityManager();
 
 // Global integration tests setup.
 void SetUpTestsIfPresent();

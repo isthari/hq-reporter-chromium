@@ -59,9 +59,8 @@
         margin-top: auto;
       }
 
-      settings-checkbox,
-      installed-app-checkbox {
-        --settings-row-two-line-min-height: 48px;
+      settings-checkbox {
+        --cr-section-two-line-min-height: 48px;
       }
 
       #basic-tab settings-checkbox + settings-checkbox {
@@ -174,14 +173,13 @@
             <settings-checkbox id="browsingCheckboxBasic"
                 pref="{{prefs.browser.clear_data.browsing_history_basic}}"
                 label="$i18n{clearBrowsingHistory}"
-                sub-label-html="[[browsingCheckboxLabel_(
-                    isSyncConsented_, isSyncingHistory_, syncStatus.hasError,
+                sub-label-html="[[browsingCheckboxLabel_(isSyncingHistory_,
                     '$i18nPolymer{clearBrowsingHistorySummary}',
-                    '$i18nPolymer{clearBrowsingHistorySummarySignedIn}',
-                    '$i18nPolymer{clearBrowsingHistorySummarySignedInNoLink}',
-                    '$i18nPolymer{clearBrowsingHistorySummarySynced}')]]"
+                    '$i18nPolymer{clearBrowsingHistorySummarySignedInNoLink}'
+                    )]]"
                 disabled="[[clearingInProgress_]]"
-                hidden="[[isChildAccount_]]" no-set-pref>
+                hidden="[[isChildAccountWithDisallowedHistoryDeletion_]]"
+                no-set-pref>
             </settings-checkbox>
             <settings-checkbox id="cookiesCheckboxBasic"
                 class="cookies-checkbox"
@@ -201,7 +199,7 @@
                 disabled="[[clearingInProgress_]]" no-set-pref>
             </settings-checkbox>
             <div class="search-history-box"
-                hidden="[[!shouldShowGoogleSearchHistoryLabel_(isSignedIn_)]]">
+                hidden="[[!isSignedIn_]]">
               <iron-icon class="search-history-box-icon" aria-hidden="true"
                   icon="settings20:googleg">
               </iron-icon>
@@ -211,7 +209,7 @@
             </div>
             <div id="nonGoogleSearchHistoryBox"
                 class="search-history-box"
-                hidden="[[!shouldShowNonGoogleSearchHistoryLabel_(isNonGoogleDse_)]]">
+                hidden="[[!isNonGoogleDse_]]">
               <iron-icon class="search-history-box-icon" aria-hidden="true"
                   icon="cr:search">
               </iron-icon>
@@ -237,14 +235,16 @@
                 label="$i18n{clearBrowsingHistory}"
                 sub-label="[[counters_.browsing_history]]"
                 disabled="[[clearingInProgress_]]"
-                hidden="[[isChildAccount_]]" no-set-pref>
+                hidden="[[isChildAccountWithDisallowedHistoryDeletion_]]"
+                no-set-pref>
             </settings-checkbox>
             <settings-checkbox id="downloadCheckbox"
                 pref="{{prefs.browser.clear_data.download_history}}"
                 label="$i18n{clearDownloadHistory}"
                 sub-label="[[counters_.download_history]]"
                 disabled="[[clearingInProgress_]]"
-                hidden="[[isChildAccount_]]" no-set-pref>
+                hidden="[[isChildAccountWithDisallowedHistoryDeletion_]]"
+                no-set-pref>
             </settings-checkbox>
             <settings-checkbox id="cookiesCheckbox"
                 class="cookies-checkbox"
@@ -290,10 +290,11 @@
       <div slot="button-container">
         <paper-spinner-lite active="[[clearingInProgress_]]">
         </paper-spinner-lite>
-        <cr-button class="cancel-button" disabled="[[clearingInProgress_]]"
-            on-click="onCancelTap_">$i18n{cancel}</cr-button>
+        <cr-button class="cancel-button" autofocus
+            disabled="[[clearingInProgress_]]"
+            on-click="onCancelClick_">$i18n{cancel}</cr-button>
         <cr-button id="clearBrowsingDataConfirm"
-            class="action-button" on-click="onClearBrowsingDataClick_"
+            class="action-button" on-click="clearBrowsingData_"
             disabled="[[isClearButtonDisabled_(clearingInProgress_,
                                                clearButtonDisabled_)]]">
             $i18n{clearData}
@@ -329,37 +330,6 @@
           </div>
         </div>
       </template>
-    </cr-dialog>
-
-    <cr-dialog id="installedAppsDialog" close-text="$i18n{close}"
-               ignore-popstate show-scroll-borders
-               on-cancel="hideInstalledApps_">
-      <div slot="title">
-        $i18n{installedAppsTitle}
-      </div>
-      <div slot="body">
-        <template is="dom-repeat" items="[[installedApps_]]">
-          <div class="row">
-            <installed-app-checkbox
-                installed-app="[[item]]"
-                disabled="[[clearingInProgress_]]">
-            </installed-app-checkbox>
-          </div>
-        </template>
-      </div>
-      <div slot="button-container">
-        <paper-spinner-lite active="[[clearingInProgress_]]">
-        </paper-spinner-lite>
-        <cr-button class="cancel-button" disabled="[[clearingInProgress_]]"
-            on-click="onCancelInstalledApps_">
-          $i18n{cancel}
-        </cr-button>
-        <cr-button id="installedAppsConfirm" class="action-button"
-            disabled="[[clearingInProgress_]]"
-            on-click="onInstalledAppsConfirmClick_">
-          $i18n{installedAppsConfirm}
-        </cr-button>
-      </div>
     </cr-dialog>
 
     <template is="dom-if" if="[[showHistoryDeletionDialog_]]" restamp>

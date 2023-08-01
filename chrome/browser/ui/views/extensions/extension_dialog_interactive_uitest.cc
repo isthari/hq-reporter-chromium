@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,10 +34,10 @@ class ExtensionDialogUiTest : public extensions::ExtensionBrowserTest {
 #define MAYBE_TabFocusLoop TabFocusLoop
 #endif
 IN_PROC_BROWSER_TEST_F(ExtensionDialogUiTest, MAYBE_TabFocusLoop) {
-  ExtensionTestMessageListener init_listener("ready", false /* will_reply */);
-  ExtensionTestMessageListener button1_focus_listener("button1-focused", false);
-  ExtensionTestMessageListener button2_focus_listener("button2-focused", false);
-  ExtensionTestMessageListener button3_focus_listener("button3-focused", false);
+  ExtensionTestMessageListener init_listener("ready");
+  ExtensionTestMessageListener button1_focus_listener("button1-focused");
+  ExtensionTestMessageListener button2_focus_listener("button2-focused");
+  ExtensionTestMessageListener button3_focus_listener("button3-focused");
 
   // Load an extension for the test.
   scoped_refptr<const extensions::Extension> extension =
@@ -57,9 +57,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionDialogUiTest, MAYBE_TabFocusLoop) {
   ASSERT_TRUE(init_listener.WaitUntilSatisfied());
 
   // Focus the second button.
-  ASSERT_TRUE(
-      content::ExecuteScript(dialog->host()->host_contents(),
-                             "document.querySelector('#button2').focus()"));
+  ASSERT_TRUE(content::ExecJs(dialog->host()->host_contents(),
+                              "document.querySelector('#button2').focus()"));
   ASSERT_TRUE(button2_focus_listener.WaitUntilSatisfied());
 
   // Pressing TAB should focus the third(last) button.

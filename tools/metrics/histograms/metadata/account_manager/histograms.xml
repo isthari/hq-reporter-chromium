@@ -1,5 +1,5 @@
 <!--
-Copyright 2022 The Chromium Authors. All rights reserved.
+Copyright 2022 The Chromium Authors
 Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
@@ -24,7 +24,8 @@ chromium-metrics-reviews@google.com.
 <histograms>
 
 <histogram name="AccountManager.AccountAdditionResultStatus"
-    enum="AccountManagerAccountAdditionResultStatus" expires_after="2022-04-24">
+    enum="AccountManagerAccountUpsertionResultStatus"
+    expires_after="2023-10-31">
   <owner>sinhak@chromium.org</owner>
   <owner>anastasiian@chromium.org</owner>
   <summary>
@@ -36,7 +37,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="AccountManager.AccountAdditionSource"
-    enum="AccountManagerAccountAdditionSource" expires_after="2022-04-24">
+    enum="AccountManagerAccountAdditionSource" expires_after="2023-10-31">
   <owner>sinhak@chromium.org</owner>
   <owner>anastasiian@chromium.org</owner>
   <summary>
@@ -49,18 +50,18 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="AccountManager.EduCoexistence.FetchAccessTokenResult"
-    enum="GoogleServiceAuthError" expires_after="2022-04-10">
-  <owner>sinhak@chromium.org</owner>
-  <owner>anastasiian@chromium.org</owner>
+    enum="GoogleServiceAuthError" expires_after="2023-10-31">
+  <owner>agawronska@chromium.org</owner>
+  <owner>cros-families-eng@google.com</owner>
   <summary>
-    The result of fetching an access token for the child with |accounts.reauth|
+    The result of fetching an access token for the child with `accounts.reauth`
     scope in secondary EDU account addition flow. Recorded after parent enters
     their password. This metric covers both v1 and v2 of EduCoexistence.
   </summary>
 </histogram>
 
 <histogram name="AccountManager.EduCoexistenceV2.InSessionFlowResult"
-    enum="EduCoexistenceFlowV2Result" expires_after="2023-01-20">
+    enum="EduCoexistenceFlowV2Result" expires_after="2023-10-31">
   <owner>agawronska@chromium.org</owner>
   <owner>danan@chromium.org</owner>
   <owner>yilkal@chromium.org</owner>
@@ -72,7 +73,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="AccountManager.EduCoexistenceV2.OnboardingFlowResult"
-    enum="EduCoexistenceFlowV2Result" expires_after="2023-01-20">
+    enum="EduCoexistenceFlowV2Result" expires_after="2023-10-31">
   <owner>agawronska@chromium.org</owner>
   <owner>danan@chromium.org</owner>
   <owner>yilkal@chromium.org</owner>
@@ -84,7 +85,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="AccountManager.FacadeGetAccountsMojoStatus"
-    enum="AccountManagerFacadeMojoStatus" expires_after="2023-01-25">
+    enum="AccountManagerFacadeMojoStatus" expires_after="2023-10-31">
   <owner>anastasiian@chromium.org</owner>
   <owner>droger@chromium.org</owner>
   <owner>chrome-signin-team@google.com</owner>
@@ -97,7 +98,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="AccountManager.InitializationTime" units="microseconds"
-    expires_after="2022-05-01">
+    expires_after="2023-10-31">
   <owner>sinhak@chromium.org</owner>
   <owner>anastasiian@chromium.org</owner>
   <summary>
@@ -108,7 +109,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="AccountManager.ManageAccountsServiceType"
-    enum="GaiaServiceType" expires_after="2022-05-01">
+    enum="GaiaServiceType" expires_after="2023-10-31">
   <owner>sinhak@chromium.org</owner>
   <owner>anastasiian@chromium.org</owner>
   <summary>
@@ -116,8 +117,50 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="AccountManager.MojoDisconnections.AccessTokenFetcherRemote"
+    units="count" expires_after="2023-10-31">
+  <owner>sinhak@chromium.org</owner>
+  <owner>anastasiian@chromium.org</owner>
+  <summary>
+    Tracks the number of Mojo pipe disconnections observed by the access token
+    fetcher Mojo remote in `AccountManagerFacadeImpl`. This is logged at the end
+    of the destruction of `AccountManagerFacadeImpl::AccessTokenFetcher`. This
+    will correspond to the end of an access token fetch request. This is logged
+    for Ash - ChromeOS and Lacros - ChromeOS.
+  </summary>
+</histogram>
+
+<histogram
+    name="AccountManager.MojoDisconnections.AccountManagerObserverReceiver"
+    units="count" expires_after="2023-10-31">
+  <owner>sinhak@chromium.org</owner>
+  <owner>anastasiian@chromium.org</owner>
+  <summary>
+    Tracks the number of Mojo pipe disconnections observed by the
+    `AccountManagerObserver` Mojo receiver in `AccountManagerFacadeImpl`. This
+    is logged at the end of the destruction of `AccountManagerFacadeImpl`. Since
+    `AccountManagerFacadeImpl` is a singleton, this is logged once per session
+    (Per browser session for Lacros and per user session for Ash). This is
+    logged for Ash - ChromeOS and Lacros - ChromeOS.
+  </summary>
+</histogram>
+
+<histogram name="AccountManager.MojoDisconnections.AccountManagerRemote"
+    units="count" expires_after="2023-10-31">
+  <owner>sinhak@chromium.org</owner>
+  <owner>anastasiian@chromium.org</owner>
+  <summary>
+    Tracks the number of Mojo pipe disconnections observed by the Account
+    Manager Mojo remote in `AccountManagerFacadeImpl`. This is logged at the end
+    of the destruction of `AccountManagerFacadeImpl`. Since
+    `AccountManagerFacadeImpl` is a singleton, this is logged once per session
+    (Per browser session for Lacros and per user session for Ash). This is
+    logged for Ash - ChromeOS and Lacros - ChromeOS.
+  </summary>
+</histogram>
+
 <histogram name="AccountManager.NumAccounts" units="count"
-    expires_after="2022-04-10">
+    expires_after="2023-10-31">
   <owner>sinhak@chromium.org</owner>
   <owner>anastasiian@chromium.org</owner>
   <summary>
@@ -126,8 +169,23 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="AccountManager.ReportAuthError.IsAccountKeyEmpty"
+    enum="BooleanEmpty" expires_after="2023-12-31">
+  <owner>sinhak@chromium.org</owner>
+  <owner>anastasiian@chromium.org</owner>
+  <summary>
+    Indicates if the account whose authentication error is being reported to
+    AccountManagerMojoService has an empty account id. This is recorded whenever
+    AccountManagerMojoService receives a notification for an authentication
+    error for an account.
+
+    This histogram will be used to decide the severity of
+    AccountManagerMojoService receiving malformed account ids.
+  </summary>
+</histogram>
+
 <histogram name="AccountManager.TokenLoadStatus"
-    enum="AccountManagerTokenLoadStatus" expires_after="2023-02-06">
+    enum="AccountManagerTokenLoadStatus" expires_after="2023-10-31">
   <owner>sinhak@chromium.org</owner>
   <owner>anastasiian@chromium.org</owner>
   <summary>

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,10 @@
 #include <array>
 #include <string>
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/command_line.h"
 #include "base/containers/flat_map.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/notreached.h"
@@ -19,13 +20,15 @@
 #include "chrome/browser/nearby_sharing/certificates/constants.h"
 #include "chrome/browser/nearby_sharing/certificates/nearby_share_certificate_storage_impl.h"
 #include "chrome/browser/nearby_sharing/client/nearby_share_client.h"
-#include "chrome/browser/nearby_sharing/common/nearby_share_http_result.h"
 #include "chrome/browser/nearby_sharing/common/nearby_share_prefs.h"
+#include "chrome/browser/nearby_sharing/common/nearby_share_profile_info_provider.h"
+#include "chrome/browser/nearby_sharing/common/nearby_share_switches.h"
 #include "chrome/browser/nearby_sharing/logging/logging.h"
 #include "chrome/browser/nearby_sharing/proto/certificate_rpc.pb.h"
 #include "chrome/browser/nearby_sharing/proto/encrypted_metadata.pb.h"
-#include "chrome/browser/nearby_sharing/scheduling/nearby_share_scheduler_factory.h"
-#include "chrome/browser/ui/webui/nearby_share/public/mojom/nearby_share_settings.mojom.h"
+#include "chromeos/ash/components/nearby/common/client/nearby_http_result.h"
+#include "chromeos/ash/components/nearby/common/scheduling/nearby_scheduler_factory.h"
+#include "chromeos/ash/services/nearby/public/mojom/nearby_share_settings.mojom.h"
 #include "components/leveldb_proto/public/proto_database_provider.h"
 #include "components/prefs/pref_service.h"
 #include "device/bluetooth/bluetooth_adapter.h"
@@ -51,8 +54,29 @@ enum GetDecryptedPublicCertificateResult {
   kMaxValue = kStorageFailure
 };
 
+// Check for a command-line override for number of certificates, otherwise
+// return the default |kNearbyShareNumPrivateCertificates|.
+size_t NumPrivateCertificates() {
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  if (!command_line->HasSwitch(switches::kNearbyShareNumPrivateCertificates)) {
+    return kNearbyShareNumPrivateCertificates;
+  }
+
+  std::string num_certificates_str = command_line->GetSwitchValueASCII(
+      switches::kNearbyShareNumPrivateCertificates);
+  int num_certificates = 0;
+  if (!base::StringToInt(num_certificates_str, &num_certificates) ||
+      num_certificates < 1) {
+    NS_LOG(ERROR) << __func__
+                  << ": Invalid value provided with num certificates override.";
+    return kNearbyShareNumPrivateCertificates;
+  }
+
+  return static_cast<size_t>(num_certificates);
+}
+
 size_t NumExpectedPrivateCertificates() {
-  return kVisibilities.size() * kNearbyShareNumPrivateCertificates;
+  return kVisibilities.size() * NumPrivateCertificates();
 }
 
 absl::optional<std::string> GetBluetoothMacAddress(
@@ -90,6 +114,7 @@ absl::optional<nearbyshare::proto::EncryptedMetadata> BuildMetadata(
     std::string device_name,
     absl::optional<std::string> full_name,
     absl::optional<std::string> icon_url,
+    absl::optional<std::string> account_name,
     device::BluetoothAdapter* bluetooth_adapter) {
   nearbyshare::proto::EncryptedMetadata metadata;
   if (device_name.empty()) {
@@ -105,6 +130,9 @@ absl::optional<nearbyshare::proto::EncryptedMetadata> BuildMetadata(
   }
   if (icon_url) {
     metadata.set_icon_url(*icon_url);
+  }
+  if (account_name) {
+    metadata.set_account_name(*account_name);
   }
 
   absl::optional<std::string> bluetooth_mac_address =
@@ -128,10 +156,11 @@ void RecordGetDecryptedPublicCertificateResultMetric(
       result);
 }
 
-void RecordDownloadPublicCertificatesResultMetrics(bool success,
-                                                   NearbyShareHttpResult result,
-                                                   size_t page_number,
-                                                   size_t certificate_count) {
+void RecordDownloadPublicCertificatesResultMetrics(
+    bool success,
+    ash::nearby::NearbyHttpResult result,
+    size_t page_number,
+    size_t certificate_count) {
   base::UmaHistogramBoolean(
       "Nearby.Share.Certificates.Manager.DownloadPublicCertificatesSuccessRate",
       success);
@@ -203,6 +232,7 @@ std::unique_ptr<NearbyShareCertificateManager>
 NearbyShareCertificateManagerImpl::Factory::Create(
     NearbyShareLocalDeviceDataManager* local_device_data_manager,
     NearbyShareContactManager* contact_manager,
+    NearbyShareProfileInfoProvider* profile_info_provider,
     PrefService* pref_service,
     leveldb_proto::ProtoDatabaseProvider* proto_database_provider,
     const base::FilePath& profile_path,
@@ -211,14 +241,16 @@ NearbyShareCertificateManagerImpl::Factory::Create(
   DCHECK(clock);
 
   if (test_factory_) {
-    return test_factory_->CreateInstance(
-        local_device_data_manager, contact_manager, pref_service,
-        proto_database_provider, profile_path, client_factory, clock);
+    return test_factory_->CreateInstance(local_device_data_manager,
+                                         contact_manager, profile_info_provider,
+                                         pref_service, proto_database_provider,
+                                         profile_path, client_factory, clock);
   }
 
   return base::WrapUnique(new NearbyShareCertificateManagerImpl(
-      local_device_data_manager, contact_manager, pref_service,
-      proto_database_provider, profile_path, client_factory, clock));
+      local_device_data_manager, contact_manager, profile_info_provider,
+      pref_service, proto_database_provider, profile_path, client_factory,
+      clock));
 }
 
 // static
@@ -232,6 +264,7 @@ NearbyShareCertificateManagerImpl::Factory::~Factory() = default;
 NearbyShareCertificateManagerImpl::NearbyShareCertificateManagerImpl(
     NearbyShareLocalDeviceDataManager* local_device_data_manager,
     NearbyShareContactManager* contact_manager,
+    NearbyShareProfileInfoProvider* profile_info_provider,
     PrefService* pref_service,
     leveldb_proto::ProtoDatabaseProvider* proto_database_provider,
     const base::FilePath& profile_path,
@@ -239,6 +272,7 @@ NearbyShareCertificateManagerImpl::NearbyShareCertificateManagerImpl(
     const base::Clock* clock)
     : local_device_data_manager_(local_device_data_manager),
       contact_manager_(contact_manager),
+      profile_info_provider_(profile_info_provider),
       pref_service_(pref_service),
       client_factory_(client_factory),
       clock_(clock),
@@ -247,7 +281,7 @@ NearbyShareCertificateManagerImpl::NearbyShareCertificateManagerImpl(
           proto_database_provider,
           profile_path)),
       private_certificate_expiration_scheduler_(
-          NearbyShareSchedulerFactory::CreateExpirationScheduler(
+          ash::nearby::NearbySchedulerFactory::CreateExpirationScheduler(
               base::BindRepeating(&NearbyShareCertificateManagerImpl::
                                       NextPrivateCertificateExpirationTime,
                                   base::Unretained(this)),
@@ -261,7 +295,7 @@ NearbyShareCertificateManagerImpl::NearbyShareCertificateManagerImpl(
                                   base::Unretained(this)),
               clock_)),
       public_certificate_expiration_scheduler_(
-          NearbyShareSchedulerFactory::CreateExpirationScheduler(
+          ash::nearby::NearbySchedulerFactory::CreateExpirationScheduler(
               base::BindRepeating(&NearbyShareCertificateManagerImpl::
                                       NextPublicCertificateExpirationTime,
                                   base::Unretained(this)),
@@ -274,7 +308,7 @@ NearbyShareCertificateManagerImpl::NearbyShareCertificateManagerImpl(
                                   base::Unretained(this)),
               clock_)),
       upload_local_device_certificates_scheduler_(
-          NearbyShareSchedulerFactory::CreateOnDemandScheduler(
+          ash::nearby::NearbySchedulerFactory::CreateOnDemandScheduler(
               /*retry_failures=*/true,
               /*require_connectivity=*/true,
               prefs::
@@ -285,7 +319,7 @@ NearbyShareCertificateManagerImpl::NearbyShareCertificateManagerImpl(
                                   base::Unretained(this)),
               clock_)),
       download_public_certificates_scheduler_(
-          NearbyShareSchedulerFactory::CreatePeriodicScheduler(
+          ash::nearby::NearbySchedulerFactory::CreatePeriodicScheduler(
               kNearbySharePublicCertificateDownloadPeriod,
               /*retry_failures=*/true,
               /*require_connectivity=*/true,
@@ -461,6 +495,7 @@ void NearbyShareCertificateManagerImpl::FinishPrivateCertificateRefresh(
       BuildMetadata(local_device_data_manager_->GetDeviceName(),
                     local_device_data_manager_->GetFullName(),
                     local_device_data_manager_->GetIconUrl(),
+                    profile_info_provider_->GetProfileUserName(),
                     bluetooth_adapter.get());
   if (!metadata) {
     NS_LOG(WARNING)
@@ -471,17 +506,19 @@ void NearbyShareCertificateManagerImpl::FinishPrivateCertificateRefresh(
   }
 
   // Add new certificates if necessary. Each visibility should have
-  // kNearbyShareNumPrivateCertificates.
+  // kNearbyShareNumPrivateCertificates (unless overridden by a command-line
+  // switch).
+  size_t num_certificates = NumPrivateCertificates();
   NS_LOG(INFO)
       << __func__ << ": Creating "
-      << kNearbyShareNumPrivateCertificates -
+      << num_certificates -
              num_valid_certs[nearby_share::mojom::Visibility::kAllContacts]
       << " all-contacts visibility and "
-      << kNearbyShareNumPrivateCertificates -
+      << num_certificates -
              num_valid_certs[nearby_share::mojom::Visibility::kSelectedContacts]
       << " selected-contacts visibility private certificates.";
   for (nearby_share::mojom::Visibility visibility : kVisibilities) {
-    while (num_valid_certs[visibility] < kNearbyShareNumPrivateCertificates) {
+    while (num_valid_certs[visibility] < num_certificates) {
       certs.emplace_back(visibility,
                          /*not_before=*/latest_not_after[visibility],
                          *metadata);
@@ -612,13 +649,13 @@ void NearbyShareCertificateManagerImpl::OnListPublicCertificatesSuccess(
 void NearbyShareCertificateManagerImpl::OnListPublicCertificatesFailure(
     size_t page_number,
     size_t certificate_count,
-    NearbyShareHttpError error) {
+    ash::nearby::NearbyHttpError error) {
   timer_.Stop();
   client_.reset();
 
   FinishDownloadPublicCertificates(
-      /*success=*/false, NearbyShareHttpErrorToResult(error), page_number,
-      certificate_count);
+      /*success=*/false, ash::nearby::NearbyHttpErrorToResult(error),
+      page_number, certificate_count);
 }
 
 void NearbyShareCertificateManagerImpl::OnListPublicCertificatesTimeout(
@@ -627,7 +664,7 @@ void NearbyShareCertificateManagerImpl::OnListPublicCertificatesTimeout(
   client_.reset();
 
   FinishDownloadPublicCertificates(
-      /*success=*/false, NearbyShareHttpResult::kTimeout, page_number,
+      /*success=*/false, ash::nearby::NearbyHttpResult::kTimeout, page_number,
       certificate_count);
 }
 
@@ -640,14 +677,15 @@ void NearbyShareCertificateManagerImpl::OnPublicCertificatesAddedToStorage(
     OnDownloadPublicCertificatesRequest(page_token, page_number + 1,
                                         certificate_count);
   } else {
-    FinishDownloadPublicCertificates(success, NearbyShareHttpResult::kSuccess,
+    FinishDownloadPublicCertificates(success,
+                                     ash::nearby::NearbyHttpResult::kSuccess,
                                      page_number, certificate_count);
   }
 }
 
 void NearbyShareCertificateManagerImpl::FinishDownloadPublicCertificates(
     bool success,
-    NearbyShareHttpResult http_result,
+    ash::nearby::NearbyHttpResult http_result,
     size_t page_number,
     size_t certificate_count) {
   if (success) {
@@ -658,7 +696,7 @@ void NearbyShareCertificateManagerImpl::FinishDownloadPublicCertificates(
 
     // Recompute the expiration timer to account for new certificates.
     public_certificate_expiration_scheduler_->Reschedule();
-  } else if (http_result == NearbyShareHttpResult::kSuccess) {
+  } else if (http_result == ash::nearby::NearbyHttpResult::kSuccess) {
     NS_LOG(ERROR) << __func__ << ": Public certificates not stored.";
   } else {
     NS_LOG(ERROR) << __func__

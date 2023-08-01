@@ -1,36 +1,88 @@
 {
   "android-archive-dbg": {
     "gn_args": {
+      "debuggable_apks": false,
       "is_component_build": true,
       "is_debug": true,
       "symbol_level": 1,
       "target_os": "android",
-      "use_goma": true
+      "use_remoteexec": true
     }
   },
   "android-archive-rel": {
     "gn_args": {
       "dcheck_always_on": false,
+      "debuggable_apks": false,
       "is_component_build": false,
       "is_debug": false,
       "strip_debug_info": true,
       "symbol_level": 1,
       "target_os": "android",
-      "use_goma": true
+      "use_remoteexec": true
+    }
+  },
+  "android-arm64-archive-rel": {
+    "gn_args": {
+      "dcheck_always_on": false,
+      "debuggable_apks": false,
+      "is_component_build": false,
+      "is_debug": false,
+      "strip_debug_info": true,
+      "symbol_level": 1,
+      "target_cpu": "arm64",
+      "target_os": "android",
+      "use_remoteexec": true
     }
   },
   "android-official": {
     "gn_args": {
+      "debuggable_apks": false,
       "is_official_build": true,
       "target_os": "android",
-      "use_goma": true
+      "use_remoteexec": true
     }
   },
   "fuchsia-official": {
     "gn_args": {
       "is_official_build": true,
       "target_os": "fuchsia",
-      "use_goma": true
+      "use_remoteexec": true
+    }
+  },
+  "lacros-arm-archive-rel": {
+    "args_file": "//build/args/chromeos/arm-generic-crostoolchain.gni",
+    "gn_args": {
+      "chromeos_is_browser_only": true,
+      "dcheck_always_on": false,
+      "is_chromeos_device": true,
+      "is_debug": false,
+      "ozone_platform_headless": true,
+      "target_os": "chromeos",
+      "use_remoteexec": true
+    }
+  },
+  "lacros-arm64-archive-rel": {
+    "args_file": "//build/args/chromeos/arm64-generic-crostoolchain.gni",
+    "gn_args": {
+      "chromeos_is_browser_only": true,
+      "dcheck_always_on": false,
+      "is_chromeos_device": true,
+      "is_debug": false,
+      "ozone_platform_headless": true,
+      "target_os": "chromeos",
+      "use_remoteexec": true
+    }
+  },
+  "lacros64-archive-rel": {
+    "args_file": "//build/args/chromeos/amd64-generic-crostoolchain.gni",
+    "gn_args": {
+      "chromeos_is_browser_only": true,
+      "dcheck_always_on": false,
+      "is_chromeos_device": true,
+      "is_debug": false,
+      "ozone_platform_headless": true,
+      "target_os": "chromeos",
+      "use_remoteexec": true
     }
   },
   "linux-archive-dbg": {
@@ -38,29 +90,33 @@
       "is_component_build": true,
       "is_debug": true,
       "symbol_level": 1,
-      "use_rbe": true,
       "use_remoteexec": true
     }
   },
   "linux-archive-rel": {
     "gn_args": {
       "dcheck_always_on": false,
+      "enable_updater": true,
       "is_component_build": false,
       "is_debug": false,
-      "use_rbe": true,
       "use_remoteexec": true
     }
   },
-  "linux-archive-tagged": {
+  "linux-lacros-archive-rel": {
     "gn_args": {
-      "is_official_build": true,
-      "use_goma": true
+      "also_build_ash_chrome": true,
+      "chromeos_is_browser_only": true,
+      "dcheck_always_on": false,
+      "is_component_build": false,
+      "is_debug": false,
+      "target_os": "chromeos",
+      "use_remoteexec": true
     }
   },
   "linux-official": {
     "gn_args": {
       "is_official_build": true,
-      "use_goma": true
+      "use_remoteexec": true
     }
   },
   "mac-archive-dbg": {
@@ -68,7 +124,7 @@
       "is_component_build": true,
       "is_debug": true,
       "symbol_level": 1,
-      "use_goma": true
+      "use_remoteexec": true
     }
   },
   "mac-archive-rel": {
@@ -78,13 +134,7 @@
       "is_component_build": false,
       "is_debug": false,
       "symbol_level": 1,
-      "use_goma": true
-    }
-  },
-  "mac-archive-tagged": {
-    "gn_args": {
-      "is_official_build": true,
-      "use_goma": true
+      "use_remoteexec": true
     }
   },
   "mac-arm64-archive-dbg": {
@@ -93,7 +143,7 @@
       "is_debug": true,
       "symbol_level": 1,
       "target_cpu": "arm64",
-      "use_goma": true
+      "use_remoteexec": true
     }
   },
   "mac-arm64-archive-rel": {
@@ -104,20 +154,13 @@
       "is_debug": false,
       "symbol_level": 1,
       "target_cpu": "arm64",
-      "use_goma": true
-    }
-  },
-  "mac-arm64-archive-tagged": {
-    "gn_args": {
-      "is_official_build": true,
-      "target_cpu": "arm64",
-      "use_goma": true
+      "use_remoteexec": true
     }
   },
   "mac-official": {
     "gn_args": {
       "is_official_build": true,
-      "use_goma": true
+      "use_remoteexec": true
     }
   },
   "win-archive-dbg": {
@@ -125,7 +168,7 @@
       "is_component_build": true,
       "is_debug": true,
       "symbol_level": 1,
-      "use_goma": true
+      "use_remoteexec": true
     }
   },
   "win-archive-rel": {
@@ -133,21 +176,15 @@
       "dcheck_always_on": false,
       "is_component_build": false,
       "is_debug": false,
-      "skip_archive_compression": false,
       "symbol_level": 1,
-      "use_goma": true
-    }
-  },
-  "win-archive-tagged": {
-    "gn_args": {
-      "is_official_build": true,
-      "use_goma": true
+      "use_remoteexec": true
     }
   },
   "win-official": {
     "gn_args": {
       "is_official_build": true,
-      "use_goma": true
+      "symbol_level": 1,
+      "use_remoteexec": true
     }
   },
   "win32-archive-dbg": {
@@ -156,7 +193,7 @@
       "is_debug": true,
       "symbol_level": 1,
       "target_cpu": "x86",
-      "use_goma": true
+      "use_remoteexec": true
     }
   },
   "win32-archive-rel": {
@@ -164,24 +201,16 @@
       "dcheck_always_on": false,
       "is_component_build": false,
       "is_debug": false,
-      "skip_archive_compression": false,
       "symbol_level": 1,
       "target_cpu": "x86",
-      "use_goma": true
-    }
-  },
-  "win32-archive-tagged": {
-    "gn_args": {
-      "is_official_build": true,
-      "target_cpu": "x86",
-      "use_goma": true
+      "use_remoteexec": true
     }
   },
   "win32-official": {
     "gn_args": {
       "is_official_build": true,
       "target_cpu": "x86",
-      "use_goma": true
+      "use_remoteexec": true
     }
   }
 }

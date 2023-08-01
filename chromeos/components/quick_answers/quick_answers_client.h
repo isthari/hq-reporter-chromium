@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,9 @@
 #include <string>
 
 #include "base/gtest_prod_util.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/time/time.h"
 #include "chromeos/components/quick_answers/result_loader.h"
 #include "chromeos/components/quick_answers/understanding/intent_generator.h"
 
@@ -19,7 +21,7 @@ class SharedURLLoaderFactory;
 
 namespace quick_answers {
 
-struct QuickAnswer;
+class SpellChecker;
 struct QuickAnswersRequest;
 struct IntentInfo;
 enum class IntentType;
@@ -28,16 +30,14 @@ enum class ResultType;
 // A delegate interface for the QuickAnswersClient.
 class QuickAnswersDelegate {
  public:
-  using AccessTokenCallback =
-      base::OnceCallback<void(const std::string& access_token)>;
-
   QuickAnswersDelegate(const QuickAnswersDelegate&) = delete;
   QuickAnswersDelegate& operator=(const QuickAnswersDelegate&) = delete;
 
-  // Invoked when the |quick_answer| is received. Note that |quick_answer| may
-  // be |nullptr| if no answer found for the selected content.
+  // Invoked when the `quick_answers_session` is received. Note that
+  // `quick_answers_session` may be `nullptr` if no answer found for the
+  // selected content.
   virtual void OnQuickAnswerReceived(
-      std::unique_ptr<QuickAnswer> quick_answer) {}
+      std::unique_ptr<QuickAnswersSession> quick_answers_session) {}
 
   // Invoked when the query is rewritten.
   virtual void OnRequestPreprocessFinished(
@@ -45,13 +45,6 @@ class QuickAnswersDelegate {
 
   // Invoked when there is a network error.
   virtual void OnNetworkError() {}
-
-  // Request for the access token associated with the active user's profile.
-  // Request is handled asynchronously if the token is not available.
-  // AccessTokenCallbacks are invoked as soon as the token if fetched.
-  // If the token is available, AccessTokenCallbacks are invoked
-  // synchronously before RequestAccessToken() returns.
-  virtual void RequestAccessToken(AccessTokenCallback callback) {}
 
  protected:
   QuickAnswersDelegate() = default;
@@ -83,8 +76,7 @@ class QuickAnswersClient : public ResultLoader::ResultLoaderDelegate {
   // ResultLoaderDelegate:
   void OnNetworkError() override;
   void OnQuickAnswerReceived(
-      std::unique_ptr<QuickAnswer> quick_answer) override;
-  void RequestAccessToken(AccessTokenCallback callback) override;
+      std::unique_ptr<QuickAnswersSession> quick_answers_session) override;
 
   // Send a quick answer request for preprocessing only.
   void SendRequestForPreprocessing(
@@ -134,7 +126,8 @@ class QuickAnswersClient : public ResultLoader::ResultLoaderDelegate {
   base::TimeDelta GetImpressionDuration() const;
 
   scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
-  QuickAnswersDelegate* delegate_ = nullptr;
+  raw_ptr<QuickAnswersDelegate> delegate_ = nullptr;
+  std::unique_ptr<SpellChecker> spell_checker_;
   std::unique_ptr<ResultLoader> result_loader_;
   std::unique_ptr<IntentGenerator> intent_generator_;
   // Time when the quick answer is received.

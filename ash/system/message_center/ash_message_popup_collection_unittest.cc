@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,9 +16,15 @@
 #include "ash/root_window_controller.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shell.h"
+#include "ash/system/message_center/message_center_test_util.h"
+#include "ash/system/message_center/message_popup_animation_waiter.h"
+#include "ash/system/status_area_widget.h"
+#include "ash/system/unified/unified_system_tray.h"
+#include "ash/system/unified/unified_system_tray_bubble.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/wm/desks/desks_util.h"
 #include "ash/wm/overview/overview_controller.h"
+#include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "base/command_line.h"
 #include "base/test/scoped_feature_list.h"
 #include "ui/display/manager/display_manager.h"
@@ -27,8 +33,13 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/message_center/message_center.h"
 #include "ui/message_center/public/cpp/message_center_constants.h"
+#include "ui/message_center/public/cpp/notification_delegate.h"
+#include "ui/message_center/public/cpp/notification_types.h"
 #include "ui/message_center/views/message_popup_collection.h"
 #include "ui/message_center/views/message_popup_view.h"
+#include "ui/message_center/views/message_view.h"
+#include "ui/message_center/views/notification_view_base.h"
+#include "ui/views/controls/button/label_button.h"
 
 namespace ash {
 namespace {
@@ -79,8 +90,8 @@ class AshMessagePopupCollectionTest : public AshTestBase,
 
   void SetUp() override {
     scoped_feature_list_ = std::make_unique<base::test::ScopedFeatureList>();
-    scoped_feature_list_->InitWithFeatureState(features::kNotificationsRefresh,
-                                               IsNotificationsRefreshEnabled());
+    scoped_feature_list_->InitWithFeatureState(features::kQsRevamp,
+                                               IsQsRevampEnabled());
 
     base::CommandLine::ForCurrentProcess()->AppendSwitch(
         keyboard::switches::kEnableVirtualKeyboard);
@@ -94,7 +105,7 @@ class AshMessagePopupCollectionTest : public AshTestBase,
     AshTestBase::TearDown();
   }
 
-  bool IsNotificationsRefreshEnabled() const { return GetParam(); }
+  bool IsQsRevampEnabled() const { return GetParam(); }
 
  protected:
   enum Position { TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT, OUTSIDE };
@@ -120,6 +131,10 @@ class AshMessagePopupCollectionTest : public AshTestBase,
                    display::Screen::GetScreen()->GetPrimaryDisplay());
   }
 
+  message_center::MessagePopupView* GetLastPopUpAdded() {
+    return popup_collection()->last_pop_up_added_;
+  }
+
   Position GetPositionInDisplay(const gfx::Point& point) {
     const gfx::Rect work_area =
         display::Screen::GetScreen()->GetPrimaryDisplay().work_area();
@@ -137,20 +152,10 @@ class AshMessagePopupCollectionTest : public AshTestBase,
 
   gfx::Rect GetWorkArea() { return popup_collection_->work_area_; }
 
-  std::unique_ptr<message_center::Notification> CreateNotification(
-      const std::string& id) {
-    return std::make_unique<message_center::Notification>(
-        message_center::NOTIFICATION_TYPE_BASE_FORMAT, id, u"test_title",
-        u"test message", gfx::Image(), std::u16string() /* display_source */,
-        GURL(), message_center::NotifierId(),
-        message_center::RichNotificationData(),
-        new message_center::NotificationDelegate());
-  }
-
   std::string AddNotification() {
     std::string id = base::NumberToString(notification_id_++);
     message_center::MessageCenter::Get()->AddNotification(
-        CreateNotification(id));
+        CreateSimpleNotification(id));
     return id;
   }
 
@@ -162,56 +167,56 @@ class AshMessagePopupCollectionTest : public AshTestBase,
 
 INSTANTIATE_TEST_SUITE_P(All,
                          AshMessagePopupCollectionTest,
-                         testing::Bool() /* IsNotificationsRefreshEnabled() */);
+                         testing::Bool() /* IsQsRevampEnabled() */);
 
 TEST_P(AshMessagePopupCollectionTest, ShelfAlignment) {
-  const gfx::Rect toast_size(0, 0, 10, 10);
+  const gfx::Rect popup_size(0, 0, 10, 10);
   UpdateDisplay("601x600");
-  gfx::Point toast_point;
-  toast_point.set_x(popup_collection()->GetToastOriginX(toast_size));
-  toast_point.set_y(popup_collection()->GetBaseline());
-  EXPECT_EQ(BOTTOM_RIGHT, GetPositionInDisplay(toast_point));
+  gfx::Point popup_point;
+  popup_point.set_x(popup_collection()->GetPopupOriginX(popup_size));
+  popup_point.set_y(popup_collection()->GetBaseline());
+  EXPECT_EQ(BOTTOM_RIGHT, GetPositionInDisplay(popup_point));
   EXPECT_FALSE(popup_collection()->IsTopDown());
   EXPECT_FALSE(popup_collection()->IsFromLeft());
 
   GetPrimaryShelf()->SetAlignment(ShelfAlignment::kRight);
-  toast_point.set_x(popup_collection()->GetToastOriginX(toast_size));
-  toast_point.set_y(popup_collection()->GetBaseline());
-  EXPECT_EQ(BOTTOM_RIGHT, GetPositionInDisplay(toast_point));
+  popup_point.set_x(popup_collection()->GetPopupOriginX(popup_size));
+  popup_point.set_y(popup_collection()->GetBaseline());
+  EXPECT_EQ(BOTTOM_RIGHT, GetPositionInDisplay(popup_point));
   EXPECT_FALSE(popup_collection()->IsTopDown());
   EXPECT_FALSE(popup_collection()->IsFromLeft());
 
   GetPrimaryShelf()->SetAlignment(ShelfAlignment::kLeft);
-  toast_point.set_x(popup_collection()->GetToastOriginX(toast_size));
-  toast_point.set_y(popup_collection()->GetBaseline());
-  EXPECT_EQ(BOTTOM_LEFT, GetPositionInDisplay(toast_point));
+  popup_point.set_x(popup_collection()->GetPopupOriginX(popup_size));
+  popup_point.set_y(popup_collection()->GetBaseline());
+  EXPECT_EQ(BOTTOM_LEFT, GetPositionInDisplay(popup_point));
   EXPECT_FALSE(popup_collection()->IsTopDown());
   EXPECT_TRUE(popup_collection()->IsFromLeft());
 }
 
 TEST_P(AshMessagePopupCollectionTest, LockScreen) {
-  const gfx::Rect toast_size(0, 0, 10, 10);
+  const gfx::Rect popup_size(0, 0, 10, 10);
 
   GetPrimaryShelf()->SetAlignment(ShelfAlignment::kLeft);
-  gfx::Point toast_point;
-  toast_point.set_x(popup_collection()->GetToastOriginX(toast_size));
-  toast_point.set_y(popup_collection()->GetBaseline());
-  EXPECT_EQ(BOTTOM_LEFT, GetPositionInDisplay(toast_point));
+  gfx::Point popup_point;
+  popup_point.set_x(popup_collection()->GetPopupOriginX(popup_size));
+  popup_point.set_y(popup_collection()->GetBaseline());
+  EXPECT_EQ(BOTTOM_LEFT, GetPositionInDisplay(popup_point));
   EXPECT_FALSE(popup_collection()->IsTopDown());
   EXPECT_TRUE(popup_collection()->IsFromLeft());
 
   BlockUserSession(BLOCKED_BY_LOCK_SCREEN);
-  toast_point.set_x(popup_collection()->GetToastOriginX(toast_size));
-  toast_point.set_y(popup_collection()->GetBaseline());
-  EXPECT_EQ(BOTTOM_RIGHT, GetPositionInDisplay(toast_point));
+  popup_point.set_x(popup_collection()->GetPopupOriginX(popup_size));
+  popup_point.set_y(popup_collection()->GetBaseline());
+  EXPECT_EQ(BOTTOM_RIGHT, GetPositionInDisplay(popup_point));
   EXPECT_FALSE(popup_collection()->IsTopDown());
   EXPECT_FALSE(popup_collection()->IsFromLeft());
 }
 
 TEST_P(AshMessagePopupCollectionTest, AutoHide) {
-  const gfx::Rect toast_size(0, 0, 10, 10);
+  const gfx::Rect popup_size(0, 0, 10, 10);
   UpdateDisplay("601x600");
-  int origin_x = popup_collection()->GetToastOriginX(toast_size);
+  int origin_x = popup_collection()->GetPopupOriginX(popup_size);
   int baseline = popup_collection()->GetBaseline();
 
   // Create a window, otherwise autohide doesn't work.
@@ -219,29 +224,29 @@ TEST_P(AshMessagePopupCollectionTest, AutoHide) {
       nullptr, desks_util::GetActiveDeskContainerId(), gfx::Rect(0, 0, 50, 50));
   Shelf* shelf = GetPrimaryShelf();
   shelf->SetAutoHideBehavior(ShelfAutoHideBehavior::kAlways);
-  EXPECT_EQ(origin_x, popup_collection()->GetToastOriginX(toast_size));
+  EXPECT_EQ(origin_x, popup_collection()->GetPopupOriginX(popup_size));
   EXPECT_LT(baseline, popup_collection()->GetBaseline());
 }
 
 TEST_P(AshMessagePopupCollectionTest, DisplayResize) {
-  const gfx::Rect toast_size(0, 0, 10, 10);
+  const gfx::Rect popup_size(0, 0, 10, 10);
   UpdateDisplay("601x600");
-  int origin_x = popup_collection()->GetToastOriginX(toast_size);
+  int origin_x = popup_collection()->GetPopupOriginX(popup_size);
   int baseline = popup_collection()->GetBaseline();
 
   UpdateDisplay("801x800");
-  EXPECT_LT(origin_x, popup_collection()->GetToastOriginX(toast_size));
+  EXPECT_LT(origin_x, popup_collection()->GetPopupOriginX(popup_size));
   EXPECT_LT(baseline, popup_collection()->GetBaseline());
 
   UpdateDisplay("500x400");
-  EXPECT_GT(origin_x, popup_collection()->GetToastOriginX(toast_size));
+  EXPECT_GT(origin_x, popup_collection()->GetPopupOriginX(popup_size));
   EXPECT_GT(baseline, popup_collection()->GetBaseline());
 }
 
 TEST_P(AshMessagePopupCollectionTest, DockedMode) {
-  const gfx::Rect toast_size(0, 0, 10, 10);
+  const gfx::Rect popup_size(0, 0, 10, 10);
   UpdateDisplay("601x600");
-  int origin_x = popup_collection()->GetToastOriginX(toast_size);
+  int origin_x = popup_collection()->GetPopupOriginX(popup_size);
   int baseline = popup_collection()->GetBaseline();
 
   // Emulate the docked mode; enter to an extended mode, then invoke
@@ -253,23 +258,24 @@ TEST_P(AshMessagePopupCollectionTest, DockedMode) {
       display_manager()->GetDisplayAt(1u).id()));
   display_manager()->OnNativeDisplaysChanged(new_info);
 
-  EXPECT_LT(origin_x, popup_collection()->GetToastOriginX(toast_size));
+  EXPECT_LT(origin_x, popup_collection()->GetPopupOriginX(popup_size));
   EXPECT_LT(baseline, popup_collection()->GetBaseline());
 }
 
-TEST_P(AshMessagePopupCollectionTest, TrayHeight) {
-  const gfx::Rect toast_size(0, 0, 10, 10);
+TEST_P(AshMessagePopupCollectionTest, BaselineOffset) {
+  const gfx::Rect popup_size(0, 0, 10, 10);
   UpdateDisplay("601x600");
-  int origin_x = popup_collection()->GetToastOriginX(toast_size);
+  int origin_x = popup_collection()->GetPopupOriginX(popup_size);
   int baseline = popup_collection()->GetBaseline();
 
-  // Simulate the system tray bubble being open.
-  const int kTrayHeight = 100;
-  popup_collection()->SetTrayBubbleHeight(kTrayHeight);
+  // Simulate a secondary bubble (e.g. QS slider) being shown on screen.
+  const int kSecondaryBubbleHeight = 100;
+  popup_collection()->SetBaselineOffset(kSecondaryBubbleHeight);
 
-  EXPECT_EQ(origin_x, popup_collection()->GetToastOriginX(toast_size));
-  EXPECT_EQ(baseline - kTrayHeight - message_center::kMarginBetweenPopups,
-            popup_collection()->GetBaseline());
+  EXPECT_EQ(origin_x, popup_collection()->GetPopupOriginX(popup_size));
+  EXPECT_EQ(
+      baseline - kSecondaryBubbleHeight - message_center::kMarginBetweenPopups,
+      popup_collection()->GetBaseline());
 }
 
 TEST_P(AshMessagePopupCollectionTest, Extended) {
@@ -282,9 +288,9 @@ TEST_P(AshMessagePopupCollectionTest, Extended) {
       Shell::GetRootWindowControllerWithDisplayId(second_display.id())->shelf();
   AshMessagePopupCollection for_2nd_display(second_shelf);
   UpdateWorkArea(&for_2nd_display, second_display);
-  // Make sure that the toast position on the secondary display is
+  // Make sure that the popup position on the secondary display is
   // positioned correctly.
-  EXPECT_LT(1300, for_2nd_display.GetToastOriginX(gfx::Rect(0, 0, 10, 10)));
+  EXPECT_LT(1300, for_2nd_display.GetPopupOriginX(gfx::Rect(0, 0, 10, 10)));
   EXPECT_LT(700, for_2nd_display.GetBaseline());
 }
 
@@ -382,7 +388,7 @@ TEST_P(AshMessagePopupCollectionTest, Unified) {
   SetPopupCollection(
       std::make_unique<AshMessagePopupCollection>(GetPrimaryShelf()));
 
-  EXPECT_GT(600, popup_collection()->GetToastOriginX(gfx::Rect(0, 0, 10, 10)));
+  EXPECT_GT(600, popup_collection()->GetPopupOriginX(gfx::Rect(0, 0, 10, 10)));
 }
 
 // Tests that when the keyboard is showing that notifications appear above it,
@@ -431,6 +437,140 @@ TEST_P(AshMessagePopupCollectionTest, BaselineInOverview) {
   EXPECT_FALSE(overview_controller->InOverviewSession());
   const int baseline_no_overview = popup_collection()->GetBaseline();
   EXPECT_EQ(baseline_no_overview, baseline_with_hidden_shelf);
+}
+
+class NotificationDestructingNotificationDelegate
+    : public message_center::NotificationDelegate {
+ public:
+  NotificationDestructingNotificationDelegate() = default;
+  NotificationDestructingNotificationDelegate(
+      const NotificationDestructingNotificationDelegate&) = delete;
+  NotificationDestructingNotificationDelegate& operator=(
+      const NotificationDestructingNotificationDelegate&) = delete;
+
+ private:
+  ~NotificationDestructingNotificationDelegate() override = default;
+
+  // NotificationObserver:
+  void Click(const absl::optional<int>& button_index,
+             const absl::optional<std::u16string>& reply) override {
+    // Show the UnifiedSystemTrayBubble, which will force all popups to be
+    // destroyed.
+    Shell::Get()
+        ->GetPrimaryRootWindowController()
+        ->GetStatusAreaWidget()
+        ->unified_system_tray()
+        ->ShowBubble();
+  }
+};
+
+// Regression test for crbug/1316656. Tests that pressing a button resulting in
+// the notification popup getting destroyed does not crash.
+TEST_P(AshMessagePopupCollectionTest, PopupDestroyedDuringClick) {
+  // Create a Notification popup with 1 action button.
+  message_center::RichNotificationData notification_data;
+  std::u16string button_text = u"BUTTON_TEXT";
+  notification_data.buttons.emplace_back(button_text);
+
+  auto to_be_destroyed_notification(
+      std::make_unique<message_center::Notification>(
+          message_center::NOTIFICATION_TYPE_SIMPLE, "id1",
+          u"Test Web Notification", u"Notification message body.",
+          ui::ImageModel(), u"www.test.org", GURL(),
+          message_center::NotifierId(), notification_data,
+          new NotificationDestructingNotificationDelegate()));
+  message_center::MessageCenter::Get()->AddNotification(
+      std::move(to_be_destroyed_notification));
+  EXPECT_TRUE(GetLastPopUpAdded());
+
+  // Get the view for the button added earlier.
+  auto* message_view = GetLastPopUpAdded()->message_view();
+  auto* action_button =
+      message_view
+          ->GetViewByID(
+              message_center::NotificationViewBase::ViewId::kActionButtonsRow)
+          ->children()[0];
+  EXPECT_EQ(static_cast<views::LabelButton*>(action_button)->GetText(),
+            button_text);
+
+  // Click the action button.
+  // `NotificationDestructingNotificationDelegate::Click()` will destroy the
+  // popup during `NotificationViewBase::ActionButtonPressed()`. There should be
+  // no crash.
+  auto* event_generator = GetEventGenerator();
+  event_generator->MoveMouseTo(
+      action_button->GetBoundsInScreen().CenterPoint());
+  event_generator->ClickLeftButton();
+  // Wait for animation to end.
+  MessagePopupAnimationWaiter(popup_collection()).Wait();
+
+  EXPECT_FALSE(GetLastPopUpAdded());
+}
+
+// Tests that notification popup baseline is correct when entering and exiting
+// tablet mode in a full screen window.
+TEST_P(AshMessagePopupCollectionTest, BaselineInTabletMode) {
+  UpdateDisplay("800x600");
+  ASSERT_TRUE(GetPrimaryShelf()->IsHorizontalAlignment());
+
+  // Baseline is higher than the top of the shelf in clamshell mode.
+  EXPECT_GT(GetPrimaryShelf()->GetShelfBoundsInScreen().y(),
+            popup_collection()->GetBaseline());
+
+  auto* tablet_mode_controller = Shell::Get()->tablet_mode_controller();
+
+  // Baseline is higher than the top of the shelf after entering tablet mode.
+  tablet_mode_controller->SetEnabledForTest(true);
+  EXPECT_TRUE(tablet_mode_controller->InTabletMode());
+  EXPECT_GT(GetPrimaryShelf()->GetShelfBoundsInScreen().y(),
+            popup_collection()->GetBaseline());
+
+  // Baseline is higher than the top of the shelf after exiting tablet mode.
+  tablet_mode_controller->SetEnabledForTest(false);
+  EXPECT_FALSE(tablet_mode_controller->InTabletMode());
+  EXPECT_GT(GetPrimaryShelf()->GetShelfBoundsInScreen().y(),
+            popup_collection()->GetBaseline());
+}
+
+// Tests that notification popups match other `TrayBubbleView` baselines.
+TEST_P(AshMessagePopupCollectionTest, BaselineMatchesTrayBubbleViews) {
+  UpdateDisplay("800x600");
+  ASSERT_TRUE(GetPrimaryShelf()->IsHorizontalAlignment());
+
+  auto* unified_system_tray = GetPrimaryUnifiedSystemTray();
+  unified_system_tray->ShowBubble();
+
+  EXPECT_EQ(unified_system_tray->bubble()->GetBoundsInScreen().bottom(),
+            popup_collection()->GetBaseline());
+}
+
+// Tests that `TrayBubbleView` elements (e.g. Quick Settings) and popups
+// are placed on top of each other based on which was shown most recently.
+TEST_P(AshMessagePopupCollectionTest, PopupsAndTrayBubbleViewsZOrdering) {
+  // Notification popups close when Quick Settings is opened pre-QsRevamp.
+  if (!IsQsRevampEnabled()) {
+    return;
+  }
+
+  // Add a notification popup.
+  AddNotification();
+  auto* popup = GetLastPopUpAdded();
+  EXPECT_TRUE(popup);
+
+  // Opening Quick Settings makes its bubble show in front of the previously
+  // shown notification pop-up.
+  auto* unified_system_tray = GetPrimaryUnifiedSystemTray();
+  unified_system_tray->ShowBubble();
+  auto* bubble_native_view =
+      unified_system_tray->bubble()->GetBubbleWidget()->GetNativeView();
+  EXPECT_FALSE(popup->GetWidget()->IsStackedAbove(bubble_native_view));
+
+  // Adding another popup moves Quick Settings to the back, bringing all popups
+  // to the top level, showing them in front of the Quick Settings bubble.
+  AddNotification();
+  // Wait until the notification popup shows.
+  MessagePopupAnimationWaiter(popup_collection()).Wait();
+  EXPECT_TRUE(popup->GetWidget()->IsStackedAbove(bubble_native_view));
 }
 
 }  // namespace ash

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.support.test.InstrumentationRegistry;
 
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.SmallTest;
 
 import org.hamcrest.Matchers;
@@ -30,7 +30,7 @@ public class GSAAccountChangeListenerTest {
     @Test(expected = AssertionError.class)
     @SmallTest
     public void testReceivesBroadcastIntents() {
-        final Context context = InstrumentationRegistry.getTargetContext();
+        final Context context = ApplicationProvider.getApplicationContext();
         BroadcastReceiver receiver = new GSAAccountChangeListener.AccountChangeBroadcastReceiver();
         context.registerReceiver(receiver,
                 new IntentFilter(GSAAccountChangeListener.ACCOUNT_UPDATE_BROADCAST_INTENT));
@@ -43,8 +43,7 @@ public class GSAAccountChangeListenerTest {
         context.sendBroadcast(intent);
 
         CriteriaHelper.pollUiThread(() -> {
-            String currentAccount =
-                    GSAState.getInstance(context.getApplicationContext()).getGsaAccount();
+            String currentAccount = GSAState.getInstance().getGsaAccount();
             Criteria.checkThat(currentAccount, Matchers.is(ACCOUNT_NAME));
         });
 
@@ -58,8 +57,7 @@ public class GSAAccountChangeListenerTest {
 
         // This is ugly, but so is checking that some asynchronous call was never received.
         CriteriaHelper.pollUiThread(() -> {
-            String currentAccount =
-                    GSAState.getInstance(context.getApplicationContext()).getGsaAccount();
+            String currentAccount = GSAState.getInstance().getGsaAccount();
             Criteria.checkThat(currentAccount, Matchers.is(ACCOUNT_NAME2));
         }, 1000, 100);
     }

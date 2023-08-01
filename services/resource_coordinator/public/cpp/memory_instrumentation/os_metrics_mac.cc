@@ -1,13 +1,10 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "services/resource_coordinator/public/cpp/memory_instrumentation/os_metrics.h"
 
-#include <libproc.h>
 #include <mach/mach.h>
-#include <mach/mach_vm.h>
-#include <mach/shared_region.h>
 #include <sys/param.h>
 
 #include <mach-o/dyld_images.h>
@@ -17,6 +14,15 @@
 #include "base/numerics/safe_math.h"
 #include "base/process/process_metrics.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_util.h"
+
+#if BUILDFLAG(IS_IOS)
+#include "base/ios/sim_header_shims.h"
+#else
+#include <libproc.h>
+#include <mach/mach_vm.h>
+#include <mach/shared_region.h>
+#endif
 
 namespace memory_instrumentation {
 
@@ -53,8 +59,14 @@ static_assert(ChromeTaskVMInfoCount <= MAX_MIG_SIZE_FOR_1014,
 using VMRegion = mojom::VmRegion;
 
 bool IsAddressInSharedRegion(uint64_t address) {
+#if BUILDFLAG(IS_IOS)
+  return address >= SHARED_REGION_BASE_ARM64 &&
+         address < (SHARED_REGION_BASE_ARM64 + SHARED_REGION_SIZE_ARM64);
+#else
+  // TODO: Need to fix this for ARM64 Mac.
   return address >= SHARED_REGION_BASE_X86_64 &&
          address < (SHARED_REGION_BASE_X86_64 + SHARED_REGION_SIZE_X86_64);
+#endif
 }
 
 bool IsRegionContainedInRegion(const VMRegion& containee,
@@ -205,8 +217,11 @@ bool GetAllRegions(std::vector<VMRegion>* regions) {
 
     char buffer[MAXPATHLEN];
     int length = proc_regionfilename(pid, address, buffer, MAXPATHLEN);
-    if (length != 0)
+    if (length > 0) {
       region.mapped_file.assign(buffer, length);
+      if (!base::IsStringUTF8AllowingNoncharacters(region.mapped_file))
+        region.mapped_file = "region file name is not UTF-8";
+    }
 
     // There's no way to get swapped or clean bytes without doing a
     // very expensive syscalls that crawls every single page in the memory
@@ -247,6 +262,8 @@ bool OSMetrics::FillOSMemoryDump(base::ProcessId pid,
 
   dump->platform_private_footprint->internal_bytes = info.internal;
   dump->platform_private_footprint->compressed_bytes = info.compressed;
+  dump->resident_set_kb = info.resident_size / 1024;
+  dump->peak_resident_set_kb = info.resident_size_peak / 1024;
 
   // The |phys_footprint| field was introduced in 10.11.
   if (count == ChromeTaskVMInfoCount) {
@@ -309,6 +326,7 @@ std::vector<mojom::VmRegionPtr> OSMetrics::GetProcessMemoryMaps(
   return maps;
 }
 
+#if !BUILDFLAG(IS_IOS)
 std::vector<mojom::VmRegionPtr> OSMetrics::GetProcessModules(
     base::ProcessId pid) {
   std::vector<mojom::VmRegionPtr> maps;
@@ -323,5 +341,6 @@ std::vector<mojom::VmRegionPtr> OSMetrics::GetProcessModules(
 
   return maps;
 }
+#endif  // !BUILDFLAG(IS_IOS)
 
 }  // namespace memory_instrumentation

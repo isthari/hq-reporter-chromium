@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,7 +21,9 @@
 #include "ui/base/models/simple_menu_model.h"
 #include "ui/base/pointer/touch_ui_controller.h"
 #include "ui/base/theme_provider.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/base/window_open_disposition.h"
+#include "ui/base/window_open_disposition_utils.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/metrics.h"
@@ -152,10 +154,16 @@ void ReloadButton::SetVisibleMode(Mode mode) {
   visible_mode_ = mode;
   switch (mode) {
     case Mode::kReload:
-      SetVectorIcons(vector_icons::kReloadIcon, kReloadTouchIcon);
+      SetVectorIcons(features::IsChromeRefresh2023()
+                         ? vector_icons::kReloadChromeRefreshIcon
+                         : vector_icons::kReloadIcon,
+                     kReloadTouchIcon);
       break;
     case Mode::kStop:
-      SetVectorIcons(kNavigateStopIcon, kNavigateStopTouchIcon);
+      SetVectorIcons(features::IsChromeRefresh2023()
+                         ? kNavigateStopChromeRefreshIcon
+                         : kNavigateStopIcon,
+                     kNavigateStopTouchIcon);
       break;
   }
 }

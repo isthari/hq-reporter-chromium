@@ -1,10 +1,11 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/web_applications/test/web_app_test_observers.h"
 
 #include "base/run_loop.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/test/bind.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/web_applications/web_app.h"
@@ -31,32 +32,37 @@ WebAppInstallManagerObserverAdapter::WebAppInstallManagerObserverAdapter(
   observation_.Observe(install_manager);
 }
 
+WebAppInstallManagerObserverAdapter::WebAppInstallManagerObserverAdapter(
+    Profile* profile)
+    : WebAppInstallManagerObserverAdapter(
+          &WebAppProvider::GetForTest(profile)->install_manager()) {}
+
 WebAppInstallManagerObserverAdapter::~WebAppInstallManagerObserverAdapter() =
     default;
 
 void WebAppInstallManagerObserverAdapter::SetWebAppInstalledDelegate(
     WebAppInstalledDelegate delegate) {
-  app_installed_delegate_ = delegate;
+  app_installed_delegate_ = std::move(delegate);
 }
 
 void WebAppInstallManagerObserverAdapter::SetWebAppInstalledWithOsHooksDelegate(
     WebAppInstalledWithOsHooksDelegate delegate) {
-  app_installed_with_os_hooks_delegate_ = delegate;
+  app_installed_with_os_hooks_delegate_ = std::move(delegate);
 }
 
 void WebAppInstallManagerObserverAdapter::SetWebAppWillBeUninstalledDelegate(
     WebAppWillBeUninstalledDelegate delegate) {
-  app_will_be_uninstalled_delegate_ = delegate;
+  app_will_be_uninstalled_delegate_ = std::move(delegate);
 }
 
 void WebAppInstallManagerObserverAdapter::SetWebAppUninstalledDelegate(
     WebAppUninstalledDelegate delegate) {
-  app_uninstalled_delegate_ = delegate;
+  app_uninstalled_delegate_ = std::move(delegate);
 }
 
 void WebAppInstallManagerObserverAdapter::SetWebAppManifestUpdateDelegate(
     WebAppManifestUpdateDelegate delegate) {
-  app_manifest_updated_delegate_ = delegate;
+  app_manifest_updated_delegate_ = std::move(delegate);
 }
 
 void WebAppInstallManagerObserverAdapter::OnWebAppInstalled(
@@ -75,7 +81,7 @@ void WebAppInstallManagerObserverAdapter::OnWebAppManifestUpdated(
     const AppId& app_id,
     base::StringPiece old_name) {
   if (app_manifest_updated_delegate_)
-    app_manifest_updated_delegate_.Run(app_id, std::move(old_name));
+    app_manifest_updated_delegate_.Run(app_id, old_name);
 }
 
 void WebAppInstallManagerObserverAdapter::OnWebAppWillBeUninstalled(
@@ -85,9 +91,34 @@ void WebAppInstallManagerObserverAdapter::OnWebAppWillBeUninstalled(
 }
 
 void WebAppInstallManagerObserverAdapter::OnWebAppUninstalled(
-    const AppId& app_id) {
+    const AppId& app_id,
+    webapps::WebappUninstallSource uninstall_source) {
   if (app_uninstalled_delegate_)
     app_uninstalled_delegate_.Run(app_id);
+}
+
+void WebAppInstallManagerObserverAdapter::OnWebAppInstallManagerDestroyed() {
+  observation_.Reset();
+}
+
+void WebAppInstallManagerObserverAdapter::SignalRunLoopAndStoreAppId(
+    const AppId& app_id) {
+  if (!is_listening_)
+    return;
+  optional_app_ids_.erase(app_id);
+  if (!optional_app_ids_.empty())
+    return;
+  last_app_id_ = app_id;
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, wait_loop_.QuitClosure());
+  is_listening_ = false;
+}
+
+void WebAppInstallManagerObserverAdapter::SignalRunLoopAndStoreAppIdAndOldName(
+    const AppId& app_id,
+    base::StringPiece old_name) {
+  old_name_ = old_name;
+  SignalRunLoopAndStoreAppId(app_id);
 }
 
 WebAppTestRegistryObserverAdapter::WebAppTestRegistryObserverAdapter(
@@ -98,91 +129,36 @@ WebAppTestRegistryObserverAdapter::WebAppTestRegistryObserverAdapter(
 WebAppTestRegistryObserverAdapter::WebAppTestRegistryObserverAdapter(
     Profile* profile)
     : WebAppTestRegistryObserverAdapter(
-          &WebAppProvider::GetForTest(profile)->registrar()) {}
+          &WebAppProvider::GetForTest(profile)->registrar_unsafe()) {}
 
 WebAppTestRegistryObserverAdapter::~WebAppTestRegistryObserverAdapter() =
     default;
 
-void WebAppTestRegistryObserverAdapter::SetWebAppInstalledDelegate(
-    WebAppInstalledDelegate delegate) {
-  app_installed_delegate_ = delegate;
-}
-
-void WebAppTestRegistryObserverAdapter::SetWebAppInstalledWithOsHooksDelegate(
-    WebAppInstalledWithOsHooksDelegate delegate) {
-  app_installed_with_os_hooks_delegate_ = delegate;
-}
-
-void WebAppTestRegistryObserverAdapter::SetWebAppWillBeUninstalledDelegate(
-    WebAppWillBeUninstalledDelegate delegate) {
-  app_will_be_uninstalled_delegate_ = delegate;
-}
-
-void WebAppTestRegistryObserverAdapter::SetWebAppUninstalledDelegate(
-    WebAppUninstalledDelegate delegate) {
-  app_uninstalled_delegate_ = delegate;
-}
-
-void WebAppTestRegistryObserverAdapter::SetWebAppProfileWillBeDeletedDelegate(
-    WebAppProfileWillBeDeletedDelegate delegate) {
-  app_profile_will_be_deleted_delegate_ = delegate;
-}
-
 void WebAppTestRegistryObserverAdapter::SetWebAppWillBeUpdatedFromSyncDelegate(
     WebAppWillBeUpdatedFromSyncDelegate delegate) {
-  app_will_be_updated_from_sync_delegate_ = delegate;
-}
-
-void WebAppTestRegistryObserverAdapter::SetWebAppManifestUpdateDelegate(
-    WebAppManifestUpdateDelegate delegate) {
-  app_manifest_updated_delegate_ = delegate;
+  app_will_be_updated_from_sync_delegate_ = std::move(delegate);
 }
 
 void WebAppTestRegistryObserverAdapter::SetWebAppLastBadgingTimeChangedDelegate(
     WebAppLastBadgingTimeChangedDelegate delegate) {
-  app_last_badging_time_changed_delegate_ = delegate;
+  app_last_badging_time_changed_delegate_ = std::move(delegate);
 }
 
 void WebAppTestRegistryObserverAdapter::
     SetWebAppProtocolSettingsChangedDelegate(
         WebAppProtocolSettingsChangedDelegate delegate) {
-  app_protocol_settings_changed_delegate_ = delegate;
+  app_protocol_settings_changed_delegate_ = std::move(delegate);
 }
 
-void WebAppTestRegistryObserverAdapter::OnWebAppInstalled(const AppId& app_id) {
-  if (app_installed_delegate_)
-    app_installed_delegate_.Run(app_id);
-}
-
-void WebAppTestRegistryObserverAdapter::OnWebAppInstalledWithOsHooks(
-    const AppId& app_id) {
-  if (app_installed_with_os_hooks_delegate_)
-    app_installed_with_os_hooks_delegate_.Run(app_id);
-}
-
-void WebAppTestRegistryObserverAdapter::OnWebAppManifestUpdated(
-    const AppId& app_id,
-    base::StringPiece old_name) {
-  if (app_manifest_updated_delegate_)
-    app_manifest_updated_delegate_.Run(app_id);
+void WebAppTestRegistryObserverAdapter::SetWebAppProfileWillBeDeletedDelegate(
+    WebAppProfileWillBeDeletedDelegate delegate) {
+  app_profile_will_be_deleted_delegate_ = std::move(delegate);
 }
 
 void WebAppTestRegistryObserverAdapter::OnWebAppsWillBeUpdatedFromSync(
     const std::vector<const WebApp*>& new_apps_state) {
   if (app_will_be_updated_from_sync_delegate_)
     app_will_be_updated_from_sync_delegate_.Run(new_apps_state);
-}
-
-void WebAppTestRegistryObserverAdapter::OnWebAppWillBeUninstalled(
-    const AppId& app_id) {
-  if (app_will_be_uninstalled_delegate_)
-    app_will_be_uninstalled_delegate_.Run(app_id);
-}
-
-void WebAppTestRegistryObserverAdapter::OnWebAppUninstalled(
-    const AppId& app_id) {
-  if (app_uninstalled_delegate_)
-    app_uninstalled_delegate_.Run(app_id);
 }
 
 void WebAppTestRegistryObserverAdapter::OnWebAppProfileWillBeDeleted(
@@ -192,7 +168,7 @@ void WebAppTestRegistryObserverAdapter::OnWebAppProfileWillBeDeleted(
 }
 
 void WebAppTestRegistryObserverAdapter::OnWebAppLastBadgingTimeChanged(
-    const web_app::AppId& app_id,
+    const AppId& app_id,
     const base::Time& time) {
   if (app_last_badging_time_changed_delegate_)
     app_last_badging_time_changed_delegate_.Run(app_id, time);
@@ -203,6 +179,10 @@ void WebAppTestRegistryObserverAdapter::OnWebAppProtocolSettingsChanged() {
     app_protocol_settings_changed_delegate_.Run();
 }
 
+void WebAppTestRegistryObserverAdapter::OnAppRegistrarDestroyed() {
+  observation_.Reset();
+}
+
 void WebAppTestRegistryObserverAdapter::SignalRunLoopAndStoreAppId(
     const AppId& app_id) {
   if (!is_listening_)
@@ -211,13 +191,13 @@ void WebAppTestRegistryObserverAdapter::SignalRunLoopAndStoreAppId(
   if (!optional_app_ids_.empty())
     return;
   last_app_id_ = app_id;
-  base::SequencedTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                   wait_loop_.QuitClosure());
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, wait_loop_.QuitClosure());
   is_listening_ = false;
 }
 
 WebAppTestInstallObserver::WebAppTestInstallObserver(Profile* profile)
-    : WebAppTestRegistryObserverAdapter(profile) {}
+    : WebAppInstallManagerObserverAdapter(profile) {}
 WebAppTestInstallObserver::~WebAppTestInstallObserver() = default;
 
 void WebAppTestInstallObserver::BeginListening(
@@ -246,7 +226,7 @@ AppId WebAppTestInstallObserver::BeginListeningAndWait(
 
 WebAppTestInstallWithOsHooksObserver::WebAppTestInstallWithOsHooksObserver(
     Profile* profile)
-    : WebAppTestRegistryObserverAdapter(profile) {}
+    : WebAppInstallManagerObserverAdapter(profile) {}
 WebAppTestInstallWithOsHooksObserver::~WebAppTestInstallWithOsHooksObserver() =
     default;
 
@@ -275,8 +255,8 @@ AppId WebAppTestInstallWithOsHooksObserver::BeginListeningAndWait(
 }
 
 WebAppTestManifestUpdatedObserver::WebAppTestManifestUpdatedObserver(
-    WebAppRegistrar* registrar)
-    : WebAppTestRegistryObserverAdapter(registrar) {}
+    WebAppInstallManager* install_manager)
+    : WebAppInstallManagerObserverAdapter(install_manager) {}
 WebAppTestManifestUpdatedObserver::~WebAppTestManifestUpdatedObserver() =
     default;
 
@@ -288,7 +268,7 @@ void WebAppTestManifestUpdatedObserver::BeginListening(
 #endif
   is_listening_ = true;
   app_manifest_updated_delegate_ = base::BindRepeating(
-      &WebAppTestManifestUpdatedObserver::SignalRunLoopAndStoreAppId,
+      &WebAppTestManifestUpdatedObserver::SignalRunLoopAndStoreAppIdAndOldName,
       weak_factory_.GetWeakPtr());
 }
 
@@ -305,7 +285,7 @@ AppId WebAppTestManifestUpdatedObserver::BeginListeningAndWait(
 }
 
 WebAppTestUninstallObserver::WebAppTestUninstallObserver(Profile* profile)
-    : WebAppTestRegistryObserverAdapter(profile) {}
+    : WebAppInstallManagerObserverAdapter(profile) {}
 
 WebAppTestUninstallObserver::~WebAppTestUninstallObserver() = default;
 

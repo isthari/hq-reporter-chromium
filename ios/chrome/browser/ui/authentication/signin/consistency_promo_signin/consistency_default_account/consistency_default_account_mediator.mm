@@ -1,13 +1,16 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/authentication/signin/consistency_promo_signin/consistency_default_account/consistency_default_account_mediator.h"
 
+#import <UIKit/UIKit.h>
+
+#import "ios/chrome/browser/shared/public/features/features.h"
 #import "ios/chrome/browser/signin/chrome_account_manager_service.h"
 #import "ios/chrome/browser/signin/chrome_account_manager_service_observer_bridge.h"
+#import "ios/chrome/browser/signin/system_identity.h"
 #import "ios/chrome/browser/ui/authentication/signin/consistency_promo_signin/consistency_default_account/consistency_default_account_consumer.h"
-#import "ios/public/provider/chrome/browser/signin/chrome_identity.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -54,9 +57,11 @@
   [self selectSelectedIdentity];
 }
 
-- (void)setSelectedIdentity:(ChromeIdentity*)identity {
-  DCHECK(identity);
-  if (_selectedIdentity == identity) {
+- (void)setSelectedIdentity:(id<SystemIdentity>)identity {
+  if (!IsConsistencyNewAccountInterfaceEnabled()) {
+    DCHECK(identity);
+  }
+  if ([_selectedIdentity isEqual:identity]) {
     return;
   }
   _selectedIdentity = identity;
@@ -65,33 +70,44 @@
 
 #pragma mark - Private
 
-// Updates the default identity.
+// Updates the default identity, or hide the default identity if there isn't
+// one present on the device.
 - (void)selectSelectedIdentity {
   if (!self.accountManagerService) {
     return;
   }
 
-  ChromeIdentity* identity = self.accountManagerService->GetDefaultIdentity();
-  if (!identity) {
+  id<SystemIdentity> identity =
+      self.accountManagerService->GetDefaultIdentity();
+
+  if (!IsConsistencyNewAccountInterfaceEnabled() && !identity) {
     [self.delegate consistencyDefaultAccountMediatorNoIdentities:self];
     return;
   }
 
-  if ([identity isEqual:self.selectedIdentity]) {
-    return;
-  }
-
+  // Here, default identity may be nil.
   self.selectedIdentity = identity;
 }
 
-// Updates the view controller using the default identity.
+// Updates the view controller using the default identity, or hide the default
+// identity button if no identity is present on device.
 - (void)updateSelectedIdentityUI {
-  [self.consumer updateWithFullName:self.selectedIdentity.userFullName
-                          givenName:self.selectedIdentity.userGivenName
-                              email:self.selectedIdentity.userEmail];
+  if (!IsConsistencyNewAccountInterfaceEnabled()) {
+    DCHECK(self.selectedIdentity);
+  }
+
+  if (!self.selectedIdentity) {
+    [self.consumer hideDefaultAccount];
+    return;
+  }
+
+  id<SystemIdentity> selectedIdentity = self.selectedIdentity;
   UIImage* avatar = self.accountManagerService->GetIdentityAvatarWithIdentity(
-      self.selectedIdentity, IdentityAvatarSize::TableViewIcon);
-  [self.consumer updateUserAvatar:avatar];
+      selectedIdentity, IdentityAvatarSize::TableViewIcon);
+  [self.consumer showDefaultAccountWithFullName:selectedIdentity.userFullName
+                                      givenName:selectedIdentity.userGivenName
+                                          email:selectedIdentity.userEmail
+                                         avatar:avatar];
 }
 
 #pragma mark - ChromeAccountManagerServiceObserver
@@ -100,7 +116,7 @@
   [self selectSelectedIdentity];
 }
 
-- (void)identityChanged:(ChromeIdentity*)identity {
+- (void)identityUpdated:(id<SystemIdentity>)identity {
   if ([self.selectedIdentity isEqual:identity]) {
     [self updateSelectedIdentityUI];
   }

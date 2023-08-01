@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,26 +11,25 @@
 #include "device/vr/public/mojom/vr_service.mojom-blink.h"
 #include "mojo/public/cpp/bindings/pending_associated_remote.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_xr_light_probe_init.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
-#include "third_party/blink/renderer/core/html/html_element.h"
-#include "third_party/blink/renderer/core/typed_arrays/array_buffer_view_helpers.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_typed_array.h"
 #include "third_party/blink/renderer/modules/xr/xr_frame_request_callback_collection.h"
 #include "third_party/blink/renderer/modules/xr/xr_input_source.h"
 #include "third_party/blink/renderer/modules/xr/xr_input_source_array.h"
-#include "third_party/blink/renderer/modules/xr/xr_reference_space.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_associated_receiver.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_receiver.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_wrapper_mode.h"
-#include "third_party/blink/renderer/platform/transforms/transformation_matrix.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/hash_set.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_view.h"
-
-#include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
+#include "ui/gfx/geometry/transform.h"
 
 namespace blink {
 
@@ -89,6 +88,12 @@ class XRSession final
       "Depth sensing feature is not supported by the session.";
   static constexpr char kRawCameraAccessFeatureNotSupported[] =
       "Raw camera access feature is not supported by the session.";
+  static constexpr char kCannotCancelHitTestSource[] =
+      "Hit test source could not be canceled! Ensure that it was not already "
+      "canceled.";
+  static constexpr char kCannotReportPoses[] =
+      "Poses cannot be given out for the current state.";
+
   // Runs all the video.requestVideoFrameCallback() callbacks associated with
   // one HTMLVideoElement. |double| is the |high_res_now_ms|, derived from
   // MonotonicTimeToZeroBasedDocumentTime(|current_frame_time|), to be passed as
@@ -129,12 +134,16 @@ class XRSession final
   const String& interactionMode() const { return interaction_mode_string_; }
   XRDOMOverlayState* domOverlayState() const { return dom_overlay_state_; }
   const String visibilityState() const;
+  absl::optional<float> frameRate() const { return absl::nullopt; }
+  DOMFloat32Array* supportedFrameRates() const { return nullptr; }
   XRRenderState* renderState() const { return render_state_; }
 
   // ARCore by default returns textures in RGBA half-float HDR format and no
   // other runtimes support reflection mapping, so just return this until we
   // have a need to differentiate based on the underlying runtime.
   const String preferredReflectionFormat() const { return "rgba16f"; }
+
+  Vector<String> enabledFeatures() const;
 
   XRSpace* viewerSpace() const;
 
@@ -152,12 +161,16 @@ class XRSession final
   DEFINE_ATTRIBUTE_EVENT_LISTENER(squeeze, kSqueeze)
   DEFINE_ATTRIBUTE_EVENT_LISTENER(squeezestart, kSqueezestart)
   DEFINE_ATTRIBUTE_EVENT_LISTENER(squeezeend, kSqueezeend)
+  DEFINE_ATTRIBUTE_EVENT_LISTENER(frameratechange, kFrameratechange)
 
   void updateRenderState(XRRenderStateInit* render_state_init,
                          ExceptionState& exception_state);
 
   const String& depthUsage(ExceptionState& exception_state);
   const String& depthDataFormat(ExceptionState& exception_state);
+
+  ScriptPromise updateTargetFrameRate(float rate,
+                                      ExceptionState&);
 
   ScriptPromise requestReferenceSpace(ScriptState* script_state,
                                       const String& type,
@@ -173,7 +186,7 @@ class XRSession final
   // plane.
   ScriptPromise CreateAnchorHelper(
       ScriptState* script_state,
-      const blink::TransformationMatrix& native_origin_from_anchor,
+      const gfx::Transform& native_origin_from_anchor,
       const device::mojom::blink::XRNativeOriginInformationPtr&
           native_origin_information,
       absl::optional<uint64_t> maybe_plane_id,
@@ -184,7 +197,7 @@ class XRSession final
   // stationary reference space.
   struct ReferenceSpaceInformation {
     device::mojom::blink::XRNativeOriginInformationPtr native_origin;
-    blink::TransformationMatrix mojo_from_space;
+    gfx::Transform mojo_from_space;
   };
 
   // Helper for anchor creation - returns information about the reference space
@@ -278,7 +291,7 @@ class XRSession final
   bool EmulatedPosition() const {
     // If we don't have display info then we should be using the identity
     // reference space, which by definition will be emulating the position.
-    if (pending_views_.IsEmpty()) {
+    if (pending_views_.empty()) {
       return true;
     }
 
@@ -312,8 +325,6 @@ class XRSession final
   bool RemoveHitTestSource(XRHitTestSource* hit_test_source);
   bool RemoveHitTestSource(XRTransientInputHitTestSource* hit_test_source);
 
-  void SetXRDisplayInfo(device::mojom::blink::VRDisplayInfoPtr display_info);
-
   bool UsesInputEventing() { return uses_input_eventing_; }
   bool LightEstimationEnabled() { return !!world_light_probe_; }
 
@@ -334,7 +345,7 @@ class XRSession final
   // Note: currently, the information about the mojo_from_-floor-type spaces is
   // stored elsewhere, this method will not work for those reference space
   // types.
-  absl::optional<TransformationMatrix> GetMojoFrom(
+  absl::optional<gfx::Transform> GetMojoFrom(
       device::mojom::blink::XRReferenceSpaceType space_type) const;
 
   XRCPUDepthInformation* GetCpuDepthInformation(
@@ -415,7 +426,6 @@ class XRSession final
       const device::mojom::blink::XRFrameDataPtr& frame_data);
 
   // XRSessionClient
-  void OnChanged(device::mojom::blink::VRDisplayInfoPtr display_info) override;
   void OnExitPresent() override;
   void OnVisibilityStateChanged(
       device::mojom::blink::XRVisibilityState visibility_state) override;
@@ -535,7 +545,7 @@ class XRSession final
   // on the device - this is done in |hit_test_source_ids_| and
   // |hit_test_source_for_transient_input_ids_|.
   // For the specifics of HeapHashMap<Key, WeakMember<Value>> behavior, see:
-  // https://chromium.googlesource.com/chromium/src/+/master/third_party/blink/renderer/platform/heap/BlinkGCAPIReference.md#weak-collections
+  // https://chromium.googlesource.com/chromium/src/+/main/third_party/blink/renderer/platform/heap/BlinkGCAPIReference.md#weak-collections
   HeapHashMap<uint64_t, WeakMember<XRHitTestSource>>
       hit_test_source_ids_to_hit_test_sources_;
   HeapHashMap<uint64_t, WeakMember<XRTransientInputHitTestSource>>
@@ -585,13 +595,14 @@ class XRSession final
 
   Member<XRFrameRequestCallbackCollection> callback_collection_;
   // Viewer pose in mojo space.
-  std::unique_ptr<TransformationMatrix> mojo_from_viewer_;
+  std::unique_ptr<gfx::Transform> mojo_from_viewer_;
 
   bool pending_frame_ = false;
   bool resolving_frame_ = false;
   bool frames_throttled_ = false;
 
   bool views_updated_this_frame_ = false;
+  bool canvas_was_resized_ = false;
 
   // Indicates that we've already logged a metric, so don't need to log it
   // again.

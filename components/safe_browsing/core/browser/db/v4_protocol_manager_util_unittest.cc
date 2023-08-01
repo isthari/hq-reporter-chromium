@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,10 @@
 #include "base/base64.h"
 #include "base/containers/contains.h"
 #include "base/logging.h"
+#include "base/strings/escape.h"
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
 #include "components/safe_browsing/core/browser/db/v4_test_util.h"
-#include "net/base/escape.h"
 #include "net/http/http_request_headers.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -212,7 +212,7 @@ TEST_F(V4ProtocolManagerUtilTest, CanonicalizeUrl) {
       {"javascript:alert()", "", "", ""},
       {"mailto:abc@example.com", "", "", ""},
   };
-  for (size_t i = 0; i < base::size(tests); ++i) {
+  for (size_t i = 0; i < std::size(tests); ++i) {
     SCOPED_TRACE(base::StringPrintf("Test: %s", tests[i].input_url));
     GURL url(tests[i].input_url);
 
@@ -226,37 +226,6 @@ TEST_F(V4ProtocolManagerUtilTest, CanonicalizeUrl) {
     EXPECT_EQ(tests[i].expected_canonicalized_hostname, canonicalized_hostname);
     EXPECT_EQ(tests[i].expected_canonicalized_path, canonicalized_path);
     EXPECT_EQ(tests[i].expected_canonicalized_query, canonicalized_query);
-  }
-}
-
-TEST_F(V4ProtocolManagerUtilTest, TestIPAddressToEncodedIPV6) {
-  // To verify the test values, here's the python code:
-  // >> import socket, hashlib, binascii
-  // >> hashlib.sha1(socket.inet_pton(socket.AF_INET6, input)).digest() +
-  // chr(128)
-  // For example:
-  // >>> hashlib.sha1(socket.inet_pton(socket.AF_INET6,
-  // '::ffff:192.168.1.1')).digest() + chr(128)
-  // 'X\xf8\xa1\x17I\xe6Pl\xfd\xdb\xbb\xa0\x0c\x02\x9d#\n|\xe7\xcd\x80'
-  std::vector<std::tuple<bool, std::string, std::string>> test_cases = {
-      std::make_tuple(false, "", ""),
-      std::make_tuple(
-          true, "192.168.1.1",
-          "X\xF8\xA1\x17I\xE6Pl\xFD\xDB\xBB\xA0\f\x2\x9D#\n|\xE7\xCD\x80"),
-      std::make_tuple(
-          true,
-          "::", "\xE1)\xF2|Q\x3\xBC\\\xC4K\xCD\xF0\xA1^\x16\rDPf\xFF\x80")};
-  for (size_t i = 0; i < test_cases.size(); i++) {
-    DVLOG(1) << "Running case: " << i;
-    bool success = std::get<0>(test_cases[i]);
-    const auto& input = std::get<1>(test_cases[i]);
-    const auto& expected_output = std::get<2>(test_cases[i]);
-    std::string encoded_ip;
-    ASSERT_EQ(success, V4ProtocolManagerUtil::IPAddressToEncodedIPV6Hash(
-                           input, &encoded_ip));
-    if (success) {
-      ASSERT_EQ(expected_output, encoded_ip);
-    }
   }
 }
 

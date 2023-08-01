@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,11 +16,13 @@
 
 #include "base/component_export.h"
 #include "base/containers/flat_set.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/synchronization/lock.h"
 #include "build/build_config.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/skia/include/core/SkColorType.h"
 #include "ui/base/x/x11_cursor.h"
 #include "ui/gfx/icc_profile.h"
 #include "ui/gfx/image/image_skia.h"
@@ -199,17 +201,6 @@ COMPONENT_EXPORT(UI_BASE_X)
 void SetHideTitlebarWhenMaximizedProperty(x11::Window window,
                                           HideTitlebarWhenMaximized property);
 
-// Returns true if |window| is visible.
-COMPONENT_EXPORT(UI_BASE_X) bool IsWindowVisible(x11::Window window);
-
-// Returns true if |window| contains the point |screen_loc|.
-COMPONENT_EXPORT(UI_BASE_X)
-bool WindowContainsPoint(x11::Window window, gfx::Point screen_loc);
-
-// Return true if |window| has any property with |property_name|.
-COMPONENT_EXPORT(UI_BASE_X)
-bool PropertyExists(x11::Window window, x11::Atom property);
-
 // Returns the raw bytes from a property with minimal
 // interpretation. |out_data| should be freed by XFree() after use.
 COMPONENT_EXPORT(UI_BASE_X)
@@ -347,7 +338,9 @@ COMPONENT_EXPORT(UI_BASE_X) bool IsCompositingManagerPresent();
 COMPONENT_EXPORT(UI_BASE_X) bool IsX11WindowFullScreen(x11::Window window);
 
 // Suspends or resumes the X screen saver, and returns whether the operation was
-// successful.  Must be called on the UI thread.
+// successful.  Must be called on the UI thread. If called multiple times with
+// |suspend| set to true, the screen saver is not un-suspended until this method
+// is called an equal number of times with |suspend| set to false.
 COMPONENT_EXPORT(UI_BASE_X) bool SuspendX11ScreenSaver(bool suspend);
 
 // Returns true if the window manager supports the given hint.
@@ -425,7 +418,7 @@ class COMPONENT_EXPORT(UI_BASE_X) XVisualManager {
     x11::ColorMap GetColormap();
 
     const uint8_t depth;
-    const x11::VisualType* const info;
+    const raw_ptr<const x11::VisualType> info;
 
    private:
     x11::ColorMap colormap_{};

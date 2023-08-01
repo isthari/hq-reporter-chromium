@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,10 @@
 
 #include "ash/constants/ash_paths.h"
 #include "base/files/file_util.h"
+#include "base/memory/raw_ptr.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/strings/pattern.h"
-#include "base/task/post_task.h"
 #include "base/test/scoped_path_override.h"
 #include "base/test/task_environment.h"
 #include "components/quirks/quirks_manager.h"
@@ -158,7 +158,7 @@ class DisplayColorManagerTest : public testing::Test {
   std::unique_ptr<display::test::ActionLogger> log_;
   display::DisplayConfigurator configurator_;
   display::DisplayConfigurator::TestApi test_api_;
-  display::test::TestNativeDisplayDelegate*
+  raw_ptr<display::test::TestNativeDisplayDelegate, ExperimentalAsh>
       native_display_delegate_;  // not owned
   std::unique_ptr<DisplayColorManagerForTest> color_manager_;
 };
@@ -256,9 +256,9 @@ TEST_F(DisplayColorManagerTest, SetDisplayColorMatrixNoCTMSupport) {
   EXPECT_FALSE(base::MatchPattern(actions, "*set_color_matrix*"));
 
   // Attempt to set a color matrix.
-  skia::Matrix44 matrix(skia::Matrix44::kIdentity_Constructor);
-  matrix.set(1, 1, 0.7);
-  matrix.set(2, 2, 0.3);
+  SkM44 matrix;
+  matrix.setRC(1, 1, 0.7);
+  matrix.setRC(2, 2, 0.3);
   EXPECT_FALSE(color_manager_->SetDisplayColorMatrix(kDisplayId, matrix));
   EXPECT_EQ(color_manager_->displays_ctm_support(),
             DisplayColorManager::DisplayCtmSupport::kNone);
@@ -288,9 +288,9 @@ TEST_F(DisplayColorManagerTest,
   log_->GetActionsAndClear();
 
   // Attempt to set a color matrix.
-  skia::Matrix44 matrix(skia::Matrix44::kIdentity_Constructor);
-  matrix.set(1, 1, 0.7);
-  matrix.set(2, 2, 0.3);
+  SkM44 matrix;
+  matrix.setRC(1, 1, 0.7);
+  matrix.setRC(2, 2, 0.3);
   EXPECT_TRUE(color_manager_->SetDisplayColorMatrix(kDisplayId, matrix));
   EXPECT_EQ(color_manager_->displays_ctm_support(),
             DisplayColorManager::DisplayCtmSupport::kAll);
@@ -345,9 +345,9 @@ TEST_F(DisplayColorManagerTest, SetDisplayColorMatrixWithMixedCTMSupport) {
             DisplayColorManager::DisplayCtmSupport::kMixed);
 
   // Attempt to set a color matrix.
-  skia::Matrix44 matrix(skia::Matrix44::kIdentity_Constructor);
-  matrix.set(1, 1, 0.7);
-  matrix.set(2, 2, 0.3);
+  SkM44 matrix;
+  matrix.setRC(1, 1, 0.7);
+  matrix.setRC(2, 2, 0.3);
   EXPECT_TRUE(color_manager_->SetDisplayColorMatrix(kDisplayWithCtmId, matrix));
   // This display has no color calibration data. Gamma/degamma won't be
   // affected. Color matrix is applied as is.
@@ -382,9 +382,9 @@ TEST_F(DisplayColorManagerTest,
   log_->GetActionsAndClear();
 
   // Attempt to set a color matrix.
-  skia::Matrix44 matrix(skia::Matrix44::kIdentity_Constructor);
-  matrix.set(1, 1, 0.7);
-  matrix.set(2, 2, 0.3);
+  SkM44 matrix;
+  matrix.setRC(1, 1, 0.7);
+  matrix.setRC(2, 2, 0.3);
   EXPECT_TRUE(color_manager_->SetDisplayColorMatrix(kDisplayId, matrix));
   EXPECT_EQ(color_manager_->displays_ctm_support(),
             DisplayColorManager::DisplayCtmSupport::kAll);

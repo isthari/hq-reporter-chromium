@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "ui/views/bubble/bubble_frame_view.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/layout/box_layout.h"
+#include "ui/views/style/typography.h"
 
 namespace autofill {
 
@@ -75,7 +76,8 @@ views::View* AutofillErrorDialogViewNativeViews::GetContentsView() {
 
   auto* label = AddChildView(std::make_unique<views::Label>(
       controller_->GetDescription(),
-      ChromeTextContext::CONTEXT_DIALOG_BODY_TEXT_SMALL, STYLE_RED));
+      ChromeTextContext::CONTEXT_DIALOG_BODY_TEXT_SMALL,
+      views::style::STYLE_SECONDARY));
   label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   label->SetMultiLine(true);
   return this;

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/event_target_names.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -154,7 +155,8 @@ void MojoInterfaceInterceptor::ContextDestroyed() {
 MojoInterfaceInterceptor::MojoInterfaceInterceptor(ExecutionContext* context,
                                                    const String& interface_name,
                                                    Scope::Enum scope)
-    : ExecutionContextLifecycleObserver(context),
+    : ActiveScriptWrappable<MojoInterfaceInterceptor>({}),
+      ExecutionContextLifecycleObserver(context),
       interface_name_(interface_name),
       scope_(scope) {}
 
@@ -167,10 +169,10 @@ void MojoInterfaceInterceptor::OnInterfaceRequest(
   // request is being satisfied by another process.
   GetExecutionContext()
       ->GetTaskRunner(TaskType::kMicrotask)
-      ->PostTask(
-          FROM_HERE,
-          WTF::Bind(&MojoInterfaceInterceptor::DispatchInterfaceRequestEvent,
-                    WrapPersistent(this), std::move(handle)));
+      ->PostTask(FROM_HERE,
+                 WTF::BindOnce(
+                     &MojoInterfaceInterceptor::DispatchInterfaceRequestEvent,
+                     WrapPersistent(this), std::move(handle)));
 }
 
 void MojoInterfaceInterceptor::DispatchInterfaceRequestEvent(

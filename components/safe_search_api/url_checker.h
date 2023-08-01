@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,24 +8,22 @@
 #include <list>
 #include <memory>
 
-#include "base/callback_forward.h"
 #include "base/containers/lru_cache.h"
+#include "base/feature_list.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "components/safe_search_api/url_checker_client.h"
 #include "url/gurl.h"
 
-namespace base {
-struct Feature;
-}
-
 namespace safe_search_api {
+
+// Controls caching for unknown url classifications. Such status might be a
+// result of any problem during classification. See b/272209467 for details.
+BASE_DECLARE_FEATURE(kCacheOnlyCertainUrlClassifications);
 
 // The SafeSearch API classification of a URL.
 enum class Classification { SAFE, UNSAFE };
-
-// Visible for testing.
-extern const base::Feature kAllowAllGoogleUrls;
 
 // This class uses one implementation of URLCheckerClient to check the
 // classification of the content on a given URL and returns the result
@@ -58,6 +56,7 @@ class URLChecker {
  private:
   struct Check;
   struct CheckResult {
+    CheckResult() = delete;
     CheckResult(Classification classification, bool uncertain);
     Classification classification;
     bool uncertain;

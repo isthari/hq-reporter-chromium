@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -162,7 +162,8 @@ TEST_F(StructTraitsTest, GpuInfo) {
   const std::string gl_ws_version = "gl_ws_version";
   const std::string gl_ws_extensions = "gl_ws_extensions";
   const uint32_t gl_reset_notification_strategy = 0xbeef;
-  const bool software_rendering = true;
+  const gl::GLImplementationParts gl_implementation_parts(
+      gl::ANGLEImplementation::kSwiftShader);
   const std::string direct_rendering_version = "DRI1";
   const bool sandboxed = true;
   const bool in_process_gpu = true;
@@ -174,9 +175,9 @@ TEST_F(StructTraitsTest, GpuInfo) {
   const OverlaySupport nv12_overlay_support = OverlaySupport::kNone;
   const DxDiagNode dx_diagnostics;
 #endif
-  const gpu::VideoDecodeAcceleratorCapabilities
-      video_decode_accelerator_capabilities;
-  const std::vector<gpu::VideoEncodeAcceleratorSupportedProfile>
+  const VideoDecodeAcceleratorSupportedProfiles
+      video_decode_accelerator_supported_profiles;
+  const VideoEncodeAcceleratorSupportedProfiles
       video_encode_accelerator_supported_profiles;
   const bool jpeg_decode_accelerator_supported = true;
 
@@ -201,7 +202,7 @@ TEST_F(StructTraitsTest, GpuInfo) {
   input.gl_ws_version = gl_ws_version;
   input.gl_ws_extensions = gl_ws_extensions;
   input.gl_reset_notification_strategy = gl_reset_notification_strategy;
-  input.software_rendering = software_rendering;
+  input.gl_implementation_parts = gl_implementation_parts;
   input.direct_rendering_version = direct_rendering_version;
   input.sandboxed = sandboxed;
   input.in_process_gpu = in_process_gpu;
@@ -213,8 +214,8 @@ TEST_F(StructTraitsTest, GpuInfo) {
   input.overlay_info.nv12_overlay_support = nv12_overlay_support;
   input.dx_diagnostics = dx_diagnostics;
 #endif
-  input.video_decode_accelerator_capabilities =
-      video_decode_accelerator_capabilities;
+  input.video_decode_accelerator_supported_profiles =
+      video_decode_accelerator_supported_profiles;
   input.video_encode_accelerator_supported_profiles =
       video_encode_accelerator_supported_profiles;
   input.jpeg_decode_accelerator_supported = jpeg_decode_accelerator_supported;
@@ -264,7 +265,7 @@ TEST_F(StructTraitsTest, GpuInfo) {
   EXPECT_EQ(gl_ws_extensions, output.gl_ws_extensions);
   EXPECT_EQ(gl_reset_notification_strategy,
             output.gl_reset_notification_strategy);
-  EXPECT_EQ(software_rendering, output.software_rendering);
+  EXPECT_EQ(gl_implementation_parts, output.gl_implementation_parts);
   EXPECT_EQ(direct_rendering_version, output.direct_rendering_version);
   EXPECT_EQ(sandboxed, output.sandboxed);
   EXPECT_EQ(in_process_gpu, output.in_process_gpu);
@@ -276,23 +277,16 @@ TEST_F(StructTraitsTest, GpuInfo) {
   EXPECT_EQ(nv12_overlay_support, output.overlay_info.nv12_overlay_support);
   EXPECT_EQ(dx_diagnostics.values, output.dx_diagnostics.values);
 #endif
-  EXPECT_EQ(output.video_decode_accelerator_capabilities.flags,
-            video_decode_accelerator_capabilities.flags);
-  EXPECT_EQ(
-      video_decode_accelerator_capabilities.supported_profiles.size(),
-      output.video_decode_accelerator_capabilities.supported_profiles.size());
-  for (size_t i = 0;
-       i < video_decode_accelerator_capabilities.supported_profiles.size();
-       ++i) {
+  for (size_t i = 0; i < video_decode_accelerator_supported_profiles.size();
+       i++) {
     const gpu::VideoDecodeAcceleratorSupportedProfile& expected =
-        video_decode_accelerator_capabilities.supported_profiles[i];
+        video_decode_accelerator_supported_profiles[i];
     const gpu::VideoDecodeAcceleratorSupportedProfile& actual =
-        output.video_decode_accelerator_capabilities.supported_profiles[i];
+        output.video_decode_accelerator_supported_profiles[i];
     EXPECT_EQ(expected.encrypted_only, actual.encrypted_only);
   }
-  EXPECT_EQ(
-      output.video_decode_accelerator_capabilities.supported_profiles.size(),
-      video_decode_accelerator_capabilities.supported_profiles.size());
+  EXPECT_EQ(output.video_decode_accelerator_supported_profiles.size(),
+            video_decode_accelerator_supported_profiles.size());
   EXPECT_EQ(output.video_encode_accelerator_supported_profiles.size(),
             video_encode_accelerator_supported_profiles.size());
 }

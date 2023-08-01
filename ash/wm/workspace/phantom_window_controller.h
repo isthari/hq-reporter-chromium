@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "ash/ash_export.h"
+#include "base/memory/raw_ptr.h"
 #include "ui/gfx/geometry/rect.h"
 
 namespace aura {
@@ -70,7 +71,7 @@ class ASH_EXPORT PhantomWindowController {
   void ShowPhantomWidget();
 
   // Window that the phantom window is stacked above.
-  aura::Window* window_;
+  raw_ptr<aura::Window, ExperimentalAsh> window_;
 
   // Target bounds of |phantom_widget_| in screen coordinates for animation.
   gfx::Rect target_bounds_in_screen_;

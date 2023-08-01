@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,11 +16,11 @@ AudioSurveyHandler::AudioSurveyHandler() {
     return;
   }
 
-  chromeos::CrasAudioHandler::Get()->AddAudioObserver(this);
+  CrasAudioHandler::Get()->AddAudioObserver(this);
 }
 AudioSurveyHandler::~AudioSurveyHandler() {
-  if (chromeos::CrasAudioHandler::Get()) {
-    chromeos::CrasAudioHandler::Get()->RemoveAudioObserver(this);
+  if (CrasAudioHandler::Get()) {
+    CrasAudioHandler::Get()->RemoveAudioObserver(this);
   }
 }
 

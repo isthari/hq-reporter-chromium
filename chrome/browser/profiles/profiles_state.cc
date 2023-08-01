@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,6 +29,7 @@
 #include "components/prefs/pref_service.h"
 #include "components/signin/public/identity_manager/account_info.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
+#include "components/user_manager/user_manager.h"
 #include "content/public/browser/browsing_data_remover.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -37,7 +38,9 @@
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chromeos/login/login_state/login_state.h"
+#include "ash/constants/ash_switches.h"
+#include "chrome/browser/ash/login/demo_mode/demo_session.h"
+#include "chromeos/ash/components/login/login_state/login_state.h"
 #else
 #include <algorithm>
 #include "chrome/browser/profiles/gaia_info_update_service.h"
@@ -46,7 +49,7 @@
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
-#include "chromeos/lacros/lacros_service.h"
+#include "chromeos/startup/browser_params_proxy.h"
 #endif
 
 namespace profiles {
@@ -86,6 +89,9 @@ void RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterBooleanPref(prefs::kBrowserProfilePickerShown, false);
 #if BUILDFLAG(IS_CHROMEOS)
   registry->RegisterBooleanPref(prefs::kLacrosSecondaryProfilesAllowed, true);
+#elif !BUILDFLAG(IS_ANDROID)
+  registry->RegisterBooleanPref(
+      prefs::kEnterpriseProfileCreationKeepBrowsingData, false);
 #endif  // BUILDFLAG(IS_CHROMEOS)
 }
 
@@ -272,38 +278,53 @@ void RemoveBrowsingDataForProfile(const base::FilePath& profile_path) {
 
 bool IsPublicSession() {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  return chromeos::LoginState::IsInitialized() &&
-         chromeos::LoginState::Get()->IsPublicSessionUser();
+  return ash::LoginState::IsInitialized() &&
+         ash::LoginState::Get()->IsPublicSessionUser();
 #elif BUILDFLAG(IS_CHROMEOS_LACROS)
-  DCHECK(chromeos::LacrosService::Get());
-  return chromeos::LacrosService::Get()->init_params()->session_type ==
+  return chromeos::BrowserParamsProxy::Get()->SessionType() ==
          crosapi::mojom::SessionType::kPublicSession;
 #else
   return false;
 #endif
 }
 
-bool ArePublicSessionRestrictionsEnabled() {
+bool IsDemoSession() {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  if (chromeos::LoginState::IsInitialized()) {
-    return chromeos::LoginState::Get()->ArePublicSessionRestrictionsEnabled();
-  }
-#endif
-  return false;
-}
-
-bool IsKioskApp() {
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  return chromeos::LoginState::IsInitialized() &&
-         chromeos::LoginState::Get()->IsKioskApp();
-#elif BUILDFLAG(IS_CHROMEOS_LACROS)
-  DCHECK(chromeos::LacrosService::Get());
-  return chromeos::LacrosService::Get()->init_params()->session_type ==
-         crosapi::mojom::SessionType::kWebKioskSession;
+  return ash::DemoSession::IsDeviceInDemoMode();
 #else
   return false;
 #endif
 }
+
+bool IsChromeAppKioskSession() {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  return user_manager::UserManager::Get()->IsLoggedInAsKioskApp();
+#elif BUILDFLAG(IS_CHROMEOS_LACROS)
+  crosapi::mojom::SessionType session_type =
+      chromeos::BrowserParamsProxy::Get()->SessionType();
+  return session_type == crosapi::mojom::SessionType::kAppKioskSession;
+#else
+  return false;
+#endif
+}
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+bool IsWebKioskSession() {
+  crosapi::mojom::SessionType session_type =
+      chromeos::BrowserParamsProxy::Get()->SessionType();
+  return session_type == crosapi::mojom::SessionType::kWebKioskSession;
+}
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+// Implemented to have the same logic as user_manager::User::HasGaiaAccount()
+bool SessionHasGaiaAccount() {
+  crosapi::mojom::SessionType session_type =
+      chromeos::BrowserParamsProxy::Get()->SessionType();
+  return session_type == crosapi::mojom::SessionType::kRegularSession ||
+         session_type == crosapi::mojom::SessionType::kChildSession;
+}
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
 
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
 std::u16string GetDefaultNameForNewEnterpriseProfile(

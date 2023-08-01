@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <inttypes.h>
 
-#include <algorithm>
 #include <string>
 
 #include "base/check.h"
@@ -16,10 +15,10 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/updater/constants.h"
-#include "chrome/updater/device_management/cloud_policy_util.h"
 #include "chrome/updater/device_management/dm_cached_policy_info.h"
 #include "chrome/updater/device_management/dm_message.h"
 #include "chrome/updater/protos/omaha_settings.pb.h"
+#include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "crypto/signature_verifier.h"
 #include "third_party/boringssl/src/include/openssl/rsa.h"
@@ -115,8 +114,9 @@ void OmahaPolicyValidator::ValidateAutoUpdateCheckPeriodPolicy(
 
 void OmahaPolicyValidator::ValidateDownloadPreferencePolicy(
     PolicyValidationResult& validation_result) const {
-  if (!omaha_settings_.has_download_preference())
+  if (!omaha_settings_.has_download_preference()) {
     return;
+  }
 
   if (!base::EqualsCaseInsensitiveASCII(omaha_settings_.download_preference(),
                                         kDownloadPreferenceCacheable)) {
@@ -128,8 +128,9 @@ void OmahaPolicyValidator::ValidateDownloadPreferencePolicy(
 }
 void OmahaPolicyValidator::ValidateUpdatesSuppressedPolicies(
     PolicyValidationResult& validation_result) const {
-  if (!omaha_settings_.has_updates_suppressed())
+  if (!omaha_settings_.has_updates_suppressed()) {
     return;
+  }
 
   if (omaha_settings_.updates_suppressed().start_hour() < 0 ||
       omaha_settings_.updates_suppressed().start_hour() >= 24) {
@@ -425,7 +426,7 @@ bool DMResponseValidator::ValidatePayloadPolicy(
     const enterprise_management::PolicyData& policy_data,
     PolicyValidationResult& validation_result) const {
   // Policy type was validated previously.
-  DCHECK(policy_data.has_policy_type());
+  CHECK(policy_data.has_policy_type());
 
   if (base::EqualsCaseInsensitiveASCII(policy_data.policy_type(),
                                        kGoogleUpdatePolicyType)) {
@@ -454,8 +455,9 @@ bool DMResponseValidator::ValidatePolicyResponse(
     return false;
   }
 
-  if (fetch_policy_data.has_policy_token())
+  if (fetch_policy_data.has_policy_token()) {
     validation_result.policy_token = fetch_policy_data.policy_token();
+  }
 
   if (!ValidateDMToken(fetch_policy_data, validation_result) ||
       !ValidateDeviceId(fetch_policy_data, validation_result) ||
@@ -464,11 +466,13 @@ bool DMResponseValidator::ValidatePolicyResponse(
   }
 
   std::string signature_key;
-  if (!ValidateNewPublicKey(fetch_response, signature_key, validation_result))
+  if (!ValidateNewPublicKey(fetch_response, signature_key, validation_result)) {
     return false;
+  }
 
-  if (fetch_policy_data.has_policy_type())
+  if (fetch_policy_data.has_policy_type()) {
     validation_result.policy_type = fetch_policy_data.policy_type();
+  }
   if (validation_result.policy_type.empty()) {
     VLOG(1) << "Missing policy type in the policy response.";
     validation_result.status =

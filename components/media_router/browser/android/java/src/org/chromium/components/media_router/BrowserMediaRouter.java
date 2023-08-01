@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -203,6 +203,14 @@ public class BrowserMediaRouter implements MediaRouteManager {
         if (mNativeMediaRouterAndroidBridge != 0) {
             BrowserMediaRouterJni.get().onMessage(mNativeMediaRouterAndroidBridge,
                     BrowserMediaRouter.this, mediaRouteId, message);
+        }
+    }
+
+    @Override
+    public void onRouteMediaSourceUpdated(String mediaRouteId, String mediaSourceId) {
+        if (mNativeMediaRouterAndroidBridge != 0) {
+            BrowserMediaRouterJni.get().onRouteMediaSourceUpdated(mNativeMediaRouterAndroidBridge,
+                    BrowserMediaRouter.this, mediaRouteId, mediaSourceId);
         }
     }
 
@@ -426,5 +434,7 @@ public class BrowserMediaRouter implements MediaRouteManager {
                 String mediaRouteId, String message);
         void onMessage(long nativeMediaRouterAndroidBridge, BrowserMediaRouter caller,
                 String mediaRouteId, String message);
+        void onRouteMediaSourceUpdated(long nativeMediaRouterAndroidBridge,
+                BrowserMediaRouter caller, String mediaRouteId, String mediaSourceId);
     }
 }

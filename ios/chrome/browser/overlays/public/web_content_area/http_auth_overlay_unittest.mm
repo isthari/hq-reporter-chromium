@@ -1,21 +1,20 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/overlays/public/web_content_area/http_auth_overlay.h"
 
-#include "base/strings/sys_string_conversions.h"
-#include "components/strings/grit/components_strings.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/overlays/public/overlay_request.h"
 #import "ios/chrome/browser/overlays/public/overlay_response.h"
 #import "ios/chrome/browser/overlays/public/web_content_area/alert_overlay.h"
-#import "ios/chrome/browser/overlays/public/web_content_area/http_auth_overlay.h"
-#import "ios/chrome/browser/ui/elements/text_field_configuration.h"
-#include "ios/chrome/grit/ios_strings.h"
-#include "testing/gtest_mac.h"
-#include "testing/platform_test.h"
-#include "ui/base/l10n/l10n_util.h"
-#include "url/gurl.h"
+#import "ios/chrome/browser/shared/ui/elements/text_field_configuration.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "testing/gtest_mac.h"
+#import "testing/platform_test.h"
+#import "ui/base/l10n/l10n_util.h"
+#import "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -73,8 +72,8 @@ TEST_F(HttpAuthOverlayTest, AlertSetup) {
 
   // There should be an OK button and a Cancel button.
   ASSERT_EQ(2U, config->button_configs().size());
-  const ButtonConfig& ok_button_config = config->button_configs()[0];
-  const ButtonConfig& cancel_button_config = config->button_configs()[1];
+  const ButtonConfig& ok_button_config = config->button_configs()[0][0];
+  const ButtonConfig& cancel_button_config = config->button_configs()[1][0];
 
   EXPECT_EQ(UIAlertActionStyleDefault, ok_button_config.style);
   NSString* sign_in_label =
@@ -94,7 +93,8 @@ TEST_F(HttpAuthOverlayTest, ResponseConversionOk) {
   // Simulate a response where the OK button is tapped.
   std::unique_ptr<OverlayResponse> alert_response =
       OverlayResponse::CreateWithInfo<AlertResponse>(
-          /*tapped_button_index=*/0, @[ @"username", @"password" ]);
+          /*tapped_button_row_index=*/0, /*tapped_button_column_index=*/0,
+          @[ @"username", @"password" ]);
 
   // Convert the response to the HTTP auth response.
   std::unique_ptr<OverlayResponse> response =
@@ -113,7 +113,8 @@ TEST_F(HttpAuthOverlayTest, ResponseConversionCancel) {
   // Simulate a response where the OK button is tapped.
   std::unique_ptr<OverlayResponse> alert_response =
       OverlayResponse::CreateWithInfo<AlertResponse>(
-          /*tapped_button_index=*/1, @[ @"username", @"password" ]);
+          /*tapped_button_row_index=*/1, /*tapped_button_column_index=*/0,
+          @[ @"username", @"password" ]);
 
   // Since the cancel button is tapped, a null HTTP auth response should be
   // used.

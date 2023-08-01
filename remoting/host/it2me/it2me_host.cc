@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,20 +9,20 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/strings/string_util.h"
-#include "base/threading/platform_thread.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "build/chromeos_buildflags.h"
 #include "components/policy/policy_constants.h"
-#include "net/url_request/url_request_context_getter.h"
-#include "remoting/base/auto_thread.h"
+#include "components/webrtc/thread_wrapper.h"
+#include "google_apis/gaia/gaia_auth_util.h"
+#include "remoting/base/auto_thread_task_runner.h"
 #include "remoting/base/logging.h"
 #include "remoting/base/oauth_token_getter.h"
 #include "remoting/base/rsa_key_pair.h"
-#include "remoting/base/service_urls.h"
+#include "remoting/host/chromeos/chromeos_enterprise_params.h"
 #include "remoting/host/chromoting_host.h"
 #include "remoting/host/chromoting_host_context.h"
 #include "remoting/host/ftl_signaling_connector.h"
@@ -35,7 +35,6 @@
 #include "remoting/host/it2me_desktop_environment.h"
 #include "remoting/protocol/auth_util.h"
 #include "remoting/protocol/chromium_port_allocator_factory.h"
-#include "remoting/protocol/ice_transport.h"
 #include "remoting/protocol/it2me_host_authenticator_factory.h"
 #include "remoting/protocol/jingle_session_manager.h"
 #include "remoting/protocol/network_settings.h"
@@ -44,6 +43,11 @@
 #include "remoting/signaling/log_to_server.h"
 #include "remoting/signaling/signaling_id_util.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
+
+#if BUILDFLAG(IS_LINUX)
+#include "remoting/host/linux/wayland_manager.h"
+#include "remoting/host/linux/wayland_utils.h"
+#endif  // BUILDFLAG(IS_LINUX)
 
 namespace remoting {
 
@@ -77,44 +81,23 @@ It2MeHost::~It2MeHost() {
   DCHECK(!desktop_environment_factory_.get());
 }
 
-void It2MeHost::set_enable_dialogs(bool enable) {
+void It2MeHost::set_chrome_os_enterprise_params(
+    ChromeOsEnterpriseParams params) {
 #if BUILDFLAG(IS_CHROMEOS_ASH) || !defined(NDEBUG)
-  enable_dialogs_ = enable;
+  chrome_os_enterprise_params_ = std::move(params);
 #else
-  NOTREACHED() << "It2MeHost::set_enable_dialogs is only supported on ChromeOS";
+  NOTREACHED() << "It2MeHost::set_chrome_os_enterprise_params is only "
+               << "supported on ChromeOS";
 #endif
 }
 
-void It2MeHost::set_enable_notifications(bool enable) {
-#if BUILDFLAG(IS_CHROMEOS_ASH) || !defined(NDEBUG)
-  enable_notifications_ = enable;
-#else
-  NOTREACHED() << "It2MeHost::set_enable_notifications is only supported on "
-               << "ChromeOS";
-#endif
-}
-
-void It2MeHost::set_terminate_upon_input(bool terminate_upon_input) {
-#if BUILDFLAG(IS_CHROMEOS_ASH) || !defined(NDEBUG)
-  terminate_upon_input_ = terminate_upon_input;
-#else
-  NOTREACHED()
-      << "It2MeHost::set_terminate_upon_input is only supported on ChromeOS";
-#endif
-}
-
-void It2MeHost::set_is_enterprise_session(bool is_enterprise_session) {
-#if BUILDFLAG(IS_CHROMEOS_ASH) || !defined(NDEBUG)
-  is_enterprise_session_ = is_enterprise_session;
-#else
-  NOTREACHED()
-      << "It2MeHost::set_is_enterprise_session is only supported on ChromeOS";
-#endif
+void It2MeHost::set_authorized_helper(const std::string& authorized_helper) {
+  authorized_helper_ = authorized_helper;
 }
 
 void It2MeHost::Connect(
     std::unique_ptr<ChromotingHostContext> host_context,
-    std::unique_ptr<base::DictionaryValue> policies,
+    base::Value::Dict policies,
     std::unique_ptr<It2MeConfirmationDialogFactory> dialog_factory,
     base::WeakPtr<It2MeHost::Observer> observer,
     CreateDeferredConnectContext create_context,
@@ -127,6 +110,12 @@ void It2MeHost::Connect(
   confirmation_dialog_factory_ = std::move(dialog_factory);
 
   OnPolicyUpdate(std::move(policies));
+
+#if BUILDFLAG(IS_LINUX)
+  if (IsRunningWayland()) {
+    WaylandManager::Get()->Init(host_context_->ui_task_runner());
+  }
+#endif  // BUILDFLAG(IS_LINUX)
 
   desktop_environment_factory_ =
       std::make_unique<It2MeDesktopEnvironmentFactory>(
@@ -154,6 +143,8 @@ void It2MeHost::ConnectOnNetworkThread(
     CreateDeferredConnectContext create_context) {
   DCHECK(host_context_->network_task_runner()->BelongsToCurrentThread());
   DCHECK_EQ(It2MeHostState::kDisconnected, state_);
+  // This thread is used as a network thread in WebRTC.
+  webrtc::ThreadWrapper::EnsureForCurrentMessageLoop();
 
   if (!remote_support_connections_allowed_) {
     SetState(It2MeHostState::kError, ErrorCode::DISALLOWED_BY_POLICY);
@@ -182,7 +173,10 @@ void It2MeHost::ConnectOnNetworkThread(
   }
 
   // Check the host domain policy.
-  if (!required_host_domain_list_.empty()) {
+  // Skip this check for enterprise sessions, as they use the device specific
+  // robot account as host, and we should not expect the customers to add this
+  // internal account to their host domain list.
+  if (!required_host_domain_list_.empty() && !is_enterprise_session()) {
     bool matched = false;
     for (const auto& domain : required_host_domain_list_) {
       if (base::EndsWith(username, std::string("@") + domain,
@@ -204,7 +198,8 @@ void It2MeHost::ConnectOnNetworkThread(
   // Request registration of the host for support.
   register_request_ = std::move(connection_context->register_request);
   register_request_->StartRequest(
-      signal_strategy_.get(), host_key_pair_,
+      signal_strategy_.get(), host_key_pair_, authorized_helper_,
+      std::move(chrome_os_enterprise_params_),
       base::BindOnce(&It2MeHost::OnReceivedSupportID, base::Unretained(this)));
 
   HOST_LOG << "NAT traversal enabled: " << nat_traversal_enabled_;
@@ -236,6 +231,7 @@ void It2MeHost::ConnectOnNetworkThread(
   scoped_refptr<protocol::TransportContext> transport_context =
       new protocol::TransportContext(
           std::make_unique<protocol::ChromiumPortAllocatorFactory>(),
+          webrtc::ThreadWrapper::current()->SocketServer(),
           host_context_->url_loader_factory(), oauth_token_getter_.get(),
           network_settings, protocol::TransportRole::SERVER);
   if (!ice_config.is_null()) {
@@ -255,9 +251,24 @@ void It2MeHost::ConnectOnNetworkThread(
 
   // Set up the desktop environment options.
   DesktopEnvironmentOptions options(DesktopEnvironmentOptions::CreateDefault());
-  options.set_enable_user_interface(enable_dialogs_);
-  options.set_enable_notifications(enable_notifications_);
-  options.set_terminate_upon_input(terminate_upon_input_);
+#if BUILDFLAG(IS_LINUX)
+  if (IsRunningWayland()) {
+    options.desktop_capture_options()->set_prefer_cursor_embedded(true);
+  }
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS_ASH) || !defined(NDEBUG)
+  if (chrome_os_enterprise_params_.has_value()) {
+    options.set_enable_user_interface(
+        !chrome_os_enterprise_params_->suppress_user_dialogs);
+    options.set_enable_notifications(
+        !chrome_os_enterprise_params_->suppress_notifications);
+    options.set_terminate_upon_input(
+        chrome_os_enterprise_params_->terminate_upon_input);
+    options.set_enable_curtaining(
+        chrome_os_enterprise_params_->curtain_local_user_session);
+  }
+#endif
 
   if (max_clipboard_size_.has_value()) {
     options.set_clipboard_size(max_clipboard_size_.value());
@@ -287,13 +298,13 @@ void It2MeHost::ConnectOnNetworkThread(
   return;
 }
 
-void It2MeHost::OnAccessDenied(const std::string& jid) {
+void It2MeHost::OnClientAccessDenied(const std::string& signaling_id) {
   DCHECK(host_context_->network_task_runner()->BelongsToCurrentThread());
 
   ++failed_login_attempts_;
   if (failed_login_attempts_ == kMaxLoginAttempts) {
     DisconnectOnNetworkThread();
-  } else if (connecting_jid_ == NormalizeSignalingId(jid)) {
+  } else if (connecting_jid_ == NormalizeSignalingId(signaling_id)) {
     DCHECK_EQ(state_, It2MeHostState::kConnecting);
     connecting_jid_.clear();
     confirmation_dialog_proxy_.reset();
@@ -301,7 +312,7 @@ void It2MeHost::OnAccessDenied(const std::string& jid) {
   }
 }
 
-void It2MeHost::OnClientConnected(const std::string& jid) {
+void It2MeHost::OnClientConnected(const std::string& signaling_id) {
   DCHECK(host_context_->network_task_runner()->BelongsToCurrentThread());
 
   // ChromotingHost doesn't allow concurrent connections and the host is
@@ -309,9 +320,11 @@ void It2MeHost::OnClientConnected(const std::string& jid) {
   CHECK_NE(state_, It2MeHostState::kConnected);
 
   std::string client_username;
-  if (!SplitSignalingIdResource(jid, &client_username, /*resource=*/nullptr)) {
-    LOG(WARNING) << "Incorrectly formatted JID received: " << jid;
-    client_username = jid;
+  if (!SplitSignalingIdResource(signaling_id, &client_username,
+                                /*resource=*/nullptr)) {
+    LOG(WARNING) << "Incorrectly formatted signaling ID received: "
+                 << signaling_id;
+    client_username = signaling_id;
   }
 
   HOST_LOG << "Client " << client_username << " connected.";
@@ -324,7 +337,7 @@ void It2MeHost::OnClientConnected(const std::string& jid) {
   SetState(It2MeHostState::kConnected, ErrorCode::OK);
 }
 
-void It2MeHost::OnClientDisconnected(const std::string& jid) {
+void It2MeHost::OnClientDisconnected(const std::string& signaling_id) {
   DCHECK(host_context_->network_task_runner()->BelongsToCurrentThread());
 
   DisconnectOnNetworkThread();
@@ -335,8 +348,7 @@ ValidationCallback It2MeHost::GetValidationCallbackForTesting() {
                              base::Unretained(this));
 }
 
-void It2MeHost::OnPolicyUpdate(
-    std::unique_ptr<base::DictionaryValue> policies) {
+void It2MeHost::OnPolicyUpdate(base::Value::Dict policies) {
   // The policy watcher runs on the |ui_task_runner|.
   if (!host_context_->network_task_runner()->BelongsToCurrentThread()) {
     host_context_->network_task_runner()->PostTask(
@@ -345,61 +357,54 @@ void It2MeHost::OnPolicyUpdate(
     return;
   }
 
-  // The policy to disallow remote support connections should not apply to
-  // support sessions initiated by the enterprise admin via a RemoteCommand.
-  if (!is_enterprise_session_) {
-    // Retrieve the policy value on whether to allow connections but don't apply
-    // it until after we've finished reading the rest of the policies and
-    // started the connection process.
-    absl::optional<bool> remote_support_connections_allowed =
-        policies->FindBoolKey(
-            policy::key::kRemoteAccessHostAllowRemoteSupportConnections);
-    remote_support_connections_allowed_ =
-        remote_support_connections_allowed.value_or(true);
-  }
+  // Retrieve the policy value on whether to allow connections but don't apply
+  // it until after we've finished reading the rest of the policies and started
+  // the connection process.
+  remote_support_connections_allowed_ =
+      policies.FindBool(GetRemoteSupportPolicyKey()).value_or(true);
 
   absl::optional<bool> nat_policy_value =
-      policies->FindBoolKey(policy::key::kRemoteAccessHostFirewallTraversal);
+      policies.FindBool(policy::key::kRemoteAccessHostFirewallTraversal);
   if (!nat_policy_value.has_value()) {
     HOST_LOG << "Failed to read kRemoteAccessHostFirewallTraversal policy";
     nat_policy_value = nat_traversal_enabled_;
   }
-  absl::optional<bool> relay_policy_value = policies->FindBoolKey(
-      policy::key::kRemoteAccessHostAllowRelayedConnection);
+  absl::optional<bool> relay_policy_value =
+      policies.FindBool(policy::key::kRemoteAccessHostAllowRelayedConnection);
   if (!relay_policy_value.has_value()) {
     HOST_LOG << "Failed to read kRemoteAccessHostAllowRelayedConnection policy";
     relay_policy_value = relay_connections_allowed_;
   }
   UpdateNatPolicies(nat_policy_value.value(), relay_policy_value.value());
 
-  const base::ListValue* host_domain_list;
-  if (policies->GetList(policy::key::kRemoteAccessHostDomainList,
-                        &host_domain_list)) {
+  const base::Value::List* host_domain_list =
+      policies.FindList(policy::key::kRemoteAccessHostDomainList);
+  if (host_domain_list) {
     std::vector<std::string> host_domain_list_vector;
-    for (const auto& value : host_domain_list->GetList()) {
+    for (const auto& value : *host_domain_list) {
       host_domain_list_vector.push_back(value.GetString());
     }
     UpdateHostDomainListPolicy(std::move(host_domain_list_vector));
   }
 
-  const base::ListValue* client_domain_list;
-  if (policies->GetList(policy::key::kRemoteAccessHostClientDomainList,
-                        &client_domain_list)) {
+  const base::Value::List* client_domain_list =
+      policies.FindList(policy::key::kRemoteAccessHostClientDomainList);
+  if (client_domain_list) {
     std::vector<std::string> client_domain_list_vector;
-    for (const auto& value : client_domain_list->GetList()) {
+    for (const auto& value : *client_domain_list) {
       client_domain_list_vector.push_back(value.GetString());
     }
     UpdateClientDomainListPolicy(std::move(client_domain_list_vector));
   }
 
   const std::string* port_range_string =
-      policies->FindStringKey(policy::key::kRemoteAccessHostUdpPortRange);
+      policies.FindString(policy::key::kRemoteAccessHostUdpPortRange);
   if (port_range_string) {
     UpdateHostUdpPortRangePolicy(*port_range_string);
   }
 
   absl::optional<int> max_clipboard_size =
-      policies->FindIntKey(policy::key::kRemoteAccessHostClipboardSizeBytes);
+      policies.FindInt(policy::key::kRemoteAccessHostClipboardSizeBytes);
   if (max_clipboard_size.has_value()) {
     if (max_clipboard_size.value() >= 0) {
       max_clipboard_size_ = max_clipboard_size.value();
@@ -609,9 +614,7 @@ void It2MeHost::DisconnectOnNetworkThread(protocol::ErrorCode error_code) {
     // other end of the connection can display and log an accurate disconnect
     // reason.
     host_context_->network_task_runner()->PostDelayedTask(
-        FROM_HERE,
-        base::BindOnce([](std::unique_ptr<SignalStrategy> signaling) {},
-                       std::move(signal_strategy_)),
+        FROM_HERE, base::DoNothingWithBoundArgs(std::move(signal_strategy_)),
         kDestroySignalingDelay);
   }
 
@@ -672,6 +675,17 @@ void It2MeHost::ValidateConnectionDetails(
     }
   }
 
+  if (!authorized_helper_.empty() &&
+      !gaia::AreEmailsSame(authorized_helper_, client_username)) {
+    LOG(ERROR) << "Rejecting connection request from (" << client_username
+               << ") as it does not match the authorized_helper ("
+               << authorized_helper_ << ")";
+    std::move(result_callback)
+        .Run(ValidationResult::ERROR_UNAUTHORIZED_ACCOUNT);
+    DisconnectOnNetworkThread();
+    return;
+  }
+
   // If we receive valid connection details multiple times, then we don't know
   // which remote user (if either) is valid so disconnect everyone.
   if (state_ != It2MeHostState::kReceivedAccessCode) {
@@ -689,7 +703,12 @@ void It2MeHost::ValidateConnectionDetails(
 
   // Show a confirmation dialog to the user to allow them to confirm/reject it.
   // If dialogs are suppressed, just call the callback directly.
-  if (enable_dialogs_) {
+  if (is_enterprise_session() &&
+      chrome_os_enterprise_params_->suppress_user_dialogs) {
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE,
+        base::BindOnce(std::move(result_callback), ValidationResult::SUCCESS));
+  } else {
     confirmation_dialog_proxy_ = std::make_unique<It2MeConfirmationDialogProxy>(
         host_context_->ui_task_runner(),
         confirmation_dialog_factory_->Create());
@@ -697,10 +716,6 @@ void It2MeHost::ValidateConnectionDetails(
         client_username,
         base::BindOnce(&It2MeHost::OnConfirmationResult, base::Unretained(this),
                        std::move(result_callback)));
-  } else {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE,
-        base::BindOnce(std::move(result_callback), ValidationResult::SUCCESS));
   }
 }
 
@@ -719,6 +734,21 @@ void It2MeHost::OnConfirmationResult(ValidationResultCallback result_callback,
       DisconnectOnNetworkThread(ErrorCode::SESSION_REJECTED);
       break;
   }
+}
+
+const char* It2MeHost::GetRemoteSupportPolicyKey() const {
+#if BUILDFLAG(IS_CHROMEOS)
+  // The policy to disallow remote support connections
+  // (RemoteAccessHostAllowRemoteSupportConnections) does not apply to support
+  // sessions initiated by the enterprise admin via a RemoteCommand. This case
+  // is handled specifically by the policy to disallow enterprise remote support
+  // connections (RemoteAccessHostAllowEnterpriseRemoteSupportConnections).
+  if (is_enterprise_session()) {
+    return policy::key::
+        kRemoteAccessHostAllowEnterpriseRemoteSupportConnections;
+  }
+#endif
+  return policy::key::kRemoteAccessHostAllowRemoteSupportConnections;
 }
 
 It2MeHostFactory::It2MeHostFactory() = default;

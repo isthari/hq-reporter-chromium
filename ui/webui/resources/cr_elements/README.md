@@ -1,10 +1,10 @@
-This directory contains simple Polymer web components for Web UI. These
-components may be shared across any WebUI and should be compatible across
-all platforms (including ios).
+This directory contains simple web components for Web UI. These components may
+be shared across any WebUI. Non-Polymer components should be compatible across
+all platforms (including ios). Polymer components currently are not supported
+on iOS or Android.
 
-These web components may not contain any i18n dependencies and may not use
-I18nBehavior. Instead, any text (labels, tooltips, etc) should be passed as
-properties.
+These web components may use loadTimeData and i18nMixin, but may not use
+i18n{...} replacements.
 
 These web components should avoid the use of chrome.send and should generally
 avoid dependencies on extension APIs as well.

@@ -34,12 +34,16 @@
 #include <utility>
 
 #include "base/location.h"
+#include "base/task/single_thread_task_runner.h"
 #include "third_party/blink/public/platform/platform.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_image_bitmap_options.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_throw_dom_exception.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_union_blob_htmlcanvaselement_htmlimageelement_htmlvideoelement_imagebitmap_imagedata_offscreencanvas_svgimageelement_videoframe.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/fileapi/blob.h"
+#include "third_party/blink/renderer/core/frame/deprecation/deprecation.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/html/canvas/html_canvas_element.h"
 #include "third_party/blink/renderer/core/html/canvas/image_data.h"
@@ -51,12 +55,15 @@
 #include "third_party/blink/renderer/core/workers/worker_global_scope.h"
 #include "third_party/blink/renderer/modules/webcodecs/video_frame.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+#include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/graphics/unaccelerated_static_bitmap_image.h"
 #include "third_party/blink/renderer/platform/instrumentation/histogram.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 #include "third_party/blink/renderer/platform/scheduler/public/worker_pool.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_base.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_skia.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 #include "v8/include/v8.h"
@@ -78,14 +85,16 @@ enum CreateImageBitmapSource {
   kMaxValue = kCreateImageBitmapSourceVideoFrame,
 };
 
+constexpr const char* kImageBitmapOptionNone = "none";
+
 gfx::Rect NormalizedCropRect(int x, int y, int width, int height) {
   if (width < 0) {
     x = base::ClampAdd(x, width);
-    width = -width;
+    width = base::ClampSub(0, width);
   }
   if (height < 0) {
     y = base::ClampAdd(y, height);
-    height = -height;
+    height = base::ClampSub(0, height);
   }
   return gfx::Rect(x, y, width, height);
 }
@@ -147,6 +156,18 @@ ScriptPromise ImageBitmapFactories::CreateImageBitmapFromBlob(
     absl::optional<gfx::Rect> crop_rect,
     const ImageBitmapOptions* options) {
   DCHECK(script_state->ContextIsValid());
+
+  // imageOrientation: 'from-image' will be used to replace imageOrientation:
+  // 'none'. Adding a deprecation warning when 'none' is called in
+  // createImageBitmap.
+  if (options->imageOrientation() == kImageBitmapOptionNone) {
+    auto* execution_context =
+        ExecutionContext::From(script_state->GetContext());
+    Deprecation::CountDeprecation(
+        execution_context,
+        WebFeature::kObsoleteCreateImageBitmapImageOrientationNone);
+  }
+
   ImageBitmapFactories& factory = From(*ExecutionContext::From(script_state));
   ImageBitmapLoader* loader = ImageBitmapFactories::ImageBitmapLoader::Create(
       factory, crop_rect, options, script_state);
@@ -255,8 +276,7 @@ ImageBitmapFactories::ImageBitmapLoader::ImageBitmapLoader(
     ScriptState* script_state,
     const ImageBitmapOptions* options)
     : ExecutionContextLifecycleObserver(ExecutionContext::From(script_state)),
-      loader_(std::make_unique<FileReaderLoader>(
-          FileReaderLoader::kReadAsArrayBuffer,
+      loader_(MakeGarbageCollected<FileReaderLoader>(
           this,
           GetExecutionContext()->GetTaskRunner(TaskType::kFileReading))),
       factory_(&factory),
@@ -274,33 +294,53 @@ ImageBitmapFactories::ImageBitmapLoader::~ImageBitmapLoader() {
 
 void ImageBitmapFactories::ImageBitmapLoader::RejectPromise(
     ImageBitmapRejectionReason reason) {
+  CHECK(resolver_);
+  ScriptState* resolver_script_state = resolver_->GetScriptState();
+  if (!IsInParallelAlgorithmRunnable(resolver_->GetExecutionContext(),
+                                     resolver_script_state)) {
+    if (loader_) {
+      loader_->Cancel();
+      loader_.Clear();
+    }
+    factory_->DidFinishLoading(this);
+    return;
+  }
+  ScriptState::Scope script_state_scope(resolver_script_state);
   switch (reason) {
     case kUndecodableImageBitmapRejectionReason:
-      resolver_->Reject(MakeGarbageCollected<DOMException>(
+      resolver_->Reject(V8ThrowDOMException::CreateOrEmpty(
+          resolver_script_state->GetIsolate(),
           DOMExceptionCode::kInvalidStateError,
           "The source image could not be decoded."));
       break;
     case kAllocationFailureImageBitmapRejectionReason:
-      resolver_->Reject(MakeGarbageCollected<DOMException>(
+      resolver_->Reject(V8ThrowDOMException::CreateOrEmpty(
+          resolver_script_state->GetIsolate(),
           DOMExceptionCode::kInvalidStateError,
           "The ImageBitmap could not be allocated."));
       break;
     default:
       NOTREACHED();
   }
-  loader_.reset();
+  if (loader_) {
+    loader_->Cancel();
+    loader_.Clear();
+  }
   factory_->DidFinishLoading(this);
 }
 
 void ImageBitmapFactories::ImageBitmapLoader::ContextDestroyed() {
-  if (loader_)
+  if (loader_) {
     factory_->DidFinishLoading(this);
-  loader_.reset();
+    loader_->Cancel();
+    loader_.Clear();
+  }
 }
 
-void ImageBitmapFactories::ImageBitmapLoader::DidFinishLoading() {
-  auto contents = loader_->TakeContents();
-  loader_.reset();
+void ImageBitmapFactories::ImageBitmapLoader::DidFinishLoading(
+    FileReaderData data) {
+  auto contents = std::move(data).AsArrayBufferContents();
+  loader_.Clear();
   if (!contents.IsValid()) {
     RejectPromise(kAllocationFailureImageBitmapRejectionReason);
     return;
@@ -308,7 +348,9 @@ void ImageBitmapFactories::ImageBitmapLoader::DidFinishLoading() {
   ScheduleAsyncImageBitmapDecoding(std::move(contents));
 }
 
-void ImageBitmapFactories::ImageBitmapLoader::DidFail(FileErrorCode) {
+void ImageBitmapFactories::ImageBitmapLoader::DidFail(
+    FileErrorCode error_code) {
+  FileReaderAccumulator::DidFail(error_code);
   RejectPromise(kUndecodableImageBitmapRejectionReason);
 }
 
@@ -342,7 +384,7 @@ void ImageBitmapFactories::ImageBitmapLoader::ScheduleAsyncImageBitmapDecoding(
     ArrayBufferContents contents) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   scoped_refptr<base::SingleThreadTaskRunner> task_runner =
-      Thread::Current()->GetTaskRunner();
+      GetExecutionContext()->GetTaskRunner(TaskType::kNetworking);
   ImageDecoder::AlphaOption alpha_option =
       options_->premultiplyAlpha() != "none"
           ? ImageDecoder::AlphaOption::kAlphaPremultiplied
@@ -387,9 +429,11 @@ void ImageBitmapFactories::ImageBitmapLoader::ResolvePromiseOnOriginalThread(
 
 void ImageBitmapFactories::ImageBitmapLoader::Trace(Visitor* visitor) const {
   ExecutionContextLifecycleObserver::Trace(visitor);
+  FileReaderAccumulator::Trace(visitor);
   visitor->Trace(factory_);
   visitor->Trace(resolver_);
   visitor->Trace(options_);
+  visitor->Trace(loader_);
 }
 
 }  // namespace blink

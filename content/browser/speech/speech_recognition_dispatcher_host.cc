@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,15 +6,15 @@
 
 #include <memory>
 
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/lazy_instance.h"
 #include "content/browser/renderer_host/frame_tree_node.h"
 #include "content/browser/renderer_host/render_frame_host_manager.h"
 #include "content/browser/speech/speech_recognition_manager_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/browser_context.h"
-#include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/speech_recognition_manager_delegate.h"
@@ -102,7 +102,7 @@ void SpeechRecognitionDispatcherHost::StartRequestOnUI(
   if (outer_web_contents) {
     RenderFrameHost* embedder_frame = nullptr;
 
-    FrameTreeNode* embedder_frame_node = web_contents->GetMainFrame()
+    FrameTreeNode* embedder_frame_node = web_contents->GetPrimaryMainFrame()
                                              ->frame_tree_node()
                                              ->render_manager()
                                              ->GetOuterDelegateNode();
@@ -112,7 +112,7 @@ void SpeechRecognitionDispatcherHost::StartRequestOnUI(
       // The outer web contents is embedded using the browser plugin. Fall back
       // to a simple lookup of the main frame. TODO(avi): When the browser
       // plugin is retired, remove this code.
-      embedder_frame = outer_web_contents->GetMainFrame();
+      embedder_frame = outer_web_contents->GetPrimaryMainFrame();
     }
 
     embedder_render_process_id = embedder_frame->GetProcess()->GetID();

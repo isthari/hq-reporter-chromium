@@ -1,48 +1,62 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_elements/shared_style_css.m.js';
-import 'chrome://resources/cr_elements/shared_vars_css.m.js';
+import 'chrome://resources/cr_elements/cr_link_row/cr_link_row.js';
+import 'chrome://resources/cr_elements/cr_shared_style.css.js';
+import 'chrome://resources/cr_elements/cr_shared_vars.css.js';
 import './strings.m.js';
-import './shared_style.js';
-import './shared_vars.js';
+import './shared_style.css.js';
+import './shared_vars.css.js';
 import './site_permissions_list.js';
 
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {CrLinkRowElement} from 'chrome://resources/cr_elements/cr_link_row/cr_link_row.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-export interface SitePermissionsDelegate {
-  getUserSiteSettings(): Promise<chrome.developerPrivate.UserSiteSettings>;
+import {navigation, Page} from './navigation_helper.js';
+import {getTemplate} from './site_permissions.html.js';
+import {SiteSettingsMixin} from './site_settings_mixin.js';
+
+export interface ExtensionsSitePermissionsElement {
+  $: {
+    allSitesLink: CrLinkRowElement,
+  };
 }
 
-export class ExtensionsSitePermissionsElement extends PolymerElement {
+const ExtensionsSitePermissionsElementBase = SiteSettingsMixin(PolymerElement);
+
+export class ExtensionsSitePermissionsElement extends
+    ExtensionsSitePermissionsElementBase {
   static get is() {
     return 'extensions-site-permissions';
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
     return {
-      delegate: Object,
-      permittedSites_: Array,
-      restrictedSites_: Array,
+      extensions: Array,
+
+      showPermittedSites_: {
+        type: Boolean,
+        value: () => loadTimeData.getBoolean('enableUserPermittedSites'),
+      },
+
+      siteSetEnum_: {
+        type: Object,
+        value: chrome.developerPrivate.SiteSet,
+      },
     };
   }
 
-  delegate: SitePermissionsDelegate;
-  private permittedSites_: string[];
-  private restrictedSites_: string[];
+  extensions: chrome.developerPrivate.ExtensionInfo[];
+  private showPermittedSites_: boolean;
 
-  connectedCallback() {
-    super.connectedCallback();
-    this.delegate.getUserSiteSettings().then(
-        ({permittedSites, restrictedSites}) => {
-          this.permittedSites_ = permittedSites;
-          this.restrictedSites_ = restrictedSites;
-        });
+  private onAllSitesLinkClick_() {
+    navigation.navigateTo({page: Page.SITE_PERMISSIONS_ALL_SITES});
   }
 }
 

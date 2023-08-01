@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -72,14 +72,4 @@ public interface BackgroundTask {
      */
     @MainThread
     boolean onStopTask(Context context, TaskParameters taskParameters);
-
-    /**
-     * Callback from {@link BackgroundTaskScheduler} when it detects system conditions requiring
-     * rescheduling, e.g. Google Play Services update or OS upgrade. The task should schedule itself
-     * again with appropriate parameters.
-     *
-     * @param context the current context.
-     */
-    @MainThread
-    void reschedule(Context context);
 }

@@ -1,21 +1,23 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/memory/raw_ptr.h"
 #include "remoting/host/input_monitor/local_pointer_input_monitor.h"
 
 #import <AppKit/AppKit.h>
 
 #include <utility>
 
-#include "base/bind.h"
 #include "base/compiler_specific.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/mac/scoped_cftyperef.h"
 #include "base/memory/ref_counted.h"
 #include "base/sequence_checker.h"
 #include "base/synchronization/lock.h"
+#import "base/task/single_thread_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_geometry.h"
 
@@ -57,9 +59,9 @@ class LocalMouseInputMonitorMac : public LocalPointerInputMonitor {
 
 @interface LocalInputMonitorManager : NSObject {
  @private
-  CFRunLoopSourceRef _mouseRunLoopSource;
+  base::ScopedCFTypeRef<CFRunLoopSourceRef> _mouseRunLoopSource;
   base::ScopedCFTypeRef<CFMachPortRef> _mouseMachPort;
-  remoting::LocalMouseInputMonitorMac::EventHandler* _monitor;
+  raw_ptr<remoting::LocalMouseInputMonitorMac::EventHandler> _monitor;
 }
 
 - (instancetype)initWithMonitor:
@@ -98,8 +100,8 @@ static CGEventRef LocalMouseMoved(CGEventTapProxy proxy,
         kCGSessionEventTap, kCGHeadInsertEventTap, kCGEventTapOptionListenOnly,
         1 << kCGEventMouseMoved, LocalMouseMoved, self));
     if (_mouseMachPort) {
-      _mouseRunLoopSource =
-          CFMachPortCreateRunLoopSource(nullptr, _mouseMachPort, 0);
+      _mouseRunLoopSource.reset(
+          CFMachPortCreateRunLoopSource(nullptr, _mouseMachPort, 0));
       CFRunLoopAddSource(CFRunLoopGetMain(), _mouseRunLoopSource,
                          kCFRunLoopCommonModes);
     } else {
@@ -120,9 +122,8 @@ static CGEventRef LocalMouseMoved(CGEventTapProxy proxy,
     CFMachPortInvalidate(_mouseMachPort);
     CFRunLoopRemoveSource(CFRunLoopGetMain(), _mouseRunLoopSource,
                           kCFRunLoopCommonModes);
-    CFRelease(_mouseRunLoopSource);
-    _mouseMachPort.reset(0);
-    _mouseRunLoopSource = nullptr;
+    _mouseMachPort.reset();
+    _mouseRunLoopSource.reset();
   }
 }
 

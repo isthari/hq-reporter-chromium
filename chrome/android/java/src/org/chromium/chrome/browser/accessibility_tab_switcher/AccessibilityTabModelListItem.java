@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,9 +31,10 @@ import android.widget.TextView;
 
 import androidx.annotation.VisibleForTesting;
 import androidx.appcompat.content.res.AppCompatResources;
+import androidx.core.widget.ImageViewCompat;
 
 import org.chromium.base.ApiCompatibilityUtils;
-import org.chromium.base.annotations.UsedByReflection;
+import org.chromium.build.annotations.UsedByReflection;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
@@ -41,6 +42,7 @@ import org.chromium.chrome.browser.tab.TabFavicon;
 import org.chromium.chrome.browser.tab.TabObserver;
 import org.chromium.components.browser_ui.styles.ChromeColors;
 import org.chromium.components.browser_ui.styles.SemanticColorUtils;
+import org.chromium.url.GURL;
 
 /**
  * A widget that shows a single row of the {@link AccessibilityTabModelListView} list.
@@ -232,6 +234,8 @@ public class AccessibilityTabModelListItem extends FrameLayout implements OnClic
         mCloseAnimationDurationMs = CLOSE_ANIMATION_DURATION_MS;
         mDefaultAnimationDurationMs = DEFAULT_ANIMATION_DURATION_MS;
         mCloseTimeoutMs = CLOSE_TIMEOUT_MS;
+
+        setFocusableInTouchMode(true);
     }
 
     @Override
@@ -336,7 +340,7 @@ public class AccessibilityTabModelListItem extends FrameLayout implements OnClic
                     mTitleView, R.style.TextAppearance_TextLarge_Primary_Baseline_Light);
             ApiCompatibilityUtils.setTextAppearance(
                     mDescriptionView, R.style.TextAppearance_TextMedium_Primary_Baseline_Light);
-            ApiCompatibilityUtils.setImageTintList(mCloseButton, mIncognitoCloseIconColor);
+            ImageViewCompat.setImageTintList(mCloseButton, mIncognitoCloseIconColor);
         } else {
             setBackgroundColor(SemanticColorUtils.getDefaultBgColor(getContext()));
             mFaviconView.getBackground().setLevel(mDefaultLevel);
@@ -344,7 +348,7 @@ public class AccessibilityTabModelListItem extends FrameLayout implements OnClic
                     mTitleView, R.style.TextAppearance_TextLarge_Primary);
             ApiCompatibilityUtils.setTextAppearance(
                     mDescriptionView, R.style.TextAppearance_TextMedium_Secondary);
-            ApiCompatibilityUtils.setImageTintList(mCloseButton, mDefaultCloseIconColor);
+            ImageViewCompat.setImageTintList(mCloseButton, mDefaultCloseIconColor);
         }
 
         if (TextUtils.isEmpty(url)) {
@@ -360,11 +364,11 @@ public class AccessibilityTabModelListItem extends FrameLayout implements OnClic
             Bitmap bitmap = TabFavicon.getBitmap(mTab);
             if (bitmap != null) {
                 // Don't tint favicon bitmaps.
-                ApiCompatibilityUtils.setImageTintList(mFaviconView, null);
+                ImageViewCompat.setImageTintList(mFaviconView, null);
                 mFaviconView.setImageBitmap(bitmap);
             } else {
                 mFaviconView.setImageResource(R.drawable.ic_globe_24dp);
-                ApiCompatibilityUtils.setImageTintList(
+                ImageViewCompat.setImageTintList(
                         mFaviconView, mTab.isIncognito() ? mIncognitoIconColor : mDefaultIconColor);
             }
         }
@@ -439,7 +443,7 @@ public class AccessibilityTabModelListItem extends FrameLayout implements OnClic
         }
 
         @Override
-        public void onFaviconUpdated(Tab tab, Bitmap icon) {
+        public void onFaviconUpdated(Tab tab, Bitmap icon, GURL iconUrl) {
             updateFavicon();
             notifyTabUpdated(tab);
         }

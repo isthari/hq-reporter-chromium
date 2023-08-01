@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,7 +22,7 @@
 #endif
 
 namespace {
-const char kScriptName[] = "autofill_js";
+const char kScriptName[] = "autofill_controller";
 
 // The timeout for any JavaScript call in this file.
 const int64_t kJavaScriptExecutionTimeoutInSeconds = 5;
@@ -39,9 +39,7 @@ AutofillJavaScriptFeature* AutofillJavaScriptFeature::GetInstance() {
 
 AutofillJavaScriptFeature::AutofillJavaScriptFeature()
     : web::JavaScriptFeature(
-          // TODO(crbug.com/1175793): Move autofill code to kAnyContentWorld
-          // once all scripts are converted to JavaScriptFeatures.
-          ContentWorld::kPageContentWorld,
+          web::ContentWorld::kIsolatedWorld,
           {FeatureScript::CreateWithFilename(
               kScriptName,
               FeatureScript::InjectionTime::kDocumentStart,
@@ -66,9 +64,8 @@ void AutofillJavaScriptFeature::AddJSDelayInFrame(web::WebFrame* frame) {
     return;
   }
 
-  std::vector<base::Value> parameters;
-  parameters.push_back(base::Value(command_line_delay));
-  CallJavaScriptFunction(frame, "autofill.setDelay", parameters);
+  CallJavaScriptFunction(frame, "autofill.setDelay",
+                         base::Value::List().Append(command_line_delay));
 }
 
 void AutofillJavaScriptFeature::FetchForms(
@@ -78,42 +75,39 @@ void AutofillJavaScriptFeature::FetchForms(
   DCHECK(!callback.is_null());
 
   bool restrict_unowned_fields_to_formless_checkout = false;
-  std::vector<base::Value> parameters;
-  parameters.push_back(base::Value(static_cast<int>(required_fields_count)));
-  parameters.push_back(
-      base::Value(restrict_unowned_fields_to_formless_checkout));
-  CallJavaScriptFunction(frame, "autofill.extractForms", parameters,
-                         autofill::CreateStringCallback(std::move(callback)),
-                         base::Seconds(kJavaScriptExecutionTimeoutInSeconds));
+  CallJavaScriptFunction(
+      frame, "autofill.extractForms",
+      base::Value::List()
+          .Append(static_cast<int>(required_fields_count))
+          .Append(restrict_unowned_fields_to_formless_checkout),
+      autofill::CreateStringCallback(std::move(callback)),
+      base::Seconds(kJavaScriptExecutionTimeoutInSeconds));
 }
 
 void AutofillJavaScriptFeature::FillActiveFormField(
     web::WebFrame* frame,
-    std::unique_ptr<base::DictionaryValue> data,
+    base::Value::Dict data,
     base::OnceCallback<void(BOOL)> callback) {
-  DCHECK(data);
-  std::vector<base::Value> parameters;
-  parameters.push_back(std::move(*data));
-  CallJavaScriptFunction(frame, "autofill.fillActiveFormField", parameters,
+  CallJavaScriptFunction(frame, "autofill.fillActiveFormField",
+                         base::Value::List().Append(std::move(data)),
                          autofill::CreateBoolCallback(std::move(callback)),
                          base::Seconds(kJavaScriptExecutionTimeoutInSeconds));
 }
 
 void AutofillJavaScriptFeature::FillForm(
     web::WebFrame* frame,
-    std::unique_ptr<base::Value> data,
-    autofill::FieldRendererId force_fill_field_unique_id,
+    base::Value::Dict data,
+    autofill::FieldRendererId force_fill_field_id,
     base::OnceCallback<void(NSString*)> callback) {
-  DCHECK(data);
   DCHECK(!callback.is_null());
 
-  std::vector<base::Value> parameters;
-  parameters.push_back(std::move(*data));
-  parameters.push_back(
-      base::Value(static_cast<int>(force_fill_field_unique_id.value())));
-  CallJavaScriptFunction(frame, "autofill.fillForm", parameters,
-                         autofill::CreateStringCallback(std::move(callback)),
-                         base::Seconds(kJavaScriptExecutionTimeoutInSeconds));
+  CallJavaScriptFunction(
+      frame, "autofill.fillForm",
+      base::Value::List()
+          .Append(std::move(data))
+          .Append(static_cast<int>(force_fill_field_id.value())),
+      autofill::CreateStringCallback(std::move(callback)),
+      base::Seconds(kJavaScriptExecutionTimeoutInSeconds));
 }
 
 void AutofillJavaScriptFeature::ClearAutofilledFieldsForForm(
@@ -123,22 +117,19 @@ void AutofillJavaScriptFeature::ClearAutofilledFieldsForForm(
     base::OnceCallback<void(NSString*)> callback) {
   DCHECK(!callback.is_null());
 
-  std::vector<base::Value> parameters;
-  parameters.push_back(base::Value(static_cast<int>(form_renderer_id.value())));
-  parameters.push_back(
-      base::Value(static_cast<int>(field_renderer_id.value())));
-  CallJavaScriptFunction(frame, "autofill.clearAutofilledFields", parameters,
-                         autofill::CreateStringCallback(std::move(callback)),
-                         base::Seconds(kJavaScriptExecutionTimeoutInSeconds));
+  CallJavaScriptFunction(
+      frame, "autofill.clearAutofilledFields",
+      base::Value::List()
+          .Append(static_cast<int>(form_renderer_id.value()))
+          .Append(static_cast<int>(field_renderer_id.value())),
+      autofill::CreateStringCallback(std::move(callback)),
+      base::Seconds(kJavaScriptExecutionTimeoutInSeconds));
 }
 
-void AutofillJavaScriptFeature::FillPredictionData(
-    web::WebFrame* frame,
-    std::unique_ptr<base::Value> data) {
-  DCHECK(data);
-  std::vector<base::Value> parameters;
-  parameters.push_back(std::move(*data));
-  CallJavaScriptFunction(frame, "autofill.fillPredictionData", parameters);
+void AutofillJavaScriptFeature::FillPredictionData(web::WebFrame* frame,
+                                                   base::Value::Dict data) {
+  CallJavaScriptFunction(frame, "autofill.fillPredictionData",
+                         base::Value::List().Append(std::move(data)));
 }
 
 }  // namespace autofill

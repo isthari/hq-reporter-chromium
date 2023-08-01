@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -242,16 +242,18 @@ LayoutUnit NGLineTruncator::TruncateLineInTheMiddle(
   const LayoutUnit static_width_left = line[initial_index_left].InlineOffset();
   LayoutUnit static_width_right = LayoutUnit(0);
   if (initial_index_right + 1 < line.size()) {
-    const NGLogicalLineItem& item = line[initial_index_right + 1];
-    // |line_width| and/or InlineOffset() might be saturated.
-    if (line_width <= item.InlineOffset())
+    const NGLogicalLineItem& item = line[initial_index_right];
+    LayoutUnit truncatable_right = item.InlineOffset() + item.inline_size;
+    // |line_width| and/or truncatable_right might be saturated.
+    if (line_width <= truncatable_right) {
       return line_width;
+    }
     // We can do nothing if the right-side static item sticks out to the both
     // sides.
-    if (item.InlineOffset() < 0)
+    if (truncatable_right < 0) {
       return line_width;
-    static_width_right =
-        line_width - item.InlineOffset() + item.margin_line_left;
+    }
+    static_width_right = line_width - truncatable_right;
   }
   const LayoutUnit available_width =
       available_width_ - static_width_left - static_width_right;
@@ -405,7 +407,7 @@ LayoutUnit NGLineTruncator::TruncateLineInTheMiddle(
 void NGLineTruncator::HideChild(NGLogicalLineItem* child) {
   DCHECK(child->HasInFlowFragment());
 
-  if (const NGLayoutResult* layout_result = child->layout_result.get()) {
+  if (const NGLayoutResult* layout_result = child->layout_result) {
     // Need to propagate OOF descendants in this inline-block child.
     const auto& fragment =
         To<NGPhysicalBoxFragment>(layout_result->PhysicalFragment());
@@ -508,7 +510,7 @@ bool NGLineTruncator::TruncateChild(
   scoped_refptr<ShapeResult> shape_result =
       child.shape_result->CreateShapeResult();
   DCHECK(shape_result);
-  const NGTextOffset original_offset = child.text_offset;
+  const NGTextOffsetRange original_offset = child.text_offset;
   // Compute the offset to truncate.
   unsigned offset_to_fit = shape_result->OffsetToFit(
       IsLtr(line_direction_) ? space_for_child
@@ -529,10 +531,12 @@ NGLogicalLineItem NGLineTruncator::TruncateText(const NGLogicalLineItem& item,
                                                 const ShapeResult& shape_result,
                                                 unsigned offset_to_fit,
                                                 TextDirection direction) {
-  const NGTextOffset new_text_offset =
+  const NGTextOffsetRange new_text_offset =
       direction == shape_result.Direction()
-          ? NGTextOffset(item.StartOffset(), item.StartOffset() + offset_to_fit)
-          : NGTextOffset(item.StartOffset() + offset_to_fit, item.EndOffset());
+          ? NGTextOffsetRange(item.StartOffset(),
+                              item.StartOffset() + offset_to_fit)
+          : NGTextOffsetRange(item.StartOffset() + offset_to_fit,
+                              item.EndOffset());
   scoped_refptr<ShapeResultView> new_shape_result = ShapeResultView::Create(
       &shape_result, new_text_offset.start, new_text_offset.end);
   DCHECK(item.inline_item);

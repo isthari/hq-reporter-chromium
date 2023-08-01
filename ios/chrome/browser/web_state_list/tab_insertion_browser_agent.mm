@@ -1,12 +1,15 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/web_state_list/tab_insertion_browser_agent.h"
 
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#import "ios/chrome/browser/web_state_list/web_state_list.h"
-#import "ios/chrome/browser/web_state_list/web_state_opener.h"
+#import "build/blink_buildflags.h"
+#import "ios/chrome/browser/ntp/new_tab_page_tab_helper.h"
+#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_opener.h"
+#import "ios/chrome/browser/url_loading/new_tab_animation_tab_helper.h"
 #import "ios/web/public/web_state.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -27,7 +30,9 @@ web::WebState* TabInsertionBrowserAgent::InsertWebState(
     bool opened_by_dom,
     int index,
     bool in_background,
-    bool inherit_opener) {
+    bool inherit_opener,
+    bool should_show_start_surface,
+    bool should_skip_new_tab_animation) {
   DCHECK(index == TabInsertion::kPositionAutomatically ||
          (index >= 0 && index <= web_state_list_->count()));
 
@@ -56,6 +61,18 @@ web::WebState* TabInsertionBrowserAgent::InsertWebState(
 
   std::unique_ptr<web::WebState> web_state =
       web::WebState::Create(create_params);
+  if (should_show_start_surface) {
+    NewTabPageTabHelper::CreateForWebState(web_state.get());
+    NewTabPageTabHelper::FromWebState(web_state.get())
+        ->SetShowStartSurface(true);
+  }
+
+  if (should_skip_new_tab_animation) {
+    NewTabAnimationTabHelper::CreateForWebState(web_state.get());
+    NewTabAnimationTabHelper::FromWebState(web_state.get())
+        ->DisableNewTabAnimation();
+  }
+
   web_state->GetNavigationManager()->LoadURLWithParams(params);
 
   int inserted_index =
@@ -69,13 +86,16 @@ web::WebState* TabInsertionBrowserAgent::InsertWebStateOpenedByDOM(
     web::WebState* parent) {
   web::WebState::CreateParams createParams(browser_state_);
   createParams.created_with_opener = YES;
+#if BUILDFLAG(USE_BLINK)
+  createParams.opener_web_state = parent;
+#endif
   std::unique_ptr<web::WebState> web_state =
       web::WebState::Create(createParams);
-  int insertionFlags =
+  int insertion_flags =
       WebStateList::INSERT_FORCE_INDEX | WebStateList::INSERT_ACTIVATE;
-  int insertedIndex = web_state_list_->InsertWebState(
-      web_state_list_->count(), std::move(web_state), insertionFlags,
+  int inserted_index = web_state_list_->InsertWebState(
+      web_state_list_->count(), std::move(web_state), insertion_flags,
       WebStateOpener(parent));
 
-  return web_state_list_->GetWebStateAt(insertedIndex);
+  return web_state_list_->GetWebStateAt(inserted_index);
 }

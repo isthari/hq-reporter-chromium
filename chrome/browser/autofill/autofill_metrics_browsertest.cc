@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/autofill/core/browser/autofill_test_utils.h"
 #include "components/network_session_configurator/common/network_switches.h"
 #include "components/ukm/test_ukm_recorder.h"
 #include "content/public/browser/browser_thread.h"
@@ -78,6 +79,7 @@ class AutofillMetricsBrowserTest : public InProcessBrowserTest {
     embedded_test_server()->StartAcceptingConnections();
   }
 
+  autofill::test::AutofillBrowserTestEnvironment autofill_test_environment_;
   std::unique_ptr<ukm::TestAutoSetUkmRecorder> test_ukm_recorder_;
 };
 
@@ -94,7 +96,7 @@ IN_PROC_BROWSER_TEST_F(AutofillMetricsBrowserTest,
   EXPECT_TRUE(content::NavigateIframeToURL(tab, "test", iframe_url));
 
   EXPECT_TRUE(tab->GetRenderWidgetHostView()->IsShowing());
-  content::RenderFrameHost* frame = ChildFrameAt(tab->GetMainFrame(), 0);
+  content::RenderFrameHost* frame = ChildFrameAt(tab->GetPrimaryMainFrame(), 0);
   EXPECT_TRUE(frame);
 
   // Make sure the UKM were logged for the main frame url and none for the
@@ -118,7 +120,7 @@ IN_PROC_BROWSER_TEST_F(AutofillMetricsBrowserTest,
   EXPECT_TRUE(content::NavigateIframeToURL(tab, "test", iframe_url));
 
   EXPECT_TRUE(tab->GetRenderWidgetHostView()->IsShowing());
-  content::RenderFrameHost* frame = ChildFrameAt(tab->GetMainFrame(), 0);
+  content::RenderFrameHost* frame = ChildFrameAt(tab->GetPrimaryMainFrame(), 0);
   EXPECT_TRUE(frame);
 
   // Make sure the UKM were logged for the main frame url and none for the
@@ -165,7 +167,7 @@ IN_PROC_BROWSER_TEST_F(
   EXPECT_TRUE(content::NavigateIframeToURL(tab, "test", iframe_url));
 
   EXPECT_TRUE(tab->GetRenderWidgetHostView()->IsShowing());
-  content::RenderFrameHost* frame = ChildFrameAt(tab->GetMainFrame(), 0);
+  content::RenderFrameHost* frame = ChildFrameAt(tab->GetPrimaryMainFrame(), 0);
   EXPECT_TRUE(frame);
 
   // Make sure the UKM were logged for the main frame url and none for the
@@ -190,7 +192,7 @@ IN_PROC_BROWSER_TEST_F(
   EXPECT_TRUE(content::NavigateIframeToURL(tab, "test", iframe_url));
 
   EXPECT_TRUE(tab->GetRenderWidgetHostView()->IsShowing());
-  content::RenderFrameHost* frame = ChildFrameAt(tab->GetMainFrame(), 0);
+  content::RenderFrameHost* frame = ChildFrameAt(tab->GetPrimaryMainFrame(), 0);
   EXPECT_TRUE(frame);
 
   // Make sure the UKM were logged for the main frame url and none for the
@@ -235,9 +237,10 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessAutofillMetricsBrowserTest,
   EXPECT_TRUE(content::NavigateIframeToURL(tab, "test", iframe_url));
 
   EXPECT_TRUE(tab->GetRenderWidgetHostView()->IsShowing());
-  content::RenderFrameHost* frame = ChildFrameAt(tab->GetMainFrame(), 0);
+  content::RenderFrameHost* frame = ChildFrameAt(tab->GetPrimaryMainFrame(), 0);
   EXPECT_TRUE(frame);
-  EXPECT_NE(frame->GetSiteInstance(), tab->GetMainFrame()->GetSiteInstance());
+  EXPECT_NE(frame->GetSiteInstance(),
+            tab->GetPrimaryMainFrame()->GetSiteInstance());
 
   // Make sure the UKM were logged for the main frame url and none for the
   // iframe url.
@@ -260,9 +263,10 @@ IN_PROC_BROWSER_TEST_F(SitePerProcessAutofillMetricsBrowserTest,
   EXPECT_TRUE(content::NavigateIframeToURL(tab, "test", iframe_url));
 
   EXPECT_TRUE(tab->GetRenderWidgetHostView()->IsShowing());
-  content::RenderFrameHost* frame = ChildFrameAt(tab->GetMainFrame(), 0);
+  content::RenderFrameHost* frame = ChildFrameAt(tab->GetPrimaryMainFrame(), 0);
   EXPECT_TRUE(frame);
-  EXPECT_NE(frame->GetSiteInstance(), tab->GetMainFrame()->GetSiteInstance());
+  EXPECT_NE(frame->GetSiteInstance(),
+            tab->GetPrimaryMainFrame()->GetSiteInstance());
 
   // Make sure the UKM were logged for the main frame url and none for the
   // iframe url.
@@ -308,9 +312,10 @@ IN_PROC_BROWSER_TEST_F(
   EXPECT_TRUE(content::NavigateIframeToURL(tab, "test", iframe_url));
 
   EXPECT_TRUE(tab->GetRenderWidgetHostView()->IsShowing());
-  content::RenderFrameHost* frame = ChildFrameAt(tab->GetMainFrame(), 0);
+  content::RenderFrameHost* frame = ChildFrameAt(tab->GetPrimaryMainFrame(), 0);
   EXPECT_TRUE(frame);
-  EXPECT_NE(frame->GetSiteInstance(), tab->GetMainFrame()->GetSiteInstance());
+  EXPECT_NE(frame->GetSiteInstance(),
+            tab->GetPrimaryMainFrame()->GetSiteInstance());
 
   // Make sure the UKM were logged for the main frame url and none for the
   // iframe url.
@@ -334,9 +339,10 @@ IN_PROC_BROWSER_TEST_F(
   EXPECT_TRUE(content::NavigateIframeToURL(tab, "test", iframe_url));
 
   EXPECT_TRUE(tab->GetRenderWidgetHostView()->IsShowing());
-  content::RenderFrameHost* frame = ChildFrameAt(tab->GetMainFrame(), 0);
+  content::RenderFrameHost* frame = ChildFrameAt(tab->GetPrimaryMainFrame(), 0);
   EXPECT_TRUE(frame);
-  EXPECT_NE(frame->GetSiteInstance(), tab->GetMainFrame()->GetSiteInstance());
+  EXPECT_NE(frame->GetSiteInstance(),
+            tab->GetPrimaryMainFrame()->GetSiteInstance());
 
   // Make sure the UKM were logged for the main frame url and none for the
   // iframe url.

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -20,22 +20,21 @@
 
 #include "third_party/blink/public/platform/modules/video_capture/web_video_capture_impl_manager.h"
 
-#include <algorithm>
-
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/ranges/algorithm.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/bind_post_task.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/token.h"
-#include "media/base/bind_to_current_loop.h"
 #include "media/capture/mojom/video_capture_types.mojom-blink.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/video_capture/video_capture_impl.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_media.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
@@ -44,8 +43,7 @@ namespace blink {
 media::VideoCaptureFormats ToVideoCaptureFormats(
     const Vector<media::VideoCaptureFormat>& format_vector) {
   media::VideoCaptureFormats formats;
-  std::copy(format_vector.begin(), format_vector.end(),
-            std::back_inserter(formats));
+  base::ranges::copy(format_vector, std::back_inserter(formats));
   return formats;
 }
 
@@ -76,7 +74,8 @@ struct WebVideoCaptureImplManager::DeviceEntry {
 
 WebVideoCaptureImplManager::WebVideoCaptureImplManager()
     : next_client_id_(0),
-      render_main_task_runner_(base::ThreadTaskRunnerHandle::Get()),
+      render_main_task_runner_(
+          base::SingleThreadTaskRunner::GetCurrentDefault()),
       is_suspending_all_(false) {}
 
 WebVideoCaptureImplManager::~WebVideoCaptureImplManager() {
@@ -101,11 +100,7 @@ base::OnceClosure WebVideoCaptureImplManager::UseDevice(
     devices_.emplace_back(DeviceEntry());
     it = devices_.end() - 1;
     it->session_id = id;
-    it->impl = CreateVideoCaptureImplForTesting(id);
-    if (!it->impl) {
-      it->impl = std::make_unique<VideoCaptureImpl>(
-          id, render_main_task_runner_, browser_interface_broker);
-    }
+    it->impl = CreateVideoCaptureImpl(id, browser_interface_broker);
   }
   ++it->client_count;
 
@@ -126,7 +121,8 @@ base::OnceClosure WebVideoCaptureImplManager::StartCapture(
     const media::VideoCaptureSessionId& id,
     const media::VideoCaptureParams& params,
     const VideoCaptureStateUpdateCB& state_update_cb,
-    const VideoCaptureDeliverFrameCB& deliver_frame_cb) {
+    const VideoCaptureDeliverFrameCB& deliver_frame_cb,
+    const VideoCaptureCropVersionCB& crop_version_cb) {
   DCHECK(render_main_task_runner_->BelongsToCurrentThread());
   const auto it = base::ranges::find(devices_, id, &DeviceEntry::session_id);
   if (it == devices_.end())
@@ -138,7 +134,8 @@ base::OnceClosure WebVideoCaptureImplManager::StartCapture(
   Platform::Current()->GetIOTaskRunner()->PostTask(
       FROM_HERE,
       base::BindOnce(&VideoCaptureImpl::StartCapture, it->impl->GetWeakPtr(),
-                     client_id, params, state_update_cb, deliver_frame_cb));
+                     client_id, params, state_update_cb, deliver_frame_cb,
+                     crop_version_cb));
   return base::BindOnce(&WebVideoCaptureImplManager::StopCapture,
                         weak_factory_.GetWeakPtr(), client_id, id);
 }
@@ -217,9 +214,11 @@ void WebVideoCaptureImplManager::GetDeviceFormatsInUse(
 }
 
 std::unique_ptr<VideoCaptureImpl>
-WebVideoCaptureImplManager::CreateVideoCaptureImplForTesting(
-    const media::VideoCaptureSessionId& session_id) const {
-  return nullptr;
+WebVideoCaptureImplManager::CreateVideoCaptureImpl(
+    const media::VideoCaptureSessionId& session_id,
+    BrowserInterfaceBrokerProxy* browser_interface_broker) const {
+  return std::make_unique<VideoCaptureImpl>(
+      session_id, render_main_task_runner_, browser_interface_broker);
 }
 
 void WebVideoCaptureImplManager::StopCapture(
@@ -302,9 +301,9 @@ VideoCaptureFeedbackCB WebVideoCaptureImplManager::GetFeedbackCallback(
   DCHECK(render_main_task_runner_->BelongsToCurrentThread());
   return base::BindRepeating(
       &WebVideoCaptureImplManager::ProcessFeedback,
-      media::BindToCurrentLoop(base::BindRepeating(
+      base::BindPostTaskToCurrentDefault(base::BindRepeating(
           &WebVideoCaptureImplManager::ProcessFeedbackInternal,
-          weak_factory_.GetWeakPtr(), id)));
+          weak_factory_.GetMutableWeakPtr(), id)));
 }
 
 // static

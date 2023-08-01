@@ -1,9 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.sync.settings;
 
+import android.os.Build;
 import android.os.Bundle;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -17,21 +18,26 @@ import androidx.preference.PreferenceFragmentCompat;
 import androidx.preference.PreferenceGroup;
 
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.autofill_assistant.AssistantFeatures;
-import org.chromium.chrome.browser.autofill_assistant.AutofillAssistantPreferencesUtil;
+import org.chromium.chrome.browser.commerce.ShoppingFeatures;
 import org.chromium.chrome.browser.contextualsearch.ContextualSearchFieldTrial;
 import org.chromium.chrome.browser.contextualsearch.ContextualSearchManager;
-import org.chromium.chrome.browser.feedback.HelpAndFeedbackLauncherImpl;
+import org.chromium.chrome.browser.feedback.FragmentHelpAndFeedbackLauncher;
+import org.chromium.chrome.browser.feedback.HelpAndFeedbackLauncher;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.metrics.ChangeMetricsReportingStateCalledFrom;
 import org.chromium.chrome.browser.metrics.UmaSessionStats;
 import org.chromium.chrome.browser.preferences.Pref;
+import org.chromium.chrome.browser.price_tracking.PriceTrackingFeatures;
+import org.chromium.chrome.browser.price_tracking.PriceTrackingUtilities;
 import org.chromium.chrome.browser.privacy.settings.PrivacyPreferencesManagerImpl;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.settings.ChromeManagedPreferenceDelegate;
 import org.chromium.chrome.browser.signin.services.IdentityServicesProvider;
 import org.chromium.chrome.browser.signin.services.SigninManager;
 import org.chromium.chrome.browser.signin.services.UnifiedConsentServiceBridge;
-import org.chromium.chrome.browser.ui.signin.SignOutDialogFragment;
+import org.chromium.chrome.browser.ui.signin.SignOutDialogCoordinator;
+import org.chromium.chrome.browser.ui.signin.SignOutDialogCoordinator.Listener;
+import org.chromium.chrome.browser.usage_stats.UsageStatsConsentDialog;
 import org.chromium.components.browser_ui.settings.ChromeSwitchPreference;
 import org.chromium.components.browser_ui.settings.ManagedPreferenceDelegate;
 import org.chromium.components.browser_ui.settings.SettingsUtils;
@@ -41,15 +47,21 @@ import org.chromium.components.signin.identitymanager.ConsentLevel;
 import org.chromium.components.signin.identitymanager.IdentityManager;
 import org.chromium.components.signin.metrics.SignoutReason;
 import org.chromium.components.user_prefs.UserPrefs;
+import org.chromium.ui.modaldialog.ModalDialogManagerHolder;
 
 /**
  * Settings fragment controlling a number of features communicating with Google services, such as
  * search autocomplete and the automatic upload of crash reports.
  */
 public class GoogleServicesSettings
-        extends PreferenceFragmentCompat implements Preference.OnPreferenceChangeListener,
-                                                    SignOutDialogFragment.SignOutDialogListener {
-    private static final String SIGN_OUT_DIALOG_TAG = "sign_out_dialog_tag";
+        extends PreferenceFragmentCompat implements Preference.OnPreferenceChangeListener, Listener,
+                                                    FragmentHelpAndFeedbackLauncher {
+    // No longer used. Do not delete. Do not reuse these same strings.
+    // private static final String SIGN_OUT_DIALOG_TAG = "sign_out_dialog_tag";
+    // public static final String PREF_AUTOFILL_ASSISTANT = "autofill_assistant";
+    // public static final String PREF_AUTOFILL_ASSISTANT_SUBSECTION =
+    // "autofill_assistant_subsection";
+
     private static final String CLEAR_DATA_PROGRESS_DIALOG_TAG = "clear_data_progress";
 
     @VisibleForTesting
@@ -59,11 +71,12 @@ public class GoogleServicesSettings
     private static final String PREF_URL_KEYED_ANONYMIZED_DATA = "url_keyed_anonymized_data";
     private static final String PREF_CONTEXTUAL_SEARCH = "contextual_search";
     @VisibleForTesting
-    public static final String PREF_AUTOFILL_ASSISTANT = "autofill_assistant";
-    @VisibleForTesting
-    public static final String PREF_AUTOFILL_ASSISTANT_SUBSECTION = "autofill_assistant_subsection";
+    public static final String PREF_USAGE_STATS_REPORTING = "usage_stats_reporting";
     @VisibleForTesting
     public static final String PREF_METRICS_SETTINGS = "metrics_settings";
+    @VisibleForTesting
+    public static final String PREF_PRICE_TRACKING_ANNOTATIONS = "price_tracking_annotations";
+    private static final String PREF_PRICE_NOTIFICATION_SECTION = "price_notifications_section";
 
     private final PrefService mPrefService = UserPrefs.get(Profile.getLastUsedRegularProfile());
     private final PrivacyPreferencesManagerImpl mPrivacyPrefManager =
@@ -75,8 +88,11 @@ public class GoogleServicesSettings
     private ChromeSwitchPreference mSearchSuggestions;
     private ChromeSwitchPreference mUsageAndCrashReporting;
     private ChromeSwitchPreference mUrlKeyedAnonymizedData;
-    private @Nullable ChromeSwitchPreference mAutofillAssistant;
+    private ChromeSwitchPreference mPriceTrackingAnnotations;
     private @Nullable Preference mContextualSearch;
+    private Preference mPriceNotificationSection;
+    private Preference mUsageStatsReporting;
+    private HelpAndFeedbackLauncher mHelpAndFeedbackLauncher;
 
     @Override
     public void onCreatePreferences(@Nullable Bundle savedInstanceState, String rootKey) {
@@ -115,28 +131,38 @@ public class GoogleServicesSettings
         mUrlKeyedAnonymizedData.setOnPreferenceChangeListener(this);
         mUrlKeyedAnonymizedData.setManagedPreferenceDelegate(mManagedPreferenceDelegate);
 
-        mAutofillAssistant = (ChromeSwitchPreference) findPreference(PREF_AUTOFILL_ASSISTANT);
-        Preference autofillAssistantSubsection = findPreference(PREF_AUTOFILL_ASSISTANT_SUBSECTION);
-        // Assistant autofill/voicesearch both live in the sub-section. If either one of them is
-        // enabled, then the subsection should show.
-        if (AssistantFeatures.AUTOFILL_ASSISTANT_PROACTIVE_HELP.isEnabled()
-                || ChromeFeatureList.isEnabled(ChromeFeatureList.OMNIBOX_ASSISTANT_VOICE_SEARCH)) {
-            removePreference(getPreferenceScreen(), mAutofillAssistant);
-            mAutofillAssistant = null;
-            autofillAssistantSubsection.setVisible(true);
-        } else if (shouldShowAutofillAssistantPreference()) {
-            mAutofillAssistant.setOnPreferenceChangeListener(this);
-            mAutofillAssistant.setManagedPreferenceDelegate(mManagedPreferenceDelegate);
-        } else {
-            removePreference(getPreferenceScreen(), mAutofillAssistant);
-            mAutofillAssistant = null;
-        }
-
         mContextualSearch = findPreference(PREF_CONTEXTUAL_SEARCH);
         if (!ContextualSearchFieldTrial.isEnabled()) {
             removePreference(getPreferenceScreen(), mContextualSearch);
             mContextualSearch = null;
         }
+
+        mPriceTrackingAnnotations =
+                (ChromeSwitchPreference) findPreference(PREF_PRICE_TRACKING_ANNOTATIONS);
+        if (!PriceTrackingFeatures.allowUsersToDisablePriceAnnotations()) {
+            removePreference(getPreferenceScreen(), mPriceTrackingAnnotations);
+            mPriceTrackingAnnotations = null;
+        } else {
+            mPriceTrackingAnnotations.setOnPreferenceChangeListener(this);
+            mPriceTrackingAnnotations.setManagedPreferenceDelegate(mManagedPreferenceDelegate);
+        }
+
+        mPriceNotificationSection = findPreference(PREF_PRICE_NOTIFICATION_SECTION);
+        if (ShoppingFeatures.isShoppingListEligible()) {
+            mPriceNotificationSection.setVisible(true);
+        } else {
+            removePreference(getPreferenceScreen(), mPriceNotificationSection);
+            mPriceNotificationSection = null;
+        }
+
+        mUsageStatsReporting = findPreference(PREF_USAGE_STATS_REPORTING);
+        if (ChromeFeatureList.isEnabled(ChromeFeatureList.PRIVACY_SANDBOX_SETTINGS_4)) {
+            mUsageStatsReporting.setVisible(true);
+        } else {
+            removePreference(getPreferenceScreen(), mUsageStatsReporting);
+            mUsageStatsReporting = null;
+        }
+
         updatePreferences();
     }
 
@@ -151,9 +177,8 @@ public class GoogleServicesSettings
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         if (item.getItemId() == R.id.menu_id_targeted_help) {
-            HelpAndFeedbackLauncherImpl.getInstance().show(getActivity(),
-                    getString(R.string.help_context_sync_and_services),
-                    Profile.getLastUsedRegularProfile(), null);
+            mHelpAndFeedbackLauncher.show(
+                    getActivity(), getString(R.string.help_context_sync_and_services), null);
             return true;
         }
         return false;
@@ -192,22 +217,23 @@ public class GoogleServicesSettings
                 return true;
             }
 
-            SignOutDialogFragment signOutFragment =
-                    SignOutDialogFragment.create(GAIAServiceType.GAIA_SERVICE_TYPE_NONE);
-            signOutFragment.setTargetFragment(this, 0);
-            signOutFragment.show(getFragmentManager(), SIGN_OUT_DIALOG_TAG);
+            SignOutDialogCoordinator.show(requireContext(),
+                    ((ModalDialogManagerHolder) getActivity()).getModalDialogManager(), this,
+                    SignOutDialogCoordinator.ActionType.CLEAR_PRIMARY_ACCOUNT,
+                    GAIAServiceType.GAIA_SERVICE_TYPE_NONE);
             // Don't change the preference state yet, it will be updated by onSignOutClicked
             // if the user actually confirms the sign-out.
             return false;
         } else if (PREF_SEARCH_SUGGESTIONS.equals(key)) {
             mPrefService.setBoolean(Pref.SEARCH_SUGGEST_ENABLED, (boolean) newValue);
         } else if (PREF_USAGE_AND_CRASH_REPORTING.equals(key)) {
-            UmaSessionStats.changeMetricsReportingConsent((boolean) newValue);
+            UmaSessionStats.changeMetricsReportingConsent(
+                    (boolean) newValue, ChangeMetricsReportingStateCalledFrom.UI_SETTINGS);
         } else if (PREF_URL_KEYED_ANONYMIZED_DATA.equals(key)) {
             UnifiedConsentServiceBridge.setUrlKeyedAnonymizedDataCollectionEnabled(
                     Profile.getLastUsedRegularProfile(), (boolean) newValue);
-        } else if (PREF_AUTOFILL_ASSISTANT.equals(key)) {
-            setAutofillAssistantSwitchValue((boolean) newValue);
+        } else if (PREF_PRICE_TRACKING_ANNOTATIONS.equals(key)) {
+            PriceTrackingUtilities.setTrackPricesOnTabsEnabled((boolean) newValue);
         }
         return true;
     }
@@ -220,23 +246,39 @@ public class GoogleServicesSettings
     private void updatePreferences() {
         mAllowSignin.setChecked(mPrefService.getBoolean(Pref.SIGNIN_ALLOWED));
         mSearchSuggestions.setChecked(mPrefService.getBoolean(Pref.SEARCH_SUGGEST_ENABLED));
-
-        mUsageAndCrashReporting.setChecked(
-                mPrivacyPrefManager.isUsageAndCrashReportingPermittedByUser()
-                && !mPrivacyPrefManager.isMetricsReportingDisabledByPolicy());
-
+        mUsageAndCrashReporting.setChecked(mPrivacyPrefManager.isUsageAndCrashReportingPermitted());
         mUrlKeyedAnonymizedData.setChecked(
                 UnifiedConsentServiceBridge.isUrlKeyedAnonymizedDataCollectionEnabled(
                         Profile.getLastUsedRegularProfile()));
 
-        if (mAutofillAssistant != null) {
-            mAutofillAssistant.setChecked(isAutofillAssistantSwitchOn());
-        }
         if (mContextualSearch != null) {
             boolean isContextualSearchEnabled =
                     !ContextualSearchManager.isContextualSearchDisabled();
             mContextualSearch.setSummary(
                     isContextualSearchEnabled ? R.string.text_on : R.string.text_off);
+        }
+        if (mPriceTrackingAnnotations != null) {
+            mPriceTrackingAnnotations.setChecked(
+                    PriceTrackingUtilities.isTrackPricesOnTabsEnabled());
+        }
+        if (mUsageStatsReporting != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+                    && mPrefService.getBoolean(Pref.USAGE_STATS_ENABLED)) {
+                mUsageStatsReporting.setOnPreferenceClickListener(preference -> {
+                    UsageStatsConsentDialog
+                            .create(getActivity(), true,
+                                    (didConfirm) -> {
+                                        if (didConfirm) {
+                                            updatePreferences();
+                                        }
+                                    })
+                            .show();
+                    return true;
+                });
+            } else {
+                removePreference(getPreferenceScreen(), mUsageStatsReporting);
+                mUsageStatsReporting = null;
+            }
         }
     }
 
@@ -250,8 +292,8 @@ public class GoogleServicesSettings
                 return mPrefService.isManagedPreference(Pref.SEARCH_SUGGEST_ENABLED);
             }
             if (PREF_USAGE_AND_CRASH_REPORTING.equals(key)) {
-                return PrivacyPreferencesManagerImpl.getInstance()
-                        .isMetricsReportingDisabledByPolicy();
+                return !PrivacyPreferencesManagerImpl.getInstance()
+                                .isUsageAndCrashReportingPermittedByPolicy();
             }
             if (PREF_URL_KEYED_ANONYMIZED_DATA.equals(key)) {
                 return UnifiedConsentServiceBridge.isUrlKeyedAnonymizedDataCollectionManaged(
@@ -259,24 +301,6 @@ public class GoogleServicesSettings
             }
             return false;
         };
-    }
-
-    /**
-     *  This checks whether Autofill Assistant is enabled and was shown at least once (only then
-     *  will the AA switch be assigned a value).
-     */
-    private boolean shouldShowAutofillAssistantPreference() {
-        return AssistantFeatures.AUTOFILL_ASSISTANT.isEnabled()
-                && AutofillAssistantPreferencesUtil.containsAssistantEnabledPreference();
-    }
-
-    public boolean isAutofillAssistantSwitchOn() {
-        return AutofillAssistantPreferencesUtil.getAssistantEnabledPreference(
-                /* defaultValue= */ false);
-    }
-
-    public void setAutofillAssistantSwitchValue(boolean newValue) {
-        AutofillAssistantPreferencesUtil.setAssistantEnabledPreference(newValue);
     }
 
     // SignOutDialogListener implementation:
@@ -308,5 +332,10 @@ public class GoogleServicesSettings
                         forceWipeUserData);
         mPrefService.setBoolean(Pref.SIGNIN_ALLOWED, false);
         updatePreferences();
+    }
+
+    @Override
+    public void setHelpAndFeedbackLauncher(HelpAndFeedbackLauncher helpAndFeedbackLauncher) {
+        mHelpAndFeedbackLauncher = helpAndFeedbackLauncher;
     }
 }

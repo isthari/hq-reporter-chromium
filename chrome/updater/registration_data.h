@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,11 +10,11 @@
 #include "base/files/file_path.h"
 #include "base/version.h"
 #include "chrome/updater/constants.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace updater {
 
-constexpr int kRegistrationSuccess = 0;
-constexpr int kRegistrationAlreadyRegistered = 1;
+inline constexpr int kRegistrationSuccess = 0;
 
 struct RegistrationRequest {
   RegistrationRequest();
@@ -41,20 +41,28 @@ struct RegistrationRequest {
 
   // The version of the app already installed. 0.0.0.0 if the app is not
   // already installed.
-  base::Version version = base::Version(kNullVersion);
+  base::Version version;
 
   // A file path. A file exists at this path if and only if the app is
   // still installed. This is used (on Mac, for example) to detect
   // whether an app has been uninstalled via deletion. May be the empty
   // string; if so, the app is assumed to be installed unconditionally.
   base::FilePath existence_checker_path;
-};
 
-struct RegistrationResponse {
-  explicit RegistrationResponse(int status_code) : status_code(status_code) {}
+  // Date-last-active. The value is the number of days since Jan 1, 2007.
+  absl::optional<int> dla;
 
-  // Status code of the registration.
-  int status_code = kRegistrationSuccess;
+  // Date-last-rollcall. The value is the number of days since Jan 1, 2007.
+  absl::optional<int> dlrc;
+
+  // Opaque cohort string meaningful to the server.
+  std::string cohort;
+
+  // Human-readable interpretation of the cohort.
+  std::string cohort_name;
+
+  // Server may use to move the app to a new cohort.
+  std::string cohort_hint;
 };
 
 }  // namespace updater

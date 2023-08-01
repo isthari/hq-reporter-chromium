@@ -1,11 +1,12 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef ASH_COMPONENTS_ARC_COMPAT_MODE_RESIZE_CONFIRMATION_DIALOG_VIEW_H_
 #define ASH_COMPONENTS_ARC_COMPAT_MODE_RESIZE_CONFIRMATION_DIALOG_VIEW_H_
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
+#include "base/memory/raw_ptr.h"
 #include "ui/views/layout/box_layout_view.h"
 
 namespace aura {
@@ -39,7 +40,7 @@ class ResizeConfirmationDialogView : public views::BoxLayoutView {
     }
 
    private:
-    ResizeConfirmationDialogView* const view_;
+    const raw_ptr<ResizeConfirmationDialogView, ExperimentalAsh> view_;
   };
 
   explicit ResizeConfirmationDialogView(ResizeConfirmationCallback callback);

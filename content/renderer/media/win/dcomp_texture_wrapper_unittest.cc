@@ -1,8 +1,9 @@
-// Copyright (c) 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/run_loop.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/mock_callback.h"
 #include "base/test/task_environment.h"
 #include "content/renderer/media/win/dcomp_texture_factory.h"
@@ -21,31 +22,12 @@
 using base::RunLoop;
 using Microsoft::WRL::ComPtr;
 
+// Stubs out methods of ClientSII that DCompTextureWrapperImpl invokes and for
+// which the production versions cannot run in the context of the unittest.
 class StubClientSharedImageInterface : public gpu::ClientSharedImageInterface {
  public:
   StubClientSharedImageInterface() : gpu::ClientSharedImageInterface(nullptr) {}
   gpu::SyncToken GenVerifiedSyncToken() override { return gpu::SyncToken(); }
-
-  gpu::Mailbox CreateSharedImage(viz::ResourceFormat format,
-                                 const gfx::Size& size,
-                                 const gfx::ColorSpace& color_space,
-                                 GrSurfaceOrigin surface_origin,
-                                 SkAlphaType alpha_type,
-                                 uint32_t usage,
-                                 gpu::SurfaceHandle surface_handle) override {
-    return gpu::Mailbox();
-  }
-
-  gpu::Mailbox CreateSharedImage(
-      viz::ResourceFormat format,
-      const gfx::Size& size,
-      const gfx::ColorSpace& color_space,
-      GrSurfaceOrigin surface_origin,
-      SkAlphaType alpha_type,
-      uint32_t usage,
-      base::span<const uint8_t> pixel_data) override {
-    return gpu::Mailbox();
-  }
 
   gpu::Mailbox CreateSharedImage(
       gfx::GpuMemoryBuffer* gpu_memory_buffer,
@@ -54,7 +36,8 @@ class StubClientSharedImageInterface : public gpu::ClientSharedImageInterface {
       const gfx::ColorSpace& color_space,
       GrSurfaceOrigin surface_origin,
       SkAlphaType alpha_type,
-      uint32_t usage) override {
+      uint32_t usage,
+      base::StringPiece debug_label) override {
     return gpu::Mailbox();
   }
 };
@@ -114,22 +97,18 @@ void DCOMPTextureWrapperTest::CreateDXBackedVideoFrameTestTask(
       base::win::ScopedHandle(CreateEvent(nullptr, FALSE, FALSE, nullptr));
   dx_handle.dxgi_token = gfx::DXGIHandleToken();
   dx_handle.type = gfx::GpuMemoryBufferType::DXGI_SHARED_HANDLE;
-  base::UnguessableToken token = base::UnguessableToken::Create();
   gfx::Size frame_size(1920, 1080);
 
   dcomp_texture_wrapper->CreateVideoFrame(
-      frame_size, std::move(dx_handle), token,
+      frame_size, std::move(dx_handle),
       base::BindRepeating(
-          [](gfx::Size orig_frame_size, base::UnguessableToken orig_token,
-             base::WaitableEvent* wait_event,
-             scoped_refptr<media::VideoFrame> frame,
-             const base::UnguessableToken& token) {
+          [](gfx::Size orig_frame_size, base::WaitableEvent* wait_event,
+             scoped_refptr<media::VideoFrame> frame) {
             EXPECT_EQ(frame->coded_size().width(), orig_frame_size.width());
             EXPECT_EQ(frame->coded_size().height(), orig_frame_size.height());
-            EXPECT_EQ(token, orig_token);
             wait_event->Signal();
           },
-          frame_size, token, &wait_event));
+          frame_size, &wait_event));
   wait_event.Wait();
   std::move(closure).Run();
 }

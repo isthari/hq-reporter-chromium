@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,8 +16,8 @@ import org.chromium.base.ApplicationState;
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.Log;
 import org.chromium.base.ThreadUtils;
-import org.chromium.base.annotations.CheckDiscard;
 import org.chromium.base.metrics.RecordHistogram;
+import org.chromium.build.annotations.CheckDiscard;
 import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.ui.display.DisplayAndroidManager;
 
@@ -45,14 +45,7 @@ public abstract class LaunchCauseMetrics implements ApplicationStatus.Applicatio
 
     @SuppressLint("StaticFieldLeak")
     private static Activity sLastResumedActivity;
-    static {
-        ApplicationStatus.registerStateListenerForAllActivities((activity, newState) -> {
-            if (newState == ActivityState.RESUMED) sLastResumedActivity = activity;
-            if (newState == ActivityState.DESTROYED) {
-                if (activity == sLastResumedActivity) sLastResumedActivity = null;
-            }
-        });
-    }
+    private static ApplicationStatus.ActivityStateListener sAppActivityListener;
 
     // State pertaining to the current launch, reset when Chrome is backgrounded,
     // and after computing LaunchCause.
@@ -79,7 +72,7 @@ public abstract class LaunchCauseMetrics implements ApplicationStatus.Applicatio
             LaunchCause.EXTERNAL_SEARCH_ACTION_INTENT, LaunchCause.NOTIFICATION,
             LaunchCause.EXTERNAL_VIEW_INTENT, LaunchCause.OTHER_CHROME,
             LaunchCause.WEBAPK_CHROME_DISTRIBUTOR, LaunchCause.WEBAPK_OTHER_DISTRIBUTOR,
-            LaunchCause.HOME_SCREEN_SHORTCUT})
+            LaunchCause.HOME_SCREEN_SHORTCUT, LaunchCause.SHARE_INTENT})
     @Retention(RetentionPolicy.SOURCE)
     public @interface LaunchCause {
         int OTHER = 0;
@@ -99,8 +92,9 @@ public abstract class LaunchCauseMetrics implements ApplicationStatus.Applicatio
         int WEBAPK_CHROME_DISTRIBUTOR = 14;
         int WEBAPK_OTHER_DISTRIBUTOR = 15;
         int HOME_SCREEN_SHORTCUT = 16;
+        int SHARE_INTENT = 17;
 
-        int NUM_ENTRIES = 17;
+        int NUM_ENTRIES = 18;
     }
 
     /**
@@ -109,6 +103,22 @@ public abstract class LaunchCauseMetrics implements ApplicationStatus.Applicatio
      */
     public LaunchCauseMetrics(final Activity activity) {
         mActivity = activity;
+        if (sAppActivityListener == null) {
+            sAppActivityListener = new ApplicationStatus.ActivityStateListener() {
+                @Override
+                public void onActivityStateChange(Activity activity, int newState) {
+                    if (newState == ActivityState.RESUMED) sLastResumedActivity = activity;
+                    if (newState == ActivityState.DESTROYED) {
+                        if (activity == sLastResumedActivity) sLastResumedActivity = null;
+                    }
+                }
+            };
+            ApplicationStatus.registerStateListenerForAllActivities(sAppActivityListener);
+            if (ApplicationStatus.getStateForApplication()
+                    == ApplicationState.HAS_RUNNING_ACTIVITIES) {
+                sLastResumedActivity = ApplicationStatus.getLastTrackedFocusedActivity();
+            }
+        }
         ApplicationStatus.registerApplicationStateListener(this);
         ApplicationStatus.registerStateListenerForActivity(this, activity);
     }
@@ -260,6 +270,11 @@ public abstract class LaunchCauseMetrics implements ApplicationStatus.Applicatio
     public static void resetForTests() {
         ThreadUtils.assertOnUiThread();
         sRecordedLaunchCause = false;
+        if (sAppActivityListener != null) {
+            ApplicationStatus.unregisterActivityStateListener(sAppActivityListener);
+            sAppActivityListener = null;
+        }
+        sLastResumedActivity = null;
     }
 
     @CheckDiscard("")

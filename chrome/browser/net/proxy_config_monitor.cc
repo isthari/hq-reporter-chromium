@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include "components/proxy_config/pref_proxy_config_tracker_impl.h"
 #include "content/public/browser/browser_thread.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
+#include "services/network/public/cpp/features.h"
 #include "services/network/public/mojom/network_context.mojom.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -35,10 +36,11 @@ ProxyConfigMonitor::ProxyConfigMonitor(Profile* profile) {
   profile_ = profile;
 #endif
 
-// If this is the ChromeOS sign-in profile, just create the tracker from global
-// state.
+// If this is the ChromeOS sign-in or lock screen profile, just create the
+// tracker from global state.
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  if (ash::ProfileHelper::IsSigninProfile(profile)) {
+  if (ash::ProfileHelper::IsSigninProfile(profile) ||
+      ash::ProfileHelper::IsLockScreenProfile(profile)) {
     pref_proxy_config_tracker_ =
         ProxyServiceFactory::CreatePrefProxyConfigTrackerOfLocalState(
             g_browser_process->local_state());
@@ -84,9 +86,13 @@ void ProxyConfigMonitor::AddToNetworkContextParams(
       proxy_config_client.InitWithNewPipeAndPassReceiver();
   proxy_config_client_set_.Add(std::move(proxy_config_client));
 
-  poller_receiver_set_.Add(this,
-                           network_context_params->proxy_config_poller_client
-                               .InitWithNewPipeAndPassReceiver());
+  if (!base::FeatureList::IsEnabled(
+          network::features::kLessChattyNetworkService) ||
+      proxy_config_service_->UsesPolling()) {
+    poller_receiver_set_.Add(this,
+                             network_context_params->proxy_config_poller_client
+                                 .InitWithNewPipeAndPassReceiver());
+  }
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   error_receiver_set_.Add(this, network_context_params->proxy_error_client

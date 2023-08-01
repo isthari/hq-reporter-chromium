@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,9 @@ package org.chromium.chrome.browser.omnibox.voice;
 import android.content.Intent;
 import android.content.pm.ResolveInfo;
 import android.speech.RecognizerIntent;
-import android.support.test.InstrumentationRegistry;
 import android.test.mock.MockPackageManager;
 
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.SmallTest;
 
 import org.junit.Assert;
@@ -66,7 +66,7 @@ public class VoiceRecognitionUtilTest {
         private final String mAction;
 
         public IntentTestMockContext(String recognizesAction) {
-            super(InstrumentationRegistry.getTargetContext());
+            super(ApplicationProvider.getApplicationContext());
             mAction = recognizesAction;
         }
 

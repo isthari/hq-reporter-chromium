@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,30 +10,31 @@
 #include <memory>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/test/simple_test_tick_clock.h"
+#include "base/time/time.h"
 #include "media/base/fake_single_thread_task_runner.h"
 #include "media/base/video_frame.h"
 #include "media/cast/cast_environment.h"
+#include "media/cast/common/video_frame_factory.h"
 #include "media/cast/constants.h"
 #include "media/cast/logging/simple_event_subscriber.h"
 #include "media/cast/net/cast_transport_config.h"
 #include "media/cast/net/cast_transport_impl.h"
 #include "media/cast/net/pacing/paced_sender.h"
-#include "media/cast/sender/fake_video_encode_accelerator_factory.h"
-#include "media/cast/sender/video_frame_factory.h"
+#include "media/cast/test/fake_video_encode_accelerator_factory.h"
 #include "media/cast/test/utility/default_config.h"
 #include "media/cast/test/utility/video_utility.h"
 #include "media/video/fake_video_encode_accelerator.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-namespace media {
-namespace cast {
+namespace media::cast {
 
 namespace {
 static const uint8_t kPixelValue = 123;
@@ -124,8 +125,11 @@ class PeerVideoSender : public VideoSender {
                     base::BindRepeating(&PeerVideoSender::ProcessFeedback,
                                         base::Unretained(this))) {}
 
-  using VideoSender::OnReceivedCastFeedback;
-  using VideoSender::OnReceivedPli;
+  void OnReceivedCastFeedback(const RtcpCastMessage& cast_feedback) {
+    frame_sender_for_testing()->OnReceivedCastFeedback(cast_feedback);
+  }
+
+  void OnReceivedPli() { frame_sender_for_testing()->OnReceivedPli(); }
 
   void ProcessFeedback(const media::VideoCaptureFeedback& feedback) {
     feedback_ = feedback;
@@ -172,10 +176,11 @@ class VideoSenderTest : public ::testing::Test {
     testing_clock_.Advance(base::TimeTicks::Now() - base::TimeTicks());
     vea_factory_.SetAutoRespond(true);
     last_pixel_value_ = kPixelValue;
-    transport_ = new TestPacketSender();
+    auto sender = std::make_unique<TestPacketSender>();
+    transport_ = sender.get();
     transport_sender_ = std::make_unique<CastTransportImpl>(
         &testing_clock_, base::TimeDelta(), std::make_unique<TransportClient>(),
-        base::WrapUnique(transport_.get()), task_runner_);
+        std::move(sender), task_runner_);
   }
 
   ~VideoSenderTest() override = default;
@@ -189,7 +194,7 @@ class VideoSenderTest : public ::testing::Test {
   // |expect_init_success| is true if initialization is expected to succeed.
   void InitEncoder(bool external, bool expect_init_success) {
     FrameSenderConfig video_config = GetDefaultVideoSenderConfig();
-    video_config.use_external_encoder = external;
+    video_config.use_hardware_encoder = external;
 
     ASSERT_EQ(operational_status_, STATUS_UNINITIALIZED);
 
@@ -244,8 +249,8 @@ class VideoSenderTest : public ::testing::Test {
   const scoped_refptr<CastEnvironment> cast_environment_;
   OperationalStatus operational_status_;
   FakeVideoEncodeAcceleratorFactory vea_factory_;
-  raw_ptr<TestPacketSender> transport_;  // Owned by CastTransport.
   std::unique_ptr<CastTransportImpl> transport_sender_;
+  raw_ptr<TestPacketSender> transport_;  // Owned by CastTransport.
   std::unique_ptr<PeerVideoSender> video_sender_;
   int last_pixel_value_;
   base::TimeTicks first_frame_timestamp_;
@@ -330,7 +335,7 @@ TEST_F(VideoSenderTest, RtcpTimer) {
 
   // Make sure that we send at least one RTCP packet.
   base::TimeDelta max_rtcp_timeout =
-      base::Milliseconds(1 + kRtcpReportIntervalMs * 3 / 2);
+      base::Milliseconds(1) + kRtcpReportInterval * 3 / 2;
 
   RunTasks(max_rtcp_timeout.InMilliseconds());
   EXPECT_LE(1, transport_->number_of_rtp_packets());
@@ -363,7 +368,7 @@ TEST_F(VideoSenderTest, ResendTimer) {
   video_sender_->InsertRawVideoFrame(video_frame, reference_time);
 
   base::TimeDelta max_resend_timeout =
-      base::Milliseconds(1 + kDefaultRtpMaxDelayMs);
+      kDefaultTargetPlayoutDelay + base::Milliseconds(1);
 
   // Make sure that we do a re-send.
   RunTasks(max_resend_timeout.InMilliseconds());
@@ -414,7 +419,9 @@ TEST_F(VideoSenderTest, StopSendingInTheAbsenceOfAck) {
   // than 4 frames in flight.
   scoped_refptr<media::VideoFrame> video_frame = GetNewVideoFrame();
   video_sender_->InsertRawVideoFrame(video_frame, testing_clock_.NowTicks());
-  RunTasks(33);
+  // Give time for the frame to be processed plus handling some of the playout
+  // delay.
+  RunTasks(300);
 
   // Send 3 more frames and record the number of packets sent.
   for (int i = 0; i < 3; ++i) {
@@ -636,5 +643,4 @@ TEST_F(VideoSenderTest, CancelSendingOnReceivingPli) {
   EXPECT_EQ(2, transport_->number_of_rtp_packets());
 }
 
-}  // namespace cast
-}  // namespace media
+}  // namespace media::cast

@@ -38,6 +38,7 @@
 #include "third_party/blink/public/web/web_element_collection.h"
 #include "third_party/blink/renderer/core/accessibility/ax_object_cache.h"
 #include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/dom/dom_node_ids.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/dom/node.h"
@@ -134,18 +135,19 @@ bool WebNode::IsCommentNode() const {
 }
 
 bool WebNode::IsFocusable() const {
-  auto* element = DynamicTo<Element>(private_.Get());
+  auto* element = ::blink::DynamicTo<Element>(private_.Get());
   if (!element)
     return false;
   if (!private_->GetDocument().HaveRenderBlockingResourcesLoaded())
     return false;
-  private_->GetDocument().UpdateStyleAndLayoutTreeForNode(private_.Get());
+  private_->GetDocument().UpdateStyleAndLayoutTreeForNode(
+      private_.Get(), DocumentUpdateReason::kFocus);
   return element->IsFocusable();
 }
 
 bool WebNode::IsContentEditable() const {
   private_->GetDocument().UpdateStyleAndLayoutTree();
-  return HasEditableStyle(*private_);
+  return blink::IsEditable(*private_);
 }
 
 bool WebNode::IsInsideFocusableElementOrARIAWidget() const {
@@ -180,9 +182,9 @@ void WebNode::SimulateClick() {
   private_->GetExecutionContext()
       ->GetTaskRunner(TaskType::kUserInteraction)
       ->PostTask(FROM_HERE,
-                 WTF::Bind(&Node::DispatchSimulatedClick,
-                           WrapWeakPersistent(private_.Get()), nullptr,
-                           SimulatedClickCreationScope::kFromUserAgent));
+                 WTF::BindOnce(&Node::DispatchSimulatedClick,
+                               WrapWeakPersistent(private_.Get()), nullptr,
+                               SimulatedClickCreationScope::kFromUserAgent));
 }
 
 WebElementCollection WebNode::GetElementsByHTMLTagName(
@@ -222,11 +224,8 @@ bool WebNode::Focused() const {
   return private_->IsFocused();
 }
 
-uint64_t WebNode::ScrollingElementIdForTesting() const {
-  return private_->GetLayoutBox()
-      ->GetScrollableArea()
-      ->GetScrollElementId()
-      .GetStableId();
+cc::ElementId WebNode::ScrollingElementIdForTesting() const {
+  return private_->GetLayoutBox()->GetScrollableArea()->GetScrollElementId();
 }
 
 WebPluginContainer* WebNode::PluginContainer() const {
@@ -244,6 +243,10 @@ WebNode& WebNode::operator=(Node* node) {
 
 WebNode::operator Node*() const {
   return private_.Get();
+}
+
+int WebNode::GetDevToolsNodeId() const {
+  return DOMNodeIds::IdForNode(private_.Get());
 }
 
 }  // namespace blink

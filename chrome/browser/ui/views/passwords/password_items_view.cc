@@ -1,25 +1,29 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/passwords/password_items_view.h"
 
-#include <algorithm>
 #include <memory>
 #include <numeric>
 #include <utility>
 
+#include "base/containers/contains.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/types/strong_alias.h"
 #include "build/branding_buildflags.h"
 #include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/ui/passwords/bubble_controllers/items_bubble_controller.h"
-#include "chrome/browser/ui/passwords/manage_passwords_view_utils.h"
 #include "chrome/browser/ui/passwords/passwords_model_delegate.h"
+#include "chrome/browser/ui/passwords/ui_utils.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
+#include "chrome/browser/ui/views/chrome_typography.h"
+#include "chrome/browser/ui/views/passwords/views_utils.h"
+#include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/password_manager/core/browser/password_form.h"
+#include "components/password_manager/core/browser/password_manager_client.h"
 #include "components/password_manager/core/common/password_manager_ui.h"
 #include "components/vector_icons/vector_icons.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -42,6 +46,7 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/link.h"
 #include "ui/views/controls/separator.h"
+#include "ui/views/controls/styled_label.h"
 #include "ui/views/layout/table_layout.h"
 #include "ui/views/style/typography.h"
 #include "ui/views/view_class_properties.h"
@@ -61,12 +66,11 @@ enum PasswordItemsViewColumnSetType {
 };
 
 PasswordItemsViewColumnSetType InferColumnSetTypeFromCredentials(
-    const std::vector<password_manager::PasswordForm>& credentials) {
-  if (std::any_of(credentials.begin(), credentials.end(),
-                  [](const password_manager::PasswordForm& form) {
-                    return form.in_store ==
-                           password_manager::PasswordForm::Store::kAccountStore;
-                  })) {
+    const std::vector<std::unique_ptr<password_manager::PasswordForm>>&
+        credentials) {
+  if (base::Contains(credentials,
+                     password_manager::PasswordForm::Store::kAccountStore,
+                     &password_manager::PasswordForm::in_store)) {
     return MULTI_STORE_PASSWORD_COLUMN_SET;
   }
   return PASSWORD_COLUMN_SET;
@@ -128,7 +132,7 @@ void BuildColumnSet(views::TableLayout* table_layout,
 class PasswordItemsView::PasswordRow {
  public:
   PasswordRow(PasswordItemsView* parent,
-              const password_manager::PasswordForm* password_form);
+              password_manager::PasswordForm password_form);
 
   PasswordRow(const PasswordRow&) = delete;
   PasswordRow& operator=(const PasswordRow&) = delete;
@@ -146,14 +150,14 @@ class PasswordItemsView::PasswordRow {
   void UndoButtonPressed();
 
   const raw_ptr<PasswordItemsView> parent_;
-  const raw_ptr<const password_manager::PasswordForm> password_form_;
+  const password_manager::PasswordForm password_form_;
   bool deleted_ = false;
 };
 
 PasswordItemsView::PasswordRow::PasswordRow(
     PasswordItemsView* parent,
-    const password_manager::PasswordForm* password_form)
-    : parent_(parent), password_form_(password_form) {}
+    password_manager::PasswordForm password_form)
+    : parent_(parent), password_form_(std::move(password_form)) {}
 
 void PasswordItemsView::PasswordRow::AddToLayout(
     views::TableLayout* table_layout,
@@ -181,7 +185,7 @@ void PasswordItemsView::PasswordRow::AddUndoRow(
                               base::Unretained(this)),
           l10n_util::GetStringUTF16(IDS_MANAGE_PASSWORDS_UNDO)));
   undo_button->SetTooltipText(l10n_util::GetStringFUTF16(
-      IDS_MANAGE_PASSWORDS_UNDO_TOOLTIP, GetDisplayUsername(*password_form_)));
+      IDS_MANAGE_PASSWORDS_UNDO_TOOLTIP, GetDisplayUsername(password_form_)));
 }
 
 void PasswordItemsView::PasswordRow::AddPasswordRow(
@@ -198,21 +202,21 @@ void PasswordItemsView::PasswordRow::AddPasswordRow(
         ->SetImage(parent_->favicon_.AsImageSkia());
   }
 
-  parent_->AddChildView(CreateUsernameLabel(*password_form_));
-  parent_->AddChildView(CreatePasswordLabel(*password_form_));
+  parent_->AddChildView(CreateUsernameLabel(password_form_));
+  parent_->AddChildView(CreatePasswordLabel(password_form_));
 
   if (type_id == MULTI_STORE_PASSWORD_COLUMN_SET) {
-    if (password_form_->in_store ==
+    if (password_form_.in_store ==
         password_manager::PasswordForm::Store::kAccountStore) {
       auto* image_view =
           parent_->AddChildView(std::make_unique<views::ImageView>());
-      image_view->SetImage(gfx::CreateVectorIcon(
+      image_view->SetImage(ui::ImageModel::FromVectorIcon(
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
-          kGoogleGLogoIcon,
+          vector_icons::kGoogleGLogoIcon,
 #else
           vector_icons::kSyncIcon,
 #endif  // !BUILDFLAG(GOOGLE_CHROME_BRANDING)
-          gfx::kFaviconSize, gfx::kPlaceholderColor));
+          gfx::kPlaceholderColor, gfx::kFaviconSize));
       image_view->SetAccessibleName(l10n_util::GetStringUTF16(
           IDS_MANAGE_PASSWORDS_ACCOUNT_STORE_ICON_DESCRIPTION));
     } else {
@@ -223,7 +227,7 @@ void PasswordItemsView::PasswordRow::AddPasswordRow(
         parent_->AddChildView(std::make_unique<views::Separator>());
     separator->SetFocusBehavior(
         LocationBarBubbleDelegateView::FocusBehavior::NEVER);
-    separator->SetPreferredHeight(views::style::GetLineHeight(
+    separator->SetPreferredLength(views::style::GetLineHeight(
         views::style::CONTEXT_MENU, views::style::STYLE_SECONDARY));
     separator->SetCanProcessEventsWithinSubtree(false);
   }
@@ -234,20 +238,20 @@ void PasswordItemsView::PasswordRow::AddPasswordRow(
                               base::Unretained(this)),
           kTrashCanIcon))
       ->SetTooltipText(l10n_util::GetStringFUTF16(
-          IDS_MANAGE_PASSWORDS_DELETE, GetDisplayUsername(*password_form_)));
+          IDS_MANAGE_PASSWORDS_DELETE, GetDisplayUsername(password_form_)));
 }
 
 void PasswordItemsView::PasswordRow::DeleteButtonPressed() {
   deleted_ = true;
   parent_->NotifyPasswordFormAction(
-      *password_form_,
+      password_form_,
       PasswordBubbleControllerBase::PasswordAction::kRemovePassword);
 }
 
 void PasswordItemsView::PasswordRow::UndoButtonPressed() {
   deleted_ = false;
   parent_->NotifyPasswordFormAction(
-      *password_form_,
+      password_form_,
       PasswordBubbleControllerBase::PasswordAction::kAddPassword);
 }
 
@@ -269,7 +273,9 @@ PasswordItemsView::PasswordItemsView(content::WebContents* web_contents,
           base::Unretained(this)),
       l10n_util::GetStringUTF16(IDS_PASSWORD_MANAGER_MANAGE_PASSWORDS_BUTTON)));
 
-  auto& local_credentials = controller_.local_credentials();
+  SetFootnoteView(CreateFooterView());
+
+  auto& local_credentials = controller_.GetCredentials();
 
   if (local_credentials.empty()) {
     // A LayoutManager is required for GetHeightForWidth() even without
@@ -283,10 +289,12 @@ PasswordItemsView::PasswordItemsView(content::WebContents* web_contents,
         &PasswordItemsView::OnFaviconReady, base::Unretained(this)));
     for (auto& password_form : local_credentials) {
       password_rows_.push_back(
-          std::make_unique<PasswordRow>(this, &password_form));
+          std::make_unique<PasswordRow>(this, *password_form));
     }
     RecreateLayout();
   }
+
+  SetShowIcon(true);
 }
 
 PasswordItemsView::~PasswordItemsView() = default;
@@ -299,17 +307,22 @@ const PasswordBubbleControllerBase* PasswordItemsView::GetController() const {
   return &controller_;
 }
 
+ui::ImageModel PasswordItemsView::GetWindowIcon() {
+  return ui::ImageModel::FromVectorIcon(GooglePasswordManagerVectorIcon(),
+                                        ui::kColorIcon);
+}
+
 void PasswordItemsView::RecreateLayout() {
   // This method should only be used when we have password rows, otherwise the
   // dialog should only show the no-passwords title and doesn't need to be
   // recreated.
-  DCHECK(!controller_.local_credentials().empty());
+  DCHECK(!controller_.GetCredentials().empty());
 
   RemoveAllChildViews();
 
   auto* table_layout = SetLayoutManager(std::make_unique<views::TableLayout>());
   BuildColumnSet(table_layout, InferColumnSetTypeFromCredentials(
-                                   controller_.local_credentials()));
+                                   controller_.GetCredentials()));
 
   const int vertical_padding = ChromeLayoutProvider::Get()->GetDistanceMetric(
       DISTANCE_CONTROL_LIST_VERTICAL);
@@ -320,13 +333,52 @@ void PasswordItemsView::RecreateLayout() {
                                   vertical_padding);
     }
     row->AddToLayout(table_layout, InferColumnSetTypeFromCredentials(
-                                       controller_.local_credentials()));
+                                       controller_.GetCredentials()));
     first = false;
   }
 
   PreferredSizeChanged();
   if (GetBubbleFrameView())
     SizeToContents();
+}
+
+std::unique_ptr<views::View> PasswordItemsView::CreateFooterView() {
+  base::RepeatingClosure open_password_manager_closure = base::BindRepeating(
+      [](PasswordItemsView* dialog) {
+        dialog->controller_.OnGooglePasswordManagerLinkClicked();
+      },
+      base::Unretained(this));
+
+  switch (controller_.GetPasswordSyncState()) {
+    case password_manager::SyncState::kNotSyncing:
+      return CreateGooglePasswordManagerLabel(
+          /*text_message_id=*/
+          IDS_PASSWORD_BUBBLES_FOOTER_SAVING_ON_DEVICE,
+          /*link_message_id=*/
+          IDS_PASSWORD_BUBBLES_PASSWORD_MANAGER_LINK_TEXT_SAVING_ON_DEVICE,
+          open_password_manager_closure);
+    case password_manager::SyncState::kSyncingNormalEncryption:
+    case password_manager::SyncState::kSyncingWithCustomPassphrase:
+      return CreateGooglePasswordManagerLabel(
+          /*text_message_id=*/
+          IDS_PASSWORD_BUBBLES_FOOTER_SYNCED_TO_ACCOUNT,
+          /*link_message_id=*/
+          IDS_PASSWORD_BUBBLES_PASSWORD_MANAGER_LINK_TEXT_SYNCED_TO_ACCOUNT,
+          controller_.GetPrimaryAccountEmail(), open_password_manager_closure);
+    case password_manager::SyncState::kAccountPasswordsActiveNormalEncryption:
+      // Account store users have a special footer in the management bubble
+      // since they might have a mix of synced and non-synced passwords.
+      return CreateGooglePasswordManagerLabel(
+          /*text_message_id=*/
+          IDS_PASSWORD_MANAGEMENT_BUBBLE_FOOTER_ACCOUNT_STORE_USERS,
+          /*link_message_id=*/
+          IDS_PASSWORD_BUBBLES_PASSWORD_MANAGER_LINK_TEXT_SYNCED_TO_ACCOUNT,
+          open_password_manager_closure);
+    case password_manager::SyncState::
+        kAccountPasswordsActiveWithCustomPassphrase:
+      // Unreachable on desktop platforms.
+      NOTREACHED_NORETURN();
+  }
 }
 
 void PasswordItemsView::NotifyPasswordFormAction(

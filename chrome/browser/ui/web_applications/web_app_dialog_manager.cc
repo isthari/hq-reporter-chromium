@@ -1,19 +1,19 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/web_applications/web_app_dialog_manager.h"
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/metrics/histogram_functions.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/web_applications/web_app_uninstall_dialog.h"
 #include "chrome/browser/web_applications/web_app_install_finalizer.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
+#include "components/webapps/browser/uninstall_result_code.h"
 
 namespace web_app {
 
@@ -21,14 +21,6 @@ WebAppDialogManager::WebAppDialogManager(Profile* profile)
     : profile_(profile) {}
 
 WebAppDialogManager::~WebAppDialogManager() = default;
-
-bool WebAppDialogManager::CanUserUninstallWebApp(const AppId& app_id) const {
-  auto* provider = WebAppProvider::GetForWebApps(profile_);
-  if (!provider)
-    return false;
-
-  return provider->install_finalizer().CanUserUninstallWebApp(app_id);
-}
 
 void WebAppDialogManager::UninstallWebApp(
     const AppId& app_id,
@@ -61,11 +53,11 @@ void WebAppDialogManager::UninstallWebApp(
 void WebAppDialogManager::OnWebAppUninstallDialogClosed(
     WebAppUninstallDialog* dialog,
     Callback callback,
-    bool uninstalled) {
+    webapps::UninstallResultCode code) {
   DCHECK(dialogs_.contains(dialog));
   dialogs_.erase(dialog);
 
-  std::move(callback).Run(/*success=*/uninstalled);
+  std::move(callback).Run(code);
 }
 
 }  // namespace web_app

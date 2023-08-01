@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,10 @@
 
 #include <memory>
 
+#include "base/auto_reset.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/time/time.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/common/permissions_policy/policy_value.h"
 #include "third_party/blink/public/mojom/permissions_policy/document_policy_feature.mojom-blink.h"
 #include "third_party/blink/public/mojom/permissions_policy/permissions_policy_feature.mojom-blink.h"
@@ -19,10 +22,13 @@
 #include "third_party/blink/renderer/platform/graphics/bitmap_image.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_vector.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
+#include "third_party/blink/renderer/platform/loader/fetch/resource_load_timing.h"
+#include "third_party/blink/renderer/platform/loader/fetch/resource_response.h"
 #include "third_party/blink/renderer/platform/network/http_parsers.h"
 #include "third_party/blink/renderer/platform/network/mime/mime_type_registry.h"
 #include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
+#include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "ui/gfx/geometry/size.h"
 #include "v8/include/v8.h"
@@ -44,6 +50,7 @@ class NullImageResourceInfo final
  private:
   const KURL& Url() const override { return url_; }
   base::TimeTicks LoadResponseEnd() const override { return base::TimeTicks(); }
+  base::TimeTicks LoadStart() const override { return base::TimeTicks(); }
   const ResourceResponse& GetResponse() const override { return response_; }
   bool IsCacheValidator() const override { return false; }
   bool IsAccessAllowed(
@@ -69,6 +76,10 @@ class NullImageResourceInfo final
 
   const HashSet<String>* GetUnsupportedImageMimeTypes() const override {
     return nullptr;
+  }
+
+  absl::optional<WebURLRequest::Priority> RequestPriority() const override {
+    return absl::nullopt;
   }
 
   const KURL url_;
@@ -103,6 +114,10 @@ ImageResourceContent* ImageResourceContent::Fetch(FetchParameters& params,
   ImageResource* resource = ImageResource::Fetch(params, fetcher);
   if (!resource)
     return nullptr;
+  resource->GetContent()->SetIsLoadedFromMemoryCache(
+      resource->IsLoadedFromMemoryCache());
+  resource->GetContent()->SetIsPreloadedWithEarlyHints(
+      resource->IsPreloadedByEarlyHints());
   return resource->GetContent();
 }
 
@@ -115,6 +130,7 @@ void ImageResourceContent::Trace(Visitor* visitor) const {
   visitor->Trace(observers_);
   visitor->Trace(finished_observers_);
   ImageObserver::Trace(visitor);
+  MediaTiming::Trace(visitor);
 }
 
 void ImageResourceContent::HandleObserverFinished(
@@ -150,7 +166,7 @@ void ImageResourceContent::AddObserver(ImageResourceObserver* observer) {
     observer->ImageChanged(this, CanDeferInvalidation::kNo);
   }
 
-  if (IsLoaded() && observers_.Contains(observer))
+  if (IsSufficientContentLoadedForPaint() && observers_.Contains(observer))
     HandleObserverFinished(observer);
 }
 
@@ -178,25 +194,41 @@ void ImageResourceContent::DidRemoveObserver() {
   info_->DidRemoveClientOrObserver();
 }
 
-static void PriorityFromObserver(const ImageResourceObserver* observer,
-                                 ResourcePriority& priority) {
+static void PriorityFromObserver(
+    const ImageResourceObserver* observer,
+    ResourcePriority& priority,
+    ResourcePriority& priority_excluding_image_loader) {
   ResourcePriority next_priority = observer->ComputeResourcePriority();
   if (next_priority.visibility == ResourcePriority::kNotVisible)
     return;
+
   priority.visibility = ResourcePriority::kVisible;
   priority.intra_priority_value += next_priority.intra_priority_value;
+
+  if (next_priority.source != ResourcePriority::Source::kImageLoader) {
+    priority_excluding_image_loader.visibility = ResourcePriority::kVisible;
+    priority_excluding_image_loader.intra_priority_value +=
+        next_priority.intra_priority_value;
+  }
 }
 
-ResourcePriority ImageResourceContent::PriorityFromObservers() const {
+std::pair<ResourcePriority, ResourcePriority>
+ImageResourceContent::PriorityFromObservers() const {
   ProhibitAddRemoveObserverInScope prohibit_add_remove_observer_in_scope(this);
   ResourcePriority priority;
+  ResourcePriority priority_excluding_image_loader;
 
   for (const auto& it : finished_observers_)
-    PriorityFromObserver(it.key, priority);
+    PriorityFromObserver(it.key, priority, priority_excluding_image_loader);
   for (const auto& it : observers_)
-    PriorityFromObserver(it.key, priority);
+    PriorityFromObserver(it.key, priority, priority_excluding_image_loader);
 
-  return priority;
+  return std::make_pair(priority, priority_excluding_image_loader);
+}
+
+absl::optional<WebURLRequest::Priority> ImageResourceContent::RequestPriority()
+    const {
+  return info_->RequestPriority();
 }
 
 void ImageResourceContent::DestroyDecodedData() {
@@ -429,12 +461,11 @@ ImageResourceContent::UpdateImageResult ImageResourceContent::UpdateImage(
       if (size_available_ == Image::kSizeUnavailable && !all_data_received)
         return UpdateImageResult::kNoDecodeError;
 
-      if (image_ && info_->GetUnsupportedImageMimeTypes()) {
-        // Filename extension is set by the image decoder based on the actual
-        // image content.
-        String file_extension = image_->FilenameExtension();
-        if (info_->GetUnsupportedImageMimeTypes()->Contains(
-                String("image/" + file_extension))) {
+      if (image_) {
+        const HashSet<String>* unsupported_mime_types =
+            info_->GetUnsupportedImageMimeTypes();
+        if (unsupported_mime_types &&
+            unsupported_mime_types->Contains(image_->MimeType())) {
           return UpdateImageResult::kShouldDecodeError;
         }
       }
@@ -485,11 +516,14 @@ ImageDecoder::CompressionFormat ImageResourceContent::GetCompressionFormat()
 }
 
 uint64_t ImageResourceContent::ContentSizeForEntropy() const {
-  uint64_t resource_length =
-      static_cast<double>(GetResponse().ExpectedContentLength());
-  if (resource_length <= 0 && image_ && image_->HasData()) {
-    // WPT and LayoutTests server returns -1 or 0 for the content length.
-    resource_length = image_->DataSize();
+  int64_t resource_length = GetResponse().ExpectedContentLength();
+  if (resource_length <= 0) {
+    if (image_ && image_->HasData()) {
+      // WPT and LayoutTests server returns -1 or 0 for the content length.
+      resource_length = image_->DataSize();
+    } else {
+      resource_length = 0;
+    }
   }
   return resource_length;
 }
@@ -614,6 +648,14 @@ void ImageResourceContent::EmulateLoadStartedForInspector(
   info_->EmulateLoadStartedForInspector(fetcher, url, initiator_name);
 }
 
+void ImageResourceContent::SetIsSufficientContentLoadedForPaint() {
+  NOTREACHED();
+}
+
+bool ImageResourceContent::IsSufficientContentLoadedForPaint() const {
+  return IsLoaded();
+}
+
 bool ImageResourceContent::IsLoaded() const {
   return GetContentStatus() > ResourceStatus::kPending;
 }
@@ -635,9 +677,16 @@ ResourceStatus ImageResourceContent::GetContentStatus() const {
   return content_status_;
 }
 
-bool ImageResourceContent::IsAnimatedImageWithPaintedFirstFrame() const {
-  return (image_ && !image_->IsNull() && image_->MaybeAnimated() &&
-          image_->CurrentFrameIsComplete());
+bool ImageResourceContent::IsAnimatedImage() const {
+  return image_ && !image_->IsNull() && image_->MaybeAnimated();
+}
+
+bool ImageResourceContent::IsPaintedFirstFrame() const {
+  return IsAnimatedImage() && image_->CurrentFrameIsComplete();
+}
+
+bool ImageResourceContent::TimingAllowPassed() const {
+  return GetResponse().TimingAllowPassed();
 }
 
 // TODO(hiroshige): Consider removing the following methods, or stopping
@@ -646,7 +695,29 @@ const KURL& ImageResourceContent::Url() const {
   return info_->Url();
 }
 
-base::TimeTicks ImageResourceContent::LoadResponseEnd() const {
+bool ImageResourceContent::IsDataUrl() const {
+  return Url().ProtocolIsData();
+}
+
+AtomicString ImageResourceContent::MediaType() const {
+  if (!image_)
+    return AtomicString();
+  return AtomicString(image_->FilenameExtension());
+}
+
+base::TimeTicks ImageResourceContent::DiscoveryTime() const {
+  return discovery_time_;
+}
+
+void ImageResourceContent::SetDiscoveryTime(base::TimeTicks discovery_time) {
+  discovery_time_ = discovery_time;
+}
+
+base::TimeTicks ImageResourceContent::LoadStart() const {
+  return info_->LoadStart();
+}
+
+base::TimeTicks ImageResourceContent::LoadEnd() const {
   return info_->LoadResponseEnd();
 }
 

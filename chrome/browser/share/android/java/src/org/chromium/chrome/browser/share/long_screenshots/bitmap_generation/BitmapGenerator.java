@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,6 @@ import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.Callback;
-import org.chromium.chrome.browser.share.long_screenshots.LongScreenshotsMetrics;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.components.paintpreview.player.CompositorStatus;
 import org.chromium.url.GURL;
@@ -179,7 +178,6 @@ public class BitmapGenerator implements LongScreenshotsTabService.CaptureProcess
     }
 
     private void onCaptureResult(@Status int status) {
-        LongScreenshotsMetrics.logBitmapGenerationStatus(status);
         mGeneratorCallBack.onCaptureResult(status);
     }
 }

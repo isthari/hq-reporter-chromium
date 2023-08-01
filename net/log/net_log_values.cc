@@ -1,14 +1,14 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "net/log/net_log_values.h"
 
 #include "base/base64.h"
+#include "base/strings/escape.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
-#include "net/base/escape.h"
 
 namespace net {
 
@@ -53,7 +53,8 @@ base::Value NetLogStringValue(base::StringPiece raw) {
   // is added so the escaped string is not itself also ASCII (otherwise there
   // would be ambiguity for consumers as to when the value needs to be
   // unescaped).
-  return base::Value("%ESCAPED:\xE2\x80\x8B " + EscapeNonASCIIAndPercent(raw));
+  return base::Value("%ESCAPED:\xE2\x80\x8B " +
+                     base::EscapeNonASCIIAndPercent(raw));
 }
 
 base::Value NetLogBinaryValue(base::span<const uint8_t> bytes) {
@@ -79,28 +80,28 @@ base::Value NetLogNumberValue(uint32_t num) {
   return NetLogNumberValueHelper(num);
 }
 
-base::Value NetLogParamsWithInt(base::StringPiece name, int value) {
-  base::Value params(base::Value::Type::DICTIONARY);
-  params.SetIntKey(name, value);
+base::Value::Dict NetLogParamsWithInt(base::StringPiece name, int value) {
+  base::Value::Dict params;
+  params.Set(name, value);
   return params;
 }
 
-base::Value NetLogParamsWithInt64(base::StringPiece name, int64_t value) {
-  base::Value params(base::Value::Type::DICTIONARY);
-  params.SetKey(name, NetLogNumberValue(value));
+base::Value::Dict NetLogParamsWithInt64(base::StringPiece name, int64_t value) {
+  base::Value::Dict params;
+  params.Set(name, NetLogNumberValue(value));
   return params;
 }
 
-base::Value NetLogParamsWithBool(base::StringPiece name, bool value) {
-  base::Value params(base::Value::Type::DICTIONARY);
-  params.SetBoolKey(name, value);
+base::Value::Dict NetLogParamsWithBool(base::StringPiece name, bool value) {
+  base::Value::Dict params;
+  params.Set(name, value);
   return params;
 }
 
-base::Value NetLogParamsWithString(base::StringPiece name,
-                                   base::StringPiece value) {
-  base::Value params(base::Value::Type::DICTIONARY);
-  params.SetStringKey(name, value);
+base::Value::Dict NetLogParamsWithString(base::StringPiece name,
+                                         base::StringPiece value) {
+  base::Value::Dict params;
+  params.Set(name, value);
   return params;
 }
 

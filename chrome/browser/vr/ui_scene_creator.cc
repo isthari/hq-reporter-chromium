@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,9 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/i18n/case_conversion.h"
 #include "base/logging.h"
 #include "base/numerics/math_constants.h"
@@ -33,7 +33,6 @@
 #include "chrome/browser/vr/elements/full_screen_rect.h"
 #include "chrome/browser/vr/elements/indicator_spec.h"
 #include "chrome/browser/vr/elements/invisible_hit_target.h"
-#include "chrome/browser/vr/elements/keyboard.h"
 #include "chrome/browser/vr/elements/laser.h"
 #include "chrome/browser/vr/elements/linear_layout.h"
 #include "chrome/browser/vr/elements/omnibox_formatting.h"
@@ -58,7 +57,6 @@
 #include "chrome/browser/vr/elements/url_text.h"
 #include "chrome/browser/vr/elements/vector_icon.h"
 #include "chrome/browser/vr/elements/viewport_aware_root.h"
-#include "chrome/browser/vr/keyboard_delegate.h"
 #include "chrome/browser/vr/model/model.h"
 #include "chrome/browser/vr/model/platform_toast.h"
 #include "chrome/browser/vr/platform_ui_input_delegate.h"
@@ -210,8 +208,6 @@ void OnSuggestionModelAdded(UiScene* scene,
       kNone, kPhaseForeground,
       base::BindRepeating(
           [](UiBrowserInterface* b, Ui* ui, Model* m, SuggestionBinding* e) {
-            b->Navigate(e->model()->destination,
-                        NavigationMethod::kOmniboxSuggestionSelected);
             ui->OnUiRequestedNavigation();
           },
           base::Unretained(browser), base::Unretained(ui),
@@ -399,7 +395,6 @@ base::RepeatingCallback<void()> CreatePromptCallback(
   return base::BindRepeating(
       [](UiUnsupportedMode mode, ExitVrPromptChoice choice, Model* m,
          UiBrowserInterface* b) {
-        b->OnExitVrPromptResult(choice, mode);
         m->active_modal_prompt_type = kModalPromptTypeNone;
         m->pop_mode(kModeModalPrompt);
       },
@@ -716,7 +711,7 @@ std::unique_ptr<UiElement> CreateWebVrIndicator(Model* model,
                                           VectorIcon, icon_element.get(),
                                           SetIcon));
   } else {
-    icon_element->SetIcon(spec.icon);
+    icon_element->SetIcon(*spec.icon);
   }
 
   std::unique_ptr<UiElement> description_element;
@@ -864,13 +859,7 @@ std::unique_ptr<UiElement> CreateHostedUi(Model* model,
   backplane->SetTranslate(0.0, kContentVerticalOffset, -kContentDistance);
   backplane->set_contributes_to_parent_bounds(false);
   EventHandlers event_handlers;
-  event_handlers.button_up = base::BindRepeating(
-      [](Model* model, UiBrowserInterface* browser) {
-        if (model->hosted_platform_ui.hosted_ui_enabled) {
-          browser->CloseHostedDialog();
-        }
-      },
-      base::Unretained(model), base::Unretained(browser));
+  event_handlers.button_up = base::DoNothing();
   backplane->set_event_handlers(event_handlers);
   backplane->AddChild(std::move(shadow));
   backplane->AddBinding(
@@ -1121,7 +1110,6 @@ UiSceneCreator::UiSceneCreator(UiBrowserInterface* browser,
                                UiScene* scene,
                                Ui* ui,
                                ContentInputDelegate* content_input_delegate,
-                               KeyboardDelegate* keyboard_delegate,
                                TextInputDelegate* text_input_delegate,
                                AudioDelegate* audio_delegate,
                                Model* model)
@@ -1129,7 +1117,6 @@ UiSceneCreator::UiSceneCreator(UiBrowserInterface* browser,
       scene_(scene),
       ui_(ui),
       content_input_delegate_(content_input_delegate),
-      keyboard_delegate_(keyboard_delegate),
       text_input_delegate_(text_input_delegate),
       audio_delegate_(audio_delegate),
       model_(model) {}
@@ -1141,20 +1128,8 @@ void UiSceneCreator::CreateScene() {
   CreateWebVrRoot();
   CreateBackground();
   CreateViewportAwareRoot();
-  CreateContentQuad();
   Create2dBrowsingHostedUi();
-  CreatePrompts();
-  CreateSystemIndicators();
-  CreateUrlBar();
-  CreateOverflowMenu();
-  CreateOmnibox();
-  CreateCloseButton();
-  CreateToasts();
-  CreateVoiceSearchUiGroup();
-  CreateContentRepositioningAffordance();
   CreateWebVrSubtree();
-  CreateKeyboard();
-  CreateControllers();
 }
 
 void UiSceneCreator::Create2dBrowsingHostedUi() {
@@ -1295,7 +1270,7 @@ void UiSceneCreator::CreateSystemIndicators() {
   auto specs = GetIndicatorSpecs();
   for (const auto& spec : specs) {
     auto element = std::make_unique<VectorIconButton>(
-        base::RepeatingCallback<void()>(), spec.icon, audio_delegate_);
+        base::RepeatingCallback<void()>(), *spec.icon, audio_delegate_);
     element->SetName(spec.name);
     element->SetDrawPhase(kPhaseForeground);
     element->SetSize(kIndicatorHeightDMM, kIndicatorHeightDMM);
@@ -1394,10 +1369,7 @@ void UiSceneCreator::CreateContentQuad() {
       bool, Model, model_, model->primary_controller().touching_touchpad,
       Resizer, resizer.get(), SetTouchingTouchpad));
 
-  auto main_content = std::make_unique<ContentElement>(
-      content_input_delegate_,
-      base::BindRepeating(&UiBrowserInterface::OnContentScreenBoundsChanged,
-                          base::Unretained(browser_)));
+  auto main_content = std::make_unique<ContentElement>(content_input_delegate_);
   EventHandlers event_handlers;
   event_handlers.focus_change = base::BindRepeating(
       [](Model* model, ContentElement* e, ContentInputDelegate* delegate,
@@ -1980,8 +1952,7 @@ void UiSceneCreator::CreateVoiceSearchUiGroup() {
 
   auto close_button = Create<DiscButton>(
       kSpeechRecognitionListeningCloseButton, kPhaseForeground,
-      base::BindRepeating(&UiBrowserInterface::SetVoiceSearchActive,
-                          base::Unretained(browser_), false),
+      base::DoNothing(),
       vector_icons::kCloseRoundedIcon, audio_delegate_);
   close_button->SetSize(kVoiceSearchCloseButtonDiameter,
                         kVoiceSearchCloseButtonDiameter);
@@ -2125,52 +2096,6 @@ void UiSceneCreator::CreateControllers() {
   scene_->AddUiElement(kControllerGroup, std::move(reticle_laser_group));
 }
 
-void UiSceneCreator::CreateKeyboard() {
-  auto scaler = std::make_unique<ScaledDepthAdjuster>(kKeyboardDistance);
-  scaler->SetName(kKeyboardDmmRoot);
-
-  auto keyboard = std::make_unique<Keyboard>();
-  keyboard->SetKeyboardDelegate(keyboard_delegate_);
-  keyboard->SetDrawPhase(kPhaseForeground);
-  keyboard->SetTranslate(0.0, kKeyboardVerticalOffsetDMM, 0.0);
-  keyboard->AddBinding(std::make_unique<Binding<std::pair<bool, gfx::PointF>>>(
-      VR_BIND_LAMBDA(
-          [](Model* m) {
-            return std::pair<bool, gfx::PointF>(
-                m->primary_controller().touching_touchpad,
-                m->primary_controller().touchpad_touch_position);
-          },
-          base::Unretained(model_)),
-      VR_BIND_LAMBDA(
-          [](Keyboard* keyboard, const std::pair<bool, gfx::PointF>& value) {
-            keyboard->OnTouchStateUpdated(value.first, value.second);
-          },
-          base::Unretained(keyboard.get()))));
-  keyboard->AddBinding(std::make_unique<Binding<bool>>(
-      VR_BIND_LAMBDA([](Model* m) { return m->editing_web_input; },
-                     base::Unretained(model_)),
-      VR_BIND_LAMBDA(
-          [](UiElement* e, const bool& enabled) {
-            if (enabled) {
-              e->SetTranslate(
-                  0.0, kKeyboardVerticalOffsetDMM * kKeyboardWebInputOffset,
-                  0.0);
-            } else {
-              e->SetTranslate(0.0, kKeyboardVerticalOffsetDMM, 0.0);
-            }
-          },
-          base::Unretained(keyboard.get()))));
-  VR_BIND_VISIBILITY(keyboard, (model->editing_input ||
-                                (model->editing_web_input &&
-                                 (model->get_mode() == kModeBrowsing ||
-                                  model->get_mode() == kModeFullscreen))));
-  scene_->AddPerFrameCallback(base::BindRepeating(
-      [](Keyboard* keyboard) { keyboard->AdvanceKeyboardFrameIfNeeded(); },
-      base::Unretained(keyboard.get())));
-  scaler->AddChild(std::move(keyboard));
-  scene_->AddUiElement(k2dBrowsingRepositioner, std::move(scaler));
-}
-
 void UiSceneCreator::CreateUrlBar() {
   auto positioner = Create<UiElement>(kUrlBarPositioner, kPhaseNone);
   positioner->set_y_anchoring(BOTTOM);
@@ -2200,8 +2125,7 @@ void UiSceneCreator::CreateUrlBar() {
 
   auto back_button = Create<VectorIconButton>(
       kUrlBarBackButton, kPhaseForeground,
-      base::BindRepeating(&UiBrowserInterface::NavigateBack,
-                          base::Unretained(browser_)),
+      base::DoNothing(),
       vector_icons::kBackArrowIcon, audio_delegate_);
   back_button->SetSize(kUrlBarEndButtonWidthDMM, kUrlBarHeightDMM);
   back_button->SetCornerRadii(
@@ -2225,9 +2149,7 @@ void UiSceneCreator::CreateUrlBar() {
 
   auto url_click_callback = base::BindRepeating(
       [](Model* model, UiBrowserInterface* browser) {
-        if (model->needs_keyboard_update) {
-          browser->OnUnsupportedMode(UiUnsupportedMode::kNeedsKeyboardUpdate);
-        } else {
+        if (!model->needs_keyboard_update) {
           model->push_mode(kModeEditingOmnibox);
         }
       },
@@ -2265,8 +2187,7 @@ void UiSceneCreator::CreateUrlBar() {
 
   auto security_button = Create<VectorIconButton>(
       kUrlBarSecurityButton, kPhaseForeground,
-      base::BindRepeating(&UiBrowserInterface::ShowPageInfo,
-                          base::Unretained(browser_)),
+      base::DoNothing(),
       gfx::kNoneIcon, audio_delegate_);
   security_button->SetIconScaleFactor(kUrlBarButtonIconScaleFactor);
   security_button->SetSize(kUrlBarButtonSizeDMM, kUrlBarButtonSizeDMM);
@@ -2439,7 +2360,6 @@ void UiSceneCreator::CreateOverflowMenu() {
         button->set_click_handler(base::BindRepeating(
             [](Model* model, UiBrowserInterface* browser) {
               model->overflow_menu_enabled = false;
-              browser->NavigateForward();
             },
             base::Unretained(model_), base::Unretained(browser_)));
         button->AddBinding(VR_BIND_FUNC(bool, Model, model_,
@@ -2450,7 +2370,6 @@ void UiSceneCreator::CreateOverflowMenu() {
         button->set_click_handler(base::BindRepeating(
             [](Model* model, UiBrowserInterface* browser) {
               model->overflow_menu_enabled = false;
-              browser->ReloadTab();
             },
             base::Unretained(model_), base::Unretained(browser_)));
         break;
@@ -2474,18 +2393,14 @@ void UiSceneCreator::CreateOverflowMenu() {
       {
           kOverflowMenuNewIncognitoTabItem,
           new_incognito_tab_res_id,
-          base::BindRepeating(
-              [](UiBrowserInterface* browser) { browser->OpenNewTab(true); }),
+          base::DoNothing(),
           base::BindRepeating([](Model* m) { return !m->incognito; }),
       },
       {kOverflowMenuCloseAllIncognitoTabsItem, close_incognito_tabs_res_id,
-       base::BindRepeating([](UiBrowserInterface* browser) {
-         browser->CloseAllIncognitoTabs();
-       }),
+       base::DoNothing(),
        base::BindRepeating([](Model* m) { return m->incognito_tabs_open; })},
       {kOverflowMenuPreferencesItem, IDS_VR_MENU_PREFERENCES,
-       base::BindRepeating(
-           [](UiBrowserInterface* browser) { browser->OpenSettings(); }),
+       base::DoNothing(),
        base::BindRepeating([](Model* m) { return m->standalone_vr_device; })},
   };
 
@@ -2590,14 +2505,8 @@ void UiSceneCreator::CreateOmnibox() {
             model->set_omnibox_text_field_info(text_input_info);
           },
           base::Unretained(model_)),
-      base::BindRepeating(
-          [](UiBrowserInterface* browser, const AutocompleteRequest& request) {
-            browser->StartAutocomplete(request);
-          },
-          base::Unretained(browser_)),
-      base::BindRepeating(
-          [](UiBrowserInterface* browser) { browser->StopAutocomplete(); },
-          base::Unretained(browser_)));
+      base::DoNothing(),
+      base::DoNothing());
   omnibox_text_field->SetTextInputDelegate(text_input_delegate_);
   omnibox_text_field->set_hit_testable(false);
   omnibox_text_field->SetHintText(
@@ -2648,8 +2557,6 @@ void UiSceneCreator::CreateOmnibox() {
         if (text.current.text == base::UTF8ToUTF16(kCrashVrBrowserUrl))
           CrashIntentionally();
         if (!model->omnibox_suggestions.empty()) {
-          browser->Navigate(model->omnibox_suggestions.front().destination,
-                            NavigationMethod::kOmniboxUrlEntry);
           ui->OnUiRequestedNavigation();
         }
       },
@@ -2705,9 +2612,7 @@ void UiSceneCreator::CreateOmnibox() {
 
   auto mic_button = Create<VectorIconButton>(
       kOmniboxVoiceSearchButton, kPhaseForeground,
-      base::BindRepeating(
-          [](UiBrowserInterface* b, Ui* ui) { b->SetVoiceSearchActive(true); },
-          base::Unretained(browser_), base::Unretained(ui_)),
+      base::DoNothing(),
       vector_icons::kMicIcon, audio_delegate_);
   mic_button->SetSize(kUrlBarButtonSizeDMM, kUrlBarButtonSizeDMM);
   mic_button->SetIconScaleFactor(kUrlBarButtonIconScaleFactor);
@@ -2825,15 +2730,8 @@ void UiSceneCreator::CreateOmnibox() {
 }
 
 void UiSceneCreator::CreateCloseButton() {
-  base::RepeatingCallback<void()> click_handler = base::BindRepeating(
-      [](Model* model, UiBrowserInterface* browser) {
-        if (model->fullscreen_enabled()) {
-          browser->ExitFullscreen();
-        }
-      },
-      base::Unretained(model_), base::Unretained(browser_));
   std::unique_ptr<DiscButton> element =
-      Create<DiscButton>(kCloseButton, kPhaseForeground, click_handler,
+      Create<DiscButton>(kCloseButton, kPhaseForeground, base::DoNothing(),
                          vector_icons::kCloseRoundedIcon, audio_delegate_);
   element->set_contributes_to_parent_bounds(false);
   element->SetSize(kCloseButtonDiameter, kCloseButtonDiameter);

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,10 +45,10 @@ class ServicesDelegateDesktop : public ServicesDelegate {
   void AddDownloadManager(content::DownloadManager* download_manager) override;
   DownloadProtectionService* GetDownloadService() override;
 
-  void StartOnIOThread(
+  void StartOnSBThread(
       scoped_refptr<network::SharedURLLoaderFactory> browser_url_loader_factory,
       const V4ProtocolConfig& v4_config) override;
-  void StopOnIOThread(bool shutdown) override;
+  void StopOnSBThread(bool shutdown) override;
 
   void OnProfileWillBeDestroyed(Profile* profile) override;
 

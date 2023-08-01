@@ -1,26 +1,26 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import <AVFoundation/AVFoundation.h>
 #import <UIKit/UIKit.h>
 
-#include "base/ios/ios_util.h"
-#include "base/strings/stringprintf.h"
-#include "base/strings/sys_string_conversions.h"
+#import "base/ios/ios_util.h"
+#import "base/strings/stringprintf.h"
+#import "base/strings/sys_string_conversions.h"
 #import "ios/chrome/browser/ui/qr_scanner/qr_scanner_app_interface.h"
-#include "ios/chrome/browser/ui/scanner/camera_state.h"
-#include "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/browser/ui/scanner/camera_state.h"
+#import "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
-#include "ios/chrome/test/earl_grey/earl_grey_scoped_block_swizzler.h"
+#import "ios/chrome/test/earl_grey/earl_grey_scoped_block_swizzler.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
 #import "net/base/mac/url_conversions.h"
-#include "net/base/url_util.h"
-#include "net/test/embedded_test_server/embedded_test_server.h"
-#include "net/test/embedded_test_server/http_request.h"
-#include "net/test/embedded_test_server/http_response.h"
+#import "net/base/url_util.h"
+#import "net/test/embedded_test_server/embedded_test_server.h"
+#import "net/test/embedded_test_server/http_request.h"
+#import "net/test/embedded_test_server/http_response.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
 #import "ui/base/l10n/l10n_util.h"
 #import "ui/base/l10n/l10n_util_mac.h"
@@ -86,8 +86,7 @@ CFTimeInterval kGREYConditionPollInterval = 0.1;
 // Returns the GREYMatcher for an element which is visible, interactable, and
 // enabled.
 id<GREYMatcher> VisibleInteractableEnabled() {
-  return grey_allOf(grey_sufficientlyVisible(), grey_interactable(),
-                    grey_enabled(), nil);
+  return grey_allOf(grey_enabled(), grey_sufficientlyVisible(), nil);
 }
 
 // Returns the GREYMatcher for the button that closes the QR Scanner.
@@ -145,12 +144,12 @@ void ShowQRScanner() {
       performAction:grey_tap()];
 }
 
-// Taps the |button|.
+// Taps the `button`.
 void TapButton(id<GREYMatcher> button) {
   [[EarlGrey selectElementWithMatcher:button] performAction:grey_tap()];
 }
 
-// Appends the given |editText| to the |text| already in the omnibox and presses
+// Appends the given `editText` to the `text` already in the omnibox and presses
 // the keyboard return key.
 void EditOmniboxTextAndTapKeyboardReturn(std::string text, NSString* editText) {
   [[EarlGrey selectElementWithMatcher:chrome_test_util::OmniboxText(text)]
@@ -170,7 +169,7 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
       std::make_unique<net::test_server::BasicHttpResponse>();
   http_response->set_code(net::HTTP_OK);
 
-  const char* body_content = nullptr;
+  std::string body_content;
   if (base::StartsWith(request.relative_url, kTestURL,
                        base::CompareCase::SENSITIVE)) {
     body_content = kTestURLResponse;
@@ -183,8 +182,7 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
     std::string query;
     bool found = net::GetValueForKeyInQuery(url, "q", &query);
     if (found) {
-      std::string content = "Query: " + query;
-      body_content = content.c_str();
+      body_content = "Query: " + query;
     } else {
       body_content = "No query";
     }
@@ -192,10 +190,8 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
     return nullptr;
   }
 
-  if (body_content) {
-    http_response->set_content(
-        base::StringPrintf("<html><body>%s</body></html>", body_content));
-  }
+  http_response->set_content(
+      base::StringPrintf("<html><body>%s</body></html>", body_content.c_str()));
 
   return std::move(http_response);
 }
@@ -266,8 +262,8 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
 // Checks that the torch off button is visible and disabled.
 - (void)assertTorchButtonIsDisabled {
   [[EarlGrey selectElementWithMatcher:QrScannerTorchOffButton()]
-      assertWithMatcher:grey_allOf(grey_sufficientlyVisible(),
-                                   grey_not(grey_enabled()), nil)];
+      assertWithMatcher:grey_allOf(grey_not(grey_enabled()),
+                                   grey_sufficientlyVisible(), nil)];
 }
 
 // Checks that the camera viewport caption is visible.
@@ -277,8 +273,8 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
 }
 
 // Checks that the close button, the camera preview, and the camera viewport
-// caption are visible. If |torch| is YES, checks that the torch off button is
-// visible, otherwise checks that the torch button is disabled. If |preview| is
+// caption are visible. If `torch` is YES, checks that the torch off button is
+// visible, otherwise checks that the torch button is disabled. If `preview` is
 // YES, checks that the preview is visible and of the same size as the QR
 // Scanner view, otherwise checks that the preview is in the view hierarchy but
 // is hidden.
@@ -327,16 +323,16 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
        toDisappearFromAbove:QRScannerAppInterface.currentBrowserViewController];
 }
 
-// Checks that the omnibox is visible and contains |text|.
+// Checks that the omnibox is visible and contains `text`.
 - (void)assertOmniboxIsVisibleWithText:(std::string)text {
   [[EarlGrey selectElementWithMatcher:chrome_test_util::OmniboxText(text)]
       assertWithMatcher:grey_notNil()];
 }
 
-#pragma mark helpers for dialogs
+#pragma mark - Helpers for Dialogs
 
 // Checks that the QRScannerViewController is presenting a UIAlertController and
-// that the title of this alert corresponds to |state|.
+// that the title of this alert corresponds to `state`.
 - (void)assertQRScannerIsPresentingADialogForState:(CameraState)state {
   NSError* error = [QRScannerAppInterface
       assertModalOfClass:@"UIAlertController"
@@ -348,18 +344,17 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
       assertWithMatcher:grey_notNil()];
 }
 
-// Checks that there is no visible alert with title corresponding to |state|.
+// Checks that there is no visible alert with title corresponding to `state`.
 - (void)assertQRScannerIsNotPresentingADialogForState:(CameraState)state {
   [[EarlGrey selectElementWithMatcher:grey_text([QRScannerAppInterface
                                           dialogTitleForState:state])]
       assertWithMatcher:grey_nil()];
 }
 
-#pragma mark -
-#pragma mark Helpers for mocks
+#pragma mark - Helpers for mocks
 
 // Swizzles the QRScannerViewController property cameraController: to return
-// |cameraControllerMock| instead of a new instance of CameraController.
+// `cameraControllerMock` instead of a new instance of CameraController.
 - (void)swizzleCameraController:(id)cameraControllerMock {
   id swizzleCameraControllerBlock = [QRScannerAppInterface
       cameraControllerSwizzleBlockWithMock:cameraControllerMock];
@@ -369,7 +364,7 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
       swizzleCameraControllerBlock);
 }
 
-// Checks that the modal presented by |viewController| is of class |klass| and
+// Checks that the modal presented by `viewController` is of class `klass` and
 // waits for the modal's view to load.
 - (void)waitForModalOfClass:(NSString*)klassString
               toAppearAbove:(UIViewController*)viewController {
@@ -391,8 +386,8 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
   GREYAssertTrue(modalViewLoaded, errorString);
 }
 
-// Checks that the |viewController| is not presenting a modal, or that the modal
-// presented by |viewController| is not of class |klass|. If a modal was
+// Checks that the `viewController` is not presenting a modal, or that the modal
+// presented by `viewController` is not of class `klass`. If a modal was
 // previously presented, waits until it is dismissed.
 - (void)waitForModalOfClass:(NSString*)klassString
        toDisappearFromAbove:(UIViewController*)viewController {
@@ -412,8 +407,7 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
   GREYAssertTrue(modalViewDismissed, errorString);
 }
 
-#pragma mark -
-#pragma mark Tests
+#pragma mark - Appearance Tests
 
 // Tests that the close button, camera preview, viewport caption, and the torch
 // button are visible if the camera is available. The preview is delayed.
@@ -534,7 +528,7 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
   [cameraControllerMock verify];
 }
 
-#pragma mark dialogs
+#pragma mark - Dialogs Tests
 
 // Tests that a UIAlertController is presented instead of the
 // QRScannerViewController if the camera is unavailable.
@@ -599,7 +593,14 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
 
 // Tests that a new dialog replaces an old dialog if the camera state changes.
 // TODO(crbug.com/1019211): Re-enable test on iOS12.
-- (void)testDialogIsReplacedIfCameraStateChanges {
+#if TARGET_IPHONE_SIMULATOR
+#define MAYBE_testDialogIsReplacedIfCameraStateChanges \
+  testDialogIsReplacedIfCameraStateChanges
+#else
+#define MAYBE_testDialogIsReplacedIfCameraStateChanges \
+  DISABLED_testDialogIsReplacedIfCameraStateChanges
+#endif
+- (void)MAYBE_testDialogIsReplacedIfCameraStateChanges {
   id cameraControllerMock =
       [QRScannerAppInterface cameraControllerMockWithAuthorizationStatus:
                                  AVAuthorizationStatusAuthorized];
@@ -663,12 +664,12 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
   [cameraControllerMock verify];
 }
 
-#pragma mark scanned result
+#pragma mark - Scanned Result Tests
 
 // A helper function for testing that the view controller correctly passes the
 // received results to its delegate and that pages can be loaded. The result
-// received from the camera controller is in |result|, |response| is the
-// expected response on the loaded page, and |editString| is a nullable string
+// received from the camera controller is in `result`, `response` is the
+// expected response on the loaded page, and `editString` is a nullable string
 // which can be appended to the response in the omnibox before the page is
 // loaded.
 - (void)doTestReceivingResult:(std::string)result
@@ -779,12 +780,6 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
 // Test that the correct page is loaded if the scanner result is a URL which is
 // then manually edited.
 - (void)testReceivingQRScannerURLResultAndEditingTheURL {
-  // TODO(crbug.com/753098): Re-enable this test on iPad once grey_typeText
-  // works.
-  if ([ChromeEarlGrey isIPadIdiom]) {
-    EARL_GREY_TEST_DISABLED(@"Test disabled on iPad.");
-  }
-
   [self doTestReceivingResult:_testURL.GetContent()
                      response:kTestURLEditedResponse
                          edit:@"\bedited/"];

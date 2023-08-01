@@ -1,33 +1,37 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
-import 'chrome://resources/cr_elements/hidden_style_css.m.js';
+import 'chrome://resources/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/cr_elements/cr_hidden_style.css.js';
 import './iframe.js';
 import './doodle_share_dialog.js';
 
-import {assert} from 'chrome://resources/js/assert.m.js';
+import {assert} from 'chrome://resources/js/assert_ts.js';
 import {skColorToRgba} from 'chrome://resources/js/color_utils.js';
-import {EventTracker} from 'chrome://resources/js/event_tracker.m.js';
+import {EventTracker} from 'chrome://resources/js/event_tracker.js';
 import {SkColor} from 'chrome://resources/mojo/skia/public/mojom/skcolor.mojom-webui.js';
 import {Url} from 'chrome://resources/mojo/url/mojom/url.mojom-webui.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {I18nMixin} from './i18n_setup.js';
+import {loadTimeData} from './i18n_setup.js';
 import {IframeElement} from './iframe.js';
+import {getTemplate} from './logo.html.js';
 import {Doodle, DoodleImageType, DoodleShareChannel, ImageDoodle, PageHandlerRemote} from './new_tab_page.mojom-webui.js';
 import {NewTabPageProxy} from './new_tab_page_proxy.js';
-import {$$} from './utils_ts.js';
+import {$$} from './utils.js';
 import {WindowProxy} from './window_proxy.js';
 
 const SHARE_BUTTON_SIZE_PX: number = 26;
 
 // Shows the Google logo or a doodle if available.
-class LogoElement extends I18nMixin
-(PolymerElement) {
+export class LogoElement extends PolymerElement {
   static get is() {
     return 'ntp-logo';
+  }
+
+  static get template() {
+    return getTemplate();
   }
 
   static get properties() {
@@ -124,6 +128,12 @@ class LogoElement extends I18nMixin
         type: Number,
         computed: 'computeImageDoodleTabIndex_(doodle_, showAnimation_)',
       },
+
+      reducedLogoSpaceEnabled_: {
+        type: Boolean,
+        reflectToAttribute: true,
+        value: () => loadTimeData.getBoolean('reducedLogoSpaceEnabled'),
+      },
     };
   }
 
@@ -153,9 +163,6 @@ class LogoElement extends I18nMixin
   private interactionLogUrl_: Url|null = null;
   private shareId_: string|null = null;
 
-  // Suppress TypeScript's error TS2376 to intentionally allow calling
-  // performance.mark() before calling super().
-  // @ts-ignore:next-line
   constructor() {
     performance.mark('logo-creation-start');
     super();
@@ -171,13 +178,16 @@ class LogoElement extends I18nMixin
     });
   }
 
-  connectedCallback() {
+  override connectedCallback() {
     super.connectedCallback();
     this.eventTracker_.add(window, 'message', ({data}: MessageEvent) => {
       if (data['cmd'] === 'resizeDoodle') {
-        this.duration_ = assert(data.duration);
-        this.height_ = assert(data.height);
-        this.width_ = assert(data.width);
+        assert(data.duration);
+        this.duration_ = data.duration;
+        assert(data.height);
+        this.height_ = data.height;
+        assert(data.width);
+        this.width_ = data.width;
         this.expanded_ = true;
       } else if (data['cmd'] === 'sendMode') {
         this.sendMode_();
@@ -187,12 +197,12 @@ class LogoElement extends I18nMixin
     this.sendMode_();
   }
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
     super.disconnectedCallback();
     this.eventTracker_.removeAll();
   }
 
-  ready() {
+  override ready() {
     super.ready();
     performance.measure('logo-creation', 'logo-creation-start');
   }
@@ -337,7 +347,8 @@ class LogoElement extends I18nMixin
   }
 
   private isCtaImageShown_(): boolean {
-    return !this.showAnimation_ && !!this.imageDoodle_!.animationUrl;
+    return !this.showAnimation_ && !!this.imageDoodle_ &&
+        !!this.imageDoodle_.animationUrl;
   }
 
   /**
@@ -401,9 +412,11 @@ class LogoElement extends I18nMixin
         0 :
         -1;
   }
+}
 
-  static get template() {
-    return html`{__html_template__}`;
+declare global {
+  interface HTMLElementTagNameMap {
+    'ntp-logo': LogoElement;
   }
 }
 

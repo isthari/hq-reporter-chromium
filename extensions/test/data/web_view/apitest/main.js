@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,6 +22,7 @@ embedder.setUp_ = function(config) {
   embedder.windowOpenGuestURL = embedder.baseGuestURL + '/guest.html';
   embedder.sameDocumentNavigationURL =
       embedder.baseGuestURL + '/guest_same_document_navigation.html';
+  embedder.expectUserAgentURL = 'https://localhost:' + config.testServer.port + '/expect-user-agent';
 };
 
 window.runTest = function(testName) {
@@ -1107,10 +1108,10 @@ function testCanGoBack() {
 // pseudo-scheme fires loadabort and doesn't cause a crash.
 function testLoadAbortNonWebSafeScheme() {
   var webview = document.createElement('webview');
-  var chromeGuestURL = 'chrome-guest://abc123/';
+  var chromeUntrustedURL = 'chrome-untrusted://abc123/';
   webview.addEventListener('loadabort', function(e) {
     embedder.test.assertEq('ERR_DISALLOWED_URL_SCHEME', e.reason);
-    embedder.test.assertEq(chromeGuestURL, e.url);
+    embedder.test.assertEq(chromeUntrustedURL, e.url);
   });
   webview.addEventListener('loadstop', function(e) {
     embedder.test.assertEq('about:blank', webview.src);
@@ -1120,7 +1121,7 @@ function testLoadAbortNonWebSafeScheme() {
     // We should not crash.
     embedder.test.fail();
   });
-  webview.src = chromeGuestURL;
+  webview.src = chromeUntrustedURL;
   document.body.appendChild(webview);
 };
 
@@ -1943,6 +1944,21 @@ function testClosedShadowRoot() {
   document.body.appendChild(webview);
 }
 
+// Ensure that the 'setUserAgentOverride' function sets the correct User-Agent
+// request header and removes the values of User-Agent Client Hint headers
+function testSetUserAgentOverride() {
+  var webview = new WebView();
+  webview.setUserAgentOverride('foobar');
+
+  // Expectations are checked in the server.
+  webview.addEventListener('loadstop', () => {
+    embedder.test.succeed();
+  });
+
+  webview.setAttribute("src", embedder.expectUserAgentURL);
+  document.body.appendChild(webview);
+}
+
 // Tests end.
 
 embedder.test.testList = {
@@ -2021,6 +2037,7 @@ embedder.test.testList = {
   'testWebRequestAPIGoogleProperty': testWebRequestAPIGoogleProperty,
   'testCaptureVisibleRegion': testCaptureVisibleRegion,
   'testClosedShadowRoot': testClosedShadowRoot,
+  'testSetUserAgentOverride': testSetUserAgentOverride,
 };
 
 onload = function() {

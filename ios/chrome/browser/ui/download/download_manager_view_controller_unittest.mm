@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,10 @@
 
 #import "ios/chrome/browser/ui/download/download_manager_state_view.h"
 #import "ios/chrome/browser/ui/download/radial_progress_view.h"
-#include "testing/gtest_mac.h"
-#include "testing/platform_test.h"
+#import "testing/gtest_mac.h"
+#import "testing/platform_test.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
-#include "third_party/ocmock/gtest_support.h"
+#import "third_party/ocmock/gtest_support.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -21,8 +21,11 @@
 class DownloadManagerViewControllerTest : public PlatformTest {
  protected:
   DownloadManagerViewControllerTest()
-      : view_controller_([[DownloadManagerViewController alloc] init]) {}
+      : view_controller_([[DownloadManagerViewController alloc] init]) {
+    state_symbol_partial_mock_ = OCMPartialMock(view_controller_.stateSymbol);
+  }
   DownloadManagerViewController* view_controller_;
+  id state_symbol_partial_mock_;
 };
 
 // Tests label and button titles with kDownloadManagerStateNotStarted state
@@ -36,7 +39,6 @@ TEST_F(DownloadManagerViewControllerTest, NotStartedWithLongFileName) {
               view_controller_.statusLabel.text);
   EXPECT_NSEQ(@"Download", [view_controller_.actionButton
                                titleForState:UIControlStateNormal]);
-  EXPECT_EQ(kDownloadManagerStateNotStarted, view_controller_.stateIcon.state);
   EXPECT_TRUE(view_controller_.progressView.hidden);
 }
 
@@ -51,13 +53,15 @@ TEST_F(DownloadManagerViewControllerTest,
   EXPECT_NSEQ(@"file.zip - 1.05 GB", view_controller_.statusLabel.text);
   EXPECT_NSEQ(@"Download", [view_controller_.actionButton
                                titleForState:UIControlStateNormal]);
-  EXPECT_EQ(kDownloadManagerStateNotStarted, view_controller_.stateIcon.state);
   EXPECT_TRUE(view_controller_.progressView.hidden);
 }
 
 // Tests label and button hidden state with kDownloadManagerStateInProgress
 // state and long file name.
 TEST_F(DownloadManagerViewControllerTest, InProgressWithLongFileName) {
+  OCMExpect(
+      [state_symbol_partial_mock_ setState:kDownloadManagerStateInProgress]);
+
   view_controller_.state = kDownloadManagerStateInProgress;
   view_controller_.fileName = @"longfilenamesolongthatitbarelyfitwidthlimit";
   view_controller_.countOfBytesExpectedToReceive = 10 * 1024;
@@ -65,7 +69,7 @@ TEST_F(DownloadManagerViewControllerTest, InProgressWithLongFileName) {
 
   EXPECT_NSEQ(@"Downloading… Zero KB/10 KB", view_controller_.statusLabel.text);
   EXPECT_TRUE(view_controller_.actionButton.hidden);
-  EXPECT_EQ(kDownloadManagerStateInProgress, view_controller_.stateIcon.state);
+  EXPECT_OCMOCK_VERIFY(state_symbol_partial_mock_);
   EXPECT_FALSE(view_controller_.progressView.hidden);
   EXPECT_EQ(0.0f, view_controller_.progressView.progress);
 }
@@ -74,6 +78,9 @@ TEST_F(DownloadManagerViewControllerTest, InProgressWithLongFileName) {
 // state and unknown download size.
 TEST_F(DownloadManagerViewControllerTest,
        InProgressWithUnknownCountOfExpectedBytes) {
+  OCMExpect(
+      [state_symbol_partial_mock_ setState:kDownloadManagerStateInProgress]);
+
   view_controller_.state = kDownloadManagerStateInProgress;
   view_controller_.fileName = @"file.zip";
   view_controller_.countOfBytesReceived = 900;
@@ -82,13 +89,16 @@ TEST_F(DownloadManagerViewControllerTest,
 
   EXPECT_NSEQ(@"Downloading… 900 bytes", view_controller_.statusLabel.text);
   EXPECT_TRUE(view_controller_.actionButton.hidden);
-  EXPECT_EQ(kDownloadManagerStateInProgress, view_controller_.stateIcon.state);
+  EXPECT_OCMOCK_VERIFY(state_symbol_partial_mock_);
   EXPECT_FALSE(view_controller_.progressView.hidden);
   EXPECT_EQ(0.9f, view_controller_.progressView.progress);
 }
 
 // Tests label and button titles with kDownloadManagerStateSucceeded state.
 TEST_F(DownloadManagerViewControllerTest, SuceededWithWithLongFileName) {
+  OCMExpect(
+      [state_symbol_partial_mock_ setState:kDownloadManagerStateSucceeded]);
+
   view_controller_.state = kDownloadManagerStateSucceeded;
   view_controller_.fileName = @"file.txt";
   view_controller_.countOfBytesReceived = 1024;
@@ -96,12 +106,14 @@ TEST_F(DownloadManagerViewControllerTest, SuceededWithWithLongFileName) {
   EXPECT_NSEQ(@"file.txt", view_controller_.statusLabel.text);
   EXPECT_NSEQ(@"Open in…", [view_controller_.actionButton
                                titleForState:UIControlStateNormal]);
-  EXPECT_EQ(kDownloadManagerStateSucceeded, view_controller_.stateIcon.state);
+  EXPECT_OCMOCK_VERIFY(state_symbol_partial_mock_);
   EXPECT_TRUE(view_controller_.progressView.hidden);
 }
 
 // Tests label and button titles with kDownloadManagerStateFailed state.
 TEST_F(DownloadManagerViewControllerTest, Failed) {
+  OCMExpect([state_symbol_partial_mock_ setState:kDownloadManagerStateFailed]);
+
   view_controller_.state = kDownloadManagerStateFailed;
   view_controller_.fileName = @"file.txt";
   view_controller_.countOfBytesReceived = 1024;
@@ -109,7 +121,7 @@ TEST_F(DownloadManagerViewControllerTest, Failed) {
   EXPECT_NSEQ(@"Couldn't Download", view_controller_.statusLabel.text);
   EXPECT_NSEQ(@"Try Again", [view_controller_.actionButton
                                 titleForState:UIControlStateNormal]);
-  EXPECT_EQ(kDownloadManagerStateFailed, view_controller_.stateIcon.state);
+  EXPECT_OCMOCK_VERIFY(state_symbol_partial_mock_);
   EXPECT_TRUE(view_controller_.progressView.hidden);
 }
 

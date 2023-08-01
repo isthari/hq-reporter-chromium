@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,11 +13,10 @@
 #include "ash/public/ash_interfaces.h"
 #include "ash/public/cpp/tablet_mode.h"
 #include "ash/public/cpp/test/shell_test_api.h"
-#include "ash/public/mojom/cros_display_config.mojom-test-utils.h"
-#include "ash/public/mojom/cros_display_config.mojom.h"
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
+#include "base/memory/raw_ptr.h"
 #include "base/path_service.h"
 #include "base/strings/safe_sprintf.h"
 #include "build/build_config.h"
@@ -30,9 +29,12 @@
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/top_container_view.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
+#include "chrome/browser/ui/views/omnibox/omnibox_view_views.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "chromeos/crosapi/mojom/cros_display_config.mojom-test-utils.h"
+#include "chromeos/crosapi/mojom/cros_display_config.mojom.h"
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "components/permissions/permission_request.h"
 #include "components/permissions/permission_request_manager.h"
@@ -97,7 +99,7 @@ class LayoutTestView : public views::View {
   explicit LayoutTestView(BrowserView* parent) {
     DCHECK(parent);
     parent->AddChildView(this);
-    parent->Layout();
+    parent->GetWidget()->LayoutRootViewIfNecessary();
     layout_count_ = 0;
   }
   ~LayoutTestView() override = default;
@@ -251,7 +253,7 @@ class TopControlsShownRatioWaiter : public TestControllerObserver {
     return false;
   }
 
-  TestController* controller_;
+  raw_ptr<TestController, ExperimentalAsh> controller_;
 
   std::unique_ptr<base::RunLoop> run_loop_;
 
@@ -297,7 +299,7 @@ class GestureScrollInProgressChangeWaiter : public TestControllerObserver {
   }
 
  private:
-  TestController* controller_;
+  raw_ptr<TestController, ExperimentalAsh> controller_;
 
   std::unique_ptr<base::RunLoop> run_loop_;
 
@@ -556,7 +558,8 @@ class TopControlsSlideControllerTest : public InProcessBrowserTest {
     return std::move(controller);
   }
 
-  TestController* test_controller_ = nullptr;  // Not owned.
+  raw_ptr<TestController, ExperimentalAsh> test_controller_ =
+      nullptr;  // Not owned.
 };
 
 namespace {
@@ -800,8 +803,9 @@ IN_PROC_BROWSER_TEST_F(TopControlsSlideControllerTest, MAYBE_TestClosingATab) {
                                TopChromeShownState::kFullyHidden);
 }
 
+// Sheriff 2022/02/25; flaky test crbug/1300462
 IN_PROC_BROWSER_TEST_F(TopControlsSlideControllerTest,
-                       TestFocusEditableElements) {
+                       DISABLED_TestFocusEditableElements) {
   ToggleTabletMode();
   ASSERT_TRUE(GetTabletModeEnabled());
   EXPECT_TRUE(top_controls_slide_controller()->IsEnabled());
@@ -825,16 +829,15 @@ IN_PROC_BROWSER_TEST_F(TopControlsSlideControllerTest,
     char buffer[kBufferSize];
     base::strings::SafeSPrintf(
         buffer,
-        "domAutomationController.send("
-        "    ((function() {"
-        "        var editableElement ="
-        "            document.getElementById('editable-element');"
-        "        if (editableElement) {"
-        "          editableElement.%s();"
-        "          return true;"
-        "        }"
-        "        return false;"
-        "      })()));",
+        "((function() {"
+        "    var editableElement ="
+        "        document.getElementById('editable-element');"
+        "    if (editableElement) {"
+        "      editableElement.%s();"
+        "      return true;"
+        "    }"
+        "    return false;"
+        "  })());",
         should_focus ? "focus" : "blur");
     return std::string(buffer);
   };
@@ -844,10 +847,8 @@ IN_PROC_BROWSER_TEST_F(TopControlsSlideControllerTest,
   SCOPED_TRACE("Focus an editable element in the page.");
   TopControlsShownRatioWaiter waiter(top_controls_slide_controller());
   content::WebContents* contents = browser_view()->GetActiveWebContents();
-  bool bool_result = false;
-  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      contents, get_js_function_body(true /* should_focus */), &bool_result));
-  EXPECT_TRUE(bool_result);
+  EXPECT_EQ(true, content::EvalJs(
+                      contents, get_js_function_body(true /* should_focus */)));
   waiter.WaitForRatio(1.f);
   EXPECT_FLOAT_EQ(top_controls_slide_controller()->GetShownRatio(), 1.f);
   CheckBrowserLayout(browser_view(), TopChromeShownState::kFullyShown);
@@ -861,11 +862,9 @@ IN_PROC_BROWSER_TEST_F(TopControlsSlideControllerTest,
 
   // Now blur the focused editable element. Expect that top-chrome can now be
   // hidden with gesture scrolls.
-  bool_result = false;
   SCOPED_TRACE("Bluring the focus away from the editable element.");
-  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      contents, get_js_function_body(false /* should_focus */), &bool_result));
-  EXPECT_TRUE(bool_result);
+  EXPECT_EQ(true, content::EvalJs(contents, get_js_function_body(
+                                                false /* should_focus */)));
   // Evaluate an empty sentence to make sure that the event processing is done
   // in the content.
   std::ignore = content::EvalJs(contents, ";");
@@ -907,14 +906,20 @@ class BrowserViewLayoutWaiter : public views::ViewObserver {
   }
 
  private:
-  BrowserView* browser_view_;
+  raw_ptr<BrowserView, ExperimentalAsh> browser_view_;
 
   bool view_bounds_changed_ = false;
 
   std::unique_ptr<base::RunLoop> run_loop_;
 };
 
-IN_PROC_BROWSER_TEST_F(TopControlsSlideControllerTest, DisplayRotation) {
+// TODO(1323318): Flaky under dbg and sanitizers.
+#if !defined(NDEBUG) || defined(ADDRESS_SANITIZER) || defined(MEMORY_SANITIZER)
+#define MAYBE_DisplayRotation DISABLED_DisplayRotation
+#else
+#define MAYBE_DisplayRotation DisplayRotation
+#endif
+IN_PROC_BROWSER_TEST_F(TopControlsSlideControllerTest, MAYBE_DisplayRotation) {
   ToggleTabletMode();
   ASSERT_TRUE(GetTabletModeEnabled());
   EXPECT_TRUE(top_controls_slide_controller()->IsEnabled());
@@ -942,31 +947,33 @@ IN_PROC_BROWSER_TEST_F(TopControlsSlideControllerTest, DisplayRotation) {
 
   // Try all possible rotations. Changing display rotation should *not* unhide
   // top chrome.
-  const std::vector<ash::mojom::DisplayRotationOptions> rotations_to_try = {
-      ash::mojom::DisplayRotationOptions::k90Degrees,
-      ash::mojom::DisplayRotationOptions::k180Degrees,
-      ash::mojom::DisplayRotationOptions::k270Degrees,
-      ash::mojom::DisplayRotationOptions::kZeroDegrees,
+  const std::vector<crosapi::mojom::DisplayRotationOptions> rotations_to_try = {
+      crosapi::mojom::DisplayRotationOptions::k90Degrees,
+      crosapi::mojom::DisplayRotationOptions::k180Degrees,
+      crosapi::mojom::DisplayRotationOptions::k270Degrees,
+      crosapi::mojom::DisplayRotationOptions::kZeroDegrees,
   };
 
-  mojo::Remote<ash::mojom::CrosDisplayConfigController> cros_display_config;
+  mojo::Remote<crosapi::mojom::CrosDisplayConfigController> cros_display_config;
   ash::BindCrosDisplayConfigController(
       cros_display_config.BindNewPipeAndPassReceiver());
-  ash::mojom::CrosDisplayConfigControllerAsyncWaiter waiter_for(
+  crosapi::mojom::CrosDisplayConfigControllerAsyncWaiter waiter_for(
       cros_display_config.get());
-  std::vector<ash::mojom::DisplayUnitInfoPtr> info_list;
+  std::vector<crosapi::mojom::DisplayUnitInfoPtr> info_list;
   waiter_for.GetDisplayUnitInfoList(false /* single_unified */, &info_list);
-  for (const ash::mojom::DisplayUnitInfoPtr& display_unit_info : info_list) {
+  for (const crosapi::mojom::DisplayUnitInfoPtr& display_unit_info :
+       info_list) {
     const std::string display_id = display_unit_info->id;
     for (const auto& rotation : rotations_to_try) {
       BrowserViewLayoutWaiter browser_view_layout_waiter(browser_view());
-      auto config_properties = ash::mojom::DisplayConfigProperties::New();
-      config_properties->rotation = ash::mojom::DisplayRotation::New(rotation);
-      ash::mojom::DisplayConfigResult result;
-      waiter_for.SetDisplayProperties(display_id, std::move(config_properties),
-                                      ash::mojom::DisplayConfigSource::kUser,
-                                      &result);
-      EXPECT_EQ(result, ash::mojom::DisplayConfigResult::kSuccess);
+      auto config_properties = crosapi::mojom::DisplayConfigProperties::New();
+      config_properties->rotation =
+          crosapi::mojom::DisplayRotation::New(rotation);
+      crosapi::mojom::DisplayConfigResult result;
+      waiter_for.SetDisplayProperties(
+          display_id, std::move(config_properties),
+          crosapi::mojom::DisplayConfigSource::kUser, &result);
+      EXPECT_EQ(result, crosapi::mojom::DisplayConfigResult::kSuccess);
 
       // Wait for the browser view to change its bounds as a result of display
       // rotation.
@@ -1041,7 +1048,13 @@ class PageStateUpdateWaiter : content::WebContentsObserver {
 // Verifies that we ignore the shown ratios sent from widgets other than that of
 // the main frame (such as widgets of the drop-down menus in web pages).
 // https://crbug.com/891471.
-IN_PROC_BROWSER_TEST_F(TopControlsSlideControllerTest, TestDropDowns) {
+// TODO(1337418): Flaky for dbg and ASan builds.
+#if !defined(NDEBUG) || defined(ADDRESS_SANITIZER)
+#define MAYBE_TestDropDowns DISABLED_TestDropDowns
+#else
+#define MAYBE_TestDropDowns TestDropDowns
+#endif
+IN_PROC_BROWSER_TEST_F(TopControlsSlideControllerTest, MAYBE_TestDropDowns) {
   browser_view()->frame()->Maximize();
   ToggleTabletMode();
   ASSERT_TRUE(GetTabletModeEnabled());
@@ -1181,7 +1194,7 @@ class IntermediateShownRatioWaiter : public TestControllerObserver {
   }
 
  private:
-  TestController* controller_;
+  raw_ptr<TestController, ExperimentalAsh> controller_;
 
   std::unique_ptr<base::RunLoop> run_loop_;
 
@@ -1362,7 +1375,9 @@ IN_PROC_BROWSER_TEST_F(TopControlsSlideControllerTest,
   CheckBrowserLayout(browser_view(), TopChromeShownState::kFullyShown);
 }
 
-IN_PROC_BROWSER_TEST_F(TopControlsSlideControllerTest, TestPermissionBubble) {
+// Sheriff 2022/04/18; flaky test crbug/1317068
+IN_PROC_BROWSER_TEST_F(TopControlsSlideControllerTest,
+                       DISABLED_TestPermissionBubble) {
   ToggleTabletMode();
   ASSERT_TRUE(GetTabletModeEnabled());
   EXPECT_TRUE(top_controls_slide_controller()->IsEnabled());
@@ -1383,14 +1398,14 @@ IN_PROC_BROWSER_TEST_F(TopControlsSlideControllerTest, TestPermissionBubble) {
 
   // Fire a geolocation permission request, which should show a permission
   // request bubble resulting in top chrome unhiding.
-  auto decided = [](ContentSetting, bool) {};
+  auto decided = [](ContentSetting, bool, bool) {};
   permissions::PermissionRequest permission_request(
       url, permissions::RequestType::kGeolocation, true /* user_gesture */,
-      base::BindOnce(decided), base::DoNothing() /* delete_callback */);
+      base::BindRepeating(decided), base::DoNothing() /* delete_callback */);
   auto* permission_manager =
       permissions::PermissionRequestManager::FromWebContents(active_contents);
   TopControlsShownRatioWaiter waiter(top_controls_slide_controller());
-  permission_manager->AddRequest(active_contents->GetMainFrame(),
+  permission_manager->AddRequest(active_contents->GetPrimaryMainFrame(),
                                  &permission_request);
   waiter.WaitForRatio(1.f);
   EXPECT_FLOAT_EQ(top_controls_slide_controller()->GetShownRatio(), 1.f);
@@ -1412,14 +1427,9 @@ IN_PROC_BROWSER_TEST_F(TopControlsSlideControllerTest, TestPermissionBubble) {
                                TopChromeShownState::kFullyHidden);
 }
 
-// Flaky on ChromeOS Release bots. https://crbug.com/1033648
-#if BUILDFLAG(IS_CHROMEOS) && defined(NDEBUG)
-#define MAYBE_TestToggleChromeVox DISABLED_TestToggleChromeVox
-#else
-#define MAYBE_TestToggleChromeVox TestToggleChromeVox
-#endif
+// Flaky on ChromeOS bots. https://crbug.com/1033648
 IN_PROC_BROWSER_TEST_F(TopControlsSlideControllerTest,
-                       MAYBE_TestToggleChromeVox) {
+                       DISABLED_TestToggleChromeVox) {
   ToggleTabletMode();
   ASSERT_TRUE(GetTabletModeEnabled());
   EXPECT_TRUE(top_controls_slide_controller()->IsEnabled());

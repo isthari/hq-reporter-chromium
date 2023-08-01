@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -89,10 +89,6 @@ void LogProfileDeletionContext(bool is_last_profile, bool no_browser_windows) {
 
 void LogProfileAllAccountsNames(AllAccountsNames names) {
   base::UmaHistogramEnumeration("Profile.AllAccounts.Names", names);
-}
-
-void LogProfileAllAccountsCategories(AllAccountsCategories categories) {
-  base::UmaHistogramEnumeration("Profile.AllAccounts.Categories", categories);
 }
 
 }  // namespace profile_metrics

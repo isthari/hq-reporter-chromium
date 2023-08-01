@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,17 +27,16 @@ import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabAttributeKeys;
 import org.chromium.chrome.browser.tab.TabAttributes;
 import org.chromium.chrome.browser.tab.TabBrowserControlsConstraintsHelper;
+import org.chromium.chrome.browser.tab.TabObscuringHandler;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.toolbar.ToolbarManager;
-import org.chromium.chrome.browser.ui.TabObscuringHandler;
-import org.chromium.chrome.browser.vr.ArDelegateProvider;
 import org.chromium.components.browser_ui.modaldialog.TabModalPresenter;
 import org.chromium.components.browser_ui.util.BrowserControlsVisibilityDelegate;
-import org.chromium.components.webxr.ArDelegate;
+import org.chromium.components.webxr.XrDelegate;
+import org.chromium.components.webxr.XrDelegateProvider;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.UiUtils;
 import org.chromium.ui.modelutil.PropertyModel;
-import org.chromium.ui.util.TokenHolder;
 
 /**
  * This presenter creates tab modality by blocking interaction with select UI elements while a
@@ -81,7 +80,7 @@ public class ChromeTabModalPresenter
     private boolean mShouldUpdateContainerLayoutParams;
 
     /** A token held while the dialog manager is obscuring all tabs. */
-    private int mTabObscuringToken;
+    private TabObscuringHandler.Token mTabObscuringToken;
 
     /**
      * Constructor for initializing dialog container.
@@ -108,7 +107,6 @@ public class ChromeTabModalPresenter
         mBrowserControlsVisibilityManager = browserControlsVisibilityManager;
         mBrowserControlsVisibilityManager.addObserver(this);
         mVisibilityDelegate = new TabModalBrowserControlsVisibilityDelegate();
-        mTabObscuringToken = TokenHolder.INVALID_TOKEN;
         mContextualSearchManagerSupplier = contextualSearchManagerSupplier;
         mTabModelSelector = tabModelSelector;
     }
@@ -181,8 +179,9 @@ public class ChromeTabModalPresenter
         } else {
             mRunEnterAnimationOnCallback = true;
         }
-        assert mTabObscuringToken == TokenHolder.INVALID_TOKEN;
-        mTabObscuringToken = mTabObscuringHandlerSupplier.get().obscureAllTabs();
+        assert mTabObscuringToken == null;
+        mTabObscuringToken =
+                mTabObscuringHandlerSupplier.get().obscure(TabObscuringHandler.Target.TAB_CONTENT);
     }
 
     @Override
@@ -231,8 +230,8 @@ public class ChromeTabModalPresenter
     @Override
     protected void removeDialogView(PropertyModel model) {
         mRunEnterAnimationOnCallback = false;
-        mTabObscuringHandlerSupplier.get().unobscureAllTabs(mTabObscuringToken);
-        mTabObscuringToken = TokenHolder.INVALID_TOKEN;
+        mTabObscuringHandlerSupplier.get().unobscure(mTabObscuringToken);
+        mTabObscuringToken = null;
         super.removeDialogView(model);
     }
 
@@ -309,9 +308,9 @@ public class ChromeTabModalPresenter
         // without exiting fullscreen. So if we are in one we need to ensure that we:
         // 1) Don't exit fullscreen
         // 2) Toggle the Controls visibility appropriately.
-        // Note that if we don't have an ArDelegate, then we can't have an AR Session.
-        ArDelegate arDelegate = ArDelegateProvider.getDelegate();
-        boolean isInArSession = (arDelegate != null && arDelegate.hasActiveArSession());
+        // Note that if we don't have an XrDelegate, then we can't have an AR Session.
+        XrDelegate xrDelegate = XrDelegateProvider.getDelegate();
+        boolean isInArSession = (xrDelegate != null && xrDelegate.hasActiveArSession());
 
         // If needed, exit fullscreen mode before showing the tab modal dialog view.
         if (!isInArSession) {

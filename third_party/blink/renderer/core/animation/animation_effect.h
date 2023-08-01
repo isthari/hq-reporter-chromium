@@ -38,6 +38,7 @@
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+#include "third_party/blink/renderer/platform/heap/member.h"
 
 namespace blink {
 
@@ -56,7 +57,7 @@ enum TimingUpdateReason {
 };
 
 // Represents the content of an Animation and its fractional timing state.
-// https://drafts.csswg.org/web-animations/#the-animationeffect-interface
+// https://w3.org/TR/web-animations-1/#the-animationeffect-interface
 class CORE_EXPORT AnimationEffect : public ScriptWrappable {
   DEFINE_WRAPPERTYPEINFO();
   // Calls Attach/Detach, GetAnimation, UpdateInheritedTime.
@@ -112,7 +113,7 @@ class CORE_EXPORT AnimationEffect : public ScriptWrappable {
     EnsureNormalizedTiming();
     return normalized_.value();
   }
-  void InvalidateNormalizedTiming() { normalized_.reset(); }
+  void InvalidateNormalizedTiming() const { normalized_.reset(); }
 
   void UpdateSpecifiedTiming(const Timing&);
   void SetIgnoreCssTimingProperties();
@@ -121,7 +122,7 @@ class CORE_EXPORT AnimationEffect : public ScriptWrappable {
   void SetEventDelegate(EventDelegate* delegate) { event_delegate_ = delegate; }
 
   EffectTiming* getTiming() const;
-  ComputedEffectTiming* getComputedTiming() const;
+  ComputedEffectTiming* getComputedTiming();
   void updateTiming(OptionalEffectTiming*,
                     ExceptionState& = ASSERT_NO_EXCEPTION);
   AnimationTimeDelta GetCancelTime() const { return cancel_time_; }
@@ -150,8 +151,8 @@ class CORE_EXPORT AnimationEffect : public ScriptWrappable {
   // it will (if necessary) recalculate timings and (if necessary) call
   // UpdateChildrenAndEffects.
   void UpdateInheritedTime(absl::optional<AnimationTimeDelta> inherited_time,
-                           absl::optional<TimelinePhase> inherited_phase,
                            bool at_progress_timeline_boundary,
+                           bool is_idle,
                            double inherited_playback_rate,
                            TimingUpdateReason) const;
   void Invalidate() const { needs_update_ = true; }
@@ -167,9 +168,7 @@ class CORE_EXPORT AnimationEffect : public ScriptWrappable {
   // In web-animations-1, auto is treated as "the value zero for the purpose of
   // timing model calculations and for the result of the duration member
   // returned from getComputedTiming()".
-  virtual AnimationTimeDelta IntrinsicIterationDuration() const {
-    return AnimationTimeDelta();
-  }
+  virtual AnimationTimeDelta IntrinsicIterationDuration() const;
 
   virtual AnimationTimeDelta CalculateTimeToEffectChange(
       bool forwards,
@@ -189,7 +188,8 @@ class CORE_EXPORT AnimationEffect : public ScriptWrappable {
   mutable absl::optional<Timing::NormalizedTiming> normalized_;
   mutable bool needs_update_;
   mutable absl::optional<AnimationTimeDelta> last_update_time_;
-  mutable absl::optional<Timing::Phase> last_update_phase_;
+  mutable bool last_at_progress_timeline_boundary_ = false;
+  mutable bool last_is_idle_ = false;
   AnimationTimeDelta cancel_time_;
   const Timing::CalculatedTiming& EnsureCalculated() const;
   void EnsureNormalizedTiming() const;

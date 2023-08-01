@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <vector>
 
+#include "base/callback_list.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list_types.h"
 #include "components/keyed_service/core/refcounted_keyed_service.h"
@@ -15,6 +16,7 @@
 
 namespace syncer {
 class ProxyModelTypeControllerDelegate;
+class SyncService;
 }  // namespace syncer
 
 namespace password_manager {
@@ -62,17 +64,35 @@ class PasswordStoreInterface : public RefcountedKeyedService {
   virtual bool IsAbleToSavePasswords() const = 0;
 
   // Adds the given PasswordForm to the secure password store asynchronously.
-  virtual void AddLogin(const PasswordForm& form) = 0;
+  // `completion` will be run after the form is added.
+  virtual void AddLogin(const PasswordForm& form,
+                        base::OnceClosure completion = base::DoNothing()) = 0;
+
+  // Adds all forms in the given vector of PasswordForm to the secure password
+  // store asynchronously. `completion` will be run after the forms are added.
+  virtual void AddLogins(const std::vector<PasswordForm>& forms,
+                         base::OnceClosure completion = base::DoNothing()) = 0;
 
   // Updates the matching PasswordForm in the secure password store (async).
   // If any of the primary key fields (signon_realm, url, username_element,
   // username_value, password_element) are updated, then the second version of
   // the method must be used that takes `old_primary_key`, i.e., the old values
   // for the primary key fields (the rest of the fields are ignored).
-  virtual void UpdateLogin(const PasswordForm& form) = 0;
+  // completion will be run after the form is updated.
+  virtual void UpdateLogin(
+      const PasswordForm& form,
+      base::OnceClosure completion = base::DoNothing()) = 0;
+
+  // Updates all matching forms in the given vector of PasswordForm in the
+  // secure password store (async). Completion will be run after the forms are
+  // updated.
+  virtual void UpdateLogins(const std::vector<PasswordForm>& forms,
+                            base::OnceClosure completion) = 0;
+
   virtual void UpdateLoginWithPrimaryKey(
       const PasswordForm& new_form,
-      const PasswordForm& old_primary_key) = 0;
+      const PasswordForm& old_primary_key,
+      base::OnceClosure completion = base::DoNothing()) = 0;
 
   // Removes the matching PasswordForm from the secure password store (async).
   virtual void RemoveLogin(const PasswordForm& form) = 0;
@@ -90,31 +110,33 @@ class PasswordStoreInterface : public RefcountedKeyedService {
       const base::RepeatingCallback<bool(const GURL&)>& url_filter,
       base::Time delete_begin,
       base::Time delete_end,
-      base::OnceClosure completion,
+      base::OnceClosure completion = base::NullCallback(),
       base::OnceCallback<void(bool)> sync_completion =
           base::NullCallback()) = 0;
 
-  // Removes all logins created in the given date range. If `completion` is not
-  // null, it will be run after deletions have been completed and notification
-  // have been sent out. If any logins were removed 'true' will be passed to a
-  // completion, 'false' otherwise.
+  // Removes all logins created in the given date range. `completion` is run
+  // after deletions have been completed and notifications have been sent out.
+  // If any logins were removed 'true' will be passed to `completion`, 'false'
+  // otherwise.
   virtual void RemoveLoginsCreatedBetween(
       base::Time delete_begin,
       base::Time delete_end,
-      base::OnceCallback<void(bool)> completion) = 0;
+      base::OnceCallback<void(bool)> completion = base::NullCallback()) = 0;
 
   // Sets the 'skip_zero_click' flag for all credentials that match
   // `origin_filter`. `completion` will be run after these modifications are
   // completed and notifications are sent out.
   virtual void DisableAutoSignInForOrigins(
       const base::RepeatingCallback<bool(const GURL&)>& origin_filter,
-      base::OnceClosure completion) = 0;
+      base::OnceClosure completion = base::NullCallback()) = 0;
 
-  // Unblocklists the login with `form_digest` by deleting all the corresponding
-  // blocklisted entries. If `completion` is not null, it will be run after
-  // deletions have been completed. Should be called on the UI thread.
-  virtual void Unblocklist(const PasswordFormDigest& form_digest,
-                           base::OnceClosure completion) = 0;
+  // Unblocklists the login with `form_digest` by deleting all the
+  // corresponding blocklisted entries. If `completion` is not null, it will
+  // be run after deletions have been completed. Should be called on the UI
+  // thread.
+  virtual void Unblocklist(
+      const PasswordFormDigest& form_digest,
+      base::OnceClosure completion = base::NullCallback()) = 0;
 
   // Searches for a matching PasswordForm, and notifies `consumer` on
   // completion.
@@ -156,6 +178,15 @@ class PasswordStoreInterface : public RefcountedKeyedService {
   // interact with PasswordSyncBridge. Must be called from the UI thread.
   virtual std::unique_ptr<syncer::ProxyModelTypeControllerDelegate>
   CreateSyncControllerDelegate() = 0;
+
+  // Propagates successful initialization of SyncService to reolve circular
+  // dependency during PasswordStore creation. |sync_service| may not
+  // have started yet but its preferences can already be queried.
+  virtual void OnSyncServiceInitialized(syncer::SyncService* sync_service) = 0;
+
+  // The passed callback will be invoked whenever sync is enabled/disabled.
+  virtual base::CallbackListSubscription AddSyncEnabledOrDisabledCallback(
+      base::RepeatingClosure sync_enabled_or_disabled_cb) = 0;
 
   // Tests only can retrieve the backend.
   virtual PasswordStoreBackend* GetBackendForTesting() = 0;

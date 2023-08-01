@@ -1,17 +1,21 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_presenter.h"
 
+#import "ios/chrome/browser/shared/public/features/features.h"
+#import "ios/chrome/browser/shared/ui/util/named_guide.h"
+#import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
+#import "ios/chrome/browser/ui/omnibox/omnibox_ui_features.h"
+#import "ios/chrome/browser/ui/omnibox/popup/content_providing.h"
+#import "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_container_view.h"
 #import "ios/chrome/browser/ui/toolbar/buttons/toolbar_configuration.h"
 #import "ios/chrome/browser/ui/toolbar/public/toolbar_constants.h"
-#import "ios/chrome/browser/ui/util/named_guide.h"
-#import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
-#include "ios/chrome/common/ui/util/constraints_ui_util.h"
-#include "ios/chrome/grit/ios_theme_resources.h"
-#include "ui/base/device_form_factor.h"
+#import "ios/chrome/common/ui/util/constraints_ui_util.h"
+#import "ios/chrome/grit/ios_theme_resources.h"
+#import "ui/base/device_form_factor.h"
 #import "ui/gfx/ios/uikit_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -20,26 +24,30 @@
 
 namespace {
 const CGFloat kVerticalOffset = 6;
+const CGFloat kPopupBottomPaddingTablet = 80;
 }  // namespace
 
 @interface OmniboxPopupPresenter ()
-// Constraint for the bottom anchor of the popup.
-@property(nonatomic, strong) NSLayoutConstraint* bottomConstraint;
+/// Constraint for the bottom anchor of the popup when form factor is phone.
+@property(nonatomic, strong) NSLayoutConstraint* bottomConstraintPhone;
+/// Constraint for the bottom anchor of the popup when form factor is tablet.
+@property(nonatomic, strong) NSLayoutConstraint* bottomConstraintTablet;
 
 @property(nonatomic, weak) id<OmniboxPopupPresenterDelegate> delegate;
-@property(nonatomic, weak) UIViewController* viewController;
+@property(nonatomic, weak) UIViewController<ContentProviding>* viewController;
 @property(nonatomic, strong) UIView* popupContainerView;
-// Separator for the bottom edge of the popup on iPad.
+/// Separator for the bottom edge of the popup on iPad.
 @property(nonatomic, strong) UIView* bottomSeparator;
 
 @end
 
 @implementation OmniboxPopupPresenter
 
-- (instancetype)initWithPopupPresenterDelegate:
-                    (id<OmniboxPopupPresenterDelegate>)delegate
-                           popupViewController:(UIViewController*)viewController
-                                     incognito:(BOOL)incognito {
+- (instancetype)
+    initWithPopupPresenterDelegate:(id<OmniboxPopupPresenterDelegate>)delegate
+               popupViewController:
+                   (UIViewController<ContentProviding>*)viewController
+                         incognito:(BOOL)incognito {
   self = [super init];
   if (self) {
     _delegate = delegate;
@@ -48,9 +56,10 @@ const CGFloat kVerticalOffset = 6;
     // Popup uses same colors as the toolbar, so the ToolbarConfiguration is
     // used to get the style.
     ToolbarConfiguration* configuration = [[ToolbarConfiguration alloc]
-        initWithStyle:incognito ? INCOGNITO : NORMAL];
+        initWithStyle:incognito ? ToolbarStyle::kIncognito
+                                : ToolbarStyle::kNormal];
 
-    UIView* containerView = [[UIView alloc] init];
+    UIView* containerView = [[OmniboxPopupContainerView alloc] init];
     [containerView addSubview:viewController.view];
     _popupContainerView = containerView;
 
@@ -64,9 +73,24 @@ const CGFloat kVerticalOffset = 6;
     viewController.overrideUserInterfaceStyle = userInterfaceStyle;
 
     _popupContainerView.backgroundColor = [configuration backgroundColor];
+
     _popupContainerView.translatesAutoresizingMaskIntoConstraints = NO;
     viewController.view.translatesAutoresizingMaskIntoConstraints = NO;
-    AddSameConstraints(viewController.view, _popupContainerView);
+
+    if (IsIpadPopoutOmniboxEnabled()) {
+      _popupContainerView.clipsToBounds = YES;
+      _popupContainerView.layer.cornerRadius = 11.0f;
+
+      UIColor* borderColor =
+          incognito ? [UIColor.whiteColor colorWithAlphaComponent:0.12]
+                    : [UIColor.blackColor colorWithAlphaComponent:0.12];
+
+      _popupContainerView.layer.borderColor = borderColor.CGColor;
+      _popupContainerView.layer.borderWidth = 2.0f;
+      AddSameConstraints(viewController.view, _popupContainerView);
+    } else {
+      AddSameConstraints(viewController.view, _popupContainerView);
+    }
 
     // Add bottom separator. This will only be visible on iPad where
     // the omnibox doesn't fill the whole screen.
@@ -92,15 +116,16 @@ const CGFloat kVerticalOffset = 6;
 }
 
 - (void)updatePopup {
-  BOOL popupHeightIsZero =
-      self.viewController.view.intrinsicContentSize.height == 0;
+  BOOL popupHasContent = self.viewController.hasContent;
   BOOL popupIsOnscreen = self.popupContainerView.superview != nil;
-  if (popupHeightIsZero && popupIsOnscreen) {
+  if (!popupHasContent && popupIsOnscreen) {
     // If intrinsic size is 0 and popup is onscreen, we want to remove the
     // popup view.
     if (ui::GetDeviceFormFactor() != ui::DEVICE_FORM_FACTOR_TABLET) {
-      self.bottomConstraint.active = NO;
+      self.bottomConstraintPhone.active = NO;
       self.bottomSeparator.hidden = YES;
+    } else if (!IsIpadPopoutOmniboxEnabled()) {
+      self.bottomConstraintTablet.active = NO;
     }
 
     [self.viewController willMoveToParentViewController:nil];
@@ -109,7 +134,7 @@ const CGFloat kVerticalOffset = 6;
 
     self.open = NO;
     [self.delegate popupDidCloseForPresenter:self];
-  } else if (!popupHeightIsZero && !popupIsOnscreen) {
+  } else if (popupHasContent && !popupIsOnscreen) {
     // If intrinsic size is nonzero and popup is offscreen, we want to add it.
     UIViewController* parentVC =
         [self.delegate popupParentViewControllerForPresenter:self];
@@ -121,8 +146,10 @@ const CGFloat kVerticalOffset = 6;
     [self initialLayout];
 
     if (ui::GetDeviceFormFactor() != ui::DEVICE_FORM_FACTOR_TABLET) {
-      self.bottomConstraint.active = YES;
+      self.bottomConstraintPhone.active = YES;
       self.bottomSeparator.hidden = NO;
+    } else if (!IsIpadPopoutOmniboxEnabled()) {
+      self.bottomConstraintTablet.active = YES;
     }
 
     self.open = YES;
@@ -130,33 +157,76 @@ const CGFloat kVerticalOffset = 6;
   }
 }
 
+/// With popout omnibox, the popup might be in either of two states:
+/// a) regular x regular state, where the popup matches OB width
+/// b) compact state, where popup takes whole screen width
+/// Therefore, on trait collection change, re-add the popup and recreate the
+/// constraints to make sure the correct ones are used.
+- (void)updatePopupAfterTraitCollectionChange {
+  DCHECK(IsIpadPopoutOmniboxEnabled());
+
+  if (!self.open) {
+    return;
+  }
+
+  // Re-add the popup container to break any existing constraints.
+  [self.popupContainerView removeFromSuperview];
+  [[self.delegate popupParentViewForPresenter:self]
+      addSubview:self.popupContainerView];
+
+  // Re-add necessary constraints.
+  [self initialLayout];
+
+  if (ui::GetDeviceFormFactor() != ui::DEVICE_FORM_FACTOR_TABLET) {
+    self.bottomConstraintPhone.active = YES;
+    self.bottomSeparator.hidden = NO;
+  }
+}
+
 #pragma mark - Private
 
-// Layouts the popup when it is just added to the view hierarchy.
+/// Layouts the popup when it is just added to the view hierarchy.
 - (void)initialLayout {
   UIView* popup = self.popupContainerView;
   // Creates the constraints if the view is newly added to the view hierarchy.
-  // On iPad the height of the popup is fixed.
 
-  // This constraint will only be activated on iPhone as the popup is taking
-  // the full height.
-  self.bottomConstraint = [popup.bottomAnchor
-      constraintEqualToAnchor:[popup superview].bottomAnchor];
+  // On phone form factor the popup is taking the full height.
+  self.bottomConstraintPhone =
+      [popup.bottomAnchor constraintEqualToAnchor:popup.superview.bottomAnchor];
+  // On tablet form factor the popup is padded on the bottom to allow the user
+  // to defocus the omnibox.
+  self.bottomConstraintTablet = [popup.superview.bottomAnchor
+      constraintGreaterThanOrEqualToAnchor:popup.bottomAnchor
+                                  constant:kPopupBottomPaddingTablet];
 
   // Position the top anchor of the popup relatively to the layout guide
   // positioned on the omnibox.
-  UILayoutGuide* topLayout =
-      [NamedGuide guideWithName:kOmniboxGuide view:popup];
+  UILayoutGuide* omniboxGuide = [NamedGuide guideWithName:kOmniboxGuide
+                                                     view:popup];
   NSLayoutConstraint* topConstraint =
-      [popup.topAnchor constraintEqualToAnchor:topLayout.bottomAnchor];
+      [popup.topAnchor constraintEqualToAnchor:omniboxGuide.bottomAnchor];
   topConstraint.constant = kVerticalOffset;
 
-  [NSLayoutConstraint activateConstraints:@[
-    [popup.leadingAnchor constraintEqualToAnchor:popup.superview.leadingAnchor],
-    [popup.trailingAnchor
-        constraintEqualToAnchor:popup.superview.trailingAnchor],
-    topConstraint,
-  ]];
+  NSMutableArray<NSLayoutConstraint*>* constraintsToActivate =
+      [NSMutableArray arrayWithObject:topConstraint];
+
+  if (IsIpadPopoutOmniboxEnabled() &&
+      IsRegularXRegularSizeClass(self.popupContainerView)) {
+    [constraintsToActivate addObjectsFromArray:@[
+      [popup.leadingAnchor constraintEqualToAnchor:omniboxGuide.leadingAnchor],
+      [popup.trailingAnchor
+          constraintEqualToAnchor:omniboxGuide.trailingAnchor],
+    ]];
+  } else {
+    [constraintsToActivate addObjectsFromArray:@[
+      [popup.leadingAnchor
+          constraintEqualToAnchor:popup.superview.leadingAnchor],
+      [popup.trailingAnchor
+          constraintEqualToAnchor:popup.superview.trailingAnchor],
+    ]];
+  }
+
+  [NSLayoutConstraint activateConstraints:constraintsToActivate];
 
   [[popup superview] layoutIfNeeded];
 }

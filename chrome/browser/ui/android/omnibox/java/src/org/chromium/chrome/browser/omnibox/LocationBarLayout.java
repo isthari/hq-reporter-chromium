@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,12 +21,14 @@ import androidx.annotation.CallSuper;
 import androidx.annotation.NonNull;
 import androidx.annotation.VisibleForTesting;
 import androidx.core.view.MarginLayoutParamsCompat;
+import androidx.core.widget.ImageViewCompat;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.chrome.browser.omnibox.status.StatusCoordinator;
 import org.chromium.chrome.browser.omnibox.status.StatusView;
+import org.chromium.chrome.browser.omnibox.styles.OmniboxResourceProvider;
 import org.chromium.chrome.browser.omnibox.suggestions.AutocompleteCoordinator;
 import org.chromium.components.browser_ui.widget.CompositeTouchDelegate;
+import org.chromium.ui.base.DeviceFormFactor;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -40,6 +42,8 @@ public class LocationBarLayout extends FrameLayout {
     protected ImageButton mMicButton;
     protected ImageButton mLensButton;
     protected UrlBar mUrlBar;
+    protected View mStatusViewLeftSpace;
+    protected View mStatusViewRightSpace;
 
     protected UrlBarCoordinator mUrlCoordinator;
     protected AutocompleteCoordinator mAutocompleteCoordinator;
@@ -72,6 +76,8 @@ public class LocationBarLayout extends FrameLayout {
         mMicButton = findViewById(R.id.mic_button);
         mLensButton = findViewById(R.id.lens_camera_button);
         mUrlActionContainer = (LinearLayout) findViewById(R.id.url_action_container);
+        mStatusViewLeftSpace = findViewById(R.id.location_bar_status_view_left_space);
+        mStatusViewRightSpace = findViewById(R.id.location_bar_status_view_right_space);
     }
 
     /**
@@ -142,15 +148,15 @@ public class LocationBarLayout extends FrameLayout {
     }
 
     /* package */ void setMicButtonTint(ColorStateList colorStateList) {
-        ApiCompatibilityUtils.setImageTintList(mMicButton, colorStateList);
+        ImageViewCompat.setImageTintList(mMicButton, colorStateList);
     }
 
     /* package */ void setDeleteButtonTint(ColorStateList colorStateList) {
-        ApiCompatibilityUtils.setImageTintList(mDeleteButton, colorStateList);
+        ImageViewCompat.setImageTintList(mDeleteButton, colorStateList);
     }
 
     /* package */ void setLensButtonTint(ColorStateList colorStateList) {
-        ApiCompatibilityUtils.setImageTintList(mLensButton, colorStateList);
+        ImageViewCompat.setImageTintList(mLensButton, colorStateList);
     }
 
     @Override
@@ -165,12 +171,6 @@ public class LocationBarLayout extends FrameLayout {
     public View getSecurityIconView() {
         return mStatusCoordinator.getSecurityIconView();
     }
-
-    /**
-     * Specify whether location bar should present icons when focused.
-     * @param showIcon True if we should show the icons when the url is focused.
-     */
-    protected void setShowIconsWhenUrlFocused(boolean showIcon) {}
 
     /**
      * @return The margin to be applied to the URL bar based on the buttons currently visible next
@@ -192,7 +192,15 @@ public class LocationBarLayout extends FrameLayout {
                     MarginLayoutParamsCompat.getMarginStart(urlActionContainerLayoutParams)
                     + MarginLayoutParamsCompat.getMarginEnd(urlActionContainerLayoutParams);
         }
-        urlContainerMarginEnd += mStatusCoordinator.getAdditionalUrlContainerMarginEnd();
+        urlContainerMarginEnd += mStatusCoordinator.isSearchEngineStatusIconVisible()
+                        && mStatusCoordinator.shouldDisplaySearchEngineIcon()
+                ? getEndPaddingPixelSizeOnFocusDelta()
+                : 0;
+        // Account for the URL action container end padding on tablets.
+        if (DeviceFormFactor.isNonMultiDisplayContextOnTablet(getContext())) {
+            urlContainerMarginEnd +=
+                    getResources().getDimensionPixelSize(R.dimen.location_bar_url_action_padding);
+        }
         return urlContainerMarginEnd;
     }
 
@@ -289,8 +297,69 @@ public class LocationBarLayout extends FrameLayout {
         return mStatusCoordinator;
     }
 
+    @VisibleForTesting
+    public void setStatusCoordinatorForTesting(StatusCoordinator statusCoordinator) {
+        mStatusCoordinator = statusCoordinator;
+    }
+
     /* package */ void setUrlActionContainerVisibility(int visibility) {
         mUrlActionContainer.setVisibility(visibility);
+    }
+
+    /** Returns the increase in StatusView end padding, when the Url bar is focused. */
+    public int getEndPaddingPixelSizeOnFocusDelta() {
+        int focusedPaddingDimen = OmniboxFeatures.shouldShowModernizeVisualUpdate(getContext())
+                        && OmniboxFeatures.shouldShowSmallBottomMargin()
+                ? R.dimen.location_bar_icon_end_padding_focused_smaller
+                : R.dimen.location_bar_icon_end_padding_focused;
+        return getResources().getDimensionPixelSize(focusedPaddingDimen)
+                - getResources().getDimensionPixelSize(R.dimen.location_bar_icon_end_padding);
+    }
+
+    /**
+     * Expand the left and right space besides the status view, and increase the location bar
+     * vertical padding based on current animation progress percent.
+     *
+     * @param percent The current animation progress percent.
+     */
+    protected void setUrlFocusChangePercent(float percent) {
+        setStatusViewLeftSpacePercent(percent);
+        setStatusViewRightSpacePercent(percent);
+    }
+
+    /**
+     * Set the status view's left space's width based on current animation progress percent.
+     *
+     * @param percent The animation progress percent.
+     */
+    protected void setStatusViewLeftSpacePercent(float percent) {
+        if (!OmniboxFeatures.shouldShowModernizeVisualUpdate(getContext())) {
+            return;
+        }
+
+        // Set the left space expansion width.
+        ViewGroup.LayoutParams leftSpacingParams = mStatusViewLeftSpace.getLayoutParams();
+        int fullSpacing = OmniboxResourceProvider.getFocusedStatusViewLeftSpacing(getContext());
+
+        leftSpacingParams.width = (int) (fullSpacing * percent);
+        mStatusViewLeftSpace.setLayoutParams(leftSpacingParams);
+    }
+
+    /**
+     * Set the status view's right space's width based on current animation progress percent.
+     *
+     * @param percent The animation progress percent.
+     */
+    protected void setStatusViewRightSpacePercent(float percent) {
+        // Status view's right space does not need to expand for tablets.
+        if (DeviceFormFactor.isNonMultiDisplayContextOnTablet(getContext())) {
+            return;
+        }
+
+        // Set the right space expansion width.
+        ViewGroup.LayoutParams rightSpacingParams = mStatusViewRightSpace.getLayoutParams();
+        rightSpacingParams.width = (int) (getEndPaddingPixelSizeOnFocusDelta() * percent);
+        mStatusViewRightSpace.setLayoutParams(rightSpacingParams);
     }
 
     public void notifyVoiceRecognitionCanceled() {}

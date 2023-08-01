@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "ash/public/cpp/window_properties.h"
 #include "ash/shelf/shelf_metrics.h"
 #include "ash/wm/splitview/split_view_controller.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/timer/timer.h"
@@ -71,20 +72,11 @@ class ASH_EXPORT DragWindowFromShelfController : public aura::WindowObserver {
   // position. The value is different for standard or dense shelf.
   static float GetReturnToMaximizedThreshold();
 
-  class Observer : public base::CheckedObserver {
-   public:
-    // Called when overview visibility is changed during or after window
-    // dragging.
-    virtual void OnOverviewVisibilityChanged(bool visible) {}
-  };
-
   DragWindowFromShelfController(aura::Window* window,
                                 const gfx::PointF& location_in_screen);
-
   DragWindowFromShelfController(const DragWindowFromShelfController&) = delete;
   DragWindowFromShelfController& operator=(
       const DragWindowFromShelfController&) = delete;
-
   ~DragWindowFromShelfController() override;
 
   // Called during swiping up on the shelf.
@@ -107,18 +99,13 @@ class ASH_EXPORT DragWindowFromShelfController : public aura::WindowObserver {
   // aura::WindowObserver:
   void OnWindowDestroying(aura::Window* window) override;
 
-  void AddObserver(Observer* observer);
-  void RemoveObserver(Observer* observer);
-
   aura::Window* dragged_window() const { return window_; }
   bool drag_started() const { return drag_started_; }
-  bool show_overview_windows() const { return show_overview_windows_; }
-  bool during_window_restoration_callback() const {
-    return during_window_restoration_callback_;
-  }
+  bool during_window_restoration() const { return during_window_restoration_; }
 
  private:
   class WindowsHider;
+  friend class DragWindowFromShelfControllerTestApi;
 
   void OnDragStarted(const gfx::PointF& location_in_screen);
   void OnDragEnded(const gfx::PointF& location_in_screen,
@@ -180,13 +167,26 @@ class ASH_EXPORT DragWindowFromShelfController : public aura::WindowObserver {
 
   // Callback function to be called after the window has been restored to its
   // original bounds after drag ends.
-  void OnWindowRestoredToOrignalBounds(bool end_overview);
+  void OnWindowRestoredToOriginalBounds(bool end_overview);
 
   // Called to do proper initialization in overview for the dragged window. The
   // function is supposed to be called with an active overview session.
   void OnWindowDragStartedInOverview();
 
-  aura::Window* window_ = nullptr;
+  // Cleans up `other_window_` and `other_window_copy_`.
+  // If `show` is `absl::nullopt`, we destroy the copy without animation.
+  // If `show` is true, drag has been canceled and we scale up the copy and fade
+  // it in. The copy will be destroyed and replaced by the original window on
+  // animation end.
+  // If `show` is false, fade out the copy and destroy it after the animation.
+  void ResetOtherWindow(absl::optional<bool> show);
+
+  raw_ptr<aura::Window, ExperimentalAsh> window_ = nullptr;
+  // The `other_window_` refers to the window other than `window_` that is
+  // visible while `window_` is being dragged. This happens when there is a
+  // floated window.
+  raw_ptr<aura::Window, ExperimentalAsh> other_window_ = nullptr;
+  std::unique_ptr<ui::LayerTreeOwner> other_window_copy_;
   gfx::PointF initial_location_in_screen_;
   gfx::PointF previous_location_in_screen_;
   bool drag_started_ = false;
@@ -207,17 +207,19 @@ class ASH_EXPORT DragWindowFromShelfController : public aura::WindowObserver {
   // A pending action from EndDrag() to be performed in FinalizeDraggedWindow().
   absl::optional<ShelfWindowDragResult> window_drag_result_;
 
-  base::ObserverList<Observer> observers_;
+  // True while we are restoring windows back to their original bounds after a
+  // drag (i.e. dragged tiny amount from shelf).
+  bool during_window_restoration_ = false;
 
-  bool during_window_restoration_callback_ = false;
+  base::OnceClosure on_overview_shown_callback_for_testing_;
 
   SplitViewController::SnapPosition initial_snap_position_ =
-      SplitViewController::NONE;
+      SplitViewController::SnapPosition::kNone;
 
   SplitViewController::SnapPosition end_snap_position_ =
-      SplitViewController::NONE;
+      SplitViewController::SnapPosition::kNone;
 
-  std::unique_ptr<PresentationTimeRecorder> presentation_time_recorder_;
+  std::unique_ptr<ui::PresentationTimeRecorder> presentation_time_recorder_;
 
   base::WeakPtrFactory<DragWindowFromShelfController> weak_ptr_factory_{this};
 };

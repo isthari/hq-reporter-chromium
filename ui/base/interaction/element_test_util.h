@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,10 @@
 
 #include "ui/base/interaction/element_identifier.h"
 #include "ui/base/interaction/element_tracker.h"
+#include "ui/base/interaction/framework_specific_implementation.h"
+#include "ui/gfx/geometry/rect.h"
 
-namespace ui {
+namespace ui::test {
 
 // Provides a platform-less pseudoelement for use in ElementTracker and
 // InteractionSequence tests.
@@ -26,16 +28,22 @@ class TestElementBase : public TrackedElement {
   // Simulate the element hidden event.
   void Hide();
 
+  // Simuate a custom event on this element.
+  void SendCustomEvent(CustomElementEventType event_type);
+
+  void SetScreenBounds(const gfx::Rect& screen_bounds);
+  gfx::Rect GetScreenBounds() const override;
+
  private:
   bool visible_ = false;
+  gfx::Rect screen_bounds_;
 };
 
 // Provides a platform-less test element in a fictional UI framework.
 class TestElement : public TestElementBase {
  public:
   TestElement(ElementIdentifier id, ElementContext context);
-  static FrameworkIdentifier GetFrameworkIdentifier();
-  FrameworkIdentifier GetInstanceFrameworkIdentifier() const override;
+  DECLARE_FRAMEWORK_SPECIFIC_METADATA()
 };
 
 // Provides a platform-less test element in a fictional UI framework distinct
@@ -43,13 +51,12 @@ class TestElement : public TestElementBase {
 class TestElementOtherFramework : public TestElementBase {
  public:
   TestElementOtherFramework(ElementIdentifier id, ElementContext context);
-  static FrameworkIdentifier GetFrameworkIdentifier();
-  FrameworkIdentifier GetInstanceFrameworkIdentifier() const override;
+  DECLARE_FRAMEWORK_SPECIFIC_METADATA()
 };
 
 // Convenience typedef for unique pointers to test elements.
 using TestElementPtr = std::unique_ptr<TestElementBase>;
 
-}  // namespace ui
+}  // namespace ui::test
 
 #endif  // UI_BASE_INTERACTION_ELEMENT_TEST_UTIL_H_

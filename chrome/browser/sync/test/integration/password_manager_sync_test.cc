@@ -1,10 +1,14 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <memory>
 #include <string>
 
+#include "base/files/file_util.h"
+#include "base/json/json_reader.h"
+#include "base/memory/raw_ptr.h"
+#include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -15,29 +19,43 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browsing_data/chrome_browsing_data_remover_constants.h"
 #include "chrome/browser/password_manager/account_password_store_factory.h"
+#include "chrome/browser/password_manager/affiliation_service_factory.h"
 #include "chrome/browser/password_manager/password_manager_test_base.h"
 #include "chrome/browser/password_manager/password_store_factory.h"
 #include "chrome/browser/password_manager/passwords_navigation_observer.h"
+#include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/sync/test/integration/passwords_helper.h"
 #include "chrome/browser/sync/test/integration/secondary_account_helper.h"
 #include "chrome/browser/sync/test/integration/single_client_status_change_checker.h"
+#include "chrome/browser/sync/test/integration/status_change_checker.h"
 #include "chrome/browser/sync/test/integration/sync_service_impl_harness.h"
 #include "chrome/browser/sync/test/integration/sync_test.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/passwords/manage_passwords_ui_controller.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/common/chrome_constants.h"
+#include "chrome/common/chrome_paths.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/password_manager/core/browser/password_form.h"
 #include "components/password_manager/core/browser/password_manager_features_util.h"
 #include "components/password_manager/core/browser/password_manager_test_utils.h"
+#include "components/password_manager/core/browser/password_manager_util.h"
 #include "components/password_manager/core/browser/password_store_interface.h"
+#include "components/password_manager/core/browser/password_sync_util.h"
+#include "components/password_manager/core/browser/ui/saved_passwords_presenter.h"
 #include "components/password_manager/core/common/password_manager_features.h"
+#include "components/password_manager/core/common/password_manager_pref_names.h"
+#include "components/policy/core/browser/browser_policy_connector.h"
+#include "components/policy/core/common/mock_configuration_policy_provider.h"
+#include "components/policy/core/common/policy_map.h"
+#include "components/policy/core/common/policy_types.h"
+#include "components/policy/policy_constants.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/public/identity_manager/account_info.h"
-#include "components/sync/driver/sync_driver_switches.h"
-#include "components/sync/driver/sync_service_impl.h"
-#include "components/sync/test/fake_server/fake_server_nigori_helper.h"
+#include "components/sync/base/model_type.h"
+#include "components/sync/service/sync_service_impl.h"
+#include "components/sync/test/fake_server_nigori_helper.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browsing_data_remover.h"
 #include "content/public/test/browser_test.h"
@@ -53,6 +71,7 @@ namespace {
 
 using testing::ElementsAre;
 using testing::IsEmpty;
+using testing::NiceMock;
 using testing::UnorderedElementsAre;
 
 MATCHER_P2(MatchesLogin, username, password, "") {
@@ -69,6 +88,56 @@ MATCHER_P3(MatchesLoginAndRealm, username, password, signon_realm, "") {
 const char kTestUserEmail[] = "user@email.com";
 const char kExampleHostname[] = "www.example.com";
 const char kExamplePslHostname[] = "psl.example.com";
+
+// Waits for SavedPasswordsPresenter to have a certain number of
+// credentials.
+class SavedPasswordsPresenterWaiter
+    : public StatusChangeChecker,
+      public password_manager::SavedPasswordsPresenter::Observer {
+ public:
+  SavedPasswordsPresenterWaiter(
+      password_manager::SavedPasswordsPresenter* presenter,
+      size_t n_passwords)
+      : presenter_(presenter), n_passwords_(n_passwords) {
+    presenter_->AddObserver(this);
+  }
+
+  ~SavedPasswordsPresenterWaiter() override {
+    presenter_->RemoveObserver(this);
+  }
+
+ private:
+  bool IsExitConditionSatisfied(std::ostream* os) override {
+    *os << "Waiting for the SavedPasswordsPresenter to have " << n_passwords_
+        << " passwords";
+    return presenter_->GetSavedCredentials().size() == n_passwords_;
+  }
+
+  void OnSavedPasswordsChanged(
+      const password_manager::PasswordStoreChangeList& changes) override {
+    CheckExitCondition();
+  }
+
+  const raw_ptr<password_manager::SavedPasswordsPresenter> presenter_;
+  const size_t n_passwords_;
+};
+
+class SyncActiveWithoutPasswordsChecker
+    : public SingleClientStatusChangeChecker {
+ public:
+  explicit SyncActiveWithoutPasswordsChecker(syncer::SyncServiceImpl* service)
+      : SingleClientStatusChangeChecker(service) {}
+
+  ~SyncActiveWithoutPasswordsChecker() override = default;
+
+  // StatusChangeChecker implementation.
+  bool IsExitConditionSatisfied(std::ostream* os) override {
+    // DEVICE_INFO is another arbitrary type supported for signed-in users,
+    // just so we rule out no type at all is active.
+    return !service()->GetActiveDataTypes().Has(syncer::PASSWORDS) &&
+           service()->GetActiveDataTypes().Has(syncer::DEVICE_INFO);
+  }
+};
 
 // Note: This helper applies to ChromeOS too, but is currently unused there. So
 // define it out to prevent a compile error due to the unused function.
@@ -90,8 +159,10 @@ class PasswordManagerSyncTest : public SyncTest {
     // all Javascript changes to it are discarded, and thus any tests that cover
     // updating a password become flaky.
     feature_list_.InitWithFeatures(
-        {password_manager::features::kEnablePasswordsAccountStorage,
-         password_manager::features::kFillOnAccountSelect},
+        {
+            password_manager::features::kEnablePasswordsAccountStorage,
+            password_manager::features::kFillOnAccountSelect,
+        },
         {});
   }
 
@@ -111,6 +182,8 @@ class PasswordManagerSyncTest : public SyncTest {
   }
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
+    SyncTest::SetUpCommandLine(command_line);
+
     // Make sure that fake Gaia pages served by the test server match the Gaia
     // URL (as specified by GaiaUrls::gaia_url()). Note that even though the
     // hostname is the same, it's necessary to override the port to the one used
@@ -305,7 +378,7 @@ class PasswordManagerSyncTest : public SyncTest {
         "document.getElementById('input_submit_button').click()",
         username.c_str(), password.c_str());
     ASSERT_TRUE(content::ExecJs(web_contents, fill_and_submit));
-    observer.Wait();
+    ASSERT_TRUE(observer.Wait());
   }
 
   net::EmbeddedTestServer* https_test_server() { return &https_test_server_; }
@@ -316,7 +389,7 @@ class PasswordManagerSyncTest : public SyncTest {
               GetBrowser(0)->tab_strip_model()->GetActiveWebContents());
     PasswordsNavigationObserver observer(web_contents);
     ASSERT_TRUE(ui_test_utils::NavigateToURL(GetBrowser(0), url));
-    observer.Wait();
+    ASSERT_TRUE(observer.Wait());
     // After navigation, the password manager retrieves any matching credentials
     // from the store(s). So before doing anything else (like filling and
     // submitting a form), do a roundtrip to the stores to make sure the
@@ -842,18 +915,11 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerSyncTest,
                        PRE_ClearAccountStoreOnStartup) {
   ASSERT_TRUE(SetupClients()) << "SetupClients() failed.";
 
-  SetupSyncTransportWithoutPasswordAccountStorage();
+  // Add a credential to the server.
+  AddCredentialToFakeServer(
+      CreateTestPasswordForm("accountuser", "accountpass"));
 
-  ASSERT_FALSE(password_manager::features_util::IsOptedInForAccountStorage(
-      GetProfile(0)->GetPrefs(), GetSyncService(0)));
-
-  // Manually add a credential to the account store, without actually opting in.
-  // This simulates the case (for the following test) where the user revoked
-  // their opt-in, but the account store was *not* cleared correctly, e.g. due
-  // to a poorly-timed crash.
-  password_manager::PasswordStoreInterface* account_store =
-      passwords_helper::GetAccountPasswordStoreInterface(0);
-  account_store->AddLogin(CreateTestPasswordForm("accountuser", "accountpass"));
+  SetupSyncTransportWithPasswordAccountStorage();
 
   // Also add a credential to the profile store.
   AddLocalCredential("localuser", "localpass");
@@ -865,24 +931,39 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerSyncTest,
 }
 
 IN_PROC_BROWSER_TEST_F(PasswordManagerSyncTest, ClearAccountStoreOnStartup) {
-  base::HistogramTester histograms;
+  // Before setting up the client (aka profile), manually remove the opt-in pref
+  // from the profile's prefs file. This simulates the case where the user
+  // revoked their opt-in, but the account store was not cleared correctly, e.g.
+  // due to a poorly-timed crash.
+  base::FilePath user_data_dir;
+  base::PathService::Get(chrome::DIR_USER_DATA, &user_data_dir);
+  base::FilePath profile_path = user_data_dir.Append(GetProfileBaseName(0));
+  base::FilePath json_path = profile_path.Append(chrome::kPreferencesFilename);
+  {
+    base::ScopedAllowBlockingForTesting allow_blocking;
+    std::string json;
+    ASSERT_TRUE(base::ReadFileToString(json_path, &json));
+    absl::optional<base::Value> prefs = base::JSONReader::Read(json);
+    ASSERT_TRUE(prefs.has_value());
+    ASSERT_TRUE(prefs->is_dict());
+    ASSERT_TRUE(prefs->GetDict().RemoveByDottedPath(
+        password_manager::prefs::kAccountStoragePerAccountSettings));
+    ASSERT_TRUE(base::JSONWriter::Write(*prefs, &json));
+    ASSERT_TRUE(base::WriteFile(json_path, json));
+  }
 
   ASSERT_TRUE(SetupClients()) << "SetupClients() failed.";
 
   ASSERT_TRUE(GetClient(0)->AwaitSyncTransportActive());
 
+  // Since we mangled the prefs file, the opt-in should be gone.
   ASSERT_FALSE(password_manager::features_util::IsOptedInForAccountStorage(
       GetProfile(0)->GetPrefs(), GetSyncService(0)));
-
-  // The "original" is defined in password_model_type_controller.cc.
-  const int kNotOptedInAndHadToClear = 2;
+  ASSERT_FALSE(GetSyncService(0)->GetActiveDataTypes().Has(syncer::PASSWORDS));
 
   // Since there's no opt-in, the account-scoped store should have been cleared
   // during startup, and the credential added by the PRE_ test should be gone.
   EXPECT_THAT(GetAllLoginsFromAccountPasswordStore(), IsEmpty());
-  histograms.ExpectUniqueSample(
-      "PasswordManager.AccountStorage.ClearedOnStartup",
-      /*sample=*/kNotOptedInAndHadToClear, 1);
 
   // Just as a sanity check: The credential in the profile-scoped store should
   // still be there.
@@ -890,6 +971,121 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerSyncTest, ClearAccountStoreOnStartup) {
               ElementsAre(MatchesLogin("localuser", "localpass")));
 }
 
+#endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
+
+IN_PROC_BROWSER_TEST_F(PasswordManagerSyncTest, SyncUtilApis) {
+  // Username hardcoded in SyncTest.
+  const std::string kExpectedUsername = "user@gmail.com";
+
+  ASSERT_TRUE(SetupSync());
+
+  EXPECT_TRUE(
+      password_manager::sync_util::IsPasswordSyncEnabled(GetSyncService(0)));
+  EXPECT_TRUE(
+      password_manager::sync_util::IsPasswordSyncActive(GetSyncService(0)));
+  EXPECT_NE(absl::nullopt,
+            password_manager::sync_util::GetSyncingAccount(GetSyncService(0)));
+  EXPECT_EQ(password_manager::sync_util::GetSyncUsernameIfSyncingPasswords(
+                GetSyncService(0),
+                IdentityManagerFactory::GetForProfile(GetProfile(0))),
+            kExpectedUsername);
+  EXPECT_EQ(password_manager_util::GetPasswordSyncState(GetSyncService(0)),
+            password_manager::SyncState::kSyncingNormalEncryption);
+
+  // Enter a persistent auth error state.
+  GetClient(0)->EnterSyncPausedStateForPrimaryAccount();
+
+  // Passwords are not sync-ing actively while sync is paused (any persistent
+  // auth error).
+  EXPECT_FALSE(
+      password_manager::sync_util::IsPasswordSyncActive(GetSyncService(0)));
+  EXPECT_EQ(password_manager_util::GetPasswordSyncState(GetSyncService(0)),
+            password_manager::SyncState::kNotSyncing);
+
+  // In the current implementation, the APIs below treat sync as enabled/active
+  // even while paused.
+  EXPECT_TRUE(
+      password_manager::sync_util::IsPasswordSyncEnabled(GetSyncService(0)));
+  EXPECT_NE(absl::nullopt,
+            password_manager::sync_util::GetSyncingAccount(GetSyncService(0)));
+  EXPECT_EQ(password_manager::sync_util::GetSyncUsernameIfSyncingPasswords(
+                GetSyncService(0),
+                IdentityManagerFactory::GetForProfile(GetProfile(0))),
+            kExpectedUsername);
+}
+
+#if !BUILDFLAG(IS_CHROMEOS_ASH)
+class PasswordManagerSyncTestWithPolicy : public PasswordManagerSyncTest {
+ public:
+  void SetUpInProcessBrowserTestFixture() override {
+    PasswordManagerSyncTest::SetUpInProcessBrowserTestFixture();
+    policy_provider_.SetDefaultReturns(
+        /*is_initialization_complete_return=*/true,
+        /*is_first_policy_load_complete_return=*/true);
+    policy::BrowserPolicyConnector::SetPolicyProviderForTesting(
+        &policy_provider_);
+  }
+
+  NiceMock<policy::MockConfigurationPolicyProvider>* policy_provider() {
+    return &policy_provider_;
+  }
+
+ private:
+  NiceMock<policy::MockConfigurationPolicyProvider> policy_provider_;
+};
+
+IN_PROC_BROWSER_TEST_F(PasswordManagerSyncTestWithPolicy,
+                       PRE_SyncTypesListDisabled) {
+  ASSERT_TRUE(SetupClients());
+  SetupSyncTransportWithPasswordAccountStorage();
+}
+
+IN_PROC_BROWSER_TEST_F(PasswordManagerSyncTestWithPolicy,
+                       // TODO(crbug.com/1431264): Re-enable this test
+                       DISABLED_SyncTypesListDisabled) {
+  // Disable passwords via the kSyncTypesListDisabled policy. The PRE_ test is
+  // required because the policy is only applied on startup.
+  base::Value::List disabled_types;
+  disabled_types.Append("passwords");
+  policy::PolicyMap policies;
+  policies.Set(policy::key::kSyncTypesListDisabled,
+               policy::POLICY_LEVEL_MANDATORY, policy::POLICY_SCOPE_USER,
+               policy::POLICY_SOURCE_CLOUD,
+               base::Value(std::move(disabled_types)), nullptr);
+  policy_provider()->UpdateChromePolicy(policies);
+
+  ASSERT_TRUE(SetupClients());
+
+  SyncActiveWithoutPasswordsChecker(GetSyncService(0)).Wait();
+}
+
+IN_PROC_BROWSER_TEST_F(PasswordManagerSyncTest,
+                       WipingAccountStoreUpdatesSavedPasswordsPresenter) {
+  // Set up one credential in the account store and one presenter.
+  ASSERT_TRUE(SetupClients()) << "SetupClients() failed.";
+  AddCredentialToFakeServer("user", "pass");
+  SetupSyncTransportWithPasswordAccountStorage();
+  ASSERT_EQ(GetAllLoginsFromAccountPasswordStore().size(), 1u);
+  password_manager::SavedPasswordsPresenter presenter(
+      AffiliationServiceFactory::GetForProfile(GetProfile(0)),
+      PasswordStoreFactory::GetForProfile(GetProfile(0),
+                                          ServiceAccessType::EXPLICIT_ACCESS),
+      AccountPasswordStoreFactory::GetForProfile(
+          GetProfile(0), ServiceAccessType::EXPLICIT_ACCESS));
+  presenter.Init();
+  {
+    SavedPasswordsPresenterWaiter waiter(&presenter, 1);
+    waiter.Wait();
+  }
+
+  password_manager::features_util::OptOutOfAccountStorageAndClearSettings(
+      GetProfile(0)->GetPrefs(), GetSyncService(0));
+
+  {
+    SavedPasswordsPresenterWaiter waiter(&presenter, 0);
+    waiter.Wait();
+  }
+}
 #endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
 
 }  // namespace

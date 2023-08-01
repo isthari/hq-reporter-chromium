@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,6 +21,7 @@
 #include "components/content_settings/browser/page_specific_content_settings.h"
 #include "components/infobars/content/content_infobar_manager.h"
 #include "components/no_state_prefetch/browser/no_state_prefetch_manager.h"
+#include "components/permissions/permission_recovery_success_rate_tracker.h"
 #include "components/prefs/pref_service.h"
 #include "components/vector_icons/vector_icons.h"
 #include "content/public/test/web_contents_tester.h"
@@ -66,6 +67,9 @@ class ContentSettingMediaImageModelTest
         std::make_unique<chrome::PageSpecificContentSettingsDelegate>(
             web_contents()));
     infobars::ContentInfoBarManager::CreateForWebContents(web_contents());
+
+    permissions::PermissionRecoverySuccessRateTracker::CreateForWebContents(
+        web_contents());
   }
 
   std::string GetDefaultAudioDevice() {
@@ -87,8 +91,8 @@ TEST_F(ContentSettingMediaImageModelTest, MediaUpdate) {
       web_contents(),
       std::make_unique<chrome::PageSpecificContentSettingsDelegate>(
           web_contents()));
-  auto* content_settings =
-      PageSpecificContentSettings::GetForFrame(web_contents()->GetMainFrame());
+  auto* content_settings = PageSpecificContentSettings::GetForFrame(
+      web_contents()->GetPrimaryMainFrame());
   const GURL kTestOrigin("https://www.example.com");
   auto content_setting_image_model =
       ContentSettingImageModel::CreateForContentType(

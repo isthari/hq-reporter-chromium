@@ -1,27 +1,28 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/search_engines/ui_thread_search_terms_data.h"
+#import "ios/chrome/browser/search_engines/ui_thread_search_terms_data.h"
 
-#include <string>
+#import <string>
 
-#include "base/check.h"
-#include "components/google/core/common/google_util.h"
-#include "components/omnibox/browser/omnibox_field_trial.h"
-#include "components/version_info/version_info.h"
-#include "ios/chrome/browser/application_context.h"
-#include "ios/chrome/browser/google/google_brand.h"
-#include "ios/chrome/browser/system_flags.h"
-#include "ios/chrome/common/channel_info.h"
-#include "ios/public/provider/chrome/browser/app_distribution/app_distribution_api.h"
-#include "ios/web/public/thread/web_thread.h"
-#include "net/base/escape.h"
-#include "rlz/buildflags/buildflags.h"
-#include "url/gurl.h"
+#import "base/check.h"
+#import "base/strings/escape.h"
+#import "base/strings/strcat.h"
+#import "components/google/core/common/google_util.h"
+#import "components/omnibox/browser/omnibox_field_trial.h"
+#import "components/version_info/version_info.h"
+#import "ios/chrome/browser/flags/system_flags.h"
+#import "ios/chrome/browser/google/google_brand.h"
+#import "ios/chrome/browser/shared/model/application_context/application_context.h"
+#import "ios/chrome/common/channel_info.h"
+#import "ios/public/provider/chrome/browser/app_distribution/app_distribution_api.h"
+#import "ios/web/public/thread/web_thread.h"
+#import "rlz/buildflags/buildflags.h"
+#import "url/gurl.h"
 
 #if BUILDFLAG(ENABLE_RLZ)
-#include "components/rlz/rlz_tracker.h"  // nogncheck
+#import "components/rlz/rlz_tracker.h"  // nogncheck
 #endif
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -75,27 +76,41 @@ std::string UIThreadSearchTermsData::GetSearchClient() const {
   return std::string();
 }
 
-std::string UIThreadSearchTermsData::GetSuggestClient() const {
+std::string UIThreadSearchTermsData::GetSuggestClient(
+    RequestSource request_source) const {
   DCHECK(thread_checker_.CalledOnValidThread());
-  return "chrome";
+  switch (request_source) {
+    case RequestSource::NTP_MODULE:
+      return "chrome-ios-ntp";
+    case RequestSource::JOURNEYS:
+      return "";
+    case RequestSource::SEARCHBOX:
+    case RequestSource::CROS_APP_LIST:
+      return "chrome";
+  }
 }
 
-std::string UIThreadSearchTermsData::GetSuggestRequestIdentifier() const {
+std::string UIThreadSearchTermsData::GetSuggestRequestIdentifier(
+    RequestSource request_source) const {
   DCHECK(thread_checker_.CalledOnValidThread());
-  return "chrome-ext-ansg";
+  switch (request_source) {
+    case RequestSource::NTP_MODULE:
+    case RequestSource::JOURNEYS:
+      return "";
+    case RequestSource::SEARCHBOX:
+    case RequestSource::CROS_APP_LIST:
+      return "chrome-ext-ansg";
+  }
 }
 
 std::string UIThreadSearchTermsData::GoogleImageSearchSource() const {
   DCHECK(thread_checker_.CalledOnValidThread());
-  std::string version(version_info::GetProductName() + " " +
-                      version_info::GetVersionNumber());
-  if (version_info::IsOfficialBuild())
-    version += " (Official)";
-  version += " " + version_info::GetOSType();
-  std::string modifier(GetChannelString());
-  if (!modifier.empty())
-    version += " " + modifier;
-  return version;
+  const std::string channel_name = GetChannelString();
+  return base::StrCat({version_info::GetProductName(), " ",
+                       version_info::GetVersionNumber(),
+                       version_info::IsOfficialBuild() ? " (Official) " : " ",
+                       version_info::GetOSType(),
+                       channel_name.empty() ? "" : " ", channel_name});
 }
 
 }  // namespace ios

@@ -1,54 +1,47 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/optimization_guide/core/page_content_annotations_common.h"
 
 #include <algorithm>
+#include <ostream>
 
 #include "base/check_op.h"
+#include "base/json/json_writer.h"
+#include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 
 namespace optimization_guide {
 
-// Each of these string values is used in UMA histograms so please update the
-// variants there when any changes are made.
-// //tools/metrics/histograms/metadata/optimization/histograms.xml
-std::string AnnotationTypeToString(AnnotationType type) {
-  switch (type) {
-    case AnnotationType::kUnknown:
-      return "Unknown";
-    case AnnotationType::kPageTopics:
-      return "PageTopics";
-    case AnnotationType::kContentVisibility:
-      return "ContentVisibility";
-    case AnnotationType::kPageEntities:
-      return "PageEntities";
-  }
-}
-
-WeightedString::WeightedString(const std::string& value, double weight)
+WeightedIdentifier::WeightedIdentifier(int32_t value, double weight)
     : value_(value), weight_(weight) {
   DCHECK_GE(weight_, 0.0);
   DCHECK_LE(weight_, 1.0);
 }
-WeightedString::WeightedString(const WeightedString&) = default;
-WeightedString::~WeightedString() = default;
+WeightedIdentifier::WeightedIdentifier(const WeightedIdentifier&) = default;
+WeightedIdentifier::~WeightedIdentifier() = default;
 
-bool WeightedString::operator==(const WeightedString& other) const {
+bool WeightedIdentifier::operator==(const WeightedIdentifier& other) const {
   constexpr double kWeightTolerance = 1e-6;
   return this->value_ == other.value_ &&
-         abs(this->weight_ - other.weight_) <= kWeightTolerance;
+         std::abs(this->weight_ - other.weight_) <= kWeightTolerance;
 }
 
-std::string WeightedString::ToString() const {
-  return base::StringPrintf("WeightedString{\"%s\",%f}", value().c_str(),
-                            weight());
+std::string WeightedIdentifier::ToString() const {
+  return base::StringPrintf("WeightedIdentifier{%d,%f}", value(), weight());
 }
 
-std::ostream& operator<<(std::ostream& stream, const WeightedString& ws) {
+base::Value WeightedIdentifier::AsValue() const {
+  base::Value::Dict wi;
+  wi.Set("value", value());
+  wi.Set("weight", weight());
+  return base::Value(std::move(wi));
+}
+
+std::ostream& operator<<(std::ostream& stream, const WeightedIdentifier& ws) {
   stream << ws.ToString();
   return stream;
 }
@@ -58,15 +51,48 @@ BatchAnnotationResult::BatchAnnotationResult(const BatchAnnotationResult&) =
     default;
 BatchAnnotationResult::~BatchAnnotationResult() = default;
 
+bool BatchAnnotationResult::HasOutputForType() const {
+  switch (type()) {
+    case AnnotationType::kUnknown:
+      return false;
+    case AnnotationType::kContentVisibility:
+      return !!visibility_score();
+    case AnnotationType::kPageEntities:
+      return !!entities();
+  }
+}
+
+base::Value BatchAnnotationResult::AsValue() const {
+  base::Value::Dict result;
+  result.Set("input", input());
+  result.Set("type", AnnotationTypeToString(type()));
+
+  if (entities()) {
+    base::Value::List list;
+    for (const auto& md : *entities()) {
+      list.Append(md.AsValue());
+    }
+    result.Set("entities", std::move(list));
+  }
+
+  if (visibility_score()) {
+    result.Set("visibility_score", *visibility_score());
+  }
+
+  return base::Value(std::move(result));
+}
+
+std::string BatchAnnotationResult::ToJSON() const {
+  std::string json;
+  if (base::JSONWriter::Write(AsValue(), &json)) {
+    return json;
+  }
+  return std::string();
+}
+
 std::string BatchAnnotationResult::ToString() const {
   std::string output = "nullopt";
-  if (topics_) {
-    std::vector<std::string> all_weighted_strings;
-    for (const WeightedString& ws : *topics_) {
-      all_weighted_strings.push_back(ws.ToString());
-    }
-    output = "{" + base::JoinString(all_weighted_strings, ",") + "}";
-  } else if (entities_) {
+  if (entities_) {
     std::vector<std::string> all_entities;
     for (const ScoredEntityMetadata& md : *entities_) {
       all_entities.push_back(md.ToString());
@@ -77,36 +103,16 @@ std::string BatchAnnotationResult::ToString() const {
   }
   return base::StringPrintf(
       "BatchAnnotationResult{"
-      "\"<input with length %zu>\", "
+      "\"%s\", "
       "type: %s, "
       "output: %s}",
-      input_.size(), AnnotationTypeToString(type_).c_str(), output.c_str());
+      input_.c_str(), AnnotationTypeToString(type_).c_str(), output.c_str());
 }
 
 std::ostream& operator<<(std::ostream& stream,
                          const BatchAnnotationResult& result) {
   stream << result.ToString();
   return stream;
-}
-
-// static
-BatchAnnotationResult BatchAnnotationResult::CreatePageTopicsResult(
-    const std::string& input,
-    absl::optional<std::vector<WeightedString>> topics) {
-  BatchAnnotationResult result;
-  result.input_ = input;
-  result.topics_ = topics;
-  result.type_ = AnnotationType::kPageTopics;
-
-  // Always sort the result (if present) by the given score.
-  if (result.topics_) {
-    std::sort(result.topics_->begin(), result.topics_->end(),
-              [](const WeightedString& a, const WeightedString& b) {
-                return a.weight() < b.weight();
-              });
-  }
-
-  return result;
 }
 
 //  static
@@ -151,7 +157,7 @@ BatchAnnotationResult BatchAnnotationResult::CreateEmptyAnnotationsResult(
 bool BatchAnnotationResult::operator==(
     const BatchAnnotationResult& other) const {
   return this->input_ == other.input_ && this->type_ == other.type_ &&
-         this->topics_ == other.topics_ && this->entities_ == other.entities_ &&
+         this->entities_ == other.entities_ &&
          this->visibility_score_ == other.visibility_score_;
 }
 
@@ -164,6 +170,37 @@ std::vector<BatchAnnotationResult> CreateEmptyBatchAnnotationResults(
         BatchAnnotationResult::CreateEmptyAnnotationsResult(input));
   }
   return results;
+}
+
+// static
+PageContentAnnotationsResult
+PageContentAnnotationsResult::CreateContentVisibilityScoreResult(
+    const PageContentAnnotationsResult::ContentVisibilityScore& score) {
+  PageContentAnnotationsResult result;
+  result.result_ = score;
+  return result;
+}
+
+PageContentAnnotationsResult::PageContentAnnotationsResult() = default;
+
+PageContentAnnotationsResult::PageContentAnnotationsResult(
+    const PageContentAnnotationsResult&) = default;
+PageContentAnnotationsResult& PageContentAnnotationsResult::operator=(
+    const PageContentAnnotationsResult&) = default;
+PageContentAnnotationsResult::~PageContentAnnotationsResult() = default;
+
+AnnotationType PageContentAnnotationsResult::GetType() const {
+  if (absl::holds_alternative<ContentVisibilityScore>(result_)) {
+    return AnnotationType::kContentVisibility;
+  }
+  return AnnotationType::kUnknown;
+}
+
+PageContentAnnotationsResult::ContentVisibilityScore
+PageContentAnnotationsResult::GetContentVisibilityScore() const {
+  DCHECK_EQ(AnnotationType::kContentVisibility, GetType());
+  return absl::get<PageContentAnnotationsResult::ContentVisibilityScore>(
+      result_);
 }
 
 }  // namespace optimization_guide

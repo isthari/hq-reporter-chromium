@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,9 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/mock_callback.h"
 #include "components/password_manager/core/browser/mock_password_form_manager_for_ui.h"
@@ -44,16 +45,15 @@ constexpr char kTestPSLOrigin[] = "http://1.example.com/";
 std::vector<const PasswordForm*> GetRawPointers(
     const std::vector<std::unique_ptr<PasswordForm>>& forms) {
   std::vector<const PasswordForm*> result;
-  std::transform(
-      forms.begin(), forms.end(), std::back_inserter(result),
-      [](const std::unique_ptr<PasswordForm>& form) { return form.get(); });
+  base::ranges::transform(forms, std::back_inserter(result),
+                          &std::unique_ptr<PasswordForm>::get);
   return result;
 }
 
 class MockPasswordManagerClient
     : public password_manager::StubPasswordManagerClient {
  public:
-  MOCK_METHOD0(UpdateFormManagers, void());
+  MOCK_METHOD(void, UpdateFormManagers, (), (override));
 };
 
 class ManagePasswordsStateTest : public testing::Test {

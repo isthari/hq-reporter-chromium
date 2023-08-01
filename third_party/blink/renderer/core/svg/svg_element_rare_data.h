@@ -22,6 +22,7 @@
 
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/core/svg/svg_element.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/transforms/affine_transform.h"
 #include "third_party/blink/renderer/platform/wtf/hash_set.h"
@@ -114,7 +115,7 @@ class SVGElementRareData final : public GarbageCollected<SVGElementRareData> {
   bool web_animated_attributes_dirty_ : 1;
   HashSet<QualifiedName> web_animated_attributes_;
   Member<MutableCSSPropertyValueSet> animated_smil_style_properties_;
-  scoped_refptr<ComputedStyle> override_computed_style_;
+  scoped_refptr<const ComputedStyle> override_computed_style_;
   // Used by <animateMotion>
   AffineTransform animate_motion_transform_;
 };

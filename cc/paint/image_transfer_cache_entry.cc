@@ -1,15 +1,17 @@
-// Copyright (c) 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "cc/paint/image_transfer_cache_entry.h"
 
+#include <algorithm>
 #include <array>
 #include <type_traits>
 #include <utility>
 
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
+#include "base/notreached.h"
 #include "base/numerics/checked_math.h"
 #include "base/numerics/safe_conversions.h"
 #include "cc/paint/paint_op_reader.h"
@@ -18,19 +20,40 @@
 #include "third_party/skia/include/core/SkImage.h"
 #include "third_party/skia/include/core/SkPixmap.h"
 #include "third_party/skia/include/core/SkYUVAInfo.h"
+#include "third_party/skia/include/gpu/GpuTypes.h"
 #include "third_party/skia/include/gpu/GrBackendSurface.h"
 #include "third_party/skia/include/gpu/GrDirectContext.h"
 #include "third_party/skia/include/gpu/GrYUVABackendTextures.h"
+#include "third_party/skia/include/gpu/ganesh/SkImageGanesh.h"
+#include "third_party/skia/include/gpu/graphite/Image.h"
+#include "third_party/skia/include/gpu/graphite/Recorder.h"
+#include "ui/gfx/color_conversion_sk_filter_cache.h"
+#include "ui/gfx/hdr_metadata.h"
 
 namespace cc {
 namespace {
+
 struct Context {
   const std::vector<sk_sp<SkImage>> sk_planes_;
 };
 
-void ReleaseContext(SkImage::ReleaseContext context) {
+void ReleaseContext(SkImages::ReleaseContext context) {
   auto* texture_context = static_cast<Context*>(context);
   delete texture_context;
+}
+
+bool IsYUVAInfoValid(SkYUVAInfo::PlaneConfig plane_config,
+                     SkYUVAInfo::Subsampling subsampling,
+                     SkYUVColorSpace yuv_color_space) {
+  if (plane_config == SkYUVAInfo::PlaneConfig::kUnknown) {
+    return subsampling == SkYUVAInfo::Subsampling::kUnknown &&
+           yuv_color_space == kIdentity_SkYUVColorSpace;
+  }
+  return subsampling != SkYUVAInfo::Subsampling::kUnknown;
+}
+
+int NumPixmapsForYUVConfig(SkYUVAInfo::PlaneConfig plane_config) {
+  return std::max(SkYUVAInfo::NumPlanes(plane_config), 1);
 }
 
 // Creates a SkImage backed by the YUV textures corresponding to |plane_images|.
@@ -38,7 +61,7 @@ void ReleaseContext(SkImage::ReleaseContext context) {
 // first extracted out of the |plane_images| (and work is flushed on each one).
 // Note that we assume that the image is opaque (no alpha plane). Then, a
 // SkImage is created out of those textures using the
-// SkImage::MakeFromYUVATextures() API. Finally, |image_color_space| is the
+// SkImages::TextureFromYUVATextures() API. Finally, |image_color_space| is the
 // color space of the resulting image after applying |yuv_color_space|
 // (converting from YUV to RGB). This is assumed to be sRGB if nullptr.
 //
@@ -46,37 +69,40 @@ void ReleaseContext(SkImage::ReleaseContext context) {
 // returned. On failure, nullptr is returned (e.g., if one of the backend
 // textures is invalid or a Skia error occurs).
 sk_sp<SkImage> MakeYUVImageFromUploadedPlanes(
-    GrDirectContext* context,
+    GrDirectContext* gr_context,
+    skgpu::graphite::Recorder* graphite_recorder,
     const std::vector<sk_sp<SkImage>>& plane_images,
-    SkYUVAInfo::PlaneConfig plane_config,
-    SkYUVAInfo::Subsampling subsampling,
-    SkYUVColorSpace yuv_color_space,
+    const SkYUVAInfo& yuva_info,
     sk_sp<SkColorSpace> image_color_space) {
   // 1) Extract the textures.
-  DCHECK_NE(SkYUVAInfo::PlaneConfig::kUnknown, plane_config);
-  DCHECK_NE(SkYUVAInfo::Subsampling::kUnknown, subsampling);
-  DCHECK_EQ(static_cast<size_t>(SkYUVAInfo::NumPlanes(plane_config)),
+  DCHECK_NE(SkYUVAInfo::PlaneConfig::kUnknown, yuva_info.planeConfig());
+  DCHECK_NE(SkYUVAInfo::Subsampling::kUnknown, yuva_info.subsampling());
+  DCHECK_EQ(static_cast<size_t>(SkYUVAInfo::NumPlanes(yuva_info.planeConfig())),
             plane_images.size());
   DCHECK_LE(plane_images.size(),
             base::checked_cast<size_t>(SkYUVAInfo::kMaxPlanes));
+
+  // TODO(crbug.com/1443065): Implement YUV image support.
+  if (graphite_recorder) {
+    return plane_images[0];
+  }
+
   std::array<GrBackendTexture, SkYUVAInfo::kMaxPlanes> plane_backend_textures;
   for (size_t plane = 0u; plane < plane_images.size(); plane++) {
-    plane_backend_textures[plane] = plane_images[plane]->getBackendTexture(
-        true /* flushPendingGrContextIO */);
-    if (!plane_backend_textures[plane].isValid()) {
+    if (!SkImages::GetBackendTextureFromImage(
+            plane_images[plane], &plane_backend_textures[plane],
+            true /* flushPendingGrContextIO */)) {
       DLOG(ERROR) << "Invalid backend texture found";
       return nullptr;
     }
   }
 
   // 2) Create the YUV image.
-  SkYUVAInfo yuva_info(plane_images[0]->dimensions(), plane_config, subsampling,
-                       yuv_color_space);
   GrYUVABackendTextures yuva_backend_textures(
       yuva_info, plane_backend_textures.data(), kTopLeft_GrSurfaceOrigin);
   Context* ctx = new Context{plane_images};
-  sk_sp<SkImage> image = SkImage::MakeFromYUVATextures(
-      context, yuva_backend_textures, std::move(image_color_space),
+  sk_sp<SkImage> image = SkImages::TextureFromYUVATextures(
+      gr_context, yuva_backend_textures, std::move(image_color_space),
       ReleaseContext, ctx);
   if (!image) {
     DLOG(ERROR) << "Could not create YUV image";
@@ -86,37 +112,419 @@ sk_sp<SkImage> MakeYUVImageFromUploadedPlanes(
   return image;
 }
 
-// TODO(ericrk): Replace calls to this with calls to SkImage::makeTextureImage,
-// once that function handles colorspaces. https://crbug.com/834837
-sk_sp<SkImage> MakeTextureImage(GrDirectContext* context,
-                                sk_sp<SkImage> source_image,
-                                sk_sp<SkColorSpace> target_color_space,
-                                GrMipMapped mip_mapped) {
-  // Step 1: Upload image and generate mips if necessary. If we will be applying
-  // a color-space conversion, don't generate mips yet, instead do it after
-  // conversion, in step 3.
-  // NOTE: |target_color_space| is only passed over the transfer cache if needed
-  // (non-null, different from the source color space).
-  bool add_mips_after_color_conversion =
-      target_color_space && mip_mapped == GrMipMapped::kYes;
-  sk_sp<SkImage> uploaded_image = source_image->makeTextureImage(
-      context, add_mips_after_color_conversion ? GrMipMapped::kNo : mip_mapped,
-      SkBudgeted::kNo);
+base::CheckedNumeric<uint32_t> SafeSizeForPixmap(const SkPixmap& pixmap) {
+  base::CheckedNumeric<uint32_t> safe_size;
+  safe_size += PaintOpWriter::SerializedSize(pixmap.colorType());
+  safe_size += PaintOpWriter::SerializedSize(pixmap.width());
+  safe_size += PaintOpWriter::SerializedSize(pixmap.height());
+  safe_size += PaintOpWriter::SerializedSize(pixmap.rowBytes());
+  safe_size += 16u;  // The max of GetAlignmentForColorType().
+  safe_size += PaintOpWriter::SerializedSizeOfBytes(pixmap.computeByteSize());
+  return safe_size;
+}
 
-  // Step 2: Apply a color-space conversion if necessary.
-  if (uploaded_image && target_color_space) {
-    uploaded_image =
-        uploaded_image->makeColorSpace(target_color_space, context);
+base::CheckedNumeric<uint32_t> SafeSizeForImage(
+    const ClientImageTransferCacheEntry::Image& image) {
+  base::CheckedNumeric<uint32_t> safe_size;
+  safe_size += PaintOpWriter::SerializedSize(image.yuv_plane_config);
+  safe_size += PaintOpWriter::SerializedSize(image.yuv_subsampling);
+  safe_size += PaintOpWriter::SerializedSize(image.yuv_color_space);
+  safe_size += PaintOpWriter::SerializedSize(image.color_space.get());
+  const int num_pixmaps = NumPixmapsForYUVConfig(image.yuv_plane_config);
+  for (int i = 0; i < num_pixmaps; ++i) {
+    safe_size += SafeSizeForPixmap(*image.pixmaps.at(i));
+  }
+  return safe_size;
+}
+
+size_t GetAlignmentForColorType(SkColorType color_type) {
+  size_t bpp = SkColorTypeBytesPerPixel(color_type);
+  if (bpp <= 4)
+    return 4;
+  if (bpp <= 16)
+    return 16;
+  NOTREACHED();
+  return 0;
+}
+
+bool WritePixmap(PaintOpWriter& writer, const SkPixmap& pixmap) {
+  if (pixmap.width() == 0 || pixmap.height() == 0) {
+    DLOG(ERROR) << "Cannot write empty pixmap";
+    return false;
+  }
+  DCHECK_GT(pixmap.width(), 0);
+  DCHECK_GT(pixmap.height(), 0);
+  DCHECK_GT(pixmap.rowBytes(), 0u);
+  writer.Write(pixmap.colorType());
+  writer.Write(pixmap.width());
+  writer.Write(pixmap.height());
+  size_t data_size = pixmap.computeByteSize();
+  if (data_size == SIZE_MAX) {
+    DLOG(ERROR) << "Size overflow writing pixmap";
+    return false;
+  }
+  writer.WriteSize(pixmap.rowBytes());
+  writer.WriteSize(data_size);
+  // The memory for the pixmap must be aligned to a byte boundary, or mipmap
+  // generation can fail.
+  // https://crbug.com/863659, https://crbug.com/1300188
+  writer.AlignMemory(GetAlignmentForColorType(pixmap.colorType()));
+  writer.WriteData(data_size, pixmap.addr());
+  return true;
+}
+
+bool ReadPixmap(PaintOpReader& reader, SkPixmap& pixmap) {
+  if (!reader.valid())
+    return false;
+
+  SkColorType color_type = kUnknown_SkColorType;
+  reader.Read(&color_type);
+  const size_t alignment = GetAlignmentForColorType(color_type);
+  if (color_type == kUnknown_SkColorType ||
+      color_type == kRGB_101010x_SkColorType ||
+      color_type > kLastEnum_SkColorType) {
+    DLOG(ERROR) << "Invalid color type";
+    return false;
+  }
+  int width = 0;
+  reader.Read(&width);
+  int height = 0;
+  reader.Read(&height);
+  if (width == 0 || height == 0) {
+    DLOG(ERROR) << "Empty width or height";
+    return false;
   }
 
-  // Step 3: If we had a colorspace conversion, we couldn't mipmap in step 1, so
-  // add mips here.
-  if (uploaded_image && add_mips_after_color_conversion) {
-    uploaded_image = uploaded_image->makeTextureImage(
-        context, GrMipMapped::kYes, SkBudgeted::kNo);
+  auto image_info =
+      SkImageInfo::Make(width, height, color_type, kPremul_SkAlphaType);
+  size_t row_bytes = 0;
+  reader.ReadSize(&row_bytes);
+  if (row_bytes < image_info.minRowBytes()) {
+    DLOG(ERROR) << "Row bytes " << row_bytes << " less than minimum "
+                << image_info.minRowBytes();
+    return false;
+  }
+  size_t data_size = 0;
+  reader.ReadSize(&data_size);
+  if (image_info.computeByteSize(row_bytes) > data_size) {
+    DLOG(ERROR) << "Data size too small";
+    return false;
   }
 
-  return uploaded_image;
+  reader.AlignMemory(alignment);
+  const volatile void* data = reader.ExtractReadableMemory(data_size);
+  if (!reader.valid()) {
+    DLOG(ERROR) << "Failed to read pixels";
+    return false;
+  }
+  if (reinterpret_cast<uintptr_t>(data) % alignment) {
+    DLOG(ERROR) << "Pixel pointer not aligned";
+    return false;
+  }
+
+  // Const-cast away the "volatile" on |pixel_data|. We specifically understand
+  // that a malicious caller may change our pixels under us, and are OK with
+  // this as the worst case scenario is visual corruption.
+  pixmap = SkPixmap(image_info, const_cast<const void*>(data), row_bytes);
+  return true;
+}
+
+bool WriteImage(PaintOpWriter& writer,
+                const ClientImageTransferCacheEntry::Image& image) {
+  DCHECK(IsYUVAInfoValid(image.yuv_plane_config, image.yuv_subsampling,
+                         image.yuv_color_space));
+  writer.Write(image.color_space);
+  writer.Write(image.yuv_plane_config);
+  writer.Write(image.yuv_subsampling);
+  writer.Write(image.yuv_color_space);
+  const int num_pixmaps = NumPixmapsForYUVConfig(image.yuv_plane_config);
+  for (int i = 0; i < num_pixmaps; ++i) {
+    if (!WritePixmap(writer, *image.pixmaps.at(i))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+size_t SafeSizeForTargetColorParams(
+    const absl::optional<TargetColorParams>& target_color_params) {
+  // bool for whether or not there are going to be parameters.
+  size_t target_color_params_size = PaintOpWriter::SerializedSize<bool>();
+  if (target_color_params) {
+    // The target color space.
+    target_color_params_size += PaintOpWriter::SerializedSize(
+        target_color_params->color_space.ToSkColorSpace().get());
+    target_color_params_size += PaintOpWriter::SerializedSize(
+        target_color_params->sdr_max_luminance_nits);
+    target_color_params_size += PaintOpWriter::SerializedSize(
+        target_color_params->hdr_max_luminance_relative);
+    target_color_params_size +=
+        PaintOpWriter::SerializedSize(target_color_params->enable_tone_mapping);
+    // bool for whether or not there is HDR metadata.
+    target_color_params_size += PaintOpWriter::SerializedSize<bool>();
+    if (auto& hdr_metadata = target_color_params->hdr_metadata) {
+      // The minimum and maximum luminance.
+      target_color_params_size += PaintOpWriter::SerializedSize(
+          hdr_metadata->cta_861_3.max_content_light_level);
+      target_color_params_size += PaintOpWriter::SerializedSize(
+          hdr_metadata->cta_861_3.max_frame_average_light_level);
+      // The x and y coordinates for primaries and white point.
+      target_color_params_size += PaintOpWriter::SerializedSizeOfElements(
+          &hdr_metadata->smpte_st_2086.primaries.fRX, 4 * 2);
+      // The CLL and FALL
+      target_color_params_size += PaintOpWriter::SerializedSize(
+          hdr_metadata->smpte_st_2086.luminance_max);
+      target_color_params_size += PaintOpWriter::SerializedSize(
+          hdr_metadata->smpte_st_2086.luminance_min);
+    }
+  }
+  return target_color_params_size;
+}
+
+void WriteTargetColorParams(
+    PaintOpWriter& writer,
+    const absl::optional<TargetColorParams>& target_color_params) {
+  const bool has_target_color_params = !!target_color_params;
+  writer.Write(has_target_color_params);
+  if (target_color_params) {
+    writer.Write(target_color_params->color_space.ToSkColorSpace().get());
+    writer.Write(target_color_params->sdr_max_luminance_nits);
+    writer.Write(target_color_params->hdr_max_luminance_relative);
+    writer.Write(target_color_params->enable_tone_mapping);
+
+    const bool has_hdr_metadata = !!target_color_params->hdr_metadata;
+    writer.Write(has_hdr_metadata);
+    if (target_color_params->hdr_metadata) {
+      const auto& hdr_metadata = target_color_params->hdr_metadata;
+
+      const auto& cta_861_3 = hdr_metadata->cta_861_3;
+      writer.Write(cta_861_3.max_content_light_level);
+      writer.Write(cta_861_3.max_frame_average_light_level);
+
+      const auto& smpte_st_2086 = hdr_metadata->smpte_st_2086;
+      writer.Write(smpte_st_2086.primaries.fRX);
+      writer.Write(smpte_st_2086.primaries.fRY);
+      writer.Write(smpte_st_2086.primaries.fGX);
+      writer.Write(smpte_st_2086.primaries.fGY);
+      writer.Write(smpte_st_2086.primaries.fBX);
+      writer.Write(smpte_st_2086.primaries.fBY);
+      writer.Write(smpte_st_2086.primaries.fWX);
+      writer.Write(smpte_st_2086.primaries.fWY);
+      writer.Write(smpte_st_2086.luminance_max);
+      writer.Write(smpte_st_2086.luminance_min);
+    }
+  }
+}
+
+bool ReadTargetColorParams(
+    PaintOpReader& reader,
+    absl::optional<TargetColorParams>& target_color_params) {
+  bool has_target_color_params = false;
+  reader.Read(&has_target_color_params);
+  if (!has_target_color_params) {
+    target_color_params = absl::nullopt;
+    return true;
+  }
+
+  target_color_params = TargetColorParams();
+  sk_sp<SkColorSpace> target_color_space;
+  reader.Read(&target_color_space);
+  if (!target_color_space)
+    return false;
+
+  target_color_params->color_space = gfx::ColorSpace(*target_color_space);
+  reader.Read(&target_color_params->sdr_max_luminance_nits);
+  reader.Read(&target_color_params->hdr_max_luminance_relative);
+  reader.Read(&target_color_params->enable_tone_mapping);
+
+  bool has_hdr_metadata = false;
+  reader.Read(&has_hdr_metadata);
+  if (has_hdr_metadata) {
+    gfx::HDRMetadata hdr_metadata;
+    unsigned max_content_light_level = 0;
+    unsigned max_frame_average_light_level = 0;
+    reader.Read(&max_content_light_level);
+    reader.Read(&max_frame_average_light_level);
+
+    SkColorSpacePrimaries primaries = SkNamedPrimariesExt::kInvalid;
+    float luminance_max = 0;
+    float luminance_min = 0;
+    reader.Read(&primaries.fRX);
+    reader.Read(&primaries.fRY);
+    reader.Read(&primaries.fGX);
+    reader.Read(&primaries.fGY);
+    reader.Read(&primaries.fBX);
+    reader.Read(&primaries.fBY);
+    reader.Read(&primaries.fWX);
+    reader.Read(&primaries.fWY);
+    reader.Read(&luminance_max);
+    reader.Read(&luminance_min);
+
+    target_color_params->hdr_metadata = gfx::HDRMetadata(
+        gfx::HdrMetadataSmpteSt2086(primaries, luminance_max, luminance_min),
+        gfx::HdrMetadataCta861_3(max_content_light_level,
+                                 max_frame_average_light_level));
+  }
+  return true;
+}
+
+sk_sp<SkImage> ReadImage(
+    PaintOpReader& reader,
+    GrDirectContext* gr_context,
+    skgpu::graphite::Recorder* graphite_recorder,
+    bool mip_mapped_for_upload,
+    absl::optional<SkYUVAInfo>* out_yuva_info = nullptr,
+    std::vector<sk_sp<SkImage>>* out_yuva_plane_images = nullptr) {
+  int max_size;
+  if (gr_context) {
+    max_size = gr_context->maxTextureSize();
+  } else if (graphite_recorder) {
+    // TODO(b/279234024): Retrieve correct max texture size for graphite.
+    max_size = 8192;
+  } else {
+    // Allow a nullptr context for testing using the software renderer.
+    max_size = 0;
+  }
+
+  sk_sp<SkColorSpace> color_space;
+  reader.Read(&color_space);
+
+  SkYUVAInfo::PlaneConfig plane_config = SkYUVAInfo::PlaneConfig::kUnknown;
+  reader.Read(&plane_config);
+  if (plane_config < SkYUVAInfo::PlaneConfig::kUnknown ||
+      plane_config > SkYUVAInfo::PlaneConfig::kLast) {
+    DLOG(ERROR) << "Invalid plane config";
+    return nullptr;
+  }
+
+  SkYUVAInfo::Subsampling subsampling = SkYUVAInfo::Subsampling::kUnknown;
+  reader.Read(&subsampling);
+  if (subsampling < SkYUVAInfo::Subsampling::kUnknown ||
+      subsampling > SkYUVAInfo::Subsampling::kLast) {
+    DLOG(ERROR) << "Invalid subsampling";
+    return nullptr;
+  }
+
+  SkYUVColorSpace yuv_color_space = kIdentity_SkYUVColorSpace;
+  reader.Read(&yuv_color_space);
+  if (yuv_color_space < kJPEG_Full_SkYUVColorSpace ||
+      yuv_color_space > kLastEnum_SkYUVColorSpace) {
+    DLOG(ERROR) << "Invalid YUV color space";
+    return nullptr;
+  }
+
+  if (!IsYUVAInfoValid(plane_config, subsampling, yuv_color_space)) {
+    DLOG(ERROR) << "Invalid YUV configuration";
+    return nullptr;
+  }
+
+  SkPixmap pixmaps[SkYUVAInfo::kMaxPlanes];
+  bool fits_on_gpu = true;
+  const int num_pixmaps = NumPixmapsForYUVConfig(plane_config);
+  for (int i = 0; i < num_pixmaps; ++i) {
+    if (!ReadPixmap(reader, pixmaps[i])) {
+      DLOG(ERROR) << "Failed to read pixmap";
+      return nullptr;
+    }
+    fits_on_gpu &=
+        pixmaps[i].width() <= max_size && pixmaps[i].height() <= max_size;
+
+    // This is likely unnecessary for YUVA images (the pixmaps of the individual
+    // planes should be ignored), but is left here to avoid behavior changes
+    // during refactoring.
+    pixmaps[i].setColorSpace(color_space);
+  }
+
+  if (plane_config == SkYUVAInfo::PlaneConfig::kUnknown) {
+    // Point `image_` directly to the data in the transfer cache.
+    auto image = SkImages::RasterFromPixmap(pixmaps[0], nullptr, nullptr);
+    if (!image) {
+      DLOG(ERROR) << "Failed to create image from pixmap";
+      return nullptr;
+    }
+
+    // Upload to the GPU if the image will fit.
+    if (fits_on_gpu) {
+      if (gr_context) {
+        image = SkImages::TextureFromImage(
+            gr_context, image,
+            mip_mapped_for_upload ? GrMipMapped::kYes : GrMipMapped::kNo,
+            skgpu::Budgeted::kNo);
+      } else {
+        CHECK(graphite_recorder);
+        SkImage::RequiredProperties props{.fMipmapped = mip_mapped_for_upload};
+        image = SkImages::TextureFromImage(graphite_recorder, image, props);
+      }
+
+      if (!image) {
+        DLOG(ERROR) << "Failed to upload pixmap to texture image.";
+        return nullptr;
+      }
+      DCHECK(image->isTextureBacked());
+    }
+
+    if (out_yuva_info) {
+      *out_yuva_info = absl::nullopt;
+    }
+    if (out_yuva_plane_images) {
+      out_yuva_plane_images->clear();
+    }
+    return image;
+  } else {
+    if (!fits_on_gpu) {
+      DLOG(ERROR) << "YUVA images must fit in the GPU texture size limit";
+      return nullptr;
+    }
+
+    // Upload the planes to the GPU.
+    std::vector<sk_sp<SkImage>> plane_images;
+    for (int i = 0; i < num_pixmaps; i++) {
+      sk_sp<SkImage> plane =
+          SkImages::RasterFromPixmap(pixmaps[i], nullptr, nullptr);
+      if (!plane) {
+        DLOG(ERROR) << "Failed to create image from plane pixmap";
+        return nullptr;
+      }
+      if (gr_context) {
+        plane = SkImages::TextureFromImage(
+            gr_context, plane,
+            mip_mapped_for_upload ? GrMipMapped::kYes : GrMipMapped::kNo,
+            skgpu::Budgeted::kNo);
+        // Flush the pending upload (no-op if image is null).
+        SkImages::GetBackendTextureFromImage(plane, /*outTexture=*/nullptr,
+                                             /*flushPendingGrContextIO=*/true);
+      } else {
+        CHECK(graphite_recorder);
+        SkImage::RequiredProperties props{.fMipmapped = mip_mapped_for_upload};
+        plane = SkImages::TextureFromImage(graphite_recorder, plane, props);
+        // TODO(crbug.com/1434141): Should we flush the graphite recorder here?
+      }
+      if (!plane) {
+        DLOG(ERROR) << "Failed to upload plane pixmap to texture image";
+        return nullptr;
+      }
+      CHECK(plane->isTextureBacked());
+      plane_images.push_back(std::move(plane));
+    }
+    SkYUVAInfo yuva_info(plane_images[0]->dimensions(), plane_config,
+                         subsampling, yuv_color_space);
+
+    // Build the YUV image from its planes.
+    auto image = MakeYUVImageFromUploadedPlanes(
+        gr_context, graphite_recorder, plane_images, yuva_info, color_space);
+    if (!image) {
+      DLOG(ERROR) << "Failed to make YUV image from planes.";
+      return nullptr;
+    }
+
+    if (out_yuva_info) {
+      *out_yuva_info = yuva_info;
+    }
+    if (out_yuva_plane_images) {
+      *out_yuva_plane_images = std::move(plane_images);
+    }
+    return image;
+  }
 }
 
 }  // namespace
@@ -135,96 +543,67 @@ size_t NumberOfPlanesForYUVDecodeFormat(YUVDecodeFormat format) {
   }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// ClientImageTransferCacheEntry::Image
+
+ClientImageTransferCacheEntry::Image::Image() {}
+ClientImageTransferCacheEntry::Image::Image(const Image&) = default;
+ClientImageTransferCacheEntry::Image&
+ClientImageTransferCacheEntry::Image::operator=(const Image&) = default;
+
+ClientImageTransferCacheEntry::Image::Image(const SkPixmap* pixmap)
+    : color_space(pixmap->colorSpace()) {
+  DCHECK(pixmap);
+  pixmaps[0] = pixmap;
+}
+
+ClientImageTransferCacheEntry::Image::Image(const SkPixmap yuva_pixmaps[],
+                                            const SkYUVAInfo& yuva_info,
+                                            const SkColorSpace* color_space)
+    : yuv_plane_config(yuva_info.planeConfig()),
+      yuv_subsampling(yuva_info.subsampling()),
+      yuv_color_space(yuva_info.yuvColorSpace()),
+      color_space(color_space) {
+  // The size of the first plane must equal the size specified in the
+  // SkYUVAInfo.
+  DCHECK(yuva_info.dimensions() == yuva_pixmaps[0].dimensions());
+  // We fail to serialize some parameters.
+  DCHECK_EQ(yuva_info.origin(), kTopLeft_SkEncodedOrigin);
+  DCHECK_EQ(yuva_info.sitingX(), SkYUVAInfo::Siting::kCentered);
+  DCHECK_EQ(yuva_info.sitingY(), SkYUVAInfo::Siting::kCentered);
+  DCHECK(IsYUVAInfoValid(yuv_plane_config, yuv_subsampling, yuv_color_space));
+  for (int i = 0; i < SkYUVAInfo::NumPlanes(yuv_plane_config); ++i) {
+    pixmaps[i] = &yuva_pixmaps[i];
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// ClientImageTransferCacheEntry
+
 ClientImageTransferCacheEntry::ClientImageTransferCacheEntry(
-    const SkPixmap* pixmap,
-    const SkColorSpace* target_color_space,
-    bool needs_mips)
+    const Image& image,
+    bool needs_mips,
+    absl::optional<TargetColorParams> target_color_params)
     : needs_mips_(needs_mips),
+      target_color_params_(target_color_params),
       id_(GetNextId()),
-      pixmap_(pixmap),
-      target_color_space_(target_color_space),
-      decoded_color_space_(nullptr) {
-  size_t target_color_space_size =
-      target_color_space ? target_color_space->writeToMemory(nullptr) : 0u;
-  size_t pixmap_color_space_size =
-      pixmap_->colorSpace() ? pixmap_->colorSpace()->writeToMemory(nullptr)
-                            : 0u;
-
-  // x64 has 8-byte alignment for uint64_t even though x86 has 4-byte
-  // alignment.  Always use 8 byte alignment.
-  const size_t align = sizeof(uint64_t);
-
-  // Compute and cache the size of the data.
-  base::CheckedNumeric<uint32_t> safe_size;
-  safe_size += PaintOpWriter::HeaderBytes();
-  safe_size += sizeof(uint32_t);  // is_yuv
-  safe_size += sizeof(uint32_t);  // color type
-  safe_size += sizeof(uint32_t);  // width
-  safe_size += sizeof(uint32_t);  // height
-  safe_size += sizeof(uint32_t);  // has mips
-  safe_size += sizeof(uint64_t) + align;  // pixels size + alignment
-  safe_size += sizeof(uint64_t) + align;  // row bytes + alignment
-  safe_size += target_color_space_size + sizeof(uint64_t) + align;
-  safe_size += pixmap_color_space_size + sizeof(uint64_t) + align;
-  // Include 4 bytes of padding so we can always align our data pointer to a
-  // 4-byte boundary.
-  safe_size += 4;
-  safe_size += pixmap_->computeByteSize();
-  size_ = safe_size.ValueOrDefault(0);
+      image_(image) {
+  ComputeSize();
 }
 
 ClientImageTransferCacheEntry::ClientImageTransferCacheEntry(
-    const SkPixmap yuva_pixmaps[],
-    SkYUVAInfo::PlaneConfig plane_config,
-    SkYUVAInfo::Subsampling subsampling,
-    const SkColorSpace* decoded_color_space,
-    SkYUVColorSpace yuv_color_space,
-    bool needs_mips)
+    const Image& image,
+    const Image& gainmap_image,
+    const SkGainmapInfo& gainmap_info,
+    bool needs_mips,
+    absl::optional<TargetColorParams> target_color_params)
     : needs_mips_(needs_mips),
-      plane_config_(plane_config),
+      target_color_params_(target_color_params),
       id_(GetNextId()),
-      pixmap_(nullptr),
-      target_color_space_(nullptr),
-      decoded_color_space_(decoded_color_space),
-      subsampling_(subsampling),
-      yuv_color_space_(yuv_color_space) {
-  yuv_pixmaps_.emplace(std::array<const SkPixmap*, SkYUVAInfo::kMaxPlanes>());
-  size_t num_yuva_pixmaps =
-      static_cast<size_t>(SkYUVAInfo::NumPlanes(plane_config));
-  DCHECK_GT(num_yuva_pixmaps, 0U);
-  DCHECK_LE(num_yuva_pixmaps, yuv_pixmaps_->size());
-  for (size_t i = 0; i < num_yuva_pixmaps; ++i) {
-    yuv_pixmaps_->at(i) = &yuva_pixmaps[i];
-  }
-  DCHECK(IsYuv());
-  size_t decoded_color_space_size =
-      decoded_color_space ? decoded_color_space->writeToMemory(nullptr) : 0u;
-
-  // x64 has 8-byte alignment for uint64_t even though x86 has 4-byte
-  // alignment.  Always use 8 byte alignment.
-  const size_t align = sizeof(uint64_t);
-
-  // Compute and cache the size of the data.
-  base::CheckedNumeric<uint32_t> safe_size;
-  safe_size += PaintOpWriter::HeaderBytes();
-  safe_size += sizeof(uint32_t);  // plane_config
-  safe_size += sizeof(uint32_t);  // subsampling
-  safe_size += sizeof(uint32_t);  // has mips
-  safe_size += sizeof(uint32_t);  // yuv_color_space
-  safe_size += sizeof(uint32_t);  // yuv_color_type
-  safe_size += decoded_color_space_size + align;
-  safe_size += num_yuva_pixmaps * sizeof(uint64_t);  // plane widths
-  safe_size += num_yuva_pixmaps * sizeof(uint64_t);  // plane heights
-  safe_size += num_yuva_pixmaps * sizeof(uint64_t);  // plane strides
-  safe_size +=
-      num_yuva_pixmaps * (sizeof(uint64_t) + align);  // pixels size + alignment
-  // Include 4 bytes of padding before each plane data chunk so we can always
-  // align our data pointer to a 4-byte boundary.
-  safe_size += 4 * num_yuva_pixmaps;
-  for (size_t i = 0; i < num_yuva_pixmaps; ++i) {
-    safe_size += yuv_pixmaps_->at(i)->computeByteSize();
-  }
-  size_ = safe_size.ValueOrDefault(0);
+      image_(image),
+      gainmap_image_(gainmap_image),
+      gainmap_info_(gainmap_info) {
+  ComputeSize();
 }
 
 ClientImageTransferCacheEntry::~ClientImageTransferCacheEntry() = default;
@@ -240,82 +619,47 @@ uint32_t ClientImageTransferCacheEntry::Id() const {
   return id_;
 }
 
-void ClientImageTransferCacheEntry::ValidateYUVDataBeforeSerializing() const {
-  DCHECK(!pixmap_);
-  DCHECK_NE(subsampling_, SkYUVAInfo::Subsampling::kUnknown);
-  DCHECK_LE(yuv_pixmaps_->size(), static_cast<size_t>(SkYUVAInfo::kMaxPlanes));
-  size_t num_planes = static_cast<size_t>(SkYUVAInfo::NumPlanes(plane_config_));
-  DCHECK_LE(num_planes, yuv_pixmaps_->size());
-  for (size_t i = 0; i < num_planes; ++i) {
-    DCHECK(yuv_pixmaps_->at(i));
-    const SkPixmap* plane = yuv_pixmaps_->at(i);
-    DCHECK_GT(plane->width(), 0);
-    DCHECK_GT(plane->height(), 0);
-    DCHECK_GT(plane->rowBytes(), 0u);
-  }
-}
-
 bool ClientImageTransferCacheEntry::Serialize(base::span<uint8_t> data) const {
   DCHECK_GE(data.size(), SerializedSize());
   // We don't need to populate the SerializeOptions here since the writer is
   // only used for serializing primitives.
   PaintOp::SerializeOptions options;
   PaintOpWriter writer(data.data(), data.size(), options);
-  writer.Write(plane_config_);
 
-  if (plane_config_ != SkYUVAInfo::PlaneConfig::kUnknown) {
-    ValidateYUVDataBeforeSerializing();
-    writer.Write(subsampling_);
-    int num_planes = SkYUVAInfo::NumPlanes(plane_config_);
-    writer.Write(static_cast<uint32_t>(needs_mips_ ? 1 : 0));
-    writer.Write(yuv_color_space_);
-    writer.Write(decoded_color_space_);
-    writer.Write(yuv_pixmaps_->at(0)->colorType());
-    for (int i = 0; i < num_planes; ++i) {
-      DCHECK(yuv_pixmaps_->at(i));
-      const SkPixmap* plane = yuv_pixmaps_->at(i);
-      writer.Write(plane->width());
-      writer.Write(plane->height());
-      writer.WriteSize(plane->rowBytes());
-      size_t plane_size = plane->computeByteSize();
-      if (plane_size == SIZE_MAX)
-        return false;
-      writer.WriteSize(plane_size);
-      writer.AlignMemory(4);
-      writer.WriteData(plane_size, plane->addr());
-    }
+  DCHECK_EQ(gainmap_image_.has_value(), gainmap_info_.has_value());
+  bool has_gainmap = gainmap_image_.has_value();
+  writer.Write(has_gainmap);
+  writer.Write(needs_mips_);
+  WriteTargetColorParams(writer, target_color_params_);
+  WriteImage(writer, image_);
 
-    // Size can't be 0 after serialization unless the writer has become invalid.
-    if (writer.size() == 0u)
-      return false;
-
-    return true;
+  if (has_gainmap) {
+    WriteImage(writer, gainmap_image_.value());
+    writer.Write(gainmap_info_.value());
   }
-
-  DCHECK_GT(pixmap_->width(), 0);
-  DCHECK_GT(pixmap_->height(), 0);
-
-  writer.Write(pixmap_->colorType());
-  writer.Write(pixmap_->width());
-  writer.Write(pixmap_->height());
-  writer.Write(static_cast<uint32_t>(needs_mips_ ? 1 : 0));
-
-  size_t pixmap_size = pixmap_->computeByteSize();
-  if (pixmap_size == SIZE_MAX)
-    return false;
-  writer.WriteSize(pixmap_size);
-  writer.WriteSize(pixmap_->rowBytes());
-  writer.Write(pixmap_->colorSpace());
-  writer.Write(target_color_space_);
-  writer.AlignMemory(4);
-  writer.WriteData(pixmap_size, pixmap_->addr());
 
   // Size can't be 0 after serialization unless the writer has become invalid.
   if (writer.size() == 0u)
     return false;
-
   return true;
 }
+
+void ClientImageTransferCacheEntry::ComputeSize() {
+  base::CheckedNumeric<uint32_t> safe_size;
+  safe_size += PaintOpWriter::SerializedSize<bool>();  // has_gainmap
+  safe_size += PaintOpWriter::SerializedSize<bool>();  // needs_mips
+  safe_size += SafeSizeForTargetColorParams(target_color_params_);
+  safe_size += SafeSizeForImage(image_);
+  if (gainmap_image_) {
+    DCHECK(gainmap_info_);
+    safe_size += SafeSizeForImage(gainmap_image_.value());
+    safe_size += PaintOpWriter::SerializedSize<SkGainmapInfo>();
+  }
+  size_ = safe_size.ValueOrDefault(0);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// ServiceImageTransferCacheEntry
 
 ServiceImageTransferCacheEntry::ServiceImageTransferCacheEntry() = default;
 ServiceImageTransferCacheEntry::~ServiceImageTransferCacheEntry() = default;
@@ -326,14 +670,16 @@ ServiceImageTransferCacheEntry& ServiceImageTransferCacheEntry::operator=(
     ServiceImageTransferCacheEntry&& other) = default;
 
 bool ServiceImageTransferCacheEntry::BuildFromHardwareDecodedImage(
-    GrDirectContext* context,
+    GrDirectContext* gr_context,
     std::vector<sk_sp<SkImage>> plane_images,
     SkYUVAInfo::PlaneConfig plane_config,
     SkYUVAInfo::Subsampling subsampling,
     SkYUVColorSpace yuv_color_space,
     size_t buffer_byte_size,
     bool needs_mips) {
-  context_ = context;
+  // Only supported on Ganesh for now since this code path is only used on CrOS.
+  CHECK(gr_context);
+  gr_context_ = gr_context;
   size_ = buffer_byte_size;
 
   // 1) Generate mipmap chains if requested.
@@ -341,8 +687,9 @@ bool ServiceImageTransferCacheEntry::BuildFromHardwareDecodedImage(
     DCHECK(plane_sizes_.empty());
     base::CheckedNumeric<size_t> safe_total_size(0u);
     for (size_t plane = 0; plane < plane_images.size(); plane++) {
-      plane_images[plane] = plane_images[plane]->makeTextureImage(
-          context_, GrMipMapped::kYes, SkBudgeted::kNo);
+      plane_images[plane] =
+          SkImages::TextureFromImage(gr_context_, plane_images[plane],
+                                     GrMipMapped::kYes, skgpu::Budgeted::kNo);
       if (!plane_images[plane]) {
         DLOG(ERROR) << "Could not generate mipmap chain for plane " << plane;
         return false;
@@ -356,22 +703,25 @@ bool ServiceImageTransferCacheEntry::BuildFromHardwareDecodedImage(
     }
   }
   plane_images_ = std::move(plane_images);
-  plane_config_ = plane_config;
-  subsampling_ = subsampling;
-  yuv_color_space_ = yuv_color_space;
+  if (static_cast<size_t>(SkYUVAInfo::NumPlanes(plane_config)) !=
+      plane_images_.size()) {
+    DLOG(ERROR) << "Expected " << SkYUVAInfo::NumPlanes(plane_config)
+                << " planes, got " << plane_images_.size();
+    return false;
+  }
+  yuva_info_ = SkYUVAInfo(plane_images_[0]->dimensions(), plane_config,
+                          subsampling, yuv_color_space);
 
   // 2) Create a SkImage backed by |plane_images|.
   // TODO(andrescj): support embedded color profiles for hardware decodes and
   // pass the color space to MakeYUVImageFromUploadedPlanes.
-  image_ = MakeYUVImageFromUploadedPlanes(context_, plane_images_, plane_config,
-                                          subsampling, yuv_color_space,
-                                          SkColorSpace::MakeSRGB());
-  if (!image_)
+  image_ = MakeYUVImageFromUploadedPlanes(
+      gr_context_, /*graphite_recorder=*/nullptr, plane_images_,
+      yuva_info_.value(), SkColorSpace::MakeSRGB());
+  if (!image_) {
     return false;
-
-  // 3) Fill out the rest of the information.
-  has_mips_ = needs_mips;
-  fits_on_gpu_ = true;
+  }
+  DCHECK(image_->isTextureBacked());
   return true;
 }
 
@@ -380,9 +730,11 @@ size_t ServiceImageTransferCacheEntry::CachedSize() const {
 }
 
 bool ServiceImageTransferCacheEntry::Deserialize(
-    GrDirectContext* context,
+    GrDirectContext* gr_context,
+    skgpu::graphite::Recorder* graphite_recorder,
     base::span<const uint8_t> data) {
-  context_ = context;
+  gr_context_ = gr_context;
+  graphite_recorder_ = graphite_recorder;
 
   // We don't need to populate the DeSerializeOptions here since the reader is
   // only used for de-serializing primitives.
@@ -390,192 +742,124 @@ bool ServiceImageTransferCacheEntry::Deserialize(
   PaintOp::DeserializeOptions options(nullptr, nullptr, nullptr,
                                       &scratch_buffer, false, nullptr);
   PaintOpReader reader(data.data(), data.size(), options);
-  plane_config_ = SkYUVAInfo::PlaneConfig::kUnknown;
-  reader.Read(&plane_config_);
-  if (plane_config_ != SkYUVAInfo::PlaneConfig::kUnknown) {
-    SkYUVAInfo::Subsampling subsampling = SkYUVAInfo::Subsampling::kUnknown;
-    reader.Read(&subsampling);
-    if (subsampling == SkYUVAInfo::Subsampling::kUnknown)
-      return false;
-    subsampling_ = subsampling;
-    uint32_t needs_mips;
-    reader.Read(&needs_mips);
-    has_mips_ = needs_mips;
-    SkYUVColorSpace yuv_color_space;
-    reader.Read(&yuv_color_space);
-    yuv_color_space_ = yuv_color_space;
-    sk_sp<SkColorSpace> decoded_color_space;
-    reader.Read(&decoded_color_space);
-    SkColorType yuv_plane_color_type = kUnknown_SkColorType;
-    reader.Read(&yuv_plane_color_type);
 
-    int num_planes = SkYUVAInfo::NumPlanes(plane_config_);
-    // Read in each plane and reconstruct pixmaps.
-    for (int i = 0; i < num_planes; i++) {
-      uint32_t plane_width = 0;
-      reader.Read(&plane_width);
-      uint32_t plane_height = 0;
-      reader.Read(&plane_height);
-      size_t plane_stride = 0;
-      reader.ReadSize(&plane_stride);
-      // Because Skia does not support YUV rasterization from software planes,
-      // we require that each pixmap fits in a GPU texture. In the
-      // GpuImageDecodeCache, we veto YUV decoding if the planes would be too
-      // big.
-      uint32_t max_size = static_cast<uint32_t>(context_->maxTextureSize());
-      // We compute this for each plane in case a malicious renderer tries to
-      // send very large U or V planes.
-      fits_on_gpu_ = plane_stride <= max_size && plane_width <= max_size &&
-                     plane_height <= max_size;
-      if (!fits_on_gpu_ || plane_width == 0 || plane_height == 0 ||
-          plane_stride == 0)
-        return false;
-
-      size_t plane_bytes = 0;
-      reader.ReadSize(&plane_bytes);
-      SkImageInfo plane_pixmap_info =
-          SkImageInfo::Make(plane_width, plane_height, yuv_plane_color_type,
-                            kPremul_SkAlphaType, decoded_color_space);
-      if (plane_pixmap_info.computeMinByteSize() > plane_bytes)
-        return false;
-      // Align data to a 4-byte boundary, to match what we did when writing.
-      reader.AlignMemory(4);
-      const volatile void* plane_pixel_data =
-          reader.ExtractReadableMemory(plane_bytes);
-      if (!reader.valid())
-        return false;
-      DCHECK(SkIsAlign4(reinterpret_cast<uintptr_t>(plane_pixel_data)));
-
-      // Const-cast away the "volatile" on |pixel_data|. We specifically
-      // understand that a malicious caller may change our pixels under us, and
-      // are OK with this as the worst case scenario is visual corruption.
-      SkPixmap plane_pixmap(plane_pixmap_info,
-                            const_cast<const void*>(plane_pixel_data),
-                            plane_stride);
-      if (plane_pixmap.computeByteSize() > plane_bytes)
-        return false;
-
-      // Nothing should read the colorspace of individual planes because that
-      // information is stored in image_, so we pass nullptr.
-      sk_sp<SkImage> plane =
-          MakeSkImage(plane_pixmap, plane_width, plane_height,
-                      nullptr /* target_color_space */);
-      if (!plane)
-        return false;
-      DCHECK(plane->isTextureBacked());
-
-      plane_sizes_.push_back(plane->textureSize());
-      size_ += plane_sizes_.back();
-
-      // |plane_images_| must be set for use in EnsureMips(), memory dumps, and
-      // unit tests.
-      plane_images_.push_back(std::move(plane));
-    }
-    DCHECK(yuv_color_space_.has_value());
-    image_ = MakeYUVImageFromUploadedPlanes(
-        context_, plane_images_, plane_config_, subsampling_.value(),
-        yuv_color_space_.value(), decoded_color_space);
-    return !!image_;
-  }
-
-  SkColorType color_type = kUnknown_SkColorType;
-  reader.Read(&color_type);
-
-  if (color_type == kUnknown_SkColorType ||
-      color_type == kRGB_101010x_SkColorType ||
-      color_type > kLastEnum_SkColorType)
-    return false;
-
-  uint32_t width;
-  reader.Read(&width);
-  uint32_t height;
-  reader.Read(&height);
-  uint32_t needs_mips;
+  // Parameters common to RGBA and YUVA images.
+  bool has_gainmap = false;
+  reader.Read(&has_gainmap);
+  bool needs_mips = false;
   reader.Read(&needs_mips);
-  has_mips_ = needs_mips;
-  size_t pixel_size;
-  reader.ReadSize(&pixel_size);
-  size_t row_bytes;
-  reader.ReadSize(&row_bytes);
-  sk_sp<SkColorSpace> pixmap_color_space;
-  reader.Read(&pixmap_color_space);
-  sk_sp<SkColorSpace> target_color_space;
-  reader.Read(&target_color_space);
+  absl::optional<TargetColorParams> target_color_params;
+  ReadTargetColorParams(reader, target_color_params);
+  const bool mip_mapped_for_upload = needs_mips && !target_color_params;
 
-  if (!reader.valid())
-    return false;
-
-  SkImageInfo image_info = SkImageInfo::Make(
-      width, height, color_type, kPremul_SkAlphaType, pixmap_color_space);
-  if (row_bytes < image_info.minRowBytes() ||
-      image_info.computeByteSize(row_bytes) > pixel_size) {
+  // Deserialize the image.
+  image_ = ReadImage(reader, gr_context, graphite_recorder,
+                     mip_mapped_for_upload, &yuva_info_, &plane_images_);
+  if (!image_) {
+    DLOG(ERROR) << "Failed to deserialize image.";
     return false;
   }
 
-  // Align data to a 4-byte boundry, to match what we did when writing.
-  reader.AlignMemory(4);
-  const volatile void* pixel_data = reader.ExtractReadableMemory(pixel_size);
-  if (!reader.valid())
-    return false;
+  // If the image doesn't fit in the GPU texture limits, then it is still on
+  // the CPU, pointing at memory in the transfer buffer.
+  sk_sp<SkImage> image_referencing_transfer_buffer;
+  if (!image_->isTextureBacked()) {
+    image_referencing_transfer_buffer = image_;
+  }
+  for (const auto& plane_image : plane_images_) {
+    plane_sizes_.push_back(plane_image->textureSize());
+  }
 
-  DCHECK(SkIsAlign4(reinterpret_cast<uintptr_t>(pixel_data)));
+  // Read the gainmap image, if one was specified to exist.
+  sk_sp<SkImage> gainmap_image;
+  SkGainmapInfo gainmap_info;
+  if (has_gainmap) {
+    if (!target_color_params) {
+      DLOG(ERROR) << "Gainmap images need target parameters to render.";
+      return false;
+    }
+    gainmap_image =
+        ReadImage(reader, gr_context, graphite_recorder, mip_mapped_for_upload);
+    if (!gainmap_image) {
+      DLOG(ERROR) << "Failed to deserialize gainmap image.";
+      return false;
+    }
+    reader.Read(&gainmap_info);
+  }
 
-  if (width == 0 || height == 0)
-    return false;
+  // Perform color conversion and tone mapping.
+  if (target_color_params) {
+    auto target_color_space = target_color_params->color_space.ToSkColorSpace();
+    if (!target_color_space) {
+      DLOG(ERROR) << "Invalid target color space.";
+      return false;
+    }
 
-  // Const-cast away the "volatile" on |pixel_data|. We specifically understand
-  // that a malicious caller may change our pixels under us, and are OK with
-  // this as the worst case scenario is visual corruption.
-  SkPixmap pixmap(image_info, const_cast<const void*>(pixel_data), row_bytes);
-  image_ = MakeSkImage(pixmap, width, height, target_color_space);
-
-  if (image_)
-    size_ = image_->textureSize();
-
-  return !!image_;
-}
-
-sk_sp<SkImage> ServiceImageTransferCacheEntry::MakeSkImage(
-    const SkPixmap& pixmap,
-    uint32_t width,
-    uint32_t height,
-    sk_sp<SkColorSpace> target_color_space) {
-  DCHECK(context_);
-
-  // Depending on whether the pixmap will fit in a GPU texture, either create
-  // a software or GPU SkImage.
-  uint32_t max_size = context_->maxTextureSize();
-  fits_on_gpu_ = width <= max_size && height <= max_size;
-  sk_sp<SkImage> image;
-  if (fits_on_gpu_) {
-    image = SkImage::MakeFromRaster(pixmap, nullptr, nullptr);
-    if (!image)
-      return nullptr;
-    image = MakeTextureImage(context_, std::move(image), target_color_space,
-                             has_mips_ ? GrMipMapped::kYes : GrMipMapped::kNo);
-  } else {
-    // If the image is on the CPU, no work is needed to generate mips.
-    has_mips_ = true;
-    sk_sp<SkImage> original =
-        SkImage::MakeFromRaster(pixmap, [](const void*, void*) {}, nullptr);
-    if (!original)
-      return nullptr;
-    if (target_color_space) {
-      image = original->makeColorSpace(target_color_space, nullptr);
-      // If color space conversion is a noop, use original data.
-      if (image == original)
-        image = SkImage::MakeRasterCopy(pixmap);
+    // TODO(https://crbug.com/1286088): Pass a shared cache as a parameter.
+    gfx::ColorConversionSkFilterCache cache;
+    if (graphite_recorder_) {
+      // TODO(crbug.com/1443068): Add color conversion support for graphite.
+      NOTIMPLEMENTED_LOG_ONCE();
     } else {
-      // No color conversion to do, use original data.
-      image = SkImage::MakeRasterCopy(pixmap);
+      // Allow a nullptr context for testing using the software renderer.
+      if (has_gainmap) {
+        image_ = cache.ApplyGainmap(
+            image_, gainmap_image, gainmap_info,
+            target_color_params->hdr_max_luminance_relative,
+            image_->isTextureBacked() ? gr_context_ : nullptr);
+      } else {
+        image_ = cache.ConvertImage(
+            image_, target_color_space, target_color_params->hdr_metadata,
+            target_color_params->sdr_max_luminance_nits,
+            target_color_params->hdr_max_luminance_relative,
+            target_color_params->enable_tone_mapping,
+            image_->isTextureBacked() ? gr_context_ : nullptr);
+      }
+    }
+
+    if (!image_) {
+      DLOG(ERROR) << "Failed image color conversion";
+      return false;
+    }
+
+    // Color conversion converts to RGBA. Remove all YUV state.
+    yuva_info_ = absl::nullopt;
+    plane_images_.clear();
+    plane_sizes_.clear();
+
+    // If mipmaps were requested, create them after color conversion.
+    if (needs_mips && image_->isTextureBacked()) {
+      if (gr_context) {
+        image_ = SkImages::TextureFromImage(
+            gr_context, image_, GrMipMapped::kYes, skgpu::Budgeted::kNo);
+      } else {
+        CHECK(graphite_recorder);
+        SkImage::RequiredProperties props{.fMipmapped = true};
+        image_ = SkImages::TextureFromImage(graphite_recorder, image_, props);
+      }
+      if (!image_) {
+        DLOG(ERROR) << "Failed to generate mipmaps after color conversion";
+        return false;
+      }
     }
   }
 
-  // Make sure the GPU work to create the backing texture is issued.
-  if (image)
-    image->getBackendTexture(true /* flushPendingGrContextIO */);
+  // If `image_` is still directly referencing the transfer buffer's memory,
+  // make a copy of it (because the memory will go away after this this call).
+  if (image_ == image_referencing_transfer_buffer) {
+    SkPixmap pixmap;
+    if (!image_->peekPixels(&pixmap)) {
+      NOTREACHED() << "Image should be referencing transfer buffer SkPixmap";
+    }
+    image_ = SkImages::RasterFromPixmapCopy(pixmap);
+    if (!image_) {
+      DLOG(ERROR) << "Failed to create raster copy";
+      return false;
+    }
+  }
 
-  return image;
+  size_ = image_->textureSize();
+  return true;
 }
 
 const sk_sp<SkImage>& ServiceImageTransferCacheEntry::GetPlaneImage(
@@ -587,16 +871,20 @@ const sk_sp<SkImage>& ServiceImageTransferCacheEntry::GetPlaneImage(
 }
 
 void ServiceImageTransferCacheEntry::EnsureMips() {
-  if (has_mips_)
+  if (!image_ || !image_->isTextureBacked()) {
     return;
+  }
+  if (image_->hasMipmaps()) {
+    return;
+  }
 
-  DCHECK(fits_on_gpu_);
   if (is_yuv()) {
     DCHECK(image_);
-    DCHECK(yuv_color_space_.has_value());
-    DCHECK_NE(SkYUVAInfo::PlaneConfig::kUnknown, plane_config_);
-    DCHECK_EQ(static_cast<size_t>(SkYUVAInfo::NumPlanes(plane_config_)),
-              plane_images_.size());
+    DCHECK(yuva_info_.has_value());
+    DCHECK_NE(SkYUVAInfo::PlaneConfig::kUnknown, yuva_info_->planeConfig());
+    DCHECK_EQ(
+        static_cast<size_t>(SkYUVAInfo::NumPlanes(yuva_info_->planeConfig())),
+        plane_images_.size());
 
     // We first do all the work with local variables. Then, if everything
     // succeeds, we update the object's state. That way, we don't leave it in an
@@ -604,36 +892,62 @@ void ServiceImageTransferCacheEntry::EnsureMips() {
     std::vector<sk_sp<SkImage>> mipped_planes;
     std::vector<size_t> mipped_plane_sizes;
     for (size_t plane = 0; plane < plane_images_.size(); plane++) {
-      DCHECK(plane_images_.at(plane));
-      sk_sp<SkImage> mipped_plane = plane_images_.at(plane)->makeTextureImage(
-          context_, GrMipMapped::kYes, SkBudgeted::kNo);
-      if (!mipped_plane)
+      CHECK(plane_images_.at(plane));
+      sk_sp<SkImage> mipped_plane;
+      if (gr_context_) {
+        mipped_plane =
+            SkImages::TextureFromImage(gr_context_, plane_images_.at(plane),
+                                       GrMipMapped::kYes, skgpu::Budgeted::kNo);
+      } else {
+        CHECK(graphite_recorder_);
+        SkImage::RequiredProperties props{.fMipmapped = true};
+        mipped_plane = SkImages::TextureFromImage(
+            graphite_recorder_, plane_images_.at(plane), props);
+      }
+      if (!mipped_plane) {
         return;
+      }
       mipped_planes.push_back(std::move(mipped_plane));
       mipped_plane_sizes.push_back(mipped_planes.back()->textureSize());
     }
     sk_sp<SkImage> mipped_image = MakeYUVImageFromUploadedPlanes(
-        context_, mipped_planes, plane_config_, subsampling_.value(),
-        yuv_color_space_.value(),
+        gr_context_, graphite_recorder_, mipped_planes, yuva_info_.value(),
         image_->refColorSpace() /* image_color_space */);
-    if (!mipped_image)
+    if (!mipped_image) {
+      DLOG(ERROR) << "Failed to create YUV image from mipmapped planes";
       return;
+    }
     // Note that we cannot update |size_| because the transfer cache keeps track
     // of a total size that is not updated after EnsureMips(). The original size
     // is used when the image is deleted from the cache.
     plane_images_ = std::move(mipped_planes);
     plane_sizes_ = std::move(mipped_plane_sizes);
     image_ = std::move(mipped_image);
-    has_mips_ = true;
-    return;
+  } else {
+    sk_sp<SkImage> mipped_image;
+    if (gr_context_) {
+      mipped_image = SkImages::TextureFromImage(
+          gr_context_, image_, GrMipMapped::kYes, skgpu::Budgeted::kNo);
+    } else {
+      CHECK(graphite_recorder_);
+      SkImage::RequiredProperties props{.fMipmapped = true};
+      mipped_image =
+          SkImages::TextureFromImage(graphite_recorder_, image_, props);
+    }
+    if (!mipped_image) {
+      DLOG(ERROR) << "Failed to mipmapped image";
+      return;
+    }
+    image_ = std::move(mipped_image);
   }
+}
 
-  sk_sp<SkImage> mipped_image =
-      image_->makeTextureImage(context_, GrMipMapped::kYes, SkBudgeted::kNo);
-  if (!mipped_image)
-    return;
-  image_ = std::move(mipped_image);
-  has_mips_ = true;
+bool ServiceImageTransferCacheEntry::has_mips() const {
+  return (image_ && image_->isTextureBacked()) ? image_->hasMipmaps() : true;
+}
+
+bool ServiceImageTransferCacheEntry::fits_on_gpu() const {
+  return image_ && image_->isTextureBacked();
 }
 
 }  // namespace cc

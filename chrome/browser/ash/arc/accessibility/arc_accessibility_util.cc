@@ -1,10 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/arc/accessibility/arc_accessibility_util.h"
 
 #include "ash/components/arc/arc_util.h"
+#include "ash/components/arc/mojom/accessibility_helper.mojom-shared.h"
 #include "ash/components/arc/mojom/accessibility_helper.mojom.h"
 #include "ash/public/cpp/app_types_util.h"
 #include "base/containers/contains.h"
@@ -170,6 +171,8 @@ absl::optional<mojom::AccessibilityActionType> ConvertToAndroidAction(
       return arc::mojom::AccessibilityActionType::SCROLL_LEFT;
     case ax::mojom::Action::kScrollRight:
       return arc::mojom::AccessibilityActionType::SCROLL_RIGHT;
+    case ax::mojom::Action::kScrollToPositionAtRowColumn:
+      return arc::mojom::AccessibilityActionType::SCROLL_TO_POSITION;
     case ax::mojom::Action::kCustomAction:
       return arc::mojom::AccessibilityActionType::CUSTOM_ACTION;
     case ax::mojom::Action::kSetAccessibilityFocus:
@@ -186,7 +189,7 @@ absl::optional<mojom::AccessibilityActionType> ConvertToAndroidAction(
       return arc::mojom::AccessibilityActionType::COLLAPSE;
     case ax::mojom::Action::kExpand:
       return arc::mojom::AccessibilityActionType::EXPAND;
-    case ax::mojom::Action::kShowContextMenu:
+    case ax::mojom::Action::kLongClick:
       return arc::mojom::AccessibilityActionType::LONG_CLICK;
     default:
       return absl::nullopt;
@@ -233,7 +236,9 @@ ax::mojom::Action ConvertToChromeAction(
     case arc::mojom::AccessibilityActionType::EXPAND:
       return ax::mojom::Action::kExpand;
     case arc::mojom::AccessibilityActionType::LONG_CLICK:
-      return ax::mojom::Action::kShowContextMenu;
+      return ax::mojom::Action::kLongClick;
+    case arc::mojom::AccessibilityActionType::SCROLL_TO_POSITION:
+      return ax::mojom::Action::kScrollToPositionAtRowColumn;
     // Below are actions not mapped in ConvertToAndroidAction().
     case arc::mojom::AccessibilityActionType::CLEAR_FOCUS:
     case arc::mojom::AccessibilityActionType::SELECT:
@@ -249,7 +254,6 @@ ax::mojom::Action ConvertToChromeAction(
     case arc::mojom::AccessibilityActionType::DISMISS:
     case arc::mojom::AccessibilityActionType::SET_TEXT:
     case arc::mojom::AccessibilityActionType::CONTEXT_CLICK:
-    case arc::mojom::AccessibilityActionType::SCROLL_TO_POSITION:
     case arc::mojom::AccessibilityActionType::SET_PROGRESS:
       return ax::mojom::Action::kNone;
   }

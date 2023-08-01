@@ -1,8 +1,9 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/cxx17_backports.h"
+#include "base/functional/callback.h"
+#include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -54,9 +55,6 @@ class LayoutProviderTest : public testing::Test {
 
  protected:
   static void SetUpTestSuite() {
-#if BUILDFLAG(IS_WIN)
-    base::win::EnableHighDPISupport();
-#endif
     gfx::InitializeFonts();
     // Some previous test may have left the default font description set to an
     // unexpected state.
@@ -77,13 +75,6 @@ TEST_F(LayoutProviderTest, EnsuresDefaultSystemSettings) {
       << "The test requires that fonts smoothing (anti-aliasing) is "
          "activated. If this assert is failing you need to manually activate "
          "the flag in your system fonts settings.";
-
-  // Ensures that the screen resolution is at the default value.
-  float system_dpi_scale = display::win::GetDPIScale();
-  EXPECT_EQ(system_dpi_scale, 1.0)
-      << "The test requires default display settings. The DPI of the display "
-         "is not 100%. dpi_scale="
-      << system_dpi_scale;
 
   double accessibility_font_scale = display::win::GetAccessibilityFontScale();
   EXPECT_EQ(accessibility_font_scale, 1.0)
@@ -348,7 +339,7 @@ TEST_F(LayoutProviderTest, TypographyLineHeight) {
                             {CONTEXT_DIALOG_BODY_TEXT_SMALL, 4, 5},
                             {views::style::CONTEXT_BUTTON_MD, 0, 1}};
 
-  for (size_t i = 0; i < base::size(kExpectedIncreases); ++i) {
+  for (size_t i = 0; i < std::size(kExpectedIncreases); ++i) {
     SCOPED_TRACE(testing::Message() << "Testing index: " << i);
     const auto& increase = kExpectedIncreases[i];
     const gfx::FontList& font = views::style::GetFont(increase.context, kStyle);
@@ -383,7 +374,7 @@ TEST_F(LayoutProviderTest, ExplicitTypographyLineHeight) {
       {views::style::CONTEXT_DIALOG_BODY_TEXT, kBodyLineHeight},
       {CONTEXT_DIALOG_BODY_TEXT_SMALL, kBodyLineHeight}};
 
-  for (size_t i = 0; i < base::size(kHarmonyHeights); ++i) {
+  for (size_t i = 0; i < std::size(kHarmonyHeights); ++i) {
     SCOPED_TRACE(testing::Message() << "Testing index: " << i);
     EXPECT_EQ(kHarmonyHeights[i].line_height,
               views::style::GetLineHeight(kHarmonyHeights[i].context, kStyle));

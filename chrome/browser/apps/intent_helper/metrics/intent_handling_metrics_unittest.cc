@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,7 +19,7 @@
 #include "ash/components/arc/metrics/arc_metrics_service.h"
 #include "ash/components/arc/metrics/stability_metrics_manager.h"
 #include "ash/components/arc/session/arc_service_manager.h"
-#include "chrome/browser/ash/arc/intent_helper/arc_external_protocol_dialog.h"
+#include "chrome/browser/chromeos/arc/arc_external_protocol_dialog.h"
 #include "components/arc/intent_helper/arc_intent_helper_bridge.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
@@ -77,8 +77,7 @@ TEST(IntentHandlingMetricsTest, TestRecordIntentPickerMetrics) {
     base::HistogramTester histogram_tester;
 
     IntentHandlingMetrics::RecordIntentPickerMetrics(
-        test.entry_type, test.close_reason, test.should_persist,
-        PickerShowState::kOmnibox);
+        test.entry_type, test.close_reason, test.should_persist);
 
     histogram_tester.ExpectBucketCount("ChromeOS.Intents.IntentPickerAction",
                                        test.expected_action, 1);
@@ -86,36 +85,6 @@ TEST(IntentHandlingMetricsTest, TestRecordIntentPickerMetrics) {
         "ChromeOS.Apps.IntentPickerDestinationPlatform", test.expected_platform,
         1);
   }
-}
-
-TEST(IntentHandlingMetricsTest, TestRecordIntentPickerMetricsWithSource) {
-  base::HistogramTester histogram_tester;
-
-  IntentHandlingMetrics::RecordIntentPickerMetrics(
-      PickerEntryType::kArc, IntentPickerCloseReason::OPEN_APP, true,
-      PickerShowState::kOmnibox);
-
-  histogram_tester.ExpectBucketCount(
-      "ChromeOS.Intents.IntentPickerAction",
-      IntentHandlingMetrics::IntentPickerAction::kArcAppSelectedAndPreferred,
-      1);
-  histogram_tester.ExpectBucketCount(
-      "ChromeOS.Intents.IntentPickerAction.FromOmniboxIcon",
-      IntentHandlingMetrics::IntentPickerAction::kArcAppSelectedAndPreferred,
-      1);
-
-  IntentHandlingMetrics::RecordIntentPickerMetrics(
-      PickerEntryType::kArc, IntentPickerCloseReason::OPEN_APP, true,
-      PickerShowState::kPopOut);
-
-  histogram_tester.ExpectBucketCount(
-      "ChromeOS.Intents.IntentPickerAction",
-      IntentHandlingMetrics::IntentPickerAction::kArcAppSelectedAndPreferred,
-      2);
-  histogram_tester.ExpectBucketCount(
-      "ChromeOS.Intents.IntentPickerAction.FromAutoPopOut",
-      IntentHandlingMetrics::IntentPickerAction::kArcAppSelectedAndPreferred,
-      1);
 }
 
 TEST(IntentHandlingMetricsTest, TestRecordPreferredAppLinkClickMetrics) {
@@ -137,6 +106,98 @@ TEST(IntentHandlingMetricsTest, TestRecordOpenBrowserMetrics) {
 
   histogram_tester.ExpectBucketCount("ChromeOS.Apps.OpenBrowser",
                                      IntentHandlingMetrics::AppType::kArc, 1);
+}
+
+TEST(IntentHandlingMetricsTest, TestRecordLinkCapturingEntryPointShown) {
+  base::HistogramTester histogram_tester;
+  IntentHandlingMetrics test;
+
+  std::vector<apps::IntentPickerAppInfo> app_info;
+  app_info.emplace_back(apps::PickerEntryType::kDevice, ui::ImageModel(),
+                        "test", "test");
+
+  // Link capturing entry point shown for unknown app type.
+  test.RecordLinkCapturingEntryPointShown(app_info);
+  histogram_tester.ExpectBucketCount(
+      "ChromeOS.Intents.LinkCapturingEvent2.ArcApp",
+      IntentHandlingMetrics::LinkCapturingEvent::kEntryPointShown, 0);
+  histogram_tester.ExpectBucketCount(
+      "ChromeOS.Intents.LinkCapturingEvent2.WebApp",
+      IntentHandlingMetrics::LinkCapturingEvent::kEntryPointShown, 0);
+  histogram_tester.ExpectBucketCount(
+      "ChromeOS.Intents.LinkCapturingEvent2",
+      IntentHandlingMetrics::LinkCapturingEvent::kEntryPointShown, 1);
+
+  // Prepare the app info for next testcase.
+  app_info.clear();
+  app_info.emplace_back(apps::PickerEntryType::kWeb, ui::ImageModel(), "test",
+                        "test");
+
+  // Link capturing entry point shown for web app type.
+  test.RecordLinkCapturingEntryPointShown(app_info);
+  histogram_tester.ExpectBucketCount(
+      "ChromeOS.Intents.LinkCapturingEvent2.ArcApp",
+      IntentHandlingMetrics::LinkCapturingEvent::kEntryPointShown, 0);
+  histogram_tester.ExpectBucketCount(
+      "ChromeOS.Intents.LinkCapturingEvent2.WebApp",
+      IntentHandlingMetrics::LinkCapturingEvent::kEntryPointShown, 1);
+  histogram_tester.ExpectBucketCount(
+      "ChromeOS.Intents.LinkCapturingEvent2",
+      IntentHandlingMetrics::LinkCapturingEvent::kEntryPointShown, 2);
+
+  // Prepare the app info for next testcase.
+  app_info.clear();
+  app_info.emplace_back(apps::PickerEntryType::kArc, ui::ImageModel(), "test",
+                        "test");
+  app_info.emplace_back(apps::PickerEntryType::kWeb, ui::ImageModel(), "test",
+                        "test");
+  app_info.emplace_back(apps::PickerEntryType::kWeb, ui::ImageModel(), "test",
+                        "test");
+
+  // Link capturing entry point shown for 2 web apps and 1 ARC app.
+  test.RecordLinkCapturingEntryPointShown(app_info);
+  histogram_tester.ExpectBucketCount(
+      "ChromeOS.Intents.LinkCapturingEvent2.ArcApp",
+      IntentHandlingMetrics::LinkCapturingEvent::kEntryPointShown, 1);
+  histogram_tester.ExpectBucketCount(
+      "ChromeOS.Intents.LinkCapturingEvent2.WebApp",
+      IntentHandlingMetrics::LinkCapturingEvent::kEntryPointShown, 2);
+  histogram_tester.ExpectBucketCount(
+      "ChromeOS.Intents.LinkCapturingEvent2",
+      IntentHandlingMetrics::LinkCapturingEvent::kEntryPointShown, 3);
+}
+
+TEST(IntentHandlingMetricsTest, TestRecordLinkCapturingEvent) {
+  base::HistogramTester histogram_tester;
+  IntentHandlingMetrics test;
+
+  // ARC app captures a link.
+  test.RecordLinkCapturingEvent(
+      PickerEntryType::kArc,
+      IntentHandlingMetrics::LinkCapturingEvent::kAppOpened);
+  histogram_tester.ExpectBucketCount(
+      "ChromeOS.Intents.LinkCapturingEvent2.ArcApp",
+      IntentHandlingMetrics::LinkCapturingEvent::kAppOpened, 1);
+  histogram_tester.ExpectBucketCount(
+      "ChromeOS.Intents.LinkCapturingEvent2.WebApp",
+      IntentHandlingMetrics::LinkCapturingEvent::kAppOpened, 0);
+  histogram_tester.ExpectBucketCount(
+      "ChromeOS.Intents.LinkCapturingEvent2",
+      IntentHandlingMetrics::LinkCapturingEvent::kAppOpened, 1);
+
+  // Link capturing settings changed for web app.
+  test.RecordLinkCapturingEvent(
+      PickerEntryType::kWeb,
+      IntentHandlingMetrics::LinkCapturingEvent::kSettingsChanged);
+  histogram_tester.ExpectBucketCount(
+      "ChromeOS.Intents.LinkCapturingEvent2.ArcApp",
+      IntentHandlingMetrics::LinkCapturingEvent::kSettingsChanged, 0);
+  histogram_tester.ExpectBucketCount(
+      "ChromeOS.Intents.LinkCapturingEvent2.WebApp",
+      IntentHandlingMetrics::LinkCapturingEvent::kSettingsChanged, 1);
+  histogram_tester.ExpectBucketCount(
+      "ChromeOS.Intents.LinkCapturingEvent2",
+      IntentHandlingMetrics::LinkCapturingEvent::kSettingsChanged, 1);
 }
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)

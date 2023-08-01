@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,10 +21,10 @@ import org.chromium.android_webview.AwContents;
 import org.chromium.android_webview.AwRenderProcess;
 import org.chromium.android_webview.renderer_priority.RendererPriority;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_public.common.ContentUrlConstants;
 import org.chromium.net.test.util.TestWebServer;
@@ -85,7 +85,7 @@ public class AwContentsClientOnRenderProcessGoneTest {
                 ContentUrlConstants.ABOUT_BLANK_DISPLAY_URL);
 
         // Terminate the renderer.
-        PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT, () -> terminator.terminate());
+        PostTask.runOrPostTask(TaskTraits.UI_DEFAULT, () -> terminator.terminate());
 
         // Assert that onRenderProcessGone is called once.
         int callCount = helper.getCallCount();
@@ -168,8 +168,8 @@ public class AwContentsClientOnRenderProcessGoneTest {
     @SmallTest
     @OnlyRunIn(MULTI_PROCESS)
     // The RenderDocument feature has a "level" parameter. This enables the feature and sets the
-    // default level to "crashed-frame" to enable replacing the render frame host of crashed frames
-    // with a new render frame host (instead of resuing the old one). See
+    // default level to "crashed-frame" to enable replacing the RenderFrameHost of crashed frames
+    // with a new RenderFrameHost (instead of resuing the old one). See
     // https://go/force-field-trials-docs for the syntax of these flags.
     @CommandLineFlags.Add({
             "enable-features=RenderDocument<RenderDocument",

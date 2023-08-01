@@ -1,9 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/system/media/media_tray.h"
 
+#include "ash/constants/tray_background_view_catalog.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shell.h"
 #include "ash/system/media/media_notification_provider.h"
@@ -11,9 +12,8 @@
 #include "ash/system/status_area_widget_test_helper.h"
 #include "ash/system/tray/tray_bubble_wrapper.h"
 #include "ash/test/ash_test_base.h"
-#include "base/test/scoped_feature_list.h"
+#include "base/memory/raw_ptr.h"
 #include "components/media_message_center/media_notification_view_impl.h"
-#include "media/base/media_switches.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "ui/events/event.h"
 
@@ -30,19 +30,24 @@ class MockMediaNotificationProvider : public MediaNotificationProvider {
       : old_provider_(MediaNotificationProvider::Get()) {
     MediaNotificationProvider::Set(this);
 
-    ON_CALL(*this, GetMediaNotificationListView(_)).WillByDefault([](auto) {
-      return std::make_unique<views::View>();
-    });
+    ON_CALL(*this, GetMediaNotificationListView(_, _, _))
+        .WillByDefault([](auto, auto, const auto&) {
+          return std::make_unique<views::View>();
+        });
   }
 
   ~MockMediaNotificationProvider() override {
     MediaNotificationProvider::Set(old_provider_);
   }
 
-  // Medianotificationprovider implementations.
-  MOCK_METHOD1(GetMediaNotificationListView, std::unique_ptr<views::View>(int));
-  MOCK_METHOD0(GetActiveMediaNotificationView, std::unique_ptr<views::View>());
-  MOCK_METHOD0(OnBubbleClosing, void());
+  // MediaNotificationProvider implementations.
+  MOCK_METHOD((std::unique_ptr<views::View>),
+              GetMediaNotificationListView,
+              (int, bool, const std::string&));
+  MOCK_METHOD(void, OnBubbleClosing, ());
+  MOCK_METHOD(global_media_controls::MediaItemManager*,
+              GetMediaItemManager,
+              ());
   void AddObserver(MediaNotificationProviderObserver* observer) override {}
   void RemoveObserver(MediaNotificationProviderObserver* observer) override {}
   bool HasActiveNotifications() override { return has_active_notifications_; }
@@ -61,13 +66,15 @@ class MockMediaNotificationProvider : public MediaNotificationProvider {
  private:
   bool has_active_notifications_ = false;
   bool has_frozen_notifications_ = false;
-  MediaNotificationProvider* const old_provider_;
+  const raw_ptr<MediaNotificationProvider, ExperimentalAsh> old_provider_;
 };
 
 // Mock tray button used to test media tray bubble's anchor update.
 class MockTrayBackgroundView : public ash::TrayBackgroundView {
  public:
-  MockTrayBackgroundView(Shelf* shelf) : TrayBackgroundView(shelf) {
+  explicit MockTrayBackgroundView(Shelf* shelf)
+      : TrayBackgroundView(shelf,
+                           TrayBackgroundViewCatalogName::kTestCatalogName) {
     SetSize(kMockTraySize);
   }
 
@@ -88,7 +95,6 @@ class MediaTrayTest : public AshTestBase {
   ~MediaTrayTest() override = default;
 
   void SetUp() override {
-    feature_list_.InitAndEnableFeature(media::kGlobalMediaControlsForChromeOS);
     AshTestBase::SetUp();
 
     provider_ = std::make_unique<MockMediaNotificationProvider>();
@@ -156,10 +162,8 @@ class MediaTrayTest : public AshTestBase {
 
  private:
   std::unique_ptr<MockMediaNotificationProvider> provider_;
-  MediaTray* media_tray_;
+  raw_ptr<MediaTray, ExperimentalAsh> media_tray_;
   std::unique_ptr<MockTrayBackgroundView> mock_tray_;
-
-  base::test::ScopedFeatureList feature_list_;
 };
 
 TEST_F(MediaTrayTest, MediaTrayVisibilityTest) {
@@ -211,7 +215,8 @@ TEST_F(MediaTrayTest, ShowAndHideBubbleTest) {
   // Tap the media tray should show the bubble, and media tray should
   // be active. GetMediaNotificationlistview also should be called for
   // getting active notifications.
-  EXPECT_CALL(*provider(), GetMediaNotificationListView(_));
+  EXPECT_CALL(*provider(),
+              GetMediaNotificationListView(_, /*should_clip_height=*/true, _));
   SimulateTapOnMediaTray();
   EXPECT_NE(GetBubbleWrapper(), nullptr);
   EXPECT_TRUE(media_tray()->is_active());
@@ -222,6 +227,21 @@ TEST_F(MediaTrayTest, ShowAndHideBubbleTest) {
   SimulateTapOnMediaTray();
   EXPECT_EQ(GetBubbleWrapper(), nullptr);
   EXPECT_FALSE(media_tray()->is_active());
+}
+
+// Tests that the shelf is forced to show when the bubble is visible (this is so
+// that the shelf doesn't hide when shelf auto-hide is enabled).
+TEST_F(MediaTrayTest, OpenBubbleForcesShelfToShow) {
+  provider()->SetHasActiveNotifications(true);
+  SimulateNotificationListChanged();
+  ASSERT_TRUE(media_tray()->GetVisible());
+
+  // The shelf should not be forced to show initially.
+  EXPECT_FALSE(status_area_widget()->ShouldShowShelf());
+
+  // Open the media tray bubble and verify that the shelf is forced to show.
+  SimulateTapOnMediaTray();
+  EXPECT_TRUE(status_area_widget()->ShouldShowShelf());
 }
 
 TEST_F(MediaTrayTest, ShowEmptyStateWhenNoActiveNotification) {
@@ -296,7 +316,7 @@ TEST_F(MediaTrayTest, BubbleGetsFocusWhenOpenWithKeyboard) {
 
   // Generate a tab key press.
   ui::test::EventGenerator generator(Shell::GetPrimaryRootWindow());
-  generator.PressKey(ui::KeyboardCode::VKEY_TAB, ui::EventFlags::EF_NONE);
+  generator.PressKey(ui::KeyboardCode::VKEY_TAB, ui::EF_NONE);
 
   EXPECT_TRUE(GetBubbleWrapper()->GetBubbleWidget()->IsActive());
 }
@@ -384,51 +404,23 @@ TEST_F(MediaTrayTest, DialogAnchor) {
   EXPECT_EQ(initial_bounds, GetBubbleBounds());
 }
 
-class MediaTrayPinnedParamTest : public AshTestBase {
- public:
-  MediaTrayPinnedParamTest() = default;
-  ~MediaTrayPinnedParamTest() override = default;
+TEST_F(MediaTrayTest, ShowBubble) {
+  // We start with no bubble view.
+  EXPECT_EQ(nullptr, media_tray()->GetBubbleView());
 
-  void SetUp() override {
-    auto& pin_param = media::kCrosGlobalMediaControlsPinParam;
-    feature_list_.InitAndEnableFeatureWithParameters(
-        media::kGlobalMediaControlsForChromeOS,
-        {{pin_param.name,
-          pin_param.GetName(media::kCrosGlobalMediaControlsPinOptions::kPin)}});
-    AshTestBase::SetUp();
-  }
-
- private:
-  base::test::ScopedFeatureList feature_list_;
-};
-
-TEST_F(MediaTrayPinnedParamTest, PinParamTest) {
-  UpdateDisplay("200x100");
-  EXPECT_TRUE(MediaTray::IsPinnedToShelf());
+  EXPECT_CALL(*provider(), GetMediaNotificationListView(_, _, ""));
+  media_tray()->ShowBubble();
+  EXPECT_NE(nullptr, media_tray()->GetBubbleView());
 }
 
-class MediaTrayNotPinnedParamTest : public AshTestBase {
- public:
-  MediaTrayNotPinnedParamTest() = default;
-  ~MediaTrayNotPinnedParamTest() override = default;
+TEST_F(MediaTrayTest, ShowBubbleWithItem) {
+  // We start with no bubble view.
+  EXPECT_EQ(nullptr, media_tray()->GetBubbleView());
 
-  void SetUp() override {
-    auto& pin_param = media::kCrosGlobalMediaControlsPinParam;
-    feature_list_.InitAndEnableFeatureWithParameters(
-        media::kGlobalMediaControlsForChromeOS,
-        {{pin_param.name,
-          pin_param.GetName(
-              media::kCrosGlobalMediaControlsPinOptions::kNotPin)}});
-    AshTestBase::SetUp();
-  }
-
- private:
-  base::test::ScopedFeatureList feature_list_;
-};
-
-TEST_F(MediaTrayNotPinnedParamTest, PinParamTest) {
-  UpdateDisplay("2560x1440");
-  EXPECT_FALSE(MediaTray::IsPinnedToShelf());
+  const std::string item_id = "my-item-id";
+  EXPECT_CALL(*provider(), GetMediaNotificationListView(_, _, item_id));
+  media_tray()->ShowBubbleWithItem(item_id);
+  EXPECT_NE(nullptr, media_tray()->GetBubbleView());
 }
 
 }  // namespace ash

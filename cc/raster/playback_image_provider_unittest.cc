@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,12 @@
 #include "cc/test/skia_common.h"
 #include "cc/test/stub_decode_cache.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/skia/include/core/SkBitmap.h"
+#include "third_party/skia/include/core/SkImage.h"
+#include "third_party/skia/include/core/SkM44.h"
+#include "third_party/skia/include/core/SkRect.h"
+#include "third_party/skia/include/core/SkRefCnt.h"
+#include "third_party/skia/include/core/SkSize.h"
 #include "third_party/skia/include/gpu/GrDirectContext.h"
 #include "third_party/skia/include/gpu/gl/GrGLInterface.h"
 
@@ -20,7 +26,7 @@ namespace {
 sk_sp<SkImage> CreateRasterImage() {
   SkBitmap bitmap;
   bitmap.allocN32Pixels(10, 10);
-  return SkImage::MakeFromBitmap(bitmap);
+  return SkImages::RasterFromBitmap(bitmap);
 }
 
 DecodedDrawImage CreateDecode() {
@@ -69,7 +75,7 @@ class MockDecodeCache : public StubDecodeCache {
 
 TEST(PlaybackImageProviderTest, SkipsAllImages) {
   MockDecodeCache cache;
-  PlaybackImageProvider provider(&cache, gfx::ColorSpace(), absl::nullopt);
+  PlaybackImageProvider provider(&cache, TargetColorParams(), absl::nullopt);
 
   SkIRect rect = SkIRect::MakeWH(10, 10);
   SkM44 matrix = SkM44();
@@ -96,7 +102,7 @@ TEST(PlaybackImageProviderTest, SkipsSomeImages) {
   settings.emplace();
   settings->images_to_skip = {skip_image.stable_id()};
 
-  PlaybackImageProvider provider(&cache, gfx::ColorSpace(),
+  PlaybackImageProvider provider(&cache, TargetColorParams(),
                                  std::move(settings));
 
   SkIRect rect = SkIRect::MakeWH(10, 10);
@@ -111,7 +117,7 @@ TEST(PlaybackImageProviderTest, RefAndUnrefDecode) {
 
   absl::optional<PlaybackImageProvider::Settings> settings;
   settings.emplace();
-  PlaybackImageProvider provider(&cache, gfx::ColorSpace(),
+  PlaybackImageProvider provider(&cache, TargetColorParams(),
                                  std::move(settings));
 
   {
@@ -141,7 +147,7 @@ TEST(PlaybackImageProviderTest, SwapsGivenFrames) {
   settings.emplace();
   settings->image_to_current_frame_index = image_to_frame;
 
-  PlaybackImageProvider provider(&cache, gfx::ColorSpace(),
+  PlaybackImageProvider provider(&cache, TargetColorParams(),
                                  std::move(settings));
 
   SkIRect rect = SkIRect::MakeWH(10, 10);
@@ -150,7 +156,7 @@ TEST(PlaybackImageProviderTest, SwapsGivenFrames) {
                        matrix);
   provider.GetRasterContent(draw_image);
   ASSERT_TRUE(cache.last_image().paint_image());
-  ASSERT_EQ(cache.last_image().paint_image(), image);
+  ASSERT_TRUE(cache.last_image().paint_image().IsSameForTesting(image));
   ASSERT_EQ(cache.last_image().frame_index(), 1u);
 }
 
@@ -159,7 +165,7 @@ TEST(PlaybackImageProviderTest, BitmapImages) {
 
   absl::optional<PlaybackImageProvider::Settings> settings;
   settings.emplace();
-  PlaybackImageProvider provider(&cache, gfx::ColorSpace(),
+  PlaybackImageProvider provider(&cache, TargetColorParams(),
                                  std::move(settings));
 
   {
@@ -182,7 +188,7 @@ TEST(PlaybackImageProviderTest, IgnoresImagesNotSupportedByCache) {
   cache.set_use_cache_for_draw_image(false);
   absl::optional<PlaybackImageProvider::Settings> settings;
   settings.emplace();
-  PlaybackImageProvider provider(&cache, gfx::ColorSpace(),
+  PlaybackImageProvider provider(&cache, TargetColorParams(),
                                  std::move(settings));
   {
     SkIRect rect = SkIRect::MakeWH(10, 10);

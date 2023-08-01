@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,12 @@
 #include <memory>
 #include <set>
 
-#include "base/bind.h"
+#include "ash/constants/ash_features.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
 #include "base/path_service.h"
-#include "base/run_loop.h"
 #include "base/strings/string_piece.h"
+#include "base/test/test_future.h"
 #include "chrome/browser/ash/login/login_wizard.h"
 #include "chrome/browser/ash/login/oobe_screen.h"
 #include "chrome/browser/ash/login/screens/sync_consent_screen.h"
@@ -24,16 +25,17 @@
 #include "chrome/browser/ash/login/wizard_controller.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/ui/webui/chromeos/login/assistant_optin_flow_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
+#include "chrome/browser/ui/webui/ash/login/assistant_optin_flow_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/gaia_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/oobe_ui.h"
 #include "chrome/common/chrome_paths.h"
-#include "chromeos/services/assistant/public/cpp/assistant_prefs.h"
-#include "chromeos/services/assistant/public/cpp/assistant_settings.h"
-#include "chromeos/services/assistant/public/cpp/features.h"
-#include "chromeos/services/assistant/public/proto/get_settings_ui.pb.h"
-#include "chromeos/services/assistant/public/proto/settings_ui.pb.h"
-#include "chromeos/services/assistant/service.h"
+#include "chromeos/ash/services/assistant/public/cpp/assistant_prefs.h"
+#include "chromeos/ash/services/assistant/public/cpp/assistant_settings.h"
+#include "chromeos/ash/services/assistant/public/cpp/features.h"
+#include "chromeos/ash/services/assistant/public/proto/activity_control_settings_common.pb.h"
+#include "chromeos/ash/services/assistant/public/proto/get_settings_ui.pb.h"
+#include "chromeos/ash/services/assistant/public/proto/settings_ui.pb.h"
+#include "chromeos/ash/services/assistant/service.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/test/browser_test.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
@@ -47,9 +49,6 @@
 #include "net/test/embedded_test_server/http_response.h"
 
 namespace ash {
-
-// TODO(https://crbug.com/1164001): remove when migrated to ash::
-namespace assistant = ::chromeos::assistant;
 
 namespace {
 
@@ -108,7 +107,7 @@ constexpr char kAssistantOptInScreenExitReason[] =
 constexpr char kAssistantOptInScreenStepCompletionTime[] =
     "OOBE.StepCompletionTime.Assistant-optin-flow";
 
-class ScopedAssistantSettings : public chromeos::assistant::AssistantSettings {
+class ScopedAssistantSettings : public assistant::AssistantSettings {
  public:
   // Flags to configure GetSettings response.
   static constexpr int CONSENT_UI_FLAGS_NONE = 0;
@@ -190,13 +189,13 @@ class ScopedAssistantSettings : public chromeos::assistant::AssistantSettings {
     speaker_id_enrollment_state_ = SpeakerIdEnrollmentState::IDLE;
   }
 
-  // chromeos::assistant::AssistantSettings:
+  // assistant::AssistantSettings:
   void GetSettings(const std::string& selector,
                    GetSettingsCallback callback) override {}
 
   void GetSettingsWithHeader(const std::string& selector,
                              GetSettingsCallback callback) override {
-    chromeos::assistant::SettingsUiSelector selector_proto;
+    assistant::SettingsUiSelector selector_proto;
     ASSERT_TRUE(selector_proto.ParseFromString(selector));
     EXPECT_FALSE(selector_proto.about_me_settings());
     EXPECT_TRUE(selector_proto.has_consent_flow_ui_selector());
@@ -204,13 +203,12 @@ class ScopedAssistantSettings : public chromeos::assistant::AssistantSettings {
                   ASSISTANT_SUW_ONBOARDING_ON_CHROME_OS,
               selector_proto.consent_flow_ui_selector().flow_id());
 
-    chromeos::assistant::GetSettingsUiResponse response;
+    assistant::GetSettingsUiResponse response;
 
     if (is_minor_user_) {
       auto* header = response.mutable_header();
       header->set_footer_button_layout(
-          chromeos::assistant::
-              SettingsResponseHeader_AcceptRejectLayout_EQUAL_WEIGHT);
+          assistant::SettingsResponseHeader_AcceptRejectLayout_EQUAL_WEIGHT);
     }
 
     auto* settings_ui = response.mutable_settings();
@@ -223,7 +221,7 @@ class ScopedAssistantSettings : public chromeos::assistant::AssistantSettings {
 
     auto* consent_flow_ui = settings_ui->mutable_consent_flow_ui();
     consent_flow_ui->set_consent_status(
-        chromeos::assistant::ConsentFlowUi_ConsentStatus_ASK_FOR_CONSENT);
+        assistant::ConsentFlowUi_ConsentStatus_ASK_FOR_CONSENT);
     consent_flow_ui->mutable_consent_ui()->set_accept_button_text("OK");
     consent_flow_ui->mutable_consent_ui()->set_reject_button_text(
         "No, thank you");
@@ -242,7 +240,7 @@ class ScopedAssistantSettings : public chromeos::assistant::AssistantSettings {
   }
 
   void PopulateActivityControlData(
-      chromeos::assistant::ConsentFlowUi_ConsentUi* consent_ui) {
+      assistant::ConsentFlowUi_ConsentUi* consent_ui) {
     auto* activity_control_ui = consent_ui->mutable_activity_control_ui();
     activity_control_ui->set_consent_token(kAssistantConsentToken);
     activity_control_ui->set_ui_audit_key(kAssistantUiAuditKey);
@@ -259,16 +257,17 @@ class ScopedAssistantSettings : public chromeos::assistant::AssistantSettings {
     setting->add_additional_info_paragraph();
     setting->set_additional_info_paragraph(0, "And it's really cool");
     setting->set_icon_uri("assistant_icon");
+    setting->set_setting_set_id(assistant::SettingSetId::WAA);
   }
 
   void UpdateSettings(const std::string& update,
                       UpdateSettingsCallback callback) override {
-    chromeos::assistant::SettingsUiUpdate update_proto;
+    assistant::SettingsUiUpdate update_proto;
     ASSERT_TRUE(update_proto.ParseFromString(update));
     EXPECT_FALSE(update_proto.has_about_me_settings_update());
     EXPECT_FALSE(update_proto.has_assistant_device_settings_update());
 
-    chromeos::assistant::SettingsUiUpdateResult update_result;
+    assistant::SettingsUiUpdateResult update_result;
     if (update_proto.has_consent_flow_ui_update()) {
       EXPECT_EQ(kAssistantConsentToken,
                 update_proto.consent_flow_ui_update().consent_token());
@@ -288,8 +287,7 @@ class ScopedAssistantSettings : public chromeos::assistant::AssistantSettings {
 
   void StartSpeakerIdEnrollment(
       bool skip_cloud_enrollment,
-      base::WeakPtr<chromeos::assistant::SpeakerIdEnrollmentClient> client)
-      override {
+      base::WeakPtr<assistant::SpeakerIdEnrollmentClient> client) override {
     if (speaker_id_enrollment_mode_ == SpeakerIdEnrollmentMode::IMMEDIATE) {
       client->OnSpeakerIdEnrollmentDone();
       return;
@@ -335,14 +333,14 @@ class ScopedAssistantSettings : public chromeos::assistant::AssistantSettings {
   bool is_minor_user_ = false;
 };
 
-class AssistantOptInFlowTest : public OobeBaseTest {
+class AssistantOptInFlowBaseTest : public OobeBaseTest {
  public:
-  AssistantOptInFlowTest() = default;
-  ~AssistantOptInFlowTest() override = default;
+  AssistantOptInFlowBaseTest() = default;
+  ~AssistantOptInFlowBaseTest() override = default;
 
   void RegisterAdditionalRequestHandlers() override {
     embedded_test_server()->RegisterRequestHandler(base::BindRepeating(
-        &AssistantOptInFlowTest::HandleRequest, base::Unretained(this)));
+        &AssistantOptInFlowBaseTest::HandleRequest, base::Unretained(this)));
   }
 
   void SetUpOnMainThread() override {
@@ -355,7 +353,7 @@ class AssistantOptInFlowTest : public OobeBaseTest {
     original_callback_ =
         assistant_optin_flow_screen->get_exit_callback_for_testing();
     assistant_optin_flow_screen->set_exit_callback_for_testing(
-        base::BindRepeating(&AssistantOptInFlowTest::HandleScreenExit,
+        base::BindRepeating(&AssistantOptInFlowBaseTest::HandleScreenExit,
                             base::Unretained(this)));
   }
 
@@ -418,12 +416,12 @@ class AssistantOptInFlowTest : public OobeBaseTest {
   }
 
   void WaitForScreenExit() {
-    if (screen_exited_)
+    if (screen_exited_) {
       return;
-
-    base::RunLoop run_loop;
-    screen_exit_callback_ = run_loop.QuitClosure();
-    run_loop.Run();
+    }
+    base::test::TestFuture<void> waiter;
+    screen_exit_callback_ = waiter.GetCallback();
+    EXPECT_TRUE(waiter.Wait());
   }
 
   std::unique_ptr<ScopedAssistantSettings> assistant_settings_;
@@ -435,7 +433,6 @@ class AssistantOptInFlowTest : public OobeBaseTest {
   // request..
   bool fail_next_value_prop_url_request_ = false;
 
- protected:
   base::test::ScopedFeatureList scoped_feature_list_;
 
  private:
@@ -469,11 +466,19 @@ class AssistantOptInFlowTest : public OobeBaseTest {
   LoginManagerMixin login_manager_{&mixin_host_};
 };
 
+class AssistantOptInFlowTest : public AssistantOptInFlowBaseTest {
+ public:
+  AssistantOptInFlowTest() {
+    scoped_feature_list_.InitAndDisableFeature(
+        ash::features::kOobeSkipAssistant);
+  }
+  ~AssistantOptInFlowTest() override = default;
+};
+
 IN_PROC_BROWSER_TEST_F(AssistantOptInFlowTest, Basic) {
   auto force_lib_assistant_enabled =
       AssistantOptInFlowScreen::ForceLibAssistantEnabledForTesting(true);
-  AssistantState::Get()->NotifyStatusChanged(
-      chromeos::assistant::AssistantStatus::READY);
+  AssistantState::Get()->NotifyStatusChanged(assistant::AssistantStatus::READY);
 
   SetUpAssistantScreensForTest();
   ShowAssistantOptInFlowScreen();
@@ -512,8 +517,7 @@ IN_PROC_BROWSER_TEST_F(AssistantOptInFlowTest, Basic) {
 IN_PROC_BROWSER_TEST_F(AssistantOptInFlowTest, DisableScreenContext) {
   auto force_lib_assistant_enabled =
       AssistantOptInFlowScreen::ForceLibAssistantEnabledForTesting(true);
-  AssistantState::Get()->NotifyStatusChanged(
-      chromeos::assistant::AssistantStatus::READY);
+  AssistantState::Get()->NotifyStatusChanged(assistant::AssistantStatus::READY);
 
   SetUpAssistantScreensForTest();
   ShowAssistantOptInFlowScreen();
@@ -553,8 +557,7 @@ IN_PROC_BROWSER_TEST_F(AssistantOptInFlowTest, AssistantStateUpdateAfterShow) {
   OobeScreenWaiter screen_waiter(AssistantOptInFlowScreenView::kScreenId);
   screen_waiter.Wait();
 
-  AssistantState::Get()->NotifyStatusChanged(
-      chromeos::assistant::AssistantStatus::READY);
+  AssistantState::Get()->NotifyStatusChanged(assistant::AssistantStatus::READY);
 
   test::OobeJS().CreateVisibilityWaiter(true, kAssistantValueProp)->Wait();
   TapWhenEnabled(kValuePropNextButton);
@@ -587,8 +590,7 @@ IN_PROC_BROWSER_TEST_F(AssistantOptInFlowTest, RetryOnWebviewLoadFail) {
 
   ShowAssistantOptInFlowScreen();
 
-  AssistantState::Get()->NotifyStatusChanged(
-      chromeos::assistant::AssistantStatus::READY);
+  AssistantState::Get()->NotifyStatusChanged(assistant::AssistantStatus::READY);
 
   OobeScreenWaiter screen_waiter(AssistantOptInFlowScreenView::kScreenId);
   screen_waiter.Wait();
@@ -625,8 +627,7 @@ IN_PROC_BROWSER_TEST_F(AssistantOptInFlowTest, RejectValueProp) {
   auto force_lib_assistant_enabled =
       AssistantOptInFlowScreen::ForceLibAssistantEnabledForTesting(true);
   SetUpAssistantScreensForTest();
-  AssistantState::Get()->NotifyStatusChanged(
-      chromeos::assistant::AssistantStatus::READY);
+  AssistantState::Get()->NotifyStatusChanged(assistant::AssistantStatus::READY);
 
   ShowAssistantOptInFlowScreen();
 
@@ -657,8 +658,7 @@ IN_PROC_BROWSER_TEST_F(AssistantOptInFlowTest, SkipShowingValueProp) {
       ScopedAssistantSettings::CONSENT_UI_FLAG_SKIP_ACTIVITY_CONTROL);
 
   SetUpAssistantScreensForTest();
-  AssistantState::Get()->NotifyStatusChanged(
-      chromeos::assistant::AssistantStatus::READY);
+  AssistantState::Get()->NotifyStatusChanged(assistant::AssistantStatus::READY);
 
   ShowAssistantOptInFlowScreen();
 
@@ -694,8 +694,7 @@ IN_PROC_BROWSER_TEST_F(AssistantOptInFlowTest, SpeakerIdEnrollment) {
       ScopedAssistantSettings::SpeakerIdEnrollmentMode::STEP_BY_STEP);
 
   SetUpAssistantScreensForTest();
-  AssistantState::Get()->NotifyStatusChanged(
-      chromeos::assistant::AssistantStatus::READY);
+  AssistantState::Get()->NotifyStatusChanged(assistant::AssistantStatus::READY);
 
   ShowAssistantOptInFlowScreen();
 
@@ -755,6 +754,47 @@ IN_PROC_BROWSER_TEST_F(AssistantOptInFlowTest, SpeakerIdEnrollment) {
 }
 
 IN_PROC_BROWSER_TEST_F(AssistantOptInFlowTest,
+                       FeatureDisabledDuringSpeakerIdEnrollment) {
+  auto force_lib_assistant_enabled =
+      AssistantOptInFlowScreen::ForceLibAssistantEnabledForTesting(true);
+  assistant_settings_->set_consent_ui_flags(
+      ScopedAssistantSettings::CONSENT_UI_FLAG_SKIP_ACTIVITY_CONTROL);
+  assistant_settings_->set_speaker_id_enrollment_mode(
+      ScopedAssistantSettings::SpeakerIdEnrollmentMode::STEP_BY_STEP);
+
+  SetUpAssistantScreensForTest();
+  AssistantState::Get()->NotifyStatusChanged(assistant::AssistantStatus::READY);
+
+  ShowAssistantOptInFlowScreen();
+
+  OobeScreenWaiter screen_waiter(AssistantOptInFlowScreenView::kScreenId);
+  screen_waiter.Wait();
+
+  test::OobeJS().CreateVisibilityWaiter(true, kAssistantRelatedInfo)->Wait();
+  TapWhenEnabled(kRelatedInfoNextButton);
+
+  PrefService* const prefs = ProfileManager::GetActiveUserProfile()->GetPrefs();
+  prefs->SetBoolean(assistant::prefs::kAssistantEnabled, false);
+
+  test::OobeJS().CreateVisibilityWaiter(true, kAssistantVoiceMatch)->Wait();
+  TapWhenEnabled(kVoiceMatchAgreeButton);
+
+  EXPECT_FALSE(assistant_settings_->IsSpeakerIdEnrollmentActive());
+
+  WaitForScreenExit();
+
+  ExpectCollectedOptIns({});
+  EXPECT_EQ(assistant::prefs::ConsentStatus::kActivityControlAccepted,
+            prefs->GetInteger(assistant::prefs::kAssistantConsentStatus));
+  EXPECT_FALSE(prefs->GetBoolean(assistant::prefs::kAssistantHotwordEnabled));
+  EXPECT_TRUE(prefs->GetBoolean(assistant::prefs::kAssistantContextEnabled));
+  EXPECT_EQ(screen_result_.value(), AssistantOptInFlowScreen::Result::NEXT);
+  histogram_tester_.ExpectTotalCount(kAssistantOptInScreenExitReason, 1);
+  histogram_tester_.ExpectTotalCount(kAssistantOptInScreenStepCompletionTime,
+                                     1);
+}
+
+IN_PROC_BROWSER_TEST_F(AssistantOptInFlowTest,
                        BailOutDuringSpeakerIdEnrollment) {
   auto force_lib_assistant_enabled =
       AssistantOptInFlowScreen::ForceLibAssistantEnabledForTesting(true);
@@ -764,8 +804,7 @@ IN_PROC_BROWSER_TEST_F(AssistantOptInFlowTest,
       ScopedAssistantSettings::SpeakerIdEnrollmentMode::STEP_BY_STEP);
 
   SetUpAssistantScreensForTest();
-  AssistantState::Get()->NotifyStatusChanged(
-      chromeos::assistant::AssistantStatus::READY);
+  AssistantState::Get()->NotifyStatusChanged(assistant::AssistantStatus::READY);
 
   ShowAssistantOptInFlowScreen();
 
@@ -812,8 +851,7 @@ IN_PROC_BROWSER_TEST_F(AssistantOptInFlowTest,
       ScopedAssistantSettings::SpeakerIdEnrollmentMode::STEP_BY_STEP);
 
   SetUpAssistantScreensForTest();
-  AssistantState::Get()->NotifyStatusChanged(
-      chromeos::assistant::AssistantStatus::READY);
+  AssistantState::Get()->NotifyStatusChanged(assistant::AssistantStatus::READY);
 
   ShowAssistantOptInFlowScreen();
 
@@ -865,8 +903,7 @@ IN_PROC_BROWSER_TEST_F(AssistantOptInFlowTest, WAADisabledByPolicy) {
   assistant_settings_->set_consent_ui_flags(
       ScopedAssistantSettings::CONSENT_UI_FLAG_WAA_DISABLED_BY_POLICY);
 
-  AssistantState::Get()->NotifyStatusChanged(
-      chromeos::assistant::AssistantStatus::READY);
+  AssistantState::Get()->NotifyStatusChanged(assistant::AssistantStatus::READY);
   SetUpAssistantScreensForTest();
   ShowAssistantOptInFlowScreen();
 
@@ -889,8 +926,7 @@ IN_PROC_BROWSER_TEST_F(AssistantOptInFlowTest, AssistantDisabledByPolicy) {
   assistant_settings_->set_consent_ui_flags(
       ScopedAssistantSettings::CONSENT_UI_FLAG_ASSISTANT_DISABLED_BY_POLICY);
 
-  AssistantState::Get()->NotifyStatusChanged(
-      chromeos::assistant::AssistantStatus::READY);
+  AssistantState::Get()->NotifyStatusChanged(assistant::AssistantStatus::READY);
   SetUpAssistantScreensForTest();
   ShowAssistantOptInFlowScreen();
 
@@ -911,8 +947,7 @@ IN_PROC_BROWSER_TEST_F(AssistantOptInFlowTest, AssistantDisabledByPolicy) {
 IN_PROC_BROWSER_TEST_F(AssistantOptInFlowTest, AssistantSkippedNoLib) {
   auto force_lib_assistant_disabled =
       AssistantOptInFlowScreen::ForceLibAssistantEnabledForTesting(false);
-  AssistantState::Get()->NotifyStatusChanged(
-      chromeos::assistant::AssistantStatus::READY);
+  AssistantState::Get()->NotifyStatusChanged(assistant::AssistantStatus::READY);
   SetUpAssistantScreensForTest();
   ShowAssistantOptInFlowScreen();
 
@@ -941,8 +976,7 @@ IN_PROC_BROWSER_TEST_F(AssistantOptInFlowMinorModeTest,
   auto force_lib_assistant_enabled =
       AssistantOptInFlowScreen::ForceLibAssistantEnabledForTesting(true);
   assistant_settings_->set_setting_zippy_size(2);
-  AssistantState::Get()->NotifyStatusChanged(
-      chromeos::assistant::AssistantStatus::READY);
+  AssistantState::Get()->NotifyStatusChanged(assistant::AssistantStatus::READY);
 
   SetUpAssistantScreensForTest();
   ShowAssistantOptInFlowScreen();
@@ -987,8 +1021,7 @@ IN_PROC_BROWSER_TEST_F(AssistantOptInFlowMinorModeTest,
   auto force_lib_assistant_enabled =
       AssistantOptInFlowScreen::ForceLibAssistantEnabledForTesting(true);
   assistant_settings_->set_setting_zippy_size(2);
-  AssistantState::Get()->NotifyStatusChanged(
-      chromeos::assistant::AssistantStatus::READY);
+  AssistantState::Get()->NotifyStatusChanged(assistant::AssistantStatus::READY);
 
   SetUpAssistantScreensForTest();
   ShowAssistantOptInFlowScreen();
@@ -1019,8 +1052,7 @@ IN_PROC_BROWSER_TEST_F(AssistantOptInFlowMinorModeTest,
   auto force_lib_assistant_enabled =
       AssistantOptInFlowScreen::ForceLibAssistantEnabledForTesting(true);
   assistant_settings_->set_setting_zippy_size(2);
-  AssistantState::Get()->NotifyStatusChanged(
-      chromeos::assistant::AssistantStatus::READY);
+  AssistantState::Get()->NotifyStatusChanged(assistant::AssistantStatus::READY);
 
   SetUpAssistantScreensForTest();
   ShowAssistantOptInFlowScreen();
@@ -1057,8 +1089,7 @@ IN_PROC_BROWSER_TEST_F(AssistantOptInFlowMinorModeTest,
   auto force_lib_assistant_enabled =
       AssistantOptInFlowScreen::ForceLibAssistantEnabledForTesting(true);
   assistant_settings_->set_setting_zippy_size(2);
-  AssistantState::Get()->NotifyStatusChanged(
-      chromeos::assistant::AssistantStatus::READY);
+  AssistantState::Get()->NotifyStatusChanged(assistant::AssistantStatus::READY);
 
   SetUpAssistantScreensForTest();
   ShowAssistantOptInFlowScreen();
@@ -1088,6 +1119,31 @@ IN_PROC_BROWSER_TEST_F(AssistantOptInFlowMinorModeTest,
   histogram_tester_.ExpectTotalCount(kAssistantOptInScreenExitReason, 1);
   histogram_tester_.ExpectTotalCount(kAssistantOptInScreenStepCompletionTime,
                                      1);
+}
+
+class AssistantOptInFlowSkipFeatureTest : public AssistantOptInFlowBaseTest {
+ public:
+  AssistantOptInFlowSkipFeatureTest() {
+    scoped_feature_list_.InitAndEnableFeature(
+        ash::features::kOobeSkipAssistant);
+  }
+};
+
+IN_PROC_BROWSER_TEST_F(AssistantOptInFlowSkipFeatureTest, AssistantSkipped) {
+  AssistantState::Get()->NotifyStatusChanged(assistant::AssistantStatus::READY);
+  ShowAssistantOptInFlowScreen();
+  WaitForScreenExit();
+  EXPECT_EQ(screen_result_.value(),
+            AssistantOptInFlowScreen::Result::NOT_APPLICABLE);
+
+  ExpectCollectedOptIns({});
+  histogram_tester_.ExpectTotalCount(kAssistantOptInScreenExitReason, 0);
+  histogram_tester_.ExpectTotalCount(kAssistantOptInScreenStepCompletionTime,
+                                     0);
+
+  PrefService* const prefs = ProfileManager::GetActiveUserProfile()->GetPrefs();
+  EXPECT_FALSE(prefs->GetBoolean(assistant::prefs::kAssistantHotwordEnabled));
+  EXPECT_FALSE(prefs->GetBoolean(assistant::prefs::kAssistantContextEnabled));
 }
 
 }  // namespace

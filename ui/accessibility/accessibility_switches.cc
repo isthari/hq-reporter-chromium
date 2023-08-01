@@ -1,4 +1,4 @@
-// Copyright (c) 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,11 +36,6 @@ const char kEnableExperimentalAccessibilitySwitchAccessText[] =
 // zooming in.
 const char kEnableMagnifierDebugDrawRect[] = "enable-magnifier-debug-draw-rect";
 
-// Enables multistep automation for Switch Access, which is a 2021 accessibility
-// sprint project and hasn't launched yet.
-const char kEnableExperimentalAccessibilitySwitchAccessMultistepAutomation[] =
-    "enable-experimental-accessibility-switch-access-multistep-automation";
-
 bool IsExperimentalAccessibilityLanguageDetectionEnabled() {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(
       ::switches::kEnableExperimentalAccessibilityLanguageDetection);
@@ -61,12 +56,6 @@ bool IsMagnifierDebugDrawRectEnabled() {
       ::switches::kEnableMagnifierDebugDrawRect);
 }
 
-bool IsSwitchAccessMultistepAutomationEnabled() {
-  return base::CommandLine::ForCurrentProcess()->HasSwitch(
-      ::switches::
-          kEnableExperimentalAccessibilitySwitchAccessMultistepAutomation);
-}
-
 #if BUILDFLAG(IS_WIN)
 // Enables UI Automation platform API in addition to the IAccessible API.
 const char kEnableExperimentalUIAutomation[] =
@@ -85,5 +74,8 @@ bool IsExperimentalAccessibilityPlatformUIAEnabled() {
 // Optionally disable AXMenuList, which makes the internal pop-up menu
 // UI for a select element directly accessible.
 const char kDisableAXMenuList[] = "disable-ax-menu-list";
+
+const char kGenerateAccessibilityTestExpectations[] =
+    "generate-accessibility-test-expectations";
 
 }  // namespace switches

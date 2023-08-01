@@ -1,5 +1,5 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license thaT can be
+// Copyright 2017 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_TEXT_WRITING_MODE_UTILS_H_
@@ -152,6 +152,40 @@ class LogicalToPhysical {
   Value inline_end_;    // a.k.a. end
   Value block_start_;   // a.k.a. before
   Value block_end_;     // a.k.a. after
+};
+
+template <typename Value>
+class LogicalToLogical {
+  STACK_ALLOCATED();
+
+ public:
+  LogicalToLogical(WritingDirectionMode from_writing_direction,
+                   WritingDirectionMode to_writing_direction,
+                   Value inline_start,
+                   Value inline_end,
+                   Value block_start,
+                   Value block_end)
+      : LogicalToLogical(to_writing_direction,
+                         LogicalToPhysical<Value>(from_writing_direction,
+                                                  inline_start,
+                                                  inline_end,
+                                                  block_start,
+                                                  block_end)) {}
+
+  Value InlineStart() const { return logical_.InlineStart(); }
+
+  Value BlockStart() const { return logical_.BlockStart(); }
+
+ private:
+  LogicalToLogical(WritingDirectionMode to_writing_direction,
+                   LogicalToPhysical<Value> physical)
+      : logical_(to_writing_direction,
+                 physical.Top(),
+                 physical.Right(),
+                 physical.Bottom(),
+                 physical.Left()) {}
+
+  PhysicalToLogical<Value> logical_;
 };
 
 template <typename Value, typename Object>

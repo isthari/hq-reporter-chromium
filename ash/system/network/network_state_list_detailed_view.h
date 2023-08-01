@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "ash/login_status.h"
 #include "ash/system/network/tray_network_state_observer.h"
 #include "ash/system/tray/tray_detailed_view.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/timer/timer.h"
 #include "chromeos/services/network_config/public/mojom/cros_network_config.mojom-forward.h"
@@ -22,13 +23,12 @@ class Button;
 namespace ash {
 class TrayNetworkStateModel;
 
-namespace tray {
-
 bool CanNetworkConnect(
     chromeos::network_config::mojom::ConnectionStateType connection_state,
     chromeos::network_config::mojom::NetworkType type,
     chromeos::network_config::mojom::ActivationStateType activation_state,
-    bool is_connectable);
+    bool is_connectable,
+    std::string sim_eid);
 
 // Exported for tests.
 class ASH_EXPORT NetworkStateListDetailedView
@@ -112,13 +112,13 @@ class ASH_EXPORT NetworkStateListDetailedView
   // Track login state.
   LoginStatus login_;
 
-  TrayNetworkStateModel* model_;
+  raw_ptr<TrayNetworkStateModel, ExperimentalAsh> model_;
 
-  views::Button* info_button_;
-  views::Button* settings_button_;
+  raw_ptr<views::Button, ExperimentalAsh> info_button_;
+  raw_ptr<views::Button, ExperimentalAsh> settings_button_;
 
   // A small bubble for displaying network info.
-  InfoBubble* info_bubble_;
+  raw_ptr<InfoBubble, ExperimentalAsh> info_bubble_;
 
   // Timer for starting and stopping network scans.
   base::RepeatingTimer network_scan_repeating_timer_;
@@ -126,7 +126,6 @@ class ASH_EXPORT NetworkStateListDetailedView
   base::WeakPtrFactory<NetworkStateListDetailedView> weak_ptr_factory_{this};
 };
 
-}  // namespace tray
 }  // namespace ash
 
 #endif  // ASH_SYSTEM_NETWORK_NETWORK_STATE_LIST_DETAILED_VIEW_H_

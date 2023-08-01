@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,15 +25,12 @@ namespace media_router {
 class MediaRouterAndroid : public MediaRouterBase {
  public:
   MediaRouterAndroid();
-
-  MediaRouterAndroid(const MediaRouterAndroid&) = delete;
-  MediaRouterAndroid& operator=(const MediaRouterAndroid&) = delete;
-
   ~MediaRouterAndroid() override;
 
   const MediaRoute* FindRouteBySource(const MediaSource::Id& source_id) const;
 
   // MediaRouter implementation.
+  void Initialize() override;
   void CreateRoute(const MediaSource::Id& source_id,
                    const MediaSink::Id& sink_id,
                    const url::Origin& origin,
@@ -56,6 +53,8 @@ class MediaRouterAndroid : public MediaRouterBase {
       const MediaRoute::Id& route_id,
       std::unique_ptr<std::vector<uint8_t>> data) override;
   void OnUserGesture() override;
+  std::vector<MediaRoute> GetCurrentRoutes() const override;
+
   std::unique_ptr<media::FlingingController> GetFlingingController(
       const MediaRoute::Id& route_id) override;
 
@@ -70,6 +69,11 @@ class MediaRouterAndroid : public MediaRouterBase {
                       const MediaSink::Id& sink_id,
                       int request_id,
                       bool is_local);
+
+  // Notifies the media router when the route media source is updated. This can
+  // happen during remote playback with the media element's source URL changes.
+  void OnRouteMediaSourceUpdated(const MediaRoute::Id& route_id,
+                                 const MediaSource::Id& source_id);
 
   // Notifies the media router that route creation or joining failed.
   void OnCreateRouteRequestError(const std::string& error_text, int request_id);
@@ -143,14 +147,16 @@ class MediaRouterAndroid : public MediaRouterBase {
   void UnregisterMediaSinksObserver(MediaSinksObserver* observer) override;
   void RegisterMediaRoutesObserver(MediaRoutesObserver* observer) override;
   void UnregisterMediaRoutesObserver(MediaRoutesObserver* observer) override;
-  void RegisterRouteMessageObserver(RouteMessageObserver* observer) override;
-  void UnregisterRouteMessageObserver(RouteMessageObserver* observer) override;
+  void RegisterPresentationConnectionMessageObserver(
+      PresentationConnectionMessageObserver* observer) override;
+  void UnregisterPresentationConnectionMessageObserver(
+      PresentationConnectionMessageObserver* observer) override;
 
   void OnPresentationConnectionError(const std::string& route_id);
   void OnRouteRequestError(
       const std::string& error_text,
       int route_request_id,
-      base::OnceCallback<void(RouteRequestResult::ResultCode,
+      base::OnceCallback<void(mojom::RouteRequestResultCode,
                               absl::optional<mojom::MediaRouteProviderId>)>
           callback);
 
@@ -167,7 +173,7 @@ class MediaRouterAndroid : public MediaRouterBase {
                          std::unique_ptr<MediaSinksObserverList>>;
   MediaSinkObservers sinks_observers_;
 
-  base::ObserverList<MediaRoutesObserver>::Unchecked routes_observers_;
+  base::ObserverList<MediaRoutesObserver> routes_observers_;
 
   struct MediaRouteRequest {
     MediaRouteRequest(const MediaSource& source,

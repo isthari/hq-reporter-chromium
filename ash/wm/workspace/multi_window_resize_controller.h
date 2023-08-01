@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,13 @@
 #include <vector>
 
 #include "ash/ash_export.h"
+#include "ash/style/icon_button.h"
 #include "ash/wm/overview/overview_observer.h"
 #include "ash/wm/window_state.h"
 #include "ash/wm/window_state_observer.h"
+#include "base/memory/raw_ptr.h"
 #include "base/scoped_multi_source_observation.h"
+#include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_observer.h"
@@ -21,25 +24,32 @@
 
 namespace gfx {
 class PointF;
-}
+}  // namespace gfx
 
 namespace views {
 class Widget;
-}
+}  // namespace views
 
 namespace ash {
+
 class MultiWindowResizeControllerTest;
 class WorkspaceWindowResizer;
 
 // MultiWindowResizeController is responsible for determining and showing a
 // widget that allows resizing multiple windows at the same time.
-// MultiWindowResizeController is driven by WorkspaceEventHandler.
+// MultiWindowResizeController is driven by WorkspaceEventHandler. It can also
+// be an entry point to create or remove a snap group which is guarded by the
+// feature flag `kSnapGroup` and will only be available when the feature param
+// `kAutomaticallyLockGroup` is false.
 class ASH_EXPORT MultiWindowResizeController
     : public views::MouseWatcherListener,
       public aura::WindowObserver,
       public WindowStateObserver,
       public OverviewObserver {
  public:
+  // Delay before showing the `resize_widget_`.
+  static constexpr base::TimeDelta kShowDelay = base::Milliseconds(400);
+
   MultiWindowResizeController();
 
   MultiWindowResizeController(const MultiWindowResizeController&) = delete;
@@ -70,8 +80,11 @@ class ASH_EXPORT MultiWindowResizeController
   void OnOverviewModeStarting() override;
   void OnOverviewModeEndingAnimationComplete(bool canceled) override;
 
+  IconButton* lock_button_for_testing() const { return lock_button_; }
+
  private:
   friend class MultiWindowResizeControllerTest;
+  friend class SnapGroupTest;
   class ResizeMouseWatcherHost;
   class ResizeView;
 
@@ -95,10 +108,10 @@ class ASH_EXPORT MultiWindowResizeController
     bool is_valid() const { return window1 && window2; }
 
     // The left/top window to resize.
-    aura::Window* window1 = nullptr;
+    raw_ptr<aura::Window, ExperimentalAsh> window1 = nullptr;
 
     // Other window to resize.
-    aura::Window* window2 = nullptr;
+    raw_ptr<aura::Window, ExperimentalAsh> window2 = nullptr;
 
     // Direction
     Direction direction;
@@ -126,36 +139,36 @@ class ASH_EXPORT MultiWindowResizeController
                                  int x_in_parent,
                                  int y_in_parent) const;
 
-  // Returns the first window touching |window|.
+  // Returns the first window touching `window`.
   aura::Window* FindWindowTouching(aura::Window* window,
                                    Direction direction) const;
 
-  // Places any windows touching |start| into |others|.
+  // Places any windows touching `start` into `others`.
   void FindWindowsTouching(aura::Window* start,
                            Direction direction,
                            std::vector<aura::Window*>* others) const;
 
-  // Starts/Stops observing |window|.
+  // Starts/Stops observing `window`.
   void StartObserving(aura::Window* window);
   void StopObserving(aura::Window* window);
 
-  // Check if we're observing |window|.
+  // Check if we're observing `window`.
   bool IsObserving(aura::Window* window) const;
 
   // Shows the resizer if the mouse is still at a valid location. This is called
-  // from the |show_timer_|.
+  // from the `show_timer_`.
   void ShowIfValidMouseLocation();
 
-  // Shows the widget immediately.
+  // Shows the `resize_widget_` and `lock_widget_` immediately.
   void ShowNow();
 
-  // Returns true if the widget is showing.
+  // Returns true if the `resize_widget_` and `lock_widget_` are showing.
   bool IsShowing() const;
 
-  // Hides the resize widget.
+  // Hides the `resize_widget_` and `lock_widget_` if they get created.
   void Hide();
 
-  // Resets the window resizer and hides the resize widget.
+  // Resets the window resizer and hides the widgets.
   void ResetResizer();
 
   // Initiates a resize.
@@ -174,10 +187,20 @@ class ASH_EXPORT MultiWindowResizeController
   gfx::Rect CalculateResizeWidgetBounds(
       const gfx::PointF& location_in_parent) const;
 
-  // Returns true if |location_in_screen| is over the resize widget.
+  // Returns the bounds for the `lock_widget_` based on the
+  // `resize_widget_bounds`.
+  gfx::Rect CalculateLockWidgetBounds(
+      const gfx::Rect& resize_widget_bounds) const;
+
+  // Returns true if `location_in_screen` is over the resize widget.
   bool IsOverResizeWidget(const gfx::Point& location_in_screen) const;
 
-  // Returns true if |location_in_screen| is over the resize windows
+  // Returns true if `location_in_screen` is over the resize widget.
+  // TODO(michelefan): combine with `IsOverResizeWidget` to create a more
+  // general function if arm2 under the `kSnapGroup` flag is enabled by default.
+  bool IsOverLockWidget(const gfx::Point& location_in_screen) const;
+
+  // Returns true if `location_in_screen` is over the resize windows
   // (or the resize widget itself).
   bool IsOverWindows(const gfx::Point& location_in_screen) const;
 
@@ -185,6 +208,13 @@ class ASH_EXPORT MultiWindowResizeController
   bool IsOverComponent(aura::Window* window,
                        const gfx::Point& location_in_screen,
                        int component) const;
+
+  // Called when the lock button is pressed to create a snap group.
+  void OnLockButtonPressed();
+
+  // Returns true if a lock wiget should be considered i.e. when two windows are
+  // both snapped and the feature flag `kSnapGroup` is enabled.
+  bool ShouldConsiderLockWidget() const;
 
   // Windows and direction to resize.
   ResizeWindows windows_;
@@ -194,14 +224,24 @@ class ASH_EXPORT MultiWindowResizeController
 
   std::unique_ptr<views::Widget> resize_widget_;
 
+  // The lock widget that is used to create or remove a snap group when
+  // `kAutomaticallyLockGroup` of `kSnapGroup` is false.
+  std::unique_ptr<views::Widget> lock_widget_;
+
+  // The contents view of the `lock_widget_`.
+  raw_ptr<IconButton, ExperimentalAsh> lock_button_;
+
   // If non-null we're in a resize loop.
   std::unique_ptr<WorkspaceWindowResizer> window_resizer_;
 
   // Mouse coordinate passed to Show() in container's coodinates.
   gfx::Point show_location_in_parent_;
 
-  // Bounds the widget was last shown at in screen coordinates.
-  gfx::Rect show_bounds_in_screen_;
+  // Bounds the resize widget was last shown at in screen coordinates.
+  gfx::Rect resize_widget_show_bounds_in_screen_;
+
+  // Bounds the lock widget was last shown at in screen coordinates.
+  gfx::Rect lock_widget_show_bounds_in_screen_;
 
   // Used to detect whether the mouse is over the windows. While
   // |resize_widget_| is non-NULL (ie the widget is showing) we ignore calls

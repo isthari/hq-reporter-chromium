@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,9 +16,12 @@
  *    </settings-section>
  */
 
-import '//resources/cr_elements/shared_vars_css.m.js';
+import '//resources/cr_elements/cr_icon_button/cr_icon_button.js';
+import '//resources/cr_elements/cr_shared_vars.css.js';
 
-import {html, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {getTemplate} from './settings_section.html.js';
 
 export class SettingsSectionElement extends PolymerElement {
   static get is() {
@@ -26,7 +29,7 @@ export class SettingsSectionElement extends PolymerElement {
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
@@ -56,12 +59,22 @@ export class SettingsSectionElement extends PolymerElement {
         value: false,
         reflectToAttribute: true,
       },
+
+      /**
+       * When this attribute is enabled, a send feedback button will be shown
+       * that emits a 'send-feedback' event.
+       */
+      showSendFeedbackButton: {
+        type: Boolean,
+        value: false,
+      },
     };
   }
 
   section: string;
   pageTitle: string;
   hiddenBySearch: boolean;
+  showSendFeedbackButton: boolean;
 
   /**
    * Get the value to which to set the aria-hidden attribute of the section
@@ -74,8 +87,13 @@ export class SettingsSectionElement extends PolymerElement {
     return this.pageTitle ? false : 'true';
   }
 
-  focus() {
+  override focus() {
     this.shadowRoot!.querySelector<HTMLElement>('.title')!.focus();
+  }
+
+  private onSendFeedbackClick_() {
+    this.dispatchEvent(
+        new CustomEvent('send-feedback', {bubbles: true, composed: true}));
   }
 }
 

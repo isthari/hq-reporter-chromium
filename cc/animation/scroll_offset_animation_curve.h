@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -117,9 +117,6 @@ class CC_ANIMATION_EXPORT ScrollOffsetAnimationCurve
   void set_target(Target* target) { target_ = target; }
 
  private:
-  FRIEND_TEST_ALL_PREFIXES(ScrollOffsetAnimationCurveTest, ImpulseUpdateTarget);
-  FRIEND_TEST_ALL_PREFIXES(ScrollOffsetAnimationCurveTest,
-                           ImpulseUpdateTargetSwitchDirections);
   friend class ScrollOffsetAnimationCurveFactory;
   enum class AnimationType { kLinear, kEaseInOut, kImpulse };
 

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,19 +7,28 @@
 #include <memory>
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/css/forced_colors.h"
+#include "third_party/blink/public/common/privacy_budget/identifiability_sample_test_utils.h"
+#include "third_party/blink/public/common/privacy_budget/identifiability_study_settings.h"
+#include "third_party/blink/public/common/privacy_budget/identifiable_surface.h"
+#include "third_party/blink/public/common/privacy_budget/identifiable_token.h"
+#include "third_party/blink/public/common/privacy_budget/scoped_identifiability_test_sample_collector.h"
 #include "third_party/blink/renderer/core/css/media_list.h"
 #include "third_party/blink/renderer/core/css/media_values.h"
 #include "third_party/blink/renderer/core/css/media_values_cached.h"
 #include "third_party/blink/renderer/core/css/parser/css_tokenizer.h"
 #include "third_party/blink/renderer/core/css/parser/media_query_parser.h"
 #include "third_party/blink/renderer/core/css/resolver/media_query_result.h"
+#include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
+#include "third_party/blink/renderer/core/html/html_element.h"
 #include "third_party/blink/renderer/core/media_type_names.h"
 #include "third_party/blink/renderer/core/testing/dummy_page_holder.h"
+#include "third_party/blink/renderer/core/testing/page_test_base.h"
 #include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
+#include "ui/gfx/display_color_spaces.h"
 
 namespace blink {
 
@@ -47,7 +56,10 @@ MediaQueryEvaluatorTestCase g_screen_test_cases[] = {
     {"screen and (color)", true},
     {"not screen and (color)", false},
     {"screen and (device-aspect-ratio: 16/9)", false},
+    {"screen and (device-aspect-ratio: 0.5/0.5)", true},
+    {"screen and (device-aspect-ratio: 1.5)", false},
     {"screen and (device-aspect-ratio: 1/1)", true},
+    {"screen and (device-aspect-ratio: calc(1/1))", true},
     {"all and (min-color: 2)", true},
     {"all and (min-color: 32)", false},
     {"all and (min-color-index: 0)", true},
@@ -57,6 +69,20 @@ MediaQueryEvaluatorTestCase g_screen_test_cases[] = {
     {"all and (grid: 0)", true},
     {"(resolution: 2dppx)", true},
     {"(resolution: 1dppx)", false},
+    {"(resolution: calc(2x))", true},
+    {"(resolution: calc(1x))", false},
+    {"(resolution: calc(1x + 1x))", true},
+    {"(resolution: calc(1x + 0x))", false},
+    {"(resolution: calc(1x + 96dpi))", true},
+    {"(resolution: calc(0x + 37.79532dpcm))", false},
+    {"(resolution: calc(3x - 1x))", true},
+    {"(resolution: calc(3x - 2x))", false},
+    {"(resolution: calc(3x - 96dpi))", true},
+    {"(resolution: calc(2x - 37.79532dpcm))", false},
+    {"(resolution: calc(1x * 2))", true},
+    {"(resolution: calc(0.5x * 2))", false},
+    {"(resolution: calc(4x / 2))", true},
+    {"(resolution: calc(2x / 2))", false},
     {"(orientation: portrait)", true},
     {"(orientation: landscape)", false},
     {"(orientation: url(portrait))", false},
@@ -76,6 +102,8 @@ MediaQueryEvaluatorTestCase g_screen_test_cases[] = {
     {"(display-mode: fullscreen)", false},
     {"(display-mode: standalone)", false},
     {"(display-mode: minimal-ui)", false},
+    {"(display-mode: window-controls-overlay)", false},
+    {"(display-mode: borderless)", false},
     {"(display-mode: browser)", true},
     {"(display-mode: min-browser)", false},
     {"(display-mode: url(browser))", false},
@@ -83,8 +111,13 @@ MediaQueryEvaluatorTestCase g_screen_test_cases[] = {
     {"(display-mode: @browser)", false},
     {"(display-mode: 'browser')", false},
     {"(display-mode: @junk browser)", false},
+    {"(display-mode: tabbed)", false},
     {"(max-device-aspect-ratio: 4294967295/1)", true},
     {"(min-device-aspect-ratio: 1/4294967296)", true},
+    {"(max-device-aspect-ratio: 0.5)", false},
+    {"(max-device-aspect-ratio: 0.6/0.5)", true},
+    {"(min-device-aspect-ratio: 1/2)", true},
+    {"(max-device-aspect-ratio: 1.5)", true},
     {nullptr, false}  // Do not remove the terminator line.
 };
 
@@ -164,26 +197,33 @@ MediaQueryEvaluatorTestCase g_float_non_friendly_viewport_test_cases[] = {
 
 MediaQueryEvaluatorTestCase g_print_test_cases[] = {
     {"print and (min-resolution: 1dppx)", true},
+    {"print and (min-resolution: calc(100dpi - 4dpi))", true},
     {"print and (min-resolution: 118dpcm)", true},
     {"print and (min-resolution: 119dpcm)", false},
     {nullptr, false}  // Do not remove the terminator line.
 };
 
-MediaQueryEvaluatorTestCase g_non_immersive_test_cases[] = {
-    {"(immersive: 1)", false},
-    {"(immersive: 0)", true},
+// Tests when the output device is print.
+MediaQueryEvaluatorTestCase g_update_with_print_device_test_cases[] = {
+    {"(update)", false},       {"(update: none)", true},
+    {"(update: slow)", false}, {"(update: fast)", false},
+    {"update: fast", false},   {"(update: ?)", false},
     {nullptr, false}  // Do not remove the terminator line.
 };
 
-MediaQueryEvaluatorTestCase g_immersive_test_cases[] = {
-    {"(immersive: 1)", true},
-    {"(immersive: 0)", false},
+// Tests when the output device is slow.
+MediaQueryEvaluatorTestCase g_update_with_slow_device_test_cases[] = {
+    {"(update)", true},       {"(update: none)", false},
+    {"(update: slow)", true}, {"(update: fast)", false},
+    {"update: fast", false},  {"(update: ?)", false},
     {nullptr, false}  // Do not remove the terminator line.
 };
 
-MediaQueryEvaluatorTestCase g_non_ua_sheet_immersive_test_cases[] = {
-    {"(immersive: 1)", false},
-    {"(immersive: 0)", false},
+// Tests when the output device is slow.
+MediaQueryEvaluatorTestCase g_update_with_fast_device_test_cases[] = {
+    {"(update)", true},        {"(update: none)", false},
+    {"(update: slow)", false}, {"(update: fast)", true},
+    {"update: fast", false},   {"(update: ?)", false},
     {nullptr, false}  // Do not remove the terminator line.
 };
 
@@ -288,7 +328,6 @@ MediaQueryEvaluatorTestCase g_device_posture_none_cases[] = {
     {"(device-posture)", true},
     {"(device-posture: continuous)", true},
     {"(device-posture: folded)", false},
-    {"(device-posture: folded-over)", false},
     {"(device-posture: 15)", false},
     {"(device-posture: 2px)", false},
     {"(device-posture: 16/9)", false},
@@ -299,7 +338,6 @@ MediaQueryEvaluatorTestCase g_device_posture_folded_cases[] = {
     {"(device-posture)", true},
     {"(device-posture: continuous)", false},
     {"(device-posture: folded)", true},
-    {"(device-posture: folded-over)", false},
     {nullptr, false}  // Do not remove the terminator line.
 };
 
@@ -307,7 +345,6 @@ MediaQueryEvaluatorTestCase g_device_posture_folded_over_cases[] = {
     {"(device-posture)", true},
     {"(device-posture: continuous)", false},
     {"(device-posture: folded)", false},
-    {"(device-posture: folded-over)", true},
     {nullptr, false}  // Do not remove the terminator line.
 };
 
@@ -353,18 +390,45 @@ MediaQueryEvaluatorTestCase g_video_dynamic_range_feature_disabled_cases[] = {
     {nullptr, false}  // Do not remove the terminator line.
 };
 
+// Tests when the output device is print.
+MediaQueryEvaluatorTestCase g_overflow_with_print_device_test_cases[] = {
+    {"(overflow-inline)", false},
+    {"(overflow-block)", true},
+    {"(overflow-inline: none)", true},
+    {"(overflow-block: none)", false},
+    {"(overflow-block: paged)", true},
+    {"(overflow-inline: scroll)", false},
+    {"(overflow-block: scroll)", false},
+    {nullptr, false}  // Do not remove the terminator line.
+};
+
+// Tests when the output device is scrollable.
+MediaQueryEvaluatorTestCase g_overflow_with_scrollable_device_test_cases[] = {
+    {"(overflow-inline)", true},
+    {"(overflow-block)", true},
+    {"(overflow-inline: none)", false},
+    {"(overflow-block: none)", false},
+    {"(overflow-block: paged)", false},
+    {"(overflow-inline: scroll)", true},
+    {"(overflow-block: scroll)", true},
+    {nullptr, false}  // Do not remove the terminator line.
+};
+
 void TestMQEvaluator(MediaQueryEvaluatorTestCase* test_cases,
                      const MediaQueryEvaluator& media_query_evaluator,
                      CSSParserMode mode) {
-  scoped_refptr<MediaQuerySet> query_set;
+  MediaQuerySet* query_set = nullptr;
   for (unsigned i = 0; test_cases[i].input; ++i) {
-    if (String(test_cases[i].input).IsEmpty()) {
+    if (String(test_cases[i].input).empty()) {
       query_set = MediaQuerySet::Create();
     } else {
+      StringView str(test_cases[i].input);
+      CSSTokenizer tokenizer(StringView(test_cases[i].input));
+      auto [tokens, offsets] = tokenizer.TokenizeToEOFWithOffsets();
       query_set = MediaQueryParser::ParseMediaQuerySetInMode(
-          CSSParserTokenRange(
-              CSSTokenizer(test_cases[i].input).TokenizeToEOF()),
-          mode, nullptr);
+          CSSParserTokenRange(tokens),
+          CSSParserTokenOffsets(tokens, std::move(offsets), str), mode,
+          nullptr);
     }
     EXPECT_EQ(test_cases[i].output, media_query_evaluator.Eval(*query_set))
         << "Query: " << test_cases[i].input;
@@ -387,11 +451,12 @@ TEST(MediaQueryEvaluatorTest, Cached) {
   data.monochrome_bits_per_component = 0;
   data.primary_pointer_type = mojom::blink::PointerType::kPointerFineType;
   data.primary_hover_type = mojom::blink::HoverType::kHoverHoverType;
+  data.output_device_update_ability_type =
+      mojom::blink::OutputDeviceUpdateAbilityType::kFastType;
   data.three_d_enabled = true;
   data.media_type = media_type_names::kScreen;
   data.strict_mode = true;
   data.display_mode = blink::mojom::DisplayMode::kBrowser;
-  data.immersive_mode = false;
 
   // Default values.
   {
@@ -399,9 +464,6 @@ TEST(MediaQueryEvaluatorTest, Cached) {
     MediaQueryEvaluator media_query_evaluator(media_values);
     TestMQEvaluator(g_screen_test_cases, media_query_evaluator);
     TestMQEvaluator(g_viewport_test_cases, media_query_evaluator);
-    TestMQEvaluator(g_non_immersive_test_cases, media_query_evaluator,
-                    kUASheetMode);
-    TestMQEvaluator(g_non_ua_sheet_immersive_test_cases, media_query_evaluator);
   }
 
   // Print values.
@@ -411,6 +473,36 @@ TEST(MediaQueryEvaluatorTest, Cached) {
     MediaQueryEvaluator media_query_evaluator(media_values);
     TestMQEvaluator(g_print_test_cases, media_query_evaluator);
     data.media_type = media_type_names::kScreen;
+  }
+
+  // Update values with print device.
+  {
+    data.media_type = media_type_names::kPrint;
+    auto* media_values = MakeGarbageCollected<MediaValuesCached>(data);
+    MediaQueryEvaluator media_query_evaluator(media_values);
+    TestMQEvaluator(g_update_with_print_device_test_cases,
+                    media_query_evaluator);
+    data.media_type = media_type_names::kScreen;
+  }
+
+  // Update values with slow device.
+  {
+    data.output_device_update_ability_type =
+        mojom::blink::OutputDeviceUpdateAbilityType::kSlowType;
+    auto* media_values = MakeGarbageCollected<MediaValuesCached>(data);
+    MediaQueryEvaluator media_query_evaluator(media_values);
+    TestMQEvaluator(g_update_with_slow_device_test_cases,
+                    media_query_evaluator);
+  }
+
+  // Update values with fast device.
+  {
+    data.output_device_update_ability_type =
+        mojom::blink::OutputDeviceUpdateAbilityType::kFastType;
+    auto* media_values = MakeGarbageCollected<MediaValuesCached>(data);
+    MediaQueryEvaluator media_query_evaluator(media_values);
+    TestMQEvaluator(g_update_with_fast_device_test_cases,
+                    media_query_evaluator);
   }
 
   // Monochrome values.
@@ -424,15 +516,22 @@ TEST(MediaQueryEvaluatorTest, Cached) {
     data.monochrome_bits_per_component = 0;
   }
 
-  // Immersive values.
+  // Overflow values with printing.
   {
-    data.immersive_mode = true;
+    data.media_type = media_type_names::kPrint;
     auto* media_values = MakeGarbageCollected<MediaValuesCached>(data);
     MediaQueryEvaluator media_query_evaluator(media_values);
-    TestMQEvaluator(g_immersive_test_cases, media_query_evaluator,
-                    kUASheetMode);
-    TestMQEvaluator(g_non_ua_sheet_immersive_test_cases, media_query_evaluator);
-    data.immersive_mode = false;
+    TestMQEvaluator(g_overflow_with_print_device_test_cases,
+                    media_query_evaluator);
+    data.media_type = media_type_names::kScreen;
+  }
+
+  // Overflow values with scrolling.
+  {
+    auto* media_values = MakeGarbageCollected<MediaValuesCached>(data);
+    MediaQueryEvaluator media_query_evaluator(media_values);
+    TestMQEvaluator(g_overflow_with_scrollable_device_test_cases,
+                    media_query_evaluator);
   }
 }
 
@@ -442,8 +541,17 @@ TEST(MediaQueryEvaluatorTest, Dynamic) {
 
   MediaQueryEvaluator media_query_evaluator(&page_holder->GetFrame());
   TestMQEvaluator(g_viewport_test_cases, media_query_evaluator);
+  TestMQEvaluator(g_overflow_with_scrollable_device_test_cases,
+                  media_query_evaluator);
+  TestMQEvaluator(g_update_with_fast_device_test_cases, media_query_evaluator);
+  page_holder->GetFrame().GetSettings()->SetOutputDeviceUpdateAbilityType(
+      mojom::blink::OutputDeviceUpdateAbilityType::kSlowType);
+  TestMQEvaluator(g_update_with_slow_device_test_cases, media_query_evaluator);
   page_holder->GetFrameView().SetMediaType(media_type_names::kPrint);
   TestMQEvaluator(g_print_test_cases, media_query_evaluator);
+  TestMQEvaluator(g_overflow_with_print_device_test_cases,
+                  media_query_evaluator);
+  TestMQEvaluator(g_update_with_print_device_test_cases, media_query_evaluator);
 }
 
 TEST(MediaQueryEvaluatorTest, DynamicNoView) {
@@ -452,8 +560,7 @@ TEST(MediaQueryEvaluatorTest, DynamicNoView) {
   page_holder.reset();
   ASSERT_EQ(nullptr, frame->View());
   MediaQueryEvaluator media_query_evaluator(frame);
-  scoped_refptr<MediaQuerySet> query_set =
-      MediaQuerySet::Create("foobar", nullptr);
+  MediaQuerySet* query_set = MediaQuerySet::Create("foobar", nullptr);
   EXPECT_FALSE(media_query_evaluator.Eval(*query_set));
 }
 
@@ -476,19 +583,6 @@ TEST(MediaQueryEvaluatorTest, CachedFloatViewportNonFloatFriendly) {
   MediaQueryEvaluator media_query_evaluator(media_values);
   TestMQEvaluator(g_float_non_friendly_viewport_test_cases,
                   media_query_evaluator);
-}
-
-TEST(MediaQueryEvaluatorTest, DynamicImmersive) {
-  auto page_holder = std::make_unique<DummyPageHolder>(gfx::Size(500, 500));
-  page_holder->GetFrameView().SetMediaType(media_type_names::kScreen);
-
-  MediaQueryEvaluator media_query_evaluator(&page_holder->GetFrame());
-  page_holder->GetDocument().GetSettings()->SetImmersiveModeEnabled(false);
-
-  TestMQEvaluator(g_non_immersive_test_cases, media_query_evaluator,
-                  kUASheetMode);
-  page_holder->GetDocument().GetSettings()->SetImmersiveModeEnabled(true);
-  TestMQEvaluator(g_immersive_test_cases, media_query_evaluator, kUASheetMode);
 }
 
 TEST(MediaQueryEvaluatorTest, CachedForcedColors) {
@@ -515,7 +609,6 @@ TEST(MediaQueryEvaluatorTest, CachedForcedColors) {
 
 TEST(MediaQueryEvaluatorTest, CachedPrefersContrast) {
   ScopedForcedColorsForTest forced_scoped_feature(true);
-  ScopedPrefersContrastForTest contrast_scoped_feature(true);
 
   MediaValuesCached::MediaValuesCachedData data;
   data.forced_colors = ForcedColors::kNone;
@@ -610,13 +703,6 @@ TEST(MediaQueryEvaluatorTest, CachedDevicePosture) {
     MediaQueryEvaluator media_query_evaluator(media_values);
     TestMQEvaluator(g_device_posture_folded_cases, media_query_evaluator);
   }
-
-  {
-    data.device_posture = device::mojom::blink::DevicePostureType::kFoldedOver;
-    MediaValues* media_values = MakeGarbageCollected<MediaValuesCached>(data);
-    MediaQueryEvaluator media_query_evaluator(media_values);
-    TestMQEvaluator(g_device_posture_folded_over_cases, media_query_evaluator);
-  }
 }
 
 TEST(MediaQueryEvaluatorTest, CachedDynamicRange) {
@@ -632,11 +718,8 @@ TEST(MediaQueryEvaluatorTest, CachedDynamicRange) {
                     media_query_evaluator);
 
     // Test again with the feature disabled
-    ScopedCSSDynamicRangeMediaQueriesForTest const disable_feature{false};
     ScopedCSSVideoDynamicRangeMediaQueriesForTest const disable_video_feature{
         false};
-    TestMQEvaluator(g_dynamic_range_feature_disabled_cases,
-                    media_query_evaluator);
     TestMQEvaluator(g_video_dynamic_range_feature_disabled_cases,
                     media_query_evaluator);
   }
@@ -651,11 +734,8 @@ TEST(MediaQueryEvaluatorTest, CachedDynamicRange) {
                     media_query_evaluator);
 
     // Test again with the feature disabled
-    ScopedCSSDynamicRangeMediaQueriesForTest const disable_feature{false};
     ScopedCSSVideoDynamicRangeMediaQueriesForTest const disable_video_feature{
         false};
-    TestMQEvaluator(g_dynamic_range_feature_disabled_cases,
-                    media_query_evaluator);
     TestMQEvaluator(g_video_dynamic_range_feature_disabled_cases,
                     media_query_evaluator);
   }
@@ -671,17 +751,14 @@ TEST(MediaQueryEvaluatorTest, CachedDynamicRange) {
     TestMQEvaluator(g_video_dynamic_range_high_cases, media_query_evaluator);
 
     // Test again with the feature disabled
-    ScopedCSSDynamicRangeMediaQueriesForTest const disable_feature{false};
     ScopedCSSVideoDynamicRangeMediaQueriesForTest const disable_video_feature{
         false};
-    TestMQEvaluator(g_dynamic_range_feature_disabled_cases,
-                    media_query_evaluator);
     TestMQEvaluator(g_video_dynamic_range_feature_disabled_cases,
                     media_query_evaluator);
   }
   {
     data.device_supports_hdr =
-        gfx::DisplayColorSpaces(gfx::ColorSpace::CreateSCRGBLinear())
+        gfx::DisplayColorSpaces(gfx::ColorSpace::CreateSRGBLinear())
             .SupportsHDR();
     MediaValues* media_values = MakeGarbageCollected<MediaValuesCached>(data);
     MediaQueryEvaluator media_query_evaluator(media_values);
@@ -689,11 +766,8 @@ TEST(MediaQueryEvaluatorTest, CachedDynamicRange) {
     TestMQEvaluator(g_video_dynamic_range_high_cases, media_query_evaluator);
 
     // Test again with the feature disabled
-    ScopedCSSDynamicRangeMediaQueriesForTest const disable_feature{false};
     ScopedCSSVideoDynamicRangeMediaQueriesForTest const disable_video_feature{
         false};
-    TestMQEvaluator(g_dynamic_range_feature_disabled_cases,
-                    media_query_evaluator);
     TestMQEvaluator(g_video_dynamic_range_feature_disabled_cases,
                     media_query_evaluator);
   }
@@ -706,11 +780,8 @@ TEST(MediaQueryEvaluatorTest, CachedDynamicRange) {
     TestMQEvaluator(g_video_dynamic_range_high_cases, media_query_evaluator);
 
     // Test again with the feature disabled
-    ScopedCSSDynamicRangeMediaQueriesForTest const disable_feature{false};
     ScopedCSSVideoDynamicRangeMediaQueriesForTest const disable_video_feature{
         false};
-    TestMQEvaluator(g_dynamic_range_feature_disabled_cases,
-                    media_query_evaluator);
     TestMQEvaluator(g_video_dynamic_range_feature_disabled_cases,
                     media_query_evaluator);
   }
@@ -723,11 +794,8 @@ TEST(MediaQueryEvaluatorTest, CachedDynamicRange) {
     TestMQEvaluator(g_video_dynamic_range_high_cases, media_query_evaluator);
 
     // Test again with the feature disabled
-    ScopedCSSDynamicRangeMediaQueriesForTest const disable_feature{false};
     ScopedCSSVideoDynamicRangeMediaQueriesForTest const disable_video_feature{
         false};
-    TestMQEvaluator(g_dynamic_range_feature_disabled_cases,
-                    media_query_evaluator);
     TestMQEvaluator(g_video_dynamic_range_feature_disabled_cases,
                     media_query_evaluator);
   }
@@ -741,154 +809,159 @@ TEST(MediaQueryEvaluatorTest, RangedValues) {
   auto* media_values = MakeGarbageCollected<MediaValuesCached>(data);
   MediaQueryEvaluator media_query_evaluator(media_values);
 
+  auto eval = [&media_query_evaluator](MediaQueryExp exp) {
+    const auto* feature = MakeGarbageCollected<MediaQueryFeatureExpNode>(exp);
+    return media_query_evaluator.Eval(*feature) == KleeneValue::kTrue;
+  };
+
   // (width < 600px)
-  EXPECT_TRUE(media_query_evaluator.Eval(MediaQueryExp::Create(
+  EXPECT_TRUE(eval(MediaQueryExp::Create(
       "width", MediaQueryExpBounds(MediaQueryExpComparison(
                    PxValue(600), MediaQueryOperator::kLt)))));
 
   // (width < 501px)
-  EXPECT_TRUE(media_query_evaluator.Eval(MediaQueryExp::Create(
+  EXPECT_TRUE(eval(MediaQueryExp::Create(
       "width", MediaQueryExpBounds(MediaQueryExpComparison(
                    PxValue(501), MediaQueryOperator::kLt)))));
 
   // (width < 500px)
-  EXPECT_FALSE(media_query_evaluator.Eval(MediaQueryExp::Create(
+  EXPECT_FALSE(eval(MediaQueryExp::Create(
       "width", MediaQueryExpBounds(MediaQueryExpComparison(
                    PxValue(500), MediaQueryOperator::kLt)))));
 
   // (width > 500px)
-  EXPECT_FALSE(media_query_evaluator.Eval(MediaQueryExp::Create(
+  EXPECT_FALSE(eval(MediaQueryExp::Create(
       "width", MediaQueryExpBounds(MediaQueryExpComparison(
                    PxValue(500), MediaQueryOperator::kGt)))));
 
   // (width < 501px)
-  EXPECT_TRUE(media_query_evaluator.Eval(MediaQueryExp::Create(
+  EXPECT_TRUE(eval(MediaQueryExp::Create(
       "width", MediaQueryExpBounds(MediaQueryExpComparison(
                    PxValue(501), MediaQueryOperator::kLt)))));
 
   // (width <= 500px)
-  EXPECT_TRUE(media_query_evaluator.Eval(MediaQueryExp::Create(
+  EXPECT_TRUE(eval(MediaQueryExp::Create(
       "width", MediaQueryExpBounds(MediaQueryExpComparison(
                    PxValue(500), MediaQueryOperator::kLe)))));
 
   // (400px < width)
-  EXPECT_TRUE(media_query_evaluator.Eval(MediaQueryExp::Create(
+  EXPECT_TRUE(eval(MediaQueryExp::Create(
       "width", MediaQueryExpBounds(MediaQueryExpComparison(
                                        PxValue(400), MediaQueryOperator::kLt),
                                    MediaQueryExpComparison()))));
 
   // (600px < width)
-  EXPECT_FALSE(media_query_evaluator.Eval(MediaQueryExp::Create(
+  EXPECT_FALSE(eval(MediaQueryExp::Create(
       "width", MediaQueryExpBounds(MediaQueryExpComparison(
                                        PxValue(600), MediaQueryOperator::kLt),
                                    MediaQueryExpComparison()))));
 
   // (400px > width)
-  EXPECT_FALSE(media_query_evaluator.Eval(MediaQueryExp::Create(
+  EXPECT_FALSE(eval(MediaQueryExp::Create(
       "width", MediaQueryExpBounds(MediaQueryExpComparison(
                                        PxValue(400), MediaQueryOperator::kGt),
                                    MediaQueryExpComparison()))));
 
   // (600px > width)
-  EXPECT_TRUE(media_query_evaluator.Eval(MediaQueryExp::Create(
+  EXPECT_TRUE(eval(MediaQueryExp::Create(
       "width", MediaQueryExpBounds(MediaQueryExpComparison(
                                        PxValue(600), MediaQueryOperator::kGt),
                                    MediaQueryExpComparison()))));
 
   // (400px <= width)
-  EXPECT_TRUE(media_query_evaluator.Eval(MediaQueryExp::Create(
+  EXPECT_TRUE(eval(MediaQueryExp::Create(
       "width", MediaQueryExpBounds(MediaQueryExpComparison(
                                        PxValue(400), MediaQueryOperator::kLe),
                                    MediaQueryExpComparison()))));
 
   // (600px <= width)
-  EXPECT_FALSE(media_query_evaluator.Eval(MediaQueryExp::Create(
+  EXPECT_FALSE(eval(MediaQueryExp::Create(
       "width", MediaQueryExpBounds(MediaQueryExpComparison(
                                        PxValue(600), MediaQueryOperator::kLe),
                                    MediaQueryExpComparison()))));
 
   // (400px >= width)
-  EXPECT_FALSE(media_query_evaluator.Eval(MediaQueryExp::Create(
+  EXPECT_FALSE(eval(MediaQueryExp::Create(
       "width", MediaQueryExpBounds(MediaQueryExpComparison(
                                        PxValue(400), MediaQueryOperator::kGe),
                                    MediaQueryExpComparison()))));
 
   // (600px >= width)
-  EXPECT_TRUE(media_query_evaluator.Eval(MediaQueryExp::Create(
+  EXPECT_TRUE(eval(MediaQueryExp::Create(
       "width", MediaQueryExpBounds(MediaQueryExpComparison(
                                        PxValue(600), MediaQueryOperator::kGe),
                                    MediaQueryExpComparison()))));
 
   // (width = 500px)
-  EXPECT_TRUE(media_query_evaluator.Eval(MediaQueryExp::Create(
+  EXPECT_TRUE(eval(MediaQueryExp::Create(
       "width", MediaQueryExpBounds(MediaQueryExpComparison(
                    PxValue(500), MediaQueryOperator::kEq)))));
 
   // (width = 400px)
-  EXPECT_FALSE(media_query_evaluator.Eval(MediaQueryExp::Create(
+  EXPECT_FALSE(eval(MediaQueryExp::Create(
       "width", MediaQueryExpBounds(MediaQueryExpComparison(
                    PxValue(400), MediaQueryOperator::kEq)))));
 
   // (500px = width)
-  EXPECT_TRUE(media_query_evaluator.Eval(MediaQueryExp::Create(
+  EXPECT_TRUE(eval(MediaQueryExp::Create(
       "width", MediaQueryExpBounds(MediaQueryExpComparison(
                                        PxValue(500), MediaQueryOperator::kEq),
                                    MediaQueryExpComparison()))));
 
   // (400px = width)
-  EXPECT_FALSE(media_query_evaluator.Eval(MediaQueryExp::Create(
+  EXPECT_FALSE(eval(MediaQueryExp::Create(
       "width", MediaQueryExpBounds(MediaQueryExpComparison(
                                        PxValue(400), MediaQueryOperator::kEq),
                                    MediaQueryExpComparison()))));
 
   // (400px < width < 600px)
-  EXPECT_TRUE(media_query_evaluator.Eval(MediaQueryExp::Create(
+  EXPECT_TRUE(eval(MediaQueryExp::Create(
       "width",
       MediaQueryExpBounds(
           MediaQueryExpComparison(PxValue(400), MediaQueryOperator::kLt),
           MediaQueryExpComparison(PxValue(600), MediaQueryOperator::kLt)))));
 
   // (550px < width < 600px)
-  EXPECT_FALSE(media_query_evaluator.Eval(MediaQueryExp::Create(
+  EXPECT_FALSE(eval(MediaQueryExp::Create(
       "width",
       MediaQueryExpBounds(
           MediaQueryExpComparison(PxValue(550), MediaQueryOperator::kLt),
           MediaQueryExpComparison(PxValue(600), MediaQueryOperator::kLt)))));
 
   // (400px < width < 450px)
-  EXPECT_FALSE(media_query_evaluator.Eval(MediaQueryExp::Create(
+  EXPECT_FALSE(eval(MediaQueryExp::Create(
       "width",
       MediaQueryExpBounds(
           MediaQueryExpComparison(PxValue(400), MediaQueryOperator::kLt),
           MediaQueryExpComparison(PxValue(450), MediaQueryOperator::kLt)))));
 
   // (aspect-ratio = 2/1)
-  EXPECT_TRUE(media_query_evaluator.Eval(MediaQueryExp::Create(
+  EXPECT_TRUE(eval(MediaQueryExp::Create(
       "aspect-ratio", MediaQueryExpBounds(MediaQueryExpComparison(
                           RatioValue(2, 1), MediaQueryOperator::kEq)))));
 
   // (aspect-ratio = 3/1)
-  EXPECT_FALSE(media_query_evaluator.Eval(MediaQueryExp::Create(
+  EXPECT_FALSE(eval(MediaQueryExp::Create(
       "aspect-ratio", MediaQueryExpBounds(MediaQueryExpComparison(
                           RatioValue(3, 1), MediaQueryOperator::kEq)))));
 
   // (aspect-ratio < 1/1)
-  EXPECT_FALSE(media_query_evaluator.Eval(MediaQueryExp::Create(
+  EXPECT_FALSE(eval(MediaQueryExp::Create(
       "aspect-ratio", MediaQueryExpBounds(MediaQueryExpComparison(
                           RatioValue(1, 1), MediaQueryOperator::kLt)))));
 
   // (aspect-ratio < 3/1)
-  EXPECT_TRUE(media_query_evaluator.Eval(MediaQueryExp::Create(
+  EXPECT_TRUE(eval(MediaQueryExp::Create(
       "aspect-ratio", MediaQueryExpBounds(MediaQueryExpComparison(
                           RatioValue(3, 1), MediaQueryOperator::kLt)))));
 
   // (aspect-ratio > 1/1)
-  EXPECT_TRUE(media_query_evaluator.Eval(MediaQueryExp::Create(
+  EXPECT_TRUE(eval(MediaQueryExp::Create(
       "aspect-ratio", MediaQueryExpBounds(MediaQueryExpComparison(
                           RatioValue(1, 1), MediaQueryOperator::kGt)))));
 
   // (aspect-ratio > 3/1)
-  EXPECT_FALSE(media_query_evaluator.Eval(MediaQueryExp::Create(
+  EXPECT_FALSE(eval(MediaQueryExp::Create(
       "aspect-ratio", MediaQueryExpBounds(MediaQueryExpComparison(
                           RatioValue(3, 1), MediaQueryOperator::kGt)))));
 }
@@ -900,46 +973,52 @@ TEST(MediaQueryEvaluatorTest, ExpNode) {
   auto* media_values = MakeGarbageCollected<MediaValuesCached>(data);
   MediaQueryEvaluator media_query_evaluator(media_values);
 
-  MediaQueryFeatureExpNode width_lt_400(MediaQueryExp::Create(
-      "width", MediaQueryExpBounds(MediaQueryExpComparison(
-                   PxValue(400), MediaQueryOperator::kLt))));
-  MediaQueryFeatureExpNode width_lt_600(MediaQueryExp::Create(
-      "width", MediaQueryExpBounds(MediaQueryExpComparison(
-                   PxValue(600), MediaQueryOperator::kLt))));
-  MediaQueryFeatureExpNode width_lt_800(MediaQueryExp::Create(
-      "width", MediaQueryExpBounds(MediaQueryExpComparison(
-                   PxValue(800), MediaQueryOperator::kLt))));
+  auto* width_lt_400 =
+      MakeGarbageCollected<MediaQueryFeatureExpNode>(MediaQueryExp::Create(
+          "width", MediaQueryExpBounds(MediaQueryExpComparison(
+                       PxValue(400), MediaQueryOperator::kLt))));
+  auto* width_lt_600 =
+      MakeGarbageCollected<MediaQueryFeatureExpNode>(MediaQueryExp::Create(
+          "width", MediaQueryExpBounds(MediaQueryExpComparison(
+                       PxValue(600), MediaQueryOperator::kLt))));
+  auto* width_lt_800 =
+      MakeGarbageCollected<MediaQueryFeatureExpNode>(MediaQueryExp::Create(
+          "width", MediaQueryExpBounds(MediaQueryExpComparison(
+                       PxValue(800), MediaQueryOperator::kLt))));
+
+  EXPECT_EQ(KleeneValue::kTrue, media_query_evaluator.Eval(*width_lt_600));
+  EXPECT_EQ(KleeneValue::kFalse, media_query_evaluator.Eval(*width_lt_400));
 
   EXPECT_EQ(KleeneValue::kTrue,
-            media_query_evaluator.Eval(*width_lt_600.Copy()));
+            media_query_evaluator.Eval(
+                *MakeGarbageCollected<MediaQueryNestedExpNode>(width_lt_600)));
   EXPECT_EQ(KleeneValue::kFalse,
-            media_query_evaluator.Eval(*width_lt_400.Copy()));
+            media_query_evaluator.Eval(
+                *MakeGarbageCollected<MediaQueryNestedExpNode>(width_lt_400)));
 
-  EXPECT_EQ(
-      KleeneValue::kTrue,
-      media_query_evaluator.Eval(MediaQueryNestedExpNode(width_lt_600.Copy())));
-  EXPECT_EQ(
-      KleeneValue::kFalse,
-      media_query_evaluator.Eval(MediaQueryNestedExpNode(width_lt_400.Copy())));
+  EXPECT_EQ(KleeneValue::kFalse,
+            media_query_evaluator.Eval(
+                *MakeGarbageCollected<MediaQueryNotExpNode>(width_lt_600)));
+  EXPECT_EQ(KleeneValue::kTrue,
+            media_query_evaluator.Eval(
+                *MakeGarbageCollected<MediaQueryNotExpNode>(width_lt_400)));
 
-  EXPECT_EQ(
-      KleeneValue::kFalse,
-      media_query_evaluator.Eval(MediaQueryNotExpNode(width_lt_600.Copy())));
   EXPECT_EQ(KleeneValue::kTrue, media_query_evaluator.Eval(
-                                    MediaQueryNotExpNode(width_lt_400.Copy())));
+                                    *MakeGarbageCollected<MediaQueryAndExpNode>(
+                                        width_lt_600, width_lt_800)));
+  EXPECT_EQ(
+      KleeneValue::kFalse,
+      media_query_evaluator.Eval(*MakeGarbageCollected<MediaQueryAndExpNode>(
+          width_lt_600, width_lt_400)));
 
-  EXPECT_EQ(KleeneValue::kTrue, media_query_evaluator.Eval(MediaQueryAndExpNode(
-                                    width_lt_600.Copy(), width_lt_800.Copy())));
-  EXPECT_EQ(KleeneValue::kFalse,
-            media_query_evaluator.Eval(MediaQueryAndExpNode(
-                width_lt_600.Copy(), width_lt_400.Copy())));
-
-  EXPECT_EQ(KleeneValue::kTrue, media_query_evaluator.Eval(MediaQueryOrExpNode(
-                                    width_lt_600.Copy(), width_lt_400.Copy())));
-  EXPECT_EQ(KleeneValue::kFalse,
-            media_query_evaluator.Eval(MediaQueryOrExpNode(
-                width_lt_400.Copy(),
-                std::make_unique<MediaQueryNotExpNode>(width_lt_800.Copy()))));
+  EXPECT_EQ(KleeneValue::kTrue, media_query_evaluator.Eval(
+                                    *MakeGarbageCollected<MediaQueryOrExpNode>(
+                                        width_lt_600, width_lt_400)));
+  EXPECT_EQ(
+      KleeneValue::kFalse,
+      media_query_evaluator.Eval(*MakeGarbageCollected<MediaQueryOrExpNode>(
+          width_lt_400,
+          MakeGarbageCollected<MediaQueryNotExpNode>(width_lt_800))));
 }
 
 TEST(MediaQueryEvaluatorTest, DependentResults) {
@@ -951,111 +1030,88 @@ TEST(MediaQueryEvaluatorTest, DependentResults) {
   MediaQueryEvaluator media_query_evaluator(media_values);
 
   // Viewport-dependent:
-  MediaQueryFeatureExpNode width_lt_400(MediaQueryExp::Create(
-      "width", MediaQueryExpBounds(MediaQueryExpComparison(
-                   PxValue(400), MediaQueryOperator::kLt))));
+  auto* width_lt_400 =
+      MakeGarbageCollected<MediaQueryFeatureExpNode>(MediaQueryExp::Create(
+          "width", MediaQueryExpBounds(MediaQueryExpComparison(
+                       PxValue(400), MediaQueryOperator::kLt))));
 
   // Device-dependent:
-  MediaQueryFeatureExpNode device_width_lt_600(MediaQueryExp::Create(
-      "device-width", MediaQueryExpBounds(MediaQueryExpComparison(
-                          PxValue(600), MediaQueryOperator::kLt))));
+  auto* device_width_lt_600 =
+      MakeGarbageCollected<MediaQueryFeatureExpNode>(MediaQueryExp::Create(
+          "device-width", MediaQueryExpBounds(MediaQueryExpComparison(
+                              PxValue(600), MediaQueryOperator::kLt))));
 
   // Neither viewport- nor device-dependent:
-  MediaQueryFeatureExpNode color(MediaQueryExp::Create(
-      "color",
-      MediaQueryExpBounds(MediaQueryExpComparison(MediaQueryExpValue()))));
-
-  MediaQueryResultList viewport_dependent;
-  MediaQueryResultList device_dependent;
-
-  MediaQueryEvaluator::Results results;
-  results.viewport_dependent = &viewport_dependent;
-  results.device_dependent = &device_dependent;
+  auto* color =
+      MakeGarbageCollected<MediaQueryFeatureExpNode>(MediaQueryExp::Create(
+          "color",
+          MediaQueryExpBounds(MediaQueryExpComparison(MediaQueryExpValue()))));
 
   // "(color)" should not be dependent on anything.
   {
-    viewport_dependent.clear();
-    device_dependent.clear();
+    MediaQueryResultFlags result_flags;
 
-    media_query_evaluator.Eval(color, results);
+    media_query_evaluator.Eval(*color, &result_flags);
 
-    EXPECT_TRUE(viewport_dependent.IsEmpty());
-    EXPECT_TRUE(device_dependent.IsEmpty());
+    EXPECT_FALSE(result_flags.is_viewport_dependent);
+    EXPECT_FALSE(result_flags.is_device_dependent);
   }
 
   // "(width < 400px)" should be viewport-dependent.
   {
-    viewport_dependent.clear();
-    device_dependent.clear();
+    MediaQueryResultFlags result_flags;
 
-    media_query_evaluator.Eval(width_lt_400, results);
+    media_query_evaluator.Eval(*width_lt_400, &result_flags);
 
-    ASSERT_EQ(1u, viewport_dependent.size());
-    EXPECT_EQ(width_lt_400.Expression(), viewport_dependent[0].Expression());
-
-    EXPECT_TRUE(device_dependent.IsEmpty());
+    EXPECT_TRUE(result_flags.is_viewport_dependent);
+    EXPECT_FALSE(result_flags.is_device_dependent);
   }
 
   // "(device-width < 600px)" should be device-dependent.
   {
-    viewport_dependent.clear();
-    device_dependent.clear();
+    MediaQueryResultFlags result_flags;
 
-    media_query_evaluator.Eval(device_width_lt_600, results);
+    media_query_evaluator.Eval(*device_width_lt_600, &result_flags);
 
-    ASSERT_EQ(1u, device_dependent.size());
-    EXPECT_EQ(device_width_lt_600.Expression(),
-              device_dependent[0].Expression());
-
-    EXPECT_TRUE(viewport_dependent.IsEmpty());
+    EXPECT_TRUE(result_flags.is_device_dependent);
+    EXPECT_FALSE(result_flags.is_viewport_dependent);
   }
 
   // "((device-width < 600px))" should be device-dependent.
   {
-    viewport_dependent.clear();
-    device_dependent.clear();
+    MediaQueryResultFlags result_flags;
 
     media_query_evaluator.Eval(
-        MediaQueryNestedExpNode(device_width_lt_600.Copy()), results);
+        *MakeGarbageCollected<MediaQueryNestedExpNode>(device_width_lt_600),
+        &result_flags);
 
-    ASSERT_EQ(1u, device_dependent.size());
-    EXPECT_EQ(device_width_lt_600.Expression(),
-              device_dependent[0].Expression());
-
-    EXPECT_TRUE(viewport_dependent.IsEmpty());
+    EXPECT_FALSE(result_flags.is_viewport_dependent);
+    EXPECT_TRUE(result_flags.is_device_dependent);
   }
 
   // "not (device-width < 600px)" should be device-dependent.
   {
-    viewport_dependent.clear();
-    device_dependent.clear();
+    MediaQueryResultFlags result_flags;
 
-    media_query_evaluator.Eval(MediaQueryNotExpNode(device_width_lt_600.Copy()),
-                               results);
+    media_query_evaluator.Eval(
+        *MakeGarbageCollected<MediaQueryNotExpNode>(device_width_lt_600),
+        &result_flags);
 
-    ASSERT_EQ(1u, device_dependent.size());
-    EXPECT_EQ(device_width_lt_600.Expression(),
-              device_dependent[0].Expression());
-
-    EXPECT_TRUE(viewport_dependent.IsEmpty());
+    EXPECT_FALSE(result_flags.is_viewport_dependent);
+    EXPECT_TRUE(result_flags.is_device_dependent);
   }
 
   // "(width < 400px) and (device-width < 600px)" should be both viewport- and
   // device-dependent.
   {
-    viewport_dependent.clear();
-    device_dependent.clear();
+    MediaQueryResultFlags result_flags;
 
-    media_query_evaluator.Eval(
-        MediaQueryAndExpNode(width_lt_400.Copy(), device_width_lt_600.Copy()),
-        results);
+    media_query_evaluator.Eval(*MakeGarbageCollected<MediaQueryAndExpNode>(
+                                   width_lt_400, device_width_lt_600),
+                               &result_flags);
 
-    ASSERT_EQ(1u, viewport_dependent.size());
-    EXPECT_EQ(width_lt_400.Expression(), viewport_dependent[0].Expression());
-
-    ASSERT_EQ(1u, device_dependent.size());
-    EXPECT_EQ(device_width_lt_600.Expression(),
-              device_dependent[0].Expression());
+    EXPECT_TRUE(result_flags.is_viewport_dependent);
+    EXPECT_TRUE(result_flags.is_device_dependent);
   }
 
   // "not (width < 400px) and (device-width < 600px)" should be
@@ -1064,18 +1120,16 @@ TEST(MediaQueryEvaluatorTest, DependentResults) {
   // Note that the evaluation short-circuits on the first condition, making the
   // the second condition irrelevant.
   {
-    viewport_dependent.clear();
-    device_dependent.clear();
+    MediaQueryResultFlags result_flags;
 
     media_query_evaluator.Eval(
-        MediaQueryAndExpNode(MediaQueryNotExpNode(width_lt_400.Copy()).Copy(),
-                             device_width_lt_600.Copy()),
-        results);
+        *MakeGarbageCollected<MediaQueryAndExpNode>(
+            MakeGarbageCollected<MediaQueryNotExpNode>(width_lt_400),
+            device_width_lt_600),
+        &result_flags);
 
-    ASSERT_EQ(1u, viewport_dependent.size());
-    EXPECT_EQ(width_lt_400.Expression(), viewport_dependent[0].Expression());
-
-    EXPECT_EQ(0u, device_dependent.size());
+    EXPECT_TRUE(result_flags.is_viewport_dependent);
+    EXPECT_FALSE(result_flags.is_device_dependent);
   }
 
   // "(width < 400px) or (device-width < 600px)" should be viewport-dependent
@@ -1084,42 +1138,33 @@ TEST(MediaQueryEvaluatorTest, DependentResults) {
   // Note that the evaluation short-circuits on the first condition, making the
   // the second condition irrelevant.
   {
-    viewport_dependent.clear();
-    device_dependent.clear();
+    MediaQueryResultFlags result_flags;
 
-    media_query_evaluator.Eval(
-        MediaQueryOrExpNode(width_lt_400.Copy(), device_width_lt_600.Copy()),
-        results);
+    media_query_evaluator.Eval(*MakeGarbageCollected<MediaQueryOrExpNode>(
+                                   width_lt_400, device_width_lt_600),
+                               &result_flags);
 
-    ASSERT_EQ(1u, viewport_dependent.size());
-    EXPECT_EQ(width_lt_400.Expression(), viewport_dependent[0].Expression());
-
-    EXPECT_EQ(0u, device_dependent.size());
+    EXPECT_TRUE(result_flags.is_viewport_dependent);
+    EXPECT_FALSE(result_flags.is_device_dependent);
   }
 
   // "not (width < 400px) or (device-width < 600px)" should be both viewport-
   //  and device-dependent.
   {
-    viewport_dependent.clear();
-    device_dependent.clear();
+    MediaQueryResultFlags result_flags;
 
     media_query_evaluator.Eval(
-        MediaQueryOrExpNode(MediaQueryNotExpNode(width_lt_400.Copy()).Copy(),
-                            device_width_lt_600.Copy()),
-        results);
+        *MakeGarbageCollected<MediaQueryOrExpNode>(
+            MakeGarbageCollected<MediaQueryNotExpNode>(width_lt_400),
+            device_width_lt_600),
+        &result_flags);
 
-    ASSERT_EQ(1u, viewport_dependent.size());
-    EXPECT_EQ(width_lt_400.Expression(), viewport_dependent[0].Expression());
-
-    ASSERT_EQ(1u, device_dependent.size());
-    EXPECT_EQ(device_width_lt_600.Expression(),
-              device_dependent[0].Expression());
+    EXPECT_TRUE(result_flags.is_viewport_dependent);
+    EXPECT_TRUE(result_flags.is_device_dependent);
   }
 }
 
 TEST(MediaQueryEvaluatorTest, CSSMediaQueries4) {
-  ScopedCSSMediaQueries4ForTest media_queries_4_flag(true);
-
   MediaValuesCached::MediaValuesCachedData data;
   data.viewport_width = 500;
   data.viewport_height = 500;
@@ -1179,45 +1224,267 @@ TEST(MediaQueryEvaluatorTest, GeneralEnclosed) {
       {"not (unknown: 1px)", false},
       {"(width) or (unknown: 1px)", true},
       {"(unknown: 1px) or (width)", true},
+      {"(width: 42px) or (unknown: 1px)", false},
+      {"(unknown: 1px) or (width: 42px)", false},
+      {"not ((width: 42px) or (unknown: 1px))", false},
+      {"not ((unknown: 1px) or (width: 42px))", false},
       {"not ((width) or (unknown: 1px))", false},
       {"not ((unknown: 1px) or (width))", false},
       {"(width) and (unknown: 1px)", false},
       {"(unknown: 1px) and (width)", false},
+      {"(width: 42px) and (unknown: 1px)", false},
+      {"(unknown: 1px) and (width: 42px)", false},
+      {"not ((width: 42px) and (unknown: 1px))", true},
+      {"not ((unknown: 1px) and (width: 42px))", true},
       {"not ((width) and (unknown: 1px))", false},
       {"not ((unknown: 1px) and (width))", false},
   };
 
-  {
-    ScopedCSSMediaQueries4ForTest media_queries_4_flag(true);
+  for (const MediaQueryEvaluatorTestCase& test : tests) {
+    SCOPED_TRACE(String(test.input));
+    String input(test.input);
+    MediaQuerySet* query_set =
+        MediaQueryParser::ParseMediaQuerySet(input, nullptr);
+    ASSERT_TRUE(query_set);
+    EXPECT_EQ(test.output, media_query_evaluator.Eval(*query_set));
+  }
+}
 
-    for (const MediaQueryEvaluatorTestCase& test : tests) {
-      SCOPED_TRACE(test.input);
-      String input(test.input);
-      auto query_set = MediaQueryParser::ParseMediaQuerySet(input, nullptr);
-      ASSERT_TRUE(query_set);
-      ASSERT_EQ(1u, query_set->QueryVector().size());
-      std::unique_ptr<MediaQuery> query =
-          query_set->QueryVector()[0]->CopyIgnoringUnknownForTest();
-      EXPECT_EQ(test.output, media_query_evaluator.Eval(*query));
-    }
+class MediaQueryEvaluatorIdentifiabilityTest : public PageTestBase {
+ public:
+  MediaQueryEvaluatorIdentifiabilityTest()
+      : counts_{.response_for_is_active = true,
+                .response_for_is_anything_blocked = false,
+                .response_for_is_allowed = true} {
+    IdentifiabilityStudySettings::SetGlobalProvider(
+        std::make_unique<CountingSettingsProvider>(&counts_));
+  }
+  ~MediaQueryEvaluatorIdentifiabilityTest() override {
+    IdentifiabilityStudySettings::ResetStateForTesting();
   }
 
-  // Run the same tests again, but avoiding CopyIgnoringUnknownForTest. This
-  // should make any MediaQuery containing "unknown" effectively behave as "not
-  // all".
-  Vector<bool> flag_values = {true, false};
-  for (bool flag : flag_values) {
-    // The runtime flag CSSMediaQueries4 should not affect the results.
-    ScopedCSSMediaQueries4ForTest media_queries_4_flag(flag);
-
-    for (const MediaQueryEvaluatorTestCase& test : tests) {
-      SCOPED_TRACE(test.input);
-      String input(test.input);
-      auto query_set = MediaQueryParser::ParseMediaQuerySet(input, nullptr);
-      ASSERT_TRUE(query_set);
-      EXPECT_FALSE(media_query_evaluator.Eval(*query_set));
-    }
+  test::ScopedIdentifiabilityTestSampleCollector* collector() {
+    return &collector_;
   }
+
+ protected:
+  CallCounts counts_;
+  test::ScopedIdentifiabilityTestSampleCollector collector_;
+  void UpdateAllLifecyclePhases() {
+    GetDocument().View()->UpdateAllLifecyclePhasesForTest();
+  }
+};
+
+TEST_F(MediaQueryEvaluatorIdentifiabilityTest,
+       MediaFeatureIdentifiableSurfacePrefersReducedMotion) {
+  GetDocument().body()->setInnerHTML(R"HTML(
+    <style>
+      @media (prefers-reduced-motion: reduce) {
+        div { color: green }
+      }
+    </style>
+    <div id="green"></div>
+    <span></span>
+  )HTML");
+
+  UpdateAllLifecyclePhases();
+  EXPECT_TRUE(GetDocument().WasMediaFeatureEvaluated(static_cast<int>(
+      IdentifiableSurface::MediaFeatureName::kPrefersReducedMotion)));
+  EXPECT_EQ(collector()->entries().size(), 1u);
+
+  auto& entry = collector()->entries().front();
+  EXPECT_EQ(entry.metrics.size(), 1u);
+  EXPECT_EQ(
+      entry.metrics.begin()->surface,
+      IdentifiableSurface::FromTypeAndToken(
+          IdentifiableSurface::Type::kMediaFeature,
+          IdentifiableToken(
+              IdentifiableSurface::MediaFeatureName::kPrefersReducedMotion)));
+  EXPECT_EQ(entry.metrics.begin()->value, IdentifiableToken(false));
+}
+
+TEST_F(MediaQueryEvaluatorIdentifiabilityTest,
+       MediaFeatureIdentifiableSurfaceOrientation) {
+  GetDocument().body()->setInnerHTML(R"HTML(
+    <style>
+      @media (orientation: landscape) {
+        div { color: green }
+      }
+    </style>
+    <div id="green"></div>
+    <span></span>
+  )HTML");
+
+  UpdateAllLifecyclePhases();
+  EXPECT_TRUE(GetDocument().WasMediaFeatureEvaluated(
+      static_cast<int>(IdentifiableSurface::MediaFeatureName::kOrientation)));
+  EXPECT_EQ(collector()->entries().size(), 1u);
+
+  auto& entry = collector()->entries().front();
+  EXPECT_EQ(entry.metrics.size(), 1u);
+  EXPECT_EQ(entry.metrics.begin()->surface,
+            IdentifiableSurface::FromTypeAndToken(
+                IdentifiableSurface::Type::kMediaFeature,
+                IdentifiableToken(
+                    IdentifiableSurface::MediaFeatureName::kOrientation)));
+  EXPECT_EQ(entry.metrics.begin()->value,
+            IdentifiableToken(CSSValueID::kLandscape));
+}
+
+TEST_F(MediaQueryEvaluatorIdentifiabilityTest,
+       MediaFeatureIdentifiableSurfaceCollectOnce) {
+  GetDocument().body()->setInnerHTML(R"HTML(
+    <style>
+      @media (orientation: landscape) {
+        div { color: green }
+      }
+    </style>
+    <div id="green"></div>
+    <span></span>
+  )HTML");
+
+  // Recompute layout twice but expect only one sample.
+  UpdateAllLifecyclePhases();
+  UpdateAllLifecyclePhases();
+  EXPECT_TRUE(GetDocument().WasMediaFeatureEvaluated(
+      static_cast<int>(IdentifiableSurface::MediaFeatureName::kOrientation)));
+  EXPECT_EQ(collector()->entries().size(), 1u);
+
+  auto& entry = collector()->entries().front();
+  EXPECT_EQ(entry.metrics.size(), 1u);
+  EXPECT_EQ(entry.metrics.begin()->surface,
+            IdentifiableSurface::FromTypeAndToken(
+                IdentifiableSurface::Type::kMediaFeature,
+                IdentifiableToken(
+                    IdentifiableSurface::MediaFeatureName::kOrientation)));
+  EXPECT_EQ(entry.metrics.begin()->value,
+            IdentifiableToken(CSSValueID::kLandscape));
+}
+
+TEST_F(MediaQueryEvaluatorIdentifiabilityTest,
+       MediaFeatureIdentifiableSurfaceDisplayMode) {
+  GetDocument().body()->setInnerHTML(R"HTML(
+    <style>
+      @media all and (display-mode: browser) {
+        div { color: green }
+      }
+    </style>
+    <div id="green"></div>
+    <span></span>
+  )HTML");
+
+  UpdateAllLifecyclePhases();
+  EXPECT_TRUE(GetDocument().WasMediaFeatureEvaluated(
+      static_cast<int>(IdentifiableSurface::MediaFeatureName::kDisplayMode)));
+  EXPECT_EQ(collector()->entries().size(), 1u);
+
+  auto& entry = collector()->entries().front();
+  EXPECT_EQ(entry.metrics.size(), 1u);
+  EXPECT_EQ(entry.metrics.begin()->surface,
+            IdentifiableSurface::FromTypeAndToken(
+                IdentifiableSurface::Type::kMediaFeature,
+                IdentifiableToken(
+                    IdentifiableSurface::MediaFeatureName::kDisplayMode)));
+  EXPECT_EQ(entry.metrics.begin()->value,
+            IdentifiableToken(blink::mojom::DisplayMode::kBrowser));
+}
+
+TEST_F(MediaQueryEvaluatorIdentifiabilityTest,
+       MediaFeatureIdentifiableSurfaceForcedColorsHover) {
+  GetDocument().body()->setInnerHTML(R"HTML(
+    <style>
+      @media all and (forced-colors: active) {
+        div { color: green }
+      }
+    </style>
+    <style>
+      @media all and (hover: hover) {
+        div { color: red }
+      }
+    </style>
+    <div id="green"></div>
+    <span></span>
+  )HTML");
+
+  UpdateAllLifecyclePhases();
+  EXPECT_TRUE(GetDocument().WasMediaFeatureEvaluated(
+      static_cast<int>(IdentifiableSurface::MediaFeatureName::kForcedColors)));
+  EXPECT_TRUE(GetDocument().WasMediaFeatureEvaluated(
+      static_cast<int>(IdentifiableSurface::MediaFeatureName::kHover)));
+  EXPECT_EQ(collector()->entries().size(), 2u);
+
+  auto& entry_forced_colors = collector()->entries().front();
+  EXPECT_EQ(entry_forced_colors.metrics.size(), 1u);
+  EXPECT_EQ(entry_forced_colors.metrics.begin()->surface,
+            IdentifiableSurface::FromTypeAndToken(
+                IdentifiableSurface::Type::kMediaFeature,
+                IdentifiableToken(
+                    IdentifiableSurface::MediaFeatureName::kForcedColors)));
+  EXPECT_EQ(entry_forced_colors.metrics.begin()->value,
+            IdentifiableToken(ForcedColors::kNone));
+
+  auto& entry_hover = collector()->entries().back();
+  EXPECT_EQ(entry_hover.metrics.size(), 1u);
+  EXPECT_EQ(
+      entry_hover.metrics.begin()->surface,
+      IdentifiableSurface::FromTypeAndToken(
+          IdentifiableSurface::Type::kMediaFeature,
+          IdentifiableToken(IdentifiableSurface::MediaFeatureName::kHover)));
+  EXPECT_EQ(entry_hover.metrics.begin()->value,
+            IdentifiableToken(mojom::blink::HoverType::kHoverNone));
+}
+
+TEST_F(MediaQueryEvaluatorIdentifiabilityTest,
+       MediaFeatureIdentifiableSurfaceAspectRatioNormalized) {
+  GetDocument().body()->setInnerHTML(R"HTML(
+    <style>
+      @media all and (min-aspect-ratio: 8/5) {
+        div { color: green }
+      }
+    </style>
+    <div id="green"></div>
+    <span></span>
+  )HTML");
+
+  UpdateAllLifecyclePhases();
+  EXPECT_TRUE(GetDocument().WasMediaFeatureEvaluated(static_cast<int>(
+      IdentifiableSurface::MediaFeatureName::kAspectRatioNormalized)));
+  EXPECT_EQ(collector()->entries().size(), 1u);
+
+  auto& entry = collector()->entries().front();
+  EXPECT_EQ(entry.metrics.size(), 1u);
+  EXPECT_EQ(
+      entry.metrics.begin()->surface,
+      IdentifiableSurface::FromTypeAndToken(
+          IdentifiableSurface::Type::kMediaFeature,
+          IdentifiableToken(
+              IdentifiableSurface::MediaFeatureName::kAspectRatioNormalized)));
+}
+
+TEST_F(MediaQueryEvaluatorIdentifiabilityTest,
+       MediaFeatureIdentifiableSurfaceResolution) {
+  GetDocument().body()->setInnerHTML(R"HTML(
+    <style>
+      @media all and (min-resolution: 72dpi) {
+        div { color: green }
+      }
+    </style>
+    <div id="green"></div>
+    <span></span>
+  )HTML");
+
+  UpdateAllLifecyclePhases();
+  EXPECT_TRUE(GetDocument().WasMediaFeatureEvaluated(
+      static_cast<int>(IdentifiableSurface::MediaFeatureName::kResolution)));
+  EXPECT_EQ(collector()->entries().size(), 1u);
+
+  auto& entry = collector()->entries().front();
+  EXPECT_EQ(entry.metrics.size(), 1u);
+  EXPECT_EQ(entry.metrics.begin()->surface,
+            IdentifiableSurface::FromTypeAndToken(
+                IdentifiableSurface::Type::kMediaFeature,
+                IdentifiableToken(
+                    IdentifiableSurface::MediaFeatureName::kResolution)));
 }
 
 }  // namespace blink

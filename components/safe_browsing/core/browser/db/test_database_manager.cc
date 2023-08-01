@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "base/notreached.h"
+#include "base/task/sequenced_task_runner.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace safe_browsing {
@@ -42,7 +43,8 @@ bool TestSafeBrowsingDatabaseManager::ChecksAreAlwaysAsync() const {
 bool TestSafeBrowsingDatabaseManager::CheckBrowseUrl(
     const GURL& url,
     const SBThreatTypeSet& threat_types,
-    Client* client) {
+    Client* client,
+    MechanismExperimentHashDatabaseCache experiment_cache_selection) {
   NOTIMPLEMENTED();
   return true;
 }
@@ -67,22 +69,17 @@ bool TestSafeBrowsingDatabaseManager::CheckResourceUrl(const GURL& url,
   return true;
 }
 
-AsyncMatch TestSafeBrowsingDatabaseManager::CheckUrlForHighConfidenceAllowlist(
+void TestSafeBrowsingDatabaseManager::CheckUrlForHighConfidenceAllowlist(
     const GURL& url,
-    Client* client) {
+    const std::string& metric_variation,
+    base::OnceCallback<void(bool)> callback) {
   NOTIMPLEMENTED();
-  return AsyncMatch::NO_MATCH;
+  std::move(callback).Run(false);
 }
 
 bool TestSafeBrowsingDatabaseManager::CheckUrlForSubresourceFilter(
     const GURL& url,
     Client* client) {
-  NOTIMPLEMENTED();
-  return true;
-}
-
-bool TestSafeBrowsingDatabaseManager::CheckUrlForAccuracyTips(const GURL& url,
-                                                              Client* client) {
   NOTIMPLEMENTED();
   return true;
 }
@@ -94,16 +91,11 @@ AsyncMatch TestSafeBrowsingDatabaseManager::CheckCsdAllowlistUrl(
   return AsyncMatch::MATCH;
 }
 
-bool TestSafeBrowsingDatabaseManager::MatchDownloadAllowlistUrl(
-    const GURL& url) {
+void TestSafeBrowsingDatabaseManager::MatchDownloadAllowlistUrl(
+    const GURL& url,
+    base::OnceCallback<void(bool)> callback) {
   NOTIMPLEMENTED();
-  return true;
-}
-
-bool TestSafeBrowsingDatabaseManager::MatchMalwareIP(
-    const std::string& ip_address) {
-  NOTIMPLEMENTED();
-  return true;
+  std::move(callback).Run(true);
 }
 
 safe_browsing::ThreatSource TestSafeBrowsingDatabaseManager::GetThreatSource()
@@ -117,21 +109,16 @@ bool TestSafeBrowsingDatabaseManager::IsDownloadProtectionEnabled() const {
   return false;
 }
 
-bool TestSafeBrowsingDatabaseManager::IsSupported() const {
-  NOTIMPLEMENTED();
-  return false;
-}
-
-void TestSafeBrowsingDatabaseManager::StartOnIOThread(
+void TestSafeBrowsingDatabaseManager::StartOnSBThread(
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     const V4ProtocolConfig& config) {
-  SafeBrowsingDatabaseManager::StartOnIOThread(url_loader_factory, config);
+  SafeBrowsingDatabaseManager::StartOnSBThread(url_loader_factory, config);
   enabled_ = true;
 }
 
-void TestSafeBrowsingDatabaseManager::StopOnIOThread(bool shutdown) {
+void TestSafeBrowsingDatabaseManager::StopOnSBThread(bool shutdown) {
   enabled_ = false;
-  SafeBrowsingDatabaseManager::StopOnIOThread(shutdown);
+  SafeBrowsingDatabaseManager::StopOnSBThread(shutdown);
 }
 
 }  // namespace safe_browsing

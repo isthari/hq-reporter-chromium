@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,9 @@
 #import <QuartzCore/QuartzCore.h>
 #import <UIKit/UIKit.h>
 
+#include "base/apple/bundle_locations.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
-#include "base/mac/bundle_locations.h"
 #include "base/mac/foundation_util.h"
 #include "base/mac/scoped_nsobject.h"
 #include "base/memory/ref_counted_memory.h"
@@ -26,13 +26,13 @@ namespace {
 base::FilePath GetResourcesPakFilePath(NSString* name, NSString* mac_locale) {
   NSString *resource_path;
   if ([mac_locale length]) {
-    resource_path = [base::mac::FrameworkBundle() pathForResource:name
-                                                           ofType:@"pak"
-                                                      inDirectory:@""
-                                                  forLocalization:mac_locale];
+    resource_path = [base::apple::FrameworkBundle() pathForResource:name
+                                                             ofType:@"pak"
+                                                        inDirectory:@""
+                                                    forLocalization:mac_locale];
   } else {
-    resource_path = [base::mac::FrameworkBundle() pathForResource:name
-                                                           ofType:@"pak"];
+    resource_path = [base::apple::FrameworkBundle() pathForResource:name
+                                                             ofType:@"pak"];
   }
   if (!resource_path) {
     // Return just the name of the pak file.
@@ -131,13 +131,10 @@ gfx::Image& ResourceBundle::GetNativeImageNamed(int resource_id) {
       base::ScopedCFTypeRef<CGColorSpaceRef> color_space(
           CGColorSpaceCreateDeviceRGB());
       base::ScopedCFTypeRef<CGContextRef> context(CGBitmapContextCreate(
-          NULL,
-          target_size.width,
-          target_size.height,
-          8,
-          target_size.width * 4,
+          NULL, target_size.width, target_size.height, 8, target_size.width * 4,
           color_space,
-          kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Host));
+          kCGImageAlphaPremultipliedFirst |
+              static_cast<CGImageAlphaInfo>(kCGBitmapByteOrder32Host)));
 
       CGRect target_rect = CGRectMake(0, 0,
                                       target_size.width, target_size.height);

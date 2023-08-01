@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "base/memory/ptr_util.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 #include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/resources/grit/blink_resources.h"
 #include "third_party/blink/renderer/core/dom/dom_token_list.h"
@@ -18,6 +19,7 @@
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/loader/empty_clients.h"
 #include "third_party/blink/renderer/core/page/page.h"
+#include "third_party/blink/renderer/core/page/page_animator.h"
 #include "third_party/blink/renderer/core/page/page_popup_client.h"
 #include "third_party/blink/renderer/platform/data_resource_helper.h"
 #include "third_party/blink/renderer/platform/graphics/paint/cull_rect.h"
@@ -84,6 +86,8 @@ ValidationMessageOverlayDelegate::~ValidationMessageOverlayDelegate() {
     EventDispatchForbiddenScope::AllowUserAgentEvents allow_events;
     page_->WillBeDestroyed();
   }
+  if (destroyed_ptr_)
+    *destroyed_ptr_ = true;
 }
 
 LocalFrameView& ValidationMessageOverlayDelegate::FrameView() const {
@@ -152,19 +156,42 @@ void ValidationMessageOverlayDelegate::CreatePage(const FrameOverlay& overlay) {
       nullptr, FrameInsertType::kInsertInConstructor, LocalFrameToken(),
       nullptr, nullptr);
   frame->SetView(MakeGarbageCollected<LocalFrameView>(*frame, view_size));
-  frame->Init(/*opener=*/nullptr, /*policy_container=*/nullptr);
+  frame->Init(/*opener=*/nullptr, DocumentToken(), /*policy_container=*/nullptr,
+              StorageKey(), /*document_ukm_source_id=*/ukm::kInvalidSourceId,
+              /*creator_base_url=*/KURL());
   frame->View()->SetCanHaveScrollbars(false);
   frame->View()->SetBaseBackgroundColor(Color::kTransparent);
   page_->GetVisualViewport().SetSize(view_size);
+
+  // Propagate dark mode settings from anchor document to allow CSS of
+  // overlay bubble to detect dark mode. See the comments in
+  // PagePopupClient::AdjustSettingsFromOwnerColorScheme for more information.
+  page_->GetSettings().SetForceDarkModeEnabled(false);
+  bool in_forced_colors_mode = anchor_->GetDocument().InForcedColorsMode();
+  LayoutObject* anchor_layout = anchor_->GetLayoutObject();
+  page_->GetSettings().SetPreferredColorScheme(
+      !in_forced_colors_mode && anchor_layout &&
+              anchor_layout->StyleRef().UsedColorScheme() ==
+                  mojom::blink::ColorScheme::kDark
+          ? mojom::blink::PreferredColorScheme::kDark
+          : mojom::blink::PreferredColorScheme::kLight);
 
   scoped_refptr<SharedBuffer> data = SharedBuffer::Create();
   WriteDocument(data.get());
   float zoom_factor = anchor_->GetDocument().GetFrame()->PageZoomFactor();
   frame->SetPageZoomFactor(zoom_factor);
-  // Propagate deprecated DSF for platforms without use-zoom-for-dsf.
-  page_->SetDeviceScaleFactorDeprecated(
-      main_page_->DeviceScaleFactorDeprecated());
+
+  // ForceSynchronousDocumentInstall can cause another call to
+  // ValidationMessageClientImpl::ShowValidationMessage, which will hide this
+  // validation message and may even delete this. In order to avoid continuing
+  // when this is destroyed, |destroyed| will be set to true in the destructor.
+  bool destroyed = false;
+  DCHECK(!destroyed_ptr_);
+  destroyed_ptr_ = &destroyed;
   frame->ForceSynchronousDocumentInstall("text/html", data);
+  if (destroyed)
+    return;
+  destroyed_ptr_ = nullptr;
 
   Element& main_message = GetElementById("main-message");
   main_message.setTextContent(message_);
@@ -180,9 +207,10 @@ void ValidationMessageOverlayDelegate::CreatePage(const FrameOverlay& overlay) {
     sub_message.SetInlineStyleProperty(CSSPropertyID::kTransition, "none");
   }
   // Get the size to decide position later.
-  // TODO(schenney): This says get size, so we only need to update to layout.
+  // TODO(rendering-core): This gets a size, so we should only need to update
+  // to layout.
   FrameView().UpdateAllLifecyclePhases(DocumentUpdateReason::kOverlay);
-  bubble_size_ = container.VisibleBoundsInVisualViewport().size();
+  bubble_size_ = container.VisibleBoundsInLocalRoot().size();
   // Add one because the content sometimes exceeds the exact width due to
   // rounding errors.
   bubble_size_.Enlarge(1, 0);
@@ -195,7 +223,10 @@ void ValidationMessageOverlayDelegate::CreatePage(const FrameOverlay& overlay) {
 
 void ValidationMessageOverlayDelegate::WriteDocument(SharedBuffer* data) {
   DCHECK(data);
-  PagePopupClient::AddString("<!DOCTYPE html><html><head><style>", data);
+  PagePopupClient::AddString(
+      "<!DOCTYPE html><head><meta charset='UTF-8'><meta name='color-scheme' "
+      "content='light dark'><style>",
+      data);
   data->Append(UncompressResourceAsBinary(IDR_VALIDATION_BUBBLE_CSS));
   PagePopupClient::AddString("</style></head>", data);
   PagePopupClient::AddString(
@@ -240,7 +271,26 @@ void ValidationMessageOverlayDelegate::AdjustBubblePosition(
   if (IsHiding())
     return;
   float zoom_factor = To<LocalFrame>(page_->MainFrame())->PageZoomFactor();
-  gfx::Rect anchor_rect = anchor_->VisibleBoundsInVisualViewport();
+  gfx::Rect anchor_rect = anchor_->VisibleBoundsInLocalRoot();
+
+  Page* anchor_page = anchor_->GetDocument().GetPage();
+  // If the main frame is local the overlay is attached to it so we have to
+  // account for the anchor's position relative to the visual viewport. If the
+  // main frame is remote the overlay will be attached to the local root so the
+  // visual viewport transform will already be applied to the overlay.
+  if (auto* overlay_frame = DynamicTo<LocalFrame>(anchor_page->MainFrame())) {
+    PhysicalRect rect(anchor_rect);
+    anchor_->GetDocument()
+        .GetFrame()
+        ->LocalFrameRoot()
+        .ContentLayoutObject()
+        ->MapToVisualRectInAncestorSpace(nullptr, rect);
+    anchor_rect = ToPixelSnappedRect(rect);
+    anchor_rect =
+        anchor_page->GetVisualViewport().RootFrameToViewport(anchor_rect);
+    anchor_rect.Intersect(gfx::Rect(anchor_page->GetVisualViewport().Size()));
+  }
+
   bool show_bottom_arrow = false;
   double bubble_y = anchor_rect.bottom();
   if (view_rect.bottom() - anchor_rect.bottom() < bubble_size_.height()) {

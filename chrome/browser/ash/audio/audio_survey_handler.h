@@ -1,13 +1,12 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_ASH_AUDIO_AUDIO_SURVEY_HANDLER_H_
 #define CHROME_BROWSER_ASH_AUDIO_AUDIO_SURVEY_HANDLER_H_
 
-#include "ash/components/audio/cras_audio_handler.h"
 #include "chrome/browser/ash/hats/hats_notification_controller.h"
-#include "chrome/browser/profiles/profile.h"
+#include "chromeos/ash/components/audio/cras_audio_handler.h"
 
 namespace ash {
 

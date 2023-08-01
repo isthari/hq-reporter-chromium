@@ -1,10 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "gpu/vulkan/vulkan_util.h"
 
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/pattern.h"
@@ -16,6 +16,7 @@
 #include "gpu/config/gpu_info.h"  // nogncheck
 #include "gpu/config/vulkan_info.h"
 #include "gpu/vulkan/vulkan_function_pointers.h"
+#include "ui/gl/gl_switches.h"
 
 #if BUILDFLAG(IS_ANDROID)
 #include "base/android/build_info.h"
@@ -72,7 +73,7 @@ bool SubmitSignalVkSemaphore(VkQueue vk_queue,
                              VkSemaphore vk_semaphore,
                              VkFence vk_fence) {
   return SubmitSignalVkSemaphores(
-      vk_queue, base::span<VkSemaphore>(&vk_semaphore, 1), vk_fence);
+      vk_queue, base::span<VkSemaphore>(&vk_semaphore, 1u), vk_fence);
 }
 
 bool SubmitWaitVkSemaphores(VkQueue vk_queue,
@@ -96,7 +97,7 @@ bool SubmitWaitVkSemaphore(VkQueue vk_queue,
                            VkSemaphore vk_semaphore,
                            VkFence vk_fence) {
   return SubmitWaitVkSemaphores(
-      vk_queue, base::span<VkSemaphore>(&vk_semaphore, 1), vk_fence);
+      vk_queue, base::span<VkSemaphore>(&vk_semaphore, 1u), vk_fence);
 }
 
 VkSemaphore CreateExternalVkSemaphore(
@@ -184,18 +185,27 @@ bool CheckVulkanCompabilities(const VulkanInfo& vulkan_info,
   constexpr char kMemoryObjectExtension[] = "GL_EXT_memory_object_fd";
   constexpr char kSemaphoreExtension[] = "GL_EXT_semaphore_fd";
 #endif
-  // If both Vulkan and GL are using native GPU (non swiftshader), check
-  // necessary extensions for GL and Vulkan interop.
-  const auto extensions = gfx::MakeExtensionSet(gpu_info.gl_extensions);
-  if (!gfx::HasExtension(extensions, kMemoryObjectExtension) ||
-      !gfx::HasExtension(extensions, kSemaphoreExtension)) {
-    DLOG(ERROR) << kMemoryObjectExtension << " or " << kSemaphoreExtension
-                << " is not supported.";
-    return false;
+  // If Chrome and ANGLE share the same VkQueue, they can share vulkan
+  // resource without those extensions. 
+  if (!base::FeatureList::IsEnabled(features::kVulkanFromANGLE)) {
+    // If both Vulkan and GL are using native GPU (non swiftshader), check
+    // necessary extensions for GL and Vulkan interop.
+    const auto extensions = gfx::MakeExtensionSet(gpu_info.gl_extensions);
+    if (!gfx::HasExtension(extensions, kMemoryObjectExtension) ||
+        !gfx::HasExtension(extensions, kSemaphoreExtension)) {
+        DLOG(ERROR) << kMemoryObjectExtension << " or " << kSemaphoreExtension
+                    << " is not supported.";
+        return false;
+    }
   }
-#endif  // !BUILDFLAG(IS_ANDROID)
 
-#if BUILDFLAG(IS_ANDROID)
+#if BUILDFLAG(IS_LINUX) && !defined(OZONE_PLATFORM_IS_X11)
+  // Vulkan is only supported with X11 on Linux for now.
+  return false;
+#else
+  return true;
+#endif
+#else   // BUILDFLAG(IS_ANDROID)
   if (vulkan_info.physical_devices.empty())
     return false;
 
@@ -250,9 +260,9 @@ bool CheckVulkanCompabilities(const VulkanInfo& vulkan_info,
   // Imagination GPUs.
   if (device_info.properties.vendorID == kVendorImagination)
     return false;
-#endif  // BUILDFLAG(IS_ANDROID)
 
   return true;
+#endif  // BUILDFLAG(IS_ANDROID)
 }
 
 VkImageLayout GLImageLayoutToVkImageLayout(uint32_t layout) {

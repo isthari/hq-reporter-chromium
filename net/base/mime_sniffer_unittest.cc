@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -444,8 +444,6 @@ TEST(MimeSnifferTest, OfficeTest) {
                       "http://www.example.com/foo.ppt", "text/plain"));
 }
 
-// TODO(thestig) Add more tests for other AV formats. Add another test case for
-// RAW images.
 TEST(MimeSnifferTest, AudioVideoTest) {
   std::string mime_type;
   const char kOggTestData[] = "OggS\x00";

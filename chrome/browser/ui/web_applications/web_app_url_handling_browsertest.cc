@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,14 +12,14 @@
 #include "chrome/browser/ui/web_applications/test/web_app_browsertest_util.h"
 #include "chrome/browser/ui/web_applications/test/web_app_navigation_browsertest.h"
 #include "chrome/browser/ui/web_applications/web_app_controller_browsertest.h"
-#include "chrome/browser/web_applications/os_integration_manager.h"
+#include "chrome/browser/web_applications/os_integration/os_integration_manager.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "components/page_load_metrics/browser/page_load_metrics_test_waiter.h"
 #include "components/services/app_service/public/cpp/url_handler_info.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "third_party/blink/public/common/features.h"
-#include "third_party/blink/public/mojom/web_feature/web_feature.mojom.h"
+#include "third_party/blink/public/mojom/use_counter/metrics/web_feature.mojom.h"
 
 namespace web_app {
 
@@ -73,7 +73,7 @@ IN_PROC_BROWSER_TEST_F(WebAppUrlHandlingBrowserTest, BasicUrlHandlers) {
       "manifest_test_page.html?manifest=manifest_url_handlers.json",
       /*await_metric=*/true);
   apps::UrlHandlers url_handlers =
-      provider().registrar().GetAppUrlHandlers(app_id);
+      provider().registrar_unsafe().GetAppUrlHandlers(app_id);
 
   // One handler has an invalid host so it shouldn't be in the result.
   ASSERT_EQ(3u, url_handlers.size());
@@ -99,7 +99,7 @@ IN_PROC_BROWSER_TEST_F(WebAppUrlHandlingBrowserTest, NoUrlHandlers) {
       InstallTestApp("/banners/manifest_test_page.html?manifest=manifest.json",
                      /*await_metric=*/false);
   apps::UrlHandlers url_handlers =
-      provider().registrar().GetAppUrlHandlers(app_id);
+      provider().registrar_unsafe().GetAppUrlHandlers(app_id);
   ASSERT_EQ(0u, url_handlers.size());
 
   histogram_tester_.ExpectBucketCount(kUseCounterHistogram,

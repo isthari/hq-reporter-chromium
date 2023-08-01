@@ -1,20 +1,16 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.device.bluetooth;
 
-import android.annotation.TargetApi;
 import android.bluetooth.BluetoothDevice;
-import android.os.Build;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
 import org.chromium.base.annotations.CalledByNative;
-import org.chromium.base.annotations.JNIAdditionalImport;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
-import org.chromium.device.DeviceFeatureList;
 
 import java.util.HashMap;
 
@@ -25,8 +21,6 @@ import java.util.HashMap;
  * Lifetime is controlled by device::BluetoothDeviceAndroid.
  */
 @JNINamespace("device")
-@JNIAdditionalImport(Wrappers.class)
-@TargetApi(Build.VERSION_CODES.M)
 final class ChromeBluetoothDevice {
     private static final String TAG = "Bluetooth";
 
@@ -134,9 +128,7 @@ final class ChromeBluetoothDevice {
                     if (newState == android.bluetooth.BluetoothProfile.STATE_CONNECTED) {
                         // Try requesting for a larger ATT MTU so that more information can be
                         // exchanged per transmission.
-                        if (!DeviceFeatureList.isEnabled(
-                                    DeviceFeatureList.WEB_BLUETOOTH_REQUEST_LARGER_MTU)
-                                || !mBluetoothGatt.requestMtu(517)) {
+                        if (!mBluetoothGatt.requestMtu(517)) {
                             mBluetoothGatt.discoverServices();
                         }
                     } else if (newState == android.bluetooth.BluetoothProfile.STATE_DISCONNECTED) {

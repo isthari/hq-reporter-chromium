@@ -1,10 +1,12 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {TestRunner} from 'test_runner';
+import {NetworkTestRunner} from 'network_test_runner';
+
 (async function() {
   TestRunner.addResult(`Tests that time calculator is updated for both visible and hidden requests.\n`);
-  await TestRunner.loadTestModule('network_test_runner');
   await TestRunner.showPanel('network');
 
   var target = UI.panels.network.networkLogView;
@@ -13,12 +15,15 @@
   target.reset();
 
   function appendRequest(id, type, startTime, endTime) {
-    var request = SDK.NetworkRequest.create('', '', '', '', '');
-    request.setResourceType(type);
-    request.setRequestIdForTest(id);
-    request.setIssueTime(startTime);
+    TestRunner.networkManager.dispatcher.requestWillBeSent({
+      requestId: id,
+      timestamp: startTime,
+      type,
+      request: {url: 'http://example.com/'}
+    });
+    var request = TestRunner.networkManager.requestForId(id);
     request.endTime = endTime;
-    TestRunner.networkManager.dispatcher.startNetworkRequest(request);
+
     target.refresh();
 
     var isFilteredOut = Network.NetworkLogView.isRequestFilteredOut(
@@ -32,9 +37,9 @@
         ']');
   }
 
-  appendRequest('a', Common.resourceTypes.Script, 1, 2);
-  appendRequest('b', Common.resourceTypes.XHR, 3, 4);
-  appendRequest('c', Common.resourceTypes.Script, 5, 6);
+  appendRequest('a', 'Script', 1, 2);
+  appendRequest('b', 'XHR', 3, 4);
+  appendRequest('c', 'Script', 5, 6);
 
   TestRunner.completeTest();
 })();

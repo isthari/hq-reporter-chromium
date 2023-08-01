@@ -1,4 +1,4 @@
-# Copyright 2019 The Chromium Authors. All rights reserved.
+# Copyright 2019 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -11,6 +11,7 @@ proto_library("site_data_proto") {
 static_library("performance_manager") {
   sources = [
     "binders.cc",
+    "browser_child_process_host_proxy.cc",
     "decorators/frame_visibility_decorator.cc",
     "decorators/frame_visibility_decorator.h",
     "decorators/freezing_vote_decorator.cc",
@@ -22,7 +23,6 @@ static_library("performance_manager") {
     "decorators/process_hosted_content_types_aggregator.cc",
     "decorators/process_hosted_content_types_aggregator.h",
     "decorators/process_metrics_decorator.cc",
-    "decorators/tab_properties_decorator.cc",
     "embedder/binders.h",
     "embedder/graph_features.h",
     "embedder/performance_manager_lifetime.h",
@@ -74,12 +74,15 @@ static_library("performance_manager") {
     "graph/node_base.cc",
     "graph/node_base.h",
     "graph/node_data_describer.cc",
+    "graph/node_data_describer_util.cc",
     "graph/node_type.h",
     "graph/page_node.cc",
     "graph/page_node_impl.cc",
     "graph/page_node_impl.h",
     "graph/page_node_impl_describer.cc",
     "graph/page_node_impl_describer.h",
+    "graph/policies/bfcache_policy.cc",
+    "graph/policies/bfcache_policy.h",
     "graph/policies/process_priority_policy.cc",
     "graph/policies/process_priority_policy.h",
     "graph/process_node.cc",
@@ -110,12 +113,14 @@ static_library("performance_manager") {
     "performance_manager_registry_impl.h",
     "performance_manager_tab_helper.cc",
     "performance_manager_tab_helper.h",
+    "power/battery_level_provider_creator.cc",
     "process_node_source.cc",
     "process_node_source.h",
+    "public/browser_child_process_host_id.h",
+    "public/browser_child_process_host_proxy.h",
     "public/decorators/page_live_state_decorator.h",
     "public/decorators/page_load_tracker_decorator_helper.h",
     "public/decorators/process_metrics_decorator.h",
-    "public/decorators/tab_properties_decorator.h",
     "public/execution_context/execution_context.h",
     "public/execution_context/execution_context_attached_data.h",
     "public/execution_context/execution_context_registry.h",
@@ -130,7 +135,6 @@ static_library("performance_manager") {
     "public/graph/node_attached_data.h",
     "public/graph/node_data_describer.h",
     "public/graph/node_data_describer_registry.h",
-    "public/graph/node_data_describer_util.cc",
     "public/graph/node_data_describer_util.h",
     "public/graph/node_state.h",
     "public/graph/page_node.h",
@@ -145,9 +149,11 @@ static_library("performance_manager") {
     "public/performance_manager_main_thread_observer.h",
     "public/performance_manager_owned.h",
     "public/performance_manager_registered.h",
+    "public/power/battery_level_provider_creator.h",
     "public/render_frame_host_proxy.h",
     "public/render_process_host_id.h",
     "public/render_process_host_proxy.h",
+    "public/user_tuning/prefs.h",
     "public/v8_memory/v8_detailed_memory.h",
     "public/v8_memory/v8_detailed_memory_any_seq.h",
     "public/v8_memory/web_memory.h",
@@ -164,6 +170,7 @@ static_library("performance_manager") {
     "service_worker_context_adapter.h",
     "tab_helper_frame_node_source.cc",
     "tab_helper_frame_node_source.h",
+    "user_tuning/prefs.cc",
     "v8_memory/v8_context_tracker.cc",
     "v8_memory/v8_context_tracker.h",
     "v8_memory/v8_context_tracker_helpers.cc",
@@ -178,8 +185,6 @@ static_library("performance_manager") {
     "v8_memory/web_memory_aggregator.h",
     "v8_memory/web_memory_impl.cc",
     "v8_memory/web_memory_impl.h",
-    "v8_memory/web_memory_stress_tester.cc",
-    "v8_memory/web_memory_stress_tester.h",
     "web_contents_proxy.cc",
     "web_contents_proxy_impl.cc",
     "web_contents_proxy_impl.h",
@@ -189,6 +194,10 @@ static_library("performance_manager") {
 
   deps = [
     "//build:chromeos_buildflags",
+    "//components/content_settings/core/common",
+    "//components/metrics",
+    "//components/pref_registry:pref_registry",
+    "//components/prefs:prefs",
     "//third_party/blink/public/common:headers",
   ]
 
@@ -230,15 +239,25 @@ static_library("performance_manager") {
       "public/decorators/site_data_recorder.h",
       "public/persistence/site_data/feature_usage.h",
       "public/persistence/site_data/site_data_reader.h",
-
-      # TODO(crbug.com/1225070): Consider using this policy on Android.
-      "graph/policies/bfcache_policy.cc",
-      "graph/policies/bfcache_policy.h",
     ]
 
     public_deps += [
       ":site_data_proto",
       "//third_party/leveldatabase",
+    ]
+  }
+
+  if (is_chromeos_ash) {
+    deps += [
+      "//chromeos/dbus/power",
+      "//chromeos/dbus/power:power_manager_proto",
+    ]
+
+    sources += [
+      "power/battery_level_provider_chromeos.cc",
+      "power/battery_level_provider_chromeos.h",
+      "power/dbus_power_manager_sampling_event_source.cc",
+      "power/dbus_power_manager_sampling_event_source.h",
     ]
   }
 }
@@ -253,7 +272,7 @@ source_set("unit_tests") {
     "decorators/page_live_state_decorator_unittest.cc",
     "decorators/page_load_tracker_decorator_unittest.cc",
     "decorators/process_hosted_content_types_aggregator_unittest.cc",
-    "decorators/tab_properties_decorator_unittest.cc",
+    "decorators/process_metrics_decorator_unittest.cc",
     "execution_context/execution_context_attached_data_unittest.cc",
     "execution_context/execution_context_registry_impl_unittest.cc",
     "execution_context_priority/ad_frame_voter_unittest.cc",
@@ -273,6 +292,7 @@ source_set("unit_tests") {
     "graph/graph_registered_unittest.cc",
     "graph/node_attached_data_unittest.cc",
     "graph/node_base_unittest.cc",
+    "graph/node_data_describer_util_unittest.cc",
     "graph/page_node_impl_unittest.cc",
     "graph/policies/process_priority_policy_unittest.cc",
     "graph/process_node_impl_unittest.cc",
@@ -288,6 +308,7 @@ source_set("unit_tests") {
     "performance_manager_unittest.cc",
     "registered_objects_unittest.cc",
     "render_process_host_id_unittest.cc",
+    "user_tuning/prefs_unittest.cc",
     "v8_memory/v8_context_tracker_helpers_unittest.cc",
     "v8_memory/v8_context_tracker_internal_unittest.cc",
     "v8_memory/v8_context_tracker_unittest.cc",
@@ -307,6 +328,7 @@ source_set("unit_tests") {
     "test_support:test_support_common",
     "//base/test:test_support",
     "//components/memory_pressure:test_support",
+    "//components/prefs:test_support",
     "//components/services/storage/public/cpp",
     "//components/ukm:test_support",
     "//content/test:test_support",
@@ -327,12 +349,19 @@ source_set("unit_tests") {
       "persistence/site_data/site_data_impl_unittest.cc",
       "persistence/site_data/site_data_reader_unittest.cc",
       "persistence/site_data/site_data_writer_unittest.cc",
-      "persistence/site_data/unittest_utils.cc",
-      "persistence/site_data/unittest_utils.h",
 
       # TODO(crbug.com/1225070): Consider using this policy on Android.
       "graph/policies/bfcache_policy_unittest.cc",
     ]
+  }
+
+  if (is_chromeos_ash) {
+    deps += [
+      "//chromeos/dbus/power",
+      "//chromeos/dbus/power:power_manager_proto",
+    ]
+
+    sources += [ "power/battery_level_provider_chromeos_unittest.cc" ]
   }
 }
 

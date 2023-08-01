@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,7 +18,7 @@ NSString* const kACRecordIdentifierKey = @"recordIdentifier";
 NSString* const kACServiceIdentifierKey = @"serviceIdentifier";
 NSString* const kACServiceNameKey = @"serviceName";
 NSString* const kACUserKey = @"user";
-NSString* const kACValidationIdentifierKey = @"validationIdentifier";
+NSString* const kNoteKey = @"note";
 
 }  // namespace
 
@@ -31,7 +31,7 @@ NSString* const kACValidationIdentifierKey = @"validationIdentifier";
 @synthesize serviceIdentifier = _serviceIdentifier;
 @synthesize serviceName = _serviceName;
 @synthesize user = _user;
-@synthesize validationIdentifier = _validationIdentifier;
+@synthesize note = _note;
 
 - (instancetype)initWithFavicon:(NSString*)favicon
              keychainIdentifier:(NSString*)keychainIdentifier
@@ -40,7 +40,7 @@ NSString* const kACValidationIdentifierKey = @"validationIdentifier";
               serviceIdentifier:(NSString*)serviceIdentifier
                     serviceName:(NSString*)serviceName
                            user:(NSString*)user
-           validationIdentifier:(NSString*)validationIdentifier {
+                           note:(NSString*)note {
   self = [super init];
   if (self) {
     _favicon = favicon;
@@ -50,7 +50,7 @@ NSString* const kACValidationIdentifierKey = @"validationIdentifier";
     _serviceIdentifier = serviceIdentifier;
     _serviceName = serviceName;
     _user = user;
-    _validationIdentifier = validationIdentifier;
+    _note = note;
   }
   return self;
 }
@@ -63,16 +63,17 @@ NSString* const kACValidationIdentifierKey = @"validationIdentifier";
       return NO;
     }
     ArchivableCredential* otherCredential = (ArchivableCredential*)other;
-    return
-        [self.favicon isEqual:otherCredential.favicon] &&
-        [self.keychainIdentifier isEqual:otherCredential.keychainIdentifier] &&
-        self.rank == otherCredential.rank &&
-        [self.recordIdentifier isEqual:otherCredential.recordIdentifier] &&
-        [self.serviceIdentifier isEqual:otherCredential.serviceIdentifier] &&
-        [self.serviceName isEqual:otherCredential.serviceName] &&
-        [self.user isEqual:otherCredential.user] &&
-        [self.validationIdentifier
-            isEqual:otherCredential.validationIdentifier];
+    return [self.favicon isEqualToString:otherCredential.favicon] &&
+           [self.keychainIdentifier
+               isEqualToString:otherCredential.keychainIdentifier] &&
+           self.rank == otherCredential.rank &&
+           [self.recordIdentifier
+               isEqualToString:otherCredential.recordIdentifier] &&
+           [self.serviceIdentifier
+               isEqualToString:otherCredential.serviceIdentifier] &&
+           [self.serviceName isEqualToString:otherCredential.serviceName] &&
+           [self.user isEqualToString:otherCredential.user] &&
+           [self.note isEqualToString:otherCredential.note];
   }
 }
 
@@ -95,21 +96,19 @@ NSString* const kACValidationIdentifierKey = @"validationIdentifier";
   [coder encodeObject:self.serviceIdentifier forKey:kACServiceIdentifierKey];
   [coder encodeObject:self.serviceName forKey:kACServiceNameKey];
   [coder encodeObject:self.user forKey:kACUserKey];
-  [coder encodeObject:self.validationIdentifier
-               forKey:kACValidationIdentifierKey];
+  [coder encodeObject:self.note forKey:kNoteKey];
 }
 
 - (instancetype)initWithCoder:(NSCoder*)coder {
-  return [self
-           initWithFavicon:[coder decodeObjectForKey:kACFaviconKey]
-        keychainIdentifier:[coder decodeObjectForKey:kACKeychainIdentifierKey]
-                      rank:[coder decodeInt64ForKey:kACRankKey]
-          recordIdentifier:[coder decodeObjectForKey:kACRecordIdentifierKey]
-         serviceIdentifier:[coder decodeObjectForKey:kACServiceIdentifierKey]
-               serviceName:[coder decodeObjectForKey:kACServiceNameKey]
-                      user:[coder decodeObjectForKey:kACUserKey]
-      validationIdentifier:[coder
-                               decodeObjectForKey:kACValidationIdentifierKey]];
+  return
+      [self initWithFavicon:[coder decodeObjectForKey:kACFaviconKey]
+          keychainIdentifier:[coder decodeObjectForKey:kACKeychainIdentifierKey]
+                        rank:[coder decodeInt64ForKey:kACRankKey]
+            recordIdentifier:[coder decodeObjectForKey:kACRecordIdentifierKey]
+           serviceIdentifier:[coder decodeObjectForKey:kACServiceIdentifierKey]
+                 serviceName:[coder decodeObjectForKey:kACServiceNameKey]
+                        user:[coder decodeObjectForKey:kACUserKey]
+                        note:[coder decodeObjectForKey:kNoteKey]];
 }
 
 @end

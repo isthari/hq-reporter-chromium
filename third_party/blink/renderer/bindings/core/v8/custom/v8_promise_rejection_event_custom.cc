@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,7 +25,7 @@ void V8PromiseRejectionEvent::PromiseAttributeGetterCustom(
   // us to disable some of V8's type checks, so we have to manually check that
   // info.Holder() really points to an instance of the type.
   PromiseRejectionEvent* event =
-      V8PromiseRejectionEvent::ToImplWithTypeCheck(isolate, info.Holder());
+      V8PromiseRejectionEvent::ToWrappable(isolate, info.Holder());
   if (!event) {
     ExceptionState exception_state(isolate, ExceptionState::kGetterContext,
                                    "PromiseRejectionEvent", "promise");

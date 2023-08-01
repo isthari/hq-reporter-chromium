@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,7 +30,6 @@
 #include "media/base/overlay_info.h"
 #include "media/base/pipeline_status.h"
 #include "media/base/sample_format.h"
-#include "media/base/status_codes.h"
 #include "media/base/subsample_entry.h"
 #include "media/base/supported_video_decoder_config.h"
 #include "media/base/video_codecs.h"
@@ -141,8 +140,6 @@ IPC_ENUM_TRAITS_MAX_VALUE(media::VideoRotation, media::VIDEO_ROTATION_MAX)
 IPC_ENUM_TRAITS_MAX_VALUE(media::container_names::MediaContainerName,
                           media::container_names::CONTAINER_MAX)
 
-IPC_ENUM_TRAITS_MAX_VALUE(media::StatusCode, media::StatusCode::kMaxValue)
-
 #if BUILDFLAG(ENABLE_MEDIA_DRM_STORAGE)
 IPC_ENUM_TRAITS_MIN_MAX_VALUE(media::MediaDrmKeyType,
                               media::MediaDrmKeyType::MIN,
@@ -195,19 +192,31 @@ IPC_STRUCT_TRAITS_BEGIN(media::VideoColorSpace)
   IPC_STRUCT_TRAITS_MEMBER(range)
 IPC_STRUCT_TRAITS_END()
 
-IPC_STRUCT_TRAITS_BEGIN(gfx::ColorVolumeMetadata)
-  IPC_STRUCT_TRAITS_MEMBER(primary_r)
-  IPC_STRUCT_TRAITS_MEMBER(primary_g)
-  IPC_STRUCT_TRAITS_MEMBER(primary_b)
-  IPC_STRUCT_TRAITS_MEMBER(white_point)
+IPC_STRUCT_TRAITS_BEGIN(SkColorSpacePrimaries)
+  IPC_STRUCT_TRAITS_MEMBER(fRX)
+  IPC_STRUCT_TRAITS_MEMBER(fRY)
+  IPC_STRUCT_TRAITS_MEMBER(fGX)
+  IPC_STRUCT_TRAITS_MEMBER(fGY)
+  IPC_STRUCT_TRAITS_MEMBER(fBX)
+  IPC_STRUCT_TRAITS_MEMBER(fBY)
+  IPC_STRUCT_TRAITS_MEMBER(fWX)
+  IPC_STRUCT_TRAITS_MEMBER(fWY)
+IPC_STRUCT_TRAITS_END()
+
+IPC_STRUCT_TRAITS_BEGIN(gfx::HdrMetadataCta861_3)
+  IPC_STRUCT_TRAITS_MEMBER(max_content_light_level)
+  IPC_STRUCT_TRAITS_MEMBER(max_frame_average_light_level)
+IPC_STRUCT_TRAITS_END()
+
+IPC_STRUCT_TRAITS_BEGIN(gfx::HdrMetadataSmpteSt2086)
+  IPC_STRUCT_TRAITS_MEMBER(primaries)
   IPC_STRUCT_TRAITS_MEMBER(luminance_max)
   IPC_STRUCT_TRAITS_MEMBER(luminance_min)
 IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(gfx::HDRMetadata)
-  IPC_STRUCT_TRAITS_MEMBER(color_volume_metadata)
-  IPC_STRUCT_TRAITS_MEMBER(max_content_light_level)
-  IPC_STRUCT_TRAITS_MEMBER(max_frame_average_light_level)
+  IPC_STRUCT_TRAITS_MEMBER(smpte_st_2086)
+  IPC_STRUCT_TRAITS_MEMBER(cta_861_3)
 IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(media::OverlayInfo)

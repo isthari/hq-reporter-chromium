@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,6 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HTML_PORTAL_PORTAL_CONTENTS_H_
 
 #include "base/memory/scoped_refptr.h"
-#include "mojo/public/cpp/bindings/associated_receiver.h"
-#include "mojo/public/cpp/bindings/associated_remote.h"
 #include "mojo/public/cpp/bindings/pending_associated_receiver.h"
 #include "mojo/public/cpp/bindings/pending_associated_remote.h"
 #include "services/network/public/mojom/referrer_policy.mojom-shared.h"
@@ -15,6 +13,8 @@
 #include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/mojom/portal/portal.mojom-blink.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_associated_receiver.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_associated_remote.h"
 
 namespace blink {
 
@@ -115,8 +115,9 @@ class PortalContents : public GarbageCollected<PortalContents>,
   absl::optional<PortalToken> portal_token_;
 
   // Both of these will be reset once Destroy has been called.
-  mojo::AssociatedRemote<mojom::blink::Portal> remote_portal_;
-  mojo::AssociatedReceiver<mojom::blink::PortalClient> portal_client_receiver_;
+  HeapMojoAssociatedRemote<mojom::blink::Portal> remote_portal_;
+  HeapMojoAssociatedReceiver<mojom::blink::PortalClient, PortalContents>
+      portal_client_receiver_;
 };
 
 }  // namespace blink

@@ -1,11 +1,9 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <string>
 
-#include "ash/components/login/auth/stub_authenticator_builder.h"
-#include "ash/components/login/auth/user_context.h"
 #include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/login_screen_test_api.h"
 #include "base/command_line.h"
@@ -14,20 +12,25 @@
 #include "chrome/browser/ash/login/login_wizard.h"
 #include "chrome/browser/ash/login/oobe_screen.h"
 #include "chrome/browser/ash/login/screens/encryption_migration_screen.h"
+#include "chrome/browser/ash/login/test/cryptohome_mixin.h"
 #include "chrome/browser/ash/login/test/js_checker.h"
 #include "chrome/browser/ash/login/test/login_manager_mixin.h"
 #include "chrome/browser/ash/login/test/oobe_base_test.h"
 #include "chrome/browser/ash/login/test/oobe_screen_waiter.h"
+#include "chrome/browser/ash/login/test/oobe_screens_utils.h"
 #include "chrome/browser/ash/login/test/user_policy_mixin.h"
 #include "chrome/browser/ash/login/ui/login_display_host.h"
 #include "chrome/browser/ash/login/wizard_controller.h"
-#include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
-#include "chromeos/dbus/cryptohome/account_identifier_operators.h"
-#include "chromeos/dbus/cryptohome/rpc.pb.h"
+#include "chrome/browser/browser_process.h"
+#include "chrome/browser/ui/webui/ash/login/gaia_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/oobe_ui.h"
+#include "chromeos/ash/components/dbus/cryptohome/UserDataAuth.pb.h"
+#include "chromeos/ash/components/dbus/cryptohome/account_identifier_operators.h"
+#include "chromeos/ash/components/dbus/cryptohome/rpc.pb.h"
+#include "chromeos/ash/components/dbus/userdataauth/fake_userdataauth_client.h"
+#include "chromeos/ash/components/login/auth/public/user_context.h"
+#include "chromeos/ash/components/login/auth/stub_authenticator_builder.h"
 #include "chromeos/dbus/power/fake_power_manager_client.h"
-#include "chromeos/dbus/session_manager/fake_session_manager_client.h"
-#include "chromeos/dbus/userdataauth/fake_userdataauth_client.h"
 #include "components/account_id/account_id.h"
 #include "components/user_manager/known_user.h"
 #include "content/public/test/browser_test.h"
@@ -35,6 +38,7 @@
 #include "third_party/cros_system_api/dbus/cryptohome/dbus-constants.h"
 
 namespace ash {
+
 namespace {
 
 constexpr char kEncryptionMigrationId[] = "encryption-migration";
@@ -55,6 +59,8 @@ const test::UIPath kInsufficientSpaceSkipButton = {
 const test::UIPath kInsufficientSpaceRestartButton = {
     kEncryptionMigrationId, "insufficient-space-restart-button"};
 
+using AuthOp = FakeUserDataAuthClient::Operation;
+
 }  // namespace
 
 // Base class for testing encryption migration during sign-in.
@@ -66,6 +72,7 @@ class EncryptionMigrationTestBase
   explicit EncryptionMigrationTestBase(
       const LoginManagerMixin::TestUserInfo& test_user)
       : test_user_(test_user) {}
+
   ~EncryptionMigrationTestBase() override = default;
 
   // OobeBaseTest:
@@ -78,9 +85,11 @@ class EncryptionMigrationTestBase
   void SetUpOnMainThread() override {
     OobeBaseTest::SetUpOnMainThread();
 
-    FakeUserDataAuthClient::Get()->SetEcryptfsUserHome(GetTestCryptohomeId(),
-                                                       true);
-    FakeUserDataAuthClient::Get()->set_run_default_dircrypto_migration(false);
+    FakeUserDataAuthClient::TestApi::Get()->SetHomeEncryptionMethod(
+        GetTestCryptohomeId(),
+        FakeUserDataAuthClient::HomeEncryptionMethod::kEcryptfs);
+    FakeUserDataAuthClient::TestApi::Get()->set_run_default_dircrypto_migration(
+        false);
 
     // Configure encryption migration screen for test.
     EncryptionMigrationScreen::SetEncryptionMigrationScreenTestDelegate(this);
@@ -92,6 +101,17 @@ class EncryptionMigrationTestBase
   }
 
  protected:
+  void SetUpDBusClientAndAttemptLogin(bool has_incomplete_migration) {
+    const UserContext user_context =
+        LoginManagerMixin::CreateDefaultUserContext(test_user_);
+    FakeUserDataAuthClient::TestApi::Get()->SetHomeEncryptionMethod(
+        GetTestCryptohomeId(),
+        FakeUserDataAuthClient::HomeEncryptionMethod::kEcryptfs);
+    FakeUserDataAuthClient::TestApi::Get()->SetEncryptionMigrationIncomplete(
+        GetTestCryptohomeId(), has_incomplete_migration);
+    login_manager_.AttemptLoginUsingFakeDataAuthClient(user_context);
+  }
+
   void SetUpStubAuthenticatorAndAttemptLogin(bool has_incomplete_migration) {
     const UserContext user_context =
         LoginManagerMixin::CreateDefaultUserContext(test_user_);
@@ -112,7 +132,8 @@ class EncryptionMigrationTestBase
   }
 
   void MarkUserHasEnterprisePolicy() {
-    user_manager::known_user::SetProfileRequiresPolicy(
+    user_manager::KnownUser known_user(g_browser_process->local_state());
+    known_user.SetProfileRequiresPolicy(
         test_user_.account_id,
         user_manager::ProfileRequiresPolicy::kPolicyRequired);
   }
@@ -126,12 +147,15 @@ class EncryptionMigrationTestBase
     test::OobeJS().ExpectHiddenPath(kErrorDialog);
     test::OobeJS().ExpectHiddenPath(kInsufficientSpaceDialog);
 
-    EXPECT_EQ(
-        GetTestCryptohomeId(),
-        FakeUserDataAuthClient::Get()->get_id_for_disk_migrated_to_dircrypto());
-    EXPECT_FALSE(FakeUserDataAuthClient::Get()->minimal_migration());
+    auto migrate_request =
+        FakeUserDataAuthClient::Get()
+            ->GetLastRequest<AuthOp::kStartMigrateToDircrypto>();
+    EXPECT_EQ(GetTestCryptohomeId(), migrate_request.account_id());
+    EXPECT_FALSE(migrate_request.minimal_migration());
 
-    EXPECT_EQ(0, FakePowerManagerClient::Get()->num_request_restart_calls());
+    EXPECT_EQ(
+        0,
+        chromeos::FakePowerManagerClient::Get()->num_request_restart_calls());
 
     // Simulate successful migration - restart should be requested immediately
     // after success is reported.
@@ -139,7 +163,9 @@ class EncryptionMigrationTestBase
         ::user_data_auth::DircryptoMigrationStatus::
             DIRCRYPTO_MIGRATION_INITIALIZING,
         0 /*current*/, 5 /*total*/);
-    EXPECT_EQ(0, FakePowerManagerClient::Get()->num_request_restart_calls());
+    EXPECT_EQ(
+        0,
+        chromeos::FakePowerManagerClient::Get()->num_request_restart_calls());
 
     test::OobeJS().ExpectAttributeEQ("indeterminate", kMigrationProgress, true);
 
@@ -147,7 +173,9 @@ class EncryptionMigrationTestBase
         ::user_data_auth::DircryptoMigrationStatus::
             DIRCRYPTO_MIGRATION_IN_PROGRESS,
         3 /*current*/, 5 /*total*/);
-    EXPECT_EQ(0, FakePowerManagerClient::Get()->num_request_restart_calls());
+    EXPECT_EQ(
+        0,
+        chromeos::FakePowerManagerClient::Get()->num_request_restart_calls());
 
     test::OobeJS().ExpectAttributeEQ("indeterminate", kMigrationProgress,
                                      false);
@@ -158,16 +186,19 @@ class EncryptionMigrationTestBase
         ::user_data_auth::DircryptoMigrationStatus::DIRCRYPTO_MIGRATION_SUCCESS,
         5 /*current*/, 5 /*total*/);
 
-    EXPECT_EQ(1, FakePowerManagerClient::Get()->num_request_restart_calls());
+    EXPECT_EQ(
+        1,
+        chromeos::FakePowerManagerClient::Get()->num_request_restart_calls());
   }
 
   // Updates the battery percent info reported by the power manager client.
   void SetBatteryPercent(int battery_percent) {
     absl::optional<power_manager::PowerSupplyProperties> properties =
-        FakePowerManagerClient::Get()->GetLastStatus();
+        chromeos::FakePowerManagerClient::Get()->GetLastStatus();
     ASSERT_TRUE(properties.has_value());
     properties->set_battery_percent(battery_percent);
-    FakePowerManagerClient::Get()->UpdatePowerProperties(properties.value());
+    chromeos::FakePowerManagerClient::Get()->UpdatePowerProperties(
+        properties.value());
   }
 
   void set_free_space(int64_t free_space) { free_space_ = free_space; }
@@ -181,7 +212,11 @@ class EncryptionMigrationTestBase
   int64_t free_space_ = 200 * 1024 * 1024;
 
   const LoginManagerMixin::TestUserInfo test_user_;
-  LoginManagerMixin login_manager_{&mixin_host_, {test_user_}};
+  CryptohomeMixin cryptohome_mixin_{&mixin_host_};
+  LoginManagerMixin login_manager_{&mixin_host_,
+                                   {test_user_},
+                                   nullptr,
+                                   &cryptohome_mixin_};
   UserPolicyMixin user_policy_mixin_{&mixin_host_, test_user_.account_id};
 };
 
@@ -216,7 +251,7 @@ class EncryptionMigrationChildUserTest : public EncryptionMigrationTestBase {
 IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest, SkipWithNoPolicySet) {
   OobeScreenWaiter encryption_migration_screen_waiter(
       EncryptionMigrationScreenView::kScreenId);
-  SetUpStubAuthenticatorAndAttemptLogin(false /* has_incomplete_migration */);
+  SetUpDBusClientAndAttemptLogin(/*has_incomplete_migration=*/false);
   encryption_migration_screen_waiter.Wait();
 
   EXPECT_FALSE(LoginScreenTestApi::IsShutdownButtonShown());
@@ -238,14 +273,13 @@ IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest, SkipWithNoPolicySet) {
   WaitForActiveSession();
 
   EXPECT_FALSE(FakeUserDataAuthClient::Get()
-                   ->get_id_for_disk_migrated_to_dircrypto()
-                   .has_account_id());
+                   ->WasCalled<AuthOp::kStartMigrateToDircrypto>());
 }
 
 IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest, MigrateWithNoUserPolicySet) {
   OobeScreenWaiter encryption_migration_screen_waiter(
       EncryptionMigrationScreenView::kScreenId);
-  SetUpStubAuthenticatorAndAttemptLogin(false /* has_incomplete_migration */);
+  SetUpDBusClientAndAttemptLogin(/*has_incomplete_migration=*/false);
   encryption_migration_screen_waiter.Wait();
 
   test::OobeJS().CreateVisibilityWaiter(true, kReadyDialog)->Wait();
@@ -258,8 +292,7 @@ IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest, MigrateWithNoUserPolicySet) {
   test::OobeJS().ExpectVisiblePath(kUpgradeButton);
 
   EXPECT_FALSE(FakeUserDataAuthClient::Get()
-                   ->get_id_for_disk_migrated_to_dircrypto()
-                   .has_account_id());
+                   ->WasCalled<AuthOp::kStartMigrateToDircrypto>());
 
   test::OobeJS().TapOnPath(kUpgradeButton);
 
@@ -270,7 +303,7 @@ IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest,
                        ResumeMigrationWithNoUserPolicySet) {
   OobeScreenWaiter encryption_migration_screen_waiter(
       EncryptionMigrationScreenView::kScreenId);
-  SetUpStubAuthenticatorAndAttemptLogin(true /* has_incomplete_migration */);
+  SetUpDBusClientAndAttemptLogin(/*has_incomplete_migration=*/true);
   encryption_migration_screen_waiter.Wait();
 
   // Migration is expected to continue immediately.
@@ -282,7 +315,7 @@ IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest, MigratePolicy) {
 
   OobeScreenWaiter encryption_migration_screen_waiter(
       EncryptionMigrationScreenView::kScreenId);
-  SetUpStubAuthenticatorAndAttemptLogin(false /* has_incomplete_migration */);
+  SetUpDBusClientAndAttemptLogin(/*has_incomplete_migration=*/false);
   encryption_migration_screen_waiter.Wait();
 
   // With kMigrate policy, the migration should start immediately.
@@ -295,7 +328,7 @@ IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest,
 
   OobeScreenWaiter encryption_migration_screen_waiter(
       EncryptionMigrationScreenView::kScreenId);
-  SetUpStubAuthenticatorAndAttemptLogin(true /* has_incomplete_migration */);
+  SetUpDBusClientAndAttemptLogin(/*has_incomplete_migration=*/true);
   encryption_migration_screen_waiter.Wait();
 
   RunFullMigrationFlowTest();
@@ -304,7 +337,7 @@ IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest,
 IN_PROC_BROWSER_TEST_F(EncryptionMigrationChildUserTest, MigrateForChildUser) {
   OobeScreenWaiter encryption_migration_screen_waiter(
       EncryptionMigrationScreenView::kScreenId);
-  SetUpStubAuthenticatorAndAttemptLogin(false /* has_incomplete_migration */);
+  SetUpDBusClientAndAttemptLogin(/*has_incomplete_migration=*/false);
   encryption_migration_screen_waiter.Wait();
 
   // With kMigrate policy, the migration should start immediately.
@@ -317,7 +350,7 @@ IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest,
 
   OobeScreenWaiter encryption_migration_screen_waiter(
       EncryptionMigrationScreenView::kScreenId);
-  SetUpStubAuthenticatorAndAttemptLogin(false /* has_incomplete_migration */);
+  SetUpDBusClientAndAttemptLogin(/*has_incomplete_migration=*/false);
   encryption_migration_screen_waiter.Wait();
 
   test::OobeJS().CreateVisibilityWaiter(true, kInsufficientSpaceDialog)->Wait();
@@ -332,8 +365,7 @@ IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest,
 
   WaitForActiveSession();
   EXPECT_FALSE(FakeUserDataAuthClient::Get()
-                   ->get_id_for_disk_migrated_to_dircrypto()
-                   .has_account_id());
+                   ->WasCalled<AuthOp::kStartMigrateToDircrypto>());
 }
 
 IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest, MigrateWithInsuficientSpace) {
@@ -342,7 +374,7 @@ IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest, MigrateWithInsuficientSpace) {
 
   OobeScreenWaiter encryption_migration_screen_waiter(
       EncryptionMigrationScreenView::kScreenId);
-  SetUpStubAuthenticatorAndAttemptLogin(false /* has_incomplete_migration */);
+  SetUpDBusClientAndAttemptLogin(/*has_incomplete_migration=*/false);
   encryption_migration_screen_waiter.Wait();
 
   test::OobeJS().CreateVisibilityWaiter(true, kInsufficientSpaceDialog)->Wait();
@@ -354,12 +386,12 @@ IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest, MigrateWithInsuficientSpace) {
   test::OobeJS().ExpectVisiblePath(kInsufficientSpaceRestartButton);
   test::OobeJS().ExpectHiddenPath(kInsufficientSpaceSkipButton);
 
-  test::OobeJS().TapOnPath(kInsufficientSpaceRestartButton);
+  test::TapOnPathAndWaitForOobeToBeDestroyed(kInsufficientSpaceRestartButton);
 
-  EXPECT_EQ(1, FakePowerManagerClient::Get()->num_request_restart_calls());
+  EXPECT_EQ(
+      1, chromeos::FakePowerManagerClient::Get()->num_request_restart_calls());
   EXPECT_FALSE(FakeUserDataAuthClient::Get()
-                   ->get_id_for_disk_migrated_to_dircrypto()
-                   .has_account_id());
+                   ->WasCalled<AuthOp::kStartMigrateToDircrypto>());
 }
 
 IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest, InsufficientSpaceOnResume) {
@@ -368,7 +400,7 @@ IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest, InsufficientSpaceOnResume) {
 
   OobeScreenWaiter encryption_migration_screen_waiter(
       EncryptionMigrationScreenView::kScreenId);
-  SetUpStubAuthenticatorAndAttemptLogin(true /* has_incomplete_migration */);
+  SetUpDBusClientAndAttemptLogin(/*has_incomplete_migration=*/true);
   encryption_migration_screen_waiter.Wait();
 
   test::OobeJS().CreateVisibilityWaiter(true, kInsufficientSpaceDialog)->Wait();
@@ -380,12 +412,12 @@ IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest, InsufficientSpaceOnResume) {
   test::OobeJS().ExpectVisiblePath(kInsufficientSpaceRestartButton);
   test::OobeJS().ExpectHiddenPath(kInsufficientSpaceSkipButton);
 
-  test::OobeJS().TapOnPath(kInsufficientSpaceRestartButton);
+  test::TapOnPathAndWaitForOobeToBeDestroyed(kInsufficientSpaceRestartButton);
 
-  EXPECT_EQ(1, FakePowerManagerClient::Get()->num_request_restart_calls());
+  EXPECT_EQ(
+      1, chromeos::FakePowerManagerClient::Get()->num_request_restart_calls());
   EXPECT_FALSE(FakeUserDataAuthClient::Get()
-                   ->get_id_for_disk_migrated_to_dircrypto()
-                   .has_account_id());
+                   ->WasCalled<AuthOp::kStartMigrateToDircrypto>());
 }
 
 IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest, MigrationFailure) {
@@ -393,21 +425,23 @@ IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest, MigrationFailure) {
 
   OobeScreenWaiter encryption_migration_screen_waiter(
       EncryptionMigrationScreenView::kScreenId);
-  SetUpStubAuthenticatorAndAttemptLogin(false /* has_incomplete_migration */);
+  SetUpDBusClientAndAttemptLogin(/*has_incomplete_migration=*/false);
   encryption_migration_screen_waiter.Wait();
 
   test::OobeJS()
       .CreateWaiter(test::GetOobeElementPath(kMigratingDialog))
       ->Wait();
 
-  EXPECT_EQ(
-      GetTestCryptohomeId(),
-      FakeUserDataAuthClient::Get()->get_id_for_disk_migrated_to_dircrypto());
+  EXPECT_EQ(GetTestCryptohomeId(),
+            FakeUserDataAuthClient::Get()
+                ->GetLastRequest<AuthOp::kStartMigrateToDircrypto>()
+                .account_id());
   FakeUserDataAuthClient::Get()->NotifyDircryptoMigrationProgress(
       ::user_data_auth::DircryptoMigrationStatus::DIRCRYPTO_MIGRATION_FAILED,
       5 /*current*/, 5 /*total*/);
 
-  EXPECT_EQ(0, FakePowerManagerClient::Get()->num_request_restart_calls());
+  EXPECT_EQ(
+      0, chromeos::FakePowerManagerClient::Get()->num_request_restart_calls());
 
   test::OobeJS().CreateVisibilityWaiter(true, kErrorDialog)->Wait();
 
@@ -416,9 +450,10 @@ IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest, MigrationFailure) {
   test::OobeJS().ExpectHiddenPath(kInsufficientSpaceDialog);
 
   test::OobeJS().ExpectVisiblePath(kRestartButton);
-  test::OobeJS().TapOnPath(kRestartButton);
+  test::TapOnPathAndWaitForOobeToBeDestroyed(kRestartButton);
 
-  EXPECT_EQ(1, FakePowerManagerClient::Get()->num_request_restart_calls());
+  EXPECT_EQ(
+      1, chromeos::FakePowerManagerClient::Get()->num_request_restart_calls());
 }
 
 IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest, LowBattery) {
@@ -427,7 +462,7 @@ IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest, LowBattery) {
 
   OobeScreenWaiter encryption_migration_screen_waiter(
       EncryptionMigrationScreenView::kScreenId);
-  SetUpStubAuthenticatorAndAttemptLogin(false /* has_incomplete_migration */);
+  SetUpDBusClientAndAttemptLogin(/*has_incomplete_migration=*/false);
   encryption_migration_screen_waiter.Wait();
 
   test::OobeJS().CreateVisibilityWaiter(true, kReadyDialog)->Wait();
@@ -446,8 +481,7 @@ IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest, LowBattery) {
 
   WaitForActiveSession();
   EXPECT_FALSE(FakeUserDataAuthClient::Get()
-                   ->get_id_for_disk_migrated_to_dircrypto()
-                   .has_account_id());
+                   ->WasCalled<AuthOp::kStartMigrateToDircrypto>());
 }
 
 IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest,
@@ -457,7 +491,7 @@ IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest,
 
   OobeScreenWaiter encryption_migration_screen_waiter(
       EncryptionMigrationScreenView::kScreenId);
-  SetUpStubAuthenticatorAndAttemptLogin(true /* has_incomplete_migration */);
+  SetUpDBusClientAndAttemptLogin(/*has_incomplete_migration=*/true);
   encryption_migration_screen_waiter.Wait();
 
   test::OobeJS().CreateVisibilityWaiter(true, kReadyDialog)->Wait();
@@ -470,8 +504,7 @@ IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest,
   test::OobeJS().ExpectPathDisplayed(false, kUpgradeButton);
 
   EXPECT_FALSE(FakeUserDataAuthClient::Get()
-                   ->get_id_for_disk_migrated_to_dircrypto()
-                   .has_account_id());
+                   ->WasCalled<AuthOp::kStartMigrateToDircrypto>());
 }
 
 IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest,
@@ -481,7 +514,7 @@ IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest,
 
   OobeScreenWaiter encryption_migration_screen_waiter(
       EncryptionMigrationScreenView::kScreenId);
-  SetUpStubAuthenticatorAndAttemptLogin(false /* has_incomplete_migration */);
+  SetUpDBusClientAndAttemptLogin(/*has_incomplete_migration=*/false);
   encryption_migration_screen_waiter.Wait();
 
   test::OobeJS().CreateVisibilityWaiter(true, kReadyDialog)->Wait();
@@ -491,12 +524,14 @@ IN_PROC_BROWSER_TEST_F(EncryptionMigrationTest,
   test::OobeJS().ExpectHiddenPath(kErrorDialog);
 
   EXPECT_FALSE(FakeUserDataAuthClient::Get()
-                   ->get_id_for_disk_migrated_to_dircrypto()
-                   .has_account_id());
+                   ->WasCalled<AuthOp::kStartMigrateToDircrypto>());
 
   SetBatteryPercent(60);
 
   RunFullMigrationFlowTest();
 }
+
+// TODO(b/271142350): Add test coverage for EncryptionMigrationScreen obtaining
+// the wake lock.
 
 }  // namespace ash

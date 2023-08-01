@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,70 +8,73 @@ import android.app.Activity;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.ColorStateList;
+import android.content.res.Resources;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Handler;
+import android.os.LocaleList;
 import android.provider.Browser;
 import android.text.TextUtils;
-import android.text.format.DateUtils;
 
-import androidx.annotation.ColorRes;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
-import androidx.browser.customtabs.CustomTabsIntent;
 
 import org.chromium.base.BuildInfo;
 import org.chromium.base.Callback;
 import org.chromium.base.ContextUtils;
-import org.chromium.base.IntentUtils;
 import org.chromium.base.Log;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeTabbedActivity;
+import org.chromium.chrome.browser.ActivityUtils;
 import org.chromium.chrome.browser.IntentHandler;
-import org.chromium.chrome.browser.IntentHandler.IncognitoCCTCallerId;
-import org.chromium.chrome.browser.LaunchIntentDispatcher;
-import org.chromium.chrome.browser.bookmarks.BookmarkBridge.BookmarkItem;
-import org.chromium.chrome.browser.bookmarks.bottomsheet.BookmarkBottomSheetCoordinator;
-import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntentDataProvider.CustomTabsUiType;
-import org.chromium.chrome.browser.commerce.shopping_list.ShoppingFeatures;
-import org.chromium.chrome.browser.customtabs.CustomTabIntentDataProvider;
-import org.chromium.chrome.browser.customtabs.IncognitoCustomTabIntentDataProvider;
+import org.chromium.chrome.browser.app.bookmarks.BookmarkActivity;
+import org.chromium.chrome.browser.app.bookmarks.BookmarkAddEditFolderActivity;
+import org.chromium.chrome.browser.app.bookmarks.BookmarkEditActivity;
+import org.chromium.chrome.browser.app.bookmarks.BookmarkFolderSelectActivity;
+import org.chromium.chrome.browser.bookmarks.BookmarkUiPrefs.BookmarkRowDisplayPref;
+import org.chromium.chrome.browser.commerce.ShoppingServiceFactory;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
 import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
-import org.chromium.chrome.browser.flags.CachedFeatureFlags;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.incognito.IncognitoUtils;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
 import org.chromium.chrome.browser.profiles.Profile;
-import org.chromium.chrome.browser.subscriptions.CommerceSubscriptionsServiceFactory;
-import org.chromium.chrome.browser.subscriptions.SubscriptionsManager;
+import org.chromium.chrome.browser.read_later.ReadingListUtils;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.ui.favicon.FaviconUtils;
 import org.chromium.chrome.browser.ui.messages.snackbar.Snackbar;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager.SnackbarController;
 import org.chromium.chrome.browser.user_education.UserEducationHelper;
 import org.chromium.components.bookmarks.BookmarkId;
+import org.chromium.components.bookmarks.BookmarkItem;
 import org.chromium.components.bookmarks.BookmarkType;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
+import org.chromium.components.browser_ui.styles.SemanticColorUtils;
+import org.chromium.components.browser_ui.widget.RoundedIconGenerator;
+import org.chromium.components.commerce.core.ShoppingService;
 import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.components.feature_engagement.EventConstants;
 import org.chromium.components.profile_metrics.BrowserProfileType;
-import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.UiUtils;
 import org.chromium.ui.base.DeviceFormFactor;
-import org.chromium.ui.base.PageTransition;
 import org.chromium.url.GURL;
 
+import java.text.DateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 
 /** A class holding static util functions for bookmark. */
 public class BookmarkUtils {
     private static final String TAG = "BookmarkUtils";
+    private static final int READING_LIST_SESSION_LENGTH_MS = (int) TimeUnit.HOURS.toMillis(1);
 
     /**
      * If the tab has already been bookmarked, start {@link BookmarkEditActivity} for the
@@ -102,52 +105,12 @@ public class BookmarkUtils {
             return;
         }
 
-        // TODO(crbug.com/1252228): Reading list support needs some tests.
-        if (BookmarkFeatures.isImprovedSaveFlowEnabled()) {
-            BookmarkId newBookmarkId = addBookmarkInternal(activity, bookmarkModel, tab.getTitle(),
-                    tab.getOriginalUrl(), tab.getWebContents(), /*parent=*/null, bookmarkType);
-            showSaveFlow(activity, bottomSheetController, fromExplicitTrackUi, newBookmarkId,
-                    /*wasBookmarkMoved=*/false);
-            callback.onResult(newBookmarkId);
-            return;
-        }
-
-        // TODO(crbug.com/1249283): Add separate entrypoint to save reading list items that uses
-        // the improved save flow.
-        if (bookmarkType != BookmarkType.READING_LIST
-                && CachedFeatureFlags.isEnabled(ChromeFeatureList.BOOKMARK_BOTTOM_SHEET)) {
-            // Show a bottom sheet to let the user select target bookmark folder.
-            showBookmarkBottomSheet(bookmarkModel, tab, snackbarManager, bottomSheetController,
-                    activity, fromCustomTab, callback);
-            return;
-        }
-
-        BookmarkId newBookmarkId = addBookmarkAndShowSnackbar(
-                bookmarkModel, tab, snackbarManager, activity, fromCustomTab, bookmarkType);
+        BookmarkId newBookmarkId = addBookmarkInternal(activity, bookmarkModel, tab.getTitle(),
+                tab.getOriginalUrl(),
+                fromExplicitTrackUi ? bookmarkModel.getMobileFolderId() : null, bookmarkType);
+        showSaveFlow(activity, bottomSheetController, fromExplicitTrackUi, newBookmarkId,
+                /*wasBookmarkMoved=*/false, /*isNewBookmark=*/true);
         callback.onResult(newBookmarkId);
-    }
-
-    private static void showBookmarkBottomSheet(BookmarkModel bookmarkModel, Tab tab,
-            SnackbarManager snackbarManager, BottomSheetController bottomSheetController,
-            Activity activity, boolean fromCustomTab, Callback<BookmarkId> callback) {
-        BookmarkBottomSheetCoordinator bookmarkBottomSheet =
-                new BookmarkBottomSheetCoordinator(activity, bottomSheetController, bookmarkModel);
-        RecordUserAction.record("Android.Bookmarks.BottomSheet.Open");
-        bookmarkBottomSheet.show((selectedBookmarkItem) -> {
-            if (selectedBookmarkItem == null) {
-                callback.onResult(null);
-                return;
-            }
-
-            // Add to the selected bookmark folder.
-            BookmarkId newBookmarkId =
-                    addBookmarkAndShowSnackbar(bookmarkModel, tab, snackbarManager, activity,
-                            fromCustomTab, selectedBookmarkItem.getId().getType());
-
-            RecordHistogram.recordEnumeratedHistogram("Bookmarks.BottomSheet.DestinationFolder",
-                    selectedBookmarkItem.getId().getType(), BookmarkType.LAST + 1);
-            callback.onResult(newBookmarkId);
-        });
     }
 
     /**
@@ -156,41 +119,44 @@ public class BookmarkUtils {
      * @param activity The current Activity.
      * @param bottomSheetController The BottomsheetController, used to show the save flow.
      * @param fromExplicitTrackUi Whether the bookmark was added from the explicit UI.
-     * @param bookmarkId The BookmarkId to show the save flow for.
+     * @param bookmarkId The BookmarkId to show the save flow for. Can be null in some cases.
      * @param wasBookmarkMoved Whether the save flow is shown as a reslult of a moved bookmark.
+     * @param isNewBookmark Whether the bookmark is newly created.
      */
     public static void showSaveFlow(@NonNull Activity activity,
             @NonNull BottomSheetController bottomSheetController, boolean fromExplicitTrackUi,
-            @NonNull BookmarkId bookmarkId, boolean wasBookmarkMoved) {
-        SubscriptionsManager subscriptionService = null;
-        if (ShoppingFeatures.isShoppingListEnabled()) {
-            subscriptionService = new CommerceSubscriptionsServiceFactory()
-                                          .getForLastUsedProfile()
-                                          .getSubscriptionsManager();
+            @Nullable BookmarkId bookmarkId, boolean wasBookmarkMoved, boolean isNewBookmark) {
+        if (bookmarkId == null) {
+            Log.e(TAG, "Null bookmark found when showing the save flow, aborting.");
+            return;
         }
 
+        Profile profile = Profile.getLastUsedRegularProfile();
+        ShoppingService shoppingService = ShoppingServiceFactory.getForProfile(profile);
+
         BookmarkSaveFlowCoordinator bookmarkSaveFlowCoordinator =
-                new BookmarkSaveFlowCoordinator(activity, bottomSheetController,
-                        subscriptionService, new UserEducationHelper(activity, new Handler()));
-        bookmarkSaveFlowCoordinator.show(bookmarkId, fromExplicitTrackUi, wasBookmarkMoved);
+                new BookmarkSaveFlowCoordinator(activity, bottomSheetController, shoppingService,
+                        new UserEducationHelper(activity, new Handler()), profile);
+        bookmarkSaveFlowCoordinator.show(
+                bookmarkId, fromExplicitTrackUi, wasBookmarkMoved, isNewBookmark);
     }
 
     // The legacy code path to add or edit bookmark without triggering the bookmark bottom sheet.
     private static BookmarkId addBookmarkAndShowSnackbar(BookmarkModel bookmarkModel, Tab tab,
             SnackbarManager snackbarManager, Activity activity, boolean fromCustomTab,
             @BookmarkType int bookmarkType) {
-        if (ReadingListFeatures.isReadingListEnabled()
-                && bookmarkType == BookmarkType.READING_LIST) {
+        if (bookmarkType == BookmarkType.READING_LIST) {
             return addToReadingList(
                     tab.getOriginalUrl(), tab.getTitle(), snackbarManager, bookmarkModel, activity);
         }
         BookmarkId bookmarkId = addBookmarkInternal(activity, bookmarkModel, tab.getTitle(),
-                tab.getOriginalUrl(), tab.getWebContents(), /*parent=*/null, BookmarkType.NORMAL);
+                tab.getOriginalUrl(), /*parent=*/null, BookmarkType.NORMAL);
 
         if (bookmarkId != null && bookmarkId.getType() == BookmarkType.NORMAL) {
             @BrowserProfileType
             int type = Profile.getBrowserProfileTypeFromProfile(
-                    Profile.fromWebContents(tab.getWebContents()));
+                    IncognitoUtils.getProfileFromWindowAndroid(
+                            tab.getWindowAndroid(), tab.isIncognito()));
             RecordHistogram.recordEnumeratedHistogram(
                     "Bookmarks.AddedPerProfileType", type, BrowserProfileType.MAX_VALUE + 1);
         }
@@ -264,17 +230,68 @@ public class BookmarkUtils {
     }
 
     /**
+     * Add all selected tabs from TabSelectionEditorV2 as bookmarks. This logic depends on the
+     * snackbar workflow above. Currently there is no support for adding the selected tabs or newly
+     * created folder directly to the reading list.
+     * @param activity The current activity.
+     * @param bookmarkModel The bookmark model.
+     * @param tabList The list of all currently selected tabs from the TabSelectionEditor menu.
+     * @param snackbarManager The SnackbarManager used to show the snackbar.
+     */
+    public static void addBookmarksOnMultiSelect(Activity activity,
+            @NonNull BookmarkModel bookmarkModel, @NonNull List<Tab> tabList,
+            @NonNull SnackbarManager snackbarManager) {
+        // TODO(crbug.com/1385914): Refactor the bookmark folder select activity to allow for the
+        // view to display in a dialog implementation approach.
+        assert bookmarkModel != null;
+
+        // For a single selected bookmark, default to the single tab-to-bookmark approach.
+        if (tabList.size() == 1) {
+            addBookmarkAndShowSnackbar(bookmarkModel, tabList.get(0), snackbarManager, activity,
+                    false, BookmarkType.NORMAL);
+            return;
+        }
+
+        // Current date time format with an example would be: Nov 17, 2022 4:34:20 PM PST
+        DateFormat dateFormat = DateFormat.getDateTimeInstance(
+                DateFormat.MEDIUM, DateFormat.LONG, getLocale(activity));
+        String fileName =
+                activity.getString(R.string.tab_selection_editor_add_bookmarks_folder_name,
+                        dateFormat.format(new Date(System.currentTimeMillis())));
+        BookmarkId newFolder =
+                bookmarkModel.addFolder(bookmarkModel.getDefaultFolder(), 0, fileName);
+        int tabsBookmarkedCount = 0;
+
+        for (Tab tab : tabList) {
+            BookmarkId tabToBookmark = addBookmarkInternal(activity, bookmarkModel, tab.getTitle(),
+                    tab.getOriginalUrl(), newFolder, BookmarkType.NORMAL);
+
+            if (bookmarkModel.doesBookmarkExist(tabToBookmark)) {
+                tabsBookmarkedCount++;
+            }
+        }
+        RecordHistogram.recordCount100Histogram(
+                "Android.TabMultiSelectV2.BookmarkTabsCount", tabsBookmarkedCount);
+
+        SnackbarController snackbarController =
+                createSnackbarControllerForBookmarkFolderEditButton(activity, newFolder);
+        Snackbar snackbar = Snackbar.make(activity.getString(R.string.bookmark_page_saved_default),
+                snackbarController, Snackbar.TYPE_ACTION, Snackbar.UMA_BOOKMARK_ADDED);
+        snackbar.setSingleLine(false).setAction(
+                activity.getString(R.string.bookmark_item_edit), null);
+        snackbarManager.showSnackbar(snackbar);
+    }
+
+    /**
      * Adds a bookmark with the given {@link Tab}. This will reset last used parent if it fails to
      * add a bookmark.
      *
      * @param context The current Android {@link Context}.
      * @param bookmarkModel The current {@link BookmarkModel} which talks to native.
-     * @param tab The current {@link Tab} which bookmark properties are pulled.
      * @param bookmarkType The {@link BookmarkType} of the bookmark.
      */
     static BookmarkId addBookmarkInternal(Context context, BookmarkModel bookmarkModel,
-            String title, GURL url, WebContents webContents, @Nullable BookmarkId parent,
-            @BookmarkType int bookmarkType) {
+            String title, GURL url, @Nullable BookmarkId parent, @BookmarkType int bookmarkType) {
         parent = parent == null ? getLastUsedParent(context, bookmarkModel) : parent;
         BookmarkItem parentItem = null;
         if (parent != null) {
@@ -288,9 +305,8 @@ public class BookmarkUtils {
         // Reading list items will be added when either one of the 2 conditions is met:
         // 1. The bookmark type explicitly specifies READING_LIST.
         // 2. The last used parent implicitly specifies READING_LIST.
-        if (ReadingListFeatures.isReadingListEnabled()
-                && (bookmarkType == BookmarkType.READING_LIST
-                        || parent.getType() == BookmarkType.READING_LIST)) {
+        if (bookmarkType == BookmarkType.READING_LIST
+                || parent.getType() == BookmarkType.READING_LIST) {
             return bookmarkModel.addToReadingList(title, url);
         }
 
@@ -299,14 +315,9 @@ public class BookmarkUtils {
         if (url.getSpec().equals(UrlConstants.NTP_URL)) {
             title = context.getResources().getString(R.string.new_tab_title);
         }
-        // The shopping list experiment saves extra metadata along with the bookmark.
-        if (ShoppingFeatures.isShoppingListEnabled()) {
-            bookmarkId = bookmarkModel.addPowerBookmark(
-                    webContents, parent, bookmarkModel.getChildCount(parent), title, url);
-        } else {
-            bookmarkId = bookmarkModel.addBookmark(
-                    parent, bookmarkModel.getChildCount(parent), title, url);
-        }
+
+        bookmarkId =
+                bookmarkModel.addBookmark(parent, bookmarkModel.getChildCount(parent), title, url);
         // TODO(lazzzis): remove log after bookmark sync is fixed, crbug.com/986978
         if (bookmarkId == null) {
             Log.e(TAG,
@@ -342,6 +353,26 @@ public class BookmarkUtils {
     }
 
     /**
+     * Creates a snackbar controller for a case where "Edit" button is shown to edit a newly
+     * created bookmarks folder with bulk added bookmarks
+     */
+    private static SnackbarController createSnackbarControllerForBookmarkFolderEditButton(
+            Context context, BookmarkId folder) {
+        return new SnackbarController() {
+            @Override
+            public void onDismissNoAction(Object actionData) {
+                RecordUserAction.record("TabMultiSelectV2.BookmarkTabsSnackbarEditNotClicked");
+            }
+
+            @Override
+            public void onAction(Object actionData) {
+                RecordUserAction.record("TabMultiSelectV2.BookmarkTabsSnackbarEditClicked");
+                BookmarkAddEditFolderActivity.startEditFolderActivity(context, folder);
+            }
+        };
+    }
+
+    /**
      * Shows bookmark main UI.
      * @param activity An activity to start the manager with.
      * @param isIncognito Whether the bookmark manager is opened in incognito mode.
@@ -364,20 +395,24 @@ public class BookmarkUtils {
         Context context = activity == null ? ContextUtils.getApplicationContext() : activity;
         String url = getFirstUrlToLoad(context, folderId);
 
-        if (ReadingListFeatures.shouldUseRootFolderAsDefaultForReadLater()
-                && SharedPreferencesManager.getInstance().contains(
-                        ChromePreferenceKeys.BOOKMARKS_LAST_USED_URL)) {
+        if (SharedPreferencesManager.getInstance().contains(
+                    ChromePreferenceKeys.BOOKMARKS_LAST_USED_URL)) {
             RecordUserAction.record("MobileBookmarkManagerReopenBookmarksInSameSession");
         }
 
-        // Tablet.
         if (DeviceFormFactor.isNonMultiDisplayContextOnTablet(context)) {
-            openUrl(context, url, activity == null ? null : activity.getComponentName());
-            return;
+            showBookmarkManagerOnTablet(context,
+                    activity == null ? null : activity.getComponentName(), url, isIncognito);
+        } else {
+            showBookmarkManagerOnPhone(activity, url, isIncognito);
         }
+    }
 
-        // Phone.
-        Intent intent = new Intent(context, BookmarkActivity.class);
+    private static void showBookmarkManagerOnPhone(
+            Activity activity, String url, boolean isIncognito) {
+        Intent intent =
+                new Intent(activity == null ? ContextUtils.getApplicationContext() : activity,
+                        BookmarkActivity.class);
         intent.putExtra(IntentHandler.EXTRA_INCOGNITO_MODE, isIncognito);
         intent.setData(Uri.parse(url));
         if (activity != null) {
@@ -391,6 +426,26 @@ public class BookmarkUtils {
         }
     }
 
+    private static void showBookmarkManagerOnTablet(Context context,
+            @Nullable ComponentName componentName, String url, boolean isIncognito) {
+        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+        intent.putExtra(IntentHandler.EXTRA_INCOGNITO_MODE, isIncognito);
+        intent.putExtra(
+                Browser.EXTRA_APPLICATION_ID, context.getApplicationContext().getPackageName());
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+        if (componentName != null) {
+            ActivityUtils.setNonAliasedComponentForMainBrowsingActivity(intent, componentName);
+        } else {
+            // If the bookmark manager is shown in a tab on a phone (rather than in a separate
+            // activity) the component name may be null. Send the intent through
+            // ChromeLauncherActivity instead to avoid crashing. See crbug.com/615012.
+            intent.setClass(context.getApplicationContext(), ChromeLauncherActivity.class);
+        }
+
+        IntentHandler.startActivityForTrustedIntent(intent);
+    }
+
     /**
      * @return the bookmark folder URL to open.
      */
@@ -401,7 +456,7 @@ public class BookmarkUtils {
             url = getLastUsedUrl(context);
         } else {
             // Load a specific folder.
-            url = BookmarkUIState.createFolderUrl(folderId).toString();
+            url = BookmarkUiState.createFolderUrl(folderId).toString();
         }
 
         return TextUtils.isEmpty(url) ? UrlConstants.BOOKMARKS_URL : url;
@@ -420,7 +475,7 @@ public class BookmarkUtils {
      * Fetches url representing the user's state last time they close the bookmark manager.
      */
     @VisibleForTesting
-    static String getLastUsedUrl(Context context) {
+    public static String getLastUsedUrl(Context context) {
         return SharedPreferencesManager.getInstance().readString(
                 ChromePreferenceKeys.BOOKMARKS_LAST_USED_URL, UrlConstants.BOOKMARKS_URL);
     }
@@ -428,7 +483,7 @@ public class BookmarkUtils {
     /**
      * Save the last used {@link BookmarkId} as a folder to put new bookmarks to.
      */
-    static void setLastUsedParent(Context context, BookmarkId bookmarkId) {
+    public static void setLastUsedParent(Context context, BookmarkId bookmarkId) {
         SharedPreferencesManager.getInstance().writeString(
                 ChromePreferenceKeys.BOOKMARKS_LAST_USED_PARENT, bookmarkId.toString());
     }
@@ -446,13 +501,6 @@ public class BookmarkUtils {
 
         BookmarkId parent = BookmarkId.getBookmarkIdFromString(
                 preferences.readString(ChromePreferenceKeys.BOOKMARKS_LAST_USED_PARENT, null));
-
-        // We need to reset the last used parent to support toggling reading list type-swapping.
-        if (parent.getType() == BookmarkType.READING_LIST
-                && !ReadingListFeatures.shouldAllowBookmarkTypeSwapping()) {
-            setLastUsedParent(context, bookmarkModel.getDefaultFolder());
-            return null;
-        }
 
         return parent;
     }
@@ -476,74 +524,35 @@ public class BookmarkUtils {
     }
 
     /**
-     * Opens a bookmark and reports UMA.
-     * @param context The current context used to launch the intent.
-     * @param openBookmarkComponentName The component to use when opening a bookmark.
-     * @param model Bookmarks model to manage the bookmark.
-     * @param bookmarkId ID of the bookmark to be opened.
-     * @param isIncognito Whether the bookmark manager is opened in incognito mode.
-     * @return Whether the bookmark was successfully opened.
+     * @param context {@link Context} used to retrieve the drawable.
+     * @param type The bookmark type of the folder.
+     * @return A {@link Drawable} to use for displaying bookmark folders.
      */
-    public static boolean openBookmark(Context context, ComponentName openBookmarkComponentName,
-            BookmarkModel model, BookmarkId bookmarkId, boolean isIncognito) {
-        if (model.getBookmarkById(bookmarkId) == null) return false;
-
-        RecordUserAction.record("MobileBookmarkManagerEntryOpened");
-        RecordHistogram.recordEnumeratedHistogram(
-                "Bookmarks.OpenBookmarkType", bookmarkId.getType(), BookmarkType.LAST + 1);
-
-        BookmarkItem bookmarkItem = model.getBookmarkById(bookmarkId);
-        assert bookmarkItem != null;
-        RecordHistogram.recordCustomTimesHistogram("Bookmarks.OpenBookmarkTimeInterval2."
-                        + bookmarkTypeToHistogramSuffix(bookmarkId.getType()),
-                System.currentTimeMillis() - bookmarkItem.getDateAdded(), 1,
-                DateUtils.DAY_IN_MILLIS * 30, 50);
-
-        if (bookmarkItem.getId().getType() == BookmarkType.READING_LIST
-                && !bookmarkItem.isFolder()) {
-            openReadingListItem(context, bookmarkItem.getUrl().getSpec(), openBookmarkComponentName,
-                    isIncognito);
-            model.setReadStatusForReadingList(bookmarkItem.getUrl(), true);
-        } else {
-            openUrl(context, bookmarkItem.getUrl().getSpec(), openBookmarkComponentName);
+    public static Drawable getFolderIcon(
+            Context context, @BookmarkType int type, @BookmarkRowDisplayPref int displayPref) {
+        ColorStateList tint = getFolderIconTint(context, type);
+        if (type == BookmarkType.READING_LIST) {
+            return UiUtils.getTintedDrawable(context, R.drawable.ic_reading_list_folder_24dp, tint);
         }
-        return true;
-    }
 
-    private static String bookmarkTypeToHistogramSuffix(@BookmarkType int type) {
-        switch (type) {
-            case BookmarkType.NORMAL:
-                return "Normal";
-            case BookmarkType.PARTNER:
-                return "Partner";
-            case BookmarkType.READING_LIST:
-                return "ReadingList";
-        }
-        assert false : "Unknown BookmarkType";
-        return "";
+        return UiUtils.getTintedDrawable(context,
+                displayPref == BookmarkRowDisplayPref.VISUAL ? R.drawable.ic_folder_outline_24dp
+                                                             : R.drawable.ic_folder_blue_24dp,
+                tint);
     }
 
     /**
      * @param context {@link Context} used to retrieve the drawable.
      * @param type The bookmark type of the folder.
-     * @return A {@link Drawable} to use for displaying bookmark folders.
-     */
-    public static Drawable getFolderIcon(Context context, @BookmarkType int type) {
-        if (type == BookmarkType.READING_LIST) {
-            return UiUtils.getTintedDrawable(
-                    context, R.drawable.ic_reading_list_folder_24dp, getFolderIconTint(type));
-        }
-        return UiUtils.getTintedDrawable(
-                context, R.drawable.ic_folder_blue_24dp, getFolderIconTint(type));
-    }
-
-    /**
-     * @param type The bookmark type.
      * @return The tint used on the bookmark folder icon.
      */
-    public static @ColorRes int getFolderIconTint(@BookmarkType int type) {
-        return (type == BookmarkType.READING_LIST) ? R.color.default_icon_color_accent1_tint_list
-                                                   : R.color.default_icon_color_tint_list;
+    public static ColorStateList getFolderIconTint(Context context, @BookmarkType int type) {
+        if (BookmarkFeatures.isAndroidImprovedBookmarksEnabled()
+                && type == BookmarkType.READING_LIST) {
+            return ColorStateList.valueOf(SemanticColorUtils.getDefaultIconColorAccent1(context));
+        }
+
+        return ColorStateList.valueOf(context.getColor(R.color.default_icon_color_tint_list));
     }
 
     /**
@@ -555,59 +564,6 @@ public class BookmarkUtils {
     public static Drawable getSaveFlowStartIconForBookmark(BookmarkId bookmarkId) {
         // TODO(crbug.com/1243383): Add start icon for price tracking.
         return null;
-    }
-
-    private static void openUrl(Context context, String url, ComponentName componentName) {
-        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-        intent.putExtra(
-                Browser.EXTRA_APPLICATION_ID, context.getApplicationContext().getPackageName());
-        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        intent.putExtra(IntentHandler.EXTRA_PAGE_TRANSITION_TYPE, PageTransition.AUTO_BOOKMARK);
-
-        if (componentName != null) {
-            ChromeTabbedActivity.setNonAliasedComponent(intent, componentName);
-        } else {
-            // If the bookmark manager is shown in a tab on a phone (rather than in a separate
-            // activity) the component name may be null. Send the intent through
-            // ChromeLauncherActivity instead to avoid crashing. See crbug.com/615012.
-            intent.setClass(context.getApplicationContext(), ChromeLauncherActivity.class);
-        }
-
-        IntentHandler.startActivityForTrustedIntent(intent);
-    }
-
-    private static void openReadingListItem(
-            Context context, String url, ComponentName componentName, boolean isOffTheRecord) {
-        if (ReadingListFeatures.shouldUseCustomTab()) {
-            openReadingListInCustomTab(context, url, isOffTheRecord);
-        } else {
-            openUrl(context, url, componentName);
-        }
-    }
-
-    private static void openReadingListInCustomTab(
-            Context context, String url, boolean isOffTheRecord) {
-        CustomTabsIntent.Builder builder = new CustomTabsIntent.Builder();
-        builder.setShowTitle(true);
-        builder.setShareState(CustomTabsIntent.SHARE_STATE_ON);
-        CustomTabsIntent customTabIntent = builder.build();
-        customTabIntent.intent.setData(Uri.parse(url));
-
-        Intent intent = LaunchIntentDispatcher.createCustomTabActivityIntent(
-                context, customTabIntent.intent);
-        intent.setPackage(context.getPackageName());
-        intent.putExtra(Browser.EXTRA_APPLICATION_ID, context.getPackageName());
-        intent.putExtra(CustomTabIntentDataProvider.EXTRA_UI_TYPE, CustomTabsUiType.READ_LATER);
-
-        // Extras for incognito CCT.
-        if (isOffTheRecord) {
-            IncognitoCustomTabIntentDataProvider.addIncognitoExtrasForChromeFeatures(
-                    intent, IncognitoCCTCallerId.READ_LATER);
-        }
-
-        IntentUtils.addTrustedIntentExtras(intent);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        IntentHandler.startActivityForTrustedIntent(intent);
     }
 
     /**
@@ -631,7 +587,7 @@ public class BookmarkUtils {
         BookmarkId othersNodeId = bookmarkModel.getOtherFolderId();
 
         List<BookmarkId> specialFoldersIds =
-                bookmarkModel.getTopLevelFolderIDs(/*getSpecial=*/true, /*getNormal=*/false);
+                bookmarkModel.getTopLevelFolderIds(/*getSpecial=*/true, /*getNormal=*/false);
         BookmarkId rootFolder = bookmarkModel.getRootFolderId();
 
         // managed and partner bookmark folders will be put to the bottom.
@@ -676,28 +632,115 @@ public class BookmarkUtils {
      */
     public static void maybeExpireLastBookmarkLocationForReadLater(
             long timeSinceLastBackgroundedMs) {
-        if (!ReadingListFeatures.shouldUseRootFolderAsDefaultForReadLater()) return;
-
-        int readLaterSessionLengthMs = ReadingListFeatures.getSessionLengthMs();
-        if (timeSinceLastBackgroundedMs > readLaterSessionLengthMs) {
+        if (timeSinceLastBackgroundedMs > READING_LIST_SESSION_LENGTH_MS) {
             SharedPreferencesManager.getInstance().removeKey(
                     ChromePreferenceKeys.BOOKMARKS_LAST_USED_URL);
         }
     }
 
-    /** Allows strings to be landed for translation. */
-    private void fakeFunctiontoAllowStringMerge() {
-        int id = R.string.price_tracking_save_flow_notification_switch_subtitle_error;
-        id = R.string.disable_price_tracking_menu_item;
-        id = R.string.price_tracking_bookmarks_filter_title;
-        id = R.string.tracked_products_empty_list_title;
-        id = R.string.price_tracking_disabled_snackbar;
-        id = R.string.price_tracking_enabled_snackbar;
-        id = R.string.price_tracking_error_snackbar;
-        id = R.string.price_tracking_error_snackbar_action;
-        id = R.string.iph_price_tracking_menu_item;
-        id = R.string.iph_price_tracking_menu_item_accessibility;
-        id = R.string.iph_shopping_list_save_flow;
-        id = R.string.iph_shopping_list_save_flow_accessibility;
+    /** Returns whether this bookmark can be moved */
+    public static boolean isMovable(BookmarkItem node) {
+        return ReadingListUtils.isSwappableReadingListItem(node.getId()) || node.isReorderable();
+    }
+
+    /**
+     * Gets the display count for folders.
+     * @param id The bookmark to get the description for, must be a folder.
+     * @param bookmarkModel The bookmark model to get info on the bookmark.
+     */
+    public static int getChildCountForDisplay(BookmarkId id, BookmarkModel bookmarkModel) {
+        if (id.getType() == BookmarkType.READING_LIST) {
+            return bookmarkModel.getUnreadCount(id);
+        } else {
+            return bookmarkModel.getTotalBookmarkCount(id);
+        }
+    }
+
+    /**
+     * Returns the description to use for the folder in bookamrks manager.
+     * @param id The bookmark to get the description for, must be a folder.
+     * @param bookmarkModel The bookmark model to get info on the bookmark.
+     * @param resources Android resources object to get strings.
+     */
+    public static String getFolderDescriptionText(
+            BookmarkId id, BookmarkModel bookmarkModel, Resources resources) {
+        int count = getChildCountForDisplay(id, bookmarkModel);
+        if (id.getType() == BookmarkType.READING_LIST) {
+            return (count > 0) ? resources.getQuantityString(
+                           R.plurals.reading_list_unread_page_count, count, count)
+                               : resources.getString(R.string.reading_list_no_unread_pages);
+        } else {
+            return (count > 0)
+                    ? resources.getQuantityString(R.plurals.bookmarks_count, count, count)
+                    : resources.getString(R.string.no_bookmarks);
+        }
+    }
+
+    /** Returns the RoundedIconGenerator with the appropriate size. */
+    public static RoundedIconGenerator getRoundedIconGenerator(
+            Context context, @BookmarkRowDisplayPref int displayPref) {
+        Resources res = context.getResources();
+        boolean visual = displayPref == BookmarkRowDisplayPref.VISUAL;
+        int displayIconSize = getFaviconDisplaySize(res, displayPref);
+
+        return visual
+                ? new RoundedIconGenerator(displayIconSize, displayIconSize, displayIconSize / 2,
+                        context.getColor(R.color.default_favicon_background_color),
+                        getDisplayTextSize(res))
+                : FaviconUtils.createCircularIconGenerator(context);
+    }
+
+    /** Returns the size to use when fetching favicons. */
+    public static int getFaviconFetchSize(Resources resources) {
+        return resources.getDimensionPixelSize(R.dimen.default_favicon_min_size);
+    }
+
+    /** Returns the size to use when displaying an image. */
+    public static int getImageIconSize(
+            Resources resources, @BookmarkRowDisplayPref int displayPref) {
+        if (BookmarkFeatures.isAndroidImprovedBookmarksEnabled()) {
+            return displayPref == BookmarkRowDisplayPref.VISUAL
+                    ? resources.getDimensionPixelSize(
+                            R.dimen.improved_bookmark_start_image_size_visual)
+                    : resources.getDimensionPixelSize(
+                            R.dimen.improved_bookmark_start_image_size_compact);
+        }
+
+        return BookmarkFeatures.isLegacyBookmarksVisualRefreshEnabled()
+                ? resources.getDimensionPixelSize(R.dimen.list_item_v2_start_icon_width_compact)
+                : resources.getDimensionPixelSize(R.dimen.list_item_start_icon_width);
+    }
+
+    /** Returns the size to use when displaying the favicon. */
+    public static int getFaviconDisplaySize(
+            Resources resources, @BookmarkRowDisplayPref int displayPref) {
+        if (BookmarkFeatures.isAndroidImprovedBookmarksEnabled()) {
+            return resources.getDimensionPixelSize(R.dimen.improved_bookmark_favicon_display_size);
+        }
+
+        return BookmarkFeatures.isLegacyBookmarksVisualRefreshEnabled()
+                ? resources.getDimensionPixelSize(R.dimen.list_item_v2_start_icon_width_compact)
+                : resources.getDimensionPixelSize(R.dimen.list_item_start_icon_width);
+    }
+
+    private static int getDisplayTextSize(Resources resources) {
+        if (BookmarkFeatures.isAndroidImprovedBookmarksEnabled()) {
+            return resources.getDimensionPixelSize(R.dimen.circular_monogram_text_size);
+        }
+
+        return BookmarkFeatures.isLegacyBookmarksVisualRefreshEnabled()
+                ? resources.getDimensionPixelSize(
+                        R.dimen.bookmark_refresh_circular_monogram_text_size)
+                : resources.getDimensionPixelSize(R.dimen.circular_monogram_text_size);
+    }
+
+    private static Locale getLocale(Activity activity) {
+        LocaleList locales = activity.getResources().getConfiguration().getLocales();
+        if (locales.size() > 0) {
+            return locales.get(0);
+        }
+        @SuppressWarnings("deprecation")
+        Locale locale = activity.getResources().getConfiguration().locale;
+        return locale;
     }
 }

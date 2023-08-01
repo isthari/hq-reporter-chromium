@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,16 +10,16 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.robolectric.annotation.Config;
 
-import org.chromium.base.test.BaseJUnit4ClassRunner;
-import org.chromium.base.test.util.Batch;
+import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.Feature;
 
 /**
  * Test for TranslateOptions.
  */
-@RunWith(BaseJUnit4ClassRunner.class)
-@Batch(Batch.UNIT_TESTS)
+@RunWith(BaseRobolectricTestRunner.class)
+@Config(manifest = Config.NONE)
 public class TranslateOptionsTest {
     private static final boolean NEVER_LANGUAGE = false;
     private static final boolean NEVER_DOMAIN = false;
@@ -48,7 +48,6 @@ public class TranslateOptionsTest {
         Assert.assertTrue(options.getTranslateState(TranslateOptions.Type.ALWAYS_LANGUAGE));
         Assert.assertFalse(options.getTranslateState(TranslateOptions.Type.NEVER_DOMAIN));
         Assert.assertFalse(options.optionsChanged());
-        Assert.assertNull(options.getUMAHashCodeFromCode("en"));
     }
 
     @Test
@@ -66,7 +65,6 @@ public class TranslateOptionsTest {
         Assert.assertEquals("en", options.sourceLanguageCode());
         Assert.assertEquals("fr", options.targetLanguageCode());
         Assert.assertTrue(options.triggeredFromMenu());
-        Assert.assertEquals(Integer.valueOf(10), options.getUMAHashCodeFromCode("en"));
         Assert.assertEquals("English", options.getRepresentationFromCode("en"));
 
         Assert.assertTrue(options.optionsChanged());
@@ -155,14 +153,12 @@ public class TranslateOptionsTest {
                 "Spanish", options.getRepresentationFromCode(options.contentLanguages()[0]));
         Assert.assertEquals(
                 "español", options.getNativeRepresentationFromCode(options.contentLanguages()[0]));
-        Assert.assertTrue(30 == options.getUMAHashCodeFromCode(options.contentLanguages()[0]));
 
         Assert.assertEquals("fr", options.contentLanguages()[1]);
         Assert.assertEquals(
                 "French", options.getRepresentationFromCode(options.contentLanguages()[1]));
         Assert.assertEquals(
                 "français", options.getNativeRepresentationFromCode(options.contentLanguages()[1]));
-        Assert.assertTrue(20 == options.getUMAHashCodeFromCode(options.contentLanguages()[1]));
     }
 
     @Test

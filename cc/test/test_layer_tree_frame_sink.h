@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -37,14 +37,9 @@ class TestLayerTreeFrameSinkClient {
 
   virtual std::unique_ptr<viz::DisplayCompositorMemoryAndTaskController>
   CreateDisplayController() = 0;
-  virtual std::unique_ptr<viz::SkiaOutputSurface>
-  CreateDisplaySkiaOutputSurface(
+  virtual std::unique_ptr<viz::SkiaOutputSurface> CreateSkiaOutputSurface(
       viz::DisplayCompositorMemoryAndTaskController*) = 0;
-
-  // This passes the ContextProvider being used by LayerTreeHostImpl which
-  // can be used for the OutputSurface optionally.
-  virtual std::unique_ptr<viz::OutputSurface> CreateDisplayOutputSurface(
-      scoped_refptr<viz::ContextProvider> compositor_context_provider) = 0;
+  virtual std::unique_ptr<viz::OutputSurface> CreateSoftwareOutputSurface() = 0;
 
   virtual void DisplayReceivedLocalSurfaceId(
       const viz::LocalSurfaceId& local_surface_id) = 0;
@@ -92,6 +87,7 @@ class TestLayerTreeFrameSink : public LayerTreeFrameSink,
   void SetDisplayColorSpace(const gfx::ColorSpace& output_color_space);
 
   viz::Display* display() const { return display_.get(); }
+  void UnregisterBeginFrameSource();
 
   // LayerTreeFrameSink implementation.
   bool BindToClient(LayerTreeFrameSinkClient* client) override;
@@ -109,9 +105,11 @@ class TestLayerTreeFrameSink : public LayerTreeFrameSink,
   void DidReceiveCompositorFrameAck(
       std::vector<viz::ReturnedResource> resources) override;
   void OnBeginFrame(const viz::BeginFrameArgs& args,
-                    const viz::FrameTimingDetailsMap& timing_details) override;
+                    const viz::FrameTimingDetailsMap& timing_details,
+                    bool frame_ack,
+                    std::vector<viz::ReturnedResource> resources) override;
   void ReclaimResources(std::vector<viz::ReturnedResource> resources) override;
-  void OnBeginFramePausedChanged(bool paused) override {}
+  void OnBeginFramePausedChanged(bool paused) override;
   void OnCompositorFrameTransitionDirectiveProcessed(
       uint32_t sequence_id) override {}
 
@@ -124,6 +122,7 @@ class TestLayerTreeFrameSink : public LayerTreeFrameSink,
   void DisplayDidReceiveCALayerParams(
       const gfx::CALayerParams& ca_layer_params) override;
   void DisplayDidCompleteSwapWithSize(const gfx::Size& pixel_size) override;
+  void DisplayAddChildWindowToBrowser(gpu::SurfaceHandle child_window) override;
   void SetWideColorEnabled(bool enabled) override {}
   void SetPreferredFrameInterval(base::TimeDelta interval) override {}
   base::TimeDelta GetPreferredFrameIntervalForFrameSinkId(
@@ -173,7 +172,7 @@ class TestLayerTreeFrameSink : public LayerTreeFrameSink,
   raw_ptr<TestLayerTreeFrameSinkClient> test_client_ = nullptr;
   gfx::Size enlarge_pass_texture_amount_;
 
-  TaskRunnerProvider* task_runner_provider_;
+  raw_ptr<TaskRunnerProvider> task_runner_provider_;
 
   // The set of SharedBitmapIds that have been reported as allocated to this
   // interface. On closing this interface, the display compositor should drop

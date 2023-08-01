@@ -1,4 +1,4 @@
-# Copyright (c) 2013 The Chromium Authors. All rights reserved.
+# Copyright 2013 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -10,9 +10,14 @@ for more details about the presubmit API built into gcl.
 
 import filecmp
 import inspect
+import os
 import sys
+import tempfile
+import re
+from html.parser import HTMLParser
 
 USE_PYTHON3 = True
+WPT_IMPORTER_EMAIL = "wpt-autoroller@chops-service-accounts.iam.gserviceaccount.com"
 
 
 def _CheckTestharnessResults(input_api, output_api):
@@ -30,13 +35,27 @@ def _CheckTestharnessResults(input_api, output_api):
     checker_path = input_api.os_path.join(input_api.PresubmitLocalPath(),
         '..', 'tools', 'check_testharness_expected_pass.py')
 
-    args = [input_api.python_executable, checker_path]
-    args.extend(baseline_files)
+    # When running git cl presubmit --all this presubmit may be asked to check
+    # ~19,000 files. Passing these on the command line would far exceed Windows
+    # limits, so we use --path-files instead.
+
+    # We have to set delete=False and then let the object go out of scope so
+    # that the file can be opened by name on Windows.
+    with tempfile.NamedTemporaryFile('w+', newline='', delete=False) as f:
+        for path in baseline_files:
+            f.write('%s\n' % path)
+        paths_name = f.name
+
+    args = [
+        input_api.python3_executable, checker_path, '--path-files', paths_name
+    ]
     _, errs = input_api.subprocess.Popen(
         args,
         stdout=input_api.subprocess.PIPE,
         stderr=input_api.subprocess.PIPE,
         universal_newlines=True).communicate()
+
+    os.remove(paths_name)
     if errs:
         return [output_api.PresubmitError(errs)]
     return []
@@ -52,9 +71,9 @@ def _TestharnessGenericBaselinesToCheck(input_api):
         path = f.AbsoluteLocalPath()
         if not path.endswith('-expected.txt'):
             continue
-        if (input_api.os_path.join(this_dir, 'platform') in path or
-            input_api.os_path.join(this_dir, 'virtual') in path or
-            input_api.os_path.join(this_dir, 'flag-specific') in path):
+        if (input_api.os_path.join(this_dir, 'platform') in path
+                or input_api.os_path.join(this_dir, 'virtual') in path
+                or input_api.os_path.join(this_dir, 'flag-specific') in path):
             continue
         baseline_files.append(path)
     return baseline_files
@@ -151,7 +170,7 @@ def _CheckForUnlistedTestFolder(input_api, output_api):
     """Checks all the test folders under web_tests are listed in BUILD.gn.
     """
     this_dir = input_api.PresubmitLocalPath()
-    possible_new_dirs = []
+    possible_new_dirs = set()
     for f in input_api.AffectedFiles():
         if f.Action() == 'A':
             # We only check added folders. For deleted folders, if BUILD.gn is
@@ -161,13 +180,14 @@ def _CheckForUnlistedTestFolder(input_api, output_api):
             path = f.AbsoluteLocalPath()
             fns = path[len(this_dir)+1:].split('/')
             if len(fns) > 1:
-                possible_new_dirs.append(fns[0])
+                possible_new_dirs.add(fns[0])
 
     if possible_new_dirs:
         path_build_gn = input_api.os_path.join(input_api.change.RepositoryRoot(), 'BUILD.gn')
         dirs_from_build_gn = []
         start_line = '# === List Test Cases folders here ==='
         end_line = '# === Test Case Folders Ends ==='
+        end_line_count = 0
         find_start_line  = False
         for line in input_api.ReadFile(path_build_gn).splitlines():
             line = line.strip()
@@ -176,10 +196,15 @@ def _CheckForUnlistedTestFolder(input_api, output_api):
                 continue
             if find_start_line:
                 if line.startswith(end_line):
-                    break
+                    find_start_line = False
+                    end_line_count += 1
+                    if end_line_count == 2:
+                        break
+                    continue
                 if len(line.split('/')) > 1:
                     dirs_from_build_gn.append(line.split('/')[-2])
-        dirs_from_build_gn.extend(['platform', 'FlagExpectations', 'flag-specific'])
+        dirs_from_build_gn.extend(
+            ['platform', 'FlagExpectations', 'flag-specific', 'SmokeTests'])
 
         new_dirs = [x for x in possible_new_dirs if x not in dirs_from_build_gn]
         if new_dirs:
@@ -197,7 +222,6 @@ def _CheckForUnlistedTestFolder(input_api, output_api):
 def _CheckForExtraVirtualBaselines(input_api, output_api):
     """Checks that expectations in virtual test suites are for virtual test suites that exist
     """
-
     os_path = input_api.os_path
 
     local_dir = os_path.relpath(
@@ -222,6 +246,11 @@ def _CheckForExtraVirtualBaselines(input_api, output_api):
             check_all = True
 
     if not check_all and len(check_files) == 0:
+        return []
+
+    # The rest of this test fails on Windows because win32pipe is not available
+    # and other errors.
+    if os.name == 'nt':
         return []
 
     from blinkpy.common.host import Host
@@ -272,6 +301,84 @@ def _CheckForExtraVirtualBaselines(input_api, output_api):
     return results
 
 
+def _CheckWebViewExpectations(input_api, output_api):
+    src_dir = os.path.join(input_api.PresubmitLocalPath(), os.pardir,
+                           os.pardir, os.pardir)
+    webview_data_dir = input_api.os_path.join(src_dir, 'android_webview',
+                                              'tools', 'system_webview_shell',
+                                              'test', 'data', 'webexposed')
+    if webview_data_dir not in sys.path:
+        sys.path.append(webview_data_dir)
+
+    # pylint: disable=import-outside-toplevel
+    from exposed_webview_interfaces_presubmit import (
+        CheckNotWebViewExposedInterfaces)
+    return CheckNotWebViewExposedInterfaces(input_api, output_api)
+
+
+class _DoctypeParser(HTMLParser):
+    """Parses HTML to check if there exists a DOCTYPE declaration before all other tags.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.encountered_tag = False
+        self.doctype = ""
+
+    def handle_starttag(self, *_):
+        self.encountered_tag = True
+
+    def handle_startendtag(self, *_):
+        self.encountered_tag = True
+
+    def handle_decl(self, decl):
+        if not self.encountered_tag:
+            self.doctype = decl
+            self.encountered_tag = True
+
+
+def _IsDoctypeHTMLSet(lines):
+    """Returns true if the given HTML file starts with <!DOCTYPE html>.
+    """
+    parser = _DoctypeParser()
+    for l in lines:
+        parser.feed(l)
+
+    return re.match("DOCTYPE\s*html\s*$", parser.doctype, re.IGNORECASE)
+
+
+def _CheckForDoctypeHTML(input_api, output_api):
+    """Checks that all changed HTML files start with the correct <!DOCTYPE html> tag.
+    """
+    results = []
+
+    if input_api.no_diffs:
+        return results
+
+    # These tests are being imported from WPT, so <!DOCTYPE html> is not required yet.
+    no_errors = (input_api.change.author_email == WPT_IMPORTER_EMAIL)
+
+    for f in input_api.AffectedFiles(include_deletes=False):
+        path = f.LocalPath()
+        fname = os.path.basename(path)
+
+        if not fname.endswith(".html") or "quirk" in fname:
+            continue
+
+        if not _IsDoctypeHTMLSet(f.NewContents()):
+            error = "HTML file \"%s\" does not start with <!DOCTYPE html>. " \
+                    "If you really intend to test in quirks mode, add \"quirk\" " \
+                    "to the name of your test." % path
+
+            if f.Action() == "A" or _IsDoctypeHTMLSet(f.OldContents()):
+                if no_errors:
+                    results.append(output_api.PresubmitPromptWarning(error))
+                else:
+                    results.append(output_api.PresubmitError(error))
+
+    return results
+
+
 def CheckChangeOnUpload(input_api, output_api):
     results = []
     results.extend(_CheckTestharnessResults(input_api, output_api))
@@ -282,6 +389,8 @@ def CheckChangeOnUpload(input_api, output_api):
     results.extend(_CheckRunAfterLayoutAndPaintJS(input_api, output_api))
     results.extend(_CheckForUnlistedTestFolder(input_api, output_api))
     results.extend(_CheckForExtraVirtualBaselines(input_api, output_api))
+    results.extend(_CheckWebViewExpectations(input_api, output_api))
+    results.extend(_CheckForDoctypeHTML(input_api, output_api))
     return results
 
 
@@ -292,4 +401,6 @@ def CheckChangeOnCommit(input_api, output_api):
     results.extend(_CheckTestExpectations(input_api, output_api))
     results.extend(_CheckForUnlistedTestFolder(input_api, output_api))
     results.extend(_CheckForExtraVirtualBaselines(input_api, output_api))
+    results.extend(_CheckWebViewExpectations(input_api, output_api))
+    results.extend(_CheckForDoctypeHTML(input_api, output_api))
     return results

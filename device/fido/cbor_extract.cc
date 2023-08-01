@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include <type_traits>
 
-#include "base/callback.h"
 #include "base/check_op.h"
+#include "base/functional/callback.h"
 #include "components/cbor/values.h"
 
 namespace device {
@@ -97,7 +97,7 @@ class Extractor {
       const cbor::Value& value = map_it->second;
       const unsigned cbor_type_u = static_cast<unsigned>(value.type());
       const unsigned value_type_u = static_cast<unsigned>(value_type);
-      DCHECK(value_type_u < base::size(kExpectedCBORTypes));
+      DCHECK(value_type_u < std::size(kExpectedCBORTypes));
       if (cbor_type_u >= 8 ||
           (kExpectedCBORTypes[value_type_u] & (1u << cbor_type_u)) == 0) {
         return false;

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -116,9 +116,6 @@ std::string GetRegistrationStatusString(
       return "QUOTA_EXCEEDED";
     case gcm::RegistrationRequest::TOO_MANY_REGISTRATIONS:
       return "TOO_MANY_REGISTRATIONS";
-    case gcm::RegistrationRequest::STATUS_COUNT:
-      NOTREACHED();
-      break;
   }
   return "UNKNOWN_STATUS";
 }
@@ -256,7 +253,6 @@ void GCMStatsRecorderImpl::RecordConnection(
 }
 
 void GCMStatsRecorderImpl::RecordConnectionInitiated(const std::string& host) {
-  last_connection_initiation_time_ = base::TimeTicks::Now();
   if (!is_recording_)
     return;
 
@@ -274,11 +270,6 @@ void GCMStatsRecorderImpl::RecordConnectionDelayedDueToBackoff(
 }
 
 void GCMStatsRecorderImpl::RecordConnectionSuccess() {
-  DCHECK(!last_connection_initiation_time_.is_null());
-  UMA_HISTOGRAM_MEDIUM_TIMES(
-      "GCM.ConnectionLatency",
-      (base::TimeTicks::Now() - last_connection_initiation_time_));
-  last_connection_initiation_time_ = base::TimeTicks();
   if (!is_recording_)
     return;
   RecordConnection("Connection succeeded", std::string());
@@ -487,8 +478,6 @@ void GCMStatsRecorderImpl::RecordNotifySendStatus(
     gcm::MCSClient::MessageSendStatus status,
     int byte_size,
     int ttl) {
-  UMA_HISTOGRAM_ENUMERATION("GCM.SendMessageStatus", status,
-                            gcm::MCSClient::SEND_STATUS_COUNT);
   if (!is_recording_)
     return;
   RecordSending(
@@ -504,7 +493,6 @@ void GCMStatsRecorderImpl::RecordIncomingSendError(
     const std::string& app_id,
     const std::string& receiver_id,
     const std::string& message_id) {
-  UMA_HISTOGRAM_COUNTS_1M("GCM.IncomingSendErrors", 1);
   if (!is_recording_)
     return;
   RecordSending(app_id, receiver_id, message_id, "Received 'send error' msg",

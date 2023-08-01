@@ -1,26 +1,31 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {ToteMetricFormat} from '../mojo/type.js';
 import {Metadata} from '../type.js';
 
-import {VideoSaver} from './video_saver.js';
+import {TimeLapseSaver, VideoSaver} from './video_saver.js';
 
 /**
  * Handles captured result photos and video.
- * @interface
  */
 export interface ResultSaver {
   /**
    * Saves photo capture result.
+   *
    * @param blob Data of the photo to be added.
+   * @param format Tote metric format of the photo to be added.
    * @param name Name of the photo to be saved.
    * @param metadata Data of the photo to be added.
    */
-  savePhoto(blob: Blob, name: string, metadata: Metadata|null): Promise<void>;
+  savePhoto(
+      blob: Blob, format: ToteMetricFormat, name: string,
+      metadata: Metadata|null): Promise<void>;
 
   /**
    * Saves gif capture result.
+   *
    * @param blob Data of the gif to be added.
    * @param name Name of the gif to be saved.
    */
@@ -28,6 +33,7 @@ export interface ResultSaver {
 
   /**
    * Returns a video saver to save captured result video.
+   *
    * @param videoRotation Clock-wise rotation in degrees to set in the
    *     video metadata so that the saved video can be displayed in upright
    *     orientation.
@@ -36,7 +42,8 @@ export interface ResultSaver {
 
   /**
    * Saves captured video result.
+   *
    * @param video Contains the video result to be saved.
    */
-  finishSaveVideo(video: VideoSaver): Promise<void>;
+  finishSaveVideo(video: TimeLapseSaver|VideoSaver): Promise<void>;
 }

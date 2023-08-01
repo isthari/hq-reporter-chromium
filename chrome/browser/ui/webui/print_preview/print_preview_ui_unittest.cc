@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,6 @@
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "components/prefs/pref_service.h"
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
-#include "content/public/browser/plugin_service.h"
 #include "content/public/browser/site_instance.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
@@ -74,15 +73,16 @@ TEST_F(PrintPreviewUIUnitTest, PrintPreviewData) {
 
   PrintViewManager* print_view_manager =
       PrintViewManager::FromWebContents(initiator);
-  print_view_manager->PrintPreviewNow(initiator->GetMainFrame(), false);
-  WebContents* preview_dialog = controller->GetOrCreatePreviewDialog(initiator);
+  print_view_manager->PrintPreviewNow(initiator->GetPrimaryMainFrame(), false);
+  WebContents* preview_dialog =
+      controller->GetOrCreatePreviewDialogForTesting(initiator);
 
   EXPECT_NE(initiator, preview_dialog);
   EXPECT_EQ(1, browser()->tab_strip_model()->count());
   EXPECT_TRUE(IsShowingWebContentsModalDialog(initiator));
 
-  PrintPreviewUI* preview_ui = static_cast<PrintPreviewUI*>(
-      preview_dialog->GetWebUI()->GetController());
+  PrintPreviewUI* preview_ui =
+      preview_dialog->GetWebUI()->GetController()->GetAs<PrintPreviewUI>();
   ASSERT_TRUE(preview_ui);
   preview_ui->SetPreviewUIId();
 
@@ -119,15 +119,16 @@ TEST_F(PrintPreviewUIUnitTest, PrintPreviewDraftPages) {
 
   PrintViewManager* print_view_manager =
       PrintViewManager::FromWebContents(initiator);
-  print_view_manager->PrintPreviewNow(initiator->GetMainFrame(), false);
-  WebContents* preview_dialog = controller->GetOrCreatePreviewDialog(initiator);
+  print_view_manager->PrintPreviewNow(initiator->GetPrimaryMainFrame(), false);
+  WebContents* preview_dialog =
+      controller->GetOrCreatePreviewDialogForTesting(initiator);
 
   EXPECT_NE(initiator, preview_dialog);
   EXPECT_EQ(1, browser()->tab_strip_model()->count());
   EXPECT_TRUE(IsShowingWebContentsModalDialog(initiator));
 
-  PrintPreviewUI* preview_ui = static_cast<PrintPreviewUI*>(
-      preview_dialog->GetWebUI()->GetController());
+  PrintPreviewUI* preview_ui =
+      preview_dialog->GetWebUI()->GetController()->GetAs<PrintPreviewUI>();
   ASSERT_TRUE(preview_ui);
   preview_ui->SetPreviewUIId();
 
@@ -177,15 +178,16 @@ TEST_F(PrintPreviewUIUnitTest, ShouldCancelRequest) {
 
   PrintViewManager* print_view_manager =
       PrintViewManager::FromWebContents(initiator);
-  print_view_manager->PrintPreviewNow(initiator->GetMainFrame(), false);
-  WebContents* preview_dialog = controller->GetOrCreatePreviewDialog(initiator);
+  print_view_manager->PrintPreviewNow(initiator->GetPrimaryMainFrame(), false);
+  WebContents* preview_dialog =
+      controller->GetOrCreatePreviewDialogForTesting(initiator);
 
   EXPECT_NE(initiator, preview_dialog);
   EXPECT_EQ(1, browser()->tab_strip_model()->count());
   EXPECT_TRUE(IsShowingWebContentsModalDialog(initiator));
 
-  PrintPreviewUI* preview_ui = static_cast<PrintPreviewUI*>(
-      preview_dialog->GetWebUI()->GetController());
+  PrintPreviewUI* preview_ui =
+      preview_dialog->GetWebUI()->GetController()->GetAs<PrintPreviewUI>();
   ASSERT_TRUE(preview_ui);
   preview_ui->SetPreviewUIId();
 
@@ -220,14 +222,15 @@ TEST_F(PrintPreviewUIUnitTest, PrintPreviewFailureCancelsPendingActions) {
       PrintPreviewDialogController::GetInstance();
   ASSERT_TRUE(controller);
 
-  WebContents* preview_dialog = controller->GetOrCreatePreviewDialog(initiator);
+  WebContents* preview_dialog =
+      controller->GetOrCreatePreviewDialogForTesting(initiator);
 
   EXPECT_NE(initiator, preview_dialog);
   EXPECT_EQ(1, browser()->tab_strip_model()->count());
   EXPECT_TRUE(IsShowingWebContentsModalDialog(initiator));
 
   PrintPreviewUI* preview_ui =
-      static_cast<PrintPreviewUI*>(preview_dialog->GetWebUI()->GetController());
+      preview_dialog->GetWebUI()->GetController()->GetAs<PrintPreviewUI>();
   ASSERT_TRUE(preview_ui);
   preview_ui->SetPreviewUIId();
 

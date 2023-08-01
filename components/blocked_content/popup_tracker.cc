@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/time/default_tick_clock.h"
 #include "components/blocked_content/popup_opener_tab_helper.h"
-#include "components/ukm/content/source_url_recorder.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
 #include "services/metrics/public/cpp/metrics_utils.h"
@@ -51,7 +50,7 @@ PopupTracker::PopupTracker(content::WebContents* contents,
       visibility_tracker_(
           base::DefaultTickClock::GetInstance(),
           contents->GetVisibility() != content::Visibility::HIDDEN),
-      opener_source_id_(ukm::GetSourceIdForWebContentsDocument(opener)),
+      opener_source_id_(opener->GetPrimaryMainFrame()->GetPageUkmSourceId()),
       window_open_disposition_(disposition) {
   if (auto* popup_opener = PopupOpenerTabHelper::FromWebContents(opener))
     popup_opener->OnOpenedPopup(this);
@@ -67,24 +66,6 @@ PopupTracker::PopupTracker(content::WebContents* contents,
 void PopupTracker::WebContentsDestroyed() {
   base::TimeDelta total_foreground_duration =
       visibility_tracker_.GetForegroundDuration();
-  if (first_load_visible_time_start_) {
-    base::TimeDelta first_load_visible_time =
-        first_load_visible_time_
-            ? *first_load_visible_time_
-            : total_foreground_duration - *first_load_visible_time_start_;
-    UMA_HISTOGRAM_LONG_TIMES(
-        "ContentSettings.Popups.FirstDocumentEngagementTime2",
-        first_load_visible_time);
-  }
-  UMA_HISTOGRAM_CUSTOM_TIMES("ContentSettings.Popups.EngagementTime",
-                             total_foreground_duration, base::Milliseconds(1),
-                             base::Hours(6), 50);
-  if (web_contents()->GetClosedByUserGesture()) {
-    UMA_HISTOGRAM_CUSTOM_TIMES(
-        "ContentSettings.Popups.EngagementTime.GestureClose",
-        total_foreground_duration, base::Milliseconds(1), base::Hours(6), 50);
-  }
-
   if (opener_source_id_ != ukm::kInvalidSourceId) {
     const int kMaxInteractions = 100;
     const int kMaxSubcatagoryInteractions = 50;

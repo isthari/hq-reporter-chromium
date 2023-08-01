@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/time/time.h"
 #include "base/values.h"
 #include "chrome/browser/offline_pages/resource_loading_observer.h"
 #include "components/offline_pages/content/background_loader/background_loader_contents.h"
@@ -190,7 +191,7 @@ class BackgroundLoaderOffliner
 
   // Saves loading signals.
   // TODO(petewil): We will be replacing this with the new snapshot controller.
-  base::DictionaryValue signal_data_;
+  base::Value::Dict signal_data_;
 
   // Callback for cancel.
   CancelCallback cancel_callback_;

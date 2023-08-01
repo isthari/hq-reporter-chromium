@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,10 @@
 #define COMPONENTS_AUTOFILL_CONTENT_BROWSER_FORM_FOREST_TEST_API_H_
 
 #include "base/containers/stack.h"
+#include "base/memory/raw_ptr.h"
 #include "components/autofill/content/browser/form_forest.h"
 
-namespace autofill {
-namespace internal {
+namespace autofill::internal {
 
 // Exposes some testing (and debugging) operations for FormForest.
 class FormForestTestApi {
@@ -17,12 +17,9 @@ class FormForestTestApi {
   using FrameData = FormForest::FrameData;
   using FrameForm = FormForest::FrameAndForm;
 
-  absl::optional<LocalFrameToken> Resolve(const FrameData& local,
-                                          FrameToken other) {
-    return ff_->Resolve(local, other);
-  }
-
   explicit FormForestTestApi(FormForest* ff) : ff_(ff) { DCHECK(ff_); }
+
+  void Reset() { ff_->frame_datas_.clear(); }
 
   FrameData* GetFrameData(LocalFrameToken frame) {
     return ff_->GetFrameData(frame);
@@ -32,8 +29,6 @@ class FormForestTestApi {
                         FrameData* frame_data = nullptr) {
     return ff_->GetFormData(form, frame_data);
   }
-
-  FrameForm GetRoot(FormGlobalId form) { return ff_->GetRoot(form); }
 
   FormForest& form_forest() { return *ff_; }
 
@@ -67,7 +62,7 @@ class FormForestTestApi {
   void ExpandForm(base::stack<FrameForm>& frontier, FrameForm frame_and_form);
 
   // Non-null pointer to wrapped FormForest.
-  FormForest* ff_;
+  raw_ptr<FormForest> ff_;
 };
 
 template <typename UnaryFunction>
@@ -84,7 +79,6 @@ void FormForestTestApi::TraverseTrees(base::stack<FrameForm>& frontier,
   }
 }
 
-}  // namespace internal
-}  // namespace autofill
+}  // namespace autofill::internal
 
 #endif  // COMPONENTS_AUTOFILL_CONTENT_BROWSER_FORM_FOREST_TEST_API_H_

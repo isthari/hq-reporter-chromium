@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,6 +32,12 @@ enum LaunchTypeAtCreation:int {
     FROM_TAB_GROUP_UI = 13,
     FROM_LONGPRESS_BACKGROUND_IN_GROUP = 14,
     FROM_APP_WIDGET = 15,
+    // Deprecated. Use `FROM_LONGPRESS_FOREGROUND` in new code.
+    FROM_LONGPRESS_INCOGNITO = 16,
+    FROM_RECENT_TABS = 17,
+    FROM_READING_LIST = 18,
+    FROM_TAB_SWITCHER_UI = 19,
+    FROM_RESTORE_TABS_UI = 20,
     // Add new values here and don't change existing values
     // as they are persisted across restarts. Changing existing
     // values will lead to backwards compatibility issues crbug.com/1286984.
@@ -46,6 +52,7 @@ enum UserAgentType:int {
     USER_AGENT_UNKNOWN = 5,
 }
 
+// Before making any modification here, make a copy of this file and save it to |critical_persisted_tab_tab_test_vi| where vi is the newer version and write a test to verify backwards compatability of that table with the new change.
 table CriticalPersistedTabDataFlatBuffer {
     // Parent Tab identifier.
     parent_id:int;
@@ -73,4 +80,7 @@ table CriticalPersistedTabDataFlatBuffer {
 
     // User Agent.
     user_agent:UserAgentType=DEFAULT;
+
+    // Timestamp of the last committed navigation done in the Tab.
+    last_navigation_committed_timestamp_millis:long;
 }

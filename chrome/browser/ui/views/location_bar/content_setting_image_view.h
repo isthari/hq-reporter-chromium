@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,9 @@
 
 #include "base/memory/raw_ptr.h"
 #include "chrome/browser/ui/content_settings/content_setting_image_model.h"
-#include "chrome/browser/ui/user_education/help_bubble.h"
 #include "chrome/browser/ui/views/location_bar/icon_label_bubble_view.h"
 #include "components/content_settings/core/common/content_settings_types.h"
+#include "components/user_education/common/help_bubble.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/gfx/animation/animation_delegate.h"
 #include "ui/gfx/animation/slide_animation.h"
@@ -41,7 +41,7 @@ class ContentSettingImageView : public IconLabelBubbleView,
                                 public views::WidgetObserver {
  public:
   METADATA_HEADER(ContentSettingImageView);
-
+  DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kMediaActivityIndicatorElementId);
   class Delegate {
    public:
     // Delegate should return true if the content setting icon should be hidden.
@@ -94,8 +94,12 @@ class ContentSettingImageView : public IconLabelBubbleView,
   void reset_animation_for_testing() {
     IconLabelBubbleView::ResetSlideAnimation(true);
   }
-  HelpBubble* critical_promo_bubble_for_testing() {
+  user_education::HelpBubble* critical_promo_bubble_for_testing() {
     return critical_promo_bubble_.get();
+  }
+
+  const gfx::VectorIcon* get_icon_for_testing() const {
+    return content_setting_image_model_->get_icon_for_testing();
   }
 
  private:
@@ -118,7 +122,7 @@ class ContentSettingImageView : public IconLabelBubbleView,
   // Has a value that is not is_zero() if a promo is showing, or has an
   // is_zero() value if the promo was considered but it was decided not to show
   // it.
-  std::unique_ptr<HelpBubble> critical_promo_bubble_;
+  std::unique_ptr<user_education::HelpBubble> critical_promo_bubble_;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_LOCATION_BAR_CONTENT_SETTING_IMAGE_VIEW_H_

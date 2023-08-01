@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "gpu/command_buffer/service/shared_context_state.h"
 #include "skia/ext/legacy_display_globals.h"
 #include "third_party/skia/include/core/SkSurface.h"
+#include "third_party/skia/include/gpu/ganesh/SkSurfaceGanesh.h"
 #include "ui/gfx/buffer_format_util.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_surface.h"
@@ -27,6 +28,7 @@ SkiaOutputDeviceWebView::SkiaOutputDeviceWebView(
     gpu::MemoryTracker* memory_tracker,
     DidSwapBufferCompleteCallback did_swap_buffer_complete_callback)
     : SkiaOutputDevice(context_state->gr_context(),
+                       context_state->graphite_context(),
                        memory_tracker,
                        std::move(did_swap_buffer_complete_callback)),
       context_state_(context_state),
@@ -50,41 +52,44 @@ SkiaOutputDeviceWebView::SkiaOutputDeviceWebView(
 
 SkiaOutputDeviceWebView::~SkiaOutputDeviceWebView() = default;
 
-bool SkiaOutputDeviceWebView::Reshape(const gfx::Size& size,
-                                      float device_scale_factor,
+bool SkiaOutputDeviceWebView::Reshape(const SkImageInfo& image_info,
                                       const gfx::ColorSpace& color_space,
-                                      gfx::BufferFormat format,
+                                      int sample_count,
+                                      float device_scale_factor,
                                       gfx::OverlayTransform transform) {
   DCHECK_EQ(transform, gfx::OVERLAY_TRANSFORM_NONE);
 
+  gfx::Size size = gfx::SkISizeToSize(image_info.dimensions());
   if (!gl_surface_->Resize(size, device_scale_factor, color_space,
-                           gfx::AlphaBitsForBufferFormat(format))) {
+                           /*has_alpha=*/true)) {
     DLOG(ERROR) << "Failed to resize.";
     return false;
   }
 
   size_ = size;
-  color_space_ = color_space;
+  sk_color_space_ = image_info.refColorSpace();
   InitSkiaSurface(gl_surface_->GetBackingFramebufferObject());
   return !!sk_surface_;
 }
 
-void SkiaOutputDeviceWebView::SwapBuffers(BufferPresentedCallback feedback,
-                                          OutputSurfaceFrame frame) {
+void SkiaOutputDeviceWebView::Present(
+    const absl::optional<gfx::Rect>& update_rect,
+    BufferPresentedCallback feedback,
+    OutputSurfaceFrame frame) {
+  DCHECK(!update_rect);
   StartSwapBuffers({});
 
   gfx::Size surface_size =
       gfx::Size(sk_surface_->width(), sk_surface_->height());
 
-  FinishSwapBuffers(
-      gfx::SwapCompletionResult(gl_surface_->SwapBuffers(std::move(feedback))),
-      surface_size, std::move(frame));
+  auto data = frame.data;
+  FinishSwapBuffers(gfx::SwapCompletionResult(
+                        gl_surface_->SwapBuffers(std::move(feedback), data)),
+                    surface_size, std::move(frame));
 }
 
 SkSurface* SkiaOutputDeviceWebView::BeginPaint(
-    bool allocate_frame_buffer,
     std::vector<GrBackendSemaphore>* end_semaphores) {
-  DCHECK(!allocate_frame_buffer);
   DCHECK(sk_surface_);
 
   unsigned int fbo = gl_surface_->GetBackingFramebufferObject();
@@ -114,16 +119,15 @@ void SkiaOutputDeviceWebView::InitSkiaSurface(unsigned int fbo) {
                     : kBottomLeft_GrSurfaceOrigin;
 
   SkSurfaceProps surface_props{0, kUnknown_SkPixelGeometry};
-  sk_surface_ = SkSurface::MakeFromBackendRenderTarget(
+  sk_surface_ = SkSurfaces::WrapBackendRenderTarget(
       context_state_->gr_context(), render_target, origin, color_type,
-      color_space_.ToSkColorSpace(), &surface_props);
+      sk_color_space_, &surface_props);
 
   if (!sk_surface_) {
     LOG(ERROR) << "Couldn't create surface: "
                << context_state_->gr_context()->abandoned() << " " << color_type
                << " " << framebuffer_info.fFBOID << " "
-               << framebuffer_info.fFormat << " " << color_space_.ToString()
-               << " " << size_.ToString();
+               << framebuffer_info.fFormat << " " << size_.ToString();
   }
 }
 

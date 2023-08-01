@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,12 @@
 
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/style/ash_color_provider.h"
+#include "ash/style/typography.h"
 #include "ash/system/phonehub/continue_browsing_chip.h"
 #include "ash/system/phonehub/phone_hub_view_ids.h"
 #include "ash/system/phonehub/ui_constants.h"
 #include "ash/system/tray/tray_constants.h"
+#include "chromeos/constants/chromeos_features.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/text_constants.h"
@@ -45,17 +47,23 @@ class HeaderView : public views::Label {
   HeaderView() {
     SetText(
         l10n_util::GetStringUTF16(IDS_ASH_PHONE_HUB_TASK_CONTINUATION_TITLE));
-    SetLineHeight(kHeaderLabelLineHeight);
-    SetFontList(font_list()
-                    .DeriveWithSizeDelta(kHeaderTextFontSizeDip -
-                                         font_list().GetFontSize())
-                    .DeriveWithWeight(gfx::Font::Weight::MEDIUM));
     SetHorizontalAlignment(gfx::HorizontalAlignment::ALIGN_LEFT);
     SetVerticalAlignment(gfx::VerticalAlignment::ALIGN_MIDDLE);
     SetAutoColorReadabilityEnabled(false);
     SetSubpixelRenderingEnabled(false);
     SetEnabledColor(AshColorProvider::Get()->GetContentLayerColor(
         AshColorProvider::ContentLayerType::kTextColorPrimary));
+
+    if (chromeos::features::IsJellyrollEnabled()) {
+      TypographyProvider::Get()->StyleLabel(ash::TypographyToken::kCrosButton1,
+                                            *this);
+    } else {
+      SetFontList(font_list()
+                      .DeriveWithSizeDelta(kHeaderTextFontSizeDip -
+                                           font_list().GetFontSize())
+                      .DeriveWithWeight(gfx::Font::Weight::MEDIUM));
+    }
+    SetLineHeight(kHeaderLabelLineHeight);
   }
 
   ~HeaderView() override = default;
@@ -104,7 +112,7 @@ TaskContinuationView::TaskChipsView::TaskChipsView() = default;
 TaskContinuationView::TaskChipsView::~TaskChipsView() = default;
 
 void TaskContinuationView::TaskChipsView::AddTaskChip(views::View* task_chip) {
-  int view_size = task_chips_.view_size();
+  size_t view_size = task_chips_.view_size();
   task_chips_.Add(task_chip, view_size);
   AddChildView(task_chip);
 }
@@ -127,7 +135,7 @@ gfx::Size TaskContinuationView::TaskChipsView::CalculatePreferredSize() const {
 void TaskContinuationView::TaskChipsView::Layout() {
   views::View::Layout();
   CalculateIdealBounds();
-  for (int i = 0; i < task_chips_.view_size(); ++i) {
+  for (size_t i = 0; i < task_chips_.view_size(); ++i) {
     auto* button = task_chips_.view_at(i);
     button->SetBoundsRect(task_chips_.ideal_bounds(i));
   }
@@ -154,7 +162,7 @@ gfx::Point TaskContinuationView::TaskChipsView::GetButtonPosition(int index) {
 }
 
 void TaskContinuationView::TaskChipsView::CalculateIdealBounds() {
-  for (int i = 0; i < task_chips_.view_size(); ++i) {
+  for (size_t i = 0; i < task_chips_.view_size(); ++i) {
     gfx::Rect tile_bounds =
         gfx::Rect(GetButtonPosition(i), GetTaskContinuationChipSize());
     task_chips_.set_ideal_bounds(i, tile_bounds);

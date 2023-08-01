@@ -54,7 +54,6 @@ class AXImageMapLink final : public AXNodeObject {
   HTMLMapElement* MapElement() const;
 
   ax::mojom::blink::Role NativeRoleIgnoringAria() const override;
-  bool ComputeAccessibilityIsIgnored(IgnoredReasons* = nullptr) const override;
   bool CanHaveChildren() const override {
     // If the area has child nodes, those will be rendered, and the combination
     // of Role::kGenericContainer and CanHaveChildren() = true allows for those
@@ -70,7 +69,7 @@ class AXImageMapLink final : public AXNodeObject {
   static AXObject* GetAXObjectForImageMap(AXObjectCacheImpl& cache, Node* area);
   void GetRelativeBounds(AXObject** out_container,
                          gfx::RectF& out_bounds_in_container,
-                         skia::Matrix44& out_container_transform,
+                         gfx::Transform& out_container_transform,
                          bool* clips_children = nullptr) const override;
 
  private:

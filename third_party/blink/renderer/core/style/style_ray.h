@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,13 @@
 #include "third_party/blink/renderer/core/style/basic_shapes.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
 
+namespace gfx {
+class PointF;
+}
+
 namespace blink {
+
+struct PointAndTangent;
 
 class StyleRay : public BasicShape {
  public:
@@ -23,14 +29,20 @@ class StyleRay : public BasicShape {
   static scoped_refptr<StyleRay> Create(float angle, RaySize, bool contain);
   ~StyleRay() override = default;
 
-  float Angle() const { return angle_; }
+  float CalculateRayPathLength(const gfx::PointF& starting_point,
+                               const gfx::SizeF& reference_box_size) const;
+  PointAndTangent PointAndNormalAtLength(float length) const;
+
+  float Angle() const { return ClampTo<float, float>(angle_); }
   RaySize Size() const { return size_; }
   bool Contain() const { return contain_; }
 
-  void GetPath(Path&, const gfx::RectF&, float) override;
-  bool operator==(const BasicShape&) const override;
+  void GetPath(Path&, const gfx::RectF&, float) const override;
 
   ShapeType GetType() const override { return kStyleRayType; }
+
+ protected:
+  bool IsEqualAssumingSameType(const BasicShape&) const override;
 
  private:
   StyleRay(float angle, RaySize, bool contain);

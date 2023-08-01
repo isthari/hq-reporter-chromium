@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2019 The Chromium Authors. All rights reserved.
+# Copyright 2019 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -128,8 +128,6 @@ def _DownloadAndAnalyze(signed_prefix, unsigned_prefix, staging_dir):
 
   webview = make_artifact('arm/AndroidWebviewStable.aab')
   webview64 = make_artifact('arm_64/AndroidWebviewStable.aab')
-  chrome_modern = make_artifact('arm/ChromeModernStable.aab')
-  chrome_modern64 = make_artifact('arm_64/ChromeModernStable.aab')
   monochrome = make_artifact('arm/MonochromeStable.aab')
   monochrome64 = make_artifact('arm_64/MonochromeStable.aab')
   trichrome_chrome = make_artifact('arm/TrichromeChromeGoogleStable.aab')
@@ -144,6 +142,13 @@ def _DownloadAndAnalyze(signed_prefix, unsigned_prefix, staging_dir):
       make_artifact('arm/TrichromeLibraryGoogleSystemStable.apk'),
       make_artifact(
           'arm/for-signing-only/TrichromeChromeGoogleSystemStable.apk',
+          prefix=unsigned_prefix),
+  ]
+  trichrome64_system_apks = [
+      make_artifact('arm_64/TrichromeWebViewGoogleSystemStable.apk'),
+      make_artifact('arm_64/TrichromeLibraryGoogleSystemStable.apk'),
+      make_artifact(
+          'arm_64/for-signing-only/TrichromeChromeGoogleSystemStable.apk',
           prefix=unsigned_prefix),
   ]
   trichrome_system_stubs = [
@@ -161,8 +166,6 @@ def _DownloadAndAnalyze(signed_prefix, unsigned_prefix, staging_dir):
 
   # Add metrics in the order that we want them in the .csv output.
   metrics = collections.OrderedDict()
-  chrome_modern.AddSize(metrics)
-  chrome_modern64.AddSize(metrics)
   webview.AddSize(metrics)
   webview64.AddSize(metrics)
   monochrome.AddSize(metrics)
@@ -183,16 +186,21 @@ def _DownloadAndAnalyze(signed_prefix, unsigned_prefix, staging_dir):
 
   webview.PrintLibraryCompression()
 
-  # AndroidGo size exists only for webview & library.
+  metrics['System Image Size (arm32)'] = sum(x.GetApkSize()
+                                             for x in trichrome_system_apks)
+  metrics['System Image Size (arm64)'] = sum(x.GetApkSize()
+                                             for x in trichrome64_system_apks)
+
   go_install_size = (trichrome_chrome.GetAndroidGoSize() +
                      trichrome_webview.GetAndroidGoSize() +
                      trichrome_library.GetAndroidGoSize())
   metrics['Android Go (TriChrome) Install Size'] = go_install_size
 
-  system_apks_size = sum(x.GetCompressedSize() for x in trichrome_system_apks)
+  compressed_system_apks_size = sum(x.GetCompressedSize()
+                                    for x in trichrome_system_apks)
   stubs_sizes = sum(x.GetApkSize() for x in trichrome_system_stubs)
   metrics['Android Go (Trichrome) Compressed System Image'] = (
-      system_apks_size + stubs_sizes)
+      compressed_system_apks_size + stubs_sizes)
 
   monochrome.AddMethodCount(metrics)
 
@@ -203,6 +211,24 @@ def _DownloadAndAnalyze(signed_prefix, unsigned_prefix, staging_dir):
   trichrome_chrome.AddDfmSizes(metrics, 'Chrome')
   trichrome_webview.AddDfmSizes(metrics, 'WebView')
   _DumpCsv(metrics)
+
+
+def _CheckGnArgs(unsigned_prefix):
+  args = [_GSUTIL, 'cat', unsigned_prefix + '/arm/gn-args-derived.txt']
+  logging.warning(' '.join(args))
+  gn_args_data = subprocess.check_output(args, text=True)
+
+  def check_arg(name, value):
+    if f'{name} = {value}' not in gn_args_data:
+      if f'{name} =' not in gn_args_data:
+        sys.stderr.write(f'{name} is not in gn-args-derived.txt.\n')
+      else:
+        sys.stderr.write(f'{name}!={value} in gn-args-derived.txt.\n')
+      sys.stderr.write('To download: ' + ' '.join(args) + '\n')
+      sys.exit(1)
+
+  check_arg('is_on_release_branch', 'true')
+  check_arg('v8_enable_runtime_call_stats', 'false')
 
 
 def main():
@@ -219,6 +245,11 @@ def main():
 
   signed_prefix = posixpath.join(options.signed_bucket, options.version)
   unsigned_prefix = signed_prefix.replace('signed', 'unsigned')
+
+  # Ensure the binary size isn't inflated by is_on_release_branch=true not
+  # being set yet.
+  _CheckGnArgs(unsigned_prefix)
+
   with tempfile.TemporaryDirectory() as staging_dir:
     if options.keep_files:
       staging_dir = 'milestone_apk_sizes-staging'

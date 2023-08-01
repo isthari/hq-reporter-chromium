@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include "ash/components/arc/mojom/lock_screen.mojom.h"
 #include "ash/components/arc/session/connection_observer.h"
+#include "base/memory/raw_ptr.h"
 #include "base/threading/thread_checker.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/session_manager/core/session_manager_observer.h"
@@ -46,13 +47,16 @@ class ArcLockScreenBridge
   // session_manager::SessionManagerObserver overrides.
   void OnSessionStateChanged() override;
 
+  static void EnsureFactoryBuilt();
+
  private:
   // Sends the device locked state to container.
   void SendDeviceLockedState();
 
   THREAD_CHECKER(thread_checker_);
 
-  ArcBridgeService* const arc_bridge_service_;  // Owned by ArcServiceManager.
+  const raw_ptr<ArcBridgeService, ExperimentalAsh>
+      arc_bridge_service_;  // Owned by ArcServiceManager.
 };
 
 }  // namespace arc

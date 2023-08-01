@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,8 @@
 #include "base/containers/contains.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
+#include "base/ranges/algorithm.h"
+#include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/bind.h"
 #include "chrome/browser/profiles/profile.h"
@@ -17,9 +19,11 @@
 #include "chrome/browser/web_applications/web_app_icon_manager.h"
 #include "chrome/browser/web_applications/web_app_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/codec/png_codec.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/image/image_skia.h"
+#include "ui/gfx/image/image_skia_rep.h"
 #include "url/gurl.h"
 
 namespace web_app {
@@ -60,7 +64,7 @@ void AddIconToIconsMap(const GURL& icon_url,
 
 void AddEmptyIconToIconsMap(const GURL& icon_url, IconsMap* icons_map) {
   std::vector<SkBitmap> bitmaps;
-  bitmaps.emplace_back(SkBitmap{});
+  bitmaps.emplace_back();
 
   icons_map->emplace(icon_url, std::move(bitmaps));
 }
@@ -120,17 +124,14 @@ bool ReadBitmap(FileUtilsWrapper* utils,
 }
 
 base::span<const int> GetIconSizes() {
-  return base::span<const int>(kIconSizes, base::size(kIconSizes));
+  return base::span<const int>(kIconSizes, std::size(kIconSizes));
 }
 
 bool ContainsOneIconOfEachSize(
     const std::map<SquareSizePx, SkBitmap>& icon_bitmaps) {
   for (int size_px : kIconSizes) {
-    int num_icons_for_size = std::count_if(
-        icon_bitmaps.begin(), icon_bitmaps.end(),
-        [&size_px](const std::pair<SquareSizePx, SkBitmap>& icon) {
-          return icon.first == size_px;
-        });
+    int num_icons_for_size = base::ranges::count(
+        icon_bitmaps, size_px, &std::pair<const SquareSizePx, SkBitmap>::first);
     if (num_icons_for_size != 1)
       return false;
   }
@@ -201,7 +202,9 @@ GeneratedIconsInfo::GeneratedIconsInfo(const GeneratedIconsInfo&) = default;
 GeneratedIconsInfo::GeneratedIconsInfo(IconPurpose purpose,
                                        std::vector<SquareSizePx> sizes_px,
                                        std::vector<SkColor> colors)
-    : purpose(purpose), sizes_px(sizes_px), colors(colors) {}
+    : purpose(purpose),
+      sizes_px(std::move(sizes_px)),
+      colors(std::move(colors)) {}
 
 GeneratedIconsInfo::~GeneratedIconsInfo() = default;
 
@@ -219,7 +222,7 @@ apps::IconInfo CreateIconInfo(const GURL& icon_base_url,
 }
 
 void AddIconsToWebAppInstallInfo(
-    WebAppInstallInfo* web_application_info,
+    WebAppInstallInfo* install_info,
     const GURL& icons_base_url,
     const std::vector<GeneratedIconsInfo>& icons_info) {
   for (const GeneratedIconsInfo& info : icons_info) {
@@ -230,12 +233,12 @@ void AddIconsToWebAppInstallInfo(
     for (size_t i = 0; i < info.sizes_px.size(); ++i) {
       apps::IconInfo apps_icon_info =
           CreateIconInfo(icons_base_url, info.purpose, info.sizes_px[i]);
-      web_application_info->manifest_icons.push_back(std::move(apps_icon_info));
+      install_info->manifest_icons.push_back(std::move(apps_icon_info));
 
       AddGeneratedIcon(&generated_bitmaps, info.sizes_px[i], info.colors[i]);
     }
 
-    web_application_info->icon_bitmaps.SetBitmapsForPurpose(
+    install_info->icon_bitmaps.SetBitmapsForPurpose(
         info.purpose, std::move(generated_bitmaps));
   }
 }
@@ -267,43 +270,20 @@ void IconManagerWriteGeneratedIcons(
   run_loop.Run();
 }
 
-void IconManagerStartAndAwaitFaviconAny(WebAppIconManager& icon_manager,
-                                        const AppId& app_id) {
-  base::RunLoop run_loop;
-  icon_manager.SetFaviconReadCallbackForTesting(
-      base::BindLambdaForTesting([&](const AppId& cached_app_id) {
-        DCHECK_EQ(cached_app_id, app_id);
-        run_loop.Quit();
-      }));
-  icon_manager.Start();
-  run_loop.Run();
-}
-
-void IconManagerStartAndAwaitFaviconMonochrome(WebAppIconManager& icon_manager,
-                                               const AppId& app_id) {
-  base::RunLoop run_loop;
-  icon_manager.SetFaviconMonochromeReadCallbackForTesting(
-      base::BindLambdaForTesting([&](const AppId& cached_app_id) {
-        DCHECK_EQ(cached_app_id, app_id);
-        run_loop.Quit();
-      }));
-  icon_manager.Start();
-  run_loop.Run();
-}
-
-SkColor IconManagerReadAppIconPixel(const WebAppIconManager& icon_manager,
+SkColor IconManagerReadAppIconPixel(WebAppIconManager& icon_manager,
                                     const AppId& app_id,
                                     SquareSizePx size_px,
                                     int x,
                                     int y) {
-  SkColor result;
+  SkColor result = SK_ColorTRANSPARENT;
   base::RunLoop run_loop;
   icon_manager.ReadIcons(
       app_id, IconPurpose::ANY, {size_px},
       base::BindLambdaForTesting(
           [&](std::map<SquareSizePx, SkBitmap> icon_bitmaps) {
-            run_loop.Quit();
+            DCHECK(base::Contains(icon_bitmaps, size_px));
             result = icon_bitmaps.at(size_px).getColor(x, y);
+            run_loop.Quit();
           }));
   run_loop.Run();
   return result;

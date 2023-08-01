@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,24 +11,26 @@
 #include <vector>
 
 #include "ash/components/arc/arc_browser_context_keyed_service_factory_base.h"
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/logging.h"
 #include "base/memory/singleton.h"
 #include "base/memory/weak_ptr.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "chrome/browser/ash/arc/enterprise/cert_store/arc_cert_installer_utils.h"
 #include "chrome/browser/ash/arc/keymaster/arc_keymaster_bridge.h"
 #include "chrome/browser/ash/arc/policy/arc_policy_bridge.h"
-#include "chrome/browser/ash/certificate_provider/certificate_provider_service_factory.h"
 #include "chrome/browser/ash/platform_keys/key_permissions/key_permissions_service_factory.h"
 #include "chrome/browser/ash/platform_keys/key_permissions/key_permissions_service_impl.h"
 #include "chrome/browser/ash/platform_keys/platform_keys_service.h"
 #include "chrome/browser/ash/platform_keys/platform_keys_service_factory.h"
+#include "chrome/browser/certificate_provider/certificate_provider_service_factory.h"
+#include "chrome/browser/chromeos/platform_keys/platform_keys.h"
 #include "chrome/browser/net/nss_service.h"
 #include "chrome/browser/net/nss_service_factory.h"
-#include "chrome/browser/platform_keys/platform_keys.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_keyed_service_factory.h"
 #include "chrome/common/net/x509_certificate_model_nss.h"
 #include "chrome/services/keymaster/public/mojom/cert_store.mojom.h"
 #include "components/policy/core/common/policy_map.h"
@@ -40,12 +42,16 @@
 #include "net/cert/x509_util_nss.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
+// Enable VLOG level 1.
+#undef ENABLED_VLOG_LEVEL
+#define ENABLED_VLOG_LEVEL 1
+
 namespace arc {
 
 namespace {
 
 // Singleton factory for CertStoreService.
-class CertStoreServiceFactory : public BrowserContextKeyedServiceFactory {
+class CertStoreServiceFactory : public ProfileKeyedServiceFactory {
  public:
   static CertStoreService* GetForBrowserContext(
       content::BrowserContext* context) {
@@ -63,16 +69,15 @@ class CertStoreServiceFactory : public BrowserContextKeyedServiceFactory {
  private:
   friend base::DefaultSingletonTraits<CertStoreServiceFactory>;
   CertStoreServiceFactory()
-      : BrowserContextKeyedServiceFactory(
+      : ProfileKeyedServiceFactory(
             "CertStoreService",
-            BrowserContextDependencyManager::GetInstance()) {
+            ProfileSelections::Builder()
+                .WithRegular(ProfileSelection::kOwnInstance)
+                // TODO(crbug.com/1418376): Check if this service is needed in
+                // Guest mode.
+                .WithGuest(ProfileSelection::kOwnInstance)
+                .Build()) {
     DependsOn(NssServiceFactory::GetInstance());
-  }
-
-  // BrowserContextKeyedServiceFactory overrides:
-  content::BrowserContext* GetBrowserContextToUse(
-      content::BrowserContext* context) const override {
-    return context;
   }
 
   bool ServiceIsNULLWhileTesting() const override { return true; }
@@ -157,13 +162,13 @@ void PostListedCertsBackToOriginalTaskRunner(
 }
 
 void ListCertsOnIO(scoped_refptr<base::TaskRunner> original_task_runner,
-                   keymaster::mojom::ChapsSlot slot,
+                   keymanagement::mojom::ChapsSlot slot,
                    net::NSSCertDatabase::ListCertsCallback callback,
                    net::NSSCertDatabase* database) {
   // |database->ListCertsInSlot| must be called from the IO thread.
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
 
-  if (slot == keymaster::mojom::ChapsSlot::kSystem &&
+  if (slot == keymanagement::mojom::ChapsSlot::kSystem &&
       !database->GetSystemSlot()) {
     // Trying to list system slot when it's not available, return empty list.
     PostListedCertsBackToOriginalTaskRunner(original_task_runner,
@@ -179,14 +184,14 @@ void ListCertsOnIO(scoped_refptr<base::TaskRunner> original_task_runner,
   database->ListCertsInSlot(
       base::BindOnce(&PostListedCertsBackToOriginalTaskRunner,
                      original_task_runner, std::move(callback)),
-      slot == keymaster::mojom::ChapsSlot::kUser
+      slot == keymanagement::mojom::ChapsSlot::kUser
           ? database->GetPrivateSlot().get()
           : database->GetSystemSlot().get());
 }
 
 void ListCertsWithDbGetterOnIO(
     scoped_refptr<base::TaskRunner> original_task_runner,
-    keymaster::mojom::ChapsSlot slot,
+    keymanagement::mojom::ChapsSlot slot,
     net::NSSCertDatabase::ListCertsCallback callback,
     NssCertDatabaseGetter database_getter) {
   // |database_getter| must be run from the IO thread.
@@ -209,7 +214,7 @@ void ListCertsWithDbGetterOnIO(
 // database and list certs from the IO thread, while posting |callback| with the
 // output list to the original caller thread.
 void ListCerts(content::BrowserContext* const context,
-               keymaster::mojom::ChapsSlot slot,
+               keymanagement::mojom::ChapsSlot slot,
                net::NSSCertDatabase::ListCertsCallback callback) {
   // |context| must be accessed on the UI thread.
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
@@ -217,7 +222,7 @@ void ListCerts(content::BrowserContext* const context,
   content::GetIOThreadTaskRunner({})->PostTask(
       FROM_HERE,
       base::BindOnce(&ListCertsWithDbGetterOnIO,
-                     base::ThreadTaskRunnerHandle::Get(), slot,
+                     base::SingleThreadTaskRunner::GetCurrentDefault(), slot,
                      std::move(callback),
                      NssServiceFactory::GetForContext(context)
                          ->CreateNSSCertDatabaseGetterForIOThread()));
@@ -249,14 +254,11 @@ void IsCertificateAllowed(IsCertificateAllowedCallback callback,
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   DCHECK(cert);
 
-  std::string public_key_spki_der =
-      chromeos::platform_keys::GetSubjectPublicKeyInfo(cert);
-
   // Check if the key is marked for corporate usage.
   ash::platform_keys::KeyPermissionsServiceFactory::GetForBrowserContext(
       context)
       ->IsCorporateKey(
-          public_key_spki_der,
+          chromeos::platform_keys::GetSubjectPublicKeyInfoBlob(cert),
           base::BindOnce(&CheckCorporateFlag, std::move(callback)));
 }
 
@@ -266,7 +268,7 @@ void IsCertificateAllowed(IsCertificateAllowedCallback callback,
 // |nss_cert|.
 absl::optional<CertDescription> BuildCertDescritionOnWorkerThread(
     net::ScopedCERTCertificate nss_cert,
-    keymaster::mojom::ChapsSlot slot) {
+    keymanagement::mojom::ChapsSlot slot) {
   // Direct NSS calls must be made on a worker thread (not the IO/UI threads).
   DCHECK(!content::BrowserThread::CurrentlyOn(content::BrowserThread::IO));
   DCHECK(!content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
@@ -314,7 +316,7 @@ using BuildCertDescritionCallback =
 // known to be stored in |slot| in a worker thread. Note direct NSS calls must
 // be made at a worker thread.
 void BuildCertDescription(net::ScopedCERTCertificate nss_cert,
-                          keymaster::mojom::ChapsSlot slot,
+                          keymanagement::mojom::ChapsSlot slot,
                           BuildCertDescritionCallback callback) {
   base::ThreadPool::PostTaskAndReplyWithResult(
       FROM_HERE,
@@ -386,15 +388,15 @@ void CertStoreService::OnCertDBChanged() {
 }
 
 void CertStoreService::UpdateCertificates() {
-  ListCerts(context_, keymaster::mojom::ChapsSlot::kUser,
+  ListCerts(context_, keymanagement::mojom::ChapsSlot::kUser,
             base::BindOnce(&CertStoreService::OnCertificatesListed,
                            weak_ptr_factory_.GetWeakPtr(),
-                           keymaster::mojom::ChapsSlot::kUser,
+                           keymanagement::mojom::ChapsSlot::kUser,
                            std::vector<CertDescription>()));
 }
 
 void CertStoreService::OnCertificatesListed(
-    keymaster::mojom::ChapsSlot slot,
+    keymanagement::mojom::ChapsSlot slot,
     std::vector<CertDescription> cert_descriptions,
     net::ScopedCERTCertificateList cert_list) {
   base::queue<net::ScopedCERTCertificate> cert_queue;
@@ -412,7 +414,7 @@ void CertStoreService::OnCertificatesListed(
 // TODO(b/193785308) Try to simplify these recursive calls.
 void CertStoreService::BuildAllowedCertDescriptionsRecursively(
     BuildAllowedCertDescriptionsCallback callback,
-    keymaster::mojom::ChapsSlot slot,
+    keymanagement::mojom::ChapsSlot slot,
     base::queue<net::ScopedCERTCertificate> cert_queue,
     std::vector<CertDescription> allowed_certs) const {
   if (cert_queue.empty()) {
@@ -444,7 +446,7 @@ void CertStoreService::BuildAllowedCertDescriptionsRecursively(
 
 void CertStoreService::BuildAllowedCertDescriptionAndRecurse(
     BuildAllowedCertDescriptionsCallback callback,
-    keymaster::mojom::ChapsSlot slot,
+    keymanagement::mojom::ChapsSlot slot,
     base::queue<net::ScopedCERTCertificate> cert_queue,
     std::vector<CertDescription> allowed_certs,
     net::ScopedCERTCertificate cert,
@@ -466,7 +468,7 @@ void CertStoreService::BuildAllowedCertDescriptionAndRecurse(
 
 void CertStoreService::AppendCertDescriptionAndRecurse(
     BuildAllowedCertDescriptionsCallback callback,
-    keymaster::mojom::ChapsSlot slot,
+    keymanagement::mojom::ChapsSlot slot,
     base::queue<net::ScopedCERTCertificate> cert_queue,
     std::vector<CertDescription> allowed_certs,
     absl::optional<CertDescription> cert_description) const {
@@ -479,7 +481,7 @@ void CertStoreService::AppendCertDescriptionAndRecurse(
 }
 
 void CertStoreService::OnBuiltAllowedCertDescriptions(
-    keymaster::mojom::ChapsSlot slot,
+    keymanagement::mojom::ChapsSlot slot,
     std::vector<CertDescription> cert_descriptions) const {
   ArcKeymasterBridge* const keymaster_bridge =
       ArcKeymasterBridge::GetForBrowserContext(context_);
@@ -488,17 +490,17 @@ void CertStoreService::OnBuiltAllowedCertDescriptions(
     return;
   }
 
-  if (slot == keymaster::mojom::ChapsSlot::kUser) {
+  if (slot == keymanagement::mojom::ChapsSlot::kUser) {
     // Done with the user slot, so try to process additional certs in the
     // system slot. If there is no system slot (e.g. the user is not allowed
     // to access it), this call won't mutate |cert_descriptions|, and only
     // return the user slot certificates. However, it's necessary to perform
     // this check asynchronously on the IO thread (through ListCerts), because
     // that's the only thread that knows if the system slot is enabled.
-    ListCerts(context_, keymaster::mojom::ChapsSlot::kSystem,
+    ListCerts(context_, keymanagement::mojom::ChapsSlot::kSystem,
               base::BindOnce(&CertStoreService::OnCertificatesListed,
-                             weak_ptr_factory_.GetWeakPtr(),
-                             keymaster::mojom::ChapsSlot::kSystem,
+                             weak_ptr_factory_.GetMutableWeakPtr(),
+                             keymanagement::mojom::ChapsSlot::kSystem,
                              std::move(cert_descriptions)));
     return;
   }
@@ -509,7 +511,7 @@ void CertStoreService::OnBuiltAllowedCertDescriptions(
       PrepareChromeOsKeys(cert_descriptions);
   keymaster_bridge->UpdatePlaceholderKeys(
       std::move(keys), base::BindOnce(&CertStoreService::OnUpdatedKeymasterKeys,
-                                      weak_ptr_factory_.GetWeakPtr(),
+                                      weak_ptr_factory_.GetMutableWeakPtr(),
                                       std::move(cert_descriptions)));
 }
 
@@ -562,6 +564,11 @@ void CertStoreService::OnArcCertsInstalled(bool need_policy_update,
                                      policy::PolicyMap(), policy::PolicyMap());
     }
   }
+}
+
+// static
+void CertStoreService::EnsureFactoryBuilt() {
+  CertStoreServiceFactory::GetInstance();
 }
 
 }  // namespace arc

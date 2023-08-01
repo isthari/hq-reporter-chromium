@@ -1,6 +1,6 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be found
-// in the LICENSE file.
+// Copyright 2020 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_STREAMS_READABLE_STREAM_BYOB_READER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_STREAMS_READABLE_STREAM_BYOB_READER_H_
@@ -19,8 +19,8 @@ namespace blink {
 class ExceptionState;
 class ScriptPromise;
 class ScriptState;
-class StreamPromiseResolver;
 class ReadableStream;
+class ReadIntoRequest;
 class DOMArrayBufferView;
 
 class CORE_EXPORT ReadableStreamBYOBReader
@@ -58,24 +58,16 @@ class CORE_EXPORT ReadableStreamBYOBReader
   void Trace(Visitor*) const override;
 
  private:
+  friend class ByteStreamTeeEngine;
+  friend class PipeToEngine;
   friend class ReadableByteStreamController;
   friend class ReadableStream;
 
-  class ReadIntoRequest : public GarbageCollected<ReadIntoRequest> {
-   public:
-    explicit ReadIntoRequest(StreamPromiseResolver* resolver);
+  class BYOBReaderReadIntoRequest;
 
-    void ChunkSteps(ScriptState*, DOMArrayBufferView* chunk) const;
-    void CloseSteps(ScriptState*, DOMArrayBufferView* chunk) const;
-    void ErrorSteps(ScriptState*, v8::Local<v8::Value> e) const;
-
-    void Trace(Visitor*) const;
-
-   private:
-    friend class ReadableStream;
-
-    Member<StreamPromiseResolver> resolver_;
-  };
+  //
+  // Readable stream reader abstract operations
+  //
 
   // https://streams.spec.whatwg.org/#readable-stream-byob-reader-read
   static void Read(ScriptState*,
@@ -83,6 +75,14 @@ class CORE_EXPORT ReadableStreamBYOBReader
                    NotShared<DOMArrayBufferView> view,
                    ReadIntoRequest*,
                    ExceptionState&);
+
+  // https://streams.spec.whatwg.org/#abstract-opdef-readablestreambyobreadererrorreadintorequests
+  static void ErrorReadIntoRequests(ScriptState*,
+                                    ReadableStreamBYOBReader*,
+                                    v8::Local<v8::Value> e);
+
+  // https://streams.spec.whatwg.org/#abstract-opdef-readablestreambyobreaderrelease
+  static void Release(ScriptState*, ReadableStreamBYOBReader*);
 
   HeapDeque<Member<ReadIntoRequest>> read_into_requests_;
 };

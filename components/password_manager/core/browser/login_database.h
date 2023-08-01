@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,19 +9,19 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
 #include "base/files/file_path.h"
+#include "base/functional/callback.h"
 #include "base/pickle.h"
 #include "build/build_config.h"
 #include "components/password_manager/core/browser/field_info_table.h"
 #include "components/password_manager/core/browser/insecure_credentials_table.h"
 #include "components/password_manager/core/browser/password_form.h"
+#include "components/password_manager/core/browser/password_notes_table.h"
 #include "components/password_manager/core/browser/password_store.h"
 #include "components/password_manager/core/browser/password_store_change.h"
 #include "components/password_manager/core/browser/password_store_sync.h"
 #include "components/password_manager/core/browser/psl_matching_helper.h"
 #include "components/password_manager/core/browser/statistics_table.h"
-#include "components/sync/model/metadata_batch.h"
 #include "components/sync/protocol/model_type_state.pb.h"
 #include "sql/database.h"
 #include "sql/meta_table.h"
@@ -29,6 +29,10 @@
 #if BUILDFLAG(IS_IOS)
 #include "base/gtest_prod_util.h"
 #endif
+
+namespace syncer {
+class MetadataBatch;
+}
 
 namespace password_manager {
 
@@ -40,14 +44,14 @@ extern const int kCompatibleVersionNumber;
 // Interface to the database storage of login information, intended as a helper
 // for PasswordStore on platforms that need internal storage of some or all of
 // the login information.
-class LoginDatabase : public PasswordStoreSync::MetadataStore {
+class LoginDatabase {
  public:
   LoginDatabase(const base::FilePath& db_path, IsAccountStore is_account_store);
 
   LoginDatabase(const LoginDatabase&) = delete;
   LoginDatabase& operator=(const LoginDatabase&) = delete;
 
-  ~LoginDatabase() override;
+  virtual ~LoginDatabase();
 
   // Returns whether this is the profile-scoped or the account-scoped storage:
   // true:  Gaia-account-scoped store, which is used for signed-in but not
@@ -70,7 +74,7 @@ class LoginDatabase : public PasswordStoreSync::MetadataStore {
   // case of error, it sets |error| if |error| isn't null.
   [[nodiscard]] PasswordStoreChangeList AddLogin(
       const PasswordForm& form,
-      AddLoginError* error = nullptr);
+      AddCredentialError* error = nullptr);
 
   // Updates existing password form. Returns the list of applied changes ({},
   // {UPDATE}). The password is looked up by the tuple {origin,
@@ -79,7 +83,7 @@ class LoginDatabase : public PasswordStoreSync::MetadataStore {
   // null.
   [[nodiscard]] PasswordStoreChangeList UpdateLogin(
       const PasswordForm& form,
-      UpdateLoginError* error = nullptr);
+      UpdateCredentialError* error = nullptr);
 
   // Removes |form| from the list of remembered password forms. Returns true if
   // |form| was successfully removed from the database. If |changes| is not be
@@ -118,22 +122,22 @@ class LoginDatabase : public PasswordStoreSync::MetadataStore {
 
   // Gets all logins created from |begin| onwards (inclusive) and before |end|.
   // You may use a null Time value to do an unbounded search in either
-  // direction. |key_to_form_map| must not be null and will be used to return
-  // the results. The key of the map is the DB primary key.
+  // direction. |forms| must not be null and will be used to return
+  // the results.
   [[nodiscard]] bool GetLoginsCreatedBetween(
       base::Time begin,
       base::Time end,
-      PrimaryKeyToFormMap* key_to_form_map);
+      std::vector<std::unique_ptr<PasswordForm>>* forms);
 
   // Gets the complete list of all credentials.
   [[nodiscard]] FormRetrievalResult GetAllLogins(
-      PrimaryKeyToFormMap* key_to_form_map);
+      std::vector<std::unique_ptr<PasswordForm>>* forms);
 
   // Gets list of logins which match |signon_realm| and |username|.
   [[nodiscard]] FormRetrievalResult GetLoginsBySignonRealmAndUsername(
       const std::string& signon_realm,
       const std::u16string& username,
-      PrimaryKeyToFormMap& key_to_form_map);
+      std::vector<std::unique_ptr<PasswordForm>>* forms);
 
   // Gets the complete list of not blocklisted credentials.
   [[nodiscard]] bool GetAutofillableLogins(
@@ -144,7 +148,8 @@ class LoginDatabase : public PasswordStoreSync::MetadataStore {
       std::vector<std::unique_ptr<PasswordForm>>* forms);
 
   // Gets the list of auto-sign-inable credentials.
-  [[nodiscard]] bool GetAutoSignInLogins(PrimaryKeyToFormMap* key_to_form_map);
+  [[nodiscard]] bool GetAutoSignInLogins(
+      std::vector<std::unique_ptr<PasswordForm>>* forms);
 
   // Deletes the login database file on disk, and creates a new, empty database.
   // This can be used after migrating passwords to some other store, to ensure
@@ -164,22 +169,6 @@ class LoginDatabase : public PasswordStoreSync::MetadataStore {
   // removed from the database, returns ITEM_FAILURE.
   DatabaseCleanupResult DeleteUndecryptableLogins();
 
-  // PasswordStoreSync::MetadataStore implementation.
-  std::unique_ptr<syncer::MetadataBatch> GetAllSyncMetadata() override;
-  void DeleteAllSyncMetadata() override;
-  bool UpdateSyncMetadata(syncer::ModelType model_type,
-                          const std::string& storage_key,
-                          const sync_pb::EntityMetadata& metadata) override;
-  bool ClearSyncMetadata(syncer::ModelType model_type,
-                         const std::string& storage_key) override;
-  bool UpdateModelTypeState(
-      syncer::ModelType model_type,
-      const sync_pb::ModelTypeState& model_type_state) override;
-  bool ClearModelTypeState(syncer::ModelType model_type) override;
-  void SetDeletionsHaveSyncedCallback(
-      base::RepeatingCallback<void(bool)> callback) override;
-  bool HasUnsyncedDeletions() override;
-
   // Callers that requires transaction support should call these methods to
   // begin, rollback and commit transactions. They delegate to the transaction
   // support of the underlying database. Only one transaction may exist at a
@@ -192,11 +181,93 @@ class LoginDatabase : public PasswordStoreSync::MetadataStore {
   InsecureCredentialsTable& insecure_credentials_table() {
     return insecure_credentials_table_;
   }
+  PasswordNotesTable& password_notes_table() { return password_notes_table_; }
 
   FieldInfoTable& field_info_table() { return field_info_table_; }
+  PasswordStoreSync::MetadataStore& password_sync_metadata_store() {
+    return password_sync_metadata_store_;
+  }
+
+  // Result values for encryption/decryption actions.
+  enum EncryptionResult {
+    // Success.
+    ENCRYPTION_RESULT_SUCCESS,
+    // Failure for a specific item (e.g., the encrypted value was manually
+    // moved from another machine, and can't be decrypted on this machine).
+    // This is presumed to be a permanent failure.
+    ENCRYPTION_RESULT_ITEM_FAILURE,
+    // A service-level failure (e.g., on a platform using a keyring, the keyring
+    // is temporarily unavailable).
+    // This is presumed to be a temporary failure.
+    ENCRYPTION_RESULT_SERVICE_FAILURE,
+  };
+
+  // Encrypts plain_text, setting the value of cipher_text and returning true if
+  // successful, or returning false and leaving cipher_text unchanged if
+  // encryption fails (e.g., if the underlying OS encryption system is
+  // temporarily unavailable).
+  [[nodiscard]] static EncryptionResult EncryptedString(
+      const std::u16string& plain_text,
+      std::string* cipher_text);
+
+  // Decrypts cipher_text, setting the value of plain_text and returning true if
+  // successful, or returning false and leaving plain_text unchanged if
+  // decryption fails (e.g., if the underlying OS encryption system is
+  // temporarily unavailable).
+  [[nodiscard]] static EncryptionResult DecryptedString(
+      const std::string& cipher_text,
+      std::u16string* plain_text);
 
  private:
   struct PrimaryKeyAndPassword;
+  class SyncMetadataStore : public PasswordStoreSync::MetadataStore {
+   public:
+    // |db| must be not null and must outlive |this|.
+    explicit SyncMetadataStore(sql::Database* db);
+    SyncMetadataStore(const SyncMetadataStore&) = delete;
+    SyncMetadataStore& operator=(const SyncMetadataStore&) = delete;
+    ~SyncMetadataStore() override;
+
+   private:
+    // Reads all the stored sync entities metadata for |model_type| in a
+    // MetadataBatch. Returns nullptr in case of failure. This is currently used
+    // only for passwords.
+    std::unique_ptr<syncer::MetadataBatch> GetAllSyncEntityMetadata(
+        syncer::ModelType model_type);
+
+    // Reads the stored ModelTypeState for |model_type|. Returns nullptr in case
+    // of failure. This is currently used only for passwords.
+    std::unique_ptr<sync_pb::ModelTypeState> GetModelTypeState(
+        syncer::ModelType model_type);
+
+    // PasswordStoreSync::MetadataStore implementation.
+    std::unique_ptr<syncer::MetadataBatch> GetAllSyncMetadata(
+        syncer::ModelType model_type) override;
+    void DeleteAllSyncMetadata(syncer::ModelType model_type) override;
+    bool UpdateEntityMetadata(syncer::ModelType model_type,
+                              const std::string& storage_key,
+                              const sync_pb::EntityMetadata& metadata) override;
+    bool ClearEntityMetadata(syncer::ModelType model_type,
+                             const std::string& storage_key) override;
+    bool UpdateModelTypeState(
+        syncer::ModelType model_type,
+        const sync_pb::ModelTypeState& model_type_state) override;
+
+    bool ClearModelTypeState(syncer::ModelType model_type) override;
+    void SetPasswordDeletionsHaveSyncedCallback(
+        base::RepeatingCallback<void(bool)> callback) override;
+    bool HasUnsyncedPasswordDeletions() override;
+
+    raw_ptr<sql::Database> const db_;
+    // A callback to be invoked whenever all pending deletions have been
+    // processed
+    // by Sync - see
+    // PasswordStoreSync::MetadataStore::SetDeletionsHaveSyncedCallback for more
+    // details.
+    base::RepeatingCallback<void(bool)>
+        password_deletions_have_synced_callback_;
+  };
+
   FRIEND_TEST_ALL_PREFIXES(LoginDatabaseTest, AddLoginWithEncryptedPassword);
   FRIEND_TEST_ALL_PREFIXES(LoginDatabaseTest,
                            AddLoginWithEncryptedPasswordAndValue);
@@ -228,48 +299,16 @@ class LoginDatabase : public PasswordStoreSync::MetadataStore {
   void ReportInaccessiblePasswordsMetrics();
   void ReportDuplicateCredentialsMetrics();
 
-  // Result values for encryption/decryption actions.
-  enum EncryptionResult {
-    // Success.
-    ENCRYPTION_RESULT_SUCCESS,
-    // Failure for a specific item (e.g., the encrypted value was manually
-    // moved from another machine, and can't be decrypted on this machine).
-    // This is presumed to be a permanent failure.
-    ENCRYPTION_RESULT_ITEM_FAILURE,
-    // A service-level failure (e.g., on a platform using a keyring, the keyring
-    // is temporarily unavailable).
-    // This is presumed to be a temporary failure.
-    ENCRYPTION_RESULT_SERVICE_FAILURE,
-  };
-
-  // Encrypts plain_text, setting the value of cipher_text and returning true if
-  // successful, or returning false and leaving cipher_text unchanged if
-  // encryption fails (e.g., if the underlying OS encryption system is
-  // temporarily unavailable).
-  [[nodiscard]] EncryptionResult EncryptedString(
-      const std::u16string& plain_text,
-      std::string* cipher_text) const;
-
-  // Decrypts cipher_text, setting the value of plain_text and returning true if
-  // successful, or returning false and leaving plain_text unchanged if
-  // decryption fails (e.g., if the underlying OS encryption system is
-  // temporarily unavailable).
-  [[nodiscard]] EncryptionResult DecryptedString(
-      const std::string& cipher_text,
-      std::u16string* plain_text) const;
-
   // Fills |form| from the values in the given statement (which is assumed to be
-  // of the form used by the Get*Logins methods). Fills the corresponding DB
-  // primary key in |primary_key|. If |decrypt_and_fill_password_value| is set
-  // to true, it tries to decrypt the stored password and returns the
-  // EncryptionResult from decrypting the password in |s|; if not
-  // ENCRYPTION_RESULT_SUCCESS, |form| is not filled. If
+  // of the form used by the Get*Logins methods). If
+  // |decrypt_and_fill_password_value| is set to true, it tries to decrypt the
+  // stored password and returns the EncryptionResult from decrypting the
+  // password in |s|; if not ENCRYPTION_RESULT_SUCCESS, |form| is not filled. If
   // |decrypt_and_fill_password_value| is set to false, it always returns
   // ENCRYPTION_RESULT_SUCCESS.
   [[nodiscard]] EncryptionResult InitPasswordFormFromStatement(
       sql::Statement& s,
       bool decrypt_and_fill_password_value,
-      int* primary_key,
       PasswordForm* form) const;
 
   // Gets all blocklisted or all non-blocklisted (depending on |blocklisted|)
@@ -284,25 +323,17 @@ class LoginDatabase : public PasswordStoreSync::MetadataStore {
   PrimaryKeyAndPassword GetPrimaryKeyAndPassword(
       const PasswordForm& form) const;
 
-  // Reads all the stored sync entities metadata in a MetadataBatch. Returns
-  // nullptr in case of failure.
-  std::unique_ptr<syncer::MetadataBatch> GetAllSyncEntityMetadata();
-
-  // Reads the stored ModelTypeState. Returns nullptr in case of failure.
-  std::unique_ptr<sync_pb::ModelTypeState> GetModelTypeState();
-
   // Overwrites |key_to_form_map| with credentials retrieved from |statement|.
   // If |matched_form| is not null, filters out all results but those
   // PSL-matching |*matched_form| or federated credentials for it. If feature
   // for recovering passwords is enabled, it removes all passwords that couldn't
   // be decrypted when encryption was available from the database. On success
   // returns true.
-  // |key_to_form_map| must not be null and will be used to return the results.
-  // The key of the map is the DB primary key.
+  // |forms| must not be null and will be used to return the results.
   [[nodiscard]] FormRetrievalResult StatementToForms(
       sql::Statement* statement,
       const PasswordFormDigest* matched_form,
-      PrimaryKeyToFormMap* key_to_form_map);
+      std::vector<std::unique_ptr<PasswordForm>>* forms);
 
   // Initializes all the *_statement_ data members with appropriate SQL
   // fragments based on |builder|.
@@ -312,10 +343,9 @@ class LoginDatabase : public PasswordStoreSync::MetadataStore {
   // kAccountStore depending on the value of `is_account_store_`.
   void FillFormInStore(PasswordForm* form) const;
 
-  // Reads the insecure credentials corresponding to the `primary_key` from the
-  // database and fills them into `form->password_issues`.
-  void PopulateFormWithPasswordIssues(FormPrimaryKey primary_key,
-                                      PasswordForm* form) const;
+  // Reads the insecure credentials corresponding to the `form->primary_key`
+  // from the database and fills them into `form->password_issues`.
+  void PopulateFormWithPasswordIssues(PasswordForm* form) const;
 
   // Updates data in the `insecure_credentials_table_` with the password issues
   // data from `password_issues`. Returns whether any insecure credential entry
@@ -323,6 +353,15 @@ class LoginDatabase : public PasswordStoreSync::MetadataStore {
   InsecureCredentialsChanged UpdateInsecureCredentials(
       FormPrimaryKey primary_key,
       const base::flat_map<InsecureType, InsecurityMetadata>& password_issues);
+
+  // Reads the `password_notes` table for the notes with `form->primary_key` and
+  // fills the `form->notes` field. If there are no notes for
+  // `form->primary_key`, the form is set to empty notes.
+  void PopulateFormWithNotes(PasswordForm* form) const;
+
+  // Updates the `password_notes` table if `notes` changed for `primary_key`.
+  void UpdatePasswordNotes(FormPrimaryKey primary_key,
+                           const std::vector<PasswordNote>& notes);
 
   const base::FilePath db_path_;
   const IsAccountStore is_account_store_;
@@ -332,6 +371,8 @@ class LoginDatabase : public PasswordStoreSync::MetadataStore {
   StatisticsTable stats_table_;
   FieldInfoTable field_info_table_;
   InsecureCredentialsTable insecure_credentials_table_;
+  PasswordNotesTable password_notes_table_;
+  SyncMetadataStore password_sync_metadata_store_{&db_};
 
   // These cached strings are used to build SQL statements.
   std::string add_statement_;
@@ -349,12 +390,6 @@ class LoginDatabase : public PasswordStoreSync::MetadataStore {
   std::string blocklisted_statement_;
   std::string encrypted_password_statement_by_id_;
   std::string id_and_password_statement_;
-
-  // A callback to be invoked whenever all pending deletions have been processed
-  // by Sync - see
-  // PasswordStoreSync::MetadataStore::SetDeletionsHaveSyncedCallback for more
-  // details.
-  base::RepeatingCallback<void(bool)> deletions_have_synced_callback_;
 };
 
 }  // namespace password_manager

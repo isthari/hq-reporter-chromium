@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -47,13 +47,14 @@ class TestPaymentsClient : public payments::PaymentsClient {
   void GetUploadDetails(
       const std::vector<AutofillProfile>& addresses,
       const int detected_values,
-      const std::vector<const char*>& active_experiments,
+      const std::vector<ClientBehaviorConstants>& client_behavior_signals,
       const std::string& app_locale,
       base::OnceCallback<void(AutofillClient::PaymentsRpcResult,
                               const std::u16string&,
-                              std::unique_ptr<base::Value>,
+                              std::unique_ptr<base::Value::Dict>,
                               std::vector<std::pair<int, int>>)> callback,
       const int billable_service_number,
+      const int64_t billing_customer_number,
       UploadCardSource upload_card_source =
           UploadCardSource::UNKNOWN_UPLOAD_CARD_SOURCE) override;
 
@@ -108,9 +109,17 @@ class TestPaymentsClient : public payments::PaymentsClient {
   void SetUseInvalidLegalMessageInGetUploadDetails(
       bool use_invalid_legal_message);
 
+  void SetUseLegalMessageWithMultipleLinesInGetUploadDetails(
+      bool use_legal_message_with_multiple_lines);
+
   void set_select_challenge_option_result(
       AutofillClient::PaymentsRpcResult result) {
     select_challenge_option_result_ = result;
+  }
+
+  void set_update_virtual_card_enrollment_result(
+      AutofillClient::PaymentsRpcResult result) {
+    update_virtual_card_enrollment_result_ = result;
   }
 
   payments::PaymentsClient::UnmaskDetails* unmask_details() {
@@ -130,11 +139,15 @@ class TestPaymentsClient : public payments::PaymentsClient {
   const std::vector<AutofillProfile>& addresses_in_upload_card() const {
     return upload_card_addresses_;
   }
-  const std::vector<const char*>& active_experiments_in_request() const {
-    return active_experiments_;
+  const std::vector<ClientBehaviorConstants>&
+  client_behavior_signals_in_request() const {
+    return client_behavior_signals_;
   }
   int billable_service_number_in_request() const {
     return billable_service_number_;
+  }
+  int64_t billing_customer_number_in_request() const {
+    return billing_customer_number_;
   }
   PaymentsClient::UploadCardSource upload_card_source_in_request() const {
     return upload_card_source_;
@@ -165,14 +178,18 @@ class TestPaymentsClient : public payments::PaymentsClient {
   std::vector<AutofillProfile> upload_card_addresses_;
   int detected_values_;
   std::string pan_first_six_;
-  std::vector<const char*> active_experiments_;
+  std::vector<ClientBehaviorConstants> client_behavior_signals_;
   int billable_service_number_;
+  int64_t billing_customer_number_;
   PaymentsClient::UploadCardSource upload_card_source_;
   std::unique_ptr<std::unordered_map<std::string, std::string>> save_result_;
   bool use_invalid_legal_message_ = false;
-  std::unique_ptr<base::Value> LegalMessage();
+  bool use_legal_message_with_multiple_lines_ = false;
+  std::unique_ptr<base::Value::Dict> LegalMessage();
   absl::optional<AutofillClient::PaymentsRpcResult>
       select_challenge_option_result_;
+  absl::optional<AutofillClient::PaymentsRpcResult>
+      update_virtual_card_enrollment_result_;
   payments::PaymentsClient::GetDetailsForEnrollmentRequestDetails
       get_details_for_enrollment_request_details_;
   payments::PaymentsClient::UpdateVirtualCardEnrollmentRequestDetails

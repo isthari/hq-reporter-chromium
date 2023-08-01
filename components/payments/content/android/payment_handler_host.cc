@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -58,8 +58,7 @@ void PaymentHandlerHost::UpdateWith(
     const base::android::JavaParamRef<jobject>& response_buffer) {
   mojom::PaymentRequestDetailsUpdatePtr response;
   bool success = mojom::PaymentRequestDetailsUpdate::Deserialize(
-      std::move(JavaByteBufferToNativeByteVector(env, response_buffer)),
-      &response);
+      JavaByteBufferToNativeByteVector(env, response_buffer), &response);
   DCHECK(success);
   payment_handler_host_.UpdateWith(std::move(response));
 }

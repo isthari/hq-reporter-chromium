@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "ui/color/color_id.h"
 #include "ui/gfx/animation/animation_delegate.h"
 #include "ui/views/view.h"
 
@@ -44,13 +45,20 @@ class VIEWS_EXPORT ProgressBar : public View, public gfx::AnimationDelegate {
   // be displayed with an infinite loading animation.
   void SetValue(double value);
 
+  // Sets whether the progress bar is paused.
+  void SetPaused(bool is_paused);
+
   // The color of the progress portion.
   SkColor GetForegroundColor() const;
   void SetForegroundColor(SkColor color);
+  absl::optional<ui::ColorId> GetForegroundColorId() const;
+  void SetForegroundColorId(absl::optional<ui::ColorId> color_id);
 
   // The color of the portion that displays potential progress.
   SkColor GetBackgroundColor() const;
   void SetBackgroundColor(SkColor color);
+  absl::optional<ui::ColorId> GetBackgroundColorId() const;
+  void SetBackgroundColorId(absl::optional<ui::ColorId> color_id);
 
  protected:
   int preferred_height() const { return preferred_height_; }
@@ -61,6 +69,7 @@ class VIEWS_EXPORT ProgressBar : public View, public gfx::AnimationDelegate {
   void AnimationEnded(const gfx::Animation* animation) override;
 
   bool IsIndeterminate();
+  bool GetPaused() const { return is_paused_; }
   void OnPaintIndeterminate(gfx::Canvas* canvas);
 
   // Fire an accessibility event if visible and the progress has changed.
@@ -69,13 +78,18 @@ class VIEWS_EXPORT ProgressBar : public View, public gfx::AnimationDelegate {
   // Current progress to display, should be in the range 0.0 to 1.0.
   double current_value_ = 0.0;
 
+  // Is the progress bar paused.
+  bool is_paused_ = false;
+
   // In DP, the preferred height of this progress bar.
   const int preferred_height_;
 
   const bool allow_round_corner_;
 
   absl::optional<SkColor> foreground_color_;
+  absl::optional<ui::ColorId> foreground_color_id_;
   absl::optional<SkColor> background_color_;
+  absl::optional<ui::ColorId> background_color_id_;
 
   std::unique_ptr<gfx::LinearAnimation> indeterminate_bar_animation_;
 

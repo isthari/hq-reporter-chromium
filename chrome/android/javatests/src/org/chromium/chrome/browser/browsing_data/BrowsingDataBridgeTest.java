@@ -1,13 +1,14 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.browsing_data;
 
+import static androidx.test.espresso.matcher.ViewMatchers.assertThat;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import androidx.test.filters.MediumTest;
@@ -45,6 +46,7 @@ import org.chromium.content_public.browser.NavigationEntry;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.test.EmbeddedTestServer;
+import org.chromium.net.test.util.TestWebServer;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -115,21 +117,6 @@ public class BrowsingDataBridgeTest {
                 Matchers.containsInAnyOrder("ClearBrowsingData_LastHour",
                         "ClearBrowsingData_MaskContainsUnprotectedWeb", "ClearBrowsingData_Cookies",
                         "ClearBrowsingData_SiteUsageData", "ClearBrowsingData_ContentLicenses"));
-    }
-
-    /**
-     * Test deleting SameSite=None cookies.
-     */
-    @Test
-    @SmallTest
-    public void testSameSiteNoneCookiesDeleted() throws Exception {
-        TestThreadUtils.runOnUiThreadBlocking(() -> {
-            BrowsingDataBridge.getInstance().clearSameSiteNoneData(
-                    () -> { mCallbackHelper.notifyCalled(); });
-        });
-        mCallbackHelper.waitForCallback(0);
-        assertThat(mActionTester.toString(), getActions(),
-                Matchers.contains("ClearBrowsingData_SameSiteNoneData"));
     }
 
     /**
@@ -286,6 +273,22 @@ public class BrowsingDataBridgeTest {
         assertEquals(0, controller.getLastCommittedEntryIndex());
         assertThat(getUrls(controller), Matchers.contains(url2));
         assertNull(frozen[0].getWebContents());
+    }
+
+    /**
+     * Tests that calling getContentsStateAsByteBuffer on a tab that has never
+     * committed a navigation results in a null ByteBuffer.
+     * Regression test for https://crbug.com/1240138.
+     */
+    @Test
+    @MediumTest
+    public void testInitialNavigationEntryNotPersisted() throws Exception {
+        TestWebServer webServer = TestWebServer.start();
+        final String noContentUrl = webServer.setResponseWithNoContentStatus("/nocontent.html");
+        Tab tab = sActivityTestRule.loadUrlInNewTab(noContentUrl);
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            assertNull(WebContentsStateBridge.getContentsStateAsByteBuffer(tab.getWebContents()));
+        });
     }
 
     /**

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include "components/services/storage/service_worker/service_worker_storage.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/receiver.h"
+#include "mojo/public/cpp/bindings/self_owned_receiver.h"
 
 namespace blink {
 class StorageKey;
@@ -26,11 +27,24 @@ class ServiceWorkerLiveVersionRefImpl;
 
 // This class wraps ServiceWorkerStorage to implement mojo interface defined by
 // the storage service, i.e., ServiceWorkerStorageControl.
+// If kServiceWorkerStorageControlOnThreadPool is enabled,
+// ServiceWorkerStorageControlImpl is created on database_task_runner (thread
+// pool) and retained by mojo::SelfOwnedReceiver. If
+// kServiceWorkerStorageControlOnIOThread is enabled on Android,
+// ServiceWorkerStorageControlImpl is created on the IO thread and owned by
+// PartitionImpl. Otherwise, this is created on the UI thread and owned by
+// ServiceWorkerContextWrapper. In the near future,
+// kServiceWorkerStorageControlOnThreadPool will be the default for all
+// platforms.
 // TODO(crbug.com/1055677): Merge this implementation into ServiceWorkerStorage
 // and move the merged class to components/services/storage.
 class ServiceWorkerStorageControlImpl
     : public mojom::ServiceWorkerStorageControl {
  public:
+  static mojo::SelfOwnedReceiverRef<mojom::ServiceWorkerStorageControl> Create(
+      mojo::PendingReceiver<mojom::ServiceWorkerStorageControl> receiver,
+      const base::FilePath& user_data_directory,
+      scoped_refptr<base::SequencedTaskRunner> database_task_runner);
   ServiceWorkerStorageControlImpl(
       const base::FilePath& user_data_directory,
       scoped_refptr<base::SequencedTaskRunner> database_task_runner,
@@ -48,6 +62,9 @@ class ServiceWorkerStorageControlImpl
   void LazyInitializeForTest();
 
  private:
+  ServiceWorkerStorageControlImpl(
+      const base::FilePath& user_data_directory,
+      scoped_refptr<base::SequencedTaskRunner> database_task_runner);
   // mojom::ServiceWorkerStorageControl implementations:
   void Disable(DisableCallback callback) override;
   void Delete(DeleteCallback callback) override;
@@ -98,6 +115,16 @@ class ServiceWorkerStorageControlImpl
       const blink::StorageKey& key,
       const std::string& value,
       UpdateNavigationPreloadHeaderCallback callback) override;
+  void UpdateFetchHandlerType(
+      int64_t registration_id,
+      const blink::StorageKey& key,
+      blink::mojom::ServiceWorkerFetchHandlerType fetch_handler_type,
+      UpdateFetchHandlerTypeCallback callback) override;
+  void UpdateResourceSha256Checksums(
+      int64_t registration_id,
+      const blink::StorageKey& key,
+      const base::flat_map<int64_t, std::string>& updated_sha256_checksums,
+      UpdateResourceSha256ChecksumsCallback callback) override;
   void GetNewRegistrationId(GetNewRegistrationIdCallback callback) override;
   void GetNewVersionId(GetNewVersionIdCallback callback) override;
   void GetNewResourceId(GetNewResourceIdCallback callback) override;
@@ -155,6 +182,9 @@ class ServiceWorkerStorageControlImpl
       ApplyPolicyUpdatesCallback callback) override;
   void GetPurgingResourceIdsForTest(
       GetPurgingResourceIdsForTestCallback callback) override;
+  void GetPurgingResourceIdsForLiveVersionForTest(
+      int64_t version_id,
+      GetPurgingResourceIdsForTestCallback callback) override;
   void GetPurgeableResourceIdsForTest(
       GetPurgeableResourceIdsForTestCallback callback) override;
   void GetUncommittedResourceIdsForTest(
@@ -165,6 +195,12 @@ class ServiceWorkerStorageControlImpl
   using ResourceList = std::vector<mojom::ServiceWorkerResourceRecordPtr>;
 
   // Callbacks for ServiceWorkerStorage methods.
+  void DidFindRegistrationForClientUrl(
+      FindRegistrationForClientUrlCallback callback,
+      mojom::ServiceWorkerRegistrationDataPtr data,
+      std::unique_ptr<ResourceList> resources,
+      const absl::optional<std::vector<GURL>>& scopes,
+      mojom::ServiceWorkerDatabaseStatus status);
   void DidFindRegistration(
       base::OnceCallback<void(mojom::ServiceWorkerDatabaseStatus status,
                               mojom::ServiceWorkerFindRegistrationResultPtr)>
@@ -180,6 +216,7 @@ class ServiceWorkerStorageControlImpl
       std::unique_ptr<std::vector<ResourceList>> resources_list);
   void DidStoreRegistration(
       StoreRegistrationCallback callback,
+      int64_t stored_version_id,
       mojom::ServiceWorkerDatabaseStatus status,
       int64_t deleted_version_id,
       uint64_t deleted_resources_size,
@@ -198,6 +235,14 @@ class ServiceWorkerStorageControlImpl
 
   void MaybePurgeResources(int64_t version_id,
                            const std::vector<int64_t>& purgeable_resources);
+
+  // Cancels resource purging on successfull registration.
+  // This is necessary when resurrecting an uninstalling registration
+  // in the unregistration + registration case because unregistration could've
+  // scheduled resources purging yet registration will try to reuse them which
+  // leads to potential use of doomed resources once the current version is
+  // marked as no longer alive.
+  void MaybeCancelPurgeResources(int64_t version_id);
 
   const std::unique_ptr<ServiceWorkerStorage> storage_;
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
+#include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/ui/views/frame/immersive_mode_controller.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_bubble_delegate_view.h"
@@ -17,12 +18,13 @@
 #include "extensions/browser/extension_icon_image.h"
 #include "ui/views/controls/label.h"
 
+class Browser;
+
 namespace content {
 class WebContents;
 }
 
 namespace views {
-class AXVirtualView;
 class Button;
 class ImageButton;
 }  // namespace views
@@ -136,6 +138,9 @@ class ZoomBubbleView : public LocationBarBubbleDelegateView,
   // Called by ButtonPressed() when |image_button_| is pressed.
   void ImageButtonPressed();
 
+  // Gets the browser for `web_contents()`. May return null.
+  Browser* GetBrowser() const;
+
   ZoomBubbleExtensionInfo extension_info_;
 
   // Singleton instance of the zoom bubble. The zoom bubble can only be shown on
@@ -161,9 +166,6 @@ class ZoomBubbleView : public LocationBarBubbleDelegateView,
   raw_ptr<views::Button> zoom_out_button_ = nullptr;
   raw_ptr<views::Button> zoom_in_button_ = nullptr;
   raw_ptr<views::Button> reset_button_ = nullptr;
-
-  // Virtual view used to announce zoom level changes.
-  raw_ptr<views::AXVirtualView> zoom_level_alert_ = nullptr;
 
   // Whether the currently displayed bubble will automatically close.
   bool auto_close_;

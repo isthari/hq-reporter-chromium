@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -48,7 +48,14 @@ EventConverterEvdev::EventConverterEvdev(int fd,
   input_device_.enabled = false;
 }
 
-EventConverterEvdev::~EventConverterEvdev() {
+EventConverterEvdev::~EventConverterEvdev() = default;
+
+// static
+bool EventConverterEvdev::IsValidKeyboardKeyPress(uint64_t key) {
+  return (key >= KEY_1 && key <= KEY_EQUAL) ||
+         (key >= KEY_Q && key <= KEY_RIGHTBRACE) ||
+         (key >= KEY_A && key <= KEY_APOSTROPHE) ||
+         (key >= KEY_BACKSLASH && key <= KEY_SLASH);
 }
 
 void EventConverterEvdev::ApplyDeviceSettings(
@@ -84,20 +91,28 @@ bool EventConverterEvdev::IsEnabled() const {
   return input_device_.enabled;
 }
 
-void EventConverterEvdev::OnStopped() {
+void EventConverterEvdev::SetSuspectedImposter(bool is_suspected) {
+  input_device_.suspected_imposter = is_suspected;
 }
 
-void EventConverterEvdev::OnEnabled() {
+bool EventConverterEvdev::IsSuspectedImposter() const {
+  return input_device_.suspected_imposter;
 }
 
-void EventConverterEvdev::OnDisabled() {
-}
+void EventConverterEvdev::OnStopped() {}
 
-void EventConverterEvdev::DumpTouchEventLog(const char* filename) {
-}
+void EventConverterEvdev::OnEnabled() {}
+
+void EventConverterEvdev::OnDisabled() {}
+
+void EventConverterEvdev::DumpTouchEventLog(const char* filename) {}
 
 void EventConverterEvdev::OnFileCanWriteWithoutBlocking(int fd) {
   NOTREACHED();
+}
+
+KeyboardType EventConverterEvdev::GetKeyboardType() const {
+  return KeyboardType::NOT_KEYBOARD;
 }
 
 bool EventConverterEvdev::HasKeyboard() const {
@@ -132,6 +147,10 @@ bool EventConverterEvdev::HasGamepad() const {
   return false;
 }
 
+bool EventConverterEvdev::HasAssistantKey() const {
+  return false;
+}
+
 bool EventConverterEvdev::HasCapsLockLed() const {
   return false;
 }
@@ -159,6 +178,11 @@ std::vector<ui::GamepadDevice::Axis> EventConverterEvdev::GetGamepadAxes()
 bool EventConverterEvdev::GetGamepadRumbleCapability() const {
   NOTREACHED();
   return false;
+}
+
+std::vector<uint64_t> EventConverterEvdev::GetGamepadKeyBits() const {
+  NOTREACHED();
+  return std::vector<uint64_t>();
 }
 
 void EventConverterEvdev::PlayVibrationEffect(uint8_t amplitude,
@@ -219,11 +243,23 @@ void EventConverterEvdev::SetCapsLockLed(bool enabled) {
   }
 }
 
-void EventConverterEvdev::SetTouchEventLoggingEnabled(bool enabled) {
-}
+void EventConverterEvdev::SetTouchEventLoggingEnabled(bool enabled) {}
 
 void EventConverterEvdev::SetPalmSuppressionCallback(
     const base::RepeatingCallback<void(bool)>& callback) {}
+
+void EventConverterEvdev::SetReportStylusStateCallback(
+    const ReportStylusStateCallback& callback) {}
+
+void EventConverterEvdev::SetGetLatestStylusStateCallback(
+    const GetLatestStylusStateCallback& callback) {}
+
+void EventConverterEvdev::SetReceivedValidInputCallback(
+    ReceivedValidInputCallback callback) {}
+
+std::vector<uint64_t> EventConverterEvdev::GetKeyboardKeyBits() const {
+  return std::vector<uint64_t>();
+}
 
 base::TimeTicks EventConverterEvdev::TimeTicksFromInputEvent(
     const input_event& event) {
@@ -233,4 +269,12 @@ base::TimeTicks EventConverterEvdev::TimeTicksFromInputEvent(
   ValidateEventTimeClock(&timestamp);
   return timestamp;
 }
+
+std::ostream& EventConverterEvdev::DescribeForLog(std::ostream& os) const {
+  os << "class=ui::EventConverterEvdev id=" << input_device_.id << std::endl
+     << " path=\"" << path_.value() << "\"" << std::endl
+     << "member ";
+  return input_device_.DescribeForLog(os);
+}
+
 }  // namespace ui

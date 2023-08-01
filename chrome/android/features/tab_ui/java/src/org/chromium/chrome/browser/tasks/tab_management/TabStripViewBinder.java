@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -69,20 +69,31 @@ class TabStripViewBinder {
                 button.getBackground().setAlpha(FAVICON_BACKGROUND_DEFAULT_ALPHA);
             }
         } else if (TabProperties.FAVICON == propertyKey) {
-            Drawable faviconDrawable = model.get(TabProperties.FAVICON).getDefaultDrawable();
-            ImageButton button = (ImageButton) view.fastFindViewById(R.id.tab_strip_item_button);
-            button.setBackgroundResource(R.drawable.tabstrip_favicon_background);
-            ViewCompat.setBackgroundTintList(button,
-                    AppCompatResources.getColorStateList(view.getContext(),
-                            model.get(TabProperties.TABSTRIP_FAVICON_BACKGROUND_COLOR_ID)));
-            if (!model.get(TabProperties.IS_SELECTED)) {
-                button.getBackground().setAlpha(FAVICON_BACKGROUND_DEFAULT_ALPHA);
-            } else {
-                button.getBackground().setAlpha(FAVICON_BACKGROUND_SELECTED_ALPHA);
+            if (TabUiFeatureUtilities.isTabGroupsAndroidContinuationEnabled(view.getContext())) {
+                return;
             }
-            if (faviconDrawable != null) {
-                button.setImageDrawable(faviconDrawable);
+
+            Drawable favicon = model.get(TabProperties.FAVICON).getDefaultDrawable();
+            setFavicon(view, model, favicon);
+        } else if (TabProperties.FAVICON_FETCHER == propertyKey) {
+            if (!TabUiFeatureUtilities.isTabGroupsAndroidContinuationEnabled(view.getContext())) {
+                return;
             }
+
+            model.set(TabProperties.FAVICON_FETCHED, false);
+            TabListFaviconProvider.TabFaviconFetcher fetcher =
+                    model.get(TabProperties.FAVICON_FETCHER);
+            if (fetcher == null) {
+                setFavicon(view, model, null);
+                model.set(TabProperties.FAVICON_FETCHED, true);
+                return;
+            }
+            fetcher.fetch(tabFavicon -> {
+                if (fetcher != model.get(TabProperties.FAVICON_FETCHER)) return;
+
+                setFavicon(view, model, tabFavicon.getDefaultDrawable());
+                model.set(TabProperties.FAVICON_FETCHED, true);
+            });
         }
     }
 
@@ -90,5 +101,20 @@ class TabStripViewBinder {
         for (PropertyKey propertyKey : TabProperties.ALL_KEYS_TAB_STRIP) {
             bind(item, view, propertyKey);
         }
+    }
+
+    private static void setFavicon(
+            ViewLookupCachingFrameLayout view, PropertyModel model, Drawable faviconDrawable) {
+        ImageButton button = (ImageButton) view.fastFindViewById(R.id.tab_strip_item_button);
+        button.setBackgroundResource(R.drawable.tabstrip_favicon_background);
+        ViewCompat.setBackgroundTintList(button,
+                AppCompatResources.getColorStateList(view.getContext(),
+                        model.get(TabProperties.TABSTRIP_FAVICON_BACKGROUND_COLOR_ID)));
+        if (!model.get(TabProperties.IS_SELECTED)) {
+            button.getBackground().setAlpha(FAVICON_BACKGROUND_DEFAULT_ALPHA);
+        } else {
+            button.getBackground().setAlpha(FAVICON_BACKGROUND_SELECTED_ALPHA);
+        }
+        button.setImageDrawable(faviconDrawable);
     }
 }

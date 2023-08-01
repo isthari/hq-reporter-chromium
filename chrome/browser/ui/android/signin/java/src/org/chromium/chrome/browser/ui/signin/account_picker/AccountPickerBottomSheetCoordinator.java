@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@ import androidx.annotation.VisibleForTesting;
 
 import org.chromium.chrome.browser.signin.services.SigninMetricsUtils;
 import org.chromium.chrome.browser.signin.services.SigninPreferencesManager;
+import org.chromium.chrome.browser.ui.signin.DeviceLockActivityLauncher;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController.SheetState;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController.StateChangeReason;
@@ -28,10 +29,11 @@ import java.lang.annotation.RetentionPolicy;
  * Coordinator of the account picker bottom sheet used in web signin flow.
  */
 public class AccountPickerBottomSheetCoordinator {
-    /** The scenarios which can trigger the account picker bottom sheet.*/
+    /** The scenarios which can trigger the account picker bottom sheet. */
     @IntDef({
             EntryPoint.WEB_SIGNIN,
             EntryPoint.SEND_TAB_TO_SELF,
+            EntryPoint.FEED_ACTION,
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface EntryPoint {
@@ -39,6 +41,8 @@ public class AccountPickerBottomSheetCoordinator {
         int WEB_SIGNIN = 0;
         // The user attempted to use the send-tab-to-self feature while being signed out.
         int SEND_TAB_TO_SELF = 1;
+        // The user attempted to use the p13n actions on back of a feed card while signed out.
+        int FEED_ACTION = 2;
     }
 
     private final AccountPickerBottomSheetView mView;
@@ -75,11 +79,14 @@ public class AccountPickerBottomSheetCoordinator {
     @MainThread
     public AccountPickerBottomSheetCoordinator(WindowAndroid windowAndroid,
             BottomSheetController bottomSheetController,
-            AccountPickerDelegate accountPickerDelegate) {
+            AccountPickerDelegate accountPickerDelegate,
+            AccountPickerBottomSheetStrings accountPickerBottomSheetStrings,
+            DeviceLockActivityLauncher deviceLockActivityLauncher) {
         SigninMetricsUtils.logAccountConsistencyPromoAction(AccountConsistencyPromoAction.SHOWN);
 
-        mAccountPickerBottomSheetMediator = new AccountPickerBottomSheetMediator(
-                windowAndroid, accountPickerDelegate, this::onDismissButtonClicked);
+        mAccountPickerBottomSheetMediator = new AccountPickerBottomSheetMediator(windowAndroid,
+                accountPickerDelegate, this::onDismissButtonClicked,
+                accountPickerBottomSheetStrings, deviceLockActivityLauncher);
         mView = new AccountPickerBottomSheetView(
                 windowAndroid.getActivity().get(), mAccountPickerBottomSheetMediator);
         mAccountPickerCoordinator = new AccountPickerCoordinator(
@@ -123,5 +130,9 @@ public class AccountPickerBottomSheetCoordinator {
     @VisibleForTesting
     public View getBottomSheetViewForTesting() {
         return mView.getContentView();
+    }
+
+    public void setTryAgainBottomSheetView() {
+        mAccountPickerBottomSheetMediator.setTryAgainBottomSheetView();
     }
 }

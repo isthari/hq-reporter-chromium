@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,19 +22,19 @@
 #include "ash/public/cpp/assistant/controller/assistant_ui_controller.h"
 #include "ash/public/cpp/session/session_types.h"
 #include "ash/public/cpp/session/user_info.h"
-#include "ash/public/cpp/style/color_provider.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
 #include "ash/style/ash_color_provider.h"
+#include "ash/style/dark_light_mode_controller_impl.h"
+#include "base/memory/raw_ref.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/icu_test_util.h"
-#include "base/test/scoped_feature_list.h"
 #include "base/unguessable_token.h"
-#include "chromeos/constants/chromeos_features.h"
-#include "chromeos/services/assistant/public/cpp/assistant_service.h"
+#include "chromeos/ash/services/assistant/public/cpp/assistant_service.h"
 #include "chromeos/ui/vector_icons/vector_icons.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/color/color_provider_manager.h"
 #include "ui/gfx/image/image_unittest_util.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/controls/image_view.h"
@@ -46,12 +46,11 @@ namespace ash {
 
 namespace {
 
-using chromeos::assistant::Assistant;
-using chromeos::assistant::AssistantInteractionMetadata;
-using chromeos::assistant::AssistantInteractionType;
-using chromeos::assistant::AssistantQuerySource;
-using chromeos::assistant::AssistantSuggestion;
-using chromeos::assistant::AssistantSuggestionType;
+using assistant::AssistantInteractionMetadata;
+using assistant::AssistantInteractionType;
+using assistant::AssistantQuerySource;
+using assistant::AssistantSuggestion;
+using assistant::AssistantSuggestionType;
 
 // Helpers ---------------------------------------------------------------------
 
@@ -82,10 +81,9 @@ void FindDescendentByClassName(views::View* parent, T** result) {
 // Mocks -----------------------------------------------------------------------
 
 class MockAssistantInteractionSubscriber
-    : public testing::NiceMock<
-          chromeos::assistant::AssistantInteractionSubscriber> {
+    : public testing::NiceMock<assistant::AssistantInteractionSubscriber> {
  public:
-  explicit MockAssistantInteractionSubscriber(Assistant* service) {
+  explicit MockAssistantInteractionSubscriber(assistant::Assistant* service) {
     scoped_subscriber_.Observe(service);
   }
 
@@ -97,8 +95,7 @@ class MockAssistantInteractionSubscriber
               (override));
 
  private:
-  chromeos::assistant::ScopedAssistantInteractionSubscriber scoped_subscriber_{
-      this};
+  assistant::ScopedAssistantInteractionSubscriber scoped_subscriber_{this};
 };
 
 // ScopedShowUi ----------------------------------------------------------------
@@ -109,7 +106,7 @@ class ScopedShowUi {
       : original_visibility_(
             AssistantUiController::Get()->GetModel()->visibility()) {
     AssistantUiController::Get()->ShowUi(
-        chromeos::assistant::AssistantEntryPoint::kUnspecified);
+        assistant::AssistantEntryPoint::kUnspecified);
   }
 
   ScopedShowUi(const ScopedShowUi&) = delete;
@@ -119,7 +116,7 @@ class ScopedShowUi {
     switch (original_visibility_) {
       case AssistantVisibility::kClosed:
         AssistantUiController::Get()->CloseUi(
-            chromeos::assistant::AssistantExitPoint::kUnspecified);
+            assistant::AssistantExitPoint::kUnspecified);
         return;
       case AssistantVisibility::kVisible:
         // No action necessary.
@@ -286,13 +283,29 @@ TEST_F(AssistantOnboardingViewTest, ShouldHaveExpectedSuggestions) {
     VectorIconWithColor(const gfx::VectorIcon& icon, SkColor color)
         : icon(icon), color(color) {}
 
-    const gfx::VectorIcon& icon;
+    const raw_ref<const gfx::VectorIcon, ExperimentalAsh> icon;
     SkColor color;
   };
 
   struct ExpectedSuggestion {
     std::u16string message;
     std::unique_ptr<VectorIconWithColor> icon_with_color;
+  };
+
+  auto get_color = [](int index) {
+    constexpr SkColor kForegroundColors[6][3] = {
+        // Colors of dark/light mode is disabled, dark mode, light mode.
+        {gfx::kGoogleBlue800, gfx::kGoogleBlue200, gfx::kGoogleBlue800},
+        {gfx::kGoogleRed800, gfx::kGoogleRed200, gfx::kGoogleRed800},
+        {SkColorSetRGB(0xBF, 0x50, 0x00), gfx::kGoogleYellow200,
+         SkColorSetRGB(0xBF, 0x50, 0x00)},
+        {gfx::kGoogleGreen800, gfx::kGoogleGreen200, gfx::kGoogleGreen800},
+        {SkColorSetRGB(0x8A, 0x0E, 0x9E), SkColorSetRGB(0xf8, 0x82, 0xff),
+         SkColorSetRGB(0xaa, 0x00, 0xb8)},
+        {gfx::kGoogleBlue800, gfx::kGoogleBlue200, gfx::kGoogleBlue800}};
+    const int color_index =
+        DarkLightModeControllerImpl::Get()->IsDarkModeEnabled() ? 1 : 2;
+    return kForegroundColors[index][color_index];
   };
 
   // Iterate over each onboarding mode.
@@ -308,53 +321,53 @@ TEST_F(AssistantOnboardingViewTest, ShouldHaveExpectedSuggestions) {
         expected_suggestions.push_back(
             {/*message=*/u"Square root of 71",
              /*icon_with_color=*/std::make_unique<VectorIconWithColor>(
-                 chromeos::kCalculateIcon, gfx::kGoogleBlue800)});
+                 chromeos::kCalculateIcon, get_color(0))});
         expected_suggestions.push_back(
             {/*message=*/u"How far is Venus",
              /*icon_with_color=*/std::make_unique<VectorIconWithColor>(
-                 chromeos::kStraightenIcon, gfx::kGoogleRed800)});
+                 chromeos::kStraightenIcon, get_color(1))});
         expected_suggestions.push_back(
             {/*message=*/u"Set timer",
              /*icon_with_color=*/std::make_unique<VectorIconWithColor>(
-                 chromeos::kTimerIcon, SkColorSetRGB(0xBF, 0x50, 0x00))});
+                 chromeos::kTimerIcon, get_color(2))});
         expected_suggestions.push_back(
             {/*message=*/u"Tell me a joke",
              /*icon_with_color=*/std::make_unique<VectorIconWithColor>(
-                 chromeos::kSentimentVerySatisfiedIcon, gfx::kGoogleGreen800)});
+                 chromeos::kSentimentVerySatisfiedIcon, get_color(3))});
         expected_suggestions.push_back(
             {/*message=*/u"\"Hello\" in Chinese",
              /*icon_with_color=*/std::make_unique<VectorIconWithColor>(
-                 chromeos::kTranslateIcon, SkColorSetRGB(0x8A, 0x0E, 0x9E))});
+                 chromeos::kTranslateIcon, get_color(4))});
         expected_suggestions.push_back(
             {/*message=*/u"Take a screenshot",
              /*icon_with_color=*/std::make_unique<VectorIconWithColor>(
-                 chromeos::kScreenshotIcon, gfx::kGoogleBlue800)});
+                 chromeos::kScreenshotIcon, get_color(5))});
         break;
       case AssistantOnboardingMode::kDefault:
         expected_suggestions.push_back(
             {/*message=*/u"5K in miles",
              /*icon_with_color=*/std::make_unique<VectorIconWithColor>(
-                 chromeos::kConversionPathIcon, gfx::kGoogleBlue800)});
+                 chromeos::kConversionPathIcon, get_color(0))});
         expected_suggestions.push_back(
             {/*message=*/u"Population in Nigeria",
              /*icon_with_color=*/std::make_unique<VectorIconWithColor>(
-                 chromeos::kPersonPinCircleIcon, gfx::kGoogleRed800)});
+                 chromeos::kPersonPinCircleIcon, get_color(1))});
         expected_suggestions.push_back(
             {/*message=*/u"Set timer",
              /*icon_with_color=*/std::make_unique<VectorIconWithColor>(
-                 chromeos::kTimerIcon, SkColorSetRGB(0xBF, 0x50, 0x00))});
+                 chromeos::kTimerIcon, get_color(2))});
         expected_suggestions.push_back(
             {/*message=*/u"Tell me a joke",
              /*icon_with_color=*/std::make_unique<VectorIconWithColor>(
-                 chromeos::kSentimentVerySatisfiedIcon, gfx::kGoogleGreen800)});
+                 chromeos::kSentimentVerySatisfiedIcon, get_color(3))});
         expected_suggestions.push_back(
             {/*message=*/u"\"Hello\" in Chinese",
              /*icon_with_color=*/std::make_unique<VectorIconWithColor>(
-                 chromeos::kTranslateIcon, SkColorSetRGB(0x8A, 0x0E, 0x9E))});
+                 chromeos::kTranslateIcon, get_color(4))});
         expected_suggestions.push_back(
             {/*message=*/u"Take a screenshot",
              /*icon_with_color=*/std::make_unique<VectorIconWithColor>(
-                 chromeos::kScreenshotIcon, gfx::kGoogleBlue800)});
+                 chromeos::kScreenshotIcon, get_color(5))});
         break;
     }
 
@@ -373,7 +386,7 @@ TEST_F(AssistantOnboardingViewTest, ShouldHaveExpectedSuggestions) {
 
       ASSERT_PIXELS_EQ(
           suggestion_view->GetIcon(),
-          gfx::CreateVectorIcon(expected_suggestion.icon_with_color->icon,
+          gfx::CreateVectorIcon(*expected_suggestion.icon_with_color->icon,
                                 /*size=*/24,
                                 expected_suggestion.icon_with_color->color));
     }
@@ -466,48 +479,38 @@ TEST_F(AssistantOnboardingViewTest, ShouldHandleRemoteIcons) {
 }
 
 TEST_F(AssistantOnboardingViewTest, DarkAndLightTheme) {
-  base::test::ScopedFeatureList scoped_feature_list(
-      chromeos::features::kDarkLightMode);
-  AshColorProvider::Get()->OnActiveUserPrefServiceChanged(
+  AshColorProvider* color_provider = AshColorProvider::Get();
+  auto* dark_light_mode_controller = DarkLightModeControllerImpl::Get();
+  dark_light_mode_controller->OnActiveUserPrefServiceChanged(
       Shell::Get()->session_controller()->GetActivePrefService());
-  ASSERT_TRUE(chromeos::features::IsDarkLightModeEnabled());
-  ASSERT_FALSE(ColorProvider::Get()->IsDarkModeEnabled());
 
   ShowAssistantUi();
 
-  EXPECT_EQ(greeting_label()->GetEnabledColor(),
-            ColorProvider::Get()->GetContentLayerColor(
-                ColorProvider::ContentLayerType::kTextColorPrimary));
-  EXPECT_EQ(intro_label()->GetEnabledColor(),
-            ColorProvider::Get()->GetContentLayerColor(
-                ColorProvider::ContentLayerType::kTextColorPrimary));
+  const bool initial_dark_mode_status =
+      dark_light_mode_controller->IsDarkModeEnabled();
+  const SkColor initial_greeting_label_color =
+      greeting_label()->GetEnabledColor();
+  const SkColor initial_intro_label_color = intro_label()->GetEnabledColor();
+  const SkColor intial_text_primary_color =
+      color_provider->GetContentLayerColor(
+          ColorProvider::ContentLayerType::kTextColorPrimary);
+  EXPECT_EQ(initial_greeting_label_color, intial_text_primary_color);
+  EXPECT_EQ(initial_intro_label_color, intial_text_primary_color);
 
-  Shell::Get()->session_controller()->GetActivePrefService()->SetBoolean(
-      prefs::kDarkModeEnabled, true);
-  ASSERT_TRUE(ColorProvider::Get()->IsDarkModeEnabled());
+  // Switch the color mode.
+  dark_light_mode_controller->ToggleColorMode();
+  ASSERT_NE(initial_dark_mode_status,
+            dark_light_mode_controller->IsDarkModeEnabled());
+  const SkColor text_primary_color = color_provider->GetContentLayerColor(
+      ColorProvider::ContentLayerType::kTextColorPrimary);
+  EXPECT_NE(intial_text_primary_color, text_primary_color);
 
-  EXPECT_EQ(greeting_label()->GetEnabledColor(),
-            ColorProvider::Get()->GetContentLayerColor(
-                ColorProvider::ContentLayerType::kTextColorPrimary));
-  EXPECT_EQ(intro_label()->GetEnabledColor(),
-            ColorProvider::Get()->GetContentLayerColor(
-                ColorProvider::ContentLayerType::kTextColorPrimary));
-}
-
-TEST_F(AssistantOnboardingViewTest, DarkAndLightModeFlagOff) {
-  ASSERT_FALSE(chromeos::features::IsDarkLightModeEnabled());
-
-  // ProductivityLauncher uses DarkLightMode colors.
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndDisableFeature(features::kProductivityLauncher);
-
-  ShowAssistantUi();
-
-  EXPECT_EQ(greeting_label()->GetEnabledColor(), kTextColorPrimary);
-  EXPECT_EQ(intro_label()->GetEnabledColor(), kTextColorPrimary);
-
-  // Avoid test teardown issues by explicitly closing the launcher.
-  CloseAssistantUi();
+  // Check that both label colors are updated to the text primary color,
+  // calculated based on the new color mode.
+  const SkColor greeting_label_color = greeting_label()->GetEnabledColor();
+  const SkColor intro_label_color = intro_label()->GetEnabledColor();
+  EXPECT_EQ(greeting_label_color, text_primary_color);
+  EXPECT_EQ(intro_label_color, text_primary_color);
 }
 
 }  // namespace

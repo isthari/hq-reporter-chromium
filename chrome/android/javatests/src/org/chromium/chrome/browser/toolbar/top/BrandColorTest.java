@@ -1,11 +1,10 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.toolbar.top;
 
 import android.graphics.Color;
-import android.os.Build;
 import android.text.TextUtils;
 
 import androidx.test.filters.SmallTest;
@@ -19,13 +18,13 @@ import org.junit.runner.RunWith;
 import org.chromium.base.ObserverList.RewindableIterator;
 import org.chromium.base.SysUtils;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.base.test.util.UrlUtils;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabObserver;
@@ -33,11 +32,10 @@ import org.chromium.chrome.browser.tab.TabTestUtils;
 import org.chromium.chrome.browser.toolbar.ToolbarDataProvider;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.chrome.test.R;
 import org.chromium.components.browser_ui.styles.ChromeColors;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.test.util.UiRestriction;
-import org.chromium.ui.util.ColorUtils;
 
 /**
  * Contains tests for the brand color feature.
@@ -54,7 +52,6 @@ public class BrandColorTest {
     private ToolbarPhone mToolbar;
     private ToolbarDataProvider mToolbarDataProvider;
     private int mDefaultColor;
-    private boolean mSupportsDarkStatusIcons;
 
     private static String getUrlWithBrandColor(String brandColor) {
         String brandColorMetaTag = TextUtils.isEmpty(brandColor)
@@ -76,13 +73,7 @@ public class BrandColorTest {
         });
         if (!SysUtils.isLowEndDevice()) {
             final int expectedStatusBarColor;
-            if (mSupportsDarkStatusIcons) {
-                expectedStatusBarColor = brandColor == mDefaultColor ? Color.WHITE : brandColor;
-            } else {
-                expectedStatusBarColor = brandColor == mDefaultColor
-                        ? Color.BLACK
-                        : ColorUtils.getDarkenedColorForStatusBar(brandColor);
-            }
+            expectedStatusBarColor = brandColor == mDefaultColor ? mDefaultColor : brandColor;
             CriteriaHelper.pollUiThread(() -> {
                 Criteria.checkThat(mActivityTestRule.getActivity().getWindow().getStatusBarColor(),
                         Matchers.is(expectedStatusBarColor));
@@ -96,9 +87,6 @@ public class BrandColorTest {
         mToolbarDataProvider = mToolbar.getToolbarDataProvider();
         mDefaultColor = ChromeColors.getDefaultThemeColor(
                 mActivityTestRule.getActivity(), /* isIncognito = */ false);
-        // TODO(https://crbug.com/871805): Use helper class to determine whether dark status icons
-        // are supported.
-        mSupportsDarkStatusIcons = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M;
     }
 
     /**
@@ -155,7 +143,7 @@ public class BrandColorTest {
     @Feature({"StatusBar", "Omnibox"})
     public void testBrandColorWithLoadStarted() {
         startMainActivityWithURL(getUrlWithBrandColor(BRAND_COLOR_1));
-        PostTask.postTask(UiThreadTaskTraits.DEFAULT, () -> {
+        PostTask.postTask(TaskTraits.UI_DEFAULT, () -> {
             Tab tab = mActivityTestRule.getActivity().getActivityTab();
             RewindableIterator<TabObserver> observers = TabTestUtils.getTabObservers(tab);
             while (observers.hasNext()) {
@@ -195,10 +183,10 @@ public class BrandColorTest {
         mActivityTestRule.loadUrl("about:blank");
         checkForBrandColor(mDefaultColor);
         PostTask.runOrPostTask(
-                UiThreadTaskTraits.DEFAULT, () -> mActivityTestRule.getActivity().onBackPressed());
+                TaskTraits.UI_DEFAULT, () -> mActivityTestRule.getActivity().onBackPressed());
         checkForBrandColor(Color.parseColor(BRAND_COLOR_1));
         PostTask.runOrPostTask(
-                UiThreadTaskTraits.DEFAULT, () -> mActivityTestRule.getActivity().onBackPressed());
+                TaskTraits.UI_DEFAULT, () -> mActivityTestRule.getActivity().onBackPressed());
         checkForBrandColor(mDefaultColor);
     }
 }

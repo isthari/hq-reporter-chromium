@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 
 #include "ash/quick_pair/common/constants.h"
 #include "ash/quick_pair/common/device.h"
+#include "ash/quick_pair/common/fake_bluetooth_adapter.h"
 #include "ash/quick_pair/common/logging.h"
 #include "ash/quick_pair/common/protocol.h"
 #include "ash/quick_pair/message_stream/fake_bluetooth_socket.h"
@@ -16,14 +17,15 @@
 #include "ash/quick_pair/message_stream/message_stream_lookup.h"
 #include "ash/quick_pair/pairing/mock_pairer_broker.h"
 #include "ash/quick_pair/pairing/pairer_broker.h"
-#include "ash/services/quick_pair/fast_pair_data_parser.h"
-#include "ash/services/quick_pair/mock_quick_pair_process_manager.h"
-#include "ash/services/quick_pair/quick_pair_process.h"
-#include "ash/services/quick_pair/quick_pair_process_manager.h"
-#include "ash/services/quick_pair/quick_pair_process_manager_impl.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/run_loop.h"
 #include "base/test/task_environment.h"
+#include "chromeos/ash/services/quick_pair/fast_pair_data_parser.h"
+#include "chromeos/ash/services/quick_pair/mock_quick_pair_process_manager.h"
+#include "chromeos/ash/services/quick_pair/quick_pair_process.h"
+#include "chromeos/ash/services/quick_pair/quick_pair_process_manager.h"
+#include "chromeos/ash/services/quick_pair/quick_pair_process_manager_impl.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
 #include "device/bluetooth/test/mock_bluetooth_adapter.h"
 #include "device/bluetooth/test/mock_bluetooth_device.h"
@@ -70,26 +72,10 @@ CreateTestBluetoothDevice(std::string address,
 namespace ash {
 namespace quick_pair {
 
-class BatteryUpdateMessageFakeBluetoothAdapter
-    : public testing::NiceMock<device::MockBluetoothAdapter> {
- public:
-  device::BluetoothDevice* GetDevice(const std::string& address) override {
-    for (const auto& it : mock_devices_) {
-      if (it->GetAddress() == address)
-        return it.get();
-    }
-
-    return nullptr;
-  }
-
- private:
-  ~BatteryUpdateMessageFakeBluetoothAdapter() = default;
-};
-
 class BatteryUpdateMessageHandlerTest : public testing::Test {
  public:
   void SetUp() override {
-    adapter_ = base::MakeRefCounted<BatteryUpdateMessageFakeBluetoothAdapter>();
+    adapter_ = base::MakeRefCounted<FakeBluetoothAdapter>();
     std::unique_ptr<testing::NiceMock<device::MockBluetoothDevice>>
         bluetooth_device =
             CreateTestBluetoothDevice(kTestDeviceAddress, adapter_.get());
@@ -121,6 +107,11 @@ class BatteryUpdateMessageHandlerTest : public testing::Test {
             message_stream_lookup_.get());
   }
 
+  void TearDown() override {
+    fake_message_stream_lookup_->RemoveMessageStream(kTestDeviceAddress);
+    battery_update_message_handler_.reset();
+  }
+
   MockQuickPairProcessManager* mock_process_manager() {
     return static_cast<MockQuickPairProcessManager*>(process_manager_.get());
   }
@@ -148,20 +139,21 @@ class BatteryUpdateMessageHandlerTest : public testing::Test {
   base::test::TaskEnvironment task_environment_{
       base::test::TaskEnvironment::TimeSource::MOCK_TIME};
 
-  scoped_refptr<BatteryUpdateMessageFakeBluetoothAdapter> adapter_;
+  scoped_refptr<FakeBluetoothAdapter> adapter_;
 
   scoped_refptr<FakeBluetoothSocket> fake_socket_ =
       base::MakeRefCounted<FakeBluetoothSocket>();
   std::unique_ptr<MessageStream> message_stream_;
   std::unique_ptr<MessageStreamLookup> message_stream_lookup_;
-  FakeMessageStreamLookup* fake_message_stream_lookup_ = nullptr;
+  raw_ptr<FakeMessageStreamLookup, ExperimentalAsh>
+      fake_message_stream_lookup_ = nullptr;
 
   mojo::SharedRemote<mojom::FastPairDataParser> data_parser_remote_;
   mojo::PendingRemote<mojom::FastPairDataParser> fast_pair_data_parser_;
   std::unique_ptr<FastPairDataParser> data_parser_;
   std::unique_ptr<QuickPairProcessManager> process_manager_;
 
-  device::BluetoothDevice* bluetooth_device_ = nullptr;
+  raw_ptr<device::BluetoothDevice, ExperimentalAsh> bluetooth_device_ = nullptr;
   std::unique_ptr<BatteryUpdateMessageHandler> battery_update_message_handler_;
 };
 

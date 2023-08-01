@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,17 +42,18 @@ import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.Matchers;
 import org.chromium.base.test.util.Restriction;
-import org.chromium.chrome.R;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.toolbar.LocationBarModel;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.chrome.test.R;
+import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
 import org.chromium.chrome.test.util.OmniboxTestUtils;
-import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.test.util.ClickUtils;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
-import org.chromium.ui.base.AndroidPermissionDelegate;
+import org.chromium.ui.permissions.AndroidPermissionDelegate;
 import org.chromium.ui.test.util.UiRestriction;
 
 import java.util.concurrent.Callable;
@@ -83,7 +84,7 @@ public class LocationBarLayoutTest {
     public static final LocationBarModel.OfflineStatus OFFLINE_STATUS =
             new LocationBarModel.OfflineStatus() {
                 @Override
-                public boolean isShowingTrustedOfflinePage(WebContents webContents) {
+                public boolean isShowingTrustedOfflinePage(Tab tab) {
                     return false;
                 }
 
@@ -137,7 +138,7 @@ public class LocationBarLayoutTest {
     }
 
     private View getStatusIconView() {
-        return mActivityTestRule.getActivity().findViewById(R.id.location_bar_status_icon);
+        return mActivityTestRule.getActivity().findViewById(R.id.location_bar_status_icon_frame);
     }
 
     private void setUrlBarTextAndFocus(String text) {
@@ -242,6 +243,7 @@ public class LocationBarLayoutTest {
     @Test
     @MediumTest
     @Feature("Omnibox")
+    @DisableFeatures({ChromeFeatureList.OMNIBOX_CONSUMERS_IME_INSETS})
     public void testFocusChangingSoftInputMode() {
         final UrlBar urlBar = getUrlBar();
 
@@ -293,9 +295,7 @@ public class LocationBarLayoutTest {
             urlLayoutParams = (MarginLayoutParams) urlContainer.getLayoutParams();
             int endMarginWithIcon = MarginLayoutParamsCompat.getMarginEnd(urlLayoutParams);
 
-            Assert.assertEquals(endMarginNoIcon
-                            + locationBar.getStatusCoordinatorForTesting()
-                                      .getEndPaddingPixelSizeOnFocusDelta(),
+            Assert.assertEquals(endMarginNoIcon + locationBar.getEndPaddingPixelSizeOnFocusDelta(),
                     endMarginWithIcon);
         });
     }

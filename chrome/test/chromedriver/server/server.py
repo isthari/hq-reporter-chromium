@@ -1,4 +1,4 @@
-# Copyright 2013 The Chromium Authors. All rights reserved.
+# Copyright 2013 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -29,7 +29,7 @@ class Server(object):
 
   def __init__(self, exe_path, log_path=None, verbose=True,
                replayable=False, devtools_replay_path=None,
-               additional_args=None):
+               bidi_mapper_path=None, additional_args=None):
     """Starts the ChromeDriver server and waits for it to be ready.
 
     Args:
@@ -59,6 +59,9 @@ class Server(object):
 
     if devtools_replay_path:
       chromedriver_args.extend(['--devtools-replay=%s' % devtools_replay_path])
+
+    if bidi_mapper_path:
+      chromedriver_args.extend(['--bidi-mapper-path=%s' % bidi_mapper_path])
 
     if additional_args:
       for arg in additional_args:

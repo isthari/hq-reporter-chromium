@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,10 +18,10 @@
 #include "chrome/test/base/scoped_testing_local_state.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
-#include "chromeos/dbus/system_proxy/system_proxy_client.h"
-#include "chromeos/dbus/system_proxy/system_proxy_service.pb.h"
-#include "chromeos/network/network_handler.h"
-#include "chromeos/network/network_handler_test_helper.h"
+#include "chromeos/ash/components/dbus/system_proxy/system_proxy_client.h"
+#include "chromeos/ash/components/dbus/system_proxy/system_proxy_service.pb.h"
+#include "chromeos/ash/components/network/network_handler.h"
+#include "chromeos/ash/components/network/network_handler_test_helper.h"
 #include "components/proxy_config/proxy_config_pref_names.h"
 #include "components/proxy_config/proxy_prefs.h"
 
@@ -50,8 +50,8 @@ class SystemProxyHandlerTest : public testing::Test {
   void SetUp() override {
     testing::Test::SetUp();
     network_handler_test_helper_ =
-        std::make_unique<chromeos::NetworkHandlerTestHelper>();
-    chromeos::SystemProxyClient::InitializeFake();
+        std::make_unique<ash::NetworkHandlerTestHelper>();
+    ash::SystemProxyClient::InitializeFake();
 
     system_proxy_handler_ =
         std::make_unique<SystemProxyHandler>(ash::CrosSettings::Get());
@@ -62,14 +62,14 @@ class SystemProxyHandlerTest : public testing::Test {
 
     system_proxy_handler_->SetSystemProxyManagerForTesting(
         system_proxy_manager_.get());
-    chromeos::NetworkHandler::Get()->InitializePrefServices(
-        profile_->GetPrefs(), local_state_.Get());
+    ash::NetworkHandler::Get()->InitializePrefServices(profile_->GetPrefs(),
+                                                       local_state_.Get());
   }
 
   void TearDown() override {
     system_proxy_manager_->StopObservingPrimaryProfilePrefs();
     system_proxy_manager_.reset();
-    chromeos::SystemProxyClient::Shutdown();
+    ash::SystemProxyClient::Shutdown();
     network_handler_test_helper_.reset();
   }
 
@@ -77,39 +77,36 @@ class SystemProxyHandlerTest : public testing::Test {
   void SetPolicy(bool system_proxy_enabled,
                  const std::string& system_services_username,
                  const std::string& system_services_password) {
-    base::DictionaryValue dict;
-    dict.SetKey("system_proxy_enabled", base::Value(system_proxy_enabled));
-    dict.SetKey("system_services_username",
-                base::Value(system_services_username));
-    dict.SetKey("system_services_password",
-                base::Value(system_services_password));
+    base::Value::Dict dict;
+    dict.Set("system_proxy_enabled", system_proxy_enabled);
+    dict.Set("system_services_username", system_services_username);
+    dict.Set("system_services_password", system_services_password);
     scoped_testing_cros_settings_.device_settings()->Set(
-        ash::kSystemProxySettings, dict);
+        ash::kSystemProxySettings, base::Value(std::move(dict)));
     task_environment_.RunUntilIdle();
   }
 
   void SetManagedProxy(Profile* profile) {
     // Configure a proxy via user policy.
-    base::Value proxy_config(base::Value::Type::DICTIONARY);
-    proxy_config.SetKey("mode",
-                        base::Value(ProxyPrefs::kFixedServersProxyModeName));
-    proxy_config.SetKey("server", base::Value(kProxyAuthUrl));
-    profile->GetPrefs()->Set(proxy_config::prefs::kProxy, proxy_config);
+    base::Value::Dict proxy_config;
+    proxy_config.Set("mode", ProxyPrefs::kFixedServersProxyModeName);
+    proxy_config.Set("server", kProxyAuthUrl);
+    profile->GetPrefs()->SetDict(proxy_config::prefs::kProxy,
+                                 std::move(proxy_config));
     task_environment_.RunUntilIdle();
   }
 
-  chromeos::SystemProxyClient::TestInterface* client_test_interface() {
-    return chromeos::SystemProxyClient::Get()->GetTestInterface();
+  ash::SystemProxyClient::TestInterface* client_test_interface() {
+    return ash::SystemProxyClient::Get()->GetTestInterface();
   }
 
   content::BrowserTaskEnvironment task_environment_;
-  std::unique_ptr<chromeos::NetworkHandlerTestHelper>
-      network_handler_test_helper_;
+  std::unique_ptr<ash::NetworkHandlerTestHelper> network_handler_test_helper_;
   ScopedTestingLocalState local_state_;
   std::unique_ptr<TestingProfile> profile_;
-  chromeos::ScopedTestingCrosSettings scoped_testing_cros_settings_;
+  ash::ScopedTestingCrosSettings scoped_testing_cros_settings_;
   ash::ScopedDeviceSettingsTestHelper device_settings_test_helper_;
-  chromeos::ScopedStubInstallAttributes test_install_attributes_;
+  ash::ScopedStubInstallAttributes test_install_attributes_;
   std::unique_ptr<SystemProxyHandler> system_proxy_handler_;
   std::unique_ptr<ash::SystemProxyManager> system_proxy_manager_;
 };

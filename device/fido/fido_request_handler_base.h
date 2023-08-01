@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,10 +13,10 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
 #include "base/check.h"
 #include "base/component_export.h"
 #include "base/containers/flat_set.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string_piece_forward.h"
@@ -32,7 +32,7 @@ namespace device {
 class BleAdapterManager;
 class FidoAuthenticator;
 class FidoDiscoveryFactory;
-class PublicKeyCredentialUserEntity;
+class DiscoverableCredentialMetadata;
 struct TransportAvailabilityCallbackReadiness;
 
 // Base class that handles authenticator discovery/removal. Its lifetime is
@@ -47,6 +47,12 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoRequestHandlerBase
 
   using AuthenticatorMap =
       std::map<std::string, FidoAuthenticator*, std::less<>>;
+
+  enum class RecognizedCredential {
+    kUnknown,
+    kHasRecognizedCredential,
+    kNoRecognizedCredential
+  };
 
   // Encapsulates data required to initiate WebAuthN UX dialog. Once all
   // components of TransportAvailabilityInfo is set,
@@ -64,25 +70,32 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoRequestHandlerBase
     // list.
     bool has_empty_allow_list = false;
 
+    // is_only_hybrid_or_internal is true if credentials in the allow-list only
+    // contain the hybrid or internal transports.
+    bool is_only_hybrid_or_internal = false;
+
     // The intersection of transports supported by the client and allowed by the
     // relying party.
     base::flat_set<FidoTransportProtocol> available_transports;
 
     // Whether the platform authenticator has a matching credential for the
-    // request. This is only set for a GetAssertion request and if a platform
-    // authenticator has been added to the request handler. (The Windows
-    // WebAuthn API does NOT count as a platform authenticator in this case.)
-    absl::optional<bool> has_recognized_platform_authenticator_credential;
+    // request. This is only set for a GetAssertion request.
+    RecognizedCredential has_platform_authenticator_credential =
+        RecognizedCredential::kNoRecognizedCredential;
 
     // The set of recognized platform credential user entities that can fulfill
     // a GetAssertion request. Not all platform authenticators report this, so
     // the set might be empty even if
-    // |has_recognized_platform_authenticator_credential| is true.
-    std::vector<PublicKeyCredentialUserEntity>
+    // |has_platform_authenticator_credential| is |kHasRecognizedCredential|.
+    std::vector<DiscoverableCredentialMetadata>
         recognized_platform_authenticator_credentials;
 
     bool is_ble_powered = false;
     bool can_power_on_ble_adapter = false;
+
+    // ble_access_denied is set to true if Chromium does not have permission
+    // to use the BLE adaptor. Resolving this is a platform-specific operation.
+    bool ble_access_denied = false;
 
     // Indicates whether the native Windows WebAuthn API is available.
     // Dispatching to it should be controlled by the embedder.
@@ -96,11 +109,9 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoRequestHandlerBase
     // when creating a resident credential.
     bool win_native_ui_shows_resident_credential_notice = false;
 
-    // Contains the authenticator ID of the native Windows
-    // authenticator if |has_win_native_api_authenticator| is true.
-    // This allows the observer to distinguish it from other
-    // authenticators.
-    std::string win_native_api_authenticator_id;
+    // Whether the native Windows API reports that a user verifying platform
+    // authenticator is available.
+    bool win_is_uvpaa = false;
 
     // Indicates whether the request is occurring in an off-the-record
     // BrowserContext (e.g. Chrome Incognito mode).
@@ -114,6 +125,28 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoRequestHandlerBase
     // authenticator and thus have privacy implications.
     ResidentKeyRequirement resident_key_requirement =
         ResidentKeyRequirement::kDiscouraged;
+
+    // transport_list_did_include_internal is set to true during a getAssertion
+    // request if at least one element of the allowList included the "internal"
+    // transport, or didn't have any transports.
+    //
+    // An embedder may use this to show a more precise UI when no transports
+    // are available. If the lack of transports is because the allowList only
+    // contained NFC-based credentials, and there's no NFC support, then that
+    // might be meaningfully different from the case where the allowList
+    // contained credentials that could have been on the local device but
+    // weren't.
+    bool transport_list_did_include_internal = false;
+
+    // request_is_internal_only indicates that this request can only be serviced
+    // by internal authenticators (e.g. due to the attachment setting).
+    // See also `make_credential_attachment`.
+    bool request_is_internal_only = false;
+
+    // make_credential_attachment contains the attachment preference for
+    // makeCredential requests. See also `request_is_internal_only`, which isn't
+    // specific to makeCredential requests.
+    absl::optional<AuthenticatorAttachment> make_credential_attachment;
   };
 
   class COMPONENT_EXPORT(DEVICE_FIDO) Observer {
@@ -187,6 +220,15 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoRequestHandlerBase
     // try again. Receives the number of |attempts| before the device locks
     // internal user verification.
     virtual void OnRetryUserVerification(int attempts) = 0;
+  };
+
+  // ScopedAlwaysAllowBLECalls allows BLE API calls to always be made, even if
+  // they would be disabled on macOS because Chromium was not launched with
+  // self-responsibility.
+  class COMPONENT_EXPORT(DEVICE_FIDO) ScopedAlwaysAllowBLECalls {
+   public:
+    ScopedAlwaysAllowBLECalls();
+    ~ScopedAlwaysAllowBLECalls();
   };
 
   FidoRequestHandlerBase();
@@ -280,6 +322,7 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoRequestHandlerBase
                           FidoAuthenticator* authenticator) override;
   void AuthenticatorRemoved(FidoDiscoveryBase* discovery,
                             FidoAuthenticator* authenticator) override;
+  void BleDenied() override;
 
   // GetPlatformCredentialStatus is called to learn whether a platform
   // authenticator has credentials responsive to the current request. If this
@@ -298,8 +341,8 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoRequestHandlerBase
   // platform authenticator whether it has responsive discoverable credentials
   // and whether it has responsive credentials at all.
   void OnHavePlatformCredentialStatus(
-      std::vector<PublicKeyCredentialUserEntity> user_entities,
-      bool have_credential);
+      std::vector<DiscoverableCredentialMetadata> user_entities,
+      RecognizedCredential has_credentials);
 
  private:
   friend class FidoRequestHandlerTest;
@@ -313,6 +356,7 @@ class COMPONENT_EXPORT(DEVICE_FIDO) FidoRequestHandlerBase
   void InitializeAuthenticatorAndDispatchRequest(
       const std::string& authenticator_id);
   void ConstructBleAdapterPowerManager();
+  void OnWinIsUvpaa(bool is_uvpaa);
 
   AuthenticatorMap active_authenticators_;
   std::vector<std::unique_ptr<FidoDiscoveryBase>> discoveries_;

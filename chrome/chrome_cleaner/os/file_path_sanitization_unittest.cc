@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 
 #include "base/path_service.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace chrome_cleaner {
@@ -19,12 +20,22 @@ std::wstring FirstComponent(const std::wstring& original) {
 }
 
 TEST(FilePathSanitizationTests, NormalizePath) {
+#if defined(ARCH_CPU_ARM64)
+  // desktop.ini is not in C:\Program Files on ARM64 devices and the directory
+  // where it does exist (C:\Program Files (Arm)) doesn't have an 8.3 name.
+  // So, this is the best normalization test we can do.
+  base::FilePath expected_path = base::FilePath(L"c:\\program files");
+  EXPECT_EQ(NormalizePath(base::FilePath(L"C:\\PROGRA~1")), expected_path);
+  EXPECT_EQ(NormalizePath(base::FilePath(L"c:\\pRoGrAm FiLeS")), expected_path);
+#else
   base::FilePath expected_path =
       base::FilePath(L"c:\\program files\\desktop.ini");
   EXPECT_EQ(NormalizePath(base::FilePath(L"C:\\PROGRA~1\\DESKTOP.INI")),
             expected_path);
   EXPECT_EQ(NormalizePath(base::FilePath(L"c:\\pRoGrAm FiLeS\\desktop.INI")),
             expected_path);
+#endif  // defined(ARCH_CPU_ARM64)
+
   base::FilePath empty_path;
   EXPECT_EQ(NormalizePath(empty_path), empty_path);
 }

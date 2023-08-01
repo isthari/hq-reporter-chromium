@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,16 +40,14 @@ const char kJavaScriptScheme[] = "javascript";
 const char16_t kJavaScriptScheme16[] = u"javascript";
 const char kMailToScheme[] = "mailto";
 const char16_t kMailToScheme16[] = u"mailto";
-// This is for QuicTransport (https://wicg.github.io/web-transport/).
-// See also: https://www.iana.org/assignments/uri-schemes/prov/quic-transport
-const char kQuicTransportScheme[] = "quic-transport";
-const char16_t kQuicTransportScheme16[] = u"quic-transport";
 const char kTelScheme[] = "tel";
 const char16_t kTelScheme16[] = u"tel";
 const char kUrnScheme[] = "urn";
 const char16_t kUrnScheme16[] = u"urn";
 const char kUuidInPackageScheme[] = "uuid-in-package";
 const char16_t kUuidInPackageScheme16[] = u"uuid-in-package";
+const char kWebcalScheme[] = "webcal";
+const char16_t kWebcalScheme16[] = u"webcal";
 const char kWsScheme[] = "ws";
 const char16_t kWsScheme16[] = u"ws";
 const char kWssScheme[] = "wss";

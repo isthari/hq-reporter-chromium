@@ -1,13 +1,13 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/printing/history/print_job_history_service_impl.h"
 
-#include "base/callback_helpers.h"
-#include "base/guid.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/uuid.h"
 #include "chrome/browser/ash/printing/cups_print_job.h"
 #include "chrome/browser/ash/printing/history/print_job_info_proto_conversions.h"
 #include "chrome/browser/printing/print_job.h"
@@ -17,7 +17,7 @@ namespace ash {
 
 PrintJobHistoryServiceImpl::PrintJobHistoryServiceImpl(
     std::unique_ptr<PrintJobDatabase> print_job_database,
-    chromeos::CupsPrintJobManager* print_job_manager,
+    CupsPrintJobManager* print_job_manager,
     PrefService* pref_service)
     : print_job_database_(std::move(print_job_database)),
       print_job_manager_(print_job_manager),
@@ -55,33 +55,34 @@ void PrintJobHistoryServiceImpl::OnClearDone(
 }
 
 void PrintJobHistoryServiceImpl::OnPrintJobDone(
-    base::WeakPtr<chromeos::CupsPrintJob> job) {
+    base::WeakPtr<CupsPrintJob> job) {
   SavePrintJob(job);
 }
 
 void PrintJobHistoryServiceImpl::OnPrintJobError(
-    base::WeakPtr<chromeos::CupsPrintJob> job) {
+    base::WeakPtr<CupsPrintJob> job) {
   SavePrintJob(job);
 }
 
 void PrintJobHistoryServiceImpl::OnPrintJobCancelled(
-    base::WeakPtr<chromeos::CupsPrintJob> job) {
+    base::WeakPtr<CupsPrintJob> job) {
   SavePrintJob(job);
 }
 
-void PrintJobHistoryServiceImpl::SavePrintJob(
-    base::WeakPtr<chromeos::CupsPrintJob> job) {
+void PrintJobHistoryServiceImpl::SavePrintJob(base::WeakPtr<CupsPrintJob> job) {
   if (!job)
     return;
 
   // Prevent saving print jobs if it's from incognito browser sessions.
   // TODO(crbug/1053704): Add policy pref to enable storing incognito print
   // jobs.
-  if (job->source() == ::printing::PrintJob::Source::PRINT_PREVIEW_INCOGNITO)
+  if (job->source() == ::printing::PrintJob::Source::kPrintPreviewIncognito) {
     return;
+  }
 
-  chromeos::printing::proto::PrintJobInfo print_job_info =
-      CupsPrintJobToProto(*job, /*id=*/base::GenerateGUID(), base::Time::Now());
+  printing::proto::PrintJobInfo print_job_info = CupsPrintJobToProto(
+      *job, /*id=*/base::Uuid::GenerateRandomV4().AsLowercaseString(),
+      base::Time::Now());
   print_job_database_->SavePrintJob(
       print_job_info,
       base::BindOnce(&PrintJobHistoryServiceImpl::OnPrintJobSaved,
@@ -94,7 +95,7 @@ void PrintJobHistoryServiceImpl::OnPrintJobDatabaseInitialized(bool success) {
 }
 
 void PrintJobHistoryServiceImpl::OnPrintJobSaved(
-    const chromeos::printing::proto::PrintJobInfo& print_job_info,
+    const printing::proto::PrintJobInfo& print_job_info,
     bool success) {
   for (auto& observer : observers_) {
     observer.OnPrintJobFinished(print_job_info);
@@ -111,7 +112,7 @@ void PrintJobHistoryServiceImpl::OnPrintJobsCleanedUp(
 void PrintJobHistoryServiceImpl::OnGetPrintJobsDone(
     PrintJobDatabase::GetPrintJobsCallback callback,
     bool success,
-    std::vector<chromeos::printing::proto::PrintJobInfo> entries) {
+    std::vector<printing::proto::PrintJobInfo> entries) {
   std::move(callback).Run(success, entries);
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -46,7 +46,7 @@ TEST(SchemefulSiteTest, Operators) {
 
   // Compare each origin to every other origin and ensure the operators work as
   // expected.
-  for (size_t first = 0; first < base::size(kTestOrigins); ++first) {
+  for (size_t first = 0; first < std::size(kTestOrigins); ++first) {
     SchemefulSite site1 = SchemefulSite(kTestOrigins[first]);
     SCOPED_TRACE(site1.GetDebugString());
 
@@ -58,7 +58,7 @@ TEST(SchemefulSiteTest, Operators) {
     EXPECT_EQ(site1, site1_copy);
     EXPECT_FALSE(site1 < site1_copy);
 
-    for (size_t second = first + 1; second < base::size(kTestOrigins);
+    for (size_t second = first + 1; second < std::size(kTestOrigins);
          ++second) {
       SchemefulSite site2 = SchemefulSite(kTestOrigins[second]);
       SCOPED_TRACE(site2.GetDebugString());
@@ -127,6 +127,19 @@ TEST(SchemefulSiteTest, IPBasedOriginsRemovePort) {
   url::Origin origin_ipv6 = url::Origin::Create(GURL("https://[::1]"));
   EXPECT_EQ(url::Origin::Create(GURL("https://[::1]")),
             SchemefulSite(origin_ipv6).GetInternalOriginForTesting());
+}
+
+TEST(SchemefulSiteTest, LocalhostOriginsRemovePort) {
+  // Localhost origins should not be modified, except for removing their ports.
+  url::Origin localhost_http =
+      url::Origin::Create(GURL("http://localhost:1234"));
+  EXPECT_EQ(url::Origin::Create(GURL("http://localhost")),
+            SchemefulSite(localhost_http).GetInternalOriginForTesting());
+
+  url::Origin localhost_https =
+      url::Origin::Create(GURL("https://localhost:1234"));
+  EXPECT_EQ(url::Origin::Create(GURL("https://localhost")),
+            SchemefulSite(localhost_https).GetInternalOriginForTesting());
 }
 
 TEST(SchemefulSiteTest, OpaqueOrigins) {
@@ -395,6 +408,15 @@ TEST(SchemefulSiteTest, GetGURL) {
     SchemefulSite site(testcase.origin);
     EXPECT_EQ(site.GetURL(), testcase.wantGURL);
   }
+}
+
+TEST(SchemefulSiteTest, InternalValue) {
+  url::Origin origin = url::Origin::Create(GURL("https://example.com"));
+  SchemefulSite site(origin);
+  EXPECT_EQ(site.internal_value(), origin);
+  url::Origin opaque_origin;
+  SchemefulSite opaque_site(opaque_origin);
+  EXPECT_EQ(opaque_site.internal_value(), opaque_origin);
 }
 
 }  // namespace net

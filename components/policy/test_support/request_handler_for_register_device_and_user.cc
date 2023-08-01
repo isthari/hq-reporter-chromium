@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,9 @@
 #include <set>
 #include <string>
 
-#include "base/guid.h"
 #include "base/notreached.h"
 #include "base/strings/stringprintf.h"
+#include "base/uuid.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "components/policy/test_support/client_storage.h"
@@ -86,13 +86,29 @@ std::unique_ptr<HttpResponse> ValidatePsmFields(
   return nullptr;
 }
 
+std::unique_ptr<HttpResponse> ValidateLicenses(
+    const em::DeviceRegisterRequest& register_request,
+    const PolicyStorage* policy_storage) {
+  bool is_enterprise_license = true;
+  if (register_request.has_license_type() &&
+      register_request.license_type().license_type() ==
+          em::LicenseType_LicenseTypeEnum::LicenseType_LicenseTypeEnum_KIOSK) {
+    is_enterprise_license = false;
+  }
+
+  if ((is_enterprise_license && policy_storage->has_enterprise_license()) ||
+      (!is_enterprise_license && policy_storage->has_kiosk_license())) {
+    return nullptr;
+  }
+
+  return CreateHttpResponse(net::HTTP_PAYMENT_REQUIRED, "No license.");
+}
+
 }  // namespace
 
 RequestHandlerForRegisterDeviceAndUser::RequestHandlerForRegisterDeviceAndUser(
-    ClientStorage* client_storage,
-    PolicyStorage* policy_storage)
-    : EmbeddedPolicyTestServer::RequestHandler(client_storage, policy_storage) {
-}
+    EmbeddedPolicyTestServer* parent)
+    : EmbeddedPolicyTestServer::RequestHandler(parent) {}
 
 RequestHandlerForRegisterDeviceAndUser::
     ~RequestHandlerForRegisterDeviceAndUser() = default;
@@ -134,6 +150,10 @@ RequestHandlerForRegisterDeviceAndUser::HandleRequest(
   if (error_response)
     return error_response;
 
+  error_response = ValidateLicenses(register_request, policy_storage());
+  if (error_response)
+    return error_response;
+
   return RegisterDeviceAndSendResponse(request, register_request, policy_user);
 }
 
@@ -144,7 +164,7 @@ RequestHandlerForRegisterDeviceAndUser::RegisterDeviceAndSendResponse(
     const std::string& policy_user) {
   std::string device_id =
       KeyValueFromUrl(request.GetURL(), dm_protocol::kParamDeviceID);
-  std::string device_token = base::GUID::GenerateRandomV4().AsLowercaseString();
+  std::string device_token = base::Uuid::GenerateRandomV4().AsLowercaseString();
   std::string machine_name = base::StringPrintf(
       "%s - %s", register_request.machine_model().c_str(), device_id.c_str());
 

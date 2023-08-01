@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,8 @@
 #define COMPONENTS_VIZ_COMMON_VIZ_UTILS_H_
 
 #include "base/timer/elapsed_timer.h"
+#include "cc/paint/filter_operations.h"
+#include "components/viz/common/quads/draw_quad.h"
 #include "components/viz/common/viz_common_export.h"
 
 #include "build/build_config.h"
@@ -47,6 +49,22 @@ VIZ_COMMON_EXPORT bool GatherFDStats(base::TimeDelta* delta_time_taken,
                                      int* fd_max,
                                      int* active_fd_count,
                                      int* rlim_cur);
+
+// Returns the smallest rectangle in target space that contains the quad.
+VIZ_COMMON_EXPORT gfx::Rect ClippedQuadRectangle(const DrawQuad* quad);
+VIZ_COMMON_EXPORT gfx::RectF ClippedQuadRectangleF(const DrawQuad* quad);
+
+// The expanded area that will be changed by a render pass draw quad with a
+// pixel-moving foreground filter.
+VIZ_COMMON_EXPORT gfx::Rect GetExpandedRectWithPixelMovingForegroundFilter(
+    const DrawQuad& rpdq,
+    const cc::FilterOperations& filters);
+
+// This transforms a rect from the view transition content surface/render_pass
+// space to the shared element quad space.
+VIZ_COMMON_EXPORT gfx::Transform GetViewTransitionTransform(
+    gfx::Rect shared_element_quad,
+    gfx::Rect view_transition_content_output);
 
 }  // namespace viz
 

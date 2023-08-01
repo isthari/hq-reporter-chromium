@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "base/debug/crash_logging.h"
 #include "base/lazy_instance.h"
+#include "base/observer_list.h"
 #include "build/build_config.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/accessibility/platform/ax_platform_node_delegate.h"
@@ -23,6 +24,9 @@ base::LazyInstance<AXPlatformNode::NativeWindowHandlerCallback>::Leaky
 
 // static
 AXMode AXPlatformNode::ax_mode_;
+
+// static
+bool AXPlatformNode::disallow_ax_mode_changes_;
 
 // static
 gfx::NativeViewAccessible AXPlatformNode::popup_focus_override_ = nullptr;
@@ -47,6 +51,11 @@ AXPlatformNode* AXPlatformNode::FromNativeViewAccessible(
 void AXPlatformNode::RegisterNativeWindowHandler(
     AXPlatformNode::NativeWindowHandlerCallback handler) {
   native_window_handler_.Get() = handler;
+}
+
+// static
+void AXPlatformNode::DisallowAXModeChanges() {
+  disallow_ax_mode_changes_ = true;
 }
 
 AXPlatformNode::AXPlatformNode() = default;
@@ -93,7 +102,10 @@ void AXPlatformNode::RemoveAXModeObserver(AXModeObserver* observer) {
 
 // static
 void AXPlatformNode::NotifyAddAXModeFlags(AXMode mode_flags) {
-  // Note: this is only called on Windows, and in tests.
+  if (disallow_ax_mode_changes_) {
+    return;
+  }
+
   AXMode new_ax_mode(ax_mode_);
   new_ax_mode |= mode_flags;
 
@@ -107,13 +119,7 @@ void AXPlatformNode::NotifyAddAXModeFlags(AXMode mode_flags) {
 
 // static
 void AXPlatformNode::SetAXMode(AXMode new_mode) {
-  // Note: this is only called on Windows.
   ax_mode_ = new_mode;
-}
-
-// static
-void AXPlatformNode::ResetAxModeForTesting() {
-  ax_mode_ = 0;
 }
 
 // static

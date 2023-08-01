@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,21 +9,25 @@
 #include <utility>
 
 #include "base/check.h"
+#include "base/functional/callback.h"
 #include "base/location.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
+#include "base/notreached.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/synchronization/lock.h"
 #include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "base/thread_annotations.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/threading/platform_thread.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
+#include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "content/services/auction_worklet/auction_v8_devtools_agent.h"
 #include "content/services/auction_worklet/debug_command_queue.h"
@@ -42,6 +46,7 @@
 #include "v8/include/v8-primitive.h"
 #include "v8/include/v8-script.h"
 #include "v8/include/v8-template.h"
+#include "v8/include/v8-value-serializer.h"
 #include "v8/include/v8-wasm.h"
 
 namespace auction_worklet {
@@ -96,11 +101,29 @@ class DebugContextScope {
   const raw_ptr<const AuctionV8Helper::DebugId> debug_id_;
 };
 
+void TraceTopLevel(const std::string& url,
+                   perfetto::TracedValue trace_context) {
+  auto dict = std::move(trace_context).WriteDictionary();
+  dict.Add("url", url);
+  dict.Add("lineNumber", 1);
+  dict.Add("columnNumber", 1);
+}
+
+class TrivialSerializerDelegate : public v8::ValueSerializer::Delegate {
+ public:
+  TrivialSerializerDelegate() = default;
+  ~TrivialSerializerDelegate() override = default;
+
+  void ThrowDataCloneError(v8::Local<v8::String> message) override {
+    NOTREACHED();  // Should not have any weird types in our usage.
+  }
+};
+
 }  // namespace
 
 // Utility class to timeout running a v8::Script or calling a v8::Function.
 // Instantiate a ScriptTimeoutHelper, and it will terminate script if
-// kScriptTimeout passes before it is destroyed.
+// `script_timeout` passes before it is destroyed.
 //
 // Creates a v8::SafeForTerminationScope(), so the caller doesn't have to.
 class AuctionV8Helper::ScriptTimeoutHelper {
@@ -243,11 +266,15 @@ class AuctionV8Helper::ScriptTimeoutHelper {
 };
 
 constexpr base::TimeDelta AuctionV8Helper::kScriptTimeout =
+#if defined(MEMORY_SANITIZER) || defined(ADDRESS_SANITIZER) || \
+    defined(THREAD_SANITIZER)
+    base::Milliseconds(500);
+#else
     base::Milliseconds(50);
+#endif
 
 AuctionV8Helper::FullIsolateScope::FullIsolateScope(AuctionV8Helper* v8_helper)
-    : locker_(v8_helper->isolate()),
-      isolate_scope_(v8_helper->isolate()),
+    : isolate_scope_(v8_helper->isolate()),
       handle_scope_(v8_helper->isolate()) {}
 
 AuctionV8Helper::FullIsolateScope::~FullIsolateScope() = default;
@@ -269,6 +296,26 @@ AuctionV8Helper::DebugId::~DebugId() {
   v8_helper_->FreeContextGroupId(context_group_id_);
 }
 
+AuctionV8Helper::SerializedValue::SerializedValue()
+    : buffer_(nullptr), size_(0u) {}
+
+AuctionV8Helper::SerializedValue::SerializedValue(SerializedValue&& other) {
+  *this = std::move(other);
+}
+
+AuctionV8Helper::SerializedValue::~SerializedValue() {
+  free(buffer_);
+}
+
+AuctionV8Helper::SerializedValue& AuctionV8Helper::SerializedValue::operator=(
+    SerializedValue&& other) {
+  buffer_ = other.buffer_;
+  size_ = other.size_;
+  other.buffer_ = nullptr;
+  other.size_ = 0u;
+  return *this;
+}
+
 // static
 scoped_refptr<AuctionV8Helper> AuctionV8Helper::Create(
     scoped_refptr<base::SingleThreadTaskRunner> v8_runner) {
@@ -287,31 +334,30 @@ scoped_refptr<base::SingleThreadTaskRunner>
 AuctionV8Helper::CreateTaskRunner() {
   // We want a dedicated thread for V8 execution since it may block indefinitely
   // if breakpointed in a debugger.
-  return base::ThreadPool::CreateSingleThreadTaskRunner(
+  auto task_runner = base::ThreadPool::CreateSingleThreadTaskRunner(
       {base::WithBaseSyncPrimitives(),
        base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN},
       base::SingleThreadTaskRunnerThreadMode::DEDICATED);
+  task_runner->PostTask(
+      FROM_HERE, base::BindOnce([] {
+        base::PlatformThread::SetName("AuctionV8HelperThread");
+      }));
+  return task_runner;
+}
+
+void AuctionV8Helper::SetDestroyedCallback(base::OnceClosure callback) {
+  DCHECK(!destroyed_callback_);
+  destroyed_callback_ = std::move(callback);
 }
 
 v8::Local<v8::Context> AuctionV8Helper::CreateContext(
     v8::Handle<v8::ObjectTemplate> global_template) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   v8::Local<v8::Context> context =
-      v8::Context::New(isolate(), nullptr /* extensions */, global_template);
+      v8::Context::New(isolate(), /*extensions=*/nullptr, global_template);
   auto result =
       context->Global()->Delete(context, CreateStringFromLiteral("Date"));
-
-  v8::Local<v8::ObjectTemplate> console_emulation =
-      console_.GetConsoleTemplate();
-  v8::Local<v8::Object> console_obj;
-  if (console_emulation->NewInstance(context).ToLocal(&console_obj)) {
-    result = context->Global()->Set(context, CreateStringFromLiteral("console"),
-                                    console_obj);
-    DCHECK(!result.IsNothing());
-  } else {
-    DCHECK(false);
-  }
-
+  DCHECK(!result.IsNothing());
   return context;
 }
 
@@ -411,12 +457,40 @@ bool AuctionV8Helper::ExtractJson(v8::Local<v8::Context> context,
   return true;
 }
 
+AuctionV8Helper::SerializedValue AuctionV8Helper::Serialize(
+    v8::Local<v8::Context> context,
+    v8::Local<v8::Value> value) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  SerializedValue result;
+  TrivialSerializerDelegate delegate;
+  v8::ValueSerializer serializer(isolate(), &delegate);
+  v8::Maybe<bool> success = serializer.WriteValue(context, value);
+  if (success.IsJust() && success.FromJust()) {
+    auto serialized_data = serializer.Release();
+    result.buffer_ = serialized_data.first;
+    result.size_ = serialized_data.second;
+  }
+  return result;
+}
+
+v8::MaybeLocal<v8::Value> AuctionV8Helper::Deserialize(
+    v8::Local<v8::Context> context,
+    const SerializedValue& serialized_value) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  v8::ValueDeserializer deserializer(isolate(), serialized_value.buffer_,
+                                     serialized_value.size_);
+  return deserializer.ReadValue(context);
+}
+
 v8::MaybeLocal<v8::UnboundScript> AuctionV8Helper::Compile(
     const std::string& src,
     const GURL& src_url,
     const DebugId* debug_id,
     absl::optional<std::string>& error_out) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  constexpr const char* kTraceEventCategoryGroup = "v8,devtools.timeline";
+
   v8::Isolate* v8_isolate = isolate();
 
   DebugContextScope maybe_debug(inspector(), v8_isolate->GetCurrentContext(),
@@ -426,6 +500,9 @@ v8::MaybeLocal<v8::UnboundScript> AuctionV8Helper::Compile(
   v8::MaybeLocal<v8::String> origin_string = CreateUtf8String(src_url.spec());
   if (src_string.IsEmpty() || origin_string.IsEmpty())
     return v8::MaybeLocal<v8::UnboundScript>();
+
+  TRACE_EVENT_BEGIN1(kTraceEventCategoryGroup, "v8.compile", "fileName",
+                     src_url.spec());
 
   // Compile script.
   v8::TryCatch try_catch(isolate());
@@ -439,6 +516,15 @@ v8::MaybeLocal<v8::UnboundScript> AuctionV8Helper::Compile(
     error_out = FormatExceptionMessage(v8_isolate->GetCurrentContext(),
                                        try_catch.Message());
   }
+
+  TRACE_EVENT_END1(kTraceEventCategoryGroup, "v8.compile", "data",
+                   [&](perfetto::TracedValue trace_context) {
+                     auto dict = std::move(trace_context).WriteDictionary();
+                     dict.Add("url", src_url.spec());
+                     dict.Add("lineNumber", 1);
+                     dict.Add("columnNumber", 1);
+                   });
+
   return result;
 }
 
@@ -477,44 +563,68 @@ v8::MaybeLocal<v8::WasmModuleObject> AuctionV8Helper::CloneWasmModule(
                                                   in->GetCompiledModule());
 }
 
-v8::MaybeLocal<v8::Value> AuctionV8Helper::RunScript(
-    v8::Local<v8::Context> context,
-    v8::Local<v8::UnboundScript> script,
-    const DebugId* debug_id,
-    base::StringPiece function_name,
-    base::span<v8::Local<v8::Value>> args,
-    std::vector<std::string>& error_out) {
+bool AuctionV8Helper::RunScript(v8::Local<v8::Context> context,
+                                v8::Local<v8::UnboundScript> script,
+                                const DebugId* debug_id,
+                                absl::optional<base::TimeDelta> script_timeout,
+                                std::vector<std::string>& error_out) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK_EQ(isolate(), context->GetIsolate());
 
   std::string script_name = FormatScriptName(script);
   DebugContextScope maybe_debug(inspector(), context, debug_id, script_name);
-  ScopedConsoleTarget direct_console(this, script_name, &error_out);
 
-  v8::Local<v8::String> v8_function_name;
-  if (!CreateUtf8String(function_name).ToLocal(&v8_function_name))
-    return v8::MaybeLocal<v8::Value>();
+  v8::TryCatch try_catch(isolate());
+  ScriptTimeoutHelper timeout_helper(this, timer_task_runner_,
+                                     script_timeout.value_or(script_timeout_));
+
+  TRACE_EVENT1("devtools.timeline", "EvaluateScript", "data",
+               [&](perfetto::TracedValue trace_context) {
+                 TraceTopLevel(script_name, std::move(trace_context));
+               });
 
   v8::Local<v8::Script> local_script = script->BindToCurrentContext();
 
-  // Run script.
-  v8::TryCatch try_catch(isolate());
-  ScriptTimeoutHelper timeout_helper(this, timer_task_runner_, script_timeout_);
-  auto result = local_script->Run(context);
-
+  v8::MaybeLocal<v8::Value> result = local_script->Run(context);
   if (try_catch.HasTerminated()) {
     error_out.push_back(
         base::StrCat({script_name, " top-level execution timed out."}));
-    return v8::MaybeLocal<v8::Value>();
+    return false;
   }
 
   if (try_catch.HasCaught()) {
     error_out.push_back(FormatExceptionMessage(context, try_catch.Message()));
-    return v8::MaybeLocal<v8::Value>();
+    return false;
   }
 
-  if (result.IsEmpty())
+  if (result.IsEmpty()) {
+    return false;
+  }
+
+  return true;
+}
+
+v8::MaybeLocal<v8::Value> AuctionV8Helper::CallFunction(
+    v8::Local<v8::Context> context,
+    const DebugId* debug_id,
+    const std::string& script_name,
+    base::StringPiece function_name,
+    base::span<v8::Local<v8::Value>> args,
+    absl::optional<base::TimeDelta> script_timeout,
+    std::vector<std::string>& error_out) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK_EQ(isolate(), context->GetIsolate());
+
+  DebugContextScope maybe_debug(inspector(), context, debug_id, script_name);
+
+  v8::TryCatch try_catch(isolate());
+  ScriptTimeoutHelper timeout_helper(this, timer_task_runner_,
+                                     script_timeout.value_or(script_timeout_));
+
+  v8::Local<v8::String> v8_function_name;
+  if (!CreateUtf8String(function_name).ToLocal(&v8_function_name)) {
     return v8::MaybeLocal<v8::Value>();
+  }
 
   v8::Local<v8::Value> function;
   if (!context->Global()->Get(context, v8_function_name).ToLocal(&function)) {
@@ -529,8 +639,23 @@ v8::MaybeLocal<v8::Value> AuctionV8Helper::RunScript(
     return v8::MaybeLocal<v8::Value>();
   }
 
-  v8::MaybeLocal<v8::Value> func_result = v8::Function::Cast(*function)->Call(
-      context, context->Global(), args.size(), args.data());
+  v8::Function* func_ptr = v8::Function::Cast(*function);
+  v8::MaybeLocal<v8::Value> func_result;
+  {
+    TRACE_EVENT1(
+        "devtools.timeline", "FunctionCall", "data",
+        [&](perfetto::TracedValue trace_context) {
+          auto dict = std::move(trace_context).WriteDictionary();
+          dict.Add("functionName", function_name);
+          dict.Add("scriptId", base::NumberToString(func_ptr->ScriptId()));
+          dict.Add("url", script_name);
+          dict.Add("lineNumber", func_ptr->GetScriptLineNumber() + 1);
+          dict.Add("columnNumber", func_ptr->GetScriptColumnNumber() + 1);
+        });
+    func_result =
+        func_ptr->Call(context, context->Global(), args.size(), args.data());
+  }
+
   if (try_catch.HasTerminated()) {
     error_out.push_back(base::StrCat(
         {script_name, " execution of `", function_name, "` timed out."}));
@@ -634,7 +759,7 @@ void AuctionV8Helper::ResumeAllForTesting() {
 }
 
 void AuctionV8Helper::ConnectDevToolsAgent(
-    mojo::PendingReceiver<blink::mojom::DevToolsAgent> agent,
+    mojo::PendingAssociatedReceiver<blink::mojom::DevToolsAgent> agent,
     scoped_refptr<base::SequencedTaskRunner> mojo_sequence,
     const DebugId& debug_id) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -680,22 +805,6 @@ std::string AuctionV8Helper::FormatScriptName(
   return FormatValue(isolate(), script->GetScriptName());
 }
 
-AuctionV8Helper::ScopedConsoleTarget::ScopedConsoleTarget(
-    AuctionV8Helper* owner,
-    const std::string& console_script_name,
-    std::vector<std::string>* out)
-    : owner_(owner) {
-  DCHECK(!owner_->console_buffer_);
-  DCHECK(owner_->console_script_name_.empty());
-  owner_->console_buffer_ = out;
-  owner_->console_script_name_ = console_script_name;
-}
-
-AuctionV8Helper::ScopedConsoleTarget::~ScopedConsoleTarget() {
-  owner_->console_buffer_ = nullptr;
-  owner_->console_script_name_ = std::string();
-}
-
 AuctionV8Helper::AuctionV8Helper(
     scoped_refptr<base::SingleThreadTaskRunner> v8_runner)
     : base::RefCountedDeleteOnSequence<AuctionV8Helper>(v8_runner),
@@ -720,6 +829,8 @@ AuctionV8Helper::~AuctionV8Helper() {
   // destroyed before `devtools_agent_`.
   if (devtools_agent_)
     devtools_agent_->DestroySessions();
+  if (destroyed_callback_)
+    std::move(destroyed_callback_).Run();
 }
 
 void AuctionV8Helper::CreateIsolate() {
@@ -727,7 +838,8 @@ void AuctionV8Helper::CreateIsolate() {
 
   // Now the initialization is completed, create an isolate.
   isolate_holder_ = std::make_unique<gin::IsolateHolder>(
-      base::ThreadTaskRunnerHandle::Get(), gin::IsolateHolder::kUseLocker,
+      base::SingleThreadTaskRunner::GetCurrentDefault(),
+      gin::IsolateHolder::kSingleThread,
       gin::IsolateHolder::IsolateType::kUtility);
   FullIsolateScope v8_scope(this);
   scratch_context_.Reset(isolate(), CreateContext());

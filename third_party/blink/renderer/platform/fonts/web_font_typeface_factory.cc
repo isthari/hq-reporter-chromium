@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,16 +9,14 @@
 #include "build/build_config.h"
 #include "third_party/blink/renderer/platform/fonts/font_cache.h"
 #include "third_party/blink/renderer/platform/fonts/opentype/font_format_check.h"
-#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/skia/include/core/SkStream.h"
 #include "third_party/skia/include/core/SkTypeface.h"
 
 #if BUILDFLAG(IS_WIN)
-#include "third_party/blink/public/common/dwrite_rasterizer_support/dwrite_rasterizer_support.h"
 #include "third_party/blink/renderer/platform/fonts/win/dwrite_font_format_support.h"
 #endif
 
-#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE)
 #include "third_party/skia/include/ports/SkFontMgr_empty.h"
 #endif
 
@@ -58,16 +56,11 @@ bool WebFontTypefaceFactory::CreateTypeface(sk_sp<SkData> sk_data,
   }
 
   if (format_check.IsColrCpalColorFontV1()) {
-    if (RuntimeEnabledFeatures::COLRV1FontsEnabled()) {
-      typeface = FreeTypeFontManager()->makeFromStream(std::move(stream));
-      if (typeface) {
-        ReportInstantiationResult(InstantiationResult::kSuccessColrV1Font);
-      }
-      return typeface.get();
-    } else {
-      // Always reject COLRv1 fonts when the feature is off.
-      return false;
+    typeface = FreeTypeFontManager()->makeFromStream(std::move(stream));
+    if (typeface) {
+      ReportInstantiationResult(InstantiationResult::kSuccessColrV1Font);
     }
+    return typeface.get();
   }
 
   if (format_check.IsSbixColorFont()) {
@@ -87,8 +80,21 @@ bool WebFontTypefaceFactory::CreateTypeface(sk_sp<SkData> sk_data,
     return typeface.get();
   }
 
-  // Variable COLR/CPAL fonts must go through the Variations
-  // FontManager, which is FreeType on Windows.
+  // We need to have a separate method for retrieving the COLRv0 compatible font
+  // manager with platform specific decisions. This is because: If we would
+  // always use the FontManagerForVariations(), then on Mac COLRv0 fonts would
+  // not have variation parameters applied. If we would always prefer the COLRv0
+  // font manager, then this may lack variations support on Windows if we are on
+  // a Windows versions that did not support variations yet. Windows supported
+  // COLRv0 before variations.
+  if (format_check.IsVariableFont() && format_check.IsColrCpalColorFontV0()) {
+    typeface =
+        FontManagerForColrV0Variations()->makeFromStream(std::move(stream));
+    if (typeface)
+      ReportInstantiationResult(InstantiationResult::kSuccessColrCpalFont);
+    return typeface.get();
+  }
+
   if (format_check.IsVariableFont()) {
     typeface = FontManagerForVariations()->makeFromStream(std::move(stream));
     if (typeface) {
@@ -135,14 +141,14 @@ sk_sp<SkFontMgr> WebFontTypefaceFactory::FontManagerForSbix() {
 
 sk_sp<SkFontMgr> WebFontTypefaceFactory::DefaultFontManager() {
 #if BUILDFLAG(IS_WIN)
-  return FontCache::GetFontCache()->FontManager();
+  return FontCache::Get().FontManager();
 #else
   return sk_sp<SkFontMgr>(SkFontMgr::RefDefault());
 #endif
 }
 
 sk_sp<SkFontMgr> WebFontTypefaceFactory::FreeTypeFontManager() {
-#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE)
   return sk_sp<SkFontMgr>(SkFontMgr_New_Custom_Empty());
 #else
   return DefaultFontManager();
@@ -150,16 +156,20 @@ sk_sp<SkFontMgr> WebFontTypefaceFactory::FreeTypeFontManager() {
 }
 
 sk_sp<SkFontMgr> WebFontTypefaceFactory::FontManagerForColrCpal() {
-#if BUILDFLAG(IS_WIN)
-  if (!blink::DWriteRasterizerSupport::IsDWriteFactory2Available())
-    return FreeTypeFontManager();
-#endif
-
-#if BUILDFLAG(IS_MAC)
+#if BUILDFLAG(IS_APPLE)
   return FreeTypeFontManager();
 #else
   return DefaultFontManager();
 #endif
+}
+
+sk_sp<SkFontMgr> WebFontTypefaceFactory::FontManagerForColrV0Variations() {
+#if BUILDFLAG(IS_WIN)
+  if (DWriteVersionSupportsVariations()) {
+    return DefaultFontManager();
+  }
+#endif
+  return FreeTypeFontManager();
 }
 
 void WebFontTypefaceFactory::ReportInstantiationResult(

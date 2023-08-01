@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include <utility>
 
 #include "base/logging.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "ui/events/event.h"
 #include "ui/events/keycodes/dom/dom_code.h"
@@ -31,16 +30,6 @@ DemoWindow::DemoWindow(WindowManager* window_manager,
   PlatformWindowInitProperties properties;
   properties.bounds = bounds;
 
-#if BUILDFLAG(IS_FUCHSIA)
-  // When using Scenic Ozone platform we need to supply a view_token to the
-  // window. This is not necessary when using the headless ozone platform.
-  if (ui::OzonePlatform::GetInstance()
-          ->GetPlatformProperties()
-          .needs_view_token) {
-    ui::fuchsia::InitializeViewTokenAndPresentView(&properties);
-  }
-#endif
-
   platform_window_ = OzonePlatform::GetInstance()->CreatePlatformWindow(
       this, std::move(properties));
   platform_window_->Show();
@@ -56,7 +45,7 @@ gfx::AcceleratedWidget DemoWindow::GetAcceleratedWidget() {
 }
 
 gfx::Size DemoWindow::GetSize() {
-  return platform_window_->GetBounds().size();
+  return platform_window_->GetBoundsInPixels().size();
 }
 
 void DemoWindow::Start() {

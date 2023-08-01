@@ -9,7 +9,6 @@
 <translation id="3444832043240812445">This page only shows information on your recent crashes if you <ph name="BEGIN_LINK" />enable crash reporting<ph name="END_LINK" />.</translation>
 <translation id="3875312571075912821">Allow Chrome to access the network in your firewall or antivirus
           settings.</translation>
-<translation id="4010643444566880169">Chrome OS hasn’t completed its initial setup.</translation>
 <translation id="5005121315113832363">This page has been blocked by Chrome</translation>
 <translation id="6011049234605203654">Go to
           the Chrome menu &gt;
@@ -41,4 +40,6 @@
 <translation id="8187289872471304532">Go to
           Applications &gt; System Preferences &gt; Network &gt; Advanced &gt; Proxies
           and deselect any proxies that have been selected.</translation>
+<translation id="8232971017369963250">Chrome is made possible by the <ph name="BEGIN_LINK_CHROMIUM" />Chromium<ph name="END_LINK_CHROMIUM" /> open-source project.</translation>
+<translation id="8279509328145658601">Chrome is also made possible by other <ph name="BEGIN_LINK_OSS" />open-source software<ph name="END_LINK_OSS" />.</translation>
 </translationbundle>

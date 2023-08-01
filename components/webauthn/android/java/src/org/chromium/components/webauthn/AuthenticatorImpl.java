@@ -1,18 +1,15 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.components.webauthn;
 
-import android.annotation.TargetApi;
 import android.app.PendingIntent;
-import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
 import android.util.Pair;
 
 import org.chromium.base.Callback;
-import org.chromium.base.ContextUtils;
 import org.chromium.base.PackageUtils;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.blink.mojom.Authenticator;
@@ -22,7 +19,6 @@ import org.chromium.blink.mojom.MakeCredentialAuthenticatorResponse;
 import org.chromium.blink.mojom.PaymentOptions;
 import org.chromium.blink.mojom.PublicKeyCredentialCreationOptions;
 import org.chromium.blink.mojom.PublicKeyCredentialRequestOptions;
-import org.chromium.content_public.browser.ContentFeatureList;
 import org.chromium.content_public.browser.RenderFrameHost;
 import org.chromium.content_public.browser.WebAuthenticationDelegate;
 import org.chromium.content_public.browser.WebContentsStatics;
@@ -30,6 +26,7 @@ import org.chromium.mojo.system.MojoException;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.url.Origin;
 
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.Queue;
 
@@ -37,11 +34,11 @@ import java.util.Queue;
  * Android implementation of the authenticator.mojom interface.
  */
 public final class AuthenticatorImpl implements Authenticator {
+    private static final String GMSCORE_PACKAGE_NAME = "com.google.android.gms";
+    public static final int GMSCORE_MIN_VERSION = 16890000;
+    public static final int GMSCORE_MIN_VERSION_GET_MATCHING_CRED_IDS = 223300000;
     private final WebAuthenticationDelegate.IntentSender mIntentSender;
     private final RenderFrameHost mRenderFrameHost;
-    private final @WebAuthenticationDelegate.Support int mSupportLevel;
-
-    private static final String GMSCORE_PACKAGE_NAME = "com.google.android.gms";
 
     /** Ensures only one request is processed at a time. */
     private boolean mIsOperationPending;
@@ -55,6 +52,9 @@ public final class AuthenticatorImpl implements Authenticator {
     /** The payment information to be added to the "clientDataJson". */
     private PaymentOptions mPayment;
 
+    /** Caches the GMS Core package version. */
+    private int mGmsCorePackageVersion;
+
     private MakeCredential_Response mMakeCredentialCallback;
     private GetAssertion_Response mGetAssertionCallback;
     // A queue is used to store pending IsUserVerifyingPlatformAuthenticatorAvailable request
@@ -63,6 +63,9 @@ public final class AuthenticatorImpl implements Authenticator {
     // situation does not matter because all pending requests will return the same value.
     private Queue<org.chromium.mojo.bindings.Callbacks.Callback1<Boolean>>
             mIsUserVerifyingPlatformAuthenticatorAvailableCallbackQueue = new LinkedList<>();
+    private Fido2CredentialRequest mPendingFido2CredentialRequest;
+
+    private static Fido2CredentialRequest sFido2CredentialRequestOverrideForTesting;
 
     /**
      * Builds the Authenticator service implementation.
@@ -70,13 +73,10 @@ public final class AuthenticatorImpl implements Authenticator {
      * @param renderFrameHost The host of the frame that has invoked the API.
      * @param intentSender If present then an interface that will be used to start {@link Intent}s
      *         from Play Services.
-     * @param supportLevel Whether this code should use the privileged or non-privileged Play
-     *         Services API. (Note that a value of `NONE` is not allowed.)
      */
-    public AuthenticatorImpl(WebAuthenticationDelegate.IntentSender intentSender,
-            RenderFrameHost renderFrameHost, @WebAuthenticationDelegate.Support int supportLevel) {
+    public AuthenticatorImpl(
+            WebAuthenticationDelegate.IntentSender intentSender, RenderFrameHost renderFrameHost) {
         assert renderFrameHost != null;
-        assert supportLevel != WebAuthenticationDelegate.Support.NONE;
 
         if (intentSender != null) {
             mIntentSender = intentSender;
@@ -85,8 +85,21 @@ public final class AuthenticatorImpl implements Authenticator {
         }
 
         mRenderFrameHost = renderFrameHost;
-        mSupportLevel = supportLevel;
         mOrigin = mRenderFrameHost.getLastCommittedOrigin();
+
+        mGmsCorePackageVersion = PackageUtils.getPackageVersion(GMSCORE_PACKAGE_NAME);
+    }
+
+    public static void overrideFido2CredentialRequestForTesting(Fido2CredentialRequest request) {
+        sFido2CredentialRequestOverrideForTesting = request;
+    }
+
+    private Fido2CredentialRequest getFido2CredentialRequest() {
+        if (sFido2CredentialRequestOverrideForTesting != null) {
+            return sFido2CredentialRequestOverrideForTesting;
+        }
+
+        return new Fido2CredentialRequest(mIntentSender);
     }
 
     /**
@@ -116,15 +129,14 @@ public final class AuthenticatorImpl implements Authenticator {
 
         mMakeCredentialCallback = callback;
         mIsOperationPending = true;
-        Context context = ContextUtils.getApplicationContext();
-        if (PackageUtils.getPackageVersion(context, GMSCORE_PACKAGE_NAME)
-                < Fido2ApiHandler.GMSCORE_MIN_VERSION) {
+        if (mGmsCorePackageVersion < GMSCORE_MIN_VERSION) {
             onError(AuthenticatorStatus.NOT_IMPLEMENTED);
             return;
         }
 
-        Fido2ApiHandler.getInstance().makeCredential(options, mIntentSender, mRenderFrameHost,
-                mOrigin, mSupportLevel,
+        mPendingFido2CredentialRequest = getFido2CredentialRequest();
+        mPendingFido2CredentialRequest.handleMakeCredentialRequest(options, mRenderFrameHost,
+                mOrigin,
                 (status, response)
                         -> onRegisterResponse(status, response),
                 status -> onError(status));
@@ -140,21 +152,19 @@ public final class AuthenticatorImpl implements Authenticator {
 
         mGetAssertionCallback = callback;
         mIsOperationPending = true;
-        Context context = ContextUtils.getApplicationContext();
 
-        if (PackageUtils.getPackageVersion(context, GMSCORE_PACKAGE_NAME)
-                < Fido2ApiHandler.GMSCORE_MIN_VERSION) {
+        if (mGmsCorePackageVersion < GMSCORE_MIN_VERSION) {
             onError(AuthenticatorStatus.NOT_IMPLEMENTED);
             return;
         }
 
-        Fido2ApiHandler.getInstance().getAssertion(options, mIntentSender, mRenderFrameHost,
-                mOrigin, mPayment, mSupportLevel,
+        mPendingFido2CredentialRequest = getFido2CredentialRequest();
+        mPendingFido2CredentialRequest.handleGetAssertionRequest(options, mRenderFrameHost, mOrigin,
+                mPayment,
                 (status, response) -> onSignResponse(status, response), status -> onError(status));
     }
 
     @Override
-    @TargetApi(Build.VERSION_CODES.N)
     public void isUserVerifyingPlatformAuthenticatorAvailable(
             final IsUserVerifyingPlatformAuthenticatorAvailable_Response callback) {
         IsUserVerifyingPlatformAuthenticatorAvailable_Response decoratedCallback = (isUvpaa) -> {
@@ -163,40 +173,82 @@ public final class AuthenticatorImpl implements Authenticator {
             callback.call(isUvpaa);
         };
 
-        Context context = ContextUtils.getApplicationContext();
-        // ChromeActivity could be null.
-        if (context == null) {
-            decoratedCallback.call(false);
-            return;
-        }
-
-        if (!ContentFeatureList.isEnabled(ContentFeatureList.WEB_AUTH)) {
-            decoratedCallback.call(false);
-            return;
-        }
-
-        if (PackageUtils.getPackageVersion(context, GMSCORE_PACKAGE_NAME)
-                < Fido2ApiHandler.GMSCORE_MIN_VERSION) {
+        if (mGmsCorePackageVersion < GMSCORE_MIN_VERSION) {
             decoratedCallback.call(false);
             return;
         }
 
         mIsUserVerifyingPlatformAuthenticatorAvailableCallbackQueue.add(decoratedCallback);
-        Fido2ApiHandler.getInstance().isUserVerifyingPlatformAuthenticatorAvailable(mIntentSender,
-                mRenderFrameHost, mSupportLevel,
+        getFido2CredentialRequest().handleIsUserVerifyingPlatformAuthenticatorAvailableRequest(
+                mRenderFrameHost,
+                isUvpaa -> onIsUserVerifyingPlatformAuthenticatorAvailableResponse(isUvpaa));
+    }
+
+    /**
+     * Returns whether or not the getMatchingCredentialIds API is supported. As the API is
+     * flag-guarded inside of GMSCore, we can only provide a best-effort guess based on the GMSCore
+     * version.
+     */
+    public boolean isGetMatchingCredentialIdsSupported() {
+        return mGmsCorePackageVersion >= GMSCORE_MIN_VERSION_GET_MATCHING_CRED_IDS;
+    }
+
+    /**
+     * Retrieves the set of credentials for the given relying party, and filters them to match the
+     * given input credential IDs. Optionally, may also filter the credentials to only return those
+     * that are marked as third-party payment enabled.
+     *
+     * Because this functionality does not participate in the normal WebAuthn UI flow and is
+     * idempotent at the Fido2 layer, it does not adhere to the 'one call at a time' logic used for
+     * the create/get methods.
+     */
+    public void getMatchingCredentialIds(String relyingPartyId, byte[][] credentialIds,
+            boolean requireThirdPartyPayment, GetMatchingCredentialIdsResponseCallback callback) {
+        if (mGmsCorePackageVersion < GMSCORE_MIN_VERSION_GET_MATCHING_CRED_IDS) {
+            callback.onResponse(new ArrayList<byte[]>());
+            return;
+        }
+
+        getFido2CredentialRequest().handleGetMatchingCredentialIdsRequest(mRenderFrameHost,
+                relyingPartyId, credentialIds, requireThirdPartyPayment, callback,
+                status -> onError(status));
+    }
+
+    @Override
+    public void isConditionalMediationAvailable(
+            final IsConditionalMediationAvailable_Response callback) {
+        if (mGmsCorePackageVersion < GMSCORE_MIN_VERSION
+                || Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            callback.call(false);
+            return;
+        }
+
+        // If the gmscore and chromium versions are out of sync for some reason, this method will
+        // return true but chrome will ignore conditional requests. Android surfaces only platform
+        // credentials on conditional requests, use IsUVPAA as a proxy for availability.
+        mIsUserVerifyingPlatformAuthenticatorAvailableCallbackQueue.add(callback);
+        getFido2CredentialRequest().handleIsUserVerifyingPlatformAuthenticatorAvailableRequest(
+                mRenderFrameHost,
                 isUvpaa -> onIsUserVerifyingPlatformAuthenticatorAvailableResponse(isUvpaa));
     }
 
     @Override
     public void cancel() {
-        // Not implemented, ignored because request sent to gmscore fido cannot be cancelled.
-        return;
+        // This is not implemented for anything other than getAssertion requests, since there is
+        // no way to cancel a request that has already triggered gmscore UI. Get requests can be
+        // cancelled if they are pending conditional UI requests, or if they are discoverable
+        // credential requests with the account selector being shown to the user.
+        if (!mIsOperationPending || mGetAssertionCallback == null) {
+            return;
+        }
+
+        mPendingFido2CredentialRequest.cancelConditionalGetAssertion(mRenderFrameHost);
     }
 
     /**
      * Callbacks for receiving responses from the internal handlers.
      */
-    public void onRegisterResponse(Integer status, MakeCredentialAuthenticatorResponse response) {
+    public void onRegisterResponse(int status, MakeCredentialAuthenticatorResponse response) {
         // In case mojo pipe is closed due to the page begin destroyed while waiting for response.
         if (!mIsOperationPending) return;
 
@@ -206,7 +258,7 @@ public final class AuthenticatorImpl implements Authenticator {
         close();
     }
 
-    public void onSignResponse(Integer status, GetAssertionAuthenticatorResponse response) {
+    public void onSignResponse(int status, GetAssertionAuthenticatorResponse response) {
         // In case mojo pipe is closed due to the page begin destroyed while waiting for response.
         if (!mIsOperationPending) return;
 
@@ -240,6 +292,7 @@ public final class AuthenticatorImpl implements Authenticator {
         mIsOperationPending = false;
         mMakeCredentialCallback = null;
         mGetAssertionCallback = null;
+        mPendingFido2CredentialRequest = null;
     }
 
     @Override

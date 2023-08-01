@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "base/run_loop.h"
 #include "base/test/gmock_callback_support.h"
 #include "base/test/mock_callback.h"
+#include "base/time/time.h"
 #include "base/unguessable_token.h"
 #include "base/values.h"
 #include "chrome/browser/media/cdm_pref_service_helper.h"
@@ -23,6 +24,7 @@
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "components/user_prefs/user_prefs.h"
+#include "content/public/browser/web_contents.h"
 #include "media/cdm/win/media_foundation_cdm.h"
 #include "media/mojo/mojom/cdm_document_service.mojom.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -78,7 +80,7 @@ class CdmDocumentServiceImplTest : public ChromeRenderViewHostTestHarness {
       ASSERT_TRUE(cdm_document_service_.Unbind());
     NavigateAndCommit(url);
     CdmDocumentServiceImpl::Create(
-        web_contents()->GetMainFrame(),
+        web_contents()->GetPrimaryMainFrame(),
         cdm_document_service_.BindNewPipeAndPassReceiver());
   }
 
@@ -109,15 +111,17 @@ class CdmDocumentServiceImplTest : public ChromeRenderViewHostTestHarness {
 
     // Create (or overwrite) an entry with only an origin id to simulate some
     // kind of corruption or simply an update to the preference format.
-    base::Value entry(base::Value::Type::DICTIONARY);
-    entry.SetKey(kOriginId, base::UnguessableTokenToValue(
-                                base::UnguessableToken::Create()));
+    auto entry = base::Value::Dict().Set(
+        kOriginId,
+        base::UnguessableTokenToValue(base::UnguessableToken::Create()));
 
-    DictionaryPrefUpdate update(user_prefs, prefs::kMediaCdmOriginData);
-    base::Value* dict = update.Get();
-    const std::string serialized_origin =
-        web_contents()->GetMainFrame()->GetLastCommittedOrigin().Serialize();
-    dict->SetKey(serialized_origin, std::move(entry));
+    ScopedDictPrefUpdate update(user_prefs, prefs::kMediaCdmOriginData);
+    base::Value::Dict& dict = update.Get();
+    const std::string serialized_origin = web_contents()
+                                              ->GetPrimaryMainFrame()
+                                              ->GetLastCommittedOrigin()
+                                              .Serialize();
+    dict.Set(serialized_origin, std::move(entry));
   }
 
  protected:

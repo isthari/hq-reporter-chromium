@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -63,6 +63,10 @@ void ToplevelWindow::OnPaint(gfx::Canvas* canvas) {
   canvas->FillRect(GetLocalBounds(), SK_ColorDKGRAY);
 }
 
+bool ToplevelWindow::ShouldSaveWindowPlacement() const {
+  return true;
+}
+
 void ToplevelWindow::SaveWindowPlacement(const gfx::Rect& bounds,
                                          ui::WindowShowState show_state) {
   if (!saved_state)
@@ -83,7 +87,7 @@ bool ToplevelWindow::GetSavedWindowPlacement(
     // Initial default bounds.
     bounds->SetRect(10, 150, 300, 300);
   }
-  WindowPositioner::GetBoundsAndShowStateForNewWindow(
+  window_positioner::GetBoundsAndShowStateForNewWindow(
       is_saved_bounds, *show_state, bounds, show_state);
   return true;
 }

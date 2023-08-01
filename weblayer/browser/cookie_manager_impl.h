@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/run_loop.h"
 #include "build/build_config.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
 #include "services/network/public/mojom/cookie_manager.mojom.h"
@@ -36,19 +37,24 @@ class CookieManagerImpl : public CookieManager {
                  const std::string& value,
                  SetCookieCallback callback) override;
   void GetCookie(const GURL& url, GetCookieCallback callback) override;
+  void GetResponseCookies(const GURL& url,
+                          GetResponseCookiesCallback callback) override;
   base::CallbackListSubscription AddCookieChangedCallback(
       const GURL& url,
       const std::string* name,
       CookieChangedCallback callback) override;
 
 #if BUILDFLAG(IS_ANDROID)
-  bool SetCookie(JNIEnv* env,
+  void SetCookie(JNIEnv* env,
                  const base::android::JavaParamRef<jstring>& url,
                  const base::android::JavaParamRef<jstring>& value,
                  const base::android::JavaParamRef<jobject>& callback);
   void GetCookie(JNIEnv* env,
                  const base::android::JavaParamRef<jstring>& url,
                  const base::android::JavaParamRef<jobject>& callback);
+  void GetResponseCookies(JNIEnv* env,
+                          const base::android::JavaParamRef<jstring>& url,
+                          const base::android::JavaParamRef<jobject>& callback);
   int AddCookieChangedCallback(
       JNIEnv* env,
       const base::android::JavaParamRef<jstring>& url,
@@ -62,7 +68,7 @@ class CookieManagerImpl : public CookieManager {
   bool FireFlushTimerForTesting();
 
  private:
-  bool SetCookieInternal(const GURL& url,
+  void SetCookieInternal(const GURL& url,
                          const std::string& value,
                          SetCookieCallback callback);
   int AddCookieChangedCallbackInternal(const GURL& url,

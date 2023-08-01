@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,12 @@
 #include <algorithm>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
-#include "base/guid.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/trace_event/trace_event.h"
+#include "base/uuid.h"
 #include "build/build_config.h"
 #include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/notifications/notification_display_service.h"
@@ -277,19 +276,19 @@ void RemoteCopyMessageHandler::ShowNotification(const std::u16string& title,
                                                 const SkBitmap& image) {
   TRACE_EVENT0("sharing", "RemoteCopyMessageHandler::ShowNotification");
 
-  gfx::Image icon;
   message_center::RichNotificationData rich_notification_data;
-  rich_notification_data.vector_small_image = &kSendTabToSelfIcon;
+  rich_notification_data.vector_small_image = &kLaptopAndSmartphoneIcon;
   rich_notification_data.renotify = true;
 
   ui::Accelerator paste_accelerator(ui::VKEY_V, ui::EF_PLATFORM_ACCELERATOR);
 
   message_center::Notification notification(
-      message_center::NOTIFICATION_TYPE_SIMPLE, base::GenerateGUID(), title,
+      message_center::NOTIFICATION_TYPE_SIMPLE,
+      base::Uuid::GenerateRandomV4().AsLowercaseString(), title,
       l10n_util::GetStringFUTF16(
           IDS_SHARING_REMOTE_COPY_NOTIFICATION_DESCRIPTION,
           paste_accelerator.GetShortcutText()),
-      icon,
+      ui::ImageModel(),
       /*display_source=*/std::u16string(),
       /*origin_url=*/GURL(), message_center::NotifierId(),
       rich_notification_data,

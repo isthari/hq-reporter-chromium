@@ -1,34 +1,30 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.net;
 
-import static org.junit.Assert.assertEquals;
+import static com.google.common.truth.Truth.assertThat;
+
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import static org.chromium.base.CollectionUtil.newHashSet;
 import static org.chromium.net.CronetTestRule.getContext;
 
-import android.support.test.runner.AndroidJUnit4;
-
+import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.filters.SmallTest;
 
 import org.json.JSONObject;
 import org.junit.After;
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import org.chromium.base.test.util.Feature;
 import org.chromium.net.CronetTestRule.OnlyRunNativeCronet;
-import org.chromium.net.MetricsTestUtil.TestRequestFinishedListener;
 
 import java.nio.ByteBuffer;
 import java.util.Date;
-import java.util.HashSet;
 
 /**
  * Tests functionality of BidirectionalStream's QUIC implementation.
@@ -39,12 +35,9 @@ public class BidirectionalStreamQuicTest {
     public final CronetTestRule mTestRule = new CronetTestRule();
 
     private ExperimentalCronetEngine mCronetEngine;
-    private enum QuicBidirectionalStreams {
-        ENABLED,
-        DISABLED,
-    }
 
-    private void setUp(QuicBidirectionalStreams enabled) throws Exception {
+    @Before
+    public void setUp() throws Exception {
         // Load library first to create MockCertVerifier.
         System.loadLibrary("cronet_tests");
         ExperimentalCronetEngine.Builder builder =
@@ -54,9 +47,6 @@ public class BidirectionalStreamQuicTest {
 
         builder.enableQuic(true);
         JSONObject quicParams = new JSONObject();
-        if (enabled == QuicBidirectionalStreams.DISABLED) {
-            quicParams.put("quic_disable_bidirectional_streams", true);
-        }
         JSONObject hostResolverParams = CronetTestUtil.generateHostResolverRules();
         JSONObject experimentalOptions = new JSONObject()
                                                  .put("QUIC", quicParams)
@@ -79,11 +69,9 @@ public class BidirectionalStreamQuicTest {
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     // Test that QUIC is negotiated.
     public void testSimpleGet() throws Exception {
-        setUp(QuicBidirectionalStreams.ENABLED);
         String path = "/simple.txt";
         String quicURL = QuicTestServer.getServerURL() + path;
         TestBidirectionalStreamCallback callback = new TestBidirectionalStreamCallback();
@@ -95,17 +83,16 @@ public class BidirectionalStreamQuicTest {
         stream.start();
         callback.blockForDone();
         assertTrue(stream.isDone());
-        assertEquals(200, callback.mResponseInfo.getHttpStatusCode());
-        assertEquals("This is a simple text file served by QUIC.\n", callback.mResponseAsString);
-        assertEquals("quic/1+spdy/3", callback.mResponseInfo.getNegotiatedProtocol());
+        assertThat(callback.mResponseInfo.getHttpStatusCode()).isEqualTo(200);
+        assertThat(callback.mResponseAsString)
+                .isEqualTo("This is a simple text file served by QUIC.\n");
+        assertThat(callback.mResponseInfo.getNegotiatedProtocol()).isEqualTo("quic/1+spdy/3");
     }
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     public void testSimplePost() throws Exception {
-        setUp(QuicBidirectionalStreams.ENABLED);
         String path = "/simple.txt";
         String quicURL = QuicTestServer.getServerURL() + path;
         TestBidirectionalStreamCallback callback = new TestBidirectionalStreamCallback();
@@ -133,21 +120,19 @@ public class BidirectionalStreamQuicTest {
         Date endTime = new Date();
         RequestFinishedInfo finishedInfo = requestFinishedListener.getRequestInfo();
         MetricsTestUtil.checkRequestFinishedInfo(finishedInfo, quicURL, startTime, endTime);
-        assertEquals(RequestFinishedInfo.SUCCEEDED, finishedInfo.getFinishedReason());
+        assertThat(finishedInfo.getFinishedReason()).isEqualTo(RequestFinishedInfo.SUCCEEDED);
         MetricsTestUtil.checkHasConnectTiming(finishedInfo.getMetrics(), startTime, endTime, true);
-        assertEquals(newHashSet("request annotation", this),
-                new HashSet<Object>(finishedInfo.getAnnotations()));
-        assertEquals(200, callback.mResponseInfo.getHttpStatusCode());
-        assertEquals("This is a simple text file served by QUIC.\n", callback.mResponseAsString);
-        assertEquals("quic/1+spdy/3", callback.mResponseInfo.getNegotiatedProtocol());
+        assertThat(finishedInfo.getAnnotations()).containsExactly("request annotation", this);
+        assertThat(callback.mResponseInfo.getHttpStatusCode()).isEqualTo(200);
+        assertThat(callback.mResponseAsString)
+                .isEqualTo("This is a simple text file served by QUIC.\n");
+        assertThat(callback.mResponseInfo.getNegotiatedProtocol()).isEqualTo("quic/1+spdy/3");
     }
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     public void testSimplePostWithFlush() throws Exception {
-        setUp(QuicBidirectionalStreams.ENABLED);
         // TODO(xunjieli): Use ParameterizedTest instead of the loop.
         for (int i = 0; i < 2; i++) {
             String path = "/simple.txt";
@@ -169,19 +154,17 @@ public class BidirectionalStreamQuicTest {
             stream.start();
             callback.blockForDone();
             assertTrue(stream.isDone());
-            assertEquals(200, callback.mResponseInfo.getHttpStatusCode());
-            assertEquals(
-                    "This is a simple text file served by QUIC.\n", callback.mResponseAsString);
-            assertEquals("quic/1+spdy/3", callback.mResponseInfo.getNegotiatedProtocol());
+            assertThat(callback.mResponseInfo.getHttpStatusCode()).isEqualTo(200);
+            assertThat(callback.mResponseAsString)
+                    .isEqualTo("This is a simple text file served by QUIC.\n");
+            assertThat(callback.mResponseInfo.getNegotiatedProtocol()).isEqualTo("quic/1+spdy/3");
         }
     }
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     public void testSimplePostWithFlushTwice() throws Exception {
-        setUp(QuicBidirectionalStreams.ENABLED);
         // TODO(xunjieli): Use ParameterizedTest instead of the loop.
         for (int i = 0; i < 2; i++) {
             String path = "/simple.txt";
@@ -206,19 +189,17 @@ public class BidirectionalStreamQuicTest {
             stream.start();
             callback.blockForDone();
             assertTrue(stream.isDone());
-            assertEquals(200, callback.mResponseInfo.getHttpStatusCode());
-            assertEquals(
-                    "This is a simple text file served by QUIC.\n", callback.mResponseAsString);
-            assertEquals("quic/1+spdy/3", callback.mResponseInfo.getNegotiatedProtocol());
+            assertThat(callback.mResponseInfo.getHttpStatusCode()).isEqualTo(200);
+            assertThat(callback.mResponseAsString)
+                    .isEqualTo("This is a simple text file served by QUIC.\n");
+            assertThat(callback.mResponseInfo.getNegotiatedProtocol()).isEqualTo("quic/1+spdy/3");
         }
     }
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     public void testSimpleGetWithFlush() throws Exception {
-        setUp(QuicBidirectionalStreams.ENABLED);
         // TODO(xunjieli): Use ParameterizedTest instead of the loop.
         for (int i = 0; i < 2; i++) {
             String path = "/simple.txt";
@@ -251,19 +232,17 @@ public class BidirectionalStreamQuicTest {
             // adapter.
             stream.flush();
 
-            assertEquals(200, callback.mResponseInfo.getHttpStatusCode());
-            assertEquals(
-                    "This is a simple text file served by QUIC.\n", callback.mResponseAsString);
-            assertEquals("quic/1+spdy/3", callback.mResponseInfo.getNegotiatedProtocol());
+            assertThat(callback.mResponseInfo.getHttpStatusCode()).isEqualTo(200);
+            assertThat(callback.mResponseAsString)
+                    .isEqualTo("This is a simple text file served by QUIC.\n");
+            assertThat(callback.mResponseInfo.getNegotiatedProtocol()).isEqualTo("quic/1+spdy/3");
         }
     }
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     public void testSimplePostWithFlushAfterOneWrite() throws Exception {
-        setUp(QuicBidirectionalStreams.ENABLED);
         // TODO(xunjieli): Use ParameterizedTest instead of the loop.
         for (int i = 0; i < 2; i++) {
             String path = "/simple.txt";
@@ -283,45 +262,21 @@ public class BidirectionalStreamQuicTest {
             callback.blockForDone();
             assertTrue(stream.isDone());
 
-            assertEquals(200, callback.mResponseInfo.getHttpStatusCode());
-            assertEquals(
-                    "This is a simple text file served by QUIC.\n", callback.mResponseAsString);
-            assertEquals("quic/1+spdy/3", callback.mResponseInfo.getNegotiatedProtocol());
+            assertThat(callback.mResponseInfo.getHttpStatusCode()).isEqualTo(200);
+            assertThat(callback.mResponseAsString)
+                    .isEqualTo("This is a simple text file served by QUIC.\n");
+            assertThat(callback.mResponseInfo.getNegotiatedProtocol()).isEqualTo("quic/1+spdy/3");
         }
     }
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
-    @OnlyRunNativeCronet
-    public void testQuicBidirectionalStreamDisabled() throws Exception {
-        setUp(QuicBidirectionalStreams.DISABLED);
-        String path = "/simple.txt";
-        String quicURL = QuicTestServer.getServerURL() + path;
-
-        TestBidirectionalStreamCallback callback = new TestBidirectionalStreamCallback();
-        BidirectionalStream stream =
-                mCronetEngine
-                        .newBidirectionalStreamBuilder(quicURL, callback, callback.getExecutor())
-                        .setHttpMethod("GET")
-                        .build();
-        stream.start();
-        callback.blockForDone();
-        assertTrue(stream.isDone());
-        assertTrue(callback.mOnErrorCalled);
-        assertNull(callback.mResponseInfo);
-    }
-
-    @Test
-    @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     // Tests that if the stream failed between the time when we issue a Write()
     // and when the Write() is executed in the native stack, there is no crash.
     // This test is racy, but it should catch a crash (if there is any) most of
     // the time.
     public void testStreamFailBeforeWriteIsExecutedOnNetworkThread() throws Exception {
-        setUp(QuicBidirectionalStreams.ENABLED);
         String path = "/simple.txt";
         String quicURL = QuicTestServer.getServerURL() + path;
 
@@ -353,21 +308,18 @@ public class BidirectionalStreamQuicTest {
         assertTrue(stream.isDone());
         // Server terminated on us, so the stream must fail.
         // QUIC reports this as ERR_QUIC_PROTOCOL_ERROR. Sometimes we get ERR_CONNECTION_REFUSED.
-        assertNotNull(callback.mError);
-        assertTrue(callback.mError instanceof NetworkException);
+        assertThat(callback.mError).isInstanceOf(NetworkException.class);
         NetworkException networkError = (NetworkException) callback.mError;
         assertTrue(NetError.ERR_QUIC_PROTOCOL_ERROR == networkError.getCronetInternalErrorCode()
                 || NetError.ERR_CONNECTION_REFUSED == networkError.getCronetInternalErrorCode());
         if (NetError.ERR_CONNECTION_REFUSED == networkError.getCronetInternalErrorCode()) return;
-        assertTrue(callback.mError instanceof QuicException);
+        assertThat(callback.mError).isInstanceOf(QuicException.class);
     }
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     public void testStreamFailWithQuicDetailedErrorCode() throws Exception {
-        setUp(QuicBidirectionalStreams.ENABLED);
         String path = "/simple.txt";
         String quicURL = QuicTestServer.getServerURL() + path;
         TestBidirectionalStreamCallback callback = new TestBidirectionalStreamCallback() {

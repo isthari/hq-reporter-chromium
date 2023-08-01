@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "base/containers/flat_map.h"
+#include "base/memory/raw_ref.h"
 #include "build/build_config.h"
 #include "components/viz/common/frame_sinks/begin_frame_source.h"
 #include "components/viz/common/surfaces/frame_sink_bundle_id.h"
@@ -51,6 +52,11 @@ class FrameSinkBundleImpl : public mojom::FrameSinkBundle {
 
   const FrameSinkBundleId& id() const { return id_; }
 
+  // Called by the identified sink itself to notify the bundle that the sink
+  // needs (or no longer needs) BeginFrame notifications. This is distinct from
+  // SetNeedsBeginFrame(), as the latter is only called by clients.
+  void SetSinkNeedsBeginFrame(uint32_t sink_id, bool needs_begin_frame);
+
   void AddFrameSink(CompositorFrameSinkSupport* support);
   void UpdateFrameSink(CompositorFrameSinkSupport* support,
                        BeginFrameSource* old_source);
@@ -79,7 +85,9 @@ class FrameSinkBundleImpl : public mojom::FrameSinkBundle {
   void EnqueueOnBeginFrame(
       uint32_t sink_id,
       const BeginFrameArgs& args,
-      const base::flat_map<uint32_t, FrameTimingDetails>& details);
+      const base::flat_map<uint32_t, FrameTimingDetails>& details,
+      bool frame_ack,
+      std::vector<ReturnedResource> resources);
   void EnqueueReclaimResources(uint32_t sink_id,
                                std::vector<ReturnedResource> resources);
   void SendOnBeginFramePausedChanged(uint32_t sink_id, bool paused);
@@ -97,7 +105,7 @@ class FrameSinkBundleImpl : public mojom::FrameSinkBundle {
 
   void OnDisconnect();
 
-  FrameSinkManagerImpl& manager_;
+  const raw_ref<FrameSinkManagerImpl> manager_;
   const FrameSinkBundleId id_;
 
   mojo::Receiver<mojom::FrameSinkBundle> receiver_;

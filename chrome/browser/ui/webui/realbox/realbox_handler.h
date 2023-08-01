@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,16 +9,23 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/scoped_observation.h"
 #include "base/time/time.h"
-#include "chrome/browser/bitmap_fetcher/bitmap_fetcher_service.h"
-#include "chrome/browser/ui/webui/realbox/realbox.mojom.h"
 #include "components/omnibox/browser/autocomplete_controller.h"
-#include "components/omnibox/browser/favicon_cache.h"
+#include "components/omnibox/browser/autocomplete_controller_emitter.h"
+#include "components/omnibox/browser/location_bar_model.h"
+#include "components/omnibox/browser/omnibox.mojom.h"
+#include "components/omnibox/browser/omnibox_edit_model_delegate.h"
+#include "components/url_formatter/spoof_checks/idna_metrics.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "ui/gfx/vector_icon_types.h"
 
 class GURL;
+class MetricsReporter;
+class OmniboxController;
+class OmniboxEditModel;
 class Profile;
 
 namespace content {
@@ -26,14 +33,11 @@ class WebContents;
 class WebUIDataSource;
 }  // namespace content
 
-namespace gfx {
-class Image;
-struct VectorIcon;
-}  // namespace gfx
-
 // Handles bidirectional communication between NTP realbox JS and the browser.
-class RealboxHandler : public realbox::mojom::PageHandler,
-                       public AutocompleteController::Observer {
+class RealboxHandler : public omnibox::mojom::PageHandler,
+                       public AutocompleteController::Observer,
+                       public OmniboxEditModelDelegate,
+                       public LocationBarModel {
  public:
   enum class FocusState {
     // kNormal means the row is focused, and Enter key navigates to the match.
@@ -44,23 +48,27 @@ class RealboxHandler : public realbox::mojom::PageHandler,
     kFocusedButtonRemoveSuggestion,
   };
 
-  static void SetupWebUIDataSource(content::WebUIDataSource* source);
+  static void SetupWebUIDataSource(content::WebUIDataSource* source,
+                                   Profile* profile);
+  static void SetupDropdownWebUIDataSource(content::WebUIDataSource* source,
+                                           Profile* profile);
   static std::string AutocompleteMatchVectorIconToResourceName(
       const gfx::VectorIcon& icon);
   static std::string PedalVectorIconToResourceName(const gfx::VectorIcon& icon);
 
   RealboxHandler(
-      mojo::PendingReceiver<realbox::mojom::PageHandler> pending_page_handler,
+      mojo::PendingReceiver<omnibox::mojom::PageHandler> pending_page_handler,
       Profile* profile,
-      content::WebContents* web_contents);
+      content::WebContents* web_contents,
+      MetricsReporter* metrics_reporter);
 
   RealboxHandler(const RealboxHandler&) = delete;
   RealboxHandler& operator=(const RealboxHandler&) = delete;
 
   ~RealboxHandler() override;
 
-  // realbox::mojom::PageHandler:
-  void SetPage(mojo::PendingRemote<realbox::mojom::Page> pending_page) override;
+  // omnibox::mojom::PageHandler:
+  void SetPage(mojo::PendingRemote<omnibox::mojom::Page> pending_page) override;
   void QueryAutocomplete(const std::u16string& input,
                          bool prevent_inline_autocomplete) override;
   void StopAutocomplete(bool clear_result) override;
@@ -73,51 +81,85 @@ class RealboxHandler : public realbox::mojom::PageHandler,
                              bool ctrl_key,
                              bool meta_key,
                              bool shift_key) override;
-  void DeleteAutocompleteMatch(uint8_t line) override;
+  void DeleteAutocompleteMatch(uint8_t line, const GURL& url) override;
   void ToggleSuggestionGroupIdVisibility(int32_t suggestion_group_id) override;
-  void LogCharTypedToRepaintLatency(base::TimeDelta latency) override;
   void ExecuteAction(uint8_t line,
+                     uint8_t action_index,
+                     const GURL& url,
                      base::TimeTicks match_selection_timestamp,
                      uint8_t mouse_button,
                      bool alt_key,
                      bool ctrl_key,
                      bool meta_key,
                      bool shift_key) override;
+  void OnNavigationLikely(
+      uint8_t line,
+      const GURL& url,
+      omnibox::mojom::NavigationPredictor navigation_predictor) override;
 
   // AutocompleteController::Observer:
   void OnResultChanged(AutocompleteController* controller,
                        bool default_match_changed) override;
 
-  void OnRealboxBitmapFetched(int match_index,
-                              const GURL& image_url,
-                              const SkBitmap& bitmap);
-  void OnRealboxFaviconFetched(int match_index,
-                               const GURL& page_url,
-                               const gfx::Image& favicon);
+  void SelectMatchAtLine(size_t old_line, size_t new_line);
 
-  // OpenURL function used as a callback for execution of actions.
-  void OpenURL(const GURL& destination_url,
-               TemplateURLRef::PostContent* post_content,
-               WindowOpenDisposition disposition,
-               ui::PageTransition transition,
-               AutocompleteMatchType::Type type,
-               base::TimeTicks match_selection_timestamp,
-               bool destination_url_entered_without_scheme,
-               const std::u16string&,
-               const AutocompleteMatch&,
-               const AutocompleteMatch&);
+  // OmniboxEditModelDelegate:
+  void OnAutocompleteAccept(
+      const GURL& destination_url,
+      TemplateURLRef::PostContent* post_content,
+      WindowOpenDisposition disposition,
+      ui::PageTransition transition,
+      AutocompleteMatchType::Type match_type,
+      base::TimeTicks match_selection_timestamp,
+      bool destination_url_entered_without_scheme,
+      bool destination_url_entered_with_http_scheme,
+      const std::u16string& text,
+      const AutocompleteMatch& match,
+      const AutocompleteMatch& alternative_nav_match,
+      IDNA2008DeviationCharacter deviation_char_in_hostname =
+          IDNA2008DeviationCharacter::kNone) override;
+  void OnInputInProgress(bool in_progress) override;
+  void OnChanged() override;
+  void OnPopupVisibilityChanged() override;
+  LocationBarModel* GetLocationBarModel() override;
+  const LocationBarModel* GetLocationBarModel() const override;
+
+  // LocationBarModel:
+  std::u16string GetFormattedFullURL() const override;
+  std::u16string GetURLForDisplay() const override;
+  GURL GetURL() const override;
+  security_state::SecurityLevel GetSecurityLevel() const override;
+  net::CertStatus GetCertStatus() const override;
+  metrics::OmniboxEventProto::PageClassification GetPageClassification(
+      OmniboxFocusSource focus_source,
+      bool is_prefetch = false) override;
+  const gfx::VectorIcon& GetVectorIcon() const override;
+  std::u16string GetSecureDisplayText() const override;
+  std::u16string GetSecureAccessibilityText() const override;
+  bool ShouldDisplayURL() const override;
+  bool IsOfflinePage() const override;
+  bool ShouldPreventElision() const override;
+  bool ShouldUseUpdatedConnectionSecurityIndicators() const override;
 
  private:
+  OmniboxEditModel* edit_model() const;
+  AutocompleteController* autocomplete_controller() const;
+  const AutocompleteMatch* GetMatchWithUrl(size_t index, const GURL& url);
+
   raw_ptr<Profile> profile_;
   raw_ptr<content::WebContents> web_contents_;
-  std::unique_ptr<AutocompleteController> autocomplete_controller_;
-  raw_ptr<BitmapFetcherService> bitmap_fetcher_service_;
-  std::vector<BitmapFetcherService::RequestId> bitmap_request_ids_;
-  FaviconCache favicon_cache_;
+  std::unique_ptr<OmniboxController> controller_;
+  base::ScopedObservation<AutocompleteControllerEmitter,
+                          AutocompleteController::Observer>
+      controller_emitter_observation_{this};
   base::TimeTicks time_user_first_modified_realbox_;
+  raw_ptr<MetricsReporter> metrics_reporter_;
 
-  mojo::Remote<realbox::mojom::Page> page_;
-  mojo::Receiver<realbox::mojom::PageHandler> page_handler_;
+  mojo::Remote<omnibox::mojom::Page> page_;
+  mojo::Receiver<omnibox::mojom::PageHandler> page_handler_;
+
+  // This is unused, it's just needed for LocationBarModel implementation.
+  gfx::VectorIcon vector_icon_{nullptr, 0u, ""};
 
   base::WeakPtrFactory<RealboxHandler> weak_ptr_factory_{this};
 };

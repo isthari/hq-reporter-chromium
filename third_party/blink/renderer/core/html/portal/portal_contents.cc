@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,9 @@
 #include "third_party/blink/public/mojom/loader/referrer.mojom-blink.h"
 #include "third_party/blink/public/mojom/portal/portal.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/dom/increment_load_event_delay_count.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/remote_frame.h"
 #include "third_party/blink/renderer/core/html/portal/document_portals.h"
 #include "third_party/blink/renderer/core/html/portal/html_portal_element.h"
@@ -36,11 +38,18 @@ PortalContents::PortalContents(
     : document_(portal_element.GetDocument()),
       portal_element_(&portal_element),
       portal_token_(portal_token),
-      remote_portal_(std::move(remote_portal)),
-      portal_client_receiver_(this, std::move(portal_client_receiver)) {
-  remote_portal_.set_disconnect_handler(
-      WTF::Bind(&PortalContents::DisconnectHandler, WrapWeakPersistent(this)));
-  DocumentPortals::From(GetDocument()).RegisterPortalContents(this);
+      remote_portal_(portal_element.GetDocument().GetExecutionContext()),
+      portal_client_receiver_(
+          this,
+          portal_element.GetDocument().GetExecutionContext()) {
+  remote_portal_.Bind(std::move(remote_portal),
+                      document_->GetTaskRunner(TaskType::kInternalDefault));
+  remote_portal_.set_disconnect_handler(WTF::BindOnce(
+      &PortalContents::DisconnectHandler, WrapWeakPersistent(this)));
+  portal_client_receiver_.Bind(
+      std::move(portal_client_receiver),
+      document_->GetTaskRunner(TaskType::kInternalDefault));
+  DocumentPortals::GetOrCreate(GetDocument()).RegisterPortalContents(this);
 }
 
 PortalContents::~PortalContents() = default;
@@ -57,8 +66,9 @@ void PortalContents::Activate(BlinkTransferableMessage data,
   DCHECK(portal_element_);
 
   // Mark this contents as having activation in progress.
-  DocumentPortals& document_portals = DocumentPortals::From(GetDocument());
-  document_portals.SetActivatingPortalContents(this);
+  auto* document_portals = DocumentPortals::Get(GetDocument());
+  DCHECK(document_portals);
+  document_portals->SetActivatingPortalContents(this);
   activation_delegate_ = delegate;
 
   uint64_t trace_id = base::trace_event::GetNextGlobalTraceId();
@@ -70,7 +80,7 @@ void PortalContents::Activate(BlinkTransferableMessage data,
   // renderer awaits the response.
   remote_portal_->Activate(
       std::move(data), base::TimeTicks::Now(), trace_id,
-      WTF::Bind(&PortalContents::OnActivateResponse, WrapPersistent(this)));
+      WTF::BindOnce(&PortalContents::OnActivateResponse, WrapPersistent(this)));
 
   // Dissociate from the element. The element is expected to do the same.
   portal_element_ = nullptr;
@@ -109,6 +119,9 @@ void PortalContents::OnActivateResponse(
       // when the browser/test runner is being shut down.
       activation_delegate_->ActivationWasAbandoned();
       break;
+    case mojom::blink::PortalActivateResult::kNotImplemented:
+      reject("Not implemented.");
+      break;
     case mojom::blink::PortalActivateResult::kAbortedDueToBug:
       // This should never happen. Ignore this and wait for the frame to be
       // discarded by the browser, if it hasn't already.
@@ -116,9 +129,10 @@ void PortalContents::OnActivateResponse(
       return;
   }
 
-  DocumentPortals& document_portals = DocumentPortals::From(GetDocument());
-  DCHECK_EQ(document_portals.GetActivatingPortalContents(), this);
-  document_portals.ClearActivatingPortalContents();
+  auto* document_portals = DocumentPortals::Get(GetDocument());
+  DCHECK(document_portals);
+  DCHECK_EQ(document_portals->GetActivatingPortalContents(), this);
+  document_portals->ClearActivatingPortalContents();
 
   activation_delegate_ = nullptr;
 
@@ -163,9 +177,9 @@ void PortalContents::Navigate(
           std::make_unique<IncrementLoadEventDelayCount>(GetDocument());
   remote_portal_->Navigate(
       url, std::move(mojo_referrer),
-      WTF::Bind([](std::unique_ptr<IncrementLoadEventDelayCount>
-                       increment_load_event_delay_count) {},
-                std::move(increment_load_event_delay_count)));
+      WTF::BindOnce([](std::unique_ptr<IncrementLoadEventDelayCount>
+                           increment_load_event_delay_count) {},
+                    std::move(increment_load_event_delay_count)));
 }
 
 void PortalContents::Destroy() {
@@ -177,7 +191,7 @@ void PortalContents::Destroy() {
   portal_token_ = absl::nullopt;
   remote_portal_.reset();
   portal_client_receiver_.reset();
-  DocumentPortals::From(GetDocument()).DeregisterPortalContents(this);
+  DocumentPortals::GetOrCreate(GetDocument()).DeregisterPortalContents(this);
 }
 
 void PortalContents::DisconnectHandler() {
@@ -208,6 +222,8 @@ void PortalContents::Trace(Visitor* visitor) const {
   visitor->Trace(document_);
   visitor->Trace(portal_element_);
   visitor->Trace(activation_delegate_);
+  visitor->Trace(remote_portal_);
+  visitor->Trace(portal_client_receiver_);
 }
 
 }  // namespace blink

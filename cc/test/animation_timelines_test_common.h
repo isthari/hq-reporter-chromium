@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include <unordered_map>
 
 #include "base/memory/raw_ptr.h"
+#include "base/time/time.h"
 #include "cc/animation/animation_delegate.h"
 #include "cc/animation/animation_host.h"
 #include "cc/animation/keyframe_model.h"
@@ -114,9 +115,6 @@ class TestHostClient : public MutatorHostClient {
 
   void ClearMutatedProperties();
 
-  bool IsOwnerThread() const override;
-  bool InProtectedSequence() const override;
-  void WaitForProtectedSequenceCompletion() const override {}
   bool IsElementInPropertyTrees(ElementId element_id,
                                 ElementListType list_type) const override;
 
@@ -166,6 +164,10 @@ class TestHostClient : public MutatorHostClient {
       PaintWorkletInput::PropertyValue property_value) override {}
 
   bool RunsOnCurrentThread() const override;
+
+  bool IsOwnerThread() const override;
+  bool InProtectedSequence() const override;
+  void WaitForProtectedSequenceCompletion() const override;
 
   bool mutators_need_commit() const { return mutators_need_commit_; }
   void set_mutators_need_commit(bool need) { mutators_need_commit_ = need; }
@@ -321,11 +323,11 @@ class AnimationTimelinesTest : public testing::Test {
 
   scoped_refptr<AnimationTimeline> timeline_;
   scoped_refptr<Animation> animation_;
-  scoped_refptr<ElementAnimations> element_animations_;
+  scoped_refptr<const ElementAnimations> element_animations_;
 
   scoped_refptr<AnimationTimeline> timeline_impl_;
   scoped_refptr<Animation> animation_impl_;
-  scoped_refptr<ElementAnimations> element_animations_impl_;
+  scoped_refptr<const ElementAnimations> element_animations_impl_;
 };
 
 }  // namespace cc

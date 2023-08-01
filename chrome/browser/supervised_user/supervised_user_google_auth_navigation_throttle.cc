@@ -1,10 +1,10 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/supervised_user/supervised_user_google_auth_navigation_throttle.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/notreached.h"
 #include "build/build_config.h"
@@ -150,23 +150,34 @@ SupervisedUserGoogleAuthNavigationThrottle::ShouldProceed() {
       return content::NavigationThrottle::DEFER;
     }
 
-    ReauthenticateChildAccount(
-        web_contents, account_info.email,
-        base::BindRepeating(&SupervisedUserGoogleAuthNavigationThrottle::
-                                OnReauthenticationFailed,
-                            weak_ptr_factory_.GetWeakPtr()));
+    if (skip_jni_call_for_testing_) {
+      // Returns callback without JNI call for testing. Resets
+      // has_shown_reauth_.
+      base::BindRepeating(
+          &SupervisedUserGoogleAuthNavigationThrottle::OnReauthenticationFailed,
+          weak_ptr_factory_.GetWeakPtr())
+          .Run();
+    } else {
+      ReauthenticateChildAccount(
+          web_contents, account_info.email,
+          base::BindRepeating(&SupervisedUserGoogleAuthNavigationThrottle::
+                                  OnReauthenticationFailed,
+                              weak_ptr_factory_.GetWeakPtr()));
+    }
   }
   return content::NavigationThrottle::DEFER;
 #else
-  NOTREACHED();
-
-  // This should never happen but needs to be included to avoid compilation
-  // error on debug builds.
-  return content::NavigationThrottle::CANCEL_AND_IGNORE;
+  // On other platforms we do not currently provide the same guarantees that a
+  // user must be signed in for relevant domains.
+  // Allow the navigation to proceed even in an unauthenticated state.
+  //
+  // TODO(b/274402198): if we implement similar guarantees on Linux/Mac/Windows,
+  // trigger re-auth and defer navigation.
+  return content::NavigationThrottle::PROCEED;
 #endif
 }
 
 void SupervisedUserGoogleAuthNavigationThrottle::OnReauthenticationFailed() {
-  // Cancel the navifation if reauthentication failed.
+  // Cancel the navigation if reauthentication failed.
   CancelDeferredNavigation(content::NavigationThrottle::CANCEL_AND_IGNORE);
 }

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,20 +8,23 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/password_manager/affiliation_service_factory.h"
+#include "chrome/browser/password_manager/affiliations_prefetcher_factory.h"
+#include "chrome/browser/password_manager/chrome_password_manager_client.h"
 #include "chrome/browser/password_manager/credentials_cleaner_runner_factory.h"
 #include "chrome/browser/password_manager/password_reuse_manager_factory.h"
 #include "chrome/browser/password_manager/password_store_utils.h"
 #include "chrome/browser/profiles/incognito_helpers.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/web_data_service_factory.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
+#include "components/password_manager/core/browser/affiliation/affiliations_prefetcher.h"
 #include "components/password_manager/core/browser/login_database.h"
 #include "components/password_manager/core/browser/password_manager_constants.h"
 #include "components/password_manager/core/browser/password_manager_util.h"
@@ -36,42 +39,29 @@
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
 
-#if !BUILDFLAG(IS_ANDROID)
-#include "base/task/task_traits.h"
-#include "chrome/browser/password_manager/chrome_password_manager_client.h"
+#if BUILDFLAG(IS_ANDROID)
+#include "chrome/browser/ui/android/tab_model/tab_model.h"
+#include "chrome/browser/ui/android/tab_model/tab_model_list.h"
+#else
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/passwords/manage_passwords_ui_controller.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "content/public/browser/browser_task_traits.h"
-#endif  // !BUILDFLAG(IS_ANDROID)
+#endif  // BUILDFLAG(IS_ANDROID)
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chrome/browser/ash/profiles/profile_helper.h"
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
+using password_manager::AffiliatedMatchHelper;
 using password_manager::PasswordStore;
 using password_manager::PasswordStoreInterface;
 using password_manager::UnsyncedCredentialsDeletionNotifier;
 
-#if !BUILDFLAG(IS_ANDROID)
-
 namespace {
 
-void UpdateAllFormManagersAndPasswordReuseManager(Profile* profile) {
-  for (Browser* browser : *BrowserList::GetInstance()) {
-    if (browser->profile() != profile)
-      continue;
-    TabStripModel* tabs = browser->tab_strip_model();
-    for (int index = 0; index < tabs->count(); index++) {
-      content::WebContents* web_contents = tabs->GetWebContentsAt(index);
-      ChromePasswordManagerClient::FromWebContents(web_contents)
-          ->UpdateFormManagers();
-    }
-  }
-  password_manager::PasswordReuseManager* reuse_manager =
-      PasswordReuseManagerFactory::GetForProfile(profile);
-  if (reuse_manager)
-    reuse_manager->AccountStoreStateChanged();
-}
-
+#if !BUILDFLAG(IS_ANDROID)
 class UnsyncedCredentialsDeletionNotifierImpl
     : public UnsyncedCredentialsDeletionNotifier {
  public:
@@ -83,7 +73,7 @@ class UnsyncedCredentialsDeletionNotifierImpl
   base::WeakPtr<UnsyncedCredentialsDeletionNotifier> GetWeakPtr() override;
 
  private:
-  const raw_ptr<Profile> profile_;
+  const raw_ptr<Profile, DanglingUntriaged> profile_;
   base::WeakPtrFactory<UnsyncedCredentialsDeletionNotifier> weak_ptr_factory_{
       this};
 };
@@ -112,18 +102,9 @@ base::WeakPtr<UnsyncedCredentialsDeletionNotifier>
 UnsyncedCredentialsDeletionNotifierImpl::GetWeakPtr() {
   return weak_ptr_factory_.GetWeakPtr();
 }
-
-}  // namespace
-
 #endif  // !BUILDFLAG(IS_ANDROID)
 
-void SyncEnabledOrDisabled(Profile* profile) {
-#if BUILDFLAG(IS_ANDROID)
-  NOTREACHED();
-#else
-  UpdateAllFormManagersAndPasswordReuseManager(profile);
-#endif  // BUILDFLAG(IS_ANDROID)
-}
+}  // namespace
 
 // static
 scoped_refptr<PasswordStoreInterface>
@@ -154,7 +135,7 @@ AccountPasswordStoreFactory::AccountPasswordStoreFactory()
     : RefcountedBrowserContextKeyedServiceFactory(
           "AccountPasswordStore",
           BrowserContextDependencyManager::GetInstance()) {
-  DependsOn(WebDataServiceFactory::GetInstance());
+  DependsOn(CredentialsCleanerRunnerFactory::GetInstance());
 }
 
 AccountPasswordStoreFactory::~AccountPasswordStoreFactory() = default;
@@ -166,6 +147,20 @@ AccountPasswordStoreFactory::BuildServiceInstanceFor(
       password_manager::features::kEnablePasswordsAccountStorage));
 
   Profile* profile = Profile::FromBrowserContext(context);
+
+  DCHECK(!profile->IsOffTheRecord());
+
+  // Incognito profiles don't have their own password stores. Guest, or system
+  // profiles aren't relevant for Password Manager, and no PasswordStore should
+  // even be created for those types of profiles.
+  if (!profile->IsRegularProfile())
+    return nullptr;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  // On Ash, there are additional non-interesting profile types (sign-in
+  // profile and lockscreen profile).
+  if (!ash::ProfileHelper::IsUserProfile(profile))
+    return nullptr;
+#endif
 
   std::unique_ptr<password_manager::LoginDatabase> login_db(
       password_manager::CreateLoginDatabaseForAccountStorage(
@@ -184,14 +179,12 @@ AccountPasswordStoreFactory::BuildServiceInstanceFor(
                   profile)));
 #endif
 
-  if (!ps->Init(profile->GetPrefs(),
-                /*affiliated_match_helper=*/nullptr,
-                base::BindRepeating(&SyncEnabledOrDisabled, profile))) {
-    // TODO(crbug.com/479725): Remove the LOG once this error is visible in the
-    // UI.
-    LOG(WARNING) << "Could not initialize password store.";
-    return nullptr;
-  }
+  password_manager::AffiliationService* affiliation_service =
+      AffiliationServiceFactory::GetForProfile(profile);
+  std::unique_ptr<AffiliatedMatchHelper> affiliated_match_helper =
+      std::make_unique<AffiliatedMatchHelper>(affiliation_service);
+
+  ps->Init(profile->GetPrefs(), std::move(affiliated_match_helper));
 
   auto network_context_getter = base::BindRepeating(
       [](Profile* profile) -> network::mojom::NetworkContext* {
@@ -203,6 +196,9 @@ AccountPasswordStoreFactory::BuildServiceInstanceFor(
   password_manager_util::RemoveUselessCredentials(
       CredentialsCleanerRunnerFactory::GetForProfile(profile), ps,
       profile->GetPrefs(), base::Seconds(60), network_context_getter);
+
+  AffiliationsPrefetcherFactory::GetForProfile(profile)->RegisterPasswordStore(
+      ps.get());
 
   return ps;
 }

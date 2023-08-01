@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,15 +6,14 @@
 
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/history/chrome_history_client.h"
-#include "chrome/browser/profiles/incognito_helpers.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/common/channel_info.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/history/content/browser/content_visit_delegate.h"
 #include "components/history/content/browser/history_database_helper.h"
 #include "components/history/core/browser/history_database_params.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/history/core/common/pref_names.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/keyed_service/core/service_access_type.h"
 #include "components/prefs/pref_service.h"
 
@@ -26,8 +25,8 @@ std::unique_ptr<KeyedService> BuildHistoryService(
       std::make_unique<ChromeHistoryClient>(
           BookmarkModelFactory::GetForBrowserContext(context)),
       std::make_unique<history::ContentVisitDelegate>(context));
-  if (!history_service->Init(
-          history::HistoryDatabaseParamsForPath(context->GetPath()))) {
+  if (!history_service->Init(history::HistoryDatabaseParamsForPath(
+          context->GetPath(), chrome::GetChannel()))) {
     return nullptr;
   }
   return history_service;
@@ -88,9 +87,14 @@ HistoryServiceFactory::GetDefaultFactory() {
 }
 
 HistoryServiceFactory::HistoryServiceFactory()
-    : BrowserContextKeyedServiceFactory(
+    : ProfileKeyedServiceFactory(
           "HistoryService",
-          BrowserContextDependencyManager::GetInstance()) {
+          ProfileSelections::Builder()
+              .WithRegular(ProfileSelection::kRedirectedToOriginal)
+              // TODO(crbug.com/1418376): Check if this service is needed in
+              // Guest mode.
+              .WithGuest(ProfileSelection::kRedirectedToOriginal)
+              .Build()) {
   DependsOn(BookmarkModelFactory::GetInstance());
 }
 
@@ -100,11 +104,6 @@ HistoryServiceFactory::~HistoryServiceFactory() {
 KeyedService* HistoryServiceFactory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {
   return BuildHistoryService(context).release();
-}
-
-content::BrowserContext* HistoryServiceFactory::GetBrowserContextToUse(
-    content::BrowserContext* context) const {
-  return chrome::GetBrowserContextRedirectedInIncognito(context);
 }
 
 bool HistoryServiceFactory::ServiceIsNULLWhileTesting() const {

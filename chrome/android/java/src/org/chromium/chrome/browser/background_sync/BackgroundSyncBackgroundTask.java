@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -67,13 +67,6 @@ public class BackgroundSyncBackgroundTask extends NativeBackgroundTask {
         // It is not called when the task finishes successfully. Reschedule so
         // we can attempt it again.
         return true;
-    }
-
-    @Override
-    public void reschedule(Context context) {
-        BackgroundSyncBackgroundTaskScheduler.getInstance().reschedule(
-                BackgroundSyncBackgroundTaskScheduler.BackgroundSyncTask
-                        .ONE_SHOT_SYNC_CHROME_WAKE_UP);
     }
 
     @NativeMethods

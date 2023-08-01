@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,18 +19,7 @@ void WebV8Features::EnableMojoJS(v8::Local<v8::Context> context, bool enable) {
   ContextFeatureSettings::From(
       ExecutionContext::From(script_state),
       ContextFeatureSettings::CreationMode::kCreateIfNotExists)
-      ->enableMojoJS(enable);
-}
-
-// static
-void WebV8Features::EnableSharedArrayBuffer() {
-  static bool shared_array_buffer_enabled = false;
-  if (shared_array_buffer_enabled)
-    return;
-
-  shared_array_buffer_enabled = true;
-  constexpr char kSABFlag[] = "--harmony-sharedarraybuffer";
-  v8::V8::SetFlagsFromString(kSABFlag, sizeof(kSABFlag));
+      ->EnableMojoJS(enable);
 }
 
 // static
@@ -40,6 +29,23 @@ void WebV8Features::EnableMojoJSAndUseBroker(
   EnableMojoJS(context, /*enable*/ true);
   blink::ExecutionContext::From(context)->SetMojoJSInterfaceBroker(
       std::move(broker_remote));
+}
+
+// static
+void WebV8Features::EnableMojoJSFileSystemAccessHelper(
+    v8::Local<v8::Context> context,
+    bool enable) {
+  ScriptState* script_state = ScriptState::From(context);
+  DCHECK(script_state->World().IsMainWorld());
+
+  auto* context_feature_settings = ContextFeatureSettings::From(
+      ExecutionContext::From(script_state),
+      ContextFeatureSettings::CreationMode::kCreateIfNotExists);
+
+  if (!context_feature_settings->isMojoJSEnabled())
+    return;
+
+  context_feature_settings->EnableMojoJSFileSystemAccessHelper(enable);
 }
 
 }  // namespace blink

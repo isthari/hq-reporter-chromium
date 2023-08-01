@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,11 @@
 #import <UIKit/UIKit.h>
 
 #import "base/ios/block_types.h"
-#import "ios/chrome/browser/ui/coordinators/chrome_coordinator.h"
+#import "ios/chrome/browser/shared/coordinator/chrome_coordinator/chrome_coordinator.h"
 
 enum class UrlLoadStrategy;
 
+@protocol HistoryCoordinatorDelegate;
 @protocol HistoryPresentationDelegate;
 
 // Coordinator that presents History.
@@ -19,11 +20,16 @@ enum class UrlLoadStrategy;
 
 // Opaque instructions on how to open urls.
 @property(nonatomic) UrlLoadStrategy loadStrategy;
+// Optional: If provided, search terms to filter the displayed history items.
+@property(nonatomic, copy) NSString* searchTerms;
 // Delegate used to make the Tab UI visible.
 @property(nonatomic, weak) id<HistoryPresentationDelegate> presentationDelegate;
 
-// Stops this Coordinator then calls |completionHandler|.
-- (void)stopWithCompletion:(ProceduralBlock)completionHandler;
+// The delegate handling coordinator dismissal.
+@property(nonatomic, weak) id<HistoryCoordinatorDelegate> delegate;
+
+// Dismisses this Coordinator then calls `completionHandler`.
+- (void)dismissWithCompletion:(ProceduralBlock)completionHandler;
 
 @end
 

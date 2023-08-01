@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,12 +10,10 @@ GEN_INCLUDE(['//chrome/test/data/webui/polymer_interactive_ui_test.js']);
 GEN('#include "build/build_config.h"');
 GEN('#include "content/public/test/browser_test.h"');
 
-/* eslint-disable no-var */
-
 const PrintPreviewInteractiveUITest = class extends PolymerInteractiveUITest {
   /** @override */
   get browsePreload() {
-    throw 'this is abstract and should be overriden by subclasses';
+    throw new Error('this is abstract and should be overriden by subclasses');
   }
 
   // The name of the mocha suite. Should be overridden by subclasses.
@@ -33,7 +31,7 @@ var PrintPreviewButtonStripInteractiveTest =
     class extends PrintPreviewInteractiveUITest {
   /** @override */
   get browsePreload() {
-    return 'chrome://print/test_loader.html?module=print_preview/button_strip_interactive_test.js&host=webui-test';
+    return 'chrome://print/test_loader.html?module=print_preview/button_strip_interactive_test.js';
   }
 
   /** @override */
@@ -60,7 +58,7 @@ var PrintPreviewDestinationDialogInteractiveTest =
     class extends PrintPreviewInteractiveUITest {
   /** @override */
   get browsePreload() {
-    return 'chrome://print/test_loader.html?module=print_preview/destination_dialog_interactive_test.js&host=webui-test';
+    return 'chrome://print/test_loader.html?module=print_preview/destination_dialog_interactive_test.js';
   }
 
   /** @override */
@@ -88,7 +86,7 @@ var PrintPreviewDestinationDialogCrosInteractiveTest =
     class extends PrintPreviewInteractiveUITest {
   /** @override */
   get browsePreload() {
-    return 'chrome://print/test_loader.html?module=print_preview/destination_dialog_cros_interactive_test.js&host=webui-test';
+    return 'chrome://print/test_loader.html?module=print_preview/destination_dialog_cros_interactive_test.js';
   }
 
   /** @override */
@@ -117,7 +115,7 @@ var PrintPreviewPagesSettingsTest =
     class extends PrintPreviewInteractiveUITest {
   /** @override */
   get browsePreload() {
-    return 'chrome://print/test_loader.html?module=print_preview/pages_settings_test.js&host=webui-test';
+    return 'chrome://print/test_loader.html?module=print_preview/pages_settings_test.js';
   }
 
   /** @override */
@@ -147,7 +145,7 @@ var PrintPreviewNumberSettingsSectionInteractiveTest =
     class extends PrintPreviewInteractiveUITest {
   /** @override */
   get browsePreload() {
-    return 'chrome://print/test_loader.html?module=print_preview/number_settings_section_interactive_test.js&host=webui-test';
+    return 'chrome://print/test_loader.html?module=print_preview/number_settings_section_interactive_test.js';
   }
 
   /** @override */
@@ -167,7 +165,7 @@ var PrintPreviewScalingSettingsInteractiveTest =
     class extends PrintPreviewInteractiveUITest {
   /** @override */
   get browsePreload() {
-    return 'chrome://print/test_loader.html?module=print_preview/scaling_settings_interactive_test.js&host=webui-test';
+    return 'chrome://print/test_loader.html?module=print_preview/scaling_settings_interactive_test.js';
   }
 
   /** @override */
@@ -194,7 +192,7 @@ var PrintPreviewDestinationDropdownCrosTest =
     class extends PrintPreviewInteractiveUITest {
   /** @override */
   get browsePreload() {
-    return 'chrome://print/test_loader.html?module=print_preview/destination_dropdown_cros_test.js&host=webui-test';
+    return 'chrome://print/test_loader.html?module=print_preview/destination_dropdown_cros_test.js';
   }
 
   /** @override */

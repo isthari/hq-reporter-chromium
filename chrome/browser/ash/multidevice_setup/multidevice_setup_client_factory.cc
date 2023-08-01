@@ -1,31 +1,27 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/multidevice_setup/multidevice_setup_client_factory.h"
 
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "chrome/browser/ash/device_sync/device_sync_client_factory.h"
 #include "chrome/browser/ash/multidevice_setup/multidevice_setup_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chromeos/components/multidevice/logging/logging.h"
-#include "chromeos/services/multidevice_setup/multidevice_setup_service.h"
-#include "chromeos/services/multidevice_setup/public/cpp/multidevice_setup_client.h"
-#include "chromeos/services/multidevice_setup/public/cpp/multidevice_setup_client_impl.h"
-#include "chromeos/services/multidevice_setup/public/cpp/prefs.h"
-#include "chromeos/services/multidevice_setup/public/mojom/multidevice_setup.mojom.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
+#include "chromeos/ash/components/multidevice/logging/logging.h"
+#include "chromeos/ash/services/multidevice_setup/multidevice_setup_service.h"
+#include "chromeos/ash/services/multidevice_setup/public/cpp/multidevice_setup_client.h"
+#include "chromeos/ash/services/multidevice_setup/public/cpp/multidevice_setup_client_impl.h"
+#include "chromeos/ash/services/multidevice_setup/public/cpp/prefs.h"
+#include "chromeos/ash/services/multidevice_setup/public/mojom/multidevice_setup.mojom.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_context.h"
 
 namespace ash {
 namespace multidevice_setup {
-
-// TODO(https://crbug.com/1164001): remove when
-// chromeos/services/multidevice_setup is migrated.
-namespace mojom = ::chromeos::multidevice_setup::mojom;
 
 namespace {
 
@@ -48,7 +44,7 @@ class MultiDeviceSetupClientHolder : public KeyedService {
     // depend on MultiDeviceSetupServiceFactory at construction time. This is
     // due to a circular dependency among the AndroidSmsServiceFactory,
     // MultiDeviceSetupServiceFactory, and MultiDeviceSetupClientFactory
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(&MultiDeviceSetupClientHolder::BindService,
                        weak_factory_.GetWeakPtr(), std::move(receiver)));
@@ -74,7 +70,7 @@ class MultiDeviceSetupClientHolder : public KeyedService {
     weak_factory_.InvalidateWeakPtrs();
   }
 
-  Profile* const profile_;
+  const raw_ptr<Profile, ExperimentalAsh> profile_;
   std::unique_ptr<MultiDeviceSetupClient> multidevice_setup_client_;
   base::WeakPtrFactory<MultiDeviceSetupClientHolder> weak_factory_{this};
 };
@@ -82,10 +78,17 @@ class MultiDeviceSetupClientHolder : public KeyedService {
 }  // namespace
 
 MultiDeviceSetupClientFactory::MultiDeviceSetupClientFactory()
-    : BrowserContextKeyedServiceFactory(
+    : ProfileKeyedServiceFactory(
           "MultiDeviceSetupClient",
-          BrowserContextDependencyManager::GetInstance()) {
+          ProfileSelections::Builder()
+              .WithRegular(ProfileSelection::kOriginalOnly)
+              // TODO(crbug.com/1418376): Check if this service is needed in
+              // Guest mode.
+              .WithGuest(ProfileSelection::kOriginalOnly)
+              .Build()) {
   DependsOn(device_sync::DeviceSyncClientFactory::GetInstance());
+  // The MultiDeviceSetupServiceFactory dependency is omitted here, see the
+  // comment in the MultiDeviceSetupClientHolder constructor.
 }
 
 MultiDeviceSetupClientFactory::~MultiDeviceSetupClientFactory() = default;

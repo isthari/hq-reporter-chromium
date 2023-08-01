@@ -1,6 +1,6 @@
 #!/usr/bin/env vpython3
 
-# Copyright 2021 The Chromium Authors. All rights reserved.
+# Copyright 2021 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -21,6 +21,7 @@ class FilterTests(fake_filesystem_unittest.TestCase):
         t = _TestFilter('foo')
         self.assertTrue(t.is_match('foo'))
         self.assertFalse(t.is_match('foobar'))
+        self.assertFalse(t.is_match('foo/bar'))
         self.assertFalse(t.is_match('fo'))
         self.assertFalse(t.is_exclusion_filter())
 
@@ -28,6 +29,7 @@ class FilterTests(fake_filesystem_unittest.TestCase):
         t = _TestFilter('foo*')
         self.assertTrue(t.is_match('foo'))
         self.assertTrue(t.is_match('foobar'))
+        self.assertTrue(t.is_match('foo/bar'))
         self.assertFalse(t.is_match('fo'))
         self.assertFalse(t.is_exclusion_filter())
 
@@ -35,6 +37,7 @@ class FilterTests(fake_filesystem_unittest.TestCase):
         t = _TestFilter('-foo')
         self.assertTrue(t.is_match('foo'))
         self.assertFalse(t.is_match('foobar'))
+        self.assertFalse(t.is_match('foo/bar'))
         self.assertFalse(t.is_match('fo'))
         self.assertTrue(t.is_exclusion_filter())
 
@@ -42,6 +45,7 @@ class FilterTests(fake_filesystem_unittest.TestCase):
         t = _TestFilter('-foo*')
         self.assertTrue(t.is_match('foo'))
         self.assertTrue(t.is_match('foobar'))
+        self.assertTrue(t.is_match('foo/bar'))
         self.assertFalse(t.is_match('fo'))
         self.assertTrue(t.is_exclusion_filter())
 

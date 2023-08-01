@@ -23,7 +23,7 @@ class {{export_attribute}} {{struct.name}} {
   template <typename... Args>
   static {{struct.name}}Ptr New(Args&&... args) {
     return {{struct.name}}Ptr(
-        base::in_place, std::forward<Args>(args)...);
+        absl::in_place, std::forward<Args>(args)...);
   }
 
   template <typename U>
@@ -67,6 +67,9 @@ class {{export_attribute}} {{struct.name}} {
 
   template <typename T, {{struct.name}}::EnableIfSame<T>* = nullptr>
   bool operator==(const T& rhs) const { return Equals(rhs); }
+
+  template <typename T, {{struct.name}}::EnableIfSame<T>* = nullptr>
+  bool operator!=(const T& rhs) const { return !operator==(rhs); }
 
 {%- if struct|is_hashable %}
   size_t Hash(size_t seed) const;

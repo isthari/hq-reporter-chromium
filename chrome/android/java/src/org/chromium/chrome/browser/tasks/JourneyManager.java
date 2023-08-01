@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,10 +12,11 @@ import androidx.annotation.NonNull;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ContextUtils;
-import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.task.AsyncTask;
-import org.chromium.chrome.browser.compositor.layouts.EmptyOverviewModeObserver;
-import org.chromium.chrome.browser.compositor.layouts.OverviewModeBehavior;
+import org.chromium.chrome.browser.layouts.FilterLayoutStateObserver;
+import org.chromium.chrome.browser.layouts.LayoutStateProvider;
+import org.chromium.chrome.browser.layouts.LayoutStateProvider.LayoutStateObserver;
+import org.chromium.chrome.browser.layouts.LayoutType;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
 import org.chromium.chrome.browser.lifecycle.DestroyObserver;
 import org.chromium.chrome.browser.tab.Tab;
@@ -42,15 +43,6 @@ public class JourneyManager implements DestroyObserver {
     @VisibleForTesting
     static final String PREFS_FILE = "last_engagement_for_tab_id_pref";
 
-    @VisibleForTesting
-    static final String TAB_REVISIT_METRIC = "Tabs.TimeSinceLastView.OnTabView";
-
-    @VisibleForTesting
-    static final String TAB_CLOSE_METRIC = "Tabs.TimeSinceLastView.OnTabClose";
-
-    @VisibleForTesting
-    static final String TAB_CLOBBER_METRIC = "Tabs.TimeSinceLastView.OnTabClobber";
-
     private static final long INVALID_TIME = -1;
 
     // We track this in seconds because UMA can only handle 32-bit signed integers, which 45 days
@@ -59,9 +51,9 @@ public class JourneyManager implements DestroyObserver {
 
     private final TabModelSelectorTabObserver mTabModelSelectorTabObserver;
     private final TabModelSelectorTabModelObserver mTabModelSelectorTabModelObserver;
-    private final OverviewModeBehavior.OverviewModeObserver mOverviewModeObserver;
+    private final LayoutStateObserver mLayoutStateObserver;
     private final ActivityLifecycleDispatcher mLifecycleDispatcher;
-    private final OverviewModeBehavior mOverviewModeBehavior;
+    private final LayoutStateProvider mLayoutStateProvider;
     private final EngagementTimeUtil mEngagementTimeUtil;
 
     private Map<Integer, Boolean> mDidFirstPaintPerTab = new HashMap<>();
@@ -71,17 +63,17 @@ public class JourneyManager implements DestroyObserver {
 
     public JourneyManager(TabModelSelector selector,
             @NonNull ActivityLifecycleDispatcher dispatcher,
-            @NonNull OverviewModeBehavior overviewModeBehavior,
+            @NonNull LayoutStateProvider layoutStateProvider,
             EngagementTimeUtil engagementTimeUtil) {
         if (!VersionInfo.isLocalBuild() && !VersionInfo.isCanaryBuild()
                 && !VersionInfo.isDevBuild()) {
             // We do not want this in beta/stable until it's no longer backed by SharedPreferences.
             mTabModelSelectorTabObserver = null;
             mTabModelSelectorTabModelObserver = null;
-            mOverviewModeObserver = null;
+            mLayoutStateObserver = null;
             mLifecycleDispatcher = null;
             mEngagementTimeUtil = null;
-            mOverviewModeBehavior = null;
+            mLayoutStateProvider = null;
             return;
         }
 
@@ -105,13 +97,12 @@ public class JourneyManager implements DestroyObserver {
                 if (!closing) return;
 
                 mCurrentTab = null;
-
-                recordTabCloseMetric(tab);
             }
 
             @Override
-            public void onDidStartNavigation(Tab tab, NavigationHandle navigationHandle) {
-                if (!navigationHandle.isInPrimaryMainFrame() || navigationHandle.isSameDocument()) {
+            public void onDidStartNavigationInPrimaryMainFrame(
+                    Tab tab, NavigationHandle navigationHandle) {
+                if (navigationHandle.isSameDocument()) {
                     return;
                 }
 
@@ -148,8 +139,6 @@ public class JourneyManager implements DestroyObserver {
 
                 mHandler.removeCallbacks(mPendingRevisits.get(tabId));
                 mPendingRevisits.remove(tabId);
-
-                recordTabClobberMetric(tab, params.getInputStartTimestamp());
             }
         };
 
@@ -160,14 +149,15 @@ public class JourneyManager implements DestroyObserver {
             }
         };
 
-        mOverviewModeBehavior = overviewModeBehavior;
-        mOverviewModeObserver = new EmptyOverviewModeObserver() {
-            @Override
-            public void onOverviewModeStartedShowing(boolean showToolbar) {
-                handleTabEngagementStopped(mCurrentTab);
-            }
-        };
-        mOverviewModeBehavior.addOverviewModeObserver(mOverviewModeObserver);
+        mLayoutStateProvider = layoutStateProvider;
+        mLayoutStateObserver =
+                new FilterLayoutStateObserver(LayoutType.TAB_SWITCHER, new LayoutStateObserver() {
+                    @Override
+                    public void onStartedShowing(int layoutType) {
+                        handleTabEngagementStopped(mCurrentTab);
+                    }
+                });
+        mLayoutStateProvider.addObserver(mLayoutStateObserver);
 
         mLifecycleDispatcher = dispatcher;
         mLifecycleDispatcher.register(this);
@@ -179,7 +169,7 @@ public class JourneyManager implements DestroyObserver {
     public void onDestroy() {
         mTabModelSelectorTabObserver.destroy();
         mTabModelSelectorTabModelObserver.destroy();
-        mOverviewModeBehavior.removeOverviewModeObserver(mOverviewModeObserver);
+        mLayoutStateProvider.removeObserver(mLayoutStateObserver);
         mLifecycleDispatcher.unregister(this);
     }
 
@@ -251,41 +241,7 @@ public class JourneyManager implements DestroyObserver {
 
         if (lastEngagement == INVALID_TIME) return;
 
-        long elapsedMs = mEngagementTimeUtil.timeSinceLastEngagement(lastEngagement, viewTimeMs);
-
-        recordEngagementMetric(TAB_REVISIT_METRIC, elapsedMs);
-
         handleTabEngagementStarted(tab);
-    }
-
-    private void recordTabCloseMetric(Tab tab) {
-        long lastEngagement = getLastEngagementTimestamp(tab);
-
-        if (lastEngagement == INVALID_TIME) return;
-
-        long elapsedMs = mEngagementTimeUtil.timeSinceLastEngagement(lastEngagement);
-
-        recordEngagementMetric(TAB_CLOSE_METRIC, elapsedMs);
-    }
-
-    private void recordTabClobberMetric(Tab tab, long inputStartTimeTicksMs) {
-        long lastEngagement = getLastEngagementTimestamp(tab);
-
-        if (lastEngagement == INVALID_TIME) return;
-
-        long elapsedMs = mEngagementTimeUtil.timeSinceLastEngagementFromTimeTicksMs(
-                lastEngagement, inputStartTimeTicksMs);
-
-        recordEngagementMetric(TAB_CLOBBER_METRIC, elapsedMs);
-    }
-
-    private void recordEngagementMetric(String name, long elapsedMs) {
-        if (elapsedMs == INVALID_TIME) return;
-
-        int elapsedSeconds = (int) TimeUnit.MILLISECONDS.toSeconds(elapsedMs);
-
-        RecordHistogram.recordCustomCountHistogram(
-                name, elapsedSeconds, 1, MAX_ENGAGEMENT_TIME_S, 50);
     }
 
     @VisibleForTesting
@@ -299,7 +255,7 @@ public class JourneyManager implements DestroyObserver {
     }
 
     @VisibleForTesting
-    public OverviewModeBehavior.OverviewModeObserver getOverviewModeObserver() {
-        return mOverviewModeObserver;
+    public LayoutStateObserver getOverviewModeObserver() {
+        return mLayoutStateObserver;
     }
 }

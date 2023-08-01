@@ -1,12 +1,12 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_PEERCONNECTION_WEBRTC_VIDEO_TRACK_SOURCE_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_PEERCONNECTION_WEBRTC_VIDEO_TRACK_SOURCE_H_
 
-#include "base/callback_forward.h"
 #include "base/feature_list.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/threading/thread_checker.h"
 #include "media/base/video_frame_pool.h"
@@ -61,6 +61,7 @@ class PLATFORM_EXPORT WebRtcVideoTrackSource
   void OnFrameCaptured(
       scoped_refptr<media::VideoFrame> frame,
       std::vector<scoped_refptr<media::VideoFrame>> scaled_frames);
+  void OnNotifyFrameDropped();
 
   using webrtc::VideoTrackSourceInterface::AddOrUpdateSink;
   using webrtc::VideoTrackSourceInterface::RemoveSink;
@@ -77,10 +78,14 @@ class PLATFORM_EXPORT WebRtcVideoTrackSource
   // rtc::AdaptedVideoTrackSource::OnFrame(). If the cropping (given via
   // |frame->visible_rect()|) has changed since the last delivered frame, the
   // whole frame is marked as updated.
+  // |timestamp_us| is |frame->timestamp()| in Microseconds but clipped to
+  // ensure that it doesn't exceed the current system time. However,
+  // |capture_time_identifier| is just |frame->timestamp()|.
   void DeliverFrame(scoped_refptr<media::VideoFrame> frame,
                     std::vector<scoped_refptr<media::VideoFrame>> scaled_frames,
                     gfx::Rect* update_rect,
-                    int64_t timestamp_us);
+                    int64_t timestamp_us,
+                    absl::optional<webrtc::Timestamp> capture_time_identifier);
 
   // |thread_checker_| is bound to the libjingle worker thread.
   THREAD_CHECKER(thread_checker_);

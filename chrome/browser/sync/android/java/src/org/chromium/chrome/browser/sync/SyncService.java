@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@ import org.chromium.base.ThreadUtils;
 import org.chromium.components.signin.base.CoreAccountInfo;
 import org.chromium.components.signin.base.GoogleServiceAuthError;
 import org.chromium.components.sync.PassphraseType;
+import org.chromium.components.sync.UserSelectableType;
 
 import java.util.Date;
 import java.util.Set;
@@ -66,6 +67,7 @@ public abstract class SyncService {
      */
     @VisibleForTesting
     public static void resetForTests() {
+        ThreadUtils.assertOnUiThread();
         sInitialized = false;
         sSyncService = null;
     }
@@ -133,6 +135,12 @@ public abstract class SyncService {
 
     public abstract @Nullable CoreAccountInfo getAccountInfo();
 
+    /**
+     * Checks whether the primary account is consented to run Sync (the feature). Note that even if
+     * this is true, other reasons might prevent Sync from actually starting up.
+     *
+     * @return true if the primary account is consented to Sync (the feature), false otherwise.
+     */
     public abstract boolean hasSyncConsent();
 
     /**
@@ -140,51 +148,39 @@ public abstract class SyncService {
      *
      * This is affected by whether sync is on.
      *
-     * @return Set of active data types.
+     * @return ModelType set of active data types.
      */
     public abstract Set<Integer> getActiveDataTypes();
 
     /**
-     * Gets the set of data types that the user has chosen to enable. This
-     * corresponds to the native GetSelectedTypes() / UserSelectableTypeSet, but
-     * every UserSelectableType is mapped to the corresponding canonical
-     * ModelType.
-     * TODO(crbug.com/985290): Expose UserSelectableType to Java and return that
-     * instead.
+     * Gets the set of types that the user has selected.
      *
      * NOTE: This returns "all types" by default, even if the user has never
      *       enabled Sync, or if only Sync-the-transport is running.
      *
-     * @return Set of chosen types.
+     * @return UserSelectableType set of selected types.
      */
-    public abstract Set<Integer> getChosenDataTypes();
+    public abstract Set<Integer> getSelectedTypes();
 
     public abstract boolean hasKeepEverythingSynced();
 
+    public abstract boolean isTypeManagedByPolicy(@UserSelectableType int type);
+
     /**
-     * Enables syncing for the passed data types.
+     * Enables syncing for the passed types.
      *
      * @param syncEverything Set to true if the user wants to sync all data types
      *                       (including new data types we add in the future).
      * @param enabledTypes   The set of types to enable. Ignored (can be null) if
      *                       syncEverything is true.
      */
-    public abstract void setChosenDataTypes(boolean syncEverything, Set<Integer> enabledTypes);
+    public abstract void setSelectedTypes(boolean syncEverything, Set<Integer> enabledTypes);
 
-    public abstract void setFirstSetupComplete(int syncFirstSetupCompleteSource);
+    public abstract void setInitialSyncFeatureSetupComplete(int syncFirstSetupCompleteSource);
 
-    public abstract boolean isFirstSetupComplete();
+    public abstract boolean isInitialSyncFeatureSetupComplete();
 
-    public abstract void setSyncRequested(boolean requested);
-
-    /**
-     * Checks whether syncing is requested by the user, i.e. the user has at least started a Sync
-     * setup flow, and has not disabled syncing in settings. Note that even if this is true, other
-     * reasons might prevent Sync from actually starting up.
-     *
-     * @return true if the user wants to sync, false otherwise.
-     */
-    public abstract boolean isSyncRequested();
+    public abstract void setSyncRequested();
 
     /**
      * Instances of this class keep sync paused until {@link #close} is called. Use
@@ -310,9 +306,9 @@ public abstract class SyncService {
     public abstract boolean shouldOfferTrustedVaultOptIn();
 
     /**
-     * @return Whether sync is enabled to sync urls or open tabs with a non custom passphrase.
+     * @return Whether sync is enabled to sync urls with a non custom passphrase.
      */
-    public abstract boolean isSyncingUrlsWithKeystorePassphrase();
+    public abstract boolean isSyncingUnencryptedUrls();
 
     /**
      * Returns the time when the last sync cycle was completed.
@@ -332,10 +328,4 @@ public abstract class SyncService {
      */
     @VisibleForTesting
     public abstract void getAllNodes(Callback<JSONArray> callback);
-
-    /**
-     * TODO(crbug.com/949504): Remove and do this directly in native code.
-     */
-    @VisibleForTesting
-    public abstract long getNativeSyncServiceImplForTest();
 }

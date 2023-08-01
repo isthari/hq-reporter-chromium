@@ -1,13 +1,18 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/policy/profile_policy_connector.h"
 
+#include <memory>
+#include <utility>
+
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/task_environment.h"
+#include "base/time/time.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -24,6 +29,7 @@
 #include "components/policy/core/common/mock_policy_service.h"
 #include "components/policy/core/common/policy_bundle.h"
 #include "components/policy/core/common/policy_map.h"
+#include "components/policy/core/common/policy_namespace.h"
 #include "components/policy/core/common/policy_service.h"
 #include "components/policy/core/common/policy_types.h"
 #include "components/policy/core/common/proxy_policy_provider.h"
@@ -37,13 +43,14 @@
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/ash/login/users/fake_chrome_user_manager.h"
-#include "chromeos/tpm/stub_install_attributes.h"
+#include "chromeos/ash/components/install_attributes/stub_install_attributes.h"
 #include "components/user_manager/scoped_user_manager.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 using testing::_;
 using testing::NiceMock;
 using testing::Return;
+using testing::SizeIs;
 
 namespace policy {
 namespace {
@@ -105,7 +112,7 @@ void UpdateChromePolicyToMockProviderAndVerify(
   const base::Value* value =
       connector.policy_service()
           ->GetPolicies(PolicyNamespace(POLICY_DOMAIN_CHROME, std::string()))
-          .GetValue(key::kAutofillAddressEnabled);
+          .GetValue(key::kAutofillAddressEnabled, base::Value::Type::BOOLEAN);
   ASSERT_TRUE(value);
   EXPECT_EQ(base::Value(true), *value);
 }
@@ -118,7 +125,6 @@ class ProfilePolicyConnectorTest : public testing::Test {
   ~ProfilePolicyConnectorTest() override {}
 
   void SetUp() override {
-    cloud_policy_store_.NotifyStoreLoaded();
     const auto task_runner = task_environment_.GetMainThreadTaskRunner();
     cloud_policy_manager_ = std::make_unique<CloudPolicyManager>(
         std::string(), std::string(), &cloud_policy_store_, task_runner,
@@ -128,6 +134,11 @@ class ProfilePolicyConnectorTest : public testing::Test {
 
   void TearDown() override {
     task_environment_.RunUntilIdle();
+
+    // Some tests override the policy service via this global singleton. Unset
+    // it here to make sure the cleanup happens.
+    BrowserPolicyConnectorBase::SetPolicyServiceForTesting(nullptr);
+
     TestingBrowserProcess::GetGlobal()->ShutdownBrowserPolicyConnector();
     cloud_policy_manager_->Shutdown();
   }
@@ -140,13 +151,14 @@ class ProfilePolicyConnectorTest : public testing::Test {
   }
 
   // Needs to be the first member.
-  base::test::TaskEnvironment task_environment_;
+  base::test::TaskEnvironment task_environment_{
+      base::test::TaskEnvironment::TimeSource::MOCK_TIME};
   SchemaRegistry schema_registry_;
   MockCloudPolicyStore cloud_policy_store_;
   std::unique_ptr<CloudPolicyManager> cloud_policy_manager_;
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  chromeos::ScopedStubInstallAttributes test_install_attributes_;
+  ash::ScopedStubInstallAttributes test_install_attributes_;
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 };
 
@@ -233,13 +245,13 @@ TEST_F(ProfilePolicyConnectorTest, PrimaryUserPoliciesProxied) {
   PolicyNamespace chrome_ns(POLICY_DOMAIN_CHROME, std::string());
   const base::Value* profile_policy_value =
       connector.policy_service()->GetPolicies(chrome_ns).GetValue(
-          key::kAutofillAddressEnabled);
+          key::kAutofillAddressEnabled, base::Value::Type::BOOLEAN);
   ASSERT_TRUE(profile_policy_value);
   EXPECT_FALSE(profile_policy_value->GetBool());
 
   const base::Value* proxied_policy_value =
       g_browser_process->policy_service()->GetPolicies(chrome_ns).GetValue(
-          key::kAutofillAddressEnabled);
+          key::kAutofillAddressEnabled, base::Value::Type::BOOLEAN);
   ASSERT_TRUE(proxied_policy_value);
   EXPECT_FALSE(proxied_policy_value->GetBool());
 
@@ -262,8 +274,7 @@ TEST_F(ProfilePolicyConnectorTest, IsProfilePolicy) {
   // the local policy provider but never get destroyed until the very end. This
   // will cause DCHECK failure as the local policy provider observer list is not
   // clear.
-  g_browser_process->browser_policy_connector()->SetPolicyServiceForTesting(
-      &mock_policy_service_);
+  BrowserPolicyConnectorBase::SetPolicyServiceForTesting(&mock_policy_service_);
   ProfilePolicyConnector connector;
   connector.Init(nullptr /* user */, &schema_registry_,
                  cloud_policy_manager_.get(), &cloud_policy_store_,
@@ -274,7 +285,7 @@ TEST_F(ProfilePolicyConnectorTest, IsProfilePolicy) {
       connector.IsProfilePolicy(autofill::prefs::kAutofillProfileEnabled));
   PolicyNamespace chrome_ns(POLICY_DOMAIN_CHROME, std::string());
   EXPECT_FALSE(connector.policy_service()->GetPolicies(chrome_ns).GetValue(
-      key::kAutofillAddressEnabled));
+      key::kAutofillAddressEnabled, base::Value::Type::BOOLEAN));
 
   // Set the policy at the cloud provider.
   cloud_policy_store_.policy_map_.Set(
@@ -285,9 +296,9 @@ TEST_F(ProfilePolicyConnectorTest, IsProfilePolicy) {
   EXPECT_TRUE(connector.IsProfilePolicy(key::kAutofillAddressEnabled));
   const base::Value* value =
       connector.policy_service()->GetPolicies(chrome_ns).GetValue(
-          key::kAutofillAddressEnabled);
+          key::kAutofillAddressEnabled, base::Value::Type::BOOLEAN);
   ASSERT_TRUE(value);
-  EXPECT_TRUE(base::Value(false).Equals(value));
+  EXPECT_EQ(base::Value(false), *value);
 
   // Now test with a higher-priority provider also setting the policy.
   UpdateChromePolicyToMockProviderAndVerify(&mock_platform_provider, connector);
@@ -308,7 +319,8 @@ TEST_F(ProfilePolicyConnectorTest, MachineLevelUserCloudPolicyForProfile) {
 
   // Init and set ProxyPolicyProvider
   ProxyPolicyProvider proxy_policy_provider;
-  proxy_policy_provider.SetDelegate(&mock_machine_level_cloud_policy_provider);
+  proxy_policy_provider.SetUnownedDelegate(
+      &mock_machine_level_cloud_policy_provider);
   proxy_policy_provider.Init(&schema_registry_);
   g_browser_process->browser_policy_connector()
       ->SetProxyPolicyProviderForTesting(&proxy_policy_provider);
@@ -326,5 +338,57 @@ TEST_F(ProfilePolicyConnectorTest, MachineLevelUserCloudPolicyForProfile) {
   proxy_policy_provider.Shutdown();
 }
 #endif  // !BUILDFLAG(IS_CHROMEOS_ASH)
+
+// Basic test for the Enterprise.TimeToFirstPolicyLoad.*" metrics.
+TEST_F(ProfilePolicyConnectorTest, InitializationDurationUma) {
+  constexpr base::TimeDelta kDelay = base::Seconds(1);
+  const AccountId account_id =
+      AccountId::FromUserEmailGaiaId("foo@bar.com", "fake-gaia-id");
+
+  // Arrange.
+  base::HistogramTester histogram_tester;
+  user_manager::User* user = nullptr;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  // On Ash, simulate user login as metric isn't reported otherwise.
+  auto user_manager = std::make_unique<ash::FakeChromeUserManager>();
+  user = user_manager->AddUser(account_id);
+  user_manager->LoginUser(account_id);
+  user_manager::ScopedUserManager scoped_user_manager_enabler(
+      std::move(user_manager));
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+  ProfilePolicyConnector connector;
+  connector.Init(user, &schema_registry_, cloud_policy_manager_.get(),
+                 &cloud_policy_store_,
+                 g_browser_process->browser_policy_connector(),
+                 /*force_immediate_load=*/false);
+
+  // Act. Simulate installation of policy after some delay.
+  task_environment_.FastForwardBy(kDelay);
+  auto policy = std::make_unique<enterprise_management::PolicyData>();
+  policy->set_state(enterprise_management::PolicyData::ACTIVE);
+  cloud_policy_store_.set_policy_data_for_testing(std::move(policy));
+  cloud_policy_store_.NotifyStoreLoaded();
+  // Wait until the store status gets propagated to trigger the initialization.
+  PolicyServiceInitializedWaiter(connector.policy_service(),
+                                 POLICY_DOMAIN_CHROME)
+      .Wait();
+
+  // Assert. Note the recorded delay is exactly `kDelay`, since we're using
+  // `MOCK_TIME` and we don't expect delayed tasks here.
+  EXPECT_THAT(histogram_tester.GetTotalCountsForPrefix(
+                  "Enterprise.TimeToFirstPolicyLoad.Profile."),
+              SizeIs(1));
+  histogram_tester.ExpectUniqueTimeSample(
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+      "Enterprise.TimeToFirstPolicyLoad.Profile.Managed.Existing"
+#else
+      "Enterprise.TimeToFirstPolicyLoad.Profile.Managed"
+#endif
+      ,
+      kDelay, 1);
+
+  // Cleanup.
+  connector.Shutdown();
+}
 
 }  // namespace policy

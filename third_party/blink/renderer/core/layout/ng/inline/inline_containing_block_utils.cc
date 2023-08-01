@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -50,12 +50,8 @@ void GatherInlineContainerFragmentsFromItems(
     if (!box)
       continue;
 
-    // The key for the inline is the continuation root if it exists.
-    const LayoutObject* key = box->GetLayoutObject();
-    if (key->IsLayoutInline() && key->GetNode())
-      key = key->ContinuationRoot();
-
     // See if we need the containing block information for this inline.
+    const LayoutObject* key = box->GetLayoutObject();
     auto it = inline_containing_block_map->find(key);
     if (it == inline_containing_block_map->end())
       continue;
@@ -110,19 +106,13 @@ void GatherInlineContainerFragmentsFromItems(
 void InlineContainingBlockUtils::ComputeInlineContainerGeometry(
     InlineContainingBlockMap* inline_containing_block_map,
     NGBoxFragmentBuilder* container_builder) {
-  if (inline_containing_block_map->IsEmpty())
+  if (inline_containing_block_map->empty())
     return;
 
   // This function requires that we have the final size of the fragment set
   // upon the builder.
   DCHECK_GE(container_builder->InlineSize(), LayoutUnit());
   DCHECK_GE(container_builder->FragmentBlockSize(), LayoutUnit());
-
-#if DCHECK_IS_ON()
-  // Make sure all entries are a continuation root.
-  for (const auto& entry : *inline_containing_block_map)
-    DCHECK_EQ(entry.key, entry.key->ContinuationRoot());
-#endif
 
   HeapHashMap<Member<const LayoutObject>, LineBoxPair> containing_linebox_map;
 
@@ -171,13 +161,8 @@ void InlineContainingBlockUtils::ComputeInlineContainerGeometryForFragmentainer(
     const LayoutBox* box,
     PhysicalSize accumulated_containing_block_size,
     InlineContainingBlockMap* inline_containing_block_map) {
-  if (inline_containing_block_map->IsEmpty())
+  if (inline_containing_block_map->empty())
     return;
-#if DCHECK_IS_ON()
-  // Make sure all entries are a continuation root.
-  for (const auto& entry : *inline_containing_block_map)
-    DCHECK_EQ(entry.key, entry.key->ContinuationRoot());
-#endif
 
   WritingDirectionMode writing_direction =
       box->StyleRef().GetWritingDirection();
@@ -224,8 +209,7 @@ void InlineContainingBlockUtils::ComputeInlineContainerGeometryForFragmentainer(
             &current_fragment_converter, &containing_block_converter);
       }
     }
-    if (auto* break_token =
-            To<NGBlockBreakToken>(physical_fragment.BreakToken()))
+    if (const NGBlockBreakToken* break_token = physical_fragment.BreakToken())
       current_block_offset = break_token->ConsumedBlockSize();
   }
 }

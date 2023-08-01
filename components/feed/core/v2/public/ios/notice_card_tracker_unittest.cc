@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -77,24 +77,6 @@ TEST_F(IOSNoticeCardTrackerTest,
 }
 
 TEST_F(IOSNoticeCardTrackerTest,
-       AcknowledgedNoticeCardWhenEnoughViewsAndNoticeCardAt2ndPos) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitWithFeatures(
-      /*enabled_features=*/{feed::kInterestFeedNoticeCardAutoDismiss,
-                            feed::
-                                kInterestFeedV2ClicksAndViewsConditionalUpload},
-      /*disabled_features=*/{});
-  NoticeCardTracker tracker(&profile_prefs_);
-
-  const int notice_card_index = 1;
-  tracker.OnSliceViewed(notice_card_index);
-  tracker.OnSliceViewed(notice_card_index);
-  tracker.OnSliceViewed(notice_card_index);
-
-  EXPECT_TRUE(tracker.HasAcknowledgedNoticeCard());
-}
-
-TEST_F(IOSNoticeCardTrackerTest,
        DontAcknowledgedNoticeCardWhenNotEnoughViewsNorClicks) {
   base::test::ScopedFeatureList scoped_feature_list;
   scoped_feature_list.InitAndEnableFeature(
@@ -111,6 +93,10 @@ TEST_F(IOSNoticeCardTrackerTest,
 
 TEST_F(IOSNoticeCardTrackerTest,
        DontAcknowledgedNoticeCardWhenFeatureDisabled) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndDisableFeature(
+      feed::kInterestFeedNoticeCardAutoDismiss);
+
   // Generate enough views and clicks on the notice card to reach the threshold,
   // but the feature is disabled.
   feed::prefs::IncrementNoticeCardClicksCount(profile_prefs_);

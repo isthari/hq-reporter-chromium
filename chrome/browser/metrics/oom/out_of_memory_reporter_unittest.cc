@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,16 +9,15 @@
 #include <utility>
 
 #include "base/at_exit.h"
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/path_service.h"
 #include "base/process/kill.h"
 #include "base/run_loop.h"
-#include "base/task/post_task.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "build/build_config.h"
 #include "chrome/common/chrome_paths.h"
@@ -26,8 +25,6 @@
 #include "components/ukm/content/source_url_recorder.h"
 #include "components/ukm/test_ukm_recorder.h"
 #include "content/public/browser/navigation_handle.h"
-#include "content/public/browser/notification_service.h"
-#include "content/public/browser/notification_types.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
@@ -100,8 +97,9 @@ class OutOfMemoryReporterTest : public ChromeRenderViewHostTestHarness,
   // ChromeRenderViewHostTestHarness:
   void SetUp() override {
 #if BUILDFLAG(IS_ANDROID)
-    crash_reporter::ChildExitObserver::Create();
-    crash_reporter::ChildExitObserver::GetInstance()->RegisterClient(
+    child_exit_observer_ =
+        std::make_unique<crash_reporter::ChildExitObserver>();
+    child_exit_observer_->RegisterClient(
         std::make_unique<crash_reporter::ChildProcessCrashObserver>());
 #endif
 
@@ -122,6 +120,13 @@ class OutOfMemoryReporterTest : public ChromeRenderViewHostTestHarness,
     ukm::InitializeSourceUrlRecorderForWebContents(web_contents());
   }
 
+  void TearDown() override {
+#if BUILDFLAG(IS_ANDROID)
+    child_exit_observer_.reset();
+#endif
+    ChromeRenderViewHostTestHarness::TearDown();
+  }
+
   // OutOfMemoryReporter::Observer:
   void OnForegroundOOMDetected(const GURL& url,
                                ukm::SourceId source_id) override {
@@ -129,10 +134,9 @@ class OutOfMemoryReporterTest : public ChromeRenderViewHostTestHarness,
   }
 
   void SimulateRendererCreated() {
-    content::NotificationService::current()->Notify(
-        content::NOTIFICATION_RENDERER_PROCESS_CREATED,
-        content::Source<content::RenderProcessHost>(process()),
-        content::NotificationService::NoDetails());
+#if BUILDFLAG(IS_ANDROID)
+    child_exit_observer_->OnRenderProcessHostCreated(process());
+#endif
   }
 
   void SimulateOOM() {
@@ -192,8 +196,9 @@ class OutOfMemoryReporterTest : public ChromeRenderViewHostTestHarness,
   }
 
  protected:
-  base::ShadowingAtExitManager at_exit_;
-
+#if BUILDFLAG(IS_ANDROID)
+  std::unique_ptr<crash_reporter::ChildExitObserver> child_exit_observer_;
+#endif
   absl::optional<GURL> last_oom_url_;
   std::unique_ptr<ukm::TestAutoSetUkmRecorder> test_ukm_recorder_;
 
@@ -216,7 +221,7 @@ TEST_F(OutOfMemoryReporterTest, NormalCrash_NoOOM) {
   NavigateAndCommit(url);
   SimulateRendererCreated();
 #if BUILDFLAG(IS_ANDROID)
-  crash_reporter::ChildExitObserver::GetInstance()->ChildReceivedCrashSignal(
+  child_exit_observer_->ChildReceivedCrashSignal(
       process()->GetProcess().Handle(), SIGSEGV);
 #endif
   RunCrashClosureAndWait(

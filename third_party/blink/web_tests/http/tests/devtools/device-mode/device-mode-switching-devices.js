@@ -1,10 +1,12 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {TestRunner} from 'test_runner';
+import {DeviceModeTestRunner} from 'device_mode_test_runner';
+
 (async function() {
   TestRunner.addResult(`Test preservation of orientation and scale when that switching devices in device mode.\n`);
-  await TestRunner.loadTestModule('device_mode_test_runner');
 
   var phoneA = DeviceModeTestRunner.buildFakePhone();
   var phoneB = DeviceModeTestRunner.buildFakePhone();

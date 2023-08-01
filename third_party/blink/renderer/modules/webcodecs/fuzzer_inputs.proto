@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -110,6 +110,15 @@ message ConfigureAudioDecoder {
   optional bytes description = 4;
 }
 
+enum AacFormat {
+  AAC = 0;
+  ADTS = 1;
+}
+
+message AacEncoderConfig {
+  optional AacFormat format = 1;
+}
+
 message ConfigureAudioEncoder {
   // String describing codec (e.g. "opus")
   optional string codec = 1;
@@ -119,6 +128,8 @@ message ConfigureAudioEncoder {
   optional uint32 number_of_channels = 3;
 
   optional uint64 bitrate = 4;
+
+  optional AacEncoderConfig aac = 5;
 }
 
 enum EncodedChunkType {
@@ -284,7 +295,7 @@ message ImageDecoderApiInvocation {
 
 message ImageBitmapOptions {
   enum ImageOrientation {
-    ORIENTATION_NONE = 0;
+    ORIENTATION_FROM_IMAGE = 0;
     FLIPY = 1;
   }
   enum PremultiplyAlpha {
@@ -304,7 +315,7 @@ message ImageBitmapOptions {
   }
 
   optional ImageOrientation image_orientation = 1;
-  optional PremultiplyAlpha premultiply_alpha = 2;
+  optional PremultiplyAlpha premultiply_alpha = 2 [deprecated = true];
   optional ColorSpaceConversion color_space_conversion = 3;
   optional uint32 resize_width = 4;
   optional uint32 resize_height = 5;
@@ -334,4 +345,23 @@ message VideoFrameCopyToCase {
   // TODO(sandersd): Support multiple concurrent operations, optional waiting,
   // close(), etc.
   required VideoFrameCopyToInvocation copy_to = 2;
+}
+
+message AudioDataCopyToOptions {
+  required uint32 plane_index = 1;
+  optional uint32 frame_offset = 2;
+  optional uint32 frame_count = 3;
+  optional AudioSampleFormat format = 4;
+}
+
+message AudioDataCopyToInvocation {
+  required AllowSharedBufferSource destination = 1;
+  required AudioDataCopyToOptions options = 2;
+}
+
+message AudioDataCopyToCase {
+  required AudioDataInit audio_data = 1;
+  // TODO(chcunningham): Support multiple concurrent operations, optional
+  // waiting, close(), etc.
+  required AudioDataCopyToInvocation copy_to = 2;
 }

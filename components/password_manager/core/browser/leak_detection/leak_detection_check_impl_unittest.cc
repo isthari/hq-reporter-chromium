@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -94,7 +94,7 @@ class LeakDetectionCheckImplTest : public testing::TestWithParam<bool> {
       identity_env().SetCookieAccounts({{info.email, info.gaia}});
       identity_env().SetRefreshTokenForAccount(info.account_id);
     }
-    leak_check_ = absl::make_unique<LeakDetectionCheckImpl>(
+    leak_check_ = std::make_unique<LeakDetectionCheckImpl>(
         &delegate_, identity_test_env_.identity_manager(),
         base::MakeRefCounted<network::TestSharedURLLoaderFactory>(), api_key);
     auto mock_request_factory =
@@ -121,7 +121,8 @@ class LeakDetectionCheckImplTest : public testing::TestWithParam<bool> {
 PayloadAndCallback LeakDetectionCheckImplTest::ImitateNetworkRequest(
     bool user_signed_in) {
   InitializeLeakCheck(user_signed_in);
-  leak_check()->Start(GURL(kExampleCom), kUsername16, kPassword16);
+  leak_check()->Start(LeakDetectionInitiator::kSignInCheck, GURL(kExampleCom),
+                      kUsername16, kPassword16);
 
   auto network_request = std::make_unique<TestLeakDetectionRequest>();
   TestLeakDetectionRequest* raw_request = network_request.get();
@@ -140,10 +141,6 @@ PayloadAndCallback LeakDetectionCheckImplTest::ImitateNetworkRequest(
 
   // Crypto stuff is done here.
   task_env().RunUntilIdle();
-
-  histogram_tester().ExpectUniqueSample(
-      "PasswordManager.LeakDetection.PrepareSingleLeakRequestTime",
-      kMockElapsedTime, 1);
 
   return {std::move(raw_request->encrypted_payload_),
           std::move(raw_request->callback_)};
@@ -179,7 +176,8 @@ TEST_P(LeakDetectionCheckImplTest, GetAccessTokenBeforeEncryption) {
   InitializeLeakCheck(/*user_signed_in=*/GetParam());
   const std::string access_token = "access_token";
 
-  leak_check()->Start(GURL(kExampleCom), kUsername16, kPassword16);
+  leak_check()->Start(LeakDetectionInitiator::kSignInCheck, GURL(kExampleCom),
+                      kUsername16, kPassword16);
   // Return the access token before the crypto stuff is done.
   identity_env().WaitForAccessTokenRequestIfNecessaryAndRespondWithToken(
       access_token, base::Time::Max());
@@ -201,10 +199,6 @@ TEST_P(LeakDetectionCheckImplTest, GetAccessTokenBeforeEncryption) {
       .WillOnce(Return(ByMove(std::move(network_request))));
   // Crypto stuff is done here.
   task_env().RunUntilIdle();
-
-  histogram_tester().ExpectUniqueSample(
-      "PasswordManager.LeakDetection.PrepareSingleLeakRequestTime",
-      kMockElapsedTime, 1);
 }
 
 TEST_P(LeakDetectionCheckImplTest, GetAccessTokenAfterEncryption) {
@@ -215,13 +209,10 @@ TEST_P(LeakDetectionCheckImplTest, GetAccessTokenAfterEncryption) {
 
   InitializeLeakCheck(/*user_signed_in=*/GetParam());
 
-  leak_check()->Start(GURL(kExampleCom), kUsername16, kPassword16);
+  leak_check()->Start(LeakDetectionInitiator::kSignInCheck, GURL(kExampleCom),
+                      kUsername16, kPassword16);
   // crypto stuff is done here.
   task_env().RunUntilIdle();
-
-  histogram_tester().ExpectUniqueSample(
-      "PasswordManager.LeakDetection.PrepareSingleLeakRequestTime",
-      kMockElapsedTime, 1);
 
   const std::string access_token = "access_token";
   auto network_request = std::make_unique<MockLeakDetectionRequest>();
@@ -252,7 +243,8 @@ TEST_P(LeakDetectionCheckImplTest, GetAccessTokenFailure) {
   }
 
   InitializeLeakCheck(/*user_signed_in=*/GetParam());
-  leak_check()->Start(GURL(kExampleCom), kUsername16, kPassword16);
+  leak_check()->Start(LeakDetectionInitiator::kSignInCheck, GURL(kExampleCom),
+                      kUsername16, kPassword16);
 
   EXPECT_CALL(delegate(), OnError(LeakDetectionError::kTokenRequestFailure));
   identity_env().WaitForAccessTokenRequestIfNecessaryAndRespondWithError(
@@ -270,7 +262,8 @@ TEST_P(LeakDetectionCheckImplTest, PassesAPIKeys) {
   }
 
   InitializeLeakCheck(/*user_signed_in=*/GetParam());
-  leak_check()->Start(GURL(kExampleCom), kUsername16, kPassword16);
+  leak_check()->Start(LeakDetectionInitiator::kSignInCheck, GURL(kExampleCom),
+                      kUsername16, kPassword16);
 
   auto network_request = std::make_unique<MockLeakDetectionRequest>();
   EXPECT_CALL(
@@ -286,10 +279,6 @@ TEST_P(LeakDetectionCheckImplTest, PassesAPIKeys) {
 
   // Crypto stuff is done here.
   task_env().RunUntilIdle();
-
-  histogram_tester().ExpectUniqueSample(
-      "PasswordManager.LeakDetection.PrepareSingleLeakRequestTime",
-      kMockElapsedTime, 1);
 }
 
 // Perform the whole cycle of a leak check. The server returns data that

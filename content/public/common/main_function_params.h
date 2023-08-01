@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,9 @@
 
 #include <memory>
 
-#include "base/callback.h"
 #include "base/command_line.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
 #include "build/build_config.h"
 #include "content/common/content_export.h"
 
@@ -42,15 +43,19 @@ struct CONTENT_EXPORT MainFunctionParams {
   MainFunctionParams(MainFunctionParams&&);
   MainFunctionParams& operator=(MainFunctionParams&&);
 
-  const base::CommandLine* command_line;
+  raw_ptr<const base::CommandLine> command_line;
 
 #if BUILDFLAG(IS_WIN)
-  sandbox::SandboxInterfaceInfo* sandbox_info = nullptr;
+  raw_ptr<sandbox::SandboxInterfaceInfo> sandbox_info = nullptr;
 #elif BUILDFLAG(IS_MAC)
   base::mac::ScopedNSAutoreleasePool* autorelease_pool = nullptr;
 #elif BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_ANDROID)
   bool zygote_child = false;
 #endif
+
+  // Set to true if this content process's main function should enable startup
+  // tracing after initializing Mojo.
+  bool needs_startup_tracing_after_mojo_init = false;
 
   // Used by BrowserTestBase. If set, BrowserMainLoop runs this task instead of
   // the main message loop.

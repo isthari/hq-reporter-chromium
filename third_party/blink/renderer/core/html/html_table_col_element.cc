@@ -31,7 +31,7 @@
 #include "third_party/blink/renderer/core/html/parser/html_parser_idioms.h"
 #include "third_party/blink/renderer/core/html/table_constants.h"
 #include "third_party/blink/renderer/core/html_names.h"
-#include "third_party/blink/renderer/core/layout/layout_table_col.h"
+#include "third_party/blink/renderer/core/layout/layout_box.h"
 
 namespace blink {
 
@@ -69,7 +69,7 @@ void HTMLTableColElement::ParseAttribute(
     if (GetLayoutObject() && GetLayoutObject()->IsLayoutTableCol())
       GetLayoutObject()->UpdateFromElement();
   } else if (params.name == html_names::kWidthAttr) {
-    if (!params.new_value.IsEmpty()) {
+    if (!params.new_value.empty()) {
       if (GetLayoutObject() && GetLayoutObject()->IsLayoutTableCol()) {
         auto* col = To<LayoutBox>(GetLayoutObject());
         int new_width = Width().ToInt();

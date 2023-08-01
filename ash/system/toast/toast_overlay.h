@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,12 +10,18 @@
 
 #include "ash/ash_export.h"
 #include "ash/public/cpp/keyboard/keyboard_controller_observer.h"
-#include "base/callback.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "ash/system/unified/unified_system_tray.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
+#include "base/time/time.h"
+#include "base/timer/timer.h"
 #include "ui/compositor/layer_animation_observer.h"
-#include "ui/events/event.h"
-#include "ui/events/event_constants.h"
 #include "ui/gfx/geometry/size.h"
+#include "ui/gfx/paint_vector_icon.h"
+
+namespace aura {
+class Window;
+}
 
 namespace gfx {
 class Rect;
@@ -32,28 +38,36 @@ class ToastManagerImplTest;
 class SystemToastStyle;
 
 class ASH_EXPORT ToastOverlay : public ui::ImplicitAnimationObserver,
-                                public KeyboardControllerObserver {
+                                public KeyboardControllerObserver,
+                                public UnifiedSystemTray::Observer {
  public:
   class ASH_EXPORT Delegate {
    public:
     virtual ~Delegate() {}
     virtual void OnClosed() = 0;
+
+    // Called when a toast's hover state changed if the toast is supposed to
+    // persist on hover.
+    virtual void OnToastHoverStateChanged(bool is_hovering) = 0;
   };
 
   // Offset of the overlay from the edge of the work area.
-  static constexpr int kOffset = 16;
+  static constexpr int kOffset = 8;
 
-  // Creates the Toast overlay UI. |text| is the message to be shown, and
-  // |dismiss_text| is the message for the button to dismiss the toast message.
-  // If |dismiss_text| is null, no dismiss button will be shown. If
-  // |dismiss_text| has a value but the string is empty, the default text is
-  // used. |dismiss_callback| will be called when the button is pressed.
-  // If |is_managed| is true, a managed icon will be added to the toast.
+  // Creates the Toast overlay UI. `text` is the message to be shown, and
+  // `dismiss_text` is the dismiss button's text. The dismiss button will only
+  // be displayed if `dismiss_text` is not empty. `dismiss_callback` will be
+  // called when the dismiss button is pressed. An icon will show on the left
+  // side if `leading_icon` is not empty.
+  // To test different Toast UI variations, enable debug shortcuts by building
+  // with flag `--ash-debug-shortcuts` and use command "Shift + Ctrl + Alt + O".
   ToastOverlay(Delegate* delegate,
                const std::u16string& text,
-               absl::optional<std::u16string> dismiss_text,
-               bool show_on_lock_screen,
-               bool is_managed,
+               const std::u16string& dismiss_text,
+               const gfx::VectorIcon& leading_icon,
+               base::TimeDelta duration,
+               bool persist_on_hover,
+               aura::Window* root_window,
                base::RepeatingClosure dismiss_callback);
 
   ToastOverlay(const ToastOverlay&) = delete;
@@ -69,16 +83,37 @@ class ASH_EXPORT ToastOverlay : public ui::ImplicitAnimationObserver,
 
   const std::u16string GetText();
 
+  // Returns true if the toast has a button and it can be highlighted for
+  // accessibility, false otherwise.
+  bool MaybeToggleA11yHighlightOnDismissButton();
+
+  // Activates the dismiss button in `overlay_view_` if it is highlighted.
+  // Returns false if `is_dismiss_button_highlighted_` is false.
+  bool MaybeActivateHighlightedDismissButton();
+
+  // UnifiedSystemTray::Observer:
+  void OnSliderBubbleHeightChanged() override;
+
  private:
   friend class ToastManagerImplTest;
+  friend class DesksTestApi;
 
   class ToastDisplayObserver;
+  class ToastHoverObserver;
 
   // Returns the current bounds of the overlay, which is based on visibility.
   gfx::Rect CalculateOverlayBounds();
 
+  // Calculates the y offset used to shift side aligned toasts up whenever a
+  // slider bubble is visible.
+  int CalculateSliderBubbleOffset();
+
   // Executed the callback and closes the toast.
   void OnButtonClicked();
+
+  // Callback called by `hover_observer_` when the mouse hover enters or exits
+  // the toast.
+  void OnHoverStateChanged(bool is_hovering);
 
   // ui::ImplicitAnimationObserver:
   void OnImplicitAnimationsScheduled() override;
@@ -90,15 +125,24 @@ class ASH_EXPORT ToastOverlay : public ui::ImplicitAnimationObserver,
   views::Widget* widget_for_testing();
   views::LabelButton* dismiss_button_for_testing();
 
-  Delegate* const delegate_;
+  const raw_ptr<Delegate, ExperimentalAsh> delegate_;
   const std::u16string text_;
-  const absl::optional<std::u16string> dismiss_text_;
+  const std::u16string dismiss_text_;
   std::unique_ptr<views::Widget> overlay_widget_;
   std::unique_ptr<SystemToastStyle> overlay_view_;
   std::unique_ptr<ToastDisplayObserver> display_observer_;
+  raw_ptr<aura::Window, ExperimentalAsh> root_window_;
   base::RepeatingClosure dismiss_callback_;
 
   gfx::Size widget_size_;
+
+  // Used to pause and resume the `ToastManagerImpl`'s
+  // `current_toast_expiration_timer_` if we are allowing for the toast to
+  // persist on hover.
+  std::unique_ptr<ToastHoverObserver> hover_observer_;
+
+  base::ScopedObservation<UnifiedSystemTray, UnifiedSystemTray::Observer>
+      scoped_unified_system_tray_observer_{this};
 };
 
 }  // namespace ash

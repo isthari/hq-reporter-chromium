@@ -1,15 +1,16 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_ASH_INPUT_METHOD_MULTI_WORD_SUGGESTER_H_
 #define CHROME_BROWSER_ASH_INPUT_METHOD_MULTI_WORD_SUGGESTER_H_
 
-#include "ash/services/ime/public/cpp/suggestions.h"
+#include "base/memory/raw_ptr.h"
 #include "base/time/time.h"
 #include "chrome/browser/ash/input_method/suggester.h"
 #include "chrome/browser/ash/input_method/suggestion_enums.h"
 #include "chrome/browser/ash/input_method/suggestion_handler_interface.h"
+#include "chromeos/ash/services/ime/public/cpp/assistive_suggestions.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace ash {
@@ -30,21 +31,20 @@ class MultiWordSuggester : public Suggester {
   void OnFocus(int context_id) override;
   void OnBlur() override;
   void OnExternalSuggestionsUpdated(
-      const std::vector<ime::TextSuggestion>& suggestions) override;
+      const std::vector<ime::AssistiveSuggestion>& suggestions,
+      const absl::optional<ime::SuggestionsTextContext>& context) override;
   SuggestionStatus HandleKeyEvent(const ui::KeyEvent& event) override;
-  bool Suggest(const std::u16string& text,
-               size_t cursor_pos,
-               size_t anchor_pos) override;
+  bool TrySuggestWithSurroundingText(const std::u16string& text,
+                                     gfx::Range selection_range) override;
   bool AcceptSuggestion(size_t index = 0) override;
   void DismissSuggestion() override;
   AssistiveType GetProposeActionType() override;
   bool HasSuggestions() override;
-  std::vector<ime::TextSuggestion> GetSuggestions() override;
+  std::vector<ime::AssistiveSuggestion> GetSuggestions() override;
 
   // Used to capture any changes to the current input text.
   void OnSurroundingTextChanged(const std::u16string& text,
-                                size_t cursor_pos,
-                                size_t anchor_pos);
+                                gfx::Range selection_range);
 
  private:
   // Used to capture any internal state around the previously or currently
@@ -61,12 +61,13 @@ class MultiWordSuggester : public Suggester {
     };
 
     struct Suggestion {
-      ime::TextSuggestionMode mode;
+      ime::AssistiveSuggestionMode mode;
       std::u16string text;
       size_t confirmed_length;
       size_t initial_confirmed_length;
       base::TimeTicks time_first_shown;
       bool highlighted = false;
+      size_t original_surrounding_text_length;
     };
 
     struct SurroundingText {
@@ -118,7 +119,7 @@ class MultiWordSuggester : public Suggester {
 
    private:
     // Not owned by this class
-    MultiWordSuggester* suggester_;
+    raw_ptr<MultiWordSuggester, ExperimentalAsh> suggester_;
 
     // The current state of the suggester (eg is a suggestion shown or not).
     State state_ = State::kNoSuggestionShown;
@@ -144,11 +145,11 @@ class MultiWordSuggester : public Suggester {
   // Announce the given message to the user.
   void Announce(const std::u16string& message);
 
-  // The currently focused input (zero if none are focused)
-  int focused_context_id_ = 0;
+  // The currently focused input (nullopt if none are focused)
+  absl::optional<int> focused_context_id_;
 
   // Not owned by this class
-  SuggestionHandlerInterface* suggestion_handler_;
+  raw_ptr<SuggestionHandlerInterface, ExperimentalAsh> suggestion_handler_;
 
   // Current suggestion state
   SuggestionState state_;
@@ -156,7 +157,7 @@ class MultiWordSuggester : public Suggester {
   ui::ime::AssistiveWindowButton suggestion_button_;
 
   // The current user's Chrome user profile.
-  Profile* const profile_;
+  const raw_ptr<Profile, ExperimentalAsh> profile_;
 };
 
 }  // namespace input_method

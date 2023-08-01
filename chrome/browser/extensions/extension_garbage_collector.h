@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -47,8 +47,10 @@ class ExtensionGarbageCollector : public KeyedService,
   void Shutdown() override;
 
   // InstallObserver:
-  void OnBeginCrxInstall(const std::string& extension_id) override;
-  void OnFinishCrxInstall(const std::string& extension_id,
+  void OnBeginCrxInstall(content::BrowserContext* context,
+                         const std::string& extension_id) override;
+  void OnFinishCrxInstall(content::BrowserContext* context,
+                          const std::string& extension_id,
                           bool success) override;
 
   // InstallGate:

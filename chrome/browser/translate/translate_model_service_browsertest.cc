@@ -1,12 +1,12 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/base_paths.h"
-#include "base/bind.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
@@ -305,8 +305,16 @@ IN_PROC_BROWSER_TEST_F(TranslateModelServiceBrowserTest,
       "TranslateModelService.LanguageDetectionModel.WasLoaded", false, 1);
 }
 
+// TODO(crbug.com/1320359): Re-enable this test
+#if BUILDFLAG(IS_CHROMEOS)
+#define MAYBE_LanguageDetectionModelAvailableForDetection \
+  DISABLED_LanguageDetectionModelAvailableForDetection
+#else
+#define MAYBE_LanguageDetectionModelAvailableForDetection \
+  LanguageDetectionModelAvailableForDetection
+#endif
 IN_PROC_BROWSER_TEST_F(TranslateModelServiceBrowserTest,
-                       LanguageDetectionModelAvailableForDetection) {
+                       MAYBE_LanguageDetectionModelAvailableForDetection) {
   base::HistogramTester histogram_tester;
   OptimizationGuideKeyedServiceFactory::GetForProfile(browser()->profile())
       ->OverrideTargetModelForTesting(
@@ -331,11 +339,13 @@ IN_PROC_BROWSER_TEST_F(TranslateModelServiceBrowserTest,
       "LanguageDetection.TFLiteModel.WasModelAvailableForDetection", true, 1);
 }
 
-// Disabled on macOS+ASAN, chromeOS+ASAN and windows due to high failure rate:
-// crbug.com/1199854.
-#if ((BUILDFLAG(IS_MAC) || BUILDFLAG(IS_CHROMEOS)) && \
-     defined(ADDRESS_SANITIZER)) ||                   \
-    BUILDFLAG(IS_WIN)
+// Disabled on linux+ASAN, macOS+ASAN, chromeOS+ASAN and windows due to high
+// failure rate: crbug.com/1199854 crbug.com/1297485.
+// TODO(crbug.com/1434848): Re-enable this test
+#if (BUILDFLAG(IS_CHROMEOS) && !defined(NDEBUG)) ||        \
+    (BUILDFLAG(IS_LINUX) && BUILDFLAG(IS_MAC)) ||          \
+    (BUILDFLAG(IS_LINUX) && defined(ADDRESS_SANITIZER)) || \
+    (BUILDFLAG(IS_MAC) && defined(ADDRESS_SANITIZER)) || BUILDFLAG(IS_WIN)
 #define MAYBE_LanguageDetectionWithBackgroundTab \
   DISABLED_LanguageDetectionWithBackgroundTab
 #else
@@ -360,7 +370,7 @@ IN_PROC_BROWSER_TEST_F(TranslateModelServiceBrowserTest,
 
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), english_url(), WindowOpenDisposition::NEW_BACKGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_NONE);
+      ui_test_utils::BROWSER_TEST_NO_WAIT);
 
   // Opening the browser causes the first model deferral event. The second
   // is due to the background tab.

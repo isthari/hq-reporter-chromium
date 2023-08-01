@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@ import android.app.Activity;
 import android.content.ComponentName;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
-import android.os.Build;
 import android.view.View;
 
 import androidx.fragment.app.FragmentActivity;
@@ -34,8 +33,6 @@ import org.chromium.ui.modelutil.MVCListAdapter.ModelList;
 import org.chromium.url.GURL;
 
 import java.text.DateFormat;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Date;
 import java.util.Locale;
 
@@ -79,8 +76,8 @@ public class NoteCreationCoordinatorImpl implements NoteCreationCoordinator, Top
         String urlDomain = UrlFormatter.formatUrlForDisplayOmitSchemePathAndTrivialSubdomains(
                 new GURL(mShareUrl));
         mDialog = new NoteCreationDialog();
-        mDialog.initDialog(this::onViewCreated, urlDomain, title, selectedText,
-                noteService.isPublishAvailable(), this::executeAction);
+        mDialog.initDialog(
+                this::onViewCreated, urlDomain, title, selectedText, this::executeAction);
     }
 
     @Override
@@ -103,14 +100,6 @@ public class NoteCreationCoordinatorImpl implements NoteCreationCoordinator, Top
     }
 
     /**
-     * Publish the selected note
-     */
-    @Override
-    public void publish() {
-        mMediator.publishNote(mSelectedText, mShareUrl, this::resolvePublishedNote);
-    }
-
-    /**
      * Share the currently selected note.
      */
     @Override
@@ -120,7 +109,8 @@ public class NoteCreationCoordinatorImpl implements NoteCreationCoordinator, Top
         int selectedNoteIndex = mDialog.getSelectedItemIndex();
         NoteCreationMetrics.recordNoteTemplateSelected(getTimeElapsedSinceCreationStart(),
                 mDialog.getNbTemplateSwitches(),
-                mListModel.get(selectedNoteIndex).model.get(NoteProperties.TEMPLATE).id);
+                mListModel.get(selectedNoteIndex).model.get(NoteProperties.TEMPLATE).id,
+                selectedNoteIndex);
 
         View noteView = mDialog.getNoteViewAt(selectedNoteIndex);
 
@@ -136,10 +126,8 @@ public class NoteCreationCoordinatorImpl implements NoteCreationCoordinator, Top
                     final String sheetTitle = getShareSheetTitle();
                     ShareParams params =
                             new ShareParams.Builder(mWindowAndroid, sheetTitle, mShareUrl)
-                                    .setFileUris(
-                                            new ArrayList<>(Collections.singletonList(imageUri)))
-                                    .setFileAltTexts(new ArrayList<>(
-                                            Collections.singletonList(mSelectedText)))
+                                    .setSingleImageUri(imageUri)
+                                    .setImageAltText(mSelectedText)
                                     .setFileContentType(PNG_MIME_TYPE)
                                     .setCallback(new ShareParams.TargetChosenCallback() {
                                         @Override
@@ -204,9 +192,7 @@ public class NoteCreationCoordinatorImpl implements NoteCreationCoordinator, Top
      * Retrieves the user's preferred locale from the app's configurations.
      */
     private Locale getPreferredLocale() {
-        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.N
-                ? mActivity.getResources().getConfiguration().getLocales().get(0)
-                : mActivity.getResources().getConfiguration().locale;
+        return mActivity.getResources().getConfiguration().getLocales().get(0);
     }
 
     private String addQuotes(String text) {
@@ -217,26 +203,6 @@ public class NoteCreationCoordinatorImpl implements NoteCreationCoordinator, Top
                 .append(text)
                 .append(mActivity.getString(R.string.quotation_mark_suffix))
                 .toString();
-    }
-
-    /**
-     * Starts the sharing flow for the newly published note.
-     * @param noteUrl The url where the new note can be accessed.
-     */
-    private void resolvePublishedNote(String noteUrl) {
-        final String sheetTitle = getShareSheetTitle();
-        ShareParams params = new ShareParams.Builder(mWindowAndroid, sheetTitle, noteUrl).build();
-
-        long shareStartTime = System.currentTimeMillis();
-        ChromeShareExtras extras = new ChromeShareExtras.Builder()
-                                           .setSkipPageSharingActions(false)
-                                           .setContentUrl(new GURL(noteUrl))
-                                           .setDetailedContentType(DetailedContentType.WEB_NOTES)
-                                           .build();
-
-        // Dismiss current dialog before showing the share sheet.
-        mDialog.dismiss();
-        mChromeOptionShareCallback.showShareSheet(params, extras, shareStartTime);
     }
 
     /**

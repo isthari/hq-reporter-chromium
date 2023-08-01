@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,13 @@
 #include <stdint.h>
 #include <memory>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ref.h"
 #include "components/viz/common/gpu/context_lost_observer.h"
 #include "device/vr/openxr/context_provider_callbacks.h"
 #include "device/vr/openxr/openxr_anchor_manager.h"
-#include "device/vr/openxr/openxr_util.h"
+#include "device/vr/openxr/openxr_graphics_binding.h"
+#include "device/vr/openxr/openxr_platform_helper.h"
 #include "device/vr/windows/compositor_base.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
 #include "mojo/public/cpp/bindings/associated_receiver.h"
@@ -38,11 +40,10 @@ class OpenXrRenderLoop : public XRCompositorCommon,
                          public viz::ContextLostObserver {
  public:
   OpenXrRenderLoop(
-      base::RepeatingCallback<void(mojom::VRDisplayInfoPtr)>
-          on_display_info_changed,
       VizContextProviderFactoryAsync context_provider_factory_async,
       XrInstance instance,
-      const OpenXrExtensionHelper& extension_helper_);
+      const OpenXrExtensionHelper& extension_helper_,
+      OpenXrPlatformHelper* platform_helper);
 
   OpenXrRenderLoop(const OpenXrRenderLoop&) = delete;
   OpenXrRenderLoop& operator=(const OpenXrRenderLoop&) = delete;
@@ -51,8 +52,12 @@ class OpenXrRenderLoop : public XRCompositorCommon,
 
  private:
   // XRCompositorCommon:
+  gpu::gles2::GLES2Interface* GetContextGL() override;
   void ClearPendingFrameInternal() override;
   bool IsUsingSharedImages() const override;
+  void SubmitFrame(int16_t frame_index,
+                   const gpu::MailboxHolder& mailbox,
+                   base::TimeDelta time_waited) override;
   void SubmitFrameDrawnIntoTexture(int16_t frame_index,
                                    const gpu::SyncToken&,
                                    base::TimeDelta time_waited) override;
@@ -73,11 +78,11 @@ class OpenXrRenderLoop : public XRCompositorCommon,
   device::mojom::XRInteractionMode GetInteractionMode(
       device::mojom::XRSessionMode session_mode) override;
   bool CanEnableAntiAliasing() const override;
+  std::vector<mojom::XRViewPtr> GetDefaultViews() const override;
 
   // viz::ContextLostObserver Implementation
   void OnContextLost() override;
 
-  void SendInitialDisplayInfo();
   void OnOpenXrSessionStarted(StartRuntimeCallback start_runtime_callback,
                               XrResult result);
   bool UpdateViews();
@@ -136,18 +141,18 @@ class OpenXrRenderLoop : public XRCompositorCommon,
 
   // Owned by OpenXrStatics
   XrInstance instance_;
-  const OpenXrExtensionHelper& extension_helper_;
-
-  std::unique_ptr<OpenXrApiWrapper> openxr_;
-
-  base::RepeatingCallback<void(mojom::VRDisplayInfoPtr)>
-      on_display_info_changed_;
-
-  mojo::AssociatedReceiver<mojom::XREnvironmentIntegrationProvider>
-      environment_receiver_{this};
+  const raw_ref<const OpenXrExtensionHelper> extension_helper_;
 
   scoped_refptr<viz::ContextProvider> context_provider_;
   VizContextProviderFactoryAsync context_provider_factory_async_;
+
+  // Lifetime of the platform helper is guaranteed by the OpenXrDevice.
+  raw_ptr<OpenXrPlatformHelper> platform_helper_;
+  std::unique_ptr<OpenXrGraphicsBinding> graphics_binding_;
+  std::unique_ptr<OpenXrApiWrapper> openxr_;
+
+  mojo::AssociatedReceiver<mojom::XREnvironmentIntegrationProvider>
+      environment_receiver_{this};
 
   // This must be the last member
   base::WeakPtrFactory<OpenXrRenderLoop> weak_ptr_factory_{this};

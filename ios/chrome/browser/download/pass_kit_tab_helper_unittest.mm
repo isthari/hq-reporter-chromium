@@ -1,26 +1,26 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/download/pass_kit_tab_helper.h"
 
-#include <memory>
+#import <memory>
 
 #import <PassKit/PassKit.h>
 
-#include "base/callback_helpers.h"
-#include "base/test/metrics/histogram_tester.h"
-#include "ios/chrome/browser/download/download_test_util.h"
-#include "ios/chrome/browser/download/mime_type_util.h"
-#import "ios/chrome/test/fakes/fake_pass_kit_tab_helper_delegate.h"
+#import "base/functional/callback_helpers.h"
+#import "base/test/metrics/histogram_tester.h"
+#import "base/test/task_environment.h"
+#import "ios/chrome/browser/download/download_test_util.h"
+#import "ios/chrome/browser/download/mime_type_util.h"
+#import "ios/chrome/test/fakes/fake_web_content_handler.h"
 #import "ios/web/public/test/fakes/fake_download_task.h"
 #import "ios/web/public/test/fakes/fake_web_state.h"
-#include "net/base/io_buffer.h"
-#include "net/base/net_errors.h"
-#include "net/url_request/url_fetcher_response_writer.h"
-#include "testing/gtest/include/gtest/gtest.h"
-#include "testing/gtest_mac.h"
-#include "testing/platform_test.h"
+#import "net/base/io_buffer.h"
+#import "net/base/net_errors.h"
+#import "testing/gtest/include/gtest/gtest.h"
+#import "testing/gtest_mac.h"
+#import "testing/platform_test.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -35,18 +35,19 @@ char kUrl[] = "https://test.test/";
 // Test fixture for testing PassKitTabHelper class.
 class PassKitTabHelperTest : public PlatformTest {
  protected:
-  PassKitTabHelperTest()
-      : delegate_([[FakePassKitTabHelperDelegate alloc]
-            initWithWebState:&web_state_]) {
-    PassKitTabHelper::CreateForWebState(&web_state_, delegate_);
+  PassKitTabHelperTest() : handler_([[FakeWebContentHandler alloc] init]) {
+    PassKitTabHelper::CreateForWebState(&web_state_);
+    PassKitTabHelper::FromWebState(&web_state_)
+        ->SetWebContentsHandler(handler_);
   }
 
   PassKitTabHelper* tab_helper() {
     return PassKitTabHelper::FromWebState(&web_state_);
   }
 
+  base::test::TaskEnvironment task_environment_;
   web::FakeWebState web_state_;
-  FakePassKitTabHelperDelegate* delegate_;
+  FakeWebContentHandler* handler_;
   base::HistogramTester histogram_tester_;
 };
 
@@ -57,8 +58,8 @@ TEST_F(PassKitTabHelperTest, EmptyFile) {
   web::FakeDownloadTask* task_ptr = task.get();
   tab_helper()->Download(std::move(task));
   task_ptr->SetDone(true);
-  EXPECT_EQ(1U, delegate_.passes.count);
-  EXPECT_TRUE([delegate_.passes.firstObject isKindOfClass:[NSNull class]]);
+  EXPECT_EQ(1U, handler_.passes.count);
+  EXPECT_TRUE([handler_.passes.firstObject isKindOfClass:[NSNull class]]);
 
   histogram_tester_.ExpectUniqueSample(kUmaDownloadPassKitResult,
                                        static_cast<base::HistogramBase::Sample>(
@@ -79,12 +80,12 @@ TEST_F(PassKitTabHelperTest, MultipleEmptyFiles) {
   tab_helper()->Download(std::move(task2));
 
   task_ptr->SetDone(true);
-  EXPECT_EQ(1U, delegate_.passes.count);
-  EXPECT_TRUE([delegate_.passes.firstObject isKindOfClass:[NSNull class]]);
+  EXPECT_EQ(1U, handler_.passes.count);
+  EXPECT_TRUE([handler_.passes.firstObject isKindOfClass:[NSNull class]]);
 
   task_ptr2->SetDone(true);
-  EXPECT_EQ(2U, delegate_.passes.count);
-  EXPECT_TRUE([delegate_.passes.lastObject isKindOfClass:[NSNull class]]);
+  EXPECT_EQ(2U, handler_.passes.count);
+  EXPECT_TRUE([handler_.passes.lastObject isKindOfClass:[NSNull class]]);
 
   histogram_tester_.ExpectUniqueSample(kUmaDownloadPassKitResult,
                                        static_cast<base::HistogramBase::Sample>(
@@ -106,8 +107,8 @@ TEST_F(PassKitTabHelperTest, ValidPassKitFile) {
   task_ptr->SetResponseData(data);
   task_ptr->SetDone(true);
 
-  EXPECT_EQ(1U, delegate_.passes.count);
-  PKPass* pass = delegate_.passes.firstObject;
+  EXPECT_EQ(1U, handler_.passes.count);
+  PKPass* pass = handler_.passes.firstObject;
   EXPECT_TRUE([pass isKindOfClass:[PKPass class]]);
   EXPECT_EQ(PKPassTypeBarcode, pass.passType);
   EXPECT_NSEQ(@"pass.com.apple.devpubs.example", pass.passTypeIdentifier);

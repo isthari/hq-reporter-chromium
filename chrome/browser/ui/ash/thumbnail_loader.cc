@@ -1,16 +1,20 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/ash/thumbnail_loader.h"
 
+#include <algorithm>
+#include <utility>
+
 #include "ash/public/cpp/image_downloader.h"
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/json/values_util.h"
+#include "base/memory/raw_ptr.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/values.h"
 #include "chrome/browser/ash/file_manager/app_id.h"
@@ -21,6 +25,7 @@
 #include "extensions/browser/api/messaging/channel_endpoint.h"
 #include "extensions/browser/api/messaging/message_service.h"
 #include "extensions/browser/api/messaging/native_message_host.h"
+#include "extensions/common/api/messaging/channel_type.h"
 #include "extensions/common/api/messaging/messaging_endpoint.h"
 #include "extensions/common/api/messaging/port_id.h"
 #include "extensions/common/api/messaging/serialization_format.h"
@@ -33,6 +38,7 @@
 #include "storage/browser/file_system/file_system_context.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/re2/src/re2/re2.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/geometry/skia_conversions.h"
@@ -181,21 +187,21 @@ void HandleParsedThumbnailResponse(
     const std::string& request_id,
     ThumbnailDataCallback callback,
     data_decoder::DataDecoder::ValueOrError result) {
-  if (!result.value) {
-    VLOG(2) << "Failed to parse request response " << *result.error;
+  if (!result.has_value()) {
+    VLOG(2) << "Failed to parse request response " << result.error();
     std::move(callback).Run("");
     return;
   }
 
-  if (!result.value->is_dict()) {
+  if (!result->is_dict()) {
     VLOG(2) << "Invalid response format";
     std::move(callback).Run("");
     return;
   }
 
   const std::string* received_request_id =
-      result.value->FindStringKey("taskId");
-  const std::string* data = result.value->FindStringKey("data");
+      result->GetDict().FindString("taskId");
+  const std::string* data = result->GetDict().FindString("data");
 
   if (!data || !received_request_id || *received_request_id != request_id) {
     std::move(callback).Run("");
@@ -253,12 +259,12 @@ class ThumbnailLoaderNativeMessageHost : public extensions::NativeMessageHost {
   const std::string message_;
   ThumbnailDataCallback callback_;
 
-  Client* client_ = nullptr;
+  raw_ptr<Client, ExperimentalAsh> client_ = nullptr;
 
   bool response_received_ = false;
 
   const scoped_refptr<base::SingleThreadTaskRunner> task_runner_ =
-      base::ThreadTaskRunnerHandle::Get();
+      base::SingleThreadTaskRunner::GetCurrentDefault();
 };
 
 }  // namespace
@@ -399,19 +405,19 @@ void ThumbnailLoader::LoadForFileWithMetadata(
 
   // Generate an image loader request. The request type is defined in
   // ui/file_manager/image_loader/load_image_request.js.
-  base::Value request_value(base::Value::Type::DICTIONARY);
-  request_value.SetKey("taskId", base::Value(request_id.ToString()));
-  request_value.SetKey("url", base::Value(thumbnail_url.spec()));
-  request_value.SetKey("timestamp", base::TimeToValue(file_info.last_modified));
+  base::Value::Dict request_dict;
+  request_dict.Set("taskId", base::Value(request_id.ToString()));
+  request_dict.Set("url", base::Value(thumbnail_url.spec()));
+  request_dict.Set("timestamp", base::TimeToValue(file_info.last_modified));
   // TODO(crbug.com/2650014) : Add an arg to set this to false for sharesheet.
-  request_value.SetBoolKey("cache", true);
-  request_value.SetBoolKey("crop", true);
-  request_value.SetKey("priority", base::Value(1));
-  request_value.SetKey("width", base::Value(size));
-  request_value.SetKey("height", base::Value(size));
+  request_dict.Set("cache", true);
+  request_dict.Set("crop", true);
+  request_dict.Set("priority", base::Value(1));
+  request_dict.Set("width", base::Value(size));
+  request_dict.Set("height", base::Value(size));
 
   std::string request_message;
-  base::JSONWriter::Write(request_value, &request_message);
+  base::JSONWriter::Write(request_dict, &request_message);
 
   // Open a channel to the image loader extension using a message host that send
   // the image loader request.
@@ -429,7 +435,8 @@ void ThumbnailLoader::LoadForFileWithMetadata(
       extensions::ChannelEndpoint(profile_), port_id,
       extensions::MessagingEndpoint::ForNativeApp(kNativeMessageHostName),
       std::move(native_message_port), file_manager::kImageLoaderExtensionId,
-      GURL(), std::string() /* channel_name */);
+      GURL(), extensions::ChannelType::kNative,
+      std::string() /* channel_name */);
 }
 
 void ThumbnailLoader::OnThumbnailLoaded(

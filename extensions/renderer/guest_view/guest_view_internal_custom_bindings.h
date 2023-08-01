@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -52,12 +52,6 @@ class GuestViewInternalCustomBindings : public ObjectBackedNativeHandler {
   // called when the guestview's container is destroyed.
   // RegisterDestructionCallback takes in a single paramater, |callback|.
   void RegisterDestructionCallback(
-      const v8::FunctionCallbackInfo<v8::Value>& args);
-
-  // RegisterElementResizeCallback registers a JavaScript callback function to
-  // be called when the element is resized. RegisterElementResizeCallback takes
-  // a single parameter, |callback|.
-  void RegisterElementResizeCallback(
       const v8::FunctionCallbackInfo<v8::Value>& args);
 
   // RegisterView takes in a view ID and a GuestView element, and stores the

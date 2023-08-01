@@ -1,10 +1,11 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/core/editing/editing_utilities.h"
 
 #include "third_party/blink/renderer/core/dom/static_node_list.h"
+#include "third_party/blink/renderer/core/dom/text.h"
 #include "third_party/blink/renderer/core/editing/position_with_affinity.h"
 #include "third_party/blink/renderer/core/editing/testing/editing_test_base.h"
 #include "third_party/blink/renderer/core/editing/visible_position.h"
@@ -283,21 +284,12 @@ TEST_F(EditingUtilitiesTest,
   HitTestResult hit_result(hit_request, hit_location);
   ASSERT_TRUE(
       GetDocument().View()->GetLayoutView()->HitTest(hit_location, hit_result));
-  if (RuntimeEnabledFeatures::LayoutNGEnabled()) {
-    ASSERT_EQ(PositionWithAffinity(Position(text_abc, 1)),
-              hit_result.GetPosition());
-    // Simulates drag from "abc"@2 to "abc@1"
-    EXPECT_EQ(
-        PositionWithAffinity(Position(text_abc, 1)),
-        PositionRespectingEditingBoundary(Position(text_abc, 2), hit_result));
-  } else {
-    ASSERT_EQ(PositionWithAffinity(Position::BeforeNode(target)),
-              hit_result.GetPosition());
+  ASSERT_EQ(PositionWithAffinity(Position(text_abc, 1)),
+            hit_result.GetPosition());
   // Simulates drag from "abc"@2 to "abc@1"
-    EXPECT_EQ(
-        PositionWithAffinity(Position::BeforeNode(target)),
-        PositionRespectingEditingBoundary(Position(text_abc, 2), hit_result));
-  }
+  EXPECT_EQ(
+      PositionWithAffinity(Position(text_abc, 1)),
+      PositionRespectingEditingBoundary(Position(text_abc, 2), hit_result));
 }
 
 TEST_F(EditingUtilitiesTest, RepeatString) {

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,22 +6,25 @@ import './base_page.js';
 import './icons.js';
 import './shimless_rma_shared_css.js';
 import './strings.m.js';
-import 'chrome://resources/cr_components/chromeos/network/network_config.m.js';
-import 'chrome://resources/cr_components/chromeos/network/network_list.m.js';
-import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
-import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.m.js';
-import 'chrome://resources/cr_elements/icons.m.js';
+import 'chrome://resources/ash/common/network/network_config.js';
+import 'chrome://resources/ash/common/network/network_list.js';
+import 'chrome://resources/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
+import 'chrome://resources/cr_elements/icons.html.js';
 import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
 
-import {HTMLEscape} from '//resources/js/util.m.js';
-import {NetworkListenerBehavior, NetworkListenerBehaviorInterface} from 'chrome://resources/cr_components/chromeos/network/network_listener_behavior.m.js';
-import {OncMojo} from 'chrome://resources/cr_components/chromeos/network/onc_mojo.m.js';
-import {assert} from 'chrome://resources/js/assert.m.js';
-import {I18nBehavior, I18nBehaviorInterface} from 'chrome://resources/js/i18n_behavior.m.js';
+import {HTMLEscape} from '//resources/ash/common/util.js';
+import {I18nBehavior, I18nBehaviorInterface} from 'chrome://resources/ash/common/i18n_behavior.js';
+import {NetworkListenerBehavior, NetworkListenerBehaviorInterface} from 'chrome://resources/ash/common/network/network_listener_behavior.js';
+import {OncMojo} from 'chrome://resources/ash/common/network/onc_mojo.js';
+import {assert} from 'chrome://resources/ash/common/assert.js';
+import {FilterType, NetworkStateProperties, NO_LIMIT, StartConnectResult} from 'chrome://resources/mojo/chromeos/services/network_config/public/mojom/cros_network_config.mojom-webui.js';
+import {ConnectionStateType, NetworkType} from 'chrome://resources/mojo/chromeos/services/network_config/public/mojom/network_types.mojom-webui.js';
 import {html, mixinBehaviors, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {getNetworkConfigService, getShimlessRmaService} from './mojo_interface_provider.js';
 import {NetworkConfigServiceInterface, ShimlessRmaServiceInterface, StateResult} from './shimless_rma_types.js';
+import {enableNextButton, focusPageTitle} from './shimless_rma_util.js';
 
 /**
  * @fileoverview
@@ -60,7 +63,7 @@ export class OnboardingNetworkPage extends OnboardingNetworkPageBase {
       /**
        * Array of available networks
        * @protected
-       * @type {!Array<chromeos.networkConfig.mojom.NetworkStateProperties>}
+       * @type {!Array<NetworkStateProperties>}
        */
       networks_: {
         type: Array,
@@ -106,12 +109,11 @@ export class OnboardingNetworkPage extends OnboardingNetworkPageBase {
       },
 
       /**
-       * Set to true to show the 'connect' button instead of 'disconnect'.
+       * Tracks whether network shows connect button or disconnect button.
        * @protected
        */
       networkShowConnect_: {
         type: Boolean,
-        value: true,
       },
 
       /**
@@ -130,7 +132,7 @@ export class OnboardingNetworkPage extends OnboardingNetworkPageBase {
       isOnline_: {
         type: Boolean,
         value: false,
-        observer: 'onIsOnlineChange_',
+        observer: OnboardingNetworkPage.prototype.onIsOnlineChange_,
       },
     };
   }
@@ -146,11 +148,14 @@ export class OnboardingNetworkPage extends OnboardingNetworkPageBase {
   /** @override */
   ready() {
     super.ready();
+
+    // Before displaying the available networks, track the pre-existing
+    // configured networks.
+    this.shimlessRmaService_.trackConfiguredNetworks();
     this.refreshNetworks();
-    this.dispatchEvent(new CustomEvent(
-        'disable-next-button',
-        {bubbles: true, composed: true, detail: false},
-        ));
+    enableNextButton(this);
+
+    focusPageTitle(this);
   }
 
   /** CrosNetworkConfigObserver impl */
@@ -160,16 +165,16 @@ export class OnboardingNetworkPage extends OnboardingNetworkPageBase {
 
   refreshNetworks() {
     const networkFilter = {
-      filter: chromeos.networkConfig.mojom.FilterType.kVisible,
-      networkType: chromeos.networkConfig.mojom.NetworkType.kAll,
-      limit: chromeos.networkConfig.mojom.NO_LIMIT,
+      filter: FilterType.kVisible,
+      networkType: NetworkType.kAll,
+      limit: NO_LIMIT,
     };
 
     this.networkConfig_.getNetworkStateList(networkFilter).then(res => {
       // Filter again since networkFilter above doesn't take two network types.
       this.networks_ = res.result.filter(
-          (network) => [chromeos.networkConfig.mojom.NetworkType.kWiFi,
-                        chromeos.networkConfig.mojom.NetworkType.kEthernet,
+          (network) => [NetworkType.kWiFi,
+                        NetworkType.kEthernet,
       ].includes(network.type));
 
       this.isOnline_ = this.networks_.some(function(network) {
@@ -189,6 +194,9 @@ export class OnboardingNetworkPage extends OnboardingNetworkPageBase {
     const type = networkState.type;
     const displayName = OncMojo.getNetworkStateDisplayName(networkState);
 
+    this.networkShowConnect_ =
+        (networkState.connectionState === ConnectionStateType.kNotConnected);
+
     if (!this.canAttemptConnection_(networkState)) {
       this.showConfig_(type, networkState.guid, displayName);
       return;
@@ -196,8 +204,7 @@ export class OnboardingNetworkPage extends OnboardingNetworkPageBase {
 
     this.networkConfig_.startConnect(networkState.guid).then(response => {
       this.refreshNetworks();
-      if (response.result ===
-          chromeos.networkConfig.mojom.StartConnectResult.kUnknown) {
+      if (response.result === StartConnectResult.kUnknown) {
         console.error(
             'startConnect failed for: ' + networkState.guid +
             ' Error: ' + response.message);
@@ -214,8 +221,7 @@ export class OnboardingNetworkPage extends OnboardingNetworkPageBase {
    * @private
    */
   canAttemptConnection_(state) {
-    if (state.connectionState !==
-        chromeos.networkConfig.mojom.ConnectionStateType.kNotConnected) {
+    if (state.connectionState !== ConnectionStateType.kNotConnected) {
       return false;
     }
 
@@ -228,15 +234,13 @@ export class OnboardingNetworkPage extends OnboardingNetworkPageBase {
   }
 
   /**
-   * @param {chromeos.networkConfig.mojom.NetworkType} type
+   * @param {NetworkType} type
    * @param {string} guid
    * @param {string} name
    * @private
    */
   showConfig_(type, guid, name) {
-    assert(
-        type !== chromeos.networkConfig.mojom.NetworkType.kCellular &&
-        type !== chromeos.networkConfig.mojom.NetworkType.kTether);
+    assert(type !== NetworkType.kCellular && type !== NetworkType.kTether);
 
     this.networkType_ = OncMojo.getNetworkTypeString(type);
     this.networkName_ = name || '';
@@ -261,6 +265,11 @@ export class OnboardingNetworkPage extends OnboardingNetworkPageBase {
     if (dialog.open) {
       dialog.close();
     }
+
+    // Reset the network state properties.
+    this.networkType_ = '';
+    this.networkName_ = '';
+    this.guid_ = '';
   }
 
   /** @protected */
@@ -269,6 +278,16 @@ export class OnboardingNetworkPage extends OnboardingNetworkPageBase {
         /** @type {!NetworkConfigElement} */ (
             this.shadowRoot.querySelector('#networkConfig'));
     networkConfig.connect();
+  }
+
+  /** @protected */
+  disconnectNetwork_() {
+    this.networkConfig_.startDisconnect(this.guid_).then(response => {
+      if (!response.success) {
+        console.error('Disconnect failed for: ' + this.guid_);
+      }
+    });
+    this.closeConfig_();
   }
 
   /**
@@ -300,17 +319,14 @@ export class OnboardingNetworkPage extends OnboardingNetworkPageBase {
    * @protected
    */
   getDialogTitle_() {
-    // TODO(gavindodd): Is disconnect ever needed? Currently it is not used as
-    // networkShowConnect_ is always true.
     if (this.networkName_ && !this.networkShowConnect_) {
-      // TODO(gavindodd): Confirm other i18n strings don't need HTMLEscape
       return this.i18n('internetConfigName', HTMLEscape(this.networkName_));
     }
     const type = this.i18n('OncType' + this.networkType_);
     return this.i18n('internetJoinType', type);
   }
 
-  /** @return {!Promise<StateResult>} */
+  /** @return {!Promise<{stateResult: !StateResult}>} */
   onNextButtonClick() {
     return this.shimlessRmaService_.networkSelectionComplete();
   }
@@ -322,7 +338,7 @@ export class OnboardingNetworkPage extends OnboardingNetworkPageBase {
         {
           bubbles: true,
           composed: true,
-          detail: this.isOnline_ ? 'nextButtonLabel' : 'skipButtonLabel'
+          detail: this.isOnline_ ? 'nextButtonLabel' : 'skipButtonLabel',
         },
         ));
   }

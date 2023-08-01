@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,23 +7,20 @@ package org.chromium.chrome.browser.payments;
 import androidx.test.filters.MediumTest;
 
 import org.junit.Assert;
-import org.junit.ClassRule;
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.FlakyTest;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.autofill.AutofillTestHelper;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.AutofillProfile;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.CreditCard;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
-import org.chromium.chrome.browser.payments.PaymentRequestTestRule.MainActivityStartCallback;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
-import org.chromium.ui.test.util.DisableAnimationsTestRule;
+import org.chromium.chrome.test.R;
 
 import java.util.ArrayList;
 import java.util.concurrent.TimeoutException;
@@ -34,67 +31,116 @@ import java.util.concurrent.TimeoutException;
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
-public class PaymentRequestDynamicShippingMultipleAddressesTest
-        implements MainActivityStartCallback {
-    // Disable animations to reduce flakiness.
-    @ClassRule
-    public static DisableAnimationsTestRule sNoAnimationsRule = new DisableAnimationsTestRule();
-
+public class PaymentRequestDynamicShippingMultipleAddressesTest {
     @Rule
     public PaymentRequestTestRule mPaymentRequestTestRule =
-            new PaymentRequestTestRule("payment_request_dynamic_shipping_test.html", this);
+            new PaymentRequestTestRule("payment_request_dynamic_shipping_test.html");
 
     private static final AutofillProfile[] AUTOFILL_PROFILES = {
             // Incomplete profile_0 (missing phone number)
-            new AutofillProfile("" /* guid */, "https://www.example.com" /* origin */,
-                    "" /* honorific prefix */, "Bart Simpson", "Acme Inc.", "123 Main",
-                    "California", "Los Angeles", "", "90210", "", "US", "", "bart@simpson.com", ""),
+            AutofillProfile.builder()
+                    .setFullName("Bart Simpson")
+                    .setCompanyName("Acme Inc.")
+                    .setStreetAddress("123 Main")
+                    .setRegion("California")
+                    .setLocality("Los Angeles")
+                    .setPostalCode("90210")
+                    .setCountryCode("US")
+                    .setEmailAddress("bart@simpson.com")
+                    .build(),
 
             // Incomplete profile_1 (missing street address).
-            new AutofillProfile("" /* guid */, "https://www.example.com" /* origin */,
-                    "" /* honorific prefix */, "Homer Simpson", "Acme Inc.", "", "California",
-                    "Los Angeles", "", "90210", "", "US", "555 123-4567", "homer@simpson.com", ""),
+            AutofillProfile.builder()
+                    .setFullName("Homer Simpson")
+                    .setCompanyName("Acme Inc.")
+                    .setRegion("California")
+                    .setLocality("Los Angeles")
+                    .setPostalCode("90210")
+                    .setCountryCode("US")
+                    .setPhoneNumber("555 123-4567")
+                    .setEmailAddress("homer@simpson.com")
+                    .build(),
 
             // Complete profile_2.
-            new AutofillProfile("" /* guid */, "https://www.example.com" /* origin */,
-                    "" /* honorific prefix */, "Lisa Simpson", "Acme Inc.", "123 Main",
-                    "California", "Los Angeles", "", "90210", "", "US", "555 123-4567",
-                    "lisa@simpson.com", ""),
+            AutofillProfile.builder()
+                    .setFullName("Lisa Simpson")
+                    .setCompanyName("Acme Inc.")
+                    .setStreetAddress("123 Main")
+                    .setRegion("California")
+                    .setLocality("Los Angeles")
+                    .setPostalCode("90210")
+                    .setCountryCode("US")
+                    .setPhoneNumber("555 123-4567")
+                    .setEmailAddress("lisa@simpson.com")
+                    .build(),
 
             // Complete profile_3 in another country.
-            new AutofillProfile("" /* guid */, "https://www.example.com" /* origin */,
-                    "" /* honorific prefix */, "Maggie Simpson", "Acme Inc.", "123 Main",
-                    "California", "Los Angeles", "", "90210", "", "Uzbekistan", "555 123-4567",
-                    "maggie@simpson.com", ""),
+            AutofillProfile.builder()
+                    .setFullName("Maggie Simpson")
+                    .setCompanyName("Acme Inc.")
+                    .setStreetAddress("123 Main")
+                    .setRegion("California")
+                    .setLocality("Los Angeles")
+                    .setPostalCode("90210")
+                    .setCountryCode("Uzbekistan")
+                    .setPhoneNumber("555 123-4567")
+                    .setEmailAddress("maggie@simpson.com")
+                    .build(),
 
             // Incomplete profile_4 (invalid address, missing city name).
-            new AutofillProfile("" /* guid */, "https://www.example.com" /* origin */,
-                    "" /* honorific prefix */, "Marge Simpson", "Acme Inc.", "123 Main",
-                    "California", "", "", "90210", "", "US", "555 123-4567", "marge@simpson.com",
-                    ""),
+            AutofillProfile.builder()
+                    .setFullName("Marge Simpson")
+                    .setCompanyName("Acme Inc.")
+                    .setStreetAddress("123 Main")
+                    .setRegion("California")
+                    .setPostalCode("90210")
+                    .setCountryCode("US")
+                    .setPhoneNumber("555 123-4567")
+                    .setEmailAddress("marge@simpson.com")
+                    .build(),
 
             // Incomplete profile_5 (missing recipient name).
-            new AutofillProfile("" /* guid */, "https://www.example.com" /* origin */,
-                    "" /* honorific prefix */, "", "Acme Inc.", "123 Main", "California",
-                    "Los Angeles", "", "90210", "", "US", "555 123-4567", "lisa@simpson.com", ""),
+            AutofillProfile.builder()
+                    .setCompanyName("Acme Inc.")
+                    .setStreetAddress("123 Main")
+                    .setRegion("California")
+                    .setLocality("Los Angeles")
+                    .setPostalCode("90210")
+                    .setCountryCode("US")
+                    .setPhoneNumber("555 123-4567")
+                    .setEmailAddress("lisa@simpson.com")
+                    .build(),
 
             // Incomplete profile_6 (need more information: name and address both missing/invalid).
-            new AutofillProfile("" /* guid */, "https://www.example.com" /* origin */,
-                    "" /* honorific prefix */, "", "Acme Inc.", "123 Main", "California", "", "",
-                    "90210", "", "US", "555 123-4567", "lisa@simpson.com", ""),
+            AutofillProfile.builder()
+                    .setCompanyName("Acme Inc.")
+                    .setStreetAddress("123 Main")
+                    .setRegion("California")
+                    .setPostalCode("90210")
+                    .setCountryCode("US")
+                    .setPhoneNumber("555 123-4567")
+                    .setEmailAddress("lisa@simpson.com")
+                    .build(),
 
             // Incomplete profile_7 (missing phone number, different from AutofillProfile[0])
-            new AutofillProfile("" /* guid */, "https://www.example.com" /* origin */,
-                    "" /* honorific prefix */, "John Smith", "Acme Inc.", "123 Main", "California",
-                    "Los Angeles", "", "90210", "", "US", "", "bart@simpson.com", ""),
+            AutofillProfile.builder()
+                    .setFullName("John Smith")
+                    .setCompanyName("Acme Inc.")
+                    .setStreetAddress("123 Main")
+                    .setRegion("California")
+                    .setLocality("Los Angeles")
+                    .setPostalCode("90210")
+                    .setCountryCode("US")
+                    .setEmailAddress("bart@simpson.com")
+                    .build(),
     };
 
     private AutofillProfile[] mProfilesToAdd;
     private int[] mCountsToSet;
     private int[] mDatesToSet;
 
-    @Override
-    public void onMainActivityStarted() throws TimeoutException {
+    @Before
+    public void setUp() throws TimeoutException {
         AutofillTestHelper helper = new AutofillTestHelper();
 
         // Add the profiles.
@@ -103,7 +149,7 @@ public class PaymentRequestDynamicShippingMultipleAddressesTest
             // The user has a shipping address on disk.
             String billingAddressId = helper.setProfile(mProfilesToAdd[i]);
             guids.add(billingAddressId);
-            helper.setCreditCard(new CreditCard("", "https://example.com", true, true, "Jon Doe",
+            helper.setCreditCard(new CreditCard("", "https://example.test", true, true, "Jon Doe",
                     "4111111111111111", "1111", "12", "2050", "visa", R.drawable.visa_card,
                     billingAddressId, "" /* serverId */));
         }
@@ -121,7 +167,7 @@ public class PaymentRequestDynamicShippingMultipleAddressesTest
      */
     @Test
     @MediumTest
-    @FlakyTest(message = "crbug.com/1182234")
+    @DisabledTest(message = "crbug.com/1182234")
     @Feature({"Payments"})
     public void testShippingAddressSuggestionOrdering() throws TimeoutException {
         // Create two complete and two incomplete profiles. Values are set so that complete profiles
@@ -132,7 +178,7 @@ public class PaymentRequestDynamicShippingMultipleAddressesTest
         mCountsToSet = new int[] {20, 15, 10, 25};
         mDatesToSet = new int[] {5000, 5000, 5000, 5000};
 
-        mPaymentRequestTestRule.triggerUIAndWait(mPaymentRequestTestRule.getReadyForInput());
+        mPaymentRequestTestRule.triggerUIAndWait("buy", mPaymentRequestTestRule.getReadyForInput());
         mPaymentRequestTestRule.clickInShippingAddressAndWait(
                 R.id.payments_section, mPaymentRequestTestRule.getReadyForInput());
         Assert.assertEquals(4, mPaymentRequestTestRule.getNumberOfShippingAddressSuggestions());
@@ -147,12 +193,6 @@ public class PaymentRequestDynamicShippingMultipleAddressesTest
         // phone number), it ranks lower than Profile[0] since its completeness score is lower.
         Assert.assertTrue(mPaymentRequestTestRule.getShippingAddressSuggestionLabel(i++).contains(
                 "Marge Simpson"));
-
-        // Verify that no shipping fields is recorded since there is at least one complete
-        // suggestion.
-        Assert.assertEquals(0,
-                RecordHistogram.getHistogramTotalCountForTesting(
-                        "PaymentRequest.MissingShippingFields"));
     }
 
     /**
@@ -160,7 +200,7 @@ public class PaymentRequestDynamicShippingMultipleAddressesTest
      */
     @Test
     @MediumTest
-    @FlakyTest(message = "crbug.com/1182234")
+    @DisabledTest(message = "crbug.com/1182234")
     @Feature({"Payments"})
     public void testEquallyIncompleteSuggestionsOrdering() throws TimeoutException {
         // Create two profiles both with missing phone numbers.
@@ -168,7 +208,7 @@ public class PaymentRequestDynamicShippingMultipleAddressesTest
         mCountsToSet = new int[] {20, 30};
         mDatesToSet = new int[] {5000, 5000};
 
-        mPaymentRequestTestRule.triggerUIAndWait(mPaymentRequestTestRule.getReadyForInput());
+        mPaymentRequestTestRule.triggerUIAndWait("buy", mPaymentRequestTestRule.getReadyForInput());
         mPaymentRequestTestRule.clickInShippingAddressAndWait(
                 R.id.payments_section, mPaymentRequestTestRule.getReadyForInput());
         Assert.assertEquals(2, mPaymentRequestTestRule.getNumberOfShippingAddressSuggestions());
@@ -185,7 +225,7 @@ public class PaymentRequestDynamicShippingMultipleAddressesTest
      */
     @Test
     @MediumTest
-    @FlakyTest(message = "crbug.com/1182234")
+    @DisabledTest(message = "crbug.com/1182234")
     @Feature({"Payments"})
     public void testShippingAddressSuggestionLimit() throws TimeoutException {
         // Create five profiles that can be suggested to the user.
@@ -195,7 +235,7 @@ public class PaymentRequestDynamicShippingMultipleAddressesTest
         mCountsToSet = new int[] {20, 15, 10, 5, 2, 1};
         mDatesToSet = new int[] {5000, 5000, 5000, 5000, 2, 1};
 
-        mPaymentRequestTestRule.triggerUIAndWait(mPaymentRequestTestRule.getReadyForInput());
+        mPaymentRequestTestRule.triggerUIAndWait("buy", mPaymentRequestTestRule.getReadyForInput());
         mPaymentRequestTestRule.clickInShippingAddressAndWait(
                 R.id.payments_section, mPaymentRequestTestRule.getReadyForInput());
         // Only four profiles should be suggested to the user.
@@ -213,12 +253,6 @@ public class PaymentRequestDynamicShippingMultipleAddressesTest
                 "Los Angeles"));
         Assert.assertFalse(mPaymentRequestTestRule.getShippingAddressSuggestionLabel(i).contains(
                 "Marge Simpson"));
-
-        // Verify that no missing fields is recorded for shipping since there is at least one
-        // complete suggestion.
-        Assert.assertEquals(0,
-                RecordHistogram.getHistogramTotalCountForTesting(
-                        "PaymentRequest.MissingShippingFields"));
     }
 
     /**
@@ -226,7 +260,7 @@ public class PaymentRequestDynamicShippingMultipleAddressesTest
      */
     @Test
     @MediumTest
-    @FlakyTest(message = "crbug.com/1182234")
+    @DisabledTest(message = "crbug.com/1182234")
     @Feature({"Payments"})
     public void testShippingAddressSuggestion_OnlyIncludeProfilesWithStreetAddress()
             throws TimeoutException {
@@ -238,7 +272,7 @@ public class PaymentRequestDynamicShippingMultipleAddressesTest
         mCountsToSet = new int[] {15, 10, 5, 1};
         mDatesToSet = new int[] {5000, 5000, 5000, 1};
 
-        mPaymentRequestTestRule.triggerUIAndWait(mPaymentRequestTestRule.getReadyForInput());
+        mPaymentRequestTestRule.triggerUIAndWait("buy", mPaymentRequestTestRule.getReadyForInput());
         mPaymentRequestTestRule.clickInShippingAddressAndWait(
                 R.id.payments_section, mPaymentRequestTestRule.getReadyForInput());
         // Only 3 profiles should be suggested, the two complete ones and the incomplete one that
@@ -259,7 +293,7 @@ public class PaymentRequestDynamicShippingMultipleAddressesTest
      */
     @Test
     @MediumTest
-    @FlakyTest(message = "crbug.com/1182234")
+    @DisabledTest(message = "crbug.com/1182234")
     @Feature({"Payments"})
     public void testShippingAddresNotAcceptedByMerchant() throws TimeoutException {
         // Add a profile that is not accepted by the website.
@@ -268,7 +302,7 @@ public class PaymentRequestDynamicShippingMultipleAddressesTest
         mDatesToSet = new int[] {5000};
 
         // Click on the unacceptable shipping address.
-        mPaymentRequestTestRule.triggerUIAndWait(mPaymentRequestTestRule.getReadyForInput());
+        mPaymentRequestTestRule.triggerUIAndWait("buy", mPaymentRequestTestRule.getReadyForInput());
         mPaymentRequestTestRule.clickInShippingAddressAndWait(
                 R.id.payments_section, mPaymentRequestTestRule.getReadyForInput());
         Assert.assertTrue(mPaymentRequestTestRule.getShippingAddressSuggestionLabel(0).contains(
@@ -288,7 +322,7 @@ public class PaymentRequestDynamicShippingMultipleAddressesTest
      */
     @Test
     @MediumTest
-    @FlakyTest(message = "crbug.com/1182234")
+    @DisabledTest(message = "crbug.com/1182234")
     @Feature({"Payments"})
     public void testShippingAddressEditRequiredMessage() throws TimeoutException {
         // Create four incomplete profiles with different missing information. Profiles will be
@@ -298,7 +332,7 @@ public class PaymentRequestDynamicShippingMultipleAddressesTest
         mCountsToSet = new int[] {15, 10, 5, 25};
         mDatesToSet = new int[] {5000, 5000, 5000, 5000};
 
-        mPaymentRequestTestRule.triggerUIAndWait(mPaymentRequestTestRule.getReadyForInput());
+        mPaymentRequestTestRule.triggerUIAndWait("buy", mPaymentRequestTestRule.getReadyForInput());
         mPaymentRequestTestRule.clickInShippingAddressAndWait(
                 R.id.payments_section, mPaymentRequestTestRule.getReadyForInput());
 
@@ -313,89 +347,5 @@ public class PaymentRequestDynamicShippingMultipleAddressesTest
                 "Enter a valid address"));
         Assert.assertTrue(mPaymentRequestTestRule.getShippingAddressSuggestionLabel(i++).contains(
                 "More information required"));
-
-        // Verify that the missing fields of the most complete suggestion has been recorded.
-        Assert.assertEquals(1,
-                RecordHistogram.getHistogramValueCountForTesting(
-                        "PaymentRequest.MissingShippingFields",
-                        AutofillAddress.CompletionStatus.INVALID_PHONE_NUMBER));
-    }
-
-    /**
-     * Make sure the shipping address bit is recorded in missing fields when an incomplete profile
-     * with missing address is the most complete one.
-     */
-    @Test
-    @MediumTest
-    @FlakyTest(message = "crbug.com/1182234")
-    @Feature({"Payments"})
-    public void testMissingShippingAddressFieldRecorded() throws TimeoutException {
-        // Add a profile with invalid shipping address, and another one with both missing name and
-        // address.
-        mProfilesToAdd = new AutofillProfile[] {AUTOFILL_PROFILES[4], AUTOFILL_PROFILES[6]};
-        mCountsToSet = new int[] {5, 5};
-        mDatesToSet = new int[] {5000, 5000};
-
-        mPaymentRequestTestRule.triggerUIAndWait(mPaymentRequestTestRule.getReadyForInput());
-        mPaymentRequestTestRule.clickInShippingAddressAndWait(
-                R.id.payments_section, mPaymentRequestTestRule.getReadyForInput());
-
-        Assert.assertEquals(2, mPaymentRequestTestRule.getNumberOfShippingAddressSuggestions());
-        // Verify that the missing fields of the most complete suggestion has been recorded.
-        Assert.assertEquals(1,
-                RecordHistogram.getHistogramValueCountForTesting(
-                        "PaymentRequest.MissingShippingFields",
-                        AutofillAddress.CompletionStatus.INVALID_ADDRESS));
-    }
-
-    /**
-     * Make sure the name bit is recorded in missing fields when an incomplete profile with missing
-     * name is the most complete one.
-     */
-    @Test
-    @MediumTest
-    @FlakyTest(message = "crbug.com/1182234")
-    @Feature({"Payments"})
-    public void testMissingNameFieldRecorded() throws TimeoutException {
-        // Add a profile with invalid shipping address, and another one with missing name.
-        mProfilesToAdd = new AutofillProfile[] {AUTOFILL_PROFILES[4], AUTOFILL_PROFILES[5]};
-        mCountsToSet = new int[] {5, 5};
-        mDatesToSet = new int[] {5000, 5000};
-
-        mPaymentRequestTestRule.triggerUIAndWait(mPaymentRequestTestRule.getReadyForInput());
-        mPaymentRequestTestRule.clickInShippingAddressAndWait(
-                R.id.payments_section, mPaymentRequestTestRule.getReadyForInput());
-
-        Assert.assertEquals(2, mPaymentRequestTestRule.getNumberOfShippingAddressSuggestions());
-        // Verify that the missing fields of the most complete suggestion has been recorded.
-        Assert.assertEquals(1,
-                RecordHistogram.getHistogramValueCountForTesting(
-                        "PaymentRequest.MissingShippingFields",
-                        AutofillAddress.CompletionStatus.INVALID_RECIPIENT));
-    }
-
-    /**
-     * Make sure all fields are recorded when no profile exists.
-     */
-    @Test
-    @MediumTest
-    @FlakyTest(message = "crbug.com/1182234")
-    @Feature({"Payments"})
-    public void testAllMissingFieldsRecorded() throws TimeoutException {
-        // Don't add any profiles
-        mProfilesToAdd = new AutofillProfile[] {};
-        mCountsToSet = new int[] {};
-        mDatesToSet = new int[] {};
-
-        mPaymentRequestTestRule.triggerUIAndWait(mPaymentRequestTestRule.getReadyForInput());
-
-        Assert.assertEquals(0, mPaymentRequestTestRule.getNumberOfShippingAddressSuggestions());
-        // Verify that the missing fields of the most complete suggestion has been recorded.
-        Assert.assertEquals(1,
-                RecordHistogram.getHistogramValueCountForTesting(
-                        "PaymentRequest.MissingShippingFields",
-                        AutofillAddress.CompletionStatus.INVALID_RECIPIENT
-                                | AutofillAddress.CompletionStatus.INVALID_PHONE_NUMBER
-                                | AutofillAddress.CompletionStatus.INVALID_ADDRESS));
     }
 }

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,7 +24,8 @@
 
 namespace device {
 
-class BluetoothAdapterMac;
+class BluetoothAdapter;
+class BluetoothLowEnergyAdapterApple;
 class BluetoothRemoteGattServiceMac;
 class BluetoothRemoteGattCharacteristicMac;
 class BluetoothRemoteGattDescriptorMac;
@@ -33,7 +34,7 @@ class BluetoothUUID;
 class DEVICE_BLUETOOTH_EXPORT BluetoothLowEnergyDeviceMac
     : public BluetoothDeviceMac {
  public:
-  BluetoothLowEnergyDeviceMac(BluetoothAdapterMac* adapter,
+  BluetoothLowEnergyDeviceMac(BluetoothAdapter* adapter,
                               CBPeripheral* peripheral);
 
   BluetoothLowEnergyDeviceMac(const BluetoothLowEnergyDeviceMac&) = delete;
@@ -83,6 +84,7 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothLowEnergyDeviceMac
       const device::BluetoothUUID& uuid,
       ConnectToServiceCallback callback,
       ConnectToServiceErrorCallback error_callback) override;
+  bool IsLowEnergyDevice() override;
 
  protected:
   // BluetoothDevice override.
@@ -113,8 +115,8 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothLowEnergyDeviceMac
       base::StringPiece device_identifier);
 
  private:
-  friend class BluetoothAdapterMac;
-  friend class BluetoothAdapterMacTest;
+  friend class BluetoothLowEnergyAdapterApple;
+  friend class BluetoothLowEnergyAdapterAppleTest;
   friend class BluetoothLowEnergyPeripheralBridge;
   friend class BluetoothRemoteGattServiceMac;
   friend class BluetoothTestMac;
@@ -130,8 +132,8 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothLowEnergyDeviceMac
   void SendNotificationIfDiscoveryComplete();
 
   // Returns the Bluetooth adapter.
-  BluetoothAdapterMac* GetMacAdapter();
-  BluetoothAdapterMac* GetMacAdapter() const;
+  BluetoothLowEnergyAdapterApple* GetLowEnergyAdapter();
+  BluetoothLowEnergyAdapterApple* GetLowEnergyAdapter() const;
 
   // Returns the CoreBluetooth Peripheral.
   CBPeripheral* GetPeripheral();

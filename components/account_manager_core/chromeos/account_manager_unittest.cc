@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,15 +9,15 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/run_loop.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/test/bind.h"
 #include "base/test/task_environment.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/test/test_future.h"
 #include "components/prefs/testing_pref_service.h"
 #include "google_apis/gaia/gaia_urls.h"
 #include "google_apis/gaia/google_service_auth_error.h"
@@ -103,53 +103,25 @@ class AccountManagerTest : public testing::Test {
   // Gets the list of accounts stored in |account_manager|.
   std::vector<::account_manager::Account> GetAccountsBlocking(
       AccountManager* const account_manager) {
-    std::vector<::account_manager::Account> accounts;
-
-    base::RunLoop run_loop;
-    account_manager->GetAccounts(base::BindLambdaForTesting(
-        [&accounts, &run_loop](
-            const std::vector<::account_manager::Account>& stored_accounts) {
-          accounts = stored_accounts;
-          run_loop.Quit();
-        }));
-    run_loop.Run();
-
-    return accounts;
+    base::test::TestFuture<const std::vector<::account_manager::Account>&>
+        future;
+    account_manager->GetAccounts(future.GetCallback());
+    return future.Get();
   }
 
   // Gets the raw email for |account_key|.
   std::string GetAccountEmailBlocking(
       const ::account_manager::AccountKey& account_key) {
-    std::string raw_email;
-
-    base::RunLoop run_loop;
-    account_manager_->GetAccountEmail(
-        account_key,
-        base::BindLambdaForTesting(
-            [&raw_email, &run_loop](const std::string& stored_raw_email) {
-              raw_email = stored_raw_email;
-              run_loop.Quit();
-            }));
-    run_loop.Run();
-
-    return raw_email;
+    base::test::TestFuture<const std::string&> future;
+    account_manager_->GetAccountEmail(account_key, future.GetCallback());
+    return future.Get();
   }
 
   bool HasDummyGaiaTokenBlocking(
       const ::account_manager::AccountKey& account_key) {
-    bool has_dummy_token_result = false;
-
-    base::RunLoop run_loop;
-    account_manager_->HasDummyGaiaToken(
-        account_key,
-        base::BindLambdaForTesting(
-            [&has_dummy_token_result, &run_loop](bool has_dummy_token) {
-              has_dummy_token_result = has_dummy_token;
-              run_loop.Quit();
-            }));
-    run_loop.Run();
-
-    return has_dummy_token_result;
+    base::test::TestFuture<bool> future;
+    account_manager_->HasDummyGaiaToken(account_key, future.GetCallback());
+    return future.Get();
   }
 
   // Helper method to reset and initialize |account_manager_| with default
@@ -227,7 +199,7 @@ class AccountManagerTest : public testing::Test {
         base::BindRepeating([](base::OnceClosure closure) -> void {
           std::move(closure).Run();
         }),
-        base::SequencedTaskRunnerHandle::Get(),
+        base::SequencedTaskRunner::GetCurrentDefault(),
         std::move(initialization_callback));
     account_manager->SetPrefService(&pref_service_);
   }
@@ -440,11 +412,11 @@ TEST_F(AccountManagerTest, TestEphemeralMode) {
 }
 
 TEST_F(AccountManagerTest, TestEphemeralModeInitializationCallback) {
-  base::RunLoop run_loop;
+  base::test::TestFuture<void> future;
   AccountManager account_manager;
   account_manager.InitializeInEphemeralMode(test_url_loader_factory(),
-                                            run_loop.QuitClosure());
-  run_loop.Run();
+                                            future.GetCallback());
+  EXPECT_TRUE(future.Wait());
 }
 
 TEST_F(AccountManagerTest, TestAccountEmailPersistence) {

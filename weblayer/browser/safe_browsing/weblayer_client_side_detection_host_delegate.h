@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,10 @@
 #include "components/safe_browsing/content/browser/client_side_detection_host.h"
 #include "components/safe_browsing/core/common/proto/csd.pb.h"
 #include "url/gurl.h"
+
+namespace content {
+struct GlobalRenderFrameHostId;
+}  // namespace content
 
 namespace weblayer {
 
@@ -32,10 +36,14 @@ class WebLayerClientSideDetectionHostDelegate
   GetSafeBrowsingDBManager() override;
   scoped_refptr<safe_browsing::BaseUIManager> GetSafeBrowsingUIManager()
       override;
-  safe_browsing::ClientSideDetectionService* GetClientSideDetectionService()
-      override;
+  base::WeakPtr<safe_browsing::ClientSideDetectionService>
+  GetClientSideDetectionService() override;
   void AddReferrerChain(safe_browsing::ClientPhishingRequest* verdict,
-                        GURL current_url) override;
+                        GURL current_url,
+                        const content::GlobalRenderFrameHostId&
+                            current_outermost_main_frame_id) override;
+  safe_browsing::VerdictCacheManager* GetCacheManager() override;
+  safe_browsing::ChromeUserPopulation GetUserPopulation() override;
 
  private:
   raw_ptr<content::WebContents> web_contents_;

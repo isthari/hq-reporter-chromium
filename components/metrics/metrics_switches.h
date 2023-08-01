@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,10 +13,14 @@ namespace switches {
 // Alphabetical list of switches specific to the metrics component. Document
 // each in the .cc file.
 
+extern const char kExportUmaLogsToFile[];
 extern const char kForceEnableMetricsReporting[];
 extern const char kMetricsRecordingOnly[];
 extern const char kMetricsUploadIntervalSec[];
 extern const char kResetVariationState[];
+extern const char kUkmServerUrl[];
+extern const char kUmaServerUrl[];
+extern const char kUmaInsecureServerUrl[];
 
 }  // namespace switches
 
@@ -27,6 +31,10 @@ bool IsMetricsRecordingOnlyEnabled();
 // Returns true if kForceEnableMetricsReporting is on the command line for the
 // current process.
 bool IsMetricsReportingForceEnabled();
+
+// Returns true if kForceMsbbSettingOnForUkm is on the command line for the
+// current process.
+bool IsMsbbSettingForcedOnForUkm();
 
 // Adds kMetricsRecordingOnly to |command_line| if not already present.
 void EnableMetricsRecordingOnlyForTesting(

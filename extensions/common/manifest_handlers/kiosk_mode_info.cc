@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -151,7 +151,7 @@ bool KioskModeHandler::Parse(Extension* extension, std::u16string* error) {
 
     for (const auto& value : secondary_apps_value->GetList()) {
       std::unique_ptr<KioskSecondaryAppsType> app =
-          KioskSecondaryAppsType::FromValue(value, error);
+          KioskSecondaryAppsType::FromValueDeprecated(value, error);
       if (!app) {
         *error = manifest_errors::kInvalidKioskSecondaryAppsBadAppEntry;
         return false;

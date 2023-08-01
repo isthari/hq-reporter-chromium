@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@ package org.chromium.chrome.browser.search_engines;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
-import static org.mockito.Mockito.any;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.isNull;
 import static org.mockito.Mockito.times;
@@ -18,6 +18,7 @@ import android.content.Intent;
 
 import androidx.test.filters.SmallTest;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -32,10 +33,12 @@ import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 
 import org.chromium.base.ContextUtils;
-import org.chromium.base.metrics.test.ShadowRecordHistogram;
+import org.chromium.base.metrics.RecordHistogram;
+import org.chromium.base.metrics.UmaRecorderHolder;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
+import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.settings.SettingsLauncherImpl;
 import org.chromium.chrome.browser.ui.messages.snackbar.Snackbar;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
@@ -49,7 +52,7 @@ import org.chromium.components.version_info.VersionInfo;
  * Unit tests for {@link SearchEngineChoiceNotification}.
  */
 @RunWith(BaseRobolectricTestRunner.class)
-@Config(manifest = Config.NONE, shadows = {ShadowRecordHistogram.class})
+@Config(manifest = Config.NONE)
 @Features.EnableFeatures({})
 public final class SearchEngineChoiceNotificationTest {
     private static final String TEST_INITIAL_ENGINE = "google.com";
@@ -68,6 +71,8 @@ public final class SearchEngineChoiceNotificationTest {
     private TemplateUrl mInitialSearchEngine;
     @Mock
     private TemplateUrl mAlternativeSearchEngine;
+    @Mock
+    private Profile mProfile;
     @Captor
     private ArgumentCaptor<Snackbar> mSnackbarArgument;
     @Mock
@@ -78,9 +83,10 @@ public final class SearchEngineChoiceNotificationTest {
         MockitoAnnotations.initMocks(this);
         ContextUtils.initApplicationContextForTests(mContext);
 
-        ShadowRecordHistogram.reset();
+        UmaRecorderHolder.resetForTesting();
 
         // Sets up appropriate responses from Template URL service.
+        Profile.setLastUsedProfileForTesting(mProfile);
         TemplateUrlServiceFactory.setInstanceForTesting(mTemplateUrlService);
         doReturn(TEST_ALTERNATIVE_ENGINE).when(mAlternativeSearchEngine).getKeyword();
         doReturn(SearchEngineType.SEARCH_ENGINE_DUCKDUCKGO)
@@ -93,6 +99,12 @@ public final class SearchEngineChoiceNotificationTest {
         doReturn(mInitialSearchEngine)
                 .when(mTemplateUrlService)
                 .getDefaultSearchEngineTemplateUrl();
+    }
+
+    @After
+    public void tearDown() {
+        Profile.setLastUsedProfileForTesting(null);
+        TemplateUrlServiceFactory.setInstanceForTesting(null);
     }
 
     @Test
@@ -124,7 +136,7 @@ public final class SearchEngineChoiceNotificationTest {
                 prefs.contains(ChromePreferenceKeys.SEARCH_ENGINE_CHOICE_PRESENTED_VERSION));
 
         assertEquals(0,
-                ShadowRecordHistogram.getHistogramValueCountForTesting(
+                RecordHistogram.getHistogramValueCountForTesting(
                         "Android.SearchEngineChoice.Events",
                         SearchEngineChoiceMetrics.Events.SNACKBAR_SHOWN));
     }
@@ -144,7 +156,7 @@ public final class SearchEngineChoiceNotificationTest {
                 prefs.contains(ChromePreferenceKeys.SEARCH_ENGINE_CHOICE_PRESENTED_VERSION));
 
         assertEquals(0,
-                ShadowRecordHistogram.getHistogramValueCountForTesting(
+                RecordHistogram.getHistogramValueCountForTesting(
                         "Android.SearchEngineChoice.Events",
                         SearchEngineChoiceMetrics.Events.SNACKBAR_SHOWN));
     }
@@ -160,7 +172,7 @@ public final class SearchEngineChoiceNotificationTest {
         verify(mSnackbarManager, times(1)).showSnackbar(any(Snackbar.class));
 
         assertEquals("We are expecting exactly one snackbar shown event.", 1,
-                ShadowRecordHistogram.getHistogramValueCountForTesting(
+                RecordHistogram.getHistogramValueCountForTesting(
                         "Android.SearchEngineChoice.Events",
                         SearchEngineChoiceMetrics.Events.SNACKBAR_SHOWN));
 
@@ -194,7 +206,7 @@ public final class SearchEngineChoiceNotificationTest {
         // No increase in execution counter means it was not called again.
         verify(mSnackbarManager, times(1)).showSnackbar(any(Snackbar.class));
         assertEquals(1,
-                ShadowRecordHistogram.getHistogramValueCountForTesting(
+                RecordHistogram.getHistogramValueCountForTesting(
                         "Android.SearchEngineChoice.Events",
                         SearchEngineChoiceMetrics.Events.SNACKBAR_SHOWN));
     }
@@ -212,7 +224,7 @@ public final class SearchEngineChoiceNotificationTest {
 
         mSnackbarArgument.getValue().getController().onAction(null);
         assertEquals(1,
-                ShadowRecordHistogram.getHistogramValueCountForTesting(
+                RecordHistogram.getHistogramValueCountForTesting(
                         "Android.SearchEngineChoice.Events",
                         SearchEngineChoiceMetrics.Events.PROMPT_FOLLOWED));
         verify(mContext, times(1)).startActivity(any(Intent.class), isNull());
@@ -237,11 +249,11 @@ public final class SearchEngineChoiceNotificationTest {
                         ChromePreferenceKeys.SEARCH_ENGINE_CHOICE_DEFAULT_TYPE_BEFORE));
 
         assertEquals(0,
-                ShadowRecordHistogram.getHistogramValueCountForTesting(
+                RecordHistogram.getHistogramValueCountForTesting(
                         "Android.SearchEngineChoice.Events",
                         SearchEngineChoiceMetrics.Events.SEARCH_ENGINE_CHANGED));
         assertEquals(0,
-                ShadowRecordHistogram.getHistogramValueCountForTesting(
+                RecordHistogram.getHistogramValueCountForTesting(
                         "Android.SearchEngineChoice.ChosenSearchEngine",
                         SearchEngineType.SEARCH_ENGINE_DUCKDUCKGO));
     }
@@ -270,11 +282,11 @@ public final class SearchEngineChoiceNotificationTest {
                 mContext, mSnackbarManager, mSettingsLauncher);
 
         assertEquals(0,
-                ShadowRecordHistogram.getHistogramValueCountForTesting(
+                RecordHistogram.getHistogramValueCountForTesting(
                         "Android.SearchEngineChoice.Events",
                         SearchEngineChoiceMetrics.Events.SEARCH_ENGINE_CHANGED));
         assertEquals(0,
-                ShadowRecordHistogram.getHistogramValueCountForTesting(
+                RecordHistogram.getHistogramValueCountForTesting(
                         "Android.SearchEngineChoice.ChosenSearchEngine",
                         SearchEngineType.SEARCH_ENGINE_DUCKDUCKGO));
     }
@@ -296,11 +308,11 @@ public final class SearchEngineChoiceNotificationTest {
                 mContext, mSnackbarManager, mSettingsLauncher);
 
         assertEquals("Event is recorded when search engine was changed.", 1,
-                ShadowRecordHistogram.getHistogramValueCountForTesting(
+                RecordHistogram.getHistogramValueCountForTesting(
                         "Android.SearchEngineChoice.Events",
                         SearchEngineChoiceMetrics.Events.SEARCH_ENGINE_CHANGED));
         assertEquals("Newly chosen search engine type should be recoreded.", 1,
-                ShadowRecordHistogram.getHistogramValueCountForTesting(
+                RecordHistogram.getHistogramValueCountForTesting(
                         "Android.SearchEngineChoice.ChosenSearchEngine",
                         SearchEngineType.SEARCH_ENGINE_DUCKDUCKGO));
 
@@ -313,12 +325,12 @@ public final class SearchEngineChoiceNotificationTest {
                 mContext, mSnackbarManager, mSettingsLauncher);
 
         assertEquals("Event should only be recorded once, therefore count should be still 1.", 1,
-                ShadowRecordHistogram.getHistogramValueCountForTesting(
+                RecordHistogram.getHistogramValueCountForTesting(
                         "Android.SearchEngineChoice.Events",
                         SearchEngineChoiceMetrics.Events.SEARCH_ENGINE_CHANGED));
         assertEquals("New Search Engine shoudl only be reported once, therefore count should be 1",
                 1,
-                ShadowRecordHistogram.getHistogramValueCountForTesting(
+                RecordHistogram.getHistogramValueCountForTesting(
                         "Android.SearchEngineChoice.ChosenSearchEngine",
                         SearchEngineType.SEARCH_ENGINE_DUCKDUCKGO));
     }

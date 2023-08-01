@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,12 @@
 #include <memory>
 
 #include "cc/animation/animation_host.h"
+#include "cc/animation/animation_timeline.h"
 #include "cc/animation/scroll_offset_animation_curve.h"
 #include "cc/layers/picture_layer.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/core/scroll/scrollable_area.h"
 #include "third_party/blink/renderer/platform/animation/compositor_animation.h"
-#include "third_party/blink/renderer/platform/animation/compositor_animation_timeline.h"
-#include "third_party/blink/renderer/platform/animation/compositor_keyframe_model.h"
 
 namespace blink {
 
@@ -28,12 +27,21 @@ ScrollAnimatorCompositorCoordinator::ScrollAnimatorCompositorCoordinator()
   compositor_animation_->SetAnimationDelegate(this);
 }
 
+// TODO(dbaron): This should probably DCHECK(element_detached_), but too
+// many unittests would fail such a DCHECK().
 ScrollAnimatorCompositorCoordinator::~ScrollAnimatorCompositorCoordinator() =
     default;
 
 void ScrollAnimatorCompositorCoordinator::Dispose() {
   compositor_animation_->SetAnimationDelegate(nullptr);
   compositor_animation_.reset();
+}
+
+void ScrollAnimatorCompositorCoordinator::DetachElement() {
+  DCHECK(!element_detached_);
+  element_detached_ = true;
+  ReattachCompositorAnimationIfNeeded(
+      GetScrollableArea()->GetCompositorAnimationTimeline());
 }
 
 void ScrollAnimatorCompositorCoordinator::ResetAnimationState() {
@@ -65,11 +73,11 @@ bool ScrollAnimatorCompositorCoordinator::HasAnimationThatRequiresService()
 }
 
 bool ScrollAnimatorCompositorCoordinator::AddAnimation(
-    std::unique_ptr<CompositorKeyframeModel> keyframe_model) {
+    std::unique_ptr<cc::KeyframeModel> keyframe_model) {
   RemoveAnimation();
   if (compositor_animation_->IsElementAttached()) {
-    compositor_animation_id_ = keyframe_model->Id();
-    compositor_animation_group_id_ = keyframe_model->Group();
+    compositor_animation_id_ = keyframe_model->id();
+    compositor_animation_group_id_ = keyframe_model->group();
     compositor_animation_->AddKeyframeModel(std::move(keyframe_model));
     return true;
   }
@@ -182,21 +190,26 @@ void ScrollAnimatorCompositorCoordinator::CompositorAnimationFinished(
 }
 
 bool ScrollAnimatorCompositorCoordinator::ReattachCompositorAnimationIfNeeded(
-    CompositorAnimationTimeline* timeline) {
+    cc::AnimationTimeline* timeline) {
   bool reattached = false;
-  CompositorElementId element_id = GetScrollElementId();
+  CompositorElementId element_id;
+  if (!element_detached_) {
+    element_id = GetScrollElementId();
+  }
   if (element_id != element_id_) {
     if (compositor_animation_ && timeline) {
       // Detach from old layer (if any).
       if (element_id_) {
         if (compositor_animation_->IsElementAttached())
           compositor_animation_->DetachElement();
-        timeline->AnimationDestroyed(*this);
+        if (GetCompositorAnimation())
+          timeline->DetachAnimation(GetCompositorAnimation()->CcAnimation());
       }
       // Attach to new layer (if any).
       if (element_id) {
         DCHECK(!compositor_animation_->IsElementAttached());
-        timeline->AnimationAttached(*this);
+        if (GetCompositorAnimation())
+          timeline->AttachAnimation(GetCompositorAnimation()->CcAnimation());
         compositor_animation_->AttachElement(element_id);
         reattached = true;
       }

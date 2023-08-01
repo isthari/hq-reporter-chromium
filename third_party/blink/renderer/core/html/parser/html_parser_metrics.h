@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,11 +29,12 @@ class CORE_EXPORT HTMLParserMetrics {
 
   void AddInput(unsigned length);
 
-  void ReportMetricsAtParseEnd(bool background_parsing);
+  void ReportMetricsAtParseEnd();
+
+  unsigned chunk_count() const { return chunk_count_; }
 
  private:
-  void ReportBackgroundParsingUMA();
-  void ReportForcedSynchronousParsingUMA();
+  void ReportUMAs();
 
   // UKM System data.
   const int64_t source_id_;
@@ -57,7 +58,7 @@ class CORE_EXPORT HTMLParserMetrics {
 
   // Track total number of characters parsed in one instantiation of the
   // parser.
-  unsigned input_character_count = 0;
+  unsigned input_character_count_ = 0;
 };
 
 }  // namespace blink

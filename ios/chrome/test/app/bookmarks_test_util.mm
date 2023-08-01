@@ -1,12 +1,14 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/test/app/bookmarks_test_util.h"
+#import "ios/chrome/test/app/bookmarks_test_util.h"
 
-#include "components/bookmarks/browser/bookmark_model.h"
-#include "ios/chrome/browser/bookmarks/bookmark_model_factory.h"
-#include "ios/chrome/browser/bookmarks/bookmarks_utils.h"
+#import "components/bookmarks/browser/bookmark_model.h"
+#import "ios/chrome/browser/bookmarks/bookmarks_utils.h"
+#import "ios/chrome/browser/bookmarks/local_or_syncable_bookmark_model_factory.h"
+#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/ui/bookmarks/bookmark_path_cache.h"
 #import "ios/chrome/test/app/chrome_test_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -17,14 +19,18 @@ namespace chrome_test_util {
 
 bool BookmarksLoaded() {
   bookmarks::BookmarkModel* bookmarkModel =
-      ios::BookmarkModelFactory::GetForBrowserState(GetOriginalBrowserState());
+      ios::LocalOrSyncableBookmarkModelFactory::GetForBrowserState(
+          GetOriginalBrowserState());
   return bookmarkModel->loaded();
 }
 
 bool ClearBookmarks() {
   ChromeBrowserState* browserState = GetOriginalBrowserState();
+  [BookmarkPathCache
+      clearBookmarkTopMostRowCacheWithPrefService:browserState->GetPrefs()];
   bookmarks::BookmarkModel* bookmarkModel =
-      ios::BookmarkModelFactory::GetForBrowserState(browserState);
+      ios::LocalOrSyncableBookmarkModelFactory::GetForBrowserState(
+          browserState);
   BOOL removeSucceeded = RemoveAllUserBookmarksIOS(browserState);
   return removeSucceeded && !bookmarkModel->HasBookmarks();
 }

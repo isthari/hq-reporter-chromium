@@ -70,7 +70,7 @@
             syncStatus.syncSystemEnabled, signinAllowed_)]]" restamp>
           <div id="profile-row" class="cr-row first two-line"
                   actionable$="[[isProfileActionable_]]"
-                  on-click="onProfileTap_">
+                  on-click="onProfileClick_">
             <template is="dom-if" if="[[syncStatus]]">
               <div id="profile-icon"
                   style="background-image: [[getIconImageSet_(
@@ -80,20 +80,20 @@
                 <span id="profile-name">[[profileName_]]</span>
 <!-- When the user is signed-in, the settings-sync-account-control is always
 shown on non-ChromeOS platforms -->
-<if expr="chromeos">
+<if expr="chromeos_ash">
                 <div class="secondary" hidden="[[!syncStatus.signedIn]]">
                   [[syncStatus.signedInUsername]]
                 </div>
 </if>
               </div>
-<if expr="not chromeos">
+<if expr="not chromeos_ash">
               <cr-icon-button class="subpage-arrow"
                   aria-label="$i18n{editPerson}"
                   aria-describedby="profile-name"
                   aria-roledescription="$i18n{subpageArrowRoleDescription}">
               </cr-icon-button>
 </if>
-<if expr="chromeos">
+<if expr="chromeos_ash">
               <cr-icon-button class="icon-external"
                   id="profile-subpage-arrow"
                   hidden="[[!isProfileActionable_]]"
@@ -107,11 +107,11 @@ shown on non-ChromeOS platforms -->
         <cr-link-row id="sync-setup"
             label="$i18n{syncAndNonPersonalizedServices}"
             sub-label="[[getSyncAndGoogleServicesSubtext_(syncStatus)]]"
-            on-click="onSyncTap_"
+            on-click="onSyncClick_"
             role-description="$i18n{subpageArrowRoleDescription}">
         </cr-link-row>
 
-<if expr="not chromeos">
+<if expr="not chromeos_ash">
         <template is="dom-if" if="[[signinAllowed_]]">
           <cr-link-row id="manage-google-account"
               label="$i18n{manageGoogleAccount}"
@@ -120,14 +120,14 @@ shown on non-ChromeOS platforms -->
 
           <cr-link-row id="edit-profile"
               label="$i18n{profileNameAndPicture}"
-              on-click="onProfileTap_" ></cr-link-row>
+              on-click="onProfileClick_" ></cr-link-row>
         </template>
 </if>
 
-<if expr="not chromeos and not lacros">
+<if expr="not is_chromeos">
         <cr-link-row id="importDataDialogTrigger"
             label="$i18n{importTitle}"
-            on-click="onImportDataTap_"></cr-link-row>
+            on-click="onImportDataClick_"></cr-link-row>
 </if>
 
       </div>
@@ -153,7 +153,7 @@ shown on non-ChromeOS platforms -->
         </settings-subpage>
       </template>
 
-<if expr="not chromeos">
+<if expr="not chromeos_ash">
       <template is="dom-if" route-path="/manageProfile">
         <settings-subpage
             associated-control=

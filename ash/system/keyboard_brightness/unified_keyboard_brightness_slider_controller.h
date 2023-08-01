@@ -1,11 +1,13 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef ASH_SYSTEM_KEYBOARD_BRIGHTNESS_UNIFIED_KEYBOARD_BRIGHTNESS_SLIDER_CONTROLLER_H_
 #define ASH_SYSTEM_KEYBOARD_BRIGHTNESS_UNIFIED_KEYBOARD_BRIGHTNESS_SLIDER_CONTROLLER_H_
 
+#include "ash/constants/quick_settings_catalogs.h"
 #include "ash/system/unified/unified_slider_view.h"
+#include "base/memory/raw_ptr.h"
 
 namespace ash {
 
@@ -25,15 +27,16 @@ class UnifiedKeyboardBrightnessSliderController : public UnifiedSliderListener {
   ~UnifiedKeyboardBrightnessSliderController() override;
 
   // UnifiedSliderListener:
-  views::View* CreateView() override;
+  std::unique_ptr<UnifiedSliderView> CreateView() override;
+  QsSliderCatalogName GetCatalogName() override;
   void SliderValueChanged(views::Slider* sender,
                           float value,
                           float old_value,
                           views::SliderChangeReason reason) override;
 
  private:
-  UnifiedSystemTrayModel* const model_;
-  UnifiedSliderView* slider_ = nullptr;
+  const raw_ptr<UnifiedSystemTrayModel, ExperimentalAsh> model_;
+  raw_ptr<UnifiedSliderView, ExperimentalAsh> slider_ = nullptr;
 };
 
 }  // namespace ash

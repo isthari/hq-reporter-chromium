@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,18 +13,18 @@
 #include "ash/components/arc/arc_browser_context_keyed_service_factory_base.h"
 #include "ash/components/arc/mojom/file_system.mojom.h"
 #include "ash/components/arc/session/arc_bridge_service.h"
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
 #include "base/files/file_path_watcher.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/singleton.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/sequence_checker.h"
 #include "base/strings/string_util.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chrome/browser/ash/arc/file_system_watcher/arc_file_system_watcher_util.h"
 #include "chrome/browser/ash/file_manager/path_util.h"
@@ -306,7 +306,7 @@ void ArcFileSystemWatcherService::FileSystemWatcher::OnFilePathChanged(
   }
   if (!outstanding_task_) {
     outstanding_task_ = true;
-    base::SequencedTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(&FileSystemWatcher::DelayBuildTimestampMap,
                        weak_ptr_factory_.GetWeakPtr()),
@@ -375,7 +375,7 @@ ArcFileSystemWatcherService::ArcFileSystemWatcherService(
 ArcFileSystemWatcherService::~ArcFileSystemWatcherService() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  StopWatchingFileSystem(base::DoNothing());
+  StopWatchingFileSystem();
   DCHECK(removable_media_watchers_.empty());
   DCHECK(!myfiles_watcher_);
 
@@ -384,52 +384,45 @@ ArcFileSystemWatcherService::~ArcFileSystemWatcherService() {
 
 void ArcFileSystemWatcherService::OnConnectionReady() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  StopWatchingFileSystem();
   StartWatchingFileSystem();
 }
 
 void ArcFileSystemWatcherService::OnConnectionClosed() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  StopWatchingFileSystem(base::DoNothing());
+  StopWatchingFileSystem();
 }
 
 void ArcFileSystemWatcherService::StartWatchingFileSystem() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-
-  // Triggered SendAllMountEvents as reply to make sure that callback is
-  // triggered after StopWatchingFileSystem() is triggered in the
-  // file_task_runner. Without this synchronization, the
-  // StopWatchingFileSystem() might race with
-  // ArcVolumeMounter::RequestAllMountPoints. If RequestAllMountPoints is
-  // triggered before StopWatchingFileSystem, then the watcher for existing
-  // removable media will be accidentally removed, even though the removable
-  // media is still attached. This can happen if there is an attached removable
-  // media during startup.
-  StopWatchingFileSystem(
-      base::BindOnce(&ArcFileSystemWatcherService::TriggerSendAllMountEvents,
-                     weak_ptr_factory_.GetWeakPtr()));
-
-  Profile* profile = Profile::FromBrowserContext(context_);
-
   DCHECK(!myfiles_watcher_);
+
+  // Attach a watcher to MyFiles and trigger SendAllMountEvents().
+  Profile* profile = Profile::FromBrowserContext(context_);
   myfiles_watcher_ = CreateAndStartFileSystemWatcher(
       file_manager::util::GetMyFilesFolderForProfile(profile),
-      base::FilePath(kAndroidMyFilesDir), base::DoNothing());
+      base::FilePath(kAndroidMyFilesDir),
+      base::BindOnce(&ArcFileSystemWatcherService::OnMyFilesWatcherStarted,
+                     weak_ptr_factory_.GetWeakPtr()));
 }
 
-void ArcFileSystemWatcherService::StopWatchingFileSystem(
-    base::OnceClosure callback) {
+void ArcFileSystemWatcherService::StopWatchingFileSystem() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  watching_file_system_changes_ = false;
+
   for (auto& watcher : removable_media_watchers_) {
     file_task_runner_->DeleteSoon(FROM_HERE, watcher.second.release());
   }
   removable_media_watchers_.clear();
-  // Trigger the callback at the end of the StopWatchingFileSystem. This is
-  // equivalent with DeleteSoon with a callback.
-  file_task_runner_->PostTaskAndReply(
-      FROM_HERE,
-      base::BindOnce([](std::unique_ptr<FileSystemWatcher> watcher) {},
-                     std::move(myfiles_watcher_)),
-      std::move(callback));
+
+  file_task_runner_->DeleteSoon(FROM_HERE, myfiles_watcher_.release());
+}
+
+void ArcFileSystemWatcherService::OnMyFilesWatcherStarted() {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  DCHECK(myfiles_watcher_);
+  watching_file_system_changes_ = true;
+  TriggerSendAllMountEvents();
 }
 
 std::unique_ptr<ArcFileSystemWatcherService::FileSystemWatcher>
@@ -462,6 +455,11 @@ void ArcFileSystemWatcherService::OnFileSystemChanged(
   instance->RequestMediaScan(paths);
 }
 
+bool ArcFileSystemWatcherService::IsWatchingFileSystemChanges() {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  return watching_file_system_changes_;
+}
+
 void ArcFileSystemWatcherService::StartWatchingRemovableMedia(
     const std::string& fs_uuid,
     const std::string& mount_path,
@@ -489,8 +487,7 @@ void ArcFileSystemWatcherService::StopWatchingRemovableMedia(
     const std::string& mount_path) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   if (!removable_media_watchers_.count(mount_path)) {
-    LOG(ERROR) << "Unmounting non-existing volume with mount path: "
-               << mount_path;
+    VLOG(1) << "Unmounting non-existing volume with mount path: " << mount_path;
     return;
   }
   file_task_runner_->DeleteSoon(
@@ -501,6 +498,11 @@ void ArcFileSystemWatcherService::StopWatchingRemovableMedia(
 void ArcFileSystemWatcherService::TriggerSendAllMountEvents() const {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   ArcVolumeMounterBridge::GetForBrowserContext(context_)->SendAllMountEvents();
+}
+
+// static
+void ArcFileSystemWatcherService::EnsureFactoryBuilt() {
+  ArcFileSystemWatcherServiceFactory::GetInstance();
 }
 
 }  // namespace arc

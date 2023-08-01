@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "chrome/browser/web_applications/web_app_id.h"
 #include "chrome/browser/web_applications/web_app_install_manager.h"
 #include "chrome/browser/web_applications/web_app_install_manager_observer.h"
+#include "chrome/browser/web_applications/web_app_registrar.h"
 #include "components/webapps/browser/banners/app_banner_manager.h"
 #include "content/public/browser/web_contents_user_data.h"
 
@@ -21,11 +22,8 @@ namespace extensions {
 class ExtensionRegistry;
 }
 
-namespace web_app {
-enum class InstallResultCode;
-}
-
 namespace webapps {
+enum class InstallResultCode;
 class TestAppBannerManagerDesktop;
 
 // Manages web app banners for desktop platforms.
@@ -42,9 +40,6 @@ class AppBannerManagerDesktop
   static void CreateForWebContents(content::WebContents* web_contents);
   using content::WebContentsUserData<AppBannerManagerDesktop>::FromWebContents;
 
-  // Turn off triggering on engagement notifications or navigates, for testing
-  // purposes only.
-  static void DisableTriggeringForTesting();
   virtual TestAppBannerManagerDesktop*
   AsTestAppBannerManagerDesktopForTesting();
 
@@ -64,15 +59,10 @@ class AppBannerManagerDesktop
   bool IsRelatedNonWebAppInstalled(
       const blink::Manifest::RelatedApplication& related_app) const override;
   bool IsWebAppConsideredInstalled() const override;
-  std::string GetAppIdentifier() override;
-
-  // content::WebContentsObserver override.
-  void DidFinishLoad(content::RenderFrameHost* render_frame_host,
-                     const GURL& validated_url) override;
 
   // Called when the web app install initiated by a banner has completed.
   virtual void DidFinishCreatingWebApp(const web_app::AppId& app_id,
-                                       web_app::InstallResultCode code);
+                                       webapps::InstallResultCode code);
 
  private:
   friend class content::WebContentsUserData<AppBannerManagerDesktop>;
@@ -84,16 +74,12 @@ class AppBannerManagerDesktop
   bool ShouldAllowWebAppReplacementInstall() override;
   void ShowBannerUi(WebappInstallSource install_source) override;
 
-  // SiteEngagementObserver override.
-  void OnEngagementEvent(content::WebContents* web_contents,
-                         const GURL& url,
-                         double score,
-                         site_engagement::EngagementType type) override;
-
   // web_app::WebAppInstallManagerObserver:
   void OnWebAppInstalled(const web_app::AppId& app_id) override;
   void OnWebAppWillBeUninstalled(const web_app::AppId& app_id) override;
-  void OnWebAppUninstalled(const web_app::AppId& app_id) override;
+  void OnWebAppUninstalled(
+      const web_app::AppId& app_id,
+      webapps::WebappUninstallSource uninstall_source) override;
   void OnWebAppInstallManagerDestroyed() override;
 
   void CreateWebApp(WebappInstallSource install_source);

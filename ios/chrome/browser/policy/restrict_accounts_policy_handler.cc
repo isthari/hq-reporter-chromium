@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 
 #include "base/values.h"
 #include "components/policy/core/browser/policy_error_map.h"
+#include "components/policy/core/common/policy_logger.h"
 #include "components/policy/core/common/policy_map.h"
 #include "components/policy/policy_constants.h"
 #include "components/prefs/pref_service.h"
@@ -30,14 +31,20 @@ RestrictAccountsPolicyHandler::~RestrictAccountsPolicyHandler() {}
 bool RestrictAccountsPolicyHandler::CheckPolicySettings(
     const policy::PolicyMap& policies,
     policy::PolicyErrorMap* errors) {
-  const base::Value* value = policies.GetValue(policy_name());
+  // `GetValueUnsafe` is used to differentiate between the policy value being
+  // unset vs being set with an incorrect type.
+  const base::Value* value = policies.GetValueUnsafe(policy_name());
   if (!value)
     return true;
   if (!ArePatternsValid(value)) {
-    errors->AddError(policy_name(), IDS_POLICY_VALUE_FORMAT_ERROR);
+    errors->AddError(policy_name(),
+                     IDS_POLICY_INVALID_ACCOUNT_PATTERN_FORMAT_ERROR);
   }
-  if (!value->is_list())
+  if (!value->is_list()) {
+    LOG_POLICY(ERROR, POLICY_PROCESSING)
+        << "RestrictAccountsToPatterns Policy Error: value must be a list";
     return false;
+  }
   // Even if the pattern is not valid, the policy should be applied.
   return true;
 }
@@ -45,8 +52,9 @@ bool RestrictAccountsPolicyHandler::CheckPolicySettings(
 void RestrictAccountsPolicyHandler::ApplyPolicySettings(
     const PolicyMap& policies,
     PrefValueMap* prefs) {
-  const base::Value* value = policies.GetValue(policy_name());
-  if (value && value->is_list())
+  const base::Value* value =
+      policies.GetValue(policy_name(), base::Value::Type::LIST);
+  if (value)
     prefs->SetValue(prefs::kRestrictAccountsToPatterns, value->Clone());
 }
 

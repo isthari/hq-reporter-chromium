@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,29 @@
  * @fileoverview Offline message screen implementation.
  */
 
-/* #js_imports_placeholder */
+import '//resources/js/action_link.js';
+import '//resources/polymer/v3_0/iron-icon/iron-icon.js';
+import '//resources/polymer/v3_0/iron-iconset-svg/iron-iconset-svg.js';
+import '../../components/buttons/oobe_back_button.js';
+import '../../components/buttons/oobe_text_button.js';
+import '../../components/common_styles/oobe_common_styles.css.js';
+import '../../components/dialogs/oobe_adaptive_dialog.js';
+import '../../components/network_select_login.js';
+
+import {SanitizeInnerHtmlOpts} from '//resources/ash/common/parse_html_subset.js';
+import {html, mixinBehaviors, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {LoginScreenBehavior, LoginScreenBehaviorInterface} from '../../components/behaviors/login_screen_behavior.js';
+import {OobeDialogHostBehavior} from '../../components/behaviors/oobe_dialog_host_behavior.js';
+import {OobeI18nBehavior, OobeI18nBehaviorInterface} from '../../components/behaviors/oobe_i18n_behavior.js';
+import {OOBE_UI_STATE} from '../../components/display_manager_types.js';
+import {Oobe} from '../../cr_ui.js';
+
 
 const USER_ACTION_LAUNCH_OOBE_GUEST = 'launch-oobe-guest';
-const USER_ACTION_LOCAL_STATE_POWERWASH = 'local-state-error-powerwash';
 const USER_ACTION_SHOW_CAPTIVE_PORTAL = 'show-captive-portal';
+const USER_ACTION_OPEN_INTERNET_DIALOG = 'open-internet-dialog';
+const USER_ACTION_OFFLINE_LOGIN = 'offline-login';
 
 /**
  * Possible UI states of the error screen.
@@ -21,23 +39,17 @@ const ERROR_SCREEN_UI_STATE = {
   UPDATE: 'ui-state-update',
   SIGNIN: 'ui-state-signin',
   KIOSK_MODE: 'ui-state-kiosk-mode',
-  LOCAL_STATE_ERROR: 'ui-state-local-state-error',
   AUTO_ENROLLMENT_ERROR: 'ui-state-auto-enrollment-error',
-  ROLLBACK_ERROR: 'ui-state-rollback-error',
-  SUPERVISED_USER_CREATION_FLOW: 'ui-state-supervised',
 };
 
 // Array of the possible UI states of the screen. Must be in the
-// same order as ErrorScreen::UIState enum values.
+// same order as NetworkError::UIState enum values.
 const ErrorMessageUIState = [
   ERROR_SCREEN_UI_STATE.UNKNOWN,
   ERROR_SCREEN_UI_STATE.UPDATE,
   ERROR_SCREEN_UI_STATE.SIGNIN,
-  ERROR_SCREEN_UI_STATE.SUPERVISED_USER_CREATION_FLOW,
   ERROR_SCREEN_UI_STATE.KIOSK_MODE,
-  ERROR_SCREEN_UI_STATE.LOCAL_STATE_ERROR,
   ERROR_SCREEN_UI_STATE.AUTO_ENROLLMENT_ERROR,
-  ERROR_SCREEN_UI_STATE.ROLLBACK_ERROR,
 ];
 
 // The help topic linked from the auto enrollment error message.
@@ -55,7 +67,7 @@ const ERROR_STATE = {
 };
 
 // Possible error states of the screen. Must be in the same order as
-// ErrorScreen::ErrorState enum values.
+// NetworkError::ErrorState enum values.
 const ERROR_STATES = [
   ERROR_STATE.UNKNOWN,
   ERROR_STATE.PORTAL,
@@ -72,9 +84,9 @@ const ERROR_STATES = [
  * @implements {OobeI18nBehaviorInterface}
  * @implements {LoginScreenBehaviorInterface}
  */
-const ErrorMessageScreenBase = Polymer.mixinBehaviors(
+const ErrorMessageScreenBase = mixinBehaviors(
     [OobeI18nBehavior, OobeDialogHostBehavior, LoginScreenBehavior],
-    Polymer.Element);
+    PolymerElement);
 
 /**
  * @polymer
@@ -84,7 +96,9 @@ class ErrorMessageScreen extends ErrorMessageScreenBase {
     return 'error-message-element';
   }
 
-  /* #html_template_placeholder */
+  static get template() {
+    return html`{__html_template__}`;
+  }
 
   /** @override */
   get EXTERNAL_API() {
@@ -174,27 +188,30 @@ class ErrorMessageScreen extends ErrorMessageScreenBase {
         type: Boolean,
         value: false,
       },
-    };
-  }
 
-  constructor() {
-    super();
+      /**
+       * @private
+       */
+      hasUserPods_: {
+        type: Boolean,
+        value: false,
+      },
+    };
   }
 
   /**
    * @suppress {checkTypes} isOneOf_ allows arbitrary number of arguments.
    */
   getDialogTitle_() {
-    if (this.isOneOf_(this.errorState_, 'portal', 'offline')) {
-      return this.i18n('captivePortalTitle');
-    } else if (
-        this.isOneOf_(this.uiState_, 'ui-state-local-state-error') ||
-        this.isOneOf_(this.errorState_, 'proxy', 'auth-ext-timeout')) {
+    if (this.isOneOf_(this.uiState_, 'ui-state-auto-enrollment-error') &&
+        this.isOneOf_(this.errorState_, 'offline', 'portal', 'proxy')) {
+      return this.i18n('autoEnrollmentErrorMessageTitle');
+    } else if (this.isOneOf_(this.errorState_, 'proxy', 'auth-ext-timeout')) {
       return this.i18n('loginErrorTitle');
     } else if (this.isOneOf_(this.errorState_, 'kiosk-online')) {
       return this.i18n('kioskOnlineTitle');
-    } else if (this.isOneOf_(this.uiState_, 'ui-state-rollback-error')) {
-      return this.i18n('rollbackErrorTitle');
+    } else if (this.isOneOf_(this.errorState_, 'portal', 'offline')) {
+      return this.i18n('captivePortalTitle');
     } else {
       return '';
     }
@@ -208,7 +225,7 @@ class ErrorMessageScreen extends ErrorMessageScreenBase {
    * @type {boolean}
    */
   get closable() {
-    return Oobe.getInstance().hasUserPods && !this.is_persistent_error_;
+    return this.hasUserPods_ && !this.is_persistent_error_;
   }
 
   /**
@@ -221,9 +238,7 @@ class ErrorMessageScreen extends ErrorMessageScreenBase {
 
   ready() {
     super.ready();
-    this.initializeLoginScreen('ErrorMessageScreen', {
-      resetAllowed: true,
-    });
+    this.initializeLoginScreen('ErrorMessageScreen');
 
     this.updateLocalizedContent();
   }
@@ -251,15 +266,7 @@ class ErrorMessageScreen extends ErrorMessageScreenBase {
   }
 
   continueButtonClicked() {
-    chrome.send('continueAppLaunch');
-  }
-
-  okButtonClicked() {
-    this.userActed('cancel-reset');
-  }
-
-  powerwashButtonClicked() {
-    this.userActed(USER_ACTION_LOCAL_STATE_POWERWASH);
+    this.userActed('continue-app-launch');
   }
 
   onNetworkConnected_() {
@@ -272,7 +279,7 @@ class ErrorMessageScreen extends ErrorMessageScreenBase {
    * @param {string} element_id
    * @param {string} string_id
    * @param {SanitizeInnerHtmlOpts=} opts
-   * @param  {Array<string>|string} anchor_ids
+   * @param  {...string} anchor_ids
    */
   updateElementWithStringAndAnchorTag_(
       element_id, string_id, opts, ...anchor_ids) {
@@ -282,7 +289,7 @@ class ErrorMessageScreen extends ErrorMessageScreenBase {
     opts.attrs = opts.attrs.concat(['id', 'class', 'is']);
     opts.substitutions = opts.substitutions || [];
     for (const anchorId of anchor_ids) {
-      let attributes =
+      const attributes =
           ' class="oobe-local-link focus-on-show" is="action-link"';
       opts.substitutions = opts.substitutions.concat(
           ['<a id="' + anchorId + '"' + attributes + '>', '</a>']);
@@ -304,7 +311,7 @@ class ErrorMessageScreen extends ErrorMessageScreenBase {
     }
     for (const anchorId of anchor_ids) {
       /** @suppress {checkTypes} anchorId is a string */
-      let linkElement = this.shadowRoot.getElementById(anchorId);
+      const linkElement = this.shadowRoot.getElementById(anchorId);
       if (hidden) {
         linkElement.setAttribute('hidden', '');
       } else {
@@ -318,20 +325,6 @@ class ErrorMessageScreen extends ErrorMessageScreenBase {
    */
   updateLocalizedContent() {
     this.updateElementWithStringAndAnchorTag_(
-        'auto-enrollment-offline-message-text',
-        'autoEnrollmentOfflineMessageBody', {
-          substitutions: [
-            loadTimeData.getString('deviceType'),
-            '<b>' + this.currentNetworkName_ + '</b>'
-          ]
-        },
-        'auto-enrollment-learn-more');
-    this.shadowRoot.querySelector('#auto-enrollment-learn-more').onclick =
-        () => {
-          chrome.send('launchHelpApp', [HELP_TOPIC_AUTO_ENROLLMENT]);
-        };
-
-    this.updateElementWithStringAndAnchorTag_(
         'captive-portal-message-text', 'captivePortalMessage',
         {substitutions: ['<b>' + this.currentNetworkName_ + '</b>']},
         'captive-portal-fix-link');
@@ -343,7 +336,7 @@ class ErrorMessageScreen extends ErrorMessageScreenBase {
         'captive-portal-proxy-message-text', 'captivePortalProxyMessage', {},
         'proxy-settings-fix-link');
     this.shadowRoot.querySelector('#proxy-settings-fix-link').onclick = () => {
-      chrome.send('openInternetDetailDialog');
+      this.userActed(USER_ACTION_OPEN_INTERNET_DIALOG);
     };
 
     this.updateElementWithStringAndAnchorTag_(
@@ -351,7 +344,7 @@ class ErrorMessageScreen extends ErrorMessageScreenBase {
         'update-proxy-error-fix-proxy');
     this.shadowRoot.querySelector('#update-proxy-error-fix-proxy').onclick =
         () => {
-          chrome.send('openInternetDetailDialog');
+          this.userActed(USER_ACTION_OPEN_INTERNET_DIALOG);
         };
 
     this.updateElementWithStringAndAnchorTag_(
@@ -363,7 +356,7 @@ class ErrorMessageScreen extends ErrorMessageScreenBase {
         };
     this.shadowRoot.querySelector('#signin-proxy-error-fix-proxy').onclick =
         () => {
-          chrome.send('openInternetDetailDialog');
+          this.userActed(USER_ACTION_OPEN_INTERNET_DIALOG);
         };
 
     this.updateElementWithStringAndAnchorTag_(
@@ -380,7 +373,7 @@ class ErrorMessageScreen extends ErrorMessageScreenBase {
     this.updateElementWithStringAndAnchorTag_(
         'error-offline-login', 'offlineLogin', {}, 'error-offline-login-link');
     this.shadowRoot.querySelector('#error-offline-login-link').onclick = () => {
-      chrome.send('offlineLogin');
+      this.userActed(USER_ACTION_OFFLINE_LOGIN);
     };
   }
 
@@ -395,7 +388,9 @@ class ErrorMessageScreen extends ErrorMessageScreenBase {
    */
   onBeforeShow(data) {
     this.enableWifiScans_ = true;
-    this.$.backButton.disabled = !this.closable;
+    this.hasUserPods_ = data && ('hasUserPods' in data) && data.hasUserPods;
+    // `closable` is dependent on `hasUserPods_`
+    this.$.backButton.hidden = !this.closable;
   }
 
   /**
@@ -413,11 +408,7 @@ class ErrorMessageScreen extends ErrorMessageScreenBase {
    * @private
    */
   launchGuestSession_() {
-    if (Oobe.getInstance().isOobeUI()) {
-      this.userActed(USER_ACTION_LAUNCH_OOBE_GUEST);
-    } else {
-      chrome.send('launchIncognito');
-    }
+    this.userActed(USER_ACTION_LAUNCH_OOBE_GUEST);
   }
 
   /**
@@ -474,8 +465,9 @@ class ErrorMessageScreen extends ErrorMessageScreenBase {
    * Cancels error screen and drops to user pods.
    */
   cancel() {
-    if (this.closable)
+    if (this.closable) {
       this.userActed('cancel');
+    }
   }
 
   /**

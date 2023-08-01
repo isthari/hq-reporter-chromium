@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,15 +7,15 @@
 
 #import <UIKit/UIKit.h>
 
-#import "ios/chrome/browser/ui/table_view/cells/table_view_item.h"
+#import "ios/chrome/browser/shared/ui/table_view/cells/table_view_item.h"
 
 @class BookmarkTextFieldItem;
 
 // Delegates the cell's text field's events.
-@protocol BookmarkTextFieldItemDelegate<UITextFieldDelegate>
+@protocol BookmarkTextFieldItemDelegate <UITextFieldDelegate>
 
-// Called when the |text| of the item was changed via the textfield. The item's
-// |text| is up-to-date when this is called.
+// Called when the `text` of the item was changed via the textfield. The item's
+// `text` is up-to-date when this is called.
 - (void)textDidChangeForItem:(BookmarkTextFieldItem*)item;
 
 @end
@@ -35,13 +35,13 @@
 
 @interface BookmarkTextFieldCell : TableViewCell
 
-// Label to display the type of content |self.textField| is displaying.
+// Label to display the type of content `self.textField` is displaying.
 @property(nonatomic, strong) UILabel* titleLabel;
 
 // Text field to display the title or the URL of the bookmark node.
 @property(nonatomic, strong) UITextField* textField;
 
-// Returns the appropriate text color to use for the given |editing| state.
+// Returns the appropriate text color to use for the given `editing` state.
 + (UIColor*)textColorForEditing:(BOOL)editing;
 
 @end

@@ -1,11 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.download;
 
-import android.support.test.InstrumentationRegistry;
-
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.MediumTest;
 
 import org.hamcrest.Matchers;
@@ -20,8 +19,8 @@ import org.chromium.base.test.util.CloseableOnMainThread;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.FlakyTest;
 import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.download.DownloadTestRule.CustomMainActivityStart;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
@@ -48,7 +47,8 @@ public class AutoDownloadsTest implements CustomMainActivityStart {
 
     @Override
     public void customMainActivityStart() throws InterruptedException {
-        mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
+        mTestServer = EmbeddedTestServer.createAndStartServer(
+                ApplicationProvider.getApplicationContext());
 
         mDownloadTestRule.startMainActivityOnBlankPage();
     }
@@ -70,7 +70,7 @@ public class AutoDownloadsTest implements CustomMainActivityStart {
     @Test
     @MediumTest
     @Feature({"AutoDownloads"})
-    @FlakyTest(message = "https://crbug.com/1108800")
+    @DisabledTest(message = "https://crbug.com/1108800")
     public void testAutoDownloadsDialog() throws Exception {
         try (CloseableOnMainThread ignored = CloseableOnMainThread.StrictMode.allowDiskWrites()) {
             ArrayList<DirectoryOption> dirOptions = new ArrayList<>();

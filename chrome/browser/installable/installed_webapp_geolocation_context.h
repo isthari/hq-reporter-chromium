@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,8 +31,8 @@ class InstalledWebappGeolocationContext
   // mojom::GeolocationContext implementation:
   void BindGeolocation(
       mojo::PendingReceiver<device::mojom::Geolocation> receiver,
-      const GURL& requesting_origin) override;
-  void SetOverride(device::mojom::GeopositionPtr geoposition) override;
+      const GURL& requesting_url) override;
+  void SetOverride(device::mojom::GeopositionResultPtr result) override;
   void ClearOverride() override;
 
   // Called when a InstalledWebappGeolocationBridge has a connection error.
@@ -42,7 +42,7 @@ class InstalledWebappGeolocationContext
  private:
   std::vector<std::unique_ptr<InstalledWebappGeolocationBridge>> impls_;
 
-  device::mojom::GeopositionPtr geoposition_override_;
+  device::mojom::GeopositionResultPtr geoposition_override_;
 };
 
 #endif  // CHROME_BROWSER_INSTALLABLE_INSTALLED_WEBAPP_GEOLOCATION_CONTEXT_H_

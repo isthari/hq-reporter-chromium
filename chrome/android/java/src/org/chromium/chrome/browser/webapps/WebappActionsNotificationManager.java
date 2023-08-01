@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,6 +21,7 @@ import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntentDataProvider;
 import org.chromium.chrome.browser.browserservices.intents.WebappExtras;
 import org.chromium.chrome.browser.customtabs.BaseCustomTabActivity;
+import org.chromium.chrome.browser.customtabs.CustomTabLocator;
 import org.chromium.chrome.browser.customtabs.content.CustomTabActivityTabProvider;
 import org.chromium.chrome.browser.dependency_injection.ActivityScope;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
@@ -159,7 +160,7 @@ class WebappActionsNotificationManager implements PauseResumeWithNativeObserver 
 
         int tabId = IntentHandler.getTabId(intent);
         WeakReference<BaseCustomTabActivity> customTabActivityRef =
-                WebappLocator.findWebappActivityWithTabId(tabId);
+                CustomTabLocator.findCustomTabActivityWithTabId(tabId);
         if (customTabActivityRef == null) return false;
 
         BaseCustomTabActivity customTabActivity = customTabActivityRef.get();
@@ -168,7 +169,6 @@ class WebappActionsNotificationManager implements PauseResumeWithNativeObserver 
         if (ACTION_SHARE.equals(intent.getAction())) {
             // Not routing through onMenuOrKeyboardAction to control UMA String.
             Tab tab = customTabActivity.getActivityTab();
-            boolean isIncognito = tab.isIncognito();
             customTabActivity.getShareDelegateSupplier().get().share(
                     tab, false, ShareOrigin.WEBAPP_NOTIFICATION);
             RecordUserAction.record("Webapp.NotificationShare");

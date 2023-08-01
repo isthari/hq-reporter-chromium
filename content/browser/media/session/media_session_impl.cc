@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,11 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/containers/contains.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
 #include "base/ranges/algorithm.h"
 #include "base/strings/string_util.h"
+#include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
 #include "components/url_formatter/url_formatter.h"
@@ -20,7 +20,7 @@
 #include "content/browser/media/session/media_session_controller.h"
 #include "content/browser/media/session/media_session_player_observer.h"
 #include "content/browser/media/session/media_session_service_impl.h"
-#include "content/browser/picture_in_picture/picture_in_picture_window_controller_impl.h"
+#include "content/browser/picture_in_picture/video_picture_in_picture_window_controller_impl.h"
 #include "content/browser/renderer_host/back_forward_cache_disable.h"
 #include "content/browser/renderer_host/back_forward_cache_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
@@ -107,7 +107,7 @@ size_t ComputeFrameDepth(RenderFrameHost* rfh,
       break;
     }
     ++depth;
-    current_frame = current_frame->GetParent();
+    current_frame = current_frame->GetParentOrOuterDocument();
   }
   (*map_rfh_to_depth)[rfh] = depth;
   return depth;
@@ -152,9 +152,12 @@ MediaSessionUserAction MediaSessionActionToUserAction(
       return MediaSessionUserAction::kRaise;
     case media_session::mojom::MediaSessionAction::kSetMute:
       return MediaSessionUserAction::kSetMute;
+    case media_session::mojom::MediaSessionAction::kPreviousSlide:
+      return MediaSessionUserAction::kPreviousSlide;
+    case media_session::mojom::MediaSessionAction::kNextSlide:
+      return MediaSessionUserAction::kNextSlide;
   }
-  NOTREACHED();
-  return MediaSessionUserAction::kPlay;
+  NOTREACHED_NORETURN();
 }
 
 // If the string is not empty then push it to the back of a vector.
@@ -303,6 +306,9 @@ void MediaSessionImpl::WebContentsDestroyed() {
   one_shot_players_.clear();
 
   AbandonSystemAudioFocusIfNeeded();
+
+  content::GetContentClient()->browser()->RemovePresentationObserver(
+      this, web_contents());
 }
 
 void MediaSessionImpl::RenderFrameDeleted(RenderFrameHost* rfh) {
@@ -317,8 +323,6 @@ void MediaSessionImpl::DidFinishNavigation(
       navigation_handle->IsSameDocument()) {
     return;
   }
-
-  image_cache_.clear();
 
   auto new_origin = url::Origin::Create(navigation_handle->GetURL());
   if (navigation_handle->IsInPrimaryMainFrame() &&
@@ -404,13 +408,8 @@ void MediaSessionImpl::RenderFrameHostStateChanged(
     RenderFrameHost* host,
     RenderFrameHost::LifecycleState old_state,
     RenderFrameHost::LifecycleState new_state) {
-  bool was_in_bfcache =
-      old_state == RenderFrameHost::LifecycleState::kInBackForwardCache;
-  bool is_in_bfcache =
-      new_state == RenderFrameHost::LifecycleState::kInBackForwardCache;
-
   // If the page goes to back-forward cache, hide the players.
-  if (!was_in_bfcache && is_in_bfcache) {
+  if (new_state == RenderFrameHost::LifecycleState::kInBackForwardCache) {
     // Checking the normal players is enough. One shot players and pepper
     // players are not related to media control UIs.
     auto players = normal_players_;
@@ -427,18 +426,22 @@ void MediaSessionImpl::RenderFrameHostStateChanged(
   }
 
   // If the page is restored from back-forward cache, show the players.
-  if (was_in_bfcache && !is_in_bfcache) {
+  if (new_state == RenderFrameHost::LifecycleState::kActive) {
     auto players = hidden_players_;
+    bool added_players = false;
     for (auto player : players) {
       if (player.observer->render_frame_host() != host)
         continue;
       hidden_players_.erase(player);
       AddPlayer(player.observer, player.player_id);
+      added_players = true;
     }
 
     // Just after adding a player, the state might be 'play'. Make sure that the
     // state is 'pause'.
-    OnSuspendInternal(SuspendType::kSystem, State::SUSPENDED);
+    if (added_players)
+      OnSuspendInternal(SuspendType::kSystem, State::SUSPENDED);
+
     return;
   }
 }
@@ -637,7 +640,7 @@ void MediaSessionImpl::RebuildAndNotifyMediaPositionChanged() {
   position_ = position;
 
   if (auto* pip_window_controller_ =
-          PictureInPictureWindowControllerImpl::FromWebContents(
+          VideoPictureInPictureWindowControllerImpl::FromWebContents(
               web_contents())) {
     pip_window_controller_->MediaSessionPositionChanged(position_);
   }
@@ -719,7 +722,7 @@ void MediaSessionImpl::Stop(SuspendType suspend_type) {
   }
 
   if (auto* pip_window_controller_ =
-          PictureInPictureWindowControllerImpl::FromWebContents(
+          VideoPictureInPictureWindowControllerImpl::FromWebContents(
               web_contents())) {
     pip_window_controller_->Close(false /* should_pause_video */);
   }
@@ -783,7 +786,7 @@ bool MediaSessionImpl::IsControllable() const {
 }
 
 void MediaSessionImpl::SetDuckingVolumeMultiplier(double multiplier) {
-  ducking_volume_multiplier_ = base::clamp(multiplier, 0.0, 1.0);
+  ducking_volume_multiplier_ = std::clamp(multiplier, 0.0, 1.0);
 }
 
 void MediaSessionImpl::SetAudioFocusGroupId(
@@ -889,8 +892,10 @@ void MediaSessionImpl::OnImageDownloadComplete(
     }
   }
 
-  if (source_icon)
-    image_cache_.emplace(image_url, bitmap);
+  if (source_icon) {
+    GetPageData(web_contents()->GetPrimaryPage())
+        .AddImageCache(image_url, bitmap);
+  }
 
   std::move(callback).Run(bitmap);
 }
@@ -984,9 +989,9 @@ MediaSessionImpl::MediaSessionImpl(WebContents* web_contents)
   session_android_ = std::make_unique<MediaSessionAndroid>(this);
   should_throttle_duration_update_ = true;
 #endif  // BUILDFLAG(IS_ANDROID)
-  if (web_contents && web_contents->GetMainFrame() &&
-      web_contents->GetMainFrame()->GetView()) {
-    focused_ = web_contents->GetMainFrame()->GetView()->HasFocus();
+  if (web_contents && web_contents->GetPrimaryMainFrame() &&
+      web_contents->GetPrimaryMainFrame()->GetView()) {
+    focused_ = web_contents->GetPrimaryMainFrame()->GetView()->HasFocus();
   }
 
   RebuildAndNotifyMetadataChanged();
@@ -997,8 +1002,16 @@ void MediaSessionImpl::Initialize() {
   delegate_->MediaSessionInfoChanged(GetMediaSessionInfoSync());
 
   DCHECK(web_contents());
-  DidUpdateFaviconURL(web_contents()->GetMainFrame(),
+  DidUpdateFaviconURL(web_contents()->GetPrimaryMainFrame(),
                       web_contents()->GetFaviconURLs());
+
+  content::GetContentClient()->browser()->AddPresentationObserver(
+      this, web_contents());
+}
+
+void MediaSessionImpl::OnPresentationsChanged(bool has_presentation) {
+  has_presentation_ = has_presentation;
+  RebuildAndNotifyMediaSessionInfoChanged();
 }
 
 AudioFocusDelegate::AudioFocusResult MediaSessionImpl::RequestSystemAudioFocus(
@@ -1107,7 +1120,13 @@ MediaSessionImpl::GetMediaSessionInfoSync() {
   }
 
   info->muted = is_muted_;
+  info->has_presentation = has_presentation_;
 
+  // Disable Remote Playback by passing empty RemotePlaybackMetadata when there
+  // are multiple media players.
+  if (normal_players_.size() == 1u) {
+    info->remote_playback_metadata = remote_playback_metadata_.Clone();
+  }
   return info;
 }
 
@@ -1178,6 +1197,14 @@ void MediaSessionImpl::NextTrack() {
 
 void MediaSessionImpl::SkipAd() {
   DidReceiveAction(media_session::mojom::MediaSessionAction::kSkipAd);
+}
+
+void MediaSessionImpl::PreviousSlide() {
+  DidReceiveAction(media_session::mojom::MediaSessionAction::kPreviousSlide);
+}
+
+void MediaSessionImpl::NextSlide() {
+  DidReceiveAction(media_session::mojom::MediaSessionAction::kNextSlide);
 }
 
 void MediaSessionImpl::SeekTo(base::TimeDelta seek_time) {
@@ -1274,6 +1301,12 @@ void MediaSessionImpl::SetMute(bool mute) {
       normal_players_.begin()->first.player_id, mute);
 }
 
+void MediaSessionImpl::RequestMediaRemoting() {
+  DCHECK_EQ(normal_players_.size(), 1u);
+  normal_players_.begin()->first.observer->OnRequestMediaRemoting(
+      normal_players_.begin()->first.player_id);
+}
+
 void MediaSessionImpl::GetMediaImageBitmap(
     const media_session::MediaImage& image,
     int minimum_size_px,
@@ -1299,9 +1332,12 @@ void MediaSessionImpl::GetMediaImageBitmap(
   }
 
   // Check the cache.
-  if (source_icon && base::Contains(image_cache_, image.src)) {
-    std::move(callback).Run(image_cache_.at(image.src));
-    return;
+  PageData& page_data = GetPageData(web_contents()->GetPrimaryPage());
+  if (source_icon) {
+    if (auto* bitmap = page_data.GetImageCache(image.src)) {
+      std::move(callback).Run(*bitmap);
+      return;
+    }
   }
 
   const gfx::Size preferred_size(desired_size_px, desired_size_px);
@@ -1362,7 +1398,7 @@ void MediaSessionImpl::RebuildAndNotifyMediaSessionInfoChanged() {
   // Picture-in-Picture window controller needs to be updated on current media
   // session info.
   if (auto* pip_window_controller_ =
-          PictureInPictureWindowControllerImpl::FromWebContents(
+          VideoPictureInPictureWindowControllerImpl::FromWebContents(
               web_contents())) {
     pip_window_controller_->MediaSessionInfoChanged(current_info);
   }
@@ -1429,16 +1465,6 @@ void MediaSessionImpl::OnServiceDestroyed(MediaSessionServiceImpl* service) {
 
 void MediaSessionImpl::OnMediaSessionPlaybackStateChanged(
     MediaSessionServiceImpl* service) {
-  if (!BackForwardCacheImpl::IsMediaSessionPlaybackStateChangedAllowed()) {
-    // Even though the back-forward cache is allowed at OnServiceCreated, it is
-    // disabled when the playback state is changed as this affects the visible
-    // UI for MediaSession.
-    BackForwardCache::DisableForRenderFrameHost(
-        service->GetRenderFrameHostId(),
-        BackForwardCacheDisable::DisabledReason(
-            BackForwardCacheDisable::DisabledReasonId::kMediaSession));
-  }
-
   if (service != routed_service_)
     return;
 
@@ -1614,6 +1640,12 @@ void MediaSessionImpl::OnAudioOutputSinkChangingDisabled() {
   RebuildAndNotifyMediaSessionInfoChanged();
 }
 
+void MediaSessionImpl::SetRemotePlaybackMetadata(
+    media_session::mojom::RemotePlaybackMetadataPtr metadata) {
+  remote_playback_metadata_ = std::move(metadata);
+  RebuildAndNotifyMediaSessionInfoChanged();
+}
+
 bool MediaSessionImpl::ShouldRouteAction(
     media_session::mojom::MediaSessionAction action) const {
   return routed_service_ && base::Contains(routed_service_->actions(), action);
@@ -1636,7 +1668,7 @@ void MediaSessionImpl::RebuildAndNotifyActionsChanged() {
   // Picture-in-Picture window controller needs to know only actions that are
   // handled by the website.
   if (auto* pip_window_controller_ =
-          PictureInPictureWindowControllerImpl::FromWebContents(
+          VideoPictureInPictureWindowControllerImpl::FromWebContents(
               web_contents())) {
     pip_window_controller_->MediaSessionActionsChanged(actions);
   }
@@ -1714,7 +1746,7 @@ void MediaSessionImpl::RebuildAndNotifyMetadataChanged() {
                   url_formatter::kFormatUrlOmitDefaults |
                       url_formatter::kFormatUrlOmitHTTPS |
                       url_formatter::kFormatUrlOmitTrivialSubdomains,
-                  net::UnescapeRule::SPACES, nullptr, nullptr, nullptr);
+                  base::UnescapeRule::SPACES, nullptr, nullptr, nullptr);
   }
 
   metadata.source_title = source_title;
@@ -1755,11 +1787,10 @@ std::string MediaSessionImpl::GetSharedAudioOutputDeviceId() const {
 
   auto& first = normal_players_.begin()->first;
   const auto& first_id = first.observer->GetAudioOutputSinkId(first.player_id);
-  if (std::all_of(normal_players_.cbegin(), normal_players_.cend(),
-                  [&first_id](const auto& player) {
-                    return player.first.observer->GetAudioOutputSinkId(
-                               player.first.player_id) == first_id;
-                  })) {
+  if (base::ranges::all_of(normal_players_, [&first_id](const auto& player) {
+        return player.first.observer->GetAudioOutputSinkId(
+                   player.first.player_id) == first_id;
+      })) {
     return first_id;
   }
 
@@ -1877,6 +1908,22 @@ void MediaSessionImpl::SetShouldThrottleDurationUpdateForTest(
     bool should_throttle) {
   should_throttle_duration_update_ = should_throttle;
 }
+
+bool MediaSessionImpl::HasImageCacheForTest(const GURL& image_url) const {
+  return GetPageData(web_contents()->GetPrimaryPage()).GetImageCache(image_url);
+}
+
+MediaSessionImpl::PageData::PageData(content::Page& page)
+    : PageUserData(page) {}
+
+MediaSessionImpl::PageData::~PageData() = default;
+
+MediaSessionImpl::PageData& MediaSessionImpl::GetPageData(
+    content::Page& page) const {
+  return *PageData::GetOrCreateForPage(page);
+}
+
+PAGE_USER_DATA_KEY_IMPL(MediaSessionImpl::PageData);
 
 WEB_CONTENTS_USER_DATA_KEY_IMPL(MediaSessionImpl);
 

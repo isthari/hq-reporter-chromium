@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "components/signin/public/base/consent_level.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "google_apis/common/auth_service.h"
+#include "google_apis/gaia/gaia_constants.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 
 using google_apis::RequestSender;
@@ -24,11 +25,6 @@ using google_apis::calendar::CalendarEventListCallback;
 
 namespace ash {
 namespace {
-
-// OAuth2 scopes.
-// TODO(jiamingc@): move this to google_apis/calendar/.
-const char kCalendarReadScope[] =
-    "https://www.googleapis.com/auth/calendar.readonly";
 
 constexpr net::NetworkTrafficAnnotationTag kCalendarTrafficAnnotation =
     net::DefineNetworkTrafficAnnotation("calendar_get_events", R"(
@@ -46,7 +42,11 @@ constexpr net::NetworkTrafficAnnotationTag kCalendarTrafficAnnotation =
         policy {
           cookies_allowed: NO
           setting: "This feature cannot be disabled in settings."
-          policy_exception_justification: "Not implemented."
+          chrome_policy {
+              CalendarIntegrationEnabled {
+                CalendarIntegrationEnabled: true
+              }
+          }
         })");
 
 }  // namespace
@@ -71,7 +71,7 @@ void CalendarKeyedService::Initialize() {
   DCHECK(thread_checker_.CalledOnValidThread());
 
   std::vector<std::string> scopes;
-  scopes.push_back(kCalendarReadScope);
+  scopes.push_back(GaiaConstants::kCalendarReadOnlyOAuth2Scope);
   url_loader_factory_ = profile_->GetURLLoaderFactory();
   sender_ = std::make_unique<RequestSender>(
       std::make_unique<google_apis::AuthService>(
@@ -96,6 +96,9 @@ void CalendarKeyedService::Shutdown() {
         account_id_,
         /*client=*/nullptr);
   }
+  // Reset `sender_` early to prevent a crash during destruction of
+  // CalendarKeyedService. See https://crbug.com/1319563.
+  sender_.reset();
 }
 
 base::OnceClosure CalendarKeyedService::GetEventList(

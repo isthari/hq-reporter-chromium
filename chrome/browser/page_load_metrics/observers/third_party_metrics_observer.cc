@@ -1,9 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/page_load_metrics/observers/third_party_metrics_observer.h"
 
+#include "base/containers/enum_set.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/strcat.h"
 #include "components/page_load_metrics/browser/metrics_web_contents_observer.h"
@@ -44,6 +45,28 @@ ThirdPartyMetricsObserver::ThirdPartyInfo::ThirdPartyInfo() = default;
 ThirdPartyMetricsObserver::ThirdPartyInfo::ThirdPartyInfo(
     const ThirdPartyInfo&) = default;
 
+const char* ThirdPartyMetricsObserver::GetObserverName() const {
+  static const char kName[] = "ThirdPartyMetricsObserver";
+  return kName;
+}
+
+page_load_metrics::PageLoadMetricsObserver::ObservePolicy
+ThirdPartyMetricsObserver::OnPrerenderStart(
+    content::NavigationHandle* navigation_handle,
+    const GURL& currently_committed_url) {
+  // TODO(https://crbug.com/1317494): Handle Prerendering cases.
+  return STOP_OBSERVING;
+}
+
+page_load_metrics::PageLoadMetricsObserver::ObservePolicy
+ThirdPartyMetricsObserver::OnFencedFramesStart(
+    content::NavigationHandle* navigation_handle,
+    const GURL& currently_committed_url) {
+  // FrameReceivedUserActivation, OnLoadedResource, OnCookies{Read|Change}, and
+  // OnStorageAccessed need the observer-side forwarding.
+  return FORWARD_OBSERVING;
+}
+
 page_load_metrics::PageLoadMetricsObserver::ObservePolicy
 ThirdPartyMetricsObserver::FlushMetricsOnAppEnterBackground(
     const page_load_metrics::mojom::PageLoadTiming& timing) {
@@ -59,7 +82,7 @@ void ThirdPartyMetricsObserver::FrameReceivedUserActivation(
   auto* third_party_info = GetThirdPartyInfo(
       render_frame_host->GetLastCommittedURL(),
       content::WebContents::FromRenderFrameHost(render_frame_host)
-          ->GetMainFrame()
+          ->GetPrimaryMainFrame()
           ->GetLastCommittedURL(),
       is_third_party);
 
@@ -85,9 +108,8 @@ void ThirdPartyMetricsObserver::OnLoadedResource(
     return;
   }
 
-  third_party_font_loaded_ =
-      !IsSameSite(GetDelegate().GetUrl(),
-                  extra_request_complete_info.origin_of_final_url.GetURL());
+  third_party_font_loaded_ = !IsSameSite(
+      GetDelegate().GetUrl(), extra_request_complete_info.final_url.GetURL());
 }
 
 void ThirdPartyMetricsObserver::OnCookiesRead(
@@ -175,7 +197,7 @@ void ThirdPartyMetricsObserver::RecordUseCounters(
   // Report the feature usage if there's anything to report.
   if (third_party_storage_features.size() > 0) {
     page_load_metrics::MetricsWebContentsObserver::RecordFeatureUsage(
-        GetDelegate().GetWebContents()->GetMainFrame(),
+        GetDelegate().GetWebContents()->GetPrimaryMainFrame(),
         std::move(third_party_storage_features));
   }
 }
@@ -209,38 +231,91 @@ void ThirdPartyMetricsObserver::OnRenderFrameDeleted(
 void ThirdPartyMetricsObserver::OnTimingUpdate(
     content::RenderFrameHost* subframe_rfh,
     const page_load_metrics::mojom::PageLoadTiming& timing) {
-  if (!timing.paint_timing->first_contentful_paint)
-    return;
-
   // Filter out top-frames
-  if (!subframe_rfh)
+  if (!subframe_rfh) {
     return;
+  }
 
-  // Filter out navigations that we've already recorded, or if we've reached our
-  // frame limit.
-  const auto it = recorded_frames_.find(subframe_rfh);
-  if (it != recorded_frames_.end() ||
+  // If we've reached the frame limit and haven't recorded any metrics for this
+  // RFH before, then don't continue on.
+  auto recorded_frame_events = recorded_frames_.find(subframe_rfh);
+  if (recorded_frame_events == recorded_frames_.end() &&
       recorded_frames_.size() >= kMaxRecordedFrames) {
     return;
   }
 
   // Filter out first-party frames.
   content::RenderFrameHost* top_frame =
-      GetDelegate().GetWebContents()->GetMainFrame();
-  if (!top_frame)
+      GetDelegate().GetWebContents()->GetPrimaryMainFrame();
+  if (!top_frame) {
     return;
+  }
 
   const url::Origin& top_frame_origin = top_frame->GetLastCommittedOrigin();
   const url::Origin& subframe_origin = subframe_rfh->GetLastCommittedOrigin();
-  if (IsSameSite(top_frame_origin, subframe_origin))
+  if (IsSameSite(top_frame_origin, subframe_origin)) {
     return;
+  }
 
-  if (page_load_metrics::WasStartedInForegroundOptionalEventInForeground(
+  bool should_record_opaque_subframe_time =
+      !top_frame_origin.opaque() && subframe_origin.opaque();
+
+  TimingEventTypeEnumSet newly_recorded_event_types;
+
+  if (timing.paint_timing->first_contentful_paint &&
+      page_load_metrics::WasStartedInForegroundOptionalEventInForeground(
           timing.paint_timing->first_contentful_paint, GetDelegate())) {
-    PAGE_LOAD_HISTOGRAM(
-        "PageLoad.Clients.ThirdParty.Frames.NavigationToFirstContentfulPaint3",
-        timing.paint_timing->first_contentful_paint.value());
-    recorded_frames_.insert(subframe_rfh);
+    // Filter out navigations that we've already recorded.
+    if (recorded_frame_events == recorded_frames_.end() ||
+        !recorded_frame_events->second.Has(
+            TimingEventType::kFirstContentfulPaint)) {
+      PAGE_LOAD_HISTOGRAM(
+          "PageLoad.Clients.ThirdParty.Frames."
+          "NavigationToFirstContentfulPaint3",
+          timing.paint_timing->first_contentful_paint.value());
+      if (should_record_opaque_subframe_time) {
+        PAGE_LOAD_HISTOGRAM(
+            "PageLoad.Clients.ThirdParty.Frames.Opaque."
+            "NavigationToFirstContentfulPaint",
+            timing.paint_timing->first_contentful_paint.value());
+      }
+      newly_recorded_event_types.Put(TimingEventType::kFirstContentfulPaint);
+    }
+  }
+
+  const page_load_metrics::ContentfulPaintTimingInfo&
+      cross_site_sub_frame_largest_contentful_paint =
+          GetDelegate()
+              .GetLargestContentfulPaintHandler()
+              .CrossSiteSubframesLargestContentfulPaint();
+  if (cross_site_sub_frame_largest_contentful_paint.ContainsValidTime() &&
+      page_load_metrics::WasStartedInForegroundOptionalEventInForeground(
+          cross_site_sub_frame_largest_contentful_paint.Time(),
+          GetDelegate())) {
+    // Filter out navigations that we've already recorded.
+    if (recorded_frame_events == recorded_frames_.end() ||
+        !recorded_frame_events->second.Has(
+            TimingEventType::kLargestContentfulPaint)) {
+      if (should_record_opaque_subframe_time) {
+        PAGE_LOAD_HISTOGRAM(
+            "PageLoad.Clients.ThirdParty.Frames.Opaque."
+            "NavigationToLargestContentfulPaint",
+            cross_site_sub_frame_largest_contentful_paint.Time().value());
+      }
+      // Note: We may not have actually recorded a histogram value at this
+      // point, but indicate that we did so that the LCP metric here has values
+      // that correspond to the FCP metric recorded above.
+      newly_recorded_event_types.Put(TimingEventType::kLargestContentfulPaint);
+    }
+  }
+
+  if (!newly_recorded_event_types.Empty()) {
+    if (recorded_frame_events == recorded_frames_.end()) {
+      recorded_frames_[subframe_rfh] = newly_recorded_event_types;
+    } else {
+      recorded_frames_[subframe_rfh] = base::Union(
+          recorded_frame_events->second, newly_recorded_event_types);
+    }
   }
 }
 

@@ -45,7 +45,7 @@
 #include "third_party/blink/renderer/core/html/forms/text_control_inner_elements.h"
 #include "third_party/blink/renderer/core/html/shadow/shadow_element_names.h"
 #include "third_party/blink/renderer/core/html_names.h"
-#include "third_party/blink/renderer/core/layout/layout_object_factory.h"
+#include "third_party/blink/renderer/core/layout/ng/layout_ng_text_control_single_line.h"
 #include "third_party/blink/renderer/core/page/chrome_client.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
@@ -96,7 +96,7 @@ class DataListIndicatorElement final : public HTMLDivElement {
   void InitializeInShadowTree() {
     DCHECK(ContainingShadowRoot());
     DCHECK(ContainingShadowRoot()->IsUserAgent());
-    SetShadowPseudoId(AtomicString("-webkit-calendar-picker-indicator"));
+    SetShadowPseudoId(shadow_element_names::kPseudoCalendarPickerIndicator);
     setAttribute(html_names::kIdAttr, shadow_element_names::kIdPickerIndicator);
     setAttribute(html_names::kStyleAttr,
                  "display:list-item; "
@@ -108,8 +108,8 @@ class DataListIndicatorElement final : public HTMLDivElement {
   }
 };
 
-TextFieldInputType::TextFieldInputType(HTMLInputElement& element)
-    : InputType(element), InputTypeView(element) {}
+TextFieldInputType::TextFieldInputType(Type type, HTMLInputElement& element)
+    : InputType(type, element), InputTypeView(element) {}
 
 TextFieldInputType::~TextFieldInputType() = default;
 
@@ -127,6 +127,9 @@ InputType::ValueMode TextFieldInputType::GetValueMode() const {
 }
 
 SpinButtonElement* TextFieldInputType::GetSpinButtonElement() const {
+  if (!HasCreatedShadowSubtree()) {
+    return nullptr;
+  }
   auto* element = GetElement().UserAgentShadowRoot()->getElementById(
       shadow_element_names::kIdSpinButton);
   CHECK(!element || IsA<SpinButtonElement>(element));
@@ -144,7 +147,7 @@ bool TextFieldInputType::IsTextField() const {
 bool TextFieldInputType::ValueMissing(const String& value) const {
   // For text-mode input elements, the value is missing only if it is mutable.
   // https://html.spec.whatwg.org/multipage/input.html#the-required-attribute
-  return GetElement().IsRequired() && value.IsEmpty() &&
+  return GetElement().IsRequired() && value.empty() &&
          !GetElement().IsDisabledOrReadOnly();
 }
 
@@ -280,31 +283,28 @@ void TextFieldInputType::HandleBlurEvent() {
 }
 
 bool TextFieldInputType::ShouldSubmitImplicitly(const Event& event) {
-  return (event.type() == event_type_names::kTextInput &&
-          event.HasInterface(event_interface_names::kTextEvent) &&
-          To<TextEvent>(event).data() == "\n") ||
-         InputTypeView::ShouldSubmitImplicitly(event);
+  if (const TextEvent* text_event = DynamicTo<TextEvent>(event)) {
+    if (!text_event->IsPaste() && !text_event->IsDrop() &&
+        text_event->data() == "\n") {
+      return true;
+    }
+  }
+  return InputTypeView::ShouldSubmitImplicitly(event);
 }
 
-void TextFieldInputType::CustomStyleForLayoutObject(ComputedStyle& style) {
+void TextFieldInputType::AdjustStyle(ComputedStyleBuilder& builder) {
   // The flag is necessary in order that a text field <input> with non-'visible'
   // overflow property doesn't change its baseline.
-  style.SetShouldIgnoreOverflowPropertyForInlineBlockBaseline();
-}
-
-bool TextFieldInputType::TypeShouldForceLegacyLayout() const {
-  if (RuntimeEnabledFeatures::LayoutNGTextControlEnabled())
-    return false;
-  UseCounter::Count(GetElement().GetDocument(),
-                    WebFeature::kLegacyLayoutByTextControl);
-  return true;
+  builder.SetShouldIgnoreOverflowPropertyForInlineBlockBaseline();
 }
 
 LayoutObject* TextFieldInputType::CreateLayoutObject(
-    const ComputedStyle& style,
-    LegacyLayout legacy) const {
-  return LayoutObjectFactory::CreateTextControlSingleLine(GetElement(), style,
-                                                          legacy);
+    const ComputedStyle&) const {
+  return MakeGarbageCollected<LayoutNGTextControlSingleLine>(&GetElement());
+}
+
+ControlPart TextFieldInputType::AutoAppearance() const {
+  return kTextFieldPart;
 }
 
 void TextFieldInputType::CreateShadowSubtree() {
@@ -354,7 +354,7 @@ void TextFieldInputType::CreateShadowSubtree() {
 }
 
 Element* TextFieldInputType::ContainerElement() const {
-  return GetElement().UserAgentShadowRoot()->getElementById(
+  return GetElement().EnsureShadowSubtree()->getElementById(
       shadow_element_names::kIdTextFieldContainer);
 }
 
@@ -365,6 +365,9 @@ void TextFieldInputType::DestroyShadowSubtree() {
 }
 
 void TextFieldInputType::ListAttributeTargetChanged() {
+  if (!HasCreatedShadowSubtree()) {
+    return;
+  }
   if (ChromeClient* chrome_client = GetChromeClient())
     chrome_client->TextFieldDataListChanged(GetElement());
   Element* picker = GetElement().UserAgentShadowRoot()->getElementById(
@@ -418,10 +421,16 @@ void TextFieldInputType::DisabledOrReadonlyAttributeChanged() {
 }
 
 void TextFieldInputType::DisabledAttributeChanged() {
+  if (!HasCreatedShadowSubtree()) {
+    return;
+  }
   DisabledOrReadonlyAttributeChanged();
 }
 
 void TextFieldInputType::ReadonlyAttributeChanged() {
+  if (!HasCreatedShadowSubtree()) {
+    return;
+  }
   DisabledOrReadonlyAttributeChanged();
 }
 
@@ -431,6 +440,13 @@ bool TextFieldInputType::SupportsReadOnly() const {
 
 static bool IsASCIILineBreak(UChar c) {
   return c == '\r' || c == '\n';
+}
+
+// Returns true if `c` may contain a line break. This is an inexact comparison.
+// This is used as the common case is the text does not contain a newline.
+static bool MayBeASCIILineBreak(UChar c) {
+  static_assert('\n' < '\r');
+  return c <= '\r';
 }
 
 static String LimitLength(const String& string, unsigned max_length) {
@@ -443,6 +459,13 @@ static String LimitLength(const String& string, unsigned max_length) {
 }
 
 String TextFieldInputType::SanitizeValue(const String& proposed_value) const {
+  // Typical case is the string doesn't contain a break and fits. The Find()
+  // is not exact (meaning it'll match many other characters), but is a good
+  // approximation for a fast path.
+  if (proposed_value.Find(MayBeASCIILineBreak) == kNotFound &&
+      proposed_value.length() < std::numeric_limits<int>::max()) {
+    return proposed_value;
+  }
   return LimitLength(proposed_value.RemoveCharacters(IsASCIILineBreak),
                      std::numeric_limits<int>::max());
 }
@@ -510,12 +533,13 @@ void TextFieldInputType::UpdatePlaceholderText(bool is_suggested_value) {
     return;
   HTMLElement* placeholder = GetElement().PlaceholderElement();
   String placeholder_text = GetElement().GetPlaceholderValue();
-  if (placeholder_text.IsEmpty()) {
+  if (placeholder_text.empty()) {
     if (placeholder)
       placeholder->remove(ASSERT_NO_EXCEPTION);
     return;
   }
   if (!placeholder) {
+    GetElement().EnsureShadowSubtree();
     auto* new_element =
         MakeGarbageCollected<HTMLDivElement>(GetElement().GetDocument());
     placeholder = new_element;
@@ -592,7 +616,7 @@ void TextFieldInputType::SpinButtonStepUp() {
 }
 
 void TextFieldInputType::UpdateView() {
-  if (GetElement().SuggestedValue().IsEmpty() &&
+  if (GetElement().SuggestedValue().empty() &&
       GetElement().NeedsToUpdateViewValue()) {
     // Update the view only if needsToUpdateViewValue is true. It protects
     // an unacceptable view value from being overwritten with the DOM value.
@@ -606,7 +630,7 @@ void TextFieldInputType::UpdateView() {
 }
 
 void TextFieldInputType::FocusAndSelectSpinButtonOwner() {
-  GetElement().focus();
+  GetElement().Focus();
   GetElement().SetSelectionRange(0, std::numeric_limits<int>::max());
 }
 

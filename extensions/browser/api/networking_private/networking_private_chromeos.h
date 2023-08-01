@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/values.h"
 #include "extensions/browser/api/networking_private/networking_private_delegate.h"
@@ -41,12 +42,12 @@ class NetworkingPrivateChromeOS : public NetworkingPrivateDelegate {
                 DictionaryCallback success_callback,
                 FailureCallback failure_callback) override;
   void SetProperties(const std::string& guid,
-                     base::Value properties,
+                     base::Value::Dict properties,
                      bool allow_set_shared_config,
                      VoidCallback success_callback,
                      FailureCallback failure_callback) override;
   void CreateNetwork(bool shared,
-                     base::Value properties,
+                     base::Value::Dict properties,
                      StringCallback success_callback,
                      FailureCallback failure_callback) override;
   void ForgetNetwork(const std::string& guid,
@@ -87,13 +88,15 @@ class NetworkingPrivateChromeOS : public NetworkingPrivateDelegate {
                                    const std::string& network_id,
                                    VoidCallback success_callback,
                                    FailureCallback failure_callback) override;
-  base::Value GetEnabledNetworkTypes() override;
-  std::unique_ptr<DeviceStateList> GetDeviceStateList() override;
-  base::Value GetGlobalPolicy() override;
-  base::Value GetCertificateLists() override;
-  bool EnableNetworkType(const std::string& type) override;
-  bool DisableNetworkType(const std::string& type) override;
-  bool RequestScan(const std::string& type) override;
+  void GetEnabledNetworkTypes(EnabledNetworkTypesCallback callback) override;
+  void GetDeviceStateList(DeviceStateListCallback callback) override;
+  void GetGlobalPolicy(GetGlobalPolicyCallback callback) override;
+  void GetCertificateLists(GetCertificateListsCallback callback) override;
+  void EnableNetworkType(const std::string& type,
+                         BoolCallback callback) override;
+  void DisableNetworkType(const std::string& type,
+                          BoolCallback callback) override;
+  void RequestScan(const std::string& type, BoolCallback callback) override;
 
  private:
   // Callback for both GetProperties and GetManagedProperties. Copies
@@ -102,15 +105,15 @@ class NetworkingPrivateChromeOS : public NetworkingPrivateDelegate {
   void GetPropertiesCallback(const std::string& guid,
                              PropertiesCallback callback,
                              const std::string& service_path,
-                             absl::optional<base::Value> dictionary,
+                             absl::optional<base::Value::Dict> dictionary,
                              absl::optional<std::string> error);
 
   // Populate ThirdPartyVPN.ProviderName with the provider name for third-party
   // VPNs. The provider name needs to be looked up from the list of extensions
-  // which is not available to the chromeos/network module.
-  void AppendThirdPartyProviderName(base::Value* dictionary);
+  // which is not available to the chromeos/ash/components/network module.
+  void AppendThirdPartyProviderName(base::Value::Dict* dictionary);
 
-  content::BrowserContext* browser_context_;
+  raw_ptr<content::BrowserContext, ExperimentalAsh> browser_context_;
   base::WeakPtrFactory<NetworkingPrivateChromeOS> weak_ptr_factory_{this};
 };
 

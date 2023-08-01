@@ -1,8 +1,9 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/input_method/ui/candidate_window_view.h"
+#include "base/memory/raw_ptr.h"
 
 #include <stddef.h>
 
@@ -40,11 +41,7 @@ class CandidateWindowBorder : public views::BubbleBorder {
  public:
   CandidateWindowBorder()
       : views::BubbleBorder(views::BubbleBorder::TOP_CENTER,
-                            views::BubbleBorder::STANDARD_SHADOW,
-                            gfx::kPlaceholderColor),
-        offset_(0) {
-    set_use_theme_background_color(true);
-  }
+                            views::BubbleBorder::STANDARD_SHADOW) {}
   CandidateWindowBorder(const CandidateWindowBorder&) = delete;
   CandidateWindowBorder& operator=(const CandidateWindowBorder&) = delete;
   ~CandidateWindowBorder() override = default;
@@ -88,7 +85,7 @@ class CandidateWindowBorder : public views::BubbleBorder {
 
   gfx::Insets GetInsets() const override { return gfx::Insets(); }
 
-  int offset_;
+  int offset_ = 0;
 };
 
 // Computes the page index. For instance, if the page size is 9, and the
@@ -115,10 +112,10 @@ class InformationTextArea : public views::View {
       : min_width_(min_width) {
     label_ = new views::Label;
     label_->SetHorizontalAlignment(align);
-    label_->SetBorder(views::CreateEmptyBorder(2, 2, 2, 4));
+    label_->SetBorder(views::CreateEmptyBorder(gfx::Insets::TLBR(2, 2, 2, 4)));
 
     SetLayoutManager(std::make_unique<views::FillLayout>());
-    AddChildView(label_);
+    AddChildView(label_.get());
   }
 
   InformationTextArea(const InformationTextArea&) = delete;
@@ -151,7 +148,8 @@ class InformationTextArea : public views::View {
     if (!position_ || !GetWidget())
       return;
     SetBorder(views::CreateSolidSidedBorder(
-        (position_ == TOP) ? 1 : 0, 0, (position_ == BOTTOM) ? 1 : 0, 0,
+        gfx::Insets::TLBR((position_ == TOP) ? 1 : 0, 0,
+                          (position_ == BOTTOM) ? 1 : 0, 0),
         GetColorProvider()->GetColor(ui::kColorMenuBorder)));
   }
 
@@ -163,7 +161,7 @@ class InformationTextArea : public views::View {
   }
 
  private:
-  views::Label* label_;
+  raw_ptr<views::Label, ExperimentalAsh> label_;
   int min_width_;
   absl::optional<BorderPosition> position_;
 };
@@ -172,17 +170,14 @@ BEGIN_METADATA(InformationTextArea, views::View)
 END_METADATA
 
 CandidateWindowView::CandidateWindowView(gfx::NativeView parent)
-    : selected_candidate_index_in_page_(-1),
-      should_show_at_composition_head_(false),
-      should_show_upper_side_(false),
-      was_candidate_window_open_(false) {
+    : selected_candidate_index_in_page_(-1) {
   DialogDelegate::SetButtons(ui::DIALOG_BUTTON_NONE);
   SetCanActivate(false);
   DCHECK(parent);
   set_parent_window(parent);
   set_margins(gfx::Insets());
   // Ignore this role for accessibility purposes.
-  SetAccessibleRole(ax::mojom::Role::kNone);
+  SetAccessibleWindowRole(ax::mojom::Role::kNone);
 
   // When BubbleDialogDelegateView creates its frame view it will create a
   // bubble border with a non-zero corner radius by default.
@@ -203,16 +198,16 @@ CandidateWindowView::CandidateWindowView(gfx::NativeView parent)
   candidate_area_->SetVisible(false);
   preedit_->SetBorderFromPosition(InformationTextArea::BOTTOM);
   if (candidate_window_.orientation() == ui::CandidateWindow::VERTICAL) {
-    AddChildView(preedit_);
-    AddChildView(candidate_area_);
-    AddChildView(auxiliary_text_);
+    AddChildView(preedit_.get());
+    AddChildView(candidate_area_.get());
+    AddChildView(auxiliary_text_.get());
     auxiliary_text_->SetBorderFromPosition(InformationTextArea::TOP);
     candidate_area_->SetLayoutManager(std::make_unique<views::BoxLayout>(
         views::BoxLayout::Orientation::kVertical));
   } else {
-    AddChildView(preedit_);
-    AddChildView(auxiliary_text_);
-    AddChildView(candidate_area_);
+    AddChildView(preedit_.get());
+    AddChildView(auxiliary_text_.get());
+    AddChildView(candidate_area_.get());
     auxiliary_text_->SetAlignment(gfx::ALIGN_LEFT);
     auxiliary_text_->SetBorderFromPosition(InformationTextArea::BOTTOM);
     candidate_area_->SetLayoutManager(std::make_unique<views::BoxLayout>(
@@ -283,7 +278,7 @@ void CandidateWindowView::UpdateCandidates(
       // If the new layout is vertical, the aux text should appear at the
       // bottom. If horizontal, it should appear between preedit and candidates.
       if (new_candidate_window.orientation() == ui::CandidateWindow::VERTICAL) {
-        ReorderChildView(auxiliary_text_, -1);
+        ReorderChildView(auxiliary_text_, children().size());
         auxiliary_text_->SetAlignment(gfx::ALIGN_RIGHT);
         auxiliary_text_->SetBorderFromPosition(InformationTextArea::TOP);
         candidate_area_->SetLayoutManager(std::make_unique<views::BoxLayout>(
@@ -300,8 +295,6 @@ void CandidateWindowView::UpdateCandidates(
     // Initialize candidate views if necessary.
     MaybeInitializeCandidateViews(new_candidate_window);
 
-    should_show_at_composition_head_ =
-        new_candidate_window.show_window_at_composition();
     // Compute the index of the current page.
     const int current_page_index = ComputePageIndex(new_candidate_window);
     if (current_page_index < 0)
@@ -381,10 +374,11 @@ void CandidateWindowView::UpdateCandidates(
       base::UTF8ToUTF16(candidate_window_.auxiliary_text()));
 }
 
-void CandidateWindowView::SetCursorBounds(const gfx::Rect& cursor_bounds,
-                                          const gfx::Rect& composition_head) {
+void CandidateWindowView::SetCursorAndCompositionBounds(
+    const gfx::Rect& cursor_bounds,
+    const gfx::Rect& composition_bounds) {
   if (candidate_window_.show_window_at_composition())
-    SetAnchorRect(composition_head);
+    SetAnchorRect(composition_bounds);
   else
     SetAnchorRect(cursor_bounds);
 }

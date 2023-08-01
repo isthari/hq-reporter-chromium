@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include "base/dcheck_is_on.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/geometry/logical_rect.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_line_box_fragment_builder.h"
 #include "third_party/blink/renderer/core/style/computed_style_constants.h"
@@ -103,7 +104,7 @@ struct NGInlineBoxState {
   // True if this box has a metrics, including pending ones. Pending metrics
   // will be activated in |EndBoxState()|.
   bool HasMetrics() const {
-    return !metrics.IsEmpty() || !pending_descendants.IsEmpty();
+    return !metrics.IsEmpty() || !pending_descendants.empty();
   }
 
   // Compute text metrics for a box. All text in a box share the same
@@ -154,12 +155,14 @@ class CORE_EXPORT NGInlineLayoutStateStack {
                                       NGLogicalLineItems* line_box);
 
   // Push a box state stack.
-  NGInlineBoxState* OnOpenTag(const NGInlineItem&,
+  NGInlineBoxState* OnOpenTag(const NGConstraintSpace&,
+                              const NGInlineItem&,
                               const NGInlineItemResult&,
                               FontBaseline baseline_type,
                               const NGLogicalLineItems&);
   // This variation adds a box placeholder to |line_box|.
-  NGInlineBoxState* OnOpenTag(const NGInlineItem&,
+  NGInlineBoxState* OnOpenTag(const NGConstraintSpace&,
+                              const NGInlineItem&,
                               const NGInlineItemResult&,
                               FontBaseline baseline_type,
                               NGLogicalLineItems* line_box);
@@ -168,8 +171,7 @@ class CORE_EXPORT NGInlineLayoutStateStack {
   NGInlineBoxState* OnCloseTag(const NGConstraintSpace& space,
                                NGLogicalLineItems*,
                                NGInlineBoxState*,
-                               FontBaseline,
-                               bool has_end_edge = true);
+                               FontBaseline);
 
   // Compute all the pending positioning at the end of a line.
   void OnEndPlaceItems(const NGConstraintSpace& space,
@@ -178,7 +180,7 @@ class CORE_EXPORT NGInlineLayoutStateStack {
 
   void OnBlockInInline(const FontHeight& metrics, NGLogicalLineItems* line_box);
 
-  bool HasBoxFragments() const { return !box_data_list_.IsEmpty(); }
+  bool HasBoxFragments() const { return !box_data_list_.empty(); }
 
   // Notify when child is inserted at |index| to adjust child indexes.
   void ChildInserted(unsigned index);
@@ -278,6 +280,7 @@ class CORE_EXPORT NGInlineLayoutStateStack {
 
     bool has_line_left_edge = false;
     bool has_line_right_edge = false;
+    NGLineBoxStrut borders;
     NGLineBoxStrut padding;
     // |CreateBoxFragment()| needs margin, border+padding, and the sum of them.
     LayoutUnit margin_line_left;
@@ -290,10 +293,9 @@ class CORE_EXPORT NGInlineLayoutStateStack {
 
     void UpdateFragmentEdges(Vector<BoxData, 4>& list);
 
-    scoped_refptr<const NGLayoutResult> CreateBoxFragment(
-        const NGConstraintSpace&,
-        NGLogicalLineItems*,
-        bool is_opaque = false);
+    const NGLayoutResult* CreateBoxFragment(const NGConstraintSpace&,
+                                            NGLogicalLineItems*,
+                                            bool is_opaque = false);
   };
 
   // Update start/end of the first BoxData found at |index|.
@@ -313,6 +315,7 @@ class CORE_EXPORT NGInlineLayoutStateStack {
   Vector<BoxData, 4> box_data_list_;
 
   bool is_empty_line_ = false;
+  bool has_block_in_inline_ = false;
   bool is_svg_text_ = false;
 };
 

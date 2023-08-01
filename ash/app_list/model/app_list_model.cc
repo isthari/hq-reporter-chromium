@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -64,17 +64,22 @@ AppListFolderItem* AppListModel::FindFolderItem(const std::string& id) {
   return nullptr;
 }
 
+AppListFolderItem* AppListModel::CreateFolderItem(
+    const std::string& folder_id) {
+  DCHECK(!top_level_item_list()->FindItem(folder_id));
+  std::unique_ptr<AppListFolderItem> new_folder =
+      std::make_unique<AppListFolderItem>(folder_id, delegate_);
+  new_folder->set_position(
+      top_level_item_list_->CreatePositionBefore(syncer::StringOrdinal()));
+  AppListItem* new_folder_item = AddItemToRootListAndNotify(
+      std::move(new_folder), ReparentItemReason::kAdd);
+  return static_cast<AppListFolderItem*>(new_folder_item);
+}
+
 AppListItem* AppListModel::AddItem(std::unique_ptr<AppListItem> item) {
   DCHECK(!item->IsInFolder());
   DCHECK(!top_level_item_list()->FindItem(item->id()));
   return AddItemToRootListAndNotify(std::move(item), ReparentItemReason::kAdd);
-}
-
-void AppListModel::AddPageBreakItemAfter(const AppListItem* previous_item) {
-  AppListItem* page_break_item =
-      top_level_item_list()->AddPageBreakItemAfter(previous_item);
-  for (auto& observer : observers_)
-    observer.OnAppListItemAdded(page_break_item);
 }
 
 void AppListModel::SetItemMetadata(const std::string& id,
@@ -98,10 +103,12 @@ void AppListModel::SetItemMetadata(const std::string& id,
     SetItemName(item, data->name);
   }
 
-  // Folder icon is generated on ash side and chrome side passes a null
-  // icon here. Skip it.
-  if (data->icon.isNull())
+  if (data->icon.isNull()) {
+    // Folder icons are generated on ash side so the icon of the metadata passed
+    // from chrome side is null. Do not alter `item` default icon in this case.
     data->icon = item->GetDefaultIcon();
+    data->icon_color = item->GetDefaultIconColor();
+  }
 
   if (data->folder_id != item->folder_id())
     MoveItemToFolder(item, data->folder_id);
@@ -116,9 +123,9 @@ AppListItem* AppListModel::AddItemToFolder(std::unique_ptr<AppListItem> item,
   DVLOG(2) << "AddItemToFolder: " << item->id() << ": " << folder_id;
   CHECK_NE(folder_id, item->folder_id());
   DCHECK_NE(AppListFolderItem::kItemType, item->GetItemType());
-  AppListFolderItem* dest_folder = FindOrCreateFolderItem(folder_id);
+  AppListFolderItem* dest_folder = FindFolderItem(folder_id);
   if (!dest_folder)
-    return nullptr;
+    dest_folder = CreateFolderItem(folder_id);
   DCHECK(!dest_folder->item_list()->FindItem(item->id()))
       << "Already in folder: " << dest_folder->id();
   return AddItemToFolderListAndNotify(dest_folder, std::move(item),
@@ -156,30 +163,11 @@ const std::string AppListModel::MergeItems(const std::string& target_item_id,
       LOG(WARNING) << "MergeItems called with OEM folder as target";
       return "";
     }
-    delegate_->RequestMoveItemToFolder(source_item_id, target_item_id,
-                                       RequestMoveToFolderReason::kMoveItem);
+    delegate_->RequestMoveItemToFolder(source_item_id, target_item_id);
     return target_folder->id();
   }
 
-  // Create a new folder in the same location as the target item.
-  std::string new_folder_id = AppListFolderItem::GenerateId();
-  DVLOG(2) << "Creating folder for merge: " << new_folder_id;
-  std::unique_ptr<AppListItem> new_folder_ptr =
-      std::make_unique<AppListFolderItem>(new_folder_id, delegate_);
-  new_folder_ptr->set_position(target_item->position());
-  AppListFolderItem* new_folder =
-      static_cast<AppListFolderItem*>(AddItemToRootListAndNotify(
-          std::move(new_folder_ptr), ReparentItemReason::kAdd));
-
-  // Add the items to the new folder.
-  delegate_->RequestMoveItemToFolder(
-      target_item_id, new_folder_id,
-      RequestMoveToFolderReason::kMergeFirstItem);
-  delegate_->RequestMoveItemToFolder(
-      source_item_id, new_folder_id,
-      RequestMoveToFolderReason::kMergeSecondItem);
-
-  return new_folder->id();
+  return delegate_->RequestFolderCreation(target_item_id, source_item_id);
 }
 
 void AppListModel::MoveItemToFolder(AppListItem* item,
@@ -190,8 +178,9 @@ void AppListModel::MoveItemToFolder(AppListItem* item,
     return;
 
   if (!item->IsInFolder()) {
-    AppListFolderItem* dest_folder = FindOrCreateFolderItem(folder_id);
-    DCHECK(dest_folder);
+    AppListFolderItem* dest_folder = FindFolderItem(folder_id);
+    if (!dest_folder)
+      dest_folder = CreateFolderItem(folder_id);
     // Handle the case that `item` is a top list item.
     std::unique_ptr<AppListItem> item_ptr = RemoveFromTopList(item);
     AddItemToFolderListAndNotify(dest_folder, std::move(item_ptr),
@@ -209,7 +198,7 @@ bool AppListModel::MoveItemToRootAt(AppListItem* item,
            << " <- " << item->ToDebugString();
   if (item->folder_id().empty())
     return false;
-  AppListFolderItem* src_folder = FindOrCreateFolderItem(item->folder_id());
+  AppListFolderItem* src_folder = FindFolderItem(item->folder_id());
   if (src_folder &&
       src_folder->folder_type() == AppListFolderItem::FOLDER_TYPE_OEM) {
     LOG(WARNING) << "MoveItemToFolderAt called with OEM folder as source";
@@ -267,31 +256,6 @@ void AppListModel::DeleteItem(const std::string& id) {
                                /*destination_folder_id=*/absl::nullopt);
 }
 
-void AppListModel::AddFolderItemForTest(const std::string& folder_id) {
-  AddItem(std::make_unique<AppListFolderItem>(folder_id, delegate_));
-}
-
-// Protected methods
-
-AppListFolderItem* AppListModel::FindOrCreateFolderItem(
-    const std::string& folder_id) {
-  if (folder_id.empty())
-    return nullptr;
-
-  AppListFolderItem* dest_folder = FindFolderItem(folder_id);
-  if (dest_folder)
-    return dest_folder;
-
-  DVLOG(2) << "Creating new folder: " << folder_id;
-  std::unique_ptr<AppListFolderItem> new_folder =
-      std::make_unique<AppListFolderItem>(folder_id, delegate_);
-  new_folder->set_position(
-      top_level_item_list_->CreatePositionBefore(syncer::StringOrdinal()));
-  AppListItem* new_folder_item = AddItemToRootListAndNotify(
-      std::move(new_folder), ReparentItemReason::kAdd);
-  return static_cast<AppListFolderItem*>(new_folder_item);
-}
-
 // Private methods
 
 void AppListModel::OnListItemMoved(size_t from_index,
@@ -320,8 +284,12 @@ AppListItem* AppListModel::AddItemToFolderListAndNotify(
     std::unique_ptr<AppListItem> item_ptr,
     ReparentItemReason reason) {
   CHECK_NE(folder->id(), item_ptr->folder_id());
+
+  // Calling `AppListItemList::AddItem()` could trigger
+  // `AppListModel::SetItemMetadata()` so set the folder id before addition.
+  item_ptr->set_folder_id(folder->id());
+
   AppListItem* item = folder->item_list()->AddItem(std::move(item_ptr));
-  item->set_folder_id(folder->id());
   NotifyItemParentChange(item, reason);
   return item;
 }
@@ -368,9 +336,14 @@ void AppListModel::ReparentOrDeleteItemInFolder(
       AddItemToRootListAndNotify(std::move(removed_item),
                                  ReparentItemReason::kUpdate);
     } else {
-      AddItemToFolderListAndNotify(
-          FindOrCreateFolderItem(*destination_folder_id),
-          std::move(removed_item), ReparentItemReason::kUpdate);
+      // Create a folder if the destination folder doesn't exist.
+      AppListFolderItem* destination_folder =
+          FindFolderItem(*destination_folder_id);
+      if (!destination_folder)
+        destination_folder = CreateFolderItem(*destination_folder_id);
+
+      AddItemToFolderListAndNotify(destination_folder, std::move(removed_item),
+                                   ReparentItemReason::kUpdate);
     }
   } else {
     // Destroy `removed_item` and notify observers.

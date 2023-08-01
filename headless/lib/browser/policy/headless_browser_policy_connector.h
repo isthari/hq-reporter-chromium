@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -48,8 +48,6 @@ class HeadlessBrowserPolicyConnector : public BrowserPolicyConnector {
   ConfigurationPolicyProvider* GetPlatformProvider();
 
   std::unique_ptr<ConfigurationPolicyProvider> CreatePlatformProvider();
-
-  PlatformManagementService platform_management_service_;
 
   // Owned by the base class.
   raw_ptr<ConfigurationPolicyProvider> platform_provider_ = nullptr;

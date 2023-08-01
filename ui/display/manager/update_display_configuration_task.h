@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include <memory>
 #include <vector>
 
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -20,6 +21,7 @@
 namespace display {
 
 class DisplaySnapshot;
+class DisplayLayoutManager;
 class NativeDisplayDelegate;
 
 class DISPLAY_MANAGER_EXPORT UpdateDisplayConfigurationTask
@@ -30,15 +32,20 @@ class DISPLAY_MANAGER_EXPORT UpdateDisplayConfigurationTask
       /*displays=*/const std::vector<DisplaySnapshot*>&,
       /*unassociated_displays=*/const std::vector<DisplaySnapshot*>&,
       /*new_display_state=*/MultipleDisplayState,
-      /*new_power_state=*/chromeos::DisplayPowerState)>;
+      /*new_power_state=*/chromeos::DisplayPowerState,
+      /*new_vrr_state=*/bool)>;
 
-  UpdateDisplayConfigurationTask(NativeDisplayDelegate* delegate,
-                                 DisplayLayoutManager* layout_manager,
-                                 MultipleDisplayState new_display_state,
-                                 chromeos::DisplayPowerState new_power_state,
-                                 int power_flags,
-                                 bool force_configure,
-                                 ResponseCallback callback);
+  UpdateDisplayConfigurationTask(
+      NativeDisplayDelegate* delegate,
+      DisplayLayoutManager* layout_manager,
+      MultipleDisplayState new_display_state,
+      chromeos::DisplayPowerState new_power_state,
+      int power_flags,
+      RefreshRateThrottleState refresh_rate_throttle_state,
+      bool new_vrr_state,
+      bool force_configure,
+      ConfigurationType configuration_type,
+      ResponseCallback callback);
 
   UpdateDisplayConfigurationTask(const UpdateDisplayConfigurationTask&) =
       delete;
@@ -68,7 +75,7 @@ class DISPLAY_MANAGER_EXPORT UpdateDisplayConfigurationTask
   void OnEnableSoftwareMirroring(ConfigureDisplaysTask::Status status);
 
   // Starts the configuration process. |callback| is used to continue the task
-  // after |configure_taks_| finishes executing.
+  // after |configure_task_| finishes executing.
   void EnterState(ConfigureDisplaysTask::ResponseCallback callback);
 
   // Finishes display configuration and runs |callback_|.
@@ -83,8 +90,12 @@ class DISPLAY_MANAGER_EXPORT UpdateDisplayConfigurationTask
   // Returns a display state based on the power state.
   MultipleDisplayState ChooseDisplayState() const;
 
-  NativeDisplayDelegate* delegate_;       // Not owned.
-  DisplayLayoutManager* layout_manager_;  // Not owned.
+  // Returns whether a display configuration is required to meet the desired
+  // variable refresh rate setting.
+  bool ShouldConfigureVrr() const;
+
+  raw_ptr<NativeDisplayDelegate, ExperimentalAsh> delegate_;       // Not owned.
+  raw_ptr<DisplayLayoutManager, ExperimentalAsh> layout_manager_;  // Not owned.
 
   // Requested display state.
   MultipleDisplayState new_display_state_;
@@ -96,7 +107,19 @@ class DISPLAY_MANAGER_EXPORT UpdateDisplayConfigurationTask
   // DisplayConfigurator.
   int power_flags_;
 
+  // Whether the configuration task should select a low refresh rate
+  // for the internal display.
+  RefreshRateThrottleState refresh_rate_throttle_state_;
+
+  // The requested VRR enabled state which the configuration task should apply
+  // to all capable displays.
+  bool new_vrr_state_;
+
   bool force_configure_;
+
+  // Whether the configuration task should be done without blanking the
+  // displays.
+  const ConfigurationType configuration_type_;
 
   // Used to signal that the task has finished.
   ResponseCallback callback_;

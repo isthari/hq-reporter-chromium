@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 #ifndef CONTENT_SHELL_BROWSER_SHELL_H_
@@ -10,8 +10,9 @@
 #include <string>
 #include <vector>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/strings/string_piece.h"
 #include "build/build_config.h"
 #include "content/public/browser/session_storage_namespace.h"
@@ -25,11 +26,13 @@
 class GURL;
 
 namespace content {
+class FileSelectListener;
 class BrowserContext;
 class JavaScriptDialogManager;
 class ShellDevToolsFrontend;
 class SiteInstance;
 class WebContents;
+class RenderFrameHost;
 
 // This represents one window of the Content Shell, i.e. all the UI including
 // buttons and url bar, as well as the web content area.
@@ -116,7 +119,7 @@ class Shell : public WebContentsDelegate, public WebContentsObserver {
                       std::unique_ptr<WebContents> new_contents,
                       const GURL& target_url,
                       WindowOpenDisposition disposition,
-                      const gfx::Rect& initial_rect,
+                      const blink::mojom::WindowFeatures& window_features,
                       bool user_gesture,
                       bool* was_blocked) override;
   void LoadingStateChanged(WebContents* source,
@@ -131,6 +134,12 @@ class Shell : public WebContentsDelegate, public WebContentsObserver {
   bool IsFullscreenForTabOrPending(const WebContents* web_contents) override;
   blink::mojom::DisplayMode GetDisplayMode(
       const WebContents* web_contents) override;
+#if !BUILDFLAG(IS_ANDROID)
+  void RegisterProtocolHandler(RenderFrameHost* requesting_frame,
+                               const std::string& protocol,
+                               const GURL& url,
+                               bool user_gesture) override;
+#endif
   void RequestToLockMouse(WebContents* web_contents,
                           bool user_gesture,
                           bool last_unlocked_by_target) override;
@@ -141,7 +150,6 @@ class Shell : public WebContentsDelegate, public WebContentsObserver {
   JavaScriptDialogManager* GetJavaScriptDialogManager(
       WebContents* source) override;
 #if BUILDFLAG(IS_MAC)
-  void DidNavigatePrimaryMainFramePostCommit(WebContents* contents) override;
   bool HandleKeyboardEvent(WebContents* source,
                            const NativeWebKeyboardEvent& event) override;
 #endif
@@ -156,21 +164,25 @@ class Shell : public WebContentsDelegate, public WebContentsObserver {
       RenderWidgetHost* render_widget_host,
       base::RepeatingClosure hang_monitor_restarter) override;
   void ActivateContents(WebContents* contents) override;
+  void RunFileChooser(RenderFrameHost* render_frame_host,
+                      scoped_refptr<FileSelectListener> listener,
+                      const blink::mojom::FileChooserParams& params) override;
   bool IsBackForwardCacheSupported() override;
-  bool IsPrerender2Supported() override;
-  std::unique_ptr<content::WebContents> ActivatePortalWebContents(
-      content::WebContents* predecessor_contents,
-      std::unique_ptr<content::WebContents> portal_contents) override;
+  PreloadingEligibility IsPrerender2Supported(
+      WebContents& web_contents) override;
+  std::unique_ptr<WebContents> ActivatePortalWebContents(
+      WebContents* predecessor_contents,
+      std::unique_ptr<WebContents> portal_contents) override;
   void UpdateInspectedWebContentsIfNecessary(
-      content::WebContents* old_contents,
-      content::WebContents* new_contents,
+      WebContents* old_contents,
+      WebContents* new_contents,
       base::OnceCallback<void()> callback) override;
-  bool ShouldAllowRunningInsecureContent(content::WebContents* web_contents,
+  bool ShouldAllowRunningInsecureContent(WebContents* web_contents,
                                          bool allowed_per_prefs,
                                          const url::Origin& origin,
                                          const GURL& resource_url) override;
   PictureInPictureResult EnterPictureInPicture(
-      content::WebContents* web_contents) override;
+      WebContents* web_contents) override;
   bool ShouldResumeRequestsForCreatedWindow() override;
   void SetContentsBounds(WebContents* source, const gfx::Rect& bounds) override;
 
@@ -210,6 +222,9 @@ class Shell : public WebContentsDelegate, public WebContentsObserver {
 #endif
   void TitleWasSet(NavigationEntry* entry) override;
   void RenderFrameCreated(RenderFrameHost* frame_host) override;
+#if BUILDFLAG(IS_MAC)
+  void PrimaryPageChanged(Page& page) override;
+#endif
 
   std::unique_ptr<JavaScriptDialogManager> dialog_manager_;
 

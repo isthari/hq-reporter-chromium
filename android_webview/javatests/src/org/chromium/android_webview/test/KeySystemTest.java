@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,6 @@ import org.junit.runner.RunWith;
 import org.chromium.android_webview.AwContents;
 import org.chromium.android_webview.permission.AwPermissionRequest;
 import org.chromium.android_webview.permission.Resource;
-import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 
 /**
@@ -112,7 +111,6 @@ public class KeySystemTest {
     @Test
     @Feature({"AndroidWebView"})
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/701916")
     public void testSupportWidevineKeySystem() throws Throwable {
         Assert.assertEquals(
                 getPlatformKeySystemExpectations(), isKeySystemSupported("com.widevine.alpha"));
@@ -128,7 +126,6 @@ public class KeySystemTest {
     @Test
     @Feature({"AndroidWebView"})
     @SmallTest
-    @DisabledTest(message = "https://crbug.com/701916")
     public void testSupportPlatformKeySystem() throws Throwable {
         Assert.assertEquals(getPlatformKeySystemExpectations(),
                 isKeySystemSupported("x-com.oem.test-keysystem"));

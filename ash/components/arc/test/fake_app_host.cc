@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -55,5 +55,9 @@ void FakeAppHost::OnInstallationStarted(
     const absl::optional<std::string>& package_name) {}
 void FakeAppHost::OnInstallationFinished(
     arc::mojom::InstallationResultPtr result) {}
+void FakeAppHost::OnInstallationProgressChanged(const std::string& package_name,
+                                                float progress) {}
+void FakeAppHost::OnInstallationActiveChanged(const std::string& package_name,
+                                              bool active) {}
 
 }  // namespace arc

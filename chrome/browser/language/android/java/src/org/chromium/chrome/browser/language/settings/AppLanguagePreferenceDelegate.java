@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,7 +30,7 @@ public class AppLanguagePreferenceDelegate {
 
     private SnackbarManager mSnackbarManager;
     private Snackbar mSnackbar;
-    private SnackbarController mStackbarController;
+    private SnackbarController mSnackbarController;
     // Preference representing the current app language.
     private LanguageItemPickerPreference mPreference;
     // Activity representing the {@link LanguageSettings} preferences.
@@ -42,7 +42,7 @@ public class AppLanguagePreferenceDelegate {
      * @param action RestartAction handler to restart Chrome from the Snackbar.
      */
     public void setRestartAction(RestartAction action) {
-        mStackbarController = new SuccessSnackbarControllerImpl(action);
+        mSnackbarController = new SuccessSnackbarControllerImpl(action);
     }
 
     /**
@@ -63,6 +63,7 @@ public class AppLanguagePreferenceDelegate {
      */
     public void maybeShowSnackbar() {
         if (mSnackbar != null && mSnackbarManager.canShowSnackbar()) {
+            mSnackbarManager.setParentView(mActivity.findViewById(android.R.id.content));
             mSnackbarManager.showSnackbar(mSnackbar);
             mSnackbar = null;
         }
@@ -127,13 +128,13 @@ public class AppLanguagePreferenceDelegate {
      * the Snackbar, and if not possible save the Snackbar to show later.
      */
     private void makeAndShowRestartSnackbar() {
-        mSnackbarManager.dismissSnackbars(mStackbarController);
+        mSnackbarManager.dismissSnackbars(mSnackbarController);
         String displayName = mPreference.getLanguageItem().getDisplayName();
         Resources resources = mActivity.getResources();
         Snackbar snackbar =
                 Snackbar.make(resources.getString(R.string.languages_infobar_ready, displayName),
-                                mStackbarController, Snackbar.TYPE_PERSISTENT,
-                                Snackbar.UMA_TAB_CLOSE_UNDO)
+                                mSnackbarController, Snackbar.TYPE_PERSISTENT,
+                                Snackbar.UMA_LANGUAGE_SPLIT_RESTART)
                         .setAction(resources.getString(R.string.languages_infobar_restart), null);
         snackbar.setSingleLine(false);
         if (mSnackbarManager.canShowSnackbar()) {
@@ -151,19 +152,9 @@ public class AppLanguagePreferenceDelegate {
             mRestartAction = action;
         }
 
-        // SnackbarController implementation.
         @Override
         public void onAction(Object actionData) {
-            // TODO (https://crbug.com/1196144): Add logging.
             if (mRestartAction != null) mRestartAction.restart();
-        }
-
-        /**
-         * Override SnackbarManager.SnackbarController onDismissNoAction.
-         */
-        @Override
-        public void onDismissNoAction(Object actionData) {
-            // TODO (https://crbug.com/1196144): Add logging.
         }
     }
 }

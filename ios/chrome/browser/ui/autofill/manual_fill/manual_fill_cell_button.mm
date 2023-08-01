@@ -1,10 +1,13 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/autofill/manual_fill/manual_fill_cell_button.h"
 
+#import "base/ios/ios_util.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
 #import "ios/chrome/browser/ui/autofill/manual_fill/manual_fill_cell_utils.h"
+#import "ios/chrome/common/button_configuration_util.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -57,9 +60,26 @@ static const CGFloat kButtonVerticalMargin = 12;
   self.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
   self.titleLabel.adjustsFontForContentSizeCategory = YES;
   self.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeading;
-  self.contentEdgeInsets =
-      UIEdgeInsetsMake(kButtonVerticalMargin, kButtonHorizontalMargin,
-                       kButtonVerticalMargin, kButtonHorizontalMargin);
+
+  // TODO(crbug.com/1418068): Simplify after minimum version required is >=
+  // iOS 15.
+  if (base::ios::IsRunningOnIOS15OrLater() &&
+      IsUIButtonConfigurationEnabled()) {
+    if (@available(iOS 15, *)) {
+      UIButtonConfiguration* buttonConfiguration =
+          [UIButtonConfiguration plainButtonConfiguration];
+      buttonConfiguration.contentInsets = NSDirectionalEdgeInsetsMake(
+          kButtonVerticalMargin, kButtonHorizontalMargin, kButtonVerticalMargin,
+          kButtonHorizontalMargin);
+      self.configuration = buttonConfiguration;
+    }
+  } else {
+    UIEdgeInsets contentEdgeInsets =
+        UIEdgeInsetsMake(kButtonVerticalMargin, kButtonHorizontalMargin,
+                         kButtonVerticalMargin, kButtonHorizontalMargin);
+    SetContentEdgeInsets(self, contentEdgeInsets);
+  }
+
   self.titleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
 }
 

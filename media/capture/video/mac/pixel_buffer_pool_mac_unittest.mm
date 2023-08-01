@@ -1,14 +1,18 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "media/capture/video/mac/pixel_buffer_pool_mac.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/mac/scoped_nsobject.h"
 #import "media/capture/video/mac/test/video_capture_test_utils_mac.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 namespace media {
 
@@ -63,8 +67,8 @@ TEST(PixelBufferPoolTest, CannotExceedMaxBuffersWhenIOSurfaceIsInUse) {
   EXPECT_TRUE(first_buffer);
   IOSurfaceRef io_surface = CVPixelBufferGetIOSurface(first_buffer);
   EXPECT_TRUE(io_surface);
-  // Incremet use count of raw ptr IOSurface reference while releasing the pixel
-  // buffer's only reference.
+  // Increment use count of raw ptr IOSurface reference while releasing the
+  // pixel buffer's only reference.
   IOSurfaceIncrementUseCount(io_surface);
   first_buffer.reset();
   // The pixel buffer has not been returned to the pool.

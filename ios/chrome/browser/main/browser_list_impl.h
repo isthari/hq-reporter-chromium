@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,9 @@
 #define IOS_CHROME_BROWSER_MAIN_BROWSER_LIST_IMPL_H_
 
 #include "base/observer_list.h"
-#import "ios/chrome/browser/main/browser_list.h"
-#include "ios/chrome/browser/main/browser_list_observer.h"
-#import "ios/chrome/browser/main/browser_observer.h"
+#import "ios/chrome/browser/shared/model/browser/browser_list.h"
+#include "ios/chrome/browser/shared/model/browser/browser_list_observer.h"
+#import "ios/chrome/browser/shared/model/browser/browser_observer.h"
 
 // The concrete implementation of BrowserList returned by the
 // BrowserListFactory.
@@ -34,16 +34,15 @@ class BrowserListImpl : public BrowserList, public BrowserObserver {
   std::set<Browser*> AllIncognitoBrowsers() const override;
   void AddObserver(BrowserListObserver* observer) override;
   void RemoveObserver(BrowserListObserver* observer) override;
-  bool IsShutdown() override;
 
   // BrowserObserver:
   void BrowserDestroyed(Browser* browser) override;
 
  private:
-  bool is_shutdown_ = false;
   std::set<Browser*> browsers_;
   std::set<Browser*> incognito_browsers_;
-  base::ObserverList<BrowserListObserver, true>::Unchecked observers_;
+
+  base::ObserverList<BrowserListObserver, true> observers_;
 };
 
 #endif  // IOS_CHROME_BROWSER_MAIN_BROWSER_LIST_IMPL_H_

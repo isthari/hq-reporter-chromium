@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,6 @@
 #include "ash/shelf/shelf.h"
 #include "ash/shell.h"
 #include "ash/wm/lock_layout_manager.h"
-#include "ash/wm/window_state.h"
 #include "ash/wm/window_state_delegate.h"
 #include "ash/wm/window_state_util.h"
 #include "ash/wm/wm_event.h"
@@ -43,9 +42,9 @@ void LockWindowState::OnWMEvent(WindowState* window_state,
       UpdateWindow(window_state, WindowStateType::kFullscreen);
       break;
     case WM_EVENT_PIP:
+    case WM_EVENT_FLOAT:
     case WM_EVENT_PIN:
     case WM_EVENT_TRUSTED_PIN:
-    case WM_EVENT_TOGGLE_FLOATING:
       NOTREACHED();
       break;
     case WM_EVENT_TOGGLE_MAXIMIZE_CAPTION:

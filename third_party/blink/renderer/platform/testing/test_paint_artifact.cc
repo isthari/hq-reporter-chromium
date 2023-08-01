@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,7 +33,9 @@ TestPaintArtifact& TestPaintArtifact::Chunk(int id) {
   // invalidation rects of chunks. The actual values don't matter. If the chunk
   // has display items, we will recalculate the bounds from the display items
   // when constructing the PaintArtifact.
-  Bounds(gfx::Rect(id * 110, id * 220, id * 220 + 200, id * 110 + 200));
+  gfx::Rect bounds(id * 110, id * 220, id * 220 + 200, id * 110 + 200);
+  Bounds(bounds);
+  DrawableBounds(bounds);
   return *this;
 }
 
@@ -88,10 +90,10 @@ TestPaintArtifact& TestPaintArtifact::RectDrawing(DisplayItemClient& client,
                                                   const gfx::Rect& bounds,
                                                   Color color) {
   PaintRecorder recorder;
-  cc::PaintCanvas* canvas = recorder.beginRecording(gfx::RectToSkRect(bounds));
+  cc::PaintCanvas* canvas = recorder.beginRecording();
   if (!bounds.IsEmpty()) {
     cc::PaintFlags flags;
-    flags.setColor(color.Rgb());
+    flags.setColor(color.toSkColor4f());
     canvas->drawRect(gfx::RectToSkRect(bounds), flags);
   }
   paint_artifact_->GetDisplayItemList()
@@ -102,6 +104,11 @@ TestPaintArtifact& TestPaintArtifact::RectDrawing(DisplayItemClient& client,
           client.GetPaintInvalidationReason());
   paint_artifact_->RecordDebugInfo(client.Id(), client.DebugName(),
                                    client.OwnerNodeId());
+  auto& chunk = paint_artifact_->PaintChunks().back();
+  chunk.background_color.color = color.toSkColor4f();
+  chunk.background_color.area = bounds.size().GetArea();
+  // is_solid_color should be set explicitly with IsSolidColor().
+  chunk.background_color.is_solid_color = false;
   DidAddDisplayItem();
   return *this;
 }
@@ -145,6 +152,13 @@ TestPaintArtifact& TestPaintArtifact::HasText() {
   return *this;
 }
 
+TestPaintArtifact& TestPaintArtifact::IsSolidColor() {
+  auto& chunk = paint_artifact_->PaintChunks().back();
+  DCHECK_EQ(chunk.size(), 1u);
+  chunk.background_color.is_solid_color = true;
+  return *this;
+}
+
 TestPaintArtifact& TestPaintArtifact::EffectivelyInvisible() {
   paint_artifact_->PaintChunks().back().effectively_invisible = true;
   return *this;
@@ -153,7 +167,6 @@ TestPaintArtifact& TestPaintArtifact::EffectivelyInvisible() {
 TestPaintArtifact& TestPaintArtifact::Bounds(const gfx::Rect& bounds) {
   auto& chunk = paint_artifact_->PaintChunks().back();
   chunk.bounds = bounds;
-  chunk.drawable_bounds = bounds;
   return *this;
 }
 
@@ -193,8 +206,9 @@ void TestPaintArtifact::DidAddDisplayItem() {
   DCHECK_EQ(chunk.end_index, paint_artifact_->GetDisplayItemList().size() - 1);
   const auto& item = paint_artifact_->GetDisplayItemList().back();
   chunk.bounds.Union(item.VisualRect());
-  if (item.DrawsContent())
+  if (item.DrawsContent()) {
     chunk.drawable_bounds.Union(item.VisualRect());
+  }
   chunk.end_index++;
 }
 

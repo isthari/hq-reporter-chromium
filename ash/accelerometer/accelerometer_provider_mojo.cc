@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 #include "ash/accelerometer/accelerometer_constants.h"
 #include "ash/shell.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/ranges/algorithm.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -79,7 +79,7 @@ void AccelerometerProviderMojo::OnNewDeviceAdded(
         continue;
       }
 
-      if (accelerometers_.find(iio_device_id) != accelerometers_.end())
+      if (base::Contains(accelerometers_, iio_device_id))
         continue;
 
       RegisterAccelerometerWithId(iio_device_id);
@@ -201,11 +201,6 @@ void AccelerometerProviderMojo::SetECLidAngleDriverSupported() {
     // status and revert some changes.
     LOG(WARNING) << "Overwriting ECLidAngleDriverStatus from NOT_SUPPORTED "
                     "to SUPPORTED";
-
-    // Restarts to listen to TabletPhysicalStateChanged from
-    // TabletModeController. Allows the enabled samples when setting
-    // ECLidAngleDriverStatus to SUPPORTED.
-    StartListenToTabletModeController();
   }
 
   SetECLidAngleDriverStatus(ECLidAngleDriverStatus::SUPPORTED);
@@ -515,8 +510,7 @@ void AccelerometerProviderMojo::GetAttributesCallback(
         std::distance(std::begin(kLocationStrings), it));
     accelerometer.location = source;
 
-    if (location_to_accelerometer_id_.find(source) !=
-        location_to_accelerometer_id_.end()) {
+    if (base::Contains(location_to_accelerometer_id_, source)) {
       LOG(WARNING) << "Duplicated location source " << source
                    << " of accel id: " << id << ", and accel id: "
                    << location_to_accelerometer_id_[source];
@@ -591,11 +585,10 @@ void AccelerometerProviderMojo::CreateAccelerometerSamplesObserver(int32_t id) {
     return;
   }
 
-  accelerometer.samples_observer =
-      std::make_unique<AccelerometerSamplesObserver>(
-          id, std::move(accelerometer.remote), accelerometer.scale.value(),
-          base::BindRepeating(
-              &AccelerometerProviderMojo::OnSampleUpdatedCallback, this));
+  accelerometer.samples_observer = std::make_unique<AccelGryoSamplesObserver>(
+      id, std::move(accelerometer.remote), accelerometer.scale.value(),
+      base::BindRepeating(&AccelerometerProviderMojo::OnSampleUpdatedCallback,
+                          this));
 
   if (initialization_state_ == MojoState::BASE) {
     DCHECK_EQ(accelerometer.location.value(),

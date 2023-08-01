@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 
 #include "base/android/callback_android.h"
 #include "base/android/jni_string.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "chrome/android/chrome_jni_headers/ChildAccountService_jni.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/supervised_user/child_accounts/child_account_service.h"

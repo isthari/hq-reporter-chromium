@@ -1,13 +1,14 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.directactions;
 
+import static androidx.test.espresso.matcher.ViewMatchers.assertThat;
+
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
-import static org.mockito.Mockito.anyString;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -69,7 +70,7 @@ public class FindInPageDirectActionHandlerTest {
         TabModelSelector mockTabModelSelector = mock(TabModelSelector.class);
         when(mockTabModelSelector.getCurrentTab()).thenReturn(mockTab);
 
-        when(mMockedReporter.addDirectAction(org.mockito.Matchers.anyString()))
+        when(mMockedReporter.addDirectAction(org.mockito.ArgumentMatchers.anyString()))
                 .thenReturn(new FakeDirectActionDefinition("unused"));
         mHandler =
                 new FindInPageDirectActionHandler(mockTabModelSelector, mMockedFindToolbarManager);
@@ -113,9 +114,6 @@ public class FindInPageDirectActionHandlerTest {
 
     /**
      * A simple action definition for testing.
-     *
-     * TODO(crbug.com/806868): Share these fakes. There is another one in
-     * features/autofill_assistant.
      */
     private static class FakeDirectActionDefinition implements Definition {
         final String mId;

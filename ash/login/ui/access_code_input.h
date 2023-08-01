@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <string>
 
+#include "base/memory/raw_ptr.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/controls/textfield/textfield_controller.h"
@@ -44,6 +45,7 @@ class AccessCodeInput : public views::View, public views::TextfieldController {
   // Makes the internal fields read only. In contrast to 'SetInputEnabled',
   // the focus remain on the element.
   virtual void SetReadOnly(bool read_only) = 0;
+  virtual bool IsReadOnly() const = 0;
 
   // Clears the input field(s).
   virtual void ClearInput() = 0;
@@ -64,14 +66,13 @@ class FlexCodeInput : public AccessCodeInput {
   FlexCodeInput(OnInputChange on_input_change,
                 OnEnter on_enter,
                 OnEscape on_escape,
-                bool obscure_pin,
-                SkColor text_color);
+                bool obscure_pin);
 
   FlexCodeInput(const FlexCodeInput&) = delete;
   FlexCodeInput& operator=(const FlexCodeInput&) = delete;
   ~FlexCodeInput() override;
 
-  void SetAccessibleName(const std::u16string& name);
+  void OnThemeChanged() override;
 
   // Appends |value| to the code
   void InsertDigit(int value) override;
@@ -88,6 +89,7 @@ class FlexCodeInput : public AccessCodeInput {
   void SetInputEnabled(bool input_enabled) override;
 
   void SetReadOnly(bool read_only) override;
+  bool IsReadOnly() const override;
 
   // Clears text in input text field.
   void ClearInput() override;
@@ -103,7 +105,9 @@ class FlexCodeInput : public AccessCodeInput {
                       const ui::KeyEvent& key_event) override;
 
  private:
-  views::Textfield* code_field_;
+  void OnAccessibleNameChanged(const std::u16string& new_name) override;
+
+  raw_ptr<views::Textfield, ExperimentalAsh> code_field_;
 
   // To be called when access input code changes (character is inserted, deleted
   // or updated). Passes true when code non-empty.
@@ -156,7 +160,7 @@ class FixedLengthCodeInput : public AccessCodeInput {
     }
 
    private:
-    FixedLengthCodeInput* fixed_length_code_input_;
+    raw_ptr<FixedLengthCodeInput, ExperimentalAsh> fixed_length_code_input_;
   };
 
   // Builds the view for an access code that consists out of |length| digits.
@@ -170,12 +174,13 @@ class FixedLengthCodeInput : public AccessCodeInput {
                        OnInputChange on_input_change,
                        OnEnter on_enter,
                        OnEscape on_escape,
-                       bool obscure_pin,
-                       SkColor text_color);
+                       bool obscure_pin);
 
   ~FixedLengthCodeInput() override;
   FixedLengthCodeInput(const FixedLengthCodeInput&) = delete;
   FixedLengthCodeInput& operator=(const FixedLengthCodeInput&) = delete;
+
+  void OnThemeChanged() override;
 
   // Inserts |value| into the |active_field_| and moves focus to the next field
   // if it exists.
@@ -221,6 +226,7 @@ class FixedLengthCodeInput : public AccessCodeInput {
   void SetInputEnabled(bool input_enabled) override;
 
   void SetReadOnly(bool read_only) override;
+  bool IsReadOnly() const override;
 
   // Clears the PIN fields.
   void ClearInput() override;

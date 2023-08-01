@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,15 +6,16 @@
 
 #import <Foundation/Foundation.h>
 
-#include "base/files/file_util.h"
-#include "base/path_service.h"
-#include "base/strings/sys_string_conversions.h"
-#include "base/task/thread_pool/thread_pool_instance.h"
+#import "base/files/file_util.h"
+#import "base/path_service.h"
+#import "base/strings/sys_string_conversions.h"
+#import "base/task/thread_pool/thread_pool_instance.h"
 #import "base/test/ios/wait_util.h"
-#include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
-#include "ios/web/public/test/web_task_environment.h"
+#import "base/time/time.h"
+#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/web/public/test/web_task_environment.h"
 #import "ios/web/public/web_state.h"
-#include "testing/platform_test.h"
+#import "testing/platform_test.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -24,7 +25,7 @@ using base::test::ios::WaitUntilConditionOrTimeout;
 
 namespace {
 
-const int kRemoveSessionStateDataDelay = 15;
+constexpr base::TimeDelta kRemoveSessionStateDataDelay = base::Seconds(15);
 
 class WebSessionStateCacheTest : public PlatformTest {
  protected:

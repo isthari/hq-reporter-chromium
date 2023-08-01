@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,9 @@
 namespace network {
 
 ClientSecurityStateBuilder&
-ClientSecurityStateBuilder::WithPrivateNetworkRequestPolicy(
-    network::mojom::PrivateNetworkRequestPolicy policy) {
-  state_.private_network_request_policy = policy;
+ClientSecurityStateBuilder::WithLocalNetworkRequestPolicy(
+    network::mojom::LocalNetworkRequestPolicy policy) {
+  state_.local_network_request_policy = policy;
   return *this;
 }
 

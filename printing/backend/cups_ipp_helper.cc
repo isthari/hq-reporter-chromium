@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,10 @@
 #include <vector>
 
 #include "base/containers/contains.h"
+#include "base/containers/fixed_flat_set.h"
+#include "base/containers/flat_map.h"
 #include "base/logging.h"
+#include "base/numerics/clamped_math.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "build/build_config.h"
@@ -26,7 +29,7 @@
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 #if BUILDFLAG(IS_CHROMEOS)
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/no_destructor.h"
 #include "printing/backend/ipp_handler_map.h"
@@ -207,9 +210,20 @@ absl::optional<gfx::Size> GetResolution(ipp_attribute_t* attr, int i) {
 // `printer_info.default_dpi` with default resolution provided by `printer`.
 void ExtractResolutions(const CupsOptionProvider& printer,
                         PrinterSemanticCapsAndDefaults* printer_info) {
+  // Provide a default DPI if no valid DPI is found.
+#if BUILDFLAG(IS_MAC)
+  constexpr gfx::Size kDefaultMissingDpi(kDefaultMacDpi, kDefaultMacDpi);
+#elif BUILDFLAG(IS_LINUX)
+  constexpr gfx::Size kDefaultMissingDpi(kPixelsPerInch, kPixelsPerInch);
+#else
+  constexpr gfx::Size kDefaultMissingDpi(kDefaultPdfDpi, kDefaultPdfDpi);
+#endif
+
   ipp_attribute_t* attr = printer.GetSupportedOptionValues(kIppResolution);
-  if (!attr)
+  if (!attr) {
+    printer_info->dpis.push_back(kDefaultMissingDpi);
     return;
+  }
 
   int num_options = ippGetCount(attr);
   for (int i = 0; i < num_options; i++) {
@@ -219,26 +233,125 @@ void ExtractResolutions(const CupsOptionProvider& printer,
   }
   ipp_attribute_t* def_attr = printer.GetDefaultOptionValue(kIppResolution);
   absl::optional<gfx::Size> size = GetResolution(def_attr, 0);
-  if (size)
+  if (size) {
     printer_info->default_dpi = size.value();
+  } else if (!printer_info->dpis.empty()) {
+    printer_info->default_dpi = printer_info->dpis[0];
+  } else {
+    printer_info->default_dpi = kDefaultMissingDpi;
+  }
+
+  if (printer_info->dpis.empty()) {
+    printer_info->dpis.push_back(printer_info->default_dpi);
+  }
+}
+
+absl::optional<PrinterSemanticCapsAndDefaults::Paper>
+PaperFromMediaColDatabaseEntry(ipp_t* db_entry) {
+  DCHECK(db_entry);
+
+  ipp_t* media_size = ippGetCollection(
+      ippFindAttribute(db_entry, kIppMediaSize, IPP_TAG_BEGIN_COLLECTION), 0);
+  ipp_attribute_t* width_attr =
+      ippFindAttribute(media_size, kIppXDimension, IPP_TAG_INTEGER);
+  ipp_attribute_t* height_attr =
+      ippFindAttribute(media_size, kIppYDimension, IPP_TAG_INTEGER);
+
+  if (!width_attr || !height_attr) {
+    // If x-dimension and y-dimension don't have IPP_TAG_INTEGER, they are
+    // custom size ranges, so we want to skip this "size".
+    return absl::nullopt;
+  }
+
+  int width = ippGetInteger(width_attr, 0);
+  int height = ippGetInteger(height_attr, 0);
+
+  ipp_attribute_t* bottom_attr =
+      ippFindAttribute(db_entry, kIppMediaBottomMargin, IPP_TAG_INTEGER);
+  ipp_attribute_t* left_attr =
+      ippFindAttribute(db_entry, kIppMediaLeftMargin, IPP_TAG_INTEGER);
+  ipp_attribute_t* right_attr =
+      ippFindAttribute(db_entry, kIppMediaRightMargin, IPP_TAG_INTEGER);
+  ipp_attribute_t* top_attr =
+      ippFindAttribute(db_entry, kIppMediaTopMargin, IPP_TAG_INTEGER);
+  DCHECK(bottom_attr);
+  DCHECK(left_attr);
+  DCHECK(right_attr);
+  DCHECK(top_attr);
+  int bottom_margin = ippGetInteger(bottom_attr, 0);
+  int left_margin = ippGetInteger(left_attr, 0);
+  int right_margin = ippGetInteger(right_attr, 0);
+  int top_margin = ippGetInteger(top_attr, 0);
+
+  if (width <= 0 || height <= 0 || bottom_margin < 0 || top_margin < 0 ||
+      left_margin < 0 || right_margin < 0 ||
+      width <= base::ClampedNumeric<int>(left_margin) + right_margin ||
+      height <= base::ClampedNumeric<int>(bottom_margin) + top_margin) {
+    LOG(WARNING) << "Invalid media-col-database entry:"
+                 << " x-dimension=" << width << " y-dimension=" << height
+                 << " media-bottom-margin=" << bottom_margin
+                 << " media-left-margin=" << left_margin
+                 << " media-right-margin=" << right_margin
+                 << " media-top-margin=" << top_margin;
+    return absl::nullopt;
+  }
+
+  PrinterSemanticCapsAndDefaults::Paper paper;
+  paper.size_um =
+      gfx::Size(width * kMicronsPerPwgUnit, height * kMicronsPerPwgUnit);
+  paper.printable_area_um = PrintableAreaFromSizeAndPwgMargins(
+      paper.size_um, bottom_margin, left_margin, right_margin, top_margin);
+
+  return paper;
+}
+
+bool PaperIsBorderless(const PrinterSemanticCapsAndDefaults::Paper& paper) {
+  return paper.printable_area_um.x() == 0 && paper.printable_area_um.y() == 0 &&
+         paper.printable_area_um.width() == paper.size_um.width() &&
+         paper.printable_area_um.height() == paper.size_um.height();
 }
 
 PrinterSemanticCapsAndDefaults::Papers SupportedPapers(
-    const CupsOptionProvider& printer) {
-  std::vector<base::StringPiece> papers =
-      printer.GetSupportedOptionValueStrings(kIppMedia);
-  PrinterSemanticCapsAndDefaults::Papers parsed_papers;
-  parsed_papers.reserve(papers.size());
-  for (base::StringPiece paper : papers) {
-    PrinterSemanticCapsAndDefaults::Paper parsed = ParsePaper(paper);
-    // If a paper fails to parse reasonably, we should avoid propagating
-    // it - e.g. CUPS is known to give out empty vendor IDs at times:
-    // https://crbug.com/920295#c23
-    if (!parsed.display_name.empty()) {
-      parsed_papers.push_back(parsed);
+    const CupsPrinter& printer) {
+  auto size_compare = [](const gfx::Size& a, const gfx::Size& b) {
+    auto result = a.width() - b.width();
+    if (result == 0) {
+      result = a.height() - b.height();
+    }
+    return result < 0;
+  };
+  std::map<gfx::Size, PrinterSemanticCapsAndDefaults::Paper,
+           decltype(size_compare)>
+      paper_map;
+
+  ipp_attribute_t* attr = printer.GetMediaColDatabase();
+  int count = ippGetCount(attr);
+
+  for (int i = 0; i < count; i++) {
+    ipp_t* db_entry = ippGetCollection(attr, i);
+
+    absl::optional<PrinterSemanticCapsAndDefaults::Paper> paper_opt =
+        PaperFromMediaColDatabaseEntry(db_entry);
+    if (!paper_opt.has_value()) {
+      continue;
+    }
+
+    const auto& paper = paper_opt.value();
+    if (auto existing_entry = paper_map.find(paper.size_um);
+        existing_entry != paper_map.end()) {
+      // Prefer non-borderless versions of paper sizes.
+      if (PaperIsBorderless(existing_entry->second)) {
+        existing_entry->second = paper;
+      }
+    } else {
+      paper_map.emplace(paper.size_um, paper);
     }
   }
 
+  PrinterSemanticCapsAndDefaults::Papers parsed_papers;
+  for (const auto& entry : paper_map) {
+    parsed_papers.push_back(entry.second);
+  }
   return parsed_papers;
 }
 
@@ -283,10 +396,18 @@ size_t AddAttributes(const CupsOptionProvider& printer,
 
   int num_options = ippGetCount(attr);
   static const base::NoDestructor<HandlerMap> handlers(GenerateHandlers());
+  // The names of attributes that we know are not supported (b/266573545).
+  static constexpr auto kOptionsToIgnore =
+      base::MakeFixedFlatSet<base::StringPiece>(
+          {"finishings-col", "ipp-attribute-fidelity", "job-name",
+           "number-up-layout"});
   std::vector<std::string> unknown_options;
   size_t attr_count = 0;
   for (int i = 0; i < num_options; i++) {
     const char* option_name = ippGetString(attr, i, nullptr);
+    if (base::Contains(kOptionsToIgnore, option_name)) {
+      continue;
+    }
     auto it = handlers->find(option_name);
     if (it == handlers->end()) {
       unknown_options.emplace_back(option_name);
@@ -310,10 +431,6 @@ size_t AddAttributes(const CupsOptionProvider& printer,
 size_t AddInputTray(const CupsOptionProvider& printer,
                     AdvancedCapabilities* caps) {
   size_t previous_size = caps->size();
-  // b/151324273: CUPS doesn't implement media-source in media-col-database like
-  // it should according to the IPP specs. However, it does implement a naked
-  // media-source attribute which we can use until the proper changes can be
-  // made to media-col-database.
   KeywordHandler(printer, "media-source", caps);
   return caps->size() - previous_size;
 }
@@ -330,16 +447,21 @@ void ExtractAdvancedCapabilities(const CupsOptionProvider& printer,
 
 }  // namespace
 
-PrinterSemanticCapsAndDefaults::Paper DefaultPaper(
-    const CupsOptionProvider& printer) {
-  ipp_attribute_t* attr = printer.GetDefaultOptionValue(kIppMedia);
+PrinterSemanticCapsAndDefaults::Paper DefaultPaper(const CupsPrinter& printer) {
+  ipp_attribute_t* attr = printer.GetDefaultOptionValue(kIppMediaCol);
   if (!attr)
     return PrinterSemanticCapsAndDefaults::Paper();
+  ipp_t* media_col_default = ippGetCollection(attr, 0);
+  if (!media_col_default) {
+    return PrinterSemanticCapsAndDefaults::Paper();
+  }
 
-  return ParsePaper(ippGetString(attr, 0, nullptr));
+  PrinterSemanticCapsAndDefaults::Paper paper;
+  return PaperFromMediaColDatabaseEntry(media_col_default)
+      .value_or(PrinterSemanticCapsAndDefaults::Paper());
 }
 
-void CapsAndDefaultsFromPrinter(const CupsOptionProvider& printer,
+void CapsAndDefaultsFromPrinter(const CupsPrinter& printer,
                                 PrinterSemanticCapsAndDefaults* printer_info) {
   // collate
   printer_info->collate_default = CollateDefault(printer);
@@ -358,6 +480,37 @@ void CapsAndDefaultsFromPrinter(const CupsOptionProvider& printer,
   ExtractColor(printer, printer_info);
   ExtractDuplexModes(printer, printer_info);
   ExtractResolutions(printer, printer_info);
+}
+
+gfx::Rect GetPrintableAreaForSize(const CupsPrinter& printer,
+                                  const gfx::Size& size_um) {
+  ipp_attribute_t* attr = printer.GetMediaColDatabase();
+  int count = ippGetCount(attr);
+  gfx::Rect result(0, 0, size_um.width(), size_um.height());
+
+  for (int i = 0; i < count; i++) {
+    ipp_t* db_entry = ippGetCollection(attr, i);
+
+    absl::optional<PrinterSemanticCapsAndDefaults::Paper> paper_opt =
+        PaperFromMediaColDatabaseEntry(db_entry);
+    if (!paper_opt.has_value()) {
+      continue;
+    }
+
+    const auto& paper = paper_opt.value();
+    if (paper.size_um != size_um) {
+      continue;
+    }
+
+    result = paper.printable_area_um;
+
+    // If this is a borderless size, try to find a non-borderless version.
+    if (!PaperIsBorderless(paper)) {
+      return result;
+    }
+  }
+
+  return result;
 }
 
 ScopedIppPtr WrapIpp(ipp_t* ipp) {

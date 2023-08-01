@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,17 @@
 #define SERVICES_NETWORK_PUBLIC_CPP_NETWORK_PARAM_MOJOM_TRAITS_H_
 
 #include "base/component_export.h"
+#include "base/memory/scoped_refptr.h"
 #include "mojo/public/cpp/bindings/struct_traits.h"
 #include "net/base/auth.h"
+#include "net/base/host_port_pair.h"
+#include "net/base/proxy_server.h"
 #include "net/dns/public/resolve_error_info.h"
 #include "net/http/http_version.h"
+#include "net/ssl/ssl_cert_request_info.h"
+#include "net/ssl/ssl_client_cert_type.h"
 #include "services/network/public/mojom/network_param.mojom-shared.h"
-#include "url/mojom/origin_mojom_traits.h"
+#include "url/mojom/scheme_host_port_mojom_traits.h"
 
 namespace mojo {
 
@@ -23,7 +28,7 @@ class COMPONENT_EXPORT(NETWORK_CPP_NETWORK_PARAM)
   static bool is_proxy(const net::AuthChallengeInfo& auth_challenge_info) {
     return auth_challenge_info.is_proxy;
   }
-  static const url::Origin& challenger(
+  static const url::SchemeHostPort& challenger(
       const net::AuthChallengeInfo& auth_challenge_info) {
     return auth_challenge_info.challenger;
   }
@@ -52,10 +57,10 @@ template <>
 class COMPONENT_EXPORT(NETWORK_CPP_NETWORK_PARAM)
     StructTraits<network::mojom::HttpVersionDataView, net::HttpVersion> {
  public:
-  static int16_t major_value(net::HttpVersion version) {
+  static uint16_t major_value(net::HttpVersion version) {
     return version.major_value();
   }
-  static int16_t minor_value(net::HttpVersion version) {
+  static uint16_t minor_value(net::HttpVersion version) {
     return version.minor_value();
   }
 
@@ -79,6 +84,90 @@ class COMPONENT_EXPORT(NETWORK_CPP_NETWORK_PARAM)
 
   static bool Read(network::mojom::ResolveErrorInfoDataView data,
                    net::ResolveErrorInfo* out);
+};
+
+template <>
+class COMPONENT_EXPORT(NETWORK_CPP_NETWORK_PARAM)
+    StructTraits<network::mojom::HostPortPairDataView, net::HostPortPair> {
+ public:
+  static const std::string& host(const net::HostPortPair& host_port_pair) {
+    return host_port_pair.host();
+  }
+
+  static uint16_t port(const net::HostPortPair& host_port_pair) {
+    return host_port_pair.port();
+  }
+
+  static bool Read(network::mojom::HostPortPairDataView data,
+                   net::HostPortPair* out);
+};
+
+template <>
+struct COMPONENT_EXPORT(NETWORK_CPP_NETWORK_PARAM)
+    EnumTraits<network::mojom::ProxyScheme, net::ProxyServer::Scheme> {
+  static network::mojom::ProxyScheme ToMojom(net::ProxyServer::Scheme scheme);
+  static bool FromMojom(network::mojom::ProxyScheme scheme,
+                        net::ProxyServer::Scheme* out);
+};
+
+template <>
+class COMPONENT_EXPORT(NETWORK_CPP_NETWORK_PARAM)
+    StructTraits<network::mojom::ProxyServerDataView, net::ProxyServer> {
+ public:
+  static net::ProxyServer::Scheme scheme(const net::ProxyServer& s) {
+    return s.scheme();
+  }
+
+  static absl::optional<net::HostPortPair> host_and_port(
+      const net::ProxyServer& s);
+
+  static bool Read(network::mojom::ProxyServerDataView data,
+                   net::ProxyServer* out);
+};
+
+template <>
+struct COMPONENT_EXPORT(NETWORK_CPP_NETWORK_PARAM)
+    EnumTraits<network::mojom::SSLClientCertType, net::SSLClientCertType> {
+  static network::mojom::SSLClientCertType ToMojom(
+      net::SSLClientCertType scheme);
+  static bool FromMojom(network::mojom::SSLClientCertType scheme,
+                        net::SSLClientCertType* out);
+};
+
+template <>
+class COMPONENT_EXPORT(NETWORK_CPP_NETWORK_PARAM)
+    StructTraits<network::mojom::SSLCertRequestInfoDataView,
+                 scoped_refptr<net::SSLCertRequestInfo>> {
+ public:
+  static bool IsNull(const scoped_refptr<net::SSLCertRequestInfo>& r) {
+    return !r;
+  }
+
+  static void SetToNull(scoped_refptr<net::SSLCertRequestInfo>* output) {
+    *output = nullptr;
+  }
+
+  static const net::HostPortPair& host_and_port(
+      const scoped_refptr<net::SSLCertRequestInfo>& s) {
+    return s->host_and_port;
+  }
+
+  static bool is_proxy(const scoped_refptr<net::SSLCertRequestInfo>& s) {
+    return s->is_proxy;
+  }
+
+  static const std::vector<std::string>& cert_authorities(
+      const scoped_refptr<net::SSLCertRequestInfo>& s) {
+    return s->cert_authorities;
+  }
+
+  static const std::vector<net::SSLClientCertType>& cert_key_types(
+      const scoped_refptr<net::SSLCertRequestInfo>& s) {
+    return s->cert_key_types;
+  }
+
+  static bool Read(network::mojom::SSLCertRequestInfoDataView data,
+                   scoped_refptr<net::SSLCertRequestInfo>* out);
 };
 
 }  // namespace mojo

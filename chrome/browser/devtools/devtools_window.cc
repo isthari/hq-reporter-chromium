@@ -1,23 +1,26 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/devtools/devtools_window.h"
 
-#include <algorithm>
 #include <memory>
 #include <set>
 #include <utility>
 
 #include "base/base64.h"
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/json/json_reader.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
+#include "base/ranges/algorithm.h"
+#include "base/strings/escape.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
 #include "base/values.h"
+#include "chrome/browser/browser_features.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/certificate_viewer.h"
 #include "chrome/browser/devtools/chrome_devtools_manager_delegate.h"
@@ -26,7 +29,6 @@
 #include "chrome/browser/profiles/keep_alive/profile_keep_alive_types.h"
 #include "chrome/browser/profiles/keep_alive/scoped_profile_keep_alive.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/task_manager/web_contents_tags.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
@@ -35,7 +37,9 @@
 #include "chrome/browser/ui/prefs/prefs_tab_helper.h"
 #include "chrome/browser/ui/scoped_tabbed_browser_displayer.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/tabs/tab_strip_user_gesture_details.h"
 #include "chrome/browser/ui/webui/devtools_ui.h"
+#include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
@@ -69,7 +73,6 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/url_constants.h"
-#include "net/base/escape.h"
 #include "third_party/blink/public/common/input/web_gesture_event.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
 #include "third_party/blink/public/common/renderer_preferences/renderer_preferences.h"
@@ -79,12 +82,16 @@
 #include "ui/events/keycodes/keyboard_code_conversion.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "components/version_info/channel.h"
+#include "third_party/cros_system_api/switches/chrome_switches.h"
+#endif
+
 // This should be after all other #includes.
 #if defined(_WINDOWS_)  // Detect whether windows.h was included.
 #include "base/win/windows_h_disallowed.h"
 #endif  // defined(_WINDOWS_)
 
-using base::DictionaryValue;
 using blink::WebInputEvent;
 using content::BrowserThread;
 using content::DevToolsAgentHost;
@@ -133,11 +140,11 @@ void SetPreferencesFromJson(Profile* profile, const std::string& json) {
   absl::optional<base::Value> parsed = base::JSONReader::Read(json);
   if (!parsed || !parsed->is_dict())
     return;
-  DictionaryPrefUpdate update(profile->GetPrefs(), prefs::kDevToolsPreferences);
-  for (auto dict_value : parsed->DictItems()) {
+  ScopedDictPrefUpdate update(profile->GetPrefs(), prefs::kDevToolsPreferences);
+  for (auto dict_value : parsed->GetDict()) {
     if (!dict_value.second.is_string())
       continue;
-    update.Get()->SetKey(dict_value.first, std::move(dict_value.second));
+    update->Set(dict_value.first, std::move(dict_value.second));
   }
 }
 
@@ -230,22 +237,21 @@ BrowserWindow* DevToolsToolboxDelegate::GetInspectedBrowserWindow() {
 // static
 GURL DecorateFrontendURL(const GURL& base_url) {
   std::string frontend_url = base_url.spec();
-  std::string url_string(
-      frontend_url +
-      ((frontend_url.find("?") == std::string::npos) ? "?" : "&") +
-      "dockSide=undocked");  // TODO(dgozman): remove this support in M38.
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
 
   if (command_line->HasSwitch(switches::kDevToolsFlags)) {
-    url_string += "&" + command_line->GetSwitchValueASCII(
-        switches::kDevToolsFlags);
+    frontend_url = frontend_url +
+                   ((frontend_url.find("?") == std::string::npos) ? "?" : "&") +
+                   command_line->GetSwitchValueASCII(switches::kDevToolsFlags);
   }
 
   if (command_line->HasSwitch(switches::kCustomDevtoolsFrontend)) {
-    url_string += "&debugFrontend=true";
+    frontend_url = frontend_url +
+                   ((frontend_url.find("?") == std::string::npos) ? "?" : "&") +
+                   "debugFrontend=true";
   }
 
-  return GURL(url_string);
+  return GURL(frontend_url);
 }
 
 }  // namespace
@@ -284,10 +290,10 @@ void DevToolsEventForwarder::SetWhitelistedShortcuts(
   for (const auto& list_item : parsed_message->GetList()) {
     if (!list_item.is_dict())
       continue;
-    int key_code = list_item.FindIntKey("keyCode").value_or(0);
+    int key_code = list_item.GetDict().FindInt("keyCode").value_or(0);
     if (key_code == 0)
       continue;
-    int modifiers = list_item.FindIntKey("modifiers").value_or(0);
+    int modifiers = list_item.GetDict().FindInt("modifiers").value_or(0);
     if (!KeyWhitelistingAllowed(key_code, modifiers)) {
       LOG(WARNING) << "Key whitelisting forbidden: "
                    << "(" << key_code << "," << modifiers << ")";
@@ -321,17 +327,16 @@ bool DevToolsEventForwarder::ForwardEvent(
   if (whitelisted_keys_.find(key) == whitelisted_keys_.end())
     return false;
 
-  base::Value event_data(base::Value::Type::DICTIONARY);
-  event_data.SetStringKey("type", event_type);
-  event_data.SetStringKey("key", ui::KeycodeConverter::DomKeyToKeyString(
-                                     static_cast<ui::DomKey>(event.dom_key)));
-  event_data.SetStringKey("code",
-                          ui::KeycodeConverter::DomCodeToCodeString(
-                              static_cast<ui::DomCode>(event.dom_code)));
-  event_data.SetIntKey("keyCode", key_code);
-  event_data.SetIntKey("modifiers", modifiers);
+  base::Value::Dict event_data;
+  event_data.Set("type", event_type);
+  event_data.Set("key", ui::KeycodeConverter::DomKeyToKeyString(
+                            static_cast<ui::DomKey>(event.dom_key)));
+  event_data.Set("code", ui::KeycodeConverter::DomCodeToCodeString(
+                             static_cast<ui::DomCode>(event.dom_code)));
+  event_data.Set("keyCode", key_code);
+  event_data.Set("modifiers", modifiers);
   devtools_window_->bindings_->CallClientMethod(
-      "DevToolsAPI", "keyEventUnhandled", std::move(event_data));
+      "DevToolsAPI", "keyEventUnhandled", base::Value(std::move(event_data)));
   return true;
 }
 
@@ -443,10 +448,6 @@ DevToolsWindow::~DevToolsWindow() {
   if (throttle_)
     throttle_->ResumeThrottle();
 
-  if (reattach_complete_callback_) {
-    std::move(reattach_complete_callback_).Run();
-  }
-
   life_stage_ = kClosing;
 
   UpdateBrowserWindow();
@@ -456,7 +457,7 @@ DevToolsWindow::~DevToolsWindow() {
   owned_toolbox_web_contents_.reset();
 
   DevToolsWindows* instances = g_devtools_window_instances.Pointer();
-  auto it(std::find(instances->begin(), instances->end(), this));
+  auto it = base::ranges::find(*instances, this);
   DCHECK(it != instances->end());
   instances->erase(it);
 
@@ -466,8 +467,21 @@ DevToolsWindow::~DevToolsWindow() {
   // via RenderFrameHostImpl method that expects WebContents to live
   // for some time. See http://crbug.com/997299 for details.
   if (owned_main_web_contents_) {
-    base::SequencedTaskRunnerHandle::Get()->DeleteSoon(
+    base::SequencedTaskRunner::GetCurrentDefault()->DeleteSoon(
         FROM_HERE, std::move(owned_main_web_contents_));
+  }
+
+  // This should be run after we remove |this| from
+  // |g_devtools_window_instances| as |reattach_complete_callback| may try to
+  // access it.
+  if (reattach_complete_callback_) {
+    std::move(reattach_complete_callback_).Run();
+  }
+
+  // If window gets destroyed during a test run, need to stop the test.
+  if (!ready_for_test_callback_.is_null()) {
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, std::move(ready_for_test_callback_));
   }
 }
 
@@ -742,6 +756,17 @@ Profile* DevToolsWindow::GetProfileForDevToolsWindow(
   return profile->GetOriginalProfile();
 }
 
+namespace {
+
+scoped_refptr<DevToolsAgentHost> GetOrCreateDevToolsHostForWebContents(
+    WebContents* wc) {
+  return base::FeatureList::IsEnabled(::features::kDevToolsTabTarget)
+             ? DevToolsAgentHost::GetOrCreateForTab(wc)
+             : DevToolsAgentHost::GetOrCreateFor(wc);
+}
+
+}  // namespace
+
 // static
 void DevToolsWindow::ToggleDevToolsWindow(
     content::WebContents* inspected_web_contents,
@@ -751,7 +776,7 @@ void DevToolsWindow::ToggleDevToolsWindow(
     const std::string& settings,
     DevToolsOpenedByAction opened_by) {
   scoped_refptr<DevToolsAgentHost> agent(
-      DevToolsAgentHost::GetOrCreateFor(inspected_web_contents));
+      GetOrCreateDevToolsHostForWebContents(inspected_web_contents));
   DevToolsWindow* window = FindDevToolsWindow(agent.get());
   bool do_open = force_open;
   if (!window) {
@@ -806,7 +831,7 @@ void DevToolsWindow::InspectElement(
   WebContents* web_contents =
       WebContents::FromRenderFrameHost(inspected_frame_host);
   scoped_refptr<DevToolsAgentHost> agent(
-      DevToolsAgentHost::GetOrCreateFor(web_contents));
+      GetOrCreateDevToolsHostForWebContents(web_contents));
   agent->InspectElement(inspected_frame_host, x, y);
   bool should_measure_time = !FindDevToolsWindow(agent.get());
   base::TimeTicks start_time = base::TimeTicks::Now();
@@ -830,16 +855,15 @@ std::unique_ptr<content::NavigationThrottle>
 DevToolsWindow::MaybeCreateNavigationThrottle(
     content::NavigationHandle* handle) {
   WebContents* web_contents = handle->GetWebContents();
-  if (!web_contents || !web_contents->HasOriginalOpener() ||
-      (web_contents->GetController().GetLastCommittedEntry() &&
-       !web_contents->GetController()
-            .GetLastCommittedEntry()
-            ->IsInitialEntry())) {
+  if (!web_contents || !web_contents->HasLiveOriginalOpenerChain() ||
+      !web_contents->GetController()
+           .GetLastCommittedEntry()
+           ->IsInitialEntry()) {
     return nullptr;
   }
 
-  WebContents* opener = WebContents::FromRenderFrameHost(
-      handle->GetWebContents()->GetOriginalOpener());
+  WebContents* opener =
+      handle->GetWebContents()->GetFirstWebContentsInLiveOriginalOpenerChain();
   DevToolsWindow* window = GetInstanceForInspectedWebContents(opener);
   if (!window || !window->open_new_window_for_popups_ ||
       GetInstanceForInspectedWebContents(web_contents))
@@ -853,6 +877,8 @@ DevToolsWindow::MaybeCreateNavigationThrottle(
   return std::make_unique<Throttle>(handle, window);
 }
 
+// TODO(caseq): this method should be removed once we switch to
+// using tab target, so we don't currently use tab target here.
 void DevToolsWindow::UpdateInspectedWebContents(
     content::WebContents* new_web_contents,
     base::OnceCallback<void()> callback) {
@@ -907,8 +933,10 @@ void DevToolsWindow::Show(const DevToolsToggleAction& action) {
     main_web_contents_->SetDelegate(this);
 
     TabStripModel* tab_strip_model = inspected_browser->tab_strip_model();
-    tab_strip_model->ActivateTabAt(inspected_tab_index,
-                                   {TabStripModel::GestureType::kOther});
+    tab_strip_model->ActivateTabAt(
+        inspected_tab_index,
+        TabStripUserGestureDetails(
+            TabStripUserGestureDetails::GestureType::kOther));
 
     inspected_window->UpdateDevTools();
     main_web_contents_->SetInitialFocus();
@@ -1039,7 +1067,6 @@ DevToolsWindow::DevToolsWindow(FrontendType frontend_type,
       close_on_detach_(true),
       // This initialization allows external front-end to work without changes.
       // We don't wait for docking call, but instead immediately show undocked.
-      // Passing "dockSide=undocked" parameter ensures proper UI.
       life_stage_(can_dock ? kNotLoaded : kIsDockedSet),
       action_on_load_(DevToolsToggleAction::NoOp()),
       intercepted_page_beforeunload_(false),
@@ -1126,8 +1153,9 @@ DevToolsWindow* DevToolsWindow::Create(
   }
 
   // Create WebContents with devtools.
-  GURL url(GetDevToolsURL(profile, frontend_type, frontend_url, can_dock, panel,
-                          has_other_clients, browser_connection));
+  GURL url(GetDevToolsURL(profile, frontend_type, chrome::GetChannel(),
+                          frontend_url, can_dock, panel, has_other_clients,
+                          browser_connection));
   std::unique_ptr<WebContents> main_web_contents =
       WebContents::Create(WebContents::CreateParams(profile));
   main_web_contents->GetController().LoadURL(
@@ -1148,6 +1176,7 @@ DevToolsWindow* DevToolsWindow::Create(
 // static
 GURL DevToolsWindow::GetDevToolsURL(Profile* profile,
                                     FrontendType frontend_type,
+                                    version_info::Channel channel,
                                     const std::string& frontend_url,
                                     bool can_dock,
                                     const std::string& panel,
@@ -1173,6 +1202,16 @@ GURL DevToolsWindow::GetDevToolsURL(Profile* profile,
         url += "&can_dock=true";
       if (!panel.empty())
         url += "&panel=" + panel;
+      if (base::FeatureList::IsEnabled(::features::kDevToolsTabTarget)) {
+        url += "&targetType=tab";
+      }
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+      if (channel >= version_info::Channel::DEV &&
+          !base::CommandLine::ForCurrentProcess()->HasSwitch(
+              chromeos::switches::kSystemInDevMode)) {
+        url += "&consolePaste=blockwebui";
+      }
+#endif
       break;
     case kFrontendWorker:
       url = kWorkerFrontendURL + remote_base;
@@ -1266,13 +1305,14 @@ void DevToolsWindow::ActivateContents(WebContents* contents) {
   }
 }
 
-void DevToolsWindow::AddNewContents(WebContents* source,
-                                    std::unique_ptr<WebContents> new_contents,
-                                    const GURL& target_url,
-                                    WindowOpenDisposition disposition,
-                                    const gfx::Rect& initial_rect,
-                                    bool user_gesture,
-                                    bool* was_blocked) {
+void DevToolsWindow::AddNewContents(
+    WebContents* source,
+    std::unique_ptr<WebContents> new_contents,
+    const GURL& target_url,
+    WindowOpenDisposition disposition,
+    const blink::mojom::WindowFeatures& window_features,
+    bool user_gesture,
+    bool* was_blocked) {
   if (new_contents.get() == toolbox_web_contents_) {
     owned_toolbox_web_contents_ = std::move(new_contents);
 
@@ -1291,8 +1331,8 @@ void DevToolsWindow::AddNewContents(WebContents* source,
   WebContents* inspected_web_contents = GetInspectedWebContents();
   if (inspected_web_contents) {
     inspected_web_contents->GetDelegate()->AddNewContents(
-        source, std::move(new_contents), target_url, disposition, initial_rect,
-        user_gesture, was_blocked);
+        source, std::move(new_contents), target_url, disposition,
+        window_features, user_gesture, was_blocked);
   }
 }
 
@@ -1331,7 +1371,8 @@ void DevToolsWindow::WebContentsCreated(WebContents* source_contents,
 }
 
 void DevToolsWindow::CloseContents(WebContents* source) {
-  CHECK(is_docked_);
+  // We shouldn't get here as long as we're owned by the browser.
+  CHECK(!browser_);
   life_stage_ = kClosing;
   UpdateBrowserWindow();
   // In case of docked main_web_contents_, we own it so delete here.
@@ -1508,7 +1549,7 @@ void DevToolsWindow::OpenInNewTab(const std::string& url) {
   int child_id = content::ChildProcessHost::kInvalidUniqueID;
   if (inspected_web_contents) {
     content::RenderViewHost* render_view_host =
-        inspected_web_contents->GetMainFrame()->GetRenderViewHost();
+        inspected_web_contents->GetPrimaryMainFrame()->GetRenderViewHost();
     if (render_view_host)
       child_id = render_view_host->GetProcess()->GetID();
   }
@@ -1548,13 +1589,13 @@ void DevToolsWindow::SetEyeDropperActive(bool active) {
 }
 
 void DevToolsWindow::ColorPickedInEyeDropper(int r, int g, int b, int a) {
-  base::DictionaryValue color;
-  color.SetInteger("r", r);
-  color.SetInteger("g", g);
-  color.SetInteger("b", b);
-  color.SetInteger("a", a);
+  base::Value::Dict color;
+  color.Set("r", r);
+  color.Set("g", g);
+  color.Set("b", b);
+  color.Set("a", a);
   bindings_->CallClientMethod("DevToolsAPI", "eyeDropperPickedColor",
-                              std::move(color));
+                              base::Value(std::move(color)));
 }
 
 void DevToolsWindow::InspectedContentsClosing() {
@@ -1654,20 +1695,19 @@ void DevToolsWindow::SetOpenNewWindowForPopups(bool value) {
 
 void DevToolsWindow::CreateDevToolsBrowser() {
   PrefService* prefs = profile_->GetPrefs();
-  if (!prefs->GetDictionary(prefs::kAppWindowPlacement)
-           ->FindKey(kDevToolsApp)) {
+  if (!prefs->GetDict(prefs::kAppWindowPlacement).Find(kDevToolsApp)) {
     // Ensure there is always a default size so that
     // BrowserFrame::InitBrowserFrame can retrieve it later.
-    DictionaryPrefUpdate update(prefs, prefs::kAppWindowPlacement);
-    base::Value* wp_prefs = update.Get();
-    base::Value dev_tools_defaults(base::Value::Type::DICTIONARY);
-    dev_tools_defaults.SetIntKey("left", 100);
-    dev_tools_defaults.SetIntKey("top", 100);
-    dev_tools_defaults.SetIntKey("right", 740);
-    dev_tools_defaults.SetIntKey("bottom", 740);
-    dev_tools_defaults.SetBoolKey("maximized", false);
-    dev_tools_defaults.SetBoolKey("always_on_top", false);
-    wp_prefs->SetKey(kDevToolsApp, std::move(dev_tools_defaults));
+    ScopedDictPrefUpdate update(prefs, prefs::kAppWindowPlacement);
+    base::Value::Dict& wp_prefs = update.Get();
+    base::Value::Dict dev_tools_defaults;
+    dev_tools_defaults.Set("left", 100);
+    dev_tools_defaults.Set("top", 100);
+    dev_tools_defaults.Set("right", 740);
+    dev_tools_defaults.Set("bottom", 740);
+    dev_tools_defaults.Set("maximized", false);
+    dev_tools_defaults.Set("always_on_top", false);
+    wp_prefs.Set(kDevToolsApp, std::move(dev_tools_defaults));
   }
 
   if (Browser::GetCreationStatusForProfile(profile_) !=
@@ -1679,7 +1719,7 @@ void DevToolsWindow::CreateDevToolsBrowser() {
   browser_->tab_strip_model()->AddWebContents(
       OwnedMainWebContents::TakeWebContents(
           std::move(owned_main_web_contents_)),
-      -1, ui::PAGE_TRANSITION_AUTO_TOPLEVEL, TabStripModel::ADD_ACTIVE);
+      -1, ui::PAGE_TRANSITION_AUTO_TOPLEVEL, AddTabTypes::ADD_ACTIVE);
   OverrideAndSyncDevToolsRendererPrefs();
 }
 

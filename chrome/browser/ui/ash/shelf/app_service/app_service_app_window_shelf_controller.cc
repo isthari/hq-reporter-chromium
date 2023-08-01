@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,17 +15,19 @@
 #include "ash/public/cpp/window_properties.h"
 #include "base/containers/contains.h"
 #include "base/feature_list.h"
+#include "base/ranges/algorithm.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ash/arc/arc_util.h"
 #include "chrome/browser/ash/borealis/borealis_service.h"
 #include "chrome/browser/ash/borealis/borealis_window_manager.h"
 #include "chrome/browser/ash/crosapi/browser_util.h"
 #include "chrome/browser/ash/crostini/crostini_features.h"
-#include "chrome/browser/ash/crostini/crostini_shelf_utils.h"
+#include "chrome/browser/ash/crostini/crostini_util.h"
+#include "chrome/browser/ash/guest_os/guest_os_shelf_utils.h"
 #include "chrome/browser/ash/plugin_vm/plugin_vm_util.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_util.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_window_manager_helper.h"
 #include "chrome/browser/ui/ash/shelf/app_service/app_service_app_window_arc_tracker.h"
@@ -50,8 +52,6 @@
 #include "components/exo/shell_surface_base.h"
 #include "components/exo/shell_surface_util.h"
 #include "components/services/app_service/public/cpp/instance.h"
-#include "components/services/app_service/public/mojom/types.mojom-shared.h"
-#include "components/services/app_service/public/mojom/types.mojom.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/env.h"
 #include "ui/aura/window.h"
@@ -211,7 +211,7 @@ void AppServiceAppWindowShelfController::OnWindowInitialized(
   // browser app.
   auto shelf_id = GetShelfId(window);
   if (!shelf_id.IsNull() &&
-      GetAppType(shelf_id.app_id) == apps::mojom::AppType::kStandaloneBrowser &&
+      GetAppType(shelf_id.app_id) == apps::AppType::kStandaloneBrowser &&
       widget->IsMinimized()) {
     // Update |state|. The app must be started, and running state. If visible,
     // set it as |kVisible|, otherwise, clear the visible bit.
@@ -233,6 +233,10 @@ void AppServiceAppWindowShelfController::OnWindowPropertyChanged(
     StopHandleWindow(window);
     return;
   }
+
+  if (arc_tracker_)
+    arc_tracker_->OnWindowPropertyChanged(window, key, old);
+
   if (key != ash::kShelfIDKey)
     return;
 
@@ -241,7 +245,7 @@ void AppServiceAppWindowShelfController::OnWindowPropertyChanged(
   if (shelf_id.IsNull())
     return;
 
-  if (GetAppType(shelf_id.app_id) != apps::mojom::AppType::kBuiltIn)
+  if (GetAppType(shelf_id.app_id) != apps::AppType::kBuiltIn)
     return;
 
   app_service_instance_helper_->OnInstances(shelf_id.app_id, window,
@@ -388,8 +392,7 @@ void AppServiceAppWindowShelfController::OnInstanceUpdate(
     // then removed. Since it is not registered we don't need to do anything
     // anyways. As such, all which is left to do here is to get rid of our own
     // reference.
-    WindowList::iterator it =
-        std::find(window_list_.begin(), window_list_.end(), update.Window());
+    WindowList::iterator it = base::ranges::find(window_list_, update.Window());
     if (it != window_list_.end())
       window_list_.erase(it);
     return;
@@ -404,9 +407,9 @@ void AppServiceAppWindowShelfController::OnInstanceUpdate(
 
   // This is the first update for the given window.
   if (update.IsCreation()) {
-    std::string app_id = update.AppId();
-    if (GetAppType(app_id) == apps::mojom::AppType::kCrostini ||
-        crostini::IsUnmatchedCrostiniShelfAppId(app_id)) {
+    const std::string& app_id = update.AppId();
+    if (GetAppType(app_id) == apps::AppType::kCrostini ||
+        guest_os::IsUnregisteredCrostiniShelfAppId(app_id)) {
       window->SetProperty(aura::client::kAppType,
                           static_cast<int>(ash::AppType::CROSTINI_APP));
     }
@@ -523,9 +526,8 @@ AppWindowBase* AppServiceAppWindowShelfController::GetAppWindow(
 
 std::vector<aura::Window*> AppServiceAppWindowShelfController::GetArcWindows() {
   std::vector<aura::Window*> arc_windows;
-  std::copy_if(window_list_.begin(), window_list_.end(),
-               std::inserter(arc_windows, arc_windows.end()),
-               [](aura::Window* w) { return ash::IsArcWindow(w); });
+  base::ranges::copy_if(window_list_, std::back_inserter(arc_windows),
+                        &ash::IsArcWindow);
   return arc_windows;
 }
 
@@ -589,9 +591,12 @@ void AppServiceAppWindowShelfController::RegisterWindow(
     exo::SetShellUseImmersiveForFullscreen(window, false);
     window->SetProperty(chromeos::kEscHoldToExitFullscreen, true);
   } else if (borealis::BorealisWindowManager::IsBorealisWindow(window)) {
-    // Set fullscreen properties for Borealis.
-    window->SetProperty(chromeos::kEscHoldToExitFullscreen, true);
-    window->SetProperty(chromeos::kEscHoldExitFullscreenToMinimized, true);
+    window->SetProperty(chromeos::kUseOverviewToExitFullscreen, true);
+    window->SetProperty(chromeos::kNoExitFullscreenOnLock, true);
+    window->SetProperty(chromeos::kUseOverviewToExitPointerLock, true);
+  } else if (crostini::IsCrostiniWindow(window)) {
+    window->SetProperty(chromeos::kUseOverviewToExitFullscreen, true);
+    window->SetProperty(chromeos::kUseOverviewToExitPointerLock, true);
   }
 
   AddWindowToShelf(window, shelf_id);
@@ -727,22 +732,22 @@ ash::ShelfID AppServiceAppWindowShelfController::GetShelfId(
     shelf_id = ash::ShelfID::Deserialize(window->GetProperty(ash::kShelfIDKey));
   }
   if (!shelf_id.IsNull() &&
-      GetAppType(shelf_id.app_id) != apps::mojom::AppType::kUnknown) {
+      GetAppType(shelf_id.app_id) != apps::AppType::kUnknown) {
     return shelf_id;
   }
   return ash::ShelfID();
 }
 
-apps::mojom::AppType AppServiceAppWindowShelfController::GetAppType(
+apps::AppType AppServiceAppWindowShelfController::GetAppType(
     const std::string& app_id) const {
   for (auto* profile : profile_list_) {
     auto* proxy = apps::AppServiceProxyFactory::GetForProfile(profile);
     auto app_type = proxy->AppRegistryCache().GetAppType(app_id);
-    if (app_type != apps::mojom::AppType::kUnknown) {
+    if (app_type != apps::AppType::kUnknown) {
       return app_type;
     }
   }
-  return apps::mojom::AppType::kUnknown;
+  return apps::AppType::kUnknown;
 }
 
 void AppServiceAppWindowShelfController::UserHasAppOnActiveDesktop(

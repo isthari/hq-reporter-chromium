@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,8 +40,8 @@ class MediaRouterActionControllerUnitTest : public BrowserWithTestWindowTest {
   MediaRouterActionControllerUnitTest()
       : issue_(media_router::IssueInfo(
             "title notification",
-            media_router::IssueInfo::Action::DISMISS,
-            media_router::IssueInfo::Severity::NOTIFICATION)) {}
+            media_router::IssueInfo::Severity::NOTIFICATION,
+            "sinkId1")) {}
 
   MediaRouterActionControllerUnitTest(
       const MediaRouterActionControllerUnitTest&) = delete;
@@ -119,8 +119,14 @@ TEST_F(MediaRouterActionControllerUnitTest, EphemeralIconForRoutes) {
   // A local mirroring route should show the action icon.
   UpdateRoutesAndExpectIconShown({local_mirroring_route_});
 
+// The GlobalMediaControlsCastStartStop flag is disabled on ChromeOS.
+#if BUILDFLAG(IS_CHROMEOS)
+  // A local cast route should show the action icon.
+  UpdateRoutesAndExpectIconShown({local_cast_route_});
+#else
   // A cast route should hide the action icon.
   UpdateRoutesAndExpectIconHidden({local_cast_route_});
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
   // A non local route should hide the action icon.
   UpdateRoutesAndExpectIconHidden({non_local_mirroring_route_});

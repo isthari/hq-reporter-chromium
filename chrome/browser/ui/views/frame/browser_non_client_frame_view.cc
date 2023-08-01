@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "base/metrics/histogram_macros.h"
 #include "build/build_config.h"
+#include "build/buildflag.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/browser_process.h"
@@ -14,18 +15,19 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/themes/custom_theme_supplier.h"
 #include "chrome/browser/themes/theme_properties.h"
+#include "chrome/browser/ui/color/chrome_color_id.h"
 #include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/tabs/tab_types.h"
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/tab_strip_region_view.h"
-#include "chrome/browser/ui/views/web_apps/frame_toolbar/web_app_frame_toolbar_view.h"
 #include "chrome/browser/ui/web_applications/app_browser_controller.h"
 #include "chrome/grit/theme_resources.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/hit_test.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/theme_provider.h"
+#include "ui/color/color_id.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/color_utils.h"
@@ -37,6 +39,8 @@
 
 #if BUILDFLAG(IS_WIN)
 #include "chrome/browser/taskbar/taskbar_decorator_win.h"
+#include "ui/display/win/screen_win.h"
+#include "ui/views/win/hwnd_util.h"
 #endif
 
 // static
@@ -62,11 +66,6 @@ BrowserNonClientFrameView::~BrowserNonClientFrameView() {
     g_browser_process->profile_manager()->
         GetProfileAttributesStorage().RemoveObserver(this);
   }
-
-  // WebAppFrameToolbarView::ToolbarButtonContainer is an
-  // ImmersiveModeController::Observer, so it must be destroyed before the
-  // BrowserView destroys the ImmersiveModeController.
-  delete web_app_frame_toolbar_;
 }
 
 void BrowserNonClientFrameView::OnBrowserViewInitViewsComplete() {
@@ -152,34 +151,16 @@ bool BrowserNonClientFrameView::CanDrawStrokes() const {
 
 SkColor BrowserNonClientFrameView::GetCaptionColor(
     BrowserFrameActiveState active_state) const {
-  return color_utils::GetColorWithMaxContrast(GetFrameColor(active_state));
+  return GetColorProvider()->GetColor(ShouldPaintAsActive(active_state)
+                                          ? kColorFrameCaptionActive
+                                          : kColorFrameCaptionInactive);
 }
 
 SkColor BrowserNonClientFrameView::GetFrameColor(
     BrowserFrameActiveState active_state) const {
-  return GetFrameThemeProvider()->GetColor(
-      ShouldPaintAsActive(active_state)
-          ? ThemeProperties::COLOR_FRAME_ACTIVE
-          : ThemeProperties::COLOR_FRAME_INACTIVE);
-}
-
-void BrowserNonClientFrameView::UpdateFrameColor() {
-  // Only web-app windows support dynamic frame colors set by HTML meta tags.
-  if (web_app_frame_toolbar_)
-    web_app_frame_toolbar_->UpdateCaptionColors();
-  SchedulePaint();
-}
-
-SkColor BrowserNonClientFrameView::GetToolbarTopSeparatorColor() const {
-  const int color_id =
-      ShouldPaintAsActive()
-          ? ThemeProperties::COLOR_TOOLBAR_TOP_SEPARATOR
-          : ThemeProperties::COLOR_TOOLBAR_TOP_SEPARATOR_INACTIVE;
-  // The vertical tab separator might show through the stroke if the stroke
-  // color is translucent.  To prevent this, always use an opaque stroke color.
-  return color_utils::GetResultingPaintColor(
-      GetFrameThemeProvider()->GetColor(color_id),
-      GetFrameColor(BrowserFrameActiveState::kUseCurrent));
+  return GetColorProvider()->GetColor(ShouldPaintAsActive(active_state)
+                                          ? ui::kColorFrameActive
+                                          : ui::kColorFrameInactive);
 }
 
 absl::optional<int> BrowserNonClientFrameView::GetCustomBackgroundId(
@@ -209,23 +190,6 @@ absl::optional<int> BrowserNonClientFrameView::GetCustomBackgroundId(
 
 void BrowserNonClientFrameView::UpdateMinimumSize() {}
 
-void BrowserNonClientFrameView::SetWindowControlsOverlayToggleVisible(
-    bool visible) {
-  DCHECK(browser_view_->AppUsesWindowControlsOverlay());
-  web_app_frame_toolbar_->SetWindowControlsOverlayToggleVisible(visible);
-}
-
-void BrowserNonClientFrameView::Layout() {
-  // BrowserView updates most UI visibility on layout based on fullscreen
-  // state. However, it doesn't have access to |web_app_frame_toolbar_|. Do
-  // it here. This is necessary since otherwise the visibility of ink drop
-  // layers won't be updated; see crbug.com/964215.
-  if (web_app_frame_toolbar_)
-    web_app_frame_toolbar_->SetVisible(!frame_->IsFullscreen());
-
-  NonClientFrameView::Layout();
-}
-
 void BrowserNonClientFrameView::VisibilityChanged(views::View* starting_from,
                                                   bool is_visible) {
   // UpdateTaskbarDecoration() calls DrawTaskbarDecoration(), but that does
@@ -236,34 +200,27 @@ void BrowserNonClientFrameView::VisibilityChanged(views::View* starting_from,
     OnProfileAvatarChanged(base::FilePath());
 }
 
-int BrowserNonClientFrameView::NonClientHitTest(const gfx::Point& point) {
-  if (!web_app_frame_toolbar_)
-    return HTNOWHERE;
-  int web_app_component =
-      views::GetHitTestComponent(web_app_frame_toolbar_, point);
-  if (web_app_component != HTNOWHERE)
-    return web_app_component;
-
-  return HTNOWHERE;
-}
-
-void BrowserNonClientFrameView::ResetWindowControls() {
-  if (web_app_frame_toolbar_)
-    web_app_frame_toolbar_->UpdateStatusIconsVisibility();
-}
-
 TabSearchBubbleHost* BrowserNonClientFrameView::GetTabSearchBubbleHost() {
   return nullptr;
 }
 
+gfx::Insets BrowserNonClientFrameView::MirroredFrameBorderInsets() const {
+  NOTREACHED_NORETURN();
+}
+
+gfx::Insets BrowserNonClientFrameView::GetInputInsets() const {
+  NOTREACHED_NORETURN();
+}
+
+SkRRect BrowserNonClientFrameView::GetRestoredClipRegion() const {
+  NOTREACHED_NORETURN();
+}
+
+int BrowserNonClientFrameView::GetTranslucentTopAreaHeight() const {
+  return 0;
+}
+
 void BrowserNonClientFrameView::PaintAsActiveChanged() {
-  // The toolbar top separator color (used as the stroke around the tabs and
-  // the new tab button) needs to be recalculated.
-  browser_view_->tab_strip_region_view()->FrameColorsChanged();
-
-  if (web_app_frame_toolbar_)
-    web_app_frame_toolbar_->SetPaintAsActive(ShouldPaintAsActive());
-
   // Changing the activation state may change the visible frame color.
   SchedulePaint();
 }
@@ -277,7 +234,7 @@ bool BrowserNonClientFrameView::ShouldPaintAsActive(
 
 gfx::ImageSkia BrowserNonClientFrameView::GetFrameImage(
     BrowserFrameActiveState active_state) const {
-  const ui::ThemeProvider* tp = GetFrameThemeProvider();
+  const ui::ThemeProvider* tp = GetThemeProvider();
   const int frame_image_id = ShouldPaintAsActive(active_state)
                                  ? IDR_THEME_FRAME
                                  : IDR_THEME_FRAME_INACTIVE;
@@ -292,18 +249,13 @@ gfx::ImageSkia BrowserNonClientFrameView::GetFrameOverlayImage(
   if (browser_view_->GetIncognito() || !browser_view_->GetIsNormalType())
     return gfx::ImageSkia();
 
-  const ui::ThemeProvider* tp = GetFrameThemeProvider();
+  const ui::ThemeProvider* tp = GetThemeProvider();
   const int frame_overlay_image_id = ShouldPaintAsActive(active_state)
                                          ? IDR_THEME_FRAME_OVERLAY
                                          : IDR_THEME_FRAME_OVERLAY_INACTIVE;
   return tp->HasCustomImage(frame_overlay_image_id)
              ? *tp->GetImageSkiaNamed(frame_overlay_image_id)
              : gfx::ImageSkia();
-}
-
-void BrowserNonClientFrameView::ChildPreferredSizeChanged(views::View* child) {
-  if (browser_view()->initialized() && child == web_app_frame_toolbar_)
-    Layout();
 }
 
 void BrowserNonClientFrameView::OnProfileAdded(
@@ -334,6 +286,25 @@ void BrowserNonClientFrameView::OnProfileHighResAvatarLoaded(
 }
 
 #if BUILDFLAG(IS_WIN)
+// Sending the WM_NCPOINTERDOWN, WM_NCPOINTERUPDATE, and WM_NCPOINTERUP to the
+// default window proc does not bring up the system menu on long press, so we
+// use the gesture recognizer to turn it into a LONG_TAP gesture and handle it
+// here. See https://crbug.com/1327506 for more info.
+void BrowserNonClientFrameView::OnGestureEvent(ui::GestureEvent* event) {
+  gfx::Point event_loc = event->location();
+  // This opens the title bar system context menu on long press in the titlebar.
+  // NonClientHitTest returns HTCAPTION if `event_loc` is in the empty space on
+  // the titlebar.
+  if (event->type() == ui::ET_GESTURE_LONG_TAP &&
+      NonClientHitTest(event_loc) == HTCAPTION) {
+    views::View::ConvertPointToScreen(this, &event_loc);
+    event_loc = display::win::ScreenWin::DIPToScreenPoint(event_loc);
+    views::ShowSystemMenuAtScreenPixelLocation(views::HWNDForView(this),
+                                               event_loc);
+    event->SetHandled();
+  }
+}
+
 int BrowserNonClientFrameView::GetSystemMenuY() const {
   if (!browser_view()->GetTabStripVisible())
     return GetTopInset(false);
@@ -342,15 +313,7 @@ int BrowserNonClientFrameView::GetSystemMenuY() const {
              .bottom() -
          GetLayoutConstant(TABSTRIP_TOOLBAR_OVERLAP);
 }
-#endif
-
-const ui::ThemeProvider* BrowserNonClientFrameView::GetFrameThemeProvider()
-    const {
-  // The |frame_| theme provider is obtained from the profile rather than the
-  // widget. This is done this way because it can happen prior to being inserted
-  // into the view hierarchy.
-  return frame_->GetThemeProvider();
-}
+#endif  // BUILDFLAG(IS_WIN)
 
 BEGIN_METADATA(BrowserNonClientFrameView, views::NonClientFrameView)
 END_METADATA

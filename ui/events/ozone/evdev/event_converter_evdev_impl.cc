@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,10 +53,11 @@ EventConverterEvdevImpl::EventConverterEvdevImpl(
                           devinfo.product_id(),
                           devinfo.version()),
       input_device_fd_(std::move(fd)),
-      has_keyboard_(devinfo.HasKeyboard()),
+      keyboard_type_(devinfo.GetKeyboardType()),
       has_touchpad_(devinfo.HasTouchpad()),
       has_numberpad_(devinfo.HasNumberpad()),
       has_stylus_switch_(devinfo.HasStylusSwitch()),
+      has_assistant_key_(devinfo.HasKeyEvent(KEY_ASSISTANT)),
       has_caps_lock_led_(devinfo.HasLedEvent(LED_CAPSL)),
       controller_(FROM_HERE),
       cursor_(cursor),
@@ -65,6 +66,14 @@ EventConverterEvdevImpl::EventConverterEvdevImpl(
   if (has_numberpad_)
     NumberpadMetricsRecorder::GetInstance()->AddDevice(input_device_);
 #endif
+  // Converts unsigned long to uint64_t.
+  const auto key_bits = devinfo.GetKeyBits();
+  key_bits_.resize(EVDEV_BITS_TO_INT64(KEY_CNT));
+  for (int i = 0; i < KEY_CNT; i++) {
+    if (EvdevBitIsSet(key_bits.data(), i)) {
+      EvdevSetUint64Bit(key_bits_.data(), i);
+    }
+  }
 }
 
 EventConverterEvdevImpl::~EventConverterEvdevImpl() {
@@ -96,8 +105,12 @@ void EventConverterEvdevImpl::OnFileCanReadWithoutBlocking(int fd) {
   ProcessEvents(inputs, read_size / sizeof(*inputs));
 }
 
+KeyboardType EventConverterEvdevImpl::GetKeyboardType() const {
+  return keyboard_type_;
+}
+
 bool EventConverterEvdevImpl::HasKeyboard() const {
-  return has_keyboard_;
+  return keyboard_type_ == KeyboardType::VALID_KEYBOARD;
 }
 
 bool EventConverterEvdevImpl::HasTouchpad() const {
@@ -110,6 +123,10 @@ bool EventConverterEvdevImpl::HasCapsLockLed() const {
 
 bool EventConverterEvdevImpl::HasStylusSwitch() const {
   return has_stylus_switch_;
+}
+
+bool EventConverterEvdevImpl::HasAssistantKey() const {
+  return has_assistant_key_;
 }
 
 void EventConverterEvdevImpl::SetKeyFilter(bool enable_filter,
@@ -135,6 +152,10 @@ void EventConverterEvdevImpl::SetKeyFilter(bool enable_filter,
 void EventConverterEvdevImpl::OnDisabled() {
   ReleaseKeys();
   ReleaseMouseButtons();
+}
+
+std::vector<uint64_t> EventConverterEvdevImpl::GetKeyboardKeyBits() const {
+  return key_bits_;
 }
 
 ui::StylusState EventConverterEvdevImpl::GetStylusSwitchState() {
@@ -234,6 +255,17 @@ void EventConverterEvdevImpl::OnKeyChange(unsigned int key,
 
   GenerateKeyMetrics(key, down);
 
+  // Checks for a key press that could only have occurred from a non-imposter
+  // keyboard. Disables Imposter flag and triggers a callback which will update
+  // the dispatched list of keyboards with this new information.
+  if (key_state_.count() == 1 && IsValidKeyboardKeyPress(key)) {
+    bool was_suspected = IsSuspectedImposter();
+    SetSuspectedImposter(false);
+    if (was_suspected && received_valid_input_callback_) {
+      received_valid_input_callback_.Run(this);
+    }
+  }
+
   dispatcher_->DispatchKeyEvent(
       KeyEventParams(input_device_.id, ui::EF_NONE, key, last_scan_code_, down,
                      false /* suppress_auto_repeat */, timestamp));
@@ -295,6 +327,11 @@ void EventConverterEvdevImpl::OnButtonChange(int code,
       timestamp));
 }
 
+void EventConverterEvdevImpl::SetReceivedValidInputCallback(
+    ReceivedValidInputCallback callback) {
+  received_valid_input_callback_ = callback;
+}
+
 void EventConverterEvdevImpl::FlushEvents(const input_event& input) {
   if (!cursor_ || (x_offset_ == 0 && y_offset_ == 0))
     return;
@@ -308,6 +345,17 @@ void EventConverterEvdevImpl::FlushEvents(const input_event& input) {
 
   x_offset_ = 0;
   y_offset_ = 0;
+}
+
+std::ostream& EventConverterEvdevImpl::DescribeForLog(std::ostream& os) const {
+  os << "class=ui::EventConverterEvdevImpl id=" << input_device_.id << std::endl
+     << " keyboard_type=" << keyboard_type_ << std::endl
+     << " has_keyboard=" << HasKeyboard() << std::endl
+     << " has_touchpad=" << has_touchpad_ << std::endl
+     << " has_caps_lock_led=" << has_caps_lock_led_ << std::endl
+     << " has_stylus_switch=" << has_stylus_switch_ << std::endl
+     << "base ";
+  return EventConverterEvdev::DescribeForLog(os);
 }
 
 }  // namespace ui

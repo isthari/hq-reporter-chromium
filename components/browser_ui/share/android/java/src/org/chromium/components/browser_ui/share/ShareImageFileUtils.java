@@ -1,10 +1,9 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.components.browser_ui.share;
 
-import android.annotation.TargetApi;
 import android.app.DownloadManager;
 import android.content.ContentResolver;
 import android.content.ContentValues;
@@ -18,6 +17,7 @@ import android.os.Looper;
 import android.provider.MediaStore;
 import android.text.TextUtils;
 
+import androidx.annotation.RequiresApi;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ApiCompatibilityUtils;
@@ -35,7 +35,6 @@ import org.chromium.base.task.PostTask;
 import org.chromium.base.task.TaskTraits;
 import org.chromium.components.browser_ui.util.DownloadUtils;
 import org.chromium.content_public.browser.RenderWidgetHostView;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.UiUtils;
 import org.chromium.ui.base.Clipboard;
@@ -266,7 +265,7 @@ public class ShareImageFileUtils {
         }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     }
 
-    @TargetApi(Build.VERSION_CODES.O)
+    @RequiresApi(Build.VERSION_CODES.O)
     private static boolean isHardwareBitmap(Bitmap bitmap) {
         assert Build.VERSION.SDK_INT >= Build.VERSION_CODES.O;
         return bitmap.getConfig() == Bitmap.Config.HARDWARE;
@@ -316,7 +315,7 @@ public class ShareImageFileUtils {
             OnImageSaveListener listener, FileOutputStreamWriter writer, boolean isTemporary,
             String fileExtension) {
         Callback<Uri> saveImageCallback = (Uri uri) -> {
-            PostTask.postTask(UiThreadTaskTraits.DEFAULT, () -> {
+            PostTask.postTask(TaskTraits.UI_DEFAULT, () -> {
                 if (uri == null) {
                     listener.onImageSaveError(fileName);
                     return;
@@ -474,7 +473,7 @@ public class ShareImageFileUtils {
                 title, title, getImageMimeType(file), path, length, null, null);
     }
 
-    @TargetApi(29)
+    @RequiresApi(29)
     public static Uri addToMediaStore(File file) {
         assert Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q;
 

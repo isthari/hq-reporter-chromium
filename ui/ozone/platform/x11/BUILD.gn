@@ -1,4 +1,4 @@
-# Copyright 2016 The Chromium Authors. All rights reserved.
+# Copyright 2016 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -16,14 +16,12 @@ source_set("x11") {
     "client_native_pixmap_factory_x11.h",
     "gl_egl_utility_x11.cc",
     "gl_egl_utility_x11.h",
-    "gl_ozone_glx.cc",
-    "gl_ozone_glx.h",
     "gl_surface_egl_readback_x11.cc",
     "gl_surface_egl_readback_x11.h",
     "hit_test_x11.cc",
     "hit_test_x11.h",
-    "linux_ui_delegate_x11.cc",
-    "linux_ui_delegate_x11.h",
+    "native_pixmap_egl_x11_binding.cc",
+    "native_pixmap_egl_x11_binding.h",
     "os_exchange_data_provider_x11.cc",
     "os_exchange_data_provider_x11.h",
     "ozone_platform_x11.cc",
@@ -34,16 +32,14 @@ source_set("x11") {
     "x11_clipboard_ozone.h",
     "x11_global_shortcut_listener_ozone.cc",
     "x11_global_shortcut_listener_ozone.h",
-    "x11_keyboard_hook_ozone.cc",
-    "x11_keyboard_hook_ozone.h",
+    "x11_keyboard_hook.cc",
+    "x11_keyboard_hook.h",
     "x11_menu_utils.cc",
     "x11_menu_utils.h",
     "x11_screen_ozone.cc",
     "x11_screen_ozone.h",
     "x11_surface_factory.cc",
     "x11_surface_factory.h",
-    "x11_topmost_window_finder.cc",
-    "x11_topmost_window_finder.h",
     "x11_user_input_monitor.cc",
     "x11_user_input_monitor.h",
     "x11_utils.cc",
@@ -76,6 +72,7 @@ source_set("x11") {
     "//ui/base/x:gl",
     "//ui/display/fake",
     "//ui/events",
+    "//ui/events:dom_keycode_converter",
     "//ui/events/devices",
     "//ui/events/devices/x11",
     "//ui/events/ozone",
@@ -96,6 +93,14 @@ source_set("x11") {
     "//ui/platform_window/wm",
   ]
 
+  if (is_linux) {
+    sources += [
+      "linux_ui_delegate_x11.cc",
+      "linux_ui_delegate_x11.h",
+    ]
+    deps += [ "//ui/linux:linux_ui" ]
+  }
+
   if (is_chromeos_ash) {
     deps += [ "//ui/base/ime/ash" ]
   } else {
@@ -103,7 +108,13 @@ source_set("x11") {
   }
 
   if (enable_vulkan) {
-    deps += [ "//gpu/vulkan/x" ]
+    sources += [
+      "vulkan_implementation_x11.cc",
+      "vulkan_implementation_x11.h",
+      "vulkan_surface_x11.cc",
+      "vulkan_surface_x11.h",
+    ]
+    deps += [ "//gpu/vulkan" ]
   }
 
   if (use_xkbcommon) {
@@ -147,6 +158,7 @@ source_set("x11_unittests") {
     "//ui/base/x",
     "//ui/base/x:test_support",
     "//ui/base/x:unittests",
+    "//ui/display:test_support",
     "//ui/events:test_support",
     "//ui/events/devices/x11",
     "//ui/events/platform/x11",
@@ -159,7 +171,7 @@ source_set("x11_unittests") {
     "//ui/ozone/common",
   ]
 
-  if (!is_chromeos && !is_chromeos_ash && !is_chromeos_lacros) {
+  if (!is_chromeos && !is_chromeos) {
     sources += [ "test/os_exchange_data_provider_x11_unittest.cc" ]
     deps += [ "//ui/base/clipboard:clipboard_types" ]
 
@@ -183,28 +195,8 @@ source_set("test_support") {
   ]
 
   deps = [
+    "//ui/aura:aura",
     "//ui/base/x",
     "//ui/base/x:test_support",
-  ]
-}
-
-source_set("interactive_uitests") {
-  testonly = true
-  sources = [ "x11_topmost_window_finder_interactive_uitest.cc" ]
-
-  deps = [
-    ":x11",
-    "//base",
-    "//base/test:test_support",
-    "//testing/gmock",
-    "//testing/gtest",
-    "//ui/base/x",
-    "//ui/base/x:test_support",
-    "//ui/events/platform/x11",
-    "//ui/gfx",
-    "//ui/gfx/x",
-    "//ui/ozone",
-    "//ui/ozone:platform",
-    "//ui/platform_window",
   ]
 }

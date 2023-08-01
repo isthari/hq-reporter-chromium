@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -128,12 +128,6 @@ const char* const kWebViewCrashKeyAllowList[] = {
 
     "VerifyDidCommit-has_si_url",
 
-    "NoNode-ftn_is_main_frame",
-    "NoNode-ftn_child_count",
-    "NoNode-bfs_depth",
-    "NoFTN-is_main_frame",
-    "NoFTN-children_size",
-
     // services/network
     "network_deserialization",
 
@@ -145,7 +139,14 @@ const char* const kWebViewCrashKeyAllowList[] = {
     "variations",
     "num-experiments",
 
+    // sandbox/linux
+    "seccomp-sigsys",
+
     kWeblayerWebViewCompatMode,
+
+    // Temporary keys for crbug.com/1430313:
+    "db_init_error-diagnostics",
+    "db_init_error-path",
 
     nullptr};
 // clang-format on

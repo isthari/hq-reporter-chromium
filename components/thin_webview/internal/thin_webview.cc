@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include "base/android/jni_android.h"
 #include "cc/input/browser_controls_state.h"
-#include "cc/layers/layer.h"
+#include "cc/slim/layer.h"
 #include "components/embedder_support/android/delegate/web_contents_delegate_android.h"
 #include "components/thin_webview/internal/jni_headers/ThinWebViewImpl_jni.h"
 #include "components/thin_webview/thin_webview_initializer.h"
@@ -47,9 +47,7 @@ void ThinWebView::Destroy(JNIEnv* env, const JavaParamRef<jobject>& object) {
   delete this;
 }
 
-// TODO(crbug.com/1291556): Use WebContentsObserver::PrimaryPageChanged to
-// disable thin webview.
-void ThinWebView::PrimaryMainDocumentElementAvailable() {
+void ThinWebView::PrimaryPageChanged(content::Page& page) {
   // Disable browser controls when used for thin webview.
   web_contents_->UpdateBrowserControlsState(cc::BrowserControlsState::kHidden,
                                             cc::BrowserControlsState::kHidden,

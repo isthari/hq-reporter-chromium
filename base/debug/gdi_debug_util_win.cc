@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 #include "base/debug/gdi_debug_util_win.h"
@@ -310,18 +310,18 @@ absl::optional<base::debug::GdiHandleCounts> CollectGdiHandleCounts(DWORD pid) {
 
 constexpr size_t kLotsOfMemory = 1500 * 1024 * 1024;  // 1.5GB
 
-HANDLE NOINLINE GetToolhelpSnapshot() {
+NOINLINE HANDLE GetToolhelpSnapshot() {
   HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
   CHECK_NE(INVALID_HANDLE_VALUE, snapshot);
   return snapshot;
 }
 
-void NOINLINE GetFirstProcess(HANDLE snapshot, PROCESSENTRY32* proc_entry) {
+NOINLINE void GetFirstProcess(HANDLE snapshot, PROCESSENTRY32* proc_entry) {
   proc_entry->dwSize = sizeof(PROCESSENTRY32);
   CHECK(Process32First(snapshot, proc_entry));
 }
 
-void NOINLINE CrashIfExcessiveHandles(DWORD num_gdi_handles) {
+NOINLINE void CrashIfExcessiveHandles(DWORD num_gdi_handles) {
   // By default, Windows 10 allows a max of 10,000 GDI handles per process.
   // Number found by inspecting
   //
@@ -333,17 +333,17 @@ void NOINLINE CrashIfExcessiveHandles(DWORD num_gdi_handles) {
   CHECK_LE(num_gdi_handles, kLotsOfHandles);
 }
 
-void NOINLINE
-CrashIfPagefileUsageTooLarge(const PROCESS_MEMORY_COUNTERS_EX& pmc) {
+NOINLINE void CrashIfPagefileUsageTooLarge(
+    const PROCESS_MEMORY_COUNTERS_EX& pmc) {
   CHECK_LE(pmc.PagefileUsage, kLotsOfMemory);
 }
 
-void NOINLINE
-CrashIfPrivateUsageTooLarge(const PROCESS_MEMORY_COUNTERS_EX& pmc) {
+NOINLINE void CrashIfPrivateUsageTooLarge(
+    const PROCESS_MEMORY_COUNTERS_EX& pmc) {
   CHECK_LE(pmc.PrivateUsage, kLotsOfMemory);
 }
 
-void NOINLINE CrashIfCannotAllocateSmallBitmap(BITMAPINFOHEADER* header,
+NOINLINE void CrashIfCannotAllocateSmallBitmap(BITMAPINFOHEADER* header,
                                                HANDLE shared_section) {
   void* small_data = nullptr;
   base::debug::Alias(&small_data);
@@ -356,14 +356,14 @@ void NOINLINE CrashIfCannotAllocateSmallBitmap(BITMAPINFOHEADER* header,
   DeleteObject(small_bitmap);
 }
 
-void NOINLINE GetProcessMemoryInfo(PROCESS_MEMORY_COUNTERS_EX* pmc) {
+NOINLINE void GetProcessMemoryInfo(PROCESS_MEMORY_COUNTERS_EX* pmc) {
   pmc->cb = sizeof(*pmc);
   CHECK(GetProcessMemoryInfo(GetCurrentProcess(),
                              reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(pmc),
                              sizeof(*pmc)));
 }
 
-DWORD NOINLINE GetNumGdiHandles() {
+NOINLINE DWORD GetNumGdiHandles() {
   DWORD num_gdi_handles = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
   if (num_gdi_handles == 0) {
     DWORD get_gui_resources_error = GetLastError();
@@ -378,20 +378,20 @@ void CollectChildGDIUsageAndDie(DWORD parent_pid) {
 
   int total_process_count = 0;
   base::debug::Alias(&total_process_count);
-  int total_peak_gdi_count = 0;
+  DWORD total_peak_gdi_count = 0;
   base::debug::Alias(&total_peak_gdi_count);
-  int total_gdi_count = 0;
+  DWORD total_gdi_count = 0;
   base::debug::Alias(&total_gdi_count);
-  int total_user_count = 0;
+  DWORD total_user_count = 0;
   base::debug::Alias(&total_user_count);
 
   int child_count = 0;
   base::debug::Alias(&child_count);
-  int peak_gdi_count = 0;
+  DWORD peak_gdi_count = 0;
   base::debug::Alias(&peak_gdi_count);
-  int sum_gdi_count = 0;
+  DWORD sum_gdi_count = 0;
   base::debug::Alias(&sum_gdi_count);
-  int sum_user_count = 0;
+  DWORD sum_user_count = 0;
   base::debug::Alias(&sum_user_count);
 
   PROCESSENTRY32 proc_entry = {};
@@ -402,11 +402,11 @@ void CollectChildGDIUsageAndDie(DWORD parent_pid) {
         OpenProcess(PROCESS_QUERY_INFORMATION,
                     FALSE,
                     proc_entry.th32ProcessID));
-    if (!process.IsValid())
+    if (!process.is_valid())
       continue;
 
-    int num_gdi_handles = GetGuiResources(process.Get(), GR_GDIOBJECTS);
-    int num_user_handles = GetGuiResources(process.Get(), GR_USEROBJECTS);
+    DWORD num_gdi_handles = GetGuiResources(process.get(), GR_GDIOBJECTS);
+    DWORD num_user_handles = GetGuiResources(process.get(), GR_USEROBJECTS);
 
     // Compute sum and peak counts for all processes.
     ++total_process_count;
@@ -422,7 +422,6 @@ void CollectChildGDIUsageAndDie(DWORD parent_pid) {
     sum_user_count += num_user_handles;
     sum_gdi_count += num_gdi_handles;
     peak_gdi_count = std::max(peak_gdi_count, num_gdi_handles);
-
   } while (Process32Next(snapshot, &proc_entry));
 
   CloseHandle(snapshot);

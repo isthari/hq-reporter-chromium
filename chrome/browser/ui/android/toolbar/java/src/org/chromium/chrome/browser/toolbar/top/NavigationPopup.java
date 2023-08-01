@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,13 +24,12 @@ import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 import androidx.appcompat.content.res.AppCompatResources;
+import androidx.core.widget.ImageViewCompat;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.base.supplier.Supplier;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.toolbar.R;
@@ -128,7 +127,7 @@ public class NavigationPopup implements AdapterView.OnItemClickListener {
         if (!shouldUseIncognitoResources()) {
             mHistory.addEntry(new NavigationEntry(FULL_HISTORY_ENTRY_INDEX,
                     new GURL(UrlConstants.HISTORY_URL), GURL.emptyGURL(), GURL.emptyGURL(),
-                    GURL.emptyGURL(), resources.getString(R.string.show_full_history), null, 0, 0,
+                    resources.getString(R.string.show_full_history), null, 0, 0,
                     /*isInitialEntry=*/false));
         }
 
@@ -136,7 +135,7 @@ public class NavigationPopup implements AdapterView.OnItemClickListener {
 
         mPopup = new ListPopupWindow(context, null, 0, R.style.NavigationPopupDialog);
         mPopup.setOnDismissListener(this::onDismiss);
-        mPopup.setBackgroundDrawable(ApiCompatibilityUtils.getDrawable(resources,
+        mPopup.setBackgroundDrawable(AppCompatResources.getDrawable(context,
                 anchorToBottom ? R.drawable.menu_bg_bottom_tinted : R.drawable.menu_bg_tinted));
         mPopup.setModal(true);
         mPopup.setInputMethodMode(PopupWindow.INPUT_METHOD_NOT_NEEDED);
@@ -253,12 +252,11 @@ public class NavigationPopup implements AdapterView.OnItemClickListener {
     private void onFaviconAvailable(GURL pageUrl, Bitmap favicon) {
         if (favicon == null) {
             if (mDefaultFaviconHelper == null) mDefaultFaviconHelper = new DefaultFaviconHelper();
-            favicon = mDefaultFaviconHelper.getDefaultFaviconBitmap(
-                    mContext.getResources(), pageUrl, true);
+            favicon = mDefaultFaviconHelper.getDefaultFaviconBitmap(mContext, pageUrl, true);
         }
         if (UrlUtilities.isNTPUrl(pageUrl) && shouldUseIncognitoResources()) {
             favicon = mDefaultFaviconHelper.getThemifiedBitmap(
-                    mContext.getResources(), R.drawable.incognito_small, true);
+                    mContext, R.drawable.incognito_small, true);
         }
         for (int i = 0; i < mHistory.getEntryCount(); i++) {
             NavigationEntry entry = mHistory.getEntryAtIndex(i);
@@ -326,11 +324,11 @@ public class NavigationPopup implements AdapterView.OnItemClickListener {
             viewHolder.mImageView.setImageBitmap(entry.getFavicon());
 
             if (entry.getIndex() == FULL_HISTORY_ENTRY_INDEX) {
-                ApiCompatibilityUtils.setImageTintList(viewHolder.mImageView,
+                ImageViewCompat.setImageTintList(viewHolder.mImageView,
                         AppCompatResources.getColorStateList(
                                 mContext, R.color.default_icon_color_accent1_tint_list));
             } else {
-                ApiCompatibilityUtils.setImageTintList(viewHolder.mImageView, null);
+                ImageViewCompat.setImageTintList(viewHolder.mImageView, null);
             }
 
             if (mType == Type.ANDROID_SYSTEM_BACK) {
@@ -360,9 +358,7 @@ public class NavigationPopup implements AdapterView.OnItemClickListener {
     }
 
     private boolean shouldUseIncognitoResources() {
-        return mProfile.isOffTheRecord()
-                && ChromeFeatureList.isEnabled(
-                        ChromeFeatureList.UPDATE_HISTORY_ENTRY_POINTS_IN_INCOGNITO);
+        return mProfile.isOffTheRecord();
     }
 
     private static class EntryViewHolder {

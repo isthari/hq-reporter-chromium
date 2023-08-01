@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,37 +6,36 @@
 
 #include <utility>
 
-#include "base/bind.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
 #include "base/lazy_instance.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/platform_thread.h"
 #include "base/threading/thread_local.h"
+#include "base/unguessable_token.h"
 #include "base/values.h"
 #include "content/public/renderer/render_thread.h"
 #include "content/public/renderer/worker_thread.h"
 #include "extensions/common/constants.h"
-#include "extensions/common/event_filtering_info_type_converters.h"
 #include "extensions/common/extension_features.h"
 #include "extensions/common/extension_messages.h"
 #include "extensions/common/mojom/event_dispatcher.mojom.h"
+#include "extensions/renderer/api/messaging/native_renderer_messaging_service.h"
 #include "extensions/renderer/dispatcher.h"
 #include "extensions/renderer/extension_interaction_provider.h"
 #include "extensions/renderer/extensions_renderer_client.h"
 #include "extensions/renderer/native_extension_bindings_system.h"
-#include "extensions/renderer/native_renderer_messaging_service.h"
 #include "extensions/renderer/service_worker_data.h"
 #include "extensions/renderer/worker_script_context_set.h"
 #include "extensions/renderer/worker_thread_util.h"
+#include "third_party/abseil-cpp/absl/base/attributes.h"
 
 namespace extensions {
 
 namespace {
 
-base::LazyInstance<WorkerThreadDispatcher>::DestructorAtExit
-    g_worker_thread_dispatcher_instance = LAZY_INSTANCE_INITIALIZER;
-base::LazyInstance<base::ThreadLocalPointer<extensions::ServiceWorkerData>>::
-    DestructorAtExit g_data_tls = LAZY_INSTANCE_INITIALIZER;
+ABSL_CONST_INIT thread_local extensions::ServiceWorkerData*
+    service_worker_data = nullptr;
 
 ServiceWorkerData* GetServiceWorkerDataChecked() {
   ServiceWorkerData* data = WorkerThreadDispatcher::GetServiceWorkerData();
@@ -97,7 +96,7 @@ void AddEventFilteredListenerOnIO(const std::string& extension_id,
                                   const std::string& event_name,
                                   int64_t service_worker_version_id,
                                   int worker_thread_id,
-                                  base::Value filter,
+                                  base::Value::Dict filter,
                                   bool add_lazy_listener) {
   auto* dispatcher = WorkerThreadDispatcher::Get();
   dispatcher->GetEventRouterOnIO()->AddFilteredListenerForServiceWorker(
@@ -112,7 +111,7 @@ void RemoveEventFilteredListenerOnIO(const std::string& extension_id,
                                      const std::string& event_name,
                                      int64_t service_worker_version_id,
                                      int worker_thread_id,
-                                     base::Value filter,
+                                     base::Value::Dict filter,
                                      bool remove_lazy_listener) {
   auto* dispatcher = WorkerThreadDispatcher::Get();
   dispatcher->GetEventRouterOnIO()->RemoveFilteredListenerForServiceWorker(
@@ -122,11 +121,12 @@ void RemoveEventFilteredListenerOnIO(const std::string& extension_id,
 
 }  // namespace
 
-WorkerThreadDispatcher::WorkerThreadDispatcher() {}
-WorkerThreadDispatcher::~WorkerThreadDispatcher() {}
+WorkerThreadDispatcher::WorkerThreadDispatcher() = default;
+WorkerThreadDispatcher::~WorkerThreadDispatcher() = default;
 
 WorkerThreadDispatcher* WorkerThreadDispatcher::Get() {
-  return g_worker_thread_dispatcher_instance.Pointer();
+  static base::NoDestructor<WorkerThreadDispatcher> dispatcher;
+  return dispatcher.get();
 }
 
 void WorkerThreadDispatcher::Init(content::RenderThread* render_thread) {
@@ -155,14 +155,13 @@ ScriptContext* WorkerThreadDispatcher::GetScriptContext() {
 
 // static
 ServiceWorkerData* WorkerThreadDispatcher::GetServiceWorkerData() {
-  return g_data_tls.Pointer()->Get();
+  return service_worker_data;
 }
 
 // static
 bool WorkerThreadDispatcher::HandlesMessageOnWorkerThread(
     const IPC::Message& message) {
   return message.type() == ExtensionMsg_ResponseWorker::ID ||
-         message.type() == ExtensionMsg_DispatchEvent::ID ||
          message.type() == ExtensionMsg_DispatchOnConnect::ID ||
          message.type() == ExtensionMsg_DeliverMessage::ID ||
          message.type() == ExtensionMsg_DispatchOnDisconnect::ID ||
@@ -181,26 +180,48 @@ void WorkerThreadDispatcher::UpdateBindingsOnWorkerThread(
     const ExtensionId& extension_id) {
   DCHECK(worker_thread_util::IsWorkerThread());
   DCHECK(!extension_id.empty());
-  GetBindingsSystem()->UpdateBindings(extension_id,
-                                      true /* permissions_changed */,
-                                      Dispatcher::GetWorkerScriptContextSet());
+
+  ServiceWorkerData* data = WorkerThreadDispatcher::GetServiceWorkerData();
+  // Bail out if the worker was destroyed.
+  if (!data)
+    return;
+  data->bindings_system()->UpdateBindings(
+      extension_id, true /* permissions_changed */,
+      Dispatcher::GetWorkerScriptContextSet());
+}
+
+// static
+void WorkerThreadDispatcher::DispatchEventOnWorkerThread(
+    mojom::DispatchEventParamsPtr params,
+    base::Value::List event_args) {
+  auto* dispatcher = WorkerThreadDispatcher::Get();
+  dispatcher->DispatchEventHelper(std::move(params), std::move(event_args));
 }
 
 bool WorkerThreadDispatcher::OnControlMessageReceived(
     const IPC::Message& message) {
-  if (HandlesMessageOnWorkerThread(message)) {
-    int worker_thread_id = content::WorkerThread::kInvalidWorkerThreadId;
-    // TODO(lazyboy): Route |message| directly to the child thread using routed
-    // IPC. Probably using mojo?
-    bool found = base::PickleIterator(message).ReadInt(&worker_thread_id);
-    CHECK(found);
-    if (worker_thread_id == kMainThreadId)
-      return false;
-    return PostTaskToWorkerThread(
-        worker_thread_id, base::BindOnce(&WorkerThreadDispatcher::ForwardIPC,
-                                         worker_thread_id, message));
+  if (!HandlesMessageOnWorkerThread(message)) {
+    return false;
   }
-  return false;
+
+  int worker_thread_id = content::WorkerThread::kInvalidWorkerThreadId;
+  // TODO(lazyboy): Route |message| directly to the child thread using routed
+  // IPC. Probably using mojo?
+  bool found = base::PickleIterator(message).ReadInt(&worker_thread_id);
+  CHECK(found);
+  if (worker_thread_id == kMainThreadId) {
+    return false;
+  }
+
+  // If posting the task fails, we still have to return true, which effectively
+  // drops the message. Otherwise, the caller will dispatch the message to the
+  // main thread, which is wrong.
+  if (!PostTaskToWorkerThread(
+          worker_thread_id, base::BindOnce(&WorkerThreadDispatcher::ForwardIPC,
+                                           worker_thread_id, message))) {
+    LOG(ERROR) << "Failed to post task for message: " << message.type();
+  }
+  return true;
 }
 
 bool WorkerThreadDispatcher::UpdateBindingsForWorkers(
@@ -246,7 +267,7 @@ void WorkerThreadDispatcher::SendAddEventFilteredListener(
     const std::string& event_name,
     int64_t service_worker_version_id,
     int worker_thread_id,
-    base::Value filter,
+    base::Value::Dict filter,
     bool add_lazy_listener) {
   io_task_runner_->PostTask(
       FROM_HERE,
@@ -282,7 +303,7 @@ void WorkerThreadDispatcher::SendRemoveEventFilteredListener(
     const std::string& event_name,
     int64_t service_worker_version_id,
     int worker_thread_id,
-    base::Value filter,
+    base::Value::Dict filter,
     bool remove_lazy_listener) {
   io_task_runner_->PostTask(
       FROM_HERE,
@@ -305,7 +326,6 @@ void WorkerThreadDispatcher::OnMessageReceivedOnWorkerThread(
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(WorkerThreadDispatcher, message)
     IPC_MESSAGE_HANDLER(ExtensionMsg_ResponseWorker, OnResponseWorker)
-    IPC_MESSAGE_HANDLER(ExtensionMsg_DispatchEvent, OnDispatchEvent)
     IPC_MESSAGE_HANDLER(ExtensionMsg_DispatchOnConnect, OnDispatchOnConnect)
     IPC_MESSAGE_HANDLER(ExtensionMsg_DeliverMessage, OnDeliverMessage)
     IPC_MESSAGE_HANDLER(ExtensionMsg_DispatchOnDisconnect,
@@ -328,6 +348,11 @@ bool WorkerThreadDispatcher::PostTaskToWorkerThread(int worker_thread_id,
   return task_posted;
 }
 
+void WorkerThreadDispatcher::PostTaskToIOThread(base::OnceClosure task) {
+  bool task_posted = io_task_runner_->PostTask(FROM_HERE, std::move(task));
+  DCHECK(task_posted) << "Could not PostTask IPC to IO thread.";
+}
+
 bool WorkerThreadDispatcher::Send(IPC::Message* message) {
   return message_filter_->Send(message);
 }
@@ -343,55 +368,82 @@ mojom::EventRouter* WorkerThreadDispatcher::GetEventRouterOnIO() {
   return event_router_remote_.get();
 }
 
-void WorkerThreadDispatcher::OnResponseWorker(int worker_thread_id,
-                                              int request_id,
-                                              bool succeeded,
-                                              const base::ListValue& response,
-                                              const std::string& error) {
-  ServiceWorkerData* data = g_data_tls.Pointer()->Get();
-  data->bindings_system()->HandleResponse(request_id, succeeded, response,
-                                          error);
+mojom::ServiceWorkerHost* WorkerThreadDispatcher::GetServiceWorkerHostOnIO() {
+  DCHECK(io_task_runner_->BelongsToCurrentThread());
+  if (!service_worker_host_) {
+    mojo::PendingAssociatedRemote<mojom::ServiceWorkerHost>
+        pending_service_worker_host;
+    message_filter_->GetRemoteAssociatedInterface(&pending_service_worker_host);
+    service_worker_host_.Bind(std::move(pending_service_worker_host));
+  }
+  return service_worker_host_.get();
 }
 
-void WorkerThreadDispatcher::OnDispatchEvent(
-    const mojom::DispatchEventParams& params,
-    const base::ListValue& event_args) {
-  ServiceWorkerData* data = g_data_tls.Pointer()->Get();
-  DCHECK(data);
+void WorkerThreadDispatcher::OnResponseWorker(
+    int worker_thread_id,
+    int request_id,
+    bool succeeded,
+    ExtensionMsg_ResponseWorkerData response,
+    const std::string& error) {
+  service_worker_data->bindings_system()->HandleResponse(
+      request_id, succeeded, response.results, error,
+      std::move(response.extra_data));
+}
 
-  ScriptContext* script_context = data->context();
+void WorkerThreadDispatcher::DispatchEventHelper(
+    mojom::DispatchEventParamsPtr params,
+    base::Value::List event_args) {
+  DCHECK_EQ(params->worker_thread_id, content::WorkerThread::GetCurrentId());
+
+  // If the worker state was already destroyed via
+  // Dispatcher::WillDestroyServiceWorkerContextOnWorkerThread, then
+  // drop this mojo event. See https://crbug.com/1008143 for details.
+  if (!service_worker_data) {
+    return;
+  }
+
+  ScriptContext* script_context = service_worker_data->context();
   // Note |scoped_extension_interaction| requires a HandleScope.
   v8::Isolate* isolate = script_context->isolate();
   v8::HandleScope handle_scope(isolate);
   std::unique_ptr<InteractionProvider::Scope> scoped_extension_interaction;
-  if (params.is_user_gesture) {
+  if (params->is_user_gesture) {
     scoped_extension_interaction =
         ExtensionInteractionProvider::Scope::ForWorker(
             script_context->v8_context());
   }
-  mojom::EventFilteringInfoPtr filtering_info =
-      mojom::EventFilteringInfo::From(params.filtering_info);
-  data->bindings_system()->DispatchEventInContext(
-      params.event_name, &event_args, filtering_info, data->context());
+
+  service_worker_data->bindings_system()->DispatchEventInContext(
+      params->event_name, event_args, std::move(params->filtering_info),
+      service_worker_data->context());
   const int worker_thread_id = content::WorkerThread::GetCurrentId();
-  Send(new ExtensionHostMsg_EventAckWorker(data->context()->GetExtensionID(),
-                                           data->service_worker_version_id(),
-                                           worker_thread_id, params.event_id));
+  Send(new ExtensionHostMsg_EventAckWorker(
+      service_worker_data->context()->GetExtensionID(),
+      service_worker_data->service_worker_version_id(), worker_thread_id,
+      params->event_id));
 }
 
+void WorkerThreadDispatcher::DispatchEvent(mojom::DispatchEventParamsPtr params,
+                                           base::Value::List event_args) {
+  DCHECK(!worker_thread_util::IsWorkerThread());
+  const int worker_thread_id = params->worker_thread_id;
+  PostTaskToWorkerThread(
+      worker_thread_id,
+      base::BindOnce(&WorkerThreadDispatcher::DispatchEventOnWorkerThread,
+                     std::move(params), std::move(event_args)));
+}
 void WorkerThreadDispatcher::OnDispatchOnConnect(
     int worker_thread_id,
-    const PortId& target_port_id,
-    const std::string& channel_name,
-    const ExtensionMsg_TabConnectionInfo& source,
-    const ExtensionMsg_ExternalConnectionInfo& info) {
+    const ExtensionMsg_OnConnectData& connect_data) {
   DCHECK_EQ(worker_thread_id, content::WorkerThread::GetCurrentId());
   WorkerThreadDispatcher::GetBindingsSystem()
       ->messaging_service()
-      ->DispatchOnConnect(Dispatcher::GetWorkerScriptContextSet(),
-                          target_port_id, channel_name, source, info,
-                          // Render frames do not matter.
-                          nullptr);
+      ->DispatchOnConnect(
+          Dispatcher::GetWorkerScriptContextSet(), connect_data.target_port_id,
+          connect_data.channel_type, connect_data.channel_name,
+          connect_data.tab_source, connect_data.external_connection_info,
+          // Render frames do not matter.
+          nullptr);
 }
 
 void WorkerThreadDispatcher::OnValidateMessagePort(int worker_thread_id,
@@ -429,21 +481,19 @@ void WorkerThreadDispatcher::OnDispatchOnDisconnect(
 
 void WorkerThreadDispatcher::AddWorkerData(
     int64_t service_worker_version_id,
-    ActivationSequence activation_sequence,
+    base::UnguessableToken activation_sequence,
     ScriptContext* script_context,
     std::unique_ptr<NativeExtensionBindingsSystem> bindings_system) {
-  ServiceWorkerData* data = g_data_tls.Pointer()->Get();
-  if (!data) {
-    ServiceWorkerData* new_data =
-        new ServiceWorkerData(service_worker_version_id, activation_sequence,
-                              script_context, std::move(bindings_system));
-    g_data_tls.Pointer()->Set(new_data);
+  if (!service_worker_data) {
+    service_worker_data = new ServiceWorkerData(
+        service_worker_version_id, std::move(activation_sequence),
+        script_context, std::move(bindings_system));
   }
 
   int worker_thread_id = content::WorkerThread::GetCurrentId();
   {
     base::AutoLock lock(task_runner_map_lock_);
-    auto* task_runner = base::ThreadTaskRunnerHandle::Get().get();
+    auto* task_runner = base::SingleThreadTaskRunner::GetCurrentDefault().get();
     CHECK(task_runner);
     task_runner_map_[worker_thread_id] = task_runner;
   }
@@ -451,44 +501,124 @@ void WorkerThreadDispatcher::AddWorkerData(
 
 void WorkerThreadDispatcher::DidInitializeContext(
     int64_t service_worker_version_id) {
-  ServiceWorkerData* data = g_data_tls.Pointer()->Get();
-  DCHECK_EQ(service_worker_version_id, data->service_worker_version_id());
+  DCHECK_EQ(service_worker_version_id,
+            service_worker_data->service_worker_version_id());
   const int thread_id = content::WorkerThread::GetCurrentId();
   DCHECK_NE(thread_id, kMainThreadId);
-  Send(new ExtensionHostMsg_DidInitializeServiceWorkerContext(
-      data->context()->GetExtensionID(), service_worker_version_id, thread_id));
+  PostTaskToIOThread(base::BindOnce(
+      [](const ExtensionId& extension_id, int64_t service_worker_version_id,
+         int thread_id) {
+        WorkerThreadDispatcher::Get()
+            ->GetServiceWorkerHostOnIO()
+            ->DidInitializeServiceWorkerContext(
+                extension_id, service_worker_version_id, thread_id,
+                WorkerThreadDispatcher::Get()->BindEventDispatcher(thread_id));
+      },
+      service_worker_data->context()->GetExtensionID(),
+      service_worker_version_id, thread_id));
 }
 
 void WorkerThreadDispatcher::DidStartContext(
     const GURL& service_worker_scope,
     int64_t service_worker_version_id) {
-  ServiceWorkerData* data = g_data_tls.Pointer()->Get();
-  DCHECK_EQ(service_worker_version_id, data->service_worker_version_id());
+  DCHECK_EQ(service_worker_version_id,
+            service_worker_data->service_worker_version_id());
   const int thread_id = content::WorkerThread::GetCurrentId();
   DCHECK_NE(thread_id, kMainThreadId);
-  Send(new ExtensionHostMsg_DidStartServiceWorkerContext(
-      data->context()->GetExtensionID(), data->activation_sequence(),
-      service_worker_scope, service_worker_version_id, thread_id));
+  PostTaskToIOThread(base::BindOnce(
+      [](const ExtensionId& extension_id,
+         const base::UnguessableToken& activation_token,
+         const GURL& service_worker_scope, int64_t service_worker_version_id,
+         int thread_id) {
+        WorkerThreadDispatcher::Get()
+            ->GetServiceWorkerHostOnIO()
+            ->DidStartServiceWorkerContext(
+                extension_id, activation_token, service_worker_scope,
+                service_worker_version_id, thread_id);
+      },
+      service_worker_data->context()->GetExtensionID(),
+      service_worker_data->activation_sequence(), service_worker_scope,
+      service_worker_version_id, thread_id));
 }
 
 void WorkerThreadDispatcher::DidStopContext(const GURL& service_worker_scope,
                                             int64_t service_worker_version_id) {
-  ServiceWorkerData* data = g_data_tls.Pointer()->Get();
   const int thread_id = content::WorkerThread::GetCurrentId();
   DCHECK_NE(thread_id, kMainThreadId);
-  DCHECK_EQ(service_worker_version_id, data->service_worker_version_id());
-  Send(new ExtensionHostMsg_DidStopServiceWorkerContext(
-      data->context()->GetExtensionID(), data->activation_sequence(),
-      service_worker_scope, service_worker_version_id, thread_id));
+  DCHECK_EQ(service_worker_version_id,
+            service_worker_data->service_worker_version_id());
+  PostTaskToIOThread(base::BindOnce(
+      [](const ExtensionId& extension_id,
+         const base::UnguessableToken& activation_token,
+         const GURL& service_worker_scope, int64_t service_worker_version_id,
+         int thread_id) {
+        WorkerThreadDispatcher::Get()
+            ->GetServiceWorkerHostOnIO()
+            ->DidStopServiceWorkerContext(extension_id, activation_token,
+                                          service_worker_scope,
+                                          service_worker_version_id, thread_id);
+        WorkerThreadDispatcher::Get()->UnbindEventDispatcher(thread_id);
+      },
+      service_worker_data->context()->GetExtensionID(),
+      service_worker_data->activation_sequence(), service_worker_scope,
+      service_worker_version_id, thread_id));
+}
+
+void WorkerThreadDispatcher::IncrementServiceWorkerActivity(
+    int64_t service_worker_version_id,
+    const std::string& request_uuid) {
+  PostTaskToIOThread(base::BindOnce(
+      [](int64_t service_worker_version_id, const std::string& request_uuid) {
+        WorkerThreadDispatcher::Get()
+            ->GetServiceWorkerHostOnIO()
+            ->IncrementServiceWorkerActivity(service_worker_version_id,
+                                             request_uuid);
+      },
+      service_worker_version_id, request_uuid));
+}
+
+void WorkerThreadDispatcher::DecrementServiceWorkerActivity(
+    int64_t service_worker_version_id,
+    const std::string& request_uuid) {
+  PostTaskToIOThread(base::BindOnce(
+      [](int64_t service_worker_version_id, const std::string& request_uuid) {
+        WorkerThreadDispatcher::Get()
+            ->GetServiceWorkerHostOnIO()
+            ->DecrementServiceWorkerActivity(service_worker_version_id,
+                                             request_uuid);
+      },
+      service_worker_version_id, request_uuid));
+}
+
+void WorkerThreadDispatcher::RequestWorker(mojom::RequestParamsPtr params) {
+  PostTaskToIOThread(base::BindOnce(
+      [](mojom::RequestParamsPtr params) {
+        auto* dispatcher = WorkerThreadDispatcher::Get();
+        dispatcher->GetServiceWorkerHostOnIO()->RequestWorker(
+            std::move(params));
+      },
+      std::move(params)));
+}
+
+void WorkerThreadDispatcher::WorkerResponseAck(
+    int request_id,
+    int64_t service_worker_version_id) {
+  PostTaskToIOThread(base::BindOnce(
+      [](int request_id, int64_t service_worker_version_id) {
+        WorkerThreadDispatcher::Get()
+            ->GetServiceWorkerHostOnIO()
+            ->WorkerResponseAck(request_id, service_worker_version_id);
+      },
+      request_id, service_worker_version_id));
 }
 
 void WorkerThreadDispatcher::RemoveWorkerData(
     int64_t service_worker_version_id) {
-  ServiceWorkerData* data = g_data_tls.Pointer()->Get();
-  if (data) {
-    DCHECK_EQ(service_worker_version_id, data->service_worker_version_id());
-    delete data;
-    g_data_tls.Pointer()->Set(nullptr);
+  if (service_worker_data) {
+    DCHECK_EQ(service_worker_version_id,
+              service_worker_data->service_worker_version_id());
+    delete service_worker_data;
+    service_worker_data = nullptr;
   }
 
   int worker_thread_id = content::WorkerThread::GetCurrentId();
@@ -496,6 +626,27 @@ void WorkerThreadDispatcher::RemoveWorkerData(
     base::AutoLock lock(task_runner_map_lock_);
     task_runner_map_.erase(worker_thread_id);
   }
+}
+
+mojo::PendingAssociatedRemote<mojom::EventDispatcher>
+WorkerThreadDispatcher::BindEventDispatcher(int worker_thread_id) {
+  DCHECK(io_task_runner_->BelongsToCurrentThread());
+  mojo::PendingAssociatedRemote<mojom::EventDispatcher> remote;
+  mojo::ReceiverId receiver_id =
+      event_dispatchers_.Add(this, remote.InitWithNewEndpointAndPassReceiver());
+  event_dispatcher_ids_.insert({worker_thread_id, receiver_id});
+  return remote;
+}
+
+void WorkerThreadDispatcher::UnbindEventDispatcher(int worker_thread_id) {
+  DCHECK(io_task_runner_->BelongsToCurrentThread());
+  auto it = event_dispatcher_ids_.find(worker_thread_id);
+  if (it == event_dispatcher_ids_.end()) {
+    return;
+  }
+  mojo::ReceiverId receiver_id = it->second;
+  event_dispatchers_.Remove(receiver_id);
+  event_dispatcher_ids_.erase(receiver_id);
 }
 
 }  // namespace extensions

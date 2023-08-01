@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "base/memory/raw_ptr.h"
 #include "ui/base/ime/candidate_window.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/chromeos/ui_chromeos_export.h"
@@ -74,8 +75,8 @@ class UI_CHROMEOS_EXPORT CandidateWindowView
   // Candidates are arranged per |orientation|.
   void UpdateCandidates(const ui::CandidateWindow& candidate_window);
 
-  void SetCursorBounds(const gfx::Rect& cursor_bounds,
-                       const gfx::Rect& composition_head);
+  void SetCursorAndCompositionBounds(const gfx::Rect& cursor_bounds,
+                                     const gfx::Rect& composition_bounds);
 
  private:
   friend class CandidateWindowViewTest;
@@ -100,9 +101,9 @@ class UI_CHROMEOS_EXPORT CandidateWindowView
 
   // Views created in the class will be part of tree of |this|, so these
   // child views will be deleted when |this| is deleted.
-  InformationTextArea* auxiliary_text_;
-  InformationTextArea* preedit_;
-  views::View* candidate_area_;
+  raw_ptr<InformationTextArea, ExperimentalAsh> auxiliary_text_;
+  raw_ptr<InformationTextArea, ExperimentalAsh> preedit_;
+  raw_ptr<views::View, ExperimentalAsh> candidate_area_;
 
   // The candidate views are used for rendering candidates.
   std::vector<CandidateView*> candidate_views_;
@@ -111,24 +112,6 @@ class UI_CHROMEOS_EXPORT CandidateWindowView
   gfx::Size previous_shortcut_column_size_;
   gfx::Size previous_candidate_column_size_;
   gfx::Size previous_annotation_column_size_;
-
-  // The last cursor bounds.
-  gfx::Rect cursor_bounds_;
-
-  // The last composition head bounds.
-  gfx::Rect composition_head_bounds_;
-
-  // True if the candidate window should be shown with aligning with composition
-  // text as opposed to the cursor.
-  bool should_show_at_composition_head_;
-
-  // True if the candidate window should be shown on the upper side of
-  // composition text.
-  bool should_show_upper_side_;
-
-  // True if the candidate window was open.  This is used to determine when to
-  // send OnCandidateWindowOpened and OnCandidateWindowClosed events.
-  bool was_candidate_window_open_;
 };
 
 BEGIN_VIEW_BUILDER(UI_CHROMEOS_EXPORT,

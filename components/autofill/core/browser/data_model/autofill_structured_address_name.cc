@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,8 +18,6 @@
 #include "components/autofill/core/browser/field_types.h"
 
 namespace autofill {
-
-namespace structured_address {
 
 std::u16string ReduceToInitials(const std::u16string& value) {
   if (value.empty())
@@ -54,40 +52,26 @@ NameMiddle::NameMiddle(AddressComponent* parent)
 
 NameMiddle::~NameMiddle() = default;
 
-void NameMiddle::GetAdditionalSupportedFieldTypes(
-    ServerFieldTypeSet* supported_types) const {
-  supported_types->insert(NAME_MIDDLE_INITIAL);
+const ServerFieldTypeSet NameMiddle::GetAdditionalSupportedFieldTypes() const {
+  constexpr ServerFieldTypeSet additional_supported_field_types{
+      NAME_MIDDLE_INITIAL};
+  return additional_supported_field_types;
 }
 
-bool NameMiddle::ConvertAndGetTheValueForAdditionalFieldTypeName(
-    const std::string& type_name,
-    std::u16string* value) const {
-  if (type_name == AutofillType::ServerFieldTypeToString(NAME_MIDDLE_INITIAL)) {
-    if (value) {
-      // If the stored value has the characteristics of containing only
-      // initials, use the value as it is. Otherwise, convert it to a
-      // sequence of upper case letters, one for each space- or hyphen-separated
-      // token.
-      if (HasMiddleNameInitialsCharacteristics(base::UTF16ToUTF8(GetValue()))) {
-        *value = GetValue();
-      } else {
-        *value = ReduceToInitials(GetValue());
-      }
-    }
-    return true;
-  }
-  return false;
+std::u16string NameMiddle::GetValueForOtherSupportedType(
+    ServerFieldType field_type) const {
+  CHECK(IsSupportedType(field_type));
+  return HasMiddleNameInitialsCharacteristics(base::UTF16ToUTF8(GetValue()))
+             ? GetValue()
+             : ReduceToInitials(GetValue());
 }
 
-bool NameMiddle::ConvertAndSetValueForAdditionalFieldTypeName(
-    const std::string& type_name,
+void NameMiddle::SetValueForOtherSupportedType(
+    ServerFieldType field_type,
     const std::u16string& value,
     const VerificationStatus& status) {
-  if (type_name == AutofillType::ServerFieldTypeToString(NAME_MIDDLE_INITIAL)) {
-    SetValue(value, status);
-    return true;
-  }
-  return false;
+  CHECK(IsSupportedType(field_type));
+  SetValue(value, status);
 }
 
 NameLastFirst::NameLastFirst(AddressComponent* parent)
@@ -123,8 +107,7 @@ NameLast::NameLast(AddressComponent* parent)
 NameLast::~NameLast() = default;
 
 void NameLast::ParseValueAndAssignSubcomponentsByFallbackMethod() {
-  SetValueForTypeIfPossible(NAME_LAST_SECOND, GetValue(),
-                            VerificationStatus::kParsed);
+  SetValueForType(NAME_LAST_SECOND, GetValue(), VerificationStatus::kParsed);
 }
 
 NameFull::NameFull() : NameFull(nullptr) {}
@@ -152,7 +135,7 @@ NameHonorificPrefix::NameHonorificPrefix(AddressComponent* parent)
 
 NameHonorificPrefix::~NameHonorificPrefix() = default;
 
-void NameFull::MigrateLegacyStructure(bool is_verified_profile) {
+void NameFull::MigrateLegacyStructure() {
   // Only if the name was imported from a legacy structure, the component has no
   if (GetVerificationStatus() != VerificationStatus::kNoStatus)
     return;
@@ -160,12 +143,7 @@ void NameFull::MigrateLegacyStructure(bool is_verified_profile) {
   // If the value of the component is set, use this value as a basis to migrate
   // the name.
   if (!GetValue().empty()) {
-    // If the profile is verified, set the verification status to accordingly
-    // and reset all the subcomponents.
-    VerificationStatus status = is_verified_profile
-                                    ? VerificationStatus::kUserVerified
-                                    : VerificationStatus::kObserved;
-    SetValue(GetValue(), status);
+    SetValue(GetValue(), VerificationStatus::kObserved);
 
     // Set the verification status of all subcomponents to |kParsed|.
     for (auto* subcomponent : Subcomponents()) {
@@ -267,14 +245,14 @@ NameFullWithPrefix::GetParseRegularExpressionsByRelevance() const {
   return {pattern_provider->GetRegEx(RegEx::kParsePrefixedName)};
 }
 
-void NameFullWithPrefix::MigrateLegacyStructure(bool is_verified_profile) {
+void NameFullWithPrefix::MigrateLegacyStructure() {
   // If a verification status is set, the structure is already migrated.
   if (GetVerificationStatus() != VerificationStatus::kNoStatus) {
     return;
   }
 
   // If it is not migrated, continue with migrating the full name.
-  name_full_.MigrateLegacyStructure(is_verified_profile);
+  name_full_.MigrateLegacyStructure();
 
   // Check if the tree is already in a completed state.
   // If yes, build the root node from the subcomponents.
@@ -284,7 +262,5 @@ void NameFullWithPrefix::MigrateLegacyStructure(bool is_verified_profile) {
     FormatValueFromSubcomponents();
   }
 }
-
-}  // namespace structured_address
 
 }  // namespace autofill

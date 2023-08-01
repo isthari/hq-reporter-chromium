@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,12 @@
 
 #include <algorithm>
 
+#include "base/feature_list.h"
 #include "base/logging.h"
 #include "chrome/browser/ui/views/chrome_typography.h"
+#include "components/omnibox/common/omnibox_features.h"
 #include "ui/base/pointer/touch_ui_controller.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/gfx/shadow_value.h"
 
 namespace {
@@ -50,34 +53,47 @@ gfx::Insets ChromeLayoutProvider::GetInsetsMetric(int metric) const {
   const bool touch_ui = ui::TouchUiController::Get()->touch_ui();
   switch (metric) {
     case views::INSETS_DIALOG:
-    case views::INSETS_DIALOG_SUBSECTION:
-      return gfx::Insets(kHarmonyLayoutUnit);
+    case views::INSETS_DIALOG_SUBSECTION: {
+      return features::IsChromeRefresh2023() ? gfx::Insets::VH(20, 20)
+                                             : gfx::Insets(kHarmonyLayoutUnit);
+    }
     case views::INSETS_CHECKBOX_RADIO_BUTTON: {
       gfx::Insets insets = LayoutProvider::GetInsetsMetric(metric);
       // Checkboxes and radio buttons should be aligned flush to the left edge.
-      return gfx::Insets(insets.top(), 0, insets.bottom(), insets.right());
+      return gfx::Insets::TLBR(insets.top(), 0, insets.bottom(),
+                               insets.right());
     }
     case views::INSETS_VECTOR_IMAGE_BUTTON:
       return gfx::Insets(kHarmonyLayoutUnit / 4);
     case views::InsetsMetric::INSETS_LABEL_BUTTON:
-      return touch_ui
-                 ? gfx::Insets(kHarmonyLayoutUnit / 2, kHarmonyLayoutUnit / 2)
-                 : LayoutProvider::GetInsetsMetric(metric);
+      return touch_ui ? gfx::Insets::VH(kHarmonyLayoutUnit / 2,
+                                        kHarmonyLayoutUnit / 2)
+                      : LayoutProvider::GetInsetsMetric(metric);
     case INSETS_BOOKMARKS_BAR_BUTTON:
-      return touch_ui ? gfx::Insets(8, 10) : gfx::Insets(6);
+      return touch_ui ? gfx::Insets::VH(8, 10) : gfx::Insets(6);
     case INSETS_TOAST:
-      return gfx::Insets(0, kHarmonyLayoutUnit);
+      return gfx::Insets::VH(0, kHarmonyLayoutUnit);
     case INSETS_OMNIBOX_PILL_BUTTON:
-      return touch_ui ? gfx::Insets(kHarmonyLayoutUnit / 2, kHarmonyLayoutUnit)
-                      : gfx::Insets(5, 12);
+      if ((base::FeatureList::IsEnabled(omnibox::kCr2023ActionChips) ||
+           features::GetChromeRefresh2023Level() ==
+               features::ChromeRefresh2023Level::kLevel2) &&
+          !touch_ui) {
+        return gfx::Insets::VH(4, 8);
+      } else {
+        return touch_ui
+                   ? gfx::Insets::VH(kHarmonyLayoutUnit / 2, kHarmonyLayoutUnit)
+                   : gfx::Insets::VH(5, 12);
+      }
     case INSETS_PAGE_INFO_HOVER_BUTTON: {
       const gfx::Insets insets =
           LayoutProvider::GetInsetsMetric(views::INSETS_LABEL_BUTTON);
       const int horizontal_padding =
-          GetDistanceMetric(views::DISTANCE_BUTTON_HORIZONTAL_PADDING);
+          features::IsChromeRefresh2023()
+              ? 20
+              : GetDistanceMetric(views::DISTANCE_BUTTON_HORIZONTAL_PADDING);
       // Hover button in page info requires double the height compared to the
       // label button because it behaves like a menu control.
-      return gfx::Insets(insets.height(), horizontal_padding);
+      return gfx::Insets::VH(insets.height(), horizontal_padding);
     }
     default:
       return LayoutProvider::GetInsetsMetric(metric);
@@ -102,6 +118,16 @@ int ChromeLayoutProvider::GetDistanceMetric(int metric) const {
       return 8;
     case DISTANCE_DROPDOWN_BUTTON_RIGHT_MARGIN:
       return 12;
+    case DISTANCE_EXTENSIONS_MENU_BUTTON_ICON_SIZE:
+      return 16;
+    case DISTANCE_EXTENSIONS_MENU_EXTENSION_ICON_SIZE:
+      return 28;
+    case DISTANCE_EXTENSIONS_MENU_ICON_SPACING:
+      return (GetDistanceMetric(DISTANCE_EXTENSIONS_MENU_EXTENSION_ICON_SIZE) -
+              GetDistanceMetric(DISTANCE_EXTENSIONS_MENU_BUTTON_ICON_SIZE)) /
+             2;
+    case DISTANCE_EXTENSIONS_MENU_BUTTON_MARGIN:
+      return GetDistanceMetric(DISTANCE_CONTROL_LIST_VERTICAL);
     case DISTANCE_RELATED_CONTROL_HORIZONTAL_SMALL:
       return kHarmonyLayoutUnit;
     case DISTANCE_RELATED_CONTROL_VERTICAL_SMALL:
@@ -135,10 +161,13 @@ int ChromeLayoutProvider::GetDistanceMetric(int metric) const {
     case DISTANCE_OMNIBOX_TWO_LINE_CELL_VERTICAL_PADDING:
       return 4;
     case DISTANCE_SIDE_PANEL_HEADER_VECTOR_ICON_SIZE:
-      return 18;
+      return 16;
+    case DISTANCE_SIDE_PANEL_HEADER_BUTTON_MINIMUM_SIZE:
+      return 20;
+    case DISTANCE_SIDE_PANEL_HEADER_INTERIOR_MARGIN_HORIZONTAL:
+      return 4;
   }
-  NOTREACHED();
-  return 0;
+  NOTREACHED_NORETURN();
 }
 
 int ChromeLayoutProvider::GetSnappedDialogWidth(int min_width) const {

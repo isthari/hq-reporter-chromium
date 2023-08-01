@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,9 @@
 
 #include <string>
 
-#include "base/callback.h"
 #include "base/containers/flat_set.h"
 #include "base/containers/unique_ptr_adapters.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/strings/string_piece.h"
@@ -17,6 +17,7 @@
 #include "components/feed/core/v2/feed_network.h"
 #include "components/feed/core/v2/types.h"
 #include "components/version_info/channel.h"
+#include "net/http/http_request_headers.h"
 #include "url/gurl.h"
 
 class PrefService;
@@ -29,6 +30,7 @@ class SharedURLLoaderFactory;
 
 namespace feed {
 constexpr base::TimeDelta kAccessTokenFetchTimeout = base::Seconds(10);
+constexpr char kClientInfoHeader[] = "search.now.clientinfo-bin";
 
 class FeedNetworkImpl : public FeedNetwork {
  public:
@@ -69,6 +71,7 @@ class FeedNetworkImpl : public FeedNetwork {
       base::StringPiece method,
       std::string request_bytes,
       const AccountInfo& account_info,
+      absl::optional<RequestMetadata> request_metadata,
       base::OnceCallback<void(RawResponse)> callback) override;
 
   // Cancels all pending requests immediately. This could be used, for example,
@@ -85,6 +88,8 @@ class FeedNetworkImpl : public FeedNetwork {
             std::string request_body,
             bool allow_bless_auth,
             const AccountInfo& account_info,
+            net::HttpRequestHeaders request_metadata,
+            bool is_feed_query,
             base::OnceCallback<void(FeedNetworkImpl::RawResponse)> callback);
 
   void SendComplete(NetworkFetch* fetch,

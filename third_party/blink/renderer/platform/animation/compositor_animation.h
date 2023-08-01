@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,7 +23,6 @@ class AnimationCurve;
 namespace blink {
 
 class CompositorAnimationDelegate;
-class CompositorKeyframeModel;
 
 // A compositor representation for Animation.
 class PLATFORM_EXPORT CompositorAnimation : public cc::AnimationDelegate {
@@ -50,18 +49,11 @@ class PLATFORM_EXPORT CompositorAnimation : public cc::AnimationDelegate {
   void SetAnimationDelegate(CompositorAnimationDelegate*);
 
   void AttachElement(const CompositorElementId&);
-  // Specially designed for a custom property animation on a paint worklet
-  // element. It doesn't require an element id to run on the compositor thread.
-  // However, our compositor animation system requires the element to be on the
-  // property tree in order to keep ticking the animation. Therefore, we give a
-  // very special element id for this animation so that the compositor animation
-  // system recognize it. We do not use 0 as the element id because 0 is
-  // kInvalidElementId.
-  void AttachNoElement();
+  void AttachPaintWorkletElement();
   void DetachElement();
   bool IsElementAttached() const;
 
-  void AddKeyframeModel(std::unique_ptr<CompositorKeyframeModel>);
+  void AddKeyframeModel(std::unique_ptr<cc::KeyframeModel>);
   void RemoveKeyframeModel(int keyframe_model_id);
   void PauseKeyframeModel(int keyframe_model_id, base::TimeDelta time_offset);
   void AbortKeyframeModel(int keyframe_model_id);

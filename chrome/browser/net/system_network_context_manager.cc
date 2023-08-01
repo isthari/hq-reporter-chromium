@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,16 +8,17 @@
 #include <unordered_map>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/auto_reset.h"
 #include "base/build_time.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/memory/raw_ptr.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/process/process_handle.h"
 #include "base/sequence_checker.h"
 #include "base/strings/string_split.h"
-#include "base/task/post_task.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -25,6 +26,7 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/component_updater/crl_set_component_installer.h"
 #include "chrome/browser/component_updater/first_party_sets_component_installer.h"
+#include "chrome/browser/component_updater/pki_metadata_component_installer.h"
 #include "chrome/browser/net/chrome_mojo_proxy_resolver_factory.h"
 #include "chrome/browser/net/convert_explicitly_allowed_network_ports_pref.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
@@ -40,7 +42,7 @@
 #include "components/net_log/net_export_file_writer.h"
 #include "components/net_log/net_log_proxy_source.h"
 #include "components/network_session_configurator/common/network_features.h"
-#include "components/os_crypt/os_crypt.h"
+#include "components/os_crypt/sync/os_crypt.h"
 #include "components/policy/core/common/policy_namespace.h"
 #include "components/policy/core/common/policy_service.h"
 #include "components/policy/policy_constants.h"
@@ -49,8 +51,11 @@
 #include "components/variations/net/variations_http_headers.h"
 #include "components/variations/variations_associated_data.h"
 #include "components/version_info/version_info.h"
+#include "content/public/browser/browser_child_process_observer.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/child_process_data.h"
+#include "content/public/browser/child_process_termination_info.h"
 #include "content/public/browser/network_context_client_base.h"
 #include "content/public/browser/network_service_instance.h"
 #include "content/public/common/content_switches.h"
@@ -61,13 +66,17 @@
 #include "mojo/public/cpp/bindings/receiver_set.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "net/base/features.h"
+#include "net/cert/internal/trust_store_features.h"
 #include "net/cookies/cookie_util.h"
 #include "net/net_buildflags.h"
 #include "net/third_party/uri_template/uri_template.h"
+#include "sandbox/features.h"
 #include "sandbox/policy/features.h"
+#include "sandbox/policy/sandbox_type.h"
 #include "services/cert_verifier/public/mojom/cert_verifier_service_factory.mojom.h"
 #include "services/network/network_service.h"
 #include "services/network/public/cpp/cross_thread_pending_shared_url_loader_factory.h"
+#include "services/network/public/cpp/features.h"
 #include "services/network/public/cpp/network_switches.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/public/mojom/cert_verifier_service.mojom.h"
@@ -96,12 +105,37 @@
 
 #if BUILDFLAG(IS_WIN)
 #include "chrome/browser/net/chrome_mojo_proxy_resolver_win.h"
-#endif
+#endif  // BUILDFLAG(IS_WIN)
 
 namespace {
+// Enumeration of possible sandbox states. These values are persisted to logs,
+// so entries should not be renumbered and numeric values should never be
+// reused.
+enum class NetworkSandboxState {
+  // Disabled by platform configuration. Either the platform does not support
+  // it, or the feature is disabled.
+  kDisabledByPlatform = 0,
+  // Enabled by platform configuration. Either the platform has it enabled by
+  // default, or it's enabled by feature.
+  kEnabledByPlatform = 1,
+  // Enabled by policy. Only valid on Windows where the policy is respected.
+  kDisabledByPolicy = 2,
+  // Disabled by policy. Only valid on Windows where the policy is respected.
+  kEnabledByPolicy = 3,
+  // Disabled because of a previous failed launch attempt.
+  kDisabledBecauseOfFailedLaunch = 4,
+  kMaxValue = kDisabledBecauseOfFailedLaunch
+};
 
-// The global instance of the SystemNetworkContextmanager.
+// The temporary header name expected by the envoy proxy configuration.
+const char kIPAnonymizationProxyPassword[] = "password";
+
+// The global instance of the SystemNetworkContextManager.
 SystemNetworkContextManager* g_system_network_context_manager = nullptr;
+
+// Whether or not any instance of the system network context manager has
+// received a failed launch for a sandboxed network service.
+bool g_previously_failed_to_launch_sandboxed_service = false;
 
 // Constructs HttpAuthStaticParams based on |local_state|.
 network::mojom::HttpAuthStaticParamsPtr CreateHttpAuthStaticParams(
@@ -109,10 +143,11 @@ network::mojom::HttpAuthStaticParamsPtr CreateHttpAuthStaticParams(
   network::mojom::HttpAuthStaticParamsPtr auth_static_params =
       network::mojom::HttpAuthStaticParams::New();
 
-#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS)
   auth_static_params->gssapi_library_name =
       local_state->GetString(prefs::kGSSAPILibraryName);
-#endif
+#endif  // BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_ANDROID) &&
+        // !BUILDFLAG(IS_CHROMEOS)
 
   return auth_static_params;
 }
@@ -128,8 +163,7 @@ network::mojom::HttpAuthDynamicParamsPtr CreateHttpAuthDynamicParams(
                         base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
 
   for (const base::Value& item :
-       local_state->GetList(prefs::kAllHttpAuthSchemesAllowedForOrigins)
-           ->GetList()) {
+       local_state->GetList(prefs::kAllHttpAuthSchemesAllowedForOrigins)) {
     auth_dynamic_params->patterns_allowed_to_use_all_schemes.push_back(
         item.GetString());
   }
@@ -159,15 +193,10 @@ network::mojom::HttpAuthDynamicParamsPtr CreateHttpAuthDynamicParams(
       local_state->GetString(prefs::kAuthAndroidNegotiateAccountType);
 #endif  // BUILDFLAG(IS_ANDROID)
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  // TODO: Use KerberosCredentialsManager to determine whether Kerberos is
-  // enabled instead of relying directly on the preference.
-  policy::BrowserPolicyConnectorAsh* connector =
-      g_browser_process->platform_part()->browser_policy_connector_ash();
+#if BUILDFLAG(IS_CHROMEOS)
   auth_dynamic_params->allow_gssapi_library_load =
-      connector->IsActiveDirectoryManaged() ||
       local_state->GetBoolean(prefs::kKerberosEnabled);
-#endif
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
   return auth_dynamic_params;
 }
@@ -178,36 +207,68 @@ void OnAuthPrefsChanged(PrefService* local_state,
       CreateHttpAuthDynamicParams(local_state));
 }
 
-#if BUILDFLAG(BUILTIN_CERT_VERIFIER_FEATURE_SUPPORTED)
-bool ShouldUseBuiltinCertVerifier(PrefService* local_state) {
-#if BUILDFLAG(BUILTIN_CERT_VERIFIER_POLICY_SUPPORTED)
-  const PrefService::Preference* builtin_cert_verifier_enabled_pref =
-      local_state->FindPreference(prefs::kBuiltinCertificateVerifierEnabled);
-  if (builtin_cert_verifier_enabled_pref->IsManaged())
-    return builtin_cert_verifier_enabled_pref->GetValue()->GetBool();
-#endif
-  // Note: intentionally checking the feature state here rather than falling
-  // back to CertVerifierImpl::kDefault, as browser-side network context
-  // initializition for TrialComparisonCertVerifier depends on knowing which
-  // verifier will be used.
-  return base::FeatureList::IsEnabled(
-      net::features::kCertVerifierBuiltinFeature);
+NetworkSandboxState IsNetworkSandboxEnabledInternal() {
+  // If previously an attempt to launch the sandboxed process failed, then
+  // launch unsandboxed.
+  if (g_previously_failed_to_launch_sandboxed_service)
+    return NetworkSandboxState::kDisabledBecauseOfFailedLaunch;
+#if BUILDFLAG(IS_WIN)
+  if (!sandbox::features::IsAppContainerSandboxSupported())
+    return NetworkSandboxState::kDisabledByPlatform;
+  auto* local_state = g_browser_process->local_state();
+  if (local_state &&
+      local_state->HasPrefPath(prefs::kNetworkServiceSandboxEnabled)) {
+    return local_state->GetBoolean(prefs::kNetworkServiceSandboxEnabled)
+               ? NetworkSandboxState::kEnabledByPolicy
+               : NetworkSandboxState::kDisabledByPolicy;
+  }
+#endif  // BUILDFLAG(IS_WIN)
+  // If no policy is specified, then delegate to global sandbox configuration.
+  return sandbox::policy::features::IsNetworkSandboxEnabled()
+             ? NetworkSandboxState::kEnabledByPlatform
+             : NetworkSandboxState::kDisabledByPlatform;
 }
-#endif
-
-#if BUILDFLAG(CHROME_ROOT_STORE_SUPPORTED)
-// TODO(https://crbug.com/1228958): update function with enterprise policy for
-// Chrome root store usage once this is created.
-bool ShouldUseChromeRootStore(PrefService* local_state) {
-  // Note: intentionally checking the feature state here rather than falling
-  // back to ChromeRootImpl::kRootDefault, as browser-side network context
-  // initializition for TrialComparisonCertVerifier depends on knowing which
-  // verifier will be used.
-  return base::FeatureList::IsEnabled(net::features::kChromeRootStoreUsed);
-}
-#endif
 
 }  // namespace
+
+class SystemNetworkContextManager::NetworkProcessLaunchWatcher
+    : public content::BrowserChildProcessObserver {
+ public:
+  NetworkProcessLaunchWatcher() { BrowserChildProcessObserver::Add(this); }
+
+  NetworkProcessLaunchWatcher(const NetworkProcessLaunchWatcher&) = delete;
+  NetworkProcessLaunchWatcher& operator=(const NetworkProcessLaunchWatcher&) =
+      delete;
+
+  ~NetworkProcessLaunchWatcher() override {
+    BrowserChildProcessObserver::Remove(this);
+  }
+
+ private:
+  void BrowserChildProcessLaunchFailed(
+      const content::ChildProcessData& data,
+      const content::ChildProcessTerminationInfo& info) override {
+    if (data.sandbox_type == sandbox::mojom::Sandbox::kNetwork) {
+      // This histogram duplicates data recorded in
+      // ChildProcess.LaunchFailed.UtilityProcessErrorCode but is specific to
+      // the network service to make analysis easier.
+      base::UmaHistogramSparse(
+          "Chrome.SystemNetworkContextManager.NetworkSandboxLaunchFailed."
+          "ErrorCode",
+          info.exit_code);
+#if BUILDFLAG(IS_WIN)
+      // This histogram duplicates data recorded in
+      // ChildProcess.LaunchFailed.WinLastError but is specific to the network
+      // service to make analysis easier.
+      base::UmaHistogramSparse(
+          "Chrome.SystemNetworkContextManager.NetworkSandboxLaunchFailed."
+          "WinLastError",
+          info.last_error);
+#endif  // BUILDFLAG(IS_WIN)
+      g_previously_failed_to_launch_sandboxed_service = true;
+    }
+  }
+};
 
 // SharedURLLoaderFactory backed by a SystemNetworkContextManager and its
 // network context. Transparently handles crashes.
@@ -307,6 +368,13 @@ SystemNetworkContextManager::GetSharedURLLoaderFactory() {
 // static
 SystemNetworkContextManager* SystemNetworkContextManager::CreateInstance(
     PrefService* pref_service) {
+#if DCHECK_IS_ON()
+  // Check that this function is not reentrant.
+  static bool inside_this_function = false;
+  DCHECK(!inside_this_function);
+  base::AutoReset now_inside_this_function(&inside_this_function, true);
+#endif  // DCHECK_IS_ON()
+
   DCHECK(!g_system_network_context_manager);
   g_system_network_context_manager =
       new SystemNetworkContextManager(pref_service);
@@ -353,10 +421,10 @@ SystemNetworkContextManager::SystemNetworkContextManager(
       g_browser_process->policy_service()
           ->GetPolicies(policy::PolicyNamespace(policy::POLICY_DOMAIN_CHROME,
                                                 std::string()))
-          .GetValue(policy::key::kQuicAllowed);
-  if (value && value->is_bool())
+          .GetValue(policy::key::kQuicAllowed, base::Value::Type::BOOLEAN);
+  if (value)
     is_quic_allowed_ = value->GetBool();
-#endif
+#endif  // !BUILDFLAG(IS_ANDROID)
   shared_url_loader_factory_ = new URLLoaderFactoryForSystem(this);
 
   pref_change_registrar_.Init(local_state_);
@@ -391,11 +459,9 @@ SystemNetworkContextManager::SystemNetworkContextManager(
                              auth_pref_callback);
 #endif  // BUILDFLAG(IS_ANDROID)
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  // TODO: Use KerberosCredentialsManager::Observer to be notified of when the
-  // enabled state changes instead of relying directly on the preference.
+#if BUILDFLAG(IS_CHROMEOS)
   pref_change_registrar_.Add(prefs::kKerberosEnabled, auth_pref_callback);
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
   local_state_->SetDefaultPrefValue(
       prefs::kEnableReferrers,
@@ -410,6 +476,38 @@ SystemNetworkContextManager::SystemNetworkContextManager(
       base::BindRepeating(
           &SystemNetworkContextManager::UpdateExplicitlyAllowedNetworkPorts,
           base::Unretained(this)));
+
+#if BUILDFLAG(CHROME_ROOT_STORE_POLICY_SUPPORTED)
+  pref_change_registrar_.Add(
+      prefs::kChromeRootStoreEnabled,
+      base::BindRepeating(
+          &SystemNetworkContextManager::UpdateChromeRootStoreEnabled,
+          base::Unretained(this)));
+  // Call the update function immediately to set the initial value, if any.
+  // TODO(https://crbug.com/1085233): If CertVerifierServiceFactory is moved to
+  // a separate process, will need to handle restarts so that the current value
+  // can be re-initialized into the cert verifier service process when it is
+  // re-created.
+  UpdateChromeRootStoreEnabled();
+#endif  // BUILDFLAG(CHROME_ROOT_STORE_POLICY_SUPPORTED)
+
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \
+    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID)
+  pref_change_registrar_.Add(
+      prefs::kEnforceLocalAnchorConstraintsEnabled,
+      base::BindRepeating(&SystemNetworkContextManager::
+                              UpdateEnforceLocalAnchorConstraintsEnabled,
+                          base::Unretained(this)));
+  // Call the update function immediately to set the initial value, if any.
+  UpdateEnforceLocalAnchorConstraintsEnabled();
+#endif
+
+  if (content::IsOutOfProcessNetworkService() &&
+      base::FeatureList::IsEnabled(
+          features::kRestartNetworkServiceUnsandboxedForFailedLaunch)) {
+    network_process_launch_watcher_ =
+        std::make_unique<NetworkProcessLaunchWatcher>();
+  }
 }
 
 SystemNetworkContextManager::~SystemNetworkContextManager() {
@@ -423,30 +521,35 @@ void SystemNetworkContextManager::RegisterPrefs(PrefRegistrySimple* registry) {
   // Static auth params
   registry->RegisterStringPref(prefs::kAuthSchemes,
                                "basic,digest,ntlm,negotiate");
-#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS)
   registry->RegisterStringPref(prefs::kGSSAPILibraryName, std::string());
 #endif  // BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_ANDROID) &&
-        // !BUILDFLAG(IS_CHROMEOS_ASH)
+        // !BUILDFLAG(IS_CHROMEOS)
 
   // Dynamic auth params.
-  registry->RegisterListPref(prefs::kAllHttpAuthSchemesAllowedForOrigins,
-                             base::Value(base::Value::Type::LIST));
+  registry->RegisterListPref(prefs::kAllHttpAuthSchemesAllowedForOrigins);
   registry->RegisterBooleanPref(prefs::kDisableAuthNegotiateCnameLookup, false);
   registry->RegisterBooleanPref(prefs::kEnableAuthNegotiatePort, false);
   registry->RegisterBooleanPref(prefs::kBasicAuthOverHttpEnabled, true);
   registry->RegisterStringPref(prefs::kAuthServerAllowlist, std::string());
   registry->RegisterStringPref(prefs::kAuthNegotiateDelegateAllowlist,
                                std::string());
+
+// On ChromeOS Ash, the pref below is registered by the
+// `KerberosCredentialsManager`.
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  registry->RegisterBooleanPref(prefs::kKerberosEnabled, false);
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
+
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_CHROMEOS)
   registry->RegisterBooleanPref(prefs::kAuthNegotiateDelegateByKdcPolicy,
                                 false);
 #endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_CHROMEOS)
 
 #if BUILDFLAG(IS_POSIX)
-  registry->RegisterBooleanPref(
-      prefs::kNtlmV2Enabled,
-      base::FeatureList::IsEnabled(features::kNtlmV2Enabled));
+  registry->RegisterBooleanPref(prefs::kNtlmV2Enabled, true);
 #endif  // BUILDFLAG(IS_POSIX)
+
 #if BUILDFLAG(IS_ANDROID)
   registry->RegisterStringPref(prefs::kAuthAndroidNegotiateAccountType,
                                std::string());
@@ -461,19 +564,23 @@ void SystemNetworkContextManager::RegisterPrefs(PrefRegistrySimple* registry) {
 
   registry->RegisterIntegerPref(prefs::kMaxConnectionsPerProxy, -1);
 
-#if BUILDFLAG(BUILTIN_CERT_VERIFIER_POLICY_SUPPORTED)
+#if BUILDFLAG(CHROME_ROOT_STORE_POLICY_SUPPORTED)
   // Note that the default value is not relevant because the pref is only
   // evaluated when it is managed.
-  registry->RegisterBooleanPref(prefs::kBuiltinCertificateVerifierEnabled,
-                                false);
+  registry->RegisterBooleanPref(prefs::kChromeRootStoreEnabled, false);
+#endif  // BUILDFLAG(CHROME_ROOT_STORE_POLICY_SUPPORTED)
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \
+    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID)
+  // Note that the default value is not relevant because the pref is only
+  // evaluated when it is managed.
+  registry->RegisterBooleanPref(prefs::kEnforceLocalAnchorConstraintsEnabled,
+                                true);
 #endif
 
   registry->RegisterListPref(prefs::kExplicitlyAllowedNetworkPorts);
 
 #if BUILDFLAG(IS_WIN)
-  registry->RegisterBooleanPref(
-      prefs::kNetworkServiceSandboxEnabled,
-      sandbox::policy::features::IsNetworkSandboxEnabled());
+  registry->RegisterBooleanPref(prefs::kNetworkServiceSandboxEnabled, true);
 #endif  // BUILDFLAG(IS_WIN)
 }
 
@@ -530,19 +637,20 @@ void SystemNetworkContextManager::OnNetworkServiceCreated(
     for (const auto& ct_log : certificate_transparency::GetKnownLogs()) {
       network::mojom::CTLogInfoPtr log_info = network::mojom::CTLogInfo::New();
       log_info->public_key = std::string(ct_log.log_key, ct_log.log_key_length);
+      log_info->id = crypto::SHA256HashString(log_info->public_key);
       log_info->name = ct_log.log_name;
       log_info->current_operator = ct_log.current_operator;
 
-      std::string log_id = crypto::SHA256HashString(log_info->public_key);
       log_info->operated_by_google =
           std::binary_search(std::begin(operated_by_google_logs),
-                             std::end(operated_by_google_logs), log_id);
+                             std::end(operated_by_google_logs), log_info->id);
       auto it = std::lower_bound(
-          std::begin(disqualified_logs), std::end(disqualified_logs), log_id,
+          std::begin(disqualified_logs), std::end(disqualified_logs),
+          log_info->id,
           [](const auto& disqualified_log, const std::string& log_id) {
             return disqualified_log.first < log_id;
           });
-      if (it != std::end(disqualified_logs) && it->first == log_id) {
+      if (it != std::end(disqualified_logs) && it->first == log_info->id) {
         log_info->disqualified_at = it->second;
       }
 
@@ -559,7 +667,7 @@ void SystemNetworkContextManager::OnNetworkServiceCreated(
     }
     network_service->UpdateCtLogList(
         std::move(log_list_mojo),
-        certificate_transparency::GetLogListTimestamp());
+        certificate_transparency::GetLogListTimestamp(), base::DoNothing());
   }
 
   int max_connections_per_proxy =
@@ -588,22 +696,11 @@ void SystemNetworkContextManager::OnNetworkServiceCreated(
     network_service->SetEncryptionKey(OSCrypt::GetRawEncryptionKey());
   }
 
-  // Asynchronously reapply the most recently received CRLSet (if any).
-  component_updater::CRLSetPolicy::ReconfigureAfterNetworkRestart();
-
   // Configure SCT Auditing in the NetworkService.
   SCTReportingService::ReconfigureAfterNetworkRestart();
 
-  component_updater::FirstPartySetsComponentInstallerPolicy::
-      ReconfigureAfterNetworkRestart(base::BindOnce([](base::File sets_file) {
-        // We use a fresh pointer here (instead of using `network_service`
-        // from the enclosing scope) to avoid use-after-free bugs, since
-        // `network_service` is not guaranteed to live until the
-        // invocation of this callback.
-        network::mojom::NetworkService* network_service =
-            content::GetNetworkService();
-        network_service->SetFirstPartySets(std::move(sets_file));
-      }));
+  component_updater::PKIMetadataComponentInstallerService::GetInstance()
+      ->ReconfigureAfterNetworkRestart();
 
   UpdateExplicitlyAllowedNetworkPorts();
 }
@@ -623,9 +720,7 @@ void SystemNetworkContextManager::AddSSLConfigToNetworkContextParams(
 }
 
 void SystemNetworkContextManager::ConfigureDefaultNetworkContextParams(
-    network::mojom::NetworkContextParams* network_context_params,
-    cert_verifier::mojom::CertVerifierCreationParams*
-        cert_verifier_creation_params) {
+    network::mojom::NetworkContextParams* network_context_params) {
   variations::UpdateCorsExemptHeaderForVariations(network_context_params);
   GoogleURLLoaderThrottle::UpdateCorsExemptHeader(network_context_params);
 
@@ -670,6 +765,7 @@ void SystemNetworkContextManager::ConfigureDefaultNetworkContextParams(
     } else {
       network_context_params->proxy_resolver_factory =
           ChromeMojoProxyResolverFactory::CreateWithSelfOwnedReceiver();
+
 #if BUILDFLAG(IS_CHROMEOS_ASH)
       network_context_params->dhcp_wpad_url_client =
           ash::DhcpWpadUrlClient::CreateWithSelfOwnedReceiver();
@@ -682,7 +778,7 @@ void SystemNetworkContextManager::ConfigureDefaultNetworkContextParams(
     network_context_params->windows_system_proxy_resolver =
         ChromeMojoProxyResolverWin::CreateWithSelfOwnedReceiver();
   }
-#endif
+#endif  // BUILDFLAG(IS_WIN)
 
   network_context_params->pac_quick_check_enabled =
       local_state_->GetBoolean(prefs::kQuickCheckEnabled);
@@ -697,23 +793,47 @@ void SystemNetworkContextManager::ConfigureDefaultNetworkContextParams(
     network_context_params->enforce_chrome_ct_policy = true;
   }
 
-#if BUILDFLAG(BUILTIN_CERT_VERIFIER_FEATURE_SUPPORTED)
-  cert_verifier_creation_params->use_builtin_cert_verifier =
-      ShouldUseBuiltinCertVerifier(local_state_)
-          ? cert_verifier::mojom::CertVerifierCreationParams::CertVerifierImpl::
-                kBuiltin
-          : cert_verifier::mojom::CertVerifierCreationParams::CertVerifierImpl::
-                kSystem;
-#endif
+  // If a custom proxy for IP protection is specified by either command line
+  // switch or Finch experiment flag, set the proxy rules
+  if (command_line.HasSwitch(::switches::kIPAnonymizationProxyServer) ||
+      base::FeatureList::IsEnabled(net::features::kEnableIpProtectionProxy)) {
+    auto proxy_config = network::mojom::CustomProxyConfig::New();
+    proxy_config->rules.type =
+        net::ProxyConfig::ProxyRules::Type::PROXY_LIST_PER_SCHEME;
 
-#if BUILDFLAG(CHROME_ROOT_STORE_SUPPORTED)
-  cert_verifier_creation_params->use_chrome_root_store =
-      ShouldUseChromeRootStore(local_state_)
-          ? cert_verifier::mojom::CertVerifierCreationParams::ChromeRootImpl::
-                kRootChrome
-          : cert_verifier::mojom::CertVerifierCreationParams::ChromeRootImpl::
-                kRootSystem;
-#endif
+    // Command line input takes precedence over flag configuration
+    std::string ip_protection_proxy_server =
+        command_line.HasSwitch(::switches::kIPAnonymizationProxyServer)
+            ? command_line.GetSwitchValueASCII(
+                  ::switches::kIPAnonymizationProxyServer)
+            : net::features::kIpPrivacyProxyServer.Get();
+
+    proxy_config->rules.ParseFromString(ip_protection_proxy_server);
+
+    // Get allowlist hosts, command line input takes precedence over flag
+    // configuration
+    std::string ip_protection_proxy_allow_list =
+        command_line.HasSwitch(::switches::kIPAnonymizationProxyServer)
+            ? command_line.GetSwitchValueASCII(
+                  ::switches::kIPAnonymizationProxyAllowList)
+            : net::features::kIpPrivacyProxyAllowlist.Get();
+
+    proxy_config->rules.reverse_bypass = true;
+    proxy_config->rules.bypass_rules.ParseFromString(
+        ip_protection_proxy_allow_list);
+
+    proxy_config->should_replace_direct = true;
+    proxy_config->should_override_existing_config = false;
+    proxy_config->allow_non_idempotent_methods = true;
+    proxy_config->connect_tunnel_headers.SetHeader(
+        kIPAnonymizationProxyPassword,
+        command_line.GetSwitchValueASCII(
+            ::switches::kIPAnonymizationProxyPassword));
+
+    // Set initial custom proxy configuration
+    network_context_params->initial_custom_proxy_config =
+        std::move(proxy_config);
+  }
 }
 
 network::mojom::NetworkContextParamsPtr
@@ -723,10 +843,13 @@ SystemNetworkContextManager::CreateDefaultNetworkContextParams() {
   cert_verifier::mojom::CertVerifierCreationParamsPtr
       cert_verifier_creation_params =
           cert_verifier::mojom::CertVerifierCreationParams::New();
-  ConfigureDefaultNetworkContextParams(network_context_params.get(),
-                                       cert_verifier_creation_params.get());
+  ConfigureDefaultNetworkContextParams(network_context_params.get());
   network_context_params->cert_verifier_params =
       content::GetCertVerifierParams(std::move(cert_verifier_creation_params));
+  network_context_params->acam_preflight_spec_conformant =
+      base::FeatureList::IsEnabled(
+          network::features::
+              kAccessControlAllowMethodsInCORSPreflightSpecConformant);
   return network_context_params;
 }
 
@@ -740,17 +863,23 @@ SystemNetworkContextManager::GetNetExportFileWriter() {
 
 // static
 bool SystemNetworkContextManager::IsNetworkSandboxEnabled() {
-#if BUILDFLAG(IS_WIN)
-  if (!sandbox::policy::features::IsWinNetworkServiceSandboxSupported())
-    return false;
-  auto* local_state = g_browser_process->local_state();
-  if (local_state &&
-      local_state->HasPrefPath(prefs::kNetworkServiceSandboxEnabled)) {
-    return local_state->GetBoolean(prefs::kNetworkServiceSandboxEnabled);
+  NetworkSandboxState state = IsNetworkSandboxEnabledInternal();
+
+  base::UmaHistogramEnumeration(
+      "Chrome.SystemNetworkContextManager.NetworkSandboxState", state);
+
+  switch (state) {
+    case NetworkSandboxState::kDisabledByPlatform:
+      return false;
+    case NetworkSandboxState::kEnabledByPlatform:
+      return true;
+    case NetworkSandboxState::kDisabledByPolicy:
+      return false;
+    case NetworkSandboxState::kEnabledByPolicy:
+      return true;
+    case NetworkSandboxState::kDisabledBecauseOfFailedLaunch:
+      return false;
   }
-#endif  // BUILDFLAG(IS_WIN)
-  // If no policy is specified, then delegate to global sandbox configuration.
-  return sandbox::policy::features::IsNetworkSandboxEnabled();
 }
 
 void SystemNetworkContextManager::FlushSSLConfigManagerForTesting() {
@@ -799,11 +928,38 @@ bool SystemNetworkContextManager::IsCertificateTransparencyEnabled() {
       features::kCertificateTransparencyAndroid);
 #else
   return true;
-#endif
+#endif  // BUILDFLAG(IS_ANDROID)
 #else
   return false;
-#endif
+#endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING) && defined(OFFICIAL_BUILD)
 }
+
+#if BUILDFLAG(CHROME_ROOT_STORE_OPTIONAL)
+// static
+bool SystemNetworkContextManager::IsUsingChromeRootStore() {
+  // SystemNetworkContextManager::GetInstance() may be null in unit_tests. In
+  // that case just fall back to only using the feature flag.
+  return IsUsingChromeRootStoreImpl(
+      SystemNetworkContextManager::GetInstance()
+          ? SystemNetworkContextManager::GetInstance()->local_state_
+          : nullptr);
+}
+
+// static
+bool SystemNetworkContextManager::IsUsingChromeRootStoreImpl(
+    PrefService* local_state) {
+#if BUILDFLAG(CHROME_ROOT_STORE_POLICY_SUPPORTED)
+  if (local_state) {
+    const PrefService::Preference* chrome_root_store_enabled_pref =
+        local_state->FindPreference(prefs::kChromeRootStoreEnabled);
+    if (chrome_root_store_enabled_pref->IsManaged()) {
+      return chrome_root_store_enabled_pref->GetValue()->GetBool();
+    }
+  }
+#endif  // BUILDFLAG(CHROME_ROOT_STORE_POLICY_SUPPORTED)
+  return base::FeatureList::IsEnabled(net::features::kChromeRootStoreUsed);
+}
+#endif  // BUILDFLAG(CHROME_ROOT_STORE_OPTIONAL)
 
 network::mojom::NetworkContextParamsPtr
 SystemNetworkContextManager::CreateNetworkContextParams() {
@@ -827,6 +983,32 @@ void SystemNetworkContextManager::UpdateExplicitlyAllowedNetworkPorts() {
   content::GetNetworkService()->SetExplicitlyAllowedPorts(
       ConvertExplicitlyAllowedNetworkPortsPref(local_state_));
 }
+
+#if BUILDFLAG(CHROME_ROOT_STORE_POLICY_SUPPORTED)
+void SystemNetworkContextManager::UpdateChromeRootStoreEnabled() {
+  content::GetCertVerifierServiceFactory()->SetUseChromeRootStore(
+      IsUsingChromeRootStoreImpl(local_state_), base::DoNothing());
+}
+#endif  // BUILDFLAG(CHROME_ROOT_STORE_POLICY_SUPPORTED)
+
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \
+    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID)
+void SystemNetworkContextManager::UpdateEnforceLocalAnchorConstraintsEnabled() {
+  const PrefService::Preference* enforce_local_anchor_constraints_enabled_pref =
+      local_state_->FindPreference(
+          prefs::kEnforceLocalAnchorConstraintsEnabled);
+  if (enforce_local_anchor_constraints_enabled_pref->IsManaged()) {
+    // This depends on the CertVerifierService running in the browser process.
+    // If that changes, this would need to become a mojo message.
+    net::SetLocalAnchorConstraintsEnforcementEnabled(
+        enforce_local_anchor_constraints_enabled_pref->GetValue()->GetBool());
+  } else {
+    net::SetLocalAnchorConstraintsEnforcementEnabled(
+        base::FeatureList::IsEnabled(
+            net::features::kEnforceLocalAnchorConstraints));
+  }
+}
+#endif
 
 void SystemNetworkContextManager::UpdateReferrersEnabled() {
   GetContext()->SetEnableReferrers(enable_referrers_.GetValue());

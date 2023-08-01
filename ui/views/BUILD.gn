@@ -1,4 +1,4 @@
-# Copyright 2014 The Chromium Authors. All rights reserved.
+# Copyright 2014 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -8,6 +8,7 @@ import("//build/config/features.gni")
 import("//build/config/ozone.gni")
 import("//build/config/ui.gni")
 import("//components/vector_icons/vector_icons.gni")
+import("//skia/features.gni")
 import("//testing/test.gni")
 import("//ui/base/ui_features.gni")
 import("//ui/views/features.gni")
@@ -23,8 +24,13 @@ aggregate_vector_icons("views_vector_icons") {
 
   sources = [
     "checkbox_active.icon",
+    "checkbox_check_cr2023.icon",
     "checkbox_normal.icon",
+    "checkbox_normal_cr2023.icon",
     "close.icon",
+    "drag_general_selection.icon",
+    "eye.icon",
+    "eye_crossed.icon",
     "ic_close.icon",
     "info.icon",
     "launch.icon",
@@ -79,7 +85,7 @@ component("views") {
     "animation/ink_drop_event_handler.h",
     "animation/ink_drop_highlight.h",
     "animation/ink_drop_highlight_observer.h",
-    "animation/ink_drop_host_view.h",
+    "animation/ink_drop_host.h",
     "animation/ink_drop_impl.h",
     "animation/ink_drop_mask.h",
     "animation/ink_drop_observer.h",
@@ -95,6 +101,7 @@ component("views") {
     "animation/square_ink_drop_ripple.h",
     "animation/widget_fade_animator.h",
     "background.h",
+    "badge_painter.h",
     "border.h",
     "bubble/bubble_border.h",
     "bubble/bubble_border_arrow_utils.h",
@@ -108,6 +115,7 @@ component("views") {
     "color_chooser/color_chooser_listener.h",
     "context_menu_controller.h",
     "controls/animated_image_view.h",
+    "controls/badge.h",
     "controls/button/button.h",
     "controls/button/button_controller.h",
     "controls/button/button_controller_delegate.h",
@@ -122,9 +130,11 @@ component("views") {
     "controls/button/radio_button.h",
     "controls/button/toggle_button.h",
     "controls/combobox/combobox.h",
+    "controls/combobox/combobox_menu_model.h",
     "controls/combobox/combobox_util.h",
     "controls/dot_indicator.h",
     "controls/editable_combobox/editable_combobox.h",
+    "controls/editable_combobox/editable_password_combobox.h",
     "controls/focus_ring.h",
     "controls/focusable_border.h",
     "controls/highlight_path_generator.h",
@@ -132,6 +142,7 @@ component("views") {
     "controls/image_view_base.h",
     "controls/label.h",
     "controls/link.h",
+    "controls/link_fragment.h",
     "controls/menu/menu_config.h",
     "controls/menu/menu_controller.h",
     "controls/menu/menu_controller_delegate.h",
@@ -150,7 +161,6 @@ component("views") {
     "controls/menu/menu_scroll_view_container.h",
     "controls/menu/menu_separator.h",
     "controls/menu/menu_types.h",
-    "controls/menu/new_badge.h",
     "controls/menu/submenu_view.h",
     "controls/message_box_view.h",
     "controls/native/native_view_host.h",
@@ -159,6 +169,7 @@ component("views") {
     "controls/prefix_delegate.h",
     "controls/prefix_selector.h",
     "controls/progress_bar.h",
+    "controls/progress_ring_utils.h",
     "controls/resize_area.h",
     "controls/resize_area_delegate.h",
     "controls/scroll_view.h",
@@ -189,6 +200,7 @@ component("views") {
     "controls/views_text_services_context_menu.h",
     "controls/views_text_services_context_menu_base.h",
     "debug_utils.h",
+    "dialog_model_context_menu_controller.h",
     "drag_controller.h",
     "drag_utils.h",
     "event_monitor.h",
@@ -198,7 +210,6 @@ component("views") {
     "focus/focus_manager_factory.h",
     "focus/focus_search.h",
     "focus/widget_focus_manager.h",
-    "image_model_utils.h",
     "input_event_activation_protector.h",
     "interaction/element_tracker_views.h",
     "interaction/interaction_sequence_views.h",
@@ -209,7 +220,6 @@ component("views") {
     "layout/flex_layout.h",
     "layout/flex_layout_types.h",
     "layout/flex_layout_view.h",
-    "layout/grid_layout.h",
     "layout/layout_manager.h",
     "layout/layout_manager_base.h",
     "layout/layout_provider.h",
@@ -226,8 +236,8 @@ component("views") {
     "mouse_constants.h",
     "mouse_watcher.h",
     "mouse_watcher_view_host.h",
-    "native_cursor.h",
     "native_theme_delegate.h",
+    "native_window_tracker.h",
     "paint_info.h",
     "painter.h",
     "rect_based_targeting_utils.h",
@@ -261,6 +271,7 @@ component("views") {
     "widget/native_widget_private.h",
     "widget/root_view.h",
     "widget/root_view_targeter.h",
+    "widget/sublevel_manager.h",
     "widget/tooltip_manager.h",
     "widget/unique_widget_ptr.h",
     "widget/widget.h",
@@ -309,7 +320,7 @@ component("views") {
     "animation/ink_drop_animation_ended_reason.cc",
     "animation/ink_drop_event_handler.cc",
     "animation/ink_drop_highlight.cc",
-    "animation/ink_drop_host_view.cc",
+    "animation/ink_drop_host.cc",
     "animation/ink_drop_impl.cc",
     "animation/ink_drop_mask.cc",
     "animation/ink_drop_painted_layer_delegates.cc",
@@ -322,6 +333,7 @@ component("views") {
     "animation/square_ink_drop_ripple.cc",
     "animation/widget_fade_animator.cc",
     "background.cc",
+    "badge_painter.cc",
     "border.cc",
     "bubble/bubble_border.cc",
     "bubble/bubble_border_arrow_utils.cc",
@@ -335,6 +347,7 @@ component("views") {
     "cascading_property.cc",
     "context_menu_controller.cc",
     "controls/animated_image_view.cc",
+    "controls/badge.cc",
     "controls/button/button.cc",
     "controls/button/button_controller.cc",
     "controls/button/checkbox.cc",
@@ -348,11 +361,13 @@ component("views") {
     "controls/button/radio_button.cc",
     "controls/button/toggle_button.cc",
     "controls/combobox/combobox.cc",
+    "controls/combobox/combobox_menu_model.cc",
     "controls/combobox/combobox_util.cc",
     "controls/combobox/empty_combobox_model.cc",
     "controls/combobox/empty_combobox_model.h",
     "controls/dot_indicator.cc",
     "controls/editable_combobox/editable_combobox.cc",
+    "controls/editable_combobox/editable_password_combobox.cc",
     "controls/focus_ring.cc",
     "controls/focusable_border.cc",
     "controls/highlight_path_generator.cc",
@@ -360,6 +375,7 @@ component("views") {
     "controls/image_view_base.cc",
     "controls/label.cc",
     "controls/link.cc",
+    "controls/link_fragment.cc",
     "controls/menu/menu_config.cc",
     "controls/menu/menu_controller.cc",
     "controls/menu/menu_delegate.cc",
@@ -373,12 +389,12 @@ component("views") {
     "controls/menu/menu_runner_impl_adapter.cc",
     "controls/menu/menu_scroll_view_container.cc",
     "controls/menu/menu_separator.cc",
-    "controls/menu/new_badge.cc",
     "controls/menu/submenu_view.cc",
     "controls/message_box_view.cc",
     "controls/native/native_view_host.cc",
     "controls/prefix_selector.cc",
     "controls/progress_bar.cc",
+    "controls/progress_ring_utils.cc",
     "controls/resize_area.cc",
     "controls/scroll_view.cc",
     "controls/scrollbar/base_scroll_bar_thumb.cc",
@@ -404,13 +420,13 @@ component("views") {
     "controls/tree/tree_view_drawing_provider.cc",
     "controls/views_text_services_context_menu_base.cc",
     "debug_utils.cc",
+    "dialog_model_context_menu_controller.cc",
     "drag_utils.cc",
     "focus/external_focus_tracker.cc",
     "focus/focus_manager.cc",
     "focus/focus_manager_factory.cc",
     "focus/focus_search.cc",
     "focus/widget_focus_manager.cc",
-    "image_model_utils.cc",
     "input_event_activation_protector.cc",
     "interaction/element_tracker_views.cc",
     "interaction/interaction_sequence_views.cc",
@@ -421,7 +437,6 @@ component("views") {
     "layout/flex_layout.cc",
     "layout/flex_layout_types.cc",
     "layout/flex_layout_view.cc",
-    "layout/grid_layout.cc",
     "layout/layout_manager.cc",
     "layout/layout_manager_base.cc",
     "layout/layout_provider.cc",
@@ -463,6 +478,7 @@ component("views") {
     "widget/native_widget_private.cc",
     "widget/root_view.cc",
     "widget/root_view_targeter.cc",
+    "widget/sublevel_manager.cc",
     "widget/tooltip_manager.cc",
     "widget/unique_widget_ptr.cc",
     "widget/widget.cc",
@@ -496,7 +512,12 @@ component("views") {
   ]
 
   sources += get_target_outputs(":views_vector_icons")
-  configs += [ "//build/config:precompiled_headers" ]
+
+  configs += [
+    "//build/config:precompiled_headers",
+    "//build/config/compiler:prevent_unsafe_narrowing",
+  ]
+
   defines = [ "VIEWS_IMPLEMENTATION" ]
 
   deps = [
@@ -511,9 +532,11 @@ component("views") {
     "//ui/accessibility",
     "//ui/base/clipboard",
     "//ui/base/dragdrop/mojom",
+    "//ui/base/emoji",
     "//ui/color",
     "//ui/color:mixers",
     "//ui/display",
+    "//ui/gfx:native_widget_types",
     "//ui/latency",
     "//ui/lottie",
     "//ui/native_theme",
@@ -537,6 +560,7 @@ component("views") {
     "//ui/base/cursor",
     "//ui/base/dragdrop:types",
     "//ui/base/dragdrop/mojom:mojom_headers",
+    "//ui/base/emoji",
     "//ui/base/ime/init",
     "//ui/base/metadata",
     "//ui/compositor",
@@ -552,7 +576,23 @@ component("views") {
   ]
 
   if (is_chromeos_ash) {
-    deps += [ "//ui/base/ime/ash" ]
+    deps += [
+      "//ash/constants",
+      "//ui/base/ime/ash",
+    ]
+  }
+
+  if (is_chromeos) {
+    public += [ "highlight_border.h" ]
+    sources += [ "highlight_border.cc" ]
+    deps += [
+      "//chromeos/constants",
+      "//ui/chromeos/styles:cros_tokens_color_mappings_generator",
+    ]
+  }
+
+  if (is_linux) {
+    public_deps += [ "//ui/linux:linux_ui" ]
   }
 
   if (is_linux || is_chromeos || is_fuchsia) {
@@ -561,37 +601,18 @@ component("views") {
   }
 
   if (is_linux || is_chromeos_lacros) {
-    sources -= [ "window/window_button_order_provider.cc" ]
-    public_deps += [ "//ui/base/cursor:theme_manager" ]
-    deps += [
-      "//ui/base/ime/linux",
-      "//ui/shell_dialogs",
-    ]
-    public += [
-      "linux_ui/device_scale_factor_observer.h",
-      "linux_ui/linux_ui.h",
-      "linux_ui/nav_button_provider.h",
-      "linux_ui/status_icon_linux.h",
-      "linux_ui/window_button_order_observer.h",
-      "linux_ui/window_frame_provider.h",
-    ]
-    sources += [
-      "linux_ui/linux_ui.cc",
-      "linux_ui/status_icon_linux.cc",
-      "linux_ui/window_button_order_provider.cc",
-    ]
-
+    deps += [ "//ui/base/ime/linux" ]
     if (!is_chromeos_lacros) {
       sources += [ "controls/menu/menu_config_linux.cc" ]
     }
   }
 
-  if (is_chromeos_ash || is_chromeos_lacros) {
-    sources += [ "controls/menu/menu_config_chromeos.cc" ]
-    if (!is_chromeos_lacros) {
-      public += [ "controls/views_text_services_context_menu_chromeos.h" ]
-      sources += [ "controls/views_text_services_context_menu_chromeos.cc" ]
-    }
+  if (is_chromeos) {
+    public += [ "controls/views_text_services_context_menu_chromeos.h" ]
+    sources += [
+      "controls/menu/menu_config_chromeos.cc",
+      "controls/views_text_services_context_menu_chromeos.cc",
+    ]
   }
 
   if (is_mac) {
@@ -599,11 +620,13 @@ component("views") {
       "cocoa/native_widget_mac_ns_window_host.h",
       "controls/menu/menu_closure_animation_mac.h",
       "controls/menu/menu_cocoa_watcher_mac.h",
+      "controls/menu/menu_controller_cocoa_delegate_impl.h",
       "controls/menu/menu_runner_impl_cocoa.h",
       "controls/scrollbar/cocoa_scroll_bar.h",
       "event_monitor_mac.h",
       "widget/native_widget_mac.h",
       "widget/widget_utils_mac.h",
+      "window/native_frame_view_mac.h",
     ]
     sources += [
       "accessibility/ax_virtual_view_mac.mm",
@@ -612,6 +635,8 @@ component("views") {
       "cocoa/native_widget_mac_event_monitor.h",
       "cocoa/native_widget_mac_event_monitor.mm",
       "cocoa/native_widget_mac_ns_window_host.mm",
+      "cocoa/native_window_tracker_cocoa.h",
+      "cocoa/native_window_tracker_cocoa.mm",
       "cocoa/text_input_host.h",
       "cocoa/text_input_host.mm",
       "cocoa/tooltip_manager_mac.h",
@@ -619,6 +644,7 @@ component("views") {
       "controls/menu/menu_closure_animation_mac.mm",
       "controls/menu/menu_cocoa_watcher_mac.mm",
       "controls/menu/menu_config_mac.mm",
+      "controls/menu/menu_controller_cocoa_delegate_impl.mm",
       "controls/menu/menu_pre_target_handler_mac.h",
       "controls/menu/menu_pre_target_handler_mac.mm",
       "controls/menu/menu_runner_impl_cocoa.mm",
@@ -628,11 +654,11 @@ component("views") {
       "drag_utils_mac.mm",
       "event_monitor_mac.mm",
       "metrics_mac.cc",
-      "native_cursor_mac.mm",
       "style/platform_style_mac.mm",
       "views_touch_selection_controller_factory_mac.cc",
       "widget/native_widget_mac.mm",
       "widget/widget_utils_mac.mm",
+      "window/native_frame_view_mac.mm",
     ]
     public_deps += [ "//components/remote_cocoa/common:mojo" ]
     deps += [
@@ -660,6 +686,7 @@ component("views") {
       "win/hwnd_message_handler_delegate.h",
       "win/hwnd_util.h",
       "win/pen_event_processor.h",
+      "win/pen_id_handler.h",
       "win/scoped_enable_unadjusted_mouse_events_win.h",
       "win/scoped_fullscreen_visibility.h",
     ]
@@ -671,6 +698,7 @@ component("views") {
       "win/hwnd_message_handler.cc",
       "win/hwnd_util_aurawin.cc",
       "win/pen_event_processor.cc",
+      "win/pen_id_handler.cc",
       "win/scoped_enable_unadjusted_mouse_events_win.cc",
       "win/scoped_fullscreen_visibility.cc",
     ]
@@ -704,13 +732,13 @@ component("views") {
       "accessibility/ax_widget_obj_wrapper.h",
       "accessibility/ax_window_obj_wrapper.h",
       "controls/native/native_view_host_aura.h",
-      "corewm/cursor_height_provider_win.h",
       "corewm/tooltip.h",
       "corewm/tooltip_aura.h",
       "corewm/tooltip_controller.h",
       "corewm/tooltip_state_manager.h",
-      "corewm/tooltip_win.h",
+      "corewm/tooltip_view_aura.h",
       "event_monitor_aura.h",
+      "native_window_tracker_aura.h",
       "touchui/touch_selection_controller_impl.h",
       "touchui/touch_selection_menu_runner_views.h",
       "touchui/touch_selection_menu_views.h",
@@ -738,10 +766,11 @@ component("views") {
       "corewm/tooltip_aura.cc",
       "corewm/tooltip_controller.cc",
       "corewm/tooltip_state_manager.cc",
+      "corewm/tooltip_view_aura.cc",
       "drag_utils_aura.cc",
       "event_monitor_aura.cc",
       "metrics_aura.cc",
-      "native_cursor_aura.cc",
+      "native_window_tracker_aura.cc",
       "touchui/touch_selection_controller_impl.cc",
       "touchui/touch_selection_menu_runner_views.cc",
       "touchui/touch_selection_menu_views.cc",
@@ -752,17 +781,16 @@ component("views") {
       "widget/tooltip_manager_aura.cc",
       "widget/window_reorderer.cc",
     ]
-    if (is_win) {
-      sources += [
-        "corewm/cursor_height_provider_win.cc",
-        "corewm/tooltip_win.cc",
-      ]
-    }
     if (!is_chromeos_ash) {
       sources += [
         "accessibility/views_ax_tree_manager.cc",
         "accessibility/widget_ax_tree_id_map.cc",
       ]
+    }
+    if (is_chromeos_lacros) {
+      public += [ "corewm/tooltip_lacros.h" ]
+
+      sources += [ "corewm/tooltip_lacros.cc" ]
     }
     deps += [
       "//ui/aura",
@@ -795,7 +823,6 @@ component("views") {
         "widget/desktop_aura/desktop_screen_position_client.cc",
         "widget/desktop_aura/desktop_window_tree_host.cc",
       ]
-      public_deps += [ "//ui/aura/cursor" ]
       if (is_win) {
         public += [ "widget/desktop_aura/desktop_window_tree_host_win.h" ]
         sources += [
@@ -817,18 +844,30 @@ component("views") {
         public += [ "widget/desktop_aura/desktop_screen_ozone.h" ]
         sources += [ "widget/desktop_aura/desktop_screen_ozone.cc" ]
       }
-      if (is_linux || is_chromeos) {
+      if (is_linux) {
         public += [ "widget/desktop_aura/desktop_window_tree_host_linux.h" ]
         sources += [
-          "style/platform_style_linux.cc",
-          "widget/desktop_aura/desktop_screen_linux.cc",
+          "widget/desktop_aura/desktop_screen_ozone_linux.cc",
           "widget/desktop_aura/desktop_window_tree_host_linux.cc",
           "widget/desktop_aura/window_event_filter_linux.cc",
           "widget/desktop_aura/window_event_filter_linux.h",
         ]
         deps += [ "//ui/base:hit_test" ]
       }
-      if (is_linux || is_chromeos || is_fuchsia) {
+      if (is_chromeos_lacros) {
+        public += [ "widget/desktop_aura/desktop_window_tree_host_lacros.h" ]
+        sources += [
+          # TODO: do we need one for lacros?
+          "widget/desktop_aura/desktop_window_tree_host_lacros.cc",
+          "widget/desktop_aura/window_event_filter_lacros.cc",
+          "widget/desktop_aura/window_event_filter_lacros.h",
+        ]
+        deps += [
+          "//chromeos/ui/base",
+          "//ui/base:hit_test",
+        ]
+      }
+      if (is_linux || is_chromeos_lacros || is_fuchsia) {
         public += [
           "widget/desktop_aura/desktop_window_tree_host_platform.h",
           "widget/desktop_aura/window_move_client_platform.h",
@@ -840,6 +879,12 @@ component("views") {
           "widget/desktop_aura/window_move_client_platform.cc",
         ]
         public_deps += [ "//ui/base/dragdrop/mojom:mojom_shared" ]
+      }
+      if (is_linux) {
+        sources += [
+          "widget/desktop_aura/desktop_drag_drop_client_ozone_linux.cc",
+          "widget/desktop_aura/desktop_drag_drop_client_ozone_linux.h",
+        ]
       }
       if (use_atk) {
         sources += [
@@ -888,6 +933,26 @@ component("views") {
   }
 }
 
+if (is_win || is_mac || is_linux || is_chromeos) {
+  static_library("view_pixel_diff_test_support") {
+    testonly = true
+    sources = [
+      "test/view_skia_gold_pixel_diff.cc",
+      "test/view_skia_gold_pixel_diff.h",
+    ]
+
+    deps = [
+      ":views",
+      "//base",
+      "//skia",
+      "//testing/gtest",
+      "//ui/base:pixel_diff_test_support",
+      "//ui/gfx",
+      "//ui/snapshot",
+    ]
+  }
+}
+
 source_set("test_support") {
   testonly = true
   sources = [
@@ -895,8 +960,8 @@ source_set("test_support") {
     "animation/test/flood_fill_ink_drop_ripple_test_api.h",
     "animation/test/ink_drop_highlight_test_api.cc",
     "animation/test/ink_drop_highlight_test_api.h",
-    "animation/test/ink_drop_host_view_test_api.cc",
-    "animation/test/ink_drop_host_view_test_api.h",
+    "animation/test/ink_drop_host_test_api.cc",
+    "animation/test/ink_drop_host_test_api.h",
     "animation/test/ink_drop_impl_test_api.cc",
     "animation/test/ink_drop_impl_test_api.h",
     "animation/test/ink_drop_ripple_test_api.cc",
@@ -917,6 +982,14 @@ source_set("test_support") {
     "controls/table/test_table_model.h",
     "controls/textfield/textfield_test_api.cc",
     "controls/textfield/textfield_test_api.h",
+    "interaction/interaction_test_util_mouse.cc",
+    "interaction/interaction_test_util_mouse.h",
+    "interaction/interaction_test_util_views.cc",
+    "interaction/interaction_test_util_views.h",
+    "interaction/interactive_views_test.cc",
+    "interaction/interactive_views_test.h",
+    "interaction/interactive_views_test_internal.cc",
+    "interaction/interactive_views_test_internal.h",
     "layout/animating_layout_manager_test_util.cc",
     "layout/animating_layout_manager_test_util.h",
     "test/ax_event_counter.cc",
@@ -937,6 +1010,12 @@ source_set("test_support") {
     "test/menu_runner_test_api.h",
     "test/menu_test_utils.cc",
     "test/menu_test_utils.h",
+    "test/mock_drag_controller.cc",
+    "test/mock_drag_controller.h",
+    "test/mock_input_event_activation_protector.cc",
+    "test/mock_input_event_activation_protector.h",
+    "test/mock_native_widget.cc",
+    "test/mock_native_widget.h",
     "test/native_widget_factory.cc",
     "test/native_widget_factory.h",
     "test/scoped_views_test_helper.cc",
@@ -961,6 +1040,8 @@ source_set("test_support") {
     "test/views_test_base.h",
     "test/views_test_helper.cc",
     "test/views_test_helper.h",
+    "test/views_test_utils.cc",
+    "test/views_test_utils.h",
     "test/widget_animation_waiter.cc",
     "test/widget_animation_waiter.h",
     "test/widget_test.cc",
@@ -970,6 +1051,8 @@ source_set("test_support") {
     "view_test_api.h",
     "views_test_suite.cc",
     "views_test_suite.h",
+    "widget/widget_interactive_uitest_utils.cc",
+    "widget/widget_interactive_uitest_utils.h",
   ]
 
   configs += [ "//build/config:precompiled_headers" ]
@@ -989,6 +1072,7 @@ source_set("test_support") {
     "//ui/base/clipboard:clipboard_test_support",
     "//ui/base/dragdrop:types",
     "//ui/base/dragdrop/mojom",
+    "//ui/base/emoji",
     "//ui/base/ime/init",
     "//ui/compositor",
     "//ui/compositor:test_support",
@@ -1000,12 +1084,25 @@ source_set("test_support") {
     "//ui/gfx/geometry",
     "//ui/gl:test_support",
   ]
-  public_deps = [ "//testing/gtest" ]
+  public_deps = [
+    "//testing/gmock",
+    "//testing/gtest",
+  ]
 
   if (is_win) {
     sources += [
       "test/desktop_window_tree_host_win_test_api.cc",
       "test/desktop_window_tree_host_win_test_api.h",
+      "win/test_support/fake_ipen_device.cc",
+      "win/test_support/fake_ipen_device.h",
+      "win/test_support/fake_ipen_device_statics.cc",
+      "win/test_support/fake_ipen_device_statics.h",
+      "win/test_support/fake_ipen_pointer_point_statics.cc",
+      "win/test_support/fake_ipen_pointer_point_statics.h",
+      "win/test_support/fake_ipointer_point.cc",
+      "win/test_support/fake_ipointer_point.h",
+      "win/test_support/fake_ipointer_point_properties.cc",
+      "win/test_support/fake_ipointer_point_properties.h",
     ]
   }
   if (is_mac) {
@@ -1029,8 +1126,6 @@ source_set("test_support") {
 
   if (use_aura) {
     sources += [
-      "corewm/test/tooltip_aura_test_api.cc",
-      "corewm/test/tooltip_aura_test_api.h",
       "corewm/tooltip_controller_test_helper.cc",
       "corewm/tooltip_controller_test_helper.h",
       "test/desktop_test_views_delegate_aura.cc",
@@ -1039,6 +1134,12 @@ source_set("test_support") {
       "test/views_test_helper_aura.h",
       "test/widget_test_aura.cc",
     ]
+    if (!is_chromeos_lacros) {
+      sources += [
+        "corewm/test/tooltip_aura_test_api.cc",
+        "corewm/test/tooltip_aura_test_api.h",
+      ]
+    }
     deps += [
       "//ui/aura",
       "//ui/aura:test_support",
@@ -1050,12 +1151,11 @@ source_set("test_support") {
     deps += [ "//ui/ozone" ]
   }
 
-  if (use_ozone && (is_linux || is_chromeos_lacros) && enable_desktop_aura) {
+  if (use_ozone && enable_desktop_aura) {
     sources += [
       "test/test_desktop_screen_ozone.cc",
       "test/test_desktop_screen_ozone.h",
       "test/ui_controls_factory_desktop_aura_ozone.cc",
-      "test/ui_controls_factory_desktop_aura_ozone.h",
     ]
     deps += [ "//ui/ozone:ui_test_support" ]
   }
@@ -1065,6 +1165,7 @@ test("views_unittests") {
   use_xvfb = use_xvfb_in_this_config
 
   sources = [
+    "accessibility/accessibility_paint_checks_unittest.cc",
     "accessible_pane_view_unittest.cc",
     "animation/animation_builder_unittest.cc",
     "animation/bounds_animator_unittest.cc",
@@ -1072,7 +1173,7 @@ test("views_unittests") {
     "animation/compositor_animation_runner_unittest.cc",
     "animation/flood_fill_ink_drop_ripple_unittest.cc",
     "animation/ink_drop_highlight_unittest.cc",
-    "animation/ink_drop_host_view_unittest.cc",
+    "animation/ink_drop_host_unittest.cc",
     "animation/ink_drop_impl_unittest.cc",
     "animation/ink_drop_mask_unittest.cc",
     "animation/ink_drop_ripple_unittest.cc",
@@ -1086,6 +1187,7 @@ test("views_unittests") {
     "bubble/bubble_dialog_model_host_unittest.cc",
     "bubble/bubble_frame_view_unittest.cc",
     "bubble/info_bubble_unittest.cc",
+    "bubble/tooltip_icon_unittest.cc",
     "controls/base_control_test_widget.cc",
     "controls/base_control_test_widget.h",
     "controls/button/button_unittest.cc",
@@ -1100,8 +1202,10 @@ test("views_unittests") {
     "controls/button/toggle_button_unittest.cc",
     "controls/combobox/combobox_unittest.cc",
     "controls/editable_combobox/editable_combobox_unittest.cc",
+    "controls/editable_combobox/editable_password_combobox_unittest.cc",
     "controls/image_view_unittest.cc",
     "controls/label_unittest.cc",
+    "controls/link_fragment_unittest.cc",
     "controls/link_unittest.cc",
     "controls/menu/menu_controller_unittest.cc",
     "controls/menu/menu_item_view_unittest.cc",
@@ -1131,13 +1235,15 @@ test("views_unittests") {
     "controls/textfield/textfield_model_unittest.cc",
     "controls/textfield/textfield_unittest.cc",
     "controls/textfield/textfield_unittest.h",
+    "controls/theme_tracking_image_view_unittest.cc",
     "controls/tree/tree_view_unittest.cc",
     "event_monitor_unittest.cc",
     "focus/focus_manager_unittest.cc",
     "focus/focus_traversal_unittest.cc",
-    "image_model_utils_unittest.cc",
     "interaction/element_tracker_views_unittest.cc",
     "interaction/interaction_sequence_views_unittest.cc",
+    "interaction/interaction_test_util_views_unittest.cc",
+    "interaction/interactive_views_test_unittest.cc",
     "layout/animating_layout_manager_unittest.cc",
     "layout/box_layout_unittest.cc",
     "layout/box_layout_view_unittest.cc",
@@ -1145,7 +1251,6 @@ test("views_unittests") {
     "layout/fill_layout_unittest.cc",
     "layout/flex_layout_unittest.cc",
     "layout/flex_layout_view_unittest.cc",
-    "layout/grid_layout_unittest.cc",
     "layout/layout_manager_base_unittest.cc",
     "layout/normalized_geometry_unittest.cc",
     "layout/proposed_layout_unittest.cc",
@@ -1167,6 +1272,7 @@ test("views_unittests") {
     "widget/drop_helper_unittest.cc",
     "widget/native_widget_unittest.cc",
     "widget/root_view_unittest.cc",
+    "widget/sublevel_manager_unittest.cc",
     "widget/unique_widget_ptr_unittest.cc",
     "widget/widget_delegate_unittest.cc",
     "widget/widget_unittest.cc",
@@ -1186,7 +1292,7 @@ test("views_unittests") {
     "//base:i18n",
     "//base/test:test_support",
     "//build:chromeos_buildflags",
-    "//cc",
+    "//cc:test_support",
     "//cc/paint",
     "//components/vector_icons",
     "//components/viz/common",
@@ -1202,8 +1308,10 @@ test("views_unittests") {
     "//ui/base/clipboard:clipboard_test_support",
     "//ui/base/dragdrop:types",
     "//ui/base/dragdrop/mojom",
+    "//ui/base/emoji",
     "//ui/base/ime/init",
     "//ui/color",
+    "//ui/color:mixers",
     "//ui/compositor:test_support",
     "//ui/display:test_support",
     "//ui/events:dom_keycode_converter",
@@ -1248,7 +1356,12 @@ test("views_unittests") {
       "accessibility/test_list_grid_view.h",
       "accessibility/view_ax_platform_node_delegate_win_unittest.cc",
       "win/pen_event_processor_unittest.cc",
+      "win/pen_id_handler_unittest.cc",
     ]
+  }
+
+  if (is_linux) {
+    deps += [ "//ui/linux:test_support" ]
   }
 
   if (is_linux || is_chromeos_lacros) {
@@ -1266,11 +1379,20 @@ test("views_unittests") {
     }
   }
 
+  if (skia_support_skottie) {
+    sources += [ "controls/animated_image_view_unittest.cc" ]
+
+    deps += [ "//ui/lottie" ]
+  }
+
   if (is_mac) {
     sources += [
+      "accessibility/view_ax_platform_node_delegate_mac_unittest.cc",
       "cocoa/bridged_native_widget_unittest.mm",
       "cocoa/cocoa_mouse_capture_unittest.mm",
       "cocoa/drag_drop_client_mac_unittest.mm",
+      "cocoa/fullscreen_controller_unittest.cc",
+      "cocoa/immersive_mode_controller_unittest.mm",
       "controls/menu/menu_closure_animation_mac_unittest.cc",
       "controls/menu/menu_runner_cocoa_unittest.mm",
       "controls/native/native_view_host_mac_unittest.mm",
@@ -1278,6 +1400,7 @@ test("views_unittests") {
       "view_unittest_mac.mm",
       "widget/ax_native_widget_mac_unittest.mm",
       "widget/native_widget_mac_unittest.mm",
+      "widget/sublevel_manager_mac_unittest.mm",
     ]
 
     # views_unittests not yet compiling on Mac. http://crbug.com/378134
@@ -1290,14 +1413,14 @@ test("views_unittests") {
   }
 
   if (is_fuchsia) {
+    # These tests use SwiftShader (crbug.com/1022542), which uses JIT.
+    test_runner_shard = "//build/config/fuchsia/test/elf_test_ambient_exec_runner.shard.test-cml"
+
     additional_manifest_fragments = [
-      "//build/config/fuchsia/test/font_capabilities.test-cmx",
-
-      # These tests use SwiftShader (crbug.com/1022542), which uses JIT.
-      "//build/config/fuchsia/test/jit_capabilities.test-cmx",
-
-      "//build/config/fuchsia/test/present_view_capabilities.test-cmx",
-      "//build/config/fuchsia/test/vulkan_capabilities.test-cmx",
+      "//build/config/fuchsia/test/fonts.shard.test-cml",
+      "//build/config/fuchsia/test/mark_vmo_executable.shard.test-cml",
+      "//build/config/fuchsia/test/present_view.shard.test-cml",
+      "//third_party/fuchsia-sdk/sdk/pkg/vulkan/client.shard.cml",
     ]
   }
 
@@ -1344,11 +1467,9 @@ test("views_unittests") {
         sources += [
           "widget/desktop_aura/desktop_window_tree_host_platform_unittest.cc",
         ]
-        if (is_linux || is_chromeos) {
-          sources += [
-            "widget/desktop_aura/desktop_window_tree_host_linux_unittest.cc",
-          ]
-        }
+      }
+      if (is_linux || is_chromeos) {
+        sources += [ "widget/desktop_aura/desktop_window_tree_host_platform_impl_unittest.cc" ]
       }
       if (use_ozone) {
         sources +=
@@ -1378,6 +1499,11 @@ test("views_unittests") {
 
   if (is_linux || is_chromeos) {
     sources += [ "color_chooser/color_chooser_unittest.cc" ]
+  }
+
+  if (is_win || is_mac || is_linux || is_chromeos) {
+    sources += [ "test/view_skia_gold_pixel_diff_unittest.cc" ]
+    deps += [ "//ui/views:view_pixel_diff_test_support" ]
   }
 }
 
@@ -1434,7 +1560,7 @@ source_set("views_interactive_ui_tests") {
     ]
 
     if (is_linux || is_chromeos_lacros) {
-      sources += [ "widget/desktop_aura/desktop_window_tree_host_linux_interactive_uitest.cc" ]
+      sources += [ "widget/desktop_aura/desktop_window_tree_host_platform_impl_interactive_uitest.cc" ]
     }
 
     deps += [
@@ -1442,6 +1568,12 @@ source_set("views_interactive_ui_tests") {
       "//ui/platform_window",
       "//ui/platform_window/wm",
     ]
+
+    if (enable_desktop_aura) {
+      sources += [
+        "widget/desktop_aura/desktop_native_widget_aura_interactive_uitest.cc",
+      ]
+    }
   }
 
   if (is_chromeos_ash) {

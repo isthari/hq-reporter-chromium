@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,13 +11,14 @@ import static androidx.test.espresso.matcher.ViewMatchers.withId;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
 
 import android.content.Intent;
-import android.support.test.InstrumentationRegistry;
 
 import androidx.appcompat.app.AlertDialog;
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.espresso.Espresso;
 import androidx.test.espresso.assertion.ViewAssertions;
 import androidx.test.filters.MediumTest;
 import androidx.test.filters.SmallTest;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -28,13 +29,12 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.CriteriaHelper;
-import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.browsing_data.BrowsingDataBridge;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.chrome.test.R;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.test.EmbeddedTestServer;
 
@@ -54,7 +54,8 @@ public class ManageSpaceActivityTest {
         if (!mActivityTestRule.getName().equals("testClearUnimporantWithoutChromeStart")) {
             mActivityTestRule.startMainActivityOnBlankPage();
         }
-        mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
+        mTestServer = EmbeddedTestServer.createAndStartServer(
+                ApplicationProvider.getApplicationContext());
     }
 
     @After
@@ -64,7 +65,7 @@ public class ManageSpaceActivityTest {
 
     private ManageSpaceActivity startManageSpaceActivity() {
         Intent intent =
-                new Intent(InstrumentationRegistry.getTargetContext(), ManageSpaceActivity.class);
+                new Intent(ApplicationProvider.getApplicationContext(), ManageSpaceActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
         return (ManageSpaceActivity) InstrumentationRegistry.getInstrumentation().startActivitySync(
@@ -106,7 +107,6 @@ public class ManageSpaceActivityTest {
     @Test
     @MediumTest
     @Feature({"SiteEngagement"})
-    @DisabledTest(message = "https://crbug.com/1060975")
     public void testClearUnimportantOnly() throws Exception {
         final String cookiesUrl =
                 mTestServer.getURL("/chrome/test/data/android/storage_persistance.html");

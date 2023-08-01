@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,28 +27,29 @@ void SplitViewTestApi::SnapWindow(
   SplitViewController::SnapPosition position;
   switch (snap_position) {
     case SnapPosition::NONE:
-      position = SplitViewController::NONE;
+      position = SplitViewController::SnapPosition::kNone;
       break;
     case SnapPosition::LEFT:
-      position = SplitViewController::LEFT;
+      position = SplitViewController::SnapPosition::kPrimary;
       break;
     case SnapPosition::RIGHT:
-      position = SplitViewController::RIGHT;
+      position = SplitViewController::SnapPosition::kSecondary;
       break;
   }
   split_view_controller()->SnapWindow(window, position);
 }
 
 void SplitViewTestApi::SwapWindows() {
-  split_view_controller()->SwapWindows();
+  split_view_controller()->SwapWindows(
+      SplitViewController::SwapWindowsSource::kDoubleTap);
 }
 
 aura::Window* SplitViewTestApi::GetLeftWindow() const {
-  return split_view_controller()->left_window();
+  return split_view_controller()->primary_window();
 }
 
 aura::Window* SplitViewTestApi::GetRightWindow() const {
-  return split_view_controller()->right_window();
+  return split_view_controller()->secondary_window();
 }
 
 }  // namespace ash

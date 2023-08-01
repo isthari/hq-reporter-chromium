@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -56,7 +56,6 @@ class NoStatePrefetchHelper
   int prefetch_count_ = 0;
   bool prefetch_finished_ = false;
   base::TimeTicks start_time_;
-  base::TimeTicks parsed_time_;
 
   base::WeakPtrFactory<NoStatePrefetchHelper> weak_factory_{this};
 };

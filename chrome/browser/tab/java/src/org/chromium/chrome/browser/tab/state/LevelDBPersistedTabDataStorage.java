@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@ import androidx.annotation.MainThread;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.Callback;
-import org.chromium.base.supplier.Supplier;
+import org.chromium.base.lifetime.Destroyable;
 import org.chromium.chrome.browser.profiles.Profile;
 
 import java.nio.ByteBuffer;
@@ -19,7 +19,7 @@ import java.util.Locale;
  * {@link LevelDBPersistedTabDataStorage} provides a level db backed implementation
  * of {@link PersistedTabDataStorage}.
  */
-public class LevelDBPersistedTabDataStorage implements PersistedTabDataStorage {
+public class LevelDBPersistedTabDataStorage implements PersistedTabDataStorage, Destroyable {
     // In a mock environment, the native code will not be running so we should not
     // make assertions about mNativePersistedStateDB
     // LevelDBPersistedTabDataStorage needs to have an empty namespace for backwards compatibility.
@@ -42,10 +42,17 @@ public class LevelDBPersistedTabDataStorage implements PersistedTabDataStorage {
 
     @MainThread
     @Override
-    public void save(int tabId, String dataId, Supplier<ByteBuffer> dataSupplier) {
+    public void save(int tabId, String dataId, Serializer<ByteBuffer> serializer) {
         // TODO(crbug.com/1221571) update LevelDB storage in native to use ByteBuffer instead
         // of byte[] to avoid conversion
-        mPersistedDataStorage.save(getKey(tabId, dataId), toByteArray(dataSupplier.get()));
+        serializer.preSerialize();
+        mPersistedDataStorage.save(getKey(tabId, dataId), toByteArray(serializer.get()));
+    }
+
+    @Override
+    public void save(int tabId, String dataId, Serializer<ByteBuffer> serializer,
+            Callback<Integer> callback) {
+        assert false : "save with callback unused in LevelDBPersistedTabDataStorage";
     }
 
     private static byte[] toByteArray(ByteBuffer buffer) {
@@ -83,6 +90,21 @@ public class LevelDBPersistedTabDataStorage implements PersistedTabDataStorage {
     public ByteBuffer restore(int tabId, String dataId) {
         assert false : "Synchronous restore is not supported for LevelDBPersistedTabDataStorage";
         return null;
+    }
+
+    @MainThread
+    @Override
+    public <U extends PersistedTabDataResult> U restore(
+            int tabId, String dataId, PersistedTabDataMapper<U> mapper) {
+        assert false : "Restore with mapper currently unused in LevelDBPersistedTabDataStorage";
+        return null;
+    }
+
+    @MainThread
+    @Override
+    public <U extends PersistedTabDataResult> void restore(
+            int tabId, String dataId, Callback<U> callback, PersistedTabDataMapper<U> mapper) {
+        assert false : "Restore with mapper currently unused in LevelDBPersistedTabDataStorage";
     }
 
     @MainThread
@@ -131,6 +153,7 @@ public class LevelDBPersistedTabDataStorage implements PersistedTabDataStorage {
     /**
      * Destroy native instance of persisted_tab_state
      */
+    @Override
     public void destroy() {
         mPersistedDataStorage.destroy();
         mIsDestroyed = true;
@@ -140,5 +163,4 @@ public class LevelDBPersistedTabDataStorage implements PersistedTabDataStorage {
     protected boolean isDestroyed() {
         return mIsDestroyed;
     }
-
 }

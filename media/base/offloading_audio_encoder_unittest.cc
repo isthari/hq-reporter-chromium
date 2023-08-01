@@ -1,12 +1,12 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <memory>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/task/sequenced_task_runner.h"
@@ -14,6 +14,7 @@
 #include "base/test/bind.h"
 #include "base/test/gmock_callback_support.h"
 #include "base/test/task_environment.h"
+#include "base/time/time.h"
 #include "media/base/media_util.h"
 #include "media/base/mock_filters.h"
 #include "media/base/offloading_audio_encoder.h"
@@ -34,7 +35,8 @@ class OffloadingAudioEncoderTest : public testing::Test {
     auto mock_audio_encoder = std::make_unique<MockAudioEncoder>();
     mock_audio_encoder_ = mock_audio_encoder.get();
     work_runner_ = base::ThreadPool::CreateSequencedTaskRunner({});
-    callback_runner_ = base::SequencedTaskRunnerHandle::Get();
+    callback_runner_ = base::SequencedTaskRunner::GetCurrentDefault();
+    EXPECT_CALL(*mock_audio_encoder_, DisablePostedCallbacks());
     offloading_encoder_ = std::make_unique<OffloadingAudioEncoder>(
         std::move(mock_audio_encoder), work_runner_, callback_runner_);
     EXPECT_CALL(*mock_audio_encoder_, OnDestruct()).WillOnce(Invoke([this]() {

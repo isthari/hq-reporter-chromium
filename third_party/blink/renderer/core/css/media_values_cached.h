@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,6 +29,12 @@ class CORE_EXPORT MediaValuesCached final : public MediaValues {
     // thread
     double viewport_width = 0;
     double viewport_height = 0;
+    double small_viewport_width = 0;
+    double small_viewport_height = 0;
+    double large_viewport_width = 0;
+    double large_viewport_height = 0;
+    double dynamic_viewport_width = 0;
+    double dynamic_viewport_height = 0;
     int device_width = 0;
     int device_height = 0;
     float device_pixel_ratio = 1.0;
@@ -41,13 +47,17 @@ class CORE_EXPORT MediaValuesCached final : public MediaValues {
     int available_pointer_types = ui::POINTER_TYPE_NONE;
     mojom::blink::HoverType primary_hover_type =
         mojom::blink::HoverType::kHoverNone;
+    mojom::blink::OutputDeviceUpdateAbilityType
+        output_device_update_ability_type =
+            mojom::blink::OutputDeviceUpdateAbilityType::kFastType;
     // Bitmask of |ui::HoverType|
     int available_hover_types = ui::HOVER_TYPE_NONE;
     float em_size = 16.f;
     float ex_size = 8.f;
     float ch_size = 8.f;
+    float ic_size = 16.f;
+    float line_height = 0;
     bool three_d_enabled = false;
-    bool immersive_mode = false;
     bool strict_mode = true;
     String media_type;
     mojom::blink::DisplayMode display_mode =
@@ -82,14 +92,16 @@ class CORE_EXPORT MediaValuesCached final : public MediaValues {
       data.primary_pointer_type = primary_pointer_type;
       data.available_pointer_types = available_pointer_types;
       data.primary_hover_type = primary_hover_type;
+      data.output_device_update_ability_type =
+          output_device_update_ability_type;
       data.available_hover_types = available_hover_types;
       data.em_size = em_size;
       data.ex_size = ex_size;
       data.ch_size = ch_size;
+      data.ch_size = ic_size;
       data.three_d_enabled = three_d_enabled;
-      data.immersive_mode = immersive_mode;
       data.strict_mode = strict_mode;
-      data.media_type = media_type.IsolatedCopy();
+      data.media_type = media_type;
       data.display_mode = display_mode;
       data.color_gamut = color_gamut;
       data.preferred_color_scheme = preferred_color_scheme;
@@ -120,9 +132,10 @@ class CORE_EXPORT MediaValuesCached final : public MediaValues {
   mojom::blink::PointerType PrimaryPointerType() const override;
   int AvailablePointerTypes() const override;
   mojom::blink::HoverType PrimaryHoverType() const override;
+  mojom::blink::OutputDeviceUpdateAbilityType OutputDeviceUpdateAbilityType()
+      const override;
   int AvailableHoverTypes() const override;
   bool ThreeDEnabled() const override;
-  bool InImmersiveMode() const override;
   bool StrictMode() const override;
   Document* GetDocument() const override;
   bool HasValues() const override;
@@ -142,12 +155,27 @@ class CORE_EXPORT MediaValuesCached final : public MediaValues {
   void OverrideViewportDimensions(double width, double height);
 
  protected:
+  // CSSLengthResolver
+  float EmFontSize(float zoom) const override;
+  float RemFontSize(float zoom) const override;
+  float ExFontSize(float zoom) const override;
+  float RexFontSize(float zoom) const override;
+  float ChFontSize(float zoom) const override;
+  float RchFontSize(float zoom) const override;
+  float IcFontSize(float zoom) const override;
+  float RicFontSize(float zoom) const override;
+  float LineHeight(float zoom) const override;
+  float RootLineHeight(float zoom) const override;
   double ViewportWidth() const override;
   double ViewportHeight() const override;
-  float EmSize() const override;
-  float RemSize() const override;
-  float ExSize() const override;
-  float ChSize() const override;
+  double SmallViewportWidth() const override;
+  double SmallViewportHeight() const override;
+  double LargeViewportWidth() const override;
+  double LargeViewportHeight() const override;
+  double DynamicViewportWidth() const override;
+  double DynamicViewportHeight() const override;
+  double ContainerWidth() const override;
+  double ContainerHeight() const override;
   WritingMode GetWritingMode() const override {
     return WritingMode::kHorizontalTb;
   }

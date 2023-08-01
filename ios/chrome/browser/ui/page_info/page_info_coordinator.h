@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,14 +7,14 @@
 
 #import <Foundation/Foundation.h>
 
-#import "ios/chrome/browser/ui/coordinators/chrome_coordinator.h"
+#import "ios/chrome/browser/shared/coordinator/chrome_coordinator/chrome_coordinator.h"
 
 @protocol PageInfoPresentation;
 
 // The coordinator for the page info.
 @interface PageInfoCoordinator : ChromeCoordinator
 
-// |presentationProvider| provides information and runs tasks necessary to
+// `presentationProvider` provides information and runs tasks necessary to
 // present Page Info.
 @property(nonatomic, weak) id<PageInfoPresentation> presentationProvider;
 

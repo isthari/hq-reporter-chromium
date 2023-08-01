@@ -9,7 +9,6 @@
 <translation id="3444832043240812445">Denne side viser kun oplysninger om dine seneste nedbrud, hvis du <ph name="BEGIN_LINK" />aktiverer rapportering af nedbrud<ph name="END_LINK" />.</translation>
 <translation id="3875312571075912821">Tillad, at Chrome får adgang til netværket i dine indstillinger for firewall eller
        antivirus.</translation>
-<translation id="4010643444566880169">Chrome OS har ikke fuldført sin indledende konfiguration.</translation>
 <translation id="5005121315113832363">Chrome har blokeret denne side</translation>
 <translation id="6011049234605203654">Gå til
           Chrome-menuen &gt;
@@ -41,4 +40,6 @@
 <translation id="8187289872471304532">Gå til 
           Applikationer &gt; Systemindstillinger &gt; Netværk &gt; Avanceret &gt; Proxyer,
           og fjern markeringen af alle valgte proxyer.</translation>
+<translation id="8232971017369963250">Chrome leveres ved hjælp af open source-projektet <ph name="BEGIN_LINK_CHROMIUM" />Chromium<ph name="END_LINK_CHROMIUM" />.</translation>
+<translation id="8279509328145658601">Chrome leveres også ved hjælp af andet <ph name="BEGIN_LINK_OSS" />open source-software<ph name="END_LINK_OSS" />.</translation>
 </translationbundle>

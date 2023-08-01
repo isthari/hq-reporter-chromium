@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,10 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "base/metrics/histogram_macros.h"
+#include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
@@ -30,6 +32,7 @@
 #include "chrome/grit/theme_resources.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
 #include "components/google/core/common/google_util.h"
+#include "components/policy/core/common/policy_pref_names.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
@@ -76,13 +79,8 @@ AppLauncherPageUI::AppLauncherPageUI(content::WebUI* web_ui)
   // earlier.
   web_ui->AddMessageHandler(std::make_unique<ThemeHandler>());
 
-  /*content::URLDataSource::Add(
-      GetProfile(),
-      std::make_unique<HTMLSource>(GetProfile()->GetOriginalProfile()));*/
-
-  content::WebUIDataSource* source =
-      content::WebUIDataSource::Create(chrome::kChromeUIAppLauncherPageHost);
-  content::WebUIDataSource::Add(GetProfile(), source);
+  content::WebUIDataSource* source = content::WebUIDataSource::CreateAndAdd(
+      GetProfile(), chrome::kChromeUIAppLauncherPageHost);
 
   source->AddResourcePaths(base::make_span(kAppsResources, kAppsResourcesSize));
   source->SetDefaultResource(IDR_APPS_NEW_TAB_HTML);
@@ -130,21 +128,22 @@ AppLauncherPageUI::AppLauncherPageUI(content::WebUI* web_ui)
 
   bool is_swipe_tracking_from_scroll_events_enabled = false;
 #if BUILDFLAG(IS_MAC)
-  // On Mac OS X 10.7+, horizontal scrolling can be treated as a back or
-  // forward gesture. Pass through a flag that indicates whether or not that
-  // feature is enabled.
+  // On the Mac, horizontal scrolling can be treated as a back or forward
+  // gesture. Pass through a flag that indicates whether or not that feature is
+  // enabled.
   is_swipe_tracking_from_scroll_events_enabled =
       platform_util::IsSwipeTrackingFromScrollEventsEnabled();
 #endif
   source->AddBoolean("isSwipeTrackingFromScrollEventsEnabled",
                      is_swipe_tracking_from_scroll_events_enabled);
 
-  source->AddBoolean("showWebStoreIcon",
-                     !prefs->GetBoolean(prefs::kHideWebStoreIcon));
+  source->AddBoolean(
+      "showWebStoreIcon",
+      !prefs->GetBoolean(policy::policy_prefs::kHideWebStoreIcon));
 
   pref_change_registrar_.Init(prefs);
   pref_change_registrar_.Add(
-      prefs::kHideWebStoreIcon,
+      policy::policy_prefs::kHideWebStoreIcon,
       base::BindRepeating(&AppLauncherPageUI::OnHideWebStoreIconChanged,
                           base::Unretained(this)));
 
@@ -181,10 +180,10 @@ AppLauncherPageUI::~AppLauncherPageUI() {
 }
 
 void AppLauncherPageUI::OnHideWebStoreIconChanged() {
-  std::unique_ptr<base::DictionaryValue> update(new base::DictionaryValue);
+  base::Value::Dict update;
   PrefService* prefs = GetProfile()->GetPrefs();
-  update->SetBoolean("showWebStoreIcon",
-                     !prefs->GetBoolean(prefs::kHideWebStoreIcon));
+  update.Set("showWebStoreIcon",
+             !prefs->GetBoolean(policy::policy_prefs::kHideWebStoreIcon));
   content::WebUIDataSource::Update(
       GetProfile(), chrome::kChromeUIAppLauncherPageHost, std::move(update));
 }

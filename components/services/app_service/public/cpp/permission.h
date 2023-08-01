@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,28 +9,25 @@
 #include <vector>
 
 #include "base/component_export.h"
-#include "components/services/app_service/public/mojom/types.mojom.h"
+#include "components/services/app_service/public/cpp/macros.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/abseil-cpp/absl/types/variant.h"
 
 namespace apps {
 
 // The types of permissions in App Service.
-enum class PermissionType {
-  kUnknown = 0,
-  kCamera = 1,
-  kLocation = 2,
-  kMicrophone = 3,
-  kNotifications = 4,
-  kContacts = 5,
-  kStorage = 6,
-  kPrinting = 7,
-};
+ENUM(PermissionType,
+     kUnknown,
+     kCamera,
+     kLocation,
+     kMicrophone,
+     kNotifications,
+     kContacts,
+     kStorage,
+     kPrinting,
+     kFileHandling)
 
-enum class TriState {
-  kAllow,
-  kBlock,
-  kAsk,
-};
+ENUM(TriState, kAllow, kBlock, kAsk)
 
 // The permission value could be a TriState or a bool
 struct COMPONENT_EXPORT(APP_TYPES) PermissionValue {
@@ -46,10 +43,9 @@ struct COMPONENT_EXPORT(APP_TYPES) PermissionValue {
 
   // Checks whether this is equal to permission enabled. If it is TriState, only
   // Allow represent permission enabled.
-  bool IsPermissionEnabled();
+  bool IsPermissionEnabled() const;
 
-  absl::optional<bool> bool_value;
-  absl::optional<TriState> tristate_value;
+  absl::variant<bool, TriState> value;
 };
 
 using PermissionValuePtr = std::unique_ptr<PermissionValue>;
@@ -57,7 +53,8 @@ using PermissionValuePtr = std::unique_ptr<PermissionValue>;
 struct COMPONENT_EXPORT(APP_TYPES) Permission {
   Permission(PermissionType permission_type,
              PermissionValuePtr value,
-             bool is_managed);
+             bool is_managed,
+             absl::optional<std::string> details = absl::nullopt);
   Permission(const Permission&) = delete;
   Permission& operator=(const Permission&) = delete;
   ~Permission();
@@ -67,10 +64,22 @@ struct COMPONENT_EXPORT(APP_TYPES) Permission {
 
   std::unique_ptr<Permission> Clone() const;
 
+  // Checks whether this is equal to permission enabled. If it is TriState, only
+  // Allow represent permission enabled.
+  bool IsPermissionEnabled() const;
+
+  std::string ToString() const;
+
   PermissionType permission_type;
   std::unique_ptr<PermissionValue> value;
   // If the permission is managed by an enterprise policy.
   bool is_managed;
+
+  // Human-readable string to provide more detail about the state of a
+  // permission. May be displayed next to the permission value in UI surfaces.
+  // e.g. a kLocation permission might have `details` of "While in use" or
+  // "Approximate location only".
+  absl::optional<std::string> details;
 };
 
 using PermissionPtr = std::unique_ptr<Permission>;
@@ -80,22 +89,8 @@ using Permissions = std::vector<PermissionPtr>;
 COMPONENT_EXPORT(APP_TYPES)
 Permissions ClonePermissions(const Permissions& source_permissions);
 
-// TODO(crbug.com/1253250): Remove these functions after migrating to non-mojo
-// AppService.
 COMPONENT_EXPORT(APP_TYPES)
-PermissionType ConvertMojomPermissionTypeToPermissionType(
-    apps::mojom::PermissionType mojom_permission_type);
-
-COMPONENT_EXPORT(APP_TYPES)
-TriState ConvertMojomTriStateToTriState(apps::mojom::TriState mojom_tri_state);
-
-COMPONENT_EXPORT(APP_TYPES)
-PermissionValuePtr ConvertMojomPermissionValueToPermissionValue(
-    const apps::mojom::PermissionValuePtr& mojom_permission_value);
-
-COMPONENT_EXPORT(APP_TYPES)
-PermissionPtr ConvertMojomPermissionToPermission(
-    const apps::mojom::PermissionPtr& mojom_permission);
+bool IsEqual(const Permissions& source, const Permissions& target);
 
 }  // namespace apps
 

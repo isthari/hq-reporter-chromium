@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,10 @@ package org.chromium.chrome.browser.omnibox.geo;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
-import static org.mockito.Mockito.any;
-import static org.mockito.Mockito.eq;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -51,7 +52,6 @@ import org.robolectric.util.ReflectionHelpers;
 
 import org.chromium.base.Callback;
 import org.chromium.base.test.BaseRobolectricTestRunner;
-import org.chromium.base.test.ShadowBuildInfo;
 import org.chromium.chrome.browser.omnibox.geo.VisibleNetworks.VisibleCell;
 import org.chromium.chrome.browser.omnibox.geo.VisibleNetworks.VisibleCell.RadioType;
 import org.chromium.chrome.browser.omnibox.geo.VisibleNetworks.VisibleWifi;
@@ -66,7 +66,7 @@ import java.util.concurrent.TimeUnit;
  * Robolectric tests for {@link PlatformNetworksManager}.
  */
 @RunWith(BaseRobolectricTestRunner.class)
-@Config(sdk = 29, manifest = Config.NONE, shadows = {ShadowBuildInfo.class})
+@Config(sdk = 29, manifest = Config.NONE)
 @LooperMode(LooperMode.Mode.LEGACY)
 public class PlatformNetworksManagerTest {
     private static final VisibleWifi CONNECTED_WIFI =
@@ -263,17 +263,18 @@ public class PlatformNetworksManagerTest {
                         Arrays.asList(mCellInfoLte, mCellInfoWcdma, mCellInfoGsm, mCellInfoCdma));
         allPermissionsGranted();
 
-        when(mContext.registerReceiver(eq(null), any(IntentFilter.class)))
+        when(mContext.registerReceiver(eq(null), any(IntentFilter.class), isNull(), isNull()))
+                .thenReturn(mNetworkStateChangedIntent);
+        when(mContext.registerReceiver(
+                     eq(null), any(IntentFilter.class), isNull(), isNull(), eq(0)))
                 .thenReturn(mNetworkStateChangedIntent);
         when(mNetworkStateChangedIntent.getParcelableExtra(eq(WifiManager.EXTRA_WIFI_INFO)))
                 .thenReturn(mWifiInfo);
-
-        ShadowBuildInfo.reset();
     }
 
     @Test
     public void testGetConnectedCell_allPermissionsDenied() {
-        ReflectionHelpers.setStaticField(Build.VERSION.class, "SDK_INT", Build.VERSION_CODES.M);
+        ReflectionHelpers.setStaticField(Build.VERSION.class, "SDK_INT", Build.VERSION_CODES.P);
         allPermissionsDenied();
         VisibleCell visibleCell =
                 PlatformNetworksManager.getConnectedCell(mContext, mTelephonyManager);
@@ -288,12 +289,20 @@ public class PlatformNetworksManagerTest {
 
     @Test
     public void testGetAllVisibleCells_allPermissionsDenied() {
-        ReflectionHelpers.setStaticField(Build.VERSION.class, "SDK_INT", Build.VERSION_CODES.M);
+        ReflectionHelpers.setStaticField(Build.VERSION.class, "SDK_INT", Build.VERSION_CODES.P);
         allPermissionsDenied();
         PlatformNetworksManager.getAllVisibleCells(
                 mContext, mTelephonyManager, mVisibleCellCallback);
         verify(mVisibleCellCallback).onResult(mVisibleCellsArgument.capture());
 
+        // Empty set expected
+        assertEquals(0, mVisibleCellsArgument.getValue().size());
+    }
+
+    @Test
+    public void testGetAllVisibleCells_telephonyManagerUnavailable() {
+        PlatformNetworksManager.getAllVisibleCells(mContext, null, mVisibleCellCallback);
+        verify(mVisibleCellCallback).onResult(mVisibleCellsArgument.capture());
         // Empty set expected
         assertEquals(0, mVisibleCellsArgument.getValue().size());
     }
@@ -308,7 +317,7 @@ public class PlatformNetworksManagerTest {
 
     @Test
     public void testGetConnectedWifi_S() {
-        ShadowBuildInfo.setIsAtLeastS(true);
+        ReflectionHelpers.setStaticField(Build.VERSION.class, "SDK_INT", Build.VERSION_CODES.S);
         VisibleWifi visibleWifi = PlatformNetworksManager.getConnectedWifi(mContext);
         assertEquals(CONNECTED_WIFI, visibleWifi);
         // When we get it through get connected wifi, we should see the current time.
@@ -317,7 +326,7 @@ public class PlatformNetworksManagerTest {
 
     @Test
     public void testGetConnectedWifi_allPermissionsDenied() {
-        ReflectionHelpers.setStaticField(Build.VERSION.class, "SDK_INT", Build.VERSION_CODES.M);
+        ReflectionHelpers.setStaticField(Build.VERSION.class, "SDK_INT", Build.VERSION_CODES.P);
         allPermissionsDenied();
         VisibleWifi visibleWifi = PlatformNetworksManager.getConnectedWifi(mContext);
         assertEquals(UNKNOWN_VISIBLE_WIFI, visibleWifi);
@@ -326,8 +335,7 @@ public class PlatformNetworksManagerTest {
 
     @Test
     public void testGetConnectedWifi_locationGrantedWifiDenied() {
-        ReflectionHelpers.setStaticField(
-                Build.VERSION.class, "SDK_INT", Build.VERSION_CODES.LOLLIPOP);
+        ReflectionHelpers.setStaticField(Build.VERSION.class, "SDK_INT", Build.VERSION_CODES.P);
         locationGrantedWifiDenied();
         VisibleWifi visibleWifi = PlatformNetworksManager.getConnectedWifi(mContext);
         assertEquals(CONNECTED_WIFI, visibleWifi);
@@ -337,8 +345,7 @@ public class PlatformNetworksManagerTest {
 
     @Test
     public void testGetConnectedWifi_locationGrantedWifiDenied_noWifiInfo() {
-        ReflectionHelpers.setStaticField(
-                Build.VERSION.class, "SDK_INT", Build.VERSION_CODES.LOLLIPOP);
+        ReflectionHelpers.setStaticField(Build.VERSION.class, "SDK_INT", Build.VERSION_CODES.P);
         locationGrantedWifiDenied();
         when(mNetworkStateChangedIntent.getParcelableExtra(eq(WifiManager.EXTRA_WIFI_INFO)))
                 .thenReturn(null);
@@ -350,7 +357,7 @@ public class PlatformNetworksManagerTest {
 
     @Test
     public void testGetConnectedWifi_locationDeniedWifiGranted() {
-        ReflectionHelpers.setStaticField(Build.VERSION.class, "SDK_INT", Build.VERSION_CODES.M);
+        ReflectionHelpers.setStaticField(Build.VERSION.class, "SDK_INT", Build.VERSION_CODES.P);
         locationDeniedWifiGranted();
         VisibleWifi visibleWifi = PlatformNetworksManager.getConnectedWifi(mContext);
         assertEquals(UNKNOWN_VISIBLE_WIFI, visibleWifi);
@@ -378,7 +385,7 @@ public class PlatformNetworksManagerTest {
 
     @Test
     public void testGetAllVisibleWifis_allPermissionsDenied() {
-        ReflectionHelpers.setStaticField(Build.VERSION.class, "SDK_INT", Build.VERSION_CODES.M);
+        ReflectionHelpers.setStaticField(Build.VERSION.class, "SDK_INT", Build.VERSION_CODES.P);
         allPermissionsDenied();
         Set<VisibleWifi> visibleWifis =
                 PlatformNetworksManager.getAllVisibleWifis(mContext, mWifiManager);
@@ -388,7 +395,7 @@ public class PlatformNetworksManagerTest {
 
     @Test
     public void testGetAllVisibleWifis_locationGrantedWifiDenied() {
-        ReflectionHelpers.setStaticField(Build.VERSION.class, "SDK_INT", Build.VERSION_CODES.M);
+        ReflectionHelpers.setStaticField(Build.VERSION.class, "SDK_INT", Build.VERSION_CODES.P);
         locationGrantedWifiDenied();
         Set<VisibleWifi> visibleWifis =
                 PlatformNetworksManager.getAllVisibleWifis(mContext, mWifiManager);
@@ -398,7 +405,7 @@ public class PlatformNetworksManagerTest {
 
     @Test
     public void testGetAllVisibleWifis_locationDeniedWifiGranted() {
-        ReflectionHelpers.setStaticField(Build.VERSION.class, "SDK_INT", Build.VERSION_CODES.M);
+        ReflectionHelpers.setStaticField(Build.VERSION.class, "SDK_INT", Build.VERSION_CODES.P);
         locationDeniedWifiGranted();
         Set<VisibleWifi> visibleWifis =
                 PlatformNetworksManager.getAllVisibleWifis(mContext, mWifiManager);
@@ -507,11 +514,18 @@ public class PlatformNetworksManagerTest {
     }
 
     private void verifyNetworkStateAction() {
-        verify(mContext).registerReceiver(eq(null), argThat(new ArgumentMatcher<IntentFilter>() {
+        ArgumentMatcher<IntentFilter> argumentMatcher = new ArgumentMatcher<IntentFilter>() {
             @Override
             public boolean matches(IntentFilter intentFilter) {
                 return intentFilter.hasAction(WifiManager.NETWORK_STATE_CHANGED_ACTION);
             }
-        }));
+        };
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            verify(mContext).registerReceiver(
+                    eq(null), argThat(argumentMatcher), isNull(), isNull(), eq(0));
+        } else {
+            verify(mContext).registerReceiver(
+                    eq(null), argThat(argumentMatcher), isNull(), isNull());
+        }
     }
 }

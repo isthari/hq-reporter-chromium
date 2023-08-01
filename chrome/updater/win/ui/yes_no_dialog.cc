@@ -1,24 +1,27 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/updater/win/ui/yes_no_dialog.h"
 
+#include "base/check.h"
 #include "base/logging.h"
+#include "base/notreached.h"
+#include "chrome/updater/win/ui/l10n_util.h"
+#include "chrome/updater/win/ui/resources/updater_installer_strings.h"
 #include "chrome/updater/win/ui/ui.h"
 #include "chrome/updater/win/ui/ui_constants.h"
 #include "chrome/updater/win/ui/ui_util.h"
 
-namespace updater {
-namespace ui {
+namespace updater::ui {
 
 YesNoDialog::YesNoDialog(WTL::CMessageLoop* message_loop, HWND parent)
     : message_loop_(message_loop), parent_(parent), yes_clicked_(false) {
-  DCHECK(message_loop);
+  CHECK(message_loop);
 }
 
 YesNoDialog::~YesNoDialog() {
-  DCHECK(!IsWindow());
+  CHECK(!IsWindow());
 }
 
 BOOL YesNoDialog::PreTranslateMessage(MSG* msg) {
@@ -27,29 +30,28 @@ BOOL YesNoDialog::PreTranslateMessage(MSG* msg) {
 
 HRESULT YesNoDialog::Initialize(const std::wstring& yes_no_title,
                                 const std::wstring& yes_no_text) {
-  DCHECK(!IsWindow());
+  CHECK(!IsWindow());
 
-  if (!Create(parent_))
+  if (!Create(parent_)) {
     return E_FAIL;
+  }
 
   message_loop_->AddMessageFilter(this);
 
   SetWindowText(yes_no_title.c_str());
   SetDlgItemText(IDC_YES_NO_TEXT, yes_no_text.c_str());
 
-  std::wstring text_yes;
-  LoadString(IDS_YES, &text_yes);
-  SetDlgItemText(IDOK, text_yes.c_str());
-
-  std::wstring text_no;
-  LoadString(IDS_NO, &text_no);
-  SetDlgItemText(IDCANCEL, text_no.c_str());
+  // TODO(crbug.com/1314812) yes no dialog is not utilized. Adding a
+  // placeholder for IDS_YES_BASE and IDS_NO_BASE.
+  SetDlgItemText(IDOK, L"");
+  SetDlgItemText(IDCANCEL, L"");
 
   HRESULT hr =
       SetWindowIcon(m_hWnd, IDI_APP,
                     base::win::ScopedGDIObject<HICON>::Receiver(hicon_).get());
-  if (FAILED(hr))
+  if (FAILED(hr)) {
     VLOG(1) << "Failed to SetWindowIcon" << hr;
+  }
 
   default_font_.CreatePointFont(90, kDialogFont);
   SendMessageToDescendants(
@@ -65,8 +67,8 @@ HRESULT YesNoDialog::Initialize(const std::wstring& yes_no_title,
 }
 
 HRESULT YesNoDialog::Show() {
-  DCHECK(IsWindow());
-  DCHECK(!IsWindowVisible());
+  CHECK(IsWindow());
+  CHECK(!IsWindowVisible());
 
   CenterWindow(nullptr);
   ShowWindow(SW_SHOWNORMAL);
@@ -78,7 +80,7 @@ LRESULT YesNoDialog::OnClickedButton(WORD notify_code,
                                      WORD id,
                                      HWND wnd_ctl,
                                      BOOL& handled) {
-  DCHECK(id == IDOK || id == IDCANCEL);
+  CHECK(id == IDOK || id == IDCANCEL);
 
   switch (id) {
     case IDOK:
@@ -90,9 +92,7 @@ LRESULT YesNoDialog::OnClickedButton(WORD notify_code,
       break;
 
     default:
-      DCHECK(false);
-      yes_clicked_ = false;
-      break;
+      NOTREACHED();
   }
 
   handled = true;
@@ -123,5 +123,4 @@ LRESULT YesNoDialog::OnNCDestroy(UINT message,
   return 0;
 }
 
-}  // namespace ui
-}  // namespace updater
+}  // namespace updater::ui

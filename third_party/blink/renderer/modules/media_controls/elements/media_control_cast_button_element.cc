@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -39,9 +39,9 @@ MediaControlCastButtonElement::MediaControlCastButtonElement(
     bool is_overlay_button)
     : MediaControlInputElement(media_controls),
       is_overlay_button_(is_overlay_button) {
-  SetShadowPseudoId(is_overlay_button
-                        ? "-internal-media-controls-overlay-cast-button"
-                        : "-internal-media-controls-cast-button");
+  SetShadowPseudoId(AtomicString(
+      is_overlay_button ? "-internal-media-controls-overlay-cast-button"
+                        : "-internal-media-controls-cast-button"));
   setType(input_type_names::kButton);
   UpdateDisplayType();
 }
@@ -102,7 +102,7 @@ void MediaControlCastButtonElement::DefaultEventHandler(Event& event) {
 
     RemotePlayback::From(MediaElement()).PromptInternal();
     RemotePlaybackMetrics::RecordRemotePlaybackLocation(
-        RemotePlaybackInitiationLocation::HTML_MEDIA_ELEMENT);
+        RemotePlaybackInitiationLocation::kHTMLMediaElement);
   }
   MediaControlInputElement::DefaultEventHandler(event);
 }

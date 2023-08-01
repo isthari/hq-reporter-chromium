@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,6 +26,7 @@ extern const char kEnrollmentStepDeviceAttributes[];
 extern const char kEnrollmentStepSuccess[];
 extern const char kEnrollmentStepADJoin[];
 extern const char kEnrollmentStepError[];
+extern const char kEnrollmentStepKioskEnrollment[];
 extern const char kEnrollmentStepDeviceAttributesError[];
 extern const char kEnrollmentStepADJoinError[];
 
@@ -62,6 +63,7 @@ class EnrollmentUIMixin : public InProcessBrowserTestMixin {
 
   void ExpectErrorMessage(int error_message_id, bool can_retry);
   void RetryAfterError();
+  void RetryAndWaitForSigninStep();
   void CancelAfterError();
 
   // Fills out the UI with device attribute information and submits it.
@@ -71,6 +73,8 @@ class EnrollmentUIMixin : public InProcessBrowserTestMixin {
   void LeaveDeviceAttributeErrorScreen();
 
   void LeaveSuccessScreen();
+
+  void ConfirmKioskEnrollment();
 
   // Selects enrollment license.
   void SelectEnrollmentLicense(const std::string& license_type);
@@ -93,24 +97,5 @@ class EnrollmentUIMixin : public InProcessBrowserTestMixin {
 
 }  // namespace test
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
-// source migration is finished.
-namespace chromeos {
-namespace test {
-using ::ash::test::EnrollmentUIMixin;
-namespace ui {
-using ::ash::test::ui::kEnrollmentStepADJoin;
-using ::ash::test::ui::kEnrollmentStepDeviceAttributes;
-using ::ash::test::ui::kEnrollmentStepError;
-using ::ash::test::ui::kEnrollmentStepSignin;
-using ::ash::test::ui::kEnrollmentStepSuccess;
-}  // namespace ui
-namespace values {
-using ::ash::test::values::kAssetId;
-using ::ash::test::values::kLocation;
-}  // namespace values
-}  // namespace test
-}  // namespace chromeos
 
 #endif  // CHROME_BROWSER_ASH_LOGIN_TEST_ENROLLMENT_UI_MIXIN_H_

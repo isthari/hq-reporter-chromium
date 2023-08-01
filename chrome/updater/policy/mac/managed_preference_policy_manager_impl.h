@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,6 @@
 
 #include "chrome/updater/policy/manager.h"
 
-// TODO: crbug/1073980
-//     Add a doc link for the managed preferences dictionary format.
-//
 // An example of the managed preferences policy dictionary in plist format:
 //  <dict>
 //    <key>updatePolicies</key>
@@ -64,6 +61,8 @@ using CRUUpdatePolicyDictionary =
 - (nullable NSString*)targetChannel:(nonnull NSString*)appid;
 - (nullable NSString*)targetVersionPrefix:(nonnull NSString*)appid;
 - (int)rollbackToTargetVersion:(nonnull NSString*)appid;
+
+- (nullable NSArray<NSString*>*)appsWithPolicy;
 
 // |policies| should be the dictionary value read from managed preferences
 // under the key "updatePolicies".

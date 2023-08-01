@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,6 @@ import android.text.TextUtils;
 import android.view.View;
 
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.ui.favicon.FaviconHelper;
 import org.chromium.chrome.browser.ui.favicon.FaviconUtils;
@@ -39,8 +38,6 @@ import java.util.Set;
  * Mediator class for navigation sheet.
  */
 class NavigationSheetMediator {
-    private static final String INCOGNITO_HISTORY_ENTRIES_FLAG =
-            ChromeFeatureList.UPDATE_HISTORY_ENTRY_POINTS_IN_INCOGNITO;
     private final ClickListener mClickListener;
     private final FaviconHelper mFaviconHelper;
     private final RoundedIconGenerator mIconGenerator;
@@ -88,7 +85,7 @@ class NavigationSheetMediator {
         mClickListener = listener;
         mProfile = profile;
         mFaviconHelper = new FaviconHelper();
-        mIconGenerator = FaviconUtils.createCircularIconGenerator(context.getResources());
+        mIconGenerator = FaviconUtils.createCircularIconGenerator(context);
         mFaviconSize = context.getResources().getDimensionPixelSize(R.dimen.default_favicon_size);
         mHistoryIcon = TintedDrawable.constructTintedDrawable(
                 context, R.drawable.ic_history_googblue_24dp, R.color.default_icon_color_tint_list);
@@ -171,16 +168,10 @@ class NavigationSheetMediator {
     }
 
     private Drawable getNTPIcon() {
-        return mProfile.isOffTheRecord()
-                        && ChromeFeatureList.isEnabled(INCOGNITO_HISTORY_ENTRIES_FLAG)
-                ? mIncognitoIcon
-                : mDefaultIcon;
+        return mProfile.isOffTheRecord() ? mIncognitoIcon : mDefaultIcon;
     }
 
     private String getNTPText() {
-        return mProfile.isOffTheRecord()
-                        && ChromeFeatureList.isEnabled(INCOGNITO_HISTORY_ENTRIES_FLAG)
-                ? mNewIncognitoTabText
-                : mNewTabText;
+        return mProfile.isOffTheRecord() ? mNewIncognitoTabText : mNewTabText;
     }
 }

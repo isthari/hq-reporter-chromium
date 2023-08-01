@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,6 +34,7 @@ KioskAppMenuController::~KioskAppMenuController() = default;
 
 void KioskAppMenuController::OnKioskAppDataChanged(const std::string& app_id) {
   SendKioskApps();
+  ConfigureKioskCallbacks();
 }
 
 void KioskAppMenuController::OnKioskAppDataLoadFailure(
@@ -71,15 +72,11 @@ void KioskAppMenuController::SendKioskApps() {
     }
   }
 
-  KioskAppMenu::Get()->SetKioskApps(
-      output,
-      base::BindRepeating(&KioskAppMenuController::LaunchApp,
-                          weak_factory_.GetWeakPtr()),
-      base::BindRepeating(&KioskAppMenuController::OnMenuWillShow,
-                          weak_factory_.GetWeakPtr()));
+  KioskAppMenu::Get()->SetKioskApps(output);
   KioskAppLaunchError::Error error = KioskAppLaunchError::Get();
-  if (error == KioskAppLaunchError::Error::kNone)
+  if (error == KioskAppLaunchError::Error::kNone) {
     return;
+  }
 
   // Clear any old pending Kiosk launch errors
   KioskAppLaunchError::RecordMetricAndClear();
@@ -88,10 +85,19 @@ void KioskAppMenuController::SendKioskApps() {
       KioskAppLaunchError::GetErrorMessage(error));
 }
 
+void KioskAppMenuController::ConfigureKioskCallbacks() {
+  KioskAppMenu::Get()->ConfigureKioskCallbacks(
+      base::BindRepeating(&KioskAppMenuController::LaunchApp,
+                          weak_factory_.GetWeakPtr()),
+      base::BindRepeating(&KioskAppMenuController::OnMenuWillShow,
+                          weak_factory_.GetWeakPtr()));
+}
+
 void KioskAppMenuController::LaunchApp(const KioskAppMenuEntry& app) {
   auto* host = LoginDisplayHost::default_host();
-  if (!app.account_id.is_valid())
+  if (!app.account_id.is_valid()) {
     return;
+  }
 
   policy::DeviceLocalAccount::Type type;
   if (!policy::IsDeviceLocalAccountUser(app.account_id.GetUserEmail(), &type)) {

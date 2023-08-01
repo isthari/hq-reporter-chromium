@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,11 @@
 
 #include <limits>
 
-#include "base/bind.h"
 #include "base/files/file.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/path_service.h"
@@ -293,8 +293,8 @@ bool UserPoliciesManager::GetUserPolicies(const std::wstring& sid,
     return false;
   }
 
-  const base::Value* policies =
-      policy_data->FindDictKey(kPolicyFetchResponseKeyName);
+  const base::Value::Dict* policies =
+      policy_data->GetDict().FindDict(kPolicyFetchResponseKeyName);
   if (!policies) {
     LOGFN(ERROR) << "User policies not found!";
     return false;

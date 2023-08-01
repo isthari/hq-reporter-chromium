@@ -1,13 +1,16 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import {assertInstanceof} from './assert.js';
 
 /**
- * Gets an element matching css selector under the target element and checks its
+ * Gets an element matching CSS selector under the target element and checks its
  * type.
- * @param The expected element type.
+ *
+ * @param target The target root element to execute the CSS selector from.
+ * @param selector The CSS selector.
+ * @param ctor The expected element type.
  */
 export function getFrom<T>(
     target: ParentNode, selector: string,
@@ -16,8 +19,11 @@ export function getFrom<T>(
 }
 
 /**
- * Gets all elements matching css selector under the target element and asserts
+ * Gets all elements matching CSS selector under the target element and asserts
  * their type to be specific type.
+ *
+ * @param target The target root element to execute the CSS selector from.
+ * @param selector The CSS selector.
  * @param ctor The expected element type.
  */
 export function getAllFrom<T extends Element>(
@@ -31,11 +37,29 @@ export function getAllFrom<T extends Element>(
   // check, then the `NodeListOf<Element>` (which is the original type of
   // `elements`) is actually a `NodeListOf<T>`, so we need to manually cast it
   // here.
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
   return elements as NodeListOf<T>;
 }
 
 /**
- * Gets an element in document matching css selector and checks its type.
+ * If an element matching CSS selector exists under the target, check its type
+ * and return, otherwise return null.
+ *
+ * @param target The target root element to execute the CSS selector from.
+ * @param selector The CSS selector.
+ * @param ctor The expected element type.
+ */
+export function getFromIfExists<T extends Element>(
+    target: ParentNode, selector: string,
+    ctor: new (...args: unknown[]) => T): T|null {
+  const element = target.querySelector(selector);
+  return element instanceof Element ? assertInstanceof(element, ctor) : null;
+}
+
+/**
+ * Gets an element in document matching CSS selector and checks its type.
+ *
+ * @param selector The CSS selector.
  * @param ctor The expected element type.
  */
 export function get<T>(
@@ -44,8 +68,10 @@ export function get<T>(
 }
 
 /**
- * Gets all elements in document matching css selector and asserts their type to
+ * Gets all elements in document matching CSS selector and asserts their type to
  * be specific type.
+ *
+ * @param selector The CSS selector.
  * @param ctor The expected element type.
  */
 export function getAll<T extends Element>(

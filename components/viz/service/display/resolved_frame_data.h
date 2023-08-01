@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,8 @@
 #include "components/viz/common/quads/draw_quad.h"
 #include "components/viz/common/resources/resource_id.h"
 #include "components/viz/common/surfaces/surface_id.h"
+#include "components/viz/service/display/display_resource_provider.h"
+#include "components/viz/service/surfaces/frame_index_constants.h"
 #include "components/viz/service/viz_service_export.h"
 
 namespace viz {
@@ -41,11 +43,15 @@ struct VIZ_SERVICE_EXPORT FixedPassData {
   FixedPassData& operator=(FixedPassData&& other);
   ~FixedPassData();
 
-  raw_ptr<CompositorRenderPass> render_pass = nullptr;
+  raw_ptr<CompositorRenderPass, DanglingUntriaged> render_pass = nullptr;
   // DrawQuads in |render_pass| that can contribute additional damage (eg.
   // surface and render passes) that need to be visited during the prewalk phase
   // of aggregation. Stored in front-to-back order like in |render_pass|.
   std::vector<const DrawQuad*> prewalk_quads;
+
+  // How many times this render pass is embedded by another render pass in the
+  // same frame.
+  int embed_count = 0;
 
   AggregatedRenderPassId remapped_id;
   bool is_root = false;
@@ -81,9 +87,20 @@ struct VIZ_SERVICE_EXPORT AggregationPassData {
   // This property is transitive from parent pass to embedded passes.
   bool in_cached_render_pass = false;
 
-  // True if there is accumulated damage from contributing render pass or
-  // surface quads.
-  bool has_damage_from_contributing_content = false;
+  // True if there is accumulated damage in the render pass or from contributing
+  // render passes or surfaces. This bit indicates whether the render pass needs
+  // to be redrawn since its content has changed from the previous frame or if
+  // the cached content from the previous frame can be reused.
+  //
+  // Note: This is different than checking render pass damage_rect.IsEmpty(). cc
+  // resets any non-root render pass damage_rects and aggregates non-root damage
+  // into the root render pass damage_rect. cc already plumbs a separate bool
+  // `has_damage_from_contributing_content` with each CompositorRenderPass to
+  // say if the render pass has damage. Ideally cc would just plumb the correct
+  // damage_rect and no bool. `has_damage` also takes into account if there is
+  // added damage from embedded content or filters that the client submitting
+  // the CompositorFrame didn't know about.
+  bool has_damage = false;
 
   // Indicates that the render pass is embedded from the root surface root
   // render pass and will contribute pixels to framebuffer. Render passes this
@@ -113,10 +130,18 @@ class VIZ_SERVICE_EXPORT ResolvedPassData {
     return fixed_.prewalk_quads;
   }
 
+  // Returns true if the render pass is not embedded by another render pass and
+  // is not the root render pass.
+  bool IsUnembedded() const {
+    return !fixed_.is_root && fixed_.embed_count == 0;
+  }
+
   AggregationPassData& aggregation() { return aggregation_; }
   const AggregationPassData& aggregation() const { return aggregation_; }
 
  private:
+  friend class ResolvedFrameData;
+
   // Data that is constant for the life of the resolved pass.
   FixedPassData fixed_;
 
@@ -124,12 +149,26 @@ class VIZ_SERVICE_EXPORT ResolvedPassData {
   AggregationPassData aggregation_;
 };
 
+enum FrameDamageType {
+  // The CompositorFrame should be considered fully damaged. This could be the
+  // first CompositorFrame from the client, an intermediate CompositorFrame was
+  // skipped so the damage is unknown or there is synthetic damage.
+  kFull,
+  // The damage contained in the CompositorFrame should be used.
+  kFrame,
+  // The CompositorFrame is the same as last aggregation and has no damage.
+  kNone
+};
+
 // Holds computed information for a particular Surface+CompositorFrame. The
 // CompositorFrame computed information will be updated whenever the active
-// frame for the surface has changed.
+// frame for the surface has changed. On destruction any resources registered
+// with DisplayResourceProvider will be released.
 class VIZ_SERVICE_EXPORT ResolvedFrameData {
  public:
-  ResolvedFrameData(const SurfaceId& surface_id, Surface* surface);
+  ResolvedFrameData(DisplayResourceProvider* resource_provider,
+                    Surface* surface,
+                    uint64_t prev_frame_index);
   ~ResolvedFrameData();
   ResolvedFrameData(ResolvedFrameData&& other) = delete;
   ResolvedFrameData& operator=(ResolvedFrameData&& other) = delete;
@@ -137,13 +176,22 @@ class VIZ_SERVICE_EXPORT ResolvedFrameData {
   const SurfaceId& surface_id() const { return surface_id_; }
   Surface* surface() const { return surface_; }
   bool is_valid() const { return valid_; }
-  uint64_t frame_index() const { return frame_index_; }
+  uint64_t previous_frame_index() const { return previous_frame_index_; }
+
+  // Returns namespace ID for the client that submitted this frame. This is used
+  // to deduplicate layer IDs from different clients.
+  uint32_t GetClientNamespaceId() const;
+
+  void SetFullDamageForNextAggregation();
+
+  // Force release all resources registered with display resource provider. Note
+  // there must be a new CompositorFrame available that doesn't use any existing
+  // resources since resources (might) be missing on next draw.
+  void ForceReleaseResource();
 
   // Updates resolved frame data for a new active frame. This will recompute
-  // ResolvedPassData. |child_to_parent_map| is the ResourceId mapping provided
-  // from DisplayResourceProvider which includes all of ResourceIds referenced
-  // by quads in the active frame. Returns all ResourceIds that are used in the
-  // active frame.
+  // ResolvedPassData. It also updates display resource provider with resources
+  // used in new active frame.
   //
   // This performs the following validation on the active CompositorFrame.
   // 1. Checks each ResourceId was registered with DisplayResourceProvider and
@@ -152,24 +200,20 @@ class VIZ_SERVICE_EXPORT ResolvedFrameData {
   // 3. Checks that CompositorRenderPassDrawQuads only embed render passes that
   //    are drawn before. This has the side effect of disallowing any cycles.
   //
-  // If validation fails then an empty set of resources will be returned, all
-  // ResolvedPassData will be cleared and is_valid() will return false.
-  ResourceIdSet UpdateForActiveFrame(
-      const std::unordered_map<ResourceId, ResourceId, ResourceIdHasher>&
-          child_to_parent_map,
+  // If validation fails then ResolvedPassData will be cleared and is_valid()
+  // will return false.
+  void UpdateForActiveFrame(
       AggregatedRenderPassId::Generator& render_pass_id_generator);
 
   // Sets frame index and marks as invalid. This also clears any existing
   // resolved pass data.
   void SetInvalid();
 
-  // Marks this as used and returns true if this was the first time MarkAsUsed()
-  // was called since last reset.
-  bool MarkAsUsed();
+  void MarkAsUsedInAggregation();
+  bool WasUsedInAggregation() const;
 
-  // Returns true if MarkAsUsed() was called since last reset and then resets
-  // used to false.
-  bool CheckIfUsedAndReset();
+  // Resets aggregation data and WasUsedInAggregation() will now return false.
+  void ResetAfterAggregation();
 
   // All functions after this point are accessors for the resolved frame and
   // should only be called if is_valid() returns true.
@@ -194,29 +238,39 @@ class VIZ_SERVICE_EXPORT ResolvedFrameData {
     return resolved_passes_;
   }
 
-  // Returns active frame damage rect. If |include_per_quad_damage| then the
-  // damage_rect will include unioned per quad damage, otherwise it will be
-  // limited to the root render passes damage_rect.
-  const gfx::Rect& GetDamageRect(bool include_per_quad_damage) const;
+  // See `FrameDamageType` definition for what each status means.
+  FrameDamageType GetFrameDamageType() const;
+
+  // Returns surface damage rect. This is based on changes from the
+  // CompositorFrame aggregated last frame. This limited to the root render
+  // passes damage_rect and does not include individual quads that add damage.
+  gfx::Rect GetSurfaceDamage() const;
 
   // Returns the root render pass output_rect.
   const gfx::Rect& GetOutputRect() const;
 
  private:
+  void RegisterWithResourceProvider();
+
+  const raw_ptr<DisplayResourceProvider> resource_provider_;
   const SurfaceId surface_id_;
   const raw_ptr<Surface> surface_;
 
+  // Child resource ID assigned by `resource_provider_`.
+  int child_resource_id_ = 0;
+
   // Data associated with CompositorFrame with |frame_index_|.
   bool valid_ = false;
-  uint64_t frame_index_ = 0;
+  uint64_t frame_index_ = kInvalidFrameIndex;
   std::vector<ResolvedPassData> resolved_passes_;
   base::flat_map<CompositorRenderPassId, ResolvedPassData*> render_pass_id_map_;
   base::flat_map<CompositorRenderPassId, AggregatedRenderPassId>
       aggregated_id_map_;
-  gfx::Rect root_damage_rect_;
 
-  // Track if the this resolved frame was used this frame.
-  bool used_ = false;
+  uint64_t previous_frame_index_ = kInvalidFrameIndex;
+
+  // Track if the this resolved frame was used this aggregation.
+  bool used_in_aggregation_ = false;
 };
 
 }  // namespace viz

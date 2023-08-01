@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -46,7 +46,8 @@ import java.lang.annotation.RetentionPolicy;
  * used to detect simple gestures defined in {@link GestureDetector}.
  */
 public class SwipeGestureListener extends SimpleOnGestureListener {
-    @IntDef({ScrollDirection.LEFT, ScrollDirection.RIGHT, ScrollDirection.UP, ScrollDirection.DOWN})
+    @IntDef({ScrollDirection.UNKNOWN, ScrollDirection.LEFT, ScrollDirection.RIGHT,
+            ScrollDirection.UP, ScrollDirection.DOWN})
     @Retention(RetentionPolicy.SOURCE)
     public @interface ScrollDirection {
         int UNKNOWN = 0;

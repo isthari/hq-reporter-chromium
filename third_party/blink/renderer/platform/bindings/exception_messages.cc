@@ -43,20 +43,20 @@ String ExceptionMessages::FailedToConvertJSValue(const char* type) {
 String ExceptionMessages::FailedToConstruct(const char* type,
                                             const String& detail) {
   return "Failed to construct '" + String(type) +
-         (!detail.IsEmpty() ? String("': " + detail) : String("'"));
+         (!detail.empty() ? String("': " + detail) : String("'"));
 }
 
 String ExceptionMessages::FailedToEnumerate(const char* type,
                                             const String& detail) {
   return "Failed to enumerate the properties of '" + String(type) +
-         (!detail.IsEmpty() ? String("': " + detail) : String("'"));
+         (!detail.empty() ? String("': " + detail) : String("'"));
 }
 
 String ExceptionMessages::FailedToExecute(const char* method,
                                           const char* type,
                                           const String& detail) {
   return "Failed to execute '" + String(method) + "' on '" + String(type) +
-         (!detail.IsEmpty() ? String("': " + detail) : String("'"));
+         (!detail.empty() ? String("': " + detail) : String("'"));
 }
 
 String ExceptionMessages::FailedToGet(const char* property,
@@ -177,6 +177,13 @@ String ExceptionMessages::NotAFiniteNumber(const Decimal& value,
                         value.IsInfinity() ? "infinite" : "not a number");
 }
 
+String ExceptionMessages::InputArrayTooLong(unsigned int expected_size,
+                                            unsigned int actual_size) {
+  return "Input array's length should be less than " +
+         String::Number(expected_size) + ". Actual length is " +
+         String::Number(actual_size) + ".";
+}
+
 String ExceptionMessages::OrdinalNumber(int number) {
   String suffix("th");
   switch (number % 10) {
@@ -261,6 +268,12 @@ String ExceptionMessages::ReadOnly(const char* detail) {
 String ExceptionMessages::SharedArrayBufferNotAllowed(
     const char* expected_type) {
   return String::Format("The provided %s value must not be shared.",
+                        expected_type);
+}
+
+String ExceptionMessages::ResizableArrayBufferNotAllowed(
+    const char* expected_type) {
+  return String::Format("The provided %s value must not be resizable.",
                         expected_type);
 }
 

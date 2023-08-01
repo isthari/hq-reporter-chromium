@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,6 +34,7 @@
 using base::android::ConvertJavaStringToUTF8;
 using base::android::ConvertUTF8ToJavaString;
 using base::android::JavaParamRef;
+using base::android::ScopedJavaLocalRef;
 using base::android::ToJavaArrayOfStrings;
 
 namespace {
@@ -131,15 +132,15 @@ static jboolean JNI_TranslateBridge_ShouldShowManualTranslateIPH(
 
   return base::StartsWith(page_lang, "en",
                           base::CompareCase::INSENSITIVE_ASCII) &&
-         !language::ShouldForceTriggerTranslateOnEnglishPages(
-             translate_prefs->GetForceTriggerOnEnglishPagesCount()) &&
+         !translate_prefs->ShouldForceTriggerTranslateOnEnglishPages() &&
          !manager->GetLanguageState()->translate_enabled();
 }
 
 static void JNI_TranslateBridge_SetPredefinedTargetLanguage(
     JNIEnv* env,
     const base::android::JavaParamRef<jobject>& j_web_contents,
-    const base::android::JavaParamRef<jstring>& j_translate_language) {
+    const base::android::JavaParamRef<jstring>& j_translate_language,
+    jboolean j_should_auto_translate) {
   content::WebContents* web_contents =
       content::WebContents::FromJavaWebContents(j_web_contents);
   const std::string translate_language(
@@ -148,7 +149,8 @@ static void JNI_TranslateBridge_SetPredefinedTargetLanguage(
   ChromeTranslateClient* client =
       ChromeTranslateClient::FromWebContents(web_contents);
   DCHECK(client);
-  client->SetPredefinedTargetLanguage(translate_language);
+  client->SetPredefinedTargetLanguage(translate_language,
+                                      j_should_auto_translate);
 }
 
 static base::android::ScopedJavaLocalRef<jstring>
@@ -223,50 +225,22 @@ static jboolean JNI_TranslateBridge_IsBlockedLanguage(
   return translate_prefs->IsBlockedLanguage(language_code);
 }
 
-// Gets all the model languages and calls back to the Java
-// TranslateBridge#addModelLanguageToSet once for each language.
-static void JNI_TranslateBridge_GetModelLanguages(
-    JNIEnv* env,
-    const base::android::JavaParamRef<jobject>& set) {
-  Profile* profile = ProfileManager::GetActiveUserProfile();
-  language::LanguageModel* language_model =
-      LanguageModelManagerFactory::GetForBrowserContext(profile)
-          ->GetPrimaryModel();
-  DCHECK(language_model);
-  std::string model_languages;
-  std::vector<language::LanguageModel::LanguageDetails> languageDetails =
-      language_model->GetLanguages();
-  DCHECK(!languageDetails.empty());
-  for (const auto& details : languageDetails) {
-    Java_TranslateBridge_addModelLanguageToSet(
-        env, set,
-        base::android::ConvertUTF8ToJavaString(env, details.lang_code));
-  }
-}
-
 // Gets all languages that should always be translated as a Java List.
-static void JNI_TranslateBridge_GetAlwaysTranslateLanguages(
-    JNIEnv* env,
-    const base::android::JavaParamRef<jobject>& list) {
+static ScopedJavaLocalRef<jobjectArray>
+JNI_TranslateBridge_GetAlwaysTranslateLanguages(JNIEnv* env) {
   std::unique_ptr<translate::TranslatePrefs> translate_prefs =
       ChromeTranslateClient::CreateTranslatePrefs(GetPrefService());
-
-  Java_TranslateBridge_copyStringArrayToList(
-      env, list,
-      ToJavaArrayOfStrings(env,
-                           translate_prefs->GetAlwaysTranslateLanguages()));
+  return ToJavaArrayOfStrings(env,
+                              translate_prefs->GetAlwaysTranslateLanguages());
 }
 
 // Gets all languages for which translation should not be prompted.
-static void JNI_TranslateBridge_GetNeverTranslateLanguages(
-    JNIEnv* env,
-    const base::android::JavaParamRef<jobject>& list) {
+static ScopedJavaLocalRef<jobjectArray>
+JNI_TranslateBridge_GetNeverTranslateLanguages(JNIEnv* env) {
   std::unique_ptr<translate::TranslatePrefs> translate_prefs =
       ChromeTranslateClient::CreateTranslatePrefs(GetPrefService());
-
-  Java_TranslateBridge_copyStringArrayToList(
-      env, list,
-      ToJavaArrayOfStrings(env, translate_prefs->GetNeverTranslateLanguages()));
+  return ToJavaArrayOfStrings(env,
+                              translate_prefs->GetNeverTranslateLanguages());
 }
 
 // Sets the always translate state for a language.
@@ -392,16 +366,14 @@ static void JNI_TranslateBridge_GetChromeAcceptLanguages(
   }
 }
 
-static void JNI_TranslateBridge_GetUserAcceptLanguages(
-    JNIEnv* env,
-    const JavaParamRef<jobject>& list) {
+static ScopedJavaLocalRef<jobjectArray>
+JNI_TranslateBridge_GetUserAcceptLanguages(JNIEnv* env) {
   std::unique_ptr<translate::TranslatePrefs> translate_prefs =
       ChromeTranslateClient::CreateTranslatePrefs(GetPrefService());
 
   std::vector<std::string> languages;
   translate_prefs->GetLanguageList(&languages);
-  Java_TranslateBridge_copyStringArrayToList(
-      env, list, ToJavaArrayOfStrings(env, languages));
+  return ToJavaArrayOfStrings(env, languages);
 }
 
 static void JNI_TranslateBridge_SetLanguageOrder(

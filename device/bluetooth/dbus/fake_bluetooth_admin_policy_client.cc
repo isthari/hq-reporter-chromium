@@ -1,4 +1,4 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "base/containers/contains.h"
 #include "base/logging.h"
+#include "base/observer_list.h"
 #include "device/bluetooth/dbus/fake_bluetooth_adapter_client.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 

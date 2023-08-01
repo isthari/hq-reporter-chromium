@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/ui/autofill/save_update_address_profile_bubble_controller.h"
+#include "chrome/browser/ui/views/autofill/autofill_bubble_utils.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/grit/theme_resources.h"
 #include "components/autofill/core/browser/autofill_address_util.h"
@@ -43,8 +44,7 @@ const gfx::VectorIcon& GetVectorIconForType(ServerFieldType type) {
     case PHONE_HOME_WHOLE_NUMBER:
       return vector_icons::kCallIcon;
     default:
-      NOTREACHED();
-      return vector_icons::kLocationOnIcon;
+      NOTREACHED_NORETURN();
   }
 }
 
@@ -62,10 +62,9 @@ std::unique_ptr<views::View> CreateValuesView(
       .SetCollapseMargins(true)
       .SetDefault(
           views::kMarginsKey,
-          gfx::Insets(
-              /*vertical=*/ChromeLayoutProvider::Get()->GetDistanceMetric(
-                  DISTANCE_CONTROL_LIST_VERTICAL),
-              /*horizontal=*/0));
+          gfx::Insets::VH(ChromeLayoutProvider::Get()->GetDistanceMetric(
+                              DISTANCE_CONTROL_LIST_VERTICAL),
+                          0));
 
   for (const ProfileValueDifference& diff_entry : diff) {
     const std::u16string& value =
@@ -82,10 +81,8 @@ std::unique_ptr<views::View> CreateValuesView(
         .SetCollapseMargins(true)
         .SetDefault(
             views::kMarginsKey,
-            gfx::Insets(
-                /*vertical=*/0,
-                /*horizontal=*/ChromeLayoutProvider::Get()->GetDistanceMetric(
-                    views::DISTANCE_RELATED_LABEL_HORIZONTAL)));
+            gfx::Insets::VH(0, ChromeLayoutProvider::Get()->GetDistanceMetric(
+                                   views::DISTANCE_RELATED_LABEL_HORIZONTAL)));
 
     auto icon_view = std::make_unique<views::ImageView>();
     icon_view->SetImage(ui::ImageModel::FromVectorIcon(
@@ -109,7 +106,7 @@ void AddValuesRow(views::TableLayoutView* layout_view,
                   bool show_row_label,
                   views::Button::PressedCallback edit_button_callback) {
   bool are_new_values = !!edit_button_callback;
-  layout_view->AddRows(1, /*vertical_resize=*/views::GridLayout::kFixedSize);
+  layout_view->AddRows(1, /*vertical_resize=*/views::TableLayout::kFixedSize);
 
   if (show_row_label) {
     auto label = std::make_unique<views::Label>(
@@ -125,14 +122,10 @@ void AddValuesRow(views::TableLayoutView* layout_view,
   layout_view->AddChildView(CreateValuesView(diff, are_new_values, icon_color));
   if (are_new_values) {
     std::unique_ptr<views::ImageButton> edit_button =
-        views::CreateVectorImageButtonWithNativeTheme(
-            std::move(edit_button_callback), vector_icons::kEditIcon,
-            kIconSize);
+        CreateEditButton(std::move(edit_button_callback));
 
-    edit_button->SetAccessibleName(l10n_util::GetStringUTF16(
-        IDS_AUTOFILL_SAVE_ADDRESS_PROMPT_EDIT_BUTTON_TOOLTIP));
-    edit_button->SetTooltipText(l10n_util::GetStringUTF16(
-        IDS_AUTOFILL_SAVE_ADDRESS_PROMPT_EDIT_BUTTON_TOOLTIP));
+    edit_button->SetProperty(views::kElementIdentifierKey,
+                             UpdateAddressProfileView::kEditButtonViewId);
     layout_view->AddChildView(std::move(edit_button));
   }
 }
@@ -160,8 +153,6 @@ UpdateAddressProfileView::UpdateAddressProfileView(
     SaveUpdateAddressProfileBubbleController* controller)
     : LocationBarBubbleDelegateView(anchor_view, web_contents),
       controller_(controller) {
-  DCHECK(base::FeatureList::IsEnabled(
-      features::kAutofillAddressProfileSavePrompt));
   // Since this is an update prompt, original profile must be set. Otherwise, it
   // would have been a save prompt.
   DCHECK(controller_->GetOriginalProfile());
@@ -180,6 +171,7 @@ UpdateAddressProfileView::UpdateAddressProfileView(
       base::Unretained(controller_),
       AutofillClient::SaveAddressProfileOfferUserDecision::kDeclined));
 
+  SetProperty(views::kElementIdentifierKey, kTopViewId);
   SetTitle(controller_->GetWindowTitle());
   SetButtonLabel(ui::DIALOG_BUTTON_OK,
                  l10n_util::GetStringUTF16(
@@ -194,10 +186,9 @@ UpdateAddressProfileView::UpdateAddressProfileView(
       .SetIgnoreDefaultMainAxisMargins(true)
       .SetCollapseMargins(true)
       .SetDefault(views::kMarginsKey,
-                  gfx::Insets(
-                      /*vertical=*/layout_provider->GetDistanceMetric(
-                          DISTANCE_CONTROL_LIST_VERTICAL),
-                      /*horizontal=*/0));
+                  gfx::Insets::VH(layout_provider->GetDistanceMetric(
+                                      DISTANCE_CONTROL_LIST_VERTICAL),
+                                  0));
 
   std::vector<ProfileValueDifference> profile_diff = GetProfileDifferenceForUi(
       controller_->GetProfileToSave(), *controller_->GetOriginalProfile(),
@@ -263,6 +254,16 @@ UpdateAddressProfileView::UpdateAddressProfileView(
     AddValuesRow(main_content_view, profile_diff, /*show_row_label=*/true,
                  /*edit_button_callback=*/{});
   }
+
+  std::u16string footer_message = controller_->GetFooterMessage();
+  if (!footer_message.empty()) {
+    SetFootnoteView(
+        views::Builder<views::Label>()
+            .SetText(footer_message)
+            .SetHorizontalAlignment(gfx::HorizontalAlignment::ALIGN_LEFT)
+            .SetMultiLine(true)
+            .Build());
+  }
 }
 
 bool UpdateAddressProfileView::ShouldShowCloseButton() const {
@@ -296,5 +297,9 @@ void UpdateAddressProfileView::Hide() {
 
   controller_ = nullptr;
 }
+
+DEFINE_CLASS_ELEMENT_IDENTIFIER_VALUE(UpdateAddressProfileView, kTopViewId);
+DEFINE_CLASS_ELEMENT_IDENTIFIER_VALUE(UpdateAddressProfileView,
+                                      kEditButtonViewId);
 
 }  // namespace autofill

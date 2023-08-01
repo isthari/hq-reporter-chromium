@@ -1,8 +1,12 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/cocoa/screentime/history_bridge_factory.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 #include "base/no_destructor.h"
 #include "chrome/browser/history/history_service_factory.h"
@@ -10,7 +14,6 @@
 #include "chrome/browser/ui/cocoa/screentime/history_bridge.h"
 #include "chrome/browser/ui/cocoa/screentime/history_deleter_impl.h"
 #include "chrome/browser/ui/cocoa/screentime/screentime_features.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 
 namespace screentime {
 
@@ -21,9 +24,7 @@ HistoryBridgeFactory* HistoryBridgeFactory::GetInstance() {
 }
 
 HistoryBridgeFactory::HistoryBridgeFactory()
-    : BrowserContextKeyedServiceFactory(
-          "screentime::HistoryBridge",
-          BrowserContextDependencyManager::GetInstance()) {}
+    : ProfileKeyedServiceFactory("screentime::HistoryBridge") {}
 HistoryBridgeFactory::~HistoryBridgeFactory() = default;
 
 // static

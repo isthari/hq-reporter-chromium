@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 #include <iterator>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/containers/contains.h"
+#include "base/functional/bind.h"
 #include "build/build_config.h"
 #include "chrome/browser/content_settings/chrome_content_settings_utils.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
@@ -216,7 +216,7 @@ void DownloadRequestLimiter::TabDownloadState::PromptUserForDownload(
     // so we use the primary main RenderFrameHost here, to avoid discarding the
     // request in the case that the initiator RFH is already gone.
     permission_request_manager->AddRequest(
-        web_contents_->GetMainFrame(),
+        web_contents_->GetPrimaryMainFrame(),
         new DownloadPermissionRequest(factory_.GetWeakPtr(), request_origin));
   } else {
     // Call CancelOnce() so we don't set the content settings.

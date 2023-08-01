@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,9 +17,8 @@
 #include "base/threading/thread_restrictions.h"
 #include "base/values.h"
 
-namespace chromeos {
-namespace onc {
-namespace test_utils {
+namespace chromeos::onc::test_utils {
+
 namespace {
 
 bool GetTestDataPath(const std::string& filename, base::FilePath* result_path) {
@@ -58,46 +57,54 @@ std::string ReadTestData(const std::string& filename) {
   return result;
 }
 
-std::unique_ptr<base::Value> ReadTestJson(const std::string& filename) {
+namespace {
+
+base::Value ReadTestJson(const std::string& filename) {
   base::FilePath path;
-  std::unique_ptr<base::Value> result;
   if (!GetTestDataPath(filename, &path)) {
     LOG(FATAL) << "Unable to get test file path for: " << filename;
-    return result;
+    return {};
   }
   JSONFileValueDeserializer deserializer(
       path,
       base::JSON_PARSE_CHROMIUM_EXTENSIONS | base::JSON_ALLOW_TRAILING_COMMAS);
   std::string error_message;
-  result = deserializer.Deserialize(nullptr, &error_message);
+  std::unique_ptr<base::Value> result =
+      deserializer.Deserialize(nullptr, &error_message);
   CHECK(result != nullptr) << "Couldn't json-deserialize file: " << filename
                            << ": " << error_message;
-  return result;
+  return std::move(*result);
 }
 
-std::unique_ptr<base::DictionaryValue> ReadTestDictionary(
-    const std::string& filename) {
-  return base::DictionaryValue::From(
-      base::Value::ToUniquePtrValue(ReadTestDictionaryValue(filename)));
-}
+}  // namespace
 
-base::Value ReadTestDictionaryValue(const std::string& filename) {
-  std::unique_ptr<base::Value> content = ReadTestJson(filename);
-  CHECK(content->is_dict())
+base::Value::Dict ReadTestDictionary(const std::string& filename) {
+  base::Value content = ReadTestJson(filename);
+  CHECK(content.is_dict())
       << "File '" << filename
       << "' does not contain a dictionary as expected, but type "
-      << content->type();
-  return std::move(*content);
+      << content.type();
+  return std::move(content.GetDict());
 }
 
-::testing::AssertionResult Equals(const base::Value* expected,
-                                  const base::Value* actual) {
-  CHECK(expected != nullptr);
-  if (actual == nullptr)
-    return ::testing::AssertionFailure() << "Actual value pointer is nullptr";
+base::Value::List ReadTestList(const std::string& filename) {
+  base::Value content = ReadTestJson(filename);
+  CHECK(content.is_list()) << "File '" << filename
+                           << "' does not contain a list as expected, but type "
+                           << content.type();
+  return std::move(content.GetList());
+}
 
-  if (*expected == *actual)
+::testing::AssertionResult Equals(const base::Value::Dict* expected,
+                                  const base::Value::Dict* actual) {
+  CHECK(expected != nullptr);
+  if (actual == nullptr) {
+    return ::testing::AssertionFailure() << "Actual value pointer is nullptr";
+  }
+
+  if (*expected == *actual) {
     return ::testing::AssertionSuccess() << "Values are equal";
+  }
 
   return ::testing::AssertionFailure() << "Values are unequal.\n"
                                        << "Expected value:\n"
@@ -105,6 +112,4 @@ base::Value ReadTestDictionaryValue(const std::string& filename) {
                                        << *actual;
 }
 
-}  // namespace test_utils
-}  // namespace onc
-}  // namespace chromeos
+}  // namespace chromeos::onc::test_utils

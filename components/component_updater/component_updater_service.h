@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/version.h"
@@ -39,6 +39,10 @@ struct CrxComponent;
 struct CrxUpdateItem;
 }
 
+namespace extensions {
+class AutotestPrivateLoadSmartDimComponentFunction;
+}
+
 namespace component_updater {
 
 // Called when a non-blocking call in this module completes.
@@ -55,7 +59,8 @@ struct ComponentInfo {
   ComponentInfo(const std::string& id,
                 const std::string& fingerprint,
                 const std::u16string& name,
-                const base::Version& version);
+                const base::Version& version,
+                const std::string& cohort_id);
   ComponentInfo(const ComponentInfo& other);
   ComponentInfo& operator=(const ComponentInfo& other);
   ComponentInfo(ComponentInfo&& other);
@@ -66,6 +71,7 @@ struct ComponentInfo {
   std::string fingerprint;
   std::u16string name;
   base::Version version;
+  std::string cohort_id;
 };
 
 struct ComponentRegistration {
@@ -112,7 +118,7 @@ struct ComponentRegistration {
 // notifications are fired, like COMPONENT_UPDATER_STARTED and
 // COMPONENT_UPDATE_FOUND. See notification_type.h for more details.
 //
-// All methods are safe to call ONLY from the browser's main thread.
+// All methods are safe to call ONLY from the browser's main sequence.
 class ComponentUpdateService {
  public:
   using Observer = update_client::UpdateClient::Observer;
@@ -124,6 +130,10 @@ class ComponentUpdateService {
   // Removes an observer. It is safe for an observer to be removed while
   // the observers are being notified.
   virtual void RemoveObserver(Observer* observer) = 0;
+
+  // Returns the last registered version for the component associated with
+  // |app_id|. Returns kNullVersion if no suitable version is found.
+  virtual base::Version GetRegisteredVersion(const std::string& app_id) = 0;
 
   // Add component to be checked for updates.
   virtual bool RegisterComponent(const ComponentRegistration& component) = 0;
@@ -154,7 +164,7 @@ class ComponentUpdateService {
   // This method is used to trigger an on-demand update for component |id|.
   // This can be used when loading a resource that depends on this component.
   //
-  // |callback| is called on the main thread once the on-demand update is
+  // |callback| is called on the main sequence once the on-demand update is
   // complete, regardless of success. |callback| may be called immediately
   // within the method body.
   //
@@ -193,16 +203,15 @@ class OnDemandUpdater {
  private:
   friend class OnDemandTester;
   friend class policy::ComponentUpdaterPolicyTest;
-  friend class SupervisedUserWhitelistInstaller;
   friend class ::ComponentsHandler;
   friend class ::PluginObserver;
   friend class SwReporterOnDemandFetcher;
   friend class SodaComponentInstallerPolicy;
   friend class SodaLanguagePackComponentInstallerPolicy;
+  friend class ::extensions::AutotestPrivateLoadSmartDimComponentFunction;
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   friend class CrOSComponentInstaller;
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
-  friend class VrAssetsComponentInstallerPolicy;
 
   // Triggers an update check for a component. |id| is a value
   // returned by GetCrxComponentID(). If an update for this component is already

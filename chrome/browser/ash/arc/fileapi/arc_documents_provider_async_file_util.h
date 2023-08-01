@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 
 #include <memory>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "storage/browser/file_system/async_file_util.h"
 
 namespace arc {
@@ -36,7 +36,7 @@ class ArcDocumentsProviderAsyncFileUtil : public storage::AsyncFileUtil {
   void CreateOrOpen(
       std::unique_ptr<storage::FileSystemOperationContext> context,
       const storage::FileSystemURL& url,
-      int file_flags,
+      uint32_t file_flags,
       CreateOrOpenCallback callback) override;
   void EnsureFileExists(
       std::unique_ptr<storage::FileSystemOperationContext> context,

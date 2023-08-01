@@ -57,17 +57,6 @@ $ export PATH="$PATH:/path/to/depot_tools"
 
 ## Get the code
 
-Ensure that unicode filenames aren't mangled by HFS:
-
-```shell
-$ git config --global core.precomposeUnicode true
-```
-
-In System Preferences, check that "Energy Saver" -> "Power Adapter" ->
-"Prevent computer from sleeping automatically when the display is off" is
-checked so that your laptop doesn't go to sleep and interrupt the long network
-connection needed here.
-
 Create a `chromium` directory for the checkout and change to it (you can call
 this whatever you like and put it wherever you like, as long as the full path
 has no spaces):
@@ -80,8 +69,12 @@ Run the `fetch` tool from `depot_tools` to check out the code and its
 dependencies.
 
 ```shell
-$ fetch chromium
+$ caffeinate fetch chromium
 ```
+
+Running the `fetch` with `caffeinate` is optional, but it will prevent the
+system from sleeping for the duration of the `fetch` command, which may run for
+a considerable amount of time.
 
 If you don't need the full repo history, you can save time by using
 `fetch --no-history chromium`. You can call `git fetch --unshallow` to retrieve
@@ -189,27 +182,43 @@ Once it is built, you can simply run the browser:
 $ out/Default/Chromium.app/Contents/MacOS/Chromium
 ```
 
-## Avoiding the "incoming network connections" dialog
+## Avoiding system permissions dialogs after each build
 
-Every time you start a new developer build of Chrome you get a system dialog
-asking "Do you want the application Chromium.app to accept incoming
-network connections?" - to avoid this, run with this command-line flag:
+Every time you start a new developer build, you may get two system dialogs:
+`Chromium wants to use your confidential information stored in "Chromium Safe
+Storage" in your keychain.`, and `Do you want the application "Chromium.app" to
+accept incoming network connections?`.
 
---disable-features="DialMediaRouteProvider"
+To avoid them, you can run Chromium with these command-line flags (but of
+course beware that they will change the behavior of certain subsystems):
+
+```shell
+--use-mock-keychain --disable-features=DialMediaRouteProvider
+```
 
 ## Build and run test targets
 
-You can build a test in the same way, e.g.:
+Tests are split into multiple test targets based on their type and where they
+exist in the directory structure. To see what target a given unit test or
+browser test file corresponds to, the following command can be used:
+
+```shell
+$ gn refs out/Default --testonly=true --type=executable --all chrome/browser/ui/browser_list_unittest.cc
+//chrome/test:unit_tests
+```
+
+In the example above, the target is unit_tests. The unit_tests binary can be
+built by running the following command:
 
 ```shell
 $ autoninja -C out/Default unit_tests
 ```
 
-and can run the tests in the same way. You can also limit which tests are
-run using the `--gtest_filter` arg, e.g.:
+You can run the tests by running the unit_tests binary. You can also limit which
+tests are run using the `--gtest_filter` arg, e.g.:
 
-```
-$ out/Default/unit_tests --gtest_filter="PushClientTest.*"
+```shell
+$ out/Default/unit_tests --gtest_filter="BrowserListUnitTest.*"
 ```
 
 You can find out more about GoogleTest at its
@@ -283,7 +292,7 @@ can be quite variable.  Increasing the system's vnode cache appears to help. By
 default, this command:
 
 ```shell
-$ sysctl -a | egrep kern\..*vnodes
+$ sysctl -a | egrep 'kern\..*vnodes'
 ```
 
 Outputs `kern.maxvnodes: 263168` (263168 is 257 * 1024).  To increase this
@@ -294,11 +303,26 @@ $ sudo sysctl kern.maxvnodes=$((512*1024))
 ```
 
 Higher values may be appropriate if you routinely move between different
-Chromium checkouts.  This setting will reset on reboot, the startup setting can
-be set in `/etc/sysctl.conf`:
+Chromium checkouts.  This setting will reset on reboot.  To apply it at startup:
 
 ```shell
-$ echo kern.maxvnodes=$((512*1024)) | sudo tee -a /etc/sysctl.conf
+$ sudo tee /Library/LaunchDaemons/kern.maxvnodes.plist > /dev/null <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+      <string>kern.maxvnodes</string>
+    <key>ProgramArguments</key>
+      <array>
+        <string>sysctl</string>
+        <string>kern.maxvnodes=524288</string>
+      </array>
+    <key>RunAtLoad</key>
+      <true/>
+  </dict>
+</plist>
+EOF
 ```
 
 Or edit the file directly.
@@ -343,3 +367,13 @@ Only accepting for all users of the machine requires root:
 ```shell
 $ sudo xcodebuild -license
 ```
+
+### Exclude checkout from Spotlight indexing
+
+Chromium's checkout contains a lot of files, and building generates many more.
+Spotlight will try to index all of those files, and uses a lot of CPU time
+doing so, especially during a build, which can slow things down.
+
+To prevent the Chromium checkout from being indexed by Spotlight, open System
+Preferences, go to "Spotlight" -> "Privacy" and add your Chromium checkout
+directory to the list of excluded locations.

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <stddef.h>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -90,10 +90,8 @@ UsbChooserController::UsbChooserController(
     RenderFrameHost* render_frame_host,
     std::vector<device::mojom::UsbDeviceFilterPtr> device_filters,
     blink::mojom::WebUsbService::GetPermissionCallback callback)
-    : ChooserController(CreateExtensionAwareChooserTitle(
-          render_frame_host,
-          IDS_USB_DEVICE_CHOOSER_PROMPT_ORIGIN,
-          IDS_USB_DEVICE_CHOOSER_PROMPT_EXTENSION_NAME)),
+    : ChooserController(
+          CreateChooserTitle(render_frame_host, IDS_USB_DEVICE_CHOOSER_PROMPT)),
       filters_(std::move(device_filters)),
       callback_(std::move(callback)),
       requesting_frame_(render_frame_host) {
@@ -234,7 +232,7 @@ void UsbChooserController::OnDeviceRemoved(
   }
 }
 
-void UsbChooserController::OnDeviceManagerConnectionError() {
+void UsbChooserController::OnBrowserContextShutdown() {
   observation_.Reset();
 }
 

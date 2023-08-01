@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "ash/system/tray/tray_bubble_view.h"
 #include "ash/system/tray/tray_bubble_wrapper.h"
 #include "ash/system/virtual_keyboard/virtual_keyboard_observer.h"
+#include "base/memory/raw_ptr.h"
 #include "ui/base/ime/ash/ime_keyset.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 
@@ -59,11 +60,12 @@ class ASH_EXPORT ImeMenuTray : public TrayBackgroundView,
   void HandleLocaleChange() override;
   void HideBubbleWithView(const TrayBubbleView* bubble_view) override;
   void ClickedOutsideBubble() override;
-  bool PerformAction(const ui::Event& event) override;
+  void OnTrayActivated(const ui::Event& event) override;
   void CloseBubble() override;
   void ShowBubble() override;
   TrayBubbleView* GetBubbleView() override;
   views::Widget* GetBubbleWidget() const override;
+  void AddedToWidget() override;
 
   // IMEObserver:
   void OnIMERefresh() override;
@@ -91,15 +93,15 @@ class ASH_EXPORT ImeMenuTray : public TrayBackgroundView,
   void CreateLabel();
   void CreateImageView();
 
-  ImeControllerImpl* ime_controller_;
+  raw_ptr<ImeControllerImpl, ExperimentalAsh> ime_controller_;
 
   // Bubble for default and detailed views.
   std::unique_ptr<TrayBubbleWrapper> bubble_;
-  ImeListView* ime_list_view_;
+  raw_ptr<ImeListView, ExperimentalAsh> ime_list_view_;
 
   // Only one of |label_| and |image_view_| can be non null at the same time.
-  views::Label* label_;
-  views::ImageView* image_view_;
+  raw_ptr<views::Label, ExperimentalAsh> label_;
+  raw_ptr<views::ImageView, ExperimentalAsh> image_view_;
 
   bool keyboard_suppressed_;
   bool show_bubble_after_keyboard_hidden_;

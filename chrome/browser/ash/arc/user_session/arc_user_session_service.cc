@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include "ash/components/arc/arc_browser_context_keyed_service_factory_base.h"
 #include "ash/components/arc/session/arc_bridge_service.h"
 #include "base/memory/singleton.h"
+#include "components/arc/common/intent_helper/arc_intent_helper_package.h"
 #include "components/arc/intent_helper/arc_intent_helper_bridge.h"
 #include "components/session_manager/core/session_manager.h"
 
@@ -73,7 +74,7 @@ void ArcUserSessionService::OnSessionStateChanged() {
   instance->SendBroadcast(
       ArcIntentHelperBridge::AppendStringToIntentHelperPackageName(
           "USER_SESSION_ACTIVE"),
-      ArcIntentHelperBridge::kArcIntentHelperPackageName,
+      kArcIntentHelperPackageName,
       ArcIntentHelperBridge::AppendStringToIntentHelperPackageName(
           "ArcIntentHelperService"),
       "{}");
@@ -85,6 +86,11 @@ void ArcUserSessionService::OnConnectionReady() {
 
 void ArcUserSessionService::OnConnectionClosed() {
   session_manager::SessionManager::Get()->RemoveObserver(this);
+}
+
+// static
+void ArcUserSessionService::EnsureFactoryBuilt() {
+  ArcUserSessionServiceFactory::GetInstance();
 }
 
 }  // namespace arc

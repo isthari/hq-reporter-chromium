@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -131,6 +131,10 @@ struct SESSIONS_EXPORT SessionTabGroup {
   tab_groups::TabGroupId id;
 
   tab_groups::TabGroupVisualData visual_data;
+
+  // Used to notify the SavedTabGroupModel that this restore group was once
+  // saved and should track any changes made on the group.
+  absl::optional<std::string> saved_guid;
 };
 
 // SessionWindow -------------------------------------------------------------

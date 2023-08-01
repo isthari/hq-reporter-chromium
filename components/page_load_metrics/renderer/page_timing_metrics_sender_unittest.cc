@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "components/page_load_metrics/common/page_load_metrics.mojom.h"
 #include "components/page_load_metrics/renderer/fake_page_timing_sender.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/subresource_load_metrics.h"
 #include "third_party/blink/public/common/use_counter/use_counter_feature.h"
 #include "third_party/blink/public/mojom/use_counter/use_counter_feature.mojom-shared.h"
 
@@ -28,7 +29,7 @@ class TestPageTimingMetricsSender : public PageTimingMetricsSender {
                                 std::make_unique<base::MockOneShotTimer>(),
                                 std::move(initial_timing),
                                 monotonic_timing,
-                                std::make_unique<PageResourceDataUse>()) {}
+                                /* initial_request=*/nullptr) {}
 
   base::MockOneShotTimer* mock_timer() const {
     return static_cast<base::MockOneShotTimer*>(timer());
@@ -163,24 +164,29 @@ TEST_F(PageTimingMetricsSenderTest, SendInputEvents) {
   validator_.VerifyExpectedInputTiming();
 }
 
-TEST_F(PageTimingMetricsSenderTest, SendMobileFriendlinessEvents) {
+TEST_F(PageTimingMetricsSenderTest, SendSubresourceLoadMetrics) {
   mojom::PageLoadTiming timing;
-  blink::MobileFriendliness mobile_friendliness;
-  mobile_friendliness.viewport_hardcoded_width = 480;
-  mobile_friendliness.allow_user_zoom = true;
   InitPageLoadTimingForTest(&timing);
   metrics_sender_->Update(timing.Clone(),
                           PageTimingMetadataRecorder::MonotonicTiming());
   validator_.ExpectPageLoadTiming(timing);
 
-  metrics_sender_->DidObserveMobileFriendlinessChanged(mobile_friendliness);
-
-  blink::MobileFriendliness expected_mf;
-  expected_mf.viewport_hardcoded_width = 480;
-  expected_mf.allow_user_zoom = true;
-  validator_.UpdateExpectedMobileFriendliness(expected_mf);
+  blink::SubresourceLoadMetrics metrics{
+      .number_of_subresources_loaded = 5,
+      .number_of_subresource_loads_handled_by_service_worker = 2,
+      .pervasive_payload_requested = true,
+      .pervasive_bytes_fetched = 10,
+      .total_bytes_fetched = 15,
+      .service_worker_subresource_load_metrics =
+          blink::ServiceWorkerSubresourceLoadMetrics{
+              .mock_handled = true,
+              .mock_fallback = true,
+          },
+  };
+  metrics_sender_->DidObserveSubresourceLoad(metrics);
+  validator_.UpdateExpectedSubresourceLoadMetrics(metrics);
   metrics_sender_->mock_timer()->Fire();
-  validator_.VerifyExpectedMobileFriendliness();
+  validator_.VerifyExpectedSubresourceLoadMetrics();
 }
 
 TEST_F(PageTimingMetricsSenderTest, SendSingleFeature) {
@@ -307,18 +313,16 @@ TEST_F(PageTimingMetricsSenderTest, SendPageRenderData) {
 
   metrics_sender_->DidObserveLayoutShift(0.5, false);
   metrics_sender_->DidObserveLayoutShift(0.5, false);
-  metrics_sender_->DidObserveLayoutNg(3, 2, 10, 4);
-  metrics_sender_->DidObserveLayoutNg(2, 0, 7, 5);
   metrics_sender_->DidObserveLayoutShift(0.5, true);
 
-  mojom::FrameRenderDataUpdate render_data(1.5, 1.0, 5, 2, 17, 9, {});
+  mojom::FrameRenderDataUpdate render_data(1.5, 1.0, {});
   validator_.UpdateExpectFrameRenderDataUpdate(render_data);
 
   metrics_sender_->mock_timer()->Fire();
   validator_.VerifyExpectedRenderData();
 }
 
-TEST_F(PageTimingMetricsSenderTest, SendFrameIntersectionUpdate) {
+TEST_F(PageTimingMetricsSenderTest, SendMainFrameIntersectionRect) {
   mojom::PageLoadTiming timing;
   InitPageLoadTimingForTest(&timing);
   metrics_sender_->Update(timing.Clone(),
@@ -326,12 +330,24 @@ TEST_F(PageTimingMetricsSenderTest, SendFrameIntersectionUpdate) {
   validator_.ExpectPageLoadTiming(timing);
 
   metrics_sender_->OnMainFrameIntersectionChanged(gfx::Rect(0, 0, 1, 1));
-  mojom::FrameIntersectionUpdate frame_intersection_update(
-      gfx::Rect(0, 0, 1, 1));
-  validator_.UpdateExpectFrameIntersectionUpdate(frame_intersection_update);
+  validator_.UpdateExpectedMainFrameIntersectionRect(gfx::Rect(0, 0, 1, 1));
 
   metrics_sender_->mock_timer()->Fire();
-  validator_.VerifyExpectedFrameIntersectionUpdate();
+  validator_.VerifyExpectedMainFrameIntersectionRect();
+}
+
+TEST_F(PageTimingMetricsSenderTest, SendMainFrameViewportRect) {
+  mojom::PageLoadTiming timing;
+  InitPageLoadTimingForTest(&timing);
+  metrics_sender_->Update(timing.Clone(),
+                          PageTimingMetadataRecorder::MonotonicTiming());
+  validator_.ExpectPageLoadTiming(timing);
+
+  metrics_sender_->OnMainFrameViewportRectangleChanged(gfx::Rect(2, 2, 1, 1));
+  validator_.UpdateExpectedMainFrameViewportRect(gfx::Rect(2, 2, 1, 1));
+
+  metrics_sender_->mock_timer()->Fire();
+  validator_.VerifyExpectedMainFrameViewportRect();
 }
 
 TEST_F(PageTimingMetricsSenderTest, FirstContentfulPaintForcesSend) {

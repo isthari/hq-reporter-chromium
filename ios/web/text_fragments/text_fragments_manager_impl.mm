@@ -1,8 +1,8 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <iomanip>
+#import <iomanip>
 
 #import "ios/web/text_fragments/text_fragments_manager_impl.h"
 
@@ -13,7 +13,7 @@
 #import "components/shared_highlighting/core/common/shared_highlighting_metrics.h"
 #import "ios/web/common/features.h"
 #import "ios/web/public/js_messaging/web_frame.h"
-#import "ios/web/public/js_messaging/web_frame_util.h"
+#import "ios/web/public/js_messaging/web_frames_manager.h"
 #import "ios/web/public/navigation/navigation_context.h"
 #import "ios/web/public/navigation/navigation_item.h"
 #import "ios/web/public/navigation/navigation_manager.h"
@@ -41,6 +41,9 @@ TextFragmentsManagerImpl::TextFragmentsManagerImpl(WebState* web_state)
     : web_state_(web_state) {
   DCHECK(web_state_);
   web_state_->AddObserver(this);
+  web::WebFramesManager* web_frames_manager =
+      GetJSFeature()->GetWebFramesManager(web_state);
+  web_frames_manager->AddObserver(this);
 }
 
 TextFragmentsManagerImpl::~TextFragmentsManagerImpl() {
@@ -97,9 +100,23 @@ void TextFragmentsManagerImpl::OnClick() {
   }
 }
 
-void TextFragmentsManagerImpl::OnClickWithSender(CGRect rect) {
+void TextFragmentsManagerImpl::OnClickWithSender(
+    CGRect rect,
+    NSString* text,
+    std::vector<shared_highlighting::TextFragment> fragments) {
   if (delegate_) {
-    [delegate_ userTappedTextFragmentInWebState:web_state_ withSender:rect];
+    [delegate_ userTappedTextFragmentInWebState:web_state_
+                                     withSender:rect
+                                       withText:text
+                                  withFragments:std::move(fragments)];
+  }
+}
+
+void TextFragmentsManagerImpl::WebFrameBecameAvailable(
+    WebFramesManager* web_frames_manager,
+    WebFrame* web_frame) {
+  if (web_frame->IsMainFrame() && deferred_processing_params_) {
+    DoHighlight();
   }
 }
 
@@ -119,14 +136,7 @@ void TextFragmentsManagerImpl::DidFinishNavigation(
     return;
   }
   deferred_processing_params_ = std::move(params);
-  if (web::GetMainFrame(web_state_)) {
-    DoHighlight();
-  }
-}
-
-void TextFragmentsManagerImpl::WebFrameDidBecomeAvailable(WebState* web_state,
-                                                          WebFrame* web_frame) {
-  if (web_frame->IsMainFrame() && deferred_processing_params_) {
+  if (GetJSFeature()->GetWebFramesManager(web_state_)->GetMainWebFrame()) {
     DoHighlight();
   }
 }
@@ -186,7 +196,7 @@ void TextFragmentsManagerImpl::DoHighlight() {
 }
 
 // Returns false if fragments highlighting is not allowed in the current
-// |context|.
+// `context`.
 bool TextFragmentsManagerImpl::AreTextFragmentsAllowed(
     const web::NavigationContext* context) {
   if (!web_state_ || web_state_->HasOpener()) {

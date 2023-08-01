@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,14 +11,16 @@
 
 #include "ash/quick_pair/common/pair_failure.h"
 #include "ash/quick_pair/fast_pair_handshake/fast_pair_gatt_service_client.h"
-#include "base/callback.h"
-#include "base/callback_helpers.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "device/bluetooth/bluetooth_adapter.h"
+#include "device/bluetooth/bluetooth_remote_gatt_characteristic.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace device {
@@ -84,12 +86,18 @@ class FastPairGattServiceClientImpl : public FastPairGattServiceClient {
                                                  absl::optional<PairFailure>)>
                              write_response_callback) override;
 
-  void WriteAccountKey(
-      std::array<uint8_t, 16> account_key,
+  void WriteAccountKey(std::array<uint8_t, 16> account_key,
+                       FastPairDataEncryptor* fast_pair_data_encryptor,
+                       base::OnceCallback<void(
+                           absl::optional<ash::quick_pair::AccountKeyFailure>)>
+                           write_account_key_callback) override;
+
+  void WritePersonalizedName(
+      const std::string& name,
+      const std::string& provider_address,
       FastPairDataEncryptor* fast_pair_data_encryptor,
-      base::OnceCallback<
-          void(absl::optional<device::BluetoothGattService::GattErrorCode>)>
-          write_account_key_callback) override;
+      base::OnceCallback<void(absl::optional<PairFailure>)>
+          write_additional_data_callback) override;
 
  private:
   FastPairGattServiceClientImpl(
@@ -111,6 +119,14 @@ class FastPairGattServiceClientImpl : public FastPairGattServiceClient {
       uint8_t message_type,
       uint32_t passkey);
 
+  // Attempt to create a GATT connection with the device. This method may be
+  // called multiple times.
+  void AttemptGattConnection();
+  void CreateGattConnection();
+  void CoolOffBeforeCreateGattConnection();
+  void OnDisconnectTimeout();
+  void OnGattServiceDiscoveryTimeout();
+
   // Callback from the adapter's call to create GATT connection.
   void OnGattConnection(
       base::TimeTicks gatt_connection_start_time,
@@ -125,8 +141,7 @@ class FastPairGattServiceClientImpl : public FastPairGattServiceClient {
   // write error.
   void NotifyWriteRequestError(PairFailure failure);
   void NotifyWritePasskeyError(PairFailure failure);
-  void NotifyWriteAccountKeyError(
-      device::BluetoothGattService::GattErrorCode error);
+  void NotifyWriteAccountKeyError(ash::quick_pair::AccountKeyFailure failure);
 
   void ClearCurrentState();
 
@@ -139,17 +154,61 @@ class FastPairGattServiceClientImpl : public FastPairGattServiceClient {
       device::BluetoothRemoteGattCharacteristic* characteristic,
       const std::vector<uint8_t>& value) override;
 
-  void FindGattCharacteristicsAndStartNotifySessions();
+  absl::optional<PairFailure> SetGattCharacteristics();
 
   std::vector<device::BluetoothRemoteGattCharacteristic*>
   GetCharacteristicsByUUIDs(const device::BluetoothUUID& uuidV1,
                             const device::BluetoothUUID& uuidV2);
 
+  // Writes the encrypted personalized name packet to the
+  // `additional_data_characteristic_`.
+  void OnWritePersonalizedNameRequest(
+      const std::string& name,
+      const std::string& provider_address,
+      FastPairDataEncryptor* fast_pair_data_encryptor);
+
+  // Writes `encrypted_request` to `characteristic`.
+  void WriteGattCharacteristicWithTimeout(
+      device::BluetoothRemoteGattCharacteristic* characteristic,
+      const std::vector<uint8_t>& encrypted_request,
+      device::BluetoothRemoteGattCharacteristic::WriteType write_type,
+      base::OnceClosure on_timeout,
+      base::OnceClosure on_sucess,
+      base::OnceCallback<void(device::BluetoothGattService::GattErrorCode)>
+          on_failure);
+
+  // Helper functions to WriteGattCharacteristicTimeout.
+  // Both stop `characteristic`'s corresponding timer in
+  // `characteristic_write_request_timers_` and run `on_success`/`on_failure`
+  // callbacks. `on_failure` must take parameter `error`.
+  void StopTimerRunSuccess(
+      device::BluetoothRemoteGattCharacteristic* characteristic,
+      base::OnceClosure on_success);
+  void StopTimerRunFailure(
+      device::BluetoothRemoteGattCharacteristic* characteristic,
+      base::OnceCallback<void(device::BluetoothGattService::GattErrorCode)>
+          on_failure,
+      device::BluetoothGattService::GattErrorCode error);
+
+  // Stops `characteristic`'s corresponding timer in
+  // `characteristic_write_request_timers_` if it exists.
+  void StopWriteRequestTimer(
+      device::BluetoothRemoteGattCharacteristic* characteristic);
+
+  // Stops all timers in `characteristic_write_request_timers_`.
+  void StopAllWriteRequestTimers();
+
   // BluetoothRemoteGattCharacteristic StartNotifySession callbacks
-  void OnNotifySession(
+  void OnKeyBasedRequestNotifySession(
+      const std::vector<uint8_t>& request_data,
       std::unique_ptr<device::BluetoothGattNotifySession> session);
-  void OnGattError(PairFailure failure,
-                   device::BluetoothGattService::GattErrorCode error);
+  void OnPasskeyNotifySession(
+      const std::vector<uint8_t>& passkey_data,
+      std::unique_ptr<device::BluetoothGattNotifySession> session);
+  void OnNotifySessionError(PairFailure failure,
+                            device::BluetoothGattService::GattErrorCode error);
+
+  void OnWriteAdditionalDataTimeout();
 
   // BluetoothRemoteGattCharacteristic WriteRemoteCharacteristic callbacks
   void OnWriteRequest();
@@ -159,12 +218,26 @@ class FastPairGattServiceClientImpl : public FastPairGattServiceClient {
   void OnWriteAccountKey(base::TimeTicks write_account_key_start_time);
   void OnWriteAccountKeyError(
       device::BluetoothGattService::GattErrorCode error);
+  void OnWriteAdditionalData();
+  void OnWriteAdditionalDataError(
+      device::BluetoothGattService::GattErrorCode error);
 
+  base::OneShotTimer gatt_connect_after_disconnect_cool_off_timer_;
+  base::OneShotTimer gatt_disconnect_timer_;
   base::OneShotTimer gatt_service_discovery_timer_;
   base::OneShotTimer passkey_notify_session_timer_;
   base::OneShotTimer keybased_notify_session_timer_;
   base::OneShotTimer key_based_write_request_timer_;
-  base::OneShotTimer passkey_write_request_timer_;
+
+  std::map<device::BluetoothRemoteGattCharacteristic*,
+           std::unique_ptr<base::OneShotTimer>>
+      characteristic_write_request_timers_;
+
+  base::TimeTicks gatt_service_discovery_start_time_;
+  base::TimeTicks passkey_notify_session_start_time_;
+  base::TimeTicks keybased_notify_session_start_time_;
+  base::TimeTicks passkey_write_request_start_time_;
+  base::TimeTicks key_based_write_request_start_time_;
 
   base::OnceCallback<void(absl::optional<PairFailure>)>
       on_initialized_callback_;
@@ -172,28 +245,36 @@ class FastPairGattServiceClientImpl : public FastPairGattServiceClient {
       key_based_write_response_callback_;
   base::OnceCallback<void(std::vector<uint8_t>, absl::optional<PairFailure>)>
       passkey_write_response_callback_;
-  base::OnceCallback<void(
-      absl::optional<device::BluetoothGattService::GattErrorCode>)>
+  base::OnceCallback<void(absl::optional<ash::quick_pair::AccountKeyFailure>)>
       write_account_key_callback_;
+  base::OnceCallback<void(absl::optional<PairFailure>)>
+      write_additional_data_callback_;
 
   std::string device_address_;
   bool is_initialized_ = false;
 
-  // Initial timestamps used to calculate duration to log to metrics.;
+  // Initial timestamps used to calculate duration to log to metrics.
   base::TimeTicks notify_keybased_start_time_;
   base::TimeTicks notify_passkey_start_time_;
 
-  device::BluetoothRemoteGattCharacteristic* key_based_characteristic_ =
-      nullptr;
-  device::BluetoothRemoteGattCharacteristic* passkey_characteristic_ = nullptr;
-  device::BluetoothRemoteGattCharacteristic* account_key_characteristic_ =
-      nullptr;
+  raw_ptr<device::BluetoothRemoteGattCharacteristic, ExperimentalAsh>
+      key_based_characteristic_ = nullptr;
+  raw_ptr<device::BluetoothRemoteGattCharacteristic, ExperimentalAsh>
+      passkey_characteristic_ = nullptr;
+  raw_ptr<device::BluetoothRemoteGattCharacteristic, ExperimentalAsh>
+      account_key_characteristic_ = nullptr;
+  raw_ptr<device::BluetoothRemoteGattCharacteristic, ExperimentalAsh>
+      additional_data_characteristic_ = nullptr;
 
-  std::vector<std::unique_ptr<device::BluetoothGattNotifySession>>
-      bluetooth_gatt_notify_sessions_;
+  // Initialize with zero failures.
+  int num_gatt_connection_attempts_ = 0;
+
+  std::unique_ptr<device::BluetoothGattNotifySession> key_based_notify_session_;
+  std::unique_ptr<device::BluetoothGattNotifySession> passkey_notify_session_;
   scoped_refptr<device::BluetoothAdapter> adapter_;
   std::unique_ptr<device::BluetoothGattConnection> gatt_connection_;
-  device::BluetoothRemoteGattService* gatt_service_ = nullptr;
+  raw_ptr<device::BluetoothRemoteGattService, ExperimentalAsh> gatt_service_ =
+      nullptr;
 
   base::ScopedObservation<device::BluetoothAdapter,
                           device::BluetoothAdapter::Observer>

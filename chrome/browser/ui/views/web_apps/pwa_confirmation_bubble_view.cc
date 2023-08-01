@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,18 +8,22 @@
 
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/metrics/user_metrics.h"
+#include "base/metrics/user_metrics_action.h"
 #include "base/strings/string_util.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "chrome/browser/feature_engagement/tracker_factory.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
-#include "chrome/browser/ui/views/chrome_typography.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/toolbar_button_provider.h"
 #include "chrome/browser/ui/views/page_action/page_action_icon_view.h"
 #include "chrome/browser/ui/views/web_apps/web_app_info_image_source.h"
+#include "chrome/browser/ui/views/web_apps/web_app_views_utils.h"
+#include "chrome/browser/web_applications/mojom/user_display_mode.mojom.h"
 #include "chrome/browser/web_applications/web_app_constants.h"
 #include "chrome/browser/web_applications/web_app_helpers.h"
 #include "chrome/browser/web_applications/web_app_prefs_utils.h"
@@ -28,7 +32,6 @@
 #include "components/feature_engagement/public/event_constants.h"
 #include "components/feature_engagement/public/tracker.h"
 #include "components/strings/grit/components_strings.h"
-#include "components/url_formatter/elide_url.h"
 #include "content/public/common/content_features.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/image/image_skia.h"
@@ -40,11 +43,17 @@
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/widget/widget.h"
 
+#if BUILDFLAG(IS_CHROMEOS)
+#include "chrome/browser/metrics/structured/event_logging_features.h"
+#include "components/metrics/structured/structured_events.h"
+#endif
+
 namespace {
 
 PWAConfirmationBubbleView* g_bubble_ = nullptr;
 
 bool g_auto_accept_pwa_for_testing = false;
+bool g_dont_close_on_deactivate = false;
 
 // Returns an ImageView containing the app icon.
 std::unique_ptr<views::ImageView> CreateIconView(
@@ -59,32 +68,13 @@ std::unique_ptr<views::ImageView> CreateIconView(
   return icon_image_view;
 }
 
-// Returns a label containing the app name.
-std::unique_ptr<views::Label> CreateNameLabel(const std::u16string& name) {
-  auto name_label = std::make_unique<views::Label>(
-      name, views::style::CONTEXT_DIALOG_BODY_TEXT,
-      views::style::TextStyle::STYLE_PRIMARY);
-  name_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-  name_label->SetElideBehavior(gfx::ELIDE_TAIL);
-  return name_label;
+#if BUILDFLAG(IS_CHROMEOS)
+namespace cros_events = metrics::structured::events::v2::cr_os_events;
+
+int64_t ToLong(web_app::WebAppInstallStatus web_app_install_status) {
+  return static_cast<int64_t>(web_app_install_status);
 }
-
-std::unique_ptr<views::Label> CreateOriginLabel(const url::Origin& origin) {
-  auto origin_label = std::make_unique<views::Label>(
-      FormatOriginForSecurityDisplay(
-          origin, url_formatter::SchemeDisplay::OMIT_HTTP_AND_HTTPS),
-      CONTEXT_DIALOG_BODY_TEXT_SMALL, views::style::STYLE_SECONDARY);
-
-  origin_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-
-  // Elide from head to prevent origin spoofing.
-  origin_label->SetElideBehavior(gfx::ELIDE_HEAD);
-
-  // Multiline breaks elision, so explicitly disable multiline.
-  origin_label->SetMultiLine(false);
-
-  return origin_label;
-}
+#endif
 
 }  // namespace
 
@@ -100,18 +90,21 @@ PWAConfirmationBubbleView* PWAConfirmationBubbleView::GetBubble() {
 
 PWAConfirmationBubbleView::PWAConfirmationBubbleView(
     views::View* anchor_view,
-    views::Button* highlight_button,
+    content::WebContents* web_contents,
+    PageActionIconView* highlight_icon_button,
     std::unique_ptr<WebAppInstallInfo> web_app_info,
     chrome::AppInstallationAcceptanceCallback callback,
     chrome::PwaInProductHelpState iph_state,
     PrefService* prefs,
     feature_engagement::Tracker* tracker)
-    : LocationBarBubbleDelegateView(anchor_view, nullptr),
+    : LocationBarBubbleDelegateView(anchor_view, web_contents),
+      highlight_icon_button_(highlight_icon_button),
       web_app_info_(std::move(web_app_info)),
       callback_(std::move(callback)),
       iph_state_(iph_state),
       prefs_(prefs),
       tracker_(tracker) {
+  SetCloseOnMainFrameOriginNavigation(true);
   DCHECK(web_app_info_);
   DCHECK(prefs_);
 
@@ -124,8 +117,10 @@ PWAConfirmationBubbleView::PWAConfirmationBubbleView(
   base::TrimWhitespace(web_app_info_->title, base::TRIM_ALL,
                        &web_app_info_->title);
   // PWAs should always be configured not to open in a browser tab.
-  DCHECK_NE(web_app_info_->user_display_mode,
-            blink::mojom::DisplayMode::kBrowser);
+  if (web_app_info_->user_display_mode.has_value()) {
+    DCHECK_NE(*web_app_info_->user_display_mode,
+              web_app::mojom::UserDisplayMode::kBrowser);
+  }
 
   const ChromeLayoutProvider* layout_provider = ChromeLayoutProvider::Get();
 
@@ -148,10 +143,11 @@ PWAConfirmationBubbleView::PWAConfirmationBubbleView(
   labels->SetLayoutManager(std::make_unique<views::BoxLayout>(
       views::BoxLayout::Orientation::kVertical));
 
-  labels->AddChildView(CreateNameLabel(web_app_info_->title).release());
   labels->AddChildView(
-      CreateOriginLabel(url::Origin::Create(web_app_info_->start_url))
-          .release());
+      web_app::CreateNameLabel(web_app_info_->title).release());
+  labels->AddChildView(web_app::CreateOriginLabel(
+                           url::Origin::Create(web_app_info_->start_url), false)
+                           .release());
 
   if (base::FeatureList::IsEnabled(features::kDesktopPWAsTabStrip) &&
       base::FeatureList::IsEnabled(features::kDesktopPWAsTabStripSettings)) {
@@ -161,13 +157,18 @@ PWAConfirmationBubbleView::PWAConfirmationBubbleView(
     tabbed_window_checkbox_ = labels->AddChildView(
         std::make_unique<views::Checkbox>(l10n_util::GetStringUTF16(
             IDS_BOOKMARK_APP_BUBBLE_OPEN_AS_TABBED_WINDOW)));
-    tabbed_window_checkbox_->SetChecked(web_app_info_->user_display_mode ==
-                                        web_app::DisplayMode::kTabbed);
+    tabbed_window_checkbox_->SetChecked(
+        web_app_info_->user_display_mode ==
+        web_app::mojom::UserDisplayMode::kTabbed);
   }
 
-  chrome::RecordDialogCreation(chrome::DialogIdentifier::PWA_CONFIRMATION);
+  SetDefaultButton(ui::DIALOG_BUTTON_CANCEL);
 
-  SetHighlightedButton(highlight_button);
+  SetHighlightedButton(highlight_icon_button_);
+
+  if (g_dont_close_on_deactivate) {
+    set_close_on_deactivate(false);
+  }
 }
 
 PWAConfirmationBubbleView::~PWAConfirmationBubbleView() = default;
@@ -187,14 +188,34 @@ void PWAConfirmationBubbleView::WindowClosing() {
   DCHECK_EQ(g_bubble_, this);
   g_bubble_ = nullptr;
 
-  // If |web_app_info_| is populated, then the bubble was not accepted.
-  if (iph_state_ == chrome::PwaInProductHelpState::kShown && web_app_info_) {
-    web_app::AppId app_id = web_app::GenerateAppId(web_app_info_->manifest_id,
-                                                   web_app_info_->start_url);
-    UMA_HISTOGRAM_ENUMERATION("WebApp.InstallIphPromo.Result",
-                              web_app::InstallIphResult::kCanceled);
-    web_app::RecordInstallIphIgnored(prefs_, app_id, base::Time::Now());
+  if (highlight_icon_button_) {
+    highlight_icon_button_->Update();
   }
+
+  // If |web_app_info_| is populated, then the bubble was not accepted.
+  if (web_app_info_) {
+    base::RecordAction(base::UserMetricsAction("WebAppInstallCancelled"));
+
+    if (iph_state_ == chrome::PwaInProductHelpState::kShown) {
+      web_app::AppId app_id =
+          web_app::GenerateAppIdFromManifestId(web_app_info_->manifest_id);
+      web_app::RecordInstallIphIgnored(prefs_, app_id, base::Time::Now());
+
+#if BUILDFLAG(IS_CHROMEOS)
+      if (base::FeatureList::IsEnabled(
+              metrics::structured::kAppDiscoveryLogging)) {
+        cros_events::AppDiscovery_Browser_AppInstallDialogResult()
+            .SetWebAppInstallStatus(
+                ToLong(web_app::WebAppInstallStatus::kCancelled))
+            .SetAppId(app_id)
+            .Record();
+      }
+#endif
+    }
+  } else {
+    base::RecordAction(base::UserMetricsAction("WebAppInstallAccepted"));
+  }
+
   if (callback_) {
     DCHECK(web_app_info_);
     std::move(callback_).Run(false, std::move(web_app_info_));
@@ -205,19 +226,38 @@ bool PWAConfirmationBubbleView::Accept() {
   DCHECK(web_app_info_);
   web_app_info_->user_display_mode =
       tabbed_window_checkbox_ && tabbed_window_checkbox_->GetChecked()
-          ? web_app::DisplayMode::kTabbed
-          : web_app::DisplayMode::kStandalone;
+          ? web_app::mojom::UserDisplayMode::kTabbed
+          : web_app::mojom::UserDisplayMode::kStandalone;
+
+  web_app::AppId app_id =
+      web_app::GenerateAppIdFromManifestId(web_app_info_->manifest_id);
+
+#if BUILDFLAG(IS_CHROMEOS)
+  if (base::FeatureList::IsEnabled(metrics::structured::kAppDiscoveryLogging)) {
+    cros_events::AppDiscovery_Browser_AppInstallDialogResult()
+        .SetWebAppInstallStatus(ToLong(web_app::WebAppInstallStatus::kAccepted))
+        .SetAppId(app_id)
+        .Record();
+  }
+#endif
 
   if (iph_state_ == chrome::PwaInProductHelpState::kShown) {
-    web_app::AppId app_id = web_app::GenerateAppId(web_app_info_->manifest_id,
-                                                   web_app_info_->start_url);
-    UMA_HISTOGRAM_ENUMERATION("WebApp.InstallIphPromo.Result",
-                              web_app::InstallIphResult::kInstalled);
     web_app::RecordInstallIphInstalled(prefs_, app_id);
     tracker_->NotifyEvent(feature_engagement::events::kDesktopPwaInstalled);
   }
   std::move(callback_).Run(true, std::move(web_app_info_));
   return true;
+}
+
+base::AutoReset<bool>
+PWAConfirmationBubbleView::SetDontCloseOnDeactivateForTesting() {
+  return base::AutoReset<bool>(&g_dont_close_on_deactivate, true);
+}
+
+void PWAConfirmationBubbleView::OnBeforeBubbleWidgetInit(
+    views::Widget::InitParams* params,
+    views::Widget* widget) const {
+  params->name = "PWAConfirmationBubbleView";
 }
 
 namespace chrome {
@@ -226,12 +266,14 @@ void ShowPWAInstallBubble(content::WebContents* web_contents,
                           std::unique_ptr<WebAppInstallInfo> web_app_info,
                           AppInstallationAcceptanceCallback callback,
                           PwaInProductHelpState iph_state) {
-  if (g_bubble_)
+  if (g_bubble_) {
     return;
+  }
 
   Browser* browser = chrome::FindBrowserWithWebContents(web_contents);
-  if (!browser)
+  if (!browser) {
     return;
+  }
 
   BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser);
   views::View* anchor_view =
@@ -243,16 +285,28 @@ void ShowPWAInstallBubble(content::WebContents* web_contents,
   auto* browser_context = web_contents->GetBrowserContext();
   PrefService* prefs = Profile::FromBrowserContext(browser_context)->GetPrefs();
 
+#if BUILDFLAG(IS_CHROMEOS)
+  if (base::FeatureList::IsEnabled(metrics::structured::kAppDiscoveryLogging)) {
+    web_app::AppId app_id =
+        web_app::GenerateAppIdFromManifestId(web_app_info->manifest_id);
+    cros_events::AppDiscovery_Browser_AppInstallDialogShown()
+        .SetAppId(app_id)
+        .Record();
+  }
+#endif
+
   feature_engagement::Tracker* tracker =
       feature_engagement::TrackerFactory::GetForBrowserContext(browser_context);
   g_bubble_ = new PWAConfirmationBubbleView(
-      anchor_view, icon, std::move(web_app_info), std::move(callback),
-      iph_state, prefs, tracker);
+      anchor_view, web_contents, icon, std::move(web_app_info),
+      std::move(callback), iph_state, prefs, tracker);
 
   views::BubbleDialogDelegateView::CreateBubble(g_bubble_)->Show();
+  base::RecordAction(base::UserMetricsAction("WebAppInstallShown"));
 
-  if (g_auto_accept_pwa_for_testing)
+  if (g_auto_accept_pwa_for_testing) {
     g_bubble_->AcceptDialog();
+  }
 
   if (icon) {
     icon->Update();

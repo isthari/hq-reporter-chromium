@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,7 +34,8 @@ PresentationAvailability::PresentationAvailability(
     ExecutionContext* execution_context,
     const WTF::Vector<KURL>& urls,
     bool value)
-    : ExecutionContextLifecycleStateObserver(execution_context),
+    : ActiveScriptWrappable<PresentationAvailability>({}),
+      ExecutionContextLifecycleStateObserver(execution_context),
       PageVisibilityObserver(
           To<LocalDOMWindow>(execution_context)->GetFrame()->GetPage()),
       urls_(urls),

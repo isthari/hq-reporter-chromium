@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #import <Foundation/Foundation.h>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/no_destructor.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/time/time.h"
@@ -21,7 +21,7 @@ namespace autofill {
 
 namespace {
 
-const char kScriptName[] = "suggestion_controller_js";
+const char kScriptName[] = "suggestion_controller";
 
 // The timeout for any JavaScript call in this file.
 const int64_t kJavaScriptExecutionTimeoutInSeconds = 5;
@@ -67,9 +67,7 @@ SuggestionControllerJavaScriptFeature::GetInstance() {
 
 SuggestionControllerJavaScriptFeature::SuggestionControllerJavaScriptFeature()
     : web::JavaScriptFeature(
-          // TODO(crbug.com/1175793): Move autofill code to kAnyContentWorld
-          // once all scripts are converted to JavaScriptFeatures.
-          ContentWorld::kPageContentWorld,
+          web::ContentWorld::kIsolatedWorld,
           {FeatureScript::CreateWithFilename(
               kScriptName,
               FeatureScript::InjectionTime::kDocumentStart,
@@ -89,10 +87,9 @@ void SuggestionControllerJavaScriptFeature::SelectNextElementInFrame(
     web::WebFrame* frame,
     const std::string& form_name,
     const std::string& field_name) {
-  std::vector<base::Value> parameters;
-  parameters.push_back(base::Value(form_name));
-  parameters.push_back(base::Value(field_name));
-  CallJavaScriptFunction(frame, "suggestion.selectNextElement", parameters);
+  CallJavaScriptFunction(
+      frame, "suggestion.selectNextElement",
+      base::Value::List().Append(form_name).Append(field_name));
 }
 
 void SuggestionControllerJavaScriptFeature::SelectPreviousElementInFrame(
@@ -104,10 +101,9 @@ void SuggestionControllerJavaScriptFeature::SelectPreviousElementInFrame(
     web::WebFrame* frame,
     const std::string& form_name,
     const std::string& field_name) {
-  std::vector<base::Value> parameters;
-  parameters.push_back(base::Value(form_name));
-  parameters.push_back(base::Value(field_name));
-  CallJavaScriptFunction(frame, "suggestion.selectPreviousElement", parameters);
+  CallJavaScriptFunction(
+      frame, "suggestion.selectPreviousElement",
+      base::Value::List().Append(form_name).Append(field_name));
 }
 
 void SuggestionControllerJavaScriptFeature::
@@ -125,19 +121,12 @@ void SuggestionControllerJavaScriptFeature::
         const std::string& field_name,
         base::OnceCallback<void(bool, bool)> completion_handler) {
   DCHECK(completion_handler);
-  std::vector<base::Value> parameters;
-  parameters.push_back(base::Value(form_name));
-  parameters.push_back(base::Value(field_name));
   CallJavaScriptFunction(
-      frame, "suggestion.hasPreviousNextElements", parameters,
+      frame, "suggestion.hasPreviousNextElements",
+      base::Value::List().Append(form_name).Append(field_name),
       base::BindOnce(&ProcessPreviousAndNextElementsPresenceResult,
                      std::move(completion_handler)),
       base::Seconds(kJavaScriptExecutionTimeoutInSeconds));
-}
-
-void SuggestionControllerJavaScriptFeature::CloseKeyboardForFrame(
-    web::WebFrame* frame) {
-  CallJavaScriptFunction(frame, "suggestion.blurActiveElement", {});
 }
 
 }  // namespace autofill

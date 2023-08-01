@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "base/memory/raw_ptr.h"
 #include "base/observer_list.h"
 #include "base/time/time.h"
 #include "chrome/browser/ash/printing/history/print_job_info.pb.h"
@@ -18,7 +19,11 @@
 
 class Profile;
 
-namespace chromeos {
+namespace crosapi {
+class TestControllerAsh;
+}  // namespace crosapi
+
+namespace ash {
 
 class CupsPrintJob;
 class CupsPrintJobNotificationManager;
@@ -65,7 +70,7 @@ class CupsPrintJobManager : public KeyedService {
   virtual bool CreatePrintJob(
       const std::string& printer_id,
       const std::string& title,
-      int job_id,
+      uint32_t job_id,
       int total_page_number,
       ::printing::PrintJob::Source source,
       const std::string& source_id,
@@ -90,9 +95,10 @@ class CupsPrintJobManager : public KeyedService {
   void NotifyJobFailed(base::WeakPtr<CupsPrintJob> job);
   void NotifyJobDone(base::WeakPtr<CupsPrintJob> job);
 
-  Profile* profile_;
+  raw_ptr<Profile, ExperimentalAsh> profile_;
 
  private:
+  friend class crosapi::TestControllerAsh;
   void RecordJobDuration(base::WeakPtr<CupsPrintJob> job);
 
   std::unique_ptr<CupsPrintJobNotificationManager> notification_manager_;
@@ -102,6 +108,6 @@ class CupsPrintJobManager : public KeyedService {
   std::map<std::string, base::TimeTicks> print_job_start_times_;
 };
 
-}  // namespace chromeos
+}  // namespace ash
 
 #endif  // CHROME_BROWSER_ASH_PRINTING_CUPS_PRINT_JOB_MANAGER_H_

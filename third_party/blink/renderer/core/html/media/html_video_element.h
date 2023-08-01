@@ -77,7 +77,6 @@ class CORE_EXPORT HTMLVideoElement final
   void webkitExitFullscreen();
   bool webkitSupportsFullscreen();
   bool webkitDisplayingFullscreen();
-  bool UsesOverlayFullscreenVideo() const override;
   void DidEnterFullscreen();
   void DidExitFullscreen();
 
@@ -93,6 +92,9 @@ class CORE_EXPORT HTMLVideoElement final
                          const cc::PaintFlags* paint_flags) const;
 
   bool HasAvailableVideoFrame() const;
+
+  void OnFirstFrame(base::TimeTicks frame_time,
+                    size_t bytes_to_first_frame) final;
 
   KURL PosterImageURL() const override;
 
@@ -110,6 +112,7 @@ class CORE_EXPORT HTMLVideoElement final
 
   // CanvasImageSource implementation
   scoped_refptr<Image> GetSourceImageForCanvas(
+      CanvasResourceProvider::FlushReason,
       SourceImageStatus*,
       const gfx::SizeF&,
       const AlphaDisposition alpha_disposition = kPremultiplyAlpha) override;
@@ -153,6 +156,8 @@ class CORE_EXPORT HTMLVideoElement final
   void SetIsEffectivelyFullscreen(blink::WebFullscreenVideoStatus);
   void SetIsDominantVisibleContent(bool is_dominant);
 
+  bool IsRichlyEditableForAccessibility() const override { return false; }
+
   VideoWakeLock* wake_lock_for_tests() const { return wake_lock_; }
 
  protected:
@@ -174,8 +179,8 @@ class CORE_EXPORT HTMLVideoElement final
   // ExecutionContextLifecycleStateObserver functions.
   void ContextDestroyed() final;
 
-  bool LayoutObjectIsNeeded(const ComputedStyle&) const override;
-  LayoutObject* CreateLayoutObject(const ComputedStyle&, LegacyLayout) override;
+  bool LayoutObjectIsNeeded(const DisplayStyle&) const override;
+  LayoutObject* CreateLayoutObject(const ComputedStyle&) override;
   void AttachLayoutTree(AttachContext&) override;
   void UpdatePosterImage();
   void ParseAttribute(const AttributeModificationParams&) override;
@@ -195,6 +200,7 @@ class CORE_EXPORT HTMLVideoElement final
   // interface, fully implemented in the parent class HTMLMediaElement.
   void RequestEnterPictureInPicture() final;
   void RequestExitPictureInPicture() final;
+  void RequestMediaRemoting() final;
 
   void DidMoveToNewDocument(Document& old_document) override;
 

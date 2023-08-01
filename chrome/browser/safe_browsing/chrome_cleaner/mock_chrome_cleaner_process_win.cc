@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,11 +12,11 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/containers/contains.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/message_loop/message_pump_type.h"
@@ -26,7 +26,6 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/test/task_environment.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/threading/thread.h"
 #include "base/values.h"
 #include "base/win/scoped_handle.h"
@@ -406,7 +405,7 @@ int MockChromeCleanerProcess::Run() {
          base::OnceClosure quit_closure) {
         main_runner->PostTask(FROM_HERE, std::move(quit_closure));
       },
-      base::SequencedTaskRunnerHandle::Get(), run_loop.QuitClosure());
+      base::SequencedTaskRunner::GetCurrentDefault(), run_loop.QuitClosure());
 
   io_thread.task_runner()->PostTask(
       FROM_HERE,

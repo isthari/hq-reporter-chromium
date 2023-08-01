@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,11 @@
 #include <vector>
 
 #include "base/big_endian.h"
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/check_op.h"
 #include "base/containers/contains.h"
 #include "base/containers/cxx20_erase.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/strings/string_number_conversions.h"
 #include "build/build_config.h"
@@ -83,17 +83,17 @@ UserEventSyncBridge::CreateMetadataChangeList() {
   return WriteBatch::CreateMetadataChangeList();
 }
 
-absl::optional<ModelError> UserEventSyncBridge::MergeSyncData(
+absl::optional<ModelError> UserEventSyncBridge::MergeFullSyncData(
     std::unique_ptr<MetadataChangeList> metadata_change_list,
     EntityChangeList entity_data) {
   DCHECK(entity_data.empty());
   DCHECK(change_processor()->IsTrackingMetadata());
   DCHECK(!change_processor()->TrackedAccountId().empty());
-  return ApplySyncChanges(std::move(metadata_change_list),
-                          std::move(entity_data));
+  return ApplyIncrementalSyncChanges(std::move(metadata_change_list),
+                                     std::move(entity_data));
 }
 
-absl::optional<ModelError> UserEventSyncBridge::ApplySyncChanges(
+absl::optional<ModelError> UserEventSyncBridge::ApplyIncrementalSyncChanges(
     std::unique_ptr<MetadataChangeList> metadata_change_list,
     EntityChangeList entity_changes) {
   std::unique_ptr<WriteBatch> batch = store_->CreateWriteBatch();
@@ -105,9 +105,9 @@ absl::optional<ModelError> UserEventSyncBridge::ApplySyncChanges(
         GetEventTimeFromStorageKey(change->storage_key()));
   }
 
-  // Because we receive ApplySyncChanges with deletions when our commits are
-  // confirmed, this is the perfect time to cleanup our in flight objects which
-  // are no longer in flight.
+  // Because we receive ApplyIncrementalSyncChanges with deletions when our
+  // commits are confirmed, this is the perfect time to cleanup our in flight
+  // objects which are no longer in flight.
   base::EraseIf(in_flight_nav_linked_events_,
                 [&deleted_event_times](
                     const std::pair<int64_t, sync_pb::UserEventSpecifics> kv) {
@@ -144,12 +144,10 @@ std::string UserEventSyncBridge::GetStorageKey(const EntityData& entity_data) {
   return GetStorageKeyFromSpecifics(entity_data.specifics.user_event());
 }
 
-void UserEventSyncBridge::ApplyStopSyncChanges(
+void UserEventSyncBridge::ApplyDisableSyncChanges(
     std::unique_ptr<MetadataChangeList> delete_metadata_change_list) {
-  if (delete_metadata_change_list) {
-    store_->DeleteAllDataAndMetadata(base::BindOnce(
-        &UserEventSyncBridge::OnCommit, weak_ptr_factory_.GetWeakPtr()));
-  }
+  store_->DeleteAllDataAndMetadata(base::BindOnce(
+      &UserEventSyncBridge::OnCommit, weak_ptr_factory_.GetWeakPtr()));
 }
 
 void UserEventSyncBridge::RecordUserEvent(
@@ -280,8 +278,8 @@ void UserEventSyncBridge::HandleGlobalIdChange(int64_t old_global_id,
   // not be within our given range, this approach seems less error prone.
   std::vector<std::unique_ptr<UserEventSpecifics>> affected;
 
-  auto range = in_flight_nav_linked_events_.equal_range(old_global_id);
-  for (auto iter = range.first; iter != range.second;) {
+  auto [begin, end] = in_flight_nav_linked_events_.equal_range(old_global_id);
+  for (auto iter = begin; iter != end;) {
     DCHECK_EQ(old_global_id, iter->second.navigation_id());
     affected.emplace_back(std::make_unique<UserEventSpecifics>(iter->second));
     iter = in_flight_nav_linked_events_.erase(iter);

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,8 @@
 #include <map>
 #include <vector>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/memory/raw_ptr.h"
 #include "base/test/task_environment.h"
 #include "chrome/browser/ash/enhanced_network_tts/enhanced_network_tts_constants.h"
 #include "chrome/browser/ash/enhanced_network_tts/enhanced_network_tts_test_utils.h"
@@ -87,7 +88,7 @@ class TestServerURLLoaderFactory {
           request.request_body->elements();
 
       // We only support the simplest body structure.
-      if (elements && elements->size() == 1 &&
+      if (elements && elements->size() == 1u &&
           (*elements)[0].type() ==
               network::mojom::DataElementDataView::Tag::kBytes) {
         actual_body = std::string(
@@ -117,7 +118,7 @@ void UnpackResult(absl::optional<mojom::TtsRequestError>* const error,
                   std::vector<uint8_t>* const audio_data,
                   std::vector<mojom::TimingInfo>* const timing_data,
                   mojom::TtsResponsePtr result) {
-  if (result->which() == mojom::TtsResponse::Tag::ERROR_CODE) {
+  if (result->which() == mojom::TtsResponse::Tag::kErrorCode) {
     *error = result->get_error_code();
   } else {
     // Copy audio data.
@@ -143,7 +144,7 @@ class TestAudioDataObserverImpl : public mojom::AudioDataObserver {
     receiver_.Bind(std::move(receiver));
   }
 
-  // ash::enhanced_network_tts::mojom::AudioDataObserver:
+  // mojom::AudioDataObserver:
   void OnAudioDataReceived(mojom::TtsResponsePtr response) override {
     received_responses_.push_back(std::move(response));
   }
@@ -180,7 +181,7 @@ class EnhancedNetworkTtsImplTest : public testing::Test {
 
   TestAudioDataObserverImpl* GetTestingObserverPtr() { return &observer_; }
 
-  EnhancedNetworkTtsImpl* enhanced_network_tts_impl_;
+  raw_ptr<EnhancedNetworkTtsImpl, ExperimentalAsh> enhanced_network_tts_impl_;
   std::unique_ptr<data_decoder::test::InProcessDataDecoder>
       in_process_data_decoder_;
   base::test::TaskEnvironment test_task_env_;
@@ -224,15 +225,15 @@ TEST_F(EnhancedNetworkTtsImplTest, GetAudioDataSucceeds) {
                GetTestingObserverPtr()->GetNexResponse());
   EXPECT_EQ(audio_data, expected_output);
   // The timing data is hardcoded in |kTemplateResponse|.
-  EXPECT_EQ(timing_data.size(), 2);
+  EXPECT_EQ(timing_data.size(), 2u);
   EXPECT_EQ(timing_data[0].text, "test1");
   EXPECT_EQ(timing_data[0].time_offset, "0.01s");
   EXPECT_EQ(timing_data[0].duration, "0.14s");
-  EXPECT_EQ(timing_data[0].text_offset, 0);
+  EXPECT_EQ(timing_data[0].text_offset, 0u);
   EXPECT_EQ(timing_data[1].text, "test2");
   EXPECT_EQ(timing_data[1].time_offset, "0.16s");
   EXPECT_EQ(timing_data[1].duration, "0.17s");
-  EXPECT_EQ(timing_data[1].text_offset, 6);
+  EXPECT_EQ(timing_data[1].text_offset, 6u);
 }
 
 TEST_F(EnhancedNetworkTtsImplTest, GetAudioDataIgnoresWhitespacesAtStart) {
@@ -272,9 +273,9 @@ TEST_F(EnhancedNetworkTtsImplTest, GetAudioDataIgnoresWhitespacesAtStart) {
                GetTestingObserverPtr()->GetNexResponse());
   // The text offset will be compensated with whitespaces.
   EXPECT_EQ(timing_data[0].text, "test1");
-  EXPECT_EQ(timing_data[0].text_offset, 4);
+  EXPECT_EQ(timing_data[0].text_offset, 4u);
   EXPECT_EQ(timing_data[1].text, "test2");
-  EXPECT_EQ(timing_data[1].text_offset, 10);
+  EXPECT_EQ(timing_data[1].text_offset, 10u);
 }
 
 TEST_F(EnhancedNetworkTtsImplTest, GetAudioDataSucceedsWithFasterRate) {
@@ -466,8 +467,8 @@ TEST_F(EnhancedNetworkTtsImplTest, OverrideRequest) {
                &timing_data_first_request,
                GetTestingObserverPtr()->GetNexResponse());
   EXPECT_EQ(error_first_request, mojom::TtsRequestError::kRequestOverride);
-  EXPECT_EQ(timing_data_first_request.size(), 0);
-  EXPECT_EQ(audio_data_first_request.size(), 0);
+  EXPECT_EQ(timing_data_first_request.size(), 0u);
+  EXPECT_EQ(audio_data_first_request.size(), 0u);
 
   // The second request gets the data.
   absl::optional<mojom::TtsRequestError> error_second_request;

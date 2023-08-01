@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,14 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "components/reporting/proto/synced/record_constants.pb.h"
+#include "components/reporting/util/rate_limiter_interface.h"
 #include "components/reporting/util/status.h"
 #include "components/reporting/util/status_macros.h"
 #include "components/reporting/util/statusor.h"
+#include "components/reporting/util/wrapped_rate_limiter.h"
 
 namespace reporting {
 
@@ -20,25 +22,34 @@ ReportQueueConfiguration::ReportQueueConfiguration() = default;
 ReportQueueConfiguration::~ReportQueueConfiguration() = default;
 
 StatusOr<std::unique_ptr<ReportQueueConfiguration>>
-ReportQueueConfiguration::Create(EventType event_type,
-                                 Destination destination,
-                                 PolicyCheckCallback policy_check_callback) {
+ReportQueueConfiguration::Create(
+    EventType event_type,
+    Destination destination,
+    PolicyCheckCallback policy_check_callback,
+    std::unique_ptr<RateLimiterInterface> rate_limiter,
+    int64_t reserved_space) {
   auto config = base::WrapUnique<ReportQueueConfiguration>(
       new ReportQueueConfiguration());
 
   RETURN_IF_ERROR(config->SetEventType(event_type));
   RETURN_IF_ERROR(config->SetDestination(destination));
   RETURN_IF_ERROR(config->SetPolicyCheckCallback(policy_check_callback));
+  RETURN_IF_ERROR(config->SetRateLimiter(std::move(rate_limiter)));
+  RETURN_IF_ERROR(config->SetReservedSpace(reserved_space));
 
   return config;
 }
 
 StatusOr<std::unique_ptr<ReportQueueConfiguration>>
-ReportQueueConfiguration::Create(base::StringPiece dm_token,
-                                 Destination destination,
-                                 PolicyCheckCallback policy_check_callback) {
-  auto config_result = Create(/*event_type=*/EventType::kDevice, destination,
-                              policy_check_callback);
+ReportQueueConfiguration::Create(
+    base::StringPiece dm_token,
+    Destination destination,
+    PolicyCheckCallback policy_check_callback,
+    std::unique_ptr<RateLimiterInterface> rate_limiter,
+    int64_t reserved_space) {
+  auto config_result =
+      Create(/*event_type=*/EventType::kDevice, destination,
+             policy_check_callback, std::move(rate_limiter), reserved_space);
   if (!config_result.ok()) {
     return config_result;
   }
@@ -82,4 +93,21 @@ Status ReportQueueConfiguration::SetDestination(Destination destination) {
   return Status::StatusOK();
 }
 
+Status ReportQueueConfiguration::SetRateLimiter(
+    std::unique_ptr<RateLimiterInterface> rate_limiter) {
+  if (rate_limiter) {
+    wrapped_rate_limiter_ = WrappedRateLimiter::Create(std::move(rate_limiter));
+    is_event_allowed_cb_ = wrapped_rate_limiter_->async_acquire_cb();
+  }
+  return Status::StatusOK();
+}
+
+Status ReportQueueConfiguration::SetReservedSpace(int64_t reserved_space) {
+  if (reserved_space < 0L) {
+    return Status(error::INVALID_ARGUMENT,
+                  "Must reserve non-zero amount of space");
+  }
+  reserved_space_ = reserved_space;
+  return Status::StatusOK();
+}
 }  // namespace reporting

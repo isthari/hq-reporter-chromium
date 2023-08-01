@@ -1,4 +1,4 @@
-# Copyright 2020 The Chromium Authors. All rights reserved.
+# Copyright 2020 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -55,13 +55,27 @@ source_set("data_driven_testing") {
   sources = [
     "shared_highlighting_data_driven_test.cc",
     "shared_highlighting_data_driven_test.h",
+    "shared_highlighting_data_driven_test_results.h",
   ]
-  data = [ "//components/test/data/shared_highlighting/" ]
+  data = [
+    "//components/test/data/shared_highlighting/",
+    "//third_party/text-fragments-polyfill/src/test/data-driven/input/",
+  ]
   deps = [
     "//base:base",
     "//testing/data_driven_testing",
     "//testing/gtest",
   ]
+}
+
+if (is_ios) {
+  bundle_data("data_driven_testing_data") {
+    testonly = true
+    sources = [ "//components/test/data/shared_highlighting/generate_navigate/output/basic_test.out" ]
+
+    outputs = [ "{{bundle_resources_dir}}/" +
+                "{{source_root_relative_dir}}/{{source_file_part}}" ]
+  }
 }
 
 if (is_android) {

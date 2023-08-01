@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,25 +53,22 @@ class UI_TOUCH_SELECTION_EXPORT TouchSelectionController
   };
 
   struct UI_TOUCH_SELECTION_EXPORT Config {
-    Config();
-    ~Config();
-
     // Maximum allowed time for handle tap detection. Defaults to 300 ms.
-    base::TimeDelta max_tap_duration;
+    base::TimeDelta max_tap_duration = base::Milliseconds(300);
 
     // Defaults to 8 DIPs.
-    float tap_slop;
+    float tap_slop = 8;
 
     // Controls whether adaptive orientation for selection handles is enabled.
     // Defaults to false.
-    bool enable_adaptive_handle_orientation;
+    bool enable_adaptive_handle_orientation = false;
 
     // Controls whether drag selection after a longpress is enabled.
     // Defaults to false.
-    bool enable_longpress_drag_selection;
+    bool enable_longpress_drag_selection = false;
 
     // Should we hide the active handle.
-    bool hide_active_handle;
+    bool hide_active_handle = false;
   };
 
   TouchSelectionController(TouchSelectionControllerClient* client,
@@ -120,6 +117,12 @@ class UI_TOUCH_SELECTION_EXPORT TouchSelectionController
   // Ticks an active animation, as requested to the client by |SetNeedsAnimate|.
   // Returns true if an animation is active and requires further ticking.
   bool Animate(base::TimeTicks animate_time);
+
+  // Returns the current focus bound. For an active selection, this is the
+  // selection bound that has most recently been dragged or updated (defaulting
+  // to the end if neither endpoint has moved). For an active insertion it is
+  // the caret bound. Should only be called when touch selection is active.
+  const gfx::SelectionBound& GetFocusBound() const;
 
   // Returns the rect between the two active selection bounds. If just one of
   // the bounds is visible, or both bounds are visible and on the same line,

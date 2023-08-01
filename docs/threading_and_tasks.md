@@ -24,6 +24,10 @@ concurrent, but not necessarily
 parallel](https://stackoverflow.com/questions/1050222/what-is-the-difference-between-concurrency-and-parallelism#:~:text=Concurrency%20is%20when%20two%20or,e.g.%2C%20on%20a%20multicore%20processor.),
 system.
 
+A basic intro to the way Chromium does concurrency (especially Sequences) can be
+found
+[here](https://docs.google.com/presentation/d/1ujV8LjIUyPBmULzdT2aT9Izte8PDwbJi).
+
 This documentation assumes familiarity with computer science
 [threading concepts](https://en.wikipedia.org/wiki/Thread_(computing)).
 
@@ -45,7 +49,7 @@ This documentation assumes familiarity with computer science
  * **Thread pool**: A pool of physical threads with a shared task queue. In
    Chrome, this is `base::ThreadPoolInstance`. There's exactly one instance per
    Chrome process, it serves tasks posted through
-   [`base/task/post_task.h`](https://cs.chromium.org/chromium/src/base/task/post_task.h)
+   [`base/task/thread_pool.h`](https://cs.chromium.org/chromium/src/base/task/thread_pool.h)
    and as such you should rarely need to use the `base::ThreadPoolInstance` API
    directly (more on posting tasks later).
  * **Sequence** or **Virtual thread**: A chrome-managed thread of execution.
@@ -172,8 +176,8 @@ If you find yourself writing a sequence-friendly type and it fails
 thread-affinity checks (e.g., `THREAD_CHECKER`) in a leaf dependency: consider
 making that dependency sequence-friendly as well. Most core APIs in Chrome are
 sequence-friendly, but some legacy types may still over-zealously use
-ThreadChecker/ThreadTaskRunnerHandle/SingleThreadTaskRunner when they could
-instead rely on the "current sequence" and no longer be thread-affine.
+ThreadChecker/SingleThreadTaskRunner when they could instead rely on the
+"current sequence" and no longer be thread-affine.
 
 ## Posting a Parallel Task
 
@@ -259,20 +263,21 @@ sequenced_task_runner->PostTask(FROM_HERE, base::BindOnce(&TaskB));
 ### Posting to the Current (Virtual) Thread
 
 The preferred way of posting to the current (virtual) thread is via
-`base::SequencedTaskRunnerHandle::Get()`.
+`base::SequencedTaskRunner::GetCurrentDefault()`.
 
 ```cpp
 // The task will run on the current (virtual) thread's default task queue.
-base::SequencedTaskRunnerHandle::Get()->PostTask(
+base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
     FROM_HERE, base::BindOnce(&Task);
 ```
 
-Note that `SequencedTaskRunnerHandle::Get()` returns the default queue for the
+Note that `SequencedTaskRunner::GetCurrentDefault()` returns the default queue for the
 current virtual thread. On threads with multiple task queues (e.g.
 BrowserThread::UI) this can be a different queue than the one the current task
 belongs to. The "current" task runner is intentionally not exposed via a static
 getter. Either you know it already and can post to it directly or you don't and
-the only sensible destination is the default queue.
+the only sensible destination is the default queue. See https://bit.ly/3JvCLsX
+for detailed discussion.
 
 ## Using Sequences Instead of Locks
 
@@ -409,21 +414,21 @@ be necessary.
 *** note
 **IMPORTANT:** To post a task that needs mutual exclusion with the current
 sequence of tasks but doesn’t absolutely need to run on the current physical
-thread, use `base::SequencedTaskRunnerHandle::Get()` instead of
-`base::ThreadTaskRunnerHandle::Get()` (ref. [Posting to the Current
+thread, use `base::SequencedTaskRunner::GetCurrentDefault()` instead of
+`base::SingleThreadTaskRunner::GetCurrentDefault()` (ref. [Posting to the Current
 Sequence](#Posting-to-the-Current-Virtual_Thread)). That will better document
 the requirements of the posted task and will avoid unnecessarily making your API
 physical thread-affine. In a single-thread task,
-`base::SequencedTaskRunnerHandle::Get()` is equivalent to
-`base::ThreadTaskRunnerHandle::Get()`.
+`base::SequencedTaskRunner::GetCurrentDefault()` is equivalent to
+`base::SingleThreadTaskRunner::GetCurrentDefault()`.
 ***
 
 If you must post a task to the current physical thread nonetheless, use
-[`base::ThreadTaskRunnerHandle`](https://cs.chromium.org/chromium/src/base/threading/thread_task_runner_handle.h).
+[`base::SingleThreadTaskRunner::CurrentDefaultHandle`](https://source.chromium.org/chromium/chromium/src/+/main:base/task/single_thread_task_runner.h).
 
 ```cpp
 // The task will run on the current thread in the future.
-base::ThreadTaskRunnerHandle::Get()->PostTask(
+base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
     FROM_HERE, base::BindOnce(&Task));
 ```
 
@@ -446,7 +451,7 @@ void TaskAUsingCOMSTA() {
   // ...
 
   // Post another task to the current COM STA thread.
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&TaskCUsingCOMSTA));
 }
 void TaskBUsingCOMSTA() { }
@@ -457,6 +462,32 @@ com_sta_task_runner->PostTask(FROM_HERE, base::BindOnce(&TaskAUsingCOMSTA));
 com_sta_task_runner->PostTask(FROM_HERE, base::BindOnce(&TaskBUsingCOMSTA));
 ```
 
+## Memory ordering guarantees for posted Tasks
+
+This task system guarantees that all the memory effects of sequential execution
+before posting a task are _visible_ to the task when it starts running. More
+formally, a call to `PostTask()` and the execution of the posted task are in the
+[happens-before
+relationship](https://preshing.com/20130702/the-happens-before-relation/) with
+each other. This is true for all variants of posting a task in `::base`,
+including `PostTaskAndReply()`. Similarly the happens-before relationship is
+present for tasks running in a sequence as part of the same SequencedTaskRunner.
+
+This guarantee is important to know about because Chrome tasks commonly access
+memory beyond the immediate data copied into the `base::OnceCallback`, and this
+happens-before relationship allows to avoid additional synchronization within
+the tasks themselves. As a very specific example, consider a callback that binds
+a pointer to memory which was just initialized in the thread posting the task.
+
+A more constrained model is also worth noting. Execution can be split into tasks
+running on different task runners, where each task _exclusively_ accesses
+certain objects in memory without explicit synchronization. Posting another task
+transfers this 'ownership' (of the objects) to the next task. With this the
+notion of object ownership can often be extended to the level of task runners,
+which provides useful invariants to reason about. This model allows to avoid
+race conditions while also avoiding locks and atomic operations. Because of its
+simplicity this model is commonly used in Chrome.
+
 ## Annotating Tasks with TaskTraits
 
 [`base::TaskTraits`](https://cs.chromium.org/chromium/src/base/task/task_traits.h)
@@ -465,12 +496,14 @@ scheduling decisions.
 
 Methods that take `base::TaskTraits` can be be passed `{}` when default traits
 are sufficient. Default traits are appropriate for tasks that:
+
 - Don’t block (ref. MayBlock and WithBaseSyncPrimitives);
 - Pertain to user-blocking activity;
   (explicitly or implicitly by having an ordering dependency with a component
    that does)
 - Can either block shutdown or be skipped on shutdown (thread pool is free to
   choose a fitting default).
+
 Tasks that don’t match this description must be posted with explicit TaskTraits.
 
 [`base/task/task_traits.h`](https://cs.chromium.org/chromium/src/base/task/task_traits.h)
@@ -618,7 +651,7 @@ class A {
 };
 ```
 
-Note: `WeakPtr` is not thread-safe: `GetWeakPtr()`, `~WeakPtrFactory()`, and
+Note: `WeakPtr` is not thread-safe: `~WeakPtrFactory()` and
 `Store()` (bound to a `WeakPtr`) must all run on the same sequence.
 
 ### Using base::CancelableTaskTracker
@@ -696,9 +729,9 @@ after max concurrency increases.
 For more details see [Testing Components Which Post
 Tasks](threading_and_tasks_testing.md).
 
-To test code that uses `base::ThreadTaskRunnerHandle`,
-`base::SequencedTaskRunnerHandle` or a function in
-[`base/task/post_task.h`](https://cs.chromium.org/chromium/src/base/task/post_task.h),
+To test code that uses `base::SingleThreadTaskRunner::CurrentDefaultHandle`,
+`base::SequencedTaskRunner::CurrentDefaultHandle` or a function in
+[`base/task/thread_pool.h`](https://cs.chromium.org/chromium/src/base/task/thread_pool.h),
 instantiate a
 [`base::test::TaskEnvironment`](https://cs.chromium.org/chromium/src/base/test/task_environment.h)
 for the scope of the test. If you need BrowserThreads, use
@@ -723,14 +756,14 @@ class MyTest : public testing::Test {
    base::test::TaskEnvironment task_environment_;
 };
 
-TEST(MyTest, MyTest) {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, base::BindOnce(&A));
-  base::SequencedTaskRunnerHandle::Get()->PostTask(FROM_HERE,
+TEST_F(MyTest, FirstTest) {
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(FROM_HERE, base::BindOnce(&A));
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(FROM_HERE,
                                                    base::BindOnce(&B));
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE, base::BindOnce(&C), base::TimeDelta::Max());
 
-  // This runs the (Thread|Sequenced)TaskRunnerHandle queue until it is empty.
+  // This runs the (SingleThread|Sequenced)TaskRunner::CurrentDefaultHandle queue until it is empty.
   // Delayed tasks are not added to the queue until they are ripe for execution.
   // Prefer explicit exit conditions to RunUntilIdle when possible:
   // bit.ly/run-until-idle-with-care2.
@@ -738,11 +771,11 @@ TEST(MyTest, MyTest) {
   // A and B have been executed. C is not ripe for execution yet.
 
   base::RunLoop run_loop;
-  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, base::BindOnce(&D));
-  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, run_loop.QuitClosure());
-  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, base::BindOnce(&E));
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(FROM_HERE, base::BindOnce(&D));
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(FROM_HERE, run_loop.QuitClosure());
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(FROM_HERE, base::BindOnce(&E));
 
-  // This runs the (Thread|Sequenced)TaskRunnerHandle queue until QuitClosure is
+  // This runs the (SingleThread|Sequenced)TaskRunner::CurrentDefaultHandle queue until QuitClosure is
   // invoked.
   run_loop.Run();
   // D and run_loop.QuitClosure() have been executed. E is still in the queue.
@@ -760,8 +793,8 @@ TEST(MyTest, MyTest) {
   base::ThreadPool::PostTaskAndReplyWithResult(
       FROM_HERE, {}, base::BindOnce(&H), base::BindOnce(&I));
 
-  // This runs the (Thread|Sequenced)TaskRunnerHandle queue until both the
-  // (Thread|Sequenced)TaskRunnerHandle queue and the ThreadPool queue are
+  // This runs the (SingleThread|Sequenced)TaskRunner::CurrentDefaultHandle queue until both the
+  // (SingleThread|Sequenced)TaskRunner::CurrentDefaultHandle queue and the ThreadPool queue are
   // empty. Prefer explicit exit conditions to RunUntilIdle when possible:
   // bit.ly/run-until-idle-with-care2.
   task_environment_.RunUntilIdle();
@@ -772,7 +805,7 @@ TEST(MyTest, MyTest) {
 ## Using ThreadPool in a New Process
 
 ThreadPoolInstance needs to be initialized in a process before the functions in
-[`base/task/post_task.h`](https://cs.chromium.org/chromium/src/base/task/post_task.h)
+[`base/task/thread_pool.h`](https://cs.chromium.org/chromium/src/base/task/thread_pool.h)
 can be used. Initialization of ThreadPoolInstance in the Chrome browser process
 and child processes (renderer, GPU, utility) has already been taken care of. To
 use ThreadPoolInstance in another process, initialize ThreadPoolInstance early
@@ -781,12 +814,12 @@ in the main function:
 ```cpp
 // This initializes and starts ThreadPoolInstance with default params.
 base::ThreadPoolInstance::CreateAndStartWithDefaultParams(“process_name”);
-// The base/task/post_task.h API can now be used with base::ThreadPool trait.
+// The base/task/thread_pool.h API can now be used with base::ThreadPool trait.
 // Tasks will be scheduled as they are posted.
 
 // This initializes ThreadPoolInstance.
 base::ThreadPoolInstance::Create(“process_name”);
-// The base/task/post_task.h API can now be used with base::ThreadPool trait. No
+// The base/task/thread_pool.h API can now be used with base::ThreadPool trait. No
 // threads will be created and no tasks will be scheduled until after Start() is
 // called.
 base::ThreadPoolInstance::Get()->Start(params);
@@ -813,7 +846,7 @@ See [this example](https://codereview.chromium.org/2885173002/) of a
 refactoring where a TaskRunner was passed through a lot of components only to be
 used in an eventual leaf. The leaf can and should now obtain its TaskRunner
 directly from
-[`base/task/post_task.h`](https://cs.chromium.org/chromium/src/base/task/post_task.h).
+[`base/task/thread_pool.h`](https://cs.chromium.org/chromium/src/base/task/thread_pool.h).
 
 As mentioned above, `base::test::TaskEnvironment` allows unit tests to
 control tasks posted from underlying TaskRunners. In rare cases where a test
@@ -898,7 +931,7 @@ with dialogs (DialogBox), common dialogs (GetOpenFileName), OLE functions
 Sample workaround when inner task processing is needed:
   HRESULT hr;
   {
-    CurrentThread::ScopedNestableTaskAllower allow;
+    CurrentThread::ScopedAllowApplicationTasksInNativeNestedLoop allow;
     hr = DoDragDrop(...); // Implicitly runs a modal message loop.
   }
   // Process |hr| (the result returned by DoDragDrop()).
@@ -906,7 +939,7 @@ Sample workaround when inner task processing is needed:
 
 Please be SURE your task is reentrant (nestable) and all global variables
 are stable and accessible before before using
-CurrentThread::ScopedNestableTaskAllower.
+CurrentThread::ScopedAllowApplicationTasksInNativeNestedLoop.
 
 ## APIs for general use
 
@@ -916,7 +949,7 @@ following:
 
 * base::RunLoop: Drive the SequenceManager from the thread it's bound to.
 
-* base::Thread/SequencedTaskRunnerHandle: Post back to the SequenceManager TaskQueues from a task running on it.
+* base::Thread/SequencedTaskRunner::CurrentDefaultHandle: Post back to the SequenceManager TaskQueues from a task running on it.
 
 * SequenceLocalStorageSlot : Bind external state to a sequence.
 

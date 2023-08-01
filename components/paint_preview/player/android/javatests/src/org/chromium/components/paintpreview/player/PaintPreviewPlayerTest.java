@@ -1,21 +1,27 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.components.paintpreview.player;
 
+import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
+
+import static org.hamcrest.Matchers.allOf;
+import static org.hamcrest.Matchers.equalTo;
+
 import android.graphics.Rect;
 import android.os.Build;
 import android.os.Build.VERSION_CODES;
-import android.support.test.InstrumentationRegistry;
-import android.support.test.uiautomator.By;
-import android.support.test.uiautomator.UiDevice;
-import android.support.test.uiautomator.UiObject2;
 import android.util.Size;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
 
+import androidx.test.InstrumentationRegistry;
 import androidx.test.filters.MediumTest;
+import androidx.test.uiautomator.By;
+import androidx.test.uiautomator.UiDevice;
+import androidx.test.uiautomator.UiObject2;
 
 import org.hamcrest.Matchers;
 import org.junit.Assert;
@@ -25,13 +31,16 @@ import org.junit.rules.TemporaryFolder;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisableIf;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
-import org.chromium.ui.test.util.DummyUiActivityTestCase;
+import org.chromium.base.test.util.Feature;
+import org.chromium.ui.test.util.BlankUiTestActivityTestCase;
+import org.chromium.ui.test.util.RenderTestRule;
+import org.chromium.ui.test.util.ViewUtils;
 import org.chromium.url.GURL;
 
 import java.util.List;
@@ -40,7 +49,7 @@ import java.util.List;
  * Instrumentation tests for the Paint Preview player.
  */
 @RunWith(BaseJUnit4ClassRunner.class)
-public class PaintPreviewPlayerTest extends DummyUiActivityTestCase {
+public class PaintPreviewPlayerTest extends BlankUiTestActivityTestCase {
     private static final long TIMEOUT_MS = 5000;
 
     private static final String TEST_DIRECTORY_KEY = "test_dir";
@@ -59,10 +68,19 @@ public class PaintPreviewPlayerTest extends DummyUiActivityTestCase {
     @Rule
     public TemporaryFolder mTempFolder = new TemporaryFolder();
 
+    private FrameLayout mLayout;
     private PlayerManager mPlayerManager;
     private TestLinkClickHandler mLinkClickHandler;
     private CallbackHelper mRefreshedCallback;
     private boolean mInitializationFailed;
+
+    @Rule
+    public RenderTestRule mRenderTestRule =
+            new RenderTestRule.Builder()
+                    .setCorpus(RenderTestRule.Corpus.ANDROID_RENDER_TESTS_PUBLIC)
+                    .setBugComponent(RenderTestRule.Component.FREEZE_DRIED_TABS)
+                    .setRevision(0)
+                    .build();
 
     /**
      * LinkClickHandler implementation for caching the last URL that was clicked.
@@ -77,10 +95,19 @@ public class PaintPreviewPlayerTest extends DummyUiActivityTestCase {
     }
 
     @Override
+    public void setUpTest() throws Exception {
+        super.setUpTest();
+        PostTask.postTask(TaskTraits.UI_DEFAULT, () -> {
+            mLayout = new FrameLayout(getActivity());
+            getActivity().setContentView(mLayout);
+        });
+    }
+
+    @Override
     public void tearDownTest() throws Exception {
         super.tearDownTest();
         CallbackHelper destroyed = new CallbackHelper();
-        PostTask.postTask(UiThreadTaskTraits.DEFAULT, () -> {
+        PostTask.postTask(TaskTraits.UI_DEFAULT, () -> {
             mPlayerManager.destroy();
             destroyed.notifyCalled();
         });
@@ -90,7 +117,7 @@ public class PaintPreviewPlayerTest extends DummyUiActivityTestCase {
     private void displayTest(boolean multipleFrames) {
         initPlayerManager(multipleFrames);
         final View playerHostView = mPlayerManager.getView();
-        final View activityContentView = getActivity().findViewById(android.R.id.content);
+        final View activityContentView = mLayout;
 
         // Assert that the player view has the same dimensions as the content view.
         CriteriaHelper.pollUiThread(() -> {
@@ -108,8 +135,10 @@ public class PaintPreviewPlayerTest extends DummyUiActivityTestCase {
      */
     @Test
     @MediumTest
-    public void singleFrameDisplayTest() {
+    @Feature({"RenderTest"})
+    public void singleFrameDisplayTest() throws Exception {
         displayTest(false);
+        mRenderTestRule.render(mPlayerManager.getView(), "single_frame");
     }
 
     /**
@@ -118,8 +147,36 @@ public class PaintPreviewPlayerTest extends DummyUiActivityTestCase {
      */
     @Test
     @MediumTest
-    public void multiFrameDisplayTest() {
+    @Feature({"RenderTest"})
+    public void multiFrameDisplayTest() throws Exception {
         displayTest(true);
+        mRenderTestRule.render(mPlayerManager.getView(), "multi_frame");
+    }
+
+    /**
+     * Tests the player correctly initializes and displays a sample paint preview with multiple
+     * frames with horizontal orientation.
+     */
+    @Test
+    @MediumTest
+    @Feature({"RenderTest"})
+    public void singleFrameDisplayTest_Wide() throws Exception {
+        makeLayoutWide();
+        displayTest(false);
+        mRenderTestRule.render(mPlayerManager.getView(), "single_frame_wide");
+    }
+
+    /**
+     * Tests the player correctly initializes and displays a sample paint preview with multiple
+     * frames with horizontal orientation.
+     */
+    @Test
+    @MediumTest
+    @Feature({"RenderTest"})
+    public void multiFrameDisplayTest_Wide() throws Exception {
+        makeLayoutWide();
+        displayTest(true);
+        mRenderTestRule.render(mPlayerManager.getView(), "multi_frame_wide");
     }
 
     /**
@@ -127,9 +184,11 @@ public class PaintPreviewPlayerTest extends DummyUiActivityTestCase {
      */
     @Test
     @MediumTest
-    @DisableIf.Build(message = "Test is failing on Android P, see crbug.com/1110939.",
-            sdk_is_greater_than = VERSION_CODES.O_MR1, sdk_is_less_than = VERSION_CODES.Q)
+    @DisableIf.Build(message = "Test is failing on Android P+, see crbug.com/1110939.",
+            sdk_is_greater_than = VERSION_CODES.O_MR1)
+    // clang-format off
     public void linkClickTest() {
+        // clang-format on
         initPlayerManager(false);
         final View playerHostView = mPlayerManager.getView();
 
@@ -178,7 +237,7 @@ public class PaintPreviewPlayerTest extends DummyUiActivityTestCase {
     public void initializationCallbackErrorReported() throws Exception {
         CallbackHelper compositorErrorCallback = new CallbackHelper();
         mLinkClickHandler = new TestLinkClickHandler();
-        PostTask.postTask(UiThreadTaskTraits.DEFAULT, () -> {
+        PostTask.postTask(TaskTraits.UI_DEFAULT, () -> {
             PaintPreviewTestService service =
                     new PaintPreviewTestService(mTempFolder.getRoot().getPath());
             // Use the wrong URL to simulate a failure.
@@ -220,7 +279,7 @@ public class PaintPreviewPlayerTest extends DummyUiActivityTestCase {
 
                         @Override
                         public void onAccessibilityNotSupported() {}
-                    }, 0xffffffff, false, true);
+                    }, 0xffffffff, false);
             mPlayerManager.setCompressOnClose(false);
         });
         compositorErrorCallback.waitForFirst();
@@ -384,7 +443,7 @@ public class PaintPreviewPlayerTest extends DummyUiActivityTestCase {
         CallbackHelper firstPaint = new CallbackHelper();
         mInitializationFailed = false;
 
-        PostTask.postTask(UiThreadTaskTraits.DEFAULT, () -> {
+        PostTask.postTask(TaskTraits.UI_DEFAULT, () -> {
             PaintPreviewTestService service =
                     new PaintPreviewTestService(mTempFolder.getRoot().getPath());
             if (multiSkp) {
@@ -433,9 +492,9 @@ public class PaintPreviewPlayerTest extends DummyUiActivityTestCase {
 
                         @Override
                         public void onAccessibilityNotSupported() {}
-                    }, 0xffffffff, false, true);
+                    }, 0xffffffff, false);
+            mLayout.addView(mPlayerManager.getView());
             mPlayerManager.setCompressOnClose(false);
-            getActivity().setContentView(mPlayerManager.getView());
         });
 
         // Wait until PlayerManager is initialized.
@@ -460,6 +519,9 @@ public class PaintPreviewPlayerTest extends DummyUiActivityTestCase {
                     ((ViewGroup) mPlayerManager.getView()).getChildCount(),
                     Matchers.greaterThan(0));
         }, TIMEOUT_MS, CriteriaHelper.DEFAULT_POLLING_INTERVAL);
+
+        ViewUtils.onViewWaiting(allOf(
+                equalTo(((ViewGroup) mPlayerManager.getView()).getChildAt(0)), isDisplayed()));
 
         CriteriaHelper.pollUiThread(() -> {
             Criteria.checkThat("Required bitmaps were not loaded.",
@@ -512,5 +574,18 @@ public class PaintPreviewPlayerTest extends DummyUiActivityTestCase {
             Criteria.checkThat(msg, url, Matchers.notNullValue());
             Criteria.checkThat(msg, url.getSpec(), Matchers.is(expectedUrl));
         }, TIMEOUT_MS, CriteriaHelper.DEFAULT_POLLING_INTERVAL);
+    }
+
+    private void makeLayoutWide() throws Exception {
+        CallbackHelper widened = new CallbackHelper();
+        PostTask.postTask(TaskTraits.UI_DEFAULT, () -> {
+            FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) mLayout.getLayoutParams();
+            params.width = mLayout.getWidth() * 2;
+            params.height = mLayout.getHeight() * 2;
+            mLayout.setLayoutParams(params);
+            mLayout.invalidate();
+            widened.notifyCalled();
+        });
+        widened.waitForFirst();
     }
 }

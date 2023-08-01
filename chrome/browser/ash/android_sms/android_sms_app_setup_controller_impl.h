@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,9 @@
 #define CHROME_BROWSER_ASH_ANDROID_SMS_ANDROID_SMS_APP_SETUP_CONTROLLER_IMPL_H_
 
 #include "base/gtest_prod_util.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/time/time.h"
 #include "base/unguessable_token.h"
 #include "chrome/browser/ash/android_sms/android_sms_app_setup_controller.h"
 #include "chrome/browser/web_applications/externally_managed_app_manager.h"
@@ -113,9 +115,10 @@ class AndroidSmsAppSetupControllerImpl : public AndroidSmsAppSetupController {
 
   void SetPwaDelegateForTesting(std::unique_ptr<PwaDelegate> test_pwa_delegate);
 
-  Profile* profile_;
-  web_app::ExternallyManagedAppManager* externally_managed_app_manager_;
-  HostContentSettingsMap* host_content_settings_map_;
+  raw_ptr<Profile, ExperimentalAsh> profile_;
+  raw_ptr<web_app::ExternallyManagedAppManager, ExperimentalAsh>
+      externally_managed_app_manager_;
+  raw_ptr<HostContentSettingsMap, ExperimentalAsh> host_content_settings_map_;
 
   std::unique_ptr<PwaDelegate> pwa_delegate_;
   base::WeakPtrFactory<AndroidSmsAppSetupControllerImpl> weak_ptr_factory_{

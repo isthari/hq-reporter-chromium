@@ -39,15 +39,21 @@ class CORE_EXPORT Text : public CharacterData {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
-  static const unsigned kDefaultLengthLimit = 1 << 16;
+  static constexpr unsigned kDefaultLengthLimit = 1 << 16;
 
   static Text* Create(Document&, const String&);
+  static Text* Create(Document&, String&&);
   static Text* CreateEditingText(Document&, const String&);
 
   Text(TreeScope& tree_scope, const String& data, ConstructionType type)
       : CharacterData(tree_scope, data, type) {}
 
-  LayoutText* GetLayoutObject() const;
+  Text(TreeScope& tree_scope, String&& data, ConstructionType type)
+      : CharacterData(tree_scope, std::move(data), type) {}
+
+  // Note that this one is defined in layout/layout_text.h, because it needs
+  // LayoutText to be defined, and that's not possible here.
+  inline LayoutText* GetLayoutObject() const;
 
   // mergeNextSiblingNodesIfPossible() merges next sibling nodes if possible
   // then returns a node not merged.
@@ -63,7 +69,7 @@ class CORE_EXPORT Text : public CharacterData {
   void RebuildTextLayoutTree(WhitespaceAttacher&);
   bool TextLayoutObjectIsNeeded(const AttachContext&,
                                 const ComputedStyle&) const;
-  LayoutText* CreateTextLayoutObject(const ComputedStyle&, LegacyLayout);
+  LayoutText* CreateTextLayoutObject();
   void UpdateTextLayoutObject(unsigned offset_of_replaced_data,
                               unsigned length_of_replaced_data);
 
@@ -71,7 +77,6 @@ class CORE_EXPORT Text : public CharacterData {
   void ReattachLayoutTreeIfNeeded(AttachContext&);
 
   bool CanContainRangeEndPoint() const final { return true; }
-  NodeType getNodeType() const override;
 
   void Trace(Visitor*) const override;
 

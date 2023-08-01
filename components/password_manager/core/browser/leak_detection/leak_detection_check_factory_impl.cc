@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -44,17 +44,12 @@ LeakDetectionCheckFactoryImpl::TryCreateLeakCheck(
     signin::IdentityManager* identity_manager,
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     version_info::Channel channel) const {
-  bool has_account_for_request =
-      LeakDetectionCheckImpl::HasAccountForRequest(identity_manager);
-  if (!has_account_for_request &&
-      !base::FeatureList::IsEnabled(features::kLeakDetectionUnauthenticated)) {
-    delegate->OnError(LeakDetectionError::kNotSignIn);
-    return nullptr;
-  }
+  CHECK(identity_manager);
 
   return std::make_unique<LeakDetectionCheckImpl>(
       delegate, identity_manager, std::move(url_loader_factory),
-      GetAPIKey(has_account_for_request, channel));
+      GetAPIKey(LeakDetectionCheckImpl::HasAccountForRequest(identity_manager),
+                channel));
 }
 
 std::unique_ptr<BulkLeakCheck>

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 
 #include <string>
 
-#include "base/cxx17_backports.h"
 #include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -95,6 +94,7 @@ TEST(AutocompleteInputTest, InputType) {
     {u"host#", metrics::OmniboxInputType::UNKNOWN},
     {u"host#ref", metrics::OmniboxInputType::UNKNOWN},
     {u"host# ref", metrics::OmniboxInputType::UNKNOWN},
+    {u"host/page.html", metrics::OmniboxInputType::UNKNOWN},
     {u"host/#ref", metrics::OmniboxInputType::URL},
     {u"host/?#ref", metrics::OmniboxInputType::URL},
     {u"host/?#", metrics::OmniboxInputType::URL},
@@ -122,12 +122,12 @@ TEST(AutocompleteInputTest, InputType) {
     {u"C:\\Program Files", metrics::OmniboxInputType::URL},
     {u"\\\\Server\\Folder\\File", metrics::OmniboxInputType::URL},
 #endif  // BUILDFLAG(IS_WIN)
-#if BUILDFLAG(IS_IOS)
+#if BUILDFLAG(IS_IOS) || BUILDFLAG(IS_ANDROID)
     {u"file:///foo", metrics::OmniboxInputType::QUERY},
     {u"/foo", metrics::OmniboxInputType::QUERY},
 #else
     {u"file:///foo", metrics::OmniboxInputType::URL},
-#endif  // BUILDFLAG(IS_IOS)
+#endif  // BUILDFLAG(IS_IOS) || BUILDFLAG(IS_ANDROID)
     {u"http:foo", metrics::OmniboxInputType::URL},
     {u"http://foo", metrics::OmniboxInputType::URL},
     {u"http://foo._", metrics::OmniboxInputType::UNKNOWN},
@@ -214,9 +214,13 @@ TEST(AutocompleteInputTest, InputType) {
     {u"test..", metrics::OmniboxInputType::UNKNOWN},
     {u"..test", metrics::OmniboxInputType::UNKNOWN},
     {u"test:80/", metrics::OmniboxInputType::URL},
+    {u"foo.local", metrics::OmniboxInputType::URL},
+    {u"foo local", metrics::OmniboxInputType::QUERY},
+    {u"local", metrics::OmniboxInputType::UNKNOWN},
+    {u".local", metrics::OmniboxInputType::UNKNOWN},
   };
 
-  for (size_t i = 0; i < base::size(input_cases); ++i) {
+  for (size_t i = 0; i < std::size(input_cases); ++i) {
     SCOPED_TRACE(input_cases[i].input);
     AutocompleteInput input(input_cases[i].input,
                             metrics::OmniboxEventProto::OTHER,
@@ -256,7 +260,7 @@ TEST(AutocompleteInputTest, InputTypeWithDesiredTLD) {
       {u"foo bar", metrics::OmniboxInputType::QUERY, std::string()},
   };
 
-  for (size_t i = 0; i < base::size(input_cases); ++i) {
+  for (size_t i = 0; i < std::size(input_cases); ++i) {
     SCOPED_TRACE(input_cases[i].input);
     AutocompleteInput input(input_cases[i].input, std::u16string::npos, "com",
                             metrics::OmniboxEventProto::OTHER,
@@ -309,7 +313,7 @@ TEST(AutocompleteInputTest, ParseForEmphasizeComponent) {
       {u"blob:garbage", kInvalidComponent, Component(5, 7)},
   };
 
-  for (size_t i = 0; i < base::size(input_cases); ++i) {
+  for (size_t i = 0; i < std::size(input_cases); ++i) {
     SCOPED_TRACE(input_cases[i].input);
     Component scheme, host;
     AutocompleteInput::ParseForEmphasizeComponents(input_cases[i].input,
@@ -350,7 +354,7 @@ TEST(AutocompleteInputTest, InputTypeWithCursorPosition) {
       {u"  ?  foo bar", 6, u"?  foo bar", 4},
   };
 
-  for (size_t i = 0; i < base::size(input_cases); ++i) {
+  for (size_t i = 0; i < std::size(input_cases); ++i) {
     SCOPED_TRACE(input_cases[i].input);
     AutocompleteInput input(
         input_cases[i].input, input_cases[i].cursor_position,
@@ -421,22 +425,31 @@ TEST(AutocompleteInputTest, UpgradeTypedNavigationsToHttps) {
   // non-zero value for https_port_for_testing.
   int https_port_for_testing = 12345;
   const TestData test_cases_non_default_port[] = {
-      {u"example.com:8080", GURL("https://example.com:12345"), true},
-      // Non-URL inputs shouldn't be upgraded.
-      {u"example query", GURL(), false},
-      // IP addresses shouldn't be upgraded.
-      {u"127.0.0.1", GURL("http://127.0.0.1"), false},
-      {u"127.0.0.1:80", GURL("http://127.0.0.1:80"), false},
-      {u"127.0.0.1:8080", GURL("http://127.0.0.1:8080"), false},
-      // Non-unique hostnames shouldn't be upgraded.
-      {u"site.test", GURL("http://site.test"), false},
-      // // Fully typed URLs shouldn't be upgraded.
-      {u"http://example.com", GURL("http://example.com"), false},
-      {u"HTTP://EXAMPLE.COM", GURL("http://example.com"), false},
-      {u"http://example.com:80", GURL("http://example.com"), false},
-      {u"HTTP://EXAMPLE.COM:80", GURL("http://example.com"), false},
-      {u"http://example.com:8080", GURL("http://example.com:8080"), false},
-      {u"HTTP://EXAMPLE.COM:8080", GURL("http://example.com:8080"), false}};
+    {u"example.com:8080", GURL("https://example.com:12345"), true},
+    // Non-URL inputs shouldn't be upgraded.
+    {u"example query", GURL(), false},
+    // Non-unique hostnames shouldn't be upgraded.
+    {u"site.test", GURL("http://site.test"), false},
+
+#if !BUILDFLAG(IS_IOS)
+    // IP addresses shouldn't be upgraded.
+    {u"127.0.0.1", GURL("http://127.0.0.1"), false},
+    {u"127.0.0.1:80", GURL("http://127.0.0.1:80"), false},
+    {u"127.0.0.1:8080", GURL("http://127.0.0.1:8080"), false},
+#else
+    // On iOS, IP addresses will be upgraded in tests if the hostname has a
+    // non-default port.
+    {u"127.0.0.1:8080", GURL("https://127.0.0.1:12345"), true},
+#endif
+    //
+    // Fully typed URLs shouldn't be upgraded.
+    {u"http://example.com", GURL("http://example.com"), false},
+    {u"HTTP://EXAMPLE.COM", GURL("http://example.com"), false},
+    {u"http://example.com:80", GURL("http://example.com"), false},
+    {u"HTTP://EXAMPLE.COM:80", GURL("http://example.com"), false},
+    {u"http://example.com:8080", GURL("http://example.com:8080"), false},
+    {u"HTTP://EXAMPLE.COM:8080", GURL("http://example.com:8080"), false}
+  };
   for (const TestData& test_case : test_cases_non_default_port) {
     AutocompleteInput input(
         test_case.input, std::u16string::npos,
@@ -446,5 +459,55 @@ TEST(AutocompleteInputTest, UpgradeTypedNavigationsToHttps) {
         << test_case.input;
     EXPECT_EQ(test_case.expected_added_default_scheme_to_typed_url,
               input.added_default_scheme_to_typed_url());
+  }
+
+#if BUILDFLAG(IS_IOS)
+  AutocompleteInput fake_http_input(
+      u"127.0.0.1:8080", std::u16string::npos,
+      metrics::OmniboxEventProto::OTHER, TestSchemeClassifier(),
+      /*should_use_https_as_default_scheme=*/true,
+      /*https_port_for_testing=*/12345,
+      /*use_fake_https_for_https_upgrade_testing=*/true);
+  EXPECT_EQ(GURL("http://127.0.0.1:12345"),
+            fake_http_input.canonicalized_url());
+  EXPECT_TRUE(fake_http_input.added_default_scheme_to_typed_url());
+#endif
+}
+
+TEST(AutocompleteInputTest, TypedURLHadHTTPSchemeTest) {
+  struct TestData {
+    const std::u16string input;
+    bool expected_typed_url_had_http_scheme;
+  };
+
+  const TestData test_cases[] = {
+      {u"example.com", false},
+      {u"example.com:80", false},
+      {u"example.com:8080", false},
+      {u"example query", false},
+      {u"http example query", false},
+      {u"127.0.0.1", false},
+      {u"127.0.0.1:80", false},
+      {u"127.0.0.1:8080", false},
+      {u"http://127.0.0.1:8080", true},
+      {u"https://127.0.0.1:8080", false},
+      {u"dotlesshostname/", false},
+      {u"http://dotlesshostname/", true},
+      {u"https://dotlesshostname/", false},
+      {u"http://example.com", true},
+      {u"HTTP://EXAMPLE.COM", true},
+      {u"http://example.com:80", true},
+      {u"HTTP://EXAMPLE.COM:80", true},
+      {u"http://example.com:8080", true},
+      {u"HTTP://EXAMPLE.COM:8080", true},
+      {u"HTTPS://EXAMPLE.COM", false},
+  };
+  for (const TestData& test_case : test_cases) {
+    AutocompleteInput input(test_case.input, std::u16string::npos,
+                            metrics::OmniboxEventProto::OTHER,
+                            TestSchemeClassifier(),
+                            /*should_use_https_as_default_scheme=*/true);
+    EXPECT_EQ(test_case.expected_typed_url_had_http_scheme,
+              input.typed_url_had_http_scheme());
   }
 }

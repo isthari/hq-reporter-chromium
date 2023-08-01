@@ -1,11 +1,14 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {TestRunner} from 'test_runner';
+import {ElementsTestRunner} from 'elements_test_runner';
+import {AccessibilityTestRunner} from 'accessibility_test_runner';
+
 (async function() {
   TestRunner.addResult(`Tests that autocompletions are computed correctly when editing the ARIA pane.\n`);
-  await TestRunner.loadLegacyModule('elements'); await TestRunner.loadTestModule('elements_test_runner');
-  await TestRunner.loadTestModule('accessibility_test_runner');
+  await TestRunner.loadLegacyModule('elements');
   await TestRunner.showPanel('elements');
   await TestRunner.loadHTML(`
       <span id="inspected" aria-checked="true" role="checkbox"></span>
@@ -53,8 +56,7 @@
     } else {
       selectionRange.selectNodeContents(proxyElement);
     }
-    var range = selectionRange.startContainer.rangeOfWord(
-        selectionRange.startOffset, prompt.completionStopCharacters, proxyElement, 'backward');
+    var range = self.Platform.DOMUtilities.rangeOfWord(selectionRange.startContainer, selectionRange.startOffset, prompt.completionStopCharacters, proxyElement, 'backward');
     var prefix = range.toString();
     prompt.buildPropertyCompletions(inputText.substring(0, inputText.length - prefix.length), prefix, true)
         .then(completions);

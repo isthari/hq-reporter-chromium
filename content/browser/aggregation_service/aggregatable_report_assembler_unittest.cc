@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,8 +14,8 @@
 #include "base/test/bind.h"
 #include "base/test/gmock_callback_support.h"
 #include "base/test/gmock_move_support.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/mock_callback.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "content/browser/aggregation_service/aggregatable_report.h"
 #include "content/browser/aggregation_service/aggregation_service_key_fetcher.h"
@@ -24,8 +24,8 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/blink/public/mojom/private_aggregation/aggregatable_report.mojom.h"
 #include "url/gurl.h"
-#include "url/origin.h"
 
 namespace content {
 
@@ -44,12 +44,15 @@ using AssemblyCallback = AggregatableReportAssembler::AssemblyCallback;
 using PublicKeyFetchStatus = AggregationServiceKeyFetcher::PublicKeyFetchStatus;
 using AssemblyStatus = AggregatableReportAssembler::AssemblyStatus;
 
-auto MoveRequestAndReturnReport(absl::optional<AggregatableReportRequest>* out,
-                                AggregatableReport report) {
+constexpr char kReportAssemblerStatusHistogramName[] =
+    "PrivacySandbox.AggregationService.ReportAssembler.Status";
+
+auto CloneRequestAndReturnReport(absl::optional<AggregatableReportRequest>* out,
+                                 AggregatableReport report) {
   return [out, report = std::move(report)](
-             AggregatableReportRequest report_request,
+             const AggregatableReportRequest& report_request,
              std::vector<PublicKey> public_keys) {
-    *out = std::move(report_request);
+    *out = aggregation_service::CloneReportRequest(report_request);
     return std::move(report);
   };
 }
@@ -62,7 +65,7 @@ class MockAggregationServiceKeyFetcher : public AggregationServiceKeyFetcher {
 
   MOCK_METHOD(void,
               GetPublicKey,
-              (const url::Origin& origin, FetchCallback callback),
+              (const GURL& url, FetchCallback callback),
               (override));
 };
 
@@ -70,7 +73,7 @@ class MockAggregatableReportProvider : public AggregatableReport::Provider {
  public:
   MOCK_METHOD(absl::optional<AggregatableReport>,
               CreateFromRequestAndPublicKeys,
-              (AggregatableReportRequest, std::vector<PublicKey>),
+              (const AggregatableReportRequest&, std::vector<PublicKey>),
               (const, override));
 };
 
@@ -90,7 +93,11 @@ class AggregatableReportAssemblerTest : public testing::Test {
         std::move(fetcher), std::move(report_provider));
   }
 
-  void ResetAssembler() { assembler_.reset(); }
+  void ResetAssembler() {
+    fetcher_ = nullptr;
+    report_provider_ = nullptr;
+    assembler_.reset();
+  }
 
   AggregatableReportAssembler* assembler() { return assembler_.get(); }
   MockAggregationServiceKeyFetcher* fetcher() { return fetcher_; }
@@ -108,221 +115,214 @@ class AggregatableReportAssemblerTest : public testing::Test {
 };
 
 TEST_F(AggregatableReportAssemblerTest, BothKeyFetchesFail_ErrorReturned) {
-  AggregatableReportRequest request =
-      aggregation_service::CreateExampleRequest();
-  std::vector<url::Origin> processing_origins = request.processing_origins();
+  base::HistogramTester histograms;
 
-  EXPECT_CALL(*fetcher(), GetPublicKey(processing_origins[0], _))
+  AggregatableReportRequest request = aggregation_service::CreateExampleRequest(
+      blink::mojom::AggregationServiceMode::kExperimentalPoplar);
+  std::vector<GURL> processing_urls = request.processing_urls();
+
+  EXPECT_CALL(*fetcher(), GetPublicKey(processing_urls[0], _))
       .WillOnce(base::test::RunOnceCallback<1>(
           absl::nullopt, PublicKeyFetchStatus::kPublicKeyFetchFailed));
-  EXPECT_CALL(*fetcher(), GetPublicKey(processing_origins[1], _))
+  EXPECT_CALL(*fetcher(), GetPublicKey(processing_urls[1], _))
       .WillOnce(base::test::RunOnceCallback<1>(
           absl::nullopt, PublicKeyFetchStatus::kPublicKeyFetchFailed));
   EXPECT_CALL(callback(),
-              Run(Eq(absl::nullopt), AssemblyStatus::kPublicKeyFetchFailed));
+              Run(_, Eq(absl::nullopt), AssemblyStatus::kPublicKeyFetchFailed));
 
   EXPECT_CALL(*report_provider(), CreateFromRequestAndPublicKeys(_, _))
       .Times(0);
 
   assembler()->AssembleReport(std::move(request), callback().Get());
+
+  histograms.ExpectUniqueSample(
+      kReportAssemblerStatusHistogramName,
+      AggregatableReportAssembler::AssemblyStatus::kPublicKeyFetchFailed, 1);
 }
 
 TEST_F(AggregatableReportAssemblerTest, FirstKeyFetchFails_ErrorReturned) {
-  AggregatableReportRequest request =
-      aggregation_service::CreateExampleRequest();
-  std::vector<url::Origin> processing_origins = request.processing_origins();
+  base::HistogramTester histograms;
 
-  EXPECT_CALL(*fetcher(), GetPublicKey(processing_origins[0], _))
+  AggregatableReportRequest request = aggregation_service::CreateExampleRequest(
+      blink::mojom::AggregationServiceMode::kExperimentalPoplar);
+  std::vector<GURL> processing_urls = request.processing_urls();
+
+  EXPECT_CALL(*fetcher(), GetPublicKey(processing_urls[0], _))
       .WillOnce(base::test::RunOnceCallback<1>(
           absl::nullopt, PublicKeyFetchStatus::kPublicKeyFetchFailed));
-  EXPECT_CALL(*fetcher(), GetPublicKey(processing_origins[1], _))
+  EXPECT_CALL(*fetcher(), GetPublicKey(processing_urls[1], _))
       .WillOnce(base::test::RunOnceCallback<1>(
           aggregation_service::GenerateKey().public_key,
           PublicKeyFetchStatus::kOk));
   EXPECT_CALL(callback(),
-              Run(Eq(absl::nullopt), AssemblyStatus::kPublicKeyFetchFailed));
+              Run(_, Eq(absl::nullopt), AssemblyStatus::kPublicKeyFetchFailed));
 
   EXPECT_CALL(*report_provider(), CreateFromRequestAndPublicKeys(_, _))
       .Times(0);
 
   assembler()->AssembleReport(std::move(request), callback().Get());
+
+  histograms.ExpectUniqueSample(
+      kReportAssemblerStatusHistogramName,
+      AggregatableReportAssembler::AssemblyStatus::kPublicKeyFetchFailed, 1);
 }
 
 TEST_F(AggregatableReportAssemblerTest, SecondKeyFetchFails_ErrorReturned) {
-  AggregatableReportRequest request =
-      aggregation_service::CreateExampleRequest();
-  std::vector<url::Origin> processing_origins = request.processing_origins();
+  base::HistogramTester histograms;
 
-  EXPECT_CALL(*fetcher(), GetPublicKey(processing_origins[0], _))
+  AggregatableReportRequest request = aggregation_service::CreateExampleRequest(
+      blink::mojom::AggregationServiceMode::kExperimentalPoplar);
+  std::vector<GURL> processing_urls = request.processing_urls();
+
+  EXPECT_CALL(*fetcher(), GetPublicKey(processing_urls[0], _))
       .WillOnce(base::test::RunOnceCallback<1>(
           aggregation_service::GenerateKey().public_key,
           PublicKeyFetchStatus::kOk));
-  EXPECT_CALL(*fetcher(), GetPublicKey(processing_origins[1], _))
+  EXPECT_CALL(*fetcher(), GetPublicKey(processing_urls[1], _))
       .WillOnce(base::test::RunOnceCallback<1>(
           absl::nullopt, PublicKeyFetchStatus::kPublicKeyFetchFailed));
   EXPECT_CALL(callback(),
-              Run(Eq(absl::nullopt), AssemblyStatus::kPublicKeyFetchFailed));
+              Run(_, Eq(absl::nullopt), AssemblyStatus::kPublicKeyFetchFailed));
 
   EXPECT_CALL(*report_provider(), CreateFromRequestAndPublicKeys(_, _))
       .Times(0);
 
   assembler()->AssembleReport(std::move(request), callback().Get());
+
+  histograms.ExpectUniqueSample(
+      kReportAssemblerStatusHistogramName,
+      AggregatableReportAssembler::AssemblyStatus::kPublicKeyFetchFailed, 1);
 }
 
 TEST_F(AggregatableReportAssemblerTest,
        BothKeyFetchesSucceed_ValidReportReturned) {
-  AggregatableReportRequest request =
-      aggregation_service::CreateExampleRequest();
+  base::HistogramTester histograms;
 
-  std::vector<url::Origin> processing_origins = request.processing_origins();
+  AggregatableReportRequest request = aggregation_service::CreateExampleRequest(
+      blink::mojom::AggregationServiceMode::kExperimentalPoplar);
+
+  std::vector<GURL> processing_urls = request.processing_urls();
   std::vector<PublicKey> public_keys = {
       aggregation_service::GenerateKey("id123").public_key,
       aggregation_service::GenerateKey("456abc").public_key};
 
   absl::optional<AggregatableReport> report =
       AggregatableReport::Provider().CreateFromRequestAndPublicKeys(
-          aggregation_service::CloneReportRequest(request), public_keys);
+          request, public_keys);
   ASSERT_TRUE(report.has_value());
 
-  EXPECT_CALL(*fetcher(), GetPublicKey(processing_origins[0], _))
+  EXPECT_CALL(*fetcher(), GetPublicKey(processing_urls[0], _))
       .WillOnce(base::test::RunOnceCallback<1>(public_keys[0],
                                                PublicKeyFetchStatus::kOk));
-  EXPECT_CALL(*fetcher(), GetPublicKey(processing_origins[1], _))
+  EXPECT_CALL(*fetcher(), GetPublicKey(processing_urls[1], _))
       .WillOnce(base::test::RunOnceCallback<1>(public_keys[1],
                                                PublicKeyFetchStatus::kOk));
-  EXPECT_CALL(callback(), Run(report, AssemblyStatus::kOk));
+  EXPECT_CALL(callback(), Run(_, report, AssemblyStatus::kOk));
 
   absl::optional<AggregatableReportRequest> actual_request;
   EXPECT_CALL(*report_provider(),
               CreateFromRequestAndPublicKeys(_, public_keys))
-      .WillOnce(MoveRequestAndReturnReport(&actual_request,
-                                           std::move(report.value())));
+      .WillOnce(CloneRequestAndReturnReport(&actual_request,
+                                            std::move(report.value())));
 
   assembler()->AssembleReport(aggregation_service::CloneReportRequest(request),
                               callback().Get());
   ASSERT_TRUE(actual_request.has_value());
   EXPECT_TRUE(aggregation_service::ReportRequestsEqual(actual_request.value(),
                                                        request));
+
+  histograms.ExpectUniqueSample(
+      kReportAssemblerStatusHistogramName,
+      AggregatableReportAssembler::AssemblyStatus::kOk, 1);
 }
 
 TEST_F(AggregatableReportAssemblerTest,
-       SingleServerTwoProcessingOrigins_ValidReportReturned) {
-  AggregatableReportRequest request = aggregation_service::CreateExampleRequest(
-      AggregationServicePayloadContents::ProcessingType::kSingleServer);
-
-  std::vector<url::Origin> processing_origins = request.processing_origins();
-  std::vector<PublicKey> public_keys = {
-      aggregation_service::GenerateKey("id123").public_key,
-      aggregation_service::GenerateKey("456abc").public_key};
-
-  absl::optional<AggregatableReport> report =
-      AggregatableReport::Provider().CreateFromRequestAndPublicKeys(
-          aggregation_service::CloneReportRequest(request), public_keys);
-  ASSERT_TRUE(report.has_value());
-
-  EXPECT_CALL(*fetcher(), GetPublicKey(processing_origins[0], _))
-      .WillOnce(base::test::RunOnceCallback<1>(public_keys[0],
-                                               PublicKeyFetchStatus::kOk));
-  EXPECT_CALL(*fetcher(), GetPublicKey(processing_origins[1], _))
-      .WillOnce(base::test::RunOnceCallback<1>(public_keys[1],
-                                               PublicKeyFetchStatus::kOk));
-  EXPECT_CALL(callback(), Run(report, AssemblyStatus::kOk));
-
-  absl::optional<AggregatableReportRequest> actual_request;
-  EXPECT_CALL(*report_provider(),
-              CreateFromRequestAndPublicKeys(_, public_keys))
-      .WillOnce(MoveRequestAndReturnReport(&actual_request,
-                                           std::move(report.value())));
-
-  assembler()->AssembleReport(aggregation_service::CloneReportRequest(request),
-                              callback().Get());
-  ASSERT_TRUE(actual_request.has_value());
-  EXPECT_TRUE(aggregation_service::ReportRequestsEqual(actual_request.value(),
-                                                       request));
-}
-
-TEST_F(AggregatableReportAssemblerTest,
-       SingleServerOneProcessingOrigin_ValidReportReturned) {
-  url::Origin processing_origin =
-      aggregation_service::GetExampleProcessingOrigins()[0];
+       OnlyKeyFetchSucceeds_ValidReportReturned) {
+  base::HistogramTester histograms;
 
   AggregatableReportRequest request = aggregation_service::CreateExampleRequest(
-      AggregationServicePayloadContents::ProcessingType::kSingleServer,
-      {processing_origin});
+      blink::mojom::AggregationServiceMode::kTeeBased);
 
   PublicKey public_key = aggregation_service::GenerateKey("id123").public_key;
 
   absl::optional<AggregatableReport> report =
       AggregatableReport::Provider().CreateFromRequestAndPublicKeys(
-          aggregation_service::CloneReportRequest(request), {public_key});
+          request, {public_key});
   ASSERT_TRUE(report.has_value());
 
-  EXPECT_CALL(*fetcher(), GetPublicKey(processing_origin, _))
+  EXPECT_CALL(*fetcher(), GetPublicKey)
       .WillOnce(base::test::RunOnceCallback<1>(public_key,
                                                PublicKeyFetchStatus::kOk));
-  EXPECT_CALL(callback(), Run(report, AssemblyStatus::kOk));
+  EXPECT_CALL(callback(), Run(_, report, AssemblyStatus::kOk));
 
   absl::optional<AggregatableReportRequest> actual_request;
   EXPECT_CALL(*report_provider(), CreateFromRequestAndPublicKeys(
                                       _, std::vector<PublicKey>{public_key}))
-      .WillOnce(MoveRequestAndReturnReport(&actual_request,
-                                           std::move(report.value())));
+      .WillOnce(CloneRequestAndReturnReport(&actual_request,
+                                            std::move(report.value())));
 
   assembler()->AssembleReport(aggregation_service::CloneReportRequest(request),
                               callback().Get());
   ASSERT_TRUE(actual_request.has_value());
   EXPECT_TRUE(aggregation_service::ReportRequestsEqual(actual_request.value(),
                                                        request));
+
+  histograms.ExpectUniqueSample(
+      kReportAssemblerStatusHistogramName,
+      AggregatableReportAssembler::AssemblyStatus::kOk, 1);
 }
 
-TEST_F(AggregatableReportAssemblerTest,
-       SingleServerOneProcessingOriginKeyFetchFails_ErrorReturned) {
-  url::Origin processing_origin =
-      aggregation_service::GetExampleProcessingOrigins()[0];
+TEST_F(AggregatableReportAssemblerTest, OnlyKeyFetchFails_ErrorReturned) {
+  base::HistogramTester histograms;
 
   AggregatableReportRequest request = aggregation_service::CreateExampleRequest(
-      AggregationServicePayloadContents::ProcessingType::kSingleServer,
-      {processing_origin});
+      blink::mojom::AggregationServiceMode::kTeeBased);
 
-  EXPECT_CALL(*fetcher(), GetPublicKey(processing_origin, _))
+  EXPECT_CALL(*fetcher(), GetPublicKey)
       .WillOnce(base::test::RunOnceCallback<1>(
           absl::nullopt, PublicKeyFetchStatus::kPublicKeyFetchFailed));
   EXPECT_CALL(callback(),
-              Run(Eq(absl::nullopt), AssemblyStatus::kPublicKeyFetchFailed));
+              Run(_, Eq(absl::nullopt), AssemblyStatus::kPublicKeyFetchFailed));
 
   EXPECT_CALL(*report_provider(), CreateFromRequestAndPublicKeys(_, _))
       .Times(0);
 
   assembler()->AssembleReport(std::move(request), callback().Get());
+
+  histograms.ExpectUniqueSample(
+      kReportAssemblerStatusHistogramName,
+      AggregatableReportAssembler::AssemblyStatus::kPublicKeyFetchFailed, 1);
 }
 
 TEST_F(AggregatableReportAssemblerTest,
-       KeyFetchesReturnInSwappedOrder_ValidReportReturned) {
-  AggregatableReportRequest request =
-      aggregation_service::CreateExampleRequest();
+       TwoKeyFetchesReturnInSwappedOrder_ValidReportReturned) {
+  base::HistogramTester histograms;
 
-  std::vector<url::Origin> processing_origins = request.processing_origins();
+  AggregatableReportRequest request = aggregation_service::CreateExampleRequest(
+      blink::mojom::AggregationServiceMode::kExperimentalPoplar);
+
+  std::vector<GURL> processing_urls = request.processing_urls();
   std::vector<PublicKey> public_keys = {
       aggregation_service::GenerateKey("id123").public_key,
       aggregation_service::GenerateKey("456abc").public_key};
 
   absl::optional<AggregatableReport> report =
       AggregatableReport::Provider().CreateFromRequestAndPublicKeys(
-          aggregation_service::CloneReportRequest(request), public_keys);
+          request, public_keys);
   ASSERT_TRUE(report.has_value());
 
   std::vector<FetchCallback> pending_callbacks(2);
-  EXPECT_CALL(*fetcher(), GetPublicKey(processing_origins[0], _))
+  EXPECT_CALL(*fetcher(), GetPublicKey(processing_urls[0], _))
       .WillOnce(MoveArg<1>(&pending_callbacks.front()));
-  EXPECT_CALL(*fetcher(), GetPublicKey(processing_origins[1], _))
+  EXPECT_CALL(*fetcher(), GetPublicKey(processing_urls[1], _))
       .WillOnce(MoveArg<1>(&pending_callbacks.back()));
-  EXPECT_CALL(callback(), Run(report, AssemblyStatus::kOk));
+  EXPECT_CALL(callback(), Run(_, report, AssemblyStatus::kOk));
 
   absl::optional<AggregatableReportRequest> actual_request;
   EXPECT_CALL(*report_provider(),
               CreateFromRequestAndPublicKeys(_, public_keys))
-      .WillOnce(MoveRequestAndReturnReport(&actual_request,
-                                           std::move(report.value())));
+      .WillOnce(CloneRequestAndReturnReport(&actual_request,
+                                            std::move(report.value())));
 
   assembler()->AssembleReport(aggregation_service::CloneReportRequest(request),
                               callback().Get());
@@ -332,107 +332,68 @@ TEST_F(AggregatableReportAssemblerTest,
       .Run(public_keys[1], PublicKeyFetchStatus::kOk);
   std::move(pending_callbacks.front())
       .Run(public_keys[0], PublicKeyFetchStatus::kOk);
-}
 
-TEST_F(AggregatableReportAssemblerTest,
-       BothProcessingOriginsAreIdentical_ValidReportReturned) {
-  url::Origin processing_origin =
-      aggregation_service::GetExampleProcessingOrigins()[0];
-
-  // Set second processing origin to match the first and create a new request.
-  AggregatableReportRequest request = aggregation_service::CreateExampleRequest(
-      AggregationServicePayloadContents::ProcessingType::kTwoParty,
-      {processing_origin, processing_origin});
-
-  PublicKey public_key = aggregation_service::GenerateKey("id123").public_key;
-
-  absl::optional<AggregatableReport> report =
-      AggregatableReport::Provider().CreateFromRequestAndPublicKeys(
-          aggregation_service::CloneReportRequest(request),
-          /*public_keys=*/{public_key, public_key});
-  ASSERT_TRUE(report.has_value());
-
-  EXPECT_CALL(*fetcher(), GetPublicKey(processing_origin, _))
-      .WillRepeatedly(base::test::RunOnceCallback<1>(
-          public_key, PublicKeyFetchStatus::kOk));
-  EXPECT_CALL(callback(), Run(report, AssemblyStatus::kOk));
-
-  absl::optional<AggregatableReportRequest> actual_request;
-  EXPECT_CALL(*report_provider(),
-              CreateFromRequestAndPublicKeys(
-                  _, std::vector<PublicKey>{public_key, public_key}))
-      .WillOnce(MoveRequestAndReturnReport(&actual_request,
-                                           std::move(report.value())));
-
-  assembler()->AssembleReport(aggregation_service::CloneReportRequest(request),
-                              callback().Get());
-
-  ASSERT_TRUE(actual_request.has_value());
-  EXPECT_TRUE(aggregation_service::ReportRequestsEqual(actual_request.value(),
-                                                       request));
+  histograms.ExpectUniqueSample(
+      kReportAssemblerStatusHistogramName,
+      AggregatableReportAssembler::AssemblyStatus::kOk, 1);
 }
 
 TEST_F(AggregatableReportAssemblerTest,
        AssemblerDeleted_PendingRequestsNotRun) {
+  base::HistogramTester histograms;
+
   AggregatableReportRequest request =
       aggregation_service::CreateExampleRequest();
-  std::vector<url::Origin> processing_origins = request.processing_origins();
+  std::vector<GURL> processing_urls = request.processing_urls();
 
   EXPECT_CALL(callback(), Run).Times(0);
+  EXPECT_CALL(*fetcher(), GetPublicKey);
   assembler()->AssembleReport(std::move(request), callback().Get());
 
   ResetAssembler();
+
+  histograms.ExpectTotalCount(kReportAssemblerStatusHistogramName, 0);
 }
 
 TEST_F(AggregatableReportAssemblerTest,
        MultipleSimultaneousRequests_BothSucceed) {
+  base::HistogramTester histograms;
+
   AggregatableReportRequest request =
       aggregation_service::CreateExampleRequest();
 
-  std::vector<url::Origin> processing_origins = request.processing_origins();
-  std::vector<PublicKey> public_keys = {
-      aggregation_service::GenerateKey("id123").public_key,
-      aggregation_service::GenerateKey("456abc").public_key};
+  std::vector<GURL> processing_urls = request.processing_urls();
+  PublicKey public_key = aggregation_service::GenerateKey("id123").public_key;
 
   absl::optional<AggregatableReport> report =
       AggregatableReport::Provider().CreateFromRequestAndPublicKeys(
-          aggregation_service::CloneReportRequest(request), public_keys);
+          request, {public_key});
   ASSERT_TRUE(report.has_value());
 
-  std::vector<FetchCallback> pending_callbacks_1(2);
-  EXPECT_CALL(*fetcher(), GetPublicKey(processing_origins[0], _))
-      .WillOnce(MoveArg<1>(&pending_callbacks_1.front()))
-      .WillOnce(MoveArg<1>(&pending_callbacks_1.back()));
+  std::vector<FetchCallback> pending_callbacks(2);
+  EXPECT_CALL(*fetcher(), GetPublicKey(processing_urls[0], _))
+      .WillOnce(MoveArg<1>(&pending_callbacks.front()))
+      .WillOnce(MoveArg<1>(&pending_callbacks.back()));
 
-  std::vector<FetchCallback> pending_callbacks_2(2);
-  EXPECT_CALL(*fetcher(), GetPublicKey(processing_origins[1], _))
-      .WillOnce(MoveArg<1>(&pending_callbacks_2.front()))
-      .WillOnce(MoveArg<1>(&pending_callbacks_2.back()));
-
-  EXPECT_CALL(callback(), Run(report, AssemblyStatus::kOk)).Times(2);
+  EXPECT_CALL(callback(), Run(_, report, AssemblyStatus::kOk)).Times(2);
 
   absl::optional<AggregatableReportRequest> first_request;
   absl::optional<AggregatableReportRequest> second_request;
-  EXPECT_CALL(*report_provider(),
-              CreateFromRequestAndPublicKeys(_, public_keys))
-      .WillOnce(MoveRequestAndReturnReport(&first_request, report.value()))
-      .WillOnce(MoveRequestAndReturnReport(&second_request,
-                                           std::move(report.value())));
+  EXPECT_CALL(*report_provider(), CreateFromRequestAndPublicKeys(
+                                      _, std::vector<PublicKey>{public_key}))
+      .WillOnce(CloneRequestAndReturnReport(&first_request, report.value()))
+      .WillOnce(CloneRequestAndReturnReport(&second_request,
+                                            std::move(report.value())));
 
   assembler()->AssembleReport(aggregation_service::CloneReportRequest(request),
                               callback().Get());
   assembler()->AssembleReport(aggregation_service::CloneReportRequest(request),
                               callback().Get());
 
-  std::move(pending_callbacks_1.front())
-      .Run(public_keys[0], PublicKeyFetchStatus::kOk);
-  std::move(pending_callbacks_1.back())
-      .Run(public_keys[0], PublicKeyFetchStatus::kOk);
-
-  std::move(pending_callbacks_2.front())
-      .Run(public_keys[1], PublicKeyFetchStatus::kOk);
-  std::move(pending_callbacks_2.back())
-      .Run(public_keys[1], PublicKeyFetchStatus::kOk);
+  std::move(pending_callbacks.front())
+      .Run(public_key, PublicKeyFetchStatus::kOk);
+  std::move(pending_callbacks.back())
+      .Run(public_key, PublicKeyFetchStatus::kOk);
 
   ASSERT_TRUE(first_request.has_value());
   EXPECT_TRUE(
@@ -440,16 +401,20 @@ TEST_F(AggregatableReportAssemblerTest,
   ASSERT_TRUE(second_request.has_value());
   EXPECT_TRUE(aggregation_service::ReportRequestsEqual(second_request.value(),
                                                        request));
+
+  histograms.ExpectUniqueSample(
+      kReportAssemblerStatusHistogramName,
+      AggregatableReportAssembler::AssemblyStatus::kOk, 2);
 }
 
 TEST_F(AggregatableReportAssemblerTest,
        TooManySimultaneousRequests_ErrorCausedForNewRequests) {
-  std::vector<PublicKey> public_keys = {
-      aggregation_service::GenerateKey("id123").public_key,
-      aggregation_service::GenerateKey("456abc").public_key};
+  base::HistogramTester histograms;
+
+  PublicKey public_key = aggregation_service::GenerateKey("id123").public_key;
   absl::optional<AggregatableReport> report =
       AggregatableReport::Provider().CreateFromRequestAndPublicKeys(
-          aggregation_service::CreateExampleRequest(), std::move(public_keys));
+          aggregation_service::CreateExampleRequest(), {std::move(public_key)});
   ASSERT_TRUE(report.has_value());
 
   std::vector<FetchCallback> pending_callbacks;
@@ -462,17 +427,16 @@ TEST_F(AggregatableReportAssemblerTest,
     int current_check = 1;
 
     EXPECT_CALL(*fetcher(), GetPublicKey)
-        .Times(2 * AggregatableReportAssembler::kMaxSimultaneousRequests)
-        .WillRepeatedly(
-            Invoke([&](const url::Origin& origin, FetchCallback callback) {
-              pending_callbacks.push_back(std::move(callback));
-            }));
+        .Times(AggregatableReportAssembler::kMaxSimultaneousRequests)
+        .WillRepeatedly(Invoke([&](const GURL& url, FetchCallback callback) {
+          pending_callbacks.push_back(std::move(callback));
+        }));
 
-    EXPECT_CALL(callback(), Run(_, _)).Times(0);
+    EXPECT_CALL(callback(), Run).Times(0);
 
     EXPECT_CALL(checkpoint, Call(current_check++));
 
-    EXPECT_CALL(callback(), Run(Eq(absl::nullopt),
+    EXPECT_CALL(callback(), Run(_, Eq(absl::nullopt),
                                 AssemblyStatus::kTooManySimultaneousRequests))
         .Times(1);
 
@@ -483,7 +447,7 @@ TEST_F(AggregatableReportAssemblerTest,
       EXPECT_CALL(checkpoint, Call(current_check++));
       EXPECT_CALL(*report_provider(), CreateFromRequestAndPublicKeys)
           .WillOnce(Return(report));
-      EXPECT_CALL(callback(), Run(report, AssemblyStatus::kOk));
+      EXPECT_CALL(callback(), Run(_, report, AssemblyStatus::kOk));
     }
   }
 
@@ -500,15 +464,22 @@ TEST_F(AggregatableReportAssemblerTest,
 
   checkpoint.Call(current_call++);
 
-  for (size_t i = 0; i < pending_callbacks.size(); ++i) {
-    // Every request has 2 pending fetch callbacks.
-    if (i % 2 == 0)
-      checkpoint.Call(current_call++);
+  for (FetchCallback& pending_callback : pending_callbacks) {
+    checkpoint.Call(current_call++);
 
-    std::move(pending_callbacks[i])
+    std::move(pending_callback)
         .Run(aggregation_service::GenerateKey("id123").public_key,
              PublicKeyFetchStatus::kOk);
   }
+
+  histograms.ExpectBucketCount(
+      kReportAssemblerStatusHistogramName,
+      AggregatableReportAssembler::AssemblyStatus::kOk,
+      AggregatableReportAssembler::kMaxSimultaneousRequests);
+  histograms.ExpectBucketCount(
+      kReportAssemblerStatusHistogramName,
+      AggregatableReportAssembler::AssemblyStatus::kTooManySimultaneousRequests,
+      1);
 }
 
 }  // namespace content

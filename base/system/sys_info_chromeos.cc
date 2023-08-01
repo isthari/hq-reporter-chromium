@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,16 +8,12 @@
 #include <stdint.h>
 #include <sys/utsname.h>
 
-#include "base/callback.h"
-#include "base/command_line.h"
-#include "base/cxx17_backports.h"
 #include "base/environment.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/no_destructor.h"
 #include "base/notreached.h"
-#include "base/process/launch.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
@@ -27,6 +23,9 @@
 #include "base/threading/thread_restrictions.h"
 
 namespace base {
+
+const char kLsbReleaseKey[] = "LSB_RELEASE";
+const char kLsbReleaseTimeKey[] = "LSB_RELEASE_TIME";  // Seconds since epoch
 
 namespace {
 
@@ -42,16 +41,11 @@ const char* const kChromeOsReleaseNames[] = {
 
 const char kLinuxStandardBaseReleaseFile[] = "/etc/lsb-release";
 
-const char kLsbReleaseKey[] = "LSB_RELEASE";
-const char kLsbReleaseTimeKey[] = "LSB_RELEASE_TIME";  // Seconds since epoch
-
 const char kLsbReleaseSourceKey[] = "lsb-release";
 const char kLsbReleaseSourceEnv[] = "env";
 const char kLsbReleaseSourceFile[] = "file";
 
-const char kSpacedCliPath[] = "/usr/sbin/spaced_cli";
-const char kSpacedGetFreeDiskSpaceAction[] = "get_free_disk_space";
-const char kSpacedGetTotalDiskSpaceAction[] = "get_total_disk_space";
+}  // namespace
 
 class ChromeOSVersionInfo {
  public:
@@ -69,7 +63,7 @@ class ChromeOSVersionInfo {
       // If the LSB_RELEASE and LSB_RELEASE_TIME environment variables are not
       // set, fall back to a blocking read of the lsb_release file. This should
       // only happen in non Chrome OS environments.
-      ThreadRestrictions::ScopedAllowIO allow_io;
+      ScopedAllowBlocking allow_blocking;
       FilePath path(kLinuxStandardBaseReleaseFile);
       ReadFileToString(path, &lsb_release);
       File::Info fileinfo;
@@ -124,7 +118,7 @@ class ChromeOSVersionInfo {
     }
     // Parse the version from the first matching recognized version key.
     std::string version;
-    for (size_t i = 0; i < base::size(kLinuxStandardBaseVersionKeys); ++i) {
+    for (size_t i = 0; i < std::size(kLinuxStandardBaseVersionKeys); ++i) {
       std::string key = kLinuxStandardBaseVersionKeys[i];
       if (GetLsbReleaseValue(key, &version) && !version.empty())
         break;
@@ -143,7 +137,7 @@ class ChromeOSVersionInfo {
     // Check release name for Chrome OS.
     std::string release_name;
     if (GetLsbReleaseValue(kChromeOsReleaseNameKey, &release_name)) {
-      for (size_t i = 0; i < base::size(kChromeOsReleaseNames); ++i) {
+      for (size_t i = 0; i < std::size(kChromeOsReleaseNames); ++i) {
         if (release_name == kChromeOsReleaseNames[i]) {
           is_running_on_chromeos_ = true;
           break;
@@ -174,30 +168,6 @@ ChromeOSVersionInfo& GetChromeOSVersionInfo() {
   static base::NoDestructor<ChromeOSVersionInfo> version_info;
   return *version_info;
 }
-
-SysInfo::GetAppOutputCallback* g_chromeos_get_app_output_for_test = nullptr;
-
-int64_t GetInfoFromSpaced(StringPiece action, const base::FilePath& path) {
-  CommandLine command((base::FilePath(kSpacedCliPath)));
-  command.AppendSwitchPath(action, path);
-
-  std::string output;
-  bool ret;
-  if (g_chromeos_get_app_output_for_test) {
-    ret = g_chromeos_get_app_output_for_test->Run(command, &output);
-  } else {
-    ret = GetAppOutput(command, &output);
-  }
-
-  int64_t result;
-  if (!ret || !StringToInt64(output, &result) || result < 0) {
-    return -1;
-  }
-
-  return result;
-}
-
-}  // namespace
 
 // static
 std::string SysInfo::HardwareModelName() {
@@ -278,11 +248,6 @@ void SysInfo::ResetChromeOSVersionInfoForTest() {
 }
 
 // static
-void SysInfo::SetChromeOSGetAppOutputForTest(GetAppOutputCallback* callback) {
-  g_chromeos_get_app_output_for_test = callback;
-}
-
-// static
 void SysInfo::CrashIfChromeOSNonTestImage() {
   if (!IsRunningOnChromeOS())
     return;
@@ -299,14 +264,25 @@ void SysInfo::CrashIfChromeOSNonTestImage() {
   CHECK_NE(track.find(kTestImageRelease), std::string::npos);
 }
 
-// static
-int64_t SysInfo::GetFreeDiskSpaceFromSpaced(const base::FilePath& path) {
-  return GetInfoFromSpaced(kSpacedGetFreeDiskSpaceAction, path);
-}
-
-// static
-int64_t SysInfo::GetTotalDiskSpaceFromSpaced(const base::FilePath& path) {
-  return GetInfoFromSpaced(kSpacedGetTotalDiskSpaceAction, path);
+SysInfo::HardwareInfo SysInfo::GetHardwareInfoSync() {
+  HardwareInfo info;
+  // Manufacturer of ChromeOS device is always Google so hardcode it.
+  info.manufacturer = "Google";
+  if (IsRunningOnChromeOS()) {
+    // Read the model name from cros-configfs.
+    constexpr char kModelNamePath[] = "/run/chromeos-config/v1/name";
+    constexpr size_t kMaxStringSize = 100u;
+    std::string data;
+    if (ReadFileToStringWithMaxSize(FilePath(kModelNamePath), &data,
+                                    kMaxStringSize)) {
+      TrimWhitespaceASCII(data, TrimPositions::TRIM_ALL, &info.model);
+    }
+    DCHECK(IsStringUTF8(info.model));
+  } else {
+    // Fake model name on chromeos linux-emulator (for both linux/ash).
+    info.model = "linux-emulator";
+  }
+  return info;
 }
 
 }  // namespace base

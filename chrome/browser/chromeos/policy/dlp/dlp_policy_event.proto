@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,6 +21,7 @@ message DlpPolicyEventDestination {
     PLUGIN_VM = 3;
     USB = 4;
     DRIVE = 5;
+    ONEDRIVE = 6;
   }
 
   // Either |url| or |component| should be set.
@@ -37,6 +38,7 @@ message DlpPolicyEvent {
     SCREENCAST = 3;
     PRINTING = 4;
     EPRIVACY = 5;
+    FILES = 6;
   }
   // The mode of the applied restriction.
   enum Mode {
@@ -67,4 +69,10 @@ message DlpPolicyEvent {
   optional bool restriction_enforced = 5;
   optional int64 timestamp_micro = 6;
   optional UserType user_type = 7;
+  // Currently used for the filename involved in a file event.
+  optional string content_name = 8;
+  // Server side name of the triggered rule.
+  optional string triggered_rule_name = 9;
+  // Obfuscated rule id of the triggered rule.
+  optional string triggered_rule_id = 10;
 }

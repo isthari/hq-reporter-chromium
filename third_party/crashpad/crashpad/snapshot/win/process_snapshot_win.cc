@@ -1,4 +1,4 @@
-// Copyright 2015 The Crashpad Authors. All rights reserved.
+// Copyright 2015 The Crashpad Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,9 +18,9 @@
 #include <wchar.h>
 
 #include <algorithm>
+#include <iterator>
 #include <utility>
 
-#include "base/cxx17_backports.h"
 #include "base/logging.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -45,8 +45,7 @@ ProcessSnapshotWin::ProcessSnapshotWin()
       annotations_simple_map_(),
       snapshot_time_(),
       options_(),
-      initialized_() {
-}
+      initialized_() {}
 
 ProcessSnapshotWin::~ProcessSnapshotWin() {
 }
@@ -332,7 +331,7 @@ void ProcessSnapshotWin::InitializeUnloadedModules() {
           uet.TimeDateStamp,
           base::WideToUTF8(base::WStringPiece(
               uet.ImageName,
-              wcsnlen(uet.ImageName, base::size(uet.ImageName))))));
+              wcsnlen(uet.ImageName, std::size(uet.ImageName))))));
     }
   }
 }
@@ -532,9 +531,9 @@ WinVMSize ProcessSnapshotWin::DetermineSizeOfEnvironmentBlock(
   env_block.resize(
       static_cast<unsigned int>(bytes_read / sizeof(env_block[0])));
   static constexpr wchar_t terminator[] = {0, 0};
-  size_t at = env_block.find(std::wstring(terminator, base::size(terminator)));
+  size_t at = env_block.find(std::wstring(terminator, std::size(terminator)));
   if (at != std::wstring::npos)
-    env_block.resize(at + base::size(terminator));
+    env_block.resize(at + std::size(terminator));
 
   return env_block.size() * sizeof(env_block[0]);
 }

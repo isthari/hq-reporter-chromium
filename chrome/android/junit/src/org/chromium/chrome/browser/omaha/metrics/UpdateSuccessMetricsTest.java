@@ -1,14 +1,13 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.omaha.metrics;
 
-import static org.mockito.Mockito.any;
-import static org.mockito.Mockito.argThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -31,7 +30,7 @@ import org.robolectric.annotation.Config;
 
 import org.chromium.base.Promise;
 import org.chromium.base.metrics.RecordHistogram;
-import org.chromium.base.metrics.test.ShadowRecordHistogram;
+import org.chromium.base.metrics.UmaRecorderHolder;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.chrome.browser.omaha.metrics.UpdateProtos.Tracking;
 import org.chromium.chrome.browser.omaha.metrics.UpdateProtos.Tracking.Source;
@@ -41,7 +40,7 @@ import org.chromium.components.version_info.VersionConstants;
 
 /** Tests the API surface of UpdateSuccessMetrics. */
 @RunWith(BaseRobolectricTestRunner.class)
-@Config(manifest = Config.NONE, shadows = {ShadowRecordHistogram.class})
+@Config(manifest = Config.NONE)
 public class UpdateSuccessMetricsTest {
     private static final int FAILED = 0;
     private static final int SUCCESS = 1;
@@ -68,7 +67,7 @@ public class UpdateSuccessMetricsTest {
 
     @After
     public void tearDown() {
-        ShadowRecordHistogram.reset();
+        UmaRecorderHolder.resetForTesting();
     }
 
     /** Tests that StartTracking properly persists the right tracking information. */
@@ -120,129 +119,6 @@ public class UpdateSuccessMetricsTest {
         verify(mProvider, never()).put(any());
     }
 
-    /** Tests recording a session success. */
-    @Test
-    public void testRecordSessionSuccess() {
-        when(mProvider.get())
-                .thenReturn(Promise.fulfilled(
-                        buildProto(System.currentTimeMillis(), NOT_CURRENT_VERSION, false)));
-        mMetrics.analyzeFirstStatus();
-
-        Shadows.shadowOf(Looper.myLooper()).runToEndOfTasks();
-        verify(mProvider, times(1)).clear();
-        verify(mProvider, never()).put(any());
-        Assert.assertEquals(1,
-                RecordHistogram.getHistogramValueCountForTesting(
-                        "GoogleUpdate.Result.Session.Intent.Menu", SUCCESS));
-        Assert.assertEquals(1,
-                RecordHistogram.getHistogramValueCountForTesting(
-                        "GoogleUpdate.Result.TimeWindow.Intent.Menu", SUCCESS));
-    }
-
-    /** Tests recording a session failure. */
-    @Test
-    public void testRecordSessionFailure() {
-        when(mProvider.get())
-                .thenReturn(Promise.fulfilled(buildProto(
-                        System.currentTimeMillis(), VersionConstants.PRODUCT_VERSION, false)));
-        mMetrics.analyzeFirstStatus();
-
-        Shadows.shadowOf(Looper.myLooper()).runToEndOfTasks();
-        verify(mProvider, never()).clear();
-        verify(mProvider, times(1))
-                .put(argThat(new TrackingMatcher(
-                        VersionConstants.PRODUCT_VERSION, Type.INTENT, Source.FROM_MENU, true)));
-        Assert.assertEquals(1,
-                RecordHistogram.getHistogramValueCountForTesting(
-                        "GoogleUpdate.Result.Session.Intent.Menu", FAILED));
-        Assert.assertEquals(0,
-                RecordHistogram.getHistogramValueCountForTesting(
-                        "GoogleUpdate.Result.TimeWindow.Intent.Menu", FAILED));
-        Assert.assertEquals(0,
-                RecordHistogram.getHistogramValueCountForTesting(
-                        "GoogleUpdate.Result.TimeWindow.Intent.Menu", SUCCESS));
-    }
-
-    /** Tests recording a time window success. */
-    @Test
-    public void testRecordTimeWindowSuccess() {
-        when(mProvider.get())
-                .thenReturn(Promise.fulfilled(buildProto(1, NOT_CURRENT_VERSION, false)));
-        mMetrics.analyzeFirstStatus();
-
-        Shadows.shadowOf(Looper.myLooper()).runToEndOfTasks();
-        verify(mProvider, times(1)).clear();
-        verify(mProvider, never()).put(any());
-        Assert.assertEquals(1,
-                RecordHistogram.getHistogramValueCountForTesting(
-                        "GoogleUpdate.Result.Session.Intent.Menu", SUCCESS));
-        Assert.assertEquals(1,
-                RecordHistogram.getHistogramValueCountForTesting(
-                        "GoogleUpdate.Result.TimeWindow.Intent.Menu", SUCCESS));
-    }
-
-    /** Tests recording a time window failure. */
-    @Test
-    public void testRecordTimeWindowFailure() {
-        when(mProvider.get())
-                .thenReturn(
-                        Promise.fulfilled(buildProto(1, VersionConstants.PRODUCT_VERSION, false)));
-        mMetrics.analyzeFirstStatus();
-
-        Shadows.shadowOf(Looper.myLooper()).runToEndOfTasks();
-        verify(mProvider, times(1)).clear();
-        verify(mProvider, never()).put(any());
-        Assert.assertEquals(1,
-                RecordHistogram.getHistogramValueCountForTesting(
-                        "GoogleUpdate.Result.Session.Intent.Menu", FAILED));
-        Assert.assertEquals(1,
-                RecordHistogram.getHistogramValueCountForTesting(
-                        "GoogleUpdate.Result.TimeWindow.Intent.Menu", FAILED));
-    }
-
-    /** Tests recording a time window failure. */
-    @Test
-    public void testRecordTimeWindowSuccessSessionAlreadyRecorded() {
-        when(mProvider.get())
-                .thenReturn(Promise.fulfilled(buildProto(1, NOT_CURRENT_VERSION, true)));
-        mMetrics.analyzeFirstStatus();
-
-        Shadows.shadowOf(Looper.myLooper()).runToEndOfTasks();
-        verify(mProvider, times(1)).clear();
-        verify(mProvider, never()).put(any());
-        Assert.assertEquals(0,
-                RecordHistogram.getHistogramValueCountForTesting(
-                        "GoogleUpdate.Result.Session.Intent.Menu", FAILED));
-        Assert.assertEquals(0,
-                RecordHistogram.getHistogramValueCountForTesting(
-                        "GoogleUpdate.Result.Session.Intent.Menu", SUCCESS));
-        Assert.assertEquals(1,
-                RecordHistogram.getHistogramValueCountForTesting(
-                        "GoogleUpdate.Result.TimeWindow.Intent.Menu", SUCCESS));
-    }
-
-    /** Tests recording session failure only happens once. */
-    @Test
-    public void testNoDuplicateSessionFailures() {
-        when(mProvider.get())
-                .thenReturn(
-                        Promise.fulfilled(buildProto(1, VersionConstants.PRODUCT_VERSION, true)));
-        mMetrics.analyzeFirstStatus();
-
-        Shadows.shadowOf(Looper.myLooper()).runToEndOfTasks();
-        verify(mProvider, times(1)).clear();
-        verify(mProvider, never()).put(any());
-        Assert.assertEquals(0,
-                RecordHistogram.getHistogramValueCountForTesting(
-                        "GoogleUpdate.Result.Session.Intent.Menu", FAILED));
-        Assert.assertEquals(0,
-                RecordHistogram.getHistogramValueCountForTesting(
-                        "GoogleUpdate.Result.Session.Intent.Menu", SUCCESS));
-        Assert.assertEquals(1,
-                RecordHistogram.getHistogramValueCountForTesting(
-                        "GoogleUpdate.Result.TimeWindow.Intent.Menu", FAILED));
-    }
-
     private static Tracking buildProto() {
         return Tracking.newBuilder()
                 .setTimestampMs(System.currentTimeMillis())
@@ -253,38 +129,18 @@ public class UpdateSuccessMetricsTest {
                 .build();
     }
 
-    private static Tracking buildProto(long timestamp, String version, boolean recordedSession) {
-        return Tracking.newBuilder()
-                .setTimestampMs(timestamp)
-                .setVersion(version)
-                .setType(Type.INTENT)
-                .setSource(Source.FROM_MENU)
-                .setRecordedSession(recordedSession)
-                .build();
-    }
-
     private static class TrackingMatcher implements ArgumentMatcher<Tracking> {
-        private final String mVersion;
-        private final boolean mRecordedSession;
         private final Type mType;
         private final Source mSource;
 
         public TrackingMatcher(Type type, Source source) {
-            this(VersionConstants.PRODUCT_VERSION, type, source, false);
-        }
-
-        public TrackingMatcher(String version, Type type, Source source, boolean recordedSession) {
-            mVersion = version;
             mType = type;
             mSource = source;
-            mRecordedSession = recordedSession;
         }
 
         @Override
         public boolean matches(Tracking argument) {
-            return mVersion.equals(argument.getVersion()) && mType.equals(argument.getType())
-                    && mSource.equals(argument.getSource())
-                    && mRecordedSession == argument.getRecordedSession();
+            return mType.equals(argument.getType()) && mSource.equals(argument.getSource());
         }
     }
 }

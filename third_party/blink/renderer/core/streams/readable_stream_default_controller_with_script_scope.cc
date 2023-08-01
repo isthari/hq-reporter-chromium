@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,17 +15,12 @@
 namespace blink {
 
 ReadableStreamDefaultControllerWithScriptScope::
-    ReadableStreamDefaultControllerWithScriptScope(ScriptState* script_state,
-                                                   ScriptValue controller)
-    : script_state_(script_state) {
-  v8::Local<v8::Object> controller_object =
-      controller.V8Value().As<v8::Object>();
-  controller_ = V8ReadableStreamDefaultController::ToImpl(controller_object);
+    ReadableStreamDefaultControllerWithScriptScope(
+        ScriptState* script_state,
+        ReadableStreamDefaultController* controller)
+    : script_state_(script_state), controller_(controller) {}
 
-  DCHECK(controller_);
-}
-
-void ReadableStreamDefaultControllerWithScriptScope::NoteHasBeenCanceled() {
+void ReadableStreamDefaultControllerWithScriptScope::Deactivate() {
   controller_ = nullptr;
 }
 
@@ -33,10 +28,15 @@ void ReadableStreamDefaultControllerWithScriptScope::Close() {
   if (!controller_)
     return;
 
-  ScriptState::Scope scope(script_state_);
-
   if (ReadableStreamDefaultController::CanCloseOrEnqueue(controller_)) {
-    ReadableStreamDefaultController::Close(script_state_, controller_);
+    if (script_state_->ContextIsValid()) {
+      ScriptState::Scope scope(script_state_);
+      ReadableStreamDefaultController::Close(script_state_, controller_);
+    } else {
+      // If the context is not valid then Close() will not try to resolve the
+      // promises, and that is not a problem.
+      ReadableStreamDefaultController::Close(script_state_, controller_);
+    }
   }
   controller_ = nullptr;
 }
@@ -65,7 +65,8 @@ void ReadableStreamDefaultControllerWithScriptScope::Enqueue(
   ExceptionState exception_state(isolate, ExceptionState::kUnknownContext, "",
                                  "");
   v8::MicrotasksScope microtasks_scope(
-      isolate, v8::MicrotasksScope::kDoNotRunMicrotasks);
+      isolate, ToMicrotaskQueue(script_state_),
+      v8::MicrotasksScope::kDoNotRunMicrotasks);
   ReadableStreamDefaultController::Enqueue(script_state_, controller_, js_chunk,
                                            exception_state);
   if (exception_state.HadException()) {

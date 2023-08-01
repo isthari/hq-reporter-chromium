@@ -1,13 +1,15 @@
-# Copyright 2020 The Chromium Authors. All rights reserved.
+# Copyright 2020 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//third_party/blink/renderer/build/scripts/scripts.gni")
 import("//third_party/blink/renderer/modules/modules.gni")
 import("//third_party/libprotobuf-mutator/fuzzable_proto_library.gni")
 import("//third_party/protobuf/proto_library.gni")
 
 blink_modules_sources("sanitizer_api") {
   sources = [
+    "$target_gen_dir/builtins/sanitizer_attribute_lists.cc",
     "$target_gen_dir/builtins/sanitizer_builtins.cc",
     "builtins.cc",
     "builtins.h",
@@ -20,7 +22,10 @@ blink_modules_sources("sanitizer_api") {
     "sanitizer.h",
     "sanitizer_config_impl.h",
   ]
-  deps = [ ":generate_sanitizer_builtins" ]
+  deps = [
+    ":generate_sanitizer_attribute_lists",
+    ":generate_sanitizer_builtins",
+  ]
 }
 
 # The Sanitizer API relies on several spec-defined constants. For easier
@@ -48,7 +53,22 @@ action("generate_sanitizer_builtins") {
   ]
 }
 
-if (use_libfuzzer) {
+blink_python_runner("generate_sanitizer_attribute_lists") {
+  script = "builtins/generate_attribute_lists.py"
+  sources =
+      [ "//third_party/blink/renderer/core/html/html_attribute_names.json5" ]
+  inputs = sources + scripts_for_json5_files
+  outputs = [ "$target_gen_dir/builtins/sanitizer_attribute_lists.cc" ]
+  args = [
+    "--out",
+    rebase_path(outputs[0], root_build_dir),
+  ]
+  foreach(source, sources) {
+    args += [ rebase_path(source, root_build_dir) ]
+  }
+}
+
+if (use_fuzzing_engine_with_lpm) {
   corpus_out_dir = "$target_gen_dir/corpus"
 
   # For our seed corpus, we have several .html files and several proto config

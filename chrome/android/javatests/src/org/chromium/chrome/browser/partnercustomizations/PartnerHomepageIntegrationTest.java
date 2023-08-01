@@ -1,14 +1,15 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.partnercustomizations;
 
 import android.net.Uri;
-import android.support.test.InstrumentationRegistry;
 import android.view.View;
 
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.MediumTest;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -16,20 +17,22 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.homepage.HomepageManager;
 import org.chromium.chrome.browser.homepage.settings.HomepageSettings;
 import org.chromium.chrome.browser.settings.SettingsActivity;
 import org.chromium.chrome.browser.settings.SettingsActivityTestRule;
+import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.TabList;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModelObserver;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
+import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.partnercustomizations.TestPartnerBrowserCustomizationsProvider;
 import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.components.browser_ui.settings.ChromeSwitchPreference;
@@ -70,6 +73,21 @@ public class PartnerHomepageIntegrationTest {
         Assert.assertEquals(Uri.parse(TestPartnerBrowserCustomizationsProvider.HOMEPAGE_URI),
                 Uri.parse(ChromeTabUtils.getUrlStringOnUiThread(
                         mActivityTestRule.getActivity().getActivityTab())));
+        Assert.assertEquals("<Android.PartnerBrowserCustomizationInitDuration> not recorded.", 1,
+                RecordHistogram.getHistogramTotalCountForTesting(
+                        "Android.PartnerBrowserCustomizationInitDuration"));
+        Assert.assertEquals(
+                "<Android.PartnerBrowserCustomizationInitDuration.WithCallbacks> not recorded.", 1,
+                RecordHistogram.getHistogramTotalCountForTesting(
+                        "Android.PartnerBrowserCustomizationInitDuration.WithCallbacks"));
+        Assert.assertEquals(
+                "<Android.PartnerCustomizationInitializedBeforeInitialTab> not recorded.", 1,
+                RecordHistogram.getHistogramTotalCountForTesting(
+                        "Android.PartnerCustomizationInitializedBeforeInitialTab"));
+        Assert.assertEquals(
+                "<Android.PartnerCustomizationInitializedBeforeInitialTab> should record true.", 1,
+                RecordHistogram.getHistogramValueCountForTesting(
+                        "Android.PartnerCustomizationInitializedBeforeInitialTab", 1));
     }
 
     /**
@@ -79,8 +97,8 @@ public class PartnerHomepageIntegrationTest {
     @MediumTest
     @Feature({"Homepage"})
     public void testHomepageButtonClick() throws InterruptedException {
-        EmbeddedTestServer testServer =
-                EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
+        EmbeddedTestServer testServer = EmbeddedTestServer.createAndStartServer(
+                ApplicationProvider.getApplicationContext());
         try {
             // Load non-homepage URL.
             mActivityTestRule.loadUrl(testServer.getURL(TEST_PAGE));
@@ -163,7 +181,7 @@ public class PartnerHomepageIntegrationTest {
         InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> {
             tabModel.addObserver(new TabModelObserver() {
                 @Override
-                public void didCloseTab(int tabId, boolean incognito) {
+                public void onFinishingTabClosure(Tab tab) {
                     if (tabModel.getCount() == 0) tabClosed.notifyCalled();
                 }
             });

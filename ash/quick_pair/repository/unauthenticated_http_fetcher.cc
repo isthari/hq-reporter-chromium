@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,7 @@
 
 namespace {
 
-// Max size set to 2MB.  This is well over the expected maximum for our
+// Max size set to 2MB. This is well over the expected maximum for our
 // expected responses, however it can be increased if needed in the future.
 constexpr int kMaxDownloadBytes = 2 * 1024 * 1024;
 

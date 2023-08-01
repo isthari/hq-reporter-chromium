@@ -1,17 +1,12 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/omnibox/browser/autocomplete_provider.h"
 
 #include <algorithm>
-#include <set>
 #include <string>
 
-#include "base/feature_list.h"
-#include "base/i18n/case_conversion.h"
-#include "base/logging.h"
-#include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/trace_event/memory_usage_estimator.h"
@@ -20,20 +15,23 @@
 #include "components/omnibox/browser/autocomplete_input.h"
 #include "components/omnibox/browser/autocomplete_match.h"
 #include "components/omnibox/browser/autocomplete_match_classification.h"
+#include "components/omnibox/browser/autocomplete_provider_listener.h"
 #include "components/omnibox/browser/history_provider.h"
 #include "components/omnibox/browser/omnibox_field_trial.h"
-#include "components/omnibox/browser/scored_history_match.h"
-#include "components/omnibox/common/omnibox_features.h"
 #include "components/url_formatter/url_fixer.h"
 #include "url/gurl.h"
 
 AutocompleteProvider::AutocompleteProvider(Type type)
     : provider_max_matches_(OmniboxFieldTrial::GetProviderMaxMatches(type)),
-      done_(true),
       type_(type) {}
 
 // static
 const char* AutocompleteProvider::TypeToString(Type type) {
+  // When creating a new provider, add the provider type to this function and
+  // make sure to also add the appropriate OmniboxProvider variant to the
+  // Omnibox.ProviderTime2 histogram (defined in omnibox/histograms.xml) so that
+  // the run-time metrics associated with the relevant provider can be properly
+  // analyzed.
   switch (type) {
     case TYPE_BOOKMARK:
       return "Bookmark";
@@ -69,15 +67,36 @@ const char* AutocompleteProvider::TypeToString(Type type) {
       return "VoiceSuggest";
     case TYPE_HISTORY_FUZZY:
       return "HistoryFuzzy";
+    case TYPE_OPEN_TAB:
+      return "OpenTab";
+    case TYPE_HISTORY_CLUSTER_PROVIDER:
+      return "HistoryCluster";
     default:
       NOTREACHED() << "Unhandled AutocompleteProvider::Type " << type;
       return "Unknown";
   }
 }
 
+void AutocompleteProvider::AddListener(AutocompleteProviderListener* listener) {
+  listeners_.push_back(listener);
+}
+
+void AutocompleteProvider::NotifyListeners(bool updated_matches) const {
+  for (auto* listener : listeners_)
+    listener->OnProviderUpdate(updated_matches, this);
+}
+
+void AutocompleteProvider::StartPrefetch(const AutocompleteInput& input) {
+  DCHECK(!input.omit_asynchronous_matches());
+}
+
 void AutocompleteProvider::Stop(bool clear_cached_results,
                                 bool due_to_user_inactivity) {
   done_ = true;
+  if (clear_cached_results) {
+    matches_.clear();
+    suggestion_groups_map_.clear();
+  }
 }
 
 const char* AutocompleteProvider::GetName() const {
@@ -112,8 +131,8 @@ ACMatchClassifications AutocompleteProvider::ClassifyAllMatchesInString(
                                                  classifications);
 }
 
-metrics::OmniboxEventProto_ProviderType AutocompleteProvider::
-    AsOmniboxEventProviderType() const {
+metrics::OmniboxEventProto_ProviderType
+AutocompleteProvider::AsOmniboxEventProviderType() const {
   switch (type_) {
     case TYPE_BOOKMARK:
       return metrics::OmniboxEventProto::BOOKMARK;
@@ -147,6 +166,12 @@ metrics::OmniboxEventProto_ProviderType AutocompleteProvider::
       return metrics::OmniboxEventProto::ZERO_SUGGEST;
     case TYPE_VOICE_SUGGEST:
       return metrics::OmniboxEventProto::SEARCH;
+    case TYPE_HISTORY_FUZZY:
+      return metrics::OmniboxEventProto::HISTORY_FUZZY;
+    case TYPE_OPEN_TAB:
+      return metrics::OmniboxEventProto::OPEN_TAB;
+    case TYPE_HISTORY_CLUSTER_PROVIDER:
+      return metrics::OmniboxEventProto::HISTORY_CLUSTER;
     default:
       NOTREACHED() << "Unhandled AutocompleteProvider::Type " << type_;
       return metrics::OmniboxEventProto::UNKNOWN_PROVIDER;
@@ -158,10 +183,13 @@ void AutocompleteProvider::DeleteMatch(const AutocompleteMatch& match) {
                 << "' has not implemented DeleteMatch.";
 }
 
-void AutocompleteProvider::AddProviderInfo(ProvidersInfo* provider_info) const {
+void AutocompleteProvider::DeleteMatchElement(const AutocompleteMatch& match,
+                                              size_t element_index) {
+  DLOG(WARNING) << "The AutocompleteProvider '" << GetName()
+                << "' has not implemented DeleteMatchElement.";
 }
 
-void AutocompleteProvider::ResetSession() {
+void AutocompleteProvider::AddProviderInfo(ProvidersInfo* provider_info) const {
 }
 
 size_t AutocompleteProvider::EstimateMemoryUsage() const {
@@ -195,9 +223,8 @@ AutocompleteProvider::FixupReturn AutocompleteProvider::FixupUserInput(
   // "17173.com"), swap the original hostname in for the fixed-up one.
   if ((input.type() != metrics::OmniboxInputType::URL) &&
       canonical_gurl.HostIsIPAddress()) {
-    std::string original_hostname =
-        base::UTF16ToUTF8(input_text.substr(input.parts().host.begin,
-                                            input.parts().host.len));
+    std::string original_hostname = base::UTF16ToUTF8(
+        input_text.substr(input.parts().host.begin, input.parts().host.len));
     const url::Parsed& parts =
         canonical_gurl.parsed_for_possibly_invalid_spec();
     // parts.host must not be empty when HostIsIPAddress() is true.
@@ -274,30 +301,29 @@ size_t AutocompleteProvider::TrimSchemePrefix(std::u16string* url,
 }
 
 // static
-bool AutocompleteProvider::InExplicitExperimentalKeywordMode(
-    const AutocompleteInput& input,
-    const std::u16string& keyword) {
-  return OmniboxFieldTrial::IsExperimentalKeywordModeEnabled() &&
-         input.prefer_keyword() &&
-         base::StartsWith(input.text(), keyword,
-                          base::CompareCase::SENSITIVE) &&
-         IsExplicitlyInKeywordMode(input, keyword);
+bool AutocompleteProvider::InKeywordMode(const AutocompleteInput& input) {
+  return input.keyword_mode_entry_method() !=
+         metrics::OmniboxEventProto::INVALID;
 }
 
-// static
-bool AutocompleteProvider::IsExplicitlyInKeywordMode(
-    const AutocompleteInput& input,
-    const std::u16string& keyword) {
-  // It is important to this method that we determine if the user entered
-  // keyword mode intentionally, as we use this routine to e.g. filter
-  // all but keyword results. Currently we assume that the user entered
-  // keyword mode intentionally with all entry methods except with a
-  // space (and disregard entry method during a backspace). However, if the
-  // user has typed a char past the space, we again assume keyword mode.
-  return (((input.keyword_mode_entry_method() !=
-                metrics::OmniboxEventProto::SPACE_AT_END &&
-            input.keyword_mode_entry_method() !=
-                metrics::OmniboxEventProto::SPACE_IN_MIDDLE) &&
-           !input.prevent_inline_autocomplete()) ||
-          input.text().size() > keyword.size() + 1);
+void AutocompleteProvider::ResizeMatches(size_t max_matches,
+                                         bool ml_scoring_enabled) {
+  if (matches_.size() <= max_matches) {
+    return;
+  }
+
+  // When ML Scoring is not enabled, simply resize the `matches_` list.
+  if (!ml_scoring_enabled) {
+    matches_.resize(max_matches);
+    return;
+  }
+
+  // The provider should pass all match candidates to the controller if ML
+  // scoring is enabled. Mark any matches over `max_matches` with zero relevance
+  // and `culled_by_provider` set to true to simulate the resizing.
+  base::ranges::for_each(std::next(matches_.begin(), max_matches),
+                         matches_.end(), [&](auto& match) {
+                           match.relevance = 0;
+                           match.culled_by_provider = true;
+                         });
 }

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,7 +19,6 @@
 #include "content/public/test/hit_test_region_observer.h"
 #include "net/dns/mock_host_resolver.h"
 #include "ui/aura/window.h"
-#include "ui/base/test/ui_controls_aura.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/events/types/event_type.h"
 

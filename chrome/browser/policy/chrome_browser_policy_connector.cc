@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,11 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/check_is_test.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/path_service.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
@@ -30,6 +30,7 @@
 #include "components/policy/core/common/cloud/user_cloud_policy_manager.h"
 #include "components/policy/core/common/command_line_policy_provider.h"
 #include "components/policy/core/common/configuration_policy_provider.h"
+#include "components/policy/core/common/policy_logger.h"
 #include "components/policy/core/common/policy_map.h"
 #include "components/policy/core/common/policy_namespace.h"
 #include "components/policy/core/common/policy_proto_decoders.h"
@@ -73,7 +74,7 @@
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
 #include "chrome/browser/lacros/device_settings_lacros.h"
 #include "chromeos/crosapi/mojom/crosapi.mojom.h"
-#include "chromeos/lacros/lacros_service.h"
+#include "chromeos/startup/browser_params_proxy.h"
 #include "components/policy/core/common/policy_loader_lacros.h"
 #endif
 
@@ -107,6 +108,9 @@ void ChromeBrowserPolicyConnector::OnResourceBundleCreated() {
 void ChromeBrowserPolicyConnector::Init(
     PrefService* local_state,
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
+  if (PolicyLogger::GetInstance()->IsPolicyLoggingEnabled()) {
+    PolicyLogger::GetInstance()->EnableLogDeletion();
+  }
   std::unique_ptr<DeviceManagementService::Configuration> configuration(
       new DeviceManagementServiceConfiguration(GetDeviceManagementUrl(),
                                                GetRealtimeReportingUrl(),
@@ -137,10 +141,9 @@ ChromeBrowserPolicyConnector::GetDeviceSettings() const {
 
 bool ChromeBrowserPolicyConnector::IsDeviceEnterpriseManaged() const {
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
-  auto* lacros_service = chromeos::LacrosService::Get();
-  return lacros_service->init_params()->is_device_enterprised_managed;
+  return chromeos::BrowserParamsProxy::Get()->IsDeviceEnterprisedManaged();
 #else
-  NOTREACHED() << "This method is only defined for Chrome OS";
+  NOTREACHED() << "This method is only defined for ChromeOS";
   return false;
 #endif
 }
@@ -162,8 +165,10 @@ void ChromeBrowserPolicyConnector::Shutdown() {
   // Reset the controller before calling base class so that
   // shutdown occurs in correct sequence.
   chrome_browser_cloud_management_controller_.reset();
-  if (machine_level_user_cloud_policy_manager_)
+  if (machine_level_user_cloud_policy_manager_) {
     machine_level_user_cloud_policy_manager_->Shutdown();
+    machine_level_user_cloud_policy_manager_ = nullptr;
+  }
 #endif
 
   BrowserPolicyConnector::Shutdown();
@@ -171,9 +176,12 @@ void ChromeBrowserPolicyConnector::Shutdown() {
 
 ConfigurationPolicyProvider*
 ChromeBrowserPolicyConnector::GetPlatformProvider() {
-  ConfigurationPolicyProvider* provider =
-      BrowserPolicyConnectorBase::GetPolicyProviderForTesting();
-  return provider ? provider : platform_provider_.get();
+  if (ConfigurationPolicyProvider* provider =
+          BrowserPolicyConnectorBase::GetPolicyProviderForTesting()) {
+    CHECK_IS_TEST();
+    return provider;
+  }
+  return platform_provider_.get();
 }
 
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
@@ -328,11 +336,11 @@ void ChromeBrowserPolicyConnector::OnMachineLevelCloudPolicyManagerCreated(
     std::unique_ptr<MachineLevelUserCloudPolicyManager>
         machine_level_user_cloud_policy_manager) {
   machine_level_user_cloud_policy_manager_ =
-      std::move(machine_level_user_cloud_policy_manager);
+      machine_level_user_cloud_policy_manager.get();
   if (machine_level_user_cloud_policy_manager_) {
     machine_level_user_cloud_policy_manager_->Init(GetSchemaRegistry());
-    proxy_policy_provider_->SetDelegate(
-        machine_level_user_cloud_policy_manager_.get());
+    proxy_policy_provider_->SetOwnedDelegate(
+        std::move(machine_level_user_cloud_policy_manager));
   }
 }
 #endif  // !BUILDFLAG(IS_CHROMEOS_ASH)

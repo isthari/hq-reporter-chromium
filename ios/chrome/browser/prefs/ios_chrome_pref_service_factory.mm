@@ -1,29 +1,30 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/prefs/ios_chrome_pref_service_factory.h"
+#import "ios/chrome/browser/prefs/ios_chrome_pref_service_factory.h"
 
-#include <vector>
+#import <vector>
 
-#include "base/bind.h"
-#include "base/check.h"
-#include "base/feature_list.h"
-#include "base/memory/ptr_util.h"
-#include "base/metrics/histogram_macros.h"
-#include "components/policy/core/browser/browser_policy_connector.h"
-#include "components/policy/core/common/policy_service.h"
-#include "components/prefs/json_pref_store.h"
-#include "components/prefs/persistent_pref_store.h"
-#include "components/prefs/pref_filter.h"
-#include "components/prefs/pref_service.h"
-#include "components/prefs/pref_value_store.h"
-#include "components/proxy_config/proxy_config_pref_names.h"
-#include "components/sync_preferences/pref_service_syncable.h"
-#include "components/sync_preferences/pref_service_syncable_factory.h"
-#include "ios/chrome/browser/application_context.h"
-#include "ios/chrome/browser/policy/policy_features.h"
-#include "ios/chrome/browser/prefs/ios_chrome_pref_model_associator_client.h"
+#import "base/check.h"
+#import "base/feature_list.h"
+#import "base/functional/bind.h"
+#import "base/memory/ptr_util.h"
+#import "base/metrics/histogram_macros.h"
+#import "base/task/sequenced_task_runner.h"
+#import "components/policy/core/browser/browser_policy_connector.h"
+#import "components/policy/core/common/policy_service.h"
+#import "components/prefs/json_pref_store.h"
+#import "components/prefs/persistent_pref_store.h"
+#import "components/prefs/pref_filter.h"
+#import "components/prefs/pref_service.h"
+#import "components/prefs/pref_value_store.h"
+#import "components/proxy_config/proxy_config_pref_names.h"
+#import "components/sync/base/features.h"
+#import "components/sync_preferences/pref_service_syncable.h"
+#import "components/sync_preferences/pref_service_syncable_factory.h"
+#import "ios/chrome/browser/prefs/ios_chrome_pref_model_associator_client.h"
+#import "ios/chrome/browser/shared/model/application_context/application_context.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -32,6 +33,7 @@
 namespace {
 
 const char kPreferencesFilename[] = "Preferences";
+const char kAccountPreferencesFilename[] = "AccountPreferences";
 
 // Record PersistentPrefStore's reading errors distribution.
 void HandleReadError(PersistentPrefStore::PrefReadError error) {
@@ -47,7 +49,6 @@ void PrepareFactory(sync_preferences::PrefServiceSyncableFactory* factory,
                     policy::PolicyService* policy_service,
                     policy::BrowserPolicyConnector* policy_connector) {
   if (policy_service || policy_connector) {
-    DCHECK(IsEnterprisePolicyEnabled());
     DCHECK(policy_service && policy_connector);
     factory->SetManagedPolicies(policy_service, policy_connector);
     factory->SetRecommendedPolicies(policy_service, policy_connector);
@@ -89,6 +90,13 @@ std::unique_ptr<sync_preferences::PrefServiceSyncable> CreateBrowserStatePrefs(
   sync_preferences::PrefServiceSyncableFactory factory;
   PrepareFactory(&factory, browser_state_path.Append(kPreferencesFilename),
                  pref_io_task_runner, policy_service, policy_connector);
+  if (base::FeatureList::IsEnabled(syncer::kEnablePreferencesAccountStorage) &&
+      base::FeatureList::IsEnabled(
+          syncer::kSyncEnablePersistentStorageForAccountPreferences)) {
+    factory.SetAccountPrefStore(base::MakeRefCounted<JsonPrefStore>(
+        browser_state_path.Append(kAccountPreferencesFilename), nullptr,
+        pref_io_task_runner));
+  }
   std::unique_ptr<sync_preferences::PrefServiceSyncable> pref_service =
       factory.CreateSyncable(pref_registry.get());
   return pref_service;

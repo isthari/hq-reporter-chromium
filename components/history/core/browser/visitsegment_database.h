@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <memory>
 #include <string>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "components/history/core/browser/history_types.h"
 
 namespace sql {
@@ -48,16 +48,14 @@ class VisitSegmentDatabase {
   // ID of the newly created segment, or 0 on failure.
   SegmentID CreateSegment(URLID url_id, const std::string& segment_name);
 
-  // Increase the segment visit count by the provided amount. Return true on
+  // Update the segment visit count by the provided amount. Return true on
   // success.
-  bool IncreaseSegmentVisitCount(SegmentID segment_id, base::Time ts,
-                                 int amount);
+  bool UpdateSegmentVisitCount(SegmentID segment_id, base::Time ts, int amount);
 
-  // Computes the segment usage since `from_time`. If `url_filter` is non-null,
-  // then only URLs for which it returns true will be included.
-  // Returns the highest-scored segments up to `max_result_count`.
+  // Returns the highest-scored segments up to `max_result_count`. If
+  // `url_filter` is non-null, then only URLs for which it returns true will be
+  // included.
   std::vector<std::unique_ptr<PageUsageData>> QuerySegmentUsage(
-      base::Time from_time,
       int max_result_count,
       const base::RepeatingCallback<bool(const GURL&)>& url_filter);
 

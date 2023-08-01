@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,16 +14,17 @@ import android.widget.ListView;
 
 import androidx.annotation.VisibleForTesting;
 import androidx.appcompat.content.res.AppCompatResources;
+import androidx.core.widget.ImageViewCompat;
 
 import com.google.android.material.tabs.TabLayout;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.accessibility_tab_switcher.AccessibilityTabModelAdapter.AccessibilityTabModelAdapterListener;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabCreationState;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorObserver;
+import org.chromium.chrome.browser.tabmodel.TabModelUtils;
 import org.chromium.components.browser_ui.styles.SemanticColorUtils;
 import org.chromium.ui.widget.ChromeImageView;
 
@@ -91,8 +92,8 @@ public class AccessibilityTabModelWrapper extends LinearLayout {
                 SemanticColorUtils.getDefaultControlColorActive(getContext()));
         mTabIconLightColor =
                 AppCompatResources.getColorStateList(getContext(), R.color.white_alpha_70);
-        mTabIconSelectedLightColor =
-                AppCompatResources.getColorStateList(getContext(), R.color.white_mode_tint);
+        mTabIconSelectedLightColor = AppCompatResources.getColorStateList(
+                getContext(), R.color.default_icon_color_white_tint_list);
         // Setting scaleY here to make sure the icons are not flipped due to the scaleY of its
         // container layout.
         mStandardButtonIcon = new ChromeImageView(getContext());
@@ -161,19 +162,17 @@ public class AccessibilityTabModelWrapper extends LinearLayout {
 
         updateVisibilityForLayoutOrStackButton();
         if (incognitoSelected) {
-            setBackgroundColor(
-                    ApiCompatibilityUtils.getColor(getResources(), R.color.default_bg_color_dark));
+            setBackgroundColor(getContext().getColor(R.color.default_bg_color_dark));
             mStackButtonWrapper.setSelectedTabIndicatorColor(
                     mTabIconSelectedLightColor.getDefaultColor());
-            ApiCompatibilityUtils.setImageTintList(mStandardButtonIcon, mTabIconLightColor);
-            ApiCompatibilityUtils.setImageTintList(
-                    mIncognitoButtonIcon, mTabIconSelectedLightColor);
+            ImageViewCompat.setImageTintList(mStandardButtonIcon, mTabIconLightColor);
+            ImageViewCompat.setImageTintList(mIncognitoButtonIcon, mTabIconSelectedLightColor);
         } else {
             setBackgroundColor(SemanticColorUtils.getDefaultBgColor(getContext()));
             mStackButtonWrapper.setSelectedTabIndicatorColor(
                     mTabIconSelectedDarkColor.getDefaultColor());
-            ApiCompatibilityUtils.setImageTintList(mStandardButtonIcon, mTabIconSelectedDarkColor);
-            ApiCompatibilityUtils.setImageTintList(mIncognitoButtonIcon, mTabIconDarkColor);
+            ImageViewCompat.setImageTintList(mStandardButtonIcon, mTabIconSelectedDarkColor);
+            ImageViewCompat.setImageTintList(mIncognitoButtonIcon, mTabIconDarkColor);
         }
         // Ensure the tab in tab layout is correctly selected when tab switcher is
         // first opened.
@@ -194,6 +193,16 @@ public class AccessibilityTabModelWrapper extends LinearLayout {
 
     private AccessibilityTabModelAdapter getAdapter() {
         return (AccessibilityTabModelAdapter) mAccessibilityView.getAdapter();
+    }
+
+    /**
+     * Scroll to and focus a tab.
+     * @param tabId The id of the tab.
+     */
+    void scrollToTabAndFocus(int tabId) {
+        final int index = TabModelUtils.getTabIndexById(mTabModelSelector.getCurrentModel(), tabId);
+        mAccessibilityView.smoothScrollToPosition(index);
+        getAdapter().focusTabWithId(tabId);
     }
 
     /**

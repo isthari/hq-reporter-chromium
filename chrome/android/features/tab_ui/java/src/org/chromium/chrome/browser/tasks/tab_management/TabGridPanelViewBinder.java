@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,14 +28,18 @@ import static org.chromium.chrome.browser.tasks.tab_management.TabGridPanelPrope
 import static org.chromium.chrome.browser.tasks.tab_management.TabGridPanelProperties.TITLE_TEXT_ON_FOCUS_LISTENER;
 import static org.chromium.chrome.browser.tasks.tab_management.TabGridPanelProperties.TITLE_TEXT_WATCHER;
 import static org.chromium.chrome.browser.tasks.tab_management.TabGridPanelProperties.UNGROUP_BAR_STATUS;
+import static org.chromium.chrome.browser.tasks.tab_management.TabGridPanelProperties.VISIBILITY_LISTENER;
 
 import android.view.View;
 import android.widget.FrameLayout;
 
 import androidx.annotation.Nullable;
+import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import org.chromium.chrome.browser.tab.TabUtils;
+import org.chromium.ui.base.ViewUtils;
 import org.chromium.ui.modelutil.PropertyKey;
 import org.chromium.ui.modelutil.PropertyModel;
 
@@ -76,7 +80,7 @@ class TabGridPanelViewBinder {
         } else if (CONTENT_TOP_MARGIN == propertyKey) {
             ((FrameLayout.LayoutParams) viewHolder.contentView.getLayoutParams()).topMargin =
                     model.get(CONTENT_TOP_MARGIN);
-            viewHolder.contentView.requestLayout();
+            ViewUtils.requestLayout(viewHolder.contentView, "TabGridPanelViewBinder.bind");
         } else if (PRIMARY_COLOR == propertyKey) {
             viewHolder.toolbarView.setPrimaryColor(model.get(PRIMARY_COLOR));
             viewHolder.contentView.setBackgroundColor(model.get(PRIMARY_COLOR));
@@ -91,6 +95,8 @@ class TabGridPanelViewBinder {
             } else {
                 viewHolder.dialogView.hideDialog();
             }
+        } else if (VISIBILITY_LISTENER == propertyKey) {
+            viewHolder.dialogView.setVisibilityListener(model.get(VISIBILITY_LISTENER));
         } else if (ANIMATION_SOURCE_VIEW == propertyKey) {
             viewHolder.dialogView.setupDialogAnimation(model.get(ANIMATION_SOURCE_VIEW));
         } else if (UNGROUP_BAR_STATUS == propertyKey) {
@@ -123,8 +129,13 @@ class TabGridPanelViewBinder {
             }
         } else if (INITIAL_SCROLL_INDEX == propertyKey) {
             int index = (Integer) model.get(INITIAL_SCROLL_INDEX);
-            ((LinearLayoutManager) viewHolder.contentView.getLayoutManager())
-                    .scrollToPositionWithOffset(index, 0);
+            RecyclerView view = viewHolder.contentView;
+            if (view.getWidth() == 0 || view.getHeight() == 0) {
+                // If layout hasn't happened post the scroll index change until layout happens.
+                view.post(() -> setScrollIndex(view, index));
+                return;
+            }
+            setScrollIndex(viewHolder.contentView, index);
         } else if (IS_MAIN_CONTENT_VISIBLE == propertyKey) {
             viewHolder.contentView.setVisibility(View.VISIBLE);
         } else if (MENU_CLICK_LISTENER == propertyKey) {
@@ -137,28 +148,45 @@ class TabGridPanelViewBinder {
         } else if (TITLE_CURSOR_VISIBILITY == propertyKey) {
             viewHolder.toolbarView.setTitleCursorVisibility(model.get(TITLE_CURSOR_VISIBILITY));
         } else if (IS_TITLE_TEXT_FOCUSED == propertyKey) {
-            if (TabUiFeatureUtilities.isLaunchPolishEnabled()) {
+            if (TabUiFeatureUtilities.isTabGroupsAndroidContinuationEnabled(
+                        viewHolder.contentView.getContext())) {
                 viewHolder.toolbarView.updateTitleTextFocus(model.get(IS_TITLE_TEXT_FOCUSED));
                 return;
             }
-            // Don't explicitly request focus since it should happen automatically.
-            if (!model.get(IS_TITLE_TEXT_FOCUSED)) {
-                viewHolder.toolbarView.clearTitleTextFocus();
-            }
         } else if (IS_KEYBOARD_VISIBLE == propertyKey) {
-            if (TabUiFeatureUtilities.isLaunchPolishEnabled()) {
+            if (TabUiFeatureUtilities.isTabGroupsAndroidContinuationEnabled(
+                        viewHolder.contentView.getContext())) {
                 viewHolder.toolbarView.updateKeyboardVisibility(model.get(IS_KEYBOARD_VISIBLE));
                 return;
             }
-            // Don't explicitly show keyboard since it should happen automatically.
-            if (!model.get(IS_KEYBOARD_VISIBLE)) {
-                viewHolder.toolbarView.hideKeyboard();
-            }
         } else if (COLLAPSE_BUTTON_CONTENT_DESCRIPTION == propertyKey) {
-            if (TabUiFeatureUtilities.isLaunchPolishEnabled()) {
+            if (TabUiFeatureUtilities.isTabGroupsAndroidContinuationEnabled(
+                        viewHolder.contentView.getContext())) {
                 viewHolder.toolbarView.setLeftButtonContentDescription(
                         model.get(COLLAPSE_BUTTON_CONTENT_DESCRIPTION));
             }
         }
+    }
+
+    private static void setScrollIndex(RecyclerView view, int index) {
+        LinearLayoutManager layoutManager = (LinearLayoutManager) view.getLayoutManager();
+        int offset = computeOffset(view, layoutManager);
+        layoutManager.scrollToPositionWithOffset(index, offset);
+    }
+
+    private static int computeOffset(RecyclerView view, LinearLayoutManager layoutManager) {
+        int width = view.getWidth();
+        int height = view.getHeight();
+        int cardHeight = 0;
+        if (layoutManager instanceof GridLayoutManager) {
+            int cardWidth = width / ((GridLayoutManager) layoutManager).getSpanCount();
+            cardHeight = TabUtils.deriveGridCardHeight(cardWidth, view.getContext());
+        } else {
+            // Avoid divide by 0 when there are no tabs.
+            if (layoutManager.getItemCount() == 0) return 0;
+
+            cardHeight = view.computeVerticalScrollRange() / layoutManager.getItemCount();
+        }
+        return Math.max(0, height / 2 - cardHeight / 2);
     }
 }

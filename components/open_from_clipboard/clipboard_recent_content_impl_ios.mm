@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,12 @@
 #import <MobileCoreServices/MobileCoreServices.h>
 #import <UIKit/UIKit.h>
 
+#import "base/functional/bind.h"
 #import "base/mac/foundation_util.h"
 #include "base/notreached.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/system/sys_info.h"
+#include "components/open_from_clipboard/clipboard_async_wrapper_ios.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -28,6 +30,8 @@ NSString* const kPasteboardChangeCountKey = @"PasteboardChangeCount";
 // Key used to store the last date at which it was detected that the pasteboard
 // changed. It is used to evaluate the age of the pasteboard's content.
 NSString* const kPasteboardChangeDateKey = @"PasteboardChangeDate";
+// Default Scheme to use for urls with no scheme.
+NSString* const kDefaultScheme = @"https";
 
 }  // namespace
 
@@ -44,6 +48,8 @@ NSString* const kPasteboardChangeDateKey = @"PasteboardChangeDate";
 @property(nonatomic, strong) id<ClipboardRecentContentDelegate> delegate;
 // Maximum age of clipboard in seconds.
 @property(nonatomic, readonly) NSTimeInterval maximumAgeOfClipboard;
+// Whether the clipboard should only be accessed asynchronously.
+@property(nonatomic, assign) BOOL onlyUseClipboardAsync;
 
 // A cached version of an already-retrieved URL. This prevents subsequent URL
 // requests from triggering the iOS 14 pasteboard notification.
@@ -57,29 +63,19 @@ NSString* const kPasteboardChangeDateKey = @"PasteboardChangeDate";
 // A cached set of the content types currently being used for the clipboard.
 @property(nonatomic, strong) NSSet<ContentType>* cachedContentTypes;
 
-// If the content of the pasteboard has changed, updates the change count
-// and change date.
-- (void)updateIfNeeded;
-
-// Returns whether the pasteboard changed since the last time a pasteboard
-// change was detected.
-- (BOOL)hasPasteboardChanged;
-
 // Loads information from the user defaults about the latest pasteboard entry.
 - (void)loadFromUserDefaults;
 
-// Returns the URL contained in the clipboard (if any).
-- (NSURL*)URLFromPasteboard;
+// Returns the URL contained in `pasteboard` (if any).
+- (NSURL*)URLFromPasteboard:(UIPasteboard*)pasteboard;
 
 // Returns the uptime.
 - (NSTimeInterval)uptime;
 
-// Returns whether the value of the clipboard should be returned.
-- (BOOL)shouldReturnValueOfClipboard;
-
 // Calls |completionHandler| with the result of whether or not the clipboard
 // currently contains data matching |contentType|.
 - (void)checkForContentType:(ContentType)contentType
+                 pasteboard:(UIPasteboard*)pasteboard
           completionHandler:(void (^)(BOOL))completionHandler;
 
 // Checks the clipboard for content matching |types| and calls
@@ -88,6 +84,7 @@ NSString* const kPasteboardChangeDateKey = @"PasteboardChangeDate";
 // been checked.
 - (void)
     hasContentMatchingRemainingTypes:(NSSet<ContentType>*)types
+                          pasteboard:(UIPasteboard*)pasteboard
                              results:
                                  (NSMutableDictionary<ContentType, NSNumber*>*)
                                      results
@@ -101,6 +98,7 @@ NSString* const kPasteboardChangeDateKey = @"PasteboardChangeDate";
 - (instancetype)initWithMaxAge:(NSTimeInterval)maxAge
              authorizedSchemes:(NSSet<NSString*>*)authorizedSchemes
                   userDefaults:(NSUserDefaults*)groupUserDefaults
+         onlyUseClipboardAsync:(BOOL)onlyUseClipboardAsync
                       delegate:(id<ClipboardRecentContentDelegate>)delegate {
   self = [super init];
   if (self) {
@@ -108,14 +106,12 @@ NSString* const kPasteboardChangeDateKey = @"PasteboardChangeDate";
     _delegate = delegate;
     _authorizedSchemes = authorizedSchemes;
     _sharedUserDefaults = groupUserDefaults;
+    _onlyUseClipboardAsync = onlyUseClipboardAsync;
 
     _lastPasteboardChangeCount = NSIntegerMax;
     [self loadFromUserDefaults];
-    [self updateIfNeeded];
     [self updateCachedClipboardState];
 
-    // Makes sure |last_pasteboard_change_count_| was properly initialized.
-    DCHECK_NE(_lastPasteboardChangeCount, NSIntegerMax);
     [[NSNotificationCenter defaultCenter]
         addObserver:self
            selector:@selector(didBecomeActive:)
@@ -126,6 +122,15 @@ NSString* const kPasteboardChangeDateKey = @"PasteboardChangeDate";
            selector:@selector(pasteboardDidChange:)
                name:UIPasteboardChangedNotification
              object:nil];
+
+    __weak __typeof(self) weakSelf = self;
+    GetGeneralPasteboard(
+        _onlyUseClipboardAsync, base::BindOnce(^(UIPasteboard* pasteboard) {
+          [weakSelf updateIfNeededWithPasteboard:pasteboard];
+          // Makes sure |last_pasteboard_change_count_| was properly
+          // initialized.
+          DCHECK_NE(weakSelf.lastPasteboardChangeCount, NSIntegerMax);
+        }));
   }
   return self;
 }
@@ -136,69 +141,121 @@ NSString* const kPasteboardChangeDateKey = @"PasteboardChangeDate";
 
 - (void)didBecomeActive:(NSNotification*)notification {
   [self loadFromUserDefaults];
-  [self updateIfNeeded];
   [self updateCachedClipboardState];
+
+  __weak __typeof(self) weakSelf = self;
+  GetGeneralPasteboard(self.onlyUseClipboardAsync,
+                       base::BindOnce(^(UIPasteboard* pasteboard) {
+                         [weakSelf updateIfNeededWithPasteboard:pasteboard];
+                       }));
 }
 
-- (BOOL)hasPasteboardChanged {
-  return UIPasteboard.generalPasteboard.changeCount !=
-         self.lastPasteboardChangeCount;
+#pragma mark - Public
+
+- (NSURL*)recentURLFromClipboard {
+  // If the clipboard can only be accessed asynchronously, then this method
+  // cannot even check whether the existing cached URL is stil valid.
+  if (self.onlyUseClipboardAsync) {
+    return nil;
+  }
+  return [self recentURLFromPasteboard:UIPasteboard.generalPasteboard];
+}
+
+- (NSString*)recentTextFromClipboard {
+  // If the clipboard can only be accessed asynchronously, then this method
+  // cannot even check whether the existing cached text is stil valid.
+  if (self.onlyUseClipboardAsync) {
+    return nil;
+  }
+
+  return [self recentTextFromPasteboard:UIPasteboard.generalPasteboard];
+}
+
+- (UIImage*)recentImageFromClipboard {
+  // If the clipboard can only be accessed asynchronously, then this method
+  // cannot even check whether the existing cached image is stil valid.
+  if (self.onlyUseClipboardAsync) {
+    return nil;
+  }
+
+  return [self recentImageFromPasteboard:UIPasteboard.generalPasteboard];
+}
+
+- (NSSet<ContentType>*)cachedClipboardContentTypes {
+  if (![self shouldReturnValueOfClipboard:nil]) {
+    return nil;
+  }
+  return self.cachedContentTypes;
+}
+
+- (void)hasContentMatchingTypes:(NSSet<ContentType>*)types
+              completionHandler:
+                  (void (^)(NSSet<ContentType>*))completionHandler {
+  __weak __typeof(self) weakSelf = self;
+  GetGeneralPasteboard(self.onlyUseClipboardAsync,
+                       base::BindOnce(^(UIPasteboard* pasteboard) {
+                         [weakSelf hasContentMatchingTypes:types
+                                                pasteboard:pasteboard
+                                         completionHandler:completionHandler];
+                       }));
+}
+
+- (void)recentURLFromClipboardAsync:(void (^)(NSURL*))callback {
+  __weak __typeof(self) weakSelf = self;
+  GetGeneralPasteboard(
+      self.onlyUseClipboardAsync, base::BindOnce(^(UIPasteboard* pasteboard) {
+        [weakSelf recentURLFromClipboardAsyncWithPasteboard:pasteboard
+                                                   callback:callback];
+      }));
+}
+
+- (void)recentTextFromClipboardAsync:(void (^)(NSString*))callback {
+  __weak __typeof(self) weakSelf = self;
+  GetGeneralPasteboard(
+      self.onlyUseClipboardAsync, base::BindOnce(^(UIPasteboard* pasteboard) {
+        [weakSelf recentTextFromClipboardAsyncWithPasteboard:pasteboard
+                                                    callback:callback];
+      }));
+}
+
+- (void)recentImageFromClipboardAsync:(void (^)(UIImage*))callback {
+  __weak __typeof(self) weakSelf = self;
+  GetGeneralPasteboard(
+      self.onlyUseClipboardAsync, base::BindOnce(^(UIPasteboard* pasteboard) {
+        [weakSelf recentImageFromClipboardAsyncWithPasteboard:pasteboard
+                                                     callback:callback];
+      }));
+}
+
+- (NSTimeInterval)clipboardContentAge {
+  return -[self.lastPasteboardChangeDate timeIntervalSinceNow];
+}
+
+- (void)suppressClipboardContent {
+  // User cleared the user data. The pasteboard entry must be removed from the
+  // omnibox list. Force entry expiration by setting copy date to 1970.
+  self.lastPasteboardChangeDate =
+      [[NSDate alloc] initWithTimeIntervalSince1970:0];
+  [self saveToUserDefaults];
+}
+
+- (void)saveToUserDefaults {
+  [self.sharedUserDefaults setInteger:self.lastPasteboardChangeCount
+                               forKey:kPasteboardChangeCountKey];
+  [self.sharedUserDefaults setObject:self.lastPasteboardChangeDate
+                              forKey:kPasteboardChangeDateKey];
+}
+
+#pragma mark - Private
+
+// Returns whether the pasteboard changed since the last time a pasteboard
+// change was detected.
+- (BOOL)hasPasteboardChanged:(UIPasteboard*)pasteboard {
+  return pasteboard.changeCount != self.lastPasteboardChangeCount;
 }
 
 - (void)pasteboardDidChange:(NSNotification*)notification {
   [self updateCachedClipboardState];
-}
-
-- (NSURL*)recentURLFromClipboard {
-  [self updateIfNeeded];
-
-  if (![self shouldReturnValueOfClipboard])
-    return nil;
-
-  if (@available(iOS 14, *)) {
-    // On iOS 14, don't actually access the pasteboard in this method. This
-    // prevents the pasteboard access notification from appearing.
-  } else {
-    if (!self.cachedURL) {
-      self.cachedURL = [self URLFromPasteboard];
-    }
-  }
-  return self.cachedURL;
-}
-
-- (NSString*)recentTextFromClipboard {
-  [self updateIfNeeded];
-
-  if (![self shouldReturnValueOfClipboard])
-    return nil;
-
-  if (@available(iOS 14, *)) {
-    // On iOS 14, don't actually access the pasteboard in this method. This
-    // prevents the pasteboard access notification from appearing.
-  } else {
-    if (!self.cachedText) {
-      self.cachedText = UIPasteboard.generalPasteboard.string;
-    }
-  }
-  return self.cachedText;
-}
-
-- (UIImage*)recentImageFromClipboard {
-  [self updateIfNeeded];
-
-  if (![self shouldReturnValueOfClipboard])
-    return nil;
-
-  if (@available(iOS 14, *)) {
-    // On iOS 14, don't actually access the pasteboard in this method. This
-    // prevents the pasteboard access notification from appearing.
-  } else {
-    if (!self.cachedImage) {
-      self.cachedImage = UIPasteboard.generalPasteboard.image;
-    }
-  }
-
-  return self.cachedImage;
 }
 
 - (void)updateCachedClipboardState {
@@ -213,28 +270,88 @@ NSString* const kPasteboardChangeDateKey = @"PasteboardChangeDate";
               }];
 }
 
-- (NSSet<ContentType>*)cachedClipboardContentTypes {
-  if (![self shouldReturnValueOfClipboard])
+// The synchronous version of this method is kept around for public APIs and old
+// iOS versions.
+- (NSURL*)recentURLFromPasteboard:(UIPasteboard*)pasteboard {
+  [self updateIfNeededWithPasteboard:pasteboard];
+
+  if (![self shouldReturnValueOfClipboard:pasteboard]) {
     return nil;
-  return self.cachedContentTypes;
+  }
+
+  if (@available(iOS 14, *)) {
+    // On iOS 14, don't actually access the pasteboard in this method. This
+    // prevents the pasteboard access notification from appearing.
+  } else {
+    if (!self.cachedURL) {
+      self.cachedURL = [self URLFromPasteboard:pasteboard];
+    }
+  }
+  return self.cachedURL;
 }
 
+// The synchronous version of this method is kept around for public APIs and old
+// iOS versions.
+- (NSString*)recentTextFromPasteboard:(UIPasteboard*)pasteboard {
+  [self updateIfNeededWithPasteboard:pasteboard];
+
+  if (![self shouldReturnValueOfClipboard:pasteboard]) {
+    return nil;
+  }
+
+  if (@available(iOS 14, *)) {
+    // On iOS 14, don't actually access the pasteboard in this method. This
+    // prevents the pasteboard access notification from appearing.
+  } else {
+    if (!self.cachedText) {
+      self.cachedText = pasteboard.string;
+    }
+  }
+  return self.cachedText;
+}
+
+// The synchronous version of this method is kept around for public APIs and old
+// iOS versions.
+- (UIImage*)recentImageFromPasteboard:(UIPasteboard*)pasteboard {
+  [self updateIfNeededWithPasteboard:pasteboard];
+
+  if (![self shouldReturnValueOfClipboard:pasteboard]) {
+    return nil;
+  }
+
+  if (@available(iOS 14, *)) {
+    // On iOS 14, don't actually access the pasteboard in this method. This
+    // prevents the pasteboard access notification from appearing.
+  } else {
+    if (!self.cachedImage) {
+      self.cachedImage = pasteboard.image;
+    }
+  }
+
+  return self.cachedImage;
+}
+
+// Checks for if the given `pasteboard` has content matching the provided
+// `types`.
 - (void)hasContentMatchingTypes:(NSSet<ContentType>*)types
+                     pasteboard:(UIPasteboard*)pasteboard
               completionHandler:
                   (void (^)(NSSet<ContentType>*))completionHandler {
-  [self updateIfNeeded];
-  if (![self shouldReturnValueOfClipboard] || ![types count]) {
+  [self updateIfNeededWithPasteboard:pasteboard];
+  if (![self shouldReturnValueOfClipboard:pasteboard] || ![types count]) {
     completionHandler([NSSet set]);
     return;
   }
 
   [self hasContentMatchingRemainingTypes:types
+                              pasteboard:pasteboard
                                  results:[[NSMutableDictionary alloc] init]
                        completionHandler:completionHandler];
 }
 
 - (void)
     hasContentMatchingRemainingTypes:(NSSet<ContentType>*)types
+                          pasteboard:(UIPasteboard*)pasteboard
                              results:
                                  (NSMutableDictionary<ContentType, NSNumber*>*)
                                      results
@@ -254,37 +371,49 @@ NSString* const kPasteboardChangeDateKey = @"PasteboardChangeDate";
   __weak __typeof(self) weakSelf = self;
   ContentType type = [types anyObject];
   [self checkForContentType:type
+                 pasteboard:pasteboard
           completionHandler:^(BOOL hasType) {
             results[type] = @(hasType);
 
             NSMutableSet* remainingTypes = [types mutableCopy];
             [remainingTypes removeObject:type];
             [weakSelf hasContentMatchingRemainingTypes:remainingTypes
+                                            pasteboard:pasteboard
                                                results:results
                                      completionHandler:completionHandler];
           }];
 }
 
 - (void)checkForContentType:(ContentType)contentType
+                 pasteboard:(UIPasteboard*)pasteboard
           completionHandler:(void (^)(BOOL))completionHandler {
   if ([contentType isEqualToString:ContentTypeText]) {
-    [self hasRecentTextFromClipboardInternal:^(BOOL hasText) {
-      completionHandler(hasText);
-    }];
+    [self hasRecentTextFromClipboardInternalWithPasteboard:pasteboard
+                                                  callback:^(BOOL hasText) {
+                                                    completionHandler(hasText);
+                                                  }];
   } else if ([contentType isEqualToString:ContentTypeURL]) {
-    [self hasRecentURLFromClipboardInternal:^(BOOL hasURL) {
-      completionHandler(hasURL);
-    }];
+    [self hasRecentURLFromClipboardInternalWithPasteboard:pasteboard
+                                                 callback:^(BOOL hasURL) {
+                                                   completionHandler(hasURL);
+                                                 }];
   } else if ([contentType isEqualToString:ContentTypeImage]) {
-    [self hasRecentImageFromClipboardInternal:^(BOOL hasImage) {
-      completionHandler(hasImage);
-    }];
+    [self
+        hasRecentImageFromClipboardInternalWithPasteboard:pasteboard
+                                                 callback:^(BOOL hasImage) {
+                                                   completionHandler(hasImage);
+                                                 }];
   } else {
     NOTREACHED() << contentType;
   }
 }
 
-- (void)hasRecentURLFromClipboardInternal:(void (^)(BOOL))callback {
+// The underlying logic to check if the clipboard has a recent URL, with the
+// addition of a `pasteboard` parameter to aid in forcing all pasteboard access
+// to be async.
+- (void)
+    hasRecentURLFromClipboardInternalWithPasteboard:(UIPasteboard*)pasteboard
+                                           callback:(void (^)(BOOL))callback {
   DCHECK(callback);
   if (@available(iOS 14, *)) {
     // Use cached value if it exists
@@ -296,7 +425,7 @@ NSString* const kPasteboardChangeDateKey = @"PasteboardChangeDate";
 #if defined(__IPHONE_14_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_14_0
     NSSet<UIPasteboardDetectionPattern>* urlPattern =
         [NSSet setWithObject:UIPasteboardDetectionPatternProbableWebURL];
-    [UIPasteboard.generalPasteboard
+    [pasteboard
         detectPatternsForPatterns:urlPattern
                 completionHandler:^(
                     NSSet<UIPasteboardDetectionPattern>* patterns,
@@ -311,14 +440,19 @@ NSString* const kPasteboardChangeDateKey = @"PasteboardChangeDate";
     // cause crbug.com/1033935 to reappear in code using this method (also see
     // the comments in -URLFromPasteboard in this file), but that is preferable
     // to the notificatio appearing when it shouldn't.
-    callback(UIPasteboard.generalPasteboard.hasURLs);
+    callback(pasteboard.hasURLs);
 #endif
   } else {
-    callback([self recentURLFromClipboard] != nil);
+    callback([self recentURLFromPasteboard:pasteboard] != nil);
   }
 }
 
-- (void)hasRecentTextFromClipboardInternal:(void (^)(BOOL))callback {
+// The underlying logic to check if the clipboard has recent text, with the
+// addition of a `pasteboard` parameter to aid in forcing all pasteboard access
+// to be async.
+- (void)
+    hasRecentTextFromClipboardInternalWithPasteboard:(UIPasteboard*)pasteboard
+                                            callback:(void (^)(BOOL))callback {
   DCHECK(callback);
   if (@available(iOS 14, *)) {
     // Use cached value if it exists
@@ -330,7 +464,7 @@ NSString* const kPasteboardChangeDateKey = @"PasteboardChangeDate";
 #if defined(__IPHONE_14_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_14_0
     NSSet<UIPasteboardDetectionPattern>* textPattern =
         [NSSet setWithObject:UIPasteboardDetectionPatternProbableWebSearch];
-    [UIPasteboard.generalPasteboard
+    [pasteboard
         detectPatternsForPatterns:textPattern
                 completionHandler:^(
                     NSSet<UIPasteboardDetectionPattern>* patterns,
@@ -340,14 +474,19 @@ NSString* const kPasteboardChangeDateKey = @"PasteboardChangeDate";
                           UIPasteboardDetectionPatternProbableWebSearch]);
                 }];
 #else
-    callback(UIPasteboard.generalPasteboard.hasStrings);
+    callback(pasteboard.hasStrings);
 #endif
   } else {
-    callback([self recentTextFromClipboard] != nil);
+    callback([self recentTextFromPasteboard:pasteboard] != nil);
   }
 }
 
-- (void)hasRecentImageFromClipboardInternal:(void (^)(BOOL))callback {
+// The underlying logic to check if the clipboard has a recent image, with the
+// addition of a `pasteboard` parameter to aid in forcing all pasteboard access
+// to be async.
+- (void)
+    hasRecentImageFromClipboardInternalWithPasteboard:(UIPasteboard*)pasteboard
+                                             callback:(void (^)(BOOL))callback {
   DCHECK(callback);
   if (@available(iOS 14, *)) {
     // Use cached value if it exists
@@ -356,17 +495,20 @@ NSString* const kPasteboardChangeDateKey = @"PasteboardChangeDate";
       return;
     }
 
-    callback(UIPasteboard.generalPasteboard.hasImages);
+    callback(pasteboard.hasImages);
   } else {
-    callback([self recentImageFromClipboard] != nil);
+    callback([self recentImageFromPasteboard:pasteboard] != nil);
   }
 }
 
-- (void)recentURLFromClipboardAsync:(void (^)(NSURL*))callback {
+// The underlying logic to check the recent url, with the addition of a
+// `pasteboard` parameter to aid in forcing all pasteboard access to be async.
+- (void)recentURLFromClipboardAsyncWithPasteboard:(UIPasteboard*)pasteboard
+                                         callback:(void (^)(NSURL*))callback {
   DCHECK(callback);
   if (@available(iOS 14, *)) {
-    [self updateIfNeeded];
-    if (![self shouldReturnValueOfClipboard]) {
+    [self updateIfNeededWithPasteboard:pasteboard];
+    if (![self shouldReturnValueOfClipboard:pasteboard]) {
       callback(nil);
       return;
     }
@@ -381,16 +523,30 @@ NSString* const kPasteboardChangeDateKey = @"PasteboardChangeDate";
     __weak __typeof(self) weakSelf = self;
     NSSet<UIPasteboardDetectionPattern>* urlPattern =
         [NSSet setWithObject:UIPasteboardDetectionPatternProbableWebURL];
-    [UIPasteboard.generalPasteboard
+    [pasteboard
         detectValuesForPatterns:urlPattern
               completionHandler:^(
                   NSDictionary<UIPasteboardDetectionPattern, id>* values,
                   NSError* error) {
-                DCHECK(!error) << error.debugDescription;
-
+                // On iOS 16, users can deny access to the clipboard.
+                if (error) {
+                  weakSelf.cachedURL = nil;
+                  callback(nil);
+                  return;
+                }
                 NSURL* url = [NSURL
                     URLWithString:
                         values[UIPasteboardDetectionPatternProbableWebURL]];
+
+                // |detectValuesForPatterns:| will return a url even if the url
+                // is missing a scheme. In this case, default to https.
+                if (url && url.scheme == nil) {
+                  NSURLComponents* components =
+                      [[NSURLComponents alloc] initWithURL:url
+                                   resolvingAgainstBaseURL:NO];
+                  components.scheme = kDefaultScheme;
+                  url = components.URL;
+                }
 
                 if (![self.authorizedSchemes containsObject:url.scheme]) {
                   weakSelf.cachedURL = nil;
@@ -401,18 +557,22 @@ NSString* const kPasteboardChangeDateKey = @"PasteboardChangeDate";
                 }
               }];
 #else
-    callback([self recentURLFromClipboard]);
+    callback([self recentURLFromPasteboard:pasteboard]);
 #endif
   } else {
-    callback([self recentURLFromClipboard]);
+    callback([self recentURLFromPasteboard:pasteboard]);
   }
 }
 
-- (void)recentTextFromClipboardAsync:(void (^)(NSString*))callback {
+// The underlying logic to check the recent text, with the addition of a
+// `pasteboard` parameter to aid in forcing all pasteboard access to be async.
+- (void)recentTextFromClipboardAsyncWithPasteboard:(UIPasteboard*)pasteboard
+                                          callback:
+                                              (void (^)(NSString*))callback {
   DCHECK(callback);
   if (@available(iOS 14, *)) {
-    [self updateIfNeeded];
-    if (![self shouldReturnValueOfClipboard]) {
+    [self updateIfNeededWithPasteboard:pasteboard];
+    if (![self shouldReturnValueOfClipboard:pasteboard]) {
       callback(nil);
       return;
     }
@@ -427,7 +587,7 @@ NSString* const kPasteboardChangeDateKey = @"PasteboardChangeDate";
     __weak __typeof(self) weakSelf = self;
     NSSet<UIPasteboardDetectionPattern>* textPattern =
         [NSSet setWithObject:UIPasteboardDetectionPatternProbableWebSearch];
-    [UIPasteboard.generalPasteboard
+    [pasteboard
         detectValuesForPatterns:textPattern
               completionHandler:^(
                   NSDictionary<UIPasteboardDetectionPattern, id>* values,
@@ -439,32 +599,33 @@ NSString* const kPasteboardChangeDateKey = @"PasteboardChangeDate";
                 callback(text);
               }];
 #else
-    callback([self recentTextFromClipboard]);
+    callback([self recentTextFromPasteboard:pasteboard]);
 #endif
   } else {
-    callback([self recentTextFromClipboard]);
+    callback([self recentTextFromPasteboard:pasteboard]);
   }
 }
 
-- (void)recentImageFromClipboardAsync:(void (^)(UIImage*))callback {
+// The underlying logic to check the recent image, with the addition of a
+// `pasteboard` parameter to aid in forcing all pasteboard access to be async.
+- (void)recentImageFromClipboardAsyncWithPasteboard:(UIPasteboard*)pasteboard
+                                           callback:
+                                               (void (^)(UIImage*))callback {
   DCHECK(callback);
-  [self updateIfNeeded];
-  if (![self shouldReturnValueOfClipboard]) {
+  [self updateIfNeededWithPasteboard:pasteboard];
+  if (![self shouldReturnValueOfClipboard:pasteboard]) {
     callback(nil);
     return;
   }
 
   if (!self.cachedImage) {
-    self.cachedImage = UIPasteboard.generalPasteboard.image;
+    self.cachedImage = pasteboard.image;
   }
   callback(self.cachedImage);
 }
 
-- (NSTimeInterval)clipboardContentAge {
-  return -[self.lastPasteboardChangeDate timeIntervalSinceNow];
-}
-
-- (BOOL)shouldReturnValueOfClipboard {
+// Returns whether the value of the given clipboard should be returned.
+- (BOOL)shouldReturnValueOfClipboard:(UIPasteboard*)pasteboard {
   if ([self clipboardContentAge] > self.maximumAgeOfClipboard)
     return NO;
 
@@ -472,29 +633,22 @@ NSString* const kPasteboardChangeDateKey = @"PasteboardChangeDate";
   // data with the flavor "org.nspasteboard.ConcealedType". Obey this
   // convention; the user doesn't want for their confidential data to be
   // suggested as a search, anyway. See http://nspasteboard.org/ for more info.
-  NSArray<NSString*>* types =
-      [[UIPasteboard generalPasteboard] pasteboardTypes];
+  NSArray<NSString*>* types = [pasteboard pasteboardTypes];
   if ([types containsObject:@"org.nspasteboard.ConcealedType"])
     return NO;
 
   return YES;
 }
 
-- (void)suppressClipboardContent {
-  // User cleared the user data. The pasteboard entry must be removed from the
-  // omnibox list. Force entry expiration by setting copy date to 1970.
-  self.lastPasteboardChangeDate =
-      [[NSDate alloc] initWithTimeIntervalSince1970:0];
-  [self saveToUserDefaults];
-}
-
-- (void)updateIfNeeded {
-  if (![self hasPasteboardChanged]) {
+// If the content of the pasteboard has changed, updates the change count
+// and change date.
+- (void)updateIfNeededWithPasteboard:(UIPasteboard*)pasteboard {
+  if (![self hasPasteboardChanged:pasteboard]) {
     return;
   }
 
   self.lastPasteboardChangeDate = [NSDate date];
-  self.lastPasteboardChangeCount = [UIPasteboard generalPasteboard].changeCount;
+  self.lastPasteboardChangeCount = pasteboard.changeCount;
 
   // Clear the cache because the pasteboard data has changed.
   self.cachedURL = nil;
@@ -506,15 +660,15 @@ NSString* const kPasteboardChangeDateKey = @"PasteboardChangeDate";
   [self saveToUserDefaults];
 }
 
-- (NSURL*)URLFromPasteboard {
-  NSURL* url = [UIPasteboard generalPasteboard].URL;
+- (NSURL*)URLFromPasteboard:(UIPasteboard*)pasteboard {
+  NSURL* url = pasteboard.URL;
   // Usually, even if the user copies plaintext, if it looks like a URL, the URL
   // property is filled. Sometimes, this doesn't happen, for instance when the
   // pasteboard is sync'd from a Mac to the iOS simulator. In this case,
   // fallback and manually check whether the pasteboard contains a url-like
   // string.
   if (!url) {
-    url = [NSURL URLWithString:UIPasteboard.generalPasteboard.string];
+    url = [NSURL URLWithString:pasteboard.string];
   }
   if (![self.authorizedSchemes containsObject:url.scheme]) {
     return nil;
@@ -527,13 +681,6 @@ NSString* const kPasteboardChangeDateKey = @"PasteboardChangeDate";
       [self.sharedUserDefaults integerForKey:kPasteboardChangeCountKey];
   self.lastPasteboardChangeDate = base::mac::ObjCCastStrict<NSDate>(
       [self.sharedUserDefaults objectForKey:kPasteboardChangeDateKey]);
-}
-
-- (void)saveToUserDefaults {
-  [self.sharedUserDefaults setInteger:self.lastPasteboardChangeCount
-                               forKey:kPasteboardChangeCountKey];
-  [self.sharedUserDefaults setObject:self.lastPasteboardChangeDate
-                              forKey:kPasteboardChangeDateKey];
 }
 
 - (NSTimeInterval)uptime {

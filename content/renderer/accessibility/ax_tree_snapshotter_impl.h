@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,8 +23,7 @@ class AXTreeSnapshotterImpl : public AXTreeSnapshotter {
   ~AXTreeSnapshotterImpl() override;
 
   // AXTreeSnapshotter implementation.
-  void Snapshot(bool exclude_offscreen,
-                size_t max_node_count,
+  void Snapshot(size_t max_node_count,
                 base::TimeDelta timeout,
                 ui::AXTreeUpdate* accessibility_tree) override;
 

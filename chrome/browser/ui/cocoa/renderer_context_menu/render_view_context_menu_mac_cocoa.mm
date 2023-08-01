@@ -1,8 +1,9 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/cocoa/renderer_context_menu/render_view_context_menu_mac_cocoa.h"
+#include "base/memory/raw_ptr.h"
 
 #include <utility>
 
@@ -17,7 +18,10 @@
 #import "chrome/browser/mac/nsprocessinfo_additions.h"
 #include "content/public/browser/web_contents.h"
 #import "ui/base/cocoa/menu_controller.h"
+#include "ui/base/interaction/element_tracker_mac.h"
 #include "ui/color/color_provider.h"
+#include "ui/views/controls/menu/menu_controller_cocoa_delegate_impl.h"
+#include "ui/views/interaction/element_tracker_views.h"
 #include "ui/views/widget/widget.h"
 
 namespace {
@@ -37,7 +41,7 @@ NSMutableArray* g_filtered_entries_array = nil;
 NSMenuItem* GetMenuItemByID(ui::MenuModel* model,
                             NSMenu* menu,
                             int command_id) {
-  for (int i = 0; i < model->GetItemCount(); ++i) {
+  for (size_t i = 0; i < model->GetItemCount(); ++i) {
     NSMenuItem* item = [menu itemAtIndex:i];
     if (model->GetCommandIdAt(i) == command_id)
       return item;
@@ -181,7 +185,7 @@ class ToolkitDelegateMacCocoa : public RenderViewContextMenu::ToolkitDelegate {
     context_menu_->UpdateToolkitMenuItem(command_id, enabled, hidden, title);
   }
 
-  RenderViewContextMenuMacCocoa* context_menu_;
+  raw_ptr<RenderViewContextMenuMacCocoa> context_menu_;
 };
 
 // Obj-C bridge class that is the target of all items in the context menu.
@@ -207,13 +211,17 @@ void RenderViewContextMenuMacCocoa::Show() {
   const ui::ColorProvider* color_provider =
       widget ? widget->GetColorProvider() : nullptr;
 
+  menu_controller_delegate_.reset(
+      [[MenuControllerCocoaDelegateImpl alloc] init]);
   menu_controller_.reset([[MenuControllerCocoa alloc]
                initWithModel:&menu_model_
-                    delegate:nil
+                    delegate:menu_controller_delegate_.get()
                colorProvider:color_provider
       useWithPopUpButtonCell:NO]);
 
   gfx::Point params_position(params_.x, params_.y);
+  // TODO(dfried): this is almost certainly wrong; let's fix it.
+  [menu_controller_delegate_ setAnchorRect:gfx::Rect(params_position, {1, 1})];
 
   // Synthesize an event for the click, as there is no certainty that
   // [NSApp currentEvent] will return a valid event.
@@ -224,7 +232,7 @@ void RenderViewContextMenuMacCocoa::Show() {
                   NSHeight([parent_view_ bounds]) - params_position.y());
   position = [parent_view_ convertPoint:position toView:nil];
   NSTimeInterval eventTime = [currentEvent timestamp];
-  NSEvent* clickEvent = [NSEvent mouseEventWithType:NSRightMouseDown
+  NSEvent* clickEvent = [NSEvent mouseEventWithType:NSEventTypeRightMouseDown
                                            location:position
                                       modifierFlags:0
                                           timestamp:eventTime
@@ -236,7 +244,7 @@ void RenderViewContextMenuMacCocoa::Show() {
 
   {
     // Make sure events can be pumped while the menu is up.
-    base::CurrentThread::ScopedNestableTaskAllower allow;
+    base::CurrentThread::ScopedAllowApplicationTasksInNativeNestedLoop allow;
 
     // Ensure the UI can update while the menu is fading out.
     base::ScopedPumpMessagesInPrivateModes pump_private;
@@ -248,10 +256,18 @@ void RenderViewContextMenuMacCocoa::Show() {
     // be done manually.
     base::mac::ScopedSendingEvent sendingEventScoper;
 
+    NSMenu* const menu = [menu_controller_ menu];
+    if (widget) {
+      ui::ElementTrackerMac::GetInstance()->NotifyMenuWillShow(
+          menu, views::ElementTrackerViews::GetContextForWidget(widget));
+    }
+
     // Show the menu.
-    [NSMenu popUpContextMenu:[menu_controller_ menu]
-                   withEvent:clickEvent
-                     forView:parent_view_];
+    [NSMenu popUpContextMenu:menu withEvent:clickEvent forView:parent_view_];
+
+    if (widget) {
+      ui::ElementTrackerMac::GetInstance()->NotifyMenuDoneShowing(menu);
+    }
   }
 }
 

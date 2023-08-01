@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,11 @@
 #include <algorithm>
 #include <string>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/containers/span.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/string_number_conversions.h"
@@ -25,7 +26,6 @@
 #include "chrome/chrome_cleaner/logging/scoped_logging.h"
 #include "chrome/chrome_cleaner/os/disk_util.h"
 #include "chrome/chrome_cleaner/os/initializer.h"
-#include "sandbox/win/src/sandbox.h"
 #include "sandbox/win/src/sandbox_factory.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -46,7 +46,7 @@ class MockSandboxTargetServices : public sandbox::TargetServices {
   MOCK_METHOD0(Init, sandbox::ResultCode());
   MOCK_METHOD0(LowerToken, void());
   MOCK_METHOD0(GetState, sandbox::ProcessState*());
-  MOCK_METHOD3(CreateBrokeredSocket, SOCKET(int af, int family, int protocol));
+  MOCK_METHOD0(GetDelegateData, absl::optional<base::span<const uint8_t>>());
 };
 
 class TestSandboxSetupHooks : public SandboxSetupHooks {

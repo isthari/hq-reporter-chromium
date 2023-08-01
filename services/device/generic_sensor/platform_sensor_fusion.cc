@@ -1,17 +1,17 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "services/device/generic_sensor/platform_sensor_fusion.h"
 
-#include <algorithm>
-
-#include "base/bind.h"
 #include "base/check.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/notreached.h"
+#include "base/observer_list.h"
 #include "base/ranges/algorithm.h"
+#include "base/time/time.h"
 #include "services/device/generic_sensor/platform_sensor_fusion_algorithm.h"
 #include "services/device/generic_sensor/platform_sensor_provider.h"
 #include "services/device/generic_sensor/platform_sensor_util.h"
@@ -42,10 +42,7 @@ class PlatformSensorFusion::Factory : public base::RefCounted<Factory> {
         result_callback_(std::move(callback)),
         reading_buffer_(reading_buffer),
         provider_(provider) {
-    const auto& types = fusion_algorithm_->source_types();
-    DCHECK(!types.empty());
-    // Make sure there are no dups.
-    DCHECK(std::adjacent_find(types.begin(), types.end()) == types.end());
+    DCHECK(!fusion_algorithm_->source_types().empty());
     DCHECK(result_callback_);
     DCHECK(reading_buffer_);
     DCHECK(provider_);
@@ -199,16 +196,7 @@ void PlatformSensorFusion::OnSensorReadingChanged(mojom::SensorType type) {
   if (!fusion_algorithm_->GetFusedData(type, &reading))
     return;
 
-  // Round the reading to guard user privacy. See https://crbug.com/1018180.
-  RoundSensorReading(&reading, fusion_algorithm_->fused_type());
-
-  if (GetReportingMode() == mojom::ReportingMode::ON_CHANGE &&
-      !fusion_algorithm_->IsReadingSignificantlyDifferent(reading_, reading)) {
-    return;
-  }
-
-  reading_ = reading;
-  UpdateSharedBufferAndNotifyClients(reading_);
+  UpdateSharedBufferAndNotifyClients(reading);
 }
 
 void PlatformSensorFusion::OnSensorError() {
@@ -229,6 +217,19 @@ bool PlatformSensorFusion::GetSourceReading(mojom::SensorType type,
   if (it != source_sensors_.end())
     return it->second->GetLatestRawReading(result);
   NOTREACHED();
+  return false;
+}
+
+bool PlatformSensorFusion::IsSignificantlyDifferent(
+    const SensorReading& reading1,
+    const SensorReading& reading2,
+    mojom::SensorType) {
+  for (size_t i = 0; i < SensorReadingRaw::kValuesCount; ++i) {
+    if (std::fabs(reading1.raw.values[i] - reading2.raw.values[i]) >=
+        fusion_algorithm_->threshold()) {
+      return true;
+    }
+  }
   return false;
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,36 +7,62 @@
 
 #include <string>
 
+#include "ash/constants/notifier_catalogs.h"
 #include "ash/public/cpp/ash_public_export.h"
-#include "ash/public/cpp/system/toast_catalog.h"
-#include "base/callback.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "base/functional/callback.h"
+#include "base/time/time.h"
+#include "ui/gfx/paint_vector_icon.h"
 
 namespace ash {
 
 struct ASH_PUBLIC_EXPORT ToastData {
-  // "|duration_ms| == -1" means the toast view should be displayed until the
-  // dismiss button is clicked.
-  static const int32_t kInfiniteDuration = -1;
-  static const int32_t kDefaultToastDurationMs = 6 * 1000;
+  // A `ToastData` with a `kInfiniteDuration` duration will be displayed until
+  // the dismiss button on the toast is clicked.
+  static constexpr base::TimeDelta kInfiniteDuration = base::TimeDelta::Max();
 
+  // The default duration that a toast will be shown before it is automatically
+  // dismissed.
+  static constexpr base::TimeDelta kDefaultToastDuration = base::Seconds(6);
+
+  // Minimum duration for a toast to be visible before it is automatically
+  // dismissed.
+  static constexpr base::TimeDelta kMinimumDuration = base::Milliseconds(200);
+
+  // Creates a `ToastData` which is used to configure how a toast behaves when
+  // shown. The toast `duration` is how long the toast will be shown before it
+  // is automatically dismissed. The `duration` will be set to
+  // `kMinimumDuration` for any value provided that is smaller than
+  // `kMinimumDuration`. To disable automatically dismissing the toast, set the
+  // `duration` to `kInfiniteDuration`. If `has_dismiss_button` is true, it will
+  // use the default dismiss text unless a non-empty `custom_dismiss_text` is
+  // given.
   ToastData(std::string id,
             ToastCatalogName catalog_name,
             const std::u16string& text,
-            int32_t duration_ms = kDefaultToastDurationMs,
+            base::TimeDelta duration = kDefaultToastDuration,
             bool visible_on_lock_screen = false,
-            const absl::optional<std::u16string>& dismiss_text = absl::nullopt);
-  ToastData(const ToastData& other);
+            bool has_dismiss_button = false,
+            const std::u16string& custom_dismiss_text = std::u16string(),
+            base::RepeatingClosure dismiss_callback = base::RepeatingClosure(),
+            const gfx::VectorIcon& leading_icon = gfx::kNoneIcon);
+  ToastData(ToastData&& other);
+  ToastData& operator=(ToastData&& other);
   ~ToastData();
 
   std::string id;
   ToastCatalogName catalog_name;
   std::u16string text;
-  int32_t duration_ms;
+  base::TimeDelta duration;
   bool visible_on_lock_screen;
-  absl::optional<std::u16string> dismiss_text;
-  bool is_managed = false;
+  std::u16string dismiss_text;
+  bool persist_on_hover = false;
+  bool show_on_all_root_windows = false;
+  // TODO(b/259100049): We should turn this into a `OnceClosure`.
   base::RepeatingClosure dismiss_callback;
+  const gfx::VectorIcon* leading_icon;
+  base::OnceClosure expired_callback;
+  base::TimeTicks time_created;
+  base::TimeTicks time_start_showing;
 };
 
 }  // namespace ash

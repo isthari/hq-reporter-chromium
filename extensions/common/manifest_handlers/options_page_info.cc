@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -121,10 +121,9 @@ std::unique_ptr<OptionsPageInfo> OptionsPageInfo::Create(
     std::u16string options_ui_error;
 
     std::unique_ptr<OptionsUI> options_ui =
-        OptionsUI::FromValue(*options_ui_value, &options_ui_error);
+        OptionsUI::FromValueDeprecated(*options_ui_value, &options_ui_error);
     if (!options_ui) {
-      install_warnings->push_back(
-          InstallWarning(base::UTF16ToASCII(options_ui_error)));
+      install_warnings->emplace_back(base::UTF16ToASCII(options_ui_error));
     } else {
       std::u16string options_parse_error;
       if (!ParseOptionsUrl(extension,
@@ -132,10 +131,9 @@ std::unique_ptr<OptionsPageInfo> OptionsPageInfo::Create(
                            keys::kOptionsUI,
                            &options_parse_error,
                            &options_page)) {
-        install_warnings->push_back(
-            InstallWarning(base::UTF16ToASCII(options_parse_error)));
+        install_warnings->emplace_back(base::UTF16ToASCII(options_parse_error));
       }
-      if (options_ui->chrome_style.get()) {
+      if (options_ui->chrome_style) {
         if (extension->manifest_version() < 3)
           chrome_style = *options_ui->chrome_style;
         else {
@@ -143,9 +141,7 @@ std::unique_ptr<OptionsPageInfo> OptionsPageInfo::Create(
           return nullptr;
         }
       }
-      open_in_tab = false;
-      if (options_ui->open_in_tab.get())
-        open_in_tab = *options_ui->open_in_tab;
+      open_in_tab = options_ui->open_in_tab.value_or(false);
     }
   }
 

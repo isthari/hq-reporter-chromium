@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,25 +8,37 @@
 #include <memory>
 
 #include "ash/app_list/app_list_metrics.h"
+#include "ash/app_list/app_list_model_provider.h"
+#include "ash/app_list/quick_app_access_model.h"
 #include "ash/ash_export.h"
+#include "ash/public/cpp/app_list/app_list_controller_observer.h"
 #include "ash/shelf/home_button_controller.h"
 #include "ash/shelf/shelf_button_delegate.h"
 #include "ash/shelf/shelf_control_button.h"
+#include "ash/shell_observer.h"
+#include "base/memory/raw_ptr.h"
+#include "base/scoped_observation.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/transform.h"
 #include "ui/views/view_targeter_delegate.h"
 
 namespace views {
+class AnimationBuilder;
 class CircleLayerDelegate;
+class ImageButton;
+class Label;
 }  // namespace views
 
 namespace ui {
-class Layer;
+class LayerOwner;
 }
 
 namespace ash {
 
+class Shelf;
 class ShelfButtonDelegate;
 class ShelfNavigationWidget;
+class Shell;
 
 // Button used for the AppList icon on the shelf. It opens the app list (in
 // clamshell mode) or home screen (in tablet mode). Because the clamshell-mode
@@ -37,7 +49,10 @@ class ShelfNavigationWidget;
 // launch Assistant.
 class ASH_EXPORT HomeButton : public ShelfControlButton,
                               public ShelfButtonDelegate,
-                              public views::ViewTargeterDelegate {
+                              public views::ViewTargeterDelegate,
+                              public ShellObserver,
+                              public AppListModelProvider::Observer,
+                              public QuickAppAccessModel::Observer {
  public:
   class ScopedNoClipRect {
    public:
@@ -47,7 +62,8 @@ class ASH_EXPORT HomeButton : public ShelfControlButton,
     ~ScopedNoClipRect();
 
    private:
-    ShelfNavigationWidget* const shelf_navigation_widget_;
+    const raw_ptr<ShelfNavigationWidget, ExperimentalAsh>
+        shelf_navigation_widget_;
     const gfx::Rect clip_rect_;
   };
 
@@ -63,6 +79,9 @@ class ASH_EXPORT HomeButton : public ShelfControlButton,
     // Called when the nudge animation is started/ended.
     virtual void NudgeAnimationStarted(HomeButton* home_button) = 0;
     virtual void NudgeAnimationEnded(HomeButton* home_button) = 0;
+
+    // Called when the nudge label is animated to fully shown.
+    virtual void NudgeLabelShown(HomeButton* home_button) = 0;
   };
 
   static const char kViewClassName[];
@@ -73,6 +92,10 @@ class ASH_EXPORT HomeButton : public ShelfControlButton,
   HomeButton& operator=(const HomeButton&) = delete;
 
   ~HomeButton() override;
+
+  // views::View:
+  gfx::Size CalculatePreferredSize() const override;
+  void Layout() override;
 
   // views::Button:
   void OnGestureEvent(ui::GestureEvent* event) override;
@@ -104,11 +127,27 @@ class ASH_EXPORT HomeButton : public ShelfControlButton,
   // returned ScopedNoClipRect.
   [[nodiscard]] std::unique_ptr<ScopedNoClipRect> CreateScopedNoClipRect();
 
+  // Checks if the `nudge_label_` can be shown for the launcher nudge.
+  // NOTE: This must be called after `CreateNudgeLabel()`, where the
+  // `nudge_label_` is created. This is because whether the nudge can be shown
+  // depends on nudge_label_'s preferred size.
+  bool CanShowNudgeLabel() const;
+
   // Starts the launcher nudge animation.
   void StartNudgeAnimation();
 
   void AddNudgeAnimationObserverForTest(NudgeAnimationObserver* observer);
   void RemoveNudgeAnimationObserverForTest(NudgeAnimationObserver* observer);
+
+  views::View* expandable_container_for_test() const {
+    return expandable_container_;
+  }
+
+  views::Label* nudge_label_for_test() const { return nudge_label_; }
+
+  views::ImageButton* quick_app_button_for_test() const {
+    return quick_app_button_;
+  }
 
  protected:
   // views::Button:
@@ -116,26 +155,108 @@ class ASH_EXPORT HomeButton : public ShelfControlButton,
   void OnThemeChanged() override;
 
  private:
+  // Creates `nudge_label_` for launcher nudge.
+  void CreateNudgeLabel();
+
+  // Creates the `expandable_container_` which holds either the `nudge_label_`
+  // or the `quick_app_button_`.
+  void CreateExpandableContainer();
+
+  // Creates the `quick_app_button_` to be shown next to the home button.
+  void CreateQuickAppButton();
+
+  // Called when the quick app button is pressed.
+  void QuickAppButtonPressed();
+
+  // Animation functions for launcher nudge.
+  void AnimateNudgeRipple(views::AnimationBuilder& builder);
+  void AnimateNudgeBounce(views::AnimationBuilder& builder);
+  void AnimateNudgeLabelSlideIn(views::AnimationBuilder& builder);
+  void AnimateNudgeLabelSlideOut();
+  void AnimateNudgeLabelFadeOut();
+
+  // Callbacks for the nudge animation.
+  void OnNudgeAnimationStarted();
+  void OnNudgeAnimationEnded();
+  void OnLabelSlideInAnimationEnded();
+  void OnLabelFadeOutAnimationEnded();
+
+  // Removes the nudge label from the view hierarchy.
+  void RemoveNudgeLabel();
+
+  // Removes the quick app button from the view hierarchy.
+  void RemoveQuickAppButton();
+
   // views::ViewTargeterDelegate:
   bool DoesIntersectRect(const views::View* target,
                          const gfx::Rect& rect) const override;
 
-  // Callback for the nudge animation.
-  void OnNudgeAnimationStarted();
-  void OnNudgeAnimationEnded();
+  // ShellObserver:
+  void OnShellDestroying() override;
+
+  // AppListModelProvider::Observer:
+  void OnActiveAppListModelsChanged(AppListModel* model,
+                                    SearchModel* search_model) override;
+
+  // QuickAppAccessModel::Observer:
+  void OnQuickAppShouldShowChanged(bool quick_app_shown) override;
+  void OnQuickAppIconChanged() override;
+
+  // Create and animate in the quick app button from behind the home button.
+  void AnimateQuickAppButtonIn();
+
+  // Animate out the quick app button, deleting the quick app button when
+  // completed.
+  void AnimateQuickAppButtonOut();
+
+  // Callback for the quick app button slide out animation.
+  void OnQuickAppButtonSlideOutDone();
+
+  // Returns a transform which will translate the child of the
+  // `expandable_container` to be placed behind the home button.
+  gfx::Transform GetTransformForContainerChildBehindHomeButton();
+
+  // Returns a clip rect which will clip the `expandable_container` to the
+  // bounds of the home button.
+  gfx::Rect GetExpandableContainerClipRectToHomeButton();
+
+  base::ScopedObservation<QuickAppAccessModel, QuickAppAccessModel::Observer>
+      quick_app_model_observation_{this};
+
+  base::ScopedObservation<Shell, ShellObserver> shell_observation_{this};
+
+  base::ScopedObservation<AppListModelProvider, AppListModelProvider::Observer>
+      app_list_model_observation_{this};
+
+  const raw_ptr<Shelf, ExperimentalAsh> shelf_;
 
   // The controller used to determine the button's behavior.
   HomeButtonController controller_;
 
   // The ripple layer in the launcher nudge animation. Only exists during the
   // nudge animation.
-  std::unique_ptr<ui::Layer> nudge_ripple_layer_;
+  ui::LayerOwner nudge_ripple_layer_;
+
+  // The label view and for launcher nudge animation.
+  raw_ptr<views::Label, ExperimentalAsh> nudge_label_ = nullptr;
+
+  // The container of `nudge_label_` or `quick_app_button_`. This is also
+  // responsible for painting the background of the contents. This container can
+  // expand visually by animation.
+  raw_ptr<views::View, ExperimentalAsh> expandable_container_ = nullptr;
+
+  // The timer that counts down to hide the nudge_label_ from showing state.
+  base::OneShotTimer label_nudge_timer_;
 
   // The delegate used by |nudge_ripple_layer_|. Only exists during the
   // nudge animation.
   std::unique_ptr<views::CircleLayerDelegate> ripple_layer_delegate_;
 
   std::unique_ptr<ScopedNoClipRect> scoped_no_clip_rect_;
+
+  // The app button which is shown next to the home button. Only shown when
+  // set by SetQuickApp().
+  raw_ptr<views::ImageButton, ExperimentalAsh> quick_app_button_ = nullptr;
 
   base::ObserverList<NudgeAnimationObserver> observers_;
 

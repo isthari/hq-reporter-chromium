@@ -1,32 +1,33 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/tabs_search/tabs_search_service.h"
 
-#include <memory>
-#include <vector>
+#import <memory>
+#import <vector>
 
-#include "base/i18n/case_conversion.h"
-#include "base/strings/utf_string_conversions.h"
-#include "components/sessions/core/tab_restore_service_impl.h"
-#include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
-#include "ios/chrome/browser/browser_state/test_chrome_browser_state_manager.h"
-#import "ios/chrome/browser/main/browser_list.h"
-#import "ios/chrome/browser/main/browser_list_factory.h"
-#include "ios/chrome/browser/main/test_browser.h"
-#include "ios/chrome/browser/sessions/ios_chrome_tab_restore_service_client.h"
-#include "ios/chrome/browser/sessions/ios_chrome_tab_restore_service_factory.h"
+#import "base/i18n/case_conversion.h"
+#import "base/strings/utf_string_conversions.h"
+#import "components/sessions/core/tab_restore_service_impl.h"
+#import "ios/chrome/browser/history/history_service_factory.h"
+#import "ios/chrome/browser/sessions/ios_chrome_tab_restore_service_client.h"
+#import "ios/chrome/browser/sessions/ios_chrome_tab_restore_service_factory.h"
+#import "ios/chrome/browser/shared/model/browser/browser_list.h"
+#import "ios/chrome/browser/shared/model/browser/browser_list_factory.h"
+#import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
+#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state_manager.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_opener.h"
 #import "ios/chrome/browser/tabs/closing_web_state_observer_browser_agent.h"
 #import "ios/chrome/browser/tabs_search/tabs_search_service_factory.h"
-#import "ios/chrome/browser/web_state_list/web_state_list.h"
-#import "ios/chrome/browser/web_state_list/web_state_opener.h"
-#include "ios/chrome/test/ios_chrome_scoped_testing_chrome_browser_state_manager.h"
+#import "ios/chrome/test/ios_chrome_scoped_testing_chrome_browser_state_manager.h"
 #import "ios/web/public/test/fakes/fake_navigation_manager.h"
 #import "ios/web/public/test/fakes/fake_web_state.h"
-#include "ios/web/public/test/web_task_environment.h"
-#include "testing/platform_test.h"
-#include "url/gurl.h"
+#import "ios/web/public/test/web_task_environment.h"
+#import "testing/platform_test.h"
+#import "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -70,10 +71,13 @@ class TabsSearchServiceTest : public PlatformTest {
       : scoped_browser_state_manager_(
             std::make_unique<TestChromeBrowserStateManager>(base::FilePath())) {
     TestChromeBrowserState::Builder test_browser_state_builder;
-    chrome_browser_state_ = test_browser_state_builder.Build();
-    IOSChromeTabRestoreServiceFactory::GetInstance()->SetTestingFactoryAndUse(
-        chrome_browser_state_.get(),
+    test_browser_state_builder.AddTestingFactory(
+        IOSChromeTabRestoreServiceFactory::GetInstance(),
         base::BindRepeating(&BuildTabRestoreService));
+    test_browser_state_builder.AddTestingFactory(
+        ios::HistoryServiceFactory::GetInstance(),
+        ios::HistoryServiceFactory::GetDefaultFactory());
+    chrome_browser_state_ = test_browser_state_builder.Build();
 
     browser_list_ =
         BrowserListFactory::GetForBrowserState(chrome_browser_state_.get());
@@ -96,7 +100,7 @@ class TabsSearchServiceTest : public PlatformTest {
   }
 
  protected:
-  // Appends a new web state to the web state list of |browser|.
+  // Appends a new web state to the web state list of `browser`.
   web::WebState* AppendNewWebState(Browser* browser,
                                    const std::u16string& title,
                                    const GURL& url) {
@@ -119,10 +123,16 @@ class TabsSearchServiceTest : public PlatformTest {
     return inserted_web_state;
   }
 
-  // Returns the associated search service.
+  // Returns the associated search service for normal browser state.
   TabsSearchService* search_service() {
     return TabsSearchServiceFactory::GetForBrowserState(
         chrome_browser_state_.get());
+  }
+
+  // Returns the associated search service for off the record browser state.
+  TabsSearchService* incognito_search_service() {
+    return TabsSearchServiceFactory::GetForBrowserState(
+        chrome_browser_state_->GetOffTheRecordChromeBrowserState());
   }
 
   web::WebTaskEnvironment task_environment_;
@@ -140,10 +150,11 @@ TEST_F(TabsSearchServiceTest, NoWebStates) {
   __block bool results_received = false;
   search_service()->Search(
       kSearchQueryMatchesAll,
-      base::BindOnce(^(std::vector<web::WebState*> results) {
-        EXPECT_TRUE(results.empty());
-        results_received = true;
-      }));
+      base::BindOnce(
+          ^(std::vector<TabsSearchService::TabsSearchBrowserResults> results) {
+            EXPECT_TRUE(results.empty());
+            results_received = true;
+          }));
 
   ASSERT_TRUE(results_received);
 }
@@ -156,10 +167,11 @@ TEST_F(TabsSearchServiceTest, NoMatchingResults) {
   __block bool results_received = false;
   search_service()->Search(
       kSearchQueryMatchesNone,
-      base::BindOnce(^(std::vector<web::WebState*> results) {
-        EXPECT_TRUE(results.empty());
-        results_received = true;
-      }));
+      base::BindOnce(
+          ^(std::vector<TabsSearchService::TabsSearchBrowserResults> results) {
+            EXPECT_TRUE(results.empty());
+            results_received = true;
+          }));
 
   ASSERT_TRUE(results_received);
 }
@@ -172,11 +184,16 @@ TEST_F(TabsSearchServiceTest, MatchExactTitle) {
 
   __block bool results_received = false;
   search_service()->Search(
-      kWebState1Title, base::BindOnce(^(std::vector<web::WebState*> results) {
-        ASSERT_EQ(1ul, results.size());
-        EXPECT_EQ(expected_web_state, results.front());
-        results_received = true;
-      }));
+      kWebState1Title,
+      base::BindOnce(
+          ^(std::vector<TabsSearchService::TabsSearchBrowserResults> results) {
+            ASSERT_EQ(1ul, results.size());
+            TabsSearchService::TabsSearchBrowserResults& browser_results =
+                results.front();
+            EXPECT_EQ(expected_web_state, browser_results.web_states.front());
+            EXPECT_EQ(browser_.get(), browser_results.browser);
+            results_received = true;
+          }));
 
   ASSERT_TRUE(results_received);
 }
@@ -191,12 +208,17 @@ TEST_F(TabsSearchServiceTest, MatchPartialTitle) {
   __block bool results_received = false;
   search_service()->Search(
       kSearchQueryMatchesAll,
-      base::BindOnce(^(std::vector<web::WebState*> results) {
-        ASSERT_EQ(2ul, results.size());
-        EXPECT_EQ(results.front(), web_state_1);
-        EXPECT_EQ(results.back(), web_state_2);
-        results_received = true;
-      }));
+      base::BindOnce(
+          ^(std::vector<TabsSearchService::TabsSearchBrowserResults> results) {
+            ASSERT_EQ(1ul, results.size());
+            TabsSearchService::TabsSearchBrowserResults& browser_results =
+                results.front();
+            ASSERT_EQ(2ul, browser_results.web_states.size());
+            EXPECT_EQ(browser_results.browser, browser_.get());
+            EXPECT_EQ(browser_results.web_states.front(), web_state_1);
+            EXPECT_EQ(browser_results.web_states.back(), web_state_2);
+            results_received = true;
+          }));
 
   ASSERT_TRUE(results_received);
 }
@@ -211,20 +233,37 @@ TEST_F(TabsSearchServiceTest, MatchAcrossBrowsers) {
   __block bool results_received = false;
   search_service()->Search(
       kSearchQueryMatchesAll,
-      base::BindOnce(^(std::vector<web::WebState*> results) {
+      base::BindOnce(^(
+          std::vector<TabsSearchService::TabsSearchBrowserResults> results) {
         ASSERT_EQ(2ul, results.size());
-        // The order of results across browsers is unknown, so check both
-        // possibilities.
-        EXPECT_TRUE(
-            (results.front() == web_state_1 && results.back() == web_state_2) ||
-            (results.back() == web_state_1 && results.front() == web_state_2));
+        TabsSearchService::TabsSearchBrowserResults* browser_result = nullptr;
+        TabsSearchService::TabsSearchBrowserResults* other_browser_result =
+            nullptr;
+        if (results.front().browser == browser_.get()) {
+          browser_result = &results.front();
+          other_browser_result = &results.back();
+        } else {
+          other_browser_result = &results.front();
+          browser_result = &results.back();
+        }
+        ASSERT_TRUE(browser_result);
+        ASSERT_EQ(browser_result->browser, browser_.get());
+        ASSERT_EQ(1ul, browser_result->web_states.size());
+
+        ASSERT_TRUE(other_browser_result);
+        ASSERT_EQ(other_browser_result->browser, other_browser_.get());
+        ASSERT_EQ(1ul, other_browser_result->web_states.size());
+
+        EXPECT_EQ(web_state_1, browser_result->web_states.front());
+        EXPECT_EQ(web_state_2, other_browser_result->web_states.front());
         results_received = true;
       }));
 
   ASSERT_TRUE(results_received);
 }
 
-// Tests that matches from incognito tabs are not returns from |Search|.
+// Tests that matches from incognito tabs are not returned for normal browser
+// state.
 TEST_F(TabsSearchServiceTest, NoIncognitoResults) {
   web::WebState* expected_web_state =
       AppendNewWebState(browser_.get(), kWebState1Title, GURL(kWebState1Url));
@@ -234,29 +273,36 @@ TEST_F(TabsSearchServiceTest, NoIncognitoResults) {
   __block bool results_received = false;
   search_service()->Search(
       kSearchQueryMatchesAll,
-      base::BindOnce(^(std::vector<web::WebState*> results) {
-        ASSERT_EQ(1ul, results.size());
-        EXPECT_EQ(expected_web_state, results.front());
-        results_received = true;
-      }));
+      base::BindOnce(
+          ^(std::vector<TabsSearchService::TabsSearchBrowserResults> results) {
+            ASSERT_EQ(1ul, results.size());
+            ASSERT_EQ(1ul, results.front().web_states.size());
+            EXPECT_EQ(browser_.get(), results.front().browser);
+            EXPECT_EQ(expected_web_state, results.front().web_states.front());
+            results_received = true;
+          }));
 
   ASSERT_TRUE(results_received);
 }
 
-// Tests that only incognito tabs are returned from |SearchIncognito|.
+// Tests that only incognito tabs are returned when searching off the record
+// browser state.
 TEST_F(TabsSearchServiceTest, IncognitoResults) {
   AppendNewWebState(browser_.get(), kWebState1Title, GURL(kWebState1Url));
   web::WebState* expected_web_state = AppendNewWebState(
       incognito_browser_.get(), kWebState2Title, GURL(kWebState2Url));
 
   __block bool results_received = false;
-  search_service()->SearchIncognito(
+  incognito_search_service()->Search(
       kSearchQueryMatchesAll,
-      base::BindOnce(^(std::vector<web::WebState*> results) {
-        ASSERT_EQ(1ul, results.size());
-        EXPECT_EQ(expected_web_state, results.front());
-        results_received = true;
-      }));
+      base::BindOnce(
+          ^(std::vector<TabsSearchService::TabsSearchBrowserResults> results) {
+            ASSERT_EQ(1ul, results.size());
+            ASSERT_EQ(1ul, results.front().web_states.size());
+            EXPECT_EQ(incognito_browser_.get(), results.front().browser);
+            EXPECT_EQ(expected_web_state, results.front().web_states.front());
+            results_received = true;
+          }));
 
   ASSERT_TRUE(results_received);
 }
@@ -271,11 +317,14 @@ TEST_F(TabsSearchServiceTest, MatchExactURL) {
   std::string full_url_string(kWebState1Url);
   search_service()->Search(
       base::UTF8ToUTF16(full_url_string),
-      base::BindOnce(^(std::vector<web::WebState*> results) {
-        ASSERT_EQ(1ul, results.size());
-        EXPECT_EQ(expected_web_state, results.front());
-        results_received = true;
-      }));
+      base::BindOnce(
+          ^(std::vector<TabsSearchService::TabsSearchBrowserResults> results) {
+            ASSERT_EQ(1ul, results.size());
+            ASSERT_EQ(1ul, results.front().web_states.size());
+            EXPECT_EQ(browser_.get(), results.front().browser);
+            EXPECT_EQ(expected_web_state, results.front().web_states.front());
+            results_received = true;
+          }));
 
   ASSERT_TRUE(results_received);
 }
@@ -288,11 +337,15 @@ TEST_F(TabsSearchServiceTest, MatchURLDomain) {
 
   __block bool results_received = false;
   search_service()->Search(
-      kWebState1Domain, base::BindOnce(^(std::vector<web::WebState*> results) {
-        ASSERT_EQ(1ul, results.size());
-        EXPECT_EQ(expected_web_state, results.front());
-        results_received = true;
-      }));
+      kWebState1Domain,
+      base::BindOnce(
+          ^(std::vector<TabsSearchService::TabsSearchBrowserResults> results) {
+            ASSERT_EQ(1ul, results.size());
+            ASSERT_EQ(1ul, results.front().web_states.size());
+            EXPECT_EQ(browser_.get(), results.front().browser);
+            EXPECT_EQ(expected_web_state, results.front().web_states.front());
+            results_received = true;
+          }));
 
   ASSERT_TRUE(results_received);
 }
@@ -306,11 +359,14 @@ TEST_F(TabsSearchServiceTest, MatchURLPath) {
   __block bool results_received = false;
   search_service()->Search(
       kWebState1PartialPath,
-      base::BindOnce(^(std::vector<web::WebState*> results) {
-        ASSERT_EQ(1ul, results.size());
-        EXPECT_EQ(expected_web_state, results.front());
-        results_received = true;
-      }));
+      base::BindOnce(
+          ^(std::vector<TabsSearchService::TabsSearchBrowserResults> results) {
+            ASSERT_EQ(1ul, results.size());
+            ASSERT_EQ(1ul, results.front().web_states.size());
+            EXPECT_EQ(browser_.get(), results.front().browser);
+            EXPECT_EQ(expected_web_state, results.front().web_states.front());
+            results_received = true;
+          }));
 
   ASSERT_TRUE(results_received);
 }
@@ -323,11 +379,15 @@ TEST_F(TabsSearchServiceTest, MatchURLParam) {
 
   __block bool results_received = false;
   search_service()->Search(
-      kWebState1Param, base::BindOnce(^(std::vector<web::WebState*> results) {
-        ASSERT_EQ(1ul, results.size());
-        EXPECT_EQ(expected_web_state, results.front());
-        results_received = true;
-      }));
+      kWebState1Param,
+      base::BindOnce(
+          ^(std::vector<TabsSearchService::TabsSearchBrowserResults> results) {
+            ASSERT_EQ(1ul, results.size());
+            ASSERT_EQ(1ul, results.front().web_states.size());
+            EXPECT_EQ(browser_.get(), results.front().browser);
+            EXPECT_EQ(expected_web_state, results.front().web_states.front());
+            results_received = true;
+          }));
 
   ASSERT_TRUE(results_received);
 }
@@ -341,11 +401,14 @@ TEST_F(TabsSearchServiceTest, MatchURLParamValue) {
   __block bool results_received = false;
   search_service()->Search(
       kWebState1ParamValue,
-      base::BindOnce(^(std::vector<web::WebState*> results) {
-        ASSERT_EQ(1ul, results.size());
-        EXPECT_EQ(expected_web_state, results.front());
-        results_received = true;
-      }));
+      base::BindOnce(
+          ^(std::vector<TabsSearchService::TabsSearchBrowserResults> results) {
+            ASSERT_EQ(1ul, results.size());
+            ASSERT_EQ(1ul, results.front().web_states.size());
+            EXPECT_EQ(browser_.get(), results.front().browser);
+            EXPECT_EQ(expected_web_state, results.front().web_states.front());
+            results_received = true;
+          }));
 
   ASSERT_TRUE(results_received);
 }
@@ -359,11 +422,15 @@ TEST_F(TabsSearchServiceTest, CaseInsensitiveTitleSearch) {
 
   __block bool results_received = false;
   search_service()->Search(
-      uppercase_title, base::BindOnce(^(std::vector<web::WebState*> results) {
-        ASSERT_EQ(1ul, results.size());
-        EXPECT_EQ(expected_web_state, results.front());
-        results_received = true;
-      }));
+      uppercase_title,
+      base::BindOnce(
+          ^(std::vector<TabsSearchService::TabsSearchBrowserResults> results) {
+            ASSERT_EQ(1ul, results.size());
+            ASSERT_EQ(1ul, results.front().web_states.size());
+            EXPECT_EQ(browser_.get(), results.front().browser);
+            EXPECT_EQ(expected_web_state, results.front().web_states.front());
+            results_received = true;
+          }));
 
   ASSERT_TRUE(results_received);
 }
@@ -378,11 +445,14 @@ TEST_F(TabsSearchServiceTest, CaseInsensitiveURLSearch) {
   __block bool results_received = false;
   search_service()->Search(
       uppercase_param_value,
-      base::BindOnce(^(std::vector<web::WebState*> results) {
-        ASSERT_EQ(1ul, results.size());
-        EXPECT_EQ(expected_web_state, results.front());
-        results_received = true;
-      }));
+      base::BindOnce(
+          ^(std::vector<TabsSearchService::TabsSearchBrowserResults> results) {
+            ASSERT_EQ(1ul, results.size());
+            ASSERT_EQ(1ul, results.front().web_states.size());
+            EXPECT_EQ(browser_.get(), results.front().browser);
+            EXPECT_EQ(expected_web_state, results.front().web_states.front());
+            results_received = true;
+          }));
 
   ASSERT_TRUE(results_received);
 }
@@ -395,7 +465,7 @@ TEST_F(TabsSearchServiceTest, RecentlyClosedNoResults) {
   search_service()->SearchRecentlyClosed(
       kWebState1Title,
       base::BindOnce(
-          ^(std::vector<const sessions::SerializedNavigationEntry> results) {
+          ^(std::vector<TabsSearchService::RecentlyClosedItemPair> results) {
             ASSERT_EQ(0ul, results.size());
             results_received = true;
           }));
@@ -415,7 +485,7 @@ TEST_F(TabsSearchServiceTest, RecentlyClosedNoMatch) {
   search_service()->SearchRecentlyClosed(
       kSearchQueryMatchesNone,
       base::BindOnce(
-          ^(std::vector<const sessions::SerializedNavigationEntry> results) {
+          ^(std::vector<TabsSearchService::RecentlyClosedItemPair> results) {
             ASSERT_EQ(0ul, results.size());
             results_received = true;
           }));
@@ -434,13 +504,15 @@ TEST_F(TabsSearchServiceTest, RecentlyClosedMatchTitle) {
   __block bool results_received = false;
   search_service()->SearchRecentlyClosed(
       kWebState1Title,
-      base::BindOnce(
-          ^(std::vector<const sessions::SerializedNavigationEntry> results) {
-            ASSERT_EQ(1ul, results.size());
-            EXPECT_EQ(kWebState1Url, results.front().virtual_url().spec());
-            EXPECT_EQ(kWebState1Title, results.front().title());
-            results_received = true;
-          }));
+      base::BindOnce(^(
+          std::vector<TabsSearchService::RecentlyClosedItemPair> results) {
+        ASSERT_EQ(1ul, results.size());
+        const sessions::SerializedNavigationEntry& first_navigation_entry =
+            results.front().second;
+        EXPECT_EQ(kWebState1Url, first_navigation_entry.virtual_url().spec());
+        EXPECT_EQ(kWebState1Title, first_navigation_entry.title());
+        results_received = true;
+      }));
 
   ASSERT_TRUE(results_received);
 }
@@ -456,14 +528,17 @@ TEST_F(TabsSearchServiceTest, RecentlyClosedMatchURL) {
   __block bool results_received = false;
   search_service()->SearchRecentlyClosed(
       kWebState1ParamValue,
-      base::BindOnce(
-          ^(std::vector<const sessions::SerializedNavigationEntry> results) {
-            ASSERT_EQ(1ul, results.size());
-            EXPECT_EQ(kWebState1Url, results.front().virtual_url().spec());
-            EXPECT_EQ(kWebState1Title, results.front().title());
+      base::BindOnce(^(
+          std::vector<TabsSearchService::RecentlyClosedItemPair> results) {
+        ASSERT_EQ(1ul, results.size());
+        const sessions::SerializedNavigationEntry& first_navigation_entry =
+            results.front().second;
 
-            results_received = true;
-          }));
+        EXPECT_EQ(kWebState1Url, first_navigation_entry.virtual_url().spec());
+        EXPECT_EQ(kWebState1Title, first_navigation_entry.title());
+
+        results_received = true;
+      }));
 
   ASSERT_TRUE(results_received);
 }
@@ -472,7 +547,7 @@ TEST_F(TabsSearchServiceTest, RecentlyClosedMatchURL) {
 TEST_F(TabsSearchServiceTest, RecentlyClosedMatchTitleAllClosed) {
   AppendNewWebState(browser_.get(), kWebState1Title, GURL(kWebState1Url));
   AppendNewWebState(browser_.get(), kWebState2Title, GURL(kWebState2Url));
-  // Add a webstate which will not match |kSearchQueryMatchesAll|.
+  // Add a webstate which will not match `kSearchQueryMatchesAll`.
   AppendNewWebState(browser_.get(), u"X", GURL("http://abc.xyz"));
 
   browser_->GetWebStateList()->CloseAllWebStates(WebStateList::CLOSE_NO_FLAGS);
@@ -480,15 +555,21 @@ TEST_F(TabsSearchServiceTest, RecentlyClosedMatchTitleAllClosed) {
   __block bool results_received = false;
   search_service()->SearchRecentlyClosed(
       kSearchQueryMatchesAll,
-      base::BindOnce(
-          ^(std::vector<const sessions::SerializedNavigationEntry> results) {
-            ASSERT_EQ(2ul, results.size());
-            EXPECT_EQ(kWebState1Url, results.front().virtual_url().spec());
-            EXPECT_EQ(kWebState1Title, results.front().title());
-            EXPECT_EQ(kWebState2Url, results.back().virtual_url().spec());
-            EXPECT_EQ(kWebState2Title, results.back().title());
-            results_received = true;
-          }));
+      base::BindOnce(^(
+          std::vector<TabsSearchService::RecentlyClosedItemPair> results) {
+        ASSERT_EQ(2ul, results.size());
+
+        const sessions::SerializedNavigationEntry& first_navigation_entry =
+            results.front().second;
+        EXPECT_EQ(kWebState1Url, first_navigation_entry.virtual_url().spec());
+        EXPECT_EQ(kWebState1Title, first_navigation_entry.title());
+
+        const sessions::SerializedNavigationEntry& last_navigation_entry =
+            results.back().second;
+        EXPECT_EQ(kWebState2Url, last_navigation_entry.virtual_url().spec());
+        EXPECT_EQ(kWebState2Title, last_navigation_entry.title());
+        results_received = true;
+      }));
 
   ASSERT_TRUE(results_received);
 }

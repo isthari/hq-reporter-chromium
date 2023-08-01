@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,14 +7,14 @@
 #include <limits.h>
 
 #include "base/base64url.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/sharing/web_push/json_web_token_util.h"
 #include "components/gcm_driver/crypto/p256_key_util.h"
 #include "net/http/http_request_headers.h"
 #include "net/http/http_status_code.h"
-#include "services/network/public/cpp/cors/cors.h"
+#include "services/network/public/cpp/header_util.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/cpp/simple_url_loader.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
@@ -47,8 +47,8 @@ const char kContentCodingAes128Gcm[] = "aes128gcm";
 const char kContentEncodingOctetStream[] = "application/octet-stream";
 
 absl::optional<std::string> GetAuthHeader(crypto::ECPrivateKey* vapid_key) {
-  base::Value claims(base::Value::Type::DICTIONARY);
-  claims.SetKey(kClaimsKeyAudience, base::Value(kFCMServerAudience));
+  base::Value::Dict claims;
+  claims.Set(kClaimsKeyAudience, base::Value(kFCMServerAudience));
 
   int64_t exp =
       (base::Time::Now() + kClaimsValidPeriod - base::Time::UnixEpoch())
@@ -57,8 +57,7 @@ absl::optional<std::string> GetAuthHeader(crypto::ECPrivateKey* vapid_key) {
   if (exp > INT_MAX)
     return absl::nullopt;
 
-  claims.SetKey(kClaimsKeyExpirationTime,
-                base::Value(static_cast<int32_t>(exp)));
+  claims.Set(kClaimsKeyExpirationTime, base::Value(static_cast<int32_t>(exp)));
 
   absl::optional<std::string> jwt = CreateJSONWebToken(claims, vapid_key);
   if (!jwt)
@@ -221,7 +220,7 @@ void WebPushSender::OnMessageSent(
     return;
   }
 
-  if (!network::cors::IsOkStatus(response_code)) {
+  if (!network::IsSuccessfulStatus(response_code)) {
     DLOG(ERROR) << "HTTP Error: " << response_code;
     InvokeWebPushCallback(std::move(callback),
                           SendWebPushMessageResult::kServerError);

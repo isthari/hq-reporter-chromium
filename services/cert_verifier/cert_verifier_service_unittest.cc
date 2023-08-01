@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,8 @@
 #include <string>
 #include <tuple>
 
-#include "base/callback_helpers.h"
+#include "base/containers/adapters.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
@@ -25,8 +26,11 @@
 #include "net/base/net_errors.h"
 #include "net/cert/cert_status_flags.h"
 #include "net/cert/cert_verifier.h"
+#include "net/cert/cert_verify_proc.h"
 #include "net/cert/cert_verify_result.h"
+#include "net/cert/crl_set.h"
 #include "net/cert/x509_certificate.h"
+#include "net/cert/x509_util.h"
 #include "net/log/net_log.h"
 #include "net/test/cert_test_util.h"
 #include "net/test/test_data_directory.h"
@@ -34,6 +38,11 @@
 #include "services/network/public/mojom/cert_verifier_service.mojom.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/platform_test.h"
+
+namespace net {
+class CertNetFetcher;
+class ChromeRootStoreData;
+}  // namespace net
 
 namespace cert_verifier {
 namespace {
@@ -44,7 +53,7 @@ scoped_refptr<net::X509Certificate> GetTestCert() {
   return net::ImportCertFromFile(net::GetTestCertsDirectory(), "ok_cert.pem");
 }
 
-class DummyCertVerifier : public net::CertVerifier {
+class DummyCertVerifier : public net::CertVerifierWithUpdatableProc {
  public:
   struct DummyRequest : public net::CertVerifier::Request {
     ~DummyRequest() override {
@@ -52,11 +61,9 @@ class DummyCertVerifier : public net::CertVerifier {
         std::move(cancel_cb).Run();
     }
 
+    net::CompletionOnceCallback callback;  // Must outlive `verify_result`.
     raw_ptr<net::CertVerifyResult> verify_result;
-    net::CompletionOnceCallback callback;
-
     base::OnceClosure cancel_cb;
-
     base::WeakPtrFactory<DummyRequest> weak_ptr_factory_{this};
   };
 
@@ -77,6 +84,7 @@ class DummyCertVerifier : public net::CertVerifier {
 
     if (sync_response_params_.find(params) != sync_response_params_.end()) {
       verify_result->cert_status = kExpectedCertStatus;
+      verify_result->verified_cert = params.certificate();
       return kExpectedNetError;
     }
 
@@ -96,6 +104,16 @@ class DummyCertVerifier : public net::CertVerifier {
     return net::ERR_IO_PENDING;
   }
   void SetConfig(const Config& config) override { config_ = config; }
+  void AddObserver(Observer* observer) override {
+    EXPECT_FALSE(observer_);
+    observer_ = observer;
+  }
+  void RemoveObserver(Observer* observer) override { observer_ = nullptr; }
+  void UpdateVerifyProcData(
+      scoped_refptr<net::CertNetFetcher> cert_net_fetcher,
+      const net::CertVerifyProcFactory::ImplParams& impl_params) override {
+    ADD_FAILURE() << "not handled";
+  }
 
   void RespondToRequest(const net::CertVerifier::RequestParams& params) {
     auto it = dummy_requests_.find(params);
@@ -104,6 +122,7 @@ class DummyCertVerifier : public net::CertVerifier {
     dummy_requests_.erase(it);
     req->cancel_cb.Reset();
     req->verify_result->cert_status = kExpectedCertStatus;
+    req->verify_result->verified_cert = params.certificate();
     std::move(req->callback).Run(kExpectedNetError);
   }
 
@@ -130,6 +149,8 @@ class DummyCertVerifier : public net::CertVerifier {
 
   const net::CertVerifier::Config* config() const { return &config_; }
 
+  CertVerifier::Observer* GetObserver() { return observer_; }
+
  private:
   std::map<net::CertVerifier::RequestParams, DummyRequest*> dummy_requests_;
   std::set<net::CertVerifier::RequestParams> sync_response_params_;
@@ -141,6 +162,7 @@ class DummyCertVerifier : public net::CertVerifier {
       request_netlogs_;
 
   net::CertVerifier::Config config_;
+  raw_ptr<CertVerifier::Observer> observer_ = nullptr;
 };
 
 struct DummyCVServiceRequest : public mojom::CertVerifierRequest {
@@ -156,7 +178,8 @@ struct DummyCVServiceRequest : public mojom::CertVerifierRequest {
   int net_error;
 };
 
-class CertVerifierServiceTest : public PlatformTest {
+class CertVerifierServiceTest : public PlatformTest,
+                                public mojom::CertVerifierServiceClient {
  public:
   struct RequestInfo {
     RequestInfo(net::CertVerifier::RequestParams request_params_p,
@@ -182,13 +205,15 @@ class CertVerifierServiceTest : public PlatformTest {
   };
 
   // Wraps a DummyCertVerifier with a CertVerifierServiceImpl.
-  // NOTE: CertVerifierServiceImpl is self-deleting.
   CertVerifierServiceTest()
-      : dummy_cv_(new DummyCertVerifier),
-        cv_service_(new internal::CertVerifierServiceImpl(
-            base::WrapUnique(dummy_cv_.get()),
-            cv_service_remote_.BindNewPipeAndPassReceiver(),
-            /*cert_net_fetcher=*/nullptr)) {}
+      : cv_service_client_(this), dummy_cv_(new DummyCertVerifier) {
+    // NOTE: CertVerifierServiceImpl is self-deleting.
+    (void)new internal::CertVerifierServiceImpl(
+        base::WrapUnique(dummy_cv_.get()),
+        cv_service_remote_.BindNewPipeAndPassReceiver(),
+        cv_service_client_.BindNewPipeAndPassRemote(),
+        /*cert_net_fetcher=*/nullptr);
+  }
 
   void SetUp() override { ASSERT_TRUE(GetTestCert()); }
 
@@ -231,8 +256,8 @@ class CertVerifierServiceTest : public PlatformTest {
     task_environment_.RunUntilIdle();
 
     if (!sync) {  // For fun, complete the requests in reverse order.
-      for (auto it = request_infos.rbegin(); it != request_infos.rend(); ++it) {
-        RequestInfo& info = *it;
+
+      for (auto& info : base::Reversed(request_infos)) {
         ASSERT_FALSE(info.dummy_cv_request->is_completed);
         dummy_cv()->RespondToRequest(info.request_params);
       }
@@ -258,13 +283,22 @@ class CertVerifierServiceTest : public PlatformTest {
     return cv_service_remote_;
   }
   DummyCertVerifier* dummy_cv() { return dummy_cv_; }
+  void set_dummy_cv(DummyCertVerifier* cv) { dummy_cv_ = cv; }
+
+  unsigned cv_service_client_changed_count() const {
+    return cv_service_client_changed_count_;
+  }
+
+  // mojom::CertVerifierServiceClient implementation:
+  void OnCertVerifierChanged() override { cv_service_client_changed_count_++; }
 
  private:
   base::test::TaskEnvironment task_environment_;
 
   mojo::Remote<mojom::CertVerifierService> cv_service_remote_;
+  mojo::Receiver<mojom::CertVerifierServiceClient> cv_service_client_;
+  unsigned cv_service_client_changed_count_ = 0;
   raw_ptr<DummyCertVerifier> dummy_cv_;
-  raw_ptr<internal::CertVerifierServiceImpl> cv_service_;
 };
 }  // namespace
 
@@ -282,6 +316,54 @@ TEST_F(CertVerifierServiceTest, TestSingleSyncCompletion) {
 
 TEST_F(CertVerifierServiceTest, TestMultipleSimultaneousSyncCompletions) {
   TestCompletions(5, true);
+}
+
+TEST_F(CertVerifierServiceTest, TestInvalidIntermediate) {
+  auto leaf = GetTestCert();
+
+  std::vector<bssl::UniquePtr<CRYPTO_BUFFER>> intermediates;
+  intermediates.push_back(
+      net::x509_util::CreateCryptoBuffer(base::StringPiece("F")));
+
+  scoped_refptr<net::X509Certificate> test_cert =
+      net::X509Certificate::CreateFromBuffer(bssl::UpRef(leaf->cert_buffer()),
+                                             std::move(intermediates));
+  ASSERT_TRUE(test_cert);
+
+  net::CertVerifier::RequestParams dummy_params(test_cert, "example.com", 0,
+                                                /*ocsp_response=*/std::string(),
+                                                /*sct_list=*/std::string());
+
+  // Perform a verification request using the Remote<CertVerifierService>,
+  // which forwards to the CertVerifierServiceImpl.
+  DummyCVServiceRequest cv_service_req;
+  mojo::Receiver<mojom::CertVerifierRequest> cv_request_receiver(
+      &cv_service_req);
+
+  cv_service_remote()->Verify(
+      dummy_params,
+      static_cast<uint32_t>(net::NetLogSourceType::CERT_VERIFIER_JOB),
+      /*netlog_source_id=*/1234, base::TimeTicks::Now(),
+      cv_request_receiver.BindNewPipeAndPassRemote());
+
+  // Handle async Mojo request.
+  cv_service_remote().FlushForTesting();
+
+  ASSERT_FALSE(cv_service_req.is_completed);
+  ASSERT_FALSE(cv_service_req.result.verified_cert);
+  dummy_cv()->RespondToRequest(dummy_params);
+
+  // FlushForTesting() so the CertVerifierServiceImpl Mojo response is
+  // handled.
+  cv_service_remote().FlushForTesting();
+
+  // Request should have completed (should not be rejected at deserialization).
+  ASSERT_TRUE(cv_service_req.is_completed);
+  EXPECT_EQ(cv_service_req.net_error, kExpectedNetError);
+  // Check that the invalid intermediate can be successfully round-tripped.
+  ASSERT_TRUE(cv_service_req.result.verified_cert);
+  EXPECT_TRUE(test_cert->EqualsIncludingChain(
+      cv_service_req.result.verified_cert.get()));
 }
 
 TEST_F(CertVerifierServiceTest, TestRequestDisconnectionCancelsCVRequest) {
@@ -335,6 +417,7 @@ TEST_F(CertVerifierServiceTest, TestCVServiceDisconnection) {
       base::BindLambdaForTesting([&]() { disconnected = true; }));
 
   // Disconnect our receiver.
+  set_dummy_cv(nullptr);
   cv_service_remote().reset();
   task_environment()->RunUntilIdle();
 
@@ -354,6 +437,23 @@ TEST_F(CertVerifierServiceTest, StoresConfig) {
   cv_service_remote().FlushForTesting();
 
   ASSERT_TRUE(dummy_cv()->config()->disable_symantec_enforcement);
+}
+
+// CertVerifierService should register an Observer on the underlying
+// CertVerifier and when that observer is notified, it should proxy the
+// notifications to the CertVerifierServiceClient.
+TEST_F(CertVerifierServiceTest, ObserverIsRegistered) {
+  ASSERT_TRUE(dummy_cv()->GetObserver());
+
+  EXPECT_EQ(cv_service_client_changed_count(), 0u);
+
+  dummy_cv()->GetObserver()->OnCertVerifierChanged();
+  task_environment()->RunUntilIdle();
+  EXPECT_EQ(cv_service_client_changed_count(), 1u);
+
+  dummy_cv()->GetObserver()->OnCertVerifierChanged();
+  task_environment()->RunUntilIdle();
+  EXPECT_EQ(cv_service_client_changed_count(), 2u);
 }
 
 }  // namespace cert_verifier

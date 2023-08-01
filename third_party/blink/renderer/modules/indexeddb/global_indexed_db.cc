@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,9 +34,9 @@ class GlobalIndexedDBImpl final
   explicit GlobalIndexedDBImpl(T& supplementable)
       : Supplement<T>(supplementable) {}
 
-  IDBFactory* IdbFactory(T& fetching_scope) {
+  IDBFactory* IdbFactory(ContextLifecycleNotifier* notifier) {
     if (!idb_factory_)
-      idb_factory_ = MakeGarbageCollected<IDBFactory>();
+      idb_factory_ = MakeGarbageCollected<IDBFactory>(notifier);
     return idb_factory_;
   }
 
@@ -56,12 +56,12 @@ const char GlobalIndexedDBImpl<T>::kSupplementName[] = "GlobalIndexedDBImpl";
 }  // namespace
 
 IDBFactory* GlobalIndexedDB::indexedDB(LocalDOMWindow& window) {
-  return GlobalIndexedDBImpl<LocalDOMWindow>::From(window).IdbFactory(window);
+  return GlobalIndexedDBImpl<LocalDOMWindow>::From(window).IdbFactory(&window);
 }
 
 IDBFactory* GlobalIndexedDB::indexedDB(WorkerGlobalScope& worker) {
   return GlobalIndexedDBImpl<WorkerGlobalScope>::From(worker).IdbFactory(
-      worker);
+      &worker);
 }
 
 }  // namespace blink

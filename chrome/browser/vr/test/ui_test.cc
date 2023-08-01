@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,10 +19,8 @@ namespace vr {
 namespace {
 
 gfx::Vector3dF ComputeNormal(const gfx::Transform& transform) {
-  gfx::Vector3dF x_axis(1, 0, 0);
-  gfx::Vector3dF y_axis(0, 1, 0);
-  transform.TransformVector(&x_axis);
-  transform.TransformVector(&y_axis);
+  gfx::Vector3dF x_axis = transform.MapVector(gfx::Vector3dF(1, 0, 0));
+  gfx::Vector3dF y_axis = transform.MapVector(gfx::Vector3dF(0, 1, 0));
   gfx::Vector3dF normal = CrossProduct(x_axis, y_axis);
   normal.GetNormalized(&normal);
   return normal;
@@ -34,9 +32,8 @@ bool WillElementFaceCamera(const UiElement* element) {
   // Here we calculate the dot product of (origin - center) and normal. If the
   // result is greater than 0, it means the visible side of this element is
   // facing camera.
-  gfx::Point3F center;
   gfx::Transform transform = element->ComputeTargetWorldSpaceTransform();
-  transform.TransformPoint(&center);
+  gfx::Point3F center = transform.MapPoint(gfx::Point3F());
 
   gfx::Point3F origin;
   gfx::Vector3dF normal = ComputeNormal(transform);
@@ -76,13 +73,8 @@ void UiTest::SetUp() {
   browser_ = std::make_unique<testing::NiceMock<MockUiBrowserInterface>>();
 }
 
-void UiTest::CreateSceneInternal(
-    const UiInitialState& state,
-    std::unique_ptr<MockContentInputDelegate> content_input_delegate) {
-  content_input_delegate_ = content_input_delegate.get();
-  ui_instance_ = std::make_unique<Ui>(std::move(browser_.get()),
-                                      std::move(content_input_delegate),
-                                      nullptr, nullptr, nullptr, state);
+void UiTest::CreateSceneInternal(const UiInitialState& state) {
+  ui_instance_ = std::make_unique<Ui>(std::move(browser_.get()), state);
   ui_ = ui_instance_.get();
   scene_ = ui_instance_->scene();
   model_ = ui_instance_->model_for_test();
@@ -95,9 +87,7 @@ void UiTest::CreateSceneInternal(
 }
 
 void UiTest::CreateScene(const UiInitialState& state) {
-  auto content_input_delegate =
-      std::make_unique<testing::NiceMock<MockContentInputDelegate>>();
-  CreateSceneInternal(state, std::move(content_input_delegate));
+  CreateSceneInternal(state);
 }
 
 void UiTest::CreateScene(InWebVr in_web_vr) {
@@ -210,34 +200,6 @@ void UiTest::GetBackgroundColor(SkColor* background_color) const {
   ASSERT_NE(nullptr, background);
   EXPECT_EQ(background->center_color(), background->edge_color());
   *background_color = background->edge_color();
-}
-
-void UiTest::ClickElement(UiElement* element) {
-  // Synthesize a controller vector targeting the element.
-  gfx::Point3F target;
-  element->ComputeTargetWorldSpaceTransform().TransformPoint(&target);
-  gfx::Point3F origin;
-  gfx::Vector3dF direction(target - origin);
-  direction.GetNormalized(&direction);
-
-  RenderInfo render_info;
-  ReticleModel reticle_model;
-  InputEventList input_event_list;
-  ControllerModel controller_model;
-  controller_model.laser_direction = direction;
-  controller_model.laser_origin = origin;
-
-  controller_model.touchpad_button_state = ControllerModel::ButtonState::kDown;
-  ui_instance_->input_manager()->HandleInput(current_time_, render_info,
-                                             controller_model, &reticle_model,
-                                             &input_event_list);
-  OnBeginFrame();
-
-  controller_model.touchpad_button_state = ControllerModel::ButtonState::kUp;
-  ui_instance_->input_manager()->HandleInput(current_time_, render_info,
-                                             controller_model, &reticle_model,
-                                             &input_event_list);
-  OnBeginFrame();
 }
 
 bool UiTest::RunFor(base::TimeDelta delta) {

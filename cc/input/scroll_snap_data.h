@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -283,6 +283,7 @@ class CC_EXPORT SnapContainerData {
   // Finds the snap area associated with the target snap area element id for the
   // given axis.
   absl::optional<SnapSearchResult> GetTargetSnapAreaSearchResult(
+      const SnapSelectionStrategy& strategy,
       SearchAxis axis) const;
 
   // Returns all the info needed to snap at this area on the given axis,

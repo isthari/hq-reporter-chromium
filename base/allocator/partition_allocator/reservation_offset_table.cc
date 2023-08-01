@@ -1,19 +1,18 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/allocator/partition_allocator/reservation_offset_table.h"
 
-namespace base {
-namespace internal {
+#include "base/allocator/partition_allocator/partition_alloc_buildflags.h"
 
-#if defined(PA_HAS_64_BITS_POINTERS)
-ReservationOffsetTable::_ReservationOffsetTable
-    ReservationOffsetTable::reservation_offset_tables_[];
+namespace partition_alloc::internal {
+
+#if BUILDFLAG(HAS_64_BIT_POINTERS)
+ReservationOffsetTable ReservationOffsetTable::singleton_;
 #else
 ReservationOffsetTable::_ReservationOffsetTable
     ReservationOffsetTable::reservation_offset_table_;
-#endif
+#endif  // BUILDFLAG(HAS_64_BIT_POINTERS)
 
-}  // namespace internal
-}  // namespace base
+}  // namespace partition_alloc::internal

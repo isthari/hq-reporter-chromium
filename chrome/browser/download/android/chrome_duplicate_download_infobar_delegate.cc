@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <memory>
 
 #include "base/android/path_utils.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "chrome/browser/download/android/download_controller.h"
 #include "chrome/browser/download/android/download_dialog_utils.h"
@@ -91,8 +91,7 @@ bool ChromeDuplicateDownloadInfoBarDelegate::Cancel() {
     return true;
 
   std::move(file_selected_callback_)
-      .Run(DownloadConfirmationResult::CANCELED, base::FilePath(),
-           absl::nullopt /*download_schedule*/);
+      .Run(DownloadConfirmationResult::CANCELED, base::FilePath());
   return true;
 }
 

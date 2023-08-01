@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 // ViewController that contains enterprise prompt information.
 @interface EnterprisePromptViewController : ConfirmationAlertViewController
 
-// Initializes this alert with its |promptType|.
+// Initializes this alert with its `promptType`.
 - (instancetype)initWithpromptType:(EnterprisePromptType)promptType;
 
 @end

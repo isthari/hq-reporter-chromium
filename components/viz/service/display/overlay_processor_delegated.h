@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -47,7 +47,7 @@ class VIZ_SERVICE_EXPORT OverlayProcessorDelegated
   void ProcessForOverlays(
       DisplayResourceProvider* resource_provider,
       AggregatedRenderPassList* render_passes,
-      const skia::Matrix44& output_color_matrix,
+      const SkM44& output_color_matrix,
       const FilterOperationsMap& render_pass_filters,
       const FilterOperationsMap& render_pass_backdrop_filters,
       SurfaceDamageRectList surface_damage_rect_list,
@@ -65,6 +65,8 @@ class VIZ_SERVICE_EXPORT OverlayProcessorDelegated
   void AdjustOutputSurfaceOverlay(
       absl::optional<OutputSurfaceOverlayPlane>* output_surface_plane) override;
 
+  gfx::RectF GetUnassignedDamage() const override;
+
  private:
   // These values are persisted to logs. Entries should not be renumbered and
   // numeric values should never be reused. For some cases in
@@ -76,7 +78,13 @@ class VIZ_SERVICE_EXPORT OverlayProcessorDelegated
     kCompositedNotAxisAligned = 2,
     kCompositedCheckOverlayFail = 3,
     kCompositedNotOverlay = 4,
-    kMaxValue = kCompositedNotOverlay
+    kCompositedTooManyQuads = 5,
+    kCompositedBackdropFilter = 6,
+    kCompositedCopyRequest = 7,
+    kCompositedHas3dTransform = 8,
+    kCompositedHas2dShear = 9,
+    kCompositedHas2dRotation = 10,
+    kMaxValue = kCompositedHas2dRotation
   };
 
   gfx::RectF GetPrimaryPlaneDisplayRect(
@@ -90,7 +98,8 @@ class VIZ_SERVICE_EXPORT OverlayProcessorDelegated
   // through as a const member because the underlay strategy changes the
   // |primary_plane|'s blending setting.
   bool AttemptWithStrategies(
-      const skia::Matrix44& output_color_matrix,
+      const SkM44& output_color_matrix,
+      const OverlayProcessorInterface::FilterOperationsMap& render_pass_filters,
       const OverlayProcessorInterface::FilterOperationsMap&
           render_pass_backdrop_filters,
       DisplayResourceProvider* resource_provider,
@@ -100,7 +109,21 @@ class VIZ_SERVICE_EXPORT OverlayProcessorDelegated
       OverlayCandidateList* candidates,
       std::vector<gfx::Rect>* content_bounds);
 
+  // Should delegation be blocked because we have recently had copy output
+  // requests on any render passes. The root render pass must not be delegated
+  // if there is a copy request in order to draw correctly. For non-root passes,
+  // this is done to prevent execessive power usage that can occur if copy
+  // output requests happen approximately every other frame, causing a lot of
+  // delegation overhead.
+  bool BlockForCopyRequests(const AggregatedRenderPassList* render_pass_list);
+
   DelegationStatus delegated_status_ = DelegationStatus::kCompositedOther;
+  bool supports_clip_rect_ = false;
+  bool needs_background_image_ = false;
+  gfx::RectF unassigned_damage_;
+  // Used to count the number of frames we should wait until allowing delegation
+  // again.
+  int copy_request_counter_ = 0;
 };
 }  // namespace viz
 

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "base/environment.h"
+#include "base/memory/raw_ptr.h"
 #include "base/test/task_environment.h"
 #include "base/time/clock.h"
 #include "base/time/tick_clock.h"
@@ -19,8 +20,8 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/scoped_testing_local_state.h"
 #include "chrome/test/base/testing_browser_process.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/update_engine/fake_update_engine_client.h"
+#include "chromeos/ash/components/dbus/update_engine/fake_update_engine_client.h"
+#include "chromeos/ash/components/dbus/update_engine/update_engine_client.h"
 #include "components/prefs/testing_pref_service.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -72,7 +73,7 @@ class MockUpgradeObserver : public UpgradeObserver {
   MOCK_METHOD1(OnRelaunchOverriddenToRequired, void(bool overridden));
 
  private:
-  UpgradeDetector* const upgrade_detector_;
+  const raw_ptr<UpgradeDetector, ExperimentalAsh> upgrade_detector_;
 };
 
 }  // namespace
@@ -88,20 +89,14 @@ class UpgradeDetectorChromeosTest : public ::testing::Test {
       : task_environment_(base::test::TaskEnvironment::TimeSource::MOCK_TIME),
         scoped_local_state_(TestingBrowserProcess::GetGlobal()),
         env_(base::Environment::Create()) {
-    // By default, test with the relaunch policy enabled.
-    SetIsRelaunchNotificationPolicyEnabled(true /* enabled */);
-
     // Disable the detector's check to see if autoupdates are inabled.
     // Without this, tests put the detector into an invalid state by detecting
     // upgrades before the detection task completes.
     scoped_local_state_.Get()->SetUserPref(prefs::kAttemptedToEnableAutoupdate,
                                            std::make_unique<base::Value>(true));
 
-    fake_update_engine_client_ = new chromeos::FakeUpdateEngineClient();
-    chromeos::DBusThreadManager::Initialize();
-    chromeos::DBusThreadManager::GetSetterForTesting()->SetUpdateEngineClient(
-        std::unique_ptr<chromeos::UpdateEngineClient>(
-            fake_update_engine_client_));
+    fake_update_engine_client_ =
+        ash::UpdateEngineClient::InitializeFakeForTest();
 
     // Fast forward to set current time to local 2am . This is done to align the
     // relaunch deadline within the default relaunch window of 2am to 4am so
@@ -123,7 +118,7 @@ class UpgradeDetectorChromeosTest : public ::testing::Test {
     }
     tzset();
 
-    chromeos::DBusThreadManager::Shutdown();
+    ash::UpdateEngineClient::Shutdown();
   }
 
   const base::Clock* GetMockClock() { return task_environment_.GetMockClock(); }
@@ -134,10 +129,14 @@ class UpgradeDetectorChromeosTest : public ::testing::Test {
 
   void RunUntilIdle() { task_environment_.RunUntilIdle(); }
 
-  void NotifyUpdateReadyToInstall(const std::string& version) {
+  void NotifyUpdateReadyToInstall(const std::string& version,
+                                  bool is_rollback,
+                                  bool will_powerwash) {
     update_engine::StatusResult status;
     if (!version.empty())
       status.set_new_version(version);
+    status.set_is_enterprise_rollback(is_rollback);
+    status.set_will_powerwash_after_reboot(will_powerwash);
     status.set_current_operation(update_engine::Operation::UPDATED_NEED_REBOOT);
     fake_update_engine_client_->set_default_status(status);
     fake_update_engine_client_->NotifyObserversThatStatusChanged(status);
@@ -208,13 +207,12 @@ class UpgradeDetectorChromeosTest : public ::testing::Test {
   std::unique_ptr<base::Environment> env_;
   absl::optional<std::string> original_tz_;
 
-  chromeos::FakeUpdateEngineClient* fake_update_engine_client_;  // Not owned.
+  raw_ptr<ash::FakeUpdateEngineClient, ExperimentalAsh>
+      fake_update_engine_client_;  // Not owned.
 };
 
 TEST_F(UpgradeDetectorChromeosTest, PolicyNotEnabled) {
-  // Disable the relaunch notification policy as a whole.
-  SetIsRelaunchNotificationPolicyEnabled(false /* enabled */);
-
+  // RelaunchNotification policy is disabled.
   TestUpgradeDetectorChromeos upgrade_detector(GetMockClock(),
                                                GetMockTickClock());
   upgrade_detector.Init();
@@ -223,12 +221,89 @@ TEST_F(UpgradeDetectorChromeosTest, PolicyNotEnabled) {
   ::testing::StrictMock<MockUpgradeObserver> mock_observer(&upgrade_detector);
   EXPECT_CALL(mock_observer, OnUpgradeRecommended());
 
-  NotifyUpdateReadyToInstall("1.0.0.0");
+  NotifyUpdateReadyToInstall("1.0.0.0", false /*is_rollback*/,
+                             false /*will_powerwash*/);
+
+  upgrade_detector.Shutdown();
+}
+
+TEST_F(UpgradeDetectorChromeosTest, PolicyNotEnabledRollback) {
+  // RelaunchNotification policy is disabled.
+  TestUpgradeDetectorChromeos upgrade_detector(GetMockClock(),
+                                               GetMockTickClock());
+  upgrade_detector.Init();
+
+  // The observer is expected to be notified that an upgrade is recommended.
+  ::testing::StrictMock<MockUpgradeObserver> mock_observer(&upgrade_detector);
+  EXPECT_CALL(mock_observer, OnUpgradeRecommended());
+
+  NotifyUpdateReadyToInstall("1.0.0.0", true /*is_rollback*/,
+                             true /*will_powerwash*/);
+
+  upgrade_detector.Shutdown();
+}
+
+TEST_F(UpgradeDetectorChromeosTest, PolicyEnabled) {
+  // Enable the relaunch notification policy.
+  SetIsRelaunchNotificationPolicyEnabled(true /*enabled*/);
+
+  // For regular updates the notification is delayed if the policy is enabled.
+  TestUpgradeDetectorChromeos upgrade_detector(GetMockClock(),
+                                               GetMockTickClock());
+  upgrade_detector.Init();
+
+  // The observer is not expected to be notified yet.
+  ::testing::StrictMock<MockUpgradeObserver> mock_observer(&upgrade_detector);
+  EXPECT_CALL(mock_observer, OnUpgradeRecommended()).Times(0);
+
+  NotifyUpdateReadyToInstall("1.0.0.0", false /*is_rollback*/,
+                             false /*will_powerwash*/);
+
+  upgrade_detector.Shutdown();
+}
+
+TEST_F(UpgradeDetectorChromeosTest, PolicyEnabledRollback) {
+  // Enable the relaunch notification policy.
+  SetIsRelaunchNotificationPolicyEnabled(true /*enabled*/);
+
+  // Notification should always appear for rollback.
+  TestUpgradeDetectorChromeos upgrade_detector(GetMockClock(),
+                                               GetMockTickClock());
+  upgrade_detector.Init();
+
+  // The observer is expected to be notified that an upgrade is recommended.
+  ::testing::StrictMock<MockUpgradeObserver> mock_observer(&upgrade_detector);
+  EXPECT_CALL(mock_observer, OnUpgradeRecommended());
+
+  NotifyUpdateReadyToInstall("1.0.0.0", true /*is_rollback*/,
+                             true /*will_powerwash*/);
+
+  upgrade_detector.Shutdown();
+}
+
+TEST_F(UpgradeDetectorChromeosTest, PolicyEnabledPowerwash) {
+  // Enable the relaunch notification policy.
+  SetIsRelaunchNotificationPolicyEnabled(true /*enabled*/);
+
+  // Notification should always appear if the device is going to be powerwashed.
+  TestUpgradeDetectorChromeos upgrade_detector(GetMockClock(),
+                                               GetMockTickClock());
+  upgrade_detector.Init();
+
+  // The observer is expected to be notified that an upgrade is recommended.
+  ::testing::StrictMock<MockUpgradeObserver> mock_observer(&upgrade_detector);
+  EXPECT_CALL(mock_observer, OnUpgradeRecommended());
+
+  NotifyUpdateReadyToInstall("1.0.0.0", false /*is_rollback*/,
+                             true /*will_powerwash*/);
 
   upgrade_detector.Shutdown();
 }
 
 TEST_F(UpgradeDetectorChromeosTest, TestHighAnnoyanceDeadline) {
+  // Enable the relaunch notification policy.
+  SetIsRelaunchNotificationPolicyEnabled(true /*enabled*/);
+
   TestUpgradeDetectorChromeos upgrade_detector(GetMockClock(),
                                                GetMockTickClock());
   upgrade_detector.Init();
@@ -236,7 +311,8 @@ TEST_F(UpgradeDetectorChromeosTest, TestHighAnnoyanceDeadline) {
 
   // Observer should get some notifications about new version.
   EXPECT_CALL(mock_observer, OnUpgradeRecommended()).Times(testing::AtLeast(1));
-  NotifyUpdateReadyToInstall("1.0.0.0");
+  NotifyUpdateReadyToInstall("1.0.0.0", false /*is_rollback*/,
+                             false /*will_powerwash*/);
 
   const auto deadline = upgrade_detector.GetAnnoyanceLevelDeadline(
       UpgradeDetector::UPGRADE_ANNOYANCE_HIGH);
@@ -248,7 +324,8 @@ TEST_F(UpgradeDetectorChromeosTest, TestHighAnnoyanceDeadline) {
   // New notification could be sent or not.
   EXPECT_CALL(mock_observer, OnUpgradeRecommended())
       .Times(testing::AnyNumber());
-  NotifyUpdateReadyToInstall("1.0.0.0");
+  NotifyUpdateReadyToInstall("1.0.0.0", false /*is_rollback*/,
+                             false /*will_powerwash*/);
 
   // Deadline wasn't changed because of new upgrade detected.
   EXPECT_EQ(upgrade_detector.GetAnnoyanceLevelDeadline(
@@ -259,6 +336,9 @@ TEST_F(UpgradeDetectorChromeosTest, TestHighAnnoyanceDeadline) {
 }
 
 TEST_F(UpgradeDetectorChromeosTest, TestHeadsUpPeriod) {
+  // Enable the relaunch notification policy.
+  SetIsRelaunchNotificationPolicyEnabled(true /*enabled*/);
+
   TestUpgradeDetectorChromeos upgrade_detector(GetMockClock(),
                                                GetMockTickClock());
   upgrade_detector.Init();
@@ -277,7 +357,8 @@ TEST_F(UpgradeDetectorChromeosTest, TestHeadsUpPeriod) {
   const auto third_notification_at = notification_period;
 
   // Observer should not get notifications about new version till 6-th day.
-  NotifyUpdateReadyToInstall("1.0.0.0");
+  NotifyUpdateReadyToInstall("1.0.0.0", false /*is_rollback*/,
+                             false /*will_powerwash*/);
   FastForwardBy(no_notification_till);
   ::testing::Mock::VerifyAndClear(&mock_observer);
   EXPECT_EQ(upgrade_detector.upgrade_notification_stage(),
@@ -312,6 +393,9 @@ TEST_F(UpgradeDetectorChromeosTest, TestHeadsUpPeriod) {
 }
 
 TEST_F(UpgradeDetectorChromeosTest, TestGracePeriodChange) {
+  // Enable the relaunch notification policy.
+  SetIsRelaunchNotificationPolicyEnabled(true /*enabled*/);
+
   TestUpgradeDetectorChromeos upgrade_detector(GetMockClock(),
                                                GetMockTickClock());
   upgrade_detector.Init();
@@ -321,7 +405,8 @@ TEST_F(UpgradeDetectorChromeosTest, TestGracePeriodChange) {
   SetHeadsUpPeriodPref(base::Minutes(90));
 
   // Observer should not get notifications about new version first 3 days.
-  NotifyUpdateReadyToInstall("1.0.0.0");
+  NotifyUpdateReadyToInstall("1.0.0.0", false /*is_rollback*/,
+                             false /*will_powerwash*/);
   FastForwardBy(base::Days(3));
   RunUntilIdle();
   ::testing::Mock::VerifyAndClear(&mock_observer);
@@ -386,6 +471,9 @@ TEST_F(UpgradeDetectorChromeosTest, TestGracePeriodChange) {
 }
 
 TEST_F(UpgradeDetectorChromeosTest, TestHeadsUpPeriodChange) {
+  // Enable the relaunch notification policy.
+  SetIsRelaunchNotificationPolicyEnabled(true /*enabled*/);
+
   TestUpgradeDetectorChromeos upgrade_detector(GetMockClock(),
                                                GetMockTickClock());
   upgrade_detector.Init();
@@ -395,7 +483,8 @@ TEST_F(UpgradeDetectorChromeosTest, TestHeadsUpPeriodChange) {
   SetHeadsUpPeriodPref(base::Days(1));
 
   // Observer should not get notifications about new version first 4 days.
-  NotifyUpdateReadyToInstall("1.0.0.0");
+  NotifyUpdateReadyToInstall("1.0.0.0", false /*is_rollback*/,
+                             false /*will_powerwash*/);
   FastForwardBy(base::Days(4));
   RunUntilIdle();
   ::testing::Mock::VerifyAndClear(&mock_observer);
@@ -423,6 +512,9 @@ TEST_F(UpgradeDetectorChromeosTest, TestHeadsUpPeriodChange) {
 }
 
 TEST_F(UpgradeDetectorChromeosTest, TestHeadsUpPeriodNotificationPeriodChange) {
+  // Enable the relaunch notification policy.
+  SetIsRelaunchNotificationPolicyEnabled(true /*enabled*/);
+
   TestUpgradeDetectorChromeos upgrade_detector(GetMockClock(),
                                                GetMockTickClock());
   upgrade_detector.Init();
@@ -432,7 +524,8 @@ TEST_F(UpgradeDetectorChromeosTest, TestHeadsUpPeriodNotificationPeriodChange) {
   SetHeadsUpPeriodPref(base::Days(1));
 
   // Observer should not get notifications about new version first 4 days.
-  NotifyUpdateReadyToInstall("1.0.0.0");
+  NotifyUpdateReadyToInstall("1.0.0.0", false /*is_rollback*/,
+                             false /*will_powerwash*/);
   FastForwardBy(base::Days(4));
   RunUntilIdle();
   ::testing::Mock::VerifyAndClear(&mock_observer);
@@ -461,6 +554,9 @@ TEST_F(UpgradeDetectorChromeosTest, TestHeadsUpPeriodNotificationPeriodChange) {
 
 TEST_F(UpgradeDetectorChromeosTest,
        TestHeadsUpPeriodOverflowNotificationPeriod) {
+  // Enable the relaunch notification policy.
+  SetIsRelaunchNotificationPolicyEnabled(true /*enabled*/);
+
   TestUpgradeDetectorChromeos upgrade_detector(GetMockClock(),
                                                GetMockTickClock());
   upgrade_detector.Init();
@@ -472,7 +568,8 @@ TEST_F(UpgradeDetectorChromeosTest,
   // Observer should get notification because HeadsUpPeriod bigger than
   // NotificationPeriod.
   EXPECT_CALL(mock_observer, OnUpgradeRecommended());
-  NotifyUpdateReadyToInstall("1.0.0.0");
+  NotifyUpdateReadyToInstall("1.0.0.0", false /*is_rollback*/,
+                             false /*will_powerwash*/);
   RunUntilIdle();
   ::testing::Mock::VerifyAndClear(&mock_observer);
   EXPECT_EQ(upgrade_detector.upgrade_notification_stage(),
@@ -509,6 +606,9 @@ TEST_F(UpgradeDetectorChromeosTest,
 }
 
 TEST_F(UpgradeDetectorChromeosTest, OnUpgradeRecommendedCalledOnce) {
+  // Enable the relaunch notification policy.
+  SetIsRelaunchNotificationPolicyEnabled(true /*enabled*/);
+
   TestUpgradeDetectorChromeos upgrade_detector(GetMockClock(),
                                                GetMockTickClock());
   upgrade_detector.Init();
@@ -520,7 +620,8 @@ TEST_F(UpgradeDetectorChromeosTest, OnUpgradeRecommendedCalledOnce) {
   // Observer should get notification because HeadsUpPeriod is the same as
   // NotificationPeriod.
   EXPECT_CALL(mock_observer, OnUpgradeRecommended());
-  NotifyUpdateReadyToInstall("1.0.0.0");
+  NotifyUpdateReadyToInstall("1.0.0.0", false /*is_rollback*/,
+                             false /*will_powerwash*/);
   RunUntilIdle();
   ::testing::Mock::VerifyAndClear(&mock_observer);
 
@@ -536,6 +637,9 @@ TEST_F(UpgradeDetectorChromeosTest, OnUpgradeRecommendedCalledOnce) {
 }
 
 TEST_F(UpgradeDetectorChromeosTest, DeadlineAdjustmentDefaultWindow) {
+  // Enable the relaunch notification policy.
+  SetIsRelaunchNotificationPolicyEnabled(true /*enabled*/);
+
   TestUpgradeDetectorChromeos upgrade_detector(GetMockClock(),
                                                GetMockTickClock());
   upgrade_detector.Init();
@@ -559,6 +663,9 @@ TEST_F(UpgradeDetectorChromeosTest, DeadlineAdjustmentDefaultWindow) {
 }
 
 TEST_F(UpgradeDetectorChromeosTest, TestOverrideThresholds) {
+  // Enable the relaunch notification policy.
+  SetIsRelaunchNotificationPolicyEnabled(true /*enabled*/);
+
   TestUpgradeDetectorChromeos upgrade_detector(GetMockClock(),
                                                GetMockTickClock());
   upgrade_detector.Init();
@@ -569,7 +676,8 @@ TEST_F(UpgradeDetectorChromeosTest, TestOverrideThresholds) {
   SetNotificationPeriodPref(notification_period);
   SetHeadsUpPeriodPref(heads_up_period);
   // Simulate update installed.
-  NotifyUpdateReadyToInstall("1.0.0.0");
+  NotifyUpdateReadyToInstall("1.0.0.0", false /*is_rollback*/,
+                             false /*will_powerwash*/);
   EXPECT_EQ(upgrade_detector.upgrade_notification_stage(),
             UpgradeDetector::UPGRADE_ANNOYANCE_NONE);
 
@@ -597,12 +705,16 @@ TEST_F(UpgradeDetectorChromeosTest, TestOverrideThresholds) {
 }
 
 TEST_F(UpgradeDetectorChromeosTest, TestOverrideNotificationType) {
+  // Enable the relaunch notification policy.
+  SetIsRelaunchNotificationPolicyEnabled(true /*enabled*/);
+
   TestUpgradeDetectorChromeos upgrade_detector(GetMockClock(),
                                                GetMockTickClock());
   upgrade_detector.Init();
   ::testing::StrictMock<MockUpgradeObserver> mock_observer(&upgrade_detector);
 
-  NotifyUpdateReadyToInstall("1.0.0.0");
+  NotifyUpdateReadyToInstall("1.0.0.0", false /*is_rollback*/,
+                             false /*will_powerwash*/);
   EXPECT_EQ(upgrade_detector.upgrade_notification_stage(),
             UpgradeDetector::UPGRADE_ANNOYANCE_NONE);
 
@@ -623,6 +735,9 @@ TEST_F(UpgradeDetectorChromeosTest, TestOverrideNotificationType) {
 }
 
 TEST_F(UpgradeDetectorChromeosTest, TestUpdateInProgress) {
+  // Enable the relaunch notification policy.
+  SetIsRelaunchNotificationPolicyEnabled(true /*enabled*/);
+
   TestUpgradeDetectorChromeos upgrade_detector(GetMockClock(),
                                                GetMockTickClock());
   upgrade_detector.Init();
@@ -630,7 +745,8 @@ TEST_F(UpgradeDetectorChromeosTest, TestUpdateInProgress) {
 
   // Finish the first update and set annoyance level to ELEVATED.
   EXPECT_CALL(mock_observer, OnUpgradeRecommended()).Times(testing::AtLeast(1));
-  NotifyUpdateReadyToInstall("1.0.0.0");
+  NotifyUpdateReadyToInstall("1.0.0.0", false /*is_rollback*/,
+                             false /*will_powerwash*/);
   FastForwardBy(upgrade_detector.GetDefaultElevatedAnnoyanceThreshold());
   ::testing::Mock::VerifyAndClear(&mock_observer);
   EXPECT_EQ(upgrade_detector.upgrade_notification_stage(),
@@ -647,7 +763,8 @@ TEST_F(UpgradeDetectorChromeosTest, TestUpdateInProgress) {
   // Complete update and make sure observers are notified when the annoyance
   // level goes back to the previous state.
   EXPECT_CALL(mock_observer, OnUpgradeRecommended());
-  NotifyUpdateReadyToInstall("2.0.0.0");
+  NotifyUpdateReadyToInstall("2.0.0.0", false /*is_rollback*/,
+                             false /*will_powerwash*/);
   ::testing::Mock::VerifyAndClear(&mock_observer);
   EXPECT_EQ(upgrade_detector.upgrade_notification_stage(),
             UpgradeDetector::UPGRADE_ANNOYANCE_ELEVATED);
@@ -664,6 +781,9 @@ TEST_F(UpgradeDetectorChromeosTest, TestUpdateInProgress) {
 }
 
 TEST_F(UpgradeDetectorChromeosTest, TestInvalidateUpdate) {
+  // Enable the relaunch notification policy.
+  SetIsRelaunchNotificationPolicyEnabled(true /*enabled*/);
+
   TestUpgradeDetectorChromeos upgrade_detector(GetMockClock(),
                                                GetMockTickClock());
   upgrade_detector.Init();
@@ -671,7 +791,8 @@ TEST_F(UpgradeDetectorChromeosTest, TestInvalidateUpdate) {
 
   // Finish the first update and set annoyance level to ELEVATED.
   EXPECT_CALL(mock_observer, OnUpgradeRecommended()).Times(testing::AtLeast(1));
-  NotifyUpdateReadyToInstall("1.0.0.0");
+  NotifyUpdateReadyToInstall("1.0.0.0", false /*is_rollback*/,
+                             false /*will_powerwash*/);
   FastForwardBy(upgrade_detector.GetDefaultElevatedAnnoyanceThreshold());
   ::testing::Mock::VerifyAndClear(&mock_observer);
   EXPECT_EQ(upgrade_detector.upgrade_notification_stage(),
@@ -688,7 +809,8 @@ TEST_F(UpgradeDetectorChromeosTest, TestInvalidateUpdate) {
   // Make sure any future updates complete successfully and observers are
   // notified.
   EXPECT_CALL(mock_observer, OnUpgradeRecommended()).Times(testing::AtLeast(1));
-  NotifyUpdateReadyToInstall("1.0.0.0");
+  NotifyUpdateReadyToInstall("1.0.0.0", false /*is_rollback*/,
+                             false /*will_powerwash*/);
   FastForwardBy(upgrade_detector.GetDefaultElevatedAnnoyanceThreshold());
   ::testing::Mock::VerifyAndClear(&mock_observer);
   EXPECT_EQ(upgrade_detector.upgrade_notification_stage(),
@@ -700,6 +822,9 @@ TEST_F(UpgradeDetectorChromeosTest, TestInvalidateUpdate) {
 
 // Tests correct deadlines are set when an upgrade is detected.
 TEST_F(UpgradeDetectorChromeosTest, AnnoyanceLevelDeadlines) {
+  // Enable the relaunch notification policy.
+  SetIsRelaunchNotificationPolicyEnabled(true /*enabled*/);
+
   TestUpgradeDetectorChromeos upgrade_detector(GetMockClock(),
                                                GetMockTickClock());
   ::testing::StrictMock<MockUpgradeObserver> mock_observer(&upgrade_detector);
@@ -711,7 +836,8 @@ TEST_F(UpgradeDetectorChromeosTest, AnnoyanceLevelDeadlines) {
             base::Time());
 
   // Pretend that an upgrade was just detected now.
-  NotifyUpdateReadyToInstall("1.0.0.0");
+  NotifyUpdateReadyToInstall("1.0.0.0", false /*is_rollback*/,
+                             false /*will_powerwash*/);
   base::Time detect_time = upgrade_detector.upgrade_detected_time();
   ::testing::Mock::VerifyAndClear(&mock_observer);
   EXPECT_EQ(upgrade_detector.GetAnnoyanceLevelDeadline(

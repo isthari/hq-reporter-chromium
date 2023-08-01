@@ -36,12 +36,15 @@
 
 #include "base/memory/scoped_refptr.h"
 
+#include "base/time/time.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/blink/public/common/responsiveness_metrics/user_interaction_latency.h"
+#include "third_party/blink/public/common/subresource_load_metrics.h"
 #include "third_party/blink/public/mojom/devtools/devtools_agent.mojom-blink-forward.h"
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/frame/local_frame_client.h"
 #include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
@@ -70,7 +73,9 @@ class CORE_EXPORT LocalFrameClientImpl final : public LocalFrameClient {
   // Notifies the WebView delegate that the JS window object has been cleared,
   // giving it a chance to bind native objects to the window before script
   // parsing begins.
-  void DispatchDidClearWindowObjectInMainWorld() override;
+  void DispatchDidClearWindowObjectInMainWorld(
+      v8::Isolate* isolate,
+      v8::MicrotaskQueue* microtask_queue) override;
   void DocumentElementAvailable() override;
   void RunScriptsAtDocumentElementAvailable() override;
   void RunScriptsAtDocumentReady(bool document_is_empty) override;
@@ -92,12 +97,12 @@ class CORE_EXPORT LocalFrameClientImpl final : public LocalFrameClient {
   void DispatchDidLoadResourceFromMemoryCache(const ResourceRequest&,
                                               const ResourceResponse&) override;
   void DispatchDidHandleOnloadEvents() override;
-  void DidFinishSameDocumentNavigation(HistoryItem*,
-                                       WebHistoryCommitType,
+  void DidFinishSameDocumentNavigation(WebHistoryCommitType,
                                        bool is_handled_within_agent,
                                        mojom::blink::SameDocumentNavigationType,
                                        bool is_client_redirect,
                                        bool is_browser_initiated) override;
+  void DidFailAsyncSameDocumentCommit() override;
   void DispatchDidOpenDocumentInputStream(const KURL& url) override;
   void DispatchDidReceiveTitle(const String&) override;
   void DispatchDidCommitLoad(
@@ -113,68 +118,60 @@ class CORE_EXPORT LocalFrameClientImpl final : public LocalFrameClient {
 
   void BeginNavigation(
       const ResourceRequest&,
+      const KURL& requestor_base_url,
       mojom::RequestContextFrameType,
       LocalDOMWindow* origin_window,
       DocumentLoader*,
       WebNavigationType,
       NavigationPolicy,
       WebFrameLoadType,
+      mojom::blink::ForceHistoryPush,
       bool is_client_redirect,
+      // TODO(crbug.com/1315802): Refactor _unfencedTop handling.
+      bool is_unfenced_top_navigation,
       mojom::blink::TriggeringEventInfo,
       HTMLFormElement*,
       network::mojom::CSPDisposition should_bypass_main_world_csp,
       mojo::PendingRemote<mojom::blink::BlobURLToken>,
       base::TimeTicks input_start_time,
       const String& href_translate,
-      const absl::optional<WebImpression>& impression,
-      network::mojom::IPAddressSpace,
+      const absl::optional<Impression>& impression,
       const LocalFrameToken* initiator_frame_token,
       std::unique_ptr<SourceLocation> source_location,
       mojo::PendingRemote<mojom::blink::PolicyContainerHostKeepAliveHandle>
-          initiator_policy_container_keep_alive_handle) override;
+          initiator_policy_container_keep_alive_handle,
+      bool is_container_initiated,
+      bool is_fullscreen_requested) override;
   void DispatchWillSendSubmitEvent(HTMLFormElement*) override;
   void DidStartLoading() override;
   void DidStopLoading() override;
-  bool NavigateBackForward(int offset) const override;
+  bool NavigateBackForward(
+      int offset,
+      absl::optional<scheduler::TaskAttributionId>
+          soft_navigation_heuristics_task_id) const override;
   void DidDispatchPingLoader(const KURL&) override;
   void DidChangePerformanceTiming() override;
   void DidObserveInputDelay(base::TimeDelta) override;
   void DidObserveUserInteraction(base::TimeDelta max_event_duration,
-                                 base::TimeDelta total_event_duration,
                                  UserInteractionType interaction_type) override;
   void DidChangeCpuTiming(base::TimeDelta) override;
   void DidObserveLoadingBehavior(LoadingBehaviorFlag) override;
+  void DidObserveSubresourceLoad(
+      const SubresourceLoadMetrics& subresource_load_metrics) override;
   void DidObserveNewFeatureUsage(const UseCounterFeature&) override;
+  void DidObserveSoftNavigation(uint32_t count) override;
   void DidObserveLayoutShift(double score, bool after_input_or_scroll) override;
-  void DidObserveLayoutNg(uint32_t all_block_count,
-                          uint32_t ng_block_count,
-                          uint32_t all_call_count,
-                          uint32_t ng_call_count) override;
-  void DidObserveLazyLoadBehavior(
-      WebLocalFrameClient::LazyLoadBehavior lazy_load_behavior) override;
   void PreloadSubresourceOptimizationsForOrigins(
-      const WTF::HashSet<scoped_refptr<const SecurityOrigin>,
-                         SecurityOriginHash>& origins) override;
+      const WTF::HashSet<scoped_refptr<const SecurityOrigin>>& origins)
+      override;
   void SelectorMatchChanged(const Vector<String>& added_selectors,
                             const Vector<String>& removed_selectors) override;
 
-  // Creates a WebDocumentLoaderImpl that is a DocumentLoader but also has:
-  // - storage to store an extra data that can be used by the content layer
-  // - wrapper methods to expose DocumentLoader's variables to the content
-  //   layer
-  DocumentLoader* CreateDocumentLoader(
-      LocalFrame*,
-      WebNavigationType,
-      std::unique_ptr<WebNavigationParams> navigation_params,
-      std::unique_ptr<PolicyContainer> policy_container,
-      std::unique_ptr<WebDocumentLoader::ExtraData> extra_data) override;
+  void DidCreateDocumentLoader(DocumentLoader*) override;
 
-  // Updates the underlying |WebDocumentLoaderImpl| of |DocumentLoader| with
-  // extra_data.
-  void UpdateDocumentLoader(
-      DocumentLoader* document_loader,
-      std::unique_ptr<WebDocumentLoader::ExtraData> extra_data) override;
+  String UserAgentOverride() override;
   WTF::String UserAgent() override;
+  WTF::String FullUserAgent() override;
   WTF::String ReducedUserAgent() override;
   absl::optional<blink::UserAgentMetadata> UserAgentMetadata() override;
   WTF::String DoNotTrackValue() override;
@@ -205,6 +202,7 @@ class CORE_EXPORT LocalFrameClientImpl final : public LocalFrameClient {
   WebRemotePlaybackClient* CreateWebRemotePlaybackClient(
       HTMLMediaElement&) override;
   void DidChangeScrollOffset() override;
+  void NotifyCurrentHistoryItemChanged() override;
   void DidUpdateCurrentHistoryItem() override;
 
   bool AllowContentInitiatedDataUrlNavigations(const KURL&) override;
@@ -219,8 +217,6 @@ class CORE_EXPORT LocalFrameClientImpl final : public LocalFrameClient {
 
   unsigned BackForwardLength() override;
 
-  BlameContext* GetFrameBlameContext() override;
-
   KURL OverrideFlashEmbedWithHTML(const KURL&) override;
 
   void NotifyUserActivation() override;
@@ -231,7 +227,8 @@ class CORE_EXPORT LocalFrameClientImpl final : public LocalFrameClient {
 
   WebTextCheckClient* GetTextCheckerClient() const override;
 
-  std::unique_ptr<WebURLLoaderFactory> CreateURLLoaderFactory() override;
+  scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory() override;
+  std::unique_ptr<URLLoader> CreateURLLoaderForTesting() override;
 
   blink::BrowserInterfaceBrokerProxy& GetBrowserInterfaceBroker() override;
 
@@ -256,7 +253,14 @@ class CORE_EXPORT LocalFrameClientImpl final : public LocalFrameClient {
   void FocusedElementChanged(Element* element) override;
 
   void OnMainFrameIntersectionChanged(
-      const gfx::Rect& intersection_rect) override;
+      const gfx::Rect& main_frame_intersection_rect) override;
+
+  void OnMainFrameViewportRectangleChanged(
+      const gfx::Rect& main_frame_viewport_rect) override;
+
+  void OnMainFrameImageAdRectangleChanged(
+      DOMNodeId element_id,
+      const gfx::Rect& image_ad_rect) override;
 
   void OnOverlayPopupAdDetected() override;
 
@@ -291,8 +295,6 @@ class CORE_EXPORT LocalFrameClientImpl final : public LocalFrameClient {
       std::unique_ptr<blink::PendingURLLoaderFactoryBundle> pending_factory)
       override;
 
-  void DidChangeMobileFriendliness(const MobileFriendliness&) override;
-
  private:
   bool IsLocalFrameClientImpl() const override { return true; }
   WebDevToolsAgentImpl* DevToolsAgent();
@@ -302,6 +304,7 @@ class CORE_EXPORT LocalFrameClientImpl final : public LocalFrameClient {
   Member<WebLocalFrameImpl> web_frame_;
 
   String user_agent_;
+  String full_user_agent_;
   String reduced_user_agent_;
 };
 

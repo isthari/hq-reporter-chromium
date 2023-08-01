@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -140,8 +140,7 @@ void CGaiaCredentialProviderModule::LogProcessDetails() {
 
   LOGFN(INFO) << "GCPW Initialized in " << process_name
               << " GCPW Version: " << (CHROME_VERSION_STRING)
-              << " Windows Build: "
-              << base::win::OSInfo::GetInstance()->Kernel32BaseVersion()
+              << " Windows Build: " << base::win::OSInfo::Kernel32BaseVersion()
               << " Version:" << GetWindowsVersion();
 }
 

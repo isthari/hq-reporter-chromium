@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,9 @@
 #include <type_traits>
 
 #include "base/auto_reset.h"
-#include "base/bind.h"
-#include "base/cxx17_backports.h"
 #include "base/debug/alias.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/trace_event/base_tracing.h"
@@ -120,13 +119,12 @@ void MessagePumpForUI::ScheduleWork() {
 
   // Clarify that we didn't really insert.
   work_scheduled_ = false;
-  UMA_HISTOGRAM_ENUMERATION("Chrome.MessageLoopProblem", MESSAGE_POST_ERROR,
-                            MESSAGE_LOOP_PROBLEM_MAX);
   TRACE_EVENT_INSTANT0("base", "Chrome.MessageLoopProblem.MESSAGE_POST_ERROR",
                        TRACE_EVENT_SCOPE_THREAD);
 }
 
-void MessagePumpForUI::ScheduleDelayedWork(const TimeTicks& delayed_work_time) {
+void MessagePumpForUI::ScheduleDelayedWork(
+    const Delegate::NextWorkInfo& next_work_info) {
   DCHECK_CALLED_ON_VALID_THREAD(bound_thread_);
 
   // Since this is always called from |bound_thread_|, there is almost always
@@ -136,9 +134,9 @@ void MessagePumpForUI::ScheduleDelayedWork(const TimeTicks& delayed_work_time) {
   // (e.g. modal dialog) under a ScopedNestableTaskAllower, in which case
   // HandleWorkMessage() will be invoked when the system picks up kMsgHaveWork
   // and it will ScheduleNativeTimer() if it's out of immediate work. However,
-  // in that alternate scenario : it's possible for a Windows native task (e.g.
-  // https://docs.microsoft.com/en-us/windows/desktop/winmsg/using-hooks) to
-  // wake the native nested loop and PostDelayedTask() to the current thread
+  // in that alternate scenario : it's possible for a Windows native work item
+  // (e.g. https://docs.microsoft.com/en-us/windows/desktop/winmsg/using-hooks)
+  // to wake the native nested loop and PostDelayedTask() to the current thread
   // from it. This is the only case where we must install/adjust the native
   // timer from ScheduleDelayedWork() because if we don't, the native loop will
   // go back to sleep, unaware of the new |delayed_work_time|.
@@ -146,15 +144,8 @@ void MessagePumpForUI::ScheduleDelayedWork(const TimeTicks& delayed_work_time) {
   // TODO(gab): This could potentially be replaced by a ForegroundIdleProc hook
   // if Windows ends up being the only platform requiring ScheduleDelayedWork().
   if (in_native_loop_ && !work_scheduled_) {
-    // TODO(gab): Consider passing a NextWorkInfo object to ScheduleDelayedWork
-    // to take advantage of |recent_now| here too.
-    ScheduleNativeTimer({delayed_work_time, TimeTicks::Now()});
+    ScheduleNativeTimer(next_work_info);
   }
-}
-
-void MessagePumpForUI::EnableWmQuit() {
-  DCHECK_CALLED_ON_VALID_THREAD(bound_thread_);
-  enable_wm_quit_ = true;
 }
 
 void MessagePumpForUI::AddObserver(Observer* observer) {
@@ -255,10 +246,14 @@ void MessagePumpForUI::WaitForWork(Delegate::NextWorkInfo next_work_info) {
   // Wait until a message is available, up to the time needed by the timer
   // manager to fire the next set of timers.
   DWORD wait_flags = MWMO_INPUTAVAILABLE;
+  bool last_wakeup_was_spurious = false;
   for (DWORD delay = GetSleepTimeoutMs(next_work_info.delayed_run_time,
                                        next_work_info.recent_now);
        delay != 0; delay = GetSleepTimeoutMs(next_work_info.delayed_run_time)) {
-    run_state_->delegate->BeforeWait();
+    if (!last_wakeup_was_spurious) {
+      run_state_->delegate->BeforeWait();
+    }
+    last_wakeup_was_spurious = false;
 
     // Tell the optimizer to retain these values to simplify analyzing hangs.
     base::debug::Alias(&delay);
@@ -301,6 +296,11 @@ void MessagePumpForUI::WaitForWork(Delegate::NextWorkInfo next_work_info) {
       // has returned false. Reset |wait_flags| so that we wait for a *new*
       // message.
       wait_flags = 0;
+    } else {
+      last_wakeup_was_spurious = true;
+      TRACE_EVENT_INSTANT("base",
+                          "MessagePumpForUI::WaitForWork Spurious Wakeup",
+                          "reason: ", result);
     }
 
     DCHECK_NE(WAIT_FAILED, result) << GetLastError();
@@ -414,8 +414,8 @@ void MessagePumpForUI::ScheduleNativeTimer(
   } else {
     // TODO(gab): ::SetTimer()'s documentation claims it does this for us.
     // Consider removing this safety net.
-    delay_msec =
-        clamp(delay_msec, UINT(USER_TIMER_MINIMUM), UINT(USER_TIMER_MAXIMUM));
+    delay_msec = std::clamp(delay_msec, static_cast<UINT>(USER_TIMER_MINIMUM),
+                            static_cast<UINT>(USER_TIMER_MAXIMUM));
 
     // Tell the optimizer to retain the delay to simplify analyzing hangs.
     base::debug::Alias(&delay_msec);
@@ -431,8 +431,6 @@ void MessagePumpForUI::ScheduleNativeTimer(
     // full). Since we only use ScheduleNativeTimer() in native nested loops
     // this likely means this pump will not be given a chance to run application
     // tasks until the nested loop completes.
-    UMA_HISTOGRAM_ENUMERATION("Chrome.MessageLoopProblem", SET_TIMER_ERROR,
-                              MESSAGE_LOOP_PROBLEM_MAX);
     TRACE_EVENT_INSTANT0("base", "Chrome.MessageLoopProblem.SET_TIMER_ERROR",
                          TRACE_EVENT_SCOPE_THREAD);
   }
@@ -511,15 +509,11 @@ bool MessagePumpForUI::ProcessMessageHelper(const MSG& msg) {
 
   if (msg.message == WM_QUIT) {
     // WM_QUIT is the standard way to exit a ::GetMessage() loop. Our
-    // MessageLoop has its own quit mechanism, so WM_QUIT should only terminate
-    // it if |enable_wm_quit_| is explicitly set (and is generally unexpected
-    // otherwise).
-    if (enable_wm_quit_) {
-      run_state_->should_quit = true;
-      return false;
-    }
-    UMA_HISTOGRAM_ENUMERATION("Chrome.MessageLoopProblem",
-                              RECEIVED_WM_QUIT_ERROR, MESSAGE_LOOP_PROBLEM_MAX);
+    // MessageLoop has its own quit mechanism, so WM_QUIT is generally
+    // unexpected.
+    TRACE_EVENT_INSTANT0("base",
+                         "Chrome.MessageLoopProblem.RECEIVED_WM_QUIT_ERROR",
+                         TRACE_EVENT_SCOPE_THREAD);
     return true;
   }
 
@@ -566,9 +560,9 @@ bool MessagePumpForUI::ProcessPumpReplacementMessage() {
     // but there's no way to specify this (omitting PM_QS_SENDMESSAGE as in
     // crrev.com/791043 doesn't do anything). Hence this call must be considered
     // as a potential work item.
+    auto scoped_do_work_item = run_state_->delegate->BeginWorkItem();
     TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("base"),
                  "MessagePumpForUI::ProcessPumpReplacementMessage PeekMessage");
-    auto scoped_do_work_item = run_state_->delegate->BeginWorkItem();
     have_message = ::PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE) != FALSE;
   }
 
@@ -611,7 +605,7 @@ bool MessagePumpForUI::ProcessPumpReplacementMessage() {
     // directly as handing it off to ProcessMessageHelper() below would cause an
     // unnecessary ScopedDoWorkItem which may incorrectly lead the Delegate's
     // heuristics to conclude that the DoWork() in HandleTimerMessage() is
-    // nested inside a native task. It's also safe to skip the below
+    // nested inside a native work item. It's also safe to skip the below
     // ScheduleWork() as it is not mandatory before invoking DoWork() and
     // HandleTimerMessage() handles re-installing the necessary followup
     // messages.
@@ -642,7 +636,7 @@ MessagePumpForIO::IOHandler::~IOHandler() = default;
 MessagePumpForIO::MessagePumpForIO() {
   port_.Set(::CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr,
                                      reinterpret_cast<ULONG_PTR>(nullptr), 1));
-  DCHECK(port_.IsValid());
+  DCHECK(port_.is_valid());
 }
 
 MessagePumpForIO::~MessagePumpForIO() = default;
@@ -657,7 +651,7 @@ void MessagePumpForIO::ScheduleWork() {
 
   // Make sure the MessagePump does some work for us.
   const BOOL ret = ::PostQueuedCompletionStatus(
-      port_.Get(), 0, reinterpret_cast<ULONG_PTR>(this),
+      port_.get(), 0, reinterpret_cast<ULONG_PTR>(this),
       reinterpret_cast<OVERLAPPED*>(this));
   if (ret)
     return;  // Post worked perfectly.
@@ -665,14 +659,13 @@ void MessagePumpForIO::ScheduleWork() {
   // See comment in MessagePumpForUI::ScheduleWork() for this error recovery.
 
   work_scheduled_ = false;  // Clarify that we didn't succeed.
-  UMA_HISTOGRAM_ENUMERATION("Chrome.MessageLoopProblem", COMPLETION_POST_ERROR,
-                            MESSAGE_LOOP_PROBLEM_MAX);
   TRACE_EVENT_INSTANT0("base",
                        "Chrome.MessageLoopProblem.COMPLETION_POST_ERROR",
                        TRACE_EVENT_SCOPE_THREAD);
 }
 
-void MessagePumpForIO::ScheduleDelayedWork(const TimeTicks& delayed_work_time) {
+void MessagePumpForIO::ScheduleDelayedWork(
+    const Delegate::NextWorkInfo& next_work_info) {
   DCHECK_CALLED_ON_VALID_THREAD(bound_thread_);
 
   // Since this is always called from |bound_thread_|, there is nothing to do as
@@ -685,7 +678,7 @@ HRESULT MessagePumpForIO::RegisterIOHandler(HANDLE file_handle,
   DCHECK_CALLED_ON_VALID_THREAD(bound_thread_);
 
   HANDLE port = ::CreateIoCompletionPort(
-      file_handle, port_.Get(), reinterpret_cast<ULONG_PTR>(handler), 1);
+      file_handle, port_.get(), reinterpret_cast<ULONG_PTR>(handler), 1);
   return (port != nullptr) ? S_OK : HRESULT_FROM_WIN32(GetLastError());
 }
 
@@ -695,7 +688,7 @@ bool MessagePumpForIO::RegisterJobObject(HANDLE job_handle,
 
   JOBOBJECT_ASSOCIATE_COMPLETION_PORT info;
   info.CompletionKey = handler;
-  info.CompletionPort = port_.Get();
+  info.CompletionPort = port_.get();
   return ::SetInformationJobObject(job_handle,
                                    JobObjectAssociateCompletionPortInformation,
                                    &info, sizeof(info)) != FALSE;
@@ -722,7 +715,6 @@ void MessagePumpForIO::DoRunLoop() {
     if (run_state_->should_quit)
       break;
 
-    run_state_->delegate->BeforeWait();
     more_work_is_plausible |= WaitForIOCompletion(0);
     if (run_state_->should_quit)
       break;
@@ -780,7 +772,8 @@ bool MessagePumpForIO::WaitForIOCompletion(DWORD timeout) {
                           item.handler->io_handler_location())));
       });
 
-  item.handler->OnIOCompleted(item.context, item.bytes_transfered, item.error);
+  item.handler.ExtractAsDangling()->OnIOCompleted(
+      item.context.ExtractAsDangling(), item.bytes_transfered, item.error);
 
   return true;
 }
@@ -792,7 +785,7 @@ bool MessagePumpForIO::GetIOItem(DWORD timeout, IOItem* item) {
   memset(item, 0, sizeof(*item));
   ULONG_PTR key = reinterpret_cast<ULONG_PTR>(nullptr);
   OVERLAPPED* overlapped = nullptr;
-  if (!::GetQueuedCompletionStatus(port_.Get(), &item->bytes_transfered, &key,
+  if (!::GetQueuedCompletionStatus(port_.get(), &item->bytes_transfered, &key,
                                    &overlapped, timeout)) {
     if (!overlapped)
       return false;  // Nothing in the queue.

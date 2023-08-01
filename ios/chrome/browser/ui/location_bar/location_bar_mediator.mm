@@ -1,22 +1,22 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/location_bar/location_bar_mediator.h"
 
-#include "base/memory/ptr_util.h"
+#import "base/memory/ptr_util.h"
+#import "ios/chrome/browser/ntp/new_tab_page_util.h"
 #import "ios/chrome/browser/search_engines/search_engine_observer_bridge.h"
 #import "ios/chrome/browser/search_engines/search_engines_util.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list_observer_bridge.h"
+#import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/location_bar/location_bar_consumer.h"
-#import "ios/chrome/browser/ui/ntp/ntp_util.h"
 #import "ios/chrome/browser/ui/omnibox/omnibox_util.h"
-#import "ios/chrome/browser/ui/util/uikit_ui_util.h"
-#import "ios/chrome/browser/web_state_list/web_state_list.h"
-#import "ios/chrome/browser/web_state_list/web_state_list_observer_bridge.h"
-#include "ios/chrome/grit/ios_theme_resources.h"
-#include "ios/web/public/navigation/navigation_item.h"
+#import "ios/chrome/grit/ios_theme_resources.h"
+#import "ios/web/public/navigation/navigation_item.h"
 #import "ios/web/public/navigation/navigation_manager.h"
-#include "skia/ext/skia_utils_ios.h"
+#import "skia/ext/skia_utils_ios.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -26,6 +26,9 @@
 
 // Whether the current default search engine supports search by image.
 @property(nonatomic, assign) BOOL searchEngineSupportsSearchByImage;
+
+// Whether the current default search engine supports Lens.
+@property(nonatomic, assign) BOOL searchEngineSupportsLens;
 
 @end
 
@@ -38,6 +41,7 @@
   self = [super init];
   if (self) {
     _searchEngineSupportsSearchByImage = NO;
+    _searchEngineSupportsLens = NO;
     _webStateListObserver = std::make_unique<WebStateListObserverBridge>(self);
   }
   return self;
@@ -56,6 +60,8 @@
 - (void)searchEngineChanged {
   self.searchEngineSupportsSearchByImage =
       search_engines::SupportsSearchByImage(self.templateURLService);
+  self.searchEngineSupportsLens =
+      search_engines::SupportsSearchImageWithLens(self.templateURLService);
 }
 
 #pragma mark - Setters
@@ -64,6 +70,7 @@
   _consumer = consumer;
   [consumer
       updateSearchByImageSupported:self.searchEngineSupportsSearchByImage];
+  [consumer updateLensImageSupported:self.searchEngineSupportsLens];
 }
 
 - (void)setTemplateURLService:(TemplateURLService*)templateURLService {
@@ -82,6 +89,14 @@
   if (supportChanged) {
     [self.consumer
         updateSearchByImageSupported:searchEngineSupportsSearchByImage];
+  }
+}
+
+- (void)setSearchEngineSupportsLens:(BOOL)searchEngineSupportsLens {
+  BOOL supportChanged = _searchEngineSupportsLens != searchEngineSupportsLens;
+  _searchEngineSupportsLens = searchEngineSupportsLens;
+  if (supportChanged) {
+    [self.consumer updateLensImageSupported:searchEngineSupportsLens];
   }
 }
 

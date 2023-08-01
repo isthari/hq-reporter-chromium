@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,8 @@
 #include <limits>
 
 #include "base/numerics/clamped_math.h"
-#include "third_party/blink/public/mojom/web_feature/web_feature.mojom-blink.h"
+#include "base/time/time.h"
+#include "third_party/blink/public/mojom/use_counter/metrics/web_feature.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_intersection_observer_callback.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_intersection_observer_delegate.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_intersection_observer_init.h"
@@ -46,11 +47,14 @@ class IntersectionObserverDelegateImpl final
       ExecutionContext* context,
       IntersectionObserver::EventCallback callback,
       LocalFrameUkmAggregator::MetricId ukm_metric_id,
-      IntersectionObserver::DeliveryBehavior delivery_behavior)
+      IntersectionObserver::DeliveryBehavior delivery_behavior,
+      bool needs_initial_observation_with_detached_target)
       : context_(context),
         callback_(std::move(callback)),
         ukm_metric_id_(ukm_metric_id),
-        delivery_behavior_(delivery_behavior) {}
+        delivery_behavior_(delivery_behavior),
+        needs_initial_observation_with_detached_target_(
+            needs_initial_observation_with_detached_target) {}
   IntersectionObserverDelegateImpl(const IntersectionObserverDelegateImpl&) =
       delete;
   IntersectionObserverDelegateImpl& operator=(
@@ -62,6 +66,10 @@ class IntersectionObserverDelegateImpl final
 
   IntersectionObserver::DeliveryBehavior GetDeliveryBehavior() const override {
     return delivery_behavior_;
+  }
+
+  bool NeedsInitialObservationWithDetachedTarget() const override {
+    return needs_initial_observation_with_detached_target_;
   }
 
   void Deliver(const HeapVector<Member<IntersectionObserverEntry>>& entries,
@@ -81,6 +89,7 @@ class IntersectionObserverDelegateImpl final
   IntersectionObserver::EventCallback callback_;
   LocalFrameUkmAggregator::MetricId ukm_metric_id_;
   IntersectionObserver::DeliveryBehavior delivery_behavior_;
+  bool needs_initial_observation_with_detached_target_;
 };
 
 void ParseMargin(String margin_parameter,
@@ -150,7 +159,7 @@ void ParseThresholds(
       break;
   }
 
-  if (thresholds.IsEmpty())
+  if (thresholds.empty())
     thresholds.push_back(0.f);
 
   for (auto threshold_value : thresholds) {
@@ -250,11 +259,12 @@ IntersectionObserver* IntersectionObserver::Create(
     bool always_report_root_bounds,
     MarginTarget margin_target,
     bool use_overflow_clip_edge,
+    bool needs_initial_observation_with_detached_target,
     ExceptionState& exception_state) {
   IntersectionObserverDelegateImpl* intersection_observer_delegate =
       MakeGarbageCollected<IntersectionObserverDelegateImpl>(
           document->GetExecutionContext(), std::move(callback), ukm_metric_id,
-          behavior);
+          behavior, needs_initial_observation_with_detached_target);
   return MakeGarbageCollected<IntersectionObserver>(
       *intersection_observer_delegate, nullptr, margin, thresholds, semantics,
       delay, track_visibility, always_report_root_bounds, margin_target,
@@ -272,7 +282,8 @@ IntersectionObserver::IntersectionObserver(
     bool always_report_root_bounds,
     MarginTarget margin_target,
     bool use_overflow_clip_edge)
-    : ExecutionContextClient(delegate.GetExecutionContext()),
+    : ActiveScriptWrappable<IntersectionObserver>({}),
+      ExecutionContextClient(delegate.GetExecutionContext()),
       delegate_(&delegate),
       root_(root),
       thresholds_(thresholds),
@@ -358,14 +369,12 @@ void IntersectionObserver::observe(Element* target,
         .EnsureIntersectionObserverController()
         .AddTrackedObservation(*observation);
     if (LocalFrameView* frame_view = target->GetDocument().View()) {
-      // The IntersectionObsever spec requires that at least one observation
+      // The IntersectionObserver spec requires that at least one observation
       // be recorded after observe() is called, even if the frame is throttled.
       frame_view->SetIntersectionObservationState(LocalFrameView::kRequired);
       frame_view->ScheduleAnimation();
     }
-  } else {
-    // The IntersectionObsever spec requires that at least one observation
-    // be recorded after observe() is called, even if the target is detached.
+  } else if (delegate_->NeedsInitialObservationWithDetachedTarget()) {
     absl::optional<base::TimeTicks> monotonic_time;
     observation->ComputeIntersection(
         IntersectionObservation::kImplicitRootObserversNeedUpdate |
@@ -391,7 +400,7 @@ void IntersectionObserver::unobserve(Element* target,
   observation->Disconnect();
   observations_.erase(observation);
   active_observations_.erase(observation);
-  if (root() && root()->isConnected() && observations_.IsEmpty()) {
+  if (root() && root()->isConnected() && observations_.empty()) {
     root()
         ->GetDocument()
         .EnsureIntersectionObserverController()
@@ -432,7 +441,7 @@ static void AppendLength(StringBuilder& string_builder, const Length& length) {
 String IntersectionObserver::rootMargin() const {
   StringBuilder string_builder;
   const auto& margin = RootMargin();
-  if (margin.IsEmpty()) {
+  if (margin.empty()) {
     string_builder.Append("0px 0px 0px 0px");
   } else {
     DCHECK_EQ(margin.size(), 4u);
@@ -462,7 +471,7 @@ int64_t IntersectionObserver::ComputeIntersections(
     unsigned flags,
     absl::optional<base::TimeTicks>& monotonic_time) {
   DCHECK(!RootIsImplicit());
-  if (!RootIsValid() || !GetExecutionContext() || observations_.IsEmpty())
+  if (!RootIsValid() || !GetExecutionContext() || observations_.empty())
     return 0;
 
   // If we're processing post-layout deliveries only and we're not a post-layout
@@ -484,9 +493,9 @@ int64_t IntersectionObserver::ComputeIntersections(
       IntersectionGeometry::GetRootLayoutObjectForTarget(root(), nullptr,
                                                          false),
       RootMargin());
-  HeapVector<Member<IntersectionObservation>> observations_to_process;
   // TODO(szager): Is this copy necessary?
-  CopyToVector(observations_, observations_to_process);
+  HeapVector<Member<IntersectionObservation>> observations_to_process(
+      observations_);
   int64_t result = 0;
   for (auto& observation : observations_to_process) {
     result +=
@@ -507,7 +516,7 @@ LocalFrameUkmAggregator::MetricId IntersectionObserver::GetUkmMetricId() const {
 
 void IntersectionObserver::ReportUpdates(IntersectionObservation& observation) {
   DCHECK_EQ(observation.Observer(), this);
-  bool needs_scheduling = active_observations_.IsEmpty();
+  bool needs_scheduling = active_observations_.empty();
   active_observations_.insert(&observation);
 
   if (needs_scheduling) {

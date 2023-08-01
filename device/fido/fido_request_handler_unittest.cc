@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -87,12 +87,13 @@ class TestObserver : public FidoRequestHandlerBase::Observer {
 
   void WaitForAndExpectAvailableTransportsAre(
       base::flat_set<FidoTransportProtocol> expected_transports,
-      absl::optional<bool> has_platform_credential = absl::nullopt) {
+      FidoRequestHandlerBase::RecognizedCredential
+          has_platform_authenticator_credential) {
     auto result = WaitForTransportAvailabilityInfo();
     EXPECT_THAT(result.available_transports,
                 ::testing::UnorderedElementsAreArray(expected_transports));
-    EXPECT_EQ(result.has_recognized_platform_authenticator_credential,
-              has_platform_credential);
+    EXPECT_EQ(result.has_platform_authenticator_credential,
+              has_platform_authenticator_credential);
   }
 
  protected:
@@ -203,7 +204,8 @@ class FakeFidoRequestHandler : public FidoRequestHandlerBase {
   }
   ~FakeFidoRequestHandler() override = default;
 
-  void set_has_platform_credential(bool has_platform_credential) {
+  void set_has_platform_credential(
+      RecognizedCredential has_platform_credential) {
     has_platform_credential_ = has_platform_credential;
   }
 
@@ -223,16 +225,10 @@ class FakeFidoRequestHandler : public FidoRequestHandlerBase {
                        weak_factory_.GetWeakPtr(), authenticator)));
   }
 
-  void AuthenticatorAdded(FidoDiscoveryBase* discovery,
-                          FidoAuthenticator* authenticator) override {
-    if (authenticator->AuthenticatorTransport() ==
-        FidoTransportProtocol::kInternal) {
-      transport_availability_info()
-          .has_recognized_platform_authenticator_credential =
-          has_platform_credential_;
-    }
-
-    FidoRequestHandlerBase::AuthenticatorAdded(discovery, authenticator);
+  void GetPlatformCredentialStatus(
+      FidoAuthenticator* platform_authenticator) override {
+    OnHavePlatformCredentialStatus(/*user_entities=*/{},
+                                   has_platform_credential_);
   }
 
   void HandleResponse(FidoAuthenticator* authenticator,
@@ -260,7 +256,8 @@ class FakeFidoRequestHandler : public FidoRequestHandlerBase {
   }
 
   CompletionCallback completion_callback_;
-  bool has_platform_credential_ = false;
+  RecognizedCredential has_platform_credential_ =
+      RecognizedCredential::kNoRecognizedCredential;
 
   base::WeakPtrFactory<FakeFidoRequestHandler> weak_factory_{this};
 };
@@ -583,13 +580,14 @@ TEST_F(FidoRequestHandlerTest, TestWithPlatformAuthenticator) {
       &fake_discovery_factory_,
       base::flat_set<FidoTransportProtocol>({FidoTransportProtocol::kInternal}),
       callback().callback());
-  request_handler->set_has_platform_credential(true);
+  request_handler->set_has_platform_credential(
+      FidoRequestHandlerBase::RecognizedCredential::kHasRecognizedCredential);
   request_handler->set_observer(&observer);
   fake_discovery->AddDevice(std::move(device));
 
   observer.WaitForAndExpectAvailableTransportsAre(
       {FidoTransportProtocol::kInternal},
-      /*has_platform_credential=*/true);
+      FidoRequestHandlerBase::RecognizedCredential::kHasRecognizedCredential);
 
   callback().WaitForCallback();
   EXPECT_TRUE(callback().status());
@@ -603,7 +601,9 @@ TEST_F(FidoRequestHandlerTest, InternalTransportDisallowedIfMarkedUnavailable) {
       callback().callback());
   request_handler->set_observer(&observer);
 
-  observer.WaitForAndExpectAvailableTransportsAre({});
+  observer.WaitForAndExpectAvailableTransportsAre(
+      {},
+      FidoRequestHandlerBase::RecognizedCredential::kNoRecognizedCredential);
 }
 
 TEST_F(FidoRequestHandlerTest,
@@ -615,16 +615,32 @@ TEST_F(FidoRequestHandlerTest,
 
   request_handler->set_observer(&observer);
   observer.WaitForAndExpectAvailableTransportsAre(
-      {FidoTransportProtocol::kUsbHumanInterfaceDevice});
+      {FidoTransportProtocol::kUsbHumanInterfaceDevice},
+      FidoRequestHandlerBase::RecognizedCredential::kNoRecognizedCredential);
 }
 
 #if BUILDFLAG(IS_WIN)
+
 TEST_F(FidoRequestHandlerTest, TransportAvailabilityOfWindowsAuthenticator) {
+  static const struct {
+    bool api_available = false;
+    bool is_uvpaa = false;
+  } kTestCases[] = {
+      /* clang-format off */
+      /* api_available is_uvpaa */
+      {true,           true},
+      {true,           false},
+      {false,          false},
+      /* clang-format on */
+  };
   FakeWinWebAuthnApi api;
   fake_discovery_factory_.set_win_webauthn_api(&api);
-  for (const bool api_available : {false, true}) {
-    SCOPED_TRACE(::testing::Message() << "api_available=" << api_available);
-    api.set_available(api_available);
+  for (const auto& test_case : kTestCases) {
+    SCOPED_TRACE(::testing::Message()
+                 << "api_available=" << test_case.api_available);
+    SCOPED_TRACE(::testing::Message() << "is_uvpaa=" << test_case.is_uvpaa);
+    api.set_available(test_case.api_available);
+    api.set_is_uvpaa(test_case.is_uvpaa);
 
     TestObserver observer;
     ForgeNextHidDiscovery();
@@ -635,19 +651,17 @@ TEST_F(FidoRequestHandlerTest, TransportAvailabilityOfWindowsAuthenticator) {
 
     // If the windows API is not enabled, the request is dispatched to the USB
     // discovery. Simulate a success to fill the transport availability info.
-    if (!api_available)
+    if (!test_case.api_available) {
       discovery()->WaitForCallToStartAndSimulateSuccess();
-
-    task_environment_.FastForwardUntilNoTasksRemain();
+    }
 
     auto transport_availability_info =
         observer.WaitForTransportAvailabilityInfo();
     EXPECT_EQ(transport_availability_info.available_transports.empty(),
-              api_available);
+              test_case.api_available);
     EXPECT_EQ(transport_availability_info.has_win_native_api_authenticator,
-              api_available);
-    EXPECT_EQ(transport_availability_info.win_native_api_authenticator_id,
-              api_available ? "WinWebAuthnApiAuthenticator" : "");
+              test_case.api_available);
+    EXPECT_EQ(transport_availability_info.win_is_uvpaa, test_case.is_uvpaa);
   }
 }
 #endif  // BUILDFLAG(IS_WIN)

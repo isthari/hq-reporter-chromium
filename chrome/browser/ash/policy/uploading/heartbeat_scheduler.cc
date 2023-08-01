@@ -1,4 +1,4 @@
-// Copyright (c) 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,16 +7,19 @@
 #include <memory>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
+#include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
 #include "chrome/common/chrome_switches.h"
 #include "components/gcm_driver/gcm_driver.h"
+
+namespace policy {
 
 namespace {
 
@@ -65,8 +68,6 @@ std::string GetDestinationID() {
 
 }  // namespace
 
-namespace policy {
-
 // static
 const base::TimeDelta HeartbeatScheduler::kDefaultHeartbeatInterval =
     base::Minutes(2);
@@ -96,7 +97,7 @@ class HeartbeatRegistrationHelper {
                                  gcm::GCMClient::Result result);
 
   // GCMDriver to use to register.
-  gcm::GCMDriver* const gcm_driver_;
+  const raw_ptr<gcm::GCMDriver, ExperimentalAsh> gcm_driver_;
 
   // Callback to invoke when we have completed GCM registration.
   RegistrationHelperCallback callback_;
@@ -172,8 +173,8 @@ void HeartbeatRegistrationHelper::OnRegisterAttemptComplete(
 
 HeartbeatScheduler::HeartbeatScheduler(
     gcm::GCMDriver* driver,
-    policy::CloudPolicyClient* cloud_policy_client,
-    policy::CloudPolicyStore* cloud_policy_store,
+    CloudPolicyClient* cloud_policy_client,
+    CloudPolicyStore* cloud_policy_store,
     const std::string& device_id,
     const scoped_refptr<base::SequencedTaskRunner>& task_runner)
     : task_runner_(task_runner),

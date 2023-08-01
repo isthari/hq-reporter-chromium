@@ -46,7 +46,6 @@
 #include "third_party/blink/renderer/core/html/shadow/shadow_element_names.h"
 #include "third_party/blink/renderer/core/input/keyboard_event_manager.h"
 #include "third_party/blink/renderer/core/input_type_names.h"
-#include "third_party/blink/renderer/core/layout/layout_text_control_single_line.h"
 
 namespace blink {
 
@@ -101,7 +100,7 @@ void PasswordInputType::CreateShadowSubtree() {
 void PasswordInputType::DidSetValueByUserEdit() {
   if (RuntimeEnabledFeatures::PasswordRevealEnabled()) {
     // If the last character is deleted, we hide the reveal button.
-    if (GetElement().value().IsEmpty()) {
+    if (GetElement().Value().empty()) {
       should_show_reveal_button_ = false;
     }
     UpdatePasswordRevealButton();
@@ -152,7 +151,7 @@ bool PasswordInputType::ShouldDrawCapsLockIndicator() const {
 }
 
 void PasswordInputType::UpdatePasswordRevealButton() {
-  Element* button = GetElement().UserAgentShadowRoot()->getElementById(
+  Element* button = GetElement().EnsureShadowSubtree()->getElementById(
       shadow_element_names::kIdPasswordRevealButton);
 
   // Update the glyph.
@@ -212,7 +211,7 @@ void PasswordInputType::HandleBeforeTextInsertedEvent(
   if (RuntimeEnabledFeatures::PasswordRevealEnabled()) {
     // This is the only scenario we go from no reveal button to showing the
     // reveal button: the password is empty and we have some user input.
-    if (GetElement().value().IsEmpty())
+    if (GetElement().Value().empty())
       should_show_reveal_button_ = true;
   }
 

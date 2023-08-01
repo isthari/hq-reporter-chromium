@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "chrome/browser/ui/views/frame/test_with_browser_view.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
 #include "content/public/test/web_contents_tester.h"
+#include "extensions/browser/permissions_manager.h"
 #include "extensions/common/extension.h"
 
 namespace extensions {
@@ -19,8 +20,7 @@ class ExtensionService;
 
 // Base class for unit tests that use the toolbar area. This is used for unit
 // tests that are generally related to the ExtensionsToolbarContainer in the
-// ToolbarView area (such as ExtensionsToolbarControls and
-// ExtensionsTabbedMenuView).
+// ToolbarView area (e.g ExtensionsToolbarControls).
 // When possible, prefer creating a unit test with browser view instead of a
 // interactive ui or browser test since they are faster and less flaky.
 class ExtensionsToolbarUnitTest : public TestWithBrowserView {
@@ -39,7 +39,15 @@ class ExtensionsToolbarUnitTest : public TestWithBrowserView {
     return browser_view()->toolbar()->extensions_container();
   }
 
-  // Adds the specified `extension` with no host permissions.
+  ExtensionsToolbarButton* extensions_button() {
+    return extensions_container()->GetExtensionsButton();
+  }
+
+  ExtensionsMenuCoordinator* menu_coordinator() {
+    return extensions_container()->GetExtensionsMenuCoordinatorForTesting();
+  }
+
+  // Adds the specified `extension`.
   scoped_refptr<const extensions::Extension> InstallExtension(
       const std::string& name);
 
@@ -48,6 +56,24 @@ class ExtensionsToolbarUnitTest : public TestWithBrowserView {
   InstallExtensionWithHostPermissions(
       const std::string& name,
       const std::vector<std::string>& host_permissions);
+
+  // Adds the specified `extension` with the given `permissions`.
+  scoped_refptr<const extensions::Extension> InstallExtensionWithPermissions(
+      const std::string& name,
+      const std::vector<std::string>& permissions);
+
+  scoped_refptr<const extensions::Extension> InstallEnterpriseExtension(
+      const std::string& name,
+      const std::vector<std::string>& host_permissions);
+
+  // Adds the specified `extension` with the given `host_permissions`,
+  // `permissions` and `location`.
+  scoped_refptr<const extensions::Extension> InstallExtension(
+      const std::string& name,
+      const std::vector<std::string>& permissions,
+      const std::vector<std::string>& host_permissions,
+      extensions::mojom::ManifestLocation location =
+          extensions::mojom::ManifestLocation::kUnpacked);
 
   // Reloads the extension of the given `extension_id`.
   void ReloadExtension(const extensions::ExtensionId& extension_id);
@@ -61,8 +87,32 @@ class ExtensionsToolbarUnitTest : public TestWithBrowserView {
   // Disables the extension of the given `extension_id`.
   void DisableExtension(const extensions::ExtensionId& extension_id);
 
+  // Withhold all host permissions of the given `extension`.
+  void WithholdHostPermissions(const extensions::Extension* extension);
+
   // Triggers the press and release event of the given `button`.
   void ClickButton(views::Button* button) const;
+
+  // Updates the user's site access for `extension` on `web_contents` to
+  // `site_access`.
+  void UpdateUserSiteAccess(
+      const extensions::Extension& extension,
+      content::WebContents* web_contents,
+      extensions::PermissionsManager::UserSiteAccess site_access);
+
+  // Updates the user's site setting to `site_setting` for `url`.
+  void UpdateUserSiteSetting(
+      extensions::PermissionsManager::UserSiteSetting site_setting,
+      const GURL& url);
+
+  // Returns the user's site setting for `url`.
+  extensions::PermissionsManager::UserSiteSetting GetUserSiteSetting(
+      const GURL& url);
+
+  // Returns the user's `extension` site access for `url`.
+  extensions::PermissionsManager::UserSiteAccess GetUserSiteAccess(
+      const extensions::Extension& extension,
+      const GURL& url) const;
 
   // Returns a list of the views of the currently pinned extensions, in order
   // from left to right.
@@ -89,6 +139,7 @@ class ExtensionsToolbarUnitTest : public TestWithBrowserView {
 
  private:
   raw_ptr<extensions::ExtensionService> extension_service_ = nullptr;
+  raw_ptr<extensions::PermissionsManager> permissions_manager_ = nullptr;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_EXTENSIONS_EXTENSIONS_TOOLBAR_UNITTEST_H_

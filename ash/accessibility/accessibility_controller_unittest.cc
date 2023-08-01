@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,12 +14,13 @@
 #include "ash/constants/ash_constants.h"
 #include "ash/constants/ash_features.h"
 #include "ash/constants/ash_pref_names.h"
+#include "ash/display/cursor_window_controller.h"
 #include "ash/keyboard/ui/keyboard_util.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/session/test_pref_service_provider.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
 #include "chromeos/dbus/power/fake_power_manager_client.h"
@@ -27,6 +28,7 @@
 #include "components/prefs/pref_service.h"
 #include "components/prefs/testing_pref_service.h"
 #include "media/base/media_switches.h"
+#include "ui/accessibility/accessibility_features.h"
 #include "ui/accessibility/aura/aura_window_properties.h"
 #include "ui/message_center/message_center.h"
 
@@ -68,6 +70,24 @@ class AccessibilityControllerTest : public AshTestBase {
   base::test::ScopedFeatureList scoped_feature_list_;
 };
 
+TEST_F(AccessibilityControllerTest, ChangingCursorSizePrefChangesCursorSize) {
+  PrefService* prefs =
+      Shell::Get()->session_controller()->GetLastActiveUserPrefService();
+
+  prefs->SetBoolean(prefs::kAccessibilityLargeCursorEnabled, true);
+
+  CursorWindowController* cursor_window_controller =
+      Shell::Get()->window_tree_host_manager()->cursor_window_controller();
+
+  // Test all possible sizes
+  for (int size = 25; size <= 64; ++size) {
+    prefs->SetInteger(prefs::kAccessibilityLargeCursorDipSize, size);
+    auto bounds = cursor_window_controller->GetBoundsForTest();
+    EXPECT_EQ(bounds.height(), size);
+    EXPECT_EQ(bounds.width(), size);
+  }
+}
+
 TEST_F(AccessibilityControllerTest, PrefsAreRegistered) {
   PrefService* prefs =
       Shell::Get()->session_controller()->GetLastActiveUserPrefService();
@@ -93,12 +113,74 @@ TEST_F(AccessibilityControllerTest, PrefsAreRegistered) {
   EXPECT_TRUE(prefs->FindPreference(prefs::kAccessibilityScreenMagnifierScale));
   EXPECT_TRUE(
       prefs->FindPreference(prefs::kAccessibilitySpokenFeedbackEnabled));
+  EXPECT_TRUE(prefs->FindPreference(prefs::kAccessibilityChromeVoxAutoRead));
+  EXPECT_TRUE(prefs->FindPreference(
+      prefs::kAccessibilityChromeVoxAnnounceDownloadNotifications));
+  EXPECT_TRUE(prefs->FindPreference(
+      prefs::kAccessibilityChromeVoxAnnounceRichTextAttributes));
+  EXPECT_TRUE(
+      prefs->FindPreference(prefs::kAccessibilityChromeVoxAudioStrategy));
+  EXPECT_TRUE(
+      prefs->FindPreference(prefs::kAccessibilityChromeVoxBrailleSideBySide));
+  EXPECT_TRUE(
+      prefs->FindPreference(prefs::kAccessibilityChromeVoxBrailleTable));
+  EXPECT_TRUE(
+      prefs->FindPreference(prefs::kAccessibilityChromeVoxBrailleTable6));
+  EXPECT_TRUE(
+      prefs->FindPreference(prefs::kAccessibilityChromeVoxBrailleTable8));
+  EXPECT_TRUE(
+      prefs->FindPreference(prefs::kAccessibilityChromeVoxBrailleTableType));
+  EXPECT_TRUE(
+      prefs->FindPreference(prefs::kAccessibilityChromeVoxBrailleWordWrap));
+  EXPECT_TRUE(
+      prefs->FindPreference(prefs::kAccessibilityChromeVoxCapitalStrategy));
+  EXPECT_TRUE(prefs->FindPreference(
+      prefs::kAccessibilityChromeVoxCapitalStrategyBackup));
+  EXPECT_TRUE(prefs->FindPreference(
+      prefs::kAccessibilityChromeVoxEnableBrailleLogging));
+  EXPECT_TRUE(
+      prefs->FindPreference(prefs::kAccessibilityChromeVoxEnableEarconLogging));
+  EXPECT_TRUE(prefs->FindPreference(
+      prefs::kAccessibilityChromeVoxEnableEventStreamLogging));
+  EXPECT_TRUE(
+      prefs->FindPreference(prefs::kAccessibilityChromeVoxEnableSpeechLogging));
+  EXPECT_TRUE(
+      prefs->FindPreference(prefs::kAccessibilityChromeVoxEventStreamFilters));
+  EXPECT_TRUE(
+      prefs->FindPreference(prefs::kAccessibilityChromeVoxLanguageSwitching));
+  EXPECT_TRUE(
+      prefs->FindPreference(prefs::kAccessibilityChromeVoxMenuBrailleCommands));
+  EXPECT_TRUE(
+      prefs->FindPreference(prefs::kAccessibilityChromeVoxNumberReadingStyle));
+  EXPECT_TRUE(prefs->FindPreference(
+      prefs::kAccessibilityChromeVoxPreferredBrailleDisplayAddress));
+  EXPECT_TRUE(
+      prefs->FindPreference(prefs::kAccessibilityChromeVoxPunctuationEcho));
+  EXPECT_TRUE(
+      prefs->FindPreference(prefs::kAccessibilityChromeVoxSmartStickyMode));
+  EXPECT_TRUE(
+      prefs->FindPreference(prefs::kAccessibilityChromeVoxSpeakTextUnderMouse));
+  EXPECT_TRUE(
+      prefs->FindPreference(prefs::kAccessibilityChromeVoxUsePitchChanges));
+  EXPECT_TRUE(
+      prefs->FindPreference(prefs::kAccessibilityChromeVoxUseVerboseMode));
+  EXPECT_TRUE(prefs->FindPreference(
+      prefs::kAccessibilityChromeVoxVirtualBrailleColumns));
+  EXPECT_TRUE(
+      prefs->FindPreference(prefs::kAccessibilityChromeVoxVirtualBrailleRows));
+  EXPECT_TRUE(prefs->FindPreference(prefs::kAccessibilityChromeVoxVoiceName));
   EXPECT_TRUE(prefs->FindPreference(prefs::kAccessibilityStickyKeysEnabled));
   EXPECT_TRUE(prefs->FindPreference(prefs::kAccessibilityShortcutsEnabled));
   EXPECT_TRUE(
       prefs->FindPreference(prefs::kAccessibilityVirtualKeyboardEnabled));
   EXPECT_TRUE(prefs->FindPreference(
       prefs::kAccessibilityEnhancedNetworkVoicesInSelectToSpeakAllowed));
+  if (::features::
+          AreExperimentalAccessibilityColorEnhancementSettingsEnabled()) {
+    EXPECT_TRUE(prefs->FindPreference(prefs::kAccessibilitySepiaAmount));
+    EXPECT_TRUE(prefs->FindPreference(prefs::kAccessibilityHueRotationAmount));
+    EXPECT_TRUE(prefs->FindPreference(prefs::kAccessibilityGreyscaleAmount));
+  }
 }
 
 TEST_F(AccessibilityControllerTest, SetAutoclickEnabled) {
@@ -874,6 +956,35 @@ TEST_F(AccessibilityControllerTest, DisableLargeCursorResetsSize) {
             prefs->GetInteger(prefs::kAccessibilityLargeCursorDipSize));
 }
 
+TEST_F(AccessibilityControllerTest, ChangingCursorColorPrefChangesCursorColor) {
+  PrefService* prefs =
+      Shell::Get()->session_controller()->GetLastActiveUserPrefService();
+
+  // Simulate using chrome settings webui to set cursor color, which also turns
+  // on the cursor color enabled pref.
+  prefs->SetInteger(prefs::kAccessibilityCursorColor, SK_ColorBLUE);
+  prefs->SetBoolean(prefs::kAccessibilityCursorColorEnabled, true);
+
+  CursorWindowController* cursor_window_controller =
+      Shell::Get()->window_tree_host_manager()->cursor_window_controller();
+
+  // Expect cursor color in cursor_window_controller to be blue.
+  EXPECT_EQ(SK_ColorBLUE, cursor_window_controller->GetCursorColorForTest());
+
+  // Set cursor color pref to green.
+  prefs->SetInteger(prefs::kAccessibilityCursorColor, SK_ColorGREEN);
+
+  // Expect cursor color in cursor_window_controller to be green.
+  EXPECT_EQ(SK_ColorGREEN, cursor_window_controller->GetCursorColorForTest());
+
+  // Simulate using chrome settings webui to set cursor color to black, which
+  // which also turns off the cursor color enabled pref.
+  prefs->SetInteger(prefs::kAccessibilityCursorColor, 0);
+  prefs->SetBoolean(prefs::kAccessibilityCursorColorEnabled, false);
+  EXPECT_EQ(kDefaultCursorColor,
+            cursor_window_controller->GetCursorColorForTest());
+}
+
 TEST_F(AccessibilityControllerTest, SetMonoAudioEnabled) {
   AccessibilityControllerImpl* controller =
       Shell::Get()->accessibility_controller();
@@ -1086,21 +1197,23 @@ TEST_F(AccessibilityControllerTest, SelectToSpeakStateChanges) {
 
 TEST_F(AccessibilityControllerTest,
        SpeechRecognitionDownloadSucceededNotification) {
-  const std::u16string kSucceededTitle = u"English speech files downloaded";
+  const std::u16string kSucceededTitle =
+      u"English speech files partially downloaded";
   const std::u16string kSucceededDescription =
-      u"Speech is now processed locally and Dictation works offline";
+      u"Speech is processed locally and dictation works offline, but some "
+      u"voice commands won’t work.";
   AccessibilityControllerImpl* controller =
       Shell::Get()->accessibility_controller();
 
-  controller->ShowSpeechRecognitionDownloadNotificationForDictation(true,
-                                                                    u"English");
+  controller->ShowNotificationForDictation(
+      DictationNotificationType::kOnlySodaDownloaded, u"English");
   message_center::NotificationList::Notifications notifications =
       MessageCenter::Get()->GetVisibleNotifications();
   ASSERT_EQ(1u, notifications.size());
   EXPECT_EQ(kSucceededTitle, (*notifications.begin())->title());
   EXPECT_EQ(kSucceededDescription, (*notifications.begin())->message());
   EXPECT_EQ(u"Dictation", (*notifications.begin())->display_source());
-  EXPECT_EQ(message_center::SystemNotificationWarningLevel::NORMAL,
+  EXPECT_EQ(message_center::SystemNotificationWarningLevel::CRITICAL_WARNING,
             (*notifications.begin())->system_notification_warning_level());
 }
 
@@ -1109,12 +1222,12 @@ TEST_F(AccessibilityControllerTest,
   const std::u16string kFailedTitle = u"Couldn't download English speech files";
   const std::u16string kFailedDescription =
       u"Download will be attempted later. Speech will be sent to Google for "
-      u"processing until download is completed.";
+      u"processing for now.";
   AccessibilityControllerImpl* controller =
       Shell::Get()->accessibility_controller();
 
-  controller->ShowSpeechRecognitionDownloadNotificationForDictation(false,
-                                                                    u"English");
+  controller->ShowNotificationForDictation(
+      DictationNotificationType::kNoDlcsDownloaded, u"English");
   message_center::NotificationList::Notifications notifications =
       MessageCenter::Get()->GetVisibleNotifications();
   ASSERT_EQ(1u, notifications.size());

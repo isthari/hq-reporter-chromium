@@ -1,19 +1,19 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <utility>
-
 #include "remoting/host/it2me/it2me_native_messaging_host_ash.h"
 
-#include "base/json/json_reader.h"
+#include <utility>
+
+#include "base/feature_list.h"
+#include "base/functional/callback.h"
 #include "base/json/json_writer.h"
-#include "base/lazy_instance.h"
-#include "base/stl_util.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "extensions/browser/api/messaging/native_message_host.h"
 #include "remoting/host/chromeos/chromeos_enterprise_params.h"
+#include "remoting/host/chromeos/features.h"
 #include "remoting/host/chromoting_host_context.h"
 #include "remoting/host/it2me/it2me_native_messaging_host.h"
 #include "remoting/host/native_messaging/native_messaging_helpers.h"
@@ -26,11 +26,11 @@ namespace {
 bool ShouldSuppressNotifications(
     const mojom::SupportSessionParams& params,
     const absl::optional<ChromeOsEnterpriseParams>& enterprise_params) {
-  if (enterprise_params)
+  if (enterprise_params.has_value()) {
     return enterprise_params.value().suppress_notifications;
+  }
 
-    // On non-debug builds, do not allow setting this value through the Mojom
-    // API.
+  // On non-debug builds, do not allow setting this value through the Mojom API.
 #if !defined(NDEBUG)
   return params.suppress_notifications;
 #else
@@ -41,11 +41,11 @@ bool ShouldSuppressNotifications(
 bool ShouldSuppressUserDialog(
     const mojom::SupportSessionParams& params,
     const absl::optional<ChromeOsEnterpriseParams>& enterprise_params) {
-  if (enterprise_params)
+  if (enterprise_params.has_value()) {
     return enterprise_params.value().suppress_user_dialogs;
+  }
 
-    // On non-debug builds, do not allow setting this value through the Mojom
-    // API.
+  // On non-debug builds, do not allow setting this value through the Mojom API.
 #if !defined(NDEBUG)
   return params.suppress_user_dialogs;
 #else
@@ -56,16 +56,59 @@ bool ShouldSuppressUserDialog(
 bool ShouldTerminateUponInput(
     const mojom::SupportSessionParams& params,
     const absl::optional<ChromeOsEnterpriseParams>& enterprise_params) {
-  if (enterprise_params)
+  if (enterprise_params.has_value()) {
     return enterprise_params.value().terminate_upon_input;
+  }
 
-    // On non-debug builds, do not allow setting this value through the Mojom
-    // API.
+  // On non-debug builds, do not allow setting this value through the Mojom API.
 #if !defined(NDEBUG)
   return params.terminate_upon_input;
 #else
   return false;
 #endif
+}
+
+bool ShouldCurtainLocalUserSession(
+    const mojom::SupportSessionParams& params,
+    const absl::optional<ChromeOsEnterpriseParams>& enterprise_params) {
+  if (!base::FeatureList::IsEnabled(features::kEnableCrdAdminRemoteAccess)) {
+    return false;
+  }
+
+  if (enterprise_params.has_value()) {
+    return enterprise_params.value().curtain_local_user_session;
+  }
+
+  // On non-debug builds, do not allow setting this value through the Mojom API.
+#if !defined(NDEBUG)
+  return params.curtain_local_user_session;
+#else
+  return false;
+#endif
+}
+
+bool ShouldAllowTroubleshootingTools(
+    const absl::optional<ChromeOsEnterpriseParams>& enterprise_params) {
+  if (enterprise_params.has_value()) {
+    return enterprise_params.value().allow_troubleshooting_tools;
+  }
+  return false;
+}
+
+bool ShouldAllowReconnections(
+    const absl::optional<ChromeOsEnterpriseParams>& enterprise_params) {
+  if (enterprise_params.has_value()) {
+    return enterprise_params.value().allow_reconnections;
+  }
+  return false;
+}
+
+bool ShouldAllowFileTransfer(
+    const absl::optional<ChromeOsEnterpriseParams>& enterprise_params) {
+  if (enterprise_params.has_value()) {
+    return enterprise_params.value().allow_file_transfer;
+  }
+  return false;
 }
 
 }  // namespace
@@ -110,18 +153,27 @@ void It2MeNativeMessageHostAsh::Connect(
   connected_callback_ = std::move(connected_callback);
   disconnected_callback_ = std::move(disconnected_callback);
 
-  base::Value message(base::Value::Type::DICTIONARY);
-  message.SetStringKey(kMessageType, kConnectMessage);
+  base::Value::Dict message;
+  message.Set(kMessageType, kConnectMessage);
 
-  message.SetStringKey(kUserName, params->user_name);
-  message.SetStringKey(kAuthServiceWithToken, params->oauth_access_token);
-  message.SetBoolKey(kSuppressUserDialogs,
-                     ShouldSuppressUserDialog(*params, enterprise_params));
-  message.SetBoolKey(kSuppressNotifications,
-                     ShouldSuppressNotifications(*params, enterprise_params));
-  message.SetBoolKey(kTerminateUponInput,
-                     ShouldTerminateUponInput(*params, enterprise_params));
-  message.SetBoolKey(kIsEnterpriseAdminUser, enterprise_params.has_value());
+  message.Set(kUserName, params->user_name);
+  message.Set(kAuthServiceWithToken, params->oauth_access_token);
+  message.Set(kSuppressUserDialogs,
+              ShouldSuppressUserDialog(*params, enterprise_params));
+  message.Set(kSuppressNotifications,
+              ShouldSuppressNotifications(*params, enterprise_params));
+  message.Set(kTerminateUponInput,
+              ShouldTerminateUponInput(*params, enterprise_params));
+  message.Set(kCurtainLocalUserSession,
+              ShouldCurtainLocalUserSession(*params, enterprise_params));
+  message.Set(kAllowTroubleshootingTools,
+              ShouldAllowTroubleshootingTools(enterprise_params));
+  message.Set(kAllowReconnections, ShouldAllowReconnections(enterprise_params));
+  message.Set(kAllowFileTransfer, ShouldAllowFileTransfer(enterprise_params));
+  message.Set(kIsEnterpriseAdminUser, enterprise_params.has_value());
+  if (params->authorized_helper.has_value()) {
+    message.Set(kAuthorizedHelper, *params->authorized_helper);
+  }
 
   std::string message_json;
   base::JSONWriter::Write(message, &message_json);
@@ -130,8 +182,8 @@ void It2MeNativeMessageHostAsh::Connect(
 
 void It2MeNativeMessageHostAsh::Disconnect() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  base::Value message(base::Value::Type::DICTIONARY);
-  message.SetStringKey(kMessageType, kDisconnectMessage);
+  base::Value::Dict message;
+  message.Set(kMessageType, kDisconnectMessage);
 
   std::string message_json;
   base::JSONWriter::Write(message, &message_json);
@@ -147,7 +199,7 @@ void It2MeNativeMessageHostAsh::PostMessageFromNativeHost(
     const std::string& message) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   std::string type;
-  base::Value contents;
+  base::Value::Dict contents;
   if (!ParseNativeMessageJson(message, type, contents)) {
     CloseChannel(std::string());
     return;
@@ -198,9 +250,9 @@ void It2MeNativeMessageHostAsh::HandleDisconnectResponse() {
 }
 
 void It2MeNativeMessageHostAsh::HandleHostStateChangeMessage(
-    base::Value message) {
+    base::Value::Dict message) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  const std::string* new_state = message.FindStringKey(kState);
+  const std::string* new_state = message.FindString(kState);
   if (!new_state) {
     LOG(ERROR) << "Missing |" << kState << "| value in message.";
     CloseChannel(ErrorCodeToString(protocol::ErrorCode::INCOMPATIBLE_PROTOCOL));
@@ -211,14 +263,14 @@ void It2MeNativeMessageHostAsh::HandleHostStateChangeMessage(
     remote_->OnHostStateStarting();
   } else if (*new_state == kHostStateDisconnected) {
     const std::string* disconnect_reason =
-        message.FindStringKey(kDisconnectReason);
+        message.FindString(kDisconnectReason);
     remote_->OnHostStateDisconnected(
         disconnect_reason ? *disconnect_reason
                           : ErrorCodeToString(protocol::ErrorCode::OK));
   } else if (*new_state == kHostStateRequestedAccessCode) {
     remote_->OnHostStateRequestedAccessCode();
   } else if (*new_state == kHostStateReceivedAccessCode) {
-    const std::string* access_code = message.FindStringKey(kAccessCode);
+    const std::string* access_code = message.FindString(kAccessCode);
     if (!access_code) {
       LOG(ERROR) << "Missing |" << kAccessCode << "| value in message.";
       CloseChannel(
@@ -226,7 +278,7 @@ void It2MeNativeMessageHostAsh::HandleHostStateChangeMessage(
       return;
     }
     absl::optional<int> access_code_lifetime =
-        message.FindIntKey(kAccessCodeLifetime);
+        message.FindInt(kAccessCodeLifetime);
     if (!access_code_lifetime) {
       LOG(ERROR) << "Missing |" << kAccessCodeLifetime << "| value in message.";
       CloseChannel(
@@ -238,7 +290,7 @@ void It2MeNativeMessageHostAsh::HandleHostStateChangeMessage(
   } else if (*new_state == kHostStateConnecting) {
     remote_->OnHostStateConnecting();
   } else if (*new_state == kHostStateConnected) {
-    const std::string* remote_username = message.FindStringKey(kClient);
+    const std::string* remote_username = message.FindString(kClient);
     if (!remote_username) {
       LOG(ERROR) << "Missing |" << kClient << "| value in message.";
       CloseChannel(
@@ -248,7 +300,7 @@ void It2MeNativeMessageHostAsh::HandleHostStateChangeMessage(
     remote_->OnHostStateConnected(*remote_username);
   } else if (*new_state == kHostStateError) {
     const std::string* error_code_string =
-        message.FindStringKey(kErrorMessageCode);
+        message.FindString(kErrorMessageCode);
     if (!error_code_string) {
       LOG(ERROR) << "Missing |" << kErrorMessageCode << "| value in message.";
       CloseChannel(
@@ -275,10 +327,10 @@ void It2MeNativeMessageHostAsh::HandleHostStateChangeMessage(
 }
 
 void It2MeNativeMessageHostAsh::HandleNatPolicyChangedMessage(
-    base::Value message) {
+    base::Value::Dict message) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   absl::optional<bool> nat_enabled =
-      message.FindBoolKey(kNatPolicyChangedMessageNatEnabled);
+      message.FindBool(kNatPolicyChangedMessageNatEnabled);
   if (!nat_enabled.has_value()) {
     LOG(ERROR) << "Missing |" << kNatPolicyChangedMessageNatEnabled
                << "| value in message.";
@@ -287,7 +339,7 @@ void It2MeNativeMessageHostAsh::HandleNatPolicyChangedMessage(
   }
 
   absl::optional<bool> relay_enabled =
-      message.FindBoolKey(kNatPolicyChangedMessageRelayEnabled);
+      message.FindBool(kNatPolicyChangedMessageRelayEnabled);
   if (!nat_enabled.has_value()) {
     LOG(ERROR) << "Missing |" << kNatPolicyChangedMessageRelayEnabled
                << "| value in message.";
@@ -301,15 +353,15 @@ void It2MeNativeMessageHostAsh::HandleNatPolicyChangedMessage(
   remote_->OnNatPolicyChanged(std::move(nat_policy));
 }
 
-void It2MeNativeMessageHostAsh::HandlePolicyErrorMessage(base::Value message) {
+void It2MeNativeMessageHostAsh::HandlePolicyErrorMessage(
+    base::Value::Dict message) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   remote_->OnPolicyError();
 }
 
-void It2MeNativeMessageHostAsh::HandleErrorMessage(base::Value message) {
+void It2MeNativeMessageHostAsh::HandleErrorMessage(base::Value::Dict message) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  const std::string* error_code_string =
-      message.FindStringKey(kErrorMessageCode);
+  const std::string* error_code_string = message.FindString(kErrorMessageCode);
   if (!error_code_string) {
     LOG(ERROR) << "Missing |" << kErrorMessageCode << "| value in message.";
     CloseChannel(ErrorCodeToString(protocol::ErrorCode::INCOMPATIBLE_PROTOCOL));

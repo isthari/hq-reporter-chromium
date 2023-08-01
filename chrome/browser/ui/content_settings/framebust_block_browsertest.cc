@@ -1,12 +1,12 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <cstddef>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/containers/contains.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -45,7 +45,7 @@
 #include "url/gurl.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/web_applications/system_web_apps/system_web_app_manager.h"
+#include "chrome/browser/ash/system_web_apps/system_web_app_manager.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #endif
 
@@ -105,9 +105,10 @@ class FramebustBlockBrowserTest
         iframe.src='%s'
     )";
     content::TestNavigationObserver load_observer(contents);
-    bool result = content::ExecuteScriptWithoutUserGesture(
+    bool result = content::ExecJs(
         contents,
-        base::StringPrintf(kScript, iframe_id.c_str(), url.spec().c_str()));
+        base::StringPrintf(kScript, iframe_id.c_str(), url.spec().c_str()),
+        content::EXECUTE_SCRIPT_NO_USER_GESTURE);
     load_observer.Wait();
     return result;
   }
@@ -121,7 +122,7 @@ class FramebustBlockBrowserTest
     NavigateIframeToUrlWithoutGesture(GetWebContents(), "test", child_url);
 
     content::RenderFrameHost* child =
-        content::ChildFrameAt(GetWebContents()->GetMainFrame(), 0);
+        content::ChildFrameAt(GetWebContents()->GetPrimaryMainFrame(), 0);
     EXPECT_EQ(child_url, child->GetLastCommittedURL());
 
     const GURL redirect_url =
@@ -144,7 +145,7 @@ class FramebustBlockBrowserTest
   absl::optional<size_t> clicked_index_;
 
   base::OnceClosure blocked_url_added_closure_;
-  raw_ptr<Browser> current_browser_;
+  raw_ptr<Browser, DanglingUntriaged> current_browser_;
 };
 
 // Tests that clicking an item in the list of blocked URLs trigger a navigation
@@ -254,9 +255,8 @@ IN_PROC_BROWSER_TEST_F(FramebustBlockBrowserTest, DisallowRadioButtonSelected) {
 #endif
 IN_PROC_BROWSER_TEST_F(FramebustBlockBrowserTest, MAYBE_ManageButtonClicked) {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  web_app::WebAppProvider::GetForTest(browser()->profile())
-      ->system_web_app_manager()
-      .InstallSystemAppsForTesting();
+  ash::SystemWebAppManager::GetForTest(browser()->profile())
+      ->InstallSystemAppsForTesting();
 #endif
 
   const GURL url = embedded_test_server()->GetURL("/iframe.html");
@@ -304,7 +304,7 @@ IN_PROC_BROWSER_TEST_F(FramebustBlockBrowserTest,
       embedded_test_server()->GetURL("a.com", "/title1.html"));
 
   content::RenderFrameHost* child =
-      content::ChildFrameAt(GetWebContents()->GetMainFrame(), 0);
+      content::ChildFrameAt(GetWebContents()->GetPrimaryMainFrame(), 0);
   ASSERT_TRUE(child);
 
   GURL redirect_url = embedded_test_server()->GetURL("b.com", "/title1.html");
@@ -336,7 +336,7 @@ IN_PROC_BROWSER_TEST_F(FramebustBlockBrowserTest,
       embedded_test_server()->GetURL("a.com", "/title1.html"));
 
   content::RenderFrameHost* child =
-      content::ChildFrameAt(GetWebContents()->GetMainFrame(), 0);
+      content::ChildFrameAt(GetWebContents()->GetPrimaryMainFrame(), 0);
   ASSERT_TRUE(child);
 
   GURL redirect_url = embedded_test_server()->GetURL("b.com", "/title1.html");
@@ -404,7 +404,7 @@ class FramebustBlockFencedFrameTest : public FramebustBlockBrowserTest {
   ~FramebustBlockFencedFrameTest() override = default;
 
   content::RenderFrameHost* primary_main_frame_host() {
-    return GetWebContents()->GetMainFrame();
+    return GetWebContents()->GetPrimaryMainFrame();
   }
 
  protected:

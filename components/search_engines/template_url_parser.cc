@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,11 @@
 #include <string.h>
 
 #include <algorithm>
+#include <string>
+#include <utility>
 #include <vector>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -167,62 +169,65 @@ class SafeTemplateURLParser {
 
 void SafeTemplateURLParser::OnXmlParseComplete(
     data_decoder::DataDecoder::ValueOrError value_or_error) {
-  if (value_or_error.error) {
-    DLOG(ERROR) << "Failed to parse XML: " << *value_or_error.error;
-    std::move(callback_).Run(nullptr);
-    return;
-  }
-
-  const base::Value& root = *value_or_error.value;
-
-  // Get the namespaces used in the XML document, which will be used
-  // to access nodes by tag name in GetChildElementsByTag().
-  if (const base::Value* namespaces =
-          root.FindDictKey(data_decoder::mojom::XmlParser::kNamespacesKey)) {
-    for (auto item : namespaces->DictItems()) {
-      namespaces_.push_back(item.first);
+  std::move(callback_).Run([&]() -> std::unique_ptr<TemplateURL> {
+    if (!value_or_error.has_value()) {
+      DLOG(ERROR) << "Failed to parse XML: " << value_or_error.error();
+      return nullptr;
     }
-  }
-  if (namespaces_.empty())
-    namespaces_.push_back(std::string());
+    const base::Value& root = *value_or_error;
 
-  std::string root_tag;
-  if (!data_decoder::GetXmlElementTagName(root, &root_tag) ||
-      (root_tag != kOpenSearchDescriptionElement &&
-       root_tag != kFirefoxSearchDescriptionElement)) {
-    DLOG(ERROR) << "Unexpected root tag: " << root_tag;
-    std::move(callback_).Run(nullptr);
-    return;
-  }
+    // Get the namespaces used in the XML document, which will be used
+    // to access nodes by tag name in GetChildElementsByTag().
+    if (const base::Value::Dict* namespaces = root.GetDict().FindDict(
+            data_decoder::mojom::XmlParser::kNamespacesKey)) {
+      for (auto item : *namespaces) {
+        namespaces_.push_back(item.first);
+      }
+    }
+    if (namespaces_.empty()) {
+      namespaces_.emplace_back();
+    }
 
-  // The only required element is the URL.
-  std::vector<const base::Value*> urls;
-  if (!GetChildElementsByTag(root, kURLElement, &urls)) {
-    std::move(callback_).Run(nullptr);
-    return;
-  }
-  ParseURLs(urls);
+    std::string root_tag;
+    if (!data_decoder::GetXmlElementTagName(root, &root_tag) ||
+        (root_tag != kOpenSearchDescriptionElement &&
+         root_tag != kFirefoxSearchDescriptionElement)) {
+      DLOG(ERROR) << "Unexpected root tag: " << root_tag;
+      return nullptr;
+    }
 
-  std::vector<const base::Value*> images;
-  if (GetChildElementsByTag(root, kImageElement, &images))
-    ParseImages(images);
+    // The only required element is the URL.
+    std::vector<const base::Value*> urls;
+    if (!GetChildElementsByTag(root, kURLElement, &urls)) {
+      return nullptr;
+    }
+    ParseURLs(urls);
 
-  std::vector<const base::Value*> encodings;
-  if (GetChildElementsByTag(root, kInputEncodingElement, &encodings))
-    ParseEncodings(encodings);
+    std::vector<const base::Value*> images;
+    if (GetChildElementsByTag(root, kImageElement, &images)) {
+      ParseImages(images);
+    }
 
-  std::vector<const base::Value*> aliases;
-  if (GetChildElementsByTag(root, kAliasElement, &aliases))
-    ParseAliases(aliases);
+    std::vector<const base::Value*> encodings;
+    if (GetChildElementsByTag(root, kInputEncodingElement, &encodings)) {
+      ParseEncodings(encodings);
+    }
 
-  std::vector<const base::Value*> short_names;
-  if (GetChildElementsByTag(root, kShortNameElement, &short_names)) {
-    std::string name;
-    if (data_decoder::GetXmlElementText(*short_names.back(), &name))
-      data_.SetShortName(base::UTF8ToUTF16(name));
-  }
+    std::vector<const base::Value*> aliases;
+    if (GetChildElementsByTag(root, kAliasElement, &aliases)) {
+      ParseAliases(aliases);
+    }
 
-  std::move(callback_).Run(FinalizeTemplateURL());
+    std::vector<const base::Value*> short_names;
+    if (GetChildElementsByTag(root, kShortNameElement, &short_names)) {
+      std::string name;
+      if (data_decoder::GetXmlElementText(*short_names.back(), &name)) {
+        data_.SetShortName(base::UTF8ToUTF16(name));
+      }
+    }
+
+    return FinalizeTemplateURL();
+  }());
 }
 
 void SafeTemplateURLParser::ParseURLs(
@@ -232,7 +237,7 @@ void SafeTemplateURLParser::ParseURLs(
         data_decoder::GetXmlElementAttribute(*url_value, kURLTemplateAttribute);
     std::string type =
         data_decoder::GetXmlElementAttribute(*url_value, kURLTypeAttribute);
-    bool is_post = base::LowerCaseEqualsASCII(
+    bool is_post = base::EqualsCaseInsensitiveASCII(
         data_decoder::GetXmlElementAttribute(*url_value, kParamMethodAttribute),
         "post");
     bool is_html_url = (type == kHTMLType);
@@ -434,8 +439,9 @@ void TemplateURLParser::Parse(const SearchTermsData* search_terms_data,
   auto safe_parser = std::make_unique<SafeTemplateURLParser>(
       search_terms_data, parameter_filter, std::move(completion_callback));
   data_decoder::DataDecoder::ParseXmlIsolated(
-      data, base::BindOnce(&SafeTemplateURLParser::OnXmlParseComplete,
-                           std::move(safe_parser)));
+      data, data_decoder::mojom::XmlParser::WhitespaceBehavior::kIgnore,
+      base::BindOnce(&SafeTemplateURLParser::OnXmlParseComplete,
+                     std::move(safe_parser)));
 }
 
 // static
@@ -448,6 +454,7 @@ void TemplateURLParser::ParseWithDataDecoder(
   auto safe_parser = std::make_unique<SafeTemplateURLParser>(
       search_terms_data, parameter_filter, std::move(completion_callback));
   data_decoder->ParseXml(
-      data, base::BindOnce(&SafeTemplateURLParser::OnXmlParseComplete,
-                           std::move(safe_parser)));
+      data, data_decoder::mojom::XmlParser::WhitespaceBehavior::kIgnore,
+      base::BindOnce(&SafeTemplateURLParser::OnXmlParseComplete,
+                     std::move(safe_parser)));
 }

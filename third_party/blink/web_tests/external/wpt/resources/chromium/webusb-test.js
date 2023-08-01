@@ -186,7 +186,7 @@ class FakeDevice {
   open() {
     assert_false(this.opened_);
     this.opened_ = true;
-    return Promise.resolve({error: mojom.UsbOpenDeviceError.OK});
+    return Promise.resolve({result: {success: mojom.UsbOpenDeviceSuccess.OK}});
   }
 
   close() {
@@ -384,6 +384,10 @@ class FakeWebUsbService {
     this.devicesByGuid_.set(device.guid, device);
     if (this.client_)
       this.client_.onDeviceAdded(fakeDeviceInitToDeviceInfo(device.guid, info));
+  }
+
+  async forgetDevice(guid) {
+    // Permissions are currently untestable through WPT.
   }
 
   removeDevice(fakeDevice) {

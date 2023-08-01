@@ -76,15 +76,16 @@
 #include "third_party/blink/renderer/core/html/html_div_element.h"
 #include "third_party/blink/renderer/core/html/html_element.h"
 #include "third_party/blink/renderer/core/html/html_li_element.h"
+#include "third_party/blink/renderer/core/html/html_object_element.h"
 #include "third_party/blink/renderer/core/html/html_quote_element.h"
 #include "third_party/blink/renderer/core/html/html_span_element.h"
 #include "third_party/blink/renderer/core/html_names.h"
-#include "third_party/blink/renderer/core/layout/layout_block.h"
-#include "third_party/blink/renderer/core/layout/layout_list_item.h"
+#include "third_party/blink/renderer/core/layout/layout_block_flow.h"
 #include "third_party/blink/renderer/core/layout/layout_text.h"
-#include "third_party/blink/renderer/core/layout/line/inline_text_box.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/clear_collection_scope.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+#include "third_party/blink/renderer/platform/instrumentation/resource_coordinator/document_resource_coordinator.h"
 
 namespace blink {
 
@@ -298,7 +299,7 @@ void CompositeEditCommand::InsertNodeBefore(
   // TODO(editing-dev): Use of UpdateStyleAndLayout
   // needs to be audited.  See http://crbug.com/590369 for more details.
   GetDocument().UpdateStyleAndLayout(DocumentUpdateReason::kEditing);
-  ABORT_EDITING_COMMAND_IF(!HasEditableStyle(*ref_child->parentNode()) &&
+  ABORT_EDITING_COMMAND_IF(!IsEditable(*ref_child->parentNode()) &&
                            ref_child->parentNode()->InActiveDocument());
   ApplyCommandToComposite(
       MakeGarbageCollected<InsertNodeBeforeCommand>(
@@ -375,8 +376,7 @@ void CompositeEditCommand::AppendNode(Node* node,
   ABORT_EDITING_COMMAND_IF(!CanHaveChildrenForEditing(parent) &&
                            !(parent_element && parent_element->TagQName() ==
                                                    html_names::kObjectTag));
-  ABORT_EDITING_COMMAND_IF(!HasEditableStyle(*parent) &&
-                           parent->InActiveDocument());
+  ABORT_EDITING_COMMAND_IF(!IsEditable(*parent) && parent->InActiveDocument());
   ApplyCommandToComposite(MakeGarbageCollected<AppendNodeCommand>(parent, node),
                           editing_state);
 }
@@ -561,7 +561,7 @@ void CompositeEditCommand::InsertTextIntoNode(Text* node,
                                               unsigned offset,
                                               const String& text) {
   // InsertIntoTextNodeCommand is never aborted.
-  if (!text.IsEmpty())
+  if (!text.empty())
     ApplyCommandToComposite(
         MakeGarbageCollected<InsertIntoTextNodeCommand>(node, offset, text),
         ASSERT_NO_EDITING_ABORT);
@@ -692,15 +692,17 @@ bool CompositeEditCommand::CanRebalance(const Position& position) const {
 
   auto* text_node = DynamicTo<Text>(position.ComputeContainerNode());
   if (!position.IsOffsetInAnchor() || !text_node ||
-      !HasRichlyEditableStyle(*text_node))
+      !IsRichlyEditable(*text_node)) {
     return false;
+  }
 
   if (text_node->length() == 0)
     return false;
 
   LayoutText* layout_text = text_node->GetLayoutObject();
-  if (layout_text && !layout_text->Style()->CollapseWhiteSpace())
+  if (layout_text && layout_text->Style()->ShouldPreserveWhiteSpaces()) {
     return false;
+  }
 
   return true;
 }
@@ -731,7 +733,7 @@ void CompositeEditCommand::RebalanceWhitespaceOnTextSubstring(Text* text_node,
                                                               int start_offset,
                                                               int end_offset) {
   String text = text_node->data();
-  DCHECK(!text.IsEmpty());
+  DCHECK(!text.empty());
 
   // Set upstream and downstream to define the extent of the whitespace
   // surrounding text[offset].
@@ -788,8 +790,9 @@ void CompositeEditCommand::PrepareWhitespaceAtPositionForSplit(
   if (text_node->length() == 0)
     return;
   LayoutText* layout_text = text_node->GetLayoutObject();
-  if (layout_text && !layout_text->Style()->CollapseWhiteSpace())
+  if (layout_text && layout_text->Style()->ShouldPreserveWhiteSpaces()) {
     return;
+  }
 
   // Delete collapsed whitespace so that inserting nbsps doesn't uncollapse it.
   Position upstream_pos = MostBackwardCaretPosition(position);
@@ -831,6 +834,14 @@ void CompositeEditCommand::RebalanceWhitespace() {
     RebalanceWhitespaceAt(selection.End());
 }
 
+static bool IsInsignificantText(const LayoutText& layout_text) {
+  if (layout_text.HasInlineFragments())
+    return false;
+  // Spaces causing line break don't have `NGFragmentItem` but it has
+  // non-zero length. See http://crbug.com/1322746
+  return !layout_text.ResolvedTextLength();
+}
+
 void CompositeEditCommand::DeleteInsignificantText(Text* text_node,
                                                    unsigned start,
                                                    unsigned end) {
@@ -843,7 +854,7 @@ void CompositeEditCommand::DeleteInsignificantText(Text* text_node,
   if (!text_layout_object)
     return;
 
-  if (!text_layout_object->HasInlineFragments()) {
+  if (IsInsignificantText(*text_layout_object)) {
     // whole text node is empty
     // Removing a Text node won't dispatch synchronous events.
     RemoveNode(text_node, ASSERT_NO_EDITING_ABORT);
@@ -853,78 +864,15 @@ void CompositeEditCommand::DeleteInsignificantText(Text* text_node,
   if (start >= length || end > length)
     return;
 
-  if (text_layout_object->IsInLayoutNGInlineFormattingContext()) {
-    const String string = PlainText(
-        EphemeralRange(Position(*text_node, start), Position(*text_node, end)));
-    if (string.IsEmpty())
-      return DeleteTextFromNode(text_node, start, end - start);
-    // Replace the text between start and end with collapsed version.
-    return ReplaceTextInNode(text_node, start, end - start, string);
+  CHECK(text_layout_object->IsInLayoutNGInlineFormattingContext());
+  const String string = PlainText(
+      EphemeralRange(Position(*text_node, start), Position(*text_node, end)),
+      TextIteratorBehavior::Builder().SetEmitsOriginalText(true).Build());
+  if (string.empty()) {
+    return DeleteTextFromNode(text_node, start, end - start);
   }
-
-  HeapVector<Member<InlineTextBox>> sorted_text_boxes;
-  ClearCollectionScope<HeapVector<Member<InlineTextBox>>> scope(
-      &sorted_text_boxes);
-  wtf_size_t sorted_text_boxes_position = 0;
-
-  for (InlineTextBox* text_box : text_layout_object->TextBoxes())
-    sorted_text_boxes.push_back(text_box);
-
-  // If there is mixed directionality text, the boxes can be out of order,
-  // (like Arabic with embedded LTR), so sort them first.
-  if (text_layout_object->ContainsReversedText())
-    std::sort(sorted_text_boxes.begin(), sorted_text_boxes.end(),
-              InlineTextBox::CompareByStart);
-  InlineTextBox* box = sorted_text_boxes.IsEmpty()
-                           ? nullptr
-                           : sorted_text_boxes[sorted_text_boxes_position];
-
-  unsigned removed = 0;
-  InlineTextBox* prev_box = nullptr;
-  String str;
-
-  // This loop structure works to process all gaps preceding a box,
-  // and also will look at the gap after the last box.
-  while (prev_box || box) {
-    unsigned gap_start = prev_box ? prev_box->Start() + prev_box->Len() : 0;
-    if (end < gap_start) {
-      // No more chance for any intersections
-      break;
-    }
-
-    unsigned gap_end = box ? box->Start() : length;
-    bool indices_intersect = start <= gap_end && end >= gap_start;
-    int gap_len = gap_end - gap_start;
-    if (indices_intersect && gap_len > 0) {
-      gap_start = std::max(gap_start, start);
-      if (str.IsNull())
-        str = text_node->data().Substring(start, end - start);
-      // remove text in the gap
-      str.Remove(gap_start - start - removed, gap_len);
-      removed += gap_len;
-    }
-
-    prev_box = box;
-    if (box) {
-      if (++sorted_text_boxes_position < sorted_text_boxes.size())
-        box = sorted_text_boxes[sorted_text_boxes_position];
-      else
-        box = nullptr;
-    }
-  }
-
-  if (!str.IsNull()) {
-    // Replace the text between start and end with our pruned version.
-    if (!str.IsEmpty()) {
-      ReplaceTextInNode(text_node, start, end - start, str);
-    } else {
-      // Assert that we are not going to delete all of the text in the node.
-      // If we were, that should have been done above with the call to
-      // removeNode and return.
-      DCHECK(start > 0 || end - start < text_node->length());
-      DeleteTextFromNode(text_node, start, end - start);
-    }
-  }
+  // Replace the text between start and end with collapsed version.
+  return ReplaceTextInNode(text_node, start, end - start, string);
 }
 
 void CompositeEditCommand::DeleteInsignificantText(const Position& start,
@@ -973,7 +921,11 @@ HTMLBRElement* CompositeEditCommand::AppendBlockPlaceholder(
 
   // Should assert isLayoutBlockFlow || isInlineFlow when deletion improves. See
   // 4244964.
-  DCHECK(container->GetLayoutObject()) << container;
+  // Note: When `container` is newly created <object> as fallback content, it
+  // isn't associated to layout object. See http://crbug.com/1357082
+  DCHECK(container->GetLayoutObject() ||
+         Traversal<HTMLObjectElement>::FirstAncestor(*container))
+      << container;
 
   auto* placeholder = MakeGarbageCollected<HTMLBRElement>(GetDocument());
   AppendNode(placeholder, container, editing_state);
@@ -1002,8 +954,6 @@ HTMLBRElement* CompositeEditCommand::InsertBlockPlaceholder(
 static bool IsEmptyListItem(const LayoutBlockFlow& block_flow) {
   if (block_flow.IsLayoutNGListItem())
     return !block_flow.FirstChild();
-  if (block_flow.IsListItem())
-    return To<LayoutListItem>(block_flow).IsEmpty();
   return false;
 }
 
@@ -1067,6 +1017,10 @@ HTMLElement* CompositeEditCommand::MoveParagraphContentsToNewBlockIfNecessary(
   // not been invalidated by an earlier call to this function.  The caller,
   // applyBlockStyle, should do this.
   VisiblePosition visible_pos = CreateVisiblePosition(pos);
+  if (visible_pos.IsNull()) {
+    editing_state->Abort();
+    return nullptr;
+  }
   VisiblePosition visible_paragraph_start = StartOfParagraph(visible_pos);
   VisiblePosition visible_paragraph_end = EndOfParagraph(visible_pos);
   VisiblePosition next = NextPositionOf(visible_paragraph_end);
@@ -1138,6 +1092,10 @@ HTMLElement* CompositeEditCommand::MoveParagraphContentsToNewBlockIfNecessary(
   }
 
   visible_pos = CreateVisiblePosition(pos);
+  if (visible_pos.IsNull()) {
+    editing_state->Abort();
+    return nullptr;
+  }
   visible_paragraph_start = StartOfParagraph(visible_pos);
   visible_paragraph_end = EndOfParagraph(visible_pos);
   DCHECK_LE(visible_paragraph_start.DeepEquivalent(),
@@ -1694,7 +1652,7 @@ bool CompositeEditCommand::BreakOutOfEmptyListItem(
   if (!list_node ||
       (!IsA<HTMLUListElement>(*list_node) &&
        !IsA<HTMLOListElement>(*list_node)) ||
-      !HasEditableStyle(*list_node) ||
+      !IsEditable(*list_node) ||
       list_node == RootEditableElement(*empty_list_item))
     return false;
 
@@ -1859,10 +1817,11 @@ bool CompositeEditCommand::BreakOutOfEmptyMailBlockquotedParagraph(
 
   Position caret_pos(MostForwardCaretPosition(caret.DeepEquivalent()));
   // A line break is either a br or a preserved newline.
-  DCHECK(
-      IsA<HTMLBRElement>(caret_pos.AnchorNode()) ||
-      (caret_pos.AnchorNode()->IsTextNode() &&
-       caret_pos.AnchorNode()->GetLayoutObject()->Style()->PreserveNewline()))
+  DCHECK(IsA<HTMLBRElement>(caret_pos.AnchorNode()) ||
+         (caret_pos.AnchorNode()->IsTextNode() && caret_pos.AnchorNode()
+                                                      ->GetLayoutObject()
+                                                      ->Style()
+                                                      ->ShouldPreserveBreaks()))
       << caret_pos;
 
   if (IsA<HTMLBRElement>(*caret_pos.AnchorNode())) {
@@ -2135,6 +2094,10 @@ void CompositeEditCommand::AppliedEditing() {
   }
 
   editor.RespondToChangedContents(new_selection.Base());
+
+  if (auto* rc = GetDocument().GetResourceCoordinator()) {
+    rc->SetHadUserEdits();
+  }
 }
 
 }  // namespace blink

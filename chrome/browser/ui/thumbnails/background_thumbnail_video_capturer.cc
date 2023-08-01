@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
 #include "media/capture/mojom/video_capture_buffer.mojom.h"
+#include "third_party/skia/include/core/SkColorSpace.h"
 #include "ui/gfx/geometry/skia_conversions.h"
 
 BackgroundThumbnailVideoCapturer::BackgroundThumbnailVideoCapturer(
@@ -39,7 +40,10 @@ void BackgroundThumbnailVideoCapturer::Start(
     return;
 
   content::RenderWidgetHostView* const source_view =
-      contents_->GetMainFrame()->GetRenderViewHost()->GetWidget()->GetView();
+      contents_->GetPrimaryMainFrame()
+          ->GetRenderViewHost()
+          ->GetWidget()
+          ->GetView();
   if (!source_view)
     return;
 
@@ -80,8 +84,6 @@ void BackgroundThumbnailVideoCapturer::Stop() {
 
   TRACE_EVENT_NESTABLE_ASYNC_END0("ui", "Tab.Preview.VideoCapture",
                                   TRACE_ID_LOCAL(cur_capture_num_));
-  UMA_HISTOGRAM_MEDIUM_TIMES("Tab.Preview.VideoCaptureDuration",
-                             base::TimeTicks::Now() - start_time_);
   start_time_ = base::TimeTicks();
   cur_capture_num_ = 0;
 }
@@ -122,10 +124,6 @@ void BackgroundThumbnailVideoCapturer::OnFrameCaptured(
     DLOG(ERROR) << "Shared memory size was less than expected.";
     return;
   }
-  if (!info->color_space) {
-    DLOG(ERROR) << "Missing mandatory color space info.";
-    return;
-  }
 
   if (num_received_frames_ == 0)
     UMA_HISTOGRAM_TIMES("Tab.Preview.TimeToFirstUsableFrameAfterStartCapture",
@@ -161,7 +159,7 @@ void BackgroundThumbnailVideoCapturer::OnFrameCaptured(
                             capture_info_.copy_rect.width();
 
   const gfx::Insets original_scroll_insets = capture_info_.scrollbar_insets;
-  const gfx::Insets scroll_insets(
+  const auto scroll_insets = gfx::Insets::TLBR(
       0, 0, std::round(original_scroll_insets.width() * scale_ratio),
       std::round(original_scroll_insets.height() * scale_ratio));
   gfx::Rect effective_content_rect = content_rect;
@@ -172,7 +170,7 @@ void BackgroundThumbnailVideoCapturer::OnFrameCaptured(
   frame.installPixels(
       SkImageInfo::MakeN32(bitmap_size.width(), bitmap_size.height(),
                            kPremul_SkAlphaType,
-                           info->color_space->ToSkColorSpace()),
+                           info->color_space.ToSkColorSpace()),
       pixels,
       media::VideoFrame::RowBytes(media::VideoFrame::kARGBPlane,
                                   info->pixel_format, info->coded_size.width()),
@@ -188,13 +186,13 @@ void BackgroundThumbnailVideoCapturer::OnFrameCaptured(
     return;
   }
 
-  UMA_HISTOGRAM_CUSTOM_MICROSECONDS_TIMES(
-      "Tab.Preview.TimeToStoreAfterFrameReceived",
-      base::TimeTicks::Now() - time_of_call, base::Microseconds(10),
-      base::Milliseconds(10), 50);
-
   got_frame_callback_.Run(cropped_frame, frame_id);
 }
+
+void BackgroundThumbnailVideoCapturer::OnNewCropVersion(uint32_t crop_version) {
+}
+
+void BackgroundThumbnailVideoCapturer::OnFrameWithEmptyRegionCapture() {}
 
 void BackgroundThumbnailVideoCapturer::OnStopped() {}
 

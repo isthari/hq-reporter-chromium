@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,10 +13,11 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_underlying_source_start_callback.h"
 #include "third_party/blink/renderer/core/streams/miscellaneous_operations.h"
 #include "third_party/blink/renderer/core/streams/promise_handler.h"
+#include "third_party/blink/renderer/core/streams/read_into_request.h"
+#include "third_party/blink/renderer/core/streams/read_request.h"
 #include "third_party/blink/renderer/core/streams/readable_stream.h"
 #include "third_party/blink/renderer/core/streams/readable_stream_byob_request.h"
 #include "third_party/blink/renderer/core/streams/stream_algorithms.h"
-#include "third_party/blink/renderer/core/streams/stream_promise_resolver.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_array_buffer_view.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_data_view.h"
@@ -77,11 +78,20 @@ ReadableByteStreamController::ReadableByteStreamController()
 
 ReadableStreamBYOBRequest* ReadableByteStreamController::byobRequest() {
   // https://streams.spec.whatwg.org/#rbs-controller-byob-request
-  // 1. If this.[[byobRequest]] is null and this.[[pendingPullIntos]] is not
-  // empty,
-  if (!byob_request_ && !pending_pull_intos_.IsEmpty()) {
-    //   a. Let firstDescriptor be this.[[pendingPullIntos]][0].
-    const PullIntoDescriptor* first_descriptor = pending_pull_intos_[0];
+  // 1. Return ReadableByteStreamControllerGetBYOBRequest(this).
+  return GetBYOBRequest(this);
+}
+
+ReadableStreamBYOBRequest* ReadableByteStreamController::GetBYOBRequest(
+    ReadableByteStreamController* controller) {
+  // https://streams.spec.whatwg.org/#abstract-opdef-readablebytestreamcontrollergetbyobrequest
+  // 1. If controller.[[byobRequest]] is null and
+  // controller.[[pendingPullIntos]] is not empty,
+  if (!controller->byob_request_ && !controller->pending_pull_intos_.empty()) {
+    //   a. Let firstDescriptor be controller.[[pendingPullIntos]][0].
+    const PullIntoDescriptor* first_descriptor =
+        controller->pending_pull_intos_[0];
+
     //   b. Let view be ! Construct(%Uint8Array%, « firstDescriptor’s buffer,
     //   firstDescriptor’s byte offset + firstDescriptor’s bytes filled,
     //   firstDescriptor’s byte length − firstDescriptor’s bytes filled »).
@@ -89,15 +99,17 @@ ReadableStreamBYOBRequest* ReadableByteStreamController::byobRequest() {
         first_descriptor->buffer,
         first_descriptor->byte_offset + first_descriptor->bytes_filled,
         first_descriptor->byte_length - first_descriptor->bytes_filled);
+
     //   c. Let byobRequest be a new ReadableStreamBYOBRequest.
-    //   d. Set byobRequest.[[controller]] to this.
+    //   d. Set byobRequest.[[controller]] to controller.
     //   e. Set byobRequest.[[view]] to view.
-    //   f. Set this.[[byobRequest]] to byobRequest.
-    byob_request_ = MakeGarbageCollected<ReadableStreamBYOBRequest>(
-        this, NotShared<DOMUint8Array>(view));
+    //   f. Set controller.[[byobRequest]] to byobRequest.
+    controller->byob_request_ = MakeGarbageCollected<ReadableStreamBYOBRequest>(
+        controller, NotShared<DOMUint8Array>(view));
   }
-  // 2. Return this.[[byobRequest]].
-  return byob_request_;
+
+  // 2. Return controller.[[byobRequest]].
+  return controller->byob_request_;
 }
 
 absl::optional<double> ReadableByteStreamController::desiredSize() {
@@ -219,7 +231,7 @@ void ReadableByteStreamController::Close(
   }
 
   // 4. If controller.[[pendingPullIntos]] is not empty,
-  if (!controller->pending_pull_intos_.IsEmpty()) {
+  if (!controller->pending_pull_intos_.empty()) {
     //   a. Let firstPendingPullInto be controller.[[pendingPullIntos]][0].
     const PullIntoDescriptor* first_pending_pull_into =
         controller->pending_pull_intos_[0];
@@ -302,12 +314,12 @@ void ReadableByteStreamController::Enqueue(
   // 7. Let transferredBuffer be ? TransferArrayBuffer(buffer).
   DOMArrayBuffer* const transferred_buffer =
       TransferArrayBuffer(script_state, buffer, exception_state);
-  if (exception_state.HadException()) {
+  if (!transferred_buffer) {
     return;
   }
 
   // 8. If controller.[[pendingPullIntos]] is not empty,
-  if (!controller->pending_pull_intos_.IsEmpty()) {
+  if (!controller->pending_pull_intos_.empty()) {
     //     a. Let firstPendingPullInto be controller.[[pendingPullIntos]][0].
     PullIntoDescriptor* first_pending_pull_into =
         controller->pending_pull_intos_[0];
@@ -317,52 +329,68 @@ void ReadableByteStreamController::Enqueue(
       exception_state.ThrowTypeError("first pending read's buffer is detached");
       return;
     }
-    //     c. Set firstPendingPullInto's buffer to ! TransferArrayBuffer(
+    //     c. Perform !
+    //     ReadableByteStreamControllerInvalidateBYOBRequest(controller).
+    InvalidateBYOBRequest(controller);
+    //     d. Set firstPendingPullInto's buffer to ! TransferArrayBuffer(
     //     firstPendingPullInto's buffer).
     first_pending_pull_into->buffer = TransferArrayBuffer(
         script_state, first_pending_pull_into->buffer, exception_state);
+    //     e. If firstPendingPullInto’s reader type is "none", perform ?
+    //     ReadableByteStreamControllerEnqueueDetachedPullIntoToQueue(controller,
+    //     firstPendingPullInto).
+    if (first_pending_pull_into->reader_type == ReaderType::kNone) {
+      EnqueueDetachedPullIntoToQueue(controller, first_pending_pull_into);
+    }
   }
 
-  // 9. Perform ! ReadableByteStreamControllerInvalidateBYOBRequest(controller).
-  InvalidateBYOBRequest(controller);
-
-  // 10. If ! ReadableStreamHasDefaultReader(stream) is true
+  // 9. If ! ReadableStreamHasDefaultReader(stream) is true
   if (ReadableStream::HasDefaultReader(stream)) {
-    //   a. If ! ReadableStreamGetNumReadRequests(stream) is 0,
+    //   a. Perform !
+    //   ReadableByteStreamControllerProcessReadRequestsUsingQueue(controller).
+    ProcessReadRequestsUsingQueue(script_state, controller);
+    //   b. If ! ReadableStreamGetNumReadRequests(stream) is 0,
     if (ReadableStream::GetNumReadRequests(stream) == 0) {
-      DCHECK(controller->pending_pull_intos_.IsEmpty());
+      //     i. Assert: controller.[[pendingPullIntos]] is empty.
+      DCHECK(controller->pending_pull_intos_.empty());
 
-      //     i. Perform !
+      //     ii. Perform !
       //     ReadableByteStreamControllerEnqueueChunkToQueue(controller,
       //     transferredBuffer, byteOffset, byteLength).
       EnqueueChunkToQueue(controller, transferred_buffer, byte_offset,
                           byte_length);
     } else {
-      // b. Otherwise,
+      // c. Otherwise,
       //     i. Assert: controller.[[queue]] is empty.
-      DCHECK(controller->queue_.IsEmpty());
+      DCHECK(controller->queue_.empty());
 
-      if (!controller->pending_pull_intos_.IsEmpty()) {
+      //     ii. If controller.[[pendingPullIntos]] is not empty,
+      if (!controller->pending_pull_intos_.empty()) {
+        //        1. Assert: controller.[[pendingPullIntos]][0]'s reader type is
+        //        "default".
         DCHECK_EQ(controller->pending_pull_intos_[0]->reader_type,
                   ReaderType::kDefault);
+
+        //        2. Perform !
+        //        ReadableByteStreamControllerShiftPendingPullInto(controller).
         ShiftPendingPullInto(controller);
       }
 
-      //     ii. Let transferredView be ! Construct(%Uint8Array%, «
+      //     iii. Let transferredView be ! Construct(%Uint8Array%, «
       //     transferredBuffer, byteOffset, byteLength »).
       v8::Local<v8::Value> const transferred_view = v8::Uint8Array::New(
           ToV8Traits<DOMArrayBuffer>::ToV8(script_state, transferred_buffer)
               .ToLocalChecked()
               .As<v8::ArrayBuffer>(),
           byte_offset, byte_length);
-      //     iii. Perform ! ReadableStreamFulfillReadRequest(stream,
+      //     iv. Perform ! ReadableStreamFulfillReadRequest(stream,
       //     transferredView, false).
       ReadableStream::FulfillReadRequest(script_state, stream, transferred_view,
                                          false);
     }
   }
 
-  // 11. Otherwise, if ! ReadableStreamHasBYOBReader(stream) is true,
+  // 10. Otherwise, if ! ReadableStreamHasBYOBReader(stream) is true,
   else if (ReadableStream::HasBYOBReader(stream)) {
     //   a. Perform !
     //   ReadableByteStreamControllerEnqueueChunkToQueue(controller,
@@ -376,7 +404,7 @@ void ReadableByteStreamController::Enqueue(
                                          exception_state);
     DCHECK(!exception_state.HadException());
   } else {
-    // 12. Otherwise,
+    // 11. Otherwise,
     //   a. Assert: ! IsReadableStreamLocked(stream) is false.
     DCHECK(!ReadableStream::IsLocked(stream));
     //   b. Perform !
@@ -386,7 +414,7 @@ void ReadableByteStreamController::Enqueue(
                         byte_length);
   }
 
-  // 13. Perform ! ReadableByteStreamControllerCallPullIfNeeded(controller).
+  // 12. Perform ! ReadableByteStreamControllerCallPullIfNeeded(controller).
   CallPullIfNeeded(script_state, controller);
 }
 
@@ -406,6 +434,49 @@ void ReadableByteStreamController::EnqueueChunkToQueue(
   controller->queue_total_size_ += byte_length;
 }
 
+void ReadableByteStreamController::EnqueueClonedChunkToQueue(
+    ReadableByteStreamController* controller,
+    DOMArrayBuffer* buffer,
+    size_t byte_offset,
+    size_t byte_length) {
+  // https://streams.spec.whatwg.org/#abstract-opdef-readablebytestreamcontrollerenqueueclonedchunktoqueue
+  // 1. Let cloneResult be CloneArrayBuffer(buffer, byteOffset, byteLength,
+  // %ArrayBuffer%).
+  DOMArrayBuffer* const clone_result = DOMArrayBuffer::Create(
+      static_cast<char*>(buffer->Data()) + byte_offset, byte_length);
+  // 2. If cloneResult is an abrupt completion,
+  //   a. Perform ! ReadableByteStreamControllerError(controller,
+  //   cloneResult.[[Value]]). b. Return cloneResult.
+  // This is not needed as DOMArrayBuffer::Create() is designed to crash if it
+  // cannot allocate the memory.
+
+  // 3. Perform ! ReadableByteStreamControllerEnqueueChunkToQueue(controller,
+  // cloneResult.[[Value]], 0, byteLength).
+  EnqueueChunkToQueue(controller, clone_result, 0, byte_length);
+}
+
+void ReadableByteStreamController::EnqueueDetachedPullIntoToQueue(
+    ReadableByteStreamController* controller,
+    PullIntoDescriptor* pull_into_descriptor) {
+  // https://streams.spec.whatwg.org/#abstract-opdef-readablebytestreamcontrollerenqueuedetachedpullintotoqueue
+  // Note: EnqueueDetachedPullIntoToQueue cannot throw in this implementation.
+  // 1. Assert: pullIntoDescriptor’s reader type is "none".
+  DCHECK_EQ(pull_into_descriptor->reader_type, ReaderType::kNone);
+
+  // 2. If pullIntoDescriptor’s bytes filled > 0, perform ?
+  // ReadableByteStreamControllerEnqueueClonedChunkToQueue(controller,
+  // pullIntoDescriptor’s buffer, pullIntoDescriptor’s byte offset,
+  // pullIntoDescriptor’s bytes filled).
+  if (pull_into_descriptor->bytes_filled > 0) {
+    EnqueueClonedChunkToQueue(controller, pull_into_descriptor->buffer,
+                              pull_into_descriptor->byte_offset,
+                              pull_into_descriptor->bytes_filled);
+  }
+
+  // 3. Perform ! ReadableByteStreamControllerShiftPendingPullInto(controller).
+  ShiftPendingPullInto(controller);
+}
+
 void ReadableByteStreamController::ProcessPullIntoDescriptorsUsingQueue(
     ScriptState* script_state,
     ReadableByteStreamController* controller,
@@ -414,7 +485,7 @@ void ReadableByteStreamController::ProcessPullIntoDescriptorsUsingQueue(
   // 1. Assert: controller.[[closeRequested]] is false.
   DCHECK(!controller->close_requested_);
   // 2. While controller.[[pendingPullIntos]] is not empty,
-  while (!controller->pending_pull_intos_.IsEmpty()) {
+  while (!controller->pending_pull_intos_.empty()) {
     //   a. If controller.[[queueTotalSize]] is 0, return.
     if (controller->queue_total_size_ == 0) {
       return;
@@ -435,6 +506,34 @@ void ReadableByteStreamController::ProcessPullIntoDescriptorsUsingQueue(
                                pull_into_descriptor, exception_state);
       DCHECK(!exception_state.HadException());
     }
+  }
+}
+
+void ReadableByteStreamController::ProcessReadRequestsUsingQueue(
+    ScriptState* script_state,
+    ReadableByteStreamController* controller) {
+  // https://streams.spec.whatwg.org/#abstract-opdef-readablebytestreamcontrollerprocessreadrequestsusingqueue
+  // 1. Let reader be controller.[[stream]].[[reader]].
+  ReadableStreamGenericReader* reader =
+      controller->controlled_readable_stream_->reader_;
+  // 2. Assert: reader implements ReadableStreamDefaultReader.
+  DCHECK(reader->IsDefaultReader());
+  ReadableStreamDefaultReader* default_reader =
+      To<ReadableStreamDefaultReader>(reader);
+  // 3. While reader.[[readRequests]] is not empty,
+  while (!default_reader->read_requests_.empty()) {
+    //   a. If controller.[[queueTotalSize]] is 0, return.
+    if (controller->queue_total_size_ == 0) {
+      return;
+    }
+    //   b. Let readRequest be reader.[[readRequests]][0].
+    ReadRequest* read_request = default_reader->read_requests_[0];
+    //   c. Remove readRequest from reader.[[readRequests]].
+    default_reader->read_requests_.pop_front();
+    //   d. Perform !
+    //   ReadableByteStreamControllerFillReadRequestFromQueue(controller,
+    //   readRequest).
+    FillReadRequestFromQueue(script_state, controller, read_request);
   }
 }
 
@@ -587,21 +686,23 @@ void ReadableByteStreamController::CommitPullIntoDescriptor(
   // https://streams.spec.whatwg.org/#readable-byte-stream-controller-commit-pull-into-descriptor
   // 1. Assert: stream.[[state]] is not "errored".
   DCHECK_NE(stream->state_, ReadableStream::kErrored);
-  // 2. Let done be false.
+  // 2. Assert: pullIntoDescriptor.reader type is not "none".
+  DCHECK_NE(pull_into_descriptor->reader_type, ReaderType::kNone);
+  // 3. Let done be false.
   bool done = false;
-  // 3. If stream.[[state]] is "closed",
+  // 4. If stream.[[state]] is "closed",
   if (stream->state_ == ReadableStream::kClosed) {
     //   a. Assert: pullIntoDescriptor’s bytes filled is 0.
     DCHECK_EQ(pull_into_descriptor->bytes_filled, 0u);
     //   b. Set done to true.
     done = true;
   }
-  // 4. Let filledView be !
+  // 5. Let filledView be !
   // ReadableByteStreamControllerConvertPullIntoDescriptor(pullIntoDescriptor).
   auto* filled_view = ConvertPullIntoDescriptor(
       script_state, pull_into_descriptor, exception_state);
   DCHECK(!exception_state.HadException());
-  // 5. If pullIntoDescriptor’s reader type is "default",
+  // 6. If pullIntoDescriptor’s reader type is "default",
   if (pull_into_descriptor->reader_type == ReaderType::kDefault) {
     //   a. Perform ! ReadableStreamFulfillReadRequest(stream, filledView,
     //   done).
@@ -611,7 +712,7 @@ void ReadableByteStreamController::CommitPullIntoDescriptor(
             .ToLocalChecked(),
         done);
   } else {
-    // 6. Otherwise,
+    // 7. Otherwise,
     //   a. Assert: pullIntoDescriptor’s reader type is "byob".
     DCHECK_EQ(pull_into_descriptor->reader_type, ReaderType::kBYOB);
     //   b. Perform ! ReadableStreamFulfillReadIntoRequest(stream, filledView,
@@ -719,7 +820,7 @@ void ReadableByteStreamController::SetUp(
   // 11. Set controller.[[autoAllocateChunkSize]] to autoAllocateChunkSize.
   controller->auto_allocate_chunk_size_ = auto_allocate_chunk_size;
   // 12. Set controller.[[pendingPullIntos]] to a new empty list.
-  DCHECK(controller->pending_pull_intos_.IsEmpty());
+  DCHECK(controller->pending_pull_intos_.empty());
   // 13. Set stream.[[controller]] to controller.
   stream->readable_stream_controller_ = controller;
   // 14. Let startResult be the result of performing startAlgorithm.
@@ -881,7 +982,7 @@ void ReadableByteStreamController::FillHeadPullIntoDescriptor(
   // https://streams.spec.whatwg.org/#readable-byte-stream-controller-fill-head-pull-into-descriptor
   // 1. Assert: either controller.[[pendingPullIntos]] is empty, or
   // controller.[[pendingPullIntos]][0] is pullIntoDescriptor.
-  DCHECK(controller->pending_pull_intos_.IsEmpty() ||
+  DCHECK(controller->pending_pull_intos_.empty() ||
          controller->pending_pull_intos_[0] == pull_into_descriptor);
   // 2. Assert: controller.[[byobRequest]] is null.
   DCHECK(!controller->byob_request_);
@@ -1007,11 +1108,37 @@ bool ReadableByteStreamController::FillPullIntoDescriptorFromQueue(
   return ready;
 }
 
+void ReadableByteStreamController::FillReadRequestFromQueue(
+    ScriptState* script_state,
+    ReadableByteStreamController* controller,
+    ReadRequest* read_request) {
+  // https://streams.spec.whatwg.org/#abstract-opdef-readablebytestreamcontrollerfillreadrequestfromqueue
+  // 1. Assert: controller.[[queueTotalSize]] > 0.
+  DCHECK_GT(controller->queue_total_size_, 0);
+  // 2. Let entry be controller.[[queue]][0].
+  QueueEntry* entry = controller->queue_[0];
+  // 3. Remove entry from controller.[[queue]].
+  controller->queue_.pop_front();
+  // 4. Set controller.[[queueTotalSize]] to controller.[[queueTotalSize]] −
+  // entry’s byte length.
+  controller->queue_total_size_ -= entry->byte_length;
+  // 5. Perform ! ReadableByteStreamControllerHandleQueueDrain(controller).
+  HandleQueueDrain(script_state, controller);
+  // 6. Let view be ! Construct(%Uint8Array%, « entry’s buffer, entry’s byte
+  // offset, entry’s byte length »).
+  DOMUint8Array* view = DOMUint8Array::Create(entry->buffer, entry->byte_offset,
+                                              entry->byte_length);
+  // 7. Perform readRequest’s chunk steps, given view.
+  read_request->ChunkSteps(
+      script_state,
+      ToV8Traits<DOMUint8Array>::ToV8(script_state, view).ToLocalChecked());
+}
+
 void ReadableByteStreamController::PullInto(
     ScriptState* script_state,
     ReadableByteStreamController* controller,
     NotShared<DOMArrayBufferView> view,
-    ReadableStreamBYOBReader::ReadIntoRequest* read_into_request,
+    ReadIntoRequest* read_into_request,
     ExceptionState& exception_state) {
   // https://streams.spec.whatwg.org/#readable-byte-stream-controller-pull-into
   // 1. Let stream be controller.[[stream]].
@@ -1092,7 +1219,7 @@ void ReadableByteStreamController::PullInto(
           buffer, buffer->ByteLength(), byte_offset, byte_length, 0,
           element_size, ctor, ReaderType::kBYOB);
   // 11. If controller.[[pendingPullIntos]] is not empty,
-  if (!controller->pending_pull_intos_.IsEmpty()) {
+  if (!controller->pending_pull_intos_.empty()) {
     //   a. Append pullIntoDescriptor to controller.[[pendingPullIntos]].
     controller->pending_pull_intos_.push_back(pull_into_descriptor);
     //   b. Perform ! ReadableStreamAddReadIntoRequest(stream, readIntoRequest).
@@ -1190,7 +1317,7 @@ void ReadableByteStreamController::Respond(
     ExceptionState& exception_state) {
   // https://streams.spec.whatwg.org/#readable-byte-stream-controller-respond
   // 1. Assert: controller.[[pendingPullIntos]] is not empty.
-  DCHECK(!controller->pending_pull_intos_.IsEmpty());
+  DCHECK(!controller->pending_pull_intos_.empty());
   // 2. Let firstDescriptor be controller.[[pendingPullIntos]][0].
   PullIntoDescriptor* first_descriptor = controller->pending_pull_intos_[0];
   // 3. Let state be controller.[[stream]].[[state]].
@@ -1198,7 +1325,7 @@ void ReadableByteStreamController::Respond(
       controller->controlled_readable_stream_->state_;
   // 4. If state is "closed",
   if (state == ReadableStream::kClosed) {
-    //   a. If bytesWtitten is not 0, throw a TypeError exception.
+    //   a. If bytesWritten is not 0, throw a TypeError exception.
     if (bytes_written != 0) {
       exception_state.ThrowTypeError("bytes written is not 0");
       return;
@@ -1238,9 +1365,14 @@ void ReadableByteStreamController::RespondInClosedState(
   // https://streams.spec.whatwg.org/#readable-byte-stream-controller-respond-in-closed-state
   // 1. Assert: firstDescriptor’s bytes filled is 0.
   DCHECK_EQ(first_descriptor->bytes_filled, 0u);
-  // 2. Let stream be controller.[[stream]].
+  // 2. If firstDescriptor’s reader type is "none", perform !
+  // ReadableByteStreamControllerShiftPendingPullInto(controller).
+  if (first_descriptor->reader_type == ReaderType::kNone) {
+    ShiftPendingPullInto(controller);
+  }
+  // 3. Let stream be controller.[[stream]].
   ReadableStream* const stream = controller->controlled_readable_stream_;
-  // 3. If ! ReadableStreamHasBYOBReader(stream) is true,
+  // 4. If ! ReadableStreamHasBYOBReader(stream) is true,
   if (ReadableStream::HasBYOBReader(stream)) {
     //   a. While ! ReadableStreamGetNumReadIntoRequests(stream) > 0,
     while (ReadableStream::GetNumReadIntoRequests(stream) > 0) {
@@ -1273,18 +1405,31 @@ void ReadableByteStreamController::RespondInReadableState(
   // ReadableByteStreamControllerFillHeadPullIntoDescriptor(controller,
   // bytesWritten, pullIntoDescriptor).
   FillHeadPullIntoDescriptor(controller, bytes_written, pull_into_descriptor);
-  // 3. If pullIntoDescriptor’s bytes filled < pullIntoDescriptor’s element
+  // 3. If pullIntoDescriptor’s reader type is "none",
+  if (pull_into_descriptor->reader_type == ReaderType::kNone) {
+    //   a. Perform ?
+    //   ReadableByteStreamControllerEnqueueDetachedPullIntoToQueue(controller,
+    //   pullIntoDescriptor).
+    EnqueueDetachedPullIntoToQueue(controller, pull_into_descriptor);
+    //   b. Perform !
+    //   ReadableByteStreamControllerProcessPullIntoDescriptorsUsingQueue(controller).
+    ProcessPullIntoDescriptorsUsingQueue(script_state, controller,
+                                         exception_state);
+    //   c. Return.
+    return;
+  }
+  // 4. If pullIntoDescriptor’s bytes filled < pullIntoDescriptor’s element
   // size, return.
   if (pull_into_descriptor->bytes_filled < pull_into_descriptor->element_size) {
     return;
   }
-  // 4. Perform ! ReadableByteStreamControllerShiftPendingPullInto(controller).
+  // 5. Perform ! ReadableByteStreamControllerShiftPendingPullInto(controller).
   ShiftPendingPullInto(controller);
-  // 5. Let remainderSize be pullIntoDescriptor’s bytes filled mod
+  // 6. Let remainderSize be pullIntoDescriptor’s bytes filled mod
   // pullIntoDescriptor’s element size.
   const size_t remainder_size =
       pull_into_descriptor->bytes_filled % pull_into_descriptor->element_size;
-  // 6. If remainderSize > 0,
+  // 7. If remainderSize > 0,
   if (remainder_size > 0) {
     //   a. Let end be pullIntoDescriptor’s byte offset + pullIntoDescriptor’s
     //   bytes filled.
@@ -1293,29 +1438,24 @@ void ReadableByteStreamController::RespondInReadableState(
     //   size_t.
     size_t end =
         pull_into_descriptor->byte_offset + pull_into_descriptor->bytes_filled;
-    //   b. Let remainder be ? CloneArrayBuffer(pullIntoDescriptor’s
-    //   buffer, end − remainderSize, remainderSize, %ArrayBuffer%).
-    DOMArrayBuffer* const remainder = DOMArrayBuffer::Create(
-        static_cast<char*>(pull_into_descriptor->buffer->Data()) + end -
-            remainder_size,
-        remainder_size);
-    //   c. Perform !
-    //   ReadableByteStreamControllerEnqueueChunkToQueue(controller, remainder,
-    //   0, remainder.[[ByteLength]]).
-    EnqueueChunkToQueue(controller, remainder, 0, remainder->ByteLength());
+    //   b. Perform ?
+    //   ReadableByteStreamControllerEnqueueClonedChunkToQueue(controller,
+    //   pullIntoDescriptor’s buffer, end − remainderSize, remainderSize).
+    EnqueueClonedChunkToQueue(controller, pull_into_descriptor->buffer,
+                              end - remainder_size, remainder_size);
   }
-  // 7. Set pullIntoDescriptor’s bytes filled to pullIntoDescriptor’s bytes
+  // 8. Set pullIntoDescriptor’s bytes filled to pullIntoDescriptor’s bytes
   // filled − remainderSize.
   pull_into_descriptor->bytes_filled =
       pull_into_descriptor->bytes_filled - remainder_size;
-  // 8. Perform !
+  // 9. Perform !
   // ReadableByteStreamControllerCommitPullIntoDescriptor(controller.[[stream]],
   // pullIntoDescriptor).
   CommitPullIntoDescriptor(script_state,
                            controller->controlled_readable_stream_,
                            pull_into_descriptor, exception_state);
   DCHECK(!exception_state.HadException());
-  // 9. Perform !
+  // 10. Perform !
   // ReadableByteStreamControllerProcessPullIntoDescriptorsUsingQueue(controller).
   ProcessPullIntoDescriptorsUsingQueue(script_state, controller,
                                        exception_state);
@@ -1370,7 +1510,7 @@ void ReadableByteStreamController::RespondWithNewView(
     ExceptionState& exception_state) {
   // https://streams.spec.whatwg.org/#readable-byte-stream-controller-respond-with-new-view
   // 1. Assert: controller.[[pendingPullIntos]] is not empty.
-  DCHECK(!controller->pending_pull_intos_.IsEmpty());
+  DCHECK(!controller->pending_pull_intos_.empty());
   // 2. Assert: ! IsDetachedBuffer(view.[[ViewedArrayBuffer]]) is false.
   DCHECK(!view->buffer()->IsDetached());
   // 3. Let firstDescriptor be controller.[[pendingPullIntos]][0].
@@ -1443,13 +1583,16 @@ DOMArrayBuffer* ReadableByteStreamController::TransferArrayBuffer(
     DOMArrayBuffer* buffer,
     ExceptionState& exception_state) {
   DCHECK(!buffer->IsDetached());
-  ArrayBufferContents contents;
-  if (buffer->IsDetachable(script_state->GetIsolate()) &&
-      buffer->Transfer(script_state->GetIsolate(), contents)) {
-    return DOMArrayBuffer::Create(std::move(contents));
+  if (!buffer->IsDetachable(script_state->GetIsolate())) {
+    exception_state.ThrowTypeError("Could not transfer ArrayBuffer");
+    return nullptr;
   }
-  exception_state.ThrowTypeError("not able to transfer array buffer");
-  return nullptr;
+  ArrayBufferContents contents;
+  if (!buffer->Transfer(script_state->GetIsolate(), contents,
+                        exception_state)) {
+    return nullptr;
+  }
+  return DOMArrayBuffer::Create(std::move(contents));
 }
 
 void ReadableByteStreamController::Trace(Visitor* visitor) const {
@@ -1483,14 +1626,14 @@ v8::Local<v8::Promise> ReadableByteStreamController::CancelSteps(
   return result;
 }
 
-StreamPromiseResolver* ReadableByteStreamController::PullSteps(
-    ScriptState* script_state) {
+void ReadableByteStreamController::PullSteps(ScriptState* script_state,
+                                             ReadRequest* read_request) {
   // https://whatpr.org/streams/1029.html#rbs-controller-private-pull
   // TODO: This function follows an old version of the spec referenced above, so
   // it needs to be updated to the new version on
   // https://streams.spec.whatwg.org when the ReadableStreamDefaultReader
   // implementation is updated.
-  // 1. Let stream be this.[[controlledReadableByteStream]].
+  // 1. Let stream be this.[[stream]].
   ReadableStream* const stream = controlled_readable_stream_;
   // 2. Assert: ! ReadableStreamHasDefaultReader(stream) is true.
   DCHECK(ReadableStream::HasDefaultReader(stream));
@@ -1498,31 +1641,11 @@ StreamPromiseResolver* ReadableByteStreamController::PullSteps(
   if (queue_total_size_ > 0) {
     //   a. Assert: ! ReadableStreamGetNumReadRequests(stream) is 0.
     DCHECK_EQ(ReadableStream::GetNumReadRequests(stream), 0);
-    //   b. Let entry be the first element of this.[[queue]].
-    QueueEntry* entry = queue_[0];
-    //   c. Remove entry from this.[[queue]], shifting all other elements
-    //   downward (so that the second becomes the first, and so on).
-    queue_.pop_front();
-    //   d. Set this.[[queueTotalSize]] to this.[[queueTotalSize]] −
-    //   entry.[[byteLength]].
-    queue_total_size_ -= entry->byte_length;
-    //   e. Perform ! ReadableByteStreamControllerHandleQueueDrain(this).
-    HandleQueueDrain(script_state, this);
-    //   f. Let view be ! Construct(%Uint8Array%, « entry.[[buffer]],
-    //   entry.[[byteOffset]], entry.[[byteLength]] »).
-    DOMUint8Array* view = DOMUint8Array::Create(
-        entry->buffer, entry->byte_offset, entry->byte_length);
-    //   g. Return a promise resolved with !
-    //   ReadableStreamCreateReadResult(view, false,
-    //   stream.[[reader]].[[forAuthorCode]]).
-    ReadableStreamGenericReader* reader = stream->reader_;
-    return StreamPromiseResolver::CreateResolved(
-        script_state,
-        ReadableStream::CreateReadResult(
-            script_state,
-            ToV8Traits<DOMUint8Array>::ToV8(script_state, view)
-                .ToLocalChecked(),
-            false, To<ReadableStreamDefaultReader>(reader)->for_author_code_));
+    //   b. Perform ! ReadableByteStreamControllerFillReadRequestFromQueue(this,
+    //   readRequest).
+    FillReadRequestFromQueue(script_state, this, read_request);
+    //   c. Return.
+    return;
   }
   // 4. Let autoAllocateChunkSize be this.[[autoAllocateChunkSize]].
   const size_t auto_allocate_chunk_size = auto_allocate_chunk_size_;
@@ -1530,8 +1653,9 @@ StreamPromiseResolver* ReadableByteStreamController::PullSteps(
   if (auto_allocate_chunk_size) {
     //   a. Let buffer be Construct(%ArrayBuffer%, « autoAllocateChunkSize »).
     auto* buffer = DOMArrayBuffer::Create(auto_allocate_chunk_size, 1);
-    //   b. If buffer is an abrupt completion, return a promise rejected with
-    //   buffer.[[Value]].
+    //   b. If buffer is an abrupt completion,
+    //     i. Perform readRequest’s error steps, given buffer.[[Value]].
+    //     ii. Return.
     //   This is not needed as DOMArrayBuffer::Create() is designed to
     //   crash if it cannot allocate the memory.
 
@@ -1548,13 +1672,24 @@ StreamPromiseResolver* ReadableByteStreamController::PullSteps(
     //   this.[[pendingPullIntos]].
     pending_pull_intos_.push_back(pull_into_descriptor);
   }
-  // 6. Let promise be ! ReadableStreamAddReadRequest(stream).
-  StreamPromiseResolver* promise =
-      ReadableStream::AddReadRequest(script_state, stream);
+  // 6. Perform ! ReadableStreamAddReadRequest(stream, readRequest).
+  ReadableStream::AddReadRequest(script_state, stream, read_request);
   // 7. Perform ! ReadableByteStreamControllerCallPullIfNeeded(this).
   CallPullIfNeeded(script_state, this);
-  // 8. Return promise.
-  return promise;
+}
+
+void ReadableByteStreamController::ReleaseSteps() {
+  // https://streams.spec.whatwg.org/#abstract-opdef-readablebytestreamcontroller-releasesteps
+  // 1. If this.[[pendingPullIntos]] is not empty,
+  if (!pending_pull_intos_.empty()) {
+    //   a. Let firstPendingPullInto be this.[[pendingPullIntos]][0].
+    PullIntoDescriptor* first_pending_pull_into = pending_pull_intos_[0];
+    //   b. Set firstPendingPullInto’s reader type to "none".
+    first_pending_pull_into->reader_type = ReaderType::kNone;
+    //   c. Set this.[[pendingPullIntos]] to the list « firstPendingPullInto ».
+    pending_pull_intos_.clear();
+    pending_pull_intos_.push_back(first_pending_pull_into);
+  }
 }
 
 }  // namespace blink

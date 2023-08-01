@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@ package org.chromium.chrome.browser.autofill;
 
 import android.content.Context;
 import android.text.Editable;
-import android.text.TextWatcher;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.TextView;
@@ -16,6 +15,7 @@ import org.chromium.chrome.browser.autofill.AutofillUiUtils.ErrorType;
 import org.chromium.ui.modaldialog.DialogDismissalCause;
 import org.chromium.ui.modaldialog.ModalDialogProperties;
 import org.chromium.ui.modelutil.PropertyModel;
+import org.chromium.ui.text.EmptyTextWatcher;
 
 /**
  * Prompt that asks users to confirm the expiration date before saving card to Google.
@@ -23,7 +23,7 @@ import org.chromium.ui.modelutil.PropertyModel;
  * - Confirm if the month and year needs to be pre-populated in case partial data is available.
  */
 public class AutofillExpirationDateFixFlowPrompt
-        extends AutofillSaveCardPromptBase implements TextWatcher {
+        extends AutofillSaveCardPromptBase implements EmptyTextWatcher {
     /**
      * An interface to handle the interaction with an AutofillExpirationDateFixFlowPrompt object.
      */
@@ -56,23 +56,6 @@ public class AutofillExpirationDateFixFlowPrompt
                 context, delegate, title, drawableId, cardLabel, confirmButtonLabel, false);
     }
 
-    /**
-     * Create a dialog prompt for the use of message. This dialog prompt includes legal lines.
-     *
-     * @param context The current context.
-     * @param delegate A {@link AutofillExpirationDateFixFlowPromptDelegate} to handle events.
-     * @param title Title of the dialog prompt.
-     * @param cardLabel Label representing a card which will be saved.
-     * @param confirmButtonLabel Label for the confirm button.
-     * @return The prompt to confirm expiration data.
-     */
-    public static AutofillExpirationDateFixFlowPrompt createAsMessageFixFlowPrompt(Context context,
-            AutofillExpirationDateFixFlowPromptDelegate delegate, String title, String cardLabel,
-            String confirmButtonLabel) {
-        return new AutofillExpirationDateFixFlowPrompt(
-                context, delegate, title, cardLabel, confirmButtonLabel);
-    }
-
     private final AutofillExpirationDateFixFlowPromptDelegate mDelegate;
 
     private final EditText mMonthInput;
@@ -92,6 +75,7 @@ public class AutofillExpirationDateFixFlowPrompt
                 confirmButtonLabel, filledConfirmButton);
         mDelegate = delegate;
         mErrorMessage = (TextView) mDialogView.findViewById(R.id.error_message);
+        // Infobar: show masked card number only.
         TextView cardDetailsMasked = (TextView) mDialogView.findViewById(R.id.cc_details_masked);
         cardDetailsMasked.setText(cardLabel);
         mDialogView.findViewById(R.id.message_divider).setVisibility(View.GONE);
@@ -110,25 +94,10 @@ public class AutofillExpirationDateFixFlowPrompt
         });
     }
 
-    private AutofillExpirationDateFixFlowPrompt(Context context,
-            AutofillExpirationDateFixFlowPromptDelegate delegate, String title, String cardLabel,
-            String confirmButtonLabel) {
-        // Set drawable id as 0 to remove the icon on the title.
-        this(context, delegate, title, /*drawableId=*/0, cardLabel, confirmButtonLabel, true);
-        mDialogView.findViewById(R.id.message_divider).setVisibility(View.VISIBLE);
-        mDialogView.findViewById(R.id.google_pay_logo).setVisibility(View.VISIBLE);
-    }
-
     @Override
     public void afterTextChanged(Editable s) {
         validate();
     }
-
-    @Override
-    public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-
-    @Override
-    public void onTextChanged(CharSequence s, int start, int before, int count) {}
 
     @Override
     public void onClick(PropertyModel model, int buttonType) {
@@ -146,8 +115,7 @@ public class AutofillExpirationDateFixFlowPrompt
     public void onDismiss(PropertyModel model, int dismissalCause) {
         // Do not call onUserDismiss if dialog was dismissed either because the user
         // accepted to save the card or was dismissed by native code.
-        if (dismissalCause != DialogDismissalCause.POSITIVE_BUTTON_CLICKED
-                && dismissalCause != DialogDismissalCause.DISMISSED_BY_NATIVE) {
+        if (dismissalCause == DialogDismissalCause.NEGATIVE_BUTTON_CLICKED) {
             mDelegate.onUserDismiss();
         }
         // Call whenever the dialog is dismissed.

@@ -1,8 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/content_settings/generated_notification_pref.h"
+
+#include "base/ranges/algorithm.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/extensions/api/settings_private/generated_pref_test_base.h"
 #include "chrome/test/base/testing_profile.h"
@@ -43,7 +45,7 @@ void ValidateGeneratedPrefSetting(
                 ->GetBool(),
             expected_quieter_ui);
   EXPECT_EQ(static_cast<NotificationSetting>(
-                generated_pref->GetPrefObject()->value->GetInt()),
+                generated_pref->GetPrefObject().value->GetInt()),
             pref_value);
 }
 
@@ -197,21 +199,21 @@ void SetupManagedTestConditions(
 }
 
 void ValidateManagedPreference(
-    settings_api::PrefObject* pref,
+    settings_api::PrefObject& pref,
     const NotificationSettingManagedTestCase& test_case) {
   if (test_case.expected_controlled_by !=
       settings_api::ControlledBy::CONTROLLED_BY_NONE) {
-    EXPECT_EQ(pref->controlled_by, test_case.expected_controlled_by);
+    EXPECT_EQ(pref.controlled_by, test_case.expected_controlled_by);
   }
 
   if (test_case.expected_enforcement !=
       settings_api::Enforcement::ENFORCEMENT_NONE) {
-    EXPECT_EQ(pref->enforcement, test_case.expected_enforcement);
+    EXPECT_EQ(pref.enforcement, test_case.expected_enforcement);
   }
 
   if (test_case.expected_recommended_value != kNoRecommendedValue) {
     EXPECT_EQ(
-        static_cast<NotificationSetting>(pref->recommended_value->GetInt()),
+        static_cast<NotificationSetting>(pref.recommended_value->GetInt()),
         test_case.expected_recommended_value);
   }
 
@@ -220,22 +222,15 @@ void ValidateManagedPreference(
   // First convert std::vector<std::unique_ptr<base::value(T)>> to
   // std::vector<T> for easier comparison.
   std::vector<NotificationSetting> pref_user_selectable_values;
-  if (pref->user_selectable_values) {
-    for (const auto& value : *pref->user_selectable_values) {
+  if (pref.user_selectable_values) {
+    for (const auto& value : *pref.user_selectable_values) {
       pref_user_selectable_values.push_back(
-          static_cast<NotificationSetting>(value->GetInt()));
+          static_cast<NotificationSetting>(value.GetInt()));
     }
   }
-  EXPECT_EQ(pref_user_selectable_values.size(),
-            test_case.expected_user_selectable_values.size());
 
-  // Avoid crashing the test if the previous check fails.
-  if (pref_user_selectable_values.size() ==
-      test_case.expected_user_selectable_values.size()) {
-    EXPECT_TRUE(std::equal(pref_user_selectable_values.begin(),
-                           pref_user_selectable_values.end(),
-                           test_case.expected_user_selectable_values.begin()));
-  }
+  EXPECT_TRUE(base::ranges::equal(pref_user_selectable_values,
+                                  test_case.expected_user_selectable_values));
 }
 
 }  // namespace
@@ -392,7 +387,7 @@ TEST_F(GeneratedNotificationPrefTest, ManagedState) {
     auto pref =
         std::make_unique<content_settings::GeneratedNotificationPref>(&profile);
     auto pref_object = pref->GetPrefObject();
-    ValidateManagedPreference(pref_object.get(), test_case);
+    ValidateManagedPreference(pref_object, test_case);
   }
 }
 

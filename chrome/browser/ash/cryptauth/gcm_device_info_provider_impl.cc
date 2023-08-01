@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,7 +53,7 @@ const cryptauth::GcmDeviceInfo& GcmDeviceInfoProviderImpl::GetGcmDeviceInfo()
     const {
   static const base::NoDestructor<cryptauth::GcmDeviceInfo> gcm_device_info([] {
     static const google::protobuf::int64 kSoftwareVersionCode =
-        HashStringToInt64(version_info::GetLastChange());
+        HashStringToInt64(std::string(version_info::GetLastChange()));
 
     cryptauth::GcmDeviceInfo gcm_device_info;
 
@@ -61,7 +61,7 @@ const cryptauth::GcmDeviceInfo& GcmDeviceInfoProviderImpl::GetGcmDeviceInfo()
         CryptAuthDeviceIdProviderImpl::GetInstance()->GetDeviceId());
     gcm_device_info.set_device_type(cryptauth::CHROME);
     gcm_device_info.set_device_software_version(
-        version_info::GetVersionNumber());
+        std::string(version_info::GetVersionNumber()));
     gcm_device_info.set_device_software_version_code(kSoftwareVersionCode);
     gcm_device_info.set_locale(
         ChromeContentBrowserClient().GetApplicationLocale());
@@ -74,14 +74,18 @@ const cryptauth::GcmDeviceInfo& GcmDeviceInfoProviderImpl::GetGcmDeviceInfo()
     // phones/tablets, but it must be set due to server API verification.
     gcm_device_info.set_device_display_diagonal_mils(0);
 
-    // Smart Lock, MultiDevice Setup and Messages are supported on all
-    // Chromebooks.
+    // Smart Lock and MultiDevice Setup are supported on all Chromebooks.
     gcm_device_info.add_supported_software_features(
         cryptauth::SoftwareFeature::EASY_UNLOCK_CLIENT);
     gcm_device_info.add_supported_software_features(
         cryptauth::SoftwareFeature::BETTER_TOGETHER_CLIENT);
-    gcm_device_info.add_supported_software_features(
-        cryptauth::SoftwareFeature::SMS_CONNECT_CLIENT);
+
+    // Disable Messages integration when pre-installing app on all devices.
+    if (!base::FeatureList::IsEnabled(
+            features::kDisableMessagesCrossDeviceIntegration)) {
+      gcm_device_info.add_supported_software_features(
+          cryptauth::SoftwareFeature::SMS_CONNECT_CLIENT);
+    }
 
     // Instant Tethering is only supported if the associated flag is enabled.
     if (base::FeatureList::IsEnabled(features::kInstantTethering)) {

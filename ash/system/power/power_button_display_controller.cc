@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -37,7 +37,8 @@ PowerButtonDisplayController::PowerButtonDisplayController(
   ui::DeviceDataManager::GetInstance()->AddObserver(this);
   Shell::Get()->AddPreTargetHandler(this, ui::EventTarget::Priority::kSystem);
 
-  backlights_forced_off_observation_.Observe(backlights_forced_off_setter_);
+  backlights_forced_off_observation_.Observe(
+      backlights_forced_off_setter_.get());
 }
 
 PowerButtonDisplayController::~PowerButtonDisplayController() {

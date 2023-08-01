@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,10 @@
 #include "ash/webui/camera_app_ui/camera_app_ui.h"
 #include "ash/webui/camera_app_ui/camera_app_window_state_controller.h"
 #include "ash/webui/camera_app_ui/document_scanner_service_client.h"
+#include "base/memory/raw_ptr.h"
+#include "base/memory/weak_ptr.h"
 #include "chromeos/services/machine_learning/public/mojom/document_scanner.mojom.h"
+#include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/aura/window.h"
@@ -39,11 +42,13 @@ class CameraAppHelperImpl : public TabletModeObserver,
   using ExternalScreenMonitor = camera_app::mojom::ExternalScreenMonitor;
   using CameraUsageOwnershipMonitor =
       camera_app::mojom::CameraUsageOwnershipMonitor;
+  using StorageMonitor = camera_app::mojom::StorageMonitor;
 
   CameraAppHelperImpl(CameraAppUI* camera_app_ui,
                       CameraResultCallback camera_result_callback,
                       SendBroadcastCallback send_broadcast_callback,
-                      aura::Window* window);
+                      aura::Window* window,
+                      HoldingSpaceClient* holding_space_client);
 
   CameraAppHelperImpl(const CameraAppHelperImpl&) = delete;
   CameraAppHelperImpl& operator=(const CameraAppHelperImpl&) = delete;
@@ -70,16 +75,18 @@ class CameraAppHelperImpl : public TabletModeObserver,
       SetExternalScreenMonitorCallback callback) override;
   void OpenFileInGallery(const std::string& name) override;
   void OpenFeedbackDialog(const std::string& placeholder) override;
-  void SetCameraUsageMonitor(
-      mojo::PendingRemote<CameraUsageOwnershipMonitor> usage_monitor,
-      SetCameraUsageMonitorCallback callback) override;
+  void OpenUrlInBrowser(const GURL& url) override;
   void GetWindowStateController(
       GetWindowStateControllerCallback callback) override;
   void SendNewCaptureBroadcast(bool is_video, const std::string& name) override;
+  void NotifyTote(const camera_app::mojom::ToteMetricFormat format,
+                  const std::string& name) override;
   void MonitorFileDeletion(const std::string& name,
                            MonitorFileDeletionCallback callback) override;
-  void IsDocumentModeSupported(
-      IsDocumentModeSupportedCallback callback) override;
+  void GetDocumentScannerReadyState(
+      GetDocumentScannerReadyStateCallback callback) override;
+  void CheckDocumentModeReadiness(
+      CheckDocumentModeReadinessCallback callback) override;
   void ScanDocumentCorners(const std::vector<uint8_t>& jpeg_data,
                            ScanDocumentCornersCallback callback) override;
   void ConvertToDocument(const std::vector<uint8_t>& jpeg_data,
@@ -87,8 +94,13 @@ class CameraAppHelperImpl : public TabletModeObserver,
                          chromeos::machine_learning::mojom::Rotation rotation,
                          camera_app::mojom::DocumentOutputFormat output_format,
                          ConvertToDocumentCallback callback) override;
-  void ConvertToPdf(const std::vector<uint8_t>& jpeg_data,
+  void ConvertToPdf(const std::vector<std::vector<uint8_t>>& jpegs_data,
                     ConvertToPdfCallback callback) override;
+  void MaybeTriggerSurvey() override;
+  void StartStorageMonitor(mojo::PendingRemote<StorageMonitor> monitor,
+                           StartStorageMonitorCallback callback) override;
+  void StopStorageMonitor() override;
+  void OpenStorageManagement() override;
 
  private:
   void CheckExternalScreenState();
@@ -101,6 +113,9 @@ class CameraAppHelperImpl : public TabletModeObserver,
       ConvertToDocumentCallback callback,
       bool success,
       const std::vector<uint8_t>& processed_jpeg_data);
+
+  // callback for storage monitor status update
+  void OnStorageStatusUpdated(CameraAppUIDelegate::StorageMonitorStatus status);
 
   // TabletModeObserver overrides;
   void OnTabletModeStarted() override;
@@ -118,7 +133,7 @@ class CameraAppHelperImpl : public TabletModeObserver,
   // it. For SWA, since CameraAppUI owns CameraAppHelperImpl, it is safe to
   // assume that the |camera_app_ui_| is always valid during the whole lifetime
   // of CameraAppHelperImpl.
-  CameraAppUI* camera_app_ui_;
+  raw_ptr<CameraAppUI, ExperimentalAsh> camera_app_ui_;
 
   CameraResultCallback camera_result_callback_;
 
@@ -128,11 +143,13 @@ class CameraAppHelperImpl : public TabletModeObserver,
 
   absl::optional<uint32_t> pending_intent_id_;
 
-  aura::Window* window_;
+  raw_ptr<aura::Window, ExperimentalAsh> window_;
 
   mojo::Remote<TabletModeMonitor> tablet_mode_monitor_;
   mojo::Remote<ScreenStateMonitor> screen_state_monitor_;
   mojo::Remote<ExternalScreenMonitor> external_screen_monitor_;
+  mojo::Remote<StorageMonitor> storage_monitor_;
+  StartStorageMonitorCallback storage_callback_;
 
   mojo::Receiver<camera_app::mojom::CameraAppHelper> receiver_{this};
 
@@ -142,6 +159,10 @@ class CameraAppHelperImpl : public TabletModeObserver,
 
   // Client to connect to document detection service.
   std::unique_ptr<DocumentScannerServiceClient> document_scanner_service_;
+
+  raw_ptr<HoldingSpaceClient> const holding_space_client_;
+
+  base::WeakPtrFactory<CameraAppHelperImpl> weak_factory_{this};
 };
 
 }  // namespace ash

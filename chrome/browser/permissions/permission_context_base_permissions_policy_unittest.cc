@@ -1,8 +1,8 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "build/build_config.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/notifications/notification_permission_context.h"
@@ -17,6 +17,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/navigation_simulator.h"
 #include "content/public/test/test_renderer_host.h"
+#include "third_party/blink/public/common/permissions_policy/origin_with_possible_wildcards.h"
 #include "third_party/blink/public/common/permissions_policy/permissions_policy.h"
 #include "third_party/blink/public/mojom/permissions_policy/permissions_policy.mojom.h"
 #include "url/gurl.h"
@@ -47,7 +48,7 @@ class PermissionContextBasePermissionsPolicyTest
   static constexpr const char* kOrigin2 = "https://maps.google.com";
 
   content::RenderFrameHost* GetMainRFH(const char* origin) {
-    content::RenderFrameHost* result = web_contents()->GetMainFrame();
+    content::RenderFrameHost* result = web_contents()->GetPrimaryMainFrame();
     content::RenderFrameHostTester::For(result)
         ->InitializeRenderFrameIfNeeded();
     SimulateNavigation(&result, GURL(origin));
@@ -61,9 +62,13 @@ class PermissionContextBasePermissionsPolicyTest
           blink::mojom::PermissionsPolicyFeature::kNotFound) {
     blink::ParsedPermissionsPolicy frame_policy = {};
     if (feature != blink::mojom::PermissionsPolicyFeature::kNotFound) {
-      frame_policy.push_back(
-          {feature, std::vector<url::Origin>{url::Origin::Create(GURL(origin))},
-           false, false});
+      frame_policy.emplace_back(feature,
+                                std::vector({blink::OriginWithPossibleWildcards(
+                                    url::Origin::Create(GURL(origin)),
+                                    /*has_subdomain_wildcard=*/false)}),
+                                /*self_if_matches=*/absl::nullopt,
+                                /*matches_all_origins=*/false,
+                                /*matches_opaque_src=*/false);
     }
     content::RenderFrameHost* result =
         content::RenderFrameHostTester::For(parent)->AppendChildWithPolicy(
@@ -83,11 +88,15 @@ class PermissionContextBasePermissionsPolicyTest
     content::RenderFrameHost* current = *rfh;
     auto navigation = content::NavigationSimulator::CreateRendererInitiated(
         current->GetLastCommittedURL(), current);
-    std::vector<url::Origin> parsed_origins;
-    for (const std::string& origin : origins)
-      parsed_origins.push_back(url::Origin::Create(GURL(origin)));
+    std::vector<blink::OriginWithPossibleWildcards> parsed_origins;
+    for (const std::string& origin : origins) {
+      parsed_origins.emplace_back(url::Origin::Create(GURL(origin)),
+                                  /*has_subdomain_wildcard=*/false);
+    }
     navigation->SetPermissionsPolicyHeader(
-        {{feature, parsed_origins, false, false}});
+        {{feature, parsed_origins, /*self_if_matches=*/absl::nullopt,
+          /*matches_all_origins=*/false,
+          /*matches_opaque_src=*/false}});
     navigation->Commit();
     *rfh = navigation->GetFinalRenderFrameHost();
   }
@@ -97,7 +106,7 @@ class PermissionContextBasePermissionsPolicyTest
     return pcb
         ->GetPermissionStatus(
             rfh, rfh->GetLastCommittedURL(),
-            web_contents()->GetMainFrame()->GetLastCommittedURL())
+            web_contents()->GetPrimaryMainFrame()->GetLastCommittedURL())
         .content_setting;
   }
 
@@ -107,8 +116,7 @@ class PermissionContextBasePermissionsPolicyTest
     permissions::PermissionRequestID id(
         rfh, permission_request_id_generator_.GenerateNextId());
     pcb->RequestPermission(
-        content::WebContents::FromRenderFrameHost(rfh), id,
-        rfh->GetLastCommittedURL(), /*user_gesture=*/true,
+        id, rfh->GetLastCommittedURL(), /*user_gesture=*/true,
         base::BindOnce(&PermissionContextBasePermissionsPolicyTest::
                            RequestPermissionForFrameFinished,
                        base::Unretained(this)));

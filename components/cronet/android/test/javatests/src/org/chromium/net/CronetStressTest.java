@@ -1,16 +1,16 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.net;
 
-import static org.junit.Assert.assertEquals;
+import static com.google.common.truth.Truth.assertThat;
+
 import static org.junit.Assert.assertTrue;
 
 import static org.chromium.net.CronetTestRule.getContext;
 
-import android.support.test.runner.AndroidJUnit4;
-
+import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.filters.LargeTest;
 
 import org.junit.After;
@@ -19,9 +19,14 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import org.chromium.base.test.util.Feature;
 import org.chromium.net.CronetTestRule.CronetTestFramework;
 import org.chromium.net.CronetTestRule.OnlyRunNativeCronet;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Tests that making a large number of requests do not lead to crashes.
@@ -47,27 +52,42 @@ public class CronetStressTest {
     @Test
     @LargeTest
     @OnlyRunNativeCronet
-    @Feature({"Cronet"})
     public void testLargeNumberOfUploads() throws Exception {
+        Random random = new Random();
         final int kNumRequest = 1000;
         final int kNumRequestHeaders = 100;
         final int kNumUploadBytes = 1000;
-        final byte[] b = new byte[kNumUploadBytes];
-        for (int i = 0; i < kNumRequest; i++) {
-            TestUrlRequestCallback callback = new TestUrlRequestCallback();
-            UrlRequest.Builder builder = mTestFramework.mCronetEngine.newUrlRequestBuilder(
-                    NativeTestServer.getEchoAllHeadersURL(), callback, callback.getExecutor());
-            for (int j = 0; j < kNumRequestHeaders; j++) {
-                builder.addHeader("header" + j, Integer.toString(j));
+        final byte[] b = new byte[kNumUploadBytes * kNumRequest];
+        random.nextBytes(b);
+        List<TestUrlRequestCallback> callbacks = new ArrayList<>(kNumRequest);
+
+        ExecutorService callbackExecutor = Executors.newSingleThreadExecutor();
+        try {
+            for (int i = 0; i < kNumRequest; i++) {
+                TestUrlRequestCallback callback = new TestUrlRequestCallback(callbackExecutor);
+                UrlRequest.Builder builder = mTestFramework.mCronetEngine.newUrlRequestBuilder(
+                        NativeTestServer.getEchoAllHeadersURL(), callback, callback.getExecutor());
+                for (int j = 0; j < kNumRequestHeaders; j++) {
+                    builder.addHeader("header" + j, Integer.toString(j));
+                }
+                builder.addHeader("content-type", "useless/string");
+                builder.setUploadDataProvider(
+                        UploadDataProviders.create(
+                                b,
+                                i * kNumUploadBytes,
+                                kNumUploadBytes),
+                        callback.getExecutor());
+                UrlRequest request = builder.build();
+                request.start();
+                callbacks.add(callback);
             }
-            builder.addHeader("content-type", "useless/string");
-            builder.setUploadDataProvider(
-                    UploadDataProviders.create(b, 0, kNumUploadBytes), callback.getExecutor());
-            UrlRequest request = builder.build();
-            request.start();
-            callback.blockForDone();
-            callback.shutdownExecutor();
-            assertEquals(200, callback.mResponseInfo.getHttpStatusCode());
+
+            for (TestUrlRequestCallback callback : callbacks) {
+                callback.blockForDone();
+                assertThat(callback.mResponseInfo.getHttpStatusCode()).isEqualTo(200);
+            }
+        } finally {
+            callbackExecutor.shutdown();
         }
     }
 }

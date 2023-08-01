@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,10 @@
 #include <windows.h>
 #include <winsock2.h>
 #include <winternl.h>
+#include <string>
+#include "base/values.h"
 
 #define _NTDEF_  // Prevent redefition errors, must come after <winternl.h>
-#include <atlbase.h>
-#include <atlcom.h>
-#include <atlcomcli.h>
 #include <malloc.h>
 #include <memory.h>
 #include <ntsecapi.h>  // For LsaLookupAuthenticationPackage()
@@ -22,12 +21,12 @@
 #include <stdlib.h>
 #include <wbemidl.h>
 
+#include <algorithm>
 #include <iomanip>
 #include <memory>
 
 #include "base/base64.h"
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
@@ -40,6 +39,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/win/atl.h"
 #include "base/win/current_module.h"
 #include "base/win/embedded_i18n/language_selector.h"
 #include "base/win/win_util.h"
@@ -60,47 +60,61 @@
 
 namespace credential_provider {
 
-const wchar_t kDefaultProfilePictureFileExtension[] = L".jpg";
+constexpr wchar_t kDefaultProfilePictureFileExtension[] = L".jpg";
 
-const base::FilePath::CharType kCredentialProviderFolder[] =
+constexpr base::FilePath::CharType kCredentialProviderFolder[] =
     L"Credential Provider";
-
-// Overridden in tests to fake serial number extraction.
-bool g_use_test_serial_number = false;
-std::wstring g_test_serial_number = L"";
-
-// Overridden in tests to fake mac address extraction.
-bool g_use_test_mac_addresses = false;
-std::vector<std::string> g_test_mac_addresses;
-
-// Overriden in tests to fake os version.
-bool g_use_test_os_version = false;
-std::string g_test_os_version = "";
-
-// Overridden in tests to fake installed chrome path.
-bool g_use_test_chrome_path = false;
-base::FilePath g_test_chrome_path(L"");
-
-const wchar_t kKernelLibFile[] = L"kernel32.dll";
-const wchar_t kOsRegistryPath[] =
-    L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion";
-const wchar_t kOsMajorName[] = L"CurrentMajorVersionNumber";
-const wchar_t kOsMinorName[] = L"CurrentMinorVersionNumber";
-const wchar_t kOsBuildName[] = L"CurrentBuildNumber";
-const int kVersionStringSize = 128;
 
 constexpr wchar_t kDefaultMdmUrl[] =
     L"https://deviceenrollmentforwindows.googleapis.com/v1/discovery";
 
 constexpr int kMaxNumConsecutiveUploadDeviceFailures = 3;
-const base::TimeDelta kMaxTimeDeltaSinceLastUserPolicyRefresh = base::Days(1);
-const base::TimeDelta kMaxTimeDeltaSinceLastExperimentsFetch = base::Days(1);
 
-// Path elements for the path where the experiments are stored on disk.
-const wchar_t kGcpwExperimentsDirectory[] = L"Experiments";
-const wchar_t kGcpwUserExperimentsFileName[] = L"ExperimentsFetchResponse";
+constexpr base::TimeDelta kMaxTimeDeltaSinceLastUserPolicyRefresh =
+    base::Days(1);
+constexpr base::TimeDelta kMaxTimeDeltaSinceLastExperimentsFetch =
+    base::Days(1);
+
+constexpr wchar_t kGcpwExperimentsDirectory[] = L"Experiments";
+constexpr wchar_t kGcpwUserExperimentsFileName[] = L"ExperimentsFetchResponse";
 
 namespace {
+
+// Overridden in tests to fake serial number extraction.
+bool g_use_test_serial_number = false;
+std::wstring& TestSerialNumber() {
+  static base::NoDestructor<std::wstring> value;
+  return *value;
+}
+
+// Overridden in tests to fake MAC address extraction.
+bool g_use_test_mac_addresses = false;
+std::vector<std::string>& TestMacAddresses() {
+  static base::NoDestructor<std::vector<std::string>> value;
+  return *value;
+}
+
+// Overridden in tests to fake OS version.
+bool g_use_test_os_version = false;
+std::string& TestOSVersion() {
+  static base::NoDestructor<std::string> value;
+  return *value;
+}
+
+// Overridden in tests to fake installed Chrome path.
+bool g_use_test_chrome_path = false;
+base::FilePath& TestChromePath() {
+  static base::NoDestructor<base::FilePath> value;
+  return *value;
+}
+
+constexpr wchar_t kKernelLibFile[] = L"kernel32.dll";
+constexpr wchar_t kOsRegistryPath[] =
+    L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion";
+constexpr wchar_t kOsMajorName[] = L"CurrentMajorVersionNumber";
+constexpr wchar_t kOsMinorName[] = L"CurrentMinorVersionNumber";
+constexpr wchar_t kOsBuildName[] = L"CurrentBuildNumber";
+constexpr int kVersionStringSize = 128;
 
 // Minimum supported version of Chrome for GCPW.
 constexpr char kMinimumSupportedChromeVersionStr[] = "77.0.3865.65";
@@ -109,14 +123,13 @@ constexpr char kSentinelFilename[] = "gcpw_startup.sentinel";
 constexpr int64_t kMaxConsecutiveCrashCount = 5;
 
 // L$ prefix means this secret can only be accessed locally.
-const wchar_t kLsaKeyDMTokenPrefix[] = L"L$GCPW-DM-Token-";
+constexpr wchar_t kLsaKeyDMTokenPrefix[] = L"L$GCPW-DM-Token-";
 
 constexpr base::win::i18n::LanguageSelector::LangToOffset
     kLanguageOffsetPairs[] = {
 #define HANDLE_LANGUAGE(l_, o_) {L## #l_, o_},
         DO_LANGUAGES
 #undef HANDLE_LANGUAGE
-
 };
 
 base::FilePath GetStartupSentinelLocation(const std::wstring& version) {
@@ -229,7 +242,7 @@ HRESULT GetGCPWDmTokenInternal(const std::wstring& sid,
   } else {
     wchar_t dm_token_lsa_data[1024];
     HRESULT hr = policy->RetrievePrivateData(
-        store_key.c_str(), dm_token_lsa_data, base::size(dm_token_lsa_data));
+        store_key.c_str(), dm_token_lsa_data, std::size(dm_token_lsa_data));
     if (FAILED(hr)) {
       LOGFN(ERROR) << "ScopedLsaPolicy::RetrievePrivateData hr=" << putHR(hr);
       return hr;
@@ -265,12 +278,12 @@ base::FilePath GetDirectoryFilePath(const std::wstring& sid,
 GoogleRegistrationDataForTesting::GoogleRegistrationDataForTesting(
     std::wstring serial_number) {
   g_use_test_serial_number = true;
-  g_test_serial_number = serial_number;
+  TestSerialNumber() = serial_number;
 }
 
 GoogleRegistrationDataForTesting::~GoogleRegistrationDataForTesting() {
   g_use_test_serial_number = false;
-  g_test_serial_number = L"";
+  TestSerialNumber() = L"";
 }
 
 // GoogleRegistrationDataForTesting //////////////////////////////////////////
@@ -282,8 +295,8 @@ GemDeviceDetailsForTesting::GemDeviceDetailsForTesting(
     std::string os_version) {
   g_use_test_mac_addresses = true;
   g_use_test_os_version = true;
-  g_test_mac_addresses = mac_addresses;
-  g_test_os_version = os_version;
+  TestMacAddresses() = mac_addresses;
+  TestOSVersion() = os_version;
 }
 
 GemDeviceDetailsForTesting::~GemDeviceDetailsForTesting() {
@@ -298,12 +311,12 @@ GemDeviceDetailsForTesting::~GemDeviceDetailsForTesting() {
 GoogleChromePathForTesting::GoogleChromePathForTesting(
     base::FilePath file_path) {
   g_use_test_chrome_path = true;
-  g_test_chrome_path = file_path;
+  TestChromePath() = file_path;
 }
 
 GoogleChromePathForTesting::~GoogleChromePathForTesting() {
   g_use_test_chrome_path = false;
-  g_test_chrome_path = base::FilePath(L"");
+  TestChromePath() = base::FilePath(L"");
 }
 
 // GoogleChromePathForTesting /////////////////////////////////////////////////
@@ -436,7 +449,7 @@ HRESULT WaitForProcess(base::win::ScopedHandle::Handle process_handle,
 
   for (bool is_done = false; !is_done;) {
     char buffer[80];
-    DWORD length = base::size(buffer) - 1;
+    DWORD length = std::size(buffer) - 1;
     HRESULT hr = S_OK;
 
     const DWORD kThreeMinutesInMs = 3 * 60 * 1000;
@@ -678,9 +691,9 @@ HRESULT InitializeStdHandles(CommDirection direction,
 HRESULT GetPathToDllFromHandle(HINSTANCE dll_handle,
                                base::FilePath* path_to_dll) {
   wchar_t path[MAX_PATH];
-  DWORD length = base::size(path);
+  DWORD length = std::size(path);
   length = ::GetModuleFileName(dll_handle, path, length);
-  if (length == 0 || length >= base::size(path)) {
+  if (length == 0 || length >= std::size(path)) {
     HRESULT hr = HRESULT_FROM_WIN32(::GetLastError());
     LOGFN(ERROR) << "GetModuleFileNameW hr=" << putHR(hr);
     return hr;
@@ -709,10 +722,10 @@ HRESULT GetEntryPointArgumentForRunDll(HINSTANCE dll_handle,
     return hr;
 
   wchar_t short_path[MAX_PATH];
-  DWORD short_length = base::size(short_path);
+  DWORD short_length = std::size(short_path);
   short_length =
       ::GetShortPathName(path_to_dll.value().c_str(), short_path, short_length);
-  if (short_length >= base::size(short_path)) {
+  if (short_length >= std::size(short_path)) {
     hr = HRESULT_FROM_WIN32(::GetLastError());
     LOGFN(ERROR) << "GetShortPathNameW hr=" << putHR(hr);
     return hr;
@@ -771,7 +784,7 @@ HRESULT GetLocalizedNameBuiltinAdministratorAccount(
         PolicyHandle, PolicyAccountDomainInformation, (void**)&ppadi);
     if (status >= 0) {
       BYTE well_known_sid[SECURITY_MAX_SID_SIZE];
-      DWORD size_local_users_group_sid = base::size(well_known_sid);
+      DWORD size_local_users_group_sid = std::size(well_known_sid);
       if (CreateWellKnownSid(::WinAccountAdministratorSid, ppadi->DomainSid,
                              well_known_sid, &size_local_users_group_sid)) {
         return LookupLocalizedNameBySid(well_known_sid,
@@ -829,7 +842,7 @@ HRESULT LookupLocalizedNameBySid(PSID sid, std::wstring* localized_name) {
 HRESULT LookupLocalizedNameForWellKnownSid(WELL_KNOWN_SID_TYPE sid_type,
                                            std::wstring* localized_name) {
   BYTE well_known_sid[SECURITY_MAX_SID_SIZE];
-  DWORD size_local_users_group_sid = base::size(well_known_sid);
+  DWORD size_local_users_group_sid = std::size(well_known_sid);
 
   // Get the sid for the well known local users group.
   if (!::CreateWellKnownSid(sid_type, nullptr, well_known_sid,
@@ -843,6 +856,7 @@ HRESULT LookupLocalizedNameForWellKnownSid(WELL_KNOWN_SID_TYPE sid_type,
 }
 
 bool WriteToStartupSentinel() {
+  LOGFN(VERBOSE);
   // Always try to write to the startup sentinel file. If writing or opening
   // fails for any reason (file locked, no access etc) consider this a failure.
   // If no sentinel file path can be found this probably means that we are
@@ -885,6 +899,8 @@ bool WriteToStartupSentinel() {
       return false;
     }
 
+    LOGFN(VERBOSE) << "Writing to sentinel. Current length="
+                   << startup_sentinel.GetLength();
     return startup_sentinel.WriteAtCurrentPos("0", 1) == 1;
   }
 
@@ -896,6 +912,7 @@ void DeleteStartupSentinel() {
 }
 
 void DeleteStartupSentinelForVersion(const std::wstring& version) {
+  LOGFN(VERBOSE) << "Deleting sentinel for version " << version;
   base::FilePath startup_sentinel_path = GetStartupSentinelLocation(version);
   if (base::PathExists(startup_sentinel_path) &&
       !base::DeleteFile(startup_sentinel_path)) {
@@ -903,10 +920,11 @@ void DeleteStartupSentinelForVersion(const std::wstring& version) {
   }
 }
 
-std::wstring GetStringResource(int base_message_id) {
+std::wstring GetStringResource(UINT base_message_id) {
   std::wstring localized_string;
 
-  int message_id = base_message_id + GetLanguageSelector().offset();
+  UINT message_id =
+      static_cast<UINT>(base_message_id + GetLanguageSelector().offset());
   const ATLSTRINGRESOURCEIMAGE* image =
       AtlGetStringResourceImage(_AtlBaseModule.GetModuleInstance(), message_id);
   if (image) {
@@ -918,7 +936,7 @@ std::wstring GetStringResource(int base_message_id) {
   return localized_string;
 }
 
-std::wstring GetStringResource(int base_message_id,
+std::wstring GetStringResource(UINT base_message_id,
                                const std::vector<std::wstring>& subst) {
   std::wstring format_string = GetStringResource(base_message_id);
   std::wstring formatted =
@@ -931,21 +949,22 @@ std::wstring GetSelectedLanguage() {
   return GetLanguageSelector().matched_candidate();
 }
 
-void SecurelyClearDictionaryValue(absl::optional<base::Value>* value) {
-  SecurelyClearDictionaryValueWithKey(value, kKeyPassword);
+void SecurelyClearDictionaryValue(base::optional_ref<base::Value::Dict> dict) {
+  SecurelyClearDictionaryValueWithKey(dict, kKeyPassword);
 }
 
-void SecurelyClearDictionaryValueWithKey(absl::optional<base::Value>* value,
-                                         const std::string& password_key) {
-  if (!value || !(*value) || !((*value)->is_dict()))
+void SecurelyClearDictionaryValueWithKey(
+    base::optional_ref<base::Value::Dict> dict,
+    const std::string& password_key) {
+  if (!dict.has_value()) {
     return;
-
-  const std::string* password_value = (*value)->FindStringKey(password_key);
-  if (password_value) {
-    SecurelyClearString(*const_cast<std::string*>(password_value));
   }
 
-  (*value).reset();
+  if (auto* password_value = dict->FindString(password_key)) {
+    SecurelyClearString(*password_value);
+  }
+
+  dict->clear();
 }
 
 void SecurelyClearString(std::wstring& str) {
@@ -965,37 +984,29 @@ void SecurelyClearBuffer(void* buffer, size_t length) {
 std::string SearchForKeyInStringDictUTF8(
     const std::string& json_string,
     const std::initializer_list<base::StringPiece>& path) {
-  DCHECK(path.size() > 0);
+  DCHECK_GT(path.size(), 0UL);
 
-  absl::optional<base::Value> json_obj =
-      base::JSONReader::Read(json_string, base::JSON_ALLOW_TRAILING_COMMAS);
-  if (!json_obj || !json_obj->is_dict()) {
+  absl::optional<base::Value::Dict> json_obj =
+      base::JSONReader::ReadDict(json_string, base::JSON_ALLOW_TRAILING_COMMAS);
+  if (!json_obj) {
     LOGFN(ERROR) << "base::JSONReader::Read failed to translate to JSON";
     return std::string();
   }
   const std::string* value =
-      json_obj->FindStringPath(base::JoinString(path, "."));
+      json_obj->FindStringByDottedPath(base::JoinString(path, "."));
   return value ? *value : std::string();
 }
 
-std::wstring GetDictString(const base::Value& dict, const char* name) {
+std::wstring GetDictString(const base::Value::Dict& dict, const char* name) {
   DCHECK(name);
-  DCHECK(dict.is_dict());
-  auto* value = dict.FindKey(name);
-  return value && value->is_string() ? base::UTF8ToWide(value->GetString())
-                                     : std::wstring();
+  const std::string* value = dict.FindString(name);
+  return value ? base::UTF8ToWide(*value) : std::wstring();
 }
 
-std::wstring GetDictString(const std::unique_ptr<base::Value>& dict,
-                           const char* name) {
-  return GetDictString(*dict, name);
-}
-
-std::string GetDictStringUTF8(const base::Value& dict, const char* name) {
+std::string GetDictStringUTF8(const base::Value::Dict& dict, const char* name) {
   DCHECK(name);
-  DCHECK(dict.is_dict());
-  auto* value = dict.FindKey(name);
-  return value && value->is_string() ? value->GetString() : std::string();
+  const std::string* value = dict.FindString(name);
+  return value ? *value : std::string();
 }
 
 HRESULT SearchForListInStringDictUTF8(
@@ -1003,31 +1014,28 @@ HRESULT SearchForListInStringDictUTF8(
     const std::string& json_string,
     const std::initializer_list<base::StringPiece>& path,
     std::vector<std::string>* output) {
-  DCHECK(path.size() > 0);
+  DCHECK_GT(path.size(), 0UL);
 
-  absl::optional<base::Value> json_obj =
-      base::JSONReader::Read(json_string, base::JSON_ALLOW_TRAILING_COMMAS);
-  if (!json_obj || !json_obj->is_dict()) {
+  absl::optional<base::Value::Dict> json_obj =
+      base::JSONReader::ReadDict(json_string, base::JSON_ALLOW_TRAILING_COMMAS);
+  if (!json_obj) {
     LOGFN(ERROR) << "base::JSONReader::Read failed to translate to JSON";
     return E_FAIL;
   }
 
-  auto* value = json_obj->FindListPath(base::JoinString(path, "."));
-  if (value && value->is_list()) {
-    for (const base::Value& entry : value->GetList()) {
-      if (entry.FindKey(list_key) && entry.FindKey(list_key)->is_string()) {
-        output->push_back(entry.FindKey(list_key)->GetString());
+  auto* value = json_obj->FindListByDottedPath(base::JoinString(path, "."));
+  if (value) {
+    for (const base::Value& entry_val : *value) {
+      const base::Value::Dict& entry = entry_val.GetDict();
+      const std::string* list_key_str = entry.FindString(list_key);
+      if (list_key_str) {
+        output->push_back(*list_key_str);
       } else {
         return E_FAIL;
       }
     }
   }
   return S_OK;
-}
-
-std::string GetDictStringUTF8(const std::unique_ptr<base::Value>& dict,
-                              const char* name) {
-  return GetDictStringUTF8(*dict, name);
 }
 
 base::FilePath::StringType GetInstallParentDirectoryName() {
@@ -1040,7 +1048,7 @@ base::FilePath::StringType GetInstallParentDirectoryName() {
 
 std::wstring GetWindowsVersion() {
   wchar_t release_id[32];
-  ULONG length = base::size(release_id);
+  ULONG length = std::size(release_id);
   HRESULT hr =
       GetMachineRegString(L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
                           L"ReleaseId", release_id, &length);
@@ -1055,13 +1063,10 @@ base::Version GetMinimumSupportedChromeVersion() {
 }
 
 bool ExtractKeysFromDict(
-    const base::Value& dict,
+    const base::Value::Dict& dict,
     const std::vector<std::pair<std::string, std::string*>>& needed_outputs) {
-  if (!dict.is_dict())
-    return false;
-
   for (const std::pair<std::string, std::string*>& output : needed_outputs) {
-    const std::string* output_value = dict.FindStringKey(output.first);
+    const std::string* output_value = dict.FindString(output.first);
     if (!output_value) {
       LOGFN(ERROR) << "Could not extract value '" << output.first
                    << "' from server response";
@@ -1074,8 +1079,9 @@ bool ExtractKeysFromDict(
 }
 
 std::wstring GetSerialNumber() {
-  if (g_use_test_serial_number)
-    return g_test_serial_number;
+  if (g_use_test_serial_number) {
+    return TestSerialNumber();
+  }
   return base::win::WmiComputerSystemInfo::Get().serial_number();
 }
 
@@ -1083,8 +1089,9 @@ std::wstring GetSerialNumber() {
 // https://msdn.microsoft.com/en-us/library/windows/desktop/aa365917(v=vs.85).aspx
 std::vector<std::string> GetMacAddresses() {
   // Used for unit tests.
-  if (g_use_test_mac_addresses)
-    return g_test_mac_addresses;
+  if (g_use_test_mac_addresses) {
+    return TestMacAddresses();
+  }
 
   PIP_ADAPTER_INFO pAdapter;
   ULONG ulOutBufLen = sizeof(IP_ADAPTER_INFO);
@@ -1149,7 +1156,7 @@ void GetOsVersionFallback(std::string* version) {
 // The format of the OS version is <Major>.<Minor>.<BuildNumber>. Eg: 10.0.18363
 void GetOsVersion(std::string* version) {
   if (g_use_test_os_version) {
-    *version = g_test_os_version;
+    *version = TestOSVersion();
     return;
   }
 
@@ -1159,7 +1166,7 @@ void GetOsVersion(std::string* version) {
   DWORD major;
   DWORD minor;
   wchar_t build[32];
-  ULONG length = base::size(build);
+  ULONG length = std::size(build);
 
   HRESULT hr1 = GetMachineRegDWORD(kOsRegistryPath, kOsMajorName, &major);
   HRESULT hr2 = GetMachineRegDWORD(kOsRegistryPath, kOsMinorName, &minor);
@@ -1183,20 +1190,20 @@ void GetOsVersion(std::string* version) {
 
 HRESULT GenerateDeviceId(std::string* device_id) {
   // Build the json data encapsulating different device ids.
-  base::Value device_ids_dict(base::Value::Type::DICTIONARY);
+  base::Value::Dict device_ids_dict;
 
   // Add the serial number to the dictionary.
   std::wstring serial_number = GetSerialNumber();
-  if (!serial_number.empty())
-    device_ids_dict.SetStringKey("serial_number",
-                                 base::WideToUTF8(serial_number));
+  if (!serial_number.empty()) {
+    device_ids_dict.Set("serial_number", base::WideToUTF8(serial_number));
+  }
 
   // Add machine_guid to the dictionary.
   std::wstring machine_guid;
   HRESULT hr = GetMachineGuid(&machine_guid);
-  if (SUCCEEDED(hr) && !machine_guid.empty())
-    device_ids_dict.SetStringKey("machine_guid",
-                                 base::WideToUTF8(machine_guid));
+  if (SUCCEEDED(hr) && !machine_guid.empty()) {
+    device_ids_dict.Set("machine_guid", base::WideToUTF8(machine_guid));
+  }
 
   std::string device_id_str;
   bool json_write_result =
@@ -1218,7 +1225,7 @@ HRESULT SetGaiaEndpointCommandLineIfNeeded(const wchar_t* override_registry_key,
                                            base::CommandLine* command_line) {
   // Registry specified endpoint.
   wchar_t endpoint_url_setting[256];
-  ULONG endpoint_url_length = base::size(endpoint_url_setting);
+  ULONG endpoint_url_length = std::size(endpoint_url_setting);
   HRESULT hr = GetGlobalFlag(override_registry_key, endpoint_url_setting,
                              &endpoint_url_length);
   if (SUCCEEDED(hr) && endpoint_url_setting[0]) {
@@ -1254,7 +1261,7 @@ base::FilePath GetChromePath() {
   base::FilePath gls_path = GetSystemChromePath();
 
   wchar_t custom_gls_path_value[MAX_PATH];
-  ULONG path_len = base::size(custom_gls_path_value);
+  ULONG path_len = std::size(custom_gls_path_value);
   HRESULT hr = GetGlobalFlag(kRegGlsPath, custom_gls_path_value, &path_len);
   if (SUCCEEDED(hr)) {
     base::FilePath custom_gls_path(custom_gls_path_value);
@@ -1270,8 +1277,9 @@ base::FilePath GetChromePath() {
 }
 
 base::FilePath GetSystemChromePath() {
-  if (g_use_test_chrome_path)
-    return g_test_chrome_path;
+  if (g_use_test_chrome_path) {
+    return TestChromePath();
+  }
 
   return chrome_launcher_support::GetChromePathForInstallationLevel(
       chrome_launcher_support::SYSTEM_LEVEL_INSTALLATION, false);
@@ -1354,7 +1362,7 @@ std::unique_ptr<base::File> GetOpenedFileForUser(
 base::TimeDelta GetTimeDeltaSinceLastFetch(const std::wstring& sid,
                                            const std::wstring& flag) {
   wchar_t last_fetch_millis[512];
-  ULONG last_fetch_size = base::size(last_fetch_millis);
+  ULONG last_fetch_size = std::size(last_fetch_millis);
   HRESULT hr = GetUserProperty(sid, flag, last_fetch_millis, &last_fetch_size);
 
   if (FAILED(hr)) {

@@ -1,11 +1,11 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
-import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.m.js';
-import 'chrome://resources/cr_elements/cr_toggle/cr_toggle.m.js';
-import 'chrome://resources/cr_elements/hidden_style_css.m.js';
+import 'chrome://resources/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
+import 'chrome://resources/cr_elements/cr_toggle/cr_toggle.js';
+import 'chrome://resources/cr_elements/cr_hidden_style.css.js';
 import 'chrome://resources/polymer/v3_0/iron-pages/iron-pages.js';
 import 'chrome://resources/polymer/v3_0/iron-selector/iron-selector.js';
 import 'chrome://resources/cr_components/customize_themes/customize_themes.js';
@@ -14,20 +14,20 @@ import './customize_shortcuts.js';
 import './customize_modules.js';
 
 import {CustomizeThemesElement} from 'chrome://resources/cr_components/customize_themes/customize_themes.js';
-import {CrDialogElement} from 'chrome://resources/cr_elements/cr_dialog/cr_dialog.m.js';
-import {CrToggleElement} from 'chrome://resources/cr_elements/cr_toggle/cr_toggle.m.js';
-import {assert} from 'chrome://resources/js/assert.m.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {CrDialogElement} from 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
+import {CrToggleElement} from 'chrome://resources/cr_elements/cr_toggle/cr_toggle.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {CustomizeBackgroundsElement} from './customize_backgrounds.js';
+import {getTemplate} from './customize_dialog.html.js';
 import {CustomizeDialogPage} from './customize_dialog_types.js';
-import {I18nMixin, loadTimeData} from './i18n_setup.js';
+import {loadTimeData} from './i18n_setup.js';
 import {BackgroundCollection, CustomizeDialogAction, PageHandlerRemote, Theme} from './new_tab_page.mojom-webui.js';
 import {NewTabPageProxy} from './new_tab_page_proxy.js';
 import {createScrollBorders} from './utils.js';
 
 
-interface CustomizeDialogElement {
+export interface CustomizeDialogElement {
   $: {
     backgrounds: CustomizeBackgroundsElement,
     bottomPageScrollBorder: HTMLElement,
@@ -44,10 +44,13 @@ interface CustomizeDialogElement {
  * Dialog that lets the user customize the NTP such as the background color or
  * image.
  */
-class CustomizeDialogElement extends I18nMixin
-(PolymerElement) {
+export class CustomizeDialogElement extends PolymerElement {
   static get is() {
     return 'ntp-customize-dialog';
+  }
+
+  static get template() {
+    return getTemplate();
   }
 
   static get properties() {
@@ -101,7 +104,7 @@ class CustomizeDialogElement extends I18nMixin
     this.pageHandler_ = NewTabPageProxy.getInstance().handler;
   }
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
     super.disconnectedCallback();
     this.intersectionObservers_.forEach(observer => {
       observer.disconnect();
@@ -109,7 +112,7 @@ class CustomizeDialogElement extends I18nMixin
     this.intersectionObservers_ = [];
   }
 
-  ready() {
+  override ready() {
     super.ready();
     this.intersectionObservers_ = [
       createScrollBorders(
@@ -152,7 +155,8 @@ class CustomizeDialogElement extends I18nMixin
     }
     e.preventDefault();
     e.stopPropagation();
-    this.selectedPage = (e.target as HTMLElement).getAttribute('page-name')!;
+    this.selectedPage = (e.target as HTMLElement).getAttribute('page-name') as
+        CustomizeDialogPage;
   }
 
   private onSelectedPageChange_() {
@@ -163,8 +167,8 @@ class CustomizeDialogElement extends I18nMixin
     if (!this.selectedCollection_) {
       return false;
     }
-    return !!this.theme &&
-        this.selectedCollection_.id === this.theme.dailyRefreshCollectionId;
+    return !!this.theme && this.theme.dailyRefreshEnabled &&
+        this.selectedCollection_!.id === this.theme.backgroundImageCollectionId;
   }
 
   private computeShowTitleNavigation_(): boolean {
@@ -189,9 +193,11 @@ class CustomizeDialogElement extends I18nMixin
     this.pageHandler_.onCustomizeDialogAction(
         CustomizeDialogAction.kBackgroundsRefreshToggleClicked);
   }
+}
 
-  static get template() {
-    return html`{__html_template__}`;
+declare global {
+  interface HTMLElementTagNameMap {
+    'ntp-customize-dialog': CustomizeDialogElement;
   }
 }
 

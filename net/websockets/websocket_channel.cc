@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,21 +7,20 @@
 #include <limits.h>  // for INT_MAX
 #include <stddef.h>
 
-#include <algorithm>
 #include <utility>
 #include <vector>
 
 #include "base/big_endian.h"
-#include "base/bind.h"
 #include "base/containers/circular_deque.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/ranges/algorithm.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "net/base/auth.h"
 #include "net/base/io_buffer.h"
@@ -80,7 +79,7 @@ bool IsStrictlyValidCloseStatusCode(int code) {
       5000, 65536,  // Codes above 5000 are invalid.
   };
   const int* const kInvalidRangesEnd =
-      kInvalidRanges + base::size(kInvalidRanges);
+      kInvalidRanges + std::size(kInvalidRanges);
 
   DCHECK_GE(code, 0);
   DCHECK_LT(code, 65536);
@@ -124,6 +123,16 @@ void GetFrameTypeForOpcode(WebSocketFrameHeader::OpCode opcode,
   return;
 }
 
+base::Value::Dict NetLogFailParam(uint16_t code,
+                                  base::StringPiece reason,
+                                  base::StringPiece message) {
+  base::Value::Dict dict;
+  dict.Set("code", code);
+  dict.Set("reason", reason);
+  dict.Set("internal_reason", message);
+  return dict;
+}
+
 class DependentIOBuffer : public WrappedIOBuffer {
  public:
   DependentIOBuffer(scoped_refptr<IOBuffer> buffer, size_t offset)
@@ -140,7 +149,7 @@ class DependentIOBuffer : public WrappedIOBuffer {
 // those frames.
 class WebSocketChannel::SendBuffer {
  public:
-  SendBuffer() : total_bytes_(0) {}
+  SendBuffer() = default;
 
   // Add a WebSocketFrame to the buffer and increase total_bytes_.
   void AddFrame(std::unique_ptr<WebSocketFrame> chunk,
@@ -158,7 +167,7 @@ class WebSocketChannel::SendBuffer {
   // The total size of the payload data in |frames_|. This will be used to
   // measure the throughput of the link.
   // TODO(ricea): Measure the throughput of the link.
-  uint64_t total_bytes_;
+  uint64_t total_bytes_ = 0;
 };
 
 void WebSocketChannel::SendBuffer::AddFrame(
@@ -238,14 +247,7 @@ WebSocketChannel::WebSocketChannel(
       closing_handshake_timeout_(
           base::Seconds(kClosingHandshakeTimeoutSeconds)),
       underlying_connection_close_timeout_(
-          base::Seconds(kUnderlyingConnectionCloseTimeoutSeconds)),
-      has_received_close_frame_(false),
-      received_close_code_(0),
-      state_(FRESHLY_CONSTRUCTED),
-      sending_text_message_(false),
-      receiving_text_message_(false),
-      expecting_to_handle_continuation_(false),
-      initial_frame_forwarded_(false) {}
+          base::Seconds(kUnderlyingConnectionCloseTimeoutSeconds)) {}
 
 WebSocketChannel::~WebSocketChannel() {
   // The stream may hold a pointer to read_frames_, and so it needs to be
@@ -604,8 +606,8 @@ ChannelState WebSocketChannel::OnReadDone(bool synchronous, int result) {
       // with no data read, not an empty response.
       DCHECK(!read_frames_.empty())
           << "ReadFrames() returned OK, but nothing was read.";
-      for (size_t i = 0; i < read_frames_.size(); ++i) {
-        if (HandleFrame(std::move(read_frames_[i])) == CHANNEL_DELETED)
+      for (auto& read_frame : read_frames_) {
+        if (HandleFrame(std::move(read_frame)) == CHANNEL_DELETED)
           return CHANNEL_DELETED;
       }
       read_frames_.clear();
@@ -676,7 +678,8 @@ ChannelState WebSocketChannel::HandleFrame(
   // Respond to the frame appropriately to its type.
   return HandleFrameByState(
       opcode, frame->header.final,
-      base::make_span(frame->payload, frame->header.payload_length));
+      base::make_span(frame->payload, base::checked_cast<size_t>(
+                                          frame->header.payload_length)));
 }
 
 ChannelState WebSocketChannel::HandleFrameByState(
@@ -898,7 +901,10 @@ void WebSocketChannel::FailChannel(const std::string& message,
   DCHECK_NE(CONNECTING, state_);
   DCHECK_NE(CLOSED, state_);
 
-  // TODO(ricea): Logging.
+  stream_->GetNetLogWithSource().AddEvent(
+      net::NetLogEventType::WEBSOCKET_INVALID_FRAME,
+      [&] { return NetLogFailParam(code, reason, message); });
+
   if (state_ == CONNECTED) {
     if (SendClose(code, reason) == CHANNEL_DELETED)
       return;
@@ -930,8 +936,7 @@ ChannelState WebSocketChannel::SendClose(uint16_t code,
     base::WriteBigEndian(body->data(), code);
     static_assert(sizeof(code) == kWebSocketCloseCodeLength,
                   "they should both be two");
-    std::copy(
-        reason.begin(), reason.end(), body->data() + kWebSocketCloseCodeLength);
+    base::ranges::copy(reason, body->data() + kWebSocketCloseCodeLength);
   }
 
   return SendFrameInternal(true, WebSocketFrameHeader::kOpCodeClose,
@@ -952,7 +957,7 @@ bool WebSocketChannel::ParseClose(base::span<const char> payload,
 
     DVLOG(1) << "Close frame with payload size " << size << " received "
              << "(the first byte is " << std::hex
-             << static_cast<int>(payload.data()[0]) << ")";
+             << static_cast<int>(payload[0]) << ")";
     *code = kWebSocketErrorProtocolError;
     *message =
         "Received a broken close frame containing an invalid size body.";
@@ -998,9 +1003,15 @@ void WebSocketChannel::DoDropChannel(bool was_clean,
 }
 
 void WebSocketChannel::CloseTimeout() {
+  stream_->GetNetLogWithSource().AddEvent(
+      net::NetLogEventType::WEBSOCKET_CLOSE_TIMEOUT);
   stream_->Close();
   SetState(CLOSED);
-  DoDropChannel(false, kWebSocketErrorAbnormalClosure, "");
+  if (has_received_close_frame_) {
+    DoDropChannel(true, received_close_code_, received_close_reason_);
+  } else {
+    DoDropChannel(false, kWebSocketErrorAbnormalClosure, "");
+  }
   // |this| has been deleted.
 }
 

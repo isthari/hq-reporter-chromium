@@ -1,10 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_APPS_APP_SERVICE_PUBLISHERS_STANDALONE_BROWSER_APPS_H_
 #define CHROME_BROWSER_APPS_APP_SERVICE_PUBLISHERS_STANDALONE_BROWSER_APPS_H_
 
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
 #include "chrome/browser/apps/app_service/app_icon/icon_key_util.h"
@@ -12,12 +13,9 @@
 #include "chrome/browser/apps/app_service/publishers/app_publisher.h"
 #include "chrome/browser/ash/crosapi/browser_manager.h"
 #include "chrome/browser/ash/crosapi/browser_manager_observer.h"
+#include "components/services/app_service/public/cpp/app_launch_util.h"
 #include "components/services/app_service/public/cpp/icon_types.h"
-#include "components/services/app_service/public/cpp/publisher_base.h"
-#include "components/services/app_service/public/mojom/app_service.mojom-forward.h"
-#include "mojo/public/cpp/bindings/pending_remote.h"
-#include "mojo/public/cpp/bindings/remote.h"
-#include "mojo/public/cpp/bindings/remote_set.h"
+#include "components/services/app_service/public/cpp/menu.h"
 
 class Profile;
 
@@ -32,12 +30,7 @@ struct AppLaunchParams;
 // which launches the lacros-chrome binary.
 //
 // See components/services/app_service/README.md.
-//
-// TODO(crbug.com/1253250):
-// 1. Remove the parent class apps::PublisherBase.
-// 2. Remove all apps::mojom related code.
-class StandaloneBrowserApps : public apps::PublisherBase,
-                              public AppPublisher,
+class StandaloneBrowserApps : public AppPublisher,
                               public crosapi::BrowserManagerObserver {
  public:
   explicit StandaloneBrowserApps(AppServiceProxy* proxy);
@@ -50,13 +43,7 @@ class StandaloneBrowserApps : public apps::PublisherBase,
   friend class PublisherHost;
 
   // Returns the single lacros app.
-  std::unique_ptr<App> CreateStandaloneBrowserApp();
-
-  // Returns the single lacros app.
-  apps::mojom::AppPtr GetStandaloneBrowserApp();
-
-  // Returns an IconKey with appropriate effects.
-  apps::mojom::IconKeyPtr NewIconKey();
+  AppPtr CreateStandaloneBrowserApp();
 
   void Initialize();
 
@@ -67,36 +54,26 @@ class StandaloneBrowserApps : public apps::PublisherBase,
                 int32_t size_hint_in_dip,
                 bool allow_placeholder_icon,
                 apps::LoadIconCallback callback) override;
-  void LaunchAppWithParams(AppLaunchParams&& params,
-                           LaunchCallback callback) override;
-
-  // apps::PublisherBase:
-  void Connect(mojo::PendingRemote<apps::mojom::Subscriber> subscriber_remote,
-               apps::mojom::ConnectOptionsPtr opts) override;
-  void LoadIcon(const std::string& app_id,
-                apps::mojom::IconKeyPtr icon_key,
-                apps::mojom::IconType icon_type,
-                int32_t size_hint_in_dip,
-                bool allow_placeholder_icon,
-                LoadIconCallback callback) override;
   void Launch(const std::string& app_id,
               int32_t event_flags,
-              apps::mojom::LaunchSource launch_source,
-              apps::mojom::WindowInfoPtr window_info) override;
+              LaunchSource launch_source,
+              WindowInfoPtr window_info) override;
+  void LaunchAppWithParams(AppLaunchParams&& params,
+                           LaunchCallback callback) override;
   void GetMenuModel(const std::string& app_id,
-                    apps::mojom::MenuType menu_type,
+                    MenuType menu_type,
                     int64_t display_id,
-                    GetMenuModelCallback callback) override;
+                    base::OnceCallback<void(MenuItems)> callback) override;
   void OpenNativeSettings(const std::string& app_id) override;
   void StopApp(const std::string& app_id) override;
 
   // crosapi::BrowserManagerObserver
-  void OnLoadComplete(bool success) override;
+  void OnLoadComplete(bool success, const base::Version& version) override;
 
-  mojo::RemoteSet<apps::mojom::Subscriber> subscribers_;
-  Profile* const profile_;
+  const raw_ptr<Profile, ExperimentalAsh> profile_;
   bool is_browser_load_success_ = true;
-  BrowserAppInstanceRegistry* browser_app_instance_registry_;
+  const raw_ptr<BrowserAppInstanceRegistry, DanglingUntriaged | ExperimentalAsh>
+      browser_app_instance_registry_;
   apps_util::IncrementingIconKeyFactory icon_key_factory_;
 
   // Used to observe the browser manager for image load changes.

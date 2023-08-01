@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,13 +10,11 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/containers/contains.h"
-#include "base/guid.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
+#include "base/memory/raw_ref.h"
 #include "base/memory/weak_ptr.h"
-#include "base/task/post_task.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/notifications/scheduler/internal/icon_store.h"
 #include "chrome/browser/notifications/scheduler/internal/notification_entry.h"
 #include "chrome/browser/notifications/scheduler/internal/scheduler_config.h"
@@ -247,7 +245,7 @@ class ScheduledNotificationManagerImpl : public ScheduledNotificationManager {
     for (auto it = entries.begin(); it != entries.end(); it++) {
       auto* entry = it->get();
       // Prune expired notifications. Also delete them in db.
-      bool expired = entry->create_time + config_.notification_expiration <=
+      bool expired = entry->create_time + config_->notification_expiration <=
                      base::Time::Now();
       bool valid = ValidateNotificationEntry(*entry);
       bool deprecated_client = !base::Contains(clients_, entry->type);
@@ -415,7 +413,7 @@ class ScheduledNotificationManagerImpl : public ScheduledNotificationManager {
         params.schedule_params.deliver_time_start.value() >
             params.schedule_params.deliver_time_end.value() ||
         params.schedule_params.deliver_time_end.value() - base::Time::Now() >=
-            config_.notification_expiration) {
+            config_->notification_expiration) {
       return false;
     }
 
@@ -444,7 +442,7 @@ class ScheduledNotificationManagerImpl : public ScheduledNotificationManager {
   std::map<SchedulerClientType,
            std::map<std::string, std::unique_ptr<NotificationEntry>>>
       notifications_;
-  const SchedulerConfig& config_;
+  const raw_ref<const SchedulerConfig, DanglingUntriaged> config_;
   base::WeakPtrFactory<ScheduledNotificationManagerImpl> weak_ptr_factory_{
       this};
 };

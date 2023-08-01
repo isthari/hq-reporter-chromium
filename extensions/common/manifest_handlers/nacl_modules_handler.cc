@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -52,25 +52,24 @@ bool NaClModulesHandler::Parse(Extension* extension, std::u16string* error) {
 
   std::unique_ptr<NaClModuleData> nacl_module_data(new NaClModuleData);
 
-  base::Value::ConstListView list_view = list_value->GetList();
-  for (size_t i = 0; i < list_view.size(); ++i) {
-    if (!list_view[i].is_dict()) {
+  const base::Value::List& list = list_value->GetList();
+  for (size_t i = 0; i < list.size(); ++i) {
+    const base::Value::Dict* dict = list[i].GetIfDict();
+    if (!dict) {
       *error = errors::kInvalidNaClModules;
       return false;
     }
 
     // Get nacl_modules[i].path.
-    const base::Value* path_str = list_view[i].FindKeyOfType(
-        keys::kNaClModulesPath, base::Value::Type::STRING);
-    if (path_str == nullptr) {
+    const std::string* path = dict->FindString(keys::kNaClModulesPath);
+    if (path == nullptr) {
       *error = ErrorUtils::FormatErrorMessageUTF16(
           errors::kInvalidNaClModulesPath, base::NumberToString(i));
       return false;
     }
 
     // Get nacl_modules[i].mime_type.
-    const base::Value* mime_type = list_view[i].FindKeyOfType(
-        keys::kNaClModulesMIMEType, base::Value::Type::STRING);
+    const std::string* mime_type = dict->FindString(keys::kNaClModulesMIMEType);
     if (mime_type == nullptr) {
       *error = ErrorUtils::FormatErrorMessageUTF16(
           errors::kInvalidNaClModulesMIMEType, base::NumberToString(i));
@@ -79,8 +78,8 @@ bool NaClModulesHandler::Parse(Extension* extension, std::u16string* error) {
 
     nacl_module_data->nacl_modules_.push_back(NaClModuleInfo());
     nacl_module_data->nacl_modules_.back().url =
-        extension->GetResourceURL(path_str->GetString());
-    nacl_module_data->nacl_modules_.back().mime_type = mime_type->GetString();
+        extension->GetResourceURL(*path);
+    nacl_module_data->nacl_modules_.back().mime_type = *mime_type;
   }
 
   extension->SetManifestData(keys::kNaClModules, std::move(nacl_module_data));

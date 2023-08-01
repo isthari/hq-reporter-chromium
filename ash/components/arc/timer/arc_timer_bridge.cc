@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,13 +9,11 @@
 #include "ash/components/arc/session/arc_service_manager.h"
 #include "ash/components/arc/timer/arc_timer_bridge.h"
 #include "ash/components/arc/timer/arc_timer_mojom_traits.h"
-#include "base/bind.h"
 #include "base/containers/flat_set.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/memory/singleton.h"
-#include "base/task/task_runner_util.h"
-#include "base/threading/sequenced_task_runner_handle.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/ash/components/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/power/power_manager_client.h"
 #include "mojo/public/cpp/system/handle.h"
 #include "mojo/public/cpp/system/platform_handle.h"
@@ -221,6 +219,11 @@ absl::optional<ArcTimerBridge::TimerId> ArcTimerBridge::GetTimerId(
   auto it = timer_ids_.find(clock_id);
   return (it == timer_ids_.end()) ? absl::nullopt
                                   : absl::make_optional<TimerId>(it->second);
+}
+
+// static
+void ArcTimerBridge::EnsureFactoryBuilt() {
+  ArcTimerBridgeFactory::GetInstance();
 }
 
 }  // namespace arc

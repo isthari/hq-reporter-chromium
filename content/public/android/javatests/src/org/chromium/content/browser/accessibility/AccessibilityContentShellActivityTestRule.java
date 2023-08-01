@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@ import static org.chromium.content.browser.accessibility.AccessibilityContentShe
 import static org.chromium.content.browser.accessibility.AccessibilityContentShellTestUtils.NODE_TIMEOUT_ERROR;
 import static org.chromium.content.browser.accessibility.AccessibilityContentShellTestUtils.READY_FOR_TEST_ERROR;
 import static org.chromium.content.browser.accessibility.AccessibilityContentShellTestUtils.sContentShellDelegate;
+import static org.chromium.ui.accessibility.AccessibilityState.EVENT_TYPE_MASK_ALL;
 
 import android.annotation.SuppressLint;
 import android.os.Bundle;
@@ -24,11 +25,13 @@ import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Assert;
 
+import org.chromium.base.FeatureList;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.UrlUtils;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_shell_apk.ContentShellActivityTestRule;
+import org.chromium.ui.accessibility.AccessibilityState;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -94,14 +97,16 @@ public class AccessibilityContentShellActivityTestRule extends ContentShellActiv
     /* @Before */
     public void setupTestFramework() {
         mWcax = getWebContentsAccessibility();
-        mWcax.setState(true);
         mWcax.setAccessibilityEnabledForTesting();
-        mWcax.setBrowserAccessibilityStateForTesting();
+        AccessibilityState.setIsAnyAccessibilityServiceEnabledForTesting(true);
+        AccessibilityState.setEventTypeMaskForTesting(EVENT_TYPE_MASK_ALL);
 
         mNodeProvider = getAccessibilityNodeProvider();
 
         mTracker = new AccessibilityActionAndEventTracker();
         mWcax.setAccessibilityTrackerForTesting(mTracker);
+
+        FeatureList.setTestCanUseDefaultsForTesting();
     }
 
     /**
@@ -120,6 +125,9 @@ public class AccessibilityContentShellActivityTestRule extends ContentShellActiv
 
         // Reset our test data.
         AccessibilityContentShellTestData.resetData();
+
+        FeatureList.resetTestCanUseDefaultsForTesting();
+        FeatureList.setTestFeatures(null);
     }
 
     /**

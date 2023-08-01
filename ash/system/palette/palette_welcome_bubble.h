@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include "ash/ash_export.h"
 #include "ash/public/cpp/session/session_observer.h"
+#include "base/memory/raw_ptr.h"
 #include "ui/events/event_handler.h"
 #include "ui/views/widget/widget_observer.h"
 
@@ -51,7 +52,7 @@ class ASH_EXPORT PaletteWelcomeBubble : public SessionObserver,
   void OnActiveUserPrefServiceChanged(PrefService* pref_service) override;
 
   // views::WidgetObserver:
-  void OnWidgetClosing(views::Widget* widget) override;
+  void OnWidgetDestroying(views::Widget* widget) override;
 
   // Returns the bubble view for tests, or null when the bubble is not showing.
   views::View* GetBubbleViewForTesting();
@@ -64,17 +65,21 @@ class ASH_EXPORT PaletteWelcomeBubble : public SessionObserver,
   void Show();
   void Hide();
 
+  // Disconnects from the observers and pre-target handlers.
+  void DisconnectObservers();
+
   // ui::EventHandler:
   void OnMouseEvent(ui::MouseEvent* event) override;
   void OnTouchEvent(ui::TouchEvent* event) override;
 
   // The PaletteTray this bubble is associated with. Serves as the anchor for
   // the bubble. Not owned.
-  PaletteTray* tray_ = nullptr;
+  raw_ptr<PaletteTray, ExperimentalAsh> tray_ = nullptr;
 
-  PrefService* active_user_pref_service_ = nullptr;  // Not owned.
+  raw_ptr<PrefService, ExperimentalAsh> active_user_pref_service_ =
+      nullptr;  // Not owned.
 
-  WelcomeBubbleView* bubble_view_ = nullptr;
+  raw_ptr<WelcomeBubbleView, ExperimentalAsh> bubble_view_ = nullptr;
 };
 
 }  // namespace ash

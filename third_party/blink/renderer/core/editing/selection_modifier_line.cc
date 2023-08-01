@@ -24,7 +24,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,17 +34,14 @@
 #include "third_party/blink/renderer/core/editing/inline_box_position.h"
 #include "third_party/blink/renderer/core/editing/visible_position.h"
 #include "third_party/blink/renderer/core/editing/visible_units.h"
-#include "third_party/blink/renderer/core/layout/api/line_layout_api_shim.h"
-#include "third_party/blink/renderer/core/layout/api/line_layout_block_flow.h"
 #include "third_party/blink/renderer/core/layout/geometry/logical_rect.h"
-#include "third_party/blink/renderer/core/layout/line/root_inline_box.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_line_utils.h"
 
 namespace blink {
 
 namespace {
 
-// Abstracts similarities between RootInlineBox and NGPhysicalLineBoxFragment
+// TODO(1229581): Get rid of this.
 class AbstractLineBox {
   STACK_ALLOCATED();
 
@@ -60,11 +57,6 @@ class AbstractLineBox {
   bool CanBeCaretContainer() const {
     DCHECK(IsNotNull());
     // We want to skip zero height boxes.
-    // This could happen in case it is a TrailingFloatsRootInlineBox.
-    if (IsOldLayout()) {
-      return GetRootInlineBox().LogicalHeight() &&
-             GetRootInlineBox().FirstLeafChild();
-    }
     if (cursor_.Current().IsEmptyLineBox())
       return false;
     const PhysicalSize physical_size = cursor_.Current().Size();
@@ -82,31 +74,22 @@ class AbstractLineBox {
 
   AbstractLineBox PreviousLine() const {
     DCHECK(IsNotNull());
-    if (IsOldLayout()) {
-      const RootInlineBox* previous_root = GetRootInlineBox().PrevRootBox();
-      return previous_root ? AbstractLineBox(*previous_root)
-                           : AbstractLineBox();
-    }
     NGInlineCursor previous_line = cursor_;
     do {
       previous_line.MoveToPreviousIncludingFragmentainer();
     } while (previous_line && !previous_line.Current().IsLineBox());
-    if (!previous_line || IsBlockInInline(previous_line))
+    if (!previous_line || previous_line.Current()->IsBlockInInline())
       return AbstractLineBox();
     return AbstractLineBox(previous_line);
   }
 
   AbstractLineBox NextLine() const {
     DCHECK(IsNotNull());
-    if (IsOldLayout()) {
-      const RootInlineBox* next_root = GetRootInlineBox().NextRootBox();
-      return next_root ? AbstractLineBox(*next_root) : AbstractLineBox();
-    }
     NGInlineCursor next_line = cursor_;
     do {
       next_line.MoveToNextIncludingFragmentainer();
     } while (next_line && !next_line.Current().IsLineBox());
-    if (!next_line || IsBlockInInline(next_line))
+    if (!next_line || next_line.Current()->IsBlockInInline())
       return AbstractLineBox();
     return AbstractLineBox(next_line);
   }
@@ -132,28 +115,10 @@ class AbstractLineBox {
   PositionInFlatTreeWithAffinity PositionForPoint(
       const PhysicalOffset& point_in_container,
       bool only_editable_leaves) const {
-    if (IsOldLayout()) {
-      const LayoutObject* closest_leaf_child =
-          GetRootInlineBox().ClosestLeafChildForPoint(
-              GetBlock().FlipForWritingMode(point_in_container),
-              only_editable_leaves);
-      if (!closest_leaf_child)
-        return PositionInFlatTreeWithAffinity();
-      const Node* node = closest_leaf_child->GetNode();
-      if (node && EditingIgnoresContent(*node)) {
-        return PositionInFlatTreeWithAffinity(
-            PositionInFlatTree::InParentBeforeNode(*node));
-      }
-      return ToPositionInFlatTreeWithAffinity(
-          closest_leaf_child->PositionForPoint(point_in_container));
-    }
     return PositionForPoint(cursor_, point_in_container, only_editable_leaves);
   }
 
  private:
-  explicit AbstractLineBox(const RootInlineBox& root_inline_box)
-      : root_inline_box_(&root_inline_box), type_(Type::kOldLayout) {}
-
   explicit AbstractLineBox(const NGInlineCursor& cursor)
       : cursor_(cursor), type_(Type::kLayoutNG) {
     DCHECK(cursor_.Current().IsLineBox());
@@ -161,19 +126,11 @@ class AbstractLineBox {
 
   const LayoutBlockFlow& GetBlock() const {
     DCHECK(IsNotNull());
-    if (IsOldLayout()) {
-      return *To<LayoutBlockFlow>(
-          LineLayoutAPIShim::LayoutObjectFrom(GetRootInlineBox().Block()));
-    }
     return *cursor_.GetLayoutBlockFlow();
   }
 
   LayoutUnit PhysicalBlockOffset() const {
     DCHECK(IsNotNull());
-    if (IsOldLayout()) {
-      return GetBlock().FlipForWritingMode(
-          GetRootInlineBox().BlockDirectionPointInLine());
-    }
     const PhysicalOffset physical_offset =
         cursor_.Current().OffsetInContainerFragment();
     return cursor_.Current().Style().IsHorizontalWritingMode()
@@ -181,27 +138,13 @@ class AbstractLineBox {
                : physical_offset.left;
   }
 
-  bool IsOldLayout() const { return type_ == Type::kOldLayout; }
-
   bool IsLayoutNG() const { return type_ == Type::kLayoutNG; }
-
-  const RootInlineBox& GetRootInlineBox() const {
-    DCHECK(IsOldLayout());
-    return *root_inline_box_;
-  }
-
-  static bool IsBlockInInline(const NGInlineCursor& line) {
-    DCHECK(line.Current().IsLineBox());
-    NGInlineCursor cursor = line;
-    cursor.MoveToNext();
-    return cursor && cursor.Current()->IsBlockInInline();
-  }
 
   static bool IsEditable(const NGInlineCursor& cursor) {
     const LayoutObject* const layout_object =
         cursor.Current().GetLayoutObject();
     return layout_object && layout_object->GetNode() &&
-           HasEditableStyle(*layout_object->GetNode());
+           blink::IsEditable(*layout_object->GetNode());
   }
 
   static PositionInFlatTreeWithAffinity PositionForPoint(
@@ -263,9 +206,8 @@ class AbstractLineBox {
         closest_leaf_child.PositionForPointInChild(point));
   }
 
-  enum class Type { kNull, kOldLayout, kLayoutNG };
+  enum class Type { kNull, kLayoutNG };
 
-  const RootInlineBox* root_inline_box_ = nullptr;
   NGInlineCursor cursor_;
   Type type_ = Type::kNull;
 };
@@ -286,12 +228,7 @@ AbstractLineBox AbstractLineBox::CreateFor(
   const NGInlineCursor& line = NGContainingLineBoxOf(adjusted);
   if (line)
     return AbstractLineBox(line);
-
-  const InlineBox* box =
-      ComputeInlineBoxPositionForInlineAdjustedPosition(adjusted).inline_box;
-  if (!box)
-    return AbstractLineBox();
-  return AbstractLineBox(box->Root());
+  return AbstractLineBox();
 }
 
 ContainerNode* HighestEditableRootOfNode(const Node& node) {
@@ -348,10 +285,10 @@ Node* NextAtomicLeafNode(const Node& start) {
 }
 
 Node* PreviousLeafWithSameEditability(const Node& node) {
-  const bool editable = HasEditableStyle(node);
+  const bool editable = IsEditable(node);
   for (Node* runner = PreviousAtomicLeafNode(node); runner;
        runner = PreviousAtomicLeafNode(*runner)) {
-    if (editable == HasEditableStyle(*runner))
+    if (editable == IsEditable(*runner))
       return runner;
   }
   return nullptr;
@@ -363,7 +300,7 @@ Node* NextLeafWithGivenEditability(Node* node, bool editable) {
 
   for (Node* runner = NextAtomicLeafNode(*node); runner;
        runner = NextAtomicLeafNode(*runner)) {
-    if (editable == HasEditableStyle(*runner))
+    if (editable == IsEditable(*runner))
       return runner;
   }
   return nullptr;
@@ -417,7 +354,7 @@ PositionInFlatTree NextRootInlineBoxCandidatePosition(
   // TODO(xiaochengh): We probably also need to pass in the starting editability
   // to |PreviousLeafWithSameEditability|.
   const bool is_editable =
-      HasEditableStyle(*position.GetPosition().ComputeContainerNode());
+      IsEditable(*position.GetPosition().ComputeContainerNode());
   Node* next_node = NextLeafWithGivenEditability(node, is_editable);
   while (next_node && InSameLine(*next_node, position)) {
     next_node = NextLeafWithGivenEditability(next_node, is_editable);
@@ -497,7 +434,7 @@ PositionInFlatTreeWithAffinity SelectionModifier::PreviousLinePosition(
   // Could not find a previous line. This means we must already be on the first
   // line. Move to the start of the content in this block, which effectively
   // moves us to the start of the line we're on.
-  Element* root_element = HasEditableStyle(*node)
+  Element* root_element = IsEditable(*node)
                               ? RootEditableElement(*node)
                               : node->GetDocument().documentElement();
   if (!root_element)
@@ -569,7 +506,7 @@ PositionInFlatTreeWithAffinity SelectionModifier::NextLinePosition(
   // Could not find a next line. This means we must already be on the last line.
   // Move to the end of the content in this block, which effectively moves us
   // to the end of the line we're on.
-  Element* root_element = HasEditableStyle(*node)
+  Element* root_element = IsEditable(*node)
                               ? RootEditableElement(*node)
                               : node->GetDocument().documentElement();
   if (!root_element)

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -1608,13 +1608,13 @@ cvox.DomUtil.syncInternalLink = function(node) {
     }
   }
   if (targetNode) {
-    // Insert a dummy node to adjust next Tab focus location.
+    // Insert a test node to adjust next Tab focus location.
     var parent = targetNode.parentNode;
-    var dummyNode = document.createElement('div');
-    dummyNode.setAttribute('tabindex', '-1');
-    parent.insertBefore(dummyNode, targetNode);
-    dummyNode.setAttribute('chromevoxignoreariahidden', 1);
-    dummyNode.focus();
+    var testNode = document.createElement('div');
+    testNode.setAttribute('tabindex', '-1');
+    parent.insertBefore(testNode, targetNode);
+    testNode.setAttribute('chromevoxignoreariahidden', 1);
+    testNode.focus();
     cvox.ChromeVox.syncToNode(targetNode, false);
   }
 };

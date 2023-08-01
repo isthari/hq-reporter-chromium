@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,8 @@
 
 #include <utility>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "base/win/windows_version.h"
 #include "chrome/updater/update_service.h"
@@ -25,18 +26,16 @@ bool AllowBackgroundUpdatesOnMeteredNetwork() {
   return true;
 }
 
-// TODO(crbug.com/1254492): Protect against deadlocks in NLM.
 bool IsConnectionedMetered() {
-  // No NLM before Win 8.1. Connections will be considered non-metered.
-  // Also, NLM could deadlock in Win10 versions pre-RS5, so we don't run the
-  // code for those versions.
+  // No NLM before Win 8.1. Connections will be considered non-metered. Also,
+  // because NLM could deadlock in Win10 versions pre-RS5, don't run the code
+  // for those versions (see crbug.com/1254492).
   if (base::win::GetVersion() < base::win::Version::WIN10_RS5)
     return false;
 
   Microsoft::WRL::ComPtr<INetworkCostManager> network_cost_manager;
-  HRESULT hr =
-      ::CoCreateInstance(CLSID_NetworkListManager, nullptr, CLSCTX_ALL,
-                         IID_INetworkCostManager, &network_cost_manager);
+  HRESULT hr = ::CoCreateInstance(CLSID_NetworkListManager, nullptr, CLSCTX_ALL,
+                                  IID_PPV_ARGS(&network_cost_manager));
   if (FAILED(hr))
     return false;
 
@@ -58,10 +57,9 @@ void ShouldBlockUpdateForMeteredNetwork(
       AllowBackgroundUpdatesOnMeteredNetwork()) {
     std::move(callback).Run(false);
   } else {
-    auto task_runner =
-        base::ThreadPool::CreateCOMSTATaskRunner({base::MayBlock()});
-    task_runner.get()->PostTaskAndReplyWithResult(
-        FROM_HERE, base::BindOnce(&IsConnectionedMetered), std::move(callback));
+    base::ThreadPool::PostTaskAndReplyWithResult(
+        FROM_HERE, {base::MayBlock()}, base::BindOnce(&IsConnectionedMetered),
+        std::move(callback));
   }
 }
 

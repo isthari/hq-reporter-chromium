@@ -1,12 +1,15 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/core/layout/svg/transform_helper.h"
 
-#include "third_party/blink/public/mojom/web_feature/web_feature.mojom-blink.h"
+#include "third_party/blink/public/mojom/use_counter/metrics/web_feature.mojom-blink.h"
+#include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
+#include "third_party/blink/renderer/core/layout/svg/svg_resources.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
+#include "third_party/blink/renderer/core/style/reference_offset_path_operation.h"
 #include "third_party/blink/renderer/core/svg/svg_element.h"
 #include "third_party/blink/renderer/core/svg/svg_length_context.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
@@ -20,8 +23,31 @@ static inline bool TransformOriginIsFixed(const ComputedStyle& style) {
   // then is does not depend on the reference box. For fill-box, the origin
   // will always move with the bounding box.
   return style.TransformBox() == ETransformBox::kViewBox &&
-         style.TransformOriginX().IsFixed() &&
-         style.TransformOriginY().IsFixed();
+         style.GetTransformOrigin().X().IsFixed() &&
+         style.GetTransformOrigin().Y().IsFixed();
+}
+
+// static
+void TransformHelper::UpdateOffsetPath(SVGElement& element,
+                                       const ComputedStyle* old_style) {
+  const ComputedStyle& new_style = element.ComputedStyleRef();
+  OffsetPathOperation* new_offset = new_style.OffsetPath();
+  OffsetPathOperation* old_offset =
+      old_style ? old_style->OffsetPath() : nullptr;
+  if (!new_offset && !old_offset) {
+    return;
+  }
+  const bool had_resource_info = element.GetSVGResourceClient();
+  if (auto* reference_offset =
+          DynamicTo<ReferenceOffsetPathOperation>(new_offset)) {
+    reference_offset->AddClient(element.EnsureSVGResourceClient());
+  }
+  if (had_resource_info) {
+    if (auto* old_reference_offset =
+            DynamicTo<ReferenceOffsetPathOperation>(old_offset)) {
+      old_reference_offset->RemoveClient(*element.GetSVGResourceClient());
+    }
+  }
 }
 
 bool TransformHelper::DependsOnReferenceBox(const ComputedStyle& style) {
@@ -50,9 +76,7 @@ gfx::RectF TransformHelper::ComputeReferenceBox(
     DCHECK_EQ(style.TransformBox(), ETransformBox::kViewBox);
     SVGLengthContext length_context(
         DynamicTo<SVGElement>(layout_object.GetNode()));
-    gfx::SizeF viewport_size;
-    length_context.DetermineViewport(viewport_size);
-    reference_box.set_size(viewport_size);
+    reference_box.set_size(length_context.ResolveViewport());
   }
   const float zoom = style.EffectiveZoom();
   if (zoom != 1)
@@ -80,27 +104,30 @@ AffineTransform TransformHelper::ComputeTransform(
   // Note: objectBoundingBox is an empty rect for elements like pattern or
   // clipPath. See
   // https://svgwg.org/svg2-draft/coords.html#ObjectBoundingBoxUnits
-  TransformationMatrix transform;
+  gfx::Transform transform;
   gfx::RectF reference_box = ComputeReferenceBox(layout_object);
-  style.ApplyTransform(transform, reference_box, apply_transform_origin,
+  style.ApplyTransform(transform, nullptr, reference_box,
+                       ComputedStyle::kIncludeTransformOperations,
+                       apply_transform_origin,
                        ComputedStyle::kIncludeMotionPath,
                        ComputedStyle::kIncludeIndependentTransformProperties);
   const float zoom = style.EffectiveZoom();
   if (zoom != 1)
     transform.Zoom(1 / zoom);
   // Flatten any 3D transform.
-  return transform.ToAffineTransform();
+  return AffineTransform::FromTransform(transform);
 }
 
 gfx::PointF TransformHelper::ComputeTransformOrigin(
     const LayoutObject& layout_object) {
   const auto& style = layout_object.StyleRef();
   gfx::RectF reference_box = ComputeReferenceBox(layout_object);
-  gfx::PointF origin(
-      FloatValueForLength(style.TransformOriginX(), reference_box.width()) +
-          reference_box.x(),
-      FloatValueForLength(style.TransformOriginY(), reference_box.height()) +
-          reference_box.y());
+  gfx::PointF origin(FloatValueForLength(style.GetTransformOrigin().X(),
+                                         reference_box.width()) +
+                         reference_box.x(),
+                     FloatValueForLength(style.GetTransformOrigin().Y(),
+                                         reference_box.height()) +
+                         reference_box.y());
   // See the comment in ComputeTransform() for the reason of scaling by 1/zoom.
   return gfx::ScalePoint(origin, style.EffectiveZoom());
 }

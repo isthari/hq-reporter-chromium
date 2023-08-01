@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/sequence_checker.h"
-#include "media/base/timestamp_constants.h"
+#include "base/task/sequenced_task_runner.h"
 #include "third_party/blink/public/web/modules/mediastream/media_stream_video_sink.h"
 #include "third_party/blink/renderer/core/streams/readable_stream_transferring_optimizer.h"
 #include "third_party/blink/renderer/modules/breakout_box/frame_queue_underlying_source.h"
@@ -60,8 +60,9 @@ class MODULES_EXPORT MediaStreamVideoTrackUnderlyingSource
   bool StartFrameDelivery() override;
   void StopFrameDelivery() override;
 
-  void OnSourceTransferStarted(scoped_refptr<base::SequencedTaskRunner>,
-                               TransferredVideoFrameQueueUnderlyingSource*);
+  void OnSourceTransferStarted(
+      scoped_refptr<base::SequencedTaskRunner>,
+      CrossThreadPersistent<TransferredVideoFrameQueueUnderlyingSource>);
 
   void OnFrameFromTrack(
       scoped_refptr<media::VideoFrame> media_frame,
@@ -73,10 +74,6 @@ class MODULES_EXPORT MediaStreamVideoTrackUnderlyingSource
   const Member<ScriptWrappable> media_stream_track_processor_;
 
   const Member<MediaStreamComponent> track_;
-
-  // State for handling duplicate frames. Only accessed from the IO thread.
-  base::TimeDelta last_enqueued_timestamp = media::kNoTimestamp;
-  bool reported_out_of_order_timestamp = false;
 
   SEQUENCE_CHECKER(sequence_checker_);
 };

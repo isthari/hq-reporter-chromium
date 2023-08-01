@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,87 +12,88 @@ namespace features {
 
 // Used to crash the browser if unexpected URL change is detected.
 // https://crbug.com/841105.
-extern const base::Feature kCrashOnUnexpectedURLChange;
-
-// Used to enable the workaround for WKWebView history clobber bug
-// (crbug.com/887497).
-extern const base::Feature kHistoryClobberWorkaround;
+BASE_DECLARE_FEATURE(kCrashOnUnexpectedURLChange);
 
 // Used to prevent native apps from being opened when a universal link is tapped
 // and the user is browsing in off the record mode.
-extern const base::Feature kBlockUniversalLinksInOffTheRecordMode;
+BASE_DECLARE_FEATURE(kBlockUniversalLinksInOffTheRecordMode);
 
 // Used to ensure that the render is not suspended.
-extern const base::Feature kKeepsRenderProcessAlive;
+BASE_DECLARE_FEATURE(kKeepsRenderProcessAlive);
 
 // Used to enable the workaround for a WKWebView WKNavigation leak.
 // (crbug.com/1010765).  Clear older pending navigation records when a
 // navigation finishes.
-extern const base::Feature kClearOldNavigationRecordsWorkaround;
+BASE_DECLARE_FEATURE(kClearOldNavigationRecordsWorkaround);
 
 // Feature flag enabling persistent downloads.
-extern const base::Feature kEnablePersistentDownloads;
-
-// When enabled, preserves properties of the UIScrollView using CRWPropertyStore
-// when the scroll view is recreated. When disabled, only preserve a small set
-// of properties using hard coded logic.
-extern const base::Feature kPreserveScrollViewProperties;
+BASE_DECLARE_FEATURE(kEnablePersistentDownloads);
 
 // Records snapshot size of image (IOS.Snapshots.ImageSize histogram) and PDF
 // (IOS.Snapshots.PDFSize histogram) if enabled. Enabling this flag will
 // generate PDF when Page Snapshot is taken just to record PDF size.
-extern const base::Feature kRecordSnapshotSize;
+BASE_DECLARE_FEATURE(kRecordSnapshotSize);
 
-// When enabled, the |attribution| property of NSMutableURLRequests passed to
+// When enabled, the `attribution` property of NSMutableURLRequests passed to
 // WKWebView is set as NSURLRequestAttributionUser on iOS 15.
-extern const base::Feature kSetRequestAttribution;
-
-// When enabled, display non-live preview for context menus in web content.
-extern const base::Feature kWebViewNativeContextMenuPhase2;
-
-// When enabled, the default context menu from WKWebView is used.
-extern const base::Feature kDefaultWebViewContextMenu;
-
-// Disables the screenshots of non-HTML pages on iOS15.
-extern const base::Feature kDisableNonHTMLScreenshotOnIOS15;
+BASE_DECLARE_FEATURE(kSetRequestAttribution);
 
 // Feature flag that enable Shared Highlighting color change in iOS.
-extern const base::Feature kIOSSharedHighlightingColorChange;
-
-// Feature flag that enables creating pending item on POST form submission.
-// Also, for GET form submissions with same page navigation, retains the
-// transition type of new navigation item.
-extern const base::Feature kCreatePendingItemForPostFormSubmission;
-
-// Enable the new download API if available.
-extern const base::Feature kEnableNewDownloadAPI;
+BASE_DECLARE_FEATURE(kIOSSharedHighlightingColorChange);
 
 // Feature flag that enables native session restoration with a synthesized
 // interaction state.
-extern const base::Feature kSynthesizedRestoreSession;
+BASE_DECLARE_FEATURE(kSynthesizedRestoreSession);
 
-// Enable support for unrealized WebState upon session restoration.
-// See //docs/ios/unrealized_web_state.md for more information.
-extern const base::Feature kEnableUnrealizedWebStates;
+// Enables the Fullscreen API in WebKit (supported on iOS 16.0+). This API
+// allows web sites to enter fullscreen mode, with all browser UI hidden.
+BASE_DECLARE_FEATURE(kEnableFullscreenAPI);
 
-// Enables user control for camera and/or microphone access for a specific site
-// through site settings during its lifespan. When enabled, each web state will
-// keep track of whether camera and/or microphone access is granted by the user
-// for its current site.
-extern const base::Feature kMediaPermissionsControl;
+// Feature flag enabling use of new iOS 15
+// loadSimulatedRequest:responseHTMLString: API to display error pages in
+// CRWWKNavigationHandler. The helper method IsLoadSimulatedRequestAPIEnabled()
+// should be used instead of directly checking this feature.
+BASE_DECLARE_FEATURE(kUseLoadSimulatedRequestForOfflinePage);
 
-// When true, the native context menu for the web content are used.
-bool UseWebViewNativeContextMenuWeb();
+// Feature flag to enable Emails detection.
+BASE_DECLARE_FEATURE(kEnableEmails);
 
-// When true, screenshots of non-HTML (e.g. PDF) pages should be taken.
-bool ShouldTakeScreenshotOnNonHTMLContent();
+// Feature flag to enable Phone Numbers detection.
+BASE_DECLARE_FEATURE(kEnablePhoneNumbers);
 
-// When true, the new download API should be used.
-bool IsNewDownloadAPIEnabled();
+// Feature flag to enable One tap experience for Maps.
+BASE_DECLARE_FEATURE(kOneTapForMaps);
 
-// When true, user control for camera and/or microphone access should be
-// enabled.
-bool IsMediaPermissionsControlEnabled();
+// When enabled, CRWWebViewScrollViewProxy's `scrollEnabled` state is not
+// restored if the new instance already has the same `scrollEnabled` state as
+// the old one.
+BASE_DECLARE_FEATURE(kScrollViewProxyScrollEnabledWorkaround);
+
+// Feature flag to prevent navigation without user interaction.
+BASE_DECLARE_FEATURE(kPreventNavigationWithoutUserInteraction);
+
+// Feature flag to enable Web Inspector support.
+BASE_DECLARE_FEATURE(kEnableWebInspector);
+
+// Feature used by finch config to enable smooth scrolling when the default
+// viewport adjustment experiment is selected via command line switches.
+BASE_DECLARE_FEATURE(kSmoothScrollingDefault);
+
+// Feature flag to enable the session serialization optimizations.
+BASE_DECLARE_FEATURE(kEnableSessionSerializationOptimizations);
+
+// When true, the new loadSimulatedRequest API should be used when displaying
+// error pages.
+bool IsLoadSimulatedRequestAPIEnabled();
+
+// When true, the fullscreen API should be used to enable fullscreen mode.
+bool IsFullscreenAPIEnabled();
+
+// When true, an option to enable Web Inspector should be present in Settings.
+bool IsWebInspectorSupportEnabled();
+
+// When true, session serialization optimizations should be enabled.
+bool UseSessionSerializationOptimizations();
 
 }  // namespace features
 }  // namespace web

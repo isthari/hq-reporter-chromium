@@ -1,12 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {Destination, DestinationConnectionStatus, DestinationOrigin, DestinationType, PrintPreviewDestinationListElement} from 'chrome://print/print_preview.js';
-import {assert} from 'chrome://resources/js/assert.m.js';
+import {Destination, DestinationOrigin, PrintPreviewDestinationListElement} from 'chrome://print/print_preview.js';
+import {getTrustedHTML} from 'chrome://resources/js/static_types.js';
 import {keyEventOn} from 'chrome://resources/polymer/v3_0/iron-test-helpers/mock-interactions.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
-
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
 import {eventToPromise} from 'chrome://webui-test/test_util.js';
 
@@ -27,27 +26,22 @@ suite(destination_list_test.suiteName, function() {
     // Create destinations
     const destinations = [
       new Destination(
-          'id1', DestinationType.LOCAL, DestinationOrigin.LOCAL, 'One',
-          DestinationConnectionStatus.ONLINE, {description: 'ABC'}),
+          'id1', DestinationOrigin.LOCAL, 'One', {description: 'ABC'}),
       new Destination(
-          'id2', DestinationType.LOCAL, DestinationOrigin.LOCAL, 'Two',
-          DestinationConnectionStatus.ONLINE, {description: 'XYZ'}),
+          'id2', DestinationOrigin.LOCAL, 'Two', {description: 'XYZ'}),
       new Destination(
-          'id3', DestinationType.GOOGLE, DestinationOrigin.COOKIES, 'Three',
-          DestinationConnectionStatus.ONLINE,
-          {description: 'ABC', tags: ['__cp__location=123']}),
+          'id3', DestinationOrigin.LOCAL, 'Three',
+          {description: 'ABC', location: '123'}),
       new Destination(
-          'id4', DestinationType.GOOGLE, DestinationOrigin.COOKIES, 'Four',
-          DestinationConnectionStatus.ONLINE,
-          {description: 'XYZ', tags: ['__cp__location=123']}),
+          'id4', DestinationOrigin.LOCAL, 'Four',
+          {description: 'XYZ', location: '123'}),
       new Destination(
-          'id5', DestinationType.GOOGLE, DestinationOrigin.COOKIES, 'Five',
-          DestinationConnectionStatus.ONLINE,
-          {description: 'XYZ', tags: ['__cp__location=123']})
+          'id5', DestinationOrigin.LOCAL, 'Five',
+          {description: 'XYZ', location: '123'}),
     ];
 
     // Set up list
-    document.body.innerHTML = `
+    document.body.innerHTML = getTrustedHTML`
           <print-preview-destination-list id="testList" has-action-link=true
               loading-destinations=false list-name="test">
           </print-preview-destination-list>`;
@@ -61,7 +55,7 @@ suite(destination_list_test.suiteName, function() {
 
   // Tests that the list correctly shows and hides destinations based on the
   // value of the search query.
-  test(assert(destination_list_test.TestNames.FilterDestinations), function() {
+  test(destination_list_test.TestNames.FilterDestinations, function() {
     const items = list.shadowRoot!.querySelectorAll(
         'print-preview-destination-list-item');
     const noMatchHint = list.shadowRoot!.querySelector<HTMLElement>(
@@ -137,8 +131,7 @@ suite(destination_list_test.suiteName, function() {
   // Tests that the list correctly fires the destination selected event when
   // the destination is clicked or the enter key is pressed.
   test(
-      assert(destination_list_test.TestNames.FireDestinationSelected),
-      function() {
+      destination_list_test.TestNames.FireDestinationSelected, function() {
         const items = list.shadowRoot!.querySelectorAll(
             'print-preview-destination-list-item');
         let whenDestinationSelected =

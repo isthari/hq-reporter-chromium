@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,10 +13,10 @@
 #include <utility>
 #include <vector>
 
-#include "base/callback.h"
 #include "base/containers/queue.h"
 #include "base/containers/span.h"
-#include "base/memory/ref_counted.h"
+#include "base/functional/callback.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/memory/writable_shared_memory_region.h"
 #include "base/process/process.h"
 #include "base/task/single_thread_task_runner.h"
@@ -188,8 +188,15 @@ class MOJO_SYSTEM_IMPL_EXPORT NodeController : public ports::NodeDelegate,
   void SendBrokerClientInvitationOnIOThread(
       base::Process target_process,
       ConnectionParams connection_params,
-      ports::NodeName token,
+      ports::NodeName temporary_node_name,
       const ProcessErrorCallback& process_error_callback);
+  void FinishSendBrokerClientInvitationOnIOThread(
+      base::Process target_process,
+      ConnectionParams connection_params,
+      ports::NodeName temporary_node_name,
+      Channel::HandlePolicy handle_policy,
+      const ProcessErrorCallback& process_error_callback);
+
   void AcceptBrokerClientInvitationOnIOThread(
       ConnectionParams connection_params,
       absl::optional<PlatformHandle> broker_host_handle);

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,9 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
+#include "base/functional/callback.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/ash/file_system_provider/abort_callback.h"
 #include "chrome/browser/ash/file_system_provider/provided_file_system_observer.h"
@@ -35,7 +35,7 @@ namespace ash {
 namespace file_system_provider {
 
 class ProvidedFileSystemInfo;
-class RequestManager;
+class OperationRequestManager;
 
 // Represents metadata for either a file or a directory.
 struct EntryMetadata {
@@ -269,7 +269,7 @@ class ProvidedFileSystemInterface {
   virtual const OpenedFiles& GetOpenedFiles() const = 0;
 
   // Returns a request manager for the file system.
-  virtual RequestManager* GetRequestManager() = 0;
+  virtual OperationRequestManager* GetRequestManager() = 0;
 
   // Adds an observer on the file system.
   virtual void AddObserver(ProvidedFileSystemObserver* observer) = 0;
@@ -283,17 +283,5 @@ class ProvidedFileSystemInterface {
 
 }  // namespace file_system_provider
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove when ChromeOS code migration is done.
-namespace chromeos {
-namespace file_system_provider {
-using ::ash::file_system_provider::Action;
-using ::ash::file_system_provider::EntryMetadata;
-using ::ash::file_system_provider::OPEN_FILE_MODE_READ;
-using ::ash::file_system_provider::OPEN_FILE_MODE_WRITE;
-using ::ash::file_system_provider::OpenedFiles;
-using ::ash::file_system_provider::OpenFileMode;
-}  // namespace file_system_provider
-}  // namespace chromeos
 
 #endif  // CHROME_BROWSER_ASH_FILE_SYSTEM_PROVIDER_PROVIDED_FILE_SYSTEM_INTERFACE_H_

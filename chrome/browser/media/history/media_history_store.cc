@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,18 +6,17 @@
 
 #include <tuple>
 
-#include "base/callback.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
-#include "base/metrics/histogram_functions.h"
+#include "base/functional/callback.h"
 #include "base/strings/stringprintf.h"
-#include "base/task/task_runner_util.h"
 #include "build/build_config.h"
 #include "chrome/browser/media/history/media_history_images_table.h"
 #include "chrome/browser/media/history/media_history_origin_table.h"
 #include "chrome/browser/media/history/media_history_playback_table.h"
 #include "chrome/browser/media/history/media_history_session_images_table.h"
 #include "chrome/browser/media/history/media_history_session_table.h"
+#include "chrome/browser/profiles/profile.h"
 #include "content/public/browser/media_player_watch_time.h"
 #include "net/cookies/cookie_change_dispatcher.h"
 #include "services/media_session/public/cpp/media_image.h"
@@ -74,7 +73,8 @@ int MigrateFrom1To2(sql::Database* db, sql::MetaTable* meta_table) {
   // the mediaFeed table, so just bump the version number and return 2 to
   // indicate success.
   const int kTargetVersion = 2;
-  meta_table->SetVersionNumber(kTargetVersion);
+  // TODO(crbug.com/1414092): Handle failure instead of ignoring it.
+  std::ignore = meta_table->SetVersionNumber(kTargetVersion);
   return kTargetVersion;
 }
 
@@ -86,7 +86,8 @@ int MigrateFrom2To3(sql::Database* db, sql::MetaTable* meta_table) {
       "DROP TABLE IF EXISTS mediaFeedAssociatedOrigin;";
   sql::Transaction transaction(db);
   if (transaction.Begin() && db->Execute(k2To3Sql) && transaction.Commit()) {
-    meta_table->SetVersionNumber(kTargetVersion);
+    // TODO(crbug.com/1414092): Handle failure instead of ignoring it.
+    std::ignore = meta_table->SetVersionNumber(kTargetVersion);
     return kTargetVersion;
   }
   return 2;
@@ -97,7 +98,8 @@ int MigrateFrom3To4(sql::Database* db, sql::MetaTable* meta_table) {
   // the mediaFeed table, so just bump the version number and return 4 to
   // indicate success.
   const int kTargetVersion = 4;
-  meta_table->SetVersionNumber(kTargetVersion);
+  // TODO(crbug.com/1414092): Handle failure instead of ignoring it.
+  std::ignore = meta_table->SetVersionNumber(kTargetVersion);
   return kTargetVersion;
 }
 
@@ -106,7 +108,8 @@ int MigrateFrom4To5(sql::Database* db, sql::MetaTable* meta_table) {
   // the mediaFeed table, so just bump the version number and return 5 to
   // indicate success.
   const int kTargetVersion = 5;
-  meta_table->SetVersionNumber(kTargetVersion);
+  // TODO(crbug.com/1414092): Handle failure instead of ignoring it.
+  std::ignore = meta_table->SetVersionNumber(kTargetVersion);
   return kTargetVersion;
 }
 
@@ -121,7 +124,8 @@ int MigrateFrom5To6(sql::Database* db, sql::MetaTable* meta_table) {
     return 5;
   }
 
-  meta_table->SetVersionNumber(kTargetVersion);
+  // TODO(crbug.com/1414092): Handle failure instead of ignoring it.
+  std::ignore = meta_table->SetVersionNumber(kTargetVersion);
   return kTargetVersion;
 }
 
@@ -132,21 +136,6 @@ int GetCurrentVersion() {
 }
 
 namespace media_history {
-
-const char MediaHistoryStore::kInitResultHistogramName[] =
-    "Media.History.Init.Result";
-
-const char MediaHistoryStore::kInitResultAfterDeleteHistogramName[] =
-    "Media.History.Init.ResultAfterDelete";
-
-const char MediaHistoryStore::kPlaybackWriteResultHistogramName[] =
-    "Media.History.Playback.WriteResult";
-
-const char MediaHistoryStore::kSessionWriteResultHistogramName[] =
-    "Media.History.Session.WriteResult";
-
-const char MediaHistoryStore::kDatabaseSizeKbHistogramName[] =
-    "Media.History.DatabaseSize";
 
 MediaHistoryStore::MediaHistoryStore(
     Profile* profile,
@@ -192,67 +181,34 @@ void MediaHistoryStore::SavePlayback(
   if (!CanAccessDatabase())
     return;
 
-  if (!DB()->BeginTransaction()) {
+  sql::Transaction transaction(DB());
+  if (!transaction.Begin()) {
     LOG(ERROR) << "Failed to begin the transaction.";
-
-    base::UmaHistogramEnumeration(
-        MediaHistoryStore::kPlaybackWriteResultHistogramName,
-        MediaHistoryStore::PlaybackWriteResult::kFailedToEstablishTransaction);
-
     return;
   }
 
   // TODO(https://crbug.com/1052436): Remove the separate origin.
   auto origin = url::Origin::Create(watch_time->origin);
   if (origin != url::Origin::Create(watch_time->url)) {
-    DB()->RollbackTransaction();
-
-    base::UmaHistogramEnumeration(
-        MediaHistoryStore::kPlaybackWriteResultHistogramName,
-        MediaHistoryStore::PlaybackWriteResult::kFailedToWriteBadOrigin);
-
     return;
   }
 
   if (!CreateOriginId(origin)) {
-    DB()->RollbackTransaction();
-
-    base::UmaHistogramEnumeration(
-        MediaHistoryStore::kPlaybackWriteResultHistogramName,
-        MediaHistoryStore::PlaybackWriteResult::kFailedToWriteOrigin);
-
     return;
   }
 
   if (!playback_table_->SavePlayback(*watch_time)) {
-    DB()->RollbackTransaction();
-
-    base::UmaHistogramEnumeration(
-        MediaHistoryStore::kPlaybackWriteResultHistogramName,
-        MediaHistoryStore::PlaybackWriteResult::kFailedToWritePlayback);
-
     return;
   }
 
   if (watch_time->has_audio && watch_time->has_video) {
     if (!origin_table_->IncrementAggregateAudioVideoWatchTime(
             origin, watch_time->cumulative_watch_time)) {
-      DB()->RollbackTransaction();
-
-      base::UmaHistogramEnumeration(
-          MediaHistoryStore::kPlaybackWriteResultHistogramName,
-          MediaHistoryStore::PlaybackWriteResult::
-              kFailedToIncrementAggreatedWatchtime);
-
       return;
     }
   }
 
-  DB()->CommitTransaction();
-
-  base::UmaHistogramEnumeration(
-      MediaHistoryStore::kPlaybackWriteResultHistogramName,
-      MediaHistoryStore::PlaybackWriteResult::kSuccess);
+  transaction.Commit();
 }
 
 void MediaHistoryStore::Initialize(const bool should_reset) {
@@ -261,11 +217,6 @@ void MediaHistoryStore::Initialize(const bool should_reset) {
   if (should_reset) {
     if (!sql::Database::Delete(db_path_)) {
       LOG(ERROR) << "Failed to delete the old database.";
-
-      base::UmaHistogramEnumeration(
-          MediaHistoryStore::kInitResultHistogramName,
-          MediaHistoryStore::InitResult::kFailedToDeleteOldDatabase);
-
       return;
     }
   }
@@ -273,7 +224,7 @@ void MediaHistoryStore::Initialize(const bool should_reset) {
   if (IsCancelled())
     return;
 
-  auto result = InitializeInternal();
+  bool result = InitializeInternal();
 
   if (IsCancelled()) {
     meta_table_.reset();
@@ -281,31 +232,24 @@ void MediaHistoryStore::Initialize(const bool should_reset) {
     return;
   }
 
-  base::UmaHistogramEnumeration(MediaHistoryStore::kInitResultHistogramName,
-                                result);
-
   // In some edge cases the DB might be corrupted and unrecoverable so we should
   // delete the database and recreate it.
-  if (result != InitResult::kSuccess) {
+  if (!result) {
     db_ = std::make_unique<sql::Database>();
     meta_table_ = std::make_unique<sql::MetaTable>();
 
     sql::Database::Delete(db_path_);
-
-    base::UmaHistogramEnumeration(
-        MediaHistoryStore::kInitResultAfterDeleteHistogramName,
-        InitializeInternal());
   }
 }
 
-MediaHistoryStore::InitResult MediaHistoryStore::InitializeInternal() {
+bool MediaHistoryStore::InitializeInternal() {
   DCHECK(db_task_runner_->RunsTasksInCurrentSequence());
 
   if (db_path_.empty()) {
     if (IsCancelled() || !db_ || !db_->OpenInMemory()) {
       LOG(ERROR) << "Failed to open the in-memory database.";
 
-      return MediaHistoryStore::InitResult::kFailedToOpenDatabase;
+      return false;
     }
   } else {
     base::File::Error err;
@@ -313,20 +257,20 @@ MediaHistoryStore::InitResult MediaHistoryStore::InitializeInternal() {
         !base::CreateDirectoryAndGetError(db_path_.DirName(), &err)) {
       LOG(ERROR) << "Failed to create the directory.";
 
-      return MediaHistoryStore::InitResult::kFailedToCreateDirectory;
+      return false;
     }
 
     if (IsCancelled() || !db_ || !db_->Open(db_path_)) {
       LOG(ERROR) << "Failed to open the database.";
 
-      return MediaHistoryStore::InitResult::kFailedToOpenDatabase;
+      return false;
     }
   }
 
   if (IsCancelled() || !db_ || !db_->Execute("PRAGMA foreign_keys=1")) {
     LOG(ERROR) << "Failed to enable foreign keys on the media history store.";
 
-    return MediaHistoryStore::InitResult::kFailedNoForeignKeys;
+    return false;
   }
 
   if (IsCancelled() || !db_ || !meta_table_ ||
@@ -334,48 +278,45 @@ MediaHistoryStore::InitResult MediaHistoryStore::InitializeInternal() {
                          kCompatibleVersionNumber)) {
     LOG(ERROR) << "Failed to create the meta table.";
 
-    return MediaHistoryStore::InitResult::kFailedToCreateMetaTable;
+    return false;
   }
 
-  if (IsCancelled() || !db_ || !db_->BeginTransaction()) {
+  if (IsCancelled() || !db_) {
     LOG(ERROR) << "Failed to begin the transaction.";
 
-    return MediaHistoryStore::InitResult::kFailedToEstablishTransaction;
+    return false;
+  }
+
+  sql::Transaction transaction(db_.get());
+  if (!transaction.Begin()) {
+    LOG(ERROR) << "Failed to begin the transaction.";
+
+    return false;
   }
 
   sql::InitStatus status = CreateOrUpgradeIfNeeded();
   if (status != sql::INIT_OK) {
     LOG(ERROR) << "Failed to create or update the media history store.";
 
-    return MediaHistoryStore::InitResult::kFailedDatabaseTooNew;
+    return false;
   }
 
   status = InitializeTables();
   if (status != sql::INIT_OK) {
     LOG(ERROR) << "Failed to initialize the media history store tables.";
 
-    return MediaHistoryStore::InitResult::kFailedInitializeTables;
+    return false;
   }
 
-  if (IsCancelled() || !db_ || !DB()->CommitTransaction()) {
+  if (IsCancelled() || !db_ || !transaction.Commit()) {
     LOG(ERROR) << "Failed to commit transaction.";
 
-    return MediaHistoryStore::InitResult::kFailedToCommitTransaction;
+    return false;
   }
 
   initialization_successful_ = true;
 
-  // Get the size in bytes.
-  int64_t file_size = 0;
-  base::GetFileSize(db_path_, &file_size);
-
-  // Record the size in KB.
-  if (file_size > 0) {
-    base::UmaHistogramMemoryKB(MediaHistoryStore::kDatabaseSizeKbHistogramName,
-                               file_size / 1000);
-  }
-
-  return MediaHistoryStore::InitResult::kSuccess;
+  return true;
 }
 
 sql::InitStatus MediaHistoryStore::CreateOrUpgradeIfNeeded() {
@@ -535,34 +476,20 @@ void MediaHistoryStore::SavePlaybackSession(
   if (!CanAccessDatabase())
     return;
 
-  if (!DB()->BeginTransaction()) {
+  sql::Transaction transaction(DB());
+  if (!transaction.Begin()) {
     LOG(ERROR) << "Failed to begin the transaction.";
-
-    base::UmaHistogramEnumeration(
-        MediaHistoryStore::kSessionWriteResultHistogramName,
-        MediaHistoryStore::SessionWriteResult::kFailedToEstablishTransaction);
-
     return;
   }
 
   auto origin = url::Origin::Create(url);
   if (!CreateOriginId(origin)) {
-    DB()->RollbackTransaction();
-
-    base::UmaHistogramEnumeration(
-        MediaHistoryStore::kSessionWriteResultHistogramName,
-        MediaHistoryStore::SessionWriteResult::kFailedToWriteOrigin);
     return;
   }
 
   auto session_id =
       session_table_->SavePlaybackSession(url, origin, metadata, position);
   if (!session_id) {
-    DB()->RollbackTransaction();
-
-    base::UmaHistogramEnumeration(
-        MediaHistoryStore::kSessionWriteResultHistogramName,
-        MediaHistoryStore::SessionWriteResult::kFailedToWriteSession);
     return;
   }
 
@@ -570,11 +497,6 @@ void MediaHistoryStore::SavePlaybackSession(
     auto image_id =
         images_table_->SaveOrGetImage(image.src, origin, image.type);
     if (!image_id) {
-      DB()->RollbackTransaction();
-
-      base::UmaHistogramEnumeration(
-          MediaHistoryStore::kSessionWriteResultHistogramName,
-          MediaHistoryStore::SessionWriteResult::kFailedToWriteImage);
       return;
     }
 
@@ -589,11 +511,7 @@ void MediaHistoryStore::SavePlaybackSession(
     }
   }
 
-  DB()->CommitTransaction();
-
-  base::UmaHistogramEnumeration(
-      MediaHistoryStore::kSessionWriteResultHistogramName,
-      MediaHistoryStore::SessionWriteResult::kSuccess);
+  transaction.Commit();
 }
 
 std::vector<mojom::MediaHistoryPlaybackSessionRowPtr>
@@ -621,19 +539,18 @@ void MediaHistoryStore::DeleteAllOriginData(
   if (!CanAccessDatabase())
     return;
 
-  if (!DB()->BeginTransaction()) {
+  sql::Transaction transaction(DB());
+  if (!transaction.Begin()) {
     LOG(ERROR) << "Failed to begin the transaction.";
     return;
   }
 
   for (auto& origin : origins) {
-    if (!origin_table_->Delete(origin)) {
-      DB()->RollbackTransaction();
+    if (!origin_table_->Delete(origin))
       return;
-    }
   }
 
-  DB()->CommitTransaction();
+  transaction.Commit();
 }
 
 void MediaHistoryStore::DeleteAllURLData(const std::set<GURL>& urls) {
@@ -641,7 +558,8 @@ void MediaHistoryStore::DeleteAllURLData(const std::set<GURL>& urls) {
   if (!CanAccessDatabase())
     return;
 
-  if (!DB()->BeginTransaction()) {
+  sql::Transaction transaction(DB());
+  if (!transaction.Begin()) {
     LOG(ERROR) << "Failed to begin the transaction.";
     return;
   }
@@ -656,18 +574,14 @@ void MediaHistoryStore::DeleteAllURLData(const std::set<GURL>& urls) {
     origins_with_deletions.insert(url::Origin::Create(url));
 
     for (auto* table : tables) {
-      if (!table->DeleteURL(url)) {
-        DB()->RollbackTransaction();
+      if (!table->DeleteURL(url))
         return;
-      }
     }
   }
 
   for (auto& origin : origins_with_deletions) {
-    if (!origin_table_->RecalculateAggregateAudioVideoWatchTime(origin)) {
-      DB()->RollbackTransaction();
+    if (!origin_table_->RecalculateAggregateAudioVideoWatchTime(origin))
       return;
-    }
   }
 
   // The mediaImages table will not be automatically cleared when we remove
@@ -678,11 +592,8 @@ void MediaHistoryStore::DeleteAllURLData(const std::set<GURL>& urls) {
       "  ON sessionImage.image_id = mediaImage.id"
       "  WHERE sessionImage.session_id IS NULL)"));
 
-  if (!statement.Run()) {
-    DB()->RollbackTransaction();
-  } else {
-    DB()->CommitTransaction();
-  }
+  if (statement.Run())
+    transaction.Commit();
 }
 
 std::set<GURL> MediaHistoryStore::GetURLsInTableForTest(

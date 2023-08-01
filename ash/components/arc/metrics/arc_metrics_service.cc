@@ -1,8 +1,10 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/components/arc/metrics/arc_metrics_service.h"
+
+#include <sys/sysinfo.h>
 
 #include <string>
 #include <utility>
@@ -10,18 +12,23 @@
 #include "ash/components/arc/arc_features.h"
 #include "ash/components/arc/arc_prefs.h"
 #include "ash/components/arc/arc_util.h"
+#include "ash/components/arc/metrics/arc_metrics_anr.h"
 #include "ash/components/arc/metrics/stability_metrics_manager.h"
 #include "ash/components/arc/session/arc_bridge_service.h"
 #include "ash/public/cpp/app_types_util.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/memory/singleton.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_util.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/time/time.h"
+#include "chromeos/ash/components/dbus/concierge/concierge_client.h"
+#include "chromeos/ash/components/dbus/session_manager/session_manager_client.h"
 #include "chromeos/dbus/power_manager/idle.pb.h"
-#include "chromeos/dbus/session_manager/session_manager_client.h"
 #include "components/exo/wm_helper.h"
 #include "components/metrics/psi_memory_parser.h"
 #include "components/prefs/pref_service.h"
@@ -43,6 +50,10 @@ constexpr int kUmaFixupDirectoriesCountMin = 0;
 constexpr int kUmaFixupDirectoriesCountMax = 5000000;
 constexpr int kUmaFixupAppsCountMin = 0;
 constexpr int kUmaFixupAppsCountMax = 10000;
+constexpr int kUmaDataFilesCountMin = 1;
+constexpr int kUmaDataFilesCountMax = 5000000;
+constexpr int kUmaDataSizeInKiloBytesMin = 1;
+constexpr int kUmaDataSizeInKiloBytesMax = INT_MAX - 1;
 
 constexpr base::TimeDelta kRequestProcessListPeriod = base::Minutes(5);
 constexpr char kArcProcessNamePrefix[] = "org.chromium.arc.";
@@ -50,49 +61,22 @@ constexpr char kGmsProcessNamePrefix[] = "com.google.android.gms";
 constexpr char kBootProgressEnableScreen[] = "boot_progress_enable_screen";
 constexpr char kBootProgressArcUpgraded[] = "boot_progress_arc_upgraded";
 
-// App types to report.
-constexpr char kAppTypeArcAppLauncher[] = "ArcAppLauncher";
-constexpr char kAppTypeArcOther[] = "ArcOther";
-constexpr char kAppTypeFirstParty[] = "FirstParty";
-constexpr char kAppTypeGmsCore[] = "GmsCore";
-constexpr char kAppTypePlayStore[] = "PlayStore";
-constexpr char kAppTypeSystemServer[] = "SystemServer";
-constexpr char kAppTypeSystem[] = "SystemApp";
-constexpr char kAppTypeOther[] = "Other";
+// Interval for collecting UMA "Arc.App.LowMemoryKills.*Count10Minutes" metrics.
+constexpr base::TimeDelta kRequestKillCountPeriod = base::Minutes(10);
 
 // Memory pressure histograms.
 const char kPSIMemoryPressureSomeARC[] = "ChromeOS.CWP.PSIMemPressure.ArcSome";
 const char kPSIMemoryPressureFullARC[] = "ChromeOS.CWP.PSIMemPressure.ArcFull";
+
+// Provisioning pre-sign-in time delta histogram.
+constexpr char kProvisioningPreSignInTimeDelta[] =
+    "Arc.Provisioning.PreSignIn.TimeDelta";
 
 // Logs UMA enum values to facilitate finding feedback reports in Xamine.
 template <typename T>
 void LogStabilityUmaEnum(const std::string& name, T sample) {
   base::UmaHistogramEnumeration(name, sample);
   VLOG(1) << name << ": " << static_cast<std::underlying_type_t<T>>(sample);
-}
-
-std::string AnrSourceToTableName(mojom::AnrSource value) {
-  switch (value) {
-    case mojom::AnrSource::OTHER:
-      return kAppTypeOther;
-    case mojom::AnrSource::SYSTEM_SERVER:
-      return kAppTypeSystemServer;
-    case mojom::AnrSource::SYSTEM_APP:
-      return kAppTypeSystem;
-    case mojom::AnrSource::GMS_CORE:
-      return kAppTypeGmsCore;
-    case mojom::AnrSource::PLAY_STORE:
-      return kAppTypePlayStore;
-    case mojom::AnrSource::FIRST_PARTY:
-      return kAppTypeFirstParty;
-    case mojom::AnrSource::ARC_OTHER:
-      return kAppTypeArcOther;
-    case mojom::AnrSource::ARC_APP_LAUNCHER:
-      return kAppTypeArcAppLauncher;
-    default:
-      LOG(ERROR) << "Unrecognized source ANR " << value;
-      return kAppTypeOther;
-  }
 }
 
 std::string BootTypeToString(mojom::BootType boot_type) {
@@ -134,6 +118,61 @@ const char* DnsQueryToString(mojom::ArcDnsQuery query) {
   NOTREACHED();
   return "";
 }
+
+std::string AndroidDataSubdirectoryToString(
+    mojom::AndroidDataSubdirectory subdirectory) {
+  switch (subdirectory) {
+    case mojom::AndroidDataSubdirectory::kUserInstalledAppDir:
+      return "UserInstalledAppDir";
+    case mojom::AndroidDataSubdirectory::kInternalDataDir:
+      return "InternalDataDir";
+    case mojom::AndroidDataSubdirectory::kExternalDataRootUserDir:
+      return "ExternalDataRootUserDir";
+    case mojom::AndroidDataSubdirectory::kDEStorageRootUserDir:
+      return "DEStorageRootUserDir";
+  }
+  NOTREACHED();
+  return "";
+}
+
+const char* WaylandTimingEventToString(mojom::WaylandTimingEvent event) {
+  switch (event) {
+    case mojom::WaylandTimingEvent::kOther:
+      return ".Other";
+    case mojom::WaylandTimingEvent::kBinderReleaseClipboardData:
+      return ".BinderReleaseClipboardData";
+    case mojom::WaylandTimingEvent::kWlBufferRelease:
+      return ".WlBufferRelease";
+    case mojom::WaylandTimingEvent::kWlKeyboardLeave:
+      return ".WlKeyboardLeave";
+    case mojom::WaylandTimingEvent::kWlPointerMotion:
+      return ".WlPointerMotion";
+    case mojom::WaylandTimingEvent::kWlPointerLeave:
+      return ".WlPointerLeave";
+    case mojom::WaylandTimingEvent::kZauraShellActivated:
+      return ".ZauraShellActivated";
+    case mojom::WaylandTimingEvent::kZauraSurfaceOcclusionChanged:
+      return ".ZauraSurfaceOcclusionChanged";
+    case mojom::WaylandTimingEvent::kZcrRemoteSurfaceWindowGeometryChanged:
+      return ".ZcrRemoteSurfaceWindowGeometryChanged";
+    case mojom::WaylandTimingEvent::kZcrRemoteSurfaceBoundsChangedInOutput:
+      return ".ZcrRemoteSurfaceBoundsChangedInOutput";
+    case mojom::WaylandTimingEvent::kZcrVsyncTimingUpdate:
+      return ".ZcrVsyncTimingUpdate";
+  }
+  NOTREACHED();
+  return "";
+}
+struct LoadAverageHistogram {
+  const char* name;
+  base::TimeDelta duration;
+};
+constexpr LoadAverageHistogram kLoadAverageHistograms[] = {
+    {"Arc.LoadAverageX100PerProcessor1MinuteAfterArcStart", base::Minutes(1)},
+    {"Arc.LoadAverageX100PerProcessor5MinutesAfterArcStart", base::Minutes(5)},
+    {"Arc.LoadAverageX100PerProcessor15MinutesAfterArcStart",
+     base::Minutes(15)},
+};
 
 }  // namespace
 
@@ -179,6 +218,7 @@ ArcMetricsService::ArcMetricsService(content::BrowserContext* context,
     exo::WMHelper::GetInstance()->AddActivationObserver(this);
   ui::GamepadProviderOzone::GetInstance()->AddGamepadObserver(this);
 
+  DCHECK(StabilityMetricsManager::Get());
   StabilityMetricsManager::Get()->SetArcNativeBridgeType(
       NativeBridgeType::UNKNOWN);
 
@@ -205,6 +245,7 @@ ArcMetricsService::~ArcMetricsService() {
 }
 
 void ArcMetricsService::Shutdown() {
+  metrics_anr_.reset();
   for (auto& obs : app_kill_observers_)
     obs.OnArcMetricsServiceDestroyed();
   app_kill_observers_.Clear();
@@ -229,19 +270,31 @@ void ArcMetricsService::RecordArcUserInteraction(UserInteractionType type) {
     obs.OnUserInteraction(type);
 }
 
-void ArcMetricsService::SetHistogramNamer(HistogramNamer histogram_namer) {
-  histogram_namer_ = histogram_namer;
+void ArcMetricsService::SetHistogramNamerCallback(
+    HistogramNamerCallback histogram_namer_cb) {
+  histogram_namer_cb_ = histogram_namer_cb;
 }
 
 void ArcMetricsService::OnProcessConnectionReady() {
   VLOG(2) << "Start updating process list.";
   request_process_list_timer_.Start(FROM_HERE, kRequestProcessListPeriod, this,
                                     &ArcMetricsService::RequestProcessList);
+
+  if (IsArcVmEnabled()) {
+    prev_logged_memory_kills_.reset();
+    // Initialize prev_logged_memory_kills_ by immediately requesting new
+    // values. We don't need the VM list to exist to update it, so pass nullopt.
+    OnListVmsResponse(absl::nullopt);
+    request_kill_count_timer_.Start(
+        FROM_HERE, kRequestKillCountPeriod, this,
+        &ArcMetricsService::OnRequestKillCountTimer);
+  }
 }
 
 void ArcMetricsService::OnProcessConnectionClosed() {
   VLOG(2) << "Stop updating process list.";
   request_process_list_timer_.Stop();
+  request_kill_count_timer_.Stop();
 }
 
 void ArcMetricsService::RequestProcessList() {
@@ -280,6 +333,162 @@ void ArcMetricsService::ParseProcessList(
   UMA_HISTOGRAM_COUNTS_100("Arc.AppCount", running_app_count);
 }
 
+// Helper that logs a single kill count type to a histogram, or logs a warning
+// if the counter decreased.
+static void LogLowMemoryKillCount(const char* vm_desc,
+                                  const char* name,
+                                  uint32_t prev_kills,
+                                  uint32_t curr_kills) {
+  if (prev_kills <= curr_kills) {
+    std::string histogram =
+        base::StringPrintf("Arc.App.LowMemoryKills%s%s", vm_desc, name);
+    base::UmaHistogramExactLinear(histogram, curr_kills - prev_kills, 50);
+  } else {
+    LOG(WARNING) << "LowMemoryKillCounts reported a decrease for " << vm_desc
+                 << name << ", previous: " << prev_kills
+                 << ", current: " << curr_kills;
+  }
+}
+
+// Helper that logs kill counts for a specific background VM.
+static void LogLowMemoryKillCountsForVm(
+    const char* vm_desc,
+    const mojom::LowMemoryKillCountsPtr& prev,
+    const mojom::LowMemoryKillCountsPtr& curr) {
+  LogLowMemoryKillCount(vm_desc, ".LinuxOOMCount10Minutes", prev->guest_oom,
+                        curr->guest_oom);
+  LogLowMemoryKillCount(vm_desc, ".LMKD.ForegroundCount10Minutes",
+                        prev->lmkd_foreground, curr->lmkd_foreground);
+  LogLowMemoryKillCount(vm_desc, ".LMKD.PerceptibleCount10Minutes",
+                        prev->lmkd_perceptible, curr->lmkd_perceptible);
+  LogLowMemoryKillCount(vm_desc, ".LMKD.CachedCount10Minutes",
+                        prev->lmkd_cached, curr->lmkd_cached);
+  LogLowMemoryKillCount(vm_desc, ".Pressure.ForegroundCount10Minutes",
+                        prev->pressure_foreground, curr->pressure_foreground);
+  LogLowMemoryKillCount(vm_desc, ".Pressure.PerceptibleCount10Minutes",
+                        prev->pressure_perceptible, curr->pressure_perceptible);
+  LogLowMemoryKillCount(vm_desc, ".Pressure.CachedCount10Minutes",
+                        prev->pressure_cached, curr->pressure_cached);
+}
+
+static void LogLowMemoryKillCounts(
+    const mojom::LowMemoryKillCountsPtr& prev,
+    const mojom::LowMemoryKillCountsPtr& curr,
+    absl::optional<vm_tools::concierge::ListVmsResponse> vms_list) {
+  // Only log to the histograms if we have a previous sample to compute deltas
+  // from.
+  if (!prev)
+    return;
+
+  LogLowMemoryKillCountsForVm("", prev, curr);
+
+  // Only log the background VMs counters if we have a valid list of background
+  // VMs.
+  if (!vms_list || !vms_list->success())
+    return;
+
+  // Use a set to de-duplicate VM types.
+  std::unordered_set<vm_tools::concierge::VmInfo_VmType> vm_types;
+  for (int i = 0; i < vms_list->vms_size(); i++) {
+    const auto& vm = vms_list->vms(i);
+    if (vm.has_vm_info()) {
+      const auto& info = vm.vm_info();
+      vm_types.emplace(info.vm_type());
+    } else {
+      LOG(WARNING) << "OnLowMemoryKillCounts got VM " << vm.name()
+                   << " with no vm_info.";
+    }
+  }
+  for (auto vm_type : vm_types) {
+    switch (vm_type) {
+      case vm_tools::concierge::VmInfo_VmType_ARC_VM:
+        if (vm_types.size() == 1) {
+          // Only ARCVM, log to a special set of counters.
+          LogLowMemoryKillCountsForVm(".OnlyArc", prev, curr);
+        }
+        break;
+
+      case vm_tools::concierge::VmInfo_VmType_BOREALIS:
+        LogLowMemoryKillCountsForVm(".Steam", prev, curr);
+        break;
+
+      case vm_tools::concierge::VmInfo_VmType_TERMINA:
+        LogLowMemoryKillCountsForVm(".Crostini", prev, curr);
+        break;
+
+      case vm_tools::concierge::VmInfo_VmType_PLUGIN_VM:
+        LogLowMemoryKillCountsForVm(".PluginVm", prev, curr);
+        break;
+
+      default:
+        LogLowMemoryKillCountsForVm(".UnknownVm", prev, curr);
+        break;
+    }
+  }
+}
+
+void ArcMetricsService::RequestKillCountsForTesting() {
+  OnRequestKillCountTimer();
+}
+
+void ArcMetricsService::OnRequestKillCountTimer() {
+  auto* client = ash::ConciergeClient::Get();
+  if (!client) {
+    LOG(WARNING)
+        << "Cannot get ConciergeClient for method OnRequestKillCountTimer";
+    return;
+  }
+  vm_tools::concierge::ListVmsRequest request;
+  request.set_owner_id(user_id_hash_);
+  client->ListVms(request, base::BindOnce(&ArcMetricsService::OnListVmsResponse,
+                                          weak_ptr_factory_.GetWeakPtr()));
+}
+
+void ArcMetricsService::OnListVmsResponse(
+    absl::optional<vm_tools::concierge::ListVmsResponse> response) {
+  mojom::ProcessInstance* process_instance = ARC_GET_INSTANCE_FOR_METHOD(
+      arc_bridge_service_->process(), RequestLowMemoryKillCounts);
+  if (!process_instance) {
+    LOG(WARNING) << "Cannot get ProcessInstance for method OnListVmsResponse";
+    return;
+  }
+  process_instance->RequestLowMemoryKillCounts(
+      base::BindOnce(&ArcMetricsService::OnLowMemoryKillCounts,
+                     weak_ptr_factory_.GetWeakPtr(), response));
+}
+
+void ArcMetricsService::OnLowMemoryKillCounts(
+    absl::optional<vm_tools::concierge::ListVmsResponse> vms_list,
+    mojom::LowMemoryKillCountsPtr counts) {
+  DCHECK(daily_);
+  if (daily_) {
+    int oom = counts->guest_oom;
+    int foreground = counts->lmkd_foreground + counts->pressure_foreground;
+    int perceptible = counts->lmkd_perceptible + counts->pressure_foreground;
+    int cached = counts->lmkd_cached + counts->pressure_cached;
+    if (prev_logged_memory_kills_) {
+      oom -= prev_logged_memory_kills_->guest_oom;
+      foreground -= prev_logged_memory_kills_->lmkd_foreground +
+                    prev_logged_memory_kills_->pressure_foreground;
+      perceptible -= prev_logged_memory_kills_->lmkd_perceptible +
+                     prev_logged_memory_kills_->pressure_perceptible;
+      cached -= prev_logged_memory_kills_->lmkd_cached +
+                prev_logged_memory_kills_->pressure_cached;
+    }
+    if (oom >= 0 && foreground >= 0 && perceptible >= 0 && cached >= 0) {
+      daily_->OnLowMemoryKillCounts(vms_list, oom, foreground, perceptible,
+                                    cached);
+    } else {
+      LOG(WARNING) << "OnLowMemoryKillCounts observed a decrease in monotonic "
+                      "kill counters";
+    }
+  }
+
+  LogLowMemoryKillCounts(prev_logged_memory_kills_, counts, vms_list);
+
+  prev_logged_memory_kills_ = std::move(counts);
+}
+
 void ArcMetricsService::OnArcStartTimeRetrieved(
     std::vector<mojom::BootProgressEventPtr> events,
     mojom::BootType boot_type,
@@ -296,12 +505,9 @@ void ArcMetricsService::OnArcStartTimeRetrieved(
   for (const auto& event : events) {
     VLOG(2) << "Report boot progress event:" << event->event << "@"
             << event->uptimeMillis;
-    const std::string name = "Arc." + event->event + suffix;
     const base::TimeTicks uptime =
         base::Milliseconds(event->uptimeMillis) + base::TimeTicks();
     const base::TimeDelta elapsed_time = uptime - arc_start_time.value();
-    base::UmaHistogramCustomTimes(name, elapsed_time, kUmaMinTime, kUmaMaxTime,
-                                  kUmaNumBuckets);
     if (event->event.compare(kBootProgressEnableScreen) == 0) {
       base::UmaHistogramCustomTimes("Arc.AndroidBootTime" + suffix,
                                     elapsed_time, kUmaMinTime, kUmaMaxTime,
@@ -318,6 +524,11 @@ void ArcMetricsService::ReportBootProgress(
     LOG(WARNING) << "boot_type is unknown. Skip recording UMA.";
     return;
   }
+  boot_type_ = boot_type;
+  for (auto& obs : boot_type_observers_)
+    obs.OnBootTypeRetrieved(boot_type);
+  if (metrics_anr_)
+    metrics_anr_->set_uma_suffix(BootTypeToString(boot_type));
 
   if (IsArcVmEnabled()) {
     // For VM builds, do not call into session_manager since we don't use it
@@ -330,9 +541,12 @@ void ArcMetricsService::ReportBootProgress(
   }
 
   // Retrieve ARC full container's start time from session manager.
-  chromeos::SessionManagerClient::Get()->GetArcStartTime(base::BindOnce(
+  ash::SessionManagerClient::Get()->GetArcStartTime(base::BindOnce(
       &ArcMetricsService::OnArcStartTimeRetrieved,
       weak_ptr_factory_.GetWeakPtr(), std::move(events), boot_type));
+
+  // Record load average in case they are already measured.
+  MaybeRecordLoadAveragePerProcessor();
 }
 
 void ArcMetricsService::ReportNativeBridge(
@@ -381,14 +595,14 @@ void ArcMetricsService::ReportDnsQueryResult(mojom::ArcDnsQuery query,
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   std::string metric_name =
       base::StrCat({"Arc.Net.DnsQuery.", DnsQueryToString(query)});
-  VLOG(3) << metric_name << ": " << success;
+  if (!success)
+    VLOG(4) << metric_name << ": " << success;
   base::UmaHistogramBoolean(metric_name, success);
 }
 
-void ArcMetricsService::ReportImageCopyPasteCompatAction(
+void ArcMetricsService::ReportImageCopyPasteCompatActionDeprecated(
     mojom::ArcImageCopyPasteCompatAction action_type) {
-  base::UmaHistogramEnumeration("Arc.ImageCopyPasteCompatOperationType",
-                                action_type);
+  // Intentionally no-op. This metric was deprecated.
 }
 
 void ArcMetricsService::NotifyLowMemoryKill() {
@@ -458,7 +672,7 @@ void ArcMetricsService::ReportArcCorePriAbiMigBootTime(
   // time, which is fetched from session manager.
   const base::TimeTicks durationTicks = duration + base::TimeTicks();
   // Retrieve ARC full container's start time from session manager.
-  chromeos::SessionManagerClient::Get()->GetArcStartTime(
+  ash::SessionManagerClient::Get()->GetArcStartTime(
       base::BindOnce(&ArcMetricsService::OnArcStartTimeForPriAbiMigration,
                      weak_ptr_factory_.GetWeakPtr(), durationTicks));
 }
@@ -481,15 +695,26 @@ void ArcMetricsService::ReportClipboardDragDropEvent(
 
 void ArcMetricsService::ReportAnr(mojom::AnrPtr anr) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  base::UmaHistogramEnumeration("Arc.Anr.Overall", anr->type);
-  LogStabilityUmaEnum("Arc.Anr." + AnrSourceToTableName(anr->source),
-                      anr->type);
+
+  if (!metrics_anr_) {
+    LOG(ERROR) << "ANR is reported when no ANR metric service is connected";
+    return;
+  }
+
+  metrics_anr_->Report(std::move(anr));
 }
 
 void ArcMetricsService::ReportLowLatencyStylusLibApiUsage(
     mojom::LowLatencyStylusLibApiId api_id) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   UMA_HISTOGRAM_ENUMERATION("Arc.LowLatencyStylusLibraryApisCounter", api_id);
+}
+
+void ArcMetricsService::ReportVpnServiceBuilderCompatApiUsage(
+    mojom::VpnServiceBuilderCompatApiId api_id) {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  base::UmaHistogramEnumeration("Arc.VpnServiceBuilderCompatApisCounter",
+                                api_id);
 }
 
 void ArcMetricsService::ReportLowLatencyStylusLibPredictionTarget(
@@ -515,6 +740,7 @@ void ArcMetricsService::ReportEntireFixupMetrics(base::TimeDelta duration,
                                  number_of_failures, kUmaFixupAppsCountMin,
                                  kUmaFixupAppsCountMax, kUmaNumBuckets);
 }
+
 void ArcMetricsService::ReportPerAppFixupMetrics(
     base::TimeDelta duration,
     uint32_t number_of_directories) {
@@ -525,6 +751,7 @@ void ArcMetricsService::ReportPerAppFixupMetrics(
                                  kUmaFixupDirectoriesCountMin,
                                  kUmaFixupDirectoriesCountMax, kUmaNumBuckets);
 }
+
 void ArcMetricsService::ReportMainAccountHashMigrationMetrics(
     mojom::MainAccountHashMigrationStatus status) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
@@ -566,6 +793,131 @@ void ArcMetricsService::ReportMemoryPressure(
       metrics::kMemPressureExclusiveMax, metrics::kMemPressureHistogramBuckets);
 }
 
+void ArcMetricsService::SetPrefService(PrefService* prefs) {
+  prefs_ = prefs;
+  daily_ = std::make_unique<ArcDailyMetrics>(prefs);
+}
+
+void ArcMetricsService::ReportProvisioningStartTime(
+    const base::TimeTicks& start_time,
+    const std::string& account_type_suffix) {
+  arc_provisioning_start_time_.emplace(start_time);
+  arc_provisioning_account_type_suffix_.emplace(account_type_suffix);
+}
+
+void ArcMetricsService::ReportProvisioningPreSignIn() {
+  if (arc_provisioning_start_time_.has_value() &&
+      arc_provisioning_account_type_suffix_.has_value()) {
+    base::UmaHistogramCustomTimes(
+        kProvisioningPreSignInTimeDelta +
+            arc_provisioning_account_type_suffix_.value(),
+        base::TimeTicks::Now() - arc_provisioning_start_time_.value(),
+        base::Seconds(1), base::Minutes(5), 50);
+    arc_provisioning_start_time_.reset();
+    arc_provisioning_account_type_suffix_.reset();
+  } else {
+    LOG(ERROR) << "PreSignIn reported without prior starting time";
+  }
+}
+
+void ArcMetricsService::ReportWaylandLateTimingEvent(
+    mojom::WaylandTimingEvent event,
+    base::TimeDelta duration) {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  const std::string suffix = WaylandTimingEventToString(event);
+  base::UmaHistogramLongTimes("Arc.Wayland.LateTiming.Duration" + suffix,
+                              duration);
+  base::UmaHistogramEnumeration("Arc.Wayland.LateTiming.Event", event);
+}
+
+void ArcMetricsService::ReportNonAndroidPlayFilesCount(
+    uint32_t number_of_directories,
+    uint32_t number_of_non_directories) {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  base::UmaHistogramCustomCounts(
+      "Arc.PlayFilesCount.Files",
+      number_of_directories + number_of_non_directories, kUmaDataFilesCountMin,
+      kUmaDataFilesCountMax, kUmaNumBuckets);
+  base::UmaHistogramCustomCounts("Arc.PlayFilesCount.Directories",
+                                 number_of_directories, kUmaDataFilesCountMin,
+                                 kUmaDataFilesCountMax, kUmaNumBuckets);
+  base::UmaHistogramCustomCounts(
+      "Arc.PlayFilesCount.NonDirectories", number_of_non_directories,
+      kUmaDataFilesCountMin, kUmaDataFilesCountMax, kUmaNumBuckets);
+}
+
+void ArcMetricsService::ReportPerAppFileStatsOfAndroidDataDirs(
+    uint32_t number_of_directories,
+    uint32_t number_of_non_directories,
+    uint32_t size_in_kilobytes) {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  base::UmaHistogramCustomCounts(
+      "Arc.AndroidData.PerApp.Files",
+      number_of_directories + number_of_non_directories, kUmaDataFilesCountMin,
+      kUmaDataFilesCountMax, kUmaNumBuckets);
+  base::UmaHistogramCustomCounts("Arc.AndroidData.PerApp.Directories",
+                                 number_of_directories, kUmaDataFilesCountMin,
+                                 kUmaDataFilesCountMax, kUmaNumBuckets);
+  base::UmaHistogramCustomCounts(
+      "Arc.AndroidData.PerApp.NonDirectories", number_of_non_directories,
+      kUmaDataFilesCountMin, kUmaDataFilesCountMax, kUmaNumBuckets);
+  base::UmaHistogramCustomCounts("Arc.AndroidData.PerApp.Size",
+                                 size_in_kilobytes, kUmaDataSizeInKiloBytesMin,
+                                 kUmaDataSizeInKiloBytesMax, kUmaNumBuckets);
+}
+
+void ArcMetricsService::ReportTotalFileStatsOfAndroidDataDirs(
+    uint32_t number_of_directories,
+    uint32_t number_of_non_directories,
+    uint32_t size_in_kilobytes,
+    base::TimeDelta duration) {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  base::UmaHistogramCustomCounts(
+      "Arc.AndroidData.Total.All.Files",
+      number_of_directories + number_of_non_directories, kUmaDataFilesCountMin,
+      kUmaDataFilesCountMax, kUmaNumBuckets);
+  base::UmaHistogramCustomCounts("Arc.AndroidData.Total.All.Directories",
+                                 number_of_directories, kUmaDataFilesCountMin,
+                                 kUmaDataFilesCountMax, kUmaNumBuckets);
+  base::UmaHistogramCustomCounts(
+      "Arc.AndroidData.Total.All.NonDirectories", number_of_non_directories,
+      kUmaDataFilesCountMin, kUmaDataFilesCountMax, kUmaNumBuckets);
+  base::UmaHistogramCustomCounts("Arc.AndroidData.Total.All.Size",
+                                 size_in_kilobytes, kUmaDataSizeInKiloBytesMin,
+                                 kUmaDataSizeInKiloBytesMax, kUmaNumBuckets);
+  base::UmaHistogramLongTimes("Arc.AndroidData.TraversalDuration", duration);
+}
+
+void ArcMetricsService::ReportTotalFileStatsOfAndroidDataSubdir(
+    mojom::AndroidDataSubdirectory target,
+    uint32_t number_of_directories,
+    uint32_t number_of_non_directories,
+    uint32_t size_in_kilobytes) {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  const std::string targetName = AndroidDataSubdirectoryToString(target);
+  base::UmaHistogramCustomCounts(
+      "Arc.AndroidData.Total." + targetName + ".Files",
+      number_of_directories + number_of_non_directories, kUmaDataFilesCountMin,
+      kUmaDataFilesCountMax, kUmaNumBuckets);
+  base::UmaHistogramCustomCounts(
+      "Arc.AndroidData.Total." + targetName + ".Directories",
+      number_of_directories, kUmaDataFilesCountMin, kUmaDataFilesCountMax,
+      kUmaNumBuckets);
+  base::UmaHistogramCustomCounts(
+      "Arc.AndroidData.Total." + targetName + ".NonDirectories",
+      number_of_non_directories, kUmaDataFilesCountMin, kUmaDataFilesCountMax,
+      kUmaNumBuckets);
+  base::UmaHistogramCustomCounts(
+      "Arc.AndroidData.Total." + targetName + ".Size", size_in_kilobytes,
+      kUmaDataSizeInKiloBytesMin, kUmaDataSizeInKiloBytesMax, kUmaNumBuckets);
+}
+
+void ArcMetricsService::ReportWebViewProcessStarted() {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  DCHECK(prefs_);
+  prefs_->SetBoolean(prefs::kWebViewProcessStarted, true);
+}
+
 void ArcMetricsService::OnWindowActivated(
     wm::ActivationChangeObserver::ActivationReason reason,
     aura::Window* gained_active,
@@ -596,13 +948,39 @@ void ArcMetricsService::OnTaskCreated(int32_t task_id,
 }
 
 void ArcMetricsService::OnTaskDestroyed(int32_t task_id) {
-  auto it = std::find(task_ids_.begin(), task_ids_.end(), task_id);
+  auto it = base::ranges::find(task_ids_, task_id);
   if (it == task_ids_.end()) {
     LOG(WARNING) << "unknown task_id, background time might be undermeasured";
     return;
   }
   task_ids_.erase(it);
   guest_os_engagement_metrics_.SetBackgroundActive(!task_ids_.empty());
+}
+
+void ArcMetricsService::OnArcStarted() {
+  DCHECK(prefs_);
+
+  metrics_anr_ = std::make_unique<ArcMetricsAnr>(prefs_);
+
+  // Post tasks to record load average.
+  for (size_t index = 0; index < std::size(kLoadAverageHistograms); ++index) {
+    base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
+        FROM_HERE,
+        base::BindOnce(&ArcMetricsService::MeasureLoadAverage,
+                       weak_ptr_factory_.GetWeakPtr(), index),
+        kLoadAverageHistograms[index].duration);
+  }
+}
+
+void ArcMetricsService::OnArcSessionStopped() {
+  DCHECK(prefs_);
+
+  boot_type_ = mojom::BootType::UNKNOWN;
+  metrics_anr_.reset();
+
+  base::UmaHistogramBoolean("Arc.Session.HasWebViewUsage",
+                            prefs_->GetBoolean(prefs::kWebViewProcessStarted));
+  prefs_->SetBoolean(prefs::kWebViewProcessStarted, false);
 }
 
 void ArcMetricsService::AddAppKillObserver(AppKillObserver* obs) {
@@ -625,6 +1003,16 @@ void ArcMetricsService::RemoveUserInteractionObserver(
     UserInteractionObserver* obs) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   user_interaction_observers_.RemoveObserver(obs);
+}
+
+void ArcMetricsService::AddBootTypeObserver(BootTypeObserver* obs) {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  boot_type_observers_.AddObserver(obs);
+}
+
+void ArcMetricsService::RemoveBootTypeObserver(BootTypeObserver* obs) {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  boot_type_observers_.RemoveObserver(obs);
 }
 
 absl::optional<base::TimeTicks> ArcMetricsService::GetArcStartTimeFromEvents(
@@ -655,6 +1043,44 @@ void ArcMetricsService::ReportArcNetworkEvent(mojom::ArcNetworkEvent event) {
 void ArcMetricsService::ReportArcNetworkError(mojom::ArcNetworkError error) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   base::UmaHistogramEnumeration("Arc.Net.ArcNetworkError", error);
+}
+
+void ArcMetricsService::MeasureLoadAverage(size_t index) {
+  struct sysinfo info = {};
+  if (sysinfo(&info) < 0) {
+    DCHECK_LT(index, std::size(kLoadAverageHistograms));
+    PLOG(ERROR) << "sysinfo() failed when trying to record "
+                << kLoadAverageHistograms[index].name;
+    return;
+  }
+  DCHECK_LT(index, std::size(info.loads));
+  // Load average values returned by sysinfo() are scaled up by
+  // 1 << SI_LOAD_SHIFT.
+  const int loadx100 = info.loads[index] * 100 / (1 << SI_LOAD_SHIFT);
+  // _SC_NPROCESSORS_ONLN instead of base::SysInfo::NumberOfProcessors() which
+  // uses _SC_NPROCESSORS_CONF to get the number of online processors in case
+  // some cores are disabled.
+  const int loadx100_per_processor = loadx100 / sysconf(_SC_NPROCESSORS_ONLN);
+  load_averages_after_arc_start_[index] = loadx100_per_processor;
+
+  MaybeRecordLoadAveragePerProcessor();
+}
+
+void ArcMetricsService::MaybeRecordLoadAveragePerProcessor() {
+  if (boot_type_ == mojom::BootType::UNKNOWN) {
+    // Not ready because the boot type is still unknown.
+    return;
+  }
+  for (const auto& value : load_averages_after_arc_start_) {
+    const size_t index = value.first;
+    const int loadx100_per_processor = value.second;
+    DCHECK_LT(index, std::size(kLoadAverageHistograms));
+    base::UmaHistogramCustomCounts(
+        kLoadAverageHistograms[index].name + BootTypeToString(boot_type_),
+        loadx100_per_processor, 0, 5000, 50);
+  }
+  // Erase the values to avoid recording them again.
+  load_averages_after_arc_start_.clear();
 }
 
 ArcMetricsService::ProcessObserver::ProcessObserver(
@@ -695,7 +1121,8 @@ ArcMetricsService::IntentHelperObserver::~IntentHelperObserver() = default;
 void ArcMetricsService::IntentHelperObserver::OnConnectionClosed() {
   // Ignore closed connections due to the container shutting down.
   if (!arc_bridge_service_observer_->arc_bridge_closing_) {
-    LogStabilityUmaEnum(arc_metrics_service_->histogram_namer_.Run(
+    DCHECK(arc_metrics_service_->histogram_namer_cb_);
+    LogStabilityUmaEnum(arc_metrics_service_->histogram_namer_cb_.Run(
                             "Arc.Session.MojoDisconnection"),
                         MojoConnectionType::INTENT_HELPER);
   }
@@ -712,7 +1139,8 @@ ArcMetricsService::AppLauncherObserver::~AppLauncherObserver() = default;
 void ArcMetricsService::AppLauncherObserver::OnConnectionClosed() {
   // Ignore closed connections due to the container shutting down.
   if (!arc_bridge_service_observer_->arc_bridge_closing_) {
-    LogStabilityUmaEnum(arc_metrics_service_->histogram_namer_.Run(
+    DCHECK(arc_metrics_service_->histogram_namer_cb_);
+    LogStabilityUmaEnum(arc_metrics_service_->histogram_namer_cb_.Run(
                             "Arc.Session.MojoDisconnection"),
                         MojoConnectionType::APP_LAUNCHER);
   }

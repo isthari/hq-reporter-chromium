@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@ import android.content.ServiceConnection;
 import android.content.pm.ApplicationInfo;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
-import android.os.RemoteException;
 import android.os.StrictMode;
 
 import androidx.annotation.IntDef;
@@ -23,6 +22,8 @@ import org.chromium.android_webview.common.AwSwitches;
 import org.chromium.android_webview.common.PlatformServiceBridge;
 import org.chromium.android_webview.common.services.ICrashReceiverService;
 import org.chromium.android_webview.common.services.IMetricsBridgeService;
+import org.chromium.android_webview.common.services.ServiceConnectionDelayRecorder;
+import org.chromium.android_webview.common.services.ServiceHelper;
 import org.chromium.android_webview.common.services.ServiceNames;
 import org.chromium.android_webview.metrics.AwMetricsLogUploader;
 import org.chromium.android_webview.metrics.AwMetricsServiceClient;
@@ -36,6 +37,7 @@ import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
 import org.chromium.base.PathUtils;
 import org.chromium.base.PowerMonitor;
+import org.chromium.base.StreamUtil;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.TimeUtils;
 import org.chromium.base.annotations.CalledByNative;
@@ -50,18 +52,17 @@ import org.chromium.base.task.TaskRunner;
 import org.chromium.base.task.TaskTraits;
 import org.chromium.components.component_updater.ComponentLoaderPolicyBridge;
 import org.chromium.components.component_updater.EmbeddedComponentLoader;
+import org.chromium.components.metrics.AndroidMetricsFeatures;
 import org.chromium.components.metrics.AndroidMetricsLogUploader;
 import org.chromium.components.minidump_uploader.CrashFileManager;
 import org.chromium.components.policy.CombinedPolicyProvider;
 import org.chromium.content_public.browser.BrowserStartupController;
 import org.chromium.content_public.browser.ChildProcessCreationParams;
 import org.chromium.content_public.browser.ChildProcessLauncherHelper;
-import org.chromium.content_public.browser.trusttokens.TrustTokenFulfillerManager;
 
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.util.ArrayList;
+import java.net.HttpURLConnection;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
@@ -97,12 +98,31 @@ public final class AwBrowserProcess {
      *                             process; null to use no suffix.
      */
     public static void loadLibrary(String processDataDirSuffix) {
+        loadLibrary(null, null, processDataDirSuffix);
+    }
+
+    /**
+     * Loads the native library, and performs basic static construction of objects needed
+     * to run webview in this process. Does not create threads; safe to call from zygote.
+     * Note: it is up to the caller to ensure this is only called once.
+     *
+     * @param processDataDirBasePath The base path to use when setting the data directory for this
+     *                             process; null to use default base path.
+     * @param processCacheDirBasePath The base path to use when setting the cache directory for this
+     *                             process; null to use default base path.
+     * @param processDataDirSuffix The suffix to use when setting the data directory for this
+     *                             process; null to use no suffix.
+     */
+    public static void loadLibrary(String processDataDirBasePath, String processCacheDirBasePath,
+            String processDataDirSuffix) {
         LibraryLoader.getInstance().setLibraryProcessType(LibraryProcessType.PROCESS_WEBVIEW);
         if (processDataDirSuffix == null) {
-            PathUtils.setPrivateDataDirectorySuffix(WEBVIEW_DIR_BASENAME, "WebView");
+            PathUtils.setPrivateDirectoryPath(processDataDirBasePath, processCacheDirBasePath,
+                    WEBVIEW_DIR_BASENAME, "WebView");
         } else {
             String processDataDirName = WEBVIEW_DIR_BASENAME + "_" + processDataDirSuffix;
-            PathUtils.setPrivateDataDirectorySuffix(processDataDirName, processDataDirName);
+            PathUtils.setPrivateDirectoryPath(processDataDirBasePath, processCacheDirBasePath,
+                    processDataDirName, processDataDirName);
         }
         StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskReads();
         try {
@@ -157,16 +177,14 @@ public final class AwBrowserProcess {
                 // Check android settings but only when safebrowsing is enabled.
                 try (ScopedSysTraceEvent e2 =
                                 ScopedSysTraceEvent.scoped("AwBrowserProcess.maybeEnable")) {
-                    AwSafeBrowsingConfigHelper.maybeEnableSafeBrowsingFromManifest(appContext);
+                    AwSafeBrowsingConfigHelper.maybeEnableSafeBrowsingFromManifest();
                 }
-
-                TrustTokenFulfillerManager.setFactory(
-                        PlatformServiceBridge.getInstance().getLocalTrustTokenFulfillerFactory());
 
                 try (ScopedSysTraceEvent e2 = ScopedSysTraceEvent.scoped(
                              "AwBrowserProcess.startBrowserProcessesSync")) {
                     BrowserStartupController.getInstance().startBrowserProcessesSync(
-                            LibraryProcessType.PROCESS_WEBVIEW, !multiProcess);
+                            LibraryProcessType.PROCESS_WEBVIEW, !multiProcess,
+                            /*startGpuProcess=*/false);
                 }
 
                 PowerMonitor.create();
@@ -232,8 +250,7 @@ public final class AwBrowserProcess {
                 ThreadUtils.assertOnUiThread();
                 boolean userApproved = Boolean.TRUE.equals(enabled);
                 if (updateMetricsConsent) {
-                    AwMetricsServiceClient.setConsentSetting(
-                            ContextUtils.getApplicationContext(), userApproved);
+                    AwMetricsServiceClient.setConsentSetting(userApproved);
                 }
 
                 if (!enableMinidumpUploadingForTesting) {
@@ -243,35 +260,14 @@ public final class AwBrowserProcess {
         }
     }
 
-    /**
-     * Make a list of crash key-value pairs for in the same order as minidump file array.
-     * These crash key-value pairs are passed from native-code while generating the minidump files.
-     * This is basically reordering the crash-key maps in @code{crashesInfo} in the same order as
-     * minidump files, ignoring crashkeys for files that are not in the @code{minidumps} array and
-     * null for minidumps that don't have crash key-value maps in @code{crashesInfo}.
-     *
-     * @param minidumps array of minidump files to get crash-keys for.
-     * @param crashesInfo crash key-value pairs grouped/mapped by crash report uuid.
-     * @return list of crash key-value pairs map corresponding for each minidumps file.
-     */
-    private static List<Map<String, String>> getCrashKeysForCrashFiles(
-            File[] minidumps, Map<String, Map<String, String>> crashesInfo) {
-        List<Map<String, String>> crashesInfoList = new ArrayList<>(minidumps.length);
-        for (int i = 0; i < minidumps.length; i++) {
-            String fileName = minidumps[i].getName();
-            // crash report uuid is the minidump file name without any extensions.
-            int firstDotIndex = fileName.indexOf('.');
-            if (firstDotIndex == -1) {
-                firstDotIndex = fileName.length();
-            }
-            String crashUuid = fileName.substring(0, firstDotIndex);
-            if (crashesInfo == null) {
-                crashesInfoList.add(null);
-            } else {
-                crashesInfoList.add(crashesInfo.get(crashUuid));
-            }
+    private static String getCrashUuid(File file) {
+        String fileName = file.getName();
+        // crash report uuid is the minidump file name without any extensions.
+        int firstDotIndex = fileName.indexOf('.');
+        if (firstDotIndex == -1) {
+            firstDotIndex = fileName.length();
         }
-        return crashesInfoList;
+        return fileName.substring(0, firstDotIndex);
     }
 
     private static void deleteMinidumps(final File[] minidumpFiles) {
@@ -293,34 +289,35 @@ public final class AwBrowserProcess {
         // again if anything goes wrong. This makes sense given that a failure
         // to copy a file usually means that retrying won't succeed either,
         // because e.g. the disk is full, or the file system is corrupted.
-        final List<ParcelFileDescriptor> minidumpFds = new ArrayList<>(minidumpFiles.length);
-        try {
-            for (int i = 0; i < minidumpFiles.length; ++i) {
-                try {
-                    minidumpFds.add(ParcelFileDescriptor.open(
-                            minidumpFiles[i], ParcelFileDescriptor.MODE_READ_ONLY));
-                } catch (FileNotFoundException e) {
-                    // Don't add null file descriptors to the array.
-                }
-            }
+        int fileCount = minidumpFiles.length;
+        // TODO(https://crbug.com/1399777): We should limit the number of crashes we upload in
+        //     order to not use too much data, and in order to minimize the chance of exhausting
+        //     file descriptors (https://crbug.com/1399777).
+        ParcelFileDescriptor[] minidumpFds = new ParcelFileDescriptor[fileCount];
+        Map<String, String>[] crashInfos = new Map[fileCount];
+        for (int i = 0; i < fileCount; ++i) {
+            File file = minidumpFiles[i];
+            ParcelFileDescriptor p = null;
             try {
-                List<Map<String, String>> crashesInfoList =
-                        getCrashKeysForCrashFiles(minidumpFiles, crashesInfoMap);
-                service.transmitCrashes(
-                        minidumpFds.toArray(new ParcelFileDescriptor[0]), crashesInfoList);
-            } catch (RemoteException e) {
-                // TODO(gsennton): add a UMA metric here to ensure we aren't losing
-                // too many minidumps because of this.
+                p = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY);
+            } catch (IOException e) {
             }
-        } finally {
-            deleteMinidumps(minidumpFiles);
-            // Close FDs
-            for (ParcelFileDescriptor fd : minidumpFds) {
-                try {
-                    fd.close();
-                } catch (IOException e) {
-                }
-            }
+            minidumpFds[i] = p;
+            crashInfos[i] = crashesInfoMap.get(getCrashUuid(file));
+        }
+
+        try {
+            // AIDL does not support arrays of objects, so use a List here.
+            service.transmitCrashes(minidumpFds, Arrays.asList(crashInfos));
+        } catch (Exception e) {
+            // Exception can be RemoteException, or "RuntimeException: Too many open files".
+            // https://crbug.com/1399777
+            // TODO(gsennton): add a UMA metric here to ensure we aren't losing
+            // too many minidumps because of this.
+        }
+        deleteMinidumps(minidumpFiles);
+        for (ParcelFileDescriptor fd : minidumpFds) {
+            StreamUtil.closeQuietly(fd);
         }
     }
 
@@ -374,7 +371,8 @@ public final class AwBrowserProcess {
                     @Override
                     public void onServiceDisconnected(ComponentName className) {}
                 };
-                if (!appContext.bindService(intent, connection, Context.BIND_AUTO_CREATE)) {
+                if (!ServiceHelper.bindService(
+                            appContext, intent, connection, Context.BIND_AUTO_CREATE)) {
                     Log.w(TAG, "Could not bind to Minidump-copying Service " + intent);
                 }
             } catch (RuntimeException e) {
@@ -430,7 +428,7 @@ public final class AwBrowserProcess {
      */
     public static void collectNonembeddedMetrics() {
         final Context appContext = ContextUtils.getApplicationContext();
-        if (AwMetricsServiceClient.isAppOptedOut(appContext)) {
+        if (ManifestMetadataUtil.isAppOptedOutFromMetricsCollection()) {
             Log.d(TAG, "App opted out from metrics collection, not connecting to metrics service");
             return;
         }
@@ -438,16 +436,16 @@ public final class AwBrowserProcess {
         final Intent intent = new Intent();
         intent.setClassName(getWebViewPackageName(), ServiceNames.METRICS_BRIDGE_SERVICE);
 
-        ServiceConnection connection = new ServiceConnection() {
+        ServiceConnectionDelayRecorder connection = new ServiceConnectionDelayRecorder() {
             private boolean mHasConnected;
 
             @Override
-            public void onServiceConnected(ComponentName className, IBinder service) {
+            public void onServiceConnectedImpl(ComponentName className, IBinder service) {
                 if (mHasConnected) return;
                 mHasConnected = true;
                 // onServiceConnected is called on the UI thread, so punt this back to the
                 // background thread.
-                PostTask.postTask(TaskTraits.THREAD_POOL_BEST_EFFORT, () -> {
+                PostTask.postTask(TaskTraits.BEST_EFFORT, () -> {
                     try {
                         IMetricsBridgeService metricsService =
                                 IMetricsBridgeService.Stub.asInterface(service);
@@ -473,9 +471,9 @@ public final class AwBrowserProcess {
                     } catch (InvalidProtocolBufferException e) {
                         Log.d(TAG, "Malformed metrics log proto", e);
                         logTransmissionResult(TransmissionResult.MALFORMED_PROTOBUF);
-                    } catch (RemoteException e) {
-                        Log.d(TAG, "Remote Exception calling MetricsBridgeService#retrieveMetrics",
-                                e);
+                    } catch (Exception e) {
+                        // RemoteException, IllegalArgumentException (https://crbug.com/1403976)
+                        Log.d(TAG, "Remote Exception in MetricsBridgeService#retrieveMetrics", e);
                         logTransmissionResult(TransmissionResult.REMOTE_EXCEPTION);
                     } finally {
                         appContext.unbindService(this);
@@ -486,7 +484,8 @@ public final class AwBrowserProcess {
             @Override
             public void onServiceDisconnected(ComponentName className) {}
         };
-        if (!appContext.bindService(intent, connection, Context.BIND_AUTO_CREATE)) {
+
+        if (!connection.bind(appContext, intent, Context.BIND_AUTO_CREATE)) {
             Log.d(TAG, "Could not bind to MetricsBridgeService " + intent);
         }
     }
@@ -514,16 +513,23 @@ public final class AwBrowserProcess {
      * Initialize the metrics uploader.
      */
     public static void initializeMetricsLogUploader() {
-        if (AwFeatureList.isEnabled(AwFeatures.WEBVIEW_USE_METRICS_UPLOAD_SERVICE)) {
-            AwMetricsLogUploader uploader = new AwMetricsLogUploader();
+        boolean useDefaultUploadQos = AwFeatureMap.getInstance().isEnabled(
+                AwFeatures.WEBVIEW_UMA_UPLOAD_QUALITY_OF_SERVICE_SET_TO_DEFAULT);
+
+        if (AwFeatureMap.getInstance().isEnabled(AwFeatures.WEBVIEW_USE_METRICS_UPLOAD_SERVICE)) {
+            boolean isAsync = AwFeatureMap.getInstance().isEnabled(
+                    AndroidMetricsFeatures.ANDROID_METRICS_ASYNC_METRIC_LOGGING);
+            AwMetricsLogUploader uploader = new AwMetricsLogUploader(isAsync, useDefaultUploadQos);
             // Open a connection during startup while connecting to other services such as
             // ComponentsProviderService and VariationSeedServer to try to avoid spinning the
             // nonembedded ":webview_service" twice.
             uploader.initialize();
-            AndroidMetricsLogUploader.setUploader(uploader);
+            AndroidMetricsLogUploader.setConsumer(uploader);
         } else {
-            AndroidMetricsLogUploader.setUploader(
-                    (byte[] data) -> { PlatformServiceBridge.getInstance().logMetrics(data); });
+            AndroidMetricsLogUploader.setConsumer((byte[] data) -> {
+                PlatformServiceBridge.getInstance().logMetrics(data, useDefaultUploadQos);
+                return HttpURLConnection.HTTP_OK;
+            });
         }
     }
 

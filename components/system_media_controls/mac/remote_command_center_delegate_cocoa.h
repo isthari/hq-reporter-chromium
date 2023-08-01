@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,17 +8,11 @@
 #import <Cocoa/Cocoa.h>
 #import <MediaPlayer/MediaPlayer.h>
 
-namespace system_media_controls {
-namespace internal {
+namespace system_media_controls::internal {
 class RemoteCommandCenterDelegate;
-}  // namespace internal
-}  // namespace system_media_controls
+}  // namespace system_media_controls::internal
 
-API_AVAILABLE(macos(10.12.2))
-@interface RemoteCommandCenterDelegateCocoa : NSObject {
- @private
-  system_media_controls::internal::RemoteCommandCenterDelegate* _delegate;
-}
+@interface RemoteCommandCenterDelegateCocoa : NSObject
 
 - (instancetype)initWithDelegate:
     (system_media_controls::internal::RemoteCommandCenterDelegate*)delegate;

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,10 @@
 #define CHROME_BROWSER_UI_AUTOFILL_AUTOFILL_POPUP_CONTROLLER_IMPL_MAC_H_
 
 #include "chrome/browser/ui/autofill/autofill_popup_controller_impl.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 @class WebTextfieldTouchBarController;
 
@@ -29,9 +33,8 @@ class AutofillPopupControllerImplMac : public AutofillPopupControllerImpl {
   // Shows the popup, or updates the existing popup with the given values.
   // If the popup contains credit card items, find and set
   // |touchBarController_| and show the credit card autofill touch bar.
-  void Show(const std::vector<autofill::Suggestion>& suggestions,
-            bool autoselect_first_suggestion,
-            PopupType popup_type) override;
+  void Show(std::vector<autofill::Suggestion> suggestions,
+            AutoselectFirstSuggestion autoselect_first_suggestion) override;
 
   // Updates the data list values currently shown with the popup. Calls
   // -invalidateTouchBar from |touchBarController_|.
@@ -45,7 +48,7 @@ class AutofillPopupControllerImplMac : public AutofillPopupControllerImpl {
 
  private:
   // The controller providing the autofill touch bar.
-  WebTextfieldTouchBarController* touch_bar_controller_;  // weak.
+  WebTextfieldTouchBarController* __weak touch_bar_controller_;
 
   // True if the popup contains credit card items.
   BOOL is_credit_card_popup_;

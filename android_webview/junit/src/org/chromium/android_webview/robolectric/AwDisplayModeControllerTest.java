@@ -1,10 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.android_webview.robolectric;
 
-import static org.mockito.Mockito.any;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.when;
@@ -32,14 +32,14 @@ import org.robolectric.shadows.ShadowLog;
 
 import org.chromium.android_webview.AwDisplayModeController;
 import org.chromium.base.Log;
+import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.Feature;
 import org.chromium.blink.mojom.DisplayMode;
-import org.chromium.testing.local.LocalRobolectricTestRunner;
 
 /**
  * JUnit tests for AwDisplayModeController.
  */
-@RunWith(LocalRobolectricTestRunner.class)
+@RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
 public class AwDisplayModeControllerTest {
     private static final String TAG = "DisplayModeTest";

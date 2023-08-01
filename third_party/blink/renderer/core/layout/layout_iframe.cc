@@ -46,13 +46,7 @@ void LayoutIFrame::UpdateLayout() {
   NOT_DESTROYED();
   DCHECK(NeedsLayout());
 
-  UpdateLogicalWidth();
-  // No kids to layout as a replaced element.
-  UpdateLogicalHeight();
-
   ClearLayoutOverflow();
-  UpdateAfterLayout();
-
   ClearNeedsLayout();
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,6 +24,10 @@
 
 // Returns the number of stored credentials.
 + (int)storedCredentialsCount;
+
+// Sets the pref recording whether the one-time account storage notice was
+// shown. Used to either suppress or force the notice to appear in tests.
++ (void)setAccountStorageNoticeShown:(BOOL)shown;
 
 @end
 

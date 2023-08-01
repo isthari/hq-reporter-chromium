@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -19,7 +19,7 @@ enum class ThreatSource {
   LOCAL_PVER4,            // From V4LocalDatabaseManager, protocol v4
   REMOTE,                 // From RemoteSafeBrowsingDatabaseManager
   CLIENT_SIDE_DETECTION,  // From ClientSideDetectionHost
-  REAL_TIME_CHECK,        // From RealTimeUrlLookupService
+  URL_REAL_TIME_CHECK,    // From RealTimeUrlLookupService
 };
 
 // Data to report about the contents of a particular threat (malware, phishing,

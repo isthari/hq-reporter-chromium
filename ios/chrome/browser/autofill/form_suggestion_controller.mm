@@ -1,23 +1,25 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/autofill/form_suggestion_controller.h"
 
-#include <memory>
+#import <memory>
 
-#include "base/mac/foundation_util.h"
-#include "base/strings/sys_string_conversions.h"
-#include "base/strings/utf_string_conversions.h"
-#include "components/autofill/core/browser/ui/autofill_popup_delegate.h"
+#import "base/mac/foundation_util.h"
+#import "base/metrics/histogram_functions.h"
+#import "base/strings/sys_string_conversions.h"
+#import "base/strings/utf_string_conversions.h"
+#import "components/autofill/core/browser/ui/autofill_popup_delegate.h"
+#import "components/autofill/core/browser/ui/popup_types.h"
 #import "components/autofill/ios/browser/form_suggestion.h"
 #import "components/autofill/ios/browser/form_suggestion_provider.h"
-#include "components/autofill/ios/form_util/form_activity_params.h"
+#import "components/autofill/ios/form_util/form_activity_params.h"
+#import "components/prefs/pref_service.h"
 #import "ios/chrome/browser/autofill/form_input_navigator.h"
 #import "ios/chrome/browser/autofill/form_input_suggestions_provider.h"
-#import "ios/chrome/browser/autofill/form_suggestion_view.h"
-#import "ios/chrome/browser/passwords/password_generation_utils.h"
-#include "ios/chrome/browser/ui/util/ui_util.h"
+#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/prefs/pref_names.h"
 #import "ios/web/common/url_scheme_util.h"
 #import "ios/web/public/js_messaging/web_frames_manager.h"
 #import "ios/web/public/ui/crw_web_view_proxy.h"
@@ -27,8 +29,11 @@
 #error "This file requires ARC support."
 #endif
 
-using autofill::FormRendererId;
 using autofill::FieldRendererId;
+using autofill::FormRendererId;
+// Block types for `RunSearchPipeline`.
+using PipelineBlock = void (^)(void (^completion)(BOOL));
+using PipelineCompletionBlock = void (^)(NSUInteger index);
 
 namespace {
 
@@ -52,7 +57,7 @@ struct AutofillSuggestionState {
   std::string frame_identifier;
   // The user-typed value in the field.
   std::string typed_value;
-  // The suggestions for the form field. An array of |FormSuggestion|.
+  // The suggestions for the form field. An array of `FormSuggestion`.
   NSArray* suggestions;
 };
 
@@ -69,6 +74,27 @@ AutofillSuggestionState::AutofillSuggestionState(
       unique_field_id(unique_field_id),
       frame_identifier(frame_identifier),
       typed_value(typed_value) {}
+
+// Executes each PipelineBlock in `blocks` in order until one invokes its
+// completion with YES, in which case `on_complete` will be invoked with the
+// `index` of the succeeding block, or until they all invoke their completions
+// with NO, in which case `on_complete` will be invoked with NSNotFound.
+void RunSearchPipeline(NSArray<PipelineBlock>* blocks,
+                       PipelineCompletionBlock on_complete,
+                       NSUInteger from_index = 0) {
+  if (from_index == [blocks count]) {
+    on_complete(NSNotFound);
+    return;
+  }
+  PipelineBlock block = blocks[from_index];
+  block(^(BOOL success) {
+    if (success) {
+      on_complete(from_index);
+    } else {
+      RunSearchPipeline(blocks, on_complete, from_index + 1);
+    }
+  });
+}
 
 }  // namespace
 
@@ -90,10 +116,10 @@ AutofillSuggestionState::AutofillSuggestionState(
 // Unique id of the last request.
 @property(nonatomic, assign) NSUInteger requestIdentifier;
 
-// Updates keyboard for |suggestionState|.
+// Updates keyboard for `suggestionState`.
 - (void)updateKeyboard:(AutofillSuggestionState*)suggestionState;
 
-// Updates keyboard with |suggestions|.
+// Updates keyboard with `suggestions`.
 - (void)updateKeyboardWithSuggestions:(NSArray*)suggestions;
 
 // Clears state in between page loads.
@@ -146,8 +172,7 @@ AutofillSuggestionState::AutofillSuggestionState(
   }
 }
 
-#pragma mark -
-#pragma mark CRWWebStateObserver
+#pragma mark - CRWWebStateObserver
 
 - (void)webStateDestroyed:(web::WebState*)webState {
   DCHECK_EQ(_webState, webState);
@@ -185,7 +210,6 @@ AutofillSuggestionState::AutofillSuggestionState(
                            _suggestionState.get()->typed_value)
                frameID:base::SysUTF8ToNSString(params.frame_id)];
 
-  BOOL isMainFrame = params.is_main_frame;
   BOOL hasUserGesture = params.has_user_gesture;
 
   // Build a block for each provider that will invoke its completion with YES
@@ -193,23 +217,20 @@ AutofillSuggestionState::AutofillSuggestionState(
   // and NO otherwise.
   NSMutableArray* findProviderBlocks = [[NSMutableArray alloc] init];
   for (NSUInteger i = 0; i < [_suggestionProviders count]; i++) {
-    passwords::PipelineBlock block =
-        ^(void (^completion)(BOOL success)) {
-          // Access all the providers through |self| to guarantee that both
-          // |self| and all the providers exist when the block is executed.
-          // |_suggestionProviders| is immutable, so the subscripting is
-          // always valid.
-          FormSuggestionController* strongSelf = weakSelf;
-          if (!strongSelf)
-            return;
-          id<FormSuggestionProvider> provider =
-              strongSelf->_suggestionProviders[i];
-          [provider checkIfSuggestionsAvailableForForm:formQuery
-                                           isMainFrame:isMainFrame
-                                        hasUserGesture:hasUserGesture
-                                              webState:webState
-                                     completionHandler:completion];
-        };
+    PipelineBlock block = ^(void (^completion)(BOOL success)) {
+      // Access all the providers through `self` to guarantee that both
+      // `self` and all the providers exist when the block is executed.
+      // `_suggestionProviders` is immutable, so the subscripting is
+      // always valid.
+      FormSuggestionController* strongSelf = weakSelf;
+      if (!strongSelf)
+        return;
+      id<FormSuggestionProvider> provider = strongSelf->_suggestionProviders[i];
+      [provider checkIfSuggestionsAvailableForForm:formQuery
+                                    hasUserGesture:hasUserGesture
+                                          webState:webState
+                                 completionHandler:completion];
+    };
     [findProviderBlocks addObject:block];
   }
 
@@ -221,7 +242,7 @@ AutofillSuggestionState::AutofillSuggestionState(
       };
 
   // Once a provider is found, use it to retrieve suggestions.
-  passwords::PipelineCompletionBlock completion = ^(NSUInteger providerIndex) {
+  PipelineCompletionBlock completion = ^(NSUInteger providerIndex) {
     // Ignore outdated results.
     if (weakSelf.requestIdentifier != requestIdentifier) {
       return;
@@ -240,10 +261,10 @@ AutofillSuggestionState::AutofillSuggestionState(
                        completionHandler:readyCompletion];
   };
 
-  // Run all the blocks in |findProviderBlocks| until one invokes its
+  // Run all the blocks in `findProviderBlocks` until one invokes its
   // completion with YES. The first one to do so will be passed to
-  // |completion|.
-  passwords::RunSearchPipeline(findProviderBlocks, completion);
+  // `completion`.
+  RunSearchPipeline(findProviderBlocks, completion);
 }
 
 - (void)onNoSuggestionsAvailable {
@@ -257,8 +278,8 @@ AutofillSuggestionState::AutofillSuggestionState(
 - (void)onSuggestionsReady:(NSArray<FormSuggestion*>*)suggestions
                   provider:(id<FormSuggestionProvider>)provider {
   // TODO(ios): crbug.com/249916. If we can also pass in the form/field for
-  // which |suggestions| are, we should check here if |suggestions| are for
-  // the current active element. If not, reset |_suggestionState|.
+  // which `suggestions` are, we should check here if `suggestions` are for
+  // the current active element. If not, reset `_suggestionState`.
   if (!_suggestionState) {
     // The suggestion state was reset in between the call to Autofill API (e.g.
     // OnAskForValuesToFill) and this method being called back. Results are
@@ -300,6 +321,10 @@ AutofillSuggestionState::AutofillSuggestionState(
 }
 
 - (void)didSelectSuggestion:(FormSuggestion*)suggestion {
+  // If a suggestion was selected, reset the password bottom sheet dismiss count
+  // to 0.
+  [self resetPasswordBottomSheetDismissCount];
+
   if (!_suggestionState)
     return;
 
@@ -320,7 +345,7 @@ AutofillSuggestionState::AutofillSuggestionState(
         }];
 }
 
-#pragma mark FormInputSuggestionsProvider
+#pragma mark - FormInputSuggestionsProvider
 
 - (void)retrieveSuggestionsForForm:(const autofill::FormActivityParams&)params
                           webState:(web::WebState*)webState
@@ -341,6 +366,37 @@ AutofillSuggestionState::AutofillSuggestionState(
 
 - (SuggestionProviderType)type {
   return _provider ? _provider.type : SuggestionProviderTypeUnknown;
+}
+
+- (autofill::PopupType)suggestionType {
+  return _provider ? _provider.suggestionType
+                   : autofill::PopupType::kUnspecified;
+}
+
+#pragma mark - Private
+
+// Resets the password bottom sheet dismiss count to 0.
+- (void)resetPasswordBottomSheetDismissCount {
+  ChromeBrowserState* browserState =
+      _webState
+          ? ChromeBrowserState::FromBrowserState(_webState->GetBrowserState())
+          : nullptr;
+  if (browserState) {
+    int dismissCount = browserState->GetPrefs()->GetInteger(
+        prefs::kIosPasswordBottomSheetDismissCount);
+    browserState->GetPrefs()->SetInteger(
+        prefs::kIosPasswordBottomSheetDismissCount, 0);
+    if (dismissCount > 0) {
+      // Log how many times the bottom sheet had been dismissed before being
+      // re-enabled.
+      static constexpr int kHistogramMin = 1;
+      static constexpr int kHistogramMax = 4;
+      static constexpr size_t kHistogramBuckets = 3;
+      base::UmaHistogramCustomCounts(
+          "IOS.ResetDismissCount.Password.BottomSheet", dismissCount,
+          kHistogramMin, kHistogramMax, kHistogramBuckets);
+    }
+  }
 }
 
 @end

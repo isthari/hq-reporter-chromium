@@ -1,15 +1,17 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/overlay/playback_image_button.h"
 
 #include "chrome/app/vector_icons/vector_icons.h"
+#include "chrome/browser/ui/color/chrome_color_id.h"
 #include "chrome/browser/ui/views/overlay/constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/vector_icons/vector_icons.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/base/models/image_model.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/vector_icons.h"
 
@@ -23,42 +25,52 @@ PlaybackImageButton::PlaybackImageButton(PressedCallback callback)
 }
 
 void PlaybackImageButton::OnBoundsChanged(const gfx::Rect& rect) {
-  play_image_ = gfx::CreateVectorIcon(vector_icons::kPlayArrowIcon,
-                                      size().width(), kPipWindowIconColor);
-  pause_image_ = gfx::CreateVectorIcon(vector_icons::kPauseIcon, size().width(),
-                                       kPipWindowIconColor);
-  replay_image_ = gfx::CreateVectorIcon(vector_icons::kReplayIcon,
-                                        size().width(), kPipWindowIconColor);
+  const int icon_size = std::max(0, width() - (2 * kPipWindowIconPadding));
+  play_image_ = ui::ImageModel::FromVectorIcon(
+      vector_icons::kPlayArrowIcon, kColorPipWindowForeground, icon_size);
+  pause_image_ = ui::ImageModel::FromVectorIcon(
+      vector_icons::kPauseIcon, kColorPipWindowForeground, icon_size);
+  replay_image_ = ui::ImageModel::FromVectorIcon(
+      vector_icons::kReplayIcon, kColorPipWindowForeground, icon_size);
 
-  UpdateImageAndTooltipText();
+  UpdateImageAndText();
 }
 
 void PlaybackImageButton::SetPlaybackState(
-    const OverlayWindowViews::PlaybackState playback_state) {
+    const VideoOverlayWindowViews::PlaybackState playback_state) {
   if (playback_state_ == playback_state)
     return;
 
   playback_state_ = playback_state;
-  UpdateImageAndTooltipText();
+  UpdateImageAndText();
 }
 
-void PlaybackImageButton::UpdateImageAndTooltipText() {
+void PlaybackImageButton::UpdateImageAndText() {
   switch (playback_state_) {
-    case OverlayWindowViews::kPlaying:
-      SetImage(views::Button::STATE_NORMAL, pause_image_);
-      SetTooltipText(
-          l10n_util::GetStringUTF16(IDS_PICTURE_IN_PICTURE_PAUSE_CONTROL_TEXT));
+    case VideoOverlayWindowViews::kPlaying: {
+      SetImageModel(views::Button::STATE_NORMAL, pause_image_);
+      std::u16string pause_text =
+          l10n_util::GetStringUTF16(IDS_PICTURE_IN_PICTURE_PAUSE_CONTROL_TEXT);
+      SetTooltipText(pause_text);
+      SetAccessibleName(pause_text);
       break;
-    case OverlayWindowViews::kPaused:
-      SetImage(views::Button::STATE_NORMAL, play_image_);
-      SetTooltipText(
-          l10n_util::GetStringUTF16(IDS_PICTURE_IN_PICTURE_PLAY_CONTROL_TEXT));
+    }
+    case VideoOverlayWindowViews::kPaused: {
+      SetImageModel(views::Button::STATE_NORMAL, play_image_);
+      std::u16string play_text =
+          l10n_util::GetStringUTF16(IDS_PICTURE_IN_PICTURE_PLAY_CONTROL_TEXT);
+      SetTooltipText(play_text);
+      SetAccessibleName(play_text);
       break;
-    case OverlayWindowViews::kEndOfVideo:
-      SetImage(views::Button::STATE_NORMAL, replay_image_);
-      SetTooltipText(l10n_util::GetStringUTF16(
-          IDS_PICTURE_IN_PICTURE_REPLAY_CONTROL_TEXT));
+    }
+    case VideoOverlayWindowViews::kEndOfVideo: {
+      SetImageModel(views::Button::STATE_NORMAL, replay_image_);
+      std::u16string replay_text =
+          l10n_util::GetStringUTF16(IDS_PICTURE_IN_PICTURE_REPLAY_CONTROL_TEXT);
+      SetTooltipText(replay_text);
+      SetAccessibleName(replay_text);
       break;
+    }
   }
   SchedulePaint();
 }

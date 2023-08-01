@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,9 @@
 #include <string>
 #include <vector>
 
-#include "base/guid.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
+#include "base/uuid.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
 #include "components/autofill/core/browser/data_model/autofill_profile.h"
 #include "components/autofill/core/browser/field_types.h"
@@ -67,8 +67,7 @@ std::vector<ServerFieldType> GetAddressPlusContactFieldTypes() {
 }
 
 AutofillProfile GetProfileA() {
-  AutofillProfile profile =
-      AutofillProfile(base::GenerateGUID(), test::kEmptyOrigin);
+  AutofillProfile profile;
   test::SetProfileInfo(&profile, "firstA", "middleA", "lastA",
                        "emailA@gmail.com", "", "address1A", "address2A",
                        "cityA", "MA", "02113", "US", "16176660000");
@@ -76,8 +75,7 @@ AutofillProfile GetProfileA() {
 }
 
 AutofillProfile GetProfileB() {
-  AutofillProfile profile =
-      AutofillProfile(base::GenerateGUID(), test::kEmptyOrigin);
+  AutofillProfile profile;
   test::SetProfileInfo(&profile, "firstB", "middleB", "lastB",
                        "emailB@gmail.com", "", "address1B", "address2B",
                        "cityB", "NY", "12224", "US", "15185550000");
@@ -102,8 +100,7 @@ TEST(MobileLabelFormatterTest, GetLabelsForUnfocusedAddress_ShowOne) {
 
   AutofillProfile profileA = GetProfileA();
   AutofillProfile profileB = GetProfileB();
-  AutofillProfile profileC =
-      AutofillProfile(base::GenerateGUID(), test::kEmptyOrigin);
+  AutofillProfile profileC;
   test::SetProfileInfo(&profileC, "firstC", "middleC", "lastC", "", "", "", "",
                        "", "", "", "US", "");
   const std::vector<AutofillProfile*> profiles{&profileA, &profileB, &profileC};
@@ -289,8 +286,7 @@ TEST(MobileLabelFormatterTest, GetLabels_DistinctProfiles_ShowAll) {
 
   AutofillProfile profileA = GetProfileA();
   AutofillProfile profileB = GetProfileB();
-  AutofillProfile profileC =
-      AutofillProfile(base::GenerateGUID(), test::kEmptyOrigin);
+  AutofillProfile profileC;
   test::SetProfileInfo(&profileC, "firstC", "middleC", "lastC", "", "", "", "",
                        "", "", "", "US", "");
   const std::vector<AutofillProfile*> profiles{&profileA, &profileB, &profileC};

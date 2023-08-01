@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,19 +18,18 @@ import static androidx.test.espresso.matcher.ViewMatchers.withText;
 
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.core.AllOf.allOf;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.notNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import android.accounts.AccountManager;
 import android.app.Activity;
-import android.content.Intent;
-import android.os.Bundle;
+import android.content.Context;
 import android.view.View;
 
 import androidx.test.espresso.ViewInteraction;
@@ -55,13 +54,16 @@ import org.chromium.base.Callback;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.CriteriaHelper;
-import org.chromium.base.test.util.MetricsUtils.HistogramDelta;
+import org.chromium.base.test.util.HistogramWatcher;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
+import org.chromium.chrome.browser.share.send_tab_to_self.SendTabToSelfCoordinator;
 import org.chromium.chrome.browser.signin.services.SigninPreferencesManager;
+import org.chromium.chrome.browser.ui.signin.DeviceLockActivityLauncher;
 import org.chromium.chrome.browser.ui.signin.R;
 import org.chromium.chrome.browser.ui.signin.account_picker.AccountPickerBottomSheetCoordinator.EntryPoint;
+import org.chromium.chrome.test.AutomotiveContextWrapperTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.batch.BlankCTATabInitialStateRule;
@@ -74,7 +76,7 @@ import org.chromium.components.signin.metrics.AccountConsistencyPromoAction;
 import org.chromium.components.signin.test.util.FakeAccountInfoService;
 import org.chromium.components.signin.test.util.FakeAccountManagerFacade;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
-import org.chromium.ui.test.util.DisableAnimationsTestRule;
+import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.test.util.ViewUtils;
 
 /**
@@ -84,21 +86,6 @@ import org.chromium.ui.test.util.ViewUtils;
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
 @Batch(Batch.PER_CLASS)
 public class AccountPickerBottomSheetTest {
-    /** Fakes the user successfully adding an account with email ACCOUNT_EMAIL to the device. */
-    // TODO(crbug.com/1261387): Consider exposing this class to other tests.
-    public static class DummyAddAccountActivity extends Activity {
-        private static final String ACCOUNT_EMAIL = "test.account3@gmail.com";
-
-        @Override
-        public void onCreate(Bundle savedInstanceState) {
-            super.onCreate(savedInstanceState);
-            Intent data = new Intent();
-            data.putExtra(AccountManager.KEY_ACCOUNT_NAME, ACCOUNT_EMAIL);
-            setResult(RESULT_OK, data);
-            finish();
-        }
-    }
-
     private static class CustomFakeAccountInfoService extends FakeAccountInfoService {
         int getNumberOfObservers() {
             return TestThreadUtils.runOnUiThreadBlockingNoException(mObservers::size);
@@ -109,11 +96,7 @@ public class AccountPickerBottomSheetTest {
     private static final String FULL_NAME1 = "Test Account1";
     private static final String GIVEN_NAME1 = "Account1";
     private static final String TEST_EMAIL2 = "test.account2@gmail.com";
-
-    // Disable animations to reduce flakiness.
-    @ClassRule
-    public static final DisableAnimationsTestRule sNoAnimationsRule =
-            new DisableAnimationsTestRule();
+    private static final String NEW_ACCOUNT_EMAIL = "new.account@gmail.com";
 
     @ClassRule
     public static final ChromeTabbedActivityTestRule sActivityTestRule =
@@ -136,18 +119,19 @@ public class AccountPickerBottomSheetTest {
             new AccountManagerTestRule(mFakeAccountManagerFacade, mFakeAccountInfoService);
 
     @Rule
+    public AutomotiveContextWrapperTestRule mAutoTestRule = new AutomotiveContextWrapperTestRule();
+
+    @Rule
     public final MockitoRule mMockitoRule = MockitoJUnit.rule().strictness(Strictness.STRICT_STUBS);
 
     @Mock
     private AccountPickerDelegate mAccountPickerDelegateMock;
 
     @Captor
-    private ArgumentCaptor<Callback<Intent>> mAddAccountIntentCreationCallbackCaptor;
-
-    @Captor
     private ArgumentCaptor<Callback<Boolean>> mUpdateCredentialsSuccessCallbackCaptor;
 
     private AccountPickerBottomSheetCoordinator mCoordinator;
+    private CustomDeviceLockActivityLauncher mDeviceLockActivityLauncher;
 
     @Before
     public void setUp() {
@@ -165,13 +149,13 @@ public class AccountPickerBottomSheetTest {
     @Test
     @MediumTest
     public void testCollapsedSheetWithAccount() {
-        HistogramDelta accountConsistencyHistogram = new HistogramDelta(
+        var accountConsistencyHistogram = HistogramWatcher.newSingleRecordWatcher(
                 "Signin.AccountConsistencyPromoAction", AccountConsistencyPromoAction.SHOWN);
 
         buildAndShowCollapsedBottomSheet();
 
         checkCollapsedAccountListForWebSignin(TEST_EMAIL1, FULL_NAME1, GIVEN_NAME1);
-        Assert.assertEquals(1, accountConsistencyHistogram.getDelta());
+        accountConsistencyHistogram.assertExpected();
     }
 
     @Test
@@ -200,7 +184,8 @@ public class AccountPickerBottomSheetTest {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             mCoordinator = new AccountPickerBottomSheetCoordinator(
                     sActivityTestRule.getActivity().getWindowAndroid(), getBottomSheetController(),
-                    mAccountPickerDelegateMock);
+                    mAccountPickerDelegateMock, new AccountPickerBottomSheetStrings() {},
+                    new CustomDeviceLockActivityLauncher());
         });
 
         checkZeroAccountBottomSheet();
@@ -209,9 +194,12 @@ public class AccountPickerBottomSheetTest {
     @Test
     @MediumTest
     public void testDismissCollapsedSheetForWebSignin() {
-        HistogramDelta accountConsistencyHistogram =
-                new HistogramDelta("Signin.AccountConsistencyPromoAction",
-                        AccountConsistencyPromoAction.DISMISSED_BACK);
+        var accountConsistencyHistogram =
+                HistogramWatcher.newBuilder()
+                        .expectIntRecords("Signin.AccountConsistencyPromoAction",
+                                AccountConsistencyPromoAction.SHOWN,
+                                AccountConsistencyPromoAction.DISMISSED_BACK)
+                        .build();
         SharedPreferencesManager.getInstance().writeInt(
                 ChromePreferenceKeys.WEB_SIGNIN_ACCOUNT_PICKER_ACTIVE_DISMISSAL_COUNT, 1);
         buildAndShowCollapsedBottomSheet();
@@ -225,7 +213,7 @@ public class AccountPickerBottomSheetTest {
         Assert.assertFalse(controller.isSheetOpen());
         verify(mAccountPickerDelegateMock).destroy();
         Assert.assertEquals(0, mFakeAccountInfoService.getNumberOfObservers());
-        Assert.assertEquals(1, accountConsistencyHistogram.getDelta());
+        accountConsistencyHistogram.assertExpected();
         Assert.assertEquals(2,
                 SigninPreferencesManager.getInstance()
                         .getWebSigninAccountPickerActiveDismissalCount());
@@ -235,9 +223,12 @@ public class AccountPickerBottomSheetTest {
     @MediumTest
     public void testDismissCollapsedSheetForSendTabToSelf() {
         when(mAccountPickerDelegateMock.getEntryPoint()).thenReturn(EntryPoint.SEND_TAB_TO_SELF);
-        HistogramDelta accountConsistencyHistogram =
-                new HistogramDelta("Signin.AccountConsistencyPromoAction",
-                        AccountConsistencyPromoAction.DISMISSED_BACK);
+        var accountConsistencyHistogram =
+                HistogramWatcher.newBuilder()
+                        .expectIntRecords("Signin.AccountConsistencyPromoAction",
+                                AccountConsistencyPromoAction.SHOWN,
+                                AccountConsistencyPromoAction.DISMISSED_BACK)
+                        .build();
         SharedPreferencesManager.getInstance().writeInt(
                 ChromePreferenceKeys.WEB_SIGNIN_ACCOUNT_PICKER_ACTIVE_DISMISSAL_COUNT, 1);
         buildAndShowCollapsedBottomSheet();
@@ -251,7 +242,7 @@ public class AccountPickerBottomSheetTest {
         Assert.assertFalse(controller.isSheetOpen());
         verify(mAccountPickerDelegateMock).destroy();
         Assert.assertEquals(0, mFakeAccountInfoService.getNumberOfObservers());
-        Assert.assertEquals(1, accountConsistencyHistogram.getDelta());
+        accountConsistencyHistogram.assertExpected();
         Assert.assertEquals(1,
                 SigninPreferencesManager.getInstance()
                         .getWebSigninAccountPickerActiveDismissalCount());
@@ -260,9 +251,12 @@ public class AccountPickerBottomSheetTest {
     @Test
     @MediumTest
     public void testDismissCollapsedSheetWithDismissButtonForWebSignin() {
-        HistogramDelta accountConsistencyHistogram =
-                new HistogramDelta("Signin.AccountConsistencyPromoAction",
-                        AccountConsistencyPromoAction.DISMISSED_BUTTON);
+        var accountConsistencyHistogram =
+                HistogramWatcher.newBuilder()
+                        .expectIntRecords("Signin.AccountConsistencyPromoAction",
+                                AccountConsistencyPromoAction.SHOWN,
+                                AccountConsistencyPromoAction.DISMISSED_BUTTON)
+                        .build();
         SharedPreferencesManager.getInstance().writeInt(
                 ChromePreferenceKeys.WEB_SIGNIN_ACCOUNT_PICKER_ACTIVE_DISMISSAL_COUNT, 1);
         buildAndShowCollapsedBottomSheet();
@@ -276,7 +270,7 @@ public class AccountPickerBottomSheetTest {
         Assert.assertFalse(controller.isSheetOpen());
         verify(mAccountPickerDelegateMock).destroy();
         Assert.assertEquals(0, mFakeAccountInfoService.getNumberOfObservers());
-        Assert.assertEquals(1, accountConsistencyHistogram.getDelta());
+        accountConsistencyHistogram.assertExpected();
         Assert.assertEquals(2,
                 SigninPreferencesManager.getInstance()
                         .getWebSigninAccountPickerActiveDismissalCount());
@@ -286,9 +280,12 @@ public class AccountPickerBottomSheetTest {
     @MediumTest
     public void testDismissCollapsedSheetWithDismissButtonForSendTabToSelf() {
         when(mAccountPickerDelegateMock.getEntryPoint()).thenReturn(EntryPoint.SEND_TAB_TO_SELF);
-        HistogramDelta accountConsistencyHistogram =
-                new HistogramDelta("Signin.AccountConsistencyPromoAction",
-                        AccountConsistencyPromoAction.DISMISSED_BUTTON);
+        var accountConsistencyHistogram =
+                HistogramWatcher.newBuilder()
+                        .expectIntRecords("Signin.AccountConsistencyPromoAction",
+                                AccountConsistencyPromoAction.SHOWN,
+                                AccountConsistencyPromoAction.DISMISSED_BUTTON)
+                        .build();
         SharedPreferencesManager.getInstance().writeInt(
                 ChromePreferenceKeys.WEB_SIGNIN_ACCOUNT_PICKER_ACTIVE_DISMISSAL_COUNT, 1);
         buildAndShowCollapsedBottomSheet();
@@ -302,7 +299,7 @@ public class AccountPickerBottomSheetTest {
         Assert.assertFalse(controller.isSheetOpen());
         verify(mAccountPickerDelegateMock).destroy();
         Assert.assertEquals(0, mFakeAccountInfoService.getNumberOfObservers());
-        Assert.assertEquals(1, accountConsistencyHistogram.getDelta());
+        accountConsistencyHistogram.assertExpected();
         Assert.assertEquals(1,
                 SigninPreferencesManager.getInstance()
                         .getWebSigninAccountPickerActiveDismissalCount());
@@ -358,7 +355,7 @@ public class AccountPickerBottomSheetTest {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             mCoordinator = new AccountPickerBottomSheetCoordinator(
                     sActivityTestRule.getActivity().getWindowAndroid(), getBottomSheetController(),
-                    mAccountPickerDelegateMock);
+                    mAccountPickerDelegateMock, new AccountPickerBottomSheetStrings() {}, null);
         });
         checkZeroAccountBottomSheet();
 
@@ -407,16 +404,19 @@ public class AccountPickerBottomSheetTest {
     @Test
     @MediumTest
     public void testSignInDefaultAccountOnCollapsedSheetForWebSignin() {
-        HistogramDelta accountConsistencyHistogram =
-                new HistogramDelta("Signin.AccountConsistencyPromoAction",
-                        AccountConsistencyPromoAction.SIGNED_IN_WITH_DEFAULT_ACCOUNT);
+        var accountConsistencyHistogram =
+                HistogramWatcher.newBuilder()
+                        .expectIntRecords("Signin.AccountConsistencyPromoAction",
+                                AccountConsistencyPromoAction.SHOWN,
+                                AccountConsistencyPromoAction.SIGNED_IN_WITH_DEFAULT_ACCOUNT)
+                        .build();
         SharedPreferencesManager.getInstance().writeInt(
                 ChromePreferenceKeys.WEB_SIGNIN_ACCOUNT_PICKER_ACTIVE_DISMISSAL_COUNT, 2);
         buildAndShowCollapsedBottomSheet();
 
         clickContinueButtonAndCheckSignInInProgressSheet();
 
-        Assert.assertEquals(1, accountConsistencyHistogram.getDelta());
+        accountConsistencyHistogram.assertExpected();
         Assert.assertEquals(0,
                 SigninPreferencesManager.getInstance()
                         .getWebSigninAccountPickerActiveDismissalCount());
@@ -424,18 +424,68 @@ public class AccountPickerBottomSheetTest {
 
     @Test
     @MediumTest
+    public void testAutomotiveDevice_deviceLockReady_signInDefaultAccount()
+            throws InterruptedException {
+        mAutoTestRule.setIsAutomotive(true);
+        var accountConsistencyHistogram =
+                HistogramWatcher.newBuilder()
+                        .expectIntRecords("Signin.AccountConsistencyPromoAction",
+                                AccountConsistencyPromoAction.SHOWN,
+                                AccountConsistencyPromoAction.SIGNED_IN_WITH_DEFAULT_ACCOUNT)
+                        .build();
+        SharedPreferencesManager.getInstance().writeInt(
+                ChromePreferenceKeys.WEB_SIGNIN_ACCOUNT_PICKER_ACTIVE_DISMISSAL_COUNT, 2);
+        buildAndShowCollapsedBottomSheet();
+
+        clickContinueButtonAndCheckSignInInProgressSheetOnAutomotive(true);
+
+        accountConsistencyHistogram.assertExpected();
+        Assert.assertEquals(0,
+                SigninPreferencesManager.getInstance()
+                        .getWebSigninAccountPickerActiveDismissalCount());
+        verify(mAccountPickerDelegateMock, times(1)).signIn(any(), any());
+    }
+
+    @Test
+    @MediumTest
+    public void testAutomotiveDevice_deviceLockRefused_dismissedSignIn()
+            throws InterruptedException {
+        mAutoTestRule.setIsAutomotive(true);
+        var accountConsistencyHistogram =
+                HistogramWatcher.newBuilder()
+                        .expectIntRecords("Signin.AccountConsistencyPromoAction",
+                                AccountConsistencyPromoAction.SHOWN)
+                        .build();
+        SharedPreferencesManager.getInstance().writeInt(
+                ChromePreferenceKeys.WEB_SIGNIN_ACCOUNT_PICKER_ACTIVE_DISMISSAL_COUNT, 2);
+        buildAndShowCollapsedBottomSheet();
+
+        clickContinueButtonAndCheckSignInInProgressSheetOnAutomotive(false);
+
+        accountConsistencyHistogram.assertExpected();
+        Assert.assertEquals(2,
+                SigninPreferencesManager.getInstance()
+                        .getWebSigninAccountPickerActiveDismissalCount());
+        verify(mAccountPickerDelegateMock, times(0)).signIn(any(), any());
+    }
+
+    @Test
+    @MediumTest
     public void testSignInDefaultAccountOnCollapsedSheetForSendTabToSelf() {
         when(mAccountPickerDelegateMock.getEntryPoint()).thenReturn(EntryPoint.SEND_TAB_TO_SELF);
-        HistogramDelta accountConsistencyHistogram =
-                new HistogramDelta("Signin.AccountConsistencyPromoAction",
-                        AccountConsistencyPromoAction.SIGNED_IN_WITH_DEFAULT_ACCOUNT);
+        var accountConsistencyHistogram =
+                HistogramWatcher.newBuilder()
+                        .expectIntRecords("Signin.AccountConsistencyPromoAction",
+                                AccountConsistencyPromoAction.SHOWN,
+                                AccountConsistencyPromoAction.SIGNED_IN_WITH_DEFAULT_ACCOUNT)
+                        .build();
         SharedPreferencesManager.getInstance().writeInt(
                 ChromePreferenceKeys.WEB_SIGNIN_ACCOUNT_PICKER_ACTIVE_DISMISSAL_COUNT, 2);
         buildAndShowCollapsedBottomSheet();
 
         clickContinueButtonAndCheckSignInInProgressSheet();
 
-        Assert.assertEquals(1, accountConsistencyHistogram.getDelta());
+        accountConsistencyHistogram.assertExpected();
         Assert.assertEquals(2,
                 SigninPreferencesManager.getInstance()
                         .getWebSigninAccountPickerActiveDismissalCount());
@@ -444,9 +494,12 @@ public class AccountPickerBottomSheetTest {
     @Test
     @MediumTest
     public void testSignInAnotherAccountForWebSignin() {
-        HistogramDelta accountConsistencyHistogram =
-                new HistogramDelta("Signin.AccountConsistencyPromoAction",
-                        AccountConsistencyPromoAction.SIGNED_IN_WITH_NON_DEFAULT_ACCOUNT);
+        var accountConsistencyHistogram =
+                HistogramWatcher.newBuilder()
+                        .expectIntRecords("Signin.AccountConsistencyPromoAction",
+                                AccountConsistencyPromoAction.SHOWN,
+                                AccountConsistencyPromoAction.SIGNED_IN_WITH_NON_DEFAULT_ACCOUNT)
+                        .build();
         SharedPreferencesManager.getInstance().writeInt(
                 ChromePreferenceKeys.WEB_SIGNIN_ACCOUNT_PICKER_ACTIVE_DISMISSAL_COUNT, 2);
         buildAndShowExpandedBottomSheet();
@@ -456,7 +509,7 @@ public class AccountPickerBottomSheetTest {
 
         clickContinueButtonAndCheckSignInInProgressSheet();
 
-        Assert.assertEquals(1, accountConsistencyHistogram.getDelta());
+        accountConsistencyHistogram.assertExpected();
         Assert.assertEquals(0,
                 SigninPreferencesManager.getInstance()
                         .getWebSigninAccountPickerActiveDismissalCount());
@@ -466,9 +519,12 @@ public class AccountPickerBottomSheetTest {
     @MediumTest
     public void testSignInAnotherAccountForSendTabToSelf() {
         when(mAccountPickerDelegateMock.getEntryPoint()).thenReturn(EntryPoint.SEND_TAB_TO_SELF);
-        HistogramDelta accountConsistencyHistogram =
-                new HistogramDelta("Signin.AccountConsistencyPromoAction",
-                        AccountConsistencyPromoAction.SIGNED_IN_WITH_NON_DEFAULT_ACCOUNT);
+        var accountConsistencyHistogram =
+                HistogramWatcher.newBuilder()
+                        .expectIntRecords("Signin.AccountConsistencyPromoAction",
+                                AccountConsistencyPromoAction.SHOWN,
+                                AccountConsistencyPromoAction.SIGNED_IN_WITH_NON_DEFAULT_ACCOUNT)
+                        .build();
         SharedPreferencesManager.getInstance().writeInt(
                 ChromePreferenceKeys.WEB_SIGNIN_ACCOUNT_PICKER_ACTIVE_DISMISSAL_COUNT, 2);
         buildAndShowExpandedBottomSheet();
@@ -478,7 +534,7 @@ public class AccountPickerBottomSheetTest {
 
         clickContinueButtonAndCheckSignInInProgressSheet();
 
-        Assert.assertEquals(1, accountConsistencyHistogram.getDelta());
+        accountConsistencyHistogram.assertExpected();
         Assert.assertEquals(2,
                 SigninPreferencesManager.getInstance()
                         .getWebSigninAccountPickerActiveDismissalCount());
@@ -536,38 +592,35 @@ public class AccountPickerBottomSheetTest {
     @Test
     @MediumTest
     public void testSigninWithAddedAccount() {
-        HistogramDelta addAccountHistogram =
-                new HistogramDelta("Signin.AccountConsistencyPromoAction",
-                        AccountConsistencyPromoAction.ADD_ACCOUNT_STARTED);
-        HistogramDelta signedInWithAddedAccountHistogram =
-                new HistogramDelta("Signin.AccountConsistencyPromoAction",
-                        AccountConsistencyPromoAction.SIGNED_IN_WITH_ADDED_ACCOUNT);
-        HistogramDelta signedInWithNonDefaultAccountHistogram =
-                new HistogramDelta("Signin.AccountConsistencyPromoAction",
-                        AccountConsistencyPromoAction.SIGNED_IN_WITH_NON_DEFAULT_ACCOUNT);
+        var accountConsistencyHistogram =
+                HistogramWatcher.newBuilder()
+                        .expectIntRecords("Signin.AccountConsistencyPromoAction",
+                                AccountConsistencyPromoAction.SHOWN,
+                                AccountConsistencyPromoAction.ADD_ACCOUNT_STARTED,
+                                AccountConsistencyPromoAction.ADD_ACCOUNT_COMPLETED,
+                                AccountConsistencyPromoAction.SIGNED_IN_WITH_ADDED_ACCOUNT)
+                        .build();
+        mAccountManagerTestRule.setResultForNextAddAccountFlow(
+                Activity.RESULT_OK, NEW_ACCOUNT_EMAIL);
         buildAndShowExpandedBottomSheet();
 
         onVisibleView(withText(R.string.signin_add_account_to_device)).perform(click());
-        verify(mFakeAccountManagerFacade)
-                .createAddAccountIntent(mAddAccountIntentCreationCallbackCaptor.capture());
-        TestThreadUtils.runOnUiThreadBlocking(() -> {
-            mAddAccountIntentCreationCallbackCaptor.getValue().onResult(
-                    new Intent(sActivityTestRule.getActivity(), DummyAddAccountActivity.class));
-        });
 
-        ViewUtils.onViewWaiting(withText(DummyAddAccountActivity.ACCOUNT_EMAIL));
+        ViewUtils.waitForView(withText(NEW_ACCOUNT_EMAIL));
         clickContinueButtonAndCheckSignInInProgressSheet();
-        Assert.assertEquals(1, addAccountHistogram.getDelta());
-        Assert.assertEquals(1, signedInWithAddedAccountHistogram.getDelta());
-        Assert.assertEquals(0, signedInWithNonDefaultAccountHistogram.getDelta());
+        accountConsistencyHistogram.assertExpected();
     }
 
     @Test
     @MediumTest
     public void testSignInGeneralError() {
-        HistogramDelta accountConsistencyHistogram =
-                new HistogramDelta("Signin.AccountConsistencyPromoAction",
-                        AccountConsistencyPromoAction.GENERIC_ERROR_SHOWN);
+        var accountConsistencyHistogram =
+                HistogramWatcher.newBuilder()
+                        .expectIntRecords("Signin.AccountConsistencyPromoAction",
+                                AccountConsistencyPromoAction.SHOWN,
+                                AccountConsistencyPromoAction.SIGNED_IN_WITH_DEFAULT_ACCOUNT,
+                                AccountConsistencyPromoAction.GENERIC_ERROR_SHOWN)
+                        .build();
         // Throws a connection error during the sign-in action
         doAnswer(invocation -> {
             Callback<GoogleServiceAuthError> onSignInErrorCallback = invocation.getArgument(1);
@@ -589,15 +642,19 @@ public class AccountPickerBottomSheetTest {
         onView(withId(R.id.account_picker_selected_account)).check(matches(not(isDisplayed())));
         onView(withId(R.id.account_picker_signin_spinner_view)).check(matches(not(isDisplayed())));
         onView(withId(R.id.account_picker_dismiss_button)).check(matches(not(isDisplayed())));
-        Assert.assertEquals(1, accountConsistencyHistogram.getDelta());
+        accountConsistencyHistogram.assertExpected();
     }
 
     @Test
     @MediumTest
     public void testSignInAuthError() {
-        HistogramDelta accountConsistencyHistogram =
-                new HistogramDelta("Signin.AccountConsistencyPromoAction",
-                        AccountConsistencyPromoAction.AUTH_ERROR_SHOWN);
+        var accountConsistencyHistogram =
+                HistogramWatcher.newBuilder()
+                        .expectIntRecords("Signin.AccountConsistencyPromoAction",
+                                AccountConsistencyPromoAction.SHOWN,
+                                AccountConsistencyPromoAction.SIGNED_IN_WITH_DEFAULT_ACCOUNT,
+                                AccountConsistencyPromoAction.AUTH_ERROR_SHOWN)
+                        .build();
         // Throws an auth error during the sign-in action
         doAnswer(invocation -> {
             Callback<GoogleServiceAuthError> onSignInErrorCallback = invocation.getArgument(1);
@@ -619,7 +676,7 @@ public class AccountPickerBottomSheetTest {
         onView(withId(R.id.account_picker_selected_account)).check(matches(not(isDisplayed())));
         onView(withId(R.id.account_picker_signin_spinner_view)).check(matches(not(isDisplayed())));
         onView(withId(R.id.account_picker_dismiss_button)).check(matches(not(isDisplayed())));
-        Assert.assertEquals(1, accountConsistencyHistogram.getDelta());
+        accountConsistencyHistogram.assertExpected();
     }
 
     @Test
@@ -670,26 +727,22 @@ public class AccountPickerBottomSheetTest {
     @Test
     @MediumTest
     public void testAddAccountOnExpandedSheet() {
-        HistogramDelta addAccountStartedHistogram =
-                new HistogramDelta("Signin.AccountConsistencyPromoAction",
-                        AccountConsistencyPromoAction.ADD_ACCOUNT_STARTED);
-        HistogramDelta addAccountCompletedHistogram =
-                new HistogramDelta("Signin.AccountConsistencyPromoAction",
-                        AccountConsistencyPromoAction.ADD_ACCOUNT_COMPLETED);
+        var accountConsistencyHistogram =
+                HistogramWatcher.newBuilder()
+                        .expectIntRecords("Signin.AccountConsistencyPromoAction",
+                                AccountConsistencyPromoAction.SHOWN,
+                                AccountConsistencyPromoAction.ADD_ACCOUNT_STARTED,
+                                AccountConsistencyPromoAction.ADD_ACCOUNT_COMPLETED)
+                        .build();
+        mAccountManagerTestRule.setResultForNextAddAccountFlow(
+                Activity.RESULT_OK, NEW_ACCOUNT_EMAIL);
         buildAndShowExpandedBottomSheet();
 
         onVisibleView(withText(R.string.signin_add_account_to_device)).perform(click());
 
-        verify(mFakeAccountManagerFacade)
-                .createAddAccountIntent(mAddAccountIntentCreationCallbackCaptor.capture());
-        TestThreadUtils.runOnUiThreadBlocking(() -> {
-            mAddAccountIntentCreationCallbackCaptor.getValue().onResult(
-                    new Intent(sActivityTestRule.getActivity(), DummyAddAccountActivity.class));
-        });
-        ViewUtils.onViewWaiting(withText(DummyAddAccountActivity.ACCOUNT_EMAIL));
-        checkCollapsedAccountListForWebSignin(DummyAddAccountActivity.ACCOUNT_EMAIL, null, null);
-        Assert.assertEquals(1, addAccountStartedHistogram.getDelta());
-        Assert.assertEquals(1, addAccountCompletedHistogram.getDelta());
+        ViewUtils.waitForView(withText(NEW_ACCOUNT_EMAIL));
+        checkCollapsedAccountListForWebSignin(NEW_ACCOUNT_EMAIL, null, null);
+        accountConsistencyHistogram.assertExpected();
     }
 
     @Test
@@ -748,13 +801,50 @@ public class AccountPickerBottomSheetTest {
         onView(withId(R.id.account_picker_dismiss_button)).check(matches(not(isDisplayed())));
     }
 
+    private void clickContinueButtonAndCheckSignInInProgressSheetOnAutomotive(
+            boolean deviceLockCreated) {
+        View bottomSheetView = mCoordinator.getBottomSheetViewForTesting();
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            bottomSheetView.findViewById(R.id.account_picker_continue_as_button).performClick();
+        });
+        assertTrue(mDeviceLockActivityLauncher.isLaunched());
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mDeviceLockActivityLauncher.runCallback(
+                    deviceLockCreated ? Activity.RESULT_OK : Activity.RESULT_CANCELED);
+        });
+        if (deviceLockCreated) {
+            // TODO(https://crbug.com/1116348): Check AccountPickerDelegate.signIn() is called
+            // after solving AsyncTask wait problem in espresso
+            // Currently the ProgressBar animation cannot be disabled on
+            // android-marshmallow-arm64-rel bot with DisableAnimationsTestRule, we hide the
+            // ProgressBar manually here to enable checks of other elements on the screen.
+            // TODO(https://crbug.com/1115067): Delete this line once DisableAnimationsTestRule is
+            // fixed.
+            TestThreadUtils.runOnUiThreadBlocking(() -> {
+                bottomSheetView.findViewById(R.id.account_picker_signin_spinner_view)
+                        .setVisibility(View.GONE);
+            });
+            onView(withText(R.string.signin_account_picker_bottom_sheet_signin_title))
+                    .check(matches(isDisplayed()));
+            onView(withId(R.id.account_picker_account_list)).check(matches(not(isDisplayed())));
+            onView(withId(R.id.account_picker_selected_account)).check(matches(not(isDisplayed())));
+            onView(withId(R.id.account_picker_dismiss_button)).check(matches(not(isDisplayed())));
+        } else {
+            onView(withText(R.string.signin_account_picker_bottom_sheet_signin_title))
+                    .check(matches(not(isDisplayed())));
+            onView(withId(R.id.account_picker_account_list)).check(matches(not(isDisplayed())));
+            onView(withId(R.id.account_picker_selected_account)).check(matches(isDisplayed()));
+            onView(withId(R.id.account_picker_dismiss_button)).check(matches(isDisplayed()));
+        }
+    }
+
     private static void checkZeroAccountBottomSheet() {
         onVisibleView(withText(TEST_EMAIL1)).check(doesNotExist());
         onVisibleView(withText(TEST_EMAIL2)).check(doesNotExist());
         onView(withId(R.id.account_picker_account_list)).check(matches(not(isDisplayed())));
         onView(withId(R.id.account_picker_selected_account)).check(matches(not(isDisplayed())));
-        onVisibleView(withText(R.string.signin_add_account_to_device)).perform(click());
-        verify(AccountManagerFacadeProvider.getInstance()).createAddAccountIntent(notNull());
+        onVisibleView(withText(R.string.signin_add_account_to_device))
+                .check(matches(isDisplayed()));
     }
 
     private void checkCollapsedAccountListForWebSignin(
@@ -770,7 +860,7 @@ public class AccountPickerBottomSheetTest {
             onVisibleView(withText(fullName)).check(matches(isDisplayed()));
         }
         String continueAsText = sActivityTestRule.getActivity().getString(
-                R.string.signin_promo_continue_as, givenName != null ? givenName : email);
+                R.string.sync_promo_continue_as, givenName != null ? givenName : email);
         onView(withText(continueAsText)).check(matches(isDisplayed()));
         onView(withText(R.string.signin_account_picker_dismiss_button))
                 .check(matches(isDisplayed()));
@@ -778,10 +868,16 @@ public class AccountPickerBottomSheetTest {
     }
 
     private void buildAndShowCollapsedBottomSheet() {
+        AccountPickerBottomSheetStrings accountPickerBottomSheetStrings =
+                mAccountPickerDelegateMock.getEntryPoint() == EntryPoint.SEND_TAB_TO_SELF
+                ? new SendTabToSelfCoordinator.BottomSheetStrings()
+                : new AccountPickerBottomSheetStrings() {};
+        mDeviceLockActivityLauncher = new CustomDeviceLockActivityLauncher();
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             mCoordinator = new AccountPickerBottomSheetCoordinator(
                     sActivityTestRule.getActivity().getWindowAndroid(), getBottomSheetController(),
-                    mAccountPickerDelegateMock);
+                    mAccountPickerDelegateMock, accountPickerBottomSheetStrings,
+                    mDeviceLockActivityLauncher);
         });
         CriteriaHelper.pollUiThread(mCoordinator.getBottomSheetViewForTesting().findViewById(
                 R.id.account_picker_selected_account)::isShown);
@@ -803,5 +899,28 @@ public class AccountPickerBottomSheetTest {
         // withEffectiveVisibility(VISIBLE) is needed here to get only the visible view of the
         // matcher.
         return onView(allOf(matcher, withEffectiveVisibility(VISIBLE)));
+    }
+
+    private class CustomDeviceLockActivityLauncher implements DeviceLockActivityLauncher {
+        private WindowAndroid.IntentCallback mCallback;
+        private boolean mLaunched;
+
+        CustomDeviceLockActivityLauncher() {}
+
+        @Override
+        public void launchDeviceLockActivity(Context context, boolean inSignInFlow,
+                String selectedAccount, WindowAndroid windowAndroid,
+                WindowAndroid.IntentCallback callback) {
+            mCallback = callback;
+            mLaunched = true;
+        }
+
+        boolean isLaunched() {
+            return mLaunched;
+        }
+
+        void runCallback(int activityResult) {
+            mCallback.onIntentCompleted(activityResult, null);
+        }
     }
 }

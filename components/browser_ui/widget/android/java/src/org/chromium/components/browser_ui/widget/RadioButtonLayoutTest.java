@@ -1,15 +1,15 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.components.browser_ui.widget;
 
 import android.content.Context;
-import android.support.test.InstrumentationRegistry;
 import android.view.View;
 import android.view.ViewGroup.MarginLayoutParams;
 import android.widget.RadioButton;
 
+import androidx.test.InstrumentationRegistry;
 import androidx.test.filters.SmallTest;
 
 import org.junit.Assert;

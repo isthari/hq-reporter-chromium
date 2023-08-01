@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,19 +7,20 @@
 #include "base/check.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "components/services/screen_ai/buildflags/buildflags.h"
 #include "content/public/common/sandboxed_process_launcher_delegate.h"
 #include "content/public/common/zygote/zygote_buildflags.h"
 #include "ppapi/buildflags/buildflags.h"
 #include "printing/buildflags/buildflags.h"
 #include "sandbox/policy/mojom/sandbox.mojom.h"
 
-#if BUILDFLAG(USE_ZYGOTE_HANDLE)
+#if BUILDFLAG(USE_ZYGOTE)
 #include "content/common/zygote/zygote_handle_impl_linux.h"
 #include "sandbox/policy/sandbox_type.h"
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chromeos/assistant/buildflags.h"
+#include "chromeos/ash/components/assistant/buildflags.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace content {
@@ -59,20 +60,28 @@ UtilitySandboxedProcessLauncherDelegate::
       sandbox_type_ == sandbox::mojom::Sandbox::kPrintBackend ||
 #endif
       sandbox_type_ == sandbox::mojom::Sandbox::kPrintCompositor ||
-#if BUILDFLAG(ENABLE_PLUGINS)
+#if BUILDFLAG(ENABLE_PPAPI)
       sandbox_type_ == sandbox::mojom::Sandbox::kPpapi ||
 #endif
 #if BUILDFLAG(IS_FUCHSIA)
       sandbox_type_ == sandbox::mojom::Sandbox::kVideoCapture ||
 #endif
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_ASH)
       sandbox_type_ == sandbox::mojom::Sandbox::kHardwareVideoDecoding ||
+#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+      sandbox_type_ == sandbox::mojom::Sandbox::kHardwareVideoEncoding ||
+#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
       sandbox_type_ == sandbox::mojom::Sandbox::kIme ||
       sandbox_type_ == sandbox::mojom::Sandbox::kTts ||
 #if BUILDFLAG(ENABLE_CROS_LIBASSISTANT)
       sandbox_type_ == sandbox::mojom::Sandbox::kLibassistant ||
 #endif  // BUILDFLAG(ENABLE_CROS_LIBASSISTANT)
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(ENABLE_SCREEN_AI_SERVICE)
+      sandbox_type_ == sandbox::mojom::Sandbox::kScreenAI ||
+#endif
       sandbox_type_ == sandbox::mojom::Sandbox::kAudio ||
       sandbox_type_ == sandbox::mojom::Sandbox::kSpeechRecognition;
   DCHECK(supported_sandbox_type);
@@ -80,7 +89,7 @@ UtilitySandboxedProcessLauncherDelegate::
 }
 
 UtilitySandboxedProcessLauncherDelegate::
-    ~UtilitySandboxedProcessLauncherDelegate() {}
+    ~UtilitySandboxedProcessLauncherDelegate() = default;
 
 sandbox::mojom::Sandbox
 UtilitySandboxedProcessLauncherDelegate::GetSandboxType() {
@@ -93,18 +102,35 @@ base::EnvironmentMap UtilitySandboxedProcessLauncherDelegate::GetEnvironment() {
 }
 #endif  // BUILDFLAG(IS_POSIX)
 
-#if BUILDFLAG(USE_ZYGOTE_HANDLE)
-ZygoteHandle UtilitySandboxedProcessLauncherDelegate::GetZygote() {
+#if BUILDFLAG(USE_ZYGOTE)
+ZygoteCommunication* UtilitySandboxedProcessLauncherDelegate::GetZygote() {
+  if (zygote_.has_value()) {
+    return zygote_.value();
+  }
+
   // If the sandbox has been disabled for a given type, don't use a zygote.
   if (sandbox::policy::IsUnsandboxedSandboxType(sandbox_type_))
     return nullptr;
+
+  // TODO(crbug.com/1427280): remove this special case and fork from the zygote.
+  // For now, browser tests fail when forking the network service from the
+  // unsandboxed zygote, as the forked process only creates the
+  // NetworkServiceTestHelper if the process is exec'd.
+  if (sandbox_type_ == sandbox::mojom::Sandbox::kNetwork) {
+    return nullptr;
+  }
 
   // Utility processes which need specialized sandboxes fork from the
   // unsandboxed zygote and then apply their actual sandboxes in the forked
   // process upon startup.
   if (sandbox_type_ == sandbox::mojom::Sandbox::kNetwork ||
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_ASH)
       sandbox_type_ == sandbox::mojom::Sandbox::kHardwareVideoDecoding ||
+#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+      sandbox_type_ == sandbox::mojom::Sandbox::kHardwareVideoEncoding ||
+#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+#if BUILDFLAG(IS_CHROMEOS_ASH)
       sandbox_type_ == sandbox::mojom::Sandbox::kIme ||
       sandbox_type_ == sandbox::mojom::Sandbox::kTts ||
 #if BUILDFLAG(ENABLE_CROS_LIBASSISTANT)
@@ -115,6 +141,9 @@ ZygoteHandle UtilitySandboxedProcessLauncherDelegate::GetZygote() {
 #if BUILDFLAG(ENABLE_OOP_PRINTING)
       sandbox_type_ == sandbox::mojom::Sandbox::kPrintBackend ||
 #endif
+#if BUILDFLAG(ENABLE_SCREEN_AI_SERVICE)
+      sandbox_type_ == sandbox::mojom::Sandbox::kScreenAI ||
+#endif
       sandbox_type_ == sandbox::mojom::Sandbox::kSpeechRecognition) {
     return GetUnsandboxedZygote();
   }
@@ -122,6 +151,11 @@ ZygoteHandle UtilitySandboxedProcessLauncherDelegate::GetZygote() {
   // All other types use the pre-sandboxed zygote.
   return GetGenericZygote();
 }
-#endif  // BUILDFLAG(USE_ZYGOTE_HANDLE)
+
+void UtilitySandboxedProcessLauncherDelegate::SetZygote(
+    ZygoteCommunication* handle) {
+  zygote_ = handle;
+}
+#endif  // BUILDFLAG(USE_ZYGOTE)
 
 }  // namespace content

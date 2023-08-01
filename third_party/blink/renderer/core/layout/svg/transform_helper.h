@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,12 +15,14 @@ class RectF;
 
 namespace blink {
 
+class SVGElement;
 class LayoutObject;
 
 class TransformHelper {
   STATIC_ONLY(TransformHelper);
 
  public:
+  static void UpdateOffsetPath(SVGElement&, const ComputedStyle*);
   // Returns true if the passed in ComputedStyle has a transform that needs to
   // resolve against the reference box.
   static bool DependsOnReferenceBox(const ComputedStyle&);

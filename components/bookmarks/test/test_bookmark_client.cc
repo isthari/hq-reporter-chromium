@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,10 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/notreached.h"
+#include "base/time/time.h"
 #include "components/bookmarks/browser/bookmark_load_details.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_node.h"
@@ -39,6 +40,7 @@ std::unique_ptr<BookmarkModel> TestBookmarkClient::CreateModelWithClient(
   std::unique_ptr<BookmarkLoadDetails> details =
       std::make_unique<BookmarkLoadDetails>(client_ptr);
   details->LoadManagedNode();
+  details->index()->AddPath(details->other_folder_node());
   details->CreateUrlIndex();
   bookmark_model->DoneLoading(std::move(details));
   return bookmark_model;
@@ -95,6 +97,11 @@ bool TestBookmarkClient::HasFaviconLoadTasks() const {
   return !requests_per_page_url_.empty();
 }
 
+void TestBookmarkClient::SetStorageStateForUma(
+    metrics::StorageStateForUma storage_state) {
+  storage_state_for_uma_ = storage_state;
+}
+
 bool TestBookmarkClient::IsPermanentNodeVisibleWhenEmpty(
     BookmarkNode::Type type) {
   switch (type) {
@@ -113,12 +120,13 @@ bool TestBookmarkClient::IsPermanentNodeVisibleWhenEmpty(
   return false;
 }
 
-void TestBookmarkClient::RecordAction(const base::UserMetricsAction& action) {
-}
-
 LoadManagedNodeCallback TestBookmarkClient::GetLoadManagedNodeCallback() {
   return base::BindOnce(&TestBookmarkClient::LoadManagedNode,
                         std::move(managed_node_));
+}
+
+metrics::StorageStateForUma TestBookmarkClient::GetStorageStateForUma() {
+  return storage_state_for_uma_;
 }
 
 bool TestBookmarkClient::CanSetPermanentNodeTitle(
@@ -150,6 +158,12 @@ TestBookmarkClient::GetFaviconImageForPageURL(
   requests_per_page_url_[page_url].push_back(std::move(callback));
   return next_task_id_++;
 }
+
+void TestBookmarkClient::OnBookmarkNodeRemovedUndoable(
+    BookmarkModel* model,
+    const BookmarkNode* parent,
+    size_t index,
+    std::unique_ptr<BookmarkNode> node) {}
 
 // static
 std::unique_ptr<BookmarkPermanentNode> TestBookmarkClient::LoadManagedNode(

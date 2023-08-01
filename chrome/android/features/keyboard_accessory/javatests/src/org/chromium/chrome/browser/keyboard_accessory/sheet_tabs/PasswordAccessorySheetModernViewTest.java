@@ -1,9 +1,14 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.keyboard_accessory.sheet_tabs;
 
+import static androidx.test.espresso.Espresso.onView;
+import static androidx.test.espresso.assertion.ViewAssertions.matches;
+import static androidx.test.espresso.matcher.RootMatchers.isDialog;
+import static androidx.test.espresso.matcher.ViewMatchers.assertThat;
+import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
 
 import static org.hamcrest.Matchers.greaterThan;
@@ -13,7 +18,6 @@ import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import android.text.method.PasswordTransformationMethod;
@@ -43,7 +47,7 @@ import org.chromium.chrome.browser.keyboard_accessory.data.KeyboardAccessoryData
 import org.chromium.chrome.browser.keyboard_accessory.data.KeyboardAccessoryData.UserInfo;
 import org.chromium.chrome.browser.keyboard_accessory.data.UserInfoField;
 import org.chromium.chrome.browser.keyboard_accessory.sheet_component.AccessorySheetCoordinator;
-import org.chromium.chrome.browser.keyboard_accessory.sheet_tabs.AccessorySheetTabModel.AccessorySheetDataPiece;
+import org.chromium.chrome.browser.keyboard_accessory.sheet_tabs.AccessorySheetTabItemsModel.AccessorySheetDataPiece;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.components.browser_ui.widget.chips.ChipView;
@@ -58,7 +62,7 @@ import java.util.concurrent.atomic.AtomicReference;
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
 public class PasswordAccessorySheetModernViewTest {
-    private AccessorySheetTabModel mModel;
+    private AccessorySheetTabItemsModel mModel;
     private AtomicReference<RecyclerView> mView = new AtomicReference<>();
 
     @Rule
@@ -68,11 +72,12 @@ public class PasswordAccessorySheetModernViewTest {
     public void setUp() throws InterruptedException {
         mActivityTestRule.startMainActivityOnBlankPage();
         TestThreadUtils.runOnUiThreadBlocking(() -> {
-            mModel = new AccessorySheetTabModel();
+            mModel = new AccessorySheetTabItemsModel();
 
             AccessorySheetCoordinator accessorySheet =
                     new AccessorySheetCoordinator(mActivityTestRule.getActivity().findViewById(
-                            R.id.keyboard_accessory_sheet_stub));
+                                                          R.id.keyboard_accessory_sheet_stub),
+                            null);
             accessorySheet.setTabs(new KeyboardAccessoryData.Tab[] {new KeyboardAccessoryData.Tab(
                     "Passwords", null, null, R.layout.password_accessory_sheet,
                     AccessoryTabType.ALL, new KeyboardAccessoryData.Tab.Listener() {
@@ -146,6 +151,37 @@ public class PasswordAccessorySheetModernViewTest {
         clicked.set(false);
         TestThreadUtils.runOnUiThreadBlocking(getPasswordSuggestion()::performClick);
         assertThat(clicked.get(), is(true));
+    }
+
+    @Test
+    @MediumTest
+    public void testAddingUserInfoWithObfuscatedTextAndNullCallbackRendersDialog()
+            throws ExecutionException {
+        final AtomicReference<Boolean> clicked = new AtomicReference<>(false);
+        assertThat(mView.get().getChildCount(), is(0));
+
+        UserInfo usernameEnabled = new UserInfo("", false);
+        usernameEnabled.addField(
+                new UserInfoField("username1", "username1", "", false, item -> clicked.set(true)));
+        usernameEnabled.addField(
+                new UserInfoField("pa55w0rd", "Password for username1", "", true, null));
+
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mModel.add(new AccessorySheetDataPiece(
+                    usernameEnabled, AccessorySheetDataPiece.Type.PASSWORD_INFO));
+        });
+
+        CriteriaHelper.pollUiThread(() -> Criteria.checkThat(mView.get().getChildCount(), is(1)));
+
+        assertThat(getNameSuggestion().getPrimaryTextView().getText(), is("username1"));
+        assertThat(getPasswordSuggestion().getPrimaryTextView().getText(), is("pa55w0rd"));
+        assertThat(getPasswordSuggestion().getPrimaryTextView().getTransformationMethod(),
+                instanceOf(PasswordTransformationMethod.class));
+
+        TestThreadUtils.runOnUiThreadBlocking(getNameSuggestion()::performClick);
+        assertThat(clicked.get(), is(true));
+        TestThreadUtils.runOnUiThreadBlocking(getPasswordSuggestion()::performClick);
+        assertInsecureFillingDialog();
     }
 
     @Test
@@ -257,5 +293,16 @@ public class PasswordAccessorySheetModernViewTest {
         assertThat(view, is(not(nullValue())));
         assertThat(view, instanceOf(ChipView.class));
         return (ChipView) view;
+    }
+
+    private void assertInsecureFillingDialog() {
+        CriteriaHelper.pollInstrumentationThread(() -> {
+            onView(withText(R.string.passwords_not_secure_filling))
+                    .inRoot(isDialog())
+                    .check(matches(isDisplayed()));
+            onView(withText(R.string.passwords_not_secure_filling_details))
+                    .inRoot(isDialog())
+                    .check(matches(isDisplayed()));
+        });
     }
 }

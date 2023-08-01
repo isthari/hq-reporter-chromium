@@ -1,24 +1,24 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.net.urlconnection;
 
-import static org.junit.Assert.assertEquals;
+import static com.google.common.truth.Truth.assertThat;
 
 import static org.chromium.net.CronetTestRule.getContext;
 
-import android.support.test.runner.AndroidJUnit4;
-
+import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.filters.SmallTest;
 
 import org.json.JSONObject;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.Batch;
 import org.chromium.net.CronetEngine;
 import org.chromium.net.CronetTestRule;
 import org.chromium.net.CronetTestRule.OnlyRunNativeCronet;
@@ -34,19 +34,19 @@ import java.util.Arrays;
 /**
  * Tests HttpURLConnection upload using QUIC.
  */
+@Batch(Batch.UNIT_TESTS)
 @RunWith(AndroidJUnit4.class)
 public class QuicUploadTest {
     @Rule
     public final CronetTestRule mTestRule = new CronetTestRule();
 
+    private CronetTestRule.CronetTestFramework mTestFramework;
     private CronetEngine mCronetEngine;
 
     @Before
     public void setUp() throws Exception {
-        // Load library first to create MockCertVerifier.
-        System.loadLibrary("cronet_tests");
-        ExperimentalCronetEngine.Builder builder =
-                new ExperimentalCronetEngine.Builder(getContext());
+        mTestFramework = mTestRule.buildCronetTestFramework();
+        ExperimentalCronetEngine.Builder builder = mTestFramework.mBuilder;
 
         QuicTestServer.startQuicTestServer(getContext());
 
@@ -62,12 +62,17 @@ public class QuicUploadTest {
         CronetTestUtil.setMockCertVerifierForTesting(
                 builder, QuicTestServer.createMockCertVerifier());
 
-        mCronetEngine = builder.build();
+        mCronetEngine = mTestFramework.startEngine();
+    }
+
+    @After
+    public void tearDown() throws Exception {
+        mTestFramework.shutdownEngine();
+        QuicTestServer.shutdownQuicTestServer();
     }
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     // Regression testing for crbug.com/618872.
     public void testOneMassiveWrite() throws Exception {
@@ -85,7 +90,7 @@ public class QuicUploadTest {
         // Write everything at one go, so the data is larger than the buffer
         // used in CronetFixedModeOutputStream.
         out.write(largeData);
-        assertEquals(200, connection.getResponseCode());
+        assertThat(connection.getResponseCode()).isEqualTo(200);
         connection.disconnect();
     }
 }

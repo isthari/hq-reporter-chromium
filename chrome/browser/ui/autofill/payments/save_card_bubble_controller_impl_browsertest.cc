@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <memory>
 
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "base/json/json_reader.h"
 #include "base/memory/raw_ptr.h"
 #include "base/values.h"
@@ -50,10 +50,9 @@ class SaveCardBubbleControllerImplTest : public DialogBrowserTest {
         "     } ]"
         "  } ]"
         "}"));
-    base::DictionaryValue* dictionary;
-    value->GetAsDictionary(&dictionary);
+    EXPECT_TRUE(value->is_dict());
     LegalMessageLines legal_message_lines;
-    LegalMessageLine::Parse(*dictionary, &legal_message_lines,
+    LegalMessageLine::Parse(value->GetDict(), &legal_message_lines,
                             /*escape_apostrophes=*/true);
     return legal_message_lines;
   }
@@ -112,6 +111,11 @@ class SaveCardBubbleControllerImplTest : public DialogBrowserTest {
     }
   }
 
+  void TearDownOnMainThread() override {
+    controller_ = nullptr;
+    DialogBrowserTest::TearDownOnMainThread();
+  }
+
   SaveCardBubbleControllerImpl* controller() { return controller_; }
 
  private:
@@ -166,14 +170,14 @@ IN_PROC_BROWSER_TEST_F(SaveCardBubbleControllerImplTest, InvokeUi_Failure) {
 // Tests that opening a new tab will hide the save card bubble.
 IN_PROC_BROWSER_TEST_F(SaveCardBubbleControllerImplTest, NewTabHidesDialog) {
   ShowUi("Local");
-  EXPECT_NE(nullptr, controller()->GetSaveCardBubbleView());
+  EXPECT_NE(nullptr, controller()->GetPaymentBubbleView());
   // Open a new tab page in the foreground.
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), GURL(chrome::kChromeUINewTabURL),
       WindowOpenDisposition::NEW_FOREGROUND_TAB,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_TAB |
           ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
-  EXPECT_EQ(nullptr, controller()->GetSaveCardBubbleView());
+  EXPECT_EQ(nullptr, controller()->GetPaymentBubbleView());
 }
 
 }  // namespace autofill

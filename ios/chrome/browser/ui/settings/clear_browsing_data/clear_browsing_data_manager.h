@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 #define IOS_CHROME_BROWSER_UI_SETTINGS_CLEAR_BROWSING_DATA_CLEAR_BROWSING_DATA_MANAGER_H_
 
 #include "components/browsing_data/core/counters/browsing_data_counter.h"
-#import "ios/chrome/browser/ui/list_model/list_model.h"
+#import "ios/chrome/browser/shared/ui/list_model/list_model.h"
 
 class Browser;
 class BrowsingDataRemover;
@@ -18,7 +18,10 @@ class ChromeBrowserState;
 @protocol ClearBrowsingDataConsumer;
 @protocol CollectionViewFooterLinkDelegate;
 
-// Clear Browswing Data Section Identifiers.
+// Only used in this folder to offer the user to log out
+extern const char kCBDSignOutOfChromeURL[];
+
+// Clear Browsing Data Section Identifiers.
 enum ClearBrowsingDataSectionIdentifier {
   // Section holding types of data that can be cleared.
   SectionIdentifierDataTypes = kSectionIdentifierEnumZero,
@@ -48,11 +51,8 @@ enum ClearBrowsingDataItemType {
   // Footer noting user will not be signed out of chrome and other forms of
   // browsing history will still be available.
   ItemTypeFooterGoogleAccountAndMyActivity,
-  // Footer noting site settings will remain.
-  ItemTypeFooterSavedSiteData,
-  // Footer noting data will be cleared on all devices except for saved
-  // settings.
-  ItemTypeFooterClearSyncAndSavedSiteData,
+  // Footer offering to sign out of Google account in Chrome.
+  ItemTypeFooterSignoutOfGoogle,
   // Item showing time range to remove data and allowing user to edit time
   // range.
   ItemTypeTimeRange,
@@ -68,7 +68,7 @@ enum ClearBrowsingDataItemType {
 // The manager's consumer.
 @property(nonatomic, weak) id<ClearBrowsingDataConsumer> consumer;
 
-// Default init method. |browserState| can't be nil.
+// Default init method. `browserState` can't be nil.
 - (instancetype)initWithBrowserState:(ChromeBrowserState*)browserState;
 
 // Designated initializer to allow dependency injection (in tests).
@@ -79,15 +79,24 @@ enum ClearBrowsingDataItemType {
 
 - (instancetype)init NS_UNAVAILABLE;
 
-// Fills |model| with appropriate sections and items.
+// Call this method before actually using the data manager.
+- (void)prepare;
+
+// Call this method when data manager is not used anymore.
+- (void)disconnect;
+
+// Fills `model` with appropriate sections and items.
 - (void)loadModel:(ListModel*)model;
 
+// Update the footer depending on whether the user signed in or out.
+- (void)updateModel:(ListModel*)model withTableView:(UITableView*)tableView;
+
 // Restarts browsing data counters, which in turn updates UI, with those data
-// types specified by |mask|.
+// types specified by `mask`.
 - (void)restartCounters:(BrowsingDataRemoveMask)mask;
 
 // Returns a ActionSheetCoordinator that has action block to clear data of type
-// |dataTypeMaskToRemove|.
+// `dataTypeMaskToRemove`.
 - (ActionSheetCoordinator*)
     actionSheetCoordinatorWithDataTypesToRemove:
         (BrowsingDataRemoveMask)dataTypeMaskToRemove
@@ -97,7 +106,7 @@ enum ClearBrowsingDataItemType {
                             sourceBarButtonItem:
                                 (UIBarButtonItem*)sourceBarButtonItem;
 
-// Get the text to be displayed by a counter from the given |result|
+// Get the text to be displayed by a counter from the given `result`
 - (NSString*)counterTextFromResult:
     (const browsing_data::BrowsingDataCounter::Result&)result;
 

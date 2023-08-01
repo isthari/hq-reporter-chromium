@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -177,8 +177,7 @@ bool CheckTestPrivileges();
 
 // On Windows, sometimes the copied files don't have correct ACLs.
 // So we reset ACL before running the test.
-// For debug, it will reset ucrtbased.dll. For release, it will reset
-// ucrtbase.dll.
+// For debug, it will reset ucrtbased.dll. For release, it does nothing.
 // See crbug.com/956016.
 bool ResetAclForUcrtbase();
 

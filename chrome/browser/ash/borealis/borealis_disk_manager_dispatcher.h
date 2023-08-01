@@ -1,11 +1,12 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_ASH_BOREALIS_BOREALIS_DISK_MANAGER_DISPATCHER_H_
 #define CHROME_BROWSER_ASH_BOREALIS_BOREALIS_DISK_MANAGER_DISPATCHER_H_
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
 #include "chrome/browser/ash/borealis/borealis_disk_manager.h"
 
 namespace borealis {
@@ -23,23 +24,25 @@ class BorealisDiskManagerDispatcher {
   virtual void GetDiskInfo(
       const std::string& origin_vm_name,
       const std::string& origin_container_name,
-      base::OnceCallback<void(Expected<BorealisDiskManager::GetDiskInfoResponse,
-                                       Described<BorealisGetDiskInfoResult>>)>
-          callback);
+      base::OnceCallback<
+          void(base::expected<BorealisDiskManager::GetDiskInfoResponse,
+                              Described<BorealisGetDiskInfoResult>>)> callback);
 
   virtual void RequestSpace(
       const std::string& origin_vm_name,
       const std::string& origin_container_name,
       uint64_t bytes_requested,
-      base::OnceCallback<void(
-          Expected<uint64_t, Described<BorealisResizeDiskResult>>)> callback);
+      base::OnceCallback<
+          void(base::expected<uint64_t, Described<BorealisResizeDiskResult>>)>
+          callback);
 
   virtual void ReleaseSpace(
       const std::string& origin_vm_name,
       const std::string& origin_container_name,
       uint64_t bytes_to_release,
-      base::OnceCallback<void(
-          Expected<uint64_t, Described<BorealisResizeDiskResult>>)> callback);
+      base::OnceCallback<
+          void(base::expected<uint64_t, Described<BorealisResizeDiskResult>>)>
+          callback);
 
   virtual void SetDiskManagerDelegate(BorealisDiskManager* disk_manager);
   virtual void RemoveDiskManagerDelegate(BorealisDiskManager* disk_manager);
@@ -50,7 +53,7 @@ class BorealisDiskManagerDispatcher {
                               const std::string& origin_container_name);
 
   // Not owned by us.
-  BorealisDiskManager* disk_manager_delegate_;
+  raw_ptr<BorealisDiskManager, ExperimentalAsh> disk_manager_delegate_;
 };
 
 }  // namespace borealis

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include <algorithm>
 
+#include "base/containers/flat_map.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
@@ -40,7 +41,7 @@ bool ParseRange(base::StringPiece range, size_t* start, size_t* count) {
 //   - ${variable_name,pos,count} -> |replacement.substr(pos,count)|
 // Strictly enforces the format (up to whitespace), e.g.
 // ${variable_name ,  2 , 9  } works, but ${variable_name,2o,9e} doesn't.
-// Returns true if no error occured.
+// Returns true if no error occurred.
 bool Expand(base::StringPiece variable_name,
             base::StringPiece replacement,
             std::string* str) {
@@ -103,9 +104,8 @@ bool Expand(base::StringPiece variable_name,
 
 namespace chromeos {
 
-VariableExpander::VariableExpander() = default;
-
-VariableExpander::VariableExpander(std::map<std::string, std::string> variables)
+VariableExpander::VariableExpander(
+    base::flat_map<std::string, std::string> variables)
     : variables_(std::move(variables)) {}
 
 VariableExpander::~VariableExpander() = default;
@@ -127,9 +127,10 @@ bool VariableExpander::ExpandValue(base::Value* value) const {
       break;
     }
 
-    case base::Value::Type::DICTIONARY: {
-      for (const auto child : value->DictItems())
+    case base::Value::Type::DICT: {
+      for (const auto child : value->GetDict()) {
         no_error &= ExpandValue(&child.second);
+      }
       break;
     }
 

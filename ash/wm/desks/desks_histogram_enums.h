@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,11 @@ enum class DesksCreationRemovalSource {
   kDesksRestore = 2,
   kLaunchTemplate = 3,
   kDragToNewDeskButton = 4,
-  kMaxValue = kDragToNewDeskButton,
+  kSaveAndRecall = 5,
+  kApi = 6,
+  kEnsureDefaultDesk = 7,
+  kFloatingWorkspace = 8,
+  kMaxValue = kFloatingWorkspace,
 };
 
 // These values are logged to UMA. Entries should not be renumbered and
@@ -42,11 +46,24 @@ enum class DesksSwitchSource {
   kWindowActivated = 4,
   kDeskSwitchTouchpad = 5,
   kUserSwitch = 6,
-  kPersistentDesksBar = 7,
+  // kPersistentDesksBar = 7,  // Deprecated, feature has been deleted.
   kLaunchTemplate = 8,
   kIndexedDeskSwitchShortcut = 9,
-  kMaxValue = kIndexedDeskSwitchShortcut,
+  kRemovalUndone = 10,
+  kApiSwitch = 11,
+  kApiLaunch = 12,
+  kMaxValue = kApiLaunch,
 };
+
+constexpr char kNewDeskHistogramName[] = "Ash.Desks.NewDesk2";
+constexpr char kDeskSwitchHistogramName[] = "Ash.Desks.DesksSwitch";
+
+constexpr char kNumberOfCustomNamesHistogramName[] =
+    "Ash.Desks.CustomNameCount";
+constexpr char kPercentageOfCustomNamesHistogramName[] =
+    "Ash.Desks.CustomNamePercentage";
+constexpr char kCustomNameCreatedHistogramName[] =
+    "Ash.Desks.CustomNameCreated";
 
 }  // namespace ash
 

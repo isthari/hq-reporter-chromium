@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -57,8 +57,9 @@ void CookieControlsBubbleView::ShowBubble(
     content_settings::CookieControlsController* controller,
     CookieControlsStatus status) {
   DCHECK(web_contents);
-  if (g_instance)
+  if (g_instance) {
     return;
+  }
 
   base::RecordAction(UserMetricsAction("CookieControls.Bubble.Opened"));
   g_instance =
@@ -84,8 +85,9 @@ void CookieControlsBubbleView::OnStatusChanged(
     OnCookiesCountChanged(allowed_cookies, blocked_cookies);
     return;
   }
-  if (new_status != CookieControlsStatus::kEnabled)
+  if (new_status != CookieControlsStatus::kEnabled) {
     intermediate_step_ = IntermediateStep::kNone;
+  }
   status_ = new_status;
   enforcement_ = new_enforcement;
   blocked_cookies_ = blocked_cookies;
@@ -96,10 +98,16 @@ void CookieControlsBubbleView::OnCookiesCountChanged(int allowed_cookies,
                                                      int blocked_cookies) {
   // The blocked cookie count changes quite frequently, so avoid unnecessary
   // UI updates if possible.
-  if (blocked_cookies_ == blocked_cookies)
+  if (blocked_cookies_ == blocked_cookies) {
     return;
+  }
 
   blocked_cookies_ = blocked_cookies;
+  GetBubbleFrameView()->UpdateWindowTitle();
+}
+
+void CookieControlsBubbleView::OnStatefulBounceCountChanged(int bounce_count) {
+  stateful_bounces_ = bounce_count;
   GetBubbleFrameView()->UpdateWindowTitle();
 }
 
@@ -108,7 +116,7 @@ CookieControlsBubbleView::CookieControlsBubbleView(
     content::WebContents* web_contents,
     content_settings::CookieControlsController* controller)
     : LocationBarBubbleDelegateView(anchor_view, web_contents),
-      controller_(controller) {
+      controller_(controller->AsWeakPtr()) {
   SetShowTitle(true);
   SetShowCloseButton(true);
   controller_observation_.Observe(controller);
@@ -152,14 +160,16 @@ void CookieControlsBubbleView::UpdateUi() {
                             base::Unretained(this)));
     extra_view_ = SetExtraView(std::move(link));
     blocked_cookies_.reset();
+    stateful_bounces_.reset();
   } else {
     DCHECK_EQ(status_, CookieControlsStatus::kDisabledForSite);
     header_view_->SetVisible(true);
     header_view_->SetImage(
         ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
             IDR_COOKIE_BLOCKING_OFF_HEADER));
-    if (extra_view_)
+    if (extra_view_) {
       extra_view_->SetVisible(false);
+    }
   }
 
   SetButtonLabel(
@@ -181,8 +191,9 @@ void CookieControlsBubbleView::UpdateUi() {
   // The show_disable_cookie_blocking_ui_ state has a different title
   // configuration. To avoid jumping UI, don't resize the bubble. This should be
   // safe as the bubble in this state has less content than in Enabled state.
-  if (intermediate_step_ != IntermediateStep::kTurnOffButton)
+  if (intermediate_step_ != IntermediateStep::kTurnOffButton) {
     SizeToContents();
+  }
 }
 
 void CookieControlsBubbleView::CloseBubble() {
@@ -217,15 +228,16 @@ void CookieControlsBubbleView::Init() {
   // TODO(crbug.com/1013092): The bubble should display a header view with full
   // width without having to tweak margins.
   gfx::Insets insets = margins();
-  set_margins(gfx::Insets(insets.top(), 0, insets.bottom(), 0));
-  SetBorder(views::CreateEmptyBorder(0, insets.left(), 0, insets.right()));
+  set_margins(gfx::Insets::TLBR(insets.top(), 0, insets.bottom(), 0));
+  SetBorder(views::CreateEmptyBorder(
+      gfx::Insets::TLBR(0, insets.left(), 0, insets.right())));
 }
 
 void CookieControlsBubbleView::AddedToWidget() {
   auto header_view = std::make_unique<NonAccessibleImageView>();
   header_view_ = header_view.get();
-  header_view_->SetBackground(views::CreateThemedSolidBackground(
-      header_view_, ui::kColorBubbleFooterBackground));
+  header_view_->SetBackground(
+      views::CreateThemedSolidBackground(ui::kColorBubbleFooterBackground));
   GetBubbleFrameView()->SetHeaderView(std::move(header_view));
 }
 
@@ -246,20 +258,22 @@ std::u16string CookieControlsBubbleView::GetWindowTitle() const {
       // Determine title based on status_ instead.
     }
   }
+
+  int cookie_count =
+      blocked_cookies_.value_or(0) + stateful_bounces_.value_or(0);
   switch (status_) {
     case CookieControlsStatus::kEnabled:
       return l10n_util::GetPluralStringFUTF16(
-          (controller_->FirstPartyCookiesBlocked()
+          (controller_ && controller_->FirstPartyCookiesBlocked()
                ? IDS_COOKIE_CONTROLS_DIALOG_TITLE_ALL_BLOCKED
                : IDS_COOKIE_CONTROLS_DIALOG_TITLE),
-          blocked_cookies_.value_or(0));
+          cookie_count);
     case CookieControlsStatus::kDisabledForSite:
       return l10n_util::GetStringUTF16(IDS_COOKIE_CONTROLS_DIALOG_TITLE_OFF);
     case CookieControlsStatus::kUninitialized:
       return std::u16string();
     case CookieControlsStatus::kDisabled:
-      NOTREACHED();
-      return std::u16string();
+      NOTREACHED_NORETURN();
   }
 }
 
@@ -267,13 +281,20 @@ void CookieControlsBubbleView::WindowClosing() {
   // |cookie_bubble_| can be a new bubble by this point (as Close(); doesn't
   // call this right away). Only set to nullptr when it's this bubble.
   bool this_bubble = g_instance == this;
-  if (this_bubble)
+  if (this_bubble) {
     g_instance = nullptr;
+  }
 
-  controller_->OnUiClosing();
+  if (controller_) {
+    controller_->OnUiClosing();
+  }
 }
 
 void CookieControlsBubbleView::OnDialogAccepted() {
+  if (!controller_) {
+    return;
+  }
+
   if (intermediate_step_ == IntermediateStep::kTurnOffButton) {
     controller_->OnCookieBlockingEnabledForSite(false);
   } else {

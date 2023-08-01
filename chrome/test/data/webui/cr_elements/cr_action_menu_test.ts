@@ -1,19 +1,22 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // clang-format off
-import 'chrome://resources/cr_elements/cr_checkbox/cr_checkbox.m.js';
+import 'chrome://resources/cr_elements/cr_checkbox/cr_checkbox.js';
 
 import {AnchorAlignment, CrActionMenuElement} from 'chrome://resources/cr_elements/cr_action_menu/cr_action_menu.js';
-import {CrCheckboxElement} from 'chrome://resources/cr_elements/cr_checkbox/cr_checkbox.m.js';
-import {isMac, isWindows} from 'chrome://resources/js/cr.m.js';
-import {FocusOutlineManager} from 'chrome://resources/js/cr/ui/focus_outline_manager.m.js';
-import {getDeepActiveElement} from 'chrome://resources/js/util.m.js';
+import {CrCheckboxElement} from 'chrome://resources/cr_elements/cr_checkbox/cr_checkbox.js';
+import {isMac, isWindows} from 'chrome://resources/js/platform.js';
+import {FocusOutlineManager} from 'chrome://resources/js/focus_outline_manager.js';
+import {getDeepActiveElement} from 'chrome://resources/js/util_ts.js';
 import {keyDownOn} from 'chrome://resources/polymer/v3_0/iron-test-helpers/mock-interactions.js';
-import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {assertEquals, assertFalse, assertNotEquals, assertTrue} from 'chrome://webui-test/chai_assert.js';
-import {eventToPromise, flushTasks} from 'chrome://webui-test/test_util.js';
+import {eventToPromise} from 'chrome://webui-test/test_util.js';
+import {flushTasks} from 'chrome://webui-test/polymer_test_util.js';
+import {getTrustedHtml} from 'chrome://webui-test/trusted_html.js';
+import {getTrustedHTML as getTrustedStaticHtml} from 'chrome://resources/js/static_types.js';
 // clang-format on
 
 /**
@@ -30,7 +33,7 @@ suite('CrActionMenu', function() {
 
   setup(function() {
     FocusOutlineManager.forDocument(document).visible = false;
-    document.body.innerHTML = `
+    document.body.innerHTML = getTrustedStaticHtml`
       <button id="dots">...</button>
       <cr-action-menu>
         <button class="dropdown-item">Un</button>
@@ -155,7 +158,7 @@ suite('CrActionMenu', function() {
       [false, true],
       [true, false],
       [true, true],
-    ] as [boolean, boolean][])
+    ] as Array<[boolean, boolean]>)
         .forEach(([disabled, hidden]) => {
           crCheckbox.disabled = disabled;
           crCheckbox.hidden = hidden;
@@ -470,11 +473,13 @@ suite('CrActionMenu', function() {
     const containerTop = 10000;
     const containerWidth = 500;
 
-    suiteSetup(function() {
-      Polymer({
-        is: 'test-element',
+    class TestElement extends PolymerElement {
+      static get is() {
+        return 'test-element';
+      }
 
-        _template: html`
+      static get template() {
+        return html`
           <style>
             #container {
               overflow: auto;
@@ -502,21 +507,23 @@ suite('CrActionMenu', function() {
               </cr-action-menu>
             </div>
           </div>
-        `,
-      });
-    });
+        `;
+      }
+    }
+
+    customElements.define(TestElement.is, TestElement);
 
     setup(function() {
       document.body.scrollTop = 0;
       document.body.scrollLeft = 0;
-      document.body.innerHTML = `
+      document.body.innerHTML = getTrustedHtml(`
         <style>
           test-element {
             height: ${bodyHeight}px;
             width: ${bodyWidth}px;
           }
         </style>
-        <test-element></test-element>`;
+        <test-element></test-element>`);
 
       const testElement = document.querySelector('test-element')!;
       menu = testElement.shadowRoot!.querySelector('cr-action-menu')!;

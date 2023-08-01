@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,11 @@
 #include <set>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/containers/contains.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
+#include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_functions.h"
-#include "base/task/post_task.h"
 #include "chrome/browser/ash/printing/specifics_translation.h"
 #include "chromeos/printing/printer_configuration.h"
 #include "components/sync/base/report_unrecoverable_error.h"
@@ -173,7 +173,7 @@ class PrintersSyncBridge::StoreProxy {
     owner_->change_processor()->ModelReadyToSync(std::move(metadata_batch));
   }
 
-  PrintersSyncBridge* owner_;
+  raw_ptr<PrintersSyncBridge, ExperimentalAsh> owner_;
 
   std::unique_ptr<ModelTypeStore> store_;
   base::WeakPtrFactory<StoreProxy> weak_ptr_factory_{this};
@@ -195,7 +195,7 @@ PrintersSyncBridge::CreateMetadataChangeList() {
   return ModelTypeStore::WriteBatch::CreateMetadataChangeList();
 }
 
-absl::optional<syncer::ModelError> PrintersSyncBridge::MergeSyncData(
+absl::optional<syncer::ModelError> PrintersSyncBridge::MergeFullSyncData(
     std::unique_ptr<MetadataChangeList> metadata_change_list,
     syncer::EntityChangeList entity_data) {
   DCHECK(change_processor()->IsTrackingMetadata());
@@ -248,7 +248,8 @@ absl::optional<syncer::ModelError> PrintersSyncBridge::MergeSyncData(
   return {};
 }
 
-absl::optional<syncer::ModelError> PrintersSyncBridge::ApplySyncChanges(
+absl::optional<syncer::ModelError>
+PrintersSyncBridge::ApplyIncrementalSyncChanges(
     std::unique_ptr<MetadataChangeList> metadata_change_list,
     EntityChangeList entity_changes) {
   std::unique_ptr<ModelTypeStore::WriteBatch> batch =

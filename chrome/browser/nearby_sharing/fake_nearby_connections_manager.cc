@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -81,7 +81,7 @@ void FakeNearbyConnectionsManager::Connect(
   DCHECK(!is_shutdown());
   connected_data_usage_ = data_usage;
   connection_endpoint_infos_.emplace(endpoint_id, std::move(endpoint_info));
-  std::move(callback).Run(connection_);
+  std::move(callback).Run(connection_.get());
 }
 
 void FakeNearbyConnectionsManager::Disconnect(const std::string& endpoint_id) {
@@ -94,8 +94,9 @@ void FakeNearbyConnectionsManager::Send(
     PayloadPtr payload,
     base::WeakPtr<PayloadStatusListener> listener) {
   DCHECK(!is_shutdown());
-  if (send_payload_callback_)
+  if (send_payload_callback_) {
     send_payload_callback_.Run(std::move(payload), listener);
+  }
 }
 
 void FakeNearbyConnectionsManager::RegisterPayloadStatusListener(
@@ -123,7 +124,7 @@ void FakeNearbyConnectionsManager::RegisterPayloadPath(
   auto it = payload_path_status_.find(payload_id);
   if (it == payload_path_status_.end()) {
     std::move(callback).Run(
-        location::nearby::connections::mojom::Status::kPayloadUnknown);
+        nearby::connections::mojom::Status::kPayloadUnknown);
     return;
   }
 
@@ -134,8 +135,9 @@ FakeNearbyConnectionsManager::Payload*
 FakeNearbyConnectionsManager::GetIncomingPayload(int64_t payload_id) {
   DCHECK(!is_shutdown());
   auto it = incoming_payloads_.find(payload_id);
-  if (it == incoming_payloads_.end())
+  if (it == incoming_payloads_.end()) {
     return nullptr;
+  }
 
   return it->second.get();
 }
@@ -146,9 +148,8 @@ void FakeNearbyConnectionsManager::Cancel(int64_t payload_id) {
       GetRegisteredPayloadStatusListener(payload_id);
   if (listener) {
     listener->OnStatusUpdate(
-        location::nearby::connections::mojom::PayloadTransferUpdate::New(
-            payload_id,
-            location::nearby::connections::mojom::PayloadStatus::kCanceled,
+        nearby::connections::mojom::PayloadTransferUpdate::New(
+            payload_id, nearby::connections::mojom::PayloadStatus::kCanceled,
             /*total_bytes=*/0,
             /*bytes_transferred=*/0),
         /*upgraded_medium=*/absl::nullopt);
@@ -165,22 +166,42 @@ void FakeNearbyConnectionsManager::ClearIncomingPayloads() {
   payload_status_listeners_.clear();
 }
 
+absl::optional<std::string>
+FakeNearbyConnectionsManager::GetAuthenticationToken(
+    const std::string& endpoint_id) {
+  DCHECK(!is_shutdown());
+
+  auto iter = endpoint_auth_tokens_.find(endpoint_id);
+  if (iter != endpoint_auth_tokens_.end()) {
+    return iter->second;
+  }
+
+  return absl::nullopt;
+}
+
 absl::optional<std::vector<uint8_t>>
 FakeNearbyConnectionsManager::GetRawAuthenticationToken(
     const std::string& endpoint_id) {
   DCHECK(!is_shutdown());
 
-  auto iter = endpoint_auth_tokens_.find(endpoint_id);
-  if (iter != endpoint_auth_tokens_.end())
+  auto iter = endpoint_raw_auth_tokens_.find(endpoint_id);
+  if (iter != endpoint_raw_auth_tokens_.end()) {
     return iter->second;
+  }
 
   return absl::nullopt;
+}
+
+void FakeNearbyConnectionsManager::SetAuthenticationToken(
+    const std::string& endpoint_id,
+    const std::string& token) {
+  endpoint_auth_tokens_[endpoint_id] = token;
 }
 
 void FakeNearbyConnectionsManager::SetRawAuthenticationToken(
     const std::string& endpoint_id,
     std::vector<uint8_t> token) {
-  endpoint_auth_tokens_[endpoint_id] = std::move(token);
+  endpoint_raw_auth_tokens_[endpoint_id] = std::move(token);
 }
 
 void FakeNearbyConnectionsManager::UpgradeBandwidth(
@@ -188,19 +209,26 @@ void FakeNearbyConnectionsManager::UpgradeBandwidth(
   upgrade_bandwidth_endpoint_ids_.insert(endpoint_id);
 }
 
+base::WeakPtr<NearbyConnectionsManager>
+FakeNearbyConnectionsManager::GetWeakPtr() {
+  return weak_ptr_factory_.GetWeakPtr();
+}
+
 void FakeNearbyConnectionsManager::OnEndpointFound(
     const std::string& endpoint_id,
-    location::nearby::connections::mojom::DiscoveredEndpointInfoPtr info) {
-  if (!discovery_listener_)
+    nearby::connections::mojom::DiscoveredEndpointInfoPtr info) {
+  if (!discovery_listener_) {
     return;
+  }
 
   discovery_listener_->OnEndpointDiscovered(endpoint_id, info->endpoint_info);
 }
 
 void FakeNearbyConnectionsManager::OnEndpointLost(
     const std::string& endpoint_id) {
-  if (!discovery_listener_)
+  if (!discovery_listener_) {
     return;
+  }
 
   discovery_listener_->OnEndpointLost(endpoint_id);
 }
@@ -229,8 +257,9 @@ base::WeakPtr<FakeNearbyConnectionsManager::PayloadStatusListener>
 FakeNearbyConnectionsManager::GetRegisteredPayloadStatusListener(
     int64_t payload_id) {
   auto it = payload_status_listeners_.find(payload_id);
-  if (it != payload_status_listeners_.end())
+  if (it != payload_status_listeners_.end()) {
     return it->second;
+  }
 
   return nullptr;
 }
@@ -248,8 +277,9 @@ bool FakeNearbyConnectionsManager::WasPayloadCanceled(
 absl::optional<base::FilePath>
 FakeNearbyConnectionsManager::GetRegisteredPayloadPath(int64_t payload_id) {
   auto it = registered_payload_paths_.find(payload_id);
-  if (it == registered_payload_paths_.end())
+  if (it == registered_payload_paths_.end()) {
     return absl::nullopt;
+  }
 
   return it->second;
 }

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,15 +7,22 @@
 
 #include "base/memory/raw_ptr.h"
 #include "build/build_config.h"
-#include "chrome/browser/ui/browser_window.h"
 #include "content/public/browser/keyboard_event_processing_result.h"
 #include "ui/base/pointer/touch_ui_controller.h"
 #include "ui/views/context_menu_controller.h"
 #include "ui/views/widget/widget.h"
 
-class BrowserDesktopWindowTreeHost;
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#include "ui/base/ui_base_types.h"
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS)
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#endif
+
 class BrowserNonClientFrameView;
 class BrowserRootView;
+enum class BrowserThemeChangeType;
 class BrowserView;
 class NativeBrowserFrame;
 class NonClientFrameView;
@@ -34,6 +41,7 @@ class MenuModel;
 }
 
 namespace views {
+class Label;
 class MenuRunner;
 class View;
 }
@@ -60,6 +68,14 @@ class BrowserFrame : public views::Widget, public views::ContextMenuController {
 
   ~BrowserFrame() override;
 
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+  // Returns which edges of the frame are tiled.
+  const ui::WindowTiledEdges& tiled_edges() const { return tiled_edges_; }
+  void set_tiled_edges(ui::WindowTiledEdges tiled_edges) {
+    tiled_edges_ = tiled_edges;
+  }
+#endif
+
   // Initialize the frame (creates the underlying native window).
   void InitBrowserFrame();
 
@@ -71,6 +87,18 @@ class BrowserFrame : public views::Widget, public views::ContextMenuController {
   // TabStripRegionView that contains the TabStrip view.
   gfx::Rect GetBoundsForTabStripRegion(
       const gfx::Size& tabstrip_minimum_size) const;
+
+  // Retrieves the maximum bounds in non-client view coordinates for the
+  // WebAppFrameToolbarView that contains Web App controls.
+  gfx::Rect GetBoundsForWebAppFrameToolbar(
+      const gfx::Size& toolbar_preferred_size) const;
+
+  // Lays out the window title for a web app within the given available space.
+  // Unlike the above GetBounds methods this is not just a method to return the
+  // bounds the title should occupy, since different implementations might also
+  // want to change other attributes of the title, such as alignment.
+  void LayoutWebAppWindowTitle(const gfx::Rect& available_space,
+                               views::Label& window_title_label) const;
 
   // Returns the inset of the topmost view in the client view from the top of
   // the non-client view. The topmost view depends on the window type. The
@@ -126,7 +154,7 @@ class BrowserFrame : public views::Widget, public views::ContextMenuController {
   bool GetAccelerator(int command_id,
                       ui::Accelerator* accelerator) const override;
   const ui::ThemeProvider* GetThemeProvider() const override;
-  ui::ColorProviderManager::InitializerSupplier* GetCustomTheme()
+  ui::ColorProviderManager::ThemeInitializerSupplier* GetCustomTheme()
       const override;
   void OnNativeWidgetWorkspaceChanged() override;
 
@@ -134,6 +162,10 @@ class BrowserFrame : public views::Widget, public views::ContextMenuController {
   void ShowContextMenuForViewImpl(views::View* source,
                                   const gfx::Point& p,
                                   ui::MenuSourceType source_type) override;
+
+  // Returns whether MenuRunner is running or not. Useful to check if the system
+  // context menu is showing, when menu_runner_ is used.
+  bool IsMenuRunnerRunningForTesting() const;
 
   // Returns the menu model. BrowserFrame owns the returned model.
   // Note that in multi user mode this will upon each call create a new model.
@@ -143,13 +175,15 @@ class BrowserFrame : public views::Widget, public views::ContextMenuController {
     return native_browser_frame_;
   }
 
-  void set_browser_desktop_window_tree_host(
-      BrowserDesktopWindowTreeHost* browser_desktop_window_tree_host) {
-    browser_desktop_window_tree_host_ = browser_desktop_window_tree_host;
-  }
-
   void SetTabDragKind(TabDragKind tab_drag_kind);
   TabDragKind tab_drag_kind() const { return tab_drag_kind_; }
+
+ protected:
+  // views::Widget:
+  void OnNativeThemeUpdated(ui::NativeTheme* observed_theme) override;
+  ui::ColorProviderManager::Key GetColorProviderKey() const override;
+  absl::optional<SkColor> GetUserColor() const override;
+  ui::ColorProviderManager::ColorMode GetColorMode() const override;
 
  private:
   void OnTouchUiChanged();
@@ -163,6 +197,9 @@ class BrowserFrame : public views::Widget, public views::ContextMenuController {
   // Regenerate the frame on theme change if necessary. Returns true if
   // regenerated.
   bool RegenerateFrameOnThemeChange(BrowserThemeChangeType theme_change_type);
+
+  // Returns true if the browser instance belongs to an incognito profile.
+  bool IsIncognitoBrowser() const;
 
   raw_ptr<NativeBrowserFrame> native_browser_frame_;
 
@@ -188,9 +225,6 @@ class BrowserFrame : public views::Widget, public views::ContextMenuController {
           base::BindRepeating(&BrowserFrame::OnTouchUiChanged,
                               base::Unretained(this)));
 
-  raw_ptr<BrowserDesktopWindowTreeHost> browser_desktop_window_tree_host_ =
-      nullptr;
-
   // Indicates the drag state for this window. The value can be kWindowDrag
   // if the accociated browser is the dragged browser or kTabDrag
   // if this is the source browser that the drag window originates from. During
@@ -199,12 +233,16 @@ class BrowserFrame : public views::Widget, public views::ContextMenuController {
   // contents for smoother dragging.
   TabDragKind tab_drag_kind_ = TabDragKind::kNone;
 
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
-  // Store the number of virtual desks that currently exist. Used to determine
-  // whether the system menu should be reset. If the value is -1, then either
-  // the ash::DesksHelper does not exist or haven't retrieved the system menu
-  // model yet.
-  int num_desks_ = -1;
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+  ui::WindowTiledEdges tiled_edges_;
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS)
+  // Store the number of virtual desks that currently exist and if the window
+  // state is float state type. Used to determine  whether the system menu
+  // should be reset.
+  absl::optional<int> num_desks_;
+  absl::optional<bool> is_float_state_type_;
 #endif
 };
 

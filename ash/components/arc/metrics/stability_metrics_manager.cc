@@ -1,8 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/components/arc/metrics/stability_metrics_manager.h"
+
+#include <ostream>
 
 #include "ash/components/arc/arc_prefs.h"
 #include "base/metrics/histogram_macros.h"
@@ -47,11 +49,12 @@ StabilityMetricsManager::~StabilityMetricsManager() {
 
 void StabilityMetricsManager::RecordMetricsToUMA() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  // GetDictionary() should never return null, but since this may be called
-  // early on browser startup, be paranoid here to prevent going into a crash
-  // loop.
-  if (!local_state_->GetDictionary(prefs::kStabilityMetrics)) {
-    NOTREACHED() << "Local state unavailable, not recording stabiltiy metrics.";
+  // FindPreference(prefs::kStabilityMetrics) should never return null, but
+  // since this may be called early on browser startup, be paranoid here to
+  // prevent going into a crash loop.
+  if (const auto* pref = local_state_->FindPreference(prefs::kStabilityMetrics);
+      !pref || pref->GetType() != base::Value::Type::DICT) {
+    NOTREACHED() << "Local state unavailable, not recording stability metrics.";
     return;
   }
 
@@ -70,30 +73,29 @@ void StabilityMetricsManager::RecordMetricsToUMA() {
 
 void StabilityMetricsManager::ResetMetrics() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DictionaryPrefUpdate update(local_state_, prefs::kStabilityMetrics);
-  update->DictClear();
+  local_state_->SetDict(prefs::kStabilityMetrics, base::Value::Dict());
 }
 
 absl::optional<bool> StabilityMetricsManager::GetArcEnabledState() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  const base::Value* dict =
-      local_state_->GetDictionary(prefs::kStabilityMetrics);
-  return dict->FindBoolKey(kArcEnabledStateKey);
+  const base::Value::Dict& dict =
+      local_state_->GetDict(prefs::kStabilityMetrics);
+  return dict.FindBool(kArcEnabledStateKey);
 }
 
 void StabilityMetricsManager::SetArcEnabledState(bool enabled) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DictionaryPrefUpdate update(local_state_, prefs::kStabilityMetrics);
-  update->SetBoolKey(kArcEnabledStateKey, enabled);
+  ScopedDictPrefUpdate update(local_state_, prefs::kStabilityMetrics);
+  update->Set(kArcEnabledStateKey, enabled);
 }
 
 absl::optional<NativeBridgeType>
 StabilityMetricsManager::GetArcNativeBridgeType() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  const base::Value* dict =
-      local_state_->GetDictionary(prefs::kStabilityMetrics);
+  const base::Value::Dict& dict =
+      local_state_->GetDict(prefs::kStabilityMetrics);
   absl::optional<int> native_bridge_type =
-      dict->FindIntKey(kArcNativeBridgeTypeKey);
+      dict.FindInt(kArcNativeBridgeTypeKey);
   if (native_bridge_type) {
     return absl::make_optional(
         static_cast<NativeBridgeType>(*native_bridge_type));
@@ -104,9 +106,8 @@ StabilityMetricsManager::GetArcNativeBridgeType() {
 void StabilityMetricsManager::SetArcNativeBridgeType(
     NativeBridgeType native_bridge_type) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DictionaryPrefUpdate update(local_state_, prefs::kStabilityMetrics);
-  update->SetIntKey(kArcNativeBridgeTypeKey,
-                    static_cast<int>(native_bridge_type));
+  ScopedDictPrefUpdate update(local_state_, prefs::kStabilityMetrics);
+  update->Set(kArcNativeBridgeTypeKey, static_cast<int>(native_bridge_type));
 }
 
 }  // namespace arc

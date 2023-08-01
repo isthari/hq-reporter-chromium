@@ -1,4 +1,4 @@
-// Copyright 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,16 +14,19 @@
 // Should find in page be displayed.
 @property(nonatomic, assign) BOOL enabled;
 
-// The current search string.
+// The current search string. If the system Find panel is used as opposed to the
+// Chrome Find bar, then this will not be updated as the user types a query in
+// the Find panel text field. Instead it will contain the text with which the
+// Find panel was prepopulated before being presented.
 @property(copy, nonatomic, readonly) NSString* text;
 
-// The number of matches for |text|.
+// The number of matches for `text`.
 @property(nonatomic, readonly) NSUInteger matches;
 
 // The currently higlighted index.
 @property(nonatomic, readonly) NSUInteger currentIndex;
 
-// The content offset needed to display the |currentIndex| match.
+// The content offset needed to display the `currentIndex` match.
 @property(nonatomic, readonly) CGPoint currentPoint;
 
 // Update the query string and the number of matches.

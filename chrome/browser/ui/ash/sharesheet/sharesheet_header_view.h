@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,10 @@
 #include "base/callback_list.h"
 #include "base/memory/raw_ptr.h"
 #include "chrome/browser/ui/ash/thumbnail_loader.h"
-#include "components/services/app_service/public/mojom/types.mojom.h"
+#include "components/services/app_service/public/cpp/intent.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/gfx/vector_icon_types.h"
+#include "ui/views/controls/label.h"
 #include "ui/views/view.h"
 
 class Profile;
@@ -28,7 +29,7 @@ class SharesheetHeaderView : public views::View {
  public:
   METADATA_HEADER(SharesheetHeaderView);
 
-  explicit SharesheetHeaderView(apps::mojom::IntentPtr intent,
+  explicit SharesheetHeaderView(apps::IntentPtr intent,
                                 Profile* profile,
                                 bool show_content_previews);
   ~SharesheetHeaderView() override;
@@ -43,19 +44,14 @@ class SharesheetHeaderView : public views::View {
     kLink,
   };
 
-  // views::View:
-  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
-
   // Adds the view for text preview.
   void ShowTextPreview();
 
-  // Creates a new Label view and adds styling.
-  void AddTextLine(const std::u16string& text,
-                   const std::u16string& tooltip_text = u"");
-
   // Parses the share_text attribute for each individual url and text
   // from the intent struct and returns the result in a vector.
-  std::vector<std::u16string> ExtractShareText();
+  std::vector<std::unique_ptr<views::Label>> ExtractShareText();
+  // Creates a new Label view and adds styling.
+  std::unique_ptr<views::Label> CreatePreviewLabel(const std::u16string& text);
   const gfx::VectorIcon& GetTextVectorIcon();
 
   // TODO(crbug.com/1233830): Move business logic out of UI code.
@@ -74,7 +70,7 @@ class SharesheetHeaderView : public views::View {
   TextPlaceholderIcon text_icon_ = TextPlaceholderIcon::kGenericText;
 
   raw_ptr<Profile> profile_;
-  apps::mojom::IntentPtr intent_;
+  apps::IntentPtr intent_;
 
   ThumbnailLoader thumbnail_loader_;
   std::vector<base::CallbackListSubscription> image_subscription_;

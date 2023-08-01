@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,8 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/json/json_file_value_serializer.h"
+#include "base/values.h"
+#include "extensions/browser/api/declarative_net_request/composite_matcher.h"
 #include "extensions/browser/api/declarative_net_request/file_backed_ruleset_source.h"
 #include "extensions/browser/api/declarative_net_request/indexed_rule.h"
 #include "extensions/browser/api/declarative_net_request/rules_count_pair.h"
@@ -22,7 +24,6 @@
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/common/api/declarative_net_request/test_utils.h"
 #include "extensions/common/extension.h"
-#include "extensions/common/value_builder.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace extensions {
@@ -39,17 +40,17 @@ RequestAction CreateRequestActionForTesting(RequestAction::Type type,
     switch (type) {
       case RequestAction::Type::BLOCK:
       case RequestAction::Type::COLLAPSE:
-        return dnr_api::RULE_ACTION_TYPE_BLOCK;
+        return dnr_api::RuleActionType::kBlock;
       case RequestAction::Type::ALLOW:
-        return dnr_api::RULE_ACTION_TYPE_ALLOW;
+        return dnr_api::RuleActionType::kAllow;
       case RequestAction::Type::REDIRECT:
-        return dnr_api::RULE_ACTION_TYPE_REDIRECT;
+        return dnr_api::RuleActionType::kRedirect;
       case RequestAction::Type::UPGRADE:
-        return dnr_api::RULE_ACTION_TYPE_UPGRADESCHEME;
+        return dnr_api::RuleActionType::kUpgradeScheme;
       case RequestAction::Type::ALLOW_ALL_REQUESTS:
-        return dnr_api::RULE_ACTION_TYPE_ALLOWALLREQUESTS;
+        return dnr_api::RuleActionType::kAllowAllRequests;
       case RequestAction::Type::MODIFY_HEADERS:
-        return dnr_api::RULE_ACTION_TYPE_MODIFYHEADERS;
+        return dnr_api::RuleActionType::kModifyHeaders;
     }
   }();
   return RequestAction(type, rule_id,
@@ -186,6 +187,20 @@ std::ostream& operator<<(std::ostream& output, const ParseResult& result) {
     case ParseResult::ERROR_EMPTY_DOMAINS_LIST:
       output << "ERROR_EMPTY_DOMAINS_LIST";
       break;
+    case ParseResult::ERROR_EMPTY_INITIATOR_DOMAINS_LIST:
+      output << "ERROR_EMPTY_INITIATOR_DOMAINS_LIST";
+      break;
+    case ParseResult::ERROR_EMPTY_REQUEST_DOMAINS_LIST:
+      output << "ERROR_EMPTY_REQUEST_DOMAINS_LIST";
+      break;
+    case ParseResult::ERROR_DOMAINS_AND_INITIATOR_DOMAINS_BOTH_SPECIFIED:
+      output << "ERROR_DOMAINS_AND_INITIATOR_DOMAINS_BOTH_SPECIFIED";
+      break;
+    case ParseResult::
+        ERROR_EXCLUDED_DOMAINS_AND_EXCLUDED_INITIATOR_DOMAINS_BOTH_SPECIFIED:
+      output << "ERROR_EXCLUDED_DOMAINS_AND_EXCLUDED_INITIATOR_DOMAINS_BOTH_"
+                "SPECIFIED";
+      break;
     case ParseResult::ERROR_EMPTY_RESOURCE_TYPES_LIST:
       output << "ERROR_EMPTY_RESOURCE_TYPES_LIST";
       break;
@@ -209,6 +224,18 @@ std::ostream& operator<<(std::ostream& output, const ParseResult& result) {
       break;
     case ParseResult::ERROR_NON_ASCII_EXCLUDED_DOMAIN:
       output << "ERROR_NON_ASCII_EXCLUDED_DOMAIN";
+      break;
+    case ParseResult::ERROR_NON_ASCII_INITIATOR_DOMAIN:
+      output << "ERROR_NON_ASCII_INITIATOR_DOMAIN";
+      break;
+    case ParseResult::ERROR_NON_ASCII_EXCLUDED_INITIATOR_DOMAIN:
+      output << "ERROR_NON_ASCII_EXCLUDED_INITIATOR_DOMAIN";
+      break;
+    case ParseResult::ERROR_NON_ASCII_REQUEST_DOMAIN:
+      output << "ERROR_NON_ASCII_REQUEST_DOMAIN";
+      break;
+    case ParseResult::ERROR_NON_ASCII_EXCLUDED_REQUEST_DOMAIN:
+      output << "ERROR_NON_ASCII_EXCLUDED_REQUEST_DOMAIN";
       break;
     case ParseResult::ERROR_INVALID_URL_FILTER:
       output << "ERROR_INVALID_URL_FILTER";
@@ -282,8 +309,8 @@ std::ostream& operator<<(std::ostream& output, const ParseResult& result) {
     case ParseResult::ERROR_HEADER_VALUE_PRESENT:
       output << "ERROR_HEADER_VALUE_PRESENT";
       break;
-    case ParseResult::ERROR_APPEND_REQUEST_HEADER_UNSUPPORTED:
-      output << "ERROR_APPEND_REQUEST_HEADER_UNSUPPORTED";
+    case ParseResult::ERROR_APPEND_INVALID_REQUEST_HEADER:
+      output << "ERROR_APPEND_INVALID_REQUEST_HEADER";
       break;
     case ParseResult::ERROR_EMPTY_TAB_IDS_LIST:
       output << "ERROR_EMPTY_TAB_IDS_LIST";
@@ -364,10 +391,10 @@ bool CreateVerifiedMatcher(const std::vector<TestRule>& rules,
   using IndexStatus = IndexAndPersistJSONRulesetResult::Status;
 
   // Serialize |rules|.
-  ListBuilder builder;
+  base::Value::List builder;
   for (const auto& rule : rules)
     builder.Append(rule.ToValue());
-  JSONFileValueSerializer(source.json_path()).Serialize(*builder.Build());
+  JSONFileValueSerializer(source.json_path()).Serialize(std::move(builder));
 
   // Index ruleset.
   auto parse_flags = FileBackedRulesetSource::kRaiseErrorOnInvalidRules |
@@ -409,9 +436,7 @@ dnr_api::ModifyHeaderInfo CreateModifyHeaderInfo(
 
   header_info.operation = operation;
   header_info.header = header;
-
-  if (value)
-    header_info.value = std::make_unique<std::string>(*value);
+  header_info.value = value;
 
   return header_info;
 }
@@ -487,6 +512,30 @@ void WarningServiceObserver::ExtensionWarningsChanged(
     return;
 
   run_loop_.Quit();
+}
+
+base::flat_set<int> GetDisabledRuleIdsFromMatcherForTesting(
+    const RulesetManager& ruleset_manager,
+    const Extension& extension,
+    const std::string& ruleset_id_string) {
+  const DNRManifestData::ManifestIDToRulesetMap& public_id_map =
+      DNRManifestData::GetManifestIDToRulesetMap(extension);
+  auto it = public_id_map.find(ruleset_id_string);
+  DCHECK(public_id_map.end() != it);
+  RulesetID ruleset_id = it->second->id;
+
+  const CompositeMatcher* composite_matcher =
+      ruleset_manager.GetMatcherForExtension(extension.id());
+  DCHECK(composite_matcher);
+
+  for (const auto& matcher : composite_matcher->matchers()) {
+    if (ruleset_id != matcher->id()) {
+      continue;
+    }
+
+    return matcher->GetDisabledRuleIdsForTesting();
+  }
+  return {};
 }
 
 }  // namespace declarative_net_request

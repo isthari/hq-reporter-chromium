@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -74,7 +74,7 @@ public class GSAServiceClient {
             String account = mGsaHelper.getGSAAccountFromState(bundle.getByteArray(KEY_GSA_STATE));
             RecordHistogram.recordEnumeratedHistogram(ACCOUNT_CHANGE_HISTOGRAM,
                     ACCOUNT_CHANGE_SOURCE_SERVICE, ACCOUNT_CHANGE_SOURCE_COUNT);
-            GSAState.getInstance(mContext).setGsaAccount(account);
+            GSAState.getInstance().setGsaAccount(account);
             if (mOnMessageReceived != null) mOnMessageReceived.onResult(bundle);
         }
     }

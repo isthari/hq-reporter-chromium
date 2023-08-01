@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 #include <windows.h>
 
 #include "base/no_destructor.h"
-#include "base/synchronization/waitable_event.h"
 #include "base/win/atl.h"
 
 namespace base {
@@ -24,7 +23,7 @@ class ServiceMain {
   // This function is the main entry point for the service. The return value can
   // be either a Win32 error code or an HRESULT, depending on the API function
   // that failed.
-  static int RunComService(const base::CommandLine* command_line);
+  static int RunWindowsService(const base::CommandLine* command_line);
 
   static ServiceMain* GetInstance();
 
@@ -47,7 +46,7 @@ class ServiceMain {
   int RunAsService();
 
   // Runs the service on the service thread.
-  void ServiceMainImpl();
+  void ServiceMainImpl(const base::CommandLine& command_line);
 
   // Runs as a local server for testing purposes. RunInteractive returns an
   // HRESULT, not a Win32 error code.
@@ -62,9 +61,12 @@ class ServiceMain {
   // Calls ::SetServiceStatus().
   void SetServiceStatus(DWORD state);
 
-  // Handles object registration, message loop, and unregistration. Returns
-  // when all registered objects are released.
-  HRESULT Run();
+  // Runs the main logic of the service.
+  HRESULT Run(const base::CommandLine& command_line);
+
+  // Handles COM object registration, message loop, and unregistration. Returns
+  // when all COM objects are released.
+  HRESULT RunCOMServer();
 
   // Calls ::CoInitializeSecurity to allow all users to create COM objects
   // within the server.

@@ -41,9 +41,13 @@
 #include "net/http/http_response_headers.h"
 #include "net/http/http_util.h"
 #include "services/network/public/cpp/content_security_policy/content_security_policy.h"
+#include "services/network/public/cpp/no_vary_search_header_parser.h"
 #include "services/network/public/cpp/parsed_headers.h"
 #include "services/network/public/cpp/timing_allow_origin_parser.h"
+#include "services/network/public/mojom/no_vary_search.mojom-blink-forward.h"
+#include "services/network/public/mojom/no_vary_search.mojom-blink.h"
 #include "services/network/public/mojom/parsed_headers.mojom-blink.h"
+#include "services/network/public/mojom/supports_loading_mode.mojom-blink.h"
 #include "services/network/public/mojom/timing_allow_origin.mojom-blink.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/platform/web_string.h"
@@ -95,6 +99,10 @@ blink::WebClientHintsType ConvertToBlink(WebClientHintsType in) {
   return in;
 }
 
+blink::LoadingMode ConvertToBlink(LoadingMode in) {
+  return static_cast<blink::LoadingMode>(in);
+}
+
 // ===== Converters for other basic Blink types =====
 String ConvertToBlink(const std::string& in) {
   return String::FromUTF8(in);
@@ -119,7 +127,7 @@ template <
     typename OutElement = decltype(ConvertToBlink(std::declval<InElement>()))>
 Vector<OutElement> ConvertToBlink(const std::vector<InElement>& in) {
   Vector<OutElement> out;
-  out.ReserveCapacity(base::checked_cast<wtf_size_t>(in.size()));
+  out.reserve(base::checked_cast<wtf_size_t>(in.size()));
   for (const auto& element : in) {
     out.push_back(ConvertToBlink(element));
   }
@@ -165,9 +173,10 @@ blink::CSPSourceListPtr ConvertToBlink(const CSPSourceListPtr& source_list) {
       std::move(sources), std::move(nonces), std::move(hashes),
       source_list->allow_self, source_list->allow_star,
       source_list->allow_response_redirects, source_list->allow_inline,
-      source_list->allow_eval, source_list->allow_wasm_eval,
-      source_list->allow_wasm_unsafe_eval, source_list->allow_dynamic,
-      source_list->allow_unsafe_hashes, source_list->report_sample);
+      source_list->allow_inline_speculation_rules, source_list->allow_eval,
+      source_list->allow_wasm_eval, source_list->allow_wasm_unsafe_eval,
+      source_list->allow_dynamic, source_list->allow_unsafe_hashes,
+      source_list->report_sample);
 }
 
 blink::ContentSecurityPolicyHeaderPtr ConvertToBlink(
@@ -201,13 +210,13 @@ blink::AllowCSPFromHeaderValuePtr ConvertToBlink(
   if (!allow_csp_from)
     return nullptr;
   switch (allow_csp_from->which()) {
-    case AllowCSPFromHeaderValue::Tag::ALLOW_STAR:
+    case AllowCSPFromHeaderValue::Tag::kAllowStar:
       return blink::AllowCSPFromHeaderValue::NewAllowStar(
           allow_csp_from->get_allow_star());
-    case AllowCSPFromHeaderValue::Tag::ORIGIN:
+    case AllowCSPFromHeaderValue::Tag::kOrigin:
       return blink::AllowCSPFromHeaderValue::NewOrigin(
           ConvertToBlink(allow_csp_from->get_origin()));
-    case AllowCSPFromHeaderValue::Tag::ERROR_MESSAGE:
+    case AllowCSPFromHeaderValue::Tag::kErrorMessage:
       return blink::AllowCSPFromHeaderValue::NewErrorMessage(
           ConvertToBlink(allow_csp_from->get_error_message()));
   }
@@ -221,6 +230,7 @@ blink::LinkHeaderPtr ConvertToBlink(const LinkHeaderPtr& in) {
       static_cast<blink::LinkRelAttribute>(in->rel),
       static_cast<blink::LinkAsAttribute>(in->as),
       static_cast<blink::CrossOriginAttribute>(in->cross_origin),
+      static_cast<blink::FetchPriorityAttribute>(in->fetch_priority),
       ConvertToBlink(in->mime_type));
 }
 
@@ -238,6 +248,41 @@ blink::TimingAllowOriginPtr ConvertToBlink(const TimingAllowOriginPtr& in) {
   }
 }
 
+blink::VariantsHeaderPtr ConvertToBlink(const VariantsHeaderPtr& in) {
+  DCHECK(in);
+  return blink::VariantsHeader::New(ConvertToBlink(in->name),
+                                    ConvertToBlink(in->available_values));
+}
+
+blink::NoVarySearchWithParseErrorPtr ConvertToBlink(
+    const NoVarySearchWithParseErrorPtr& in) {
+  if (!in)
+    return nullptr;
+
+  if (in->is_parse_error()) {
+    return blink::NoVarySearchWithParseError::NewParseError(
+        in->get_parse_error());
+  }
+
+  const NoVarySearchPtr& no_vary_search = in->get_no_vary_search();
+  CHECK(no_vary_search);
+  CHECK(no_vary_search->search_variance);
+  if (no_vary_search->search_variance->is_no_vary_params()) {
+    return blink::NoVarySearchWithParseError::NewNoVarySearch(
+        blink::NoVarySearch::New(
+            blink::SearchParamsVariance::NewNoVaryParams(ConvertToBlink(
+                no_vary_search->search_variance->get_no_vary_params())),
+            no_vary_search->vary_on_key_order));
+  }
+
+  CHECK(no_vary_search->search_variance->is_vary_params());
+  return blink::NoVarySearchWithParseError::NewNoVarySearch(
+      blink::NoVarySearch::New(
+          blink::SearchParamsVariance::NewVaryParams(ConvertToBlink(
+              no_vary_search->search_variance->get_vary_params())),
+          no_vary_search->vary_on_key_order));
+}
+
 blink::ParsedHeadersPtr ConvertToBlink(const ParsedHeadersPtr& in) {
   DCHECK(in);
   return blink::ParsedHeaders::New(
@@ -251,10 +296,19 @@ blink::ParsedHeadersPtr ConvertToBlink(const ParsedHeadersPtr& in) {
           ? absl::make_optional(ConvertToBlink(in->critical_ch.value()))
           : absl::nullopt,
       in->xfo, ConvertToBlink(in->link_headers),
-      ConvertToBlink(in->timing_allow_origin), in->bfcache_opt_in_unload,
+      ConvertToBlink(in->timing_allow_origin),
+      ConvertToBlink(in->supports_loading_mode),
       in->reporting_endpoints.has_value()
           ? absl::make_optional(ConvertToBlink(in->reporting_endpoints.value()))
-          : absl::nullopt);
+          : absl::nullopt,
+      in->variants_headers.has_value()
+          ? absl::make_optional(ConvertToBlink(in->variants_headers.value()))
+          : absl::nullopt,
+      in->content_language.has_value()
+          ? absl::make_optional(ConvertToBlink(in->content_language.value()))
+          : absl::nullopt,
+      ConvertToBlink(in->no_vary_search_with_parse_error),
+      in->observe_browsing_topics);
 }
 
 }  // namespace mojom
@@ -268,9 +322,11 @@ const Vector<AtomicString>& ReplaceHeaders() {
   // The list of response headers that we do not copy from the original
   // response when generating a ResourceResponse for a MIME payload.
   // Note: this is called only on the main thread.
-  DEFINE_STATIC_LOCAL(Vector<AtomicString>, headers,
-                      ({"content-type", "content-length", "content-disposition",
-                        "content-range", "range", "set-cookie"}));
+  DEFINE_STATIC_LOCAL(
+      Vector<AtomicString>, headers,
+      ({http_names::kLowerContentType, http_names::kLowerContentLength,
+        http_names::kLowerContentDisposition, http_names::kLowerContentRange,
+        http_names::kLowerRange, http_names::kLowerSetCookie}));
   return headers;
 }
 
@@ -343,7 +399,7 @@ bool IsValidHTTPHeaderValue(const String& name) {
 
 // See RFC 7230, Section 3.2.6.
 bool IsValidHTTPToken(const String& characters) {
-  if (characters.IsEmpty())
+  if (characters.empty())
     return false;
   for (unsigned i = 0; i < characters.length(); ++i) {
     UChar c = characters[i];
@@ -471,7 +527,7 @@ AtomicString ExtractMIMETypeFromMediaType(const AtomicString& media_type) {
 
 ContentTypeOptionsDisposition ParseContentTypeOptionsHeader(
     const String& value) {
-  if (value.IsEmpty())
+  if (value.empty())
     return kContentTypeOptionsNone;
 
   Vector<String> results;
@@ -611,7 +667,7 @@ CacheControlHeader ParseCacheControlDirectives(
   static const char kMaxAgeDirective[] = "max-age";
   static const char kStaleWhileRevalidateDirective[] = "stale-while-revalidate";
 
-  if (!cache_control_value.IsEmpty()) {
+  if (!cache_control_value.empty()) {
     Vector<std::pair<String, String>> directives;
     ParseCacheHeader(cache_control_value, directives);
 
@@ -620,7 +676,7 @@ CacheControlHeader ParseCacheControlDirectives(
       // RFC2616 14.9.1: A no-cache directive with a value is only meaningful
       // for proxy caches.  It should be ignored by a browser level cache.
       if (EqualIgnoringASCIICase(directives[i].first, kNoCacheDirective) &&
-          directives[i].second.IsEmpty()) {
+          directives[i].second.empty()) {
         cache_control_header.contains_no_cache = true;
       } else if (EqualIgnoringASCIICase(directives[i].first,
                                         kNoStoreDirective)) {
@@ -784,6 +840,8 @@ std::unique_ptr<ServerTimingHeaderVector> ParseServerTimingHeader(
 
       ServerTimingHeader header(name.ToString());
 
+      tokenizer.ConsumeBeforeAnyCharMatch({',', ';'});
+
       while (tokenizer.Consume(';')) {
         StringView parameter_name;
         if (!tokenizer.ConsumeToken(ParsedContentType::Mode::kNormal,
@@ -818,7 +876,7 @@ network::mojom::blink::ParsedHeadersPtr ParseHeaders(const String& raw_headers,
   auto headers = base::MakeRefCounted<net::HttpResponseHeaders>(
       net::HttpUtil::AssembleRawHeaders(raw_headers.Latin1()));
   return network::mojom::ConvertToBlink(
-      network::PopulateParsedHeaders(headers.get(), url));
+      network::PopulateParsedHeaders(headers.get(), GURL(url)));
 }
 
 // This function is simply calling network::ParseContentSecurityPolicies and
@@ -830,7 +888,7 @@ ParseContentSecurityPolicies(
     network::mojom::blink::ContentSecurityPolicySource source,
     const KURL& base_url) {
   return network::mojom::ConvertToBlink(network::ParseContentSecurityPolicies(
-      raw_policies.Utf8(), type, source, base_url));
+      raw_policies.Utf8(), type, source, GURL(base_url)));
 }
 
 // This function is simply calling network::ParseContentSecurityPolicies and
@@ -876,4 +934,25 @@ network::mojom::blink::TimingAllowOriginPtr ParseTimingAllowOrigin(
       network::ParseTimingAllowOrigin(header_value.Latin1()));
 }
 
+network::mojom::blink::NoVarySearchWithParseErrorPtr ParseNoVarySearch(
+    const String& header_value) {
+  // Parse the No-Vary-Search hint value by making a header in order to
+  // reuse existing code.
+  auto headers =
+      base::MakeRefCounted<net::HttpResponseHeaders>("HTTP/1.1 200 OK\n");
+  headers->AddHeader("No-Vary-Search", header_value.Utf8());
+
+  auto parsed_nvs_with_error =
+      ConvertToBlink(network::ParseNoVarySearch(*headers));
+  // `parsed_nvs_with_error` cannot be null here. Because we know the header is
+  // available, we will get a parse error or a No-Vary-Search.
+  CHECK(parsed_nvs_with_error);
+  return parsed_nvs_with_error;
+}
+
+String GetNoVarySearchHintConsoleMessage(
+    const network::mojom::NoVarySearchParseError& error) {
+  return network::mojom::ConvertToBlink(
+      network::GetNoVarySearchHintConsoleMessage(error));
+}
 }  // namespace blink

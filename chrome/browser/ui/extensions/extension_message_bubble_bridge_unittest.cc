@@ -1,11 +1,11 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/extensions/extension_message_bubble_bridge.h"
 
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/path_service.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -33,7 +33,6 @@
 #include "extensions/common/extension_builder.h"
 #include "extensions/common/extension_id.h"
 #include "extensions/common/manifest.h"
-#include "extensions/common/value_builder.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -153,15 +152,16 @@ TEST_F(ExtensionMessageBubbleBridgeUnitTest,
 // SuspiciousExtensionBubbleDelegate.
 TEST_F(ExtensionMessageBubbleBridgeUnitTest, SuspiciousExtensionBubble) {
   // Load up a simple extension.
-  extensions::DictionaryBuilder manifest;
-  manifest.Set("name", "foo")
-          .Set("description", "some extension")
-          .Set("version", "0.1")
-          .Set("manifest_version", 2);
+  auto manifest = base::Value::Dict()
+                      .Set("name", "foo")
+                      .Set("description", "some extension")
+                      .Set("version", "0.1")
+                      .Set("manifest_version", 2);
   scoped_refptr<const extensions::Extension> extension =
-      extensions::ExtensionBuilder().SetID(crx_file::id_util::GenerateId("foo"))
-                                    .SetManifest(manifest.Build())
-                                    .Build();
+      extensions::ExtensionBuilder()
+          .SetID(crx_file::id_util::GenerateId("foo"))
+          .SetManifest(std::move(manifest))
+          .Build();
   ASSERT_TRUE(extension);
   service()->AddExtension(extension.get());
   const std::string id = extension->id();

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,8 @@
 #include <vector>
 
 #include "base/gtest_prod_util.h"
+#include "components/autofill/core/browser/data_model/autofill_profile.h"
 #include "components/sync/base/model_type.h"
-#include "components/sync/model/metadata_batch.h"
 #include "components/sync/model/sync_metadata_store.h"
 #include "components/webdata/common/web_database_table.h"
 
@@ -24,19 +24,24 @@ namespace base {
 class Time;
 }
 
+namespace syncer {
+class MetadataBatch;
+}
+
 namespace autofill {
 
 class AutofillChange;
 class AutofillEntry;
 struct AutofillMetadata;
-struct AutofillOfferData;
-class AutofillProfile;
+class AutofillOfferData;
 class AutofillTableEncryptor;
 class AutofillTableTest;
 class CreditCard;
 struct CreditCardCloudTokenData;
 struct FormFieldData;
+class IBAN;
 struct PaymentsCustomerData;
+class VirtualCardUsageData;
 
 // This class manages the various Autofill tables within the SQLite database
 // passed to the constructor. It expects the following schemas:
@@ -56,6 +61,7 @@ struct PaymentsCustomerData;
 //   count              How many times the user has entered the string |value|
 //                      in a field of name |name|.
 //
+// DEPRECATED. Use local_addresses instead.
 // autofill_profiles    This table contains Autofill profile data added by the
 //                      user with the Autofill dialog.  Most of the columns are
 //                      standard entries in a contact information form.
@@ -97,6 +103,7 @@ struct PaymentsCustomerData;
 //                      If true, a profile does not qualify to get merged with
 //                      a profile observed in a form submission.
 //
+// DEPRECATED. See autofill_profiles.
 // autofill_profile_addresses
 //   guid               The guid string that identifies the profile to which
 //                      the name belongs.
@@ -146,6 +153,7 @@ struct PaymentsCustomerData;
 //                      value was observed in a form submission, or even
 //                      validated by the user in the settings.
 //
+// DEPRECATED. See autofill_profiles.
 // autofill_profile_names
 //                      This table contains the multi-valued name fields
 //                      associated with a profile.
@@ -177,6 +185,7 @@ struct PaymentsCustomerData;
 //   first_last_name_status
 //   conjunction_last_name_status
 //   second_last_name_status
+//   full_name_status
 //   full_name_with_honorific_prefix_status
 //                      Each token of the names has an additional validation
 //                      status that indicates if Autofill parsed the value out
@@ -185,6 +194,7 @@ struct PaymentsCustomerData;
 //                      value was observed in a form submission, or even
 //                      validated by the user in the settings.
 //
+// DEPRECATED. See autofill_profiles.
 // autofill_profile_emails
 //                      This table contains the multi-valued email fields
 //                      associated with a profile.
@@ -193,6 +203,7 @@ struct PaymentsCustomerData;
 //                      the email belongs.
 //   email
 //
+// DEPRECATED. See autofill_profiles.
 // autofill_profile_phones
 //                      This table contains the multi-valued phone fields
 //                      associated with a profile.
@@ -200,6 +211,17 @@ struct PaymentsCustomerData;
 //   guid               The guid string that identifies the profile to which the
 //                      phone number belongs.
 //   number
+//
+// DEPRECATED. See autofill_profiles.
+// autofill_profile_birthdates
+//                      This table contains the multi-valued birthdate fields
+//                      associated with a profile.
+//
+//   guid               The guid string that identifies the profile to which the
+//                      birthdate number belongs.
+//   day                As an integer between 1 and 31 inclusive, or 0 if unset.
+//   month              As an integer between 1 and 12 inclusive, or 0 if unset.
+//   year               As a 4 digit integer, or 0 if unset.
 //
 // credit_cards         This table contains credit card data added by the user
 //                      with the Autofill dialog.  Most of the columns are
@@ -263,7 +285,15 @@ struct PaymentsCustomerData;
 //                      cards. ENROLLED means the card has been enrolled and
 //                      has related virtual credit cards.
 //   card_art_url       URL to generate the card art image for this card.
-//
+//   product_description
+//                      The product description for the card. Used to be shown
+//                      in the UI when card is presented. Added in version 102.
+//   card_issuer_id     The id of the card's issuer.
+//   virtual_card_enrollment_type
+//                      An enum indicating the type of virtual card enrollment
+//                      of this card. TYPE_UNSPECIFIED is the default value.
+//                      ISSUER denotes that it is an issuer-level enrollment.
+//                      NETWORK denotes that it is a network-level enrollment.
 // unmasked_credit_cards
 //                      When a masked credit credit card is unmasked and the
 //                      full number is downloaded or when the full number is
@@ -305,6 +335,19 @@ struct PaymentsCustomerData;
 //                      billing address for this card. Can be null in the
 //                      database, but always returned as an empty string in
 //                      CreditCard. Added in version 71.
+//
+// ibans                This table contains International Bank Account
+//                      Number(IBAN) data added by the user. The columns are
+//                      standard entries in an Iban form.
+//
+//   guid               A guid string to uniquely identify the IBAN.
+//   use_count          The number of times this IBAN has been used to fill
+//                      a form.
+//   use_date           The date this IBAN was last used to fill a form,
+//                      in time_t.
+//   value              Actual value of the IBAN (the bank account number).
+//   nickname           A nickname for the IBAN, entered by the user.
+//
 //
 // server_addresses     This table contains Autofill address data synced from
 //                      the wallet server. It's basically the same as the
@@ -374,7 +417,7 @@ struct PaymentsCustomerData;
 // payments_upi_vpa     Contains saved UPI/VPA payment data.
 //                      https://en.wikipedia.org/wiki/Unified_Payments_Interface
 //
-//   vpa_id             A string representing the UPI ID (a.k.a. VPA) value.
+//   vpa                A string representing the UPI ID (a.k.a. VPA) value.
 //
 // offer_data           The data for Autofill offers which will be presented in
 //                      payments autofill flows.
@@ -413,14 +456,63 @@ struct PaymentsCustomerData;
 //                      offer_id in the offer_data table.
 //   merchant_domain    List of full origins for merchant websites on which
 //                      this offer would apply.
-// TODO(crbug.com/1196021): Remove unused table.
-// credit_card_art_images
-//                      Contains the card art image for the server credit card.
 //
-//   id                 The server id of the credit card.
-//   instrument_id      The non-legacy server instrument id of the card.
-//   card_art_image     The customized card art image. Stored in the form of
-//                      BLOB.
+// contact_info         This table contains Autofill profile data synced from a
+//                      remote source.
+// local_addresses      This table contains kLocalOrSyncable Autofill profiles.
+//                      It has the same layout as the contact_info table.
+//
+//   guid               A guid string to uniquely identify the profile.
+//   use_count          The number of times this profile has been used to fill a
+//                      form.
+//   use_date           The date this profile was last used to fill a form, in
+//                      time_t.
+//   date_modified      The date on which this profile was last modified, in
+//                      time_t.
+//   language_code      The BCP 47 language code used to format the address for
+//                      display. For example, a JP address with "ja" language
+//                      code starts with the postal code, but a JP address with
+//                      "ja-latn" language code starts with the recipient name.
+//   label              A user-chosen and user-visible label for the profile to
+//                      help identifying the semantics of the profile. The user
+//                      can choose an arbitrary string in principle, but the
+//                      values '$HOME$' and '$WORK$' indicate a special meaning.
+//   initial_creator_id The application that initially created the profile.
+//                      Represented as an integer. See AutofillProfile.
+//   last_modifier_id   The application that performed the last non-metadata
+//                      modification of the profile.
+//                      Represented as an integer. See AutofillProfile.
+//
+// contact_info_type_tokens
+//                      Contains the values for all relevant ServerFieldTypes of
+//                      a contact_info entry. At most one entry per (guid, type)
+//                      pair exists.
+// local_addresses_type_tokens
+//                      Like contact_info_type_tokens, but for local_addresses.
+//
+//  guid                The guid of the corresponding profile in contact_info.
+//  type                The ServerFieldType, represented by its integer value in
+//                      the ServerFieldType enum.
+//  value               The string value of the type.
+//  verification_status Each token has an additional validation status that
+//                      indicates if Autofill parsed the value out of an
+//                      unstructured token, or if Autofill formatted the token
+//                      from a structured subcomponent, or if the value was
+//                      observed in a form submission, or even validated by the
+//                      user in the settings.
+//
+// virtual_card_usage_data
+//                      Contains data related to retrieval attempts of a virtual
+//                      card on a particular merchant domain
+//
+//  id                  Unique identifier for retrieval data. Generated
+//                      originally in chrome sync server.
+//  instrument_id       The instrument id of the actual card that the virtual
+//                      card is related to.
+//  merchant_domain     The merchant domain the usage data is linked to.
+//  last_four           The last four digits of the virtual card number. This is
+//                      tied to the usage data because the virtual card number
+//                      may vary depending on merchants.
 
 class AutofillTable : public WebDatabaseTable,
                       public syncer::SyncMetadataStore {
@@ -438,7 +530,6 @@ class AutofillTable : public WebDatabaseTable,
   // WebDatabaseTable:
   WebDatabaseTable::TypeKey GetTypeKey() const override;
   bool CreateTablesIfNecessary() override;
-  bool IsSyncable() override;
   bool MigrateToVersion(int version, bool* update_compatible_version) override;
 
   // Records the form elements in |elements| in the database in the
@@ -507,22 +598,52 @@ class AutofillTable : public WebDatabaseTable,
   // Updates the database values for the specified profile.  Multi-value aware.
   virtual bool UpdateAutofillProfile(const AutofillProfile& profile);
 
-  // Removes a row from the autofill_profiles table.  |guid| is the identifier
-  // of the profile to remove.
-  virtual bool RemoveAutofillProfile(const std::string& guid);
+  // Removes the Autofill profile with the given `guid`. `profile_source`
+  // indicates where the profile was synced from and thus whether it is stored
+  // in `kAutofillProfilesTable` or `kContactInfoTable`.
+  virtual bool RemoveAutofillProfile(const std::string& guid,
+                                     AutofillProfile::Source profile_source);
 
-  // Retrieves a profile with guid |guid|.
-  std::unique_ptr<AutofillProfile> GetAutofillProfile(const std::string& guid);
+  // Removes all profiles from the given `profile_source`. Currently this is
+  // only supported for kAccount profiles, since they are cleared when the Sync
+  // data types gets disabled.
+  bool RemoveAllAutofillProfiles(AutofillProfile::Source profile_source);
 
-  // Retrieves local/server profiles in the database.
+  // Retrieves a profile with guid `guid` from `kAutofillProfilesTable` or
+  // `kContactInfoTable`.
+  std::unique_ptr<AutofillProfile> GetAutofillProfile(
+      const std::string& guid,
+      AutofillProfile::Source profile_source) const;
+
+  // Retrieves local/server profiles in the database. They are returned in
+  // unspecified order.
+  // The `profile_source` specifies if profiles from the legacy or the remote
+  // backend should be retrieved.
   virtual bool GetAutofillProfiles(
-      std::vector<std::unique_ptr<AutofillProfile>>* profiles);
+      std::vector<std::unique_ptr<AutofillProfile>>* profiles,
+      AutofillProfile::Source profile_source) const;
   virtual bool GetServerProfiles(
       std::vector<std::unique_ptr<AutofillProfile>>* profiles) const;
 
   // Sets the server profiles. All old profiles are deleted and replaced with
   // the given ones.
   void SetServerProfiles(const std::vector<AutofillProfile>& profiles);
+
+  // Records a single IBAN in the iban table.
+  bool AddIBAN(const IBAN& iban);
+
+  // Updates the database values for the specified IBAN.
+  bool UpdateIBAN(const IBAN& iban);
+
+  // Removes a row from the ibans table. |guid| is the identifier of the
+  // IBAN to remove.
+  bool RemoveIBAN(const std::string& guid);
+
+  // Retrieves an IBAN with the given |guid|.
+  std::unique_ptr<IBAN> GetIBAN(const std::string& guid);
+
+  // Retrieves the local IBANs in the database.
+  bool GetIBANs(std::vector<std::unique_ptr<IBAN>>* ibans);
 
   // Records a single credit card in the credit_cards table.
   bool AddCreditCard(const CreditCard& credit_card);
@@ -600,6 +721,20 @@ class AutofillTable : public WebDatabaseTable,
   bool GetAutofillOffers(
       std::vector<std::unique_ptr<AutofillOfferData>>* autofill_offer_data);
 
+  // CRUD operations for VirtualCardUsageData in the virtual_card_usage_data
+  // table
+  bool AddOrUpdateVirtualCardUsageData(
+      const VirtualCardUsageData& virtual_card_usage_data);
+  std::unique_ptr<VirtualCardUsageData> GetVirtualCardUsageData(
+      const std::string& usage_data_id);
+  bool RemoveVirtualCardUsageData(const std::string& usage_data_id);
+  void SetVirtualCardUsageData(
+      const std::vector<VirtualCardUsageData>& virtual_card_usage_data);
+  bool GetAllVirtualCardUsageData(
+      std::vector<std::unique_ptr<VirtualCardUsageData>>*
+          virtual_card_usage_data);
+  bool RemoveAllVirtualCardUsageData();
+
   // Adds |upi_id| to the saved UPI IDs.
   bool InsertUpiId(const std::string& upi_id);
 
@@ -617,29 +752,28 @@ class AutofillTable : public WebDatabaseTable,
   bool ClearAllLocalData();
 
   // Removes rows from autofill_profiles and credit_cards if they were created
-  // on or after |delete_begin| and strictly before |delete_end|.  Returns the
-  // list of deleted profile guids in |profile_guids|.  Return value is true if
-  // all rows were successfully removed.  Returns false on database error.  In
+  // on or after `delete_begin` and strictly before `delete_end`. Returns the
+  // list of deleted profile guids in `profile_guids`. Return value is true if
+  // all rows were successfully removed. Returns false on database error. In
   // that case, the output vector state is undefined, and may be partially
   // filled.
+  // TODO(crbug.com/1135188): This function is solely used to remove browsing
+  // data. Once explicit save dialogs are fully launched, it can be removed. For
+  // this reason profiles in the `contact_info` table are not considered.
   bool RemoveAutofillDataModifiedBetween(
       const base::Time& delete_begin,
       const base::Time& delete_end,
       std::vector<std::unique_ptr<AutofillProfile>>* profiles,
       std::vector<std::unique_ptr<CreditCard>>* credit_cards);
 
-  // Removes origin URLs from the autofill_profiles and credit_cards tables if
-  // they were written on or after |delete_begin| and strictly before
-  // |delete_end|.  Returns the list of modified profiles in |profiles|.  Return
-  // value is true if all rows were successfully updated.  Returns false on
-  // database error.  In that case, the output vector state is undefined, and
-  // may be partially filled.
-  bool RemoveOriginURLsModifiedBetween(
-      const base::Time& delete_begin,
-      const base::Time& delete_end,
-      std::vector<std::unique_ptr<AutofillProfile>>* profiles);
+  // Removes origin URLs from the credit_cards tables if they were written on or
+  // after `delete_begin` and strictly before `delete_end`. Returns true if all
+  // rows were successfully updated and false on a database error.
+  bool RemoveOriginURLsModifiedBetween(const base::Time& delete_begin,
+                                       const base::Time& delete_end);
 
-  // Clear all profiles.
+  // Clear all local profiles.
+  // TODO(crbug.com/1443393): Rename function.
   bool ClearAutofillProfiles();
 
   // Clear all credit cards.
@@ -650,12 +784,15 @@ class AutofillTable : public WebDatabaseTable,
   bool GetAllSyncMetadata(syncer::ModelType model_type,
                           syncer::MetadataBatch* metadata_batch);
 
+  // Deletes all metadata for |model_type|.
+  bool DeleteAllSyncMetadata(syncer::ModelType model_type);
+
   // syncer::SyncMetadataStore implementation.
-  bool UpdateSyncMetadata(syncer::ModelType model_type,
-                          const std::string& storage_key,
-                          const sync_pb::EntityMetadata& metadata) override;
-  bool ClearSyncMetadata(syncer::ModelType model_type,
-                         const std::string& storage_key) override;
+  bool UpdateEntityMetadata(syncer::ModelType model_type,
+                            const std::string& storage_key,
+                            const sync_pb::EntityMetadata& metadata) override;
+  bool ClearEntityMetadata(syncer::ModelType model_type,
+                           const std::string& storage_key) override;
   bool UpdateModelTypeState(
       syncer::ModelType model_type,
       const sync_pb::ModelTypeState& model_type_state) override;
@@ -665,33 +802,13 @@ class AutofillTable : public WebDatabaseTable,
   // autofill_profile_emails and autofill_profile_phones table that were not
   // removed in the previous implementation of
   // RemoveAutofillDataModifiedBetween(see crbug.com/836737).
-  bool RemoveOrphanAutofillTableRows();
+  // TODO(crbug.com/1443393): Remove, since the tables are no longer used.
+  bool RemoveOrphanAutofillTableRows() { return true; }
 
   // Table migration functions. NB: These do not and should not rely on other
   // functions in this class. The implementation of a function such as
   // GetCreditCard may change over time, but MigrateToVersionXX should never
   // change.
-  bool MigrateToVersion54AddI18nFieldsAndRemoveDeprecatedFields();
-  bool MigrateToVersion55MergeAutofillDatesTable();
-  bool MigrateToVersion56AddProfileLanguageCodeForFormatting();
-  bool MigrateToVersion57AddFullNameField();
-  bool MigrateToVersion60AddServerCards();
-  bool MigrateToVersion61AddUsageStats();
-  bool MigrateToVersion62AddUsageStatsForUnmaskedCards();
-  bool MigrateToVersion63AddServerRecipientName();
-  bool MigrateToVersion64AddUnmaskDate();
-  bool MigrateToVersion65AddServerMetadataTables();
-  bool MigrateToVersion66AddCardBillingAddress();
-  bool MigrateToVersion67AddMaskedCardBillingAddress();
-  bool MigrateToVersion70AddSyncMetadata();
-  bool MigrateToVersion71AddHasConvertedAndBillingAddressIdMetadata();
-  bool MigrateToVersion72RenameCardTypeToIssuerNetwork();
-  bool MigrateToVersion73AddMaskedCardBankName();
-  bool MigrateToVersion74AddServerCardTypeColumn();
-  bool MigrateToVersion75AddProfileValidityBitfieldColumn();
-  bool MigrateToVersion78AddModelTypeColumns();
-  bool MigrateToVersion80AddIsClientValidityStatesUpdatedColumn();
-  bool MigrateToVersion81CleanUpWrongModelTypeData();
   bool MigrateToVersion83RemoveServerCardTypeColumn();
   bool MigrateToVersion84AddNicknameColumn();
   bool MigrateToVersion85AddCardIssuerColumnToMaskedCreditCard();
@@ -709,6 +826,19 @@ class AutofillTable : public WebDatabaseTable,
   bool MigrateToVersion98RemoveStatusColumnMaskedCreditCards();
   bool MigrateToVersion99RemoveAutofillProfilesTrashTable();
   bool MigrateToVersion100RemoveProfileValidityBitfieldColumn();
+  bool MigrateToVersion101RemoveCreditCardArtImageTable();
+  bool MigrateToVersion102AddAutofillBirthdatesTable();
+  bool MigrateToVersion104AddProductDescriptionColumn();
+  bool MigrateToVersion105AddAutofillIBANTable();
+  bool MigrateToVersion106RecreateAutofillIBANTable();
+  bool MigrateToVersion107AddContactInfoTables();
+  bool MigrateToVersion108AddCardIssuerIdColumn();
+  bool MigrateToVersion109AddVirtualCardUsageDataTable();
+  bool MigrateToVersion110AddInitialCreatorIdAndLastModifierId();
+  bool MigrateToVersion111AddVirtualCardEnrollmentTypeColumn();
+  // No MigrateToVersion112. WebDatabase changed, but AutofillTable wasn't
+  // affected.
+  bool MigrateToVersion113MigrateLocalAddressProfilesToNewTable();
 
   // Max data length saved in the table, AKA the maximum length allowed for
   // form data.
@@ -794,13 +924,27 @@ class AutofillTable : public WebDatabaseTable,
   bool DeleteFromMaskedCreditCards(const std::string& id);
   bool DeleteFromUnmaskedCreditCards(const std::string& id);
 
+  // Helper function extracting common code between `SetServerProfiles()` and
+  // `SetServerAddressData()`.
+  void SetServerProfilesAndMetadata(
+      const std::vector<AutofillProfile>& profiles,
+      bool update_metadata);
+
+  // Reads profiles from the deprecated autofill_profiles table.
+  std::unique_ptr<AutofillProfile> GetAutofillProfileFromLegacyTable(
+      const std::string& guid) const;
+  bool GetAutofillProfilesFromLegacyTable(
+      std::vector<std::unique_ptr<AutofillProfile>>* profiles) const;
+
   bool InitMainTable();
   bool InitCreditCardsTable();
-  bool InitProfilesTable();
-  bool InitProfileAddressesTable();
-  bool InitProfileNamesTable();
-  bool InitProfileEmailsTable();
-  bool InitProfilePhonesTable();
+  bool InitIBANsTable();
+  bool InitLegacyProfilesTable();
+  bool InitLegacyProfileAddressesTable();
+  bool InitLegacyProfileNamesTable();
+  bool InitLegacyProfileEmailsTable();
+  bool InitLegacyProfilePhonesTable();
+  bool InitLegacyProfileBirthdatesTable();
   bool InitMaskedCreditCardsTable();
   bool InitUnmaskedCreditCardsTable();
   bool InitServerCardMetadataTable();
@@ -814,7 +958,9 @@ class AutofillTable : public WebDatabaseTable,
   bool InitOfferDataTable();
   bool InitOfferEligibleInstrumentTable();
   bool InitOfferMerchantDomainTable();
-  bool InitCreditCardArtImagesTable();
+  bool InitProfileMetadataTable(AutofillProfile::Source source);
+  bool InitProfileTypeTokensTable(AutofillProfile::Source source);
+  bool InitVirtualCardUsageDataTable();
 
   std::unique_ptr<AutofillTableEncryptor> autofill_table_encryptor_;
 };

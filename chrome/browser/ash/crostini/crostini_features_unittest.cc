@@ -1,13 +1,14 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/crostini/crostini_features.h"
 
 #include "ash/constants/ash_features.h"
-#include "base/callback.h"
-#include "base/test/bind.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
 #include "base/test/scoped_feature_list.h"
+#include "base/test/test_future.h"
 #include "chrome/browser/ash/crostini/crostini_pref_names.h"
 #include "chrome/browser/ash/crostini/fake_crostini_features.h"
 #include "chrome/browser/ash/login/users/fake_chrome_user_manager.h"
@@ -17,7 +18,6 @@
 #include "components/policy/proto/chrome_device_policy.pb.h"
 #include "components/prefs/pref_service.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
-#include "components/user_manager/fake_user_manager.h"
 #include "components/user_manager/scoped_user_manager.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -92,7 +92,7 @@ class CrostiniFeaturesAllowedTest : public testing::Test {
  protected:
   CrostiniFeaturesAllowedTest()
       : user_manager_(new ash::FakeChromeUserManager()),
-        scoped_user_manager_(base::WrapUnique(user_manager_)) {}
+        scoped_user_manager_(base::WrapUnique(user_manager_.get())) {}
 
   void SetUp() override {
     scoped_feature_list_.InitWithFeatures({features::kCrostini}, {});
@@ -111,7 +111,7 @@ class CrostiniFeaturesAllowedTest : public testing::Test {
   FakeCrostiniFeatures crostini_features_;
   base::test::ScopedFeatureList scoped_feature_list_;
 
-  ash::FakeChromeUserManager* user_manager_;
+  raw_ptr<ash::FakeChromeUserManager, ExperimentalAsh> user_manager_;
   user_manager::ScopedUserManager scoped_user_manager_;
 };
 
@@ -151,15 +151,15 @@ class CrostiniFeaturesAdbSideloadingTest : public testing::Test {
  protected:
   CrostiniFeaturesAdbSideloadingTest()
       : user_manager_(new ash::FakeChromeUserManager()),
-        scoped_user_manager_(base::WrapUnique(user_manager_)) {}
+        scoped_user_manager_(base::WrapUnique(user_manager_.get())) {}
 
   void SetFeatureFlag(bool is_enabled) {
     if (is_enabled) {
       scoped_feature_list_.InitWithFeatures(
-          {chromeos::features::kArcManagedAdbSideloadingSupport}, {});
+          {ash::features::kArcManagedAdbSideloadingSupport}, {});
     } else {
       scoped_feature_list_.InitWithFeatures(
-          {}, {chromeos::features::kArcManagedAdbSideloadingSupport});
+          {}, {ash::features::kArcManagedAdbSideloadingSupport});
     }
   }
 
@@ -234,13 +234,10 @@ class CrostiniFeaturesAdbSideloadingTest : public testing::Test {
   }
 
   void AssertCanChangeAdbSideloading(bool expected_can_change) {
-    base::RunLoop run_loop;
-    crostini_features_.CanChangeAdbSideloading(
-        &profile_, base::BindLambdaForTesting([&](bool callback_can_change) {
-          EXPECT_EQ(callback_can_change, expected_can_change);
-          run_loop.Quit();
-        }));
-    run_loop.Run();
+    base::test::TestFuture<bool> result_future;
+    crostini_features_.CanChangeAdbSideloading(&profile_,
+                                               result_future.GetCallback());
+    EXPECT_EQ(result_future.Get(), expected_can_change);
   }
 
   content::BrowserTaskEnvironment task_environment_;
@@ -251,7 +248,7 @@ class CrostiniFeaturesAdbSideloadingTest : public testing::Test {
   ash::ScopedCrosSettingsTestHelper scoped_settings_helper_{
       /* create_settings_service=*/false};
 
-  ash::FakeChromeUserManager* user_manager_;
+  raw_ptr<ash::FakeChromeUserManager, ExperimentalAsh> user_manager_;
   user_manager::ScopedUserManager scoped_user_manager_;
 };
 

@@ -1,10 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/safe_browsing/content/browser/triggers/suspicious_site_trigger.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/histogram_macros_local.h"
@@ -13,6 +13,7 @@
 #include "components/prefs/pref_service.h"
 #include "components/safe_browsing/content/browser/triggers/trigger_manager.h"
 #include "components/safe_browsing/content/browser/triggers/trigger_throttler.h"
+#include "components/safe_browsing/content/browser/web_contents_key.h"
 #include "components/safe_browsing/core/browser/referrer_chain_provider.h"
 #include "components/security_interstitials/content/unsafe_resource_util.h"
 #include "components/security_interstitials/core/unsafe_resource.h"
@@ -61,8 +62,6 @@ SuspiciousSiteTrigger::SuspiciousSiteTrigger(
     PrefService* prefs,
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     history::HistoryService* history_service,
-    base::RepeatingCallback<ChromeUserPopulation()>
-        get_user_population_callback,
     ReferrerChainProvider* referrer_chain_provider,
     bool monitor_mode)
     : content::WebContentsObserver(web_contents),
@@ -74,7 +73,6 @@ SuspiciousSiteTrigger::SuspiciousSiteTrigger(
       prefs_(prefs),
       url_loader_factory_(url_loader_factory),
       history_service_(history_service),
-      get_user_population_callback_(get_user_population_callback),
       referrer_chain_provider_(referrer_chain_provider),
       task_runner_(content::GetUIThreadTaskRunner({})) {}
 
@@ -102,8 +100,8 @@ bool SuspiciousSiteTrigger::MaybeStartReport() {
   TriggerManagerReason reason;
   if (!trigger_manager_->StartCollectingThreatDetailsWithReason(
           TriggerType::SUSPICIOUS_SITE, web_contents(), resource,
-          url_loader_factory_, history_service_, get_user_population_callback_,
-          referrer_chain_provider_, error_options, &reason)) {
+          url_loader_factory_, history_service_, referrer_chain_provider_,
+          error_options, &reason)) {
     UMA_HISTOGRAM_ENUMERATION(kSuspiciousSiteTriggerEventMetricName,
                               SuspiciousSiteTriggerEvent::REPORT_START_FAILED);
     LOCAL_HISTOGRAM_ENUMERATION(
@@ -128,7 +126,8 @@ void SuspiciousSiteTrigger::FinishReport() {
   SBErrorOptions error_options =
       TriggerManager::GetSBErrorDisplayOptions(*prefs_, web_contents());
   if (trigger_manager_->FinishCollectingThreatDetails(
-          TriggerType::SUSPICIOUS_SITE, web_contents(), base::TimeDelta(),
+          TriggerType::SUSPICIOUS_SITE, GetWebContentsKey(web_contents()),
+          base::TimeDelta(),
           /*did_proceed=*/false, /*num_visits=*/0, error_options)) {
     UMA_HISTOGRAM_ENUMERATION(kSuspiciousSiteTriggerEventMetricName,
                               SuspiciousSiteTriggerEvent::REPORT_FINISHED);

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@ package org.chromium.chrome.browser.payments;
 
 import androidx.test.filters.MediumTest;
 
-import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -16,9 +15,7 @@ import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.payments.PaymentRequestTestRule.AppPresence;
 import org.chromium.chrome.browser.payments.PaymentRequestTestRule.FactorySpeed;
-import org.chromium.chrome.browser.payments.PaymentRequestTestRule.MainActivityStartCallback;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
-import org.chromium.ui.test.util.DisableAnimationsTestRule;
 
 import java.util.concurrent.TimeoutException;
 
@@ -27,24 +24,17 @@ import java.util.concurrent.TimeoutException;
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
-public class PaymentRequestPaymentAppCanMakePaymentQueryTest implements MainActivityStartCallback {
-    // Disable animations to reduce flakiness.
-    @ClassRule
-    public static DisableAnimationsTestRule sNoAnimationsRule = new DisableAnimationsTestRule();
-
+public class PaymentRequestPaymentAppCanMakePaymentQueryTest {
     @Rule
-    public PaymentRequestTestRule mPaymentRequestTestRule = new PaymentRequestTestRule(
-            "payment_request_can_make_payment_query_bobpay_test.html", this);
-
-    @Override
-    public void onMainActivityStarted() {}
+    public PaymentRequestTestRule mPaymentRequestTestRule =
+            new PaymentRequestTestRule("payment_request_can_make_payment_query_bobpay_test.html");
 
     @Test
     @MediumTest
     @Feature({"Payments"})
     public void testBobPayInstalledLater() throws InterruptedException, TimeoutException {
         // hasEnrolledInstrument returns false, since BobPay is not installed.
-        mPaymentRequestTestRule.openPageAndClickNodeAndWait("hasEnrolledInstrument",
+        mPaymentRequestTestRule.clickNodeAndWait("hasEnrolledInstrument",
                 mPaymentRequestTestRule.getHasEnrolledInstrumentQueryResponded());
         mPaymentRequestTestRule.expectResultContains(new String[] {"false, false"});
 
@@ -66,7 +56,7 @@ public class PaymentRequestPaymentAppCanMakePaymentQueryTest implements MainActi
                 AppPresence.NO_APPS, FactorySpeed.FAST_FACTORY);
 
         // canMakePayment returns true for BobPay and false for AlicePay.
-        mPaymentRequestTestRule.openPageAndClickNodeAndWait(
+        mPaymentRequestTestRule.clickNodeAndWait(
                 "otherBuy", mPaymentRequestTestRule.getCanMakePaymentQueryResponded());
         mPaymentRequestTestRule.expectResultContains(new String[] {"true, false"});
 
@@ -86,7 +76,7 @@ public class PaymentRequestPaymentAppCanMakePaymentQueryTest implements MainActi
                 AppPresence.NO_APPS, FactorySpeed.SLOW_FACTORY);
 
         // canMakePayment returns true for BobPay and false for AlicePay.
-        mPaymentRequestTestRule.openPageAndClickNodeAndWait(
+        mPaymentRequestTestRule.clickNodeAndWait(
                 "otherBuy", mPaymentRequestTestRule.getCanMakePaymentQueryResponded());
         mPaymentRequestTestRule.expectResultContains(new String[] {"true, false"});
 
@@ -106,7 +96,7 @@ public class PaymentRequestPaymentAppCanMakePaymentQueryTest implements MainActi
                 AppPresence.HAVE_APPS, FactorySpeed.FAST_FACTORY);
 
         // canMakePayment returns true for BobPay and false for AlicePay.
-        mPaymentRequestTestRule.openPageAndClickNodeAndWait(
+        mPaymentRequestTestRule.clickNodeAndWait(
                 "otherBuy", mPaymentRequestTestRule.getCanMakePaymentQueryResponded());
         mPaymentRequestTestRule.expectResultContains(new String[] {"true, false"});
 
@@ -125,7 +115,7 @@ public class PaymentRequestPaymentAppCanMakePaymentQueryTest implements MainActi
                 AppPresence.HAVE_APPS, FactorySpeed.SLOW_FACTORY);
 
         // canMakePayment returns true for BobPay and false for AlicePay.
-        mPaymentRequestTestRule.openPageAndClickNodeAndWait(
+        mPaymentRequestTestRule.clickNodeAndWait(
                 "otherBuy", mPaymentRequestTestRule.getCanMakePaymentQueryResponded());
         mPaymentRequestTestRule.expectResultContains(new String[] {"true, false"});
 

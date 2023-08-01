@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,15 +7,14 @@
 
 #include <grpcpp/grpcpp.h>
 
-#include "base/callback.h"
-#include "base/strings/stringprintf.h"
+#include "base/functional/callback.h"
+#include "base/logging.h"
 #include "chromecast/cast_core/grpc/cancellable_reactor.h"
 #include "chromecast/cast_core/grpc/grpc_handler.h"
 #include "chromecast/cast_core/grpc/grpc_server_reactor.h"
 #include "chromecast/cast_core/grpc/grpc_status_or.h"
 #include "chromecast/cast_core/grpc/server_reactor_tracker.h"
 #include "chromecast/cast_core/grpc/trackable_reactor.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace cast {
 namespace utils {
@@ -103,8 +102,7 @@ class GrpcUnaryHandler final : public GrpcHandler {
         on_request_callback_(std::move(on_request_callback)) {}
 
   static std::string rpc_name() {
-    return base::StringPrintf("/%s/%s", TService::service_full_name(),
-                              MethodName);
+    return std::string("/") + TService::service_full_name() + "/" + MethodName;
   }
 
  private:

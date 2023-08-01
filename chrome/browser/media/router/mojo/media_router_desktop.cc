@@ -1,12 +1,12 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/media/router/mojo/media_router_desktop.h"
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/strings/string_util.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
@@ -17,10 +17,10 @@
 #include "chrome/browser/media/router/providers/wired_display/wired_display_media_route_provider.h"
 #include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/browser/profiles/profile.h"
-#include "components/cast_channel/cast_socket_service.h"
 #include "components/media_router/browser/media_router.h"
 #include "components/media_router/browser/media_router_factory.h"
 #include "components/media_router/common/media_source.h"
+#include "components/media_router/common/providers/cast/channel/cast_socket_service.h"
 #include "components/openscreen_platform/network_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
@@ -37,7 +37,7 @@ constexpr char kLoggerComponent[] = "MediaRouterDesktop";
 
 MediaRouterDesktop::~MediaRouterDesktop() {
   if (media_sink_service_)
-    media_sink_service_->RemoveLogger();
+    media_sink_service_->RemoveLogger(GetLogger());
 }
 
 void MediaRouterDesktop::OnUserGesture() {
@@ -46,11 +46,8 @@ void MediaRouterDesktop::OnUserGesture() {
   if (!media_sink_service_)
     return;
 
-  // Allow MRPM to intelligently update sinks and observers by passing in a
-  // media source.
-  UpdateMediaSinks(MediaSource::ForUnchosenDesktop().id());
-
-  media_sink_service_->OnUserGesture();
+  DiscoverSinksNow();
+  media_sink_service_->DiscoverSinksNow();
   if (!media_sink_service_subscription_) {
     media_sink_service_subscription_ =
         media_sink_service_->AddSinksDiscoveredCallback(
@@ -68,7 +65,7 @@ void MediaRouterDesktop::OnUserGesture() {
 #endif
 }
 
-base::Value MediaRouterDesktop::GetState() const {
+base::Value::Dict MediaRouterDesktop::GetState() const {
   return media_sink_service_status_.GetStatusAsValue();
 }
 
@@ -104,20 +101,6 @@ MediaRouterDesktop::MediaRouterDesktop(content::BrowserContext* context)
                               ? nullptr
                               : DualMediaSinkService::GetInstance()) {}
 
-void MediaRouterDesktop::RegisterMediaRouteProvider(
-    mojom::MediaRouteProviderId provider_id,
-    mojo::PendingRemote<mojom::MediaRouteProvider>
-        media_route_provider_remote) {
-  mojo::Remote<mojom::MediaRouteProvider> bound_remote(
-      std::move(media_route_provider_remote));
-  bound_remote.set_disconnect_handler(
-      base::BindOnce(&MediaRouterDesktop::OnProviderConnectionError,
-                     weak_factory_.GetWeakPtr(), provider_id));
-  media_route_providers_[provider_id] = std::move(bound_remote);
-
-  SyncStateToMediaRouteProvider(provider_id);
-}
-
 void MediaRouterDesktop::OnSinksReceived(
     mojom::MediaRouteProviderId provider_id,
     const std::string& media_source,
@@ -135,9 +118,9 @@ void MediaRouterDesktop::GetMediaSinkServiceStatus(
 }
 
 void MediaRouterDesktop::Initialize() {
-  MediaRouterBase::Initialize();
+  MediaRouterMojoImpl::Initialize();
   if (media_sink_service_) {
-    media_sink_service_->BindLogger(GetLogger());
+    media_sink_service_->AddLogger(GetLogger());
     InitializeMediaRouteProviders();
 #if BUILDFLAG(IS_WIN)
     CanFirewallUseLocalPorts(

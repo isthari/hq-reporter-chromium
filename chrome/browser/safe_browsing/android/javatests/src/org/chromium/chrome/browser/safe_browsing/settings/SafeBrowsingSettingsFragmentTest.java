@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@ import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
 
+import androidx.preference.Preference;
 import androidx.test.filters.SmallTest;
 
 import org.junit.Assert;
@@ -23,16 +24,15 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
+import org.chromium.base.test.util.DoNotBatch;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.browser.feedback.HelpAndFeedbackLauncher;
 import org.chromium.chrome.browser.init.ChromeBrowserInitializer;
-import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.safe_browsing.SafeBrowsingBridge;
 import org.chromium.chrome.browser.safe_browsing.SafeBrowsingState;
 import org.chromium.chrome.browser.settings.SettingsActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.components.browser_ui.settings.SettingsLauncher;
-import org.chromium.components.browser_ui.settings.TextMessagePreference;
 import org.chromium.components.browser_ui.widget.RadioButtonWithDescription;
 import org.chromium.components.browser_ui.widget.RadioButtonWithDescriptionAndAuxButton;
 import org.chromium.components.policy.test.annotations.Policies;
@@ -42,6 +42,7 @@ import org.chromium.content_public.browser.test.util.TestThreadUtils;
  * Tests for {@link SafeBrowsingSettingsFragment}.
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
+@DoNotBatch(reason = "This test launches a Settings activity")
 // clang-format off
 public class SafeBrowsingSettingsFragmentTest {
     // clang-format on
@@ -64,7 +65,7 @@ public class SafeBrowsingSettingsFragmentTest {
 
     private SafeBrowsingSettingsFragment mSafeBrowsingSettingsFragment;
     private RadioButtonGroupSafeBrowsingPreference mSafeBrowsingPreference;
-    private TextMessagePreference mManagedTextPreference;
+    private Preference mManagedDisclaimerText;
 
     @Before
     public void setUp() {
@@ -76,11 +77,12 @@ public class SafeBrowsingSettingsFragmentTest {
         mSafeBrowsingSettingsFragment = mTestRule.getFragment();
         mSafeBrowsingPreference = mSafeBrowsingSettingsFragment.findPreference(
                 SafeBrowsingSettingsFragment.PREF_SAFE_BROWSING);
-        mManagedTextPreference = mSafeBrowsingSettingsFragment.findPreference(
-                SafeBrowsingSettingsFragment.PREF_TEXT_MANAGED);
+        mManagedDisclaimerText = mSafeBrowsingSettingsFragment.findPreference(
+                SafeBrowsingSettingsFragment.PREF_MANAGED_DISCLAIMER_TEXT);
         Assert.assertNotNull(
                 "Safe Browsing preference should not be null.", mSafeBrowsingPreference);
-        Assert.assertNotNull("Text managed preference should not be null.", mManagedTextPreference);
+        Assert.assertNotNull(
+                "Managed disclaimer text preference should not be null.", mManagedDisclaimerText);
     }
 
     @Test
@@ -102,7 +104,7 @@ public class SafeBrowsingSettingsFragmentTest {
                     getStandardProtectionButton().isChecked());
             Assert.assertEquals(ASSERT_RADIO_BUTTON_CHECKED, no_protection_checked,
                     getNoProtectionButton().isChecked());
-            Assert.assertFalse(mManagedTextPreference.isVisible());
+            Assert.assertFalse(mManagedDisclaimerText.isVisible());
         });
     }
 
@@ -112,7 +114,7 @@ public class SafeBrowsingSettingsFragmentTest {
     public void testCheckRadioButtons() {
         launchSettingsActivity();
         TestThreadUtils.runOnUiThreadBlocking(() -> {
-            Assert.assertFalse(mManagedTextPreference.isVisible());
+            Assert.assertFalse(mManagedDisclaimerText.isVisible());
             // Click the Enhanced Protection button.
             getEnhancedProtectionButton().onClick(null);
             Assert.assertEquals(ASSERT_SAFE_BROWSING_STATE_RADIO_BUTTON_GROUP,
@@ -272,7 +274,7 @@ public class SafeBrowsingSettingsFragmentTest {
         launchSettingsActivity();
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             Assert.assertTrue(SafeBrowsingBridge.isSafeBrowsingManaged());
-            Assert.assertTrue(mManagedTextPreference.isVisible());
+            Assert.assertTrue(mManagedDisclaimerText.isVisible());
             Assert.assertFalse(getEnhancedProtectionButton().isEnabled());
             Assert.assertFalse(getStandardProtectionButton().isEnabled());
             Assert.assertFalse(getNoProtectionButton().isEnabled());
@@ -293,7 +295,7 @@ public class SafeBrowsingSettingsFragmentTest {
         launchSettingsActivity();
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             Assert.assertTrue(SafeBrowsingBridge.isSafeBrowsingManaged());
-            Assert.assertTrue(mManagedTextPreference.isVisible());
+            Assert.assertTrue(mManagedDisclaimerText.isVisible());
             Assert.assertFalse(getEnhancedProtectionButton().isEnabled());
             Assert.assertFalse(getStandardProtectionButton().isEnabled());
             Assert.assertFalse(getNoProtectionButton().isEnabled());
@@ -341,7 +343,7 @@ public class SafeBrowsingSettingsFragmentTest {
                     .show(mSafeBrowsingSettingsFragment.getActivity(),
                             mSafeBrowsingSettingsFragment.getString(
                                     R.string.help_context_safe_browsing),
-                            Profile.getLastUsedRegularProfile(), null);
+                            null);
         });
     }
 

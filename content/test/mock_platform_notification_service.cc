@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,8 @@
 #include <set>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
-#include "base/guid.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/strings/utf_string_conversions.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -101,7 +100,7 @@ void MockPlatformNotificationService::ScheduleTrigger(base::Time timestamp) {
   if (timestamp > base::Time::Now())
     return;
 
-  context_->ForEachStoragePartition(
+  context_->ForEachLoadedStoragePartition(
       base::BindRepeating([](content::StoragePartition* partition) {
         partition->GetPlatformNotificationContext()->TriggerNotifications();
       }));

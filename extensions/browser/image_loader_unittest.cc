@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,8 @@
 
 #include <stddef.h>
 
-#include "base/bind.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
 #include "base/json/json_file_value_serializer.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
@@ -31,6 +30,7 @@
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/image/image_family.h"
 #include "ui/gfx/image/image_skia.h"
+#include "ui/gfx/image/image_skia_rep.h"
 
 using extensions::mojom::ManifestLocation;
 
@@ -79,19 +79,20 @@ class ImageLoaderTest : public ExtensionsTest {
     std::string error;
     JSONFileValueDeserializer deserializer(
         extension_dir.AppendASCII("manifest.json"));
-    std::unique_ptr<base::DictionaryValue> valid_value =
-        base::DictionaryValue::From(
-            deserializer.Deserialize(&error_code, &error));
+    std::unique_ptr<base::Value> valid_value =
+        deserializer.Deserialize(&error_code, &error);
     EXPECT_EQ(0, error_code) << error;
     if (error_code != 0)
       return nullptr;
 
     EXPECT_TRUE(valid_value.get());
-    if (!valid_value)
+    EXPECT_TRUE(valid_value->is_dict());
+    if (!valid_value || !valid_value->is_dict()) {
       return nullptr;
+    }
 
-    return Extension::Create(
-        extension_dir, location, *valid_value, Extension::NO_FLAGS, &error);
+    return Extension::Create(extension_dir, location, valid_value->GetDict(),
+                             Extension::NO_FLAGS, &error);
   }
 
   gfx::Image image_;
@@ -184,7 +185,7 @@ TEST_F(ImageLoaderTest, MultipleImages) {
   std::vector<ImageLoader::ImageRepresentation> info_list;
   int sizes[] = {extension_misc::EXTENSION_ICON_BITTY,
                  extension_misc::EXTENSION_ICON_SMALLISH, };
-  for (size_t i = 0; i < base::size(sizes); ++i) {
+  for (size_t i = 0; i < std::size(sizes); ++i) {
     ExtensionResource resource = IconsInfo::GetIconResource(
         extension.get(), sizes[i], ExtensionIconSet::MATCH_EXACTLY);
     info_list.push_back(ImageLoader::ImageRepresentation(
@@ -227,7 +228,7 @@ TEST_F(ImageLoaderTest, LoadImageFamily) {
   std::vector<ImageLoader::ImageRepresentation> info_list;
   int sizes[] = {extension_misc::EXTENSION_ICON_BITTY,
                  extension_misc::EXTENSION_ICON_SMALLISH, };
-  for (size_t i = 0; i < base::size(sizes); ++i) {
+  for (size_t i = 0; i < std::size(sizes); ++i) {
     ExtensionResource resource = IconsInfo::GetIconResource(
         extension.get(), sizes[i], ExtensionIconSet::MATCH_EXACTLY);
     info_list.push_back(ImageLoader::ImageRepresentation(
@@ -262,7 +263,7 @@ TEST_F(ImageLoaderTest, LoadImageFamily) {
   EXPECT_EQ(1, image_loaded_count());
 
   // Check that all images were loaded.
-  for (size_t i = 0; i < base::size(sizes); ++i) {
+  for (size_t i = 0; i < std::size(sizes); ++i) {
     const gfx::Image* image = image_family_.GetBest(sizes[i], sizes[i]);
     EXPECT_EQ(sizes[i], image->Width());
   }

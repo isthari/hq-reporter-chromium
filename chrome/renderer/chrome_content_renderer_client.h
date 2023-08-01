@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,10 +15,12 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "chrome/common/media/webrtc_logging.mojom.h"
-#include "chrome/renderer/media/chrome_key_systems_provider.h"
+#include "chrome/services/speech/buildflags/buildflags.h"
 #include "components/nacl/common/buildflags.h"
+#include "components/safe_browsing/content/renderer/phishing_classifier/phishing_model_setter_impl.h"
 #include "components/spellcheck/spellcheck_buildflags.h"
 #include "content/public/renderer/content_renderer_client.h"
 #include "content/public/renderer/render_thread.h"
@@ -43,9 +45,6 @@
 #endif
 
 class ChromeRenderThreadObserver;
-#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
-class ChromePDFPrintClient;
-#endif
 #if BUILDFLAG(ENABLE_SPELLCHECK)
 class SpellCheck;
 #endif
@@ -92,7 +91,9 @@ class ChromeContentRendererClient
   void RenderThreadStarted() override;
   void ExposeInterfacesToBrowser(mojo::BinderMap* binders) override;
   void RenderFrameCreated(content::RenderFrame* render_frame) override;
-  void WebViewCreated(blink::WebView* web_view) override;
+  void WebViewCreated(blink::WebView* web_view,
+                      bool was_created_by_renderer,
+                      const url::Origin* outermost_origin) override;
   SkBitmap* GetSadPluginBitmap() override;
   SkBitmap* GetSadWebViewBitmap() override;
   bool IsPluginHandledExternally(content::RenderFrame* render_frame,
@@ -127,6 +128,7 @@ class ChromeContentRendererClient
   bool DeferMediaLoad(content::RenderFrame* render_frame,
                       bool has_played_media_before,
                       base::OnceClosure closure) override;
+  void PostSandboxInitialized() override;
   void PostIOThreadCreated(
       base::SingleThreadTaskRunner* io_thread_task_runner) override;
   void PostCompositorThreadCreated(
@@ -155,15 +157,11 @@ class ChromeContentRendererClient
   std::unique_ptr<blink::WebContentSettingsClient>
   CreateWorkerContentSettingsClient(
       content::RenderFrame* render_frame) override;
-#if !BUILDFLAG(IS_ANDROID)
+#if BUILDFLAG(ENABLE_SPEECH_SERVICE)
   std::unique_ptr<media::SpeechRecognitionClient> CreateSpeechRecognitionClient(
-      content::RenderFrame* render_frame,
-      media::SpeechRecognitionClient::OnReadyCallback callback) override;
-#endif
-  void AddSupportedKeySystems(
-      std::vector<std::unique_ptr<::media::KeySystemProperties>>* key_systems)
-      override;
-  bool IsKeySystemsUpdateNeeded() override;
+      content::RenderFrame* render_frame) override;
+#endif  // BUILDFLAG(ENABLE_SPEECH_SERVICE)
+  void GetSupportedKeySystems(media::GetSupportedKeySystemsCB cb) override;
   bool IsPluginAllowedToUseCameraDeviceAPI(const GURL& url) override;
   void RunScriptsAtDocumentStart(content::RenderFrame* render_frame) override;
   void RunScriptsAtDocumentEnd(content::RenderFrame* render_frame) override;
@@ -198,7 +196,7 @@ class ChromeContentRendererClient
       blink::URLLoaderThrottleProviderType provider_type) override;
   blink::WebFrame* FindFrame(blink::WebLocalFrame* relative_to_frame,
                              const std::string& name) override;
-  bool IsSafeRedirectTarget(const GURL& url) override;
+  bool IsSafeRedirectTarget(const GURL& from_url, const GURL& to_url) override;
   void DidSetUserAgent(const std::string& user_agent) override;
   void AppendContentSecurityPolicy(
       const blink::WebURL& url,
@@ -254,8 +252,7 @@ class ChromeContentRendererClient
                                   bool is_nacl_unrestricted,
                                   const extensions::Extension* extension);
   static void ReportNaClAppType(bool is_pnacl,
-                                bool is_extension_or_app,
-                                bool is_hosted_app);
+                                const extensions::Extension* extension);
 #endif
 
 #if BUILDFLAG(IS_WIN)
@@ -272,19 +269,16 @@ class ChromeContentRendererClient
   std::unique_ptr<web_cache::WebCacheImpl> web_cache_impl_;
   std::unique_ptr<chrome::WebRtcLoggingAgentImpl> webrtc_logging_agent_impl_;
 
-  ChromeKeySystemsProvider key_systems_provider_;
-
 #if BUILDFLAG(ENABLE_SPELLCHECK)
   std::unique_ptr<SpellCheck> spellcheck_;
 #endif
   std::unique_ptr<subresource_filter::UnverifiedRulesetDealer>
       subresource_filter_ruleset_dealer_;
-#if BUILDFLAG(ENABLE_PRINT_PREVIEW)
-  std::unique_ptr<ChromePDFPrintClient> pdf_print_client_;
-#endif
 #if BUILDFLAG(ENABLE_PLUGINS)
   std::set<std::string> allowed_camera_device_origins_;
 #endif
+  std::unique_ptr<safe_browsing::PhishingModelSetterImpl>
+      phishing_model_setter_;
 
   scoped_refptr<blink::ThreadSafeBrowserInterfaceBrokerProxy>
       browser_interface_broker_;

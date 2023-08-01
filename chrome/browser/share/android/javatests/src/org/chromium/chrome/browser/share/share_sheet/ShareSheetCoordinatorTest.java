@@ -1,25 +1,27 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.share.share_sheet;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Matchers.any;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import android.app.Activity;
-import android.view.View;
+import android.content.Context;
+import android.content.pm.PackageManager;
 
 import androidx.test.filters.SmallTest;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -28,17 +30,26 @@ import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.robolectric.Robolectric;
+import org.robolectric.Shadows;
+import org.robolectric.annotation.Config;
+import org.robolectric.annotation.Implementation;
+import org.robolectric.annotation.Implements;
 import org.robolectric.annotation.LooperMode;
+import org.robolectric.shadows.ShadowPackageManager;
 
+import org.chromium.base.BuildInfo;
+import org.chromium.base.ContextUtils;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.base.test.BaseRobolectricTestRunner;
-import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.JniMocker;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
 import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.share.ShareContentTypeHelper;
+import org.chromium.chrome.browser.share.link_to_text.LinkToTextCoordinator.LinkGeneration;
+import org.chromium.chrome.browser.share.share_sheet.ShareSheetCoordinatorTest.ShadowPropertyModelBuilder;
+import org.chromium.chrome.browser.share.share_sheet.ShareSheetLinkToggleMetricsHelper.LinkToggleMetricsDetails;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
@@ -46,6 +57,7 @@ import org.chromium.components.browser_ui.share.ShareParams;
 import org.chromium.components.dom_distiller.core.DomDistillerUrlUtils;
 import org.chromium.components.dom_distiller.core.DomDistillerUrlUtilsJni;
 import org.chromium.components.feature_engagement.Tracker;
+import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.modelutil.PropertyModel;
 import org.chromium.url.JUnitTestGURLs;
@@ -54,8 +66,7 @@ import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.Set;
 
 /**
  * Tests {@link ShareSheetCoordinator}.
@@ -63,6 +74,7 @@ import java.util.concurrent.atomic.AtomicReference;
 @RunWith(BaseRobolectricTestRunner.class)
 @Features.EnableFeatures({ChromeFeatureList.PREEMPTIVE_LINK_TO_TEXT_GENERATION})
 @LooperMode(LooperMode.Mode.LEGACY)
+@Config(shadows = ShadowPropertyModelBuilder.class)
 public final class ShareSheetCoordinatorTest {
     private static final String MOCK_URL = JUnitTestGURLs.EXAMPLE_URL;
 
@@ -78,8 +90,6 @@ public final class ShareSheetCoordinatorTest {
     @Mock
     private BottomSheetController mController;
     @Mock
-    private ShareSheetPropertyModelBuilder mPropertyModelBuilder;
-    @Mock
     private ShareParams.TargetChosenCallback mTargetChosenCallback;
     @Mock
     private Supplier<Tab> mTabProvider;
@@ -93,11 +103,15 @@ public final class ShareSheetCoordinatorTest {
     private Activity mActivity;
     private ShareParams mParams;
     private ShareSheetCoordinator mShareSheetCoordinator;
+    private ShadowPackageManager mShadowPackageManager;
 
     @Before
     public void setUp() {
         MockitoAnnotations.initMocks(this);
         mJniMocker.mock(DomDistillerUrlUtilsJni.TEST_HOOKS, mDistillerUrlUtilsJniMock);
+
+        Context context = ContextUtils.getApplicationContext();
+        mShadowPackageManager = Shadows.shadowOf(context.getPackageManager());
 
         mActivity = Robolectric.setupActivity(Activity.class);
         PropertyModel testModel1 = new PropertyModel.Builder(ShareSheetItemViewProperties.ALL_KEYS)
@@ -114,19 +128,21 @@ public final class ShareSheetCoordinatorTest {
         ArrayList<PropertyModel> thirdPartyPropertyModels =
                 new ArrayList<>(Arrays.asList(testModel1, testModel2));
         when(mWindow.getActivity()).thenReturn(new WeakReference<>(mActivity));
-        when(mPropertyModelBuilder.selectThirdPartyApps(
-                     any(), anySet(), any(), anyBoolean(), anyLong(), anyInt(), any()))
-                .thenReturn(thirdPartyPropertyModels);
+        ShadowPropertyModelBuilder.sThirdPartyModels = thirdPartyPropertyModels;
         when(mDistillerUrlUtilsJniMock.getOriginalUrlFromDistillerUrl(anyString()))
                 .thenReturn(JUnitTestGURLs.getGURL(MOCK_URL));
-        Profile.setLastUsedProfileForTesting(mProfile);
         TrackerFactory.setTrackerForTests(mTracker);
 
         mParams = new ShareParams.Builder(mWindow, "title", MOCK_URL)
                           .setCallback(mTargetChosenCallback)
                           .build();
         mShareSheetCoordinator = new ShareSheetCoordinator(mController, mLifecycleDispatcher,
-                mTabProvider, mPropertyModelBuilder, null, null, null, false, false, null, null);
+                mTabProvider, null, null, false, null, null, mProfile, null);
+    }
+
+    @After
+    public void tearDown() {
+        ShadowPropertyModelBuilder.sThirdPartyModels = null;
     }
 
     @Test
@@ -136,53 +152,60 @@ public final class ShareSheetCoordinatorTest {
 
         List<PropertyModel> propertyModels = mShareSheetCoordinator.createFirstPartyPropertyModels(
                 mActivity, mParams, /*chromeShareExtras=*/null,
-                ShareSheetPropertyModelBuilder.ALL_CONTENT_TYPES_FOR_TEST);
+                ShareContentTypeHelper.ALL_CONTENT_TYPES_FOR_TEST);
         assertEquals("Property model list should be empty.", 0, propertyModels.size());
     }
 
     @Test
     @SmallTest
-    public void testCreateThirdPartyPropertyModels() throws TimeoutException {
-        final AtomicReference<List<PropertyModel>> resultPropertyModels = new AtomicReference<>();
-        CallbackHelper helper = new CallbackHelper();
-        mShareSheetCoordinator.createThirdPartyPropertyModels(mActivity, mParams,
-                ShareSheetPropertyModelBuilder.ALL_CONTENT_TYPES_FOR_TEST,
-                /*saveLastUsed=*/false, models -> {
-                    resultPropertyModels.set(models);
-                    helper.notifyCalled();
-                });
-        helper.waitForFirst();
-        List<PropertyModel> propertyModels = resultPropertyModels.get();
+    public void showShareSheet_avoidThirdPartyShareOptionsOnAutomotive() {
+        mShadowPackageManager.setSystemFeature(
+                PackageManager.FEATURE_AUTOMOTIVE, /* supported= */ true);
+        TestThreadUtils.runOnUiThreadBlocking(BuildInfo::resetForTesting);
+        mShareSheetCoordinator.disableFirstPartyFeaturesForTesting();
 
-        assertEquals("Incorrect number of property models.", 3, propertyModels.size());
-        assertEquals("First property model isn't testModel1.", "testModel1",
-                propertyModels.get(0).get(ShareSheetItemViewProperties.LABEL));
-        assertEquals("Second property model isn't testModel2.", "testModel2",
-                propertyModels.get(1).get(ShareSheetItemViewProperties.LABEL));
-        assertEquals("Third property model isn't More.",
-                mActivity.getResources().getString(R.string.sharing_more_icon_label),
-                propertyModels.get(2).get(ShareSheetItemViewProperties.LABEL));
+        ShareSheetCoordinator spyShareSheet = spy(mShareSheetCoordinator);
+        doNothing().when(spyShareSheet).finishUpdateShareSheet(any(), any(), any());
+
+        spyShareSheet.updateShareSheet(/* saveLastUsed= */ false, () -> {});
+
+        verify(spyShareSheet, never())
+                .createThirdPartyPropertyModels(any(), any(), any(), anyBoolean(), any());
+        verify(spyShareSheet, atLeastOnce()).finishUpdateShareSheet(any(), any(), any());
     }
 
     @Test
     @SmallTest
-    public void testClickMoreRemovesCallback() throws TimeoutException {
-        final AtomicReference<List<PropertyModel>> resultPropertyModels = new AtomicReference<>();
-        CallbackHelper helper = new CallbackHelper();
-        mShareSheetCoordinator.createThirdPartyPropertyModels(mActivity, mParams,
-                ShareSheetPropertyModelBuilder.ALL_CONTENT_TYPES_FOR_TEST,
-                /*saveLastUsed=*/false, models -> {
-                    resultPropertyModels.set(models);
-                    helper.notifyCalled();
-                });
-        helper.waitForFirst();
-        List<PropertyModel> propertyModels = resultPropertyModels.get();
+    public void showShareSheet_createThirdPartyShareOptions() {
+        mShadowPackageManager.setSystemFeature(
+                PackageManager.FEATURE_AUTOMOTIVE, /* supported= */ false);
+        TestThreadUtils.runOnUiThreadBlocking(BuildInfo::resetForTesting);
+        mShareSheetCoordinator.disableFirstPartyFeaturesForTesting();
 
-        View.OnClickListener onClickListener =
-                propertyModels.get(2).get(ShareSheetItemViewProperties.CLICK_LISTENER);
+        ShareSheetCoordinator spyShareSheet = spy(mShareSheetCoordinator);
+        doNothing().when(spyShareSheet).finishUpdateShareSheet(any(), any(), any());
 
-        assertNotNull("Callback should not be null before pressing More", mParams.getCallback());
-        onClickListener.onClick(null);
-        assertNull("Callback should be null after pressing More", mParams.getCallback());
+        spyShareSheet.updateShareSheet(/* saveLastUsed= */ false, () -> {});
+
+        verify(spyShareSheet, atLeastOnce())
+                .createThirdPartyPropertyModels(any(), any(), any(), anyBoolean(), any());
+        verify(spyShareSheet, atLeastOnce()).finishUpdateShareSheet(any(), any(), any());
+    }
+
+    /** Helper shadow class used to inject test only property models. */
+    @Implements(ShareSheetPropertyModelBuilder.class)
+    public static class ShadowPropertyModelBuilder {
+        /** Empty ctor for robolectric to initialize. */
+        public ShadowPropertyModelBuilder() {}
+
+        static List<PropertyModel> sThirdPartyModels;
+
+        @Implementation
+        protected List<PropertyModel> selectThirdPartyApps(ShareSheetBottomSheetContent bottomSheet,
+                Set<Integer> contentTypes, ShareParams params, boolean saveLastUsed,
+                long shareStartTime, @LinkGeneration int linkGenerationStatusForMetrics,
+                LinkToggleMetricsDetails linkToggleMetricsDetails) {
+            return sThirdPartyModels == null ? new ArrayList<>() : sThirdPartyModels;
+        }
     }
 }

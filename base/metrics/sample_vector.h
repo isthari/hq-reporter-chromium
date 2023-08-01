@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "base/base_export.h"
 #include "base/compiler_specific.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
@@ -30,9 +31,6 @@ class BucketRanges;
 
 class BASE_EXPORT SampleVectorBase : public HistogramSamples {
  public:
-  SampleVectorBase(uint64_t id,
-                   Metadata* meta,
-                   const BucketRanges* bucket_ranges);
   SampleVectorBase(const SampleVectorBase&) = delete;
   SampleVectorBase& operator=(const SampleVectorBase&) = delete;
   ~SampleVectorBase() override;
@@ -43,6 +41,7 @@ class BASE_EXPORT SampleVectorBase : public HistogramSamples {
   HistogramBase::Count GetCount(HistogramBase::Sample value) const override;
   HistogramBase::Count TotalCount() const override;
   std::unique_ptr<SampleCountIterator> Iterator() const override;
+  std::unique_ptr<SampleCountIterator> ExtractingIterator() override;
 
   // Get count of a specific bucket.
   HistogramBase::Count GetCountAtIndex(size_t bucket_index) const;
@@ -51,6 +50,13 @@ class BASE_EXPORT SampleVectorBase : public HistogramSamples {
   const BucketRanges* bucket_ranges() const { return bucket_ranges_; }
 
  protected:
+  SampleVectorBase(uint64_t id,
+                   Metadata* meta,
+                   const BucketRanges* bucket_ranges);
+  SampleVectorBase(uint64_t id,
+                   std::unique_ptr<Metadata> meta,
+                   const BucketRanges* bucket_ranges);
+
   bool AddSubtractImpl(
       SampleCountIterator* iter,
       HistogramSamples::Operator op) override;  // |op| is ADD or SUBTRACT.
@@ -166,37 +172,6 @@ class BASE_EXPORT PersistentSampleVector : public SampleVectorBase {
 
   // Persistent storage for counts.
   DelayedPersistentAllocation persistent_counts_;
-};
-
-// An iterator for sample vectors. This could be defined privately in the .cc
-// file but is here for easy testing.
-class BASE_EXPORT SampleVectorIterator : public SampleCountIterator {
- public:
-  SampleVectorIterator(const std::vector<HistogramBase::AtomicCount>* counts,
-                       const BucketRanges* bucket_ranges);
-  SampleVectorIterator(const HistogramBase::AtomicCount* counts,
-                       size_t counts_size,
-                       const BucketRanges* bucket_ranges);
-  ~SampleVectorIterator() override;
-
-  // SampleCountIterator implementation:
-  bool Done() const override;
-  void Next() override;
-  void Get(HistogramBase::Sample* min,
-           int64_t* max,
-           HistogramBase::Count* count) const override;
-
-  // SampleVector uses predefined buckets, so iterator can return bucket index.
-  bool GetBucketIndex(size_t* index) const override;
-
- private:
-  void SkipEmptyBuckets();
-
-  raw_ptr<const HistogramBase::AtomicCount> counts_;
-  size_t counts_size_;
-  raw_ptr<const BucketRanges> bucket_ranges_;
-
-  size_t index_;
 };
 
 }  // namespace base

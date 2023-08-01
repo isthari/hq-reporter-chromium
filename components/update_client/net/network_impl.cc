@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,8 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/check.h"
+#include "base/functional/bind.h"
 #include "base/numerics/safe_conversions.h"
 #include "components/update_client/net/network_chromium.h"
 #include "net/base/load_flags.h"
@@ -63,7 +64,7 @@ const net::NetworkTrafficAnnotationTag traffic_annotation =
 // if multiple instances of the same header are present.
 std::string GetStringHeader(const network::SimpleURLLoader* simple_url_loader,
                             const char* header_name) {
-  DCHECK(simple_url_loader);
+  CHECK(simple_url_loader);
 
   const auto* response_info = simple_url_loader->ResponseInfo();
   if (!response_info || !response_info->headers)
@@ -80,7 +81,7 @@ std::string GetStringHeader(const network::SimpleURLLoader* simple_url_loader,
 // if the header is not available or a conversion error has occured.
 int64_t GetInt64Header(const network::SimpleURLLoader* simple_url_loader,
                        const char* header_name) {
-  DCHECK(simple_url_loader);
+  CHECK(simple_url_loader);
 
   const auto* response_info = simple_url_loader->ResponseInfo();
   if (!response_info || !response_info->headers)
@@ -108,7 +109,7 @@ void NetworkFetcherImpl::PostRequest(
     ResponseStartedCallback response_started_callback,
     ProgressCallback progress_callback,
     PostRequestCompleteCallback post_request_complete_callback) {
-  DCHECK(!simple_url_loader_);
+  CHECK(!simple_url_loader_);
   auto resource_request = std::make_unique<network::ResourceRequest>();
   resource_request->url = url;
   resource_request->method = "POST";
@@ -153,7 +154,7 @@ void NetworkFetcherImpl::DownloadToFile(
     ResponseStartedCallback response_started_callback,
     ProgressCallback progress_callback,
     DownloadToFileCompleteCallback download_to_file_complete_callback) {
-  DCHECK(!simple_url_loader_);
+  CHECK(!simple_url_loader_);
   auto resource_request = std::make_unique<network::ResourceRequest>();
   resource_request->url = url;
   resource_request->method = "GET";

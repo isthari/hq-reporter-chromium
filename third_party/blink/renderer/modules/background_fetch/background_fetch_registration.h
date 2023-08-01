@@ -1,11 +1,10 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_BACKGROUND_FETCH_BACKGROUND_FETCH_REGISTRATION_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_BACKGROUND_FETCH_BACKGROUND_FETCH_REGISTRATION_H_
 
-#include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/blink/public/mojom/background_fetch/background_fetch.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
@@ -14,6 +13,7 @@
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_receiver.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_wrapper_mode.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
@@ -79,7 +79,8 @@ class BackgroundFetchRegistration final
 
   DEFINE_ATTRIBUTE_EVENT_LISTENER(progress, kProgress)
 
-  ScriptPromise abort(ScriptState* script_state);
+  ScriptPromise abort(ScriptState* script_state,
+                      ExceptionState& exception_state);
 
   // EventTargetWithInlineData implementation.
   const AtomicString& InterfaceName() const override;
@@ -132,7 +133,7 @@ class BackgroundFetchRegistration final
   mojom::BackgroundFetchFailureReason failure_reason_;
   HeapVector<Member<BackgroundFetchRecord>> observers_;
 
-  mojo::Remote<mojom::blink::BackgroundFetchRegistrationService>
+  HeapMojoRemote<mojom::blink::BackgroundFetchRegistrationService>
       registration_service_;
 
   HeapMojoReceiver<blink::mojom::blink::BackgroundFetchRegistrationObserver,

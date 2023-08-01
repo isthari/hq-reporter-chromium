@@ -1,22 +1,27 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/tab_grid_page_control.h"
 
 #import <CoreGraphics/CoreGraphics.h>
-#include <algorithm>
 
-#include "base/check_op.h"
-#include "base/cxx17_backports.h"
+#import <algorithm>
+
+#import "base/check_op.h"
+#import "ios/chrome/browser/shared/ui/symbols/symbols.h"
+#import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/tab_grid_constants.h"
-#import "ios/chrome/browser/ui/util/uikit_ui_util.h"
-#include "ios/chrome/grit/ios_strings.h"
-#include "ui/base/l10n/l10n_util.h"
+#import "ios/chrome/common/ui/colors/semantic_color_names.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
+
+UIControlEvents TabGridPageChangeByTapEvent = 1 << 24;
+UIControlEvents TabGridPageChangeByDragEvent = 1 << 25;
 
 // Structure of this control:
 //
@@ -33,7 +38,8 @@
 // This control is built out of several views. From the (z-axis) bottom up, they
 // are:
 //
-//  * The background view, a grey roundrect with vertical transparent bars.
+//  * The background view, a grey roundrect.
+//  * The separators between the segment.
 //  * The background image views.
 //  * The numeric label on the regular tab icon.
 //  * The hover views, which allow for pointer interactions.
@@ -59,72 +65,67 @@
 // constrainst for the guides have been applied.
 
 namespace {
+
 // Height and width of the slider.
 const CGFloat kSliderHeight = 40.0;
-const CGFloat kSliderWidth = 78.0;
+const CGFloat kSliderWidth = 65.0;
 
 // Height and width of each segment.
-const CGFloat kSegmentHeight = 36.0;
-const CGFloat kSegmentWidth = 64.0;
+const CGFloat kSegmentHeight = 44.0;
+const CGFloat kSegmentWidth = 65.0;
 
-// Points that the slider overhangs a segment on each side, or 0 if the slider
-// is narrower than a segment.
-const CGFloat kSliderOverhang =
-    std::max((kSliderWidth - kSegmentWidth) / 2.0, 0.0);
+// Margin between the slider and the leading/trailing segments.
+const CGFloat kSliderMargin = 2.0;
 
-// Width of the separator bars between segments.
+// Vertical margin between the slider and the segment on each side.
+const CGFloat kSliderVerticalMargin =
+    std::max((kSegmentHeight - kSliderHeight) / 2.0, 0.0);
+
+// Width and height of the separator bars between segments.
 const CGFloat kSeparatorWidth = 1.0;
-
-// Width of the background -- three segments plus two separators.
-const CGFloat kBackgroundWidth = 3 * kSegmentWidth + 2 * kSeparatorWidth;
+const CGFloat kSeparatorHeight = 22.0;
 
 // Overall height of the control -- the larger of the slider and segment
 // heights.
 const CGFloat kOverallHeight = std::max(kSliderHeight, kSegmentHeight);
-// Overall width of the control -- the background width plus twice the slider
-// overhang.
-const CGFloat kOverallWidth = kBackgroundWidth + 2 * kSliderOverhang;
+// Overall width -- three segments plus two separators plus two margins between
+// leading/trailing segments and the slider.
+const CGFloat kOverallWidth =
+    3 * kSegmentWidth + 2 * kSeparatorWidth + 2 * kSliderMargin;
 
 // Radius used to draw the background and the slider.
-const CGFloat kCornerRadius = 13.0;
+const CGFloat kSliderCornerRadius = 13.0;
+const CGFloat kBackgroundCornerRadius = 15.0;
 
 // Sizes for the labels and their selected counterparts.
 const CGFloat kLabelSize = 20.0;
 const CGFloat kSelectedLabelSize = 23.0;
+const CGFloat kLabelSizeToFontSize = 0.6;
 
 // Maximum duration of slider motion animation.
 const NSTimeInterval kSliderMoveDuration = 0.2;
 
-// Color for the slider
-const int kSliderColor = 0xF8F9FA;
-// Color for the background view.
-const int kBackgroundColor = 0xFFFFFF;
 // Alpha for the background view.
-const CGFloat kBackgroundAlpha = 0.3;
-// Color for the regular tab count label and icons.
-const CGFloat kSelectedColor = 0x3C4043;
+const CGFloat kBackgroundAlpha = 0.15;
+const CGFloat kScrolledToTopBackgroundAlpha = 0.25;
 
-// Returns the point that's at the center of |rect|.
+// The sizes of the symbol images.
+const CGFloat kUnselectedSymbolSize = 22.;
+const CGFloat kSelectedSymbolSize = 24.;
+
+// Returns the point that's at the center of `rect`.
 CGPoint RectCenter(CGRect rect) {
   return CGPointMake(CGRectGetMidX(rect), CGRectGetMidY(rect));
 }
 
-// Convenience method that composes an asset name and returns the correct image
-// (in template rendering mode) based on the segment name (one of "regular",
-// "incognito, "remote") and whether the selected state image is needed or not.
-UIImage* ImageForSegment(NSString* segment, BOOL selected) {
-  NSString* asset =
-      [NSString stringWithFormat:@"page_control_%@_tabs%@", segment,
-                                 selected ? @"_selected" : @""];
-  return [[UIImage imageNamed:asset]
-      imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
-}
+// Returns an UIImageView for the given `symbolName` and `selected` state.
+UIImageView* ImageViewForSymbol(NSString* symbolName, bool selected) {
+  CGFloat size = selected ? kSelectedSymbolSize : kUnselectedSymbolSize;
+  return [[UIImageView alloc]
+      initWithImage:CustomSymbolTemplateWithPointSize(symbolName, size)];
 }
 
-// View class used for the background of this control; it draws the grey
-// rectangles with clear separators.
-@interface TabGridPageControlBackground : UIView
-@end
+}  // namespace
 
 @interface TabGridPageControl () <UIGestureRecognizerDelegate,
                                   UIPointerInteractionDelegate> {
@@ -133,23 +134,30 @@ UIImage* ImageForSegment(NSString* segment, BOOL selected) {
   UIAccessibilityElement* _remoteAccessibilityElement;
 }
 
+// The grey background for all the segments.
+@property(nonatomic, weak) UIView* background;
+
 // Layout guides used to position segment-specific content.
 @property(nonatomic, weak) UILayoutGuide* incognitoGuide;
 @property(nonatomic, weak) UILayoutGuide* regularGuide;
 @property(nonatomic, weak) UILayoutGuide* remoteGuide;
+// The separator between incognito and regular tabs.
+@property(nonatomic, weak) UIView* firstSeparator;
+// The separator between the regular and remote tabs.
+@property(nonatomic, weak) UIView* secondSeparator;
 // The view for the slider.
 @property(nonatomic, weak) UIView* sliderView;
-// The view for the selected images and labels (a subview of |sliderView).
+// The view for the selected images and labels (a subview of `sliderView).
 @property(nonatomic, weak) UIView* selectedImageView;
 // The labels for the incognito and regular sections, in regular and selected
 // variants.
-@property(nonatomic, weak) UIView* incognitoIcon;
+@property(nonatomic, weak) UIView* incognitoNotSelectedIcon;
 @property(nonatomic, weak) UIView* incognitoSelectedIcon;
-@property(nonatomic, weak) UIView* regularIcon;
+@property(nonatomic, weak) UIView* regularNotSelectedIcon;
 @property(nonatomic, weak) UIView* regularSelectedIcon;
 @property(nonatomic, weak) UILabel* regularLabel;
 @property(nonatomic, weak) UILabel* regularSelectedLabel;
-@property(nonatomic, weak) UIView* remoteIcon;
+@property(nonatomic, weak) UIView* remoteNotSelectedIcon;
 @property(nonatomic, weak) UIView* remoteSelectedIcon;
 
 // Standard pointer interactions provided UIKit require views on which to attach
@@ -161,12 +169,12 @@ UIImage* ImageForSegment(NSString* segment, BOOL selected) {
 @property(nonatomic, weak) UIView* regularHoverView;
 @property(nonatomic, weak) UIView* remoteHoverView;
 
-// The center point for the slider corresponding to a |sliderPosition| of 0.
+// The center point for the slider corresponding to a `sliderPosition` of 0.
 @property(nonatomic) CGFloat sliderOrigin;
 // The (signed) x-coordinate distance the slider moves over. The slider's
-// position is set by adding a fraction of this distance to |sliderOrigin|, so
-// that when |sliderRange| is negative (in RTL layout), the slider will move in
-// the negative-x direction from |sliderOrigin|, and otherwise it will move in
+// position is set by adding a fraction of this distance to `sliderOrigin`, so
+// that when `sliderRange` is negative (in RTL layout), the slider will move in
+// the negative-x direction from `sliderOrigin`, and otherwise it will move in
 // the positive-x direction.
 @property(nonatomic) CGFloat sliderRange;
 // State properties to track the point and position (in the 0.0-1.0 range) of
@@ -174,6 +182,13 @@ UIImage* ImageForSegment(NSString* segment, BOOL selected) {
 @property(nonatomic) CGPoint dragStart;
 @property(nonatomic) CGFloat dragStartPosition;
 @property(nonatomic) BOOL draggingSlider;
+// Gesture recognizer used to handle taps. Owned by `self` as a UIView, so this
+// property is just a weak pointer to refer to it in some touch logic.
+@property(nonatomic, weak) UIGestureRecognizer* tapRecognizer;
+
+// Whether the content below is scrolled to the edge or displayed behind.
+@property(nonatomic, assign) BOOL scrolledToEdge;
+
 @end
 
 @implementation TabGridPageControl
@@ -219,8 +234,27 @@ UIImage* ImageForSegment(NSString* segment, BOOL selected) {
       _incognitoAccessibilityElement, _regularAccessibilityElement,
       _remoteAccessibilityElement
     ];
+
+    [[NSNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(accessibilityBoldTextStatusDidChange)
+               name:UIAccessibilityBoldTextStatusDidChangeNotification
+             object:nil];
   }
   return self;
+}
+
+- (void)setScrollViewScrolledToEdge:(BOOL)scrolledToEdge {
+  if (_scrolledToEdge == scrolledToEdge) {
+    return;
+  }
+
+  _scrolledToEdge = scrolledToEdge;
+
+  CGFloat backgroundAlpha =
+      scrolledToEdge ? kScrolledToTopBackgroundAlpha : kBackgroundAlpha;
+  self.background.backgroundColor = [UIColor colorWithWhite:1
+                                                      alpha:backgroundAlpha];
 }
 
 #pragma mark - Public Properies
@@ -230,8 +264,8 @@ UIImage* ImageForSegment(NSString* segment, BOOL selected) {
 }
 
 - (void)setSliderPosition:(CGFloat)sliderPosition {
-  // Clamp |selectionOffset| to (0.0 - 1.0).
-  sliderPosition = base::clamp<CGFloat>(sliderPosition, 0.0, 1.0);
+  // Clamp `selectionOffset` to (0.0 - 1.0).
+  sliderPosition = std::clamp<CGFloat>(sliderPosition, 0.0, 1.0);
   CGPoint center = self.sliderView.center;
   center.x = self.sliderOrigin + self.sliderRange * sliderPosition;
   self.sliderView.center = center;
@@ -241,7 +275,7 @@ UIImage* ImageForSegment(NSString* segment, BOOL selected) {
                                               toView:self.sliderView];
   _sliderPosition = sliderPosition;
 
-  // |_selectedPage| should be kept in sync with the slider position.
+  // `_selectedPage` should be kept in sync with the slider position.
   TabGridPage previousSelectedPage = _selectedPage;
   if (sliderPosition < 0.25)
     _selectedPage = TabGridPageIncognitoTabs;
@@ -249,6 +283,12 @@ UIImage* ImageForSegment(NSString* segment, BOOL selected) {
     _selectedPage = TabGridPageRegularTabs;
   else
     _selectedPage = TabGridPageRemoteTabs;
+
+  // Hide/show the separator based on the slider position. Add a delta for the
+  // comparison to avoid issues when the regular tabs are selected.
+  const CGFloat kDelta = 0.001;
+  self.firstSeparator.hidden = sliderPosition < 0.5 + kDelta;
+  self.secondSeparator.hidden = sliderPosition > 0.5 - kDelta;
 
   if (_selectedPage != previousSelectedPage)
     [self updateSelectedPageAccessibility];
@@ -259,10 +299,13 @@ UIImage* ImageForSegment(NSString* segment, BOOL selected) {
 // visible when the slider is over a segment), and an ivar to store values that
 // are set before the labels are created.
 - (void)setRegularTabCount:(NSUInteger)regularTabCount {
-  NSString* regularText = TextForTabCount(regularTabCount);
-  self.regularLabel.text = regularText;
-  self.regularSelectedLabel.text = regularText;
   _regularTabCount = regularTabCount;
+  [self updateRegularLabels];
+}
+
+- (void)setPinnedTabCount:(NSUInteger)pinnedTabCount {
+  _pinnedTabCount = pinnedTabCount;
+  [self updateRegularLabels];
 }
 
 #pragma mark - Public methods
@@ -308,7 +351,9 @@ UIImage* ImageForSegment(NSString* segment, BOOL selected) {
   [super touchesBegan:touches withEvent:event];
   DCHECK(!self.multipleTouchEnabled);
   DCHECK_EQ(1U, touches.count);
-  DCHECK(!self.draggingSlider);
+  if (self.draggingSlider) {
+    return;
+  }
   UITouch* touch = [touches anyObject];
   CGPoint locationInSlider = [touch locationInView:self.sliderView];
   if ([self.sliderView pointInside:locationInSlider withEvent:event]) {
@@ -340,7 +385,7 @@ UIImage* ImageForSegment(NSString* segment, BOOL selected) {
   DCHECK_EQ(1U, touches.count);
   self.draggingSlider = NO;
   [self setSelectedPage:self.selectedPage animated:YES];
-  [self sendActionsForControlEvents:UIControlEventTouchUpInside];
+  [self sendActionsForControlEvents:TabGridPageChangeByDragEvent];
 }
 
 - (void)touchesCancelled:(NSSet<UITouch*>*)touches withEvent:(UIEvent*)event {
@@ -348,8 +393,13 @@ UIImage* ImageForSegment(NSString* segment, BOOL selected) {
   DCHECK(!self.multipleTouchEnabled);
   DCHECK_EQ(1U, touches.count);
   self.draggingSlider = NO;
-  [self setSelectedPage:self.selectedPage animated:YES];
-  [self sendActionsForControlEvents:UIControlEventTouchUpInside];
+  // The tap recognizer will cancel the touches it recognizes as the last step
+  // of handling the gesture, so in that case, control events have already been
+  // sent and don't need to be sent again here.
+  if (self.tapRecognizer.state != UIGestureRecognizerStateEnded) {
+    [self setSelectedPage:self.selectedPage animated:YES];
+    [self sendActionsForControlEvents:TabGridPageChangeByDragEvent];
+  }
 }
 
 #pragma mark - UIView
@@ -373,18 +423,21 @@ UIImage* ImageForSegment(NSString* segment, BOOL selected) {
 
   // Position the section images, labels and hover views, which depend on the
   // layout guides.
-  self.incognitoIcon.center = [self centerOfSegment:TabGridPageIncognitoTabs];
+  self.incognitoNotSelectedIcon.center =
+      [self centerOfSegment:TabGridPageIncognitoTabs];
   self.incognitoSelectedIcon.center =
       [self centerOfSegment:TabGridPageIncognitoTabs];
 
-  self.regularIcon.center = [self centerOfSegment:TabGridPageRegularTabs];
+  self.regularNotSelectedIcon.center =
+      [self centerOfSegment:TabGridPageRegularTabs];
   self.regularSelectedIcon.center =
       [self centerOfSegment:TabGridPageRegularTabs];
   self.regularLabel.center = [self centerOfSegment:TabGridPageRegularTabs];
   self.regularSelectedLabel.center =
       [self centerOfSegment:TabGridPageRegularTabs];
 
-  self.remoteIcon.center = [self centerOfSegment:TabGridPageRemoteTabs];
+  self.remoteNotSelectedIcon.center =
+      [self centerOfSegment:TabGridPageRemoteTabs];
   self.remoteSelectedIcon.center = [self centerOfSegment:TabGridPageRemoteTabs];
 
   self.incognitoHoverView.center =
@@ -449,16 +502,57 @@ UIImage* ImageForSegment(NSString* segment, BOOL selected) {
 
 #pragma mark - Private
 
+// Configures and Adds icon to the tab grid page control for the given tab.
+- (void)addTabsIcon:(TabGridPage)tab {
+  UIImageView* iconSelected;
+  UIImageView* iconNotSelected;
+  switch (tab) {
+    case TabGridPageRegularTabs: {
+      iconSelected = ImageViewForSymbol(kSquareNumberSymbol, true);
+      iconNotSelected = ImageViewForSymbol(kSquareNumberSymbol, false);
+      self.regularSelectedIcon = iconSelected;
+      self.regularNotSelectedIcon = iconNotSelected;
+      break;
+    }
+    case TabGridPageIncognitoTabs: {
+      iconSelected = ImageViewForSymbol(kIncognitoSymbol, true);
+      iconNotSelected = ImageViewForSymbol(kIncognitoSymbol, false);
+      self.incognitoSelectedIcon = iconSelected;
+      self.incognitoNotSelectedIcon = iconNotSelected;
+      break;
+    }
+    case TabGridPageRemoteTabs: {
+      iconSelected = ImageViewForSymbol(kRecentTabsSymbol, true);
+      iconNotSelected = ImageViewForSymbol(kRecentTabsSymbol, false);
+      self.remoteSelectedIcon = iconSelected;
+      self.remoteNotSelectedIcon = iconNotSelected;
+      break;
+    }
+  }
+
+  iconNotSelected.tintColor = [UIColor colorNamed:kStaticGrey300Color];
+  iconSelected.tintColor = UIColor.blackColor;
+
+  [self insertSubview:iconNotSelected belowSubview:self.sliderView];
+  [self.selectedImageView addSubview:iconSelected];
+}
+
 // Sets up all of the subviews for this control, as well as the layout guides
 // used to position the section content.
 - (void)setupViews {
-  UIView* backgroundView = [[TabGridPageControlBackground alloc] init];
+  self.scrolledToEdge = YES;
+
+  UIView* backgroundView = [[UIView alloc]
+      initWithFrame:CGRectMake(0, 0, kOverallWidth, kSegmentHeight)];
+  backgroundView.backgroundColor =
+      [UIColor colorWithWhite:1 alpha:kScrolledToTopBackgroundAlpha];
   backgroundView.userInteractionEnabled = NO;
-  backgroundView.layer.cornerRadius = kCornerRadius;
+  backgroundView.layer.cornerRadius = kBackgroundCornerRadius;
   backgroundView.layer.masksToBounds = YES;
   [self addSubview:backgroundView];
   backgroundView.center =
       CGPointMake(kOverallWidth / 2.0, kOverallHeight / 2.0);
+  self.background = backgroundView;
 
   // Set up the layout guides for the segments.
   UILayoutGuide* incognitoGuide = [[UILayoutGuide alloc] init];
@@ -475,55 +569,59 @@ UIImage* ImageForSegment(NSString* segment, BOOL selected) {
   // control.
   for (UILayoutGuide* guide in @[ incognitoGuide, regularGuide, remoteGuide ]) {
     [guide.heightAnchor constraintEqualToConstant:kOverallHeight].active = YES;
+    // Guides are all the same width. The regular guide is centered in the
+    // control, and the incognito and remote guides are on the leading and
+    // trailing sides of it, with separators in between.
+    [guide.widthAnchor constraintEqualToConstant:kSegmentWidth].active = YES;
     [guide.centerYAnchor constraintEqualToAnchor:self.centerYAnchor].active =
         YES;
   }
 
-  // Guides are all the same width (except the regular guide is wider to include
-  // the separators on either side of it. The regular guide is centered in the
-  // control, and the incognito and remote guides are on the leading and
-  // trailing sides of it.
+  UIView* firstSeparator = [self newSeparator];
+  [self addSubview:firstSeparator];
+  self.firstSeparator = firstSeparator;
+  UIView* secondSeparator = [self newSeparator];
+  [self addSubview:secondSeparator];
+  self.secondSeparator = secondSeparator;
+
   [NSLayoutConstraint activateConstraints:@[
-    [incognitoGuide.widthAnchor constraintEqualToConstant:kSegmentWidth],
-    [regularGuide.widthAnchor
-        constraintEqualToConstant:kSegmentWidth + 2 * kSeparatorWidth],
-    [remoteGuide.widthAnchor constraintEqualToConstant:kSegmentWidth],
-    [regularGuide.centerXAnchor constraintEqualToAnchor:self.centerXAnchor],
     [incognitoGuide.trailingAnchor
+        constraintEqualToAnchor:firstSeparator.leadingAnchor],
+    [firstSeparator.trailingAnchor
         constraintEqualToAnchor:regularGuide.leadingAnchor],
-    [remoteGuide.leadingAnchor
-        constraintEqualToAnchor:regularGuide.trailingAnchor]
+    [regularGuide.centerXAnchor constraintEqualToAnchor:self.centerXAnchor],
+    [regularGuide.trailingAnchor
+        constraintEqualToAnchor:secondSeparator.leadingAnchor],
+    [secondSeparator.trailingAnchor
+        constraintEqualToAnchor:remoteGuide.leadingAnchor],
+
+    [firstSeparator.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
+    [secondSeparator.centerYAnchor constraintEqualToAnchor:self.centerYAnchor],
   ]];
 
   // Add the slider above the section images and labels.
-  CGRect sliderFrame = CGRectMake(0, 0, kSliderWidth, kSliderHeight);
+  CGRect sliderFrame =
+      CGRectMake(0, kSliderVerticalMargin, kSliderWidth, kSliderHeight);
   UIView* slider = [[UIView alloc] initWithFrame:sliderFrame];
-  slider.layer.cornerRadius = kCornerRadius;
+  slider.layer.cornerRadius = kSliderCornerRadius;
   slider.layer.masksToBounds = YES;
-  slider.backgroundColor = UIColorFromRGB(kSliderColor);
+  slider.backgroundColor = UIColor.whiteColor;
 
   [self addSubview:slider];
   self.sliderView = slider;
 
   // Selected images and labels are added to the selected image view so they
   // will be clipped by the slider.
-  UIView* selectedImageView = [[UIView alloc]
-      initWithFrame:(CGRectMake(0, 0, kOverallWidth, kOverallHeight))];
+  CGRect selectedImageFrame = CGRectMake(0, 0, kOverallWidth, kOverallHeight);
+  UIView* selectedImageView = [[UIView alloc] initWithFrame:selectedImageFrame];
   selectedImageView.userInteractionEnabled = NO;
   [self.sliderView addSubview:selectedImageView];
   self.selectedImageView = selectedImageView;
 
-  // Icons and labels for the regular tabs.
-  UIImageView* regularIcon =
-      [[UIImageView alloc] initWithImage:ImageForSegment(@"regular", NO)];
-  regularIcon.tintColor = UIColorFromRGB(kSliderColor);
-  [self insertSubview:regularIcon belowSubview:self.sliderView];
-  self.regularIcon = regularIcon;
-  UIImageView* regularSelectedIcon =
-      [[UIImageView alloc] initWithImage:ImageForSegment(@"regular", YES)];
-  regularSelectedIcon.tintColor = UIColorFromRGB(kSelectedColor);
-  [self.selectedImageView addSubview:regularSelectedIcon];
-  self.regularSelectedIcon = regularSelectedIcon;
+  [self addTabsIcon:TabGridPageRegularTabs];
+  [self addTabsIcon:TabGridPageIncognitoTabs];
+  [self addTabsIcon:TabGridPageRemoteTabs];
+
   UILabel* regularLabel = [self labelSelected:NO];
   [self insertSubview:regularLabel belowSubview:self.sliderView];
   self.regularLabel = regularLabel;
@@ -531,31 +629,7 @@ UIImage* ImageForSegment(NSString* segment, BOOL selected) {
   [self.selectedImageView addSubview:regularSelectedLabel];
   self.regularSelectedLabel = regularSelectedLabel;
 
-  // Icons for the incognito tabs section.
-  UIImageView* incognitoIcon =
-      [[UIImageView alloc] initWithImage:ImageForSegment(@"incognito", NO)];
-  incognitoIcon.tintColor = UIColorFromRGB(kSliderColor);
-  [self insertSubview:incognitoIcon belowSubview:self.sliderView];
-  self.incognitoIcon = incognitoIcon;
-  UIImageView* incognitoSelectedIcon =
-      [[UIImageView alloc] initWithImage:ImageForSegment(@"incognito", YES)];
-  incognitoSelectedIcon.tintColor = UIColorFromRGB(kSelectedColor);
-  [self.selectedImageView addSubview:incognitoSelectedIcon];
-  self.incognitoSelectedIcon = incognitoSelectedIcon;
-
-  // Icons for the remote tabs section.
-  UIImageView* remoteIcon =
-      [[UIImageView alloc] initWithImage:ImageForSegment(@"remote", NO)];
-  remoteIcon.tintColor = UIColorFromRGB(kSliderColor);
-  [self insertSubview:remoteIcon belowSubview:self.sliderView];
-  self.remoteIcon = remoteIcon;
-  UIImageView* remoteSelectedIcon =
-      [[UIImageView alloc] initWithImage:ImageForSegment(@"remote", YES)];
-  remoteSelectedIcon.tintColor = UIColorFromRGB(kSelectedColor);
-  [self.selectedImageView addSubview:remoteSelectedIcon];
-  self.remoteSelectedIcon = remoteSelectedIcon;
-
-  CGRect segmentRect = CGRectMake(0, 0, kSegmentWidth, kOverallHeight);
+  CGRect segmentRect = CGRectMake(0, 0, kSegmentWidth, kSegmentHeight);
   UIView* incognitoHoverView = [[UIView alloc] initWithFrame:segmentRect];
   UIView* regularHoverView = [[UIView alloc] initWithFrame:segmentRect];
   UIView* remoteHoverView = [[UIView alloc] initWithFrame:segmentRect];
@@ -591,19 +665,27 @@ UIImage* ImageForSegment(NSString* segment, BOOL selected) {
                                               action:@selector(handleTap:)];
   tapRecognizer.delegate = self;
   [self addGestureRecognizer:tapRecognizer];
+  self.tapRecognizer = tapRecognizer;
+}
+
+// Updates the labels displaying the regular tab count.
+- (void)updateRegularLabels {
+  NSUInteger totalTabsCount = self.regularTabCount + self.pinnedTabCount;
+  self.regularLabel.attributedText =
+      TextForTabCount(totalTabsCount, kLabelSize * kLabelSizeToFontSize);
+  self.regularSelectedLabel.attributedText = TextForTabCount(
+      totalTabsCount, kSelectedLabelSize * kLabelSizeToFontSize);
 }
 
 // Creates a label for use in this control.
 // Selected labels use a different size and are black.
 - (UILabel*)labelSelected:(BOOL)selected {
   CGFloat size = selected ? kSelectedLabelSize : kLabelSize;
-  UIColor* color =
-      selected ? UIColorFromRGB(kSelectedColor) : UIColorFromRGB(kSliderColor);
   UILabel* label = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, size, size)];
   label.backgroundColor = UIColor.clearColor;
   label.textAlignment = NSTextAlignmentCenter;
-  label.textColor = color;
-  label.font = [UIFont systemFontOfSize:size * .6 weight:UIFontWeightBold];
+  label.textColor =
+      selected ? UIColor.blackColor : [UIColor colorNamed:kStaticGrey300Color];
   return label;
 }
 
@@ -619,18 +701,18 @@ UIImage* ImageForSegment(NSString* segment, BOOL selected) {
   } else if (CGRectContainsPoint(self.remoteGuide.layoutFrame, point)) {
     page = TabGridPageRemoteTabs;
   } else {
-    // bug: taps in the left- or rightmost |kSliderOverhang| points of the
+    // bug: taps in the left- or rightmost `kSliderOverhang` points of the
     // control will fall through to this case.
     // TODO(crbug.com/804500): Fix this.
     page = TabGridPageRegularTabs;
   }
   if (page != self.selectedPage) {
     [self setSelectedPage:page animated:YES];
-    [self sendActionsForControlEvents:UIControlEventTouchUpInside];
+    [self sendActionsForControlEvents:TabGridPageChangeByTapEvent];
   }
 }
 
-// Returns the point at the center of |segment|.
+// Returns the point at the center of `segment`.
 - (CGPoint)centerOfSegment:(TabGridPage)segment {
   switch (segment) {
     case TabGridPageIncognitoTabs:
@@ -642,54 +724,41 @@ UIImage* ImageForSegment(NSString* segment, BOOL selected) {
   }
 }
 
+// Creates and returns a new separator, with constraints on its height/width.
+- (UIView*)newSeparator {
+  UIView* separator = [[UIView alloc] init];
+  separator.backgroundColor = [UIColor colorNamed:kStaticGrey300Color];
+  separator.layer.cornerRadius = kSeparatorWidth / 2.0;
+  separator.translatesAutoresizingMaskIntoConstraints = NO;
+  [separator.heightAnchor constraintEqualToConstant:kSeparatorHeight].active =
+      YES;
+  [separator.widthAnchor constraintEqualToConstant:kSeparatorWidth].active =
+      YES;
+  return separator;
+}
+
+// Callback for the notification that the user changed the bold status.
+- (void)accessibilityBoldTextStatusDidChange {
+  [self updateRegularLabels];
+}
+
 #pragma mark UIPointerInteractionDelegate
 
 - (UIPointerRegion*)pointerInteraction:(UIPointerInteraction*)interaction
                       regionForRequest:(UIPointerRegionRequest*)request
-                         defaultRegion:(UIPointerRegion*)defaultRegion
-    API_AVAILABLE(ios(13.4)) {
+                         defaultRegion:(UIPointerRegion*)defaultRegion {
   return defaultRegion;
 }
 
 - (UIPointerStyle*)pointerInteraction:(UIPointerInteraction*)interaction
-                       styleForRegion:(UIPointerRegion*)region
-    API_AVAILABLE(ios(13.4)) {
+                       styleForRegion:(UIPointerRegion*)region {
   UIPointerHighlightEffect* effect = [UIPointerHighlightEffect
       effectWithPreview:[[UITargetedPreview alloc]
                             initWithView:interaction.view]];
   UIPointerShape* shape =
       [UIPointerShape shapeWithRoundedRect:interaction.view.frame
-                              cornerRadius:kCornerRadius];
+                              cornerRadius:kSliderCornerRadius];
   return [UIPointerStyle styleWithEffect:effect shape:shape];
-}
-
-@end
-
-@implementation TabGridPageControlBackground
-
-- (instancetype)init {
-  self =
-      [super initWithFrame:CGRectMake(0, 0, kBackgroundWidth, kSegmentHeight)];
-  if (self) {
-    self.backgroundColor = UIColor.clearColor;
-  }
-  return self;
-}
-
-- (CGSize)intrinsicContentsSize {
-  return CGSizeMake(kBackgroundWidth, kSegmentHeight);
-}
-
-- (void)drawRect:(CGRect)rect {
-  CGContextRef drawing = UIGraphicsGetCurrentContext();
-  UIColor* backgroundColor = UIColorFromRGB(kBackgroundColor, kBackgroundAlpha);
-  CGContextSetFillColorWithColor(drawing, backgroundColor.CGColor);
-  CGRect fillRect = CGRectMake(0, 0, kSegmentWidth, kSegmentHeight);
-  CGContextFillRect(drawing, fillRect);
-  fillRect.origin.x += kSegmentWidth + kSeparatorWidth;
-  CGContextFillRect(drawing, fillRect);
-  fillRect.origin.x += kSegmentWidth + kSeparatorWidth;
-  CGContextFillRect(drawing, fillRect);
 }
 
 @end

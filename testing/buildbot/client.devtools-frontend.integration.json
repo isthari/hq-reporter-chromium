@@ -8,7 +8,6 @@
     "gtest_tests": [
       {
         "merge": {
-          "args": [],
           "script": "//testing/merge_scripts/standard_gtest_merge.py"
         },
         "name": "blink_unit_tests",
@@ -29,7 +28,6 @@
           "--gtest_filter=*DevTools*"
         ],
         "merge": {
-          "args": [],
           "script": "//testing/merge_scripts/standard_gtest_merge.py"
         },
         "name": "devtools_browser_tests",
@@ -49,8 +47,10 @@
     "isolated_scripts": [
       {
         "args": [
-          "--num-retries=3"
+          "--num-retries=3",
+          "--write-run-histories-to=${ISOLATED_OUTDIR}/run_histories.json"
         ],
+        "check_flakiness_for_new_tests": false,
         "isolate_name": "blink_web_tests",
         "merge": {
           "args": [
@@ -71,24 +71,24 @@
             }
           ],
           "service_account": "chromium-tester@chops-service-accounts.iam.gserviceaccount.com",
-          "shards": 12
+          "shards": 5
         },
         "test_id_prefix": "ninja://:blink_web_tests/"
       },
       {
         "args": [
           "--num-retries=3",
-          "--layout-tests-directory=../../third_party/devtools-frontend/src/test/webtests/",
-          "http/tests/devtools"
+          "--write-run-histories-to=${ISOLATED_OUTDIR}/run_histories.json"
         ],
-        "isolate_name": "devtools_web_tests",
+        "check_flakiness_for_new_tests": false,
+        "isolate_name": "blink_wpt_tests",
         "merge": {
           "args": [
             "--verbose"
           ],
           "script": "//third_party/blink/tools/merge_web_test_results.py"
         },
-        "name": "webkit_layout_from_devtools",
+        "name": "blink_wpt_tests",
         "resultdb": {
           "enable": true
         },
@@ -101,9 +101,9 @@
             }
           ],
           "service_account": "chromium-tester@chops-service-accounts.iam.gserviceaccount.com",
-          "shards": 4
+          "shards": 7
         },
-        "test_id_prefix": "ninja://:devtools_web_tests/"
+        "test_id_prefix": "ninja://:blink_wpt_tests/"
       }
     ]
   },
@@ -114,7 +114,6 @@
     "gtest_tests": [
       {
         "merge": {
-          "args": [],
           "script": "//testing/merge_scripts/standard_gtest_merge.py"
         },
         "name": "blink_unit_tests",
@@ -135,7 +134,6 @@
           "--gtest_filter=*DevTools*"
         ],
         "merge": {
-          "args": [],
           "script": "//testing/merge_scripts/standard_gtest_merge.py"
         },
         "name": "devtools_browser_tests",
@@ -155,8 +153,10 @@
     "isolated_scripts": [
       {
         "args": [
-          "--num-retries=3"
+          "--num-retries=3",
+          "--write-run-histories-to=${ISOLATED_OUTDIR}/run_histories.json"
         ],
+        "check_flakiness_for_new_tests": false,
         "isolate_name": "blink_web_tests",
         "merge": {
           "args": [
@@ -177,24 +177,24 @@
             }
           ],
           "service_account": "chromium-tester@chops-service-accounts.iam.gserviceaccount.com",
-          "shards": 12
+          "shards": 5
         },
         "test_id_prefix": "ninja://:blink_web_tests/"
       },
       {
         "args": [
           "--num-retries=3",
-          "--layout-tests-directory=../../third_party/devtools-frontend/src/test/webtests/",
-          "http/tests/devtools"
+          "--write-run-histories-to=${ISOLATED_OUTDIR}/run_histories.json"
         ],
-        "isolate_name": "devtools_web_tests",
+        "check_flakiness_for_new_tests": false,
+        "isolate_name": "blink_wpt_tests",
         "merge": {
           "args": [
             "--verbose"
           ],
           "script": "//third_party/blink/tools/merge_web_test_results.py"
         },
-        "name": "webkit_layout_from_devtools",
+        "name": "blink_wpt_tests",
         "resultdb": {
           "enable": true
         },
@@ -207,9 +207,9 @@
             }
           ],
           "service_account": "chromium-tester@chops-service-accounts.iam.gserviceaccount.com",
-          "shards": 4
+          "shards": 7
         },
-        "test_id_prefix": "ninja://:devtools_web_tests/"
+        "test_id_prefix": "ninja://:blink_wpt_tests/"
       }
     ]
   }

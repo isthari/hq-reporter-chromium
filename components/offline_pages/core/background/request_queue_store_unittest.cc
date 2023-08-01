@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,12 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/test_mock_time_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "components/offline_pages/core/background/request_queue.h"
 #include "components/offline_pages/core/background/save_page_request.h"
 #include "components/offline_pages/core/offline_clock.h"
@@ -68,7 +68,6 @@ void BuildTestStoreWithSchemaFromM57(const base::FilePath& file,
   ASSERT_TRUE(
       connection.Open(file.Append(FILE_PATH_LITERAL("RequestQueue.db"))));
   ASSERT_TRUE(connection.is_open());
-  ASSERT_TRUE(connection.BeginTransaction());
   ASSERT_TRUE(
       connection.Execute("CREATE TABLE " REQUEST_QUEUE_TABLE_NAME
                          " (request_id INTEGER PRIMARY KEY NOT NULL,"
@@ -83,7 +82,6 @@ void BuildTestStoreWithSchemaFromM57(const base::FilePath& file,
                          " client_id VARCHAR NOT NULL"
                          ")"));
 
-  ASSERT_TRUE(connection.CommitTransaction());
   sql::Statement statement(connection.GetUniqueStatement(
       "INSERT OR IGNORE INTO " REQUEST_QUEUE_TABLE_NAME
       " (request_id, creation_time, activation_time,"
@@ -115,7 +113,6 @@ void BuildTestStoreWithSchemaFromM58(const base::FilePath& file,
   ASSERT_TRUE(
       connection.Open(file.Append(FILE_PATH_LITERAL("RequestQueue.db"))));
   ASSERT_TRUE(connection.is_open());
-  ASSERT_TRUE(connection.BeginTransaction());
   ASSERT_TRUE(
       connection.Execute("CREATE TABLE " REQUEST_QUEUE_TABLE_NAME
                          " (request_id INTEGER PRIMARY KEY NOT NULL,"
@@ -131,7 +128,6 @@ void BuildTestStoreWithSchemaFromM58(const base::FilePath& file,
                          " original_url VARCHAR NOT NULL"
                          ")"));
 
-  ASSERT_TRUE(connection.CommitTransaction());
   sql::Statement statement(connection.GetUniqueStatement(
       "INSERT OR IGNORE INTO " REQUEST_QUEUE_TABLE_NAME
       " (request_id, creation_time, activation_time,"
@@ -164,7 +160,6 @@ void BuildTestStoreWithSchemaFromM61(const base::FilePath& file,
   ASSERT_TRUE(
       connection.Open(file.Append(FILE_PATH_LITERAL("RequestQueue.db"))));
   ASSERT_TRUE(connection.is_open());
-  ASSERT_TRUE(connection.BeginTransaction());
   ASSERT_TRUE(
       connection.Execute("CREATE TABLE " REQUEST_QUEUE_TABLE_NAME
                          " (request_id INTEGER PRIMARY KEY NOT NULL,"
@@ -181,7 +176,6 @@ void BuildTestStoreWithSchemaFromM61(const base::FilePath& file,
                          " request_origin VARCHAR NOT NULL DEFAULT ''"
                          ")"));
 
-  ASSERT_TRUE(connection.CommitTransaction());
   sql::Statement statement(connection.GetUniqueStatement(
       "INSERT OR IGNORE INTO " REQUEST_QUEUE_TABLE_NAME
       " (request_id, creation_time, activation_time,"
@@ -215,7 +209,6 @@ void BuildTestStoreWithSchemaFromM72(const base::FilePath& file,
   ASSERT_TRUE(
       connection.Open(file.Append(FILE_PATH_LITERAL("RequestQueue.db"))));
   ASSERT_TRUE(connection.is_open());
-  ASSERT_TRUE(connection.BeginTransaction());
   ASSERT_TRUE(
       connection.Execute("CREATE TABLE " REQUEST_QUEUE_TABLE_NAME
                          " (request_id INTEGER PRIMARY KEY NOT NULL,"
@@ -233,7 +226,6 @@ void BuildTestStoreWithSchemaFromM72(const base::FilePath& file,
                          " fail_state INTEGER NOT NULL DEFAULT 0"
                          ")"));
 
-  ASSERT_TRUE(connection.CommitTransaction());
   sql::Statement statement(connection.GetUniqueStatement(
       "INSERT OR IGNORE INTO " REQUEST_QUEUE_TABLE_NAME
       " (request_id, creation_time, activation_time,"
@@ -309,14 +301,15 @@ class RequestQueueStoreTestBase : public testing::Test {
   std::vector<std::unique_ptr<SavePageRequest>> last_requests_;
 
   scoped_refptr<base::TestMockTimeTaskRunner> task_runner_;
-  base::ThreadTaskRunnerHandle task_runner_handle_;
+  base::SingleThreadTaskRunner::CurrentDefaultHandle
+      task_runner_current_default_handle_;
 };
 
 RequestQueueStoreTestBase::RequestQueueStoreTestBase()
     : last_result_(LastResult::RESULT_NONE),
       last_update_status_(UpdateStatus::FAILED),
       task_runner_(new base::TestMockTimeTaskRunner),
-      task_runner_handle_(task_runner_) {
+      task_runner_current_default_handle_(task_runner_) {
   EXPECT_TRUE(temp_directory_.CreateUniqueTempDir());
 }
 
@@ -378,7 +371,8 @@ class RequestQueueStoreTest : public RequestQueueStoreTestBase {
  public:
   std::unique_ptr<RequestQueueStore> BuildStore() {
     return std::make_unique<RequestQueueStore>(
-        base::ThreadTaskRunnerHandle::Get(), temp_directory_.GetPath());
+        base::SingleThreadTaskRunner::GetCurrentDefault(),
+        temp_directory_.GetPath());
   }
   std::unique_ptr<RequestQueueStore> BuildStoreWithOldSchema(
       int version,
@@ -401,7 +395,8 @@ class RequestQueueStoreTest : public RequestQueueStoreTestBase {
     }
 
     return std::make_unique<RequestQueueStore>(
-        base::ThreadTaskRunnerHandle::Get(), temp_directory_.GetPath());
+        base::SingleThreadTaskRunner::GetCurrentDefault(),
+        temp_directory_.GetPath());
   }
 
   // Performs checks on the database to verify it works after upgrading.

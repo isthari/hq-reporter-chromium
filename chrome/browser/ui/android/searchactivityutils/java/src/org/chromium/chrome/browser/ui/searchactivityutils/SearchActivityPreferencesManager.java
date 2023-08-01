@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,28 +17,29 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
-import org.chromium.base.Consumer;
 import org.chromium.base.ObserverList;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.chrome.browser.incognito.IncognitoUtils;
 import org.chromium.chrome.browser.lens.LensController;
 import org.chromium.chrome.browser.lens.LensEntryPoint;
 import org.chromium.chrome.browser.lens.LensQueryParams;
 import org.chromium.chrome.browser.omnibox.voice.VoiceRecognitionUtil;
 import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
+import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.search_engines.TemplateUrlServiceFactory;
 import org.chromium.components.search_engines.TemplateUrl;
 import org.chromium.components.search_engines.TemplateUrlService;
 import org.chromium.components.search_engines.TemplateUrlService.LoadListener;
 import org.chromium.components.search_engines.TemplateUrlService.TemplateUrlServiceObserver;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
-import org.chromium.ui.base.AndroidPermissionDelegate;
 import org.chromium.ui.base.DeviceFormFactor;
+import org.chromium.ui.permissions.AndroidPermissionDelegate;
 import org.chromium.url.GURL;
 
 import java.util.Arrays;
+import java.util.function.Consumer;
 
 /**
  * Facilitates access to and updates of the cached SearchActivityPreferences.
@@ -48,7 +49,10 @@ public class SearchActivityPreferencesManager implements LoadListener, TemplateU
     public static final class SearchActivityPreferences {
         /** Name of the Default Search Engine. */
         public final @Nullable String searchEngineName;
-        /** URL of the Default Search Engine. */
+        /**
+         * URL of the Default Search Engine.
+         * TODO(https://crbug.com/1370563): migrate this to GURL.
+         */
         public final @Nullable String searchEngineUrl;
         /** Whether Voice Search functionality is available. */
         public final boolean voiceSearchAvailable;
@@ -179,7 +183,7 @@ public class SearchActivityPreferencesManager implements LoadListener, TemplateU
         self.mCurrentlyLoadedPreferences = prefs;
 
         // Notify all listeners about update.
-        PostTask.postTask(UiThreadTaskTraits.DEFAULT, () -> {
+        PostTask.postTask(TaskTraits.UI_DEFAULT, () -> {
             // Note: it takes about 6.5ms to update a single property on debug-enabled builds.
             if (updateStorage) {
                 SharedPreferencesManager manager = SharedPreferencesManager.getInstance();
@@ -223,7 +227,8 @@ public class SearchActivityPreferencesManager implements LoadListener, TemplateU
     public static void onNativeLibraryReady() {
         assert LibraryLoader.getInstance().isInitialized();
         SearchActivityPreferencesManager self = get();
-        TemplateUrlService service = TemplateUrlServiceFactory.get();
+        TemplateUrlService service =
+                TemplateUrlServiceFactory.getForProfile(Profile.getLastUsedRegularProfile());
         service.registerLoadListener(self);
         service.addObserver(self);
         if (!service.isLoaded()) {
@@ -262,7 +267,8 @@ public class SearchActivityPreferencesManager implements LoadListener, TemplateU
         assert LibraryLoader.getInstance().isInitialized();
         // Getting an instance of the TemplateUrlService requires that the native library be
         // loaded, but the TemplateUrlService also itself needs to be initialized.
-        TemplateUrlService service = TemplateUrlServiceFactory.get();
+        TemplateUrlService service =
+                TemplateUrlServiceFactory.getForProfile(Profile.getLastUsedRegularProfile());
         assert service.isLoaded() : "TemplateUrlServiceFactory is not ready yet.";
 
         // Update the URL that we show for zero-suggest.
@@ -281,7 +287,8 @@ public class SearchActivityPreferencesManager implements LoadListener, TemplateU
 
     @Override
     public void onTemplateUrlServiceLoaded() {
-        TemplateUrlServiceFactory.get().unregisterLoadListener(this);
+        TemplateUrlServiceFactory.getForProfile(Profile.getLastUsedRegularProfile())
+                .unregisterLoadListener(this);
         updateDefaultSearchEngineInfo();
     }
 

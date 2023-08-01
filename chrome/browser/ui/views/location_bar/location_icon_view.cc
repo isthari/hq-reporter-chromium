@@ -1,40 +1,47 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/location_bar/location_icon_view.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/extension_ui_util.h"
-#include "chrome/browser/feature_engagement/tracker_factory.h"
-#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_element_identifiers.h"
+#include "chrome/browser/ui/color/chrome_color_id.h"
 #include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/page_info/page_info_dialog.h"
 #include "chrome/browser/ui/view_ids.h"
+#include "chrome/browser/ui/views/location_bar/icon_label_bubble_view.h"
+#include "chrome/browser/ui/views/location_bar/location_bar_util.h"
 #include "chrome/browser/ui/views/page_info/page_info_bubble_view.h"
-#include "chrome/browser/ui/views/user_education/browser_feature_promo_controller.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/dom_distiller/core/url_constants.h"
-#include "components/feature_engagement/public/event_constants.h"
-#include "components/feature_engagement/public/feature_constants.h"
 #include "components/omnibox/browser/omnibox_edit_model.h"
 #include "components/omnibox/browser/omnibox_field_trial.h"
-#include "components/omnibox/common/omnibox_features.h"
 #include "components/security_state/core/security_state.h"
 #include "components/strings/grit/components_strings.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/url_constants.h"
 #include "extensions/common/constants.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "ui/accessibility/ax_enums.mojom.h"
-#include "ui/accessibility/ax_node_data.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/base/ui_base_features.h"
+#include "ui/color/color_id.h"
+#include "ui/gfx/color_palette.h"
+#include "ui/gfx/geometry/insets.h"
+#include "ui/views/animation/flood_fill_ink_drop_ripple.h"
 #include "ui/views/animation/ink_drop.h"
+#include "ui/views/animation/ink_drop_highlight.h"
+#include "ui/views/animation/ink_drop_host.h"
+#include "ui/views/animation/ink_drop_impl.h"
+#include "ui/views/animation/ink_drop_ripple.h"
 #include "ui/views/controls/label.h"
+#include "ui/views/style/platform_style.h"
 #include "ui/views/view_class_properties.h"
 
 using content::WebContents;
@@ -43,12 +50,8 @@ using security_state::SecurityLevel;
 LocationIconView::LocationIconView(
     const gfx::FontList& font_list,
     IconLabelBubbleView::Delegate* parent_delegate,
-    Delegate* delegate,
-    Profile* profile)
-    : IconLabelBubbleView(font_list, parent_delegate),
-      delegate_(delegate),
-      feature_engagement_tracker_(
-          feature_engagement::TrackerFactory::GetForBrowserContext(profile)) {
+    Delegate* delegate)
+    : IconLabelBubbleView(font_list, parent_delegate), delegate_(delegate) {
   DCHECK(delegate_);
 
   SetID(VIEW_ID_LOCATION_ICON);
@@ -57,6 +60,50 @@ LocationIconView::LocationIconView(
 
   // Readability is guaranteed by the omnibox theme.
   label()->SetAutoColorReadabilityEnabled(false);
+
+  SetAccessibleProperties(/*is_initialization*/ true);
+
+  if (OmniboxFieldTrial::IsChromeRefreshIconsEnabled()) {
+    // TODO(crbug/1399991): Use the ConfigureInkdropForRefresh2023 method once
+    // you do not need to hardcode color values.
+    views::InkDrop::Get(this)->SetMode(views::InkDropHost::InkDropMode::ON);
+    views::InkDrop::Get(this)->SetLayerRegion(views::LayerRegion::kAbove);
+    views::InkDrop::Get(this)->SetCreateRippleCallback(base::BindRepeating(
+        [](views::View* host) -> std::unique_ptr<views::InkDropRipple> {
+          const auto* color_provider = host->GetColorProvider();
+          const SkColor pressed_color =
+              color_provider
+                  ? color_provider->GetColor(kColorPageInfoIconPressed)
+                  : gfx::kPlaceholderColor;
+          const float pressed_alpha = SkColorGetA(pressed_color);
+
+          return std::make_unique<views::FloodFillInkDropRipple>(
+              views::InkDrop::Get(host), host->size(),
+              host->GetLocalBounds().CenterPoint(),
+              SkColorSetA(pressed_color, SK_AlphaOPAQUE),
+              pressed_alpha / SK_AlphaOPAQUE);
+        },
+        this));
+
+    views::InkDrop::Get(this)->SetCreateHighlightCallback(base::BindRepeating(
+        [](views::View* host) {
+          const auto* color_provider = host->GetColorProvider();
+          const SkColor hover_color =
+              color_provider ? color_provider->GetColor(kColorPageInfoIconHover)
+                             : gfx::kPlaceholderColor;
+          const float hover_alpha = SkColorGetA(hover_color);
+
+          auto ink_drop_highlight = std::make_unique<views::InkDropHighlight>(
+              host->size(), host->height() / 2,
+              gfx::PointF(host->GetLocalBounds().CenterPoint()),
+              SkColorSetA(hover_color, SK_AlphaOPAQUE));
+          ink_drop_highlight->set_visible_opacity(hover_alpha / SK_AlphaOPAQUE);
+          return ink_drop_highlight;
+        },
+        this));
+  }
+
+  UpdateBorder();
 }
 
 LocationIconView::~LocationIconView() {}
@@ -79,6 +126,10 @@ SkColor LocationIconView::GetForegroundColor() const {
 }
 
 bool LocationIconView::ShouldShowSeparator() const {
+  return !OmniboxFieldTrial::IsChromeRefreshIconsEnabled() && ShouldShowLabel();
+}
+
+bool LocationIconView::ShouldShowLabelAfterAnimation() const {
   return ShouldShowLabel();
 }
 
@@ -98,31 +149,17 @@ bool LocationIconView::OnMousePressed(const ui::MouseEvent& event) {
   return true;
 }
 
-void LocationIconView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
-  if (delegate_->IsEditingOrEmpty()) {
-    node_data->role = ax::mojom::Role::kImage;
-    node_data->SetName(l10n_util::GetStringUTF8(IDS_ACC_SEARCH_ICON));
-    return;
-  }
-
-  // If no display text exists, ensure that the accessibility label is added.
-  auto accessibility_label = base::UTF16ToUTF8(
-      delegate_->GetLocationBarModel()->GetSecureAccessibilityText());
-  if (label()->GetText().empty() && !accessibility_label.empty()) {
-    node_data->AddStringAttribute(ax::mojom::StringAttribute::kDescription,
-                                  accessibility_label);
-  }
-
-  IconLabelBubbleView::GetAccessibleNodeData(node_data);
-  node_data->role = ax::mojom::Role::kPopUpButton;
-}
-
 void LocationIconView::AddedToWidget() {
   Update(true);
 }
 
 void LocationIconView::OnThemeChanged() {
   IconLabelBubbleView::OnThemeChanged();
+  // Update the background before the icon since the vector icon
+  // depends on the container background color in certain cases.
+  // E.g. different icons corresponding to the SuperGIcon are set
+  // depending on the background color of the container.
+  UpdateBackground();
   UpdateIcon();
 }
 
@@ -220,6 +257,32 @@ void LocationIconView::UpdateTextVisibility(bool suppress_animations) {
     AnimateOut();
 }
 
+void LocationIconView::SetAccessibleProperties(bool is_initialization) {
+  ax::mojom::Role role = delegate_->IsEditingOrEmpty()
+                             ? ax::mojom::Role::kImage
+                             : ax::mojom::Role::kPopUpButton;
+
+  const std::u16string name =
+      delegate_->IsEditingOrEmpty()
+          ? l10n_util::GetStringUTF16(IDS_ACC_SEARCH_ICON)
+          : GetAccessibleName();
+
+  // If no display text exists, ensure that the accessibility label is added.
+  const std::u16string description =
+      delegate_->IsEditingOrEmpty() ? GetAccessibleDescription()
+      : label()->GetText().empty()
+          ? delegate_->GetLocationBarModel()->GetSecureAccessibilityText()
+          : std::u16string();
+
+  if (is_initialization) {
+    SetAccessibilityProperties(role, name, description);
+  } else {
+    SetAccessibleRole(role);
+    SetAccessibleName(name);
+    SetAccessibleDescription(description);
+  }
+}
+
 void LocationIconView::UpdateIcon() {
   // Cancel any previous outstanding icon requests, as they are now outdated.
   icon_fetch_weak_ptr_factory_.InvalidateWeakPtrs();
@@ -231,6 +294,15 @@ void LocationIconView::UpdateIcon() {
     SetImageModel(icon);
 }
 
+void LocationIconView::UpdateBackground() {
+  if (OmniboxFieldTrial::IsChromeRefreshIconsEnabled()) {
+    SetBackground(views::CreateRoundedRectBackground(
+        GetColorProvider()->GetColor(kColorPageInfoBackground), height() / 2));
+  } else {
+    IconLabelBubbleView::UpdateBackground();
+  }
+}
+
 void LocationIconView::OnIconFetched(const gfx::Image& image) {
   DCHECK(!image.IsEmpty());
   SetImageModel(ui::ImageModel::FromImage(image));
@@ -238,8 +310,12 @@ void LocationIconView::OnIconFetched(const gfx::Image& image) {
 
 void LocationIconView::Update(bool suppress_animations) {
   UpdateTextVisibility(suppress_animations);
+  UpdateBorder();
+  // Update the background before the icon, since the vector icon
+  // can depend on the container background.
+  UpdateBackground();
   UpdateIcon();
-
+  SetAccessibleProperties(/*is_initialization*/ false);
   // The label text color may have changed in response to changes in security
   // level.
   UpdateLabelColors();
@@ -264,12 +340,7 @@ void LocationIconView::Update(bool suppress_animations) {
       SetFocusBehavior(FocusBehavior::NEVER);
     } else {
       views::InkDrop::Get(this)->SetMode(views::InkDropHost::InkDropMode::ON);
-
-#if BUILDFLAG(IS_MAC)
-      SetFocusBehavior(FocusBehavior::ACCESSIBLE_ONLY);
-#else
-      SetFocusBehavior(FocusBehavior::ALWAYS);
-#endif
+      SetFocusBehavior(views::PlatformStyle::kDefaultFocusBehavior);
     }
   }
 
@@ -277,21 +348,6 @@ void LocationIconView::Update(bool suppress_animations) {
   if (!is_editing_or_empty) {
     last_update_security_level_ =
         delegate_->GetLocationBarModel()->GetSecurityLevel();
-
-    // Show in-product help for the updated connection security icon.
-    if (last_update_security_level_ == security_state::SECURE &&
-        delegate_->GetLocationBarModel()
-            ->ShouldUseUpdatedConnectionSecurityIndicators()) {
-      feature_engagement_tracker_->NotifyEvent(
-          feature_engagement::events::
-              kUpdatedConnectionSecurityIndicatorDisplayed);
-      BrowserFeaturePromoController* controller =
-          BrowserFeaturePromoController::GetForView(this);
-      if (controller) {
-        controller->MaybeShowPromo(
-            feature_engagement::kIPHUpdatedConnectionSecurityIndicatorsFeature);
-      }
-    }
   }
 
   was_editing_or_empty_ = is_editing_or_empty;
@@ -309,6 +365,24 @@ bool LocationIconView::IsTriggerableEvent(const ui::Event& event) {
   }
 
   return IconLabelBubbleView::IsTriggerableEvent(event);
+}
+
+void LocationIconView::UpdateBorder() {
+  // Bubbles are given the full internal height of the location bar so that all
+  // child views in the location bar have the same height. The visible height of
+  // the bubble should be smaller, so use an empty border to shrink down the
+  // content bounds so the background gets painted correctly.
+  if (OmniboxFieldTrial::IsChromeRefreshIconsEnabled()) {
+    gfx::Insets insets = GetLayoutInsets(LOCATION_BAR_PAGE_INFO_ICON_PADDING);
+    if (ShouldShowLabel()) {
+      // An extra space between chip's label and right edge.
+      const int kExtraRightPadding = 4;
+      insets.set_right(insets.right() + kExtraRightPadding);
+    }
+    SetBorder(views::CreateEmptyBorder(insets));
+  } else {
+    IconLabelBubbleView::UpdateBorder();
+  }
 }
 
 gfx::Size LocationIconView::GetMinimumSizeForPreferredSize(

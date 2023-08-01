@@ -1,4 +1,5 @@
-<style include="settings-shared md-select iron-flex iron-flex-alignment">
+<style include="cr-shared-style settings-shared md-select iron-flex
+  iron-flex-alignment">
   .indented {
     align-self: stretch;
     margin-inline-start: var(--cr-section-indent-padding);
@@ -75,7 +76,7 @@
       <div class="secondary self-start">
         <cr-checkbox id="displayMirrorCheckbox"
             checked="[[isMirrored_(displays)]]"
-            on-click="onMirroredTap_"
+            on-click="onMirroredClick_"
             aria-label="[[getDisplayMirrorText_(displays)]]"
             deep-link-focus-id$="[[Setting.kDisplayMirroring]]">
           <div class="text-area">[[getDisplayMirrorText_(displays)]]</div>
@@ -107,7 +108,7 @@
         </div>
       </div>
       <cr-toggle checked="[[unifiedDesktopMode_]]"
-          on-click="onUnifiedDesktopTap_"
+          on-click="onUnifiedDesktopClick_"
           aria-labelledby="displayUnifiedDesktopCheckboxLabel"
           deep-link-focus-id$="[[Setting.kAllowWindowsToSpanDisplays]]">
       </cr-toggle>
@@ -120,7 +121,9 @@
       <div id="displayScreenTitle" class="start" aria-hidden="true">
         $i18n{displayScreenTitle}
       </div>
-      <select class="md-select" on-change="updatePrimaryDisplay_"
+      <select id="primaryDisplaySelect"
+          class="md-select"
+          on-change="updatePrimaryDisplay_"
           aria-labelledby="displayScreenTitle"
           value="[[getDisplaySelectMenuIndex_(
               selectedDisplay, primaryDisplayId)]]">
@@ -206,7 +209,7 @@
         </div>
       </div>
       <template is="dom-if" if="[[isDisplayResolutionManagedByPolicy_(
-          prefs.cros.devicte_display_resolution)]]">
+          prefs.cros.device_display_resolution)]]">
         <cr-policy-pref-indicator
             pref="[[prefs.cros.device_display_resolution]]"
             icon-aria-label="$i18n{displayResolutionText}">
@@ -238,7 +241,8 @@
             icon-aria-label="$i18n{displayOrientation}">
         </cr-policy-pref-indicator>
       </template>
-      <select class="md-select"
+      <select id="orientationSelect"
+          class="md-select"
           value="[[selectedDisplay.rotation]]"
           aria-labelledby="displayOrientation"
           on-change="onOrientationChange_"
@@ -268,7 +272,7 @@
 
   <cr-link-row class="indented hr" id="overscan"
       label="$i18n{displayOverscanPageTitle}"
-      sub-label="$i18n{displayOverscanPageText}" on-click="onOverscanTap_"
+      sub-label="$i18n{displayOverscanPageText}" on-click="onOverscanClick_"
       hidden$="[[!showOverscanSetting_(selectedDisplay)]]" embedded
       deep-link-focus-id$="[[Setting.kDisplayOverscan]]">
   </cr-link-row>
@@ -282,7 +286,7 @@
   <cr-link-row class="indented hr" id="touchCalibration"
       label="$i18n{displayTouchCalibrationTitle}"
       sub-label="$i18n{displayTouchCalibrationText}"
-      on-click="onTouchCalibrationTap_"
+      on-click="onTouchCalibrationClick_"
       hidden$="[[!showTouchCalibrationSetting_(selectedDisplay)]]" embedded
       deep-link-focus-id$="[[Setting.kTouchscreenCalibration]]">
   </cr-link-row>
@@ -328,6 +332,7 @@
     </div>
     <settings-dropdown-menu
         id="nightLightScheduleTypeDropDown"
+        class="cr-row-gap"
         label="$i18n{displayNightLightScheduleLabel}"
         aria-describedby="nightLightScheduleSubLabel"
         pref="{{prefs.ash.night_light.schedule_type}}"

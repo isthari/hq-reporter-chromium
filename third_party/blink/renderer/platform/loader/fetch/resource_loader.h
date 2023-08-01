@@ -34,12 +34,10 @@
 #include "base/feature_list.h"
 #include "base/gtest_prod_util.h"
 #include "base/task/single_thread_task_runner.h"
+#include "base/time/time.h"
 #include "mojo/public/cpp/base/big_buffer.h"
-#include "mojo/public/cpp/bindings/associated_receiver.h"
 #include "services/network/public/mojom/fetch_api.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/blob/blob_registry.mojom-blink.h"
-#include "third_party/blink/public/platform/web_url_loader.h"
-#include "third_party/blink/public/platform/web_url_loader_client.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/prefinalizer.h"
 #include "third_party/blink/renderer/platform/loader/fetch/data_pipe_bytes_consumer.h"
@@ -49,9 +47,17 @@
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loader_options.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
 #include "third_party/blink/renderer/platform/loader/fetch/response_body_loader_client.h"
+#include "third_party/blink/renderer/platform/loader/fetch/url_loader/url_loader.h"
+#include "third_party/blink/renderer/platform/loader/fetch/url_loader/url_loader_client.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_associated_receiver.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/scheduler/public/frame_or_worker_scheduler.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
+#include "third_party/blink/renderer/platform/wtf/gc_plugin.h"
+
+namespace base {
+class UnguessableToken;
+}
 
 namespace blink {
 
@@ -73,13 +79,13 @@ struct CnameAliasMetricInfo {
 
 // A ResourceLoader is created for each Resource by the ResourceFetcher when it
 // needs to load the specified resource. A ResourceLoader creates a
-// WebURLLoader and loads the resource using it. Any per-load logic should be
+// URLLoader and loads the resource using it. Any per-load logic should be
 // implemented in this class basically.
 class PLATFORM_EXPORT ResourceLoader final
     : public GarbageCollected<ResourceLoader>,
       public ResourceLoadSchedulerClient,
-      protected WebURLLoaderClient,
-      protected mojom::blink::ProgressClient,
+      protected URLLoaderClient,
+      public mojom::blink::ProgressClient,
       private ResponseBodyLoaderClient {
   USING_PRE_FINALIZER(ResourceLoader, Dispose);
 
@@ -88,6 +94,7 @@ class PLATFORM_EXPORT ResourceLoader final
   ResourceLoader(ResourceFetcher*,
                  ResourceLoadScheduler*,
                  Resource*,
+                 ContextLifecycleNotifier*,
                  ResourceRequestBody request_body = ResourceRequestBody(),
                  uint32_t inflight_keepalive_bytes = 0);
   ~ResourceLoader() override;
@@ -115,7 +122,7 @@ class PLATFORM_EXPORT ResourceLoader final
 
   void AbortResponseBodyLoading();
 
-  // WebURLLoaderClient
+  // URLLoaderClient
   //
   // A succesful load will consist of:
   // 0+  WillFollowRedirect()
@@ -140,22 +147,25 @@ class PLATFORM_EXPORT ResourceLoader final
                    uint64_t total_bytes_to_be_sent) override;
   void DidReceiveResponse(const WebURLResponse&) override;
   void DidReceiveCachedMetadata(mojo_base::BigBuffer data) override;
-  void DidReceiveData(const char*, int) override;
+  void DidReceiveData(const char*, size_t) override;
   void DidReceiveTransferSizeUpdate(int transfer_size_diff) override;
   void DidStartLoadingResponseBody(
       mojo::ScopedDataPipeConsumerHandle body) override;
   void DidFinishLoading(base::TimeTicks response_end_time,
                         int64_t encoded_data_length,
-                        int64_t encoded_body_length,
+                        uint64_t encoded_body_length,
                         int64_t decoded_body_length,
-                        bool should_report_corb_blocking) override;
+                        bool should_report_corb_blocking,
+                        absl::optional<bool> pervasive_payload_requested =
+                            absl::nullopt) override;
   void DidFail(const WebURLError&,
                base::TimeTicks response_end_time,
                int64_t encoded_data_length,
-               int64_t encoded_body_length,
+               uint64_t encoded_body_length,
                int64_t decoded_body_length) override;
+  void CountFeature(blink::mojom::WebFeature) override;
 
-  blink::mojom::CodeCacheType GetCodeCacheType() const;
+  mojom::blink::CodeCacheType GetCodeCacheType() const;
   void SendCachedCodeToResource(mojo_base::BigBuffer data);
 
   void HandleError(const ResourceError&);
@@ -163,6 +173,9 @@ class PLATFORM_EXPORT ResourceLoader final
   void DidFinishLoadingFirstPartInMultipart();
 
   scoped_refptr<base::SingleThreadTaskRunner> GetLoadingTaskRunner();
+
+  void CancelIfWebBundleTokenMatches(
+      const base::UnguessableToken& web_bundle_token);
 
  private:
   friend class SubresourceIntegrityTest;
@@ -176,6 +189,9 @@ class PLATFORM_EXPORT ResourceLoader final
 
   // ResponseBodyLoaderClient implementation.
   void DidReceiveData(base::span<const char> data) override;
+  void DidReceiveDecodedData(
+      const String& data,
+      std::unique_ptr<ParkableStringImpl::SecureDigest> digest) override;
   void DidFinishLoadingBody() override;
   void DidFailLoadingBody() override;
   void DidCancelLoadingBody() override;
@@ -194,7 +210,7 @@ class PLATFORM_EXPORT ResourceLoader final
   FetchContext& Context() const;
 
   // Returns true during resource load is happening. Methods as
-  // a WebURLLoaderClient should not be invoked if this returns false.
+  // a URLLoaderClient should not be invoked if this returns false.
   bool IsLoading() const;
 
   void CancelForRedirectAccessCheckError(const KURL&,
@@ -230,7 +246,11 @@ class PLATFORM_EXPORT ResourceLoader final
       const ResourceRequest::RedirectInfo redirect_info,
       CnameAliasMetricInfo* out_metric_info);
 
-  std::unique_ptr<WebURLLoader> loader_;
+  // Increments the right UseCounter for the given PNA preflight result, if any.
+  void CountPrivateNetworkAccessPreflightResult(
+      network::mojom::PrivateNetworkAccessPreflightResult result);
+
+  std::unique_ptr<URLLoader> loader_;
   ResourceLoadScheduler::ClientId scheduler_client_id_;
   Member<ResourceFetcher> fetcher_;
   Member<ResourceLoadScheduler> scheduler_;
@@ -251,8 +271,9 @@ class PLATFORM_EXPORT ResourceLoader final
 
   bool should_use_isolated_code_cache_ = false;
   bool is_downloading_to_blob_ = false;
-  mojo::AssociatedReceiver<mojom::blink::ProgressClient> progress_receiver_{
-      this};
+  blink::HeapMojoAssociatedReceiver<mojom::blink::ProgressClient,
+                                    blink::ResourceLoader>
+      progress_receiver_;
   bool blob_finished_ = false;
   bool blob_response_started_ = false;
   bool has_seen_end_of_body_ = false;
@@ -263,6 +284,7 @@ class PLATFORM_EXPORT ResourceLoader final
   struct DeferredFinishLoadingInfo {
     base::TimeTicks response_end_time;
     bool should_report_corb_blocking;
+    absl::optional<bool> pervasive_payload_requested;
   };
   absl::optional<DeferredFinishLoadingInfo> deferred_finish_loading_info_;
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_for_body_loader_;
@@ -278,6 +300,10 @@ class PLATFORM_EXPORT ResourceLoader final
       feature_handle_for_scheduler_;
 
   base::TimeTicks response_end_time_for_error_cases_;
+
+  base::TimeTicks request_start_time_;
+  base::TimeTicks code_cache_arrival_time_;
+  int64_t received_body_length_from_service_worker_ = 0;
 };
 
 }  // namespace blink

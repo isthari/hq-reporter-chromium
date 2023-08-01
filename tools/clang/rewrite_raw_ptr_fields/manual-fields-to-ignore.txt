@@ -23,6 +23,12 @@ cast_channel::CastTransportTest::logger_
 content::IndexedDBDispatcherHost::indexed_db_context_
 ServiceProcessState::state_
 
+# Populated manually - used with gmock Field() that expects a raw pointer.
+base::Frame::module
+
+# Populated manually - requires a rewrite in a generated file
+gpu::MockTransferBuffer::ExpectedMemoryInfo::ptr
+
 # Populated manually - conflicting types in an initializer list
 WebUITabStripContainerView::tab_counter_
 DownloadItemView::review_button_
@@ -63,6 +69,11 @@ viz::DirectRenderer::DrawingFrame::current_render_pass
 TabGroupViews::header_
 TabGroupViews::underline_
 TabGroupViews::highlight_
+views::LayoutManager::view_setting_visibility_on_
+FullscreenController::deactivated_contents_
+content::RenderWidgetHostInputEventRouter::touch_target_
+content::RenderWidgetHostInputEventRouter::touchpad_gesture_target_
+base::MessagePumpLibevent::run_state_
 
 # Populated manually - incompatibilities with tracing in not-rewritten platform specific code
 TabStripModelChange::RemovedTab::contents
@@ -98,7 +109,7 @@ x11::Connection::display_
 # Populated manually - static_cast not related by inheritance.
 gtk::GtkKeyBindingsHandler::fake_window_
 gtk::GtkKeyBindingsHandler::handler_
-gtk::SelectFileDialogImplGTK::preview_
+gtk::SelectFileDialogLinuxGtk::preview_
 remoting::(anonymous namespace)::DisconnectWindowGtk::disconnect_window_
 remoting::(anonymous namespace)::DisconnectWindowGtk::message_
 remoting::(anonymous namespace)::GtkFileChooserOnUiThread::file_dialog_
@@ -158,6 +169,11 @@ courgette::LabelManagerTest_SimpleIndexAssigner_Test::TestBody()::TestCase::expe
 # as a pointer to PA memory
 sandbox::TargetProcess::base_address_ # https://crbug.com/1173374
 
+# Populated manually - pointers that kernel sees as raw pointers
+# https://crbug.com/1395075
+base::(anonymous namespace)::kernel_sigaction::k_sa_handler
+base::(anonymous namespace)::kernel_sigaction::k_sa_restorer
+
 # Populated manually - uninitialized memory reinterpret_cast to raw_ptr<T>
 # causing AddRef/Deref mismatch.
 sandbox::(anonymous namespace)::_HEAP_32::Heap
@@ -188,11 +204,13 @@ device::AttestedCredentialData::ConsumeFromCtapResponse(base::span<const uint8_t
 device::AttestedCredentialData::ConsumeFromCtapResponse(base::span<const uint8_t>)::COSEKey::kty
 device::cablev2::authenticator::(anonymous namespace)::MakeCredRequest::client_data_hash
 device::cablev2::authenticator::(anonymous namespace)::MakeCredRequest::rp_id
+device::cablev2::authenticator::(anonymous namespace)::MakeCredRequest::rp_name
 device::cablev2::authenticator::(anonymous namespace)::MakeCredRequest::user_id
+device::cablev2::authenticator::(anonymous namespace)::MakeCredRequest::user_name
+device::cablev2::authenticator::(anonymous namespace)::MakeCredRequest::user_display_name
 device::cablev2::authenticator::(anonymous namespace)::MakeCredRequest::cred_params
 device::cablev2::authenticator::(anonymous namespace)::MakeCredRequest::excluded_credentials
-device::cablev2::authenticator::(anonymous namespace)::MakeCredRequest::origin
-device::cablev2::authenticator::(anonymous namespace)::MakeCredRequest::challenge
+device::cablev2::authenticator::(anonymous namespace)::MakeCredRequest::resident_key
 device::cablev2::authenticator::(anonymous namespace)::AttestationObject::fmt
 device::cablev2::authenticator::(anonymous namespace)::AttestationObject::auth_data
 device::cablev2::authenticator::(anonymous namespace)::AttestationObject::statement
@@ -211,10 +229,53 @@ device::P256PublicKey::ExtractFromCOSEKey(int32_t, base::span<const uint8_t>, co
 device::RSAPublicKey::ExtractFromCOSEKey(int32_t, base::span<const uint8_t>, const cbor::Value::MapValue &)::COSEKey::kty
 device::RSAPublicKey::ExtractFromCOSEKey(int32_t, base::span<const uint8_t>, const cbor::Value::MapValue &)::COSEKey::n
 device::RSAPublicKey::ExtractFromCOSEKey(int32_t, base::span<const uint8_t>, const cbor::Value::MapValue &)::COSEKey::e
+device::(anonymous namespace)::MakeCredRequest::client_data_hash
+device::(anonymous namespace)::MakeCredRequest::rp_id
+device::(anonymous namespace)::MakeCredRequest::user_id
+device::(anonymous namespace)::MakeCredRequest::cred_params
+device::(anonymous namespace)::MakeCredRequest::excluded_credentials
+device::(anonymous namespace)::MakeCredRequest::resident_key
+device::(anonymous namespace)::MakeCredRequest::user_verification
+device::(anonymous namespace)::MakeCredRequest::large_test
+device::(anonymous namespace)::MakeCredRequest::negative_test
+device::(anonymous namespace)::MakeCredRequest::skipped_1
+device::(anonymous namespace)::MakeCredRequest::skipped_2
+device::(anonymous namespace)::CBORExtract_MissingRequired_Test::TestBody()::Dummy::value
+device::(anonymous namespace)::CBORExtract_WrongType_Test::TestBody()::Dummy::value
+device::(anonymous namespace)::CBORExtract_RequiredInOptionalMap_Test::TestBody()::Dummy::value
 
 # Populated manually - pointer to Objective-C object
 gfx::ScopedNSGraphicsContextSaveGState::context_
 base::mac::ScopedNSAutoreleasePool::autorelease_pool_
+content::ThemeHelperMac::theme_observer_
+content::PopupMenuHelper::menu_runner_
+content::ShellJavaScriptDialog::helper_
+ui::ClipboardFormatType::data_
+content::NativeEventProcessorObserver::event_
+image_editor::EventCaptureMac::web_contents_view_
+image_editor::EventCaptureMac::window_
+content::ScopedNotifyNativeEventProcessorObserver::event_
+device::fido::mac::TouchIdCredentialStore::authentication_context_
+
+# Populated manually - struct is part of separate binary and must be a POD
+# https://source.chromium.org/chromium/chromium/src/+/main:chrome/common/mac/app_mode_common.mm;l=64
+app_mode::ChromeAppModeInfo::argv
+
+# Populated manually - requires @property rewrite
+# In Objective-C the instance variable type and property type must be the same.
+# Currently, the rewriter can only rewrite the instance variable declaration.
+# So the types do not match, and causes a compiler error.
+# These fields can be rewritten once the rewriter can rewrite @property declarations.
+ObjCPropertyTestBase::_basePointer
+ObjCPropertyTestDerived::_derivedPointer
+ObjCPropertyTestDerived::_protoPointer
+NativeWidgetMacNSWindow::_bridge
+AlertBridgeHelper::_alertBridge
+BridgedContentView::_bridge
+WindowControlsOverlayNSView::_bridge
+AXPlatformNodeCocoa::_node
+ShellNativeAppWindowController::_appWindow
+WatchedLifetimeMenuController::_deallocCalled
 
 #######
 # BackupRefPtr-specific sections
@@ -251,6 +312,7 @@ gpu::gles2::PassthroughProgramCache::ProgramCacheValue::program_cache_
 # Populated manually - to avoid out-of-line destructor
 base::LockFreeAddressHashSet::Node::next
 gpu::gles2::TextureManager::DoTexSubImageArguments::pixels
+gpu::gles2::TextureManager::DoTexImageArguments::pixels
 
 # Populated manually - on-stack pointer + a large number of non-PA pointees
 base::AutoReset::scoped_variable_
@@ -288,6 +350,11 @@ cc::(anonymous namespace)::BitmapRasterBufferImpl::pixels_
 disk_cache::MappedFile::buffer_
 network::MojoToNetPendingBuffer::buffer_
 network::NetToMojoPendingBuffer::buffer_
+
+# Populated manually - Field initialized with non-nullptr value in constexpr.
+enterprise_connectors::ServiceProvider::analysis
+enterprise_connectors::ServiceProvider::reporting
+enterprise_connectors::ServiceProvider::file_system
 
 # Populated manually - based on sampling profiler data and tab_search:top100:2020 profiler data
 (anonymous namespace)::TlsVectorEntry::data
@@ -361,6 +428,8 @@ mojo::internal::MayAutoLock::lock_
 mojo::internal::MayAutoUnlock::lock_
 mojo::internal::MultiplexRouter::header_validator_
 url::CanonOutputT::buffer_
+prefs::ScopedDictionaryPrefUpdate::service_
+prefs::DictionaryValueUpdate::value_
 
 # Populated manually - type is unsupported by raw_ptr to avoid being used in
 # performance sensitive base::Unretained

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,28 +6,36 @@
 
 #include <vector>
 
-#include "ash/components/cryptohome/cryptohome_parameters.h"
-#include "ash/components/cryptohome/cryptohome_util.h"
-#include "ash/components/cryptohome/system_salt_getter.h"
-#include "ash/components/login/auth/cryptohome_key_constants.h"
-#include "ash/components/login/auth/user_context.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/run_loop.h"
+#include "chrome/browser/ash/login/quick_unlock/fake_pin_salt_storage.h"
 #include "chrome/browser/ash/login/quick_unlock/pin_backend.h"
 #include "chrome/browser/ash/login/quick_unlock/quick_unlock_utils.h"
-#include "chromeos/dbus/cryptohome/rpc.pb.h"
-#include "chromeos/dbus/userdataauth/fake_cryptohome_misc_client.h"
-#include "chromeos/dbus/userdataauth/fake_userdataauth_client.h"
+#include "chromeos/ash/components/cryptohome/common_types.h"
+#include "chromeos/ash/components/cryptohome/cryptohome_parameters.h"
+#include "chromeos/ash/components/cryptohome/cryptohome_util.h"
+#include "chromeos/ash/components/cryptohome/system_salt_getter.h"
+#include "chromeos/ash/components/dbus/cryptohome/rpc.pb.h"
+#include "chromeos/ash/components/dbus/userdataauth/fake_cryptohome_misc_client.h"
+#include "chromeos/ash/components/dbus/userdataauth/fake_userdataauth_client.h"
+#include "chromeos/ash/components/login/auth/public/cryptohome_key_constants.h"
+#include "chromeos/ash/components/login/auth/public/user_context.h"
 #include "components/account_id/account_id.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-namespace ash {
-namespace quick_unlock {
+namespace ash::quick_unlock {
+
 namespace {
 
+using ::cryptohome::KeyLabel;
+
 constexpr char kDummyPin[] = "123456";
+
+struct Param {
+  const bool use_auth_factors_feature;
+};
 
 class PinStorageCryptohomeUnitTest : public testing::Test {
  protected:
@@ -36,27 +44,44 @@ class PinStorageCryptohomeUnitTest : public testing::Test {
 
   // testing::Test:
   void SetUp() override {
-    EnabledForTesting(true);
+    user_context_ = std::make_unique<UserContext>(
+        user_manager::USER_TYPE_REGULAR, test_account_id_);
+
+    test_api_ = std::make_unique<TestApi>(/*override_quick_unlock=*/true);
+    test_api_->EnablePinByPolicy(Purpose::kAny);
     SystemSaltGetter::Initialize();
     CryptohomeMiscClient::InitializeFake();
     UserDataAuthClient::InitializeFake();
-    FakeUserDataAuthClient::Get()->set_supports_low_entropy_credentials(true);
+    FakeUserDataAuthClient::TestApi::Get()
+        ->set_supports_low_entropy_credentials(true);
+    FakeUserDataAuthClient::TestApi::Get()->set_enable_auth_check(true);
+
+    const auto cryptohome_user_id =
+        cryptohome::CreateAccountIdentifierFromAccountId(test_account_id_);
+    FakeUserDataAuthClient::TestApi::Get()->AddExistingUser(cryptohome_user_id);
+
+    std::string session = FakeUserDataAuthClient::TestApi::Get()->AddSession(
+        cryptohome_user_id, true /*authenticated*/);
+    user_context_->SetIsUsingPin(true);
+    user_context_->SetAuthSessionId(std::move(session));
+    user_context_->SetAuthFactorsConfiguration(AuthFactorsConfiguration());
+
     storage_ = std::make_unique<PinStorageCryptohome>();
+    storage_->SetPinSaltStorageForTesting(
+        std::make_unique<FakePinSaltStorage>());
   }
 
   void TearDown() override {
     UserDataAuthClient::Shutdown();
     CryptohomeMiscClient::Shutdown();
     SystemSaltGetter::Shutdown();
-    EnabledForTesting(false);
-    IsFingerprintEnabled(nullptr);
   }
 
-  bool IsPinSet() const {
+  bool IsPinSet() {
     bool res;
     base::RunLoop loop;
     storage_->IsPinSetInCryptohome(
-        test_account_id_,
+        std::make_unique<UserContext>(*user_context_),
         base::BindOnce(
             [](base::OnceClosure closure, bool* res, bool is_set) {
               *res = is_set;
@@ -67,11 +92,11 @@ class PinStorageCryptohomeUnitTest : public testing::Test {
     return res;
   }
 
-  bool CanAuthenticate() const {
+  bool CanAuthenticate() {
     bool res;
     base::RunLoop loop;
     storage_->CanAuthenticate(
-        test_account_id_,
+        std::make_unique<UserContext>(*user_context_), Purpose::kAny,
         base::BindOnce(
             [](base::OnceClosure closure, bool* res, bool can_auth) {
               *res = can_auth;
@@ -82,92 +107,114 @@ class PinStorageCryptohomeUnitTest : public testing::Test {
     return res;
   }
 
-  bool SetPin(const std::string& pin) const {
+  bool TryAuthenticate(const std::string& pin, Purpose purpose) {
+    auto user_context = std::make_unique<UserContext>(*user_context_);
+    user_context->ResetAuthSessionId();
+    bool res;
+    base::RunLoop loop;
+    storage_->TryAuthenticate(
+        std::move(user_context), Key(pin), purpose,
+        base::BindOnce(
+            [](PinStorageCryptohomeUnitTest* self, bool* res,
+               base::OnceClosure closure,
+               std::unique_ptr<UserContext> user_context,
+               absl::optional<AuthenticationError> error) {
+              *res = !error.has_value();
+              std::move(closure).Run();
+            },
+            base::Unretained(this), &res, loop.QuitClosure()));
+    loop.Run();
+    return res;
+  }
+
+  bool SetPin(const std::string& pin) {
     UserContext user_context;
     user_context.SetAccountId(test_account_id_);
     user_context.SetKey(Key(pin));
 
     bool res;
     base::RunLoop loop;
-    storage_->SetPin(
-        user_context, pin, absl::nullopt,
-        base::BindOnce(
-            [](base::OnceClosure closure, bool* res, bool did_set) {
-              *res = did_set;
-              std::move(closure).Run();
-            },
-            loop.QuitClosure(), &res));
+    storage_->SetPin(std::move(user_context_), pin, absl::nullopt,
+                     base::BindOnce(
+                         [](PinStorageCryptohomeUnitTest* self, bool* res,
+                            base::OnceClosure closure,
+                            std::unique_ptr<UserContext> user_context,
+                            absl::optional<AuthenticationError> error) {
+                           self->user_context_ = std::move(user_context);
+                           *res = !error.has_value();
+                           std::move(closure).Run();
+                         },
+                         base::Unretained(this), &res, loop.QuitClosure()));
 
     loop.Run();
     return res;
   }
 
   void SetPassword(const std::string& password) const {
-    ::user_data_auth::AddKeyRequest request;
-
-    const cryptohome::KeyDefinition key_def =
-        cryptohome::KeyDefinition::CreateForPassword(
-            password, kCryptohomeGaiaKeyLabel, cryptohome::PRIV_MIGRATE);
-    cryptohome::KeyDefinitionToKey(key_def, request.mutable_key());
-    *request.mutable_account_id() =
-        cryptohome::CreateAccountIdentifierFromAccountId(test_account_id_);
-    // Ensure that has_authorization_request() would return true.
-    request.mutable_authorization_request();
+    ::user_data_auth::AddAuthFactorRequest request;
+    request.set_auth_session_id(user_context_->GetAuthSessionId());
+    request.mutable_auth_factor()->set_type(
+        ::user_data_auth::AUTH_FACTOR_TYPE_PASSWORD);
+    request.mutable_auth_factor()->set_label(kCryptohomeGaiaKeyLabel);
+    request.mutable_auth_factor()->mutable_password_metadata();
+    request.mutable_auth_input()->mutable_password_input()->set_secret(
+        password);
     base::RunLoop run_loop;
-    chromeos::UserDataAuthClient::Get()->AddKey(
-        request, base::BindOnce(
-                     [](base::OnceClosure closure,
-                        absl::optional<::user_data_auth::AddKeyReply> reply) {
-                       std::move(closure).Run();
-                     },
-                     run_loop.QuitClosure()));
+    UserDataAuthClient::Get()->AddAuthFactor(
+        request,
+        base::BindOnce(
+            [](base::OnceClosure closure,
+               absl::optional<::user_data_auth::AddAuthFactorReply> reply) {
+              std::move(closure).Run();
+            },
+            run_loop.QuitClosure()));
     run_loop.Run();
   }
 
   // Setup a pin which has policy `auth_locked` true. That means the pin can't
   // be used for authentication because of the TPM protection.
   void SetAuthLockedPin(const std::string& pin) const {
-    ::user_data_auth::AddKeyRequest request;
-
-    const cryptohome::KeyDefinition key_def =
-        cryptohome::KeyDefinition::CreateForPassword(pin, kCryptohomePinLabel,
-                                                     cryptohome::PRIV_MIGRATE);
-    cryptohome::KeyDefinitionToKey(key_def, request.mutable_key());
-    request.mutable_key()
-        ->mutable_data()
-        ->mutable_policy()
-        ->set_low_entropy_credential(true);
-    request.mutable_key()->mutable_data()->mutable_policy()->set_auth_locked(
-        true);
-    *request.mutable_account_id() =
-        cryptohome::CreateAccountIdentifierFromAccountId(test_account_id_);
-    // Ensure that has_authorization_request() would return true.
-    request.mutable_authorization_request();
+    ::user_data_auth::AddAuthFactorRequest request;
+    request.set_auth_session_id(user_context_->GetAuthSessionId());
+    request.mutable_auth_factor()->set_type(
+        ::user_data_auth::AUTH_FACTOR_TYPE_PIN);
+    request.mutable_auth_factor()->set_label(kCryptohomePinLabel);
+    request.mutable_auth_factor()->mutable_pin_metadata();
+    request.mutable_auth_input()->mutable_pin_input()->set_secret(pin);
     base::RunLoop run_loop;
-    chromeos::UserDataAuthClient::Get()->AddKey(
-        request, base::BindOnce(
-                     [](base::OnceClosure closure,
-                        absl::optional<::user_data_auth::AddKeyReply> reply) {
-                       std::move(closure).Run();
-                     },
-                     run_loop.QuitClosure()));
+    UserDataAuthClient::Get()->AddAuthFactor(
+        request,
+        base::BindOnce(
+            [](base::OnceClosure closure,
+               absl::optional<::user_data_auth::AddAuthFactorReply> reply) {
+              std::move(closure).Run();
+            },
+            run_loop.QuitClosure()));
     run_loop.Run();
+
+    FakeUserDataAuthClient::TestApi::Get()->SetPinLocked(
+        cryptohome::CreateAccountIdentifierFromAccountId(test_account_id_),
+        kCryptohomePinLabel, true);
   }
 
-  bool RemovePin(const std::string& pin) const {
+  bool RemovePin(const std::string& pin) {
     UserContext user_context;
     user_context.SetAccountId(test_account_id_);
     user_context.SetKey(Key(pin));
 
     bool res;
     base::RunLoop loop;
-    storage_->RemovePin(user_context, base::BindOnce(
-                                          [](base::OnceClosure closure,
-                                             bool* res, bool did_remove) {
-                                            *res = did_remove;
-                                            std::move(closure).Run();
-                                          },
-                                          loop.QuitClosure(), &res));
+    storage_->RemovePin(std::move(user_context_),
+                        base::BindOnce(
+                            [](PinStorageCryptohomeUnitTest* self, bool* res,
+                               base::OnceClosure closure,
+                               std::unique_ptr<UserContext> user_context,
+                               absl::optional<AuthenticationError> error) {
+                              self->user_context_ = std::move(user_context);
+                              *res = !error.has_value();
+                              std::move(closure).Run();
+                            },
+                            base::Unretained(this), &res, loop.QuitClosure()));
 
     loop.Run();
 
@@ -179,6 +226,10 @@ class PinStorageCryptohomeUnitTest : public testing::Test {
   std::unique_ptr<PinStorageCryptohome> storage_;
   AccountId test_account_id_{
       AccountId::FromUserEmailGaiaId("user@example.com", "11111")};
+  std::unique_ptr<UserContext> user_context_ =
+      std::make_unique<UserContext>(user_manager::USER_TYPE_REGULAR,
+                                    test_account_id_);
+  std::unique_ptr<TestApi> test_api_;
 };
 
 }  // namespace
@@ -213,10 +264,12 @@ TEST_F(PinStorageCryptohomeUnitTest, SetRemovePin) {
   ASSERT_TRUE(SetPin(kDummyPin));
   ASSERT_TRUE(IsPinSet());
   ASSERT_TRUE(CanAuthenticate());
+  EXPECT_TRUE(TryAuthenticate(kDummyPin, Purpose::kAny));
 
   ASSERT_TRUE(RemovePin(kDummyPin));
   ASSERT_FALSE(IsPinSet());
   ASSERT_FALSE(CanAuthenticate());
+  EXPECT_FALSE(TryAuthenticate(kDummyPin, Purpose::kAny));
 }
 
 // Verifies case when pin can't be used to authenticate (`auth_locked` == True).
@@ -227,5 +280,28 @@ TEST_F(PinStorageCryptohomeUnitTest, AuthLockedTest) {
   ASSERT_TRUE(IsPinSet());
 }
 
-}  // namespace quick_unlock
-}  // namespace ash
+// Verifies the `unlock_webauthn_secret` parameter is set correctly when
+// TryAuthenticate with different purposes.
+TEST_F(PinStorageCryptohomeUnitTest, UnlockWebAuthnSecret) {
+  ASSERT_TRUE(SetPin(kDummyPin));
+  ASSERT_TRUE(IsPinSet());
+  ASSERT_TRUE(CanAuthenticate());
+
+  // Only calling TryAuthenticate with purpose Purpose::kWebAuthn should set the
+  // `unlock_webauthn_secret` parameter to true.
+
+  ASSERT_TRUE(TryAuthenticate(kDummyPin, Purpose::kAny));
+  EXPECT_FALSE(
+      FakeUserDataAuthClient::Get()->get_last_unlock_webauthn_secret());
+
+  test_api_->EnablePinByPolicy(Purpose::kWebAuthn);
+  ASSERT_TRUE(TryAuthenticate(kDummyPin, Purpose::kWebAuthn));
+  EXPECT_TRUE(FakeUserDataAuthClient::Get()->get_last_unlock_webauthn_secret());
+
+  test_api_->EnablePinByPolicy(Purpose::kUnlock);
+  ASSERT_TRUE(TryAuthenticate(kDummyPin, Purpose::kUnlock));
+  EXPECT_FALSE(
+      FakeUserDataAuthClient::Get()->get_last_unlock_webauthn_secret());
+}
+
+}  // namespace ash::quick_unlock

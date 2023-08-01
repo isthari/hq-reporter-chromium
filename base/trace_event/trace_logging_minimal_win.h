@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -145,10 +145,10 @@ class TlmProvider {
   // Calling Register on an already-registered provider is a fatal error.
   // Not thread safe - caller must ensure serialization between calls to
   // Register() and calls to Unregister().
-  int32_t Register(const char* provider_name,
-                   const GUID& provider_guid,
-                   PENABLECALLBACK enable_callback = nullptr,
-                   void* enable_callback_context = nullptr) noexcept;
+  ULONG Register(const char* provider_name,
+                 const GUID& provider_guid,
+                 PENABLECALLBACK enable_callback = nullptr,
+                 void* enable_callback_context = nullptr) noexcept;
 
   // Returns true if any active trace listeners are interested in any events
   // from this provider.
@@ -173,9 +173,9 @@ class TlmProvider {
   // with the specified level and keyword, packs the data into an event and
   // sends it to ETW. Returns Win32 error code or 0 for success.
   template <class... FieldTys>
-  int32_t WriteEvent(const char* event_name,
-                     const EVENT_DESCRIPTOR& event_descriptor,
-                     const FieldTys&... event_fields) const noexcept {
+  ULONG WriteEvent(const char* event_name,
+                   const EVENT_DESCRIPTOR& event_descriptor,
+                   const FieldTys&... event_fields) const noexcept {
     if (!IsEnabled(event_descriptor)) {
       // If nobody is listening, report success.
       return 0;
@@ -264,11 +264,11 @@ class TlmProvider {
                      const char* field_name) const noexcept;
 
   // Returns Win32 error code, or 0 for success.
-  int32_t EventEnd(char* metadata,
-                   uint16_t metadata_index,
-                   EVENT_DATA_DESCRIPTOR* descriptors,
-                   uint32_t descriptors_index,
-                   const EVENT_DESCRIPTOR& event_descriptor) const noexcept;
+  ULONG EventEnd(char* metadata,
+                 uint16_t metadata_index,
+                 EVENT_DATA_DESCRIPTOR* descriptors,
+                 uint32_t descriptors_index,
+                 const EVENT_DESCRIPTOR& event_descriptor) const noexcept;
 
   bool KeywordEnabled(uint64_t keyword) const noexcept;
 
@@ -278,7 +278,7 @@ class TlmProvider {
                                 const char* name) const noexcept;
 
   uint32_t level_plus1_ = 0;
-  uint32_t provider_metadata_size_ = 0;
+  uint16_t provider_metadata_size_ = 0;
   uint64_t keyword_any_ = 0;
   uint64_t keyword_all_ = 0;
   uint64_t reg_handle_ = 0;
@@ -346,49 +346,43 @@ class TlmUtf8StringField
 // Helper for creating event descriptors for use with WriteEvent.
 constexpr EVENT_DESCRIPTOR TlmEventDescriptor(uint8_t level,
                                               uint64_t keyword) noexcept {
-  return {
-      // Id
-      // TraceLogging generally uses the event's Name instead of Id+Version,
-      // so Id is normally set to 0 for TraceLogging events.
-      0,
+  return {// Id
+          // TraceLogging generally uses the event's Name instead of Id+Version,
+          // so Id is normally set to 0 for TraceLogging events.
+          0,
 
-      // Version
-      // TraceLogging generally uses the event's Name instead of Id+Version,
-      // so Version is normally set to 0 for TraceLogging events.
-      0,
+          // Version
+          // TraceLogging generally uses the event's Name instead of Id+Version,
+          // so Version is normally set to 0 for TraceLogging events.
+          0,
 
-      // Channel (WINEVENT_CHANNEL_*)
-      // Setting Channel = 11 allows TraceLogging events to be decoded
-      // correctly even if they were collected on older operating systems.
-      // If a TraceLogging event sets channel to a value other than 11, the
-      // event will only decode correctly if it was collected on an
-      // operating system that has built-in TraceLogging support, i.e.
-      // Windows 7sp1 + patch, Windows 8.1 + patch, or Windows 10+.
-      11,  // = WINEVENT_CHANNEL_TRACELOGGING
+          // Channel (WINEVENT_CHANNEL_*)
+          // TraceLogging-based events normally use channel 11.
+          11,  // = WINEVENT_CHANNEL_TRACELOGGING
 
-      // Level (WINEVENT_LEVEL_*)
-      // 0=always, 1=fatal, 2=error, 3=warning, 4=info, 5=verbose.
-      // Levels higher than 5 are for user-defined debug levels.
-      level,
+          // Level (WINEVENT_LEVEL_*)
+          // 0=always, 1=fatal, 2=error, 3=warning, 4=info, 5=verbose.
+          // Levels higher than 5 are for user-defined debug levels.
+          level,
 
-      // Opcode (WINEVENT_OPCODE_*)
-      // Set Opcode for special semantics such as starting/ending an
-      // activity.
-      0,  // = WINEVENT_OPCODE_INFO
+          // Opcode (WINEVENT_OPCODE_*)
+          // Set Opcode for special semantics such as starting/ending an
+          // activity.
+          0,  // = WINEVENT_OPCODE_INFO
 
-      // Task
-      // Set Task for user-defined semantics.
-      0,  // = WINEVENT_TASK_NONE
+          // Task
+          // Set Task for user-defined semantics.
+          0,  // = WINEVENT_TASK_NONE
 
-      // Keyword
-      // A keyword is a 64-bit value used for filtering events. Each bit of
-      // the keyword indicates whether the event belongs to a particular
-      // category of events. The top 16 bits of keyword have
-      // Microsoft-defined semantics and should be set to 0. The low 48 bits
-      // of keyword have user-defined semantics. All events should use a
-      // nonzero keyword to support effective event filtering (events with
-      // keyword set to 0 always pass keyword filtering).
-      keyword};
+          // Keyword
+          // A keyword is a 64-bit value used for filtering events. Each bit of
+          // the keyword indicates whether the event belongs to a particular
+          // category of events. The top 16 bits of keyword have
+          // Microsoft-defined semantics and should be set to 0. The low 48 bits
+          // of keyword have user-defined semantics. All events should use a
+          // nonzero keyword to support effective event filtering (events with
+          // keyword set to 0 always pass keyword filtering).
+          keyword};
 }
 
 #endif  // BASE_TRACE_EVENT_TRACE_LOGGING_MINIMAL_WIN_H_

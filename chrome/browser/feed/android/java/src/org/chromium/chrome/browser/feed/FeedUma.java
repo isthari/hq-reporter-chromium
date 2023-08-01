@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,11 +32,13 @@ public class FeedUma {
     static final String[] TOTAL_CARDS_HISTOGRAM_NAMES = {
             "ContentSuggestions.Feed.LoadMoreTrigger.TotalCards",
             "ContentSuggestions.Feed.WebFeed.LoadMoreTrigger.TotalCards",
+            "ContentSuggestions.Feed.SingleWebFeed.LoadMoreTrigger.TotalCards",
     };
 
     static final String[] OFFSET_FROM_END_OF_STREAM_HISTOGRAM_NAMES = {
             "ContentSuggestions.Feed.LoadMoreTrigger.OffsetFromEndOfStream",
             "ContentSuggestions.Feed.WebFeed.LoadMoreTrigger.OffsetFromEndOfStream",
+            "ContentSuggestions.Feed.SingleWebFeed.LoadMoreTrigger.OffsetFromEndOfStream",
     };
 
     /**
@@ -48,11 +50,13 @@ public class FeedUma {
     public static void recordFeedLoadMoreTrigger(
             int sectionType, int totalCards, int numCardsRemaining) {
         // TODO(crbug/1238047): annotate sectionType param with
-        // @org.chromium.chrome.browser.feed.sections.SectionType
+        // @org.chromium.chrome.browser.feed.StreamKind
         assert totalCards >= 0;
         assert numCardsRemaining >= 0;
         assert OFFSET_FROM_END_OF_STREAM_HISTOGRAM_NAMES.length
                 == TOTAL_CARDS_HISTOGRAM_NAMES.length;
+        // Subtract 1 from sectionType to account for Unknown.
+        sectionType -= 1;
         assert sectionType >= 0 || sectionType <= TOTAL_CARDS_HISTOGRAM_NAMES.length;
         RecordHistogram.recordCount1000Histogram(
                 TOTAL_CARDS_HISTOGRAM_NAMES[sectionType], totalCards);

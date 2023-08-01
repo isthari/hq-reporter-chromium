@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,6 +24,7 @@ import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.optimization_guide.OptimizationGuideBridge;
 import org.chromium.chrome.browser.optimization_guide.OptimizationGuideBridgeJni;
+import org.chromium.chrome.browser.price_tracking.PriceTrackingFeatures;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.ChromeBrowserTestRule;
@@ -75,6 +76,7 @@ public class ShoppingPersistedTabDataDeferredStartupTest {
         TestThreadUtils.runOnUiThreadBlocking(
                 () -> { PersistedTabDataConfiguration.setUseTestConfig(true); });
         Profile.setLastUsedProfileForTesting(mProfileMock);
+        PriceTrackingFeatures.setPriceTrackingEnabledForTesting(false);
         doReturn(true).when(mNavigationHandle).isInPrimaryMainFrame();
     }
 
@@ -129,9 +131,10 @@ public class ShoppingPersistedTabDataDeferredStartupTest {
             });
         });
         ShoppingPersistedTabDataTestUtils.acquireSemaphore(semaphore);
+        TestThreadUtils.runOnUiThreadBlocking(
+                () -> { ShoppingPersistedTabData.onDeferredStartup(); });
         final Semaphore newSemaphore = new Semaphore(0);
         TestThreadUtils.runOnUiThreadBlocking(() -> {
-            ShoppingPersistedTabData.onDeferredStartup();
             ShoppingPersistedTabData.from(tab, (shoppingPersistedTabData) -> {
                 Assert.assertNotNull(shoppingPersistedTabData);
                 Assert.assertEquals(ShoppingPersistedTabDataTestUtils.UPDATED_PRICE_MICROS,

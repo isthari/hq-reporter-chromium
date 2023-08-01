@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,18 +16,18 @@
 #include "ash/system/tray/tri_view.h"
 #include "ash/test/ash_test_base.h"
 #include "base/test/scoped_feature_list.h"
-#include "chromeos/services/bluetooth_config/public/mojom/cros_bluetooth_config.mojom.h"
+#include "chromeos/ash/services/bluetooth_config/public/mojom/cros_bluetooth_config.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/separator.h"
 
 namespace ash {
+
 namespace {
 
-using chromeos::bluetooth_config::mojom::BluetoothDeviceProperties;
-using chromeos::bluetooth_config::mojom::DeviceConnectionState;
-using chromeos::bluetooth_config::mojom::PairedBluetoothDeviceProperties;
-using chromeos::bluetooth_config::mojom::PairedBluetoothDevicePropertiesPtr;
+using bluetooth_config::mojom::BluetoothDeviceProperties;
+using bluetooth_config::mojom::PairedBluetoothDeviceProperties;
+using bluetooth_config::mojom::PairedBluetoothDevicePropertiesPtr;
 
 const char kDeviceId1[] = "/device/id/1";
 const char kDeviceId2[] = "/device/id/2";
@@ -35,15 +35,17 @@ const char kDeviceNickname[] = "mau5";
 
 }  // namespace
 
-class BluetoothDeviceListControllerTest : public AshTestBase {
+class BluetoothDeviceListControllerTest
+    : public AshTestBase,
+      public testing::WithParamInterface<bool> {
  public:
   void SetUp() override {
+    scoped_feature_list_.InitWithFeatureState(features::kQsRevamp,
+                                              IsQsRevampEnabled());
     AshTestBase::SetUp();
 
-    feature_list_.InitAndEnableFeature(features::kBluetoothRevamp);
-
     fake_bluetooth_detailed_view_ =
-        std::make_unique<tray::FakeBluetoothDetailedView>(/*delegate=*/nullptr);
+        std::make_unique<FakeBluetoothDetailedView>(/*delegate=*/nullptr);
     bluetooth_device_list_controller_impl_ =
         std::make_unique<BluetoothDeviceListControllerImpl>(
             fake_bluetooth_detailed_view_.get());
@@ -107,29 +109,34 @@ class BluetoothDeviceListControllerTest : public AshTestBase {
       const TriView* connected_sub_header = FindConnectedSubHeader();
       const TriView* previously_connected_sub_header =
           FindPreviouslyConnectedSubHeader();
-      const views::Separator* device_list_separator = FindSeparator();
 
       EXPECT_TRUE(connected_sub_header);
       EXPECT_TRUE(previously_connected_sub_header);
-      EXPECT_TRUE(device_list_separator);
 
-      const unsigned int connected_index =
-          device_list()->GetIndexOf(connected_sub_header);
-      const unsigned int previously_connected_index =
-          device_list()->GetIndexOf(previously_connected_sub_header);
-      const unsigned int separator_index =
-          device_list()->GetIndexOf(device_list_separator);
-
+      const size_t connected_index =
+          device_list()->GetIndexOf(connected_sub_header).value();
       EXPECT_EQ(0u, connected_index);
-      EXPECT_EQ(connected_device_count + 1, separator_index);
-      EXPECT_EQ(separator_index + 1, previously_connected_index);
+
+      // QsRevamp does not use a separator.
+      if (!features::IsQsRevampEnabled()) {
+        const views::Separator* device_list_separator = FindSeparator();
+        EXPECT_TRUE(device_list_separator);
+
+        const size_t previously_connected_index =
+            device_list()->GetIndexOf(previously_connected_sub_header).value();
+        const size_t separator_index =
+            device_list()->GetIndexOf(device_list_separator).value();
+        EXPECT_EQ(connected_device_count + 1, separator_index);
+        EXPECT_EQ(separator_index + 1, previously_connected_index);
+      }
+
       return;
     }
 
     if (connected_device_count) {
       const TriView* connected_sub_header = FindConnectedSubHeader();
       EXPECT_TRUE(connected_sub_header);
-      EXPECT_EQ(0, device_list()->GetIndexOf(connected_sub_header));
+      EXPECT_EQ(0u, device_list()->GetIndexOf(connected_sub_header));
       EXPECT_EQ(connected_device_count + 1, device_list()->children().size());
       return;
     }
@@ -138,7 +145,7 @@ class BluetoothDeviceListControllerTest : public AshTestBase {
       const TriView* previously_connected_sub_header =
           FindPreviouslyConnectedSubHeader();
       EXPECT_TRUE(previously_connected_sub_header);
-      EXPECT_EQ(0, device_list()->GetIndexOf(previously_connected_sub_header));
+      EXPECT_EQ(0u, device_list()->GetIndexOf(previously_connected_sub_header));
       EXPECT_EQ(previously_connected_device_count + 1,
                 device_list()->children().size());
       return;
@@ -147,7 +154,7 @@ class BluetoothDeviceListControllerTest : public AshTestBase {
     const TriView* no_device_connected_sub_header =
         FindNoDeviceConnectedSubHeader();
     EXPECT_TRUE(no_device_connected_sub_header);
-    EXPECT_EQ(0, device_list()->GetIndexOf(no_device_connected_sub_header));
+    EXPECT_EQ(0u, device_list()->GetIndexOf(no_device_connected_sub_header));
     EXPECT_EQ(1u, device_list()->children().size());
   }
 
@@ -156,8 +163,10 @@ class BluetoothDeviceListControllerTest : public AshTestBase {
                               ->notify_device_list_changed_call_count());
   }
 
+  bool IsQsRevampEnabled() { return GetParam(); }
+
   views::View* device_list() {
-    return static_cast<tray::BluetoothDetailedView*>(
+    return static_cast<BluetoothDetailedView*>(
                fake_bluetooth_detailed_view_.get())
         ->device_list();
   }
@@ -166,7 +175,7 @@ class BluetoothDeviceListControllerTest : public AshTestBase {
     return bluetooth_device_list_controller_impl_.get();
   }
 
-  tray::FakeBluetoothDetailedView* fake_bluetooth_detailed_view() {
+  FakeBluetoothDetailedView* fake_bluetooth_detailed_view() {
     return fake_bluetooth_detailed_view_.get();
   }
 
@@ -185,14 +194,19 @@ class BluetoothDeviceListControllerTest : public AshTestBase {
     return nullptr;
   }
 
-  base::test::ScopedFeatureList feature_list_;
-  std::unique_ptr<tray::FakeBluetoothDetailedView>
-      fake_bluetooth_detailed_view_;
+  std::unique_ptr<FakeBluetoothDetailedView> fake_bluetooth_detailed_view_;
   std::unique_ptr<BluetoothDeviceListControllerImpl>
       bluetooth_device_list_controller_impl_;
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
-TEST_F(BluetoothDeviceListControllerTest,
+INSTANTIATE_TEST_SUITE_P(All,
+                         BluetoothDeviceListControllerTest,
+                         testing::Bool());
+
+TEST_P(BluetoothDeviceListControllerTest,
        HasCorrectSubHeaderWithNoPairedDevices) {
   CheckNotifyDeviceListChangedCount(/*call_count=*/0u);
 
@@ -209,8 +223,8 @@ TEST_F(BluetoothDeviceListControllerTest,
   EXPECT_TRUE(no_device_connected_sub_header);
 }
 
-TEST_F(BluetoothDeviceListControllerTest,
-       HasCorrectDeviceListOrderWithPairedDevices) {
+TEST_P(BluetoothDeviceListControllerTest,
+       HasCorrectDeviceListOrderWithPairedAndPreviouslyPairedDevices) {
   CheckNotifyDeviceListChangedCount(/*call_count=*/0u);
 
   bluetooth_device_list_controller()->UpdateBluetoothEnabledState(true);
@@ -262,14 +276,31 @@ TEST_F(BluetoothDeviceListControllerTest,
 
   CheckNotifyDeviceListChangedCount(/*call_count=*/4u);
 
-  EXPECT_EQ(5u, device_list()->children().size());
+  // This is confusing but `device_list()` is actually the scroll contents of
+  // the bluetooth detailed view, rather than a list of devices. So the count
+  // here is a combination of the following views (all are optional):
+  // *  Connected device header
+  // *  Connected device list
+  // *  Separator
+  // *  Previously connected device header
+  // *  Previously connected device list
+  const int connected_header_count = FindConnectedSubHeader() ? 1 : 0;
+  const int previously_connected_header_count =
+      FindPreviouslyConnectedSubHeader() ? 1 : 0;
+  const int separator_count = FindSeparator() ? 1 : 0;
+  const size_t device_count =
+      connected_list.size() + previously_connected_list.size();
+  const auto expected_device_list_size = connected_header_count +
+                                         previously_connected_header_count +
+                                         separator_count + device_count;
+  EXPECT_EQ(expected_device_list_size, device_list()->children().size());
 
   CheckDeviceListOrdering(
       /*connected_device_count=*/connected_list.size(),
       /*previously_connected_device_count=*/previously_connected_list.size());
 }
 
-TEST_F(BluetoothDeviceListControllerTest, ExistingDeviceViewsAreUpdated) {
+TEST_P(BluetoothDeviceListControllerTest, ExistingDeviceViewsAreUpdated) {
   CheckNotifyDeviceListChangedCount(/*call_count=*/0u);
 
   bluetooth_device_list_controller()->UpdateBluetoothEnabledState(true);
@@ -296,13 +327,13 @@ TEST_F(BluetoothDeviceListControllerTest, ExistingDeviceViewsAreUpdated) {
   CheckNotifyDeviceListChangedCount(/*call_count=*/2u);
 
   EXPECT_EQ(2u, device_list()->children().size());
-  EXPECT_EQ(1, device_list()->GetIndexOf(first_item));
+  EXPECT_EQ(1u, device_list()->GetIndexOf(first_item));
   EXPECT_TRUE(first_item->device_properties()->nickname.has_value());
   EXPECT_STREQ(kDeviceNickname,
                first_item->device_properties()->nickname.value().c_str());
 }
 
-TEST_F(BluetoothDeviceListControllerTest,
+TEST_P(BluetoothDeviceListControllerTest,
        DeviceListIsClearedWhenBluetoothBecomesDisabled) {
   CheckNotifyDeviceListChangedCount(/*call_count=*/0u);
 

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,10 +25,11 @@ import org.mockito.quality.Strictness;
 
 import org.chromium.base.Callback;
 import org.chromium.base.test.util.CommandLineFlags;
-import org.chromium.chrome.R;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.chrome.test.R;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
 /** Test for the password manager dialog. */
@@ -62,6 +63,7 @@ public class PasswordGenerationDialogTest {
 
     @Test
     @SmallTest
+    @DisabledTest(message = "https://crbug.com/1382439")
     public void testDialogSubviewsData() {
         onView(withId(R.id.generated_password)).check(matches(withText(mGeneratedPassword)));
         onView(withId(R.id.generation_save_explanation))
@@ -77,6 +79,7 @@ public class PasswordGenerationDialogTest {
 
     @Test
     @SmallTest
+    @DisabledTest(message = "Disabled for flakiness, see https://crbug.com/1442595")
     public void testRejectedPasswordCallback() {
         onView(withId(R.id.negative_button)).perform(click());
         verify(mOnPasswordAcceptedOrRejectedCallback).onResult(false);

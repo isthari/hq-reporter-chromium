@@ -85,7 +85,8 @@
         </div>
         <div id="inhibitedSubtext" class="header-row secondary-box-text"
             hidden="[[!isDeviceInhibited_]]" aria-live="assertive">
-          [[getInhibitedSubtextMessage_(isDeviceInhibited_)]]
+          [[getInhibitedSubtextMessage_(isDeviceInhibited_,
+              cellularDeviceState.*)]]
         </div>
       </div>
       <div id="alignEnd">
@@ -94,40 +95,18 @@
               active="[[isDeviceInhibited_]]">
           </paper-spinner-lite>
         </template>
-        <template is="dom-if" if="[[shouldShowAddESimButton_(
+        <template is="dom-if" if="[[shouldShowAddEsimButton_(
             cellularDeviceState)]]" restamp>
           <cr-policy-indicator indicator-type="devicePolicy"
-              hidden="[[!shouldShowAddESimPolicyIcon_(globalPolicy)]]"
+              hidden="[[!shouldShowAddEsimPolicyIcon_(globalPolicy)]]"
               icon-aria-label="$i18n{internetAddCellular}">
           </cr-policy-indicator>
           <cr-icon-button class="icon-add-cellular add-button"
               aria-label="$i18n{internetAddCellular}" id="addESimButton"
-              disabled="[[isAddESimButtonDisabled_(cellularDeviceState,
+              disabled="[[isAddEsimButtonDisabled_(cellularDeviceState,
                   globalPolicy)]]"
-              on-click="onAddEsimButtonTap_">
+              on-click="onAddEsimButtonClick_">
           </cr-icon-button>
-          <div class="separator"></div>
-        </template>
-        <cr-icon-button id="moreESim" class="icon-more-vert"
-            title="$i18n{moreActions}"
-            on-click="onESimDotsClick_">
-        </cr-icon-button>
-        <cr-lazy-render id="menu">
-          <template>
-            <cr-action-menu>
-              <button class="dropdown-item"
-                  on-click="onShowEidDialogTap_"
-                  role="menuitem">
-                $i18n{eidPopupMenuItemTitle}
-              </button>
-            </cr-action-menu>
-          </template>
-        </cr-lazy-render>
-        <template is="dom-if" if="[[shouldShowEidDialog_]]" restamp>
-          <cellular-eid-dialog class="eid-dialog"
-              on-close="onCloseEidDialog_"
-              euicc="[[euicc_]]">
-          </cellular-eid-dialog>
         </template>
       </div>
     </div>
@@ -144,29 +123,27 @@
       </network-list>
     </div>
   </template>
-  <template is="dom-if" if="[[shouldShowNoESimMessageOrDownloadLink_(
+  <template is="dom-if" if="[[shouldShowNoEsimMessageOrDownloadLink_(
       cellularDeviceState.inhibitReason, eSimNetworks_,
       eSimPendingProfileItems_)]]" restamp>
     <div id="eSimNoNetworkFound"
         class="cellular-network-content cellular-not-setup flex">
-      <div hidden="[[!shouldShowNoESimSubtextMessage_(
-               globalPolicy.allowOnlyPolicyCellularNetworks,
-               isESimPolicyEnabled_)]]">
+      <div hidden="[[!shouldShowNoEsimSubtextMessage_(
+               globalPolicy.allowOnlyPolicyCellularNetworks)]]">
         $i18n{eSimNetworkNotSetup}
       </div>
       <localized-link
           link-disabled = "[[isDeviceInhibited_]]"
           on-link-clicked="onEsimLearnMoreClicked_"
           localized-string="$i18n{eSimNetworkNotSetupWithDownloadLink}"
-          hidden="[[shouldShowNoESimSubtextMessage_(
-              globalPolicy.allowOnlyPolicyCellularNetworks,
-              isESimPolicyEnabled_)]]">
+          hidden="[[shouldShowNoEsimSubtextMessage_(
+              globalPolicy.allowOnlyPolicyCellularNetworks)]]">
       </localized-link>
     </div>
   </template>
 </template>
 <template is="dom-if"
-    if="[[shouldShowPSimSection_(cellularDeviceState,
+    if="[[shouldShowPsimSection_(pSimNetworks_, cellularDeviceState,
       cellularDeviceState.*)]]" restamp>
   <div class="cellular-network-list-separator"></div>
   <div class="cellular-network-list-header settings-box-text">

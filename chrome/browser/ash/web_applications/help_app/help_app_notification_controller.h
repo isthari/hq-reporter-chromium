@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,22 +7,13 @@
 
 #include <memory>
 
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 
 class Profile;
 class PrefRegistrySimple;
-class PrefService;
 
 namespace ash {
-
-namespace help_app {
-namespace prefs {
-
-extern const char kObsoleteReleaseNotesLastShownMilestone[];
-extern const char kObsoleteDiscoverTabNotificationLastShownMilestone[];
-
-}  // namespace prefs
-}  // namespace help_app
 
 class HelpAppDiscoverTabNotification;
 class ReleaseNotesNotification;
@@ -32,9 +23,6 @@ class HelpAppNotificationController {
  public:
   // Registers profile prefs.
   static void RegisterProfilePrefs(PrefRegistrySimple* registry);
-  static void RegisterObsoletePrefsForMigration(PrefRegistrySimple* registry);
-  static void MigrateObsoleteNotificationPrefs(PrefService* pref_service);
-  static void ClearObsoleteNotificationPrefs(PrefService* pref_service);
 
   explicit HelpAppNotificationController(Profile* profile);
   HelpAppNotificationController(const HelpAppNotificationController&) = delete;
@@ -56,7 +44,7 @@ class HelpAppNotificationController {
   void MaybeShowDiscoverNotification();
 
  private:
-  Profile* const profile_;
+  const raw_ptr<Profile, ExperimentalAsh> profile_;
   std::unique_ptr<HelpAppDiscoverTabNotification> discover_tab_notification_;
   std::unique_ptr<ReleaseNotesNotification> release_notes_notification_;
 

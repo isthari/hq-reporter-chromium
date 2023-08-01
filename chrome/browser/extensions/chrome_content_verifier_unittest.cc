@@ -1,21 +1,21 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <algorithm>
+
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/path_service.h"
+#include "build/config/chromebox_for_meetings/buildflags.h"
 #include "chrome/browser/extensions/chrome_content_verifier_delegate.h"
 #include "chrome/browser/extensions/extension_service_test_with_install.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/testing_profile.h"
-#include "chromeos/components/chromebox_for_meetings/buildflags/buildflags.h"
 #include "extensions/browser/content_verifier/test_utils.h"
 #include "extensions/browser/extension_system.h"
-#include "extensions/browser/info_map.h"
 #include "extensions/common/file_util.h"
 #include "extensions/common/switches.h"
 
@@ -75,7 +75,6 @@ class ChromeContentVerifierTest : public ExtensionServiceTestWithInstall {
     delegate_raw_ = delegate.get();
     content_verifier_ = base::MakeRefCounted<ContentVerifier>(
         browser_context(), std::move(delegate));
-    info_map()->SetContentVerifier(content_verifier_.get());
     content_verifier_->Start();
   }
 
@@ -101,7 +100,6 @@ class ChromeContentVerifierTest : public ExtensionServiceTestWithInstall {
   void AddExtensionToContentVerifier(
       const scoped_refptr<const Extension>& extension,
       VerifierObserver* verifier_observer) {
-    info_map()->AddExtension(extension.get(), base::Time::Now(), false, false);
     EXPECT_TRUE(
         ExtensionRegistry::Get(browser_context())->AddEnabled(extension));
     ExtensionRegistry::Get(browser_context())->TriggerOnLoaded(extension.get());
@@ -126,10 +124,6 @@ class ChromeContentVerifierTest : public ExtensionServiceTestWithInstall {
   }
 
  private:
-  InfoMap* info_map() {
-    return ExtensionSystem::Get(browser_context())->info_map();
-  }
-
   content::BrowserContext* browser_context() { return testing_profile_.get(); }
 
   scoped_refptr<const Extension> extension_;
@@ -222,9 +216,7 @@ TEST_F(ChromeContentVerifierTest, VerifyFailedOnLoad) {
     constexpr char kTamperedContent[] = "// Evil content";
     base::FilePath background_script_path =
         extension()->path().AppendASCII("d.js");
-    ASSERT_EQ(static_cast<int>(sizeof(kTamperedContent)),
-              base::WriteFile(background_script_path, kTamperedContent,
-                              sizeof(kTamperedContent)));
+    ASSERT_TRUE(base::WriteFile(background_script_path, kTamperedContent));
   }
 
   AddExtensionToContentVerifier(extension(), &verifier_observer);

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,14 +14,13 @@
 #include "base/android/jni_android.h"
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
-#include "base/bind.h"
 #include "base/check_op.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/notreached.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/time/time.h"
 #include "chrome/android/chrome_jni_headers/OfflinePageBridge_jni.h"
@@ -112,7 +111,7 @@ void SavePageCallback(const ScopedJavaGlobalRef<jobject>& j_callback_obj,
 void DeletePageCallback(const ScopedJavaGlobalRef<jobject>& j_callback_obj,
                         OfflinePageModel::DeletePageResult result) {
   base::android::RunIntCallbackAndroid(j_callback_obj,
-                                       static_cast<int>(result));
+                                       static_cast<int32_t>(result));
 }
 
 void SelectPageCallback(const ScopedJavaGlobalRef<jobject>& j_callback_obj,
@@ -194,6 +193,10 @@ void ValidateFileCallback(
     case offline_items_collection::LaunchLocation::DOWNLOAD_SHELF:
       NOTREACHED();
       break;
+    case offline_items_collection::LaunchLocation::DOWNLOAD_INTERSTITIAL:
+      offline_header.reason =
+          offline_pages::OfflinePageHeader::Reason::DOWNLOAD;
+      break;
   }
   offline_header.need_to_persist = true;
   offline_header.id = base::NumberToString(offline_id);
@@ -208,9 +211,6 @@ void PublishPageDone(
   base::FilePath file_path_or_empty;
   if (result != SavePageResult::SUCCESS)
     file_path_or_empty = file_path;
-
-  UMA_HISTOGRAM_ENUMERATION("OfflinePages.Sharing.PublishInternalPageResult",
-                            result);
 
   base::android::RunStringCallbackAndroid(j_published_callback_obj,
                                           file_path.value());

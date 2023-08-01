@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,12 @@
 
 #include <stddef.h>
 
-#include <memory>
 #include <string>
 #include <unordered_set>
 #include <vector>
 
 #include "base/memory/raw_ptr.h"
-#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/values.h"
 #include "content/public/browser/browser_thread.h"
 #include "device/bluetooth/bluetooth_adapter.h"
@@ -128,7 +127,7 @@ class BluetoothSocketListenFunction : public BluetoothSocketAsyncApiFunction {
       const absl::optional<std::string>& name,
       device::BluetoothAdapter::CreateServiceCallback callback,
       device::BluetoothAdapter::CreateServiceErrorCallback error_callback) = 0;
-  virtual std::vector<base::Value> CreateResults() = 0;
+  virtual base::Value::List CreateResults() = 0;
 
   virtual int socket_id() const = 0;
   virtual const std::string& uuid() const = 0;
@@ -166,13 +165,13 @@ class BluetoothSocketListenUsingRfcommFunction
                      device::BluetoothAdapter::CreateServiceCallback callback,
                      device::BluetoothAdapter::CreateServiceErrorCallback
                          error_callback) override;
-  std::vector<base::Value> CreateResults() override;
+  base::Value::List CreateResults() override;
 
  protected:
   ~BluetoothSocketListenUsingRfcommFunction() override;
 
  private:
-  std::unique_ptr<bluetooth_socket::ListenUsingRfcomm::Params> params_;
+  absl::optional<bluetooth_socket::ListenUsingRfcomm::Params> params_;
 };
 
 class BluetoothSocketListenUsingL2capFunction
@@ -194,13 +193,13 @@ class BluetoothSocketListenUsingL2capFunction
                      device::BluetoothAdapter::CreateServiceCallback callback,
                      device::BluetoothAdapter::CreateServiceErrorCallback
                          error_callback) override;
-  std::vector<base::Value> CreateResults() override;
+  base::Value::List CreateResults() override;
 
  protected:
   ~BluetoothSocketListenUsingL2capFunction() override;
 
  private:
-  std::unique_ptr<bluetooth_socket::ListenUsingL2cap::Params> params_;
+  absl::optional<bluetooth_socket::ListenUsingL2cap::Params> params_;
 };
 
 class BluetoothSocketAbstractConnectFunction :
@@ -226,7 +225,7 @@ class BluetoothSocketAbstractConnectFunction :
  private:
   virtual void OnGetAdapter(scoped_refptr<device::BluetoothAdapter> adapter);
 
-  std::unique_ptr<bluetooth_socket::Connect::Params> params_;
+  absl::optional<bluetooth_socket::Connect::Params> params_;
   raw_ptr<BluetoothSocketEventDispatcher> socket_event_dispatcher_ = nullptr;
 };
 
@@ -306,7 +305,7 @@ class BluetoothSocketSendFunction : public BluetoothSocketAsyncApiFunction {
   void OnError(BluetoothApiSocket::ErrorReason reason,
                const std::string& message);
 
-  std::unique_ptr<bluetooth_socket::Send::Params> params_;
+  absl::optional<bluetooth_socket::Send::Params> params_;
   scoped_refptr<net::IOBuffer> io_buffer_;
   size_t io_buffer_size_;
 };

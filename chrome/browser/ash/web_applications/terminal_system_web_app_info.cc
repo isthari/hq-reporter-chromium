@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,16 +6,21 @@
 
 #include <memory>
 
-#include "ash/constants/ash_features.h"
-#include "base/feature_list.h"
-#include "chrome/browser/ash/crostini/crostini_terminal.h"
+#include "base/strings/strcat.h"
+#include "chrome/browser/ash/crostini/crostini_features.h"
+#include "chrome/browser/ash/crostini/crostini_pref_names.h"
+#include "chrome/browser/ash/guest_os/guest_os_terminal.h"
+#include "chrome/browser/ash/guest_os/public/guest_os_service.h"
+#include "chrome/browser/ash/guest_os/public/guest_os_terminal_provider_registry.h"
 #include "chrome/browser/ash/web_applications/system_web_app_install_utils.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/web_applications/web_app_install_info.h"
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/grit/chrome_unscaled_resources.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/prefs/pref_service.h"
 #include "extensions/common/constants.h"
 #include "third_party/blink/public/mojom/manifest/display_mode.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -59,30 +64,43 @@ gfx::Rect GetDefaultBoundsForTerminal(Browser* browser) {
 }
 
 TerminalSystemAppDelegate::TerminalSystemAppDelegate(Profile* profile)
-    : web_app::SystemWebAppDelegate(web_app::SystemAppType::TERMINAL,
-                                    "Terminal",
-                                    GURL(chrome::kChromeUIUntrustedTerminalURL),
-                                    profile) {}
+    : ash::SystemWebAppDelegate(ash::SystemWebAppType::TERMINAL,
+                                "Terminal",
+                                GURL(chrome::kChromeUIUntrustedTerminalURL),
+                                profile) {}
 
 std::unique_ptr<WebAppInstallInfo> TerminalSystemAppDelegate::GetWebAppInfo()
     const {
   return CreateWebAppInfoForTerminalSystemWebApp();
 }
 
-bool TerminalSystemAppDelegate::ShouldReuseExistingWindow() const {
-  return false;
+Browser* TerminalSystemAppDelegate::GetWindowForLaunch(Profile* profile,
+                                                       const GURL& url) const {
+  return nullptr;
 }
 
 bool TerminalSystemAppDelegate::ShouldShowNewWindowMenuOption() const {
   return true;
 }
 
-bool TerminalSystemAppDelegate::ShouldHaveTabStrip() const {
-  return true;
+bool TerminalSystemAppDelegate::ShouldShowInLauncher() const {
+  // Show if SSH is enabled, or crostini enabled, or any other terminal exists.
+  std::string reason;
+  return profile()->GetPrefs()->GetBoolean(
+             crostini::prefs::kTerminalSshAllowedByPolicy) ||
+         crostini::CrostiniFeatures::Get()->IsAllowedNow(profile(), &reason) ||
+         !guest_os::GuestOsService::GetForProfile(profile())
+              ->TerminalProviderRegistry()
+              ->List()
+              .empty();
 }
 
-bool TerminalSystemAppDelegate::HasTitlebarTerminalSelectNewTabButton() const {
-  return base::FeatureList::IsEnabled(chromeos::features::kTerminalSSH);
+bool TerminalSystemAppDelegate::IsAppEnabled() const {
+  // Do not install for child accounts.
+  return !profile()->IsChild();
+}
+bool TerminalSystemAppDelegate::ShouldHaveTabStrip() const {
+  return true;
 }
 
 gfx::Rect TerminalSystemAppDelegate::GetDefaultBounds(Browser* browser) const {
@@ -112,7 +130,16 @@ bool TerminalSystemAppDelegate::ShouldShowTabContextMenuShortcut(
     Profile* profile,
     int command_id) const {
   if (command_id == TabStripModel::CommandCloseTab) {
-    return crostini::GetTerminalSettingPassCtrlW(profile);
+    return guest_os::GetTerminalSettingPassCtrlW(profile);
   }
   return true;
+}
+
+bool TerminalSystemAppDelegate::ShouldPinTab(GURL url) const {
+  return url == GURL(base::StrCat({chrome::kChromeUIUntrustedTerminalURL,
+                                   guest_os::kTerminalHomePath}));
+}
+
+bool TerminalSystemAppDelegate::UseSystemThemeColor() const {
+  return false;
 }

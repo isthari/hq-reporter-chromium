@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,32 +32,31 @@ MessageResponse StructuredMessageHandler::HandleMessage(
   // Automation messages are stringified before they are sent because the
   // automation channel cannot handle arbitrary objects.  This means we
   // need to decode the json twice to get the original message.
-  base::JSONReader::ValueWithError parsed_json =
-      base::JSONReader::ReadAndReturnValueWithError(
-          json, base::JSON_ALLOW_TRAILING_COMMAS);
-  if (!parsed_json.value)
+  auto parsed_json = base::JSONReader::ReadAndReturnValueWithError(
+      json, base::JSON_ALLOW_TRAILING_COMMAS);
+  if (!parsed_json.has_value())
     return InternalError("Could parse automation JSON: " + json + " because " +
-                         parsed_json.error_message);
+                         parsed_json.error().message);
 
-  if (!parsed_json.value->is_string())
+  if (!parsed_json->is_string())
     return InternalError("Message was not a string: " + json);
-  std::string temp = parsed_json.value->GetString();
+  std::string temp = parsed_json->GetString();
 
   parsed_json = base::JSONReader::ReadAndReturnValueWithError(
       temp, base::JSON_ALLOW_TRAILING_COMMAS);
-  if (!parsed_json.value)
+  if (!parsed_json.has_value())
     return InternalError("Could not parse message JSON: " + temp + " because " +
-                         parsed_json.error_message);
+                         parsed_json.error().message);
 
-  base::DictionaryValue* msg;
-  if (!parsed_json.value->GetAsDictionary(&msg))
+  const base::Value::Dict* msg = parsed_json->GetIfDict();
+  if (!msg)
     return InternalError("Message was not an object: " + temp);
 
-  std::string type;
-  if (!msg->GetString("type", &type))
+  const std::string* type = msg->FindString("type");
+  if (!type)
     return MissingField("unknown", "type");
 
-  return HandleStructuredMessage(type, msg);
+  return HandleStructuredMessage(*type, *msg);
 }
 
 MessageResponse StructuredMessageHandler::MissingField(
@@ -83,28 +82,30 @@ void LoadTestMessageHandler::Log(const std::string& type,
 }
 
 MessageResponse LoadTestMessageHandler::HandleStructuredMessage(
-   const std::string& type,
-   base::DictionaryValue* msg) {
+    const std::string& type,
+    const base::Value::Dict& msg) {
   if (type == "Log") {
-    std::string message;
-    if (!msg->GetString("message", &message))
+    const std::string* message = msg.FindString("message");
+    if (!message) {
       return MissingField(type, "message");
-    Log("LOG", message);
+    }
+    Log("LOG", *message);
     return CONTINUE;
-  } else if (type == "Shutdown") {
-    std::string message;
-    if (!msg->GetString("message", &message))
+  }
+  if (type == "Shutdown") {
+    const std::string* message = msg.FindString("message");
+    if (!message) {
       return MissingField(type, "message");
-    if (absl::optional<bool> passed = msg->FindBoolKey("passed")) {
-      test_passed_ = *passed;
-    } else {
+    }
+    absl::optional<bool> passed = msg.FindBool("passed");
+    if (!passed) {
       return MissingField(type, "passed");
     }
-    Log("SHUTDOWN", message);
+    test_passed_ = *passed;
+    Log("SHUTDOWN", *message);
     return DONE;
-  } else {
-    return InternalError("Unknown message type: " + type);
   }
+  return InternalError("Unknown message type: " + type);
 }
 
 // A message handler for nacl_integration tests ported to be browser_tests.
@@ -122,8 +123,9 @@ class NaClIntegrationMessageHandler : public StructuredMessageHandler {
 
   void Log(const std::string& message);
 
-  MessageResponse HandleStructuredMessage(const std::string& type,
-                                          base::DictionaryValue* msg) override;
+  MessageResponse HandleStructuredMessage(
+      const std::string& type,
+      const base::Value::Dict& msg) override;
 
   bool test_passed() const {
     return test_passed_;
@@ -144,31 +146,35 @@ void NaClIntegrationMessageHandler::Log(const std::string& message) {
 
 MessageResponse NaClIntegrationMessageHandler::HandleStructuredMessage(
     const std::string& type,
-    base::DictionaryValue* msg) {
+    const base::Value::Dict& msg) {
   if (type == "TestLog") {
-    std::string message;
-    if (!msg->GetString("message", &message))
+    const std::string* message = msg.FindString("message");
+    if (!message) {
       return MissingField(type, "message");
-    Log(message);
+    }
+    Log(*message);
     return CONTINUE;
-  } else if (type == "Shutdown") {
-    std::string message;
-    if (!msg->GetString("message", &message))
+  }
+  if (type == "Shutdown") {
+    const std::string* message = msg.FindString("message");
+    if (!message) {
       return MissingField(type, "message");
-    if (absl::optional<bool> passed = msg->FindBoolKey("passed")) {
-      test_passed_ = *passed;
-    } else {
+    }
+    absl::optional<bool> passed = msg.FindBool("passed");
+    if (!passed) {
       return MissingField(type, "passed");
     }
-    Log(message);
+    test_passed_ = *passed;
+    Log(*message);
     return DONE;
-  } else if (type == "Ping") {
-    return CONTINUE;
-  } else if (type == "JavaScriptIsAlive") {
-    return CONTINUE;
-  } else {
-    return InternalError("Unknown message type: " + type);
   }
+  if (type == "Ping") {
+    return CONTINUE;
+  }
+  if (type == "JavaScriptIsAlive") {
+    return CONTINUE;
+  }
+  return InternalError("Unknown message type: " + type);
 }
 
 // NaCl browser tests serve files out of the build directory because nexes and

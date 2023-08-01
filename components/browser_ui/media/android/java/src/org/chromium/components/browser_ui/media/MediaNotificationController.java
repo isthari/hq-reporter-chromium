@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.media.AudioManager;
 import android.os.Build;
 import android.os.Handler;
@@ -82,11 +82,6 @@ public class MediaNotificationController {
     public static final int MEDIA_ACTION_SEEK_FORWARD = 22;
     public static final int MEDIA_ACTION_SEEK_BACKWARD = 23;
 
-    // Overrides N detection. The production code will use |null|, which uses the Android version
-    // code. Otherwise, |isRunningAtLeastN()| will return whatever value is set.
-    @VisibleForTesting
-    public static Boolean sOverrideIsRunningNForTesting;
-
     // ListenerService running for the notification. Only non-null when showing.
     @VisibleForTesting
     public Service mService;
@@ -112,6 +107,9 @@ public class MediaNotificationController {
     @VisibleForTesting
     public Throttler mThrottler;
 
+    /**
+     * Helper class to prevent spamming notification updates.
+     */
     @VisibleForTesting
     public static class Throttler {
         @VisibleForTesting
@@ -258,7 +256,7 @@ public class MediaNotificationController {
             Service service, NotificationWrapper notification) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false;
         ForegroundServiceUtils.getInstance().startForeground(service, notification.getMetadata().id,
-                notification.getNotification(), 0 /* foregroundServiceType */);
+                notification.getNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
         return true;
     }
 
@@ -267,12 +265,6 @@ public class MediaNotificationController {
         return PendingIntentProvider.getService(getContext(), 0, intent,
                 PendingIntent.FLAG_CANCEL_CURRENT
                         | IntentUtils.getPendingIntentMutabilityFlag(false));
-    }
-
-    private static boolean isRunningAtLeastN() {
-        return (sOverrideIsRunningNForTesting != null)
-                ? sOverrideIsRunningNForTesting
-                : Build.VERSION.SDK_INT >= Build.VERSION_CODES.N;
     }
 
     /**
@@ -328,28 +320,28 @@ public class MediaNotificationController {
         mActionToButtonInfo = new SparseArray<>();
 
         mActionToButtonInfo.put(MediaSessionAction.PLAY,
-                new MediaButtonInfo(R.drawable.ic_play_arrow_white_36dp,
+                new MediaButtonInfo(R.drawable.ic_play_arrow_white_24dp,
                         R.string.accessibility_play, ACTION_PLAY, MEDIA_ACTION_PLAY));
         mActionToButtonInfo.put(MediaSessionAction.PAUSE,
-                new MediaButtonInfo(R.drawable.ic_pause_white_36dp, R.string.accessibility_pause,
+                new MediaButtonInfo(R.drawable.ic_pause_white_24dp, R.string.accessibility_pause,
                         ACTION_PAUSE, MEDIA_ACTION_PAUSE));
         mActionToButtonInfo.put(MediaSessionAction.STOP,
-                new MediaButtonInfo(R.drawable.ic_stop_white_36dp, R.string.accessibility_stop,
+                new MediaButtonInfo(R.drawable.ic_stop_white_24dp, R.string.accessibility_stop,
                         ACTION_STOP, MEDIA_ACTION_STOP));
         mActionToButtonInfo.put(MediaSessionAction.PREVIOUS_TRACK,
-                new MediaButtonInfo(R.drawable.ic_skip_previous_white_36dp,
+                new MediaButtonInfo(R.drawable.ic_skip_previous_white_24dp,
                         R.string.accessibility_previous_track, ACTION_PREVIOUS_TRACK,
                         MEDIA_ACTION_PREVIOUS_TRACK));
         mActionToButtonInfo.put(MediaSessionAction.NEXT_TRACK,
-                new MediaButtonInfo(R.drawable.ic_skip_next_white_36dp,
+                new MediaButtonInfo(R.drawable.ic_skip_next_white_24dp,
                         R.string.accessibility_next_track, ACTION_NEXT_TRACK,
                         MEDIA_ACTION_NEXT_TRACK));
         mActionToButtonInfo.put(MediaSessionAction.SEEK_FORWARD,
-                new MediaButtonInfo(R.drawable.ic_fast_forward_white_36dp,
+                new MediaButtonInfo(R.drawable.ic_fast_forward_white_24dp,
                         R.string.accessibility_seek_forward, ACTION_SEEK_FORWARD,
                         MEDIA_ACTION_SEEK_FORWARD));
         mActionToButtonInfo.put(MediaSessionAction.SEEK_BACKWARD,
-                new MediaButtonInfo(R.drawable.ic_fast_rewind_white_36dp,
+                new MediaButtonInfo(R.drawable.ic_fast_rewind_white_24dp,
                         R.string.accessibility_seek_backward, ACTION_SEEK_BACKWARD,
                         MEDIA_ACTION_SEEK_BACKWARD));
 
@@ -476,8 +468,13 @@ public class MediaNotificationController {
         if (mService == null) {
             updateMediaSession();
             updateNotificationBuilder();
-            ForegroundServiceUtils.getInstance().startForegroundService(
-                    mDelegate.createServiceIntent());
+            // This is not allowed from the background, and there is no workaround on S+.  Just
+            // catch the exception, and `mService` will remain null for us to try again later.
+            try {
+                ForegroundServiceUtils.getInstance().startForegroundService(
+                        mDelegate.createServiceIntent());
+            } catch (RuntimeException e) {
+            }
         } else {
             updateNotification(false, false);
         }
@@ -542,7 +539,7 @@ public class MediaNotificationController {
         if (mMediaNotificationInfo.isPrivate) return metadataBuilder.build();
 
         metadataBuilder.putString(
-                MediaMetadataCompat.METADATA_KEY_TITLE, mMediaNotificationInfo.metadata.getTitle());
+                MediaMetadataCompat.METADATA_KEY_TITLE, getSafeNotificationTitle());
         metadataBuilder.putString(
                 MediaMetadataCompat.METADATA_KEY_ARTIST, mMediaNotificationInfo.origin);
 
@@ -599,9 +596,19 @@ public class MediaNotificationController {
             NotificationManagerProxy manager = new NotificationManagerProxyImpl(getContext());
             manager.notify(notification);
         } else if (!finishedForegroundingService) {
-            ForegroundServiceUtils.getInstance().startForeground(mService,
-                    mMediaNotificationInfo.id, notification.getNotification(),
-                    0 /*foregroundServiceType*/);
+            // We did not foreground the service and update the notification above, so we should do
+            // so here.  On S and later, we cannot foreground the service if we're not currently
+            // in the foreground, and on Q and later the background activity start restrictions
+            // prevent us from launching a trampoline to fix it.  Try it, and see if it works.  If
+            // not, then update the notification and leave the service in the background.
+            try {
+                ForegroundServiceUtils.getInstance().startForeground(mService,
+                        mMediaNotificationInfo.id, notification.getNotification(),
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+            } catch (RuntimeException e) {
+                NotificationManagerProxy manager = new NotificationManagerProxyImpl(getContext());
+                manager.notify(notification);
+            }
         }
         if (shouldLogNotification) {
             mDelegate.logNotificationShown(notification);
@@ -737,17 +744,7 @@ public class MediaNotificationController {
         } else if (mMediaNotificationInfo.notificationLargeIcon != null
                 && !mMediaNotificationInfo.isPrivate) {
             builder.setLargeIcon(mMediaNotificationInfo.notificationLargeIcon);
-        } else if (!isRunningAtLeastN()) {
-            if (mDefaultNotificationLargeIcon == null
-                    && mMediaNotificationInfo.defaultNotificationLargeIcon != 0) {
-                mDefaultNotificationLargeIcon =
-                        MediaNotificationImageUtils.downscaleIconToIdealSize(
-                                BitmapFactory.decodeResource(getContext().getResources(),
-                                        mMediaNotificationInfo.defaultNotificationLargeIcon));
-            }
-            builder.setLargeIcon(mDefaultNotificationLargeIcon);
         }
-
         addNotificationButtons(builder);
     }
 
@@ -794,30 +791,17 @@ public class MediaNotificationController {
         if (mMediaNotificationInfo.isPrivate) {
             // Notifications in incognito shouldn't show what is playing to avoid leaking
             // information.
-            if (isRunningAtLeastN()) {
-                builder.setContentTitle(getContext().getResources().getString(
-                        R.string.media_notification_incognito));
-                builder.setSubText(
-                        getContext().getResources().getString(R.string.notification_incognito_tab));
-            } else {
-                // App name is automatically added to the title from Android N,
-                // but needs to be added explicitly for prior versions.
-                builder.setContentTitle(mDelegate.getAppName())
-                        .setContentText(getContext().getResources().getString(
-                                R.string.media_notification_incognito));
-            }
+            builder.setContentTitle(
+                    getContext().getResources().getString(R.string.media_notification_incognito));
+            builder.setSubText(
+                    getContext().getResources().getString(R.string.notification_incognito_tab));
             return;
         }
 
-        builder.setContentTitle(mMediaNotificationInfo.metadata.getTitle());
+        builder.setContentTitle(getSafeNotificationTitle());
         String artistAndAlbumText = getArtistAndAlbumText(mMediaNotificationInfo.metadata);
-        if (isRunningAtLeastN() || !artistAndAlbumText.isEmpty()) {
-            builder.setContentText(artistAndAlbumText);
-            builder.setSubText(mMediaNotificationInfo.origin);
-        } else {
-            // Leaving ContentText empty looks bad, so move origin up to the ContentText.
-            builder.setContentText(mMediaNotificationInfo.origin);
-        }
+        builder.setContentText(artistAndAlbumText);
+        builder.setSubText(mMediaNotificationInfo.origin);
     }
 
     private static String getArtistAndAlbumText(MediaMetadata metadata) {
@@ -864,7 +848,8 @@ public class MediaNotificationController {
     /**
      * Compute the actions to be shown in CompactView media notification.
      *
-     * The method assumes PLAY and PAUSE cannot coexist.
+     * The method assumes PLAY and PAUSE cannot coexist. This method also assumes that it is only
+     * called when at least play or pause is supported.
      *
      * Actions in pairs are preferred if there are more actions than |COMPACT_VIEW_ACTIONS_COUNT|.
      */
@@ -882,18 +867,14 @@ public class MediaNotificationController {
             return actionsArray;
         }
 
-        if (actions.contains(MediaSessionAction.STOP)) {
-            List<Integer> compactActions = new ArrayList<>();
-            if (actions.contains(MediaSessionAction.PLAY)) {
-                compactActions.add(actions.indexOf(MediaSessionAction.PLAY));
-            }
-            compactActions.add(actions.indexOf(MediaSessionAction.STOP));
-            return CollectionUtil.integerListToIntArray(compactActions);
-        }
+        // The rest of this method is broken if |COMPACT_VIEW_ACTIONS_COUNT| changes from 3.
+        assert COMPACT_VIEW_ACTIONS_COUNT == 3;
 
-        int[] actionsArray = new int[COMPACT_VIEW_ACTIONS_COUNT];
+        // If we have both PREVIOUS_TRACK and NEXT_TRACK, then show those with PLAY or PAUSE in the
+        // middle.
         if (actions.contains(MediaSessionAction.PREVIOUS_TRACK)
                 && actions.contains(MediaSessionAction.NEXT_TRACK)) {
+            int[] actionsArray = new int[COMPACT_VIEW_ACTIONS_COUNT];
             actionsArray[0] = actions.indexOf(MediaSessionAction.PREVIOUS_TRACK);
             if (actions.contains(MediaSessionAction.PLAY)) {
                 actionsArray[1] = actions.indexOf(MediaSessionAction.PLAY);
@@ -904,20 +885,46 @@ public class MediaNotificationController {
             return actionsArray;
         }
 
-        assert actions.contains(MediaSessionAction.SEEK_BACKWARD)
-                && actions.contains(MediaSessionAction.SEEK_FORWARD);
-        actionsArray[0] = actions.indexOf(MediaSessionAction.SEEK_BACKWARD);
-        if (actions.contains(MediaSessionAction.PLAY)) {
-            actionsArray[1] = actions.indexOf(MediaSessionAction.PLAY);
-        } else {
-            actionsArray[1] = actions.indexOf(MediaSessionAction.PAUSE);
+        // If we have both SEEK_FORWARD and SEEK_BACKWARD, then show those with PLAY or PAUSE in the
+        // middle.
+        if (actions.contains(MediaSessionAction.SEEK_BACKWARD)
+                && actions.contains(MediaSessionAction.SEEK_FORWARD)) {
+            int[] actionsArray = new int[COMPACT_VIEW_ACTIONS_COUNT];
+            actionsArray[0] = actions.indexOf(MediaSessionAction.SEEK_BACKWARD);
+            if (actions.contains(MediaSessionAction.PLAY)) {
+                actionsArray[1] = actions.indexOf(MediaSessionAction.PLAY);
+            } else {
+                actionsArray[1] = actions.indexOf(MediaSessionAction.PAUSE);
+            }
+            actionsArray[2] = actions.indexOf(MediaSessionAction.SEEK_FORWARD);
+            return actionsArray;
         }
-        actionsArray[2] = actions.indexOf(MediaSessionAction.SEEK_FORWARD);
 
-        return actionsArray;
+        // Only show STOP with PLAY and not with PAUSE.
+        List<Integer> compactActions = new ArrayList<>();
+        if (actions.contains(MediaSessionAction.PAUSE)) {
+            compactActions.add(actions.indexOf(MediaSessionAction.PAUSE));
+        } else {
+            compactActions.add(actions.indexOf(MediaSessionAction.PLAY));
+            if (actions.contains(MediaSessionAction.STOP)) {
+                compactActions.add(actions.indexOf(MediaSessionAction.STOP));
+            }
+        }
+
+        return CollectionUtil.integerListToIntArray(compactActions);
     }
 
     private static Context getContext() {
         return ContextUtils.getApplicationContext();
+    }
+
+    // Return a non-blank string for use as the notification title, to avoid issues on some
+    // versions of Android.
+    private String getSafeNotificationTitle() {
+        String title = mMediaNotificationInfo.metadata.getTitle();
+        if (title != null && title.toString().trim().length() > 0) {
+            return title;
+        }
+        return getContext().getPackageName();
     }
 }

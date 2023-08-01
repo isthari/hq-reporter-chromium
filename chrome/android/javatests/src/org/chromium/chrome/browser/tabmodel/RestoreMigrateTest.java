@@ -1,13 +1,13 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.tabmodel;
 
 import android.content.Context;
-import android.support.test.InstrumentationRegistry;
 
 import androidx.test.filters.SmallTest;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -53,7 +53,7 @@ public class RestoreMigrateTest {
                 TestThreadUtils.runOnUiThreadBlockingNoException(new Callable<byte[]>() {
                     @Override
                     public byte[] call() throws Exception {
-                        return TabPersistentStore.serializeTabModelSelector(selector, null)
+                        return TabPersistentStore.serializeTabModelSelector(selector, null, false)
                                 .listData;
                     }
                 });

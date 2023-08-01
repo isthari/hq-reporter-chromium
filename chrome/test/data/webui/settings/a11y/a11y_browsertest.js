@@ -1,8 +1,8 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// SettingsAccessibilityV3Test fixture.
+// SettingsAccessibilityTest fixture.
 GEN_INCLUDE([
   'settings_accessibility_test.js',
 ]);
@@ -11,20 +11,21 @@ GEN('#include "build/branding_buildflags.h"');
 GEN('#include "build/build_config.h"');
 GEN('#include "chrome/common/chrome_features.h"');
 GEN('#include "content/public/test/browser_test.h"');
+GEN('#include "components/password_manager/core/common/password_manager_features.h"');
 
 // TODO(crbug.com/1002627): This block prevents generation of a
 // link-in-text-block browser-test. This can be removed once the bug is
 // addressed, and usage should be replaced with
-// SettingsAccessibilityV3Test.axeOptions
+// SettingsAccessibilityTest.axeOptions
 const axeOptionsExcludeLinkInTextBlock =
-    Object.assign({}, SettingsAccessibilityV3Test.axeOptions, {
-      'rules': Object.assign({}, SettingsAccessibilityV3Test.axeOptions.rules, {
+    Object.assign({}, SettingsAccessibilityTest.axeOptions, {
+      'rules': Object.assign({}, SettingsAccessibilityTest.axeOptions.rules, {
         'link-in-text-block': {enabled: false},
-      })
+      }),
     });
 
 const violationFilterExcludeCustomInputAndTabindex =
-    Object.assign({}, SettingsAccessibilityV3Test.violationFilter, {
+    Object.assign({}, SettingsAccessibilityTest.violationFilter, {
       // Excuse custom input elements.
       'aria-valid-attr-value': function(nodeResult) {
         const describerId = nodeResult.element.getAttribute('aria-describedby');
@@ -39,42 +40,44 @@ const violationFilterExcludeCustomInputAndTabindex =
 [['About', 'about_a11y_test.js', {options: axeOptionsExcludeLinkInTextBlock}],
  ['Accessibility', 'accessibility_a11y_test.js'],
  ['Basic', 'basic_a11y_test.js'],
+ // TODO(crbug.com/1420597): remove this test after Password Manager redesign is
+ // launched.
  ['Passwords', 'passwords_a11y_test.js'],
 ].forEach(test => defineTest(...test));
 
 GEN('#if !BUILDFLAG(IS_CHROMEOS)');
 [[
-  'ManageProfile', 'manage_profile_a11y_test.js',
-  {filter: violationFilterExcludeCustomInputAndTabindex}
+  'ManageProfile',
+  'manage_profile_a11y_test.js',
+  {filter: violationFilterExcludeCustomInputAndTabindex},
 ],
  ['Signout', 'sign_out_a11y_test.js'],
 ].forEach(test => defineTest(...test));
 GEN('#endif');
 
-// Disable since the EDIT_DICTIONARY route does not exist on Mac.
-// TODO(crbug.com/1012370) flaky on Linux b/c assertTrue(!!languagesPage);
-// TODO(crbug.com/1012370) flaky on Win the same way
-GEN('#if !BUILDFLAG(IS_MAC) && !BUILDFLAG(IS_LINUX) && !BUILDFLAG(IS_CHROMEOS) && !BUILDFLAG(IS_WIN)');
-defineTest(
-    'EditDictionary', 'edit_dictionary_a11y_test.js',
-    {filter: violationFilterExcludeCustomInputAndTabindex});
-GEN('#endif');
-
 function defineTest(testName, module, config) {
-  const className = `SettingsA11y${testName}V3`;
-  this[className] = class extends SettingsAccessibilityV3Test {
+  const className = `SettingsA11y${testName}`;
+  this[className] = class extends SettingsAccessibilityTest {
     /** @override */
     get browsePreload() {
-      return `chrome://settings/test_loader.html?module=settings/a11y/${module}&host=webui-test`;
+      return `chrome://settings/test_loader.html?module=settings/a11y/${
+          module}`;
+    }
+
+    /** @override */
+    get featureList() {
+      return {
+        disabled: ['password_manager::features::kPasswordManagerRedesign']
+      };
     }
   };
 
   const filter = config && config.filter ?
       config.filter :
-      SettingsAccessibilityV3Test.violationFilter;
+      SettingsAccessibilityTest.violationFilter;
   const options = config && config.options ?
       config.options :
-      SettingsAccessibilityV3Test.axeOptions;
+      SettingsAccessibilityTest.axeOptions;
   AccessibilityTest.define(className, {
     /** @override */
     name: testName,

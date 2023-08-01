@@ -21,21 +21,22 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_PROGRESS_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_PROGRESS_H_
 
+#include "base/time/time.h"
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/layout/layout_block_flow.h"
+#include "third_party/blink/renderer/core/layout/ng/layout_ng_block_flow.h"
 
 namespace blink {
 
 class HTMLProgressElement;
 
-class CORE_EXPORT LayoutProgress : public LayoutBlockFlow {
+class CORE_EXPORT LayoutProgress : public LayoutNGBlockFlow {
  public:
-  explicit LayoutProgress(ContainerNode*);
+  explicit LayoutProgress(HTMLProgressElement&);
   ~LayoutProgress() override;
 
   void Trace(Visitor* visitor) const override {
     visitor->Trace(animation_timer_);
-    LayoutBlockFlow::Trace(visitor);
+    LayoutNGBlockFlow::Trace(visitor);
   }
 
   double GetPosition() const {
@@ -51,7 +52,7 @@ class CORE_EXPORT LayoutProgress : public LayoutBlockFlow {
 
   const char* GetName() const override {
     NOT_DESTROYED();
-    return "LayoutProgress";
+    return "LayoutNGProgress";
   }
 
  protected:

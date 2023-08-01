@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,9 +31,7 @@ class AutomationManagerLacros
                                    std::vector<ui::AXEvent> events) override;
   void DispatchAccessibilityLocationChange(
       const ExtensionMsg_AccessibilityLocationChangeParams& params) override;
-  void DispatchTreeDestroyedEvent(
-      ui::AXTreeID tree_id,
-      content::BrowserContext* browser_context) override;
+  void DispatchTreeDestroyedEvent(ui::AXTreeID tree_id) override;
   void DispatchActionResult(const ui::AXActionData& data,
                             bool result,
                             content::BrowserContext* browser_context) override;
@@ -49,7 +47,7 @@ class AutomationManagerLacros
                                int32_t automation_node_id,
                                const std::string& action_type,
                                int32_t request_id,
-                               base::Value optional_args) override;
+                               base::Value::Dict optional_args) override;
   void PerformAction(const ui::AXActionData& action_data) override;
   void NotifyAllAutomationExtensionsGone() override;
   void NotifyExtensionListenerAdded() override;

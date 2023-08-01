@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -78,6 +78,7 @@ public class ChipsCoordinator {
                         .with(ChipProperties.CONTENT_DESCRIPTION, text)
                         .with(ChipProperties.CLICK_HANDLER, clickHandler)
                         .with(ChipProperties.ICON, iconId)
+                        .with(ChipProperties.APPLY_ICON_TINT, true)
                         .with(ChipProperties.ENABLED, true)
                         .with(ChipProperties.SELECTED, false)
                         .with(ChipProperties.TEXT_MAX_WIDTH_PX, ChipProperties.SHOW_WHOLE_TEXT)

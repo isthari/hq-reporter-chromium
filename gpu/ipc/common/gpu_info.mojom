@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,8 @@ import "gpu/ipc/common/dx_diag_node.mojom";
 import "gpu/ipc/common/luid.mojom";
 import "mojo/public/mojom/base/time.mojom";
 import "ui/gfx/geometry/mojom/geometry.mojom";
+import "ui/gl/mojom/gl_implementation.mojom";
+import "ui/gl/mojom/gpu_preference.mojom";
 
 [EnableIf=supports_vulkan]
 import "gpu/ipc/common/vulkan_info.mojom";
@@ -30,6 +32,7 @@ struct GpuDevice {
   int32 cuda_compute_capability_major;
   [EnableIf=is_win]
   Luid luid;
+  gl.mojom.GpuPreference gpu_preference;
 };
 
 // gpu::VideoCodecProfile
@@ -64,6 +67,14 @@ enum VideoCodecProfile {
   AV1PROFILE_PROFILE_PRO,
   DOLBYVISION_PROFILE8,
   DOLBYVISION_PROFILE9,
+  HEVCPROFILE_REXT,
+  HEVCPROFILE_HIGH_THROUGHPUT,
+  HEVCPROFILE_MULTIVIEW_MAIN,
+  HEVCPROFILE_SCALABLE_MAIN,
+  HEVCPROFILE_3D_MAIN,
+  HEVCPROFILE_SCREEN_EXTENDED,
+  HEVCPROFILE_SCALABLE_REXT,
+  HEVCPROFILE_HIGH_THROUGHPUT_SCREEN_EXTENDED,
 };
 
 // gpu::VideoDecodeAcceleratorSupportedProfile
@@ -143,6 +154,7 @@ struct GpuInfo {
   string max_msaa_samples;
   string machine_model_name;
   string machine_model_version;
+  string display_type;
   string gl_version;
   string gl_vendor;
   string gl_renderer;
@@ -151,7 +163,7 @@ struct GpuInfo {
   string gl_ws_version;
   string gl_ws_extensions;
   uint32 gl_reset_notification_strategy;
-  bool software_rendering;
+  gl.mojom.GLImplementationParts gl_implementation_parts;
   string direct_rendering_version;
   bool sandboxed;
   bool in_process_gpu;
@@ -169,9 +181,11 @@ struct GpuInfo {
   uint32 vulkan_version;
   [EnableIf=is_win]
   OverlayInfo overlay_info;
+  [EnableIf=is_win]
+  bool shared_image_d3d;
 
-  VideoDecodeAcceleratorCapabilities video_decode_accelerator_capabilities;
-  array<VideoDecodeAcceleratorSupportedProfile> video_decoder_capabilities;
+  array<VideoDecodeAcceleratorSupportedProfile>
+    video_decode_accelerator_supported_profiles;
   array<VideoEncodeAcceleratorSupportedProfile>
     video_encode_accelerator_supported_profiles;
   bool jpeg_decode_accelerator_supported;

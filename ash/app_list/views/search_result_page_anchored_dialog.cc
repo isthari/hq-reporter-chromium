@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -38,29 +38,24 @@ SearchResultPageAnchoredDialog::SearchResultPageAnchoredDialog(
 
   widget_ = new views::Widget();
   views::Widget::InitParams params;
-  // Pre-productivity launcher uses DialogDelegateView for the dialog, while the
-  // productivity launcher expects a frameless widget.
-  if (features::IsProductivityLauncherEnabled()) {
+
     params.type = views::Widget::InitParams::TYPE_WINDOW_FRAMELESS;
     params.layer_type = ui::LAYER_NOT_DRAWN;
     params.parent = parent->GetNativeWindow();
     params.delegate = dialog.release();
-  } else {
-    params = views::DialogDelegateView::GetDialogWidgetInitParams(
-        dialog.release(), parent->GetNativeWindow(), parent->GetNativeWindow(),
-        gfx::Rect());
-  }
+
   widget_->Init(std::move(params));
 
   // The |dialog| ownership is passed to the window hierarchy.
-  widget_observations_.AddObservation(widget_);
+  widget_observations_.AddObservation(widget_.get());
   widget_observations_.AddObservation(parent);
 
-  host_view_->AddObserver(this);
+  view_observations_.AddObservation(host_view_.get());
+  view_observations_.AddObservation(widget_->GetContentsView());
 }
 
 SearchResultPageAnchoredDialog::~SearchResultPageAnchoredDialog() {
-  host_view_->RemoveObserver(this);
+  view_observations_.RemoveAllObservations();
   widget_observations_.RemoveAllObservations();
   if (widget_)
     widget_->Close();
@@ -96,7 +91,7 @@ float SearchResultPageAnchoredDialog::AdjustVerticalTransformOffset(
   return default_offset + parent_offset;
 }
 
-void SearchResultPageAnchoredDialog::OnWidgetClosing(views::Widget* widget) {
+void SearchResultPageAnchoredDialog::OnWidgetDestroying(views::Widget* widget) {
   widget_ = nullptr;
   widget_observations_.RemoveAllObservations();
   if (callback_)
@@ -116,7 +111,11 @@ void SearchResultPageAnchoredDialog::OnWidgetBoundsChanged(
 
 void SearchResultPageAnchoredDialog::OnViewBoundsChanged(
     views::View* observed_view) {
-  DCHECK_EQ(host_view_, observed_view);
+  UpdateBounds();
+}
+
+void SearchResultPageAnchoredDialog::OnViewPreferredSizeChanged(
+    views::View* observed_view) {
   UpdateBounds();
 }
 

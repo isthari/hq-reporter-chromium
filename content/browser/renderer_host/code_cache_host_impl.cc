@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,20 +6,19 @@
 
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/threading/thread.h"
 #include "build/build_config.h"
+#include "components/services/storage/public/cpp/buckets/bucket_locator.h"
 #include "components/services/storage/public/mojom/cache_storage_control.mojom.h"
 #include "content/browser/child_process_security_policy_impl.h"
 #include "content/browser/code_cache/generated_code_cache.h"
 #include "content/browser/code_cache/generated_code_cache_context.h"
 #include "content/browser/process_lock.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
-#include "content/browser/storage_partition_impl.h"
 #include "content/public/browser/resource_context.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/content_features.h"
@@ -159,25 +158,15 @@ void DidGenerateCacheableMetadataInCacheStorageOnUI(
     const GURL& url,
     base::Time expected_response_time,
     mojo_base::BigBuffer data,
-    const url::Origin& cache_storage_origin,
     const std::string& cache_storage_cache_name,
     int render_process_id,
+    const blink::StorageKey& code_cache_storage_key,
     storage::mojom::CacheStorageControl* cache_storage_control_for_testing,
     mojo::ReportBadMessageCallback bad_message_callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   auto* render_process_host = RenderProcessHost::FromID(render_process_id);
   if (!render_process_host)
     return;
-
-  // We cannot trust the renderer to give us the correct origin here.  Validate
-  // it against the ChildProcessSecurityPolicy.
-  bool origin_allowed =
-      ChildProcessSecurityPolicyImpl::GetInstance()->CanAccessDataForOrigin(
-          render_process_id, cache_storage_origin);
-  if (!origin_allowed) {
-    std::move(bad_message_callback).Run("Bad cache_storage origin.");
-    return;
-  }
 
   int64_t trace_id = blink::cache_storage::CreateTraceId();
   TRACE_EVENT_WITH_FLOW1(
@@ -194,11 +183,9 @@ void DidGenerateCacheableMetadataInCacheStorageOnUI(
           : render_process_host->GetStoragePartition()
                 ->GetCacheStorageControl();
 
-  // TODO(https://crbug.com/1199077): `CodeCacheHostImpl` will need to get the
-  // real StorageKey somehow.
   cache_storage_control->AddReceiver(
       cross_origin_embedder_policy, mojo::NullRemote(),
-      blink::StorageKey(cache_storage_origin),
+      storage::BucketLocator::ForDefaultBucket(code_cache_storage_key),
       storage::mojom::CacheStorageOwner::kCacheAPI,
       remote.BindNewPipeAndPassReceiver());
 
@@ -238,10 +225,11 @@ void AddCodeCacheReceiver(
     scoped_refptr<GeneratedCodeCacheContext> context,
     int render_process_id,
     const net::NetworkIsolationKey& nik,
+    const blink::StorageKey& storage_key,
     mojo::PendingReceiver<blink::mojom::CodeCacheHost> receiver,
     CodeCacheHostImpl::ReceiverSet::CodeCacheHostReceiverHandler handler) {
-  auto host =
-      std::make_unique<CodeCacheHostImpl>(render_process_id, context, nik);
+  auto host = std::make_unique<CodeCacheHostImpl>(render_process_id, context,
+                                                  nik, storage_key);
   auto* raw_host = host.get();
   auto id = receiver_set->Add(std::move(host), std::move(receiver));
   if (handler)
@@ -263,6 +251,7 @@ CodeCacheHostImpl::ReceiverSet::~ReceiverSet() = default;
 void CodeCacheHostImpl::ReceiverSet::Add(
     int render_process_id,
     const net::NetworkIsolationKey& nik,
+    const blink::StorageKey& storage_key,
     mojo::PendingReceiver<blink::mojom::CodeCacheHost> receiver,
     CodeCacheHostReceiverHandler handler) {
   if (!receiver_set_) {
@@ -277,14 +266,15 @@ void CodeCacheHostImpl::ReceiverSet::Add(
       generated_code_cache_context_, FROM_HERE,
       base::BindOnce(&AddCodeCacheReceiver, receiver_set_.get(),
                      generated_code_cache_context_, render_process_id, nik,
-                     std::move(receiver), std::move(handler)));
+                     storage_key, std::move(receiver), std::move(handler)));
 }
 
 void CodeCacheHostImpl::ReceiverSet::Add(
     int render_process_id,
     const net::NetworkIsolationKey& nik,
+    const blink::StorageKey& storage_key,
     mojo::PendingReceiver<blink::mojom::CodeCacheHost> receiver) {
-  Add(render_process_id, nik, std::move(receiver),
+  Add(render_process_id, nik, storage_key, std::move(receiver),
       CodeCacheHostReceiverHandler());
 }
 
@@ -295,10 +285,12 @@ void CodeCacheHostImpl::ReceiverSet::Clear() {
 CodeCacheHostImpl::CodeCacheHostImpl(
     int render_process_id,
     scoped_refptr<GeneratedCodeCacheContext> generated_code_cache_context,
-    const net::NetworkIsolationKey& nik)
+    const net::NetworkIsolationKey& nik,
+    const blink::StorageKey& storage_key)
     : render_process_id_(render_process_id),
       generated_code_cache_context_(std::move(generated_code_cache_context)),
-      network_isolation_key_(nik) {
+      network_isolation_key_(nik),
+      storage_key_(storage_key) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 }
 
@@ -348,9 +340,9 @@ void CodeCacheHostImpl::FetchCachedCode(blink::mojom::CodeCacheType cache_type,
     return;
   }
 
-  auto read_callback =
-      base::BindOnce(&CodeCacheHostImpl::OnReceiveCachedCode,
-                     weak_ptr_factory_.GetWeakPtr(), std::move(callback));
+  auto read_callback = base::BindOnce(
+      &CodeCacheHostImpl::OnReceiveCachedCode, weak_ptr_factory_.GetWeakPtr(),
+      cache_type, base::TimeTicks::Now(), std::move(callback));
   code_cache->FetchEntry(url, *origin_lock, network_isolation_key_,
                          std::move(read_callback));
 }
@@ -375,25 +367,15 @@ void CodeCacheHostImpl::DidGenerateCacheableMetadataInCacheStorage(
     const GURL& url,
     base::Time expected_response_time,
     mojo_base::BigBuffer data,
-    const url::Origin& cache_storage_origin,
     const std::string& cache_storage_cache_name) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-
-  auto task = base::BindOnce(
-      &DidGenerateCacheableMetadataInCacheStorageOnUI, url,
-      expected_response_time, std::move(data), cache_storage_origin,
-      cache_storage_cache_name, render_process_id_,
-      cache_storage_control_for_testing_, mojo::GetBadMessageCallback());
-
-  // This class may or may not be on the UI thread depending on
-  // whether NavigationThreadingOptimizations is enabled.
-  // TODO(crbug.com/1083097): Simplify this code when
-  // the NavigationThreadOptimizations is enabled by default
-  // and the feature is removed.
-  if (BrowserThread::CurrentlyOn(BrowserThread::UI))
-    std::move(task).Run();
-  else
-    GetUIThreadTaskRunner({})->PostTask(FROM_HERE, std::move(task));
+  GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
+      base::BindOnce(&DidGenerateCacheableMetadataInCacheStorageOnUI, url,
+                     expected_response_time, std::move(data),
+                     cache_storage_cache_name, render_process_id_, storage_key_,
+                     cache_storage_control_for_testing_,
+                     mojo::GetBadMessageCallback()));
 }
 
 GeneratedCodeCache* CodeCacheHostImpl::GetCodeCache(
@@ -426,9 +408,17 @@ GeneratedCodeCache* CodeCacheHostImpl::GetCodeCache(
   return generated_code_cache_context_->generated_wasm_code_cache();
 }
 
-void CodeCacheHostImpl::OnReceiveCachedCode(FetchCachedCodeCallback callback,
-                                            const base::Time& response_time,
-                                            mojo_base::BigBuffer data) {
+void CodeCacheHostImpl::OnReceiveCachedCode(
+    blink::mojom::CodeCacheType cache_type,
+    base::TimeTicks start_time,
+    FetchCachedCodeCallback callback,
+    const base::Time& response_time,
+    mojo_base::BigBuffer data) {
+  if (cache_type == blink::mojom::CodeCacheType::kJavascript &&
+      data.size() > 0) {
+    base::UmaHistogramTimes("SiteIsolatedCodeCache.JS.FetchCodeCache",
+                            base::TimeTicks::Now() - start_time);
+  }
   std::move(callback).Run(response_time, std::move(data));
 }
 

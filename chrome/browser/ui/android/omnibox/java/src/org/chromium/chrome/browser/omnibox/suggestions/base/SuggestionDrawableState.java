@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,10 +13,9 @@ import android.graphics.drawable.Drawable;
 import androidx.annotation.ColorInt;
 import androidx.annotation.ColorRes;
 import androidx.annotation.DrawableRes;
-import androidx.appcompat.content.res.AppCompatResources;
 import androidx.core.util.ObjectsCompat;
 
-import org.chromium.base.ApiCompatibilityUtils;
+import org.chromium.chrome.browser.omnibox.styles.OmniboxResourceProvider;
 
 /** Represents graphical decoration for the suggestion components. */
 public class SuggestionDrawableState {
@@ -35,7 +34,7 @@ public class SuggestionDrawableState {
 
     /** Helper to construct SuggestionDrawableState objects.  */
     public static final class Builder {
-        private Drawable mDrawable;
+        private final Drawable mDrawable;
         private boolean mAllowTint;
         private boolean mUseRoundedCorners;
         private boolean mIsLarge;
@@ -76,8 +75,7 @@ public class SuggestionDrawableState {
          * @param colorRes Color resource to use.
          */
         public static Builder forColorRes(Context ctx, @ColorRes int colorRes) {
-            return new Builder(new ColorDrawable(
-                    ApiCompatibilityUtils.getColor(ctx.getResources(), colorRes)));
+            return new Builder(new ColorDrawable(ctx.getColor(colorRes)));
         }
 
         /**
@@ -87,7 +85,7 @@ public class SuggestionDrawableState {
          * @param res Drawable resource to use.
          */
         public static Builder forDrawableRes(Context ctx, @DrawableRes int res) {
-            return new Builder(AppCompatResources.getDrawable(ctx, res)).setDrawableRes(res);
+            return new Builder(OmniboxResourceProvider.getDrawable(ctx, res)).setDrawableRes(res);
         }
 
         /**

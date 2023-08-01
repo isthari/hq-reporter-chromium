@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -44,7 +44,7 @@ public class PlayerSwipeRefreshHandler implements OverscrollHandler {
                 new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
         // Use the same colors as {@link org.chromium.chrome.browser.SwipeRefreshHandler}.
         mSwipeRefreshLayout.setProgressBackgroundColorSchemeColor(
-                ChromeColors.getSurfaceColor(context, org.chromium.ui.R.dimen.default_elevation_2));
+                ChromeColors.getSurfaceColor(context, R.dimen.default_elevation_2));
         mSwipeRefreshLayout.setColorSchemeColors(
                 SemanticColorUtils.getDefaultControlColorActive(context));
         mSwipeRefreshLayout.setEnabled(true);

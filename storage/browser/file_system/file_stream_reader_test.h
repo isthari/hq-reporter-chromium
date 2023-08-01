@@ -1,15 +1,16 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef STORAGE_BROWSER_FILE_SYSTEM_FILE_STREAM_READER_TEST_H_
 #define STORAGE_BROWSER_FILE_SYSTEM_FILE_STREAM_READER_TEST_H_
 
-#include "base/callback_helpers.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/callback_helpers.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread.h"
+#include "base/time/time.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
 #include "net/base/test_completion_callback.h"
@@ -52,7 +53,10 @@ class FileStreamReaderTest : public testing::Test {
 
   static void NeverCalled(int unused) { ADD_FAILURE(); }
 
- private:
+ protected:
+  // Must be listed before base::test::TaskEnvironment.
+  base::ScopedTempDir dir_;
+
   // FileSystemContext queries QuotaDatabase, and even with MockQuotaManager
   // (which really fakes parts of QuotaManagerImpl), a thread pool is created
   // that requires TaskEnvironment.

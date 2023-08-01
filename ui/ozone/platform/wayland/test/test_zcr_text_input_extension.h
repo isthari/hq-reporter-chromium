@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <text-input-extension-unstable-v1-server-protocol.h>
 
+#include "base/memory/raw_ptr.h"
 #include "ui/ozone/platform/wayland/test/global_object.h"
 
 namespace wl {
@@ -19,7 +20,12 @@ class MockZcrExtendedTextInput;
 // Manage zcr_text_input_extension_v1 object.
 class TestZcrTextInputExtensionV1 : public GlobalObject {
  public:
-  TestZcrTextInputExtensionV1();
+  enum class Version : uint32_t {
+    kV7 = 7,
+    kV8 = 8,
+    kV10 = 10,
+  };
+  explicit TestZcrTextInputExtensionV1(Version version);
   TestZcrTextInputExtensionV1(const TestZcrTextInputExtensionV1&) = delete;
   TestZcrTextInputExtensionV1& operator=(const TestZcrTextInputExtensionV1&) =
       delete;
@@ -33,7 +39,7 @@ class TestZcrTextInputExtensionV1 : public GlobalObject {
   }
 
  private:
-  MockZcrExtendedTextInput* extended_text_input_;
+  raw_ptr<MockZcrExtendedTextInput> extended_text_input_;
 };
 
 }  // namespace wl

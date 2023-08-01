@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,7 @@
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace remoting {
 
@@ -31,6 +32,7 @@ using RegisterSupportHostResponseCallback = base::OnceCallback<void(
 constexpr char kSupportId[] = "123321456654";
 constexpr base::TimeDelta kSupportIdLifetime = base::Minutes(5);
 constexpr char kFtlId[] = "fake_user@domain.com/chromoting_ftl_abc123";
+const char kTestAuthorizedHelper[] = "helpful_dude@chromoting.com";
 
 void ValidateRegisterHost(const apis::v1::RegisterSupportHostRequest& request) {
   ASSERT_TRUE(request.has_host_version());
@@ -52,6 +54,31 @@ void RespondOk(RegisterSupportHostResponseCallback callback) {
 decltype(auto) DoValidateRegisterHostAndRespondOk() {
   return [=](std::unique_ptr<apis::v1::RegisterSupportHostRequest> request,
              RegisterSupportHostResponseCallback callback) {
+    ValidateRegisterHost(*request);
+    RespondOk(std::move(callback));
+  };
+}
+
+decltype(auto) DoValidateEnterpriseOptionsAndRespondOk(
+    const ChromeOsEnterpriseParams& params) {
+  return [=](std::unique_ptr<apis::v1::RegisterSupportHostRequest> request,
+             RegisterSupportHostResponseCallback callback) {
+    ASSERT_TRUE(request->has_chrome_os_enterprise_options());
+    auto& options = request->chrome_os_enterprise_options();
+    ASSERT_EQ(options.allow_troubleshooting_tools(),
+              params.allow_troubleshooting_tools);
+    ASSERT_EQ(options.allow_reconnections(), params.allow_reconnections);
+    ASSERT_EQ(options.allow_file_transfer(), params.allow_file_transfer);
+    ValidateRegisterHost(*request);
+    RespondOk(std::move(callback));
+  };
+}
+
+decltype(auto) DoValidateAuthorizedHelperAndRespondOk() {
+  return [=](std::unique_ptr<apis::v1::RegisterSupportHostRequest> request,
+             RegisterSupportHostResponseCallback callback) {
+    ASSERT_TRUE(request->has_authorized_helper());
+    ASSERT_EQ(request->authorized_helper(), kTestAuthorizedHelper);
     ValidateRegisterHost(*request);
     RespondOk(std::move(callback));
   };
@@ -108,6 +135,7 @@ class RemotingRegisterSupportHostTest : public testing::Test {
 
   std::unique_ptr<SignalStrategy> signal_strategy_;
   scoped_refptr<RsaKeyPair> key_pair_;
+  std::string authorized_helper_;
 };
 
 TEST_F(RemotingRegisterSupportHostTest, RegisterFtl) {
@@ -122,6 +150,65 @@ TEST_F(RemotingRegisterSupportHostTest, RegisterFtl) {
       .Times(1);
 
   register_host_request_->StartRequest(signal_strategy_.get(), key_pair_,
+                                       authorized_helper_, absl::nullopt,
+                                       register_callback.Get());
+  signal_strategy_->Connect();
+}
+
+TEST_F(RemotingRegisterSupportHostTest, RegisterWithEnterpriseOptionsDisabled) {
+  ChromeOsEnterpriseParams params{false, false, false};
+  EXPECT_CALL(*register_host_client_, RegisterSupportHost(_, _))
+      .WillOnce(DoValidateEnterpriseOptionsAndRespondOk(params));
+
+  EXPECT_CALL(*register_host_client_, CancelPendingRequests()).Times(1);
+
+  base::MockCallback<RegisterSupportHostRequest::RegisterCallback>
+      register_callback;
+  EXPECT_CALL(register_callback,
+              Run(kSupportId, kSupportIdLifetime, protocol::ErrorCode::OK))
+      .Times(1);
+
+  register_host_request_->StartRequest(signal_strategy_.get(), key_pair_,
+                                       authorized_helper_, std::move(params),
+                                       register_callback.Get());
+  signal_strategy_->Connect();
+}
+
+TEST_F(RemotingRegisterSupportHostTest, RegisterWithEnterpriseOptionsEnabled) {
+  ChromeOsEnterpriseParams params{true, true, true};
+  EXPECT_CALL(*register_host_client_, RegisterSupportHost(_, _))
+      .WillOnce(DoValidateEnterpriseOptionsAndRespondOk(params));
+
+  EXPECT_CALL(*register_host_client_, CancelPendingRequests()).Times(1);
+
+  base::MockCallback<RegisterSupportHostRequest::RegisterCallback>
+      register_callback;
+  EXPECT_CALL(register_callback,
+              Run(kSupportId, kSupportIdLifetime, protocol::ErrorCode::OK))
+      .Times(1);
+
+  register_host_request_->StartRequest(signal_strategy_.get(), key_pair_,
+                                       authorized_helper_, std::move(params),
+                                       register_callback.Get());
+  signal_strategy_->Connect();
+}
+
+TEST_F(RemotingRegisterSupportHostTest, RegisterWithAuthorizedHelper) {
+  EXPECT_CALL(*register_host_client_, RegisterSupportHost(_, _))
+      .WillOnce(DoValidateAuthorizedHelperAndRespondOk());
+
+  EXPECT_CALL(*register_host_client_, CancelPendingRequests()).Times(1);
+
+  base::MockCallback<RegisterSupportHostRequest::RegisterCallback>
+      register_callback;
+  EXPECT_CALL(register_callback,
+              Run(kSupportId, kSupportIdLifetime, protocol::ErrorCode::OK))
+      .Times(1);
+
+  authorized_helper_ = kTestAuthorizedHelper;
+
+  register_host_request_->StartRequest(signal_strategy_.get(), key_pair_,
+                                       authorized_helper_, absl::nullopt,
                                        register_callback.Get());
   signal_strategy_->Connect();
 }
@@ -146,6 +233,7 @@ TEST_F(RemotingRegisterSupportHostTest, FailedWithDeadlineExceeded) {
       .Times(1);
 
   register_host_request_->StartRequest(signal_strategy_.get(), key_pair_,
+                                       authorized_helper_, absl::nullopt,
                                        register_callback.Get());
   signal_strategy_->Connect();
 }
@@ -169,6 +257,7 @@ TEST_F(RemotingRegisterSupportHostTest,
       .Times(1);
 
   register_host_request_->StartRequest(signal_strategy_.get(), key_pair_,
+                                       authorized_helper_, absl::nullopt,
                                        register_callback.Get());
   signal_strategy_->Connect();
   signal_strategy_->Disconnect();

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,11 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <functional>
 
 #include "base/containers/stack_container.h"
+#include "base/functional/callback.h"
+#include "base/time/time.h"
 #include "ui/events/gesture_detection/gesture_detection_export.h"
 #include "ui/events/gesture_detection/gesture_event_data.h"
 
@@ -64,6 +67,10 @@ class GESTURE_DETECTION_EXPORT GestureEventDataPacket {
   void Ack(bool event_consumed, bool is_source_touch_event_set_blocking);
   AckState ack_state() { return ack_state_; }
   uint32_t unique_touch_event_id() const { return unique_touch_event_id_; }
+
+  void AddEventLatencyMetadataToGestures(
+      const EventLatencyMetadata& event_latency_metadata,
+      const base::RepeatingCallback<bool(const ui::GestureEventData&)>& filter);
 
  private:
   GestureEventDataPacket(base::TimeTicks timestamp,

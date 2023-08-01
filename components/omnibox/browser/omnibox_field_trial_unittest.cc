@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -50,7 +50,7 @@ class OmniboxFieldTrialTest : public testing::Test {
                                            const std::string& group_name) {
     base::FieldTrial* trial = base::FieldTrialList::CreateFieldTrial(
         name, group_name);
-    trial->group();
+    trial->Activate();
     return trial;
   }
 
@@ -118,7 +118,7 @@ void OmniboxFieldTrialTest::VerifySuggestPollingStrategy(
         OmniboxFieldTrial::kSuggestPollingDelayMsRule)] =
         polling_delay_ms_rule_value;
   }
-  ASSERT_TRUE(variations::AssociateVariationParams(
+  ASSERT_TRUE(base::AssociateFieldTrialParams(
       OmniboxFieldTrial::kBundledExperimentFieldTrialName, "A", params));
   base::FieldTrialList::CreateFieldTrial(
       OmniboxFieldTrial::kBundledExperimentFieldTrialName, "A");
@@ -139,7 +139,7 @@ TEST_F(OmniboxFieldTrialTest, GetDisabledProviderTypes) {
     SCOPED_TRACE("Valid field trial, missing param.");
     ResetFieldTrialList();
     std::map<std::string, std::string> params;
-    ASSERT_TRUE(variations::AssociateVariationParams(
+    ASSERT_TRUE(base::AssociateFieldTrialParams(
         OmniboxFieldTrial::kBundledExperimentFieldTrialName, "A", params));
     base::FieldTrialList::CreateFieldTrial(
         OmniboxFieldTrial::kBundledExperimentFieldTrialName, "A");
@@ -151,7 +151,7 @@ TEST_F(OmniboxFieldTrialTest, GetDisabledProviderTypes) {
     ResetFieldTrialList();
     std::map<std::string, std::string> params;
     params[std::string(OmniboxFieldTrial::kDisableProvidersRule)] = "";
-    ASSERT_TRUE(variations::AssociateVariationParams(
+    ASSERT_TRUE(base::AssociateFieldTrialParams(
         OmniboxFieldTrial::kBundledExperimentFieldTrialName, "A", params));
     base::FieldTrialList::CreateFieldTrial(
         OmniboxFieldTrial::kBundledExperimentFieldTrialName, "A");
@@ -163,7 +163,7 @@ TEST_F(OmniboxFieldTrialTest, GetDisabledProviderTypes) {
     ResetFieldTrialList();
     std::map<std::string, std::string> params;
     params[std::string(OmniboxFieldTrial::kDisableProvidersRule)] = "aaa";
-    ASSERT_TRUE(variations::AssociateVariationParams(
+    ASSERT_TRUE(base::AssociateFieldTrialParams(
         OmniboxFieldTrial::kBundledExperimentFieldTrialName, "A", params));
     base::FieldTrialList::CreateFieldTrial(
         OmniboxFieldTrial::kBundledExperimentFieldTrialName, "A");
@@ -175,7 +175,7 @@ TEST_F(OmniboxFieldTrialTest, GetDisabledProviderTypes) {
     ResetFieldTrialList();
     std::map<std::string, std::string> params;
     params[std::string(OmniboxFieldTrial::kDisableProvidersRule)] = "12321";
-    ASSERT_TRUE(variations::AssociateVariationParams(
+    ASSERT_TRUE(base::AssociateFieldTrialParams(
         OmniboxFieldTrial::kBundledExperimentFieldTrialName, "A", params));
     base::FieldTrialList::CreateFieldTrial(
         OmniboxFieldTrial::kBundledExperimentFieldTrialName, "A");
@@ -191,7 +191,7 @@ TEST_F(OmniboxFieldTrialTest, GetDemotionsByTypeWithFallback) {
     params[std::string(OmniboxFieldTrial::kDemoteByTypeRule) + ":3:*"] =
         "5:100";
     params[std::string(OmniboxFieldTrial::kDemoteByTypeRule) + ":*:*"] = "1:25";
-    ASSERT_TRUE(variations::AssociateVariationParams(
+    ASSERT_TRUE(base::AssociateFieldTrialParams(
         OmniboxFieldTrial::kBundledExperimentFieldTrialName, "A", params));
   }
   base::FieldTrialList::CreateFieldTrial(
@@ -268,7 +268,7 @@ TEST_F(OmniboxFieldTrialTest, GetValueForRuleInContext) {
     params["rule4:4:0"] = "rule4-4-0-value";  // OTHER
     // Add a malformed rule to make sure it doesn't screw things up.
     params["unrecognized"] = "unrecognized-value";
-    ASSERT_TRUE(variations::AssociateVariationParams(
+    ASSERT_TRUE(base::AssociateFieldTrialParams(
         OmniboxFieldTrial::kBundledExperimentFieldTrialName, "A", params));
   }
 
@@ -354,29 +354,6 @@ TEST_F(OmniboxFieldTrialTest, GetValueForRuleInContext) {
   }
 }
 
-TEST_F(OmniboxFieldTrialTest, LocalZeroSuggestAgeThreshold) {
-  base::test::ScopedFeatureList scoped_feature_list_;
-
-  // The default value can be overridden.
-  scoped_feature_list_.InitWithFeaturesAndParameters(
-      {{omnibox::kOmniboxLocalZeroSuggestAgeThreshold,
-        {{OmniboxFieldTrial::kOmniboxLocalZeroSuggestAgeThresholdParam, "3"}}}},
-      {});
-  base::Time age_threshold =
-      OmniboxFieldTrial::GetLocalHistoryZeroSuggestAgeThreshold();
-  EXPECT_EQ(3, base::TimeDelta(base::Time::Now() - age_threshold).InDays());
-
-  // If the age threshold is not parsable to an unsigned integer, the default
-  // value is used.
-  scoped_feature_list_.Reset();
-  scoped_feature_list_.InitWithFeaturesAndParameters(
-      {{omnibox::kOmniboxLocalZeroSuggestAgeThreshold,
-        {{OmniboxFieldTrial::kOmniboxLocalZeroSuggestAgeThresholdParam, "j"}}}},
-      {});
-  age_threshold = OmniboxFieldTrial::GetLocalHistoryZeroSuggestAgeThreshold();
-  EXPECT_EQ(7, base::TimeDelta(base::Time::Now() - age_threshold).InDays());
-}
-
 TEST_F(OmniboxFieldTrialTest, HUPNewScoringFieldTrial) {
   {
     std::map<std::string, std::string> params;
@@ -394,7 +371,7 @@ TEST_F(OmniboxFieldTrialTest, HUPNewScoringFieldTrial) {
     params[std::string(
         OmniboxFieldTrial::kHUPNewScoringVisitedCountScoreBucketsParam)] =
         "5:300,0:200";
-    ASSERT_TRUE(variations::AssociateVariationParams(
+    ASSERT_TRUE(base::AssociateFieldTrialParams(
         OmniboxFieldTrial::kBundledExperimentFieldTrialName, "A", params));
   }
   base::FieldTrialList::CreateFieldTrial(
@@ -428,7 +405,7 @@ TEST_F(OmniboxFieldTrialTest, HUPNewScoringFieldTrialWithDecayFactor) {
         "1";
     params[OmniboxFieldTrial::kHUPNewScoringTypedCountScoreBucketsParam] =
         "0.1:100,0.5:500,1.0:1000";
-    ASSERT_TRUE(variations::AssociateVariationParams(
+    ASSERT_TRUE(base::AssociateFieldTrialParams(
         OmniboxFieldTrial::kBundledExperimentFieldTrialName, "A", params));
   }
   base::FieldTrialList::CreateFieldTrial(

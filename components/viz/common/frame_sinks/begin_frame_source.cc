@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include "base/check_op.h"
 #include "base/containers/contains.h"
 #include "base/location.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/notreached.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/string_number_conversions.h"
@@ -166,14 +167,20 @@ void BeginFrameSource::SetIsGpuBusy(bool busy) {
   is_gpu_busy_ = busy;
   if (is_gpu_busy_) {
     DCHECK_EQ(gpu_busy_response_state_, GpuBusyThrottlingState::kIdle);
+    gpu_busy_start_time_ = base::TimeTicks::Now();
     return;
   }
 
   const bool was_throttled =
       gpu_busy_response_state_ == GpuBusyThrottlingState::kThrottled;
   gpu_busy_response_state_ = GpuBusyThrottlingState::kIdle;
-  if (was_throttled)
+  if (was_throttled) {
+    UMA_HISTOGRAM_CUSTOM_MICROSECONDS_TIMES(
+        "Viz.FrameSink.GpuBusyDuration",
+        base::TimeTicks::Now() - gpu_busy_start_time_, base::Microseconds(1),
+        base::Seconds(5), /*bucket_count=*/100);
     OnGpuNoLongerBusy();
+  }
 }
 
 bool BeginFrameSource::RequestCallbackOnGpuAvailable() {
@@ -236,16 +243,10 @@ BackToBackBeginFrameSource::~BackToBackBeginFrameSource() = default;
 void BackToBackBeginFrameSource::AddObserver(BeginFrameObserver* obs) {
   DCHECK(obs);
   DCHECK(!base::Contains(observers_, obs));
-  bool first_observer = observers_.empty();
   observers_.insert(obs);
   pending_begin_frame_observers_.insert(obs);
   obs->OnBeginFrameSourcePausedChanged(false);
   time_source_->SetActive(true);
-  if (first_observer) {
-    base::flat_set<BeginFrameSourceObserver*> state_observers(state_observers_);
-    for (auto* state_observer : state_observers)
-      state_observer->BeginFrameRequestedChanged(true);
-  }
 }
 
 void BackToBackBeginFrameSource::RemoveObserver(BeginFrameObserver* obs) {
@@ -255,24 +256,7 @@ void BackToBackBeginFrameSource::RemoveObserver(BeginFrameObserver* obs) {
   pending_begin_frame_observers_.erase(obs);
   if (pending_begin_frame_observers_.empty()) {
     time_source_->SetActive(false);
-    base::flat_set<BeginFrameSourceObserver*> state_observers(state_observers_);
-    for (auto* state_observer : state_observers)
-      state_observer->BeginFrameRequestedChanged(false);
   }
-}
-
-void BackToBackBeginFrameSource::AddStateObserver(
-    BeginFrameSourceObserver* obs) {
-  DCHECK(obs);
-  DCHECK(!base::Contains(state_observers_, obs));
-  state_observers_.insert(obs);
-}
-
-void BackToBackBeginFrameSource::RemoveStateObserver(
-    BeginFrameSourceObserver* obs) {
-  DCHECK(obs);
-  DCHECK(base::Contains(state_observers_, obs));
-  state_observers_.erase(obs);
 }
 
 void BackToBackBeginFrameSource::DidFinishFrame(BeginFrameObserver* obs) {
@@ -286,14 +270,21 @@ void BackToBackBeginFrameSource::OnGpuNoLongerBusy() {
   OnTimerTick();
 }
 
+void BackToBackBeginFrameSource::SetMaxVrrInterval(
+    const absl::optional<base::TimeDelta>& max_vrr_interval) {
+  DCHECK(!max_vrr_interval.has_value() || !max_vrr_interval->is_zero());
+  max_vrr_interval_ = max_vrr_interval;
+}
+
 void BackToBackBeginFrameSource::OnTimerTick() {
   if (RequestCallbackOnGpuAvailable())
     return;
   base::TimeTicks frame_time = time_source_->LastTickTime();
-  base::TimeDelta default_interval = BeginFrameArgs::DefaultInterval();
+  base::TimeDelta interval =
+      max_vrr_interval_.value_or(BeginFrameArgs::DefaultInterval());
   BeginFrameArgs args = BeginFrameArgs::Create(
       BEGINFRAME_FROM_HERE, source_id(), next_sequence_number_, frame_time,
-      frame_time + default_interval, default_interval, BeginFrameArgs::NORMAL);
+      frame_time + interval, interval, BeginFrameArgs::NORMAL);
   next_sequence_number_++;
 
   // This must happen after getting the LastTickTime() from the time source.
@@ -372,20 +363,6 @@ void DelayBasedBeginFrameSource::RemoveObserver(BeginFrameObserver* obs) {
     SetActive(false);
 }
 
-void DelayBasedBeginFrameSource::AddStateObserver(
-    BeginFrameSourceObserver* obs) {
-  DCHECK(obs);
-  DCHECK(!base::Contains(state_observers_, obs));
-  state_observers_.insert(obs);
-}
-
-void DelayBasedBeginFrameSource::RemoveStateObserver(
-    BeginFrameSourceObserver* obs) {
-  DCHECK(obs);
-  DCHECK(base::Contains(state_observers_, obs));
-  state_observers_.erase(obs);
-}
-
 void DelayBasedBeginFrameSource::OnGpuNoLongerBusy() {
   OnTimerTick();
 }
@@ -400,7 +377,12 @@ void DelayBasedBeginFrameSource::SetDynamicBeginFrameDeadlineOffsetSource(
 void DelayBasedBeginFrameSource::OnTimerTick() {
   if (RequestCallbackOnGpuAvailable())
     return;
-  last_begin_frame_args_ = CreateBeginFrameArgs(time_source_->LastTickTime());
+  // In case of gpu back pressure LastTickTime can fall behind, and in case of
+  // a change in vsync using (NextTickTime-interval) could be before
+  // LastTickTime, so should use the latest of the two.
+  last_begin_frame_args_ = CreateBeginFrameArgs(
+      std::max(time_source_->LastTickTime(),
+               time_source_->NextTickTime() - time_source_->Interval()));
   TRACE_EVENT2(
       "viz", "DelayBasedBeginFrameSource::OnTimerTick", "frame_time",
       last_begin_frame_args_.frame_time.since_origin().InMicroseconds(),
@@ -429,9 +411,6 @@ void DelayBasedBeginFrameSource::SetActive(bool active) {
   if (time_source_->Active() == active)
     return;
   time_source_->SetActive(active);
-  base::flat_set<BeginFrameSourceObserver*> state_observers(state_observers_);
-  for (auto* state_observer : state_observers)
-    state_observer->BeginFrameRequestedChanged(active);
 }
 
 // ExternalBeginFrameSource -----------------------------------------------
@@ -463,9 +442,6 @@ void ExternalBeginFrameSource::AddObserver(BeginFrameObserver* obs) {
 
   if (observers_.empty()) {
     client_->OnNeedsBeginFrames(true);
-    base::flat_set<BeginFrameSourceObserver*> state_observers(state_observers_);
-    for (auto* state_observer : state_observers)
-      state_observer->BeginFrameRequestedChanged(true);
   }
 
   observers_.insert(obs);
@@ -486,23 +462,7 @@ void ExternalBeginFrameSource::RemoveObserver(BeginFrameObserver* obs) {
   observers_.erase(obs);
   if (observers_.empty()) {
     client_->OnNeedsBeginFrames(false);
-    base::flat_set<BeginFrameSourceObserver*> state_observers(state_observers_);
-    for (auto* state_observer : state_observers)
-      state_observer->BeginFrameRequestedChanged(false);
   }
-}
-
-void ExternalBeginFrameSource::AddStateObserver(BeginFrameSourceObserver* obs) {
-  DCHECK(obs);
-  DCHECK(!base::Contains(state_observers_, obs));
-  state_observers_.insert(obs);
-}
-
-void ExternalBeginFrameSource::RemoveStateObserver(
-    BeginFrameSourceObserver* obs) {
-  DCHECK(obs);
-  DCHECK(base::Contains(state_observers_, obs));
-  state_observers_.erase(obs);
 }
 
 void ExternalBeginFrameSource::OnGpuNoLongerBusy() {
@@ -572,6 +532,10 @@ BeginFrameArgs ExternalBeginFrameSource::GetMissedBeginFrameArgs(
   BeginFrameArgs missed_args = last_begin_frame_args_;
   missed_args.type = BeginFrameArgs::MISSED;
   return missed_args;
+}
+
+base::TimeDelta ExternalBeginFrameSource::GetMaximumRefreshFrameInterval() {
+  return BeginFrameArgs::DefaultInterval();
 }
 
 }  // namespace viz

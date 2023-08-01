@@ -1,18 +1,15 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.download.service;
 
-import android.os.Bundle;
+import android.os.PersistableBundle;
 import android.text.format.DateUtils;
 
 import org.chromium.base.ContextUtils;
-import org.chromium.base.TimeUtils;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
-import org.chromium.chrome.browser.flags.CachedFeatureFlags;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.components.background_task_scheduler.BackgroundTaskScheduler;
 import org.chromium.components.background_task_scheduler.BackgroundTaskSchedulerFactory;
 import org.chromium.components.background_task_scheduler.TaskIds;
@@ -34,7 +31,7 @@ public class DownloadTaskScheduler {
     private static void scheduleTask(@DownloadTaskType int taskType,
             boolean requiresUnmeteredNetwork, boolean requiresCharging,
             int optimalBatteryPercentage, long windowStartTimeSeconds, long windowEndTimeSeconds) {
-        Bundle bundle = new Bundle();
+        PersistableBundle bundle = new PersistableBundle();
         bundle.putInt(EXTRA_TASK_TYPE, taskType);
         bundle.putInt(EXTRA_OPTIMAL_BATTERY_PERCENTAGE, optimalBatteryPercentage);
         bundle.putBoolean(EXTRA_BATTERY_REQUIRES_CHARGING, requiresCharging);
@@ -57,21 +54,6 @@ public class DownloadTaskScheduler {
     private static void cancelTask(@DownloadTaskType int taskType) {
         BackgroundTaskScheduler scheduler = BackgroundTaskSchedulerFactory.getScheduler();
         scheduler.cancel(ContextUtils.getApplicationContext(), getTaskId(taskType));
-    }
-
-    /**
-     * Invoked when the system sends a reschedule() call, which might happen in case of OS or play
-     * services upgrade etc. This will schedule the tasks in future with least restrictive criteria.
-     */
-    public static void rescheduleAllTasks() {
-        scheduleTask(DownloadTaskType.DOWNLOAD_TASK, false, false, 0,
-                TimeUtils.SECONDS_PER_MINUTE * 5, TimeUtils.SECONDS_PER_MINUTE * 10);
-        scheduleTask(DownloadTaskType.CLEANUP_TASK, false, false, 0,
-                TimeUtils.SECONDS_PER_HOUR * 12, TimeUtils.SECONDS_PER_HOUR * 24);
-        if (CachedFeatureFlags.isEnabled(ChromeFeatureList.DOWNLOADS_AUTO_RESUMPTION_NATIVE)) {
-            scheduleTask(DownloadTaskType.DOWNLOAD_AUTO_RESUMPTION_TASK, false, false, 0,
-                    TimeUtils.SECONDS_PER_MINUTE * 5, TimeUtils.SECONDS_PER_DAY);
-        }
     }
 
     private static int getTaskId(@DownloadTaskType int taskType) {

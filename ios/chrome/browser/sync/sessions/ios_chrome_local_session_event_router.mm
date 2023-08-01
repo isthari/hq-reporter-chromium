@@ -1,24 +1,25 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/sync/sessions/ios_chrome_local_session_event_router.h"
+#import "ios/chrome/browser/sync/sessions/ios_chrome_local_session_event_router.h"
 
-#include <stddef.h>
+#import <stddef.h>
 
-#include "base/bind.h"
-#include "base/check.h"
-#include "components/history/core/browser/history_service.h"
-#include "components/keyed_service/core/service_access_type.h"
-#include "components/sync_sessions/sync_sessions_client.h"
-#include "components/sync_sessions/synced_tab_delegate.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/history/history_service_factory.h"
-#import "ios/chrome/browser/main/all_web_state_list_observation_registrar.h"
-#include "ios/chrome/browser/sync/glue/sync_start_util.h"
-#include "ios/chrome/browser/sync/ios_chrome_synced_tab_delegate.h"
-#include "ios/chrome/browser/tabs/tab_parenting_global_observer.h"
-#import "ios/chrome/browser/web_state_list/web_state_list.h"
+#import "base/check.h"
+#import "base/functional/bind.h"
+#import "components/history/core/browser/history_service.h"
+#import "components/keyed_service/core/service_access_type.h"
+#import "components/sync_sessions/sync_sessions_client.h"
+#import "components/sync_sessions/synced_tab_delegate.h"
+#import "ios/chrome/browser/history/history_service_factory.h"
+#import "ios/chrome/browser/shared/model/browser/all_web_state_list_observation_registrar.h"
+#import "ios/chrome/browser/shared/model/browser/browser_list_factory.h"
+#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/sync/glue/sync_start_util.h"
+#import "ios/chrome/browser/sync/ios_chrome_synced_tab_delegate.h"
+#import "ios/chrome/browser/tabs/tab_parenting_global_observer.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -39,15 +40,18 @@ IOSChromeLocalSessionEventRouter::IOSChromeLocalSessionEventRouter(
     ChromeBrowserState* browser_state,
     sync_sessions::SyncSessionsClient* sessions_client,
     const syncer::SyncableService::StartSyncFlare& flare)
-    : handler_(nullptr), sessions_client_(sessions_client), flare_(flare) {
-  tab_parented_subscription_ =
-      TabParentingGlobalObserver::GetInstance()->RegisterCallback(
-          base::BindRepeating(&IOSChromeLocalSessionEventRouter::OnTabParented,
-                              base::Unretained(this)));
-
-  registrars_.insert(std::make_unique<AllWebStateListObservationRegistrar>(
-      browser_state, std::make_unique<Observer>(this),
-      AllWebStateListObservationRegistrar::Mode::REGULAR));
+    : registrar_(std::make_unique<AllWebStateListObservationRegistrar>(
+          BrowserListFactory::GetForBrowserState(browser_state),
+          std::make_unique<Observer>(this),
+          AllWebStateListObservationRegistrar::Mode::REGULAR)),
+      sessions_client_(sessions_client),
+      flare_(flare),
+      tab_parented_subscription_(
+          TabParentingGlobalObserver::GetInstance()->RegisterCallback(
+              base::BindRepeating(
+                  &IOSChromeLocalSessionEventRouter::OnTabParented,
+                  base::Unretained(this)))) {
+  DCHECK(sessions_client_);
 }
 
 IOSChromeLocalSessionEventRouter::~IOSChromeLocalSessionEventRouter() {}
@@ -141,8 +145,7 @@ void IOSChromeLocalSessionEventRouter::OnSessionEventEnded() {
   if (handler_)
     handler_->OnSessionRestoreComplete();
   if (!flare_.is_null()) {
-    flare_.Run(syncer::SESSIONS);
-    flare_.Reset();
+    std::move(flare_).Run(syncer::SESSIONS);
   }
 }
 
@@ -154,14 +157,19 @@ void IOSChromeLocalSessionEventRouter::OnWebStateChange(
       GetSyncedTabDelegateFromWebState(web_state);
   if (!tab)
     return;
+  // Some WebState event happen during the navigation restoration. Ignore
+  // them as the tab is still considered as placeholder by this point as
+  // the session cannot be forwarded to sync yet.
+  if (tab->IsPlaceholderTab()) {
+    return;
+  }
   if (handler_)
     handler_->OnLocalTabModified(tab);
   if (!tab->ShouldSync(sessions_client_))
     return;
 
   if (!flare_.is_null()) {
-    flare_.Run(syncer::SESSIONS);
-    flare_.Reset();
+    std::move(flare_).Run(syncer::SESSIONS);
   }
 }
 

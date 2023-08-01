@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,15 +7,16 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/i18n/rtl.h"
+#include "base/memory/raw_ptr.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/views/animation/flood_fill_ink_drop_ripple.h"
 #include "ui/views/animation/ink_drop.h"
-#include "ui/views/animation/ink_drop_host_view.h"
+#include "ui/views/animation/ink_drop_host.h"
 #include "ui/views/animation/ink_drop_impl.h"
 #include "ui/views/animation/ink_drop_ripple.h"
 #include "ui/views/animation/ink_drop_state.h"
@@ -48,8 +49,8 @@ class LockScreenActionBackgroundView::NoteBackground : public views::View {
                                         : host->GetLocalBounds().top_right();
           auto ink_drop_ripple =
               std::make_unique<views::FloodFillInkDropRipple>(
-                  host->size(), gfx::Insets(), center,
-                  views::InkDrop::Get(host)->GetBaseColor(), 1);
+                  views::InkDrop::Get(host), host->size(), gfx::Insets(),
+                  center, views::InkDrop::Get(host)->GetBaseColor(), 1);
           ink_drop_ripple->set_use_hide_transform_duration_for_hide_fade_out(
               true);
           ink_drop_ripple->set_duration_factor(1.5);
@@ -65,7 +66,7 @@ class LockScreenActionBackgroundView::NoteBackground : public views::View {
   ~NoteBackground() override = default;
 
  private:
-  views::InkDropObserver* observer_;
+  raw_ptr<views::InkDropObserver, ExperimentalAsh> observer_;
 };
 
 LockScreenActionBackgroundView::LockScreenActionBackgroundView() {
@@ -78,7 +79,7 @@ LockScreenActionBackgroundView::LockScreenActionBackgroundView() {
   auto* layout_ptr = SetLayoutManager(std::move(layout_manager));
 
   background_ = new NoteBackground(this);
-  AddChildView(background_);
+  AddChildView(background_.get());
   // Make background view flexible - the constant does not really matter given
   // that |background_| is the only child, as long as it's greater than 0.
   layout_ptr->SetFlexForView(background_, 1 /*flex_weight*/);

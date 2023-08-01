@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,16 +11,16 @@
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
+#include "ash/style/ash_color_id.h"
 #include "ash/style/ash_color_provider.h"
 #include "ash/wallpaper/wallpaper_controller_impl.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/task/single_thread_task_runner.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/compositor/layer.h"
 #include "ui/gfx/canvas.h"
-#include "ui/gfx/color_analysis.h"
-#include "ui/gfx/color_utils.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/background.h"
 #include "ui/views/controls/button/label_button.h"
@@ -93,8 +93,7 @@ class PinRequestView::FocusableLabelButton : public views::LabelButton {
   FocusableLabelButton(PressedCallback callback, const std::u16string& text)
       : views::LabelButton(std::move(callback), text) {
     SetInstallFocusRingOnFocus(true);
-    views::FocusRing::Get(this)->SetColor(
-        ShelfConfig::Get()->shelf_focus_border_color());
+    views::FocusRing::Get(this)->SetColorId(ui::kColorAshFocusRing);
     SetFocusBehavior(FocusBehavior::ALWAYS);
   }
 
@@ -174,8 +173,8 @@ PinRequestView::PinRequestView(PinRequest request, Delegate* delegate)
   // Main view contains all other views aligned vertically and centered.
   auto layout = std::make_unique<views::BoxLayout>(
       views::BoxLayout::Orientation::kVertical,
-      gfx::Insets(kPinRequestViewVerticalInsetDp,
-                  kPinRequestViewHorizontalInsetDp),
+      gfx::Insets::VH(kPinRequestViewVerticalInsetDp,
+                      kPinRequestViewHorizontalInsetDp),
       0);
   layout->set_main_axis_alignment(views::BoxLayout::MainAxisAlignment::kStart);
   layout->set_cross_axis_alignment(
@@ -254,7 +253,7 @@ PinRequestView::PinRequestView(PinRequest request, Delegate* delegate)
   back_button_->SetAccessibleName(
       l10n_util::GetStringUTF16(IDS_ASH_LOGIN_BACK_BUTTON_ACCESSIBLE_NAME));
   back_button_->SetFocusBehavior(FocusBehavior::ALWAYS);
-  back_button_view->AddChildView(back_button_);
+  back_button_view->AddChildView(back_button_.get());
 
   auto add_spacer = [&](int height) {
     auto* spacer = new NonAccessibleView();
@@ -282,7 +281,7 @@ PinRequestView::PinRequestView(PinRequest request, Delegate* delegate)
   title_label_->SetFontList(gfx::FontList().Derive(
       kTitleFontSizeDeltaDp, gfx::Font::NORMAL, gfx::Font::Weight::MEDIUM));
   decorate_label(title_label_);
-  AddChildView(title_label_);
+  AddChildView(title_label_.get());
 
   add_spacer(kTitleToDescriptionDistanceDp);
 
@@ -298,11 +297,9 @@ PinRequestView::PinRequestView(PinRequest request, Delegate* delegate)
       gfx::FontList().Derive(kDescriptionFontSizeDeltaDp, gfx::Font::NORMAL,
                              gfx::Font::Weight::NORMAL));
   decorate_label(description_label_);
-  AddChildView(description_label_);
+  AddChildView(description_label_.get());
 
   add_spacer(kDescriptionToAccessCodeDistanceDp);
-
-  LoginPalette palette = CreateDefaultLoginPalette();
 
   // Access code input view.
   if (request.pin_length.has_value()) {
@@ -314,7 +311,7 @@ PinRequestView::PinRequestView(PinRequest request, Delegate* delegate)
         base::BindRepeating(&PinRequestView::SubmitCode,
                             base::Unretained(this)),
         base::BindRepeating(&PinRequestView::OnBack, base::Unretained(this)),
-        request.obscure_pin, palette.pin_input_text_color));
+        request.obscure_pin));
     access_code_view_->SetFocusBehavior(FocusBehavior::ALWAYS);
   } else {
     auto flex_code_input = std::make_unique<FlexCodeInput>(
@@ -323,7 +320,7 @@ PinRequestView::PinRequestView(PinRequest request, Delegate* delegate)
         base::BindRepeating(&PinRequestView::SubmitCode,
                             base::Unretained(this)),
         base::BindRepeating(&PinRequestView::OnBack, base::Unretained(this)),
-        request.obscure_pin, palette.pin_input_text_color);
+        request.obscure_pin);
     flex_code_input->SetAccessibleName(default_accessible_title_);
     access_code_view_ = AddChildView(std::move(flex_code_input));
   }
@@ -332,16 +329,16 @@ PinRequestView::PinRequestView(PinRequest request, Delegate* delegate)
 
   // Pin keyboard. Note that the keyboard's own submit button is disabled via
   // passing a null |on_submit| callback.
-  pin_keyboard_view_ = new LoginPinView(
-      LoginPinView::Style::kAlphanumeric, CreateDefaultLoginPalette(),
-      base::BindRepeating(&AccessCodeInput::InsertDigit,
-                          base::Unretained(access_code_view_)),
-      base::BindRepeating(&AccessCodeInput::Backspace,
-                          base::Unretained(access_code_view_)),
-      /*on_submit=*/LoginPinView::OnPinSubmit());
+  pin_keyboard_view_ =
+      new LoginPinView(LoginPinView::Style::kAlphanumeric,
+                       base::BindRepeating(&AccessCodeInput::InsertDigit,
+                                           base::Unretained(access_code_view_)),
+                       base::BindRepeating(&AccessCodeInput::Backspace,
+                                           base::Unretained(access_code_view_)),
+                       /*on_submit=*/LoginPinView::OnPinSubmit());
   // Backspace key is always enabled and |access_code_| field handles it.
   pin_keyboard_view_->OnPasswordTextChanged(false);
-  AddChildView(pin_keyboard_view_);
+  AddChildView(pin_keyboard_view_.get());
 
   add_spacer(kPinKeyboardToFooterDistanceDp);
 
@@ -365,7 +362,7 @@ PinRequestView::PinRequestView(PinRequest request, Delegate* delegate)
       AshColorProvider::Get()->GetContentLayerColor(
           AshColorProvider::ContentLayerType::kTextColorPrimary));
   help_button_->SetVisible(request.help_button_enabled);
-  footer->AddChildView(help_button_);
+  footer->AddChildView(help_button_.get());
 
   auto* horizontal_spacer = new NonAccessibleView();
   footer->AddChildView(horizontal_spacer);
@@ -380,7 +377,7 @@ PinRequestView::PinRequestView(PinRequest request, Delegate* delegate)
   submit_button_->SetAccessibleName(
       l10n_util::GetStringUTF16(IDS_ASH_LOGIN_SUBMIT_BUTTON_ACCESSIBLE_NAME));
   submit_button_->SetFocusBehavior(FocusBehavior::ALWAYS);
-  footer->AddChildView(submit_button_);
+  footer->AddChildView(submit_button_.get());
   add_spacer(kSubmitButtonBottomMarginDp);
 
   pin_keyboard_view_->SetVisible(PinKeyboardVisible());
@@ -509,8 +506,9 @@ void PinRequestView::SetInputEnabled(bool input_enabled) {
 
 void PinRequestView::UpdatePreferredSize() {
   SetPreferredSize(CalculatePreferredSize());
-  if (GetWidget())
+  if (GetWidget()) {
     GetWidget()->CenterWindow(GetPreferredSize());
+  }
 }
 
 void PinRequestView::FocusSubmitButton() {
@@ -534,7 +532,7 @@ void PinRequestView::OnInputChange(bool last_field_active, bool complete) {
 
     // Moving focus is delayed by using PostTask to allow for proper
     // a11y announcements.
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&PinRequestView::FocusSubmitButton,
                                   weak_ptr_factory_.GetWeakPtr()));
   }
@@ -561,8 +559,9 @@ gfx::Size PinRequestView::GetPinRequestViewSize() const {
       std::min(static_cast<int>(description_label_->GetRequiredLines()),
                kDescriptionMaxLines) *
           kDescriptionTextLineHeightDp;
-  if (PinKeyboardVisible())
+  if (PinKeyboardVisible()) {
     height += kPinKeyboardHeightDp;
+  }
   return gfx::Size(kPinRequestViewWidthDp, height);
 }
 

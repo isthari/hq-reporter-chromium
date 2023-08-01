@@ -1,4 +1,4 @@
-# Copyright 2016 The Chromium Authors. All rights reserved.
+# Copyright 2016 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -31,7 +31,6 @@ blink_modules_sources("indexeddb") {
     "idb_key_range.h",
     "idb_metadata.cc",
     "idb_metadata.h",
-    "idb_name_and_version.h",
     "idb_object_store.cc",
     "idb_object_store.h",
     "idb_open_db_request.cc",
@@ -42,7 +41,6 @@ blink_modules_sources("indexeddb") {
     "idb_request_loader.h",
     "idb_request_queue_item.cc",
     "idb_request_queue_item.h",
-    "idb_tracing.h",
     "idb_transaction.cc",
     "idb_transaction.h",
     "idb_value.cc",
@@ -76,7 +74,6 @@ source_set("unit_tests") {
   testonly = true
 
   sources = [
-    "idb_factory_test.cc",
     "idb_key_path_test.cc",
     "idb_request_test.cc",
     "idb_test_helper.cc",

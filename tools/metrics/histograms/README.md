@@ -84,12 +84,12 @@ callsite. At a given callsite (preferably you have only one), the string
 should be the same every time the macro is called. If you need to use dynamic
 names, use the functions in histogram_functions.h instead of the macros.
 
-### Don't Use Same String in Multiple Places
+### Don't Use Same Inline String in Multiple Places
 
 If you must use the histogram name in multiple places, use a compile-time
 constant of appropriate scope that can be referenced everywhere. Using inline
 strings in multiple places can lead to errors if you ever need to revise the
-name and you update one one location and forget another.
+name and you update one location and forget another.
 
 ### Efficiency
 
@@ -186,6 +186,8 @@ or:
 UmaHistogramEnumeration("NewTabPageAction", action);
 ```
 
+where `action` is an enumerator of the enumeration type `NewTabPageAction`.
+
 Logging histograms from Java should look similar:
 
 ```java
@@ -207,6 +209,9 @@ private static void logNewTabPageAction(@NewTabPageAction int action) {
             "NewTabPageAction", action, NewTabPageAction.COUNT);
 }
 ```
+
+Finally, regardless of the programming language you are using, add the
+definition of the enumerator to [enums.xml](./enums.xml).
 
 #### Legacy Enums
 
@@ -247,11 +252,18 @@ by the `AboutFlagsHistogramTest` unit test.
 
 To add a new entry:
 
+1. After adding flags
+   to [about_flags.cc](../../../chrome/browser/about_flags.cc),
+   run `generate_flag_enums.py --feature <your awesome feature>` or
+   simply `generate_flag_enums.py` (slower).
+
+You can alternatively follow these steps:
+
 1. Edit [enums.xml](./enums.xml), adding the feature to the `LoginCustomFlags`
    enum section, with any unique value (just make one up, although whatever it
    is needs to appear in sorted order; `pretty_print.py` can do this for you).
 2. Build `unit_tests`, then run `unit_tests
-   --gtest_filter='AboutFlagsHistogramTest.*'` to compute the correct value.
+   --gtest_filter=AboutFlagsHistogramTest.*` to compute the correct value.
 3. Update the entry in [enums.xml](./enums.xml) with the correct value, and move
    it so the list is sorted by value (`pretty_print.py` can do this for you).
 4. Re-run the test to ensure the value and ordering are correct.
@@ -292,14 +304,15 @@ situation.
 #### Count Histograms: Choosing Number of Buckets
 
 Choose the smallest number of buckets that give you the granularity you need. By
-default, count histogram bucket sizes scale exponentially, so you can get fine
-granularity when the numbers are small yet still reasonable resolution for
-larger numbers. The macros default to 50 buckets (or 100 buckets for histograms
-with wide ranges), which is appropriate for most purposes. Because histograms
-pre-allocate all the buckets, the number of buckets selected directly dictates
-how much memory is used. Do not exceed 100 buckets without good reason (and
-consider whether [sparse histograms](#When-To-Use-Sparse-Histograms) might work
-better for you in that case—they do not pre-allocate their buckets).
+default, count histogram bucket sizes increase exponentially with respect to the
+value (i.e., exponential binning), so you can get fine granularity when the
+values are small yet still reasonable resolution when the values are larger. The
+macros default to 50 buckets (or 100 buckets for histograms with wide ranges),
+which is appropriate for most purposes. Because histograms pre-allocate all the
+buckets, the number of buckets selected directly dictates how much memory is
+used. Do not exceed 100 buckets without good reason (and consider whether
+[sparse histograms](#When-To-Use-Sparse-Histograms) might work better for you in
+that case—they do not pre-allocate their buckets).
 
 ### Timing Histograms
 
@@ -373,17 +386,19 @@ someone from the OWNERS file.
 
 Histogram expiry is specified by the `expires_after` attribute in histogram
 descriptions in histograms.xml. The attribute can be specified as date in
-**YYYY-MM-DD** format or as Chrome milestone in **M**\*(e.g. M68) format. In the
-latter case, the actual expiry date is about 12 weeks after that branch is cut,
-or basically when it is replaced on the "stable" channel by the following
+**YYYY-MM-DD** format or as Chrome milestone in **M**\*(e.g. M105) format. In
+the latter case, the actual expiry date is about 12 weeks after that branch is
+cut, or basically when it is replaced on the "stable" channel by the following
 release.
 
 After a histogram expires, it ceases to be displayed on the dashboard.
 Follow [these directions](#extending) to extend it.
 
 Once a histogram has expired, the code that records it becomes dead code and
-should be removed from the codebase along with marking the histogram definition
-as obsolete.
+should be removed from the codebase. You should also [clean up](#obsolete) the
+corresponding entry in histograms.xml. In _rare_ cases, a histogram may be
+expired intentionally while keeping the code around; such cases must be
+[annotated appropriately](#Intentionally-expired-histograms) in histograms.xml.
 
 In **rare** cases, the expiry can be set to "never". This is used to denote
 metrics of critical importance that are, typically, used for other reports. For
@@ -464,11 +479,29 @@ crbugs accordingly.
 ### Expired histogram allowlist
 
 If a histogram expires but turns out to be useful, you can add the histogram's
-name to the allowlist until the updated expiration date reaches the stable
-channel. When doing so, update the histogram's summary to document the period
-during which the histogram's data is incomplete. To add a histogram to the
-allowlist, see the internal documentation:
+name to the allowlist to re-enable logging for it, until the updated expiration
+date reaches the Stable channel. When doing so, update the histogram's summary
+to document the period during which the histogram's data is incomplete. To add a
+histogram to the allowlist, see the internal documentation:
 [Histogram Expiry](https://goto.google.com/histogram-expiry-gdoc).
+
+### Intentionally expired histograms
+
+In **rare** cases, a histogram may be expired intentionally while keeping the
+code around. For example, this can be useful for diagnostic metrics that are
+occasionally needed to investigate specific bugs, but do not need to be reported
+otherwise.
+
+To avoid such histograms to be flagged for code clean up, they must be annotated
+in the histograms.xml with the `expired_intentionally` tag as follows:
+
+```xml
+<histogram name="Tab.Open" enum="TabType" expires_after="M100">
+ <expired_intentionally>Kept as a diagnostic metric.</expired_intentionally>
+ <owner>histogramowner@chromium.org</owner>
+ <summary>Histogram summary.</summary>
+</histogram>
+```
 
 ## Testing
 
@@ -478,12 +511,19 @@ the values emitted to are correct. Finally, for count histograms, make sure
 that buckets capture enough precision for your needs over the range.
 
 Pro tip: You can filter the set of histograms shown on `chrome://histograms` by
-specifying a prefix. For example, `chrome://histograms/Extensions.Load` shows
-only histograms whose names match the pattern "Extensions.Load*".
+appending to the URL. For example, `chrome://histograms/UserActions` shows
+only histograms whose names contain "UserActions", such as
+"UMA.UserActionsCount".
 
 In addition to testing interactively, you can have unit tests examine the
 values emitted to histograms. See [histogram_tester.h](https://cs.chromium.org/chromium/src/base/test/metrics/histogram_tester.h)
 for details.
+
+See also `chrome://metrics-internals` ([docs](https://chromium.googlesource.com/chromium/src/+/master/components/metrics/debug/README.md))
+for more thorough manual testing if needed.
+
+By default, histograms in unit or browser tests will not be actually uploaded.
+In general, you can rely on the UMA infrastructure to upload the metrics correctly.
 
 ## Interpreting the Resulting Data
 
@@ -503,23 +543,29 @@ represent, the bucket range or number of buckets, etc.), create a new histogram
 with a new name. Otherwise analysis that mixes the data pre- and post- change
 may be misleading. If the histogram name is still the best name choice, the
 recommendation is to simply append a '2' to the name. See [Cleaning Up Histogram
-Entries](#Cleaning-Up-Histogram-Entries) for details on how to handle the XML
-changes.
+Entries](#obsolete) for details on how to handle the XML changes.
 
 ## Deleting Histograms
 
 Please delete code that emits to histograms that are no longer needed.
 Histograms take up memory. Cleaning up histograms that you no longer care
 about is good! But see the note below on
-[Cleaning Up Histogram Entries](#Cleaning-Up-Histogram-Entries).
+[Cleaning Up Histogram Entries](#obsolete).
 
 ## Documenting Histograms
 
-Document histograms in [histograms.xml](./histograms.xml). There is also a
-[google-internal version of the file](http://go/chrome-histograms-internal) for
-the rare case in which the histogram is confidential (added only to Chrome code,
-not Chromium code; or, an accurate description about how to interpret the
-histogram would reveal information about Google's plans).
+Document histograms in an appropriate [metadata/foo/histograms.xml](https://source.chromium.org/search?q=f:metadata%2F.*%2Fhistograms.xml&ss=chromium%2Fchromium%2Fsrc)
+file.
+
+There is also a [google-internal version of the file](https://goto.google.com/chrome-histograms-internal)
+for two cases:
+
+* The histogram is confidential (an accurate description about how to interpret
+  the histogram would reveal information about Google's plans). In this case,
+  you must only document the histogram in the internal version.
+* The corresponding code that emits the histogram is internal (added only to
+  Chrome code, not to Chromium code). In this case, you may document the
+  histogram in either the internal or external version.
 
 ### Add Histogram and Documentation in the Same Changelist
 
@@ -609,42 +655,68 @@ with the histogram. If there isn't a parallel DIR_METADATA file with such a
 component, but a parent directory has one, then the parent directory's component
 is used.
 
-### Cleaning Up Histogram Entries
+### Improvement Direction
+For some histograms, an increase or a decrease in the reported values can be
+associated with either an improvement or a deterioration. For example, if you
+are tracking page load speed, then seeing your metrics tracking page load time
+in milliseconds getting gradually larger values, perhaps as the result of a
+Finch study, may signify worse performance; on the contrary, seeing a reduction
+in the page load speed may indicate an improvement. You can provide this
+information on the movement direction by adding a tag
+ `<improvement direction="LOWER_IS_BETTER"/>` within your `<histogram>`. The
+opposite is `<improvement direction="HIGHER_IS_BETTER"/>`.
 
-Do not delete histograms from histograms.xml files or move them to
-obsolete_histograms.xml. Instead, mark unused histograms as obsolete and
-annotate them with the date or milestone in the `<obsolete>` tag entry. They
-will later get moved to obsolete_histograms.xml via tooling.
+For other histograms where there may not be a movement direction that's clearly
+better, you can set `<improvement direction="NEITHER_IS_BETTER"/>`.
 
-If deprecating only some variants of a
-[patterned histogram](#Patterned-Histograms), mark each deprecated `<variant>`
-as obsolete as well. Similarly, if the histogram used histogram suffixes, mark
-the suffix entry for the histogram as obsolete.
+This `<improvement>` tag is optional. You can also add/delete this tag or make a
+correction to its `direction` attribute any time.
 
-If the histogram is being replaced by a new version:
+### Cleaning Up Histogram Entries {#obsolete}
 
-* Note in the `<obsolete>` message the name of the replacement histogram.
+If a histogram is no longer being emitted to, you should clean it up by removing
+the corresponding histograms.xml entry. You can also add an obsoletion message
+in the same changelist. This also applies to variants of a
+[patterned histogram](#Patterned-Histograms) and to suffix entries for a
+suffixed histogram.
 
-* Make sure the descriptions of the original and replacement histogram are
-  different. It's never appropriate for them to be identical. Either the old
-  description was wrong, and it should be revised to explain what it actually
-  measured, or the old histogram was measuring something not as useful as the
-  replacement, in which case the new histogram is measuring something different
-  and needs to have a new description.
-
-A changelist that marks a histogram as obsolete should be reviewed by all
+The changelist that obsoletes a histogram entry should be reviewed by all
 current owners.
 
-Deleting histogram entries would be bad if someone accidentally reused your old
-histogram name and thereby corrupted new data with whatever old data is still
-coming in. It's also useful to keep obsolete histogram descriptions in
-[histograms.xml](./histograms.xml)—that way, if someone is searching for a
-histogram to answer a particular question, they can learn if there was a
-histogram at some point that did so even if it isn't active now.
+#### Remove the Entry
 
-*Exception:* It is ok to delete the metadata for any histogram that has never
-been recorded to. For example, it's fine to correct a typo where the histogram
-name in the metadata does not match the name in the Chromium source code.
+Delete the entry in the histograms.xml file.
+
+* In some cases there may be artifacts that remain, with some examples being:
+  * Empty `<token>` blocks.
+  * `<enum>` blocks from enums.xml that are no longer used.
+  * Suffix entries in histogram_suffixes_list.xml.
+* Please remove these artifacts if you find them.
+  * **Exception**: please update the label of `<int value=... label=... />` with
+    the `(Obsolete) ` prefix, e.g.
+    `<int value="1" label="(Obsolete) Navigation failed. Removed in 2023/01."/>`
+    rather than deleting them, if the surrounding `<enum>` block is not being
+    deleted.
+
+#### Add an Obsoletion Message
+
+You can choose to add a message to the removed histogram entry which will
+provide relevant information to interested Chrome developers. Whether you
+choose to add an obsoletion message or not, the date and milestone when the
+entry became obsolete will be automatically recorded.
+
+* Add the obsoletion message in the CL description in the format
+  OBSOLETE_HISTOGRAM[histogram name]=obsoletion message.
+  * Note: currently, it is not possible to add the same obsoletion message
+    to multiple histograms in a single tag. But you can add multiple obsoletion
+    message tags in one changelist. The Chrome Metrics team is in the process
+    to enable CL-level obsoletion messages.
+* You could also include information about why the histogram has become
+  obsolete. For example, you might indicate how the histogram's summary did not
+  accurately describe the collected data.
+* If the obsolete histogram is being replaced, include the name of the
+  replacement and make sure that the new description is different from the
+  original to reflect the change between versions.
 
 ### Patterned Histograms
 
@@ -707,6 +779,11 @@ of histograms. See
 [histograms.xml](https://source.chromium.org/search?q=file:histograms.xml%20%3Cvariants)
 for examples.
 
+*** promo
+Warning: The `name` attribute of the `<variants>` tag is globally scoped, so
+use detailed names to avoid collisions.
+***
+
 By default, a `<variant>` inherits the owners declared for the patterned
 histogram. Each variant can optionally override the inherited list with custom
 owners:
@@ -716,9 +793,6 @@ owners:
   <owner>subteam@chromium.org</owner>
 </variant>
 ```
-
-As [with histogram entries](#Cleaning-Up-Histogram-Entries), never delete
-variants. If the variant expansion is no longer used, mark it as `<obsolete>`.
 
 *** promo
 Tip: You can run `print_expanded_histograms.py --pattern=` to show all generated

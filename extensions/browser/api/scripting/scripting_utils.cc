@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "extensions/browser/api/scripting/scripting_constants.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/common/user_script.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace extensions {
 namespace scripting {
@@ -36,7 +37,7 @@ void ClearPersistentScriptURLPatterns(content::BrowserContext* browser_context,
                                       const ExtensionId& extension_id) {
   ExtensionPrefs::Get(browser_context)
       ->UpdateExtensionPref(extension_id, kPrefPersistentScriptURLPatterns,
-                            nullptr);
+                            absl::nullopt);
 }
 
 }  // namespace scripting

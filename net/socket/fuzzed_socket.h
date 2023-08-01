@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string_piece.h"
 #include "net/base/completion_once_callback.h"
@@ -84,9 +85,6 @@ class FuzzedSocket : public TransportClientSocket {
   bool WasAlpnNegotiated() const override;
   NextProto GetNegotiatedProtocol() const override;
   bool GetSSLInfo(SSLInfo* ssl_info) override;
-  void GetConnectionAttempts(ConnectionAttempts* out) const override;
-  void ClearConnectionAttempts() override;
-  void AddConnectionAttempts(const ConnectionAttempts& attempts) override;
   int64_t GetTotalReceivedBytes() const override;
   void ApplySocketTag(const net::SocketTag& tag) override;
 
@@ -105,7 +103,7 @@ class FuzzedSocket : public TransportClientSocket {
   // See https://crbug.com/823012
   bool ForceSync() const;
 
-  FuzzedDataProvider* data_provider_;
+  raw_ptr<FuzzedDataProvider> data_provider_;
 
   // If true, the result of the Connect() call is fuzzed - it can succeed or
   // fail with a variety of connection errors, and it can complete synchronously

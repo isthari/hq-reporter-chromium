@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "ash/test/ash_test_base.h"
 #include "ash/touch/ash_touch_transform_controller.h"
 #include "ash/touch/touch_devices_controller.h"
+#include "base/memory/raw_ptr.h"
 #include "chromeos/dbus/power/fake_power_manager_client.h"
 #include "ui/display/manager/display_manager.h"
 #include "ui/display/manager/test/touch_transform_controller_test_api.h"
@@ -53,7 +54,8 @@ class TestObserver : public ScreenBacklightObserver {
   }
 
  private:
-  BacklightsForcedOffSetter* const backlights_forced_off_setter_;
+  const raw_ptr<BacklightsForcedOffSetter, ExperimentalAsh>
+      backlights_forced_off_setter_;
 
   std::vector<bool> forced_off_states_;
 
@@ -209,7 +211,7 @@ TEST_F(BacklightsForcedOffSetterTest,
           .SetFirstDisplayAsInternalDisplay();
 
   display::DisplayIdList display_id_list =
-      display_manager()->GetCurrentDisplayIdList();
+      display_manager()->GetConnectedDisplayIdList();
 
   // Pick the non internal display Id.
   const int64_t kExternalDisplayId = display_id_list[0] == kInternalDisplayId
@@ -265,7 +267,7 @@ TEST_F(BacklightsForcedOffSetterTest, TouchscreensDisableOnBrightnessChange) {
           .SetFirstDisplayAsInternalDisplay();
 
   display::DisplayIdList display_id_list =
-      display_manager()->GetCurrentDisplayIdList();
+      display_manager()->GetConnectedDisplayIdList();
 
   ui::TouchscreenDevice internal_touchdevice(
       234, ui::InputDeviceType::INPUT_DEVICE_INTERNAL,

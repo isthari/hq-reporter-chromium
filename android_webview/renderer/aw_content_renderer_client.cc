@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,15 +25,14 @@
 #include "base/strings/string_util.h"
 #include "components/android_system_error_page/error_page_populator.h"
 #include "components/js_injection/renderer/js_communication.h"
+#include "components/network_hints/renderer/web_prescient_networking_impl.h"
 #include "components/page_load_metrics/renderer/metrics_render_frame_observer.h"
 #include "components/printing/renderer/print_render_frame_helper.h"
 #include "components/visitedlink/renderer/visitedlink_reader.h"
 #include "content/public/child/child_thread.h"
 #include "content/public/common/url_constants.h"
-#include "content/public/renderer/document_state.h"
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_thread.h"
-#include "content/public/renderer/render_view.h"
 #include "ipc/ipc_sync_channel.h"
 #include "mojo/public/cpp/bindings/binder_map.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
@@ -86,7 +85,6 @@ void AwContentRendererClient::ExposeInterfacesToBrowser(
 
 bool AwContentRendererClient::HandleNavigation(
     content::RenderFrame* render_frame,
-    bool render_view_was_created_by_renderer,
     blink::WebFrame* frame,
     const blink::WebURLRequest& request,
     blink::WebNavigationType type,
@@ -106,26 +104,29 @@ bool AwContentRendererClient::HandleNavigation(
   if (application_initiated && !is_redirect)
     return false;
 
-  bool is_main_frame = !frame->Parent();
+  bool is_outermost_main_frame = frame->IsOutermostMainFrame();
   const GURL& gurl = request.Url();
   // For HTTP schemes, only top-level navigations can be overridden. Similarly,
   // WebView Classic lets app override only top level about:blank navigations.
   // So we filter out non-top about:blank navigations here.
-  if (!is_main_frame &&
+  if (!is_outermost_main_frame &&
       (gurl.SchemeIs(url::kHttpScheme) || gurl.SchemeIs(url::kHttpsScheme) ||
        gurl.SchemeIs(url::kAboutScheme)))
     return false;
 
+  AwRenderViewExt* view =
+      AwRenderViewExt::FromWebView(render_frame->GetWebView());
+
   // use NavigationInterception throttle to handle the call as that can
   // be deferred until after the java side has been constructed.
   //
-  // TODO(nick): |render_view_was_created_by_renderer| was plumbed in to
+  // TODO(nick): `view->created_by_renderer()` was plumbed in to
   // preserve the existing code behavior, but it doesn't appear to be correct.
   // In particular, this value will be true for the initial navigation of a
   // RenderView created via window.open(), but it will also be true for all
   // subsequent navigations in that RenderView, no matter how they are
   // initiated.
-  if (render_view_was_created_by_renderer) {
+  if (view->created_by_renderer()) {
     return false;
   }
 
@@ -137,7 +138,8 @@ bool AwContentRendererClient::HandleNavigation(
   render_frame->GetRemoteAssociatedInterfaces()->GetInterface(
       &frame_host_remote);
   frame_host_remote->ShouldOverrideUrlLoading(
-      url, has_user_gesture, is_redirect, is_main_frame, &ignore_navigation);
+      url, has_user_gesture, is_redirect, is_outermost_main_frame,
+      &ignore_navigation);
 
   return ignore_navigation;
 }
@@ -167,8 +169,18 @@ void AwContentRendererClient::RenderFrameCreated(
   new page_load_metrics::MetricsRenderFrameObserver(render_frame);
 }
 
-void AwContentRendererClient::WebViewCreated(blink::WebView* web_view) {
-  AwRenderViewExt::WebViewCreated(web_view);
+std::unique_ptr<blink::WebPrescientNetworking>
+AwContentRendererClient::CreatePrescientNetworking(
+    content::RenderFrame* render_frame) {
+  return std::make_unique<network_hints::WebPrescientNetworkingImpl>(
+      render_frame);
+}
+
+void AwContentRendererClient::WebViewCreated(
+    blink::WebView* web_view,
+    bool was_created_by_renderer,
+    const url::Origin* outermost_origin) {
+  AwRenderViewExt::WebViewCreated(web_view, was_created_by_renderer);
 }
 
 void AwContentRendererClient::PrepareErrorPage(
@@ -200,9 +212,11 @@ void AwContentRendererClient::RunScriptsAtDocumentStart(
   communication->RunScriptsAtDocumentStart();
 }
 
-void AwContentRendererClient::AddSupportedKeySystems(
-    std::vector<std::unique_ptr<::media::KeySystemProperties>>* key_systems) {
-  AwAddKeySystems(key_systems);
+void AwContentRendererClient::GetSupportedKeySystems(
+    media::GetSupportedKeySystemsCB cb) {
+  media::KeySystemInfos key_systems;
+  AwAddKeySystems(&key_systems);
+  std::move(cb).Run(std::move(key_systems));
 }
 
 std::unique_ptr<blink::WebSocketHandshakeThrottleProvider>

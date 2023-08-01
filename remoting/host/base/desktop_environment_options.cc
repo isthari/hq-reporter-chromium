@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -115,14 +115,39 @@ void DesktopEnvironmentOptions::set_clipboard_size(
   clipboard_size_ = std::move(clipboard_size);
 }
 
+bool DesktopEnvironmentOptions::capture_video_on_dedicated_thread() const {
+  // TODO(joedow): Determine whether we can migrate additional platforms to
+  // using the DesktopCaptureWrapper instead of the DesktopCaptureProxy. Then
+  // clean up DesktopCapturerProxy::Core::CreateCapturer().
+#if BUILDFLAG(IS_LINUX)
+  return capture_video_on_dedicated_thread_;
+#else
+  return false;
+#endif
+}
+
+void DesktopEnvironmentOptions::set_capture_video_on_dedicated_thread(
+    bool use_dedicated_thread) {
+  capture_video_on_dedicated_thread_ = use_dedicated_thread;
+}
+
 void DesktopEnvironmentOptions::ApplySessionOptions(
     const SessionOptions& options) {
   // This field is for test purpose. Usually it should not be set to false.
   absl::optional<bool> detect_updated_region =
       options.GetBool("Detect-Updated-Region");
-  if (detect_updated_region) {
+  if (detect_updated_region.has_value()) {
     desktop_capture_options_.set_detect_updated_region(*detect_updated_region);
   }
+  absl::optional<bool> capture_video_on_dedicated_thread =
+      options.GetBool("Capture-Video-On-Dedicated-Thread");
+  if (capture_video_on_dedicated_thread.has_value()) {
+    set_capture_video_on_dedicated_thread(*capture_video_on_dedicated_thread);
+  }
+#if defined(WEBRTC_USE_PIPEWIRE)
+  desktop_capture_options_.set_allow_pipewire(true);
+  desktop_capture_options_.set_pipewire_use_damage_region(true);
+#endif  // defined(WEBRTC_USE_PIPEWIRE)
 }
 
 }  // namespace remoting

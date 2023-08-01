@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -49,7 +49,7 @@ class AllPasswordsBottomSheetProperties {
         static final PropertyModel.ReadableObjectPropertyKey<Credential> CREDENTIAL =
                 new PropertyModel.ReadableObjectPropertyKey<>("credential");
         static final PropertyModel
-                .ReadableObjectPropertyKey<Callback<Credential>> ON_CLICK_LISTENER =
+                .ReadableObjectPropertyKey<Callback<CredentialFillRequest>> ON_CLICK_LISTENER =
                 new PropertyModel.ReadableObjectPropertyKey<>("on_click_listener");
         static final PropertyModel.ReadableBooleanPropertyKey IS_PASSWORD_FIELD =
                 new PropertyModel.ReadableBooleanPropertyKey("is_password_field");
@@ -58,7 +58,7 @@ class AllPasswordsBottomSheetProperties {
         private CredentialProperties() {}
 
         static PropertyModel createCredentialModel(Credential credential,
-                Callback<Credential> clickListener, boolean isPasswordField) {
+                Callback<CredentialFillRequest> clickListener, boolean isPasswordField) {
             return new PropertyModel
                     .Builder(AllPasswordsBottomSheetProperties.CredentialProperties.ALL_KEYS)
                     .with(CREDENTIAL, credential)

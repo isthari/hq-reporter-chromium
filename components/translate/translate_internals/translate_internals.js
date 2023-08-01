@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,11 @@ import 'chrome://resources/js/ios/web_ui.js';
 // </if>
 
 import './strings.m.js';
+import 'chrome://resources/cr_elements/cr_tab_box/cr_tab_box.js';
 
-import {addWebUIListener} from 'chrome://resources/js/cr.m.js';
-import {decorate} from 'chrome://resources/js/cr/ui.m.js';
-import {TabBox} from 'chrome://resources/js/cr/ui/tabs.js';
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
-import {$} from 'chrome://resources/js/util.m.js';
+import {addWebUiListener} from 'chrome://resources/js/cr.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
+import {$} from 'chrome://resources/js/util_ts.js';
 
 const detectionLogs = [];
 
@@ -22,27 +21,23 @@ const detectionLogs = [];
  */
 function initialize() {
   addMessageHandlers();
-  decorate('tabbox', TabBox);
+  const tabbox = document.querySelector('cr-tab-box');
+  tabbox.hidden = false;
   chrome.send('requestInfo');
 
   const button = $('detection-logs-dump');
   button.addEventListener('click', onDetectionLogsDump);
 
-  const tabpanelNodeList = document.getElementsByTagName('tabpanel');
+  const tabpanelNodeList = document.querySelectorAll('div[slot=\'panel\']');
   const tabpanels = Array.prototype.slice.call(tabpanelNodeList, 0);
   const tabpanelIds = tabpanels.map(function(tab) {
     return tab.id;
   });
 
-  const tabNodeList = document.getElementsByTagName('tab');
-  const tabs = Array.prototype.slice.call(tabNodeList, 0);
-  tabs.forEach(function(tab) {
-    tab.onclick = function(e) {
-      const tabbox = document.querySelector('tabbox');
-      const tabpanel = tabpanels[tabbox.selectedIndex];
-      const hash = tabpanel.id.match(/(?:^tabpanel-)(.+)/)[1];
-      window.location.hash = hash;
-    };
+  tabbox.addEventListener('selected-index-change', e => {
+    const tabpanel = tabpanels[e.detail];
+    const hash = tabpanel.id.match(/(?:^tabpanel-)(.+)/)[1];
+    window.location.hash = hash;
   });
 
   const activateTabByHash = function() {
@@ -52,11 +47,11 @@ function initialize() {
     hash = hash.substring(1);
 
     const id = 'tabpanel-' + hash;
-    if (tabpanelIds.indexOf(id) === -1) {
+    const index = tabpanelIds.indexOf(id);
+    if (index === -1) {
       return;
     }
-
-    $(id).selected = true;
+    tabbox.setAttribute('selected-index', `${index}`);
   };
 
   window.onhashchange = activateTabByHash;
@@ -378,6 +373,17 @@ function onLanguageDetectionInfoAdded(detail) {
 
   const tr = document.createElement('tr');
 
+  // If language detection was skipped, do not populate related details.
+  const hasRunLangDetection = JSON.parse(detail['has_run_lang_detection']);
+  const cldLang = hasRunLangDetection ?
+      formatLanguageCode(detail['model_detected_language']) :
+      'No page content - language detection skipped';
+  const modelVersion =
+      hasRunLangDetection ? detail['detection_model_version'] : '';
+  const reliabilityScore =
+      hasRunLangDetection ? detail['model_reliability_score'].toFixed(2) : '';
+  const isReliable = hasRunLangDetection ? detail['is_model_reliable'] : '';
+
   appendTD(tr, formatDate(new Date(detail['time'])), 'detection-logs-time');
   appendTD(tr, detail['url'], 'detection-logs-url');
   appendTD(
@@ -386,16 +392,10 @@ function onLanguageDetectionInfoAdded(detail) {
   appendTD(
       tr, formatLanguageCode(detail['html_root_language']),
       'detection-logs-html-root-language');
-  appendTD(
-      tr, formatLanguageCode(detail['model_detected_language']),
-      'detection-logs-cld-language');
-  appendTD(
-      tr, detail['detection_model_version'],
-      'detection-logs-detection-model-version');
-  appendTD(
-      tr, detail['model_reliability_score'].toFixed(2),
-      'detection-logs-model-reliability');
-  appendTD(tr, detail['is_model_reliable'], 'detection-logs-is-cld-reliable');
+  appendTD(tr, cldLang, 'detection-logs-cld-language');
+  appendTD(tr, modelVersion, 'detection-logs-detection-model-version');
+  appendTD(tr, reliabilityScore, 'detection-logs-model-reliability');
+  appendTD(tr, isReliable, 'detection-logs-is-cld-reliable');
   appendTD(tr, detail['has_notranslate'], 'detection-logs-has-notranslate');
   appendTD(
       tr, formatLanguageCode(detail['adopted_language']),
@@ -555,13 +555,13 @@ function appendClearButton(elt, enabled, clearCallback) {
 }
 
 function addMessageHandlers() {
-  addWebUIListener('languageDetectionInfoAdded', onLanguageDetectionInfoAdded);
-  addWebUIListener('prefsUpdated', onPrefsUpdated);
-  addWebUIListener('supportedLanguagesUpdated', onSupportedLanguagesUpdated);
-  addWebUIListener('countryUpdated', onCountryUpdated);
-  addWebUIListener('translateErrorDetailsAdded', onTranslateErrorDetailsAdded);
-  addWebUIListener('translateEventDetailsAdded', onTranslateEventDetailsAdded);
-  addWebUIListener('translateInitDetailsAdded', onTranslateInitDetailsAdded);
+  addWebUiListener('languageDetectionInfoAdded', onLanguageDetectionInfoAdded);
+  addWebUiListener('prefsUpdated', onPrefsUpdated);
+  addWebUiListener('supportedLanguagesUpdated', onSupportedLanguagesUpdated);
+  addWebUiListener('countryUpdated', onCountryUpdated);
+  addWebUiListener('translateErrorDetailsAdded', onTranslateErrorDetailsAdded);
+  addWebUiListener('translateEventDetailsAdded', onTranslateEventDetailsAdded);
+  addWebUiListener('translateInitDetailsAdded', onTranslateInitDetailsAdded);
 }
 
 /**

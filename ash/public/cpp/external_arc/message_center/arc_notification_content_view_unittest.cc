@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,6 +24,7 @@
 #include "ash/system/status_area_widget_test_helper.h"
 #include "ash/system/unified/unified_system_tray.h"
 #include "ash/test/ash_test_base.h"
+#include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/bind.h"
@@ -36,12 +37,12 @@
 #include "components/exo/surface.h"
 #include "components/exo/test/exo_test_helper.h"
 #include "components/exo/wm_helper.h"
-#include "components/exo/wm_helper_chromeos.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "ui/aura/test/test_window_delegate.h"
 #include "ui/aura/window.h"
 #include "ui/events/keycodes/dom/dom_code.h"
 #include "ui/events/test/event_generator.h"
+#include "ui/events/test/test_event.h"
 #include "ui/message_center/public/cpp/message_center_constants.h"
 #include "ui/message_center/public/cpp/notification.h"
 #include "ui/message_center/views/notification_control_buttons_view.h"
@@ -111,7 +112,8 @@ class FakeNotificationSurface : public exo::NotificationSurface {
     // null SharedMainThreadContextProvider in test under mash.
   }
 
-  exo::NotificationSurfaceManager* const manager_;  // Not owned.
+  const raw_ptr<exo::NotificationSurfaceManager, ExperimentalAsh>
+      manager_;  // Not owned.
 };
 
 aura::Window* GetFocusedWindow() {
@@ -120,12 +122,6 @@ aura::Window* GetFocusedWindow() {
 }
 
 }  // anonymous namespace
-
-class DummyEvent : public ui::Event {
- public:
-  DummyEvent() : Event(ui::ET_UNKNOWN, base::TimeTicks(), 0) {}
-  ~DummyEvent() override = default;
-};
 
 class ArcNotificationContentViewTest : public AshTestBase {
  public:
@@ -140,7 +136,7 @@ class ArcNotificationContentViewTest : public AshTestBase {
 
   void SetUp() override {
     AshTestBase::SetUp();
-    wm_helper_ = std::make_unique<exo::WMHelperChromeOS>();
+    wm_helper_ = std::make_unique<exo::WMHelper>();
     DCHECK(exo::WMHelper::HasInstance());
 
     surface_manager_ = std::make_unique<ArcNotificationSurfaceManagerImpl>();
@@ -169,7 +165,7 @@ class ArcNotificationContentViewTest : public AshTestBase {
   }
 
   void PressCloseButton(ArcNotificationView* notification_view) {
-    DummyEvent dummy_event;
+    ui::test::TestEvent dummy_event;
     auto* control_buttons_view =
         &notification_view->content_view_->control_buttons_view_;
     ASSERT_TRUE(control_buttons_view);
@@ -234,7 +230,7 @@ class ArcNotificationContentViewTest : public AshTestBase {
     Notification notification(
         message_center::NOTIFICATION_TYPE_CUSTOM,
         notification_item->GetNotificationId(), u"title", u"message",
-        gfx::Image(), u"arc", GURL(),
+        ui::ImageModel(), u"arc", GURL(),
         message_center::NotifierId(
             message_center::NotifierType::ARC_APPLICATION, "ARC_NOTIFICATION"),
         optional_fields,
@@ -276,7 +272,7 @@ class ArcNotificationContentViewTest : public AshTestBase {
   std::unique_ptr<exo::NotificationSurface> notification_surface_;
 
   // owned by the |wrapper_widget_|.
-  ArcNotificationView* notification_view_ = nullptr;
+  raw_ptr<ArcNotificationView, ExperimentalAsh> notification_view_ = nullptr;
   std::unique_ptr<views::Widget> wrapper_widget_;
 };
 
@@ -332,7 +328,7 @@ TEST_F(ArcNotificationContentViewTest, CloseButton) {
   auto mc_notification = std::make_unique<Notification>(
       message_center::NOTIFICATION_TYPE_SIMPLE,
       notification_item->GetNotificationId(), u"title", u"message",
-      gfx::Image(), u"arc", GURL(),
+      ui::ImageModel(), u"arc", GURL(),
       message_center::NotifierId(message_center::NotifierType::ARC_APPLICATION,
                                  "ARC_NOTIFICATION"),
       message_center::RichNotificationData(), nullptr);
@@ -366,7 +362,8 @@ TEST_F(ArcNotificationContentViewTest, CloseButtonInMessageCenterView) {
             auto* arc_delegate =
                 static_cast<ArcNotificationDelegate*>(notification.delegate());
             std::unique_ptr<message_center::MessageView> created_view =
-                arc_delegate->CreateCustomMessageView(notification);
+                arc_delegate->CreateCustomMessageView(notification,
+                                                      /*shown_in_popup=*/false);
             notification_view =
                 static_cast<ArcNotificationView*>(created_view.get());
             return created_view;

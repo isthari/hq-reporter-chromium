@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,11 +21,18 @@ constexpr char kFilesRestriction[] = "FILES";
 constexpr char kArc[] = "ARC";
 constexpr char kCrostini[] = "CROSTINI";
 constexpr char kPluginVm[] = "PLUGIN_VM";
+constexpr char kDrive[] = "DRIVE";
+constexpr char kOneDrive[] = "ONEDRIVE";
+constexpr char kUsb[] = "USB";
 
 constexpr char kAllowLevel[] = "ALLOW";
 constexpr char kBlockLevel[] = "BLOCK";
 constexpr char kWarnLevel[] = "WARN";
 constexpr char kReportLevel[] = "REPORT";
+
+// Link to the Help Center article about Data Leak Prevention.
+constexpr char kDlpLearnMoreUrl[] =
+    "https://support.google.com/chrome/a/?p=chromeos_datacontrols";
 
 }  // namespace dlp
 

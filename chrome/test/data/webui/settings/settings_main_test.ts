@@ -1,9 +1,9 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // clang-format off
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {CrSettingsPrefs, pageVisibility, Router, routes, SearchManager, SearchRequest, setSearchManagerForTesting, SettingsIdleLoadElement, SettingsMainElement, SettingsPrefsElement} from 'chrome://settings/settings.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
@@ -54,7 +54,7 @@ suite('MainPageTests', function() {
     Router.getInstance().navigateTo(routes.BASIC);
     searchManager = new TestSearchManager();
     setSearchManagerForTesting(searchManager);
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     settingsMain = document.createElement('settings-main');
     settingsMain.prefs = settingsPrefs.prefs!;
     settingsMain.toolbarSpinnerActive = false;
@@ -66,38 +66,29 @@ suite('MainPageTests', function() {
     settingsMain.remove();
   });
 
-  test('searchContents() triggers SearchManager', function() {
+  test('searchContents() triggers SearchManager', async function() {
     flush();
 
     const expectedQuery1 = 'foo';
     const expectedQuery2 = 'bar';
     const expectedQuery3 = '';
 
-    return settingsMain.searchContents(expectedQuery1)
-        .then(function() {
-          return searchManager.whenCalled('search');
-        })
-        .then(function(query) {
-          assertEquals(expectedQuery1, query);
+    await settingsMain.searchContents(expectedQuery1);
 
-          searchManager.resetResolver('search');
-          return settingsMain.searchContents(expectedQuery2);
-        })
-        .then(function() {
-          return searchManager.whenCalled('search');
-        })
-        .then(function(query) {
-          assertEquals(expectedQuery2, query);
+    let query = await searchManager.whenCalled('search');
+    assertEquals(expectedQuery1, query);
 
-          searchManager.resetResolver('search');
-          return settingsMain.searchContents(expectedQuery3);
-        })
-        .then(function() {
-          return searchManager.whenCalled('search');
-        })
-        .then(function(query) {
-          assertEquals(expectedQuery3, query);
-        });
+    searchManager.resetResolver('search');
+    await settingsMain.searchContents(expectedQuery2);
+
+    query = await searchManager.whenCalled('search');
+    assertEquals(expectedQuery2, query);
+
+    searchManager.resetResolver('search');
+    await settingsMain.searchContents(expectedQuery3);
+
+    query = await searchManager.whenCalled('search');
+    assertEquals(expectedQuery3, query);
   });
 
   function showingManagedHeader(): boolean {
@@ -231,7 +222,7 @@ suite('MainPageTests', function() {
 
   test('exiting search mode, advanced collapsed', function() {
     // Simulating searching while the advanced page is collapsed.
-    settingsMain.currentRouteChanged(routes.BASIC);
+    settingsMain.currentRouteChanged();
     flush();
     return assertAdvancedVisibilityAfterSearch('none');
   });
@@ -286,10 +277,26 @@ suite('MainPageTests', function() {
     Router.getInstance().navigateTo(routes.BASIC);
     assertEquals(document.title, loadTimeData.getString('settings'));
 
+    Router.getInstance().navigateTo(routes.LANGUAGES);
+    assertEquals(
+        document.title,
+        loadTimeData.getStringF(
+            'settingsAltPageTitle',
+            loadTimeData.getString('languagesPageTitle')));
+
     Router.getInstance().navigateTo(routes.ABOUT);
     assertEquals(
         document.title,
         loadTimeData.getStringF(
             'settingsAltPageTitle', loadTimeData.getString('aboutPageTitle')));
+  });
+
+  test('uses parent title for navigable dialog routes', function() {
+    Router.getInstance().navigateTo(routes.CLEAR_BROWSER_DATA);
+    assertEquals(
+        document.title,
+        loadTimeData.getStringF(
+            'settingsAltPageTitle',
+            loadTimeData.getString('privacyPageTitle')));
   });
 });

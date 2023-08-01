@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,13 +6,11 @@
 
 #include <algorithm>
 
-#include "base/cxx17_backports.h"
 #include "base/logging.h"
 #include "remoting/base/logging.h"
 #include "remoting/proto/event.pb.h"
 
-namespace remoting {
-namespace protocol {
+namespace remoting::protocol {
 
 MouseInputFilter::MouseInputFilter() = default;
 
@@ -68,7 +66,7 @@ int32_t MouseInputFilter::GetScaledX(int32_t x) {
     x = ((x * output_bounds_.x()) + (input_bounds_.x() / 2)) /
         input_bounds_.x();
   }
-  return base::clamp(x, 0, output_bounds_.x());
+  return std::clamp(x, 0, output_bounds_.x());
 }
 
 int32_t MouseInputFilter::GetScaledY(int32_t y) {
@@ -76,8 +74,7 @@ int32_t MouseInputFilter::GetScaledY(int32_t y) {
     y = ((y * output_bounds_.y()) + (input_bounds_.y() / 2)) /
         input_bounds_.y();
   }
-  return base::clamp(y, 0, output_bounds_.y());
+  return std::clamp(y, 0, output_bounds_.y());
 }
 
-}  // namespace protocol
-}  // namespace remoting
+}  // namespace remoting::protocol

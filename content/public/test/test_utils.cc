@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 #include <utility>
 
 #include "base/base_switches.h"
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
@@ -19,7 +19,6 @@
 #include "base/task/single_thread_task_runner.h"
 #include "base/task/task_observer.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "content/browser/child_process_security_policy_impl.h"
@@ -30,6 +29,7 @@
 #include "content/browser/site_info.h"
 #include "content/browser/site_instance_impl.h"
 #include "content/common/content_navigation_policy.h"
+#include "content/common/features.h"
 #include "content/public/browser/browser_child_process_host_iterator.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -68,7 +68,7 @@ void DeferredQuitRunLoop(base::OnceClosure quit_task, int num_quit_deferrals) {
   if (num_quit_deferrals <= 0) {
     std::move(quit_task).Run();
   } else {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&DeferredQuitRunLoop, std::move(quit_task),
                                   num_quit_deferrals - 1));
   }
@@ -133,13 +133,7 @@ blink::mojom::FetchAPIRequestPtr CreateFetchAPIRequest(
 }
 
 void RunMessageLoop() {
-  base::RunLoop run_loop;
-  RunThisRunLoop(&run_loop);
-}
-
-void RunThisRunLoop(base::RunLoop* run_loop) {
-  base::CurrentThread::ScopedNestableTaskAllower allow;
-  run_loop->Run();
+  base::RunLoop(base::RunLoop::Type::kNestableTasksAllowed).Run();
 }
 
 void RunAllPendingInMessageLoop() {
@@ -185,25 +179,6 @@ base::OnceClosure GetDeferredQuitTaskForRunLoop(base::RunLoop* run_loop) {
                         kNumQuitDeferrals);
 }
 
-base::Value ExecuteScriptAndGetValue(RenderFrameHost* render_frame_host,
-                                     const std::string& script) {
-  base::RunLoop run_loop;
-  base::Value result;
-
-  render_frame_host->ExecuteJavaScriptForTests(
-      base::UTF8ToUTF16(script),
-      base::BindOnce(
-          [](base::OnceClosure quit_closure, base::Value* out_result,
-             base::Value value) {
-            *out_result = std::move(value);
-            std::move(quit_closure).Run();
-          },
-          run_loop.QuitWhenIdleClosure(), &result));
-  run_loop.Run();
-
-  return result;
-}
-
 bool AreAllSitesIsolatedForTesting() {
   return SiteIsolationPolicy::UseDedicatedProcessesForAllSites();
 }
@@ -244,23 +219,26 @@ void IsolateAllSitesForTesting(base::CommandLine* command_line) {
 }
 
 bool CanSameSiteMainFrameNavigationsChangeRenderFrameHosts() {
-  // TODO(crbug.com/936696): Also return true when RenderDocument for main frame
-  // is enabled.
-  return CanSameSiteMainFrameNavigationsChangeSiteInstances();
+  return ShouldCreateNewHostForAllFrames() ||
+         CanSameSiteMainFrameNavigationsChangeSiteInstances();
+}
+
+bool WillSameSiteNavigationsChangeRenderFrameHosts() {
+  return ShouldCreateNewHostForAllFrames();
 }
 
 bool CanSameSiteMainFrameNavigationsChangeSiteInstances() {
   return IsProactivelySwapBrowsingInstanceOnSameSiteNavigationEnabled() ||
-         IsSameSiteBackForwardCacheEnabled();
+         IsBackForwardCacheEnabled();
 }
 
 void DisableProactiveBrowsingInstanceSwapFor(RenderFrameHost* rfh) {
   if (!CanSameSiteMainFrameNavigationsChangeSiteInstances())
     return;
-  // If the RFH is not a main frame, navigations on it will never result in a
-  // proactive BrowsingInstance swap, so we shouldn't call this function on
+  // If the RFH is not a primary main frame, navigations on it will never result
+  // in a proactive BrowsingInstance swap, so we shouldn't call this function on
   // subframes.
-  DCHECK(!rfh->GetParent());
+  DCHECK(rfh->IsInPrimaryMainFrame());
   static_cast<RenderFrameHostImpl*>(rfh)
       ->DisableProactiveBrowsingInstanceSwapForTesting();
 }
@@ -286,8 +264,11 @@ WebContents* CreateAndAttachInnerContents(RenderFrameHost* rfh) {
 
   // Attach. |inner_contents| becomes owned by |outer_contents|.
   WebContents* inner_contents = inner_contents_ptr.get();
-  outer_contents->AttachInnerWebContents(std::move(inner_contents_ptr), rfh,
-                                         false /* is_full_page */);
+  outer_contents->AttachInnerWebContents(
+      std::move(inner_contents_ptr), rfh,
+      /*remote_frame=*/mojo::NullAssociatedRemote(),
+      /*remote_frame_host_receiver=*/mojo::NullAssociatedReceiver(),
+      /*is_full_page=*/false);
 
   return inner_contents;
 }
@@ -341,7 +322,7 @@ void MessageLoopRunner::Run() {
     return;
 
   loop_running_ = true;
-  RunThisRunLoop(&run_loop_);
+  run_loop_.Run();
 }
 
 base::OnceClosure MessageLoopRunner::QuitClosure() {
@@ -413,6 +394,21 @@ void WindowedNotificationObserver::Observe(int type,
   if (!callback_.is_null() && !callback_.Run(source, details))
     return;
 
+  seen_ = true;
+  run_loop_.Quit();
+}
+
+LoadStopObserver::LoadStopObserver(WebContents* web_contents)
+    : WebContentsObserver(web_contents) {}
+
+void LoadStopObserver::Wait() {
+  if (!seen_)
+    run_loop_.Run();
+
+  EXPECT_TRUE(seen_);
+}
+
+void LoadStopObserver::DidStopLoading() {
   seen_ = true;
   run_loop_.Quit();
 }
@@ -507,7 +503,7 @@ bool RenderFrameHostWrapper::IsDestroyed() const {
 
 // See RenderFrameDeletedObserver for notes on the difference between
 // RenderFrame being deleted and RenderFrameHost being destroyed.
-bool RenderFrameHostWrapper::WaitUntilRenderFrameDeleted() {
+bool RenderFrameHostWrapper::WaitUntilRenderFrameDeleted() const {
   return deleted_observer_->WaitUntilDeleted();
 }
 
@@ -564,15 +560,53 @@ float TestPageScaleObserver::WaitForPageScaleUpdate() {
   return last_scale_;
 }
 
-EffectiveURLContentBrowserClient::EffectiveURLContentBrowserClient(
+EffectiveURLContentBrowserClientHelper::EffectiveURLContentBrowserClientHelper(
     bool requires_dedicated_process)
     : requires_dedicated_process_(requires_dedicated_process) {}
+
+EffectiveURLContentBrowserClientHelper::
+    ~EffectiveURLContentBrowserClientHelper() = default;
+
+void EffectiveURLContentBrowserClientHelper::AddTranslation(
+    const GURL& url_to_modify,
+    const GURL& url_to_return) {
+  urls_to_modify_[url_to_modify] = url_to_return;
+}
+
+GURL EffectiveURLContentBrowserClientHelper::GetEffectiveURL(const GURL& url) {
+  auto it = urls_to_modify_.find(url);
+  if (it != urls_to_modify_.end()) {
+    return it->second;
+  }
+  return url;
+}
+
+bool EffectiveURLContentBrowserClientHelper::DoesSiteRequireDedicatedProcess(
+    BrowserContext* browser_context,
+    const GURL& effective_site_url) {
+  if (!requires_dedicated_process_) {
+    return false;
+  }
+
+  for (const auto& pair : urls_to_modify_) {
+    auto site_info = SiteInfo::CreateForTesting(
+        IsolationContext(browser_context), pair.first);
+    if (site_info.site_url() == effective_site_url) {
+      return true;
+    }
+  }
+  return false;
+}
+
+EffectiveURLContentBrowserClient::EffectiveURLContentBrowserClient(
+    bool requires_dedicated_process)
+    : helper_(requires_dedicated_process) {}
 
 EffectiveURLContentBrowserClient::EffectiveURLContentBrowserClient(
     const GURL& url_to_modify,
     const GURL& url_to_return,
     bool requires_dedicated_process)
-    : requires_dedicated_process_(requires_dedicated_process) {
+    : helper_(requires_dedicated_process) {
   AddTranslation(url_to_modify, url_to_return);
 }
 
@@ -581,31 +615,20 @@ EffectiveURLContentBrowserClient::~EffectiveURLContentBrowserClient() = default;
 void EffectiveURLContentBrowserClient::AddTranslation(
     const GURL& url_to_modify,
     const GURL& url_to_return) {
-  urls_to_modify_[url_to_modify] = url_to_return;
+  helper_.AddTranslation(url_to_modify, url_to_return);
 }
 
 GURL EffectiveURLContentBrowserClient::GetEffectiveURL(
     BrowserContext* browser_context,
     const GURL& url) {
-  auto it = urls_to_modify_.find(url);
-  if (it != urls_to_modify_.end())
-    return it->second;
-  return url;
+  return helper_.GetEffectiveURL(url);
 }
 
 bool EffectiveURLContentBrowserClient::DoesSiteRequireDedicatedProcess(
     BrowserContext* browser_context,
     const GURL& effective_site_url) {
-  if (!requires_dedicated_process_)
-    return false;
-
-  for (const auto& pair : urls_to_modify_) {
-    auto site_info = SiteInfo::CreateForTesting(
-        IsolationContext(browser_context), pair.first);
-    if (site_info.site_url() == effective_site_url)
-      return true;
-  }
-  return false;
+  return helper_.DoesSiteRequireDedicatedProcess(browser_context,
+                                                 effective_site_url);
 }
 
 ScopedContentBrowserClientSetting::ScopedContentBrowserClientSetting(

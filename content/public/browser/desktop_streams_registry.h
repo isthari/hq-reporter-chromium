@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -38,7 +38,6 @@ class CONTENT_EXPORT DesktopStreamsRegistry {
                                      int render_frame_id,
                                      const url::Origin& origin,
                                      const DesktopMediaID& source,
-                                     const std::string& extension_name,
                                      const DesktopStreamRegistryType type) = 0;
 
   // Validates stream identifier specified in getUserMedia(). Returns null
@@ -51,7 +50,6 @@ class CONTENT_EXPORT DesktopStreamsRegistry {
       int render_process_id,
       int render_frame_id,
       const url::Origin& origin,
-      std::string* extension_name,
       const DesktopStreamRegistryType type) = 0;
 };
 

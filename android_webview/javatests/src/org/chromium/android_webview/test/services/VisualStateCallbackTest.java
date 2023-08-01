@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,9 +33,9 @@ import org.chromium.android_webview.test.RenderProcessGoneHelper;
 import org.chromium.android_webview.test.TestAwContents;
 import org.chromium.android_webview.test.TestAwContentsClient;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.Feature;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 
 /**
  * Test VisualStateCallback when render process is gone. Test is not batched because it tests
@@ -99,7 +99,7 @@ public class VisualStateCallbackTest {
         public void doInvokeVisualStateCallbackOnUiThread() {
             final VisualStateCallbackTestAwContents awContents = this;
             PostTask.runOrPostTask(
-                    UiThreadTaskTraits.DEFAULT, () -> awContents.doInvokeVisualStateCallback());
+                    TaskTraits.UI_DEFAULT, () -> awContents.doInvokeVisualStateCallback());
         }
 
         private void doInvokeVisualStateCallback() {

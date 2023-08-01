@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "ash/system/power/power_button_controller_test_api.h"
 #include "ash/system/power/power_button_menu_item_view.h"
 #include "ash/system/power/power_button_menu_view.h"
+#include "ash/system/power/power_button_menu_view_util.h"
 #include "ash/system/power/power_button_test_base.h"
 #include "ash/test_media_client.h"
 #include "ash/touch/touch_devices_controller.h"
@@ -1085,29 +1086,29 @@ class PowerButtonControllerWithPositionTest
       public testing::WithParamInterface<PowerButtonPosition> {
  public:
   PowerButtonControllerWithPositionTest() : power_button_position_(GetParam()) {
-    base::DictionaryValue position_info;
+    base::Value::Dict position_info;
     switch (power_button_position_) {
       case PowerButtonPosition::LEFT:
-        position_info.SetStringKey(PowerButtonController::kEdgeField,
-                                   PowerButtonController::kLeftEdge);
+        position_info.Set(PowerButtonController::kEdgeField,
+                          PowerButtonController::kLeftEdge);
         break;
       case PowerButtonPosition::RIGHT:
-        position_info.SetStringKey(PowerButtonController::kEdgeField,
-                                   PowerButtonController::kRightEdge);
+        position_info.Set(PowerButtonController::kEdgeField,
+                          PowerButtonController::kRightEdge);
         break;
       case PowerButtonPosition::TOP:
-        position_info.SetStringKey(PowerButtonController::kEdgeField,
-                                   PowerButtonController::kTopEdge);
+        position_info.Set(PowerButtonController::kEdgeField,
+                          PowerButtonController::kTopEdge);
         break;
       case PowerButtonPosition::BOTTOM:
-        position_info.SetStringKey(PowerButtonController::kEdgeField,
-                                   PowerButtonController::kBottomEdge);
+        position_info.Set(PowerButtonController::kEdgeField,
+                          PowerButtonController::kBottomEdge);
         break;
       default:
         return;
     }
-    position_info.SetDoubleKey(PowerButtonController::kPositionField,
-                               kPowerButtonPercentage);
+    position_info.Set(PowerButtonController::kPositionField,
+                      kPowerButtonPercentage);
 
     std::string json_position_info;
     base::JSONWriter::Write(position_info, &json_position_info);
@@ -1170,7 +1171,7 @@ TEST_P(PowerButtonControllerWithPositionTest,
   EXPECT_TRUE(IsMenuCentered());
   TapToDismissPowerButtonMenu();
 
-  int animation_transform = PowerButtonMenuView::kMenuViewTransformDistanceDp;
+  int animation_transform = kPowerButtonMenuTransformDistanceDp;
   EnableTabletMode(true);
   EXPECT_TRUE(IsTabletMode());
   OpenPowerButtonMenu();
@@ -1363,10 +1364,9 @@ TEST_P(PowerButtonControllerWithPositionTest, AdjustMenuShownForDisplaySize) {
       power_button_test_api_->GetMenuBoundsInScreen()));
 }
 
-// Disabled due to consistent failures. http://crbug.com/1286199
 // Tests that a power button press before the menu is fully shown will not
 // create a new menu.
-TEST_F(PowerButtonControllerTest, DISABLED_LegacyPowerButtonIgnoreExtraPress) {
+TEST_F(PowerButtonControllerTest, LegacyPowerButtonIgnoreExtraPress) {
   Initialize(ButtonType::LEGACY, LoginStatus::USER);
 
   // Enable animations so that we can make sure that they occur.
@@ -1390,6 +1390,15 @@ TEST_F(PowerButtonControllerTest, DISABLED_LegacyPowerButtonIgnoreExtraPress) {
   // Make sure that power menu is still in partially shown state.
   ASSERT_TRUE(power_button_test_api_->IsMenuOpened());
   ASSERT_FALSE(power_button_test_api_->ShowMenuAnimationDone());
+}
+
+TEST_F(PowerButtonControllerTest,
+       ArcPowerButtonEventShowMenuWithoutPreShutdown) {
+  LaunchArcPowerButtonEvent();
+  ASSERT_TRUE(power_button_test_api_->IsMenuOpened());
+  EXPECT_FALSE(power_button_test_api_->TriggerPreShutdownTimeout());
+  EXPECT_FALSE(lock_state_test_api_->shutdown_timer_is_running());
+  EXPECT_TRUE(power_button_test_api_->IsMenuOpened());
 }
 
 INSTANTIATE_TEST_SUITE_P(AshPowerButtonPosition,

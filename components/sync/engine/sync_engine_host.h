@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,14 +6,11 @@
 #define COMPONENTS_SYNC_ENGINE_SYNC_ENGINE_HOST_H_
 
 #include "components/sync/base/model_type.h"
-#include "components/sync/base/weak_handle.h"
-#include "components/sync/engine/sync_encryption_handler.h"
 #include "components/sync/engine/sync_manager.h"
 #include "components/sync/protocol/sync_protocol_error.h"
 
 namespace syncer {
 
-class DataTypeDebugInfoListener;
 class ProtocolEvent;
 
 // SyncEngineHost is the interface used by SyncEngine to communicate with the
@@ -31,10 +28,8 @@ class SyncEngineHost {
   // |js_backend| is what chrome://sync-internals interacts with. It is
   // initialized only if |success| is true.
 
-  virtual void OnEngineInitialized(
-      const WeakHandle<DataTypeDebugInfoListener>& debug_info_listener,
-      bool success,
-      bool is_first_time_sync_configure) = 0;
+  virtual void OnEngineInitialized(bool success,
+                                   bool is_first_time_sync_configure) = 0;
 
   // The engine queried the server recently and received some updates.
   virtual void OnSyncCycleCompleted(const SyncCycleSnapshot& snapshot) = 0;
@@ -53,10 +48,16 @@ class SyncEngineHost {
   virtual void OnMigrationNeededForTypes(ModelTypeSet types) = 0;
 
   // Called when the sync cycle returns there is an user actionable error.
-  virtual void OnActionableError(const SyncProtocolError& error) = 0;
+  virtual void OnActionableProtocolError(const SyncProtocolError& error) = 0;
 
   // Called when the set of backed off types is changed.
   virtual void OnBackedOffTypesChanged() = 0;
+
+  // Called when invalidations are enabled or disabled.
+  virtual void OnInvalidationStatusChanged() = 0;
+
+  // Called when there are new data types with pending invalidations.
+  virtual void OnNewInvalidatedDataTypes() = 0;
 };
 
 }  // namespace syncer

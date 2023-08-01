@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,10 @@
 #include <string>
 #include <utility>
 
-#include "ash/components/cryptohome/system_salt_getter.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
-#include "base/task/post_task.h"
 #include "chrome/browser/ash/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/ash/settings/scoped_cros_settings_test_helper.h"
 #include "chrome/browser/device_identity/device_oauth2_token_service_factory.h"
@@ -20,7 +19,8 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile_manager.h"
-#include "chromeos/dbus/userdataauth/cryptohome_misc_client.h"
+#include "chromeos/ash/components/cryptohome/system_salt_getter.h"
+#include "chromeos/ash/components/dbus/userdataauth/cryptohome_misc_client.h"
 #include "components/invalidation/impl/fake_invalidation_handler.h"
 #include "components/invalidation/impl/fake_invalidation_service.h"
 #include "components/invalidation/impl/fcm_invalidation_service.h"
@@ -79,7 +79,8 @@ void SendInvalidatorStateChangeNotification(
 // the invalidation::InvalidationService that is currently being made available.
 class FakeConsumer : public AffiliatedInvalidationServiceProvider::Consumer {
  public:
-  explicit FakeConsumer(AffiliatedInvalidationServiceProviderImpl* provider);
+  FakeConsumer(AffiliatedInvalidationServiceProviderImpl* provider,
+               const std::string& invalidation_owner_name);
 
   FakeConsumer(const FakeConsumer&) = delete;
   FakeConsumer& operator=(const FakeConsumer&) = delete;
@@ -94,11 +95,12 @@ class FakeConsumer : public AffiliatedInvalidationServiceProvider::Consumer {
   const invalidation::InvalidationService* GetInvalidationService() const;
 
  private:
-  AffiliatedInvalidationServiceProviderImpl* provider_;
+  raw_ptr<AffiliatedInvalidationServiceProviderImpl, ExperimentalAsh> provider_;
   invalidation::FakeInvalidationHandler invalidation_handler_;
 
   int invalidation_service_set_count_ = 0;
-  invalidation::InvalidationService* invalidation_service_ = nullptr;
+  raw_ptr<invalidation::InvalidationService, ExperimentalAsh>
+      invalidation_service_ = nullptr;
 };
 
 class AffiliatedInvalidationServiceProviderImplTest : public testing::Test {
@@ -144,13 +146,15 @@ class AffiliatedInvalidationServiceProviderImplTest : public testing::Test {
                                  bool is_affiliated);
   std::unique_ptr<AffiliatedInvalidationServiceProviderImpl> provider_;
   std::unique_ptr<FakeConsumer> consumer_;
-  invalidation::InvalidationService* device_invalidation_service_;
-  invalidation::FakeInvalidationService* profile_invalidation_service_;
+  raw_ptr<invalidation::InvalidationService, ExperimentalAsh>
+      device_invalidation_service_;
+  raw_ptr<invalidation::FakeInvalidationService, ExperimentalAsh>
+      profile_invalidation_service_;
 
  private:
   content::BrowserTaskEnvironment task_environment_;
   data_decoder::test::InProcessDataDecoder in_process_data_decoder_;
-  ash::FakeChromeUserManager* fake_user_manager_;
+  raw_ptr<ash::FakeChromeUserManager, ExperimentalAsh> fake_user_manager_;
   user_manager::ScopedUserManager user_manager_enabler_;
   ash::ScopedCrosSettingsTestHelper cros_settings_test_helper_;
   network::TestURLLoaderFactory test_url_loader_factory_;
@@ -158,8 +162,9 @@ class AffiliatedInvalidationServiceProviderImplTest : public testing::Test {
   session_manager::SessionManager session_manager_;
 };
 
-FakeConsumer::FakeConsumer(AffiliatedInvalidationServiceProviderImpl* provider)
-    : provider_(provider) {
+FakeConsumer::FakeConsumer(AffiliatedInvalidationServiceProviderImpl* provider,
+                           const std::string& invalidation_owner_name)
+    : provider_(provider), invalidation_handler_(invalidation_owner_name) {
   provider_->RegisterConsumer(this);
 }
 
@@ -210,15 +215,15 @@ AffiliatedInvalidationServiceProviderImplTest::
     : device_invalidation_service_(nullptr),
       profile_invalidation_service_(nullptr),
       fake_user_manager_(new ash::FakeChromeUserManager),
-      user_manager_enabler_(base::WrapUnique(fake_user_manager_)),
+      user_manager_enabler_(base::WrapUnique(fake_user_manager_.get())),
       profile_manager_(TestingBrowserProcess::GetGlobal()) {
   cros_settings_test_helper_.InstallAttributes()->SetCloudManaged("example.com",
                                                                   "device_id");
 }
 
 void AffiliatedInvalidationServiceProviderImplTest::SetUp() {
-  chromeos::CryptohomeMiscClient::InitializeFake();
-  chromeos::SystemSaltGetter::Initialize();
+  ash::CryptohomeMiscClient::InitializeFake();
+  ash::SystemSaltGetter::Initialize();
   ASSERT_TRUE(profile_manager_.SetUp());
 
   DeviceOAuth2TokenServiceFactory::Initialize(
@@ -241,8 +246,8 @@ void AffiliatedInvalidationServiceProviderImplTest::TearDown() {
       ->RegisterTestingFactory(
           BrowserContextKeyedServiceFactory::TestingFactory());
   DeviceOAuth2TokenServiceFactory::Shutdown();
-  chromeos::SystemSaltGetter::Shutdown();
-  chromeos::CryptohomeMiscClient::Shutdown();
+  ash::SystemSaltGetter::Shutdown();
+  ash::CryptohomeMiscClient::Shutdown();
 }
 
 Profile*
@@ -362,7 +367,7 @@ AffiliatedInvalidationServiceProviderImplTest::GetProfileInvalidationService(
     return nullptr;
   return static_cast<invalidation::FakeInvalidationService*>(
       invalidation_provider->GetInvalidationServiceForCustomSender(
-          policy::kPolicyFCMInvalidationSenderID));
+          kPolicyFCMInvalidationSenderID));
 }
 
 // No consumers are registered with the
@@ -386,7 +391,7 @@ TEST_F(AffiliatedInvalidationServiceProviderImplTest,
        NoInvalidationServiceAvailable) {
   // Register a consumer. Verify that the consumer is not called back
   // immediately as no connected invalidation service exists yet.
-  consumer_ = std::make_unique<FakeConsumer>(provider_.get());
+  consumer_ = std::make_unique<FakeConsumer>(provider_.get(), "consumer");
   EXPECT_EQ(0, consumer_->GetAndClearInvalidationServiceSetCount());
 }
 
@@ -397,7 +402,7 @@ TEST_F(AffiliatedInvalidationServiceProviderImplTest,
 // connects, it is made available to the consumer.
 TEST_F(AffiliatedInvalidationServiceProviderImplTest,
        UseDeviceInvalidationService) {
-  consumer_ = std::make_unique<FakeConsumer>(provider_.get());
+  consumer_ = std::make_unique<FakeConsumer>(provider_.get(), "consumer");
 
   // Indicate that the device-global invalidation service connected. Verify that
   // that the consumer is informed about this.
@@ -421,7 +426,7 @@ TEST_F(AffiliatedInvalidationServiceProviderImplTest,
 // affiliated user connects, it is made available to the consumer.
 TEST_F(AffiliatedInvalidationServiceProviderImplTest,
        UseAffiliatedProfileInvalidationService) {
-  consumer_ = std::make_unique<FakeConsumer>(provider_.get());
+  consumer_ = std::make_unique<FakeConsumer>(provider_.get(), "consumer");
 
   // Verify that a device-global invalidation service has been created.
   EXPECT_TRUE(provider_->GetDeviceInvalidationServiceForTest());
@@ -443,7 +448,7 @@ TEST_F(AffiliatedInvalidationServiceProviderImplTest,
 // unaffiliated user connects, it is ignored.
 TEST_F(AffiliatedInvalidationServiceProviderImplTest,
        DoNotUseUnaffiliatedProfileInvalidationService) {
-  consumer_ = std::make_unique<FakeConsumer>(provider_.get());
+  consumer_ = std::make_unique<FakeConsumer>(provider_.get(), "consumer");
 
   // Verify that a device-global invalidation service has been created.
   EXPECT_TRUE(provider_->GetDeviceInvalidationServiceForTest());
@@ -462,7 +467,7 @@ TEST_F(AffiliatedInvalidationServiceProviderImplTest,
 // consumer instead and the device-global invalidation service is destroyed.
 TEST_F(AffiliatedInvalidationServiceProviderImplTest,
        SwitchToAffiliatedProfileInvalidationService) {
-  consumer_ = std::make_unique<FakeConsumer>(provider_.get());
+  consumer_ = std::make_unique<FakeConsumer>(provider_.get(), "consumer");
 
   // Indicate that the device-global invalidation service connected. Verify that
   // that the consumer is informed about this.
@@ -479,7 +484,7 @@ TEST_F(AffiliatedInvalidationServiceProviderImplTest,
 // |invalidation::INVALIDATIONS_ENABLED| are treated as disconnected.
 TEST_F(AffiliatedInvalidationServiceProviderImplTest,
        FlipInvalidationServiceState) {
-  consumer_ = std::make_unique<FakeConsumer>(provider_.get());
+  consumer_ = std::make_unique<FakeConsumer>(provider_.get(), "consumer");
 
   // Create and make |profile_invalidation_service_| enabled.
   LogInAsAffiliatedUserAndConnectInvalidationService();
@@ -509,7 +514,7 @@ TEST_F(AffiliatedInvalidationServiceProviderImplTest,
 // consumer.
 TEST_F(AffiliatedInvalidationServiceProviderImplTest,
        DoNotSwitchToUnaffiliatedProfileInvalidationService) {
-  consumer_ = std::make_unique<FakeConsumer>(provider_.get());
+  consumer_ = std::make_unique<FakeConsumer>(provider_.get(), "consumer");
 
   // Indicate that the device-global invalidation service connected. Verify that
   // that the consumer is informed about this.
@@ -530,7 +535,7 @@ TEST_F(AffiliatedInvalidationServiceProviderImplTest,
 // service connects, it is made available to the consumer.
 TEST_F(AffiliatedInvalidationServiceProviderImplTest,
        SwitchToDeviceInvalidationService) {
-  consumer_ = std::make_unique<FakeConsumer>(provider_.get());
+  consumer_ = std::make_unique<FakeConsumer>(provider_.get(), "consumer");
 
   // Verify that a device-global invalidation service has been created.
   EXPECT_TRUE(provider_->GetDeviceInvalidationServiceForTest());
@@ -560,7 +565,7 @@ TEST_F(AffiliatedInvalidationServiceProviderImplTest,
 // to the second user is made available to the consumer instead.
 TEST_F(AffiliatedInvalidationServiceProviderImplTest,
        SwitchBetweenAffiliatedProfileInvalidationServices) {
-  consumer_ = std::make_unique<FakeConsumer>(provider_.get());
+  consumer_ = std::make_unique<FakeConsumer>(provider_.get(), "consumer");
 
   // Verify that a device-global invalidation service has been created.
   EXPECT_TRUE(provider_->GetDeviceInvalidationServiceForTest());
@@ -614,7 +619,7 @@ TEST_F(AffiliatedInvalidationServiceProviderImplTest,
 // consumer. Further verifies that when the second consumer also unregisters,
 // the device-global invalidation service is destroyed.
 TEST_F(AffiliatedInvalidationServiceProviderImplTest, MultipleConsumers) {
-  consumer_ = std::make_unique<FakeConsumer>(provider_.get());
+  consumer_ = std::make_unique<FakeConsumer>(provider_.get(), "consumer");
 
   // Indicate that the device-global invalidation service connected. Verify that
   // that the consumer is informed about this.
@@ -623,7 +628,7 @@ TEST_F(AffiliatedInvalidationServiceProviderImplTest, MultipleConsumers) {
   // Register a second consumer. Verify that the consumer is called back
   // immediately as a connected invalidation service is available.
   std::unique_ptr<FakeConsumer> second_consumer(
-      new FakeConsumer(provider_.get()));
+      new FakeConsumer(provider_.get(), "second_consumer"));
   EXPECT_EQ(1, second_consumer->GetAndClearInvalidationServiceSetCount());
   EXPECT_EQ(device_invalidation_service_,
             second_consumer->GetInvalidationService());
@@ -650,7 +655,7 @@ TEST_F(AffiliatedInvalidationServiceProviderImplTest, MultipleConsumers) {
 // service belonging to a second affiliated user that subsequently connects is
 // ignored.
 TEST_F(AffiliatedInvalidationServiceProviderImplTest, NoServiceAfterShutdown) {
-  consumer_ = std::make_unique<FakeConsumer>(provider_.get());
+  consumer_ = std::make_unique<FakeConsumer>(provider_.get(), "consumer");
 
   // Verify that a device-global invalidation service has been created.
   EXPECT_TRUE(provider_->GetDeviceInvalidationServiceForTest());
@@ -701,7 +706,7 @@ TEST_F(AffiliatedInvalidationServiceProviderImplTest, NoServiceAfterShutdown) {
 // This is a regression test for http://crbug.com/455504.
 TEST_F(AffiliatedInvalidationServiceProviderImplTest,
        ConnectedDeviceGlobalInvalidationServiceOnShutdown) {
-  consumer_ = std::make_unique<FakeConsumer>(provider_.get());
+  consumer_ = std::make_unique<FakeConsumer>(provider_.get(), "consumer");
 
   // Verify that a device-global invalidation service has been created.
   EXPECT_TRUE(provider_->GetDeviceInvalidationServiceForTest());

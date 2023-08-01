@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,17 +25,17 @@ void LayoutNGTextControlMultiLine::StyleDidChange(
     StyleDifference style_diff,
     const ComputedStyle* old_style) {
   LayoutNGBlockFlow::StyleDidChange(style_diff, old_style);
-  LayoutTextControl::StyleDidChange(InnerEditorElement(), old_style,
-                                    StyleRef());
+  layout_text_control::StyleDidChange(InnerEditorElement(), old_style,
+                                      StyleRef());
 }
 
 bool LayoutNGTextControlMultiLine::NodeAtPoint(
     HitTestResult& result,
     const HitTestLocation& hit_test_location,
     const PhysicalOffset& accumulated_offset,
-    HitTestAction hit_test_action) {
+    HitTestPhase phase) {
   bool stop_hit_testing = LayoutNGBlockFlow::NodeAtPoint(
-      result, hit_test_location, accumulated_offset, hit_test_action);
+      result, hit_test_location, accumulated_offset, phase);
 
   const LayoutObject* stop_node = result.GetHitTestRequest().GetStopNode();
   if (stop_node && stop_node->NodeForHitTest() == result.InnerNode())
@@ -43,7 +43,7 @@ bool LayoutNGTextControlMultiLine::NodeAtPoint(
 
   HTMLElement* inner_editor = InnerEditorElement();
   if (result.InnerNode() == GetNode() || result.InnerNode() == inner_editor) {
-    LayoutTextControl::HitInnerEditorElement(
+    layout_text_control::HitInnerEditorElement(
         *this, *inner_editor, result, hit_test_location, accumulated_offset);
   }
   return stop_hit_testing;

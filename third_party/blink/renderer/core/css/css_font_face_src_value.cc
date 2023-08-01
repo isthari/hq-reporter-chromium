@@ -34,6 +34,7 @@
 #include "third_party/blink/renderer/core/css/style_sheet_contents.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/node.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/loader/resource/font_resource.h"
 #include "third_party/blink/renderer/platform/fonts/font_cache.h"
 #include "third_party/blink/renderer/platform/fonts/font_custom_platform_data.h"
@@ -46,17 +47,53 @@
 
 namespace blink {
 
+namespace {
+
+String TechnologyToString(CSSFontFaceSrcValue::FontTechnology font_technology) {
+  switch (font_technology) {
+    case CSSFontFaceSrcValue::FontTechnology::kTechnologyVariations:
+      return "variations";
+    case CSSFontFaceSrcValue::FontTechnology::kTechnologyFeaturesAAT:
+      return "features-aat";
+    case CSSFontFaceSrcValue::FontTechnology::kTechnologyFeaturesOT:
+      return "features-opentype";
+    case CSSFontFaceSrcValue::FontTechnology::kTechnologyPalettes:
+      return "palettes";
+    case CSSFontFaceSrcValue::FontTechnology::kTechnologyCOLRv0:
+      return "color-COLRv0";
+    case CSSFontFaceSrcValue::FontTechnology::kTechnologyCOLRv1:
+      return "color-COLRv1";
+    case CSSFontFaceSrcValue::FontTechnology::kTechnologyCDBT:
+      return "color-CBDT";
+    case CSSFontFaceSrcValue::FontTechnology::kTechnologySBIX:
+      return "color-sbix";
+    case CSSFontFaceSrcValue::FontTechnology::kTechnologyUnknown:
+      NOTREACHED();
+      return String();
+  }
+}
+
+}  // namespace
+
 bool CSSFontFaceSrcValue::IsSupportedFormat() const {
+  // format() syntax is already checked at parse time, see
+  // AtRuleDescriptorParser.
+  if (!format_.empty()) {
+    return true;
+  }
+
   // Normally we would just check the format, but in order to avoid conflicts
   // with the old WinIE style of font-face, we will also check to see if the URL
   // ends with .eot.  If so, we'll go ahead and assume that we shouldn't load
   // it.
-  if (format_.IsEmpty()) {
-    return absolute_resource_.StartsWithIgnoringASCIICase("data:") ||
-           !absolute_resource_.EndsWithIgnoringASCIICase(".eot");
-  }
+  return absolute_resource_.StartsWithIgnoringASCIICase("data:") ||
+         !absolute_resource_.EndsWithIgnoringASCIICase(".eot");
+}
 
-  return FontCustomPlatformData::SupportsFormat(format_);
+void CSSFontFaceSrcValue::AppendTechnology(FontTechnology technology) {
+  if (!technologies_.Contains(technology)) {
+    technologies_.push_back(technology);
+  }
 }
 
 String CSSFontFaceSrcValue::CustomCSSText() const {
@@ -68,32 +105,50 @@ String CSSFontFaceSrcValue::CustomCSSText() const {
   } else {
     result.Append(SerializeURI(specified_resource_));
   }
-  if (!format_.IsEmpty()) {
+
+  if (!format_.empty()) {
     result.Append(" format(");
+    // Format should be serialized as strings:
+    // https://github.com/w3c/csswg-drafts/issues/6328#issuecomment-971823790
     result.Append(SerializeString(format_));
     result.Append(')');
   }
+
+  if (RuntimeEnabledFeatures::CSSFontFaceSrcTechParsingEnabled() &&
+      !technologies_.empty()) {
+    result.Append(" tech(");
+    for (wtf_size_t i = 0; i < technologies_.size(); ++i) {
+      result.Append(TechnologyToString(technologies_[i]));
+      if (i < technologies_.size() - 1) {
+        result.Append(", ");
+      }
+    }
+    result.Append(")");
+  }
+
   return result.ReleaseString();
 }
 
 bool CSSFontFaceSrcValue::HasFailedOrCanceledSubresources() const {
-  return fetched_ && fetched_->GetResource()->LoadFailedOrCanceled();
+  return fetched_ && fetched_->LoadFailedOrCanceled();
 }
 
 FontResource& CSSFontFaceSrcValue::Fetch(ExecutionContext* context,
                                          FontResourceClient* client) const {
-  if (!fetched_ || fetched_->GetResource()->Options().world_for_csp != world_) {
+  if (!fetched_ || fetched_->Options().world_for_csp != world_) {
     ResourceRequest resource_request(absolute_resource_);
     resource_request.SetReferrerPolicy(
         ReferrerUtils::MojoReferrerPolicyResolveDefault(
             referrer_.referrer_policy));
     resource_request.SetReferrerString(referrer_.referrer);
-    if (is_ad_related_)
+    if (is_ad_related_) {
       resource_request.SetIsAdResource();
+    }
     ResourceLoaderOptions options(world_);
     options.initiator_info.name = fetch_initiator_type_names::kCSS;
-    if (referrer_.referrer != Referrer::ClientReferrerString())
+    if (referrer_.referrer != Referrer::ClientReferrerString()) {
       options.initiator_info.referrer = referrer_.referrer;
+    }
     FetchParameters params(std::move(resource_request), options);
     if (base::FeatureList::IsEnabled(
             features::kWebFontsCacheAwareTimeoutAdaption)) {
@@ -108,20 +163,18 @@ FontResource& CSSFontFaceSrcValue::Fetch(ExecutionContext* context,
       params.SetCrossOriginAccessControl(security_origin,
                                          kCrossOriginAttributeAnonymous);
     }
-    fetched_ = MakeGarbageCollected<FontResourceHelper>(
-        FontResource::Fetch(params, context->Fetcher(), client),
-        context->GetTaskRunner(TaskType::kInternalLoading).get());
+    fetched_ = FontResource::Fetch(params, context->Fetcher(), client);
   } else {
     // FIXME: CSSFontFaceSrcValue::Fetch is invoked when @font-face rule
     // is processed by StyleResolver / StyleEngine.
     RestoreCachedResourceIfNeeded(context);
     if (client) {
       client->SetResource(
-          fetched_->GetResource(),
+          fetched_.Get(),
           context->GetTaskRunner(TaskType::kInternalLoading).get());
     }
   }
-  return *To<FontResource>(fetched_->GetResource());
+  return *fetched_;
 }
 
 void CSSFontFaceSrcValue::RestoreCachedResourceIfNeeded(
@@ -132,7 +185,7 @@ void CSSFontFaceSrcValue::RestoreCachedResourceIfNeeded(
 
   const KURL url = context->CompleteURL(absolute_resource_);
   context->Fetcher()->EmulateLoadStartedForInspector(
-      fetched_->GetResource(), url, mojom::blink::RequestContextType::FONT,
+      fetched_, url, mojom::blink::RequestContextType::FONT,
       network::mojom::RequestDestination::kFont,
       fetch_initiator_type_names::kCSS);
 }

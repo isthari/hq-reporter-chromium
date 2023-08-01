@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -54,13 +54,13 @@ class CORE_EXPORT Request final : public ScriptWrappable,
                          Request*,
                          const RequestInit*,
                          ExceptionState&);
-  static Request* Create(ScriptState*, FetchRequestData*);
+  static Request* Create(ScriptState*, FetchRequestData*, AbortSignal*);
   static Request* Create(ScriptState*,
                          mojom::blink::FetchAPIRequestPtr,
                          ForServiceWorkerFetchEvent);
 
   Request(ScriptState*, FetchRequestData*, Headers*, AbortSignal*);
-  Request(ScriptState*, FetchRequestData*);
+  Request(ScriptState*, FetchRequestData*, AbortSignal*);
   Request(const Request&) = delete;
   Request& operator=(const Request&) = delete;
 
@@ -82,6 +82,7 @@ class CORE_EXPORT Request final : public ScriptWrappable,
   bool keepalive() const;
   bool isHistoryNavigation() const;
   AbortSignal* signal() const { return signal_; }
+  String targetAddressSpace() const;
 
   // From Request.idl:
   // This function must be called with entering an appropriate V8 context.
@@ -101,6 +102,7 @@ class CORE_EXPORT Request final : public ScriptWrappable,
   }
   mojom::blink::RequestContextType GetRequestContextType() const;
   network::mojom::RequestDestination GetRequestDestination() const;
+  network::mojom::RequestMode GetRequestMode() const;
 
   void Trace(Visitor*) const override;
 

@@ -1,50 +1,62 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/popup_menu/popup_menu_mediator.h"
 
-#include "base/check_op.h"
-#include "base/feature_list.h"
+#import "base/check_op.h"
+#import "base/feature_list.h"
 #import "base/ios/ios_util.h"
-#include "base/mac/foundation_util.h"
+#import "base/mac/foundation_util.h"
 #import "base/metrics/histogram_functions.h"
-#include "base/metrics/histogram_macros.h"
-#include "base/strings/sys_string_conversions.h"
-#include "components/bookmarks/browser/bookmark_model.h"
-#include "components/bookmarks/common/bookmark_pref_names.h"
-#include "components/feature_engagement/public/feature_constants.h"
-#include "components/feature_engagement/public/tracker.h"
-#include "components/language/ios/browser/ios_language_detection_tab_helper.h"
+#import "base/metrics/histogram_macros.h"
+#import "base/metrics/user_metrics.h"
+#import "base/metrics/user_metrics_action.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/bookmarks/browser/bookmark_model.h"
+#import "components/bookmarks/common/bookmark_pref_names.h"
+#import "components/feature_engagement/public/feature_constants.h"
+#import "components/feature_engagement/public/tracker.h"
+#import "components/language/ios/browser/ios_language_detection_tab_helper.h"
 #import "components/language/ios/browser/ios_language_detection_tab_helper_observer_bridge.h"
-#include "components/open_from_clipboard/clipboard_recent_content.h"
+#import "components/open_from_clipboard/clipboard_recent_content.h"
 #import "components/prefs/ios/pref_observer_bridge.h"
-#include "components/prefs/pref_change_registrar.h"
-#include "components/prefs/pref_service.h"
-#include "components/profile_metrics/browser_profile_type.h"
-#include "components/translate/core/browser/translate_manager.h"
-#include "components/translate/core/browser/translate_prefs.h"
-#import "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/chrome_url_constants.h"
-#import "ios/chrome/browser/find_in_page/find_tab_helper.h"
+#import "components/prefs/pref_change_registrar.h"
+#import "components/prefs/pref_service.h"
+#import "components/profile_metrics/browser_profile_type.h"
+#import "components/translate/core/browser/translate_manager.h"
+#import "components/translate/core/browser/translate_prefs.h"
+#import "ios/chrome/browser/bookmarks/bookmark_model_bridge_observer.h"
+#import "ios/chrome/browser/commerce/push_notification/push_notification_feature.h"
+#import "ios/chrome/browser/find_in_page/abstract_find_tab_helper.h"
+#import "ios/chrome/browser/follow/follow_browser_agent.h"
+#import "ios/chrome/browser/follow/follow_menu_updater.h"
+#import "ios/chrome/browser/follow/follow_tab_helper.h"
+#import "ios/chrome/browser/follow/follow_util.h"
+#import "ios/chrome/browser/ntp/features.h"
 #import "ios/chrome/browser/overlays/public/overlay_presenter.h"
 #import "ios/chrome/browser/overlays/public/overlay_presenter_observer_bridge.h"
 #import "ios/chrome/browser/overlays/public/overlay_request.h"
 #import "ios/chrome/browser/overlays/public/overlay_request_queue.h"
 #import "ios/chrome/browser/overlays/public/web_content_area/http_auth_overlay.h"
-#include "ios/chrome/browser/policy/browser_policy_connector_ios.h"
-#include "ios/chrome/browser/policy/policy_features.h"
+#import "ios/chrome/browser/policy/browser_policy_connector_ios.h"
 #import "ios/chrome/browser/policy/policy_util.h"
 #import "ios/chrome/browser/search_engines/search_engines_util.h"
-#include "ios/chrome/browser/search_engines/template_url_service_factory.h"
+#import "ios/chrome/browser/search_engines/template_url_service_factory.h"
+#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/url/chrome_url_constants.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list_observer_bridge.h"
+#import "ios/chrome/browser/shared/public/commands/lens_commands.h"
+#import "ios/chrome/browser/shared/public/commands/reading_list_add_command.h"
+#import "ios/chrome/browser/shared/public/commands/search_image_with_lens_command.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
+#import "ios/chrome/browser/shared/ui/list_model/list_model.h"
+#import "ios/chrome/browser/shared/ui/symbols/symbols.h"
+#import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
 #import "ios/chrome/browser/translate/chrome_ios_translate_client.h"
-#import "ios/chrome/browser/ui/activity_services/canonical_url_retriever.h"
-#include "ios/chrome/browser/ui/bookmarks/bookmark_model_bridge_observer.h"
-#import "ios/chrome/browser/ui/commands/browser_commands.h"
-#import "ios/chrome/browser/ui/commands/reading_list_add_command.h"
 #import "ios/chrome/browser/ui/content_suggestions/cells/content_suggestions_tile_constants.h"
-#import "ios/chrome/browser/ui/list_model/list_model.h"
-#import "ios/chrome/browser/ui/popup_menu/cells/popup_menu_navigation_item.h"
+#import "ios/chrome/browser/ui/lens/lens_entrypoint.h"
 #import "ios/chrome/browser/ui/popup_menu/cells/popup_menu_text_item.h"
 #import "ios/chrome/browser/ui/popup_menu/cells/popup_menu_tools_item.h"
 #import "ios/chrome/browser/ui/popup_menu/popup_menu_constants.h"
@@ -52,35 +64,34 @@
 #import "ios/chrome/browser/ui/popup_menu/public/popup_menu_consumer.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_menu_notification_delegate.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_menu_notifier.h"
-#import "ios/chrome/browser/ui/ui_feature_flags.h"
-#import "ios/chrome/browser/ui/util/uikit_ui_util.h"
+#import "ios/chrome/browser/ui/reading_list/reading_list_utils.h"
 #import "ios/chrome/browser/url_loading/image_search_param_generator.h"
 #import "ios/chrome/browser/url_loading/url_loading_browser_agent.h"
 #import "ios/chrome/browser/url_loading/url_loading_params.h"
 #import "ios/chrome/browser/web/font_size/font_size_tab_helper.h"
-#import "ios/chrome/browser/web_state_list/web_state_list.h"
-#import "ios/chrome/browser/web_state_list/web_state_list_observer_bridge.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
-#include "ios/chrome/grit/ios_strings.h"
-#include "ios/components/webui/web_ui_url_constants.h"
-#include "ios/public/provider/chrome/browser/chrome_browser_provider.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "ios/components/webui/web_ui_url_constants.h"
+#import "ios/public/provider/chrome/browser/lens/lens_api.h"
 #import "ios/public/provider/chrome/browser/text_zoom/text_zoom_api.h"
-#import "ios/public/provider/chrome/browser/user_feedback/user_feedback_provider.h"
-#include "ios/web/common/features.h"
-#include "ios/web/common/user_agent.h"
-#include "ios/web/public/favicon/favicon_status.h"
+#import "ios/public/provider/chrome/browser/user_feedback/user_feedback_api.h"
+#import "ios/web/common/features.h"
+#import "ios/web/common/user_agent.h"
+#import "ios/web/public/favicon/favicon_status.h"
 #import "ios/web/public/navigation/navigation_item.h"
 #import "ios/web/public/navigation/navigation_manager.h"
-#include "ios/web/public/navigation/navigation_manager.h"
-#include "ios/web/public/web_client.h"
+#import "ios/web/public/web_client.h"
 #import "ios/web/public/web_state.h"
 #import "ios/web/public/web_state_observer_bridge.h"
-#include "ui/base/l10n/l10n_util.h"
-#include "ui/gfx/image/image.h"
+#import "ui/base/l10n/l10n_util.h"
+#import "ui/gfx/image/image.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
+
+using base::RecordAction;
+using base::UserMetricsAction;
 
 namespace {
 PopupMenuToolsItem* CreateTableViewItem(int titleID,
@@ -90,6 +101,24 @@ PopupMenuToolsItem* CreateTableViewItem(int titleID,
   PopupMenuToolsItem* item =
       [[PopupMenuToolsItem alloc] initWithType:kItemTypeEnumZero];
   item.title = l10n_util::GetNSString(titleID);
+  item.actionIdentifier = action;
+  item.accessibilityIdentifier = accessibilityID;
+  if (imageName) {
+    item.image = [[UIImage imageNamed:imageName]
+        imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+  }
+  return item;
+}
+
+PopupMenuToolsItem* CreateFollowItem(int titleID,
+                                     PopupMenuAction action,
+                                     NSString* imageName,
+                                     NSString* accessibilityID) {
+  DCHECK(IsWebChannelsEnabled());
+  PopupMenuToolsItem* item =
+      [[PopupMenuToolsItem alloc] initWithType:kItemTypeEnumZero];
+  item.title = l10n_util::GetNSStringF(titleID, base::SysNSStringToUTF16(@""));
+  item.enabled = NO;
   item.actionIdentifier = action;
   item.accessibilityIdentifier = accessibilityID;
   if (imageName) {
@@ -117,6 +146,7 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
 
 @interface PopupMenuMediator () <BookmarkModelBridgeObserver,
                                  CRWWebStateObserver,
+                                 FollowMenuUpdater,
                                  IOSLanguageDetectionTabHelperObserving,
                                  OverlayPresenterObserving,
                                  PrefObserverDelegate,
@@ -125,7 +155,7 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
   std::unique_ptr<web::WebStateObserverBridge> _webStateObserver;
   std::unique_ptr<WebStateListObserverBridge> _webStateListObserver;
   // Bridge to register for bookmark changes.
-  std::unique_ptr<bookmarks::BookmarkModelBridge> _bookmarkModelBridge;
+  std::unique_ptr<BookmarkModelBridge> _bookmarkModelBridge;
   // Bridge to get notified of the language detection event.
   std::unique_ptr<language::IOSLanguageDetectionTabHelperObserverBridge>
       _iOSLanguageDetectionTabHelperObserverBridge;
@@ -139,9 +169,6 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
 // Items to be displayed in the popup menu.
 @property(nonatomic, strong)
     NSArray<NSArray<TableViewItem<PopupMenuItem>*>*>* items;
-
-// Type of this mediator.
-@property(nonatomic, assign) PopupMenuType type;
 
 // The current web state associated with the toolbar.
 @property(nonatomic, assign) web::WebState* webState;
@@ -165,10 +192,17 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
 // Whether the web content is currently being blocked.
 @property(nonatomic, assign) BOOL contentBlocked;
 
+// URLs for the current webpage, which are used to update the follow status.
+@property(nonatomic, strong) WebPageURLs* webPage;
+
+// YES if the current website has been followed.
+@property(nonatomic, assign) BOOL followed;
+
 #pragma mark*** Specific Items ***
 
 @property(nonatomic, strong) PopupMenuToolsItem* openNewIncognitoTabItem;
 @property(nonatomic, strong) PopupMenuToolsItem* reloadStopItem;
+@property(nonatomic, strong) PopupMenuToolsItem* followItem;
 @property(nonatomic, strong) PopupMenuToolsItem* readLaterItem;
 @property(nonatomic, strong) PopupMenuToolsItem* bookmarkItem;
 @property(nonatomic, strong) PopupMenuToolsItem* translateItem;
@@ -178,6 +212,7 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
 @property(nonatomic, strong) PopupMenuToolsItem* requestDesktopSiteItem;
 @property(nonatomic, strong) PopupMenuToolsItem* requestMobileSiteItem;
 @property(nonatomic, strong) PopupMenuToolsItem* readingListItem;
+@property(nonatomic, strong) PopupMenuToolsItem* priceNotificationsItem;
 // Array containing all the nonnull items/
 @property(nonatomic, strong)
     NSArray<TableViewItem<PopupMenuItem>*>* specificItems;
@@ -188,16 +223,14 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
 
 #pragma mark - Public
 
-- (instancetype)initWithType:(PopupMenuType)type
-                  isIncognito:(BOOL)isIncognito
-             readingListModel:(ReadingListModel*)readingListModel
-    triggerNewIncognitoTabTip:(BOOL)triggerNewIncognitoTabTip
-       browserPolicyConnector:
-           (BrowserPolicyConnectorIOS*)browserPolicyConnector {
+- (instancetype)initWithIsIncognito:(BOOL)isIncognito
+                   readingListModel:(ReadingListModel*)readingListModel
+          triggerNewIncognitoTabTip:(BOOL)triggerNewIncognitoTabTip
+             browserPolicyConnector:
+                 (BrowserPolicyConnectorIOS*)browserPolicyConnector {
   self = [super init];
   if (self) {
     _isIncognito = isIncognito;
-    _type = type;
     _readingListMenuNotifier =
         [[ReadingListMenuNotifier alloc] initWithReadingList:readingListModel];
     _webStateObserver = std::make_unique<web::WebStateObserverBridge>(self);
@@ -220,6 +253,14 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
   if (_webState) {
     _webState->RemoveObserver(_webStateObserver.get());
     _webStateObserver.reset();
+    if (self.followItem) {
+      FollowTabHelper* followTabHelper =
+          FollowTabHelper::FromWebState(_webState);
+      if (followTabHelper) {
+        followTabHelper->RemoveFollowMenuUpdater();
+      }
+      self.webPage = nil;
+    }
     _webState = nullptr;
   }
 
@@ -317,32 +358,36 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
 
 // If an added or removed bookmark is the same as the current url, update the
 // toolbar so the star highlight is kept in sync.
-- (void)bookmarkNodeChildrenChanged:
-    (const bookmarks::BookmarkNode*)bookmarkNode {
+- (void)bookmarkModel:(bookmarks::BookmarkModel*)model
+    didChangeChildrenForNode:(const bookmarks::BookmarkNode*)bookmarkNode {
   [self updateBookmarkItem];
 }
 
 // If all bookmarks are removed, update the toolbar so the star highlight is
 // kept in sync.
-- (void)bookmarkModelRemovedAllNodes {
+- (void)bookmarkModelRemovedAllNodes:(bookmarks::BookmarkModel*)model {
   [self updateBookmarkItem];
 }
 
 // In case we are on a bookmarked page before the model is loaded.
-- (void)bookmarkModelLoaded {
+- (void)bookmarkModelLoaded:(bookmarks::BookmarkModel*)model {
   [self updateBookmarkItem];
 }
 
-- (void)bookmarkNodeChanged:(const bookmarks::BookmarkNode*)bookmarkNode {
+- (void)bookmarkModel:(bookmarks::BookmarkModel*)model
+        didChangeNode:(const bookmarks::BookmarkNode*)bookmarkNode {
   [self updateBookmarkItem];
 }
-- (void)bookmarkNode:(const bookmarks::BookmarkNode*)bookmarkNode
-     movedFromParent:(const bookmarks::BookmarkNode*)oldParent
-            toParent:(const bookmarks::BookmarkNode*)newParent {
+
+- (void)bookmarkModel:(bookmarks::BookmarkModel*)model
+          didMoveNode:(const bookmarks::BookmarkNode*)bookmarkNode
+           fromParent:(const bookmarks::BookmarkNode*)oldParent
+             toParent:(const bookmarks::BookmarkNode*)newParent {
   // No-op -- required by BookmarkModelBridgeObserver but not used.
 }
-- (void)bookmarkNodeDeleted:(const bookmarks::BookmarkNode*)node
-                 fromFolder:(const bookmarks::BookmarkNode*)folder {
+- (void)bookmarkModel:(bookmarks::BookmarkModel*)model
+        didDeleteNode:(const bookmarks::BookmarkNode*)node
+           fromFolder:(const bookmarks::BookmarkNode*)folder {
   [self updateBookmarkItem];
 }
 
@@ -380,12 +425,11 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
   if (_webState) {
     _webState->AddObserver(_webStateObserver.get());
 
-    // Observer the language::IOSLanguageDetectionTabHelper for |_webState|.
+    // Observer the language::IOSLanguageDetectionTabHelper for `_webState`.
     _iOSLanguageDetectionTabHelperObserverBridge =
         std::make_unique<language::IOSLanguageDetectionTabHelperObserverBridge>(
             language::IOSLanguageDetectionTabHelper::FromWebState(_webState),
             self);
-
     if (self.popupMenu) {
       [self updatePopupMenu];
     }
@@ -465,7 +509,7 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
   _bookmarkModelBridge.reset();
   if (bookmarkModel) {
     _bookmarkModelBridge =
-        std::make_unique<bookmarks::BookmarkModelBridge>(self, bookmarkModel);
+        std::make_unique<BookmarkModelBridge>(self, bookmarkModel);
   }
 
   if (self.webState && self.popupMenu) {
@@ -475,30 +519,13 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
 
 - (NSArray<NSArray<TableViewItem<PopupMenuItem>*>*>*)items {
   if (!_items) {
-    switch (self.type) {
-      case PopupMenuTypeToolsMenu:
-        [self createToolsMenuItems];
-        break;
-      case PopupMenuTypeNavigationForward:
-        DCHECK(!ShouldUseUIKitPopupMenu());
-        [self createNavigationItemsForType:PopupMenuTypeNavigationForward];
-        break;
-      case PopupMenuTypeNavigationBackward:
-        DCHECK(!ShouldUseUIKitPopupMenu());
-        [self createNavigationItemsForType:PopupMenuTypeNavigationBackward];
-        break;
-      case PopupMenuTypeTabGrid:
-        DCHECK(!ShouldUseUIKitPopupMenu());
-        [self createTabGridMenuItems];
-        break;
-      case PopupMenuTypeTabStripTabGrid:
-        DCHECK(!ShouldUseUIKitPopupMenu());
-        [self createTabGridMenuItems];
-        break;
-      case PopupMenuTypeNewTab:
-        DCHECK(!ShouldUseUIKitPopupMenu());
-        [self createSearchMenuItems];
-        break;
+    [self createToolsMenuItems];
+    if (self.webState && self.followItem) {
+      FollowTabHelper* followTabHelper =
+          FollowTabHelper::FromWebState(self.webState);
+      if (followTabHelper) {
+        followTabHelper->SetFollowMenuUpdater(self);
+      }
     }
     NSMutableArray* specificItems = [NSMutableArray array];
     if (self.reloadStopItem)
@@ -521,6 +548,8 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
       [specificItems addObject:self.requestMobileSiteItem];
     if (self.readingListItem)
       [specificItems addObject:self.readingListItem];
+    if (self.priceNotificationsItem)
+      [specificItems addObject:self.priceNotificationsItem];
     self.specificItems = specificItems;
   }
   return _items;
@@ -545,34 +574,12 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
 #pragma mark - PopupMenuActionHandlerDelegate
 
 - (void)readPageLater {
-  if (!self.webState)
-    return;
-  // The mediator can be destroyed when this callback is executed. So it is not
-  // possible to use a weak self.
-  __weak id<BrowserCommands> weakDispatcher = self.dispatcher;
-  GURL visibleURL = self.webState->GetVisibleURL();
-  NSString* title = base::SysUTF16ToNSString(self.webState->GetTitle());
-  activity_services::RetrieveCanonicalUrl(self.webState, ^(const GURL& URL) {
-    const GURL& pageURL = !URL.is_empty() ? URL : visibleURL;
-    if (!pageURL.is_valid() || !pageURL.SchemeIsHTTPOrHTTPS())
-      return;
-
-    ReadingListAddCommand* command =
-        [[ReadingListAddCommand alloc] initWithURL:pageURL title:title];
-    [weakDispatcher addToReadingList:command];
-  });
-}
-
-- (void)navigateToPageForItem:(TableViewItem<PopupMenuItem>*)item {
-  if (!self.webState)
+  web::WebState* webState = self.webState;
+  if (!webState)
     return;
 
-  web::NavigationItem* navigationItem =
-      base::mac::ObjCCastStrict<PopupMenuNavigationItem>(item).navigationItem;
-  int index =
-      self.webState->GetNavigationManager()->GetIndexOfItem(navigationItem);
-  DCHECK_NE(index, -1);
-  self.webState->GetNavigationManager()->GoToIndex(index);
+  reading_list::AddToReadingListUsingCanonicalUrl(self.readingListBrowserAgent,
+                                                  webState);
 }
 
 - (void)recordSettingsMetricsPerProfile {
@@ -592,21 +599,40 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
 }
 
 - (void)searchCopiedImage {
+  __weak PopupMenuMediator* weakSelf = self;
   ClipboardRecentContent* clipboardRecentContent =
       ClipboardRecentContent::GetInstance();
   clipboardRecentContent->GetRecentImageFromClipboard(
       base::BindOnce(^(absl::optional<gfx::Image> optionalImage) {
-        if (!optionalImage) {
-          return;
-        }
-        UIImage* image = [optionalImage.value().ToUIImage() copy];
-        web::NavigationManager::WebLoadParams webParams =
-            ImageSearchParamGenerator::LoadParamsForImage(
-                image, self.templateURLService);
-        UrlLoadParams params = UrlLoadParams::InCurrentTab(webParams);
-
-        self.URLLoadingBrowserAgent->Load(params);
+        [weakSelf searchCopiedImage:optionalImage usingLens:NO];
       }));
+}
+
+- (void)lensCopiedImage {
+  __weak PopupMenuMediator* weakSelf = self;
+  ClipboardRecentContent* clipboardRecentContent =
+      ClipboardRecentContent::GetInstance();
+  clipboardRecentContent->GetRecentImageFromClipboard(
+      base::BindOnce(^(absl::optional<gfx::Image> optionalImage) {
+        [weakSelf searchCopiedImage:optionalImage usingLens:YES];
+      }));
+}
+
+- (void)toggleFollowed {
+  DCHECK(IsWebChannelsEnabled());
+  DCHECK(self.followBrowserAgent);
+
+  if (self.followed) {
+    self.followBrowserAgent->UnfollowWebSite(self.webPage,
+                                             FollowSource::PopupMenu);
+  } else {
+    self.followBrowserAgent->FollowWebSite(self.webPage,
+                                           FollowSource::PopupMenu);
+  }
+}
+
+- (web::WebState*)currentWebState {
+  return self.webState;
 }
 
 #pragma mark - IOSLanguageDetectionTabHelperObserving
@@ -630,6 +656,26 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
 
   self.readingListItem.badgeNumber = unreadCount;
   [self.popupMenu itemsHaveChanged:@[ self.readingListItem ]];
+}
+
+#pragma mark - FollowMenuUpdater
+
+- (void)updateFollowMenuItemWithWebPage:(WebPageURLs*)webPage
+                               followed:(BOOL)followed
+                             domainName:(NSString*)domainName
+                                enabled:(BOOL)enabled {
+  DCHECK(IsWebChannelsEnabled());
+  self.webPage = webPage;
+  self.followed = followed;
+  self.followItem.enabled = enabled;
+  self.followItem.title =
+      followed ? l10n_util::GetNSStringF(IDS_IOS_TOOLS_MENU_UNFOLLOW, u"")
+               : l10n_util::GetNSStringF(IDS_IOS_TOOLS_MENU_FOLLOW, u"");
+  self.followItem.image = [[UIImage
+      imageNamed:followed ? @"popup_menu_unfollow" : @"popup_menu_follow"]
+      imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+
+  [self.popupMenu itemsHaveChanged:@[ self.followItem ]];
 }
 
 #pragma mark - BrowserContainerConsumer
@@ -662,11 +708,22 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
   self.requestMobileSiteItem.enabled =
       [self userAgentType] == web::UserAgentType::DESKTOP;
 
+  // Update follow menu item.
+  if (self.followItem &&
+      GetFollowActionState(self.webState) != FollowActionStateHidden) {
+    DCHECK(IsWebChannelsEnabled());
+    FollowTabHelper* followTabHelper =
+        FollowTabHelper::FromWebState(self.webState);
+    if (followTabHelper) {
+      followTabHelper->UpdateFollowMenuItem();
+    }
+  }
+
   // Reload the items.
   [self.popupMenu itemsHaveChanged:self.specificItems];
 }
 
-// Updates the |bookmark| item to match the bookmarked status of the page.
+// Updates `self.bookmarkItem` to match the bookmarked status of the page.
 - (void)updateBookmarkItem {
   if (!self.bookmarkItem)
     return;
@@ -692,7 +749,7 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
   [self.popupMenu itemsHaveChanged:@[ self.bookmarkItem ]];
 }
 
-// Updates the |reloadStopItem| item to match the current behavior.
+// Updates the `reloadStopItem` item to match the current behavior.
 - (void)updateReloadStopItem {
   if ([self isPageLoading] &&
       self.reloadStopItem.accessibilityIdentifier == kToolsMenuReload) {
@@ -784,7 +841,7 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
 - (BOOL)isFindInPageEnabled {
   if (!self.webState)
     return NO;
-  auto* helper = FindTabHelper::FromWebState(self.webState);
+  auto* helper = GetConcreteFindTabHelperFromWebState(self.webState);
   return (helper && helper->CurrentPageSupportsFindInPage() &&
           !helper->IsFindUIActive());
 }
@@ -811,132 +868,6 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
 }
 
 #pragma mark - Item creation (Private)
-
-- (void)createNavigationItemsForType:(PopupMenuType)type {
-  DCHECK(type == PopupMenuTypeNavigationForward ||
-         type == PopupMenuTypeNavigationBackward);
-  if (!self.webState)
-    return;
-
-  web::NavigationManager* navigationManager =
-      self.webState->GetNavigationManager();
-  std::vector<web::NavigationItem*> navigationItems;
-  if (type == PopupMenuTypeNavigationForward) {
-    navigationItems = navigationManager->GetForwardItems();
-  } else {
-    navigationItems = navigationManager->GetBackwardItems();
-  }
-  NSMutableArray* items = [NSMutableArray array];
-  for (web::NavigationItem* navigationItem : navigationItems) {
-    PopupMenuNavigationItem* item =
-        [[PopupMenuNavigationItem alloc] initWithType:kItemTypeEnumZero];
-    if ([self shouldUseIncognitoNTPResourcesForURL:navigationItem
-                                                       ->GetVirtualURL()]) {
-      item.title = l10n_util::GetNSStringWithFixup(IDS_IOS_NEW_INCOGNITO_TAB);
-      item.favicon = [UIImage imageNamed:@"incognito_badge"];
-    } else {
-      item.title =
-          base::SysUTF16ToNSString(navigationItem->GetTitleForDisplay());
-      const gfx::Image& image = navigationItem->GetFaviconStatus().image;
-      if (!image.IsEmpty())
-        item.favicon = image.ToUIImage();
-    }
-    item.actionIdentifier = PopupMenuActionNavigate;
-    item.navigationItem = navigationItem;
-    [items addObject:item];
-  }
-
-  self.items = @[ items ];
-}
-
-// Creates the menu items for the tab grid menu.
-- (void)createTabGridMenuItems {
-  PopupMenuToolsItem* closeTab =
-      CreateTableViewItem(IDS_IOS_TOOLS_MENU_CLOSE_TAB, PopupMenuActionCloseTab,
-                          @"popup_menu_close_tab", kToolsMenuCloseTabId);
-  closeTab.destructiveAction = YES;
-  self.items = @[ [self itemsForNewTab], @[ closeTab ] ];
-}
-
-// Creates the menu items for the search menu.
-- (void)createSearchMenuItems {
-  self.items = @[ [self searchMenuStaticItems] ];
-
-  ClipboardRecentContent* clipboardRecentContent =
-      ClipboardRecentContent::GetInstance();
-
-  std::set<ClipboardContentType> clipboard_types;
-  clipboard_types.insert(ClipboardContentType::URL);
-  clipboard_types.insert(ClipboardContentType::Text);
-  clipboard_types.insert(ClipboardContentType::Image);
-
-  clipboardRecentContent->HasRecentContentFromClipboard(
-      clipboard_types,
-      base::BindOnce(^(std::set<ClipboardContentType> matched_types) {
-        __block NSMutableArray* items = [NSMutableArray array];
-        // The consumer is expecting an array of arrays of items. Each sub array
-        // represent a section in the popup menu. Having one sub array means
-        // having all the items in the same section.
-        PopupMenuToolsItem* copiedContentItem = nil;
-        if (search_engines::SupportsSearchByImage(self.templateURLService) &&
-            matched_types.find(ClipboardContentType::Image) !=
-                matched_types.end()) {
-          copiedContentItem = CreateTableViewItem(
-              IDS_IOS_TOOLS_MENU_SEARCH_COPIED_IMAGE,
-              PopupMenuActionSearchCopiedImage, @"popup_menu_paste_and_go",
-              kToolsMenuCopiedImageSearch);
-        } else if (matched_types.find(ClipboardContentType::URL) !=
-                   matched_types.end()) {
-          copiedContentItem = CreateTableViewItem(
-              IDS_IOS_TOOLS_MENU_VISIT_COPIED_LINK,
-              PopupMenuActionVisitCopiedLink, @"popup_menu_paste_and_go",
-              kToolsMenuPasteAndGo);
-        } else if (matched_types.find(ClipboardContentType::Text) !=
-                   matched_types.end()) {
-          copiedContentItem = CreateTableViewItem(
-              IDS_IOS_TOOLS_MENU_SEARCH_COPIED_TEXT,
-              PopupMenuActionSearchCopiedText, @"popup_menu_paste_and_go",
-              kToolsMenuPasteAndGo);
-        }
-        if (copiedContentItem) {
-          [items addObject:@[ copiedContentItem ]];
-        }
-
-        [items addObject:[self searchMenuStaticItems]];
-        self.items = items;
-
-        dispatch_async(dispatch_get_main_queue(), ^{
-          [self.popupMenu setPopupMenuItems:self.items];
-        });
-      }));
-}
-
-// Creates and returns the search menu items that are static (i.e. always in
-// the search menu).
-- (NSArray<TableViewItem<PopupMenuItem>*>*)searchMenuStaticItems {
-  PopupMenuToolsItem* QRCodeSearch = CreateTableViewItem(
-      IDS_IOS_TOOLS_MENU_QR_SCANNER, PopupMenuActionQRCodeSearch,
-      @"popup_menu_qr_scanner", kToolsMenuQRCodeSearch);
-  PopupMenuToolsItem* voiceSearch = CreateTableViewItem(
-      IDS_IOS_TOOLS_MENU_VOICE_SEARCH, PopupMenuActionVoiceSearch,
-      @"popup_menu_voice_search", kToolsMenuVoiceSearch);
-
-  PopupMenuToolsItem* newSearch =
-      CreateTableViewItem(IDS_IOS_TOOLS_MENU_NEW_SEARCH, PopupMenuActionSearch,
-                          @"popup_menu_search", kToolsMenuSearch);
-  // Disable the new search if the incognito mode is forced by enterprise
-  // policy.
-  newSearch.enabled = !IsIncognitoModeForced(self.prefService);
-
-  PopupMenuToolsItem* newIncognitoSearch = CreateTableViewItem(
-      IDS_IOS_TOOLS_MENU_NEW_INCOGNITO_SEARCH, PopupMenuActionIncognitoSearch,
-      @"popup_menu_new_incognito_tab", kToolsMenuIncognitoSearch);
-  // Disable the new incognito search if the incognito mode is disabled by
-  // enterprise policy.
-  newIncognitoSearch.enabled = !IsIncognitoModeDisabled(self.prefService);
-
-  return @[ newSearch, newIncognitoSearch, voiceSearch, QRCodeSearch ];
-}
 
 // Creates the menu items for the tools menu.
 - (void)createToolsMenuItems {
@@ -1006,11 +937,29 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
 
 - (NSArray<TableViewItem*>*)actionItems {
   NSMutableArray* actionsArray = [NSMutableArray array];
+
+  if (GetFollowActionState(self.webState) != FollowActionStateHidden) {
+    // Follow.
+    self.followItem =
+        CreateFollowItem(IDS_IOS_TOOLS_MENU_FOLLOW, PopupMenuActionFollow,
+                         @"popup_menu_follow", kToolsMenuFollowId);
+    [actionsArray addObject:self.followItem];
+  }
   // Read Later.
   self.readLaterItem = CreateTableViewItem(
       IDS_IOS_CONTENT_CONTEXT_ADDTOREADINGLIST, PopupMenuActionReadLater,
       @"popup_menu_read_later", kToolsMenuReadLater);
   [actionsArray addObject:self.readLaterItem];
+
+  self.priceNotificationsItem = CreateTableViewItem(
+      IDS_IOS_PRICE_NOTIFICATIONS_PRICE_TRACK_TITLE,
+      PopupMenuActionPriceNotifications, @"popup_menu_price_notifications",
+      kToolsMenuPriceNotifications);
+  if (self.webState &&
+      IsPriceTrackingEnabled(ChromeBrowserState::FromBrowserState(
+          self.webState->GetBrowserState()))) {
+    [actionsArray addObject:self.priceNotificationsItem];
+  }
 
   // Add to bookmark.
   self.bookmarkItem = CreateTableViewItem(
@@ -1070,9 +1019,7 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
   [actionsArray addObject:self.siteInformationItem];
 
   // Report an Issue.
-  if (ios::GetChromeBrowserProvider()
-          .GetUserFeedbackProvider()
-          ->IsUserFeedbackEnabled()) {
+  if (ios::provider::IsUserFeedbackSupported()) {
     TableViewItem* reportIssue = CreateTableViewItem(
         IDS_IOS_OPTIONS_REPORT_AN_ISSUE, PopupMenuActionReportIssue,
         @"popup_menu_report_an_issue", kToolsMenuReportAnIssueId);
@@ -1146,10 +1093,9 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
   // Settings.
   TableViewItem* settings =
       CreateTableViewItem(IDS_IOS_TOOLS_MENU_SETTINGS, PopupMenuActionSettings,
-                          @"popup_menu_settings", kToolsMenuSettingsId);
+                          @"popup_menu_settings", kToolsMenuSettingsActionId);
 
-  if (self.isIncognito &&
-      base::FeatureList::IsEnabled(kUpdateHistoryEntryPointsInIncognito)) {
+  if (self.isIncognito) {
     return @[ bookmarks, self.readingListItem, downloadsFolder, settings ];
   }
 
@@ -1189,11 +1135,33 @@ PopupMenuTextItem* CreateEnterpriseInfoItem(NSString* imageName,
 }
 
 // Returns YES if incognito NTP title and image should be used for back/forward
-// item associated with |URL|.
+// item associated with `URL`.
 - (BOOL)shouldUseIncognitoNTPResourcesForURL:(const GURL&)URL {
-  return URL.DeprecatedGetOriginAsURL() == kChromeUINewTabURL &&
-         self.isIncognito &&
-         base::FeatureList::IsEnabled(kUpdateHistoryEntryPointsInIncognito);
+    return URL.DeprecatedGetOriginAsURL() == kChromeUINewTabURL &&
+           self.isIncognito;
+}
+
+// Searches the copied image. If `usingLens` is set, then the search will be
+// performed with Lens.
+- (void)searchCopiedImage:(absl::optional<gfx::Image>)optionalImage
+                usingLens:(BOOL)usingLens {
+  if (!optionalImage)
+    return;
+
+  UIImage* image = optionalImage->ToUIImage();
+  if (usingLens) {
+    SearchImageWithLensCommand* command = [[SearchImageWithLensCommand alloc]
+        initWithImage:image
+           entryPoint:LensEntrypoint::OmniboxPostCapture];
+    [self.lensCommandsHandler searchImageWithLens:command];
+  } else {
+    web::NavigationManager::WebLoadParams webParams =
+        ImageSearchParamGenerator::LoadParamsForImage(image,
+                                                      self.templateURLService);
+    UrlLoadParams params = UrlLoadParams::InCurrentTab(webParams);
+
+    self.URLLoadingBrowserAgent->Load(params);
+  }
 }
 
 @end

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,9 @@
 #include <string>
 
 #include "base/containers/flat_map.h"
+#include "base/memory/scoped_refptr.h"
 #include "build/build_config.h"
+#include "third_party/blink/public/mojom/choosers/file_chooser.mojom-forward.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/native_widget_types.h"
 
@@ -17,12 +19,18 @@
 #include "content/public/browser/native_web_keyboard_event.h"
 #endif
 
+#if BUILDFLAG(IS_APPLE)
+#include "ui/display/screen.h"
+#endif
+
 class GURL;
 
 namespace content {
+class FileSelectListener;
 class JavaScriptDialogManager;
 class Shell;
 class ShellPlatformDataAura;
+class RenderFrameHost;
 class WebContents;
 
 class ShellPlatformDelegate {
@@ -97,6 +105,13 @@ class ShellPlatformDelegate {
   // destruction. Returns false if the Shell should destroy itself.
   virtual bool DestroyShell(Shell* shell);
 
+  // Called when a file selection is to be done.
+  // This function is responsible for calling listener->FileSelected() or
+  // listener->FileSelectionCanceled().
+  virtual void RunFileChooser(RenderFrameHost* render_frame_host,
+                              scoped_refptr<FileSelectListener> listener,
+                              const blink::mojom::FileChooserParams& params);
+
 #if !BUILDFLAG(IS_ANDROID)
   // Returns the native window. Valid after calling CreatePlatformWindow().
   virtual gfx::NativeWindow GetNativeWindow(Shell* shell);
@@ -114,14 +129,16 @@ class ShellPlatformDelegate {
                                    const NativeWebKeyboardEvent& event);
 #endif
 
-#if BUILDFLAG(IS_ANDROID)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
   void ToggleFullscreenModeForTab(Shell* shell,
                                   WebContents* web_contents,
                                   bool enter_fullscreen);
 
   bool IsFullscreenForTabOrPending(Shell* shell,
                                    const WebContents* web_contents) const;
+#endif
 
+#if BUILDFLAG(IS_ANDROID)
   // Forwarded from WebContentsDelegate.
   void SetOverlayMode(Shell* shell, bool use_overlay_mode);
 
@@ -139,6 +156,9 @@ class ShellPlatformDelegate {
 #endif
 
  private:
+#if BUILDFLAG(IS_APPLE)
+  std::unique_ptr<display::ScopedNativeScreen> screen_;
+#endif
   // Data held for each Shell instance, since there is one ShellPlatformDelegate
   // for the whole browser process (shared across Shells). This is defined for
   // each platform implementation.

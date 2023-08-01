@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,11 +11,11 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/test/task_environment.h"
@@ -569,7 +569,7 @@ TEST_F(GCMStoreImplTest, AccountMapping) {
 
   // Add account mappings.
   AccountMapping account_mapping1;
-  account_mapping1.account_id = CoreAccountId("account_id_1");
+  account_mapping1.account_id = CoreAccountId::FromGaiaId("account_id_1");
   account_mapping1.email = "account_id_1@gmail.com";
   account_mapping1.access_token = "account_token1";
   account_mapping1.status = AccountMapping::ADDING;
@@ -577,7 +577,7 @@ TEST_F(GCMStoreImplTest, AccountMapping) {
   account_mapping1.last_message_id = "message_1";
 
   AccountMapping account_mapping2;
-  account_mapping2.account_id = CoreAccountId("account_id_2");
+  account_mapping2.account_id = CoreAccountId::FromGaiaId("account_id_2");
   account_mapping2.email = "account_id_2@gmail.com";
   account_mapping2.access_token = "account_token1";
   account_mapping2.status = AccountMapping::REMOVING;

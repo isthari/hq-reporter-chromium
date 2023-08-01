@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 #include "components/autofill/core/browser/autofill_type.h"
 
 namespace autofill {
-namespace structured_address {
 
 using AddressComponentTestValues = std::vector<AddressComponentTestValue>;
 
@@ -50,9 +49,9 @@ void SetTestValues(AddressComponent* component,
                    const AddressComponentTestValues& test_values,
                    bool finalize) {
   for (const auto& test_value : test_values) {
-    component->SetValueForTypeIfPossible(test_value.type,
-                                         base::UTF8ToUTF16(test_value.value),
-                                         test_value.status);
+    component->SetValueForType(test_value.type,
+                               base::UTF8ToUTF16(test_value.value),
+                               test_value.status);
   }
   if (finalize)
     component->CompleteFullTree();
@@ -77,5 +76,4 @@ void VerifyTestValues(AddressComponent* component,
   }
 }
 
-}  // namespace structured_address
 }  // namespace autofill

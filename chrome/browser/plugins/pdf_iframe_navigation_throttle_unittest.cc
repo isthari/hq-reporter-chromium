@@ -1,13 +1,13 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/plugins/pdf_iframe_navigation_throttle.h"
 
-#include "base/bind.h"
+#include "base/files/file_path.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
-#include "base/strings/utf_string_conversions.h"
 #include "chrome/common/chrome_content_client.h"
 #include "chrome/common/pdf_util.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
@@ -20,6 +20,7 @@
 #include "chrome/browser/plugins/chrome_plugin_service_filter.h"
 #include "chrome/browser/plugins/plugin_prefs.h"
 #include "content/public/browser/plugin_service.h"
+#include "content/public/common/webplugininfo.h"
 #endif
 
 using testing::NiceMock;
@@ -66,10 +67,8 @@ class PDFIFrameNavigationThrottleTest : public ChromeRenderViewHostTestHarness {
 
     // Register a fake PDF Viewer plugin into our plugin service.
     content::WebPluginInfo info;
-    info.name =
-        base::ASCIIToUTF16(ChromeContentClient::kPDFExtensionPluginName);
-    info.mime_types.push_back(content::WebPluginMimeType(
-        kPDFMimeType, "pdf", "Fake PDF description"));
+    info.path = base::FilePath(ChromeContentClient::kPDFExtensionPluginPath);
+    info.mime_types.emplace_back(kPDFMimeType, "pdf", "Fake PDF description");
     plugin_service->RegisterInternalPlugin(info, true);
 
     // Set the plugin list as dirty, like when the browser first starts.

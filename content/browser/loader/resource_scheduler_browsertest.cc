@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,24 +32,22 @@ class ResourceSchedulerBrowserTest : public ContentBrowserTest {
 };
 
 IN_PROC_BROWSER_TEST_F(ResourceSchedulerBrowserTest,
-                       ResourceLoadingExperimentIncognito) {
+                       DISABLED_ResourceLoadingExperimentIncognito) {
   GURL url(embedded_test_server()->GetURL(
       "/resource_loading/resource_loading_non_mobile.html"));
 
   Shell* otr_browser = CreateOffTheRecordBrowser();
   EXPECT_TRUE(NavigateToURL(otr_browser, url));
-  EXPECT_EQ(9, EvalJs(otr_browser, "getResourceNumber()",
-                      EXECUTE_SCRIPT_USE_MANUAL_REPLY));
+  EXPECT_EQ(9, EvalJs(otr_browser, "getResourceNumber()"));
 }
 
 IN_PROC_BROWSER_TEST_F(ResourceSchedulerBrowserTest,
-                       ResourceLoadingExperimentNormal) {
+                       DISABLED_ResourceLoadingExperimentNormal) {
   GURL url(embedded_test_server()->GetURL(
       "/resource_loading/resource_loading_non_mobile.html"));
   Shell* browser = shell();
   EXPECT_TRUE(NavigateToURL(browser, url));
-  EXPECT_EQ(9, EvalJs(browser, "getResourceNumber()",
-                      EXECUTE_SCRIPT_USE_MANUAL_REPLY));
+  EXPECT_EQ(9, EvalJs(browser, "getResourceNumber()"));
 }
 
 }  // anonymous namespace

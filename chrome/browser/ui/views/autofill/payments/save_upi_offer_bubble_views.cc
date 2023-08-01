@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -57,4 +57,11 @@ void SaveUPIOfferBubbleViews::Init() {
   label_view->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   label_view->SetElideBehavior(gfx::ElideBehavior::ELIDE_EMAIL);
   AddChildView(std::move(label_view));
+}
+
+void SaveUPIOfferBubbleViews::WindowClosing() {
+  if (controller_) {
+    controller_->OnBubbleClosed();
+    controller_ = nullptr;
+  }
 }

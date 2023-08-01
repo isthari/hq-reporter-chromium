@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,10 @@ namespace ash {
 TestNearbyShareDelegate::TestNearbyShareDelegate() = default;
 
 TestNearbyShareDelegate::~TestNearbyShareDelegate() = default;
+
+bool TestNearbyShareDelegate::IsEnabled() {
+  return is_enabled_;
+}
 
 bool TestNearbyShareDelegate::IsPodButtonVisible() {
   return is_pod_button_visible_;

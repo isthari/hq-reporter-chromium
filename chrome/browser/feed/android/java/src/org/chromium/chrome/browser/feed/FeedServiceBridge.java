@@ -1,12 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.feed;
 
-import android.annotation.TargetApi;
 import android.content.Context;
-import android.os.Build;
 import android.util.DisplayMetrics;
 
 import org.chromium.base.ContextUtils;
@@ -20,7 +18,6 @@ import org.chromium.chrome.browser.feed.v2.ContentOrder;
 import org.chromium.chrome.browser.feed.v2.FeedUserActionType;
 import org.chromium.chrome.browser.xsurface.ImageCacheHelper;
 import org.chromium.chrome.browser.xsurface.ProcessScope;
-import org.chromium.chrome.browser.xsurface.ProcessScopeDependencyProvider;
 
 import java.lang.reflect.InvocationTargetException;
 import java.util.Locale;
@@ -37,6 +34,25 @@ public final class FeedServiceBridge {
         return FeedServiceBridgeJni.TEST_HOOKS;
     }
 
+    private static FeedServiceDependencyProviderFactory getDependencyProviderFactory() {
+        Class<?> dependencyProviderFactoryClazz;
+        try {
+            dependencyProviderFactoryClazz = Class.forName(
+                    "org.chromium.chrome.browser.app.feed.FeedServiceDependencyProviderFactoryImpl");
+        } catch (ClassNotFoundException e) {
+            return null;
+        }
+        try {
+            return (FeedServiceDependencyProviderFactory) dependencyProviderFactoryClazz
+                    .getDeclaredMethod("getInstance")
+                    .invoke(null);
+        } catch (NoSuchMethodException e) {
+        } catch (InvocationTargetException e) {
+        } catch (IllegalAccessException e) {
+        }
+        return null;
+    }
+
     private static ProcessScope sXSurfaceProcessScope;
 
     public static ProcessScope xSurfaceProcessScope() {
@@ -47,28 +63,8 @@ public final class FeedServiceBridge {
         if (!feedHooks.isEnabled()) {
             return null;
         }
-        Class<?> dependencyProviderFactoryClazz;
-        try {
-            dependencyProviderFactoryClazz = Class.forName(
-                    "org.chromium.chrome.browser.app.feed.ProcessScopeDependencyProviderFactory");
-        } catch (ClassNotFoundException e) {
-            return null;
-        }
-
-        ProcessScopeDependencyProvider dependencyProvider = null;
-        try {
-            dependencyProvider = (ProcessScopeDependencyProvider) dependencyProviderFactoryClazz
-                                         .getDeclaredMethod("create")
-                                         .invoke(null);
-        } catch (NoSuchMethodException e) {
-        } catch (InvocationTargetException e) {
-        } catch (IllegalAccessException e) {
-        }
-        if (dependencyProvider == null) {
-            return null;
-        }
-
-        sXSurfaceProcessScope = feedHooks.createProcessScope(dependencyProvider);
+        sXSurfaceProcessScope = feedHooks.createProcessScope(
+                getDependencyProviderFactory().createProcessScopeDependencyProvider());
         return sXSurfaceProcessScope;
     }
 
@@ -76,16 +72,22 @@ public final class FeedServiceBridge {
         sXSurfaceProcessScope = processScope;
     }
 
+    private static FeedServiceUtil sFeedServiceUtil;
+
+    public static FeedServiceUtil feedServiceUtil() {
+        if (sFeedServiceUtil == null) {
+            sFeedServiceUtil = getDependencyProviderFactory().createFeedServiceUtil();
+        }
+        return sFeedServiceUtil;
+    }
+
     public static boolean isEnabled() {
         return FeedServiceBridgeJni.get().isEnabled();
     }
 
     /** Returns the top user specified locale. */
-    @TargetApi(Build.VERSION_CODES.N)
     private static Locale getLocale(Context context) {
-        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.N
-                ? context.getResources().getConfiguration().getLocales().get(0)
-                : context.getResources().getConfiguration().locale;
+        return context.getResources().getConfiguration().getLocales().get(0);
     }
 
     // Java functionality needed for the native FeedService.
@@ -116,6 +118,12 @@ public final class FeedServiceBridge {
             }
         }
     }
+
+    @CalledByNative
+    public static @TabGroupEnabledState int getTabGroupEnabledState() {
+        return feedServiceUtil().getTabGroupEnabledState();
+    }
+
     /** Called at startup to trigger creation of |FeedService|. */
     public static void startup() {
         FeedServiceBridgeJni.get().startup();
@@ -164,8 +172,17 @@ public final class FeedServiceBridge {
      * Reports that a user action occurred which is untied to a Feed tab. Use
      * FeedStream.reportOtherUserAction for stream-specific actions.
      */
-    public static void reportOtherUserAction(@FeedUserActionType int userAction) {
-        FeedServiceBridgeJni.get().reportOtherUserAction(userAction);
+    public static void reportOtherUserAction(
+            @StreamKind int streamKind, @FeedUserActionType int userAction) {
+        FeedServiceBridgeJni.get().reportOtherUserAction(streamKind, userAction);
+    }
+
+    /**
+     * @return True if the user is signed in for feed purposes (i.e. if a personalized feed can be
+     *         requested).
+     */
+    public static boolean isSignedIn() {
+        return FeedServiceBridgeJni.get().isSignedIn();
     }
 
     /** Observes whether or not the Feed stream contains unread content */
@@ -206,12 +223,13 @@ public final class FeedServiceBridge {
         void setVideoPreviewsTypePreference(int videoPreviewsType);
         long getReliabilityLoggingId();
         boolean isAutoplayEnabled();
-        void reportOtherUserAction(@FeedUserActionType int userAction);
+        void reportOtherUserAction(@StreamKind int streamKind, @FeedUserActionType int userAction);
         @ContentOrder
         int getContentOrderForWebFeed();
         void setContentOrderForWebFeed(@ContentOrder int contentOrder);
 
         long addUnreadContentObserver(Object object, boolean isWebFeed);
+        boolean isSignedIn();
         @NativeClassQualifiedName("feed::JavaUnreadContentObserver")
         void destroy(long nativePtr);
     }

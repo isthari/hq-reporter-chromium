@@ -46,7 +46,7 @@ LayoutSVGModelObject::LayoutSVGModelObject(SVGElement* node)
 bool LayoutSVGModelObject::IsChildAllowed(LayoutObject* child,
                                           const ComputedStyle&) const {
   NOT_DESTROYED();
-  return child->IsSVG() && !(child->IsSVGInline() || child->IsSVGInlineText());
+  return SVGContentContainer::IsChildAllowed(*child);
 }
 
 void LayoutSVGModelObject::MapLocalToAncestor(
@@ -79,7 +79,8 @@ void LayoutSVGModelObject::AbsoluteQuads(Vector<gfx::QuadF>& quads,
 
 // This method is called from inside PaintOutline(), and since we call
 // PaintOutline() while transformed to our coord system, return local coords.
-void LayoutSVGModelObject::AddOutlineRects(Vector<PhysicalRect>& rects,
+void LayoutSVGModelObject::AddOutlineRects(OutlineRectCollector& collector,
+                                           OutlineInfo* info,
                                            const PhysicalOffset&,
                                            NGOutlineType) const {
   NOT_DESTROYED();
@@ -90,7 +91,9 @@ void LayoutSVGModelObject::AddOutlineRects(Vector<PhysicalRect>& rects,
   // If visual rect is clipped away then don't add it.
   if (!was_empty && visual_rect.IsEmpty())
     return;
-  rects.push_back(PhysicalRect::EnclosingRect(visual_rect));
+  collector.AddRect(PhysicalRect::EnclosingRect(visual_rect));
+  if (info)
+    *info = OutlineInfo::GetUnzoomedFromStyle(StyleRef());
 }
 
 gfx::RectF LayoutSVGModelObject::LocalBoundingBoxRectForAccessibility() const {
@@ -100,7 +103,7 @@ gfx::RectF LayoutSVGModelObject::LocalBoundingBoxRectForAccessibility() const {
 
 void LayoutSVGModelObject::WillBeDestroyed() {
   NOT_DESTROYED();
-  SVGResources::ClearClipPathFilterMask(*GetElement(), Style());
+  SVGResources::ClearEffects(*this);
   LayoutObject::WillBeDestroyed();
 }
 
@@ -141,16 +144,24 @@ void LayoutSVGModelObject::StyleDidChange(StyleDifference diff,
   SetHasTransformRelatedProperty(
       StyleRef().HasTransformRelatedPropertyForSVG());
 
-  SVGResources::UpdateClipPathFilterMask(*GetElement(), old_style, StyleRef());
+  SVGResources::UpdateEffects(*this, diff, old_style);
 
   if (!Parent())
     return;
-  if (diff.BlendModeChanged() && !IsSVGHiddenContainer()) {
-    DCHECK(IsBlendingAllowed());
-    Parent()->DescendantIsolationRequirementsChanged(
-        StyleRef().HasBlendMode() ? kDescendantIsolationRequired
-                                  : kDescendantIsolationNeedsUpdate);
+
+  if (!IsSVGHiddenContainer()) {
+    if (diff.BlendModeChanged()) {
+      DCHECK(IsBlendingAllowed());
+      Parent()->DescendantIsolationRequirementsChanged(
+          StyleRef().HasBlendMode() ? kDescendantIsolationRequired
+                                    : kDescendantIsolationNeedsUpdate);
+    }
+    if (StyleRef().HasCurrentTransformRelatedAnimation() &&
+        !old_style->HasCurrentTransformRelatedAnimation()) {
+      Parent()->SetSVGDescendantMayHaveTransformRelatedAnimation();
+    }
   }
+
   if (diff.HasDifference())
     LayoutSVGResourceContainer::StyleChanged(*this, diff);
 }

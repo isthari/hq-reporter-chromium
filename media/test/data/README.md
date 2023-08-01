@@ -46,18 +46,25 @@ bear-vp8-webvtt.webm as a 'subt' handler type.
 Just the first initialization segment of bear-1280x720_av_frag.mp4, modified to
 have the mvhd version 0 32-bit duration field set to all 1's.
 
+#### bear-1280x720.ivf
+
+VP8 video stream from bear-1280x720.mp4 in ivf container.
+
 #### negative-audio-timestamps.avi
 A truncated audio/video file with audio packet timestamps of -1. We need to ensure that these packets aren't dropped.
 
 #### noise-xhe-aac.mp4
+#### noise-xhe-aac-mono.mp4
 Fragmented mp4 of noise encoded with xHE-AAC, from xHE-AAC samples in [Android
-CTS](https://android.googlesource.com/platform/cts/+/master/tests/tests/media/res/raw),
+CTS](https://android.googlesource.com/platform/cts/+/master/tests/tests/media/decoder/res/raw),
 using ffmpeg version 4.2.2 (where nofillin lets audio nonkeyframes in input be
 indicated the same in output, unlike more recent tip-of-tree ffmpeg's operation
 with this option) to remux, unfortunately with empty MOOV not giving real
 duration:
 ```
 ffmpeg -fflags nofillin -i noise_2ch_48khz_aot42_19_lufs_mp4.m4a -acodec copy -t 1 -movflags frag_keyframe+empty_moov+default_base_moof noise-xhe-aac.mp4
+ffmpeg -fflags nofillin -i noise_1ch_29_4khz_aot42_19_lufs_drc_config_change_mp4.m4a -acodec copy -t 1 -movflags frag_keyframe+empty_moov+default_base_moof noise-xhe-aac-mono.mp4
+ffmpeg -fflags nofillin -i noise_2ch_44_1khz_aot42_19_lufs_config_change_mp4.m4a -acodec copy -t 1 -movflags frag_keyframe+empty_moov+default_base_moof noise-xhe-aac-44kHz.mp4
 ```
 
 ### FLAC
@@ -98,6 +105,167 @@ ffmpeg -i sfx.flac -map 0:0 -acodec copy -strict -2 sfx-flac.mp4
 Fragmented audio-only 44.1kHz FLAC in MP4 file, created using:
 ```
 ffmpeg -i sfx.flac -map 0:0 -acodec copy -strict -2 -movflags frag_keyframe+empty_moov+default_base_moof sfx-flac_frag.mp4
+```
+
+### VVC
+
+#### bear_180p.vvc
+Created using FFmpeg/vvencapp with the following commands:
+```
+ffmpeg -i bear.y4m -f rawvideo bear_180P.yuv
+vvencapp --preset medium -i bear_180P.yuv -s 320x180 -r 15 -b 1000000 \
+  -p 2 -o bear_180p.vvc
+```
+
+#### bbb_360p.vvc
+Created using FFmpeg/vvencapp with the following commands:
+```
+ffmpeg -i bbb-320x240-2video-2audio.mp4 bbb.y4m
+ffmpeg -i bbb.y4m -vf scale=480x360 bbb_480x360.yuv
+vvencapp --preset medium -i bbb_480x360.yuv -s 480x360 -r 15 -b 1000000 \
+  -p 2 -f 60 -o bbb_360p.vvc
+```
+
+#### basketball_2_layers.vvc
+2 spatial layer VVC video with layer 0 at 208x120 and layer 1 at 832x480.
+Used for vvc parser test. Once vvencapp supports multi-layer encoding, the
+creation command needs to be provided.
+
+#### bbb_9tiles.vvc
+VVC stream generated with VTM with each picture configured to be with 9 tiles
+and single raster scan slice.
+Created with VTM and ffmpeg:
+```
+ffmpeg -i bbb-320x240-2video-2audio.mp4 bbb.y4m
+ffmpeg -i bbb.y4m -vf scale=1920x1080 bbb_1920x1080.yuv
+EncoderApp --EnablePicPartitioning=1 --CTUSize=128 --TileColumnWidthArray=5 \
+  --TileRowHeightArray=3 --RasterScanSlices=1 --RasterSliceSizes=15 \
+  -f 8 --InputFile=bbb_1920x1080.yuv --BitstreamFile=bbb_9tiles.vvc
+```
+
+#### bbb_15tiles_15slices.vvc
+VVC stream generated with VTM with each picture configured to be with 15 tiles
+and 15 rect slices.
+Created with VTM and ffmpeg:
+```
+ffmpeg -i bbb-320x240-2video-2audio.mp4 bbb.y4m
+ffmpeg -i bbb.y4m -vf scale=1920x1080 bbb_1920x1080.yuv
+EncoderApp -f 8 --EnablePicPartitioning=1 --CTUSize=128 \
+  --TileColumnWidthArray=3,3,3,3,3  --TileRowHeightArray=3,3 \
+  --RasterScanSlices=0 --RectSliceFixedWidth=1 \
+  --RectSliceFixedHeight=1 --InputFile=bbb_1920x1080.yuv \
+  --BitstreamFile=bbb_15tiles_15slices.vvc
+```
+
+#### bbb_9tiles_18slices.vvc
+VVC stream generated with VTM with each picture configured to be with 9 tiles
+and 18 rect slices.
+Created with VTM and ffmpeg:
+```
+ffmpeg -i bbb-320x240-2video-2audio.mp4 bbb.y4m
+ffmpeg -i bbb.y4m -vf scale=1920x1080 bbb_1920x1080.yuv
+EncoderApp -f 8 --EnablePicPartitioning=1 --CTUSize=128 \
+  --TileColumnWidthArray=5,5,5 --TileRowHeightArray=3,3 --RasterScanSlices=0 \
+  --RectSliceFixedWidth=0 --RectSliceFixedHeight=0 \
+  --RectSlicePositions=0,19,30,34,45,64,75,79,90,109,120,124,5,24,35,39,50,69,\
+80,84,95,114,125,129,10,29,40,44,55,74,85,89,100,119,130,134 \
+  --InputFile=bbb_1920x1080.yuv --BitstreamFile=bbb_9tiles_18slices.vvc
+```
+
+#### bbb_chroma_qp_offset_lists.vvc
+VVC stream generated with VTM with chroma QP offset lists enabled.
+Created with VTM and ffmpeg:
+```
+ffmpeg -i bbb-320x240-2video-2audio.mp4 bbb.y4m
+ffmpeg -i bbb.y4m -vf scale=1920x1080 bbb_1920x1080.yuv
+EncoderApp --CTUSize=128 --CbQpOffsetList=3,3,8,9 --CrQpOffsetList=2,4,1,7 \
+  -f 8 --InputFile=bbb_1920x1080.yuv \
+  --BitstreamFile=bbb_chroma_qp_offset_lists.vvc
+```
+
+#### bbb_scaling_lists.vvc
+VVC stream generated with VTM that is used to verify scaling list parsing.
+Created with VTM and ffmpeg:
+```
+ffmpeg -i bbb-320x240-2video-2audio.mp4 bbb.y4m
+ffmpeg -i bbb.y4m -vf scale=1920x1080 bbb_1920x1080.yuv
+EncoderApp --CTUSize=128 -c sample_scaling_list.cfg -f 8 \
+  --InputFile=bbb_1920x1080.yuv \
+  --BitstreamFile=bbb_scaling_lists.vvc
+```
+Please be noted sample_scaling_list.cfg is the file with the same name from VTM
+sample configure.
+
+#### bbb_rpl_in_ph_nut.vvc
+VVC stream generated with VTM that is used to verify parsing of complex picture
+header structure in a separate PH NALU.
+Created with VTM and ffmpeg:
+```
+ffmpeg -i bbb-320x240-2video-2audio.mp4 bbb.y4m
+ffmpeg -i bbb.y4m -vf scale=1920x1080 bbb_1920x1080.yuv
+EncoderApp -f 5 --EnablePicPartitioning=1 --CTUSize=128 \
+  --TileColumnWidthArray=5,5,5 --TileRowHeightArray=3,3 --RasterScanSlices=0 \
+  --RectSliceFixedWidth=0 --RectSliceFixedHeight=0 \
+  --RectSlicePositions=0,19,30,34,45,64,75,79,90,109,120,124,5,24,35,39,50,69,\
+80,84,95,114,125,129,10,29,40,44,55,74,85,89,100,119,130,134 \
+  --SliceLevelRpl=0 --SliceLevelDblk=0 --SliceLevelSao=0 --SliceLevelAlf=0 \
+  --SliceLevelDeltaQp=0 --ALF=1 --JointCbCr=1 --SAO=1 --WeightedPredP=1 \
+  --WeightedPredB=1 --WeightedPredMethod=4 --CCALF=1 \
+  --VirtualBoundariesPresentInSPSFlag=0 --SliceLevelWeightedPrediction=0
+```
+
+#### bbb_rpl_in_slice.vvc
+VVC stream generated with VTM that is used to verify slice header which contains
+RPL and pred_weight_table directly in it, instead of the picture header structure
+that is part of slice header.
+Created with VTM and ffmpeg:
+```
+ffmpeg -i bbb-320x240-2video-2audio.mp4 bbb.y4m
+ffmpeg -i bbb.y4m -vf scale=1920x1080 bbb_1920x1080.yuv
+EncoderApp -f 5 --EnablePicPartitioning=1 --CTUSize=128 \
+  --SliceLevelRpl=1 --SliceLevelDblk=1 --SliceLevelSao=1 --SliceLevelAlf=1 \
+  --SliceLevelDeltaQp=1 --ALF=1 --JointCbCr=1 --SAO=1 --WeightedPredP=1 \
+  --WeightedPredB=1 --WeightedPredMethod=4 --CCALF=1 \
+  --VirtualBoundariesPresentInSPSFlag=0 --SliceLevelWeightedPrediction=1
+```
+
+#### bbb_slice_with_entrypoints
+VVC stream generated with VTM that is used to verify slices with entrypoints
+specified in slice header, and also with deblocking filter params in it.
+Created with VTM and ffmpeg:
+```
+ffmpeg -i bbb-320x240-2video-2audio.mp4 bbb.y4m
+ffmpeg -i bbb.y4m -vf scale=1920x1080 bbb_1920x1080.yuv
+EncoderApp --EnablePicPartitioning=1 --CTUSize=128 --TileColumnWidthArray=5 \
+  --TileRowHeightArray=3 --RasterScanSlices=1 --RasterSliceSizes=15 \
+  --DisableLoopFilterAcrossTiles=0 --DisableLoopFilterAcrossSlices \
+  --SliceLevelRpl=0 --SliceLevelDblk=0 --SliceLevelSao=0 --SliceLevelAlf=0 \
+  --SliceLevelWeightedPrediction=0 --VirtualBoundariesPresentInSPSFlag=0 \
+  --DeblockingFilterOffsetInPPS=0 --DeblockingFilterDisable=0 \
+  --DeblockingFilterBetaOffset_div2=-2 --DeblockingFilterTcOffset_div2=-2 \
+  --DeblockingFilterCbBetaOffset_div2=-2 --DeblockingFilterCbTcOffset_div2=0 \
+  --DeblockingFilterCrBetaOffset_div2=-2 --DeblockingFilterCrTcOffset_div2=0 \
+  --DeblockingFilterMetric=0 --EntryPointsPresent=1 --WaveFrontSynchro=1 \
+  -f 2 --InputFile=bbb_1920x1080.yuv --BitstreamFile=bbb_9tiles.vvc
+```
+
+#### bbb_2_subpictures_8_slices
+VVC stream generated with VTM that is used to verify VVC slice parser on stream
+that is with multiple subpictures.
+Created with VTM and ffmpeg:
+```
+ffmpeg -i bbb-320x240-2video-2audio.mp4 bbb.y4m
+ffmpeg -i bbb.y4m -vf scale=1920x1080 bbb_1920x1080.yuv
+EncoderApp --EnablePicPartitioning=1 --CTUSize=128 --TileColumnWidthArray=3,4 \
+ --TileRowHeightArray=3 --RasterScanSlices=0 --RectSliceFixedWidth=0 \
+ --RectSliceFixedHeight=0 --RectSlicePositions=0,17,30,32,45,62,75,77,3,85,90,\
+ 130,11,89,101,134 --DisableLoopFilterAcrossTiles=1 \
+ --DisableLoopFilterAcrossSlices=1 --SubPicInfoPresentFlag=1 --NumSubPics=2 \
+ --SubPicCtuTopLeftX=0,11 --SubPicCtuTopLeftY=0,0 --SubPicWidth=11,4 \
+ --SubPicHeight=9,9 --SubPicTreatedAsPicFlag=1,1 \
+ --LoopFilterAcrossSubpicEnabledFlag=0,0 \
+ --SubPicIdMappingExplicitlySignalledFlag=0 \
+ -f 2 --InputFile=bbb_1920x1080.yuv --BitstreamFile=bbb_9tiles.vvc
 ```
 
 ### AV1
@@ -191,6 +359,12 @@ The video license is [libaom LICENSE].
 The first frame of blackwhite\_yuv444p.mp4 coded in AV1 by the following command.
 `ffmpeg -i blackwhite_yuv444p.mp4 -strict -2 -vcodec av1 -vframes 1 blackwhite_yuv444p-frame.av1.ivf`
 
+#### blackwhite_yuv444p_av1.mp4
+`ffmpeg -i blackwhite_yuv444p-frame.av1.ivf -y -vcodec copy blackwhite_yuv444p_av1.mp4`
+
+#### blackwhite_yuv444p_av1.webm
+`ffmpeg -i blackwhite_yuv444p-frame.av1.ivf -y -vcodec copy blackwhite_yuv444p_av1.webm`
+
 #### av1-film\_grain.ivf
 AV1 data where film grain feature is used.
 This is the same as av1-1-b8-23-film\_grain-50.ivf in [libaom test vectors].
@@ -240,6 +414,10 @@ the media data doesn't start at time 0.
 
 #### bear-320x240_corrupted_after_init_segment.webm
 bear-320x240.webm's initialization segment followed by "CORRUPTED\n"
+
+#### mono_cpe.adts
+Technically not corrupt since ffmpeg explicitly allows this stereo track to say
+it's mono. First second of audio from test clip on https://crbug.com/1282058.
 
 ### Live
 
@@ -809,25 +987,6 @@ ffmpeg -i red-green.mp4 -vcodec copy -vbsf h264_mp4toannexb -an red-green.h264
 
 ## Misc Test Files
 
-### resolution_change_500frames
-
-#### resolution_change_500frames-vp8.ivf
-#### resolution_change_500frames-vp9.ivf
-Dumped compressed stream of videos on
-[http://crosvideo.appspot.com](http://crosvideo.appspot.com) manually
-changing resolutions at random. Those contain 144p, 240p, 360p, 480p, 720p, and
-1080p frames. Those frame sizes can be found by
-```
-ffprobe -show_frames resolution_change_500frames.vp8
-```
-
-#### switch_1080p_720p_240frames
-#### switch_1080p_720p_240frames.h264
-Extract 240 frames using ffmpeg from
-http://commondatastorage.googleapis.com/chromiumos-test-assets-public/MSE/switch_1080p_720p.mp4.
-
-The frame sizes change between 1080p and 720p every 24 frames.
-
 ### VEA test files:
 
 #### bear_320x192_40frames.yuv.webm
@@ -975,6 +1134,11 @@ bear-320x180-10bit-frame-1.hevc: B
 bear-320x180-10bit-frame-2.hevc: B
 bear-320x180-10bit-frame-3.hevc: P
 
+#### bear-1280x720-hevc-10bit-hdr10.hevc
+AnnexB version of bear-1280x720-hevc-10bit-hdr10.mp4 created using the following command:
+`ffmpeg -i bear-1280x720-hevc-10bit-hdr10.mp4 -c:v copy -bsf hevc_mp4toannexb bear-1280x720-hevc-10bit-hdr10.hevc',
+used by h265_parser_unittest.cc.
+
 #### blackwhite\_yuv444p-frame.hevc
 The first frame of blackwhite_yuv444p.mp4 coded in HEVC by the following command.
 `ffmpeg -i blackwhite_yuv444p.mp4 -vcodec hevc -vframes 1 blackwhite_yuv444p-frame.hevc`
@@ -1116,15 +1280,17 @@ present.
 ### MP4 files with AC3 and EAC3 audio
 
 #### bear-ac3-only-frag.mp4
-AC3 audio in framented MP4, generated with
+AC3 audio in framented MP4, generated with bento4 by the following command:
 ```
-ffmpeg -i bear.ac3 -acodec copy -movflags frag_keyframe bear-ac3-only-frag.mp4
+mp4mux --track bear.ac3 bear-ac3-only.mp4
+mp4fragment bear-ac3-only.mp4 bear-ac3-only-frag.mp4
 ```
 
 #### bear-eac3-only-frag.mp4
-EAC3 audio in framented MP4, generated with
+EAC3 audio in framented MP4, generated with bento4 by the following command:
 ```
-ffmpeg -i bear.eac3 -acodec copy -movflags frag_keyframe bear-eac3-only-frag.mp4
+mp4mux --track bear.eac3 bear-eac3-only.mp4
+mp4fragment bear-eac3-only.mp4 bear-eac3-only-frag.mp4
 ```
 
 ### Mpeg2ts stream with AAC HE audio that uses SBR
@@ -1176,6 +1342,54 @@ tfhd.default_sample_flags: s/0x01010000/0x02000000 (second frame is sync-sample,
 doesn't depend on other frames, mismatches compressed h265 second frame's
 nonkeyframe-ness).
 
+#### bear-1280x720-hevc.mp4
+HEVC video stream with 8-bit main profile, generated with
+```
+ffmpeg -i bear-1280x720.mp4 -vcodec hevc bear-1280x720-hevc.mp4
+```
+
+#### bear-1280x720-hevc-10bit.mp4
+HEVC video stream with 10-bit main10 profile, generated with
+```
+ffmpeg -i bear-1280x720.mp4 -vcodec hevc -pix_fmt yuv420p10le bear-1280x720-hevc-10bit.mp4
+```
+
+#### bear-1280x720-hevc-10bit-422.mp4
+HEVC video stream with 10-bit 422 range extension profile, generated with
+```
+ffmpeg -i bear-1280x720.mp4 -vcodec libx265 -pix_fmt yuv422p10le bear-1280x720-hevc-10bit-422.mp4
+```
+
+#### bear-1280x720-hevc-10bit-444.mp4
+HEVC video stream with 10-bit 444 range extension profile, generated with
+```
+ffmpeg -i bear-1280x720.mp4 -vcodec libx265 -pix_fmt yuv444p10le bear-1280x720-hevc-10bit-444.mp4
+```
+
+#### bear-1280x720-hevc-12bit-420.mp4
+HEVC video stream with 12-bit 420 range extension profile, generated with
+```
+ffmpeg -i bear-1280x720.mp4 -vcodec libx265 -pix_fmt yuv420p12le bear-1280x720-hevc-12bit-420.mp4
+```
+
+#### bear-1280x720-hevc-12bit-422.mp4
+HEVC video stream with 12-bit 422 range extension profile, generated with
+```
+ffmpeg -i bear-1280x720.mp4 -vcodec libx265 -pix_fmt yuv422p12le bear-1280x720-hevc-12bit-422.mp4
+```
+
+#### bear-1280x720-hevc-12bit-444.mp4
+HEVC video stream with 12-bit 444 range extension profile, generated with
+```
+ffmpeg -i bear-1280x720.mp4 -vcodec libx265 -pix_fmt yuv444p12le bear-1280x720-hevc-12bit-444.mp4
+```
+
+#### bear-1280x720-hevc-10bit-hdr10.mp4
+HEVC video stream with HDR10 metadata included, generated with
+````
+ffmpeg -i bear-1280x720.mp4 -vcodec libx265 -x265-params colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:master-display="G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,500)":max-cll=1000,400 -pix_fmt yuv420p10le bear-1280x720-hevc-10bit-hdr10.mp4 // nocheck
+````
+
 ### Multi-track MP4 file
 
 (c) copyright 2008, Blender Foundation / www.bigbuckbunny.org
@@ -1203,6 +1417,12 @@ Generated using following steps:
     ```
     ffmpeg -i bbb1.mp4 -i bbb2.mp4 -map 0:0 -map 0:1 -map 1:0 -map 1:1 -c:v copy -c:a copy -movflags frag_keyframe+omit_tfhd_offset+separate_moof bbb-320x240-2video-2audio.mp4
     ```
+
+#### multitrack-disabled.mp4
+H.264 video stream with the first track marked as disabled, generated with
+````
+ffmpeg -f lavfi -i "color=c=white:d=1" -f lavfi -i "testsrc2=d=1" -map 0 -disposition:v:0 0 -map 1 -disposition:v:1 default -c:v libx264 multitrack-disabled.mp4
+````
 
 ### Multi-track WebM file
 
@@ -1239,3 +1459,50 @@ https://people.xiph.org/~greg/opus_testvectors/
 
 #### dts.bin
 A single DTS Coherent Acoustics audio frame
+
+#### dtsx.bin
+A single DTS:X P2 Coherent Acoustics audio frame
+
+#### bear_dtsc.mp4
+Moov box with track of DTS Coherent Acoustics Audio, no mdat box.
+
+Generated using the following commands:
+```
+# start with ~1 second long PCM 2 channel audio and extend to three seconds
+ffmpeg -i bear_pcm.wav -y bear.ts
+ffmpeg -i "concat:bear.ts|bear.ts|bear.ts" -c copy bear2.wav
+# make a 6 channel WAV
+ffmpeg -i bear2.wav -i bear2.wav -i bear2.wav -ar 48000 -filter_complex 'amerge=inputs=3' -y bear6.wav
+ffmpeg -i bear6.wav -c:a dtsS -movflags frag_keyframe -y bear_dtsc.mp4
+# truncate to size of moov box (truncate -s)
+```
+
+#### bear_dtse.mp4
+Moov box with track of DTS Express Audio, no mdat box.
+
+Generated using the following commands:
+```
+# start with ~1 second long PCM 2 channel audio and extend to three seconds
+ffmpeg -i bear_pcm.wav -y bear.ts
+ffmpeg -i "concat:bear.ts|bear.ts|bear.ts" -c copy bear2.wav
+# make a 6 channel WAV
+ffmpeg -i bear2.wav -i bear2.wav -i bear2.wav -ar 48000 -filter_complex 'amerge=inputs=3' -y bear6.wav
+# create DTS CA, DTS Express, DTS:X P2 mp4 files
+ffmpeg -i bear6.wav -c:a dtsS -b:a 255000 -movflags frag_keyframe -y bear_dtse.mp4
+# truncate to size of moov box (truncate -s)
+```
+
+#### bear_dtsx.mp4
+Moov box with track of DTS:X Profile 2 Audio, no mdat box.
+
+Generated using the following commands:
+```
+# start with ~1 second long PCM 2 channel audio and extend to three seconds
+ffmpeg -i bear_pcm.wav -y bear.ts
+ffmpeg -i "concat:bear.ts|bear.ts|bear.ts" -c copy bear2.wav
+# make a 6 channel WAV
+ffmpeg -i bear2.wav -i bear2.wav -i bear2.wav -ar 48000 -filter_complex 'amerge=inputs=3' -y bear6.wav
+# create DTS CA, DTS Express, DTS:X P2 mp4 files
+ffmpeg -i bear6.wav -c:a dtsxS -b:a 160000 -movflags frag_keyframe -y bear_dtsx.mp4
+# truncate to size of moov box (truncate -s)
+```

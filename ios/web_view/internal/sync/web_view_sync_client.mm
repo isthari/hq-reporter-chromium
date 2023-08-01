@@ -1,38 +1,37 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/web_view/internal/sync/web_view_sync_client.h"
 
-#include <algorithm>
+#import <algorithm>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
-#include "base/check_op.h"
-#include "base/command_line.h"
-#include "base/notreached.h"
-#include "base/task/post_task.h"
-#include "components/autofill/core/browser/webdata/autofill_profile_sync_bridge.h"
-#include "components/autofill/core/common/autofill_features.h"
-#include "components/invalidation/impl/profile_invalidation_provider.h"
-#include "components/keyed_service/core/service_access_type.h"
-#include "components/metrics/demographics/user_demographics.h"
-#include "components/sync/base/sync_util.h"
-#include "components/sync/driver/data_type_controller.h"
-#include "components/sync/driver/sync_api_component_factory.h"
-#include "components/version_info/version_info.h"
-#include "components/version_info/version_string.h"
-#include "ios/web/public/thread/web_task_traits.h"
-#include "ios/web/public/thread/web_thread.h"
+#import "base/check_op.h"
+#import "base/command_line.h"
+#import "base/functional/bind.h"
+#import "base/functional/callback_helpers.h"
+#import "base/notreached.h"
+#import "components/autofill/core/browser/webdata/autofill_profile_sync_bridge.h"
+#import "components/autofill/core/common/autofill_features.h"
+#import "components/invalidation/impl/profile_invalidation_provider.h"
+#import "components/keyed_service/core/service_access_type.h"
+#import "components/metrics/demographics/user_demographics.h"
+#import "components/sync/base/sync_util.h"
+#import "components/sync/service/data_type_controller.h"
+#import "components/sync/service/sync_api_component_factory.h"
+#import "components/version_info/version_info.h"
+#import "components/version_info/version_string.h"
+#import "ios/web/public/thread/web_task_traits.h"
+#import "ios/web/public/thread/web_thread.h"
 #import "ios/web_view/internal/passwords/web_view_account_password_store_factory.h"
-#include "ios/web_view/internal/passwords/web_view_password_store_factory.h"
-#include "ios/web_view/internal/signin/web_view_identity_manager_factory.h"
+#import "ios/web_view/internal/passwords/web_view_password_store_factory.h"
+#import "ios/web_view/internal/signin/web_view_identity_manager_factory.h"
 #import "ios/web_view/internal/sync/web_view_device_info_sync_service_factory.h"
 #import "ios/web_view/internal/sync/web_view_model_type_store_service_factory.h"
 #import "ios/web_view/internal/sync/web_view_profile_invalidation_provider_factory.h"
 #import "ios/web_view/internal/sync/web_view_sync_invalidations_service_factory.h"
-#include "ios/web_view/internal/sync/web_view_trusted_vault_client.h"
-#include "ios/web_view/internal/webdata_services/web_view_web_data_service_wrapper_factory.h"
+#import "ios/web_view/internal/sync/web_view_trusted_vault_client.h"
+#import "ios/web_view/internal/webdata_services/web_view_web_data_service_wrapper_factory.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -102,12 +101,13 @@ WebViewSyncClient::WebViewSyncClient(
       sync_invalidations_service_(sync_invalidations_service) {
   component_factory_ =
       std::make_unique<browser_sync::SyncApiComponentFactoryImpl>(
-          this, version_info::Channel::STABLE,
-          base::CreateSingleThreadTaskRunner({web::WebThread::UI}),
+          this, version_info::Channel::STABLE, web::GetUIThreadTaskRunner({}),
           profile_web_data_service_->GetDBTaskRunner(),
           profile_web_data_service_, account_web_data_service_,
           profile_password_store_, account_password_store_,
-          /*bookmark_sync_service=*/nullptr);
+          /*local_or_syncable_bookmark_sync_service=*/nullptr,
+          /*account_bookmark_sync_service=*/nullptr,
+          /*power_bookmark_service=*/nullptr);
   trusted_vault_client_ = std::make_unique<WebViewTrustedVaultClient>();
 }
 
@@ -135,15 +135,15 @@ syncer::DeviceInfoSyncService* WebViewSyncClient::GetDeviceInfoSyncService() {
   return device_info_sync_service_;
 }
 
-bookmarks::BookmarkModel* WebViewSyncClient::GetBookmarkModel() {
-  return nullptr;
-}
-
 favicon::FaviconService* WebViewSyncClient::GetFaviconService() {
   return nullptr;
 }
 
 history::HistoryService* WebViewSyncClient::GetHistoryService() {
+  return nullptr;
+}
+
+ReadingListModel* WebViewSyncClient::GetReadingListModel() {
   return nullptr;
 }
 
@@ -166,10 +166,6 @@ WebViewSyncClient::CreateDataTypeControllers(
     syncer::SyncService* sync_service) {
   return component_factory_->CreateCommonDataTypeControllers(GetDisabledTypes(),
                                                              sync_service);
-}
-
-BookmarkUndoService* WebViewSyncClient::GetBookmarkUndoService() {
-  return nullptr;
 }
 
 invalidation::InvalidationService* WebViewSyncClient::GetInvalidationService() {

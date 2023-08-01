@@ -1,9 +1,8 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/borealis/borealis_service_impl.h"
-#include "chrome/browser/ash/borealis/borealis_service.h"
 
 namespace borealis {
 
@@ -12,12 +11,11 @@ BorealisServiceImpl::BorealisServiceImpl(Profile* profile)
       app_launcher_(profile_),
       app_uninstaller_(profile_),
       context_manager_(profile),
-      disk_manager_dispatcher_(),
       features_(profile_),
       installer_(profile_),
+      install_url_handler_(profile_),
       launch_options_(profile_),
       shutdown_monitor_(profile_),
-      wayland_interface_(profile_),
       window_manager_(profile_) {}
 
 BorealisServiceImpl::~BorealisServiceImpl() = default;
@@ -46,16 +44,16 @@ BorealisInstaller& BorealisServiceImpl::Installer() {
   return installer_;
 }
 
+BorealisInstallUrlHandler& BorealisServiceImpl::InstallUrlHandler() {
+  return install_url_handler_;
+}
+
 BorealisLaunchOptions& BorealisServiceImpl::LaunchOptions() {
   return launch_options_;
 }
 
 BorealisShutdownMonitor& BorealisServiceImpl::ShutdownMonitor() {
   return shutdown_monitor_;
-}
-
-BorealisWaylandInterface& BorealisServiceImpl::WaylandInterface() {
-  return wayland_interface_;
 }
 
 BorealisWindowManager& BorealisServiceImpl::WindowManager() {

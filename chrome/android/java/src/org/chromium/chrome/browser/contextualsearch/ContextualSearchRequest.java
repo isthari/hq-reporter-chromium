@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 package org.chromium.chrome.browser.contextualsearch;
@@ -10,6 +10,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
+import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.search_engines.TemplateUrlServiceFactory;
 import org.chromium.components.embedder_support.util.UrlUtilitiesJni;
 
@@ -189,15 +190,14 @@ class ContextualSearchRequest {
     }
 
     /**
-     * Adds translation parameters, unless they match.
+     * Adds translation parameters.
      * @param sourceLanguage The language of the original search term.
      * @param targetLanguage The language the that the user prefers.
      */
     void forceTranslation(String sourceLanguage, String targetLanguage) {
         mIsTranslationForced = true;
         // If the server is providing a full URL then we shouldn't alter it.
-        if (mIsFullSearchUrlProvided || TextUtils.isEmpty(targetLanguage)
-                || targetLanguage.equals(sourceLanguage)) {
+        if (mIsFullSearchUrlProvided || TextUtils.isEmpty(targetLanguage)) {
             return;
         }
 
@@ -240,10 +240,11 @@ class ContextualSearchRequest {
             boolean shouldPrefetch) {
         // TODO(https://crbug.com/783819): Avoid parsing the GURL as a Uri, and update
         // makeKPTriggeringUri to operate on GURLs.
-        Uri uri = Uri.parse(TemplateUrlServiceFactory.get()
-                                    .getUrlForContextualSearchQuery(query, alternateTerm,
-                                            shouldPrefetch, CTXS_TWO_REQUEST_PROTOCOL)
-                                    .getSpec());
+        Uri uri = Uri.parse(
+                TemplateUrlServiceFactory.getForProfile(Profile.getLastUsedRegularProfile())
+                        .getUrlForContextualSearchQuery(
+                                query, alternateTerm, shouldPrefetch, CTXS_TWO_REQUEST_PROTOCOL)
+                        .getSpec());
         if (!TextUtils.isEmpty(mid)) uri = makeKPTriggeringUri(uri, mid);
         return uri;
     }

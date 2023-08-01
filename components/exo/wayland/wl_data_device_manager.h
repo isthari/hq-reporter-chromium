@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,8 @@
 #define COMPONENTS_EXO_WAYLAND_WL_DATA_DEVICE_MANAGER_H_
 
 #include <stdint.h>
+
+#include "base/memory/raw_ptr.h"
 
 struct wl_client;
 
@@ -26,10 +28,10 @@ struct WaylandDataDeviceManager {
 
   // Owned by WaylandServerController, which always outlives
   // wl_data_device_manager.
-  Display* const display;
+  const raw_ptr<Display, ExperimentalAsh> display;
 
   // Owned by Server, which always outlives wl_data_device_manager.
-  SerialTracker* const serial_tracker;
+  const raw_ptr<SerialTracker, ExperimentalAsh> serial_tracker;
 };
 
 void bind_data_device_manager(wl_client* client,

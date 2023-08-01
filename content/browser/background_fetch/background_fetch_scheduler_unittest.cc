@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,13 +6,12 @@
 
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/containers/cxx20_erase.h"
-#include "base/guid.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/task/post_task.h"
+#include "base/uuid.h"
 #include "content/browser/background_fetch/background_fetch_job_controller.h"
 #include "content/browser/background_fetch/background_fetch_request_info.h"
 #include "content/browser/background_fetch/background_fetch_test_base.h"
@@ -117,7 +116,8 @@ class BackgroundFetchSchedulerTest : public BackgroundFetchTestBase {
 
     int64_t sw_id = RegisterServiceWorkerForOrigin(storage_key.origin());
     BackgroundFetchRegistrationId registration_id(
-        sw_id, storage_key, base::GenerateGUID(), base::GenerateGUID());
+        sw_id, storage_key, base::Uuid::GenerateRandomV4().AsLowercaseString(),
+        base::Uuid::GenerateRandomV4().AsLowercaseString());
     data_manager_->CreateRegistration(
         registration_id, std::move(fetch_requests),
         blink::mojom::BackgroundFetchOptions::New(), SkBitmap(),
@@ -203,12 +203,12 @@ TEST_F(BackgroundFetchSchedulerTest, TwoControllersSynchronous) {
 
   // Create a controller with A1 -> A4.
   InitializeControllerWithRequests(
-      blink::StorageKey(url::Origin::Create(GURL("https://A.com"))),
+      blink::StorageKey::CreateFromStringForTesting("https://A.com"),
       std::vector<std::string>(all_requests.begin(), all_requests.begin() + 4));
 
   // Create a controller with B1 -> B4.
   InitializeControllerWithRequests(
-      blink::StorageKey(url::Origin::Create(GURL("https://B.com"))),
+      blink::StorageKey::CreateFromStringForTesting("https://B.com"),
       std::vector<std::string>(all_requests.begin() + 4, all_requests.end()));
 
   RunSchedulerToCompletion();
@@ -223,12 +223,12 @@ TEST_F(BackgroundFetchSchedulerTest, TwoControllersConcurrent) {
 
   // Create a controller with A1 -> A4.
   InitializeControllerWithRequests(
-      blink::StorageKey(url::Origin::Create(GURL("https://A.com"))),
+      blink::StorageKey::CreateFromStringForTesting("https://A.com"),
       std::vector<std::string>(all_requests.begin(), all_requests.begin() + 4));
 
   // Create a controller with B1 -> B4.
   InitializeControllerWithRequests(
-      blink::StorageKey(url::Origin::Create(GURL("https://B.com"))),
+      blink::StorageKey::CreateFromStringForTesting("https://B.com"),
       std::vector<std::string>(all_requests.begin() + 4, all_requests.end()));
 
   RunSchedulerToCompletion();

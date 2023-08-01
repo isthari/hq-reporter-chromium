@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,11 @@
 #include "base/containers/cxx20_erase.h"
 #include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_functions.h"
-#include "base/strings/abseil_string_conversions.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
+#include "net/base/address_list.h"
 #include "net/base/port_util.h"
 #include "net/base/url_util.h"
+#include "net/http/http_network_session.h"
 #include "net/log/net_log_values.h"
 #include "net/proxy_resolution/configured_proxy_resolution_service.h"
 #include "net/proxy_resolution/proxy_resolution_request.h"
@@ -19,9 +20,9 @@
 #include "net/quic/crypto/proof_verifier_chromium.h"
 #include "net/quic/quic_chromium_alarm_factory.h"
 #include "net/spdy/spdy_http_utils.h"
-#include "net/third_party/quiche/src/quic/core/http/web_transport_http3.h"
-#include "net/third_party/quiche/src/quic/core/quic_connection.h"
-#include "net/third_party/quiche/src/quic/core/quic_utils.h"
+#include "net/third_party/quiche/src/quiche/quic/core/http/web_transport_http3.h"
+#include "net/third_party/quiche/src/quiche/quic/core/quic_connection.h"
+#include "net/third_party/quiche/src/quiche/quic/core/quic_utils.h"
 #include "net/url_request/url_request_context.h"
 #include "url/scheme_host_port.h"
 
@@ -64,7 +65,7 @@ class ChromiumWebTransportFingerprintProofVerifier
 };
 
 std::unique_ptr<quic::ProofVerifier> CreateProofVerifier(
-    const NetworkIsolationKey& isolation_key,
+    const NetworkAnonymizationKey& anonymization_key,
     URLRequestContext* context,
     const WebTransportParameters& parameters) {
   if (parameters.server_certificate_fingerprints.empty()) {
@@ -73,7 +74,7 @@ std::unique_ptr<quic::ProofVerifier> CreateProofVerifier(
         context->transport_security_state(), context->sct_auditing_delegate(),
         HostsFromOrigins(
             context->quic_context()->params()->origins_to_force_quic_on),
-        isolation_key);
+        anonymization_key);
   }
 
   auto verifier =
@@ -97,15 +98,15 @@ void RecordNetLogQuicSessionClientStateChanged(
     const absl::optional<WebTransportError>& error) {
   net_log.AddEvent(
       NetLogEventType::QUIC_SESSION_WEBTRANSPORT_CLIENT_STATE_CHANGED, [&] {
-        base::Value dict(base::Value::Type::DICTIONARY);
-        dict.SetStringKey("last_state", WebTransportStateString(last_state));
-        dict.SetStringKey("next_state", WebTransportStateString(next_state));
+        base::Value::Dict dict;
+        dict.Set("last_state", WebTransportStateString(last_state));
+        dict.Set("next_state", WebTransportStateString(next_state));
         if (error.has_value()) {
-          base::Value error_dict(base::Value::Type::DICTIONARY);
-          error_dict.SetIntKey("net_error", error->net_error);
-          error_dict.SetIntKey("quic_error", error->quic_error);
-          error_dict.SetStringKey("details", error->details);
-          dict.SetKey("error", std::move(error_dict));
+          base::Value::Dict error_dict;
+          error_dict.Set("net_error", error->net_error);
+          error_dict.Set("quic_error", error->quic_error);
+          error_dict.Set("details", error->details);
+          dict.Set("error", std::move(error_dict));
         }
         return dict;
       });
@@ -127,7 +128,7 @@ class ConnectStream : public quic::QuicSpdyClientStream {
       const quic::QuicHeaderList& header_list) override {
     quic::QuicSpdyClientStream::OnInitialHeadersComplete(fin, frame_len,
                                                          header_list);
-    client_->OnHeadersComplete();
+    client_->OnHeadersComplete(response_headers());
   }
 
   void OnClose() override {
@@ -182,7 +183,7 @@ class DedicatedWebTransportHttp3ClientSession
 
   bool ShouldNegotiateWebTransport() override { return true; }
   quic::HttpDatagramSupport LocalHttpDatagramSupport() override {
-    return quic::HttpDatagramSupport::kDraft04;
+    return quic::HttpDatagramSupport::kRfcAndDraft04;
   }
 
   void OnConnectionClosed(const quic::QuicConnectionCloseFrame& frame,
@@ -220,9 +221,7 @@ class WebTransportVisitorProxy : public quic::WebTransportVisitor {
   explicit WebTransportVisitorProxy(quic::WebTransportVisitor* visitor)
       : visitor_(visitor) {}
 
-  void OnSessionReady(const spdy::SpdyHeaderBlock& block) override {
-    visitor_->OnSessionReady(block);
-  }
+  void OnSessionReady() override { visitor_->OnSessionReady(); }
   void OnSessionClosed(quic::WebTransportSessionError error_code,
                        const std::string& error_message) override {
     visitor_->OnSessionClosed(error_code, error_message);
@@ -252,26 +251,53 @@ bool IsTerminalState(WebTransportState state) {
          state == WebTransportState::FAILED;
 }
 
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+enum class NegotiatedHttpDatagramVersion {
+  kNone = 0,
+  kDraft04 = 1,
+  kRfc = 2,
+  kMaxValue = kRfc,
+};
+
+void RecordNegotiatedHttpDatagramSupport(quic::HttpDatagramSupport support) {
+  NegotiatedHttpDatagramVersion negotiated;
+  switch (support) {
+    case quic::HttpDatagramSupport::kNone:
+      negotiated = NegotiatedHttpDatagramVersion::kNone;
+      break;
+    case quic::HttpDatagramSupport::kDraft04:
+      negotiated = NegotiatedHttpDatagramVersion::kDraft04;
+      break;
+    case quic::HttpDatagramSupport::kRfc:
+      negotiated = NegotiatedHttpDatagramVersion::kRfc;
+      break;
+    case quic::HttpDatagramSupport::kRfcAndDraft04:
+      NOTREACHED();
+      return;
+  }
+  base::UmaHistogramEnumeration(
+      "Net.WebTransport.NegotiatedHttpDatagramVersion", negotiated);
+}
+
 }  // namespace
 
 DedicatedWebTransportHttp3Client::DedicatedWebTransportHttp3Client(
     const GURL& url,
     const url::Origin& origin,
     WebTransportClientVisitor* visitor,
-    const NetworkIsolationKey& isolation_key,
+    const NetworkAnonymizationKey& anonymization_key,
     URLRequestContext* context,
     const WebTransportParameters& parameters)
     : url_(url),
       origin_(origin),
-      isolation_key_(isolation_key),
+      anonymization_key_(anonymization_key),
       context_(context),
       visitor_(visitor),
-      // TODO(vasilvv): pass ClientSocketFactory through QuicContext.
-      client_socket_factory_(ClientSocketFactory::GetDefaultFactory()),
       quic_context_(context->quic_context()),
       net_log_(NetLogWithSource::Make(context->net_log(),
                                       NetLogSourceType::WEB_TRANSPORT_CLIENT)),
-      task_runner_(base::ThreadTaskRunnerHandle::Get().get()),
+      task_runner_(base::SingleThreadTaskRunner::GetCurrentDefault().get()),
       alarm_factory_(
           std::make_unique<QuicChromiumAlarmFactory>(task_runner_,
                                                      quic_context_->clock())),
@@ -279,22 +305,26 @@ DedicatedWebTransportHttp3Client::DedicatedWebTransportHttp3Client(
       // (currently, all certificate verification errors result in "TLS
       // handshake error" even when more detailed message is available).  This
       // requires implementing ProofHandler::OnProofVerifyDetailsAvailable.
-      crypto_config_(CreateProofVerifier(isolation_key_, context, parameters),
-                     /* session_cache */ nullptr) {
-  net_log_.BeginEvent(NetLogEventType::QUIC_SESSION_WEBTRANSPORT_CLIENT_ALIVE,
-                      [&] {
-                        base::Value dict(base::Value::Type::DICTIONARY);
-                        dict.SetStringKey("url", url.possibly_invalid_spec());
-                        dict.SetStringKey("network_isolation_key",
-                                          isolation_key.ToDebugString());
-                        return dict;
-                      });
+      crypto_config_(
+          CreateProofVerifier(anonymization_key_, context, parameters),
+          /* session_cache */ nullptr) {
+  net_log_.BeginEvent(
+      NetLogEventType::QUIC_SESSION_WEBTRANSPORT_CLIENT_ALIVE, [&] {
+        base::Value::Dict dict;
+        dict.Set("url", url.possibly_invalid_spec());
+        dict.Set("network_anonymization_key",
+                 anonymization_key.ToDebugString());
+        return dict;
+      });
 }
 
 DedicatedWebTransportHttp3Client::~DedicatedWebTransportHttp3Client() {
   net_log_.EndEventWithNetErrorCode(
       NetLogEventType::QUIC_SESSION_WEBTRANSPORT_CLIENT_ALIVE,
       error_ ? error_->net_error : OK);
+  // |session_| owns this, so we need to make sure we release it before
+  // it gets dangling.
+  connection_ = nullptr;
 }
 
 void DedicatedWebTransportHttp3Client::Connect() {
@@ -360,8 +390,10 @@ void DedicatedWebTransportHttp3Client::DoLoop(int rv) {
         DCHECK_EQ(rv, OK);
         rv = DoConnect();
         break;
+      case CONNECT_STATE_CONNECT_CONFIGURE:
+        rv = DoConnectConfigure(rv);
+        break;
       case CONNECT_STATE_CONNECT_COMPLETE:
-        DCHECK_EQ(rv, OK);
         rv = DoConnectComplete();
         break;
       case CONNECT_STATE_SEND_REQUEST:
@@ -403,8 +435,6 @@ int DedicatedWebTransportHttp3Client::DoInit() {
   // Add other supported versions if available.
   for (quic::ParsedQuicVersion& version :
        quic_context_->params()->supported_versions) {
-    if (!version.UsesHttp3())
-      continue;
     if (base::Contains(supported_versions_, version))
       continue;  // Skip as we've already added it above.
     supported_versions_.push_back(version);
@@ -422,7 +452,7 @@ int DedicatedWebTransportHttp3Client::DoInit() {
 int DedicatedWebTransportHttp3Client::DoCheckProxy() {
   next_connect_state_ = CONNECT_STATE_CHECK_PROXY_COMPLETE;
   return context_->proxy_resolution_service()->ResolveProxy(
-      url_, /* method */ "CONNECT", isolation_key_, &proxy_info_,
+      url_, /* method */ "CONNECT", anonymization_key_, &proxy_info_,
       base::BindOnce(&DedicatedWebTransportHttp3Client::DoLoop,
                      base::Unretained(this)),
       &proxy_resolution_request_, net_log_);
@@ -444,7 +474,7 @@ int DedicatedWebTransportHttp3Client::DoResolveHost() {
   next_connect_state_ = CONNECT_STATE_RESOLVE_HOST_COMPLETE;
   HostResolver::ResolveHostParameters parameters;
   resolve_host_request_ = context_->host_resolver()->CreateRequest(
-      url::SchemeHostPort(url_), isolation_key_, net_log_, absl::nullopt);
+      url::SchemeHostPort(url_), anonymization_key_, net_log_, absl::nullopt);
   return resolve_host_request_->Start(base::BindOnce(
       &DedicatedWebTransportHttp3Client::DoLoop, base::Unretained(this)));
 }
@@ -459,39 +489,23 @@ int DedicatedWebTransportHttp3Client::DoResolveHostComplete(int rv) {
 }
 
 int DedicatedWebTransportHttp3Client::DoConnect() {
-  int rv = OK;
+  next_connect_state_ = CONNECT_STATE_CONNECT_CONFIGURE;
 
   // TODO(vasilvv): consider unifying parts of this code with QuicSocketFactory
   // (which currently has a lot of code specific to QuicChromiumClientSession).
-  socket_ = client_socket_factory_->CreateDatagramClientSocket(
-      DatagramSocket::DEFAULT_BIND, net_log_.net_log(), net_log_.source());
+  socket_ = context_->GetNetworkSessionContext()
+                ->client_socket_factory->CreateDatagramClientSocket(
+                    DatagramSocket::DEFAULT_BIND, net_log_.net_log(),
+                    net_log_.source());
   if (quic_context_->params()->enable_socket_recv_optimization)
     socket_->EnableRecvOptimization();
   socket_->UseNonBlockingIO();
 
   IPEndPoint server_address =
       *resolve_host_request_->GetAddressResults()->begin();
-  rv = socket_->Connect(server_address);
-  if (rv != OK)
-    return rv;
-
-  rv = socket_->SetReceiveBufferSize(kQuicSocketReceiveBufferSize);
-  if (rv != OK)
-    return rv;
-
-  rv = socket_->SetDoNotFragment();
-  if (rv == ERR_NOT_IMPLEMENTED)
-    rv = OK;
-  if (rv != OK)
-    return rv;
-
-  rv = socket_->SetSendBufferSize(quic::kMaxOutgoingPacketSize * 20);
-  if (rv != OK)
-    return rv;
-
-  CreateConnection();
-  next_connect_state_ = CONNECT_STATE_CONNECT_COMPLETE;
-  return ERR_IO_PENDING;
+  return socket_->ConnectAsync(
+      server_address, base::BindOnce(&DedicatedWebTransportHttp3Client::DoLoop,
+                                     base::Unretained(this)));
 }
 
 void DedicatedWebTransportHttp3Client::CreateConnection() {
@@ -510,8 +524,8 @@ void DedicatedWebTransportHttp3Client::CreateConnection() {
       ToQuicSocketAddress(server_address), quic_context_->helper(),
       alarm_factory_.get(),
       new QuicChromiumPacketWriter(socket_.get(), task_runner_),
-      /* owns_writer */ true, quic::Perspective::IS_CLIENT,
-      supported_versions_);
+      /* owns_writer */ true, quic::Perspective::IS_CLIENT, supported_versions_,
+      connection_id_generator_);
   connection_ = connection.get();
   connection->SetMaxPacketLength(quic_context_->params()->max_packet_length);
 
@@ -555,6 +569,34 @@ int DedicatedWebTransportHttp3Client::DoConnectComplete() {
   return OK;
 }
 
+int DedicatedWebTransportHttp3Client::DoConnectConfigure(int rv) {
+  if (rv != OK) {
+    return rv;
+  }
+
+  rv = socket_->SetReceiveBufferSize(kQuicSocketReceiveBufferSize);
+  if (rv != OK) {
+    return rv;
+  }
+
+  rv = socket_->SetDoNotFragment();
+  if (rv == ERR_NOT_IMPLEMENTED) {
+    rv = OK;
+  }
+  if (rv != OK) {
+    return rv;
+  }
+
+  rv = socket_->SetSendBufferSize(quic::kMaxOutgoingPacketSize * 20);
+  if (rv != OK) {
+    return rv;
+  }
+
+  next_connect_state_ = CONNECT_STATE_CONNECT_COMPLETE;
+  CreateConnection();
+  return ERR_IO_PENDING;
+}
+
 void DedicatedWebTransportHttp3Client::OnSettingsReceived() {
   DCHECK_EQ(next_connect_state_, CONNECT_STATE_CONNECT_COMPLETE);
   // Wait until the SETTINGS parser is finished, and then send the request.
@@ -563,7 +605,20 @@ void DedicatedWebTransportHttp3Client::OnSettingsReceived() {
                                 weak_factory_.GetWeakPtr(), OK));
 }
 
-void DedicatedWebTransportHttp3Client::OnHeadersComplete() {
+void DedicatedWebTransportHttp3Client::OnHeadersComplete(
+    const spdy::Http2HeaderBlock& headers) {
+  http_response_info_ = std::make_unique<HttpResponseInfo>();
+  const int rv = SpdyHeadersToHttpResponse(headers, http_response_info_.get());
+  if (rv != OK) {
+    SetErrorIfNecessary(ERR_QUIC_PROTOCOL_ERROR);
+    TransitionToState(WebTransportState::FAILED);
+    return;
+  }
+  // TODO(vasilvv): add support for this header in downstream tests and remove
+  // this.
+  DCHECK(http_response_info_->headers);
+  http_response_info_->headers->RemoveHeader("sec-webtransport-http3-draft");
+
   DCHECK_EQ(next_connect_state_, CONNECT_STATE_CONFIRM_CONNECTION);
   DoLoop(OK);
 }
@@ -595,9 +650,8 @@ int DedicatedWebTransportHttp3Client::DoSendRequest() {
   if (stream == nullptr) {
     return ERR_QUIC_PROTOCOL_ERROR;
   }
-  connect_stream_ = stream;
 
-  spdy::SpdyHeaderBlock headers;
+  spdy::Http2HeaderBlock headers;
   DCHECK_EQ(url_.scheme(), url::kHttpsScheme);
   headers[":scheme"] = url_.scheme();
   headers[":method"] = "CONNECT";
@@ -696,15 +750,9 @@ void DedicatedWebTransportHttp3Client::SetErrorIfNecessary(
   }
 }
 
-void DedicatedWebTransportHttp3Client::OnSessionReady(
-    const spdy::SpdyHeaderBlock& spdy_headers) {
+void DedicatedWebTransportHttp3Client::OnSessionReady() {
   session_ready_ = true;
-  http_response_info_ = std::make_unique<HttpResponseInfo>();
-  SpdyHeadersToHttpResponse(spdy_headers, http_response_info_.get());
-  // TODO(vasilvv): add support for this header in downstream tests and remove
-  // this.
-  http_response_info_->headers->RemoveHeader("sec-webtransport-http3-draft");
-  DCHECK(http_response_info_->headers);
+  RecordNegotiatedHttpDatagramSupport(session_->http_datagram_support());
 }
 
 void DedicatedWebTransportHttp3Client::OnSessionClosed(
@@ -729,7 +777,7 @@ void DedicatedWebTransportHttp3Client::
 
 void DedicatedWebTransportHttp3Client::OnDatagramReceived(
     absl::string_view datagram) {
-  visitor_->OnDatagramReceived(base::StringViewToStringPiece(datagram));
+  visitor_->OnDatagramReceived(datagram);
 }
 
 void DedicatedWebTransportHttp3Client::

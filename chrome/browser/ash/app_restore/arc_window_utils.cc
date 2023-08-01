@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,20 +20,17 @@
 
 namespace {
 
-void ScaleToRoundedRectWithHeightInsets(apps::mojom::Rect* rect,
+void ScaleToRoundedRectWithHeightInsets(absl::optional<gfx::Rect>& rect,
                                         double scale_factor,
                                         int height) {
-  if (rect == nullptr)
+  if (!rect.has_value())
     return;
 
-  gfx::Rect bounds = gfx::Rect(rect->x, rect->y, rect->width, rect->height);
+  gfx::Rect bounds =
+      gfx::Rect(rect->x(), rect->y(), rect->width(), rect->height());
   if (height)
-    bounds.Inset(0, height, 0, 0);
-  auto res_rect = gfx::ScaleToRoundedRect(bounds, scale_factor);
-  rect->x = res_rect.x();
-  rect->y = res_rect.y();
-  rect->width = res_rect.width();
-  rect->height = res_rect.height();
+    bounds.Inset(gfx::Insets::TLBR(height, 0, 0, 0));
+  rect = gfx::ScaleToRoundedRect(bounds, scale_factor);
 }
 
 }  // namespace
@@ -42,14 +39,7 @@ namespace ash {
 namespace full_restore {
 
 bool IsArcGhostWindowEnabled() {
-  if (!::full_restore::features::IsArcGhostWindowEnabled() ||
-      !exo::WMHelper::HasInstance()) {
-    return false;
-  }
-
-  // Returens false if the feature not enabled on ARC P specifically.
-  if (!arc::IsArcVmEnabled() &&
-      !base::FeatureList::IsEnabled(features::kArcPiGhostWindow)) {
+  if (!exo::WMHelper::HasInstance()) {
     return false;
   }
 
@@ -65,6 +55,12 @@ bool IsArcGhostWindowEnabled() {
 }
 
 absl::optional<double> GetDisplayScaleFactor(int64_t display_id) {
+  // The `kDefaultDisplayId` should not be a valid parameter. Here replace it to
+  // primary display id to keep it as the same semantics with Android, since the
+  // ARC app window will not be shown on chromium default display (placeholder
+  // display when no display connected).
+  if (display_id == display::kDefaultDisplayId)
+    display_id = display::Screen::GetScreen()->GetPrimaryDisplay().id();
   display::Display display;
   if (display::Screen::GetScreen()->GetDisplayWithDisplayId(display_id,
                                                             &display)) {
@@ -73,8 +69,7 @@ absl::optional<double> GetDisplayScaleFactor(int64_t display_id) {
   return absl::nullopt;
 }
 
-apps::mojom::WindowInfoPtr HandleArcWindowInfo(
-    apps::mojom::WindowInfoPtr window_info) {
+apps::WindowInfoPtr HandleArcWindowInfo(apps::WindowInfoPtr window_info) {
   // Remove ARC bounds info if the ghost window disabled. The bounds will
   // be controlled by ARC.
   if (!IsArcGhostWindowEnabled()) {
@@ -93,14 +88,14 @@ apps::mojom::WindowInfoPtr HandleArcWindowInfo(
   // For ARC P, the window bounds in launch parameters should minus caption
   // height.
   int extra_caption_height = 0;
-  if (!arc::IsArcVmEnabled()) {
+  if (arc::GetArcAndroidSdkVersionAsInt() == arc::kArcVersionP) {
     extra_caption_height =
         views::GetCaptionButtonLayoutSize(
             views::CaptionButtonLayoutSize::kNonBrowserCaption)
             .height();
   }
-  ScaleToRoundedRectWithHeightInsets(
-      window_info->bounds.get(), scale_factor.value(), extra_caption_height);
+  ScaleToRoundedRectWithHeightInsets(window_info->bounds, scale_factor.value(),
+                                     extra_caption_height);
   return window_info;
 }
 
@@ -108,7 +103,7 @@ bool IsValidThemeColor(uint32_t theme_color) {
   return SkColorGetA(theme_color) == SK_AlphaOPAQUE;
 }
 
-const std::string WindowIdToAppId(int window_id) {
+const std::string WrapSessionAppIdFromWindowId(int window_id) {
   return std::string("org.chromium.arc.session.") +
          base::NumberToString(window_id);
 }

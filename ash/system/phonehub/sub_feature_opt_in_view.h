@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 #include "ash/ash_export.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/system/phonehub/phone_hub_view_ids.h"
+#include "base/memory/raw_ptr.h"
 #include "base/scoped_observation.h"
-#include "phone_hub_view_ids.h"
 #include "ui/views/view.h"
 
 namespace views {
@@ -31,6 +31,7 @@ class ASH_EXPORT SubFeatureOptInView : public views::View {
   SubFeatureOptInView(PhoneHubViewID view_id,
                       int description_string_id,
                       int set_up_button_string_id);
+  void RefreshDescription(int description_string_id);
 
  private:
   void InitLayout();
@@ -44,9 +45,9 @@ class ASH_EXPORT SubFeatureOptInView : public views::View {
   int set_up_button_string_id_;
 
   // Main components of this view. Owned by view hierarchy.
-  views::Label* text_label_ = nullptr;
-  views::LabelButton* set_up_button_ = nullptr;
-  views::LabelButton* dismiss_button_ = nullptr;
+  raw_ptr<views::Label, ExperimentalAsh> text_label_ = nullptr;
+  raw_ptr<views::LabelButton, ExperimentalAsh> set_up_button_ = nullptr;
+  raw_ptr<views::LabelButton, ExperimentalAsh> dismiss_button_ = nullptr;
 };
 
 }  // namespace ash

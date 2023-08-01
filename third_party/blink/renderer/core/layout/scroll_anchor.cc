@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,8 +19,6 @@
 #include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/layout/layout_block_flow.h"
 #include "third_party/blink/renderer/core/layout/layout_box.h"
-#include "third_party/blink/renderer/core/layout/layout_table.h"
-#include "third_party/blink/renderer/core/layout/line/inline_text_box.h"
 #include "third_party/blink/renderer/core/layout/ng/layout_ng_block_flow.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_physical_box_fragment.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
@@ -41,7 +39,7 @@ bool IsNGBlockFragmentationRoot(const LayoutNGBlockFlow* block_flow) {
 }  // anonymous namespace
 
 // With 100 unique strings, a 2^12 slot table has a false positive rate of ~2%.
-using ClassnameFilter = BloomFilter<12>;
+using ClassnameFilter = CountingBloomFilter<12>;
 using Corner = ScrollAnchor::Corner;
 
 ScrollAnchor::ScrollAnchor()
@@ -76,7 +74,6 @@ static LayoutBox* ScrollerLayoutBox(const ScrollableArea* scroller) {
   return box;
 }
 
-
 // TODO(skobes): Storing a "corner" doesn't make much sense anymore since we
 // adjust only on the block flow axis.  This could probably be refactored to
 // simply measure the movement of the block-start edge.
@@ -105,18 +102,11 @@ static LayoutRect RelativeBounds(const LayoutObject* layout_object,
   if (const auto* box = DynamicTo<LayoutBox>(layout_object)) {
     local_bounds = box->PhysicalBorderBoxRect();
     // If we clip overflow then we can use the `PhysicalBorderBoxRect()`
-    // as our bounds. If not, we expand the bounds by the layout overflow and
-    // lowest floating object.
+    // as our bounds. If not, we expand the bounds by the layout overflow.
     if (!layout_object->ShouldClipOverflowAlongEitherAxis()) {
       // BorderBoxRect doesn't include overflow content and floats.
       LayoutUnit max_y =
           std::max(local_bounds.Bottom(), box->LayoutOverflowRect().MaxY());
-      auto* layout_block_flow = DynamicTo<LayoutBlockFlow>(layout_object);
-      if (layout_block_flow && layout_block_flow->ContainsFloats()) {
-        // Note that lowestFloatLogicalBottom doesn't include floating
-        // grandchildren.
-        max_y = std::max(max_y, layout_block_flow->LowestFloatLogicalBottom());
-      }
       local_bounds.ShiftBottomEdgeTo(max_y);
     }
   } else if (layout_object->IsText()) {
@@ -150,11 +140,9 @@ static LayoutPoint ComputeRelativeOffset(const LayoutObject* layout_object,
 
 static bool CandidateMayMoveWithScroller(const LayoutObject* candidate,
                                          const ScrollableArea* scroller) {
-  if (const ComputedStyle* style = candidate->Style()) {
-    if (style->HasViewportConstrainedPosition() ||
-        style->HasStickyConstrainedPosition())
-      return false;
-  }
+  if (candidate->IsFixedPositioned() ||
+      candidate->StyleRef().HasStickyConstrainedPosition())
+    return false;
 
   LayoutObject::AncestorSkipInfo skip_info(ScrollerLayoutBox(scroller));
   candidate->Container(&skip_info);
@@ -182,7 +170,7 @@ static const AtomicString UniqueClassnameAmongSiblings(Element* element) {
     if (sibling_element->HasClass() && sibling_element != element) {
       const SpaceSplitString& class_names = sibling_element->ClassNames();
       for (wtf_size_t i = 0; i < class_names.size(); ++i) {
-        classname_filter->Add(class_names[i].Impl()->ExistingHash());
+        classname_filter->Add(class_names[i].Hash());
       }
     }
   }
@@ -192,7 +180,7 @@ static const AtomicString UniqueClassnameAmongSiblings(Element* element) {
     // MayContain allows for false positives, but a false positive is relatively
     // harmless; it just means we have to choose a different classname, or in
     // the worst case a different selector.
-    if (!classname_filter->MayContain(class_names[i].Impl()->ExistingHash())) {
+    if (!classname_filter->MayContain(class_names[i].Hash())) {
       return class_names[i];
     }
   }
@@ -228,13 +216,16 @@ static const String UniqueSimpleSelectorAmongSiblings(Element* element) {
 
   if (element->HasClass()) {
     AtomicString unique_classname = UniqueClassnameAmongSiblings(element);
-    if (!unique_classname.IsEmpty()) {
+    if (!unique_classname.empty()) {
       return AtomicString(".") + unique_classname;
     }
   }
 
   return ":nth-child(" +
-         String::Number(NthIndexCache::NthChildIndex(*element)) + ")";
+         String::Number(NthIndexCache::NthChildIndex(
+             *element, /*filter=*/nullptr, /*selector_checker=*/nullptr,
+             /*context=*/nullptr)) +
+         ")";
 }
 
 // Computes a selector that uniquely identifies |anchor_node|. This is done
@@ -253,9 +244,13 @@ static const String ComputeUniqueSelector(Node* anchor_node) {
     return String();
   }
 
+  // When the scroll anchor is a shadow DOM element, the selector may be applied
+  // to the top document. We fail in this case.
+  if (anchor_node->IsInShadowTree()) {
+    return String();
+  }
+
   TRACE_EVENT0("blink", "ScrollAnchor::SerializeAnchor");
-  SCOPED_BLINK_UMA_HISTOGRAM_TIMER(
-      "Layout.ScrollAnchor.TimeToComputeAnchorNodeSelector");
 
   Vector<String> selector_list;
   for (Element* element = ElementTraversal::FirstAncestorOrSelf(*anchor_node);
@@ -280,11 +275,6 @@ static const String ComputeUniqueSelector(Node* anchor_node) {
     builder.Append(*reverse_iterator);
   }
 
-  DEFINE_STATIC_LOCAL(CustomCountHistogram, selector_length_histogram,
-                      ("Layout.ScrollAnchor.SerializedAnchorSelectorLength", 1,
-                       kMaxSerializedSelectorLength, 50));
-  selector_length_histogram.Count(builder.length());
-
   if (builder.length() > kMaxSerializedSelectorLength) {
     return String();
   }
@@ -297,13 +287,12 @@ static LayoutRect GetVisibleRect(ScrollableArea* scroller) {
       ScrollerLayoutBox(scroller)->OverflowClipRect(LayoutPoint());
 
   const ComputedStyle* style = ScrollerLayoutBox(scroller)->Style();
-  LayoutRectOutsets scroll_padding(
+  visible_rect.ContractEdges(
       MinimumValueForLength(style->ScrollPaddingTop(), visible_rect.Height()),
       MinimumValueForLength(style->ScrollPaddingRight(), visible_rect.Width()),
       MinimumValueForLength(style->ScrollPaddingBottom(),
                             visible_rect.Height()),
       MinimumValueForLength(style->ScrollPaddingLeft(), visible_rect.Width()));
-  visible_rect.Contract(scroll_padding);
   return visible_rect;
 }
 
@@ -370,7 +359,7 @@ bool ScrollAnchor::FindAnchorInPriorityCandidates() {
   LayoutObject* candidate = nullptr;
   ExamineResult result{kSkip};
   auto* focused_element = document.FocusedElement();
-  if (focused_element && HasEditableStyle(*focused_element)) {
+  if (focused_element && IsEditable(*focused_element)) {
     candidate = PriorityCandidateFromNode(focused_element);
     if (candidate) {
       result = ExaminePriorityCandidate(candidate);
@@ -426,6 +415,9 @@ ScrollAnchor::ExamineResult ScrollAnchor::ExaminePriorityCandidate(
 
 ScrollAnchor::WalkStatus ScrollAnchor::FindAnchorRecursive(
     LayoutObject* candidate) {
+  if (!candidate->EverHadLayout()) {
+    return kSkip;
+  }
   ExamineResult result = Examine(candidate);
   WalkStatus status = result.status;
   if (IsViable(status)) {
@@ -665,7 +657,6 @@ void ScrollAnchor::Adjust() {
   if (scroll_anchor_disabling_style_changed_) {
     // Note that we only clear if the adjustment would have been non-zero.
     // This minimizes redundant calls to findAnchor.
-    // TODO(skobes): add UMA metric for this.
     ClearSelf();
     return;
   }
@@ -682,8 +673,6 @@ bool ScrollAnchor::RestoreAnchor(const SerializedAnchor& serialized_anchor) {
   if (!scroller_ || !serialized_anchor.IsValid()) {
     return false;
   }
-
-  SCOPED_BLINK_UMA_HISTOGRAM_TIMER("Layout.ScrollAnchor.TimeToRestoreAnchor");
 
   if (anchor_object_ && serialized_anchor.selector == saved_selector_) {
     return true;
@@ -740,7 +729,8 @@ bool ScrollAnchor::RestoreAnchor(const SerializedAnchor& serialized_anchor) {
 
     ScrollOffset desired_offset = desired_point.OffsetFromOrigin();
     ScrollOffset delta =
-        ScrollOffset(ToRoundedVector2d(serialized_anchor.relative_offset));
+        ScrollOffset(serialized_anchor.relative_offset.X().ToFloat(),
+                     serialized_anchor.relative_offset.Y().ToFloat());
     desired_offset -= delta;
     scroller_->SetScrollOffset(desired_offset,
                                mojom::blink::ScrollType::kAnchoring);
@@ -773,7 +763,7 @@ const SerializedAnchor ScrollAnchor::GetSerializedAnchor() {
 
   // It's safe to return saved_selector_ before checking anchor_object_, since
   // clearing anchor_object_ also clears saved_selector_.
-  if (!saved_selector_.IsEmpty()) {
+  if (!saved_selector_.empty()) {
     DCHECK(anchor_object_);
     return SerializedAnchor(
         saved_selector_,

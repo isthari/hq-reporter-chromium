@@ -1,4 +1,4 @@
-# Copyright 2016 The Chromium Authors. All rights reserved.
+# Copyright 2016 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -118,11 +118,13 @@ component("gamepad") {
     sources += [
       "gamepad_platform_data_fetcher_android.cc",
       "gamepad_platform_data_fetcher_android.h",
+      "haptic_gamepad_android.cc",
+      "haptic_gamepad_android.h",
     ]
     deps += [ ":jni_headers" ]
   }
 
-  if (!is_android && !is_fuchsia) {
+  if (!is_android && !is_fuchsia && !is_ios) {
     sources += [
       "nintendo_controller.cc",
       "nintendo_controller.h",
@@ -131,32 +133,38 @@ component("gamepad") {
     ]
   }
 
-  if (is_mac) {
+  if (is_apple) {
     sources += [
       "game_controller_data_fetcher_mac.h",
       "game_controller_data_fetcher_mac.mm",
-      "gamepad_device_mac.h",
-      "gamepad_device_mac.mm",
-      "gamepad_platform_data_fetcher_mac.h",
-      "gamepad_platform_data_fetcher_mac.mm",
       "gamepad_standard_mappings_mac.mm",
-      "hid_writer_mac.cc",
-      "hid_writer_mac.h",
-      "xbox_controller_mac.h",
-      "xbox_controller_mac.mm",
-      "xbox_data_fetcher_mac.cc",
-      "xbox_data_fetcher_mac.h",
     ]
     frameworks = [
       "CoreFoundation.framework",
       "Foundation.framework",
-      "ForceFeedback.framework",
       "GameController.framework",
       "IOKit.framework",
     ]
+    configs += [ "//build/config/compiler:enable_arc" ]
+
+    if (is_mac) {
+      sources += [
+        "gamepad_device_mac.h",
+        "gamepad_device_mac.mm",
+        "gamepad_platform_data_fetcher_mac.h",
+        "gamepad_platform_data_fetcher_mac.mm",
+        "hid_writer_mac.cc",
+        "hid_writer_mac.h",
+        "xbox_controller_mac.h",
+        "xbox_controller_mac.mm",
+        "xbox_data_fetcher_mac.cc",
+        "xbox_data_fetcher_mac.h",
+      ]
+      frameworks += [ "ForceFeedback.framework" ]
+    }
   }
 
-  if (is_chromeos_ash || is_chromeos_lacros) {
+  if (is_chromeos) {
     deps += [ "//chromeos/dbus/permission_broker" ]
   }
 }
@@ -187,6 +195,7 @@ static_library("test_helpers") {
       "test_support/fake_iraw_game_controller.h",
       "test_support/fake_winrt_wgi_environment.cc",
       "test_support/fake_winrt_wgi_environment.h",
+      "test_support/wgi_test_error_code.h",
     ]
   }
 }
@@ -205,6 +214,8 @@ if (is_android) {
     ]
     deps = [
       "//base:base_java",
+      "//base:jni_java",
+      "//build/android:build_java",
       "//third_party/androidx:androidx_annotation_annotation_java",
     ]
     annotation_processor_deps = [ "//base/android/jni_generator:jni_processor" ]

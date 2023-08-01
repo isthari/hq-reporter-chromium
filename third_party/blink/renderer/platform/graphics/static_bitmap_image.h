@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_STATIC_BITMAP_IMAGE_H_
 
 #include "base/memory/weak_ptr.h"
+#include "base/notreached.h"
 #include "gpu/command_buffer/common/mailbox_holder.h"
 #include "third_party/blink/renderer/platform/graphics/canvas_color_params.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_types.h"
@@ -57,6 +58,7 @@ class PLATFORM_EXPORT StaticBitmapImage : public Image {
   virtual void Transfer() {}
   virtual bool IsOriginTopLeft() const { return true; }
   virtual bool SupportsDisplayCompositing() const { return true; }
+  virtual bool IsOverlayCandidate() const { return false; }
 
   // Creates a non-gpu copy of the image, or returns this if image is already
   // non-gpu.
@@ -81,19 +83,30 @@ class PLATFORM_EXPORT StaticBitmapImage : public Image {
     return false;
   }
 
+  virtual bool CopyToResourceProvider(CanvasResourceProvider* resource_provider,
+                                      const gfx::Rect& copy_rect) {
+    NOTREACHED();
+    return false;
+  }
+
   virtual void EnsureSyncTokenVerified() { NOTREACHED(); }
   virtual gpu::MailboxHolder GetMailboxHolder() const {
     NOTREACHED();
     return gpu::MailboxHolder();
   }
   virtual void UpdateSyncToken(const gpu::SyncToken&) { NOTREACHED(); }
-  virtual bool IsPremultiplied() const { return true; }
 
-  // Return resource format for shared image backing.
-  virtual SkColorType GetSkColorType() const {
+  // For gpu based images the Usage is a bitmap indicating set of API(s) and
+  // underlying gpu::SharedImage may be used with.
+  // The gpu::SharedImageInterface is using uint32_t directly.
+  virtual uint32_t GetUsage() const {
     NOTREACHED();
-    return kUnknown_SkColorType;
+    return 0;
   }
+  bool IsPremultiplied() const {
+    return GetSkImageInfo().alphaType() == SkAlphaType::kPremul_SkAlphaType;
+  }
+  SkColorInfo GetSkColorInfo() const { return GetSkImageInfo().colorInfo(); }
 
   // Methods have exactly the same implementation for all sub-classes
   bool OriginClean() const { return is_origin_clean_; }
@@ -110,6 +123,17 @@ class PLATFORM_EXPORT StaticBitmapImage : public Image {
     orientation_ = orientation;
   }
 
+  // This function results in a readback due to using SkImage::readPixels().
+  // Returns transparent black pixels if the input SkImageInfo.bounds() does
+  // not intersect with the input image boundaries. When `apply_orientation`
+  // is true this method will orient the data according to the source's EXIF
+  // information.
+  Vector<uint8_t> CopyImageData(const SkImageInfo& info,
+                                bool apply_orientation);
+
+  // Return the SkImageInfo of the internal representation of this image.
+  virtual SkImageInfo GetSkImageInfo() const = 0;
+
  protected:
   // Helper for sub-classes
   void DrawHelper(cc::PaintCanvas*,
@@ -118,8 +142,6 @@ class PLATFORM_EXPORT StaticBitmapImage : public Image {
                   const gfx::RectF&,
                   const ImageDrawOptions&,
                   const PaintImage&);
-
-  virtual gfx::Size SizeInternal() const = 0;
 
   // The image orientation is stored here because it is only available when the
   // static image is created and the underlying representations do not store

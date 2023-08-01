@@ -1,10 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_ASH_POLICY_SCHEDULED_TASK_HANDLER_TEST_FAKE_SCHEDULED_TASK_EXECUTOR_H_
 #define CHROME_BROWSER_ASH_POLICY_SCHEDULED_TASK_HANDLER_TEST_FAKE_SCHEDULED_TASK_EXECUTOR_H_
 
+#include "base/memory/raw_ptr.h"
 #include "base/time/clock.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
@@ -26,8 +27,10 @@ class FakeScheduledTaskExecutor : public ScheduledTaskExecutor {
   // ScheduledTaskExecutor implementation:
   void Start(ScheduledTaskData* scheduled_task_data,
              chromeos::OnStartNativeTimerCallback result_cb,
-             TimerCallback timer_expired_cb) override;
+             TimerCallback timer_expired_cb,
+             base::TimeDelta small_delay = base::TimeDelta()) override;
   void Reset() override;
+  const base::Time GetScheduledTaskTime() const override;
 
   void SetTimeZone(std::unique_ptr<icu::TimeZone> time_zone);
 
@@ -39,7 +42,7 @@ class FakeScheduledTaskExecutor : public ScheduledTaskExecutor {
 
  private:
   // Clock to use to get current time.
-  const base::Clock* const clock_;
+  const raw_ptr<const base::Clock, ExperimentalAsh> clock_;
 
   // The current time zone.
   std::unique_ptr<icu::TimeZone> time_zone_;
@@ -49,6 +52,9 @@ class FakeScheduledTaskExecutor : public ScheduledTaskExecutor {
 
   // Timer that is scheduled to execute the task.
   base::OneShotTimer timer_;
+
+  // Scheduled task time.
+  base::Time scheduled_task_time_;
 };
 }  // namespace policy
 

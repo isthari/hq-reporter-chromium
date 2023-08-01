@@ -1,13 +1,13 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.paint_preview.services;
 
 import android.app.Activity;
-import android.support.test.InstrumentationRegistry;
 
 import androidx.test.filters.MediumTest;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -29,7 +29,6 @@ import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.test.EmbeddedTestServer;
 
-import java.util.HashSet;
 import java.util.concurrent.TimeUnit;
 
 /** Tests for the Paint Preview Tab Manager. */
@@ -71,7 +70,6 @@ public class PaintPreviewTabServiceTest {
 
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             mPaintPreviewTabService = PaintPreviewTabServiceFactory.getServiceInstance();
-            mPaintPreviewTabService.onRestoreCompleted(mTabModelSelector, true);
             mTab.loadUrl(new LoadUrlParams(url));
         });
         // Give the tab time to complete layout before hiding.
@@ -127,7 +125,6 @@ public class PaintPreviewTabServiceTest {
 
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             mPaintPreviewTabService = PaintPreviewTabServiceFactory.getServiceInstance();
-            mPaintPreviewTabService.onRestoreCompleted(mTabModelSelector, true);
             mTab.loadUrl(new LoadUrlParams(url));
         });
         // Give the tab time to complete layout before hiding.
@@ -158,11 +155,8 @@ public class PaintPreviewTabServiceTest {
             InstrumentationRegistry.getInstrumentation().callActivityOnResume(activity);
         });
 
-        TestThreadUtils.runOnUiThreadBlocking(() -> {
-            // Use the incognito tab model as the normal tab model will still have the tab ids
-            // active.
-            mPaintPreviewTabService.auditOnStart(mTabModelSelector.getModel(/*incognito=*/true));
-        });
+        TestThreadUtils.runOnUiThreadBlocking(
+                () -> { mPaintPreviewTabService.auditArtifacts(new int[0]); });
 
         CriteriaHelper.pollUiThread(() -> {
             return !mPaintPreviewTabService.hasCaptureForTab(tabId);
@@ -170,28 +164,27 @@ public class PaintPreviewTabServiceTest {
     }
 
     /**
-     * Verifies the early cache is created correctly.
+     * Verifies the pre-native preview exists check works.
      */
     @Test
     @MediumTest
     @Feature({"PaintPreview"})
-    public void testEarlyCache() throws Exception {
-        mTemporaryFolder.newFolder("1");
+    public void testPreNativePreviewExists() throws Exception {
         mTemporaryFolder.newFile("2.zip");
-        mTemporaryFolder.newFile("6.zip");
+        mTemporaryFolder.newFile("3.zip");
+        mTemporaryFolder.newFile("6");
         mTemporaryFolder.newFolder("10");
-
-        HashSet<Integer> expectedFiles = new HashSet<>();
-        expectedFiles.add(1);
-        expectedFiles.add(2);
-        expectedFiles.add(6);
-        expectedFiles.add(10);
 
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             mPaintPreviewTabService = PaintPreviewTabServiceFactory.getServiceInstance();
-            mPaintPreviewTabService.createPreNativeCache(mTemporaryFolder.getRoot().getPath());
+            Assert.assertTrue(mPaintPreviewTabService.previewExistsPreNative(
+                    mTemporaryFolder.getRoot().getPath(), 2));
+            Assert.assertTrue(mPaintPreviewTabService.previewExistsPreNative(
+                    mTemporaryFolder.getRoot().getPath(), 3));
+            Assert.assertFalse(mPaintPreviewTabService.previewExistsPreNative(
+                    mTemporaryFolder.getRoot().getPath(), 6));
+            Assert.assertFalse(mPaintPreviewTabService.previewExistsPreNative(
+                    mTemporaryFolder.getRoot().getPath(), 10));
         });
-
-        Assert.assertEquals(expectedFiles, mPaintPreviewTabService.mPreNativeCache);
     }
 }

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "chrome/browser/ash/arc/arc_support_host.h"
@@ -127,7 +128,7 @@ class FakeArcSupport : public extensions::NativeMessageHost::Client {
   void PostMessageFromNativeHost(const std::string& message) override;
   void CloseChannel(const std::string& error_message) override;
 
-  ArcSupportHost* const support_host_;
+  const raw_ptr<ArcSupportHost, ExperimentalAsh> support_host_;
 
   std::unique_ptr<extensions::NativeMessageHost> native_message_host_;
   ArcSupportHost::UIPage ui_page_ = ArcSupportHost::UIPage::NO_PAGE;

@@ -1,4 +1,4 @@
-# Copyright 2020 The Chromium Authors. All rights reserved.
+# Copyright 2020 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -46,13 +46,20 @@ static_library("file_manager_ui") {
   deps = [
     ":constants",
     ":file_manager_untrusted_ui",
+    "//ash",
+    "//ash/constants:constants",
     "//ash/webui/file_manager/mojom",
     "//ash/webui/file_manager/resources:file_manager_swa_resources",
+    "//ash/webui/system_apps/public:system_web_app_config",
+    "//ash/webui/system_apps/public:system_web_app_type",
     "//base",
+    "//components/user_manager",
     "//content/public/browser",
     "//ui/file_manager:file_manager_gen_resources",
     "//ui/file_manager:resources",
     "//ui/web_dialogs",
+    "//ui/webui:webui",
+    "//ui/webui/resources/cr_components/color_change_listener:mojom",
   ]
 }
 

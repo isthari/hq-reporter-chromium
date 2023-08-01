@@ -1,111 +1,217 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/web_state_list/web_state_list_order_controller.h"
 
-#include <cstdint>
+#import <algorithm>
+#import <cstdint>
+#import <set>
 
-#include "base/check_op.h"
-#import "ios/chrome/browser/web_state_list/web_state_list.h"
-#import "ios/chrome/browser/web_state_list/web_state_opener.h"
+#import "base/check_op.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_opener.h"
+#import "ios/chrome/browser/web_state_list/web_state_list_removing_indexes.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
-WebStateListOrderController::WebStateListOrderController(
-    WebStateList* web_state_list)
-    : web_state_list_(web_state_list) {
-  DCHECK(web_state_list_);
+namespace {
+
+// Find the index of next non-removed WebState opened by `web_state`. It
+// may return WebStateList::kInvalidIndex if there is no such indexes.
+int FindIndexOfNextNonRemovedWebStateOpenedBy(
+    const WebStateListRemovingIndexes& removing_indexes,
+    const WebStateList& web_state_list,
+    const web::WebState* web_state,
+    int starting_index) {
+  std::set<int> children;
+  for (;;) {
+    const int child_index = web_state_list.GetIndexOfNextWebStateOpenedBy(
+        web_state, starting_index, false);
+
+    // The active WebState has no child, fall back to the next heuristic.
+    if (child_index == WebStateList::kInvalidIndex) {
+      break;
+    }
+
+    // All children are going to be removed, fallback to the next heuristic.
+    if (children.find(child_index) != children.end()) {
+      break;
+    }
+
+    // Found a child that is not removed, select it as the next active
+    // WebState.
+    const int child_index_after_removal =
+        removing_indexes.IndexAfterRemoval(child_index);
+
+    if (child_index_after_removal != WebStateList::kInvalidIndex) {
+      return child_index_after_removal;
+    }
+
+    children.insert(child_index);
+    starting_index = child_index;
+  }
+
+  return WebStateList::kInvalidIndex;
 }
+
+}  // anonymous namespace
+
+WebStateListOrderController::WebStateListOrderController(
+    const WebStateList& web_state_list)
+    : web_state_list_(web_state_list) {}
 
 WebStateListOrderController::~WebStateListOrderController() = default;
 
 int WebStateListOrderController::DetermineInsertionIndex(
-    web::WebState* opener) const {
-  if (!opener)
-    return web_state_list_->count();
+    int desired_index,
+    const web::WebState* opener,
+    bool forced,
+    bool pinned) const {
+  // Forced index has superiority over anything else. The only thing that should
+  // be checked here if `desired_index` is within the proper range of WebStates
+  // (e.g. pinned or regular).
+  if (forced) {
+    return ConstrainInsertionIndex(desired_index, pinned);
+  }
 
-  int opener_index = web_state_list_->GetIndexOfWebState(opener);
+  // If there is no opener, WebState should be added at the end of the list of
+  // the same kind of WebStates (e.g. pinned or regular).
+  if (!opener) {
+    return ConstrainInsertionIndex(WebStateList::kInvalidIndex, pinned);
+  }
+
+  int opener_index = web_state_list_.GetIndexOfWebState(opener);
   DCHECK_NE(WebStateList::kInvalidIndex, opener_index);
 
-  int list_child_index = web_state_list_->GetIndexOfLastWebStateOpenedBy(
+  const int list_child_index = web_state_list_.GetIndexOfLastWebStateOpenedBy(
       opener, opener_index, true);
 
-  int reference_index = list_child_index != WebStateList::kInvalidIndex
-                            ? list_child_index
-                            : opener_index;
+  const int reference_index = list_child_index != WebStateList::kInvalidIndex
+                                  ? list_child_index
+                                  : opener_index;
 
   // Check for overflows (just a DCHECK as INT_MAX open WebState is unlikely).
   DCHECK_LT(reference_index, INT_MAX);
-  return reference_index + 1;
+  return ConstrainInsertionIndex(reference_index + 1, pinned);
 }
 
 int WebStateListOrderController::DetermineNewActiveIndex(
     int active_index,
-    int removing_index) const {
-  DCHECK(web_state_list_->ContainsIndex(removing_index));
-
+    WebStateListRemovingIndexes removing_indexes) const {
   // If there is no active element, then there will be no new active element
   // after closing the element.
-  if (active_index == WebStateList::kInvalidIndex)
+  if (active_index == WebStateList::kInvalidIndex) {
     return WebStateList::kInvalidIndex;
-
-  // Otherwise the index needs to be valid.
-  DCHECK(web_state_list_->ContainsIndex(active_index));
-
-  // If the element removed is the the sole remaining element in the
-  // WebStateList, clear the selection (as the list will be empty).
-  if (web_state_list_->count() == 1)
-    return WebStateList::kInvalidIndex;
-
-  // If the element removed is not the active element, then the active element
-  // won't change but its index may be decremented if after the removed element.
-  if (active_index != removing_index)
-    return GetValidIndex(active_index, removing_index);
-
-  // If the element removed has any "child" then select the first child in the
-  // group (start looking from removing_index, but may return a child that is
-  // before the removed element).
-  const int child_index = web_state_list_->GetIndexOfNextWebStateOpenedBy(
-      web_state_list_->GetWebStateAt(removing_index), removing_index, false);
-
-  if (child_index != WebStateList::kInvalidIndex)
-    return GetValidIndex(child_index, removing_index);
-
-  // If the element removed has no opener, then it is not part of a group. In
-  // that case, select the next element, unless the last element is removed
-  // in which case the previous one is selected.
-  const WebStateOpener opener =
-      web_state_list_->GetOpenerOfWebStateAt(removing_index);
-  if (!opener.opener) {
-    if (removing_index == web_state_list_->count() - 1)
-      return removing_index - 1;
-
-    return removing_index;
   }
 
-  // If the element removed is part of a group, select the next sibling in the
-  // group (start looking from removing_index, but may return a sibling that
-  // is before the removed element).
-  const int sibling_index = web_state_list_->GetIndexOfNextWebStateOpenedBy(
-      opener.opener, removing_index, false);
+  // Otherwise the index needs to be valid.
+  DCHECK(web_state_list_.ContainsIndex(active_index));
 
-  if (sibling_index != WebStateList::kInvalidIndex)
-    return GetValidIndex(sibling_index, removing_index);
+  // If the elements removed are the the sole remaining elements in the
+  // WebStateList, clear the selection (as the list will be empty).
+  const int count = web_state_list_.count();
+  if (count == removing_indexes.count()) {
+    return WebStateList::kInvalidIndex;
+  }
 
-  // Otherwise, select the opener.
-  const int opener_index = web_state_list_->GetIndexOfWebState(opener.opener);
-  DCHECK_NE(opener_index, WebStateList::kInvalidIndex);
-  return GetValidIndex(opener_index, removing_index);
+  // If the active element is not removed, then the active element won't change
+  // but its index may need to be tweaked if after some of the removed elements.
+  const int active_index_after_removal =
+      removing_indexes.IndexAfterRemoval(active_index);
+  if (active_index_after_removal != WebStateList::kInvalidIndex) {
+    return active_index_after_removal;
+  }
+
+  // Check if any of the "child" of the active WebState can be selected to be
+  // the new active element. Prefer childs located after the active element,
+  // but this may end up selecting an element before it.
+  const int child_index_after_removal =
+      FindIndexOfNextNonRemovedWebStateOpenedBy(
+          removing_indexes, web_state_list_,
+          web_state_list_.GetWebStateAt(active_index), active_index);
+  if (child_index_after_removal != WebStateList::kInvalidIndex) {
+    return child_index_after_removal;
+  }
+
+  const WebStateOpener opener =
+      web_state_list_.GetOpenerOfWebStateAt(active_index);
+  if (opener.opener) {
+    // Check if any of the "sibling" of the active WebState can be selected
+    // to be the new active element. Prefer siblings located after the active
+    // element, but this may end up selecting an element before it.
+    const int sibling_index_after_removal =
+        FindIndexOfNextNonRemovedWebStateOpenedBy(
+            removing_indexes, web_state_list_, opener.opener, active_index);
+    if (sibling_index_after_removal != WebStateList::kInvalidIndex) {
+      return sibling_index_after_removal;
+    }
+
+    // If the opener is not removed, select it as the next WebState.
+    const int opener_index_after_removal = removing_indexes.IndexAfterRemoval(
+        web_state_list_.GetIndexOfWebState(opener.opener));
+    if (opener_index_after_removal != WebStateList::kInvalidIndex) {
+      return opener_index_after_removal;
+    }
+  }
+
+  const bool is_pinned = web_state_list_.IsWebStatePinnedAt(active_index);
+
+  const int first_non_pinned_tab =
+      web_state_list_.GetIndexOfFirstNonPinnedWebState();
+
+  const int start = is_pinned ? 0 : first_non_pinned_tab;
+  const int end = is_pinned ? first_non_pinned_tab : count;
+
+  // Look for the closest non-removed WebState after the active WebState in the
+  // same pinned/regular group.
+  for (int index = active_index + 1; index < end; ++index) {
+    const int index_after_removal = removing_indexes.IndexAfterRemoval(index);
+    if (index_after_removal != WebStateList::kInvalidIndex) {
+      return index_after_removal;
+    }
+  }
+
+  // Look for the closest non-removed WebState before the active WebState in the
+  // same pinned/regular group.
+  for (int index = active_index - 1; index >= start; --index) {
+    const int index_after_removal = removing_indexes.IndexAfterRemoval(index);
+    if (index_after_removal != WebStateList::kInvalidIndex) {
+      return index_after_removal;
+    }
+  }
+
+  // Look for the closest non-removed WebState after the active WebState.
+  for (int index = active_index + 1; index < count; ++index) {
+    const int index_after_removal = removing_indexes.IndexAfterRemoval(index);
+    if (index_after_removal != WebStateList::kInvalidIndex) {
+      return index_after_removal;
+    }
+  }
+
+  // Look for the closest non-removed WebState before the active WebState.
+  for (int index = active_index - 1; index >= 0; --index) {
+    const int index_after_removal = removing_indexes.IndexAfterRemoval(index);
+    if (index_after_removal != WebStateList::kInvalidIndex) {
+      return index_after_removal;
+    }
+  }
+
+  NOTREACHED() << "No active WebState selected by WebStateList not empty";
+  return WebStateList::kInvalidIndex;
 }
 
-int WebStateListOrderController::GetValidIndex(int active_index,
-                                               int removing_index) const {
-  if (active_index < removing_index)
-    return active_index;
+int WebStateListOrderController::ConstrainInsertionIndex(int index,
+                                                         bool pinned) const {
+  int min = pinned ? 0 : web_state_list_.GetIndexOfFirstNonPinnedWebState();
+  int max = pinned ? web_state_list_.GetIndexOfFirstNonPinnedWebState()
+                   : web_state_list_.count();
 
-  DCHECK_NE(active_index, removing_index);
-  return active_index - 1;
+  if (index < min || index > max) {
+    return max;
+  }
+
+  return index;
 }

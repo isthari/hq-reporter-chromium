@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,12 +13,16 @@
 namespace blink {
 
 // The PermissionsPolicyFeatureDefault enum defines the default enable state for
-// a feature when the feature is not declared in iframe 'allow' attribute.
+// a feature. For a top-level frame, this is the default enable state; for an
+// iframe, this is the default enable state unless the iframe has an 'allow'
+// attribute.
+//
 // See |PermissionsPolicy::InheritedValueForFeature| for usage.
 //
 // The 2 possibilities map directly to Permissions Policy Allowlist semantics.
 //
-// The default values for each feature are set in GetDefaultFeatureList.
+// The default values for each feature are set in
+// GetPermissionsPolicyFeatureList.
 enum class PermissionsPolicyFeatureDefault {
   // Equivalent to ["self"]. If this default policy is in effect for a frame,
   // then the feature will be enabled for that frame, and any same-origin
@@ -35,6 +39,16 @@ using PermissionsPolicyFeatureList =
 
 BLINK_COMMON_EXPORT const PermissionsPolicyFeatureList&
 GetPermissionsPolicyFeatureList();
+
+// Updates the PermissionPolicyFeatureList based on the current feature flags.
+// For efficiency, `GetPermissionPolicyFeatureList()` only calculates the
+// default permissions policy once, so it does not track changes in feature
+// flags that occur between tests. This function is intended to be used in tests
+// that depend on the permission policy being set based the value on a feature
+// flag to avoid flakiness. Note that, like the general feature flag
+// calculation, if the flags for multiple `default_value_behind_flag` are
+// enabled, the default from the first listed is used.
+BLINK_COMMON_EXPORT void UpdatePermissionsPolicyFeatureListForTesting();
 
 // TODO(iclelland): Generate, instead of this map, a set of bool flags, one
 // for each feature, as all features are supposed to be represented here.

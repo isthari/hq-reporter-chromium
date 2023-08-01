@@ -1,10 +1,11 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // Use the <code>chrome.app.runtime</code> API to manage the app lifecycle.
 // The app runtime manages app installation, controls the event page, and can
 // shut down the app at anytime.
+[modernised_enums]
 namespace app.runtime {
 
   [inline_doc] dictionary LaunchItem {
@@ -45,7 +46,8 @@ namespace app.runtime {
     installed_notification,
     context_menu,
     arc,
-    intent_url
+    intent_url,
+    app_home_page
   };
 
   // An app can be launched with a specific action in mind, for example, to

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,9 @@
 #include <memory>
 
 #include "chrome/browser/chrome_browser_main.h"
+#include "chrome/common/conflicts/module_watcher_win.h"
 
-class ModuleWatcher;
+class PlatformAuthPolicyObserver;
 
 namespace base {
 class CommandLine;
@@ -24,7 +25,7 @@ int DoUninstallTasks(bool chrome_still_running);
 
 class ChromeBrowserMainPartsWin : public ChromeBrowserMainParts {
  public:
-  ChromeBrowserMainPartsWin(content::MainFunctionParams parameters,
+  ChromeBrowserMainPartsWin(bool is_integration_test,
                             StartupData* startup_data);
   ChromeBrowserMainPartsWin(const ChromeBrowserMainPartsWin&) = delete;
   ChromeBrowserMainPartsWin& operator=(const ChromeBrowserMainPartsWin&) =
@@ -39,6 +40,7 @@ class ChromeBrowserMainPartsWin : public ChromeBrowserMainParts {
 
   // ChromeBrowserMainParts overrides.
   void ShowMissingLocaleMessageBox() override;
+  void PreProfileInit() override;
   void PostProfileInit(Profile* profile, bool is_initial_profile) override;
   void PostBrowserStart() override;
 
@@ -77,8 +79,14 @@ class ChromeBrowserMainPartsWin : public ChromeBrowserMainParts {
       const base::CommandLine& command_line);
 
  private:
+  void OnModuleEvent(const ModuleWatcher::ModuleEvent& event);
+  void SetupModuleDatabase(std::unique_ptr<ModuleWatcher>* module_watcher);
+
   // Watches module load events and forwards them to the ModuleDatabase.
   std::unique_ptr<ModuleWatcher> module_watcher_;
+
+  // Applies enterprise policies for platform auth SSO.
+  std::unique_ptr<PlatformAuthPolicyObserver> platform_auth_policy_observer_;
 };
 
 #endif  // CHROME_BROWSER_CHROME_BROWSER_MAIN_WIN_H_

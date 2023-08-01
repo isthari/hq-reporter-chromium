@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -124,8 +124,7 @@ absl::optional<gfx::GpuMemoryBufferHandle> CreateGpuMemoryBufferHandle(
 base::ScopedFD CreateTempFileForTesting(const std::string& data) {
   base::FilePath path;
   base::CreateTemporaryFile(&path);
-  if (base::WriteFile(path, data.c_str(), data.size()) !=
-      base::MakeStrictNum(data.size())) {
+  if (!base::WriteFile(path, data)) {
     VLOGF(1) << "Cannot write the whole data into file.";
     return base::ScopedFD();
   }

@@ -1,15 +1,15 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/login/users/chrome_user_manager.h"
 
-#include "ash/components/settings/cros_settings_names.h"
+#include <utility>
+
 #include "ash/constants/ash_switches.h"
 #include "base/command_line.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/browser_process.h"
-#include "components/policy/core/common/policy_map.h"
-#include "components/policy/policy_constants.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "components/user_manager/user_names.h"
@@ -19,9 +19,11 @@ namespace ash {
 
 ChromeUserManager::ChromeUserManager(
     scoped_refptr<base::SingleThreadTaskRunner> task_runner)
-    : UserManagerBase(std::move(task_runner)) {}
+    : UserManagerBase(
+          std::move(task_runner),
+          g_browser_process ? g_browser_process->local_state() : nullptr) {}
 
-ChromeUserManager::~ChromeUserManager() {}
+ChromeUserManager::~ChromeUserManager() = default;
 
 bool ChromeUserManager::IsCurrentUserNew() const {
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
@@ -34,7 +36,6 @@ bool ChromeUserManager::IsCurrentUserNew() const {
 void ChromeUserManager::UpdateLoginState(const user_manager::User* active_user,
                                          const user_manager::User* primary_user,
                                          bool is_current_user_owner) const {
-  using chromeos::LoginState;
   if (!LoginState::IsInitialized())
     return;  // LoginState may be uninitialized in tests.
 
@@ -59,7 +60,6 @@ void ChromeUserManager::UpdateLoginState(const user_manager::User* active_user,
 
 bool ChromeUserManager::GetPlatformKnownUserId(
     const std::string& user_email,
-    const std::string& gaia_id,
     AccountId* out_account_id) const {
   if (user_email == user_manager::kStubUserEmail) {
     *out_account_id = user_manager::StubAccountId();
@@ -91,20 +91,18 @@ LoginState::LoggedInUserType ChromeUserManager::GetLoggedInUserType(
     case user_manager::USER_TYPE_GUEST:
       return LoginState::LOGGED_IN_USER_GUEST;
     case user_manager::USER_TYPE_PUBLIC_ACCOUNT:
-      return IsManagedSessionEnabledForUser(active_user)
-                 ? LoginState::LOGGED_IN_USER_PUBLIC_ACCOUNT_MANAGED
-                 : LoginState::LOGGED_IN_USER_PUBLIC_ACCOUNT;
+      return LoginState::LOGGED_IN_USER_PUBLIC_ACCOUNT;
     case user_manager::USER_TYPE_KIOSK_APP:
-      return LoginState::LOGGED_IN_USER_KIOSK_APP;
+      return LoginState::LOGGED_IN_USER_KIOSK;
     case user_manager::USER_TYPE_CHILD:
       return LoginState::LOGGED_IN_USER_CHILD;
     case user_manager::USER_TYPE_ARC_KIOSK_APP:
-      return LoginState::LOGGED_IN_USER_KIOSK_APP;
+      return LoginState::LOGGED_IN_USER_KIOSK;
     case user_manager::USER_TYPE_ACTIVE_DIRECTORY:
       // NOTE(olsen) There's no LOGGED_IN_USER_ACTIVE_DIRECTORY - is it needed?
       return LoginState::LOGGED_IN_USER_REGULAR;
     case user_manager::USER_TYPE_WEB_KIOSK_APP:
-      return LoginState::LOGGED_IN_USER_KIOSK_APP;
+      return LoginState::LOGGED_IN_USER_KIOSK;
     case user_manager::NUM_USER_TYPES:
       break;  // Go to invalid-type handling code.
       // Since there is no default, the compiler warns about unhandled types.
@@ -116,7 +114,7 @@ LoginState::LoggedInUserType ChromeUserManager::GetLoggedInUserType(
 // static
 ChromeUserManager* ChromeUserManager::Get() {
   user_manager::UserManager* user_manager = user_manager::UserManager::Get();
-  return user_manager ? static_cast<ChromeUserManager*>(user_manager) : NULL;
+  return user_manager ? static_cast<ChromeUserManager*>(user_manager) : nullptr;
 }
 
 }  // namespace ash

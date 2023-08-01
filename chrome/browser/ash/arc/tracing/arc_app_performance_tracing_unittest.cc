@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,22 +6,31 @@
 
 #include <memory>
 
+#include "ash/shell.h"
+#include "ash/wm/desks/desks_util.h"
 #include "base/metrics/histogram_samples.h"
 #include "base/metrics/statistics_recorder.h"
 #include "base/strings/stringprintf.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_test.h"
+#include "chrome/browser/ash/app_restore/arc_ghost_window_handler.h"
+#include "chrome/browser/ash/app_restore/arc_ghost_window_shell_surface.h"
 #include "chrome/browser/ash/arc/tracing/arc_app_performance_tracing_session.h"
 #include "chrome/browser/ash/arc/tracing/arc_app_performance_tracing_test_helper.h"
 #include "chrome/browser/ash/arc/tracing/arc_app_performance_tracing_uma_session.h"
-#include "chrome/browser/signin/chrome_signin_client_factory.h"
-#include "chrome/browser/signin/test_signin_client_builder.h"
+#include "chrome/browser/ash/arc/window_predictor/window_predictor_utils.h"
 #include "chrome/browser/sync/sync_service_factory.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_test.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/app_restore/app_restore_data.h"
 #include "components/exo/shell_surface_util.h"
 #include "components/exo/surface.h"
+#include "components/sync/test/test_sync_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/views/widget/widget.h"
+
+#include "ui/display/display.h"
+#include "ui/display/test/test_screen.h"
+#include "ui/gfx/native_widget_types.h"
 
 namespace arc {
 
@@ -120,9 +129,10 @@ class ArcAppPerformanceTracingTest : public BrowserWithTestWindowTest {
 
   TestingProfile::TestingFactories GetTestingFactories() override {
     return {{SyncServiceFactory::GetInstance(),
-             SyncServiceFactory::GetDefaultFactory()},
-            {ChromeSigninClientFactory::GetInstance(),
-             base::BindRepeating(&signin::BuildTestSigninClient)}};
+             base::BindRepeating(
+                 [](content::BrowserContext*) -> std::unique_ptr<KeyedService> {
+                   return std::make_unique<syncer::TestSyncService>();
+                 })}};
   }
 
  private:
@@ -305,10 +315,57 @@ TEST_F(ArcAppPerformanceTracingTest, DestroySurface) {
   views::Widget* const arc_widget = StartArcFocusAppTracing();
   ASSERT_TRUE(tracing_helper().GetTracingSession());
   EXPECT_TRUE(tracing_helper().GetTracingSession()->tracing_active());
+  exo::SetShellRootSurface(arc_widget->GetNativeWindow(), nullptr);
   ResetRootSurface();
   ASSERT_TRUE(tracing_helper().GetTracingSession());
   EXPECT_FALSE(tracing_helper().GetTracingSession()->tracing_active());
+
+  // Try to re-active window without surface
+  tracing_helper().GetTracing()->OnWindowActivated(
+      wm::ActivationChangeObserver::ActivationReason::ACTIVATION_CLIENT,
+      arc_widget->GetNativeWindow(), arc_widget->GetNativeWindow());
+
+  EXPECT_FALSE(tracing_helper().GetTracingSession());
+
   arc_widget->Close();
+}
+
+TEST_F(ArcAppPerformanceTracingTest, NoTracingForArcGhostWindow) {
+  display::Display display =
+      display::Screen::GetScreen()->GetDisplayNearestWindow(
+          ash::Shell::GetPrimaryRootWindow());
+  std::unique_ptr<ash::full_restore::ArcGhostWindowHandler>
+      ghost_window_handler =
+          std::make_unique<ash::full_restore::ArcGhostWindowHandler>();
+
+  app_restore::AppRestoreData restore_data;
+  restore_data.display_id = display.id();
+  auto ghost_window = ash::full_restore::ArcGhostWindowShellSurface::Create(
+      "app_id" /* app_id */, GhostWindowType::kFullRestore, 1 /* window_id */,
+      gfx::Rect(10, 10, 100, 100) /* bounds */, &restore_data,
+      base::BindRepeating([]() {}));
+  ASSERT_TRUE(ghost_window);
+
+  // Associate ghost window with real app.
+  ghost_window->SetApplicationId("org.chromium.arc.1");
+
+  // This creates window.
+  ghost_window->SetSystemUiVisibility(false /* autohide */);
+  ASSERT_TRUE(ghost_window->GetWidget());
+  ASSERT_TRUE(ghost_window->GetWidget()->GetNativeWindow());
+  ghost_window->GetWidget()->GetNativeWindow()->Show();
+
+  tracing_helper().GetTracing()->OnTaskCreated(
+      1 /* task_Id */, kFocusAppPackage, kFocusAppActivity,
+      std::string() /* intent */, 0 /* session_id */);
+
+  tracing_helper().GetTracing()->OnWindowActivated(
+      wm::ActivationChangeObserver::ActivationReason::ACTIVATION_CLIENT,
+      ghost_window->GetWidget()->GetNativeWindow() /* gained_active */,
+      nullptr /* lost_active */);
+
+  // Ghost window should not trigger tracing sessions.
+  DCHECK(!tracing_helper().GetTracingSession());
 }
 
 }  // namespace arc

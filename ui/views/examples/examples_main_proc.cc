@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,10 @@
 #include <string>
 
 #include "base/base_switches.h"
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
 #include "base/i18n/icu_util.h"
 #include "base/lazy_instance.h"
 #include "base/memory/ptr_util.h"
@@ -25,7 +25,6 @@
 #include "base/test/test_timeouts.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
-#include "components/viz/common/features.h"
 #include "components/viz/host/host_frame_sink_manager.h"
 #include "components/viz/service/display_embedder/server_shared_bitmap_manager.h"
 #include "components/viz/service/frame_sinks/frame_sink_manager_impl.h"
@@ -33,16 +32,18 @@
 #include "ui/base/ime/init/input_method_initializer.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/ui_base_paths.h"
+#include "ui/color/color_provider_manager.h"
 #include "ui/compositor/compositor_switches.h"
 #include "ui/compositor/test/in_process_context_factory.h"
 #include "ui/compositor/test/test_context_factories.h"
 #include "ui/display/screen.h"
 #include "ui/gfx/font_util.h"
 #include "ui/gfx/image/image.h"
-#include "ui/gl/gl_switches.h"
+#include "ui/gl/gl_utils.h"
 #include "ui/gl/init/gl_factory.h"
 #include "ui/views/buildflags.h"
 #include "ui/views/examples/example_base.h"
+#include "ui/views/examples/examples_color_mixer.h"
 #include "ui/views/examples/examples_window.h"
 #include "ui/views/test/desktop_test_views_delegate.h"
 #include "ui/views/widget/any_widget_observer.h"
@@ -66,12 +67,11 @@
 #include "ui/views/examples/examples_skia_gold_pixel_diff.h"
 #endif
 
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
 #include "ui/ozone/public/ozone_platform.h"
 #endif
 
-namespace views {
-namespace examples {
+namespace views::examples {
 
 base::LazyInstance<base::TestDiscardableMemoryAllocator>::DestructorAtExit
     g_discardable_memory_allocator = LAZY_INSTANCE_INITIALIZER;
@@ -89,15 +89,7 @@ ExamplesExitCode ExamplesMainProc(bool under_test) {
   // Disabling Direct Composition works around the limitation that
   // InProcessContextFactory doesn't work with Direct Composition, causing the
   // window to not render. See http://crbug.com/936249.
-  command_line->AppendSwitch(switches::kDisableDirectComposition);
-
-  // Disable skia renderer to use GL instead.
-  std::string disabled =
-      command_line->GetSwitchValueASCII(switches::kDisableFeatures);
-  if (!disabled.empty())
-    disabled += ",";
-  disabled += features::kUseSkiaRenderer.name;
-  command_line->AppendSwitchASCII(switches::kDisableFeatures, disabled);
+  gl::SetGlWorkarounds(gl::GlWorkarounds{.disable_direct_composition = true});
 
   base::FeatureList::InitializeInstance(
       command_line->GetSwitchValueASCII(switches::kEnableFeatures),
@@ -108,13 +100,13 @@ ExamplesExitCode ExamplesMainProc(bool under_test) {
 
   mojo::core::Init();
 
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
   ui::OzonePlatform::InitParams params;
   params.single_process = true;
   ui::OzonePlatform::InitializeForGPU(params);
 #endif
 
-  gl::init::InitializeGLOneOff();
+  gl::init::InitializeGLOneOff(/*gpu_preference=*/gl::GpuPreference::kDefault);
 
   // Viz depends on the task environment to correctly tear down.
   base::test::TaskEnvironment task_environment(
@@ -122,8 +114,8 @@ ExamplesExitCode ExamplesMainProc(bool under_test) {
 
   // The ContextFactory must exist before any Compositors are created.
   auto context_factories =
-      std::make_unique<ui::TestContextFactories>(under_test);
-  context_factories->SetUseTestSurface(false);
+      std::make_unique<ui::TestContextFactories>(under_test,
+                                                 /*output_to_window=*/true);
 
   base::i18n::InitializeICU();
 
@@ -144,10 +136,10 @@ ExamplesExitCode ExamplesMainProc(bool under_test) {
   base::DiscardableMemoryAllocator::SetInstance(
       g_discardable_memory_allocator.Pointer());
 
-  base::PowerMonitor::Initialize(
-      std::make_unique<base::PowerMonitorDeviceSource>());
-
   gfx::InitializeFonts();
+
+  ui::ColorProviderManager::Get().AppendColorProviderInitializer(
+      base::BindRepeating(&AddExamplesColorMixers));
 
 #if defined(USE_AURA)
   std::unique_ptr<aura::Env> env = aura::Env::CreateInstance();
@@ -215,5 +207,4 @@ ExamplesExitCode ExamplesMainProc(bool under_test) {
   return compare_result;
 }
 
-}  // namespace examples
-}  // namespace views
+}  // namespace views::examples

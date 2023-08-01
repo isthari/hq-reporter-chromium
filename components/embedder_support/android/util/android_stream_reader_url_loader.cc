@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,14 +10,15 @@
 #include <vector>
 
 #include "base/android/jni_android.h"
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
-#include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/thread.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "components/embedder_support/android/util/input_stream.h"
 #include "components/embedder_support/android/util/input_stream_reader.h"
 #include "net/base/io_buffer.h"
@@ -25,6 +26,7 @@
 #include "net/http/http_status_code.h"
 #include "net/http/http_util.h"
 #include "services/network/public/cpp/cors/cors.h"
+#include "services/network/public/cpp/features.h"
 #include "services/network/public/cpp/url_loader_completion_status.h"
 
 namespace embedder_support {
@@ -33,6 +35,8 @@ namespace {
 
 const char kHTTPOkText[] = "OK";
 const char kHTTPNotFoundText[] = "Not Found";
+
+const int kMaxBytesToReadWhenAvailableUnknown = 2 * 1024;
 
 }  // namespace
 
@@ -85,6 +89,20 @@ class InputStreamReaderWrapper
   }
 
   int ReadRawData(net::IOBuffer* buffer, int buffer_size) {
+    int available = 0;
+    // Only use `available` if the app has an estimate, otherwise it'll return
+    // 0. In that case we still want to do a blocking read until there's data
+    // or EOF. Note some implementations return 1 to indicate there's more data.
+    if (input_stream_->BytesAvailable(&available) && available > 1) {
+      // Make sure a we don't read past the buffer size.
+      buffer_size = std::min(available, buffer_size);
+    } else {
+      // `buffer_size' could be large since it comes from the size of the data
+      // pipe, but we don't want to synchronously wait for too many bytes in
+      // case they're coming from the network.
+      buffer_size = std::min(kMaxBytesToReadWhenAvailableUnknown, buffer_size);
+    }
+
     return input_stream_reader_->ReadRawData(buffer, buffer_size);
   }
 
@@ -115,7 +133,8 @@ AndroidStreamReaderURLLoader::AndroidStreamReaderURLLoader(
       response_delegate_(std::move(response_delegate)),
       writable_handle_watcher_(FROM_HERE,
                                mojo::SimpleWatcher::ArmingPolicy::MANUAL,
-                               base::SequencedTaskRunnerHandle::Get()) {
+                               base::SequencedTaskRunner::GetCurrentDefault()),
+      start_time_(base::Time::Now()) {
   DCHECK(response_delegate_);
   // If there is a client error, clean up the request.
   client_.set_disconnect_handler(
@@ -168,7 +187,8 @@ void AndroidStreamReaderURLLoader::Start() {
   base::ThreadPool::PostTask(
       FROM_HERE, {base::MayBlock()},
       base::BindOnce(
-          &OpenInputStreamOnWorkerThread, base::ThreadTaskRunnerHandle::Get(),
+          &OpenInputStreamOnWorkerThread,
+          base::SingleThreadTaskRunner::GetCurrentDefault(),
           // This is intentional - the loader could be deleted while the
           // callback is executing on the background thread. The delegate will
           // be "returned" to the loader once the InputStream open attempt is
@@ -286,7 +306,14 @@ void AndroidStreamReaderURLLoader::HeadersComplete(
 void AndroidStreamReaderURLLoader::SendBody() {
   DCHECK(thread_checker_.CalledOnValidThread());
 
-  if (CreateDataPipe(nullptr /*options*/, producer_handle_, consumer_handle_) !=
+  MojoCreateDataPipeOptions options;
+  options.struct_size = sizeof(MojoCreateDataPipeOptions);
+  options.flags = MOJO_CREATE_DATA_PIPE_FLAG_NONE;
+  options.element_num_bytes = 1;
+  options.capacity_num_bytes =
+      network::features::GetDataPipeDefaultAllocationSize(
+          network::features::DataPipeAllocationSize::kLargerSizeIfPossible);
+  if (CreateDataPipe(&options, producer_handle_, consumer_handle_) !=
       MOJO_RESULT_OK) {
     RequestComplete(net::ERR_FAILED);
     return;
@@ -316,8 +343,7 @@ void AndroidStreamReaderURLLoader::SendResponseToClient() {
   cache_response_ =
       response_delegate_->ShouldCacheResponse(response_head_.get());
   client_->OnReceiveResponse(std::move(response_head_),
-                             mojo::ScopedDataPipeConsumerHandle());
-  client_->OnStartLoadingResponseBody(std::move(consumer_handle_));
+                             std::move(consumer_handle_), absl::nullopt);
 }
 
 void AndroidStreamReaderURLLoader::ReadMore() {
@@ -407,7 +433,7 @@ void AndroidStreamReaderURLLoader::DidRead(int result) {
   pending_buffer_ = nullptr;
 
   // TODO(timvolodine): consider using a sequenced task runner.
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&AndroidStreamReaderURLLoader::ReadMore,
                                 weak_factory_.GetWeakPtr()));
 }
@@ -431,6 +457,8 @@ void AndroidStreamReaderURLLoader::RequestCompleteWithStatus(
   }
 
   client_->OnComplete(status);
+  UMA_HISTOGRAM_TIMES("Android.WebView.InputStreamTime",
+                      base::Time::Now() - start_time_);
   CleanUp();
 }
 

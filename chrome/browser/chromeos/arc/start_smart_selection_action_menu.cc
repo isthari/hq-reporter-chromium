@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,11 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/metrics/user_metrics.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/apps/app_service/app_icon/app_icon_factory.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
@@ -20,7 +21,10 @@
 #include "chrome/browser/apps/app_service/launch_utils.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/arc/common/intent_helper/arc_intent_helper_package.h"
 #include "components/renderer_context_menu/render_view_context_menu_proxy.h"
+#include "components/services/app_service/public/cpp/app_launch_util.h"
+#include "components/services/app_service/public/cpp/intent.h"
 #include "content/public/browser/context_menu_params.h"
 #include "ui/base/layout.h"
 #include "ui/base/models/image_model.h"
@@ -38,18 +42,17 @@ namespace arc {
 
 namespace {
 
-apps::mojom::IntentPtr CreateIntent(
+apps::IntentPtr CreateIntent(
     arc::ArcIntentHelperMojoDelegate::IntentInfo arc_intent,
     arc::ArcIntentHelperMojoDelegate::ActivityName activity) {
-  auto intent = apps::mojom::Intent::New();
-  intent->action = std::move(arc_intent.action);
+  auto intent = std::make_unique<apps::Intent>(arc_intent.action);
   intent->data = std::move(arc_intent.data);
   intent->mime_type = std::move(arc_intent.type);
-  intent->categories = std::move(arc_intent.categories);
-  intent->ui_bypassed = arc_intent.ui_bypassed
-                            ? apps::mojom::OptionalBool::kTrue
-                            : apps::mojom::OptionalBool::kFalse;
-  intent->extras = std::move(arc_intent.extras);
+  if (arc_intent.categories.has_value())
+    intent->categories = std::move(arc_intent.categories.value());
+  intent->ui_bypassed = arc_intent.ui_bypassed;
+  if (arc_intent.extras.has_value())
+    intent->extras = std::move(arc_intent.extras.value());
 
   intent->activity_name = std::move(activity.activity_name);
 
@@ -76,8 +79,31 @@ void StartSmartSelectionActionMenu::InitMenu(
     return;
 
   DCHECK(delegate_);
+  if (!delegate_->IsRequestTextSelectionActionsAvailable()) {
+    // RequestTextSelectionActions is either not supported or not yet ready.
+    // In this case, immediately stop menu initialization instead of calling
+    // callback HandleTextSelectionActions with empty result.
+    //
+    // This conditions is required to avoid accessing to null menu due to the
+    // timing issue.
+    //
+    // In Lacros, RequestTextSelectionActions API will return false
+    // synchronously when mojo API is not supported in Lacros-side. In this
+    // case, the context menu is not initialized yet, so Lacros tries to access
+    // to null menu in HandleTextSelectionActions. To avoid this, we skip the
+    // following operation when RequestTextSelectionActions API is not supported
+    // in Lacros-side. Note that we can ignore the case where
+    // RequestTextSelectionActions API fails remotely since it runs
+    // asynchronously anyway.
+    //
+    // In Ash, it will always return false synchronously when mojo API is not
+    // supported in Ash-side or ARC-side. In both cases, we need to skip the
+    // following operation with the same reason above.
+    return;
+  }
+
   if (!delegate_->RequestTextSelectionActions(
-          converted_text, ui::GetSupportedResourceScaleFactors().back(),
+          converted_text, ui::GetMaxSupportedResourceScaleFactor(),
           base::BindOnce(
               &StartSmartSelectionActionMenu::HandleTextSelectionActions,
               weak_ptr_factory_.GetWeakPtr()))) {
@@ -121,12 +147,27 @@ void StartSmartSelectionActionMenu::ExecuteCommand(int command_id) {
       display::Screen::GetScreen()->GetDisplayNearestPoint(point);
 
   Profile* profile = Profile::FromBrowserContext(context_);
+  if (actions_[index].activity.package_name ==
+      arc::kArcIntentHelperPackageName) {
+    // The intent_helper app can't be launched as a regular app that then
+    // handles this smart action intent because it is not a launcher app.
+    // Instead, directly request that the intent be handled by it without
+    // really launching the app.
+    // This is necessary for "generic" smart selection actions that aren't
+    // created for specific apps such as opening a URL or a street address.
+    delegate_->HandleIntent(std::move(actions_[index].action_intent),
+                            internal::ActivityIconLoader::ActivityName(
+                                actions_[index].activity.package_name,
+                                actions_[index].activity.activity_name));
+    return;
+  }
+  // The app that this intent points to is able to handle it, launch it.
   apps::AppServiceProxyFactory::GetForProfile(profile)->LaunchAppWithIntent(
       actions_[index].app_id, ui::EF_NONE,
       CreateIntent(std::move(actions_[index].action_intent),
                    std::move(actions_[index].activity)),
-      apps::mojom::LaunchSource::kFromSmartTextContextMenu,
-      apps::MakeWindowInfo(display.id()));
+      apps::LaunchSource::kFromSmartTextContextMenu,
+      std::make_unique<apps::WindowInfo>(display.id()), base::DoNothing());
 }
 
 void StartSmartSelectionActionMenu::HandleTextSelectionActions(

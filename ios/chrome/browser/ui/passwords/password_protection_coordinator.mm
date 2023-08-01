@@ -1,15 +1,15 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/passwords/password_protection_coordinator.h"
 
-#include "base/check.h"
-#include "base/notreached.h"
-#include "components/safe_browsing/core/browser/password_protection/metrics_util.h"
-#import "ios/chrome/browser/main/browser.h"
-#import "ios/chrome/browser/ui/commands/application_commands.h"
-#import "ios/chrome/browser/ui/commands/command_dispatcher.h"
+#import "base/check.h"
+#import "base/notreached.h"
+#import "components/safe_browsing/core/browser/password_protection/metrics_util.h"
+#import "ios/chrome/browser/shared/model/browser/browser.h"
+#import "ios/chrome/browser/shared/public/commands/application_commands.h"
+#import "ios/chrome/browser/shared/public/commands/command_dispatcher.h"
 #import "ios/chrome/browser/ui/passwords/password_protection_view_controller.h"
 #import "ios/chrome/common/ui/confirmation_alert/confirmation_alert_action_handler.h"
 
@@ -71,17 +71,19 @@
 
 - (void)confirmationAlertPrimaryAction {
   self.completion(safe_browsing::WarningAction::CHANGE_PASSWORD);
-  // Opening Password page will stop the presentation. No need to send |stop|.
-  [self startPasswordCheck];
+  // Opening Password page will stop the presentation. No need to send `stop`.
+  [self openSavedPasswordsSettings];
 }
 
 #pragma mark - Private
 
-- (void)startPasswordCheck {
+- (void)openSavedPasswordsSettings {
   id<ApplicationCommands> handler = HandlerForProtocol(
       self.browser->GetCommandDispatcher(), ApplicationCommands);
-  [handler showSavedPasswordsSettingsAndStartPasswordCheckFromViewController:
-               self.baseViewController];
+
+  [handler showSavedPasswordsSettingsFromViewController:self.baseViewController
+                                       showCancelButton:NO
+                                     startPasswordCheck:YES];
 }
 
 @end

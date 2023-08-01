@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -39,8 +39,6 @@ class FakeExternalBeginFrameSource : public BeginFrameSource {
   void AddObserver(BeginFrameObserver* obs) override;
   void RemoveObserver(BeginFrameObserver* obs) override;
   void DidFinishFrame(BeginFrameObserver* obs) override;
-  void AddStateObserver(BeginFrameSourceObserver* obs) override {}
-  void RemoveStateObserver(BeginFrameSourceObserver* obs) override {}
   void OnGpuNoLongerBusy() override {}
   void SetDynamicBeginFrameDeadlineOffsetSource(
       DynamicBeginFrameDeadlineOffsetSource*

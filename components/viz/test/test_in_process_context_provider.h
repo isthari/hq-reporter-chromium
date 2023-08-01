@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,12 +10,12 @@
 #include <memory>
 
 #include "base/memory/raw_ptr.h"
+#include "base/observer_list.h"
 #include "base/synchronization/lock.h"
-#include "base/task/single_thread_task_runner.h"
+#include "base/threading/thread_checker.h"
+#include "components/viz/common/gpu/context_lost_observer.h"
 #include "components/viz/common/gpu/context_provider.h"
 #include "components/viz/common/gpu/raster_context_provider.h"
-#include "components/viz/test/test_gpu_memory_buffer_manager.h"
-#include "components/viz/test/test_image_factory.h"
 #include "gpu/config/gpu_feature_info.h"
 
 class GrDirectContext;
@@ -35,11 +35,13 @@ class GrContextForGLES2Interface;
 }
 
 namespace viz {
-class DisplayCompositorMemoryAndTaskController;
 
-std::unique_ptr<gpu::GLInProcessContext> CreateTestInProcessContext();
-
-enum RasterInterfaceType { None, Software, LEGACY_GPU, GPU };
+enum TestContextType {
+  kGLES2,            // Provides GLES2Interface.
+  kGLES2WithRaster,  // Provides GLES2Interface and RasterInterface.
+  kSoftwareRaster,   // Provides RasterInterface for software raster.
+  kGpuRaster         // Provides RasterInterface for GPU raster.
+};
 
 class TestInProcessContextProvider
     : public base::RefCountedThreadSafe<TestInProcessContextProvider>,
@@ -47,16 +49,15 @@ class TestInProcessContextProvider
       public RasterContextProvider {
  public:
   explicit TestInProcessContextProvider(
-      bool enable_gles2_interface,
+      TestContextType type,
       bool support_locking,
-      RasterInterfaceType raster_interface_type,
       gpu::raster::GrShaderCache* gr_shader_cache = nullptr,
       gpu::GpuProcessActivityFlags* activity_flags = nullptr);
 
   // ContextProvider / RasterContextProvider implementation.
   void AddRef() const override;
   void Release() const override;
-  gpu::ContextResult BindToCurrentThread() override;
+  gpu::ContextResult BindToCurrentSequence() override;
   gpu::gles2::GLES2Interface* ContextGL() override;
   gpu::raster::RasterInterface* RasterInterface() override;
   gpu::ContextSupport* ContextSupport() override;
@@ -66,8 +67,11 @@ class TestInProcessContextProvider
   base::Lock* GetLock() override;
   const gpu::Capabilities& ContextCapabilities() const override;
   const gpu::GpuFeatureInfo& GetGpuFeatureInfo() const override;
-  void AddObserver(ContextLostObserver* obs) override {}
-  void RemoveObserver(ContextLostObserver* obs) override {}
+  void AddObserver(ContextLostObserver* obs) override;
+  void RemoveObserver(ContextLostObserver* obs) override;
+
+  // Calls OnContextLost() on all observers. This doesn't modify the context.
+  void SendOnContextLost();
 
   void ExecuteOnGpuThread(base::OnceClosure task);
 
@@ -76,27 +80,30 @@ class TestInProcessContextProvider
   ~TestInProcessContextProvider() override;
 
  private:
-  const bool enable_gles2_interface_;
-  const RasterInterfaceType raster_interface_type_;
+  void CheckValidThreadOrLockAcquired() const;
+
+  const TestContextType type_;
   raw_ptr<gpu::raster::GrShaderCache> gr_shader_cache_ = nullptr;
   raw_ptr<gpu::GpuProcessActivityFlags> activity_flags_ = nullptr;
+  bool is_bound_ = false;
 
-  TestGpuMemoryBufferManager gpu_memory_buffer_manager_;
-  TestImageFactory image_factory_;
+  base::ThreadChecker main_thread_checker_;
+  base::ThreadChecker context_thread_checker_;
+
   gpu::Capabilities caps_;
 
-  // Used if support_gles2_interface.
-  std::unique_ptr<DisplayCompositorMemoryAndTaskController> display_controller_;
+  // Used for GLES2 contexts only.
   std::unique_ptr<gpu::GLInProcessContext> gles2_context_;
-  std::unique_ptr<gpu::raster::RasterInterface> raster_implementation_gles2_;
   std::unique_ptr<skia_bindings::GrContextForGLES2Interface> gr_context_;
+  std::unique_ptr<gpu::raster::RasterInterface> gles2_raster_impl_;
 
-  // Used if !support_gles2_interface.
+  // Used for raster contexts only.
   std::unique_ptr<gpu::RasterInProcessContext> raster_context_;
 
   std::unique_ptr<ContextCacheController> cache_controller_;
   absl::optional<base::Lock> context_lock_;
-  gpu::GpuFeatureInfo gpu_feature_info_;
+
+  base::ObserverList<ContextLostObserver>::Unchecked observers_;
 };
 
 }  // namespace viz

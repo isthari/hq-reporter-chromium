@@ -26,12 +26,14 @@
 #include <memory>
 
 #include "base/memory/scoped_refptr.h"
+#include "base/time/time.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
+#include "services/network/public/mojom/attribution.mojom-blink.h"
 #include "services/network/public/mojom/trust_tokens.mojom-blink.h"
 #include "services/network/public/mojom/url_loader_factory.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
-#include "third_party/blink/renderer/bindings/core/v8/v8_trust_token.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_typedefs.h"
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/document_parser_client.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
@@ -55,6 +57,7 @@
 
 namespace blink {
 
+class AttributionReportingRequestOptions;
 class Blob;
 class BlobDataHandle;
 class DOMArrayBuffer;
@@ -65,17 +68,19 @@ class DocumentParser;
 class ExceptionState;
 class ExecutionContext;
 class FormData;
+class PrivateToken;
 class ScriptState;
 class TextResourceDecoder;
 class ThreadableLoader;
 class URLSearchParams;
 class XMLHttpRequestUpload;
 
-class XMLHttpRequest final : public XMLHttpRequestEventTarget,
-                             public ThreadableLoaderClient,
-                             public DocumentParserClient,
-                             public ActiveScriptWrappable<XMLHttpRequest>,
-                             public ExecutionContextLifecycleObserver {
+class CORE_EXPORT XMLHttpRequest final
+    : public XMLHttpRequestEventTarget,
+      public ThreadableLoaderClient,
+      public DocumentParserClient,
+      public ActiveScriptWrappable<XMLHttpRequest>,
+      public ExecutionContextLifecycleObserver {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
@@ -122,6 +127,8 @@ class XMLHttpRequest final : public XMLHttpRequestEventTarget,
   State readyState() const;
   bool withCredentials() const { return with_credentials_; }
   void setWithCredentials(bool, ExceptionState&);
+  bool deprecatedBrowsingTopics() const { return deprecated_browsing_topics_; }
+  void setDeprecatedBrowsingTopics(bool);
   void open(const AtomicString& method, const String& url, ExceptionState&);
   void open(const AtomicString& method,
             const String& url,
@@ -140,7 +147,9 @@ class XMLHttpRequest final : public XMLHttpRequestEventTarget,
   void setRequestHeader(const AtomicString& name,
                         const AtomicString& value,
                         ExceptionState&);
-  void setTrustToken(const TrustToken*, ExceptionState&);
+  void setPrivateToken(const PrivateToken*, ExceptionState&);
+  void setAttributionReporting(const AttributionReportingRequestOptions*,
+                               ExceptionState&);
   void overrideMimeType(const AtomicString& override, ExceptionState&);
   String getAllResponseHeaders() const;
   const AtomicString& getResponseHeader(const AtomicString&) const;
@@ -157,7 +166,7 @@ class XMLHttpRequest final : public XMLHttpRequestEventTarget,
   String responseType();
   void setResponseType(const String&, ExceptionState&);
   String responseURL();
-  DOMException* trustTokenOperationError() const {
+  DOMException* privateTokenOperationError() const {
     return trust_token_operation_error_;
   }
 
@@ -174,6 +183,8 @@ class XMLHttpRequest final : public XMLHttpRequestEventTarget,
 
   void Trace(Visitor*) const override;
   const char* NameInHeapSnapshot() const override { return "XMLHttpRequest"; }
+
+  bool HasRequestHeaderForTesting(AtomicString name) const;
 
  private:
   class BlobLoader;
@@ -209,10 +220,11 @@ class XMLHttpRequest final : public XMLHttpRequestEventTarget,
   // spec but doesn't convert the result to ASCII lowercase as specified in
   // the spec. Must be lowered later or compared using case insensitive
   // comparison functions if required.
-  AtomicString FinalResponseMIMEType() const;
+  AtomicString FinalResponseMIMETypeInternal() const;
   // The same as finalResponseMIMEType() but fallbacks to "text/xml" if
   // finalResponseMIMEType() returns an empty string.
-  AtomicString FinalResponseMIMETypeWithFallback() const;
+  // https://xhr.spec.whatwg.org/#response-body
+  AtomicString GetResponseMIMEType() const;
   // Returns the "final charset" defined in
   // https://xhr.spec.whatwg.org/#final-charset.
   WTF::TextEncoding FinalResponseCharset() const;
@@ -315,10 +327,6 @@ class XMLHttpRequest final : public XMLHttpRequestEventTarget,
 
   std::unique_ptr<TextResourceDecoder> decoder_;
 
-  // TODO(crbug.com/1226775): Remove these on M96.
-  static constexpr size_t kResponseBodyHeadSize = 2;
-  Vector<uint8_t, kResponseBodyHeadSize> response_body_head_;
-
   // Avoid using a flat WTF::String here and rather use a traced v8::String
   // which internally builds a string rope.
   TraceWrapperV8String response_text_;
@@ -365,6 +373,12 @@ class XMLHttpRequest final : public XMLHttpRequestEventTarget,
   bool async_ = true;
 
   bool with_credentials_ = false;
+
+  bool deprecated_browsing_topics_ = false;
+
+  network::mojom::AttributionReportingEligibility
+      attribution_reporting_eligibility_ =
+          network::mojom::AttributionReportingEligibility::kUnset;
 
   // Used to skip m_responseDocument creation if it's done previously. We need
   // this separate flag since m_responseDocument can be 0 for some cases.

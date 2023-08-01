@@ -1,9 +1,15 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+GEN_INCLUDE(['../../common/testing/accessibility_test_base.js']);
+
 function speak(text, opt_properties) {
   ChromeVox.tts.speak(text, 0, opt_properties);
+}
+
+function earcon(earconId) {
+  ChromeVox.earcons.playEarcon(earconId);
 }
 
 function braille(text) {
@@ -12,33 +18,31 @@ function braille(text) {
   return navBraille;
 }
 
-function earcon(earconName) {
-  ChromeVox.earcons.playEarcon(Earcon[earconName]);
-}
-
 /**
  * Test fixture.
  */
-MockFeedbackUnitTest = class extends testing.Test {
+MockFeedbackUnitTest = class extends AccessibilityTestBase {
   constructor() {
     super();
     this.expectedCalls = [];
   }
 
-  setUp() {
-    window.ChromeVox = window.ChromeVox || {};
+  async setUpDeferred() {
+    await super.setUpDeferred();
+
+    // Alphabetical based on file path.
+    await importModule('ChromeVox', '/chromevox/background/chromevox.js');
+    await importModule(
+        'NavBraille', '/chromevox/common/braille/nav_braille.js');
+    await importModule('EarconId', '/chromevox/common/earcon_id.js');
+    await importModule('Spannable', '/chromevox/common/spannable.js');
+    await importModule('QueueMode', '/chromevox/common/tts_types.js');
   }
 };
 
 MockFeedbackUnitTest.prototype.extraLibraries = [
   '../../common/testing/assert_additions.js',
-  '../testing/fake_dom.js',
-  '../braille/nav_braille.js',
-  '../common/abstract_earcons.js',
-  '../common/braille_interface.js',
-  '../common/chromevox.js',
-  '../common/spannable.js',
-  '../common/tts_interface.js',
+  '../testing/fake_dom.js',  // Must come before other files
   'mock_feedback.js',
 ];
 
@@ -65,7 +69,7 @@ TEST_F('MockFeedbackUnitTest', 'speechAndCallbacks', function() {
           endCallback() {
             assertFalse(spruiousStringEndCallbackCalled);
             spruiousStringEndCallbackCalled = true;
-          }
+          },
         });
         speak('Fourth string');
       })
@@ -89,7 +93,7 @@ TEST_F('MockFeedbackUnitTest', 'startAndEndCallbacks', function() {
       assertFalse(onlyStartCallbackCalled);
       onlyStartCallbackCalled = true;
       assertFalse(onlyEndCallbackCalled);
-    }
+    },
   });
   speak('Only end callback', {
     endCallback() {
@@ -97,7 +101,7 @@ TEST_F('MockFeedbackUnitTest', 'startAndEndCallbacks', function() {
       assertFalse(onlyEndCallbackCalled);
       onlyEndCallbackCalled = true;
       assertFalse(bothCallbacksStartCalled);
-    }
+    },
   });
   speak('Both callbacks', {
     startCallback() {
@@ -110,7 +114,7 @@ TEST_F('MockFeedbackUnitTest', 'startAndEndCallbacks', function() {
       assertTrue(bothCallbacksStartCalled);
       assertFalse(bothCallbacksEndCalled);
       bothCallbacksEndCalled = true;
-    }
+    },
   });
   mock.expectSpeech('Both callbacks');
   mock.replay();
@@ -195,23 +199,23 @@ TEST_F('MockFeedbackUnitTest', 'SpeechAndEarcons', function() {
   mock.call(function() {
         speak('MyButton', {
           startCallback() {
-            earcon('BUTTON');
-          }
+            earcon(EarconId.BUTTON);
+          },
         });
       })
       .expectSpeech('MyButton')
-      .expectEarcon(Earcon.BUTTON)
+      .expectEarcon(EarconId.BUTTON)
       .call(function() {
-        earcon('ALERT_MODAL');
+        earcon(EarconId.ALERT_MODAL);
         speak('MyTextField', {
           startCallback() {
-            earcon('EDITABLE_TEXT');
-          }
+            earcon(EarconId.EDITABLE_TEXT);
+          },
         });
       })
-      .expectEarcon(Earcon.ALERT_MODAL)
+      .expectEarcon(EarconId.ALERT_MODAL)
       .expectSpeech('MyTextField')
-      .expectEarcon(Earcon.EDITABLE_TEXT)
+      .expectEarcon(EarconId.EDITABLE_TEXT)
       .replay();
   assertTrue(finishCalled);
 });

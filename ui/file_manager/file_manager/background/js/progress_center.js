@@ -1,12 +1,12 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {AsyncUtil} from '../../common/js/async_util.js';
-import {ProgressCenterItem, ProgressItemState} from '../../common/js/progress_center_common.js';
+import {AsyncQueue} from '../../common/js/async_util.js';
+import {notifications} from '../../common/js/notifications.js';
+import {ProgressCenterItem, ProgressItemState, ProgressItemType} from '../../common/js/progress_center_common.js';
 import {getFilesAppIconURL} from '../../common/js/url_constants.js';
 import {str} from '../../common/js/util.js';
-import {xfm} from '../../common/js/xfm.js';
 import {ProgressCenter} from '../../externs/background/progress_center.js';
 import {ProgressCenterPanelInterface} from '../../externs/progress_center_panel.js';
 
@@ -64,7 +64,8 @@ export class ProgressCenterImpl {
   updateItem(item) {
     // Update item.
     const index = this.getItemIndex_(item.id);
-    if (item.state === ProgressItemState.PROGRESSING) {
+    if (item.state === ProgressItemState.PROGRESSING ||
+        item.state === ProgressItemState.SCANNING) {
       if (index === -1) {
         this.items_.push(item);
       } else {
@@ -201,6 +202,155 @@ export class ProgressCenterImpl {
       this.panels_[i].dismissErrorItem(id);
     }
   }
+
+  /**
+   * Testing method to construct a new notification panel item.
+   * @private
+   * @param {Object|undefined} props partial properties from
+   *     the {ProgressCenterItem}.
+   * @return {!ProgressCenterItem}
+   */
+  constructTestItem_(props) {
+    const item = new ProgressCenterItem();
+    const defaults = {
+      id: Math.ceil(Math.random() * 10000).toString(),
+      itemCount: Math.ceil(Math.random() * 5),
+      sourceMessage: 'fake_file.test',
+      destinationMessage: 'Downloads',
+      type: ProgressItemType.COPY,
+      progressMax: 100,
+    };
+    // Apply defaults and overrides.
+    Object.assign(item, defaults, props);
+
+    return item;
+  }
+
+  /**
+   * Testing method to add the notification panel item to the notification
+   * panel.
+   * @private
+   * @param {ProgressCenterItem} item the panel item to be added.
+   *
+   * @suppress {checkTypes} add new property to the struct.
+   */
+  addItemToPanel_(item) {
+    // Make notification panel item show immediately.
+    this.panels_[0].PENDING_TIME_MS_ = 0;
+    // Make notification panel item keep showing for 5 minutes.
+    this.panels_[0].TIMEOUT_TO_REMOVE_MS_ = 5 * 60 * 1000;
+    // Add the item to the panel.
+    this.items_.push(item);
+    this.updateItem(item);
+  }
+
+  /**
+   * Testing method to add a new "progressing" state notification panel item.
+   *
+   * @private
+   * @param {Object|undefined} props partial properties from
+   *     the {ProgressCenterItem}.
+   */
+  addProcessingTestItem_(props) {
+    const item = this.constructTestItem_({
+      state: ProgressItemState.PROGRESSING,
+      progressValue: Math.ceil(Math.random() * 90),
+      remainingTime: 150,
+      ...props,
+    });
+    this.addItemToPanel_(item);
+    return item;
+  }
+
+  /**
+   * Testing method to add a new "completed" state notification panel item.
+   *
+   * @private
+   * @param {Object|undefined} props partial properties from
+   *     the {ProgressCenterItem}.
+   *
+   * @suppress {missingProperties} access private properties.
+   */
+  addCompletedTestItem_(props) {
+    const item = this.constructTestItem_({
+      state: ProgressItemState.COMPLETED,
+      progressValue: 100,
+      ...props,
+    });
+    // Completed item needs to be in the panel before it completes.
+    const oldItem = item.clone();
+    oldItem.state = ProgressItemState.PROGRESSING;
+    this.panels_[0].items_[item.id] = oldItem;
+    this.addItemToPanel_(item);
+    return item;
+  }
+
+  /**
+   * Testing method to add a new "error" state notification panel item.
+   *
+   * @private
+   * @param {Object|undefined} props partial properties from
+   *     the {ProgressCenterItem}.
+   *
+   * @suppress {missingProperties} access private properties.
+   */
+  addErrorTestItem_(props) {
+    const item = this.constructTestItem_({
+      state: ProgressItemState.ERROR,
+      message: 'Something went wrong. This is a very long error message.',
+      ...props,
+    });
+    item.extraButton.set(ProgressItemState.ERROR, {
+      text: 'Learn more',
+      callback: () => {},
+    });
+    this.addItemToPanel_(item);
+    return item;
+  }
+
+  /**
+   * Testing method to add a new "scanning" state notification panel item.
+   *
+   * @private
+   * @param {Object|undefined} props partial properties from
+   *     the {ProgressCenterItem}.
+   *
+   * @suppress {missingProperties} access private properties.
+   */
+  addScanningTestItem_(props) {
+    const item = this.constructTestItem_({
+      state: ProgressItemState.SCANNING,
+      progressValue: Math.ceil(Math.random() * 90),
+      remainingTime: 100,
+      ...props,
+    });
+    // Scanning item needs to be in the panel before it starts to scan.
+    const oldItem = item.clone();
+    this.panels_[0].items_[item.id] = oldItem;
+    this.addItemToPanel_(item);
+    return item;
+  }
+
+  /**
+   * Testing method to add a new "paused" state notification panel item.
+   *
+   * @private
+   * @param {Object|undefined} props partial properties from
+   *     the {ProgressCenterItem}.
+   *
+   * @suppress {missingProperties} access private properties.
+   */
+  addPausedTestItem_(props) {
+    const item = this.constructTestItem_({
+      state: ProgressItemState.PAUSED,
+      ...props,
+    });
+    // Paused item needs to be in the panel before it pauses.
+    const oldItem = item.clone();
+    this.panels_[0].items_[item.id] = oldItem;
+    this.addItemToPanel_(item);
+    return item;
+  }
 }
 
 /**
@@ -224,9 +374,9 @@ ProgressCenterImpl.Notifications_ = class {
 
     /**
      * Async queue.
-     * @private @const {AsyncUtil.Queue}
+     * @private @const {AsyncQueue}
      */
-    this.queue_ = new AsyncUtil.Queue();
+    this.queue_ = new AsyncQueue();
 
     /**
      * Callback to notify the progress center of cancel operation.
@@ -240,9 +390,8 @@ ProgressCenterImpl.Notifications_ = class {
      */
     this.dismissCallback_ = dismissCallback;
 
-    xfm.notifications.onButtonClicked.addListener(
-        this.onButtonClicked_.bind(this));
-    xfm.notifications.onClosed.addListener(this.onClosed_.bind(this));
+    notifications.onButtonClicked.addListener(this.onButtonClicked_.bind(this));
+    notifications.onClosed.addListener(this.onClosed_.bind(this));
   }
 
   /**
@@ -278,7 +427,7 @@ ProgressCenterImpl.Notifications_ = class {
           item.state === ProgressItemState.COMPLETED) {
         if (previousState === NotificationState.VISIBLE) {
           this.queue_.run(proceed => {
-            xfm.notifications.clear(item.id, proceed);
+            notifications.clear(item.id, proceed);
           });
         }
         return;
@@ -298,13 +447,13 @@ ProgressCenterImpl.Notifications_ = class {
             item.progressRateInPercent :
             undefined,
         priority: (item.state === ProgressItemState.ERROR || !item.quiet) ? 0 :
-                                                                            -1
+                                                                            -1,
       };
 
       if (newlyAdded) {
-        xfm.notifications.create(item.id, params, proceed);
+        notifications.create(item.id, params, proceed);
       } else {
-        xfm.notifications.update(item.id, params, proceed);
+        notifications.update(item.id, params, proceed);
       }
     });
   }
@@ -321,7 +470,7 @@ ProgressCenterImpl.Notifications_ = class {
     delete this.ids_[id];
 
     this.queue_.run(proceed => {
-      xfm.notifications.clear(id, proceed);
+      notifications.clear(id, proceed);
     });
   }
 
@@ -356,5 +505,5 @@ ProgressCenterImpl.Notifications_ = class {
  */
 ProgressCenterImpl.Notifications_.NotificationState_ = {
   VISIBLE: 'visible',
-  DISMISSED: 'dismissed'
+  DISMISSED: 'dismissed',
 };

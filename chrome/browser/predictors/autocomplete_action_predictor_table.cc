@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,14 @@
 #include <utility>
 
 #include "base/check_op.h"
-#include "base/guid.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/sequenced_task_runner.h"
+#include "base/uuid.h"
 #include "content/public/browser/browser_thread.h"
 #include "sql/statement.h"
+#include "sql/transaction.h"
 
 namespace {
 
@@ -27,7 +28,7 @@ const size_t kMaxDataLength = 2048;
 void BindRowToStatement(
     const predictors::AutocompleteActionPredictorTable::Row& row,
     sql::Statement* statement) {
-  DCHECK(base::IsValidGUID(row.id));
+  DCHECK(base::Uuid::ParseCaseInsensitive(row.id).is_valid());
   statement->BindString(0, row.id);
   statement->BindString16(1, row.user_text.substr(0, kMaxDataLength));
   statement->BindString(2, row.url.spec().substr(0, kMaxDataLength));
@@ -136,7 +137,8 @@ void AutocompleteActionPredictorTable::AddAndUpdateRows(
   if (CantAccessDatabase())
     return;
 
-  if (!DB()->BeginTransaction())
+  sql::Transaction transaction(DB());
+  if (!transaction.Begin())
     return;
   for (auto it = rows_to_add.begin(); it != rows_to_add.end(); ++it) {
     sql::Statement statement(DB()->GetCachedStatement(SQL_FROM_HERE,
@@ -144,16 +146,12 @@ void AutocompleteActionPredictorTable::AddAndUpdateRows(
             "INSERT INTO %s "
             "(id, user_text, url, number_of_hits, number_of_misses) "
             "VALUES (?,?,?,?,?)", kAutocompletePredictorTableName).c_str()));
-    if (!statement.is_valid()) {
-      DB()->RollbackTransaction();
+    if (!statement.is_valid())
       return;
-    }
 
     BindRowToStatement(*it, &statement);
-    if (!statement.Run()) {
-      DB()->RollbackTransaction();
+    if (!statement.Run())
       return;
-    }
   }
   for (auto it = rows_to_update.begin(); it != rows_to_update.end(); ++it) {
     sql::Statement statement(DB()->GetCachedStatement(SQL_FROM_HERE,
@@ -161,19 +159,15 @@ void AutocompleteActionPredictorTable::AddAndUpdateRows(
             "UPDATE %s "
             "SET id=?, user_text=?, url=?, number_of_hits=?, number_of_misses=?"
             " WHERE id=?1", kAutocompletePredictorTableName).c_str()));
-    if (!statement.is_valid()) {
-      DB()->RollbackTransaction();
+    if (!statement.is_valid())
       return;
-    }
 
     BindRowToStatement(*it, &statement);
-    if (!statement.Run()) {
-      DB()->RollbackTransaction();
+    if (!statement.Run())
       return;
-    }
     DCHECK_GT(DB()->GetLastChangeCount(), 0);
   }
-  DB()->CommitTransaction();
+  transaction.Commit();
 }
 
 void AutocompleteActionPredictorTable::DeleteRows(
@@ -182,25 +176,22 @@ void AutocompleteActionPredictorTable::DeleteRows(
   if (CantAccessDatabase())
     return;
 
-  if (!DB()->BeginTransaction())
+  sql::Transaction transaction(DB());
+  if (!transaction.Begin())
     return;
   for (auto it = id_list.begin(); it != id_list.end(); ++it) {
     sql::Statement statement(DB()->GetCachedStatement(SQL_FROM_HERE,
         base::StringPrintf(
             "DELETE FROM %s WHERE id=?",
             kAutocompletePredictorTableName).c_str()));
-    if (!statement.is_valid()) {
-      DB()->RollbackTransaction();
+    if (!statement.is_valid())
       return;
-    }
 
     statement.BindString(0, *it);
-    if (!statement.Run()) {
-      DB()->RollbackTransaction();
+    if (!statement.Run())
       return;
-    }
   }
-  DB()->CommitTransaction();
+  transaction.Commit();
 }
 
 void AutocompleteActionPredictorTable::DeleteAllRows() {
@@ -252,8 +243,6 @@ void AutocompleteActionPredictorTable::LogDatabaseStats()  {
                          kAutocompletePredictorTableName).c_str()));
   if (!count_statement.is_valid() || !count_statement.Step())
     return;
-  UMA_HISTOGRAM_COUNTS_1M("AutocompleteActionPredictor.DatabaseRowCount",
-                          count_statement.ColumnInt(0));
 }
 
 }  // namespace predictors

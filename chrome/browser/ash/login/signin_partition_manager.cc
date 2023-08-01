@@ -1,12 +1,12 @@
-// Copyright (c) 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/login/signin_partition_manager.h"
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
-#include "base/guid.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
+#include "base/uuid.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/browser/profiles/incognito_helpers.h"
@@ -17,6 +17,7 @@
 #include "content/public/browser/storage_partition_config.h"
 #include "content/public/browser/web_contents.h"
 #include "services/network/public/mojom/network_context.mojom.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 #include "url/gurl.h"
 
 namespace ash {
@@ -25,7 +26,7 @@ namespace {
 
 // Generates a new unique StoragePartition name.
 std::string GeneratePartitionName() {
-  return base::GenerateGUID();
+  return base::Uuid::GenerateRandomV4().AsLowercaseString();
 }
 
 // Clears data from the passed storage partition. `partition_data_cleared`
@@ -34,8 +35,9 @@ void ClearStoragePartition(content::StoragePartition* storage_partition,
                            base::OnceClosure partition_data_cleared) {
   storage_partition->ClearData(
       content::StoragePartition::REMOVE_DATA_MASK_ALL,
-      content::StoragePartition::QUOTA_MANAGED_STORAGE_MASK_ALL, GURL(),
-      base::Time(), base::Time::Max(), std::move(partition_data_cleared));
+      content::StoragePartition::QUOTA_MANAGED_STORAGE_MASK_ALL,
+      blink::StorageKey(), base::Time(), base::Time::Max(),
+      std::move(partition_data_cleared));
 }
 
 network::mojom::NetworkContext* GetSystemNetworkContext() {
@@ -74,7 +76,7 @@ SigninPartitionManager::SigninPartitionManager(
       get_system_network_context_task_(
           base::BindRepeating(&GetSystemNetworkContext)) {}
 
-SigninPartitionManager::~SigninPartitionManager() {}
+SigninPartitionManager::~SigninPartitionManager() = default;
 
 void SigninPartitionManager::StartSigninSession(
     content::WebContents* embedder_web_contents,
@@ -96,7 +98,7 @@ void SigninPartitionManager::StartSigninSession(
   current_storage_partition_ =
       browser_context_->GetStoragePartition(storage_partition_config, true);
   if (on_create_new_storage_partition_) {
-    on_create_new_storage_partition_.Run(current_storage_partition_);
+    on_create_new_storage_partition_.Run(current_storage_partition_.get());
   }
 
   TransferHttpAuthCacheProxyEntries(
@@ -111,7 +113,7 @@ void SigninPartitionManager::CloseCurrentSigninSession(
     std::move(partition_data_cleared).Run();
     return;
   }
-  clear_storage_partition_task_.Run(current_storage_partition_,
+  clear_storage_partition_task_.Run(current_storage_partition_.get(),
                                     std::move(partition_data_cleared));
   current_storage_partition_ = nullptr;
   current_storage_partition_name_.clear();
@@ -154,11 +156,16 @@ bool SigninPartitionManager::IsCurrentSigninStoragePartition(
 }
 
 SigninPartitionManager::Factory::Factory()
-    : BrowserContextKeyedServiceFactory(
+    : ProfileKeyedServiceFactory(
           "SigninPartitionManager",
-          BrowserContextDependencyManager::GetInstance()) {}
+          ProfileSelections::Builder()
+              .WithRegular(ProfileSelection::kOwnInstance)
+              // TODO(crbug.com/1418376): Check if this service is needed in
+              // Guest mode.
+              .WithGuest(ProfileSelection::kOwnInstance)
+              .Build()) {}
 
-SigninPartitionManager::Factory::~Factory() {}
+SigninPartitionManager::Factory::~Factory() = default;
 
 // static
 SigninPartitionManager* SigninPartitionManager::Factory::GetForBrowserContext(
@@ -177,12 +184,6 @@ SigninPartitionManager::Factory::GetInstance() {
 KeyedService* SigninPartitionManager::Factory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {
   return new SigninPartitionManager(context);
-}
-
-content::BrowserContext*
-SigninPartitionManager::Factory::GetBrowserContextToUse(
-    content::BrowserContext* context) const {
-  return chrome::GetBrowserContextOwnInstanceInIncognito(context);
 }
 
 }  // namespace login

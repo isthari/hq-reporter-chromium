@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 #include <string>
 #include <utility>
 
-#include "base/guid.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/uuid.h"
 #include "chrome/browser/notifications/notification_display_service.h"
 #include "chrome/browser/notifications/notification_display_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -52,7 +52,7 @@ void DesktopNotificationHandler::DisplayNewEntries(
     // Declare a notification
     message_center::Notification notification(
         message_center::NOTIFICATION_TYPE_SIMPLE, entry->GetGUID(),
-        base::UTF8ToUTF16(entry->GetTitle()), device_info, gfx::Image(),
+        base::UTF8ToUTF16(entry->GetTitle()), device_info, ui::ImageModel(),
         base::UTF8ToUTF16(url.host()), url, message_center::NotifierId(url),
         optional_fields, /*delegate=*/nullptr);
     NotificationDisplayServiceFactory::GetForProfile(profile_)->Display(
@@ -119,7 +119,7 @@ void DesktopNotificationHandler::DisplaySendingConfirmation(
   message_center::Notification notification(
       message_center::NOTIFICATION_TYPE_SIMPLE,
       kDesktopNotificationSharedPrefix + entry.GetGUID(), confirm_str,
-      base::UTF8ToUTF16(entry.GetTitle()), gfx::Image(),
+      base::UTF8ToUTF16(entry.GetTitle()), ui::ImageModel(),
       base::UTF8ToUTF16(url.host()), url, message_center::NotifierId(url),
       message_center::RichNotificationData(), /*delegate=*/nullptr);
   NotificationDisplayServiceFactory::GetForProfile(profile_)->Display(
@@ -130,12 +130,13 @@ void DesktopNotificationHandler::DisplaySendingConfirmation(
 void DesktopNotificationHandler::DisplayFailureMessage(const GURL& url) {
   message_center::Notification notification(
       message_center::NOTIFICATION_TYPE_SIMPLE,
-      kDesktopNotificationSharedPrefix + base::GenerateGUID(),
+      kDesktopNotificationSharedPrefix +
+          base::Uuid::GenerateRandomV4().AsLowercaseString(),
       l10n_util::GetStringUTF16(
           IDS_MESSAGE_NOTIFICATION_SEND_TAB_TO_SELF_CONFIRMATION_FAILURE_TITLE),
       l10n_util::GetStringUTF16(
           IDS_MESSAGE_NOTIFICATION_SEND_TAB_TO_SELF_CONFIRMATION_FAILURE_MESSAGE),
-      gfx::Image(), base::UTF8ToUTF16(url.host()), url,
+      ui::ImageModel(), base::UTF8ToUTF16(url.host()), url,
       message_center::NotifierId(url), message_center::RichNotificationData(),
       /*delegate=*/nullptr);
   NotificationDisplayServiceFactory::GetForProfile(profile_)->Display(

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -37,12 +37,12 @@ class AppPackageNameLoggingRule {
   // If it has the same version and expiry_date as `record`.
   bool IsSameAs(const AppPackageNameLoggingRule& record) const;
 
-  base::Value ToDictionary();
+  base::Value::Dict ToDictionary();
 
   // Creates a valid AppPackageNameLoggingRule from a dictionary, or null if
   // the dictionary have invalid values.
   static absl::optional<AppPackageNameLoggingRule> FromDictionary(
-      const base::Value& dict);
+      const base::Value::Dict& dict);
 
  private:
   base::Version version_;

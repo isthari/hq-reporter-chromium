@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "base/base_paths.h"
 #include "base/files/file_path.h"
 #include "base/path_service.h"
 #include "base/process/launch.h"
@@ -23,10 +24,9 @@ namespace {
 // Returns the KSAdmin exit code, and sets `std_out` to the contents of its
 // stdout.
 int RunKSAdmin(std::string* std_out, const std::vector<std::string>& args) {
-  base::FilePath file_exe;
-  EXPECT_TRUE(base::PathService::Get(base::FILE_EXE, &file_exe));
-  base::CommandLine command(
-      file_exe.DirName().Append(FILE_PATH_LITERAL("ksadmin")));
+  base::FilePath out_dir;
+  EXPECT_TRUE(base::PathService::Get(base::DIR_EXE, &out_dir));
+  base::CommandLine command(out_dir.Append(FILE_PATH_LITERAL("ksadmin_test")));
   for (const auto& arg : args) {
     command.AppendSwitch(arg);
   }
@@ -63,6 +63,7 @@ TEST(KSAdminTest, ParseCommandLine) {
   std::map<std::string, std::string> arg_map =
       ParseCommandLine(std::size(argv), argv);
   EXPECT_EQ(arg_map.size(), size_t{5});
+  EXPECT_EQ(arg_map.count("register"), size_t{1});
   EXPECT_EQ(arg_map["register"], "");
   EXPECT_EQ(arg_map["P"], "com.google.kipple");
   EXPECT_EQ(arg_map["v"], "1.2.3.4");
@@ -76,6 +77,7 @@ TEST(KSAdminTest, ParseCommandLine_DiffByCase) {
   std::map<std::string, std::string> arg_map =
       ParseCommandLine(std::size(argv), argv);
   EXPECT_EQ(arg_map.size(), size_t{2});
+  EXPECT_EQ(arg_map.count("k"), size_t{1});
   EXPECT_EQ(arg_map["k"], "");
   EXPECT_EQ(arg_map["K"], "Tag");
 }
@@ -86,6 +88,7 @@ TEST(KSAdminTest, ParseCommandLine_CombinedShortOptions) {
   std::map<std::string, std::string> arg_map =
       ParseCommandLine(std::size(argv), argv);
   EXPECT_EQ(arg_map.size(), size_t{2});
+  EXPECT_EQ(arg_map.count("p"), size_t{1});
   EXPECT_EQ(arg_map["p"], "");
   EXPECT_EQ(arg_map["P"], "com.google.Chrome");
 }

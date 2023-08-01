@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include <utility>
 
-#include "base/bind.h"
 #include "base/check_op.h"
+#include "base/functional/bind.h"
 #include "net/base/net_errors.h"
 #include "net/cert/caching_cert_verifier.h"
 #include "net/cert/cert_verifier.h"
@@ -111,6 +111,14 @@ void CertVerifierWithTrustAnchors::SetConfig(const Config& config) {
   orig_config_ = config;
   delegate_->SetConfig(ExtendTrustAnchorsAndTempCerts(
       orig_config_, trust_anchors_, untrusted_authorities_));
+}
+
+void CertVerifierWithTrustAnchors::AddObserver(Observer* observer) {
+  delegate_->AddObserver(observer);
+}
+
+void CertVerifierWithTrustAnchors::RemoveObserver(Observer* observer) {
+  delegate_->RemoveObserver(observer);
 }
 
 }  // namespace network

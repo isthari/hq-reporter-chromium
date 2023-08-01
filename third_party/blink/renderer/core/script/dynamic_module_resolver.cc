@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/referrer_script_info.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_function.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
+#include "third_party/blink/renderer/core/loader/modulescript/module_script_creation_params.h"
 #include "third_party/blink/renderer/core/loader/modulescript/module_script_fetch_request.h"
 #include "third_party/blink/renderer/core/script/modulator.h"
 #include "third_party/blink/renderer/core/script/module_script.h"
@@ -133,8 +134,11 @@ void DynamicImportTreeClient::NotifyModuleTreeLoadFinished(
 
   // <spec step="9">Otherwise, set promise to the result of running a module
   // script given result and true.</spec>
-  ScriptEvaluationResult result = module_script->RunScriptAndReturnValue(
-      V8ScriptRunner::RethrowErrorsOption::Rethrow(String()));
+  ScriptEvaluationResult result =
+      module_script->RunScriptOnScriptStateAndReturnValue(
+          script_state,
+          ExecuteScriptPolicy::kDoNotExecuteScriptWhenScriptsDisabled,
+          V8ScriptRunner::RethrowErrorsOption::Rethrow(String()));
 
   switch (result.GetResultType()) {
     case ScriptEvaluationResult::ResultType::kException:
@@ -273,18 +277,14 @@ void DynamicModuleResolver::ResolveDynamically(
   // are a new script fetch options whose items all have the same values, except
   // for the integrity metadata, which is instead the empty string.</spec>
   //
-  // TODO(domfarolino): It has not yet been decided how a script's "importance"
-  // should affect its dynamic imports. There is discussion at
-  // https://github.com/whatwg/html/issues/3670, but for now there is no effect,
-  // and dynamic imports get kImportanceAuto. If this changes,
-  // ReferrerScriptInfo will need a mojom::FetchImportanceMode member, that must
-  // be properly set.
-  ScriptFetchOptions options(referrer_info.Nonce(), IntegrityMetadataSet(),
-                             String(), referrer_info.ParserState(),
-                             referrer_info.CredentialsMode(),
-                             referrer_info.GetReferrerPolicy(),
-                             mojom::blink::FetchImportanceMode::kImportanceAuto,
-                             RenderBlockingBehavior::kNonBlocking);
+  // <spec href="https://wicg.github.io/priority-hints/#script">
+  // dynamic imports get kAuto. Only the main script resource is impacted by
+  // Priority Hints.
+  ScriptFetchOptions options(
+      referrer_info.Nonce(), IntegrityMetadataSet(), String(),
+      referrer_info.ParserState(), referrer_info.CredentialsMode(),
+      referrer_info.GetReferrerPolicy(), mojom::blink::FetchPriorityHint::kAuto,
+      RenderBlockingBehavior::kNonBlocking);
 
   // <spec label="fetch-an-import()-module-script-graph" step="3">Fetch a single
   // module script given url, settings object, "script", options, settings

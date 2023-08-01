@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,12 @@
 
 #include <vector>
 
+#include "base/values.h"
+
 #import "ios/web/public/js_messaging/web_frame.h"
 
 class GURL;
 
-namespace base {
-class DictionaryValue;
-}
 namespace web {
 class WebState;
 }
@@ -23,6 +22,7 @@ namespace autofill {
 class FieldRendererId;
 struct FormData;
 struct FormFieldData;
+class FieldDataManager;
 
 // Checks if current context is secure from an autofill standpoint.
 bool IsContextSecureForWebState(web::WebState* web_state);
@@ -42,24 +42,27 @@ bool ExtractFormsData(NSString* form_json,
                       const std::u16string& form_name,
                       const GURL& main_frame_url,
                       const GURL& frame_origin,
+                      const FieldDataManager& field_data_manager,
                       std::vector<FormData>* forms_data);
 
 // Converts |form| into |form_data|.
 // Returns false if a form can not be extracted.
-// Returns false if |filtered| == true and |form["name"]| != |formName|.
-// Returns false if |form["origin"]| != |form_frame_origin|.
-// Returns true if the conversion succeeds.
-bool ExtractFormData(const base::Value& form,
+// Returns false if |filtered| == true and |form["name"]| !=
+// |formName|. Returns false if |form["origin"]| !=
+// |form_frame_origin|. Returns true if the conversion succeeds.
+bool ExtractFormData(const base::Value::Dict& form,
                      bool filtered,
                      const std::u16string& form_name,
                      const GURL& main_frame_url,
                      const GURL& form_frame_origin,
+                     const FieldDataManager& field_data_manager,
                      FormData* form_data);
 
 // Extracts a single form field from the JSON dictionary into a FormFieldData
 // object.
 // Returns false if the field could not be extracted.
-bool ExtractFormFieldData(const base::DictionaryValue& field,
+bool ExtractFormFieldData(const base::Value::Dict& field,
+                          const FieldDataManager& field_data_manager,
                           FormFieldData* field_data);
 
 typedef base::OnceCallback<void(const base::Value*)> JavaScriptResultCallback;
@@ -78,7 +81,7 @@ JavaScriptResultCallback CreateBoolCallback(base::OnceCallback<void(BOOL)>);
 // If |callback| is not null, it will be called when the result of the
 // command is received, or immediately if the command cannot be executed.
 void ExecuteJavaScriptFunction(const std::string& name,
-                               const std::vector<base::Value>& parameters,
+                               const base::Value::List& parameters,
                                web::WebFrame* frame,
                                JavaScriptResultCallback callback);
 

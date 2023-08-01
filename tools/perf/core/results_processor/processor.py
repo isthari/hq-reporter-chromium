@@ -1,7 +1,6 @@
-# Copyright 2019 The Chromium Authors. All rights reserved.
+# Copyright 2019 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
-
 """Implements the interface of the results_processor module.
 
 Provides functions to process intermediate results, and the entry point to
@@ -32,9 +31,14 @@ from core.tbmv3 import trace_processor
 # The import error below is mysterious: it produces no detailed error message,
 # while appending a proper sys.path does not help.
 from core import path_util
-path_util.AddDeviceInteractionToPath()
+
+path_util.AddAndroidDeviceInteractionToPath()
 from devil.android import device_utils  # pylint: disable=import-error
 from devil.android.sdk import adb_wrapper  # pylint: disable=import-error
+
+path_util.AddTelemetryToPath()
+from telemetry.core import cros_interface
+from telemetry.internal.platform import device_finder
 
 from tracing.trace_data import trace_data
 from tracing.value.diagnostics import all_diagnostics
@@ -63,8 +67,8 @@ def ProcessResults(options, is_unittest=False):
     options: An options object with values parsed from the command line and
       after any adjustments from ProcessOptions were applied.
     is_unittest: If True, this benchmark is run as part of a unittest, and
-      should not upload to result sink (the calling unittest is responsible
-      for determining test result).
+      should not upload to result sink (the calling unittest is responsible for
+      determining test result).
   """
   if not getattr(options, 'output_formats', None):
     return 0
@@ -77,8 +81,8 @@ def ProcessResults(options, is_unittest=False):
     logging.warning('No test results to process.')
 
   test_suite_start = (test_results[0]['startTime']
-      if test_results and 'startTime' in test_results[0]
-      else datetime.datetime.utcnow().isoformat() + 'Z')
+                      if test_results and 'startTime' in test_results[0] else
+                      datetime.datetime.utcnow().isoformat() + 'Z')
   run_identifier = RunIdentifier(options.results_label, test_suite_start)
   should_compute_metrics = any(
       fmt in FORMATS_WITH_METRICS for fmt in options.output_formats)
@@ -123,7 +127,7 @@ def ProcessResults(options, is_unittest=False):
     print('View results at file://', output_file, sep='')
 
   if options.fetch_device_data:
-    PullDeviceArtifacts(options.device_data_path, options.local_data_path)
+    PullDeviceArtifacts(options)
 
   return GenerateExitCode(test_results)
 
@@ -226,16 +230,14 @@ def _IsProtoTrace(trace_name):
 
 def _IsTBMv2Trace(trace_name):
   return (trace_name.startswith('trace/') and
-          (trace_name.endswith('.json') or trace_name.endswith('.json.gz') or
-          trace_name.endswith('.txt') or trace_name.endswith('.txt.gz')))
+          (trace_name.endswith('.json') or trace_name.endswith('.json.gz')
+           or trace_name.endswith('.txt') or trace_name.endswith('.txt.gz')))
 
 
 def _BuildOutputPath(input_files, output_name):
   """Build a path to a file in the same folder as input_files."""
-  return os.path.join(
-      os.path.dirname(os.path.commonprefix(input_files)),
-      output_name
-  )
+  return os.path.join(os.path.dirname(os.path.commonprefix(input_files)),
+                      output_name)
 
 
 def ConvertProtoTraces(test_result, trace_processor_path):
@@ -280,8 +282,8 @@ def AggregateTBMv2Traces(test_result):
     html_path = _BuildOutputPath(trace_files, compute_metrics.HTML_TRACE_NAME)
     trace_data.SerializeAsHtml(trace_files, html_path)
     artifacts[compute_metrics.HTML_TRACE_NAME] = {
-      'filePath': html_path,
-      'contentType': 'text/html',
+        'filePath': html_path,
+        'contentType': 'text/html',
     }
     logging.info('%s: TBMv2 traces aggregated. Sources: %s. Destination: %s.',
                  test_result['testPath'], trace_files, html_path)
@@ -311,8 +313,8 @@ def AggregateTBMv3Traces(test_result):
           with open(trace_file, 'rb') as f:
             shutil.copyfileobj(f, concatenated_trace)
     artifacts[compute_metrics.CONCATENATED_PROTO_NAME] = {
-      'filePath': concatenated_path,
-      'contentType': 'application/x-protobuf',
+        'filePath': concatenated_path,
+        'contentType': 'application/x-protobuf',
     }
     logging.info('%s: Proto traces aggregated. Sources: %s. Destination: %s.',
                  test_result['testPath'], proto_files, concatenated_path)
@@ -349,8 +351,8 @@ def UploadArtifacts(test_result, upload_bucket, run_identifier):
     remote_name = '/'.join(
         [run_identifier, test_result['testPath'], retry_identifier, name])
     urlsafe_remote_name = re.sub(r'[^A-Za-z0-9/.-]+', '_', remote_name)
-    cloud_filepath = cloud_storage.Upload(
-        upload_bucket, urlsafe_remote_name, artifact['filePath'])
+    cloud_filepath = cloud_storage.Upload(upload_bucket, urlsafe_remote_name,
+                                          artifact['filePath'])
     # Per crbug.com/1033755 some services require fetchUrl.
     artifact['fetchUrl'] = cloud_filepath.fetch_url
     artifact['viewUrl'] = cloud_filepath.view_url
@@ -363,10 +365,9 @@ def GetTraceUrl(test_result):
   trace_artifact = artifacts.get(compute_metrics.HTML_TRACE_NAME, {})
   if 'viewUrl' in trace_artifact:
     return trace_artifact['viewUrl']
-  elif 'filePath' in trace_artifact:
+  if 'filePath' in trace_artifact:
     return 'file://' + trace_artifact['filePath']
-  else:
-    return None
+  return None
 
 
 def AddDiagnosticsToHistograms(test_result, test_suite_start, results_label,
@@ -396,8 +397,10 @@ def AddDiagnosticsToHistograms(test_result, test_suite_start, results_label,
   else:
     test_start_ms = None
   test_suite_start_ms = util.IsoTimestampToEpoch(test_suite_start) * 1e3
-  story_tags = [tag['value'] for tag in test_result.get('tags', [])
-                if tag['key'] == 'story_tag']
+  story_tags = [
+      tag['value'] for tag in test_result.get('tags', [])
+      if tag['key'] == 'story_tag'
+  ]
   result_id = int(test_result.get('resultId', 0))
   trace_url = GetTraceUrl(test_result)
 
@@ -429,7 +432,9 @@ def MeasurementToHistogram(name, measurement):
          'Valid legacy options include:\n%s') %
         (unit, pprint.pformat(histogram.UNIT_NAMES),
          pprint.pformat(list(legacy_unit_info.LEGACY_UNIT_INFO.keys()))))
-  return histogram.Histogram.Create(name, unit, samples,
+  return histogram.Histogram.Create(name,
+                                    unit,
+                                    samples,
                                     description=description)
 
 
@@ -437,9 +442,9 @@ def _WrapDiagnostics(info_value_pairs):
   """Wrap diagnostic values in corresponding Diagnostics classes.
 
   Args:
-    info_value_pairs: any iterable of pairs (info, value), where info is one
-        of reserved infos defined in tracing.value.diagnostics.reserved_infos,
-        and value can be any json-serializable object.
+    info_value_pairs: any iterable of pairs (info, value), where info is one of
+      reserved infos defined in tracing.value.diagnostics.reserved_infos, and
+      value can be any json-serializable object.
 
   Returns:
     An iterator over pairs (diagnostic name, diagnostic value).
@@ -465,26 +470,90 @@ def ExtractMeasurements(test_result):
     del artifacts[MEASUREMENTS_NAME]
 
 
-def PullDeviceArtifacts(device_path, local_path):
+def PullDeviceArtifacts(options):
   """Pull files from on-device path using `adb`
 
   Args:
     device_path: (string) absolute path to the file/folder on-device to pull.
     local_path: (string) absolute path to local destination.
+    platform: (string) platform associated with device.
+              one of 'android' or 'chromeos'.
 
   Raises:
     device_errors.AdbCommandFailedError
   """
+  device_path = options.device_data_path
+  local_path = options.local_data_path
+  platform = options.fetch_data_platform
+
   if not device_path:
     logging.warning('No path to data specified to pull from device. '
                     'Skipping.')
     return
 
-  devices = adb_wrapper.AdbWrapper.Devices()
-  # Each docker host in chrome-swarming has one device attached, so we'll use
-  # the first AdbWrapper instance as the assumed attached device in question
-  utils = device_utils.DeviceUtils(devices[0])
-  utils.PullFile(device_path, local_path)
+  if platform == 'android':
+    devices = adb_wrapper.AdbWrapper.Devices()
+    # Each docker host in chrome-swarming has one device attached, so we'll use
+    # the first AdbWrapper instance as the assumed attached device in question
+    utils = device_utils.DeviceUtils(devices[0])
+    utils.PullFile(device_path, local_path)
+  elif platform == 'chromeos':
+    logging.warning('Searching for devices')
+    # Each docker host in chrome-swarming should only have one local device.
+    devices = device_finder.GetDevicesMatchingOptions(options)
+
+    device = None
+    if options.remote:
+      target_identifier = 'cros:' + options.remote
+      logging.info('Target identifier: %s' % target_identifier)
+      for d in devices:
+        if d.guid == target_identifier:
+          # remote should be "variable_chromeos_device_hostname" so use the
+          # device that matches this.
+          # guid is cros:variable_chromeos_device_hostname.
+          # desktop guid should just be desktop.
+          # searching for devices usually returns 2:
+          # 1. variable_chromeos_device_hostname
+          # 2. desktop
+          # variable_chromeos_device_hostname is usually the first device, in
+          # the list of devices, but to be sure we verify before selecting it.
+          device = d
+          logging.info('Selecting %s' % device.name)
+          break
+    else:
+      # default behavior is to select the first one, since no identifier
+      # is provided.
+      device = devices[0]
+      logging.info('Defaulting to first selected device: %s' % device.name)
+
+    if not device:
+      logging.warning('No device found with name %s' % str(options.remote))
+      return
+
+    interface = cros_interface.CrOSInterface(device.host_name, device.ssh_port,
+                                             device.ssh_identity)
+    # Search for all profraw files
+    logging.info('Searching for .profraw files at %s' % device_path)
+    stdout, _ = interface.RunCmdOnDevice(
+        ['find', device_path, '-regex', '.*.profraw'])
+    files = stdout.splitlines()
+    if not files:
+      logging.warning('No profraw files found at %s' % device_path)
+      return
+    logging.info('Found %d profiles: %s' % (len(files), str(files)))
+
+    # profraw files are written to ${ISOLATED_DIR}/profraw/
+    write_path = os.path.join(local_path, 'profraw')
+    if not os.path.exists(write_path):
+      logging.warning('%s does not exist. creating it' % write_path)
+      os.mkdir(write_path)
+
+    for f in files:
+      logging.info('Copying file %s' % f)
+      interface.GetFile(f, os.path.join(write_path, os.path.basename(f)))
+  else:
+    logging.warning('No supported platform specified. Doing nothing.')
+    return
 
 
 def main(args=None):

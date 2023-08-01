@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,7 +19,9 @@
 #include <string>
 
 #include "base/containers/queue.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/threading/thread_checker.h"
+#include "base/time/time.h"
 #include "media/capture/video/video_capture_device.h"
 #include "media/capture/video/win/capability_list_win.h"
 #include "media/capture/video/win/sink_filter_win.h"
@@ -54,7 +56,9 @@ class VideoCaptureDeviceWin : public VideoCaptureDevice,
     void FreeMediaType(AM_MEDIA_TYPE* mt);
     void DeleteMediaType(AM_MEDIA_TYPE* mt);
 
-    AM_MEDIA_TYPE* media_type_;
+    // This field is not a raw_ptr<> because it was filtered by the rewriter
+    // for: #addr-of
+    RAW_PTR_EXCLUSION AM_MEDIA_TYPE* media_type_;
   };
 
   static VideoCaptureControlSupport GetControlSupport(
@@ -159,6 +163,11 @@ class VideoCaptureDeviceWin : public VideoCaptureDevice,
   base::queue<TakePhotoCallback> take_photo_callbacks_;
 
   base::ThreadChecker thread_checker_;
+
+  // Used to guard between race checking capture state between the thread used
+  // in |thread_checker_| and a thread used in
+  // |SinkFilterObserver::SinkFilterObserver| callbacks.
+  base::Lock lock_;
 
   bool enable_get_photo_state_;
 

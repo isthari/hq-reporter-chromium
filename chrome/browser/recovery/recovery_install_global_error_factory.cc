@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,12 +9,16 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/recovery/recovery_install_global_error.h"
 #include "chrome/browser/ui/global_error/global_error_service_factory.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 
 RecoveryInstallGlobalErrorFactory::RecoveryInstallGlobalErrorFactory()
-    : BrowserContextKeyedServiceFactory(
-        "RecoveryInstallGlobalError",
-        BrowserContextDependencyManager::GetInstance()) {
+    : ProfileKeyedServiceFactory(
+          "RecoveryInstallGlobalError",
+          ProfileSelections::Builder()
+              .WithRegular(ProfileSelection::kOriginalOnly)
+              // TODO(crbug.com/1418376): Check if this service is needed in
+              // Guest mode.
+              .WithGuest(ProfileSelection::kOriginalOnly)
+              .Build()) {
   DependsOn(GlobalErrorServiceFactory::GetInstance());
 }
 

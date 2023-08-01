@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,20 +6,26 @@
 
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
 #include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_client.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
+#include "third_party/blink/renderer/core/frame/visual_viewport.h"
 #include "third_party/blink/renderer/core/mobile_metrics/mobile_friendliness_checker.h"
 #include "third_party/blink/renderer/core/page/chrome_client.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/page/viewport_description.h"
+#include "ui/base/ime/mojom/virtual_keyboard_types.mojom-blink.h"
 
 namespace blink {
 
-ViewportData::ViewportData(Document& document) : document_(document) {}
+ViewportData::ViewportData(Document& document)
+    : document_(document),
+      display_cutout_host_(document_->GetExecutionContext()) {}
 
 void ViewportData::Trace(Visitor* visitor) const {
   visitor->Trace(document_);
+  visitor->Trace(display_cutout_host_);
 }
 
 void ViewportData::Shutdown() {
@@ -45,8 +51,8 @@ void ViewportData::SetViewportDescription(
       return;
     viewport_description_ = viewport_description;
 
-    // The UA-defined min-width is considered specifically by Android WebView
-    // quirks mode.
+    // Store the UA specified width to be used as the default "fallback" width.
+    // i.e. the width to use if the author doesn't specify a layout width.
     if (!viewport_description.IsSpecifiedByAuthor())
       viewport_default_min_width_ = viewport_description.min_width;
   }
@@ -65,6 +71,13 @@ ViewportDescription ViewportData::GetViewportDescription() const {
     applied_viewport_description = legacy_viewport_description_;
   if (ShouldOverrideLegacyDescription(viewport_description_.type))
     applied_viewport_description = viewport_description_;
+
+  // Setting `navigator.virtualKeyboard.overlaysContent` should override the
+  // virtual-keyboard mode set from the viewport meta tag.
+  if (virtual_keyboard_overlays_content_) {
+    applied_viewport_description.virtual_keyboard_mode =
+        ui::mojom::blink::VirtualKeyboardMode::kOverlaysContent;
+  }
 
   return applied_viewport_description;
 }
@@ -91,7 +104,9 @@ void ViewportData::UpdateViewportDescription() {
                 ->GetRemoteNavigationAssociatedInterfaces()) {
       // Bind the mojo interface.
       if (!display_cutout_host_.is_bound()) {
-        provider->GetInterface(&display_cutout_host_);
+        provider->GetInterface(
+            display_cutout_host_.BindNewEndpointAndPassReceiver(
+                provider->GetTaskRunner()));
         DCHECK(display_cutout_host_.is_bound());
       }
 
@@ -103,11 +118,10 @@ void ViewportData::UpdateViewportDescription() {
     viewport_fit_ = current_viewport_fit;
   }
 
-  if (document_->GetFrame()->IsMainFrame()) {
+  if (document_->GetFrame()->IsMainFrame() &&
+      document_->GetPage()->GetVisualViewport().IsActiveViewport()) {
     document_->GetPage()->GetChromeClient().DispatchViewportPropertiesDidChange(
         GetViewportDescription());
-    if (auto* mf_checker = document_->View()->GetMobileFriendlinessChecker())
-      mf_checker->NotifyViewportUpdated(GetViewportDescription());
   }
 }
 
@@ -116,6 +130,14 @@ void ViewportData::SetExpandIntoDisplayCutout(bool expand) {
     return;
 
   force_expand_display_cutout_ = expand;
+  UpdateViewportDescription();
+}
+
+void ViewportData::SetVirtualKeyboardOverlaysContent(bool overlays_content) {
+  if (virtual_keyboard_overlays_content_ == overlays_content)
+    return;
+
+  virtual_keyboard_overlays_content_ = overlays_content;
   UpdateViewportDescription();
 }
 

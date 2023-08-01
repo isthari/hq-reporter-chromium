@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,6 +33,7 @@ import java.io.DataInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -391,13 +392,18 @@ public class TabbedModeTabPersistencePolicy implements TabPersistencePolicy {
 
     @Override
     public void notifyStateLoaded(int tabCountAtStartup) {
-        RecordHistogram.recordCountHistogram("Tabs.CountAtStartup", tabCountAtStartup);
+        RecordHistogram.recordCount1MHistogram("Tabs.CountAtStartup", tabCountAtStartup);
     }
 
     @Override
     public void destroy() {
         mTabContentManager = null;
         mDestroyed = true;
+    }
+
+    @Override
+    public boolean allowSkipLoadingTab() {
+        return true;
     }
 
     private class CleanUpTabStateDataTask extends AsyncTask<Void> {
@@ -448,9 +454,18 @@ public class TabbedModeTabPersistencePolicy implements TabPersistencePolicy {
             mFilesToDeleteCallback.onResult(filesToDelete);
 
             if (mTabContentManager != null && mThumbnailFileNames != null) {
+                HashSet<Integer> checkedTabIds = new HashSet<>();
                 for (String fileName : mThumbnailFileNames) {
+                    // Handle *.jpeg.
+                    int lastDotIdx = fileName.lastIndexOf(".");
+                    if (lastDotIdx != -1) {
+                        fileName = fileName.substring(0, lastDotIdx);
+                    }
                     try {
                         int tabId = Integer.parseInt(fileName);
+                        // Avoid double removal which could be expensive.
+                        if (!checkedTabIds.add(tabId)) continue;
+
                         if (shouldDeleteTabFile(tabId, tabWindowManager)) {
                             mTabContentManager.removeTabThumbnail(tabId);
                         }

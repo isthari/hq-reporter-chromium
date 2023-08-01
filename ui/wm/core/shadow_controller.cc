@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "base/memory/raw_ptr.h"
 #include "base/no_destructor.h"
 #include "base/scoped_multi_source_observation.h"
+#include "build/chromeos_buildflags.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/env.h"
 #include "ui/aura/env_observer.h"
@@ -273,14 +274,17 @@ void ShadowController::Impl::HandlePossibleShadowVisibilityChange(
 
 void ShadowController::Impl::CreateShadowForWindow(aura::Window* window) {
   DCHECK(!window->IsRootWindow());
-  ui::Shadow* shadow = new ui::Shadow();
-  window->SetProperty(kShadowLayerKey, shadow);
+  ui::Shadow* shadow =
+      window->SetProperty(kShadowLayerKey, std::make_unique<ui::Shadow>());
 
   int corner_radius = window->GetProperty(aura::client::kWindowCornerRadiusKey);
   if (corner_radius >= 0)
     shadow->SetRoundedCornerRadius(corner_radius);
 
   shadow->Init(GetShadowElevationForActiveState(window));
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  shadow->SetShadowStyle(gfx::ShadowStyle::kChromeOSSystemUI);
+#endif
   shadow->SetContentBounds(gfx::Rect(window->bounds().size()));
   shadow->layer()->SetVisible(ShouldShowShadowForWindow(window));
   window->layer()->Add(shadow->layer());

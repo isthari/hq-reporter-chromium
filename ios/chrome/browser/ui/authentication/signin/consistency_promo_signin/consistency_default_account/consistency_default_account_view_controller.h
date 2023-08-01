@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,10 @@
 @class ConsistencyDefaultAccountViewController;
 @protocol ConsistencyLayoutDelegate;
 
+namespace signin_metrics {
+enum class AccessPoint : int;
+}
+
 // Delegate protocol for ConsistencyDefaultAccountViewController.
 @protocol ConsistencyDefaultAccountActionDelegate <NSObject>
 
@@ -26,6 +30,10 @@
 // Called when the user taps on the continue button.
 - (void)consistencyDefaultAccountViewControllerContinueWithSelectedIdentity:
     (ConsistencyDefaultAccountViewController*)viewController;
+// Called when the user taps on the "Sign In…" button without an existing
+// account.
+- (void)consistencyDefaultAccountViewControllerAddAccountAndSignin:
+    (ConsistencyDefaultAccountViewController*)viewController;
 
 @end
 
@@ -34,12 +42,12 @@
     : UIViewController <ChildConsistencySheetViewController,
                         ConsistencyDefaultAccountConsumer>
 
+- (instancetype)initWithAccessPoint:(signin_metrics::AccessPoint)accessPoint;
+
 // Delegate for all the user actions.
 @property(nonatomic, weak) id<ConsistencyDefaultAccountActionDelegate>
     actionDelegate;
 @property(nonatomic, weak) id<ConsistencyLayoutDelegate> layoutDelegate;
-@property(nonatomic, assign)
-    EnterpriseSignInRestrictions enterpriseSignInRestrictions;
 
 // Starts the spinner and disables buttons.
 - (void)startSpinner;

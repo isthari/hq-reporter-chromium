@@ -1,35 +1,42 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_SERVICES_FILE_UTIL_PUBLIC_CPP_SANDBOXED_RAR_ANALYZER_H_
 #define CHROME_SERVICES_FILE_UTIL_PUBLIC_CPP_SANDBOXED_RAR_ANALYZER_H_
 
-#include "base/callback.h"
 #include "base/files/file_path.h"
+#include "base/functional/callback.h"
 #include "base/memory/ref_counted_delete_on_sequence.h"
+#include "base/memory/weak_ptr.h"
+#include "base/task/sequenced_task_runner.h"
+#include "chrome/services/file_util/public/cpp/temporary_file_getter.h"
 #include "chrome/services/file_util/public/mojom/file_util_service.mojom.h"
 #include "chrome/services/file_util/public/mojom/safe_archive_analyzer.mojom.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/remote.h"
 
 namespace safe_browsing {
+enum class ArchiveAnalysisResult;
 struct ArchiveAnalyzerResults;
 }
 
 // This class is used to analyze rar files in a sandbox for file download
 // protection. This class lives on the UI thread, which is where the result
 // callback will be invoked.
-class SandboxedRarAnalyzer
-    : public base::RefCountedDeleteOnSequence<SandboxedRarAnalyzer> {
+class SandboxedRarAnalyzer {
  public:
   using ResultCallback =
       base::OnceCallback<void(const safe_browsing::ArchiveAnalyzerResults&)>;
 
-  SandboxedRarAnalyzer(
-      const base::FilePath& rar_file_path,
-      ResultCallback callback,
-      mojo::PendingRemote<chrome::mojom::FileUtilService> service);
+  // Factory function for creating SandboxedRarAnalyzers with the appropriate
+  // deleter.
+  static std::unique_ptr<SandboxedRarAnalyzer, base::OnTaskRunnerDeleter>
+  CreateAnalyzer(const base::FilePath& rar_file_path,
+                 ResultCallback callback,
+                 mojo::PendingRemote<chrome::mojom::FileUtilService> service);
+
+  ~SandboxedRarAnalyzer();
 
   SandboxedRarAnalyzer(const SandboxedRarAnalyzer&) = delete;
   SandboxedRarAnalyzer& operator=(const SandboxedRarAnalyzer&) = delete;
@@ -41,23 +48,23 @@ class SandboxedRarAnalyzer
   std::string DebugString() const;
 
  private:
-  friend class base::RefCountedDeleteOnSequence<SandboxedRarAnalyzer>;
-  friend class base::DeleteHelper<SandboxedRarAnalyzer>;
-
-  ~SandboxedRarAnalyzer();
-
-  // Prepare the file for analysis.
-  void PrepareFileToAnalyze();
+  SandboxedRarAnalyzer(
+      const base::FilePath& rar_file_path,
+      ResultCallback callback,
+      mojo::PendingRemote<chrome::mojom::FileUtilService> service);
 
   // If file preparation failed, analysis has failed: report failure.
-  void ReportFileFailure();
+  void ReportFileFailure(safe_browsing::ArchiveAnalysisResult reason);
 
   // Starts the utility process and sends it a request to analyze the file
-  // |file|, given a handle for |temp_file|, where it can extract files.
-  void AnalyzeFile(base::File file, base::File temp_file);
+  // |file|.
+  void AnalyzeFile(base::File file);
 
   // The response containing the file analyze results.
   void AnalyzeFileDone(const safe_browsing::ArchiveAnalyzerResults& results);
+
+  // Returns a weak pointer to this.
+  base::WeakPtr<SandboxedRarAnalyzer> GetWeakPtr();
 
   // The file path of the file to analyze.
   const base::FilePath file_path_;
@@ -68,6 +75,9 @@ class SandboxedRarAnalyzer
   // Remote interfaces to the file util service. Only used from the UI thread.
   mojo::Remote<chrome::mojom::FileUtilService> service_;
   mojo::Remote<chrome::mojom::SafeArchiveAnalyzer> remote_analyzer_;
+  TemporaryFileGetter temp_file_getter_;
+
+  base::WeakPtrFactory<SandboxedRarAnalyzer> weak_ptr_factory_{this};
 };
 
 std::ostream& operator<<(std::ostream& os,

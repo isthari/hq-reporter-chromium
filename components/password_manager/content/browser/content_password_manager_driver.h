@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -54,10 +54,11 @@ class ContentPasswordManagerDriver
   void BindPendingReceiver(
       mojo::PendingAssociatedReceiver<autofill::mojom::PasswordManagerDriver>
           pending_receiver);
+  void UnbindReceiver();
 
   // PasswordManagerDriver implementation.
   int GetId() const override;
-  void FillPasswordForm(
+  void SetPasswordFillData(
       const autofill::PasswordFormFillData& form_data) override;
   void InformNoSavedCredentials(
       bool should_show_popup_without_passwords) override;
@@ -68,17 +69,22 @@ class ContentPasswordManagerDriver
       const autofill::FormData& form_data,
       autofill::FieldRendererId generation_element_id,
       const std::u16string& password) override;
-  void TouchToFillClosed(ShowVirtualKeyboard show_virtual_keyboard) override;
   void FillSuggestion(const std::u16string& username,
                       const std::u16string& password) override;
   void FillIntoFocusedField(bool is_password,
                             const std::u16string& credential) override;
 #if BUILDFLAG(IS_ANDROID)
+  void KeyboardReplacingSurfaceClosed(
+      ShowVirtualKeyboard show_virtual_keyboard) override;
   void TriggerFormSubmission() override;
 #endif
   void PreviewSuggestion(const std::u16string& username,
                          const std::u16string& password) override;
+  void PreviewGenerationSuggestion(const std::u16string& password) override;
   void ClearPreviewedForm() override;
+  void SetSuggestionAvailability(
+      autofill::FieldRendererId generation_element_id,
+      const autofill::mojom::AutofillState state) override;
   PasswordGenerationFrameHelper* GetPasswordGenerationHelper() override;
   PasswordManager* GetPasswordManager() override;
   PasswordAutofillManager* GetPasswordAutofillManager() override;
@@ -86,6 +92,7 @@ class ContentPasswordManagerDriver
   bool IsInPrimaryMainFrame() const override;
   bool CanShowAutofillUi() const override;
   ::ui::AXTreeID GetAxTreeId() const override;
+  int GetFrameId() const override;
   const GURL& GetLastCommittedURL() const override;
   void AnnotateFieldsWithParsingResult(
       const autofill::ParsingResult& parsing_result) override;
@@ -123,8 +130,7 @@ class ContentPasswordManagerDriver
   void PasswordFormsParsed(
       const std::vector<autofill::FormData>& forms_data) override;
   void PasswordFormsRendered(
-      const std::vector<autofill::FormData>& visible_forms_data,
-      bool did_stop_loading) override;
+      const std::vector<autofill::FormData>& visible_forms_data) override;
   void PasswordFormSubmitted(const autofill::FormData& form_data) override;
   void InformAboutUserInput(const autofill::FormData& form_data) override;
   void DynamicFormSubmission(autofill::mojom::SubmissionIndicatorEvent
@@ -132,14 +138,20 @@ class ContentPasswordManagerDriver
   void PasswordFormCleared(const autofill::FormData& form_data) override;
   void RecordSavePasswordProgress(const std::string& log) override;
   void UserModifiedPasswordField() override;
-  void UserModifiedNonPasswordField(autofill::FieldRendererId renderer_id,
-                                    const std::u16string& field_name,
-                                    const std::u16string& value) override;
+  void UserModifiedNonPasswordField(
+      autofill::FieldRendererId renderer_id,
+      const std::u16string& field_name,
+      const std::u16string& value,
+      bool autocomplete_attribute_has_username) override;
   void ShowPasswordSuggestions(base::i18n::TextDirection text_direction,
                                const std::u16string& typed_username,
                                int options,
                                const gfx::RectF& bounds) override;
-  void ShowTouchToFill() override;
+#if BUILDFLAG(IS_ANDROID)
+  void ShowKeyboardReplacingSurface(
+      autofill::mojom::SubmissionReadinessState submission_readiness,
+      bool is_webauthn_form) override;
+#endif
   void CheckSafeBrowsingReputation(const GURL& form_action,
                                    const GURL& frame_url) override;
   void FocusedInputChanged(

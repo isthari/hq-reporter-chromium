@@ -1,8 +1,28 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-/* #js_imports_placeholder */
+import '//resources/cr_elements/cr_shared_style.css.js';
+import '//resources/cr_elements/cr_button/cr_button.js';
+import '//resources/cr_elements/cr_input/cr_input.js';
+import '//resources/polymer/v3_0/iron-icon/iron-icon.js';
+import '../../components/oobe_icons.html.js';
+import '../../components/common_styles/oobe_common_styles.css.js';
+import '../../components/common_styles/oobe_dialog_host_styles.css.js';
+import '../../components/dialogs/oobe_adaptive_dialog.js';
+import '../../components/dialogs/oobe_loading_dialog.js';
+import '../../components/buttons/oobe_next_button.js';
+import '../../components/buttons/oobe_text_button.js';
+
+import {html, mixinBehaviors, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {LoginScreenBehavior, LoginScreenBehaviorInterface} from '../../components/behaviors/login_screen_behavior.js';
+import {MultiStepBehavior, MultiStepBehaviorInterface} from '../../components/behaviors/multi_step_behavior.js';
+import {OobeI18nBehavior, OobeI18nBehaviorInterface} from '../../components/behaviors/oobe_i18n_behavior.js';
+import {OobeModalDialog} from '../../components/dialogs/oobe_modal_dialog.js';
+import {OOBE_UI_STATE} from '../../components/display_manager_types.js';
+import {addSubmitListener} from '../../login_ui_tools.js';
+
 
 /**
  * UI mode for the dialog.
@@ -20,15 +40,14 @@ const SamlConfirmPasswordState = {
  * @implements {MultiStepBehaviorInterface}
  * @implements {OobeI18nBehaviorInterface}
  */
- const SamlConfirmPasswordBase = Polymer.mixinBehaviors(
-  [OobeI18nBehavior, LoginScreenBehavior, MultiStepBehavior],
-  Polymer.Element);
+const SamlConfirmPasswordBase = mixinBehaviors(
+    [OobeI18nBehavior, LoginScreenBehavior, MultiStepBehavior], PolymerElement);
 
 /**
  * @typedef {{
  *   passwordInput:  CrInputElement,
  *   confirmPasswordInput: CrInputElement,
- *   cancelConfirmDlg: OobeModalDialogElement
+ *   cancelConfirmDlg: OobeModalDialog
  * }}
  */
 SamlConfirmPasswordBase.$;
@@ -37,10 +56,13 @@ SamlConfirmPasswordBase.$;
  * @polymer
  */
 class SamlConfirmPassword extends SamlConfirmPasswordBase {
+  static get is() {
+    return 'saml-confirm-password-element';
+  }
 
-  static get is() { return 'saml-confirm-password-element'; }
-
-  /* #html_template_placeholder */
+  static get template() {
+    return html`{__html_template__}`;
+  }
 
   static get properties() {
     return {
@@ -52,25 +74,20 @@ class SamlConfirmPassword extends SamlConfirmPasswordBase {
       isManualInput: {
         type: Boolean,
         value: false,
-      }
+      },
     };
   }
 
   constructor() {
     super();
-    /**
-     * Callback to run when the screen is dismissed.
-     * @type {?function(string)}
-     */
-    this.callback_ = null;
   }
 
   get EXTERNAL_API() {
-    return ['show'];
+    return ['showPasswordStep'];
   }
 
   defaultUIStep() {
-    return SamlConfirmPasswordState.PASSWORD;
+    return SamlConfirmPasswordState.PROGRESS;
   }
 
   get UI_STEPS() {
@@ -79,14 +96,10 @@ class SamlConfirmPassword extends SamlConfirmPasswordBase {
 
   ready() {
     super.ready();
-    this.initializeLoginScreen('ConfirmSamlPasswordScreen', {
-      resetAllowed: true,
-    });
+    this.initializeLoginScreen('ConfirmSamlPasswordScreen');
 
-    cr.ui.LoginUITools.addSubmitListener(
-        this.$.passwordInput, this.submit_.bind(this));
-    cr.ui.LoginUITools.addSubmitListener(
-        this.$.confirmPasswordInput, this.submit_.bind(this));
+    addSubmitListener(this.$.passwordInput, this.submit_.bind(this));
+    addSubmitListener(this.$.confirmPasswordInput, this.submit_.bind(this));
   }
 
   /** Initial UI State for screen */
@@ -95,25 +108,24 @@ class SamlConfirmPassword extends SamlConfirmPasswordBase {
   }
 
   /**
-   * Shows the confirm password screen.
-   * @param {string} email The authenticated user's e-mail.
-   * @param {boolean} manualPasswordInput True if no password has been
-   *     scrapped and the user needs to set one manually for the device.
-   * @param {number} attemptCount Number of attempts tried, starting at 0.
-   * @param {function(string)} callback The callback to be invoked when the
-   *     screen is dismissed.
+   * Event handler that is invoked just before the screen is shown.
+   * @param {Object} data Screen init payload
    */
-  show(email, manualPasswordInput, attemptCount, callback) {
-    this.callback_ = callback;
-    this.reset();
-    this.email = email;
-    this.isManualInput = manualPasswordInput;
-    if (attemptCount > 0)
-      this.$.passwordInput.invalid = true;
-    Oobe.getInstance().showScreen({id: 'saml-confirm-password'});
+  onBeforeShow(data) {
+    this.reset_();
+    this.email = data['email'];
+    this.isManualInput = data['manualPasswordInput'];
   }
 
-  resetFields() {
+  showPasswordStep(retry) {
+    if (retry) {
+      this.reset_();
+      this.$.passwordInput.invalid = true;
+    }
+    this.setUIStep(SamlConfirmPasswordState.PASSWORD);
+  }
+
+  resetFields_() {
     this.$.passwordInput.invalid = false;
     this.$.passwordInput.value = '';
     if (this.isManualInput) {
@@ -122,11 +134,11 @@ class SamlConfirmPassword extends SamlConfirmPasswordBase {
     }
   }
 
-  reset() {
-    if (this.$.cancelConfirmDlg.open)
+  reset_() {
+    if (this.$.cancelConfirmDlg.open) {
       this.$.cancelConfirmDlg.hideDialog();
-    this.setUIStep(SamlConfirmPasswordState.PASSWORD);
-    this.resetFields();
+    }
+    this.resetFields_();
   }
 
 
@@ -140,19 +152,19 @@ class SamlConfirmPassword extends SamlConfirmPasswordBase {
 
   onCancelYes_() {
     this.$.cancelConfirmDlg.hideDialog();
-
-    Oobe.getInstance().showScreen({id: 'gaia-signin'});
-    Oobe.getInstance().resetSigninUI(true);
+    this.userActed('cancel');
   }
 
   submit_() {
-    if (!this.$.passwordInput.validate())
+    if (!this.$.passwordInput.validate()) {
       return;
+    }
     if (this.isManualInput) {
       // When using manual password entry, both passwords must match.
       var confirmPasswordInput = this.shadowRoot.querySelector('#confirmPasswordInput');
-      if (!confirmPasswordInput.validate())
+      if (!confirmPasswordInput.validate()) {
         return;
+      }
 
       if (confirmPasswordInput.value != this.$.passwordInput.value) {
         this.$.passwordInput.invalid = true;
@@ -161,8 +173,8 @@ class SamlConfirmPassword extends SamlConfirmPasswordBase {
       }
     }
     this.setUIStep(SamlConfirmPasswordState.PROGRESS);
-    this.callback_(this.$.passwordInput.value);
-    this.resetFields();
+    this.userActed(['inputPassword', this.$.passwordInput.value]);
+    this.resetFields_();
   }
 
   subtitleText_(locale, manual) {

@@ -1,8 +1,8 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {assert} from 'chrome://resources/js/assert.m.js';
+import {assert} from 'chrome://resources/js/assert_ts.js';
 
 
 /**
@@ -14,6 +14,7 @@ export enum Page {
   DETAILS = 'details-view',
   ACTIVITY_LOG = 'activity-log',
   SITE_PERMISSIONS = 'site-permissions',
+  SITE_PERMISSIONS_ALL_SITES = 'site-permissions-by-site',
   SHORTCUTS = 'keyboard-shortcuts',
   ERRORS = 'error-page',
 }
@@ -22,11 +23,11 @@ export enum Dialog {
   OPTIONS = 'options',
 }
 
-export type PageState = {
-  page: Page,
-  extensionId?: string,
-  subpage?: Dialog,
-};
+export interface PageState {
+  page: Page;
+  extensionId?: string;
+  subpage?: Dialog;
+}
 
 type Listener = (pageState: PageState) => void;
 
@@ -78,6 +79,9 @@ export class NavigationHelper {
     } else if (this.currentPath_ === '/sitePermissions') {
       window.history.replaceState(
           undefined /* stateObject */, '', '/sitePermissions');
+    } else if (this.currentPath_ === '/sitePermissions/allSites') {
+      window.history.replaceState(
+          undefined /* stateObject */, '', '/sitePermissions/allSites');
     } else if (this.currentPath_ !== '/') {
       window.history.replaceState(undefined /* stateObject */, '', '/');
     }
@@ -110,6 +114,9 @@ export class NavigationHelper {
     }
     if (this.currentPath_ === '/sitePermissions') {
       return {page: Page.SITE_PERMISSIONS};
+    }
+    if (this.currentPath_ === '/sitePermissions/allSites') {
+      return {page: Page.SITE_PERMISSIONS_ALL_SITES};
     }
 
     return {page: Page.LIST};
@@ -192,6 +199,9 @@ export class NavigationHelper {
         break;
       case Page.SITE_PERMISSIONS:
         path = '/sitePermissions';
+        break;
+      case Page.SITE_PERMISSIONS_ALL_SITES:
+        path = '/sitePermissions/allSites';
         break;
       case Page.SHORTCUTS:
         path = '/shortcuts';

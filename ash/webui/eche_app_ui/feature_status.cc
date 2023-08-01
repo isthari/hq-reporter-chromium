@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,9 +11,6 @@ std::ostream& operator<<(std::ostream& stream, FeatureStatus status) {
   switch (status) {
     case FeatureStatus::kIneligible:
       stream << "[Ineligible for feature]";
-      break;
-    case FeatureStatus::kNotEnabledByPhone:
-      stream << "[Ineligible for feature; not enabeld by phone]";
       break;
     case FeatureStatus::kDisabled:
       stream << "[Disabled]";

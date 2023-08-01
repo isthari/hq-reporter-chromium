@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -142,6 +142,13 @@ final class ProfileOAuth2TokenServiceDelegate {
     @CalledByNative
     void invalidateAccessToken(String accessToken) {
         mAccountManagerFacade.invalidateAccessToken(accessToken);
+    }
+
+    /** Called by native to invalidate the seeding status in {@link AccountTrackerService} */
+    @MainThread
+    @CalledByNative
+    private void invalidateAccountsSeedingStatus() {
+        mAccountTrackerService.invalidateAccountsSeedingStatus();
     }
 
     /**

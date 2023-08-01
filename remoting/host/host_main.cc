@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -18,9 +18,9 @@
 #include "base/strings/stringize_macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
-#include "mojo/core/embedder/embedder.h"
 #include "remoting/base/breakpad.h"
 #include "remoting/base/logging.h"
+#include "remoting/base/mojo_util.h"
 #include "remoting/host/base/host_exit_codes.h"
 #include "remoting/host/base/switches.h"
 #include "remoting/host/evaluate_capability.h"
@@ -80,8 +80,9 @@ const char kUsageMessage[] =
     "  --type                   - Specifies process type.\n"
     "  --version                - Prints the host version and exits.\n"
     "  --evaluate-type=<type>   - Evaluates the capability of the host.\n"
+    "  --enable-utempter        - Enables recording to utmp/wtmp on Linux.\n"
     "  --webrtc-trace-event-file=<path> - Enables logging webrtc trace events "
-    "to a file.";
+    "to a file.\n";
 
 void Usage(const base::FilePath& program_name) {
   printf(kUsageMessage, program_name.MaybeAsASCII().c_str());
@@ -101,8 +102,9 @@ int RunElevated() {
   base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
   for (base::CommandLine::SwitchMap::const_iterator i = switches.begin();
        i != switches.end(); ++i) {
-    if (i->first != kElevateSwitchName)
+    if (i->first != kElevateSwitchName) {
       command_line.AppendSwitchNative(i->first, i->second);
+    }
   }
   for (base::CommandLine::StringVector::const_iterator i = args.begin();
        i != args.end(); ++i) {
@@ -245,7 +247,7 @@ int HostMain(int argc, char** argv) {
 
   remoting::LoadResources("");
 
-  mojo::core::Init();
+  InitializeMojo({.is_broker_process = main_routine == &HostProcessMain});
 
   // Invoke the entry point.
   int exit_code = main_routine();

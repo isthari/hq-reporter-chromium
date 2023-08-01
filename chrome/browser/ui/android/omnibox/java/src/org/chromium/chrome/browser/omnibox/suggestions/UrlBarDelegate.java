@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,4 +14,11 @@ public interface UrlBarDelegate {
      * @param text The text that should be displayed in the omnibox.
      */
     void setOmniboxEditingText(String text);
+
+    /**
+     * Returns {@code true} when the omnibox should be cleared on focus, {@code false} otherwise.
+     */
+    default boolean shouldClearOmniboxOnFocus() {
+        return true;
+    }
 }

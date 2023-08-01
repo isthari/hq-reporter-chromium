@@ -1,9 +1,10 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/core/events/pointer_event_factory.h"
 
+#include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_pointer_event_init.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -86,19 +87,7 @@ void UpdateCommonPointerEventInit(const WebPointerEvent& web_pointer_event,
       !web_pointer_event.is_raw_movement_event &&
       (web_pointer_event.GetType() == WebInputEvent::Type::kPointerMove ||
        web_pointer_event.GetType() == WebInputEvent::Type::kPointerRawUpdate)) {
-    // TODO(crbug.com/907309): Current movementX/Y is in physical pixel when
-    // zoom-for-dsf is enabled. Here we apply the device-scale-factor to align
-    // with the current behavior. We need to figure out what is the best
-    // behavior here.
     float device_scale_factor = 1;
-    if (dom_window && dom_window->GetFrame()) {
-      LocalFrame* frame = dom_window->GetFrame();
-      if (frame->GetPage()->DeviceScaleFactorDeprecated() == 1) {
-        ChromeClient& chrome_client = frame->GetPage()->GetChromeClient();
-        device_scale_factor =
-            chrome_client.GetScreenInfo(*frame).device_scale_factor;
-      }
-    }
 
     // movementX/Y is type int for pointerevent, so we still need to truncated
     // the coordinates before calculate movement.
@@ -116,8 +105,12 @@ void UpdateCommonPointerEventInit(const WebPointerEvent& web_pointer_event,
 
   // If width/height is unknown we let PointerEventInit set it to 1.
   // See https://w3c.github.io/pointerevents/#dom-pointerevent-width
+  //
+  // For pointerup, even known width/height is ignored in favor of the default
+  // value of 1.  See https://github.com/w3c/pointerevents/issues/225.
   if (web_pointer_event_in_root_frame.HasWidth() &&
-      web_pointer_event_in_root_frame.HasHeight()) {
+      web_pointer_event_in_root_frame.HasHeight() &&
+      web_pointer_event.GetType() != WebInputEvent::Type::kPointerUp) {
     float scale_factor = 1.0f;
     if (dom_window && dom_window->GetFrame())
       scale_factor = 1.0f / dom_window->GetFrame()->PageZoomFactor();
@@ -168,7 +161,7 @@ HeapVector<Member<PointerEvent>> PointerEventFactory::CreateEventSequence(
   AtomicString type = PointerEventNameForEventType(web_pointer_event.GetType());
   HeapVector<Member<PointerEvent>> result;
 
-  if (!event_list.IsEmpty()) {
+  if (!event_list.empty()) {
     // Make a copy of LastPointerPosition so we can modify it after creating
     // each coalesced event.
     gfx::PointF last_global_position =
@@ -203,6 +196,10 @@ HeapVector<Member<PointerEvent>> PointerEventFactory::CreateEventSequence(
           static_cast<WebInputEvent::Modifiers>(event.GetModifiers()));
 
       last_global_position = event.PositionInScreen();
+
+      if (pointer_event_init->hasDeviceId()) {
+        new_event_init->setDeviceId(pointer_event_init->deviceId());
+      }
 
       PointerEvent* pointer_event =
           PointerEvent::Create(type, new_event_init, event.TimeStamp());
@@ -276,8 +273,9 @@ PointerEventInit* PointerEventFactory::ConvertIdTypeButtonsEvent(
 void PointerEventFactory::SetEventSpecificFields(
     PointerEventInit* pointer_event_init,
     const AtomicString& type) {
-  pointer_event_init->setBubbles(type != event_type_names::kPointerenter &&
-                                 type != event_type_names::kPointerleave);
+  bool is_pointer_enter_or_leave = type == event_type_names::kPointerenter ||
+                                   type == event_type_names::kPointerleave;
+  pointer_event_init->setBubbles(!is_pointer_enter_or_leave);
   pointer_event_init->setCancelable(
       type != event_type_names::kPointerenter &&
       type != event_type_names::kPointerleave &&
@@ -285,8 +283,10 @@ void PointerEventFactory::SetEventSpecificFields(
       type != event_type_names::kPointerrawupdate &&
       type != event_type_names::kGotpointercapture &&
       type != event_type_names::kLostpointercapture);
-
-  pointer_event_init->setComposed(true);
+  pointer_event_init->setComposed(
+      RuntimeEnabledFeatures::NonComposedEnterLeaveEventsEnabled()
+          ? !is_pointer_enter_or_leave
+          : true);
   pointer_event_init->setDetail(0);
 }
 
@@ -359,6 +359,9 @@ PointerEvent* PointerEventFactory::Create(
 
   SetLastPosition(pointer_event_init->pointerId(),
                   web_pointer_event.PositionInScreen(), event_type);
+
+  pointer_event_init->setDeviceId(GetBlinkDeviceId(web_pointer_event));
+
   return PointerEvent::Create(type, pointer_event_init,
                               web_pointer_event.TimeStamp());
 }
@@ -395,7 +398,8 @@ gfx::PointF PointerEventFactory::GetLastPointerPosition(
 
 PointerEvent* PointerEventFactory::CreatePointerCancelEvent(
     const int pointer_id,
-    base::TimeTicks platfrom_time_stamp) {
+    base::TimeTicks platfrom_time_stamp,
+    const int32_t device_id) {
   DCHECK(pointer_id_mapping_.Contains(pointer_id));
   pointer_id_mapping_.Set(
       pointer_id,
@@ -410,6 +414,8 @@ PointerEvent* PointerEventFactory::CreatePointerCancelEvent(
   pointer_event_init->setIsPrimary(IsPrimary(pointer_id));
 
   SetEventSpecificFields(pointer_event_init, event_type_names::kPointercancel);
+
+  pointer_event_init->setDeviceId(device_id);
 
   return PointerEvent::Create(event_type_names::kPointercancel,
                               pointer_event_init, platfrom_time_stamp);
@@ -439,6 +445,7 @@ PointerEvent* PointerEventFactory::CreatePointerEventFrom(
       pointer_event->tangentialPressure());
   pointer_event_init->setTwist(pointer_event->twist());
   pointer_event_init->setView(pointer_event->view());
+  pointer_event_init->setDeviceId(pointer_event->deviceId());
 
   SetEventSpecificFields(pointer_event_init, type);
 
@@ -511,6 +518,8 @@ void PointerEventFactory::Clear() {
   pointer_id_mapping_.clear();
   pointer_id_last_position_mapping_.clear();
 
+  device_id_browser_to_blink_mapping_.clear();
+
   // Always add mouse pointer in initialization and never remove it.
   // No need to add it to |pointer_incoming_id_mapping_| as it is not going to
   // be used with the existing APIs
@@ -521,6 +530,7 @@ void PointerEventFactory::Clear() {
                     false, true));
 
   current_id_ = PointerEventFactory::kMouseId + 1;
+  current_device_id_ = PointerEventFactory::kMouseId + 1;
 }
 
 PointerId PointerEventFactory::AddIdAndActiveButtons(
@@ -639,6 +649,25 @@ PointerId PointerEventFactory::GetPointerEventId(
   if (pointer_incoming_id_mapping_.Contains(id))
     return pointer_incoming_id_mapping_.at(id);
   return kInvalidId;
+}
+
+int32_t PointerEventFactory::GetBlinkDeviceId(
+    const WebPointerEvent& web_pointer_event) {
+  if (web_pointer_event.pointer_type ==
+      WebPointerProperties::PointerType::kMouse) {
+    return PointerEventFactory::kMouseId;
+  }
+
+  const int32_t incoming_id = web_pointer_event.device_id;
+  if (incoming_id == -1) {
+    return -1;
+  }
+
+  auto result = device_id_browser_to_blink_mapping_.insert(incoming_id, -1);
+  if (result.is_new_entry) {
+    result.stored_value->value = current_device_id_++;
+  }
+  return result.stored_value->value;
 }
 
 }  // namespace blink

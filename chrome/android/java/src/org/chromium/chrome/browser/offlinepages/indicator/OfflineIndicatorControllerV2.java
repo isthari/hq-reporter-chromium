@@ -1,9 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.offlinepages.indicator;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.os.Handler;
@@ -12,7 +13,6 @@ import android.os.SystemClock;
 import androidx.annotation.IntDef;
 import androidx.annotation.VisibleForTesting;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.Callback;
 import org.chromium.base.CommandLine;
 import org.chromium.base.metrics.RecordHistogram;
@@ -20,6 +20,7 @@ import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.ChromeSemanticColorUtils;
 import org.chromium.chrome.browser.status_indicator.StatusIndicatorCoordinator;
 import org.chromium.components.browser_ui.styles.SemanticColorUtils;
 import org.chromium.content_public.common.ContentSwitches;
@@ -57,6 +58,7 @@ public class OfflineIndicatorControllerV2 {
     public static final String OFFLINE_INDICATOR_SHOWN_DURATION_V2 =
             "OfflineIndicator.ShownDurationV2";
 
+    @SuppressLint("StaticFieldLeak")
     private static OfflineDetector sMockOfflineDetector;
     private static Supplier<Long> sMockElapsedTimeSupplier;
     private static OfflineIndicatorMetricsDelegate sMockOfflineIndicatorMetricsDelegate;
@@ -120,7 +122,7 @@ public class OfflineIndicatorControllerV2 {
         } else {
             mOfflineDetector = new OfflineDetector((Boolean offline)
                                                            -> onConnectionStateChanged(offline),
-                    (Boolean isForeground) -> onApplicationStateChanged(isForeground));
+                    (Boolean isForeground) -> onApplicationStateChanged(isForeground), mContext);
         }
 
         // Initializes the application state.
@@ -133,13 +135,10 @@ public class OfflineIndicatorControllerV2 {
 
             setLastActionTime();
 
-            final int backgroundColor = ApiCompatibilityUtils.getColor(
-                    mContext.getResources(), R.color.offline_indicator_offline_color);
-            final int textColor = ApiCompatibilityUtils.getColor(
-                    mContext.getResources(), R.color.default_text_color_light);
+            final int backgroundColor = mContext.getColor(R.color.offline_indicator_offline_color);
+            final int textColor = mContext.getColor(R.color.default_text_color_light);
             final Drawable statusIcon = mContext.getDrawable(R.drawable.ic_cloud_offline_24dp);
-            final int iconTint = ApiCompatibilityUtils.getColor(
-                    mContext.getResources(), R.color.default_icon_color_light);
+            final int iconTint = mContext.getColor(R.color.default_icon_color_light);
             mStatusIndicator.show(mContext.getString(R.string.offline_indicator_v2_offline_text),
                     statusIcon, backgroundColor, textColor, iconTint);
         };
@@ -156,10 +155,9 @@ public class OfflineIndicatorControllerV2 {
 
             setLastActionTime();
 
-            final int backgroundColor = ApiCompatibilityUtils.getColor(
-                    mContext.getResources(), R.color.offline_indicator_back_online_color);
-            final int textColor = ApiCompatibilityUtils.getColor(
-                    mContext.getResources(), R.color.default_text_color_inverse);
+            final int backgroundColor =
+                    ChromeSemanticColorUtils.getOfflineIndicatorBackOnlineColor(mContext);
+            final int textColor = SemanticColorUtils.getDefaultTextColorOnAccent1(mContext);
             final Drawable statusIcon = mContext.getDrawable(R.drawable.ic_globe_24dp);
             final int iconTint = SemanticColorUtils.getDefaultIconColorInverse(mContext);
             mStatusIndicator.updateContent(

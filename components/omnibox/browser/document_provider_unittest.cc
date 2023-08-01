@@ -1,24 +1,30 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/omnibox/browser/document_provider.h"
 
+#include <map>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "base/json/json_reader.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
+#include "base/time/time.h"
 #include "base/time/time_to_iso8601.h"
 #include "base/values.h"
+#include "build/blink_buildflags.h"
 #include "build/build_config.h"
 #include "components/omnibox/browser/autocomplete_match_type.h"
 #include "components/omnibox/browser/autocomplete_provider.h"
 #include "components/omnibox/browser/autocomplete_provider_listener.h"
 #include "components/omnibox/browser/mock_autocomplete_provider_client.h"
+#include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/omnibox/browser/omnibox_prefs.h"
 #include "components/omnibox/browser/test_scheme_classifier.h"
 #include "components/omnibox/common/omnibox_features.h"
@@ -28,11 +34,11 @@
 
 namespace {
 
-const std::string SAMPLE_ORIGINAL_URL =
+const char kSampleOriginalURL[] =
     "https://www.google.com/url?url=https://drive.google.com/a/domain.tld/"
     "open?id%3D_0123_ID_4567_&_placeholder_";
 
-const std::string SAMPLE_STRIPPED_URL =
+const char kSampleStrippedURL[] =
     "https://drive.google.com/open?id=_0123_ID_4567_";
 
 using testing::Return;
@@ -62,12 +68,37 @@ class FakeAutocompleteProviderClient : public MockAutocompleteProviderClient {
 
   PrefService* GetPrefs() const override { return pref_service_.get(); }
 
+  std::string ProfileUserName() const override { return "goodEmail@gmail.com"; }
+
  private:
   std::unique_ptr<TemplateURLService> template_url_service_;
   std::unique_ptr<TestingPrefServiceSimple> pref_service_;
 };
 
 }  // namespace
+
+class FakeDocumentProvider : public DocumentProvider {
+ public:
+  FakeDocumentProvider(AutocompleteProviderClient* client,
+                       AutocompleteProviderListener* listener,
+                       size_t cache_size)
+      : DocumentProvider(client, listener, cache_size) {}
+
+  using DocumentProvider::backoff_for_session_;
+  using DocumentProvider::done_;
+  using DocumentProvider::GenerateLastModifiedString;
+  using DocumentProvider::input_;
+  using DocumentProvider::IsDocumentProviderAllowed;
+  using DocumentProvider::IsInputLikelyURL;
+  using DocumentProvider::matches_;
+  using DocumentProvider::OnDocumentSuggestionsLoaderAvailable;
+  using DocumentProvider::ParseDocumentSearchResults;
+  using DocumentProvider::time_run_invoked_;
+  using DocumentProvider::UpdateResults;
+
+ protected:
+  ~FakeDocumentProvider() override = default;
+};
 
 class DocumentProviderTest : public testing::Test,
                              public AutocompleteProviderListener {
@@ -80,7 +111,8 @@ class DocumentProviderTest : public testing::Test,
 
  protected:
   // AutocompleteProviderListener:
-  void OnProviderUpdate(bool updated_matches) override;
+  void OnProviderUpdate(bool updated_matches,
+                        const AutocompleteProvider* provider) override;
 
   // Set's up |client_| call expectations to enable the doc suggestions; i.e. so
   // that |IsDocumentProviderAllowed()| returns true. This is not necessary when
@@ -104,7 +136,7 @@ class DocumentProviderTest : public testing::Test,
   }
 
   std::unique_ptr<FakeAutocompleteProviderClient> client_;
-  scoped_refptr<DocumentProvider> provider_;
+  scoped_refptr<FakeDocumentProvider> provider_;
   raw_ptr<TemplateURL> default_template_url_;
 };
 
@@ -139,10 +171,12 @@ void DocumentProviderTest::SetUp() {
       "https://drive.google.com/drive/search?q={searchTerms}";
   turl_model->Add(std::make_unique<TemplateURL>(data));
 
-  provider_ = DocumentProvider::Create(client_.get(), this, 4);
+  provider_ = new FakeDocumentProvider(client_.get(), this, 4);
 }
 
-void DocumentProviderTest::OnProviderUpdate(bool updated_matches) {
+void DocumentProviderTest::OnProviderUpdate(
+    bool updated_matches,
+    const AutocompleteProvider* provider) {
   // No action required.
 }
 
@@ -225,41 +259,11 @@ TEST_F(DocumentProviderTest, IsDocumentProviderAllowed) {
   template_url_service->Remove(new_default_provider);
   EXPECT_TRUE(provider_->IsDocumentProviderAllowed(client_.get(), ac_input));
 
-  // Should not be in explicit keyword mode unless the keyword is the default or
-  // drive.google.com.
-  {
-    base::test::ScopedFeatureList feature_list;
-    feature_list.InitWithFeatures(
-        {omnibox::kDocumentProvider, omnibox::kExperimentalKeywordMode}, {});
-    {
-      AutocompleteInput input(u"wikipedia.org soup",
-                              metrics::OmniboxEventProto::OTHER,
-                              TestSchemeClassifier());
-      input.set_prefer_keyword(true);
-      EXPECT_FALSE(provider_->IsDocumentProviderAllowed(client_.get(), input));
-    }
-    {
-      // Amazon is not registered as a keyword in |SetUp()|.
-      AutocompleteInput input(u"amazon.com soup",
-                              metrics::OmniboxEventProto::OTHER,
-                              TestSchemeClassifier());
-      input.set_prefer_keyword(true);
-      EXPECT_TRUE(provider_->IsDocumentProviderAllowed(client_.get(), input));
-    }
-    {
-      AutocompleteInput input(u"drive.google.com soup",
-                              metrics::OmniboxEventProto::OTHER,
-                              TestSchemeClassifier());
-      input.set_prefer_keyword(true);
-      EXPECT_TRUE(provider_->IsDocumentProviderAllowed(client_.get(), input));
-    }
-  }
-
   // Input should not be on-focus.
   {
     AutocompleteInput input(u"text text", metrics::OmniboxEventProto::OTHER,
                             TestSchemeClassifier());
-    input.set_focus_type(OmniboxFocusType::ON_FOCUS);
+    input.set_focus_type(metrics::OmniboxFocusType::INTERACTION_FOCUS);
     EXPECT_FALSE(provider_->IsDocumentProviderAllowed(client_.get(), input));
   }
 
@@ -283,7 +287,7 @@ TEST_F(DocumentProviderTest, IsDocumentProviderAllowed) {
   {
     AutocompleteInput input(u"www.x.com", metrics::OmniboxEventProto::OTHER,
                             TestSchemeClassifier());
-    input.set_focus_type(OmniboxFocusType::ON_FOCUS);
+    input.set_focus_type(metrics::OmniboxFocusType::INTERACTION_FOCUS);
     EXPECT_FALSE(provider_->IsDocumentProviderAllowed(client_.get(), input));
   }
 }
@@ -296,7 +300,7 @@ TEST_F(DocumentProviderTest, IsInputLikelyURL) {
     const AutocompleteInput autocomplete_input(
         base::ASCIIToUTF16(input_ascii), metrics::OmniboxEventProto::OTHER,
         TestSchemeClassifier());
-    return DocumentProvider::IsInputLikelyURL(autocomplete_input);
+    return FakeDocumentProvider::IsInputLikelyURL(autocomplete_input);
   };
 
   EXPECT_TRUE(IsInputLikelyURL_Wrapper("htt"));
@@ -336,7 +340,7 @@ TEST_F(DocumentProviderTest, ParseDocumentSearchResults) {
         }
       ]
      })",
-      SAMPLE_ORIGINAL_URL.c_str());
+      kSampleOriginalURL);
 
   absl::optional<base::Value> response =
       base::JSONReader::Read(kGoodJSONResponse);
@@ -354,13 +358,18 @@ TEST_F(DocumentProviderTest, ParseDocumentSearchResults) {
   EXPECT_EQ(matches[0].destination_url,
             GURL("https://documentprovider.tld/doc?id=1"));
   EXPECT_EQ(matches[0].relevance, 1234);  // Server-specified.
-  EXPECT_EQ(matches[0].stripped_destination_url, GURL(SAMPLE_STRIPPED_URL));
+  EXPECT_EQ(matches[0].stripped_destination_url, GURL(kSampleStrippedURL));
+  EXPECT_EQ(matches[0].fill_into_edit,
+            base::UTF8ToUTF16(std::string(kSampleOriginalURL)));
 
   EXPECT_EQ(matches[1].contents, u"Document 2 longer title");
   EXPECT_EQ(matches[1].destination_url,
             GURL("https://documentprovider.tld/doc?id=2"));
   EXPECT_EQ(matches[1].relevance, 0);
-  EXPECT_TRUE(matches[1].stripped_destination_url.is_empty());
+  EXPECT_EQ(matches[1].stripped_destination_url,
+            GURL("http://documentprovider.tld/doc?id=2"));
+  EXPECT_EQ(matches[1].fill_into_edit,
+            u"https://documentprovider.tld/doc?id=2");
 
   EXPECT_EQ(matches[2].contents, u"Document 3 longer title");
   EXPECT_EQ(matches[2].destination_url,
@@ -370,11 +379,21 @@ TEST_F(DocumentProviderTest, ParseDocumentSearchResults) {
   // using |AutocompleteMatch::GURLToStrippedGURL()|.
   EXPECT_EQ(matches[2].stripped_destination_url,
             "http://sites.google.com/google.com/abc/def");
+  EXPECT_EQ(matches[2].fill_into_edit,
+            u"http://sites.google.com/google.com/abc/def");
 
   EXPECT_FALSE(provider_->backoff_for_session_);
 }
 
-TEST_F(DocumentProviderTest, ProductDescriptionStringsAndAccessibleLabels) {
+#if BUILDFLAG(IS_IOS) && BUILDFLAG(USE_BLINK)
+#define MAYBE_ProductDescriptionStringsAndAccessibleLabels \
+  DISABLED_ProductDescriptionStringsAndAccessibleLabels
+#else
+#define MAYBE_ProductDescriptionStringsAndAccessibleLabels \
+  ProductDescriptionStringsAndAccessibleLabels
+#endif
+TEST_F(DocumentProviderTest,
+       MAYBE_ProductDescriptionStringsAndAccessibleLabels) {
   // Dates are kept > 1 year in the past since
   // See comments for GenerateLastModifiedString in this file for references.
   const std::string kGoodJSONResponseWithMimeTypes = base::StringPrintf(
@@ -409,7 +428,7 @@ TEST_F(DocumentProviderTest, ProductDescriptionStringsAndAccessibleLabels) {
         }
       ]
      })",
-      SAMPLE_ORIGINAL_URL.c_str());
+      kSampleOriginalURL);
 
   absl::optional<base::Value> response =
       base::JSONReader::Read(kGoodJSONResponseWithMimeTypes);
@@ -502,7 +521,7 @@ TEST_F(DocumentProviderTest, MatchDescriptionString) {
         }
       ]
     })",
-      SAMPLE_ORIGINAL_URL.c_str());
+      kSampleOriginalURL);
 
   absl::optional<base::Value> response =
       base::JSONReader::Read(kGoodJSONResponseWithMimeTypes);
@@ -560,14 +579,14 @@ TEST_F(DocumentProviderTest, ParseDocumentSearchResultsBreakTies) {
         }
       ]
      })",
-      SAMPLE_ORIGINAL_URL.c_str());
+      kSampleOriginalURL);
 
   absl::optional<base::Value> response =
       base::JSONReader::Read(kGoodJSONResponseWithTies);
   ASSERT_TRUE(response);
   ASSERT_TRUE(response->is_dict());
 
-  provider_->input_.UpdateText(u"input", 0, {});
+  provider_->input_.UpdateText(u"document", 0, {});
   ACMatches matches = provider_->ParseDocumentSearchResults(*response);
   EXPECT_EQ(matches.size(), 3u);
 
@@ -577,19 +596,21 @@ TEST_F(DocumentProviderTest, ParseDocumentSearchResultsBreakTies) {
   EXPECT_EQ(matches[0].destination_url,
             GURL("https://documentprovider.tld/doc?id=1"));
   EXPECT_EQ(matches[0].relevance, 1234);  // As the server specified.
-  EXPECT_EQ(matches[0].stripped_destination_url, GURL(SAMPLE_STRIPPED_URL));
+  EXPECT_EQ(matches[0].stripped_destination_url, GURL(kSampleStrippedURL));
 
   EXPECT_EQ(matches[1].contents, u"Document 2");
   EXPECT_EQ(matches[1].destination_url,
             GURL("https://documentprovider.tld/doc?id=2"));
   EXPECT_EQ(matches[1].relevance, 1233);  // Tie demoted
-  EXPECT_TRUE(matches[1].stripped_destination_url.is_empty());
+  EXPECT_EQ(matches[1].stripped_destination_url,
+            GURL("http://documentprovider.tld/doc?id=2"));
 
   EXPECT_EQ(matches[2].contents, u"Document 3");
   EXPECT_EQ(matches[2].destination_url,
             GURL("https://documentprovider.tld/doc?id=3"));
   EXPECT_EQ(matches[2].relevance, 1232);  // Tie demoted, twice.
-  EXPECT_TRUE(matches[2].stripped_destination_url.is_empty());
+  EXPECT_EQ(matches[2].stripped_destination_url,
+            GURL("http://documentprovider.tld/doc?id=3"));
 
   EXPECT_FALSE(provider_->backoff_for_session_);
 }
@@ -621,14 +642,14 @@ TEST_F(DocumentProviderTest, ParseDocumentSearchResultsBreakTiesCascade) {
         }
       ]
      })",
-      SAMPLE_ORIGINAL_URL.c_str());
+      kSampleOriginalURL);
 
   absl::optional<base::Value> response =
       base::JSONReader::Read(kGoodJSONResponseWithTies);
   ASSERT_TRUE(response);
   ASSERT_TRUE(response->is_dict());
 
-  provider_->input_.UpdateText(u"input", 0, {});
+  provider_->input_.UpdateText(u"document", 0, {});
   ACMatches matches = provider_->ParseDocumentSearchResults(*response);
   EXPECT_EQ(matches.size(), 3u);
 
@@ -638,13 +659,14 @@ TEST_F(DocumentProviderTest, ParseDocumentSearchResultsBreakTiesCascade) {
   EXPECT_EQ(matches[0].destination_url,
             GURL("https://documentprovider.tld/doc?id=1"));
   EXPECT_EQ(matches[0].relevance, 1234);  // As the server specified.
-  EXPECT_EQ(matches[0].stripped_destination_url, GURL(SAMPLE_STRIPPED_URL));
+  EXPECT_EQ(matches[0].stripped_destination_url, GURL(kSampleStrippedURL));
 
   EXPECT_EQ(matches[1].contents, u"Document 2");
   EXPECT_EQ(matches[1].destination_url,
             GURL("https://documentprovider.tld/doc?id=2"));
   EXPECT_EQ(matches[1].relevance, 1233);  // Tie demoted
-  EXPECT_TRUE(matches[1].stripped_destination_url.is_empty());
+  EXPECT_EQ(matches[1].stripped_destination_url,
+            GURL("http://documentprovider.tld/doc?id=2"));
 
   EXPECT_EQ(matches[2].contents, u"Document 3");
   EXPECT_EQ(matches[2].destination_url,
@@ -652,7 +674,8 @@ TEST_F(DocumentProviderTest, ParseDocumentSearchResultsBreakTiesCascade) {
   // Document 2's demotion caused an implicit tie.
   // Ensure we demote this one as well.
   EXPECT_EQ(matches[2].relevance, 1232);
-  EXPECT_TRUE(matches[2].stripped_destination_url.is_empty());
+  EXPECT_EQ(matches[2].stripped_destination_url,
+            GURL("http://documentprovider.tld/doc?id=3"));
 
   EXPECT_FALSE(provider_->backoff_for_session_);
 }
@@ -684,7 +707,7 @@ TEST_F(DocumentProviderTest, ParseDocumentSearchResultsBreakTiesZeroLimit) {
         }
       ]
      })",
-      SAMPLE_ORIGINAL_URL.c_str());
+      kSampleOriginalURL);
 
   absl::optional<base::Value> response =
       base::JSONReader::Read(kGoodJSONResponseWithTies);
@@ -701,20 +724,22 @@ TEST_F(DocumentProviderTest, ParseDocumentSearchResultsBreakTiesZeroLimit) {
   EXPECT_EQ(matches[0].destination_url,
             GURL("https://documentprovider.tld/doc?id=1"));
   EXPECT_EQ(matches[0].relevance, 1);  // As the server specified.
-  EXPECT_EQ(matches[0].stripped_destination_url, GURL(SAMPLE_STRIPPED_URL));
+  EXPECT_EQ(matches[0].stripped_destination_url, GURL(kSampleStrippedURL));
 
   EXPECT_EQ(matches[1].contents, u"Document 2");
   EXPECT_EQ(matches[1].destination_url,
             GURL("https://documentprovider.tld/doc?id=2"));
   EXPECT_EQ(matches[1].relevance, 0);  // Tie demoted
-  EXPECT_TRUE(matches[1].stripped_destination_url.is_empty());
+  EXPECT_EQ(matches[1].stripped_destination_url,
+            GURL("http://documentprovider.tld/doc?id=2"));
 
   EXPECT_EQ(matches[2].contents, u"Document 3");
   EXPECT_EQ(matches[2].destination_url,
             GURL("https://documentprovider.tld/doc?id=3"));
   // Tie is demoted further.
   EXPECT_EQ(matches[2].relevance, 0);
-  EXPECT_TRUE(matches[2].stripped_destination_url.is_empty());
+  EXPECT_EQ(matches[2].stripped_destination_url,
+            GURL("http://documentprovider.tld/doc?id=3"));
 
   EXPECT_FALSE(provider_->backoff_for_session_);
 }
@@ -743,9 +768,8 @@ TEST_F(DocumentProviderTest, ParseDocumentSearchResultsWithBadResponse) {
   EXPECT_FALSE(provider_->backoff_for_session_);
 }
 
-// This test is affected by an iOS 10 simulator bug: https://crbug.com/782033
-// and may get wrong timezone on Win7: https://crbug.com/856119
-#if !BUILDFLAG(IS_IOS) && !BUILDFLAG(IS_WIN)
+// This test is affected by an iOS 10 simulator bug: https://crbug.com/782033.
+#if !BUILDFLAG(IS_IOS)
 TEST_F(DocumentProviderTest, GenerateLastModifiedString) {
   base::Time::Exploded local_exploded = {0};
   local_exploded.year = 2018;
@@ -763,13 +787,13 @@ TEST_F(DocumentProviderTest, GenerateLastModifiedString) {
 
   // GenerateLastModifiedString should accept any parsable timestamp, but use
   // ISO8601 UTC timestamp strings since the service returns them in practice.
-  EXPECT_EQ(DocumentProvider::GenerateLastModifiedString(
+  EXPECT_EQ(FakeDocumentProvider::GenerateLastModifiedString(
                 base::TimeToISO8601(modified_today), local_now),
-            u"2:18 AM");
-  EXPECT_EQ(DocumentProvider::GenerateLastModifiedString(
+            u"2:18\u202FAM");
+  EXPECT_EQ(FakeDocumentProvider::GenerateLastModifiedString(
                 base::TimeToISO8601(modified_this_year), local_now),
             u"Aug 19");
-  EXPECT_EQ(DocumentProvider::GenerateLastModifiedString(
+  EXPECT_EQ(FakeDocumentProvider::GenerateLastModifiedString(
                 base::TimeToISO8601(modified_last_year), local_now),
             u"8/27/17");
 }
@@ -910,7 +934,7 @@ TEST_F(DocumentProviderTest, Scoring) {
           {"title": "Document 2", "score": 900, "url": "url"},
           {"title": "Document 3", "score": 900, "url": "url"}
         ]})",
-      "input", {1000, 900, 899});
+      "document", {1000, 900, 899});
 
   // Server scoring with rank caps.
   CheckScoring(
@@ -925,7 +949,7 @@ TEST_F(DocumentProviderTest, Scoring) {
           {"title": "Document 2", "score": 1150, "url": "url"},
           {"title": "Document 3", "score": 1150, "url": "url"}
         ]})",
-      "input", {1150, 1100, 900});
+      "document", {1150, 1100, 900});
 
   // Server scoring with owner boosting.
   CheckScoring(
@@ -937,11 +961,14 @@ TEST_F(DocumentProviderTest, Scoring) {
       },
       R"({"results": [
           {"title": "Document 1", "score": 1150, "url": "url",
-            "metadata": {"owner": {"emailAddresses": [{"emailAddress": ""}]}}},
+            "metadata": {"owner": {"emailAddresses":
+              [{"emailAddress": "GoodemaiL@gmail.com"}]
+            }}},
           {"title": "Document 2", "score": 1150, "url": "url"},
-          {"title": "Document 3", "score": 1150, "url": "url"}
+          {"title": "Document 3", "score": 1150, "url": "url",
+            "metadata": {"owner": {"emailAddresses": [{}] }} }
         ]})",
-      "input", {1150, 950, 949});
+      "document", {1150, 950, 949});
 
   // Client scoring should match each input word at most once.
   CheckScoring(
@@ -958,22 +985,6 @@ TEST_F(DocumentProviderTest, Scoring) {
             "snippet": {"snippet": "bows bows"}}
         ]})",
       "bows", {0, 669, 669});
-
-  // Client scoring should consider snippet but not URL matches.
-  CheckScoring(
-      {
-          {"DocumentUseServerScore", "false"},
-          {"DocumentUseClientScore", "true"},
-          {"DocumentCapScorePerRank", "false"},
-          {"DocumentBoostOwned", "false"},
-      },
-      R"({"results": [
-          {"title": "rainbow", "score": 1000, "url": "url"},
-          {"title": "rainbow", "score": 900, "url": "bow"},
-          {"title": "rainbow", "score": 900, "url": "bow",
-            "snippet": {"snippet": "bow bow"}}
-        ]})",
-      "rain bow", {669, 669, 793});
 
   // Client scoring should break user input on colon.
   CheckScoring(
@@ -1110,7 +1121,7 @@ TEST_F(DocumentProviderTest, CachingForSyncMatches) {
 
   AutocompleteInput input(u"document", metrics::OmniboxEventProto::OTHER,
                           TestSchemeClassifier());
-  input.set_want_asynchronous_matches(false);
+  input.set_omit_asynchronous_matches(true);
 
   // Expect sync matches to be scored.
   // Fill cache.
@@ -1154,9 +1165,157 @@ TEST_F(DocumentProviderTest, StartCallsStop) {
 
   AutocompleteInput invalid_input(u"12", metrics::OmniboxEventProto::OTHER,
                                   TestSchemeClassifier());
-  invalid_input.set_want_asynchronous_matches(true);
+  invalid_input.set_omit_asynchronous_matches(false);
 
   provider_->done_ = false;
   provider_->Start(invalid_input, false);
   EXPECT_TRUE(provider_->done());
+}
+
+TEST_F(DocumentProviderTest, Logging) {
+  // The code flow is:
+  // 1) `Start()` is invoked when document matches are desired.
+  // 2) `Run()` is invoked from `Start()` after a potential debouncing delay.
+  // 3) A request is asyncly made to the document backend once an auth token is
+  //    ready.
+  // 4) A response is asyncly received from the document backend.
+  // At any point, the chain of events can be interrupted by a `Stop()`
+  // invocation; usually when there's a new input.
+  // The below 3 cases test the logged histograms when `Stop()` is invoked after
+  // steps 1, 2, and 3.
+
+  {
+    SCOPED_TRACE("Case: Stop() before Run().");
+    base::HistogramTester histogram_tester;
+    provider_->Stop(false, false);
+    histogram_tester.ExpectTotalCount("Omnibox.DocumentSuggest.Requests", 0);
+    histogram_tester.ExpectTotalCount("Omnibox.DocumentSuggest.TotalTime", 0);
+    histogram_tester.ExpectTotalCount(
+        "Omnibox.DocumentSuggest.TotalTime.Interrupted", 0);
+    histogram_tester.ExpectTotalCount(
+        "Omnibox.DocumentSuggest.TotalTime.NotInterrupted", 0);
+    histogram_tester.ExpectTotalCount("Omnibox.DocumentSuggest.RequestTime", 0);
+    histogram_tester.ExpectTotalCount(
+        "Omnibox.DocumentSuggest.RequestTime.Interrupted", 0);
+    histogram_tester.ExpectTotalCount(
+        "Omnibox.DocumentSuggest.RequestTime.NotInterrupted", 0);
+  }
+
+  {
+    SCOPED_TRACE("Case: Stop() before request.");
+    base::HistogramTester histogram_tester;
+    provider_->time_run_invoked_ = base::TimeTicks::Now();
+    provider_->Stop(false, false);
+    histogram_tester.ExpectTotalCount("Omnibox.DocumentSuggest.Requests", 0);
+    histogram_tester.ExpectTotalCount("Omnibox.DocumentSuggest.TotalTime", 1);
+    histogram_tester.ExpectTotalCount(
+        "Omnibox.DocumentSuggest.TotalTime.Interrupted", 1);
+    histogram_tester.ExpectTotalCount(
+        "Omnibox.DocumentSuggest.TotalTime.NotInterrupted", 0);
+    histogram_tester.ExpectTotalCount("Omnibox.DocumentSuggest.RequestTime", 0);
+    histogram_tester.ExpectTotalCount(
+        "Omnibox.DocumentSuggest.RequestTime.Interrupted", 0);
+    histogram_tester.ExpectTotalCount(
+        "Omnibox.DocumentSuggest.RequestTime.NotInterrupted", 0);
+  }
+
+  {
+    SCOPED_TRACE("Case: Stop() before response.");
+    base::HistogramTester histogram_tester;
+    provider_->time_run_invoked_ = base::TimeTicks::Now();
+    provider_->OnDocumentSuggestionsLoaderAvailable(
+        network::SimpleURLLoader::Create(
+            std::make_unique<network::ResourceRequest>(),
+            net::DefineNetworkTrafficAnnotation("test", "test")));
+    provider_->Stop(false, false);
+    histogram_tester.ExpectTotalCount("Omnibox.DocumentSuggest.Requests", 2);
+    histogram_tester.ExpectBucketCount("Omnibox.DocumentSuggest.Requests", 1,
+                                       1);
+    histogram_tester.ExpectBucketCount("Omnibox.DocumentSuggest.Requests", 2,
+                                       1);
+    histogram_tester.ExpectTotalCount("Omnibox.DocumentSuggest.TotalTime", 1);
+    histogram_tester.ExpectTotalCount(
+        "Omnibox.DocumentSuggest.TotalTime.Interrupted", 1);
+    histogram_tester.ExpectTotalCount(
+        "Omnibox.DocumentSuggest.TotalTime.NotInterrupted", 0);
+    histogram_tester.ExpectTotalCount("Omnibox.DocumentSuggest.RequestTime", 1);
+    histogram_tester.ExpectTotalCount(
+        "Omnibox.DocumentSuggest.RequestTime.Interrupted", 1);
+    histogram_tester.ExpectTotalCount(
+        "Omnibox.DocumentSuggest.RequestTime.NotInterrupted", 0);
+  }
+
+  // It's difficult to simulate a completed `SimpleURLLoader` response, so we
+  // don't test the "Case: Stop() after response" or "Case: No Stop()."
+}
+
+TEST_F(DocumentProviderTest, LowQualitySuggestions) {
+  auto test = [&](const std::string& response_str,
+                  const std::string& input_text,
+                  const std::vector<int> expected_scores) {
+    absl::optional<base::Value> response = base::JSONReader::Read(response_str);
+    provider_->input_.UpdateText(base::UTF8ToUTF16(input_text), 0, {});
+    ACMatches matches = provider_->ParseDocumentSearchResults(*response);
+
+    ASSERT_EQ(matches.size(), expected_scores.size());
+    for (size_t i = 0; i < matches.size(); i++)
+      EXPECT_EQ(matches[i].relevance, expected_scores[i]) << "Match " << i;
+  };
+
+  {
+    SCOPED_TRACE(
+        "Unowned and non-title matching docs are limited. Title matching docs "
+        "are not limited.");
+    test(R"({"results": [
+          {"title": "bad title1 title2",  "score": 1000, "url": "good url isn't sufficient"},
+          {"title": "bad title1 title2",  "score": 999,  "url": "url"},
+          {"title": "bad title1 title2",  "score": 998,  "url": "url"},
+          {"title": "goOd tItLE1 title2", "score": 997,  "url": "url"},
+          {"title": "good title1 title2", "score": 996,  "url": "url"},
+          {"title": "good title1 title2", "score": 995,  "url": "url"},
+          {"title": "good title1 title2", "score": 994,  "url": "url"}
+        ]})",
+         // - 'goo': prefix matches are ok.
+         // - 'title1': all input terms must be in the title or owner, but not
+         //   all title terms must be in the input (e.g. 'title2').
+         // - "goOd tItLE1 title2": Case insensitive.
+         "gOo Title1", {1000, 0, 0, 997, 996, 995, 994});
+  }
+
+  {
+    SCOPED_TRACE("Owned docs are not limited.");
+    test(
+        R"({"results": [
+          {"title": "bad title1 title2",  "score": 1000, "url": "good url isn't sufficient"},
+          {"title": "bad title1 title2",  "score": 999,  "url": "url"},
+          {"title": "bad title1 title2",  "score": 998,  "url": "url", "metadata": {"owner": {"emailAddresses": [{"emailAddress": "badEmail1@gmail.com"}, {"emailAddress": "gOOdemaIl@gmail.com"}]}}},
+          {"title": "bad title1 title2",  "score": 997,  "url": "url", "metadata": {"owner": {"emailAddresses": [{"emailAddress": "badEmail2@gmail.com"}]}}},
+          {"title": "good title1 title2", "score": 996,  "url": "url"},
+          {"title": "good title1 title2", "score": 995,  "url": "url"},
+          {"title": "good title1 title2", "score": 994,  "url": "url"}
+        ]})",
+        "goo title1", {1000, 0, 998, 0, 996, 995, 994});
+  }
+
+  {
+    SCOPED_TRACE("Responses with missing owner don't crash and are limited.");
+    test(R"({"results": [
+            {"title": "title", "score": 1000,  "url": "url", "metadata":
+              { "owner": { "emailAddresses": [{}] } }
+            },
+            {"title": "title", "score": 999,  "url": "url", "metadata":
+              { "owner": { "emailAddresses": [{}] } }
+            },
+            {"title": "title", "score": 998,  "url": "url", "metadata":
+              { "owner": { "emailAddresses": [] } }
+            },
+            {"title": "title", "score": 997,  "url": "url", "metadata":
+              { "owner": {} }
+            },
+            {"title": "title", "score": 996,  "url": "url", "metadata": {}},
+            {"title": "title", "score": 995,  "url": "url"},
+            {}
+          ]})",
+         "input", {1000, 0, 0, 0, 0, 0});
+  }
 }

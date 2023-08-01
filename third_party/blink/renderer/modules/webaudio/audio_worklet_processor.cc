@@ -1,8 +1,10 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/modules/webaudio/audio_worklet_processor.h"
+
+#include <memory>
 
 #include "third_party/blink/renderer/bindings/core/v8/worker_or_worklet_script_controller.h"
 #include "third_party/blink/renderer/bindings/modules/v8/v8_blink_audio_worklet_process_callback.h"
@@ -12,20 +14,29 @@
 #include "third_party/blink/renderer/modules/webaudio/audio_worklet_global_scope.h"
 #include "third_party/blink/renderer/modules/webaudio/audio_worklet_processor_definition.h"
 #include "third_party/blink/renderer/platform/audio/audio_bus.h"
+#include "third_party/blink/renderer/platform/instrumentation/instance_counters.h"
 #include "third_party/blink/renderer/platform/instrumentation/tracing/trace_event.h"
 
 namespace blink {
 
 AudioWorkletProcessor* AudioWorkletProcessor::Create(
-    ExecutionContext* context) {
+    ExecutionContext* context,
+    ExceptionState& exception_state) {
   AudioWorkletGlobalScope* global_scope = To<AudioWorkletGlobalScope>(context);
   DCHECK(global_scope);
   DCHECK(global_scope->IsContextThread());
 
   // Get the stored initialization parameter from the global scope.
-  ProcessorCreationParams* params = global_scope->GetProcessorCreationParams();
-  DCHECK(params);
+  std::unique_ptr<ProcessorCreationParams> params =
+      global_scope->GetProcessorCreationParams();
 
+  // `params` can be null if there's no matching AudioWorkletNode instance.
+  // (e.g. invoking AudioWorkletProcessor directly in AudioWorkletGlobalScope)
+  if (!params) {
+    exception_state.ThrowTypeError(
+        "Illegal invocation of AudioWorkletProcessor constructor.");
+    return nullptr;
+  }
   auto* port = MakeGarbageCollected<MessagePort>(*global_scope);
   port->Entangle(std::move(params->PortChannel()));
   return MakeGarbageCollected<AudioWorkletProcessor>(global_scope,
@@ -36,7 +47,15 @@ AudioWorkletProcessor::AudioWorkletProcessor(
     AudioWorkletGlobalScope* global_scope,
     const String& name,
     MessagePort* port)
-    : global_scope_(global_scope), processor_port_(port), name_(name) {}
+    : global_scope_(global_scope), processor_port_(port), name_(name) {
+  InstanceCounters::IncrementCounter(
+      InstanceCounters::kAudioWorkletProcessorCounter);
+}
+
+AudioWorkletProcessor::~AudioWorkletProcessor() {
+  InstanceCounters::DecrementCounter(
+      InstanceCounters::kAudioWorkletProcessorCounter);
+}
 
 bool AudioWorkletProcessor::Process(
     const Vector<scoped_refptr<AudioBus>>& inputs,
@@ -54,11 +73,12 @@ bool AudioWorkletProcessor::Process(
   v8::Isolate* isolate = script_state->GetIsolate();
   v8::Local<v8::Context> context = script_state->GetContext();
   v8::MicrotasksScope microtasks_scope(
-      isolate, v8::MicrotasksScope::kDoNotRunMicrotasks);
+      isolate, ToMicrotaskQueue(script_state),
+      v8::MicrotasksScope::kDoNotRunMicrotasks);
   AudioWorkletProcessorDefinition* definition =
       global_scope_->FindDefinition(Name());
 
-  // 1st JS arg |inputs_|. Compare |inputs| and |inputs_|. Then allocates the
+  // 1st JS arg `inputs_`. Compare `inputs` and `inputs_`. Then allocates the
   // data container if necessary.
   if (!PortTopologyMatches(isolate, context, inputs, inputs_)) {
     bool inputs_cloned_successfully =
@@ -74,10 +94,10 @@ bool AudioWorkletProcessor::Process(
   DCHECK_EQ(inputs_.Get(isolate)->Length(), inputs.size());
   DCHECK_EQ(input_array_buffers_.size(), inputs.size());
 
-  // Copies |inputs| to the internal |input_array_buffers|.
+  // Copies `inputs` to the internal `input_array_buffers_`.
   CopyPortToArrayBuffers(isolate, inputs, input_array_buffers_);
 
-  // 2nd JS arg |outputs_|. Compare |outputs| and |outputs_|. Then allocates the
+  // 2nd JS arg `outputs_`. Compare `outputs` and `outputs_`. Then allocates the
   // data container if necessary.
   if (!PortTopologyMatches(isolate, context, outputs, outputs_)) {
     bool outputs_cloned_successfully =
@@ -97,7 +117,7 @@ bool AudioWorkletProcessor::Process(
   DCHECK_EQ(outputs_.Get(isolate)->Length(), outputs.size());
   DCHECK_EQ(output_array_buffers_.size(), outputs.size());
 
-  // 3rd JS arg |params_|. Compare |param_value_map| and |params_|. Then
+  // 3rd JS arg `params_`. Compare `param_value_map` and `params_`. Then
   // allocates the data container if necessary.
   if (!ParamValueMapMatchesToParamsObject(isolate, context, param_value_map,
                                           params_)) {
@@ -111,7 +131,7 @@ bool AudioWorkletProcessor::Process(
   DCHECK(!params_.IsEmpty());
   DCHECK(params_.Get(isolate)->IsObject());
 
-  // Copies |param_value_map| to the internal |params_| object. This operation
+  // Copies `param_value_map` to the internal `params_` object. This operation
   // could fail if the getter of parameterDescriptors is overridden by user code
   // and returns incompatible data. (crbug.com/1151069)
   if (!CopyParamValueMapToObject(isolate, context, param_value_map, params_)) {
@@ -138,10 +158,10 @@ bool AudioWorkletProcessor::Process(
   }
   DCHECK(!try_catch.HasCaught());
 
-  // Copies the resulting output from author script to |outputs|.
+  // Copies the resulting output from author script to `outputs`.
   CopyArrayBuffersToPort(isolate, output_array_buffers_, outputs);
 
-  // Return the value from the user-supplied |process()| function. It is
+  // Return the value from the user-supplied `.process()` function. It is
   // used to maintain the lifetime of the node and the processor.
   return result.V8Value()->IsTrue();
 }
@@ -403,13 +423,12 @@ bool AudioWorkletProcessor::ParamValueMapMatchesToParamsObject(
   v8::Local<v8::Object> params_object = params.Get(isolate);
 
   for (const auto& entry : param_value_map) {
-    const String param_name = entry.key.IsolatedCopy();
+    const String param_name = entry.key;
     const auto* param_float_array = entry.value.get();
     v8::Local<v8::String> v8_param_name = V8String(isolate, param_name);
 
     // TODO(crbug.com/1095113): Remove this check and move the logic to
-    // AudioWorkletHandler. |param_float_array| is always 128 frames, and this
-    // could be optimized as well.
+    // AudioWorkletHandler.
     unsigned array_size = 1;
     for (unsigned k = 1; k < param_float_array->size(); ++k) {
       if (param_float_array->Data()[k] != param_float_array->Data()[0]) {
@@ -418,7 +437,7 @@ bool AudioWorkletProcessor::ParamValueMapMatchesToParamsObject(
       }
     }
 
-    // The |param_name| should exist in the |param| object.
+    // The `param_name` should exist in the `param` object.
     v8::Local<v8::Value> param_array_value;
     if (!params_object->Get(context, v8_param_name)
              .ToLocal(&param_array_value) ||
@@ -453,13 +472,12 @@ bool AudioWorkletProcessor::CloneParamValueMapToObject(
   v8::Local<v8::Object> new_params_object = v8::Object::New(isolate);
 
   for (const auto& entry : param_value_map) {
-    const String param_name = entry.key.IsolatedCopy();
+    const String param_name = entry.key;
     const auto* param_float_array = entry.value.get();
     v8::Local<v8::String> v8_param_name = V8String(isolate, param_name);
 
     // TODO(crbug.com/1095113): Remove this check and move the logic to
-    // AudioWorkletHandler. |param_float_array| is always 128 frames, and this
-    // could be optimized as well.
+    // AudioWorkletHandler.
     unsigned array_size = 1;
     for (unsigned k = 1; k < param_float_array->size(); ++k) {
       if (param_float_array->Data()[k] != param_float_array->Data()[0]) {
@@ -502,7 +520,7 @@ bool AudioWorkletProcessor::CopyParamValueMapToObject(
   v8::Local<v8::Object> params_object = params.Get(isolate);
 
   for (const auto& entry : param_value_map) {
-    const String param_name = entry.key.IsolatedCopy();
+    const String param_name = entry.key;
     const AudioFloatArray* param_array = entry.value.get();
 
     v8::Local<v8::Value> param_array_value;
@@ -516,7 +534,7 @@ bool AudioWorkletProcessor::CopyParamValueMapToObject(
         param_array_value.As<v8::Float32Array>();
     size_t array_length = float32_array->Length();
 
-    // The |float32_array| is neither 1 nor 128 frames, or the array buffer is
+    // The `float32_array` is neither 1 nor 128 frames, or the array buffer is
     // trasnferred/detached, do not proceed.
     if ((array_length != 1 && array_length != param_array->size()) ||
         float32_array->Buffer()->ByteLength() == 0) {

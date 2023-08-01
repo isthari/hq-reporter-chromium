@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,8 +14,14 @@ public class InterceptNavigationDelegateTabHelper implements UserData {
     private static final Class<InterceptNavigationDelegateTabHelper> USER_DATA_KEY =
             InterceptNavigationDelegateTabHelper.class;
 
-    private final InterceptNavigationDelegateImpl mInterceptNavigationDelegate;
-    private final InterceptNavigationDelegateClientImpl mInterceptNavigationDelegateClient;
+    private InterceptNavigationDelegateImpl mInterceptNavigationDelegate;
+    private InterceptNavigationDelegateClientImpl mInterceptNavigationDelegateClient;
+
+    public static void setDelegateForTesting(Tab tab, InterceptNavigationDelegateImpl delegate) {
+        InterceptNavigationDelegateTabHelper helper =
+                tab.getUserDataHost().getUserData(USER_DATA_KEY);
+        helper.mInterceptNavigationDelegate = delegate;
+    }
 
     public static void createForTab(Tab tab) {
         assert get(tab) == null;

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,56 +14,132 @@ namespace permissions {
 namespace features {
 
 COMPONENT_EXPORT(PERMISSIONS_COMMON)
-extern const base::Feature kBlockPromptsIfDismissedOften;
+BASE_DECLARE_FEATURE(kBlockPromptsIfDismissedOften);
 
 COMPONENT_EXPORT(PERMISSIONS_COMMON)
-extern const base::Feature kBlockPromptsIfIgnoredOften;
+BASE_DECLARE_FEATURE(kBlockPromptsIfIgnoredOften);
 
 COMPONENT_EXPORT(PERMISSIONS_COMMON)
-extern const base::Feature kBlockRepeatedNotificationPermissionPrompts;
+BASE_DECLARE_FEATURE(kBlockRepeatedAutoReauthnPrompts);
 
 COMPONENT_EXPORT(PERMISSIONS_COMMON)
-extern const base::Feature kOneTimeGeolocationPermission;
+BASE_DECLARE_FEATURE(kBlockRepeatedNotificationPermissionPrompts);
+
+COMPONENT_EXPORT(PERMISSIONS_COMMON) BASE_DECLARE_FEATURE(kConfirmationChip);
 
 COMPONENT_EXPORT(PERMISSIONS_COMMON)
-extern const base::Feature kPermissionChip;
+BASE_DECLARE_FEATURE(kChipLocationBarIconOverride);
 
 COMPONENT_EXPORT(PERMISSIONS_COMMON)
-extern const base::Feature kPermissionQuietChip;
+BASE_DECLARE_FEATURE(kNotificationInteractionHistory);
 
 COMPONENT_EXPORT(PERMISSIONS_COMMON)
-extern const base::Feature kPermissionChipAutoDismiss;
+BASE_DECLARE_FEATURE(kOneTimePermission);
+
+COMPONENT_EXPORT(PERMISSIONS_COMMON) BASE_DECLARE_FEATURE(kPermissionChip);
+
+COMPONENT_EXPORT(PERMISSIONS_COMMON) BASE_DECLARE_FEATURE(kPermissionQuietChip);
 
 COMPONENT_EXPORT(PERMISSIONS_COMMON)
-extern const base::FeatureParam<int> kPermissionChipAutoDismissDelay;
+BASE_DECLARE_FEATURE(kFailFastQuietChip);
 
 COMPONENT_EXPORT(PERMISSIONS_COMMON)
-extern const base::Feature kPermissionChipGestureSensitive;
+BASE_DECLARE_FEATURE(kPermissionPredictionServiceUseUrlOverride);
 
 COMPONENT_EXPORT(PERMISSIONS_COMMON)
-extern const base::Feature kPermissionChipRequestTypeSensitive;
+BASE_DECLARE_FEATURE(kPermissionOnDeviceNotificationPredictions);
 
 COMPONENT_EXPORT(PERMISSIONS_COMMON)
-extern const base::Feature kPermissionChipIsProminentStyle;
+BASE_DECLARE_FEATURE(kPermissionOnDeviceGeolocationPredictions);
+
+#if BUILDFLAG(IS_ANDROID)
 
 COMPONENT_EXPORT(PERMISSIONS_COMMON)
-extern const base::Feature kPermissionPredictionServiceUseUrlOverride;
+BASE_DECLARE_FEATURE(kBlockNotificationPromptsIfDisabledOnAppLevel);
+
+#else
 
 COMPONENT_EXPORT(PERMISSIONS_COMMON)
-extern const base::Feature kPermissionOnDeviceNotificationPredictions;
+BASE_DECLARE_FEATURE(kPermissionsPromptSurvey);
+
+COMPONENT_EXPORT(PERMISSIONS_COMMON)
+BASE_DECLARE_FEATURE(kRecordPermissionExpirationTimestamps);
+
+#endif  // BUILDFLAG(IS_ANDROID)
+
+COMPONENT_EXPORT(PERMISSIONS_COMMON)
+BASE_DECLARE_FEATURE(kPermissionStorageAccessAPI);
+
+COMPONENT_EXPORT(PERMISSIONS_COMMON)
+BASE_DECLARE_FEATURE(kWindowManagementPermissionAlias);
+
+COMPONENT_EXPORT(PERMISSIONS_COMMON)
+BASE_DECLARE_FEATURE(kBlockMidiByDefault);
 
 }  // namespace features
 namespace feature_params {
 
 COMPONENT_EXPORT(PERMISSIONS_COMMON)
-extern const base::FeatureParam<bool> kOkButtonBehavesAsAllowAlways;
+extern const base::FeatureParam<bool> kUseStrongerPromptLanguage;
+
+COMPONENT_EXPORT(PERMISSIONS_COMMON)
+extern const base::FeatureParam<base::TimeDelta> kOneTimePermissionTimeout;
 
 COMPONENT_EXPORT(PERMISSIONS_COMMON)
 extern const base::FeatureParam<std::string>
     kPermissionPredictionServiceUrlOverride;
 
 COMPONENT_EXPORT(PERMISSIONS_COMMON)
-extern const base::FeatureParam<bool> kPermissionPredictionServiceUseJson;
+extern const base::FeatureParam<double>
+    kPermissionOnDeviceGeolocationPredictionsHoldbackChance;
+
+COMPONENT_EXPORT(PERMISSIONS_COMMON)
+extern const base::FeatureParam<double>
+    kPermissionOnDeviceNotificationPredictionsHoldbackChance;
+
+#if !BUILDFLAG(IS_ANDROID)
+COMPONENT_EXPORT(PERMISSIONS_COMMON)
+extern const base::FeatureParam<std::string> kPermissionsPromptSurveyTriggerId;
+
+COMPONENT_EXPORT(PERMISSIONS_COMMON)
+extern const base::FeatureParam<std::string>
+    kPermissionsPromptSurveyDisplayTime;
+
+COMPONENT_EXPORT(PERMISSIONS_COMMON)
+extern const base::FeatureParam<std::string> kProbabilityVector;
+
+COMPONENT_EXPORT(PERMISSIONS_COMMON)
+extern const base::FeatureParam<std::string>
+    kPermissionsPromptSurveyRequestTypeFilter;
+
+COMPONENT_EXPORT(PERMISSIONS_COMMON)
+extern const base::FeatureParam<std::string>
+    kPermissionsPromptSurveyActionFilter;
+
+COMPONENT_EXPORT(PERMISSIONS_COMMON)
+extern const base::FeatureParam<std::string>
+    kPermissionsPromptSurveyHadGestureFilter;
+
+COMPONENT_EXPORT(PERMISSIONS_COMMON)
+extern const base::FeatureParam<std::string>
+    kPermissionsPromptSurveyPromptDispositionFilter;
+
+COMPONENT_EXPORT(PERMISSIONS_COMMON)
+extern const base::FeatureParam<std::string>
+    kPermissionsPromptSurveyPromptDispositionReasonFilter;
+
+COMPONENT_EXPORT(PERMISSIONS_COMMON)
+extern const base::FeatureParam<std::string>
+    kPermissionPromptSurveyReleaseChannelFilter;
+
+COMPONENT_EXPORT(PERMISSIONS_COMMON)
+extern const base::FeatureParam<base::TimeDelta>
+    kPermissionPromptSurveyIgnoredPromptsMaximumAge;
+
+COMPONENT_EXPORT(PERMISSIONS_COMMON)
+extern const base::FeatureParam<std::string>
+    kPermissionPromptSurveyOneTimePromptsDecidedBucket;
+#endif
 
 }  // namespace feature_params
 }  // namespace permissions

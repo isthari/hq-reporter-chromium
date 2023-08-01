@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -100,7 +100,6 @@ class TextSuggestionHostAndroid : public RenderWidgetHostConnector {
   // Used by the spell check menu timer to notify Blink that the timer has
   // expired.
   void OnSuggestionMenuTimeout();
-  double DpToPxIfNeeded(double value);
 
   // Current RenderWidgetHostView connected to this instance. Can be null.
   raw_ptr<RenderWidgetHostViewAndroid> rwhva_;

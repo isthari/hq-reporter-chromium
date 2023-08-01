@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,9 +34,7 @@ namespace {
 display::ManagedDisplayInfo CreateDisplayInfo(int64_t id,
                                               const gfx::Rect& bounds,
                                               float scale = 1.f) {
-  display::ManagedDisplayInfo info(
-      id, base::StringPrintf("x-%d", static_cast<int>(id)), false);
-  info.SetBounds(bounds);
+  display::ManagedDisplayInfo info = display::CreateDisplayInfo(id, bounds);
   info.set_device_scale_factor(scale);
   return info;
 }

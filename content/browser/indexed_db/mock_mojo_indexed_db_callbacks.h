@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,9 +36,6 @@ class MockMojoIndexedDBCallbacks : public blink::mojom::IDBCallbacks {
   MOCK_METHOD2(Error,
                void(blink::mojom::IDBException code,
                     const std::u16string& message));
-
-  MOCK_METHOD1(SuccessNamesAndVersionsList,
-               void(std::vector<blink::mojom::IDBNameAndVersionPtr> list));
 
   MOCK_METHOD1(SuccessStringList,
                void(const std::vector<std::u16string>& value));

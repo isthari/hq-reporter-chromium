@@ -1,8 +1,9 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/webui/web_applications/test/sandboxed_web_ui_test_base.h"
+#include "base/memory/raw_ptr.h"
 
 #include <vector>
 
@@ -12,6 +13,7 @@
 #include "base/files/file_util.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/path_service.h"
+#include "base/strings/stringprintf.h"
 #include "base/test/scoped_run_loop_timeout.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/thread_restrictions.h"
@@ -36,7 +38,8 @@ void HandleTestFileRequestCallback(
   std::string contents;
   CHECK(base::ReadFileToString(test_file_path, &contents)) << test_file_path;
 
-  std::move(callback).Run(base::RefCountedString::TakeString(&contents));
+  std::move(callback).Run(
+      base::MakeRefCounted<base::RefCountedString>(std::move(contents)));
 }
 
 bool TestRequestHandlerShouldHandleRequest(
@@ -45,8 +48,10 @@ bool TestRequestHandlerShouldHandleRequest(
   return base::Contains(test_paths, path);
 }
 
-std::string DefaultScriptTimeoutLog(const std::string& script) {
-  return script;
+std::string DefaultScriptTimeoutLog(const std::string& script,
+                                    const base::TimeDelta& timeout) {
+  return base::StringPrintf("Hit timeout of %fs:\n", timeout.InSecondsF()) +
+         script;
 }
 
 }  // namespace
@@ -75,10 +80,7 @@ class SandboxedWebUiAppTestBase::TestCodeInjector
                    owner_->scripts_.end());
 
     for (const auto& script : scripts) {
-      // Use ExecuteScript(), not ExecJs(), because of Content Security Policy
-      // directive: "script-src chrome://resources 'self'"
-      ASSERT_TRUE(
-          content::ExecuteScript(guest_frame, LoadJsTestLibrary(script)));
+      ASSERT_TRUE(content::ExecJs(guest_frame, LoadJsTestLibrary(script)));
     }
     if (!owner_->test_module_.empty()) {
       constexpr char kScript[] = R"(
@@ -89,7 +91,7 @@ class SandboxedWebUiAppTestBase::TestCodeInjector
             document.body.appendChild(s);
           })();
       )";
-      ASSERT_TRUE(content::ExecuteScript(
+      ASSERT_TRUE(content::ExecJs(
           guest_frame, base::ReplaceStringPlaceholders(
                            kScript, {owner_->test_module_}, nullptr)));
     }
@@ -97,7 +99,7 @@ class SandboxedWebUiAppTestBase::TestCodeInjector
   }
 
  private:
-  SandboxedWebUiAppTestBase* const owner_;
+  const raw_ptr<SandboxedWebUiAppTestBase, ExperimentalAsh> owner_;
 };
 
 SandboxedWebUiAppTestBase::SandboxedWebUiAppTestBase(
@@ -152,9 +154,10 @@ content::EvalJsResult SandboxedWebUiAppTestBase::EvalJsInAppFrame(
   // Clients of this helper all run in the same isolated world.
   constexpr int kWorldId = 1;
 
+  base::TimeDelta script_timeout = TestTimeouts::action_timeout();
   base::test::ScopedRunLoopTimeout scoped_run_timeout(
-      FROM_HERE, TestTimeouts::action_timeout(),
-      base::BindRepeating(&DefaultScriptTimeoutLog, script));
+      FROM_HERE, script_timeout,
+      base::BindRepeating(&DefaultScriptTimeoutLog, script, script_timeout));
 
   return EvalJs(GetAppFrame(web_ui), script,
                 content::EXECUTE_SCRIPT_DEFAULT_OPTIONS, kWorldId);

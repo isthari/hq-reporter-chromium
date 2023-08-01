@@ -1,21 +1,21 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef BASE_METRICS_PERSISTENT_HISTOGRAM_ALLOCATOR_H_
 #define BASE_METRICS_PERSISTENT_HISTOGRAM_ALLOCATOR_H_
 
+#include <atomic>
 #include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
-#include "base/atomicops.h"
 #include "base/base_export.h"
-#include "base/feature_list.h"
 #include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_base.h"
 #include "base/metrics/persistent_memory_allocator.h"
+#include "base/metrics/ranges_manager.h"
 #include "base/process/process_handle.h"
 #include "base/strings/string_piece.h"
 #include "base/synchronization/lock.h"
@@ -28,10 +28,6 @@ class FilePath;
 class PersistentSampleMapRecords;
 class PersistentSparseHistogramDataManager;
 class WritableSharedMemoryRegion;
-
-// Feature definition for enabling histogram persistence.
-BASE_EXPORT extern const Feature kPersistentHistogramsFeature;
-
 
 // A data manager for sparse histograms so each instance of such doesn't have
 // to separately iterate over the entire memory segment. Though this class
@@ -298,6 +294,10 @@ class BASE_EXPORT PersistentHistogramAllocator {
   void CreateTrackingHistograms(StringPiece name);
   void UpdateTrackingHistograms();
 
+  // Sets the internal |ranges_manager_|, which will be used by the allocator to
+  // register BucketRanges. Takes ownership of the passed |ranges_manager|.
+  void SetRangesManager(RangesManager* ranges_manager);
+
   // Clears the internal |last_created_| reference so testing can validate
   // operation without that optimization.
   void ClearLastCreatedReferenceForTesting();
@@ -309,8 +309,8 @@ class BASE_EXPORT PersistentHistogramAllocator {
 
   // Gets the reference of the last histogram created, used to avoid
   // trying to import what was just created.
-  PersistentHistogramAllocator::Reference last_created() {
-    return subtle::NoBarrier_Load(&last_created_);
+  Reference last_created() {
+    return last_created_.load(std::memory_order_relaxed);
   }
 
   // Gets the next histogram in persistent data based on iterator while
@@ -332,13 +332,20 @@ class BASE_EXPORT PersistentHistogramAllocator {
   // The memory allocator that provides the actual histogram storage.
   std::unique_ptr<PersistentMemoryAllocator> memory_allocator_;
 
+  // The RangesManager that the allocator will register its BucketRanges with.
+  // If this is null (default), the BucketRanges will be registered with the
+  // global statistics recorder. Used when loading self-contained metrics coming
+  // from a previous session. Registering the BucketRanges with the global
+  // statistics recorder could create unnecessary contention, and a low amount
+  // of extra memory.
+  std::unique_ptr<base::RangesManager> ranges_manager_;
+
   // The data-manager used to improve performance of sparse histograms.
   PersistentSparseHistogramDataManager sparse_histogram_data_manager_;
 
   // A reference to the last-created histogram in the allocator, used to avoid
   // trying to import what was just created.
-  // TODO(bcwhite): Change this to std::atomic<PMA::Reference> when available.
-  subtle::Atomic32 last_created_ = 0;
+  std::atomic<Reference> last_created_ = 0;
 };
 
 
@@ -459,6 +466,14 @@ class BASE_EXPORT GlobalHistogramAllocator
   // Retrieves a previously set pathname to which the contents of this allocator
   // are to be saved.
   const FilePath& GetPersistentLocation() const;
+
+  // Returns whether the contents of this allocator are being saved to a
+  // persistent file on disk.
+  bool HasPersistentLocation() const;
+
+  // Moves the file being used to persist this allocator's data to the directory
+  // specified by |dir|. Returns whether the operation was successful.
+  bool MovePersistentFile(const FilePath& dir);
 
   // Writes the internal data to a previously set location. This is generally
   // called when a process is exiting from a section of code that may not know

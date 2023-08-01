@@ -1,4 +1,4 @@
-// Copyright (c) 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,12 +15,13 @@ namespace net {
 
 // An interface to a class that should be notified when session receives server
 // push.
+// TODO(https://crbug.com/1426477): Remove.
 class NET_EXPORT_PRIVATE ServerPushDelegate {
  public:
   // An interface to a class that reflects information on the pushed request.
   class NET_EXPORT ServerPushHelper {
    public:
-    virtual ~ServerPushHelper() {}
+    virtual ~ServerPushHelper() = default;
 
     // Cancels the push if it is not claimed yet.
     virtual void Cancel() = 0;
@@ -28,11 +29,11 @@ class NET_EXPORT_PRIVATE ServerPushDelegate {
     // Gets the URL of the pushed request.
     virtual const GURL& GetURL() const = 0;
 
-    // Gets the network isolation key for the pushed request.
-    virtual NetworkIsolationKey GetNetworkIsolationKey() const = 0;
+    // Gets the network anonymization key for the pushed request.
+    virtual NetworkAnonymizationKey GetNetworkAnonymizationKey() const = 0;
   };
 
-  virtual ~ServerPushDelegate() {}
+  virtual ~ServerPushDelegate() = default;
 
   // Invoked by session when a push promise has been received.
   virtual void OnPush(std::unique_ptr<ServerPushHelper> push_helper,

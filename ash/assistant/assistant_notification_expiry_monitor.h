@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "ash/assistant/model/assistant_notification_model_observer.h"
+#include "base/memory/raw_ptr.h"
 #include "base/timer/timer.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
@@ -24,7 +25,7 @@ class AssistantNotificationControllerImpl;
 // expiry_time| field).
 class AssistantNotificationExpiryMonitor {
  public:
-  using AssistantNotification = chromeos::assistant::AssistantNotification;
+  using AssistantNotification = assistant::AssistantNotification;
 
   explicit AssistantNotificationExpiryMonitor(
       AssistantNotificationControllerImpl* controller);
@@ -52,7 +53,8 @@ class AssistantNotificationExpiryMonitor {
   std::vector<const AssistantNotification*> GetNotifications() const;
 
   base::OneShotTimer timer_;
-  AssistantNotificationControllerImpl* const controller_;
+  const raw_ptr<AssistantNotificationControllerImpl, ExperimentalAsh>
+      controller_;
   std::unique_ptr<Observer> observer_;
 };
 

@@ -1,5 +1,6 @@
 {
   "allowCustomElements": false,
+  "allowUnknownMarkup": false,
   "allowElements": [
     "a",
     "abbr",
@@ -345,6 +346,9 @@
     "face": [
       "*"
     ],
+    "fetchpriority": [
+      "*"
+    ],
     "for": [
       "*"
     ],
@@ -406,9 +410,6 @@
       "*"
     ],
     "imagesrcset": [
-      "*"
-    ],
-    "importance": [
       "*"
     ],
     "impressiondata": [

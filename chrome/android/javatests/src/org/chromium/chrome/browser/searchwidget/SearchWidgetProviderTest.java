@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@ import android.app.Instrumentation;
 import android.app.Instrumentation.ActivityMonitor;
 import android.content.Context;
 import android.content.Intent;
-import android.support.test.InstrumentationRegistry;
 import android.text.TextUtils;
 import android.util.Pair;
 import android.view.View;
@@ -17,7 +16,9 @@ import android.widget.FrameLayout;
 import android.widget.RemoteViews;
 import android.widget.TextView;
 
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.SmallTest;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -29,7 +30,6 @@ import org.chromium.base.IntentUtils;
 import org.chromium.base.test.util.AdvancedMockContext;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.CriteriaHelper;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.firstrun.FirstRunActivity;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.locale.LocaleManager;
@@ -40,6 +40,7 @@ import org.chromium.chrome.browser.searchwidget.SearchActivity.SearchActivityDel
 import org.chromium.chrome.browser.ui.searchactivityutils.SearchActivityConstants;
 import org.chromium.chrome.browser.ui.searchactivityutils.SearchActivityPreferencesManager.SearchActivityPreferences;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
+import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.util.ChromeApplicationTestUtils;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
@@ -105,7 +106,7 @@ public class SearchWidgetProviderTest {
 
     @Before
     public void setUp() {
-        ChromeApplicationTestUtils.setUp(InstrumentationRegistry.getTargetContext());
+        ChromeApplicationTestUtils.setUp(ApplicationProvider.getApplicationContext());
         SearchActivity.setDelegateForTests(new TestSearchDelegate());
 
         mContext = new TestContext();
@@ -115,7 +116,7 @@ public class SearchWidgetProviderTest {
 
     @After
     public void tearDown() {
-        ChromeApplicationTestUtils.tearDown(InstrumentationRegistry.getTargetContext());
+        ChromeApplicationTestUtils.tearDown(ApplicationProvider.getApplicationContext());
     }
 
     /**

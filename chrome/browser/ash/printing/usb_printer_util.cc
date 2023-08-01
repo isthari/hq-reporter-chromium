@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,8 @@
 #include <vector>
 
 #include "base/big_endian.h"
-#include "base/callback_helpers.h"
 #include "base/containers/span.h"
+#include "base/functional/callback_helpers.h"
 #include "base/hash/md5.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
@@ -97,8 +97,8 @@ void OnClaimInterface(mojo::Remote<device::mojom::UsbDevice> device,
 // interface.
 void OnDeviceOpen(mojo::Remote<device::mojom::UsbDevice> device,
                   GetDeviceIdCallback cb,
-                  device::mojom::UsbOpenDeviceError error) {
-  if (error != device::mojom::UsbOpenDeviceError::OK || !device) {
+                  device::mojom::UsbOpenDeviceResultPtr result) {
+  if (result->is_error() || !device) {
     return std::move(cb).Run({});
   }
 
@@ -243,7 +243,14 @@ std::u16string GetProductName(const UsbDeviceInfo& device_info) {
 }
 
 std::u16string GetSerialNumber(const UsbDeviceInfo& device_info) {
-  return device_info.serial_number.value_or(std::u16string());
+  // If the device does not have a serial number or has an empty serial number,
+  // use '?' so this matches the convention that CUPS uses for 'no serial
+  // number'.
+  if (!device_info.serial_number.has_value() ||
+      device_info.serial_number.value().empty()) {
+    return u"?";
+  }
+  return device_info.serial_number.value();
 }
 
 bool UsbDeviceIsPrinter(const UsbDeviceInfo& device_info) {
@@ -256,7 +263,7 @@ bool UsbDeviceIsPrinter(const UsbDeviceInfo& device_info) {
 // are printers, not arbitrary USB devices, as we may get weird partial results
 // from arbitrary devices. The results are saved in the second parameter.
 bool UsbDeviceToPrinter(const UsbDeviceInfo& device_info,
-                        chromeos::PrinterDetector::DetectedPrinter* entry) {
+                        PrinterDetector::DetectedPrinter* entry) {
   DCHECK(entry);
 
   // Preflight all required fields and log errors if we find something wrong.

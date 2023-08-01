@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -67,9 +67,6 @@ TYPED_TEST_P(AbstractTrustworthinessTest, OriginFromString) {
   EXPECT_FALSE(
       this->IsOriginPotentiallyTrustworthy("javascript:alert('blah')"));
   EXPECT_FALSE(this->IsOriginPotentiallyTrustworthy("data:test/plain;blah"));
-
-  EXPECT_TRUE(this->IsOriginPotentiallyTrustworthy(
-      "quic-transport://example.com/counter"));
 }
 
 TYPED_TEST_P(AbstractTrustworthinessTest, CustomSchemes) {
@@ -208,9 +205,6 @@ TYPED_TEST_P(AbstractTrustworthinessTest, UrlFromString) {
       "filesystem:blob:https://example.com/"
       "578223a1-8c13-17b3-84d5-eca045ae384a"));
 
-  EXPECT_TRUE(this->IsUrlPotentiallyTrustworthy(
-      "quic-transport://example.com/counter"));
-
   // These tests are imported from IsPotentiallyTrustworthy.Url.
   EXPECT_TRUE(this->IsUrlPotentiallyTrustworthy("file:///test/fun.html"));
   EXPECT_TRUE(this->IsUrlPotentiallyTrustworthy("file:///test/"));
@@ -318,7 +312,6 @@ TYPED_TEST_P(AbstractTrustworthinessTest, TestcasesInheritedFromBlink) {
       // Secure transports are considered trustworthy.
       {true, false, "https://foobar.com"},
       {true, false, "wss://foobar.com"},
-      {true, false, "quic-transport://example.com/counter"},
 
       // Insecure transports are not considered trustworthy.
       {false, false, "ftp://foobar.com"},
@@ -361,7 +354,7 @@ TYPED_TEST_P(AbstractTrustworthinessTest, TestcasesInheritedFromBlink) {
       {false, false, "data:text/html,Hello"},
   };
 
-  for (size_t i = 0; i < base::size(inputs); ++i) {
+  for (size_t i = 0; i < std::size(inputs); ++i) {
     SCOPED_TRACE(inputs[i].url);
     auto origin = this->CreateOriginFromString(inputs[i].url);
     EXPECT_EQ(inputs[i].is_potentially_trustworthy,

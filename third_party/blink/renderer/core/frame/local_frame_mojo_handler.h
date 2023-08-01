@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,14 +10,17 @@
 #include "services/device/public/mojom/device_posture_provider.mojom-blink.h"
 #include "third_party/blink/public/mojom/frame/back_forward_cache_controller.mojom-blink.h"
 #include "third_party/blink/public/mojom/frame/frame.mojom-blink.h"
+#include "third_party/blink/public/mojom/frame/fullscreen.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/media/fullscreen_video_element.mojom-blink.h"
 #include "third_party/blink/public/mojom/reporting/reporting.mojom-blink.h"
+#include "third_party/blink/public/mojom/timing/resource_timing.mojom-blink-forward.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_associated_receiver.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_associated_remote.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_receiver.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
+#include "third_party/blink/renderer/platform/weborigin/kurl.h"
 
 #if BUILDFLAG(IS_MAC)
 #include "third_party/blink/public/mojom/input/text_input_host.mojom-blink.h"
@@ -56,8 +59,13 @@ class LocalFrameMojoHandler
 
   void ClosePageForTesting();
 
-  mojom::blink::LocalFrameHost& LocalFrameHostRemote() const {
+  mojom::blink::LocalFrameHost& LocalFrameHostRemote() {
     return *local_frame_host_remote_.get();
+  }
+
+  mojom::blink::NonAssociatedLocalFrameHost&
+  NonAssociatedLocalFrameHostRemote() {
+    return *non_associated_local_frame_host_remote_.get();
   }
 
   mojom::blink::ReportingServiceProxy* ReportingService();
@@ -108,17 +116,10 @@ class LocalFrameMojoHandler
   void EnableViewSourceMode() final;
   void Focus() final;
   void ClearFocusedElement() final;
-  void GetResourceSnapshotForWebBundle(
-      mojo::PendingReceiver<
-          data_decoder::mojom::blink::ResourceSnapshotForWebBundle> receiver)
-      final;
   void CopyImageAt(const gfx::Point& window_point) final;
   void SaveImageAt(const gfx::Point& window_point) final;
   void ReportBlinkFeatureUsage(const Vector<mojom::blink::WebFeature>&) final;
   void RenderFallbackContent() final;
-  void RenderFallbackContentWithResourceTiming(
-      mojom::blink::ResourceTimingInfoPtr timing,
-      const String& server_timing_values) final;
   void BeforeUnload(bool is_reload, BeforeUnloadCallback callback) final;
   void MediaPlayerActionAt(
       const gfx::Point& window_point,
@@ -126,7 +127,7 @@ class LocalFrameMojoHandler
   void AdvanceFocusInFrame(
       mojom::blink::FocusType focus_type,
       const absl::optional<RemoteFrameToken>& source_frame_token) final;
-  void AdvanceFocusInForm(mojom::blink::FocusType focus_type) final;
+  void AdvanceFocusForIME(mojom::blink::FocusType focus_type) final;
   void ReportContentSecurityPolicyViolation(
       network::mojom::blink::CSPViolationPtr csp_violation) final;
   // Updates the snapshotted policy attributes (sandbox flags and permissions
@@ -143,7 +144,7 @@ class LocalFrameMojoHandler
   void JavaScriptMethodExecuteRequest(
       const String& object_name,
       const String& method_name,
-      base::Value arguments,
+      base::Value::List arguments,
       bool wants_result,
       JavaScriptMethodExecuteRequestCallback callback) final;
   void JavaScriptExecuteRequest(
@@ -152,8 +153,8 @@ class LocalFrameMojoHandler
       JavaScriptExecuteRequestCallback callback) final;
   void JavaScriptExecuteRequestForTests(
       const String& javascript,
-      bool wants_result,
       bool has_user_gesture,
+      bool resolve_promises,
       int32_t world_id,
       JavaScriptExecuteRequestForTestsCallback callback) final;
   void JavaScriptExecuteRequestInIsolatedWorld(
@@ -191,6 +192,34 @@ class LocalFrameMojoHandler
   void HandleRendererDebugURL(const KURL& url) final;
   void GetCanonicalUrlForSharing(
       GetCanonicalUrlForSharingCallback callback) final;
+  void GetOpenGraphMetadata(GetOpenGraphMetadataCallback callback) final;
+
+  void SetNavigationApiHistoryEntriesForRestore(
+      mojom::blink::NavigationApiHistoryEntryArraysPtr) final;
+  void NotifyNavigationApiOfDisposedEntries(
+      const WTF::Vector<WTF::String>&) final;
+  void TraverseCancelled(const String& navigation_api_key,
+                         mojom::blink::TraverseCancelledReason reason) final;
+  void SnapshotDocumentForViewTransition(
+      SnapshotDocumentForViewTransitionCallback callback) final;
+
+  void AddResourceTimingEntryForFailedSubframeNavigation(
+      const FrameToken& subframe_token,
+      const KURL& initial_url,
+      base::TimeTicks start_time,
+      base::TimeTicks redirect_time,
+      base::TimeTicks request_start,
+      base::TimeTicks response_start,
+      uint32_t response_code,
+      const WTF::String& mime_type,
+      network::mojom::blink::LoadTimingInfoPtr load_timing_info,
+      net::HttpResponseInfo::ConnectionInfo connection_info,
+      const WTF::String& alpn_negotiated_protocol,
+      bool is_secure_transport,
+      bool is_validated,
+      const WTF::String& normalized_server_timing,
+      const ::network::URLLoaderCompletionStatus& completion_status) final;
+  void RequestFullscreenDocumentElement() final;
 
   // blink::mojom::LocalMainFrame overrides:
   void AnimateDoubleTapZoom(const gfx::Point& point,
@@ -198,6 +227,8 @@ class LocalFrameMojoHandler
   void SetScaleFactor(float scale) override;
   void ClosePage(
       mojom::blink::LocalMainFrame::ClosePageCallback callback) override;
+  void GetFullPageSize(
+      mojom::blink::LocalMainFrame::GetFullPageSizeCallback callback) override;
   void PluginActionAt(const gfx::Point& location,
                       mojom::blink::PluginActionType action) override;
   void SetInitialFocus(bool reverse) override;
@@ -249,6 +280,9 @@ class LocalFrameMojoHandler
 
   HeapMojoAssociatedRemote<mojom::blink::LocalFrameHost>
       local_frame_host_remote_{nullptr};
+
+  HeapMojoRemote<mojom::blink::NonAssociatedLocalFrameHost>
+      non_associated_local_frame_host_remote_{nullptr};
 
   // LocalFrameMojoHandler can be reused by multiple ExecutionContext.
   HeapMojoAssociatedReceiver<mojom::blink::LocalFrame, LocalFrameMojoHandler>

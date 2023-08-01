@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <unicode/ubidi.h>
 
+#include "base/check_op.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/layout_inline.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_item_segment.h"
@@ -37,6 +38,7 @@ class CORE_EXPORT NGInlineItem {
     kCloseTag,
     kFloating,
     kOutOfFlowPositioned,
+    kInitialLetterBox,
     kListMarker,
     kBidiControl
   };
@@ -67,9 +69,12 @@ class CORE_EXPORT NGInlineItem {
                scoped_refptr<const ShapeResult>);
 
   NGInlineItemType Type() const { return type_; }
-  const char* NGInlineItemTypeToString(int val) const;
+  const char* NGInlineItemTypeToString(NGInlineItemType val) const;
 
   NGTextType TextType() const { return static_cast<NGTextType>(text_type_); }
+  bool IsForcedLineBreak() const {
+    return TextType() == NGTextType::kForcedLineBreak;
+  }
   void SetTextType(NGTextType text_type) {
     text_type_ = static_cast<unsigned>(text_type);
   }
@@ -83,6 +88,15 @@ class CORE_EXPORT NGInlineItem {
   }
 
   const ShapeResult* TextShapeResult() const { return shape_result_.get(); }
+  bool IsUnsafeToReuseShapeResult() const {
+    return is_unsafe_to_reuse_shape_result_;
+  }
+  void SetUnsafeToReuseShapeResult() {
+    is_unsafe_to_reuse_shape_result_ = true;
+  }
+#if DCHECK_IS_ON()
+  void CheckTextType(const String& text_content) const;
+#endif
 
   // If this item is "empty" for the purpose of empty block calculation.
   // Note: for block-in-inlines, this can't be determined until this is laid
@@ -151,18 +165,6 @@ class CORE_EXPORT NGInlineItem {
     end_offset_ = end_offset;
     // Any modification to the offset will invalidate the shape result.
     shape_result_ = nullptr;
-  }
-
-  bool HasStartEdge() const {
-    DCHECK(Type() == kOpenTag || Type() == kCloseTag);
-    // TODO(kojii): Should use break token when NG has its own tree building.
-    return !GetLayoutObject()->IsInlineElementContinuation();
-  }
-  bool HasEndEdge() const {
-    DCHECK(Type() == kOpenTag || Type() == kCloseTag);
-    // TODO(kojii): Should use break token when NG has its own tree building.
-    return !GetLayoutObject()->IsLayoutInline() ||
-           !To<LayoutInline>(GetLayoutObject())->Continuation();
   }
 
   void SetStyleVariant(NGStyleVariant style_variant) {
@@ -272,6 +274,7 @@ class CORE_EXPORT NGInlineItem {
   unsigned is_block_level_ : 1;
   unsigned is_end_collapsible_newline_ : 1;
   unsigned is_generated_for_line_break_ : 1;
+  unsigned is_unsafe_to_reuse_shape_result_ : 1;
   friend class NGInlineNode;
   friend class NGInlineNodeDataEditor;
 };

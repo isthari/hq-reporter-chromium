@@ -1,13 +1,16 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <stddef.h>
 
+#include "base/metrics/user_metrics.h"
+#include "base/metrics/user_metrics_action.h"
 #include "ui/base/ime/ash/ime_keyboard.h"
 
 namespace ash {
 namespace input_method {
+
 namespace {
 
 const char *kISOLevel5ShiftLayoutIds[] = {
@@ -85,6 +88,7 @@ void ImeKeyboard::SetCapsLockEnabled(bool enable_caps_lock) {
   bool old_state = caps_lock_is_enabled_;
   caps_lock_is_enabled_ = enable_caps_lock;
   if (old_state != enable_caps_lock) {
+    base::RecordAction(base::UserMetricsAction("CapsLock_Toggled"));
     for (ImeKeyboard::Observer& observer : observers_)
       observer.OnCapsLockChanged(enable_caps_lock);
   }

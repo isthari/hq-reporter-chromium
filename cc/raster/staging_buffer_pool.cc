@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,12 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/containers/contains.h"
+#include "base/functional/bind.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/stringprintf.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "cc/base/container_util.h"
 #include "components/viz/common/gpu/raster_context_provider.h"
@@ -69,7 +72,8 @@ void WaitForQueryResult(gpu::raster::RasterInterface* ri, GLuint query_id) {
 
 }  // namespace
 
-StagingBuffer::StagingBuffer(const gfx::Size& size, viz::ResourceFormat format)
+StagingBuffer::StagingBuffer(const gfx::Size& size,
+                             viz::SharedImageFormat format)
     : size(size), format(format) {}
 
 StagingBuffer::~StagingBuffer() {
@@ -90,7 +94,7 @@ void StagingBuffer::DestroyGLResources(gpu::raster::RasterInterface* ri,
 }
 
 void StagingBuffer::OnMemoryDump(base::trace_event::ProcessMemoryDump* pmd,
-                                 viz::ResourceFormat dump_format,
+                                 viz::SharedImageFormat dump_format,
                                  bool in_free_list) const {
   if (!gpu_memory_buffer)
     return;
@@ -100,8 +104,7 @@ void StagingBuffer::OnMemoryDump(base::trace_event::ProcessMemoryDump* pmd,
       base::StringPrintf("cc/one_copy/staging_memory/buffer_%p", this);
   MemoryAllocatorDump* buffer_dump = pmd->CreateAllocatorDump(buffer_dump_name);
 
-  uint64_t buffer_size_in_bytes =
-      viz::ResourceSizes::UncheckedSizeInBytes<uint64_t>(size, dump_format);
+  uint64_t buffer_size_in_bytes = dump_format.EstimatedSizeInBytes(size);
   buffer_dump->AddScalar(MemoryAllocatorDump::kNameSize,
                          MemoryAllocatorDump::kUnitsBytes,
                          buffer_size_in_bytes);
@@ -133,7 +136,8 @@ StagingBufferPool::StagingBufferPool(
       reduce_memory_usage_pending_(false) {
   DCHECK(worker_context_provider_);
   base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
-      this, "cc::StagingBufferPool", base::ThreadTaskRunnerHandle::Get());
+      this, "cc::StagingBufferPool",
+      base::SingleThreadTaskRunner::GetCurrentDefault());
 
   memory_pressure_listener_ = std::make_unique<base::MemoryPressureListener>(
       FROM_HERE, base::BindRepeating(&StagingBufferPool::OnMemoryPressure,
@@ -182,24 +186,20 @@ bool StagingBufferPool::OnMemoryDump(
                     staging_buffer_usage_in_bytes_);
   } else {
     for (const auto* buffer : buffers_) {
-      auto in_free_buffers =
-          std::find_if(free_buffers_.begin(), free_buffers_.end(),
-                       [buffer](const std::unique_ptr<StagingBuffer>& b) {
-                         return b.get() == buffer;
-                       });
-      buffer->OnMemoryDump(pmd, buffer->format,
-                           in_free_buffers != free_buffers_.end());
+      buffer->OnMemoryDump(
+          pmd, buffer->format,
+          base::Contains(free_buffers_, buffer,
+                         &std::unique_ptr<StagingBuffer>::get));
     }
   }
   return true;
 }
 
 void StagingBufferPool::AddStagingBuffer(const StagingBuffer* staging_buffer,
-                                         viz::ResourceFormat format) {
+                                         viz::SharedImageFormat format) {
   DCHECK(buffers_.find(staging_buffer) == buffers_.end());
   buffers_.insert(staging_buffer);
-  int buffer_usage_in_bytes = viz::ResourceSizes::UncheckedSizeInBytes<int>(
-      staging_buffer->size, format);
+  int buffer_usage_in_bytes = format.EstimatedSizeInBytes(staging_buffer->size);
   staging_buffer_usage_in_bytes_ += buffer_usage_in_bytes;
 }
 
@@ -207,30 +207,30 @@ void StagingBufferPool::RemoveStagingBuffer(
     const StagingBuffer* staging_buffer) {
   DCHECK(buffers_.find(staging_buffer) != buffers_.end());
   buffers_.erase(staging_buffer);
-  int buffer_usage_in_bytes = viz::ResourceSizes::UncheckedSizeInBytes<int>(
-      staging_buffer->size, staging_buffer->format);
+  int buffer_usage_in_bytes =
+      staging_buffer->format.EstimatedSizeInBytes(staging_buffer->size);
   DCHECK_GE(staging_buffer_usage_in_bytes_, buffer_usage_in_bytes);
   staging_buffer_usage_in_bytes_ -= buffer_usage_in_bytes;
 }
 
 void StagingBufferPool::MarkStagingBufferAsFree(
     const StagingBuffer* staging_buffer) {
-  int buffer_usage_in_bytes = viz::ResourceSizes::UncheckedSizeInBytes<int>(
-      staging_buffer->size, staging_buffer->format);
+  int buffer_usage_in_bytes =
+      staging_buffer->format.EstimatedSizeInBytes(staging_buffer->size);
   free_staging_buffer_usage_in_bytes_ += buffer_usage_in_bytes;
 }
 
 void StagingBufferPool::MarkStagingBufferAsBusy(
     const StagingBuffer* staging_buffer) {
-  int buffer_usage_in_bytes = viz::ResourceSizes::UncheckedSizeInBytes<int>(
-      staging_buffer->size, staging_buffer->format);
+  int buffer_usage_in_bytes =
+      staging_buffer->format.EstimatedSizeInBytes(staging_buffer->size);
   DCHECK_GE(free_staging_buffer_usage_in_bytes_, buffer_usage_in_bytes);
   free_staging_buffer_usage_in_bytes_ -= buffer_usage_in_bytes;
 }
 
 std::unique_ptr<StagingBuffer> StagingBufferPool::AcquireStagingBuffer(
     const gfx::Size& size,
-    viz::ResourceFormat format,
+    viz::SharedImageFormat format,
     uint64_t previous_content_id) {
   base::AutoLock lock(lock_);
 
@@ -281,11 +281,8 @@ std::unique_ptr<StagingBuffer> StagingBufferPool::AcquireStagingBuffer(
   // Find a staging buffer that allows us to perform partial raster when
   // using persistent GpuMemoryBuffers.
   if (use_partial_raster_ && previous_content_id) {
-    StagingBufferDeque::iterator it = std::find_if(
-        free_buffers_.begin(), free_buffers_.end(),
-        [previous_content_id](const std::unique_ptr<StagingBuffer>& buffer) {
-          return buffer->content_id == previous_content_id;
-        });
+    StagingBufferDeque::iterator it = base::ranges::find(
+        free_buffers_, previous_content_id, &StagingBuffer::content_id);
     if (it != free_buffers_.end()) {
       staging_buffer = std::move(*it);
       free_buffers_.erase(it);
@@ -295,8 +292,8 @@ std::unique_ptr<StagingBuffer> StagingBufferPool::AcquireStagingBuffer(
 
   // Find staging buffer of correct size and format.
   if (!staging_buffer) {
-    StagingBufferDeque::iterator it = std::find_if(
-        free_buffers_.begin(), free_buffers_.end(),
+    StagingBufferDeque::iterator it = base::ranges::find_if(
+        free_buffers_,
         [&size, format](const std::unique_ptr<StagingBuffer>& buffer) {
           return buffer->size == size && buffer->format == format;
         });

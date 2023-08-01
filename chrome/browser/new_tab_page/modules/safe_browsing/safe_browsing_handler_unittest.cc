@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -158,7 +158,7 @@ TEST_F(SafeBrowsingHandlerTest, Cooldown_DisablesModuleInBetween) {
   base::Time initial_security_sensitive_event_time = base::Time::Now();
 
   base::test::ScopedFeatureList feature_list;
-  base::test::ScopedFeatureList::FeatureAndParams ntp_module_feature_params(
+  base::test::FeatureRefAndParams ntp_module_feature_params(
       ntp_features::kNtpSafeBrowsingModule,
       {{ntp_features::kNtpSafeBrowsingModuleCooldownPeriodDaysParam,
         base::NumberToString(cooldown_days)},

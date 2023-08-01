@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,31 +8,26 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.times;
 
 import static org.chromium.net.CronetTestRule.assertContains;
-import static org.chromium.net.TestUrlRequestCallback.ResponseStep.ON_CANCELED;
+import static org.chromium.net.CronetTestRule.getContext;
 
-import android.content.Context;
 import android.os.ConditionVariable;
-import android.support.test.InstrumentationRegistry;
-import android.support.test.runner.AndroidJUnit4;
 
+import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.filters.SmallTest;
 
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.Mockito;
 
-import org.chromium.base.test.util.DisabledTest;
 import org.chromium.net.CronetEngine;
 import org.chromium.net.CronetException;
 import org.chromium.net.InlineExecutionProhibitedException;
 import org.chromium.net.TestUploadDataProvider;
 import org.chromium.net.TestUrlRequestCallback;
+import org.chromium.net.TestUrlRequestCallback.ResponseStep;
 import org.chromium.net.UploadDataProvider;
 import org.chromium.net.UploadDataProviders;
 import org.chromium.net.UploadDataSink;
@@ -61,10 +56,6 @@ public class FakeUrlRequestTest {
     private CronetEngine mFakeCronetEngine;
     private FakeCronetController mFakeCronetController;
 
-    private static Context getContext() {
-        return InstrumentationRegistry.getTargetContext();
-    }
-
     private static void checkStatus(FakeUrlRequest request, final int expectedStatus) {
         ConditionVariable foundStatus = new ConditionVariable();
         request.getStatus(new StatusListener() {
@@ -75,6 +66,18 @@ public class FakeUrlRequestTest {
             }
         });
         foundStatus.block();
+    }
+
+    // Asserts that read happens a specified number of times
+    private static void assertReadCalled(
+            int numberOfTimes, TestUrlRequestCallback callback, UrlRequest request) {
+        for (int i = 1; i <= numberOfTimes; i++) {
+            callback.startNextRead(request);
+            callback.waitForNextStep();
+            assertEquals(
+                    "Expected read to happen " + numberOfTimes + " times but got " + i + " times.",
+                    ResponseStep.ON_READ_COMPLETED, callback.mResponseStep);
+        }
     }
 
     private class EchoBodyResponseMatcher implements ResponseMatcher {
@@ -120,18 +123,27 @@ public class FakeUrlRequestTest {
         mFakeCronetController.addResponseForUrl(response, url);
 
         // Run the request.
-        TestUrlRequestCallback callback = Mockito.spy(new TestUrlRequestCallback());
+        TestUrlRequestCallback callback = new TestUrlRequestCallback();
+        callback.setAutoAdvance(false);
         FakeUrlRequest request =
                 (FakeUrlRequest) mFakeCronetEngine
                         .newUrlRequestBuilder(url, callback, callback.getExecutor())
                         .build();
         request.start();
-        callback.blockForDone();
+        callback.waitForNextStep();
 
         // Verify correct callback methods called and correct response returned.
-        Mockito.verify(callback, times(1)).onResponseStarted(any(), any());
-        Mockito.verify(callback, times(1)).onReadCompleted(any(), any(), any());
-        Mockito.verify(callback, times(1)).onSucceeded(any(), any());
+        assertEquals(ResponseStep.ON_RESPONSE_STARTED, callback.mResponseStep);
+        callback.startNextRead(request);
+        callback.waitForNextStep();
+
+        assertEquals(ResponseStep.ON_READ_COMPLETED, callback.mResponseStep);
+        callback.startNextRead(request);
+        callback.waitForNextStep();
+
+        assertEquals(ResponseStep.ON_SUCCEEDED, callback.mResponseStep);
+        callback.blockForDone();
+
         assertEquals(callback.mResponseAsString, responseText);
     }
 
@@ -285,7 +297,7 @@ public class FakeUrlRequestTest {
     @Test
     @SmallTest
     public void testRequestStopsWhenCanceled() {
-        TestUrlRequestCallback callback = Mockito.spy(new TestUrlRequestCallback());
+        TestUrlRequestCallback callback = new TestUrlRequestCallback();
         FakeUrlRequest request =
                 (FakeUrlRequest) mFakeCronetEngine
                         .newUrlRequestBuilder("TEST_URL", callback, callback.getExecutor())
@@ -293,14 +305,12 @@ public class FakeUrlRequestTest {
         callback.setAutoAdvance(false);
         request.start();
         callback.waitForNextStep();
+        assertEquals(ResponseStep.ON_RESPONSE_STARTED, callback.mResponseStep);
+
         request.cancel();
-
-        callback.blockForDone();
-
-        Mockito.verify(callback, times(1)).onCanceled(any(), any());
-        Mockito.verify(callback, times(1)).onResponseStarted(any(), any());
-        Mockito.verify(callback, times(0)).onReadCompleted(any(), any(), any());
-        assertEquals(callback.mResponseStep, ON_CANCELED);
+        callback.waitForNextStep();
+        assertEquals(ResponseStep.ON_CANCELED, callback.mResponseStep);
+        assertTrue(callback.mResponseAsString.isEmpty());
     }
 
     @Test
@@ -314,7 +324,7 @@ public class FakeUrlRequestTest {
         mFakeCronetController.addResponseForUrl(response, url);
 
         // Run the request.
-        TestUrlRequestCallback callback = Mockito.spy(new TestUrlRequestCallback());
+        TestUrlRequestCallback callback = new TestUrlRequestCallback();
         FakeUrlRequest request =
                 (FakeUrlRequest) mFakeCronetEngine
                         .newUrlRequestBuilder(url, callback, callback.getExecutor())
@@ -391,7 +401,8 @@ public class FakeUrlRequestTest {
     public void testResponseLongerThanBuffer() {
         // Build a long response string that is 3x the buffer size.
         final int bufferStringLengthMultiplier = 3;
-        TestUrlRequestCallback callback = Mockito.spy(new TestUrlRequestCallback());
+        TestUrlRequestCallback callback = new TestUrlRequestCallback();
+        callback.setAutoAdvance(false);
         String longResponseString =
                 new String(new char[callback.mReadBufferSize * bufferStringLengthMultiplier]);
 
@@ -407,12 +418,15 @@ public class FakeUrlRequestTest {
                         .newUrlRequestBuilder(longResponseUrl, callback, callback.getExecutor())
                         .build();
         request.start();
-        callback.blockForDone();
+        callback.waitForNextStep();
+        assertEquals(ResponseStep.ON_RESPONSE_STARTED, callback.mResponseStep);
 
-        Mockito.verify(callback, times(1)).onResponseStarted(any(), any());
-        Mockito.verify(callback, times(bufferStringLengthMultiplier))
-                .onReadCompleted(any(), any(), any());
-        Mockito.verify(callback, times(1)).onSucceeded(any(), any());
+        // Asserts that read happens bufferStringLengthMultiplier times
+        assertReadCalled(bufferStringLengthMultiplier, callback, request);
+
+        callback.startNextRead(request);
+        callback.waitForNextStep();
+        assertEquals(ResponseStep.ON_SUCCEEDED, callback.mResponseStep);
         assertTrue(Objects.equals(callback.mResponseAsString, longResponseString));
     }
 
@@ -446,7 +460,6 @@ public class FakeUrlRequestTest {
         callback.blockForDone();
     }
 
-    @DisabledTest(message = "crbug.com/994722")
     @Test
     @SmallTest
     public void testStatusIdleWhenWaitingForRedirect() {
@@ -461,6 +474,8 @@ public class FakeUrlRequestTest {
                         .build();
 
         request.start();
+        callback.waitForNextStep();
+        assertEquals(ResponseStep.ON_RECEIVED_REDIRECT, callback.mResponseStep);
         checkStatus(request, Status.IDLE);
         callback.setAutoAdvance(true);
         request.followRedirect();
@@ -483,7 +498,7 @@ public class FakeUrlRequestTest {
     @Test
     @SmallTest
     public void testIsDoneWhenComplete() {
-        TestUrlRequestCallback callback = Mockito.spy(new TestUrlRequestCallback());
+        TestUrlRequestCallback callback = new TestUrlRequestCallback();
         FakeUrlRequest request = (FakeUrlRequest) mFakeCronetEngine
                                          .newUrlRequestBuilder("", callback, callback.getExecutor())
                                          .build();
@@ -491,14 +506,14 @@ public class FakeUrlRequestTest {
         request.start();
         callback.blockForDone();
 
-        Mockito.verify(callback, times(1)).onSucceeded(any(), any());
+        assertEquals(ResponseStep.ON_SUCCEEDED, callback.mResponseStep);
         assertTrue(request.isDone());
     }
 
     @Test
     @SmallTest
     public void testSetUploadDataProviderAfterStart() {
-        TestUrlRequestCallback callback = Mockito.spy(new TestUrlRequestCallback());
+        TestUrlRequestCallback callback = new TestUrlRequestCallback();
         FakeUrlRequest request = (FakeUrlRequest) mFakeCronetEngine
                                          .newUrlRequestBuilder("", callback, callback.getExecutor())
                                          .addHeader("Content-Type", "useless/string")
@@ -656,7 +671,7 @@ public class FakeUrlRequestTest {
     @Test
     @SmallTest
     public void testDirectExecutorDisabledByDefault() {
-        TestUrlRequestCallback callback = Mockito.spy(new TestUrlRequestCallback());
+        TestUrlRequestCallback callback = new TestUrlRequestCallback();
         callback.setAllowDirectExecutor(true);
         Executor myExecutor = new Executor() {
             @Override
@@ -669,7 +684,9 @@ public class FakeUrlRequestTest {
                         .build();
 
         request.start();
-        Mockito.verify(callback).onFailed(any(), any(), any());
+        callback.blockForDone();
+
+        assertEquals(ResponseStep.ON_FAILED, callback.mResponseStep);
         // Checks that the exception from {@link DirectPreventingExecutor} was successfully returned
         // to the callabck in the onFailed method.
         assertTrue(callback.mError.getCause() instanceof InlineExecutionProhibitedException);
@@ -678,7 +695,8 @@ public class FakeUrlRequestTest {
     @Test
     @SmallTest
     public void testLotsOfCallsToReadDoesntOverflow() {
-        TestUrlRequestCallback callback = Mockito.spy(new TestUrlRequestCallback());
+        TestUrlRequestCallback callback = new TestUrlRequestCallback();
+        callback.setAutoAdvance(false);
         // Make the buffer size small so there are lots of calls to read().
         callback.mReadBufferSize = 1;
         String testUrl = "TEST_URL";
@@ -697,15 +715,23 @@ public class FakeUrlRequestTest {
                         .allowDirectExecutor()
                         .build();
         request.start();
-        callback.blockForDone();
+        callback.waitForNextStep();
+        assertEquals(ResponseStep.ON_RESPONSE_STARTED, callback.mResponseStep);
+
+        // Asserts that read happens responseLength times
+        assertReadCalled(responseLength, callback, request);
+
+        callback.startNextRead(request);
+        callback.waitForNextStep();
+        assertEquals(ResponseStep.ON_SUCCEEDED, callback.mResponseStep);
         assertEquals(longResponseString, callback.mResponseAsString);
-        Mockito.verify(callback, times(responseLength)).onReadCompleted(any(), any(), any());
     }
 
     @Test
     @SmallTest
     public void testLotsOfCallsToReadDoesntOverflowWithDirectExecutor() {
-        TestUrlRequestCallback callback = Mockito.spy(new TestUrlRequestCallback());
+        TestUrlRequestCallback callback = new TestUrlRequestCallback();
+        callback.setAutoAdvance(false);
         callback.setAllowDirectExecutor(true);
         // Make the buffer size small so there are lots of calls to read().
         callback.mReadBufferSize = 1;
@@ -730,9 +756,16 @@ public class FakeUrlRequestTest {
                                          .allowDirectExecutor()
                                          .build();
         request.start();
-        callback.blockForDone();
+        callback.waitForNextStep();
+        assertEquals(ResponseStep.ON_RESPONSE_STARTED, callback.mResponseStep);
+
+        // Asserts that read happens buffer length x multiplier times
+        assertReadCalled(responseLength, callback, request);
+
+        callback.startNextRead(request);
+        callback.waitForNextStep();
+        assertEquals(ResponseStep.ON_SUCCEEDED, callback.mResponseStep);
         assertEquals(longResponseString, callback.mResponseAsString);
-        Mockito.verify(callback, times(responseLength)).onReadCompleted(any(), any(), any());
     }
 
     @Test
@@ -755,7 +788,6 @@ public class FakeUrlRequestTest {
         }
     }
 
-    @DisabledTest(message = "crbug.com/994722")
     @Test
     @SmallTest
     public void testReadWhileRedirectingFails() {
@@ -774,12 +806,13 @@ public class FakeUrlRequestTest {
         } catch (IllegalStateException e) {
             assertEquals("Invalid state transition - expected 4 but was 3", e.getMessage());
         }
+        callback.waitForNextStep();
+        assertEquals(ResponseStep.ON_RECEIVED_REDIRECT, callback.mResponseStep);
         callback.setAutoAdvance(true);
         request.followRedirect();
         callback.blockForDone();
     }
 
-    @DisabledTest(message = "crbug.com/994722")
     @Test
     @SmallTest
     public void testShuttingDownCronetEngineWithActiveRequestFails() {
@@ -790,15 +823,15 @@ public class FakeUrlRequestTest {
                 (FakeUrlRequest) mFakeCronetEngine
                         .newUrlRequestBuilder(url, callback, callback.getExecutor())
                         .build();
-
         request.start();
-
         try {
             mFakeCronetEngine.shutdown();
             fail("Shutdown not checked for active requests.");
         } catch (IllegalStateException e) {
-            assertEquals("Cannot shutdown with active requests.", e.getMessage());
+            assertEquals("Cannot shutdown with running requests.", e.getMessage());
         }
+        callback.waitForNextStep();
+        assertEquals(ResponseStep.ON_RESPONSE_STARTED, callback.mResponseStep);
         callback.setAutoAdvance(true);
         callback.startNextRead(request);
         callback.blockForDone();
@@ -935,7 +968,9 @@ public class FakeUrlRequestTest {
         request.start();
         callback.waitForNextStep();
         try {
-            request.mFakeDataSink.onReadSucceeded(false);
+            synchronized (request.mLock) {
+                request.mFakeDataSink.onReadSucceeded(false);
+            }
             fail("Cannot read before upload has started");
         } catch (IllegalStateException e) {
             assertEquals("onReadSucceeded() called when not awaiting a read result; in state: 2",
@@ -967,7 +1002,9 @@ public class FakeUrlRequestTest {
         request.start();
         callback.waitForNextStep();
         try {
-            request.mFakeDataSink.onRewindSucceeded();
+            synchronized (request.mLock) {
+                request.mFakeDataSink.onRewindSucceeded();
+            }
             fail("Cannot rewind before upload has started");
         } catch (IllegalStateException e) {
             assertEquals("onRewindSucceeded() called when not awaiting a rewind; in state: 2",
@@ -1388,7 +1425,9 @@ public class FakeUrlRequestTest {
     @SmallTest
     public void testDirectExecutorProhibitedByDefault() throws Exception {
         TestUrlRequestCallback callback = new TestUrlRequestCallback();
-        Executor myExecutor = new Executor() {
+        // Everything submitted to this executor will be executed immediately on the thread
+        // that submitted the Runnable (blocking it until the runnable completes)
+        Executor directExecutor = new Executor() {
             @Override
             public void execute(Runnable command) {
                 command.run();
@@ -1397,7 +1436,7 @@ public class FakeUrlRequestTest {
         String url = "url";
         FakeUrlRequest.Builder builder =
                 (FakeUrlRequest.Builder) mFakeCronetEngine.newUrlRequestBuilder(
-                        url, callback, myExecutor);
+                        url, callback, directExecutor);
         mFakeCronetController.addResponseMatcher(new EchoBodyResponseMatcher());
 
         TestUploadDataProvider dataProvider = new TestUploadDataProvider(
@@ -1409,10 +1448,8 @@ public class FakeUrlRequestTest {
         builder.addHeader("Content-Type", "useless/string");
         builder.build().start();
         callback.blockForDone();
-
         assertEquals(1, dataProvider.getNumReadCalls());
         assertEquals(0, dataProvider.getNumRewindCalls());
-
         assertContains("Exception posting task to executor", callback.mError.getMessage());
         assertContains("Inline execution is prohibited for this request",
                 callback.mError.getCause().getMessage());
@@ -1604,7 +1641,7 @@ public class FakeUrlRequestTest {
      * A Cronet callback that does nothing.
      */
 
-    private static class StubCallback extends UrlRequest.Callback {
+    static class StubCallback extends UrlRequest.Callback {
         @Override
         public void onRedirectReceived(org.chromium.net.UrlRequest urlRequest,
                 UrlResponseInfo urlResponseInfo, String s) {}

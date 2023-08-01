@@ -26,6 +26,7 @@
 
 #include "third_party/blink/renderer/modules/media_controls/media_controls_impl.h"
 
+#include "base/auto_reset.h"
 #include "media/base/media_switches.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/task_type.h"
@@ -129,7 +130,6 @@ const char kShowDefaultPosterCSSClass[] = "use-default-poster";
 const char kActAsAudioControlsCSSClass[] = "audio-only";
 const char kScrubbingMessageCSSClass[] = "scrubbing-message";
 const char kTestModeCSSClass[] = "test-mode";
-const char kImmersiveModeCSSClass[] = "immersive-mode";
 
 // The delay between two taps to be recognized as a double tap gesture.
 constexpr base::TimeDelta kDoubleTapDelay = base::Milliseconds(300);
@@ -179,14 +179,11 @@ bool ShouldShowCastButton(HTMLMediaElement& media_element) {
   if (media_element.FastHasAttribute(html_names::kDisableremoteplaybackAttr))
     return false;
 
-  // Explicitly do not show cast button when:
-  // - the mediaControlsEnabled setting is false, to make sure the overlay does
-  //   not appear;
-  // - the immersiveModeEnabled setting is true.
+  // Explicitly do not show cast button when the mediaControlsEnabled setting is
+  // false, to make sure the overlay does not appear.
   Document& document = media_element.GetDocument();
   if (document.GetSettings() &&
-      (!document.GetSettings()->GetMediaControlsEnabled() ||
-       document.GetSettings()->GetImmersiveModeEnabled())) {
+      (!document.GetSettings()->GetMediaControlsEnabled())) {
     return false;
   }
 
@@ -559,8 +556,7 @@ void MediaControlsImpl::InitializeControls() {
   if (PreferHiddenVolumeControls(GetDocument()))
     volume_slider_->SetIsWanted(false);
 
-  if (RuntimeEnabledFeatures::PictureInPictureEnabled() &&
-      GetDocument().GetSettings() &&
+  if (GetDocument().GetSettings() &&
       GetDocument().GetSettings()->GetPictureInPictureEnabled() &&
       IsA<HTMLVideoElement>(MediaElement())) {
     picture_in_picture_button_ =
@@ -585,13 +581,10 @@ void MediaControlsImpl::InitializeControls() {
   toggle_closed_captions_button_ =
       MakeGarbageCollected<MediaControlToggleClosedCaptionsButtonElement>(
           *this);
-
-  if (base::FeatureList::IsEnabled(media::kPlaybackSpeedButton)) {
-    playback_speed_button_ =
-        MakeGarbageCollected<MediaControlPlaybackSpeedButtonElement>(*this);
-    playback_speed_button_->SetIsWanted(
-        ShouldShowPlaybackSpeedButton(MediaElement()));
-  }
+  playback_speed_button_ =
+      MakeGarbageCollected<MediaControlPlaybackSpeedButtonElement>(*this);
+  playback_speed_button_->SetIsWanted(
+      ShouldShowPlaybackSpeedButton(MediaElement()));
   overflow_menu_ =
       MakeGarbageCollected<MediaControlOverflowMenuButtonElement>(*this);
 
@@ -630,12 +623,9 @@ void MediaControlsImpl::InitializeControls() {
       toggle_closed_captions_button_->CreateOverflowElement(
           MakeGarbageCollected<MediaControlToggleClosedCaptionsButtonElement>(
               *this)));
-  if (playback_speed_button_) {
-    overflow_list_->ParserAppendChild(
-        playback_speed_button_->CreateOverflowElement(
-            MakeGarbageCollected<MediaControlPlaybackSpeedButtonElement>(
-                *this)));
-  }
+  overflow_list_->ParserAppendChild(
+      playback_speed_button_->CreateOverflowElement(
+          MakeGarbageCollected<MediaControlPlaybackSpeedButtonElement>(*this)));
   if (picture_in_picture_button_) {
     overflow_list_->ParserAppendChild(
         picture_in_picture_button_->CreateOverflowElement(
@@ -670,7 +660,7 @@ void MediaControlsImpl::PopulatePanel() {
 
   if (ShouldShowVideoControls()) {
     MediaControlElementsHelper::CreateDiv(
-        "-internal-media-controls-button-spacer", button_panel);
+        AtomicString("-internal-media-controls-button-spacer"), button_panel);
   }
 
   panel_->ParserAppendChild(timeline_);
@@ -691,7 +681,7 @@ void MediaControlsImpl::PopulatePanel() {
 
 void MediaControlsImpl::AttachHoverBackground(Element* element) {
   MediaControlElementsHelper::CreateDiv(
-      "-internal-media-controls-button-hover-background",
+      AtomicString("-internal-media-controls-button-hover-background"),
       element->GetShadowRoot());
 }
 
@@ -766,13 +756,6 @@ void MediaControlsImpl::UpdateCSSClassFromState() {
     toRemove.push_back(kShowDefaultPosterCSSClass);
   }
 
-  if (ShouldShowVideoControls() && GetDocument().GetSettings() &&
-      GetDocument().GetSettings()->GetImmersiveModeEnabled()) {
-    toAdd.push_back(kImmersiveModeCSSClass);
-  } else {
-    toRemove.push_back(kImmersiveModeCSSClass);
-  }
-
   classList().add(toAdd, ASSERT_NO_EXCEPTION);
   classList().remove(toRemove, ASSERT_NO_EXCEPTION);
 
@@ -790,13 +773,13 @@ void MediaControlsImpl::UpdateCSSClassFromState() {
       // Check if the play button or overflow menu has the "disabled" attribute
       // set so we avoid unnecessarily resetting it.
       if (!play_button_->FastHasAttribute(html_names::kDisabledAttr)) {
-        play_button_->setAttribute(html_names::kDisabledAttr, "");
+        play_button_->setAttribute(html_names::kDisabledAttr, g_empty_atom);
         updated = true;
       }
 
       if (ShouldShowVideoControls() &&
           !overflow_menu_->FastHasAttribute(html_names::kDisabledAttr)) {
-        overflow_menu_->setAttribute(html_names::kDisabledAttr, "");
+        overflow_menu_->setAttribute(html_names::kDisabledAttr, g_empty_atom);
         updated = true;
       }
     } else {
@@ -813,7 +796,7 @@ void MediaControlsImpl::UpdateCSSClassFromState() {
 
     if (state == kNoSource || state == kNotLoaded) {
       if (!timeline_->FastHasAttribute(html_names::kDisabledAttr)) {
-        timeline_->setAttribute(html_names::kDisabledAttr, "");
+        timeline_->setAttribute(html_names::kDisabledAttr, g_empty_atom);
         updated = true;
       }
     } else {
@@ -828,12 +811,14 @@ void MediaControlsImpl::UpdateCSSClassFromState() {
   }
 }
 
-void MediaControlsImpl::SetClass(const AtomicString& class_name,
+void MediaControlsImpl::SetClass(const String& class_name,
                                  bool should_have_class) {
-  if (should_have_class && !classList().contains(class_name))
-    classList().Add(class_name);
-  else if (!should_have_class && classList().contains(class_name))
-    classList().Remove(class_name);
+  AtomicString atomic_class = AtomicString(class_name);
+  if (should_have_class && !classList().contains(atomic_class)) {
+    classList().Add(atomic_class);
+  } else if (!should_have_class && classList().contains(atomic_class)) {
+    classList().Remove(atomic_class);
+  }
 }
 
 MediaControlsImpl::ControlsState MediaControlsImpl::State() const {
@@ -952,10 +937,8 @@ void MediaControlsImpl::OnControlsListUpdated() {
   download_button_->SetIsWanted(
       download_button_->ShouldDisplayDownloadButton());
 
-  if (playback_speed_button_) {
-    playback_speed_button_->SetIsWanted(
-        ShouldShowPlaybackSpeedButton(MediaElement()));
-  }
+  playback_speed_button_->SetIsWanted(
+      ShouldShowPlaybackSpeedButton(MediaElement()));
 }
 
 LayoutObject* MediaControlsImpl::PanelLayoutObject() {
@@ -1154,8 +1137,10 @@ void MediaControlsImpl::BeginScrubbing(bool is_touch_event) {
 
   if (scrubbing_message_ && is_touch_event) {
     scrubbing_message_->SetIsWanted(true);
-    if (scrubbing_message_->DoesFit())
-      panel_->setAttribute("class", AtomicString(kScrubbingMessageCSSClass));
+    if (scrubbing_message_->DoesFit()) {
+      panel_->setAttribute(html_names::kClassAttr,
+                           AtomicString(kScrubbingMessageCSSClass));
+    }
   }
 
   is_scrubbing_ = true;
@@ -1171,7 +1156,7 @@ void MediaControlsImpl::EndScrubbing() {
 
   if (scrubbing_message_) {
     scrubbing_message_->SetIsWanted(false);
-    panel_->removeAttribute("class");
+    panel_->removeAttribute(html_names::kClassAttr);
   }
 
   is_scrubbing_ = false;
@@ -1634,19 +1619,6 @@ void MediaControlsImpl::HandleTouchEvent(Event* event) {
   if (event->type() == event_type_names::kGesturetap &&
       !ContainsRelatedTarget(event)) {
     event->SetDefaultHandled();
-
-    // Since handling the gesturetap event will prevent the click event from
-    // happening, we need to manually hide any popups.
-    HidePopupMenu();
-
-    // In immersive mode we don't use double-tap features, so instead of
-    // waiting 300 ms for a potential second tap, we just immediately toggle
-    // controls visibility.
-    if (GetDocument().GetSettings() &&
-        GetDocument().GetSettings()->GetImmersiveModeEnabled()) {
-      MaybeToggleControlsFromTap();
-      return;
-    }
 
     if (tap_timer_.IsActive()) {
       // Cancel the visibility toggle event.

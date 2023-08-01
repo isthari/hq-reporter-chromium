@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright 2009 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,13 +11,13 @@
 
 #if defined(__OBJC__)
 @class NSEvent;
-#else   // __OBJC__
-class NSEvent;
 #endif  // __OBJC__
 
 namespace ui {
 class Accelerator;
 }
+
+constexpr int NO_COMMAND = -1;
 
 struct KeyboardShortcutData {
   bool command_key;
@@ -30,15 +30,17 @@ struct KeyboardShortcutData {
 };
 
 struct CommandForKeyEventResult {
-  bool found() { return chrome_command != -1; }
+  bool found() { return chrome_command != NO_COMMAND; }
 
-  // The command to execute. -1 if none was found.
+  // The command to execute. NO_COMMAND if none was found.
   int chrome_command;
 
   // Whether the command was from a mapping in the main menu. Only relevant if
-  // command != -1.
+  // command != NO_COMMAND.
   bool from_main_menu;
 };
+
+#if defined(__OBJC__)
 
 // macOS applications are supposed to put all keyEquivalents [hotkeys] in the
 // menu bar. For legacy reasons, Chrome does not. There are around 30 hotkeys
@@ -66,6 +68,8 @@ int DelayedWebContentsCommandForKeyEvent(NSEvent* event);
 // Whether the event goes through the performKeyEquivalent: path and is handled
 // by CommandDispatcher.
 bool EventUsesPerformKeyEquivalent(NSEvent* event);
+
+#endif  // __OBJC__
 
 // On macOS, most accelerators are defined in MainMenu.xib and are user
 // configurable. Furthermore, their values and enabled state depends on the key

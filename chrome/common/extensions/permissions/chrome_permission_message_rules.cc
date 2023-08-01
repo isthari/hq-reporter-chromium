@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,10 +11,13 @@
 #include <utility>
 #include <vector>
 
+#include "base/feature_list.h"
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/device_signals/core/common/signals_features.h"
+#include "extensions/common/mojom/api_permission_id.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
 
 using extensions::mojom::APIPermissionID;
@@ -275,6 +278,20 @@ class USBDevicesFormatter : public ChromePermissionMessageFormatter {
   }
 };
 
+int GetEnterpriseReportingPrivatePermissionMessageId() {
+  if (!base::FeatureList::IsEnabled(
+          enterprise_signals::features::kNewEvSignalsEnabled)) {
+    return IDS_EXTENSION_PROMPT_WARNING_ENTERPRISE_REPORTING_PRIVATE;
+  }
+#if BUILDFLAG(IS_WIN)
+  return IDS_EXTENSION_PROMPT_WARNING_ENTERPRISE_REPORTING_PRIVATE_ENABLED_WIN;
+#elif BUILDFLAG(IS_LINUX) or BUILDFLAG(IS_MAC)
+  return IDS_EXTENSION_PROMPT_WARNING_ENTERPRISE_REPORTING_PRIVATE_ENABLED_LINUX_AND_MACOS;
+#else
+  return IDS_EXTENSION_PROMPT_WARNING_ENTERPRISE_REPORTING_PRIVATE;
+#endif
+}
+
 }  // namespace
 
 ChromePermissionMessageRule::ChromePermissionMessageRule(
@@ -441,25 +458,19 @@ ChromePermissionMessageRule::GetAllRules() {
       // History-related permission messages.
       // History already allows reading favicons, tab access and accessing the
       // list of most frequently visited sites.
-      {IDS_EXTENSION_PROMPT_WARNING_HISTORY_WRITE_AND_SESSIONS,
-       {APIPermissionID::kHistory, APIPermissionID::kSessions},
-       {APIPermissionID::kDeclarativeNetRequestFeedback,
-        APIPermissionID::kFavicon, APIPermissionID::kProcesses,
-        APIPermissionID::kTab, APIPermissionID::kTopSites,
-        APIPermissionID::kWebNavigation}},
-      {IDS_EXTENSION_PROMPT_WARNING_HISTORY_READ_AND_SESSIONS,
-       {APIPermissionID::kTab, APIPermissionID::kSessions},
-       {APIPermissionID::kDeclarativeNetRequestFeedback,
-        APIPermissionID::kFavicon, APIPermissionID::kProcesses,
-        APIPermissionID::kTopSites, APIPermissionID::kWebNavigation}},
-      {IDS_EXTENSION_PROMPT_WARNING_HISTORY_WRITE,
+      {IDS_EXTENSION_PROMPT_WARNING_HISTORY_WRITE_ON_ALL_DEVICES,
        {APIPermissionID::kHistory},
        {APIPermissionID::kDeclarativeNetRequestFeedback,
         APIPermissionID::kFavicon, APIPermissionID::kProcesses,
         APIPermissionID::kTab, APIPermissionID::kTopSites,
         APIPermissionID::kWebNavigation}},
+      {IDS_EXTENSION_PROMPT_WARNING_HISTORY_READ_ON_ALL_DEVICES,
+       {APIPermissionID::kTab, APIPermissionID::kSessions},
+       {APIPermissionID::kDeclarativeNetRequestFeedback,
+        APIPermissionID::kFavicon, APIPermissionID::kProcesses,
+        APIPermissionID::kTopSites, APIPermissionID::kWebNavigation}},
       // Note: kSessions allows reading history from other devices only if kTab
-      // is also present. Therefore, there are no _AND_SESSIONS versions of
+      // is also present. Therefore, there are no _ON_ALL_DEVICES versions of
       // the other rules that generate the HISTORY_READ warning.
       {IDS_EXTENSION_PROMPT_WARNING_HISTORY_READ,
        {APIPermissionID::kTab},
@@ -662,9 +673,6 @@ ChromePermissionMessageRule::GetAllRules() {
        {APIPermissionID::kNativeMessaging},
        {}},
       {IDS_EXTENSION_PROMPT_WARNING_PRIVACY, {APIPermissionID::kPrivacy}, {}},
-      {IDS_EXTENSION_PROMPT_WARNING_SIGNED_IN_DEVICES,
-       {APIPermissionID::kSignedInDevices},
-       {}},
       {IDS_EXTENSION_PROMPT_WARNING_SYNCFILESYSTEM,
        {APIPermissionID::kSyncFileSystem},
        {}},
@@ -687,9 +695,6 @@ ChromePermissionMessageRule::GetAllRules() {
       {IDS_EXTENSION_PROMPT_WARNING_ACTIVITY_LOG_PRIVATE,
        {APIPermissionID::kActivityLogPrivate},
        {}},
-      {IDS_EXTENSION_PROMPT_WARNING_MUSIC_MANAGER_PRIVATE,
-       {APIPermissionID::kMusicManagerPrivate},
-       {}},
       {IDS_EXTENSION_PROMPT_WARNING_SETTINGS_PRIVATE,
        {APIPermissionID::kSettingsPrivate},
        {}},
@@ -702,7 +707,7 @@ ChromePermissionMessageRule::GetAllRules() {
       {IDS_EXTENSION_PROMPT_WARNING_USERS_PRIVATE,
        {APIPermissionID::kUsersPrivate},
        {}},
-      {IDS_EXTENSION_PROMPT_WARNING_ENTERPRISE_REPORTING_PRIVATE,
+      {GetEnterpriseReportingPrivatePermissionMessageId(),
        {APIPermissionID::kEnterpriseReportingPrivate},
        {}},
       {IDS_EXTENSION_PROMPT_WARNING_ENTERPRISE_HARDWARE_PLATFORM,
@@ -724,13 +729,22 @@ ChromePermissionMessageRule::GetAllRules() {
       {IDS_EXTENSION_PROMPT_WARNING_LOGIN_SCREEN_STORAGE,
        {APIPermissionID::kLoginScreenStorage},
        {}},
+      {IDS_EXTENSION_PROMPT_WARNING_ENTERPRISE_REMOTE_APPS,
+       {APIPermissionID::kEnterpriseRemoteApps},
+       {}},
       {IDS_EXTENSION_PROMPT_WARNING_TRANSIENT_BACKGROUND,
        {APIPermissionID::kTransientBackground},
        {}},
 
       // Telemetry System Extension permission messages.
+      {IDS_EXTENSION_PROMPT_WARNING_CHROMEOS_ATTACHED_DEVICE_INFO,
+       {APIPermissionID::kChromeOSAttachedDeviceInfo},
+       {}},
       {IDS_EXTENSION_PROMPT_WARNING_CHROMEOS_DIAGNOSTICS,
        {APIPermissionID::kChromeOSDiagnostics},
+       {}},
+      {IDS_EXTENSION_PROMPT_WARNING_CHROMEOS_EVENTS,
+       {APIPermissionID::kChromeOSEvents},
        {}},
       {IDS_EXTENSION_PROMPT_WARNING_CHROMEOS_TELEMETRY,
        {APIPermissionID::kChromeOSTelemetry},
@@ -738,7 +752,9 @@ ChromePermissionMessageRule::GetAllRules() {
       {IDS_EXTENSION_PROMPT_WARNING_CHROMEOS_TELEMETRY_SERIAL_NUMBER,
        {APIPermissionID::kChromeOSTelemetrySerialNumber},
        {}},
-  };
+      {IDS_EXTENSION_PROMPT_WARNING_CHROMEOS_TELEMETRY_NETWORK_INFORMATION,
+       {APIPermissionID::kChromeOSTelemetryNetworkInformation},
+       {}}};
 
   return std::vector<ChromePermissionMessageRule>(
       std::make_move_iterator(std::begin(rules_arr)),

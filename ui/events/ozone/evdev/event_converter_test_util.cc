@@ -1,11 +1,14 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ui/events/ozone/evdev/event_converter_test_util.h"
+#include "base/memory/raw_ptr.h"
 
 #include <stdint.h>
 
+#include "ui/events/devices/keyboard_device.h"
+#include "ui/events/devices/touchpad_device.h"
 #include "ui/events/ozone/device/device_manager.h"
 #include "ui/events/ozone/evdev/device_event_dispatcher_evdev.h"
 #include "ui/events/ozone/evdev/event_factory_evdev.h"
@@ -67,21 +70,26 @@ class TestDeviceEventDispatcherEvdev : public DeviceEventDispatcherEvdev {
   }
 
   void DispatchKeyboardDevicesUpdated(
-      const std::vector<InputDevice>& devices) override {
-    event_factory_evdev_->DispatchKeyboardDevicesUpdated(devices);
+      const std::vector<KeyboardDevice>& devices,
+      base::flat_map<int, std::vector<uint64_t>> key_bits_mapping) override {
+    event_factory_evdev_->DispatchKeyboardDevicesUpdated(devices,
+                                                         key_bits_mapping);
   }
   void DispatchTouchscreenDevicesUpdated(
       const std::vector<TouchscreenDevice>& devices) override {
     event_factory_evdev_->DispatchTouchscreenDevicesUpdated(devices);
   }
   void DispatchMouseDevicesUpdated(const std::vector<InputDevice>& devices,
-                                   bool has_mouse,
-                                   bool has_pointing_stick) override {
-    event_factory_evdev_->DispatchMouseDevicesUpdated(devices, has_mouse,
-                                                      has_pointing_stick);
+                                   bool has_mouse) override {
+    event_factory_evdev_->DispatchMouseDevicesUpdated(devices, has_mouse);
   }
-  void DispatchTouchpadDevicesUpdated(const std::vector<InputDevice>& devices,
-                                      bool has_haptic_touchpad) override {
+  void DispatchPointingStickDevicesUpdated(
+      const std::vector<InputDevice>& devices) override {
+    event_factory_evdev_->DispatchPointingStickDevicesUpdated(devices);
+  }
+  void DispatchTouchpadDevicesUpdated(
+      const std::vector<TouchpadDevice>& devices,
+      bool has_haptic_touchpad) override {
     event_factory_evdev_->DispatchTouchpadDevicesUpdated(devices,
                                                          has_haptic_touchpad);
   }
@@ -101,12 +109,14 @@ class TestDeviceEventDispatcherEvdev : public DeviceEventDispatcherEvdev {
   }
 
   void DispatchGamepadDevicesUpdated(
-      const std::vector<GamepadDevice>& devices) override {
-    event_factory_evdev_->DispatchGamepadDevicesUpdated(devices);
+      const std::vector<GamepadDevice>& devices,
+      base::flat_map<int, std::vector<uint64_t>> key_bits_mapping) override {
+    event_factory_evdev_->DispatchGamepadDevicesUpdated(devices,
+                                                        key_bits_mapping);
   }
 
  private:
-  EventFactoryEvdev* event_factory_evdev_;
+  raw_ptr<EventFactoryEvdev> event_factory_evdev_;
 };
 
 class TestEventFactoryEvdev : public EventFactoryEvdev {

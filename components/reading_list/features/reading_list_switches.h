@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,27 +8,8 @@
 #include "base/feature_list.h"
 #include "build/build_config.h"
 
-#if !BUILDFLAG(IS_IOS)
-// Feature flag used for enabling side panel on desktop.
-// TODO(crbug.com/1225279): Move this back to chrome/browser/ui/ui_features.h
-// after kReadLater is cleaned up (and IsReadingListEnabled() returns true on
-// Desktop). This is currently here so that kSidePanel (which doesn't work
-// without read later) can imply that the reading list should be enabled.
-namespace features {
-extern const base::Feature kSidePanel;
-}  // namespace features
-#endif  // !BUILDFLAG(IS_IOS)
-
 namespace reading_list {
 namespace switches {
-
-// Feature flag used for enabling Read later on desktop and Android.
-extern const base::Feature kReadLater;
-
-// Whether Reading List is enabled on this device. On iOS this is true if the
-// buildflag for Reading List is enabled (no experiment). On Desktop it is also
-// true if `kSidePanel` is enabled as it assumes a reading list.
-bool IsReadingListEnabled();
 
 // Feature flag used for enabling the reading list backend migration.
 // When enabled, reading list data will also be stored in the Bookmarks backend.
@@ -37,12 +18,21 @@ bool IsReadingListEnabled();
 // interruption to cross device sync if some syncing devices are on versions
 // with the migration behavior while others aren't. See crbug/1234426 for more
 // details.
-extern const base::Feature kReadLaterBackendMigration;
+BASE_DECLARE_FEATURE(kReadLaterBackendMigration);
 
-#if BUILDFLAG(IS_ANDROID)
-// Feature flag used for enabling read later reminder notification.
-extern const base::Feature kReadLaterReminderNotification;
-#endif
+// Feature flag that controls a technical rollout of a new codepath that doesn't
+// itself cause user-facing changes but sets the foundation for later rollouts
+// namely, `kReadingListEnableSyncTransportModeUponSignIn` below).
+BASE_DECLARE_FEATURE(kReadingListEnableDualReadingListModel);
+
+// Feature flag used for enabling sync (transport mode) for signed-in users that
+// haven't turned on full sync.
+BASE_DECLARE_FEATURE(kReadingListEnableSyncTransportModeUponSignIn);
+
+// Returns whether reading list storage related UI can be enabled, by testing
+// `kReadingListEnableSyncTransportModeUponSignIn` and
+// `kReadingListEnableDualReadingListModel`.
+bool IsReadingListAccountStorageUIEnabled();
 
 }  // namespace switches
 }  // namespace reading_list

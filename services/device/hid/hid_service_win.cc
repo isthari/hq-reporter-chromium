@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,9 +19,9 @@
 #include <set>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/files/file.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/memory/free_deleter.h"
 #include "base/strings/string_split.h"
@@ -30,7 +30,6 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/win/scoped_devinfo.h"
 #include "base/win/win_util.h"
 #include "components/device_event_log/device_event_log.h"
@@ -465,7 +464,7 @@ uint16_t HidServiceWin::PreparsedData::GetReportByteLength(
 }
 
 HidServiceWin::HidServiceWin()
-    : task_runner_(base::SequencedTaskRunnerHandle::Get()),
+    : task_runner_(base::SequencedTaskRunner::GetCurrentDefault()),
       blocking_task_runner_(
           base::ThreadPool::CreateSequencedTaskRunner(kBlockingTaskTraits)) {
   DeviceMonitorWin* device_monitor =

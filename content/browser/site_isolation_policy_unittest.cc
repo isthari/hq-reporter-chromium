@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,10 @@
 #include "base/command_line.h"
 #include "base/test/scoped_command_line.h"
 #include "build/build_config.h"
+#include "content/public/browser/content_browser_client.h"
+#include "content/public/common/content_client.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/browser_task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
@@ -63,5 +66,13 @@ TEST(SiteIsolationPolicyTest, DisableSiteIsolationForPolicySwitch) {
   EXPECT_TRUE(SiteIsolationPolicy::IsErrorPageIsolationEnabled(true));
 }
 #endif
+
+class ApplicationIsolationEnablingBrowserClient : public ContentBrowserClient {
+ public:
+  bool ShouldUrlUseApplicationIsolationLevel(BrowserContext* browser_context,
+                                             const GURL& url) override {
+    return url.SchemeIs("isolated-app");
+  }
+};
 
 }  // namespace content

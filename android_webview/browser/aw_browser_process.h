@@ -1,4 +1,4 @@
-// Copyright (c) 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 
 #include "android_webview/browser/aw_apk_type.h"
 #include "android_webview/browser/aw_browser_context.h"
+#include "android_webview/browser/aw_enterprise_authentication_app_link_manager.h"
 #include "android_webview/browser/aw_feature_list_creator.h"
 #include "android_webview/browser/lifecycle/aw_contents_lifecycle_notifier.h"
 #include "android_webview/browser/safe_browsing/aw_safe_browsing_allowlist_manager.h"
@@ -23,6 +24,10 @@
 #include "net/log/net_log.h"
 #include "services/network/network_service.h"
 
+namespace embedder_support {
+class OriginTrialsSettingsStorage;
+}  // namespace embedder_support
+
 namespace android_webview {
 
 namespace prefs {
@@ -30,12 +35,14 @@ namespace prefs {
 // Used for Kerberos authentication.
 extern const char kAuthAndroidNegotiateAccountType[];
 extern const char kAuthServerAllowlist[];
+extern const char kEnterpriseAuthAppLinkPolicy[];
 
 }  // namespace prefs
 
 class AwContentsLifecycleNotifier;
 class VisibilityMetricsLogger;
 
+// Lifetime: Singleton
 class AwBrowserProcess {
  public:
   AwBrowserProcess(AwFeatureListCreator* aw_feature_list_creator);
@@ -72,6 +79,9 @@ class AwBrowserProcess {
 
   static void RegisterNetworkContextLocalStatePrefs(
       PrefRegistrySimple* pref_registry);
+  static void RegisterEnterpriseAuthenticationAppLinkPolicyPref(
+      PrefRegistrySimple* pref_registry);
+
   // Constructs HttpAuthDynamicParams based on |local_state_|.
   network::mojom::HttpAuthDynamicParamsPtr CreateHttpAuthDynamicParams();
 
@@ -79,6 +89,12 @@ class AwBrowserProcess {
 
   static void TriggerMinidumpUploading();
   static ApkType GetApkType();
+
+  EnterpriseAuthenticationAppLinkManager*
+  GetEnterpriseAuthenticationAppLinkManager();
+
+  embedder_support::OriginTrialsSettingsStorage*
+  GetOriginTrialsSettingsStorage();
 
  private:
   void CreateSafeBrowsingUIManager();
@@ -118,6 +134,9 @@ class AwBrowserProcess {
 
   std::unique_ptr<VisibilityMetricsLogger> visibility_metrics_logger_;
   std::unique_ptr<AwContentsLifecycleNotifier> aw_contents_lifecycle_notifier_;
+  std::unique_ptr<EnterpriseAuthenticationAppLinkManager> app_link_manager_;
+  std::unique_ptr<embedder_support::OriginTrialsSettingsStorage>
+      origin_trials_settings_storage_;
 };
 
 }  // namespace android_webview

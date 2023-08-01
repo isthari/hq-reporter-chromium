@@ -1,24 +1,26 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <stdint.h>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/allocator/partition_allocator/partition_alloc_buildflags.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
+#include "base/sampling_heap_profiler/poisson_allocation_sampler.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "chrome/app/chrome_main_delegate.h"
 #include "chrome/browser/headless/headless_mode_util.h"
 #include "chrome/common/buildflags.h"
+#include "chrome/common/chrome_result_codes.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/profiler/main_thread_stack_sampling_profiler.h"
 #include "content/public/app/content_main.h"
 #include "content/public/common/content_switches.h"
-#include "headless/app/headless_shell_switches.h"
 #include "headless/public/headless_shell.h"
-#include "ui/gfx/switches.h"
+#include "headless/public/switches.h"
 
 #if BUILDFLAG(IS_MAC)
 #include "chrome/app/chrome_main_mac.h"
@@ -29,17 +31,18 @@
 #include "base/base_switches.h"
 #endif
 
-#if BUILDFLAG(IS_WIN)
-#include "base/allocator/buildflags.h"
-#if BUILDFLAG(USE_ALLOCATOR_SHIM)
-#include "base/allocator/allocator_shim.h"
+#if BUILDFLAG(IS_LINUX)
+#include "chrome/app/chrome_main_linux.h"
 #endif
+
+#if BUILDFLAG(IS_WIN)
+#include "base/dcheck_is_on.h"
+#include "base/debug/handle_hooks_win.h"
+#include "base/win/current_module.h"
 
 #include <timeapi.h>
 
 #include "base/debug/dump_without_crashing.h"
-#include "base/files/file_util.h"
-#include "base/metrics/histogram_functions.h"
 #include "base/win/win_util.h"
 #include "chrome/chrome_elf/chrome_elf_main.h"
 #include "chrome/common/chrome_constants.h"
@@ -52,8 +55,7 @@
 extern "C" {
 DLLEXPORT int __cdecl ChromeMain(HINSTANCE instance,
                                  sandbox::SandboxInterfaceInfo* sandbox_info,
-                                 int64_t exe_entry_point_ticks,
-                                 base::PrefetchResultCode prefetch_result_code);
+                                 int64_t exe_entry_point_ticks);
 }
 #elif BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
 extern "C" {
@@ -67,11 +69,9 @@ ChromeMain(int argc, const char** argv);
 #endif
 
 #if BUILDFLAG(IS_WIN)
-DLLEXPORT int __cdecl ChromeMain(
-    HINSTANCE instance,
-    sandbox::SandboxInterfaceInfo* sandbox_info,
-    int64_t exe_entry_point_ticks,
-    base::PrefetchResultCode prefetch_result_code) {
+DLLEXPORT int __cdecl ChromeMain(HINSTANCE instance,
+                                 sandbox::SandboxInterfaceInfo* sandbox_info,
+                                 int64_t exe_entry_point_ticks) {
 #elif BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
 int ChromeMain(int argc, const char** argv) {
   int64_t exe_entry_point_ticks = 0;
@@ -80,16 +80,17 @@ int ChromeMain(int argc, const char** argv) {
 #endif
 
 #if BUILDFLAG(IS_WIN)
-#if BUILDFLAG(USE_ALLOCATOR_SHIM) && BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
-  // Call this early on in order to configure heap workarounds. This must be
-  // called from chrome.dll. This may be a NOP on some platforms.
-  base::allocator::ConfigurePartitionAlloc();
-#endif
-
-  base::UmaHistogramEnumeration("Windows.ChromeDllPrefetchResult",
-                                prefetch_result_code);
   install_static::InitializeFromPrimaryModule();
-#endif
+#if !defined(COMPONENT_BUILD) && DCHECK_IS_ON()
+  // Patch the main EXE on non-component builds when DCHECKs are enabled.
+  // This allows detection of third party code that might attempt to meddle with
+  // Chrome's handles. This must be done when single-threaded to avoid other
+  // threads attempting to make calls through the hooks while they are being
+  // emplaced.
+  // Note: The EXE is patched separately, in chrome/app/chrome_exe_main_win.cc.
+  base::debug::HandleHooks::AddIATPatch(CURRENT_MODULE());
+#endif  // !defined(COMPONENT_BUILD) && DCHECK_IS_ON()
+#endif  // BUILDFLAG(IS_WIN)
 
   ChromeMainDelegate chrome_main_delegate(
       base::TimeTicks::FromInternalValue(exe_entry_point_ticks));
@@ -135,6 +136,19 @@ int ChromeMain(int argc, const char** argv) {
   SetUpBundleOverrides();
 #endif
 
+#if BUILDFLAG(IS_LINUX)
+  AppendExtraArgumentsToCommandLine(command_line);
+#endif
+
+  // PoissonAllocationSampler's TLS slots need to be set up before
+  // MainThreadStackSamplingProfiler, which can allocate TLS slots of its own.
+  // On some platforms pthreads can malloc internally to access higher-numbered
+  // TLS slots, which can cause reentry in the heap profiler. (See the comment
+  // on ReentryGuard::InitTLSSlot().)
+  // TODO(https://crbug.com/1411454): Clean up other paths that call this Init()
+  // function, which are now redundant.
+  base::PoissonAllocationSampler::Init();
+
   // Start the sampling profiler as early as possible - namely, once the command
   // line data is available. Allocated as an object on the stack to ensure that
   // the destructor runs on shutdown, which is important to avoid the profiler
@@ -142,12 +156,16 @@ int ChromeMain(int argc, const char** argv) {
   MainThreadStackSamplingProfiler scoped_sampling_profiler;
 
   // Chrome-specific process modes.
-  if (headless::IsChromeNativeHeadless()) {
+  if (headless::IsHeadlessMode()) {
+    if (command_line->GetArgs().size() > 1) {
+      LOG(ERROR) << "Multiple targets are not supported in headless mode.";
+      return chrome::RESULT_CODE_UNSUPPORTED_PARAM;
+    }
     headless::SetUpCommandLine(command_line);
   } else {
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_MAC) || \
     BUILDFLAG(IS_WIN)
-    if (command_line->HasSwitch(switches::kHeadless)) {
+    if (headless::IsOldHeadlessMode()) {
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
       command_line->AppendSwitch(::headless::switches::kEnableCrashReporter);
 #endif
@@ -156,13 +174,6 @@ int ChromeMain(int argc, const char** argv) {
 #endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_MAC) ||
         // BUILDFLAG(IS_WIN)
   }
-
-#if BUILDFLAG(IS_LINUX)
-  // TODO(https://crbug.com/1176772): Remove when Chrome Linux is fully migrated
-  // to Crashpad.
-  base::CommandLine::ForCurrentProcess()->AppendSwitch(
-      ::switches::kEnableCrashpad);
-#endif
 
 #if BUILDFLAG(IS_MAC)
   // Gracefully exit if the system tried to launch the macOS notification helper
@@ -175,5 +186,7 @@ int ChromeMain(int argc, const char** argv) {
 
   int rv = content::ContentMain(std::move(params));
 
+  if (chrome::IsNormalResultCode(static_cast<chrome::ResultCode>(rv)))
+    return content::RESULT_CODE_NORMAL_EXIT;
   return rv;
 }

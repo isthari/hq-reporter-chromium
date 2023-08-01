@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 
 #include "ash/components/arc/arc_browser_context_keyed_service_factory_base.h"
 #include "ash/public/cpp/notification_utils.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/app/vector_icons/vector_icons.h"
@@ -57,37 +57,34 @@ void ShowLowDiskSpaceErrorNotification(content::BrowserContext* context) {
   optional_fields.buttons.push_back(storage_settings);
 
   message_center::NotifierId notifier_id(
-      message_center::NotifierType::SYSTEM_COMPONENT, kNotifierId);
+      message_center::NotifierType::SYSTEM_COMPONENT, kNotifierId,
+      ash::NotificationCatalogName::kArcBootError);
   const AccountId& account_id =
       user_manager::UserManager::Get()->GetPrimaryUser()->GetAccountId();
   notifier_id.profile_id = account_id.GetUserEmail();
 
   Profile* profile = Profile::FromBrowserContext(context);
-  std::unique_ptr<message_center::Notification> notification =
-      ash::CreateSystemNotification(
-          message_center::NOTIFICATION_TYPE_SIMPLE, kLowDiskSpaceId,
-          l10n_util::GetStringUTF16(
-              IDS_ARC_CRITICALLY_LOW_DISK_NOTIFICATION_TITLE),
-          l10n_util::GetStringUTF16(
-              IDS_ARC_CRITICALLY_LOW_DISK_NOTIFICATION_MESSAGE),
-          l10n_util::GetStringUTF16(IDS_ARC_NOTIFICATION_DISPLAY_SOURCE),
-          GURL(), notifier_id, optional_fields,
-          base::MakeRefCounted<message_center::HandleNotificationClickDelegate>(
-              base::BindRepeating(
-                  [](Profile* profile, absl::optional<int> button_index) {
-                    if (button_index) {
-                      DCHECK_EQ(0, *button_index);
-                      chrome::SettingsWindowManager::GetInstance()
-                          ->ShowOSSettings(
-                              profile,
-                              chromeos::settings::mojom::kStorageSubpagePath);
-                    }
-                  },
-                  profile)),
-          kNotificationStorageFullIcon,
-          message_center::SystemNotificationWarningLevel::CRITICAL_WARNING);
+  message_center::Notification notification = ash::CreateSystemNotification(
+      message_center::NOTIFICATION_TYPE_SIMPLE, kLowDiskSpaceId,
+      l10n_util::GetStringUTF16(IDS_ARC_CRITICALLY_LOW_DISK_NOTIFICATION_TITLE),
+      l10n_util::GetStringUTF16(
+          IDS_ARC_CRITICALLY_LOW_DISK_NOTIFICATION_MESSAGE),
+      l10n_util::GetStringUTF16(IDS_ARC_NOTIFICATION_DISPLAY_SOURCE), GURL(),
+      notifier_id, optional_fields,
+      base::MakeRefCounted<message_center::HandleNotificationClickDelegate>(
+          base::BindRepeating(
+              [](Profile* profile, absl::optional<int> button_index) {
+                if (button_index) {
+                  DCHECK_EQ(0, *button_index);
+                  chrome::SettingsWindowManager::GetInstance()->ShowOSSettings(
+                      profile, chromeos::settings::mojom::kStorageSubpagePath);
+                }
+              },
+              profile)),
+      kNotificationStorageFullIcon,
+      message_center::SystemNotificationWarningLevel::CRITICAL_WARNING);
   NotificationDisplayService::GetForProfile(profile)->Display(
-      NotificationHandler::Type::TRANSIENT, *notification,
+      NotificationHandler::Type::TRANSIENT, notification,
       /*metadata=*/nullptr);
 }
 
@@ -134,6 +131,11 @@ ArcBootErrorNotification::~ArcBootErrorNotification() {
 void ArcBootErrorNotification::OnArcSessionStopped(ArcStopReason reason) {
   if (reason == ArcStopReason::LOW_DISK_SPACE)
     ShowLowDiskSpaceErrorNotification(context_);
+}
+
+// static
+void ArcBootErrorNotification::EnsureFactoryBuilt() {
+  ArcBootErrorNotificationFactory::GetInstance();
 }
 
 }  // namespace arc

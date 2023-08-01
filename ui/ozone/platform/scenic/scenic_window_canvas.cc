@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -49,7 +49,7 @@ void ScenicWindowCanvas::Frame::Initialize(gfx::Size size,
       scenic, memory_handle.PassPlatformHandle(), buffer_size,
       fuchsia::images::MemoryType::HOST_MEMORY);
   SkSurfaceProps props = skia::LegacyDisplayGlobals::GetSkSurfaceProps();
-  surface = SkSurface::MakeRasterDirect(
+  surface = SkSurfaces::WrapPixels(
       SkImageInfo::MakeN32Premul(size.width(), size.height()),
       memory_mapping.memory(), bytes_per_row, &props);
   dirty_region.setRect(gfx::RectToSkIRect(gfx::Rect(size)));

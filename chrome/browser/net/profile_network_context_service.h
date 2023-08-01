@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,8 @@
 #include <string>
 #include <utility>
 
-#include "base/callback_forward.h"
 #include "base/files/file_path.h"
+#include "base/functional/callback_forward.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
@@ -24,7 +24,7 @@
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_member.h"
-#include "mojo/public/cpp/bindings/remote.h"
+#include "components/privacy_sandbox/privacy_sandbox_settings.h"
 #include "net/net_buildflags.h"
 #include "services/cert_verifier/public/mojom/cert_verifier_service_factory.mojom-forward.h"
 #include "services/network/public/mojom/network_context.mojom.h"
@@ -56,7 +56,8 @@ class PrefRegistrySyncable;
 class ProfileNetworkContextService
     : public KeyedService,
       public content_settings::Observer,
-      public content_settings::CookieSettings::Observer {
+      public content_settings::CookieSettings::Observer,
+      public privacy_sandbox::PrivacySandboxSettings::Observer {
  public:
   explicit ProfileNetworkContextService(Profile* profile);
 
@@ -173,6 +174,9 @@ class ProfileNetworkContextService
   void OnThirdPartyCookieBlockingChanged(
       bool block_third_party_cookies) override;
 
+  // PrivacySandboxSettings::Observer:
+  void OnFirstPartySetsEnabledChanged(bool enabled) override;
+
   const raw_ptr<Profile> profile_;
 
   ProxyConfigMonitor proxy_config_monitor_;
@@ -186,6 +190,9 @@ class ProfileNetworkContextService
   base::ScopedObservation<content_settings::CookieSettings,
                           content_settings::CookieSettings::Observer>
       cookie_settings_observation_{this};
+  base::ScopedObservation<privacy_sandbox::PrivacySandboxSettings,
+                          privacy_sandbox::PrivacySandboxSettings::Observer>
+      privacy_sandbox_settings_observer_{this};
 
   // Used to post schedule CT policy updates
   base::OneShotTimer ct_policy_update_timer_;

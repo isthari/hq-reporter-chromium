@@ -1,11 +1,12 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "content/renderer/service_worker/controller_service_worker_connector.h"
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
+#include "base/observer_list.h"
 
 namespace content {
 
@@ -14,8 +15,11 @@ ControllerServiceWorkerConnector::ControllerServiceWorkerConnector(
         remote_container_host,
     mojo::PendingRemote<blink::mojom::ControllerServiceWorker>
         remote_controller,
-    const std::string& client_id)
-    : client_id_(client_id) {
+    const std::string& client_id,
+    blink::mojom::ServiceWorkerFetchHandlerBypassOption
+        fetch_handler_bypass_option)
+    : client_id_(client_id),
+      fetch_handler_bypass_option_(fetch_handler_bypass_option) {
   container_host_.Bind(std::move(remote_container_host));
   container_host_.set_disconnect_handler(base::BindOnce(
       &ControllerServiceWorkerConnector::OnContainerHostConnectionClosed,

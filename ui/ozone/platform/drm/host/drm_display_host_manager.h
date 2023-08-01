@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@
 #include <memory>
 
 #include "base/containers/queue.h"
-#include "base/file_descriptor_posix.h"
 #include "base/files/scoped_file.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "ui/display/types/native_display_delegate.h"
 #include "ui/events/ozone/device/device_event.h"
@@ -24,10 +24,10 @@
 namespace ui {
 
 class DeviceManager;
-class DrmDeviceHandle;
 class DrmDisplayHost;
 class DrmDisplayHostManager;
 class DrmNativeDisplayDelegate;
+class DrmWrapper;
 class GpuThreadAdapter;
 
 // The portion of the DrmDisplayHostManager implementation that is agnostic
@@ -56,7 +56,8 @@ class DrmDisplayHostManager : public DeviceEventObserver, GpuThreadObserver {
   void UpdateDisplays(display::GetDisplaysCallback callback);
   void ConfigureDisplays(
       const std::vector<display::DisplayConfigurationParams>& config_requests,
-      display::ConfigureCallback callback);
+      display::ConfigureCallback callback,
+      uint32_t modeset_flag);
 
   // DeviceEventObserver overrides:
   void OnDeviceEvent(const DeviceEvent& event) override;
@@ -69,6 +70,7 @@ class DrmDisplayHostManager : public DeviceEventObserver, GpuThreadObserver {
   // Communication-free implementations of actions performed in response to
   // messages from the GPU thread.
   void GpuHasUpdatedNativeDisplays(MovableDisplaySnapshots displays);
+  void GpuSetHdcpKeyProp(int64_t display_id, bool success);
   void GpuReceivedHDCPState(int64_t display_id,
                             bool status,
                             display::HDCPState state,
@@ -76,15 +78,20 @@ class DrmDisplayHostManager : public DeviceEventObserver, GpuThreadObserver {
   void GpuUpdatedHDCPState(int64_t display_id, bool status);
   void GpuTookDisplayControl(bool status);
   void GpuRelinquishedDisplayControl(bool status);
+  void GpuShouldDisplayEventTriggerConfiguration(bool should_trigger);
 
  private:
   struct DisplayEvent {
     DisplayEvent(DeviceEvent::ActionType action_type,
-                 const base::FilePath& path)
-        : action_type(action_type), path(path) {}
+                 const base::FilePath& path,
+                 const EventPropertyMap& properties);
+    DisplayEvent(const DisplayEvent&);
+    DisplayEvent& operator=(const DisplayEvent&);
+    ~DisplayEvent();
 
     DeviceEvent::ActionType action_type;
     base::FilePath path;
+    EventPropertyMap display_event_props;
   };
 
   // Handle hotplug events sequentially.
@@ -94,19 +101,21 @@ class DrmDisplayHostManager : public DeviceEventObserver, GpuThreadObserver {
   // are responsible for dequing the event and scheduling the next event.
   void OnAddGraphicsDevice(const base::FilePath& path,
                            const base::FilePath& sysfs_path,
-                           std::unique_ptr<DrmDeviceHandle> handle);
-  void OnUpdateGraphicsDevice();
+                           std::unique_ptr<DrmWrapper> drm);
+  void OnUpdateGraphicsDevice(const EventPropertyMap& udev_event_props);
   void OnRemoveGraphicsDevice(const base::FilePath& path);
 
   void RunUpdateDisplaysCallback(display::GetDisplaysCallback callback) const;
 
   void NotifyDisplayDelegate() const;
 
-  GpuThreadAdapter* const proxy_;                 // Not owned.
-  DeviceManager* const device_manager_;           // Not owned.
-  InputControllerEvdev* const input_controller_;  // Not owned.
+  const raw_ptr<GpuThreadAdapter, ExperimentalAsh> proxy_;        // Not owned.
+  const raw_ptr<DeviceManager, ExperimentalAsh> device_manager_;  // Not owned.
+  const raw_ptr<InputControllerEvdev, ExperimentalAsh>
+      input_controller_;  // Not owned.
 
-  DrmNativeDisplayDelegate* delegate_ = nullptr;  // Not owned.
+  raw_ptr<DrmNativeDisplayDelegate, ExperimentalAsh> delegate_ =
+      nullptr;  // Not owned.
 
   // File path for the primary graphics card which is opened by default in the
   // GPU process. We'll avoid opening this in hotplug events since it will race
@@ -141,7 +150,7 @@ class DrmDisplayHostManager : public DeviceEventObserver, GpuThreadObserver {
 
   // This is used to cache the primary DRM device until the channel is
   // established.
-  std::unique_ptr<DrmDeviceHandle> primary_drm_device_handle_;
+  std::unique_ptr<DrmWrapper> primary_drm_device_;
 
   base::WeakPtrFactory<DrmDisplayHostManager> weak_ptr_factory_{this};
 };

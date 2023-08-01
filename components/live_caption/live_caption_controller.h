@@ -1,4 +1,4 @@
-// Copyright (c) 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,16 +10,17 @@
 #include "base/memory/raw_ptr.h"
 #include "build/build_config.h"
 #include "components/keyed_service/core/keyed_service.h"
+#include "components/live_caption/views/caption_bubble.h"
 #include "components/soda/constants.h"
 #include "components/soda/soda_installer.h"
-#include "media/mojo/mojom/speech_recognition_service.mojom.h"
+#include "media/mojo/mojom/speech_recognition.mojom.h"
 #include "ui/native_theme/caption_style.h"
 #include "ui/native_theme/native_theme_observer.h"
 
 class PrefChangeRegistrar;
 
-namespace ui {
-class NativeTheme;
+namespace content {
+class BrowserContext;
 }
 
 namespace user_prefs {
@@ -44,15 +45,15 @@ class LiveCaptionController : public KeyedService,
                               public speech::SodaInstaller::Observer,
                               public ui::NativeThemeObserver {
  public:
-  explicit LiveCaptionController(PrefService* profile_prefs,
-                                 PrefService* global_prefs);
+  LiveCaptionController(PrefService* profile_prefs,
+                        PrefService* global_prefs,
+                        const std::string& application_locale,
+                        content::BrowserContext* browser_context);
   ~LiveCaptionController() override;
   LiveCaptionController(const LiveCaptionController&) = delete;
   LiveCaptionController& operator=(const LiveCaptionController&) = delete;
 
   static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
-
-  void Init();
 
   // Routes a transcription to the CaptionBubbleController. Returns whether the
   // transcription result was routed successfully. Transcriptions will halt if
@@ -65,7 +66,10 @@ class LiveCaptionController : public KeyedService,
 
   // Alerts the CaptionBubbleController that there is an error in the speech
   // recognition service.
-  void OnError(CaptionBubbleContext* caption_bubble_context);
+  void OnError(CaptionBubbleContext* caption_bubble_context,
+               CaptionBubbleErrorType error_type,
+               OnErrorClickedCallback error_clicked_callback,
+               OnDoNotShowAgainClickedCallback error_silenced_callback);
 
   // Alerts the CaptionBubbleController that the audio stream has ended.
   void OnAudioStreamEnd(CaptionBubbleContext* caption_bubble_context);
@@ -77,18 +81,19 @@ class LiveCaptionController : public KeyedService,
   void OnToggleFullscreen(CaptionBubbleContext* caption_bubble_context);
 #endif
 
- private:
-  friend class LiveCaptionControllerFactory;
-  friend class LiveCaptionControllerTest;
-  friend class LiveCaptionSpeechRecognitionHostTest;
+  CaptionBubbleController* caption_bubble_controller_for_testing() {
+    return caption_bubble_controller_.get();
+  }
 
+ private:
   // SodaInstaller::Observer:
-  void OnSodaInstalled() override;
-  void OnSodaProgress(int combined_progress) override {}
-  void OnSodaError() override {}
+  void OnSodaInstalled(speech::LanguageCode language_code) override;
+  void OnSodaProgress(speech::LanguageCode language_code,
+                      int progress) override {}
+  void OnSodaInstallError(speech::LanguageCode language_code,
+                          speech::SodaInstaller::ErrorCode error_code) override;
 
   // ui::NativeThemeObserver:
-  void OnNativeThemeUpdated(ui::NativeTheme* observed_theme) override {}
   void OnCaptionStyleUpdated() override;
 
   void OnLiveCaptionEnabledChanged();
@@ -101,9 +106,12 @@ class LiveCaptionController : public KeyedService,
 
   raw_ptr<PrefService> profile_prefs_;
   raw_ptr<PrefService> global_prefs_;
+  raw_ptr<content::BrowserContext> browser_context_;
   std::unique_ptr<PrefChangeRegistrar> pref_change_registrar_;
   std::unique_ptr<CaptionBubbleController> caption_bubble_controller_;
   absl::optional<ui::CaptionStyle> caption_style_;
+
+  const std::string application_locale_;
 
   // Whether Live Caption is enabled.
   bool enabled_ = false;

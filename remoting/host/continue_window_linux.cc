@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/logging.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/strings/utf_string_conversions.h"
 #include "remoting/base/string_resources.h"
 #include "ui/base/glib/glib_signal.h"
@@ -36,12 +37,12 @@ class ContinueWindowGtk : public ContinueWindow {
 
   CHROMEG_CALLBACK_1(ContinueWindowGtk, void, OnResponse, GtkDialog*, int);
 
-  GtkWidget* continue_window_;
+  // This field is not a raw_ptr<> because of a static_cast not related by
+  // inheritance.
+  RAW_PTR_EXCLUSION GtkWidget* continue_window_;
 };
 
-ContinueWindowGtk::ContinueWindowGtk()
-    : continue_window_(nullptr) {
-}
+ContinueWindowGtk::ContinueWindowGtk() : continue_window_(nullptr) {}
 
 ContinueWindowGtk::~ContinueWindowGtk() {
   if (continue_window_) {
@@ -73,13 +74,11 @@ void ContinueWindowGtk::CreateWindow() {
   DCHECK(!continue_window_);
 
   continue_window_ = gtk_dialog_new_with_buttons(
-      l10n_util::GetStringUTF8(IDS_PRODUCT_NAME).c_str(),
-      nullptr,
+      l10n_util::GetStringUTF8(IDS_PRODUCT_NAME).c_str(), nullptr,
       GTK_DIALOG_MODAL,
       l10n_util::GetStringUTF8(IDS_STOP_SHARING_BUTTON).c_str(),
       GTK_RESPONSE_CANCEL,
-      l10n_util::GetStringUTF8(IDS_CONTINUE_BUTTON).c_str(),
-      GTK_RESPONSE_OK,
+      l10n_util::GetStringUTF8(IDS_CONTINUE_BUTTON).c_str(), GTK_RESPONSE_OK,
       nullptr);
 
   gtk_dialog_set_default_response(GTK_DIALOG(continue_window_),
@@ -90,8 +89,8 @@ void ContinueWindowGtk::CreateWindow() {
   // DisconnectWindow.
   gtk_window_set_keep_above(GTK_WINDOW(continue_window_), TRUE);
 
-  g_signal_connect(continue_window_, "response",
-                   G_CALLBACK(OnResponseThunk), this);
+  g_signal_connect(continue_window_, "response", G_CALLBACK(OnResponseThunk),
+                   this);
 
   GtkWidget* content_area =
       gtk_dialog_get_content_area(GTK_DIALOG(continue_window_));

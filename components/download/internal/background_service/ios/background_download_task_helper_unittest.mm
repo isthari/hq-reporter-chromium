@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,14 +6,14 @@
 
 #include <memory>
 
-#import "base/callback_helpers.h"
 #import "base/files/file_util.h"
 #import "base/files/scoped_temp_dir.h"
-#import "base/guid.h"
+#import "base/functional/callback_helpers.h"
 #import "base/run_loop.h"
 #import "base/sequence_checker.h"
 #import "base/test/bind.h"
 #import "base/test/gmock_callback_support.h"
+#import "base/uuid.h"
 #import "components/download/internal/background_service/test/background_download_test_base.h"
 #import "components/download/public/background_service/download_params.h"
 #import "net/test/embedded_test_server/embedded_test_server.h"
@@ -64,9 +64,10 @@ class BackgroundDownloadTaskHelperTest
 };
 
 // Verifies download can be finished.
-TEST_F(BackgroundDownloadTaskHelperTest, DownloadComplete) {
+// TODO(crbug/1367306): Re-enable the test.
+TEST_F(BackgroundDownloadTaskHelperTest, DISABLED_DownloadComplete) {
   base::RunLoop loop;
-  std::string guid = base::GenerateGUID();
+  std::string guid = base::Uuid::GenerateRandomV4().AsLowercaseString();
   Download("/test", guid,
            base::BindLambdaForTesting([&](bool success,
                                           const base::FilePath& file_path,
@@ -82,18 +83,18 @@ TEST_F(BackgroundDownloadTaskHelperTest, DownloadComplete) {
            }));
   loop.Run();
   EXPECT_TRUE(base::PathExists(dir().GetPath().AppendASCII(guid)));
-  DCHECK(request_sent());
+  ASSERT_TRUE(request_sent());
   auto it = request_sent()->headers.find(net::HttpRequestHeaders::kIfMatch);
   EXPECT_EQ(kHeaderValue, it->second);
   EXPECT_EQ(HttpMethod::METHOD_POST, request_sent()->method);
 }
 
 // Verifies non success http code is treated as error.
-// TODO(crbug.com/1261881):Disabled test because it fails multiple builders.
-// Re-enable it when fixed.
-TEST_F(BackgroundDownloadTaskHelperTest, DownloadErrorNonSuccessHttpCode) {
+// TODO(crbug/1367306): Re-enable the test.
+TEST_F(BackgroundDownloadTaskHelperTest,
+       DISABLED_DownloadErrorNonSuccessHttpCode) {
   base::RunLoop loop;
-  std::string guid = base::GenerateGUID();
+  std::string guid = base::Uuid::GenerateRandomV4().AsLowercaseString();
   Download("/notfound", guid,
            base::BindLambdaForTesting([&](bool success,
                                           const base::FilePath& file_path,
@@ -107,10 +108,10 @@ TEST_F(BackgroundDownloadTaskHelperTest, DownloadErrorNonSuccessHttpCode) {
 }
 
 // Verifies data URL should result in failure.
-// TODO(crbug.com/1261931): Flaky test. Please remove it when fixed.
-TEST_F(BackgroundDownloadTaskHelperTest, DataURL) {
+// TODO(crbug/1367306): Re-enable the test.
+TEST_F(BackgroundDownloadTaskHelperTest, DISABLED_DataURL) {
   base::RunLoop loop;
-  std::string guid = base::GenerateGUID();
+  std::string guid = base::Uuid::GenerateRandomV4().AsLowercaseString();
   DownloadParams params;
   params.request_params.url = GURL("data:text/plain;base64,Q2hyb21pdW0=");
   helper()->StartDownload(

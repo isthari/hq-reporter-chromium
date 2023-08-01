@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
 #include "base/android/scoped_java_ref.h"
+#include "base/feature_list.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/trace_event/trace_event.h"
 #include "content/browser/android/navigation_handle_proxy.h"
@@ -88,10 +89,7 @@ void WebContentsObserverProxy::RenderFrameDeleted(
 void WebContentsObserverProxy::PrimaryMainFrameRenderProcessGone(
     base::TerminationStatus termination_status) {
   JNIEnv* env = AttachCurrentThread();
-  jboolean was_oom_protected =
-      termination_status == base::TERMINATION_STATUS_OOM_PROTECTED;
-  Java_WebContentsObserverProxy_renderProcessGone(env, java_observer_,
-                                                  was_oom_protected);
+  Java_WebContentsObserverProxy_renderProcessGone(env, java_observer_);
 }
 
 void WebContentsObserverProxy::DidStartLoading() {
@@ -137,24 +135,24 @@ void WebContentsObserverProxy::DidChangeVisibleSecurityState() {
 
 void WebContentsObserverProxy::PrimaryMainDocumentElementAvailable() {
   JNIEnv* env = AttachCurrentThread();
-  // TODO(crbug.com/1288029): Rename DocumentAvailableInMainFrame to
-  // PrimaryMainDocumentElementAvailable in java code.
-  Java_WebContentsObserverProxy_documentAvailableInMainFrame(env,
-                                                             java_observer_);
+  Java_WebContentsObserverProxy_primaryMainDocumentElementAvailable(
+      env, java_observer_);
 }
 
 void WebContentsObserverProxy::DidStartNavigation(
     NavigationHandle* navigation_handle) {
-  Java_WebContentsObserverProxy_didStartNavigation(
-      AttachCurrentThread(), java_observer_,
-      NavigationRequest::From(navigation_handle)->java_navigation_handle());
+  if (navigation_handle->IsInPrimaryMainFrame()) {
+    Java_WebContentsObserverProxy_didStartNavigationInPrimaryMainFrame(
+        AttachCurrentThread(), java_observer_,
+        navigation_handle->GetJavaNavigationHandle());
+  }
 }
 
 void WebContentsObserverProxy::DidRedirectNavigation(
     NavigationHandle* navigation_handle) {
   Java_WebContentsObserverProxy_didRedirectNavigation(
       AttachCurrentThread(), java_observer_,
-      NavigationRequest::From(navigation_handle)->java_navigation_handle());
+      navigation_handle->GetJavaNavigationHandle());
 }
 
 void WebContentsObserverProxy::DidFinishNavigation(
@@ -162,9 +160,11 @@ void WebContentsObserverProxy::DidFinishNavigation(
   // Remove after fixing https://crbug/905461.
   TRACE_EVENT0("browser", "Java_WebContentsObserverProxy_didFinishNavigation");
 
-  Java_WebContentsObserverProxy_didFinishNavigation(
-      AttachCurrentThread(), java_observer_,
-      NavigationRequest::From(navigation_handle)->java_navigation_handle());
+  if (navigation_handle->IsInPrimaryMainFrame()) {
+    Java_WebContentsObserverProxy_didFinishNavigationInPrimaryMainFrame(
+        AttachCurrentThread(), java_observer_,
+        navigation_handle->GetJavaNavigationHandle());
+  }
 }
 
 void WebContentsObserverProxy::DidFinishLoad(RenderFrameHost* render_frame_host,
@@ -174,22 +174,24 @@ void WebContentsObserverProxy::DidFinishLoad(RenderFrameHost* render_frame_host,
   GURL url = validated_url;
   bool assume_valid = SetToBaseURLForDataURLIfNeeded(&url);
 
-  Java_WebContentsObserverProxy_didFinishLoad(
-      env, java_observer_, render_frame_host->GetProcess()->GetID(),
-      render_frame_host->GetRoutingID(),
-      url::GURLAndroid::FromNativeGURL(env, url), assume_valid,
-      render_frame_host->IsInPrimaryMainFrame(),
-      static_cast<jint>(render_frame_host->GetLifecycleState()));
+  if (render_frame_host->IsInPrimaryMainFrame()) {
+    Java_WebContentsObserverProxy_didFinishLoadInPrimaryMainFrame(
+        env, java_observer_, render_frame_host->GetProcess()->GetID(),
+        render_frame_host->GetRoutingID(),
+        url::GURLAndroid::FromNativeGURL(env, url), assume_valid,
+        static_cast<jint>(render_frame_host->GetLifecycleState()));
+  }
 }
 
 void WebContentsObserverProxy::DOMContentLoaded(
     RenderFrameHost* render_frame_host) {
-  JNIEnv* env = AttachCurrentThread();
-  Java_WebContentsObserverProxy_documentLoadedInFrame(
-      env, java_observer_, render_frame_host->GetProcess()->GetID(),
-      render_frame_host->GetRoutingID(),
-      render_frame_host->IsInPrimaryMainFrame(),
-      static_cast<jint>(render_frame_host->GetLifecycleState()));
+  if (render_frame_host->IsInPrimaryMainFrame()) {
+    Java_WebContentsObserverProxy_documentLoadedInPrimaryMainFrame(
+        AttachCurrentThread(), java_observer_,
+        render_frame_host->GetProcess()->GetID(),
+        render_frame_host->GetRoutingID(),
+        static_cast<jint>(render_frame_host->GetLifecycleState()));
+  }
 }
 
 void WebContentsObserverProxy::NavigationEntryCommitted(
@@ -215,6 +217,12 @@ void WebContentsObserverProxy::NavigationEntryChanged(
   JNIEnv* env = AttachCurrentThread();
   // TODO(jinsukkim): Convert |change_details| to Java object when needed.
   Java_WebContentsObserverProxy_navigationEntriesChanged(env, java_observer_);
+}
+
+void WebContentsObserverProxy::FrameReceivedUserActivation(RenderFrameHost*) {
+  JNIEnv* env = AttachCurrentThread();
+  Java_WebContentsObserverProxy_frameReceivedUserActivation(env,
+                                                            java_observer_);
 }
 
 void WebContentsObserverProxy::DidChangeThemeColor() {
@@ -303,6 +311,13 @@ void WebContentsObserverProxy::ViewportFitChanged(
   JNIEnv* env = AttachCurrentThread();
   Java_WebContentsObserverProxy_viewportFitChanged(
       env, java_observer_, as_jint(static_cast<int>(value)));
+}
+
+void WebContentsObserverProxy::VirtualKeyboardModeChanged(
+    ui::mojom::VirtualKeyboardMode mode) {
+  JNIEnv* env = AttachCurrentThread();
+  Java_WebContentsObserverProxy_virtualKeyboardModeChanged(
+      env, java_observer_, as_jint(static_cast<int>(mode)));
 }
 
 void WebContentsObserverProxy::OnWebContentsFocused(RenderWidgetHost*) {

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,21 +9,22 @@
 #include "ash/public/cpp/test/test_system_tray_client.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "base/memory/ptr_util.h"
+#include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "chrome/browser/notifications/notification_display_service_tester.h"
 #include "chrome/browser/notifications/system_notification_helper.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "chrome/test/base/testing_browser_process.h"
-#include "chromeos/dbus/hermes/hermes_clients.h"
-#include "chromeos/dbus/shill/shill_device_client.h"
-#include "chromeos/dbus/shill/shill_service_client.h"
-#include "chromeos/network/cellular_metrics_logger.h"
-#include "chromeos/network/network_connect.h"
-#include "chromeos/network/network_handler.h"
-#include "chromeos/network/network_handler_test_helper.h"
-#include "chromeos/network/network_state_handler.h"
-#include "chromeos/network/network_state_test_helper.h"
+#include "chromeos/ash/components/dbus/hermes/hermes_clients.h"
+#include "chromeos/ash/components/dbus/shill/shill_device_client.h"
+#include "chromeos/ash/components/dbus/shill/shill_service_client.h"
+#include "chromeos/ash/components/network/cellular_metrics_logger.h"
+#include "chromeos/ash/components/network/network_connect.h"
+#include "chromeos/ash/components/network/network_handler.h"
+#include "chromeos/ash/components/network/network_handler_test_helper.h"
+#include "chromeos/ash/components/network/network_state_handler.h"
+#include "chromeos/ash/components/network/network_state_test_helper.h"
 #include "components/prefs/testing_pref_service.h"
 #include "testing/platform_test.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
@@ -31,7 +32,8 @@
 #include "ui/chromeos/strings/grit/ui_chromeos_strings.h"
 #include "ui/message_center/public/cpp/notification.h"
 
-namespace chromeos {
+namespace ash {
+
 namespace {
 
 const char kWiFi1Guid[] = "wifi1_guid";
@@ -63,6 +65,8 @@ class NetworkConnectTestDelegate : public NetworkConnect::Delegate {
   }
   void ShowMobileSetupDialog(const std::string& service_path) override {}
   void ShowCarrierAccountDetail(const std::string& service_path) override {}
+  void ShowPortalSignin(const std::string& service_path,
+                        NetworkConnect::Source source) override {}
   void ShowNetworkConnectError(const std::string& error_name,
                                const std::string& network_id) override {
     network_state_notifier_->ShowNetworkConnectErrorForGuid(error_name,
@@ -114,7 +118,6 @@ class NetworkStateNotifierTest : public BrowserWithTestWindowTest {
 
  protected:
   void SetupESimNetwork() {
-    const char kCellularEsimServicePath[] = "/service/cellular_esim1";
     const char kTestEuiccPath[] = "euicc_path";
     const char kTestEidName[] = "eid";
     const char kTestIccid[] = "iccid";
@@ -138,8 +141,8 @@ class NetworkStateNotifierTest : public BrowserWithTestWindowTest {
     hermes_euicc_test_->AddCarrierProfile(
         dbus::ObjectPath(kCellularEsimServicePath),
         dbus::ObjectPath(kTestEuiccPath), kTestIccid, kTestEsimProfileName,
-        "service_provider", "activation_code", kCellularEsimServicePath,
-        hermes::profile::State::kActive,
+        kTestEsimProfileName, "service_provider", "activation_code",
+        kCellularEsimServicePath, hermes::profile::State::kActive,
         hermes::profile::ProfileClass::kOperational,
         HermesEuiccClient::TestInterface::AddCarrierProfileBehavior::
             kAddProfileWithService);
@@ -151,11 +154,11 @@ class NetworkStateNotifierTest : public BrowserWithTestWindowTest {
         network_handler_test_helper_->device_test();
 
     std::string lock_pin = is_locked ? shill::kSIMLockPin : "";
-    base::Value sim_lock_status(base::Value::Type::DICTIONARY);
-    sim_lock_status.SetKey(shill::kSIMLockTypeProperty, base::Value(lock_pin));
+    base::Value::Dict sim_lock_status;
+    sim_lock_status.Set(shill::kSIMLockTypeProperty, lock_pin);
     device_test->SetDeviceProperty(
         kCellularDevicePath, shill::kSIMLockStatusProperty,
-        std::move(sim_lock_status), /*notify_changed=*/true);
+        base::Value(std::move(sim_lock_status)), /*notify_changed=*/true);
     base::RunLoop().RunUntilIdle();
   }
 
@@ -176,7 +179,7 @@ class NetworkStateNotifierTest : public BrowserWithTestWindowTest {
                              shill::kTypeWifi, shill::kStateIdle, true);
     service_test->SetServiceProperty(kWiFi1ServicePath,
                                      shill::kSecurityClassProperty,
-                                     base::Value(shill::kSecurityWep));
+                                     base::Value(shill::kSecurityClassWep));
     service_test->SetServiceProperty(
         kWiFi1ServicePath, shill::kConnectableProperty, base::Value(true));
     service_test->SetServiceProperty(
@@ -196,28 +199,27 @@ class NetworkStateNotifierTest : public BrowserWithTestWindowTest {
     service_test->SetServiceProperty(
         kCellular1ServicePath, shill::kActivationStateProperty,
         base::Value(shill::kActivationStateActivated));
-    base::Value sim_lock_status(base::Value::Type::DICTIONARY);
-    sim_lock_status.SetKey(shill::kSIMLockTypeProperty,
-                           base::Value(shill::kSIMLockPin));
+    base::Value::Dict sim_lock_status;
+    sim_lock_status.Set(shill::kSIMLockTypeProperty, shill::kSIMLockPin);
     device_test->SetDeviceProperty(
         kCellularDevicePath, shill::kSIMLockStatusProperty,
-        std::move(sim_lock_status), /*notify_changed=*/true);
-    base::Value::ListStorage sim_slot_infos;
-    base::Value slot_info_item(base::Value::Type::DICTIONARY);
-    slot_info_item.SetKey(shill::kSIMSlotInfoICCID,
-                          base::Value(kCellular1Iccid));
-    slot_info_item.SetBoolKey(shill::kSIMSlotInfoPrimary, true);
-    sim_slot_infos.push_back(std::move(slot_info_item));
+        base::Value(std::move(sim_lock_status)), /*notify_changed=*/true);
+    base::Value::List sim_slot_infos;
+    base::Value::Dict slot_info_item;
+    slot_info_item.Set(shill::kSIMSlotInfoICCID, kCellular1Iccid);
+    slot_info_item.Set(shill::kSIMSlotInfoPrimary, true);
+    sim_slot_infos.Append(std::move(slot_info_item));
     device_test->SetDeviceProperty(
         kCellularDevicePath, shill::kSIMSlotInfoProperty,
-        base::Value(sim_slot_infos), /*notify_changed=*/true);
+        base::Value(std::move(sim_slot_infos)), /*notify_changed=*/true);
 
     base::RunLoop().RunUntilIdle();
   }
 
-  HermesManagerClient::TestInterface* hermes_manager_test_;
-  HermesEuiccClient::TestInterface* hermes_euicc_test_;
-  ash::TestSystemTrayClient test_system_tray_client_;
+  raw_ptr<HermesManagerClient::TestInterface, ExperimentalAsh>
+      hermes_manager_test_;
+  raw_ptr<HermesEuiccClient::TestInterface, ExperimentalAsh> hermes_euicc_test_;
+  TestSystemTrayClient test_system_tray_client_;
   std::unique_ptr<NetworkHandlerTestHelper> network_handler_test_helper_;
   std::unique_ptr<NetworkConnectTestDelegate> network_connect_delegate_;
   TestingPrefServiceSimple user_prefs_;
@@ -295,4 +297,4 @@ TEST_F(NetworkStateNotifierTest, CellularEsimConnectionFailure) {
   EXPECT_FALSE(notification);
 }
 
-}  // namespace chromeos
+}  // namespace ash

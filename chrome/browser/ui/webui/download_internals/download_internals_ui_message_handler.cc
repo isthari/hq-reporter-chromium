@@ -1,11 +1,11 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/webui/download_internals/download_internals_ui_message_handler.h"
 
-#include "base/bind.h"
-#include "base/guid.h"
+#include "base/functional/bind.h"
+#include "base/uuid.h"
 #include "base/values.h"
 #include "chrome/browser/download/background_download_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -26,17 +26,17 @@ DownloadInternalsUIMessageHandler::~DownloadInternalsUIMessageHandler() {
 }
 
 void DownloadInternalsUIMessageHandler::RegisterMessages() {
-  web_ui()->RegisterDeprecatedMessageCallback(
+  web_ui()->RegisterMessageCallback(
       "getServiceStatus",
       base::BindRepeating(
           &DownloadInternalsUIMessageHandler::HandleGetServiceStatus,
           weak_ptr_factory_.GetWeakPtr()));
-  web_ui()->RegisterDeprecatedMessageCallback(
+  web_ui()->RegisterMessageCallback(
       "getServiceDownloads",
       base::BindRepeating(
           &DownloadInternalsUIMessageHandler::HandleGetServiceDownloads,
           weak_ptr_factory_.GetWeakPtr()));
-  web_ui()->RegisterDeprecatedMessageCallback(
+  web_ui()->RegisterMessageCallback(
       "startDownload",
       base::BindRepeating(
           &DownloadInternalsUIMessageHandler::HandleStartDownload,
@@ -49,7 +49,7 @@ void DownloadInternalsUIMessageHandler::RegisterMessages() {
 }
 
 void DownloadInternalsUIMessageHandler::OnServiceStatusChanged(
-    const base::Value& service_status) {
+    const base::Value::Dict& service_status) {
   if (!IsJavascriptAllowed())
     return;
 
@@ -57,7 +57,7 @@ void DownloadInternalsUIMessageHandler::OnServiceStatusChanged(
 }
 
 void DownloadInternalsUIMessageHandler::OnServiceDownloadsAvailable(
-    const base::Value& service_downloads) {
+    const base::Value::List& service_downloads) {
   if (!IsJavascriptAllowed())
     return;
 
@@ -65,7 +65,7 @@ void DownloadInternalsUIMessageHandler::OnServiceDownloadsAvailable(
 }
 
 void DownloadInternalsUIMessageHandler::OnServiceDownloadChanged(
-    const base::Value& service_download) {
+    const base::Value::Dict& service_download) {
   if (!IsJavascriptAllowed())
     return;
 
@@ -73,7 +73,7 @@ void DownloadInternalsUIMessageHandler::OnServiceDownloadChanged(
 }
 
 void DownloadInternalsUIMessageHandler::OnServiceDownloadFailed(
-    const base::Value& service_download) {
+    const base::Value::Dict& service_download) {
   if (!IsJavascriptAllowed())
     return;
 
@@ -81,7 +81,7 @@ void DownloadInternalsUIMessageHandler::OnServiceDownloadFailed(
 }
 
 void DownloadInternalsUIMessageHandler::OnServiceRequestMade(
-    const base::Value& service_request) {
+    const base::Value::Dict& service_request) {
   if (!IsJavascriptAllowed())
     return;
 
@@ -89,32 +89,32 @@ void DownloadInternalsUIMessageHandler::OnServiceRequestMade(
 }
 
 void DownloadInternalsUIMessageHandler::HandleGetServiceStatus(
-    const base::ListValue* args) {
+    const base::Value::List& args) {
   AllowJavascript();
-  const base::Value& callback_id = args->GetList()[0];
+  const base::Value& callback_id = args[0];
   ResolveJavascriptCallback(callback_id,
                             download_service_->GetLogger()->GetServiceStatus());
 }
 
 void DownloadInternalsUIMessageHandler::HandleGetServiceDownloads(
-    const base::ListValue* args) {
+    const base::Value::List& args) {
   AllowJavascript();
-  const base::Value& callback_id = args->GetList()[0];
+  const base::Value& callback_id = args[0];
   ResolveJavascriptCallback(
       callback_id, download_service_->GetLogger()->GetServiceDownloads());
 }
 
 void DownloadInternalsUIMessageHandler::HandleStartDownload(
-    const base::ListValue* args) {
-  CHECK_GT(args->GetList().size(), 1u) << "Missing argument download URL.";
-  GURL url = GURL(args->GetList()[1].GetString());
+    const base::Value::List& args) {
+  CHECK_GT(args.size(), 1u) << "Missing argument download URL.";
+  GURL url = GURL(args[1].GetString());
   if (!url.is_valid()) {
     LOG(WARNING) << "Can't parse download URL, try to enter a valid URL.";
     return;
   }
 
   download::DownloadParams params;
-  params.guid = base::GenerateGUID();
+  params.guid = base::Uuid::GenerateRandomV4().AsLowercaseString();
   params.client = download::DownloadClient::DEBUGGING;
   params.request_params.method = "GET";
   params.request_params.url = url;

@@ -1,10 +1,9 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <stddef.h>
 
-#include "base/cxx17_backports.h"
 #include "extensions/browser/api/content_settings/content_settings_helpers.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -24,7 +23,7 @@ TEST(ExtensionContentSettingsHelpersTest, ParseExtensionPattern) {
     { "https://*/*", "https://*" },
     { "file:///foo/bar/baz", "file:///foo/bar/baz" },
   };
-  for (size_t i = 0; i < base::size(kTestPatterns); ++i) {
+  for (size_t i = 0; i < std::size(kTestPatterns); ++i) {
     std::string error;
     std::string pattern_str = helpers::ParseExtensionPattern(
         kTestPatterns[i].extension_pattern, &error).ToString();
@@ -41,7 +40,7 @@ TEST(ExtensionContentSettingsHelpersTest, ParseExtensionPattern) {
     { "file:///foo/bar/*",
       "Path wildcards in file URL patterns are not allowed." },
   };
-  for (size_t i = 0; i < base::size(kInvalidTestPatterns); ++i) {
+  for (size_t i = 0; i < std::size(kInvalidTestPatterns); ++i) {
     std::string error;
     ContentSettingsPattern pattern = helpers::ParseExtensionPattern(
         kInvalidTestPatterns[i].extension_pattern, &error);

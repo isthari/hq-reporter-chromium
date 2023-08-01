@@ -1,17 +1,28 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {assert} from 'chrome://resources/js/assert.m.js';
-import {dispatchSimpleEvent} from 'chrome://resources/js/cr.m.js';
-import {NativeEventTarget as EventTarget} from 'chrome://resources/js/cr/event_target.m.js';
+import {assert} from 'chrome://resources/ash/common/assert.js';
+import {dispatchSimpleEvent} from 'chrome://resources/ash/common/cr_deprecated.js';
+import {NativeEventTarget as EventTarget} from 'chrome://resources/ash/common/event_target.js';
 
-import {AsyncUtil} from '../../common/js/async_util.js';
+import {mountGuest} from '../../common/js/api.js';
+import {AsyncQueue, ConcurrentQueue} from '../../common/js/async_util.js';
+import {createDOMError} from '../../common/js/dom_utils.js';
+import {isEntryInsideDrive} from '../../common/js/entry_utils.js';
+import {FileType} from '../../common/js/file_type.js';
+import {EntryList} from '../../common/js/files_app_entry_types.js';
 import {metrics} from '../../common/js/metrics.js';
+import {getEarliestTimestamp} from '../../common/js/recent_date_bucket.js';
+import {createTrashReaders} from '../../common/js/trash.js';
 import {util} from '../../common/js/util.js';
 import {VolumeManagerCommon} from '../../common/js/volume_manager_types.js';
-import {FakeEntry, FilesAppDirEntry} from '../../externs/files_app_entry_interfaces.js';
+import {EntryLocation} from '../../externs/entry_location.js';
+import {FakeEntry, FilesAppDirEntry, FilesAppEntry} from '../../externs/files_app_entry_interfaces.js';
+import {SearchLocation, SearchOptions, SearchRecency} from '../../externs/ts/state.js';
+import {VolumeInfo} from '../../externs/volume_info.js';
 import {VolumeManager} from '../../externs/volume_manager.js';
+import {getDefaultSearchOptions, getStore} from '../../state/store.js';
 
 import {constants} from './constants.js';
 import {FileListModel} from './file_list_model.js';
@@ -36,8 +47,13 @@ export class ContentScanner {
    * @param {function()} successCallback Called when the scan is completed
    *     successfully.
    * @param {function(DOMError)} errorCallback Called an error occurs.
+   * @param {boolean=} invalidateCache True to invalidate the backend scanning
+   *     result cache. This param only works if the corresponding backend
+   *     scanning supports cache.
    */
-  scan(entriesCallback, successCallback, errorCallback) {}
+  async scan(
+      entriesCallback, successCallback, errorCallback,
+      invalidateCache = false) {}
 
   /**
    * Request cancelling of the running scan. When the cancelling is done,
@@ -64,12 +80,13 @@ export class DirectoryContentScanner extends ContentScanner {
    * Starts to read the entries in the directory.
    * @override
    */
-  scan(entriesCallback, successCallback, errorCallback) {
+  async scan(
+      entriesCallback, successCallback, errorCallback,
+      invalidateCache = false) {
     if (!this.entry_ || !this.entry_.createReader) {
       // If entry is not specified or if entry doesn't implement createReader,
       // we cannot read it.
-      errorCallback(
-          util.createDOMError(util.FileError.INVALID_MODIFICATION_ERR));
+      errorCallback(createDOMError(util.FileError.INVALID_MODIFICATION_ERR));
       return;
     }
 
@@ -78,7 +95,7 @@ export class DirectoryContentScanner extends ContentScanner {
     const readEntries = () => {
       reader.readEntries(entries => {
         if (this.cancelled_) {
-          errorCallback(util.createDOMError(util.FileError.ABORT_ERR));
+          errorCallback(createDOMError(util.FileError.ABORT_ERR));
           return;
         }
 
@@ -94,6 +111,7 @@ export class DirectoryContentScanner extends ContentScanner {
       }, errorCallback);
     };
     readEntries();
+    return;
   }
 }
 
@@ -111,30 +129,37 @@ export class DriveSearchContentScanner extends ContentScanner {
    * Starts to search on Drive File System.
    * @override
    */
-  scan(entriesCallback, successCallback, errorCallback) {
+  async scan(
+      entriesCallback, successCallback, errorCallback,
+      invalidateCache = false) {
     // Let's give another search a chance to cancel us before we begin.
     setTimeout(() => {
       // Check cancelled state before read the entries.
       if (this.cancelled_) {
-        errorCallback(util.createDOMError(util.FileError.ABORT_ERR));
+        errorCallback(createDOMError(util.FileError.ABORT_ERR));
         return;
       }
       chrome.fileManagerPrivate.searchDrive(
-          {query: this.query_, nextFeed: ''}, (entries, nextFeed) => {
+          {
+            query: this.query_,
+            category: chrome.fileManagerPrivate.FileCategory.ALL,
+            nextFeed: '',
+          },
+          (entries, nextFeed) => {
             if (chrome.runtime.lastError) {
               console.error(chrome.runtime.lastError.message);
             }
 
             if (this.cancelled_) {
-              errorCallback(util.createDOMError(util.FileError.ABORT_ERR));
+              errorCallback(createDOMError(util.FileError.ABORT_ERR));
               return;
             }
 
             // TODO(tbarzic): Improve error handling.
             if (!entries) {
-              console.error('Drive search encountered an error.');
+              console.warn('Drive search encountered an error.');
               errorCallback(
-                  util.createDOMError(util.FileError.INVALID_MODIFICATION_ERR));
+                  createDOMError(util.FileError.INVALID_MODIFICATION_ERR));
               return;
             }
 
@@ -151,6 +176,7 @@ export class DriveSearchContentScanner extends ContentScanner {
             successCallback();
           });
     }, DriveSearchContentScanner.SCAN_DELAY_);
+    return;
   }
 }
 
@@ -190,7 +216,9 @@ export class LocalSearchContentScanner extends ContentScanner {
    * Starts the file name search.
    * @override
    */
-  scan(entriesCallback, successCallback, errorCallback) {
+  async scan(
+      entriesCallback, successCallback, errorCallback,
+      invalidateCache = false) {
     util.readEntriesRecursively(assert(this.entry_), (entries) => {
       const matchEntries = entries.filter(
           entry => entry.name.toLowerCase().indexOf(this.query_) >= 0);
@@ -198,6 +226,341 @@ export class LocalSearchContentScanner extends ContentScanner {
         entriesCallback(matchEntries);
       }
     }, successCallback, errorCallback, () => this.cancelled_);
+    return;
+  }
+}
+
+/**
+ * A content scanner capable of scanning both the local file system and Google
+ * Drive. When created you need to specify the root type, current entry
+ * in the directory tree, the search query and options. The `rootType` together
+ * with `options` is then used to determine if the search is conducted on the
+ * local folder, root folder, or on the local file system and Google Drive.
+ *
+ * NOTE: This class is a stop-gap solution when transitioning to a content
+ * scanner that talks to a browser level service. The service ultimately should
+ * be the one that determines what is being searched, and aggregates the results
+ * for the frontend client.
+ */
+export class SearchV2ContentScanner extends ContentScanner {
+  /**
+   * @param {!VolumeManager} volumeManager Manager of volumes available to the
+   *     files app.
+   * @param {!DirectoryEntry|!FilesAppEntry} entry The entry representing the
+   *     selected location in the directory tree.
+   * @param {!string} query The query of the search.
+   * @param {SearchOptions=} options The options for the search.
+   */
+  constructor(volumeManager, entry, query, options = undefined) {
+    super();
+    this.volumeManager_ = volumeManager;
+    this.entry_ = entry;
+    const locationInfo = this.volumeManager_.getLocationInfo(this.entry_);
+    this.rootType_ = locationInfo ? locationInfo.rootType : null;
+    this.query_ = query.toLowerCase();
+    this.options_ = options || getDefaultSearchOptions();
+    this.driveSearchTypeMap_ = new Map([
+      [
+        VolumeManagerCommon.RootType.DRIVE_OFFLINE,
+        chrome.fileManagerPrivate.SearchType.OFFLINE,
+      ],
+      [
+        VolumeManagerCommon.RootType.DRIVE_SHARED_WITH_ME,
+        chrome.fileManagerPrivate.SearchType.EXCLUDE_DIRECTORIES,
+      ],
+      [
+        VolumeManagerCommon.RootType.DRIVE_RECENT,
+        chrome.fileManagerPrivate.SearchType.EXCLUDE_DIRECTORIES,
+      ],
+    ]);
+  }
+
+  /**
+   * For the given `dirEntry` it returns a list of searchable roots. This
+   * method exists as we have special volumes that aggregate other volumes.
+   * Examples include Crostini, Playfiles, aggregated in My files or
+   * USB partitions aggregated by USB root. For those cases we return multiple
+   * search roots. For plain directories we just return the directory itself.
+   * @param {!FilesAppEntry|!DirectoryEntry} dirEntry
+   * @return {!Array<!DirectoryEntry>}
+   */
+  getSearchRoots_(dirEntry) {
+    const typeName = dirEntry.type_name;
+    if (typeName !== 'EntryList' && typeName !== 'VolumeEntry') {
+      return [dirEntry];
+    }
+    const allRoots = [dirEntry].concat(
+        /** @type {EntryList} */ (dirEntry).getUIChildren());
+    return allRoots.filter(entry => !util.isFakeEntry(entry))
+        .map(entry => entry.filesystem.root);
+  }
+
+  /**
+   * For the given entry attempts to return the top most volume that contains
+   * this entry. The reason for this method is that for some entries, getting
+   * the root volume is not sufficient. For example, for a Linux folder the root
+   * volume would be the Linux volume. However, in the UI Linux is nested inside
+   * My files, so we need to get My files as the top-most volume of a Linux
+   * directory.
+   * @return {!DirectoryEntry|!FilesAppEntry}
+   * @private
+   */
+  getTopMostVolume_() {
+    const volumeInfo = this.volumeManager_.getVolumeInfo(this.entry_);
+    if (!volumeInfo) {
+      // It's a placeholder or a fake entry.
+      return this.entry_;
+    }
+    const entry = volumeInfo.prefixEntry ? volumeInfo.prefixEntry :
+                                           volumeInfo.displayRoot;
+    // Here entry should never be null, but due to Closure annotations, Closure
+    // thinks it may be (both prefixEntry and displayRoot above are not
+    // guaranteed to be non-null).
+    return entry ? this.getWrappedVolumeEntry_(entry) : this.entry_;
+  }
+
+  /**
+   * @param {!FilesAppEntry|!DirectoryEntry} entry
+   * @return {!DirectoryEntry|!FilesAppEntry}
+   * @private
+   */
+  getWrappedVolumeEntry_(entry) {
+    const state = getStore().getState();
+    // Fetch the wrapped VolumeEntry from the store.
+    const fileData = state.allEntries[entry.toURL()];
+    if (!fileData || !fileData.entry) {
+      console.warn(`Missing FileData for ${entry.toURL()}`);
+      return entry;
+    }
+    return fileData.entry;
+  }
+
+  /**
+   * Creates a single promise that, when fulfilled, returns a non-null array of
+   * file entries. The array may be empty.
+   * @param {!chrome.fileManagerPrivate.SearchMetadataParams} params
+   * @return {!Promise<!Array<!Entry>>}
+   * @private
+   */
+  makeFileSearchPromise_(params) {
+    return new Promise((resolve, reject) => {
+      metrics.startInterval('Search.Local.Latency');
+      chrome.fileManagerPrivate.searchFiles(
+          params,
+          /**
+           * @param {!Array<!Entry>} entries
+           */
+          (entries) => {
+            if (this.cancelled_) {
+              reject(createDOMError(util.FileError.ABORT_ERR));
+            } else if (chrome.runtime.lastError) {
+              reject(createDOMError(
+                  util.FileError.NOT_READABLE_ERR,
+                  chrome.runtime.lastError.message));
+            } else {
+              metrics.recordInterval('Search.Local.Latency');
+              resolve(entries);
+            }
+          });
+    });
+  }
+
+  /**
+   * For the given set of `folders` holding directory entries, creates an array
+   * of promises that, when fulfilled, return an array of entries in those
+   * directories.
+   * @param {number} modifiedTimestamp
+   * @param {chrome.fileManagerPrivate.FileCategory} category
+   * @param {number} maxResults
+   * @param {!Array<!DirectoryEntry>} folders
+   * @return {!Array<!Promise<!Array<!Entry>>>}
+   * @private
+   */
+  makeFileSearchPromiseList_(modifiedTimestamp, category, maxResults, folders) {
+    /** @type {!chrome.fileManagerPrivate.SearchMetadataParams} */
+    const baseParams = {
+      query: this.query_,
+      types: chrome.fileManagerPrivate.SearchType.ALL,
+      maxResults: maxResults,
+      timestamp: modifiedTimestamp,
+      category: category,
+    };
+    return folders.map(
+        searchDir => this.makeFileSearchPromise_(
+            /** @type {!chrome.fileManagerPrivate.SearchMetadataParams} */ ({
+              ...baseParams,
+              rootDir: searchDir,
+            })));
+  }
+
+  /**
+   * Returns an array of promises that, when fulfilled, return an array of
+   * entries matching the current query, modified timestamp, and category for
+   * folders located under My files.
+   * @param {number} modifiedTimestamp
+   * @param {chrome.fileManagerPrivate.FileCategory} category
+   * @param {number} maxResults
+   * @return {!Array<Promise<!Array<Entry>>>}
+   * @private
+   */
+  createMyFilesSearch_(modifiedTimestamp, category, maxResults) {
+    const myFilesVolume = this.volumeManager_.getCurrentProfileVolumeInfo(
+        VolumeManagerCommon.VolumeType.DOWNLOADS);
+    if (!myFilesVolume || !myFilesVolume.displayRoot) {
+      return [];
+    }
+    const myFilesEntry = this.getWrappedVolumeEntry_(myFilesVolume.displayRoot);
+    return this.makeFileSearchPromiseList_(
+        modifiedTimestamp, category, maxResults,
+        this.getSearchRoots_(myFilesEntry));
+  }
+
+  /**
+   * Returns an array of promises that, when fulfilled, return an array of
+   * entries matching the current query, modified timestamp, and category for
+   * all known removable drives.
+   * @param {number} modifiedTimestamp
+   * @param {chrome.fileManagerPrivate.FileCategory} category
+   * @param {number} maxResults
+   * @return {!Array<!Promise<!Array<Entry>>>}
+   * @private
+   */
+  createRemovablesSearch_(modifiedTimestamp, category, maxResults) {
+    const removableRootDirs = [];
+    const volumeInfoList = this.volumeManager_.volumeInfoList;
+    for (let index = 0; index < volumeInfoList.length; ++index) {
+      const volumeInfo = volumeInfoList.item(index);
+      if (volumeInfo.volumeType === VolumeManagerCommon.VolumeType.REMOVABLE) {
+        const displayRoot = volumeInfo.displayRoot;
+        if (displayRoot) {
+          removableRootDirs.push(...this.getSearchRoots_(displayRoot));
+        }
+      }
+    }
+    return this.makeFileSearchPromiseList_(
+        modifiedTimestamp, category, maxResults, removableRootDirs);
+  }
+
+  /**
+   * Returns a promise that, when fulfilled, returns an array of file entries
+   * matching the current query, modified timestamp and category for files
+   * located on Drive.
+   * @param {number} modifiedTimestamp
+   * @param {chrome.fileManagerPrivate.FileCategory} category
+   * @param {number} maxResults
+   * @return {Promise<!Array<Entry>>}
+   * @private
+   */
+  createDriveSearch_(modifiedTimestamp, category, maxResults) {
+    const searchType = this.driveSearchTypeMap_.get(this.rootType_) ||
+        chrome.fileManagerPrivate.SearchType.ALL;
+    return new Promise((resolve, reject) => {
+      metrics.startInterval('Search.Drive.Latency');
+      chrome.fileManagerPrivate.searchDriveMetadata(
+          {
+            query: this.query_,
+            category: category,
+            types: searchType,
+            maxResults: maxResults,
+            timestamp: modifiedTimestamp,
+          },
+          (results) => {
+            if (chrome.runtime.lastError) {
+              reject(createDOMError(
+                  util.FileError.NOT_READABLE_ERR,
+                  chrome.runtime.lastError.message));
+            } else if (this.cancelled_) {
+              reject(createDOMError(util.FileError.ABORT_ERR));
+            } else if (!results) {
+              reject(createDOMError(util.FileError.INVALID_MODIFICATION_ERR));
+            } else {
+              metrics.recordInterval('Search.Drive.Latency');
+              resolve(results.map(r => r.entry));
+            }
+          });
+    });
+  }
+
+  /**
+   * @param {number} modifiedTimestamp
+   * @param {chrome.fileManagerPrivate.FileCategory} category
+   * @param {number} maxResults
+   * @return {!Array<Promise<!Array<Entry>>>}
+   * @private
+   */
+  createDirectorySearch_(modifiedTimestamp, category, maxResults) {
+    if (isEntryInsideDrive({rootType: this.rootType_})) {
+      return [this.createDriveSearch_(modifiedTimestamp, category, maxResults)];
+    }
+    if (this.options_.location == SearchLocation.THIS_FOLDER) {
+      return this.makeFileSearchPromiseList_(
+          modifiedTimestamp, category, maxResults,
+          this.getSearchRoots_(this.entry_));
+    }
+    return this.makeFileSearchPromiseList_(
+        modifiedTimestamp, category, maxResults,
+        this.getSearchRoots_(this.getTopMostVolume_()));
+  }
+
+  /**
+   * @param {number} modifiedTimestamp
+   * @param {chrome.fileManagerPrivate.FileCategory} category
+   * @param {number} maxResults
+   * @return {!Array<Promise<!Array<Entry>>>}
+   * @private
+   */
+  createEverywhereSearch_(modifiedTimestamp, category, maxResults) {
+    return [
+      ...this.createMyFilesSearch_(modifiedTimestamp, category, maxResults),
+      ...this.createRemovablesSearch_(modifiedTimestamp, category, maxResults),
+      this.createDriveSearch_(modifiedTimestamp, category, maxResults),
+    ];
+  }
+
+  /**
+   * Starts the file name search.
+   * @override
+   */
+  async scan(
+      entriesCallback, successCallback, errorCallback,
+      invalidateCache = false) {
+    const category = this.options_.fileCategory;
+    const timestamp = getEarliestTimestamp(this.options_.recency, new Date());
+    const maxResults = 100;
+
+    const searchPromises =
+        this.options_.location === SearchLocation.EVERYWHERE ?
+        this.createEverywhereSearch_(timestamp, category, maxResults) :
+        this.createDirectorySearch_(timestamp, category, maxResults);
+
+    if (!searchPromises) {
+      console.warn(
+          `No search promises for options ${JSON.stringify(this.options_)}`);
+      successCallback();
+    }
+    // The job of entriesCallbackCaller is to call entriesCallback as soon as
+    // entries are available. We call successCallback only once all of them are
+    // settled, but we do not wish to wait for all of promises to be settled
+    // before showing the entries.
+    const entriesCallbackCaller = (entries) => {
+      if (entries && entries.length > 0) {
+        entriesCallback(entries);
+      }
+      return entries ? entries.length : 0;
+    };
+    Promise.allSettled(searchPromises.map(p => p.then(entriesCallbackCaller)))
+        .then((results) => {
+          let resultCount = 0;
+          for (const result of results) {
+            if (result.status === 'rejected') {
+              errorCallback(/** @type {DOMError} */ (result.reason));
+            } else if (result.status === 'fulfilled') {
+              resultCount += result.value;
+            }
+          }
+          successCallback();
+          metrics.recordMediumCount('Search.ResultCount', resultCount);
+        });
   }
 }
 
@@ -218,21 +581,23 @@ export class DriveMetadataSearchContentScanner extends ContentScanner {
    * Starts to metadata-search on Drive File System.
    * @override
    */
-  scan(entriesCallback, successCallback, errorCallback) {
+  async scan(
+      entriesCallback, successCallback, errorCallback,
+      invalidateCache = false) {
     chrome.fileManagerPrivate.searchDriveMetadata(
         {query: '', types: this.searchType_, maxResults: 100}, results => {
           if (chrome.runtime.lastError) {
             console.error(chrome.runtime.lastError.message);
           }
           if (this.cancelled_) {
-            errorCallback(util.createDOMError(util.FileError.ABORT_ERR));
+            errorCallback(createDOMError(util.FileError.ABORT_ERR));
             return;
           }
 
           if (!results) {
-            console.error('Drive search encountered an error.');
+            console.warn('Drive search encountered an error.');
             errorCallback(
-                util.createDOMError(util.FileError.INVALID_MODIFICATION_ERR));
+                createDOMError(util.FileError.INVALID_MODIFICATION_ERR));
             return;
           }
 
@@ -244,16 +609,18 @@ export class DriveMetadataSearchContentScanner extends ContentScanner {
           }
           successCallback();
         });
+    return;
   }
 }
 
 export class RecentContentScanner extends ContentScanner {
   /**
    * @param {string} query Search query.
+   * @param {VolumeManager} volumeManager Volume manager.
    * @param {chrome.fileManagerPrivate.SourceRestriction=} opt_sourceRestriction
-   * @param {chrome.fileManagerPrivate.RecentFileType=} opt_recentFileType
+   * @param {chrome.fileManagerPrivate.FileCategory=} opt_fileCategory
    */
-  constructor(query, opt_sourceRestriction, opt_recentFileType) {
+  constructor(query, volumeManager, opt_sourceRestriction, opt_fileCategory) {
     super();
 
     /**
@@ -262,36 +629,57 @@ export class RecentContentScanner extends ContentScanner {
     this.query_ = query.toLowerCase();
 
     /**
+     * @private {VolumeManager}
+     */
+    this.volumeManager_ = volumeManager;
+
+    /**
      * @private {chrome.fileManagerPrivate.SourceRestriction}
      */
     this.sourceRestriction_ = opt_sourceRestriction ||
         chrome.fileManagerPrivate.SourceRestriction.ANY_SOURCE;
 
     /**
-     * @private {chrome.fileManagerPrivate.RecentFileType}
+     * @private {chrome.fileManagerPrivate.FileCategory}
      */
-    this.recentFileType_ =
-        opt_recentFileType || chrome.fileManagerPrivate.RecentFileType.ALL;
+    this.fileCategory_ =
+        opt_fileCategory || chrome.fileManagerPrivate.FileCategory.ALL;
   }
 
   /**
    * @override
    */
-  scan(entriesCallback, successCallback, errorCallback) {
+  async scan(
+      entriesCallback, successCallback, errorCallback,
+      invalidateCache = false) {
+    /** @type {function(!Entry): boolean} */
+    const isMatchQuery = (entry) =>
+        entry.name.toLowerCase().indexOf(this.query_) >= 0;
+    /**
+     * Files app launched with "volumeFilter" launch parameter will filter out
+     * some volumes. Before returning the recent entries, we need to check if
+     * the entry's volume location is valid or not (crbug.com/1333385/#c17).
+     */
+    /** @type {function(!Entry): boolean} */
+    const isAllowedVolume = (entry) =>
+        this.volumeManager_.getVolumeInfo(entry) !== null;
     chrome.fileManagerPrivate.getRecentFiles(
-        this.sourceRestriction_, this.recentFileType_, entries => {
+        this.sourceRestriction_, this.fileCategory_, invalidateCache,
+        entries => {
           if (chrome.runtime.lastError) {
             console.error(chrome.runtime.lastError.message);
             errorCallback(
-                util.createDOMError(util.FileError.INVALID_MODIFICATION_ERR));
+                createDOMError(util.FileError.INVALID_MODIFICATION_ERR));
             return;
           }
           if (entries.length > 0) {
             entriesCallback(entries.filter(
-                entry => entry.name.toLowerCase().indexOf(this.query_) >= 0));
+                entry =>
+                    isMatchQuery(assert(entry)) && isAllowedVolume(entry)));
           }
           successCallback();
         });
+    return;
   }
 }
 
@@ -314,11 +702,13 @@ export class MediaViewContentScanner extends ContentScanner {
    * hierarchy. We need to list files under the root directory to provide
    * flatten view. A file will not be shown in multiple directories in
    * media-view hierarchy since no folders will be added in media documents
-   * provider. We can list all files without duplication by just retrieveing
+   * provider. We can list all files without duplication by just retrieving
    * files in directories recursively.
    * @override
    */
-  scan(entriesCallback, successCallback, errorCallback) {
+  async scan(
+      entriesCallback, successCallback, errorCallback,
+      invalidateCache = false) {
     // To provide flatten view of files, this media-view scanner retrieves files
     // in directories inside the media's root entry recursively.
     util.readEntriesRecursively(
@@ -345,17 +735,100 @@ export class CrostiniMounter extends ContentScanner {
   /**
    * @override
    */
-  scan(entriesCallback, successCallback, errorCallback) {
+  async scan(
+      entriesCallback, successCallback, errorCallback,
+      invalidateCache = false) {
     chrome.fileManagerPrivate.mountCrostini(() => {
       if (chrome.runtime.lastError) {
-        console.error(
-            'mountCrostini error: ', chrome.runtime.lastError.message);
-        errorCallback(util.createDOMError(
+        console.warn(`Cannot mount Crostini volume: ${
+            chrome.runtime.lastError.message}`);
+        errorCallback(createDOMError(
             constants.CROSTINI_CONNECT_ERR, chrome.runtime.lastError.message));
         return;
       }
       successCallback();
     });
+    return;
+  }
+}
+
+/**
+ * Shows an empty list and spinner whilst starting and mounting a Guest OS's
+ * shared files.
+ *
+ * When FilesApp starts, the related placeholder root entry is shown which uses
+ * this GuestOsMounter as its ContentScanner. When the mount succeeds it will
+ * show up as a disk volume. NavigationListModel.reorderNavigationItems_ will
+ * detect thew new volume and hide the placeholder root item while the disk
+ * volume exists.
+ */
+export class GuestOsMounter extends ContentScanner {
+  /**
+   * @param {number} guest_id The id of the GuestOsMountProvider to use
+   */
+  constructor(guest_id) {
+    super();
+
+    /** @private @const {number} */
+    this.guest_id_ = guest_id;
+  }
+
+  /**
+   * @override
+   */
+  async scan(
+      entriesCallback, successCallback, errorCallback,
+      invalidateCache = false) {
+    try {
+      await mountGuest(this.guest_id_);
+      successCallback();
+    } catch (error) {
+      errorCallback(createDOMError(
+          // TODO(crbug/1293229): Strings
+          constants.CROSTINI_CONNECT_ERR, error));
+    }
+    return;
+  }
+}
+
+/**
+ * Read all the Trash directories for content.
+ */
+export class TrashContentScanner extends ContentScanner {
+  /**
+   * @param {!VolumeManager} volumeManager Identifies the underlying filesystem.
+   */
+  constructor(volumeManager) {
+    super();
+
+    this.readers_ = createTrashReaders(volumeManager);
+  }
+
+  /**
+   * Scan all the trash directories for content.
+   * @override
+   */
+  async scan(
+      entriesCallback, successCallback, errorCallback,
+      invalidateCache = false) {
+    const readEntries = (idx) => {
+      if (this.readers_.length === idx) {
+        // All Trash directories have been read.
+        successCallback();
+        return;
+      }
+      this.readers_[idx].readEntries(entries => {
+        if (this.cancelled_) {
+          errorCallback(createDOMError(util.FileError.ABORT_ERR));
+          return;
+        }
+
+        entriesCallback(entries);
+        readEntries(idx + 1);
+      }, errorCallback);
+    };
+    readEntries(0);
+    return;
   }
 }
 
@@ -373,8 +846,6 @@ export class FileFilter extends EventTarget {
      * @private
      */
     this.filters_ = {};
-    this.setHiddenFilesVisible(false);
-    this.setAllAndroidFoldersVisible(false);
 
     /**
      * @type {!VolumeManager}
@@ -383,13 +854,25 @@ export class FileFilter extends EventTarget {
      */
     this.volumeManager_ = volumeManager;
 
+    /**
+     * Setup initial filters.
+     */
+    this.setupInitialFilters_();
+  }
+
+  /**
+   * @private
+   */
+  setupInitialFilters_() {
+    this.setHiddenFilesVisible(false);
+    this.setAllAndroidFoldersVisible(false);
     this.hideAndroidDownload();
   }
 
   /**
    * @param {string} name Filter identifier.
-   * @param {function(Entry)} callback A filter - a function receiving an Entry,
-   *     and returning bool.
+   * @param {function((Entry|FilesAppEntry))} callback A filter - a function
+   *     receiving an Entry, and returning bool.
    */
   addFilter(name, callback) {
     this.filters_[name] = callback;
@@ -490,7 +973,7 @@ export class FileFilter extends EventTarget {
   }
 
   /**
-   * @param {Entry} entry File entry.
+   * @param {Entry|FilesAppEntry} entry File entry.
    * @return {boolean} True if the file should be shown, false otherwise.
    */
   filter(entry) {
@@ -548,34 +1031,15 @@ export class FileListContext {
      * @public {!Array<string>}
      * @const
      */
-    this.prefetchPropertyNames = FileListContext.createPrefetchPropertyNames_();
+    this.prefetchPropertyNames = Array.from(new Set([
+      ...constants.LIST_CONTAINER_METADATA_PREFETCH_PROPERTY_NAMES,
+      ...constants.ACTIONS_MODEL_METADATA_PREFETCH_PROPERTY_NAMES,
+      ...constants.FILE_SELECTION_METADATA_PREFETCH_PROPERTY_NAMES,
+      ...constants.DLP_METADATA_PREFETCH_PROPERTY_NAMES,
+    ]));
 
     /** @public {!VolumeManager} */
     this.volumeManager = volumeManager;
-  }
-
-  /**
-   * @return {!Array<string>}
-   * @private
-   */
-  static createPrefetchPropertyNames_() {
-    const set = {};
-    for (let i = 0;
-         i < constants.LIST_CONTAINER_METADATA_PREFETCH_PROPERTY_NAMES.length;
-         i++) {
-      set[constants.LIST_CONTAINER_METADATA_PREFETCH_PROPERTY_NAMES[i]] = true;
-    }
-    for (let i = 0;
-         i < constants.ACTIONS_MODEL_METADATA_PREFETCH_PROPERTY_NAMES.length;
-         i++) {
-      set[constants.ACTIONS_MODEL_METADATA_PREFETCH_PROPERTY_NAMES[i]] = true;
-    }
-    for (let i = 0;
-         i < constants.FILE_SELECTION_METADATA_PREFETCH_PROPERTY_NAMES.length;
-         i++) {
-      set[constants.FILE_SELECTION_METADATA_PREFETCH_PROPERTY_NAMES[i]] = true;
-    }
-    return Object.keys(set);
   }
 }
 
@@ -612,7 +1076,7 @@ export class DirectoryContents extends EventTarget {
 
     this.scannerFactory_ = scannerFactory;
     this.scanner_ = null;
-    this.processNewEntriesQueue_ = new AsyncUtil.Queue();
+    this.processNewEntriesQueue_ = new AsyncQueue();
     this.scanCancelled_ = false;
 
     /**
@@ -746,8 +1210,11 @@ export class DirectoryContents extends EventTarget {
    *
    * @param {boolean} refresh True to refresh metadata, or false to use cached
    *     one.
+   * @param {boolean} invalidateCache True to invalidate the backend scanning
+   *     result cache. This param only works if the corresponding backend
+   *     scanning supports cache.
    */
-  scan(refresh) {
+  scan(refresh, invalidateCache) {
     /**
      * Invoked when the scanning is completed successfully.
      * @this {DirectoryContents}
@@ -772,7 +1239,7 @@ export class DirectoryContents extends EventTarget {
     this.scanner_ = this.scannerFactory_();
     this.scanner_.scan(
         this.onNewEntries_.bind(this, refresh), completionCallback.bind(this),
-        errorCallback.bind(this));
+        errorCallback.bind(this), invalidateCache);
   }
 
   /**
@@ -878,7 +1345,6 @@ export class DirectoryContents extends EventTarget {
       // Call callback first, so isScanning() returns false in the event
       // handlers.
       callback();
-
       dispatchSimpleEvent(this, 'scan-completed');
     });
   }
@@ -916,6 +1382,10 @@ export class DirectoryContents extends EventTarget {
       return;
     }
 
+    if (entries.length === 0) {
+      return;
+    }
+
     // Caching URL to reduce a number of calls of toURL in sort.
     // This is a temporary solution. We need to fix a root cause of slow toURL.
     // See crbug.com/370908 for detail.
@@ -923,26 +1393,19 @@ export class DirectoryContents extends EventTarget {
       entry['cachedUrl'] = entry.toURL();
     });
 
-    if (entries.length === 0) {
-      return;
-    }
-
     this.processNewEntriesQueue_.run(callbackOuter => {
       const finish = () => {
         if (!this.scanCancelled_) {
-          let entriesFiltered = [].filter.call(
-              entries,
-              this.context_.fileFilter.filter.bind(this.context_.fileFilter));
-
-          // Just before inserting entries into the file list, check and avoid
-          // duplication.
+          // From new entries remove all entries that are rejected by the
+          // filters or are already present in the current file list.
           const currentURLs = {};
-          for (let i = 0; i < this.fileList_.length; i++) {
+          for (let i = 0; i < this.fileList_.length; ++i) {
             currentURLs[this.fileList_.item(i).toURL()] = true;
           }
-          entriesFiltered = entriesFiltered.filter(entry => {
-            return !currentURLs[entry.toURL()];
-          });
+          const entriesFiltered = entries.filter(
+              (e) => this.context_.fileFilter.filter(e) &&
+                  !(e['cachedUrl'] in currentURLs));
+
           // Update the filelist without waiting the metadata.
           this.fileList_.push.apply(this.fileList_, entriesFiltered);
           dispatchSimpleEvent(this, 'scan-updated');
@@ -953,7 +1416,7 @@ export class DirectoryContents extends EventTarget {
       // entries into smaller chunks to reduce UI latency.
       // TODO(hidehiko,mtomasz): This should be handled in MetadataCache.
       const MAX_CHUNK_SIZE = 25;
-      const prefetchMetadataQueue = new AsyncUtil.ConcurrentQueue(4);
+      const prefetchMetadataQueue = new ConcurrentQueue(4);
       for (let i = 0; i < entries.length; i += MAX_CHUNK_SIZE) {
         if (prefetchMetadataQueue.isCancelled()) {
           break;

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,8 +17,8 @@ import androidx.annotation.VisibleForTesting;
 import androidx.core.widget.TextViewCompat;
 
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.components.permissions.R;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.modaldialog.DialogDismissalCause;
 import org.chromium.ui.modaldialog.ModalDialogManager;
@@ -45,7 +45,7 @@ public class NfcSystemLevelPrompt implements ModalDialogProperties.Controller {
     public void show(WindowAndroid window, Runnable callback) {
         ModalDialogManager modalDialogManager = window.getModalDialogManager();
         if (modalDialogManager == null) {
-            PostTask.postTask(UiThreadTaskTraits.DEFAULT, () -> callback.run());
+            PostTask.postTask(TaskTraits.UI_DEFAULT, () -> callback.run());
             return;
         }
         show(window, modalDialogManager, callback);

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,8 @@
 #elif BUILDFLAG(IS_APPLE)
 #include <dispatch/dispatch.h>
 
-#include "base/mac/scoped_dispatch_object.h"
+#include <memory>
+
 #include "base/memory/weak_ptr.h"
 #include "base/synchronization/waitable_event.h"
 #else
@@ -25,7 +26,7 @@
 #endif
 
 #if !BUILDFLAG(IS_WIN)
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #endif
 
 namespace base {
@@ -131,10 +132,8 @@ class BASE_EXPORT WaitableEventWatcher
   // is waiting. Null if no event is being watched.
   scoped_refptr<WaitableEvent::ReceiveRight> receive_right_;
 
-  // A TYPE_MACH_RECV dispatch source on |receive_right_|. When a receive event
-  // is delivered, the message queue will be peeked and the bound |callback_|
-  // may be run. This will be null if nothing is currently being watched.
-  ScopedDispatchObject<dispatch_source_t> source_;
+  struct Storage;
+  std::unique_ptr<Storage> storage_;
 
   // Used to vend a weak pointer for calling InvokeCallback() from the
   // |source_| event handler.
@@ -145,14 +144,14 @@ class BASE_EXPORT WaitableEventWatcher
   scoped_refptr<Flag> cancel_flag_;
 
   // Enqueued in the wait list of the watched WaitableEvent.
-  raw_ptr<AsyncWaiter> waiter_ = nullptr;
+  raw_ptr<AsyncWaiter, DanglingUntriaged> waiter_ = nullptr;
 
   // Kernel of the watched WaitableEvent.
   scoped_refptr<WaitableEvent::WaitableEventKernel> kernel_;
 
   // Ensures that StartWatching() and StopWatching() are called on the same
   // sequence.
-  SequenceChecker sequence_checker_;
+  SEQUENCE_CHECKER(sequence_checker_);
 #endif
 };
 

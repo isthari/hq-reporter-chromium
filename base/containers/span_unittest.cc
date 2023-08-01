@@ -1,26 +1,20 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/containers/span.h"
 
-// span.h is a widely included header and its size has significant impact on
-// build time. Try not to raise this limit unless absolutely necessary. See
-// https://chromium.googlesource.com/chromium/src/+/HEAD/docs/wmax_tokens.md
-#ifndef NACL_TC_REV
-#pragma clang max_tokens_here 272000
-#endif
-
 #include <stdint.h>
 
+#include <algorithm>
 #include <iterator>
 #include <memory>
 #include <string>
 #include <type_traits>
 #include <vector>
 
+#include "base/containers/adapters.h"
 #include "base/containers/checked_iterators.h"
-#include "base/cxx17_backports.h"
 #include "base/ranges/algorithm.h"
 #include "base/strings/string_piece.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -31,24 +25,6 @@ using ::testing::Eq;
 using ::testing::Pointwise;
 
 namespace base {
-
-namespace {
-
-// constexpr implementation of std::equal's 4 argument overload.
-template <class InputIterator1, class InputIterator2>
-constexpr bool constexpr_equal(InputIterator1 first1,
-                               InputIterator1 last1,
-                               InputIterator2 first2,
-                               InputIterator2 last2) {
-  for (; first1 != last1 && first2 != last2; ++first1, ++first2) {
-    if (*first1 != *first2)
-      return false;
-  }
-
-  return first1 == last1 && first2 == last2;
-}
-
-}  // namespace
 
 TEST(SpanTest, DefaultConstructor) {
   span<int> dynamic_span;
@@ -62,7 +38,7 @@ TEST(SpanTest, DefaultConstructor) {
 
 TEST(SpanTest, ConstructFromDataAndSize) {
   constexpr int* kNull = nullptr;
-  constexpr span<int> empty_span(kNull, 0);
+  constexpr span<int> empty_span(kNull, 0u);
   EXPECT_TRUE(empty_span.empty());
   EXPECT_EQ(nullptr, empty_span.data());
 
@@ -85,7 +61,7 @@ TEST(SpanTest, ConstructFromDataAndSize) {
 
 TEST(SpanTest, ConstructFromIterAndSize) {
   constexpr int* kNull = nullptr;
-  constexpr span<int> empty_span(kNull, 0);
+  constexpr span<int> empty_span(kNull, 0u);
   EXPECT_TRUE(empty_span.empty());
   EXPECT_EQ(nullptr, empty_span.data());
 
@@ -230,7 +206,7 @@ TEST(SpanTest, ConstructFromConstexprArray) {
 
   constexpr span<const int> dynamic_span(kArray);
   static_assert(kArray == dynamic_span.data(), "");
-  static_assert(base::size(kArray) == dynamic_span.size(), "");
+  static_assert(std::size(kArray) == dynamic_span.size(), "");
 
   static_assert(kArray[0] == dynamic_span[0], "");
   static_assert(kArray[1] == dynamic_span[1], "");
@@ -238,9 +214,9 @@ TEST(SpanTest, ConstructFromConstexprArray) {
   static_assert(kArray[3] == dynamic_span[3], "");
   static_assert(kArray[4] == dynamic_span[4], "");
 
-  constexpr span<const int, base::size(kArray)> static_span(kArray);
+  constexpr span<const int, std::size(kArray)> static_span(kArray);
   static_assert(kArray == static_span.data(), "");
-  static_assert(base::size(kArray) == static_span.size(), "");
+  static_assert(std::size(kArray) == static_span.size(), "");
 
   static_assert(kArray[0] == static_span[0], "");
   static_assert(kArray[1] == static_span[1], "");
@@ -254,19 +230,19 @@ TEST(SpanTest, ConstructFromArray) {
 
   span<const int> const_span(array);
   EXPECT_EQ(array, const_span.data());
-  EXPECT_EQ(base::size(array), const_span.size());
+  EXPECT_EQ(std::size(array), const_span.size());
   for (size_t i = 0; i < const_span.size(); ++i)
     EXPECT_EQ(array[i], const_span[i]);
 
   span<int> dynamic_span(array);
   EXPECT_EQ(array, dynamic_span.data());
-  EXPECT_EQ(base::size(array), dynamic_span.size());
+  EXPECT_EQ(std::size(array), dynamic_span.size());
   for (size_t i = 0; i < dynamic_span.size(); ++i)
     EXPECT_EQ(array[i], dynamic_span[i]);
 
-  span<int, base::size(array)> static_span(array);
+  span<int, std::size(array)> static_span(array);
   EXPECT_EQ(array, static_span.data());
-  EXPECT_EQ(base::size(array), static_span.size());
+  EXPECT_EQ(std::size(array), static_span.size());
   for (size_t i = 0; i < static_span.size(); ++i)
     EXPECT_EQ(array[i], static_span[i]);
 }
@@ -288,7 +264,7 @@ TEST(SpanTest, ConstructFromStdArray) {
   for (size_t i = 0; i < dynamic_span.size(); ++i)
     EXPECT_EQ(array[i], dynamic_span[i]);
 
-  span<int, base::size(array)> static_span(array);
+  span<int, std::size(array)> static_span(array);
   EXPECT_EQ(array.data(), static_span.data());
   EXPECT_EQ(array.size(), static_span.size());
   for (size_t i = 0; i < static_span.size(); ++i)
@@ -1030,6 +1006,13 @@ TEST(SpanTest, Empty) {
     span<int> span(array);
     EXPECT_FALSE(span.empty());
   }
+
+  {
+    std::vector<int> vector = {1, 2, 3};
+    span<int> s = vector;
+    span<int> span_of_checked_iterators = {s.end(), s.end()};
+    EXPECT_TRUE(span_of_checked_iterators.empty());
+  }
 }
 
 TEST(SpanTest, OperatorAt) {
@@ -1076,9 +1059,7 @@ TEST(SpanTest, ConstexprIterator) {
   static constexpr int kArray[] = {1, 6, 1, 8, 0};
   constexpr span<const int> span(kArray);
 
-  static_assert(constexpr_equal(std::begin(kArray), std::end(kArray),
-                                span.begin(), span.end()),
-                "");
+  static_assert(ranges::equal(kArray, span), "");
   static_assert(1 == span.begin()[0], "");
   static_assert(1 == *(span.begin() += 0), "");
   static_assert(6 == *(span.begin() += 1), "");
@@ -1091,10 +1072,7 @@ TEST(SpanTest, ReverseIterator) {
   static constexpr int kArray[] = {1, 6, 1, 8, 0};
   constexpr span<const int> span(kArray);
 
-  EXPECT_TRUE(std::equal(std::rbegin(kArray), std::rend(kArray), span.rbegin(),
-                         span.rend()));
-  EXPECT_TRUE(std::equal(std::crbegin(kArray), std::crend(kArray),
-                         std::crbegin(span), std::crend(span)));
+  EXPECT_TRUE(ranges::equal(Reversed(kArray), Reversed(span)));
 }
 
 TEST(SpanTest, AsBytes) {
@@ -1133,7 +1111,7 @@ TEST(SpanTest, AsWritableBytes) {
 
 TEST(SpanTest, MakeSpanFromDataAndSize) {
   int* nullint = nullptr;
-  auto empty_span = make_span(nullint, 0);
+  auto empty_span = make_span(nullint, 0u);
   EXPECT_TRUE(empty_span.empty());
   EXPECT_EQ(nullptr, empty_span.data());
 
@@ -1342,7 +1320,7 @@ TEST(SpanTest, EnsureConstexprGoodness) {
 
   constexpr span<const int> lasts = constexpr_span.last(size);
   for (size_t i = 0; i < lasts.size(); ++i) {
-    const size_t j = (base::size(kArray) - size) + i;
+    const size_t j = (std::size(kArray) - size) + i;
     EXPECT_EQ(kArray[j], lasts[i]);
   }
 
@@ -1371,6 +1349,12 @@ TEST(SpanTest, OutOfBoundsDeath) {
   ASSERT_DEATH_IF_SUPPORTED(kNonEmptyDynamicSpan[4], "");
   ASSERT_DEATH_IF_SUPPORTED(kNonEmptyDynamicSpan.subspan(10), "");
   ASSERT_DEATH_IF_SUPPORTED(kNonEmptyDynamicSpan.subspan(1, 7), "");
+
+  size_t minus_one = static_cast<size_t>(-1);
+  ASSERT_DEATH_IF_SUPPORTED(kNonEmptyDynamicSpan.subspan(minus_one), "");
+  ASSERT_DEATH_IF_SUPPORTED(kNonEmptyDynamicSpan.subspan(minus_one, minus_one),
+                            "");
+  ASSERT_DEATH_IF_SUPPORTED(kNonEmptyDynamicSpan.subspan(minus_one, 1), "");
 }
 
 TEST(SpanTest, IteratorIsRangeMoveSafe) {

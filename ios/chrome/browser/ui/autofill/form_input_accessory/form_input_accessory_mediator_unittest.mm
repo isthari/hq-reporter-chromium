@@ -1,21 +1,22 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/autofill/form_input_accessory/form_input_accessory_mediator.h"
 
-#include "components/autofill/ios/form_util/form_activity_params.h"
-#include "components/autofill/ios/form_util/test_form_activity_tab_helper.h"
+#import "components/autofill/ios/form_util/form_activity_params.h"
+#import "components/autofill/ios/form_util/form_util_java_script_feature.h"
+#import "components/autofill/ios/form_util/test_form_activity_tab_helper.h"
+#import "ios/chrome/browser/shared/model/web_state_list/test/fake_web_state_list_delegate.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_opener.h"
 #import "ios/chrome/browser/ui/autofill/form_input_accessory/form_input_accessory_consumer.h"
-#include "ios/chrome/browser/web_state_list/fake_web_state_list_delegate.h"
-#include "ios/chrome/browser/web_state_list/web_state_list.h"
-#import "ios/chrome/browser/web_state_list/web_state_opener.h"
 #import "ios/web/public/test/fakes/fake_navigation_manager.h"
-#include "ios/web/public/test/fakes/fake_web_frame.h"
+#import "ios/web/public/test/fakes/fake_web_frame.h"
 #import "ios/web/public/test/fakes/fake_web_frames_manager.h"
 #import "ios/web/public/test/fakes/fake_web_state.h"
-#include "ios/web/public/test/web_task_environment.h"
-#include "testing/platform_test.h"
+#import "ios/web/public/test/web_task_environment.h"
+#import "testing/platform_test.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
 #import "third_party/ocmock/gtest_support.h"
 
@@ -34,8 +35,11 @@ class FormInputAccessoryMediatorTest : public PlatformTest {
     GURL url("http://foo.com");
     test_web_state_->SetCurrentURL(url);
 
+    web::ContentWorld content_world =
+        autofill::FormUtilJavaScriptFeature::GetInstance()
+            ->GetSupportedContentWorld();
     test_web_state_->SetWebFramesManager(
-        std::make_unique<web::FakeWebFramesManager>());
+        content_world, std::make_unique<web::FakeWebFramesManager>());
     main_frame_ = web::FakeWebFrame::CreateMainWebFrame(url);
 
     test_web_state_->SetNavigationManager(
@@ -51,8 +55,9 @@ class FormInputAccessoryMediatorTest : public PlatformTest {
         [[FormInputAccessoryMediator alloc] initWithConsumer:consumer_
                                                      handler:handler_
                                                 webStateList:&web_state_list_
-                                         personalDataManager:nil
-                                               passwordStore:nil
+                                         personalDataManager:nullptr
+                                        profilePasswordStore:nullptr
+                                        accountPasswordStore:nullptr
                                         securityAlertHandler:nil
                                       reauthenticationModule:nil];
   }

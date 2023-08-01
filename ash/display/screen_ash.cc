@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,6 +42,7 @@ class ScreenForShutdown : public display::Screen {
       : display_list_(screen_ash->GetAllDisplays()),
         primary_display_(screen_ash->GetPrimaryDisplay()) {
     SetDisplayForNewWindows(primary_display_.id());
+    set_shutdown(true);
   }
 
   ScreenForShutdown(const ScreenForShutdown&) = delete;
@@ -156,6 +157,13 @@ display::Display ScreenAsh::GetDisplayNearestWindow(
   return display_manager->GetDisplayForId(id);
 }
 
+void ScreenAsh::SetDisplayForNewWindows(int64_t display_id) {
+  if (display_id_for_new_windows() == display_id)
+    return;
+  Screen::SetDisplayForNewWindows(display_id);
+  Shell::Get()->NotifyDisplayForNewWindowsChanged();
+}
+
 display::Display ScreenAsh::GetDisplayNearestPoint(
     const gfx::Point& point) const {
   const display::Display& display =
@@ -202,6 +210,10 @@ void ScreenAsh::AddObserver(display::DisplayObserver* observer) {
 
 void ScreenAsh::RemoveObserver(display::DisplayObserver* observer) {
   GetDisplayManager()->RemoveObserver(observer);
+}
+
+display::TabletState ScreenAsh::GetTabletState() const {
+  return GetDisplayManager()->GetTabletState();
 }
 
 // static

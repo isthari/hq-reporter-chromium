@@ -1,25 +1,24 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_ASH_POLICY_AFFILIATION_AFFILIATION_TEST_HELPER_H_
 #define CHROME_BROWSER_ASH_POLICY_AFFILIATION_AFFILIATION_TEST_HELPER_H_
 
-#include <set>
-#include <string>
-
+#include "base/containers/span.h"
+#include "base/memory/raw_ptr.h"
+#include "base/strings/string_piece.h"
 #include "components/policy/core/common/cloud/test/policy_builder.h"
 
 class AccountId;
 
+namespace ash {
+class FakeSessionManagerClient;
+}  // namespace ash
+
 namespace base {
 class CommandLine;
 }  // namespace base
-
-namespace chromeos {
-class FakeSessionManagerClient;
-class FakeAuthPolicyClient;
-}  // namespace chromeos
 
 namespace policy {
 
@@ -31,13 +30,7 @@ class AffiliationTestHelper {
   // accounts). The |fake_session_manager_client| pointer must outlive this
   // object.
   static AffiliationTestHelper CreateForCloud(
-      chromeos::FakeSessionManagerClient* fake_session_manager_client);
-
-  // Creates an |AffiliationTestHelper| for Active Directory management (Active
-  // Directory accounts). The pointers must outlive this object.
-  static AffiliationTestHelper CreateForActiveDirectory(
-      chromeos::FakeSessionManagerClient* fake_session_manager_client,
-      chromeos::FakeAuthPolicyClient* fake_authpolicy_client);
+      ash::FakeSessionManagerClient* fake_session_manager_client);
 
   // Allow move construction, so the static constructors can be used despite
   // deleted constructors.
@@ -52,17 +45,18 @@ class AffiliationTestHelper {
   // some device policies and have device affiliation ID valid use |test_helper|
   // modified by this function.
   void SetDeviceAffiliationIDs(
-      policy::DevicePolicyCrosTestHelper* test_helper,
-      const std::set<std::string>& device_affiliation_ids);
+      DevicePolicyCrosTestHelper* test_helper,
+      const base::span<const base::StringPiece>& device_affiliation_ids);
 
   // Sets user affiliation IDs to |user_affiliation_ids| in
   // |fake_session_manager_client| and modifies |user_policy| so that it
   // contains correct values of user affiliation IDs for future use. To add user
   // policies and have user affiliation IDs valid please use |user_policy|
   // modified by this function.
-  void SetUserAffiliationIDs(policy::UserPolicyBuilder* user_policy,
-                             const AccountId& user_account_id,
-                             const std::set<std::string>& user_affiliation_ids);
+  void SetUserAffiliationIDs(
+      UserPolicyBuilder* user_policy,
+      const AccountId& user_account_id,
+      const base::span<const base::StringPiece>& user_affiliation_ids);
 
   // Registers the user with the given |account_id| on the device and marks OOBE
   // as completed. This method should be called in PRE_* test.
@@ -82,20 +76,14 @@ class AffiliationTestHelper {
   static const char kEnterpriseUserGaiaId[];
 
  private:
-  enum class ManagementType { kCloud, kActiveDirectory };
-
-  AffiliationTestHelper(
-      ManagementType management_type,
-      chromeos::FakeSessionManagerClient* fake_session_manager_client,
-      chromeos::FakeAuthPolicyClient* fake_authpolicy_client);
+  explicit AffiliationTestHelper(
+      ash::FakeSessionManagerClient* fake_session_manager_client);
 
   // ASSERTs on pointer validity.
   void CheckPreconditions();
 
-  ManagementType management_type_;
-  chromeos::FakeSessionManagerClient*
-      fake_session_manager_client_;                         // Not owned.
-  chromeos::FakeAuthPolicyClient* fake_authpolicy_client_;  // Not owned.
+  raw_ptr<ash::FakeSessionManagerClient, ExperimentalAsh>
+      fake_session_manager_client_;  // Not owned.
 };
 
 }  // namespace policy

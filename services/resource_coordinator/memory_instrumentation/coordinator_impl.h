@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@
 #include <string>
 
 #include "base/gtest_prod_util.h"
-#include "base/memory/ref_counted.h"
 #include "base/threading/thread_checker.h"
 #include "base/time/time.h"
 #include "base/trace_event/memory_dump_request_args.h"
@@ -193,7 +192,6 @@ class CoordinatorImpl : public Registry,
   mojo::Receiver<mojom::HeapProfilerHelper> heap_profiler_helper_receiver_{
       this};
 
-  const bool use_proto_writer_;
   const bool write_proto_heap_profile_;
 
   THREAD_CHECKER(thread_checker_);

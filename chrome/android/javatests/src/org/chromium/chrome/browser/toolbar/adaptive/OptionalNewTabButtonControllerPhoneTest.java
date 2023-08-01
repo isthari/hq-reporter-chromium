@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,8 @@ package org.chromium.chrome.browser.toolbar.adaptive;
 
 import static androidx.test.espresso.Espresso.onView;
 import static androidx.test.espresso.action.ViewActions.click;
+import static androidx.test.espresso.assertion.ViewAssertions.matches;
+import static androidx.test.espresso.matcher.ViewMatchers.assertThat;
 import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static androidx.test.espresso.matcher.ViewMatchers.isEnabled;
 import static androidx.test.espresso.matcher.ViewMatchers.isRoot;
@@ -14,7 +16,6 @@ import static androidx.test.espresso.matcher.ViewMatchers.withId;
 
 import static org.hamcrest.CoreMatchers.allOf;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import static org.chromium.ui.test.util.ViewUtils.onViewWaiting;
@@ -26,7 +27,9 @@ import androidx.test.filters.MediumTest;
 
 import org.hamcrest.Matchers;
 import org.junit.After;
+import org.junit.AfterClass;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
@@ -36,11 +39,11 @@ import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.DisableIf;
 import org.chromium.base.test.util.UserActionTester;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.batch.BlankCTATabInitialStateRule;
 import org.chromium.chrome.test.util.ActivityTestUtils;
 import org.chromium.components.embedder_support.util.UrlConstants;
@@ -55,7 +58,8 @@ import org.chromium.ui.test.util.ViewUtils;
 @RunWith(ChromeJUnit4ClassRunner.class)
 @Batch(Batch.PER_CLASS)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE,
-        "enable-features=" + ChromeFeatureList.ADAPTIVE_BUTTON_IN_TOP_TOOLBAR + "<Study",
+        "enable-features=" + ChromeFeatureList.ADAPTIVE_BUTTON_IN_TOP_TOOLBAR_CUSTOMIZATION_V2
+                + "<Study",
         "force-fieldtrials=Study/Group", "force-fieldtrial-params=Study.Group:mode/always-new-tab"})
 @DisableIf.Device(type = {UiDisableIf.TABLET})
 public class OptionalNewTabButtonControllerPhoneTest {
@@ -71,6 +75,17 @@ public class OptionalNewTabButtonControllerPhoneTest {
 
     private String mTestPageUrl;
     private String mButtonDescription;
+
+    @BeforeClass
+    public static void setUpBeforeActivityLaunched() {
+        AdaptiveToolbarStatePredictor.setToolbarStateForTesting(
+                AdaptiveToolbarButtonVariant.NEW_TAB);
+    }
+
+    @AfterClass
+    public static void tearDownAfterActivityDestroyed() {
+        AdaptiveToolbarStatePredictor.setToolbarStateForTesting(null);
+    }
 
     @Before
     public void setUp() {
@@ -114,9 +129,16 @@ public class OptionalNewTabButtonControllerPhoneTest {
                 sActivityTestRule.getActivity(), Configuration.ORIENTATION_LANDSCAPE);
         sActivityTestRule.loadUrl(mTestPageUrl, /*secondsToWait=*/10);
 
-        onViewWaiting(allOf(withId(R.id.optional_toolbar_button), isDisplayed(), isEnabled(),
-                              withContentDescription(mButtonDescription)))
-                .perform(click());
+        // Check view exists and is set up correctly.
+        onViewWaiting(withId(R.id.optional_toolbar_button))
+                .check(matches(allOf(
+                        isDisplayed(), isEnabled(), withContentDescription(mButtonDescription))));
+        // Clicking with espresso is flaky, perform click directly.
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            sActivityTestRule.getActivity()
+                    .findViewById(R.id.optional_toolbar_button)
+                    .performClick();
+        });
 
         // Expected tabs:
         // 1: mTestPageUrl

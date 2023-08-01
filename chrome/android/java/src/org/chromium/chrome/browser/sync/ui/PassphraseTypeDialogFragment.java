@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,8 +35,6 @@ import org.chromium.ui.widget.TextViewWithClickableSpans;
  */
 public class PassphraseTypeDialogFragment
         extends DialogFragment implements DialogInterface.OnClickListener {
-    private static final String TAG = "PassphraseTypeDialogFragment";
-
     public interface Listener {
         /**
          * Called when the user doesn't have a custom passphrase and taps the option to set up one.
@@ -57,9 +55,6 @@ public class PassphraseTypeDialogFragment
     public static PassphraseTypeDialogFragment create(
             @PassphraseType int currentType, boolean isCustomPassphraseAllowed) {
         assert currentType >= 0 && currentType <= PassphraseType.MAX_VALUE;
-        assert currentType
-                != PassphraseType.TRUSTED_VAULT_PASSPHRASE
-            : "Changing trusted vault to custom passphrase is supported, but UI forbids it today";
         PassphraseTypeDialogFragment dialog = new PassphraseTypeDialogFragment();
         Bundle args = new Bundle();
         args.putInt(ARG_CURRENT_TYPE, currentType);
@@ -97,7 +92,7 @@ public class PassphraseTypeDialogFragment
             }
         }
 
-        return new AlertDialog.Builder(getActivity(), R.style.Theme_Chromium_AlertDialog)
+        return new AlertDialog.Builder(getActivity(), R.style.ThemeOverlay_BrowserUI_AlertDialog)
                 .setNegativeButton(R.string.cancel, this)
                 .setTitle(R.string.sync_passphrase_type_title)
                 .setView(dialog)

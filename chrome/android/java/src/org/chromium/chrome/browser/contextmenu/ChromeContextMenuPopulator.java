@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,13 +13,11 @@ import static org.chromium.chrome.browser.contextmenu.ContextMenuItemWithIconBut
 import android.app.Activity;
 import android.content.ContentResolver;
 import android.content.Context;
-import android.content.Intent;
 import android.graphics.drawable.Drawable;
 import android.net.MailTo;
 import android.net.Uri;
 import android.text.TextUtils;
 import android.util.Pair;
-import android.webkit.MimeTypeMap;
 import android.webkit.URLUtil;
 
 import androidx.annotation.IntDef;
@@ -28,7 +26,6 @@ import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.Callback;
 import org.chromium.base.ContextUtils;
-import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.compositor.bottombar.ephemeraltab.EphemeralTabCoordinator;
@@ -43,8 +40,6 @@ import org.chromium.chrome.browser.lens.LensEntryPoint;
 import org.chromium.chrome.browser.lens.LensIntentParams;
 import org.chromium.chrome.browser.lens.LensMetrics;
 import org.chromium.chrome.browser.locale.LocaleManager;
-import org.chromium.chrome.browser.performance_hints.PerformanceHintsObserver;
-import org.chromium.chrome.browser.performance_hints.PerformanceHintsObserver.PerformanceClass;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
 import org.chromium.chrome.browser.profiles.Profile;
@@ -79,7 +74,6 @@ import org.chromium.url.GURL;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 /**
@@ -187,161 +181,6 @@ public class ChromeContextMenuPopulator implements ContextMenuPopulator {
             int OPEN_IN_NEW_WINDOW = 40;
             int NUM_ENTRIES = 41;
         }
-
-        // Note: these values must match the ContextMenuSaveLinkType enum in enums.xml.
-        // Only add new values at the end, right before NUM_TYPES. We depend on these specific
-        // values in UMA histograms.
-        @IntDef({Type.UNKNOWN, Type.TEXT, Type.IMAGE, Type.AUDIO, Type.VIDEO, Type.PDF})
-        @Retention(RetentionPolicy.SOURCE)
-        public @interface Type {
-            int UNKNOWN = 0;
-            int TEXT = 1;
-            int IMAGE = 2;
-            int AUDIO = 3;
-            int VIDEO = 4;
-            int PDF = 5;
-            int NUM_ENTRIES = 6;
-        }
-
-        // Note: these values must match the ContextMenuSaveImage enum in enums.xml.
-        // Only add new values at the end, right before NUM_ENTRIES.
-        @IntDef({TypeSaveImage.LOADED, TypeSaveImage.NOT_DOWNLOADABLE,
-                TypeSaveImage.DISABLED_AND_IS_NOT_IMAGE_PARAM,
-                TypeSaveImage.DISABLED_AND_IS_IMAGE_PARAM, TypeSaveImage.SHOWN})
-        @Retention(RetentionPolicy.SOURCE)
-        public @interface TypeSaveImage {
-            int LOADED = 0;
-            // int FETCHED_LOFI = 1; deprecated
-            int NOT_DOWNLOADABLE = 2;
-            int DISABLED_AND_IS_NOT_IMAGE_PARAM = 3;
-            int DISABLED_AND_IS_IMAGE_PARAM = 4;
-            int SHOWN = 5;
-            int NUM_ENTRIES = 6;
-        }
-
-        // This is used for recording the enum histogram:
-        //   * ContextMenu.SelectedOptionAndroid.ImageLink.NewTabOption
-        //   * ContextMenu.SelectedOptionAndroid.Link.NewTabOption
-        // OPEN_IN_NEW_TAB_FIRST_SELECTED_OPEN_IN_NEW_TAB means the context menu shows the
-        //   'open in new tab' item before the 'open in new tab in group' item and the
-        //   'open in new tab' item is selected.
-        // OPEN_IN_NEW_TAB_FIRST_SELECTED_OPEN_IN_NEW_TAB_IN_GROUP means the context menu shows the
-        //    'open in new tab' item before the 'open in new tab in group' item and the
-        //    'open in new tab in group' item is selected.
-        // OPEN_IN_NEW_TAB_IN_GROUP_FIRST_SELECTED_OPEN_IN_NEW_TAB means the context menu shows the
-        //    'open in new tab in group' item before the 'open in new tab' item and the
-        //    'open in new tab' item is selected.
-        // OPEN_IN_NEW_TAB_IN_GROUP_FIRST_SELECTED_OPEN_IN_NEW_TAB_IN_GROUP means the context menu
-        // shows the
-        //    'open in new tab in group' item before the 'open in new tab' item and the
-        //    'open in new tab in group' item is selected.
-        @IntDef({SelectedNewTabCreationEnum.OPEN_IN_NEW_TAB_FIRST_SELECTED_OPEN_IN_NEW_TAB,
-                SelectedNewTabCreationEnum.OPEN_IN_NEW_TAB_FIRST_SELECTED_OPEN_IN_NEW_TAB_IN_GROUP,
-                SelectedNewTabCreationEnum.OPEN_IN_NEW_TAB_IN_GROUP_FIRST_SELECTED_OPEN_IN_NEW_TAB,
-                SelectedNewTabCreationEnum
-                        .OPEN_IN_NEW_TAB_IN_GROUP_FIRST_SELECTED_OPEN_IN_NEW_TAB_IN_GROUP})
-        @Retention(RetentionPolicy.SOURCE)
-        private @interface SelectedNewTabCreationEnum {
-            int OPEN_IN_NEW_TAB_FIRST_SELECTED_OPEN_IN_NEW_TAB = 0;
-            int OPEN_IN_NEW_TAB_FIRST_SELECTED_OPEN_IN_NEW_TAB_IN_GROUP = 1;
-            int OPEN_IN_NEW_TAB_IN_GROUP_FIRST_SELECTED_OPEN_IN_NEW_TAB = 2;
-            int OPEN_IN_NEW_TAB_IN_GROUP_FIRST_SELECTED_OPEN_IN_NEW_TAB_IN_GROUP = 3;
-
-            int NUM_ENTRIES = 4;
-        }
-
-        /**
-         * Records a histogram entry when the user selects an item from a context menu.
-         * @param params The ContextMenuParams describing the current context menu.
-         * @param action The action that the user selected (e.g. ACTION_SAVE_IMAGE).
-         */
-        static void record(WebContents webContents, ContextMenuParams params, @Action int action) {
-            String histogramName = String.format("ContextMenu.SelectedOptionAndroid.%s",
-                    ContextMenuUtils.getContextMenuTypeForHistogram(params));
-            RecordHistogram.recordEnumeratedHistogram(histogramName, action, Action.NUM_ENTRIES);
-
-            if (params.isAnchor() && !params.isVideo() && !params.getOpenedFromHighlight()) {
-                if (params.isImage()) {
-                    assert histogramName.equals("ContextMenu.SelectedOptionAndroid.ImageLink");
-                } else {
-                    assert histogramName.equals("ContextMenu.SelectedOptionAndroid.Link");
-                }
-                tryToRecordGroupRelatedHistogram(histogramName, action);
-            }
-
-            if (params.isAnchor()
-                    && PerformanceHintsObserver.getPerformanceClassForURL(
-                               webContents, params.getLinkUrl())
-                            == PerformanceClass.PERFORMANCE_FAST) {
-                RecordHistogram.recordEnumeratedHistogram(
-                        histogramName + ".PerformanceClassFast", action, Action.NUM_ENTRIES);
-            }
-        }
-
-        private static void tryToRecordGroupRelatedHistogram(
-                String histogramName, @Action int action) {
-            if (TabUiFeatureUtilities.ENABLE_TAB_GROUP_AUTO_CREATION.getValue()) return;
-
-            boolean openInGroupShownFirst =
-                    TabUiFeatureUtilities.showContextMenuOpenNewTabInGroupItemFirst();
-
-            @SelectedNewTabCreationEnum
-            int selectedNewTabCreationEnum =
-                    SelectedNewTabCreationEnum.OPEN_IN_NEW_TAB_FIRST_SELECTED_OPEN_IN_NEW_TAB;
-
-            if (action == Action.OPEN_IN_NEW_TAB) {
-                if (openInGroupShownFirst) {
-                    selectedNewTabCreationEnum =
-                            SelectedNewTabCreationEnum
-                                    .OPEN_IN_NEW_TAB_IN_GROUP_FIRST_SELECTED_OPEN_IN_NEW_TAB;
-                }
-            } else if (action == Action.OPEN_IN_NEW_TAB_IN_GROUP) {
-                selectedNewTabCreationEnum = openInGroupShownFirst
-                        ? SelectedNewTabCreationEnum
-                                  .OPEN_IN_NEW_TAB_IN_GROUP_FIRST_SELECTED_OPEN_IN_NEW_TAB_IN_GROUP
-                        : SelectedNewTabCreationEnum
-                                  .OPEN_IN_NEW_TAB_FIRST_SELECTED_OPEN_IN_NEW_TAB_IN_GROUP;
-            }
-            RecordHistogram.recordEnumeratedHistogram(histogramName + ".NewTabOption",
-                    selectedNewTabCreationEnum, SelectedNewTabCreationEnum.NUM_ENTRIES);
-        }
-
-        /**
-         * Records the content types when user downloads the file by long pressing the
-         * save link context menu option.
-         */
-        static void recordSaveLinkTypes(GURL url) {
-            String extension = MimeTypeMap.getFileExtensionFromUrl(url.getSpec());
-            @Type
-            int mimeType = Type.UNKNOWN;
-            if (extension != null) {
-                String type = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension);
-                if (type != null) {
-                    if (type.startsWith("text")) {
-                        mimeType = Type.TEXT;
-                    } else if (type.startsWith("image")) {
-                        mimeType = Type.IMAGE;
-                    } else if (type.startsWith("audio")) {
-                        mimeType = Type.AUDIO;
-                    } else if (type.startsWith("video")) {
-                        mimeType = Type.VIDEO;
-                    } else if (type.equals("application/pdf")) {
-                        mimeType = Type.PDF;
-                    }
-                }
-            }
-            RecordHistogram.recordEnumeratedHistogram(
-                    "ContextMenu.SaveLinkType", mimeType, Type.NUM_ENTRIES);
-        }
-
-        /**
-         * Helper method to record MobileDownload.ContextMenu.SaveImage UMA
-         * @param type Type to record
-         */
-        static void recordSaveImageUma(int type) {
-            RecordHistogram.recordEnumeratedHistogram(
-                    "MobileDownload.ContextMenu.SaveImage", type, TypeSaveImage.NUM_ENTRIES);
-        }
     }
 
     /**
@@ -394,7 +233,6 @@ public class ChromeContextMenuPopulator implements ContextMenuPopulator {
 
     @Override
     public List<Pair<Integer, ModelList>> buildContextMenu() {
-        boolean hasSaveImage = false;
         mShowEphemeralTabNewLabel = null;
 
         List<Pair<Integer, ModelList>> groupedItems = new ArrayList<>();
@@ -443,7 +281,7 @@ public class ChromeContextMenuPopulator implements ContextMenuPopulator {
                         && UrlUtilities.isDownloadableScheme(mParams.getLinkUrl())) {
                     linkGroup.add(createListItem(Item.SAVE_LINK_AS));
                 }
-                if (!mParams.isImage() && ChromeFeatureList.isEnabled(ChromeFeatureList.READ_LATER)
+                if (!mParams.isImage()
                         && ReadingListUtils.isReadingListSupported(mParams.getLinkUrl())) {
                     linkGroup.add(createListItem(Item.READ_LATER, shouldTriggerReadLaterHelpUi()));
                 }
@@ -501,7 +339,6 @@ public class ChromeContextMenuPopulator implements ContextMenuPopulator {
             imageGroup.add(createListItem(Item.COPY_IMAGE));
             if (isSrcDownloadableScheme) {
                 imageGroup.add(createListItem(Item.SAVE_IMAGE));
-                hasSaveImage = true;
             }
 
             // If set, show 'Share Image' before 'Search with Google Lens'.
@@ -539,7 +376,6 @@ public class ChromeContextMenuPopulator implements ContextMenuPopulator {
                 imageGroup.add(createShareListItem(Item.SHARE_IMAGE, Item.DIRECT_SHARE_IMAGE));
             }
 
-            recordSaveImageContextMenuResult(isSrcDownloadableScheme);
             groupedItems.add(new Pair<>(R.string.contextmenu_image_title, imageGroup));
         }
 
@@ -592,17 +428,6 @@ public class ChromeContextMenuPopulator implements ContextMenuPopulator {
             }
         }
 
-        if (!groupedItems.isEmpty()
-                && BrowserStartupController.getInstance().isFullBrowserStarted()) {
-            if (!hasSaveImage) {
-                ContextMenuUma.recordSaveImageUma(mParams.isImage()
-                                ? ContextMenuUma.TypeSaveImage.DISABLED_AND_IS_IMAGE_PARAM
-                                : ContextMenuUma.TypeSaveImage.DISABLED_AND_IS_NOT_IMAGE_PARAM);
-            } else {
-                ContextMenuUma.recordSaveImageUma(ContextMenuUma.TypeSaveImage.SHOWN);
-            }
-        }
-
         return groupedItems;
     }
 
@@ -634,7 +459,8 @@ public class ChromeContextMenuPopulator implements ContextMenuPopulator {
     public boolean onItemSelected(int itemId) {
         if (itemId == R.id.contextmenu_open_in_new_tab) {
             recordContextMenuSelection(ContextMenuUma.Action.OPEN_IN_NEW_TAB);
-            mItemDelegate.onOpenInNewTab(mParams.getUrl(), mParams.getReferrer());
+            mItemDelegate.onOpenInNewTab(mParams.getUrl(), mParams.getReferrer(),
+                    /*navigateToTab=*/false, mParams.getImpression());
         } else if (itemId == R.id.contextmenu_open_in_new_tab_in_group) {
             recordContextMenuSelection(ContextMenuUma.Action.OPEN_IN_NEW_TAB_IN_GROUP);
             mItemDelegate.onOpenInNewTabInGroup(mParams.getUrl(), mParams.getReferrer());
@@ -714,7 +540,6 @@ public class ChromeContextMenuPopulator implements ContextMenuPopulator {
             recordContextMenuSelection(ContextMenuUma.Action.SAVE_LINK);
             GURL url = mParams.getUnfilteredLinkUrl();
             if (mItemDelegate.startDownload(url, true)) {
-                ContextMenuUma.recordSaveLinkTypes(url);
                 mNativeDelegate.startDownload(true);
             }
         } else if (itemId == R.id.contextmenu_share_link) {
@@ -740,10 +565,12 @@ public class ChromeContextMenuPopulator implements ContextMenuPopulator {
             recordContextMenuSelection(ContextMenuUma.Action.DIRECT_SHARE_LINK);
             final ShareParams shareParams =
                     new ShareParams
-                            .Builder(getWindow(), mParams.getUrl().getSpec(),
+                            .Builder(getWindow(), ContextMenuUtils.getTitle(mParams),
                                     mParams.getUrl().getSpec())
                             .build();
-            ShareHelper.shareWithLastUsedComponent(shareParams);
+            mShareDelegateSupplier.get().share(shareParams,
+                    new ChromeShareExtras.Builder().setShareDirectly(true).build(),
+                    ShareOrigin.CONTEXT_MENU);
         } else if (itemId == R.id.contextmenu_search_with_google_lens) {
             recordContextMenuSelection(ContextMenuUma.Action.SEARCH_WITH_GOOGLE_LENS);
             searchWithGoogleLens(LensEntryPoint.CONTEXT_MENU_SEARCH_MENU_ITEM);
@@ -751,6 +578,8 @@ public class ChromeContextMenuPopulator implements ContextMenuPopulator {
             prefManager.writeBoolean(
                     ChromePreferenceKeys.CONTEXT_MENU_SEARCH_WITH_GOOGLE_LENS_CLICKED, true);
         } else if (itemId == R.id.contextmenu_search_by_image) {
+            LensMetrics.recordAmbientSearchQuery(
+                    LensMetrics.AmbientSearchEntryPoint.CONTEXT_MENU_SEARCH_IMAGE_WITH_WEB);
             recordContextMenuSelection(ContextMenuUma.Action.SEARCH_BY_IMAGE);
             mNativeDelegate.searchForImage();
         } else if (itemId == R.id.contextmenu_share_image) {
@@ -759,8 +588,13 @@ public class ChromeContextMenuPopulator implements ContextMenuPopulator {
         } else if (itemId == R.id.contextmenu_direct_share_image) {
             recordContextMenuSelection(ContextMenuUma.Action.DIRECT_SHARE_IMAGE);
             mNativeDelegate.retrieveImageForShare(ContextMenuImageFormat.ORIGINAL, (Uri uri) -> {
-                ShareHelper.shareImage(
-                        getWindow(), getProfile(), ShareHelper.getLastShareComponentName(), uri);
+                assert ShareHelper.getLastShareComponentName() != null;
+                ShareParams params =
+                        new ShareParams.Builder(getWindow(), mParams.getTitleText(), "")
+                                .setSingleImageUri(uri)
+                                .build();
+                ShareHelper.shareDirectly(
+                        params, ShareHelper.getLastShareComponentName(), getProfile(), false);
             });
         } else if (itemId == R.id.contextmenu_open_in_chrome) {
             recordContextMenuSelection(ContextMenuUma.Action.OPEN_IN_CHROME);
@@ -783,7 +617,7 @@ public class ChromeContextMenuPopulator implements ContextMenuPopulator {
         } else if (itemId == R.id.contextmenu_learn_more) {
             recordContextMenuSelection(ContextMenuUma.Action.LEARN_MORE);
             mItemDelegate.onOpenInNewTab(new GURL(LinkToTextHelper.SHARED_HIGHLIGHTING_SUPPORT_URL),
-                    mParams.getReferrer());
+                    mParams.getReferrer(), /*navigateToTab=*/true, /*attributionSrcToken*/ null);
         } else {
             assert false;
         }
@@ -840,18 +674,13 @@ public class ChromeContextMenuPopulator implements ContextMenuPopulator {
      */
     private void shareImage() {
         mNativeDelegate.retrieveImageForShare(ContextMenuImageFormat.ORIGINAL, (Uri imageUri) -> {
-            if (!mShareDelegateSupplier.get().isSharingHubEnabled()) {
-                ShareHelper.shareImage(getWindow(),
-                        Profile.fromWebContents(mItemDelegate.getWebContents()), null, imageUri);
-                return;
-            }
             ContentResolver contentResolver =
                     ContextUtils.getApplicationContext().getContentResolver();
             String mimeType = contentResolver.getType(imageUri);
             ShareParams imageShareParams =
                     new ShareParams
                             .Builder(getWindow(), ContextMenuUtils.getTitle(mParams), /*url=*/"")
-                            .setFileUris(new ArrayList<>(Collections.singletonList(imageUri)))
+                            .setSingleImageUri(imageUri)
                             .setFileContentType(mimeType)
                             .build();
             int detailedContentType;
@@ -875,7 +704,7 @@ public class ChromeContextMenuPopulator implements ContextMenuPopulator {
      * @return The service that handles TemplateUrls.
      */
     protected TemplateUrlService getTemplateUrlService() {
-        return TemplateUrlServiceFactory.get();
+        return TemplateUrlServiceFactory.getForProfile(getProfile());
     }
 
     /**
@@ -954,26 +783,9 @@ public class ChromeContextMenuPopulator implements ContextMenuPopulator {
     }
 
     /**
-     * Record the UMA related to save image context menu option.
-     * @param isDownloadableScheme The image is downloadable.
-     */
-    private void recordSaveImageContextMenuResult(boolean isDownloadableScheme) {
-        if (!BrowserStartupController.getInstance().isFullBrowserStarted()) {
-            return;
-        }
-
-        ContextMenuUma.recordSaveImageUma(ContextMenuUma.TypeSaveImage.LOADED);
-
-        if (!isDownloadableScheme) {
-            ContextMenuUma.recordSaveImageUma(ContextMenuUma.TypeSaveImage.NOT_DOWNLOADABLE);
-        }
-    }
-
-    /**
      * Record a UMA ping and a UKM ping if enabled.
      */
     private void recordContextMenuSelection(int actionId) {
-        ContextMenuUma.record(mItemDelegate.getWebContents(), mParams, actionId);
         if (LensUtils.shouldLogUkmForLensContextMenuFeatures()) {
             maybeRecordActionUkm("ContextMenuAndroid.Selected", actionId);
         }
@@ -1013,7 +825,7 @@ public class ChromeContextMenuPopulator implements ContextMenuPopulator {
                     LensMetrics.LensSupportStatus.ACTIVITY_NOT_ACCESSIBLE);
             return false;
         }
-        if (GSAState.getInstance(mContext).isAgsaVersionBelowMinimum(
+        if (GSAState.getInstance().isAgsaVersionBelowMinimum(
                     versionName, LensUtils.getMinimumAgsaVersionForLensSupport())) {
             LensMetrics.recordLensSupportStatus(
                     LENS_SUPPORT_STATUS_HISTOGRAM_NAME, LensMetrics.LensSupportStatus.OUT_OF_DATE);
@@ -1070,9 +882,10 @@ public class ChromeContextMenuPopulator implements ContextMenuPopulator {
      * @param isLink Whether the item is SHARE_LINK.
      */
     private static Pair<Drawable, CharSequence> createRecentShareAppInfo(boolean isLink) {
-        Intent shareIntent = isLink ? ShareHelper.getShareLinkAppCompatibilityIntent()
-                                    : ShareHelper.getShareImageIntent(null);
-        return ShareHelper.getShareableIconAndName(shareIntent);
+        return isLink ? ShareHelper.getShareableIconAndNameForText()
+                      // Use jpeg as a generic image type to be shared. Most apps accepting jpeg
+                      // should also accept other image types.
+                      : ShareHelper.getShareableIconAndNameForFileContentType("image/jpeg");
     }
 
     /**

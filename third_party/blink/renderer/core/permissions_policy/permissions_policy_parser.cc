@@ -3,17 +3,22 @@
 
 #include "third_party/blink/renderer/core/permissions_policy/permissions_policy_parser.h"
 
-#include <algorithm>
+#include <bitset>
 #include <utility>
 
-#include <bitset>
+#include "base/containers/contains.h"
+#include "base/feature_list.h"
 #include "base/metrics/histogram_macros.h"
 #include "net/http/structured_headers.h"
+#include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/common/permissions_policy/origin_with_possible_wildcards.h"
 #include "third_party/blink/public/mojom/permissions_policy/permissions_policy.mojom-blink.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/core/frame/deprecation/deprecation.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/origin_trials/origin_trial_context.h"
+#include "third_party/blink/renderer/platform/allow_discouraged_type.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/json/json_values.h"
 #include "third_party/blink/renderer/platform/network/http_parsers.h"
@@ -50,8 +55,9 @@ class ParsedFeaturePolicies final
 
   bool Observed(mojom::blink::PermissionsPolicyFeature feature) {
     wtf_size_t feature_index = static_cast<wtf_size_t>(feature);
-    if (policies_[feature_index])
+    if (policies_[feature_index]) {
       return true;
+    }
     policies_[feature_index] = true;
     return false;
   }
@@ -95,30 +101,26 @@ class ParsingContext {
 
   ParsedPermissionsPolicy ParseFeaturePolicy(const String& policy);
   ParsedPermissionsPolicy ParsePermissionsPolicy(const String& policy);
+  ParsedPermissionsPolicy ParsePolicyFromNode(
+      const PermissionsPolicyParser::Node& root);
 
  private:
-  // Following is the intermediate represetnation(IR) of permissions policy.
-  // Parsing of syntax structures is done in this IR, but semantic checks, e.g.
-  // whether feature_name is valid, are not yet performed.
-  struct FeaturePolicyDeclarationNode {
-    String feature_name;
-    Vector<String> allowlist;
-  };
-  using FeaturePolicyNode = Vector<FeaturePolicyDeclarationNode>;
-
-  ParsedPermissionsPolicy ParseIR(const FeaturePolicyNode& root);
-  FeaturePolicyNode ParseFeaturePolicyToIR(const String& policy);
-  FeaturePolicyNode ParsePermissionsPolicyToIR(const String& policy);
+  PermissionsPolicyParser::Node ParseFeaturePolicyToIR(const String& policy);
+  PermissionsPolicyParser::Node ParsePermissionsPolicyToIR(
+      const String& policy);
 
   // normally 1 char = 1 byte
   // max length to parse = 2^16 = 64 kB
   static constexpr wtf_size_t MAX_LENGTH_PARSE = 1 << 16;
 
   absl::optional<ParsedPermissionsPolicyDeclaration> ParseFeature(
-      const FeaturePolicyDeclarationNode&);
+      const PermissionsPolicyParser::Declaration& declaration_node,
+      const OriginWithPossibleWildcards::NodeType type);
 
   struct ParsedAllowlist {
-    std::vector<url::Origin> allowed_origins;
+    std::vector<blink::OriginWithPossibleWildcards> allowed_origins
+        ALLOW_DISCOURAGED_TYPE("Permission policy uses STL for code sharing");
+    absl::optional<url::Origin> self_if_matches;
     bool matches_all_origins{false};
     bool matches_opaque_src{false};
 
@@ -129,7 +131,9 @@ class ParsingContext {
       const String& feature_name);
 
   // Parse allowlist for feature.
-  ParsedAllowlist ParseAllowlist(const Vector<String>& origin_strings);
+  ParsedAllowlist ParseAllowlist(
+      const Vector<String>& origin_strings,
+      const OriginWithPossibleWildcards::NodeType type);
 
   void ReportFeatureUsage(mojom::blink::PermissionsPolicyFeature feature);
   void ReportFeatureUsageLegacy(mojom::blink::PermissionsPolicyFeature feature);
@@ -137,13 +141,6 @@ class ParsingContext {
   // This function should be called after Allowlist Histograms related flags
   // have been captured.
   void RecordAllowlistTypeUsage(size_t origin_count);
-  // The use of various allowlist types should only be recorded once per page.
-  // For simplicity, this recording assumes that the ParseHeader method is
-  // called once when creating a new document, and similarly the ParseAttribute
-  // method is called once for a frame. It is possible for multiple calls, but
-  // the additional complexity to guarantee only one record isn't warranted as
-  // yet.
-  void ReportAllowlistTypeUsage();
 
   PolicyParserMessageBuffer& logger_;
   scoped_refptr<const SecurityOrigin> self_origin_;
@@ -153,15 +150,6 @@ class ParsingContext {
   // during the parsing process.
   // `execution_context_` should only be `nullptr` in tests.
   ExecutionContext* execution_context_;
-
-  // Flags for the types of items which can be used in allowlists.
-  bool allowlist_includes_star_ = false;
-  bool allowlist_includes_self_ = false;
-  bool allowlist_includes_src_ = false;
-  bool allowlist_includes_none_ = false;
-  bool allowlist_includes_origin_ = false;
-
-  HashSet<FeaturePolicyAllowlistType> allowlist_types_used_;
 
   FeatureObserver feature_observer_;
 };
@@ -180,21 +168,16 @@ bool FeatureObserver::FeatureObserved(
 // are consistent with old ones.
 void ParsingContext::ReportFeatureUsageLegacy(
     mojom::blink::PermissionsPolicyFeature feature) {
-  if (src_origin_) {
-    if (!execution_context_ ||
-        !ParsedFeaturePolicies::From(*execution_context_).Observed(feature)) {
-      UMA_HISTOGRAM_ENUMERATION("Blink.UseCounter.FeaturePolicy.Allow",
-                                feature);
-    }
-  } else {
+  if (!src_origin_) {
     UMA_HISTOGRAM_ENUMERATION("Blink.UseCounter.FeaturePolicy.Header", feature);
   }
 }
 
 void ParsingContext::ReportFeatureUsage(
     mojom::blink::PermissionsPolicyFeature feature) {
-  if (!execution_context_ || !execution_context_->IsWindow())
+  if (!execution_context_ || !execution_context_->IsWindow()) {
     return;
+  }
 
   LocalDOMWindow* local_dom_window = To<LocalDOMWindow>(execution_context_);
 
@@ -205,76 +188,53 @@ void ParsingContext::ReportFeatureUsage(
   local_dom_window->CountPermissionsPolicyUsage(feature, usage_type);
 }
 
-void ParsingContext::RecordAllowlistTypeUsage(size_t origin_count) {
-  // Record the type of allowlist used.
-  if (origin_count == 0) {
-    allowlist_types_used_.insert(FeaturePolicyAllowlistType::kEmpty);
-  } else if (origin_count == 1) {
-    if (allowlist_includes_star_)
-      allowlist_types_used_.insert(FeaturePolicyAllowlistType::kStar);
-    else if (allowlist_includes_self_)
-      allowlist_types_used_.insert(FeaturePolicyAllowlistType::kSelf);
-    else if (allowlist_includes_src_)
-      allowlist_types_used_.insert(FeaturePolicyAllowlistType::kSrc);
-    else if (allowlist_includes_none_)
-      allowlist_types_used_.insert(FeaturePolicyAllowlistType::kNone);
-    else
-      allowlist_types_used_.insert(FeaturePolicyAllowlistType::kOrigins);
-  } else {
-    if (allowlist_includes_origin_) {
-      if (allowlist_includes_star_ || allowlist_includes_none_ ||
-          allowlist_includes_src_ || allowlist_includes_self_)
-        allowlist_types_used_.insert(FeaturePolicyAllowlistType::kMixed);
-      else
-        allowlist_types_used_.insert(FeaturePolicyAllowlistType::kOrigins);
-    } else {
-      allowlist_types_used_.insert(FeaturePolicyAllowlistType::kKeywordsOnly);
-    }
-  }
-  // Reset all flags.
-  allowlist_includes_star_ = false;
-  allowlist_includes_self_ = false;
-  allowlist_includes_src_ = false;
-  allowlist_includes_none_ = false;
-  allowlist_includes_origin_ = false;
-}
-
-void ParsingContext::ReportAllowlistTypeUsage() {
-  for (const FeaturePolicyAllowlistType allowlist_type :
-       allowlist_types_used_) {
-    if (src_origin_) {
-      UMA_HISTOGRAM_ENUMERATION(
-          "Blink.UseCounter.FeaturePolicy.AttributeAllowlistType",
-          allowlist_type);
-    } else {
-      UMA_HISTOGRAM_ENUMERATION(
-          "Blink.UseCounter.FeaturePolicy.HeaderAllowlistType", allowlist_type);
-    }
-  }
-}
-
 absl::optional<mojom::blink::PermissionsPolicyFeature>
 ParsingContext::ParseFeatureName(const String& feature_name) {
-  DCHECK(!feature_name.IsEmpty());
-  if (!feature_names_.Contains(feature_name)) {
-    logger_.Warn("Unrecognized feature: '" + feature_name + "'.");
+  DCHECK(!feature_name.empty());
+  if (feature_name == "window-management") {
+    UseCounter::Count(execution_context_,
+                      WebFeature::kWindowManagementPermissionPolicyParsed);
+  }
+  const String& effective_feature_name =
+      (feature_name == "window-management" &&
+       RuntimeEnabledFeatures::WindowManagementPermissionAliasEnabled())
+          ? "window-placement"
+          : feature_name;
+  if (!feature_names_.Contains(effective_feature_name)) {
+    logger_.Warn("Unrecognized feature: '" + effective_feature_name + "'.");
     return absl::nullopt;
   }
-  if (DisabledByOriginTrial(feature_name, execution_context_)) {
+  if (DisabledByOriginTrial(effective_feature_name, execution_context_)) {
     logger_.Warn("Origin trial controlled feature not enabled: '" +
-                 feature_name + "'.");
+                 effective_feature_name + "'.");
     return absl::nullopt;
   }
   mojom::blink::PermissionsPolicyFeature feature =
-      feature_names_.at(feature_name);
+      feature_names_.at(effective_feature_name);
 
+  // TODO(https://crbug.com/1324111): Remove this after OT.
+  if (feature == mojom::blink::PermissionsPolicyFeature::kUnload) {
+    if (!execution_context_ ||
+        !RuntimeEnabledFeatures::PermissionsPolicyUnloadEnabled(
+            execution_context_)) {
+      // kUnload should not be recognised unless the OT is enabled.
+      feature = mojom::blink::PermissionsPolicyFeature::kNotFound;
+    } else if (execution_context_->IsWindow()) {
+      // Counter is required for Origin Trial.
+      execution_context_->CountUse(WebFeature::kPermissionsPolicyUnload);
+    }
+  }
   return feature;
 }
 
 ParsingContext::ParsedAllowlist ParsingContext::ParseAllowlist(
-    const Vector<String>& origin_strings) {
+    const Vector<String>& origin_strings,
+    const OriginWithPossibleWildcards::NodeType type) {
+  // The source of the PermissionsPolicyParser::Node must have an explicit
+  // source so that we know which wildcards can be enabled.
+  DCHECK_NE(OriginWithPossibleWildcards::NodeType::kUnknown, type);
   ParsedAllowlist allowlist;
-  if (origin_strings.IsEmpty()) {
+  if (origin_strings.empty()) {
     // If a policy entry has no listed origins (e.g. "feature_name1" in
     // allow="feature_name1; feature_name2 value"), enable the feature for:
     //     a. |self_origin|, if we are parsing a header policy (i.e.,
@@ -283,15 +243,16 @@ ParsingContext::ParsedAllowlist ParsingContext::ParseAllowlist(
     //       |src_origin| is not null), |src_origin| is not opaque; or
     //     c. the opaque origin of the frame, if |src_origin| is opaque.
     if (!src_origin_) {
-      allowlist.allowed_origins.push_back(self_origin_->ToUrlOrigin());
+      allowlist.self_if_matches = self_origin_->ToUrlOrigin();
     } else if (!src_origin_->IsOpaque()) {
-      allowlist.allowed_origins.push_back(src_origin_->ToUrlOrigin());
+      allowlist.allowed_origins.emplace_back(src_origin_->ToUrlOrigin(),
+                                             /*has_subdomain_wildcard=*/false);
     } else {
       allowlist.matches_opaque_src = true;
     }
   } else {
     for (const String& origin_string : origin_strings) {
-      DCHECK(!origin_string.IsEmpty());
+      DCHECK(!origin_string.empty());
 
       if (!origin_string.ContainsOnlyASCIIOrEmpty()) {
         logger_.Warn("Non-ASCII characters in origin.");
@@ -301,8 +262,9 @@ ParsingContext::ParsedAllowlist ParsingContext::ParseAllowlist(
       // Determine the target of the declaration. This may be a specific
       // origin, either explicitly written, or one of the special keywords
       // 'self' or 'src'. ('src' can only be used in the iframe allow
-      // attribute.)
-      url::Origin target_origin;
+      // attribute.) Also determine if this target has a subdomain wildcard
+      // (e.g., https://*.google.com).
+      OriginWithPossibleWildcards origin_with_possible_wildcards;
 
       // If the iframe will have an opaque origin (for example, if it is
       // sandboxed, or has a data: URL), then 'src' needs to refer to the
@@ -311,38 +273,40 @@ ParsingContext::ParsedAllowlist ParsingContext::ParseAllowlist(
       // adding an origin to the allowlist.
       bool target_is_opaque = false;
       bool target_is_all = false;
+      bool target_is_self = false;
+      url::Origin self;
 
       // 'self' origin is used if the origin is exactly 'self'.
       if (EqualIgnoringASCIICase(origin_string, "'self'")) {
-        allowlist_includes_self_ = true;
-        target_origin = self_origin_->ToUrlOrigin();
+        target_is_self = true;
+        self = self_origin_->ToUrlOrigin();
       }
       // 'src' origin is used if |src_origin| is available and the
       // origin is a match for 'src'. |src_origin| is only set
       // when parsing an iframe allow attribute.
       else if (src_origin_ && EqualIgnoringASCIICase(origin_string, "'src'")) {
-        allowlist_includes_src_ = true;
         if (!src_origin_->IsOpaque()) {
-          target_origin = src_origin_->ToUrlOrigin();
+          origin_with_possible_wildcards =
+              OriginWithPossibleWildcards(src_origin_->ToUrlOrigin(),
+                                          /*has_subdomain_wildcard=*/false);
         } else {
           target_is_opaque = true;
         }
       } else if (EqualIgnoringASCIICase(origin_string, "'none'")) {
-        allowlist_includes_none_ = true;
         continue;
       } else if (origin_string == "*") {
-        allowlist_includes_star_ = true;
         target_is_all = true;
       }
       // Otherwise, parse the origin string and verify that the result is
       // valid. Invalid strings will produce an opaque origin, which will
       // result in an error message.
       else {
-        scoped_refptr<SecurityOrigin> parsed_origin =
-            SecurityOrigin::CreateFromString(origin_string);
-        if (!parsed_origin->IsOpaque()) {
-          target_origin = parsed_origin->ToUrlOrigin();
-          allowlist_includes_origin_ = true;
+        absl::optional<OriginWithPossibleWildcards>
+            maybe_origin_with_possible_wildcards =
+                OriginWithPossibleWildcards::Parse(origin_string.Utf8(), type);
+        if (maybe_origin_with_possible_wildcards) {
+          origin_with_possible_wildcards =
+              *maybe_origin_with_possible_wildcards;
         } else {
           logger_.Warn("Unrecognized origin: '" + origin_string + "'.");
           continue;
@@ -354,75 +318,88 @@ ParsingContext::ParsedAllowlist ParsingContext::ParseAllowlist(
         allowlist.matches_opaque_src = true;
       } else if (target_is_opaque) {
         allowlist.matches_opaque_src = true;
+      } else if (target_is_self) {
+        allowlist.self_if_matches = self;
       } else {
-        allowlist.allowed_origins.push_back(target_origin);
+        allowlist.allowed_origins.emplace_back(origin_with_possible_wildcards);
       }
     }
   }
 
   // Size reduction: remove all items in the allowlist if target is all.
-  if (allowlist.matches_all_origins)
+  if (allowlist.matches_all_origins) {
     allowlist.allowed_origins.clear();
+  }
 
   // Sort |allowed_origins| in alphabetical order.
   std::sort(allowlist.allowed_origins.begin(), allowlist.allowed_origins.end());
-
-  RecordAllowlistTypeUsage(origin_strings.size());
 
   return allowlist;
 }
 
 absl::optional<ParsedPermissionsPolicyDeclaration> ParsingContext::ParseFeature(
-    const FeaturePolicyDeclarationNode& declaration_node) {
+    const PermissionsPolicyParser::Declaration& declaration_node,
+    const OriginWithPossibleWildcards::NodeType type) {
   absl::optional<mojom::blink::PermissionsPolicyFeature> feature =
       ParseFeatureName(declaration_node.feature_name);
-  if (!feature)
+  if (!feature) {
     return absl::nullopt;
+  }
 
-  ParsedAllowlist parsed_allowlist = ParseAllowlist(declaration_node.allowlist);
+  ParsedAllowlist parsed_allowlist =
+      ParseAllowlist(declaration_node.allowlist, type);
 
   // If same feature appeared more than once, only the first one counts.
-  if (feature_observer_.FeatureObserved(*feature))
+  if (feature_observer_.FeatureObserved(*feature)) {
     return absl::nullopt;
+  }
 
   ParsedPermissionsPolicyDeclaration parsed_feature(*feature);
   parsed_feature.allowed_origins = std::move(parsed_allowlist.allowed_origins);
+  parsed_feature.self_if_matches = parsed_allowlist.self_if_matches;
   parsed_feature.matches_all_origins = parsed_allowlist.matches_all_origins;
   parsed_feature.matches_opaque_src = parsed_allowlist.matches_opaque_src;
+
+  // "window-placement" permission policy is deprecated, so add the deprecation
+  // feature to the policy declaration.
+  if (declaration_node.feature_name == "window-placement") {
+    parsed_feature.deprecated_feature =
+        WebFeature::kWindowPlacementPermissionPolicyParsed;
+  }
 
   return parsed_feature;
 }
 
 ParsedPermissionsPolicy ParsingContext::ParseFeaturePolicy(
     const String& policy) {
-  return ParseIR(ParseFeaturePolicyToIR(policy));
+  return ParsePolicyFromNode(ParseFeaturePolicyToIR(policy));
 }
 
 ParsedPermissionsPolicy ParsingContext::ParsePermissionsPolicy(
     const String& policy) {
-  return ParseIR(ParsePermissionsPolicyToIR(policy));
+  return ParsePolicyFromNode(ParsePermissionsPolicyToIR(policy));
 }
 
-ParsedPermissionsPolicy ParsingContext::ParseIR(
-    const ParsingContext::FeaturePolicyNode& root) {
+ParsedPermissionsPolicy ParsingContext::ParsePolicyFromNode(
+    const PermissionsPolicyParser::Node& root) {
   ParsedPermissionsPolicy parsed_policy;
-  for (const ParsingContext::FeaturePolicyDeclarationNode& declaration_node :
-       root) {
+  for (const PermissionsPolicyParser::Declaration& declaration_node :
+       root.declarations) {
     absl::optional<ParsedPermissionsPolicyDeclaration> parsed_feature =
-        ParseFeature(declaration_node);
+        ParseFeature(declaration_node, root.type);
     if (parsed_feature) {
       ReportFeatureUsage(parsed_feature->feature);
       ReportFeatureUsageLegacy(parsed_feature->feature);
       parsed_policy.push_back(*parsed_feature);
     }
   }
-  ReportAllowlistTypeUsage();
   return parsed_policy;
 }
 
-ParsingContext::FeaturePolicyNode ParsingContext::ParseFeaturePolicyToIR(
+PermissionsPolicyParser::Node ParsingContext::ParseFeaturePolicyToIR(
     const String& policy) {
-  ParsingContext::FeaturePolicyNode root;
+  PermissionsPolicyParser::Node root{
+      OriginWithPossibleWildcards::NodeType::kAttribute};
 
   if (policy.length() > MAX_LENGTH_PARSE) {
     logger_.Error("Feature policy declaration exceeds size limit(" +
@@ -466,10 +443,11 @@ ParsingContext::FeaturePolicyNode ParsingContext::ParseFeaturePolicyToIR(
       Vector<String> tokens;
       feature_entry.Split(' ', tokens);
 
-      if (tokens.IsEmpty())
+      if (tokens.empty()) {
         continue;
+      }
 
-      ParsingContext::FeaturePolicyDeclarationNode declaration_node;
+      PermissionsPolicyParser::Declaration declaration_node;
       // Break tokens into head & tail, where
       // head = feature_name
       // tail = allowlist
@@ -478,14 +456,14 @@ ParsingContext::FeaturePolicyNode ParsingContext::ParseFeaturePolicyToIR(
       declaration_node.feature_name = std::move(tokens.front());
       tokens.erase(tokens.begin());
       declaration_node.allowlist = std::move(tokens);
-      root.push_back(declaration_node);
+      root.declarations.push_back(declaration_node);
     }
   }
 
   return root;
 }
 
-ParsingContext::FeaturePolicyNode ParsingContext::ParsePermissionsPolicyToIR(
+PermissionsPolicyParser::Node ParsingContext::ParsePermissionsPolicyToIR(
     const String& policy) {
   if (policy.length() > MAX_LENGTH_PARSE) {
     logger_.Error("Permissions policy declaration exceeds size limit(" +
@@ -502,7 +480,8 @@ ParsingContext::FeaturePolicyNode ParsingContext::ParsePermissionsPolicyToIR(
     return {};
   }
 
-  ParsingContext::FeaturePolicyNode ir_root;
+  PermissionsPolicyParser::Node ir_root{
+      OriginWithPossibleWildcards::NodeType::kHeader};
   for (const auto& feature_entry : root.value()) {
     const auto& key = feature_entry.first;
     const char* feature_name = key.c_str();
@@ -546,15 +525,17 @@ ParsingContext::FeaturePolicyNode ParsingContext::ParsePermissionsPolicyToIR(
                            feature_name));
         continue;
       }
-      if (!allowlist_item.IsEmpty())
+      if (!allowlist_item.empty()) {
         allowlist.push_back(allowlist_item);
+      }
     }
 
-    if (allowlist.IsEmpty())
+    if (allowlist.empty()) {
       allowlist.push_back("'none'");
+    }
 
-    ir_root.push_back(
-        ParsingContext::FeaturePolicyDeclarationNode{feature_name, allowlist});
+    ir_root.declarations.push_back(
+        PermissionsPolicyParser::Declaration{feature_name, allowlist});
   }
 
   return ir_root;
@@ -622,6 +603,16 @@ ParsedPermissionsPolicy PermissionsPolicyParser::ParseAttribute(
       .ParseFeaturePolicy(policy);
 }
 
+ParsedPermissionsPolicy PermissionsPolicyParser::ParsePolicyFromNode(
+    PermissionsPolicyParser::Node& policy,
+    scoped_refptr<const SecurityOrigin> origin,
+    PolicyParserMessageBuffer& logger,
+    ExecutionContext* execution_context) {
+  return ParsingContext(logger, origin, /*src_origin=*/nullptr,
+                        GetDefaultFeatureNameMap(), execution_context)
+      .ParsePolicyFromNode(policy);
+}
+
 ParsedPermissionsPolicy PermissionsPolicyParser::ParseFeaturePolicyForTest(
     const String& policy,
     scoped_refptr<const SecurityOrigin> self_origin,
@@ -648,10 +639,8 @@ ParsedPermissionsPolicy PermissionsPolicyParser::ParsePermissionsPolicyForTest(
 
 bool IsFeatureDeclared(mojom::blink::PermissionsPolicyFeature feature,
                        const ParsedPermissionsPolicy& policy) {
-  return std::any_of(policy.begin(), policy.end(),
-                     [feature](const auto& declaration) {
-                       return declaration.feature == feature;
-                     });
+  return base::Contains(policy, feature,
+                        &ParsedPermissionsPolicyDeclaration::feature);
 }
 
 bool RemoveFeatureIfPresent(mojom::blink::PermissionsPolicyFeature feature,
@@ -660,16 +649,18 @@ bool RemoveFeatureIfPresent(mojom::blink::PermissionsPolicyFeature feature,
                                 [feature](const auto& declaration) {
                                   return declaration.feature == feature;
                                 });
-  if (new_end == policy.end())
+  if (new_end == policy.end()) {
     return false;
+  }
   policy.erase(new_end, policy.end());
   return true;
 }
 
 bool DisallowFeatureIfNotPresent(mojom::blink::PermissionsPolicyFeature feature,
                                  ParsedPermissionsPolicy& policy) {
-  if (IsFeatureDeclared(feature, policy))
+  if (IsFeatureDeclared(feature, policy)) {
     return false;
+  }
   ParsedPermissionsPolicyDeclaration allowlist(feature);
   policy.push_back(allowlist);
   return true;
@@ -678,8 +669,9 @@ bool DisallowFeatureIfNotPresent(mojom::blink::PermissionsPolicyFeature feature,
 bool AllowFeatureEverywhereIfNotPresent(
     mojom::blink::PermissionsPolicyFeature feature,
     ParsedPermissionsPolicy& policy) {
-  if (IsFeatureDeclared(feature, policy))
+  if (IsFeatureDeclared(feature, policy)) {
     return false;
+  }
   ParsedPermissionsPolicyDeclaration allowlist(feature);
   allowlist.matches_all_origins = true;
   allowlist.matches_opaque_src = true;
@@ -718,8 +710,9 @@ const Vector<String> GetAvailableFeatures(ExecutionContext* execution_context) {
 const String& GetNameForFeature(
     mojom::blink::PermissionsPolicyFeature feature) {
   for (const auto& entry : GetDefaultFeatureNameMap()) {
-    if (entry.value == feature)
+    if (entry.value == feature) {
       return entry.key;
+    }
   }
   return g_empty_string;
 }

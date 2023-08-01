@@ -1,13 +1,12 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <stddef.h>
 
-#include "base/bind.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file_util.h"
 #include "base/format_macros.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
@@ -15,8 +14,9 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_restrictions.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/sharing_hub/sharing_hub_features.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_navigator.h"
@@ -36,8 +36,8 @@
 #include "chrome/test/base/interactive_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/omnibox/browser/autocomplete_match_type.h"
-#include "components/omnibox/browser/omnibox_edit_controller.h"
 #include "components/omnibox/browser/omnibox_edit_model.h"
+#include "components/omnibox/browser/omnibox_edit_model_delegate.h"
 #include "components/omnibox/browser/omnibox_view.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_types.h"
@@ -53,6 +53,10 @@
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "third_party/blink/public/common/switches.h"
 #include "ui/base/test/ui_controls.h"
+
+#if BUILDFLAG(IS_MAC)
+#include "base/mac/mac_util.h"
+#endif
 
 namespace {
 
@@ -89,8 +93,7 @@ class BrowserFocusTest : public InProcessBrowserTest {
   void ClickOnView(ViewID vid) { ui_test_utils::ClickOnView(browser(), vid); }
 
   void TestFocusTraversal(WebContents* tab, bool reverse) {
-    const char kGetFocusedElementJS[] =
-        "window.domAutomationController.send(getFocusedElement());";
+    const char kGetFocusedElementJS[] = "getFocusedElement();";
     const char* kExpectedIDs[] = {"textEdit",   "searchButton", "luckyButton",
                                   "googleLink", "gmailLink",    "gmapLink"};
     SCOPED_TRACE(base::StringPrintf("TestFocusTraversal: reverse=%d", reverse));
@@ -134,9 +137,9 @@ class BrowserFocusTest : public InProcessBrowserTest {
                                                     false, false));
       }
 
-      for (size_t j = 0; j < base::size(kExpectedIDs); ++j) {
+      for (size_t j = 0; j < std::size(kExpectedIDs); ++j) {
         SCOPED_TRACE(base::StringPrintf("focus inner loop %" PRIuS, j));
-        const size_t index = reverse ? base::size(kExpectedIDs) - 1 - j : j;
+        const size_t index = reverse ? std::size(kExpectedIDs) - 1 - j : j;
         // The details are the node's editable state, i.e. true for "textEdit".
         bool is_editable_node = index == 0;
 
@@ -147,10 +150,8 @@ class BrowserFocusTest : public InProcessBrowserTest {
         auto observed_details = observer.Wait();
         EXPECT_EQ(is_editable_node, observed_details.is_editable_node);
 
-        std::string focused_id;
-        EXPECT_TRUE(content::ExecuteScriptAndExtractString(
-            tab, kGetFocusedElementJS, &focused_id));
-        EXPECT_STREQ(kExpectedIDs[index], focused_id.c_str());
+        EXPECT_EQ(kExpectedIDs[index],
+                  content::EvalJs(tab, kGetFocusedElementJS));
       }
 
       // On the last Tab key press, focus returns to the browser.
@@ -204,7 +205,7 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, MAYBE_ClickingMovesFocus) {
 #if BUILDFLAG(IS_POSIX)
   // It seems we have to wait a little bit for the widgets to spin up before
   // we can start clicking on them.
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE, base::RunLoop::QuitCurrentWhenIdleClosureDeprecated(),
       base::Milliseconds(kActionDelayMs));
   content::RunMessageLoop();
@@ -261,7 +262,8 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, TabsRememberFocus) {
     for (int j = 0; j < 5; j++) {
       // Activate the tab.
       browser()->tab_strip_model()->ActivateTabAt(
-          j, {TabStripModel::GestureType::kOther});
+          j, TabStripUserGestureDetails(
+                 TabStripUserGestureDetails::GestureType::kOther));
 
       // Activate the location bar or the page.
       if (kFocusPage[i][j]) {
@@ -275,14 +277,16 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, TabsRememberFocus) {
     for (int j = 0; j < 5; j++) {
       // Activate the tab.
       browser()->tab_strip_model()->ActivateTabAt(
-          j, {TabStripModel::GestureType::kOther});
+          j, TabStripUserGestureDetails(
+                 TabStripUserGestureDetails::GestureType::kOther));
 
       ViewID vid = kFocusPage[i][j] ? VIEW_ID_TAB_CONTAINER : VIEW_ID_OMNIBOX;
       ASSERT_TRUE(IsViewFocused(vid));
     }
 
     browser()->tab_strip_model()->ActivateTabAt(
-        0, {TabStripModel::GestureType::kOther});
+        0, TabStripUserGestureDetails(
+               TabStripUserGestureDetails::GestureType::kOther));
     // Try the above, but with ctrl+tab. Since tab normally changes focus,
     // this has regressed in the past. Loop through several times to be sure.
     for (int j = 0; j < 15; j++) {
@@ -296,7 +300,8 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, TabsRememberFocus) {
 
     // As above, but with ctrl+shift+tab.
     browser()->tab_strip_model()->ActivateTabAt(
-        4, {TabStripModel::GestureType::kOther});
+        4, TabStripUserGestureDetails(
+               TabStripUserGestureDetails::GestureType::kOther));
     for (int j = 14; j >= 0; --j) {
       ViewID vid =
           kFocusPage[i][j % 5] ? VIEW_ID_TAB_CONTAINER : VIEW_ID_OMNIBOX;
@@ -310,6 +315,13 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, TabsRememberFocus) {
 
 // Tabs remember focus with find-in-page box.
 IN_PROC_BROWSER_TEST_F(BrowserFocusTest, TabsRememberFocusFindInPage) {
+  // TODO(https://crbug.com/1446127): Re-enable when child widget focus manager
+  // relationship is fixed.
+#if BUILDFLAG(IS_MAC)
+  if (base::mac::IsAtLeastOS13()) {
+    GTEST_SKIP() << "Broken on macOS 13: https://crbug.com/1446127";
+  }
+#endif
   ASSERT_TRUE(ui_test_utils::BringBrowserWindowToFront(browser()));
   const GURL url = embedded_test_server()->GetURL(kSimplePage);
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
@@ -317,7 +329,7 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, TabsRememberFocusFindInPage) {
   chrome::Find(browser());
   ui_test_utils::FindInPage(
       browser()->tab_strip_model()->GetActiveWebContents(), u"a", true, false,
-      NULL, NULL);
+      nullptr, nullptr);
   ASSERT_TRUE(IsViewFocused(VIEW_ID_FIND_IN_PAGE_TEXT_FIELD));
 
   // Focus the location bar.
@@ -332,7 +344,8 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, TabsRememberFocusFindInPage) {
   // Select 1st tab, focus should still be on the location-bar.
   // (bug http://crbug.com/23296)
   browser()->tab_strip_model()->ActivateTabAt(
-      0, {TabStripModel::GestureType::kOther});
+      0, TabStripUserGestureDetails(
+             TabStripUserGestureDetails::GestureType::kOther));
   ASSERT_TRUE(IsViewFocused(VIEW_ID_OMNIBOX));
 
   // Now open the find box again, switch to another tab and come back, the focus
@@ -340,10 +353,12 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, TabsRememberFocusFindInPage) {
   chrome::Find(browser());
   ASSERT_TRUE(IsViewFocused(VIEW_ID_FIND_IN_PAGE_TEXT_FIELD));
   browser()->tab_strip_model()->ActivateTabAt(
-      1, {TabStripModel::GestureType::kOther});
+      1, TabStripUserGestureDetails(
+             TabStripUserGestureDetails::GestureType::kOther));
   ASSERT_TRUE(IsViewFocused(VIEW_ID_TAB_CONTAINER));
   browser()->tab_strip_model()->ActivateTabAt(
-      0, {TabStripModel::GestureType::kOther});
+      0, TabStripUserGestureDetails(
+             TabStripUserGestureDetails::GestureType::kOther));
   ASSERT_TRUE(IsViewFocused(VIEW_ID_FIND_IN_PAGE_TEXT_FIELD));
 }
 
@@ -373,7 +388,7 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, BackgroundBrowserDontStealFocus) {
   browser()->window()->Activate();
   ASSERT_TRUE(ui_test_utils::BringBrowserWindowToFront(browser()));
   EXPECT_TRUE(browser()->window()->IsActive());
-  ASSERT_TRUE(content::ExecuteScript(
+  ASSERT_TRUE(content::ExecJs(
       background_browser->tab_strip_model()->GetActiveWebContents(),
       "stealFocus();"));
 
@@ -398,7 +413,7 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, LocationBarLockFocus) {
 
   chrome::FocusLocationBar(browser());
 
-  ASSERT_TRUE(content::ExecuteScript(
+  ASSERT_TRUE(content::ExecJs(
       browser()->tab_strip_model()->GetActiveWebContents(), "stealFocus();"));
 
   // Make sure the location bar is still focused.
@@ -493,13 +508,8 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, FocusOnReload) {
   content::RunAllPendingInMessageLoop();
 
   {
-    content::WindowedNotificationObserver observer(
-        content::NOTIFICATION_LOAD_STOP,
-        content::Source<content::NavigationController>(
-            &browser()
-                 ->tab_strip_model()
-                 ->GetActiveWebContents()
-                 ->GetController()));
+    content::LoadStopObserver observer(
+        browser()->tab_strip_model()->GetActiveWebContents());
     chrome::Reload(browser(), WindowOpenDisposition::CURRENT_TAB);
     observer.Wait();
   }
@@ -512,13 +522,8 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, FocusOnReload) {
   chrome::FocusLocationBar(browser());
   ASSERT_TRUE(IsViewFocused(VIEW_ID_OMNIBOX));
   {
-    content::WindowedNotificationObserver observer(
-        content::NOTIFICATION_LOAD_STOP,
-        content::Source<content::NavigationController>(
-            &browser()
-                 ->tab_strip_model()
-                 ->GetActiveWebContents()
-                 ->GetController()));
+    content::LoadStopObserver observer(
+        browser()->tab_strip_model()->GetActiveWebContents());
     chrome::Reload(browser(), WindowOpenDisposition::CURRENT_TAB);
     observer.Wait();
   }
@@ -543,13 +548,8 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, MAYBE_FocusOnReloadCrashedTab) {
       browser(), embedded_test_server()->GetURL(kSimplePage)));
   content::CrashTab(browser()->tab_strip_model()->GetActiveWebContents());
   {
-    content::WindowedNotificationObserver observer(
-        content::NOTIFICATION_LOAD_STOP,
-        content::Source<content::NavigationController>(
-            &browser()
-                 ->tab_strip_model()
-                 ->GetActiveWebContents()
-                 ->GetController()));
+    content::LoadStopObserver observer(
+        browser()->tab_strip_model()->GetActiveWebContents());
     chrome::Reload(browser(), WindowOpenDisposition::CURRENT_TAB);
     observer.Wait();
   }
@@ -604,7 +604,7 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, NavigateFromOmnibox) {
   // _intermediate_ state.
 
   // Wait for the navigation to finish and verify final, steady state.
-  nav_manager.WaitForNavigationFinished();
+  ASSERT_TRUE(nav_manager.WaitForNavigationFinished());
   EXPECT_TRUE(nav_manager.was_successful());
   EXPECT_EQ(url, web_contents->GetLastCommittedURL());
   EXPECT_TRUE(IsViewFocused(VIEW_ID_TAB_CONTAINER));
@@ -626,19 +626,19 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, NavigateFromOmniboxIntoNewTab) {
   // Focus the omnibox.
   chrome::FocusLocationBar(browser());
 
-  OmniboxEditController* controller = browser()
-                                          ->window()
-                                          ->GetLocationBar()
-                                          ->GetOmniboxView()
-                                          ->model()
-                                          ->controller();
+  OmniboxEditModelDelegate* edit_model_delegate = browser()
+                                                      ->window()
+                                                      ->GetLocationBar()
+                                                      ->GetOmniboxView()
+                                                      ->model()
+                                                      ->delegate();
 
   // Simulate an alt-enter.
-  controller->OnAutocompleteAccept(
+  edit_model_delegate->OnAutocompleteAccept(
       url2, nullptr, WindowOpenDisposition::NEW_FOREGROUND_TAB,
       ui::PAGE_TRANSITION_TYPED, AutocompleteMatchType::URL_WHAT_YOU_TYPED,
-      base::TimeTicks(), false, std::u16string(), AutocompleteMatch(),
-      AutocompleteMatch());
+      base::TimeTicks(), false, false, std::u16string(), AutocompleteMatch(),
+      AutocompleteMatch(), IDNA2008DeviationCharacter::kNone);
 
   // Make sure the second tab is selected.
   EXPECT_EQ(1, browser()->tab_strip_model()->active_index());
@@ -709,7 +709,7 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, AboutBlankNavigationLocationTest) {
       "w.document.location = '" +
       url2.spec() + "';";
 
-  ASSERT_TRUE(content::ExecuteScript(web_contents, spoof));
+  ASSERT_TRUE(content::ExecJs(web_contents, spoof));
   EXPECT_EQ(url1, web_contents->GetVisibleURL());
   // After running the spoof code, |GetActiveWebContents| returns the new tab,
   // not the same as |web_contents|.
@@ -735,7 +735,7 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, NoFocusForBackgroundNTP) {
   const GURL new_url = embedded_test_server()->GetURL("/title2.html");
   const std::string open_script = "window.open('" + new_url.spec() + "');";
   content::WebContentsAddedObserver open_observer;
-  ASSERT_TRUE(content::ExecuteScript(opener_web_contents, open_script));
+  ASSERT_TRUE(content::ExecJs(opener_web_contents, open_script));
   WebContents* new_web_contents = open_observer.GetWebContents();
 
   // Tell the first (non-selected) tab to go back.  This should not give the
@@ -743,7 +743,7 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, NoFocusForBackgroundNTP) {
   // the focus may scroll the origin out of view, making a spoof possible.
   const std::string go_back_script = "window.opener.history.back();";
   content::TestNavigationObserver back_observer(opener_web_contents);
-  ASSERT_TRUE(content::ExecuteScript(new_web_contents, go_back_script));
+  ASSERT_TRUE(content::ExecJs(new_web_contents, go_back_script));
   back_observer.Wait();
   EXPECT_FALSE(IsViewFocused(VIEW_ID_OMNIBOX));
 }
@@ -776,6 +776,13 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, MAYBE_PopupLocationBar) {
 
   ASSERT_TRUE(ui_test_utils::SendKeyPressSync(popup_browser, ui::VKEY_TAB,
                                               false, false, false, false));
+  if (sharing_hub::HasPageAction(browser()->profile(), true)) {
+    ui_test_utils::WaitForViewFocus(popup_browser, VIEW_ID_SHARING_HUB_BUTTON,
+                                    true);
+    ASSERT_TRUE(ui_test_utils::SendKeyPressSync(popup_browser, ui::VKEY_TAB,
+                                                false, false, false, false));
+  }
+
   ui_test_utils::WaitForViewFocus(popup_browser, VIEW_ID_TAB_CONTAINER, true);
 }
 

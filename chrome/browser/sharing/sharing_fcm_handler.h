@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -102,10 +102,10 @@ class SharingFCMHandler : public gcm::GCMAppHandler {
       absl::optional<std::string> message_id,
       SharingChannelType channel_type);
 
-  const raw_ptr<gcm::GCMDriver> gcm_driver_;
-  raw_ptr<syncer::DeviceInfoTracker> device_info_tracker_;
-  raw_ptr<SharingFCMSender> sharing_fcm_sender_;
-  raw_ptr<SharingHandlerRegistry> handler_registry_;
+  const raw_ptr<gcm::GCMDriver, DanglingUntriaged> gcm_driver_;
+  raw_ptr<syncer::DeviceInfoTracker, DanglingUntriaged> device_info_tracker_;
+  raw_ptr<SharingFCMSender, DanglingUntriaged> sharing_fcm_sender_;
+  raw_ptr<SharingHandlerRegistry, DanglingUntriaged> handler_registry_;
 
   bool is_listening_ = false;
 

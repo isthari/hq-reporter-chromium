@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,7 +23,6 @@ class Combobox;
 class ImageButton;
 class RadioButton;
 class LabelButton;
-class Widget;
 }  // namespace views
 
 // ContentSettingBubbleContents is used when the user turns on different kinds
@@ -39,6 +38,7 @@ class ContentSettingBubbleContents : public content::WebContentsObserver,
                                      public views::BubbleDialogDelegateView,
                                      public ContentSettingBubbleModel::Owner {
  public:
+  DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kMainElementId);
   METADATA_HEADER(ContentSettingBubbleContents);
   ContentSettingBubbleContents(
       std::unique_ptr<ContentSettingBubbleModel> content_setting_bubble_model,
@@ -73,7 +73,6 @@ class ContentSettingBubbleContents : public content::WebContentsObserver,
   // views::WidgetDelegate:
   std::u16string GetWindowTitle() const override;
   bool ShouldShowCloseButton() const override;
-  void OnWidgetDestroying(views::Widget* widget) override;
 
   // views::BubbleDialogDelegateView:
   void Init() override;
@@ -102,13 +101,13 @@ class ContentSettingBubbleContents : public content::WebContentsObserver,
   // Provides data for this bubble.
   std::unique_ptr<ContentSettingBubbleModel> content_setting_bubble_model_;
 
-  raw_ptr<ListItemContainer> list_item_container_ = nullptr;
+  raw_ptr<ListItemContainer, DanglingUntriaged> list_item_container_ = nullptr;
 
   typedef std::vector<views::RadioButton*> RadioGroup;
   RadioGroup radio_group_;
-  raw_ptr<views::LabelButton> manage_button_ = nullptr;
-  raw_ptr<views::Checkbox> manage_checkbox_ = nullptr;
-  raw_ptr<views::ImageButton> learn_more_button_ = nullptr;
+  raw_ptr<views::LabelButton, DanglingUntriaged> manage_button_ = nullptr;
+  raw_ptr<views::Checkbox, DanglingUntriaged> manage_checkbox_ = nullptr;
+  raw_ptr<views::ImageButton, DanglingUntriaged> learn_more_button_ = nullptr;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_CONTENT_SETTING_BUBBLE_CONTENTS_H_

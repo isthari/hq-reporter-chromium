@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,8 @@
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/testing_pref_service.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "net/url_request/url_request_context.h"
+#include "net/url_request/url_request_context_builder.h"
 #include "net/url_request/url_request_test_util.h"
 #include "services/network/network_context.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -142,8 +144,7 @@ TEST_P(HttpCredentialCleanerTest, ReportHttpMigrationMetrics) {
   static const std::u16string password[2] = {u"pass0", u"pass1"};
 
   base::test::TaskEnvironment task_environment;
-  ASSERT_TRUE(
-      store_->Init(/*prefs=*/nullptr, /*affiliated_match_helper=*/nullptr));
+  store_->Init(/*prefs=*/nullptr, /*affiliated_match_helper=*/nullptr);
   TestCase test = GetParam();
   SCOPED_TRACE(testing::Message()
                << "is_hsts_enabled=" << test.is_hsts_enabled
@@ -175,12 +176,11 @@ TEST_P(HttpCredentialCleanerTest, ReportHttpMigrationMetrics) {
   }
   store_->AddLogin(https_form);
 
-  auto request_context = base::MakeRefCounted<net::TestURLRequestContextGetter>(
-      base::ThreadTaskRunnerHandle::Get());
+  auto request_context = net::CreateTestURLRequestContextBuilder()->Build();
   mojo::Remote<network::mojom::NetworkContext> network_context_remote;
   auto network_context = std::make_unique<network::NetworkContext>(
       nullptr, network_context_remote.BindNewPipeAndPassReceiver(),
-      request_context->GetURLRequestContext(),
+      request_context.get(),
       /*cors_exempt_header_list=*/std::vector<std::string>());
 
   if (test.is_hsts_enabled) {
@@ -218,7 +218,7 @@ TEST_P(HttpCredentialCleanerTest, ReportHttpMigrationMetrics) {
   task_environment.RunUntilIdle();
 
   histogram_tester.ExpectUniqueSample(
-      "PasswordManager.HttpCredentials",
+      "PasswordManager.HttpCredentials2",
       static_cast<HttpCredentialCleaner::HttpCredentialType>(
           static_cast<int>(test.expected) * 2 + test.is_hsts_enabled),
       1);
@@ -254,8 +254,8 @@ TEST(HttpCredentialCleaner, StartCleanUpTest) {
 
     base::test::TaskEnvironment task_environment;
     auto password_store = base::MakeRefCounted<TestPasswordStore>();
-    ASSERT_TRUE(password_store->Init(/*prefs=*/nullptr,
-                                     /*affiliated_match_helper=*/nullptr));
+    password_store->Init(/*prefs=*/nullptr,
+                         /*affiliated_match_helper=*/nullptr);
 
     double last_time = (base::Time::Now() - base::Minutes(10)).ToDoubleT();
     if (should_start_clean_up) {
@@ -280,13 +280,11 @@ TEST(HttpCredentialCleaner, StartCleanUpTest) {
       continue;
     }
 
-    auto request_context =
-        base::MakeRefCounted<net::TestURLRequestContextGetter>(
-            base::ThreadTaskRunnerHandle::Get());
+    auto request_context = net::CreateTestURLRequestContextBuilder()->Build();
     mojo::Remote<network::mojom::NetworkContext> network_context_remote;
     auto network_context = std::make_unique<network::NetworkContext>(
         nullptr, network_context_remote.BindNewPipeAndPassReceiver(),
-        request_context->GetURLRequestContext(),
+        request_context.get(),
         /*cors_exempt_header_list=*/std::vector<std::string>());
 
     MockCredentialsCleanerObserver observer;

@@ -1,4 +1,4 @@
-// Copyright (c) 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,8 @@
 #include "ash/app_list/model/app_list_folder_item.h"
 #include "ash/app_list/model/app_list_item.h"
 #include "ash/constants/ash_constants.h"
-#include "ash/public/cpp/app_list/app_list_color_provider.h"
+#include "ash/constants/ash_features.h"
+#include "ash/style/ash_color_provider.h"
 #include "ui/events/event.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/geometry/rect.h"
@@ -21,6 +22,13 @@
 #include "ui/views/view.h"
 
 namespace ash {
+
+namespace {
+
+// The cardified apps grid and app icons should scale down by this factor.
+constexpr float kAppsGridCardifiedScale = 0.9f;
+
+}  // namespace
 
 bool IsUnhandledUnmodifiedEvent(const ui::KeyEvent& event) {
   if (event.handled() || event.type() != ui::ET_KEY_PRESSED)
@@ -64,7 +72,7 @@ bool IsArrowKey(const ui::KeyboardCode& key_code) {
 }
 
 bool IsFolderItem(AppListItem* item) {
-  return item->GetItemType() == AppListFolderItem::kItemType;
+  return item && item->GetItemType() == AppListFolderItem::kItemType;
 }
 
 bool LeftRightKeyEventShouldExitText(views::Textfield* textfield,
@@ -117,19 +125,19 @@ bool ProcessLeftRightKeyTraversalForTextfield(views::Textfield* textfield,
   return true;
 }
 
-gfx::ImageSkia CreateIconWithCircleBackground(const gfx::ImageSkia& icon,
-                                              SkColor background_color) {
+gfx::ImageSkia CreateIconWithCircleBackground(const gfx::ImageSkia& icon) {
   DCHECK_EQ(icon.width(), icon.height());
-  // TODO(crbug.com/1185943): We should not be passing in hardcoded
-  // `background_color`s here. Callers should be updated to use the appropriate
-  // color from the NativeTheme or AshColorProvider.
   return gfx::ImageSkiaOperations::CreateImageWithCircleBackground(
-      icon.width() / 2, background_color, icon);
+      icon.width() / 2,
+      AshColorProvider::Get()->GetBaseLayerColor(
+          AshColorProvider::BaseLayerType::kOpaque),
+      icon);
 }
 
 void PaintFocusBar(gfx::Canvas* canvas,
                    const gfx::Point& content_origin,
-                   int height) {
+                   int height,
+                   SkColor color) {
   SkPath path;
   gfx::Rect focus_bar_bounds(content_origin.x() - kFocusBarThickness,
                              content_origin.y(), kFocusBarThickness * 2,
@@ -140,24 +148,13 @@ void PaintFocusBar(gfx::Canvas* canvas,
 
   cc::PaintFlags flags;
   flags.setAntiAlias(true);
-  flags.setColor(AppListColorProvider::Get()->GetFocusRingColor());
+  flags.setColor(color);
   flags.setStyle(cc::PaintFlags::kStroke_Style);
   flags.setStrokeWidth(kFocusBarThickness);
-  gfx::Point top_point = content_origin;
-  gfx::Point bottom_point = content_origin + gfx::Vector2d(0, height);
+  gfx::Point top_point = content_origin + gfx::Vector2d(kFocusBarThickness, 0);
+  gfx::Point bottom_point =
+      content_origin + gfx::Vector2d(kFocusBarThickness, height);
   canvas->DrawLine(top_point, bottom_point, flags);
-}
-
-void PaintFocusRing(gfx::Canvas* canvas,
-                    const gfx::Point& content_origin,
-                    int outer_radius) {
-  cc::PaintFlags circle_flags;
-  circle_flags.setAntiAlias(true);
-  circle_flags.setColor(AppListColorProvider::Get()->GetFocusRingColor());
-  circle_flags.setStyle(cc::PaintFlags::kStroke_Style);
-  circle_flags.setStrokeWidth(kFocusBorderThickness);
-  canvas->DrawCircle(content_origin, outer_radius - kFocusBorderThickness,
-                     circle_flags);
 }
 
 void SetViewIgnoredForAccessibility(views::View* view, bool ignored) {
@@ -165,6 +162,10 @@ void SetViewIgnoredForAccessibility(views::View* view, bool ignored) {
   view_accessibility.OverrideIsLeaf(ignored);
   view_accessibility.OverrideIsIgnored(ignored);
   view->NotifyAccessibilityEvent(ax::mojom::Event::kTreeChanged, true);
+}
+
+float GetAppsGridCardifiedScale() {
+  return kAppsGridCardifiedScale;
 }
 
 }  // namespace ash

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,17 +7,18 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/check.h"
 #include "base/containers/flat_map.h"
+#include "base/feature_list.h"
+#include "base/functional/bind.h"
 #include "base/notreached.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/performance_manager/public/user_tuning/user_tuning_utils.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/resource_coordinator/lifecycle_unit.h"
 #include "chrome/browser/resource_coordinator/lifecycle_unit_state.mojom.h"
-#include "chrome/browser/resource_coordinator/tab_activity_watcher.h"
 #include "chrome/browser/resource_coordinator/tab_lifecycle_unit_external.h"
 #include "chrome/browser/resource_coordinator/tab_manager.h"
 #include "chrome/browser/resource_coordinator/time.h"
@@ -28,9 +29,13 @@
 #include "chrome/browser/ui/webui/favicon_source.h"
 #include "chrome/browser/ui/webui/webui_util.h"
 #include "chrome/common/webui_url_constants.h"
-#include "chrome/grit/browser_resources.h"
+#include "chrome/grit/discards_resources.h"
+#include "chrome/grit/discards_resources_map.h"
 #include "components/favicon_base/favicon_url_parser.h"
+#include "components/performance_manager/public/features.h"
 #include "components/performance_manager/public/performance_manager.h"
+#include "components/performance_manager/public/user_tuning/prefs.h"
+#include "components/prefs/pref_service.h"
 #include "components/site_engagement/content/site_engagement_service.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
@@ -149,12 +154,6 @@ class DiscardsDetailsProviderImpl : public discards::mojom::DetailsProvider {
       info->is_auto_discardable =
           tab_lifecycle_unit_external->IsAutoDiscardable();
       info->id = lifecycle_unit->GetID();
-      absl::optional<float> reactivation_score =
-          resource_coordinator::TabActivityWatcher::GetInstance()
-              ->CalculateReactivationScore(contents);
-      info->has_reactivation_score = reactivation_score.has_value();
-      if (info->has_reactivation_score)
-        info->reactivation_score = reactivation_score.value();
       info->site_engagement_score = GetSiteEngagementScore(contents);
       info->state_change_time =
           lifecycle_unit->GetStateChangeTime() - base::TimeTicks::UnixEpoch();
@@ -184,11 +183,30 @@ class DiscardsDetailsProviderImpl : public discards::mojom::DetailsProvider {
   }
 
   void DiscardById(int32_t id,
+                   mojom::LifecycleUnitDiscardReason reason,
                    DiscardByIdCallback callback) override {
     auto* lifecycle_unit = GetLifecycleUnitById(id);
-    if (lifecycle_unit)
-      lifecycle_unit->Discard(mojom::LifecycleUnitDiscardReason::URGENT);
-    std::move(callback).Run();
+    if (lifecycle_unit) {
+      // Callback to do the discard with the memory estimate.
+      auto discard_callback = base::BindOnce(
+          [](int32_t id, mojom::LifecycleUnitDiscardReason reason,
+             DiscardByIdCallback post_discard_callback,
+             uint64_t memory_estimate) {
+            // Look up lifecycle_unit by id again, in case it's deleted while
+            // waiting.
+            auto* lifecycle_unit = GetLifecycleUnitById(id);
+            if (lifecycle_unit) {
+              lifecycle_unit->Discard(reason, memory_estimate);
+            }
+            std::move(post_discard_callback).Run();
+          },
+          id, reason, std::move(callback));
+
+      performance_manager::user_tuning::
+          GetDiscardedMemoryEstimateForWebContents(
+              lifecycle_unit->AsTabLifecycleUnitExternal()->GetWebContents(),
+              std::move(discard_callback));
+    }
   }
 
   void LoadById(int32_t id) override {
@@ -204,6 +222,20 @@ class DiscardsDetailsProviderImpl : public discards::mojom::DetailsProvider {
     std::move(callback).Run();
   }
 
+  void ToggleBatterySaverMode() override {
+    performance_manager::user_tuning::prefs::BatterySaverModeState state =
+        performance_manager::user_tuning::prefs::
+            GetCurrentBatterySaverModeState(g_browser_process->local_state());
+    g_browser_process->local_state()->SetInteger(
+        performance_manager::user_tuning::prefs::kBatterySaverModeState,
+        static_cast<int>(state == performance_manager::user_tuning::prefs::
+                                      BatterySaverModeState::kDisabled
+                             ? performance_manager::user_tuning::prefs::
+                                   BatterySaverModeState::kEnabled
+                             : performance_manager::user_tuning::prefs::
+                                   BatterySaverModeState::kDisabled));
+  }
+
  private:
   mojo::Receiver<discards::mojom::DetailsProvider> receiver_;
 };
@@ -212,35 +244,13 @@ class DiscardsDetailsProviderImpl : public discards::mojom::DetailsProvider {
 
 DiscardsUI::DiscardsUI(content::WebUI* web_ui)
     : ui::MojoWebUIController(web_ui) {
-  std::unique_ptr<content::WebUIDataSource> source(
-      content::WebUIDataSource::Create(chrome::kChromeUIDiscardsHost));
-
-  source->OverrideContentSecurityPolicy(
-      network::mojom::CSPDirectiveName::ScriptSrc,
-      "script-src chrome://resources chrome://test 'self';");
-  source->DisableTrustedTypesCSP();
-
-  const webui::ResourcePath kResources[] = {
-      {"discards.js", IDR_DISCARDS_JS},
-      {"discards_main.js", IDR_DISCARDS_DISCARDS_MAIN_JS},
-      {"database_tab.js", IDR_DISCARDS_DATABASE_TAB_JS},
-      {"discards_tab.js", IDR_DISCARDS_DISCARDS_TAB_JS},
-      {"sorted_table_behavior.js", IDR_DISCARDS_SORTED_TABLE_BEHAVIOR_JS},
-      {"graph_tab.js", IDR_DISCARDS_GRAPH_TAB_JS},
-
-      // Full paths (relative to source) for mojom generated files.
-      {"chrome/browser/ui/webui/discards/discards.mojom-webui.js",
-       IDR_DISCARDS_MOJOM_WEBUI_JS},
-      {"chrome/browser/resource_coordinator/"
-       "lifecycle_unit_state.mojom-webui.js",
-       IDR_DISCARDS_LIFECYCLE_UNIT_STATE_MOJOM_WEBUI_JS},
-      {"chrome/browser/ui/webui/discards/site_data.mojom-webui.js",
-       IDR_DISCARDS_SITE_DATA_MOJOM_WEBUI_JS},
-  };
-  webui::SetupWebUIDataSource(source.get(), kResources, IDR_DISCARDS_HTML);
-
   Profile* profile = Profile::FromWebUI(web_ui);
-  content::WebUIDataSource::Add(profile, source.release());
+  content::WebUIDataSource* source = content::WebUIDataSource::CreateAndAdd(
+      profile, chrome::kChromeUIDiscardsHost);
+
+  webui::SetupWebUIDataSource(
+      source, base::make_span(kDiscardsResources, kDiscardsResourcesSize),
+      IDR_DISCARDS_DISCARDS_HTML);
 
   content::URLDataSource::Add(
       profile, std::make_unique<FaviconSource>(

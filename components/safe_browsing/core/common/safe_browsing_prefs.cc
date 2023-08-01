@@ -1,4 +1,4 @@
-// Copyright (c) 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/notreached.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/time/time.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
@@ -55,7 +56,7 @@ GURL GetSimplifiedURL(const GURL& url) {
   if (!url.is_valid() || !url.IsStandard())
     return GURL();
 
-  url::Replacements<char> replacements;
+  GURL::Replacements replacements;
   replacements.ClearUsername();
   replacements.ClearPassword();
   replacements.ClearQuery();
@@ -69,12 +70,18 @@ GURL GetSimplifiedURL(const GURL& url) {
 namespace prefs {
 const char kSafeBrowsingCsdPingTimestamps[] =
     "safebrowsing.csd_ping_timestamps";
+const char kSafeBrowsingCsdPhishingProtectionAllowedByPolicy[] =
+    "safebrowsing.csd_phishing_protection_allowed_by_policy";
 const char kSafeBrowsingEnabled[] = "safebrowsing.enabled";
 const char kSafeBrowsingEnhanced[] = "safebrowsing.enhanced";
 const char kSafeBrowsingEnterpriseRealTimeUrlCheckMode[] =
     "safebrowsing.enterprise_real_time_url_check_mode";
 const char kSafeBrowsingEnterpriseRealTimeUrlCheckScope[] =
     "safebrowsing.enterprise_real_time_url_check_scope";
+const char kSafeBrowsingEsbProtegoPingWithTokenLastLogTime[] =
+    "safebrowsing.esb_protego_ping_with_token_last_log_time";
+const char kSafeBrowsingEsbProtegoPingWithoutTokenLastLogTime[] =
+    "safebrowsing.esb_protego_ping_without_token_last_log_time";
 const char kSafeBrowsingExtendedReportingOptInAllowed[] =
     "safebrowsing.extended_reporting_opt_in_allowed";
 const char kSafeBrowsingIncidentsSent[] = "safebrowsing.incidents_sent";
@@ -105,13 +112,26 @@ const char kAdvancedProtectionAllowed[] =
 const char kSafeBrowsingMetricsLastLogTime[] =
     "safebrowsing.metrics_last_log_time";
 const char kSafeBrowsingEventTimestamps[] = "safebrowsing.event_timestamps";
+const char kSafeBrowsingHashRealTimeOhttpExpirationTime[] =
+    "safebrowsing.hash_real_time_ohttp_expiration_time";
+const char kSafeBrowsingHashRealTimeOhttpKey[] =
+    "safebrowsing.hash_real_time_ohttp_key";
 const char kAccountTailoredSecurityUpdateTimestamp[] =
     "safebrowsing.aesb_update_time_windows_epoch_micros";
 const char kAccountTailoredSecurityShownNotification[] =
     "safebrowsing.aesb_shown_notification";
 const char kEnhancedProtectionEnabledViaTailoredSecurity[] =
     "safebrowsing.esb_enabled_via_tailored_security";
-
+const char kExtensionTelemetryLastUploadTime[] =
+    "safebrowsing.extension_telemetry_last_upload_time";
+const char kExtensionTelemetryConfig[] =
+    "safebrowsing.extension_telemetry_configuration";
+const char kExtensionTelemetryFileData[] =
+    "safebrowsing.extension_telemetry_file_data";
+const char kRealTimeDownloadProtectionRequestAllowedByPolicy[] =
+    "safebrowsing.real_time_download_protection_request_allowed_by_policy";
+const char kSafeBrowsingExtensionProtectionAllowedByPolicy[] =
+    "safebrowsing.extension_protection_allowed_by_policy";
 }  // namespace prefs
 
 namespace safe_browsing {
@@ -181,6 +201,21 @@ bool IsSafeBrowsingPolicyManaged(const PrefService& prefs) {
          prefs.IsManagedPreference(prefs::kSafeBrowsingEnhanced);
 }
 
+bool IsRealTimeDownloadProtectionRequestAllowed(const PrefService& prefs) {
+  return prefs.GetBoolean(
+      prefs::kRealTimeDownloadProtectionRequestAllowedByPolicy);
+}
+
+bool IsCsdPhishingProtectionAllowed(const PrefService& prefs) {
+  return prefs.GetBoolean(
+      prefs::kSafeBrowsingCsdPhishingProtectionAllowedByPolicy);
+}
+
+bool IsSafeBrowsingExtensionProtectionAllowed(const PrefService& prefs) {
+  return prefs.GetBoolean(
+      prefs::kSafeBrowsingExtensionProtectionAllowedByPolicy);
+}
+
 void RecordExtendedReportingMetrics(const PrefService& prefs) {
   // This metric tracks the extended browsing opt-in based on whichever setting
   // the user is currently seeing. It tells us whether extended reporting is
@@ -191,12 +226,18 @@ void RecordExtendedReportingMetrics(const PrefService& prefs) {
 
 void RegisterProfilePrefs(PrefRegistrySimple* registry) {
   registry->RegisterListPref(prefs::kSafeBrowsingCsdPingTimestamps);
+  registry->RegisterBooleanPref(
+      prefs::kSafeBrowsingCsdPhishingProtectionAllowedByPolicy, true);
   registry->RegisterBooleanPref(prefs::kSafeBrowsingScoutReportingEnabled,
                                 false);
   registry->RegisterBooleanPref(
       prefs::kSafeBrowsingSawInterstitialScoutReporting, false);
   registry->RegisterBooleanPref(
       prefs::kSafeBrowsingExtendedReportingOptInAllowed, true);
+  registry->RegisterTimePref(
+      prefs::kSafeBrowsingEsbProtegoPingWithTokenLastLogTime, base::Time());
+  registry->RegisterTimePref(
+      prefs::kSafeBrowsingEsbProtegoPingWithoutTokenLastLogTime, base::Time());
   registry->RegisterBooleanPref(
       prefs::kSafeBrowsingEnabled, true,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
@@ -224,12 +265,46 @@ void RegisterProfilePrefs(PrefRegistrySimple* registry) {
   registry->RegisterInt64Pref(prefs::kSafeBrowsingMetricsLastLogTime, 0);
   registry->RegisterDictionaryPref(prefs::kSafeBrowsingEventTimestamps);
   registry->RegisterTimePref(
+      prefs::kSafeBrowsingHashRealTimeOhttpExpirationTime, base::Time());
+  registry->RegisterStringPref(prefs::kSafeBrowsingHashRealTimeOhttpKey, "");
+  registry->RegisterTimePref(
       prefs::kAccountTailoredSecurityUpdateTimestamp, base::Time(),
       user_prefs::PrefRegistrySyncable::SYNCABLE_PRIORITY_PREF);
   registry->RegisterBooleanPref(
       prefs::kAccountTailoredSecurityShownNotification, false);
   registry->RegisterBooleanPref(
       prefs::kEnhancedProtectionEnabledViaTailoredSecurity, false);
+  registry->RegisterTimePref(prefs::kExtensionTelemetryLastUploadTime,
+                             base::Time::Now());
+  registry->RegisterDictionaryPref(prefs::kExtensionTelemetryConfig);
+  registry->RegisterDictionaryPref(prefs::kExtensionTelemetryFileData);
+  registry->RegisterBooleanPref(
+      prefs::kRealTimeDownloadProtectionRequestAllowedByPolicy, true);
+  registry->RegisterBooleanPref(
+      prefs::kSafeBrowsingExtensionProtectionAllowedByPolicy, true);
+}
+
+const base::Value::Dict& GetExtensionTelemetryConfig(const PrefService& prefs) {
+  return prefs.GetDict(prefs::kExtensionTelemetryConfig);
+}
+
+const base::Value::Dict& GetExtensionTelemetryFileData(
+    const PrefService& prefs) {
+  return prefs.GetDict(prefs::kExtensionTelemetryFileData);
+}
+
+void SetExtensionTelemetryConfig(PrefService& prefs,
+                                 const base::Value::Dict& config) {
+  prefs.SetDict(prefs::kExtensionTelemetryConfig, config.Clone());
+}
+
+base::Time GetLastUploadTimeForExtensionTelemetry(PrefService& prefs) {
+  return (prefs.GetTime(prefs::kExtensionTelemetryLastUploadTime));
+}
+
+void SetLastUploadTimeForExtensionTelemetry(PrefService& prefs,
+                                            const base::Time& time) {
+  prefs.SetTime(prefs::kExtensionTelemetryLastUploadTime, time);
 }
 
 void RegisterLocalStatePrefs(PrefRegistrySimple* registry) {
@@ -268,8 +343,8 @@ void UpdatePrefsBeforeSecurityInterstitial(PrefService* prefs) {
   prefs->SetBoolean(prefs::kSafeBrowsingSawInterstitialScoutReporting, true);
 }
 
-base::ListValue GetSafeBrowsingPreferencesList(PrefService* prefs) {
-  base::ListValue preferences_list;
+base::Value::List GetSafeBrowsingPreferencesList(PrefService* prefs) {
+  base::Value::List preferences_list;
 
   const char* safe_browsing_preferences[] = {
       prefs::kSafeBrowsingEnabled,
@@ -279,33 +354,31 @@ base::ListValue GetSafeBrowsingPreferencesList(PrefService* prefs) {
   // Add the status of the preferences if they are Enabled or Disabled for the
   // user.
   for (const char* preference : safe_browsing_preferences) {
-    preferences_list.Append(base::Value(preference));
+    preferences_list.Append(preference);
     bool enabled = prefs->GetBoolean(preference);
-    preferences_list.Append(base::Value(enabled ? "Enabled" : "Disabled"));
+    preferences_list.Append(enabled ? "Enabled" : "Disabled");
   }
   return preferences_list;
 }
 
-base::ListValue GetSafeBrowsingPoliciesList(PrefService* prefs) {
-  base::ListValue preferences_list;
-  const base::Value* allowlist_domains =
+base::Value::List GetSafeBrowsingPoliciesList(PrefService* prefs) {
+  base::Value::List preferences_list;
+  const base::Value::List& allowlist_domains =
       prefs->GetList(prefs::kSafeBrowsingAllowlistDomains);
   std::vector<std::string> domain_list;
-  CanonicalizeDomainList(*allowlist_domains, &domain_list);
+  CanonicalizeDomainList(allowlist_domains, &domain_list);
   std::string domains;
   for (const auto& domain : domain_list) {
     domains = domains + " " + domain;
   }
-  preferences_list.Append(base::Value(domains));
-  preferences_list.Append(base::Value(prefs::kSafeBrowsingAllowlistDomains));
-  preferences_list.Append(base::Value(
-      prefs->GetString(prefs::kPasswordProtectionChangePasswordURL)));
+  preferences_list.Append(domains);
+  preferences_list.Append(prefs::kSafeBrowsingAllowlistDomains);
   preferences_list.Append(
-      base::Value(prefs::kPasswordProtectionChangePasswordURL));
-  preferences_list.Append(base::Value(base::NumberToString(
-      prefs->GetInteger(prefs::kPasswordProtectionWarningTrigger))));
-  preferences_list.Append(
-      base::Value(prefs::kPasswordProtectionWarningTrigger));
+      prefs->GetString(prefs::kPasswordProtectionChangePasswordURL));
+  preferences_list.Append(prefs::kPasswordProtectionChangePasswordURL);
+  preferences_list.Append(base::NumberToString(
+      prefs->GetInteger(prefs::kPasswordProtectionWarningTrigger)));
+  preferences_list.Append(prefs::kPasswordProtectionWarningTrigger);
 
   std::vector<GURL> login_urls_list;
   GetPasswordProtectionLoginURLsPref(*prefs, &login_urls_list);
@@ -313,29 +386,41 @@ base::ListValue GetSafeBrowsingPoliciesList(PrefService* prefs) {
   for (const auto& login_url : login_urls_list) {
     login_urls = login_urls + " " + login_url.spec();
   }
-  preferences_list.Append(base::Value(login_urls));
-  preferences_list.Append(base::Value(prefs::kPasswordProtectionLoginURLs));
+  preferences_list.Append(login_urls);
+  preferences_list.Append(prefs::kPasswordProtectionLoginURLs);
+
+  preferences_list.Append(prefs->GetBoolean(
+      prefs::kRealTimeDownloadProtectionRequestAllowedByPolicy));
+  preferences_list.Append(
+      prefs::kRealTimeDownloadProtectionRequestAllowedByPolicy);
+  preferences_list.Append(prefs->GetBoolean(
+      prefs::kSafeBrowsingCsdPhishingProtectionAllowedByPolicy));
+  preferences_list.Append(
+      prefs::kSafeBrowsingCsdPhishingProtectionAllowedByPolicy);
+  preferences_list.Append(prefs->GetBoolean(
+      prefs::kSafeBrowsingExtensionProtectionAllowedByPolicy));
+  preferences_list.Append(
+      prefs::kSafeBrowsingExtensionProtectionAllowedByPolicy);
   return preferences_list;
 }
 
 void GetSafeBrowsingAllowlistDomainsPref(
     const PrefService& prefs,
     std::vector<std::string>* out_canonicalized_domain_list) {
-  const base::Value* pref_value =
+  const base::Value::List& pref_value =
       prefs.GetList(prefs::kSafeBrowsingAllowlistDomains);
-  CanonicalizeDomainList(*pref_value, out_canonicalized_domain_list);
+  CanonicalizeDomainList(pref_value, out_canonicalized_domain_list);
 }
 
 void CanonicalizeDomainList(
-    const base::Value& raw_domain_list,
+    const base::Value::List& raw_domain_list,
     std::vector<std::string>* out_canonicalized_domain_list) {
   out_canonicalized_domain_list->clear();
-  for (auto it = raw_domain_list.GetList().begin();
-       it != raw_domain_list.GetList().end(); it++) {
+  for (const base::Value& value : raw_domain_list) {
     // Verify if it is valid domain string.
     url::CanonHostInfo host_info;
     std::string canonical_host =
-        net::CanonicalizeHost(it->GetString(), &host_info);
+        net::CanonicalizeHost(value.GetString(), &host_info);
     if (!canonical_host.empty())
       out_canonicalized_domain_list->push_back(canonical_host);
   }
@@ -344,9 +429,9 @@ void CanonicalizeDomainList(
 bool IsURLAllowlistedByPolicy(const GURL& url, const PrefService& pref) {
   if (!pref.HasPrefPath(prefs::kSafeBrowsingAllowlistDomains))
     return false;
-  const base::Value* allowlist =
+  const base::Value::List& allowlist =
       pref.GetList(prefs::kSafeBrowsingAllowlistDomains);
-  for (const base::Value& value : allowlist->GetList()) {
+  for (const base::Value& value : allowlist) {
     if (url.DomainIs(value.GetString()))
       return true;
   }
@@ -355,9 +440,9 @@ bool IsURLAllowlistedByPolicy(const GURL& url, const PrefService& pref) {
 
 std::vector<std::string> GetURLAllowlistByPolicy(PrefService* pref_service) {
   std::vector<std::string> allowlist_domains;
-  const base::Value* allowlist =
+  const base::Value::List& allowlist =
       pref_service->GetList(prefs::kSafeBrowsingAllowlistDomains);
-  for (const base::Value& value : allowlist->GetList()) {
+  for (const base::Value& value : allowlist) {
     allowlist_domains.push_back(value.GetString());
   }
   return allowlist_domains;
@@ -374,10 +459,10 @@ bool MatchesEnterpriseAllowlist(const PrefService& pref,
 
 void GetPasswordProtectionLoginURLsPref(const PrefService& prefs,
                                         std::vector<GURL>* out_login_url_list) {
-  const base::Value* pref_value =
+  const base::Value::List& pref_value =
       prefs.GetList(prefs::kPasswordProtectionLoginURLs);
   out_login_url_list->clear();
-  for (const base::Value& value : pref_value->GetList()) {
+  for (const base::Value& value : pref_value) {
     GURL login_url(value.GetString());
     // Skip invalid or none-http/https login URLs.
     if (login_url.is_valid() && login_url.SchemeIsHTTPOrHTTPS())

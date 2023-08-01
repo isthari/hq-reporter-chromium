@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.PowerManager;
-import android.support.test.InstrumentationRegistry;
 import android.view.View;
+
+import androidx.test.InstrumentationRegistry;
 
 import org.hamcrest.Matchers;
 import org.junit.Assert;

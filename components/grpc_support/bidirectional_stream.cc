@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,12 +9,11 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
-#include "base/strings/abseil_string_conversions.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/task/single_thread_task_runner.h"
 #include "net/base/http_user_agent_settings.h"
@@ -185,9 +184,9 @@ void BidirectionalStream::OnHeadersReceived(
   // Get http status code from response headers.
   int http_status_code = 0;
   const auto http_status_header = response_headers.find(":status");
-  if (http_status_header != response_headers.end())
-    base::StringToInt(base::StringViewToStringPiece(http_status_header->second),
-                      &http_status_code);
+  if (http_status_header != response_headers.end()) {
+    base::StringToInt(http_status_header->second, &http_status_code);
+  }
   const char* protocol = "unknown";
   switch (bidi_stream_->GetProtocol()) {
     case net::kProtoHTTP2:

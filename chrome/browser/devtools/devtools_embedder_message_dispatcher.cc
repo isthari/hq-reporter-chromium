@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <memory>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/values.h"
 #include "chrome/browser/devtools/devtools_settings.h"
 
@@ -49,10 +49,11 @@ bool GetValue(const base::Value& value, bool* result) {
 bool GetValue(const base::Value& value, gfx::Rect* rect) {
   if (!value.is_dict())
     return false;
-  absl::optional<int> x = value.FindIntKey("x");
-  absl::optional<int> y = value.FindIntKey("y");
-  absl::optional<int> width = value.FindIntKey("width");
-  absl::optional<int> height = value.FindIntKey("height");
+  const base::Value::Dict& dict = value.GetDict();
+  absl::optional<int> x = dict.FindInt("x");
+  absl::optional<int> y = dict.FindInt("y");
+  absl::optional<int> width = dict.FindInt("width");
+  absl::optional<int> height = dict.FindInt("height");
   if (!x.has_value() || !y.has_value() || !width.has_value() ||
       !height.has_value()) {
     return false;
@@ -66,7 +67,7 @@ bool GetValue(const base::Value& value, RegisterOptions* options) {
   if (!value.is_dict())
     return false;
 
-  const bool synced = value.FindBoolKey("synced").value_or(false);
+  const bool synced = value.GetDict().FindBool("synced").value_or(false);
   options->sync_mode = synced ? RegisterOptions::SyncMode::kSync
                               : RegisterOptions::SyncMode::kDontSync;
   return true;
@@ -84,8 +85,8 @@ struct StorageTraits<const T&> {
 
 template <typename... Ts>
 struct ParamTuple {
-  bool Parse(const std::vector<base::Value>& list,
-             const std::vector<base::Value>::const_iterator& it) {
+  bool Parse(const base::Value::List& list,
+             const base::Value::List::const_iterator& it) {
     return it == list.end();
   }
 
@@ -97,8 +98,8 @@ struct ParamTuple {
 
 template <typename T, typename... Ts>
 struct ParamTuple<T, Ts...> {
-  bool Parse(const std::vector<base::Value>& list,
-             const std::vector<base::Value>::const_iterator& it) {
+  bool Parse(const base::Value::List& list,
+             const base::Value::List::const_iterator& it) {
     return it != list.end() && GetValue(*it, &head) && tail.Parse(list, it + 1);
   }
 
@@ -114,7 +115,7 @@ struct ParamTuple<T, Ts...> {
 template <typename... As>
 bool ParseAndHandle(const base::RepeatingCallback<void(As...)>& handler,
                     DispatchCallback callback,
-                    const std::vector<base::Value>& list) {
+                    const base::Value::List& list) {
   ParamTuple<As...> tuple;
   if (!tuple.Parse(list, list.begin()))
     return false;
@@ -126,7 +127,7 @@ template <typename... As>
 bool ParseAndHandleWithCallback(
     const base::RepeatingCallback<void(DispatchCallback, As...)>& handler,
     DispatchCallback callback,
-    const std::vector<base::Value>& list) {
+    const base::Value::List& list) {
   ParamTuple<As...> tuple;
   if (!tuple.Parse(list, list.begin()))
     return false;
@@ -150,7 +151,7 @@ class DispatcherImpl : public DevToolsEmbedderMessageDispatcher {
 
   bool Dispatch(DispatchCallback callback,
                 const std::string& method,
-                const std::vector<base::Value>& params) override {
+                const base::Value::List& params) override {
     auto it = handlers_.find(method);
     return it != handlers_.end() && it->second.Run(std::move(callback), params);
   }
@@ -176,8 +177,7 @@ class DispatcherImpl : public DevToolsEmbedderMessageDispatcher {
 
  private:
   using Handler =
-      base::RepeatingCallback<bool(DispatchCallback,
-                                   const std::vector<base::Value>&)>;
+      base::RepeatingCallback<bool(DispatchCallback, const base::Value::List&)>;
   using HandlerMap = std::map<std::string, Handler>;
   HandlerMap handlers_;
 };

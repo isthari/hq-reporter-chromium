@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <memory>
 #include <string>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/json/json_writer.h"
 #include "base/values.h"
 #include "chrome/test/chromedriver/chrome/log.h"
@@ -20,11 +20,10 @@
 
 namespace {
 
-void DummyCommand(
-    const Status& status,
-    const base::DictionaryValue& params,
-    const std::string& session_id,
-    const CommandCallback& callback) {
+void DummyCommand(const Status& status,
+                  const base::Value::Dict& params,
+                  const std::string& session_id,
+                  const CommandCallback& callback) {
   callback.Run(status, std::make_unique<base::Value>(1), "session_id", false);
 }
 
@@ -69,10 +68,10 @@ TEST(HttpHandlerTest, HandleNewSession) {
   net::HttpServerResponseInfo response;
   handler.Handle(request, base::BindRepeating(&OnResponse, &response));
   ASSERT_EQ(net::HTTP_OK, response.status_code());
-  base::DictionaryValue body;
-  body.SetInteger("status", kOk);
-  body.SetInteger("value", 1);
-  body.SetString("sessionId", "session_id");
+  base::Value::Dict body;
+  body.Set("status", kOk);
+  body.Set("value", 1);
+  body.Set("sessionId", "session_id");
   std::string json;
   base::JSONWriter::Write(body, &json);
   ASSERT_EQ(json, response.body());
@@ -116,10 +115,10 @@ TEST(HttpHandlerTest, HandleCommand) {
   net::HttpServerResponseInfo response;
   handler.Handle(request, base::BindRepeating(&OnResponse, &response));
   ASSERT_EQ(net::HTTP_OK, response.status_code());
-  base::DictionaryValue body;
-  body.SetInteger("status", kOk);
-  body.SetInteger("value", 1);
-  body.SetString("sessionId", "session_id");
+  base::Value::Dict body;
+  body.Set("status", kOk);
+  body.Set("value", 1);
+  body.Set("sessionId", "session_id");
   std::string json;
   base::JSONWriter::Write(body, &json);
   ASSERT_EQ(json, response.body());
@@ -136,18 +135,18 @@ TEST(MatchesCommandTest, DiffMethod) {
   CommandMapping command(kPost, "path",
                          base::BindRepeating(&DummyCommand, Status(kOk)));
   std::string session_id;
-  base::DictionaryValue params;
+  base::Value::Dict params;
   ASSERT_FALSE(internal::MatchesCommand(
       "get", "path", command, &session_id, &params));
   ASSERT_TRUE(session_id.empty());
-  ASSERT_EQ(0u, params.DictSize());
+  ASSERT_EQ(0u, params.size());
 }
 
 TEST(MatchesCommandTest, DiffPathLength) {
   CommandMapping command(kPost, "path/path",
                          base::BindRepeating(&DummyCommand, Status(kOk)));
   std::string session_id;
-  base::DictionaryValue params;
+  base::Value::Dict params;
   ASSERT_FALSE(internal::MatchesCommand(
       "post", "path", command, &session_id, &params));
   ASSERT_FALSE(internal::MatchesCommand(
@@ -162,7 +161,7 @@ TEST(MatchesCommandTest, DiffPaths) {
   CommandMapping command(kPost, "path/apath",
                          base::BindRepeating(&DummyCommand, Status(kOk)));
   std::string session_id;
-  base::DictionaryValue params;
+  base::Value::Dict params;
   ASSERT_FALSE(internal::MatchesCommand(
       "post", "path/bpath", command, &session_id, &params));
 }
@@ -171,39 +170,40 @@ TEST(MatchesCommandTest, Substitution) {
   CommandMapping command(kPost, "path/:sessionId/space/:a/:b",
                          base::BindRepeating(&DummyCommand, Status(kOk)));
   std::string session_id;
-  base::DictionaryValue params;
+  base::Value::Dict params;
   ASSERT_TRUE(internal::MatchesCommand(
       "post", "path/1/space/2/3", command, &session_id, &params));
   ASSERT_EQ("1", session_id);
-  ASSERT_EQ(2u, params.DictSize());
-  std::string param;
-  ASSERT_TRUE(params.GetString("a", &param));
-  ASSERT_EQ("2", param);
-  ASSERT_TRUE(params.GetString("b", &param));
-  ASSERT_EQ("3", param);
+  ASSERT_EQ(2u, params.size());
+  const std::string* param = params.FindString("a");
+  ASSERT_TRUE(param);
+  ASSERT_EQ("2", *param);
+  param = params.FindString("b");
+  ASSERT_TRUE(param);
+  ASSERT_EQ("3", *param);
 }
 
 TEST(MatchesCommandTest, DecodeEscape) {
   CommandMapping command(kPost, "path/:sessionId/attribute/:xyz",
                          base::BindRepeating(&DummyCommand, Status(kOk)));
   std::string session_id;
-  base::DictionaryValue params;
+  base::Value::Dict params;
   ASSERT_TRUE(internal::MatchesCommand(
       "post", "path/123/attribute/xyz%2Furl%7Ce%3A%40v",
       command, &session_id, &params));
-  std::string param;
-  ASSERT_TRUE(params.GetString("xyz", &param));
-  ASSERT_EQ("xyz/url|e:@v", param);
+  const std::string* param = params.FindString("xyz");
+  ASSERT_TRUE(param);
+  ASSERT_EQ("xyz/url|e:@v", *param);
 }
 
 TEST(MatchesCommandTest, DecodePercent) {
   CommandMapping command(kPost, "path/:xyz",
                          base::BindRepeating(&DummyCommand, Status(kOk)));
   std::string session_id;
-  base::DictionaryValue params;
+  base::Value::Dict params;
   ASSERT_TRUE(internal::MatchesCommand(
       "post", "path/%40a%%b%%c%%%%", command, &session_id, &params));
-  std::string param;
-  ASSERT_TRUE(params.GetString("xyz", &param));
-  ASSERT_EQ("@a%b%c%%", param);
+  const std::string* param = params.FindString("xyz");
+  ASSERT_TRUE(param);
+  ASSERT_EQ("@a%b%c%%", *param);
 }

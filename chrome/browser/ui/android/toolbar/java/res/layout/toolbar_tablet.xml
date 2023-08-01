@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Copyright 2015 The Chromium Authors. All rights reserved.
-     Use of this source code is governed by a BSD-style license that can be
-     found in the LICENSE file. -->
+<!--
+Copyright 2015 The Chromium Authors
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
 
 <!-- The toolbar containing the URL bar, back button, and NTP button.
 -->
@@ -14,10 +16,11 @@
     android:layout_width="match_parent"
     android:layout_height="@dimen/toolbar_height_no_shadow"
     android:layout_marginTop="@dimen/tab_strip_height"
-    android:background="?attr/default_bg_color_dynamic"
-    android:paddingStart="@dimen/tablet_toolbar_start_padding" >
+    android:background="@macro/default_bg_color"
+     >
 
     <LinearLayout
+        android:id="@+id/toolbar_tablet_layout"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="horizontal" >
@@ -28,6 +31,9 @@
             android:src="@drawable/btn_toolbar_home"
             android:contentDescription="@string/accessibility_toolbar_btn_home"
             android:visibility="gone"
+            app:menuMaxWidth="@dimen/home_button_list_menu_width"
+            app:menuPositionedAtEnd="false"
+            app:menuVerticalOverlapAnchor="false"
             app:tint="@color/default_icon_color_tint_list" />
 
         <org.chromium.ui.widget.ChromeImageButton
@@ -55,12 +61,11 @@
         <org.chromium.chrome.browser.omnibox.LocationBarTablet
             android:id="@+id/location_bar"
             android:layout_width="0dp"
-            android:layout_height="@dimen/modern_toolbar_background_size"
+            android:layout_height="@dimen/modern_toolbar_tablet_background_size"
             android:layout_weight="1"
             android:layout_gravity="center_vertical"
-            android:background="@drawable/modern_toolbar_text_box_background"
-            android:paddingStart="@dimen/location_bar_lateral_padding"
-            android:paddingEnd="@dimen/location_bar_lateral_padding" />
+            android:background="@drawable/modern_toolbar_tablet_text_box_background"
+            android:paddingEnd="@dimen/location_bar_end_padding" />
 
         <ViewStub
             android:id="@+id/optional_button_stub"
@@ -76,7 +81,7 @@
             android:paddingStart="8dp"
             android:layout_gravity="top"
             android:contentDescription="@string/accessibility_toolbar_btn_tabswitcher_toggle_default"
-            android:visibility="gone" />
+            android:visibility="visible" />
 
         <include layout="@layout/menu_button"/>
     </LinearLayout>

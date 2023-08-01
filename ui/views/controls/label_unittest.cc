@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/i18n/rtl.h"
 #include "base/memory/raw_ptr.h"
 #include "base/test/gtest_util.h"
@@ -23,6 +23,7 @@
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/ui_base_switches.h"
+#include "ui/color/color_provider.h"
 #include "ui/compositor/canvas_painter.h"
 #include "ui/compositor/layer.h"
 #include "ui/events/base_event_utils.h"
@@ -36,6 +37,7 @@
 #include "ui/views/border.h"
 #include "ui/views/controls/base_control_test_widget.h"
 #include "ui/views/controls/link.h"
+#include "ui/views/layout/layout_types.h"
 #include "ui/views/style/typography.h"
 #include "ui/views/test/ax_event_counter.h"
 #include "ui/views/test/focus_manager_test.h"
@@ -107,9 +109,9 @@ std::u16string ToRTL(const char* ascii) {
   std::u16string rtl;
   for (const char* c = ascii; *c; ++c) {
     if (*c >= '0' && *c <= '6')
-      rtl += L'\x5d0' + (*c - '0');
+      rtl += static_cast<char16_t>(u'א' + (*c - '0'));
     else
-      rtl += static_cast<std::u16string::value_type>(*c);
+      rtl += static_cast<char16_t>(*c);
   }
   return rtl;
 }
@@ -289,6 +291,50 @@ TEST_F(LabelTest, ColorProperty) {
   EXPECT_EQ(color, label()->GetEnabledColor());
 }
 
+TEST_F(LabelTest, ColorPropertyOnEnabledColorIdChange) {
+  const auto color = label()->GetWidget()->GetColorProvider()->GetColor(
+      ui::kColorPrimaryForeground);
+  label()->SetAutoColorReadabilityEnabled(false);
+  label()->SetEnabledColorId(ui::kColorPrimaryForeground);
+  EXPECT_EQ(color, label()->GetEnabledColor());
+
+  // Update the enabled id and verify the actual enabled color is updated to
+  // reflect the color id change. Regression test case for: b/262402965.
+  label()->SetEnabledColorId(ui::kColorAccent);
+  EXPECT_EQ(
+      label()->GetWidget()->GetColorProvider()->GetColor(ui::kColorAccent),
+      label()->GetEnabledColor());
+}
+
+TEST_F(LabelTest, BackgroundColor) {
+  // The correct default background color is set.
+  EXPECT_EQ(widget()->GetColorProvider()->GetColor(ui::kColorDialogBackground),
+            label()->GetBackgroundColor());
+
+  label()->SetBackgroundColor(SK_ColorBLUE);
+  EXPECT_EQ(SK_ColorBLUE, label()->GetBackgroundColor());
+}
+
+TEST_F(LabelTest, BackgroundColorId) {
+  // The correct default background color is set.
+  EXPECT_EQ(widget()->GetColorProvider()->GetColor(ui::kColorDialogBackground),
+            label()->GetBackgroundColor());
+
+  label()->SetBackgroundColorId(ui::kColorAlertHighSeverity);
+  EXPECT_EQ(widget()->GetColorProvider()->GetColor(ui::kColorAlertHighSeverity),
+            label()->GetBackgroundColor());
+
+  // A color id takes precedence.
+  label()->SetBackgroundColor(SK_ColorBLUE);
+  EXPECT_EQ(widget()->GetColorProvider()->GetColor(ui::kColorAlertHighSeverity),
+            label()->GetBackgroundColor());
+
+  // Once a color id is no longer set, colors can be set again.
+  label()->SetBackgroundColorId(absl::nullopt);
+  label()->SetBackgroundColor(SK_ColorBLUE);
+  EXPECT_EQ(SK_ColorBLUE, label()->GetBackgroundColor());
+}
+
 TEST_F(LabelTest, AlignmentProperty) {
   const bool was_rtl = base::i18n::IsRTL();
 
@@ -346,7 +392,7 @@ TEST_F(LabelTest, MinimumSizeRespectsLineHeightWithInsets) {
   const gfx::Size minimum_size = label()->GetMinimumSize();
   int expected_height = minimum_size.height() + 10;
   label()->SetLineHeight(expected_height);
-  constexpr gfx::Insets kInsets{2, 3, 4, 5};
+  constexpr auto kInsets = gfx::Insets::TLBR(2, 3, 4, 5);
   expected_height += kInsets.height();
   label()->SetBorder(CreateEmptyBorder(kInsets));
   EXPECT_EQ(expected_height, label()->GetMinimumSize().height());
@@ -360,7 +406,7 @@ TEST_F(LabelTest, MinimumSizeRespectsLineHeightMultilineWithInsets) {
   const gfx::Size minimum_size = label()->GetMinimumSize();
   int expected_height = minimum_size.height() + 10;
   label()->SetLineHeight(expected_height);
-  constexpr gfx::Insets kInsets{2, 3, 4, 5};
+  constexpr auto kInsets = gfx::Insets::TLBR(2, 3, 4, 5);
   expected_height += kInsets.height();
   label()->SetBorder(CreateEmptyBorder(kInsets));
   EXPECT_EQ(expected_height, label()->GetMinimumSize().height());
@@ -474,8 +520,8 @@ TEST_F(LabelTest, ObscuredSurrogatePair) {
 // this behavior, therefore this behavior will have to be kept until the code
 // with this assumption is fixed. See http://crbug.com/468494 and
 // http://crbug.com/467526.
-// TODO(mukai): fix the code assuming this behavior and then fix Label
-// implementation, and remove this test case.
+// TODO(crbug.com/1346889): convert all callsites of GetPreferredSize() to
+// call GetPreferredSize(SizeBounds) instead.
 TEST_F(LabelTest, MultilinePreferredSizeTest) {
   label()->SetText(u"This is an example.");
 
@@ -490,6 +536,37 @@ TEST_F(LabelTest, MultilinePreferredSizeTest) {
   gfx::Size new_size = label()->GetPreferredSize();
   EXPECT_GT(multi_line_size.width(), new_size.width());
   EXPECT_LT(multi_line_size.height(), new_size.height());
+}
+
+TEST_F(LabelTest, MultilinePreferredSizeWithConstraintTest) {
+  label()->SetText(u"This is an example.");
+
+  const gfx::Size single_line_size =
+      label()->GetPreferredSize({/* Unbounded */});
+
+  // Test the preferred size when the label is not yet laid out.
+  label()->SetMultiLine(true);
+  const gfx::Size multi_line_size_unbounded =
+      label()->GetPreferredSize({/* Unbounded */});
+  EXPECT_EQ(single_line_size, multi_line_size_unbounded);
+
+  const gfx::Size multi_line_size_bounded = label()->GetPreferredSize(
+      {single_line_size.width() / 2, {/* Unbounded */}});
+  EXPECT_GT(multi_line_size_unbounded.width(), multi_line_size_bounded.width());
+  EXPECT_LT(multi_line_size_unbounded.height(),
+            multi_line_size_bounded.height());
+
+  // Test the preferred size after the label is laid out.
+  // GetPreferredSize(SizeBounds) should ignore the existing bounds.
+  const int layout_width = multi_line_size_unbounded.width() / 3;
+  label()->SetBounds(0, 0, layout_width,
+                     label()->GetHeightForWidth(layout_width));
+  const gfx::Size multi_line_size_unbounded2 =
+      label()->GetPreferredSize({/* Unbounded */});
+  const gfx::Size multi_line_size_bounded2 = label()->GetPreferredSize(
+      {single_line_size.width() / 2, {/* Unbounded */}});
+  EXPECT_EQ(multi_line_size_unbounded, multi_line_size_unbounded2);
+  EXPECT_EQ(multi_line_size_bounded, multi_line_size_bounded2);
 }
 
 TEST_F(LabelTest, SingleLineGetHeightForWidth) {
@@ -644,6 +721,13 @@ TEST_F(LabelTest, Accessibility) {
   label()->GetAccessibleNodeData(&node_data);
   EXPECT_EQ(label()->GetText(),
             node_data.GetString16Attribute(ax::mojom::StringAttribute::kName));
+
+  // If the displayed text is the source of the accessible name, and that text
+  // is cleared, the accessible name should also be cleared.
+  label()->SetText(u"");
+  label()->GetAccessibleNodeData(&node_data);
+  EXPECT_EQ(label()->GetText(),
+            node_data.GetString16Attribute(ax::mojom::StringAttribute::kName));
 }
 
 TEST_F(LabelTest, SetTextNotifiesAccessibilityEvent) {
@@ -681,6 +765,39 @@ TEST_F(LabelTest, TextChangeWithoutLayout) {
   EXPECT_EQ(u"Altered", label()->display_text_->GetDisplayText());
 }
 
+TEST_F(LabelTest, AccessibleNameAndRole) {
+  label()->SetText(u"Text");
+  EXPECT_EQ(label()->GetAccessibleName(), u"Text");
+  EXPECT_EQ(label()->GetAccessibleRole(), ax::mojom::Role::kStaticText);
+
+  ui::AXNodeData data;
+  label()->GetAccessibleNodeData(&data);
+  EXPECT_EQ(data.GetString16Attribute(ax::mojom::StringAttribute::kName),
+            u"Text");
+  EXPECT_EQ(data.role, ax::mojom::Role::kStaticText);
+
+  label()->SetTextContext(style::CONTEXT_DIALOG_TITLE);
+  EXPECT_EQ(label()->GetAccessibleName(), u"Text");
+  EXPECT_EQ(label()->GetAccessibleRole(), ax::mojom::Role::kTitleBar);
+
+  data = ui::AXNodeData();
+  label()->GetAccessibleNodeData(&data);
+  EXPECT_EQ(data.GetString16Attribute(ax::mojom::StringAttribute::kName),
+            u"Text");
+  EXPECT_EQ(data.role, ax::mojom::Role::kTitleBar);
+
+  label()->SetText(u"New Text");
+  label()->SetAccessibleRole(ax::mojom::Role::kLink);
+  EXPECT_EQ(label()->GetAccessibleName(), u"New Text");
+  EXPECT_EQ(label()->GetAccessibleRole(), ax::mojom::Role::kLink);
+
+  data = ui::AXNodeData();
+  label()->GetAccessibleNodeData(&data);
+  EXPECT_EQ(data.GetString16Attribute(ax::mojom::StringAttribute::kName),
+            u"New Text");
+  EXPECT_EQ(data.role, ax::mojom::Role::kLink);
+}
+
 TEST_F(LabelTest, EmptyLabelSizing) {
   const gfx::Size expected_size(0, label()->font_list().GetHeight());
   EXPECT_EQ(expected_size, label()->GetPreferredSize());
@@ -698,7 +815,7 @@ TEST_F(LabelTest, SingleLineSizing) {
   label()->SetSize(gfx::Size(size.width() / 2, size.height() / 2));
   EXPECT_EQ(size, label()->GetPreferredSize());
 
-  const gfx::Insets border(10, 20, 30, 40);
+  const auto border = gfx::Insets::TLBR(10, 20, 30, 40);
   label()->SetBorder(CreateEmptyBorder(border));
   const gfx::Size size_with_border = label()->GetPreferredSize();
   EXPECT_EQ(size_with_border.height(), size.height() + border.height());
@@ -776,7 +893,7 @@ TEST_F(LabelTest, MultiLineSizing) {
             label()->GetHeightForWidth(required_width - 1));
 
   // Test everything with borders.
-  gfx::Insets border(10, 20, 30, 40);
+  auto border = gfx::Insets::TLBR(10, 20, 30, 40);
   label()->SetBorder(CreateEmptyBorder(border));
 
   // SizeToFit and borders.
@@ -848,7 +965,7 @@ TEST_F(LabelTest, MultiLineSetMaxLines) {
   EXPECT_GT(string_size.height(), two_line_size.height());
 
   // Ensure SetMaxLines respects the requested inset height.
-  const gfx::Insets border(1, 2, 3, 4);
+  const auto border = gfx::Insets::TLBR(1, 2, 3, 4);
   label()->SetBorder(CreateEmptyBorder(border));
   EXPECT_EQ(two_line_size.height() + border.height(),
             label()->GetPreferredSize().height());
@@ -1114,7 +1231,7 @@ TEST_F(LabelTest, GetSubstringBounds) {
   auto substring_bounds = label()->GetSubstringBounds(gfx::Range(0, 3));
   EXPECT_EQ(1u, substring_bounds.size());
 
-  gfx::Insets insets{2, 3, 4, 5};
+  auto insets = gfx::Insets::TLBR(2, 3, 4, 5);
   label()->SetBorder(CreateEmptyBorder(insets));
   auto substring_bounds_with_inset =
       label()->GetSubstringBounds(gfx::Range(0, 3));
@@ -1128,7 +1245,7 @@ TEST_F(LabelTest, GetSubstringBounds) {
 }
 
 // TODO(crbug.com/1139395): Enable on ChromeOS along with the DCHECK in Label.
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS)
 #define MAYBE_ChecksSubpixelRenderingOntoOpaqueSurface \
   DISABLED_ChecksSubpixelRenderingOntoOpaqueSurface
 #else

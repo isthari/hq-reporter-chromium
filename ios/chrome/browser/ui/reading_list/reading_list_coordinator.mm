@@ -1,37 +1,55 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/reading_list/reading_list_coordinator.h"
 
 #import "base/ios/ios_util.h"
-#include "base/metrics/histogram_macros.h"
-#include "base/metrics/user_metrics.h"
-#include "base/metrics/user_metrics_action.h"
-#include "base/strings/sys_string_conversions.h"
-#include "components/feature_engagement/public/event_constants.h"
-#include "components/feature_engagement/public/tracker.h"
-#include "components/reading_list/core/reading_list_entry.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/chrome_url_constants.h"
-#include "ios/chrome/browser/favicon/ios_chrome_favicon_loader_factory.h"
-#include "ios/chrome/browser/favicon/ios_chrome_large_icon_service_factory.h"
-#include "ios/chrome/browser/feature_engagement/tracker_factory.h"
-#include "ios/chrome/browser/main/browser.h"
+#import "base/memory/scoped_refptr.h"
+#import "base/metrics/histogram_macros.h"
+#import "base/metrics/user_metrics.h"
+#import "base/metrics/user_metrics_action.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/feature_engagement/public/event_constants.h"
+#import "components/feature_engagement/public/tracker.h"
+#import "components/prefs/pref_service.h"
+#import "components/reading_list/core/reading_list_entry.h"
+#import "components/reading_list/features/reading_list_switches.h"
+#import "components/signin/public/base/signin_pref_names.h"
+#import "components/signin/public/identity_manager/objc/identity_manager_observer_bridge.h"
+#import "components/sync/base/user_selectable_type.h"
+#import "components/sync/service/sync_service.h"
+#import "ios/chrome/browser/favicon/ios_chrome_favicon_loader_factory.h"
+#import "ios/chrome/browser/favicon/ios_chrome_large_icon_service_factory.h"
+#import "ios/chrome/browser/feature_engagement/tracker_factory.h"
 #import "ios/chrome/browser/metrics/new_tab_page_uma.h"
 #import "ios/chrome/browser/policy/policy_util.h"
-#include "ios/chrome/browser/reading_list/offline_url_utils.h"
-#include "ios/chrome/browser/reading_list/reading_list_model_factory.h"
-#import "ios/chrome/browser/ui/activity_services/activity_params.h"
-#import "ios/chrome/browser/ui/commands/application_commands.h"
-#import "ios/chrome/browser/ui/commands/command_dispatcher.h"
+#import "ios/chrome/browser/reading_list/offline_page_tab_helper.h"
+#import "ios/chrome/browser/reading_list/offline_url_utils.h"
+#import "ios/chrome/browser/reading_list/reading_list_model_factory.h"
+#import "ios/chrome/browser/shared/coordinator/scene/scene_state_browser_agent.h"
+#import "ios/chrome/browser/shared/model/browser/browser.h"
+#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/url/chrome_url_constants.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/shared/public/commands/application_commands.h"
+#import "ios/chrome/browser/shared/public/commands/command_dispatcher.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
+#import "ios/chrome/browser/shared/ui/table_view/table_view_navigation_controller.h"
+#import "ios/chrome/browser/shared/ui/table_view/table_view_navigation_controller_constants.h"
+#import "ios/chrome/browser/shared/ui/util/pasteboard_util.h"
+#import "ios/chrome/browser/signin/authentication_service.h"
+#import "ios/chrome/browser/signin/authentication_service_factory.h"
+#import "ios/chrome/browser/signin/chrome_account_manager_service_factory.h"
+#import "ios/chrome/browser/signin/identity_manager_factory.h"
+#import "ios/chrome/browser/sync/sync_service_factory.h"
+#import "ios/chrome/browser/ui/authentication/cells/signin_promo_view_consumer.h"
+#import "ios/chrome/browser/ui/authentication/enterprise/enterprise_utils.h"
+#import "ios/chrome/browser/ui/authentication/signin_presenter.h"
+#import "ios/chrome/browser/ui/authentication/signin_promo_view_mediator.h"
 #import "ios/chrome/browser/ui/incognito_reauth/incognito_reauth_scene_agent.h"
-#import "ios/chrome/browser/ui/main/scene_state_browser_agent.h"
 #import "ios/chrome/browser/ui/menu/browser_action_factory.h"
 #import "ios/chrome/browser/ui/menu/menu_histograms.h"
-#import "ios/chrome/browser/ui/reading_list/context_menu/reading_list_context_menu_coordinator.h"
-#import "ios/chrome/browser/ui/reading_list/context_menu/reading_list_context_menu_delegate.h"
-#import "ios/chrome/browser/ui/reading_list/context_menu/reading_list_context_menu_params.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_list_item.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_list_item_factory.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_list_item_factory_delegate.h"
@@ -41,32 +59,31 @@
 #import "ios/chrome/browser/ui/reading_list/reading_list_menu_provider.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_table_view_controller.h"
 #import "ios/chrome/browser/ui/sharing/sharing_coordinator.h"
-#import "ios/chrome/browser/ui/table_view/table_view_animator.h"
-#import "ios/chrome/browser/ui/table_view/table_view_navigation_controller.h"
-#import "ios/chrome/browser/ui/table_view/table_view_navigation_controller_constants.h"
-#import "ios/chrome/browser/ui/table_view/table_view_presentation_controller.h"
-#include "ios/chrome/browser/ui/ui_feature_flags.h"
-#import "ios/chrome/browser/ui/util/pasteboard_util.h"
+#import "ios/chrome/browser/ui/sharing/sharing_params.h"
 #import "ios/chrome/browser/url_loading/url_loading_browser_agent.h"
 #import "ios/chrome/browser/url_loading/url_loading_params.h"
-#include "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/window_activities/window_activity_helpers.h"
-#include "ios/chrome/grit/ios_strings.h"
-#include "ios/web/public/navigation/referrer.h"
-#include "ui/base/l10n/l10n_util.h"
-#include "ui/strings/grit/ui_strings.h"
-#include "url/gurl.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "ios/web/common/features.h"
+#import "ios/web/public/navigation/referrer.h"
+#import "ui/base/l10n/l10n_util.h"
+#import "ui/strings/grit/ui_strings.h"
+#import "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
-@interface ReadingListCoordinator () <ReadingListContextMenuDelegate,
+// TODO(crbug.com/1425862): SigninPromoViewMediator will be refactored so that
+// we can move the SigninPromoViewConsumer implementation from the coordinator
+// to the view.
+@interface ReadingListCoordinator () <IdentityManagerObserverBridgeDelegate,
                                       ReadingListMenuProvider,
                                       ReadingListListItemFactoryDelegate,
                                       ReadingListListViewControllerAudience,
                                       ReadingListListViewControllerDelegate,
-                                      UIViewControllerTransitioningDelegate>
+                                      SigninPresenter,
+                                      SigninPromoViewConsumer>
 
 // Whether the coordinator is started.
 @property(nonatomic, assign, getter=isStarted) BOOL started;
@@ -78,25 +95,36 @@
 // The view controller used to display the reading list.
 @property(nonatomic, strong)
     ReadingListTableViewController* tableViewController;
-// The coordinator used to show the context menu.
-@property(nonatomic, strong)
-    ReadingListContextMenuCoordinator* contextMenuCoordinator;
-
 // Coordinator in charge of handling sharing use cases.
 @property(nonatomic, strong) SharingCoordinator* sharingCoordinator;
 
 @end
 
-@implementation ReadingListCoordinator
+@implementation ReadingListCoordinator {
+  // Observer for changes to the user's Google identities.
+  std::unique_ptr<signin::IdentityManagerObserverBridge>
+      _identityManagerObserverBridge;
+  // Whether the sign-in promo is shown or not.
+  BOOL _shouldShowSignInPromo;
+  // The mediator that updates the sign-in promo view.
+  SigninPromoViewMediator* _signinPromoViewMediator;
+  // Handler for sign-in commands.
+  id<ApplicationCommands> _applicationCommandsHandler;
+  // Authentication Service to retrieve the user's signed-in state.
+  AuthenticationService* _authService;
+  // Service to retrieve preference values.
+  PrefService* _prefService;
+  // Manager for user's Google identities.
+  signin::IdentityManager* _identityManager;
+}
 
-#pragma mark - Accessors
-
-- (void)setContextMenuCoordinator:
-    (ReadingListContextMenuCoordinator*)contextMenuCoordinator {
-  if (_contextMenuCoordinator == contextMenuCoordinator)
-    return;
-  [_contextMenuCoordinator stop];
-  _contextMenuCoordinator = contextMenuCoordinator;
+- (NSString*)description {
+  return [NSString
+      stringWithFormat:
+          @"<%@: %p, isStarted: %d, _delegate: %p, _shouldShowSignInPromo: %d,"
+          @"isPresented: %d>",
+          self.class.description, self, self.isStarted, _delegate,
+          _shouldShowSignInPromo, [self.tableViewController isBeingPresented]];
 }
 
 #pragma mark - ChromeCoordinator
@@ -105,18 +133,27 @@
   if (self.started)
     return;
 
+  // Similar to the bookmarks, the content and sign-in promo state should remain
+  // the same in the incognito mode.
+  ChromeBrowserState* browserState =
+      self.browser->GetBrowserState()->GetOriginalChromeBrowserState();
+
   // Create the mediator.
   ReadingListModel* model =
-      ReadingListModelFactory::GetInstance()->GetForBrowserState(
-          self.browser->GetBrowserState());
+      ReadingListModelFactory::GetInstance()->GetForBrowserState(browserState);
   ReadingListListItemFactory* itemFactory =
       [[ReadingListListItemFactory alloc] init];
   FaviconLoader* faviconLoader =
-      IOSChromeFaviconLoaderFactory::GetForBrowserState(
-          self.browser->GetBrowserState());
+      IOSChromeFaviconLoaderFactory::GetForBrowserState(browserState);
   self.mediator = [[ReadingListMediator alloc] initWithModel:model
                                                faviconLoader:faviconLoader
                                              listItemFactory:itemFactory];
+  // Initialize services.
+  _applicationCommandsHandler = HandlerForProtocol(
+      self.browser->GetCommandDispatcher(), ApplicationCommands);
+  _authService = AuthenticationServiceFactory::GetForBrowserState(browserState);
+  _identityManager = IdentityManagerFactory::GetForBrowserState(browserState);
+  _prefService = browserState->GetPrefs();
 
   // Create the table.
   self.tableViewController = [[ReadingListTableViewController alloc] init];
@@ -131,7 +168,7 @@
 
   itemFactory.accessibilityDelegate = self.tableViewController;
 
-  // Add the "Done" button and hook it up to |stop|.
+  // Add the "Done" button and hook it up to `stop`.
   UIBarButtonItem* dismissButton = [[UIBarButtonItem alloc]
       initWithBarButtonSystemItem:UIBarButtonSystemItemDone
                            target:self
@@ -144,23 +181,15 @@
   self.navigationController = [[TableViewNavigationController alloc]
       initWithTable:self.tableViewController];
 
-  // The initial call to |readingListHasItems:| may have been received before
+  // The initial call to `readingListHasItems:` may have been received before
   // all UI elements were initialized. Call the callback directly to set up
   // everything correctly.
   [self readingListHasItems:self.mediator.hasElements];
 
-  BOOL useCustomPresentation = YES;
-      [self.navigationController
-          setModalPresentationStyle:UIModalPresentationFormSheet];
-      self.navigationController.presentationController.delegate =
-          self.tableViewController;
-      useCustomPresentation = NO;
-
-  if (useCustomPresentation) {
-    self.navigationController.transitioningDelegate = self;
-    self.navigationController.modalPresentationStyle =
-        UIModalPresentationCustom;
-  }
+  [self.navigationController
+      setModalPresentationStyle:UIModalPresentationFormSheet];
+  self.navigationController.presentationController.delegate =
+      self.tableViewController;
 
   [self.baseViewController presentViewController:self.navigationController
                                         animated:YES
@@ -168,9 +197,26 @@
 
   // Send the "Viewed Reading List" event to the feature_engagement::Tracker
   // when the user opens their reading list.
-  feature_engagement::TrackerFactory::GetForBrowserState(
-      self.browser->GetBrowserState())
+  feature_engagement::TrackerFactory::GetForBrowserState(browserState)
       ->NotifyEvent(feature_engagement::events::kViewedReadingList);
+
+  // Create the sign-in promo view mediator.
+  _identityManagerObserverBridge.reset(
+      new signin::IdentityManagerObserverBridge(_identityManager, self));
+  ChromeAccountManagerService* accountManagerService =
+      ChromeAccountManagerServiceFactory::GetForBrowserState(browserState);
+  _signinPromoViewMediator = [[SigninPromoViewMediator alloc]
+            initWithBrowser:(Browser*)self.browser
+      accountManagerService:accountManagerService
+                authService:_authService
+                prefService:_prefService
+                accessPoint:signin_metrics::AccessPoint::
+                                ACCESS_POINT_READING_LIST
+                  presenter:self
+         baseViewController:self.tableViewController];
+  _signinPromoViewMediator.signInOnly = YES;
+  _signinPromoViewMediator.consumer = self;
+  [self updateSignInPromoVisibility];
 
   [super start];
   self.started = YES;
@@ -178,22 +224,33 @@
 
 - (void)dismissButtonTapped {
   base::RecordAction(base::UserMetricsAction("MobileReadingListClose"));
-  [self stop];
+  [_delegate closeReadingList];
 }
 
 - (void)stop {
   if (!self.started)
     return;
-  self.contextMenuCoordinator = nil;
   [self.tableViewController willBeDismissed];
   [self.navigationController.presentingViewController
       dismissViewControllerAnimated:YES
                          completion:nil];
   self.tableViewController = nil;
+  self.navigationController.presentationController.delegate = nil;
   self.navigationController = nil;
+
+  [self.mediator disconnect];
+  self.mediator = nil;
 
   [self.sharingCoordinator stop];
   self.sharingCoordinator = nil;
+
+  [_signinPromoViewMediator disconnect];
+  _signinPromoViewMediator = nil;
+
+  _authService = nullptr;
+  _prefService = nullptr;
+  _identityManager = nullptr;
+  _identityManagerObserverBridge.reset();
 
   [super stop];
   self.started = NO;
@@ -205,186 +262,83 @@
   self.navigationController.toolbarHidden = !hasItems;
 }
 
-#pragma mark - ReadingListContextMenuDelegate
-
-- (void)openURLInNewTabForContextMenuWithParams:
-    (ReadingListContextMenuParams*)params {
-  [self loadEntryURL:params.entryURL
-      withOfflineURL:GURL::EmptyGURL()
-            inNewTab:YES
-           incognito:NO];
-}
-
-- (void)openURLInNewIncognitoTabForContextMenuWithParams:
-    (ReadingListContextMenuParams*)params {
-  [self loadEntryURL:params.entryURL
-      withOfflineURL:GURL::EmptyGURL()
-            inNewTab:YES
-           incognito:YES];
-}
-
-- (void)openURLInNewWindowForContextMenuWithParams:
-    (ReadingListContextMenuParams*)params {
-  id<ApplicationCommands> windowOpener = HandlerForProtocol(
-      self.browser->GetCommandDispatcher(), ApplicationCommands);
-  [windowOpener openNewWindowWithActivity:ActivityToLoadURL(
-                                              WindowActivityReadingListOrigin,
-                                              params.entryURL)];
-}
-
-- (void)copyURLForContextMenuWithParams:(ReadingListContextMenuParams*)params {
-  StoreURLInPasteboard(params.entryURL);
-  self.contextMenuCoordinator = nil;
-}
-
-- (void)openOfflineURLInNewTabForContextMenuWithParams:
-    (ReadingListContextMenuParams*)params {
-  [self loadEntryURL:params.entryURL
-      withOfflineURL:params.offlineURL
-            inNewTab:YES
-           incognito:[self isIncognitoForced]];
-}
-
 #pragma mark - ReadingListTableViewControllerDelegate
 
 - (void)dismissReadingListListViewController:(UIViewController*)viewController {
   DCHECK_EQ(self.tableViewController, viewController);
   [self.tableViewController willBeDismissed];
-  [self stop];
-}
-
-- (void)readingListListViewController:(UIViewController*)viewController
-            displayContextMenuForItem:(id<ReadingListListItem>)item
-                              atPoint:(CGPoint)menuLocation {
-  DCHECK_EQ(self.tableViewController, viewController);
-  const ReadingListEntry* entry = [self.mediator entryFromItem:item];
-  if (!entry) {
-    [self.tableViewController reloadData];
-    return;
-  }
-
-  const GURL entryURL = entry->URL();
-  GURL offlineURL;
-  if (entry->DistilledState() == ReadingListEntry::PROCESSED) {
-    offlineURL = reading_list::OfflineURLForPath(
-        entry->DistilledPath(), entryURL, entry->DistilledURL());
-  }
-
-  ReadingListContextMenuParams* params =
-      [[ReadingListContextMenuParams alloc] init];
-  params.title = base::SysUTF8ToNSString(entry->Title());
-  params.message = base::SysUTF8ToNSString(entryURL.spec());
-  params.rect = CGRectMake(menuLocation.x, menuLocation.y, 0, 0);
-  params.view = self.tableViewController.tableView;
-  params.entryURL = entryURL;
-  params.offlineURL = offlineURL;
-
-  self.contextMenuCoordinator = [[ReadingListContextMenuCoordinator alloc]
-      initWithBaseViewController:self.navigationController
-                         browser:self.browser
-                          params:params];
-  self.contextMenuCoordinator.delegate = self;
-  [self.contextMenuCoordinator start];
+  [_delegate closeReadingList];
 }
 
 - (void)readingListListViewController:(UIViewController*)viewController
                              openItem:(id<ReadingListListItem>)item {
   DCHECK_EQ(self.tableViewController, viewController);
-  const ReadingListEntry* entry = [self.mediator entryFromItem:item];
+  scoped_refptr<const ReadingListEntry> entry =
+      [self.mediator entryFromItem:item];
   if (!entry) {
     [self.tableViewController reloadData];
     return;
   }
   [self loadEntryURL:entry->URL()
-      withOfflineURL:GURL::EmptyGURL()
-            inNewTab:NO
-           incognito:NO];
+          withOfflineURL:GURL::EmptyGURL()
+      loadOfflineVersion:NO
+                inNewTab:NO
+               incognito:NO];
 }
 
 - (void)readingListListViewController:(UIViewController*)viewController
                      openItemInNewTab:(id<ReadingListListItem>)item
                             incognito:(BOOL)incognito {
   DCHECK_EQ(self.tableViewController, viewController);
-  const ReadingListEntry* entry = [self.mediator entryFromItem:item];
+  scoped_refptr<const ReadingListEntry> entry =
+      [self.mediator entryFromItem:item];
   if (!entry) {
     [self.tableViewController reloadData];
     return;
   }
   [self loadEntryURL:entry->URL()
-      withOfflineURL:GURL::EmptyGURL()
-            inNewTab:YES
-           incognito:incognito];
+          withOfflineURL:GURL::EmptyGURL()
+      loadOfflineVersion:NO
+                inNewTab:YES
+               incognito:incognito];
 }
 
 - (void)readingListListViewController:(UIViewController*)viewController
               openItemOfflineInNewTab:(id<ReadingListListItem>)item {
   DCHECK_EQ(self.tableViewController, viewController);
-  const ReadingListEntry* entry = [self.mediator entryFromItem:item];
-  if (!entry)
+  [self openItemOfflineInNewTab:item];
+}
+
+- (void)didLoadContent {
+  if (!_shouldShowSignInPromo) {
     return;
-
-  if (entry->DistilledState() == ReadingListEntry::PROCESSED) {
-    const GURL entryURL = entry->URL();
-    GURL offlineURL = reading_list::OfflineURLForPath(
-        entry->DistilledPath(), entryURL, entry->DistilledURL());
-    [self loadEntryURL:entry->URL()
-        withOfflineURL:offlineURL
-              inNewTab:YES
-             incognito:NO];
-  }
-}
-
-#pragma mark - UIViewControllerTransitioningDelegate
-
-- (UIPresentationController*)
-presentationControllerForPresentedViewController:(UIViewController*)presented
-                        presentingViewController:(UIViewController*)presenting
-                            sourceViewController:(UIViewController*)source {
-  return [[TableViewPresentationController alloc]
-      initWithPresentedViewController:presented
-             presentingViewController:presenting];
-}
-
-- (id<UIViewControllerAnimatedTransitioning>)
-animationControllerForPresentedController:(UIViewController*)presented
-                     presentingController:(UIViewController*)presenting
-                         sourceController:(UIViewController*)source {
-  UITraitCollection* traitCollection = presenting.traitCollection;
-  if (traitCollection.horizontalSizeClass == UIUserInterfaceSizeClassCompact &&
-      traitCollection.verticalSizeClass != UIUserInterfaceSizeClassCompact) {
-    // Use the default animator for fullscreen presentations.
-    return nil;
   }
 
-  TableViewAnimator* animator = [[TableViewAnimator alloc] init];
-  animator.presenting = YES;
-  return animator;
-}
-
-- (id<UIViewControllerAnimatedTransitioning>)
-animationControllerForDismissedController:(UIViewController*)dismissed {
-  UITraitCollection* traitCollection = dismissed.traitCollection;
-  if (traitCollection.horizontalSizeClass == UIUserInterfaceSizeClassCompact &&
-      traitCollection.verticalSizeClass != UIUserInterfaceSizeClassCompact) {
-    // Use the default animator for fullscreen presentations.
-    return nil;
-  }
-
-  TableViewAnimator* animator = [[TableViewAnimator alloc] init];
-  animator.presenting = NO;
-  return animator;
+  SigninPromoViewConfigurator* promoConfigurator =
+      [_signinPromoViewMediator createConfigurator];
+  [self.tableViewController promoStateChanged:YES
+                            promoConfigurator:promoConfigurator
+                                promoDelegate:_signinPromoViewMediator];
 }
 
 #pragma mark - URL Loading Helpers
 
-// Loads reading list URLs.  If |offlineURL| is valid, the item will be loaded
-// offline; otherwise |entryURL| is loaded.  |newTab| and |incognito| can be
-// used to optionally open the URL in a new tab or in incognito.  The
-// coordinator is also stopped after the load is requested.
+// Loads reading list URLs. If `offlineURL` is valid and `loadOfflineVersion` is
+// true, the item will be loaded offline; otherwise `entryURL` is loaded.
+// `newTab` and `incognito` can be used to optionally open the URL in a new tab
+// or in incognito.  The coordinator is also stopped after the load is
+// requested.
+// NOTE: `loadOfflineVersion` may not be used with `inNewTab`.
+// TODO(crbug.com/1313458):  Remove `inNewTab` and `withOfflineURL` when
+// migration is complete.
 - (void)loadEntryURL:(const GURL&)entryURL
-      withOfflineURL:(const GURL&)offlineURL
-            inNewTab:(BOOL)newTab
-           incognito:(BOOL)incognito {
+        withOfflineURL:(const GURL&)offlineURL
+    loadOfflineVersion:(BOOL)loadOfflineVersion
+              inNewTab:(BOOL)newTab
+             incognito:(BOOL)incognito {
+  // Override incognito opening using enterprise policy.
+  incognito = incognito || self.isIncognitoForced;
+  incognito = incognito && self.isIncognitoAvailable;
   // Only open a new incognito tab when incognito is authenticated. Prompt for
   // auth otherwise.
   if (incognito) {
@@ -401,6 +355,7 @@ animationControllerForDismissedController:(UIViewController*)dismissed {
             if (success) {
               [weakSelf loadEntryURL:copyEntryURL
                       withOfflineURL:copyOfflineURL
+                  loadOfflineVersion:YES
                             inNewTab:newTab
                            incognito:incognito];
             }
@@ -414,12 +369,12 @@ animationControllerForDismissedController:(UIViewController*)dismissed {
   web::WebState* activeWebState =
       self.browser->GetWebStateList()->GetActiveWebState();
   new_tab_page_uma::RecordAction(
-      self.browser->GetBrowserState(), activeWebState,
+      self.browser->GetBrowserState()->IsOffTheRecord(), activeWebState,
       new_tab_page_uma::ACTION_OPENED_READING_LIST_ENTRY);
 
   // Load the offline URL if available.
   GURL loadURL = entryURL;
-  if (offlineURL.is_valid()) {
+  if (offlineURL.is_valid() && !loadOfflineVersion) {
     loadURL = offlineURL;
     // Offline URLs should always be opened in new tabs.
     newTab = YES;
@@ -430,9 +385,17 @@ animationControllerForDismissedController:(UIViewController*)dismissed {
   // Prepare the table for dismissal.
   [self.tableViewController willBeDismissed];
 
-  // Use a referrer with a specific URL to signal that this entry should not be
-  // taken into account for the Most Visited tiles.
-  if (newTab) {
+  if (loadOfflineVersion) {
+    DCHECK(!newTab);
+    OfflinePageTabHelper* offlinePageTabHelper =
+        OfflinePageTabHelper::FromWebState(activeWebState);
+    if (offlinePageTabHelper &&
+        offlinePageTabHelper->CanHandleErrorLoadingURL(entryURL)) {
+      offlinePageTabHelper->LoadOfflinePage(entryURL);
+    }
+    // Use a referrer with a specific URL to signal that this entry should not
+    // be taken into account for the Most Visited tiles.
+  } else if (newTab) {
     UrlLoadParams params = UrlLoadParams::InNewTab(loadURL, entryURL);
     params.in_incognito = incognito;
     params.web_params.referrer = web::Referrer(GURL(kReadingListReferrerURL),
@@ -446,7 +409,35 @@ animationControllerForDismissedController:(UIViewController*)dismissed {
     UrlLoadingBrowserAgent::FromBrowser(self.browser)->Load(params);
   }
 
-  [self stop];
+  [_delegate closeReadingList];
+}
+
+- (void)openItemOfflineInNewTab:(id<ReadingListListItem>)item {
+  scoped_refptr<const ReadingListEntry> entry =
+      [self.mediator entryFromItem:item];
+  if (!entry)
+    return;
+
+  BOOL offTheRecord = self.browser->GetBrowserState()->IsOffTheRecord();
+
+  if (entry->DistilledState() == ReadingListEntry::PROCESSED) {
+    const GURL entryURL = entry->URL();
+    GURL offlineURL = reading_list::OfflineURLForURL(entryURL);
+
+    if (web::features::IsLoadSimulatedRequestAPIEnabled()) {
+      [self loadEntryURL:entryURL
+              withOfflineURL:entryURL
+          loadOfflineVersion:YES
+                    inNewTab:NO
+                   incognito:offTheRecord];
+    } else {
+      [self loadEntryURL:entryURL
+              withOfflineURL:offlineURL
+          loadOfflineVersion:NO
+                    inNewTab:YES
+                   incognito:offTheRecord];
+    }
+  }
 }
 
 #pragma mark - ReadingListMenuProvider
@@ -468,11 +459,11 @@ animationControllerForDismissedController:(UIViewController*)dismissed {
         ReadingListCoordinator* strongSelf = weakSelf;
 
         // Record that this context menu was shown to the user.
-        RecordMenuShown(MenuScenario::kReadingListEntry);
+        RecordMenuShown(MenuScenarioHistogram::kReadingListEntry);
 
         BrowserActionFactory* actionFactory = [[BrowserActionFactory alloc]
             initWithBrowser:strongSelf.browser
-                   scenario:MenuScenario::kReadingListEntry];
+                   scenario:MenuScenarioHistogram::kReadingListEntry];
 
         NSMutableArray<UIMenuElement*>* menuElements =
             [[NSMutableArray alloc] init];
@@ -483,6 +474,7 @@ animationControllerForDismissedController:(UIViewController*)dismissed {
 
           [weakSelf loadEntryURL:item.entryURL
                   withOfflineURL:GURL::EmptyGURL()
+              loadOfflineVersion:NO
                         inNewTab:YES
                        incognito:NO];
         }];
@@ -498,6 +490,7 @@ animationControllerForDismissedController:(UIViewController*)dismissed {
 
               [weakSelf loadEntryURL:item.entryURL
                       withOfflineURL:GURL::EmptyGURL()
+                  loadOfflineVersion:NO
                             inNewTab:YES
                            incognito:YES];
             }];
@@ -506,17 +499,13 @@ animationControllerForDismissedController:(UIViewController*)dismissed {
         }
         [menuElements addObject:openInNewIncognitoTab];
 
-        const ReadingListEntry* entry = [self.mediator entryFromItem:item];
-        if (entry->DistilledState() == ReadingListEntry::PROCESSED) {
-          GURL offlineURL = reading_list::OfflineURLForPath(
-              entry->DistilledPath(), item.entryURL, entry->DistilledURL());
+        scoped_refptr<const ReadingListEntry> entry =
+            [self.mediator entryFromItem:item];
+        if (entry && entry->DistilledState() == ReadingListEntry::PROCESSED) {
           [menuElements
               addObject:[actionFactory
                             actionToOpenOfflineVersionInNewTabWithBlock:^{
-                              [weakSelf loadEntryURL:item.entryURL
-                                      withOfflineURL:offlineURL
-                                            inNewTab:YES
-                                           incognito:[self isIncognitoForced]];
+                              [weakSelf openItemOfflineInNewTab:item];
                             }]];
         }
 
@@ -561,17 +550,118 @@ animationControllerForDismissedController:(UIViewController*)dismissed {
                                                actionProvider:actionProvider];
 }
 
+#pragma mark - SigninPresenter
+
+- (void)showSignin:(ShowSigninCommand*)command {
+  [_applicationCommandsHandler showSignin:command
+                       baseViewController:self.tableViewController];
+}
+
+#pragma mark - SigninPromoViewConsumer
+
+- (void)configureSigninPromoWithConfigurator:
+            (SigninPromoViewConfigurator*)configurator
+                             identityChanged:(BOOL)identityChanged {
+  [self.tableViewController
+      configureSigninPromoWithConfigurator:configurator
+                           identityChanged:identityChanged];
+}
+
+- (void)signinDidFinish {
+  [self updateSignInPromoVisibility];
+}
+
+- (void)signinPromoViewMediatorCloseButtonWasTapped:
+    (SigninPromoViewMediator*)mediator {
+  [self updateSignInPromoVisibility];
+}
+
+// TODO(crbug.com/1425862): This delegate's implementation will be moved to
+// SigninPromoViewMediator.
+#pragma mark - IdentityManagerObserverBridgeDelegate
+
+// Called when a user changes the syncing state.
+- (void)onPrimaryAccountChanged:
+    (const signin::PrimaryAccountChangeEvent&)event {
+  switch (event.GetEventTypeFor(signin::ConsentLevel::kSignin)) {
+    case signin::PrimaryAccountChangeEvent::Type::kSet:
+      if (!_signinPromoViewMediator.signinInProgress) {
+        self.shouldShowSignInPromo = NO;
+      }
+      break;
+    case signin::PrimaryAccountChangeEvent::Type::kCleared:
+      [self updateSignInPromoVisibility];
+      break;
+    case signin::PrimaryAccountChangeEvent::Type::kNone:
+      break;
+  }
+}
+
 #pragma mark - Private
 
-// Triggers the URL sharing flow for the given |URL| and |title|, with the
-// origin |view| representing the UI component for that URL.
+// Computes whether the sign-in promo should be visible in the reading list and
+// updates the view accordingly.
+- (void)updateSignInPromoVisibility {
+  BOOL areAccountStorageAndPromoEnabled =
+      base::FeatureList::IsEnabled(
+          reading_list::switches::kReadingListEnableDualReadingListModel) &&
+      base::FeatureList::IsEnabled(
+          reading_list::switches::
+              kReadingListEnableSyncTransportModeUponSignIn);
+  if (!areAccountStorageAndPromoEnabled || self.isSyncDisabledByAdministrator) {
+    self.shouldShowSignInPromo = NO;
+    return;
+  }
+
+  if (![SigninPromoViewMediator
+          shouldDisplaySigninPromoViewWithAccessPoint:
+              signin_metrics::AccessPoint::ACCESS_POINT_READING_LIST
+                                authenticationService:_authService
+                                          prefService:_prefService]) {
+    self.shouldShowSignInPromo = NO;
+    return;
+  }
+  if (_identityManager->HasPrimaryAccount(signin::ConsentLevel::kSignin)) {
+    self.shouldShowSignInPromo = NO;
+  } else {
+    const std::string lastSignedInGaiaId =
+        _prefService->GetString(prefs::kGoogleServicesLastGaiaId);
+    // If the last signed-in user did not remove data during sign-out, don't
+    // show the signin promo.
+    self.shouldShowSignInPromo = lastSignedInGaiaId.empty();
+  }
+}
+
+// Updates the visibility of the sign-in promo.
+- (void)setShouldShowSignInPromo:(BOOL)shouldShowSignInPromo {
+  if (_shouldShowSignInPromo == shouldShowSignInPromo) {
+    return;
+  }
+
+  _shouldShowSignInPromo = shouldShowSignInPromo;
+  SigninPromoViewConfigurator* promoConfigurator =
+      [_signinPromoViewMediator createConfigurator];
+  [self.tableViewController promoStateChanged:shouldShowSignInPromo
+                            promoConfigurator:promoConfigurator
+                                promoDelegate:_signinPromoViewMediator];
+  if (shouldShowSignInPromo) {
+    [_signinPromoViewMediator signinPromoViewIsVisible];
+  } else {
+    if (!_signinPromoViewMediator.invalidClosedOrNeverVisible) {
+      [_signinPromoViewMediator signinPromoViewIsHidden];
+    }
+  }
+}
+
+// Triggers the URL sharing flow for the given `URL` and `title`, with the
+// origin `view` representing the UI component for that URL.
 - (void)shareURL:(const GURL&)URL
            title:(NSString*)title
         fromView:(UIView*)view {
-  ActivityParams* params =
-      [[ActivityParams alloc] initWithURL:URL
-                                    title:title
-                                 scenario:ActivityScenario::ReadingListEntry];
+  SharingParams* params =
+      [[SharingParams alloc] initWithURL:URL
+                                   title:title
+                                scenario:SharingScenario::ReadingListEntry];
   self.sharingCoordinator = [[SharingCoordinator alloc]
       initWithBaseViewController:self.tableViewController
                          browser:self.browser
@@ -580,14 +670,25 @@ animationControllerForDismissedController:(UIViewController*)dismissed {
   [self.sharingCoordinator start];
 }
 
+// Returns YES if the user cannot turn on sync for enterprise policy reasons.
+- (BOOL)isSyncDisabledByAdministrator {
+  syncer::SyncService* syncService = SyncServiceFactory::GetForBrowserState(
+      self.browser->GetBrowserState()->GetOriginalChromeBrowserState());
+  const bool syncDisabledPolicy = syncService->HasDisableReason(
+      syncer::SyncService::DISABLE_REASON_ENTERPRISE_POLICY);
+  const bool syncTypesDisabledPolicy = IsManagedSyncDataType(
+      syncService, syncer::UserSelectableType::kReadingList);
+  return syncDisabledPolicy || syncTypesDisabledPolicy;
+}
+
 #pragma mark - ReadingListListItemFactoryDelegate
 
 - (BOOL)isIncognitoForced {
-  return IsIncognitoModeForced(self.browser->GetBrowserState()->GetPrefs());
+  return IsIncognitoModeForced(_prefService);
 }
 
 - (BOOL)isIncognitoAvailable {
-  return !IsIncognitoModeDisabled(self.browser->GetBrowserState()->GetPrefs());
+  return !IsIncognitoModeDisabled(_prefService);
 }
 
 @end

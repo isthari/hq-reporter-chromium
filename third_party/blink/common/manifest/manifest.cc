@@ -1,8 +1,11 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/public/common/manifest/manifest.h"
+
+#include "third_party/blink/public/mojom/manifest/manifest.mojom-shared.h"
+#include "third_party/blink/public/mojom/manifest/manifest_launch_handler.mojom-shared.h"
 
 namespace blink {
 
@@ -74,15 +77,38 @@ bool Manifest::RelatedApplication::operator==(
   return AsTuple(*this) == AsTuple(other);
 }
 
+Manifest::LaunchHandler::LaunchHandler() : client_mode(ClientMode::kAuto) {}
+Manifest::LaunchHandler::LaunchHandler(ClientMode client_mode)
+    : client_mode(client_mode) {}
+
 bool Manifest::LaunchHandler::operator==(const LaunchHandler& other) const {
-  auto AsTuple = [](const auto& item) {
-    return std::tie(item.route_to, item.navigate_existing_client);
-  };
-  return AsTuple(*this) == AsTuple(other);
+  return client_mode == other.client_mode;
 }
 
 bool Manifest::LaunchHandler::operator!=(const LaunchHandler& other) const {
   return !(*this == other);
+}
+
+bool Manifest::LaunchHandler::TargetsExistingClients() const {
+  switch (client_mode) {
+    case ClientMode::kAuto:
+    case ClientMode::kNavigateNew:
+      return false;
+    case ClientMode::kNavigateExisting:
+    case ClientMode::kFocusExisting:
+      return true;
+  }
+}
+
+bool Manifest::LaunchHandler::NeverNavigateExistingClients() const {
+  switch (client_mode) {
+    case ClientMode::kAuto:
+    case ClientMode::kNavigateNew:
+    case ClientMode::kNavigateExisting:
+      return false;
+    case ClientMode::kFocusExisting:
+      return true;
+  }
 }
 
 Manifest::TranslationItem::TranslationItem() = default;
@@ -92,6 +118,37 @@ Manifest::TranslationItem::~TranslationItem() = default;
 bool Manifest::TranslationItem::operator==(const TranslationItem& other) const {
   auto AsTuple = [](const auto& item) {
     return std::tie(item.name, item.short_name, item.description);
+  };
+  return AsTuple(*this) == AsTuple(other);
+}
+
+Manifest::HomeTabParams::HomeTabParams() = default;
+
+Manifest::HomeTabParams::~HomeTabParams() = default;
+
+bool Manifest::HomeTabParams::operator==(const HomeTabParams& other) const {
+  auto AsTuple = [](const auto& item) {
+    return std::tie(item.icons, item.scope_patterns);
+  };
+  return AsTuple(*this) == AsTuple(other);
+}
+
+Manifest::NewTabButtonParams::NewTabButtonParams() = default;
+
+Manifest::NewTabButtonParams::~NewTabButtonParams() = default;
+
+bool Manifest::NewTabButtonParams::operator==(
+    const NewTabButtonParams& other) const {
+  return url == other.url;
+}
+
+Manifest::TabStrip::TabStrip() = default;
+
+Manifest::TabStrip::~TabStrip() = default;
+
+bool Manifest::TabStrip::operator==(const TabStrip& other) const {
+  auto AsTuple = [](const auto& item) {
+    return std::tie(item.home_tab, item.new_tab_button);
   };
   return AsTuple(*this) == AsTuple(other);
 }

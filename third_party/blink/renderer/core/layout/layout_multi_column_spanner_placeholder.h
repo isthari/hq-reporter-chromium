@@ -1,10 +1,11 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_MULTI_COLUMN_SPANNER_PLACEHOLDER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_MULTI_COLUMN_SPANNER_PLACEHOLDER_H_
 
+#include "base/notreached.h"
 #include "third_party/blink/renderer/core/layout/layout_block_flow.h"
 
 namespace blink {
@@ -71,7 +72,6 @@ class LayoutMultiColumnSpannerPlaceholder final : public LayoutBox {
  protected:
   void InsertedIntoTree() override;
   void WillBeRemovedFromTree() override;
-  bool NeedsPreferredWidthsRecalculation() const override;
   void RecalcVisualOverflow() override;
   MinMaxSizes PreferredLogicalWidths() const override;
   void UpdateLayout() override;
@@ -82,7 +82,7 @@ class LayoutMultiColumnSpannerPlaceholder final : public LayoutBox {
   bool NodeAtPoint(HitTestResult&,
                    const HitTestLocation&,
                    const PhysicalOffset& accumulated_offset,
-                   HitTestAction) override;
+                   HitTestPhase) override;
 
  private:
   MinMaxSizes ComputeIntrinsicLogicalWidths() const final {
@@ -90,6 +90,8 @@ class LayoutMultiColumnSpannerPlaceholder final : public LayoutBox {
     NOTREACHED();
     return MinMaxSizes();
   }
+  LayoutPoint Location() const override;
+  LayoutSize Size() const override;
 
   // The actual column-span:all layoutObject inside the flow thread.
   Member<LayoutBox> layout_object_in_flow_thread_;

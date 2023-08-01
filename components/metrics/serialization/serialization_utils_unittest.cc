@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -182,8 +182,7 @@ TEST_F(SerializationUtilsTest, NegativeLengthTest) {
       0xff,
       0xff,
   };
-  CHECK(base::WriteFile(filepath(), reinterpret_cast<const char*>(kInput),
-                        sizeof(kInput)));
+  ASSERT_TRUE(base::WriteFile(filepath(), base::make_span(kInput)));
 
   std::vector<std::unique_ptr<MetricSample>> samples;
   SerializationUtils::ReadAndTruncateMetricsFromFile(filename(), &samples);
@@ -191,7 +190,6 @@ TEST_F(SerializationUtilsTest, NegativeLengthTest) {
 }
 
 TEST_F(SerializationUtilsTest, WriteReadTest) {
-  base::HistogramTester histogram_tester;
   std::unique_ptr<MetricSample> hist =
       MetricSample::HistogramSample("myhist", 1, 2, 3, 4);
   std::unique_ptr<MetricSample> crash = MetricSample::CrashSample("mycrash");
@@ -222,15 +220,9 @@ TEST_F(SerializationUtilsTest, WriteReadTest) {
   int64_t size = 0;
   ASSERT_TRUE(base::GetFileSize(filepath(), &size));
   ASSERT_EQ(0, size);
-
-  histogram_tester.ExpectUniqueSample(
-      "UMA.ReadAndTruncateMetricsFromFile.ReadCount", 5, 1);
-  histogram_tester.ExpectUniqueSample(
-      "UMA.ReadAndTruncateMetricsFromFile.DiscardedCount", 0, 1);
 }
 
 TEST_F(SerializationUtilsTest, TooManyMessagesTest) {
-  base::HistogramTester histogram_tester;
   std::unique_ptr<MetricSample> hist =
       MetricSample::HistogramSample("myhist", 1, 2, 3, 4);
 
@@ -252,17 +244,9 @@ TEST_F(SerializationUtilsTest, TooManyMessagesTest) {
   int64_t size = 0;
   ASSERT_TRUE(base::GetFileSize(filepath(), &size));
   ASSERT_EQ(0, size);
-  histogram_tester.ExpectUniqueSample(
-      "UMA.ReadAndTruncateMetricsFromFile.ReadCount",
-      SerializationUtils::kMaxMessagesPerRead, 1);
-  histogram_tester.ExpectUniqueSample(
-      "UMA.ReadAndTruncateMetricsFromFile.DiscardedCount", kDiscardedSamples,
-      1);
 }
 
 TEST_F(SerializationUtilsTest, ReadEmptyFile) {
-  base::HistogramTester histogram_tester;
-
   {
     // Create a zero-length file and then close file descriptor.
     base::File file(filepath(),
@@ -273,10 +257,6 @@ TEST_F(SerializationUtilsTest, ReadEmptyFile) {
   std::vector<std::unique_ptr<MetricSample>> vect;
   SerializationUtils::ReadAndTruncateMetricsFromFile(filename(), &vect);
   EXPECT_THAT(vect, IsEmpty());
-  histogram_tester.ExpectUniqueSample(
-      "UMA.ReadAndTruncateMetricsFromFile.ReadCount", 0, 1);
-  histogram_tester.ExpectUniqueSample(
-      "UMA.ReadAndTruncateMetricsFromFile.DiscardedCount", 0, 1);
 }
 
 TEST_F(SerializationUtilsTest, ReadNonExistentFile) {
@@ -285,10 +265,6 @@ TEST_F(SerializationUtilsTest, ReadNonExistentFile) {
   std::vector<std::unique_ptr<MetricSample>> vect;
   SerializationUtils::ReadAndTruncateMetricsFromFile(filename(), &vect);
   EXPECT_THAT(vect, IsEmpty());
-  histogram_tester.ExpectUniqueSample(
-      "UMA.ReadAndTruncateMetricsFromFile.ReadCount", 0, 1);
-  histogram_tester.ExpectUniqueSample(
-      "UMA.ReadAndTruncateMetricsFromFile.DiscardedCount", 0, 1);
 }
 
 }  // namespace

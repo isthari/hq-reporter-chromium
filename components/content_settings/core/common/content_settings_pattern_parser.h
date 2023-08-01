@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,8 @@
 
 #include "base/strings/string_piece_forward.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
+
+class GURL;
 
 namespace content_settings {
 
@@ -22,6 +24,8 @@ class PatternParser {
                     ContentSettingsPattern::BuilderInterface* builder);
 
   static std::string ToString(
+      const ContentSettingsPattern::PatternParts& parts);
+  static GURL ToRepresentativeUrl(
       const ContentSettingsPattern::PatternParts& parts);
 };
 

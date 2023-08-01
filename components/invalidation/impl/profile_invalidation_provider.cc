@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -55,8 +55,6 @@ void ProfileInvalidationProvider::Shutdown() {
 // static
 void ProfileInvalidationProvider::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterStringPref(prefs::kFCMInvalidationClientIDCacheDeprecated,
-                               /*default_value=*/std::string());
   registry->RegisterDictionaryPref(prefs::kInvalidationClientIDCache);
 }
 

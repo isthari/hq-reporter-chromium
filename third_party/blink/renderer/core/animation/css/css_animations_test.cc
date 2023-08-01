@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/pseudo_element.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
+#include "third_party/blink/renderer/core/page/page_animator.h"
 #include "third_party/blink/renderer/core/testing/core_unit_test_helper.h"
 #include "third_party/blink/renderer/platform/animation/compositor_animation.h"
 #include "third_party/blink/renderer/platform/animation/compositor_animation_delegate.h"
@@ -105,9 +106,19 @@ class CSSAnimationsTest : public RenderingTest, public PaintTestConfigurations {
     DCHECK(!IsUseCounted(feature));
   }
 
+  wtf_size_t DeferredTimelinesCount(Element* element) const {
+    ElementAnimations* element_animations = element->GetElementAnimations();
+    if (!element_animations) {
+      return 0;
+    }
+    CSSAnimations& css_animations = element_animations->CssAnimations();
+    return css_animations.timeline_data_.GetDeferredTimelines().size();
+  }
+
  private:
   void SetUpAnimationClockForTesting() {
     GetPage().Animator().Clock().ResetTimeForTesting();
+    GetDocument().Timeline().ResetForTesting();
   }
 };
 
@@ -175,9 +186,14 @@ TEST_P(CSSAnimationsTest, IncompatibleRetargetedTransition) {
                   GetSaturateFilterAmount(element));
 
   // Now we start a contrast filter. Since it will try to combine with
-  // the in progress saturate filter, and be incompatible, there should
-  // be no transition and it should immediately apply on the next frame.
+  // the in progress saturate filter, and be incompatible, there will be a
+  // discrete transition and it will apply halfway through the transition.
   element->setAttribute(html_names::kClassAttr, "contrast");
+  UpdateAllLifecyclePhasesForTest();
+  EXPECT_FLOAT_EQ(1.0 * (1 - 0.003) + 0.2 * 0.003,
+                  GetSaturateFilterAmount(element));
+
+  AdvanceClockSeconds(0.5);
   UpdateAllLifecyclePhasesForTest();
   EXPECT_EQ(0.2, GetContrastFilterAmount(element));
 }
@@ -317,6 +333,15 @@ bool OpacityFlag(const ComputedStyle& style) {
 bool TransformFlag(const ComputedStyle& style) {
   return style.HasCurrentTransformAnimation();
 }
+bool ScaleFlag(const ComputedStyle& style) {
+  return style.HasCurrentScaleAnimation();
+}
+bool RotateFlag(const ComputedStyle& style) {
+  return style.HasCurrentRotateAnimation();
+}
+bool TranslateFlag(const ComputedStyle& style) {
+  return style.HasCurrentTranslateAnimation();
+}
 bool FilterFlag(const ComputedStyle& style) {
   return style.HasCurrentFilterAnimation();
 }
@@ -335,6 +360,15 @@ bool CompositedOpacityFlag(const ComputedStyle& style) {
 }
 bool CompositedTransformFlag(const ComputedStyle& style) {
   return style.IsRunningTransformAnimationOnCompositor();
+}
+bool CompositedScaleFlag(const ComputedStyle& style) {
+  return style.IsRunningScaleAnimationOnCompositor();
+}
+bool CompositedRotateFlag(const ComputedStyle& style) {
+  return style.IsRunningRotateAnimationOnCompositor();
+}
+bool CompositedTranslateFlag(const ComputedStyle& style) {
+  return style.IsRunningTranslateAnimationOnCompositor();
 }
 bool CompositedFilterFlag(const ComputedStyle& style) {
   return style.IsRunningFilterAnimationOnCompositor();
@@ -355,9 +389,9 @@ struct FlagData {
 FlagData flag_data[] = {
     {"opacity", "0", "1", OpacityFlag},
     {"transform", "scale(1)", "scale(2)", TransformFlag},
-    {"rotate", "10deg", "20deg", TransformFlag},
-    {"scale", "1", "2", TransformFlag},
-    {"translate", "10px", "20px", TransformFlag},
+    {"rotate", "10deg", "20deg", RotateFlag},
+    {"scale", "1", "2", ScaleFlag},
+    {"translate", "10px", "20px", TranslateFlag},
     {"filter", "contrast(10%)", "contrast(20%)", FilterFlag},
     {"backdrop-filter", "blur(10px)", "blur(20px)", BackdropFilterFlag},
     {"background-color", "red", "blue", BackgroundColorFlag},
@@ -367,6 +401,9 @@ FlagData flag_data[] = {
 FlagData compositor_flag_data[] = {
     {"opacity", "0", "1", CompositedOpacityFlag},
     {"transform", "scale(1)", "scale(2)", CompositedTransformFlag},
+    {"scale", "1", "2", CompositedScaleFlag},
+    {"rotate", "45deg", "90deg", CompositedRotateFlag},
+    {"translate", "10px 0px", "10px 20px", CompositedTranslateFlag},
     {"filter", "contrast(10%)", "contrast(20%)", CompositedFilterFlag},
     {"backdrop-filter", "blur(10px)", "blur(20px)",
      CompositedBackdropFilterFlag},
@@ -1003,6 +1040,71 @@ TEST_P(CSSAnimationsCompositorSyncTest, SetCurrentTime) {
   EXPECT_EQ(post_update_compositor_group, animation->CompositorGroup());
   VerifyCompositorIterationTime(950);
   VerifyCompositorOpacity(0.05);
+}
+
+TEST_P(CSSAnimationsTest, LingeringTimelineAttachments) {
+  SetBodyInnerHTML(R"HTML(
+    <style>
+      .defer {
+        scroll-timeline: --t1 defer;
+      }
+      #scroller {
+        overflow: auto;
+        width: 100px;
+        height: 100px;
+      }
+      #scroller > div {
+        width: 50px;
+        height: 200px;
+      }
+      .ancestor-timeline {
+        scroll-timeline: --t1 ancestor;
+      }
+    </style>
+    <div class=defer>
+      <div id=scroller class=ancestor-timeline>
+        <div></div>
+      </div>
+    </div>
+  )HTML");
+
+  Element* scroller = GetDocument().getElementById("scroller");
+  ASSERT_TRUE(scroller);
+
+  ElementAnimations* element_animations = scroller->GetElementAnimations();
+  ASSERT_TRUE(element_animations);
+
+  const CSSAnimations& css_animations = element_animations->CssAnimations();
+  EXPECT_TRUE(css_animations.HasTimelines());
+
+  scroller->classList().Remove("ancestor-timeline");
+  UpdateAllLifecyclePhasesForTest();
+
+  // No timeline data should linger on #scroller's CSSAnimations.
+  EXPECT_FALSE(css_animations.HasTimelines());
+}
+
+TEST_P(CSSAnimationsTest, DeferredTimelineUpdate) {
+  SetBodyInnerHTML(R"HTML(
+    <div id=target>Target</div>
+  )HTML");
+
+  Element* target = GetElementById("target");
+  ASSERT_TRUE(target);
+
+  EXPECT_EQ(0u, DeferredTimelinesCount(target));
+
+  target->SetInlineStyleProperty(CSSPropertyID::kTimelineScope, "--t1");
+  UpdateAllLifecyclePhasesForTest();
+  EXPECT_EQ(1u, DeferredTimelinesCount(target));
+
+  target->SetInlineStyleProperty(CSSPropertyID::kTimelineScope, "--t1, --t2");
+  UpdateAllLifecyclePhasesForTest();
+  EXPECT_EQ(2u, DeferredTimelinesCount(target));
+
+  target->SetInlineStyleProperty(CSSPropertyID::kTimelineScope, "none");
+  UpdateAllLifecyclePhasesForTest();
+  EXPECT_EQ(0u, DeferredTimelinesCount(target));
 }
 
 }  // namespace blink

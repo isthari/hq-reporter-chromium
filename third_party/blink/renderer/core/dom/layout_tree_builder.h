@@ -35,6 +35,7 @@
 #include "third_party/blink/renderer/core/dom/text.h"
 #include "third_party/blink/renderer/core/layout/layout_inline.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
+#include "third_party/blink/renderer/core/layout/layout_text.h"
 
 namespace blink {
 
@@ -108,16 +109,13 @@ class LayoutTreeBuilderForElement : public LayoutTreeBuilder<Element> {
  public:
   LayoutTreeBuilderForElement(Element&,
                               Node::AttachContext&,
-                              const ComputedStyle*,
-                              LegacyLayout legacy);
+                              const ComputedStyle*);
 
   void CreateLayoutObject();
 
  private:
   LayoutObject* ParentLayoutObject() const;
   LayoutObject* NextLayoutObject() const;
-
-  LegacyLayout legacy_;
 };
 
 class LayoutTreeBuilderForText : public LayoutTreeBuilder<Text> {
@@ -130,10 +128,10 @@ class LayoutTreeBuilderForText : public LayoutTreeBuilder<Text> {
   void CreateLayoutObject();
 
  private:
-  scoped_refptr<ComputedStyle>
+  scoped_refptr<const ComputedStyle>
   CreateInlineWrapperStyleForDisplayContentsIfNeeded() const;
   LayoutObject* CreateInlineWrapperForDisplayContentsIfNeeded(
-      ComputedStyle* wrappter_style) const;
+      const ComputedStyle* wrapper_style) const;
 };
 
 }  // namespace blink

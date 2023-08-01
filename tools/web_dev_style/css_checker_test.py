@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2015 The Chromium Authors. All rights reserved.
+# Copyright 2015 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -667,6 +667,16 @@ body.alternate-logo #logo {
   100% {
     width: 100px;
   }""")
+
+  def testCssNested(self):
+    self.VerifyContentIsValid("""
+#logo {
+  background: radial-gradiant(blue 18px, transparent 19px);
+  .child {
+    background: radial-gradiant(red 10px, transparent 20px);
+  }
+}
+      """)
 
 
 if __name__ == '__main__':

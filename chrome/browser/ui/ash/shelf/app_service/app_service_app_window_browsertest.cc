@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,8 @@
 #include "ash/public/cpp/shelf_model.h"
 #include "ash/public/cpp/window_properties.h"
 #include "ash/shell.h"
+#include "base/memory/raw_ptr.h"
+#include "base/ranges/algorithm.h"
 #include "base/run_loop.h"
 #include "base/scoped_observation.h"
 #include "base/strings/stringprintf.h"
@@ -21,6 +23,7 @@
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/apps/platform_apps/app_browsertest_util.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/browser/ash/arc/arc_util.h"
 #include "chrome/browser/ash/arc/session/arc_session_manager.h"
 #include "chrome/browser/ash/borealis/borealis_service.h"
@@ -28,14 +31,14 @@
 #include "chrome/browser/ash/borealis/borealis_window_manager_mock.h"
 #include "chrome/browser/ash/guest_os/guest_os_registry_service.h"
 #include "chrome/browser/ash/guest_os/guest_os_registry_service_factory.h"
+#include "chrome/browser/ash/system_web_apps/system_web_app_manager.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/browser/ui/ash/shelf/chrome_shelf_controller.h"
 #include "chrome/browser/ui/ash/shelf/chrome_shelf_controller_test_util.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/tabs/tab_enums.h"
 #include "chrome/browser/ui/web_applications/test/web_app_browsertest_util.h"
-#include "chrome/browser/web_applications/system_web_apps/system_web_app_manager.h"
 #include "chrome/browser/web_applications/test/web_app_install_test_utils.h"
 #include "chrome/browser/web_applications/test/with_crosapi_param.h"
 #include "chrome/browser/web_applications/web_app_id_constants.h"
@@ -54,8 +57,6 @@
 #include "ui/display/display.h"
 #include "ui/views/widget/widget.h"
 
-using extensions::AppWindow;
-using extensions::Extension;
 using web_app::test::CrosapiParam;
 using web_app::test::WithCrosapiParam;
 
@@ -205,8 +206,8 @@ class AppServiceAppWindowBrowserTest
     return apps::InstanceState::kUnknown;
   }
 
-  ChromeShelfController* controller_ = nullptr;
-  apps::AppServiceProxy* app_service_proxy_ = nullptr;
+  raw_ptr<ChromeShelfController, ExperimentalAsh> controller_ = nullptr;
+  raw_ptr<apps::AppServiceProxy, ExperimentalAsh> app_service_proxy_ = nullptr;
 };
 
 // Test that we have the correct instance for Chrome apps.
@@ -341,7 +342,7 @@ IN_PROC_BROWSER_TEST_F(AppServiceAppWindowBrowserTest,
   // Close the HostedApp.
   TabStripModel* tab_strip = browser()->tab_strip_model();
   tab_strip->CloseWebContentsAt(tab_strip->active_index(),
-                                TabStripModel::CLOSE_NONE);
+                                TabCloseTypes::CLOSE_NONE);
 
   instances = app_service_proxy_->InstanceRegistry().GetInstances(app_id1);
   EXPECT_TRUE(instances.empty());
@@ -361,7 +362,7 @@ class AppServiceAppWindowLacrosBrowserTest
     : public AppServiceAppWindowBrowserTest {
  public:
   AppServiceAppWindowLacrosBrowserTest() {
-    feature_list_.InitAndEnableFeature(chromeos::features::kLacrosSupport);
+    feature_list_.InitAndEnableFeature(ash::features::kLacrosSupport);
   }
   ~AppServiceAppWindowLacrosBrowserTest() override = default;
 
@@ -419,17 +420,13 @@ class AppServiceAppWindowBorealisBrowserTest
     vm_tools::apps::ApplicationList list;
     list.set_vm_name(vm);
     list.set_container_name(container);
-    list.set_vm_type(vm_tools::apps::ApplicationList_VmType_BOREALIS);
+    list.set_vm_type(vm_tools::apps::BOREALIS);
     vm_tools::apps::App* app = list.add_apps();
     app->set_desktop_file_id(name);
     app->mutable_name()->add_values()->set_value(name);
     app->set_no_display(false);
     guest_os::GuestOsRegistryServiceFactory::GetForProfile(profile())
         ->UpdateApplicationList(list);
-
-    // We need to propagate the newly created app to the various registries
-    // before it can be used.
-    app_service_proxy_->FlushMojoCallsForTesting();
 
     return guest_os::GuestOsRegistryService::GenerateAppId(name, vm, container);
   }
@@ -440,7 +437,8 @@ IN_PROC_BROWSER_TEST_F(AppServiceAppWindowBorealisBrowserTest,
   // Generate a fake app.
   std::string app_id = MakeBorealisApp("vm", "container", "foo");
 
-  views::Widget* widget = CreateExoWindow("org.chromium.borealis.wmclass.foo");
+  views::Widget* widget =
+      CreateExoWindow("org.chromium.guest_os.borealis.wmclass.foo");
 
   EXPECT_EQ(1u,
             app_service_proxy_->InstanceRegistry().GetInstances(app_id).size());
@@ -453,22 +451,14 @@ IN_PROC_BROWSER_TEST_F(AppServiceAppWindowBorealisBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(AppServiceAppWindowBorealisBrowserTest,
                        BorealisUnknownApp) {
-  views::Widget* widget = CreateExoWindow("org.chromium.borealis.wmclass.bar");
-  std::string app_id = "borealis_anon:org.chromium.borealis.wmclass.bar";
+  views::Widget* widget =
+      CreateExoWindow("org.chromium.guest_os.borealis.wmclass.bar");
+  std::string app_id =
+      "borealis_anon:org.chromium.guest_os.borealis.wmclass.bar";
 
   EXPECT_EQ(1u,
             app_service_proxy_->InstanceRegistry().GetInstances(app_id).size());
   ASSERT_NE(-1, shelf_model()->ItemIndexByAppID(app_id));
-
-  // Initially, anonymous apps haven't been published, as that is an
-  // asynchronous operation. This means their shelf item has no title.
-  EXPECT_TRUE(shelf_model()
-                  ->items()[shelf_model()->ItemIndexByAppID(app_id)]
-                  .title.empty());
-
-  // Flushing calls here simulates the fraction-of-seconds delay between the
-  // window appearing and its app being published.
-  app_service_proxy_->FlushMojoCallsForTesting();
 
   // Now that the app is published, it will have a name based on the window title
   EXPECT_EQ(
@@ -498,7 +488,8 @@ IN_PROC_BROWSER_TEST_F(AppServiceAppWindowBorealisBrowserTest,
   EXPECT_CALL(observer, OnSessionStarted());
   EXPECT_CALL(observer, OnAppStarted(app_id));
   EXPECT_CALL(observer, OnWindowStarted(app_id, testing::_));
-  views::Widget* widget = CreateExoWindow("org.chromium.borealis.wmclass.foo");
+  views::Widget* widget =
+      CreateExoWindow("org.chromium.guest_os.borealis.wmclass.foo");
 
   EXPECT_CALL(observer, OnWindowFinished(app_id, widget->GetNativeWindow()));
   EXPECT_CALL(observer, OnAppFinished(app_id, widget->GetNativeWindow()));
@@ -690,7 +681,6 @@ class AppServiceAppWindowArcAppBrowserTest
     package_info.last_backup_android_id = 1;
     package_info.last_backup_time = 1;
     package_info.sync = package_synced;
-    package_info.system = false;
     app_host()->OnPackageAdded(arc::mojom::ArcPackageInfo::From(package_info));
 
     base::RunLoop().RunUntilIdle();
@@ -845,15 +835,13 @@ IN_PROC_BROWSER_TEST_F(AppServiceAppWindowArcAppBrowserTest, LogicalWindowId) {
   auto is_hidden = [](const apps::Instance* instance) {
     return instance->Window()->GetProperty(ash::kHideInShelfKey);
   };
-  EXPECT_EQ(1, std::count_if(instances.begin(), instances.end(), is_hidden));
+  EXPECT_EQ(1, base::ranges::count_if(instances, is_hidden));
 
   // The hidden window should be task_id 2.
   aura::Window* window1 =
-      (*(std::find_if_not(instances.begin(), instances.end(), is_hidden)))
-          ->Window();
+      (*(base::ranges::find_if_not(instances, is_hidden)))->Window();
   aura::Window* window2 =
-      (*(std::find_if(instances.begin(), instances.end(), is_hidden)))
-          ->Window();
+      (*(base::ranges::find_if(instances, is_hidden)))->Window();
 
   apps::InstanceState latest_state =
       app_service_proxy_->InstanceRegistry().GetState(window1);
@@ -877,7 +865,7 @@ IN_PROC_BROWSER_TEST_F(AppServiceAppWindowArcAppBrowserTest, LogicalWindowId) {
   app_host()->OnTaskDestroyed(1);
   instances = app_service_proxy_->InstanceRegistry().GetInstances(app_id);
   EXPECT_EQ(1u, instances.size());
-  EXPECT_EQ(0, std::count_if(instances.begin(), instances.end(), is_hidden));
+  EXPECT_EQ(0, base::ranges::count_if(instances, is_hidden));
 
   // Close second window.
   app_host()->OnTaskDestroyed(2);
@@ -917,7 +905,7 @@ IN_PROC_BROWSER_TEST_F(AppServiceAppWindowArcAppBrowserTest, PaymentApp) {
   auto is_hidden = [](const apps::Instance* instance) {
     return instance->Window()->GetProperty(ash::kHideInShelfKey);
   };
-  EXPECT_EQ(1, std::count_if(instances.begin(), instances.end(), is_hidden));
+  EXPECT_EQ(1, base::ranges::count_if(instances, is_hidden));
 
   // No windows should remain if we close the payment window
   payment_window->CloseNow();
@@ -933,10 +921,8 @@ class AppServiceAppWindowSystemWebAppBrowserTest
 
 IN_PROC_BROWSER_TEST_P(AppServiceAppWindowSystemWebAppBrowserTest,
                        SystemWebAppWindow) {
-  auto& system_web_app_manager =
-      web_app::WebAppProvider::GetForTest(browser()->profile())
-          ->system_web_app_manager();
-  system_web_app_manager.InstallSystemAppsForTesting();
+  ash::SystemWebAppManager::GetForTest(browser()->profile())
+      ->InstallSystemAppsForTesting();
 
   const std::string app_id = web_app::kOsSettingsAppId;
   web_app::LaunchWebAppBrowser(browser()->profile(), app_id);
@@ -969,11 +955,6 @@ IN_PROC_BROWSER_TEST_P(AppServiceAppWindowSystemWebAppBrowserTest,
 
 INSTANTIATE_TEST_SUITE_P(All,
                          AppServiceAppWindowSystemWebAppBrowserTest,
-                         // TODO(crbug.com/1203992): Tests are not run with the
-                         // flag enabled for now, because WebAppsCrosapi
-                         // automatically enables new browser app tracking, but
-                         // it doesn't implement app service instance registry
-                         // updates yet, so the test will fail with the flag
-                         // enabled.
-                         ::testing::Values(CrosapiParam::kDisabled),
+                         ::testing::Values(CrosapiParam::kEnabled,
+                                           CrosapiParam::kDisabled),
                          WithCrosapiParam::ParamToString);

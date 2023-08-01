@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,14 +10,20 @@
 #include "ash/components/arc/metrics/stability_metrics_manager.h"
 #include "ash/components/arc/mojom/app.mojom.h"
 #include "ash/components/arc/mojom/auth.mojom.h"
+#include "ash/shell.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/metrics/histogram_macros_local.h"
 #include "chrome/browser/ash/arc/arc_util.h"
 #include "chrome/browser/ash/arc/policy/arc_policy_util.h"
 #include "chrome/browser/ash/arc/session/arc_provisioning_result.h"
 #include "chrome/browser/ash/login/demo_mode/demo_session.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
+
+// Enable VLOG level 1.
+#undef ENABLED_VLOG_LEVEL
+#define ENABLED_VLOG_LEVEL 1
 
 namespace arc {
 
@@ -155,10 +161,19 @@ void UpdatePlayAutoInstallRequestTime(const base::TimeDelta& elapsed_time,
 void UpdateArcUiAvailableTime(const base::TimeDelta& elapsed_time,
                               const std::string& mode,
                               const Profile* profile) {
+  if (ash::Shell::HasInstance()) {
+    ash::Shell::Get()
+        ->login_unlock_throughput_recorder()
+        ->ArcUiAvailableAfterLogin();
+  }
   base::UmaHistogramCustomTimes(
       GetHistogramNameByUserType("Arc.UiAvailable." + mode + ".TimeDelta",
                                  profile),
       elapsed_time, base::Seconds(1), base::Minutes(5), 50);
+
+  // This is local test-only histogram.
+  LOCAL_HISTOGRAM_CUSTOM_TIMES("Arc.Tast.UiAvailable.TimeDelta", elapsed_time,
+                               base::Seconds(1), base::Minutes(5), 50);
 }
 
 void UpdatePlayStoreLaunchTime(const base::TimeDelta& elapsed_time) {
@@ -193,19 +208,6 @@ void UpdateAuthAccountCheckStatus(mojom::AccountCheckStatus status,
   LogStabilityUmaEnum(
       GetHistogramNameByUserType("Arc.Auth.AccountCheck.Status", profile),
       status);
-}
-
-void UpdateAndroidIdSource(mojom::AndroidIdSource source,
-                           const Profile* profile) {
-  base::UmaHistogramEnumeration(
-      GetHistogramNameByUserType("Arc.Auth.AndroidIdSource", profile), source);
-}
-
-void UpdateAuthCodeFetcherProxyBypassUMA(bool proxy_bypassed,
-                                         const Profile* profile) {
-  base::UmaHistogramBoolean(
-      GetHistogramNameByUserType("Arc.Auth.CodeFetcher.ProxyBypass", profile),
-      proxy_bypassed);
 }
 
 void UpdateAccountReauthReason(mojom::ReauthReason reason,

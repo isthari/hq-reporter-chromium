@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -214,7 +214,9 @@ WebLayerSecurityBlockingPageFactory::CreateInsecureFormBlockingPage(
 std::unique_ptr<security_interstitials::HttpsOnlyModeBlockingPage>
 WebLayerSecurityBlockingPageFactory::CreateHttpsOnlyModeBlockingPage(
     content::WebContents* web_contents,
-    const GURL& request_url) {
+    const GURL& request_url,
+    security_interstitials::https_only_mode::HttpInterstitialState
+        interstitial_state) {
   // HTTPS-only mode is not implemented for weblayer.
   return nullptr;
 }

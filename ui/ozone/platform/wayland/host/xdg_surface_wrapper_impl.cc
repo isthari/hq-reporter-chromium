@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,8 +18,7 @@ XDGSurfaceWrapperImpl::XDGSurfaceWrapperImpl(WaylandWindow* wayland_window,
 
 XDGSurfaceWrapperImpl::~XDGSurfaceWrapperImpl() {
   is_configured_ = false;
-  connection_->wayland_window_manager()->NotifyWindowConfigured(
-      wayland_window_);
+  connection_->window_manager()->NotifyWindowConfigured(wayland_window_);
 }
 
 bool XDGSurfaceWrapperImpl::Initialize() {
@@ -40,17 +39,23 @@ bool XDGSurfaceWrapperImpl::Initialize() {
   }
 
   xdg_surface_add_listener(xdg_surface_.get(), &xdg_surface_listener, this);
-  connection_->ScheduleFlush();
+  connection_->Flush();
   return true;
 }
 
 void XDGSurfaceWrapperImpl::AckConfigure(uint32_t serial) {
+  // We must not ack any serial more than once, so check for that here.
+  DCHECK_LE(last_acked_serial_, serial);
+  if (serial == last_acked_serial_) {
+    return;
+  }
+
+  last_acked_serial_ = serial;
   DCHECK(xdg_surface_);
   xdg_surface_ack_configure(xdg_surface_.get(), serial);
 
   is_configured_ = true;
-  connection_->wayland_window_manager()->NotifyWindowConfigured(
-      wayland_window_);
+  connection_->window_manager()->NotifyWindowConfigured(wayland_window_);
 }
 
 bool XDGSurfaceWrapperImpl::IsConfigured() {
@@ -59,8 +64,20 @@ bool XDGSurfaceWrapperImpl::IsConfigured() {
 
 void XDGSurfaceWrapperImpl::SetWindowGeometry(const gfx::Rect& bounds) {
   DCHECK(xdg_surface_);
+  CHECK(!bounds.IsEmpty()) << "The xdg-shell protocol specification forbids "
+                              "empty bounds (zero width or height). bounds="
+                           << bounds.ToString();
   xdg_surface_set_window_geometry(xdg_surface_.get(), bounds.x(), bounds.y(),
                                   bounds.width(), bounds.height());
+}
+
+XDGSurfaceWrapperImpl* XDGSurfaceWrapperImpl::AsXDGSurfaceWrapper() {
+  return this;
+}
+
+xdg_surface* XDGSurfaceWrapperImpl::xdg_surface() const {
+  DCHECK(xdg_surface_);
+  return xdg_surface_.get();
 }
 
 // static
@@ -70,13 +87,15 @@ void XDGSurfaceWrapperImpl::Configure(void* data,
   auto* surface = static_cast<XDGSurfaceWrapperImpl*>(data);
   DCHECK(surface);
 
-  surface->wayland_window_->HandleSurfaceConfigure(serial);
-  surface->wayland_window_->OnSurfaceConfigureEvent();
-}
+  // Calls to HandleSurfaceConfigure() might end up hiding the enclosing
+  // toplevel window, and deleting this object.
+  auto weak_window = surface->wayland_window_->AsWeakPtr();
+  weak_window->HandleSurfaceConfigure(serial);
 
-xdg_surface* XDGSurfaceWrapperImpl::xdg_surface() const {
-  DCHECK(xdg_surface_);
-  return xdg_surface_.get();
+  if (!weak_window)
+    return;
+
+  weak_window->OnSurfaceConfigureEvent();
 }
 
 }  // namespace ui

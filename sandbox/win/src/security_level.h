@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright 2006-2008 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -43,8 +43,6 @@ enum IntegrityLevel {
 // ----------------------------|--------------|----------------|----------|
 // USER_LOCKDOWN               | Null Sid     | All            | None     |
 // ----------------------------|--------------|----------------|----------|
-// USER_RESTRICTED             | RESTRICTED   | All            | Traverse |
-// ----------------------------|--------------|----------------|----------|
 // USER_LIMITED                | Users        | All except:    | Traverse |
 //                             | Everyone     | Users          |          |
 //                             | RESTRICTED   | Everyone       |          |
@@ -76,14 +74,12 @@ enum IntegrityLevel {
 // applied to the target process depends both on the token level selected
 // and on the broker token itself.
 //
-//  The LOCKDOWN and RESTRICTED are designed to allow access to almost
-//  nothing that has security associated with and they are the recommended
-//  levels to run sandboxed code specially if there is a chance that the
-//  broker is process might be started by a user that belongs to the Admins
-//  or power users groups.
+// The LOCKDOWN level is designed to allow access to almost nothing that has
+// security associated with and they are the recommended levels to run sandboxed
+// code specially if there is a chance that the broker is process might be
+// started by a user that belongs to the Admins or power users groups.
 enum TokenLevel {
   USER_LOCKDOWN = 0,
-  USER_RESTRICTED,
   USER_LIMITED,
   USER_INTERACTIVE,
   USER_RESTRICTED_NON_ADMIN,
@@ -99,47 +95,32 @@ enum TokenLevel {
 //  JobLevel        |General                            |Quota               |
 //                  |restrictions                       |restrictions        |
 // -----------------|---------------------------------- |--------------------|
-// JOB_NONE         | No job is assigned to the         | None               |
-//                  | sandboxed process.                |                    |
+// kUnprotected     | None                              | *Kill on Job close.|
 // -----------------|---------------------------------- |--------------------|
-// JOB_UNPROTECTED  | None                              | *Kill on Job close.|
-// -----------------|---------------------------------- |--------------------|
-// JOB_INTERACTIVE  | *Forbid system-wide changes using |                    |
+// kInteractive     | *Forbid system-wide changes using |                    |
 //                  |  SystemParametersInfo().          | *Kill on Job close.|
 //                  | *Forbid the creation/switch of    |                    |
 //                  |  Desktops.                        |                    |
 //                  | *Forbids calls to ExitWindows().  |                    |
 // -----------------|---------------------------------- |--------------------|
-// JOB_LIMITED_USER | Same as INTERACTIVE_USER plus:    | *One active process|
+// kLimitedUser     | Same as kInteractive plus:        | *One active process|
 //                  | *Forbid changes to the display    |  limit.            |
 //                  |  settings.                        | *Kill on Job close.|
 // -----------------|---------------------------------- |--------------------|
-// JOB_RESTRICTED   | Same as LIMITED_USER plus:        | *One active process|
+// kLockdown        | Same as kLimitedUser plus:        | *One active process|
 //                  | * No read/write to the clipboard. |  limit.            |
 //                  | * No access to User Handles that  | *Kill on Job close.|
-//                  |   belong to other processes.      |                    |
-//                  | * Forbid message broadcasts.      |                    |
+//                  |   belong to other processes.      | *Kill on unhandled |
+//                  | * Forbid message broadcasts.      |  exception.        |
 //                  | * Forbid setting global hooks.    |                    |
 //                  | * No access to the global atoms   |                    |
 //                  |   table.                          |                    |
 // -----------------|-----------------------------------|--------------------|
-// JOB_LOCKDOWN     | Same as RESTRICTED                | *One active process|
-//                  |                                   |  limit.            |
-//                  |                                   | *Kill on Job close.|
-//                  |                                   | *Kill on unhandled |
-//                  |                                   |  exception.        |
-//                  |                                   |                    |
+//
 // In the context of the above table, 'user handles' refers to the handles of
 // windows, bitmaps, menus, etc. Files, treads and registry handles are kernel
 // handles and are not affected by the job level settings.
-enum JobLevel {
-  JOB_LOCKDOWN = 0,
-  JOB_RESTRICTED,
-  JOB_LIMITED_USER,
-  JOB_INTERACTIVE,
-  JOB_UNPROTECTED,
-  JOB_NONE
-};
+enum class JobLevel { kLockdown = 0, kLimitedUser, kInteractive, kUnprotected };
 
 // These flags correspond to various process-level mitigations (eg. ASLR and
 // DEP). Most are implemented via UpdateProcThreadAttribute() plus flags for

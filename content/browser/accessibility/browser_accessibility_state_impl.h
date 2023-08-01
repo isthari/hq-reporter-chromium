@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <vector>
 
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "components/metrics/metrics_provider.h"
 #include "content/common/content_export.h"
@@ -67,6 +68,7 @@ class CONTENT_EXPORT BrowserAccessibilityStateImpl
   void RemoveAccessibilityModeFlags(ui::AXMode mode) override;
   void ResetAccessibilityMode() override;
   void OnScreenReaderDetected() override;
+  void OnScreenReaderStopped() override;
   bool IsAccessibleBrowser() override;
   void AddUIThreadHistogramCallback(base::OnceClosure callback) override;
   void AddOtherThreadHistogramCallback(base::OnceClosure callback) override;
@@ -125,6 +127,11 @@ class CONTENT_EXPORT BrowserAccessibilityStateImpl
   // Resets accessibility_mode_ to the default value.
   void ResetAccessibilityModeValue();
 
+  // Called by `OnScreenReaderStopped` as a delayed task. If accessibility
+  // support has not been re-enabled by the time the delay has expired, we reset
+  // `accessibility_mode_` to the default value and notify all web contents.
+  void MaybeResetAccessibilityMode();
+
   void OnOtherThreadDone();
 
   void UpdateAccessibilityActivityTask();
@@ -147,6 +154,13 @@ class CONTENT_EXPORT BrowserAccessibilityStateImpl
   // Cached here so that we don't have to check base::CommandLine in
   // a function that's called frequently.
   bool force_renderer_accessibility_ = false;
+
+  // The AXMode flags to set only if the the force-renderer-accessibility flag
+  // is enabled. If the optional parameter is present, then force the AXMode to
+  // be the provided bundle value. If the optional parameter is
+  // invalid, this will default to kAXModeComplete. If the optional parameter is
+  // absent, the .flags() will default to kNone.
+  ui::AXMode force_renderer_accessibility_ax_mode_flags_;
 
   // Disable hot tracking, i.e. hover state - needed just to avoid flaky tests.
   bool disable_hot_tracking_ = false;
@@ -175,8 +189,16 @@ class CONTENT_EXPORT BrowserAccessibilityStateImpl
   // The time accessibility was auto-disabled, for statistics.
   base::TimeTicks accessibility_disabled_time_;
 
+  // The time of the most-recent, explicit request to disable accessibility
+  // support. This is set in `OnScreenReaderStopped`. We keep track of this
+  // in order to prevent destroying and/or (re)creating large accessibility
+  // trees in response to an assistive technology being toggled.
+  base::TimeTicks disable_accessibility_request_time_;
+
   base::RepeatingCallbackList<void(const FocusedNodeDetails&)>
       focus_changed_callbacks_;
+
+  base::WeakPtrFactory<BrowserAccessibilityStateImpl> weak_factory_{this};
 };
 
 }  // namespace content

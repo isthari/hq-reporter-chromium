@@ -1,16 +1,15 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "content/renderer/pepper/resource_creation_impl.h"
 
+#include "base/metrics/histogram_functions.h"
 #include "build/build_config.h"
-#include "content/common/content_switches_internal.h"
 #include "content/renderer/pepper/ppb_audio_impl.h"
 #include "content/renderer/pepper/ppb_buffer_impl.h"
 #include "content/renderer/pepper/ppb_graphics_3d_impl.h"
 #include "content/renderer/pepper/ppb_image_data_impl.h"
-#include "content/renderer/pepper/ppb_video_decoder_impl.h"
 #include "ppapi/c/pp_bool.h"
 #include "ppapi/c/pp_size.h"
 #include "ppapi/c/pp_var.h"
@@ -22,7 +21,6 @@
 
 #if BUILDFLAG(IS_WIN)
 #include "base/command_line.h"
-#include "base/win/windows_version.h"
 #endif
 
 using ppapi::InputEventData;
@@ -81,13 +79,6 @@ PP_Resource ResourceCreationImpl::CreateCameraDevicePrivate(
   return 0;  // Not supported in-process.
 }
 
-PP_Resource ResourceCreationImpl::CreateFlashFontFile(
-    PP_Instance instance,
-    const PP_BrowserFont_Trusted_Description* description,
-    PP_PrivateFontCharset charset) {
-  return 0;  // Not supported in-process.
-}
-
 PP_Resource ResourceCreationImpl::CreateGraphics3D(PP_Instance instance,
                                                    PP_Resource share_context,
                                                    const int32_t* attrib_list) {
@@ -120,18 +111,17 @@ PP_Resource ResourceCreationImpl::CreateImageData(PP_Instance instance,
                                                   const PP_Size* size,
                                                   PP_Bool init_to_zero) {
 #if BUILDFLAG(IS_WIN)
-  // If Win32K lockdown mitigations are enabled for Windows 8 and beyond,
-  // we use the SIMPLE image data type as the PLATFORM image data type
+  // We use the SIMPLE image data type as the PLATFORM image data type
   // calls GDI functions to create DIB sections etc which fail in Win32K
   // lockdown mode.
-  if (base::win::GetVersion() >= base::win::Version::WIN8)
-    return CreateImageDataSimple(instance, format, size, init_to_zero);
-#endif
+  return CreateImageDataSimple(instance, format, size, init_to_zero);
+#else
   return PPB_ImageData_Impl::Create(instance,
                                     ppapi::PPB_ImageData_Shared::PLATFORM,
                                     format,
                                     *size,
                                     init_to_zero);
+#endif
 }
 
 PP_Resource ResourceCreationImpl::CreateImageDataSimple(
@@ -296,7 +286,9 @@ PP_Resource ResourceCreationImpl::CreateVideoDecoderDev(
     PP_Instance instance,
     PP_Resource graphics3d_id,
     PP_VideoDecoder_Profile profile) {
-  return PPB_VideoDecoder_Impl::Create(instance, graphics3d_id, profile);
+  // This API is no longer supported: See crbug.com/1382469 for details and
+  // history.
+  return 0;
 }
 
 PP_Resource ResourceCreationImpl::CreateVideoEncoder(PP_Instance instance) {

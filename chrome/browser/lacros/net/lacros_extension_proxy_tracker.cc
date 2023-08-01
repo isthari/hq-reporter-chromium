@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -88,8 +88,8 @@ bool LacrosExtensionProxyTracker::AshVersionSupportsExtensionSetProxies() {
     return false;
   }
 
-  int network_settings_version = service->GetInterfaceVersion(
-      crosapi::mojom::NetworkSettingsService::Uuid_);
+  int network_settings_version =
+      service->GetInterfaceVersion<crosapi::mojom::NetworkSettingsService>();
   if (network_settings_version <
       int{crosapi::mojom::NetworkSettingsService::MethodMinVersions::
               kSetExtensionProxyMinVersion}) {

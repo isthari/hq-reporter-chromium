@@ -1,4 +1,4 @@
-// Copyright (c) 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,10 +12,11 @@
 #include "ash/public/cpp/pagination/pagination_model.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/style/ash_color_provider.h"
+#include "ash/style/color_util.h"
 #include "ash/style/style_util.h"
 #include "ash/system/tray/tray_popup_utils.h"
 #include "ash/system/unified/unified_system_tray_controller.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/i18n/number_formatting.h"
 #include "base/metrics/histogram_macros.h"
 #include "third_party/skia/include/core/SkPath.h"
@@ -95,9 +96,8 @@ class PageIndicatorView::PageIndicatorButton : public views::Button {
     cc::PaintFlags flags;
     flags.setAntiAlias(true);
     flags.setStyle(cc::PaintFlags::kFill_Style);
-    flags.setColor(selected_
-                       ? selected_color
-                       : AshColorProvider::GetDisabledColor(selected_color));
+    flags.setColor(selected_ ? selected_color
+                             : ColorUtil::GetDisabledColor(selected_color));
     canvas->DrawCircle(rect.CenterPoint(), kUnifiedPageIndicatorButtonRadius,
                        flags);
   }
@@ -138,7 +138,7 @@ PageIndicatorView::PageIndicatorView(UnifiedSystemTrayController* controller,
   buttons_container_->SetPaintToLayer();
   buttons_container_->layer()->SetFillsBoundsOpaquely(false);
 
-  AddChildView(buttons_container_);
+  AddChildView(buttons_container_.get());
 
   TotalPagesChanged(0, model_->total_pages());
 

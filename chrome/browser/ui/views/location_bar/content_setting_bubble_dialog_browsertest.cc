@@ -1,16 +1,19 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/auto_reset.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/time/time.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/chrome_content_browser_client.h"
+#include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/content_settings/page_specific_content_settings_delegate.h"
 #include "chrome/browser/download/download_request_limiter.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/blocked_content/chrome_popup_navigation_delegate.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/content_settings/content_setting_image_model.h"
@@ -26,13 +29,18 @@
 #include "components/blocked_content/popup_blocker_tab_helper.h"
 #include "components/content_settings/browser/page_specific_content_settings.h"
 #include "components/content_settings/core/common/content_settings_types.h"
+#include "components/content_settings/core/test/content_settings_mock_provider.h"
+#include "components/content_settings/core/test/content_settings_test_utils.h"
 #include "components/permissions/features.h"
 #include "components/permissions/permission_request_manager.h"
 #include "components/permissions/permission_ui_selector.h"
 #include "components/permissions/request_type.h"
 #include "components/permissions/test/mock_permission_request.h"
+#include "content/public/browser/navigation_entry.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
+#include "net/test/embedded_test_server/embedded_test_server.h"
+#include "net/test/embedded_test_server/request_handler_util.h"
 #include "ui/events/event.h"
 #include "ui/events/event_constants.h"
 #include "ui/views/view.h"
@@ -76,13 +84,33 @@ class TestQuietNotificationPermissionUiSelector
   QuietUiReason simulated_reason_for_quiet_ui_;
 };
 
+// An override that returns a fake URL for every blocked popup, so the UI
+// displays consistent strings for pixel tests.
+class TestPopupNavigationDelegate : public ChromePopupNavigationDelegate {
+ public:
+  using ChromePopupNavigationDelegate::ChromePopupNavigationDelegate;
+
+  // ChromePopupNavigationDelegate:
+  GURL GetURL() override { return GURL("http://blocked-popup/"); }
+};
+
+std::unique_ptr<blocked_content::PopupNavigationDelegate>
+CreateTestPopupNavigationDelegate(NavigateParams params) {
+  return std::make_unique<TestPopupNavigationDelegate>(std::move(params));
+}
+
 }  // namespace
 
 using ImageType = ContentSettingImageModel::ImageType;
 
-class ContentSettingBubbleDialogTest : public DialogBrowserTest {
+class ContentSettingBubbleDialogTest
+    : public DialogBrowserTest,
+      public testing::WithParamInterface<HostContentSettingsMap::ProviderType> {
  public:
-  ContentSettingBubbleDialogTest() {
+  ContentSettingBubbleDialogTest()
+      : resetter_(&ChromeContentBrowserClient::
+                      GetPopupNavigationDelegateFactoryForTesting(),
+                  &CreateTestPopupNavigationDelegate) {
     scoped_feature_list_.InitWithFeatures(
         {features::kQuietNotificationPrompts},
         {permissions::features::kPermissionQuietChip});
@@ -97,12 +125,17 @@ class ContentSettingBubbleDialogTest : public DialogBrowserTest {
   void ApplyContentSettingsForType(ContentSettingsType content_type);
   void TriggerQuietNotificationPermissionRequest(
       QuietUiReason simulated_reason_for_quiet_ui);
+  void OverrideContentSettingsProvider(
+      const std::vector<ContentSettingsType>& types);
+  void NavigateToContentTab();
 
   void ShowDialogBubble(ContentSettingImageModel::ImageType image_type);
 
   void ShowUi(const std::string& name) override;
 
  private:
+  base::AutoReset<ChromeContentBrowserClient::PopupNavigationDelegateFactory>
+      resetter_;
   base::test::ScopedFeatureList scoped_feature_list_;
   absl::optional<permissions::MockPermissionRequest>
       notification_permission_request_;
@@ -111,6 +144,15 @@ class ContentSettingBubbleDialogTest : public DialogBrowserTest {
 void ContentSettingBubbleDialogTest::ApplyMediastreamSettings(
     bool mic_accessed,
     bool camera_accessed) {
+  content::WebContents* web_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+
+  GURL last_committed_url = web_contents->GetLastCommittedURL();
+  // Default opt-in for camera PTZ permission to current tab.
+  HostContentSettingsMapFactory::GetForProfile(browser()->profile())
+      ->SetContentSettingDefaultScope(last_committed_url, GURL(),
+                                      ContentSettingsType::CAMERA_PAN_TILT_ZOOM,
+                                      CONTENT_SETTING_ASK);
   const int mic_setting =
       mic_accessed
           ? content_settings::PageSpecificContentSettings::MICROPHONE_ACCESSED
@@ -121,9 +163,9 @@ void ContentSettingBubbleDialogTest::ApplyMediastreamSettings(
           : 0;
   content_settings::PageSpecificContentSettings* content_settings =
       content_settings::PageSpecificContentSettings::GetForFrame(
-          browser()->tab_strip_model()->GetActiveWebContents()->GetMainFrame());
+          web_contents->GetPrimaryMainFrame());
   content_settings->OnMediaStreamPermissionSet(
-      GURL("https://example.com/"), mic_setting | camera_setting, std::string(),
+      last_committed_url, mic_setting | camera_setting, std::string(),
       std::string(), std::string(), std::string());
 }
 
@@ -133,7 +175,7 @@ void ContentSettingBubbleDialogTest::ApplyContentSettingsForType(
       browser()->tab_strip_model()->GetActiveWebContents();
   content_settings::PageSpecificContentSettings* content_settings =
       content_settings::PageSpecificContentSettings::GetForFrame(
-          web_contents->GetMainFrame());
+          web_contents->GetPrimaryMainFrame());
   switch (content_type) {
     case ContentSettingsType::AUTOMATIC_DOWNLOADS: {
       // Automatic downloads are handled by DownloadRequestLimiter.
@@ -150,17 +192,21 @@ void ContentSettingBubbleDialogTest::ApplyContentSettingsForType(
       ASSERT_TRUE(ui_test_utils::NavigateToURL(
           browser(),
           embedded_test_server()->GetURL("/popup_blocker/popup-many-10.html")));
-      EXPECT_TRUE(content::ExecuteScript(web_contents, std::string()));
+      EXPECT_TRUE(content::ExecJs(web_contents, std::string()));
       auto* helper =
           blocked_content::PopupBlockerTabHelper::FromWebContents(web_contents);
       // popup-many-10.html should generate 10 blocked popups.
       EXPECT_EQ(10u, helper->GetBlockedPopupsCount());
+      // Set a fake URL so the UI displays a consistent string for pixel tests.
+      web_contents->GetController().GetVisibleEntry()->SetVirtualURL(
+          GURL("http://popuptest/"));
       break;
     }
     case ContentSettingsType::PROTOCOL_HANDLERS:
       chrome::PageSpecificContentSettingsDelegate::FromWebContents(web_contents)
-          ->set_pending_protocol_handler(ProtocolHandler::CreateProtocolHandler(
-              "mailto", GURL("https://example.com/")));
+          ->set_pending_protocol_handler(
+              custom_handlers::ProtocolHandler::CreateProtocolHandler(
+                  "mailto", GURL("https://example.com/")));
       break;
 
     default:
@@ -168,6 +214,7 @@ void ContentSettingBubbleDialogTest::ApplyContentSettingsForType(
       content_settings->OnContentBlocked(content_type);
       break;
   }
+  OverrideContentSettingsProvider({content_type});
   browser()->window()->UpdateToolbar(web_contents);
 }
 
@@ -183,31 +230,63 @@ void ContentSettingBubbleDialogTest::TriggerQuietNotificationPermissionRequest(
   DCHECK(!notification_permission_request_);
   notification_permission_request_.emplace(
       GURL("https://example.com"), permissions::RequestType::kNotifications);
-  permission_request_manager->AddRequest(web_contents->GetMainFrame(),
+  permission_request_manager->AddRequest(web_contents->GetPrimaryMainFrame(),
                                          &*notification_permission_request_);
   base::RunLoop().RunUntilIdle();
+}
+
+void ContentSettingBubbleDialogTest::OverrideContentSettingsProvider(
+    const std::vector<ContentSettingsType>& types) {
+  auto provider = std::make_unique<content_settings::MockProvider>();
+  HostContentSettingsMap* map =
+      HostContentSettingsMapFactory::GetForProfile(browser()->profile());
+  for (ContentSettingsType type : types) {
+    provider->SetWebsiteSetting(
+        ContentSettingsPattern::Wildcard(), ContentSettingsPattern::Wildcard(),
+        type, base::Value(ContentSetting::CONTENT_SETTING_BLOCK));
+  }
+  content_settings::TestUtils::OverrideProvider(map, std::move(provider),
+                                                GetParam());
+}
+
+void ContentSettingBubbleDialogTest::NavigateToContentTab() {
+  embedded_test_server()->ServeFilesFromSourceDirectory(GetChromeTestDataDir());
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  GURL url(embedded_test_server()->GetURL(
+      "/content_setting_bubble/mixed_script.html"));
+  content::WebContents* web_contents =
+      browser()->tab_strip_model()->GetActiveWebContents();
+  EXPECT_TRUE(content::NavigateToURL(web_contents, url));
 }
 
 void ContentSettingBubbleDialogTest::ShowDialogBubble(
     ContentSettingImageModel::ImageType image_type) {
   LocationBarTesting* location_bar_testing =
       browser()->window()->GetLocationBar()->GetLocationBarForTesting();
-
-  base::HistogramTester histograms;
-
   EXPECT_TRUE(location_bar_testing->TestContentSettingImagePressed(
       ContentSettingImageModel::GetContentSettingImageModelIndexForTesting(
           image_type)));
-
-  histograms.ExpectBucketCount("ContentSettings.ImagePressed",
-                               static_cast<int>(image_type), 1);
 }
 
 void ContentSettingBubbleDialogTest::ShowUi(const std::string& name) {
+  // Open a tab for which we will invoke the dialog bubble.
+  NavigateToContentTab();
+  auto scoped_display_url =
+      ContentSettingBubbleModel::CreateScopedDisplayURLOverrideForTesting();
+
   if (base::StartsWith(name, "mediastream", base::CompareCase::SENSITIVE)) {
-    ApplyMediastreamSettings(
-        name == "mediastream_mic" || name == "mediastream_mic_and_camera",
-        name == "mediastream_camera" || name == "mediastream_mic_and_camera");
+    bool apply_mic_settings = name.find("mic") != std::string::npos;
+    bool apply_camera_settings = name.find("camera") != std::string::npos;
+    std::vector<ContentSettingsType> types;
+    if (apply_mic_settings) {
+      types.push_back(ContentSettingsType::MEDIASTREAM_MIC);
+    }
+    if (apply_camera_settings) {
+      types.push_back(ContentSettingsType::MEDIASTREAM_CAMERA);
+    }
+    OverrideContentSettingsProvider(types);
+    ApplyMediastreamSettings(apply_mic_settings, apply_camera_settings);
     ShowDialogBubble(ImageType::MEDIASTREAM);
     return;
   }
@@ -215,14 +294,20 @@ void ContentSettingBubbleDialogTest::ShowUi(const std::string& name) {
   if (base::StartsWith(name, "notifications_quiet",
                        base::CompareCase::SENSITIVE)) {
     QuietUiReason reason = QuietUiReason::kEnabledInPrefs;
-    if (name == "notifications_quiet_crowd_deny")
+    if (base::StartsWith(name, "notifications_quiet_crowd_deny",
+                         base::CompareCase::SENSITIVE)) {
       reason = QuietUiReason::kTriggeredByCrowdDeny;
-    else if (name == "notifications_quiet_abusive")
+    } else if (base::StartsWith(name, "notifications_quiet_abusive",
+                                base::CompareCase::SENSITIVE)) {
       reason = QuietUiReason::kTriggeredDueToAbusiveRequests;
-    else if (name == "notifications_quiet_abusive_content")
+    } else if (base::StartsWith(name, "notifications_quiet_abusive_content",
+                                base::CompareCase::SENSITIVE)) {
       reason = QuietUiReason::kTriggeredDueToAbusiveContent;
-    else if (name == "notifications_quiet_predicted_very_unlikely")
-      reason = QuietUiReason::kPredictedVeryUnlikelyGrant;
+    } else if (base::StartsWith(name,
+                                "notifications_quiet_predicted_very_unlikely",
+                                base::CompareCase::SENSITIVE)) {
+      reason = QuietUiReason::kServicePredictedVeryUnlikelyGrant;
+    }
     TriggerQuietNotificationPermissionRequest(reason);
     ShowDialogBubble(ImageType::NOTIFICATIONS_QUIET_PROMPT);
     return;
@@ -248,94 +333,100 @@ void ContentSettingBubbleDialogTest::ShowUi(const std::string& name) {
       {"ads", ContentSettingsType::ADS, ImageType::ADS},
   };
   for (auto content_settings : content_settings_values) {
-    if (name == content_settings.name) {
+    if (base::StartsWith(name, content_settings.name,
+                         base::CompareCase::SENSITIVE)) {
       ApplyContentSettingsForType(content_settings.content_type);
       ShowDialogBubble(content_settings.image_type);
       return;
     }
   }
-  ADD_FAILURE() << "Unknown dialog type";
+  ADD_FAILURE() << "Unknown dialog type " << name;
 }
 
-IN_PROC_BROWSER_TEST_F(ContentSettingBubbleDialogTest, InvokeUi_cookies) {
+IN_PROC_BROWSER_TEST_P(ContentSettingBubbleDialogTest, InvokeUi_cookies) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_F(ContentSettingBubbleDialogTest, InvokeUi_images) {
+IN_PROC_BROWSER_TEST_P(ContentSettingBubbleDialogTest, InvokeUi_images) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_F(ContentSettingBubbleDialogTest, InvokeUi_javascript) {
+IN_PROC_BROWSER_TEST_P(ContentSettingBubbleDialogTest, InvokeUi_javascript) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_F(ContentSettingBubbleDialogTest, InvokeUi_popups) {
-  ASSERT_TRUE(embedded_test_server()->Start());
+IN_PROC_BROWSER_TEST_P(ContentSettingBubbleDialogTest, InvokeUi_popups) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_F(ContentSettingBubbleDialogTest, InvokeUi_geolocation) {
+IN_PROC_BROWSER_TEST_P(ContentSettingBubbleDialogTest, InvokeUi_geolocation) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_F(ContentSettingBubbleDialogTest, InvokeUi_mixed_script) {
+IN_PROC_BROWSER_TEST_P(ContentSettingBubbleDialogTest, InvokeUi_mixed_script) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_F(ContentSettingBubbleDialogTest,
+IN_PROC_BROWSER_TEST_P(ContentSettingBubbleDialogTest,
                        InvokeUi_mediastream_mic) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_F(ContentSettingBubbleDialogTest,
+IN_PROC_BROWSER_TEST_P(ContentSettingBubbleDialogTest,
                        InvokeUi_mediastream_camera) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_F(ContentSettingBubbleDialogTest,
+IN_PROC_BROWSER_TEST_P(ContentSettingBubbleDialogTest,
                        InvokeUi_mediastream_mic_and_camera) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_F(ContentSettingBubbleDialogTest,
+IN_PROC_BROWSER_TEST_P(ContentSettingBubbleDialogTest,
                        InvokeUi_protocol_handlers) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_F(ContentSettingBubbleDialogTest,
+IN_PROC_BROWSER_TEST_P(ContentSettingBubbleDialogTest,
                        InvokeUi_automatic_downloads) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_F(ContentSettingBubbleDialogTest, InvokeUi_midi_sysex) {
+IN_PROC_BROWSER_TEST_P(ContentSettingBubbleDialogTest, InvokeUi_midi_sysex) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_F(ContentSettingBubbleDialogTest, InvokeUi_ads) {
+IN_PROC_BROWSER_TEST_P(ContentSettingBubbleDialogTest, InvokeUi_ads) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_F(ContentSettingBubbleDialogTest,
+IN_PROC_BROWSER_TEST_P(ContentSettingBubbleDialogTest,
                        InvokeUi_notifications_quiet) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_F(ContentSettingBubbleDialogTest,
+IN_PROC_BROWSER_TEST_P(ContentSettingBubbleDialogTest,
                        InvokeUi_notifications_quiet_crowd_deny) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_F(ContentSettingBubbleDialogTest,
+IN_PROC_BROWSER_TEST_P(ContentSettingBubbleDialogTest,
                        InvokeUi_notifications_quiet_abusive) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_F(ContentSettingBubbleDialogTest,
+IN_PROC_BROWSER_TEST_P(ContentSettingBubbleDialogTest,
                        InvokeUi_notifications_quiet_abusive_content) {
   ShowAndVerifyUi();
 }
 
-IN_PROC_BROWSER_TEST_F(ContentSettingBubbleDialogTest,
+IN_PROC_BROWSER_TEST_P(ContentSettingBubbleDialogTest,
                        InvokeUi_notifications_quiet_predicted_very_unlikely) {
   ShowAndVerifyUi();
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    ContentSettingBubbleDialogTest,
+    testing::Values(HostContentSettingsMap::SUPERVISED_PROVIDER,
+                    HostContentSettingsMap::DEFAULT_PROVIDER));

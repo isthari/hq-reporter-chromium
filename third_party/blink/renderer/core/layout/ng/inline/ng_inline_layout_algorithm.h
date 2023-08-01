@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_INLINE_LAYOUT_ALGORITHM_H_
 
 #include "base/dcheck_is_on.h"
+#include "base/notreached.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_node.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_logical_line_item.h"
@@ -18,6 +19,7 @@
 
 namespace blink {
 
+class NGColumnSpannerPath;
 class NGConstraintSpace;
 class NGExclusionSpace;
 class NGInlineBreakToken;
@@ -43,15 +45,15 @@ class CORE_EXPORT NGInlineLayoutAlgorithm final
   NGInlineLayoutAlgorithm(NGInlineNode,
                           const NGConstraintSpace&,
                           const NGInlineBreakToken*,
+                          const NGColumnSpannerPath*,
                           NGInlineChildLayoutContext* context);
   ~NGInlineLayoutAlgorithm() override;
 
   void CreateLine(const NGLineLayoutOpportunity&,
                   NGLineInfo*,
-                  NGLogicalLineItems* line_box,
-                  LayoutUnit* ruby_block_start_adjust);
+                  NGLogicalLineItems* line_box);
 
-  scoped_refptr<const NGLayoutResult> Layout() override;
+  const NGLayoutResult* Layout() override;
 
   MinMaxSizesResult ComputeMinMaxSizes(const MinMaxSizesFloatInput&) override {
     NOTREACHED();
@@ -68,7 +70,7 @@ class CORE_EXPORT NGInlineLayoutAlgorithm final
   void RebuildBoxStates(const NGLineInfo&,
                         const NGInlineBreakToken*,
                         NGInlineLayoutStateStack*) const;
-#if DCHECK_IS_ON()
+#if EXPENSIVE_DCHECKS_ARE_ON()
   void CheckBoxStates(const NGLineInfo&, const NGInlineBreakToken*) const;
 #endif
 
@@ -100,6 +102,10 @@ class CORE_EXPORT NGInlineLayoutAlgorithm final
                           const NGLineInfo&,
                           NGInlineItemResult*,
                           NGLogicalLineItems* line_box);
+  void PlaceInitialLetterBox(const NGInlineItem&,
+                             const NGLineInfo&,
+                             NGInlineItemResult*,
+                             NGLogicalLineItems* line_box);
   void PlaceLayoutResult(NGInlineItemResult*,
                          NGLogicalLineItems* line_box,
                          NGInlineBoxState*,
@@ -107,10 +113,10 @@ class CORE_EXPORT NGInlineLayoutAlgorithm final
   void PlaceOutOfFlowObjects(const NGLineInfo&,
                              const FontHeight&,
                              NGLogicalLineItems* line_box);
-  void PlaceFloatingObjects(const NGLineInfo&,
-                            const FontHeight&,
+  void PlaceFloatingObjects(const FontHeight&,
                             const NGLineLayoutOpportunity&,
                             LayoutUnit ruby_block_start_adjust,
+                            NGLineInfo*,
                             NGLogicalLineItems* line_box);
   void PlaceRelativePositionedItems(NGLogicalLineItems* line_box);
   void PlaceListMarker(const NGInlineItem&,
@@ -133,8 +139,9 @@ class CORE_EXPORT NGInlineLayoutAlgorithm final
   NGInlineLayoutStateStack* box_states_;
   NGInlineChildLayoutContext* context_;
 
+  const NGColumnSpannerPath* column_spanner_path_;
+
   NGMarginStrut end_margin_strut_;
-  NGExclusionSpace exclusion_space_;
   absl::optional<int> lines_until_clamp_;
 
   FontBaseline baseline_type_ = FontBaseline::kAlphabeticBaseline;
@@ -143,7 +150,7 @@ class CORE_EXPORT NGInlineLayoutAlgorithm final
   // https://quirks.spec.whatwg.org/#the-line-height-calculation-quirk
   unsigned quirks_mode_ : 1;
 
-#if DCHECK_IS_ON()
+#if EXPENSIVE_DCHECKS_ARE_ON()
   // True if |box_states_| is taken from |context_|, to check the |box_states_|
   // is the same as when it is rebuilt.
   bool is_box_states_from_context_ = false;

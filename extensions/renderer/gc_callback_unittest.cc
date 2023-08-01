@@ -1,10 +1,10 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "extensions/renderer/gc_callback.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
 #include "base/test/task_environment.h"
@@ -50,7 +50,8 @@ class GCCallbackTest : public testing::TestWithParam<CallbackType> {
     // No world ID.
     return script_context_set_.Register(
         web_frame_.frame(),
-        v8::Local<v8::Context>::New(v8::Isolate::GetCurrent(), v8_context_), 0);
+        v8::Local<v8::Context>::New(v8::Isolate::GetCurrent(), v8_context_),
+        /*world_id=*/0, /*is_webview=*/false);
   }
 
   void RequestGarbageCollection() {

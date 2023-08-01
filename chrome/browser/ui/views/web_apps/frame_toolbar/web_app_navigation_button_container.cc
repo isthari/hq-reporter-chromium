@@ -1,8 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/web_apps/frame_toolbar/web_app_navigation_button_container.h"
+
+#include <memory>
+#include <utility>
 
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -17,18 +20,14 @@
 #include "chrome/browser/ui/views/toolbar/reload_button.h"
 #include "chrome/browser/ui/views/web_apps/frame_toolbar/web_app_frame_toolbar_utils.h"
 #include "chrome/browser/ui/web_applications/app_browser_controller.h"
-#include "chrome/browser/ui/web_applications/system_web_app_ui_utils.h"
 #include "ui/base/hit_test.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/base/window_open_disposition_utils.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/vector_icon_types.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/window/hit_test_utils.h"
-
-#if BUILDFLAG(IS_WIN)
-#include "base/win/windows_version.h"
-#endif
 
 namespace {
 
@@ -47,12 +46,6 @@ class WebAppToolbarButton : public BaseClass {
   WebAppToolbarButton(const WebAppToolbarButton&) = delete;
   WebAppToolbarButton& operator=(const WebAppToolbarButton&) = delete;
   ~WebAppToolbarButton() override = default;
-
-#if BUILDFLAG(IS_WIN)
-  bool ShouldUseWindowsIconsForMinimalUI() const {
-    return base::win::GetVersion() >= base::win::Version::WIN10;
-  }
-#endif
 
   void SetIconColor(SkColor icon_color) {
     if (icon_color_ == icon_color)
@@ -108,13 +101,11 @@ WebAppToolbarBackButton::WebAppToolbarBackButton(PressedCallback callback,
 
 const gfx::VectorIcon* WebAppToolbarBackButton::GetAlternativeIcon() const {
 #if BUILDFLAG(IS_WIN)
-  if (ShouldUseWindowsIconsForMinimalUI()) {
-    return ui::TouchUiController::Get()->touch_ui()
-               ? &kBackArrowWindowsTouchIcon
-               : &kBackArrowWindowsIcon;
-  }
-#endif
+  return ui::TouchUiController::Get()->touch_ui() ? &kBackArrowWindowsTouchIcon
+                                                  : &kBackArrowWindowsIcon;
+#else
   return nullptr;
+#endif  // BUILDFLAG(IS_WIN)
 }
 
 BEGIN_METADATA(WebAppToolbarBackButton, BackForwardButton)
@@ -135,16 +126,15 @@ class WebAppToolbarReloadButton : public WebAppToolbarButton<ReloadButton> {
 
 const gfx::VectorIcon* WebAppToolbarReloadButton::GetAlternativeIcon() const {
 #if BUILDFLAG(IS_WIN)
-  if (ShouldUseWindowsIconsForMinimalUI()) {
-    const bool is_reload = visible_mode() == ReloadButton::Mode::kReload;
-    if (ui::TouchUiController::Get()->touch_ui()) {
-      return is_reload ? &kReloadWindowsTouchIcon
-                       : &kNavigateStopWindowsTouchIcon;
-    }
-    return is_reload ? &kReloadWindowsIcon : &kNavigateStopWindowsIcon;
+  const bool is_reload = visible_mode() == ReloadButton::Mode::kReload;
+  if (ui::TouchUiController::Get()->touch_ui()) {
+    return is_reload ? &kReloadWindowsTouchIcon
+                     : &kNavigateStopWindowsTouchIcon;
   }
-#endif
+  return is_reload ? &kReloadWindowsIcon : &kNavigateStopWindowsIcon;
+#else
   return nullptr;
+#endif  // BUILDFLAG(IS_WIN)
 }
 
 BEGIN_METADATA(WebAppToolbarReloadButton, ReloadButton)
@@ -159,7 +149,7 @@ WebAppNavigationButtonContainer::WebAppNavigationButtonContainer(
   views::BoxLayout& layout =
       *SetLayoutManager(std::make_unique<views::BoxLayout>(
           views::BoxLayout::Orientation::kHorizontal,
-          gfx::Insets(0, kWebAppFrameLeftMargin),
+          gfx::Insets::VH(0, kWebAppFrameLeftMargin),
           kPaddingBetweenNavigationButtons));
   // Right align to clip the leftmost items first when not enough space.
   layout.set_main_axis_alignment(views::BoxLayout::MainAxisAlignment::kEnd);
@@ -225,7 +215,7 @@ void WebAppNavigationButtonContainer::EnabledStateChangedForCommand(
       reload_button_->SetEnabled(enabled);
       break;
     default:
-      NOTREACHED();
+      NOTREACHED_NORETURN();
   }
 }
 

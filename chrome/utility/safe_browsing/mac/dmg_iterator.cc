@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "base/metrics/histogram_functions.h"
 #include "chrome/utility/safe_browsing/mac/hfs.h"
 #include "chrome/utility/safe_browsing/mac/read_stream.h"
 
@@ -22,19 +23,21 @@ DMGIterator::DMGIterator(ReadStream* stream)
 DMGIterator::~DMGIterator() {}
 
 bool DMGIterator::Open() {
-  if (!udif_.Parse())
+  if (!udif_.Parse()) {
     return false;
+  }
 
   // Collect all the HFS partitions up-front. The data are accessed lazily, so
   // this is relatively inexpensive.
   for (size_t i = 0; i < udif_.GetNumberOfPartitions(); ++i) {
-    if (udif_.GetPartitionType(i) == "Apple_HFS" ||
-        udif_.GetPartitionType(i) == "Apple_HFSX") {
-      partitions_.push_back(udif_.GetPartitionReadStream(i));
+    std::unique_ptr<ReadStream> partition = udif_.GetPartitionReadStream(i);
+    HFSIterator hfs(partition.get());
+    if (hfs.Open()) {
+      partitions_.push_back(std::move(partition));
     }
   }
 
-  return partitions_.size() > 0;
+  return true;
 }
 
 const std::vector<uint8_t>& DMGIterator::GetCodeSignature() {
@@ -84,6 +87,10 @@ std::u16string DMGIterator::GetPath() {
 
 std::unique_ptr<ReadStream> DMGIterator::GetReadStream() {
   return hfs_->GetReadStream();
+}
+
+bool DMGIterator::IsEmpty() {
+  return partitions_.empty();
 }
 
 }  // namespace dmg

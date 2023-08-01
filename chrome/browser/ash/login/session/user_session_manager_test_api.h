@@ -1,4 +1,4 @@
-// Copyright (c) 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "base/memory/raw_ptr.h"
 #include "chrome/browser/ash/login/session/user_session_manager.h"
 
 namespace ash {
@@ -43,18 +44,10 @@ class UserSessionManagerTestApi {
   OnboardingUserActivityCounter* get_onboarding_user_activity_counter();
 
  private:
-  UserSessionManager* session_manager_;  // not owned
+  raw_ptr<UserSessionManager, ExperimentalAsh> session_manager_;  // not owned
 };
 
 }  // namespace test
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
-// source migration is finished.
-namespace chromeos {
-namespace test {
-using ::ash::test::UserSessionManagerTestApi;
-}
-}  // namespace chromeos
 
 #endif  // CHROME_BROWSER_ASH_LOGIN_SESSION_USER_SESSION_MANAGER_TEST_API_H_

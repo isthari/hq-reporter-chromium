@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 #include <memory>
 #include <vector>
 
-#include "base/callback_forward.h"
 #include "base/callback_list.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
@@ -42,6 +42,7 @@ class DeviceTrustKeyManagerImpl : public DeviceTrustKeyManager {
   void SignStringAsync(const std::string& str,
                        SignStringCallback callback) override;
   absl::optional<KeyMetadata> GetLoadedKeyMetadata() const override;
+  bool HasPermanentFailure() const override;
 
  private:
   enum class InitializationState { kDefault, kLoadingKey, kRotatingKey };
@@ -61,6 +62,11 @@ class DeviceTrustKeyManagerImpl : public DeviceTrustKeyManager {
   void LoadKey(bool create_on_fail);
   void OnKeyLoaded(bool create_on_fail,
                    std::unique_ptr<SigningKeyPair> loaded_key_pair);
+
+  // Invoked when synchronization of the loaded key has been done with the
+  // server. `response_code` will hold the HTTP response code of the key upload
+  // response. It will be absl::nullopt if the sync request could not be issued.
+  void OnSynchronizationFinished(absl::optional<int> response_code);
 
   // Starts a background task to try and rotate the key. Forwards `nonce` to
   // the process in charge of handling the key rotation and upload. An empty
@@ -109,6 +115,14 @@ class DeviceTrustKeyManagerImpl : public DeviceTrustKeyManager {
   // Currently loaded device-trust key pair. If nullptr, it effectively means
   // that a key hasn't been loaded into memory yet.
   std::unique_ptr<SigningKeyPair> key_pair_;
+
+  // When set, represents the response code for the synchronization request
+  // of `key_pair_`.
+  absl::optional<int> sync_key_response_code_;
+
+  // If a failure deemed as "permanent" (i.e. no use in retrying) is
+  // encountered, the key manager flows will be disabled.
+  absl::optional<PermanentFailure> permanent_failure_;
 
   // List of pending client requests.
   base::OnceClosureList pending_client_requests_;

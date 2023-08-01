@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/containers/flat_set.h"
+#include "base/strings/string_piece.h"
 #include "components/policy/policy_export.h"
 
 namespace policy {
@@ -18,6 +19,16 @@ namespace policy {
 // function returns false.
 POLICY_EXPORT bool IsAffiliated(const base::flat_set<std::string>& user_ids,
                                 const base::flat_set<std::string>& device_ids);
+
+// TODO(peletskyi): Remove email after affiliation based implementation will
+// fully work. http://crbug.com/515476
+// The function makes a decision if user with `user_affiliation_ids` and
+// `email` is affiliated on the device with `device_affiliation_ids` and
+// `enterprise_domain`.
+POLICY_EXPORT bool IsUserAffiliated(
+    const base::flat_set<std::string>& user_affiliation_ids,
+    const base::flat_set<std::string>& device_affiliation_ids,
+    base::StringPiece email);
 
 }  // namespace policy
 

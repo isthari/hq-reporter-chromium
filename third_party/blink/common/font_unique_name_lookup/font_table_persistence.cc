@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,10 +45,10 @@ bool LoadFromFile(base::FilePath file_path,
   }
 
   const char* proto_data = nullptr;
-  int proto_length = 0;
+  size_t proto_length = 0;
 
   if (!pickle_iterator.ReadData(&proto_data, &proto_length) || !proto_data ||
-      proto_length <= 0) {
+      proto_length == 0) {
     return false;
   }
 
@@ -94,8 +94,7 @@ bool PersistToFile(const base::MappedReadOnlyRegion& name_table_region,
     base::ScopedBlockingCall scoped_blocking_call(
         FROM_HERE, base::BlockingType::MAY_BLOCK);
 
-    if (table_cache_file.Write(0, static_cast<const char*>(pickle.data()),
-                               pickle.size()) == -1) {
+    if (table_cache_file.Write(0, pickle.data_as_char(), pickle.size()) == -1) {
       table_cache_file.SetLength(0);
       return false;
     }

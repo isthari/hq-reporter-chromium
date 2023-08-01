@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,13 +10,15 @@
 #include "base/logging.h"
 #include "chrome/browser/ash/crosapi/browser_util.h"
 #include "chrome/browser/ash/crosapi/network_settings_translation.h"
+#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chromeos/network/network_handler.h"
-#include "chromeos/network/network_state.h"
-#include "chromeos/network/network_state_handler.h"
-#include "chromeos/network/onc/network_onc_utils.h"
-#include "chromeos/network/proxy/proxy_config_service_impl.h"
+#include "chromeos/ash/components/browser_context_helper/browser_context_helper.h"
+#include "chromeos/ash/components/network/network_handler.h"
+#include "chromeos/ash/components/network/network_state.h"
+#include "chromeos/ash/components/network/network_state_handler.h"
+#include "chromeos/ash/components/network/onc/network_onc_utils.h"
+#include "chromeos/ash/components/network/proxy/proxy_config_service_impl.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
@@ -34,11 +36,21 @@ const char kPrefExtensionCanDisabledKey[] = "can_be_disabled_key";
 PrefService* GetPrimaryLoggedInUserProfilePrefs() {
   // Check login state first.
   if (!user_manager::UserManager::IsInitialized() ||
-      !user_manager::UserManager::Get()->IsUserLoggedIn() ||
-      ProfileManager::GetPrimaryUserProfile() == nullptr) {
+      !user_manager::UserManager::Get()->IsUserLoggedIn()) {
     return nullptr;
   }
-  return ProfileManager::GetPrimaryUserProfile()->GetPrefs();
+
+  auto* primary_user = user_manager::UserManager::Get()->GetPrimaryUser();
+  if (!primary_user) {
+    return nullptr;
+  }
+
+  auto* profile = Profile::FromBrowserContext(
+      ash::BrowserContextHelper::Get()->GetBrowserContextByUser(primary_user));
+  if (!profile) {
+    return nullptr;
+  }
+  return profile->GetPrefs();
 }
 
 }  // namespace
@@ -51,20 +63,15 @@ NetworkSettingsServiceAsh::NetworkSettingsServiceAsh(PrefService* local_state)
     profile_manager_->AddObserver(this);
   }
   // Uninitialized in unit_tests.
-  if (chromeos::NetworkHandler::IsInitialized()) {
-    chromeos::NetworkHandler::Get()->network_state_handler()->AddObserver(
-        this, FROM_HERE);
+  if (ash::NetworkHandler::IsInitialized()) {
+    network_state_handler_observer_.Observe(
+        ash::NetworkHandler::Get()->network_state_handler());
   }
   observers_.set_disconnect_handler(base::BindRepeating(
       &NetworkSettingsServiceAsh::OnDisconnect, base::Unretained(this)));
 }
 
 NetworkSettingsServiceAsh::~NetworkSettingsServiceAsh() {
-  // Uninitialized in unit_tests.
-  if (chromeos::NetworkHandler::IsInitialized()) {
-    chromeos::NetworkHandler::Get()->network_state_handler()->RemoveObserver(
-        this, FROM_HERE);
-  }
   if (profile_manager_) {
     profile_manager_->RemoveObserver(this);
   }
@@ -76,7 +83,7 @@ void NetworkSettingsServiceAsh::BindReceiver(
 }
 
 void NetworkSettingsServiceAsh::DefaultNetworkChanged(
-    const chromeos::NetworkState* network) {
+    const ash::NetworkState* network) {
   if (!network) {
     cached_wpad_url_ = GURL();
     return;
@@ -113,27 +120,32 @@ void NetworkSettingsServiceAsh::SetExtensionProxy(
   PrefService* pref_service = GetPrimaryLoggedInUserProfilePrefs();
   DCHECK(pref_service);
 
+  extension_controlling_proxy_.reset();
+
   if (!proxy_config->extension) {
     LOG(ERROR)
         << "Received extension proxy configuration without extension data";
     return;
   }
 
+  extension_controlling_proxy_ = proxy_config->extension.Clone();
+
   // Required to display the extension which is controlling the proxy in the OS
   // Settings > Network > Proxy window.
-  base::Value proxy_extension(base::Value::Type::DICTIONARY);
-  proxy_extension.SetStringKey(kPrefExtensionNameKey,
-                               proxy_config->extension->name);
-  proxy_extension.SetStringKey(kPrefExtensionIdKey,
-                               proxy_config->extension->id);
-  proxy_extension.SetBoolKey(kPrefExtensionCanDisabledKey,
-                             proxy_config->extension->can_be_disabled);
-  pref_service->Set(ash::prefs::kLacrosProxyControllingExtension,
-                    std::move(proxy_extension));
+  base::Value::Dict proxy_extension =
+      base::Value::Dict()
+          .Set(kPrefExtensionNameKey, proxy_config->extension->name)
+          .Set(kPrefExtensionIdKey, proxy_config->extension->id)
+          .Set(kPrefExtensionCanDisabledKey,
+               proxy_config->extension->can_be_disabled);
 
-  pref_service->Set(
-      proxy_config::prefs::kProxy,
-      CrosapiProxyToProxyConfig(std::move(proxy_config)).GetDictionary());
+  pref_service->SetDict(ash::prefs::kLacrosProxyControllingExtension,
+                        std::move(proxy_extension));
+
+  pref_service->SetDict(proxy_config::prefs::kProxy,
+                        CrosapiProxyToProxyConfig(std::move(proxy_config))
+                            .GetDictionary()
+                            .Clone());
 }
 
 void NetworkSettingsServiceAsh::ClearExtensionProxy() {
@@ -188,10 +200,11 @@ void NetworkSettingsServiceAsh::OnPrefChanged() {
 }
 
 void NetworkSettingsServiceAsh::ClearProxyPrefFromUserStore() {
+  extension_controlling_proxy_.reset();
   PrefService* pref_service = GetPrimaryLoggedInUserProfilePrefs();
   DCHECK(pref_service);
-  pref_service->ClearPref(proxy_config::prefs::kProxy);
   pref_service->ClearPref(ash::prefs::kLacrosProxyControllingExtension);
+  pref_service->ClearPref(proxy_config::prefs::kProxy);
 }
 
 void NetworkSettingsServiceAsh::DetermineEffectiveProxy() {
@@ -199,10 +212,12 @@ void NetworkSettingsServiceAsh::DetermineEffectiveProxy() {
   if (!pref_service)
     return;
   crosapi::mojom::ProxyConfigPtr new_proxy_config = ProxyConfigToCrosapiProxy(
-      chromeos::ProxyConfigServiceImpl::GetActiveProxyConfigDictionary(
-          pref_service, local_state_)
+      ash::ProxyConfigServiceImpl::GetActiveProxyConfigDictionary(pref_service,
+                                                                  local_state_)
           .get(),
       cached_wpad_url_);
+
+  new_proxy_config->extension = extension_controlling_proxy_.Clone();
 
   // Trigger a proxy settings sync to Lacros if the proxy configuration changes.
   if (!cached_proxy_config_ ||
@@ -221,7 +236,8 @@ void NetworkSettingsServiceAsh::OnDisconnect(mojo::RemoteSetElementId mojo_id) {
 }
 
 void NetworkSettingsServiceAsh::OnProfileAdded(Profile* profile) {
-  if (!GetPrimaryLoggedInUserProfilePrefs()) {
+  if (!ash::ProfileHelper::IsPrimaryProfile(profile) ||
+      !GetPrimaryLoggedInUserProfilePrefs()) {
     // Primary profile pref store not available.
     return;
   }

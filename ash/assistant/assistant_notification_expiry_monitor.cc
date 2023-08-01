@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,10 @@
 #include "ash/assistant/assistant_notification_controller_impl.h"
 #include "ash/assistant/model/assistant_notification_model.h"
 #include "ash/assistant/model/assistant_notification_model_observer.h"
-#include "base/bind.h"
-#include "chromeos/services/assistant/public/cpp/assistant_service.h"
+#include "base/functional/bind.h"
+#include "base/memory/raw_ptr.h"
+#include "base/time/time.h"
+#include "chromeos/ash/services/assistant/public/cpp/assistant_service.h"
 
 namespace ash {
 
@@ -66,7 +68,7 @@ class AssistantNotificationExpiryMonitor::Observer
   }
 
  private:
-  AssistantNotificationExpiryMonitor* const monitor_;
+  const raw_ptr<AssistantNotificationExpiryMonitor, ExperimentalAsh> monitor_;
 };
 
 AssistantNotificationExpiryMonitor::AssistantNotificationExpiryMonitor(

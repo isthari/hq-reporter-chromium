@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,11 +12,16 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 
+#include "base/apple/bridging.h"
 #include "base/files/file_path.h"
 #include "base/mac/foundation_util.h"
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_cftyperef.h"
 #include "base/mac/scoped_ioobject.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 namespace metrics {
 
@@ -58,7 +63,7 @@ bool DriveMetricsProvider::HasSeekPenalty(const base::FilePath& path,
   if (!type_ref)
     return false;
 
-  NSString* type = base::mac::CFToNSCast(type_ref);
+  NSString* type = base::apple::CFToNSPtrCast(type_ref);
   if ([type isEqualToString:@kIOPropertyMediumTypeRotationalKey]) {
     *has_seek_penalty = true;
     return true;

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -129,6 +129,8 @@ class NET_EXPORT_PRIVATE WebSocketBasicStream final : public WebSocketStream {
   std::string GetSubProtocol() const override;
 
   std::string GetExtensions() const override;
+
+  const NetLogWithSource& GetNetLogWithSource() const override;
 
   ////////////////////////////////////////////////////////////////////////////
   // Methods for testing only.

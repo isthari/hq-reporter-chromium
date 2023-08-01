@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,13 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/core/editing/position_with_affinity.h"
+#include "third_party/blink/renderer/core/editing/text_affinity.h"
+#include "third_party/blink/renderer/core/layout/layout_image.h"
 #include "third_party/blink/renderer/core/layout/layout_text.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_fragment_item.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_node_data.h"
-#include "third_party/blink/renderer/core/layout/ng/ng_layout_test.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_physical_box_fragment.h"
+#include "third_party/blink/renderer/core/testing/core_unit_test_helper.h"
 
 namespace blink {
 
@@ -53,7 +55,7 @@ Vector<String> LayoutObjectToDebugStringList(NGInlineCursor cursor) {
   return list;
 }
 
-class NGInlineCursorTest : public NGLayoutTest,
+class NGInlineCursorTest : public RenderingTest,
                            public testing::WithParamInterface<bool> {
  protected:
   NGInlineCursor SetupCursor(const String& html) {
@@ -168,6 +170,41 @@ TEST_P(NGInlineCursorTest, GetLayoutBlockFlowWithScopedCursor) {
   EXPECT_EQ(line.GetLayoutBlockFlow(), cursor.GetLayoutBlockFlow());
 }
 
+TEST_P(NGInlineCursorTest, Parent) {
+  NGInlineCursor cursor = SetupCursor(R"HTML(
+    <style>
+    span { background: yellow; } /* Ensure not culled. */
+    </style>
+    <body>
+      <div id="root">
+        text1
+        <span id="span1">
+          span1
+          <span></span>
+          <span id="span2">
+            span2
+            <span style="display: inline-block"></span>
+            <span id="span3">
+              span3
+            </span>
+          </span>
+        </span>
+      </div>
+    <body>
+)HTML");
+  cursor.MoveTo(*GetLayoutObjectByElementId("span3"));
+  ASSERT_TRUE(cursor);
+  Vector<AtomicString> ids;
+  for (;;) {
+    cursor.MoveToParent();
+    if (!cursor)
+      break;
+    const auto* element = To<Element>(cursor.Current()->GetNode());
+    ids.push_back(element->GetIdAttribute());
+  }
+  EXPECT_THAT(ids, testing::ElementsAre("span2", "span1", "root"));
+}
+
 TEST_P(NGInlineCursorTest, ContainingLine) {
   // TDOO(yosin): Remove <style> once NGFragmentItem don't do culled inline.
   InsertStyleElement("a, b { background: gray; }");
@@ -256,12 +293,8 @@ TEST_P(NGInlineCursorTest, CulledInlineBlockChild) {
   )HTML");
   NGInlineCursor cursor;
   cursor.MoveToIncludingCulledInline(*GetLayoutObjectByElementId("culled"));
-  if (RuntimeEnabledFeatures::LayoutNGBlockInInlineEnabled()) {
-    EXPECT_THAT(LayoutObjectToDebugStringList(cursor),
-                ElementsAre("LayoutNGBlockFlow (anonymous)", "abc", "xyz"));
-  } else {
-    EXPECT_THAT(LayoutObjectToDebugStringList(cursor), ElementsAre("#culled"));
-  }
+  EXPECT_THAT(LayoutObjectToDebugStringList(cursor),
+              ElementsAre("#culled", "#culled", "#culled"));
 }
 
 TEST_P(NGInlineCursorTest, CulledInlineWithRoot) {
@@ -286,8 +319,6 @@ TEST_P(NGInlineCursorTest, CulledInlineWithoutRoot) {
 }
 
 TEST_P(NGInlineCursorTest, CursorForMovingAcrossFragmentainer) {
-  RuntimeEnabledFeaturesTestHelpers::ScopedLayoutNGBlockFragmentation
-      block_fragmentation(true);
   LoadAhem();
   InsertStyleElement(
       "div { font: 10px/15px Ahem; column-count: 2; width: 20ch; }");
@@ -418,6 +449,27 @@ TEST_P(NGInlineCursorTest, FirstLastLogicalLeafWithImages) {
   EXPECT_EQ("#last", ToDebugString(last_logical_leaf));
 }
 
+// http://crbug.com/1295087
+TEST_P(NGInlineCursorTest, FirstNonPseudoLeafWithBlockImage) {
+  InsertStyleElement("img { display: block; }");
+  NGInlineCursor cursor = SetupCursor("<p id=root><b><img id=target></b></p>");
+
+  // Note: The first child of block-in-inline can be |LayoutImage|.
+  // LayoutNGBlockFlow P id="root"
+  //   +--LayoutInline SPAN
+  //   |  +--LayoutNGBlockFlow (anonymous)  # block-in-inline
+  //   |  |  +--LayoutImage IMG id="target" # first child of block-in-inline
+  //   +--LayoutText #text ""
+  const auto& target =
+      *To<LayoutImage>(GetElementById("target")->GetLayoutObject());
+
+  cursor.MoveToFirstNonPseudoLeaf();
+  ASSERT_TRUE(cursor.Current());
+  EXPECT_EQ(target.Parent(), cursor.Current().GetLayoutObject());
+  ASSERT_TRUE(cursor.Current()->IsBlockInInline());
+  EXPECT_EQ(&target, cursor.Current()->BlockInInline());
+}
+
 TEST_P(NGInlineCursorTest, IsEmptyLineBox) {
   InsertStyleElement("b { margin-bottom: 1px; }");
   NGInlineCursor cursor = SetupCursor("<div id=root>abc<br><b></b></div>");
@@ -479,8 +531,6 @@ TEST_P(NGInlineCursorTest, Next) {
 }
 
 TEST_P(NGInlineCursorTest, NextIncludingFragmentainer) {
-  RuntimeEnabledFeaturesTestHelpers::ScopedLayoutNGBlockFragmentation
-      block_fragmentation(true);
   // TDOO(yosin): Remove style for <b> once NGFragmentItem don't do culled
   // inline.
   LoadAhem();
@@ -992,8 +1042,6 @@ TEST_P(NGInlineCursorTest, Previous) {
 }
 
 TEST_P(NGInlineCursorTest, PreviousIncludingFragmentainer) {
-  RuntimeEnabledFeaturesTestHelpers::ScopedLayoutNGBlockFragmentation
-      block_fragmentation(true);
   // TDOO(yosin): Remove style for <b> once NGFragmentItem don't do culled
   // inline.
   LoadAhem();
@@ -1163,13 +1211,31 @@ TEST_P(NGInlineCursorTest, CursorForDescendants) {
               ElementsAre("text3"));
 }
 
-class NGInlineCursorBlockFragmentationTest
-    : public NGLayoutTest,
-      private ScopedLayoutNGBlockFragmentationForTest {
- public:
-  NGInlineCursorBlockFragmentationTest()
-      : ScopedLayoutNGBlockFragmentationForTest(true) {}
-};
+TEST_P(NGInlineCursorTest, MoveToVisualFirstOrLast) {
+  SetBodyInnerHTML(R"HTML(
+    <div id=root dir="rtl">
+      here is
+      <span id="span1">some <bdo dir="rtl">MIXED</bdo></span>
+      <bdo dir="rtl">TEXT</bdo>
+    </div>
+  )HTML");
+
+  //          _here_is_some_MIXED_TEXT_
+  // visual:  _TXET_DEXIM_here_is_some_
+  // in span:       ______        ____
+
+  NGInlineCursor cursor1;
+  cursor1.MoveToIncludingCulledInline(*GetLayoutObjectByElementId("span1"));
+  cursor1.MoveToVisualFirstForSameLayoutObject();
+  EXPECT_EQ("NGFragmentItem Text \"MIXED\"", cursor1.Current()->ToString());
+
+  NGInlineCursor cursor2;
+  cursor2.MoveToIncludingCulledInline(*GetLayoutObjectByElementId("span1"));
+  cursor2.MoveToVisualLastForSameLayoutObject();
+  EXPECT_EQ("NGFragmentItem Text \"some\"", cursor2.Current()->ToString());
+}
+
+class NGInlineCursorBlockFragmentationTest : public RenderingTest {};
 
 TEST_F(NGInlineCursorBlockFragmentationTest, MoveToLayoutObject) {
   // This creates 3 columns, 1 line in each column.
@@ -1295,7 +1361,7 @@ TEST_F(NGInlineCursorBlockFragmentationTest, MoveToLayoutObject) {
 
   // Test cursors rooted at |NGFragmentItems|.
   // They can enumerate fragments only in the specified fragmentainer.
-  Vector<const NGPhysicalBoxFragment*> fragments;
+  HeapVector<Member<const NGPhysicalBoxFragment>> fragments;
   for (const NGPhysicalBoxFragment& fragment :
        block_flow->PhysicalFragments()) {
     DCHECK(fragment.HasItems());

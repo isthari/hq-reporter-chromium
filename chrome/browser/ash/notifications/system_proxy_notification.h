@@ -1,13 +1,13 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_ASH_NOTIFICATIONS_SYSTEM_PROXY_NOTIFICATION_H_
 #define CHROME_BROWSER_ASH_NOTIFICATIONS_SYSTEM_PROXY_NOTIFICATION_H_
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/weak_ptr.h"
-#include "chromeos/dbus/system_proxy/system_proxy_service.pb.h"
+#include "chromeos/ash/components/dbus/system_proxy/system_proxy_service.pb.h"
 
 namespace message_center {
 class Notification;

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,35 +17,30 @@ import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
+import org.chromium.base.ApplicationState;
+import org.chromium.base.ApplicationStatus;
 import org.chromium.base.CallbackController;
-import org.chromium.base.FeatureList;
 import org.chromium.base.Log;
 import org.chromium.base.ObserverList;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.supplier.ObservableSupplier;
-import org.chromium.base.supplier.Supplier;
-import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.build.annotations.MockedInTests;
 import org.chromium.chrome.browser.omnibox.LocationBarDataProvider;
 import org.chromium.chrome.browser.omnibox.R;
+import org.chromium.chrome.browser.omnibox.suggestions.AutocompleteControllerProvider;
 import org.chromium.chrome.browser.omnibox.suggestions.AutocompleteCoordinator;
-import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.search_engines.TemplateUrlServiceFactory;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.translate.TranslateBridge;
-import org.chromium.components.browser_ui.bottomsheet.BottomSheetControllerProvider;
 import org.chromium.components.embedder_support.util.UrlUtilities;
-import org.chromium.components.feature_engagement.EventConstants;
-import org.chromium.components.feature_engagement.Tracker;
 import org.chromium.components.omnibox.AutocompleteMatch;
 import org.chromium.content_public.browser.NavigationHandle;
 import org.chromium.content_public.browser.RenderFrameHost;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContentsObserver;
-import org.chromium.ui.base.PermissionCallback;
 import org.chromium.ui.base.WindowAndroid;
+import org.chromium.ui.permissions.PermissionCallback;
 import org.chromium.url.GURL;
 
 import java.util.ArrayList;
@@ -54,6 +49,7 @@ import java.util.List;
 /**
  * Class containing functionality related to voice search.
  */
+@MockedInTests
 public class VoiceRecognitionHandler {
     private static final String TAG = "VoiceRecognition";
 
@@ -63,100 +59,32 @@ public class VoiceRecognitionHandler {
      */
     @VisibleForTesting
     public static final float VOICE_SEARCH_CONFIDENCE_NAVIGATE_THRESHOLD = 0.9f;
-    /**
-     * Extra containing the languages for the returned voice transcriptions (ArrayList<String>).
-     *
-     * This language is only returned for queries handled by Assistant.
-     */
-    @VisibleForTesting
-    static final String VOICE_QUERY_RESULT_LANGUAGES = "android.speech.extra.LANGUAGE";
-    /**
-     * Extra containing an identifier for the current Assistant experiment.
-     *
-     * This is only populated for intents initiated via the toolbar button, and is not populated for
-     * internal Chrome URLs.
-     */
-    @VisibleForTesting
-    static final String EXTRA_EXPERIMENT_ID = "com.android.chrome.voice.EXPERIMENT_ID";
-    /**
-     * The parameter from the ASSISTANT_INTENT_EXPERIMENT_ID feature that configures the experiment
-     * ID attached via the EXTRA_EXPERIMENT_ID extra.
-     */
-    @VisibleForTesting
-    static final String ASSISTANT_EXPERIMENT_ID_PARAM_NAME = "experiment_id";
-    /**
-     * Extra containing the URL of the current page.
-     *
-     * This is only populated for intents initiated via the toolbar button, and is not populated for
-     * internal Chrome URLs.
-     */
-    @VisibleForTesting
-    static final String EXTRA_PAGE_URL = "com.android.chrome.voice.PAGE_URL";
-    /**
-     * Extra containing the source language code of the current page.
-     *
-     * This is only populated for pages that are translatable and only for intents initiated via the
-     * toolbar button.
-     */
-    @VisibleForTesting
-    static final String EXTRA_TRANSLATE_ORIGINAL_LANGUAGE =
-            "com.android.chrome.voice.TRANSLATE_ORIGINAL_LANGUAGE";
-    /**
-     * Extra containing the current language code of the current page.
-     *
-     * This is only populated for pages that are translatable and only for intents initiated via the
-     * toolbar button.
-     */
-    @VisibleForTesting
-    static final String EXTRA_TRANSLATE_CURRENT_LANGUAGE =
-            "com.android.chrome.voice.TRANSLATE_CURRENT_LANGUAGE";
-    /**
-     * Extra containing the user's default target language code.
-     *
-     * This is only populated for pages that are translatable and only for intents initiated via the
-     * toolbar button.
-     */
-    @VisibleForTesting
-    static final String EXTRA_TRANSLATE_TARGET_LANGUAGE =
-            "com.android.chrome.voice.TRANSLATE_TARGET_LANGUAGE";
-    /**
-     * Extra containing a string that represents the action taken by Assistant after being opened
-     * for voice transcription.
-     *
-     * See AssistantActionPerformed, below.
-     */
-    @VisibleForTesting
-    static final String EXTRA_ACTION_PERFORMED = "com.android.chrome.voice.ACTION_PERFORMED";
+
     /**
      * Extra containing the current timestamp (in epoch time) used for tracking intent latency.
      */
     @VisibleForTesting
     static final String EXTRA_INTENT_SENT_TIMESTAMP =
             "com.android.chrome.voice.INTENT_SENT_TIMESTAMP";
+
     /**
-     * Extra containing the email for the signed-in/syncing account on the device.
-     */
-    @VisibleForTesting
-    static final String EXTRA_INTENT_USER_EMAIL = "com.android.chrome.voice.INTENT_USER_EMAIL";
-    /**
-     * Extra containing an integer that indicates which voice entrypoint the intent was initiated
+     * Extra containing an integer that indicates which voice entrypoint the intent
+     * was initiated
      * from.
      *
      * See VoiceInteractionEventSource for possible values.
      */
     @VisibleForTesting
     static final String EXTRA_VOICE_ENTRYPOINT = "com.android.chrome.voice.VOICE_ENTRYPOINT";
-
     private static Boolean sIsRecognitionIntentPresentForTesting;
     private final Delegate mDelegate;
     private Long mQueryStartTimeMs;
     private WebContentsObserver mVoiceSearchWebContentsObserver;
-    private Supplier<AssistantVoiceSearchService> mAssistantVoiceSearchServiceSupplier;
-    private TranslateBridgeWrapper mTranslateBridgeWrapper;
     private final ObserverList<Observer> mObservers = new ObserverList<>();
-    private final Runnable mLaunchAssistanceSettingsAction;
     private CallbackController mCallbackController = new CallbackController();
     private ObservableSupplier<Profile> mProfileSupplier;
+    private Boolean mIsVoiceSearchEnabledCached;
+    private boolean mRegisteredActivityStateListener;
 
     /**
      * AudioPermissionState defined in tools/metrics/histograms/enums.xml.
@@ -202,7 +130,7 @@ public class VoiceRecognitionHandler {
     @IntDef({VoiceIntentTarget.SYSTEM, VoiceIntentTarget.ASSISTANT})
     public @interface VoiceIntentTarget {
         int SYSTEM = 0;
-        int ASSISTANT = 1;
+        int ASSISTANT = 1; // deprecated
 
         // Be sure to also update enums.xml when updating these values.
         int NUM_ENTRIES = 2;
@@ -281,67 +209,15 @@ public class VoiceRecognitionHandler {
     }
 
     /**
-     * Wraps our usage of the static methods in the {@link TranslateBridge} into a class that can be
-     * mocked for testing.
-     */
-    public static class TranslateBridgeWrapper {
-        /**
-         * Returns true iff the current tab can be manually translated.
-         * Logging should only be performed when this method is called to show the translate menu
-         * item.
-         */
-        public boolean canManuallyTranslate(Tab tab) {
-            return TranslateBridge.canManuallyTranslate(tab, /*menuLogging=*/false);
-        }
-
-        /**
-         * Returns the source language code of the given tab. Empty string if no language was
-         * detected yet.
-         */
-        public String getSourceLanguage(Tab tab) {
-            return TranslateBridge.getSourceLanguage(tab);
-        }
-
-        /**
-         * Returns the current language code of the given tab. Empty string if no language was
-         * detected yet.
-         */
-        public String getCurrentLanguage(Tab tab) {
-            return TranslateBridge.getCurrentLanguage(tab);
-        }
-
-        /**
-         * Returns the best target language based on what the Translate Service knows about the
-         * user.
-         */
-        public String getTargetLanguage() {
-            return TranslateBridge.getTargetLanguage();
-        }
-    }
-
-    /**
      * A storage class that holds voice recognition string matches and confidence scores.
      */
     public static class VoiceResult {
         private final String mMatch;
         private final float mConfidence;
-        @Nullable
-        private final String mLanguage;
 
         public VoiceResult(String match, float confidence) {
-            this(match, confidence, null);
-        }
-
-        /**
-         * Creates an instance of a VoiceResult.
-         * @param match The text match from the voice recognition.
-         * @param confidence The confidence value of the recognition that should go from 0.0 to 1.0.
-         * @param language The language of the returned query.
-         */
-        public VoiceResult(String match, float confidence, @Nullable String language) {
             mMatch = match;
             mConfidence = confidence;
-            mLanguage = language;
         }
 
         /**
@@ -357,22 +233,10 @@ public class VoiceRecognitionHandler {
         public float getConfidence() {
             return mConfidence;
         }
-
-        /**
-         * @return The IETF language tag for this result.
-         */
-        public @Nullable String getLanguage() {
-            return mLanguage;
-        }
     }
 
-    public VoiceRecognitionHandler(Delegate delegate,
-            Supplier<AssistantVoiceSearchService> assistantVoiceSearchServiceSupplier,
-            Runnable launchAssistanceSettingsAction, ObservableSupplier<Profile> profileSupplier) {
+    public VoiceRecognitionHandler(Delegate delegate, ObservableSupplier<Profile> profileSupplier) {
         mDelegate = delegate;
-        mAssistantVoiceSearchServiceSupplier = assistantVoiceSearchServiceSupplier;
-        mLaunchAssistanceSettingsAction = launchAssistanceSettingsAction;
-        mTranslateBridgeWrapper = new TranslateBridgeWrapper();
         mProfileSupplier = profileSupplier;
         mProfileSupplier.addObserver(
                 mCallbackController.makeCancelable(profile -> notifyVoiceAvailabilityImpacted()));
@@ -415,15 +279,17 @@ public class VoiceRecognitionHandler {
 
             RenderFrameHost renderFrameHost = webContents.getMainFrame();
             if (renderFrameHost == null) return;
-            if (TemplateUrlServiceFactory.get().isSearchResultsPageFromDefaultSearchProvider(url)) {
+
+            if (!mProfileSupplier.hasValue()) return;
+            if (TemplateUrlServiceFactory.getForProfile(mProfileSupplier.get())
+                            .isSearchResultsPageFromDefaultSearchProvider(url)) {
                 renderFrameHost.notifyUserActivation();
             }
         }
 
         @Override
-        public void didFinishNavigation(NavigationHandle navigation) {
-            if (navigation.hasCommitted() && navigation.isInPrimaryMainFrame()
-                    && !navigation.isErrorPage()) {
+        public void didFinishNavigationInPrimaryMainFrame(NavigationHandle navigation) {
+            if (navigation.hasCommitted() && !navigation.isErrorPage()) {
                 setReceivedUserGesture(navigation.getUrl());
             }
             destroy();
@@ -468,28 +334,8 @@ public class VoiceRecognitionHandler {
                 return;
             }
 
-            // Log successful voice use for IPH purposes.
-            if (FeatureList.isInitialized()
-                    && ChromeFeatureList.isEnabled(ChromeFeatureList.TOOLBAR_MIC_IPH_ANDROID)
-                    && mProfileSupplier.hasValue()) {
-                // mic shouldn't be visibble
-                assert !mProfileSupplier.get().isOffTheRecord();
-                Tracker tracker = TrackerFactory.getTrackerForProfile(mProfileSupplier.get());
-                tracker.notifyEvent(EventConstants.SUCCESSFUL_VOICE_SEARCH);
-            }
-            // Assume transcription by default when the page URL feature is disabled.
-            @AssistantActionPerformed
-            int actionPerformed = AssistantActionPerformed.TRANSCRIPTION;
-            if (FeatureList.isInitialized()
-                    && ChromeFeatureList.isEnabled(ChromeFeatureList.ASSISTANT_INTENT_PAGE_URL)) {
-                actionPerformed = getActionPerformed(data.getExtras());
-            }
-
-            recordSuccessMetrics(mSource, mTarget, actionPerformed);
-
-            if (actionPerformed == AssistantActionPerformed.TRANSCRIPTION) {
-                handleTranscriptionResult(data);
-            }
+            recordSuccessMetrics(mSource, mTarget, AssistantActionPerformed.TRANSCRIPTION);
+            handleTranscriptionResult(data);
         }
 
         /**
@@ -541,109 +387,24 @@ public class VoiceRecognitionHandler {
                 }
             }
 
-            AutocompleteMatch match = null;
-            if (mProfileSupplier.hasValue()) {
-                match = AutocompleteCoordinator.classify(mProfileSupplier.get(), topResultQuery);
-            }
+            if (!mProfileSupplier.hasValue()) return;
+
+            Profile profile = mProfileSupplier.get();
+            AutocompleteMatch match =
+                    AutocompleteControllerProvider.from(mDelegate.getWindowAndroid())
+                            .get(profile)
+                            .classify(topResultQuery, false);
 
             String url;
             if (match == null || match.isSearchSuggestion()) {
-                url = TemplateUrlServiceFactory.get()
+                url = TemplateUrlServiceFactory.getForProfile(profile)
                               .getUrlForVoiceSearchQuery(topResultQuery)
                               .getSpec();
-                // If a language was returned to us from voice recognition, then use it. Currently,
-                // this is only returned when Google is the search engine. Since Google always has
-                // the query as a url parameter so appending this param will always be safe.
-                if (topResult.getLanguage() != null) {
-                    // TODO(crbug.com/1117271): Cleanup these assertions when Assistant launches.
-                    assert url.contains("?") : "URL must contain at least one URL param.";
-                    assert !url.contains("#") : "URL must not contain a fragment.";
-                    url += "&hl=" + topResult.getLanguage();
-                }
             } else {
                 url = match.getUrl().getSpec();
             }
 
             mDelegate.loadUrlFromVoice(url);
-        }
-    }
-
-    /**
-     * Returns the action performed by Assistant from the Assistant Intent callback bundle.
-     *
-     * If the extra is unavailable, assume TRANSCRIPTION.
-     */
-    private static @AssistantActionPerformed int getActionPerformed(Bundle extras) {
-        assert extras != null;
-        String actionPerformed = extras.getString(EXTRA_ACTION_PERFORMED);
-        if (actionPerformed == null) {
-            // Older versions of Assistant will not set EXTRA_ACTION_PERFORMED. These versions of
-            // Assistant also do not handle translate or readout, so we should assume transcription.
-            return AssistantActionPerformed.TRANSCRIPTION;
-        }
-        return parseActionPerformed(actionPerformed);
-    }
-
-    /**
-     * Parses actionPerformed and returns the associated AssistantActionPerformedValue.
-     * @param actionPerformed A String representation of the action enum.
-     * @return The parsed action or AssistantActionPerformed.UNKNOWN if no match was found.
-     */
-    private static @AssistantActionPerformed int parseActionPerformed(String actionPerformed) {
-        switch (actionPerformed) {
-            case "TRANSCRIPTION":
-                return AssistantActionPerformed.TRANSCRIPTION;
-            case "TRANSLATE":
-                return AssistantActionPerformed.TRANSLATE;
-            case "READOUT":
-                return AssistantActionPerformed.READOUT;
-            default:
-                return AssistantActionPerformed.UNKNOWN;
-        }
-    }
-
-    /**
-     * Returns a String for use as a histogram suffix for histograms split by
-     * AssistantActionPerformed.
-     * @param action The action performed by the Assistant.
-     * @return The histogram suffix for the given action. No '.' separator is included.
-     */
-    private static String getHistogramSuffixForAction(@AssistantActionPerformed int action) {
-        switch (action) {
-            case AssistantActionPerformed.TRANSCRIPTION:
-                return "Transcription";
-            case AssistantActionPerformed.TRANSLATE:
-                return "Translate";
-            case AssistantActionPerformed.READOUT:
-                return "Readout";
-            default:
-                return "Unknown";
-        }
-    }
-
-    /**
-     * Returns a String for use as a histogram suffix for histograms split by
-     * VoiceInteractionSource.
-     * @param source The source of the voice interaction.
-     * @return The histogram suffix for the given source or null if unknown. No '.' separator is
-     *         included.
-     */
-    private static @Nullable String getHistogramSuffixForSource(
-            @VoiceInteractionSource int source) {
-        switch (source) {
-            case VoiceInteractionSource.OMNIBOX:
-                return "Omnibox";
-            case VoiceInteractionSource.NTP:
-                return "NTP";
-            case VoiceInteractionSource.SEARCH_WIDGET:
-                return "SearchWidget";
-            case VoiceInteractionSource.TASKS_SURFACE:
-                return "TasksSurface";
-            case VoiceInteractionSource.TOOLBAR:
-                return "Toolbar";
-            default:
-                assert false : "Unknown VoiceInteractionSource: " + source;
-                return null;
         }
     }
 
@@ -671,12 +432,9 @@ public class VoiceRecognitionHandler {
 
         ArrayList<String> strings = extras.getStringArrayList(RecognizerIntent.EXTRA_RESULTS);
         float[] confidences = extras.getFloatArray(RecognizerIntent.EXTRA_CONFIDENCE_SCORES);
-        ArrayList<String> languages = extras.getStringArrayList(VOICE_QUERY_RESULT_LANGUAGES);
 
         if (strings == null || confidences == null) return null;
         if (strings.size() != confidences.length) return null;
-        // Langues is optional, so only check the size when it's non-null.
-        if (languages != null && languages.size() != strings.size()) return null;
 
         List<VoiceResult> results = new ArrayList<>();
         for (int i = 0; i < strings.size(); ++i) {
@@ -690,7 +448,9 @@ public class VoiceRecognitionHandler {
 
             AutocompleteMatch match = null;
             if (mProfileSupplier.hasValue()) {
-                match = AutocompleteCoordinator.classify(mProfileSupplier.get(), culledString);
+                match = AutocompleteControllerProvider.from(mDelegate.getWindowAndroid())
+                                .get(mProfileSupplier.get())
+                                .classify(culledString, false);
             }
 
             String urlOrSearchQuery;
@@ -699,9 +459,7 @@ public class VoiceRecognitionHandler {
             } else {
                 urlOrSearchQuery = culledString;
             }
-
-            String language = languages == null ? null : languages.get(i);
-            results.add(new VoiceResult(urlOrSearchQuery, confidences[i], language));
+            results.add(new VoiceResult(urlOrSearchQuery, confidences[i]));
         }
         return results;
     }
@@ -714,13 +472,11 @@ public class VoiceRecognitionHandler {
     public void startVoiceRecognition(@VoiceInteractionSource int source) {
         ThreadUtils.assertOnUiThread();
         startTrackingQueryDuration();
-
         WindowAndroid windowAndroid = mDelegate.getWindowAndroid();
         if (windowAndroid == null) {
             mDelegate.notifyVoiceRecognitionCanceled();
             return;
         }
-
         Activity activity = windowAndroid.getActivity().get();
         if (activity == null) {
             mDelegate.notifyVoiceRecognitionCanceled();
@@ -730,11 +486,6 @@ public class VoiceRecognitionHandler {
         if (!VoiceRecognitionUtil.isVoiceSearchPermittedByPolicy(/* strictPolicyCheck=*/true)) {
             mDelegate.notifyVoiceRecognitionCanceled();
             return;
-        }
-
-        if (mAssistantVoiceSearchServiceSupplier.hasValue()) {
-            mAssistantVoiceSearchServiceSupplier.get().reportMicPressUserEligibility();
-            if (startAGSAForAssistantVoiceSearch(activity, windowAndroid, source)) return;
         }
 
         if (!startSystemForVoiceSearch(activity, windowAndroid, source)) {
@@ -824,96 +575,6 @@ public class VoiceRecognitionHandler {
     }
 
     /**
-     * Start AGSA to fulfill the current voice search.
-     *
-     * @return Whether AGSA was actually started, when false we should fallback to
-     *         {@link startSystemForVoiceSearch}.
-     */
-    private boolean startAGSAForAssistantVoiceSearch(
-            Activity activity, WindowAndroid windowAndroid, @VoiceInteractionSource int source) {
-        AssistantVoiceSearchService assistantVoiceSearchService =
-                mAssistantVoiceSearchServiceSupplier.get();
-        if (assistantVoiceSearchService == null) return false;
-
-        // Check if the device meets the requirements to use Assistant voice search.
-        if (!assistantVoiceSearchService.canRequestAssistantVoiceSearch()) return false;
-
-        // Check if the consent prompt needs to be shown.
-        if (assistantVoiceSearchService.needsEnabledCheck()) {
-            mDelegate.clearOmniboxFocus();
-            AssistantVoiceSearchConsentController.show(windowAndroid,
-                    SharedPreferencesManager.getInstance(), mLaunchAssistanceSettingsAction,
-                    BottomSheetControllerProvider.from(windowAndroid),
-                    windowAndroid.getModalDialogManager(), (useAssistant) -> {
-                        // Notify the service about the consent completion.
-                        assistantVoiceSearchService.onAssistantConsentDialogComplete(useAssistant);
-
-                        if (useAssistant) {
-                            if (!startAGSAForAssistantVoiceSearch(
-                                        activity, windowAndroid, source)) {
-                                // Fallback to system voice search.
-                                startSystemForVoiceSearch(activity, windowAndroid, source);
-                            }
-                        } else {
-                            startSystemForVoiceSearch(activity, windowAndroid, source);
-                        }
-                    });
-
-            return true;
-        }
-
-        // Final check to see if Assistant voice search should be used.
-        if (!assistantVoiceSearchService.shouldRequestAssistantVoiceSearch()) return false;
-
-        Intent intent = assistantVoiceSearchService.getAssistantVoiceSearchIntent();
-        intent.putExtra(EXTRA_VOICE_ENTRYPOINT, source);
-        // Allows Assistant to track intent latency.
-        intent.putExtra(EXTRA_INTENT_SENT_TIMESTAMP, System.currentTimeMillis());
-        intent.putExtra(EXTRA_INTENT_USER_EMAIL, assistantVoiceSearchService.getUserEmail());
-
-        if (FeatureList.isInitialized()
-                && ChromeFeatureList.isEnabled(ChromeFeatureList.ASSISTANT_INTENT_EXPERIMENT_ID)) {
-            attachAssistantExperimentId(intent);
-        }
-
-        if (shouldAddPageUrl(source)) {
-            String url = getUrl();
-            if (url != null) {
-                intent.putExtra(EXTRA_PAGE_URL, url);
-            }
-        }
-
-        if (source == VoiceInteractionSource.TOOLBAR && FeatureList.isInitialized()
-                && ChromeFeatureList.isEnabled(ChromeFeatureList.ASSISTANT_INTENT_TRANSLATE_INFO)) {
-            boolean attached = attachTranslateExtras(intent);
-            recordTranslateExtrasAttachResult(attached);
-        }
-
-        if (!showSpeechRecognitionIntent(
-                    windowAndroid, intent, source, VoiceIntentTarget.ASSISTANT)) {
-            notifyVoiceAvailabilityImpacted();
-            recordVoiceSearchFailureEvent(source, VoiceIntentTarget.ASSISTANT);
-
-            return false;
-        }
-
-        return true;
-    }
-
-    /**
-     * Returns true if the current tab's URL should be included with an Assistant intent initiated
-     * via the given source.
-     */
-    private static boolean shouldAddPageUrl(@VoiceInteractionSource int source) {
-        // Non-toolbar entrypoints (Omnibox, NTP, etc) obscure the current page contents and make it
-        // less obvious that user actions in Assistant may interact with the current page. Omit the
-        // page URL in those cases to signal to Assistant that page-actions (e.g. translate,
-        // readout) should be disallowed.
-        return source == VoiceInteractionSource.TOOLBAR && FeatureList.isInitialized()
-                && ChromeFeatureList.isEnabled(ChromeFeatureList.ASSISTANT_INTENT_PAGE_URL);
-    }
-
-    /**
      * Returns the URL of the tab associated with this VoiceRecognitionHandler or null if it is not
      * available.
      */
@@ -930,58 +591,6 @@ public class VoiceRecognitionHandler {
         GURL pageUrl = currentTab.getUrl();
         if (!UrlUtilities.isHttpOrHttps(pageUrl)) return null;
         return pageUrl.getSpec();
-    }
-
-    /** Adds an Extra used to indicate to Assistant which experiment arm the user is in. */
-    private void attachAssistantExperimentId(Intent intent) {
-        String experimentId = ChromeFeatureList.getFieldTrialParamByFeature(
-                ChromeFeatureList.ASSISTANT_INTENT_EXPERIMENT_ID,
-                ASSISTANT_EXPERIMENT_ID_PARAM_NAME);
-        if (!TextUtils.isEmpty(experimentId)) {
-            intent.putExtra(EXTRA_EXPERIMENT_ID, experimentId);
-        }
-    }
-
-    /**
-     * Includes translate information, if available, as Extras in the given Assistant intent.
-     *
-     * @return True if the Extras were attached successfully (page was translatable, languages
-     *         detected, etc), false otherwise.
-     */
-    private boolean attachTranslateExtras(Intent intent) {
-        LocationBarDataProvider locationBarDataProvider = mDelegate.getLocationBarDataProvider();
-        Tab currentTab = locationBarDataProvider != null ? locationBarDataProvider.getTab() : null;
-        if (currentTab == null || currentTab.isIncognito()
-                || !mTranslateBridgeWrapper.canManuallyTranslate(currentTab)) {
-            return false;
-        }
-
-        // The page's URL is used to ensure the Translate intent doesn't translate the wrong page.
-        String url = getUrl();
-        // The presence of source and current language fields are used to indicate whether the
-        // page is translated and/or is translatable. Only include them if they are both available.
-        String sourceLanguageCode = mTranslateBridgeWrapper.getSourceLanguage(currentTab);
-        String currentLanguageCode = mTranslateBridgeWrapper.getCurrentLanguage(currentTab);
-        if (TextUtils.isEmpty(url) || TextUtils.isEmpty(sourceLanguageCode)
-                || TextUtils.isEmpty(currentLanguageCode)) {
-            return false;
-        }
-
-        intent.putExtra(EXTRA_TRANSLATE_ORIGINAL_LANGUAGE, sourceLanguageCode);
-        intent.putExtra(EXTRA_TRANSLATE_CURRENT_LANGUAGE, currentLanguageCode);
-
-        // If ASSISTANT_INTENT_PAGE_URL is enabled, the URL may have already been added.
-        if (!intent.hasExtra(EXTRA_PAGE_URL)) {
-            intent.putExtra(EXTRA_PAGE_URL, url);
-        }
-
-        // The target language is not necessary for Assistant to decide whether to show the
-        // translate UI.
-        String targetLanguageCode = mTranslateBridgeWrapper.getTargetLanguage();
-        if (!TextUtils.isEmpty(targetLanguageCode)) {
-            intent.putExtra(EXTRA_TRANSLATE_TARGET_LANGUAGE, targetLanguageCode);
-        }
-        return true;
     }
 
     /**
@@ -1013,8 +622,27 @@ public class VoiceRecognitionHandler {
         WindowAndroid windowAndroid = mDelegate.getWindowAndroid();
         if (windowAndroid == null) return false;
         if (windowAndroid.getActivity().get() == null) return false;
-        if (!VoiceRecognitionUtil.isVoiceSearchEnabled(windowAndroid)) return false;
-        return true;
+        if (!VoiceRecognitionUtil.isVoiceSearchPermittedByPolicy(false)) return false;
+
+        if (mIsVoiceSearchEnabledCached == null) {
+            mIsVoiceSearchEnabledCached = VoiceRecognitionUtil.isVoiceSearchEnabled(windowAndroid);
+
+            // isVoiceSearchEnabled depends on whether or not the user gives permissions to
+            // record audio. This permission can be changed either when we display a UI prompt
+            // to request permissions, or when the permissions are changed in Android settings.
+            // In both scenarios, the state of the application will change to being paused before
+            // the permission is changed, so we invalidate the cache here.
+            if (!mRegisteredActivityStateListener) {
+                ApplicationStatus.registerApplicationStateListener(newState -> {
+                    if (newState == ApplicationState.HAS_PAUSED_ACTIVITIES) {
+                        mIsVoiceSearchEnabledCached = null;
+                    }
+                });
+                mRegisteredActivityStateListener = true;
+            }
+        }
+
+        return mIsVoiceSearchEnabledCached;
     }
 
     /** Start tracking query duration by capturing when it started */
@@ -1034,14 +662,6 @@ public class VoiceRecognitionHandler {
 
         recordVoiceSearchFinishEvent(source, target);
         recordVoiceSearchOpenDuration(target, elapsedTimeMs);
-
-        // We should only record per-action metrics when the page URL feature is enabled. When
-        // disabled, only transcription should occur.
-        if (FeatureList.isInitialized()
-                && ChromeFeatureList.isEnabled(ChromeFeatureList.ASSISTANT_INTENT_PAGE_URL)) {
-            recordAssistantActionPerformed(source, action);
-            recordPerActionVoiceSearchOpenDuration(action, elapsedTimeMs);
-        }
     }
 
     /**
@@ -1125,22 +745,6 @@ public class VoiceRecognitionHandler {
     }
 
     /**
-     * Records the action performed by Assistant as a result of the voice search intent.
-     * @param action The action performed, such as transcription or translation. Values taken from
-     *        the enum AssistantActionPerformed in enums.xml.
-     */
-    @VisibleForTesting
-    protected void recordAssistantActionPerformed(
-            @VoiceInteractionSource int source, @AssistantActionPerformed int action) {
-        String sourceSuffix = getHistogramSuffixForSource(source);
-        if (sourceSuffix != null) {
-            RecordHistogram.recordEnumeratedHistogram(
-                    "VoiceInteraction.AssistantActionPerformed." + sourceSuffix, action,
-                    AssistantActionPerformed.NUM_ENTRIES);
-        }
-    }
-
-    /**
      * Records the result of a voice search.
      *
      * This also records submetrics split by the intent target.
@@ -1205,21 +809,6 @@ public class VoiceRecognitionHandler {
         }
     }
 
-    /** Records end-to-end voice search duration split by the action performed. */
-    private void recordPerActionVoiceSearchOpenDuration(
-            @AssistantActionPerformed int action, long openDurationMs) {
-        String actionSuffix = getHistogramSuffixForAction(action);
-        RecordHistogram.recordMediumTimesHistogram(
-                "VoiceInteraction.QueryDuration.Android." + actionSuffix, openDurationMs);
-    }
-
-    /** Records whether translate information was successfully attached to an Assistant intent. */
-    @VisibleForTesting
-    protected void recordTranslateExtrasAttachResult(boolean result) {
-        RecordHistogram.recordBooleanHistogram(
-                "VoiceInteraction.AssistantIntent.TranslateExtrasAttached", result);
-    }
-
     /**
      * Records audio permissions state when a system voice recognition is requested.
      * @param permissionsState The current RECORD_AUDIO permission state.
@@ -1228,12 +817,6 @@ public class VoiceRecognitionHandler {
     protected void recordAudioPermissionStateEvent(@AudioPermissionState int permissionsState) {
         RecordHistogram.recordEnumeratedHistogram("VoiceInteraction.AudioPermissionEvent",
                 permissionsState, AudioPermissionState.NUM_ENTRIES);
-    }
-
-    /** Allows for overriding the TranslateBridgeWrapper for test purposes. */
-    @VisibleForTesting
-    protected void setTranslateBridgeWrapper(TranslateBridgeWrapper wrapper) {
-        mTranslateBridgeWrapper = wrapper;
     }
 
     /**

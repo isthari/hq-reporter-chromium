@@ -1,13 +1,13 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/test/test_browser_dialog.h"
 #include "chrome/common/chrome_result_codes.h"
@@ -94,10 +94,15 @@ class TryChromeDialogBrowserTestBase : public InProcessBrowserTest {
  protected:
   class MockDelegate : public TryChromeDialog::Delegate {
    public:
-    MOCK_METHOD1(SetToastLocation,
-                 void(installer::ExperimentMetrics::ToastLocation));
-    MOCK_METHOD1(SetExperimentState, void(installer::ExperimentMetrics::State));
-    MOCK_METHOD0(InteractionComplete, void());
+    MOCK_METHOD(void,
+                SetToastLocation,
+                (installer::ExperimentMetrics::ToastLocation),
+                (override));
+    MOCK_METHOD(void,
+                SetExperimentState,
+                (installer::ExperimentMetrics::State),
+                (override));
+    MOCK_METHOD(void, InteractionComplete, (), (override));
   };
 
   explicit TryChromeDialogBrowserTestBase(int group = 0) : group_(group) {
@@ -114,6 +119,7 @@ class TryChromeDialogBrowserTestBase : public InProcessBrowserTest {
   // content:BrowserTestBase:
   void SetUpOnMainThread() override {
     dialog_ = base::WrapUnique(new TryChromeDialog(group_, &delegate_));
+    dialog_->BypassTaskbarIconSearchForTesting();
   }
   void TearDownInProcessBrowserTestFixture() override { dialog_.reset(); }
 
@@ -140,7 +146,7 @@ class TryChromeDialogBrowserTestBase : public InProcessBrowserTest {
   // Posts a task to the UI thread to simulate a rendezvous from another browser
   // process.
   void PostRendezvousTask() {
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&TryChromeDialog::OnProcessNotification,
                                   base::Unretained(dialog_.get())));
   }

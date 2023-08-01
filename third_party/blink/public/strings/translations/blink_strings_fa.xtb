@@ -7,14 +7,12 @@
 <translation id="1178581264944972037">مکث</translation>
 <translation id="1306460908038601864">خاموش</translation>
 <translation id="1311894908970423688">مقدار باید <ph name="VALUE_DATE_OR_TIME" /> باشد.</translation>
-<translation id="145015347812617860"><ph name="COUNT" /> مورد</translation>
 <translation id="1480676835519562650">قابلیت چند انتخابی، <ph name="SELECTED" /> مورد از <ph name="COUNT" /> مورد انتخاب شده است.</translation>
 <translation id="1588438908519853928">معمولی</translation>
 <translation id="1591562245178063882">این ماه</translation>
 <translation id="1637811476055996098">انتخاب فایل‌ها</translation>
 <translation id="1681022320378710418">زمان کنونی</translation>
 <translation id="1727839386348365796">قطره‌چکان</translation>
-<translation id="1727886345390570319">پنهان کردن منوی زیرنویس ناشنوایان</translation>
 <translation id="1729654308190250600">لطفاً یک نشانی ایمیل غیرخالی وارد کنید.</translation>
 <translation id="1758486001363313524">موارد دیگر...</translation>
 <translation id="1787192514241997742">زمان کل: <ph name="REMAINING_TIME" /></translation>
@@ -31,7 +29,6 @@
 <translation id="2246498165605549352">فایل محلی</translation>
 <translation id="2247351761944213033">هفته <ph name="WEEKNUMBER" />، <ph name="YEAR" /></translation>
 <translation id="2277199496770840904">آهنگ <ph name="NUMBER" /></translation>
-<translation id="2307576640803031502">در فهرست، مورد <ph name="INDEX" /> از <ph name="COUNT" /></translation>
 <translation id="2393030564806080191">مقدار رنگ در مبنای شانزده</translation>
 <translation id="2398813069815436052">کادر گفتگو باز شد.</translation>
 <translation id="245932805758469625">ثانیه‌های باقی‌مانده از ویدیو</translation>
@@ -63,7 +60,6 @@
 <translation id="4103419683916926126">میلی‌ ثانیه</translation>
 <translation id="4201051445878709314">نمایش ماه قبلی</translation>
 <translation id="4360991593054037559">لطفاً یک مقدار معتبر وارد کنید. نزدیک‌ترین مقادیر معتبر <ph name="VALID_VALUE_LOW" /> و <ph name="VALID_VALUE_HIGHER" /> هستند.</translation>
-<translation id="4371899966896349864">پنهان کردن منوی سرعت بازپخش</translation>
 <translation id="4522570452068850558">جزئیات</translation>
 <translation id="4664250907885839816">قسمت بعد از «<ph name="ATSIGN" />» نباید حاوی نماد «<ph name="INVALIDCHARACTER" />» باشد.</translation>
 <translation id="4718048029184481307">درحال پخش در حالت تصویردرتصویر</translation>
@@ -83,7 +79,9 @@
 <translation id="5117590920725113268">نمایش ماه بعدی</translation>
 <translation id="5164977714490026579">مقدار باید بیشتر یا مساوی با <ph name="MINIMUM" /> باشد.</translation>
 <translation id="5196716972587102051">۲</translation>
+<translation id="5199514351668672591">برگشتن به گزینه‌ها</translation>
 <translation id="520299402983819650"><ph name="QUANTITY" /> پتابایت</translation>
+<translation id="5272594226096532950">بدون علامت. در گروه، گزینه <ph name="INDEX" /> از <ph name="COUNT" /></translation>
 <translation id="5307600278924710095">لطفاً قسمت قبل از «<ph name="ATSIGN" />» را وارد کنید. «<ph name="INVALIDADDRESS" />» ناقص است.</translation>
 <translation id="5334352251556557839">رسانه پخش نشد.</translation>
 <translation id="537648784377940524">حداقل تاریخ (<ph name="MIN_DATE_OR_TIME" />) باید قبل از حداکثر تاریخ باشد (<ph name="MAX_DATE_OR_TIME" />).</translation>
@@ -101,7 +99,7 @@
 <translation id="5787939484346677755">گسترده شد، گزینه‌های تکمیل خودکار دردسترس است.</translation>
 <translation id="5860033963881614850">خاموش</translation>
 <translation id="588258955323874662">تمام صفحه</translation>
-<translation id="5888666972993069672">درحال ارسال محتوا به <ph name="DEVICE_FRIENDLY_NAME" /></translation>
+<translation id="5888666972993069672">درحال پخش محتوا به <ph name="DEVICE_FRIENDLY_NAME" /></translation>
 <translation id="5916664084637901428">روشن</translation>
 <translation id="5939518447894949180">بازنشانی</translation>
 <translation id="5966707198760109579">هفته</translation>
@@ -123,6 +121,7 @@
 <translation id="668171684555832681">دیگر...</translation>
 <translation id="6709093583001123835">مقدار باید <ph name="VALUE" /> باشد.</translation>
 <translation id="6709570249143506788">کیفیت پخش ضعیف</translation>
+<translation id="6719914554879143100">علامت زده‌شده. در گروه، گزینه <ph name="INDEX" /> از <ph name="COUNT" /></translation>
 <translation id="6790428901817661496">پخش</translation>
 <translation id="6820355525329141109">افزایه بارگیری نشد.</translation>
 <translation id="6831465880655513317">مخزن رنگ با لغزنده دوبعدی برای انتخاب اشباع رنگ و روشنایی</translation>
@@ -166,7 +165,7 @@
 <translation id="8637593834423658414">۱٫۷۵</translation>
 <translation id="8668988909814782445">شکست خط</translation>
 <translation id="8750798805984357768">لطفاً یکی از این گزینه‌ها را انتخاب کنید.</translation>
-<translation id="8845239796550121995">درحال ارسال محتوا به تلویزیون</translation>
+<translation id="8845239796550121995">درحال پخش محتوا به تلویزیون</translation>
 <translation id="8875657656876809964">خطا در بازپخش ویدئو</translation>
 <translation id="8889402386540077796">رنگ‌مایه</translation>
 <translation id="8901569739625249689"><ph name="QUANTITY" /> کیلوبایت</translation>

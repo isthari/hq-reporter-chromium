@@ -1,9 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/system/update/update_notification_controller.h"
 
+#include "ash/public/cpp/login_types.h"
 #include "ash/public/cpp/notification_utils.h"
 #include "ash/public/cpp/update_types.h"
 #include "ash/resources/vector_icons/vector_icons.h"
@@ -63,7 +64,7 @@ class AddNotificationWaiter : public message_center::MessageCenterObserver {
 void ShowDefaultUpdateNotification() {
   Shell::Get()->system_tray_model()->ShowUpdateIcon(
       UpdateSeverity::kLow, /*factory_reset_required=*/false,
-      /*rollback=*/false, UpdateType::kSystem);
+      /*rollback=*/false);
 }
 
 }  // namespace
@@ -88,7 +89,9 @@ class UpdateNotificationControllerTest : public AshTestBase {
     EnterpriseDomainModel* enterprise_domain =
         Shell::Get()->system_tray_model()->enterprise_domain();
     enterprise_domain->SetEnterpriseAccountDomainInfo(kDomain);
-    enterprise_domain->SetEnterpriseDomainInfo(kDeviceDomain, false);
+    enterprise_domain->SetDeviceEnterpriseInfo(
+        DeviceEnterpriseInfo{kDeviceDomain, /*active_directory_managed=*/false,
+                             ManagementDeviceMode::kNone});
   }
 
  protected:
@@ -130,8 +133,8 @@ class UpdateNotificationControllerTest : public AshTestBase {
   }
 
   void AddSlowBootFilePath(const base::FilePath& file_path) {
-    int bytes_written = base::WriteFile(file_path, "1\n", 2);
-    EXPECT_TRUE(bytes_written == 2);
+    bool success = base::WriteFile(file_path, "1\n");
+    EXPECT_TRUE(success);
     Shell::Get()
         ->system_notification_controller()
         ->update_->slow_boot_file_path_ = file_path;
@@ -166,6 +169,14 @@ TEST_F(UpdateNotificationControllerTest, VisibilityAfterUpdate) {
                 base::UTF16ToUTF8(system_app_name_) + " update",
             GetNotificationMessage());
   EXPECT_EQ("Restart to update", GetNotificationButton(0));
+
+  // Click the restart button.
+  message_center::MessageCenter::Get()->ClickOnNotificationButton(
+      kNotificationId, 0);
+
+  // Restart was requested.
+  EXPECT_EQ(1,
+            GetSessionControllerClient()->request_restart_for_update_count());
 }
 
 // Tests that the update icon becomes visible when an update becomes
@@ -257,7 +268,7 @@ TEST_F(UpdateNotificationControllerTest,
        VisibilityAfterUpdateRequiringFactoryReset) {
   // Simulate an update that requires factory reset.
   Shell::Get()->system_tray_model()->ShowUpdateIcon(UpdateSeverity::kLow, true,
-                                                    false, UpdateType::kSystem);
+                                                    false);
 
   // Showing Update Notification posts a task to check for slow boot request
   // and use the result of that check to generate appropriate notification. Wait
@@ -289,7 +300,7 @@ TEST_F(UpdateNotificationControllerTest, NoUpdateNotification) {
 TEST_F(UpdateNotificationControllerTest, RollbackNotification) {
   Shell::Get()->system_tray_model()->ShowUpdateIcon(
       UpdateSeverity::kLow, /*factory_reset_required=*/true,
-      /*rollback=*/true, UpdateType::kSystem);
+      /*rollback=*/true);
 
   // Showing Update Notification posts a task to check for slow boot request
   // and use the result of that check to generate appropriate notification. Wait
@@ -316,7 +327,7 @@ TEST_F(UpdateNotificationControllerTest, RollbackNotification) {
 TEST_F(UpdateNotificationControllerTest, RollbackRecommendedNotification) {
   Shell::Get()->system_tray_model()->ShowUpdateIcon(
       UpdateSeverity::kLow, /*factory_reset_required=*/true,
-      /*rollback=*/true, UpdateType::kSystem);
+      /*rollback=*/true);
 
   Shell::Get()->system_tray_model()->SetRelaunchNotificationState(
       {.requirement_type = RelaunchNotificationState::kRecommendedNotOverdue});
@@ -347,7 +358,7 @@ TEST_F(UpdateNotificationControllerTest,
        RollbackRecommendedOverdueNotification) {
   Shell::Get()->system_tray_model()->ShowUpdateIcon(
       UpdateSeverity::kLow, /*factory_reset_required=*/true,
-      /*rollback=*/true, UpdateType::kSystem);
+      /*rollback=*/true);
 
   Shell::Get()->system_tray_model()->SetRelaunchNotificationState(
       {.requirement_type = RelaunchNotificationState::kRecommendedAndOverdue});
@@ -376,7 +387,7 @@ TEST_F(UpdateNotificationControllerTest,
 TEST_F(UpdateNotificationControllerTest, RollbackRequiredNotification) {
   Shell::Get()->system_tray_model()->ShowUpdateIcon(
       UpdateSeverity::kLow, /*factory_reset_required=*/true,
-      /*rollback=*/true, UpdateType::kSystem);
+      /*rollback=*/true);
 
   constexpr base::TimeDelta remaining_time = base::Seconds(3);
 
@@ -655,31 +666,55 @@ TEST_F(UpdateNotificationControllerTest, SetBackToDefault) {
             GetNotificationPriority());
 }
 
-TEST_F(UpdateNotificationControllerTest, VisibilityAfterLacrosUpdate) {
-  // Simulate an update.
-  AddNotificationWaiter waiter;
-  Shell::Get()->system_tray_model()->ShowUpdateIcon(UpdateSeverity::kLow, false,
-                                                    false, UpdateType::kLacros);
-  waiter.Wait();
+TEST_F(UpdateNotificationControllerTest,
+       VisibilityAfterDeferredUpdateShowNotification) {
+  // Simulate a deferred update.
+  Shell::Get()->system_tray_model()->SetUpdateDeferred(
+      DeferredUpdateState::kShowNotification);
+
+  // Wait until everything is complete and then check if the notification is
+  // visible.
+  task_environment()->RunUntilIdle();
 
   // The notification is now visible.
   ASSERT_TRUE(HasNotification());
   EXPECT_EQ(kSystemNotificationColorNormal, *GetNotificationColor());
   EXPECT_TRUE(strcmp(kSystemMenuUpdateIcon.name, GetNotificationIcon().name) ==
               0);
-  EXPECT_EQ("Lacros update available", GetNotificationTitle());
-  EXPECT_EQ("Device restart is required to apply the update.",
-            GetNotificationMessage());
-  EXPECT_EQ("Restart to update", GetNotificationButton(0));
+  EXPECT_EQ("Update available", GetNotificationTitle());
+  EXPECT_EQ(
+      "Get the latest features and security improvements. Updates happen in "
+      "the background.",
+      GetNotificationMessage());
+  EXPECT_EQ("Update", GetNotificationButton(0));
+  EXPECT_EQ("Automatic updates", GetNotificationButton(1));
+}
 
-  // Click the "Restart to update" button.
-  message_center::MessageCenter::Get()
-      ->FindVisibleNotificationById(kNotificationId)
-      ->delegate()
-      ->Click(/*button_index=*/0, /*reply=*/absl::nullopt);
+TEST_F(UpdateNotificationControllerTest,
+       VisibilityAfterDeferredUpdateShowDialog) {
+  // Simulate a deferred update.
+  Shell::Get()->system_tray_model()->SetUpdateDeferred(
+      DeferredUpdateState::kShowDialog);
 
-  // Controller tried to restart chrome.
-  EXPECT_EQ(1, GetSessionControllerClient()->attempt_restart_chrome_count());
+  // Wait until everything is complete and then check if the notification is
+  // not visible.
+  task_environment()->RunUntilIdle();
+
+  // The notification is not visible.
+  ASSERT_FALSE(HasNotification());
+}
+
+TEST_F(UpdateNotificationControllerTest, VisibilityAfterDeferredUpdateOff) {
+  // Simulate a deferred update.
+  Shell::Get()->system_tray_model()->SetUpdateDeferred(
+      DeferredUpdateState::kNone);
+
+  // Wait until everything is complete and then check if the notification is
+  // not visible.
+  task_environment()->RunUntilIdle();
+
+  // The notification is not visible.
+  ASSERT_FALSE(HasNotification());
 }
 
 }  // namespace ash

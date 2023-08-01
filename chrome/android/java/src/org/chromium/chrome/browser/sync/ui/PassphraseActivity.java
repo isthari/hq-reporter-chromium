@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,7 +31,6 @@ public class PassphraseActivity extends AppCompatActivity
         implements PassphraseDialogFragment.Listener, FragmentManager.OnBackStackChangedListener {
     public static final String FRAGMENT_PASSPHRASE = "passphrase_fragment";
     public static final String FRAGMENT_SPINNER = "spinner_fragment";
-    private static final String TAG = "PassphraseActivity";
 
     private SyncService.SyncStateChangedListener mSyncStateChangedListener;
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,16 +8,14 @@
 #include <utility>
 
 #include "base/containers/contains.h"
-#include "components/sync/base/sync_base_switches.h"
 #include "components/sync/protocol/data_type_progress_marker.pb.h"
 
 namespace syncer {
 
 namespace {
 
-// Nudge delays for local refresh and invalidations. Common to all data types.
+// Nudge delay for local refresh. Common to all data types.
 constexpr base::TimeDelta kLocalRefreshDelay = base::Milliseconds(500);
-constexpr base::TimeDelta kRemoteInvalidationDelay = base::Milliseconds(250);
 
 }  // namespace
 
@@ -84,7 +82,7 @@ void NudgeTracker::RecordSuccessfulCommitMessage(ModelTypeSet types) {
   }
 }
 
-void NudgeTracker::RecordSuccessfulSyncCycle(ModelTypeSet types) {
+void NudgeTracker::RecordSuccessfulSyncCycleIfNotBlocked(ModelTypeSet types) {
   // If a retry was required, we've just serviced it.  Unset the flag.
   if (IsRetryRequired()) {
     current_retry_time_ = base::TimeTicks();
@@ -96,7 +94,7 @@ void NudgeTracker::RecordSuccessfulSyncCycle(ModelTypeSet types) {
   for (ModelType type : types) {
     TypeTrackerMap::const_iterator tracker_it = type_trackers_.find(type);
     DCHECK(tracker_it != type_trackers_.end()) << ModelTypeToDebugString(type);
-    tracker_it->second->RecordSuccessfulSyncCycle();
+    tracker_it->second->RecordSuccessfulSyncCycleIfNotBlocked();
   }
 }
 
@@ -123,14 +121,10 @@ base::TimeDelta NudgeTracker::RecordLocalRefreshRequest(ModelTypeSet types) {
   return kLocalRefreshDelay;
 }
 
-base::TimeDelta NudgeTracker::RecordRemoteInvalidation(
-    ModelType type,
-    std::unique_ptr<SyncInvalidation> invalidation) {
-  // Forward the invalidations to the proper recipient.
+base::TimeDelta NudgeTracker::GetRemoteInvalidationDelay(ModelType type) const {
   TypeTrackerMap::const_iterator tracker_it = type_trackers_.find(type);
   DCHECK(tracker_it != type_trackers_.end());
-  tracker_it->second->RecordRemoteInvalidation(std::move(invalidation));
-  return kRemoteInvalidationDelay;
+  return tracker_it->second->GetRemoteInvalidationDelay();
 }
 
 void NudgeTracker::RecordInitialSyncRequired(ModelType type) {
@@ -175,6 +169,13 @@ void NudgeTracker::UpdateTypeThrottlingAndBackoffState() {
   for (const auto& [type, tracker] : type_trackers_) {
     tracker->UpdateThrottleOrBackoffState();
   }
+}
+
+void NudgeTracker::SetHasPendingInvalidations(ModelType type,
+                                              bool has_invalidation) {
+  TypeTrackerMap::const_iterator tracker_it = type_trackers_.find(type);
+  DCHECK(tracker_it != type_trackers_.end());
+  tracker_it->second->SetHasPendingInvalidations(has_invalidation);
 }
 
 bool NudgeTracker::IsAnyTypeBlocked() const {
@@ -261,13 +262,6 @@ ModelTypeSet NudgeTracker::GetRefreshRequestedTypes() const {
   return result;
 }
 
-void NudgeTracker::SetLegacyNotificationHint(
-    ModelType type,
-    sync_pb::DataTypeProgressMarker* progress) const {
-  DCHECK(type_trackers_.find(type) != type_trackers_.end());
-  type_trackers_.find(type)->second->SetLegacyNotificationHint(progress);
-}
-
 sync_pb::SyncEnums::GetUpdatesOrigin NudgeTracker::GetOrigin() const {
   for (const auto& [type, tracker] : type_trackers_) {
     if (!tracker->IsBlocked() && (tracker->HasPendingInvalidation() ||
@@ -319,12 +313,6 @@ void NudgeTracker::SetSyncCycleStartTime(base::TimeTicks now) {
   }
 }
 
-void NudgeTracker::SetHintBufferSize(size_t size) {
-  for (const auto& [type, tracker] : type_trackers_) {
-    tracker->UpdatePayloadBufferSize(size);
-  }
-}
-
 void NudgeTracker::SetNextRetryTime(base::TimeTicks retry_time) {
   next_retry_time_ = retry_time;
 }
@@ -341,6 +329,16 @@ void NudgeTracker::SetLocalChangeDelayIgnoringMinForTest(
     const base::TimeDelta& delay) {
   DCHECK(base::Contains(type_trackers_, type));
   type_trackers_[type]->SetLocalChangeNudgeDelayIgnoringMinForTest(delay);
+}
+
+void NudgeTracker::SetQuotaParamsForExtensionTypes(
+    absl::optional<int> max_tokens,
+    absl::optional<base::TimeDelta> refill_interval,
+    absl::optional<base::TimeDelta> depleted_quota_nudge_delay) {
+  for (const auto& [type, tracker] : type_trackers_) {
+    tracker->SetQuotaParamsIfExtensionType(max_tokens, refill_interval,
+                                           depleted_quota_nudge_delay);
+  }
 }
 
 }  // namespace syncer

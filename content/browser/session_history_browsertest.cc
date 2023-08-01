@@ -1,19 +1,18 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/common/content_navigation_policy.h"
 #include "content/public/browser/navigation_controller.h"
-#include "content/public/browser/notification_service.h"
-#include "content/public/browser/notification_types.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/url_constants.h"
@@ -94,7 +93,8 @@ class SessionHistoryTest : public ContentBrowserTest {
   // Navigate session history using history.go(distance).
   void JavascriptGo(const std::string& distance) {
     TestNavigationObserver observer(shell()->web_contents());
-    shell()->LoadURL(GURL("javascript:history.go('" + distance + "')"));
+    EXPECT_TRUE(ExecJs(ToRenderFrameHost(shell()->web_contents()),
+                       "history.go('" + distance + "')"));
     observer.Wait();
   }
 
@@ -128,17 +128,13 @@ class SessionHistoryTest : public ContentBrowserTest {
   }
 
   void GoBack() {
-    WindowedNotificationObserver load_stop_observer(
-        NOTIFICATION_LOAD_STOP,
-        NotificationService::AllSources());
+    LoadStopObserver load_stop_observer(shell()->web_contents());
     shell()->web_contents()->GetController().GoBack();
     load_stop_observer.Wait();
   }
 
   void GoForward() {
-    WindowedNotificationObserver load_stop_observer(
-        NOTIFICATION_LOAD_STOP,
-        NotificationService::AllSources());
+    LoadStopObserver load_stop_observer(shell()->web_contents());
     shell()->web_contents()->GetController().GoForward();
     load_stop_observer.Wait();
   }
@@ -345,8 +341,7 @@ IN_PROC_BROWSER_TEST_F(SessionHistoryTest, CrossFrameFormBackForward) {
   // set to "form". If not, the page will be reloaded from scratch, setting the
   // title to "bot1" again.
   GoBack();
-  EXPECT_EQ(IsSameSiteBackForwardCacheEnabled() ? "form" : "bot1",
-            GetTabTitle());
+  EXPECT_EQ(IsBackForwardCacheEnabled() ? "form" : "bot1", GetTabTitle());
   EXPECT_EQ(frames, GetTabURL());
 
   // Submit the form in the "fbot" iframe again . This submits to /echotitle

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,9 @@
 
 #include <dispatch/dispatch.h>
 
+#include <memory>
+
 #include "base/base_export.h"
-#include "base/mac/scoped_dispatch_object.h"
 
 namespace base {
 
@@ -42,17 +43,11 @@ class BASE_EXPORT DispatchSourceMach {
   // be received.
   void Resume();
 
-  dispatch_queue_t queue() const { return queue_.get(); }
+  dispatch_queue_t Queue() const;
 
  private:
-  // The dispatch queue used to service the source_.
-  ScopedDispatchObject<dispatch_queue_t> queue_;
-
-  // A MACH_RECV dispatch source.
-  ScopedDispatchObject<dispatch_source_t> source_;
-
-  // Semaphore used to wait on the |source_|'s cancellation in the destructor.
-  ScopedDispatchObject<dispatch_semaphore_t> source_canceled_;
+  struct Storage;
+  std::unique_ptr<Storage> storage_;
 };
 
 }  // namespace base

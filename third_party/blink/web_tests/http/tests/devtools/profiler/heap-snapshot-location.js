@@ -1,6 +1,9 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import {TestRunner} from 'test_runner';
+import {HeapProfilerTestRunner} from 'heap_profiler_test_runner';
 
 async function assertLocation(section, select_row) {
   const sectionRow = await HeapProfilerTestRunner.findAndExpandRow(section);
@@ -24,7 +27,6 @@ async function assertLocation(section, select_row) {
 (async function() {
   TestRunner.addResult(`Test that objects have source links in heap snapshot view.\n`);
 
-  await TestRunner.loadTestModule('heap_profiler_test_runner');
   await TestRunner.showPanel('heap_profiler');
   await TestRunner.evaluateInPagePromise(`
       class MyTestClass {

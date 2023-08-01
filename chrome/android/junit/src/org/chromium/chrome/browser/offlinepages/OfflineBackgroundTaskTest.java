@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,16 +7,16 @@ package org.chromium.chrome.browser.offlinepages;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
-import static org.mockito.Mockito.any;
-import static org.mockito.Mockito.anyBoolean;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import android.app.Activity;
 import android.content.Context;
-import android.os.Bundle;
+import android.os.PersistableBundle;
 
 import org.junit.After;
 import org.junit.Before;
@@ -33,10 +33,10 @@ import org.chromium.base.ActivityState;
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.BaseSwitches;
 import org.chromium.base.Callback;
-import org.chromium.base.CommandLine;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.SysUtils;
 import org.chromium.base.test.BaseRobolectricTestRunner;
+import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.browser.device.DeviceConditions;
 import org.chromium.chrome.browser.device.ShadowDeviceConditions;
@@ -54,6 +54,7 @@ import org.chromium.net.ConnectionType;
  */
 @RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE, shadows = {ShadowDeviceConditions.class})
+@CommandLineFlags.Add({BaseSwitches.ENABLE_LOW_END_DEVICE_MODE})
 public class OfflineBackgroundTaskTest {
     private static final boolean REQUIRE_POWER = true;
     private static final boolean REQUIRE_UNMETERED = true;
@@ -62,11 +63,8 @@ public class OfflineBackgroundTaskTest {
     private static final boolean METERED = true;
     private static final boolean SCREEN_ON_AND_UNLOCKED = true;
     private static final int MINIMUM_BATTERY_LEVEL = 33;
-    private static final String IS_LOW_END_DEVICE_SWITCH =
-            "--" + BaseSwitches.ENABLE_LOW_END_DEVICE_MODE;
 
-
-    private Bundle mTaskExtras;
+    private PersistableBundle mTaskExtras;
     private long mTestTime;
     private TriggerConditions mTriggerConditions =
             new TriggerConditions(!REQUIRE_POWER, MINIMUM_BATTERY_LEVEL, REQUIRE_UNMETERED);
@@ -101,12 +99,9 @@ public class OfflineBackgroundTaskTest {
         BackgroundSchedulerProcessor.setInstanceForTesting(mBackgroundSchedulerProcessor);
 
         // Build a bundle with trigger conditions.
-        mTaskExtras = new Bundle();
+        mTaskExtras = new PersistableBundle();
         TaskExtrasPacker.packTimeInBundle(mTaskExtras);
         TaskExtrasPacker.packTriggerConditionsInBundle(mTaskExtras, mTriggerConditions);
-
-        // Run tests as a low-end device.
-        CommandLine.init(new String[] {"testcommand", IS_LOW_END_DEVICE_SWITCH});
 
         // Set up single, stopped Activity.
         mTestActivity = new Activity();
@@ -117,7 +112,6 @@ public class OfflineBackgroundTaskTest {
     @After
     public void tearDown() {
         // Clean up static state for subsequent Robolectric tests.
-        CommandLine.reset();
         SysUtils.resetForTesting();
     }
 

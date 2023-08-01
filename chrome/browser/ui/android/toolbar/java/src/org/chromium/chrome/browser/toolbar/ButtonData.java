@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,8 +11,11 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.StringRes;
 
-import org.chromium.chrome.browser.toolbar.adaptive.AdaptiveToolbarFeatures.AdaptiveToolbarButtonVariant;
+import org.chromium.chrome.browser.toolbar.adaptive.AdaptiveToolbarButtonVariant;
+import org.chromium.chrome.browser.toolbar.adaptive.AdaptiveToolbarFeatures;
 import org.chromium.chrome.browser.user_education.IPHCommandBuilder;
+
+import java.util.Objects;
 
 /**
  * Data needed to show an optional toolbar button.
@@ -42,40 +45,29 @@ public interface ButtonData {
         private final View.OnClickListener mOnClickListener;
         @Nullable
         private final View.OnLongClickListener mOnLongClickListener;
-        @StringRes
-        private final int mContentDescriptionResId;
+        private final String mContentDescription;
         private final boolean mSupportsTinting;
         @Nullable
         private final IPHCommandBuilder mIPHCommandBuilder;
         @AdaptiveToolbarButtonVariant
         private final int mButtonVariant;
+        private final boolean mIsDynamicAction;
+        @StringRes
+        private final int mActionChipLabelResId;
 
         public ButtonSpec(@NonNull Drawable drawable, @NonNull View.OnClickListener onClickListener,
-                @Nullable View.OnLongClickListener onLongClickListener, int contentDescriptionResId,
+                @Nullable View.OnLongClickListener onLongClickListener, String contentDescription,
                 boolean supportsTinting, @Nullable IPHCommandBuilder iphCommandBuilder,
-                @AdaptiveToolbarButtonVariant int buttonVariant) {
+                @AdaptiveToolbarButtonVariant int buttonVariant, int actionChipLabelResId) {
             mDrawable = drawable;
             mOnClickListener = onClickListener;
             mOnLongClickListener = onLongClickListener;
-            mContentDescriptionResId = contentDescriptionResId;
+            mContentDescription = contentDescription;
             mSupportsTinting = supportsTinting;
             mIPHCommandBuilder = iphCommandBuilder;
             mButtonVariant = buttonVariant;
-        }
-
-        public ButtonSpec(@NonNull Drawable drawable, @NonNull View.OnClickListener onClickListener,
-                int contentDescriptionResId, boolean supportsTinting,
-                @Nullable IPHCommandBuilder iphCommandBuilder,
-                @AdaptiveToolbarButtonVariant int buttonVariant) {
-            this(drawable, onClickListener, /*onLongClickListener=*/null, contentDescriptionResId,
-                    supportsTinting, iphCommandBuilder, buttonVariant);
-        }
-
-        public ButtonSpec(Drawable drawable, View.OnClickListener onClickListener,
-                int contentDescriptionResId, boolean supportsTinting,
-                IPHCommandBuilder iphCommandBuilder) {
-            this(drawable, onClickListener, contentDescriptionResId, supportsTinting,
-                    iphCommandBuilder, AdaptiveToolbarButtonVariant.UNKNOWN);
+            mIsDynamicAction = AdaptiveToolbarFeatures.isDynamicAction(mButtonVariant);
+            mActionChipLabelResId = actionChipLabelResId;
         }
 
         /** Returns the {@link Drawable} for the button icon. */
@@ -96,10 +88,15 @@ public interface ButtonData {
             return mOnLongClickListener;
         }
 
-        /** Returns the resource if of the string describing the button. */
+        /** Returns the string describing the button. */
+        public String getContentDescription() {
+            return mContentDescription;
+        }
+
+        /** Returns the resource ID of the string for the button's action chip label. */
         @StringRes
-        public int getContentDescriptionResId() {
-            return mContentDescriptionResId;
+        public int getActionChipLabelResId() {
+            return mActionChipLabelResId;
         }
 
         /** Returns {@code true} if the button supports tinting. */
@@ -121,6 +118,38 @@ public interface ButtonData {
         @AdaptiveToolbarButtonVariant
         public int getButtonVariant() {
             return mButtonVariant;
+        }
+
+        /** Returns {@code true} if the button is a contextual page action. False otherwise. */
+        public boolean isDynamicAction() {
+            return mIsDynamicAction;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (!(o instanceof ButtonSpec)) {
+                return false;
+            }
+            ButtonSpec that = (ButtonSpec) o;
+            return mSupportsTinting == that.mSupportsTinting
+                    && mButtonVariant == that.mButtonVariant
+                    && mIsDynamicAction == that.mIsDynamicAction
+                    && mActionChipLabelResId == that.mActionChipLabelResId
+                    && Objects.equals(mDrawable, that.mDrawable)
+                    && Objects.equals(mOnClickListener, that.mOnClickListener)
+                    && Objects.equals(mOnLongClickListener, that.mOnLongClickListener)
+                    && Objects.equals(mContentDescription, that.mContentDescription)
+                    && Objects.equals(mIPHCommandBuilder, that.mIPHCommandBuilder);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(mDrawable, mOnClickListener, mOnLongClickListener,
+                    mContentDescription, mSupportsTinting, mIPHCommandBuilder, mButtonVariant,
+                    mIsDynamicAction, mActionChipLabelResId);
         }
     }
 }

@@ -45,7 +45,6 @@ class PLATFORM_EXPORT GradientGeneratedImage final : public GeneratedImage {
 
   bool ApplyShader(cc::PaintFlags&,
                    const SkMatrix&,
-                   const gfx::RectF& dst_rect,
                    const gfx::RectF& src_rect,
                    const ImageDrawOptions&) override;
 
@@ -55,7 +54,7 @@ class PLATFORM_EXPORT GradientGeneratedImage final : public GeneratedImage {
             const gfx::RectF& dest_rect,
             const gfx::RectF& src_rect,
             const ImageDrawOptions&) override;
-  void DrawTile(GraphicsContext&,
+  void DrawTile(cc::PaintCanvas*,
                 const gfx::RectF&,
                 const ImageDrawOptions& draw_options) override;
 

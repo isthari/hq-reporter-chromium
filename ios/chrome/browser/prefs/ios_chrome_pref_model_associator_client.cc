@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,4 +40,9 @@ base::Value IOSChromePrefModelAssociatorClient::MaybeMergePreferenceValues(
     const base::Value& local_value,
     const base::Value& server_value) const {
   return base::Value();
+}
+
+const sync_preferences::SyncablePrefsDatabase&
+IOSChromePrefModelAssociatorClient::GetSyncablePrefsDatabase() const {
+  return ios_chrome_syncable_prefs_database_;
 }

@@ -1,4 +1,4 @@
-// Copyright (c) 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 
 #include <string>
 
-#include "base/callback.h"
 #include "base/files/file_path.h"
+#include "base/functional/callback.h"
 
 class Profile;
 
@@ -42,9 +42,10 @@ class ExtensionAssetsManager {
 
   // Remove extension assets if it is not used by anyone else.
   virtual void UninstallExtension(const std::string& id,
-                                  Profile* profile,
+                                  const std::string& profile_user_name,
                                   const base::FilePath& local_install_dir,
-                                  const base::FilePath& extension_root) = 0;
+                                  const base::FilePath& extension_root,
+                                  const base::FilePath& profile_dir) = 0;
 
  protected:
   virtual ~ExtensionAssetsManager() {}

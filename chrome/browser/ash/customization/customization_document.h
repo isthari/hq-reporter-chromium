@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,31 +11,21 @@
 #include <string>
 #include <vector>
 
+#include "base/functional/callback_forward.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/singleton.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "base/values.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
 class PrefRegistrySimple;
 class Profile;
 
 namespace base {
-// TODO(crbug.com/1187061): Refactor this to remove base::DictionaryValue.
-class DictionaryValue;
 class FilePath;
 }  // namespace base
-
-namespace chromeos {
-
-// Friend function to initialize StartupCustomizationDocument for testing.
-void InitStartupCustomizationDocumentForTesting(const std::string& manifest);
-
-namespace system {
-class StatisticsProvider;
-}  // namespace system
-}  // namespace chromeos
 
 namespace extensions {
 class ExternalLoader;
@@ -52,8 +42,15 @@ class PrefRegistrySyncable;
 
 namespace ash {
 
+namespace system {
+class StatisticsProvider;
+}
+
 class CustomizationWallpaperDownloader;
 class ServicesCustomizationExternalLoader;
+
+// Friend function to initialize StartupCustomizationDocument for testing.
+void InitStartupCustomizationDocumentForTesting(const std::string& manifest);
 
 // Base class for OEM customization document classes.
 class CustomizationDocument {
@@ -76,7 +73,7 @@ class CustomizationDocument {
                                       const std::string& dictionary_name,
                                       const std::string& entry_name) const;
 
-  std::unique_ptr<base::DictionaryValue> root_;
+  std::unique_ptr<base::Value::Dict> root_;
 
   // Value of the "version" attribute that is supported.
   // Otherwise config is not loaded.
@@ -117,7 +114,7 @@ class StartupCustomizationDocument : public CustomizationDocument {
   FRIEND_TEST_ALL_PREFIXES(StartupCustomizationDocumentTest, BadManifest);
   FRIEND_TEST_ALL_PREFIXES(ServicesCustomizationDocumentTest, MultiLanguage);
   friend class OobeLocalizationTest;
-  friend void chromeos::InitStartupCustomizationDocumentForTesting(
+  friend void InitStartupCustomizationDocumentForTesting(
       const std::string& manifest);
   friend struct base::DefaultSingletonTraits<StartupCustomizationDocument>;
 
@@ -125,12 +122,12 @@ class StartupCustomizationDocument : public CustomizationDocument {
   StartupCustomizationDocument();
 
   // C-tor for test construction.
-  StartupCustomizationDocument(chromeos::system::StatisticsProvider* provider,
+  StartupCustomizationDocument(system::StatisticsProvider* provider,
                                const std::string& manifest);
 
   ~StartupCustomizationDocument() override;
 
-  void Init(chromeos::system::StatisticsProvider* provider);
+  void Init(system::StatisticsProvider* provider);
 
   std::string initial_locale_;
   std::vector<std::string> configured_locales_;
@@ -180,7 +177,7 @@ class ServicesCustomizationDocument : public CustomizationDocument {
   bool GetDefaultWallpaperUrl(GURL* out_url) const;
 
   // Returns list of default apps.
-  std::unique_ptr<base::DictionaryValue> GetDefaultApps() const;
+  absl::optional<base::Value::Dict> GetDefaultApps() const;
 
   // Creates an extensions::ExternalLoader that will provide OEM default apps.
   // Cache of OEM default apps stored in profile preferences.
@@ -249,8 +246,8 @@ class ServicesCustomizationDocument : public CustomizationDocument {
   void OnManifestLoaded();
 
   // Returns list of default apps in ExternalProvider format.
-  static std::unique_ptr<base::DictionaryValue> GetDefaultAppsInProviderFormat(
-      const base::DictionaryValue& root);
+  static base::Value::Dict GetDefaultAppsInProviderFormat(
+      const base::Value::Dict& root);
 
   // Update cached manifest for |profile|.
   void UpdateCachedManifest(Profile* profile);
@@ -259,12 +256,11 @@ class ServicesCustomizationDocument : public CustomizationDocument {
   void OnCustomizationNotFound();
 
   // Set OEM apps folder name for AppListSyncableService for |profile|.
-  void SetOemFolderName(Profile* profile, const base::DictionaryValue& root);
+  void SetOemFolderName(Profile* profile, const base::Value::Dict& root);
 
   // Returns the name of the folder for OEM apps for given |locale|.
-  std::string GetOemAppsFolderNameImpl(
-      const std::string& locale,
-      const base::DictionaryValue& root) const;
+  std::string GetOemAppsFolderNameImpl(const std::string& locale,
+                                       const base::Value::Dict& root) const;
 
   // Start download of wallpaper image if needed.
   void StartOEMWallpaperDownload(const GURL& wallpaper_url,
@@ -308,8 +304,9 @@ class ServicesCustomizationDocument : public CustomizationDocument {
   // Manifest fetch is already in progress.
   bool load_started_;
 
-  // Delay between checks for network online state.
-  base::TimeDelta network_delay_;
+  // Delay between checks for network online state. If the optional is empty,
+  // the default value for delay is used.
+  absl::optional<base::TimeDelta> custom_network_delay_ = absl::nullopt;
 
   // Known external loaders.
   ExternalLoaders external_loaders_;
@@ -332,11 +329,5 @@ class ServicesCustomizationDocument : public CustomizationDocument {
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove when ChromOS code migration is done.
-namespace chromeos {
-using ::ash::ServicesCustomizationDocument;
-using ::ash::StartupCustomizationDocument;
-}  // namespace chromeos
 
 #endif  // CHROME_BROWSER_ASH_CUSTOMIZATION_CUSTOMIZATION_DOCUMENT_H_

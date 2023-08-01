@@ -1,15 +1,17 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "services/resource_coordinator/memory_instrumentation/queued_request_dispatcher.h"
 
 #include <inttypes.h>
+
 #include <utility>
 
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/containers/contains.h"
 #include "base/format_macros.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/strcat.h"
@@ -22,7 +24,6 @@
 #include "services/resource_coordinator/memory_instrumentation/switches.h"
 #include "services/resource_coordinator/public/cpp/memory_instrumentation/global_memory_dump.h"
 #include "services/resource_coordinator/public/cpp/memory_instrumentation/tracing_observer_proto.h"
-#include "services/resource_coordinator/public/cpp/memory_instrumentation/tracing_observer_traced_value.h"
 #include "third_party/perfetto/include/perfetto/ext/trace_processor/importers/memory_tracker/graph_processor.h"
 #include "third_party/perfetto/protos/perfetto/trace/memory_graph.pbzero.h"
 #include "third_party/perfetto/protos/perfetto/trace/trace_packet.pbzero.h"
@@ -57,22 +58,11 @@ uint32_t CalculatePrivateFootprintKb(const mojom::RawOSMemDump& os_dump,
   uint64_t vm_swap_bytes = os_dump.platform_private_footprint->vm_swap_bytes;
   return (rss_anon_bytes + vm_swap_bytes) / 1024;
 #elif BUILDFLAG(IS_MAC)
-  if (base::mac::IsAtLeastOS10_12()) {
-    uint64_t phys_footprint_bytes =
-        os_dump.platform_private_footprint->phys_footprint_bytes;
-    return base::saturated_cast<uint32_t>(
-        base::saturated_cast<int32_t>(phys_footprint_bytes / 1024) -
-        base::saturated_cast<int32_t>(shared_resident_kb));
-  } else {
-    uint64_t internal_bytes =
-        os_dump.platform_private_footprint->internal_bytes;
-    uint64_t compressed_bytes =
-        os_dump.platform_private_footprint->compressed_bytes;
-    return base::saturated_cast<uint32_t>(
-        base::saturated_cast<int32_t>((internal_bytes + compressed_bytes) /
-                                      1024) -
-        base::saturated_cast<int32_t>(shared_resident_kb));
-  }
+  uint64_t phys_footprint_bytes =
+      os_dump.platform_private_footprint->phys_footprint_bytes;
+  return base::saturated_cast<uint32_t>(
+      base::saturated_cast<int32_t>(phys_footprint_bytes / 1024) -
+      base::saturated_cast<int32_t>(shared_resident_kb));
 #elif BUILDFLAG(IS_WIN)
   return base::saturated_cast<int32_t>(
       os_dump.platform_private_footprint->private_bytes / 1024);
@@ -150,46 +140,6 @@ void NodeAsValueIntoRecursively(const GlobalNodeGraph::Node& node,
     NodeAsValueIntoRecursively(*name_to_child.second, value, path);
     path->pop_back();
   }
-}
-
-std::unique_ptr<TracedValue> GetChromeDumpTracedValue(
-    const GlobalNodeGraph::Process& process) {
-  std::unique_ptr<TracedValue> traced_value = std::make_unique<TracedValue>();
-  if (!process.root()->const_children().empty()) {
-    traced_value->BeginDictionary("allocators");
-    std::vector<base::StringPiece> path;
-    NodeAsValueIntoRecursively(*process.root(), traced_value.get(), &path);
-    traced_value->EndDictionary();
-  }
-  return traced_value;
-}
-
-std::unique_ptr<TracedValue> GetChromeDumpAndGlobalAndEdgesTracedValue(
-    const GlobalNodeGraph::Process& process,
-    const GlobalNodeGraph::Process& global_process,
-    const std::forward_list<GlobalNodeGraph::Edge>& edges) {
-  std::unique_ptr<TracedValue> traced_value = std::make_unique<TracedValue>();
-  bool suppress_graphs = process.root()->const_children().empty() &&
-                         global_process.root()->const_children().empty();
-
-  if (!suppress_graphs) {
-    traced_value->BeginDictionary("allocators");
-    std::vector<base::StringPiece> path;
-    NodeAsValueIntoRecursively(*process.root(), traced_value.get(), &path);
-    NodeAsValueIntoRecursively(*global_process.root(), traced_value.get(),
-                               &path);
-    traced_value->EndDictionary();
-  }
-  traced_value->BeginArray("allocators_graph");
-  for (const auto& edge : edges) {
-    traced_value->BeginDictionary();
-    traced_value->SetString("source", edge.source()->id().ToString());
-    traced_value->SetString("target", edge.target()->id().ToString());
-    traced_value->SetInteger("importance", edge.priority());
-    traced_value->EndDictionary();
-  }
-  traced_value->EndArray();
-  return traced_value;
 }
 
 mojom::AllocatorMemDumpPtr CreateAllocatorDumpForNode(const Node* node,
@@ -354,8 +304,7 @@ void QueuedRequestDispatcher::SetUpAndDispatchVmRegionRequest(
                                       desired_pids, std::move(callback));
 #else
   for (const auto& client_info : clients) {
-    if (std::find(desired_pids.begin(), desired_pids.end(), client_info.pid) !=
-        desired_pids.end()) {
+    if (base::Contains(desired_pids, client_info.pid)) {
       mojom::ClientProcess* client = client_info.client;
       request->pending_responses.insert(client_info.pid);
       request->responses[client_info.pid].process_id = client_info.pid;
@@ -409,8 +358,7 @@ QueuedRequestDispatcher::FinalizeVmRegionRequest(
 }
 
 void QueuedRequestDispatcher::Finalize(QueuedRequest* request,
-                                       TracingObserver* tracing_observer,
-                                       bool use_proto_writer) {
+                                       TracingObserver* tracing_observer) {
   DCHECK(request->dump_in_progress);
   DCHECK(request->pending_responses.empty());
 
@@ -556,8 +504,8 @@ void QueuedRequestDispatcher::Finalize(QueuedRequest* request,
 
       if (raw_chrome_dump) {
         bool trace_chrome_success = AddChromeMemoryDumpToTrace(
-            request->GetRequestArgs(), pid, *raw_chrome_dump, *global_graph,
-            pid_to_process_type, tracing_observer, use_proto_writer, timestamp);
+            request->GetRequestArgs(), pid, *raw_chrome_dump, tracing_observer,
+            timestamp);
         if (!trace_chrome_success) {
           DLOG(ERROR) << "Tracing is disabled or not setup yet while receiving "
                          "Chrome dump for pid "
@@ -623,14 +571,9 @@ void QueuedRequestDispatcher::Finalize(QueuedRequest* request,
   auto& callback = request->callback;
   std::move(callback).Run(global_success, request->dump_guid,
                           std::move(global_dump));
-  UMA_HISTOGRAM_MEDIUM_TIMES("Memory.Experimental.Debug.GlobalDumpDuration",
-                             base::TimeTicks::Now() - request->start_time);
-  UMA_HISTOGRAM_COUNTS_1000(
-      "Memory.Experimental.Debug.FailedProcessDumpsPerGlobalDump",
-      request->failed_memory_dump_count);
 
   char guid_str[20];
-  sprintf(guid_str, "0x%" PRIx64, request->dump_guid);
+  snprintf(guid_str, sizeof(guid_str), "0x%" PRIx64, request->dump_guid);
   TRACE_EVENT_NESTABLE_ASYNC_END2(
       base::trace_event::MemoryDumpManager::kTraceCategory, "GlobalMemoryDump",
       TRACE_ID_LOCAL(request->dump_guid), "dump_guid", TRACE_STR_COPY(guid_str),
@@ -641,10 +584,7 @@ bool QueuedRequestDispatcher::AddChromeMemoryDumpToTrace(
     const base::trace_event::MemoryDumpRequestArgs& args,
     base::ProcessId pid,
     const base::trace_event::ProcessMemoryDump& raw_chrome_dump,
-    const GlobalNodeGraph& global_graph,
-    const std::map<base::ProcessId, mojom::ProcessType>& pid_to_process_type,
     TracingObserver* tracing_observer,
-    bool use_proto_writer,
     const base::TimeTicks& timestamp) {
   bool is_chrome_tracing_enabled =
       base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -656,24 +596,8 @@ bool QueuedRequestDispatcher::AddChromeMemoryDumpToTrace(
   if (!tracing_observer->ShouldAddToTrace(args))
     return false;
 
-  if (use_proto_writer) {
-    return tracing_observer->AddChromeDumpToTraceIfEnabled(
-        args, pid, &raw_chrome_dump, timestamp);
-  }
-
-  const GlobalNodeGraph::Process& process =
-      *global_graph.process_node_graphs().find(pid)->second;
-
-  std::unique_ptr<TracedValue> traced_value;
-  if (pid_to_process_type.find(pid)->second == mojom::ProcessType::BROWSER) {
-    traced_value = GetChromeDumpAndGlobalAndEdgesTracedValue(
-        process, *global_graph.shared_memory_graph(), global_graph.edges());
-  } else {
-    traced_value = GetChromeDumpTracedValue(process);
-  }
-  TracingObserverTracedValue::AddToTrace(args, pid, std::move(traced_value));
-
-  return true;
+  return tracing_observer->AddChromeDumpToTraceIfEnabled(
+      args, pid, &raw_chrome_dump, timestamp);
 }
 
 QueuedRequestDispatcher::ClientInfo::ClientInfo(

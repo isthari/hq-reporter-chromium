@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,9 @@
 #import <Foundation/Foundation.h>
 
 // Whether password creation is enabled for this user by preference.
-BOOL IsPasswordCreationUserRestricted();
+BOOL IsPasswordCreationUserEnabled();
 
-BOOL IsCredentialProviderExtensionPromoEnabled();
-
-// Whether the password manager branding UI update feature is enabled.
-BOOL IsPasswordManagerBrandingUpdateEnable();
+// Whether password notes feature is enabled for this user.
+BOOL IsPasswordNotesWithBackupEnabled();
 
 #endif  // IOS_CHROME_CREDENTIAL_PROVIDER_EXTENSION_UI_FEATURE_FLAGS_H_

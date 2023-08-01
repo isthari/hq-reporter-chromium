@@ -1,23 +1,28 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/passwords/password_breach_coordinator.h"
 
-#include "base/metrics/histogram_macros.h"
-#include "components/password_manager/core/browser/manage_passwords_referrer.h"
-#include "components/password_manager/core/browser/ui/password_check_referrer.h"
-#include "components/strings/grit/components_strings.h"
-#import "ios/chrome/browser/main/browser.h"
-#import "ios/chrome/browser/ui/commands/application_commands.h"
-#import "ios/chrome/browser/ui/commands/command_dispatcher.h"
-#import "ios/chrome/browser/ui/commands/password_breach_commands.h"
+#import "base/metrics/histogram_macros.h"
+#import "components/password_manager/core/browser/leak_detection_dialog_utils.h"
+#import "components/password_manager/core/browser/manage_passwords_referrer.h"
+#import "components/password_manager/core/browser/password_manager_metrics_util.h"
+#import "components/password_manager/core/browser/ui/password_check_referrer.h"
+#import "components/strings/grit/components_strings.h"
+#import "components/ukm/ios/ukm_url_recorder.h"
+#import "ios/chrome/browser/shared/model/browser/browser.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/shared/public/commands/application_commands.h"
+#import "ios/chrome/browser/shared/public/commands/command_dispatcher.h"
+#import "ios/chrome/browser/shared/public/commands/password_breach_commands.h"
 #import "ios/chrome/browser/ui/passwords/password_breach_mediator.h"
 #import "ios/chrome/browser/ui/passwords/password_breach_presenter.h"
 #import "ios/chrome/browser/ui/passwords/password_breach_view_controller.h"
 #import "ios/chrome/common/ui/elements/popover_label_view_controller.h"
-#include "ui/base/l10n/l10n_util.h"
-#include "url/gurl.h"
+#import "ios/web/public/web_state.h"
+#import "ui/base/l10n/l10n_util.h"
+#import "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -37,6 +42,9 @@ using password_manager::CredentialLeakType;
 // Main mediator for this coordinator.
 @property(nonatomic, strong) PasswordBreachMediator* mediator;
 
+// UKM SourceId of the active WebState.
+@property(nonatomic, assign) ukm::SourceId ukm_source_id;
+
 // Leak type of the dialog.
 @property(nonatomic, assign) CredentialLeakType leakType;
 
@@ -53,6 +61,9 @@ using password_manager::CredentialLeakType;
   self = [super initWithBaseViewController:baseViewController browser:browser];
   if (self) {
     _leakType = leakType;
+    web::WebState* web_state = browser->GetWebStateList()->GetActiveWebState();
+    _ukm_source_id = web_state ? ukm::GetSourceIdForWebStateDocument(web_state)
+                               : ukm::kInvalidSourceId;
   }
   return self;
 }
@@ -61,9 +72,14 @@ using password_manager::CredentialLeakType;
   self.viewController = [[PasswordBreachViewController alloc] init];
   self.viewController.modalPresentationStyle = UIModalPresentationFormSheet;
   self.viewController.modalInPresentation = YES;
+
+  auto recorder = std::make_unique<
+      password_manager::metrics_util::LeakDialogMetricsRecorder>(
+      self.ukm_source_id, password_manager::GetLeakDialogType(self.leakType));
   self.mediator =
       [[PasswordBreachMediator alloc] initWithConsumer:self.viewController
                                              presenter:self
+                                      metrics_recorder:std::move(recorder)
                                               leakType:self.leakType];
   self.viewController.actionHandler = self.mediator;
 
@@ -98,7 +114,7 @@ using password_manager::CredentialLeakType;
       .permittedArrowDirections = UIPopoverArrowDirectionUp;
 }
 
-- (void)startPasswordCheck {
+- (void)openSavedPasswordsSettings {
   id<ApplicationCommands> handler = HandlerForProtocol(
       self.browser->GetCommandDispatcher(), ApplicationCommands);
   password_manager::LogPasswordCheckReferrer(
@@ -106,8 +122,10 @@ using password_manager::CredentialLeakType;
   UMA_HISTOGRAM_ENUMERATION(
       "PasswordManager.ManagePasswordsReferrer",
       password_manager::ManagePasswordsReferrer::kPasswordBreachDialog);
-  [handler showSavedPasswordsSettingsAndStartPasswordCheckFromViewController:
-               self.baseViewController];
+
+  [handler showSavedPasswordsSettingsFromViewController:self.baseViewController
+                                       showCancelButton:NO
+                                     startPasswordCheck:YES];
 }
 
 @end

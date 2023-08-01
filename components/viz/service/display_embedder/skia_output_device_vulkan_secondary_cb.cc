@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 #include "third_party/skia/include/core/SkSurfaceCharacterization.h"
 #include "third_party/skia/include/gpu/GrBackendSurface.h"
 #include "third_party/skia/include/gpu/GrDirectContext.h"
-#include "third_party/skia/src/gpu/vk/GrVkSecondaryCBDrawContext.h"
+#include "third_party/skia/include/private/chromium/GrVkSecondaryCBDrawContext.h"
 #include "ui/gfx/presentation_feedback.h"
 
 namespace viz {
@@ -21,6 +21,7 @@ SkiaOutputDeviceVulkanSecondaryCB::SkiaOutputDeviceVulkanSecondaryCB(
     gpu::MemoryTracker* memory_tracker,
     DidSwapBufferCompleteCallback did_swap_buffer_complete_callback)
     : SkiaOutputDevice(context_provider->GetGrContext(),
+                       /*graphite_context=*/nullptr,
                        memory_tracker,
                        std::move(did_swap_buffer_complete_callback)),
       context_provider_(context_provider) {
@@ -49,10 +50,9 @@ SkiaOutputDeviceVulkanSecondaryCB::SkiaOutputDeviceVulkanSecondaryCB(
 }
 
 std::unique_ptr<SkiaOutputDevice::ScopedPaint>
-SkiaOutputDeviceVulkanSecondaryCB::BeginScopedPaint(
-    bool allocate_frame_buffer) {
+SkiaOutputDeviceVulkanSecondaryCB::BeginScopedPaint() {
   std::vector<GrBackendSemaphore> end_semaphores;
-  SkSurface* sk_surface = BeginPaint(allocate_frame_buffer, &end_semaphores);
+  SkSurface* sk_surface = BeginPaint(&end_semaphores);
   return std::make_unique<SkiaOutputDevice::ScopedPaint>(
       std::move(end_semaphores), this, sk_surface);
 }
@@ -65,35 +65,28 @@ void SkiaOutputDeviceVulkanSecondaryCB::Submit(bool sync_cpu,
 }
 
 bool SkiaOutputDeviceVulkanSecondaryCB::Reshape(
-    const gfx::Size& size,
-    float device_scale_factor,
+    const SkImageInfo& image_info,
     const gfx::ColorSpace& color_space,
-    gfx::BufferFormat format,
+    int sample_count,
+    float device_scale_factor,
     gfx::OverlayTransform transform) {
   // No-op
-  size_ = size;
+  size_ = gfx::SkISizeToSize(image_info.dimensions());
   return true;
 }
 
-void SkiaOutputDeviceVulkanSecondaryCB::SwapBuffers(
+void SkiaOutputDeviceVulkanSecondaryCB::Present(
+    const absl::optional<gfx::Rect>& update_rect,
     BufferPresentedCallback feedback,
     OutputSurfaceFrame frame) {
+  CHECK(!update_rect);
   StartSwapBuffers(std::move(feedback));
   FinishSwapBuffers(gfx::SwapCompletionResult(gfx::SwapResult::SWAP_ACK), size_,
                     std::move(frame));
 }
 
-void SkiaOutputDeviceVulkanSecondaryCB::PostSubBuffer(
-    const gfx::Rect& rect,
-    BufferPresentedCallback feedback,
-    OutputSurfaceFrame frame) {
-  CHECK(false);
-}
-
 SkSurface* SkiaOutputDeviceVulkanSecondaryCB::BeginPaint(
-    bool allocate_frame_buffer,
     std::vector<GrBackendSemaphore>* end_semaphores) {
-  DCHECK(!allocate_frame_buffer);
   return nullptr;
 }
 

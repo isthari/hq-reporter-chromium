@@ -1,12 +1,15 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "remoting/host/desktop_display_info.h"
 
-#include "base/logging.h"
+#include "base/check.h"
 #include "build/build_config.h"
 #include "remoting/base/constants.h"
+#include "remoting/base/logging.h"
+#include "remoting/proto/control.pb.h"
+#include "third_party/webrtc/modules/desktop_capture/desktop_capture_types.h"
 
 namespace remoting {
 
@@ -47,10 +50,12 @@ webrtc::DesktopSize DesktopDisplayInfo::CalcSizeDips(webrtc::DesktopSize size,
                                                      int dpi_y) {
   // Guard against invalid input.
   // TODO: Replace with a DCHECK, once crbug.com/938648 is fixed.
-  if (dpi_x == 0)
+  if (dpi_x == 0) {
     dpi_x = kDefaultDpi;
-  if (dpi_y == 0)
+  }
+  if (dpi_y == 0) {
     dpi_y = kDefaultDpi;
+  }
 
   webrtc::DesktopSize size_dips(size.width() * kDefaultDpi / dpi_x,
                                 size.height() * kDefaultDpi / dpi_y);
@@ -67,8 +72,9 @@ int DesktopDisplayInfo::NumDisplays() const {
 
 const DisplayGeometry* DesktopDisplayInfo::GetDisplayInfo(
     unsigned int id) const {
-  if (id < 0 || id >= displays_.size())
+  if (id < 0 || id >= displays_.size()) {
     return nullptr;
+  }
   return &displays_[id];
 }
 
@@ -126,10 +132,12 @@ webrtc::DesktopVector DesktopDisplayInfo::CalcDisplayOffset(
   int dx = 0;
   int dy = 0;
   for (const auto& display : displays_) {
-    if (display.x < dx)
+    if (display.x < dx) {
       dx = display.x;
-    if (display.y < dy)
+    }
+    if (display.y < dy) {
       dy = display.y;
+    }
   }
   webrtc::DesktopVector topleft(dx, dy);
 
@@ -160,7 +168,7 @@ void DesktopDisplayInfo::AddDisplay(const DisplayGeometry& display) {
 void DesktopDisplayInfo::AddDisplayFrom(
     const protocol::VideoTrackLayout& track) {
   DisplayGeometry display;
-  display.id = track.id();
+  display.id = track.screen_id();
   display.x = track.position_x();
   display.y = track.position_y();
   display.width = track.width();
@@ -169,6 +177,33 @@ void DesktopDisplayInfo::AddDisplayFrom(
   display.bpp = 24;
   display.is_default = false;
   displays_.push_back(display);
+}
+
+std::unique_ptr<protocol::VideoLayout> DesktopDisplayInfo::GetVideoLayoutProto()
+    const {
+  auto layout = std::make_unique<protocol::VideoLayout>();
+  HOST_LOG << "Displays loaded:";
+  for (const auto& display : displays()) {
+    protocol::VideoTrackLayout* track = layout->add_video_track();
+    track->set_position_x(display.x);
+    track->set_position_y(display.y);
+    track->set_width(display.width);
+    track->set_height(display.height);
+    track->set_x_dpi(display.dpi);
+    track->set_y_dpi(display.dpi);
+    track->set_screen_id(display.id);
+    HOST_LOG << "   Display: " << display.x << "," << display.y << " "
+             << display.width << "x" << display.height << " @ " << display.dpi
+             << ", id=" << display.id << ", bpp=" << display.bpp
+             << ", primary=" << display.is_default;
+    if (display.is_default) {
+      if (layout->has_primary_screen_id()) {
+        LOG(WARNING) << "Multiple primary displays found";
+      }
+      layout->set_primary_screen_id(display.id);
+    }
+  }
+  return layout;
 }
 
 std::ostream& operator<<(std::ostream& out, const DisplayGeometry& geo) {

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -70,7 +70,7 @@ class InstallableAmbientBadgeInfoBarDelegate
   const std::u16string app_name_;
   const SkBitmap primary_icon_;
   const bool is_primary_icon_maskable_;
-  const GURL& start_url_;
+  const GURL start_url_;
 };
 
 }  // namespace webapps

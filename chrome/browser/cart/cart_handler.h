@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,16 +12,23 @@
 #include "mojo/public/cpp/bindings/receiver.h"
 
 class Profile;
+class PrefService;
+
+namespace content {
+class WebContents;
+}  // namespace content
 
 // Handles requests of chrome cart module sent from JS.
 class CartHandler : public chrome_cart::mojom::CartHandler {
  public:
   CartHandler(mojo::PendingReceiver<chrome_cart::mojom::CartHandler> handler,
-              Profile* profile);
+              Profile* profile,
+              content::WebContents* web_contents);
   ~CartHandler() override;
 
   // chrome_cart::mojom::CartHandler:
   void GetMerchantCarts(GetMerchantCartsCallback callback) override;
+  void GetCartFeatureEnabled(GetCartFeatureEnabledCallback callback) override;
   void HideCartModule() override;
   void RestoreHiddenCartModule() override;
   void HideCart(const GURL& cart_url, HideCartCallback callback) override;
@@ -35,7 +42,13 @@ class CartHandler : public chrome_cart::mojom::CartHandler {
                       GetDiscountURLCallback callback) override;
   void GetDiscountConsentCardVisible(
       GetDiscountConsentCardVisibleCallback callback) override;
+  void GetDiscountToggleVisible(
+      GetDiscountToggleVisibleCallback callback) override;
   void OnDiscountConsentAcknowledged(bool accept) override;
+  void OnDiscountConsentDismissed() override;
+  void OnDiscountConsentContinued() override;
+  void ShowNativeConsentDialog(
+      ShowNativeConsentDialogCallback callback) override;
   void GetDiscountEnabled(GetDiscountEnabledCallback callback) override;
   void SetDiscountEnabled(bool enabled) override;
   void PrepareForNavigation(const GURL& cart_url, bool is_navigating) override;
@@ -46,6 +59,8 @@ class CartHandler : public chrome_cart::mojom::CartHandler {
                            std::vector<CartDB::KeyAndValue> res);
   mojo::Receiver<chrome_cart::mojom::CartHandler> handler_;
   raw_ptr<CartService> cart_service_;
+  raw_ptr<content::WebContents> web_contents_;
+  raw_ptr<PrefService> pref_service_;
   base::WeakPtrFactory<CartHandler> weak_factory_{this};
 };
 

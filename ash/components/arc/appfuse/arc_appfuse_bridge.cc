@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,10 +10,9 @@
 
 #include "ash/components/arc/arc_browser_context_keyed_service_factory_base.h"
 #include "ash/components/arc/session/arc_bridge_service.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/singleton.h"
-#include "chromeos/dbus/arc/arc_appfuse_provider_client.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/ash/components/dbus/arc/arc_appfuse_provider_client.h"
 #include "mojo/public/cpp/system/platform_handle.h"
 
 namespace arc {
@@ -83,16 +82,16 @@ ArcAppfuseBridge::~ArcAppfuseBridge() {
 void ArcAppfuseBridge::Mount(uint32_t uid,
                              int32_t mount_id,
                              MountCallback callback) {
-  // This is always safe because DBusThreadManager outlives ArcServiceLauncher.
-  chromeos::DBusThreadManager::Get()->GetArcAppfuseProviderClient()->Mount(
+  // This is safe because ArcAppfuseProviderClient outlives ArcServiceLauncher.
+  ash::ArcAppfuseProviderClient::Get()->Mount(
       uid, mount_id, base::BindOnce(&RunWithScopedHandle, std::move(callback)));
 }
 
 void ArcAppfuseBridge::Unmount(uint32_t uid,
                                int32_t mount_id,
                                UnmountCallback callback) {
-  chromeos::DBusThreadManager::Get()->GetArcAppfuseProviderClient()->Unmount(
-      uid, mount_id, std::move(callback));
+  ash::ArcAppfuseProviderClient::Get()->Unmount(uid, mount_id,
+                                                std::move(callback));
 }
 
 void ArcAppfuseBridge::OpenFile(uint32_t uid,
@@ -100,9 +99,14 @@ void ArcAppfuseBridge::OpenFile(uint32_t uid,
                                 int32_t file_id,
                                 int32_t flags,
                                 OpenFileCallback callback) {
-  chromeos::DBusThreadManager::Get()->GetArcAppfuseProviderClient()->OpenFile(
+  ash::ArcAppfuseProviderClient::Get()->OpenFile(
       uid, mount_id, file_id, flags,
       base::BindOnce(&RunWithScopedHandle, std::move(callback)));
+}
+
+// static
+void ArcAppfuseBridge::EnsureFactoryBuilt() {
+  ArcAppfuseBridgeFactory::GetInstance();
 }
 
 }  // namespace arc

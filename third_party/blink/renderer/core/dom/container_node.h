@@ -27,6 +27,7 @@
 
 #include "third_party/blink/public/mojom/input/focus_type.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/css/css_value.h"
 #include "third_party/blink/renderer/core/css/style_recalc_change.h"
 #include "third_party/blink/renderer/core/dom/node.h"
 #include "third_party/blink/renderer/core/dom/static_node_list.h"
@@ -97,7 +98,7 @@ class CORE_EXPORT ContainerNode : public Node {
   bool HasChildren() const { return first_child_; }
 
   bool HasOneChild() const {
-    return first_child_ && !first_child_->nextSibling();
+    return first_child_ && !first_child_->HasNextSibling();
   }
   bool HasOneTextChild() const {
     return HasOneChild() && first_child_->IsTextNode();
@@ -306,6 +307,7 @@ class CORE_EXPORT ContainerNode : public Node {
     kTextChanged
   };
   enum class ChildrenChangeSource : uint8_t { kAPI, kParser };
+  enum class ChildrenChangeAffectsElements : uint8_t { kNo, kYes };
   struct ChildrenChange {
     STACK_ALLOCATED();
 
@@ -314,15 +316,18 @@ class CORE_EXPORT ContainerNode : public Node {
                                        Node* unchanged_previous,
                                        Node* unchanged_next,
                                        ChildrenChangeSource by_parser) {
-      ChildrenChange change = {node.IsElementNode()
-                                   ? ChildrenChangeType::kElementInserted
-                                   : ChildrenChangeType::kNonElementInserted,
-                               by_parser,
-                               &node,
-                               unchanged_previous,
-                               unchanged_next,
-                               {},
-                               String()};
+      ChildrenChange change = {
+          .type = node.IsElementNode()
+                      ? ChildrenChangeType::kElementInserted
+                      : ChildrenChangeType::kNonElementInserted,
+          .by_parser = by_parser,
+          .affects_elements = node.IsElementNode()
+                                  ? ChildrenChangeAffectsElements::kYes
+                                  : ChildrenChangeAffectsElements::kNo,
+          .sibling_changed = &node,
+          .sibling_before_change = unchanged_previous,
+          .sibling_after_change = unchanged_next,
+      };
       return change;
     }
 
@@ -330,15 +335,17 @@ class CORE_EXPORT ContainerNode : public Node {
                                      Node* previous_sibling,
                                      Node* next_sibling,
                                      ChildrenChangeSource by_parser) {
-      ChildrenChange change = {node.IsElementNode()
-                                   ? ChildrenChangeType::kElementRemoved
-                                   : ChildrenChangeType::kNonElementRemoved,
-                               by_parser,
-                               &node,
-                               previous_sibling,
-                               next_sibling,
-                               {},
-                               String()};
+      ChildrenChange change = {
+          .type = node.IsElementNode() ? ChildrenChangeType::kElementRemoved
+                                       : ChildrenChangeType::kNonElementRemoved,
+          .by_parser = by_parser,
+          .affects_elements = node.IsElementNode()
+                                  ? ChildrenChangeAffectsElements::kYes
+                                  : ChildrenChangeAffectsElements::kNo,
+          .sibling_changed = &node,
+          .sibling_before_change = previous_sibling,
+          .sibling_after_change = next_sibling,
+      };
       return change;
     }
 
@@ -357,26 +364,27 @@ class CORE_EXPORT ContainerNode : public Node {
 
     bool ByParser() const { return by_parser == ChildrenChangeSource::kParser; }
 
-    ChildrenChangeType type;
-    ChildrenChangeSource by_parser;
-    Node* sibling_changed = nullptr;
+    const ChildrenChangeType type;
+    const ChildrenChangeSource by_parser;
+    const ChildrenChangeAffectsElements affects_elements;
+    Node* const sibling_changed = nullptr;
     // |siblingBeforeChange| is
     //  - siblingChanged.previousSibling before node removal
     //  - siblingChanged.previousSibling after single node insertion
     //  - previousSibling of the first inserted node after multiple node
     //    insertion
-    Node* sibling_before_change = nullptr;
+    Node* const sibling_before_change = nullptr;
     // |siblingAfterChange| is
     //  - siblingChanged.nextSibling before node removal
     //  - siblingChanged.nextSibling after single node insertion
     //  - nextSibling of the last inserted node after multiple node insertion.
-    Node* sibling_after_change = nullptr;
+    Node* const sibling_after_change = nullptr;
     // List of removed nodes for ChildrenChangeType::kAllChildrenRemoved.
     // Only populated if ChildrenChangedAllChildrenRemovedNeedsList() returns
     // true.
-    HeapVector<Member<Node>> removed_nodes;
-    // |old_text| is mostly empty, only used for text node changes.
-    const String& old_text;
+    const HeapVector<Member<Node>> removed_nodes;
+    // Non-null if and only if |type| is ChildrenChangeType::kTextChanged.
+    const String* const old_text = nullptr;
   };
 
   // Notifies the node that it's list of children have changed (either by adding
@@ -397,10 +405,17 @@ class CORE_EXPORT ContainerNode : public Node {
   // a descendant LayoutBox.
   virtual LayoutBox* GetLayoutBoxForScrolling() const;
 
+  Element* GetAutofocusDelegate() const;
+
+  HTMLCollection* PopoverInvokers() {
+    DCHECK(IsTreeScope());
+    return EnsureCachedCollection<HTMLCollection>(kPopoverInvokers);
+  }
+
   void Trace(Visitor*) const override;
 
  protected:
-  ContainerNode(TreeScope*, ConstructionType = kCreateContainer);
+  ContainerNode(TreeScope*, ConstructionType);
 
   // |attr_name| and |owner_element| are only used for element attribute
   // modifications. |ChildrenChange| is either nullptr or points to a
@@ -515,21 +530,21 @@ inline bool ContainerNode::NeedsAdjacentStyleRecalc() const {
 }
 
 inline unsigned Node::CountChildren() const {
-  auto* this_node = DynamicTo<ContainerNode>(this);
+  auto* this_node = DynamicTo<ContainerNode>(*this);
   if (!this_node)
     return 0;
   return this_node->CountChildren();
 }
 
 inline Node* Node::firstChild() const {
-  auto* this_node = DynamicTo<ContainerNode>(this);
+  auto* this_node = DynamicTo<ContainerNode>(*this);
   if (!this_node)
     return nullptr;
   return this_node->firstChild();
 }
 
 inline Node* Node::lastChild() const {
-  auto* this_node = DynamicTo<ContainerNode>(this);
+  auto* this_node = DynamicTo<ContainerNode>(*this);
   if (!this_node)
     return nullptr;
   return this_node->lastChild();

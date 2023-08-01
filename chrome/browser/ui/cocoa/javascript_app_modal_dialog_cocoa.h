@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -60,6 +60,7 @@ class JavaScriptAppModalDialogCocoa
 
   // Mojo interface to the NSAlert.
   mojo::Remote<remote_cocoa::mojom::AlertBridge> alert_bridge_remote_;
+  remote_cocoa::mojom::AlertBridge* alert_bridge_;
 
   std::unique_ptr<javascript_dialogs::AppModalDialogController> controller_;
   std::unique_ptr<PopunderPreventer> popunder_preventer_;

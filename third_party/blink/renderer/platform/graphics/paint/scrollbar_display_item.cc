@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,7 +23,7 @@ ScrollbarDisplayItem::ScrollbarDisplayItem(
     Type type,
     scoped_refptr<cc::Scrollbar> scrollbar,
     const gfx::Rect& visual_rect,
-    const TransformPaintPropertyNode* scroll_translation,
+    scoped_refptr<const TransformPaintPropertyNode> scroll_translation,
     CompositorElementId element_id,
     RasterEffectOutset outset,
     PaintInvalidationReason paint_invalidation_reason)
@@ -33,33 +33,37 @@ ScrollbarDisplayItem::ScrollbarDisplayItem(
                   outset,
                   paint_invalidation_reason,
                   /*draws_content*/ true),
-      data_(new Data{std::move(scrollbar), scroll_translation, element_id}) {
+      data_(new Data{std::move(scrollbar), std::move(scroll_translation),
+                     element_id}) {
   DCHECK(IsScrollbar());
-  DCHECK(!scroll_translation || scroll_translation->ScrollNode());
+  CHECK(!data_->scroll_translation_ ||
+        data_->scroll_translation_->ScrollNode());
 }
 
-sk_sp<const PaintRecord> ScrollbarDisplayItem::Paint() const {
+PaintRecord ScrollbarDisplayItem::Paint() const {
   DCHECK(!IsTombstone());
-  auto* scrollbar = data_->scrollbar_.get();
-  if (data_->record_) {
-    DCHECK(!scrollbar->NeedsRepaintPart(
-        cc::ScrollbarPart::TRACK_BUTTONS_TICKMARKS));
-    DCHECK(!scrollbar->NeedsRepaintPart(cc::ScrollbarPart::THUMB));
+  if (!data_->record_.empty() && !NeedsUpdateDisplay()) {
     return data_->record_;
   }
 
   PaintRecorder recorder;
   const gfx::Rect& rect = VisualRect();
-  recorder.beginRecording(gfx::RectToSkRect(rect));
+  recorder.beginRecording();
   auto* canvas = recorder.getRecordingCanvas();
+  auto* scrollbar = data_->scrollbar_.get();
   scrollbar->PaintPart(canvas, cc::ScrollbarPart::TRACK_BUTTONS_TICKMARKS,
                        rect);
-  gfx::Rect thumb_rect = data_->scrollbar_->ThumbRect();
+  gfx::Rect thumb_rect = scrollbar->ThumbRect();
   thumb_rect.Offset(rect.OffsetFromOrigin());
   scrollbar->PaintPart(canvas, cc::ScrollbarPart::THUMB, thumb_rect);
 
+  scrollbar->ClearNeedsUpdateDisplay();
   data_->record_ = recorder.finishRecordingAsPicture();
   return data_->record_;
+}
+
+bool ScrollbarDisplayItem::NeedsUpdateDisplay() const {
+  return data_->scrollbar_->NeedsUpdateDisplay();
 }
 
 scoped_refptr<cc::ScrollbarLayerBase> ScrollbarDisplayItem::CreateOrReuseLayer(
@@ -67,11 +71,12 @@ scoped_refptr<cc::ScrollbarLayerBase> ScrollbarDisplayItem::CreateOrReuseLayer(
   DCHECK(!IsTombstone());
   // This function is called when the scrollbar is composited. We don't need
   // record_ which is for non-composited scrollbars.
-  data_->record_ = nullptr;
+  data_->record_ = PaintRecord();
 
   auto* scrollbar = data_->scrollbar_.get();
   auto layer = cc::ScrollbarLayerBase::CreateOrReuse(scrollbar, existing_layer);
   layer->SetIsDrawable(true);
+  layer->SetContentsOpaque(IsOpaque());
   if (!scrollbar->IsSolidColor())
     layer->SetHitTestable(true);
   layer->SetElementId(data_->element_id_);
@@ -83,10 +88,20 @@ scoped_refptr<cc::ScrollbarLayerBase> ScrollbarDisplayItem::CreateOrReuseLayer(
       gfx::Vector2dF(VisualRect().OffsetFromOrigin()));
   layer->SetBounds(VisualRect().size());
 
-  if (scrollbar->NeedsRepaintPart(cc::ScrollbarPart::THUMB) ||
-      scrollbar->NeedsRepaintPart(cc::ScrollbarPart::TRACK_BUTTONS_TICKMARKS))
+  // TODO(crbug.com/1414885): This may be duplicate with
+  // ScrollableArea::ScrollableArea::SetScrollbarNeedsPaintInvalidation()
+  // which calls PaintArtifactCompositor::SetScrollbarNeedsDisplay().
+  if (NeedsUpdateDisplay()) {
     layer->SetNeedsDisplay();
+    scrollbar->ClearNeedsUpdateDisplay();
+  }
   return layer;
+}
+
+bool ScrollbarDisplayItem::IsOpaque() const {
+  DCHECK(!IsTombstone());
+  // The native themes should ensure opaqueness of non-overlay scrollbars.
+  return !data_->scrollbar_->IsOverlay();
 }
 
 bool ScrollbarDisplayItem::EqualsForUnderInvalidationImpl(
@@ -103,7 +118,7 @@ bool ScrollbarDisplayItem::EqualsForUnderInvalidationImpl(
 #if DCHECK_IS_ON()
 void ScrollbarDisplayItem::PropertiesAsJSONImpl(JSONObject& json) const {
   json.SetString("scrollTranslation",
-                 String::Format("%p", data_->scroll_translation_));
+                 String::Format("%p", data_->scroll_translation_.get()));
 }
 #endif
 
@@ -113,7 +128,7 @@ void ScrollbarDisplayItem::Record(
     DisplayItem::Type type,
     scoped_refptr<cc::Scrollbar> scrollbar,
     const gfx::Rect& visual_rect,
-    const TransformPaintPropertyNode* scroll_translation,
+    scoped_refptr<const TransformPaintPropertyNode> scroll_translation,
     CompositorElementId element_id) {
   PaintController& paint_controller = context.GetPaintController();
   // Must check PaintController::UseCachedItemIfPossible before this function.
@@ -121,8 +136,9 @@ void ScrollbarDisplayItem::Record(
          !paint_controller.UseCachedItemIfPossible(client, type));
 
   paint_controller.CreateAndAppend<ScrollbarDisplayItem>(
-      client, type, std::move(scrollbar), visual_rect, scroll_translation,
-      element_id, client.VisualRectOutsetForRasterEffects(),
+      client, type, std::move(scrollbar), visual_rect,
+      std::move(scroll_translation), element_id,
+      client.VisualRectOutsetForRasterEffects(),
       client.GetPaintInvalidationReason());
   paint_controller.RecordDebugInfo(client);
 }

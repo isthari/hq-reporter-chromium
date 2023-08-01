@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,10 +22,17 @@ const char kAllowInsecureLocalhost[] = "allow-insecure-localhost";
 const char kAllowLoopbackInPeerConnection[] =
     "allow-loopback-in-peer-connection";
 
-// Uses the android SkFontManager on linux. The specified directory should
-// include the configuration xml file with the name "fonts.xml".
-// This is used in blimp to emulate android fonts on linux.
-const char kAndroidFontsPath[]          = "android-fonts-path";
+// Causes the Attribution Report API to run without delays or noise.
+const char kAttributionReportingDebugMode[] =
+    "attribution-reporting-debug-mode";
+
+// Bypasses the dialog prompting the user for permission to capture
+// cameras and microphones. Useful in automatic tests of video-conferencing
+// Web applications.
+// This is nearly identical to kUseFakeUIForMediaStream, with the exception
+// being that this flag does NOT affect screen-capture.
+const char kAutoAcceptCameraAndMicrophoneCapture[] =
+    "auto-accept-camera-and-microphone-capture";
 
 // Causes the browser process to crash on startup.
 const char kBrowserCrashTest[]              = "crash-test";
@@ -52,21 +59,6 @@ const char kChangeStackGuardOnFork[] = "change-stack-guard-on-fork";
 const char kChangeStackGuardOnForkEnabled[] = "enable";
 const char kChangeStackGuardOnForkDisabled[] = "disable";
 
-// Causes the Conversion Measurement API to run without delays or noise.
-const char kConversionsDebugMode[] = "conversions-debug-mode";
-
-// Enable restricted APIs for a set of origins, specified as a
-// comma-separated list. For example:
-//   --restricted-api-origins=https://www.foo.com,https://www.bar.com
-const char kRestrictedApiOrigins[] = "restricted-api-origins";
-
-// Enables gating of getDisplayMedia by the display-capture permissions-policy.
-// This switch supports the shipping of display-capture, as it allows admins to
-// temporarily disable display-capture gating with an Enterprise policy.
-// TODO(crbug.com/1233969): Remove this around m100.
-const char kDisplayCapturePermissionsPolicyAllowed[] =
-    "display-capture-permissions-policy-allowed";
-
 // Disable antialiasing on 2d canvas.
 const char kDisable2dCanvasAntialiasing[]   = "disable-canvas-aa";
 
@@ -85,8 +77,9 @@ const char kDisableAccelerated2dCanvas[]    = "disable-accelerated-2d-canvas";
 // Enable in-progress canvas 2d API methods BeginLayer and EndLayer.
 const char kEnableCanvas2DLayers[] = "canvas-2d-layers";
 
-// Enable in-progress canvas 2d API features.
-const char kEnableNewCanvas2DAPI[] = "new-canvas-2d-api";
+// Disables hardware acceleration of video decode, where available.
+const char kDisableAcceleratedVideoDecode[] =
+    "disable-accelerated-video-decode";
 
 // Disables hardware acceleration of video encode, where available.
 const char kDisableAcceleratedVideoEncode[] =
@@ -133,12 +126,6 @@ const char kDisableWebGL2[] = "disable-webgl2";
 
 // Disable FileSystem API.
 const char kDisableFileSystem[]             = "disable-file-system";
-
-// Disable 3D inside of flapper.
-const char kDisableFlash3d[]                = "disable-flash-3d";
-
-// Disable Stage3D inside of flapper.
-const char kDisableFlashStage3d[]           = "disable-flash-stage3d";
 
 // Disable user gesture requirement for presentation.
 const char kDisableGestureRequirementForPresentation[] =
@@ -275,11 +262,6 @@ const char kDisableSpeechAPI[]              = "disable-speech-api";
 // Disables the speech synthesis part of Web Speech API.
 const char kDisableSpeechSynthesisAPI[]     = "disable-speech-synthesis-api";
 
-// Used to communicate managed policy for the TargetBlankImpliesNoOpenerDisable
-// behavioral change.
-extern const char kDisableTargetBlankImpliesNoOpener[] =
-    "target-blank-implies-no-opener-disable";
-
 // Disables adding the test certs in the network process.
 const char kDisableTestCerts[]              = "disable-test-root-certs";
 
@@ -338,6 +320,7 @@ const char kEnableCaretBrowsing[] = "enable-caret-browsing";
 //   net::features::kSameSiteDefaultChecksMethodRigorously
 //   net::features::kSchemefulSameSite
 //   net::features::kCookieSameSiteConsidersRedirectChain
+//   net::features::kPartitionedCookies
 const char kEnableExperimentalCookieFeatures[] =
     "enable-experimental-cookie-features";
 
@@ -371,6 +354,15 @@ const char kDisableOriginTrialControlledBlinkFeatures[] =
 const char kEnableGpuMemoryBufferVideoFrames[] =
     "enable-gpu-memory-buffer-video-frames";
 
+// Enables Isolated Web Apps (IWAs) in a renderer process. There are two ways
+// to enable the IWAs: by feature flag and by enterprise policy. If IWAs are
+// enabled by any of the mentioned above ways then this flag is passed to
+// the renderer process. This flag should not be used from command line.
+// To enable IWAs from command line one should use kIsolatedWebApps feature
+// flag.
+const char kEnableIsolatedWebAppsInRenderer[] =
+    "enable-isolated-web-apps-in-renderer";
+
 // Force logging to be enabled.  Logging is disabled by default in release
 // builds.
 const char kEnableLogging[]                 = "enable-logging";
@@ -393,6 +385,10 @@ const char kEnablePluginPlaceholderTesting[] =
 // still available, but it is bucketized and updated less frequently. This flag
 // also applys to workers.
 const char kEnablePreciseMemoryInfo[] = "enable-precise-memory-info";
+
+// Enables Privacy Sandbox APIs: Attribution Reporting, Fledge, Topics, Fenced
+// Frames, Shared Storage, Private Aggregation, and their associated features.
+const char kEnablePrivacySandboxAdsApis[] = "enable-privacy-sandbox-ads-apis";
 
 // Set options to cache V8 data. (none, code, or default)
 const char kV8CacheOptions[] = "v8-cache-options";
@@ -438,9 +434,6 @@ const char kEnableTracingFraction[] = "enable-tracing-fraction";
 const char kEnableUserMediaScreenCapturing[] =
     "enable-usermedia-screen-capturing";
 
-// Enable the mode that uses zooming to implment device scale factor behavior.
-const char kEnableUseZoomForDSF[]            = "enable-use-zoom-for-dsf";
-
 // Enables the use of the @viewport CSS rule, which allows
 // pages to control aspects of their own layout. This also turns on touch-screen
 // pinch gestures.
@@ -472,20 +465,6 @@ const char kEnableWebGLImageChromium[] = "enable-webgl-image-chromium";
 // file:///alias/some/path.html into file:///replacement/some/path.html.
 const char kFileUrlPathAlias[] = "file-url-path-alias";
 
-// Forces the Chrome major version to 100 in the User-Agent string.
-const char kForceMajorVersionTo100[] = "force-major-version-to-100";
-
-// Forces the Chrome minor version to 100 in the User-Agent string.
-const char kForceMinorVersionTo100[] = "force-minor-version-to-100";
-
-// Forces the Chrome major version to the minor position in the User-Agent
-// string. Locks major version to 99.
-const char kForceMajorVersionToMinorPosition[] = "force-major-version-to-minor";
-
-// Forces use of hardware overlay for fullscreen video playback. Useful for
-// testing the Android overlay fullscreen functionality on other platforms.
-const char kForceOverlayFullscreenVideo[]   = "force-overlay-fullscreen-video";
-
 // This forces pages to be loaded as presentation receivers.  Useful for testing
 // behavior specific to presentation receivers.
 // Spec: https://www.w3.org/TR/presentation-api/#interface-presentationreceiver
@@ -495,13 +474,12 @@ const char kForcePresentationReceiverForTesting[] =
 // Force renderer accessibility to be on instead of enabling it on demand when
 // a screen reader is detected. The disable-renderer-accessibility switch
 // overrides this if present.
+// This switch has an optional parameter that forces an AXMode bundle. The three
+// available bundle settings are: 'basic', 'form-controls', and 'complete'. If
+// the bundle argument is invalid, then the forced AXMode will default to
+// 'complete'. If the bundle argument is missing, then the initial AXMode will
+// default to complete but allow changes to the AXMode during execution.
 const char kForceRendererAccessibility[]    = "force-renderer-accessibility";
-
-// For development / testing only. When running content_browsertests,
-// saves output of failing accessibility tests to their expectations files in
-// content/test/data/accessibility/, overwriting existing file content.
-const char kGenerateAccessibilityTestExpectations[] =
-    "generate-accessibility-test-expectations";
 
 // Extra command line options for launching the GPU process (normally used
 // for debugging). Use like renderer-cmd-prefix.
@@ -515,6 +493,10 @@ const char kGpuSandboxStartEarly[] = "gpu-sandbox-start-early";
 
 // Causes the GPU process to display a dialog on launch.
 const char kGpuStartupDialog[]              = "gpu-startup-dialog";
+
+// Prevents creating scrollbars for web content. Useful for taking consistent
+// screenshots.
+const char kHideScrollbars[] = "hide-scrollbars";
 
 // Run the GPU process as a thread in the browser process.
 const char kInProcessGPU[]                  = "in-process-gpu";
@@ -540,9 +522,6 @@ const char kDisableJavaScriptHarmonyShipping[] =
 
 // Enables experimental Harmony (ECMAScript 6) features.
 const char kJavaScriptHarmony[]             = "javascript-harmony";
-
-// Enables unsafe fast JS calls between Blink and V8.
-const char kEnableUnsafeFastJSCalls[] = "enable-unsafe-fast-js-calls";
 
 // Flag to launch tests in the browser process.
 const char kLaunchAsBrowser[] = "as-browser";
@@ -594,12 +573,12 @@ const char kNoUnsandboxedZygote[] = "no-unsandboxed-zygote";
 // zygote to work.
 const char kNoZygote[] = "no-zygote";
 
-// Number of worker threads used to rasterize content.
-const char kNumRasterThreads[]              = "num-raster-threads";
-
 // Overrides the language detection result determined based on the page
 // contents.
 const char kOverrideLanguageDetection[] = "override-language-detection";
+
+// Renderer process that runs the non-PPAPI PDF plugin.
+const char kPdfRenderer[] = "pdf-renderer";
 
 // Runs PPAPI (Pepper) plugins in-process.
 const char kPpapiInProcess[]                = "ppapi-in-process";
@@ -615,6 +594,10 @@ const char kPpapiPluginProcess[]            = "ppapi";
 // Causes the PPAPI sub process to display a dialog on launch. Be sure to use
 // --no-sandbox as well or the sandbox won't allow the dialog to display.
 const char kPpapiStartupDialog[]            = "ppapi-startup-dialog";
+
+// Causes the Private Aggregation API to run without reporting delays.
+const char kPrivateAggregationDeveloperMode[] =
+    "private-aggregation-developer-mode";
 
 // Enable the "Process Per Site" process model for all domains. This mode
 // consolidates same-site pages so that they share a single process.
@@ -660,6 +643,20 @@ const char kPullToRefresh[] = "pull-to-refresh";
 // the debounce mechanimsm.
 const char kQuotaChangeEventInterval[] = "quota-change-event-interval";
 
+// Reduce the accept-language http header, and only send one language in the
+// request header: https://github.com/Tanych/accept-language.
+const char kReduceAcceptLanguage[] = "reduce-accept-language";
+
+// Reduce the minor version number in the User-Agent string. This flag
+// implements phase 4 of User-Agent reduction:
+// https://blog.chromium.org/2021/09/user-agent-reduction-origin-trial-and-dates.html.
+const char kReduceUserAgentMinorVersion[] = "reduce-user-agent-minor-version";
+
+// Reduce the platform and oscpu in the desktop User-Agent string. This flag
+// implements phase 5 of User-Agent reduction:
+// https://blog.chromium.org/2021/09/user-agent-reduction-origin-trial-and-dates.html.
+const char kReduceUserAgentPlatformOsCpu[] = "reduce-user-agent-platform-oscpu";
+
 // Register Pepper plugins (see pepper_plugin_list.cc for its format).
 const char kRegisterPepperPlugins[]         = "register-pepper-plugins";
 
@@ -670,6 +667,10 @@ const char kRemoteDebuggingPipe[] = "remote-debugging-pipe";
 
 // Enables remote debug over HTTP on the specified port.
 const char kRemoteDebuggingPort[]           = "remote-debugging-port";
+
+// Enables web socket connections from the specified origins only. '*' allows
+// any origin.
+const char kRemoteAllowOrigins[] = "remote-allow-origins";
 
 const char kRendererClientId[] = "renderer-client-id";
 
@@ -773,7 +774,7 @@ const char kSkiaFontCacheLimitMb[] = "skia-font-cache-limit-mb";
 // exceeds this limit.
 const char kSkiaResourceCacheLimitMb[] = "skia-resource-cache-limit-mb";
 
-// Type of the current test harness ("browser" or "ui").
+// Type of the current test harness ("browser" or "ui" or "gpu").
 const char kTestType[]                      = "test-type";
 
 // The time zone to use for testing. Passed to renderers and plugins on startup.
@@ -791,14 +792,20 @@ const char kTouchEventFeatureDetectionEnabled[] = "enabled";
 //   disabled: touch events are disabled.
 const char kTouchEventFeatureDetectionDisabled[] = "disabled";
 
-// Accepts specified file URL of a trustable WebBundle file. This flag
-// should be used only for testing purpose.
-const char kTrustableWebBundleFileUrl[] = "trustable-web-bundles-file-url";
+// Accepts a number representing the time-ticks value at the Unix epoch.
+// Since different processes can produce a different value for this due to
+// system clock changes, this allows synchronizing them to a single value.
+const char kTimeTicksAtUnixEpoch[] = "time-ticks-at-unix-epoch";
 
 // Replaces the existing codecs supported in peer connection with a single fake
 // codec entry that create a fake video encoder and decoder.
 const char kUseFakeCodecForPeerConnection[] =
     "use-fake-codec-for-peer-connection";
+
+// Bypass the FedCM account selection dialog. If a value is provided for
+// this switch, that account ID is selected, otherwise the first account
+// is chosen.
+const char kUseFakeUIForFedCM[] = "use-fake-ui-for-fedcm";
 
 // Bypass the media stream infobar by selecting the default device for media
 // streams (e.g. WebRTC). Works with --use-fake-device-for-media-stream.
@@ -837,8 +844,19 @@ const char kValidateInputEventStream[] = "validate-input-event-stream";
 // kWaitForDebugger flag passed on or not.
 const char kWaitForDebuggerChildren[]       = "wait-for-debugger-children";
 
+// On every navigation a message with the renderer's URL will be logged and the
+// renderer will wait for a debugger to be attached or SIGUSR1 to be sent to
+// continue execution.
+const char kWaitForDebuggerOnNavigation[] = "wait-for-debugger-on-navigation";
+
 // Flag used by WebUI test runners to wait for debugger to be attached.
 const char kWaitForDebuggerWebUI[] = "wait-for-debugger-webui";
+
+// Allows trusted remote desktop clients to make WebAuthn requests on behalf of
+// other origins. This switch only controls availability of the
+// `remoteDesktopClientOverride` extension but doesn't by itself enable any
+// origin to use it.
+const char kWebAuthRemoteDesktopSupport[] = "webauthn-remote-desktop-support";
 
 // Set the antialiasing method used for webgl. (none, explicit, implicit)
 const char kWebglAntialiasingMode[] = "webgl-antialiasing-mode";
@@ -875,10 +893,6 @@ const char kDisableWebRtcHWDecoding[]       = "disable-webrtc-hw-decoding";
 // Disables HW encode acceleration for WebRTC.
 const char kDisableWebRtcHWEncoding[] = "disable-webrtc-hw-encoding";
 
-// Enables negotiation of GCM cipher suites from RFC 7714 for SRTP in WebRTC.
-// See https://tools.ietf.org/html/rfc7714 for further information.
-const char kEnableWebRtcSrtpAesGcm[] = "enable-webrtc-srtp-aes-gcm";
-
 // Enables negotiation of encrypted header extensions from RFC 6904 for SRTP
 // in WebRTC.
 // See https://tools.ietf.org/html/rfc6904 for further information.
@@ -898,12 +912,6 @@ const char kForceWebRtcIPHandlingPolicy[] = "force-webrtc-ip-handling-policy";
 // Override the maximum framerate as can be specified in calls to getUserMedia.
 // This flag expects a value.  Example: --max-gum-fps=17.5
 const char kWebRtcMaxCaptureFramerate[] = "max-gum-fps";
-
-// Configure the maximum CPU time percentage of a single core that can be
-// consumed for desktop capturing. Default is 50. Set 100 to disable the
-// throttling of the capture.
-const char kWebRtcMaxCpuConsumptionPercentage[] =
-    "webrtc-max-cpu-consumption-percentage";
 
 // Enable capture and local storage of WebRTC event logs without visiting
 // chrome://webrtc-internals. This is useful for automated testing. It accepts
@@ -925,12 +933,9 @@ const char kWebXrRuntimeNone[] = "no-vr-runtime";
 const char kWebXrRuntimeOrientationSensors[] = "orientation-sensors";
 
 // The following are the runtimes that WebXr supports.
+const char kWebXrRuntimeCardboard[] = "cardboard";
+const char kWebXrRuntimeGVR[] = "gvr";
 const char kWebXrRuntimeOpenXr[] = "openxr";
-const char kWebXrRuntimeWMR[] = "windows-mixed-reality";
-
-// Disables hardware acceleration of video decode, where available.
-const char kDisableAcceleratedVideoDecode[] =
-    "disable-accelerated-video-decode";
 
 #if BUILDFLAG(IS_ANDROID)
 // Disable Media Session API
@@ -967,9 +972,17 @@ const char kRemoteDebuggingSocketName[]     = "remote-debugging-socket-name";
 // Java debugger is attached.
 const char kRendererWaitForJavaDebugger[] = "renderer-wait-for-java-debugger";
 
+// Provides user-level memory pressure signal parameters for renderer processes.
+// The parameters are a pair of base::TimeDelta(). The first one is
+// inert interval and the second one is minimum interval.
+// If any valid parameters are specified, the renderer processes know that
+// the browser process enabled user-level memory pressure signal feature.
+const char kUserLevelMemoryPressureSignalParams[] =
+    "user-level-memory-pressure-signal-params";
+
 // Disables debug crash dumps for OOPR.
 const char kDisableOoprDebugCrashDump[] = "disable-oopr-debug-crash-dump";
-#endif
+#endif  // BUILDFLAG(IS_ANDROID)
 
 // Enable the aggressive flushing of DOM Storage to minimize data loss.
 const char kEnableAggressiveDOMStorageFlushing[] =
@@ -985,6 +998,10 @@ const char kEnableAutomation[] = "enable-automation";
 // Linux speech service. Because it's buggy, the user must explicitly
 // enable it so that visiting a random webpage can't cause instability.
 const char kEnableSpeechDispatcher[] = "enable-speech-dispatcher";
+
+// For lacros, we do not use environment variable to pass values. Instead we
+// use a command line flag to pass the path to the device.
+const char kLLVMProfileFile[] = "llvm-profile-file";
 #endif
 
 #if BUILDFLAG(IS_WIN)
@@ -1018,16 +1035,9 @@ const char kDeviceScaleFactor[]     = "device-scale-factor";
 // Disable the Legacy Window which corresponds to the size of the WebContents.
 const char kDisableLegacyIntermediateWindow[] = "disable-legacy-window";
 
-// Enables H264 HW decode acceleration for WebRtc on Win 7.
-const char kEnableWin7WebRtcHWH264Decoding[] =
-    "enable-win7-webrtc-hw-h264-decoding";
-
 // DirectWrite FontCache is shared by browser to renderers using shared memory.
 // This switch allows us to pass the shared memory handle to the renderer.
 const char kFontCacheSharedHandle[] = "font-cache-shared-handle";
-
-// Renderer process that runs the non-PPAPI PDF plugin.
-const char kPdfRenderer[] = "pdf-renderer";
 
 // The boolean value (0/1) of FontRenderParams::antialiasing to be passed to
 // Ppapi processes.

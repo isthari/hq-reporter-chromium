@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,11 @@
 #include <utility>
 
 #include "ash/assistant/ui/assistant_ui_constants.h"
+#include "ash/assistant/ui/assistant_view_ids.h"
+#include "ash/public/cpp/ash_web_view.h"
 #include "ash/public/cpp/ash_web_view_factory.h"
 #include "base/base64.h"
+#include "base/memory/raw_ptr.h"
 
 namespace ash {
 
@@ -31,20 +34,23 @@ class AssistantCardElement::Processor : public AshWebView::Observer {
   }
 
   void Process() {
-    // TODO(dmblack): Find a better way of determining desired card size.
     const int width_dip =
-        kPreferredWidthDip - 2 * assistant::ui::GetHorizontalMargin();
+        card_element_->viewport_width() - 2 * assistant::ui::kHorizontalMargin;
 
-    // Configure parameters for the card.
+    // Configure parameters for the card. We want to configure the size as:
+    // - width: It should be width_dip.
+    // - height: It should be calculated from the content.
     AshWebView::InitParams contents_params;
     contents_params.enable_auto_resize = true;
     contents_params.min_size = gfx::Size(width_dip, 1);
     contents_params.max_size = gfx::Size(width_dip, INT_MAX);
     contents_params.suppress_navigation = true;
+    contents_params.fix_zoom_level_to_one = true;
 
     // Create |contents_view_| and retain ownership until it is added to the
     // view hierarchy. If that never happens, it will be still be cleaned up.
     contents_view_ = AshWebViewFactory::Get()->Create(contents_params);
+    contents_view_->SetID(AssistantViewID::kAshWebView);
 
     // Observe |contents_view_| so that we are notified when loading is
     // complete.
@@ -71,7 +77,7 @@ class AssistantCardElement::Processor : public AshWebView::Observer {
   }
 
   // |card_element_| should outlive the Processor.
-  AssistantCardElement* const card_element_;
+  const raw_ptr<AssistantCardElement, ExperimentalAsh> card_element_;
   ProcessingCallback callback_;
 
   std::unique_ptr<AshWebView> contents_view_;
@@ -80,10 +86,12 @@ class AssistantCardElement::Processor : public AshWebView::Observer {
 // AssistantCardElement --------------------------------------------------------
 
 AssistantCardElement::AssistantCardElement(const std::string& html,
-                                           const std::string& fallback)
+                                           const std::string& fallback,
+                                           int viewport_width)
     : AssistantUiElement(AssistantUiElementType::kCard),
       html_(html),
-      fallback_(fallback) {}
+      fallback_(fallback),
+      viewport_width_(viewport_width) {}
 
 AssistantCardElement::~AssistantCardElement() {
   // |processor_| should be destroyed before |this| has been deleted.
@@ -93,6 +101,10 @@ AssistantCardElement::~AssistantCardElement() {
 void AssistantCardElement::Process(ProcessingCallback callback) {
   processor_ = std::make_unique<Processor>(this, std::move(callback));
   processor_->Process();
+}
+
+bool AssistantCardElement::has_contents_view() const {
+  return !!contents_view_;
 }
 
 bool AssistantCardElement::Compare(const AssistantUiElement& other) const {

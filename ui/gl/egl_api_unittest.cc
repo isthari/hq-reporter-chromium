@@ -1,15 +1,23 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <memory>
 
+#include "base/memory/raw_ptr.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/gl/gl_display.h"
+#include "ui/gl/gl_display_manager.h"
 #include "ui/gl/gl_egl_api_implementation.h"
 #include "ui/gl/gl_surface_egl.h"
 #include "ui/gl/gl_switches.h"
+#include "ui/gl/init/gl_display_initializer.h"
 #include "ui/gl/init/gl_factory.h"
+
+#if BUILDFLAG(IS_OZONE)
+#include "ui/ozone/public/ozone_platform.h"
+#endif
 
 namespace gl {
 
@@ -18,6 +26,7 @@ class EGLApiTest : public testing::Test {
   void SetUp() override {
     fake_client_extension_string_ = "";
     fake_extension_string_ = "";
+    display_ = nullptr;
 
     g_driver_egl.fn.eglInitializeFn = &FakeInitialize;
     g_driver_egl.fn.eglTerminateFn = &FakeTerminate;
@@ -32,10 +41,16 @@ class EGLApiTest : public testing::Test {
 #else
     SetGLImplementation(kGLImplementationEGLGLES2);
 #endif
+
+#if BUILDFLAG(IS_OZONE)
+    ui::OzonePlatform::InitParams params;
+    params.single_process = true;
+    ui::OzonePlatform::InitializeForGPU(params);
+#endif
   }
 
   void TearDown() override {
-    init::ShutdownGL(false);
+    init::ShutdownGL(display_, false);
     api_.reset(nullptr);
 
     fake_client_extension_string_ = "";
@@ -49,9 +64,11 @@ class EGLApiTest : public testing::Test {
     if (disabled_extensions) {
       SetDisabledExtensionsEGL(disabled_extensions);
     }
-    g_driver_egl.InitializeClientExtensionBindings();
-    GLSurfaceEGL::InitializeDisplay(EGLDisplayPlatform(EGL_DEFAULT_DISPLAY));
-    g_driver_egl.InitializeExtensionBindings();
+    display_ =
+        GLDisplayManagerEGL::GetInstance()->GetDisplay(GpuPreference::kDefault);
+    // Clear the display so InitializeDisplay() will re-initialize it.
+    display_->SetDisplay(EGL_NO_DISPLAY);
+    init::InitializeDisplay(display_, EGLDisplayPlatform(EGL_DEFAULT_DISPLAY));
   }
 
   void SetFakeExtensionString(const char* fake_string,
@@ -107,6 +124,7 @@ class EGLApiTest : public testing::Test {
   static const char* fake_extension_string_;
   static const char* fake_client_extension_string_;
 
+  raw_ptr<GLDisplayEGL> display_ = nullptr;
   std::unique_ptr<RealEGLApi> api_;
 };
 
@@ -121,11 +139,11 @@ TEST_F(EGLApiTest, DisabledExtensionBitTest) {
   SetFakeExtensionString(kFakeExtensions, kFakeClientExtensions);
   InitializeAPI(nullptr);
 
-  EXPECT_TRUE(g_driver_egl.ext.b_EGL_KHR_fence_sync);
+  EXPECT_TRUE(this->display_->ext->b_EGL_KHR_fence_sync);
 
   InitializeAPI(kFakeDisabledExtensions);
 
-  EXPECT_FALSE(g_driver_egl.ext.b_EGL_KHR_fence_sync);
+  EXPECT_FALSE(this->display_->ext->b_EGL_KHR_fence_sync);
 }
 
 TEST_F(EGLApiTest, DisabledExtensionStringTest) {

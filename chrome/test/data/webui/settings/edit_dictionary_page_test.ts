@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,9 @@ import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min
 import {LanguagesBrowserProxyImpl, SettingsEditDictionaryPageElement} from 'chrome://settings/lazy_load.js';
 import {CrSettingsPrefs, SettingsPrefsElement} from 'chrome://settings/settings.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
+import {FakeSettingsPrivate} from 'chrome://webui-test/fake_settings_private.js';
 
 import {FakeLanguageSettingsPrivate} from './fake_language_settings_private.js';
-import {FakeSettingsPrivate} from './fake_settings_private.js';
 import {TestLanguagesBrowserProxy} from './test_languages_browser_proxy.js';
 
 // clang-format on
@@ -36,7 +36,7 @@ suite('settings-edit-dictionary-page', function() {
         key: 'translate_blocked_languages',
         type: chrome.settingsPrivate.PrefType.LIST,
         value: ['en-US'],
-      }
+      },
     ];
     return fakePrefs;
   }
@@ -50,7 +50,7 @@ suite('settings-edit-dictionary-page', function() {
   });
 
   setup(function() {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     settingsPrefs = document.createElement('settings-prefs');
     const settingsPrivate = new FakeSettingsPrivate(getFakePrefs()) as
         unknown as typeof chrome.settingsPrivate;
@@ -104,15 +104,14 @@ suite('settings-edit-dictionary-page', function() {
     assertFalse(editDictPage.$.addWord.disabled);
   });
 
-  test('spellcheck edit dictionary page message when empty', function() {
+  test('spellcheck edit dictionary page message when empty', async function() {
     assertTrue(!!editDictPage);
-    return languageSettingsPrivate.whenCalled('getSpellcheckWords')
-        .then(function() {
-          flush();
+    await languageSettingsPrivate.whenCalled('getSpellcheckWords');
 
-          assertFalse(editDictPage.$.noWordsLabel.hidden);
-          assertFalse(!!editDictPage.shadowRoot!.querySelector('iron-list'));
-        });
+    flush();
+
+    assertFalse(editDictPage.$.noWordsLabel.hidden);
+    assertFalse(!!editDictPage.shadowRoot!.querySelector('iron-list'));
   });
 
   test('spellcheck edit dictionary page list has words', function() {

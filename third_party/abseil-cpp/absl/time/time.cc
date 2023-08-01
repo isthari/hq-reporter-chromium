@@ -137,7 +137,7 @@ inline TimeConversion InfinitePastTimeConversion() {
 }
 
 // Makes a Time from sec, overflowing to InfiniteFuture/InfinitePast as
-// necessary. If sec is min/max, then consult cs+tz to check for overlow.
+// necessary. If sec is min/max, then consult cs+tz to check for overflow.
 Time MakeTimeWithOverflow(const cctz::time_point<cctz::seconds>& sec,
                           const cctz::civil_second& cs,
                           const cctz::time_zone& tz,
@@ -297,7 +297,7 @@ timespec ToTimespec(Time t) {
   timespec ts;
   absl::Duration d = time_internal::ToUnixDuration(t);
   if (!time_internal::IsInfiniteDuration(d)) {
-    ts.tv_sec = time_internal::GetRepHi(d);
+    ts.tv_sec = static_cast<decltype(ts.tv_sec)>(time_internal::GetRepHi(d));
     if (ts.tv_sec == time_internal::GetRepHi(d)) {  // no time_t narrowing
       ts.tv_nsec = time_internal::GetRepLo(d) / 4;  // floor
       return ts;
@@ -316,7 +316,7 @@ timespec ToTimespec(Time t) {
 timeval ToTimeval(Time t) {
   timeval tv;
   timespec ts = absl::ToTimespec(t);
-  tv.tv_sec = ts.tv_sec;
+  tv.tv_sec = static_cast<decltype(tv.tv_sec)>(ts.tv_sec);
   if (tv.tv_sec != ts.tv_sec) {  // narrowing
     if (ts.tv_sec < 0) {
       tv.tv_sec = std::numeric_limits<decltype(tv.tv_sec)>::min();

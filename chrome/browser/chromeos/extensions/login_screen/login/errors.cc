@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,11 +14,9 @@ const char kAnotherLoginAttemptInProgress[] =
     "Another login attempt is in progress";
 const char kNoManagedGuestSessionAccounts[] =
     "No managed guest session accounts";
-const char kNoLockableManagedGuestSession[] =
-    "There is no lockable Managed Guest Session";
+const char kNoLockableSession[] = "There is no lockable session";
 const char kSessionIsNotActive[] = "Session is not active";
-const char kNoUnlockableManagedGuestSession[] =
-    "There is no unlockable Managed Guest Session";
+const char kNoUnlockableSession[] = "There is no unlockable session";
 const char kSessionIsNotLocked[] = "Session is not locked";
 const char kAnotherUnlockAttemptInProgress[] =
     "Another unlock attempt is in progress";

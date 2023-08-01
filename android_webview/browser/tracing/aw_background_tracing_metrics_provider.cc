@@ -1,22 +1,45 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "android_webview/browser/tracing/aw_background_tracing_metrics_provider.h"
 
-#include "base/strings/string_piece.h"
-#include "base/time/time.h"
-
 #include "android_webview/browser/metrics/aw_metrics_service_client.h"
-#include "components/metrics/content/gpu_metrics_provider.h"
-#include "components/metrics/cpu_metrics_provider.h"
+#include "android_webview/browser/tracing/background_tracing_field_trial.h"
+#include "base/strings/string_piece.h"
+#include "base/task/thread_pool.h"
 #include "components/metrics/field_trials_provider.h"
 #include "components/metrics/metrics_service.h"
-#include "content/public/browser/background_tracing_manager.h"
-#include "third_party/metrics_proto/chrome_user_metrics_extension.pb.h"
 #include "third_party/metrics_proto/trace_log.pb.h"
+#include "third_party/zlib/google/compression_utils.h"
 
 namespace tracing {
+
+namespace {
+
+// Compresses |serialized_trace| and returns the result. If the compressed trace
+// does not fit into the upload limit or if there are zlib errors, returns
+// nullopt.
+// TODO(b/247824653): consider truncating the trace so that we have at least
+// some data.
+absl::optional<std::string> Compress(std::string&& serialized_trace) {
+  std::string deflated;
+  deflated.resize(kCompressedUploadLimitBytes);
+  size_t compressed_size;
+
+  if (compression::GzipCompress(serialized_trace,
+                                reinterpret_cast<char*>(deflated.data()),
+                                kCompressedUploadLimitBytes, &compressed_size,
+                                /* malloc_fn= */ nullptr,
+                                /* free_fn= */ nullptr)) {
+    deflated.resize(compressed_size);
+    return deflated;
+  } else {
+    return absl::nullopt;
+  }
+}
+
+}  // namespace
 
 AwBackgroundTracingMetricsProvider::AwBackgroundTracingMetricsProvider() =
     default;
@@ -24,8 +47,8 @@ AwBackgroundTracingMetricsProvider::~AwBackgroundTracingMetricsProvider() =
     default;
 
 void AwBackgroundTracingMetricsProvider::Init() {
-  // TODO(crbug.com/1290887): SetupBackgroundTracingFieldTrial() should be
-  // called here.
+  android_webview::MaybeSetupWebViewOnlyTracing();
+
   metrics::MetricsService* metrics =
       android_webview::AwMetricsServiceClient::GetInstance()
           ->GetMetricsService();
@@ -33,45 +56,39 @@ void AwBackgroundTracingMetricsProvider::Init() {
 
   system_profile_providers_.emplace_back(
       std::make_unique<variations::FieldTrialsProvider>(
-          metrics->synthetic_trial_registry(), base::StringPiece()));
-  system_profile_providers_.emplace_back(
-      std::make_unique<metrics::CPUMetricsProvider>());
-  system_profile_providers_.emplace_back(
-      std::make_unique<metrics::GPUMetricsProvider>());
+          metrics->GetSyntheticTrialRegistry(), base::StringPiece()));
 }
 
-bool AwBackgroundTracingMetricsProvider::HasIndependentMetrics() {
-  return content::BackgroundTracingManager::GetInstance()->HasTraceToUpload();
+void AwBackgroundTracingMetricsProvider::ProvideEmbedderMetrics(
+    metrics::ChromeUserMetricsExtension& uma_proto,
+    std::string&& serialized_trace,
+    metrics::TraceLog& log,
+    base::HistogramSnapshotManager* snapshot_manager,
+    base::OnceCallback<void(bool)> done_callback) {
+  base::ThreadPool::PostTaskAndReplyWithResult(
+      FROM_HERE, {base::TaskPriority::BEST_EFFORT},
+      base::BindOnce(&Compress, std::move(serialized_trace)),
+      base::BindOnce(&AwBackgroundTracingMetricsProvider::OnTraceCompressed,
+                     weak_factory_.GetWeakPtr(), std::ref(uma_proto),
+                     std::ref(log), std::move(done_callback)));
 }
 
-void AwBackgroundTracingMetricsProvider::ProvideIndependentMetrics(
+void AwBackgroundTracingMetricsProvider::OnTraceCompressed(
+    metrics::ChromeUserMetricsExtension& uma_proto,
+    metrics::TraceLog& log,
     base::OnceCallback<void(bool)> done_callback,
-    metrics::ChromeUserMetricsExtension* uma_proto,
-    base::HistogramSnapshotManager* snapshot_manager) {
-  auto* tracing_manager = content::BackgroundTracingManager::GetInstance();
-  // TODO(crbug.com/1290887): remove this when
-  // content::BackgroundTracingManager::GetInstance() is updated to return a
-  // reference.
-  DCHECK(tracing_manager);
-
-  auto serialized_trace = tracing_manager->GetLatestTraceToUpload();
-  if (serialized_trace.empty()) {
+    absl::optional<std::string> compressed_trace) {
+  if (!compressed_trace) {
     std::move(done_callback).Run(false);
     return;
   }
-  metrics::TraceLog* log = uma_proto->add_trace_log();
-  log->set_raw_data(std::move(serialized_trace));
 
-  auto* system_profile = uma_proto->mutable_system_profile();
-  DCHECK(system_profile);
-
-  for (auto& provider : system_profile_providers_) {
-    provider->ProvideSystemProfileMetricsWithLogCreationTime(
-        base::TimeTicks::Now(), system_profile);
-  }
+  SetTrace(log, std::move(*compressed_trace));
+  log.set_compression_type(metrics::TraceLog::COMPRESSION_TYPE_ZLIB);
 
   // Remove the package name according to the privacy requirements.
   // See go/public-webview-trace-collection.
+  auto* system_profile = uma_proto.mutable_system_profile();
   system_profile->clear_app_package_name();
   std::move(done_callback).Run(true);
 }

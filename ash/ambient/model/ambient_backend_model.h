@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include "base/containers/circular_deque.h"
 #include "base/observer_list.h"
 #include "base/time/time.h"
+#include "base/timer/timer.h"
 #include "ui/gfx/image/image_skia.h"
 
 namespace ash {
@@ -47,8 +48,7 @@ struct ASH_EXPORT PhotoWithDetails {
 };
 
 // Stores necessary information fetched from the backdrop server to render
-// the photo frame and glanceable weather information on Ambient Mode. Owned
-// by |AmbientController|.
+// the photo frame in Ambient Mode. Owned by |AmbientController|.
 class ASH_EXPORT AmbientBackendModel {
  public:
   explicit AmbientBackendModel(AmbientPhotoConfig photo_config);
@@ -58,9 +58,6 @@ class ASH_EXPORT AmbientBackendModel {
 
   void AddObserver(AmbientBackendModelObserver* observer);
   void RemoveObserver(AmbientBackendModelObserver* observer);
-
-  void AppendTopics(const std::vector<AmbientModeTopic>& topics);
-  const std::vector<AmbientModeTopic>& topics() const { return topics_; }
 
   // If enough images are loaded to start ambient mode.
   bool ImagesReady() const;
@@ -110,27 +107,7 @@ class ASH_EXPORT AmbientBackendModel {
   void GetCurrentAndNextImages(PhotoWithDetails* current_image_out,
                                PhotoWithDetails* next_image_out) const;
 
-  // Updates the weather information and notifies observers if the icon image is
-  // not null.
-  void UpdateWeatherInfo(const gfx::ImageSkia& weather_condition_icon,
-                         float temperature_fahrenheit,
-                         bool show_celsius);
-
-  // Returns the cached condition icon. Will return a null image if it has not
-  // been set yet.
-  const gfx::ImageSkia& weather_condition_icon() const {
-    return weather_condition_icon_;
-  }
-
-  // Returns the cached temperature value in Fahrenheit.
-  float temperature_fahrenheit() const { return temperature_fahrenheit_; }
-
-  // Calculate the temperature in celsius.
-  float GetTemperatureInCelsius() const;
-
   base::TimeDelta GetPhotoRefreshInterval() const;
-
-  bool show_celsius() const { return show_celsius_; }
 
   const AmbientPhotoConfig& photo_config() const { return photo_config_; }
 
@@ -138,10 +115,9 @@ class ASH_EXPORT AmbientBackendModel {
   friend class AmbientBackendModelTest;
   friend class AmbientAshTestBase;
 
-  void NotifyTopicsChanged();
   void NotifyImageAdded();
   void NotifyImagesReady();
-  void NotifyWeatherInfoUpdated();
+  void OnImagesReadyTimeoutFired();
 
   AmbientPhotoConfig photo_config_;
   std::vector<AmbientModeTopic> topics_;
@@ -152,10 +128,8 @@ class ASH_EXPORT AmbientBackendModel {
   // oldest topics are popped from the front.
   base::circular_deque<PhotoWithDetails> all_decoded_topics_;
 
-  // Current weather information.
-  gfx::ImageSkia weather_condition_icon_;
-  float temperature_fahrenheit_ = 0.0f;
-  bool show_celsius_ = false;
+  base::OneShotTimer images_ready_timeout_timer_;
+  bool images_ready_timed_out_ = false;
 
   // The number of consecutive failures to load the next image.
   int failures_ = 0;

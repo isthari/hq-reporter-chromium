@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -247,6 +247,11 @@ float MotionEventGeneric::GetHistoricalY(size_t pointer_index,
                                          size_t historical_index) const {
   DCHECK_LT(historical_index, historical_events_.size());
   return historical_events_[historical_index]->GetY(pointer_index);
+}
+
+int32_t MotionEventGeneric::GetSourceDeviceId(size_t pointer_index) const {
+  DCHECK_LT(pointer_index, pointers_->size());
+  return pointers_[pointer_index].source_device_id;
 }
 
 // static

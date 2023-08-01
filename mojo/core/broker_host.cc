@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,10 @@
 #include "base/logging.h"
 #include "base/memory/platform_shared_memory_region.h"
 #include "base/memory/ref_counted.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/ranges/algorithm.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
+#include "mojo/buildflags.h"
 #include "mojo/core/broker_messages.h"
 #include "mojo/core/platform_handle_utils.h"
 
@@ -30,11 +32,8 @@ BrokerHost::BrokerHost(base::Process client_process,
       client_process_(std::move(client_process))
 #endif
 {
-  CHECK(connection_params.endpoint().is_valid() ||
-        connection_params.server_endpoint().is_valid());
-
   base::CurrentThread::Get()->AddDestructionObserver(this);
-
+  CHECK(connection_params.endpoint().is_valid());
   channel_ = Channel::Create(this, std::move(connection_params),
 #if BUILDFLAG(IS_WIN)
                              client_process_
@@ -44,7 +43,7 @@ BrokerHost::BrokerHost(base::Process client_process,
                                      .IsValid()
                                  ? Channel::HandlePolicy::kAcceptHandles
                                  : Channel::HandlePolicy::kRejectHandles,
-                             base::ThreadTaskRunnerHandle::Get());
+                             base::SingleThreadTaskRunner::GetCurrentDefault());
   channel_->Start();
 }
 
@@ -107,7 +106,7 @@ void BrokerHost::SendNamedChannel(base::WStringPiece pipe_name) {
       BrokerMessageType::INIT, 0, sizeof(*name_data) * pipe_name.length(),
       &data, reinterpret_cast<void**>(&name_data));
   data->pipe_name_length = static_cast<uint32_t>(pipe_name.length());
-  std::copy(pipe_name.begin(), pipe_name.end(), name_data);
+  base::ranges::copy(pipe_name, name_data);
   channel_->Write(std::move(message));
 }
 
@@ -124,7 +123,8 @@ void BrokerHost::OnBufferRequest(uint32_t num_bytes) {
     ExtractPlatformHandlesFromSharedMemoryRegionHandle(
         region.PassPlatformHandle(), &h[0], &h[1]);
     handles.emplace_back(std::move(h[0]));
-#if !BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_MAC)
+#if !BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_ANDROID) || \
+    BUILDFLAG(MOJO_USE_APPLE_CHANNEL)
     // Non-POSIX systems, as well as Android and Mac, only use a single handle
     // to represent a writable region.
     DCHECK(!h[1].is_valid());

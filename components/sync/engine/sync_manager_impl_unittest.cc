@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,11 @@
 #include <cstddef>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/compiler_specific.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/format_macros.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/location.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
@@ -25,7 +25,6 @@
 #include "components/sync/base/client_tag_hash.h"
 #include "components/sync/base/extensions_activity.h"
 #include "components/sync/base/model_type.h"
-#include "components/sync/base/model_type_test_util.h"
 #include "components/sync/engine/cancelation_signal.h"
 #include "components/sync/engine/cycle/sync_cycle.h"
 #include "components/sync/engine/events/protocol_event.h"
@@ -37,9 +36,10 @@
 #include "components/sync/protocol/encryption.pb.h"
 #include "components/sync/protocol/proto_value_conversions.h"
 #include "components/sync/protocol/sync_enums.pb.h"
-#include "components/sync/test/engine/fake_sync_scheduler.h"
-#include "components/sync/test/engine/test_engine_components_factory.h"
 #include "components/sync/test/fake_sync_encryption_handler.h"
+#include "components/sync/test/fake_sync_scheduler.h"
+#include "components/sync/test/model_type_test_util.h"
+#include "components/sync/test/test_engine_components_factory.h"
 #include "services/network/test/test_network_connection_tracker.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -48,6 +48,8 @@
 #include "url/gurl.h"
 
 using testing::_;
+using testing::SaveArg;
+using testing::Sequence;
 using testing::StrictMock;
 
 namespace syncer {
@@ -92,7 +94,10 @@ class SyncManagerObserverMock : public SyncManager::Observer {
               (const SyncCycleSnapshot&),
               (override));
   MOCK_METHOD(void, OnConnectionStatusChange, (ConnectionStatus), (override));
-  MOCK_METHOD(void, OnActionableError, (const SyncProtocolError&), (override));
+  MOCK_METHOD(void,
+              OnActionableProtocolError,
+              (const SyncProtocolError&),
+              (override));
   MOCK_METHOD(void, OnMigrationRequested, (ModelTypeSet), (override));
   MOCK_METHOD(void, OnProtocolEvent, (const ProtocolEvent&), (override));
   MOCK_METHOD(void, OnSyncStatusChanged, (const SyncStatus&), (override));
@@ -130,6 +135,7 @@ class MockSyncScheduler : public FakeSyncScheduler {
                ModelTypeSet types_to_download,
                base::OnceClosure ready_task),
               (override));
+  MOCK_METHOD(void, SetHasPendingInvalidations, (ModelType, bool), (override));
 };
 
 class ComponentsFactory : public TestEngineComponentsFactory {
@@ -203,6 +209,7 @@ class SyncManagerImplTest : public testing::Test {
 
   SyncManagerImpl* sync_manager() { return &sync_manager_; }
   MockSyncScheduler* scheduler() { return scheduler_; }
+  SyncManagerObserverMock* manager_observer() { return &manager_observer_; }
 
  private:
   base::test::SingleThreadTaskEnvironment task_environment_;
@@ -222,7 +229,7 @@ class SyncManagerImplTest : public testing::Test {
 // Test that the configuration params are properly created and sent to
 // ScheduleConfigure. No callback should be invoked.
 TEST_F(SyncManagerImplTest, BasicConfiguration) {
-  ModelTypeSet types_to_download(BOOKMARKS, PREFERENCES);
+  const ModelTypeSet types_to_download = {BOOKMARKS, PREFERENCES};
   base::MockOnceClosure ready_task;
   EXPECT_CALL(*scheduler(), Start(SyncScheduler::CONFIGURATION_MODE, _));
   EXPECT_CALL(*scheduler(),
@@ -233,6 +240,29 @@ TEST_F(SyncManagerImplTest, BasicConfiguration) {
   sync_manager()->ConfigureSyncer(
       CONFIGURE_REASON_RECONFIGURATION, types_to_download,
       SyncManager::SyncFeatureState::ON, ready_task.Get());
+}
+
+TEST_F(SyncManagerImplTest, ShouldSetHasPendingInvalidations) {
+  Sequence s1;
+  EXPECT_CALL(*scheduler(),
+              SetHasPendingInvalidations(BOOKMARKS, /*has_invalidation=*/true))
+      .InSequence(s1);
+  EXPECT_CALL(*scheduler(),
+              SetHasPendingInvalidations(BOOKMARKS, /*has_invalidation=*/false))
+      .InSequence(s1);
+  SyncStatus status;
+  EXPECT_CALL(*manager_observer(), OnSyncStatusChanged)
+      .Times(2)
+      .WillRepeatedly(SaveArg<0>(&status));
+
+  sync_manager()->SetHasPendingInvalidations(
+      BOOKMARKS, /*has_pending_invalidations=*/true);
+  EXPECT_EQ(status.invalidated_data_types.Size(), 1u);
+  EXPECT_TRUE(status.invalidated_data_types.Has(BOOKMARKS));
+
+  sync_manager()->SetHasPendingInvalidations(
+      BOOKMARKS, /*has_pending_invalidations=*/false);
+  EXPECT_TRUE(status.invalidated_data_types.Empty());
 }
 
 }  // namespace

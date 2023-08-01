@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,6 +23,20 @@ class MockSaveUpdateAddressProfileBubbleController
     : public SaveUpdateAddressProfileBubbleController {
  public:
   MOCK_METHOD(std::u16string, GetWindowTitle, (), (const, override));
+  MOCK_METHOD(absl::optional<HeaderImages>,
+              GetHeaderImages,
+              (),
+              (const, override));
+  MOCK_METHOD(std::u16string, GetBodyText, (), (const, override));
+  MOCK_METHOD(std::u16string, GetAddressSummary, (), (const, override));
+  MOCK_METHOD(std::u16string, GetProfileEmail, (), (const, override));
+  MOCK_METHOD(std::u16string, GetProfilePhone, (), (const, override));
+  MOCK_METHOD(std::u16string, GetOkButtonLabel, (), (const, override));
+  MOCK_METHOD(AutofillClient::SaveAddressProfileOfferUserDecision,
+              GetCancelCallbackValue,
+              (),
+              (const, override));
+  MOCK_METHOD(std::u16string, GetFooterMessage, (), (const, override));
   MOCK_METHOD(const AutofillProfile&, GetProfileToSave, (), (const, override));
   MOCK_METHOD(const AutofillProfile*,
               GetOriginalProfile,
@@ -44,8 +58,6 @@ class UpdateAddressProfileViewTest : public ChromeViewsTestBase {
   void CreateViewAndShow();
 
   void SetUp() override {
-    feature_list_.InitAndEnableFeature(
-        features::kAutofillAddressProfileSavePrompt);
     ChromeViewsTestBase::SetUp();
 
     address_profile_to_save_ = test::GetFullProfile();

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,9 +15,11 @@
 #include "base/containers/lru_cache.h"
 #include "base/containers/queue.h"
 #include "base/containers/small_map.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
 #include "build/chromeos_buildflags.h"
 #include "media/base/callback_registry.h"
@@ -35,10 +37,6 @@
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/gpu_memory_buffer.h"
 #include "ui/gfx/hdr_metadata.h"
-
-namespace gpu {
-class GpuMemoryBufferFactory;
-}  // namespace gpu
 
 namespace media {
 
@@ -86,6 +84,9 @@ class VaapiVideoDecoder : public VideoDecoderMixin,
                     int32_t buffer_id,
                     const gfx::Rect& visible_rect,
                     const VideoColorSpace& color_space) override;
+
+  // Must be called before Initialize().
+  void set_ignore_resolution_changes_to_smaller_vp9_for_testing(bool value);
 
  private:
   // Decode task holding single decode request.
@@ -176,24 +177,24 @@ class VaapiVideoDecoder : public VideoDecoderMixin,
   // Private static helper to allow using weak ptr instead of an unretained ptr.
   static CroStatus::Or<scoped_refptr<VideoFrame>> AllocateCustomFrameProxy(
       base::WeakPtr<VaapiVideoDecoder> decoder,
-      gpu::GpuMemoryBufferFactory* gpu_memory_buffer_factory,
       VideoPixelFormat format,
       const gfx::Size& coded_size,
       const gfx::Rect& visible_rect,
       const gfx::Size& natural_size,
       bool use_protected,
+      bool use_linear_buffers,
       base::TimeDelta timestamp);
 
   // Allocates a new VideoFrame using a new VASurface directly. Since this is
   // only used on linux, it also sets the required YCbCr information for the
   // frame it creates.
   CroStatus::Or<scoped_refptr<VideoFrame>> AllocateCustomFrame(
-      gpu::GpuMemoryBufferFactory* gpu_memory_buffer_factory,
       VideoPixelFormat format,
       const gfx::Size& coded_size,
       const gfx::Rect& visible_rect,
       const gfx::Size& natural_size,
       bool use_protected,
+      bool use_linear_buffers,
       base::TimeDelta timestamp);
 
   // Having too many decoder instances at once may cause us to run out of FDs
@@ -272,11 +273,14 @@ class VaapiVideoDecoder : public VideoDecoderMixin,
   scoped_refptr<VaapiWrapper> vaapi_wrapper_;
   // TODO(crbug.com/1022246): Instead of having the raw pointer here, getting
   // the pointer from AcceleratedVideoDecoder.
-  VaapiVideoDecoderDelegate* decoder_delegate_ = nullptr;
+  raw_ptr<VaapiVideoDecoderDelegate> decoder_delegate_ = nullptr;
 
   // This is used on AMD protected content implementations to indicate that the
   // DecoderBuffers we receive have been transcrypted and need special handling.
   bool transcryption_ = false;
+
+  // See VP9Decoder for information on this.
+  bool ignore_resolution_changes_to_smaller_for_testing_ = false;
 
   SEQUENCE_CHECKER(sequence_checker_);
 

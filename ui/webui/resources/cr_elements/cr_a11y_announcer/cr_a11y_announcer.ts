@@ -1,15 +1,27 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {assert} from 'chrome://resources/js/assert.m.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {assert} from '//resources/js/assert_ts.js';
+import {PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
+import {getTemplate} from './cr_a11y_announcer.html.js';
 
 /**
  * The CrA11yAnnouncerElement is a visually hidden element that reads out
  * messages to a screen reader. This is preferred over IronA11yAnnouncer.
  * @fileoverview
  */
+
+type CrA11yAnnouncerMessagesSentEvent = CustomEvent<{
+  messages: string[],
+}>;
+
+declare global {
+  interface HTMLElementEventMap {
+    'cr-a11y-announcer-messages-sent': CrA11yAnnouncerMessagesSentEvent;
+  }
+}
 
 /**
  * 150ms seems to be around the minimum time required for screen readers to
@@ -26,19 +38,31 @@ export const TIMEOUT_MS: number = 150;
  */
 const instances: Map<HTMLElement, CrA11yAnnouncerElement> = new Map();
 
+export function getInstance(container: HTMLElement = document.body):
+    CrA11yAnnouncerElement {
+  if (instances.has(container)) {
+    return instances.get(container)!;
+  }
+  assert(container.isConnected);
+  const instance = new CrA11yAnnouncerElement();
+  container.appendChild(instance);
+  instances.set(container, instance);
+  return instance;
+}
+
 export class CrA11yAnnouncerElement extends PolymerElement {
   static get is() {
     return 'cr-a11y-announcer';
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   private currentTimeout_: number|null = null;
   private messages_: string[] = [];
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
     super.disconnectedCallback();
     if (this.currentTimeout_ !== null) {
       clearTimeout(this.currentTimeout_);
@@ -63,7 +87,7 @@ export class CrA11yAnnouncerElement extends PolymerElement {
 
     this.currentTimeout_ = setTimeout(() => {
       const messagesDiv = this.shadowRoot!.querySelector('#messages')!;
-      messagesDiv.innerHTML = '';
+      messagesDiv.innerHTML = window.trustedTypes!.emptyHTML;
 
       // <if expr="is_macosx">
       // VoiceOver on Mac does not seem to consistently read out the contents of
@@ -79,21 +103,15 @@ export class CrA11yAnnouncerElement extends PolymerElement {
         messagesDiv.appendChild(div);
       }
 
+      // Dispatch a custom event to allow consumers to know when certain alerts
+      // have been sent to the screen reader.
+      this.dispatchEvent(new CustomEvent(
+          'cr-a11y-announcer-messages-sent',
+          {bubbles: true, detail: {messages: this.messages_.slice()}}));
+
       this.messages_.length = 0;
       this.currentTimeout_ = null;
     }, TIMEOUT_MS);
-  }
-
-  static getInstance(container: HTMLElement = document.body):
-      CrA11yAnnouncerElement {
-    if (instances.has(container)) {
-      return instances.get(container)!;
-    }
-    assert(container.isConnected);
-    const instance = new CrA11yAnnouncerElement();
-    container.appendChild(instance);
-    instances.set(container, instance);
-    return instance;
   }
 }
 

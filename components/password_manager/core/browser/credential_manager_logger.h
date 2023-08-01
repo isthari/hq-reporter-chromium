@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,11 +17,11 @@ class LogManager;
 
 namespace password_manager {
 
-// A helper for logging Credential Manager API calls to
+// A helper for logging Credential Management API calls to
 // chrome://password-manager-internals.
 class CredentialManagerLogger {
  public:
-  explicit CredentialManagerLogger(const autofill::LogManager*);
+  explicit CredentialManagerLogger(autofill::LogManager*);
   CredentialManagerLogger(const CredentialManagerLogger&) = delete;
   CredentialManagerLogger& operator=(const CredentialManagerLogger&) = delete;
   ~CredentialManagerLogger();
@@ -35,7 +35,7 @@ class CredentialManagerLogger {
 
  private:
   // The LogManager to which logs can be sent for display.
-  const raw_ptr<const autofill::LogManager> log_manager_;
+  const raw_ptr<autofill::LogManager> log_manager_;
 };
 
 }  // namespace password_manager

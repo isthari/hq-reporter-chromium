@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,26 +7,26 @@
 #include <memory>
 #include <string>
 
-#include "ash/components/cryptohome/cryptohome_parameters.h"
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
 #include "chrome/browser/ash/login/existing_user_controller.h"
 #include "chrome/browser/ash/login/lock/screen_locker.h"
 #include "chrome/browser/ash/login/lock/screen_locker_tester.h"
-#include "chrome/browser/ash/login/test/embedded_policy_test_server_mixin.h"
-#include "chrome/browser/ash/login/test/fake_gaia_mixin.h"
 #include "chrome/browser/ash/login/test/logged_in_user_mixin.h"
 #include "chrome/browser/ash/login/test/session_manager_state_waiter.h"
+#include "chrome/browser/ash/policy/test_support/embedded_policy_test_server_mixin.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/extensions/login_screen/login_screen_apitest_base.h"
+#include "chrome/browser/lifetime/termination_notification.h"
 #include "chrome/browser/policy/extension_force_install_mixin.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/dbus/cryptohome/rpc.pb.h"
-#include "chromeos/dbus/session_manager/fake_session_manager_client.h"
-#include "chromeos/dbus/userdataauth/fake_userdataauth_client.h"
+#include "chrome/test/base/fake_gaia_mixin.h"
+#include "chromeos/ash/components/cryptohome/cryptohome_parameters.h"
+#include "chromeos/ash/components/dbus/cryptohome/rpc.pb.h"
+#include "chromeos/ash/components/dbus/session_manager/fake_session_manager_client.h"
+#include "chromeos/ash/components/dbus/userdataauth/fake_userdataauth_client.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/core/common/cloud/test/policy_builder.h"
 #include "components/policy/core/common/policy_service.h"
@@ -36,8 +36,6 @@
 #include "components/user_manager/user_type.h"
 #include "components/version_info/version_info.h"
 #include "content/public/browser/browser_main_parts.h"
-#include "content/public/browser/notification_observer.h"
-#include "content/public/browser/notification_service.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/api/test/test_api.h"
@@ -73,6 +71,14 @@ constexpr char kFetchDataForNextLoginAttempt[] =
 // lockManagedGuestSession tests.
 constexpr char kLockManagedGuestSessionNotActive[] =
     "LoginLockManagedGuestSessionNotActive";
+// onExternalLogoutDone tests.
+constexpr char kLoginOnExternalLogoutDone[] = "LoginOnExternalLogoutDone";
+constexpr char kInSessionLoginNotifyExternalLogoutDone[] =
+    "InSessionLoginNotifyExternalLogoutDone";
+// onRequestExternalLogout tests.
+constexpr char kLoginRequestExternalLogout[] = "LoginRequestExternalLogout";
+constexpr char kInSessionLoginOnRequestExternalLogout[] =
+    "InSessionLoginOnRequestExternalLogout";
 // unlockManagedGuestSession tests.
 constexpr char kUnlockManagedGuestSession[] = "LoginUnlockManagedGuestSession";
 constexpr char kUnlockManagedGuestSessionWrongPassword[] =
@@ -82,6 +88,12 @@ constexpr char kUnlockManagedGuestSessionNotLocked[] =
 // In-session extension tests.
 constexpr char kInSessionLoginLockManagedGuestSession[] =
     "InSessionLoginLockManagedGuestSession";
+
+// External logout listener set up messages.
+constexpr char kOnExternalLogoutDoneLoginScreenMessage[] =
+    "onExternalLogoutDoneLoginScreenMessage";
+constexpr char kOnRequestExternalLogoutInSessionMessage[] =
+    "onRequestExternalLogoutInSessionMessage";
 
 }  // namespace
 
@@ -159,12 +171,12 @@ class LoginApitest : public LoginScreenApitestBase {
   }
 
   void SetTestCustomArg(const std::string custom_arg) {
-    config_.SetKey("customArg", base::Value(custom_arg));
+    config_.Set("customArg", base::Value(custom_arg));
     extensions::TestGetConfigFunction::set_test_config_state(&config_);
   }
 
   void LogInWithPassword() {
-    SessionStateWaiter waiter(session_manager::SessionState::ACTIVE);
+    ash::SessionStateWaiter waiter(session_manager::SessionState::ACTIVE);
     SetTestCustomArg(kPassword);
     SetUpLoginScreenExtensionAndRunTest(kLaunchManagedGuestSessionWithPassword);
     waiter.Wait();
@@ -175,7 +187,7 @@ class LoginApitest : public LoginScreenApitestBase {
   }
 
   // Also checks that session is locked.
-  void LockScreen() { ScreenLockerTester().Lock(); }
+  void LockScreen() { ash::ScreenLockerTester().Lock(); }
 
  protected:
   std::unique_ptr<policy::UserPolicyBuilder> user_policy_builder_;
@@ -183,12 +195,12 @@ class LoginApitest : public LoginScreenApitestBase {
  private:
   ash::EmbeddedPolicyTestServerMixin policy_test_server_mixin_{&mixin_host_};
   ExtensionForceInstallMixin extension_force_install_mixin_{&mixin_host_};
-  base::DictionaryValue config_;
+  base::Value::Dict config_;
 };
 
 IN_PROC_BROWSER_TEST_F(LoginApitest, LaunchManagedGuestSession) {
   SetUpDeviceLocalAccountPolicy();
-  SessionStateWaiter waiter(session_manager::SessionState::ACTIVE);
+  ash::SessionStateWaiter waiter(session_manager::SessionState::ACTIVE);
   SetUpLoginScreenExtensionAndRunTest(kLaunchManagedGuestSession);
   waiter.Wait();
 
@@ -216,13 +228,13 @@ IN_PROC_BROWSER_TEST_F(LoginApitest, LaunchManagedGuestSessionNoAccounts) {
 IN_PROC_BROWSER_TEST_F(LoginApitest, ExitCurrentSession) {
   SetUpDeviceLocalAccountPolicy();
   SetTestCustomArg(kData);
-  content::WindowedNotificationObserver termination_waiter(
-      chrome::NOTIFICATION_APP_TERMINATING,
-      content::NotificationService::AllSources());
 
+  base::RunLoop exit_waiter;
+  auto subscription =
+      browser_shutdown::AddAppTerminatingCallback(exit_waiter.QuitClosure());
   SetUpLoginScreenExtensionAndRunTest(kExitCurrentSession,
                                       /*assert_test_succeed=*/false);
-  termination_waiter.Wait();
+  exit_waiter.Run();
 
   PrefService* local_state = g_browser_process->local_state();
   EXPECT_EQ(kData, local_state->GetString(
@@ -246,7 +258,7 @@ IN_PROC_BROWSER_TEST_F(LoginApitest, LockManagedGuestSession) {
 
   SetUpTestListeners();
   SetUpInSessionExtension();
-  SessionStateWaiter waiter(session_manager::SessionState::LOCKED);
+  ash::SessionStateWaiter waiter(session_manager::SessionState::LOCKED);
   RunTest(kInSessionLoginLockManagedGuestSession);
   waiter.Wait();
 }
@@ -266,12 +278,25 @@ IN_PROC_BROWSER_TEST_F(LoginApitest, LockManagedGuestSessionNotActive) {
 IN_PROC_BROWSER_TEST_F(LoginApitest, UnlockManagedGuestSession) {
   SetUpDeviceLocalAccountPolicy();
   LogInWithPassword();
+  ASSERT_EQ(session_manager::SessionManager::Get()->session_state(),
+            session_manager::SessionState::ACTIVE);
 
+  ash::SessionStateWaiter locked_waiter(session_manager::SessionState::LOCKED);
   SetUpTestListeners();
   LockScreen();
-  SessionStateWaiter waiter(session_manager::SessionState::ACTIVE);
-  RunTest(kUnlockManagedGuestSession);
-  waiter.Wait();
+  locked_waiter.Wait();
+  ASSERT_EQ(session_manager::SessionManager::Get()->session_state(),
+            session_manager::SessionState::LOCKED);
+
+  // The test extension running on the login screen does not call test.succeed()
+  // since the extension itself will be disabled and stopped as a result of the
+  // login.unlockManagedGuestSession() API call. Instead, verify the session
+  // state here.
+  ash::SessionStateWaiter active_waiter(session_manager::SessionState::ACTIVE);
+  RunTest(kUnlockManagedGuestSession, /*assert_test_succeed=*/false);
+  active_waiter.Wait();
+  ASSERT_EQ(session_manager::SessionManager::Get()->session_state(),
+            session_manager::SessionState::ACTIVE);
 }
 
 IN_PROC_BROWSER_TEST_F(LoginApitest, UnlockManagedGuestSessionLockedWithApi) {
@@ -283,23 +308,22 @@ IN_PROC_BROWSER_TEST_F(LoginApitest, UnlockManagedGuestSessionLockedWithApi) {
   ClearTestListeners();
   extensions::ResultCatcher catcher;
   ExtensionTestMessageListener login_screen_listener(listener_message(),
-                                                     /*will_reply=*/true);
+                                                     ReplyBehavior::kWillReply);
   login_screen_listener.set_extension_id(extension_id());
   ExtensionTestMessageListener in_session_listener(listener_message(),
-                                                   /*will_reply=*/true);
+                                                   ReplyBehavior::kWillReply);
   in_session_listener.set_extension_id(kInSessionExtensionId);
 
   SetUpInSessionExtension();
-  SessionStateWaiter locked_waiter(session_manager::SessionState::LOCKED);
+  ash::SessionStateWaiter locked_waiter(session_manager::SessionState::LOCKED);
   ASSERT_TRUE(in_session_listener.WaitUntilSatisfied());
   in_session_listener.Reply(kInSessionLoginLockManagedGuestSession);
   ASSERT_TRUE(catcher.GetNextResult());
   locked_waiter.Wait();
 
-  SessionStateWaiter active_waiter(session_manager::SessionState::ACTIVE);
+  ash::SessionStateWaiter active_waiter(session_manager::SessionState::ACTIVE);
   ASSERT_TRUE(login_screen_listener.WaitUntilSatisfied());
   login_screen_listener.Reply(kUnlockManagedGuestSession);
-  ASSERT_TRUE(catcher.GetNextResult());
   active_waiter.Wait();
 }
 
@@ -307,7 +331,7 @@ IN_PROC_BROWSER_TEST_F(LoginApitest, UnlockManagedGuestSessionWrongPassword) {
   // Note: the password check will fail even if the correct password is used as
   // |FakeUserDataAuthClient::CheckKeyEx()| does not check the user session's
   // cipher blob.
-  FakeUserDataAuthClient::Get()->set_enable_auth_check(true);
+  ash::FakeUserDataAuthClient::TestApi::Get()->set_enable_auth_check(true);
   SetUpDeviceLocalAccountPolicy();
   LogInWithPassword();
 
@@ -329,6 +353,78 @@ IN_PROC_BROWSER_TEST_F(LoginApitest, UnlockManagedGuestSessionNotLocked) {
   // remain in this state during the login process.
   SetSessionState(session_manager::SessionState::LOGGED_IN_NOT_ACTIVE);
   RunTest(kUnlockManagedGuestSessionNotLocked);
+}
+
+IN_PROC_BROWSER_TEST_F(LoginApitest, ExternalLogoutRequestExternalLogout) {
+  SetUpDeviceLocalAccountPolicy();
+  LogInWithPassword();
+  ClearTestListeners();
+
+  ExtensionTestMessageListener in_session_listener(listener_message(),
+                                                   ReplyBehavior::kWillReply);
+  in_session_listener.set_extension_id(kInSessionExtensionId);
+
+  SetUpInSessionExtension();
+
+  ExtensionTestMessageListener login_screen_listener(listener_message(),
+                                                     ReplyBehavior::kWillReply);
+  login_screen_listener.set_extension_id(extension_id());
+
+  LockScreen();
+
+  extensions::ResultCatcher catcher;
+  // Set up a `login.onRequestExternalLogout` listener on the in-session
+  // extension.
+  ExtensionTestMessageListener in_session_message_listener(
+      kOnRequestExternalLogoutInSessionMessage);
+  in_session_message_listener.set_extension_id(kInSessionExtensionId);
+  ASSERT_TRUE(in_session_listener.WaitUntilSatisfied());
+  in_session_listener.Reply(kInSessionLoginOnRequestExternalLogout);
+  // Confirm the in-session listener was set up.
+  ASSERT_TRUE(in_session_message_listener.WaitUntilSatisfied());
+
+  // Request external logout from the login screen extension.
+  ASSERT_TRUE(login_screen_listener.WaitUntilSatisfied());
+  login_screen_listener.Reply(kLoginRequestExternalLogout);
+  // Request and listener trigger succeeded.
+  ASSERT_TRUE(catcher.GetNextResult());
+  ASSERT_TRUE(catcher.GetNextResult());
+}
+
+IN_PROC_BROWSER_TEST_F(LoginApitest, ExternalLogoutNotifyExternalLogoutDone) {
+  SetUpDeviceLocalAccountPolicy();
+  LogInWithPassword();
+  ClearTestListeners();
+
+  ExtensionTestMessageListener in_session_listener(listener_message(),
+                                                   ReplyBehavior::kWillReply);
+  in_session_listener.set_extension_id(kInSessionExtensionId);
+
+  SetUpInSessionExtension();
+
+  ExtensionTestMessageListener login_screen_listener(listener_message(),
+                                                     ReplyBehavior::kWillReply);
+  login_screen_listener.set_extension_id(extension_id());
+
+  LockScreen();
+
+  extensions::ResultCatcher catcher;
+  // Set up a `login.onExternalLogoutDone` listener on the login screen
+  // extension.
+  ExtensionTestMessageListener login_screen_message_listener(
+      kOnExternalLogoutDoneLoginScreenMessage);
+  login_screen_message_listener.set_extension_id(extension_id());
+  ASSERT_TRUE(login_screen_listener.WaitUntilSatisfied());
+  login_screen_listener.Reply(kLoginOnExternalLogoutDone);
+  // Confirm the login screen listener was set up.
+  ASSERT_TRUE(login_screen_message_listener.WaitUntilSatisfied());
+
+  // Notify the external logout is done from the in-session extension.
+  ASSERT_TRUE(in_session_listener.WaitUntilSatisfied());
+  in_session_listener.Reply(kInSessionLoginNotifyExternalLogoutDone);
+  // Notify and listener trigger succeeded.
+  ASSERT_TRUE(catcher.GetNextResult());
+  ASSERT_TRUE(catcher.GetNextResult());
 }
 
 class LoginApitestWithEnterpriseUser : public LoginApitest {
@@ -372,9 +468,9 @@ class LoginApitestWithEnterpriseUser : public LoginApitest {
   // Use a different test server as |LoginApitest| uses the one from
   // |embedded_test_server()|.
   net::EmbeddedTestServer test_server_;
-  LoggedInUserMixin logged_in_user_mixin_{
+  ash::LoggedInUserMixin logged_in_user_mixin_{
       &mixin_host_,
-      LoggedInUserMixin::LogInType::kRegular,
+      ash::LoggedInUserMixin::LogInType::kRegular,
       &test_server_,
       this,
       /*should_launch_browser=*/true,

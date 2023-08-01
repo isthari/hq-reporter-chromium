@@ -1,17 +1,8 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/time/time.h"
-
-#include "build/build_config.h"
-
-#if BUILDFLAG(IS_LINUX)
-// time.h is a widely included header and its size impacts build time.
-// Try not to raise this limit unless necessary. See
-// https://chromium.googlesource.com/chromium/src/+/HEAD/docs/wmax_tokens.md
-#pragma clang max_tokens_here 390000
-#endif  // BUILDFLAG(IS_LINUX)
 
 #include <atomic>
 #include <cmath>
@@ -20,6 +11,7 @@
 #include <tuple>
 #include <utility>
 
+#include "base/check.h"
 #include "base/strings/stringprintf.h"
 #include "base/third_party/nspr/prtime.h"
 #include "base/time/time_override.h"
@@ -36,6 +28,8 @@ const char kWeekdayName[7][4] = {"Sun", "Mon", "Tue", "Wed",
 const char kMonthName[12][4] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
 
+TimeTicks g_shared_time_ticks_at_unix_epoch;
+
 }  // namespace
 
 namespace internal {
@@ -48,6 +42,9 @@ std::atomic<TimeNowFunction> g_time_now_from_system_time_function{
 
 std::atomic<TimeTicksNowFunction> g_time_ticks_now_function{
     &subtle::TimeTicksNowIgnoringOverride};
+
+std::atomic<LiveTicksNowFunction> g_live_ticks_now_function{
+    &subtle::LiveTicksNowIgnoringOverride};
 
 std::atomic<ThreadTicksNowFunction> g_thread_ticks_now_function{
     &subtle::ThreadTicksNowIgnoringOverride};
@@ -154,21 +151,13 @@ Time Time::NowFromSystemTime() {
       std::memory_order_relaxed)();
 }
 
-// static
-Time Time::FromDeltaSinceWindowsEpoch(TimeDelta delta) {
-  return Time(delta.InMicroseconds());
-}
-
-TimeDelta Time::ToDeltaSinceWindowsEpoch() const {
-  return Microseconds(us_);
-}
-
 time_t Time::ToTimeT() const {
   if (is_null())
     return 0;  // Preserve 0 so we can tell it doesn't exist.
   if (!is_inf() && ((std::numeric_limits<int64_t>::max() -
-                     kTimeTToMicrosecondsOffset) > us_))
-    return (*this - UnixEpoch()).InSeconds();
+                     kTimeTToMicrosecondsOffset) > us_)) {
+    return static_cast<time_t>((*this - UnixEpoch()).InSeconds());
+  }
   return (us_ < 0) ? std::numeric_limits<time_t>::min()
                    : std::numeric_limits<time_t>::max();
 }
@@ -340,12 +329,32 @@ TimeTicks TimeTicks::Now() {
 }
 
 // static
+// This method should be called once at process start and before
+// TimeTicks::UnixEpoch is accessed. It is intended to make the offset between
+// unix time and monotonic time consistent across processes.
+void TimeTicks::SetSharedUnixEpoch(TimeTicks ticks_at_epoch) {
+  DCHECK(g_shared_time_ticks_at_unix_epoch.is_null());
+  g_shared_time_ticks_at_unix_epoch = ticks_at_epoch;
+}
+
+// static
 TimeTicks TimeTicks::UnixEpoch() {
-  static const TimeTicks epoch([]() {
-    return subtle::TimeTicksNowIgnoringOverride() -
-           (subtle::TimeNowIgnoringOverride() - Time::UnixEpoch());
-  }());
-  return epoch;
+  struct StaticUnixEpoch {
+    StaticUnixEpoch()
+        : epoch(
+              g_shared_time_ticks_at_unix_epoch.is_null()
+                  ? subtle::TimeTicksNowIgnoringOverride() -
+                        (subtle::TimeNowIgnoringOverride() - Time::UnixEpoch())
+                  : g_shared_time_ticks_at_unix_epoch) {
+      // Prevent future usage of `g_shared_time_ticks_at_unix_epoch`.
+      g_shared_time_ticks_at_unix_epoch = TimeTicks::Max();
+    }
+
+    const TimeTicks epoch;
+  };
+
+  static StaticUnixEpoch static_epoch;
+  return static_epoch.epoch;
 }
 
 TimeTicks TimeTicks::SnappedToNextTick(TimeTicks tick_phase,
@@ -370,6 +379,25 @@ std::ostream& operator<<(std::ostream& os, TimeTicks time_ticks) {
   const TimeDelta as_time_delta = time_ticks - TimeTicks();
   return os << as_time_delta.InMicroseconds() << " bogo-microseconds";
 }
+
+// LiveTicks ------------------------------------------------------------------
+
+// static
+LiveTicks LiveTicks::Now() {
+  return internal::g_live_ticks_now_function.load(std::memory_order_relaxed)();
+}
+
+#if !BUILDFLAG(IS_WIN)
+namespace subtle {
+LiveTicks LiveTicksNowIgnoringOverride() {
+  // On non-windows platforms LiveTicks is equivalent to TimeTicks already.
+  // Subtract the empty `TimeTicks` from `TimeTicks::Now()` to get a `TimeDelta`
+  // that can be added to the empty `LiveTicks`.
+  return LiveTicks() + (TimeTicks::Now() - TimeTicks());
+}
+}  // namespace subtle
+
+#endif
 
 // ThreadTicks ----------------------------------------------------------------
 

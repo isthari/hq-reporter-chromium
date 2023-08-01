@@ -1,76 +1,80 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_coordinator.h"
 
+#import "base/feature_list.h"
 #import "base/ios/ios_util.h"
-#include "base/mac/foundation_util.h"
-#include "base/metrics/user_metrics.h"
-#include "base/metrics/user_metrics_action.h"
-#include "base/strings/sys_string_conversions.h"
-#include "components/feed/core/v2/public/ios/pref_names.h"
-#include "components/ntp_tiles/most_visited_sites.h"
-#include "components/prefs/pref_service.h"
-#import "components/search_engines/template_url.h"
-#import "components/search_engines/template_url_service.h"
+#import "base/mac/foundation_util.h"
+#import "base/metrics/user_metrics.h"
+#import "base/metrics/user_metrics_action.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/feed/core/v2/public/ios/pref_names.h"
+#import "components/ntp_tiles/most_visited_sites.h"
+#import "components/prefs/pref_service.h"
 #import "ios/chrome/app/application_delegate/app_state.h"
-#include "ios/chrome/app/tests_hook.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#import "ios/chrome/browser/drag_and_drop/url_drag_drop_handler.h"
-#include "ios/chrome/browser/favicon/ios_chrome_large_icon_cache_factory.h"
-#include "ios/chrome/browser/favicon/ios_chrome_large_icon_service_factory.h"
-#include "ios/chrome/browser/favicon/large_icon_cache.h"
-#import "ios/chrome/browser/main/browser.h"
-#include "ios/chrome/browser/ntp_tiles/ios_most_visited_sites_factory.h"
+#import "ios/chrome/app/tests_hook.h"
+#import "ios/chrome/browser/discover_feed/discover_feed_service.h"
+#import "ios/chrome/browser/discover_feed/discover_feed_service_factory.h"
+#import "ios/chrome/browser/favicon/ios_chrome_large_icon_cache_factory.h"
+#import "ios/chrome/browser/favicon/ios_chrome_large_icon_service_factory.h"
+#import "ios/chrome/browser/favicon/large_icon_cache.h"
+#import "ios/chrome/browser/ntp/new_tab_page_tab_helper.h"
+#import "ios/chrome/browser/ntp/set_up_list_item_type.h"
+#import "ios/chrome/browser/ntp/set_up_list_prefs.h"
+#import "ios/chrome/browser/ntp_tiles/ios_most_visited_sites_factory.h"
 #import "ios/chrome/browser/policy/policy_util.h"
-#include "ios/chrome/browser/pref_names.h"
-#include "ios/chrome/browser/reading_list/reading_list_model_factory.h"
-#import "ios/chrome/browser/search_engines/template_url_service_factory.h"
+#import "ios/chrome/browser/promos_manager/promos_manager_factory.h"
+#import "ios/chrome/browser/reading_list/reading_list_model_factory.h"
+#import "ios/chrome/browser/shared/coordinator/alert/action_sheet_coordinator.h"
+#import "ios/chrome/browser/shared/coordinator/scene/scene_state.h"
+#import "ios/chrome/browser/shared/coordinator/scene/scene_state_browser_agent.h"
+#import "ios/chrome/browser/shared/model/application_context/application_context.h"
+#import "ios/chrome/browser/shared/model/browser/browser.h"
+#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/prefs/pref_names.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/shared/public/commands/application_commands.h"
+#import "ios/chrome/browser/shared/public/commands/browser_coordinator_commands.h"
+#import "ios/chrome/browser/shared/public/commands/command_dispatcher.h"
+#import "ios/chrome/browser/shared/public/commands/credential_provider_promo_commands.h"
+#import "ios/chrome/browser/shared/public/commands/omnibox_commands.h"
+#import "ios/chrome/browser/shared/public/commands/open_new_tab_command.h"
+#import "ios/chrome/browser/shared/public/commands/show_signin_command.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
+#import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
 #import "ios/chrome/browser/signin/authentication_service.h"
 #import "ios/chrome/browser/signin/authentication_service_factory.h"
-#import "ios/chrome/browser/ui/activity_services/activity_params.h"
-#import "ios/chrome/browser/ui/alert_coordinator/action_sheet_coordinator.h"
-#import "ios/chrome/browser/ui/commands/application_commands.h"
-#import "ios/chrome/browser/ui/commands/browser_commands.h"
-#import "ios/chrome/browser/ui/commands/command_dispatcher.h"
-#import "ios/chrome/browser/ui/commands/omnibox_commands.h"
-#import "ios/chrome/browser/ui/commands/open_new_tab_command.h"
+#import "ios/chrome/browser/signin/identity_manager_factory.h"
 #import "ios/chrome/browser/ui/content_suggestions/cells/content_suggestions_most_visited_item.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_constants.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_feature.h"
-#import "ios/chrome/browser/ui/content_suggestions/content_suggestions_header_commands.h"
-#import "ios/chrome/browser/ui/content_suggestions/content_suggestions_header_synchronizer.h"
-#import "ios/chrome/browser/ui/content_suggestions/content_suggestions_header_view_controller.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_mediator.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_menu_provider.h"
+#import "ios/chrome/browser/ui/content_suggestions/content_suggestions_metrics_recorder.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_view_controller.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_view_controller_audience.h"
 #import "ios/chrome/browser/ui/content_suggestions/ntp_home_constant.h"
-#import "ios/chrome/browser/ui/content_suggestions/ntp_home_mediator.h"
-#import "ios/chrome/browser/ui/content_suggestions/ntp_home_metrics.h"
-#import "ios/chrome/browser/ui/main/scene_state.h"
-#import "ios/chrome/browser/ui/main/scene_state_browser_agent.h"
+#import "ios/chrome/browser/ui/content_suggestions/set_up_list/set_up_list_default_browser_promo_coordinator.h"
+#import "ios/chrome/browser/ui/content_suggestions/set_up_list/set_up_list_default_browser_promo_coordinator_delegate.h"
+#import "ios/chrome/browser/ui/content_suggestions/set_up_list/set_up_list_view.h"
 #import "ios/chrome/browser/ui/menu/browser_action_factory.h"
 #import "ios/chrome/browser/ui/menu/menu_histograms.h"
-#import "ios/chrome/browser/ui/ntp/feed_metrics_recorder.h"
-#import "ios/chrome/browser/ui/ntp/new_tab_page_commands.h"
+#import "ios/chrome/browser/ui/ntp/feed_delegate.h"
 #import "ios/chrome/browser/ui/ntp/new_tab_page_constants.h"
+#import "ios/chrome/browser/ui/ntp/new_tab_page_delegate.h"
 #import "ios/chrome/browser/ui/ntp/new_tab_page_feature.h"
 #import "ios/chrome/browser/ui/ntp/new_tab_page_header_constants.h"
-#import "ios/chrome/browser/ui/ntp/notification_promo_whats_new.h"
+#import "ios/chrome/browser/ui/ntp/new_tab_page_metrics_delegate.h"
 #import "ios/chrome/browser/ui/settings/utils/pref_backed_boolean.h"
 #import "ios/chrome/browser/ui/sharing/sharing_coordinator.h"
+#import "ios/chrome/browser/ui/sharing/sharing_params.h"
 #import "ios/chrome/browser/ui/start_surface/start_surface_features.h"
 #import "ios/chrome/browser/ui/start_surface/start_surface_recent_tab_browser_agent.h"
 #import "ios/chrome/browser/ui/start_surface/start_surface_util.h"
-#include "ios/chrome/browser/ui/ui_feature_flags.h"
-#import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/browser/url_loading/url_loading_browser_agent.h"
-#import "ios/chrome/browser/url_loading/url_loading_params.h"
-#import "ios/chrome/browser/web_state_list/web_state_list.h"
-#include "ios/chrome/grit/ios_strings.h"
-#import "ios/public/provider/chrome/browser/chrome_browser_provider.h"
+#import "ios/chrome/grit/ios_strings.h"
 #import "ios/web/public/web_state.h"
 #import "ui/base/l10n/l10n_util_mac.h"
 
@@ -78,54 +82,59 @@
 #error "This file requires ARC support."
 #endif
 
+namespace {
+// Kill-switch for quick fix of crbug.com/1204507
+BASE_FEATURE(kNoRecentTabIfNullWebState,
+             "NoRecentTabIfNullWebState",
+             base::FEATURE_ENABLED_BY_DEFAULT);
+
+}  // namespace
+
 @interface ContentSuggestionsCoordinator () <
-    AppStateObserver,
-    ContentSuggestionsHeaderCommands,
     ContentSuggestionsMenuProvider,
     ContentSuggestionsViewControllerAudience,
-    URLDropDelegate> {
-  // Observer bridge for mediator to listen to
-  // StartSurfaceRecentTabObserverBridge.
-  std::unique_ptr<StartSurfaceRecentTabObserverBridge> _startSurfaceObserver;
-}
+    SetUpListDefaultBrowserPromoCoordinatorDelegate,
+    SetUpListViewDelegate>
 
 @property(nonatomic, strong)
-    ContentSuggestionsViewController* suggestionsViewController;
-@property(nonatomic, strong)
-    ContentSuggestionsMediator* contentSuggestionsMediator;
-@property(nonatomic, strong)
-    ContentSuggestionsHeaderSynchronizer* headerCollectionInteractionHandler;
-@property(nonatomic, strong) URLDragDropHandler* dragDropHandler;
-@property(nonatomic, strong) ActionSheetCoordinator* alertCoordinator;
-// Redefined as readwrite.
-@property(nonatomic, strong, readwrite)
-    ContentSuggestionsHeaderViewController* headerController;
-@property(nonatomic, strong) PrefBackedBoolean* contentSuggestionsExpanded;
+    ContentSuggestionsViewController* contentSuggestionsViewController;
 @property(nonatomic, assign) BOOL contentSuggestionsEnabled;
 // Authentication Service for the user's signed-in state.
 @property(nonatomic, assign) AuthenticationService* authService;
 // Coordinator in charge of handling sharing use cases.
 @property(nonatomic, strong) SharingCoordinator* sharingCoordinator;
+// Redefined to not be readonly.
+@property(nonatomic, strong)
+    ContentSuggestionsMediator* contentSuggestionsMediator;
+// Metrics recorder for the content suggestions.
+@property(nonatomic, strong)
+    ContentSuggestionsMetricsRecorder* contentSuggestionsMetricsRecorder;
 
 @end
 
-@implementation ContentSuggestionsCoordinator
+@implementation ContentSuggestionsCoordinator {
+  // Observer bridge for mediator to listen to
+  // StartSurfaceRecentTabObserverBridge.
+  std::unique_ptr<StartSurfaceRecentTabObserverBridge> _startSurfaceObserver;
+
+  // The coordinator that displays the Default Browser Promo for the Set Up
+  // List.
+  SetUpListDefaultBrowserPromoCoordinator* _defaultBrowserPromoCoordinator;
+
+  // The coordinator used to present an action sheet for the Set Up List menu.
+  ActionSheetCoordinator* _actionSheetCoordinator;
+}
 
 - (void)start {
   DCHECK(self.browser);
-  DCHECK(self.ntpMediator);
+  DCHECK(self.NTPMetricsDelegate);
+
   if (self.started) {
     // Prevent this coordinator from being started twice in a row
     return;
   }
 
   _started = YES;
-
-  // Make sure that the omnibox is unfocused to prevent having it visually
-  // focused while the NTP is just created (with the fakebox visible).
-  id<OmniboxCommands> omniboxCommandHandler =
-      HandlerForProtocol(self.browser->GetCommandDispatcher(), OmniboxCommands);
-  [omniboxCommandHandler cancelOmniboxEdit];
 
   self.authService = AuthenticationServiceFactory::GetForBrowserState(
       self.browser->GetBrowserState());
@@ -137,46 +146,6 @@
   self.contentSuggestionsEnabled =
       prefs->GetBoolean(prefs::kArticlesForYouEnabled) &&
       prefs->GetBoolean(prefs::kNTPContentSuggestionsEnabled);
-  self.contentSuggestionsExpanded = [[PrefBackedBoolean alloc]
-      initWithPrefService:prefs
-                 prefName:feed::prefs::kArticlesListVisible];
-  if (self.contentSuggestionsEnabled) {
-    if ([self.contentSuggestionsExpanded value]) {
-      ntp_home::RecordNTPImpression(ntp_home::REMOTE_SUGGESTIONS);
-    } else {
-      ntp_home::RecordNTPImpression(ntp_home::REMOTE_COLLAPSED);
-    }
-  } else {
-    ntp_home::RecordNTPImpression(ntp_home::LOCAL_SUGGESTIONS);
-  }
-
-  self.headerController = [[ContentSuggestionsHeaderViewController alloc] init];
-  // TODO(crbug.com/1045047): Use HandlerForProtocol after commands protocol
-  // clean up.
-  self.headerController.dispatcher =
-      static_cast<id<ApplicationCommands, BrowserCommands, OmniboxCommands,
-                     FakeboxFocuser>>(self.browser->GetCommandDispatcher());
-  self.headerController.commandHandler = self;
-  self.headerController.delegate = self.ntpMediator;
-
-  self.headerController.readingListModel =
-      ReadingListModelFactory::GetForBrowserState(
-          self.browser->GetBrowserState());
-  self.headerController.toolbarDelegate = self.toolbarDelegate;
-
-  // Only handle app state for the new First Run UI.
-  if (base::FeatureList::IsEnabled(kEnableFREUIModuleIOS)) {
-    SceneState* sceneState =
-        SceneStateBrowserAgent::FromBrowser(self.browser)->GetSceneState();
-    AppState* appState = sceneState.appState;
-    [appState addObserver:self];
-
-    // Do not focus on omnibox for voice over if there are other screens to
-    // show.
-    if (appState.initStage < InitStageFinal) {
-      self.headerController.focusOmniboxWhenViewAppears = NO;
-    }
-  }
 
   favicon::LargeIconService* largeIconService =
       IOSChromeLargeIconServiceFactory::GetForBrowserState(
@@ -189,16 +158,22 @@
   ReadingListModel* readingListModel =
       ReadingListModelFactory::GetForBrowserState(
           self.browser->GetBrowserState());
+  PromosManager* promosManager =
+      PromosManagerFactory::GetForBrowserState(self.browser->GetBrowserState());
 
-  TemplateURLService* templateURLService =
-      ios::TemplateURLServiceFactory::GetForBrowserState(
-          self.browser->GetBrowserState());
-  const TemplateURL* defaultURL =
-      templateURLService->GetDefaultSearchProvider();
   BOOL isGoogleDefaultSearchProvider =
-      defaultURL &&
-      defaultURL->GetEngineType(templateURLService->search_terms_data()) ==
-          SEARCH_ENGINE_GOOGLE;
+      [self.NTPDelegate isGoogleDefaultSearchEngine];
+
+  self.contentSuggestionsMetricsRecorder =
+      [[ContentSuggestionsMetricsRecorder alloc] init];
+
+  AuthenticationService* authenticationService =
+      AuthenticationServiceFactory::GetForBrowserState(
+          self.browser->GetBrowserState());
+
+  signin::IdentityManager* identityManager =
+      IdentityManagerFactory::GetForBrowserState(
+          self.browser->GetBrowserState());
 
   self.contentSuggestionsMediator = [[ContentSuggestionsMediator alloc]
            initWithLargeIconService:largeIconService
@@ -206,66 +181,44 @@
                     mostVisitedSite:std::move(mostVisitedFactory)
                    readingListModel:readingListModel
                         prefService:prefs
-      isGoogleDefaultSearchProvider:isGoogleDefaultSearchProvider];
-  self.contentSuggestionsMediator.commandHandler = self.ntpMediator;
-  self.contentSuggestionsMediator.headerProvider = self.headerController;
-  self.contentSuggestionsMediator.discoverFeedDelegate =
-      self.discoverFeedDelegate;
-  self.contentSuggestionsMediator.webStateList =
-      self.browser->GetWebStateList();
-  [self configureStartSurfaceIfNeeded];
-
-  self.headerController.promoCanShow =
-      [self.contentSuggestionsMediator notificationPromo]->CanShow();
-
-  self.suggestionsViewController = [[ContentSuggestionsViewController alloc]
-      initWithStyle:CollectionViewControllerStyleDefault];
-  self.suggestionsViewController.suggestionCommandHandler = self.ntpMediator;
-  self.suggestionsViewController.audience = self;
-  self.suggestionsViewController.contentSuggestionsEnabled =
-      self.contentSuggestionsEnabled;
-
-  self.suggestionsViewController.menuProvider = self;
-
-  self.ntpMediator.consumer = self.headerController;
+      isGoogleDefaultSearchProvider:isGoogleDefaultSearchProvider
+              authenticationService:authenticationService
+                    identityManager:identityManager
+                            browser:self.browser];
+  self.contentSuggestionsMediator.feedDelegate = self.feedDelegate;
+  self.contentSuggestionsMediator.promosManager = promosManager;
+  self.contentSuggestionsMediator.contentSuggestionsMetricsRecorder =
+      self.contentSuggestionsMetricsRecorder;
   // TODO(crbug.com/1045047): Use HandlerForProtocol after commands protocol
   // clean up.
-  self.ntpMediator.dispatcher =
-      static_cast<id<ApplicationCommands, BrowserCommands, OmniboxCommands,
-                     SnackbarCommands>>(self.browser->GetCommandDispatcher());
-  self.ntpMediator.suggestionsViewController = self.suggestionsViewController;
-  self.ntpMediator.suggestionsMediator = self.contentSuggestionsMediator;
-  [self.ntpMediator setUp];
-  self.ntpMediator.feedMetricsRecorder = self.feedMetricsRecorder;
+  self.contentSuggestionsMediator.dispatcher =
+      static_cast<id<ApplicationCommands, BrowserCoordinatorCommands,
+                     OmniboxCommands, SnackbarCommands>>(
+          self.browser->GetCommandDispatcher());
+  self.contentSuggestionsMediator.webStateList =
+      self.browser->GetWebStateList();
+  self.contentSuggestionsMediator.webState = self.webState;
+  self.contentSuggestionsMediator.NTPMetricsDelegate = self.NTPMetricsDelegate;
 
-  [self.suggestionsViewController addChildViewController:self.headerController];
-  [self.headerController
-      didMoveToParentViewController:self.suggestionsViewController];
+  self.contentSuggestionsViewController =
+      [[ContentSuggestionsViewController alloc] init];
+  self.contentSuggestionsViewController.suggestionCommandHandler =
+      self.contentSuggestionsMediator;
+  self.contentSuggestionsViewController.audience = self;
+  self.contentSuggestionsViewController.menuProvider = self;
+  self.contentSuggestionsViewController.urlLoadingBrowserAgent =
+      UrlLoadingBrowserAgent::FromBrowser(self.browser);
+  self.contentSuggestionsViewController.contentSuggestionsMetricsRecorder =
+      self.contentSuggestionsMetricsRecorder;
+  self.contentSuggestionsViewController.setUpListViewDelegate = self;
 
-  // TODO(crbug.com/1114792): Remove header provider and use refactored header
-  // synchronizer instead.
-  self.suggestionsViewController.headerProvider = self.headerController;
-
-  // Set consumer after configuring the header to ensure that view controller
-  // has access to it when configuring its elements.
-  DCHECK(self.suggestionsViewController.headerProvider);
-  self.contentSuggestionsMediator.consumer = self.suggestionsViewController;
-
-  self.suggestionsViewController.collectionView.accessibilityIdentifier =
-      kContentSuggestionsCollectionIdentifier;
-
-  self.dragDropHandler = [[URLDragDropHandler alloc] init];
-  self.dragDropHandler.dropDelegate = self;
-  [self.suggestionsViewController.collectionView
-      addInteraction:[[UIDropInteraction alloc]
-                         initWithDelegate:self.dragDropHandler]];
+  self.contentSuggestionsMediator.consumer =
+      self.contentSuggestionsViewController;
 }
 
 - (void)stop {
-  [self.ntpMediator shutdown];
-  self.ntpMediator = nil;
   // Reset the observer bridge object before setting
-  // |contentSuggestionsMediator| nil.
+  // `contentSuggestionsMediator` nil.
   if (_startSurfaceObserver) {
     StartSurfaceRecentTabBrowserAgent::FromBrowser(self.browser)
         ->RemoveObserver(_startSurfaceObserver.get());
@@ -273,31 +226,43 @@
   }
   [self.contentSuggestionsMediator disconnect];
   self.contentSuggestionsMediator = nil;
-  self.suggestionsViewController = nil;
+  self.contentSuggestionsViewController = nil;
   [self.sharingCoordinator stop];
   self.sharingCoordinator = nil;
-  self.headerController = nil;
-  self.contentSuggestionsExpanded = nil;
+  [_defaultBrowserPromoCoordinator stop];
+  _defaultBrowserPromoCoordinator = nil;
   _started = NO;
 }
 
 - (UIViewController*)viewController {
-  return self.suggestionsViewController;
+  return self.contentSuggestionsViewController;
+}
+
+#pragma mark - Setters
+
+- (void)setWebState:(web::WebState*)webState {
+  _webState = webState;
+  self.contentSuggestionsMediator.webState = webState;
 }
 
 #pragma mark - ContentSuggestionsViewControllerAudience
 
-- (void)promoShown {
-  NotificationPromoWhatsNew* notificationPromo =
-      [self.contentSuggestionsMediator notificationPromo];
-  notificationPromo->HandleViewed();
-  [self.headerController setPromoCanShow:notificationPromo->CanShow()];
-}
-
-- (void)viewDidDisappear {
+- (void)viewWillDisappear {
+  DiscoverFeedServiceFactory::GetForBrowserState(
+      self.browser->GetBrowserState())
+      ->SetIsShownOnStartSurface(false);
   if (ShouldShowReturnToMostRecentTabForStartSurface()) {
     [self.contentSuggestionsMediator hideRecentTabTile];
   }
+}
+
+- (void)returnToRecentTabWasAdded {
+  [self.NTPDelegate updateFeedLayout];
+  [self.NTPDelegate setContentOffsetToTop];
+}
+
+- (void)moduleWasRemoved {
+  [self.NTPDelegate updateFeedLayout];
 }
 
 - (UIEdgeInsets)safeAreaInsetsForDiscoverFeed {
@@ -306,69 +271,14 @@
               .window.rootViewController.view safeAreaInsets];
 }
 
-#pragma mark - URLDropDelegate
-
-- (BOOL)canHandleURLDropInView:(UIView*)view {
-  return YES;
-}
-
-- (void)view:(UIView*)view didDropURL:(const GURL&)URL atPoint:(CGPoint)point {
-  UrlLoadingBrowserAgent::FromBrowser(self.browser)
-      ->Load(UrlLoadParams::InCurrentTab(URL));
-}
-
-#pragma mark - ContentSuggestionsHeaderCommands
-
-- (void)prepareForVoiceSearchPresentation {
-  [self.ntpMediator dismissModals];
-}
-
-- (void)updateForHeaderSizeChange {
-  [self.ntpCommandHandler updateDiscoverFeedLayout];
-}
-
-- (void)updateForLocationBarResignedFirstResponder {
-  // TODO(crbug.com/1200303): Check if doing this is actually needed.
-  [self.ntpMediator dismissModals];
-}
-
 #pragma mark - Public methods
 
 - (UIView*)view {
-  return self.suggestionsViewController.view;
-}
-
-- (void)dismissModals {
-  [self.ntpMediator dismissModals];
-}
-
-- (void)stopScrolling {
-  UIScrollView* scrollView = self.suggestionsViewController.collectionView;
-  [scrollView setContentOffset:scrollView.contentOffset animated:NO];
-}
-
-- (UIEdgeInsets)contentInset {
-  return self.suggestionsViewController.collectionView.contentInset;
-}
-
-- (CGPoint)contentOffset {
-  CGPoint collectionOffset =
-      self.suggestionsViewController.collectionView.contentOffset;
-  collectionOffset.y -=
-      self.headerCollectionInteractionHandler.collectionShiftingOffset;
-  return collectionOffset;
+  return self.contentSuggestionsViewController.view;
 }
 
 - (void)reload {
   [self.contentSuggestionsMediator reloadAllData];
-}
-
-- (void)locationBarDidBecomeFirstResponder {
-  [self.ntpMediator locationBarDidBecomeFirstResponder];
-}
-
-- (void)locationBarDidResignFirstResponder {
-  [self.ntpMediator locationBarDidResignFirstResponder];
 }
 
 #pragma mark - ContentSuggestionsMenuProvider
@@ -388,38 +298,33 @@
         ContentSuggestionsCoordinator* strongSelf = weakSelf;
 
         // Record that this context menu was shown to the user.
-        RecordMenuShown(MenuScenario::kMostVisitedEntry);
+        RecordMenuShown(MenuScenarioHistogram::kMostVisitedEntry);
 
         BrowserActionFactory* actionFactory = [[BrowserActionFactory alloc]
             initWithBrowser:strongSelf.browser
-                   scenario:MenuScenario::kMostVisitedEntry];
+                   scenario:MenuScenarioHistogram::kMostVisitedEntry];
 
         NSMutableArray<UIMenuElement*>* menuElements =
             [[NSMutableArray alloc] init];
 
-        NSInteger index =
-            IsSingleCellContentSuggestionsEnabled()
-                ? item.index
-                : [self.suggestionsViewController.collectionViewModel
-                      indexPathForItem:item]
-                      .item;
         CGPoint centerPoint = [view.superview convertPoint:view.center
                                                     toView:nil];
 
         [menuElements addObject:[actionFactory actionToOpenInNewTabWithBlock:^{
-                        [weakSelf.ntpMediator
+                        [weakSelf.contentSuggestionsMediator
                             openNewTabWithMostVisitedItem:item
                                                 incognito:NO
-                                                  atIndex:index
+                                                  atIndex:item.index
                                                 fromPoint:centerPoint];
                       }]];
 
         UIAction* incognitoAction =
             [actionFactory actionToOpenInNewIncognitoTabWithBlock:^{
-              [weakSelf.ntpMediator openNewTabWithMostVisitedItem:item
-                                                        incognito:YES
-                                                          atIndex:index
-                                                        fromPoint:centerPoint];
+              [weakSelf.contentSuggestionsMediator
+                  openNewTabWithMostVisitedItem:item
+                                      incognito:YES
+                                        atIndex:item.index
+                                      fromPoint:centerPoint];
             }];
 
         if (IsIncognitoModeDisabled(
@@ -448,7 +353,8 @@
                       }]];
 
         [menuElements addObject:[actionFactory actionToRemoveWithBlock:^{
-                        [weakSelf.ntpMediator removeMostVisited:item];
+                        [weakSelf.contentSuggestionsMediator
+                            removeMostVisited:item];
                       }]];
 
         return [UIMenu menuWithTitle:@"" children:menuElements];
@@ -459,72 +365,164 @@
                                                actionProvider:actionProvider];
 }
 
+#pragma mark - SetUpListViewDelegate
+
+- (void)didSelectSetUpListItem:(SetUpListItemType)type {
+  [self.contentSuggestionsMetricsRecorder recordSetUpListItemSelected:type];
+  [self.NTPMetricsDelegate setUpListItemOpened];
+  PrefService* localState = GetApplicationContext()->GetLocalState();
+  set_up_list_prefs::RecordInteraction(localState);
+
+  switch (type) {
+    case SetUpListItemType::kSignInSync:
+      [self showSignIn];
+      break;
+    case SetUpListItemType::kDefaultBrowser:
+      [self showDefaultBrowserPromo];
+      break;
+    case SetUpListItemType::kAutofill:
+      [self showCredentialProviderPromo];
+      break;
+    case SetUpListItemType::kFollow:
+    case SetUpListItemType::kAllSet:
+      // TODO(crbug.com/1428070): Add a Follow item to the Set Up List.
+      NOTREACHED();
+  }
+}
+
+- (void)showSetUpListMenuWithButton:(UIButton*)button {
+  _actionSheetCoordinator = [[ActionSheetCoordinator alloc]
+      initWithBaseViewController:self.viewController
+                         browser:self.browser
+                           title:nil
+                         message:nil
+                            rect:button.bounds
+                            view:button];
+
+  __weak ContentSuggestionsMediator* weakMediator =
+      self.contentSuggestionsMediator;
+  [_actionSheetCoordinator
+      addItemWithTitle:l10n_util::GetNSString(
+                           IDS_IOS_SET_UP_LIST_SETTINGS_TURN_OFF)
+                action:^{
+                  [weakMediator disableSetUpList];
+                }
+                 style:UIAlertActionStyleDefault];
+  [_actionSheetCoordinator
+      addItemWithTitle:l10n_util::GetNSString(
+                           IDS_IOS_SET_UP_LIST_SETTINGS_CANCEL)
+                action:nil
+                 style:UIAlertActionStyleCancel];
+  [_actionSheetCoordinator start];
+}
+
+- (void)setUpListViewHeightDidChange {
+  [self.feedDelegate contentSuggestionsWasUpdated];
+}
+
+#pragma mark - SetUpList Helpers
+
+// Shows the Default Browser Promo.
+- (void)showDefaultBrowserPromo {
+  // Stop the coordinator if it is already running. If the user swipes to
+  // dismiss a previous instance and then clicks the item again the
+  // previous instance may not have been stopped yet due to the animation.
+  [_defaultBrowserPromoCoordinator stop];
+  _defaultBrowserPromoCoordinator =
+      [[SetUpListDefaultBrowserPromoCoordinator alloc]
+          initWithBaseViewController:[self viewController]
+                             browser:self.browser
+                         application:[UIApplication sharedApplication]];
+  _defaultBrowserPromoCoordinator.delegate = self;
+  [_defaultBrowserPromoCoordinator start];
+}
+
+// Shows the SigninSync UI with the SetUpList access point.
+- (void)showSignIn {
+  ShowSigninCommandCompletionCallback callback = ^(BOOL success) {
+    PrefService* localState = GetApplicationContext()->GetLocalState();
+    set_up_list_prefs::MarkItemComplete(localState,
+                                        SetUpListItemType::kSignInSync);
+  };
+  ShowSigninCommand* command = [[ShowSigninCommand alloc]
+      initWithOperation:AuthenticationOperationSigninAndSyncWithTwoScreens
+               identity:nil
+            accessPoint:signin_metrics::AccessPoint::ACCESS_POINT_SET_UP_LIST
+            promoAction:signin_metrics::PromoAction::
+                            PROMO_ACTION_NO_SIGNIN_PROMO
+               callback:callback];
+  [HandlerForProtocol(self.browser->GetCommandDispatcher(), ApplicationCommands)
+              showSignin:command
+      baseViewController:self.viewController];
+}
+
+// Shows the Credential Provider Promo using the SetUpList trigger.
+- (void)showCredentialProviderPromo {
+  [HandlerForProtocol(self.browser->GetCommandDispatcher(),
+                      CredentialProviderPromoCommands)
+      showCredentialProviderPromoWithTrigger:CredentialProviderPromoTrigger::
+                                                 SetUpList];
+}
+
+#pragma mark - SetUpListDefaultBrowserPromoCoordinatorDelegate
+
+- (void)setUpListDefaultBrowserPromoDidFinish:(BOOL)success {
+  [_defaultBrowserPromoCoordinator stop];
+  _defaultBrowserPromoCoordinator = nil;
+}
+
 #pragma mark - Helpers
 
 - (void)configureStartSurfaceIfNeeded {
   SceneState* scene =
       SceneStateBrowserAgent::FromBrowser(self.browser)->GetSceneState();
-  if (!scene.modifytVisibleNTPForStartSurface)
+  if (!NewTabPageTabHelper::FromWebState(self.webState)
+           ->ShouldShowStartSurface()) {
     return;
+  }
 
   if (ShouldShowReturnToMostRecentTabForStartSurface()) {
-    base::RecordAction(
-        base::UserMetricsAction("IOS.StartSurface.ShowReturnToRecentTabTile"));
     web::WebState* most_recent_tab =
         StartSurfaceRecentTabBrowserAgent::FromBrowser(self.browser)
             ->most_recent_tab();
-    DCHECK(most_recent_tab);
-    NSString* time_label = GetRecentTabTileTimeLabelForSceneState(scene);
-    [self.contentSuggestionsMediator
-        configureMostRecentTabItemWithWebState:most_recent_tab
-                                     timeLabel:time_label];
-    if (!_startSurfaceObserver) {
-      _startSurfaceObserver =
-          std::make_unique<StartSurfaceRecentTabObserverBridge>(
-              self.contentSuggestionsMediator);
-      StartSurfaceRecentTabBrowserAgent::FromBrowser(self.browser)
-          ->AddObserver(_startSurfaceObserver.get());
+    // TODO(crbug.com/1204507): Fix reproduced steps that produce state where
+    // most_recent_tab is null but ShouldShowStartSurface() is YES.
+    if (!base::FeatureList::IsEnabled(kNoRecentTabIfNullWebState) ||
+        most_recent_tab) {
+      [self.contentSuggestionsMetricsRecorder recordReturnToRecentTabTileShown];
+      DiscoverFeedServiceFactory::GetForBrowserState(
+          self.browser->GetBrowserState())
+          ->SetIsShownOnStartSurface(true);
+      NSString* time_label = GetRecentTabTileTimeLabelForSceneState(scene);
+      [self.contentSuggestionsMediator
+          configureMostRecentTabItemWithWebState:most_recent_tab
+                                       timeLabel:time_label];
+      if (!_startSurfaceObserver) {
+        _startSurfaceObserver =
+            std::make_unique<StartSurfaceRecentTabObserverBridge>(
+                self.contentSuggestionsMediator);
+        StartSurfaceRecentTabBrowserAgent::FromBrowser(self.browser)
+            ->AddObserver(_startSurfaceObserver.get());
+      }
     }
   }
-  if (ShouldShrinkLogoForStartSurface()) {
-    base::RecordAction(base::UserMetricsAction("IOS.StartSurface.ShrinkLogo"));
-  }
-  if (ShouldHideShortcutsForStartSurface()) {
-    base::RecordAction(
-        base::UserMetricsAction("IOS.StartSurface.HideShortcuts"));
-  }
-  scene.modifytVisibleNTPForStartSurface = NO;
 }
 
-// Triggers the URL sharing flow for the given |URL| and |title|, with the
-// origin |view| representing the UI component for that URL.
+// Triggers the URL sharing flow for the given `URL` and `title`, with the
+// origin `view` representing the UI component for that URL.
 - (void)shareURL:(const GURL&)URL
            title:(NSString*)title
         fromView:(UIView*)view {
-  ActivityParams* params =
-      [[ActivityParams alloc] initWithURL:URL
-                                    title:title
-                                 scenario:ActivityScenario::MostVisitedEntry];
-  self.sharingCoordinator =
-      [[SharingCoordinator alloc] initWithBaseViewController:self.viewController
-                                                     browser:self.browser
-                                                      params:params
-                                                  originView:view];
+  SharingParams* params =
+      [[SharingParams alloc] initWithURL:URL
+                                   title:title
+                                scenario:SharingScenario::MostVisitedEntry];
+  self.sharingCoordinator = [[SharingCoordinator alloc]
+      initWithBaseViewController:self.contentSuggestionsViewController
+                         browser:self.browser
+                          params:params
+                      originView:view];
   [self.sharingCoordinator start];
-}
-
-#pragma mark - AppStateObserver
-
-- (void)appState:(AppState*)appState
-    didTransitionFromInitStage:(InitStage)previousInitStage {
-  if (base::FeatureList::IsEnabled(kEnableFREUIModuleIOS)) {
-    if (previousInitStage == InitStageFirstRun) {
-      self.headerController.focusOmniboxWhenViewAppears = YES;
-      [self.headerController focusAccessibilityOnOmnibox];
-
-      [appState removeObserver:self];
-    }
-  }
 }
 
 @end

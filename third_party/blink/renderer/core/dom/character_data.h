@@ -38,6 +38,9 @@ class CORE_EXPORT CharacterData : public Node {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
+  CharacterData(const CharacterData&) = delete;
+  CharacterData& operator=(const CharacterData&) = delete;
+
   // Makes the data Parkable. This enables de-duplication and compression.
   void MakeParkable();
   const String& data() const {
@@ -59,8 +62,6 @@ class CORE_EXPORT CharacterData : public Node {
 
   bool ContainsOnlyWhitespaceOrEmpty() const;
 
-  StringImpl* DataImpl() { return data().Impl(); }
-
   void ParserAppendData(const String&);
 
  protected:
@@ -68,33 +69,58 @@ class CORE_EXPORT CharacterData : public Node {
                 const String& text,
                 ConstructionType type)
       : Node(&tree_scope, type),
-        is_parkable_(false),
-        data_(!text.IsNull() ? text : g_empty_string) {
-    DCHECK(type == kCreateOther || type == kCreateText ||
-           type == kCreateEditingText);
+        data_(!text.IsNull() ? text : g_empty_string),
+        is_parkable_(false) {
+    DCHECK(type == kCreateComment || type == kCreateText ||
+           type == kCreateCdataSection ||
+           type == kCreateProcessingInstruction || type == kCreateEditingText);
+  }
+
+  CharacterData(TreeScope& tree_scope, String&& text, ConstructionType type)
+      : Node(&tree_scope, type), data_(std::move(text)), is_parkable_(false) {
+    DCHECK(type == kCreateComment || type == kCreateText ||
+           type == kCreateCdataSection ||
+           type == kCreateProcessingInstruction || type == kCreateEditingText);
+    DCHECK(!is_parkable_);
+    if (data_.IsNull()) {
+      data_ = g_empty_string;
+    }
+  }
+
+  ~CharacterData() noexcept override {
+    if (is_parkable_) {
+      parkable_data_.~ParkableString();
+    } else {
+      data_.~String();
+    }
   }
 
   void SetDataWithoutUpdate(const String& data) {
     DCHECK(!data.IsNull());
-    if (is_parkable_) {
-      is_parkable_ = false;
-      parkable_data_ = ParkableString();
+    if (!is_parkable_) {
+      data_ = data;
+      return;
     }
-    data_ = data;
+    is_parkable_ = false;
+    parkable_data_.~ParkableString();
+    new (&data_) String(data);
   }
+
   enum UpdateSource {
     kUpdateFromParser,
     kUpdateFromNonParser,
   };
   void DidModifyData(const String& old_value, UpdateSource);
 
+  union {
+    ParkableString parkable_data_;
+    String data_;
+  };
   bool is_parkable_;
-  ParkableString parkable_data_;
-  String data_;
 
  private:
   String nodeValue() const final;
-  void setNodeValue(const String&) final;
+  void setNodeValue(const String&, ExceptionState&) final;
   bool IsCharacterDataNode() const final { return true; }
   void SetDataAndUpdate(const String&,
                         unsigned offset_of_replaced_data,

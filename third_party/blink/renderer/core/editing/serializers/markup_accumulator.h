@@ -32,7 +32,6 @@
 #include "third_party/blink/renderer/core/editing/editing_strategy.h"
 #include "third_party/blink/renderer/core/editing/serializers/markup_formatter.h"
 #include "third_party/blink/renderer/core/editing/serializers/serialization.h"
-#include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
 namespace blink {
@@ -82,7 +81,8 @@ class MarkupAccumulator {
   ElementSerializationData AppendStartTagOpen(const Element&);
   void AppendStartTagClose(const Element&);
   void AppendNamespace(const AtomicString& prefix,
-                       const AtomicString& namespace_uri);
+                       const AtomicString& namespace_uri,
+                       const Document& document);
   void AppendAttributeAsXMLWithNamespace(const Element& element,
                                          const Attribute& attribute,
                                          const String& value);

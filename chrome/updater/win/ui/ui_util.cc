@@ -1,19 +1,16 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/updater/win/ui/ui_util.h"
 
-#include "base/i18n/message_formatter.h"
 #include "base/logging.h"
 #include "base/memory/raw_ptr.h"
-#include "base/strings/string_util.h"
-#include "base/win/atl.h"
-#include "chrome/updater/win/ui/resources/resources.grh"
-#include "chrome/updater/win/win_util.h"
+#include "chrome/updater/util/win_util.h"
+#include "chrome/updater/win/ui/l10n_util.h"
+#include "chrome/updater/win/ui/resources/updater_installer_strings.h"
 
-namespace updater {
-namespace ui {
+namespace updater::ui {
 
 namespace {
 
@@ -26,13 +23,14 @@ struct FindProcessWindowsRecord {
 BOOL CALLBACK FindProcessWindowsEnumProc(HWND hwnd, LPARAM lparam) {
   FindProcessWindowsRecord* enum_record =
       reinterpret_cast<FindProcessWindowsRecord*>(lparam);
-  DCHECK(enum_record);
+  CHECK(enum_record);
 
   DWORD process_id = 0;
   ::GetWindowThreadProcessId(hwnd, &process_id);
 
-  if (enum_record->process_id != process_id)
+  if (enum_record->process_id != process_id) {
     return true;
+  }
 
   if ((enum_record->window_flags & kWindowMustBeTopLevel) &&
       ::GetParent(hwnd)) {
@@ -58,7 +56,7 @@ BOOL CALLBACK FindProcessWindowsEnumProc(HWND hwnd, LPARAM lparam) {
 bool FindProcessWindows(uint32_t process_id,
                         uint32_t window_flags,
                         std::vector<HWND>* windows) {
-  DCHECK(windows);
+  CHECK(windows);
   windows->clear();
   FindProcessWindowsRecord enum_record = {0};
   enum_record.process_id = process_id;
@@ -71,8 +69,9 @@ bool FindProcessWindows(uint32_t process_id,
 }
 
 void MakeWindowForeground(HWND wnd) {
-  if (!::IsWindowVisible(wnd))
+  if (!::IsWindowVisible(wnd)) {
     return;
+  }
   ::SetWindowPos(wnd, HWND_TOP, 0, 0, 0, 0,
                  SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
 }
@@ -86,8 +85,8 @@ bool HasSystemMenu(HWND wnd) {
 }
 
 HRESULT SetWindowIcon(HWND hwnd, WORD icon_id, HICON* hicon) {
-  DCHECK(hwnd);
-  DCHECK(hicon);
+  CHECK(hwnd);
+  CHECK(hicon);
 
   *hicon = nullptr;
 
@@ -110,37 +109,37 @@ HRESULT SetWindowIcon(HWND hwnd, WORD icon_id, HICON* hicon) {
 
 std::wstring GetInstallerDisplayName(const std::u16string& bundle_name) {
   std::wstring display_name = base::AsWString(bundle_name);
-  if (display_name.empty())
-    LoadString(IDS_FRIENDLY_COMPANY_NAME, &display_name);
-  std::wstring installer_name;
-  LoadString(IDS_INSTALLER_DISPLAY_NAME, &installer_name);
-  return base::AsWString(base::i18n::MessageFormatter::FormatWithNumberedArgs(
-      base::AsString16(installer_name), base::AsString16(display_name)));
-}
-
-// TODO(sorin): use resource bundles and remove the dependency on ATL::CString.
-// https://crbug.com/1015602
-bool LoadString(int id, std::wstring* s) {
-  CString tmp;
-  auto result = tmp.LoadString(id);
-  *s = tmp;
-  return result;
+  if (display_name.empty()) {
+    display_name = GetLocalizedString(IDS_FRIENDLY_COMPANY_NAME_BASE);
+  }
+  return GetLocalizedStringF(IDS_INSTALLER_DISPLAY_NAME_BASE, display_name);
 }
 
 bool GetDlgItemText(HWND dlg, int item_id, std::wstring* text) {
   text->clear();
   auto* item = ::GetDlgItem(dlg, item_id);
-  if (!item)
+  if (!item) {
     return false;
+  }
   const auto num_chars = ::GetWindowTextLength(item);
-  if (!num_chars)
+  if (!num_chars) {
     return false;
+  }
   std::vector<wchar_t> tmp(num_chars + 1);
-  if (!::GetWindowText(item, &tmp.front(), tmp.size()))
+  if (!::GetWindowText(item, &tmp.front(), tmp.size())) {
     return false;
+  }
   text->assign(tmp.begin(), tmp.end());
   return true;
 }
 
-}  // namespace ui
-}  // namespace updater
+bool IsHighContrastOn() {
+  HIGHCONTRAST hc = {0};
+  hc.cbSize = sizeof(HIGHCONTRAST);
+  if (!::SystemParametersInfo(SPI_GETHIGHCONTRAST, 0, &hc, 0)) {
+    return false;
+  }
+  return hc.dwFlags & HCF_HIGHCONTRASTON;
+}
+
+}  // namespace updater::ui

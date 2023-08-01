@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,12 +10,14 @@
 
 #include "ash/ash_export.h"
 #include "base/files/file_path.h"
-#include "chromeos/services/multidevice_setup/public/mojom/multidevice_setup.mojom-forward.h"
+#include "chromeos/ash/services/multidevice_setup/public/mojom/multidevice_setup.mojom-forward.h"
 #include "chromeos/ui/base/window_pin_type.h"
+#include "components/version_info/channel.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
-#include "services/device/public/mojom/bluetooth_system.mojom-forward.h"
 #include "services/device/public/mojom/fingerprint.mojom-forward.h"
 #include "services/media_session/public/cpp/media_session_service.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
+#include "services/video_capture/public/mojom/multi_capture_service.mojom-forward.h"
 #include "ui/gfx/native_widget_types.h"
 #include "url/gurl.h"
 
@@ -33,13 +35,23 @@ class AccessibilityDelegate;
 class BackGestureContextualNudgeController;
 class BackGestureContextualNudgeDelegate;
 class CaptureModeDelegate;
-class DesksTemplatesDelegate;
+class GameDashboardDelegate;
+class GlanceablesController;
+class GlanceablesDelegate;
+class MediaNotificationProvider;
 class NearbyShareController;
 class NearbyShareDelegate;
+class SavedDeskDelegate;
+class SystemSoundsDelegate;
+class UserEducationDelegate;
 
 // Delegate of the Shell.
 class ASH_EXPORT ShellDelegate {
  public:
+  enum class FeedbackSource {
+    kWindowLayoutMenu,
+  };
+
   // The Shell owns the delegate.
   virtual ~ShellDelegate() = default;
 
@@ -51,6 +63,14 @@ class ASH_EXPORT ShellDelegate {
   virtual std::unique_ptr<CaptureModeDelegate> CreateCaptureModeDelegate()
       const = 0;
 
+  // Creates and returns the delegate of the Game Dashboard feature.
+  virtual std::unique_ptr<GameDashboardDelegate> CreateGameDashboardDelegate()
+      const = 0;
+
+  // Creates the delegate for the Glanceables feature.
+  virtual std::unique_ptr<GlanceablesDelegate> CreateGlanceablesDelegate(
+      GlanceablesController* controller) const = 0;
+
   // Creates a accessibility delegate. Shell takes ownership of the delegate.
   virtual AccessibilityDelegate* CreateAccessibilityDelegate() = 0;
 
@@ -59,11 +79,27 @@ class ASH_EXPORT ShellDelegate {
   CreateBackGestureContextualNudgeDelegate(
       BackGestureContextualNudgeController* controller) = 0;
 
+  virtual std::unique_ptr<MediaNotificationProvider>
+  CreateMediaNotificationProvider() = 0;
+
   virtual std::unique_ptr<NearbyShareDelegate> CreateNearbyShareDelegate(
       NearbyShareController* controller) const = 0;
 
-  virtual std::unique_ptr<DesksTemplatesDelegate> CreateDesksTemplatesDelegate()
+  virtual std::unique_ptr<SavedDeskDelegate> CreateSavedDeskDelegate()
       const = 0;
+
+  // Creates and returns the delegate of the System Sounds feature.
+  virtual std::unique_ptr<SystemSoundsDelegate> CreateSystemSoundsDelegate()
+      const = 0;
+
+  // Creates and returns the delegate for user education features.
+  virtual std::unique_ptr<UserEducationDelegate> CreateUserEducationDelegate()
+      const = 0;
+
+  // Returns the geolocation loader factory used to initialize geolocation
+  // provider.
+  virtual scoped_refptr<network::SharedURLLoaderFactory>
+  GetGeolocationUrlLoaderFactory() const = 0;
 
   // Check whether the current tab of the browser window can go back.
   virtual bool CanGoBack(gfx::NativeWindow window) const = 0;
@@ -88,18 +124,20 @@ class ASH_EXPORT ShellDelegate {
   // dragged out of it.
   virtual int GetBrowserWebUITabStripHeight() = 0;
 
-  // Binds a BluetoothSystemFactory receiver if possible.
-  virtual void BindBluetoothSystemFactory(
-      mojo::PendingReceiver<device::mojom::BluetoothSystemFactory> receiver) {}
-
   // Binds a fingerprint receiver in the Device Service if possible.
   virtual void BindFingerprint(
       mojo::PendingReceiver<device::mojom::Fingerprint> receiver) {}
 
   // Binds a MultiDeviceSetup receiver for the primary profile.
   virtual void BindMultiDeviceSetup(
-      mojo::PendingReceiver<
-          chromeos::multidevice_setup::mojom::MultiDeviceSetup> receiver) = 0;
+      mojo::PendingReceiver<multidevice_setup::mojom::MultiDeviceSetup>
+          receiver) = 0;
+
+  // Binds a MultiCaptureService receiver to start observing
+  // MultiCaptureStarted() and MultiCaptureStopped() events.
+  virtual void BindMultiCaptureService(
+      mojo::PendingReceiver<video_capture::mojom::MultiCaptureService>
+          receiver) = 0;
 
   // Returns an interface to the Media Session service, or null if not
   // available.
@@ -126,14 +164,32 @@ class ASH_EXPORT ShellDelegate {
   // primary user Downloads folder if user has already logged in.
   virtual base::FilePath GetPrimaryUserDownloadsFolder() const = 0;
 
-  // Opens the feedback page with pre-populated description #BentoBar for
-  // persistent desks bar. Note, this will be removed once the feature is fully
-  // launched or removed.
-  virtual void OpenFeedbackPageForPersistentDesksBar() = 0;
+  // Opens the feedback page with pre-populated `source` and
+  // `description_template` fields. Note, this will only be used by features
+  // before they are fully launched or removed.
+  virtual void OpenFeedbackDialog(FeedbackSource source,
+                                  const std::string& description_template) = 0;
 
   // Returns the last committed URL from the web contents if the given |window|
   // contains a browser frame, otherwise returns GURL::EmptyURL().
   virtual const GURL& GetLastCommittedURLForWindowIfAny(aura::Window* window);
+
+  // Retrieves the release track on which the device resides.
+  virtual version_info::Channel GetChannel() = 0;
+
+  // Tells browsers not to ask the user to confirm that they want to close a
+  // window when that window is closed.
+  virtual void ForceSkipWarningUserOnClose(
+      const std::vector<aura::Window*>& windows) = 0;
+
+  // Retrieves the official Chrome version string e.g. 105.0.5178.0.
+  virtual std::string GetVersionString() = 0;
+
+  // Forwards the ShouldExitFullscreenBeforeLock() call to the crosapi browser
+  // manager.
+  using ShouldExitFullscreenCallback = base::OnceCallback<void(bool)>;
+  virtual void ShouldExitFullscreenBeforeLock(
+      ShouldExitFullscreenCallback callback);
 };
 
 }  // namespace ash

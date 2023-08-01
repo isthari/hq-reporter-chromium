@@ -1,15 +1,15 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.components.browser_ui.modaldialog;
 
 import android.app.Activity;
-import android.app.Dialog;
 import android.content.Context;
 import android.view.Window;
 import android.view.WindowManager;
 
+import androidx.activity.ComponentDialog;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.StrictModeContext;
@@ -23,8 +23,11 @@ import org.chromium.ui.modelutil.PropertyModelChangeProcessor;
 
 /** The presenter that shows a {@link ModalDialogView} in an Android dialog. */
 public class AppModalPresenter extends ModalDialogManager.Presenter {
+    // Duration of enter animation. This is an estimation because there is no reliable way to
+    // get duration of AlertDialog's enter animation.
+    private static final long ENTER_ANIMATION_ESTIMATION_MS = 200;
     private final Context mContext;
-    private Dialog mDialog;
+    private ComponentDialog mDialog;
     private PropertyModelChangeProcessor<PropertyModel, ModalDialogView, PropertyKey>
             mModelChangeProcessor;
 
@@ -34,6 +37,9 @@ public class AppModalPresenter extends ModalDialogManager.Presenter {
             if (ModalDialogProperties.CANCEL_ON_TOUCH_OUTSIDE == propertyKey) {
                 mDialog.setCanceledOnTouchOutside(
                         model.get(ModalDialogProperties.CANCEL_ON_TOUCH_OUTSIDE));
+            } else if (ModalDialogProperties.APP_MODAL_DIALOG_BACK_PRESS_HANDLER == propertyKey) {
+                mDialog.getOnBackPressedDispatcher().addCallback(
+                        model.get(ModalDialogProperties.APP_MODAL_DIALOG_BACK_PRESS_HANDLER));
             } else {
                 super.bind(model, view, propertyKey);
             }
@@ -55,15 +61,15 @@ public class AppModalPresenter extends ModalDialogManager.Presenter {
     @Override
     protected void addDialogView(PropertyModel model) {
         int styles[][] = {
-                {R.style.Theme_Chromium_ModalDialog_TextPrimaryButton,
-                        R.style.ThemeOverlay_Chromium_ModalDialog_TextPrimaryButton_Fullscreen,
-                        R.style.ThemeOverlay_Chromium_ModalDialog_TextPrimaryButton_DialogWhenLarge},
-                {R.style.Theme_Chromium_ModalDialog_FilledPrimaryButton,
-                        R.style.ThemeOverlay_Chromium_ModalDialog_FilledPrimaryButton_Fullscreen,
-                        R.style.ThemeOverlay_Chromium_ModalDialog_FilledPrimaryButton_DialogWhenLarge},
-                {R.style.Theme_Chromium_ModalDialog_FilledNegativeButton,
-                        R.style.ThemeOverlay_Chromium_ModalDialog_FilledNegativeButton_Fullscreen,
-                        R.style.ThemeOverlay_Chromium_ModalDialog_FilledNegativeButton_DialogWhenLarge}};
+                {R.style.ThemeOverlay_BrowserUI_ModalDialog_TextPrimaryButton,
+                        R.style.ThemeOverlay_BrowserUI_ModalDialog_TextPrimaryButton_Fullscreen,
+                        R.style.ThemeOverlay_BrowserUI_ModalDialog_TextPrimaryButton_DialogWhenLarge},
+                {R.style.ThemeOverlay_BrowserUI_ModalDialog_FilledPrimaryButton,
+                        R.style.ThemeOverlay_BrowserUI_ModalDialog_FilledPrimaryButton_Fullscreen,
+                        R.style.ThemeOverlay_BrowserUI_ModalDialog_FilledPrimaryButton_DialogWhenLarge},
+                {R.style.ThemeOverlay_BrowserUI_ModalDialog_FilledNegativeButton,
+                        R.style.ThemeOverlay_BrowserUI_ModalDialog_FilledNegativeButton_Fullscreen,
+                        R.style.ThemeOverlay_BrowserUI_ModalDialog_FilledNegativeButton_DialogWhenLarge}};
         int index = 0;
         if (model.get(ModalDialogProperties.FULLSCREEN_DIALOG)) {
             index = 1;
@@ -78,9 +84,10 @@ public class AppModalPresenter extends ModalDialogManager.Presenter {
                 == ModalDialogProperties.ButtonStyles.PRIMARY_OUTLINE_NEGATIVE_FILLED) {
             buttonIndex = 2;
         }
-        mDialog = new Dialog(mContext, styles[buttonIndex][index]);
+        mDialog = new ComponentDialog(mContext, styles[buttonIndex][index]);
         mDialog.setOnCancelListener(dialogInterface
                 -> dismissCurrentDialog(DialogDismissalCause.NAVIGATE_BACK_OR_TOUCH_OUTSIDE));
+
         // Cancel on touch outside should be disabled by default. The ModelChangeProcessor wouldn't
         // notify change if the property is not set during initialization.
         mDialog.setCanceledOnTouchOutside(false);
@@ -91,6 +98,10 @@ public class AppModalPresenter extends ModalDialogManager.Presenter {
         try (StrictModeContext ignored = StrictModeContext.allowDiskReads()) {
             mDialog.setContentView(dialogView);
         }
+
+        mDialog.setOnShowListener((dialogInterface) -> {
+            dialogView.onEnterAnimationStarted(ENTER_ANIMATION_ESTIMATION_MS);
+        });
 
         try {
             mDialog.show();

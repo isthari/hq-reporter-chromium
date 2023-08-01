@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,17 @@
 #include <utility>
 
 #include "base/logging.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/synchronization/lock.h"
+#include "base/time/time.h"
 #include "media/capture/video/video_capture_device_info.h"
 #include "third_party/decklink/mac/include/DeckLinkAPI.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 namespace {
 
@@ -90,7 +96,7 @@ class DeckLinkCaptureDelegate
   // Weak reference to the captured frames client, used also for error messages
   // and logging. Initialized on construction and used until cleared by calling
   // ResetVideoCaptureDeviceReference().
-  media::VideoCaptureDeviceDeckLinkMac* frame_receiver_;
+  raw_ptr<media::VideoCaptureDeviceDeckLinkMac> frame_receiver_;
 
   // This is used to control the video capturing device input interface.
   ScopedDeckLinkPtr<IDeckLinkInput> decklink_input_;
@@ -348,7 +354,7 @@ void DeckLinkCaptureDelegate::SendLogString(const std::string& message) {
 void DeckLinkCaptureDelegate::ResetVideoCaptureDeviceReference() {
   DCHECK(thread_checker_.CalledOnValidThread());
   base::AutoLock lock(lock_);
-  frame_receiver_ = NULL;
+  frame_receiver_ = nullptr;
 }
 
 }  // namespace

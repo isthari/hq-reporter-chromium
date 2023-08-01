@@ -1,11 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser;
 
-import android.support.test.InstrumentationRegistry;
-
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.MediumTest;
 
 import org.hamcrest.Matchers;
@@ -32,7 +31,7 @@ import org.chromium.net.test.EmbeddedTestServer;
 import org.chromium.ui.base.PageTransition;
 
 /**
- * Test integration with the SafeBrowsingApiHandler.
+ * Test integration with the SafetyNetApiHandler.
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
@@ -80,10 +79,7 @@ public final class SafeBrowsingTest {
 
     @Before
     public void setUp() {
-        // Create a new temporary instance to ensure the Class is loaded. Otherwise we will get a
-        // ClassNotFoundException when trying to instantiate during startup.
-        SafeBrowsingApiBridge.setSafeBrowsingHandlerType(
-                new MockSafeBrowsingApiHandler().getClass());
+        SafeBrowsingApiBridge.setHandler(new MockSafetyNetApiHandler());
     }
 
     @After
@@ -91,13 +87,14 @@ public final class SafeBrowsingTest {
         if (mTestServer != null) {
             mTestServer.stopAndDestroyServer();
         }
-        MockSafeBrowsingApiHandler.clearMockResponses();
+        MockSafetyNetApiHandler.clearMockResponses();
     }
 
     @Test
     @MediumTest
     public void noInterstitialPage() throws Exception {
-        mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
+        mTestServer = EmbeddedTestServer.createAndStartServer(
+                ApplicationProvider.getApplicationContext());
         mActivityTestRule.startMainActivityOnBlankPage();
 
         String url = mTestServer.getURL("/chrome/test/data/android/about.html");
@@ -108,9 +105,10 @@ public final class SafeBrowsingTest {
     @Test
     @MediumTest
     public void interstitialPage() throws Exception {
-        mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
+        mTestServer = EmbeddedTestServer.createAndStartServer(
+                ApplicationProvider.getApplicationContext());
         String url = mTestServer.getURL("/chrome/test/data/android/about.html");
-        MockSafeBrowsingApiHandler.addMockResponse(url, "{\"matches\":[{\"threat_type\":\"5\"}]}");
+        MockSafetyNetApiHandler.addMockResponse(url, "{\"matches\":[{\"threat_type\":\"5\"}]}");
         mActivityTestRule.startMainActivityOnBlankPage();
 
         loadUrlNonBlocking(url);

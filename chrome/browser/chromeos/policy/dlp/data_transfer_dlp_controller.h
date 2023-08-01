@@ -1,11 +1,13 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_CHROMEOS_POLICY_DLP_DATA_TRANSFER_DLP_CONTROLLER_H_
 #define CHROME_BROWSER_CHROMEOS_POLICY_DLP_DATA_TRANSFER_DLP_CONTROLLER_H_
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ref.h"
+#include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "chrome/browser/chromeos/policy/dlp/dlp_clipboard_notifier.h"
 #include "chrome/browser/chromeos/policy/dlp/dlp_drag_drop_notifier.h"
@@ -42,8 +44,8 @@ class DataTransferDlpController : public ui::DataTransferPolicyController {
                       const ui::DataTransferEndpoint* const data_dst,
                       const absl::optional<size_t> size,
                       content::RenderFrameHost* rfh,
-                      base::OnceCallback<void(bool)> callback) override;
-  void DropIfAllowed(const ui::DataTransferEndpoint* data_src,
+                      base::OnceCallback<void(bool)> paste_cb) override;
+  void DropIfAllowed(const ui::OSExchangeData* drag_data,
                      const ui::DataTransferEndpoint* data_dst,
                      base::OnceClosure drop_cb) override;
 
@@ -56,13 +58,23 @@ class DataTransferDlpController : public ui::DataTransferPolicyController {
   // Should be overridden in tests (increased).
   virtual base::TimeDelta GetSkipReportingTimeout();
 
+  // Protected because it needs to be accessible from tests.
+  void ReportWarningProceededEvent(
+      const absl::optional<ui::DataTransferEndpoint> maybe_data_src,
+      const absl::optional<ui::DataTransferEndpoint> maybe_data_dst,
+      const std::string& src_pattern,
+      const std::string& dst_pattern,
+      bool is_clipboard_event,
+      const DlpRulesManager::RuleMetadata& rule_metadata);
+
  private:
   virtual void NotifyBlockedPaste(
       const ui::DataTransferEndpoint* const data_src,
       const ui::DataTransferEndpoint* const data_dst);
 
   virtual void WarnOnPaste(const ui::DataTransferEndpoint* const data_src,
-                           const ui::DataTransferEndpoint* const data_dst);
+                           const ui::DataTransferEndpoint* const data_dst,
+                           base::RepeatingCallback<void()> reporting_cb);
 
   virtual void WarnOnBlinkPaste(const ui::DataTransferEndpoint* const data_src,
                                 const ui::DataTransferEndpoint* const data_dst,
@@ -85,6 +97,7 @@ class DataTransferDlpController : public ui::DataTransferPolicyController {
 
   bool ShouldSkipReporting(const ui::DataTransferEndpoint* const data_src,
                            const ui::DataTransferEndpoint* const data_dst,
+                           bool is_warning_proceeded,
                            base::TimeTicks curr_time);
 
   void ReportEvent(const ui::DataTransferEndpoint* const data_src,
@@ -92,14 +105,21 @@ class DataTransferDlpController : public ui::DataTransferPolicyController {
                    const std::string& src_pattern,
                    const std::string& dst_pattern,
                    DlpRulesManager::Level level,
-                   bool is_clipboard_event);
+                   bool is_clipboard_event,
+                   const DlpRulesManager::RuleMetadata& rule_metadata);
 
   void MaybeReportEvent(const ui::DataTransferEndpoint* const data_src,
                         const ui::DataTransferEndpoint* const data_dst,
                         const std::string& src_pattern,
                         const std::string& dst_pattern,
                         DlpRulesManager::Level level,
-                        bool is_clipboard_event);
+                        bool is_clipboard_event,
+                        const DlpRulesManager::RuleMetadata& rule_metadata);
+
+  void ContinueDropIfAllowed(const ui::OSExchangeData* drag_data,
+                             const ui::DataTransferEndpoint* data_dst,
+                             base::OnceClosure drop_cb,
+                             bool is_allowed);
 
   // The solution for the issue of sending multiple reporting events for a
   // single user action. When a user triggers a paste (for instance by pressing
@@ -112,12 +132,15 @@ class DataTransferDlpController : public ui::DataTransferPolicyController {
     ~LastReportedEndpoints();
     absl::optional<ui::DataTransferEndpoint> data_src;
     absl::optional<ui::DataTransferEndpoint> data_dst;
+    absl::optional<bool> is_warning_proceeded;
     base::TimeTicks time;
   } last_reported_;
 
-  const DlpRulesManager& dlp_rules_manager_;
+  const raw_ref<const DlpRulesManager, ExperimentalAsh> dlp_rules_manager_;
   DlpClipboardNotifier clipboard_notifier_;
   DlpDragDropNotifier drag_drop_notifier_;
+
+  base::WeakPtrFactory<DataTransferDlpController> weak_ptr_factory_{this};
 };
 
 }  // namespace policy

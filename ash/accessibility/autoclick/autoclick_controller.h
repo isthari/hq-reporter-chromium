@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "ash/ash_export.h"
 #include "ash/constants/ash_constants.h"
 #include "ash/public/cpp/ash_constants.h"
+#include "base/memory/raw_ptr.h"
 #include "base/time/time.h"
 #include "ui/aura/client/cursor_client_observer.h"
 #include "ui/aura/window_observer.h"
@@ -174,7 +175,7 @@ class ASH_EXPORT AutoclickController
   int mouse_event_flags_ = ui::EF_NONE;
   // The target window is observed by AutoclickController for the duration
   // of a autoclick gesture.
-  aura::Window* tap_down_target_ = nullptr;
+  raw_ptr<aura::Window, ExperimentalAsh> tap_down_target_ = nullptr;
   // The most recent mouse location.
   gfx::Point last_mouse_location_{-kDefaultAutoclickMovementThreshold,
                                   -kDefaultAutoclickMovementThreshold};

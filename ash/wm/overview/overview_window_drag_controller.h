@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,14 +10,18 @@
 #include "ash/ash_export.h"
 #include "ash/wm/splitview/split_view_controller.h"
 #include "base/containers/flat_map.h"
+#include "base/memory/raw_ptr.h"
 #include "ui/gfx/geometry/point_f.h"
+
+namespace ui {
+class PresentationTimeRecorder;
+}
 
 namespace ash {
 
 class OverviewGrid;
 class OverviewItem;
 class OverviewSession;
-class PresentationTimeRecorder;
 
 // These values are persisted to logs. Entries should not be renumbered and
 // numeric values should never be reused.
@@ -105,6 +109,9 @@ class ASH_EXPORT OverviewWindowDragController {
                    float velocity_x,
                    float velocity_y);
   void ActivateDraggedWindow();
+
+  // Called when a gesture event is reset or when the dragged window is being
+  // destroyed.
   void ResetGesture();
 
   // Resets |overview_session_| to nullptr. It's needed since we defer the
@@ -113,11 +120,21 @@ class ASH_EXPORT OverviewWindowDragController {
   // dereference.
   void ResetOverviewSession();
 
+  // Called by `float_drag_helper_` to destroy itself as it may need to live
+  // after a gesture is completed if there is an animation.
+  void DestroyFloatDragHelper();
+
   OverviewItem* item() { return item_; }
 
-  DragBehavior current_drag_behavior() { return current_drag_behavior_; }
-
   bool is_touch_dragging() const { return is_touch_dragging_; }
+
+  DragBehavior current_drag_behavior_for_testing() const {
+    return current_drag_behavior_;
+  }
+
+  base::OneShotTimer* new_desk_button_scale_up_timer_for_test() {
+    return &new_desk_button_scale_up_timer_;
+  }
 
  private:
   enum NormalDragAction {
@@ -169,10 +186,21 @@ class ASH_EXPORT OverviewWindowDragController {
                         bool is_dragged_to_other_display) const;
   void RecordDragToClose(DragToCloseAction action) const;
 
-  OverviewSession* overview_session_;
+  // Creates `float_drag_helper_` if needed. The helper will temporarily stack
+  // the float container under the active desk container, so that dragging
+  // regular windows appear above overview items of floated windows.
+  void MaybeCreateFloatDragHelper();
+
+  // Scale up the new desk button on the desks bar from expanded state to active
+  // state to make the new desk button a drop target for the window being
+  // dragged. It's triggered by `new_desk_button_scale_up_timer_`. Refer to
+  // `new_desk_button_scale_up_timer_` for more information.
+  void MaybeScaleUpNewDeskButton();
+
+  raw_ptr<OverviewSession, ExperimentalAsh> overview_session_;
 
   // The drag target window in the overview mode.
-  OverviewItem* item_ = nullptr;
+  raw_ptr<OverviewItem, ExperimentalAsh> item_ = nullptr;
 
   DragBehavior current_drag_behavior_ = DragBehavior::kNoDrag;
 
@@ -185,15 +213,15 @@ class ASH_EXPORT OverviewWindowDragController {
 
   // The original size of the dragged item after we scale it up when we start
   // dragging it. The item is restored to this size once it no longer intersects
-  // with the DesksBarView.
+  // with the LegacyDeskBarView.
   gfx::SizeF original_scaled_size_;
 
   // Track the per-overview-grid desks bar data used to perform the window
   // sizing operations when it is moved towards or on the desks bar.
   struct GridDesksBarData {
     // The scaled-down size of the dragged item once the drag location is on the
-    // DesksBarView of the corresponding grid. We size the item down so that it
-    // fits inside the desks' preview view.
+    // LegacyDeskBarView of the corresponding grid. We size the item down so
+    // that it fits inside the desks' preview view.
     gfx::SizeF on_desks_bar_item_size;
 
     // Cached values related to dragging items while the desks bar is shown.
@@ -233,9 +261,15 @@ class ASH_EXPORT OverviewWindowDragController {
   bool did_move_ = false;
 
   // Records the presentation time of window drag operation in overview mode.
-  std::unique_ptr<PresentationTimeRecorder> presentation_time_recorder_;
+  std::unique_ptr<ui::PresentationTimeRecorder> presentation_time_recorder_;
 
-  SplitViewController::SnapPosition snap_position_ = SplitViewController::NONE;
+  SplitViewController::SnapPosition snap_position_ =
+      SplitViewController::SnapPosition::kNone;
+
+  // A timer used to scale up the new desk button to make it a drop target for
+  // the window being dragged if the window is hovered on the button over a
+  // period of time.
+  base::OneShotTimer new_desk_button_scale_up_timer_;
 };
 
 }  // namespace ash

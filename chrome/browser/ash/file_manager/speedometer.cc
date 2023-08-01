@@ -1,4 +1,4 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 #include "chrome/browser/ash/file_manager/speedometer.h"
@@ -23,8 +23,9 @@ size_t Speedometer::GetSampleCount() const {
 
 double Speedometer::GetRemainingSeconds() const {
   // Not interpolated yet or not enough samples.
-  if (projected_end_time_ == 0)
+  if (projected_end_time_ == 0) {
     return 0;
+  }
 
   return (projected_end_time_ -
           (base::TimeTicks::Now() - start_time_).InMillisecondsF()) /

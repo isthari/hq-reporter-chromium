@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "base/callback_list.h"
 #include "base/feature_list.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
@@ -20,11 +21,11 @@
 #include "base/time/time.h"
 #include "base/values.h"
 #include "components/account_id/account_id.h"
-#include "components/user_manager/remove_user_delegate.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "components/user_manager/user_manager_export.h"
 #include "components/user_manager/user_type.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class PrefRegistrySimple;
 
@@ -33,6 +34,9 @@ class SingleThreadTaskRunner;
 }
 
 namespace user_manager {
+
+// Feature that removes legacy supervised users.
+BASE_DECLARE_FEATURE(kRemoveLegacySupervisedUsersOnStartup);
 
 // Base implementation of the UserManager interface.
 class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
@@ -60,9 +64,10 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
     kMaxValue = kLSUDeleted
   };
 
-  // Creates UserManagerBase with |task_runner| for UI thread.
-  explicit UserManagerBase(
-      scoped_refptr<base::SingleThreadTaskRunner> task_runner);
+  // Creates UserManagerBase with |task_runner| for UI thread, and given
+  // |local_state|. |local_state| must outlive this UserManager.
+  UserManagerBase(scoped_refptr<base::SingleThreadTaskRunner> task_runner,
+                  PrefService* local_state);
 
   UserManagerBase(const UserManagerBase&) = delete;
   UserManagerBase& operator=(const UserManagerBase&) = delete;
@@ -72,8 +77,6 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
   // Histogram for tracking the number of deprecated legacy supervised user
   // cryptohomes remaining in the wild.
   static const char kLegacySupervisedUsersHistogramName[];
-  // Feature that removes legacy supervised users.
-  static const base::Feature kRemoveLegacySupervisedUsersOnStartup;
 
   // Registers UserManagerBase preferences.
   static void RegisterPrefs(PrefRegistrySimple* registry);
@@ -84,6 +87,9 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
   const UserList& GetLoggedInUsers() const override;
   const UserList& GetLRULoggedInUsers() const override;
   const AccountId& GetOwnerAccountId() const override;
+  void GetOwnerAccountIdAsync(
+      base::OnceCallback<void(const AccountId&)> callback) const override;
+
   const AccountId& GetLastSessionActiveAccountId() const override;
   void UserLoggedIn(const AccountId& account_id,
                     const std::string& user_id_hash,
@@ -93,9 +99,9 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
   void SwitchToLastActiveUser() override;
   void OnSessionStarted() override;
   void RemoveUser(const AccountId& account_id,
-                  UserRemovalReason reason,
-                  RemoveUserDelegate* delegate) override;
+                  UserRemovalReason reason) override;
   void RemoveUserFromList(const AccountId& account_id) override;
+  void RemoveUserFromListForRecreation(const AccountId& account_id) override;
   bool IsKnownUser(const AccountId& account_id) const override;
   const User* FindUser(const AccountId& account_id) const override;
   User* FindUserAndModify(const AccountId& account_id) override;
@@ -111,9 +117,15 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
   std::u16string GetUserDisplayName(const AccountId& account_id) const override;
   void SaveUserDisplayEmail(const AccountId& account_id,
                             const std::string& display_email) override;
+  UserType GetUserType(const AccountId& account_id) override;
   void SaveUserType(const User* user) override;
+  absl::optional<std::string> GetOwnerEmail() override;
+  void RecordOwner(const AccountId& owner) override;
   void UpdateUserAccountData(const AccountId& account_id,
                              const UserAccountData& account_data) override;
+  bool IsOwnerUser(const User* user) const override;
+  bool IsPrimaryUser(const User* user) const override;
+  bool IsEphemeralUser(const User* user) const override;
   bool IsCurrentUserOwner() const override;
   bool IsCurrentUserNew() const override;
   bool IsCurrentUserNonCryptohomeDataEphemeral() const override;
@@ -141,14 +153,19 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
       UserManager::UserSessionStateObserver* obs) override;
   void NotifyLocalStateChanged() override;
   void NotifyUserImageChanged(const User& user) override;
+  void NotifyUserImageIsEnterpriseManagedChanged(
+      const User& user,
+      bool is_enterprise_managed) override;
   void NotifyUserProfileImageUpdateFailed(const User& user) override;
   void NotifyUserProfileImageUpdated(
       const User& user,
       const gfx::ImageSkia& profile_image) override;
   void NotifyUsersSignInConstraintsChanged() override;
+  void NotifyUserAffiliationUpdated(const User& user) override;
   void NotifyUserToBeRemoved(const AccountId& account_id) override;
   void NotifyUserRemoved(const AccountId& account_id,
                          UserRemovalReason reason) override;
+  PrefService* GetLocalState() const final;
   void Initialize() override;
 
   // This method updates "User was added to the device in this session nad is
@@ -158,18 +175,10 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
   // Helper function that converts users from |users_list| to |users_vector| and
   // |users_set|. Duplicates and users already present in |existing_users| are
   // skipped.
-  void ParseUserList(const base::Value::ConstListView& users_list,
+  void ParseUserList(const base::Value::List& users_list,
                      const std::set<AccountId>& existing_users,
                      std::vector<AccountId>* users_vector,
                      std::set<AccountId>* users_set);
-
-  // Returns true if trusted device policies have successfully been retrieved
-  // and ephemeral users are enabled.
-  virtual bool AreEphemeralUsersEnabled() const = 0;
-
-  void AddUserRecordForTesting(User* user) {
-    return AddUserRecord(user);
-  }
 
   // Returns true if device is enterprise managed.
   virtual bool IsEnterpriseManaged() const = 0;
@@ -210,9 +219,6 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
   virtual void NotifyUserAddedToSession(const User* added_user,
                                         bool user_switch_pending);
 
-  // Performs any additional actions after user list is loaded.
-  virtual void PerformPostUserListLoadingActions() = 0;
-
   // Performs any additional actions after UserLoggedIn() execution has been
   // completed.
   // |browser_restart| is true when reloading Chrome after crash to distinguish
@@ -221,9 +227,10 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
 
   // Implementation for RemoveUser method. It is synchronous. It is called from
   // RemoveUserInternal after owner check.
-  virtual void RemoveNonOwnerUserInternal(const AccountId& account_id,
-                                          UserRemovalReason reason,
-                                          RemoveUserDelegate* delegate);
+  // Pass |account_id| by value here to avoid use-after-free. Original
+  // |account_id| could be destroyed during the user removal.
+  virtual void RemoveNonOwnerUserInternal(AccountId account_id,
+                                          UserRemovalReason reason);
 
   // Removes a regular or supervised user from the user list.
   // Returns the user if found or NULL otherwise.
@@ -233,12 +240,19 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
   User* RemoveRegularOrSupervisedUserFromList(const AccountId& account_id,
                                               bool notify);
 
+  // Implementation for RemoveUser. If |reason| is set, it notifies observers
+  // via OnUserToBeRemoved, OnUserRemoved and LocalStateChanged.
+  // If |trigger_cryptohome_removal| is set to true, this triggeres an
+  // asynchronous operation to remove the user data in Cryptohome.
+  void RemoveUserFromListImpl(const AccountId& account_id,
+                              absl::optional<UserRemovalReason> reason,
+                              bool trigger_cryptohome_removal);
+
   // Implementation for RemoveUser method. This is an asynchronous part of the
   // method, that verifies that owner will not get deleted, and calls
   // |RemoveNonOwnerUserInternal|.
   virtual void RemoveUserInternal(const AccountId& account_id,
-                                  UserRemovalReason reason,
-                                  RemoveUserDelegate* delegate);
+                                  UserRemovalReason reason);
 
   // Removes data stored or cached outside the user's cryptohome (wallpaper,
   // avatar, OAuth token status, display name, display email).
@@ -265,9 +279,6 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
   virtual void RegularUserLoggedInAsEphemeral(const AccountId& account_id,
                                               const UserType user_type);
 
-  // Should be called when regular user was removed.
-  virtual void OnUserRemoved(const AccountId& account_id) = 0;
-
   // Update the global LoginState.
   virtual void UpdateLoginState(const User* active_user,
                                 const User* primary_user,
@@ -275,23 +286,27 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
 
   // Getters/setters for private members.
 
-  virtual bool GetEphemeralUsersEnabled() const;
-  virtual void SetEphemeralUsersEnabled(bool enabled);
+  const EphemeralModeConfig& GetEphemeralModeConfig() const;
+  virtual void SetEphemeralModeConfig(
+      EphemeralModeConfig ephemeral_mode_config);
 
+  virtual void ResetOwnerId();
   virtual void SetOwnerId(const AccountId& owner_account_id);
 
   virtual const AccountId& GetPendingUserSwitchID() const;
   virtual void SetPendingUserSwitchId(const AccountId& account_id);
 
+  base::ObserverList<UserManager::Observer>::Unchecked observer_list_;
+
   // The logged-in user that is currently active in current session.
   // NULL until a user has logged in, then points to one
   // of the User instances in |users_|, the |guest_user_| instance or an
   // ephemeral user instance.
-  raw_ptr<User> active_user_ = nullptr;
+  raw_ptr<User, DanglingUntriaged> active_user_ = nullptr;
 
   // The primary user of the current session. It is recorded for the first
   // signed-in user and does not change thereafter.
-  raw_ptr<User> primary_user_ = nullptr;
+  raw_ptr<User, DanglingUntriaged> primary_user_ = nullptr;
 
   // List of all known users. User instances are owned by |this|. Regular users
   // are removed by |RemoveUserFromList|, device local accounts by
@@ -341,9 +356,6 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
   // Notifies observers that merge session state had changed.
   void NotifyMergeSessionStateChanged();
 
-  // Notifies observers that active account_id hash has changed.
-  void NotifyActiveUserHashChanged(const std::string& hash);
-
   // Call UpdateLoginState.
   void CallUpdateLoginState();
 
@@ -377,16 +389,18 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
   // to |false|.
   bool is_current_user_ephemeral_regular_user_ = false;
 
-  // Cached flag indicating whether the ephemeral user policy is enabled.
-  // Defaults to |false| if the value has not been read from trusted device
-  // policy yet.
-  bool ephemeral_users_enabled_ = false;
+  // Cached `EphemeralModeConfig` created from trusted device policies.
+  //
+  // If the value has not been read from trusted device policy yet, then all
+  // users considered as non-ephemeral.
+  EphemeralModeConfig ephemeral_mode_config_;
 
   // Cached name of device owner. Defaults to empty if the value has not
   // been read from trusted device policy yet.
-  AccountId owner_account_id_ = EmptyAccountId();
+  absl::optional<AccountId> owner_account_id_ = absl::nullopt;
 
-  base::ObserverList<UserManager::Observer>::Unchecked observer_list_;
+  mutable base::OnceCallbackList<void(const AccountId&)>
+      pending_owner_callbacks_;
 
   // TODO(nkostylev): Merge with session state refactoring CL.
   base::ObserverList<UserManager::UserSessionStateObserver>::Unchecked
@@ -407,6 +421,8 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
 
   // TaskRunner for UI thread.
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
+
+  const raw_ptr<PrefService> local_state_;
 
   base::WeakPtrFactory<UserManagerBase> weak_factory_{this};
 };

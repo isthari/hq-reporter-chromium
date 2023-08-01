@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyZeroInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import android.text.TextUtils;
@@ -39,6 +39,7 @@ import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.browser.preferences.ChromePreferenceKeys;
 import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tab.TabCreationState;
 import org.chromium.chrome.browser.tab.TabImpl;
 import org.chromium.chrome.browser.tab.TabLaunchType;
 import org.chromium.chrome.browser.tab.TabState;
@@ -60,9 +61,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @RunWith(BaseJUnit4ClassRunner.class)
 @Batch(Batch.UNIT_TESTS)
 public class TabPersistentStoreUnitTest {
-    private static final Integer REGULAR_TAB_ID_1 = 1;
-    private static final Integer INCOGNITO_TAB_ID_1 = 21;
-    private static final Integer INCOGNITO_TAB_ID_2 = 22;
     private static final Integer RESTORE_TAB_ID_1 = 31;
     private static final Integer RESTORE_TAB_ID_2 = 32;
     private static final Integer RESTORE_TAB_ID_3 = 33;
@@ -82,6 +80,10 @@ public class TabPersistentStoreUnitTest {
     private TabModel mNormalTabModel;
     @Mock
     private TabModel mIncognitoTabModel;
+    @Mock
+    private TabModelFilterProvider mTabModelFilterProvider;
+    private TabModelFilter mNormalTabModelFilter;
+    private TabModelFilter mIncognitoTabModelFilter;
 
     @Mock
     private TabCreatorManager mTabCreatorManager;
@@ -109,6 +111,12 @@ public class TabPersistentStoreUnitTest {
                 .thenReturn(TabPersistentStore.SAVED_STATE_FILE_PREFIX + "state_files_yay");
         when(mPersistencePolicy.isMergeInProgress()).thenReturn(false);
         when(mPersistencePolicy.performInitialization(any(TaskRunner.class))).thenReturn(false);
+
+        when(mTabModelSelector.getTabModelFilterProvider()).thenReturn(mTabModelFilterProvider);
+        mNormalTabModelFilter = new EmptyTabModelFilter(mNormalTabModel);
+        mIncognitoTabModelFilter = new EmptyTabModelFilter(mIncognitoTabModel);
+        when(mTabModelFilterProvider.getTabModelFilter(false)).thenReturn(mNormalTabModelFilter);
+        when(mTabModelFilterProvider.getTabModelFilter(true)).thenReturn(mIncognitoTabModelFilter);
     }
 
     @After
@@ -123,6 +131,7 @@ public class TabPersistentStoreUnitTest {
 
     @Test
     @SmallTest
+    @UiThreadTest
     @Feature("TabPersistentStore")
     public void testNtpSaveBehavior() {
         when(mNormalTabModel.index()).thenReturn(TabList.INVALID_TAB_INDEX);
@@ -139,8 +148,10 @@ public class TabPersistentStoreUnitTest {
         TabImpl emptyNtpTab = mock(TabImpl.class);
         UserDataHost emptyNtpTabUserDataHost = new UserDataHost();
         when(emptyNtpTab.getUserDataHost()).thenReturn(emptyNtpTabUserDataHost);
+        TabStateAttributes.createForTab(emptyNtpTab, TabCreationState.FROZEN_ON_RESTORE);
         when(emptyNtpTab.getUrl()).thenReturn(new GURL(UrlConstants.NTP_URL));
-        TabStateAttributes.from(emptyNtpTab).setIsTabStateDirty(true);
+        TabStateAttributes.from(emptyNtpTab)
+                .setStateForTesting(TabStateAttributes.DirtinessState.DIRTY);
         when(emptyNtpTab.canGoBack()).thenReturn(false);
         when(emptyNtpTab.canGoForward()).thenReturn(false);
 
@@ -150,8 +161,10 @@ public class TabPersistentStoreUnitTest {
         TabImpl ntpWithBackNavTab = mock(TabImpl.class);
         UserDataHost ntpWithBackNavTabUserDataHost = new UserDataHost();
         when(ntpWithBackNavTab.getUserDataHost()).thenReturn(ntpWithBackNavTabUserDataHost);
+        TabStateAttributes.createForTab(ntpWithBackNavTab, TabCreationState.FROZEN_ON_RESTORE);
         when(ntpWithBackNavTab.getUrl()).thenReturn(new GURL(UrlConstants.NTP_URL));
-        TabStateAttributes.from(ntpWithBackNavTab).setIsTabStateDirty(true);
+        TabStateAttributes.from(ntpWithBackNavTab)
+                .setStateForTesting(TabStateAttributes.DirtinessState.DIRTY);
         when(ntpWithBackNavTab.canGoBack()).thenReturn(true);
         when(ntpWithBackNavTab.canGoForward()).thenReturn(false);
 
@@ -161,8 +174,10 @@ public class TabPersistentStoreUnitTest {
         TabImpl ntpWithForwardNavTab = mock(TabImpl.class);
         UserDataHost ntpWithForwardNavTabUserDataHost = new UserDataHost();
         when(ntpWithForwardNavTab.getUserDataHost()).thenReturn(ntpWithForwardNavTabUserDataHost);
+        TabStateAttributes.createForTab(ntpWithForwardNavTab, TabCreationState.FROZEN_ON_RESTORE);
         when(ntpWithForwardNavTab.getUrl()).thenReturn(new GURL(UrlConstants.NTP_URL));
-        TabStateAttributes.from(ntpWithForwardNavTab).setIsTabStateDirty(true);
+        TabStateAttributes.from(ntpWithForwardNavTab)
+                .setStateForTesting(TabStateAttributes.DirtinessState.DIRTY);
         when(ntpWithForwardNavTab.canGoBack()).thenReturn(false);
         when(ntpWithForwardNavTab.canGoForward()).thenReturn(true);
 
@@ -172,8 +187,10 @@ public class TabPersistentStoreUnitTest {
         TabImpl ntpWithAllTheNavsTab = mock(TabImpl.class);
         UserDataHost ntpWithAllTheNavsTabUserDataHost = new UserDataHost();
         when(ntpWithAllTheNavsTab.getUserDataHost()).thenReturn(ntpWithAllTheNavsTabUserDataHost);
+        TabStateAttributes.createForTab(ntpWithAllTheNavsTab, TabCreationState.FROZEN_ON_RESTORE);
         when(ntpWithAllTheNavsTab.getUrl()).thenReturn(new GURL(UrlConstants.NTP_URL));
-        TabStateAttributes.from(ntpWithAllTheNavsTab).setIsTabStateDirty(true);
+        TabStateAttributes.from(ntpWithAllTheNavsTab)
+                .setStateForTesting(TabStateAttributes.DirtinessState.DIRTY);
         when(ntpWithAllTheNavsTab.canGoBack()).thenReturn(true);
         when(ntpWithAllTheNavsTab.canGoForward()).thenReturn(true);
 
@@ -193,7 +210,25 @@ public class TabPersistentStoreUnitTest {
                 new TabRestoreDetails(1, 0, false, UrlConstants.NTP_URL, false);
         mPersistentStore.restoreTab(emptyNtpDetails, null, null, false);
 
-        verifyZeroInteractions(mNormalTabCreator);
+        verifyNoMoreInteractions(mNormalTabCreator);
+    }
+
+    @Test
+    @SmallTest
+    @Feature("TabPersistentStore")
+    public void testNotActiveEmptyNtpNotIgnoredDuringRestoreWithSkipNonActiveNtpsFlagEnabled() {
+        mPersistentStore =
+                new TabPersistentStore(mPersistencePolicy, mTabModelSelector, mTabCreatorManager);
+        mPersistentStore.initializeRestoreVars(false);
+        mPersistentStore.setSkipSavingNonActiveNtps(true);
+
+        TabRestoreDetails emptyNtpDetails =
+                new TabRestoreDetails(1, 0, false, UrlConstants.NTP_URL, false);
+        mPersistentStore.restoreTab(emptyNtpDetails, null, null, false);
+
+        verify(mNormalTabCreator)
+                .createNewTab(argThat(new LoadUrlParamsUrlMatcher(UrlConstants.NTP_URL)),
+                        eq(TabLaunchType.FROM_RESTORE), (Tab) isNull(), eq(0));
     }
 
     @Test
@@ -219,7 +254,7 @@ public class TabPersistentStoreUnitTest {
 
         verify(mNormalTabCreator)
                 .createNewTab(argThat(new LoadUrlParamsUrlMatcher(UrlConstants.NTP_URL)),
-                        eq(TabLaunchType.FROM_RESTORE), (Tab) isNull());
+                        eq(TabLaunchType.FROM_RESTORE), (Tab) isNull(), eq(0));
     }
 
     @Test
@@ -244,14 +279,14 @@ public class TabPersistentStoreUnitTest {
         mPersistentStore.restoreTab(emptyNtpDetails, null, null, false);
         verify(mNormalTabCreator)
                 .createNewTab(argThat(new LoadUrlParamsUrlMatcher(UrlConstants.NTP_URL)),
-                        eq(TabLaunchType.FROM_RESTORE), (Tab) isNull());
+                        eq(TabLaunchType.FROM_RESTORE), (Tab) isNull(), eq(0));
 
         TabRestoreDetails emptyIncognitoNtpDetails =
                 new TabRestoreDetails(1, 0, true, UrlConstants.NTP_URL, true);
         mPersistentStore.restoreTab(emptyIncognitoNtpDetails, null, null, false);
         verify(mIncognitoTabCreator)
                 .createNewTab(argThat(new LoadUrlParamsUrlMatcher(UrlConstants.NTP_URL)),
-                        eq(TabLaunchType.FROM_RESTORE), (Tab) isNull());
+                        eq(TabLaunchType.FROM_RESTORE), (Tab) isNull(), eq(0));
     }
 
     @Test
@@ -295,7 +330,7 @@ public class TabPersistentStoreUnitTest {
 
         verify(mIncognitoTabCreator)
                 .createNewTab(argThat(new LoadUrlParamsUrlMatcher(UrlConstants.NTP_URL)),
-                        eq(TabLaunchType.FROM_RESTORE), (Tab) isNull());
+                        eq(TabLaunchType.FROM_RESTORE), (Tab) isNull(), eq(0));
     }
 
     @Test
@@ -310,7 +345,7 @@ public class TabPersistentStoreUnitTest {
                 new TabRestoreDetails(1, 0, true, UrlConstants.NTP_URL, false);
         mPersistentStore.restoreTab(emptyNtpDetails, null, null, false);
 
-        verifyZeroInteractions(mIncognitoTabCreator);
+        verifyNoMoreInteractions(mIncognitoTabCreator);
     }
 
     @Test
@@ -325,7 +360,7 @@ public class TabPersistentStoreUnitTest {
                 new TabRestoreDetails(1, 0, true, UrlConstants.NTP_URL, false);
         mPersistentStore.restoreTab(emptyNtpDetails, null, null, true);
 
-        verifyZeroInteractions(mIncognitoTabCreator);
+        verifyNoMoreInteractions(mIncognitoTabCreator);
     }
 
     @Test
@@ -335,13 +370,15 @@ public class TabPersistentStoreUnitTest {
     public void testSerializeTabModelSelector() throws IOException {
         setupSerializationTestMocks();
         TabModelSelectorMetadata metadata =
-                TabPersistentStore.serializeTabModelSelector(mTabModelSelector, null);
+                TabPersistentStore.serializeTabModelSelector(mTabModelSelector, null, false);
 
         Assert.assertEquals("Incorrect index for regular", 0, metadata.normalModelMetadata.index);
         Assert.assertEquals(
-                "Incorrect number of tabs in regular", 1, metadata.normalModelMetadata.ids.size());
+                "Incorrect number of tabs in regular", 2, metadata.normalModelMetadata.ids.size());
         Assert.assertEquals("Incorrect URL for regular tab.", REGULAR_TAB_STRING_1,
                 metadata.normalModelMetadata.urls.get(0));
+        Assert.assertEquals("Incorrect URL for regular tab.", UrlConstants.NTP_URL,
+                metadata.normalModelMetadata.urls.get(1));
 
         Assert.assertEquals(
                 "Incorrect index for incognito", 1, metadata.incognitoModelMetadata.index);
@@ -352,12 +389,74 @@ public class TabPersistentStoreUnitTest {
         Assert.assertEquals("Incorrect URL for second incognito tab.", INCOGNITO_TAB_STRING_2,
                 metadata.incognitoModelMetadata.urls.get(1));
 
-        Assert.assertEquals("Incorrect number of cached normal tab count.", 1,
+        Assert.assertEquals("Incorrect number of cached normal tab count.", 2,
                 SharedPreferencesManager.getInstance().readInt(
                         ChromePreferenceKeys.REGULAR_TAB_COUNT));
         Assert.assertEquals("Incorrect number of cached incognito tab count.", 2,
                 SharedPreferencesManager.getInstance().readInt(
                         ChromePreferenceKeys.INCOGNITO_TAB_COUNT));
+    }
+
+    @Test
+    @SmallTest
+    @UiThreadTest
+    @Feature("TabPersistentStore")
+    public void testWithoutSkipNonActiveNtps() throws IOException {
+        setupSerializationTestMocksWithSkippedNtpComeBeforeActiveTab();
+        TabModelSelectorMetadata metadata =
+                TabPersistentStore.serializeTabModelSelector(mTabModelSelector, null, false);
+
+        Assert.assertEquals("Incorrect index for regular", 1, metadata.normalModelMetadata.index);
+        Assert.assertEquals(
+                "Incorrect number of tabs in regular", 2, metadata.normalModelMetadata.ids.size());
+        Assert.assertEquals("Incorrect URL for regular tab.", UrlConstants.NTP_URL,
+                metadata.normalModelMetadata.urls.get(0));
+        Assert.assertEquals("Incorrect URL for regular tab.", REGULAR_TAB_STRING_1,
+                metadata.normalModelMetadata.urls.get(1));
+
+        Assert.assertEquals("Incorrect number of cached normal tab count.", 2,
+                SharedPreferencesManager.getInstance().readInt(
+                        ChromePreferenceKeys.REGULAR_TAB_COUNT));
+    }
+
+    @Test
+    @SmallTest
+    @UiThreadTest
+    @Feature("TabPersistentStore")
+    public void testSkipNonActiveNtpsWithSkippedNtpComeBeforeActiveTab() throws IOException {
+        setupSerializationTestMocksWithSkippedNtpComeBeforeActiveTab();
+        TabModelSelectorMetadata metadata =
+                TabPersistentStore.serializeTabModelSelector(mTabModelSelector, null, true);
+
+        Assert.assertEquals("Incorrect index for regular", 0, metadata.normalModelMetadata.index);
+        Assert.assertEquals(
+                "Incorrect number of tabs in regular", 1, metadata.normalModelMetadata.ids.size());
+        Assert.assertEquals("Incorrect URL for regular tab.", REGULAR_TAB_STRING_1,
+                metadata.normalModelMetadata.urls.get(0));
+
+        Assert.assertEquals("Incorrect number of cached normal tab count.", 1,
+                SharedPreferencesManager.getInstance().readInt(
+                        ChromePreferenceKeys.REGULAR_TAB_COUNT));
+    }
+
+    @Test
+    @SmallTest
+    @UiThreadTest
+    @Feature("TabPersistentStore")
+    public void testSkipNonActiveNtpsWithSkippedNtpComeAfterActiveTab() throws IOException {
+        setupSerializationTestMocks();
+        TabModelSelectorMetadata metadata =
+                TabPersistentStore.serializeTabModelSelector(mTabModelSelector, null, true);
+
+        Assert.assertEquals("Incorrect index for regular", 0, metadata.normalModelMetadata.index);
+        Assert.assertEquals(
+                "Incorrect number of tabs in regular", 1, metadata.normalModelMetadata.ids.size());
+        Assert.assertEquals("Incorrect URL for regular tab.", REGULAR_TAB_STRING_1,
+                metadata.normalModelMetadata.urls.get(0));
+
+        Assert.assertEquals("Incorrect number of cached normal tab count.", 1,
+                SharedPreferencesManager.getInstance().readInt(
+                        ChromePreferenceKeys.REGULAR_TAB_COUNT));
     }
 
     @Test
@@ -377,9 +476,8 @@ public class TabPersistentStoreUnitTest {
         tabRestoreDetails.add(incognitoTabRestoreDetails);
         tabRestoreDetails.add(unknownTabRestoreDetails);
 
-        TabModelSelectorMetadata metadata =
-                TabPersistentStore.serializeTabModelSelector(mTabModelSelector, tabRestoreDetails);
-
+        TabModelSelectorMetadata metadata = TabPersistentStore.serializeTabModelSelector(
+                mTabModelSelector, tabRestoreDetails, true);
         Assert.assertEquals("Incorrect index for regular", 0, metadata.normalModelMetadata.index);
         Assert.assertEquals(
                 "Incorrect number of tabs in regular", 2, metadata.normalModelMetadata.ids.size());
@@ -404,12 +502,18 @@ public class TabPersistentStoreUnitTest {
     }
 
     private void setupSerializationTestMocks() {
-        when(mNormalTabModel.getCount()).thenReturn(1);
+        when(mNormalTabModel.getCount()).thenReturn(2);
         when(mNormalTabModel.index()).thenReturn(0);
         TabImpl regularTab1 = mock(TabImpl.class);
         GURL gurl = new GURL(REGULAR_TAB_STRING_1);
         when(regularTab1.getUrl()).thenReturn(gurl);
         when(mNormalTabModel.getTabAt(0)).thenReturn(regularTab1);
+
+        TabImpl regularNtpTab1 = mock(TabImpl.class);
+        GURL ntpGurl = new GURL(UrlConstants.NTP_URL);
+        when(regularNtpTab1.getUrl()).thenReturn(ntpGurl);
+        when(regularNtpTab1.isNativePage()).thenReturn(true);
+        when(mNormalTabModel.getTabAt(1)).thenReturn(regularNtpTab1);
 
         when(mIncognitoTabModel.getCount()).thenReturn(2);
         when(mIncognitoTabModel.index()).thenReturn(1);
@@ -425,7 +529,26 @@ public class TabPersistentStoreUnitTest {
         when(incognitoTab2.isIncognito()).thenReturn(true);
         when(mIncognitoTabModel.getTabAt(1)).thenReturn(incognitoTab2);
 
-        when(mTabModelSelector.getTotalTabCount()).thenReturn(3);
+        when(mTabModelSelector.getTotalTabCount()).thenReturn(4);
+    }
+
+    private void setupSerializationTestMocksWithSkippedNtpComeBeforeActiveTab() {
+        when(mNormalTabModel.getCount()).thenReturn(2);
+        // Sets a non active Ntp is the first Tab, and a regular Tab is the second one and the
+        // current active Tab.
+        when(mNormalTabModel.index()).thenReturn(1);
+        TabImpl regularNtpTab1 = mock(TabImpl.class);
+        GURL ntpGurl = new GURL(UrlConstants.NTP_URL);
+        when(regularNtpTab1.getUrl()).thenReturn(ntpGurl);
+        when(regularNtpTab1.isNativePage()).thenReturn(true);
+        when(mNormalTabModel.getTabAt(0)).thenReturn(regularNtpTab1);
+
+        TabImpl regularTab1 = mock(TabImpl.class);
+        GURL gurl = new GURL(REGULAR_TAB_STRING_1);
+        when(regularTab1.getUrl()).thenReturn(gurl);
+        when(mNormalTabModel.getTabAt(1)).thenReturn(regularTab1);
+
+        when(mIncognitoTabModel.getCount()).thenReturn(0);
     }
 
     private static class LoadUrlParamsUrlMatcher implements ArgumentMatcher<LoadUrlParams> {

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,20 +6,20 @@
 
 #include <utility>
 
-#include "base/bind.h"
 #include "base/check.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/path_service.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/bind.h"
-#include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/safe_browsing/test_safe_browsing_database_helper.h"
 #include "chrome/browser/subresource_filter/subresource_filter_profile_context_factory.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/test/base/chrome_test_utils.h"
 #include "components/blocked_content/safe_browsing_triggered_popup_blocker.h"
@@ -69,7 +69,9 @@ MockSubresourceFilterObserver::MockSubresourceFilterObserver(
 MockSubresourceFilterObserver::~MockSubresourceFilterObserver() = default;
 
 SubresourceFilterBrowserTest::SubresourceFilterBrowserTest() {
-  scoped_feature_list_.InitAndEnableFeature(kAdTagging);
+  scoped_feature_list_.InitWithFeatures(
+      /*enabled_features=*/{kAdTagging},
+      /*disabled_features=*/{features::kHttpsUpgrades});
 }
 
 SubresourceFilterBrowserTest::~SubresourceFilterBrowserTest() = default;
@@ -81,25 +83,6 @@ bool SubresourceFilterBrowserTest::AdsBlockedInContentSettings(
 
   return content_settings->IsContentBlocked(ContentSettingsType::ADS);
 }
-
-#if BUILDFLAG(IS_ANDROID)
-bool SubresourceFilterBrowserTest::PresentingAdsBlockedInfobar(
-    content::WebContents* web_contents) {
-  auto* infobar_manager =
-      infobars::ContentInfoBarManager::FromWebContents(web_contents);
-  if (infobar_manager->infobar_count() == 0)
-    return false;
-
-  // No infobars other than the ads blocked infobar should be displayed in the
-  // context of these tests.
-  EXPECT_EQ(infobar_manager->infobar_count(), 1u);
-  auto* infobar = infobar_manager->infobar_at(0);
-  EXPECT_EQ(infobar->delegate()->GetIdentifier(),
-            infobars::InfoBarDelegate::ADS_BLOCKED_INFOBAR_DELEGATE_ANDROID);
-
-  return true;
-}
-#endif
 
 void SubresourceFilterBrowserTest::SetUp() {
   database_helper_ = CreateTestDatabase();
@@ -207,7 +190,7 @@ void SubresourceFilterBrowserTest::ExpectFramesIncludedInLayout(
   for (size_t i = 0; i < frame_names.size(); ++i) {
     SCOPED_TRACE(frame_names[i]);
     int client_width =
-        content::EvalJs(web_contents()->GetMainFrame(),
+        content::EvalJs(web_contents()->GetPrimaryMainFrame(),
                         base::StringPrintf(kScript, frame_names[i]))
             .ExtractInt();
     EXPECT_EQ(expect_displayed[i], !!client_width) << client_width;
@@ -217,21 +200,19 @@ void SubresourceFilterBrowserTest::ExpectFramesIncludedInLayout(
 bool SubresourceFilterBrowserTest::IsDynamicScriptElementLoaded(
     content::RenderFrameHost* rfh) {
   DCHECK(rfh);
-  return content::EvalJs(rfh, "insertScriptElementAndReportSuccess()",
-                         content::EXECUTE_SCRIPT_USE_MANUAL_REPLY)
+  return content::EvalJs(rfh, "insertScriptElementAndReportSuccess()")
       .ExtractBool();
 }
 
 void SubresourceFilterBrowserTest::InsertDynamicFrameWithScript() {
-  EXPECT_EQ(true, content::EvalJs(web_contents()->GetMainFrame(),
-                                  "insertFrameWithScriptAndNotify()",
-                                  content::EXECUTE_SCRIPT_USE_MANUAL_REPLY));
+  EXPECT_EQ(true, content::EvalJs(web_contents()->GetPrimaryMainFrame(),
+                                  "insertFrameWithScriptAndNotify()"));
 }
 
 void SubresourceFilterBrowserTest::NavigateFromRendererSide(const GURL& url) {
   content::TestNavigationObserver navigation_observer(web_contents(), 1);
   ASSERT_TRUE(content::ExecJs(
-      web_contents()->GetMainFrame(),
+      web_contents()->GetPrimaryMainFrame(),
       base::StringPrintf("window.location = \"%s\";", url.spec().c_str())));
   navigation_observer.Wait();
 }
@@ -240,7 +221,7 @@ void SubresourceFilterBrowserTest::NavigateFrame(const char* frame_name,
                                                  const GURL& url) {
   content::TestNavigationObserver navigation_observer(web_contents(), 1);
   ASSERT_TRUE(content::ExecJs(
-      web_contents()->GetMainFrame(),
+      web_contents()->GetPrimaryMainFrame(),
       base::StringPrintf("document.getElementsByName(\"%s\")[0].src = \"%s\";",
                          frame_name, url.spec().c_str())));
   navigation_observer.Wait();

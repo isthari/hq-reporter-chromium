@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <string>
 
+#include "base/time/time.h"
 #include "net/base/net_export.h"
 #include "net/cookies/site_for_cookies.h"
 #include "net/url_request/referrer_policy.h"
@@ -60,7 +61,7 @@ struct NET_EXPORT RedirectInfo {
   // The status code for the redirect response. This is almost redundant with
   // the response headers, but some URLRequestJobs emit redirects without
   // headers.
-  int status_code;
+  int status_code = -1;
 
   // The new request method. Depending on the response code, the request method
   // may change.
@@ -77,14 +78,19 @@ struct NET_EXPORT RedirectInfo {
 
   // True if this redirect was upgraded to HTTPS due to the
   // upgrade-insecure-requests policy.
-  bool insecure_scheme_was_upgraded;
+  bool insecure_scheme_was_upgraded = false;
 
   // True if this is a redirect from Signed Exchange to its fallback URL.
-  bool is_signed_exchange_fallback_redirect;
+  bool is_signed_exchange_fallback_redirect = false;
 
   // The new referrer policy that should be obeyed if there are
   // subsequent redirects.
-  ReferrerPolicy new_referrer_policy;
+  ReferrerPolicy new_referrer_policy =
+      ReferrerPolicy::CLEAR_ON_TRANSITION_FROM_SECURE_TO_INSECURE;
+
+  // When navigation is restarted due to a Critical-CH header this stores the
+  // time at which the the restart was initiated.
+  base::TimeTicks critical_ch_restart_time;
 };
 
 }  // namespace net

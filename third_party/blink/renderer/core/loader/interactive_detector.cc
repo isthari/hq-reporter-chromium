@@ -1,10 +1,12 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/core/loader/interactive_detector.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/profiler/sample_metadata.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/default_tick_clock.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
@@ -46,6 +48,10 @@ constexpr int kNetworkQuietMaximumConnections = 2;
 const char kHistogramInputDelay[] = "PageLoad.InteractiveTiming.InputDelay3";
 const char kHistogramInputTimestamp[] =
     "PageLoad.InteractiveTiming.InputTimestamp3";
+const char kHistogramProcessingTime[] =
+    "PageLoad.InteractiveTiming.ProcessingTime";
+const char kHistogramTimeToNextPaint[] =
+    "PageLoad.InteractiveTiming.TimeToNextPaint";
 
 // static
 const char InteractiveDetector::kSupplementName[] = "InteractiveDetector";
@@ -290,8 +296,8 @@ void InteractiveDetector::HandleForInputDelay(
     // Apply metadata on stack samples.
     base::ApplyMetadataToPastSamples(
         event_timestamp, event_timestamp + delay,
-        "PageLoad.InteractiveTiming.LongInputDelay", g_num_long_input_events,
-        1);
+        "PageLoad.InteractiveTiming.LongInputDelay", g_num_long_input_events, 1,
+        base::SampleMetadataScope::kProcess);
     g_num_long_input_events++;
   }
 
@@ -300,7 +306,7 @@ void InteractiveDetector::HandleForInputDelay(
   // last element exists and this is nullopt value, the first input has not come
   // yet after the last time when the page is restored from the cache.
   if (!page_event_times_.first_input_delays_after_back_forward_cache_restore
-           .IsEmpty() &&
+           .empty() &&
       !page_event_times_.first_input_delays_after_back_forward_cache_restore
            .back()
            .has_value()) {
@@ -406,8 +412,7 @@ void InteractiveDetector::OnLongTaskDetected(base::TimeTicks start_time,
 
 void InteractiveDetector::OnFirstContentfulPaint(
     base::TimeTicks first_contentful_paint) {
-  // Should not set FCP twice.
-  DCHECK(page_event_times_.first_contentful_paint.is_null());
+  // TODO(yoav): figure out what we should do when FCP is set multiple times!
   page_event_times_.first_contentful_paint = first_contentful_paint;
   if (clock_->NowTicks() - first_contentful_paint >= kTimeToInteractiveWindow) {
     // We may have reached TTI already. Check right away.
@@ -468,7 +473,7 @@ void InteractiveDetector::AddCurrentlyActiveNetworkQuietInterval(
 }
 
 void InteractiveDetector::RemoveCurrentlyActiveNetworkQuietInterval() {
-  if (!network_quiet_windows_.IsEmpty() &&
+  if (!network_quiet_windows_.empty() &&
       network_quiet_windows_.back().Low() ==
           active_network_quiet_window_start_) {
     network_quiet_windows_.pop_back();
@@ -589,7 +594,7 @@ void InteractiveDetector::OnTimeToInteractiveDetected() {
 
   TRACE_EVENT_MARK_WITH_TIMESTAMP2(
       "loading,rail", "InteractiveTime", interactive_time_, "frame",
-      ToTraceValue(GetSupplementable()->GetFrame()), "args",
+      GetFrameIdForTracing(GetSupplementable()->GetFrame()), "args",
       [&](perfetto::TracedValue context) {
         // We log the trace event even if there is user input, but annotate the
         // event with whether that happened.
@@ -605,6 +610,10 @@ void InteractiveDetector::OnTimeToInteractiveDetected() {
       });
 
   long_tasks_.clear();
+
+  if (frame != nullptr && frame->IsMainFrame() && frame->GetFrameScheduler()) {
+    frame->GetFrameScheduler()->OnMainFrameInteractive();
+  }
 }
 
 base::TimeDelta InteractiveDetector::ComputeTotalBlockingTime() {
@@ -679,6 +688,10 @@ void InteractiveDetector::RecordInputEventTimingUKM(
           time_to_next_paint.InMilliseconds())
       .Record(GetUkmRecorder());
 
+  UmaHistogramCustomTimes(kHistogramProcessingTime, processing_time,
+                          base::Milliseconds(1), base::Seconds(60), 50);
+  UmaHistogramCustomTimes(kHistogramTimeToNextPaint, time_to_next_paint,
+                          base::Milliseconds(1), base::Seconds(60), 50);
   if (!page_event_times_.first_input_processing_time) {
     page_event_times_.first_input_processing_time = processing_time;
     if (GetSupplementable()->Loader()) {

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -131,9 +131,6 @@ AVSampleFormatToSampleFormat(AVSampleFormat sample_format, AVCodecID codec_id);
 // Converts FFmpeg's pixel formats to its corresponding supported video format.
 MEDIA_EXPORT VideoPixelFormat
 AVPixelFormatToVideoPixelFormat(AVPixelFormat pixel_format);
-
-VideoColorSpace AVColorSpaceToColorSpace(AVColorSpace color_space,
-                                         AVColorRange color_range);
 
 // Converts an AVERROR error number to a description.
 std::string AVErrorToString(int errnum);

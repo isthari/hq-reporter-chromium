@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,11 @@
 #include <limits>
 #include <string>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_util.h"
-#include "base/task/post_task.h"
 #include "base/time/time.h"
 #include "content/browser/service_worker/embedded_worker_status.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
@@ -125,6 +124,15 @@ const char* EventTypeToSuffix(ServiceWorkerMetrics::EventType event_type) {
       return "_PUSH_SUBSCRIPTION_CHANGE";
     case ServiceWorkerMetrics::EventType::FETCH_FENCED_FRAME:
       return "_FETCH_FENCED_FRAME";
+    case ServiceWorkerMetrics::EventType::BYPASS_MAIN_RESOURCE:
+      return "_BYPASS_MAIN_RESOURCE";
+    case ServiceWorkerMetrics::EventType::SKIP_EMPTY_FETCH_HANDLER:
+      return "_SKIP_EMPTY_FETCH_HANDLER";
+    case ServiceWorkerMetrics::EventType::
+        BYPASS_ONLY_IF_SERVICE_WORKER_NOT_STARTED:
+      return "_BYPASS_ONLY_IF_SERVICE_WORKER_NOT_STARTED";
+    case ServiceWorkerMetrics::EventType::WARM_UP:
+      return "_WARM_UP";
   }
   return "_UNKNOWN";
 }
@@ -187,6 +195,15 @@ const char* ServiceWorkerMetrics::EventTypeToString(EventType event_type) {
       return "Push Subscription Change";
     case EventType::FETCH_FENCED_FRAME:
       return "Fetch Fenced Frame";
+    case ServiceWorkerMetrics::EventType::BYPASS_MAIN_RESOURCE:
+      return "_BYPASS_MAIN_RESOURCE";
+    case ServiceWorkerMetrics::EventType::SKIP_EMPTY_FETCH_HANDLER:
+      return "Skip Empty Fetch Handler";
+    case ServiceWorkerMetrics::EventType::
+        BYPASS_ONLY_IF_SERVICE_WORKER_NOT_STARTED:
+      return "Bypass Only If ServiceWorker Is Not Started";
+    case ServiceWorkerMetrics::EventType::WARM_UP:
+      return "Warm Up";
   }
   NOTREACHED() << "Got unexpected event type: " << static_cast<int>(event_type);
   return "error";
@@ -238,6 +255,18 @@ void ServiceWorkerMetrics::RecordStartInstalledWorkerStatus(
   }
 }
 
+void ServiceWorkerMetrics::RecordRunAfterStartWorkerStatus(
+    EmbeddedWorkerStatus running_status,
+    EventType purpose) {
+  UMA_HISTOGRAM_ENUMERATION("ServiceWorker.MaybeStartWorker.RunningStatus",
+                            running_status);
+  base::UmaHistogramEnumeration(
+      base::StrCat({"ServiceWorker.MaybeStartWorker.RunningStatusByPurpose",
+                    EventTypeToSuffix(purpose)}),
+      running_status);
+  UMA_HISTOGRAM_ENUMERATION("ServiceWorker.MaybeStartWorker.Purpose", purpose);
+}
+
 void ServiceWorkerMetrics::RecordStartWorkerTime(base::TimeDelta time,
                                                  bool is_installed,
                                                  StartSituation start_situation,
@@ -252,6 +281,10 @@ void ServiceWorkerMetrics::RecordStartWorkerTime(base::TimeDelta time,
         base::StrCat({"ServiceWorker.StartWorker.Time",
                       StartSituationToDeprecatedSuffix(start_situation),
                       EventTypeToSuffix(purpose)}),
+        time);
+    base::UmaHistogramMediumTimes(
+        base::StrCat(
+            {"ServiceWorker.StartWorker.Time_Any", EventTypeToSuffix(purpose)}),
         time);
   } else {
     UMA_HISTOGRAM_MEDIUM_TIMES("ServiceWorker.StartNewWorker.Time", time);
@@ -321,12 +354,10 @@ void ServiceWorkerMetrics::RecordEventDuration(EventType event,
                                  time);
       break;
     case EventType::NOTIFICATION_CLICK:
-      UMA_HISTOGRAM_MEDIUM_TIMES("ServiceWorker.NotificationClickEvent.Time",
-                                 time);
+      // Do nothing: the histogram has been removed.
       break;
     case EventType::NOTIFICATION_CLOSE:
-      UMA_HISTOGRAM_MEDIUM_TIMES("ServiceWorker.NotificationCloseEvent.Time",
-                                 time);
+      // Do nothing: the histogram has been removed.
       break;
     case EventType::PUSH:
       UMA_HISTOGRAM_MEDIUM_TIMES("ServiceWorker.PushEvent.Time", time);
@@ -336,7 +367,7 @@ void ServiceWorkerMetrics::RecordEventDuration(EventType event,
                                  time);
       break;
     case EventType::EXTERNAL_REQUEST:
-      UMA_HISTOGRAM_MEDIUM_TIMES("ServiceWorker.ExternalRequest.Time", time);
+      // Do nothing: the histogram has been removed.
       break;
     case EventType::PAYMENT_REQUEST:
       UMA_HISTOGRAM_MEDIUM_TIMES("ServiceWorker.PaymentRequestEvent.Time",
@@ -366,21 +397,30 @@ void ServiceWorkerMetrics::RecordEventDuration(EventType event,
       UMA_HISTOGRAM_MEDIUM_TIMES("ServiceWorker.AbortPaymentEvent.Time", time);
       break;
     case EventType::COOKIE_CHANGE:
-      UMA_HISTOGRAM_MEDIUM_TIMES("ServiceWorker.CookieChangeEvent.Time", time);
+      // Do nothing: the histogram has been removed.
       break;
     case EventType::PERIODIC_SYNC:
       UMA_HISTOGRAM_MEDIUM_TIMES(
           "ServiceWorker.PeriodicBackgroundSyncEvent.Time", time);
       break;
     case EventType::CONTENT_DELETE:
-      UMA_HISTOGRAM_MEDIUM_TIMES("ServiceWorker.ContentDeleteEvent.Time", time);
+      // Do nothing: the histogram has been removed.
       break;
     case EventType::PUSH_SUBSCRIPTION_CHANGE:
-      UMA_HISTOGRAM_MEDIUM_TIMES(
-          "ServiceWorker.PushSubscriptionChangeEvent.Time", time);
+      // Do nothing: the histogram has been removed.
       break;
+    case EventType::WARM_UP:
+      // Do nothing: the warm up should not be sent as an event.
+      break;
+    case EventType::BYPASS_MAIN_RESOURCE:
+    // The bypass main resource should not be sent as an event.
     case EventType::NAVIGATION_HINT:
     // The navigation hint should not be sent as an event.
+    case EventType::SKIP_EMPTY_FETCH_HANDLER:
+    // The skip empty fetch handler should not be sent as an event.
+    case EventType::BYPASS_ONLY_IF_SERVICE_WORKER_NOT_STARTED:
+    // The bypass_only_if_service_worker_not_started should not be sent as an
+    // event.
     case EventType::UNKNOWN:
       NOTREACHED() << "Invalid event type";
       break;
@@ -462,6 +502,44 @@ void ServiceWorkerMetrics::RecordStartWorkerTiming(const StartTimes& times,
 void ServiceWorkerMetrics::RecordStartWorkerTimingClockConsistency(
     CrossProcessTimeDelta type) {
   UMA_HISTOGRAM_ENUMERATION("ServiceWorker.StartTiming.ClockConsistency", type);
+}
+
+void ServiceWorkerMetrics::RecordSkipServiceWorkerOnNavigation(
+    bool skip_service_worker) {
+  static bool is_first_call = true;
+  if (is_first_call) {
+    is_first_call = false;
+    if (!GetContentClient()->browser()->IsBrowserStartupComplete()) {
+      base::UmaHistogramBoolean(
+          "ServiceWorker.OnBrowserStartup.SkipServiceWorkerOnFirstNavigation",
+          skip_service_worker);
+    }
+  } else {
+    if (GetContentClient()->browser()->IsBrowserStartupComplete()) {
+      base::UmaHistogramBoolean(
+          "ServiceWorker.SkipCallingFindRegistrationForClientUrl",
+          skip_service_worker);
+    }
+  }
+}
+
+void ServiceWorkerMetrics::RecordFindRegistrationForClientUrlTime(
+    base::TimeDelta time) {
+  static bool is_first_call = true;
+  if (is_first_call) {
+    is_first_call = false;
+    if (!GetContentClient()->browser()->IsBrowserStartupComplete()) {
+      base::UmaHistogramMediumTimes(
+          "ServiceWorker.OnBrowserStartup.FirstFindRegistrationForClientUrl."
+          "Time",
+          time);
+    }
+  } else {
+    if (GetContentClient()->browser()->IsBrowserStartupComplete()) {
+      base::UmaHistogramMediumTimes(
+          "ServiceWorker.FindRegistrationForClientUrl.Time", time);
+    }
+  }
 }
 
 }  // namespace content

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -37,15 +37,15 @@ TEST_P(GcpWinHttpUrlFetcherTest,
       GURL("https://test-service.googleapis.com/v1/testEndpoint");
   const std::string access_token = "test-access-token";
 
-  base::Value request(base::Value::Type::DICTIONARY);
-  request.SetStringKey("request-str-key", "request-str-value");
-  request.SetIntKey("request-int-key", 1234);
+  base::Value::Dict request;
+  request.Set("request-str-key", "request-str-value");
+  request.Set("request-int-key", 1234);
   base::TimeDelta request_timeout = base::Milliseconds(timeout_in_millis);
   absl::optional<base::Value> request_result;
 
-  base::Value expected_result(base::Value::Type::DICTIONARY);
-  expected_result.SetStringKey("response-str-key", "response-str-value");
-  expected_result.SetIntKey("response-int-key", 4321);
+  auto expected_result = base::Value::Dict()
+                             .Set("response-str-key", "response-str-value")
+                             .Set("response-int-key", 4321);
   std::string expected_response;
   base::JSONWriter::Write(expected_result, &expected_response);
 
@@ -120,7 +120,7 @@ TEST_P(GcpWinHttpUrlFetcherTest,
     ASSERT_EQ(header1_value, request_data.headers.at(header1));
     absl::optional<base::Value> body_value =
         base::JSONReader::Read(request_data.body);
-    ASSERT_EQ(request, body_value.value());
+    ASSERT_EQ(request, body_value->GetDict());
   }
 }
 

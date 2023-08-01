@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,11 @@
 #include "ash/public/cpp/session/session_observer.h"
 #include "ash/public/cpp/shelf_types.h"
 #include "ash/shelf/shelf_component.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "ui/message_center/message_center.h"
+#include "ui/message_center/message_center_observer.h"
+#include "ui/views/view_observer.h"
 #include "ui/views/widget/widget.h"
 
 namespace aura {
@@ -18,23 +22,30 @@ class Window;
 }
 
 namespace ash {
+
+class DateTray;
 class DictationButtonTray;
+class EcheTray;
 class HoldingSpaceTray;
 class ImeMenuTray;
 class LogoutButtonTray;
 class MediaTray;
+class NotificationCenterTray;
 class OverviewButtonTray;
 class PaletteTray;
 class PhoneHubTray;
 class ProjectorAnnotationTray;
 class SelectToSpeakTray;
 class Shelf;
+class StatusAreaAnimationController;
 class StatusAreaOverflowButtonTray;
 class StatusAreaWidgetDelegate;
 class StopRecordingButtonTray;
 class TrayBackgroundView;
 class UnifiedSystemTray;
+class VideoConferenceTray;
 class VirtualKeyboardTray;
+class WmModeButtonTray;
 
 // Widget showing the system tray, notification tray, and other tray views in
 // the bottom-right of the screen. Exists separately from ShelfView/ShelfWidget
@@ -42,6 +53,7 @@ class VirtualKeyboardTray;
 // on secondary monitors at the login screen).
 class ASH_EXPORT StatusAreaWidget : public SessionObserver,
                                     public ShelfComponent,
+                                    public views::ViewObserver,
                                     public views::Widget {
  public:
   // Whether the status area is collapsed or expanded. Currently, this is only
@@ -99,6 +111,12 @@ class ASH_EXPORT StatusAreaWidget : public SessionObserver,
   // Called by shelf layout manager when a locale change has been detected.
   void HandleLocaleChange();
 
+  // It is called when the visibility of any tray bubbles changes.
+  // Bubbles report their visibility change here and other tray items get
+  // notified about when their `OnAnyBubbleVisibilityChanged` is called.
+  void NotifyAnyBubbleVisibilityChanged(views::Widget* bubble_widget,
+                                        bool visible);
+
   // Sets system tray visibility. Shows or hides widget if needed.
   void SetSystemTrayVisibility(bool visible);
 
@@ -115,6 +133,10 @@ class ASH_EXPORT StatusAreaWidget : public SessionObserver,
     return status_area_widget_delegate_;
   }
   UnifiedSystemTray* unified_system_tray() { return unified_system_tray_; }
+  NotificationCenterTray* notification_center_tray() {
+    return notification_center_tray_;
+  }
+  DateTray* date_tray() { return date_tray_; }
   DictationButtonTray* dictation_button_tray() {
     return dictation_button_tray_;
   }
@@ -124,6 +146,9 @@ class ASH_EXPORT StatusAreaWidget : public SessionObserver,
   }
   OverviewButtonTray* overview_button_tray() { return overview_button_tray_; }
   PaletteTray* palette_tray() { return palette_tray_; }
+  VideoConferenceTray* video_conference_tray() {
+    return video_conference_tray_;
+  }
   StopRecordingButtonTray* stop_recording_button_tray() {
     return stop_recording_button_tray_;
   }
@@ -133,8 +158,10 @@ class ASH_EXPORT StatusAreaWidget : public SessionObserver,
   ImeMenuTray* ime_menu_tray() { return ime_menu_tray_; }
   HoldingSpaceTray* holding_space_tray() { return holding_space_tray_; }
   PhoneHubTray* phone_hub_tray() { return phone_hub_tray_; }
+  EcheTray* eche_tray() { return eche_tray_; }
 
   SelectToSpeakTray* select_to_speak_tray() { return select_to_speak_tray_; }
+  WmModeButtonTray* wm_mode_button_tray() { return wm_mode_button_tray_; }
 
   Shelf* shelf() { return shelf_; }
 
@@ -204,13 +231,23 @@ class ASH_EXPORT StatusAreaWidget : public SessionObserver,
   // changed.
   absl::optional<LayoutInputs> layout_inputs_;
 
+  // views::ViewObserver:
+  void OnViewVisibilityChanged(views::View* observed_view,
+                               views::View* starting_view) override;
+
   // views::Widget:
   void OnMouseEvent(ui::MouseEvent* event) override;
   void OnGestureEvent(ui::GestureEvent* event) override;
   void OnScrollEvent(ui::ScrollEvent* event) override;
 
-  // Adds a new tray button to the status area.
-  void AddTrayButton(std::unique_ptr<TrayBackgroundView> tray_button);
+  // Adds a new tray button to the status area. Implementation is in source
+  // file to avoid recursive includes, and function is not used outside of the
+  // compilation unit. Template required for a type safe subclass to be
+  // returned.
+  // Any references to the method outside of this compilation unit will fail
+  // linking unless a specialization is declared in status_area_widget.cc.
+  template <typename TrayButtonT>
+  TrayButtonT* AddTrayButton(std::unique_ptr<TrayButtonT> tray_button);
 
   // Called when in the collapsed state to calculate and update the visibility
   // of each tray button.
@@ -224,22 +261,54 @@ class ASH_EXPORT StatusAreaWidget : public SessionObserver,
   // current conditions.
   CollapseState CalculateCollapseState() const;
 
-  StatusAreaWidgetDelegate* status_area_widget_delegate_;
+  // Update rounded corners for the date tray. The corner behavior for date
+  // tray depends on the visibility of the notification center tray.
+  void UpdateDateTrayRoundedCorners();
 
-  StatusAreaOverflowButtonTray* overflow_button_tray_ = nullptr;
-  OverviewButtonTray* overview_button_tray_ = nullptr;
-  DictationButtonTray* dictation_button_tray_ = nullptr;
-  MediaTray* media_tray_ = nullptr;
-  UnifiedSystemTray* unified_system_tray_ = nullptr;
-  LogoutButtonTray* logout_button_tray_ = nullptr;
-  PaletteTray* palette_tray_ = nullptr;
-  PhoneHubTray* phone_hub_tray_ = nullptr;
-  StopRecordingButtonTray* stop_recording_button_tray_ = nullptr;
-  ProjectorAnnotationTray* projector_annotation_tray_ = nullptr;
-  VirtualKeyboardTray* virtual_keyboard_tray_ = nullptr;
-  ImeMenuTray* ime_menu_tray_ = nullptr;
-  SelectToSpeakTray* select_to_speak_tray_ = nullptr;
-  HoldingSpaceTray* holding_space_tray_ = nullptr;
+  // Gets the collapse available width based on if the date tray is shown.
+  // If `force_collapsible`, returns a fixed width which is not based on the
+  // shelf width.
+  int GetCollapseAvailableWidth(bool force_collapsible) const;
+
+  const raw_ptr<StatusAreaWidgetDelegate, ExperimentalAsh>
+      status_area_widget_delegate_;
+
+  // All tray items are owned by StatusAreaWidgetDelegate, and destroyed
+  // explicitly in a shutdown call in the StatusAreaWidget dtor.
+  raw_ptr<StatusAreaOverflowButtonTray, DanglingUntriaged | ExperimentalAsh>
+      overflow_button_tray_ = nullptr;
+  raw_ptr<OverviewButtonTray, DanglingUntriaged | ExperimentalAsh>
+      overview_button_tray_ = nullptr;
+  raw_ptr<DictationButtonTray, DanglingUntriaged | ExperimentalAsh>
+      dictation_button_tray_ = nullptr;
+  raw_ptr<MediaTray, DanglingUntriaged | ExperimentalAsh> media_tray_ = nullptr;
+  raw_ptr<NotificationCenterTray, DanglingUntriaged | ExperimentalAsh>
+      notification_center_tray_ = nullptr;
+  raw_ptr<DateTray, DanglingUntriaged | ExperimentalAsh> date_tray_ = nullptr;
+  raw_ptr<UnifiedSystemTray, DanglingUntriaged | ExperimentalAsh>
+      unified_system_tray_ = nullptr;
+  raw_ptr<LogoutButtonTray, DanglingUntriaged | ExperimentalAsh>
+      logout_button_tray_ = nullptr;
+  raw_ptr<PaletteTray, DanglingUntriaged | ExperimentalAsh> palette_tray_ =
+      nullptr;
+  raw_ptr<PhoneHubTray, DanglingUntriaged | ExperimentalAsh> phone_hub_tray_ =
+      nullptr;
+  raw_ptr<EcheTray, DanglingUntriaged | ExperimentalAsh> eche_tray_ = nullptr;
+  raw_ptr<VideoConferenceTray, DanglingUntriaged | ExperimentalAsh>
+      video_conference_tray_ = nullptr;
+  raw_ptr<StopRecordingButtonTray, DanglingUntriaged | ExperimentalAsh>
+      stop_recording_button_tray_ = nullptr;
+  raw_ptr<ProjectorAnnotationTray, DanglingUntriaged | ExperimentalAsh>
+      projector_annotation_tray_ = nullptr;
+  raw_ptr<VirtualKeyboardTray, DanglingUntriaged | ExperimentalAsh>
+      virtual_keyboard_tray_ = nullptr;
+  raw_ptr<ImeMenuTray, DanglingUntriaged | ExperimentalAsh> ime_menu_tray_ =
+      nullptr;
+  raw_ptr<SelectToSpeakTray, DanglingUntriaged | ExperimentalAsh>
+      select_to_speak_tray_ = nullptr;
+  raw_ptr<HoldingSpaceTray, DanglingUntriaged | ExperimentalAsh>
+      holding_space_tray_ = nullptr;
+  raw_ptr<WmModeButtonTray, ExperimentalAsh> wm_mode_button_tray_ = nullptr;
 
   // Vector of the tray buttons above. The ordering is used to determine which
   // tray buttons are hidden when they overflow the available width.
@@ -251,13 +320,16 @@ class ASH_EXPORT StatusAreaWidget : public SessionObserver,
 
   gfx::Rect target_bounds_;
 
-  Shelf* shelf_;
+  raw_ptr<Shelf, ExperimentalAsh> shelf_;
 
   bool initialized_ = false;
 
   // Number of active tray bubbles on the display where status area widget
   // lives.
   int tray_bubble_count_ = 0;
+
+  // Owned by `StatusAreaWidget`:
+  std::unique_ptr<StatusAreaAnimationController> animation_controller_;
 
   base::WeakPtrFactory<StatusAreaWidget> weak_ptr_factory_{this};
 };

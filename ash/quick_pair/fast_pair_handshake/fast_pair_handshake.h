@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <memory>
 
 #include "ash/quick_pair/common/pair_failure.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/scoped_refptr.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
@@ -19,7 +19,7 @@ class BluetoothAdapter;
 namespace ash {
 namespace quick_pair {
 
-struct Device;
+class Device;
 class FastPairDataEncryptor;
 class FastPairGattServiceClient;
 
@@ -42,16 +42,28 @@ class FastPairHandshake {
   using OnCompleteCallback =
       base::OnceCallback<void(scoped_refptr<Device>,
                               absl::optional<PairFailure>)>;
+  using OnCompleteCallbackNew = base::OnceCallback<void(scoped_refptr<Device>)>;
+  using OnFailureCallback =
+      base::OnceCallback<void(absl::optional<PairFailure>)>;
+  using OnBleAddressRotationCallback = base::OnceClosure;
 
+  // TODO(b/265853116): After the Fast Pair Handshake code is refactored remove
+  // this constructor in favor of the two argument constructor below.
   FastPairHandshake(
       scoped_refptr<device::BluetoothAdapter> adapter,
       scoped_refptr<Device> device,
       OnCompleteCallback on_complete,
       std::unique_ptr<FastPairDataEncryptor> data_encryptor,
       std::unique_ptr<FastPairGattServiceClient> gatt_service_client);
+  FastPairHandshake(scoped_refptr<device::BluetoothAdapter> adapter,
+                    scoped_refptr<Device> device);
   FastPairHandshake(const FastPairHandshake&) = delete;
   FastPairHandshake& operator=(const FastPairHandshake&) = delete;
   virtual ~FastPairHandshake();
+
+  virtual void SetUpHandshake(OnFailureCallback on_failure_callback,
+                              OnCompleteCallbackNew on_success_callback) = 0;
+  virtual void Reset() = 0;
 
   bool completed_successfully() { return completed_successfully_; }
 
@@ -59,16 +71,38 @@ class FastPairHandshake {
     return fast_pair_data_encryptor_.get();
   }
 
-  // Returns whether or not this handshake has an active GATT connection.
-  virtual bool IsConnected() = 0;
+  FastPairGattServiceClient* fast_pair_gatt_service_client() {
+    return fast_pair_gatt_service_client_.get();
+  }
+
+  void BleAddressRotated(OnBleAddressRotationCallback callback) {
+    on_ble_address_rotation_callback_ = std::move(callback);
+  }
+
+  bool DidBleAddressRotate() {
+    return !on_ble_address_rotation_callback_.is_null();
+  }
+
+  void RunBleAddressRotationCallback() {
+    return std::move(on_ble_address_rotation_callback_).Run();
+  }
 
  protected:
   bool completed_successfully_ = false;
   scoped_refptr<device::BluetoothAdapter> adapter_;
   scoped_refptr<Device> device_;
+  // TODO(b/265853116): Audit FastPairHandshake code once refactor is completed
+  // and legacy code is removed.
   OnCompleteCallback on_complete_callback_;
+  OnCompleteCallbackNew on_complete_callback_new_;
+  OnFailureCallback on_failure_callback_;
   std::unique_ptr<FastPairDataEncryptor> fast_pair_data_encryptor_;
   std::unique_ptr<FastPairGattServiceClient> fast_pair_gatt_service_client_;
+
+  // This callback will only be set if a BLE Address rotation happens during a
+  // retroactive pair. The callback being set signals that a rotation
+  // happened, if the callback has no value, a rotation did not occur.
+  OnBleAddressRotationCallback on_ble_address_rotation_callback_;
 };
 
 }  // namespace quick_pair

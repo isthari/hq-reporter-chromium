@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,8 @@
 #include "ash/hud_display/graph.h"
 #include "ash/hud_display/hud_constants.h"
 #include "ash/hud_display/solid_source_background.h"
+#include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ref.h"
 #include "cc/paint/paint_flags.h"
 #include "third_party/skia/include/core/SkBlendMode.h"
 #include "third_party/skia/include/core/SkPaint.h"
@@ -45,18 +47,18 @@ class LegendEntry : public views::View {
 
  private:
   const SkColor color_;
-  const Graph& graph_;
+  const raw_ref<const Graph, ExperimentalAsh> graph_;
   size_t value_index_ = 0;
   Legend::Formatter formatter_;
-  views::Label* value_ = nullptr;
+  raw_ptr<views::Label, ExperimentalAsh> value_ = nullptr;
 };
 
 BEGIN_METADATA(LegendEntry, views::View)
 END_METADATA
 
 LegendEntry::LegendEntry(const Legend::Entry& data)
-    : color_(data.graph.color()),
-      graph_(data.graph),
+    : color_(data.graph->color()),
+      graph_(*data.graph),
       formatter_(data.formatter) {
   views::BoxLayout* layout_manager =
       SetLayoutManager(std::make_unique<views::BoxLayout>(
@@ -68,7 +70,8 @@ LegendEntry::LegendEntry(const Legend::Entry& data)
   // edge size matching default views::Label height.  This is not known until
   // layout runs, so just hard code it.
   constexpr int kColorpickerAreaWidth = 20;
-  SetBorder(views::CreateEmptyBorder(0, kColorpickerAreaWidth, 0, 0));
+  SetBorder(views::CreateEmptyBorder(
+      gfx::Insets::TLBR(0, kColorpickerAreaWidth, 0, 0)));
 
   views::Label* label = AddChildView(
       std::make_unique<views::Label>(data.label, views::style::CONTEXT_LABEL));
@@ -81,7 +84,8 @@ LegendEntry::LegendEntry(const Legend::Entry& data)
       std::u16string(), views::style::CONTEXT_LABEL));
   layout_manager->SetFlexForView(value_, /*flex=*/1);
   value_->SetHorizontalAlignment(gfx::HorizontalAlignment::ALIGN_RIGHT);
-  value_->SetBorder(views::CreateEmptyBorder(0, kLabelToValueSpece, 0, 0));
+  value_->SetBorder(
+      views::CreateEmptyBorder(gfx::Insets::TLBR(0, kLabelToValueSpece, 0, 0)));
   value_->SetEnabledColor(kHUDDefaultColor);
 }
 
@@ -131,8 +135,8 @@ void LegendEntry::SetValueIndex(size_t index) {
 }
 
 void LegendEntry::RefreshValue() {
-  if (graph_.IsFilledIndex(value_index_)) {
-    value_->SetText(formatter_.Run(graph_.GetUnscaledValueAt(value_index_)));
+  if (graph_->IsFilledIndex(value_index_)) {
+    value_->SetText(formatter_.Run(graph_->GetUnscaledValueAt(value_index_)));
   } else {
     value_->SetText(std::u16string());
   }
@@ -163,7 +167,7 @@ Legend::Legend(const std::vector<Legend::Entry>& contents) {
   SetBackground(std::make_unique<SolidSourceBackground>(kHUDLegendBackground,
                                                         /*radius=*/0));
 
-  SetBorder(views::CreateEmptyBorder(gfx::Insets(kHUDInset)));
+  SetBorder(views::CreateEmptyBorder(kHUDInset));
 
   for (const auto& entry : contents)
     AddChildView(std::make_unique<LegendEntry>(entry));

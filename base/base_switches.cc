@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -128,14 +128,11 @@ const char kWaitForDebugger[] = "wait-for-debugger";
 // Disable high-resolution timer on Windows.
 const char kDisableHighResTimer[] = "disable-highres-timer";
 
-// Disables the USB keyboard detection for blocking the OSK on Win8+.
+// Disables the USB keyboard detection for blocking the OSK on Windows.
 const char kDisableUsbKeyboardDetect[]      = "disable-usb-keyboard-detect";
 #endif
 
-// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
-// of lacros-chrome is complete.
-#if BUILDFLAG(IS_LINUX) && !BUILDFLAG(IS_CHROMEOS_ASH) && \
-    !BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_LINUX)
 // The /dev/shm partition is too small in certain VM environments, causing
 // Chrome to fail or crash (see http://crbug.com/715363). Use this flag to
 // work-around this issue (a temporary directory will always be used to create
@@ -171,19 +168,13 @@ const char kForceFieldTrialParams[] = "force-fieldtrial-params";
 #endif
 
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
-// Controls whether or not retired instruction counts are surfaced for threads
-// in trace events on Linux.
-//
-// This flag requires the BPF sandbox to be disabled.
-const char kEnableThreadInstructionCount[] = "enable-thread-instruction-count";
-
 // TODO(crbug.com/1176772): Remove kEnableCrashpad and IsCrashpadEnabled() when
 // Crashpad is fully enabled on Linux. Indicates that Crashpad should be
 // enabled.
 extern const char kEnableCrashpad[] = "enable-crashpad";
 #endif
 
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS)
 // Override the default scheduling boosting value for urgent tasks.
 // This can be adjusted if a specific chromeos device shows better perf/power
 // ratio (e.g. by running video conference tests).

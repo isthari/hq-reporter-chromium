@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,15 +8,18 @@
 
 #include <va/va.h>
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/containers/contains.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/stl_util.h"
-#include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/thread_pool.h"
+#include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "media/gpu/chromeos/fourcc.h"
 #include "media/gpu/chromeos/platform_video_frame_utils.h"
 #include "media/gpu/macros.h"
@@ -27,8 +30,8 @@
 
 namespace media {
 
-#if BUILDFLAG(IS_CHROMEOS)
 namespace {
+
 bool IsSupported(const ImageProcessorBackend::PortConfig& config) {
   if (!config.fourcc.ToVAFourCC())
     return false;
@@ -56,7 +59,6 @@ bool IsSupported(const ImageProcessorBackend::PortConfig& config) {
 }
 
 }  // namespace
-#endif
 
 // static
 std::unique_ptr<ImageProcessorBackend> VaapiImageProcessorBackend::Create(
@@ -64,32 +66,47 @@ std::unique_ptr<ImageProcessorBackend> VaapiImageProcessorBackend::Create(
     const PortConfig& output_config,
     OutputMode output_mode,
     VideoRotation relative_rotation,
-    ErrorCB error_cb,
-    scoped_refptr<base::SequencedTaskRunner> backend_task_runner) {
+    ErrorCB error_cb) {
   DCHECK_EQ(output_mode, OutputMode::IMPORT)
       << "Only OutputMode::IMPORT supported";
-// VaapiImageProcessorBackend supports ChromeOS only.
-#if !BUILDFLAG(IS_CHROMEOS)
-  return nullptr;
-#else
   if (!IsSupported(input_config) || !IsSupported(output_config))
     return nullptr;
 
   if (!base::Contains(input_config.preferred_storage_types,
-                      VideoFrame::STORAGE_DMABUFS) &&
-      !base::Contains(input_config.preferred_storage_types,
                       VideoFrame::STORAGE_GPU_MEMORY_BUFFER)) {
-    VLOGF(2) << "VaapiImageProcessorBackend supports Dmabuf-backed or "
-                "GpuMemoryBuffer based VideoFrame only for input";
+    VLOGF(2) << "VaapiImageProcessorBackend supports GpuMemoryBuffer based"
+                "VideoFrame only for input";
     return nullptr;
   }
   if (!base::Contains(output_config.preferred_storage_types,
-                      VideoFrame::STORAGE_DMABUFS) &&
-      !base::Contains(output_config.preferred_storage_types,
                       VideoFrame::STORAGE_GPU_MEMORY_BUFFER)) {
-    VLOGF(2) << "VaapiImageProcessorBackend supports Dmabuf-backed or "
-                "GpuMemoryBuffer based VideoFrame only for output";
+    VLOGF(2) << "VaapiImageProcessorBackend supports GpuMemoryBuffer based"
+                "VideoFrame only for output";
     return nullptr;
+  }
+
+  if (relative_rotation != VIDEO_ROTATION_0) {
+    // Tests to see if the platform supports rotation.
+    auto vaapi_wrapper =
+        VaapiWrapper::Create(VaapiWrapper::kVideoProcess, VAProfileNone,
+                             EncryptionScheme::kUnencrypted, base::DoNothing());
+
+    if (!vaapi_wrapper) {
+      VLOGF(2) << "Failed to create VaapiWrapper";
+      return nullptr;
+    }
+
+    // Size is irrelevant for a VPP context.
+    if (!vaapi_wrapper->CreateContext(gfx::Size())) {
+      VLOGF(2) << "Failed to create context for VPP";
+      return nullptr;
+    }
+
+    if (!vaapi_wrapper->IsRotationSupported()) {
+      VLOGF(2) << "VaapiImageProcessorBackend does not support rotation on this"
+                  "platform";
+      return nullptr;
+    }
   }
 
   // We should restrict the acceptable PortConfig for input and output both to
@@ -102,8 +119,7 @@ std::unique_ptr<ImageProcessorBackend> VaapiImageProcessorBackend::Create(
   // scenario.
   return base::WrapUnique<ImageProcessorBackend>(new VaapiImageProcessorBackend(
       input_config, output_config, OutputMode::IMPORT, relative_rotation,
-      std::move(error_cb), std::move(backend_task_runner)));
-#endif
+      std::move(error_cb)));
 }
 
 VaapiImageProcessorBackend::VaapiImageProcessorBackend(
@@ -111,14 +127,14 @@ VaapiImageProcessorBackend::VaapiImageProcessorBackend(
     const PortConfig& output_config,
     OutputMode output_mode,
     VideoRotation relative_rotation,
-    ErrorCB error_cb,
-    scoped_refptr<base::SequencedTaskRunner> backend_task_runner)
+    ErrorCB error_cb)
     : ImageProcessorBackend(input_config,
                             output_config,
                             output_mode,
                             relative_rotation,
                             std::move(error_cb),
-                            std::move(backend_task_runner)) {}
+                            base::ThreadPool::CreateSequencedTaskRunner(
+                                {base::TaskPriority::USER_VISIBLE})) {}
 
 VaapiImageProcessorBackend::~VaapiImageProcessorBackend() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(backend_sequence_checker_);
@@ -129,6 +145,10 @@ VaapiImageProcessorBackend::~VaapiImageProcessorBackend() {
     vaapi_wrapper_->DestroyContext();
     allocated_va_surfaces_.clear();
   }
+}
+
+std::string VaapiImageProcessorBackend::type() const {
+  return "VaapiImageProcessor";
 }
 
 const VASurface* VaapiImageProcessorBackend::GetSurfaceForVideoFrame(
@@ -173,6 +193,9 @@ void VaapiImageProcessorBackend::Process(scoped_refptr<VideoFrame> input_frame,
                                          FrameReadyCB cb) {
   DVLOGF(4);
   DCHECK_CALLED_ON_VALID_SEQUENCE(backend_sequence_checker_);
+  TRACE_EVENT2("media", "VaapiImageProcessorBackend::Process", "input_frame",
+               input_frame->AsHumanReadableString(), "output_frame",
+               output_frame->AsHumanReadableString());
 
   if (!vaapi_wrapper_) {
     // Note that EncryptionScheme::kUnencrypted is fine even for the use case
@@ -197,13 +220,8 @@ void VaapiImageProcessorBackend::Process(scoped_refptr<VideoFrame> input_frame,
       return;
     }
 
-    // Checks if VA-API driver supports rotation.
-    if (relative_rotation_ != VIDEO_ROTATION_0 &&
-        !vaapi_wrapper->IsRotationSupported()) {
-      VLOGF(1) << "VaapiIP doesn't support rotation";
-      error_cb_.Run();
-      return;
-    }
+    CHECK(relative_rotation_ == VIDEO_ROTATION_0 ||
+          vaapi_wrapper->IsRotationSupported());
 
     vaapi_wrapper_ = std::move(vaapi_wrapper);
   }

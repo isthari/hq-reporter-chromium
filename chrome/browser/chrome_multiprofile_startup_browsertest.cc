@@ -1,23 +1,22 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <vector>
 
-#include "base/bind.h"
 #include "base/files/file_path.h"
-#include "base/run_loop.h"
+#include "base/memory/raw_ptr.h"
 #include "base/strings/strcat.h"
 #include "base/test/bind.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
-#include "chrome/browser/browser_features.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_browser_main.h"
 #include "chrome/browser/chrome_browser_main_extra_parts.h"
 #include "chrome/browser/profiles/profile_attributes_entry.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/profiles/profile_test_util.h"
 #include "chrome/browser/profiles/profile_window.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
@@ -64,9 +63,6 @@ Matcher<Profile*> HasBaseName(const char* basename) {
 }
 
 struct MultiProfileStartupTestParam {
-  // Whether features::kObserverBasedPostProfileInit should be enabled.
-  const bool should_enable_profile_observer;
-
   // Whether the profile picker should be shown on startup.
   const bool should_show_profile_picker;
 
@@ -88,19 +84,14 @@ struct MultiProfileStartupTestParam {
 };
 
 const MultiProfileStartupTestParam kTestParams[] = {
-    {false, false, {{HasBaseName(chrome::kInitialProfile), true}}},
-    {false, true, {{Property(&Profile::IsGuestSession, true), true}}},
-    {true,
-     false,
-     {{HasBaseName(chrome::kInitialProfile), true},
-      {HasBaseName(kOtherProfileDirPath), false}}},
-    {true,
-     true,
-     {// TODO(https://crbug.com/1150326): The first call with guest profile
-      // should be skipped.
-      {Property(&Profile::IsGuestSession, true), true},
-      {HasBaseName(chrome::kInitialProfile), false},
-      {HasBaseName(kOtherProfileDirPath), false}}}};
+    {.should_show_profile_picker = false,
+     .expected_post_profile_init_call_args =
+         {{HasBaseName(chrome::kInitialProfile), true},
+          {HasBaseName(kOtherProfileDirPath), false}}},
+    {.should_show_profile_picker = true,
+     .expected_post_profile_init_call_args = {
+         {HasBaseName(chrome::kInitialProfile), true},
+         {HasBaseName(kOtherProfileDirPath), false}}}};
 
 // Creates a new profile to be picked up on the actual test.
 void SetUpSecondaryProfileForPreTest(
@@ -109,16 +100,7 @@ void SetUpSecondaryProfileForPreTest(
   base::FilePath profile_path =
       profile_manager->user_data_dir().Append(profile_dir_basename);
 
-  base::RunLoop run_loop;
-  profile_manager->CreateProfileAsync(
-      profile_path,
-      base::BindLambdaForTesting(
-          [&run_loop](Profile* profile, Profile::CreateStatus status) {
-            if (status != Profile::CREATE_STATUS_INITIALIZED)
-              return;
-            run_loop.Quit();
-          }));
-  run_loop.Run();
+  profiles::testing::CreateProfileSync(profile_manager, profile_path);
 
   // Mark newly created profile as active.
   ProfileAttributesEntry* entry =
@@ -126,27 +108,12 @@ void SetUpSecondaryProfileForPreTest(
           .GetProfileAttributesWithPath(profile_path);
   ASSERT_NE(entry, nullptr);
   entry->SetActiveTimeToNow();
-
-  // Enabling sync, as Lacros only supports syncing profiles.
-  // TODO(https://crbug.com/1260291): Revisit this once non-syncing profiles
-  // are allowed.
-  entry->SetAuthInfo(
-      base::StringPrintf("gaia_id_%s", profile_path.MaybeAsASCII().c_str()),
-      base::UTF8ToUTF16(base::StringPrintf(
-          "user%s@gmail.com", profile_path.MaybeAsASCII().c_str())),
-      /*is_consented_primary_account=*/true);
 }
 
 void CreateBrowserForProfileDir(const base::FilePath& profile_dir_basename) {
-  ProfileManager* profile_manager = g_browser_process->profile_manager();
-  base::FilePath profile_path =
-      profile_manager->user_data_dir().Append(profile_dir_basename);
-
-  base::RunLoop run_loop;
-  profiles::SwitchToProfile(
-      profile_path, /*always_create=*/true,
-      base::BindRepeating([](Profile*) {}).Then(run_loop.QuitClosure()));
-  run_loop.Run();
+  profiles::testing::SwitchToProfileSync(
+      g_browser_process->profile_manager()->user_data_dir().Append(
+          profile_dir_basename));
 }
 
 }  // namespace
@@ -159,14 +126,6 @@ class ChromeMultiProfileStartupBrowserTestBase
     // Avoid providing a URL for the browser to open, allows the profile picker
     // to be displayed on startup when it is enabled.
     set_open_about_blank_on_browser_launch(false);
-
-    if (GetParam().should_enable_profile_observer) {
-      feature_list_.InitAndEnableFeature(
-          features::kObserverBasedPostProfileInit);
-    } else {
-      feature_list_.InitWithFeatures({},
-                                     {features::kObserverBasedPostProfileInit});
-    }
   }
 
   void CreatedBrowserMainParts(content::BrowserMainParts* parts) override {
@@ -200,10 +159,7 @@ class ChromeMultiProfileStartupBrowserTestBase
     }
   }
 
-  MockMainExtraParts* mock_part_;
-
- protected:
-  base::test::ScopedFeatureList feature_list_;
+  raw_ptr<MockMainExtraParts, DanglingUntriaged> mock_part_;
 };
 
 IN_PROC_BROWSER_TEST_P(ChromeMultiProfileStartupBrowserTestBase,

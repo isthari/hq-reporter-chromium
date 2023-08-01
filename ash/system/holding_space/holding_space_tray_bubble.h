@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "ash/system/screen_layout_observer.h"
 #include "ash/system/tray/tray_bubble_wrapper.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
+#include "base/memory/raw_ptr.h"
 #include "base/scoped_observation.h"
 
 namespace ash {
@@ -48,8 +49,10 @@ class ASH_EXPORT HoldingSpaceTrayBubble : public ScreenLayoutObserver,
  private:
   class ChildBubbleContainer;
 
-  // Return the maximum height available for the holding space bubble.
-  int CalculateMaxHeight() const;
+  // Return the maximum height available for the top-level holding space bubble
+  // and child bubble container respectively.
+  int CalculateTopLevelBubbleMaxHeight() const;
+  int CalculateChildBubbleContainerMaxHeight() const;
 
   void UpdateBubbleBounds();
 
@@ -64,14 +67,16 @@ class ASH_EXPORT HoldingSpaceTrayBubble : public ScreenLayoutObserver,
   void OnTabletModeEnded() override;
 
   // The owner of this class.
-  HoldingSpaceTray* const holding_space_tray_;
+  const raw_ptr<HoldingSpaceTray, ExperimentalAsh> holding_space_tray_;
 
   // The singleton delegate for holding space views that implements support
   // for context menu, drag-and-drop, and multiple selection.
   HoldingSpaceViewDelegate delegate_{this};
 
   // Views owned by view hierarchy.
-  ChildBubbleContainer* child_bubble_container_;
+  views::View* header_ = nullptr;
+  raw_ptr<ChildBubbleContainer, ExperimentalAsh> child_bubble_container_ =
+      nullptr;
   std::vector<HoldingSpaceTrayChildBubble*> child_bubbles_;
 
   std::unique_ptr<TrayBubbleWrapper> bubble_wrapper_;

@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,7 +32,7 @@ class AboutUIHTMLSource : public content::URLDataSource {
       const GURL& url,
       const content::WebContents::Getter& wc_getter,
       content::URLDataSource::GotDataCallback callback) override;
-  std::string GetMimeType(const std::string& path) override;
+  std::string GetMimeType(const GURL& url) override;
   bool ShouldAddContentSecurityPolicy() override;
   std::string GetAccessControlAllowOriginForOrigin(
       const std::string& origin) override;
@@ -41,11 +41,20 @@ class AboutUIHTMLSource : public content::URLDataSource {
   void FinishDataRequest(const std::string& html,
                          content::URLDataSource::GotDataCallback callback);
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  void SetOSCreditsPrefixForTesting(const base::FilePath& prefix) {
+    os_credits_prefix_ = prefix;
+  }
+#endif
+
   Profile* profile() { return profile_; }
 
  private:
   std::string source_name_;
   raw_ptr<Profile> profile_;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  base::FilePath os_credits_prefix_;
+#endif
 };
 
 class AboutUI : public content::WebUIController {
@@ -60,7 +69,7 @@ class AboutUI : public content::WebUIController {
 #if BUILDFLAG(IS_CHROMEOS)
   bool OverrideHandleWebUIMessage(const GURL& source_url,
                                   const std::string& message,
-                                  const base::ListValue& args) override;
+                                  const base::Value::List& args) override;
 #endif
 };
 

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -43,6 +43,7 @@ class CC_EXPORT Viewport {
   struct ScrollResult {
     gfx::Vector2dF consumed_delta;
     gfx::Vector2dF content_scrolled_delta;
+    gfx::Vector2dF outer_viewport_scrolled_delta;
   };
 
   static std::unique_ptr<Viewport> Create(LayerTreeHostImpl* host_impl);
@@ -71,8 +72,8 @@ class CC_EXPORT Viewport {
   // Scrolls the viewport, bubbling the delta between the inner and outer
   // viewport. Only animates either of the two viewports. Returns the amount of
   // delta that was consumed.
-  gfx::Vector2dF ScrollAnimated(const gfx::Vector2dF& delta,
-                                base::TimeDelta delayed_by);
+  ScrollResult ScrollAnimated(const gfx::Vector2dF& delta,
+                              base::TimeDelta delayed_by);
 
   gfx::PointF TotalScrollOffset() const;
 
@@ -118,7 +119,7 @@ class CC_EXPORT Viewport {
   // Sends the delta to the browser controls, returns the amount applied.
   gfx::Vector2dF ScrollBrowserControls(const gfx::Vector2dF& delta);
 
-  gfx::PointF MaxTotalScrollOffset() const;
+  float MaxUserReachableTotalScrollOffsetY() const;
 
   ScrollNode* InnerScrollNode() const;
   ScrollNode* OuterScrollNode() const;

@@ -1,13 +1,18 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import {EventGenerator} from '../common/event_generator.js';
+import {EventHandler} from '../common/event_handler.js';
+import {KeyCode} from '../common/key_code.js';
 
 import {ActionManager} from './action_manager.js';
 import {Navigator} from './navigator.js';
 import {SwitchAccess} from './switch_access.js';
-import {SAConstants, SwitchAccessMenuAction} from './switch_access_constants.js';
+import {ErrorType} from './switch_access_constants.js';
 
 const AutomationNode = chrome.automation.AutomationNode;
+const MenuAction = chrome.accessibilityPrivate.SwitchAccessMenuAction;
 
 /**
  * Class to handle navigating text. Currently, only
@@ -48,7 +53,7 @@ export class TextNavigationManager {
      */
     this.clipboardHasData_ = false;
 
-    if (SwitchAccess.instance.improvedTextInputEnabled()) {
+    if (SwitchAccess.improvedTextInputEnabled()) {
       chrome.clipboard.onClipboardDataChanged.addListener(
           () => this.updateClipboardHasData_());
     }
@@ -249,7 +254,7 @@ export class TextNavigationManager {
    */
   static saveSelectStart() {
     const manager = TextNavigationManager.instance;
-    chrome.automation.getFocus((focusedNode) => {
+    chrome.automation.getFocus(focusedNode => {
       manager.selectionStartObject_ = focusedNode;
       manager.selectionStartIndex_ = manager.getSelectionIndexFromNode_(
           manager.selectionStartObject_,
@@ -318,7 +323,7 @@ export class TextNavigationManager {
    */
   static saveSelectEnd() {
     const manager = TextNavigationManager.instance;
-    chrome.automation.getFocus((focusedNode) => {
+    chrome.automation.getFocus(focusedNode => {
       manager.selectionEndObject_ = focusedNode;
       manager.selectionEndIndex_ = manager.getSelectionIndexFromNode_(
           manager.selectionEndObject_,
@@ -335,7 +340,7 @@ export class TextNavigationManager {
     if (this.selectionStartIndex_ === TextNavigationManager.NO_SELECT_INDEX ||
         this.selectionEndIndex_ === TextNavigationManager.NO_SELECT_INDEX) {
       console.error(SwitchAccess.error(
-          SAConstants.ErrorType.INVALID_SELECTION_BOUNDS,
+          ErrorType.INVALID_SELECTION_BOUNDS,
           'Selection bounds are not set properly: ' +
               this.selectionStartIndex_ + ' ' + this.selectionEndIndex_));
     } else {
@@ -380,7 +385,7 @@ export class TextNavigationManager {
         anchorObject: this.selectionStartObject_,
         anchorOffset: this.selectionStartIndex_,
         focusObject: this.selectionEndObject_,
-        focusOffset: this.selectionEndIndex_
+        focusOffset: this.selectionEndIndex_,
       });
     }
   }
@@ -394,7 +399,7 @@ export class TextNavigationManager {
   updateClipboardHasData_() {
     this.clipboardHasData_ = true;
     const node = Navigator.byItem.currentNode;
-    if (node.hasAction(SwitchAccessMenuAction.PASTE)) {
+    if (node.hasAction(MenuAction.PASTE)) {
       ActionManager.refreshMenuForNode(node);
     }
   }

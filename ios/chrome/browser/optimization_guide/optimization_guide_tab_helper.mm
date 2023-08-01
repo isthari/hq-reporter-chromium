@@ -1,13 +1,15 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/optimization_guide/optimization_guide_tab_helper.h"
+#import "ios/chrome/browser/optimization_guide/optimization_guide_tab_helper.h"
 
+#import "base/task/sequenced_task_runner.h"
+#import "base/task/single_thread_task_runner.h"
 #import "components/optimization_guide/core/optimization_guide_features.h"
-#import "ios/chrome/browser/browser_state/chrome_browser_state.h"
 #import "ios/chrome/browser/optimization_guide/optimization_guide_service.h"
 #import "ios/chrome/browser/optimization_guide/optimization_guide_service_factory.h"
+#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
 #import "ios/web/public/navigation/navigation_context.h"
 #import "url/gurl.h"
 
@@ -35,16 +37,6 @@ void IOSOptimizationGuideNavigationData::NotifyNavigationRedirect(
     const GURL& url) {
   redirect_chain_.push_back(url);
   set_navigation_url(url);
-}
-
-// static
-void OptimizationGuideTabHelper::CreateForWebState(web::WebState* web_state) {
-  DCHECK(web_state);
-  if (!FromWebState(web_state)) {
-    web_state->SetUserData(
-        UserDataKey(),
-        base::WrapUnique(new OptimizationGuideTabHelper(web_state)));
-  }
 }
 
 OptimizationGuideTabHelper::OptimizationGuideTabHelper(web::WebState* web_state)
@@ -107,7 +99,7 @@ void OptimizationGuideTabHelper::DidFinishNavigation(
   // non-committed, etc.) might not have navigation data associated with them,
   // but we reduce likelihood of future leaks by always trying to remove the
   // data.
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(&OptimizationGuideTabHelper::NotifyNavigationFinish,
                      weak_factory_.GetWeakPtr(),

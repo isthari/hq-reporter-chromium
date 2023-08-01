@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,13 +15,13 @@ import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.tab.SadTab;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.tasks.ReturnToChromeExperimentsUtil;
+import org.chromium.chrome.browser.tasks.ReturnToChromeUtil;
 import org.chromium.chrome.browser.tasks.tab_management.TabUiFeatureUtilities;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetControllerProvider;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.ui.UiUtils;
 import org.chromium.ui.base.WindowAndroid;
 
@@ -84,7 +84,7 @@ public final class ScreenshotTask implements ScreenshotSource {
 
         // If neither the compositor nor the Android view screenshot tasks were kicked off, admit
         // defeat and return a {@code null} screenshot.
-        PostTask.postTask(UiThreadTaskTraits.DEFAULT, new Runnable() {
+        PostTask.postTask(TaskTraits.UI_DEFAULT, new Runnable() {
             @Override
             public void run() {
                 onBitmapReceived(null);
@@ -132,7 +132,7 @@ public final class ScreenshotTask implements ScreenshotSource {
     private boolean takeAndroidViewScreenshot(@Nullable final Activity activity) {
         if (activity == null) return false;
 
-        PostTask.postTask(UiThreadTaskTraits.DEFAULT, new Runnable() {
+        PostTask.postTask(TaskTraits.UI_DEFAULT, new Runnable() {
             @Override
             public void run() {
                 Bitmap bitmap = UiUtils.generateScaledScreenshot(
@@ -163,7 +163,7 @@ public final class ScreenshotTask implements ScreenshotSource {
         // If the start surface or the grid tab switcher are in use, do not use the compositor, it
         // will snapshot the last active tab instead of the current screen if we try to use it.
         if (chromeActivity.isInOverviewMode()
-                && (ReturnToChromeExperimentsUtil.isStartSurfaceEnabled(chromeActivity)
+                && (ReturnToChromeUtil.isStartSurfaceEnabled(chromeActivity)
                         || TabUiFeatureUtilities.isGridTabSwitcherEnabled(chromeActivity))) {
             return false;
         }

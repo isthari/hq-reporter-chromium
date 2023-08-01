@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,6 @@
 #include "content/public/test/browser_test.h"
 
 using printers_helper::AddPrinter;
-using printers_helper::CreateTestPrinter;
 using printers_helper::CreateTestPrinterSpecifics;
 using printers_helper::EditPrinterDescription;
 using printers_helper::GetPrinterCount;
@@ -28,6 +27,17 @@ class SingleClientPrintersSyncTest : public SyncTest {
  public:
   SingleClientPrintersSyncTest() : SyncTest(SINGLE_CLIENT) {}
   ~SingleClientPrintersSyncTest() override = default;
+
+  bool SetupClients() override {
+    if (!SyncTest::SetupClients()) {
+      return false;
+    }
+
+    CHECK(UseVerifier());
+    printers_helper::WaitForPrinterStoreToLoad(verifier());
+    printers_helper::WaitForPrinterStoreToLoad(GetProfile(0));
+    return true;
+  }
 
   bool UseVerifier() override {
     // TODO(crbug.com/1137770): rewrite tests to not use verifier.

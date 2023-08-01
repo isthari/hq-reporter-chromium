@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,8 +32,9 @@ constexpr const char kImagePath[] = "/ssl/google_files/logo.gif";
 // "REPLACE_WITH_HOST_AND_PORT" string replaced with |host_port_pair|.
 // The page at |original_path| should contain the string
 // "REPLACE_WITH_HOST_AND_PORT".
-std::string GetPathWithHostAndPortReplaced(const std::string& original_path,
-                                           net::HostPortPair host_port_pair) {
+std::string GetPathWithHostAndPortReplaced(
+    const std::string& original_path,
+    const net::HostPortPair& host_port_pair) {
   base::StringPairs replacement_text = {
       {"REPLACE_WITH_HOST_AND_PORT", host_port_pair.ToString()}};
   LOG(ERROR) << "host_port_pair.ToString() " << host_port_pair.ToString();
@@ -53,14 +54,14 @@ bool TryToLoadImage(const content::ToRenderFrameHost& adapter,
   const std::string script = base::StringPrintf(
       "let i = document.createElement('img');"
       "document.body.appendChild(i);"
-      "i.addEventListener('load', () => domAutomationController.send(true));"
-      "i.addEventListener('error', () => domAutomationController.send(false));"
-      "i.src = '%s';",
+      "new Promise(resolve => {"
+      "  i.addEventListener('load', () => resolve(true));"
+      "  i.addEventListener('error', () => resolve(false));"
+      "  i.src = '%s';"
+      "});",
       image_url.spec().c_str());
 
-  bool image_loaded;
-  CHECK(content::ExecuteScriptAndExtractBool(adapter, script, &image_loaded));
-  return image_loaded;
+  return content::EvalJs(adapter, script).ExtractBool();
 }
 
 }  // anonymous namespace
@@ -226,8 +227,9 @@ IN_PROC_BROWSER_TEST_F(
   CheckMixedContentFailedToLoad(app_browser);
 
   // Change the mixed content to be acceptable.
-  content::RenderFrameHost* main_frame =
-      app_browser->tab_strip_model()->GetActiveWebContents()->GetMainFrame();
+  content::RenderFrameHost* main_frame = app_browser->tab_strip_model()
+                                             ->GetActiveWebContents()
+                                             ->GetPrimaryMainFrame();
   content::RenderFrameHost* iframe = content::ChildFrameAt(main_frame, 0);
   EXPECT_TRUE(TryToLoadImage(
       iframe, embedded_test_server()->GetURL("foo.com", kImagePath)));
@@ -256,8 +258,10 @@ IN_PROC_BROWSER_TEST_F(PWAMixedContentBrowserTestWithAutoupgradesDisabled,
 
   chrome::OpenInChrome(app_browser);
 
-  content::RenderFrameHost* main_frame =
-      browser()->tab_strip_model()->GetActiveWebContents()->GetMainFrame();
+  content::RenderFrameHost* main_frame = browser()
+                                             ->tab_strip_model()
+                                             ->GetActiveWebContents()
+                                             ->GetPrimaryMainFrame();
   content::RenderFrameHost* iframe = content::ChildFrameAt(main_frame, 0);
 
   EXPECT_TRUE(TryToLoadImage(

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,10 +19,12 @@
 #include "media/gpu/windows/d3d11_video_context_wrapper.h"
 #include "media/gpu/windows/d3d11_video_decoder_client.h"
 #include "media/gpu/windows/d3d11_vp9_picture.h"
+#include "media/gpu/windows/d3d_accelerator.h"
 
 namespace media {
 
-class D3D11VP9Accelerator : public VP9Decoder::VP9Accelerator {
+class D3D11VP9Accelerator : public D3DAccelerator,
+                            public VP9Decoder::VP9Accelerator {
  public:
   D3D11VP9Accelerator(D3D11VideoDecoderClient* client,
                       MediaLog* media_log,
@@ -44,7 +46,7 @@ class D3D11VP9Accelerator : public VP9Decoder::VP9Accelerator {
 
   bool OutputPicture(scoped_refptr<VP9Picture> picture) override;
 
-  bool IsFrameContextRequired() const override;
+  bool NeedsCompressedHeaderParsed() const override;
 
   bool GetFrameContext(scoped_refptr<VP9Picture> picture,
                        Vp9FrameContext* frame_context) override;
@@ -72,19 +74,7 @@ class D3D11VP9Accelerator : public VP9Decoder::VP9Accelerator {
   bool SubmitDecoderBuffer(const DXVA_PicParams_VP9& pic_params,
                            const D3D11VP9Picture& pic);
 
-  void RecordFailure(const std::string& fail_type, D3D11Status error);
-  void RecordFailure(const std::string& fail_type,
-                     const std::string& reason,
-                     D3D11Status::Codes code);
-
-  void SetVideoDecoder(ComD3D11VideoDecoder video_decoder);
-
-  raw_ptr<D3D11VideoDecoderClient> client_;
-  const raw_ptr<MediaLog> media_log_;
   UINT status_feedback_;
-  ComD3D11VideoDecoder video_decoder_;
-  ComD3D11VideoDevice video_device_;
-  std::unique_ptr<VideoContextWrapper> video_context_;
 
   // Used to set |use_prev_in_find_mv_refs| properly.
   gfx::Size last_frame_size_;

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,13 +10,13 @@
 
 #include <memory>
 
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/containers/contains.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/path_service.h"
@@ -50,7 +50,7 @@
 #include "components/javascript_dialogs/app_modal_dialog_controller.h"
 #include "components/javascript_dialogs/app_modal_dialog_queue.h"
 #include "components/omnibox/browser/autocomplete_controller.h"
-#include "components/omnibox/browser/omnibox_controller_emitter.h"
+#include "components/omnibox/browser/autocomplete_controller_emitter.h"
 #include "components/omnibox/browser/omnibox_edit_model.h"
 #include "components/omnibox/browser/omnibox_view.h"
 #include "components/prefs/pref_service.h"
@@ -150,15 +150,14 @@ class AppModalDialogWaiter : public javascript_dialogs::AppModalDialogObserver {
     // and this will catch that case.
     auto* contents = dialog->web_contents();
     bool found_disabled_for_testing = false;
-    contents->GetMainFrame()->ForEachRenderFrameHost(base::BindRepeating(
-        [](bool* found_disabled_for_testing, content::RenderFrameHost* frame) {
+    contents->GetPrimaryMainFrame()->ForEachRenderFrameHostWithAction(
+        [&found_disabled_for_testing](content::RenderFrameHost* frame) {
           if (frame->IsBeforeUnloadHangMonitorDisabledForTesting()) {
-            *found_disabled_for_testing = true;
+            found_disabled_for_testing = true;
             return content::RenderFrameHost::FrameIterationAction::kStop;
           }
           return content::RenderFrameHost::FrameIterationAction::kContinue;
-        },
-        &found_disabled_for_testing));
+        });
 
     ASSERT_TRUE(found_disabled_for_testing)
         << "If waiting for a beforeunload dialog, the beforeunload timer "
@@ -175,7 +174,7 @@ class AutocompleteChangeObserver : public AutocompleteController::Observer {
  public:
   explicit AutocompleteChangeObserver(Profile* profile) {
     scoped_observation_.Observe(
-        OmniboxControllerEmitter::GetForBrowserContext(profile));
+        AutocompleteControllerEmitter::GetForBrowserContext(profile));
   }
 
   AutocompleteChangeObserver(const AutocompleteChangeObserver&) = delete;
@@ -194,7 +193,7 @@ class AutocompleteChangeObserver : public AutocompleteController::Observer {
 
  private:
   base::RunLoop run_loop_;
-  base::ScopedObservation<OmniboxControllerEmitter,
+  base::ScopedObservation<AutocompleteControllerEmitter,
                           AutocompleteController::Observer>
       scoped_observation_{this};
 };
@@ -229,8 +228,6 @@ void NavigateToURLWithPost(Browser* browser, const GURL& url) {
 }
 
 content::RenderFrameHost* NavigateToURL(Browser* browser, const GURL& url) {
-  // TODO(crbug.com/1243903): Remove logging after bug investigation.
-  LOG(INFO) << __func__ << ": " << url;
   return NavigateToURLWithDisposition(browser, url,
                                       WindowOpenDisposition::CURRENT_TAB,
                                       BROWSER_TEST_WAIT_FOR_LOAD_STOP);
@@ -296,7 +293,7 @@ NavigateToURLWithDispositionBlockUntilNavigationsComplete(
   }
   if (disposition == WindowOpenDisposition::CURRENT_TAB) {
     same_tab_observer.Wait();
-    return web_contents->GetMainFrame();
+    return web_contents->GetPrimaryMainFrame();
   } else if (web_contents) {
     content::TestNavigationObserver observer(
         web_contents, number_of_navigations,
@@ -305,7 +302,7 @@ NavigateToURLWithDispositionBlockUntilNavigationsComplete(
     if (!blink::IsRendererDebugURL(url))
       observer.set_expected_initial_url(url);
     observer.Wait();
-    return web_contents->GetMainFrame();
+    return web_contents->GetPrimaryMainFrame();
   }
   EXPECT_TRUE(web_contents)
       << " Unable to wait for navigation to \"" << url.spec() << "\""
@@ -366,11 +363,10 @@ bool GetRelativeBuildDirectory(base::FilePath* build_dir) {
     return false;
 
   size_t match, exe_size, src_size;
-  std::vector<base::FilePath::StringType> src_parts, exe_parts;
 
   // Determine point at which src and exe diverge.
-  exe_dir.GetComponents(&exe_parts);
-  src_dir.GetComponents(&src_parts);
+  auto exe_parts = exe_dir.GetComponents();
+  auto src_parts = src_dir.GetComponents();
   exe_size = exe_parts.size();
   src_size = src_parts.size();
   for (match = 0; match < exe_size && match < src_size; ++match) {
@@ -460,11 +456,10 @@ void WaitForAutocompleteDone(Browser* browser) {
 void SendToOmniboxAndSubmit(Browser* browser,
                             const std::string& input,
                             base::TimeTicks match_selection_timestamp) {
-  LocationBar* location_bar = browser->window()->GetLocationBar();
-  OmniboxView* omnibox = location_bar->GetOmniboxView();
+  OmniboxView* omnibox = browser->window()->GetLocationBar()->GetOmniboxView();
   omnibox->model()->OnSetFocus(/*control_down=*/false);
   omnibox->SetUserText(base::ASCIIToUTF16(input));
-  location_bar->AcceptInput(match_selection_timestamp);
+  omnibox->model()->OpenSelection(match_selection_timestamp);
 
   WaitForAutocompleteDone(browser);
 }
@@ -497,7 +492,7 @@ void GetCookies(const GURL& url,
   if (url.is_valid() && contents) {
     base::RunLoop loop;
     auto* storage_partition =
-        contents->GetMainFrame()->GetProcess()->GetStoragePartition();
+        contents->GetPrimaryMainFrame()->GetProcess()->GetStoragePartition();
     net::CookieList cookie_list;
     storage_partition->GetCookieManagerForBrowserProcess()->GetCookieList(
         url, net::CookieOptions::MakeAllInclusive(),

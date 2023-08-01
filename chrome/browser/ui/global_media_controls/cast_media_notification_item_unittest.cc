@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -101,8 +101,8 @@ class CastMediaNotificationItemTest : public testing::Test {
 
   void SetView() {
     EXPECT_CALL(view_, UpdateWithVectorIcon(_))
-        .WillOnce([](const gfx::VectorIcon& vector_icon) {
-          EXPECT_EQ(vector_icons::kMediaRouterIdleIcon.reps, vector_icon.reps);
+        .WillOnce([](const gfx::VectorIcon* vector_icon) {
+          EXPECT_EQ(vector_icons::kMediaRouterIdleIcon.reps, vector_icon->reps);
         });
     EXPECT_CALL(view_, UpdateWithMediaSessionInfo(_))
         .WillOnce([&](const MediaSessionInfoPtr& session_info) {
@@ -128,11 +128,11 @@ class CastMediaNotificationItemTest : public testing::Test {
   }
 
  protected:
-  MOCK_METHOD3(CreateBitmapFetcher,
-               std::unique_ptr<BitmapFetcher>(
-                   const GURL& url,
-                   BitmapFetcherDelegate* delegate,
-                   const net::NetworkTrafficAnnotationTag& traffic_annotation));
+  MOCK_METHOD(std::unique_ptr<BitmapFetcher>,
+              CreateBitmapFetcher,
+              (const GURL& url,
+               BitmapFetcherDelegate* delegate,
+               const net::NetworkTrafficAnnotationTag& traffic_annotation));
 
   content::BrowserTaskEnvironment task_environment_;
   TestingProfile profile_;

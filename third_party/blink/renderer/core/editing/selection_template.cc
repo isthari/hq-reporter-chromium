@@ -1,10 +1,12 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/core/editing/selection_template.h"
 
 #include <ostream>  // NOLINT
+
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/editing/ephemeral_range.h"
 #include "third_party/blink/renderer/core/editing/position_with_affinity.h"
 
@@ -54,7 +56,7 @@ void SelectionTemplate<Strategy>::Trace(Visitor* visitor) const {
 }
 
 template <typename Strategy>
-PositionTemplate<Strategy> SelectionTemplate<Strategy>::Base() const {
+const PositionTemplate<Strategy>& SelectionTemplate<Strategy>::Base() const {
   DCHECK(AssertValid());
   DCHECK(!base_.IsOrphan()) << base_;
   return base_;
@@ -67,7 +69,7 @@ Document* SelectionTemplate<Strategy>::GetDocument() const {
 }
 
 template <typename Strategy>
-PositionTemplate<Strategy> SelectionTemplate<Strategy>::Extent() const {
+const PositionTemplate<Strategy>& SelectionTemplate<Strategy>::Extent() const {
   DCHECK(AssertValid());
   DCHECK(!extent_.IsOrphan()) << extent_;
   return extent_;
@@ -138,14 +140,14 @@ void SelectionTemplate<Strategy>::ShowTreeForThis() const {
 #endif
 
 template <typename Strategy>
-PositionTemplate<Strategy> SelectionTemplate<Strategy>::ComputeEndPosition()
-    const {
+const PositionTemplate<Strategy>&
+SelectionTemplate<Strategy>::ComputeEndPosition() const {
   return IsBaseFirst() ? extent_ : base_;
 }
 
 template <typename Strategy>
-PositionTemplate<Strategy> SelectionTemplate<Strategy>::ComputeStartPosition()
-    const {
+const PositionTemplate<Strategy>&
+SelectionTemplate<Strategy>::ComputeStartPosition() const {
   return IsBaseFirst() ? base_ : extent_;
 }
 
@@ -351,7 +353,8 @@ SelectionTemplate<Strategy>::Builder::SetBaseAndExtent(
     DCHECK(extent.IsNull()) << extent;
     return SetBaseAndExtent(EphemeralRangeTemplate<Strategy>());
   }
-  DCHECK(extent.IsNotNull());
+  // TODO(crbug.com/1423127): `extent` is not expected to be `IsNull` but it
+  // looks like there are such cases.
   return Collapse(base).Extend(extent);
 }
 

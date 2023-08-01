@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,8 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/stringprintf.h"
+#include "base/time/time.h"
+#include "components/sync/base/features.h"
 #include "components/sync/base/model_type.h"
 #include "components/sync/base/time.h"
 #include "components/sync/engine/cycle/sync_cycle_context.h"
@@ -21,6 +23,7 @@
 #include "components/sync/protocol/sync_enums.pb.h"
 #include "components/sync/protocol/sync_protocol_error.h"
 #include "google_apis/google_api_keys.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 using std::string;
 using std::stringstream;
@@ -32,46 +35,6 @@ namespace {
 
 // Time to backoff syncing after receiving a throttled response.
 constexpr base::TimeDelta kSyncDelayAfterThrottled = base::Hours(2);
-
-void LogResponseProfilingData(const ClientToServerResponse& response) {
-  if (response.has_profiling_data()) {
-    stringstream response_trace;
-    response_trace << "Server response trace:";
-
-    if (response.profiling_data().has_user_lookup_time()) {
-      response_trace << " user lookup: "
-                     << response.profiling_data().user_lookup_time() << "ms";
-    }
-
-    if (response.profiling_data().has_meta_data_write_time()) {
-      response_trace << " meta write: "
-                     << response.profiling_data().meta_data_write_time()
-                     << "ms";
-    }
-
-    if (response.profiling_data().has_meta_data_read_time()) {
-      response_trace << " meta read: "
-                     << response.profiling_data().meta_data_read_time() << "ms";
-    }
-
-    if (response.profiling_data().has_file_data_write_time()) {
-      response_trace << " file write: "
-                     << response.profiling_data().file_data_write_time()
-                     << "ms";
-    }
-
-    if (response.profiling_data().has_file_data_read_time()) {
-      response_trace << " file read: "
-                     << response.profiling_data().file_data_read_time() << "ms";
-    }
-
-    if (response.profiling_data().has_total_request_time()) {
-      response_trace << " total time: "
-                     << response.profiling_data().total_request_time() << "ms";
-    }
-    DVLOG(1) << response_trace.str();
-  }
-}
 
 SyncerError ServerConnectionErrorAsSyncerError(
     const HttpResponse::ServerConnectionCode server_status,
@@ -90,7 +53,6 @@ SyncerError ServerConnectionErrorAsSyncerError(
       return SyncerError::HttpError(http_status_code);
     case HttpResponse::SERVER_CONNECTION_OK:
     case HttpResponse::NONE:
-    default:
       NOTREACHED();
       return SyncerError();
   }
@@ -219,20 +181,81 @@ void SaveBagOfChipsFromResponse(const sync_pb::ClientToServerResponse& response,
     context->set_bag_of_chips(bag_of_chips);
 }
 
+// Handle client commands returned by the server.
+void ProcessClientCommand(const sync_pb::ClientCommand& command,
+                          SyncCycle* cycle) {
+  CHECK(cycle);
+
+  // Update our state for any other commands we've received.
+  if (command.has_max_commit_batch_size()) {
+    cycle->context()->set_max_commit_batch_size(
+        command.max_commit_batch_size());
+  }
+
+  if (command.has_set_sync_poll_interval()) {
+    base::TimeDelta interval = base::Seconds(command.set_sync_poll_interval());
+    if (interval.is_zero()) {
+      DLOG(WARNING) << "Received zero poll interval from server. Ignoring.";
+    } else {
+      cycle->context()->set_poll_interval(interval);
+      cycle->delegate()->OnReceivedPollIntervalUpdate(interval);
+    }
+  }
+
+  if (command.has_sessions_commit_delay_seconds()) {
+    std::map<ModelType, base::TimeDelta> delay_map;
+    delay_map[SESSIONS] =
+        base::Seconds(command.sessions_commit_delay_seconds());
+    cycle->delegate()->OnReceivedCustomNudgeDelays(delay_map);
+  }
+
+  if (command.has_gu_retry_delay_seconds() &&
+      !base::FeatureList::IsEnabled(syncer::kSyncIgnoreGetUpdatesRetryDelay)) {
+    cycle->delegate()->OnReceivedGuRetryDelay(
+        base::Seconds(command.gu_retry_delay_seconds()));
+  }
+
+  if (command.custom_nudge_delays_size() > 0) {
+    // Note that because this happens after the sessions_commit_delay_seconds
+    // handling, any SESSIONS value in this map will override the one in
+    // sessions_commit_delay_seconds.
+    std::map<ModelType, base::TimeDelta> delay_map;
+    for (int i = 0; i < command.custom_nudge_delays_size(); ++i) {
+      ModelType type = GetModelTypeFromSpecificsFieldNumber(
+          command.custom_nudge_delays(i).datatype_id());
+      if (type != UNSPECIFIED) {
+        delay_map[type] =
+            base::Milliseconds(command.custom_nudge_delays(i).delay_ms());
+      }
+    }
+    cycle->delegate()->OnReceivedCustomNudgeDelays(delay_map);
+  }
+
+  absl::optional<int> max_tokens;
+  if (command.has_extension_types_max_tokens()) {
+    max_tokens = command.extension_types_max_tokens();
+  }
+  absl::optional<base::TimeDelta> refill_interval;
+  if (command.has_extension_types_refill_interval_seconds()) {
+    refill_interval =
+        base::Seconds(command.extension_types_refill_interval_seconds());
+  }
+  absl::optional<base::TimeDelta> depleted_quota_nudge_delay;
+  if (command.has_extension_types_depleted_quota_nudge_delay_seconds()) {
+    depleted_quota_nudge_delay = base::Seconds(
+        command.extension_types_depleted_quota_nudge_delay_seconds());
+  }
+  if (max_tokens || refill_interval || depleted_quota_nudge_delay) {
+    cycle->delegate()->OnReceivedQuotaParamsForExtensionTypes(
+        max_tokens, refill_interval, depleted_quota_nudge_delay);
+  }
+}
+
 }  // namespace
 
 ModelTypeSet GetTypesToMigrate(const ClientToServerResponse& response) {
-  ModelTypeSet to_migrate;
-  for (int i = 0; i < response.migrated_data_type_id_size(); i++) {
-    int field_number = response.migrated_data_type_id(i);
-    ModelType model_type = GetModelTypeFromSpecificsFieldNumber(field_number);
-    if (!IsRealDataType(model_type)) {
-      DLOG(WARNING) << "Unknown field number " << field_number;
-      continue;
-    }
-    to_migrate.Put(model_type);
-  }
-  return to_migrate;
+  return GetModelTypeSetFromSpecificsFieldNumberList(
+      response.migrated_data_type_id());
 }
 
 SyncProtocolError ConvertErrorPBToSyncProtocolError(
@@ -247,18 +270,93 @@ SyncProtocolError ConvertErrorPBToSyncProtocolError(
     // THROTTLED and PARTIAL_FAILURE are currently the only error codes
     // that uses |error_data_types|.
     // In both cases, |error_data_types| are throttled.
-    for (int i = 0; i < error.error_data_type_ids_size(); ++i) {
-      int field_number = error.error_data_type_ids(i);
-      ModelType model_type = GetModelTypeFromSpecificsFieldNumber(field_number);
-      if (!IsRealDataType(model_type)) {
-        DLOG(WARNING) << "Unknown field number " << field_number;
-        continue;
-      }
-      sync_protocol_error.error_data_types.Put(model_type);
-    }
+    sync_protocol_error.error_data_types =
+        GetModelTypeSetFromSpecificsFieldNumberList(
+            error.error_data_type_ids());
   }
 
   return sync_protocol_error;
+}
+
+// static
+SyncerError SyncerProtoUtil::HandleClientToServerMessageResponse(
+    const sync_pb::ClientToServerResponse& response,
+    SyncCycle* cycle,
+    ModelTypeSet* partial_failure_data_types) {
+  LogClientToServerResponse(response);
+
+  // Remember a bag of chips if it has been sent by the server.
+  SaveBagOfChipsFromResponse(response, cycle->context());
+
+  SyncProtocolError sync_protocol_error =
+      GetProtocolErrorFromResponse(response, cycle->context());
+
+  // Inform the delegate of the error we got.
+  cycle->delegate()->OnSyncProtocolError(sync_protocol_error);
+
+  if (response.has_client_command()) {
+    ProcessClientCommand(response.client_command(), cycle);
+  }
+
+  // Now do any special handling for the error type and decide on the return
+  // value.
+  switch (sync_protocol_error.error_type) {
+    case UNKNOWN_ERROR:
+      LOG(WARNING) << "Sync protocol out-of-date. The server is using a more "
+                   << "recent version.";
+      return SyncerError(SyncerError::SERVER_RETURN_UNKNOWN_ERROR);
+    case SYNC_SUCCESS:
+      return SyncerError(SyncerError::SYNCER_OK);
+    case THROTTLED:
+      if (sync_protocol_error.error_data_types.Empty()) {
+        DLOG(WARNING) << "Client fully throttled by syncer.";
+        cycle->delegate()->OnThrottled(GetThrottleDelay(response));
+      } else {
+        // This is a special case, since server only throttle some of datatype,
+        // so can treat this case as partial failure.
+        DLOG(WARNING) << "Some types throttled by syncer.";
+        cycle->delegate()->OnTypesThrottled(
+            sync_protocol_error.error_data_types, GetThrottleDelay(response));
+        if (partial_failure_data_types != nullptr) {
+          *partial_failure_data_types = sync_protocol_error.error_data_types;
+        }
+        return SyncerError(SyncerError::SYNCER_OK);
+      }
+      return SyncerError(SyncerError::SERVER_RETURN_THROTTLED);
+    case TRANSIENT_ERROR:
+      return SyncerError(SyncerError::SERVER_RETURN_TRANSIENT_ERROR);
+    case MIGRATION_DONE:
+      LOG_IF(ERROR, 0 >= response.migrated_data_type_id_size())
+          << "MIGRATION_DONE but no types specified.";
+      cycle->delegate()->OnReceivedMigrationRequest(
+          GetTypesToMigrate(response));
+      return SyncerError(SyncerError::SERVER_RETURN_MIGRATION_DONE);
+    case CLEAR_PENDING:
+      return SyncerError(SyncerError::SERVER_RETURN_CLEAR_PENDING);
+    case NOT_MY_BIRTHDAY:
+      return SyncerError(SyncerError::SERVER_RETURN_NOT_MY_BIRTHDAY);
+    case DISABLED_BY_ADMIN:
+      return SyncerError(SyncerError::SERVER_RETURN_DISABLED_BY_ADMIN);
+    case PARTIAL_FAILURE:
+      // This only happens when partial backoff during GetUpdates.
+      if (!sync_protocol_error.error_data_types.Empty()) {
+        DLOG(WARNING)
+            << "Some types got partial failure by syncer during GetUpdates.";
+        cycle->delegate()->OnTypesBackedOff(
+            sync_protocol_error.error_data_types);
+      }
+      if (partial_failure_data_types != nullptr) {
+        *partial_failure_data_types = sync_protocol_error.error_data_types;
+      }
+      return SyncerError(SyncerError::SYNCER_OK);
+    case CLIENT_DATA_OBSOLETE:
+      return SyncerError(SyncerError::SERVER_RETURN_CLIENT_DATA_OBSOLETE);
+    case ENCRYPTION_OBSOLETE:
+      return SyncerError(SyncerError::SERVER_RETURN_ENCRYPTION_OBSOLETE);
+  }
+
+  NOTREACHED();
+  return SyncerError();
 }
 
 // static
@@ -278,6 +376,9 @@ SyncProtocolError SyncerProtoUtil::GetProtocolErrorFromResponse(
   if (IsSyncDisabledByAdmin(response)) {
     sync_protocol_error.error_type = DISABLED_BY_ADMIN;
     sync_protocol_error.action = STOP_SYNC_FOR_DISABLED_ACCOUNT;
+  } else if (response.has_error()) {
+    // If the server provides explicit error information, just honor it.
+    sync_protocol_error = ConvertErrorPBToSyncProtocolError(response.error());
   } else if (!ProcessResponseBirthday(response, context)) {
     // If sync isn't disabled, first check for a birthday mismatch error.
     if (response.error_code() == sync_pb::SyncEnums::CLIENT_DATA_OBSOLETE) {
@@ -288,9 +389,6 @@ SyncProtocolError SyncerProtoUtil::GetProtocolErrorFromResponse(
       sync_protocol_error.error_type = NOT_MY_BIRTHDAY;
       sync_protocol_error.action = DISABLE_SYNC_ON_CLIENT;
     }
-  } else if (response.has_error()) {
-    // This is a new server. Just get the error from the protocol.
-    sync_protocol_error = ConvertErrorPBToSyncProtocolError(response.error());
   } else {
     // Legacy server implementation. Compute the error based on |error_code|.
     sync_protocol_error = ErrorCodeToSyncProtocolError(response.error_code());
@@ -326,8 +424,6 @@ bool SyncerProtoUtil::PostAndProcessHeaders(ServerConnectionManager* scm,
                             msg.message_contents(),
                             ClientToServerMessage::Contents_MAX + 1);
 
-  std::map<int, std::string> progress_marker_token_per_data_type;
-
   if (msg.has_get_updates()) {
     UMA_HISTOGRAM_ENUMERATION("Sync.PostedGetUpdatesOrigin",
                               msg.get_updates().get_updates_origin(),
@@ -335,8 +431,6 @@ bool SyncerProtoUtil::PostAndProcessHeaders(ServerConnectionManager* scm,
 
     for (const sync_pb::DataTypeProgressMarker& progress_marker :
          msg.get_updates().from_progress_marker()) {
-      progress_marker_token_per_data_type[progress_marker.data_type_id()] =
-          progress_marker.token();
       UMA_HISTOGRAM_ENUMERATION(
           "Sync.PostedDataTypeGetUpdatesRequest",
           ModelTypeHistogramValue(GetModelTypeFromSpecificsFieldNumber(
@@ -427,136 +521,20 @@ SyncerError SyncerProtoUtil::PostClientToServerMessage(
         cycle->context()->connection_manager()->server_status();
 
     DCHECK_NE(server_status, HttpResponse::NONE);
-    DCHECK_NE(server_status, HttpResponse::SERVER_CONNECTION_OK);
+
+    if (server_status == HttpResponse::SERVER_CONNECTION_OK) {
+      // The server returned a response but there was a failure in processing
+      // it.
+      return SyncerError(SyncerError::SERVER_RESPONSE_VALIDATION_FAILED);
+    }
 
     return ServerConnectionErrorAsSyncerError(
         server_status, cycle->context()->connection_manager()->net_error_code(),
         cycle->context()->connection_manager()->http_status_code());
   }
-  LogClientToServerResponse(*response);
 
-  // Remember a bag of chips if it has been sent by the server.
-  SaveBagOfChipsFromResponse(*response, cycle->context());
-
-  SyncProtocolError sync_protocol_error =
-      GetProtocolErrorFromResponse(*response, cycle->context());
-
-  // Inform the delegate of the error we got.
-  cycle->delegate()->OnSyncProtocolError(sync_protocol_error);
-
-  // Update our state for any other commands we've received.
-  if (response->has_client_command()) {
-    const sync_pb::ClientCommand& command = response->client_command();
-    if (command.has_max_commit_batch_size()) {
-      cycle->context()->set_max_commit_batch_size(
-          command.max_commit_batch_size());
-    }
-
-    if (command.has_set_sync_poll_interval()) {
-      base::TimeDelta interval =
-          base::Seconds(command.set_sync_poll_interval());
-      if (interval.is_zero()) {
-        DLOG(WARNING) << "Received zero poll interval from server. Ignoring.";
-      } else {
-        cycle->context()->set_poll_interval(interval);
-        cycle->delegate()->OnReceivedPollIntervalUpdate(interval);
-      }
-    }
-
-    if (command.has_sessions_commit_delay_seconds()) {
-      std::map<ModelType, base::TimeDelta> delay_map;
-      delay_map[SESSIONS] =
-          base::Seconds(command.sessions_commit_delay_seconds());
-      cycle->delegate()->OnReceivedCustomNudgeDelays(delay_map);
-    }
-
-    if (command.has_client_invalidation_hint_buffer_size()) {
-      cycle->delegate()->OnReceivedClientInvalidationHintBufferSize(
-          command.client_invalidation_hint_buffer_size());
-    }
-
-    if (command.has_gu_retry_delay_seconds()) {
-      cycle->delegate()->OnReceivedGuRetryDelay(
-          base::Seconds(command.gu_retry_delay_seconds()));
-    }
-
-    if (command.custom_nudge_delays_size() > 0) {
-      // Note that because this happens after the sessions_commit_delay_seconds
-      // handling, any SESSIONS value in this map will override the one in
-      // sessions_commit_delay_seconds.
-      std::map<ModelType, base::TimeDelta> delay_map;
-      for (int i = 0; i < command.custom_nudge_delays_size(); ++i) {
-        ModelType type = GetModelTypeFromSpecificsFieldNumber(
-            command.custom_nudge_delays(i).datatype_id());
-        if (type != UNSPECIFIED) {
-          delay_map[type] =
-              base::Milliseconds(command.custom_nudge_delays(i).delay_ms());
-        }
-      }
-      cycle->delegate()->OnReceivedCustomNudgeDelays(delay_map);
-    }
-  }
-
-  // Now do any special handling for the error type and decide on the return
-  // value.
-  switch (sync_protocol_error.error_type) {
-    case UNKNOWN_ERROR:
-      LOG(WARNING) << "Sync protocol out-of-date. The server is using a more "
-                   << "recent version.";
-      return SyncerError(SyncerError::SERVER_RETURN_UNKNOWN_ERROR);
-    case SYNC_SUCCESS:
-      LogResponseProfilingData(*response);
-      return SyncerError(SyncerError::SYNCER_OK);
-    case THROTTLED:
-      if (sync_protocol_error.error_data_types.Empty()) {
-        DLOG(WARNING) << "Client fully throttled by syncer.";
-        cycle->delegate()->OnThrottled(GetThrottleDelay(*response));
-      } else {
-        // This is a special case, since server only throttle some of datatype,
-        // so can treat this case as partial failure.
-        DLOG(WARNING) << "Some types throttled by syncer.";
-        cycle->delegate()->OnTypesThrottled(
-            sync_protocol_error.error_data_types, GetThrottleDelay(*response));
-        if (partial_failure_data_types != nullptr) {
-          *partial_failure_data_types = sync_protocol_error.error_data_types;
-        }
-        return SyncerError(SyncerError::SYNCER_OK);
-      }
-      return SyncerError(SyncerError::SERVER_RETURN_THROTTLED);
-    case TRANSIENT_ERROR:
-      return SyncerError(SyncerError::SERVER_RETURN_TRANSIENT_ERROR);
-    case MIGRATION_DONE:
-      LOG_IF(ERROR, 0 >= response->migrated_data_type_id_size())
-          << "MIGRATION_DONE but no types specified.";
-      cycle->delegate()->OnReceivedMigrationRequest(
-          GetTypesToMigrate(*response));
-      return SyncerError(SyncerError::SERVER_RETURN_MIGRATION_DONE);
-    case CLEAR_PENDING:
-      return SyncerError(SyncerError::SERVER_RETURN_CLEAR_PENDING);
-    case NOT_MY_BIRTHDAY:
-      return SyncerError(SyncerError::SERVER_RETURN_NOT_MY_BIRTHDAY);
-    case DISABLED_BY_ADMIN:
-      return SyncerError(SyncerError::SERVER_RETURN_DISABLED_BY_ADMIN);
-    case PARTIAL_FAILURE:
-      // This only happens when partial backoff during GetUpdates.
-      if (!sync_protocol_error.error_data_types.Empty()) {
-        DLOG(WARNING)
-            << "Some types got partial failure by syncer during GetUpdates.";
-        cycle->delegate()->OnTypesBackedOff(
-            sync_protocol_error.error_data_types);
-      }
-      if (partial_failure_data_types != nullptr) {
-        *partial_failure_data_types = sync_protocol_error.error_data_types;
-      }
-      return SyncerError(SyncerError::SYNCER_OK);
-    case CLIENT_DATA_OBSOLETE:
-      return SyncerError(SyncerError::SERVER_RETURN_CLIENT_DATA_OBSOLETE);
-    case ENCRYPTION_OBSOLETE:
-      return SyncerError(SyncerError::SERVER_RETURN_ENCRYPTION_OBSOLETE);
-  }
-
-  NOTREACHED();
-  return SyncerError();
+  return HandleClientToServerMessageResponse(*response, cycle,
+                                             partial_failure_data_types);
 }
 
 // static

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,21 +7,22 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
-#include "base/no_destructor.h"
-#include "components/sync/driver/sync_driver_switches.h"
+#include "base/metrics/histogram_functions.h"
+#include "build/buildflag.h"
+#include "chrome/renderer/google_accounts_private_api_util.h"
+#include "components/sync/base/features.h"
 #include "content/public/common/isolated_world_ids.h"
 #include "content/public/renderer/chrome_object_extensions_utils.h"
 #include "content/public/renderer/render_frame.h"
 #include "gin/arguments.h"
 #include "gin/function_template.h"
-#include "google_apis/gaia/gaia_urls.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/web/blink.h"
 #include "third_party/blink/public/web/web_local_frame.h"
-#include "url/origin.h"
 #include "v8/include/v8-array-buffer.h"
 #include "v8/include/v8-context.h"
 #include "v8/include/v8-function.h"
@@ -29,13 +30,6 @@
 #include "v8/include/v8-primitive.h"
 
 namespace {
-
-const url::Origin& GetAllowedOrigin() {
-  static const base::NoDestructor<url::Origin> origin(
-      url::Origin::Create(GaiaUrls::GetInstance()->gaia_url()));
-  CHECK(!origin->opaque());
-  return *origin;
-}
 
 // This function is intended to convert a binary blob representing an encryption
 // key and provided by the web via a Javascript ArrayBuffer.
@@ -55,6 +49,16 @@ std::vector<std::vector<uint8_t>> EncryptionKeysAsBytes(
     encryption_keys_as_bytes.push_back(ArrayBufferAsBytes(encryption_key));
   }
   return encryption_keys_as_bytes;
+}
+
+void RecordCallToSetSyncEncryptionKeysToUma(bool valid_args) {
+  base::UmaHistogramBoolean(
+      "Sync.TrustedVaultJavascriptSetEncryptionKeysValidArgs", valid_args);
+}
+
+void RecordCallToAddTrustedSyncEncryptionRecoveryMethodToUma(bool valid_args) {
+  base::UmaHistogramBoolean(
+      "Sync.TrustedVaultJavascriptAddRecoveryMethodValidArgs", valid_args);
 }
 
 }  // namespace
@@ -77,14 +81,11 @@ void SyncEncryptionKeysExtension::OnDestruct() {
 void SyncEncryptionKeysExtension::DidCreateScriptContext(
     v8::Local<v8::Context> v8_context,
     int32_t world_id) {
-  if (!render_frame()) {
+  if (!render_frame() || world_id != content::ISOLATED_WORLD_ID_GLOBAL) {
     return;
   }
 
-  url::Origin origin = render_frame()->GetWebFrame()->GetSecurityOrigin();
-  if (render_frame()->IsMainFrame() &&
-      world_id == content::ISOLATED_WORLD_ID_GLOBAL &&
-      origin == GetAllowedOrigin()) {
+  if (ShouldExposeGoogleAccountsJavascriptApi(render_frame())) {
     Install();
   }
 }
@@ -105,6 +106,12 @@ void SyncEncryptionKeysExtension::Install() {
   v8::Local<v8::Object> chrome =
       content::GetOrCreateChromeObject(isolate, context);
 
+  // On Android, there is no existing plumbing for setSyncEncryptionKeys(), so
+  // let's not expose the Javascript function as available. Namely,
+  // TrustedVaultClientAndroid::StoreKeys() isn't implemented because there is
+  // no underlying Android API to invoke, given that sign in and reauth flows
+  // are handled outside the browser.
+#if !BUILDFLAG(IS_ANDROID)
   chrome
       ->Set(
           context, gin::StringToSymbol(isolate, "setSyncEncryptionKeys"),
@@ -115,11 +122,7 @@ void SyncEncryptionKeysExtension::Install() {
               ->GetFunction(context)
               .ToLocalChecked())
       .Check();
-
-  if (!base::FeatureList::IsEnabled(
-          switches::kSyncTrustedVaultPassphraseRecovery)) {
-    return;
-  }
+#endif
 
   chrome
       ->Set(context,
@@ -154,6 +157,8 @@ void SyncEncryptionKeysExtension::SetSyncEncryptionKeys(gin::Arguments* args) {
 
   v8::Local<v8::Function> callback;
   if (!args->GetNext(&callback)) {
+    RecordCallToSetSyncEncryptionKeysToUma(
+        /*valid_args=*/false);
     DLOG(ERROR) << "No callback";
     args->ThrowError();
     return;
@@ -161,6 +166,8 @@ void SyncEncryptionKeysExtension::SetSyncEncryptionKeys(gin::Arguments* args) {
 
   std::string gaia_id;
   if (!args->GetNext(&gaia_id)) {
+    RecordCallToSetSyncEncryptionKeysToUma(
+        /*valid_args=*/false);
     DLOG(ERROR) << "No account ID";
     args->ThrowError();
     return;
@@ -168,12 +175,16 @@ void SyncEncryptionKeysExtension::SetSyncEncryptionKeys(gin::Arguments* args) {
 
   std::vector<v8::Local<v8::ArrayBuffer>> encryption_keys;
   if (!args->GetNext(&encryption_keys)) {
+    RecordCallToSetSyncEncryptionKeysToUma(
+        /*valid_args=*/false);
     DLOG(ERROR) << "Not array of strings";
     args->ThrowError();
     return;
   }
 
   if (encryption_keys.empty()) {
+    RecordCallToSetSyncEncryptionKeysToUma(
+        /*valid_args=*/false);
     DLOG(ERROR) << "Array of strings empty";
     args->ThrowError();
     return;
@@ -181,6 +192,8 @@ void SyncEncryptionKeysExtension::SetSyncEncryptionKeys(gin::Arguments* args) {
 
   int last_key_version = 0;
   if (!args->GetNext(&last_key_version)) {
+    RecordCallToSetSyncEncryptionKeysToUma(
+        /*valid_args=*/false);
     DLOG(ERROR) << "No version provided";
     args->ThrowError();
     return;
@@ -193,6 +206,7 @@ void SyncEncryptionKeysExtension::SetSyncEncryptionKeys(gin::Arguments* args) {
     render_frame()->GetRemoteAssociatedInterfaces()->GetInterface(&remote_);
   }
 
+  RecordCallToSetSyncEncryptionKeysToUma(/*valid_args=*/true);
   remote_->SetEncryptionKeys(
       gaia_id, EncryptionKeysAsBytes(encryption_keys), last_key_version,
       base::BindOnce(&SyncEncryptionKeysExtension::RunCompletionCallback,
@@ -220,6 +234,8 @@ void SyncEncryptionKeysExtension::AddTrustedSyncEncryptionRecoveryMethod(
 
   v8::Local<v8::Function> callback;
   if (!args->GetNext(&callback)) {
+    RecordCallToAddTrustedSyncEncryptionRecoveryMethodToUma(
+        /*valid_args=*/false);
     DLOG(ERROR) << "No callback";
     args->ThrowError();
     return;
@@ -227,6 +243,8 @@ void SyncEncryptionKeysExtension::AddTrustedSyncEncryptionRecoveryMethod(
 
   std::string gaia_id;
   if (!args->GetNext(&gaia_id)) {
+    RecordCallToAddTrustedSyncEncryptionRecoveryMethodToUma(
+        /*valid_args=*/false);
     DLOG(ERROR) << "No account ID";
     args->ThrowError();
     return;
@@ -234,6 +252,8 @@ void SyncEncryptionKeysExtension::AddTrustedSyncEncryptionRecoveryMethod(
 
   v8::Local<v8::ArrayBuffer> public_key;
   if (!args->GetNext(&public_key)) {
+    RecordCallToAddTrustedSyncEncryptionRecoveryMethodToUma(
+        /*valid_args=*/false);
     DLOG(ERROR) << "No public key";
     args->ThrowError();
     return;
@@ -241,6 +261,8 @@ void SyncEncryptionKeysExtension::AddTrustedSyncEncryptionRecoveryMethod(
 
   int method_type_hint = 0;
   if (!args->GetNext(&method_type_hint)) {
+    RecordCallToAddTrustedSyncEncryptionRecoveryMethodToUma(
+        /*valid_args=*/false);
     DLOG(ERROR) << "No method type hint";
     args->ThrowError();
     return;
@@ -253,6 +275,7 @@ void SyncEncryptionKeysExtension::AddTrustedSyncEncryptionRecoveryMethod(
     render_frame()->GetRemoteAssociatedInterfaces()->GetInterface(&remote_);
   }
 
+  RecordCallToAddTrustedSyncEncryptionRecoveryMethodToUma(/*valid_args=*/true);
   remote_->AddTrustedRecoveryMethod(
       gaia_id, ArrayBufferAsBytes(public_key), method_type_hint,
       base::BindOnce(&SyncEncryptionKeysExtension::RunCompletionCallback,

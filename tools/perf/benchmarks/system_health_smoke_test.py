@@ -1,4 +1,4 @@
-# Copyright 2016 The Chromium Authors. All rights reserved.
+# Copyright 2016 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -11,8 +11,6 @@ stories as memory ones, only with fewer actions (no memory dumping).
 
 import collections
 import unittest
-
-import six
 
 from chrome_telemetry_build import chromium_config
 
@@ -78,6 +76,13 @@ _DISABLED_TESTS = frozenset({
     'system_health.memory_desktop/load:social:instagram:2018',
     'system_health.memory_desktop/load:social:pinterest:2019',
 
+    # crbug.com/1428625
+    'system_health.memory_mobile/browse:news:cnn:2021',
+
+    # crbug.com/1442448
+    'system_health.memory_desktop/load:media:facebook_feed:desktop:2020',
+    'system_health.memory_desktop/load:games:miniclip:2018',
+
     # The following tests are disabled because they are disabled on the perf
     # waterfall (using tools/perf/expectations.config) on one platform or
     # another. They may run fine on the CQ, but it isn't worth the bot time to
@@ -112,6 +117,10 @@ _DISABLED_TESTS = frozenset({
 MAX_VALUES_PER_TEST_CASE = 1000
 
 
+class SystemHealthBenchmarkSmokeTest(unittest.TestCase):
+  pass
+
+
 def _GenerateSmokeTestCase(benchmark_class, story_to_smoke_test):
 
   # NOTE TO SHERIFFS: DO NOT DISABLE THIS TEST.
@@ -125,7 +134,6 @@ def _GenerateSmokeTestCase(benchmark_class, story_to_smoke_test):
   def RunTest(self):
     class SinglePageBenchmark(benchmark_class):  # pylint: disable=no-init
       def CreateStorySet(self, options):
-        # pylint: disable=super-on-old-class
         story_set = super(SinglePageBenchmark, self).CreateStorySet(options)
         stories_to_remove = [s for s in story_set.stories if s !=
                              story_to_smoke_test]
@@ -139,14 +147,8 @@ def _GenerateSmokeTestCase(benchmark_class, story_to_smoke_test):
       options = GenerateBenchmarkOptions(
           output_dir=temp_dir,
           benchmark_cls=SinglePageBenchmark)
-      # The ID signature changes based on Python version.
-      if six.PY2:
-        replacement_string = ('benchmarks.system_health_smoke_test.'
-                              'SystemHealthBenchmarkSmokeTest.')
-      else:
-        replacement_string = ('benchmarks.system_health_smoke_test.'
-                              '_GenerateSmokeTestCase.<locals>.'
-                              'SystemHealthBenchmarkSmokeTest.')
+      replacement_string = ('benchmarks.system_health_smoke_test.'
+                            'SystemHealthBenchmarkSmokeTest.')
       simplified_test_name = self.id().replace(replacement_string, '')
       # Sanity check to ensure that that substring removal was effective.
       assert len(simplified_test_name) < len(self.id())
@@ -173,9 +175,6 @@ def _GenerateSmokeTestCase(benchmark_class, story_to_smoke_test):
   # '<benchmark class name>/<story name>'.
   test_method_name = '%s/%s' % (
       benchmark_class.Name(), story_to_smoke_test.name)
-
-  class SystemHealthBenchmarkSmokeTest(unittest.TestCase):
-    pass
 
   # Set real_test_func as benchmark_class to make typ
   # write benchmark_class source filepath to trace instead of
@@ -255,8 +254,6 @@ def validate_smoke_test_name_versions():
         'list or remove them to save CQ capacity (see crbug.com/893615)). '
         'You can use crbug.com/878390 for the disabling reference.'
         '[StoryName] : [StoryVersion1],[StoryVersion2]...\n%s' % (msg))
-
-  return
 
 
 def load_tests(loader, standard_tests, pattern):

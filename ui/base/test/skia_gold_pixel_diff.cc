@@ -1,9 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ui/base/test/skia_gold_pixel_diff.h"
 
+#include "base/notreached.h"
 #include "build/build_config.h"
 #if BUILDFLAG(IS_WIN)
 #include <windows.h>
@@ -51,6 +52,9 @@ const char* kSkiaGoldCtl = "tools/skia_goldctl/linux/goldctl";
 
 const char* kBuildRevisionKey = "git-revision";
 
+// A dummy build revision used only under a dry run.
+constexpr char kDummyBuildRevision[] = "12345";
+
 // The switch keys for tryjob.
 const char* kIssueKey = "gerrit-issue";
 const char* kPatchSetKey = "gerrit-patchset";
@@ -64,6 +68,16 @@ const char* kDryRun = "dryrun";
 // The switch key for saving png file locally for debugging. This will allow
 // the framework to save the screenshot png file to this path.
 const char* kPngFilePathDebugging = "skia-gold-local-png-write-directory";
+
+const char* kGoldOutputTriageFormat =
+    "Untriaged or negative image: https://chrome-gold.skia.org";
+const char* kPublicTriageLink = "https://chrome-public-gold.skia.org";
+
+// The separator used in the names of the screenshots taken on Ash platform.
+constexpr char kAshSeparator[] = ".";
+
+// The separator used by non-Ash platforms.
+constexpr char kNonAshSeparator[] = "_";
 
 namespace {
 
@@ -83,28 +97,74 @@ void AppendArgsJustAfterProgram(base::CommandLine& cmd,
   argv.insert(argv.begin() + 1, args.begin(), args.end());
 }
 
-void FillInSystemEnvironment(base::Value::DictStorage& ds) {
-  std::string processor = "unknown";
-#if defined(ARCH_CPU_X86)
-  processor = "x86";
-#elif defined(ARCH_CPU_X86_64)
-  processor = "x86_64";
-#else
-  LOG(WARNING) << "Unknown Processor.";
+const char* GetPlatformName() {
+#if BUILDFLAG(IS_WIN)
+  return "windows";
+#elif BUILDFLAG(IS_APPLE)
+  return "macOS";
+// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
+// of lacros-chrome is complete.
+#elif BUILDFLAG(IS_LINUX)
+  return "linux";
+#elif BUILDFLAG(IS_CHROMEOS_LACROS)
+  return "lacros";
+#elif BUILDFLAG(IS_CHROMEOS_ASH)
+  return "ash";
 #endif
-
-  ds["system"] = base::Value(SkiaGoldPixelDiff::GetPlatform());
-  ds["processor"] = base::Value(processor);
 }
 
-// Fill in test environment to the keys_file. The format is json.
-// We need the system information to determine whether a new screenshot
-// is good or not. All the information that can affect the output of pixels
-// should be filled in. Eg: operating system, graphics card, processor
-// architecture, screen resolution, etc.
-bool FillInTestEnvironment(const base::FilePath& keys_file) {
-  base::Value::DictStorage ds;
-  FillInSystemEnvironment(ds);
+const char* GetArchName() {
+#if defined(ARCH_CPU_X86)
+  return "x86";
+#elif defined(ARCH_CPU_X86_64)
+  return "x86_64";
+#elif defined(ARCH_CPU_ARM64)
+  return "Arm64";
+#else
+  LOG(WARNING) << "Unknown Processor.";
+  return "unknown";
+#endif
+}
+
+void FillInSystemEnvironment(TestEnvironmentMap& test_environment) {
+  // Fill in a default key and assert it was not already filled in.
+  auto CheckInsertDefaultKey = [&test_environment](TestEnvironmentKey key,
+                                                   std::string value) {
+    bool did_insert = false;
+    std::tie(std::ignore, did_insert) = test_environment.insert({key, value});
+    CHECK(did_insert);
+  };
+
+  CheckInsertDefaultKey(TestEnvironmentKey::kSystem, GetPlatformName());
+  CheckInsertDefaultKey(TestEnvironmentKey::kProcessor, GetArchName());
+}
+
+const char* TestEnvironmentKeyToString(TestEnvironmentKey key) {
+  switch (key) {
+    case TestEnvironmentKey::kSystem:
+      return "system";
+    case TestEnvironmentKey::kProcessor:
+      return "processor";
+    case TestEnvironmentKey::kSystemVersion:
+      return "system_version";
+    case TestEnvironmentKey::kGpuDriverVendor:
+      return "driver_vendor";
+    case TestEnvironmentKey::kGpuDriverVersion:
+      return "driver_version";
+    case TestEnvironmentKey::kGlRenderer:
+      return "gl_renderer";
+  }
+
+  NOTREACHED_NORETURN();
+}
+
+bool WriteTestEnvironmentToFile(TestEnvironmentMap test_environment,
+                                const base::FilePath& keys_file) {
+  base::Value::Dict ds;
+  for (auto& [key, value] : test_environment) {
+    ds.Set(TestEnvironmentKeyToString(key), value);
+  }
+
   base::Value root(std::move(ds));
   std::string content;
   base::JSONWriter::Write(root, &content);
@@ -128,14 +188,6 @@ bool BotModeEnabled(const base::CommandLine* command_line) {
          env->HasVar("CHROMIUM_TEST_LAUNCHER_BOT_MODE");
 }
 
-// Returns true if it's running on CQ under 'without patch'. Otherwise
-// returns false.
-// The implementation is a bit hacky because there's no good indicator.
-bool IsTryjobWithoutPatch(const base::CommandLine* command_line) {
-  return BotModeEnabled(command_line) &&
-         command_line->HasSwitch(switches::kTestLauncherBatchLimit);
-}
-
 }  // namespace
 
 SkiaGoldPixelDiff::SkiaGoldPixelDiff() = default;
@@ -144,30 +196,31 @@ SkiaGoldPixelDiff::~SkiaGoldPixelDiff() = default;
 
 // static
 std::string SkiaGoldPixelDiff::GetPlatform() {
-#if BUILDFLAG(IS_WIN)
-  return "windows";
-#elif BUILDFLAG(IS_APPLE)
-  return "macOS";
-// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
-// of lacros-chrome is complete.
-#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
-  return "linux";
-#endif
+  return GetPlatformName();
 }
 
 int SkiaGoldPixelDiff::LaunchProcess(const base::CommandLine& cmdline) const {
-  base::Process sub_process =
-      base::LaunchProcess(cmdline, base::LaunchOptionsForTest());
+  std::string output;
   int exit_code = 0;
-  if (!sub_process.WaitForExit(&exit_code)) {
-    ADD_FAILURE() << "Failed to wait for process.";
-    // Return a non zero code indicating an error.
-    return 1;
+  CHECK(base::GetAppOutputWithExitCode(cmdline, &output, &exit_code));
+  LOG(INFO) << output;
+  // Gold binary only provides internal triage link which doesn't work
+  // for non-Googlers. So we construct another link that works for
+  // non google account committers.
+  size_t triage_location_start = output.find(kGoldOutputTriageFormat);
+  if (triage_location_start != std::string::npos) {
+    size_t triage_location_end = output.find("\n", triage_location_start);
+    LOG(WARNING) << "For committers not using @google.com account, triage "
+                 << "using the following link: " << kPublicTriageLink
+                 << output.substr(
+                        triage_location_start + strlen(kGoldOutputTriageFormat),
+                        triage_location_end - triage_location_start -
+                            strlen(kGoldOutputTriageFormat));
   }
   return exit_code;
 }
 
-void SkiaGoldPixelDiff::InitSkiaGold() {
+void SkiaGoldPixelDiff::InitSkiaGold(TestEnvironmentMap test_environment) {
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           kBypassSkiaGoldFunctionality)) {
     LOG(WARNING) << "Bypassing Skia Gold initialization due to "
@@ -186,9 +239,12 @@ void SkiaGoldPixelDiff::InitSkiaGold() {
   int exit_code = LaunchProcess(cmd);
   ASSERT_EQ(exit_code, 0);
 
+  FillInSystemEnvironment(test_environment);
+
   base::FilePath json_temp_file =
       working_dir_.Append(FILE_PATH_LITERAL("keys_file.txt"));
-  FillInTestEnvironment(json_temp_file);
+  ASSERT_TRUE(
+      WriteTestEnvironmentToFile(std::move(test_environment), json_temp_file));
   base::FilePath failure_temp_file =
       working_dir_.Append(FILE_PATH_LITERAL("failure.log"));
   cmd = base::CommandLine(GetAbsoluteSrcRelativePath(kSkiaGoldCtl));
@@ -216,10 +272,22 @@ void SkiaGoldPixelDiff::InitSkiaGold() {
 }
 
 void SkiaGoldPixelDiff::Init(const std::string& screenshot_prefix,
-                             const std::string& corpus) {
+                             const std::string& corpus,
+                             TestEnvironmentMap test_environment) {
   auto* cmd_line = base::CommandLine::ForCurrentProcess();
-  ASSERT_TRUE(cmd_line->HasSwitch(kBuildRevisionKey))
+  if (!BotModeEnabled(base::CommandLine::ForCurrentProcess())) {
+    cmd_line->AppendSwitch(kDryRun);
+  }
+
+  ASSERT_TRUE(cmd_line->HasSwitch(kBuildRevisionKey) ||
+              cmd_line->HasSwitch(kDryRun))
       << "Missing switch " << kBuildRevisionKey;
+
+  // Use the dummy revision code for dry run.
+  build_revision_ = cmd_line->HasSwitch(kDryRun)
+                        ? kDummyBuildRevision
+                        : cmd_line->GetSwitchValueASCII(kBuildRevisionKey);
+
   ASSERT_TRUE(
       cmd_line->HasSwitch(kIssueKey) && cmd_line->HasSwitch(kPatchSetKey) &&
           cmd_line->HasSwitch(kJobIdKey) ||
@@ -228,7 +296,6 @@ void SkiaGoldPixelDiff::Init(const std::string& screenshot_prefix,
       << "Missing switch. If it's running for tryjob, you should pass --"
       << kIssueKey << " --" << kPatchSetKey << " --" << kJobIdKey
       << ". Otherwise, do not pass any one of them.";
-  build_revision_ = cmd_line->GetSwitchValueASCII(kBuildRevisionKey);
   if (cmd_line->HasSwitch(kIssueKey)) {
     issue_ = cmd_line->GetSwitchValueASCII(kIssueKey);
     patchset_ = cmd_line->GetSwitchValueASCII(kPatchSetKey);
@@ -248,26 +315,19 @@ void SkiaGoldPixelDiff::Init(const std::string& screenshot_prefix,
   base::CreateNewTempDirectory(FILE_PATH_LITERAL("SkiaGoldTemp"),
                                &working_dir_);
 
-  InitSkiaGold();
+  InitSkiaGold(std::move(test_environment));
 }
 
 bool SkiaGoldPixelDiff::UploadToSkiaGoldServer(
     const base::FilePath& local_file_path,
     const std::string& remote_golden_image_name,
     const SkiaGoldMatchingAlgorithm* algorithm) const {
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          kBypassSkiaGoldFunctionality)) {
-    LOG(WARNING) << "Bypassing Skia Gold comparison due to "
-                 << "--bypass-skia-gold-functionality being present.";
-    return true;
-  }
-
   // Copy the png file to another place for local debugging.
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          kPngFilePathDebugging)) {
+  base::CommandLine* process_command_line =
+      base::CommandLine::ForCurrentProcess();
+  if (process_command_line->HasSwitch(kPngFilePathDebugging)) {
     base::FilePath path =
-        base::CommandLine::ForCurrentProcess()->GetSwitchValuePath(
-            kPngFilePathDebugging);
+        process_command_line->GetSwitchValuePath(kPngFilePathDebugging);
     if (!base::PathExists(path)) {
       base::CreateDirectory(path);
     }
@@ -283,21 +343,19 @@ bool SkiaGoldPixelDiff::UploadToSkiaGoldServer(
     base::CopyFile(local_file_path, filepath);
   }
 
+  if (process_command_line->HasSwitch(kBypassSkiaGoldFunctionality)) {
+    LOG(WARNING) << "Bypassing Skia Gold comparison due to "
+                 << "--bypass-skia-gold-functionality being present.";
+    return true;
+  }
+
   base::ScopedAllowBlockingForTesting allow_blocking;
   base::CommandLine cmd(GetAbsoluteSrcRelativePath(kSkiaGoldCtl));
   cmd.AppendSwitchASCII("test-name", remote_golden_image_name);
   cmd.AppendSwitchASCII("corpus", corpus_);
   cmd.AppendSwitchPath("png-file", local_file_path);
   cmd.AppendSwitchPath("work-dir", working_dir_);
-
-  if (!BotModeEnabled(base::CommandLine::ForCurrentProcess())) {
-    cmd.AppendSwitch(kDryRun);
-  }
-  // For CQ, if a Skia Gold gtest fails, then swarming runs the suite
-  // without patch, and the test succeed. The success job will override
-  // the failed job, and the failed test will not show on the triage dashboard.
-  // To resolve this, we use dryrun mode for 'run without patch'.
-  if (IsTryjobWithoutPatch(base::CommandLine::ForCurrentProcess())) {
+  if (process_command_line->HasSwitch(kDryRun)) {
     cmd.AppendSwitch(kDryRun);
   }
 
@@ -326,11 +384,21 @@ bool SkiaGoldPixelDiff::CompareScreenshot(
   // The golden image name should be unique on GCS per platform. And also the
   // name should be valid across all systems.
   std::string suffix = GetPlatform();
+  std::string normalized_prefix;
   std::string normalized_screenshot_name;
+
   // Parameterized tests have "/" in their names which isn't allowed in file
-  // names. Replace with "_".
-  base::ReplaceChars(screenshot_name, "/", "_", &normalized_screenshot_name);
-  std::string name = prefix_ + "_" + normalized_screenshot_name + "_" + suffix;
+  // names. Replace with `separator`.
+  const std::string separator =
+      suffix == std::string("ash") ? kAshSeparator : kNonAshSeparator;
+  base::ReplaceChars(prefix_, "/", separator, &normalized_prefix);
+  base::ReplaceChars(screenshot_name, "/", separator,
+                     &normalized_screenshot_name);
+  std::string name = normalized_prefix + separator +
+                     normalized_screenshot_name + separator + suffix;
+  CHECK_EQ(name.find_first_of(" /"), std::string::npos)
+      << " a golden image name should not contain any space or back slash";
+
   base::ScopedAllowBlockingForTesting allow_blocking;
   base::FilePath temporary_path =
       working_dir_.Append(base::FilePath::FromUTF8Unsafe(name + ".png"));

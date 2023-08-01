@@ -1,10 +1,11 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/policy/core/common/cloud/cloud_policy_store.h"
 
 #include "base/check.h"
+#include "base/observer_list.h"
 #include "components/policy/core/common/cloud/cloud_external_data_manager.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 
@@ -47,6 +48,12 @@ void CloudPolicyStore::RemoveObserver(CloudPolicyStore::Observer* observer) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   observers_.RemoveObserver(observer);
+}
+
+bool CloudPolicyStore::HasObserver(CloudPolicyStore::Observer* observer) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  return observers_.HasObserver(observer);
 }
 
 void CloudPolicyStore::NotifyStoreLoaded() {
@@ -119,6 +126,11 @@ void CloudPolicyStore::set_policy_data_for_testing(
   } else {
     policy_fetch_response_.reset();
   }
+}
+
+void CloudPolicyStore::set_policy_signature_public_key_for_testing(
+    const std::string& key) {
+  policy_signature_public_key_ = key;
 }
 
 }  // namespace policy

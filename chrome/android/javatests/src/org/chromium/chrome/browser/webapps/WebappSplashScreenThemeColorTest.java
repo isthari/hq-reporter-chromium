@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@ package org.chromium.chrome.browser.webapps;
 
 import android.content.Intent;
 import android.graphics.Color;
-import android.os.Build;
 
 import androidx.test.filters.SmallTest;
 
@@ -16,7 +15,6 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.chrome.browser.browserservices.intents.WebappConstants;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
@@ -39,7 +37,6 @@ public class WebappSplashScreenThemeColorTest {
 
     @Test
     @SmallTest
-    @MinAndroidSdkLevel(Build.VERSION_CODES.LOLLIPOP_MR1)
     @Restriction({UiRestriction.RESTRICTION_TYPE_PHONE})
     // Customizing status bar color is disallowed for tablets.
     @Feature({"StatusBar", "Webapps"})
@@ -56,7 +53,6 @@ public class WebappSplashScreenThemeColorTest {
 
     @Test
     @SmallTest
-    @MinAndroidSdkLevel(Build.VERSION_CODES.LOLLIPOP_MR1)
     @Restriction({UiRestriction.RESTRICTION_TYPE_PHONE})
     // Customizing status bar color is disallowed for tablets.
     @Feature({"StatusBar", "Webapps"})

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #import <NotificationCenter/NotificationCenter.h>
 
-#include "base/check.h"
+#import "base/check.h"
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
 #import "ios/chrome/search_widget_extension/search_widget_constants.h"
 
@@ -26,7 +26,7 @@ const CGFloat kIconSize = 35;
 - (instancetype)initWithActionTarget:(id)target
                       actionSelector:(SEL)actionSelector
                                title:(NSString*)title
-                           imageName:(NSString*)imageName {
+                              symbol:(UIImage*)symbol {
   DCHECK(target);
   self = [super initWithFrame:CGRectZero];
   if (self) {
@@ -90,10 +90,9 @@ const CGFloat kIconSize = 35;
     [self addSubview:stack];
     AddSameConstraints(self, stack);
 
-    UIImage* iconImage = [UIImage imageNamed:imageName];
-    iconImage =
-        [iconImage imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
-    UIImageView* icon = [[UIImageView alloc] initWithImage:iconImage];
+    symbol = [symbol imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+    UIImageView* icon = [[UIImageView alloc] initWithImage:symbol];
+    icon.contentMode = UIViewContentModeCenter;
     icon.translatesAutoresizingMaskIntoConstraints = NO;
     [primaryEffectView.contentView addSubview:icon];
     AddSameConstraints(primaryEffectView.contentView, icon);

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,6 +24,14 @@ void SetProperty(
 
   properties->insert_or_assign(prop, value);
 }
+
+void AddStandardAction(mojom::AccessibilityNodeInfoData* node,
+                       mojom::AccessibilityActionType action_type,
+                       absl::optional<std::string> label = absl::nullopt);
+
+void AddCustomAction(mojom::AccessibilityNodeInfoData* node,
+                     int id,
+                     std::string label);
 
 #define DEF_SET_PROP(data_type, prop_type, data_member_name, value_type) \
   inline void SetProperty(data_type* data, prop_type prop,               \

@@ -1,0 +1,57 @@
+<!doctype html>
+<meta charset=utf-8>
+<meta name=timeout content=long>
+<script src="/common/get-host-info.sub.js"></script>
+<script src="/resources/testharness.js"></script>
+<script src="/resources/testharnessreport.js"></script>
+<script src="resources/helpers.js"></script>
+<body>
+<script>
+attribution_reporting_promise_test(async t => {
+  const otherReportingOrigin = get_host_info().HTTPS_REMOTE_ORIGIN;
+
+  registerAttributionSrcByImg([
+    createRedirectChain([
+      {
+        reportingOrigin: otherReportingOrigin,
+        source: {
+          destination: 'https://{{host}}',
+          source_event_id: '1',
+        },
+      },
+      {
+        reportingOrigin: otherReportingOrigin,
+        trigger: {
+          event_trigger_data: [{trigger_data: '0'}],
+        },
+      },
+    ]),
+    createRedirectChain([
+      {
+        reportingOrigin: otherReportingOrigin,
+        source: {
+          destination: 'https://{{host}}',
+          source_event_id: '2',
+        },
+      },
+      {
+        reportingOrigin: otherReportingOrigin,
+        trigger: {
+          event_trigger_data: [{trigger_data: '1'}],
+        },
+      },
+    ]),
+  ].join(' '));
+
+  {
+    const payload = await pollEventLevelReports(otherReportingOrigin);
+    assert_greater_than(payload.reports.length, 0);
+    // TODO(johnidel): Ideally we could use multiple origins to verify the
+    // report contents, however the remote origin is treated as same-site
+    // to the default reporting origin, and the API forbids multiple
+    // different reporting origins for the same-site. This causes
+    // the registrations of sources and triggers to be racy so we can't
+    // verify 2 reports are received.
+  }
+}, 'Multi-registration succeeds.');
+</script>

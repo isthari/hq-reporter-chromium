@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -83,7 +83,11 @@ export class PathComponent {
     let displayRootFullPath = locationInfo.volumeInfo.displayRoot.fullPath;
 
     const prefixEntry = locationInfo.volumeInfo.prefixEntry;
-    if (prefixEntry) {
+    // Directories under Drive Fake Root can return the fake root entry list as
+    // prefix entry, but we will never show "Google Drive" as the prefix in the
+    // breadcrumb.
+    if (prefixEntry &&
+        prefixEntry.rootType !== VolumeManagerCommon.RootType.DRIVE_FAKE_ROOT) {
       components.push(new PathComponent(
           prefixEntry.name, prefixEntry.toURL(), prefixEntry));
     }
@@ -97,7 +101,7 @@ export class PathComponent {
       if (match) {
         displayRootFullPath = match[0];
       } else {
-        console.error('Unexpected shared DriveFS path: ', entry.fullPath);
+        console.warn('Unexpected shared DriveFS path: ', entry.fullPath);
       }
       displayRootUrl = replaceRootName(displayRootUrl, displayRootFullPath);
       const sharedWithMeFakeEntry =

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/strings/string_util.h"
 #include "chrome/browser/media/router/data_decoder_util.h"
 #include "services/data_decoder/public/cpp/safe_xml_parser.h"
@@ -27,11 +27,12 @@ DialAppState ParseDialAppState(const std::string& app_state) {
 
 void ProcessAdditionalDataElement(const base::Value& additional_data_element,
                                   ParsedDialAppInfo* out_app_info) {
-  const base::Value* child_elements =
+  const base::Value::List* child_elements =
       data_decoder::GetXmlElementChildren(additional_data_element);
-  if (!child_elements || !child_elements->is_list())
+  if (!child_elements) {
     return;
-  for (const auto& child_element : child_elements->GetList()) {
+  }
+  for (const auto& child_element : *child_elements) {
     std::string tag_name;
     if (!data_decoder::GetXmlElementTagName(child_element, &tag_name))
       continue;
@@ -95,7 +96,7 @@ void SafeDialAppInfoParser::Parse(const std::string& xml_text,
                                   ParseCallback callback) {
   DCHECK(callback);
   GetDataDecoder().ParseXml(
-      xml_text,
+      xml_text, data_decoder::mojom::XmlParser::WhitespaceBehavior::kIgnore,
       base::BindOnce(&SafeDialAppInfoParser::OnXmlParsingDone,
                      weak_factory_.GetWeakPtr(), std::move(callback)));
 }
@@ -103,7 +104,7 @@ void SafeDialAppInfoParser::Parse(const std::string& xml_text,
 void SafeDialAppInfoParser::OnXmlParsingDone(
     SafeDialAppInfoParser::ParseCallback callback,
     data_decoder::DataDecoder::ValueOrError result) {
-  if (!result.value || !result.value->is_dict()) {
+  if (!result.has_value() || !result->is_dict()) {
     std::move(callback).Run(nullptr, ParsingResult::kInvalidXML);
     return;
   }
@@ -111,8 +112,8 @@ void SafeDialAppInfoParser::OnXmlParsingDone(
   // NOTE: enforce namespace check for <service> element in future. Namespace
   // value will be "urn:dial-multiscreen-org:schemas:dial".
   bool unique_service = true;
-  const base::Value* service_element = data_decoder::FindXmlElementPath(
-      *result.value, {"service"}, &unique_service);
+  const base::Value* service_element =
+      data_decoder::FindXmlElementPath(*result, {"service"}, &unique_service);
   if (!service_element || !unique_service) {
     std::move(callback).Run(nullptr, ParsingResult::kInvalidXML);
     return;
@@ -125,15 +126,15 @@ void SafeDialAppInfoParser::OnXmlParsingDone(
       data_decoder::GetXmlElementAttribute(*service_element, "dialVer");
 
   // Fetch all the children of <service> element.
-  const base::Value* child_elements =
+  const base::Value::List* child_elements =
       data_decoder::GetXmlElementChildren(*service_element);
-  if (!child_elements || !child_elements->is_list()) {
+  if (!child_elements) {
     std::move(callback).Run(nullptr, ParsingResult::kInvalidXML);
     return;
   }
 
   ParsingResult parsing_result = ParsingResult::kSuccess;
-  for (const auto& child_element : child_elements->GetList()) {
+  for (const auto& child_element : *child_elements) {
     parsing_result = ProcessChildElement(child_element, app_info.get());
     if (parsing_result != ParsingResult::kSuccess) {
       std::move(callback).Run(nullptr, parsing_result);

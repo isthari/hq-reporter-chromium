@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,13 @@
 
 #include <utility>
 
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/metrics/histogram_macros.h"
 #include "components/autofill/content/browser/content_autofill_driver.h"
 #include "components/autofill/core/browser/logging/log_manager.h"
 #include "components/autofill/core/common/form_data.h"
+#include "components/autofill/core/common/unique_ids.h"
 #include "components/password_manager/content/browser/bad_message.h"
 #include "components/password_manager/content/browser/content_password_manager_driver_factory.h"
 #include "components/password_manager/content/browser/form_meta_data.h"
@@ -31,6 +33,10 @@
 #include "net/cert/cert_status_flags.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
 #include "ui/base/page_transition_types.h"
+
+#if BUILDFLAG(IS_ANDROID)
+#include "components/webauthn/android/webauthn_cred_man_delegate.h"
+#endif  // BUILDFLAG(IS_ANDROID)
 
 using autofill::mojom::FocusedFieldType;
 
@@ -88,10 +94,11 @@ ContentPasswordManagerDriver::ContentPasswordManagerDriver(
   // call ContentPasswordManagerDriver::SendLoggingAvailability() on |this| to
   // do it actually.
   if (client_->GetLogManager()) {
-    // Do not call the virtual method SendLoggingAvailability from a constructor
-    // here, inline its steps instead.
-    GetPasswordAutofillAgent()->SetLoggingState(
-        client_->GetLogManager()->IsLoggingActive());
+    if (const auto& agent = GetPasswordAutofillAgent()) {
+      // Do not call the virtual method SendLoggingAvailability from a
+      // constructor here, inline its steps instead.
+      agent->SetLoggingState(client_->GetLogManager()->IsLoggingActive());
+    }
   }
 }
 
@@ -110,25 +117,38 @@ ContentPasswordManagerDriver::GetForRenderFrameHost(
 void ContentPasswordManagerDriver::BindPendingReceiver(
     mojo::PendingAssociatedReceiver<autofill::mojom::PasswordManagerDriver>
         pending_receiver) {
+  if (render_frame_host_->IsCredentialless())
+    return;
   password_manager_receiver_.Bind(std::move(pending_receiver));
+}
+
+void ContentPasswordManagerDriver::UnbindReceiver() {
+  password_manager_receiver_.reset();
 }
 
 int ContentPasswordManagerDriver::GetId() const {
   return id_;
 }
 
-void ContentPasswordManagerDriver::FillPasswordForm(
+int ContentPasswordManagerDriver::GetFrameId() const {
+  // Use the associated FrameTreeNode ID as the Frame ID.
+  return render_frame_host_->GetFrameTreeNodeId();
+}
+
+void ContentPasswordManagerDriver::SetPasswordFillData(
     const autofill::PasswordFormFillData& form_data) {
   password_autofill_manager_.OnAddPasswordFillData(form_data);
-  GetPasswordAutofillAgent()->FillPasswordForm(
-      autofill::MaybeClearPasswordValues(form_data));
+  if (const auto& agent = GetPasswordAutofillAgent()) {
+    agent->SetPasswordFillData(autofill::MaybeClearPasswordValues(form_data));
+  }
 }
 
 void ContentPasswordManagerDriver::InformNoSavedCredentials(
     bool should_show_popup_without_passwords) {
   GetPasswordAutofillManager()->OnNoCredentialsFound();
-  GetPasswordAutofillAgent()->InformNoSavedCredentials(
-      should_show_popup_without_passwords);
+  if (const auto& agent = GetPasswordAutofillAgent()) {
+    agent->InformNoSavedCredentials(should_show_popup_without_passwords);
+  }
 }
 
 void ContentPasswordManagerDriver::FormEligibleForGenerationFound(
@@ -160,11 +180,6 @@ void ContentPasswordManagerDriver::GeneratedPasswordAccepted(
       generation_element_id, password);
 }
 
-void ContentPasswordManagerDriver::TouchToFillClosed(
-    ShowVirtualKeyboard show_virtual_keyboard) {
-  GetPasswordAutofillAgent()->TouchToFillClosed(show_virtual_keyboard.value());
-}
-
 void ContentPasswordManagerDriver::FillSuggestion(
     const std::u16string& username,
     const std::u16string& password) {
@@ -174,10 +189,18 @@ void ContentPasswordManagerDriver::FillSuggestion(
 void ContentPasswordManagerDriver::FillIntoFocusedField(
     bool is_password,
     const std::u16string& credential) {
-  GetPasswordAutofillAgent()->FillIntoFocusedField(is_password, credential);
+  if (const auto& agent = GetPasswordAutofillAgent()) {
+    agent->FillIntoFocusedField(is_password, credential);
+  }
 }
 
 #if BUILDFLAG(IS_ANDROID)
+void ContentPasswordManagerDriver::KeyboardReplacingSurfaceClosed(
+    ShowVirtualKeyboard show_virtual_keyboard) {
+  GetPasswordAutofillAgent()->KeyboardReplacingSurfaceClosed(
+      show_virtual_keyboard.value());
+}
+
 void ContentPasswordManagerDriver::TriggerFormSubmission() {
   GetPasswordAutofillAgent()->TriggerFormSubmission();
 }
@@ -189,8 +212,19 @@ void ContentPasswordManagerDriver::PreviewSuggestion(
   GetAutofillAgent()->PreviewPasswordSuggestion(username, password);
 }
 
+void ContentPasswordManagerDriver::PreviewGenerationSuggestion(
+    const std::u16string& password) {
+  GetAutofillAgent()->PreviewPasswordGenerationSuggestion(password);
+}
+
 void ContentPasswordManagerDriver::ClearPreviewedForm() {
   GetAutofillAgent()->ClearPreviewedForm();
+}
+
+void ContentPasswordManagerDriver::SetSuggestionAvailability(
+    autofill::FieldRendererId generation_element_id,
+    const autofill::mojom::AutofillState state) {
+  GetAutofillAgent()->SetSuggestionAvailability(generation_element_id, state);
 }
 
 PasswordGenerationFrameHelper*
@@ -208,8 +242,9 @@ ContentPasswordManagerDriver::GetPasswordAutofillManager() {
 }
 
 void ContentPasswordManagerDriver::SendLoggingAvailability() {
-  GetPasswordAutofillAgent()->SetLoggingState(
-      client_->GetLogManager()->IsLoggingActive());
+  if (const auto& agent = GetPasswordAutofillAgent()) {
+    agent->SetLoggingState(client_->GetLogManager()->IsLoggingActive());
+  }
 }
 
 bool ContentPasswordManagerDriver::IsInPrimaryMainFrame() const {
@@ -231,7 +266,9 @@ const GURL& ContentPasswordManagerDriver::GetLastCommittedURL() const {
 
 void ContentPasswordManagerDriver::AnnotateFieldsWithParsingResult(
     const autofill::ParsingResult& parsing_result) {
-  GetPasswordAutofillAgent()->AnnotateFieldsWithParsingResult(parsing_result);
+  if (const auto& agent = GetPasswordAutofillAgent()) {
+    agent->AnnotateFieldsWithParsingResult(parsing_result);
+  }
 }
 
 void ContentPasswordManagerDriver::GeneratePassword(
@@ -259,8 +296,7 @@ void ContentPasswordManagerDriver::PasswordFormsParsed(
 }
 
 void ContentPasswordManagerDriver::PasswordFormsRendered(
-    const std::vector<autofill::FormData>& raw_forms,
-    bool did_stop_loading) {
+    const std::vector<autofill::FormData>& raw_forms) {
   if (!password_manager::bad_message::CheckFrameNotPrerendering(
           render_frame_host_))
     return;
@@ -274,7 +310,7 @@ void ContentPasswordManagerDriver::PasswordFormsRendered(
   for (auto& form : forms)
     SetFrameAndFormMetaData(render_frame_host_, form);
 
-  GetPasswordManager()->OnPasswordFormsRendered(this, forms, did_stop_loading);
+  GetPasswordManager()->OnPasswordFormsRendered(this, forms);
 }
 
 void ContentPasswordManagerDriver::PasswordFormSubmitted(
@@ -360,7 +396,10 @@ void ContentPasswordManagerDriver::RecordSavePasswordProgress(
   // chrome://password-manager-internals based debugging.
   if (GetLastCommittedURL().SchemeIs(content::kChromeUIScheme))
     return;
-  client_->GetLogManager()->LogTextMessage(log);
+  LOG_AF(client_->GetLogManager())
+      << autofill::Tag{"div"}
+      << autofill::Attrib{"class", "preserve-white-space"} << log
+      << autofill::CTag{"div"};
 }
 
 void ContentPasswordManagerDriver::UserModifiedPasswordField() {
@@ -369,17 +408,25 @@ void ContentPasswordManagerDriver::UserModifiedPasswordField() {
     return;
   if (client_->GetMetricsRecorder())
     client_->GetMetricsRecorder()->RecordUserModifiedPasswordField();
+  // A user has modified an input field, it wouldn't be a submission "after
+  // Touch To Fill".
+  client_->ResetSubmissionTrackingAfterTouchToFill();
 }
 
 void ContentPasswordManagerDriver::UserModifiedNonPasswordField(
     autofill::FieldRendererId renderer_id,
     const std::u16string& field_name,
-    const std::u16string& value) {
+    const std::u16string& value,
+    bool autocomplete_attribute_has_username) {
   if (!password_manager::bad_message::CheckFrameNotPrerendering(
           render_frame_host_))
     return;
-  GetPasswordManager()->OnUserModifiedNonPasswordField(this, renderer_id,
-                                                       field_name, value);
+  GetPasswordManager()->OnUserModifiedNonPasswordField(
+      this, renderer_id, field_name, value,
+      autocomplete_attribute_has_username);
+  // A user has modified an input field, it wouldn't be a submission "after
+  // Touch To Fill".
+  client_->ResetSubmissionTrackingAfterTouchToFill();
 }
 
 void ContentPasswordManagerDriver::ShowPasswordSuggestions(
@@ -395,12 +442,36 @@ void ContentPasswordManagerDriver::ShowPasswordSuggestions(
       TransformToRootCoordinates(render_frame_host_, bounds));
 }
 
-void ContentPasswordManagerDriver::ShowTouchToFill() {
+#if BUILDFLAG(IS_ANDROID)
+void ContentPasswordManagerDriver::ShowKeyboardReplacingSurface(
+    autofill::mojom::SubmissionReadinessState submission_readiness,
+    bool is_webauthn_form) {
   if (!password_manager::bad_message::CheckFrameNotPrerendering(
-          render_frame_host_))
+          render_frame_host_)) {
     return;
-  client_->ShowTouchToFill(this);
+  }
+  if (is_webauthn_form && WebAuthnCredManDelegate::IsCredManEnabled()) {
+    WebAuthnCredManDelegate* cred_man_delegate =
+        WebAuthnCredManDelegate::GetRequestDelegate(
+            content::WebContents::FromRenderFrameHost(render_frame_host_));
+    // webauthn forms without passkeys should show TouchToFill bottom sheet.
+    if (cred_man_delegate->HasResults()) {
+      auto cred_man_request_completion_cb =
+          base::BindRepeating(
+              [](bool success) { return ShowVirtualKeyboard(!success); })
+              .Then(base::BindRepeating(
+                  &ContentPasswordManagerDriver::KeyboardReplacingSurfaceClosed,
+                  weak_factory_.GetWeakPtr()));
+
+      cred_man_delegate->SetRequestCompletionCallback(
+          std::move(cred_man_request_completion_cb));
+      cred_man_delegate->TriggerFullRequest();
+      return;
+    }
+  }
+  client_->ShowTouchToFill(this, submission_readiness);
 }
+#endif
 
 void ContentPasswordManagerDriver::CheckSafeBrowsingReputation(
     const GURL& form_action,
@@ -408,11 +479,6 @@ void ContentPasswordManagerDriver::CheckSafeBrowsingReputation(
   if (!password_manager::bad_message::CheckFrameNotPrerendering(
           render_frame_host_))
     return;
-  // Despite the name, this method is only called on password fields.
-  // (See PasswordAutofillAgent::MaybeCheckSafeBrowsingReputation())
-  if (client_->GetMetricsRecorder()) {
-    client_->GetMetricsRecorder()->RecordUserFocusedPasswordField();
-  }
 #if defined(ON_FOCUS_PING_ENABLED)
   client_->CheckSafeBrowsingReputation(form_action, frame_url);
 #endif
@@ -467,9 +533,13 @@ ContentPasswordManagerDriver::GetAutofillAgent() {
 
 const mojo::AssociatedRemote<autofill::mojom::PasswordAutofillAgent>&
 ContentPasswordManagerDriver::GetPasswordAutofillAgent() {
-  DCHECK(!password_autofill_agent_ ||
-         (content::RenderFrameHost::LifecycleState::kPrerendering !=
-          render_frame_host_->GetLifecycleState()));
+  if (render_frame_host_->IsCredentialless() ||
+      render_frame_host_->GetLifecycleState() ==
+          content::RenderFrameHost::LifecycleState::kPrerendering) {
+    password_autofill_agent_.reset();
+    return password_autofill_agent_;  // Unbound remote.
+  }
+
   if (!password_autofill_agent_) {
     // Some test environments may have no remote interface support.
     if (render_frame_host_->GetRemoteAssociatedInterfaces()) {

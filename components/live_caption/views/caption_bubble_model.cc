@@ -1,9 +1,11 @@
-// Copyright (c) 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/live_caption/views/caption_bubble_model.h"
 
+#include "base/functional/callback_forward.h"
+#include "base/metrics/histogram_functions.h"
 #include "components/live_caption/caption_bubble_context.h"
 #include "components/live_caption/views/caption_bubble.h"
 
@@ -15,8 +17,11 @@ constexpr int kMaxLines = 9;
 
 namespace captions {
 
-CaptionBubbleModel::CaptionBubbleModel(CaptionBubbleContext* context)
-    : context_(context) {
+CaptionBubbleModel::CaptionBubbleModel(CaptionBubbleContext* context,
+                                       OnCaptionBubbleClosedCallback callback)
+    : unique_id_(GetNextId()),
+      caption_bubble_closed_callback_(callback),
+      context_(context) {
   DCHECK(context_);
 }
 
@@ -31,7 +36,10 @@ void CaptionBubbleModel::SetObserver(CaptionBubble* observer) {
   observer_ = observer;
   if (observer_) {
     observer_->OnTextChanged();
-    observer_->OnErrorChanged();
+    observer_->OnErrorChanged(
+        CaptionBubbleErrorType::kGeneric, base::RepeatingClosure(),
+        base::BindRepeating(
+            [](CaptionBubbleErrorType error_type, bool checked) {}));
   }
 }
 
@@ -50,8 +58,16 @@ void CaptionBubbleModel::SetPartialText(const std::string& partial_text) {
   if (has_error_) {
     has_error_ = false;
     if (observer_)
-      observer_->OnErrorChanged();
+      observer_->OnErrorChanged(
+          CaptionBubbleErrorType::kGeneric, base::RepeatingClosure(),
+          base::BindRepeating(
+              [](CaptionBubbleErrorType error_type, bool checked) {}));
   }
+}
+
+void CaptionBubbleModel::CloseButtonPressed() {
+  caption_bubble_closed_callback_.Run(context_->GetSessionId());
+  Close();
 }
 
 void CaptionBubbleModel::Close() {
@@ -59,15 +75,18 @@ void CaptionBubbleModel::Close() {
   ClearText();
 }
 
-void CaptionBubbleModel::Open() {
-  is_closed_ = false;
-  OnTextChanged();
-}
-
-void CaptionBubbleModel::OnError() {
+void CaptionBubbleModel::OnError(
+    CaptionBubbleErrorType error_type,
+    OnErrorClickedCallback error_clicked_callback,
+    OnDoNotShowAgainClickedCallback error_silenced_callback) {
   has_error_ = true;
-  if (observer_)
-    observer_->OnErrorChanged();
+  error_type_ = error_type;
+  if (observer_) {
+    base::UmaHistogramEnumeration(
+        "Accessibility.LiveCaption.CaptionBubbleError", error_type);
+    observer_->OnErrorChanged(error_type, std::move(error_clicked_callback),
+                              std::move(error_silenced_callback));
+  }
 }
 
 void CaptionBubbleModel::ClearText() {
@@ -91,6 +110,12 @@ void CaptionBubbleModel::CommitPartialText() {
     final_text_.erase(0, truncate_index);
     OnTextChanged();
   }
+}
+
+// static
+CaptionBubbleModel::Id CaptionBubbleModel::GetNextId() {
+  static Id::Generator generator;
+  return generator.GenerateNextId();
 }
 
 }  // namespace captions

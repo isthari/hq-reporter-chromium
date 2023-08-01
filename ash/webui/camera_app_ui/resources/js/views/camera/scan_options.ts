@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@ import {CameraManager, CameraUI} from '../../device/index.js';
 import * as dom from '../../dom.js';
 import {sendBarcodeEnabledEvent} from '../../metrics.js';
 import {BarcodeScanner} from '../../models/barcode.js';
+import {ChromeHelper} from '../../mojo/chrome_helper.js';
 import * as state from '../../state.js';
 import {Mode, PreviewVideo} from '../../type.js';
 import {assertEnumVariant} from '../../util.js';
@@ -19,26 +20,26 @@ enum ScanType {
   DOCUMENT = 'document',
 }
 
+/**
+ * Gets the scan type from element's data-scantype.
+ */
 function getScanTypeFromElement(el: HTMLInputElement): ScanType {
   return assertEnumVariant(ScanType, el.dataset['scantype']);
 }
 
-function getElemetFromScanType(type: ScanType): HTMLInputElement {
+/**
+ * Gets HTMLInputElements that has the given scan type.
+ */
+function getElementFromScanType(type: ScanType): HTMLInputElement {
   return dom.get(`input[data-scantype=${type}]`, HTMLInputElement);
 }
 
-const DEFAULT_SCAN_TYPE = ScanType.DOCUMENT;
+type ScanOptionsChangeListener = () => void;
 
 /**
  * Controller for the scan options of Camera view.
  */
 export class ScanOptions implements CameraUI {
-  /**
-   * Togglable barcode option in photo mode.
-   */
-  private readonly photoBarcodeOption =
-      dom.get('#toggle-barcode', HTMLInputElement);
-
   private readonly scanOptions =
       [...dom.getAll('#scan-modes-group [data-scantype]', HTMLInputElement)];
 
@@ -49,45 +50,68 @@ export class ScanOptions implements CameraUI {
    */
   private barcodeScanner: BarcodeScanner|null = null;
 
-  private readonly documentCornerOverylay: DocumentCornerOverlay;
+  private readonly documentCornerOverlay: DocumentCornerOverlay;
+
+  private readonly onChangeListeners = new Set<ScanOptionsChangeListener>();
 
   /**
-   * Called when scan option changed.
-   * TODO(pihsun): Change to use a setter function to set this callback,
-   * instead of a public property.
-   */
-  onChange = (): void => {
-    // Do nothing.
-  };
-
-  /*
-   * @param updatePointOfInterest function to update point of interest on the
-   *     stream.
+   * @param cameraManager Camera manager instance.
    */
   constructor(private readonly cameraManager: CameraManager) {
     this.cameraManager.registerCameraUI(this);
 
-    this.documentCornerOverylay = new DocumentCornerOverlay(
+    this.documentCornerOverlay = new DocumentCornerOverlay(
         (p) => this.cameraManager.setPointOfInterest(p));
 
-    [this.photoBarcodeOption, ...this.scanOptions].forEach((opt) => {
-      opt.addEventListener('click', (evt) => {
+    // By default, the checked scan type is barcode unless the document mode is
+    // ready.
+    dom.get('#scan-barcode', HTMLInputElement).checked = true;
+
+    (async () => {
+      const {supported} =
+          await ChromeHelper.getInstance().getDocumentScannerReadyState();
+      dom.get('#scan-document-option', HTMLElement).hidden = !supported;
+    })();
+
+    for (const option of this.scanOptions) {
+      option.addEventListener('click', (evt) => {
         if (state.get(state.State.CAMERA_CONFIGURING)) {
           evt.preventDefault();
         }
       });
-    });
-    this.photoBarcodeOption.addEventListener('change', () => {
-      this.updateOption(
-          this.photoBarcodeOption.checked ? ScanType.BARCODE : null);
-    });
-    this.scanOptions.forEach((opt) => {
-      opt.addEventListener('change', () => {
-        if (opt.checked) {
+      option.addEventListener('change', () => {
+        if (option.checked) {
           this.updateOption(this.getToggledScanOption());
         }
       });
-    });
+    }
+  }
+
+  async checkDocumentModeReadiness(): Promise<boolean> {
+    const isLoaded =
+        await ChromeHelper.getInstance().checkDocumentModeReadiness();
+    if (isLoaded) {
+      this.onDocumentModeReady();
+    }
+    return isLoaded;
+  }
+
+  onDocumentModeReady(): void {
+    const docModeOption = dom.get('#scan-document-option', HTMLDivElement);
+    docModeOption.classList.remove('disabled');
+
+    const docBtn = dom.get('#scan-document', HTMLInputElement);
+    docBtn.disabled = false;
+    if (!state.get(Mode.SCAN)) {
+      docBtn.checked = true;
+    }
+  }
+
+  /**
+   * Add listener for scan options change.
+   */
+  addOnChangeListener(listener: ScanOptionsChangeListener): void {
+    this.onChangeListeners.add(listener);
   }
 
   /**
@@ -101,18 +125,20 @@ export class ScanOptions implements CameraUI {
   async onUpdateConfig(): Promise<void> {
     assert(!this.previewAvailable());
 
-    this.video = this.cameraManager.getPreviewVideo();
-    this.barcodeScanner = new BarcodeScanner(this.video.video, (value) => {
+    const video = this.cameraManager.getPreviewVideo();
+    this.video = video;
+    this.barcodeScanner = new BarcodeScanner(video.video, (value) => {
       barcodeChip.show(value);
     });
-    const {deviceId} = this.video.getVideoSettings();
-    this.documentCornerOverylay.attach(deviceId);
-    const scanType = state.get(Mode.SCAN) ? this.getToggledScanOption() : null;
+    const {deviceId} = video.getVideoSettings();
+    this.documentCornerOverlay.attach(deviceId);
+    const scanType = this.getToggledScanOption();
     (async () => {
-      await this.video.onExpired;
+      await video.onExpired.wait();
       this.detachPreview();
     })();
     await this.updateOption(scanType);
+    this.checkDocumentModeReadiness();
   }
 
   /**
@@ -121,27 +147,26 @@ export class ScanOptions implements CameraUI {
    */
   private getToggledScanOption(): ScanType {
     const checkedEl = this.scanOptions.find(({checked}) => checked);
-    return checkedEl === undefined ? DEFAULT_SCAN_TYPE :
-                                     getScanTypeFromElement(checkedEl);
+    assert(checkedEl !== undefined);
+    return getScanTypeFromElement(checkedEl);
   }
 
-  isDocumentModeEanbled(): boolean {
-    return this.documentCornerOverylay.isEnabled();
+  isDocumentModeEnabled(): boolean {
+    return this.documentCornerOverlay.isEnabled();
   }
 
   /**
    * @param scanType Scan type to be enabled, null for no type is
    *     enabled.
    */
-  private async updateOption(scanType: ScanType|null) {
+  private async updateOption(scanType: ScanType) {
     if (!this.previewAvailable()) {
       return;
     }
     assert(this.barcodeScanner !== null);
 
-    this.updateOptionsUI(scanType);
-    const mode = state.get(state.State.SHOW_SCAN_MODE) ? Mode.SCAN : Mode.PHOTO;
-    if (state.get(mode) && scanType === ScanType.BARCODE) {
+    getElementFromScanType(scanType).checked = true;
+    if (state.get(Mode.SCAN) && scanType === ScanType.BARCODE) {
       sendBarcodeEnabledEvent();
       this.barcodeScanner.start();
       state.set(state.State.ENABLE_SCAN_BARCODE, true);
@@ -150,37 +175,31 @@ export class ScanOptions implements CameraUI {
     }
 
     if (state.get(Mode.SCAN) && scanType === ScanType.DOCUMENT) {
-      await this.documentCornerOverylay.start();
+      await this.documentCornerOverlay.start();
     } else {
-      await this.documentCornerOverylay.stop();
+      this.documentCornerOverlay.stop();
     }
 
-    this.onChange();
+    for (const listener of this.onChangeListeners) {
+      listener();
+    }
   }
 
   private stopBarcodeScanner() {
+    assert(this.barcodeScanner !== null);
     this.barcodeScanner.stop();
     barcodeChip.dismiss();
     state.set(state.State.ENABLE_SCAN_BARCODE, false);
   }
 
-  private updateOptionsUI(scanType: ScanType|null) {
-    if (state.get(Mode.SCAN)) {
-      assert(scanType !== null);
-      getElemetFromScanType(scanType).checked = true;
-    } else if (state.get(Mode.PHOTO)) {
-      this.photoBarcodeOption.checked = scanType === ScanType.BARCODE;
-    }
-  }
-
   /**
    * Stops all scanner and detach from current preview.
    */
-  private async detachPreview(): Promise<void> {
+  private detachPreview(): void {
     if (this.barcodeScanner !== null) {
       this.stopBarcodeScanner();
       this.barcodeScanner = null;
     }
-    await this.documentCornerOverylay.detach();
+    this.documentCornerOverlay.detach();
   }
 }

@@ -1,4 +1,4 @@
-// Copyright (c) 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,16 +7,18 @@
 
 #include <memory>
 
-#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/supports_user_data.h"
 #include "base/time/time.h"
 #include "net/base/net_export.h"
 #include "net/der/parse_values.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace net {
 
 class CertNetFetcher;
 class CertVerifyProc;
+class CRLSet;
 class SystemTrustStore;
 
 class NET_EXPORT CertVerifyProcBuiltinResultDebugData
@@ -24,13 +26,15 @@ class NET_EXPORT CertVerifyProcBuiltinResultDebugData
  public:
   CertVerifyProcBuiltinResultDebugData(
       base::Time verification_time,
-      const der::GeneralizedTime& der_verification_time);
+      const der::GeneralizedTime& der_verification_time,
+      absl::optional<int64_t> chrome_root_store_version);
 
   static const CertVerifyProcBuiltinResultDebugData* Get(
       const base::SupportsUserData* debug_data);
   static void Create(base::SupportsUserData* debug_data,
                      base::Time verification_time,
-                     const der::GeneralizedTime& der_verification_time);
+                     const der::GeneralizedTime& der_verification_time,
+                     absl::optional<int64_t> chrome_root_store_version);
 
   // base::SupportsUserData::Data implementation:
   std::unique_ptr<Data> Clone() override;
@@ -39,10 +43,14 @@ class NET_EXPORT CertVerifyProcBuiltinResultDebugData
   const der::GeneralizedTime& der_verification_time() const {
     return der_verification_time_;
   }
+  absl::optional<int64_t> chrome_root_store_version() const {
+    return chrome_root_store_version_;
+  }
 
  private:
   base::Time verification_time_;
   der::GeneralizedTime der_verification_time_;
+  absl::optional<int64_t> chrome_root_store_version_;
 };
 
 // TODO(crbug.com/649017): This is not how other cert_verify_proc_*.h are
@@ -50,6 +58,7 @@ class NET_EXPORT CertVerifyProcBuiltinResultDebugData
 // here too.
 NET_EXPORT scoped_refptr<CertVerifyProc> CreateCertVerifyProcBuiltin(
     scoped_refptr<CertNetFetcher> net_fetcher,
+    scoped_refptr<CRLSet> crl_set,
     std::unique_ptr<SystemTrustStore> system_trust_store);
 
 // Returns the time limit used by CertVerifyProcBuiltin. Intended for test use.

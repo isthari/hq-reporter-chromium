@@ -31,6 +31,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_FILEAPI_URL_REGISTRY_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_FILEAPI_URL_REGISTRY_H_
 
+#include "base/notreached.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "third_party/blink/public/mojom/blob/blob.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
@@ -39,7 +40,6 @@
 namespace blink {
 
 class KURL;
-class SecurityOrigin;
 class URLRegistry;
 
 class CORE_EXPORT URLRegistrable {
@@ -55,7 +55,7 @@ class CORE_EXPORT URLRegistry {
 
  public:
   virtual ~URLRegistry() = default;
-  virtual void RegisterURL(SecurityOrigin*, const KURL&, URLRegistrable*) = 0;
+  virtual void RegisterURL(const KURL&, URLRegistrable*) = 0;
   virtual void UnregisterURL(const KURL&) = 0;
 
   // These are optional APIs

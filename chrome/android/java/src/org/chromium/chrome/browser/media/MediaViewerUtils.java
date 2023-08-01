@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,13 +15,13 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.net.Uri;
-import android.os.Build;
 import android.provider.Browser;
 import android.text.TextUtils;
 
+import androidx.annotation.OptIn;
 import androidx.browser.customtabs.CustomTabsIntent;
+import androidx.core.os.BuildCompat;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.IntentUtils;
 import org.chromium.base.SysUtils;
@@ -31,7 +31,6 @@ import org.chromium.chrome.R;
 import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntentDataProvider.CustomTabsUiType;
 import org.chromium.chrome.browser.customtabs.CustomTabIntentDataProvider;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.ui.util.ColorUtils;
 
 import java.util.Locale;
@@ -80,9 +79,14 @@ public class MediaViewerUtils {
             Intent chooserIntent = Intent.createChooser(viewIntent, null);
             chooserIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             String openWithStr = context.getString(R.string.download_manager_open_with);
+
+            // TODO(https://crbug.com/1428364): PendingIntents are no longer allowed to be both
+            // mutable and implicit. Since this must be mutable, we need to set a component and then
+            // remove the FLAG_ALLOW_UNSAFE_IMPLICIT_INTENT flag.
             PendingIntent pendingViewIntent = PendingIntent.getActivity(context, 0, chooserIntent,
                     PendingIntent.FLAG_CANCEL_CURRENT
-                            | IntentUtils.getPendingIntentMutabilityFlag(true));
+                            | IntentUtils.getPendingIntentMutabilityFlag(true)
+                            | getAllowUnsafeImplicitIntentFlag());
             builder.addMenuItem(openWithStr, pendingViewIntent);
         }
 
@@ -90,10 +94,14 @@ public class MediaViewerUtils {
         // If the URI is a file URI and the Android version is N or later, this will throw a
         // FileUriExposedException. In this case, we just don't add the share button.
         if (!willExposeFileUri(contentUri)) {
+            // TODO(https://crbug.com/1428364): PendingIntents are no longer allowed to be both
+            // mutable and implicit. Since this must be mutable, we need to set a component and then
+            // remove the FLAG_ALLOW_UNSAFE_IMPLICIT_INTENT flag.
             PendingIntent pendingShareIntent =
                     PendingIntent.getActivity(context, 0, createShareIntent(contentUri, mimeType),
                             PendingIntent.FLAG_CANCEL_CURRENT
-                                    | IntentUtils.getPendingIntentMutabilityFlag(true));
+                                    | IntentUtils.getPendingIntentMutabilityFlag(true)
+                                    | getAllowUnsafeImplicitIntentFlag());
             builder.setActionButton(
                     shareIcon, context.getString(R.string.share), pendingShareIntent, true);
         }
@@ -105,7 +113,7 @@ public class MediaViewerUtils {
         } else {
             backgroundRes = R.color.media_viewer_bg;
         }
-        int mediaColor = ApiCompatibilityUtils.getColor(context.getResources(), backgroundRes);
+        int mediaColor = context.getColor(backgroundRes);
 
         // Build up the Intent further.
         Intent intent = builder.build().intent;
@@ -237,9 +245,8 @@ public class MediaViewerUtils {
     }
 
     private static boolean shouldEnableMediaLauncherActivity() {
-        return sIsMediaLauncherActivityForceEnabledForTest
-                || ((SysUtils.isAndroidGo() || isEnterpriseManaged())
-                        && ChromeFeatureList.isEnabled(ChromeFeatureList.HANDLE_MEDIA_INTENTS));
+        return sIsMediaLauncherActivityForceEnabledForTest || SysUtils.isAndroidGo()
+                || isEnterpriseManaged();
     }
 
     private static boolean shouldEnableAudioLauncherActivity() {
@@ -277,9 +284,19 @@ public class MediaViewerUtils {
 
     private static boolean willExposeFileUri(Uri uri) {
         assert uri != null && !uri.equals(Uri.EMPTY) : "URI is not successfully generated.";
+        return uri.getScheme().equals(ContentResolver.SCHEME_FILE);
+    }
 
-        // On Android N and later, an Exception is thrown if we try to expose a file:// URI.
-        return uri.getScheme().equals(ContentResolver.SCHEME_FILE)
-                && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N;
+    @OptIn(markerClass = androidx.core.os.BuildCompat.PrereleaseSdkCheck.class)
+    private static int getAllowUnsafeImplicitIntentFlag() {
+        if (BuildCompat.isAtLeastU()) {
+            try {
+                return PendingIntent.class.getDeclaredField("FLAG_ALLOW_UNSAFE_IMPLICIT_INTENT")
+                        .getInt(null);
+            } catch (IllegalAccessException | NoSuchFieldException e) {
+                assert false : "Unsafe implicit PendingIntent may fail to run.";
+            }
+        }
+        return 0;
     }
 }

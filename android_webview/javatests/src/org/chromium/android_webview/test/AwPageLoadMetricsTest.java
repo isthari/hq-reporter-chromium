@@ -1,10 +1,8 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.android_webview.test;
-
-import static org.junit.Assert.assertEquals;
 
 import android.os.SystemClock;
 import android.view.KeyEvent;
@@ -18,9 +16,10 @@ import org.junit.Test;
 
 import org.chromium.android_webview.AwContents;
 import org.chromium.android_webview.metrics.AwMetricsServiceClient;
-import org.chromium.base.metrics.RecordHistogram;
+import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.MetricsUtils;
+import org.chromium.base.test.util.HistogramWatcher;
+import org.chromium.base.test.util.RequiresRestart;
 import org.chromium.blink.mojom.WebFeature;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.test.util.TestWebServer;
@@ -30,6 +29,7 @@ import java.util.concurrent.Callable;
 /**
  * Integration test for PageLoadMetrics.
  */
+@Batch(Batch.PER_CLASS)
 public class AwPageLoadMetricsTest {
     private static final String MAIN_FRAME_FILE = "/main_frame.html";
 
@@ -37,7 +37,6 @@ public class AwPageLoadMetricsTest {
     public AwActivityTestRule mRule = new AwActivityTestRule();
 
     private AwTestContainerView mTestContainerView;
-    private AwContents mAwContents;
     private TestAwContentsClient mContentsClient;
     private TestWebServer mWebServer;
 
@@ -45,7 +44,7 @@ public class AwPageLoadMetricsTest {
     public void setUp() throws Exception {
         mContentsClient = new TestAwContentsClient();
         mTestContainerView = mRule.createAwTestContainerViewOnMainSync(mContentsClient);
-        mAwContents = mTestContainerView.getAwContents();
+        AwContents mAwContents = mTestContainerView.getAwContents();
         AwActivityTestRule.enableJavaScriptOnUiThread(mAwContents);
         mWebServer = TestWebServer.start();
     }
@@ -70,14 +69,16 @@ public class AwPageLoadMetricsTest {
     public void testUseCounterMetrics() throws Throwable {
         final String data = "<html><head></head><body><form></form></body></html>";
         final String url = mWebServer.setResponse(MAIN_FRAME_FILE, data, null);
-        MetricsUtils.HistogramDelta delta = new MetricsUtils.HistogramDelta(
-                "Blink.UseCounter.MainFrame.Features", WebFeature.PAGE_VISITS);
-        MetricsUtils.HistogramDelta form = new MetricsUtils.HistogramDelta(
-                "Blink.UseCounter.Features", WebFeature.FORM_ELEMENT);
+        var histograms =
+                HistogramWatcher.newBuilder()
+                        .expectIntRecord(
+                                "Blink.UseCounter.MainFrame.Features", WebFeature.PAGE_VISITS)
+                        .expectIntRecord("Blink.UseCounter.Features", WebFeature.FORM_ELEMENT)
+                        .allowExtraRecordsForHistogramsAbove()
+                        .build();
         loadUrlSync(url);
         loadUrlSync("about:blank");
-        assertEquals(1, delta.getDelta());
-        assertEquals(1, form.getDelta());
+        histograms.assertExpected();
     }
 
     /**
@@ -86,31 +87,27 @@ public class AwPageLoadMetricsTest {
     @Test
     @SmallTest
     @Feature({"AndroidWebView"})
-    public void testHeartbeatMetrics() throws Throwable {
+    @RequiresRestart("NavigationToFirstPaint is only recorded once, making the test fail "
+            + "when run in a batch and being the first test.")
+    public void
+    testHeartbeatMetrics() throws Throwable {
         final String data = "<html><head></head><body><p>Hello World</p></body></html>";
         final String url = mWebServer.setResponse(MAIN_FRAME_FILE, data, null);
-        int navigationToFirstPaint = RecordHistogram.getHistogramTotalCountForTesting(
-                "PageLoad.PaintTiming.NavigationToFirstPaint");
-        int navigationToFirstContentfulPaint = RecordHistogram.getHistogramTotalCountForTesting(
-                "PageLoad.PaintTiming.NavigationToFirstContentfulPaint");
-        int navigationToLargestContentfulPaint = RecordHistogram.getHistogramTotalCountForTesting(
-                "PageLoad.PaintTiming.NavigationToLargestContentfulPaint2");
+        var histograms =
+                HistogramWatcher.newBuilder()
+                        .expectAnyRecord("PageLoad.PaintTiming.NavigationToFirstPaint")
+                        .expectAnyRecord("PageLoad.PaintTiming.NavigationToFirstContentfulPaint")
+                        .build();
         loadUrlSync(url);
-        AwActivityTestRule.pollInstrumentationThread(
-                () -> (1 + navigationToFirstPaint
-                        == RecordHistogram.getHistogramTotalCountForTesting(
-                                "PageLoad.PaintTiming.NavigationToFirstPaint")));
-        AwActivityTestRule.pollInstrumentationThread(
-                () -> (1 + navigationToFirstContentfulPaint
-                        == RecordHistogram.getHistogramTotalCountForTesting(
-                                "PageLoad.PaintTiming.NavigationToFirstContentfulPaint")));
+        histograms.pollInstrumentationThreadUntilSatisfied();
+
         // Flush NavigationToLargestContentfulPaint.
+        histograms =
+                HistogramWatcher.newBuilder()
+                        .expectAnyRecord("PageLoad.PaintTiming.NavigationToLargestContentfulPaint2")
+                        .build();
         loadUrlSync("about:blank");
-        AwActivityTestRule.pollInstrumentationThread(
-                ()
-                        -> (1 + navigationToLargestContentfulPaint
-                                == RecordHistogram.getHistogramTotalCountForTesting(
-                                        "PageLoad.PaintTiming.NavigationToLargestContentfulPaint2")));
+        histograms.pollInstrumentationThreadUntilSatisfied();
     }
 
     /**
@@ -124,15 +121,25 @@ public class AwPageLoadMetricsTest {
                 + "<p>Hello World</p><input type='text' id='text1'>"
                 + "</body></html>";
         final String url = mWebServer.setResponse(MAIN_FRAME_FILE, data, null);
-        int firstInputDelay4 = RecordHistogram.getHistogramTotalCountForTesting(
-                "PageLoad.InteractiveTiming.FirstInputDelay4");
+        var firstInputDelay4Histogram =
+                HistogramWatcher.newBuilder()
+                        .expectAnyRecord("PageLoad.InteractiveTiming.FirstInputDelay4")
+                        .build();
         loadUrlSync(url);
         executeJavaScriptAndWaitForResult("document.getElementById('text1').select();");
-        dispatchDownAndUpKeyEvents(KeyEvent.KEYCODE_A);
-        AwActivityTestRule.pollInstrumentationThread(
-                () -> (1 + firstInputDelay4
-                        == RecordHistogram.getHistogramTotalCountForTesting(
-                                "PageLoad.InteractiveTiming.FirstInputDelay4")));
+
+        // On emulator, the page might not ready for accepting the input, multiple endeavor is
+        // needed.
+        AwActivityTestRule.pollInstrumentationThread(() -> {
+            try {
+                dispatchDownAndUpKeyEvents(KeyEvent.KEYCODE_A);
+                return !"\"\"".equals(executeJavaScriptAndWaitForResult(
+                        "document.getElementById('text1').value;"));
+            } catch (Throwable e) {
+                return false;
+            }
+        });
+        firstInputDelay4Histogram.pollInstrumentationThreadUntilSatisfied();
     }
 
     @Test
@@ -141,17 +148,16 @@ public class AwPageLoadMetricsTest {
     public void testPageLoadMetricsProvider() throws Throwable {
         final String data = "<html><head></head><body><input type='text' id='text1'></body></html>";
         final String url = mWebServer.setResponse(MAIN_FRAME_FILE, data, null);
-        int foregroundDuration = RecordHistogram.getHistogramTotalCountForTesting(
-                "PageLoad.PageTiming.ForegroundDuration");
+        var foregroundDurationHistogram =
+                HistogramWatcher.newBuilder()
+                        .expectAnyRecord("PageLoad.PageTiming.ForegroundDuration")
+                        .build();
         TestThreadUtils.runOnUiThreadBlocking(
-                () -> { AwMetricsServiceClient.setConsentSetting(mRule.getActivity(), true); });
+                () -> { AwMetricsServiceClient.setConsentSetting(true); });
         loadUrlSync(url);
         // Remove the WebView from the container, to simulate app going to background.
         TestThreadUtils.runOnUiThreadBlocking(() -> { mRule.getActivity().removeAllViews(); });
-        AwActivityTestRule.pollInstrumentationThread(
-                () -> (1 + foregroundDuration
-                        == RecordHistogram.getHistogramTotalCountForTesting(
-                                "PageLoad.PageTiming.ForegroundDuration")));
+        foregroundDurationHistogram.pollInstrumentationThreadUntilSatisfied();
     }
 
     private String executeJavaScriptAndWaitForResult(String code) throws Throwable {

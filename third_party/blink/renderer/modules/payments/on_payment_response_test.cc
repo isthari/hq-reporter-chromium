@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -438,9 +438,9 @@ TEST(OnPaymentResponseTest, CanRequestShippingInformation) {
   static_cast<payments::mojom::blink::PaymentRequestClient*>(request)
       ->OnPaymentResponse(std::move(response));
 
-  v8::MicrotasksScope::PerformCheckpoint(scope.GetIsolate());
-  PaymentResponse* resp = V8PaymentResponse::ToImplWithTypeCheck(
-      scope.GetIsolate(), out_value.V8Value());
+  scope.PerformMicrotaskCheckpoint();
+  PaymentResponse* resp =
+      V8PaymentResponse::ToWrappable(scope.GetIsolate(), out_value.V8Value());
   EXPECT_EQ("standardShipping", resp->shippingOption());
 }
 
@@ -472,9 +472,9 @@ TEST(OnPaymentResponseTest, CanRequestName) {
   static_cast<payments::mojom::blink::PaymentRequestClient*>(request)
       ->OnPaymentResponse(std::move(response));
 
-  v8::MicrotasksScope::PerformCheckpoint(scope.GetIsolate());
-  PaymentResponse* pr = V8PaymentResponse::ToImplWithTypeCheck(
-      scope.GetIsolate(), out_value.V8Value());
+  scope.PerformMicrotaskCheckpoint();
+  PaymentResponse* pr =
+      V8PaymentResponse::ToWrappable(scope.GetIsolate(), out_value.V8Value());
   EXPECT_EQ("Jon Doe", pr->payerName());
 }
 
@@ -505,9 +505,9 @@ TEST(OnPaymentResponseTest, CanRequestEmail) {
   static_cast<payments::mojom::blink::PaymentRequestClient*>(request)
       ->OnPaymentResponse(std::move(response));
 
-  v8::MicrotasksScope::PerformCheckpoint(scope.GetIsolate());
-  PaymentResponse* pr = V8PaymentResponse::ToImplWithTypeCheck(
-      scope.GetIsolate(), out_value.V8Value());
+  scope.PerformMicrotaskCheckpoint();
+  PaymentResponse* pr =
+      V8PaymentResponse::ToWrappable(scope.GetIsolate(), out_value.V8Value());
   EXPECT_EQ("abc@gmail.com", pr->payerEmail());
 }
 
@@ -537,9 +537,9 @@ TEST(OnPaymentResponseTest, CanRequestPhone) {
 
   static_cast<payments::mojom::blink::PaymentRequestClient*>(request)
       ->OnPaymentResponse(std::move(response));
-  v8::MicrotasksScope::PerformCheckpoint(scope.GetIsolate());
-  PaymentResponse* pr = V8PaymentResponse::ToImplWithTypeCheck(
-      scope.GetIsolate(), out_value.V8Value());
+  scope.PerformMicrotaskCheckpoint();
+  PaymentResponse* pr =
+      V8PaymentResponse::ToWrappable(scope.GetIsolate(), out_value.V8Value());
 
   EXPECT_EQ("0123", pr->payerPhone());
 }
@@ -568,9 +568,9 @@ TEST(OnPaymentResponseTest, ShippingInformationNotRequired) {
   static_cast<payments::mojom::blink::PaymentRequestClient*>(request)
       ->OnPaymentResponse(BuildPaymentResponseForTest());
 
-  v8::MicrotasksScope::PerformCheckpoint(scope.GetIsolate());
-  PaymentResponse* resp = V8PaymentResponse::ToImplWithTypeCheck(
-      scope.GetIsolate(), out_value.V8Value());
+  scope.PerformMicrotaskCheckpoint();
+  PaymentResponse* resp =
+      V8PaymentResponse::ToWrappable(scope.GetIsolate(), out_value.V8Value());
   EXPECT_TRUE(resp->shippingOption().IsNull());
   EXPECT_EQ(nullptr, resp->shippingAddress());
 }
@@ -602,9 +602,9 @@ TEST(OnPaymentResponseTest, PhoneNotRequired) {
   static_cast<payments::mojom::blink::PaymentRequestClient*>(request)
       ->OnPaymentResponse(std::move(response));
 
-  v8::MicrotasksScope::PerformCheckpoint(scope.GetIsolate());
-  PaymentResponse* pr = V8PaymentResponse::ToImplWithTypeCheck(
-      scope.GetIsolate(), out_value.V8Value());
+  scope.PerformMicrotaskCheckpoint();
+  PaymentResponse* pr =
+      V8PaymentResponse::ToWrappable(scope.GetIsolate(), out_value.V8Value());
   EXPECT_TRUE(pr->payerPhone().IsNull());
 }
 
@@ -635,9 +635,9 @@ TEST(OnPaymentResponseTest, NameNotRequired) {
   static_cast<payments::mojom::blink::PaymentRequestClient*>(request)
       ->OnPaymentResponse(std::move(response));
 
-  v8::MicrotasksScope::PerformCheckpoint(scope.GetIsolate());
-  PaymentResponse* pr = V8PaymentResponse::ToImplWithTypeCheck(
-      scope.GetIsolate(), out_value.V8Value());
+  scope.PerformMicrotaskCheckpoint();
+  PaymentResponse* pr =
+      V8PaymentResponse::ToWrappable(scope.GetIsolate(), out_value.V8Value());
   EXPECT_TRUE(pr->payerName().IsNull());
 }
 
@@ -668,9 +668,9 @@ TEST(OnPaymentResponseTest, EmailNotRequired) {
   static_cast<payments::mojom::blink::PaymentRequestClient*>(request)
       ->OnPaymentResponse(std::move(response));
 
-  v8::MicrotasksScope::PerformCheckpoint(scope.GetIsolate());
-  PaymentResponse* pr = V8PaymentResponse::ToImplWithTypeCheck(
-      scope.GetIsolate(), out_value.V8Value());
+  scope.PerformMicrotaskCheckpoint();
+  PaymentResponse* pr =
+      V8PaymentResponse::ToWrappable(scope.GetIsolate(), out_value.V8Value());
   EXPECT_TRUE(pr->payerEmail().IsNull());
 }
 

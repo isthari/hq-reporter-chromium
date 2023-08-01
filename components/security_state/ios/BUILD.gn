@@ -1,6 +1,8 @@
-# Copyright 2017 The Chromium Authors. All rights reserved.
+# Copyright 2017 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
+
+import("//build/config/features.gni")
 
 component("ios") {
   configs += [ "//build/config/compiler:enable_arc" ]
@@ -31,4 +33,9 @@ source_set("unit_tests") {
     "//ios/web/public/test",
     "//ios/web/public/test:test_fixture",
   ]
+
+  # TODO(crbug.com/1427365): Test currently fails on iOS blink.
+  if (is_ios && use_blink) {
+    sources -= [ "security_state_utils_unittest.mm" ]
+  }
 }

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 
+#include "base/files/file.h"
 #include "base/memory/ref_counted.h"
 #include "build/build_config.h"
 
@@ -27,7 +28,6 @@ namespace web_app {
 // See detailed comments for functionality in corresponding
 // base/files/file_util.h functions.
 // Allows a testing implementation to intercept calls to the file system.
-// TODO(loyso): Add more tests and promote mocked methods to |virtual|.
 class FileUtilsWrapper : public base::RefCountedThreadSafe<FileUtilsWrapper> {
  public:
   FileUtilsWrapper() = default;
@@ -41,6 +41,8 @@ class FileUtilsWrapper : public base::RefCountedThreadSafe<FileUtilsWrapper> {
   bool DirectoryExists(const base::FilePath& path);
 
   bool CreateDirectory(const base::FilePath& full_path);
+
+  bool GetFileInfo(const base::FilePath& file_path, base::File::Info* info);
 
   int ReadFile(const base::FilePath& filename, char* data, int max_size);
 

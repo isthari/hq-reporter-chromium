@@ -16,44 +16,53 @@
 #import "tensorflow_lite_support/ios/sources/TFLCommon.h"
 
 /** Error domain of TensorFlow Lite Support related errors. */
-static NSString* const TFLSupportTaskErrorDomain = @"org.tensorflow.lite.tasks";
+NSString* const TFLSupportTaskErrorDomain = @"org.tensorflow.lite.tasks";
 
 @implementation TFLCommonUtils
 
-+ (void)customErrorWithCode:(NSInteger)code
-                description:(NSString*)description
-                      error:(NSError**)error {
-  if (error)
++ (void)createCustomError:(NSError**)error
+                 withCode:(NSUInteger)code
+              description:(NSString*)description {
+  [TFLCommonUtils createCustomError:error
+                         withDomain:TFLSupportTaskErrorDomain
+                               code:code
+                        description:description];
+}
+
++ (void)createCustomError:(NSError**)error
+               withDomain:(NSString*)domain
+                     code:(NSUInteger)code
+              description:(NSString*)description {
+  if (error) {
     *error =
-        [NSError errorWithDomain:TFLSupportTaskErrorDomain
+        [NSError errorWithDomain:domain
                             code:code
                         userInfo:@{NSLocalizedDescriptionKey : description}];
+  }
 }
 
-+ (void)errorFromTfLiteSupportError:(TfLiteSupportError*)supportError
-                              error:(NSError**)error {
-  if (supportError && error)
-    *error = [NSError errorWithDomain:TFLSupportTaskErrorDomain
-                                 code:supportError->code
-                             userInfo:@{
-                               NSLocalizedDescriptionKey : [NSString
-                                   stringWithCString:supportError->message
-                                            encoding:NSUTF8StringEncoding]
-                             }];
++ (BOOL)checkCError:(TfLiteSupportError*)supportError toError:(NSError**)error {
+  if (!supportError) {
+    return YES;
+  }
+  NSString* description = [NSString stringWithCString:supportError->message
+                                             encoding:NSUTF8StringEncoding];
+  [TFLCommonUtils createCustomError:error
+                           withCode:supportError->code
+                        description:description];
+  return NO;
 }
 
-+ (void*)mallocWithSize:(size_t)memSize error:(NSError**)error {
++ (void *)mallocWithSize:(size_t)memSize error:(NSError **)error {
   if (!memSize) {
-    [TFLCommonUtils
-        customErrorWithCode:TFLSupportErrorCodeInvalidArgumentError
-                description:
-                    @"Invalid memory size passed for allocation of object."
-                      error:error];
+    [TFLCommonUtils createCustomError:error
+                             withCode:TFLSupportErrorCodeInvalidArgumentError
+                          description:@"memSize cannot be zero."];
     return NULL;
   }
 
-  void* allocedMemory = malloc(memSize);
-  if (!allocedMemory && memSize) {
+  void *allocedMemory = malloc(memSize);
+  if (!allocedMemory) {
     exit(-1);
   }
 

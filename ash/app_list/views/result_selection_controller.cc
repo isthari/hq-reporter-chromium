@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -121,7 +121,8 @@ void ResultSelectionController::ResetSelection(const ui::KeyEvent* key_event,
     selected_result_->set_is_default_result(default_selection &&
                                             !selected_id_preserved);
     selected_result_->SetSelected(true, is_shift_tab);
-    selected_result_id_ = new_selection->result()->id();
+    selected_result_id_ =
+        new_selection->result() ? new_selection->result()->id() : std::string();
   } else {
     selected_result_id_ = std::string();
   }
@@ -303,9 +304,11 @@ ResultSelectionController::FindResultWithId(const std::string& id) {
        container_index < result_selection_model_->size(); ++container_index) {
     SearchResultContainerView* const container =
         result_selection_model_->at(container_index);
-    for (int result_index = 0; result_index < container->num_results();
+    for (size_t result_index = 0; result_index < container->num_results();
          ++result_index) {
-      if (container->GetResultViewAt(result_index)->result()->id() == id) {
+      const SearchResult* const result =
+          container->GetResultViewAt(result_index)->result();
+      if (result && result->id() == id) {
         return std::make_unique<ResultLocationDetails>(
             container_index, result_selection_model_->size(), result_index,
             container->num_results(), container->horizontally_traversable());

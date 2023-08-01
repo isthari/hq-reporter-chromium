@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,10 +20,6 @@ FragmentDataIterator::FragmentDataIterator(const LayoutObject& object) {
   }
 
   if (object.IsInLayoutNGInlineFormattingContext()) {
-    // TODO(mstensho): Avoid falling back to legacy code when there are
-    // continuations, as that will look bad if we're block-fragmented.
-    if (object.VirtualContinuation())
-      return;
     cursor_.emplace();
     cursor_->MoveToIncludingCulledInline(object);
   }

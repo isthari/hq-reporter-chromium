@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -48,7 +48,10 @@ public class SuggestionViewViewBinder {
         } else if (propertyKey == SuggestionViewProperties.ALLOW_WRAP_AROUND) {
             final boolean allowWrapAround = model.get(SuggestionViewProperties.ALLOW_WRAP_AROUND);
             TextView tv = view.findViewById(R.id.line_1);
-            tv.setMaxLines(allowWrapAround ? 2 : 1);
+            int maxLines = allowWrapAround ? 2 : 1;
+            if (tv.getMaxLines() != maxLines) {
+                tv.setMaxLines(maxLines);
+            }
         }
     }
 

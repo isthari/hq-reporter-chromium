@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,12 @@ import static org.junit.Assert.assertTrue;
 
 import android.content.Intent;
 import android.net.Uri;
-import android.support.test.InstrumentationRegistry;
 import android.view.View;
 import android.view.ViewGroup;
 
 import androidx.browser.customtabs.TrustedWebUtils;
+import androidx.test.core.app.ApplicationProvider;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.hamcrest.Matchers;
 import org.junit.runner.Description;
@@ -26,7 +27,7 @@ import org.chromium.cc.input.BrowserControlsState;
 import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.browserservices.intents.WebappConstants;
 import org.chromium.chrome.browser.browserservices.ui.splashscreen.SplashController;
-import org.chromium.chrome.browser.customtabs.CustomTabsTestUtils;
+import org.chromium.chrome.browser.customtabs.CustomTabsIntentTestUtils;
 import org.chromium.chrome.browser.tab.TabBrowserControlsConstraintsHelper;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.util.ChromeTabUtils;
@@ -89,7 +90,7 @@ public class WebappActivityTestRule extends ChromeActivityTestRule<WebappActivit
      */
     public Intent createIntent() {
         Intent intent =
-                new Intent(InstrumentationRegistry.getTargetContext(), WebappActivity.class);
+                new Intent(ApplicationProvider.getApplicationContext(), WebappActivity.class);
         intent.setAction(Intent.ACTION_VIEW);
         intent.setData(Uri.parse(WebappActivity.WEBAPP_SCHEME + "://" + WEBAPP_ID));
         intent.putExtra(WebappConstants.EXTRA_ID, WEBAPP_ID);
@@ -101,8 +102,8 @@ public class WebappActivityTestRule extends ChromeActivityTestRule<WebappActivit
 
     /** Adds a mock Custom Tab session token to the intent. */
     public void addTwaExtrasToIntent(Intent intent) {
-        Intent cctIntent = CustomTabsTestUtils.createMinimalCustomTabIntent(
-                InstrumentationRegistry.getTargetContext(), "about:blank");
+        Intent cctIntent = CustomTabsIntentTestUtils.createMinimalCustomTabIntent(
+                ApplicationProvider.getApplicationContext(), "about:blank");
         intent.putExtras(cctIntent.getExtras());
         intent.putExtra(TrustedWebUtils.EXTRA_LAUNCH_AS_TRUSTED_WEB_ACTIVITY, true);
     }

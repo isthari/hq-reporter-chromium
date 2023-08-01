@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define ASH_WEBUI_MEDIA_APP_UI_MEDIA_APP_PAGE_HANDLER_H_
 
 #include "ash/webui/media_app_ui/media_app_ui.mojom.h"
+#include "base/memory/raw_ptr.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
@@ -31,10 +32,21 @@ class MediaAppPageHandler : public media_app_ui::mojom::PageHandler {
   void OpenFeedbackDialog(OpenFeedbackDialogCallback callback) override;
   void ToggleBrowserFullscreenMode(
       ToggleBrowserFullscreenModeCallback callback) override;
+  void MaybeTriggerPdfHats(MaybeTriggerPdfHatsCallback callback) override;
+  void IsFileArcWritable(
+      mojo::PendingRemote<blink::mojom::FileSystemAccessTransferToken> token,
+      IsFileArcWritableCallback callback) override;
+  void IsFileBrowserWritable(
+      mojo::PendingRemote<blink::mojom::FileSystemAccessTransferToken> token,
+      IsFileBrowserWritableCallback callback) override;
+  void EditInPhotos(
+      mojo::PendingRemote<blink::mojom::FileSystemAccessTransferToken> token,
+      const std::string& mime_type,
+      EditInPhotosCallback callback) override;
 
  private:
   mojo::Receiver<media_app_ui::mojom::PageHandler> receiver_;
-  MediaAppUI* media_app_ui_;  // Owns |this|.
+  raw_ptr<MediaAppUI, ExperimentalAsh> media_app_ui_;  // Owns |this|.
 };
 
 }  // namespace ash

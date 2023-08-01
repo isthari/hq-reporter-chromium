@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -56,12 +56,14 @@ public class ChromeMessageQueueMediator implements MessageQueueDelegate, UrlFocu
     private int mUrlFocusToken = TokenHolder.INVALID_TOKEN;
     private Handler mQueueHandler;
 
+    private boolean mIsDestroyed;
+
     private LayoutStateObserver mLayoutStateObserver = new LayoutStateObserver() {
         private int mToken = TokenHolder.INVALID_TOKEN;
 
         // Suspend the queue until browsing mode is visible.
         @Override
-        public void onStartedShowing(@LayoutType int layoutType, boolean showToolbar) {
+        public void onStartedShowing(@LayoutType int layoutType) {
             if (mToken == TokenHolder.INVALID_TOKEN && layoutType != LayoutType.BROWSING) {
                 mToken = suspendQueue();
             }
@@ -148,6 +150,7 @@ public class ChromeMessageQueueMediator implements MessageQueueDelegate, UrlFocu
     }
 
     public void destroy() {
+        mIsDestroyed = true;
         mActivityLifecycleDispatcher.unregister(mPauseResumeWithNativeObserver);
         mActivityLifecycleDispatcher = null;
         mCallbackController.destroy();
@@ -161,6 +164,7 @@ public class ChromeMessageQueueMediator implements MessageQueueDelegate, UrlFocu
             mBrowserControlsManager.getBrowserVisibilityDelegate().releasePersistentShowingToken(
                     mBrowserControlsToken);
         }
+        mBrowserControlsToken = TokenHolder.INVALID_TOKEN;
         mBrowserControlsManager = null;
         mUrlFocusToken = TokenHolder.INVALID_TOKEN;
         mQueueHandler.removeCallbacksAndMessages(null);
@@ -168,14 +172,24 @@ public class ChromeMessageQueueMediator implements MessageQueueDelegate, UrlFocu
     }
 
     @Override
-    public void onStartShowing(Runnable runnable) {
+    public void onRequestShowing(Runnable runnable) {
         if (mBrowserControlsManager == null) return;
+        if (mBrowserControlsToken != TokenHolder.INVALID_TOKEN) {
+            // It is possible for #onRequestShowing to be invoked for a second message even after
+            // the first message has acquired the browser controls token and is being displayed, if
+            // the tab browser controls constraints state changes while browser controls is not
+            // fully visible, before the second message is enqueued.
+            assert !areBrowserControlsReady()
+                : "Should not be requested when browser controls is ready.";
+            assert !mBrowserControlsObserver.isRequesting();
+            mBrowserControlsObserver.setOneTimeRunnableOnControlsFullyVisible(runnable);
+            return;
+        }
         mBrowserControlsToken =
                 mBrowserControlsManager.getBrowserVisibilityDelegate().showControlsPersistent();
+
         mContainerCoordinator.showMessageContainer();
-        final Tab tab = mActivityTabProvider.get();
-        if (TabBrowserControlsConstraintsHelper.getConstraints(tab) == BrowserControlsState.HIDDEN
-                || BrowserControlsUtils.areBrowserControlsFullyVisible(mBrowserControlsManager)) {
+        if (areBrowserControlsReady()) {
             mBrowserControlsObserver.setOneTimeRunnableOnControlsFullyVisible(null);
             runnable.run();
         } else {
@@ -184,12 +198,38 @@ public class ChromeMessageQueueMediator implements MessageQueueDelegate, UrlFocu
     }
 
     @Override
+    public boolean isReadyForShowing() {
+        return mBrowserControlsToken != TokenHolder.INVALID_TOKEN && areBrowserControlsReady();
+    }
+
+    @Override
+    public boolean isPendingShow() {
+        return mBrowserControlsObserver.isRequesting();
+    }
+
+    @Override
     public void onFinishHiding() {
         if (mBrowserControlsManager == null) return;
         mBrowserControlsManager.getBrowserVisibilityDelegate().releasePersistentShowingToken(
                 mBrowserControlsToken);
+        mBrowserControlsToken = TokenHolder.INVALID_TOKEN;
         mContainerCoordinator.hideMessageContainer();
         mBrowserControlsObserver.setOneTimeRunnableOnControlsFullyVisible(null);
+    }
+
+    @Override
+    public void onAnimationStart() {
+        if (mContainerCoordinator == null) return;
+        mContainerCoordinator.onAnimationStart();
+    }
+
+    @Override
+    public void onAnimationEnd() {
+        if (mContainerCoordinator == null) {
+            assert mIsDestroyed;
+            return;
+        }
+        mContainerCoordinator.onAnimationEnd();
     }
 
     /**
@@ -205,6 +245,17 @@ public class ChromeMessageQueueMediator implements MessageQueueDelegate, UrlFocu
      */
     void resumeQueue(int token) {
         mQueueController.resume(token);
+    }
+
+    @VisibleForTesting
+    boolean areBrowserControlsReady() {
+        if (mIsDestroyed) return false;
+        assert mActivityTabProvider != null;
+        final Tab tab = mActivityTabProvider.get();
+        if (tab == null || tab.isDestroyed()) return false;
+        return TabBrowserControlsConstraintsHelper.getConstraints(tab)
+                == BrowserControlsState.HIDDEN
+                || BrowserControlsUtils.areBrowserControlsFullyVisible(mBrowserControlsManager);
     }
 
     /**
@@ -270,6 +321,10 @@ public class ChromeMessageQueueMediator implements MessageQueueDelegate, UrlFocu
         @VisibleForTesting
         Runnable getRunnableForTesting() {
             return mRunOnControlsFullyVisible;
+        }
+
+        boolean isRequesting() {
+            return mRunOnControlsFullyVisible != null;
         }
     }
 

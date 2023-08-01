@@ -1,8 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {PostMessageAPIServer} from 'chrome://resources/js/post_message_api_server.m.js';
+import {PostMessageAPIServer} from 'chrome://resources/ash/common/post_message_api/post_message_api_server.js';
+
+import {isLocalHostForTesting} from './add_supervision_ui.js';
 
 /**
  * Class that implements the server side of the AddSupervision postMessage
@@ -13,6 +15,7 @@ import {PostMessageAPIServer} from 'chrome://resources/js/post_message_api_serve
 export class AddSupervisionAPIServer extends PostMessageAPIServer {
   /*
    * @constructor
+   * @param {!Element} ui  Polymer object add-supervision-ui
    * @param {!Element} webviewElement  The <webview> element to listen to as a
    *     client.
    * @param {string} targetURL  The target URL to use for outgoing messages.
@@ -20,8 +23,10 @@ export class AddSupervisionAPIServer extends PostMessageAPIServer {
    * @param {string} originURLPrefix  The URL prefix to use to filter incoming
    *     messages via the postMessage API.
    */
-  constructor(webviewElement, targetURL, originURLPrefix) {
+  constructor(ui, webviewElement, targetURL, originURLPrefix) {
     super(webviewElement, targetURL, originURLPrefix);
+
+    this.ui_ = ui;
 
     this.addSupervisionHandler_ =
         addSupervision.mojom.AddSupervisionHandler.getRemote();
@@ -36,8 +41,18 @@ export class AddSupervisionAPIServer extends PostMessageAPIServer {
   }
 
   /** @override */
+  initialize() {
+    // The server cannot communicate with the mock webview used
+    // in the browser test, so skip initialization during tests.
+    if (isLocalHostForTesting(this.targetURL())) {
+      return;
+    }
+    super.initialize();
+  }
+
+  /** @override */
   onInitializationError(origin) {
-    // TODO(): Trigger an error page to be shown in this case.
+    this.ui_.showErrorPage();
   }
 
   /**

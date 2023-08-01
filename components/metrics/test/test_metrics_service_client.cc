@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 #include <memory>
 #include <utility>
 
-#include "base/callback.h"
 #include "base/containers/contains.h"
+#include "base/functional/callback.h"
 #include "components/metrics/metrics_log_uploader.h"
 #include "third_party/metrics_proto/chrome_user_metrics_extension.pb.h"
 
@@ -19,6 +19,11 @@ const char TestMetricsServiceClient::kBrandForTesting[] = "brand_for_testing";
 
 TestMetricsServiceClient::TestMetricsServiceClient() = default;
 TestMetricsServiceClient::~TestMetricsServiceClient() = default;
+
+variations::SyntheticTrialRegistry*
+TestMetricsServiceClient::GetSyntheticTrialRegistry() {
+  return synthetic_trial_registry_;
+}
 
 metrics::MetricsService* TestMetricsServiceClient::GetMetricsService() {
   return nullptr;
@@ -74,8 +79,9 @@ std::unique_ptr<MetricsLogUploader> TestMetricsServiceClient::CreateUploader(
     base::StringPiece mime_type,
     MetricsLogUploader::MetricServiceType service_type,
     const MetricsLogUploader::UploadCallback& on_upload_complete) {
-  uploader_ = new TestMetricsLogUploader(on_upload_complete);
-  return std::unique_ptr<MetricsLogUploader>(uploader_);
+  auto uploader = std::make_unique<TestMetricsLogUploader>(on_upload_complete);
+  uploader_ = uploader->AsWeakPtr();
+  return uploader;
 }
 
 base::TimeDelta TestMetricsServiceClient::GetStandardUploadInterval() {

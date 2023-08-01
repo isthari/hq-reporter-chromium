@@ -1,19 +1,25 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {TestRunner} from 'test_runner';
+import {BindingsTestRunner} from 'bindings_test_runner';
+import {SourcesTestRunner} from 'sources_test_runner';
+
 (async function() {
   TestRunner.addResult(`Tests that ScriptSearchScope performs search across all sources correctly.\n`);
-  await TestRunner.loadTestModule('bindings_test_runner');
-  await TestRunner.loadLegacyModule('sources'); await TestRunner.loadTestModule('sources_test_runner');
+  await TestRunner.loadLegacyModule('sources');
   await TestRunner.loadLegacyModule('search');
   await TestRunner.showPanel('sources');
 
   function fileSystemUISourceCodes() {
     var uiSourceCodes = [];
     var fileSystemProjects = Workspace.workspace.projectsForType(Workspace.projectTypes.FileSystem);
-    for (var project of fileSystemProjects)
-      uiSourceCodes = uiSourceCodes.concat(project.uiSourceCodes());
+    for (var project of fileSystemProjects) {
+      for (const uiSourceCode of project.uiSourceCodes()) {
+        uiSourceCodes.push(uiSourceCode);
+      }
+    }
     return uiSourceCodes;
   }
 

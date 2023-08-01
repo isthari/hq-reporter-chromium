@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -120,11 +120,12 @@ IN_PROC_BROWSER_TEST_F(ExtensionUnloadBrowserTest, UnloadWithContentScripts) {
   // extension's) Origin header - this should succeed (given that
   // xhr.txt.mock-http-headers says `Access-Control-Allow-Origin: *`).
   const char kSendXhrScript[] = "document.getElementById('xhrButton').click();";
-  bool xhr_result = false;
-  EXPECT_TRUE(content::ExecuteScriptAndExtractBool(
-      browser()->tab_strip_model()->GetActiveWebContents(), kSendXhrScript,
-      &xhr_result));
-  EXPECT_TRUE(xhr_result);
+  content::DOMMessageQueue message_queue;
+  EXPECT_TRUE(content::ExecJs(
+      browser()->tab_strip_model()->GetActiveWebContents(), kSendXhrScript));
+  std::string ack;
+  EXPECT_TRUE(message_queue.WaitForMessage(&ack));
+  EXPECT_EQ("true", ack);
 
   DisableExtension(id);
 
@@ -137,16 +138,16 @@ IN_PROC_BROWSER_TEST_F(ExtensionUnloadBrowserTest, UnloadWithContentScripts) {
   // The content script sends an XHR with the webpage's (rather than
   // extension's) Origin header - this should succeed (given that
   // xhr.txt.mock-http-headers says `Access-Control-Allow-Origin: *`).
-  EXPECT_TRUE(content::ExecuteScriptAndExtractBool(
-      browser()->tab_strip_model()->GetActiveWebContents(), kSendXhrScript,
-      &xhr_result));
-  EXPECT_TRUE(xhr_result);
+  EXPECT_TRUE(content::ExecJs(
+      browser()->tab_strip_model()->GetActiveWebContents(), kSendXhrScript));
+  EXPECT_TRUE(message_queue.WaitForMessage(&ack));
+  EXPECT_EQ("true", ack);
 
   // Ensure the process has not been killed.
   EXPECT_TRUE(browser()
                   ->tab_strip_model()
                   ->GetActiveWebContents()
-                  ->GetMainFrame()
+                  ->GetPrimaryMainFrame()
                   ->IsRenderFrameLive());
 }
 
@@ -179,7 +180,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionUnloadBrowserTest, OpenedOpaqueWindows) {
       browser()->tab_strip_model()->GetActiveWebContents();
   EXPECT_EQ(about_blank, web_contents->GetLastCommittedURL());
   url::Origin frame_origin =
-      web_contents->GetMainFrame()->GetLastCommittedOrigin();
+      web_contents->GetPrimaryMainFrame()->GetLastCommittedOrigin();
   url::SchemeHostPort precursor_tuple =
       frame_origin.GetTupleOrPrecursorTupleIfOpaque();
   EXPECT_EQ(kExtensionScheme, precursor_tuple.scheme());
@@ -220,7 +221,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionUnloadBrowserTest, CrashedTabs) {
 
   {
     content::ScopedAllowRendererCrashes allow_renderer_crashes(
-        active_tab->GetMainFrame()->GetProcess());
+        active_tab->GetPrimaryMainFrame()->GetProcess());
     ui_test_utils::NavigateToURLWithDisposition(
         browser(), GURL("chrome://crash"), WindowOpenDisposition::CURRENT_TAB,
         ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);

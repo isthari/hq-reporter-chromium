@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,18 +8,21 @@
 #include <utility>
 
 #include "ash/constants/ash_switches.h"
-#include "base/bind.h"
+#include "ash/metrics/login_unlock_throughput_recorder.h"
+#include "ash/shell.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_functions.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
 #include "chrome/browser/apps/app_service/metrics/app_platform_metrics.h"
 #include "chrome/browser/ash/app_restore/app_restore_arc_task_handler.h"
-#include "chrome/browser/ash/app_restore/arc_app_launch_handler.h"
+#include "chrome/browser/ash/app_restore/arc_app_queue_restore_handler.h"
 #include "chrome/browser/ash/app_restore/full_restore_service.h"
 #include "chrome/browser/ash/crosapi/browser_util.h"
 #include "chrome/browser/ash/login/session/user_session_manager.h"
+#include "chrome/browser/ash/policy/scheduled_task_handler/reboot_notifications_scheduler.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/prefs/session_startup_pref.h"
 #include "chrome/browser/profiles/profile.h"
@@ -28,13 +31,16 @@
 #include "chrome/browser/sessions/session_service_log.h"
 #include "chrome/browser/ui/startup/startup_tab.h"
 #include "chrome/common/chrome_switches.h"
+#include "components/app_constants/constants.h"
 #include "components/app_restore/features.h"
 #include "components/app_restore/full_restore_read_handler.h"
 #include "components/app_restore/full_restore_save_handler.h"
-#include "extensions/common/constants.h"
 
-namespace ash {
-namespace full_restore {
+// Enable VLOG level 1.
+#undef ENABLED_VLOG_LEVEL
+#define ENABLED_VLOG_LEVEL 1
+
+namespace ash::full_restore {
 
 namespace {
 
@@ -81,7 +87,7 @@ void FullRestoreAppLaunchHandler::LaunchBrowserWhenReady(
                          ->AppRegistryCache();
       Observe(cache);
 
-      for (const auto app_type : cache->GetInitializedAppTypes()) {
+      for (const auto app_type : cache->InitializedAppTypes()) {
         OnAppTypeInitialized(app_type);
       }
     }
@@ -97,11 +103,13 @@ void FullRestoreAppLaunchHandler::LaunchBrowserWhenReady(
 
     // OS Setting should be launched after browser to have OS setting window in
     // front.
-    UserSessionManager::GetInstance()->MaybeLaunchSettings(profile());
+    UserSessionManager::GetInstance()->PerformPostBrowserLaunchOOBEActions(
+        profile());
     return;
   }
 
-  UserSessionManager::GetInstance()->MaybeLaunchSettings(profile());
+  UserSessionManager::GetInstance()->PerformPostBrowserLaunchOOBEActions(
+      profile());
 
   // If the restore data hasn't been loaded, or the user hasn't chosen to
   // restore, set `should_launch_browser_` as true, and wait the restore data
@@ -125,14 +133,13 @@ void FullRestoreAppLaunchHandler::OnAppUpdate(const apps::AppUpdate& update) {
     AppLaunchHandler::OnAppUpdate(update);
 }
 
-void FullRestoreAppLaunchHandler::OnAppTypeInitialized(
-    apps::mojom::AppType app_type) {
-  if (app_type == apps::mojom::AppType::kChromeApp) {
+void FullRestoreAppLaunchHandler::OnAppTypeInitialized(apps::AppType app_type) {
+  if (app_type == apps::AppType::kChromeApp) {
     are_chrome_apps_initialized_ = true;
     return;
   }
 
-  if (app_type != apps::mojom::AppType::kWeb)
+  if (app_type != apps::AppType::kWeb)
     return;
 
   are_web_apps_initialized_ = true;
@@ -172,15 +179,17 @@ void FullRestoreAppLaunchHandler::OnMojoDisconnected() {
 void FullRestoreAppLaunchHandler::OnStateChanged() {
   if (crosapi::BrowserManager::Get()->IsRunning()) {
     observation_.Reset();
-    crosapi::BrowserManager::Get()->NewWindow(
-        /*incognito=*/false, /*should_trigger_session_restore=*/true);
+    VLOG(1) << "Full restore opens Lacros";
+    crosapi::BrowserManager::Get()->OpenForFullRestore(
+        /*skip_crash_restore=*/IsLastSessionExitTypeCrashed());
   }
 }
 
 void FullRestoreAppLaunchHandler::ForceLaunchBrowserForTesting() {
   ::full_restore::AddChromeBrowserLaunchInfoForTesting(profile()->GetPath());
   UserSessionManager::GetInstance()->LaunchBrowser(profile());
-  UserSessionManager::GetInstance()->MaybeLaunchSettings(profile());
+  UserSessionManager::GetInstance()->PerformPostBrowserLaunchOOBEActions(
+      profile());
 }
 
 void FullRestoreAppLaunchHandler::OnExtensionLaunching(
@@ -202,8 +211,16 @@ void FullRestoreAppLaunchHandler::OnGetRestoreData(
   // FullRestoreAppLaunchHandler could be created multiple times in browser
   // tests, and used by the desk template. Only when it is created by
   // FullRestoreService, we need to init FullRestoreService.
+  bool is_full_restore_shown = false;
   if (should_init_service_)
-    FullRestoreService::GetForProfile(profile())->Init();
+    FullRestoreService::GetForProfile(profile())->Init(is_full_restore_shown);
+
+  policy::RebootNotificationsScheduler* reboot_notifications_scheduler =
+      policy::RebootNotificationsScheduler::Get();
+  if (reboot_notifications_scheduler) {
+    reboot_notifications_scheduler->MaybeShowPostRebootNotification(
+        !is_full_restore_shown);
+  }
 }
 
 void FullRestoreAppLaunchHandler::MaybePostRestore() {
@@ -214,7 +231,7 @@ void FullRestoreAppLaunchHandler::MaybePostRestore() {
   if (!should_restore_ || !restore_data())
     return;
 
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&FullRestoreAppLaunchHandler::MaybeRestore,
                                 weak_ptr_factory_.GetWeakPtr()));
 }
@@ -233,7 +250,7 @@ void FullRestoreAppLaunchHandler::MaybeRestore() {
   VLOG(1) << "Restore apps in " << profile()->GetPath();
   if (auto* arc_task_handler =
           app_restore::AppRestoreArcTaskHandler::GetForProfile(profile())) {
-    arc_task_handler->full_restore_arc_app_launch_handler()->RestoreArcApps(
+    arc_task_handler->GetFullRestoreArcAppQueueRestoreHandler()->RestoreArcApps(
         this);
   }
 
@@ -253,7 +270,7 @@ void FullRestoreAppLaunchHandler::LaunchBrowser() {
   // If the browser is not launched before reboot, don't launch browser during
   // the startup phase.
   const auto& launch_list = restore_data()->app_id_to_launch_list();
-  if (launch_list.find(extension_misc::kChromeAppId) == launch_list.end())
+  if (launch_list.find(app_constants::kChromeAppId) == launch_list.end())
     return;
 
   SessionRestore::AddObserver(this);
@@ -261,10 +278,9 @@ void FullRestoreAppLaunchHandler::LaunchBrowser() {
   VLOG(1) << "Restore browser for " << profile()->GetPath();
   RecordRestoredAppLaunch(apps::AppTypeName::kChromeBrowser);
 
-  restore_data()->RemoveApp(extension_misc::kChromeAppId);
+  restore_data()->RemoveApp(app_constants::kChromeAppId);
 
-  if (ExitTypeService::GetLastSessionExitType(profile()) ==
-      ExitType::kCrashed) {
+  if (IsLastSessionExitTypeCrashed()) {
     base::CommandLine::ForCurrentProcess()->AppendSwitch(
         ::switches::kHideCrashRestoreBubble);
   }
@@ -324,7 +340,8 @@ void FullRestoreAppLaunchHandler::LaunchBrowserForFirstRunFullRestore() {
                                    SessionRestore::RESTORE_APPS, startup_tabs);
   }
 
-  UserSessionManager::GetInstance()->MaybeLaunchSettings(profile());
+  UserSessionManager::GetInstance()->PerformPostBrowserLaunchOOBEActions(
+      profile());
 }
 
 void FullRestoreAppLaunchHandler::MaybeRestoreLacros() {
@@ -338,15 +355,16 @@ void FullRestoreAppLaunchHandler::MaybeRestoreLacros() {
   // 2. Handle the migration scenario, e.g. from flag disable to enable.
   // 3. Add metrics to check whether the Lacros is restored successfully.
   if (!base::Contains(restore_data()->app_id_to_launch_list(),
-                      extension_misc::kLacrosAppId)) {
+                      app_constants::kLacrosAppId)) {
     return;
   }
 
-  restore_data()->RemoveApp(extension_misc::kLacrosAppId);
+  restore_data()->RemoveApp(app_constants::kLacrosAppId);
 
   if (crosapi::BrowserManager::Get()->IsRunning()) {
-    crosapi::BrowserManager::Get()->NewWindow(
-        /*incognito=*/false, /*should_trigger_session_restore=*/true);
+    VLOG(1) << "Full restore opens Lacros";
+    crosapi::BrowserManager::Get()->OpenForFullRestore(
+        /*skip_crash_restore=*/IsLastSessionExitTypeCrashed());
     return;
   }
 
@@ -433,15 +451,22 @@ void FullRestoreAppLaunchHandler::RecordLaunchBrowserResult() {
 }
 
 void FullRestoreAppLaunchHandler::LogRestoreData() {
+  LoginUnlockThroughputRecorder* throughput_recorder =
+      Shell::HasInstance() ? Shell::Get()->login_unlock_throughput_recorder()
+                           : nullptr;
+
   if (!restore_data() || restore_data()->app_id_to_launch_list().empty()) {
     VLOG(1) << "There is no restore data from " << profile()->GetPath();
+    if (throughput_recorder) {
+      throughput_recorder->RestoreDataLoaded();
+    }
     return;
   }
 
   int arc_app_count = 0;
   int other_app_count = 0;
   for (const auto& it : restore_data()->app_id_to_launch_list()) {
-    if (it.first == extension_misc::kChromeAppId || it.second.empty())
+    if (it.first == app_constants::kChromeAppId || it.second.empty())
       continue;
 
     if (it.second.begin()->second->event_flag.has_value()) {
@@ -449,7 +474,16 @@ void FullRestoreAppLaunchHandler::LogRestoreData() {
       continue;
     }
 
+    if (throughput_recorder) {
+      for (const auto& window : it.second) {
+        throughput_recorder->AddScheduledRestoreWindow(
+            window.first, it.first, LoginUnlockThroughputRecorder::kBrowser);
+      }
+    }
     ++other_app_count;
+  }
+  if (throughput_recorder) {
+    throughput_recorder->RestoreDataLoaded();
   }
   VLOG(1) << "There is restore data: Browser("
           << (::full_restore::HasAppTypeBrowser(profile()->GetPath())
@@ -476,7 +510,7 @@ void FullRestoreAppLaunchHandler::MaybeStartSaveTimer() {
   }
 
   if (base::Contains(restore_data()->app_id_to_launch_list(),
-                     extension_misc::kChromeAppId)) {
+                     app_constants::kChromeAppId)) {
     // If the browser hasn't been restored yet, Wait for the browser
     // restoration. LaunchBrowser will call this function again to start the
     // save timer after restore the browser sessions.
@@ -489,6 +523,11 @@ void FullRestoreAppLaunchHandler::MaybeStartSaveTimer() {
     ::full_restore::FullRestoreSaveHandler::GetInstance()->AllowSave();
 }
 
+bool FullRestoreAppLaunchHandler::IsLastSessionExitTypeCrashed() {
+  return ExitTypeService::GetLastSessionExitType(profile()) ==
+         ExitType::kCrashed;
+}
+
 ScopedLaunchBrowserForTesting::ScopedLaunchBrowserForTesting() {
   g_launch_browser_for_testing = true;
 }
@@ -497,5 +536,4 @@ ScopedLaunchBrowserForTesting::~ScopedLaunchBrowserForTesting() {
   g_launch_browser_for_testing = false;
 }
 
-}  // namespace full_restore
-}  // namespace ash
+}  // namespace ash::full_restore

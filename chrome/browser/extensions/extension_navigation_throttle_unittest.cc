@@ -1,12 +1,14 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "extensions/browser/extension_navigation_throttle.h"
 
 #include <memory>
+#include "base/command_line.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/stringprintf.h"
+#include "base/values.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/test_extension_system.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
@@ -22,7 +24,6 @@
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_builder.h"
 #include "extensions/common/identifiability_metrics.h"
-#include "extensions/common/value_builder.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/privacy_budget/identifiability_metrics.h"
@@ -74,15 +75,17 @@ class ExtensionNavigationThrottleUnitTest
 
     // Constructs an extension with accessible.html and accessible_dir/* as
     // accessible resources.
-    DictionaryBuilder manifest;
-    manifest.Set("name", "ext")
-        .Set("description", "something")
-        .Set("version", "0.1")
-        .Set("manifest_version", 2)
-        .Set("web_accessible_resources",
-             ListBuilder().Append(kAccessible).Append(kAccessibleDir).Build());
+    auto manifest =
+        base::Value::Dict()
+            .Set("name", "ext")
+            .Set("description", "something")
+            .Set("version", "0.1")
+            .Set("manifest_version", 2)
+            .Set(
+                "web_accessible_resources",
+                base::Value::List().Append(kAccessible).Append(kAccessibleDir));
     extension_ = ExtensionBuilder()
-                     .SetManifest(manifest.Build())
+                     .SetManifest(std::move(manifest))
                      .SetID(crx_file::id_util::GenerateId("foo"))
                      .Build();
     ASSERT_TRUE(extension_);

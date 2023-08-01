@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "net/base/net_export.h"
 #include "net/cookies/canonical_cookie.h"
 #include "net/cookies/cookie_access_delegate.h"
@@ -21,6 +21,7 @@
 #include "net/cookies/cookie_deletion_info.h"
 #include "net/cookies/cookie_options.h"
 #include "net/cookies/cookie_partition_key_collection.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class GURL;
 
@@ -64,10 +65,17 @@ class NET_EXPORT CookieStore {
   // which cookies it can alter (e.g. http only, or same site).
   //
   // The current time will be used in place of a null creation time.
-  virtual void SetCanonicalCookieAsync(std::unique_ptr<CanonicalCookie> cookie,
-                                       const GURL& source_url,
-                                       const CookieOptions& options,
-                                       SetCookiesCallback callback) = 0;
+  //
+  // |cookie_access_result| is an optional input status, to allow for status
+  // chaining from callers. It helps callers provide the status of a
+  // canonical cookie that may have warnings associated with it.
+  virtual void SetCanonicalCookieAsync(
+      std::unique_ptr<CanonicalCookie> cookie,
+      const GURL& source_url,
+      const CookieOptions& options,
+      SetCookiesCallback callback,
+      absl::optional<CookieAccessResult> cookie_access_result =
+          absl::nullopt) = 0;
 
   // Obtains a CookieList for the given |url| and |options|. The returned
   // cookies are passed into |callback|, ordered by longest path, then earliest
@@ -139,7 +147,7 @@ class NET_EXPORT CookieStore {
   // Protects session cookies from deletion on shutdown, if the underlying
   // CookieStore implemention is currently configured to store them to disk.
   // Otherwise, does nothing.
-  virtual void SetForceKeepSessionState();
+  virtual void SetForceKeepSessionState() {}
 
   // The interface used to observe changes to this CookieStore's contents.
   virtual CookieChangeDispatcher& GetChangeDispatcher() = 0;
@@ -160,6 +168,15 @@ class NET_EXPORT CookieStore {
   const CookieAccessDelegate* cookie_access_delegate() const {
     return cookie_access_delegate_.get();
   }
+
+  // Returns a boolean indicating whether the cookie `site` has any cookie
+  // in another partition other than the `cookie_partition_key` supplied.
+  // Will return nullopt if cookies have not finished loading.
+  // If the partition key is null, the method assumes it is because partitioned
+  // cookies are disabled.
+  virtual absl::optional<bool> SiteHasCookieInOtherPartition(
+      const net::SchemefulSite& site,
+      const absl::optional<CookiePartitionKey>& cookie_partition_key) const;
 
  private:
   // Used to determine whether a particular cookie should be subject to legacy

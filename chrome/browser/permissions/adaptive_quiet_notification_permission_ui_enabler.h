@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,10 @@
 #define CHROME_BROWSER_PERMISSIONS_ADAPTIVE_QUIET_NOTIFICATION_PERMISSION_UI_ENABLER_H_
 
 #include <memory>
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/singleton.h"
-#include "components/keyed_service/content/browser_context_keyed_service_factory.h"
+#include "chrome/browser/profiles/profile_keyed_service_factory.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/permissions/permission_util.h"
 
@@ -22,7 +22,7 @@ class Profile;
 // prompts to be low.
 class AdaptiveQuietNotificationPermissionUiEnabler : public KeyedService {
  public:
-  class Factory : public BrowserContextKeyedServiceFactory {
+  class Factory : public ProfileKeyedServiceFactory {
    public:
     static AdaptiveQuietNotificationPermissionUiEnabler* GetForProfile(
         Profile* profile);
@@ -37,8 +37,6 @@ class AdaptiveQuietNotificationPermissionUiEnabler : public KeyedService {
 
     // BrowserContextKeyedServiceFactory
     KeyedService* BuildServiceInstanceFor(
-        content::BrowserContext* context) const override;
-    content::BrowserContext* GetBrowserContextToUse(
         content::BrowserContext* context) const override;
   };
 

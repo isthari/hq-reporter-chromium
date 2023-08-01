@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "third_party/blink/renderer/modules/webaudio/audio_worklet_global_scope.h"
 #include "third_party/blink/renderer/modules/webaudio/audio_worklet_messaging_proxy.h"
 #include "third_party/blink/renderer/modules/webaudio/cross_thread_audio_worklet_processor_info.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_std.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 
 namespace blink {
@@ -21,7 +22,8 @@ AudioWorkletObjectProxy::AudioWorkletObjectProxy(
     float context_sample_rate)
     : ThreadedWorkletObjectProxy(
           static_cast<ThreadedWorkletMessagingProxy*>(messaging_proxy_weak_ptr),
-          parent_execution_context_task_runners),
+          parent_execution_context_task_runners,
+          /*parent_agent_group_task_runner=*/nullptr),
       context_sample_rate_(context_sample_rate) {}
 
 void AudioWorkletObjectProxy::DidCreateWorkerGlobalScope(

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -78,8 +78,8 @@ public class AddToHomescreenDialogViewTest {
         AppBannerManager.InstallStringPair installPair = showAddToHomeScreen
                 ? new AppBannerManager.InstallStringPair(
                         R.string.menu_add_to_homescreen, R.string.add)
-                : new AppBannerManager.InstallStringPair(R.string.menu_add_to_homescreen_install,
-                        R.string.menu_add_to_homescreen_install);
+                : new AppBannerManager.InstallStringPair(
+                        R.string.menu_install_webapp, R.string.menu_install_webapp);
         mAddToHomescreenDialogView = new AddToHomescreenDialogView(
                 activity, mModalDialogManager, installPair, new AddToHomescreenViewDelegate() {
                     @Override

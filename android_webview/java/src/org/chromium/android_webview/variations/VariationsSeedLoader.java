@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@ package org.chromium.android_webview.variations;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.content.ServiceConnection;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.os.Bundle;
 import android.os.IBinder;
@@ -21,6 +20,7 @@ import org.chromium.android_webview.AwBrowserProcess;
 import org.chromium.android_webview.common.AwSwitches;
 import org.chromium.android_webview.common.services.IVariationsSeedServer;
 import org.chromium.android_webview.common.services.IVariationsSeedServerCallback;
+import org.chromium.android_webview.common.services.ServiceConnectionDelayRecorder;
 import org.chromium.android_webview.common.services.ServiceNames;
 import org.chromium.android_webview.common.variations.VariationsServiceMetricsHelper;
 import org.chromium.android_webview.common.variations.VariationsUtils;
@@ -33,7 +33,6 @@ import org.chromium.components.variations.LoadSeedResult;
 
 import java.io.File;
 import java.io.FileNotFoundException;
-import java.io.IOException;
 import java.util.Date;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
@@ -140,6 +139,22 @@ public class VariationsSeedLoader {
         return getCurrentTimeMillis() > seedFileTime + expirationDuration;
     }
 
+    public static boolean parseAndSaveSeedFile(File seedFile) {
+        if (!VariationsSeedLoaderJni.get().parseAndSaveSeedProto(seedFile.getPath())) {
+            VariationsUtils.debugLog("Failed reading seed file \"" + seedFile + '"');
+            return false;
+        }
+        return true;
+    }
+
+    public static boolean parseAndSaveSeedProtoFromByteArray(byte[] seedAsByteArray) {
+        if (!VariationsSeedLoaderJni.get().parseAndSaveSeedProtoFromByteArray(seedAsByteArray)) {
+            VariationsUtils.debugLog("Failed reading seed as string");
+            return false;
+        }
+        return true;
+    }
+
     // Loads our local copy of the seed, if any, and then renames our local copy and/or requests a
     // new seed, if necessary.
     private class SeedLoadAndUpdateRunnable implements Runnable {
@@ -156,28 +171,20 @@ public class VariationsSeedLoader {
         private long mCurrentSeedDate = Long.MIN_VALUE;
         private long mSeedFileTime;
 
-        private boolean parseSeedFile(File seedFile) {
-            if (!VariationsSeedLoaderJni.get().parseAndSaveSeedProto(seedFile.getPath())) {
-                VariationsUtils.debugLog("Failed reading seed file \"" + seedFile + '"');
-                return false;
-            }
-            return true;
-        }
-
         private FutureTask<Boolean> mLoadTask = new FutureTask<>(() -> {
             File newSeedFile = VariationsUtils.getNewSeedFile();
             File oldSeedFile = VariationsUtils.getSeedFile();
 
             // First check for a new seed.
             boolean loadedSeed = false;
-            if (parseSeedFile(newSeedFile)) {
+            if (parseAndSaveSeedFile(newSeedFile)) {
                 loadedSeed = true;
                 mSeedFileTime = newSeedFile.lastModified();
 
                 // If a valid new seed was found, make a note to replace the old seed with
                 // the new seed. (Don't do it now, to avoid delaying FutureTask.get().)
                 mFoundNewSeed = true;
-            } else if (parseSeedFile(oldSeedFile)) { // If no new seed, check for an old one.
+            } else if (parseAndSaveSeedFile(oldSeedFile)) { // If no new seed, check for an old one.
                 loadedSeed = true;
                 mSeedFileTime = oldSeedFile.lastModified();
             }
@@ -241,7 +248,7 @@ public class VariationsSeedLoader {
 
     // Connects to VariationsSeedServer service. Sends a file descriptor for our local copy of the
     // seed to the service, to which the service will write a new seed.
-    private class SeedServerConnection implements ServiceConnection {
+    private class SeedServerConnection extends ServiceConnectionDelayRecorder {
         private ParcelFileDescriptor mNewSeedFd;
         private long mOldSeedDate;
 
@@ -252,8 +259,8 @@ public class VariationsSeedLoader {
 
         public void start() {
             try {
-                if (!ContextUtils.getApplicationContext().bindService(
-                            getServerIntent(), this, Context.BIND_AUTO_CREATE)) {
+                if (!bind(ContextUtils.getApplicationContext(), getServerIntent(),
+                            Context.BIND_AUTO_CREATE)) {
                     Log.e(TAG, "Failed to bind to WebView service");
                 }
                 // Connect to nonembedded metrics Service at the same time we connect to variation
@@ -267,7 +274,7 @@ public class VariationsSeedLoader {
         }
 
         @Override
-        public void onServiceConnected(ComponentName name, IBinder service) {
+        public void onServiceConnectedImpl(ComponentName name, IBinder service) {
             try {
                 if (mNewSeedFd.getFd() >= 0) {
                     IVariationsSeedServer.Stub.asInterface(service).getSeed(
@@ -330,16 +337,11 @@ public class VariationsSeedLoader {
     // Returns false if it didn't connect to the service.
     protected boolean requestSeedFromService(long oldSeedDate) {
         File newSeedFile = VariationsUtils.getNewSeedFile();
-        try {
-            newSeedFile.createNewFile(); // Silently returns false if already exists.
-        } catch (IOException e) {
-            Log.e(TAG, "Failed to create seed file " + newSeedFile);
-            return false;
-        }
         ParcelFileDescriptor newSeedFd = null;
         try {
-            newSeedFd =
-                    ParcelFileDescriptor.open(newSeedFile, ParcelFileDescriptor.MODE_WRITE_ONLY);
+            newSeedFd = ParcelFileDescriptor.open(newSeedFile,
+                    ParcelFileDescriptor.MODE_WRITE_ONLY | ParcelFileDescriptor.MODE_TRUNCATE
+                            | ParcelFileDescriptor.MODE_CREATE);
         } catch (FileNotFoundException e) {
             Log.e(TAG, "Failed to open seed file " + newSeedFile);
             return false;
@@ -370,6 +372,8 @@ public class VariationsSeedLoader {
                 long seedDate = mRunnable.getLoadedSeedDate();
                 if (gotSeed && seedDate > 0) {
                     long seedAge = TimeUnit.MILLISECONDS.toSeconds(new Date().getTime() - seedDate);
+                    // Changes to the log message below must be accompanied with changes to WebView
+                    // finch smoke tests since they look for this message in the logcat.
                     VariationsUtils.debugLog("Loaded seed with age " + seedAge + "s");
                 }
                 return gotSeed;
@@ -394,6 +398,11 @@ public class VariationsSeedLoader {
         // memory for later use by native code if the parsing succeeded. Returns true if the loading
         // and parsing were successful.
         boolean parseAndSaveSeedProto(String path);
+
+        // Parses the AwVariationsSeed proto stored in the given byte array, saving it in
+        // memory for later use by native code if the parsing succeeded. Returns true if the loading
+        // and parsing were successful.
+        boolean parseAndSaveSeedProtoFromByteArray(byte[] seedAsByteArray);
 
         // Returns the timestamp in millis since unix epoch that the saved seed was generated on
         // the server. This value corresponds to the |date| field in the AwVariationsSeed proto.

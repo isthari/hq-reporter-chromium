@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,11 @@
 
 namespace bookmarks {
 namespace prefs {
+
+// Boolean which specifies whether the user has added any new bookmarks
+// following the launch of the power bookmarks feature.
+const char kAddedBookmarkSincePowerBookmarksLaunch[] =
+    "bookmarks.added_since_power_bookmarks_launch";
 
 // Boolean which specifies the ids of the bookmark nodes that are expanded in
 // the bookmark editor.
@@ -26,10 +31,6 @@ const char kManagedBookmarksFolderName[] =
 // Boolean which specifies whether the apps shortcut is visible on the bookmark
 // bar.
 const char kShowAppsShortcutInBookmarkBar[] = "bookmark_bar.show_apps_shortcut";
-
-// Boolean which specifies whether the reading list is visible on the bookmark
-// bar.
-const char kShowReadingListInBookmarkBar[] = "bookmark_bar.show_reading_list";
 
 // Boolean which specifies whether the Managed Bookmarks folder is visible on
 // the bookmark bar.

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@ import android.accounts.Account;
 import android.accounts.AuthenticatorDescription;
 import android.app.Activity;
 import android.content.Intent;
+import android.os.Bundle;
 
 import androidx.annotation.GuardedBy;
 import androidx.annotation.Nullable;
@@ -150,6 +151,11 @@ public class FakeAccountManagerDelegate implements AccountManagerDelegate {
         if (callback != null) {
             ThreadUtils.postOnUiThread(callback.bind(true));
         }
+    }
+
+    @Override
+    public void confirmCredentials(Account account, Activity activity, Callback<Bundle> callback) {
+        callback.onResult(null);
     }
 
     private AccountHolder tryGetAccountHolder(Account account) {

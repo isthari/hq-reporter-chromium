@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,11 +13,18 @@ namespace chrome_cleaner {
 
 ShutdownWatchdog::ShutdownWatchdog(const base::TimeDelta& duration,
                                    AlarmCallback callback)
-    : base::Watchdog(duration, "Shutdown watchdog", true) {
+    : watchdog_(duration, "Shutdown watchdog", true, this) {
   callback_ = std::move(callback);
 }
 
 ShutdownWatchdog::~ShutdownWatchdog() = default;
+
+void ShutdownWatchdog::Arm() {
+  watchdog_.Arm();
+}
+void ShutdownWatchdog::Disarm() {
+  watchdog_.Disarm();
+}
 
 void ShutdownWatchdog::Alarm() {
   int exit_code = std::move(callback_).Run();

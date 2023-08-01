@@ -1,14 +1,14 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/authentication/views/identity_button_control.h"
 
 #import "base/check.h"
+#import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/authentication/authentication_constants.h"
 #import "ios/chrome/browser/ui/authentication/views/identity_view.h"
 #import "ios/chrome/browser/ui/authentication/views/views_constants.h"
-#import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
 #import "ios/chrome/common/ui/util/pointer_interaction_util.h"
@@ -30,8 +30,8 @@ const CGFloat kArrowDownMargin = 12.;
 @interface IdentityButtonControl ()
 
 @property(nonatomic, strong) IdentityView* identityView;
-// Image View for the arrow (down or left according to |style|, see the
-// |arrowDirection| property), letting the user know that more profiles can be
+// Image View for the arrow (down or left according to `style`, see the
+// `arrowDirection` property), letting the user know that more profiles can be
 // selected.
 @property(nonatomic, strong) UIImageView* arrowImageView;
 

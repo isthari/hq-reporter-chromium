@@ -1,11 +1,11 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef EXTENSIONS_BROWSER_API_MANAGEMENT_MANAGEMENT_API_DELEGATE_H_
 #define EXTENSIONS_BROWSER_API_MANAGEMENT_MANAGEMENT_API_DELEGATE_H_
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "extensions/browser/disable_reason.h"
 #include "extensions/browser/uninstall_reason.h"
 #include "extensions/common/api/management.h"
@@ -65,8 +65,9 @@ class ManagementAPIDelegate {
   using InstallOrLaunchWebAppCallback =
       base::OnceCallback<void(InstallOrLaunchWebAppResult)>;
 
-  // Launches the app |extension|.
-  virtual void LaunchAppFunctionDelegate(
+  // Launches the app |extension|. Returns `false` if the launch was blocked due
+  // to chrome apps deprecation, and `true` if it succeeded.
+  virtual bool LaunchAppFunctionDelegate(
       const Extension* extension,
       content::BrowserContext* context) const = 0;
 

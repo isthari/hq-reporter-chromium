@@ -32,10 +32,12 @@
 
 #include <memory>
 
+#include "base/feature_list.h"
+#include "base/synchronization/lock.h"
 #include "build/chromeos_buildflags.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/renderer/bindings/core/v8/binding_security.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_controller.h"
-#include "third_party/blink/renderer/bindings/core/v8/source_location.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_node.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_window.h"
@@ -46,7 +48,7 @@
 #include "third_party/blink/renderer/core/dom/static_node_list.h"
 #include "third_party/blink/renderer/core/events/error_event.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
-#include "third_party/blink/renderer/core/frame/deprecation.h"
+#include "third_party/blink/renderer/core/frame/deprecation/deprecation.h"
 #include "third_party/blink/renderer/core/frame/frame_console.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -63,17 +65,19 @@
 #include "third_party/blink/renderer/core/xml/xpath_evaluator.h"
 #include "third_party/blink/renderer/core/xml/xpath_result.h"
 #include "third_party/blink/renderer/platform/bindings/dom_wrapper_world.h"
+#include "third_party/blink/renderer/platform/bindings/script_state.h"
+#include "third_party/blink/renderer/platform/bindings/source_location.h"
+#include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
-#include "third_party/blink/renderer/platform/wtf/threading_primitives.h"
 
 namespace blink {
 
 namespace {
 
-Mutex& CreationMutex() {
-  DEFINE_THREAD_SAFE_STATIC_LOCAL(Mutex, mutex, ());
-  return mutex;
+base::Lock& CreationLock() {
+  DEFINE_THREAD_SAFE_STATIC_LOCAL(base::Lock, lock, ());
+  return lock;
 }
 
 LocalFrame* ToFrame(ExecutionContext* context) {
@@ -90,15 +94,14 @@ LocalFrame* ToFrame(ExecutionContext* context) {
 MainThreadDebugger* MainThreadDebugger::instance_ = nullptr;
 
 MainThreadDebugger::MainThreadDebugger(v8::Isolate* isolate)
-    : ThreadDebugger(isolate),
-      paused_(false) {
-  MutexLocker locker(CreationMutex());
+    : ThreadDebuggerCommonImpl(isolate), paused_(false) {
+  base::AutoLock locker(CreationLock());
   DCHECK(!instance_);
   instance_ = this;
 }
 
 MainThreadDebugger::~MainThreadDebugger() {
-  MutexLocker locker(CreationMutex());
+  base::AutoLock locker(CreationLock());
   DCHECK_EQ(instance_, this);
   instance_ = nullptr;
 }
@@ -226,6 +229,25 @@ MainThreadDebugger* MainThreadDebugger::Instance() {
   return static_cast<MainThreadDebugger*>(debugger);
 }
 
+void MainThreadDebugger::runMessageLoopOnInstrumentationPause(
+    int context_group_id) {
+  LocalFrame* paused_frame =
+      WeakIdentifierMap<LocalFrame>::Lookup(context_group_id);
+  // Do not pause in Context of detached frame.
+  if (!paused_frame) {
+    return;
+  }
+
+  DCHECK_EQ(paused_frame, &paused_frame->LocalFrameRoot());
+  paused_ = true;
+
+  // Wait until the execution gets resumed.
+  if (client_message_loop_) {
+    client_message_loop_->Run(paused_frame,
+                              ClientMessageLoop::kInstrumentationPause);
+  }
+}
+
 void MainThreadDebugger::runMessageLoopOnPause(int context_group_id) {
   LocalFrame* paused_frame =
       WeakIdentifierMap<LocalFrame>::Lookup(context_group_id);
@@ -242,12 +264,12 @@ void MainThreadDebugger::runMessageLoopOnPause(int context_group_id) {
         std::make_unique<DocumentLifecycle::PostponeTransitionScope>(
             paused_frame->GetDocument()->Lifecycle());
   }
-  DCHECK(paused_frame == paused_frame->LocalFrameRoot());
+  DCHECK_EQ(paused_frame, &paused_frame->LocalFrameRoot());
   paused_ = true;
 
   // Wait for continue or step command.
   if (client_message_loop_)
-    client_message_loop_->Run(paused_frame);
+    client_message_loop_->Run(paused_frame, ClientMessageLoop::kNormalPause);
 }
 
 void MainThreadDebugger::quitMessageLoopOnPause() {
@@ -315,7 +337,36 @@ void MainThreadDebugger::endEnsureAllContextsInGroup(int context_group_id) {
 
 bool MainThreadDebugger::canExecuteScripts(int context_group_id) {
   LocalFrame* frame = WeakIdentifierMap<LocalFrame>::Lookup(context_group_id);
-  return frame->DomWindow()->CanExecuteScripts(kNotAboutToExecuteScript);
+  if (!frame->DomWindow()->CanExecuteScripts(kNotAboutToExecuteScript)) {
+    return false;
+  }
+
+  if (base::FeatureList::IsEnabled(
+          features::kAllowDevToolsMainThreadDebuggerForMultipleMainFrames)) {
+    return true;
+  }
+
+  size_t num_main_frames = 0;
+  for (auto& page : Page::OrdinaryPages()) {
+    if (page->MainFrame() && page->MainFrame()->IsOutermostMainFrame()) {
+      ++num_main_frames;
+    }
+  }
+
+  if (num_main_frames > 1) {
+    String message = String(
+        "DevTools debugger is disabled because it is attached to a process "
+        "that hosts multiple top-level frames, where DevTools debugger doesn't "
+        "work properly. Please relaunch the browser with "
+        "--disable-features=ProcessPerSiteUpToMainFrameThreshold to enable "
+        "debugger.");
+    frame->Console().AddMessage(MakeGarbageCollected<ConsoleMessage>(
+        mojom::ConsoleMessageSource::kJavaScript,
+        mojom::ConsoleMessageLevel::kError, message));
+    return false;
+  }
+
+  return true;
 }
 
 void MainThreadDebugger::runIfWaitingForDebugger(int context_group_id) {
@@ -338,7 +389,7 @@ void MainThreadDebugger::consoleAPIMessage(
   // TODO(dgozman): we can save a copy of message and url here by making
   // FrameConsole work with StringView.
   std::unique_ptr<SourceLocation> location = std::make_unique<SourceLocation>(
-      ToCoreString(url), line_number, column_number,
+      ToCoreString(url), String(), line_number, column_number,
       stack_trace ? stack_trace->clone() : nullptr, 0);
   frame->Console().ReportMessageToClient(
       mojom::ConsoleMessageSource::kConsoleApi,
@@ -366,7 +417,7 @@ v8::MaybeLocal<v8::Value> MainThreadDebugger::memoryInfo(
 void MainThreadDebugger::installAdditionalCommandLineAPI(
     v8::Local<v8::Context> context,
     v8::Local<v8::Object> object) {
-  ThreadDebugger::installAdditionalCommandLineAPI(context, object);
+  ThreadDebuggerCommonImpl::installAdditionalCommandLineAPI(context, object);
   CreateFunctionProperty(
       context, object, "$", MainThreadDebugger::QuerySelectorCallback,
       "function $(selector, [startNode]) { [Command Line API] }",
@@ -384,8 +435,9 @@ void MainThreadDebugger::installAdditionalCommandLineAPI(
 static Node* SecondArgumentAsNode(
     const v8::FunctionCallbackInfo<v8::Value>& info) {
   if (info.Length() > 1) {
-    if (Node* node = V8Node::ToImplWithTypeCheck(info.GetIsolate(), info[1]))
+    if (Node* node = V8Node::ToWrappable(info.GetIsolate(), info[1])) {
       return node;
+    }
   }
   auto* window = CurrentDOMWindow(info.GetIsolate());
   return window ? window->document() : nullptr;
@@ -396,7 +448,7 @@ void MainThreadDebugger::QuerySelectorCallback(
   if (info.Length() < 1)
     return;
   String selector = ToCoreStringWithUndefinedOrNullCheck(info[0]);
-  if (selector.IsEmpty())
+  if (selector.empty())
     return;
   auto* container_node = DynamicTo<ContainerNode>(SecondArgumentAsNode(info));
   if (!container_node)
@@ -419,7 +471,7 @@ void MainThreadDebugger::QuerySelectorAllCallback(
   if (info.Length() < 1)
     return;
   String selector = ToCoreStringWithUndefinedOrNullCheck(info[0]);
-  if (selector.IsEmpty())
+  if (selector.empty())
     return;
   auto* container_node = DynamicTo<ContainerNode>(SecondArgumentAsNode(info));
   if (!container_node)
@@ -451,7 +503,7 @@ void MainThreadDebugger::XpathSelectorCallback(
   if (info.Length() < 1)
     return;
   String selector = ToCoreStringWithUndefinedOrNullCheck(info[0]);
-  if (selector.IsEmpty())
+  if (selector.empty())
     return;
   Node* node = SecondArgumentAsNode(info);
   if (!node || !node->IsContainerNode())

@@ -9,7 +9,6 @@
 <translation id="3444832043240812445">ನೀವು <ph name="BEGIN_LINK" />ಕ್ರ‍್ಯಾಶ್‌‌ ವರದಿಮಾಡುವಿಕೆಯನ್ನು ಸಕ್ರಿಯಗೊಳಿಸಿದರೆ<ph name="END_LINK" /> ನಿಮ್ಮ ಇತ್ತೀಚಿನ ಕ್ರ‍್ಯಾಶ್‌ಗಳಲ್ಲಿ ಮಾಹಿತಿಯನ್ನು ಈ ಪುಟ ತೋರಿಸುತ್ತದೆ.</translation>
 <translation id="3875312571075912821">ನಿಮ್ಮ ಫೈರ್‌ವಾಲ್ ಮತ್ತು ಆಂಟಿವೈರಸ್ ಸೆಟ್ಟಿಂಗ್‌ಗಳಲ್ಲಿ ನೆಟ್‌ವರ್ಕ್ ಪ್ರವೇಶಿಸಲು
         Chrome ಗೆ ಅನುಮತಿಸಿ.</translation>
-<translation id="4010643444566880169">ತನ್ನ ಪ್ರಾರಂಭಿಕ ಸೆಟಪ್ ಅನ್ನು Chrome OS ಪೂರ್ಣಗೊಳಿಸಿಲ್ಲ.</translation>
 <translation id="5005121315113832363">Chrome ನಿಂದ ಈ ಪುಟವನ್ನು ನಿರ್ಬಂಧಿಸಲಾಗಿದೆ</translation>
 <translation id="6011049234605203654">ಇದಕ್ಕೆ ಹೋಗಿ
           Chrome ಮೆನು &gt;
@@ -41,4 +40,6 @@
 <translation id="8187289872471304532">ಇದಕ್ಕೆ ಹೋಗಿ
           ಅಪ್ಲಿಕೇಶನ್‌ಗಳು &gt; ಸಿಸ್ಟಂ ಪ್ರಾಶಸ್ತ್ಯಗಳು &gt; ನೆಟ್‌ವರ್ಕ್ &gt; ಸುಧಾರಿತ &gt; ಪ್ರಾಕ್ಸಿಗಳು
           ಮತ್ತು ಆಯ್ಕೆ ಮಾಡಿದ ಯಾವುದೇ ಪ್ರಾಕ್ಸಿಗಳ ಆಯ್ಕೆಯನ್ನು ರದ್ದುಮಾಡಿ.</translation>
+<translation id="8232971017369963250"><ph name="BEGIN_LINK_CHROMIUM" />Chromium<ph name="END_LINK_CHROMIUM" /> ಓಪನ್ ಸೋರ್ಸ್ ಪ್ರಾಜೆಕ್ಟ್‌ನಿಂದ Chrome ಅನ್ನು ಸಾಕಾರಗೊಳಿಸಲಾಗಿದೆ.</translation>
+<translation id="8279509328145658601">ಇತರ <ph name="BEGIN_LINK_OSS" />ಓಪನ್ ಸೋರ್ಸ್ ಸಾಫ್ಟ್‌ವೇರ್<ph name="END_LINK_OSS" /> ನಿಂದ Chrome ಅನ್ನು ಸಾಕಾರಗೊಳಿಸಲಾಗಿದೆ.</translation>
 </translationbundle>

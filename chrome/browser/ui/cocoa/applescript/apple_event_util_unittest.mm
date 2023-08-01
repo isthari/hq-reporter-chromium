@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,8 @@
 #include <stdint.h>
 
 #include <memory>
+#include <string>
 
-#include "base/cxx17_backports.h"
 #include "base/json/json_reader.h"
 #include "base/mac/scoped_aedesc.h"
 #include "base/notreached.h"
@@ -19,6 +19,10 @@
 #include "base/values.h"
 #import "chrome/browser/ui/cocoa/test/cocoa_test_helper.h"
 #include "testing/gtest_mac.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 namespace {
 
@@ -229,31 +233,29 @@ TEST_F(AppleEventUtilTest, ValueToAppleEventDescriptor) {
       typeAEList },
   };
 
-  for (size_t i = 0; i < base::size(cases); ++i) {
+  for (size_t i = 0; i < std::size(cases); ++i) {
     absl::optional<base::Value> value =
         base::JSONReader::Read(cases[i].json_input);
     NSAppleEventDescriptor* descriptor =
-        chrome::mac::ValueToAppleEventDescriptor(&*value);
+        chrome::mac::ValueToAppleEventDescriptor(value.value());
 
-    EXPECT_EQ(cases[i].expected_aedesc_dump,
-              AEDescToString([descriptor aeDesc]))
+    EXPECT_EQ(cases[i].expected_aedesc_dump, AEDescToString(descriptor.aeDesc))
         << "i: " << i;
-    EXPECT_EQ(cases[i].expected_aedesc_type,
-              [descriptor descriptorType]) << "i: " << i;
+    EXPECT_EQ(cases[i].expected_aedesc_type, descriptor.descriptorType)
+        << "i: " << i;
   }
 
   // Test boolean values separately because boolean NSAppleEventDescriptors
   // return different values across different system versions when their
   // -description method is called.
 
-  const bool all_bools[] = { true, false };
-  for (bool b : all_bools) {
+  for (bool b : {true, false}) {
     base::Value value(b);
     NSAppleEventDescriptor* descriptor =
-        chrome::mac::ValueToAppleEventDescriptor(&value);
+        chrome::mac::ValueToAppleEventDescriptor(value);
 
-    EXPECT_EQ(typeBoolean, [descriptor descriptorType]);
-    EXPECT_EQ(b, [descriptor booleanValue]);
+    EXPECT_EQ(typeBoolean, descriptor.descriptorType);
+    EXPECT_EQ(b, descriptor.booleanValue);
   }
 }
 

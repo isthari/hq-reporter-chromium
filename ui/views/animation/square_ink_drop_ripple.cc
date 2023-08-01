@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "ui/compositor/compositor.h"
 #include "ui/compositor/layer.h"
@@ -21,6 +21,7 @@
 #include "ui/gfx/geometry/vector3d_f.h"
 #include "ui/views/animation/animation_builder.h"
 #include "ui/views/animation/animation_sequence_block.h"
+#include "ui/views/animation/ink_drop_host.h"
 #include "ui/views/animation/ink_drop_painted_layer_delegates.h"
 #include "ui/views/style/platform_style.h"
 #include "ui/views/view.h"
@@ -116,9 +117,12 @@ enum InkDropSubAnimations {
 constexpr float kQuickActionBurstScale = 1.3f;
 
 // Returns the InkDropState sub animation duration for the given |state|.
-base::TimeDelta GetAnimationDuration(InkDropSubAnimations state) {
+base::TimeDelta GetAnimationDuration(InkDropHost* ink_drop_host,
+                                     InkDropSubAnimations state) {
   if (!PlatformStyle::kUseRipples ||
-      !gfx::Animation::ShouldRenderRichAnimation()) {
+      !gfx::Animation::ShouldRenderRichAnimation() ||
+      (ink_drop_host &&
+       ink_drop_host->GetMode() == InkDropHost::InkDropMode::ON_NO_ANIMATE)) {
     return base::TimeDelta();
   }
 
@@ -144,14 +148,15 @@ base::TimeDelta GetAnimationDuration(InkDropSubAnimations state) {
 
 }  // namespace
 
-SquareInkDropRipple::SquareInkDropRipple(const gfx::Size& large_size,
+SquareInkDropRipple::SquareInkDropRipple(InkDropHost* ink_drop_host,
+                                         const gfx::Size& large_size,
                                          int large_corner_radius,
                                          const gfx::Size& small_size,
                                          int small_corner_radius,
                                          const gfx::Point& center_point,
                                          SkColor color,
                                          float visible_opacity)
-    : activated_shape_(ActivatedShape::kRoundedRect),
+    : InkDropRipple(ink_drop_host),
       visible_opacity_(visible_opacity),
       large_size_(large_size),
       large_corner_radius_(large_corner_radius),
@@ -217,8 +222,8 @@ std::string SquareInkDropRipple::ToLayerName(PaintedShape painted_shape) {
     case VERTICAL_RECT:
       return "VERTICAL_RECT";
     case PAINTED_SHAPE_COUNT:
-      NOTREACHED() << "The PAINTED_SHAPE_COUNT value should never be used.";
-      return "PAINTED_SHAPE_COUNT";
+      NOTREACHED_NORETURN()
+          << "The PAINTED_SHAPE_COUNT value should never be used.";
   }
   return "UNKNOWN";
 }
@@ -227,10 +232,11 @@ void SquareInkDropRipple::AnimateStateChange(InkDropState old_ink_drop_state,
                                              InkDropState new_ink_drop_state) {
   InkDropTransforms transforms;
   AnimationBuilder builder;
-  auto sequence = builder
-                      .SetPreemptionStrategy(
-                          ui::LayerAnimator::IMMEDIATELY_ANIMATE_TO_NEW_TARGET)
-                      .Once();
+  InkDropHost* host = GetInkDropHost();
+  builder
+      .SetPreemptionStrategy(
+          ui::LayerAnimator::IMMEDIATELY_ANIMATE_TO_NEW_TARGET)
+      .Once();
 
   auto animate_to_transforms =
       [this](AnimationSequenceBlock& sequence,
@@ -242,17 +248,16 @@ void SquareInkDropRipple::AnimateStateChange(InkDropState old_ink_drop_state,
   };
 
   auto pending_animation =
-      [this, &animate_to_transforms](
+      [this, &animate_to_transforms, host](
           AnimationSequenceBlock& sequence,
-          const InkDropTransforms& transforms) -> AnimationSequenceBlock {
-    auto new_sequence =
-        sequence.SetDuration(GetAnimationDuration(ACTION_PENDING_FADE_IN))
+          const InkDropTransforms& transforms) -> AnimationSequenceBlock& {
+    auto& new_sequence =
+        sequence.SetDuration(GetAnimationDuration(host, ACTION_PENDING_FADE_IN))
             .SetOpacity(&root_layer_, visible_opacity_, gfx::Tween::EASE_IN)
-            .Then();
-    animate_to_transforms(
-        new_sequence.SetDuration(GetAnimationDuration(ACTION_PENDING_TRANSFORM))
-            .SetOpacity(&root_layer_, visible_opacity_, gfx::Tween::EASE_IN),
-        transforms, gfx::Tween::EASE_IN_OUT);
+            .Then()
+            .SetDuration(GetAnimationDuration(host, ACTION_PENDING_TRANSFORM))
+            .SetOpacity(&root_layer_, visible_opacity_, gfx::Tween::EASE_IN);
+    animate_to_transforms(new_sequence, transforms, gfx::Tween::EASE_IN_OUT);
     return new_sequence;
   };
 
@@ -263,13 +268,14 @@ void SquareInkDropRipple::AnimateStateChange(InkDropState old_ink_drop_state,
         break;
       } else {
         CalculateCircleTransforms(small_size_, &transforms);
-        sequence = sequence.SetDuration(GetAnimationDuration(HIDDEN_FADE_OUT))
-                       .SetOpacity(&root_layer_, kHiddenOpacity,
-                                   gfx::Tween::EASE_IN_OUT)
-                       .At(base::TimeDelta());
-        animate_to_transforms(
-            sequence.SetDuration(GetAnimationDuration(HIDDEN_TRANSFORM)),
-            transforms, gfx::Tween::EASE_IN_OUT);
+        auto& sequence =
+            builder.GetCurrentSequence()
+                .SetDuration(GetAnimationDuration(host, HIDDEN_FADE_OUT))
+                .SetOpacity(&root_layer_, kHiddenOpacity,
+                            gfx::Tween::EASE_IN_OUT)
+                .At(base::TimeDelta())
+                .SetDuration(GetAnimationDuration(host, HIDDEN_TRANSFORM));
+        animate_to_transforms(sequence, transforms, gfx::Tween::EASE_IN_OUT);
       }
       break;
     case InkDropState::ACTION_PENDING: {
@@ -281,7 +287,7 @@ void SquareInkDropRipple::AnimateStateChange(InkDropState old_ink_drop_state,
           << " new_ink_drop_state=" << ToString(new_ink_drop_state);
 
       CalculateCircleTransforms(large_size_, &transforms);
-      pending_animation(sequence, transforms);
+      pending_animation(builder.GetCurrentSequence(), transforms);
       break;
     }
     case InkDropState::ACTION_TRIGGERED: {
@@ -294,17 +300,17 @@ void SquareInkDropRipple::AnimateStateChange(InkDropState old_ink_drop_state,
       gfx::Size s = ScaleToRoundedSize(large_size_, kQuickActionBurstScale);
       CalculateCircleTransforms(s, &transforms);
       if (old_ink_drop_state == InkDropState::HIDDEN) {
-        sequence = pending_animation(sequence, transforms).Then();
+        pending_animation(builder.GetCurrentSequence(), transforms).Then();
       } else {
         builder.SetPreemptionStrategy(ui::LayerAnimator::ENQUEUE_NEW_ANIMATION);
       }
-      sequence =
-          sequence.SetDuration(GetAnimationDuration(ACTION_TRIGGERED_FADE_OUT))
-              .SetOpacity(&root_layer_, kHiddenOpacity, gfx::Tween::EASE_IN_OUT)
-              .Offset(base::TimeDelta());
-      animate_to_transforms(sequence.SetDuration(GetAnimationDuration(
-                                ACTION_TRIGGERED_TRANSFORM)),
-                            transforms, gfx::Tween::EASE_IN_OUT);
+      builder.GetCurrentSequence()
+          .SetDuration(GetAnimationDuration(host, ACTION_TRIGGERED_FADE_OUT))
+          .SetOpacity(&root_layer_, kHiddenOpacity, gfx::Tween::EASE_IN_OUT)
+          .Offset(base::TimeDelta())
+          .SetDuration(GetAnimationDuration(host, ACTION_TRIGGERED_TRANSFORM));
+      animate_to_transforms(builder.GetCurrentSequence(), transforms,
+                            gfx::Tween::EASE_IN_OUT);
       break;
     }
     case InkDropState::ALTERNATE_ACTION_PENDING: {
@@ -315,7 +321,8 @@ void SquareInkDropRipple::AnimateStateChange(InkDropState old_ink_drop_state,
 
       CalculateRectTransforms(small_size_, small_corner_radius_, &transforms);
       animate_to_transforms(
-          sequence.SetDuration(GetAnimationDuration(ALTERNATE_ACTION_PENDING))
+          builder.GetCurrentSequence()
+              .SetDuration(GetAnimationDuration(host, ALTERNATE_ACTION_PENDING))
               .SetOpacity(&root_layer_, visible_opacity_, gfx::Tween::EASE_IN),
           transforms, gfx::Tween::EASE_IN_OUT);
       break;
@@ -328,63 +335,64 @@ void SquareInkDropRipple::AnimateStateChange(InkDropState old_ink_drop_state,
           << " new_ink_drop_state=" << ToString(new_ink_drop_state);
 
       base::TimeDelta visible_duration =
-          GetAnimationDuration(ALTERNATE_ACTION_TRIGGERED_TRANSFORM) -
-          GetAnimationDuration(ALTERNATE_ACTION_TRIGGERED_FADE_OUT);
+          GetAnimationDuration(host, ALTERNATE_ACTION_TRIGGERED_TRANSFORM) -
+          GetAnimationDuration(host, ALTERNATE_ACTION_TRIGGERED_FADE_OUT);
       CalculateRectTransforms(large_size_, large_corner_radius_, &transforms);
-      sequence =
-          sequence.SetDuration(visible_duration)
-              .SetOpacity(&root_layer_, visible_opacity_,
-                          gfx::Tween::EASE_IN_OUT)
-              .Then()
-              .SetDuration(
-                  GetAnimationDuration(ALTERNATE_ACTION_TRIGGERED_FADE_OUT))
-              .SetOpacity(&root_layer_, kHiddenOpacity, gfx::Tween::EASE_IN_OUT)
-              .At(base::TimeDelta());
-      animate_to_transforms(sequence.SetDuration(GetAnimationDuration(
-                                ALTERNATE_ACTION_TRIGGERED_TRANSFORM)),
-                            transforms, gfx::Tween::EASE_IN_OUT);
+      builder.GetCurrentSequence()
+          .SetDuration(visible_duration)
+          .SetOpacity(&root_layer_, visible_opacity_, gfx::Tween::EASE_IN_OUT)
+          .Then()
+          .SetDuration(
+              GetAnimationDuration(host, ALTERNATE_ACTION_TRIGGERED_FADE_OUT))
+          .SetOpacity(&root_layer_, kHiddenOpacity, gfx::Tween::EASE_IN_OUT)
+          .At(base::TimeDelta())
+          .SetDuration(
+              GetAnimationDuration(host, ALTERNATE_ACTION_TRIGGERED_TRANSFORM));
+      animate_to_transforms(builder.GetCurrentSequence(), transforms,
+                            gfx::Tween::EASE_IN_OUT);
       break;
     }
     case InkDropState::ACTIVATED: {
       // Animate the opacity so that it cancels any opacity animations already
       // in progress.
-      sequence = sequence.SetDuration(base::TimeDelta())
-                     .SetOpacity(&root_layer_, visible_opacity_,
-                                 gfx::Tween::EASE_IN_OUT)
-                     .Then();
+      builder.GetCurrentSequence()
+          .SetDuration(base::TimeDelta())
+          .SetOpacity(&root_layer_, visible_opacity_, gfx::Tween::EASE_IN_OUT)
+          .Then();
 
       if (old_ink_drop_state == InkDropState::HIDDEN) {
         CalculateCircleTransforms(large_size_, &transforms);
-        sequence = animate_to_transforms(
-                       sequence.SetDuration(
-                           GetAnimationDuration(ACTIVATED_CIRCLE_TRANSFORM)),
-                       transforms, gfx::Tween::EASE_IN_OUT)
-                       .Then();
+        animate_to_transforms(
+            builder.GetCurrentSequence().SetDuration(
+                GetAnimationDuration(host, ACTIVATED_CIRCLE_TRANSFORM)),
+            transforms, gfx::Tween::EASE_IN_OUT)
+            .Then();
       } else if (old_ink_drop_state == InkDropState::ACTION_PENDING) {
         builder.SetPreemptionStrategy(ui::LayerAnimator::ENQUEUE_NEW_ANIMATION);
       }
 
       GetActivatedTargetTransforms(&transforms);
       animate_to_transforms(
-          sequence.SetDuration(GetAnimationDuration(ACTIVATED_RECT_TRANSFORM)),
+          builder.GetCurrentSequence().SetDuration(
+              GetAnimationDuration(host, ACTIVATED_RECT_TRANSFORM)),
           transforms, gfx::Tween::EASE_IN_OUT);
       break;
     }
     case InkDropState::DEACTIVATED: {
       base::TimeDelta visible_duration =
-          GetAnimationDuration(DEACTIVATED_TRANSFORM) -
-          GetAnimationDuration(DEACTIVATED_FADE_OUT);
+          GetAnimationDuration(host, DEACTIVATED_TRANSFORM) -
+          GetAnimationDuration(host, DEACTIVATED_FADE_OUT);
       GetDeactivatedTargetTransforms(&transforms);
-      sequence =
-          sequence.SetDuration(visible_duration)
-              .SetOpacity(&root_layer_, visible_opacity_,
-                          gfx::Tween::EASE_IN_OUT)
-              .Then()
-              .SetDuration(GetAnimationDuration(DEACTIVATED_FADE_OUT))
-              .SetOpacity(&root_layer_, kHiddenOpacity, gfx::Tween::EASE_IN_OUT)
-              .At(base::TimeDelta());
+      builder.GetCurrentSequence()
+          .SetDuration(visible_duration)
+          .SetOpacity(&root_layer_, visible_opacity_, gfx::Tween::EASE_IN_OUT)
+          .Then()
+          .SetDuration(GetAnimationDuration(host, DEACTIVATED_FADE_OUT))
+          .SetOpacity(&root_layer_, kHiddenOpacity, gfx::Tween::EASE_IN_OUT)
+          .At(base::TimeDelta());
       animate_to_transforms(
-          sequence.SetDuration(GetAnimationDuration(DEACTIVATED_TRANSFORM)),
+          builder.GetCurrentSequence().SetDuration(
+              GetAnimationDuration(host, DEACTIVATED_TRANSFORM)),
           transforms, gfx::Tween::EASE_IN_OUT);
       break;
     }
@@ -438,11 +446,11 @@ void SquareInkDropRipple::CalculateRectTransforms(
     // Modify |desired_size| so that the ripple aligns to pixel bounds.
     const float dsf = root_layer_.GetCompositor()->device_scale_factor();
     gfx::RectF ripple_bounds((gfx::PointF(center_point_)), gfx::SizeF());
-    ripple_bounds.Inset(-gfx::InsetsF(desired_size.height() / 2.0f,
-                                      desired_size.width() / 2.0f));
+    ripple_bounds.Inset(-gfx::InsetsF::VH(desired_size.height() / 2.0f,
+                                          desired_size.width() / 2.0f));
     ripple_bounds.Scale(dsf);
     ripple_bounds = gfx::RectF(gfx::ToEnclosingRect(ripple_bounds));
-    ripple_bounds.Scale(1.0f / dsf);
+    ripple_bounds.InvScale(dsf);
     size = ripple_bounds.size();
   }
 
@@ -555,8 +563,8 @@ void SquareInkDropRipple::AddPaintLayer(PaintedShape painted_shape) {
       delegate = rect_layer_delegate_.get();
       break;
     case PAINTED_SHAPE_COUNT:
-      NOTREACHED() << "PAINTED_SHAPE_COUNT is not an actual shape type.";
-      break;
+      NOTREACHED_NORETURN()
+          << "PAINTED_SHAPE_COUNT is not an actual shape type.";
   }
 
   ui::Layer* layer = new ui::Layer();

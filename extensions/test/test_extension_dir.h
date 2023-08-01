@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/strings/string_piece.h"
+#include "base/values.h"
 
 namespace extensions {
 
@@ -19,9 +20,18 @@ class TestExtensionDir {
 
   ~TestExtensionDir();
 
-  // Writes |manifest| to manifest.json within the unpacked dir.  No validation
+  TestExtensionDir(const TestExtensionDir&) = delete;
+  TestExtensionDir(TestExtensionDir&&) noexcept;
+
+  TestExtensionDir& operator=(const TestExtensionDir&) = delete;
+  TestExtensionDir& operator=(TestExtensionDir&&);
+
+  // Writes |manifest| to manifest.json within the unpacked dir. No validation
   // is performed. If desired this should be done on extension installation.
   void WriteManifest(base::StringPiece manifest);
+
+  // As above, but using a base::Value::Dict instead of JSON string.
+  void WriteManifest(const base::Value::Dict& manifest);
 
   // Writes |contents| to |filename| within the unpacked dir, overwriting
   // anything that was already there.

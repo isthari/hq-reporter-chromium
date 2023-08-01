@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -75,6 +75,15 @@ NetworkRequestId LaunchReliabilityLogger::LogWebFeedRequestStart() {
   return id;
 }
 
+NetworkRequestId LaunchReliabilityLogger::LogSingleWebFeedRequestStart() {
+  NetworkRequestId id = request_id_gen_.GenerateNextId();
+  for (const StreamSurfaceSet::Entry& entry : surfaces_->surfaces()) {
+    entry.surface->GetReliabilityLoggingBridge().LogSingleWebFeedRequestStart(
+        id, base::TimeTicks::Now());
+  }
+  return id;
+}
+
 void LaunchReliabilityLogger::LogRequestSent(NetworkRequestId id,
                                              base::TimeTicks timestamp) {
   for (auto& entry : *surfaces_)
@@ -102,6 +111,47 @@ void LaunchReliabilityLogger::LogRequestFinished(
   }
 }
 
+void LaunchReliabilityLogger::LogLoadMoreStarted() {
+  for (const StreamSurfaceSet::Entry& entry : surfaces_->surfaces()) {
+    entry.surface->GetReliabilityLoggingBridge().LogLoadMoreStarted();
+  }
+}
+
+void LaunchReliabilityLogger::LogLoadMoreActionUploadRequestStarted() {
+  for (const StreamSurfaceSet::Entry& entry : surfaces_->surfaces()) {
+    entry.surface->GetReliabilityLoggingBridge()
+        .LogLoadMoreActionUploadRequestStarted();
+  }
+}
+
+void LaunchReliabilityLogger::LogLoadMoreRequestSent() {
+  for (const StreamSurfaceSet::Entry& entry : surfaces_->surfaces()) {
+    entry.surface->GetReliabilityLoggingBridge().LogLoadMoreRequestSent();
+  }
+}
+
+void LaunchReliabilityLogger::LogLoadMoreResponseReceived(
+    int64_t server_receive_timestamp_ns,
+    int64_t server_send_timestamp_ns) {
+  for (const StreamSurfaceSet::Entry& entry : surfaces_->surfaces()) {
+    entry.surface->GetReliabilityLoggingBridge().LogLoadMoreResponseReceived(
+        server_receive_timestamp_ns, server_send_timestamp_ns);
+  }
+}
+
+void LaunchReliabilityLogger::LogLoadMoreRequestFinished(int canonical_status) {
+  for (const StreamSurfaceSet::Entry& entry : surfaces_->surfaces()) {
+    entry.surface->GetReliabilityLoggingBridge().LogLoadMoreRequestFinished(
+        canonical_status);
+  }
+}
+
+void LaunchReliabilityLogger::LogLoadMoreEnded(bool success) {
+  for (const StreamSurfaceSet::Entry& entry : surfaces_->surfaces()) {
+    entry.surface->GetReliabilityLoggingBridge().LogLoadMoreEnded(success);
+  }
+}
+
 void LaunchReliabilityLogger::OnStreamUpdate(StreamUpdateType type) {
   for (const StreamSurfaceSet::Entry& entry : surfaces_->surfaces())
     OnStreamUpdate(type, *entry.surface);
@@ -116,7 +166,7 @@ void LaunchReliabilityLogger::OnStreamUpdate(StreamUpdateType type,
       logging_bridge.LogLoadingIndicatorShown(base::TimeTicks::Now());
       break;
     case StreamUpdateType::kLoadingMoreSpinner:
-      // TODO(iwells): log this with next-page flow
+      // Nothing to log. We will log only when the indicator is actuallly shown.
       break;
     case StreamUpdateType::kZeroState:
       logging_bridge.LogAboveTheFoldRender(

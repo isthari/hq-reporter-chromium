@@ -1,4 +1,4 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,8 @@
 
 #include "base/files/scoped_temp_dir.h"
 #include "base/test/scoped_feature_list.h"
+#include "net/test/embedded_test_server/embedded_test_server.h"
+#include "url/gurl.h"
 
 class InProcessBrowserTest;
 
@@ -22,7 +24,7 @@ class AshBrowserTestStarter {
   // Returns whether the --lacros-chrome-path is provided.
   // If returns false, we should not do any Lacros related testing
   // because the Lacros instance is not provided.
-  bool HasLacrosArgument();
+  bool HasLacrosArgument() const;
 
   // Prepares ash so it can work with Lacros. You should call this
   // in SetUpInProcessBrowserTestFixture().
@@ -33,10 +35,14 @@ class AshBrowserTestStarter {
   // this no earlier than SetUpOnMainThread().
   void StartLacros(InProcessBrowserTest* test_class_obj);
 
+  net::EmbeddedTestServer* https_server();
+  GURL base_url();
+
  private:
   // This is XDG_RUNTIME_DIR.
   base::ScopedTempDir scoped_temp_dir_xdg_;
   base::test::ScopedFeatureList scoped_feature_list_;
+  net::EmbeddedTestServer https_server_;
 };
 
 }  // namespace test

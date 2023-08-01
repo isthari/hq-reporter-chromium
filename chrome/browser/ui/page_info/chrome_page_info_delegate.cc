@@ -1,55 +1,60 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/page_info/chrome_page_info_delegate.h"
 
+#include "base/metrics/histogram_functions.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/bluetooth/bluetooth_chooser_context_factory.h"
+#include "chrome/browser/browser_process.h"
+#include "chrome/browser/content_settings/cookie_settings_factory.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/content_settings/page_specific_content_settings_delegate.h"
 #include "chrome/browser/permissions/permission_decision_auto_blocker_factory.h"
 #include "chrome/browser/permissions/permission_manager_factory.h"
+#include "chrome/browser/privacy_sandbox/privacy_sandbox_service.h"
+#include "chrome/browser/privacy_sandbox/privacy_sandbox_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/safe_browsing/chrome_password_protection_service.h"
 #include "chrome/browser/ssl/security_state_tab_helper.h"
 #include "chrome/browser/ssl/stateful_ssl_host_state_delegate_factory.h"
 #include "chrome/browser/subresource_filter/subresource_filter_profile_context_factory.h"
+#include "chrome/browser/ui/url_identity.h"
 #include "chrome/browser/usb/usb_chooser_context.h"
 #include "chrome/browser/usb/usb_chooser_context_factory.h"
 #include "chrome/browser/vr/vr_tab_helper.h"
+#include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "components/content_settings/browser/page_specific_content_settings.h"
+#include "components/content_settings/core/common/pref_names.h"
 #include "components/infobars/content/content_infobar_manager.h"
+#include "components/page_info/core/features.h"
 #include "components/permissions/contexts/bluetooth_chooser_context.h"
 #include "components/permissions/object_permission_context_base.h"
 #include "components/permissions/permission_manager.h"
 #include "components/permissions/permission_result.h"
+#include "components/prefs/pref_service.h"
 #include "components/security_interstitials/content/stateful_ssl_host_state_delegate.h"
 #include "components/subresource_filter/content/browser/subresource_filter_content_settings_manager.h"
 #include "components/subresource_filter/content/browser/subresource_filter_profile_context.h"
+#include "content/public/browser/permission_controller.h"
+#include "content/public/browser/permission_result.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_features.h"
-
-#if BUILDFLAG(FULL_SAFE_BROWSING)
-#include "chrome/browser/safe_browsing/chrome_password_protection_service.h"
-#endif
+#include "ui/base/window_open_disposition_utils.h"
+#include "url/origin.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/ui/webui/settings/ash/app_management/app_management_uma.h"
-#endif
-
-#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)
-#include "base/feature_list.h"
-#include "chrome/common/chrome_features.h"
 #endif
 
 #if !BUILDFLAG(IS_ANDROID)
 #include "chrome/browser/certificate_viewer.h"
 #include "chrome/browser/hid/hid_chooser_context.h"
 #include "chrome/browser/hid/hid_chooser_context_factory.h"
-#include "chrome/browser/reputation/safety_tip_ui_helper.h"
+#include "chrome/browser/lookalikes/safety_tip_ui_helper.h"
 #include "chrome/browser/serial/serial_chooser_context.h"
 #include "chrome/browser/serial/serial_chooser_context_factory.h"
 #include "chrome/browser/ui/browser.h"
@@ -60,11 +65,28 @@
 #include "chrome/browser/ui/page_info/page_info_infobar_delegate.h"
 #include "chrome/browser/ui/tab_dialogs.h"
 #include "chrome/browser/ui/web_applications/app_browser_controller.h"
+#include "chrome/browser/ui/web_applications/web_app_ui_utils.h"
+#include "chrome/browser/web_applications/web_app_id.h"
+#include "chrome/browser/web_applications/web_app_provider.h"
+#include "chrome/browser/web_applications/web_app_tab_helper.h"
 #include "ui/events/event.h"
 #else
 #include "chrome/grit/chromium_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 #endif
+
+namespace {
+
+// Expected URL types for `UrlIdentity::CreateFromUrl()`.
+constexpr UrlIdentity::TypeSet kUrlIdentityAllowedTypes = {
+    UrlIdentity::Type::kDefault, UrlIdentity::Type::kFile,
+    UrlIdentity::Type::kIsolatedWebApp, UrlIdentity::Type::kChromeExtension};
+
+constexpr UrlIdentity::FormatOptions kUrlIdentityOptions{
+    .default_options = {UrlIdentity::DefaultFormatOptions::
+                            kOmitSchemePathAndTrivialSubdomains}};
+
+}  // namespace
 
 ChromePageInfoDelegate::ChromePageInfoDelegate(
     content::WebContents* web_contents)
@@ -73,6 +95,9 @@ ChromePageInfoDelegate::ChromePageInfoDelegate(
   sentiment_service_ =
       TrustSafetySentimentServiceFactory::GetForProfile(GetProfile());
 #endif
+  base::UmaHistogramBoolean("Security.PageInfo.AboutThisSiteLanguageSupported",
+                            page_info::IsAboutThisSiteFeatureEnabled(
+                                g_browser_process->GetApplicationLocale()));
 }
 
 Profile* ChromePageInfoDelegate::GetProfile() const {
@@ -150,16 +175,33 @@ std::u16string ChromePageInfoDelegate::GetWarningDetailText() {
 }
 #endif
 
-permissions::PermissionResult ChromePageInfoDelegate::GetPermissionStatus(
-    ContentSettingsType type,
-    const GURL& site_url) {
-  // TODO(raymes): Use GetPermissionStatus() to retrieve information
-  // about *all* permissions once it has default behaviour implemented for
-  // ContentSettingTypes that aren't permissions.
-  return PermissionManagerFactory::GetForProfile(GetProfile())
-      ->GetPermissionStatus(type, site_url, site_url);
+permissions::PermissionResult ChromePageInfoDelegate::GetPermissionResult(
+    blink::PermissionType permission,
+    const url::Origin& origin) {
+  content::PermissionResult permission_result =
+      GetProfile()
+          ->GetPermissionController()
+          ->GetPermissionResultForOriginWithoutContext(permission, origin);
+  return permissions::PermissionUtil::ToPermissionResult(permission_result);
 }
+
 #if !BUILDFLAG(IS_ANDROID)
+void ChromePageInfoDelegate::FocusWebContents() {
+  Browser* browser = chrome::FindBrowserWithWebContents(web_contents_);
+  browser->ActivateContents(web_contents_);
+}
+
+absl::optional<std::u16string> ChromePageInfoDelegate::GetFpsOwner(
+    const GURL& site_url) {
+  return PrivacySandboxServiceFactory::GetForProfile(GetProfile())
+      ->GetFirstPartySetOwnerForDisplay(site_url);
+}
+
+bool ChromePageInfoDelegate::IsFpsManaged() {
+  return PrivacySandboxServiceFactory::GetForProfile(GetProfile())
+      ->IsFirstPartySetsDataAccessManaged();
+}
+
 bool ChromePageInfoDelegate::CreateInfoBarDelegate() {
   infobars::ContentInfoBarManager* infobar_manager =
       infobars::ContentInfoBarManager::FromWebContents(web_contents_);
@@ -170,29 +212,51 @@ bool ChromePageInfoDelegate::CreateInfoBarDelegate() {
   return false;
 }
 
-void ChromePageInfoDelegate::ShowSiteSettings(const GURL& site_url) {
-  Browser* browser = chrome::FindBrowserWithWebContents(web_contents_);
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  if (web_app::AppBrowserController::IsWebApp(browser)) {
-    web_app::AppId app_id = browser->app_controller()->app_id();
-    chrome::ShowAppManagementPage(
-        GetProfile(), app_id,
-        ash::settings::AppManagementEntryPoint::kPageInfoView);
-    return;
-  }
-#elif BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)
-  if (base::FeatureList::IsEnabled(features::kDesktopPWAsWebAppSettingsPage) &&
-      web_app::AppBrowserController::IsWebApp(browser)) {
-    web_app::AppId app_id = browser->app_controller()->app_id();
-    chrome::ShowWebAppSettings(browser, app_id);
-    return;
-  }
-#endif
+std::unique_ptr<content_settings::CookieControlsController>
+ChromePageInfoDelegate::CreateCookieControlsController() {
+  Profile* profile = GetProfile();
+  return std::make_unique<content_settings::CookieControlsController>(
+      CookieSettingsFactory::GetForProfile(profile),
+      profile->IsOffTheRecord()
+          ? CookieSettingsFactory::GetForProfile(profile->GetOriginalProfile())
+          : nullptr);
+}
 
+bool ChromePageInfoDelegate::IsIsolatedWebApp() {
+  CHECK(web_contents_);
+  web_app::WebAppProvider* provider =
+      web_app::WebAppProvider::GetForWebContents(web_contents_);
+  if (!provider) {
+    return false;
+  }
+
+  const web_app::AppId* app_id =
+      web_app::WebAppTabHelper::GetAppId(web_contents_);
+  return app_id && provider->registrar_unsafe().IsIsolated(*app_id);
+}
+
+void ChromePageInfoDelegate::ShowSiteSettings(const GURL& site_url) {
+  if (web_app::HandleAppManagementLinkClickedInPageInfo(web_contents_))
+    return;
+
+  Browser* browser = chrome::FindBrowserWithWebContents(web_contents_);
   chrome::ShowSiteSettings(browser, site_url);
 }
 
+void ChromePageInfoDelegate::ShowCookiesSettings() {
+  Browser* browser = chrome::FindBrowserWithWebContents(web_contents_);
+  chrome::ShowSettingsSubPage(browser, chrome::kCookieSettingsSubPage);
+}
+
+void ChromePageInfoDelegate::ShowAllSitesSettingsFilteredByFpsOwner(
+    const std::u16string& fps_owner) {
+  Browser* browser = chrome::FindBrowserWithWebContents(web_contents_);
+  chrome::ShowAllSitesSettingsFilteredByFpsOwner(browser,
+                                                 base::UTF16ToUTF8(fps_owner));
+}
+
 void ChromePageInfoDelegate::OpenCookiesDialog() {
+  FocusWebContents();
   TabDialogs::FromWebContents(web_contents_)->ShowCollectedCookies();
 }
 
@@ -202,6 +266,7 @@ void ChromePageInfoDelegate::OpenCertificateDialog(
   DCHECK(certificate);
   DCHECK(top_window);
 
+  FocusWebContents();
   ShowCertificateViewer(web_contents_, top_window, certificate);
 }
 
@@ -239,6 +304,13 @@ void ChromePageInfoDelegate::OnUIClosing() {
     sentiment_service_->PageInfoClosed();
 }
 #endif
+
+std::u16string ChromePageInfoDelegate::GetSubjectName(const GURL& url) {
+  CHECK(web_contents_);
+  return UrlIdentity::CreateFromUrl(GetProfile(), url, kUrlIdentityAllowedTypes,
+                                    kUrlIdentityOptions)
+      .name;
+}
 
 permissions::PermissionDecisionAutoBlocker*
 ChromePageInfoDelegate::GetPermissionDecisionAutoblocker() {
@@ -295,6 +367,11 @@ ChromePageInfoDelegate::GetVisibleSecurityState() {
   return *helper->GetVisibleSecurityState();
 }
 
+void ChromePageInfoDelegate::OnCookiesPageOpened() {
+  GetProfile()->GetPrefs()->SetBoolean(prefs::kInContextCookieControlsOpened,
+                                       true);
+}
+
 std::unique_ptr<content_settings::PageSpecificContentSettings::Delegate>
 ChromePageInfoDelegate::GetPageSpecificContentSettingsDelegate() {
   auto delegate = std::make_unique<chrome::PageSpecificContentSettingsDelegate>(
@@ -307,6 +384,10 @@ const std::u16string ChromePageInfoDelegate::GetClientApplicationName() {
   return l10n_util::GetStringUTF16(IDS_SHORT_PRODUCT_NAME);
 }
 #endif
+
+bool ChromePageInfoDelegate::IsHttpsFirstModeEnabled() {
+  return GetProfile()->GetPrefs()->GetBoolean(prefs::kHttpsOnlyModeEnabled);
+}
 
 void ChromePageInfoDelegate::SetSecurityStateForTests(
     security_state::SecurityLevel security_level,

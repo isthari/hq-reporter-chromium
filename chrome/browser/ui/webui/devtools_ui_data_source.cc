@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,12 @@
 #include <list>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/path_service.h"
 #include "base/strings/strcat.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "chrome/browser/devtools/devtools_ui_bindings.h"
 #include "chrome/browser/devtools/url_constants.h"
@@ -49,8 +48,8 @@ scoped_refptr<base::RefCountedMemory> CreateNotFoundResponse() {
 
 // DevToolsDataSource ---------------------------------------------------------
 
-std::string GetMimeTypeForPath(const std::string& path) {
-  std::string filename = PathWithoutParams(path);
+std::string GetMimeTypeForUrl(const GURL& url) {
+  std::string filename = url.ExtractFileName();
   if (base::EndsWith(filename, ".html", base::CompareCase::INSENSITIVE_ASCII)) {
     return "text/html";
   } else if (base::EndsWith(filename, ".css",
@@ -82,6 +81,22 @@ std::string GetMimeTypeForPath(const std::string& path) {
   }
   return "text/html";
 }
+
+// Checks if the path starts with a prefix followed by a revision. In that case,
+// the prefix and the revision is removed from the path. For example,
+// "$prefix@76e4c1bb2ab4671b8beba3444e61c0f17584b2fc/inspector.html" becomes
+// "inspector.html".
+std::string StripDevToolsRevisionWithPrefix(const std::string& path,
+                                            const std::string& prefix) {
+  if (base::StartsWith(path, prefix, base::CompareCase::INSENSITIVE_ASCII)) {
+    std::size_t found = path.find("/", prefix.length() + 1);
+    if (found != std::string::npos) {
+      return path.substr(found + 1);
+    }
+    DLOG(ERROR) << "Unexpected URL format, falling back to the original URL.";
+  }
+  return path;
+}
 }  // namespace
 
 DevToolsDataSource::DevToolsDataSource(
@@ -109,21 +124,11 @@ bool DevToolsDataSource::MaybeHandleCustomRequest(const std::string& path,
   GURL custom_devtools_frontend = GetCustomDevToolsFrontendURL();
   if (!custom_devtools_frontend.is_valid())
     return false;
-  std::string serve_rev_prefix("serve_rev/");
-  std::string stripped_path = path;
-  // Check if a service a remote revision request.
-  // In this case, we need to strip the revision prefix.
-  if (base::StartsWith(path, serve_rev_prefix,
-                       base::CompareCase::INSENSITIVE_ASCII)) {
-    // Strip revision prefix. For example:
-    // "serve_rev/@76e4c1bb2ab4671b8beba3444e61c0f17584b2fc/inspector.html"
-    // becomes "inspector.html".
-    std::size_t found = path.find("/", serve_rev_prefix.length() + 1);
-    if (found != std::string::npos)
-      stripped_path = path.substr(found + 1);
-    else
-      DLOG(ERROR) << "Unexpected URL format, falling back to the original URL.";
-  }
+  std::string stripped_path =
+      StripDevToolsRevisionWithPrefix(path, "serve_rev/");
+  stripped_path = StripDevToolsRevisionWithPrefix(stripped_path, "serve_file/");
+  stripped_path =
+      StripDevToolsRevisionWithPrefix(stripped_path, "serve_internal_file/");
   if (custom_devtools_frontend.SchemeIsFile()) {
     // Fetch from file system but strip all the params.
     StartFileRequest(PathWithoutParams(stripped_path), std::move(*callback));
@@ -208,8 +213,8 @@ void DevToolsDataSource::StartDataRequest(
   std::move(callback).Run(CreateNotFoundResponse());
 }
 
-std::string DevToolsDataSource::GetMimeType(const std::string& path) {
-  return GetMimeTypeForPath(path);
+std::string DevToolsDataSource::GetMimeType(const GURL& url) {
+  return GetMimeTypeForUrl(url);
 }
 
 bool DevToolsDataSource::ShouldAddContentSecurityPolicy() {
@@ -252,8 +257,7 @@ void DevToolsDataSource::StartRemoteDataRequest(
           destination: GOOGLE_OWNED_SERVICE
         }
         policy {
-          cookies_allowed: YES
-          cookies_store: "user"
+          cookies_allowed: NO
           setting: "This feature cannot be disabled by settings."
           chrome_policy {
             DeveloperToolsAvailability {
@@ -292,8 +296,7 @@ void DevToolsDataSource::StartCustomDataRequest(
           destination: WEBSITE
         }
         policy {
-          cookies_allowed: YES
-          cookies_store: "user"
+          cookies_allowed: NO
           setting: "This feature cannot be disabled by settings."
           chrome_policy {
             DeveloperToolsAvailability {
@@ -315,6 +318,7 @@ void DevToolsDataSource::StartNetworkRequest(
   auto request = std::make_unique<network::ResourceRequest>();
   request->url = url;
   request->load_flags = load_flags;
+  request->credentials_mode = network::mojom::CredentialsMode::kOmit;
 
   auto request_iter = pending_requests_.emplace(pending_requests_.begin());
   request_iter->callback = std::move(callback);
@@ -333,7 +337,7 @@ scoped_refptr<base::RefCountedMemory> ReadFileForDevTools(
     LOG(ERROR) << "Failed to read " << path;
     return CreateNotFoundResponse();
   }
-  return base::RefCountedString::TakeString(&buffer);
+  return base::MakeRefCounted<base::RefCountedString>(std::move(buffer));
 }
 
 void DevToolsDataSource::StartFileRequest(const std::string& path,
@@ -361,11 +365,13 @@ void DevToolsDataSource::StartFileRequest(const std::string& path,
 void DevToolsDataSource::OnLoadComplete(
     std::list<PendingRequest>::iterator request_iter,
     std::unique_ptr<std::string> response_body) {
-  std::move(request_iter->callback)
-      .Run(response_body
-               ? base::RefCountedString::TakeString(response_body.get())
-               : CreateNotFoundResponse());
+  GotDataCallback callback = std::move(request_iter->callback);
   pending_requests_.erase(request_iter);
+  std::move(callback).Run(response_body
+                              ? base::MakeRefCounted<base::RefCountedString>(
+                                    std::move(*response_body))
+                              : CreateNotFoundResponse());
+  // `this` might no longer be valid after `callback` has run.
 }
 
 DevToolsDataSource::PendingRequest::PendingRequest() = default;

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include "base/test/bind.h"
 #include "base/test/test_timeouts.h"
 #include "chrome/browser/content_settings/cookie_settings_factory.h"
+#include "chrome/browser/privacy_sandbox/privacy_sandbox_settings_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/test/base/in_process_browser_test.h"
@@ -15,6 +16,9 @@
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/content_settings/core/common/pref_names.h"
 #include "components/prefs/pref_service.h"
+#include "components/privacy_sandbox/privacy_sandbox_features.h"
+#include "components/privacy_sandbox/privacy_sandbox_settings.h"
+#include "content/public/common/content_features.h"
 #include "content/public/test/browser_test.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -28,9 +32,12 @@ class InterestGroupPermissionsBrowserTest : public InProcessBrowserTest {
     scoped_feature_list_.InitWithFeatures(
         /*enabled_features=*/
         {blink::features::kInterestGroupStorage,
-         blink::features::kAdInterestGroupAPI, blink::features::kFledge},
+         blink::features::kAdInterestGroupAPI, blink::features::kFledge,
+         features::kPrivacySandboxAdsAPIsOverride,
+         privacy_sandbox::kPrivacySandboxSettings4},
         /*disabled_features=*/
-        {blink::features::kFencedFrames});
+        {blink::features::kFencedFrames,
+         privacy_sandbox::kPrivacySandboxSettings3});
   }
 
   void SetUpOnMainThread() override {
@@ -42,6 +49,8 @@ class InterestGroupPermissionsBrowserTest : public InProcessBrowserTest {
     https_server_->AddDefaultHandlers(GetChromeTestDataDir());
     ASSERT_TRUE(https_server_->Start());
 
+    PrivacySandboxSettingsFactory::GetForProfile(browser()->profile())
+        ->SetAllPrivacySandboxAllowedForTesting();
     // Prime the interest groups if the API is enabled.
     ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), test_url()));
     if (HasInterestGroupApi(web_contents()) &&
@@ -122,7 +131,7 @@ class InterestGroupPermissionsBrowserTest : public InProcessBrowserTest {
               trustedBiddingSignalsKeys: ['key1'],
               userBiddingSignals: {some: 'json', data: {here: [1, 2, 3]}},
               ads: [{
-                renderUrl: $4,
+                renderURL: $4,
                 metadata: {ad: 'metadata', here: [1, 2, 3]},
               }],
             },
@@ -202,7 +211,7 @@ class InterestGroupOffBrowserTest : public InterestGroupPermissionsBrowserTest {
     scoped_feature_list_.InitWithFeatures(
         {blink::features::kInterestGroupStorage},
         {blink::features::kAdInterestGroupAPI, blink::features::kFledge,
-         blink::features::kParakeet});
+         blink::features::kParakeet, features::kPrivacySandboxAdsAPIsOverride});
   }
   base::test::ScopedFeatureList scoped_feature_list_;
 };
@@ -222,7 +231,8 @@ class InterestGroupFledgeOnBrowserTest
  public:
   InterestGroupFledgeOnBrowserTest() {
     scoped_feature_list_.InitWithFeatures(
-        {blink::features::kInterestGroupStorage, blink::features::kFledge},
+        {blink::features::kInterestGroupStorage, blink::features::kFledge,
+         features::kPrivacySandboxAdsAPIsOverride},
         {blink::features::kAdInterestGroupAPI, blink::features::kParakeet});
   }
   base::test::ScopedFeatureList scoped_feature_list_;
@@ -245,7 +255,8 @@ class InterestGroupParakeetOnBrowserTest
   InterestGroupParakeetOnBrowserTest() {
     scoped_feature_list_.InitWithFeatures(
         {blink::features::kInterestGroupStorage, blink::features::kParakeet},
-        {blink::features::kAdInterestGroupAPI, blink::features::kFledge});
+        {blink::features::kAdInterestGroupAPI, blink::features::kFledge,
+         features::kPrivacySandboxAdsAPIsOverride});
   }
   base::test::ScopedFeatureList scoped_feature_list_;
 };
@@ -269,7 +280,8 @@ class InterestGroupAPIOnBrowserTest
     scoped_feature_list_.InitWithFeatures(
         {blink::features::kInterestGroupStorage,
          blink::features::kAdInterestGroupAPI},
-        {blink::features::kParakeet, blink::features::kFledge});
+        {blink::features::kParakeet, blink::features::kFledge,
+         features::kPrivacySandboxAdsAPIsOverride});
   }
   base::test::ScopedFeatureList scoped_feature_list_;
 };
@@ -337,18 +349,45 @@ IN_PROC_BROWSER_TEST_F(InterestGroupPermissionsBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(InterestGroupPermissionsBrowserTest,
                        ThirdPartyCookiesBlocked) {
-  // With no cookies, API does nothing.
+  // With no 3PC cookies, API still works.
   SetAllowThirdPartyCookies(false);
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), test_url()));
 
   ASSERT_TRUE(HasInterestGroupApi(web_contents()));
-  EXPECT_FALSE(CanRunAuction(web_contents()));
+  EXPECT_TRUE(CanRunAuction(web_contents()));
 }
 
 IN_PROC_BROWSER_TEST_F(InterestGroupPermissionsBrowserTest,
                        ThirdPartyCookiesBlockedForSite) {
   // With no cookies, API does nothing.
   SetAllowThirdPartyCookiesForURL(test_url(), false);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), test_url()));
+
+  ASSERT_TRUE(HasInterestGroupApi(web_contents()));
+  EXPECT_FALSE(CanRunAuction(web_contents()));
+}
+
+class InterestGroupPermissionsPrivacySandbox3BrowserTest
+    : public InterestGroupPermissionsBrowserTest {
+ public:
+  InterestGroupPermissionsPrivacySandbox3BrowserTest() {
+    scoped_feature_list_.InitWithFeatures(
+        /*enabled_features=*/
+        {blink::features::kInterestGroupStorage,
+         blink::features::kAdInterestGroupAPI, blink::features::kFledge,
+         features::kPrivacySandboxAdsAPIsOverride,
+         privacy_sandbox::kPrivacySandboxSettings3},
+        /*disabled_features=*/
+        {blink::features::kFencedFrames,
+         privacy_sandbox::kPrivacySandboxSettings4});
+  }
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+IN_PROC_BROWSER_TEST_F(InterestGroupPermissionsPrivacySandbox3BrowserTest,
+                       ThirdPartyCookiesBlocked) {
+  // With no cookies, API does nothing.
+  SetAllowThirdPartyCookies(false);
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), test_url()));
 
   ASSERT_TRUE(HasInterestGroupApi(web_contents()));

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,6 +27,7 @@ class ArcIntentHelperMojoLacros : public ArcIntentHelperMojoDelegate {
   // Returns true if ARC is available.
   bool IsArcAvailable() override;
   bool IsRequestUrlHandlerListAvailable() override;
+  bool IsRequestTextSelectionActionsAvailable() override;
 
   // Calls RequestUrlHandlerList mojo API.
   bool RequestUrlHandlerList(const std::string& url,

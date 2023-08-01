@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "ash/public/cpp/shelf_config.h"
 #include "ash/public/cpp/shelf_types.h"
 #include "ash/system/status_area_widget.h"
+#include "base/memory/raw_ptr.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/views/accessible_pane_view.h"
 #include "ui/views/widget/widget_delegate.h"
@@ -21,25 +22,6 @@ class Shelf;
 class ASH_EXPORT StatusAreaWidgetDelegate : public views::AccessiblePaneView,
                                             public views::WidgetDelegate {
  public:
-  // Prevents this delegate from calculating bounds and creating layout
-  // managers.
-  class PauseCalculatingTargetBounds {
-   public:
-    explicit PauseCalculatingTargetBounds(StatusAreaWidgetDelegate* delegate)
-        : delegate_(delegate) {
-      delegate->set_is_adding_tray_buttons(true);
-    }
-    PauseCalculatingTargetBounds(const PauseCalculatingTargetBounds&) = delete;
-    PauseCalculatingTargetBounds& operator=(
-        const PauseCalculatingTargetBounds&) = delete;
-    ~PauseCalculatingTargetBounds() {
-      delegate_->set_is_adding_tray_buttons(false);
-    }
-
-   private:
-    StatusAreaWidgetDelegate* const delegate_;
-  };
-
   explicit StatusAreaWidgetDelegate(Shelf* shelf);
 
   StatusAreaWidgetDelegate(const StatusAreaWidgetDelegate&) = delete;
@@ -74,6 +56,7 @@ class ASH_EXPORT StatusAreaWidgetDelegate : public views::AccessiblePaneView,
   void Shutdown();
 
   // views::AccessiblePaneView:
+  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   View* GetDefaultFocusableChild() override;
   const char* GetClassName() const override;
   views::Widget* GetWidget() override;
@@ -84,10 +67,6 @@ class ASH_EXPORT StatusAreaWidgetDelegate : public views::AccessiblePaneView,
 
   // views::WidgetDelegate:
   bool CanActivate() const override;
-
-  // Pauses `CalculateTargetBounds` within the calling scope.
-  std::unique_ptr<PauseCalculatingTargetBounds>
-  CreateScopedPauseCalculatingTargetBounds();
 
   void set_default_last_focusable_child(bool default_last_focusable_child) {
     default_last_focusable_child_ = default_last_focusable_child;
@@ -104,22 +83,13 @@ class ASH_EXPORT StatusAreaWidgetDelegate : public views::AccessiblePaneView,
   // screen.
   void SetBorderOnChild(views::View* child, bool extend_border_to_edge);
 
-  // Updates `is_adding_tray_buttons_`.
-  void set_is_adding_tray_buttons(bool is_adding_tray_buttons) {
-    is_adding_tray_buttons_ = is_adding_tray_buttons;
-  }
-
-  Shelf* const shelf_;
-  const FocusCycler* focus_cycler_for_testing_;
+  const raw_ptr<Shelf, ExperimentalAsh> shelf_;
+  raw_ptr<const FocusCycler, ExperimentalAsh> focus_cycler_for_testing_;
   gfx::Rect target_bounds_;
 
   // When true, the default focus of the status area widget is the last
   // focusable child.
   bool default_last_focusable_child_ = false;
-
-  // When true, 'CalculateTargetBounds' is locked to prevent re-creating layout
-  // managers.
-  bool is_adding_tray_buttons_ = false;
 };
 
 }  // namespace ash

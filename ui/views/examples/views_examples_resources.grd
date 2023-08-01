@@ -14,6 +14,35 @@
         Abort Animation
       </message>
 
+      <!-- badge example -->
+      <message translateable="false" name="IDS_BADGE_SELECT_LABEL">
+        Badge
+      </message>
+
+      <message translateable="false" name="IDS_BADGE_MENU_ITEM_1">
+        Cut
+      </message>
+
+      <message translateable="false" name="IDS_BADGE_MENU_ITEM_2">
+        Copy
+      </message>
+
+      <message translateable="false" name="IDS_BADGE_MENU_ITEM_3">
+        Magic Command
+      </message>
+
+      <message translateable="false" name="IDS_BADGE_MENU_BUTTON">
+        Show a Menu
+      </message>
+
+      <message translateable="false" name="IDS_BADGE_LINK_TEXT">
+        Fancy Feature
+      </message>
+
+      <message translateable="false" name="IDS_BADGE_BADGE_TEXT">
+        Try this out!
+      </message>
+
       <!-- button example -->
       <message translateable="false" name="IDS_BUTTON_IMAGE_BUTTON_AX_LABEL">
         Close Button
@@ -381,6 +410,9 @@
       <message translateable="false" name="IDS_TEXTFIELD_READ_ONLY_PLACEHOLDER">
         read only
       </message>
+      <message translateable="false" name="IDS_TEXTFIELD_INVALID_PLACEHOLDER">
+        invalid
+      </message>
       <message translateable="false" name="IDS_TEXTFIELD_NAME_LABEL">
         Name:
       </message>
@@ -396,6 +428,7 @@
       <message translateable="false" name="IDS_TEXTFIELD_INVALID_LABEL">
         Invalid:
       </message>
+
       <message translateable="false" name="IDS_TEXTFIELD_RTL_LABEL">
         RTL:
       </message>
@@ -438,6 +471,9 @@
       </message>
       <message translateable="false" name="IDS_TOGGLE_BUTTON_NAME_2">
         Toggle Button 2
+      </message>
+      <message translateable="false" name="IDS_TOGGLE_BUTTON_NAME_3">
+        Toggle Button 3
       </message>
 
       <!-- tree view example -->
@@ -489,7 +525,7 @@
 
       <!-- vector example -->
       <message translateable="false" name="IDS_VECTOR_FILE_SELECT_LABEL">
-        Enter a file to read
+        Enter a file or folder to read
       </message>
       <message translateable="false" name="IDS_VECTOR_RENDER_LABEL">
         Render

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -10,11 +10,12 @@
 
 #include <memory>
 
-#include "base/cxx17_backports.h"
 #include "base/environment.h"
 #include "base/files/file_util.h"
+#include "base/files/scoped_temp_dir.h"
 #include "base/path_service.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/installer/util/initial_preferences_constants.h"
@@ -92,8 +93,7 @@ TEST_F(InitialPreferencesTest, ParseDistroParams) {
       "  }\n"
       "} \n";
 
-  EXPECT_TRUE(
-      base::WriteFile(prefs_file(), text, static_cast<int>(strlen(text))));
+  EXPECT_TRUE(base::WriteFile(prefs_file(), text));
   installer::InitialPreferences prefs(prefs_file());
   EXPECT_TRUE(prefs.read_from_file());
 
@@ -110,7 +110,7 @@ TEST_F(InitialPreferencesTest, ParseDistroParams) {
       installer::initial_preferences::kRequireEula,
   };
 
-  for (size_t i = 0; i < base::size(expected_true); ++i) {
+  for (size_t i = 0; i < std::size(expected_true); ++i) {
     bool value = false;
     EXPECT_TRUE(prefs.GetBool(expected_true[i], &value));
     EXPECT_TRUE(value) << expected_true[i];
@@ -139,8 +139,7 @@ TEST_F(InitialPreferencesTest, ParseMissingDistroParams) {
       "  }\n"
       "} \n";
 
-  EXPECT_TRUE(
-      base::WriteFile(prefs_file(), text, static_cast<int>(strlen(text))));
+  EXPECT_TRUE(base::WriteFile(prefs_file(), text));
   installer::InitialPreferences prefs(prefs_file());
   EXPECT_TRUE(prefs.read_from_file());
 
@@ -151,7 +150,7 @@ TEST_F(InitialPreferencesTest, ParseMissingDistroParams) {
   };
 
   bool value = false;
-  for (size_t i = 0; i < base::size(expected_bool); ++i) {
+  for (size_t i = 0; i < std::size(expected_bool); ++i) {
     EXPECT_TRUE(prefs.GetBool(expected_bool[i].name, &value));
     EXPECT_EQ(value, expected_bool[i].expected_value) << expected_bool[i].name;
   }
@@ -162,7 +161,7 @@ TEST_F(InitialPreferencesTest, ParseMissingDistroParams) {
       installer::initial_preferences::kMakeChromeDefaultForUser,
   };
 
-  for (size_t i = 0; i < base::size(missing_bools); ++i) {
+  for (size_t i = 0; i < std::size(missing_bools); ++i) {
     EXPECT_FALSE(prefs.GetBool(missing_bools[i], &value)) << missing_bools[i];
   }
 
@@ -185,8 +184,7 @@ TEST_F(InitialPreferencesTest, FirstRunTabs) {
       "  ]\n"
       "} \n";
 
-  EXPECT_TRUE(
-      base::WriteFile(prefs_file(), text, static_cast<int>(strlen(text))));
+  EXPECT_TRUE(base::WriteFile(prefs_file(), text));
   installer::InitialPreferences prefs(prefs_file());
   typedef std::vector<std::string> TabsVector;
   TabsVector tabs = prefs.GetFirstRunTabs();
@@ -208,26 +206,20 @@ TEST(MasterPrefsExtension, ValidateExtensionJSON) {
                    .AppendASCII("Preferences");
 
   installer::InitialPreferences prefs(prefs_path);
-  base::DictionaryValue* extensions = nullptr;
-  EXPECT_TRUE(prefs.GetExtensionsBlock(&extensions));
-  int location = 0;
-  EXPECT_TRUE(extensions->GetInteger(
-      "behllobkkfkfnphdnhnkndlbkcpglgmj.location", &location));
-  int state = 0;
-  EXPECT_TRUE(
-      extensions->GetInteger("behllobkkfkfnphdnhnkndlbkcpglgmj.state", &state));
-  std::string path;
-  EXPECT_TRUE(
-      extensions->GetString("behllobkkfkfnphdnhnkndlbkcpglgmj.path", &path));
-  std::string key;
-  EXPECT_TRUE(extensions->GetString(
-      "behllobkkfkfnphdnhnkndlbkcpglgmj.manifest.key", &key));
-  std::string name;
-  EXPECT_TRUE(extensions->GetString(
-      "behllobkkfkfnphdnhnkndlbkcpglgmj.manifest.name", &name));
-  std::string version;
-  EXPECT_TRUE(extensions->GetString(
-      "behllobkkfkfnphdnhnkndlbkcpglgmj.manifest.version", &version));
+  const base::Value::Dict* extensions = nullptr;
+  EXPECT_TRUE(prefs.GetExtensionsBlock(extensions));
+  EXPECT_TRUE(extensions->FindIntByDottedPath(
+      "behllobkkfkfnphdnhnkndlbkcpglgmj.location"));
+  EXPECT_TRUE(extensions->FindIntByDottedPath(
+      "behllobkkfkfnphdnhnkndlbkcpglgmj.state"));
+  EXPECT_TRUE(extensions->FindStringByDottedPath(
+      "behllobkkfkfnphdnhnkndlbkcpglgmj.path"));
+  EXPECT_TRUE(extensions->FindStringByDottedPath(
+      "behllobkkfkfnphdnhnkndlbkcpglgmj.manifest.key"));
+  EXPECT_TRUE(extensions->FindStringByDottedPath(
+      "behllobkkfkfnphdnhnkndlbkcpglgmj.manifest.name"));
+  EXPECT_TRUE(extensions->FindStringByDottedPath(
+      "behllobkkfkfnphdnhnkndlbkcpglgmj.manifest.version"));
 }
 
 // Test that we are parsing initial preferences correctly.
@@ -245,8 +237,7 @@ TEST_F(InitialPreferencesTest, GetInstallPreferencesTest) {
       "     \"verbose_logging\": false\n"
       "  }\n"
       "} \n";
-  EXPECT_TRUE(
-      base::WriteFile(prefs_file, text, static_cast<int>(strlen(text))));
+  EXPECT_TRUE(base::WriteFile(prefs_file, text));
 
   // Make sure command line values override the values in initial preferences.
   std::wstring cmd_str(L"setup.exe --installerdata=\"" + prefs_file.value() +
@@ -264,7 +255,7 @@ TEST_F(InitialPreferencesTest, GetInstallPreferencesTest) {
 
   // Now check that prefs got merged correctly.
   bool value = false;
-  for (size_t i = 0; i < base::size(expected_bool); ++i) {
+  for (size_t i = 0; i < std::size(expected_bool); ++i) {
     EXPECT_TRUE(prefs.GetBool(expected_bool[i].name, &value));
     EXPECT_EQ(value, expected_bool[i].expected_value) << expected_bool[i].name;
   }
@@ -281,7 +272,7 @@ TEST_F(InitialPreferencesTest, GetInstallPreferencesTest) {
       {installer::initial_preferences::kDoNotLaunchChrome, true},
   };
 
-  for (size_t i = 0; i < base::size(expected_bool2); ++i) {
+  for (size_t i = 0; i < std::size(expected_bool2); ++i) {
     EXPECT_TRUE(prefs2.GetBool(expected_bool2[i].name, &value));
     EXPECT_EQ(value, expected_bool2[i].expected_value)
         << expected_bool2[i].name;
@@ -334,20 +325,20 @@ TEST_F(InitialPreferencesTest, EnforceLegacyPreferences) {
   EXPECT_TRUE(do_not_create_quick_launch_shortcut);
   EXPECT_FALSE(do_not_create_taskbar_shortcut);
 
-  EXPECT_THAT(prefs.initial_dictionary().FindBoolPath(prefs::kImportBookmarks),
+  EXPECT_THAT(prefs.initial_dictionary().FindBool(prefs::kImportBookmarks),
               Optional(true));
-  EXPECT_THAT(prefs.initial_dictionary().FindBoolPath(prefs::kImportHistory),
+  EXPECT_THAT(prefs.initial_dictionary().FindBool(prefs::kImportHistory),
               Optional(true));
-  EXPECT_THAT(prefs.initial_dictionary().FindBoolPath(prefs::kImportHomepage),
+  EXPECT_THAT(prefs.initial_dictionary().FindBool(prefs::kImportHomepage),
               Optional(true));
-  EXPECT_THAT(
-      prefs.initial_dictionary().FindBoolPath(prefs::kImportSearchEngine),
-      Optional(true));
+  EXPECT_THAT(prefs.initial_dictionary().FindBool(prefs::kImportSearchEngine),
+              Optional(true));
 
 #if BUILDFLAG(ENABLE_RLZ)
-  int rlz_ping_delay = 0;
-  EXPECT_TRUE(prefs.initial_dictionary().GetInteger(prefs::kRlzPingDelaySeconds,
-                                                    &rlz_ping_delay));
+  absl::optional<int> rlz_ping_delay =
+      prefs.initial_dictionary().FindInt(prefs::kRlzPingDelaySeconds);
+  EXPECT_TRUE(rlz_ping_delay);
+  EXPECT_GT(rlz_ping_delay, 0);
   EXPECT_EQ(40, rlz_ping_delay);
 #endif  // BUILDFLAG(ENABLE_RLZ)
 }
@@ -435,3 +426,26 @@ TEST_F(InitialPreferencesTest, GoogleUpdateIsMachine) {
     EXPECT_FALSE(value);
   }
 }
+
+#if !BUILDFLAG(IS_MAC)
+
+TEST_F(InitialPreferencesTest, Path) {
+  base::ScopedTempDir temp_dir;
+  ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
+
+  auto initial_pref_path =
+      temp_dir.GetPath().AppendASCII("initial_preferences");
+
+  EXPECT_EQ(temp_dir.GetPath().AppendASCII("master_preferences"),
+            installer::InitialPreferences::Path(temp_dir.GetPath()));
+  EXPECT_EQ(initial_pref_path, installer::InitialPreferences::Path(
+                                   temp_dir.GetPath(), /*for_read=*/false));
+
+  base::File file(initial_pref_path, base::File::Flags::FLAG_CREATE);
+  file.Close();
+
+  EXPECT_EQ(initial_pref_path,
+            installer::InitialPreferences::Path(temp_dir.GetPath()));
+}
+
+#endif  // !BUILDFLAG(IS_MAC)

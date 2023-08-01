@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,11 @@
 
 #include "base/dcheck_is_on.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/ng/geometry/ng_box_strut.h"
-#include "third_party/blink/renderer/core/layout/ng/inline/ng_text_offset.h"
+#include "third_party/blink/renderer/core/layout/ng/inline/hyphen_result.h"
+#include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_item_text_index.h"
+#include "third_party/blink/renderer/core/layout/ng/inline/ng_text_offset_range.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_positioned_float.h"
 #include "third_party/blink/renderer/platform/fonts/shaping/shape_result.h"
 #include "third_party/blink/renderer/platform/geometry/layout_unit.h"
@@ -34,31 +37,36 @@ struct CORE_EXPORT NGInlineItemResult {
   DISALLOW_NEW();
 
  public:
-  const NGTextOffset& TextOffset() const { return text_offset; }
-  unsigned StartOffset() const { return text_offset.start; }
-  unsigned EndOffset() const { return text_offset.end; }
-  unsigned Length() const { return text_offset.Length(); }
+  NGInlineItemResult() = default;
+  NGInlineItemResult(const NGInlineItem*,
+                     unsigned index,
+                     const NGTextOffsetRange& text_offset,
+                     bool break_anywhere_if_overflow,
+                     bool should_create_line_box,
+                     bool has_unpositioned_floats);
 
-  LayoutUnit HyphenInlineSize() const {
-    return hyphen_shape_result->SnappedWidth().ClampNegativeToZero();
-  }
+  const NGTextOffsetRange& TextOffset() const { return text_offset; }
+  wtf_size_t StartOffset() const { return text_offset.start; }
+  wtf_size_t EndOffset() const { return text_offset.end; }
+  wtf_size_t Length() const { return text_offset.Length(); }
+
+  NGInlineItemTextIndex Start() const { return {item_index, StartOffset()}; }
+  NGInlineItemTextIndex End() const { return {item_index, EndOffset()}; }
 
   // Compute/clear |hyphen_string| and |hyphen_shape_result|.
   void ShapeHyphen();
-  void ClearHyphen() {
-    hyphen_string = String();
-    hyphen_shape_result = nullptr;
-  }
+
+  void Trace(Visitor* visitor) const;
+#if DCHECK_IS_ON()
+  void CheckConsistency(bool allow_null_shape_result = false) const;
+#endif
 
   // The NGInlineItem and its index.
-  const NGInlineItem* item;
-  unsigned item_index;
+  const NGInlineItem* item = nullptr;
+  unsigned item_index = 0;
 
   // The range of text content for this item.
-  NGTextOffset text_offset;
-
-  // Indicates the limits of the trailing space run.
-  absl::optional<unsigned> non_hangable_run_end;
+  NGTextOffsetRange text_offset;
 
   // Inline size of this item.
   LayoutUnit inline_size;
@@ -77,16 +85,16 @@ struct CORE_EXPORT NGInlineItemResult {
 
   // Hyphen character and its |ShapeResult|.
   // Use |is_hyphenated| to determine whether this item is hyphenated or not.
-  // These fields may be set even when this item is not hyphenated.
-  String hyphen_string;
-  scoped_refptr<const ShapeResult> hyphen_shape_result;
+  // This field may be set even when this item is not hyphenated.
+  HyphenResult hyphen;
 
   // NGLayoutResult for atomic inline items.
-  scoped_refptr<const NGLayoutResult> layout_result;
+  Member<const NGLayoutResult> layout_result;
 
   // NGPositionedFloat for floating inline items. Should only be present for
   // positioned floats (not unpositioned). It indicates where it was placed
   // within the BFC.
+  GC_PLUGIN_IGNORE("crbug.com/1146383")
   absl::optional<NGPositionedFloat> positioned_float;
 
   // Margins, borders, and padding for open tags.
@@ -94,9 +102,6 @@ struct CORE_EXPORT NGInlineItemResult {
   NGLineBoxStrut margins;
   NGLineBoxStrut borders;
   NGLineBoxStrut padding;
-
-  // Has start/end edge for open/close tags.
-  bool has_edge = false;
 
   // Inside of this may be breakable. False means there are no break
   // opportunities, or has CSS properties that prohibit breaking.
@@ -144,23 +149,13 @@ struct CORE_EXPORT NGInlineItemResult {
   // True if this is hyphenated. The hyphen is in |hyphen_string| and
   // |hyphen_shape_result|.
   bool is_hyphenated = false;
-
-  NGInlineItemResult();
-  NGInlineItemResult(const NGInlineItem*,
-                     unsigned index,
-                     const NGTextOffset& text_offset,
-                     bool break_anywhere_if_overflow,
-                     bool should_create_line_box,
-                     bool has_unpositioned_floats);
-
-#if DCHECK_IS_ON()
-  void CheckConsistency(bool allow_null_shape_result = false) const;
-#endif
 };
 
 // Represents a set of NGInlineItemResult that form a line box.
-using NGInlineItemResults = Vector<NGInlineItemResult, 32>;
+using NGInlineItemResults = HeapVector<NGInlineItemResult, 32>;
 
 }  // namespace blink
+
+WTF_ALLOW_CLEAR_UNUSED_SLOTS_WITH_MEM_FUNCTIONS(blink::NGInlineItemResult)
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_INLINE_ITEM_RESULT_H_

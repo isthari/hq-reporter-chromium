@@ -1,16 +1,17 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/web/public/session/crw_session_storage.h"
 
 #import "base/mac/foundation_util.h"
-#include "base/memory/ptr_util.h"
-#include "base/metrics/histogram_functions.h"
-#include "ios/web/common/features.h"
+#import "base/memory/ptr_util.h"
+#import "base/metrics/histogram_functions.h"
+#import "base/time/time.h"
+#import "ios/web/common/features.h"
 #import "ios/web/navigation/nscoder_util.h"
 #import "ios/web/public/session/crw_session_certificate_policy_cache_storage.h"
-#import "ios/web/session/crw_session_user_data.h"
+#import "ios/web/public/session/crw_session_user_data.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -27,7 +28,10 @@ NSString* const kHasOpenerKey = @"openedByDOM";
 NSString* const kLastCommittedItemIndexKey = @"lastCommittedItemIndex";
 NSString* const kUserAgentKey = @"userAgentKey";
 NSString* const kStableIdentifierKey = @"stableIdentifier";
+NSString* const kUniqueIdentifierKey = @"uniqueIdentifier";
 NSString* const kSerializedUserDataKey = @"serializedUserData";
+NSString* const kLastActiveTimeKey = @"lastActiveTime";
+NSString* const kCreationTimeKey = @"creationTime";
 
 // Deprecated, used for backward compatibility.
 // TODO(crbug.com/1278308): Remove this key.
@@ -41,7 +45,11 @@ NSString* const kLastCommittedItemIndexDeprecatedKey =
 NSString* const kTabIdKey = @"TabId";
 }
 
-@implementation CRWSessionStorage
+@implementation CRWSessionStorage {
+  // The unique identifier, stored as the underlying type since SessionID
+  // has not public default constructor, thus cannot be an ivar/property.
+  SessionID::id_type _uniqueIdentifier;
+}
 
 #pragma mark - NSCoding
 
@@ -131,10 +139,28 @@ NSString* const kTabIdKey = @"TabId";
       _stableIdentifier = [[NSUUID UUID] UUIDString];
     }
 
+    // If no unique identifier was read, or it was invalid, generate a
+    // new one.
+    static_assert(sizeof(_uniqueIdentifier) == sizeof(int32_t));
+    _uniqueIdentifier = [decoder decodeInt32ForKey:kUniqueIdentifierKey];
+    if (!SessionID::IsValidValue(_uniqueIdentifier)) {
+      _uniqueIdentifier = SessionID::NewUnique().id();
+    }
+
     // Force conversion to NSString if `_stableIdentifier` happens to be a
     // NSMutableString (to prevent this value from being mutated).
     _stableIdentifier = [_stableIdentifier copy];
     DCHECK(_stableIdentifier.length);
+
+    if ([decoder containsValueForKey:kLastActiveTimeKey]) {
+      _lastActiveTime = base::Time::FromDeltaSinceWindowsEpoch(
+          base::Microseconds([decoder decodeInt64ForKey:kLastActiveTimeKey]));
+    }
+
+    if ([decoder containsValueForKey:kCreationTimeKey]) {
+      _creationTime = base::Time::FromDeltaSinceWindowsEpoch(
+          base::Microseconds([decoder decodeInt64ForKey:kCreationTimeKey]));
+    }
   }
   return self;
 }
@@ -159,6 +185,34 @@ NSString* const kTabIdKey = @"TabId";
   web::nscoder_util::EncodeString(
       coder, kUserAgentKey, web::GetUserAgentTypeDescription(userAgentType));
   [coder encodeObject:_stableIdentifier forKey:kStableIdentifierKey];
+
+  if (!_lastActiveTime.is_null()) {
+    [coder
+        encodeInt64:_lastActiveTime.ToDeltaSinceWindowsEpoch().InMicroseconds()
+             forKey:kLastActiveTimeKey];
+  }
+
+  if (!_creationTime.is_null()) {
+    [coder encodeInt64:_creationTime.ToDeltaSinceWindowsEpoch().InMicroseconds()
+                forKey:kCreationTimeKey];
+  }
+
+  if (SessionID::IsValidValue(_uniqueIdentifier)) {
+    static_assert(sizeof(_uniqueIdentifier) == sizeof(int32_t));
+    [coder encodeInt32:_uniqueIdentifier forKey:kUniqueIdentifierKey];
+  }
+}
+
+#pragma mark - Properties
+
+- (SessionID)uniqueIdentifier {
+  DCHECK(SessionID::IsValidValue(_uniqueIdentifier));
+  return SessionID::FromSerializedValue(_uniqueIdentifier);
+}
+
+- (void)setUniqueIdentifier:(SessionID)uniqueIdentifier {
+  DCHECK(uniqueIdentifier.is_valid());
+  _uniqueIdentifier = uniqueIdentifier.id();
 }
 
 @end

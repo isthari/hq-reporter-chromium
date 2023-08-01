@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,9 @@
 #define CHROME_BROWSER_UI_VIEWS_OVERLAY_PLAYBACK_IMAGE_BUTTON_H_
 
 #include "chrome/browser/ui/views/overlay/overlay_window_image_button.h"
-#include "chrome/browser/ui/views/overlay/overlay_window_views.h"
+#include "chrome/browser/ui/views/overlay/video_overlay_window_views.h"
 #include "ui/base/metadata/metadata_header_macros.h"
+#include "ui/base/models/image_model.h"
 
 // A resizable playback button with 3 states: play/pause/replay.
 class PlaybackImageButton : public OverlayWindowImageButton {
@@ -20,21 +21,22 @@ class PlaybackImageButton : public OverlayWindowImageButton {
   ~PlaybackImageButton() override = default;
 
   // Show appropriate images based on playback state.
-  void SetPlaybackState(const OverlayWindowViews::PlaybackState playback_state);
+  void SetPlaybackState(
+      const VideoOverlayWindowViews::PlaybackState playback_state);
 
  protected:
   // Overridden from views::View.
   void OnBoundsChanged(const gfx::Rect& previous_bounds) override;
 
  private:
-  void UpdateImageAndTooltipText();
+  void UpdateImageAndText();
 
-  OverlayWindowViews::PlaybackState playback_state_ =
-      OverlayWindowViews::PlaybackState::kEndOfVideo;
+  VideoOverlayWindowViews::PlaybackState playback_state_ =
+      VideoOverlayWindowViews::PlaybackState::kEndOfVideo;
 
-  gfx::ImageSkia play_image_;
-  gfx::ImageSkia pause_image_;
-  gfx::ImageSkia replay_image_;
+  ui::ImageModel play_image_;
+  ui::ImageModel pause_image_;
+  ui::ImageModel replay_image_;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_OVERLAY_PLAYBACK_IMAGE_BUTTON_H_

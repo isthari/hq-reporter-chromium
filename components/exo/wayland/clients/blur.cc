@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 #include <vector>
 
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
 #include "components/exo/wayland/clients/client_helper.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkImage.h"
@@ -34,7 +33,7 @@ const int kGridSize = 4;
 // Create grid image for |size| and |cell_size|.
 sk_sp<SkImage> CreateGridImage(const gfx::Size& size,
                                const gfx::Size& cell_size) {
-  sk_sp<SkSurface> surface(SkSurface::MakeRaster(
+  sk_sp<SkSurface> surface(SkSurfaces::Raster(
       SkImageInfo::MakeN32(size.width(), size.height(), kOpaque_SkAlphaType)));
   SkCanvas* canvas = surface->getCanvas();
   canvas->clear(SK_ColorWHITE);
@@ -89,7 +88,7 @@ void DrawContents(SkImage* background_grid_image,
                                  SK_ColorRED,  SK_ColorYELLOW,
                                  SK_ColorCYAN, SK_ColorMAGENTA};
       SkPaint paint;
-      paint.setColor(kColors[(y * kGridSize + x) % base::size(kColors)]);
+      paint.setColor(kColors[(y * kGridSize + x) % std::size(kColors)]);
       canvas->save();
       canvas->translate(
           x * cell_size.width() + SkScalarHalf(cell_size.width()),

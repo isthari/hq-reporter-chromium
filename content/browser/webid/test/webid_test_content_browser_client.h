@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,14 +7,19 @@
 
 #include <memory>
 
-#include "content/public/browser/content_browser_client.h"
+#include "content/browser/webid/identity_registry.h"
 #include "content/public/browser/identity_request_dialog_controller.h"
+#include "content/public/test/content_browser_test_content_browser_client.h"
 
 namespace content {
 
+class MDocProvider;
+class FederatedIdentityModalDialogViewDelegate;
+
 // Implements ContentBrowserClient to allow calls out to the Chrome layer to
 // be stubbed for tests.
-class WebIdTestContentBrowserClient : public ContentBrowserClient {
+class WebIdTestContentBrowserClient
+    : public ContentBrowserTestContentBrowserClient {
  public:
   WebIdTestContentBrowserClient();
   ~WebIdTestContentBrowserClient() override;
@@ -26,13 +31,29 @@ class WebIdTestContentBrowserClient : public ContentBrowserClient {
   std::unique_ptr<IdentityRequestDialogController>
   CreateIdentityRequestDialogController() override;
 
+  std::unique_ptr<MDocProvider> CreateMDocProvider() override;
+
   // This needs to be called once for every WebID invocation. If there is a
   // need in future to generate these in sequence then a callback can be used.
   void SetIdentityRequestDialogController(
       std::unique_ptr<IdentityRequestDialogController> controller);
 
+  void SetMDocProvider(std::unique_ptr<MDocProvider> provider);
+
+  void SetIdentityRegistry(WebContents* web_contents,
+                           FederatedIdentityModalDialogViewDelegate* delegate,
+                           const url::Origin& url);
+
+  IdentityRequestDialogController*
+  GetIdentityRequestDialogControllerForTests() {
+    return test_dialog_controller_.get();
+  }
+
+  MDocProvider* GetMDocProviderForTests() { return test_mdoc_provider_.get(); }
+
  private:
   std::unique_ptr<IdentityRequestDialogController> test_dialog_controller_;
+  std::unique_ptr<MDocProvider> test_mdoc_provider_;
 };
 
 }  // namespace content

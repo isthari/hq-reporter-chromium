@@ -1,5 +1,5 @@
-#!/usr/bin/env vpython
-# Copyright (c) 2013 The Chromium Authors. All rights reserved.
+#!/usr/bin/env vpython3
+# Copyright 2013 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -27,7 +27,7 @@ import six.moves.urllib.parse  # pylint: disable=import-error
 import six.moves.urllib.request  # pylint: disable=import-error
 
 if six.PY2:
-  import httplib  # pylint: disable=wrong-import-order
+  import httplib  # pylint: disable=wrong-import-order,import-error
 else:
   import http.client as httplib  # pylint: disable=import-error
 
@@ -60,16 +60,21 @@ class SendResultsFatalException(SendResultException):
 
 def LuciAuthTokenGeneratorCallback():
   args = ['luci-auth', 'token']
-  p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+  p = subprocess.Popen(args,
+                       stdout=subprocess.PIPE,
+                       stderr=subprocess.PIPE,
+                       universal_newlines=True)
   if p.wait() == 0:
     return p.stdout.read().strip()
-  else:
-    raise RuntimeError(
-        'Error generating authentication token.\nStdout: %s\nStder:%s' %
-        (p.stdout.read(), p.stderr.read()))
+  raise RuntimeError(
+      'Error generating authentication token.\nStdout: %s\nStder:%s' %
+      (p.stdout.read(), p.stderr.read()))
 
 
-def SendResults(data, data_label, url, send_as_histograms=False,
+def SendResults(data,
+                data_label,
+                url,
+                send_as_histograms=False,
                 token_generator_callback=LuciAuthTokenGeneratorCallback,
                 num_retries=4):
   """Sends results to the Chrome Performance Dashboard.
@@ -358,11 +363,11 @@ def _RevisionNumberColumns(data, prefix):
       # branch in the chromium/src repo.
       revision_supplemental_columns[prefix + 'commit_pos'] = revision
   except ValueError:
-    logging.warn('Revision has non-integer value: "%s".', data['rev'])
+    logging.warning('Revision has non-integer value: "%s".', data['rev'])
     # The dashboard requires ordered integer revision numbers. If the revision
     # is not an integer or None, assume it's a git hash and send a timestamp.
     revision = _GetTimestamp()
-    if data['rev'] != None:
+    if data['rev'] is not None:
       revision_supplemental_columns[prefix + 'chromium'] = data['rev']
 
   # An explicit data['point_id'] overrides the default behavior.
@@ -428,7 +433,9 @@ def _SendResultsJson(url, results_json, token_generator_callback):
   """
   # When data is provided to urllib2.Request, a POST is sent instead of GET.
   # The data must be in the application/x-www-form-urlencoded format.
-  data = six.moves.urllib.parse.urlencode({'data': results_json})
+  data = six.moves.urllib.parse.urlencode({
+      'data': results_json
+  }).encode('utf-8')
   req = six.moves.urllib.request.Request(url + SEND_RESULTS_PATH, data)
   try:
     oauth_token = token_generator_callback()
@@ -471,8 +478,10 @@ def _SendHistogramJson(url, histogramset_json, token_generator_callback):
 
     http = httplib2.Http()
 
-    response, content = http.request(
-      url + SEND_HISTOGRAMS_PATH, method='POST', body=data, headers=headers)
+    response, content = http.request(url + SEND_HISTOGRAMS_PATH,
+                                     method='POST',
+                                     body=data,
+                                     headers=headers)
 
     # A 500 is presented on an exception on the dashboard side, timeout,
     # exception, etc. The dashboard can also send back 400 and 403, we could
@@ -480,7 +489,7 @@ def _SendHistogramJson(url, histogramset_json, token_generator_callback):
     if response.status in (403, 500):
       raise SendResultsRetryException('HTTP Response %d: %s' % (
           response.status, response.reason))
-    elif response.status != 200:
+    if response.status != 200:
       raise SendResultsFatalException('HTTP Response %d: %s' % (
           response.status, response.reason))
 
@@ -492,9 +501,9 @@ def _SendHistogramJson(url, histogramset_json, token_generator_callback):
   try:
     token = json.loads(content).get('token')
     if not token:
-      logging.warn(
+      logging.warning(
           'Error fetching upload completion token: Badly formatted token dict.')
     else:
       logging.info('Upload completion token created. Token id: %s' % token)
   except Exception as e:  # pylint: disable=broad-except
-    logging.warn('Error fetching upload completion token: %s' % e)
+    logging.warning('Error fetching upload completion token: %s' % e)

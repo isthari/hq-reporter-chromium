@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,13 @@
 #include <memory>
 
 #include "ash/ambient/ambient_constants.h"
-#include "ash/ambient/ui/ambient_info_view.h"
-#include "ash/ambient/ui/ambient_shield_view.h"
+#include "ash/ambient/ui/ambient_slideshow_peripheral_ui.h"
+#include "ash/ambient/ui/ambient_view_delegate.h"
 #include "ash/ambient/ui/ambient_view_ids.h"
-#include "ash/ambient/ui/media_string_view.h"
 #include "ash/ambient/util/ambient_util.h"
 #include "ash/shell.h"
+#include "ash/style/ash_color_id.h"
+#include "base/no_destructor.h"
 #include "base/rand_util.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/compositor/layer.h"
@@ -22,6 +23,7 @@
 #include "ui/display/screen.h"
 #include "ui/events/event.h"
 #include "ui/gfx/geometry/insets.h"
+#include "ui/gfx/geometry/vector2d.h"
 #include "ui/gfx/image/image_skia_operations.h"
 #include "ui/gfx/skbitmap_operations.h"
 #include "ui/views/controls/image_view.h"
@@ -34,17 +36,6 @@
 namespace ash {
 
 namespace {
-
-// Appearance.
-constexpr int kMediaStringMarginDip = 32;
-
-// The dicretion to translate glanceable info views in the x/y coordinates.  `1`
-// means positive translate, `-1` negative.
-int translate_x_direction = 1;
-int translate_y_direction = -1;
-// The current x/y translation of glanceable info views in Dip.
-int current_x_translation = 0;
-int current_y_translation = 0;
 
 gfx::ImageSkia ResizeImage(const gfx::ImageSkia& image,
                            const gfx::Size& view_size) {
@@ -167,7 +158,7 @@ void AmbientBackgroundImageView::UpdateImage(
   is_portrait_ = is_portrait;
   topic_type_ = type;
 
-  UpdateGlanceableInfoPosition();
+  ambient_peripheral_ui_->UpdateGlanceableInfoPosition();
 
   const bool has_change = UpdateRelatedImageViewVisibility();
 
@@ -185,7 +176,7 @@ void AmbientBackgroundImageView::UpdateImageDetails(
     const std::u16string& related_details) {
   details_ = details;
   related_details_ = related_details;
-  ambient_info_view_->UpdateImageDetails(
+  ambient_peripheral_ui_->UpdateImageDetails(
       details, MustShowPairs() ? related_details : std::u16string());
 }
 
@@ -231,7 +222,7 @@ void AmbientBackgroundImageView::InitLayout() {
   // Set a place holder size for Flex layout to assign bounds.
   image_view_->SetPreferredSize(gfx::Size(1, 1));
   image_view_->SetProperty(views::kFlexBehaviorKey, kUnboundedScaleToZero);
-  observed_views_.AddObservation(image_view_);
+  observed_views_.AddObservation(image_view_.get());
 
   related_image_view_ =
       image_container_->AddChildView(std::make_unique<views::ImageView>());
@@ -239,75 +230,10 @@ void AmbientBackgroundImageView::InitLayout() {
   related_image_view_->SetPreferredSize(gfx::Size(1, 1));
   related_image_view_->SetProperty(views::kFlexBehaviorKey,
                                    kUnboundedScaleToZero);
-  observed_views_.AddObservation(related_image_view_);
+  observed_views_.AddObservation(related_image_view_.get());
 
-
-  AddChildView(std::make_unique<AmbientShieldView>());
-
-  ambient_info_view_ =
-      AddChildView(std::make_unique<AmbientInfoView>(delegate_));
-
-  gfx::Insets shadow_insets =
-      gfx::ShadowValue::GetMargin(ambient::util::GetTextShadowValues(nullptr));
-
-  // Inits the media string view. The media string view is positioned on the
-  // right-top corner of the container.
-  views::View* media_string_view_container_ =
-      AddChildView(std::make_unique<views::View>());
-  views::BoxLayout* media_string_layout =
-      media_string_view_container_->SetLayoutManager(
-          std::make_unique<views::BoxLayout>(
-              views::BoxLayout::Orientation::kVertical));
-  media_string_layout->set_main_axis_alignment(
-      views::BoxLayout::MainAxisAlignment::kStart);
-  media_string_layout->set_cross_axis_alignment(
-      views::BoxLayout::CrossAxisAlignment::kEnd);
-  media_string_layout->set_inside_border_insets(
-      gfx::Insets(kMediaStringMarginDip + shadow_insets.top(), 0, 0,
-                  kMediaStringMarginDip + shadow_insets.right()));
-  media_string_view_ = media_string_view_container_->AddChildView(
-      std::make_unique<MediaStringView>());
-  media_string_view_->SetVisible(false);
-}
-
-void AmbientBackgroundImageView::UpdateGlanceableInfoPosition() {
-  constexpr int kStepDP = 5;
-  constexpr int kMaxTranslationDip = 20;
-
-  // Move the translation point randomly one step on each x/y direction.
-  int x_increment = kStepDP * base::RandInt(0, 1);
-  int y_increment = x_increment == 0 ? kStepDP : kStepDP * base::RandInt(0, 1);
-  current_x_translation += translate_x_direction * x_increment;
-  current_y_translation += translate_y_direction * y_increment;
-
-  // If the translation point is out of bounds, reset it within bounds and
-  // reverse the direction.
-  if (current_x_translation < 0) {
-    translate_x_direction = 1;
-    current_x_translation = 0;
-  } else if (current_x_translation > kMaxTranslationDip) {
-    translate_x_direction = -1;
-    current_x_translation = kMaxTranslationDip;
-  }
-
-  if (current_y_translation > 0) {
-    translate_y_direction = -1;
-    current_y_translation = 0;
-  } else if (current_y_translation < -kMaxTranslationDip) {
-    translate_y_direction = 1;
-    current_y_translation = -kMaxTranslationDip;
-  }
-
-  gfx::Transform transform;
-  transform.Translate(current_x_translation, current_y_translation);
-  ambient_info_view_->SetTextTransform(transform);
-
-  if (media_string_view_->GetVisible()) {
-    gfx::Transform media_string_transform;
-    media_string_transform.Translate(-current_x_translation,
-                                     -current_y_translation);
-    media_string_view_->layer()->SetTransform(media_string_transform);
-  }
+  ambient_peripheral_ui_ =
+      AddChildView(std::make_unique<AmbientSlideshowPeripheralUi>(delegate_));
 }
 
 void AmbientBackgroundImageView::UpdateLayout() {
@@ -316,13 +242,15 @@ void AmbientBackgroundImageView::UpdateLayout() {
 
     // Set spacing between two images.
     related_image_view_->SetProperty(
-        views::kMarginsKey, gfx::Insets(0, kMarginLeftOfRelatedImageDip, 0, 0));
+        views::kMarginsKey,
+        gfx::Insets::TLBR(0, kMarginLeftOfRelatedImageDip, 0, 0));
   } else {
     image_layout_->SetOrientation(views::LayoutOrientation::kVertical);
 
     // Set spacing between two images.
     related_image_view_->SetProperty(
-        views::kMarginsKey, gfx::Insets(kMarginLeftOfRelatedImageDip, 0, 0, 0));
+        views::kMarginsKey,
+        gfx::Insets::TLBR(kMarginLeftOfRelatedImageDip, 0, 0, 0));
   }
 
   image_layout_->SetMainAxisAlignment(views::LayoutAlignment::kCenter);
@@ -356,6 +284,10 @@ void AmbientBackgroundImageView::SetResizedImage(
   // landscape to portrait when device is in portrait orientation because we
   // only show one photo. Call ResetImageSize() to trigger UpdateImageOrigin().
   image_view->ResetImageSize();
+}
+
+void AmbientBackgroundImageView::SetPeripheralUiVisibility(bool visibile) {
+  ambient_peripheral_ui_->SetVisible(visibile);
 }
 
 bool AmbientBackgroundImageView::MustShowPairs() const {

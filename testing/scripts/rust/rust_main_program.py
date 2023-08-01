@@ -1,4 +1,4 @@
-# Copyright 2021 The Chromium Authors. All rights reserved.
+# Copyright 2021 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 """This is a library for wrapping Rust test executables in a way that is
@@ -11,21 +11,24 @@ import re
 import subprocess
 import sys
 
-sys.path.append(os.path.dirname(__file__))
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import exe_util
 import main_program
 import test_results
 
 
 def _format_test_name(test_executable_name, test_case_name):
-    assert "/" not in test_executable_name
+    assert "//" not in test_executable_name
     assert "/" not in test_case_name
-    return "{}/{}".format(test_executable_name, test_case_name)
+    test_case_name = "/".join(test_case_name.split("::"))
+    return "{}//{}".format(test_executable_name, test_case_name)
 
 
-def _split_test_name(test_name):
-    assert "/" in test_name
-    test_executable_name, test_case_name = test_name.split("/", 1)
+def _parse_test_name(test_name):
+    assert "//" in test_name
+    assert "::" not in test_name
+    test_executable_name, test_case_name = test_name.split("//", 1)
+    test_case_name = "::".join(test_case_name.split("/"))
     return test_executable_name, test_case_name
 
 
@@ -74,7 +77,7 @@ def _scrape_test_results(output, test_executable_name,
         A list of test_results.TestResult objects.
     """
     results = []
-    regex = re.compile(r'^test (\w+) \.\.\. (\w+)')
+    regex = re.compile(r'^test ([:\w]+) \.\.\. (\w+)')
     for line in output.splitlines():
         match = regex.match(line.strip())
         if not match:
@@ -87,6 +90,10 @@ def _scrape_test_results(output, test_executable_name,
         actual_test_result = match.group(2)
         if actual_test_result == 'ok':
             actual_test_result = 'PASS'
+        elif actual_test_result == 'FAILED':
+            actual_test_result = 'FAIL'
+        elif actual_test_result == 'ignored':
+            actual_test_result = 'SKIP'
 
         test_name = _format_test_name(test_executable_name, test_case_name)
         results.append(test_results.TestResult(test_name, actual_test_result))
@@ -96,7 +103,7 @@ def _scrape_test_results(output, test_executable_name,
 def _get_exe_specific_tests(expected_test_executable_name, list_of_test_names):
     results = []
     for test_name in list_of_test_names:
-        actual_test_executable_name, test_case_name = _split_test_name(
+        actual_test_executable_name, test_case_name = _parse_test_name(
             test_name)
         if actual_test_executable_name != expected_test_executable_name:
             continue
@@ -143,7 +150,7 @@ class _TestExecutableWrapper:
         # output to the terminal).
         args = [
             self._path_to_test_executable, '--test', '--format=pretty',
-            '--exact'
+            '--color=always', '--exact'
         ]
         args.extend(list_of_tests_to_run)
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -50,7 +50,7 @@ class InterstitialAccessibilityBrowserTest : public InProcessBrowserTest {
   void ProceedThroughInterstitial(content::WebContents* web_contents) {
     content::TestNavigationObserver nav_observer(web_contents, 1);
     std::string javascript = "window.certificateErrorPageController.proceed();";
-    ASSERT_TRUE(content::ExecuteScript(web_contents, javascript));
+    ASSERT_TRUE(content::ExecJs(web_contents, javascript));
     nav_observer.Wait();
     return;
   }

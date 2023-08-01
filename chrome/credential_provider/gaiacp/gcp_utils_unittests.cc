@@ -1,10 +1,9 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
-#include "base/cxx17_backports.h"
 #include "base/process/launch.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -33,7 +32,7 @@ TEST(GcpPasswordTest, GenerateRandomPassword) {
   // Generate a few passwords and make sure length i correct.
   for (int i = 0; i < 100; ++i) {
     ASSERT_EQ(S_OK,
-              manager->GenerateRandomPassword(password, base::size(password)));
+              manager->GenerateRandomPassword(password, std::size(password)));
     ASSERT_LT(24u, wcslen(password));
   }
 }
@@ -85,7 +84,7 @@ bool GcpProcHelperTest::TestPipe(
     const base::win::ScopedHandle::Handle& writing) {
   char input_buffer[8];
   char output_buffer[8];
-  strcpy_s(input_buffer, base::size(input_buffer), "hello");
+  strcpy_s(input_buffer, std::size(input_buffer), "hello");
   const DWORD kExpectedDataLength = strlen(input_buffer) + 1;
 
   // Make sure what is written can be read.
@@ -95,7 +94,7 @@ bool GcpProcHelperTest::TestPipe(
   EXPECT_EQ(kExpectedDataLength, written);
 
   DWORD read;
-  EXPECT_TRUE(ReadFile(reading, output_buffer, base::size(output_buffer), &read,
+  EXPECT_TRUE(ReadFile(reading, output_buffer, std::size(output_buffer), &read,
                        nullptr));
   EXPECT_EQ(kExpectedDataLength, read);
   return strcmp(input_buffer, output_buffer) == 0;
@@ -405,7 +404,7 @@ TEST_F(GcpProcHelperTest, WaitForProcess) {
   // Write to stdin of the child process.
   const int kBufferSize = 16;
   char input_buffer[kBufferSize];
-  strcpy_s(input_buffer, base::size(input_buffer), "hello");
+  strcpy_s(input_buffer, std::size(input_buffer), "hello");
   const DWORD kExpectedDataLength = strlen(input_buffer) + 1;
   DWORD written;
   ASSERT_TRUE(::WriteFile(parent_handles.hstdin_write.Get(), input_buffer,
@@ -438,8 +437,8 @@ TEST_F(GcpProcHelperTest, GetCommandLineForEntrypoint) {
   // Get short path name of this binary and build the expect command line.
   wchar_t path[MAX_PATH];
   wchar_t short_path[MAX_PATH];
-  ASSERT_LT(0u, GetModuleFileName(nullptr, path, base::size(path)));
-  ASSERT_LT(0u, GetShortPathName(path, short_path, base::size(short_path)));
+  ASSERT_LT(0u, GetModuleFileName(nullptr, path, std::size(path)));
+  ASSERT_LT(0u, GetShortPathName(path, short_path, std::size(short_path)));
 
   std::wstring expected_arg =
       base::StringPrintf(L"\"%ls\",%ls", short_path, L"entrypoint");
@@ -454,8 +453,7 @@ TEST(Enroll, EnrollToGoogleMdmIfNeeded_NotEnabled) {
   InitializeRegistryOverrideForTesting(&registry_override);
 
   // EnrollToGoogleMdmIfNeeded() should be a noop.
-  base::Value properties(base::Value::Type::DICTIONARY);
-  ASSERT_EQ(S_OK, EnrollToGoogleMdmIfNeeded(properties));
+  ASSERT_EQ(S_OK, EnrollToGoogleMdmIfNeeded(base::Value::Dict()));
 }
 
 // Tests all possible data combinations sent to EnrollToGoogleMdmIfNeeded to
@@ -515,23 +513,23 @@ TEST_P(GcpEnrollmentArgsTest, EnrollToGoogleMdmIfNeeded_MissingArgs) {
                         (serial_number && serial_number[0]) &&
                         (is_user_ad_joined && is_user_ad_joined[0]);
 
-  base::Value properties(base::Value::Type::DICTIONARY);
+  base::Value::Dict properties;
   if (email)
-    properties.SetStringKey(kKeyEmail, email);
+    properties.Set(kKeyEmail, email);
   if (id_token)
-    properties.SetStringKey(kKeyMdmIdToken, id_token);
+    properties.Set(kKeyMdmIdToken, id_token);
   if (access_token)
-    properties.SetStringKey(kKeyAccessToken, access_token);
+    properties.Set(kKeyAccessToken, access_token);
   if (sid)
-    properties.SetStringKey(kKeySID, sid);
+    properties.Set(kKeySID, sid);
   if (username)
-    properties.SetStringKey(kKeyUsername, username);
+    properties.Set(kKeyUsername, username);
   if (domain)
-    properties.SetStringKey(kKeyDomain, domain);
+    properties.Set(kKeyDomain, domain);
   if (sid)
-    properties.SetStringKey(kKeySID, sid);
+    properties.Set(kKeySID, sid);
   if (is_user_ad_joined)
-    properties.SetStringKey(kKeyIsAdJoinedUser, is_user_ad_joined);
+    properties.Set(kKeyIsAdJoinedUser, is_user_ad_joined);
 
   SetMachineGuidForTesting(machine_guid16);
   GoogleRegistrationDataForTesting g_registration_data(serial_number16);

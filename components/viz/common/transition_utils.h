@@ -1,28 +1,22 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef COMPONENTS_VIZ_COMMON_TRANSITION_UTILS_H_
 #define COMPONENTS_VIZ_COMMON_TRANSITION_UTILS_H_
 
-#include "base/callback_forward.h"
+#include <memory>
+#include <string>
+
+#include "base/functional/callback_forward.h"
 #include "components/viz/common/quads/compositor_render_pass.h"
 #include "components/viz/common/viz_common_export.h"
 
 namespace viz {
 
-// This class is a collection of utils used by document transition API.
+// This class is a collection of utils used by view transition API.
 class VIZ_COMMON_EXPORT TransitionUtils {
  public:
-  // Computes the opacity value of the given target_id as drawn in the root
-  // render pass. It looks through the chain of CompositorRenderPassDrawQuads to
-  // accumulate this value. Note that it is assumed, and not checked, that the
-  // render pass draw quads use "regular" opacity accumulation (i.e. kSrcOver
-  // blend mode).
-  static float ComputeAccumulatedOpacity(
-      const CompositorRenderPassList& render_passes,
-      CompositorRenderPassId target_id);
-
   // Creates a deep copy of |source_pass| retaining all state. |filter_callback|
   // is invoked for each render pass draw quad to let the caller modify the copy
   // of these quads. If the callback returns true the quad is skipped otherwise
@@ -37,6 +31,9 @@ class VIZ_COMMON_EXPORT TransitionUtils {
       const CompositorRenderPassId& id) {
     return CompositorRenderPassId(id.GetUnsafeValue() + 1);
   }
+
+  static std::string RenderPassListToString(
+      const CompositorRenderPassList& render_passes);
 };
 
 }  // namespace viz

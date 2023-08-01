@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@ import org.chromium.base.annotations.NativeMethods;
 import org.chromium.chrome.browser.autofill.CardUnmaskPrompt.CardUnmaskPromptDelegate;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.modaldialog.DialogDismissalCause;
+import org.chromium.url.GURL;
 
 /**
 * JNI call glue for CardUnmaskPrompt C++ and Java objects.
@@ -22,10 +23,11 @@ public class CardUnmaskBridge implements CardUnmaskPromptDelegate {
     private final long mNativeCardUnmaskPromptViewAndroid;
     private final CardUnmaskPrompt mCardUnmaskPrompt;
 
-    public CardUnmaskBridge(long nativeCardUnmaskPromptViewAndroid, String title,
-            String instructions, String confirmButtonLabel, int cvcIconId, int googlePayIconId,
-            boolean isCardLocal, boolean shouldRequestExpirationDate,
-            boolean defaultToStoringLocally, boolean shouldOfferWebauthn,
+    private CardUnmaskBridge(long nativeCardUnmaskPromptViewAndroid, String title,
+            String instructions, int cardIconId, String cardName, String cardLastFourDigits,
+            String cardExpiration, GURL cardArtUrl, String confirmButtonLabel, int cvcIconId,
+            String cvcImageAnnouncement, int googlePayIconId, boolean isVirtualCard,
+            boolean shouldRequestExpirationDate, boolean shouldOfferWebauthn,
             boolean defaultUseScreenlockChecked, long successMessageDurationMilliseconds,
             WindowAndroid windowAndroid) {
         mNativeCardUnmaskPromptViewAndroid = nativeCardUnmaskPromptViewAndroid;
@@ -37,22 +39,27 @@ public class CardUnmaskBridge implements CardUnmaskPromptDelegate {
             new Handler().post(() -> dismissed());
         } else {
             mCardUnmaskPrompt = new CardUnmaskPrompt(activity, this, title, instructions,
-                    confirmButtonLabel, cvcIconId, googlePayIconId, isCardLocal,
-                    shouldRequestExpirationDate, defaultToStoringLocally, shouldOfferWebauthn,
+                    cardIconId, cardName, cardLastFourDigits, cardExpiration, cardArtUrl,
+                    confirmButtonLabel, cvcIconId, cvcImageAnnouncement, googlePayIconId,
+                    isVirtualCard, shouldRequestExpirationDate, shouldOfferWebauthn,
                     defaultUseScreenlockChecked, successMessageDurationMilliseconds);
         }
     }
 
+    // TODO (crbug.com/1356735): Sync down the credit card directly from native instead of adding
+    // more and more arguments.
     @CalledByNative
     private static CardUnmaskBridge create(long nativeUnmaskPrompt, String title,
-            String instructions, String confirmButtonLabel, int cvcIconId, int googlePayIconId,
-            boolean isCardLocal, boolean shouldRequestExpirationDate,
-            boolean defaultToStoringLocally, boolean shouldOfferWebauthn,
+            String instructions, int cardIconId, String cardName, String cardLastFourDigits,
+            String cardExpiration, GURL cardArtUrl, String confirmButtonLabel, int cvcIconId,
+            String cvcImageAnnouncement, int googlePayIconId, boolean isVirtualCard,
+            boolean shouldRequestExpirationDate, boolean shouldOfferWebauthn,
             boolean defaultUseScreenlockChecked, long successMessageDurationMilliseconds,
             WindowAndroid windowAndroid) {
-        return new CardUnmaskBridge(nativeUnmaskPrompt, title, instructions, confirmButtonLabel,
-                cvcIconId, googlePayIconId, isCardLocal, shouldRequestExpirationDate,
-                defaultToStoringLocally, shouldOfferWebauthn, defaultUseScreenlockChecked,
+        return new CardUnmaskBridge(nativeUnmaskPrompt, title, instructions, cardIconId, cardName,
+                cardLastFourDigits, cardExpiration, cardArtUrl, confirmButtonLabel, cvcIconId,
+                cvcImageAnnouncement, googlePayIconId, isVirtualCard, shouldRequestExpirationDate,
+                shouldOfferWebauthn, defaultUseScreenlockChecked,
                 successMessageDurationMilliseconds, windowAndroid);
     }
 

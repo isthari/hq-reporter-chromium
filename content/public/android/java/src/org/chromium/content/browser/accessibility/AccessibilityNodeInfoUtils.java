@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,10 +35,11 @@ import static androidx.core.view.accessibility.AccessibilityNodeInfoCompat.Acces
 import static androidx.core.view.accessibility.AccessibilityNodeInfoCompat.AccessibilityActionCompat.ACTION_SET_TEXT;
 import static androidx.core.view.accessibility.AccessibilityNodeInfoCompat.AccessibilityActionCompat.ACTION_SHOW_ON_SCREEN;
 
-import static org.chromium.content.browser.accessibility.WebContentsAccessibilityImpl.EXTRAS_KEY_OFFSCREEN;
-import static org.chromium.content.browser.accessibility.WebContentsAccessibilityImpl.EXTRAS_KEY_SUPPORTED_ELEMENTS;
-import static org.chromium.content.browser.accessibility.WebContentsAccessibilityImpl.EXTRAS_KEY_UNCLIPPED_BOTTOM;
-import static org.chromium.content.browser.accessibility.WebContentsAccessibilityImpl.EXTRAS_KEY_UNCLIPPED_TOP;
+import static org.chromium.content.browser.accessibility.AccessibilityNodeInfoBuilder.EXTRAS_KEY_CSS_DISPLAY;
+import static org.chromium.content.browser.accessibility.AccessibilityNodeInfoBuilder.EXTRAS_KEY_OFFSCREEN;
+import static org.chromium.content.browser.accessibility.AccessibilityNodeInfoBuilder.EXTRAS_KEY_SUPPORTED_ELEMENTS;
+import static org.chromium.content.browser.accessibility.AccessibilityNodeInfoBuilder.EXTRAS_KEY_UNCLIPPED_BOTTOM;
+import static org.chromium.content.browser.accessibility.AccessibilityNodeInfoBuilder.EXTRAS_KEY_UNCLIPPED_TOP;
 
 import static java.lang.String.CASE_INSENSITIVE_ORDER;
 
@@ -81,12 +82,19 @@ public class AccessibilityNodeInfoUtils {
                     .append(node.getText().toString().replace("\n", "\\n"))
                     .append("\"");
         }
+        // Print hint unless it is null or empty.
+        if (node.getHintText() != null && !node.getHintText().toString().isEmpty()) {
+            builder.append(" hint:\"").append(node.getHintText()).append("\"");
+        }
 
         // Text properties - Only print when non-null.
         if (node.getContentDescription() != null) {
             builder.append(" contentDescription:\"")
                     .append(node.getContentDescription().toString().replace("\n", "\\n"))
                     .append("\"");
+        }
+        if (node.getPaneTitle() != null) {
+            builder.append(" paneTitle:\"").append(node.getPaneTitle()).append("\"");
         }
         if (node.getViewIdResourceName() != null) {
             builder.append(" viewIdResName:\"").append(node.getViewIdResourceName()).append("\"");
@@ -200,8 +208,15 @@ public class AccessibilityNodeInfoUtils {
         if (info.isSelected()) {
             prefix += "selected, ";
         }
-        return String.format("%srowIndex=%s, rowSpan=%s, colIndex=%s, colSpan=%s]", prefix,
-                info.getRowIndex(), info.getRowSpan(), info.getColumnIndex(), info.getColumnSpan());
+        // Only include row/col span if not equal to 1, the default value.
+        if (info.getRowSpan() != 1) {
+            prefix += String.format("rowSpan=%s, ", info.getRowSpan());
+        }
+        if (info.getColumnSpan() != 1) {
+            prefix += String.format("colSpan=%s, ", info.getColumnSpan());
+        }
+        return String.format(
+                "%srowIndex=%s, colIndex=%s]", prefix, info.getRowIndex(), info.getColumnIndex());
     }
 
     private static String toString(AccessibilityNodeInfoCompat.RangeInfoCompat info) {
@@ -224,6 +239,12 @@ public class AccessibilityNodeInfoUtils {
                     || action.equals(ACTION_PREVIOUS_HTML_ELEMENT)
                     || action.equals(ACTION_SHOW_ON_SCREEN)
                     || action.equals(ACTION_CONTEXT_CLICK)) {
+                continue;
+            }
+            // Scroll actions are dependent on screen size, so ignore them to reduce flakiness
+            if (action.equals(ACTION_SCROLL_FORWARD) || action.equals(ACTION_SCROLL_BACKWARD)
+                    || action.equals(ACTION_SCROLL_DOWN) || action.equals(ACTION_SCROLL_UP)
+                    || action.equals(ACTION_SCROLL_RIGHT) || action.equals(ACTION_SCROLL_LEFT)) {
                 continue;
             }
 
@@ -334,6 +355,12 @@ public class AccessibilityNodeInfoUtils {
             // The AccessibilityNodeInfoCompat class uses the extras for backwards compatibility,
             // so exclude anything that contains the classname in the key.
             if (key.contains("AccessibilityNodeInfoCompat")) {
+                continue;
+            }
+
+            // CSS Display is very noisy and currently unused, so we exclude it here because we
+            // don't have a way to filter it for certain tests.
+            if (key.equals(EXTRAS_KEY_CSS_DISPLAY)) {
                 continue;
             }
 

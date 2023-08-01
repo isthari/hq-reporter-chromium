@@ -1,8 +1,8 @@
 (async function(testRunner) {
-  var {page, session, dp} = await testRunner.startBlank(
+  const {session, dp} = await testRunner.startBlank(
       `Tests that Fetch intercepts CORS preflight requests from service workers correctly.`);
 
-  const url = 'http://localhost:8000/inspector-protocol/network/resources/post-echo.pl';
+  const url = 'http://localhost:8000/inspector-protocol/fetch/resources/post-echo.pl';
   const FetchHelper = await testRunner.loadScript('resources/fetch-test.js');
   let swSession;
 
@@ -43,6 +43,10 @@
     swFetcher.onRequest().continueRequest({});
     swdp.Runtime.runIfWaitingForDebugger();
   });
+
+  // Disable the cache so that we do not use cached OPTIONS.
+  await dp.Network.enable();
+  await dp.Network.setCacheDisabled({cacheDisabled: true});
 
   await dp.ServiceWorker.enable();
   await session.navigate("resources/service-worker.html");

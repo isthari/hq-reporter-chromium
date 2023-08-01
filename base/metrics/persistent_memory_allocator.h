@@ -1,4 +1,4 @@
-// Copyright (c) 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,9 +13,12 @@
 
 #include "base/atomicops.h"
 #include "base/base_export.h"
+#include "base/check.h"
+#include "base/check_op.h"
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/memory/shared_memory_mapping.h"
 #include "base/strings/string_piece.h"
 #include "build/build_config.h"
@@ -618,7 +621,7 @@ class BASE_EXPORT PersistentMemoryAllocator {
   struct Memory {
     Memory(void* b, MemoryType t) : base(b), type(t) {}
 
-    void* base;
+    raw_ptr<void> base;
     MemoryType type;
   };
 
@@ -632,7 +635,11 @@ class BASE_EXPORT PersistentMemoryAllocator {
   // Implementation of Flush that accepts how much to flush.
   virtual void FlushPartial(size_t length, bool sync);
 
-  volatile char* const mem_base_;  // Memory base. (char so sizeof guaranteed 1)
+  // This field is not a raw_ptr<> because a pointer to stale non-PA allocation
+  // could be confused as a pointer to PA memory when that address space is
+  // reused. crbug.com/1173851 crbug.com/1169582
+  RAW_PTR_EXCLUSION volatile char* const
+      mem_base_;                   // Memory base. (char so sizeof guaranteed 1)
   const MemoryType mem_type_;      // Type of memory allocation.
   const uint32_t mem_size_;        // Size of entire memory segment.
   const uint32_t mem_page_;        // Page size allocations shouldn't cross.
@@ -641,7 +648,17 @@ class BASE_EXPORT PersistentMemoryAllocator {
  private:
   struct SharedMetadata;
   struct BlockHeader;
-  static const uint32_t kAllocAlignment;
+  // All allocations and data-structures must be aligned to this byte boundary.
+  // Alignment as large as the physical bus between CPU and RAM is _required_
+  // for some architectures, is simply more efficient on other CPUs, and
+  // generally a Good Idea(tm) for all platforms as it reduces/eliminates the
+  // chance that a type will span cache lines. Alignment mustn't be less
+  // than 8 to ensure proper alignment for all types. The rest is a balance
+  // between reducing spans across multiple cache lines and wasted space spent
+  // padding out allocations. An alignment of 16 would ensure that the block
+  // header structure always sits in a single cache line. An average of about
+  // 1/2 this value will be wasted with every allocation.
+  static constexpr size_t kAllocAlignment = 8;
   static const Reference kReferenceQueue;
 
   // The shared metadata is always located at the top of the memory segment.
@@ -659,24 +676,29 @@ class BASE_EXPORT PersistentMemoryAllocator {
   Reference AllocateImpl(size_t size, uint32_t type_id);
 
   // Get the block header associated with a specific reference.
-  const volatile BlockHeader* GetBlock(Reference ref, uint32_t type_id,
-                                       uint32_t size, bool queue_ok,
+  const volatile BlockHeader* GetBlock(Reference ref,
+                                       uint32_t type_id,
+                                       size_t size,
+                                       bool queue_ok,
                                        bool free_ok) const;
-  volatile BlockHeader* GetBlock(Reference ref, uint32_t type_id, uint32_t size,
-                                 bool queue_ok, bool free_ok) {
-      return const_cast<volatile BlockHeader*>(
-          const_cast<const PersistentMemoryAllocator*>(this)->GetBlock(
-              ref, type_id, size, queue_ok, free_ok));
+  volatile BlockHeader* GetBlock(Reference ref,
+                                 uint32_t type_id,
+                                 size_t size,
+                                 bool queue_ok,
+                                 bool free_ok) {
+    return const_cast<volatile BlockHeader*>(
+        const_cast<const PersistentMemoryAllocator*>(this)->GetBlock(
+            ref, type_id, size, queue_ok, free_ok));
   }
 
   // Get the actual data within a block associated with a specific reference.
-  const volatile void* GetBlockData(Reference ref, uint32_t type_id,
-                                    uint32_t size) const;
-  volatile void* GetBlockData(Reference ref, uint32_t type_id,
-                              uint32_t size) {
-      return const_cast<volatile void*>(
-          const_cast<const PersistentMemoryAllocator*>(this)->GetBlockData(
-              ref, type_id, size));
+  const volatile void* GetBlockData(Reference ref,
+                                    uint32_t type_id,
+                                    size_t size) const;
+  volatile void* GetBlockData(Reference ref, uint32_t type_id, size_t size) {
+    return const_cast<volatile void*>(
+        const_cast<const PersistentMemoryAllocator*>(this)->GetBlockData(
+            ref, type_id, size));
   }
 
   // Record an error in the internal histogram.
@@ -715,7 +737,7 @@ class BASE_EXPORT LocalPersistentMemoryAllocator
   // Allocates a block of local memory of the specified |size|, ensuring that
   // the memory will not be physically allocated until accessed and will read
   // as zero when that happens.
-  static Memory AllocateLocalMemory(size_t size);
+  static Memory AllocateLocalMemory(size_t size, base::StringPiece name);
 
   // Deallocates a block of local |memory| of the specified |size|.
   static void DeallocateLocalMemory(void* memory, size_t size, MemoryType type);
@@ -842,40 +864,18 @@ class BASE_EXPORT DelayedPersistentAllocation {
   // offset into the segment; this allows combining allocations into a
   // single persistent segment to reduce overhead and means an "all or
   // nothing" request. Note that |size| is always the total memory size
-  // and |offset| is just indicating the start of a block within it.  If
-  // |make_iterable| was true, the allocation will made iterable when it
-  // is created; already existing allocations are not changed.
+  // and |offset| is just indicating the start of a block within it.
   //
   // Once allocated, a reference to the segment will be stored at |ref|.
   // This shared location must be initialized to zero (0); it is checked
   // with every Get() request to see if the allocation has already been
   // done. If reading |ref| outside of this object, be sure to do an
   // "acquire" load. Don't write to it -- leave that to this object.
-  //
-  // For convenience, methods taking both Atomic32 and std::atomic<Reference>
-  // are defined.
-  DelayedPersistentAllocation(PersistentMemoryAllocator* allocator,
-                              subtle::Atomic32* ref,
-                              uint32_t type,
-                              size_t size,
-                              bool make_iterable);
-  DelayedPersistentAllocation(PersistentMemoryAllocator* allocator,
-                              subtle::Atomic32* ref,
-                              uint32_t type,
-                              size_t size,
-                              size_t offset,
-                              bool make_iterable);
   DelayedPersistentAllocation(PersistentMemoryAllocator* allocator,
                               std::atomic<Reference>* ref,
                               uint32_t type,
                               size_t size,
-                              bool make_iterable);
-  DelayedPersistentAllocation(PersistentMemoryAllocator* allocator,
-                              std::atomic<Reference>* ref,
-                              uint32_t type,
-                              size_t size,
-                              size_t offset,
-                              bool make_iterable);
+                              size_t offset = 0);
   ~DelayedPersistentAllocation();
 
   // Gets a pointer to the defined allocation. This will realize the request
@@ -900,7 +900,7 @@ class BASE_EXPORT DelayedPersistentAllocation {
   // The underlying object that does the actual allocation of memory. Its
   // lifetime must exceed that of all DelayedPersistentAllocation objects
   // that use it.
-  PersistentMemoryAllocator* const allocator_;
+  const raw_ptr<PersistentMemoryAllocator> allocator_;
 
   // The desired type and size of the allocated segment plus the offset
   // within it for the defined request.
@@ -908,14 +908,11 @@ class BASE_EXPORT DelayedPersistentAllocation {
   const uint32_t size_;
   const uint32_t offset_;
 
-  // Flag indicating if allocation should be made iterable when done.
-  const bool make_iterable_;
-
   // The location at which a reference to the allocated segment is to be
   // stored once the allocation is complete. If multiple delayed allocations
   // share the same pointer then an allocation on one will amount to an
   // allocation for all.
-  volatile std::atomic<Reference>* const reference_;
+  const raw_ptr<volatile std::atomic<Reference>> reference_;
 
   // No DISALLOW_COPY_AND_ASSIGN as it's okay to copy/move these objects.
 };

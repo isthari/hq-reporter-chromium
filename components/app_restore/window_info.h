@@ -1,10 +1,12 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef COMPONENTS_APP_RESTORE_WINDOW_INFO_H_
 #define COMPONENTS_APP_RESTORE_WINDOW_INFO_H_
 
+#include "base/memory/raw_ptr.h"
+#include "base/uuid.h"
 #include "chromeos/ui/base/window_state_type.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/aura/window.h"
@@ -26,7 +28,6 @@ struct COMPONENT_EXPORT(APP_RESTORE) WindowInfo {
 
     absl::optional<gfx::Size> maximum_size;
     absl::optional<gfx::Size> minimum_size;
-    absl::optional<std::u16string> title;
     absl::optional<gfx::Rect> bounds_in_root;
   };
 
@@ -37,7 +38,7 @@ struct COMPONENT_EXPORT(APP_RESTORE) WindowInfo {
 
   WindowInfo* Clone();
 
-  aura::Window* window;
+  raw_ptr<aura::Window, DanglingUntriaged | ExperimentalAsh> window;
 
   // Index in MruWindowTracker to restore window stack. A lower index
   // indicates a more recently used window.
@@ -45,6 +46,9 @@ struct COMPONENT_EXPORT(APP_RESTORE) WindowInfo {
 
   // Virtual desk id.
   absl::optional<int32_t> desk_id;
+
+  // Virtual desk guid.
+  base::Uuid desk_guid;
 
   // Current bounds in screen in coordinates. If the window has restore bounds,
   // then this contains the restore bounds.
@@ -57,8 +61,19 @@ struct COMPONENT_EXPORT(APP_RESTORE) WindowInfo {
   // windows.
   absl::optional<ui::WindowShowState> pre_minimized_show_state_type;
 
+  // The snap percentage of a window, if it is snapped. For instance a snap
+  // percentage of 75 means the window takes up three quarters of the work area.
+  // The primary axis is determined when restoring; if it is portrait, it will
+  // be three quarters of the height.
+  absl::optional<uint32_t> snap_percentage;
+
   // Display id to launch an app.
   absl::optional<int64_t> display_id;
+
+  // The title of the app window. Used for saved desks in case one of the
+  // windows in the template is uninstalled, we can show a nice error message.
+  // Also used for the ARC ghost window.
+  absl::optional<std::u16string> app_title;
 
   // Extra window info of ARC app window.
   absl::optional<ArcExtraInfo> arc_extra_info;

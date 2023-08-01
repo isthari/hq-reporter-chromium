@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,7 @@ namespace autofill {
 // Gmock matcher that allows checking a member of the Suggestion class in a
 // vector. This wraps a GMock container matcher, converts the suggestion
 // members to a vector, and then runs the container matcher against the result
-// to test an argument. See SuggestionVectorIdsAre() below.
+// to test an argument. See SuggestionVectorMainTextsAre() below.
 template <typename EltType>
 class SuggestionVectorMembersAreMatcher
     : public testing::MatcherInterface<const std::vector<Suggestion>&> {
@@ -52,33 +52,36 @@ class SuggestionVectorMembersAreMatcher
 // Use this matcher to compare a sequence vector's IDs to a list. In an
 // EXPECT_CALL statement, use the following for an vector<Suggestion> argument
 // to compare the IDs against a constant list:
-//   SuggestionVectorIdsAre(testing::ElementsAre(1, 2, 3, 4))
-template <class EltsAreMatcher>
-inline testing::Matcher<const std::vector<Suggestion>&> SuggestionVectorIdsAre(
-    const EltsAreMatcher& elts_are_matcher) {
-  return testing::MakeMatcher(new SuggestionVectorMembersAreMatcher<int>(
-      elts_are_matcher, &Suggestion::frontend_id));
+//   SuggestionVectorIdsAre(1, 2, 3, 4)
+template <class... Matchers>
+inline auto SuggestionVectorIdsAre(const Matchers&... matchers) {
+  return ::testing::ElementsAre(
+      ::testing::Field("frontend_id", &Suggestion::frontend_id, matchers)...);
 }
 
-// Like SuggestionVectorIdsAre above, but tests the values.
+// Use this matcher to compare a sequence vector's main_texts to a list. In an
+// EXPECT_CALL statement, use the following for an vector<Suggestion> argument
+// to compare the IDs against a constant list:
+//   SuggestionVectorMainTextsAre(testing::ElementsAre(text1, text2, text3,
+//   text4))
 template <class EltsAreMatcher>
 inline testing::Matcher<const std::vector<Suggestion>&>
-SuggestionVectorValuesAre(const EltsAreMatcher& elts_are_matcher) {
+SuggestionVectorMainTextsAre(const EltsAreMatcher& elts_are_matcher) {
   return testing::MakeMatcher(
-      new SuggestionVectorMembersAreMatcher<std::u16string>(
-          elts_are_matcher, &Suggestion::value));
+      new SuggestionVectorMembersAreMatcher<Suggestion::Text>(
+          elts_are_matcher, &Suggestion::main_text));
 }
 
-// Like SuggestionVectorIdsAre above, but tests the labels.
+// Like SuggestionVectorMainTextsAre above, but tests the labels.
 template <class EltsAreMatcher>
 inline testing::Matcher<const std::vector<Suggestion>&>
 SuggestionVectorLabelsAre(const EltsAreMatcher& elts_are_matcher) {
-  return testing::MakeMatcher(
-      new SuggestionVectorMembersAreMatcher<std::u16string>(
-          elts_are_matcher, &Suggestion::label));
+  return testing::MakeMatcher(new SuggestionVectorMembersAreMatcher<
+                              std::vector<std::vector<Suggestion::Text>>>(
+      elts_are_matcher, &Suggestion::labels));
 }
 
-// Like SuggestionVectorIdsAre above, but tests the icons.
+// Like SuggestionVectorMainTextsAre above, but tests the icons.
 template <class EltsAreMatcher>
 inline testing::Matcher<const std::vector<Suggestion>&>
 SuggestionVectorIconsAre(const EltsAreMatcher& elts_are_matcher) {
@@ -87,13 +90,13 @@ SuggestionVectorIconsAre(const EltsAreMatcher& elts_are_matcher) {
                                                          &Suggestion::icon));
 }
 
-// Like SuggestionVectorIdsAre above, but tests the store_indicator_icon.
+// Like SuggestionVectorMainTextsAre above, but tests the trailing_icon.
 template <class EltsAreMatcher>
 inline testing::Matcher<const std::vector<Suggestion>&>
 SuggestionVectorStoreIndicatorIconsAre(const EltsAreMatcher& elts_are_matcher) {
   return testing::MakeMatcher(
       new SuggestionVectorMembersAreMatcher<std::string>(
-          elts_are_matcher, &Suggestion::store_indicator_icon));
+          elts_are_matcher, &Suggestion::trailing_icon));
 }
 
 }  // namespace autofill

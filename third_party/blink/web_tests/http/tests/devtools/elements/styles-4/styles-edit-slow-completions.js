@@ -1,10 +1,13 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {TestRunner} from 'test_runner';
+import {ElementsTestRunner} from 'elements_test_runner';
+
 (async function() {
   TestRunner.addResult(`Tests that slow completions do not interfere with editing styles.\n`);
-  await TestRunner.loadLegacyModule('elements'); await TestRunner.loadTestModule('elements_test_runner');
+  await TestRunner.loadLegacyModule('elements');
   await TestRunner.showPanel('elements');
   await TestRunner.loadHTML(`<div id="inspected">Text</div>`);
 
@@ -32,7 +35,7 @@
   TestRunner.completeTest();
 
   function dumpFocus() {
-    const element = document.deepActiveElement();
+    const element = Platform.DOMUtilities.deepActiveElement(document);
     TestRunner.addResult(`Active element: ${element.tagName}, ${element.className}`);
   }
 })();

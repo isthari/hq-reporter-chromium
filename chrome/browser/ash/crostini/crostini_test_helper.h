@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,10 @@
 #include <map>
 #include <string>
 
+#include "base/memory/raw_ptr.h"
 #include "base/test/scoped_feature_list.h"
 #include "chrome/browser/ash/crostini/crostini_util.h"
-#include "chromeos/dbus/vm_applications/apps.pb.h"
+#include "chromeos/ash/components/dbus/vm_applications/apps.pb.h"
 
 class TestingProfile;
 
@@ -69,13 +70,13 @@ class CrostiniTestHelper {
   // Returns an ApplicationList with a single desktop file.
   static vm_tools::apps::ApplicationList BasicAppList(
       const std::string& desktop_file_id,
-      const std::string& vm_name,
-      const std::string& container_name);
+      const std::string& vm_name = kCrostiniDefaultVmName,
+      const std::string& container_name = kCrostiniDefaultContainerName);
 
  private:
   void UpdateRegistry();
 
-  TestingProfile* profile_;
+  raw_ptr<TestingProfile, ExperimentalAsh> profile_;
   vm_tools::apps::ApplicationList current_apps_;
 
   // This are used to allow Crostini.

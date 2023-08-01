@@ -57,7 +57,6 @@ class CSSDefaultStyleSheets final
 
   bool EnsureDefaultStyleSheetsForElement(const Element&);
   bool EnsureDefaultStyleSheetsForPseudoElement(PseudoId);
-  bool EnsureDefaultStyleSheetForXrOverlay();
   void EnsureDefaultStyleSheetForFullscreen();
   bool EnsureDefaultStyleSheetForForcedColors();
 
@@ -76,14 +75,11 @@ class CSSDefaultStyleSheets final
   RuleSet* DefaultMediaControlsStyle() {
     return default_media_controls_style_.Get();
   }
-
-  StyleSheetContents* EnsureMobileViewportStyleSheet();
-  StyleSheetContents* EnsureTelevisionViewportStyleSheet();
-  StyleSheetContents* EnsureXHTMLMobileProfileStyleSheet();
+  RuleSet* DefaultFullscreenStyle() { return default_fullscreen_style_.Get(); }
 
   StyleSheetContents* DefaultStyleSheet() { return default_style_sheet_.Get(); }
   StyleSheetContents* QuirksStyleSheet() { return quirks_style_sheet_.Get(); }
-  StyleSheetContents* PopupStyleSheet() { return popup_style_sheet_.Get(); }
+  StyleSheetContents* PopoverStyleSheet() { return popover_style_sheet_.Get(); }
   StyleSheetContents* SelectMenuStyleSheet() {
     return selectmenu_style_sheet_.Get();
   }
@@ -98,6 +94,9 @@ class CSSDefaultStyleSheets final
   StyleSheetContents* MarkerStyleSheet() { return marker_style_sheet_.Get(); }
   StyleSheetContents* ForcedColorsStyleSheet() {
     return forced_colors_style_sheet_.Get();
+  }
+  StyleSheetContents* FormControlsNotVerticalSheet() {
+    return form_controls_not_vertical_style_sheet_.Get();
   }
 
   CORE_EXPORT void PrepareForLeakDetection();
@@ -124,12 +123,14 @@ class CSSDefaultStyleSheets final
 
  private:
   void InitializeDefaultStyles();
+  void VerifyUniversalRuleCount();
 
   enum class NamespaceType {
     kHTML,
     kMathML,
     kSVG,
     kMediaControls,  // Not exactly a namespace
+    kFullscreen,
   };
   void AddRulesToDefaultStyleSheets(StyleSheetContents* rules,
                                     NamespaceType type);
@@ -143,22 +144,24 @@ class CSSDefaultStyleSheets final
   Member<RuleSet> default_forced_color_style_;
   Member<RuleSet> default_pseudo_element_style_;
   Member<RuleSet> default_media_controls_style_;
+  Member<RuleSet> default_fullscreen_style_;
+  // If new RuleSets are added, make sure to add a new check in
+  // VerifyUniversalRuleCount() as universal rule buckets are performance
+  // sensitive. At least if the added UA styles are matched against all elements
+  // of a given namespace.
 
   Member<StyleSheetContents> default_style_sheet_;
-  Member<StyleSheetContents> mobile_viewport_style_sheet_;
-  Member<StyleSheetContents> television_viewport_style_sheet_;
-  Member<StyleSheetContents> xhtml_mobile_profile_style_sheet_;
   Member<StyleSheetContents> quirks_style_sheet_;
   Member<StyleSheetContents> svg_style_sheet_;
   Member<StyleSheetContents> mathml_style_sheet_;
   Member<StyleSheetContents> media_controls_style_sheet_;
   Member<StyleSheetContents> text_track_style_sheet_;
   Member<StyleSheetContents> fullscreen_style_sheet_;
-  Member<StyleSheetContents> popup_style_sheet_;
+  Member<StyleSheetContents> popover_style_sheet_;
   Member<StyleSheetContents> selectmenu_style_sheet_;
-  Member<StyleSheetContents> webxr_overlay_style_sheet_;
   Member<StyleSheetContents> marker_style_sheet_;
   Member<StyleSheetContents> forced_colors_style_sheet_;
+  Member<StyleSheetContents> form_controls_not_vertical_style_sheet_;
 
   std::unique_ptr<UAStyleSheetLoader> media_controls_style_sheet_loader_;
 };

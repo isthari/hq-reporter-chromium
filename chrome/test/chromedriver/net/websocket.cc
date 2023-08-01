@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,8 @@
 #include <vector>
 
 #include "base/base64.h"
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/hash/sha1.h"
 #include "base/json/json_writer.h"
 #include "base/rand_util.h"
@@ -49,7 +49,7 @@ bool ResolveHost(const std::string& host,
   hints.ai_socktype = SOCK_STREAM;
 
   struct addrinfo* result;
-  if (getaddrinfo(host.c_str(), NULL, &hints, &result))
+  if (getaddrinfo(host.c_str(), nullptr, &hints, &result))
     return false;
 
   auto list = net::AddressList::CreateFromAddrinfo(result);
@@ -90,7 +90,7 @@ void WebSocket::Connect(net::CompletionOnceCallback callback) {
       std::move(callback).Run(net::ERR_ADDRESS_UNREACHABLE);
       return;
     }
-    base::ListValue endpoints;
+    base::Value::List endpoints;
     for (auto endpoint : addresses)
       endpoints.Append(endpoint.ToStringWithoutPort());
     std::string json;
@@ -236,9 +236,23 @@ void WebSocket::Read() {
 }
 
 void WebSocket::OnRead(bool read_again, int code) {
-  if (code <= 0) {
+  if (code == 0) {
+    // On POSIX and FUCHSIA:
+    //   code >= 0 is the result of POSIX read function call:
+    //     code > 0 denotes the amount of successfully read bytes
+    //     code == 0 means that we have reached EOF.
+    //       The latter one is issued upon receiving a FIN packet.
+    //   code < 0 is an error code
+    // On Windows:
+    //   code >=0 is the result of recv function call (winsocks.h)
+    //     It has the same semantic as in the POSIX case
+    //   code < 0 is an error code
+    code = net::ERR_CONNECTION_CLOSED;
+  }
+
+  if (code < 0) {
     VLOG(4) << "WebSocket::OnRead error " << net::ErrorToShortString(code);
-    Close(code ? code : net::ERR_FAILED);
+    Close(code);
     return;
   }
 

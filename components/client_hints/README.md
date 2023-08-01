@@ -56,13 +56,47 @@ For the purposes of Client-Hints, this means that an "ACCEPT_CH" HTTP2/3 frame c
 
 The full explanation is outside of the scope of this document and can be found in the reliability explainer linked above.
 
+### Header Names
+
+All client hint headers should be [forbidden request-headers](https://fetch.spec.whatwg.org/#forbidden-request-header), by virtue of the prefix `Sec-`. Historically, some were not forbidden and most of these have been replaced with new headers using this prefix. Within Chromium, these are distinguished with a `_DEPRECATED` suffix, e.g., `WebClientHintsType::kDeviceMemory_DEPRECATED`. The exception to this rule is the `Save-Data` header, which [will
+not be replaced with `Sec-CH-Save-Data`](https://groups.google.com/a/chromium.org/g/blink-dev/c/HR7tWmewbSA/m/R0QYg-ZAAAAJ).
+
+The "new" naming adds `CH` to distinguish client hints from other forbidden request-headers, giving the combined prefix `Sec-CH`.
+
+### Client-Hint Types
+
+There are several types of client hints, which are handled differently:
+
+ * *UA* client hints contain information about the user agent which might once have been found expected in the User-Agent header.
+ * *Device* client hints contain dynamic information about the configuration of the device on which the browser is running.
+ * *Network* client hints contain dynamic information about the browser's network connection.
+ * *User Preference Media Features* client hints contain information about the user agent's preferences as represented in CSS media features.
+
+All UA client hints are distinguished by a `Sec-CH-UA` header prefix. UA hints are available via the JS `navigator.userAgentData` API, while other types are not.
+
+Some device client hints are specific to the type of resource being requested. For example, `Sec-CH-Resource-Width` is sent only for image fetches.
+
+Except for `Save-Data`, network client hints are currently being deprecated.
+
+Some device and user-preference client hints are not sent for fetches in detached frames.
+
 ## Implementation
+
+### Client-Hint Data Sources
+
+In terms of the implementation, the web sees client hints in three ways: in headers on navigation-related fetches, in headers for subresource fetches, and via the [`navigator.userAgentData` property](https://developer.mozilla.org/en-US/docs/Web/API/Navigator/userAgentData).
+
+The first of these occurs in the browser process. Hint data for client-hint types other than UA are fetched from appropriate APIs, such as `NetworkQualityTracker` or `display::Screen`. Data for UA client hints are gathered in a `UserAgentMetadata` type, which is acquired from the embedder via the `ClientHintControllerDelegate`.
+
+Subresource fetches and JS access occur in the renderer. The renderer gets UA client hint data from the browser via `RenderThreadImpl::InitializeRenderer` and stores it for the lifetime of the renderer thread. The browser gets this data from the embedder via the `ContentBrowserClient` delegate. *Note that this is entirely independent of the `ClientHintControllerDelegate`!*
+
+Programmatic access only exposes UA client hints. All other client hints are only revealed in client-hint headers, based on locally-observed information such as that from `NetworkStateNotifier` or the frame's device pixel ratio.
 
 ### Accept-CH cache
 
 Client Hint preferences are stored in the preferences service as a content setting (`ContentSettingsType::CLIENT_HINTS`), keyed to the origin. This storage is accessed through the [content::ClientHintsControllerDelegate] interface, with the principle implementation being [client_hints::ClientHints] in //components (to share across multiple platforms). The delegate is accessible in the browser process as a property of the [content::BrowserContext] (in //chrome land, this is implemented as the Profile and “Off The Record” Profile. An important note is that there is an “incognito profile” that gets its own client hints storage).
 
-This storage is marked as `content_settings::SessionModel::UserSession`. This means that when settings are read in from disk (on browser start up) there’s also a check for a flag that’s set on graceful shutdown. (This is to exclude crashes and browser updates). If that flag is set, the settings are cleared. Practically, this means that the settings are cleared after closing the browser.
+This storage is marked as `content_settings::SessionModel::Durable`. This means that the client hint settings are read in from disk on browser start up and loaded into memory. Practically, this means that the client hint settings persist until the user clears site data or cookies for the origin.
 
 The code for reading from and writing to the client hint preferences in content is in [/content/browser/client_hints/client_hints.cc]
 
@@ -119,6 +153,7 @@ The canonical enum for client hint tokens is [network::mojom::WebClientHintsType
 *   Add the feature enum to the map in `MakeClientHintToWebFeatureMap` in [/third_party/blink/renderer/core/loader/frame_client_hints_preferences_context.cc].
 *   Add the client hint header to the `Accept-CH` header in the appropriate test files in [/chrome/test/data/client_hints/] and [/third_party/blink/web_tests/external/wpt/client-hints].
 *   Update `expected_client_hints_number` to the current value + 1 in [/chrome/browser/client_hints/client_hints_browsertest.cc].
+*   Add an enum value to `WebClientHintsType` in [/tools/metrics/histograms/enums.xml].
 
 **NOTE:** It’s very important that the order of these arrays remain in sync.
 
@@ -134,13 +169,30 @@ The header should also be added to the cors `safe_names` list in [/services/netw
 
 TODO(crbug.com/1176808): There should be UseCounters measuring usage, but there are not currently.
 
-### Populating the client hint
+### Populating the Client Hint
 
-Client Hints are populated in [BaseFetchContext::AddClientHintsIfNecessary](/third_party/blink/renderer/core/loader/base_fetch_context.cc). If you need frame-based information, this should be added to [ClientHintsImageInfo](/third_party/blink/renderer/core/loader/base_fetch_context.cc), which is populated in [FrameFetchContext::AddClientHintsIfNecessary](/third_party/blink/renderer/core/loader/frame_fetch_context.cc)
+As described in "Client-Hint Data Sources" above, client hints are populated in
+several places:
+
+ * _UA Hints:_ Included in [`blink::UserAgentMetadata`](https://source.chromium.org/chromium/chromium/src/+/main:third_party/blink/public/common/user_agent/user_agent_metadata.h?q=blink::UserAgentMetadata) and determined in [`ClientHintsControllerDelegate`](https://source.chromium.org/chromium/chromium/src/+/main:content/public/browser/client_hints_controller_delegate.h;l=55?q=clienthintscontrollerdelegate) for navigation fetches and [`ContentBrowserClient`](https://source.chromium.org/chromium/chromium/src/+/main:content/public/browser/content_browser_client.h;l=2100?q=contentbrowserclient) for programmatic access and subresource fetches.
+ * _navigation fetches:_ [`content::AddNavigationRequestClientHintsHeaders`](https://source.chromium.org/chromium/chromium/src/+/main:content/browser/client_hints/client_hints.cc;l=1040?q=AddNavigationRequestClientHintsHeader) and `content::AddRequestClientHintsHeaders`.
+ * _subresource fetches:_ [BaseFetchContext::AddClientHintsIfNecessary](/third_party/blink/renderer/core/loader/base_fetch_context.cc). If you need frame-based information, this should be added to [ClientHintsImageInfo](/third_party/blink/renderer/core/loader/base_fetch_context.cc), which is populated in [FrameFetchContext::AddClientHintsIfNecessary](/third_party/blink/renderer/core/loader/frame_fetch_context.cc)
+
+### Web platform tests
+* Add the new client hint to [/third_party/blink/web_tests/external/wpt/client-hints/resources/export.js], [/third_party/blink/web_tests/external/wpt/client-hints/resources/clienthintslist.py], [/third_party/blink/web_tests/external/wpt/client-hints/accept-ch/feature-policy-navigation/\_\_dir\_\_.headers], [/third_party/blink/web_tests/external/wpt/client-hints/sandbox/\_\_dir\_\_.headers], and [/third_party/blink/web_tests/external/wpt/client-hints/accept-ch/\_\_dir\_\_.headers]
 
 ### Devtools Backend
 
-Any addition to [blink::UserAgentMetadata](/third_party/blink/public/common/user_agent/user_agent_metadata.h) also needs to extend the related Chrome Devtools Protocol API calls, namely `setUserAgentOverride`. The backend implementation can be found in [third_party/blink/renderer/core/inspector/inspector_emulation_agent.h](/third_party/blink/renderer/core/inspector/inspector_emulation_agent.h), and the UserAgentMetadata type in [third_party/blink/public/devtools_protocol/browser_protocol.pdl](/third_party/blink/public/devtools_protocol/browser_protocol.pdl) will also need to be extended.
+* Any addition to [blink::UserAgentMetadata](/third_party/blink/public/common/user_agent/user_agent_metadata.h) also needs to extend the related Chrome Devtools Protocol API calls, namely `setUserAgentOverride`. The backend implementation can be found in [/third_party/blink/renderer/core/inspector/inspector_emulation_agent.h], and the UserAgentMetadata type in [/third_party/blink/public/devtools_protocol/browser_protocol.pdl] will also need to be extended.
+* Update overridden function `SetUserAgentOverride` in [/third_party/blink/renderer/core/inspector/inspector_emulation_agent.cc], and [/content/browser/devtools/protocol/emulation_handler.cc].
+* Add the new client hint to [/third_party/blink/web_tests/http/tests/inspector-protocol/emulation/resources/set-accept-ch.php] and update tests in [/third_party/blink/web_tests/http/tests/inspector-protocol/emulation/emulation-user-agent-metadata-override.js].
+
+### Devtools Frontend
+
+Devtools frontend source code is in a different branch [devtools/devtools-frontend](https://chromium.googlesource.com/devtools/devtools-frontend).
+
+* Any addition to [blink::UserAgentMetadata] also needs to extend the related type `UserAgentMetadata` in [/third_party/devtools-frontend/src/third_party/blink/public/devtools_protocol/browser_protocol.pdl], [/third_party/devtools-frontend/src/third_party/blink/public/devtools_protocol/browser_protocol.json], and [/third_party/devtools-frontend/src/front_end/generated/protocol.d.ts].
+* Add the permission policy token to the `PermissionsPolicyFeature` enum in [/third_party/devtools-frontend/src/third_party/blink/public/devtools_protocol/browser_protocol.pdl], and [/third_party/devtools-frontend/src/third_party/blink/public/devtools_protocol/browser_protocol.json].
 
 <!-- links -->
 [/components/client_hints/]: /components/client_hints/
@@ -165,7 +217,18 @@ Any addition to [blink::UserAgentMetadata](/third_party/blink/public/common/user
 [/third_party/blink/renderer/core/permissions_policy/permissions_policy_features.json5]: /third_party/blink/renderer/core/permissions_policy/permissions_policy_features.json5
 [/third_party/blink/public/mojom/permissions_policy/permissions_policy_feature.mojom]: /third_party/blink/public/mojom/permissions_policy/permissions_policy_feature.mojom
 [/third_party/blink/public/devtools_protocol/browser_protocol.pdl]: /third_party/blink/public/devtools_protocol/browser_protocol.pdl
-[/third_party/devtools-frontend/src/third_party/blink/public/devtools_protocol/browser_protocol.pdl]: /third_party/devtools-frontend/src/third_party/blink/public/devtools_protocol/browser_protocol.pdl
-[/third_party/devtools-frontend/src/third_party/blink/public/devtools_protocol/browser_protocol.json]: /third_party/devtools-frontend/src/third_party/blink/public/devtools_protocol/browser_protocol.json
+[/third_party/devtools-frontend/src/third_party/blink/public/devtools_protocol/browser_protocol.pdl]: https://chromium.googlesource.com/devtools/devtools-frontend/+/main/third_party/blink/public/devtools_protocol/browser_protocol.pdl
+[/third_party/devtools-frontend/src/third_party/blink/public/devtools_protocol/browser_protocol.json]: https://chromium.googlesource.com/devtools/devtools-frontend/+/main/third_party/blink/public/devtools_protocol/browser_protocol.json
+[/third_party/devtools-frontend/src/front_end/generated/InspectorBackendCommands.js]: https://chromium.googlesource.com/devtools/devtools-frontend/+/main/front_end/generated/InspectorBackendCommands.js
 [/third_party/blink/web_tests/webexposed/feature-policy-features-expected.txt]: /third_party/blink/web_tests/webexposed/feature-policy-features-expected.txt
 [/third_party/blink/web_tests/virtual/stable/webexposed/feature-policy-features-expected.txt]: /third_party/blink/web_tests/virtual/stable/webexposed/feature-policy-features-expected.txt
+[/third_party/blink/renderer/core/inspector/inspector_emulation_agent.h]: /third_party/blink/renderer/core/inspector/inspector_emulation_agent.h
+[/third_party/blink/renderer/core/inspector/inspector_emulation_agent.cc]: /third_party/blink/renderer/core/inspector/inspector_emulation_agent.cc
+[/content/browser/devtools/protocol/emulation_handler.cc]: /content/browser/devtools/protocol/emulation_handler.cc
+[/third_party/blink/web_tests/http/tests/inspector-protocol/emulation/resources/set-accept-ch.php]: /third_party/blink/web_tests/http/tests/inspector-protocol/emulation/resources/set-accept-ch.php
+[/third_party/blink/web_tests/http/tests/inspector-protocol/emulation/emulation-user-agent-metadata-override.js]: /third_party/blink/web_tests/http/tests/inspector-protocol/emulation/emulation-user-agent-metadata-override.js
+[/third_party/blink/web_tests/external/wpt/client-hints/resources/export.js]: /third_party/blink/web_tests/external/wpt/client-hints/resources/export.js
+[/third_party/blink/web_tests/external/wpt/client-hints/resources/clienthintslist.py]: /third_party/blink/web_tests/external/wpt/client-hints/resources/clienthintslist.py
+[/third_party/blink/web_tests/external/wpt/client-hints/accept-ch/feature-policy-navigation/\_\_dir\_\_.headers]: /third_party/blink/web_tests/external/wpt/client-hints/accept-ch/feature-policy-navigation/__dir__.headers
+[/third_party/blink/web_tests/external/wpt/client-hints/sandbox/\_\_dir\_\_.headers]: /third_party/blink/web_tests/external/wpt/client-hints/sandbox/__dir__.headers
+[/third_party/blink/web_tests/external/wpt/client-hints/accept-ch/\_\_dir\_\_.headers]: /third_party/blink/web_tests/external/wpt/client-hints/accept-ch/__dir__.headers

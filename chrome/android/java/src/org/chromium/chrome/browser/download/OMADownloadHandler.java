@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,10 +33,12 @@ import org.xmlpull.v1.XmlPullParserFactory;
 
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.ContentUriUtils;
+import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
 import org.chromium.base.ObserverList;
 import org.chromium.base.PackageManagerUtils;
 import org.chromium.base.task.AsyncTask;
+import org.chromium.chrome.R;
 import org.chromium.chrome.browser.content.ContentUtils;
 import org.chromium.chrome.browser.download.DownloadManagerBridge.DownloadEnqueueRequest;
 import org.chromium.chrome.browser.download.DownloadManagerBridge.DownloadEnqueueResponse;
@@ -92,6 +94,11 @@ public class OMADownloadHandler extends BroadcastReceiver {
     public interface TestObserver { void onDownloadEnqueued(long downloadId); }
 
     private static final String TAG = "OMADownloadHandler";
+
+    // Undocumented outside of Android source, but held by the Android Download Manager since at
+    // least Android M in order to send download completed broadcasts.
+    private static final String PERMISSION_SEND_DOWNLOAD_COMPLETED_INTENTS =
+            "android.permission.SEND_DOWNLOAD_COMPLETED_INTENTS";
 
     // Valid download descriptor attributes.
     protected static final String OMA_TYPE = "type";
@@ -546,7 +553,7 @@ public class OMADownloadHandler extends BroadcastReceiver {
         };
         new AlertDialog
                 .Builder(ApplicationStatus.getLastTrackedFocusedActivity(),
-                        R.style.Theme_Chromium_AlertDialog)
+                        R.style.ThemeOverlay_BrowserUI_AlertDialog)
                 .setTitle(R.string.proceed_oma_download_message)
                 .setPositiveButton(R.string.ok, clickListener)
                 .setNegativeButton(R.string.cancel, clickListener)
@@ -576,7 +583,7 @@ public class OMADownloadHandler extends BroadcastReceiver {
         };
         new AlertDialog
                 .Builder(ApplicationStatus.getLastTrackedFocusedActivity(),
-                        R.style.Theme_Chromium_AlertDialog)
+                        R.style.ThemeOverlay_BrowserUI_AlertDialog)
                 .setTitle(titleId)
                 .setPositiveButton(R.string.ok, clickListener)
                 .setCancelable(false)
@@ -630,9 +637,8 @@ public class OMADownloadHandler extends BroadcastReceiver {
                     && !type.equalsIgnoreCase(MimeUtils.OMA_DOWNLOAD_DESCRIPTOR_MIME)
                     && !type.equalsIgnoreCase(MimeUtils.OMA_DRM_RIGHTS_MIME)) {
                 intent.setDataAndType(uri, type);
-                if (!PackageManagerUtils
-                                .queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
-                                .isEmpty()) {
+                if (PackageManagerUtils.canResolveActivity(
+                            intent, PackageManager.MATCH_DEFAULT_ONLY)) {
                     return type;
                 }
             }
@@ -757,7 +763,7 @@ public class OMADownloadHandler extends BroadcastReceiver {
         enqueueRequest.mimeType = mimeType;
         enqueueRequest.description = omaInfo.getValue(OMA_DESCRIPTION);
         enqueueRequest.cookie = newInfo.getCookie();
-        enqueueRequest.referrer = newInfo.getReferrer();
+        enqueueRequest.referrer = newInfo.getReferrer().getSpec();
         enqueueRequest.userAgent = newInfo.getUserAgent();
         enqueueRequest.notifyCompleted = omaInfo.isValueEmpty(OMA_INSTALL_NOTIFY_URI);
         DownloadManagerBridge.enqueueNewDownload(
@@ -800,8 +806,9 @@ public class OMADownloadHandler extends BroadcastReceiver {
         }
 
         if (mSystemDownloadIdMap.size() == 0) {
-            mContext.registerReceiver(
-                    this, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
+            ContextUtils.registerExportedBroadcastReceiver(mContext, this,
+                    new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
+                    PERMISSION_SEND_DOWNLOAD_COMPLETED_INTENTS);
         }
         mSystemDownloadIdMap.put(response.downloadId, downloadItem);
 
@@ -875,10 +882,10 @@ public class OMADownloadHandler extends BroadcastReceiver {
     }
 
     private void showDownloadOnInfoBar(DownloadItem downloadItem, int downloadStatus) {
-        DownloadMessageUiController infobarController =
-                DownloadManagerService.getDownloadManagerService().getInfoBarController(
+        DownloadMessageUiController messageUiController =
+                DownloadManagerService.getDownloadManagerService().getMessageUiController(
                         downloadItem.getDownloadInfo().getOTRProfileId());
-        if (infobarController == null) return;
+        if (messageUiController == null) return;
         OfflineItem offlineItem = DownloadItem.createOfflineItem(downloadItem);
         offlineItem.id.namespace = LegacyHelpers.LEGACY_ANDROID_DOWNLOAD_NAMESPACE;
         if (downloadStatus == DownloadStatus.COMPLETE) {
@@ -887,7 +894,7 @@ public class OMADownloadHandler extends BroadcastReceiver {
             offlineItem.state = OfflineItemState.FAILED;
         }
 
-        infobarController.onItemUpdated(offlineItem, null);
+        messageUiController.onItemUpdated(offlineItem, null);
     }
 
     /**
@@ -949,6 +956,7 @@ public class OMADownloadHandler extends BroadcastReceiver {
         private final DownloadInfo mDownloadInfo;
         private final String mStatusMessage;
         private final long mDownloadId;
+        private DownloadInfo mNewDownloadInfo;
 
         public PostStatusTask(
                 OMAInfo omaInfo, DownloadInfo downloadInfo, long downloadId, String statusMessage) {
@@ -1010,24 +1018,19 @@ public class OMADownloadHandler extends BroadcastReceiver {
                         String pendingUri =
                                 DownloadCollectionBridge.createIntermediateUriForPublish(
                                         mDownloadInfo.getFileName(), mDownloadInfo.getMimeType(),
-                                        mDownloadInfo.getOriginalUrl(),
-                                        mDownloadInfo.getReferrer());
+                                        mDownloadInfo.getOriginalUrl().getSpec(),
+                                        mDownloadInfo.getReferrer().getSpec());
                         success = DownloadCollectionBridge.copyFileToIntermediateUri(
                                 path, pendingUri);
                         if (success) {
                             String uri = DownloadCollectionBridge.publishDownload(pendingUri);
                             fromFile.delete();
                             // Post a nofification to open the Android download page.
-                            DownloadInfo newInfo =
-                                    DownloadInfo.Builder.fromDownloadInfo(mDownloadInfo)
-                                            .setFilePath(uri)
-                                            .setContentId(
-                                                    new ContentId("", String.valueOf(mDownloadId)))
-                                            .build();
-                            DownloadManagerService.getDownloadManagerService()
-                                    .getDownloadNotifier()
-                                    .notifyDownloadSuccessful(newInfo, mDownloadId,
-                                            false /*canResolve*/, false /*isSupportedMimeType*/);
+                            mNewDownloadInfo = DownloadInfo.Builder.fromDownloadInfo(mDownloadInfo)
+                                                       .setFilePath(uri)
+                                                       .setContentId(new ContentId(
+                                                               "", String.valueOf(mDownloadId)))
+                                                       .build();
                         } else {
                             DownloadCollectionBridge.deleteIntermediateUri(pendingUri);
                         }
@@ -1069,6 +1072,12 @@ public class OMADownloadHandler extends BroadcastReceiver {
         @Override
         protected void onPostExecute(Boolean success) {
             if (success) {
+                if (mNewDownloadInfo != null) {
+                    DownloadManagerService.getDownloadManagerService()
+                            .getDownloadNotifier()
+                            .notifyDownloadSuccessful(mNewDownloadInfo, mDownloadId,
+                                    false /*canResolve*/, false /*isSupportedMimeType*/);
+                }
                 showNextUrlDialog(mOMAInfo);
             } else if (mDownloadId != DownloadConstants.INVALID_DOWNLOAD_ID) {
                 // Remove the downloaded content.

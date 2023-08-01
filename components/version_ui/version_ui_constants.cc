@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -50,6 +50,9 @@ const char kExecutablePathName[] = "executable_path_name";
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 const char kFirmwareVersion[] = "firmware_version";
 #endif
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+const char kAshChromeVersion[] = "ash_chrome_version";
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
 #if !BUILDFLAG(IS_IOS)
 const char kJSEngine[] = "js_engine";
 const char kJSVersion[] = "js_version";
@@ -62,6 +65,11 @@ const char kOSType[] = "os_type";
 #endif
 #if BUILDFLAG(IS_ANDROID)
 const char kOSVersion[] = "os_version";
+const char kVersionCode[] = "version_code";
+const char kTargetSdkVersionName[] = "target_sdk_version_name";
+const char kTargetSdkVersion[] = "target_sdk_version";
+const char kTargetsUName[] = "targets_u_name";
+const char kTargetsU[] = "targets_u";
 const char kGmsName[] = "gms_name";
 const char kGmsVersion[] = "gms_version";
 #endif
@@ -77,6 +85,7 @@ const char kOsVersionHeaderText1[] = "os-version-text1";
 const char kOsVersionHeaderText2[] = "os-version-text2";
 const char kOsVersionHeaderLink[] = "os-version-link";
 #endif
+const char kCopyLabel[] = "copy_label";
 const char kRevision[] = "revision";
 const char kSanitizer[] = "sanitizer";
 const char kTitle[] = "title";
@@ -84,6 +93,8 @@ const char kUserAgent[] = "useragent";
 const char kUserAgentName[] = "user_agent_name";
 const char kVariationsCmdName[] = "variations_cmd_name";
 const char kVariationsName[] = "variations_name";
+const char kVariationsSeed[] = "variations_seed";
+const char kVariationsSeedName[] = "variations_seed_name";
 const char kVersion[] = "version";
 const char kVersionModifier[] = "version_modifier";
 const char kVersionProcessorVariation[] = "version_processor_variation";

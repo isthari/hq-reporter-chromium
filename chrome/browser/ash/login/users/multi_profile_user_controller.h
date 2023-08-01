@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,8 @@
 #include <memory>
 #include <string>
 #include <vector>
+
+#include "base/memory/raw_ptr.h"
 
 class PrefChangeRegistrar;
 class PrefRegistrySimple;
@@ -19,6 +21,7 @@ class PrefRegistrySyncable;
 }
 
 namespace ash {
+
 class MultiProfileUserControllerDelegate;
 enum class MultiProfileUserBehavior;
 
@@ -99,16 +102,12 @@ class MultiProfileUserController {
   // Invoked when user behavior pref value changes.
   void OnUserPrefChanged(Profile* profile);
 
-  MultiProfileUserControllerDelegate* delegate_;  // Not owned.
-  PrefService* local_state_;                      // Not owned.
+  raw_ptr<MultiProfileUserControllerDelegate, ExperimentalAsh>
+      delegate_;                                       // Not owned.
+  raw_ptr<PrefService, ExperimentalAsh> local_state_;  // Not owned.
   std::vector<std::unique_ptr<PrefChangeRegistrar>> pref_watchers_;
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove once the migration is finished.
-namespace chromeos {
-using ::ash::MultiProfileUserController;
-}
 
 #endif  // CHROME_BROWSER_ASH_LOGIN_USERS_MULTI_PROFILE_USER_CONTROLLER_H_

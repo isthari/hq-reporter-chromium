@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
@@ -32,9 +32,8 @@ class PrefRegistrySimple;
 class OAuth2AccessTokenConsumer;
 class ProfileOAuth2TokenServiceDelegate;
 
-// ProfileOAuth2TokenService is a KeyedService that retrieves
-// OAuth2 access tokens for a given set of scopes using the OAuth2 login
-// refresh tokens.
+// ProfileOAuth2TokenService retrieves OAuth2 access tokens for a given set of
+// scopes using the OAuth2 login refresh tokens.
 //
 // To use this service, call StartRequest() with a given set of scopes and a
 // consumer of the request results. The consumer is required to outlive the
@@ -187,7 +186,9 @@ class ProfileOAuth2TokenService : public OAuth2AccessTokenManager::Delegate,
   // For a regular profile, the primary account id comes from
   // PrimaryAccountManager.
   // For a supervised user, the id comes from SupervisedUserService.
-  void LoadCredentials(const CoreAccountId& primary_account_id);
+  // |is_syncing| whether the primary account has sync consent.
+  void LoadCredentials(const CoreAccountId& primary_account_id,
+                       bool is_syncing);
 
   // Returns true if LoadCredentials finished with no errors.
   bool HasLoadCredentialsFinishedWithNoErrors();

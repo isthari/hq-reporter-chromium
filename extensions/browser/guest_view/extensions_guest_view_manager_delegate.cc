@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,11 +11,12 @@
 #include "components/guest_view/browser/guest_view_manager.h"
 #include "components/guest_view/common/guest_view_constants.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/child_process_host.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
-#include "content/public/common/child_process_host.h"
 #include "extensions/browser/api/extensions_api_client.h"
+#include "extensions/browser/browser_frame_context_data.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_util.h"
 #include "extensions/browser/guest_view/app_view/app_view_guest.h"
@@ -43,8 +44,8 @@ ExtensionsGuestViewManagerDelegate::ExtensionsGuestViewManagerDelegate(
     : context_(context) {
 }
 
-ExtensionsGuestViewManagerDelegate::~ExtensionsGuestViewManagerDelegate() {
-}
+ExtensionsGuestViewManagerDelegate::~ExtensionsGuestViewManagerDelegate() =
+    default;
 
 void ExtensionsGuestViewManagerDelegate::OnGuestAdded(
     content::WebContents* guest_web_contents) const {
@@ -54,14 +55,14 @@ void ExtensionsGuestViewManagerDelegate::OnGuestAdded(
 
 void ExtensionsGuestViewManagerDelegate::DispatchEvent(
     const std::string& event_name,
-    std::unique_ptr<base::DictionaryValue> args,
+    base::Value::Dict args,
     GuestViewBase* guest,
     int instance_id) {
   mojom::EventFilteringInfoPtr info = mojom::EventFilteringInfo::New();
   info->has_instance_id = true;
   info->instance_id = instance_id;
-  std::unique_ptr<base::ListValue> event_args(new base::ListValue());
-  event_args->Append(std::move(args));
+  base::Value::List event_args;
+  event_args.Append(std::move(args));
 
   // GetEventHistogramValue maps guest view event names to their histogram
   // value. It needs to be like this because the guest view component doesn't
@@ -77,11 +78,10 @@ void ExtensionsGuestViewManagerDelegate::DispatchEvent(
     return;  // Could happen at tab shutdown.
 
   EventRouter::DispatchEventToSender(
-      owner->GetMainFrame()->GetProcess(), guest->browser_context(),
+      owner->GetPrimaryMainFrame()->GetProcess(), guest->browser_context(),
       guest->owner_host(), histogram_value, event_name,
-      content::ChildProcessHost::kInvalidUniqueID, extensions::kMainThreadId,
-      blink::mojom::kInvalidServiceWorkerVersionId, std::move(event_args),
-      std::move(info));
+      extensions::kMainThreadId, blink::mojom::kInvalidServiceWorkerVersionId,
+      std::move(event_args), std::move(info));
 }
 
 bool ExtensionsGuestViewManagerDelegate::IsGuestAvailableToContext(
@@ -103,11 +103,15 @@ bool ExtensionsGuestViewManagerDelegate::IsGuestAvailableToContext(
   // Ok for |owner_extension| to be nullptr, the embedder might be WebUI.
   Feature::Availability availability = feature->IsAvailableToContext(
       owner_extension,
-      process_map->GetMostLikelyContextType(
-          owner_extension,
-          guest->owner_web_contents()->GetMainFrame()->GetProcess()->GetID(),
-          &owner_site_url),
-      owner_site_url, util::GetBrowserContextId(context_));
+      process_map->GetMostLikelyContextType(owner_extension,
+                                            guest->owner_web_contents()
+                                                ->GetPrimaryMainFrame()
+                                                ->GetProcess()
+                                                ->GetID(),
+                                            &owner_site_url),
+      owner_site_url, util::GetBrowserContextId(context_),
+      BrowserFrameContextData(
+          guest->owner_web_contents()->GetPrimaryMainFrame()));
 
   return availability.is_available();
 }
@@ -118,12 +122,21 @@ bool ExtensionsGuestViewManagerDelegate::IsOwnedByExtension(
       GetExtensionForWebContents(guest->owner_web_contents());
 }
 
-void ExtensionsGuestViewManagerDelegate::RegisterAdditionalGuestViewTypes() {
-  GuestViewManager* manager = GuestViewManager::FromBrowserContext(context_);
-  manager->RegisterGuestViewType<AppViewGuest>();
-  manager->RegisterGuestViewType<ExtensionOptionsGuest>();
-  manager->RegisterGuestViewType<MimeHandlerViewGuest>();
-  manager->RegisterGuestViewType<WebViewGuest>();
+void ExtensionsGuestViewManagerDelegate::RegisterAdditionalGuestViewTypes(
+    GuestViewManager* manager) {
+  manager->RegisterGuestViewType(AppViewGuest::Type,
+                                 base::BindRepeating(&AppViewGuest::Create),
+                                 base::NullCallback());
+  manager->RegisterGuestViewType(
+      ExtensionOptionsGuest::Type,
+      base::BindRepeating(&ExtensionOptionsGuest::Create),
+      base::NullCallback());
+  manager->RegisterGuestViewType(
+      MimeHandlerViewGuest::Type,
+      base::BindRepeating(&MimeHandlerViewGuest::Create), base::NullCallback());
+  manager->RegisterGuestViewType(WebViewGuest::Type,
+                                 base::BindRepeating(&WebViewGuest::Create),
+                                 base::BindRepeating(&WebViewGuest::CleanUp));
 }
 
 }  // namespace extensions

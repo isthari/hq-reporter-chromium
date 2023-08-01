@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,40 +10,33 @@
 #include <string>
 #include <vector>
 
-#include "base/callback_forward.h"
 #include "base/files/file_path.h"
-#include "base/memory/weak_ptr.h"
-#include "components/user_manager/user_manager.h"
+#include "base/functional/callback_forward.h"
 
+class AccountId;
 class IndependentOTRProfileManagerTest;
 class Profile;
 
-namespace base {
-class FilePath;
+namespace user_manager {
+class User;
 }
 
 namespace ash {
 
 // This helper class is used on Chrome OS to keep track of currently
 // active user profile.
-// Whenever active user is changed (either add another user into session or
-// switch between users), ActiveUserHashChanged() will be called thus
-// internal state |active_user_id_hash_| will be updated.
 // Typical use cases for using this class:
 // 1. Get "signin profile" which is a special type of profile that is only used
 //    during signin flow: GetSigninProfile()
-// 2. Get profile dir of an active user, used by ProfileManager:
-//    GetActiveUserProfileDir()
-// 3. Get mapping from user_id_hash to Profile instance/profile path etc.
-class ProfileHelper
-    : public user_manager::UserManager::UserSessionStateObserver {
+// 2. Get mapping from user_id_hash to Profile instance/profile path etc.
+class ProfileHelper {
  public:
   ProfileHelper();
 
   ProfileHelper(const ProfileHelper&) = delete;
   ProfileHelper& operator=(const ProfileHelper&) = delete;
 
-  ~ProfileHelper() override;
+  virtual ~ProfileHelper();
 
   // Creates and returns ProfileHelper implementation instance to
   // BrowserProcess/BrowserProcessPlatformPart.
@@ -54,133 +47,142 @@ class ProfileHelper
   // knowledge in one place.
   static ProfileHelper* Get();
 
-  // Loads and returns Profile instance that corresponds to |user_id_hash| for
-  // test. It should not be used in production code because it could load a
-  // not-yet-loaded user profile and skip the user profile initialization code
-  // in UserSessionManager.
-  // See http://crbug.com/728683 and http://crbug.com/718734.
-  static Profile* GetProfileByUserIdHashForTest(
-      const std::string& user_id_hash);
-
+  // DEPRECATED: Please use
+  // ash::BrowserContextHelper::GetBrowserContextPathByUserIdHash() instead.
   // Returns profile path that corresponds to a given |user_id_hash|.
   static base::FilePath GetProfilePathByUserIdHash(
       const std::string& user_id_hash);
 
+  // DEPRECATED: Please use
+  // ash::BrowserContextHelper::GetSigninBrowserContextPath() instead.
   // Returns the path that corresponds to the sign-in profile.
   static base::FilePath GetSigninProfileDir();
 
+  // DEPRECATED: Please use
+  // ash::BrowserContextHelper::GetSigninBrowserContext() instead.
   // Returns OffTheRecord profile for use during signing phase.
   static Profile* GetSigninProfile();
 
+  // DEPRECATED. Please use
+  // ash::BrowserContextHelper::GetUserIdHashFromBrowserContext() instead.
   // Returns user_id hash for |profile| instance or empty string if hash
   // could not be extracted from |profile|.
   static std::string GetUserIdHashFromProfile(const Profile* profile);
 
+  // DEPRECATED. Please use
+  // ash::BrowserContextHelper::GetUserBrowserContextDirName() instead.
   // Returns user profile dir in a format [u-user_id_hash].
   static base::FilePath GetUserProfileDir(const std::string& user_id_hash);
 
+  // DEPRECATED. Please use ash::IsSigninBrowserContext() instead.
   // Returns true if |profile| is the signin Profile. This can be used during
   // construction of the signin Profile to determine if that Profile is the
   // signin Profile.
   static bool IsSigninProfile(const Profile* profile);
 
+  // DEPRECATED. Please use ash::GetSigninBrowserContext() and see if it
+  // returns non-nullptr, instead.
   // Returns true if the signin profile has been initialized.
   static bool IsSigninProfileInitialized();
 
+  // DEPRECATED. Please use
+  // ash::BrowserContextHelper::GetLockScreenAppBrowserContextPath() instead.
   // Returns the path used for the lock screen apps profile - profile used
   // for launching platform apps that can display windows on top of the lock
   // screen.
   static base::FilePath GetLockScreenAppProfilePath();
 
-  // Returns the name used for the lock screen app profile.
-  static std::string GetLockScreenAppProfileName();
-
+  // DEPRECATED. Please use ash::IsLockScreenAppBrowserContext() instead.
   // Returns whether |profile| is the lock screen app profile - the profile used
   // for launching platform apps that can display a window on top of the lock
   // screen.
   static bool IsLockScreenAppProfile(const Profile* profile);
 
+  // DEPRECATED. Please use
+  // ash::BrowserContextHelper::GetLockScreenBrowserContextPath() instead.
   // Returns the path that corresponds to the lockscreen profile.
   static base::FilePath GetLockScreenProfileDir();
 
-  // Returns lockscreen profile.
-  static Profile* GetLockScreenIncognitoProfile();
+  // DEPRECATED. Please use
+  // ash::BrowserContextHelper::GetLockScreenBrowserContext() instead.
+  // Returns OffTheRecord profile for use during online authentication on the
+  // lock screen.
+  static Profile* GetLockScreenProfile();
 
+  // DEPRECATED. Please use ash::IsLockScreenBrowserContext() instead.
   // Returns true if |profile| is the lockscreen profile.
   static bool IsLockScreenProfile(const Profile* profile);
 
+  // DEPRECATED. Please use
+  // user_manager::UserManager::Get()->IsOwnerUser(
+  //     BrowserContextHelper::Get()->GetUserByBrowserContext(profile))
+  // instead.
   // Returns true when |profile| corresponds to owner's profile.
   static bool IsOwnerProfile(const Profile* profile);
 
+  // DEPRECATED. Please use
+  // user_manager::UserManager::Get()->IsPrimaryUser(
+  //     BrowserContextHelper::Get()->GetUserByBrowserContext(profile))
+  // instead.
   // Returns true when |profile| corresponds to the primary user profile
   // of the current session.
   static bool IsPrimaryProfile(const Profile* profile);
 
+  // DEPRECATED. Please use
+  // user_manager::UserManager::Get()->IsEphemeralUser(
+  //     BrowserContextHelper::Get()->GetUserByBrowserContext(profile))
+  // instead.
   // Returns true when |profile| is for an ephemeral user.
   static bool IsEphemeralUserProfile(const Profile* profile);
 
-  // Return true if |profile| or |profile_path| corrrespond to a regular
-  // (non-sign-in and non-lockscreen) profile.
-  static bool IsRegularProfile(const Profile* profile);
-  static bool IsRegularProfilePath(const base::FilePath& profile_path);
+  // DEPRECATED. Please use ash::IsUserBrowserContext() instead.
+  // Returns true if profile or profile_path has corresponding chrome os user.
+  // I.e. it is not one for internal use, such as sign-in or lockscreen etc.
+  // Note: System and Guest Profiles are considered User profiles. To check on
+  // that `Profile` specific method that checks the profile type should used
+  // such as `Profile::IsRegularProfile()` or `Profile::IsSystemProfile()`.
+  static bool IsUserProfile(const Profile* profile);
 
-  // Initialize a bunch of services that are tied to a browser profile.
-  // TODO(dzhioev): Investigate whether or not this method is needed.
-  virtual void ProfileStartup(Profile* profile) = 0;
+  // DEPRECATED. Please use ash::IsUserBrowserContextBaseName() instead.
+  static bool IsUserProfilePath(const base::FilePath& profile_path);
 
-  // Returns active user profile dir in a format [u-$hash].
-  virtual base::FilePath GetActiveUserProfileDir() = 0;
-
-  // Should called once after UserManager instance has been created.
-  virtual void Initialize() = 0;
-
-  // Clears site data (cookies, history, etc) for signin profile.
-  // Callback can be empty. Not thread-safe.
-  virtual void ClearSigninProfile(base::OnceClosure on_clear_callback) = 0;
-
+  // DEPRECATED: Please use
+  // BrowserContextHelper::GetBrowserContextByAccountId() instead.
   // Returns profile of the user associated with |account_id| if it is created
   // and fully initialized. Otherwise, returns NULL.
   virtual Profile* GetProfileByAccountId(const AccountId& account_id) = 0;
 
+  // DEPRECATED: Please use
+  // BrowserContextHelper::GetBrowserContextByUser() instead.
   // Returns profile of the |user| if it is created and fully initialized.
   // Otherwise, returns NULL.
   virtual Profile* GetProfileByUser(const user_manager::User* user) = 0;
 
-  // DEPRECATED
-  // Returns profile of the |user| if user's profile is created and fully
-  // initialized. Otherwise, if some user is active, returns their profile.
-  // Otherwise, returns signin profile.
-  // Behaviour of this function does not correspond to its name and can be
-  // very surprising, that's why it should not be used anymore.
-  // Use |GetProfileByUser| instead.
-  // TODO(dzhioev): remove this method. http://crbug.com/361528
-  virtual Profile* GetProfileByUserUnsafe(const user_manager::User* user) = 0;
-
+  // DEPRECATED: Please use
+  // BrowserContextHelper::GetUserByBrowserContext() instead.
   // Returns NULL if User is not created.
   virtual const user_manager::User* GetUserByProfile(
       const Profile* profile) const = 0;
   virtual user_manager::User* GetUserByProfile(Profile* profile) const = 0;
 
-  static std::string GetUserIdHashByUserIdForTesting(
-      const std::string& user_id);
-
   // Enables/disables testing GetUserByProfile() by always returning
   // primary user.
   static void SetAlwaysReturnPrimaryUserForTesting(bool value);
 
-  virtual void SetActiveUserIdForTesting(const std::string& user_id) = 0;
-
-  // Flushes all files of |profile|.
-  virtual void FlushProfile(Profile* profile) = 0;
-
+  // DEPRECATED: please set up UserManager.
   // Associates |user| with profile with the same user_id,
   // for GetUserByProfile() testing.
   virtual void SetProfileToUserMappingForTesting(user_manager::User* user) = 0;
 
+  // DEPRECATED: please set up UserManager and create a Profile tied to a user
+  // by its path. You may be interested in to create a testing profile by
+  // TestingProfileManager.
   // Associates |profile| with |user|, for GetProfileByUser() testing.
   virtual void SetUserToProfileMappingForTesting(const user_manager::User* user,
                                                  Profile* profile) = 0;
 
+  // DEPRECATED: avoiding SetProfileToUserMappingForTesting will help
+  // to remove this function's invocations.
   // Removes |account_id| user from |user_to_profile_for_testing_| for testing.
   virtual void RemoveUserFromListForTesting(const AccountId& account_id) = 0;
 
@@ -188,7 +190,6 @@ class ProfileHelper
   // TODO(nkostylev): Create a test API class that will be the only one allowed
   // to access private test methods.
   friend class FakeChromeUserManager;
-  friend class MockUserManager;
   friend class ProfileHelperTest;
   friend class ::IndependentOTRProfileManagerTest;
 
@@ -208,11 +209,5 @@ class ProfileHelper
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove after //chrome/browser/chromeos
-// source migration is finished.
-namespace chromeos {
-using ::ash::ProfileHelper;
-}
 
 #endif  // CHROME_BROWSER_ASH_PROFILES_PROFILE_HELPER_H_

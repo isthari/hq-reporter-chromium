@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -43,16 +43,15 @@ bool ReadVectorWithoutCopy(const base::Pickle* m,
                            base::PickleIterator* iter,
                            std::vector<T>* output) {
   // This part is just a copy of the the default ParamTraits vector Read().
-  int size;
-  // ReadLength() checks for < 0 itself.
+  size_t size;
   if (!iter->ReadLength(&size))
     return false;
   // Resizing beforehand is not safe, see BUG 1006367 for details.
-  if (INT_MAX / sizeof(T) <= static_cast<size_t>(size))
+  if (size > INT_MAX / sizeof(T))
     return false;
 
   output->reserve(size);
-  for (int i = 0; i < size; i++) {
+  for (size_t i = 0; i < size; i++) {
     T cur;
     if (!ReadParam(m, iter, &cur))
       return false;
@@ -105,7 +104,7 @@ void ParamTraits<PP_Bool>::Log(const param_type& p, std::string* l) {
 void ParamTraits<PP_NetAddress_Private>::Write(base::Pickle* m,
                                                const param_type& p) {
   WriteParam(m, p.size);
-  m->WriteBytes(p.data, static_cast<int>(p.size));
+  m->WriteBytes(p.data, p.size);
 }
 
 // static
@@ -321,61 +320,6 @@ void ParamTraits<ppapi::proxy::PPBURLLoader_UpdateProgress_Params>::Log(
 }
 
 #if !BUILDFLAG(IS_NACL) && !defined(NACL_WIN64)
-// PPBFlash_DrawGlyphs_Params --------------------------------------------------
-// static
-void ParamTraits<ppapi::proxy::PPBFlash_DrawGlyphs_Params>::Write(
-    base::Pickle* m,
-    const param_type& p) {
-  WriteParam(m, p.instance);
-  WriteParam(m, p.image_data);
-  WriteParam(m, p.font_desc);
-  WriteParam(m, p.color);
-  WriteParam(m, p.position);
-  WriteParam(m, p.clip);
-  WriteParam(m, p.transformation[0][0]);
-  WriteParam(m, p.transformation[0][1]);
-  WriteParam(m, p.transformation[0][2]);
-  WriteParam(m, p.transformation[1][0]);
-  WriteParam(m, p.transformation[1][1]);
-  WriteParam(m, p.transformation[1][2]);
-  WriteParam(m, p.transformation[2][0]);
-  WriteParam(m, p.transformation[2][1]);
-  WriteParam(m, p.transformation[2][2]);
-  WriteParam(m, p.allow_subpixel_aa);
-  WriteParam(m, p.glyph_indices);
-  WriteParam(m, p.glyph_advances);
-}
-
-// static
-bool ParamTraits<ppapi::proxy::PPBFlash_DrawGlyphs_Params>::Read(
-    const base::Pickle* m,
-    base::PickleIterator* iter,
-    param_type* r) {
-  return ReadParam(m, iter, &r->instance) &&
-         ReadParam(m, iter, &r->image_data) &&
-         ReadParam(m, iter, &r->font_desc) && ReadParam(m, iter, &r->color) &&
-         ReadParam(m, iter, &r->position) && ReadParam(m, iter, &r->clip) &&
-         ReadParam(m, iter, &r->transformation[0][0]) &&
-         ReadParam(m, iter, &r->transformation[0][1]) &&
-         ReadParam(m, iter, &r->transformation[0][2]) &&
-         ReadParam(m, iter, &r->transformation[1][0]) &&
-         ReadParam(m, iter, &r->transformation[1][1]) &&
-         ReadParam(m, iter, &r->transformation[1][2]) &&
-         ReadParam(m, iter, &r->transformation[2][0]) &&
-         ReadParam(m, iter, &r->transformation[2][1]) &&
-         ReadParam(m, iter, &r->transformation[2][2]) &&
-         ReadParam(m, iter, &r->allow_subpixel_aa) &&
-         ReadParam(m, iter, &r->glyph_indices) &&
-         ReadParam(m, iter, &r->glyph_advances) &&
-         r->glyph_indices.size() == r->glyph_advances.size();
-}
-
-// static
-void ParamTraits<ppapi::proxy::PPBFlash_DrawGlyphs_Params>::Log(
-    const param_type& p,
-    std::string* l) {
-}
-
 // SerializedDirEntry ----------------------------------------------------------
 
 // static

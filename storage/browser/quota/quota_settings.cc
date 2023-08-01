@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,10 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/no_destructor.h"
 #include "base/rand_util.h"
 #include "base/system/sys_info.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "build/build_config.h"
@@ -27,7 +26,7 @@ namespace {
 
 const int64_t kMBytes = 1024 * 1024;
 const int kRandomizedPercentage = 10;
-const double kDefaultPerHostRatio = 0.75;
+const double kDefaultPerStorageKeyRatio = 0.75;
 const double kIncognitoQuotaRatioLowerBound = 0.15;
 const double kIncognitoQuotaRatioUpperBound = 0.2;
 
@@ -38,7 +37,7 @@ int64_t RandomizeByPercent(int64_t value, int percent) {
 }
 
 QuotaSettings CalculateIncognitoDynamicSettings(
-    int64_t physical_memory_amount) {
+    uint64_t physical_memory_amount) {
   // The incognito pool size is a fraction of the amount of system memory.
   double incognito_pool_size_ratio =
       kIncognitoQuotaRatioLowerBound +
@@ -48,8 +47,8 @@ QuotaSettings CalculateIncognitoDynamicSettings(
   QuotaSettings settings;
   settings.pool_size =
       static_cast<int64_t>(physical_memory_amount * incognito_pool_size_ratio);
-  settings.per_host_quota = settings.pool_size / 3;
-  settings.session_only_per_host_quota = settings.per_host_quota;
+  settings.per_storage_key_quota = settings.pool_size / 3;
+  settings.session_only_per_storage_key_quota = settings.per_storage_key_quota;
   settings.refresh_interval = base::TimeDelta::Max();
   return settings;
 }
@@ -111,13 +110,14 @@ absl::optional<QuotaSettings> CalculateNominalDynamicSettings(
   const double kMustRemainAvailableRatio =
       features::kMustRemainAvailableRatio.Get();
 
-  // The fraction of the temporary pool that can be utilized by a single host.
-  const double kPerHostTemporaryRatio = kDefaultPerHostRatio;
+  // The fraction of the temporary pool that can be utilized by a single
+  // StorageKey.
+  const double kPerStorageKeyTemporaryRatio = kDefaultPerStorageKeyRatio;
 
   // SessionOnly (or ephemeral) origins are allotted a fraction of what
   // normal origins are provided, and the amount is capped to a hard limit.
-  const double kSessionOnlyHostQuotaRatio = 0.1;  // 10%
-  const int64_t kMaxSessionOnlyHostQuota = 300 * kMBytes;
+  const double kSessionOnlyStorageKeyQuotaRatio = 0.1;  // 10%
+  const int64_t kMaxSessionOnlyStorageKeyQuota = 300 * kMBytes;
 
   QuotaSettings settings;
 
@@ -142,11 +142,11 @@ absl::optional<QuotaSettings> CalculateNominalDynamicSettings(
   settings.must_remain_available =
       std::min(kMustRemainAvailableFixed,
                static_cast<int64_t>(total * kMustRemainAvailableRatio));
-  settings.per_host_quota = pool_size * kPerHostTemporaryRatio;
-  settings.session_only_per_host_quota = std::min(
-      RandomizeByPercent(kMaxSessionOnlyHostQuota, kRandomizedPercentage),
-      static_cast<int64_t>(settings.per_host_quota *
-                           kSessionOnlyHostQuotaRatio));
+  settings.per_storage_key_quota = pool_size * kPerStorageKeyTemporaryRatio;
+  settings.session_only_per_storage_key_quota = std::min(
+      RandomizeByPercent(kMaxSessionOnlyStorageKeyQuota, kRandomizedPercentage),
+      static_cast<int64_t>(settings.per_storage_key_quota *
+                           kSessionOnlyStorageKeyQuotaRatio));
   settings.refresh_interval = base::Seconds(60);
   return settings;
 }

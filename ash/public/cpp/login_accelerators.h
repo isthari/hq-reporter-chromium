@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,6 @@
 #define ASH_PUBLIC_CPP_LOGIN_ACCELERATORS_H_
 
 #include <stddef.h>
-
-#include <string>
 
 #include "ash/public/cpp/ash_public_export.h"
 #include "ui/events/event_constants.h"
@@ -35,12 +33,14 @@ enum LoginAcceleratorAction {
   kAppLaunchNetworkConfig,
   kCancelScreenAction,
   kStartEnrollment,
+  kStartKioskEnrollment,
   kEnableConsumerKiosk,
   kEnableDebugging,
   kEditDeviceRequisition,
   kDeviceRequisitionRemora,
   kStartDemoMode,
   kLaunchDiagnostics,
+  kEnableQuickStart,
 };
 
 struct LoginAcceleratorData {
@@ -58,11 +58,6 @@ struct LoginAcceleratorData {
 // Accelerators handled by OOBE / Login components.
 ASH_PUBLIC_EXPORT extern const LoginAcceleratorData kLoginAcceleratorData[];
 ASH_PUBLIC_EXPORT extern const size_t kLoginAcceleratorDataLength;
-
-// Returns WebUI acelerator identifier string.
-// Returns empty string if accelerator is not handled by the OOBE/Login WebUI.
-ASH_PUBLIC_EXPORT std::string MapToWebUIAccelerator(
-    LoginAcceleratorAction action);
 
 }  // namespace ash
 

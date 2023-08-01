@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,61 +10,120 @@
 namespace lens {
 namespace features {
 
-const base::Feature kLensStandalone{"LensStandalone",
-                                    base::FEATURE_ENABLED_BY_DEFAULT};
+BASE_FEATURE(kLensStandalone,
+             "LensStandalone",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-const base::Feature kLensRegionSearch{"LensRegionSearch",
-                                      base::FEATURE_ENABLED_BY_DEFAULT};
+BASE_FEATURE(kLensImageCompression,
+             "LensImageCompression",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-const base::FeatureParam<bool> kRegionSearchMacCursorFix{
-    &kLensRegionSearch, "region-search-mac-cursor-fix", true};
+BASE_FEATURE(kLensSearchOptimizations,
+             "LensSearchOptimizations",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
-const base::FeatureParam<bool> kRegionSearchUseMenuItemAltText1{
-    &kLensRegionSearch, "use-menu-item-alt-text-1", false};
+BASE_FEATURE(kEnableLatencyLogging,
+             "LensImageLatencyLogging",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-const base::FeatureParam<bool> kRegionSearchUseMenuItemAltText2{
-    &kLensRegionSearch, "use-menu-item-alt-text-2", false};
+BASE_FEATURE(kEnableRegionSearchKeyboardShortcut,
+             "LensEnableRegionSearchKeyboardShortcut",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
-const base::FeatureParam<bool> kRegionSearchUseMenuItemAltText3{
-    &kLensRegionSearch, "use-menu-item-alt-text-3", false};
+BASE_FEATURE(kEnableImageTranslate,
+             "LensEnableImageTranslate",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
-const base::FeatureParam<bool> kRegionSearchUseMenuItemAltText4{
-    &kLensRegionSearch, "use-menu-item-alt-text-4", true};
+BASE_FEATURE(kEnableImageSearchSidePanelFor3PDse,
+             "EnableImageSearchSidePanelFor3PDse",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-const base::FeatureParam<bool> kEnableUKMLoggingForRegionSearch{
-    &kLensRegionSearch, "region-search-enable-ukm-logging", true};
+BASE_FEATURE(kLensRegionSearchStaticPage,
+             "LensRegionSearchStaticPage",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
-const base::FeatureParam<bool> kEnableUKMLoggingForImageSearch{
-    &kLensStandalone, "enable-ukm-logging", true};
+BASE_FEATURE(kLensImageFormatOptimizations,
+             "LensImageFormatOptimizations",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-const base::FeatureParam<bool> kEnableSidePanelForLensRegionSearch{
-    &kLensRegionSearch, "region-search-enable-side-panel", false};
+BASE_FEATURE(kEnableContextMenuInLensSidePanel,
+             "EnableContextMenuInLensSidePanel",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-const base::FeatureParam<bool> kEnableSidePanelForLensImageSearch{
-    &kLensStandalone, "enable-side-panel", false};
+BASE_FEATURE(kEnableLensPing,
+             "EnableLensPing",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
-constexpr base::FeatureParam<int> kMaxPixelsForRegionSearch{
-    &kLensRegionSearch, "region-search-dimensions-max-pixels", 1000};
-
-constexpr base::FeatureParam<int> kMaxAreaForRegionSearch{
-    &kLensRegionSearch, "region-search-dimensions-max-area", 1000000};
-
-constexpr base::FeatureParam<int> kMaxPixelsForImageSearch{
-    &kLensStandalone, "dimensions-max-pixels", 1000};
-
-constexpr base::FeatureParam<std::string> kHomepageURLForImageSearch{
+constexpr base::FeatureParam<std::string> kHomepageURLForLens{
     &kLensStandalone, "lens-homepage-url", "https://lens.google.com/"};
 
-constexpr base::FeatureParam<std::string> kHomepageURLForRegionSearch{
-    &kLensRegionSearch, "region-search-lens-homepage-url",
-    "https://lens.google.com/"};
+constexpr base::FeatureParam<bool> kEnableLensHtmlRedirectFix{
+    &kLensStandalone, "lens-html-redirect-fix", true};
 
-bool GetEnableUKMLoggingForRegionSearch() {
-  return kEnableUKMLoggingForRegionSearch.Get();
-}
+constexpr base::FeatureParam<bool>
+    kDismissLoadingStateOnDocumentOnLoadCompletedInPrimaryMainFrame{
+        &kLensStandalone,
+        "dismiss-loading-state-on-document-on-load-completed-in-primary-main-"
+        "frame",
+        true};
 
-bool GetEnableUKMLoggingForImageSearch() {
-  return kEnableUKMLoggingForImageSearch.Get();
+constexpr base::FeatureParam<bool> kDismissLoadingStateOnDomContentLoaded{
+    &kLensStandalone, "dismiss-loading-state-on-dom-content-loaded", false};
+
+constexpr base::FeatureParam<bool> kDismissLoadingStateOnDidFinishNavigation{
+    &kLensStandalone, "dismiss-loading-state-on-did-finish-navigation", false};
+
+constexpr base::FeatureParam<bool>
+    kDismissLoadingStateOnNavigationEntryCommitted{
+        &kLensStandalone, "dismiss-loading-state-on-navigation-entry-committed",
+        false};
+
+constexpr base::FeatureParam<bool> kDismissLoadingStateOnDidFinishLoad{
+    &kLensStandalone, "dismiss-loading-state-on-did-finish-load", false};
+
+constexpr base::FeatureParam<bool> kDismissLoadingStateOnPrimaryPageChanged{
+    &kLensStandalone, "dismiss-loading-state-on-primary-page-changed", false};
+
+constexpr base::FeatureParam<int> kMaxPixelsForRegionSearch{
+    &kLensImageCompression, "region-search-dimensions-max-pixels", 1000};
+
+constexpr base::FeatureParam<int> kMaxAreaForRegionSearch{
+    &kLensImageCompression, "region-search-dimensions-max-area", 1000000};
+
+constexpr base::FeatureParam<int> kMaxPixelsForImageSearch{
+    &kLensImageCompression, "dimensions-max-pixels", 1000};
+
+const base::FeatureParam<bool> kEnableLensFullscreenSearch{
+    &kLensSearchOptimizations, "enable-lens-fullscreen-search", false};
+
+const base::FeatureParam<bool> kLensContextMenuUseAlternateText{
+    &kLensSearchOptimizations, "use-lens-context-menu-alternate-text", false};
+
+const base::FeatureParam<bool> kUseWebpInImageSearch{
+    &kLensImageFormatOptimizations, "use-webp-image-search", false};
+
+const base::FeatureParam<int> kEncodingQualityImageSearch{
+    &kLensImageFormatOptimizations, "encoding-quality-image-search", 90};
+
+const base::FeatureParam<bool> kUseWebpInRegionSearch{
+    &kLensImageFormatOptimizations, "use-webp-region-search", false};
+
+const base::FeatureParam<bool> kUseJpegInRegionSearch{
+    &kLensImageFormatOptimizations, "use-jpeg-region-search", true};
+
+const base::FeatureParam<int> kEncodingQualityRegionSearch{
+    &kLensImageFormatOptimizations, "encoding-quality-region-search", 90};
+
+constexpr base::FeatureParam<std::string> kLensPingURL{
+    &kEnableLensPing, "lens-ping-url",
+    "https://lens.google.com/_/LensWebStandaloneUi/gen204/"};
+
+const base::FeatureParam<bool> kPingLensSequentially{
+    &kEnableLensPing, "ping-lens-sequentially", true};
+
+bool GetEnableLatencyLogging() {
+  return base::FeatureList::IsEnabled(kEnableLatencyLogging) &&
+         base::FeatureList::IsEnabled(kLensStandalone);
 }
 
 int GetMaxPixelsForRegionSearch() {
@@ -79,12 +138,103 @@ int GetMaxPixelsForImageSearch() {
   return kMaxPixelsForImageSearch.Get();
 }
 
-std::string GetHomepageURLForImageSearch() {
-  return kHomepageURLForImageSearch.Get();
+std::string GetHomepageURLForLens() {
+  return kHomepageURLForLens.Get();
 }
 
-std::string GetHomepageURLForRegionSearch() {
-  return kHomepageURLForRegionSearch.Get();
+bool GetEnableLensHtmlRedirectFix() {
+  return kEnableLensHtmlRedirectFix.Get();
+}
+
+bool GetDismissLoadingStateOnDocumentOnLoadCompletedInPrimaryMainFrame() {
+  return kDismissLoadingStateOnDocumentOnLoadCompletedInPrimaryMainFrame.Get();
+}
+
+bool GetDismissLoadingStateOnDomContentLoaded() {
+  return kDismissLoadingStateOnDomContentLoaded.Get();
+}
+
+bool GetDismissLoadingStateOnDidFinishNavigation() {
+  return kDismissLoadingStateOnDidFinishNavigation.Get();
+}
+
+bool GetDismissLoadingStateOnNavigationEntryCommitted() {
+  return kDismissLoadingStateOnNavigationEntryCommitted.Get();
+}
+
+bool GetDismissLoadingStateOnDidFinishLoad() {
+  return kDismissLoadingStateOnDidFinishLoad.Get();
+}
+
+bool GetDismissLoadingStateOnPrimaryPageChanged() {
+  return kDismissLoadingStateOnPrimaryPageChanged.Get();
+}
+
+bool GetEnableImageSearchUnifiedSidePanelFor3PDse() {
+  return base::FeatureList::IsEnabled(kEnableImageSearchSidePanelFor3PDse);
+}
+
+bool IsLensFullscreenSearchEnabled() {
+  return base::FeatureList::IsEnabled(kLensStandalone) &&
+         base::FeatureList::IsEnabled(kLensSearchOptimizations) &&
+         kEnableLensFullscreenSearch.Get();
+}
+
+bool IsLensSidePanelEnabled() {
+  return base::FeatureList::IsEnabled(kLensStandalone);
+}
+
+bool IsLensSidePanelEnabledForRegionSearch() {
+  return IsLensSidePanelEnabled() && !IsLensFullscreenSearchEnabled();
+}
+
+bool IsLensRegionSearchStaticPageEnabled() {
+  return base::FeatureList::IsEnabled(kLensRegionSearchStaticPage);
+}
+
+bool UseLensContextMenuItemAlternateText() {
+  return base::FeatureList::IsEnabled(kLensStandalone) &&
+         base::FeatureList::IsEnabled(kLensSearchOptimizations) &&
+         kLensContextMenuUseAlternateText.Get();
+}
+
+bool IsWebpForImageSearchEnabled() {
+  return base::FeatureList::IsEnabled(kLensImageFormatOptimizations) &&
+         kUseWebpInImageSearch.Get();
+}
+
+int GetImageSearchEncodingQuality() {
+  return kEncodingQualityImageSearch.Get();
+}
+
+bool IsWebpForRegionSearchEnabled() {
+  return base::FeatureList::IsEnabled(kLensImageFormatOptimizations) &&
+         kUseWebpInRegionSearch.Get();
+}
+
+bool IsJpegForRegionSearchEnabled() {
+  return base::FeatureList::IsEnabled(kLensImageFormatOptimizations) &&
+         kUseJpegInRegionSearch.Get();
+}
+
+int GetRegionSearchEncodingQuality() {
+  return kEncodingQualityRegionSearch.Get();
+}
+
+bool GetEnableContextMenuInLensSidePanel() {
+  return base::FeatureList::IsEnabled(kEnableContextMenuInLensSidePanel);
+}
+
+bool GetEnableLensPing() {
+  return base::FeatureList::IsEnabled(kEnableLensPing);
+}
+
+std::string GetLensPingURL() {
+  return kLensPingURL.Get();
+}
+
+bool GetLensPingIsSequential() {
+  return kPingLensSequentially.Get();
 }
 
 }  // namespace features

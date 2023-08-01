@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,6 +20,7 @@ import org.chromium.components.signin.base.GoogleServiceAuthError;
 import org.chromium.components.signin.identitymanager.AccountInfoServiceProvider;
 import org.chromium.components.signin.identitymanager.ConsentLevel;
 import org.chromium.components.signin.identitymanager.IdentityManager;
+import org.chromium.components.signin.metrics.SigninAccessPoint;
 import org.chromium.components.signin.metrics.SignoutReason;
 import org.chromium.content_public.browser.LoadUrlParams;
 
@@ -62,8 +63,7 @@ public class WebSigninAccountPickerDelegate implements AccountPickerDelegate {
             // if user retries the sign-in from the error screen, we need to sign out the user
             // first before signing in again.
             destroyWebSigninBridge();
-            // TODO(https://crbug.com/1133752): Revise sign-out reason
-            mSigninManager.signOut(SignoutReason.ABORT_SIGNIN);
+            mSigninManager.signOut(SignoutReason.SIGNIN_RETRIGGERED_FROM_WEB_SIGNIN);
         }
         AccountInfoServiceProvider.get().getAccountInfoByEmail(accountEmail).then(accountInfo -> {
             mWebSigninBridge =
@@ -71,7 +71,7 @@ public class WebSigninAccountPickerDelegate implements AccountPickerDelegate {
                             createWebSigninBridgeListener(
                                     mCurrentTab, mContinueUrl, onSignInErrorCallback));
             mSigninManager.signin(AccountUtils.createAccountFromName(accountEmail),
-                    new SigninManager.SignInCallback() {
+                    SigninAccessPoint.WEB_SIGNIN, new SigninManager.SignInCallback() {
                         @Override
                         public void onSignInComplete() {
                             // After the sign-in is finished in Chrome, we still need to wait for
@@ -105,6 +105,11 @@ public class WebSigninAccountPickerDelegate implements AccountPickerDelegate {
             @Override
             public void onSigninSucceeded() {
                 ThreadUtils.assertOnUiThread();
+                if (tab.isDestroyed()) {
+                    // This code path may be called asynchronously, assume that if the tab has been
+                    // destroyed there is no point in continuing.
+                    return;
+                }
                 tab.loadUrl(new LoadUrlParams(continueUrl));
             }
         };

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,14 +6,14 @@
 
 #include <stddef.h>
 
-#include <algorithm>
 #include <iterator>
 
-#include "base/bind.h"
 #include "base/check.h"
+#include "base/debug/dump_without_crashing.h"
+#include "base/functional/bind.h"
 #include "base/json/json_reader.h"
 #include "base/lazy_instance.h"
-#include "base/notreached.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
@@ -38,6 +38,7 @@ namespace {
 // This list must be sorted in alphabetical order and contain no duplicates.
 const char* const kDefaultSupportedLanguages[] = {
     "af",     // Afrikaans
+    "ak",     // Twi
     "am",     // Amharic
     "ar",     // Arabic
     "az",     // Azerbaijani
@@ -47,11 +48,13 @@ const char* const kDefaultSupportedLanguages[] = {
     "bs",     // Bosnian
     "ca",     // Catalan
     "ceb",    // Cebuano
+    "ckb",    // Kurdish (Sorani)
     "co",     // Corsican
     "cs",     // Czech
     "cy",     // Welsh
     "da",     // Danish
     "de",     // German
+    "ee",     // Ewe
     "el",     // Greek
     "en",     // English
     "eo",     // Esperanto
@@ -65,6 +68,7 @@ const char* const kDefaultSupportedLanguages[] = {
     "ga",     // Irish
     "gd",     // Scots Gaelic
     "gl",     // Galician
+    "gom",    // Konkani
     "gu",     // Gujarati
     "ha",     // Hausa
     "haw",    // Hawaiian
@@ -86,10 +90,13 @@ const char* const kDefaultSupportedLanguages[] = {
     "km",     // Khmer
     "kn",     // Kannada
     "ko",     // Korean
+    "kri",    // Krio
     "ku",     // Kurdish
     "ky",     // Kyrgyz
     "la",     // Latin
     "lb",     // Luxembourgish
+    "lg",     // Luganda
+    "ln",     // Lingala
     "lo",     // Lao
     "lt",     // Lithuanian
     "lv",     // Latvian
@@ -105,12 +112,15 @@ const char* const kDefaultSupportedLanguages[] = {
     "ne",     // Nepali
     "nl",     // Dutch
     "no",     // Norwegian - Chrome uses "nb"
+    "nso",    // Sepedi
     "ny",     // Nyanja
+    "om",     // Oromo
     "or",     // Odia (Oriya)
     "pa",     // Punjabi
     "pl",     // Polish
     "ps",     // Pashto
     "pt",     // Portuguese
+    "qu",     // Quechua
     "ro",     // Romanian
     "ru",     // Russian
     "rw",     // Kinyarwanda
@@ -131,6 +141,7 @@ const char* const kDefaultSupportedLanguages[] = {
     "te",     // Telugu
     "tg",     // Tajik
     "th",     // Thai
+    "ti",     // Tigrinya
     "tk",     // Turkmen
     "tl",     // Tagalog - Chrome uses "fil"
     "tr",     // Turkish
@@ -174,8 +185,7 @@ TranslateLanguageList::TranslateLanguageList()
   DCHECK(
       std::is_sorted(supported_languages_.begin(), supported_languages_.end()));
   DCHECK(supported_languages_.end() ==
-         std::adjacent_find(supported_languages_.begin(),
-                            supported_languages_.end()));
+         base::ranges::adjacent_find(supported_languages_));
 
   if (update_is_disabled)
     return;
@@ -317,17 +327,17 @@ bool TranslateLanguageList::SetSupportedLanguages(
 
   if (!json_value || !json_value->is_dict()) {
     NotifyEvent(__LINE__, "Language list is invalid");
-    NOTREACHED();
+    base::debug::DumpWithoutCrashing();
     return false;
   }
   // The first level dictionary contains two sub-dicts, first for source
   // languages and second for target languages. We want to use the target
   // languages.
-  base::Value* target_languages =
-      json_value->FindDictPath(TranslateLanguageList::kTargetLanguagesKey);
+  const base::Value::Dict* target_languages = json_value->GetDict().FindDict(
+      TranslateLanguageList::kTargetLanguagesKey);
   if (!target_languages) {
     NotifyEvent(__LINE__, "Target languages are not found in the response");
-    NOTREACHED();
+    base::debug::DumpWithoutCrashing();
     return false;
   }
 
@@ -337,7 +347,7 @@ bool TranslateLanguageList::SetSupportedLanguages(
   // Now we can clear language list.
   supported_languages_.clear();
   // ... and replace it with the values we just fetched from the server.
-  for (auto kv_pair : target_languages->DictItems()) {
+  for (auto kv_pair : *target_languages) {
     const std::string& lang = kv_pair.first;
     if (!l10n_util::IsLocaleNameTranslated(lang.c_str(), locale)) {
       // Don't include languages not displayable in current UI language.
@@ -351,8 +361,7 @@ bool TranslateLanguageList::SetSupportedLanguages(
   DCHECK(
       std::is_sorted(supported_languages_.begin(), supported_languages_.end()));
   DCHECK(supported_languages_.end() ==
-         std::adjacent_find(supported_languages_.begin(),
-                            supported_languages_.end()));
+         base::ranges::adjacent_find(supported_languages_));
 
   NotifyEvent(__LINE__, base::JoinString(supported_languages_, ", "));
   return true;

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 #include <stdio.h>
 
 #include "base/at_exit.h"
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/message_loop/message_pump_type.h"
 #include "base/run_loop.h"
 #include "base/task/single_thread_task_executor.h"
@@ -17,13 +17,14 @@
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/threading/thread.h"
 #include "build/build_config.h"
-#include "mojo/core/embedder/embedder.h"
-#include "net/url_request/url_fetcher.h"
 #include "net/url_request/url_request_context_getter.h"
+#include "remoting/base/breakpad.h"
 #include "remoting/base/logging.h"
+#include "remoting/base/mojo_util.h"
 #include "remoting/base/url_request_context_getter.h"
 #include "remoting/host/setup/host_starter.h"
 #include "remoting/host/setup/pin_validator.h"
+#include "remoting/host/usage_stats_consent.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "services/network/transitional_url_loader_factory_owner.h"
 
@@ -80,8 +81,9 @@ void SetEcho(bool echo) {
 
 // Reads a newline-terminated string from stdin.
 std::string ReadString(bool no_echo) {
-  if (no_echo)
+  if (no_echo) {
     SetEcho(false);
+  }
   const int kMaxLen = 1024;
   std::string str(kMaxLen, 0);
   char* result = fgets(&str[0], kMaxLen, stdin);
@@ -89,11 +91,13 @@ std::string ReadString(bool no_echo) {
     printf("\n");
     SetEcho(true);
   }
-  if (!result)
+  if (!result) {
     return std::string();
+  }
   size_t newline_index = str.find('\n');
-  if (newline_index != std::string::npos)
+  if (newline_index != std::string::npos) {
     str[newline_index] = '\0';
+  }
   str.resize(strlen(&str[0]));
   return str;
 }
@@ -147,10 +151,16 @@ int StartHostMain(int argc, char** argv) {
       logging::LOG_TO_SYSTEM_DEBUG_LOG | logging::LOG_TO_STDERR;
   logging::InitLogging(settings);
 
+#if defined(REMOTING_ENABLE_BREAKPAD)
+  if (IsUsageStatsAllowed()) {
+    InitializeCrashReporting();
+  }
+#endif  // defined(REMOTING_ENABLE_BREAKPAD)
+
   base::ThreadPoolInstance::CreateAndStartWithDefaultParams(
       "RemotingHostSetup");
 
-  mojo::core::Init();
+  InitializeMojo();
 
   std::string host_name = command_line->GetSwitchValueASCII("name");
   std::string host_pin = command_line->GetSwitchValueASCII("pin");
@@ -248,11 +258,9 @@ int StartHostMain(int argc, char** argv) {
   network::TransitionalURLLoaderFactoryOwner url_loader_factory_owner(
       url_request_context_getter);
 
-  net::URLFetcher::SetIgnoreCertificateRequests(true);
-
   // Start the host.
-  std::unique_ptr<HostStarter> host_starter(HostStarter::Create(
-      url_loader_factory_owner.GetURLLoaderFactory()));
+  std::unique_ptr<HostStarter> host_starter(
+      HostStarter::Create(url_loader_factory_owner.GetURLLoaderFactory()));
   host_starter->StartHost(host_id, host_name, host_pin, host_owner,
                           /*consent_to_data_collection=*/true, auth_code,
                           redirect_url, base::BindOnce(&OnDone));

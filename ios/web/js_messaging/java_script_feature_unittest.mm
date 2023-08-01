@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 
 #import "base/strings/sys_string_conversions.h"
 #import "ios/web/js_messaging/page_script_util.h"
+#import "ios/web/public/js_messaging/content_world.h"
 #import "ios/web/public/test/js_test_util.h"
 #import "testing/gtest_mac.h"
 #import "testing/platform_test.h"
@@ -26,7 +27,7 @@ TEST_F(JavaScriptFeatureTest, CreateFeatureScript) {
       web::JavaScriptFeature::FeatureScript::TargetFrames::kAllFrames;
   auto feature_script =
       web::JavaScriptFeature::FeatureScript::CreateWithFilename(
-          "base_js", document_start_injection_time, target_frames_all);
+          "gcrweb", document_start_injection_time, target_frames_all);
 
   EXPECT_EQ(document_start_injection_time, feature_script.GetInjectionTime());
   EXPECT_EQ(target_frames_all, feature_script.GetTargetFrames());
@@ -38,7 +39,7 @@ TEST_F(JavaScriptFeatureTest, CreateFeatureScript) {
       web::JavaScriptFeature::FeatureScript::TargetFrames::kMainFrame;
   auto feature_script2 =
       web::JavaScriptFeature::FeatureScript::CreateWithFilename(
-          "common_js", document_end_injection_time, target_frames_main);
+          "common", document_end_injection_time, target_frames_main);
 
   EXPECT_EQ(document_end_injection_time, feature_script2.GetInjectionTime());
   EXPECT_EQ(target_frames_main, feature_script2.GetTargetFrames());
@@ -50,7 +51,7 @@ TEST_F(JavaScriptFeatureTest, CreateFeatureScript) {
 TEST_F(JavaScriptFeatureTest, FeatureScriptReinjectionBehavior) {
   auto once_feature_script =
       web::JavaScriptFeature::FeatureScript::CreateWithFilename(
-          "base_js",
+          "gcrweb",
           web::JavaScriptFeature::FeatureScript::InjectionTime::kDocumentStart,
           web::JavaScriptFeature::FeatureScript::TargetFrames::kAllFrames,
           web::JavaScriptFeature::FeatureScript::ReinjectionBehavior::
@@ -58,7 +59,7 @@ TEST_F(JavaScriptFeatureTest, FeatureScriptReinjectionBehavior) {
 
   auto reinject_feature_script =
       web::JavaScriptFeature::FeatureScript::CreateWithFilename(
-          "base_js",
+          "gcrweb",
           web::JavaScriptFeature::FeatureScript::InjectionTime::kDocumentStart,
           web::JavaScriptFeature::FeatureScript::TargetFrames::kAllFrames,
           web::JavaScriptFeature::FeatureScript::ReinjectionBehavior::
@@ -69,11 +70,11 @@ TEST_F(JavaScriptFeatureTest, FeatureScriptReinjectionBehavior) {
 }
 
 // Tests that FeatureScripts are only injected once when created with
-// |ReinjectionBehavior::kInjectOncePerWindow|.
+// `ReinjectionBehavior::kInjectOncePerWindow`.
 TEST_F(JavaScriptFeatureTest, ReinjectionBehaviorOnce) {
   auto feature_script =
       web::JavaScriptFeature::FeatureScript::CreateWithFilename(
-          "base_js",
+          "gcrweb",
           web::JavaScriptFeature::FeatureScript::InjectionTime::kDocumentStart,
           web::JavaScriptFeature::FeatureScript::TargetFrames::kAllFrames,
           web::JavaScriptFeature::FeatureScript::ReinjectionBehavior::
@@ -86,46 +87,16 @@ TEST_F(JavaScriptFeatureTest, ReinjectionBehaviorOnce) {
   ASSERT_TRUE(web::test::ExecuteJavaScript(
       web_view, @"try { !!window.__gCrWeb; } catch (err) {false;}"));
 
-  // Store a value within |window.__gCrWeb|.
+  // Store a value within `window.__gCrWeb`.
   web::test::ExecuteJavaScript(web_view, @"window.__gCrWeb.someData = 1;");
   ASSERT_NSEQ(@(1), web::test::ExecuteJavaScript(web_view,
                                                  @"window.__gCrWeb.someData"));
 
   // Execute feature script again, which should not overwrite window state.
   web::test::ExecuteJavaScript(web_view, feature_script.GetScriptString());
-  // The |someData| value should still exist.
+  // The `someData` value should still exist.
   EXPECT_NSEQ(@(1), web::test::ExecuteJavaScript(web_view,
                                                  @"window.__gCrWeb.someData"));
-}
-
-// Tests that FeatureScripts are re-injected when created with
-// |ReinjectionBehavior::kReinjectOnDocumentRecreation|.
-TEST_F(JavaScriptFeatureTest, ReinjectionBehaviorReinject) {
-  auto feature_script =
-      web::JavaScriptFeature::FeatureScript::CreateWithFilename(
-          "base_js",
-          web::JavaScriptFeature::FeatureScript::InjectionTime::kDocumentStart,
-          web::JavaScriptFeature::FeatureScript::TargetFrames::kAllFrames,
-          web::JavaScriptFeature::FeatureScript::ReinjectionBehavior::
-              kReinjectOnDocumentRecreation);
-
-  WKWebView* web_view = [[WKWebView alloc] init];
-  web::test::ExecuteJavaScript(web_view, feature_script.GetScriptString());
-
-  // Ensure __gCrWeb was injected.
-  ASSERT_TRUE(web::test::ExecuteJavaScript(
-      web_view, @"try { !!window.__gCrWeb; } catch (err) {false;}"));
-
-  // Store a value within |window.__gCrWeb|.
-  web::test::ExecuteJavaScript(web_view, @"window.__gCrWeb.someData = 1;");
-  ASSERT_NSEQ(@(1), web::test::ExecuteJavaScript(web_view,
-                                                 @"window.__gCrWeb.someData"));
-
-  // Execute feature script again, which should overwrite |window.__gCrWeb|.
-  web::test::ExecuteJavaScript(web_view, feature_script.GetScriptString());
-  // The |someData| value should no longer exist.
-  EXPECT_FALSE(web::test::ExecuteJavaScript(
-      web_view, @"try { window.__gCrWeb.someData; } catch (err) {false;}"));
 }
 
 // Tests creating a JavaScriptFeature.
@@ -136,10 +107,9 @@ TEST_F(JavaScriptFeatureTest, CreateFeature) {
       web::JavaScriptFeature::FeatureScript::TargetFrames::kAllFrames;
   const web::JavaScriptFeature::FeatureScript feature_script =
       web::JavaScriptFeature::FeatureScript::CreateWithFilename(
-          "base_js", document_start_injection_time, target_frames_all);
+          "gcrweb", document_start_injection_time, target_frames_all);
 
-  auto any_content_world =
-      web::JavaScriptFeature::ContentWorld::kAnyContentWorld;
+  auto any_content_world = web::ContentWorld::kPageContentWorld;
   web::JavaScriptFeature feature(any_content_world, {feature_script});
 
   EXPECT_EQ(any_content_world, feature.GetSupportedContentWorld());
@@ -163,23 +133,21 @@ TEST_F(JavaScriptFeatureTest, CreateFeatureWithPlaceholder) {
 
   const web::JavaScriptFeature::FeatureScript feature_script =
       web::JavaScriptFeature::FeatureScript::CreateWithFilename(
-          "plugin_placeholder_js", document_end_injection_time,
-          target_frames_all,
+          "plugin_placeholder", document_end_injection_time, target_frames_all,
           web::JavaScriptFeature::FeatureScript::ReinjectionBehavior::
               kReinjectOnDocumentRecreation,
           base::BindRepeating(^NSDictionary<NSString*, NSString*>*() {
             return @{placeholder : replacement};
           }));
 
-  auto any_content_world =
-      web::JavaScriptFeature::ContentWorld::kAnyContentWorld;
+  auto any_content_world = web::ContentWorld::kIsolatedWorld;
   web::JavaScriptFeature feature(any_content_world, {feature_script});
 
   EXPECT_EQ(any_content_world, feature.GetSupportedContentWorld());
   EXPECT_EQ(0ul, feature.GetDependentFeatures().size());
   auto feature_scripts = feature.GetScripts();
   ASSERT_EQ(1ul, feature_scripts.size());
-  NSString* original_script = web::GetPageScript(@"plugin_placeholder_js");
+  NSString* original_script = web::GetPageScript(@"plugin_placeholder");
   NSString* final_script = feature_scripts[0].GetScriptString();
 
   EXPECT_NSEQ(feature_script.GetScriptString(), final_script);
@@ -200,7 +168,7 @@ TEST_F(JavaScriptFeatureTest, CreateFeatureWithDependentFeature) {
       web::JavaScriptFeature::FeatureScript::TargetFrames::kAllFrames;
   const web::JavaScriptFeature::FeatureScript dependent_feature_script =
       web::JavaScriptFeature::FeatureScript::CreateWithFilename(
-          "base_js", document_start_injection_time, target_frames_all);
+          "gcrweb", document_start_injection_time, target_frames_all);
 
   auto document_end_injection_time =
       web::JavaScriptFeature::FeatureScript::InjectionTime::kDocumentEnd;
@@ -208,10 +176,9 @@ TEST_F(JavaScriptFeatureTest, CreateFeatureWithDependentFeature) {
       web::JavaScriptFeature::FeatureScript::TargetFrames::kMainFrame;
   const web::JavaScriptFeature::FeatureScript feature_script =
       web::JavaScriptFeature::FeatureScript::CreateWithFilename(
-          "common_js", document_end_injection_time, target_frames_main);
+          "common", document_end_injection_time, target_frames_main);
 
-  auto page_content_world =
-      web::JavaScriptFeature::ContentWorld::kPageContentWorld;
+  auto page_content_world = web::ContentWorld::kPageContentWorld;
   web::JavaScriptFeature dependent_feature(page_content_world,
                                            {dependent_feature_script});
   web::JavaScriptFeature feature(page_content_world, {feature_script},

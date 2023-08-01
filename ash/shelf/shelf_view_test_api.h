@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,14 @@
 #define ASH_SHELF_SHELF_VIEW_TEST_API_H_
 
 #include "ash/public/cpp/shelf_item.h"
+#include "base/functional/callback_forward.h"
+#include "base/memory/raw_ptr.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/ui_base_types.h"
+
+namespace base {
+class TimeDelta;
+}
 
 namespace gfx {
 class Point;
@@ -36,7 +43,7 @@ class ShelfViewTestAPI {
   ~ShelfViewTestAPI();
 
   // Number of icons displayed.
-  int GetButtonCount();
+  size_t GetButtonCount();
 
   // Retrieve the button at |index|, doesn't support the home button,
   // because the home button is not a ShelfAppButton.
@@ -117,13 +124,13 @@ class ShelfViewTestAPI {
   void SetShelfContextMenuCallback(base::RepeatingClosure closure);
 
   // Returns |separator_index_|.
-  int GetSeparatorIndex() const;
+  absl::optional<size_t> GetSeparatorIndex() const;
 
   // Checks whether the separator is visible or not.
   bool IsSeparatorVisible() const;
 
  private:
-  ShelfView* shelf_view_;
+  raw_ptr<ShelfView, DanglingUntriaged | ExperimentalAsh> shelf_view_;
   int id_ = 0;
 };
 

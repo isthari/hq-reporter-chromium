@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@ import android.content.ActivityNotFoundException;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.ResolveInfo;
 import android.os.BadParcelableException;
 import android.os.Binder;
 import android.os.Build;
@@ -21,10 +20,10 @@ import android.os.TransactionTooLargeException;
 import android.text.TextUtils;
 
 import androidx.annotation.Nullable;
-import androidx.annotation.VisibleForTesting;
 import androidx.core.app.BundleCompat;
 
 import org.chromium.base.compat.ApiHelperForM;
+import org.chromium.base.compat.ApiHelperForS;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -40,14 +39,6 @@ public class IntentUtils {
      */
     public static final String ANDROID_APP_REFERRER_SCHEME = "android-app";
 
-    // Instant Apps system resolver activity on N-MR1+.
-    @VisibleForTesting
-    public static final String EPHEMERAL_INSTALLER_CLASS =
-            "com.google.android.gms.instantapps.routing.EphemeralInstallerActivity";
-
-    // TODO(mthiesse): Move to ApiHelperForS when it exist.
-    private static final int FLAG_MUTABLE = 1 << 25;
-
     /**
      * Intent extra used to identify the sending application.
      */
@@ -61,21 +52,6 @@ public class IntentUtils {
 
     private static boolean sForceTrustedIntentForTesting;
 
-    /**
-     * Whether the given ResolveInfo object refers to Instant Apps as a launcher.
-     * @param info The resolve info.
-     */
-    public static boolean isInstantAppResolveInfo(ResolveInfo info) {
-        if (info == null) return false;
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            return info.isInstantAppAvailable;
-        } else if (info.activityInfo != null) {
-            return EPHEMERAL_INSTALLER_CLASS.equals(info.activityInfo.name);
-        }
-
-        return false;
-    }
     /**
      * Just like {@link Intent#hasExtra(String)} but doesn't throw exceptions.
      */
@@ -481,6 +457,9 @@ public class IntentUtils {
      * @return A safe to use version of this intent.
      */
     public static Intent sanitizeIntent(final Intent incomingIntent) {
+        // On Android T+, items are only deserialized when the items themselves are queried, so the
+        // code below is a no-op.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) return incomingIntent;
         if (incomingIntent == null) return null;
         try {
             incomingIntent.getBooleanExtra("TriggerUnparcel", false);
@@ -516,7 +495,7 @@ public class IntentUtils {
         if (!mutable && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             return ApiHelperForM.getPendingIntentImmutableFlag();
         } else if (mutable && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            return FLAG_MUTABLE;
+            return ApiHelperForS.getPendingIntentMutableFlag();
         }
         return 0;
     }

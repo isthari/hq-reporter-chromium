@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -103,7 +103,7 @@ CaretPositionResolution TryResolveCaretPositionInTextFragment(
   // Note that we don't ignore other characters that are not in fragments. For
   // example, a trailing space of a line is not in any fragment, but its two
   // sides are still different caret positions, so we don't ignore it.
-  const NGTextOffset current_offset = cursor.Current().TextOffset();
+  const NGTextOffsetRange current_offset = cursor.Current().TextOffset();
   const unsigned start_offset = current_offset.start;
   const unsigned end_offset = current_offset.end;
   if (offset < start_offset &&
@@ -214,7 +214,7 @@ bool NeedsBidiAdjustment(const NGCaretPosition& caret_position) {
   if (caret_position.position_type != NGCaretPositionType::kAtTextOffset)
     return true;
   DCHECK(caret_position.text_offset.has_value());
-  const NGTextOffset offset = caret_position.cursor.Current().TextOffset();
+  const NGTextOffsetRange offset = caret_position.cursor.Current().TextOffset();
   const unsigned start_offset = offset.start;
   const unsigned end_offset = offset.end;
   DCHECK_GE(*caret_position.text_offset, start_offset);
@@ -268,6 +268,89 @@ NGCaretPosition BetterCandidateBetween(const NGCaretPosition& current,
   return current;
 }
 
+NGCaretPosition ComputeNGCaretPositionAfterInline(
+    const PositionWithAffinity& position_with_affinity) {
+  const Position& position = position_with_affinity.GetPosition();
+  const LayoutInline& layout_inline =
+      *To<LayoutInline>(position.AnchorNode()->GetLayoutObject());
+
+  NGInlineCursor cursor;
+  cursor.MoveToIncludingCulledInline(layout_inline);
+  // This DCHECK can fail with the <area> element.
+  // DCHECK(cursor);
+  if (!cursor)
+    return NGCaretPosition();
+  NGInlineCursor line = cursor;
+  line.MoveToContainingLine();
+  DCHECK(line);
+
+  if (IsLtr(line.Current().BaseDirection()))
+    cursor.MoveToVisualLastForSameLayoutObject();
+  else
+    cursor.MoveToVisualFirstForSameLayoutObject();
+
+  if (cursor.Current().IsText()) {
+    const unsigned offset =
+        line.Current().BaseDirection() == cursor.Current().ResolvedDirection()
+            ? cursor.Current()->EndOffset()
+            : cursor.Current()->StartOffset();
+    return AdjustCaretPositionForBidiText(
+        {cursor, NGCaretPositionType::kAtTextOffset, offset});
+  }
+
+  if (cursor.Current().IsAtomicInline()) {
+    const NGCaretPositionType type =
+        line.Current().BaseDirection() == cursor.Current().ResolvedDirection()
+            ? NGCaretPositionType::kAfterBox
+            : NGCaretPositionType::kBeforeBox;
+    return AdjustCaretPositionForBidiText({cursor, type, absl::nullopt});
+  }
+
+  return AdjustCaretPositionForBidiText(
+      {cursor, NGCaretPositionType::kAfterBox, absl::nullopt});
+}
+NGCaretPosition ComputeNGCaretPositionBeforeInline(
+    const PositionWithAffinity& position_with_affinity) {
+  const Position& position = position_with_affinity.GetPosition();
+  const LayoutInline& layout_inline =
+      *To<LayoutInline>(position.AnchorNode()->GetLayoutObject());
+
+  NGInlineCursor cursor;
+  cursor.MoveToIncludingCulledInline(layout_inline);
+  // This DCHECK can fail with the <area> element.
+  // DCHECK(cursor);
+  if (!cursor)
+    return NGCaretPosition();
+  NGInlineCursor line = cursor;
+  line.MoveToContainingLine();
+  DCHECK(line);
+
+  if (IsLtr(line.Current().BaseDirection()))
+    cursor.MoveToVisualFirstForSameLayoutObject();
+  else
+    cursor.MoveToVisualLastForSameLayoutObject();
+
+  if (cursor.Current().IsText()) {
+    const unsigned offset =
+        line.Current().BaseDirection() == cursor.Current().ResolvedDirection()
+            ? cursor.Current()->StartOffset()
+            : cursor.Current()->EndOffset();
+    return AdjustCaretPositionForBidiText(
+        {cursor, NGCaretPositionType::kAtTextOffset, offset});
+  }
+
+  if (cursor.Current().IsAtomicInline()) {
+    const NGCaretPositionType type =
+        line.Current().BaseDirection() == cursor.Current().ResolvedDirection()
+            ? NGCaretPositionType::kBeforeBox
+            : NGCaretPositionType::kAfterBox;
+    return AdjustCaretPositionForBidiText({cursor, type, absl::nullopt});
+  }
+
+  return AdjustCaretPositionForBidiText(
+      {cursor, NGCaretPositionType::kBeforeBox, absl::nullopt});
+}
+
 }  // namespace
 
 // The main function for compute an NGCaretPosition. See the comments at the top
@@ -310,11 +393,33 @@ NGCaretPosition ComputeNGCaretPosition(const LayoutBlockFlow& context,
 NGCaretPosition ComputeNGCaretPosition(
     const PositionWithAffinity& position_with_affinity) {
   const Position& position = position_with_affinity.GetPosition();
-  LayoutBlockFlow* context = NGInlineFormattingContextOf(position);
-  if (!context)
+
+  if (position.IsNull())
     return NGCaretPosition();
 
-  const NGOffsetMapping* mapping = NGInlineNode::GetOffsetMapping(context);
+  const LayoutObject* layout_object = position.AnchorNode()->GetLayoutObject();
+  if (!layout_object || !layout_object->IsInLayoutNGInlineFormattingContext())
+    return NGCaretPosition();
+
+  if (layout_object->IsLayoutInline()) {
+    if (position.IsBeforeAnchor())
+      return ComputeNGCaretPositionBeforeInline(position_with_affinity);
+    if (position.IsAfterAnchor())
+      return ComputeNGCaretPositionAfterInline(position_with_affinity);
+    NOTREACHED() << "Caller should not pass a position inside inline: "
+                 << position;
+    return NGCaretPosition();
+  }
+
+  LayoutBlockFlow* const context = NGInlineFormattingContextOf(position);
+  if (!context) {
+    // We reach here for empty <div>[1].
+    // [1] third_party/blink/web_tests/editing/caret/caret-in-inline-block.html
+    return NGCaretPosition();
+  }
+
+  const NGOffsetMapping* const mapping =
+      NGInlineNode::GetOffsetMapping(context);
   if (!mapping) {
     // TODO(yosin): We should find when we reach here[1].
     // [1] http://crbug.com/1100481

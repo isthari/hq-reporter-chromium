@@ -1,10 +1,9 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/subresource_filter/subresource_filter_browser_test_harness.h"
 
-#include "build/build_config.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/subresource_filter/content/browser/ad_tagging_browser_test_utils.h"
 #include "components/subresource_filter/content/browser/content_subresource_filter_throttle_manager.h"
@@ -30,6 +29,10 @@ using testing::Mock;
 
 namespace subresource_filter {
 
+// TODO(bokan): These tests don't run on Android but it'd be good to test there
+// as well as the UI differs. In particular, testing that prerender activation
+// hides infobars.
+
 // Tests -----------------------------------------------------------------------
 
 // A very basic smoke test for prerendering; this test just activates on the
@@ -37,9 +40,9 @@ namespace subresource_filter {
 // passes if we don't crash.
 IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
                        PrerenderingSmokeTest) {
-  const GURL kPrerenderingUrl =
+  const GURL prerendering_url =
       embedded_test_server()->GetURL("/page_with_iframe.html");
-  const GURL kInitialUrl = embedded_test_server()->GetURL("/empty.html");
+  const GURL initial_url = embedded_test_server()->GetURL("/empty.html");
 
   // Configure dry run filtering on all URLs.
   {
@@ -55,21 +58,21 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
   MockSubresourceFilterObserver observer(web_contents());
   EXPECT_CALL(observer, OnPageActivationComputed(_, HasActivationLevelDryRun()))
       .Times(2);
-  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), kInitialUrl));
-  prerender_helper_.AddPrerender(kPrerenderingUrl);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), initial_url));
+  prerender_helper_.AddPrerender(prerendering_url);
 }
 
 // Test that we correctly account for activation between the prerendering frame
 // and primary pages.
 IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
                        OnlyPrerenderingFrameActivated) {
-  const GURL kPrerenderingUrl = embedded_test_server()->GetURL(
+  const GURL prerendering_url = embedded_test_server()->GetURL(
       "/subresource_filter/frame_with_included_script.html");
-  const GURL kInitialUrl = embedded_test_server()->GetURL("/empty.html");
+  const GURL initial_url = embedded_test_server()->GetURL("/empty.html");
 
   // Configure the filter to run only on the prerendering URL.
   {
-    ConfigureAsSubresourceFilterOnlyURL(kPrerenderingUrl);
+    ConfigureAsSubresourceFilterOnlyURL(prerendering_url);
     ASSERT_NO_FATAL_FAILURE(SetRulesetToDisallowURLsWithPathSuffix(
         "suffix-that-does-not-match-anything"));
     Configuration config(
@@ -84,7 +87,7 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
     MockSubresourceFilterObserver observer(web_contents());
     EXPECT_CALL(observer,
                 OnPageActivationComputed(_, HasActivationLevelDisabled()));
-    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), kInitialUrl));
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), initial_url));
   }
 
   // Trigger a prerender to the prerendering URL - this URL should activate the
@@ -93,7 +96,7 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
     MockSubresourceFilterObserver observer(web_contents());
     EXPECT_CALL(observer,
                 OnPageActivationComputed(_, HasActivationLevelEnabled()));
-    prerender_helper_.AddPrerender(kPrerenderingUrl);
+    prerender_helper_.AddPrerender(prerendering_url);
   }
 }
 
@@ -101,13 +104,13 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
 // prerendering page becomes activated.
 IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
                        UnactivatedPrimaryFrameNotFiltered) {
-  const GURL kPrerenderingUrl = embedded_test_server()->GetURL("/empty.html");
-  const GURL kInitialUrl = embedded_test_server()->GetURL(
+  const GURL prerendering_url = embedded_test_server()->GetURL("/empty.html");
+  const GURL initial_url = embedded_test_server()->GetURL(
       "/subresource_filter/frame_with_delayed_script.html");
 
   // Configure filtering of `included_script.js` on the prerendering page only.
   {
-    ConfigureAsSubresourceFilterOnlyURL(kPrerenderingUrl);
+    ConfigureAsSubresourceFilterOnlyURL(prerendering_url);
     ASSERT_NO_FATAL_FAILURE(
         SetRulesetToDisallowURLsWithPathSuffix("included_script.js"));
     Configuration config(
@@ -123,7 +126,7 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
     MockSubresourceFilterObserver observer(web_contents());
     EXPECT_CALL(observer,
                 OnPageActivationComputed(_, HasActivationLevelDisabled()));
-    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), kInitialUrl));
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), initial_url));
     ASSERT_TRUE(Mock::VerifyAndClearExpectations(&observer));
   }
 
@@ -132,26 +135,27 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
     MockSubresourceFilterObserver observer(web_contents());
     EXPECT_CALL(observer,
                 OnPageActivationComputed(_, HasActivationLevelEnabled()));
-    prerender_helper_.AddPrerender(kPrerenderingUrl);
+    prerender_helper_.AddPrerender(prerendering_url);
     ASSERT_TRUE(Mock::VerifyAndClearExpectations(&observer));
   }
 
   // Now dynamically try to load `included_script.js` in the primary frame.
   // Ensure it is not filtered.
-  EXPECT_TRUE(IsDynamicScriptElementLoaded(web_contents()->GetMainFrame()));
+  EXPECT_TRUE(
+      IsDynamicScriptElementLoaded(web_contents()->GetPrimaryMainFrame()));
 }
 
 // Test that we don't start filtering an unactivated prerendering page when the
 // primary page is activated.
 IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
                        UnactivatedPrerenderingFrameNotFiltered) {
-  const GURL kPrerenderingUrl = embedded_test_server()->GetURL(
+  const GURL prerendering_url = embedded_test_server()->GetURL(
       "/subresource_filter/frame_with_included_script.html");
-  const GURL kInitialUrl = embedded_test_server()->GetURL("/empty.html");
+  const GURL initial_url = embedded_test_server()->GetURL("/empty.html");
 
   // Configure filtering of `included_script.js` on the initial URL only.
   {
-    ConfigureAsSubresourceFilterOnlyURL(kInitialUrl);
+    ConfigureAsSubresourceFilterOnlyURL(initial_url);
     ASSERT_NO_FATAL_FAILURE(
         SetRulesetToDisallowURLsWithPathSuffix("included_script.js"));
     Configuration config(
@@ -166,7 +170,7 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
     MockSubresourceFilterObserver observer(web_contents());
     EXPECT_CALL(observer,
                 OnPageActivationComputed(_, HasActivationLevelEnabled()));
-    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), kInitialUrl));
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), initial_url));
     ASSERT_TRUE(Mock::VerifyAndClearExpectations(&observer));
   }
 
@@ -177,7 +181,7 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
     MockSubresourceFilterObserver observer(web_contents());
     EXPECT_CALL(observer,
                 OnPageActivationComputed(_, HasActivationLevelDisabled()));
-    const int host_id = prerender_helper_.AddPrerender(kPrerenderingUrl);
+    const int host_id = prerender_helper_.AddPrerender(prerendering_url);
     ASSERT_TRUE(Mock::VerifyAndClearExpectations(&observer));
 
     // Expect that we didn't filter the script in the prerendering page since
@@ -193,13 +197,13 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
 // primary we then show notifications.
 IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
                        FilterWhilePrerendered) {
-  const GURL kPrerenderingUrl = embedded_test_server()->GetURL(
+  const GURL prerendering_url = embedded_test_server()->GetURL(
       "/subresource_filter/frame_with_included_script.html");
-  const GURL kInitialUrl = embedded_test_server()->GetURL("/empty.html");
+  const GURL initial_url = embedded_test_server()->GetURL("/empty.html");
 
   // Configure filtering of `included_script.js` only on the prerendering URL.
   {
-    ConfigureAsSubresourceFilterOnlyURL(kPrerenderingUrl);
+    ConfigureAsSubresourceFilterOnlyURL(prerendering_url);
     ASSERT_NO_FATAL_FAILURE(
         SetRulesetToDisallowURLsWithPathSuffix("included_script.js"));
     Configuration config(
@@ -215,7 +219,7 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
     MockSubresourceFilterObserver observer(web_contents());
     EXPECT_CALL(observer,
                 OnPageActivationComputed(_, HasActivationLevelDisabled()));
-    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), kInitialUrl));
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), initial_url));
   }
 
   // Trigger a prerender. Ensure it too is activated.
@@ -224,7 +228,7 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
     MockSubresourceFilterObserver observer(web_contents());
     EXPECT_CALL(observer,
                 OnPageActivationComputed(_, HasActivationLevelEnabled()));
-    const int host_id = prerender_helper_.AddPrerender(kPrerenderingUrl);
+    const int host_id = prerender_helper_.AddPrerender(prerendering_url);
     ASSERT_TRUE(Mock::VerifyAndClearExpectations(&observer));
 
     prerender_rfh = prerender_helper_.GetPrerenderedMainFrameHost(host_id);
@@ -234,11 +238,9 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
 
     // But ensure we haven't shown the notification UI yet since the page is
     // still prerendering.
-    EXPECT_FALSE(AdsBlockedInContentSettings(web_contents()->GetMainFrame()));
+    EXPECT_FALSE(
+        AdsBlockedInContentSettings(web_contents()->GetPrimaryMainFrame()));
     EXPECT_FALSE(AdsBlockedInContentSettings(prerender_rfh));
-#if BUILDFLAG(IS_ANDROID)
-    EXPECT_FALSE(PresentingAdsBlockedInfobar());
-#endif
   }
 
   // Makes the prerendering page primary (i.e. the user clicked on a link to
@@ -246,13 +248,10 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
   {
     MockSubresourceFilterObserver observer(web_contents());
     EXPECT_CALL(observer, OnPageActivationComputed(_, _)).Times(0);
-    prerender_helper_.NavigatePrimaryPage(kPrerenderingUrl);
+    prerender_helper_.NavigatePrimaryPage(prerendering_url);
 
-    EXPECT_TRUE(AdsBlockedInContentSettings(web_contents()->GetMainFrame()));
+    ASSERT_TRUE(prerender_rfh->IsInPrimaryMainFrame());
     EXPECT_TRUE(AdsBlockedInContentSettings(prerender_rfh));
-#if BUILDFLAG(IS_ANDROID)
-    EXPECT_TRUE(PresentingAdsBlockedInfobar());
-#endif
   }
 }
 
@@ -263,9 +262,9 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
 // that's a more general problem of prerendering that will be fixed.
 IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
                        ConsoleMessageFilterWhilePrerendered) {
-  const GURL kPrerenderingUrl = embedded_test_server()->GetURL(
+  const GURL prerendering_url = embedded_test_server()->GetURL(
       "/subresource_filter/frame_with_delayed_script.html");
-  const GURL kInitialUrl = embedded_test_server()->GetURL("/empty.html");
+  const GURL initial_url = embedded_test_server()->GetURL("/empty.html");
 
   // Watch for the subresource filtering activation and resource blocked
   // console messages.
@@ -273,11 +272,11 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
   console_activation_observer.SetPattern(kActivationConsoleMessage);
   WebContentsConsoleObserver console_blocked_observer(web_contents());
   console_blocked_observer.SetPattern(
-      base::StringPrintf(kDisallowSubframeConsoleMessageFormat, "*"));
+      base::StringPrintf(kDisallowChildFrameConsoleMessageFormat, "*"));
 
   // Configure filtering of `included_script.js` only on the prerendering URL.
   {
-    ConfigureAsSubresourceFilterOnlyURL(kPrerenderingUrl);
+    ConfigureAsSubresourceFilterOnlyURL(prerendering_url);
     ASSERT_NO_FATAL_FAILURE(
         SetRulesetToDisallowURLsWithPathSuffix("included_script.js"));
     Configuration config(
@@ -288,8 +287,8 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
   }
 
   // Navigate to the initial URL and trigger the prerender.
-  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), kInitialUrl));
-  const int host_id = prerender_helper_.AddPrerender(kPrerenderingUrl);
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), initial_url));
+  const int host_id = prerender_helper_.AddPrerender(prerendering_url);
   RenderFrameHost* prerender_rfh =
       prerender_helper_.GetPrerenderedMainFrameHost(host_id);
   ASSERT_FALSE(IsDynamicScriptElementLoaded(prerender_rfh));
@@ -309,23 +308,26 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
 // subresource filtering is correct in prerender navigations.
 IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
                        NavigatePrerenderedPage) {
-  const GURL kPrerenderUrl1 = embedded_test_server()->GetURL("/title1.html");
-  const GURL kPrerenderUrl2 = embedded_test_server()->GetURL("/title2.html");
-  const GURL kInitialUrl = embedded_test_server()->GetURL("/empty.html");
+  const GURL prerendering_url1 = embedded_test_server()->GetURL("/title1.html");
+  const GURL prerendering_url2 =
+      embedded_test_server()->GetURL("a.com", "/title2.html");
+  const GURL initial_url = embedded_test_server()->GetURL("/empty.html");
 
   // Navigate to the initial URL.
-  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), kInitialUrl));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), initial_url));
 
   // Trigger a prerendering of title1.html.
-  const int prerender_host_id = prerender_helper_.AddPrerender(kPrerenderUrl1);
+  const int prerender_host_id =
+      prerender_helper_.AddPrerender(prerendering_url1);
 
-  // Now navigate the prerendered page to title2.html. Ensure the prerender is
-  // canceled.
+  // Now navigate the prerendered page to a cross-site page. Ensure the
+  // prerender is canceled.
   // TODO(bokan): If this is ever changed, we should ensure this test checks
   // that we navigate the prerender between filtered and unfiltered pages, and
   // ensure subresources are correctly filtered (or not).
   PrerenderHostObserver host_observer(*web_contents(), prerender_host_id);
-  prerender_helper_.NavigatePrerenderedPage(prerender_host_id, kPrerenderUrl2);
+  prerender_helper_.NavigatePrerenderedPage(prerender_host_id,
+                                            prerendering_url2);
   host_observer.WaitForDestroyed();
 }
 
@@ -334,13 +336,13 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
 // the prerendered URL).
 IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
                        FilteringPrerenderBecomesPrimary) {
-  const GURL kPrerenderingUrl = embedded_test_server()->GetURL(
+  const GURL prerendering_url = embedded_test_server()->GetURL(
       "/subresource_filter/frame_with_delayed_script.html");
-  const GURL kInitialUrl = embedded_test_server()->GetURL("/empty.html");
+  const GURL initial_url = embedded_test_server()->GetURL("/empty.html");
 
   // Configure filtering of `included_script.js` only on the prerendering URL.
   {
-    ConfigureAsSubresourceFilterOnlyURL(kPrerenderingUrl);
+    ConfigureAsSubresourceFilterOnlyURL(prerendering_url);
     ASSERT_NO_FATAL_FAILURE(
         SetRulesetToDisallowURLsWithPathSuffix("included_script.js"));
     Configuration config(
@@ -351,14 +353,14 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
   }
 
   // Navigate to the initial URL.
-  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), kInitialUrl));
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), initial_url));
 
   // Trigger a prerender. Ensure it is activated.
   {
     MockSubresourceFilterObserver observer(web_contents());
     EXPECT_CALL(observer,
                 OnPageActivationComputed(_, HasActivationLevelEnabled()));
-    prerender_helper_.AddPrerender(kPrerenderingUrl);
+    prerender_helper_.AddPrerender(prerendering_url);
     ASSERT_TRUE(Mock::VerifyAndClearExpectations(&observer));
   }
 
@@ -366,8 +368,9 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
   // the prerendered URL). Ensure a new request for a blocked resource will be
   // filtered.
   {
-    prerender_helper_.NavigatePrimaryPage(kPrerenderingUrl);
-    EXPECT_FALSE(IsDynamicScriptElementLoaded(web_contents()->GetMainFrame()));
+    prerender_helper_.NavigatePrimaryPage(prerendering_url);
+    EXPECT_FALSE(
+        IsDynamicScriptElementLoaded(web_contents()->GetPrimaryMainFrame()));
   }
 }
 
@@ -376,13 +379,13 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
 // the prerendered URL) from an activated initial URL.
 IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
                        NonFilteringPrerenderBecomesPrimary) {
-  const GURL kPrerenderingUrl = embedded_test_server()->GetURL(
+  const GURL prerendering_url = embedded_test_server()->GetURL(
       "/subresource_filter/frame_with_delayed_script.html");
-  const GURL kInitialUrl = embedded_test_server()->GetURL("/empty.html");
+  const GURL initial_url = embedded_test_server()->GetURL("/empty.html");
 
   // Configure filtering of `included_script.js` only on the initial URL.
   {
-    ConfigureAsSubresourceFilterOnlyURL(kInitialUrl);
+    ConfigureAsSubresourceFilterOnlyURL(initial_url);
     ASSERT_NO_FATAL_FAILURE(
         SetRulesetToDisallowURLsWithPathSuffix("included_script.js"));
     Configuration config(
@@ -397,7 +400,7 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
     MockSubresourceFilterObserver observer(web_contents());
     EXPECT_CALL(observer,
                 OnPageActivationComputed(_, HasActivationLevelEnabled()));
-    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), kInitialUrl));
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), initial_url));
     ASSERT_TRUE(Mock::VerifyAndClearExpectations(&observer));
   }
 
@@ -406,7 +409,7 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
     MockSubresourceFilterObserver observer(web_contents());
     EXPECT_CALL(observer,
                 OnPageActivationComputed(_, HasActivationLevelDisabled()));
-    prerender_helper_.AddPrerender(kPrerenderingUrl);
+    prerender_helper_.AddPrerender(prerendering_url);
     ASSERT_TRUE(Mock::VerifyAndClearExpectations(&observer));
   }
 
@@ -414,19 +417,20 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
   // the prerendered URL). Ensure a new request to `included_script.js` remains
   // unfiltered.
   {
-    prerender_helper_.NavigatePrimaryPage(kPrerenderingUrl);
-    ASSERT_EQ(kPrerenderingUrl, web_contents()->GetLastCommittedURL());
-    EXPECT_TRUE(IsDynamicScriptElementLoaded(web_contents()->GetMainFrame()));
+    prerender_helper_.NavigatePrimaryPage(prerendering_url);
+    ASSERT_EQ(prerendering_url, web_contents()->GetLastCommittedURL());
+    EXPECT_TRUE(
+        IsDynamicScriptElementLoaded(web_contents()->GetPrimaryMainFrame()));
   }
 }
 
 // Very basic test that ad tagging works in a prerender.
 IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
                        AdTaggingSmokeTest) {
-  const GURL kInitialUrl = embedded_test_server()->GetURL("/empty.html");
-  const GURL kPrerenderingUrl =
+  const GURL initial_url = embedded_test_server()->GetURL("/empty.html");
+  const GURL prerendering_url =
       embedded_test_server()->GetURL("/ad_tagging/frame_factory.html");
-  const GURL kAdUrl =
+  const GURL ad_url =
       embedded_test_server()->GetURL("/ad_tagging/frame_factory.html?1");
 
   SetRulesetWithRules({CreateSuffixRule("ad_script.js")});
@@ -437,9 +441,9 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
 
   // Load the initial page and trigger a prerender.
   {
-    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), kInitialUrl));
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), initial_url));
     const int prerender_host_id =
-        prerender_helper_.AddPrerender(kPrerenderingUrl);
+        prerender_helper_.AddPrerender(prerendering_url);
     prerender_rfh =
         prerender_helper_.GetPrerenderedMainFrameHost(prerender_host_id);
     ASSERT_NE(prerender_rfh, nullptr);
@@ -450,9 +454,9 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
   // In the prerendering page, create a child frame from an ad script. Ensure it
   // is correctly tagged as an ad.
   {
-    ad_rfh = CreateSrcFrameFromAdScript(prerender_rfh, kAdUrl);
+    ad_rfh = CreateSrcFrameFromAdScript(prerender_rfh, ad_url);
     ASSERT_NE(ad_rfh, nullptr);
-    EXPECT_TRUE(observer.GetIsAdSubframe(ad_rfh->GetFrameTreeNodeId()));
+    EXPECT_TRUE(observer.GetIsAdFrame(ad_rfh->GetFrameTreeNodeId()));
     EXPECT_TRUE(EvidenceForFrameComprises(
         ad_rfh, /*parent_is_ad=*/false,
         blink::mojom::FilterListResult::kMatchedNoRules,
@@ -463,9 +467,9 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
   // prerendered URL). Ensure ad tagging remains valid for the ad frame and its
   // frame tree node id.
   {
-    prerender_helper_.NavigatePrimaryPage(kPrerenderingUrl);
-    ASSERT_EQ(kPrerenderingUrl, web_contents()->GetLastCommittedURL());
-    EXPECT_TRUE(observer.GetIsAdSubframe(ad_rfh->GetFrameTreeNodeId()));
+    prerender_helper_.NavigatePrimaryPage(prerendering_url);
+    ASSERT_EQ(prerendering_url, web_contents()->GetLastCommittedURL());
+    EXPECT_TRUE(observer.GetIsAdFrame(ad_rfh->GetFrameTreeNodeId()));
     EXPECT_TRUE(EvidenceForFrameComprises(
         ad_rfh, /*parent_is_ad=*/false,
         blink::mojom::FilterListResult::kMatchedNoRules,
@@ -491,7 +495,7 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
     console_observer.SetPattern(kActivationWarningConsoleMessage);
     // Initial page loading adds a console message.
     ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
-    console_observer.Wait();
+    ASSERT_TRUE(console_observer.Wait());
     ASSERT_EQ(1u, console_observer.messages().size());
     EXPECT_EQ(kActivationWarningConsoleMessage,
               console_observer.GetMessageAt(0u));
@@ -504,7 +508,7 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
     console_observer.SetPattern(kActivationWarningConsoleMessage);
     // Trigger a prerender.
     const int host_id = prerender_helper_.AddPrerender(prerender_url);
-    console_observer.Wait();
+    ASSERT_TRUE(console_observer.Wait());
     RenderFrameHost* prerender_rfh =
         prerender_helper_.GetPrerenderedMainFrameHost(host_id);
     // The prerendering adds a console message.
@@ -521,7 +525,5 @@ IN_PROC_BROWSER_TEST_F(SubresourceFilterPrerenderingBrowserTest,
               console_observer.GetMessageAt(0u));
   }
 }
-
-// TODO - test that prerender activation hides infobars.
 
 }  // namespace subresource_filter

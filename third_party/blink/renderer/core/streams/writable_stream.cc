@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "third_party/blink/renderer/core/dom/abort_signal.h"
 #include "third_party/blink/renderer/core/streams/count_queuing_strategy.h"
 #include "third_party/blink/renderer/core/streams/miscellaneous_operations.h"
+#include "third_party/blink/renderer/core/streams/pipe_options.h"
 #include "third_party/blink/renderer/core/streams/promise_handler.h"
 #include "third_party/blink/renderer/core/streams/readable_stream.h"
 #include "third_party/blink/renderer/core/streams/readable_stream_transferring_optimizer.h"
@@ -215,7 +216,8 @@ WritableStream* WritableStream::CreateWithCountQueueingStrategy(
   ExceptionState exception_state(isolate, ExceptionState::kConstructionContext,
                                  "WritableStream");
   v8::MicrotasksScope microtasks_scope(
-      isolate, v8::MicrotasksScope::kDoNotRunMicrotasks);
+      isolate, ToMicrotaskQueue(script_state),
+      v8::MicrotasksScope::kDoNotRunMicrotasks);
   auto* stream = MakeGarbageCollected<WritableStream>();
   stream->InitWithCountQueueingStrategy(script_state, underlying_sink,
                                         high_water_mark, std::move(optimizer),
@@ -272,9 +274,8 @@ void WritableStream::Serialize(ScriptState* script_state,
 
   // 7. Let promise be ! ReadableStreamPipeTo(readable, value, false, false,
   //    false).
-  auto promise = ReadableStream::PipeTo(
-      script_state, readable, this,
-      MakeGarbageCollected<ReadableStream::PipeOptions>());
+  auto promise = ReadableStream::PipeTo(script_state, readable, this,
+                                        MakeGarbageCollected<PipeOptions>());
 
   // 8. Set promise.[[PromiseIsHandled]] to true.
   promise.MarkAsHandled();

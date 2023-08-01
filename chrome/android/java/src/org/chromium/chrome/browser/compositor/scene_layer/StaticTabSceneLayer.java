@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -49,8 +49,7 @@ public class StaticTabSceneLayer extends SceneLayer {
         StaticTabSceneLayerJni.get().updateTabLayer(mNativePtr, StaticTabSceneLayer.this,
                 model.get(LayoutTab.TAB_ID), model.get(LayoutTab.CAN_USE_LIVE_TEXTURE),
                 model.get(LayoutTab.BACKGROUND_COLOR), x, y,
-                model.get(LayoutTab.STATIC_TO_VIEW_BLEND), model.get(LayoutTab.SATURATION),
-                model.get(LayoutTab.BRIGHTNESS));
+                model.get(LayoutTab.STATIC_TO_VIEW_BLEND), model.get(LayoutTab.SATURATION));
     }
 
     /**
@@ -81,7 +80,7 @@ public class StaticTabSceneLayer extends SceneLayer {
         long init(StaticTabSceneLayer caller);
         void updateTabLayer(long nativeStaticTabSceneLayer, StaticTabSceneLayer caller, int id,
                 boolean canUseLiveLayer, int backgroundColor, float x, float y,
-                float staticToViewBlend, float saturation, float brightness);
+                float staticToViewBlend, float saturation);
         void setTabContentManager(long nativeStaticTabSceneLayer, StaticTabSceneLayer caller,
                 TabContentManager tabContentManager);
     }

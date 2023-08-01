@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,8 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/i18n/rtl.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -38,18 +38,20 @@ FontHandler::FontHandler(Profile* profile) {
 FontHandler::~FontHandler() {}
 
 void FontHandler::RegisterMessages() {
-  web_ui()->RegisterDeprecatedMessageCallback(
+  web_ui()->RegisterMessageCallback(
       "fetchFontsData", base::BindRepeating(&FontHandler::HandleFetchFontsData,
                                             base::Unretained(this)));
 }
 
 void FontHandler::OnJavascriptAllowed() {}
 
-void FontHandler::OnJavascriptDisallowed() {}
+void FontHandler::OnJavascriptDisallowed() {
+  weak_ptr_factory_.InvalidateWeakPtrs();
+}
 
-void FontHandler::HandleFetchFontsData(const base::ListValue* args) {
-  CHECK_EQ(1U, args->GetList().size());
-  const std::string& callback_id = args->GetList()[0].GetString();
+void FontHandler::HandleFetchFontsData(const base::Value::List& args) {
+  CHECK_EQ(1U, args.size());
+  const std::string& callback_id = args[0].GetString();
 
   AllowJavascript();
   content::GetFontListAsync(base::BindOnce(&FontHandler::FontListHasLoaded,
@@ -58,22 +60,21 @@ void FontHandler::HandleFetchFontsData(const base::ListValue* args) {
 }
 
 void FontHandler::FontListHasLoaded(std::string callback_id,
-                                    std::unique_ptr<base::ListValue> list) {
-  base::Value::ListView list_view = list->GetList();
+                                    base::Value::List list) {
   // Font list. Selects the directionality for the fonts in the given list.
-  for (auto& i : list_view) {
+  for (auto& i : list) {
     DCHECK(i.is_list());
-    base::Value::ConstListView font = i.GetList();
+    base::Value::List& font = i.GetList();
 
     DCHECK(font.size() >= 2u && font[1].is_string());
     std::u16string value = base::UTF8ToUTF16(font[1].GetString());
 
     bool has_rtl_chars = base::i18n::StringContainsStrongRTLChars(value);
-    i.Append(has_rtl_chars ? "rtl" : "ltr");
+    font.Append(has_rtl_chars ? "rtl" : "ltr");
   }
 
-  base::DictionaryValue response;
-  response.SetKey("fontList", base::Value::FromUniquePtrValue(std::move(list)));
+  base::Value::Dict response;
+  response.Set("fontList", std::move(list));
 
   ResolveJavascriptCallback(base::Value(callback_id), response);
 }

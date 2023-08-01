@@ -11,28 +11,47 @@
         width: 100%;
       }
     </style>
-    <div id="creditCardsHeading" class="list-item column-header"
-        hidden$="[[!showAnyPaymentMethods_]]">
-      <div class="type-column">$i18n{creditCardType}</div>
-      <div class="expiration-column">$i18n{creditCardExpiration}</div>
-    </div>
-    <div class="vertical-list list-with-header">
-      <template is="dom-repeat" items="[[creditCards]]">
-        <settings-credit-card-list-entry credit-card="[[item]]">
-        </settings-credit-card-list-entry>
-      </template>
-    </div>
-    <template is="dom-if" if="[[showCreditCardUpiSeparator_]]">
-      <div class="list-separator"></div>
-    </template>
-    <template is="dom-if" if="[[showUpiIds_(upiIds, enableUpiIds_)]]">
-      <div class="vertical-list list-with-header">
-        <template is="dom-repeat" items="[[upiIds]]">
-          <settings-upi-id-list-entry upi-id="[[item]]">
-          </settings-upi-id-list-entry>
+    <div role="table">
+      <div role="rowgroup">
+        <div id="creditCardsHeading" class="list-item column-header"
+            hidden$="[[shouldHideExpirationAndTypeTitles_(
+                removeCardExpirationAndTypeTitlesEnabled_,
+                    creditCards, enableUpiIds_, upiIds)]]" role="row">
+          <div class="type-column" role="columnheader">
+            $i18n{creditCardType}
+          </div>
+          <div class="expiration-column" role="columnheader">
+            $i18n{creditCardExpiration}
+          </div>
+        </div>
+      </div>
+      <div class="vertical-list list-with-header" role="rowgroup">
+        <template is="dom-repeat" items="[[creditCards]]">
+          <settings-credit-card-list-entry id="[[getCreditCardId_(index)]]"
+              class="payment-method" credit-card="[[item]]">
+          </settings-credit-card-list-entry>
         </template>
       </div>
-    </template>
+      <div class="list-separator" hidden$="[[!showCreditCardIbanSeparator_]]">
+      </div>
+      <div class="vertical-list list-with-header" role="rowgroup">
+        <template is="dom-repeat" items="[[ibans]]">
+          <settings-iban-list-entry id="[[getIbanId_(index)]]"
+              class="payment-method" iban="[[item]]">
+          </settings-iban-list-entry>
+        </template>
+      </div>
+      <div class="list-separator" hidden$="[[!showSeparatorBeforeUpiSection_]]">
+      </div>
+      <template is="dom-if" if="[[showUpiIds_(upiIds, enableUpiIds_)]]">
+        <div class="vertical-list list-with-header" role="rowgroup">
+          <template is="dom-repeat" items="[[upiIds]]">
+            <settings-upi-id-list-entry upi-id="[[item]]">
+            </settings-upi-id-list-entry>
+          </template>
+        </div>
+      </template>
+    </div>
     <div id="noPaymentMethodsLabel" class="list-item"
         hidden$="[[showAnyPaymentMethods_]]">
       $i18n{noPaymentMethodsFound}

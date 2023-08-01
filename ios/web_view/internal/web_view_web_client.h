@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 
 #include <memory>
 
-#include "base/compiler_specific.h"
 #import "ios/web/public/web_client.h"
 
 namespace ios_web_view {
@@ -45,6 +44,8 @@ class WebViewWebClient : public web::WebClient {
                         int64_t navigation_id,
                         base::OnceCallback<void(NSString*)> callback) override;
   bool EnableLongPressUIContextMenu() const override;
+  bool IsMixedContentAutoupgradeEnabled(
+      web::BrowserState* browser_state) const override;
 };
 
 }  // namespace ios_web_view

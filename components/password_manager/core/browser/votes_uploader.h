@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -41,7 +41,8 @@ struct SingleUsernameVoteData {
       autofill::FieldRendererId renderer_id,
       const std::u16string& username_value,
       const FormPredictions& form_predictions,
-      const std::vector<const PasswordForm*>& stored_credentials);
+      const std::vector<const PasswordForm*>& stored_credentials,
+      bool password_form_had_username_field);
   SingleUsernameVoteData(const SingleUsernameVoteData&);
   SingleUsernameVoteData& operator=(const SingleUsernameVoteData&);
   SingleUsernameVoteData(SingleUsernameVoteData&& other);
@@ -64,6 +65,10 @@ struct SingleUsernameVoteData {
   // Android, because it's not possible to edit credentials in prompts on
   // Android.
   autofill::AutofillUploadContents::SingleUsernamePromptEdit prompt_edit;
+
+  // True if the password form has username field whose value matches username
+  // value in the single username form.
+  bool password_form_had_username_field;
 };
 
 // This class manages vote uploads for password forms.
@@ -116,9 +121,9 @@ class VotesUploader {
       const PasswordForm& pending_credentials,
       const PasswordForm& form_to_upload);
 
-  // Searches for |username| in |all_possible_usernames| of |matches|. If the
-  // username value is found in |all_possible_usernames| and the password value
-  // of the match is equal to |password|, the match is saved to
+  // Searches for |username| in |all_alternative_usernames| of |matches|. If the
+  // username value is found in |all_alternative_usernames| and the password
+  // value of the match is equal to |password|, the match is saved to
   // |username_correction_vote_| and the method returns true.
   bool FindCorrectedUsernameElement(
       const std::vector<const PasswordForm*>& matches,
@@ -205,9 +210,11 @@ class VotesUploader {
       autofill::FieldRendererId renderer_id,
       const std::u16string& username_candidate_value,
       const FormPredictions& form_predictions,
-      const std::vector<const PasswordForm*>& stored_credentials) {
+      const std::vector<const PasswordForm*>& stored_credentials,
+      bool password_form_had_username_field) {
     single_username_vote_data_.emplace(renderer_id, username_candidate_value,
-                                       form_predictions, stored_credentials);
+                                       form_predictions, stored_credentials,
+                                       password_form_had_username_field);
   }
 
   void set_suggested_username(const std::u16string& suggested_username) {
@@ -237,10 +244,10 @@ class VotesUploader {
                          const std::vector<const PasswordForm*>& best_matches,
                          autofill::FormStructure* form_to_upload);
 
-  // Searches for |username| in |all_possible_usernames| of |match|. If the
+  // Searches for |username| in |all_alternative_usernames| of |match|. If the
   // username value is found, the match is saved to |username_correction_vote_|
   // and the function returns true.
-  bool FindUsernameInOtherPossibleUsernames(const PasswordForm& match,
+  bool FindUsernameInOtherAlternativeUsernames(const PasswordForm& match,
                                             const std::u16string& username);
 
   bool StartUploadRequest(
@@ -271,7 +278,7 @@ class VotesUploader {
       autofill::FormStructure& form_structure);
 
   // The client which implements embedder-specific PasswordManager operations.
-  raw_ptr<PasswordManagerClient> client_;
+  raw_ptr<PasswordManagerClient, DanglingUntriaged> client_;
 
   // Whether generation popup was shown at least once.
   bool generation_popup_was_shown_ = false;
@@ -287,7 +294,7 @@ class VotesUploader {
   UsernameChangeState username_change_state_ = UsernameChangeState::kUnchanged;
 
   // If the user typed username that doesn't match any saved credentials, but
-  // matches an entry from |all_possible_usernames| of a saved credential,
+  // matches an entry from |all_alternative_usernames| of a saved credential,
   // |username_correction_vote_| stores the credential with matched username.
   // The matched credential is copied to |username_correction_vote_|, but
   // |username_correction_vote_.username_element| is set to the name of the

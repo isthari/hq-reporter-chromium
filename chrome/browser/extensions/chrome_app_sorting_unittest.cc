@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -158,22 +158,19 @@ class ChromeAppSortingInitialize : public PrefsPrepopulatedTestBase {
 
     // Setup the deprecated preferences.
     prefs()->UpdateExtensionPref(extension1()->id(),
-                                 kPrefAppLaunchIndexDeprecated,
-                                 std::make_unique<base::Value>(0));
+                                 kPrefAppLaunchIndexDeprecated, base::Value(0));
     prefs()->UpdateExtensionPref(extension1()->id(), kPrefPageIndexDeprecated,
-                                 std::make_unique<base::Value>(0));
+                                 base::Value(0));
 
     prefs()->UpdateExtensionPref(extension2()->id(),
-                                 kPrefAppLaunchIndexDeprecated,
-                                 std::make_unique<base::Value>(1));
+                                 kPrefAppLaunchIndexDeprecated, base::Value(1));
     prefs()->UpdateExtensionPref(extension2()->id(), kPrefPageIndexDeprecated,
-                                 std::make_unique<base::Value>(0));
+                                 base::Value(0));
 
     prefs()->UpdateExtensionPref(extension3()->id(),
-                                 kPrefAppLaunchIndexDeprecated,
-                                 std::make_unique<base::Value>(0));
+                                 kPrefAppLaunchIndexDeprecated, base::Value(0));
     prefs()->UpdateExtensionPref(extension3()->id(), kPrefPageIndexDeprecated,
-                                 std::make_unique<base::Value>(1));
+                                 base::Value(1));
 
     // We insert the ids in reverse order so that we have to deal with the
     // element on the 2nd page before the 1st page is seen.
@@ -258,10 +255,9 @@ class ChromeAppSortingMigrateAppIndexInvalid
 
     // Setup the deprecated preference.
     prefs()->UpdateExtensionPref(extension1()->id(),
-                                 kPrefAppLaunchIndexDeprecated,
-                                 std::make_unique<base::Value>(0));
+                                 kPrefAppLaunchIndexDeprecated, base::Value(0));
     prefs()->UpdateExtensionPref(extension1()->id(), kPrefPageIndexDeprecated,
-                                 std::make_unique<base::Value>(-1));
+                                 base::Value(-1));
   }
   void Verify() override {
     // Make sure that the invalid page_index wasn't converted over.
@@ -582,11 +578,10 @@ TEST_F(ChromeAppSortingPageOrdinalMapping,
 class ChromeAppSortingPreinstalledAppsBase : public PrefsPrepopulatedTestBase {
  public:
   ChromeAppSortingPreinstalledAppsBase() {
-    base::DictionaryValue simple_dict;
-    simple_dict.SetString(keys::kVersion, "1.0.0.0");
-    simple_dict.SetString(keys::kName, "unused");
-    simple_dict.SetString(keys::kApp, "true");
-    simple_dict.SetString(keys::kLaunchLocalPath, "fake.html");
+    base::Value::Dict simple_dict;
+    simple_dict.Set(keys::kVersion, "1.0.0.0");
+    simple_dict.Set(keys::kName, "unused");
+    simple_dict.SetByDottedPath(keys::kLaunchLocalPath, "fake.html");
 
     std::string error;
     app1_scoped_ = Extension::Create(prefs_.temp_dir().AppendASCII("app1_"),
@@ -751,11 +746,10 @@ class ChromeAppSortingDefaultOrdinalsBase : public ExtensionPrefsTest {
 
  protected:
   scoped_refptr<Extension> CreateApp(const std::string& name) {
-    base::DictionaryValue simple_dict;
-    simple_dict.SetString(keys::kVersion, "1.0.0.0");
-    simple_dict.SetString(keys::kName, name);
-    simple_dict.SetString(keys::kApp, "true");
-    simple_dict.SetString(keys::kLaunchLocalPath, "fake.html");
+    base::Value::Dict simple_dict;
+    simple_dict.Set(keys::kVersion, "1.0.0.0");
+    simple_dict.Set(keys::kName, name);
+    simple_dict.SetByDottedPath(keys::kLaunchLocalPath, "fake.html");
 
     std::string errors;
     scoped_refptr<Extension> app = Extension::Create(

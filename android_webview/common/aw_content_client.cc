@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,11 @@
 #include "android_webview/common/aw_resource.h"
 #include "android_webview/common/crash_reporter/crash_keys.h"
 #include "android_webview/common/url_constants.h"
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/debug/crash_logging.h"
+#include "base/functional/bind.h"
 #include "base/no_destructor.h"
+#include "base/task/sequenced_task_runner.h"
 #include "components/embedder_support/origin_trials/origin_trial_policy_impl.h"
 #include "components/services/heap_profiling/public/cpp/profiling_client.h"
 #include "components/version_info/version_info.h"
@@ -58,6 +59,11 @@ base::RefCountedMemory* AwContentClient::GetDataResourceBytes(int resource_id) {
       resource_id);
 }
 
+std::string AwContentClient::GetDataResourceString(int resource_id) {
+  return ui::ResourceBundle::GetSharedInstance().LoadDataResourceString(
+      resource_id);
+}
+
 void AwContentClient::SetGpuInfo(const gpu::GPUInfo& gpu_info) {
   gpu::SetKeysForCrashLogging(gpu_info);
 }
@@ -77,7 +83,7 @@ void AwContentClient::ExposeInterfacesToBrowser(
   // This creates a process-wide heap_profiling::ProfilingClient that listens
   // for requests from the HeapProfilingService to start profiling the current
   // process.
-  binders->Add(
+  binders->Add<heap_profiling::mojom::ProfilingClient>(
       base::BindRepeating(
           [](mojo::PendingReceiver<heap_profiling::mojom::ProfilingClient>
                  receiver) {

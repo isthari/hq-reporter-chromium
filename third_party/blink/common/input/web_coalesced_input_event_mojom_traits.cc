@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,14 @@
 
 #include <memory>
 
+#include "base/containers/contains.h"
 #include "base/i18n/char_iterator.h"
+#include "base/time/time.h"
 #include "mojo/public/cpp/base/time_mojom_traits.h"
 #include "third_party/blink/public/common/input/web_gesture_event.h"
 #include "third_party/blink/public/common/input/web_keyboard_event.h"
 #include "third_party/blink/public/common/input/web_mouse_wheel_event.h"
+#include "ui/events/mojom/event_latency_metadata_mojom_traits.h"
 #include "ui/latency/mojom/latency_info_mojom_traits.h"
 
 namespace mojo {
@@ -34,7 +37,7 @@ blink::mojom::PointerDataPtr PointerDataFromPointerProperties(
       pointer.tangential_pressure, pointer.twist, pointer.button,
       pointer.pointer_type, pointer.movement_x, pointer.movement_y,
       pointer.is_raw_movement_event, pointer.PositionInWidget(),
-      pointer.PositionInScreen(), std::move(mouse_data));
+      pointer.PositionInScreen(), std::move(mouse_data), pointer.device_id);
 }
 
 void PointerPropertiesFromPointerData(
@@ -52,6 +55,7 @@ void PointerPropertiesFromPointerData(
   pointer_properties->movement_y = pointer_data->movement_y;
   pointer_properties->is_raw_movement_event =
       pointer_data->is_raw_movement_event;
+  pointer_properties->device_id = pointer_data->device_id;
 }
 
 void TouchPointPropertiesFromPointerData(
@@ -157,6 +161,7 @@ bool StructTraits<blink::mojom::EventDataView,
           gesture_event->data.tap.width = gesture_data->contact_size->width();
           gesture_event->data.tap.height = gesture_data->contact_size->height();
           break;
+        case blink::WebInputEvent::Type::kGestureShortPress:
         case blink::WebInputEvent::Type::kGestureLongPress:
         case blink::WebInputEvent::Type::kGestureLongTap:
           gesture_event->data.long_press.width =
@@ -357,6 +362,12 @@ bool StructTraits<blink::mojom::EventDataView,
     return false;
   }
 
+  ui::EventLatencyMetadata event_latency_metadata;
+  if (!event.ReadEventLatencyMetadata(&event_latency_metadata)) {
+    return false;
+  };
+  input_event->GetModifiableEventLatencyMetadata() =
+      std::move(event_latency_metadata);
   ui::LatencyInfo latency_info;
   if (!event.ReadLatency(&latency_info))
     return false;
@@ -376,11 +387,8 @@ StructTraits<blink::mojom::EventDataView,
       static_cast<const blink::WebKeyboardEvent*>(event->EventPointer());
   // Assure char16_t[N] filds are null-terminated before converting
   // them to std::u16string.
-  CHECK(std::find(std::begin(key_event->text), std::end(key_event->text), 0) <
-        std::end(key_event->text));
-  CHECK(std::find(std::begin(key_event->unmodified_text),
-                  std::end(key_event->unmodified_text),
-                  0) < std::end(key_event->unmodified_text));
+  CHECK(base::Contains(key_event->text, 0));
+  CHECK(base::Contains(key_event->unmodified_text, 0));
   return blink::mojom::KeyData::New(
       key_event->dom_key, key_event->dom_code, key_event->windows_key_code,
       key_event->native_key_code, key_event->is_system_key,
@@ -461,6 +469,7 @@ StructTraits<blink::mojom::EventDataView,
           blink::mojom::TapData::New(gesture_event->data.tap.tap_count,
                                      gesture_event->data.tap.needs_wheel_event);
       break;
+    case blink::WebInputEvent::Type::kGestureShortPress:
     case blink::WebInputEvent::Type::kGestureLongPress:
     case blink::WebInputEvent::Type::kGestureLongTap:
       gesture_data->contact_size =

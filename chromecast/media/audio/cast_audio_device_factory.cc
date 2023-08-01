@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,11 @@
 
 #include <string>
 
+#include "base/android/bundle_utils.h"
 #include "base/check.h"
 #include "base/feature_list.h"
 #include "base/logging.h"
+#include "base/task/bind_post_task.h"
 #include "chromecast/base/cast_features.h"
 #include "chromecast/media/audio/cast_audio_output_device.h"
 #include "content/public/renderer/render_frame.h"
@@ -16,7 +18,6 @@
 #include "media/base/audio_capturer_source.h"
 #include "media/base/audio_parameters.h"
 #include "media/base/audio_renderer_sink.h"
-#include "media/base/bind_to_current_loop.h"
 #include "media/base/output_device_info.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/web/modules/media/audio/audio_output_ipc_factory.h"
@@ -74,11 +75,13 @@ class NonSwitchableAudioRendererSink
     if (is_initialized_)
       return;
     is_initialized_ = true;
-    if (!base::FeatureList::IsEnabled(kEnableCastAudioOutputDevice) ||
+    if (!(base::android::BundleUtils::IsBundle() ||
+          base::FeatureList::IsEnabled(kEnableCastAudioOutputDevice)) ||
         params.IsBitstreamFormat()) {
       output_device_ =
           NewOutputDevice(frame_token_, sink_params_, kAuthorizationTimeout);
     } else {
+      LOG(INFO) << "Use cast audio output device.";
       output_device_ = base::MakeRefCounted<CastAudioOutputDevice>(
           std::move(audio_socket_broker_), std::move(app_media_info_manager_));
     }
@@ -121,7 +124,7 @@ class NonSwitchableAudioRendererSink
         std::string(), ::media::OUTPUT_DEVICE_STATUS_OK,
         ::media::AudioParameters(
             ::media::AudioParameters::AUDIO_PCM_LOW_LATENCY,
-            ::media::CHANNEL_LAYOUT_STEREO, 48000, 480));
+            ::media::ChannelLayoutConfig::Stereo(), 48000, 480));
   }
 
   void GetOutputDeviceInfoAsync(OutputDeviceInfoCB info_cb) override {
@@ -130,7 +133,7 @@ class NonSwitchableAudioRendererSink
       return;
     }
     // Always post to avoid the caller being reentrant.
-    ::media::BindToCurrentLoop(
+    base::BindPostTaskToCurrentDefault(
         base::BindOnce(std::move(info_cb), GetOutputDeviceInfo()))
         .Run();
   }
@@ -182,39 +185,13 @@ CastAudioDeviceFactory::~CastAudioDeviceFactory() {
   DVLOG(1) << "Unregister CastAudioDeviceFactory";
 }
 
-scoped_refptr<::media::AudioRendererSink>
-CastAudioDeviceFactory::CreateFinalAudioRendererSink(
-    const blink::LocalFrameToken& frame_token,
-    const ::media::AudioSinkParameters& params,
-    base::TimeDelta auth_timeout) {
-  // Use default implementation.
-  return nullptr;
-}
-
-scoped_refptr<::media::AudioRendererSink>
-CastAudioDeviceFactory::CreateAudioRendererSink(
-    blink::WebAudioDeviceSourceType source_type,
-    const blink::LocalFrameToken& frame_token,
-    const ::media::AudioSinkParameters& params) {
-  // Use default implementation.
-  return nullptr;
-}
-
 scoped_refptr<::media::SwitchableAudioRendererSink>
-CastAudioDeviceFactory::CreateSwitchableAudioRendererSink(
+CastAudioDeviceFactory::NewSwitchableAudioRendererSink(
     blink::WebAudioDeviceSourceType source_type,
     const blink::LocalFrameToken& frame_token,
     const ::media::AudioSinkParameters& params) {
   return base::MakeRefCounted<NonSwitchableAudioRendererSink>(frame_token,
                                                               params);
-}
-
-scoped_refptr<::media::AudioCapturerSource>
-CastAudioDeviceFactory::CreateAudioCapturerSource(
-    const blink::LocalFrameToken& frame_token,
-    const ::media::AudioSourceParameters& params) {
-  // Use default implementation.
-  return nullptr;
 }
 
 }  // namespace media

@@ -1,14 +1,20 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/public/cpp/capture_mode/capture_mode_test_api.h"
 
+#include "ash/capture_mode/camera_video_frame_handler.h"
+#include "ash/capture_mode/camera_video_frame_renderer.h"
+#include "ash/capture_mode/capture_mode_behavior.h"
+#include "ash/capture_mode/capture_mode_camera_controller.h"
+#include "ash/capture_mode/capture_mode_camera_preview_view.h"
 #include "ash/capture_mode/capture_mode_controller.h"
 #include "ash/capture_mode/capture_mode_metrics.h"
 #include "ash/capture_mode/capture_mode_session.h"
 #include "ash/capture_mode/capture_mode_types.h"
 #include "ash/capture_mode/video_recording_watcher.h"
+#include "ash/constants/ash_features.h"
 #include "base/auto_reset.h"
 #include "base/check.h"
 #include "base/run_loop.h"
@@ -21,6 +27,18 @@ CaptureModeController* GetController() {
   auto* controller = CaptureModeController::Get();
   DCHECK(controller);
   return controller;
+}
+
+// Returns true of the given audio recording `mode` is currently supported.
+bool IsAudioRecordingModeSupported(AudioRecordingMode mode) {
+  switch (mode) {
+    case AudioRecordingMode::kOff:
+    case AudioRecordingMode::kMicrophone:
+      return true;
+    case AudioRecordingMode::kSystem:
+    case AudioRecordingMode::kSystemAndMicrophone:
+      return features::IsCaptureModeAudioMixingEnabled();
+  }
 }
 
 }  // namespace
@@ -43,6 +61,14 @@ void CaptureModeTestApi::StartForRegion(bool for_video) {
   SetType(for_video);
   controller_->SetSource(CaptureModeSource::kRegion);
   controller_->Start(CaptureModeEntryType::kQuickSettings);
+}
+
+void CaptureModeTestApi::SetCaptureModeSource(CaptureModeSource source) {
+  controller_->SetSource(source);
+}
+
+void CaptureModeTestApi::SetRecordingType(RecordingType recording_type) {
+  controller_->SetRecordingType(recording_type);
 }
 
 bool CaptureModeTestApi::IsSessionActive() const {
@@ -97,13 +123,23 @@ void CaptureModeTestApi::SetOnCaptureFileDeletedCallback(
   controller_->on_file_deleted_callback_for_test_ = std::move(callback);
 }
 
-void CaptureModeTestApi::SetAudioRecordingEnabled(bool enabled) {
+void CaptureModeTestApi::SetOnVideoRecordCountdownFinishedCallback(
+    base::OnceClosure callback) {
+  controller_->on_countdown_finished_callback_for_test_ = std::move(callback);
+}
+
+void CaptureModeTestApi::SetAudioRecordingMode(AudioRecordingMode mode) {
   DCHECK(!controller_->is_recording_in_progress());
-  controller_->enable_audio_recording_ = enabled;
+  DCHECK(IsAudioRecordingModeSupported(mode));
+  controller_->audio_recording_mode_ = mode;
+}
+
+AudioRecordingMode CaptureModeTestApi::GetEffectiveAudioRecordingMode() const {
+  return controller_->GetEffectiveAudioRecordingMode();
 }
 
 void CaptureModeTestApi::FlushRecordingServiceForTesting() {
-  DCHECK(controller_->is_recording_in_progress());
+  DCHECK(controller_->recording_service_remote_.is_bound());
   controller_->recording_service_remote_.FlushForTesting();
 }
 
@@ -119,10 +155,15 @@ void CaptureModeTestApi::ResetRecordingServiceClientReceiver() {
 
 RecordingOverlayController*
 CaptureModeTestApi::GetRecordingOverlayController() {
-  DCHECK(controller_->is_recording_in_progress());
-  DCHECK(controller_->video_recording_watcher_->is_in_projector_mode());
-  return controller_->video_recording_watcher_->recording_overlay_controller_
-      .get();
+  CHECK(controller_->is_recording_in_progress());
+  VideoRecordingWatcher* video_recording_watcher =
+      controller_->video_recording_watcher_.get();
+  CHECK(video_recording_watcher);
+  const CaptureModeBehavior* active_behavior =
+      video_recording_watcher->active_behavior();
+  CHECK(active_behavior);
+  CHECK(active_behavior->ShouldCreateRecordingOverlayController());
+  return video_recording_watcher->recording_overlay_controller_.get();
 }
 
 void CaptureModeTestApi::SimulateOpeningFolderSelectionDialog() {
@@ -151,9 +192,52 @@ aura::Window* CaptureModeTestApi::GetFolderSelectionDialogWindow() {
   return dialog_controller ? dialog_controller->dialog_window() : nullptr;
 }
 
+void CaptureModeTestApi::SetForceUseGpuMemoryBufferForCameraFrames(bool value) {
+  DCHECK(controller_->camera_controller());
+  CameraVideoFrameHandler::SetForceUseGpuMemoryBufferForTest(value);
+}
+
+size_t CaptureModeTestApi::GetNumberOfAvailableCameras() const {
+  DCHECK(controller_->camera_controller());
+  return controller_->camera_controller()->available_cameras().size();
+}
+
+void CaptureModeTestApi::SelectCameraAtIndex(size_t index) {
+  auto* camera_controller = controller_->camera_controller();
+  DCHECK(camera_controller);
+  DCHECK_LT(index, GetNumberOfAvailableCameras());
+  const auto& camera_info = camera_controller->available_cameras()[index];
+  camera_controller->SetSelectedCamera(camera_info.camera_id);
+}
+
+void CaptureModeTestApi::TurnCameraOff() {
+  auto* camera_controller = controller_->camera_controller();
+  DCHECK(camera_controller);
+  camera_controller->SetSelectedCamera(CameraId());
+}
+
+void CaptureModeTestApi::SetOnCameraVideoFrameRendered(
+    CameraVideoFrameCallback callback) {
+  auto* camera_controller = controller_->camera_controller();
+  DCHECK(camera_controller);
+  DCHECK(camera_controller->camera_preview_widget());
+  DCHECK(camera_controller->camera_preview_view_);
+  camera_controller->camera_preview_view_->camera_video_renderer_
+      .on_video_frame_rendered_for_test_ = std::move(callback);
+}
+
+views::Widget* CaptureModeTestApi::GetCameraPreviewWidget() {
+  return controller_->camera_controller()->camera_preview_widget();
+}
+
 void CaptureModeTestApi::SetType(bool for_video) {
   controller_->SetType(for_video ? CaptureModeType::kVideo
                                  : CaptureModeType::kImage);
+}
+
+CaptureModeBehavior* CaptureModeTestApi::GetBehavior(
+    BehaviorType behavior_type) {
+  return controller_->GetBehavior(behavior_type);
 }
 
 }  // namespace ash

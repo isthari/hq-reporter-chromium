@@ -1,13 +1,13 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/shelf/home_to_overview_nudge_controller.h"
 
+#include "ash/controls/contextual_nudge.h"
+#include "ash/controls/contextual_tooltip.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/session/session_controller_impl.h"
-#include "ash/shelf/contextual_nudge.h"
-#include "ash/shelf/contextual_tooltip.h"
 #include "ash/shelf/hotseat_widget.h"
 #include "ash/shelf/scrollable_shelf_view.h"
 #include "ash/shelf/shelf.h"
@@ -15,8 +15,9 @@
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/style/ash_color_provider.h"
 #include "ash/wm/mru_window_tracker.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
+#include "base/memory/raw_ptr.h"
 #include "base/time/time.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/aura/window.h"
@@ -114,29 +115,8 @@ class ObserverToCloseWidget : public ui::ImplicitAnimationObserver {
   }
 
  private:
-  views::Widget* const widget_;
+  const raw_ptr<views::Widget, ExperimentalAsh> widget_;
 };
-
-void RecordNudgeMetrics(
-    HomeToOverviewNudgeController::HideTransition transition) {
-  switch (transition) {
-    case (HomeToOverviewNudgeController::HideTransition::kUserTap):
-      MaybeLogNudgeDismissedMetrics(
-          contextual_tooltip::TooltipType::kHomeToOverview,
-          contextual_tooltip::DismissNudgeReason::kTap);
-      break;
-    case (HomeToOverviewNudgeController::HideTransition::kNudgeTimeout):
-      MaybeLogNudgeDismissedMetrics(
-          contextual_tooltip::TooltipType::kHomeToOverview,
-          contextual_tooltip::DismissNudgeReason::kTimeout);
-      break;
-    case (HomeToOverviewNudgeController::HideTransition::kShelfStateChange):
-      MaybeLogNudgeDismissedMetrics(
-          contextual_tooltip::TooltipType::kHomeToOverview,
-          contextual_tooltip::DismissNudgeReason::kOther);
-      break;
-  }
-}
 
 }  // namespace
 
@@ -224,15 +204,13 @@ void HomeToOverviewNudgeController::ShowNudge() {
       nullptr, hotseat_widget_->GetNativeWindow()->parent(),
       ContextualNudge::Position::kBottom, gfx::Insets(kNudgeMargins),
       l10n_util::GetStringUTF16(IDS_ASH_HOME_TO_OVERVIEW_CONTEXTUAL_NUDGE),
-      AshColorProvider::Get()->GetContentLayerColor(
-          AshColorProvider::ContentLayerType::kTextColorPrimary),
       base::BindRepeating(&HomeToOverviewNudgeController::HandleNudgeTap,
                           weak_factory_.GetWeakPtr()));
 
   UpdateNudgeAnchorBounds();
 
   widget_observations_.AddObservation(nudge_->GetWidget());
-  widget_observations_.AddObservation(hotseat_widget_);
+  widget_observations_.AddObservation(hotseat_widget_.get());
 
   nudge_->GetWidget()->Show();
   nudge_->GetWidget()->GetLayer()->SetTransform(gfx::Transform());
@@ -323,8 +301,6 @@ void HomeToOverviewNudgeController::ShowNudge() {
 void HomeToOverviewNudgeController::HideNudge(HideTransition transition) {
   if (!nudge_)
     return;
-
-  RecordNudgeMetrics(transition);
 
   auto animate_hide_transform = [](HideTransition transition,
                                    ui::Layer* layer) {

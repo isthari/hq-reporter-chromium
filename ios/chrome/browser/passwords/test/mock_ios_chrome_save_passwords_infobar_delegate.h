@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,17 +18,17 @@ class MockIOSChromeSavePasswordInfoBarDelegate
     : public IOSChromeSavePasswordInfoBarDelegate {
  public:
   MockIOSChromeSavePasswordInfoBarDelegate(
-      bool is_sync_user,
       bool password_update,
       std::unique_ptr<password_manager::PasswordFormManagerForUI> form_to_save);
   ~MockIOSChromeSavePasswordInfoBarDelegate() override;
 
   // Factory method that creates a mock save password delegate for pending
-  // with credentials |username| and |password| for the page at |url|.
+  // with credentials `username` and `password` for the page at `url`.
   static std::unique_ptr<MockIOSChromeSavePasswordInfoBarDelegate> Create(
       NSString* username,
       NSString* password,
-      const GURL& url = GURL::EmptyGURL());
+      const GURL& url = GURL::EmptyGURL(),
+      absl::optional<std::string> account_to_store_password = absl::nullopt);
 
   MOCK_METHOD0(InfoBarDismissed, void());
   MOCK_METHOD2(UpdateCredentials, void(NSString* username, NSString* password));
@@ -40,7 +40,8 @@ class MockIOSChromeSavePasswordInfoBarDelegate
  private:
   MockIOSChromeSavePasswordInfoBarDelegate(
       std::unique_ptr<password_manager::PasswordForm> form,
-      std::unique_ptr<GURL> url);
+      std::unique_ptr<GURL> url,
+      absl::optional<std::string> account_to_store_password);
 
   std::unique_ptr<password_manager::PasswordForm> form_;
   std::unique_ptr<GURL> url_;

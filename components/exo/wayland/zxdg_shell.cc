@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,8 @@
 
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/public/cpp/window_properties.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/memory/raw_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chromeos/ui/base/window_state_type.h"
 #include "components/exo/display.h"
@@ -18,6 +19,7 @@
 #include "components/exo/wayland/serial_tracker.h"
 #include "components/exo/wayland/server_util.h"
 #include "components/exo/wayland/wayland_positioner.h"
+#include "components/exo/wayland/xdg_shell.h"
 #include "components/exo/xdg_shell_surface.h"
 #include "ui/aura/window_observer.h"
 #include "ui/base/hit_test.h"
@@ -153,33 +155,19 @@ uint32_t HandleXdgSurfaceV6ConfigureCallback(
     wl_resource* resource,
     SerialTracker* serial_tracker,
     const XdgSurfaceConfigureCallback& callback,
-    const gfx::Size& size,
+    const gfx::Rect& bounds,
     chromeos::WindowStateType state_type,
     bool resizing,
     bool activated,
-    const gfx::Vector2d& origin_offset) {
+    const gfx::Vector2d& origin_offset,
+    float raster_scale) {
   uint32_t serial =
       serial_tracker->GetNextSerial(SerialTracker::EventType::OTHER_EVENT);
-  callback.Run(size, state_type, resizing, activated);
+  callback.Run(bounds.size(), state_type, resizing, activated);
   zxdg_surface_v6_send_configure(resource, serial);
   wl_client_flush(wl_resource_get_client(resource));
   return serial;
 }
-
-struct WaylandXdgSurface {
-  WaylandXdgSurface(std::unique_ptr<XdgShellSurface> shell_surface,
-                    SerialTracker* const serial_tracker)
-      : shell_surface(std::move(shell_surface)),
-        serial_tracker(serial_tracker) {}
-
-  WaylandXdgSurface(const WaylandXdgSurface&) = delete;
-  WaylandXdgSurface& operator=(const WaylandXdgSurface&) = delete;
-
-  std::unique_ptr<XdgShellSurface> shell_surface;
-
-  // Owned by Server, which always outlives this surface.
-  SerialTracker* const serial_tracker;
-};
 
 // Wrapper around shell surface that allows us to handle the case where the
 // xdg surface resource is destroyed before the toplevel resource.
@@ -219,16 +207,6 @@ class WaylandToplevel : public aura::WindowObserver {
 
     if (!parent) {
       shell_surface_data_->shell_surface->SetParent(nullptr);
-      return;
-    }
-
-    if (this == parent) {
-      // Some apps e.g. crbug/1210235 try to be their own parent. Ignore them.
-      auto* app_id = GetShellApplicationId(
-          shell_surface_data_->shell_surface->host_window());
-      LOG(WARNING)
-          << "Client attempts to add itself as a transient parent: app_id="
-          << app_id;
       return;
     }
 
@@ -324,8 +302,8 @@ class WaylandToplevel : public aura::WindowObserver {
     wl_array_release(&states);
   }
 
-  wl_resource* const resource_;
-  WaylandXdgSurface* shell_surface_data_;
+  const raw_ptr<wl_resource, ExperimentalAsh> resource_;
+  raw_ptr<WaylandXdgSurface, ExperimentalAsh> shell_surface_data_;
   base::WeakPtrFactory<WaylandToplevel> weak_ptr_factory_{this};
 };
 
@@ -461,12 +439,12 @@ class WaylandPopup : aura::WindowObserver {
 
   void Grab() {
     if (!shell_surface_data_) {
-      wl_resource_post_error(resource_, ZXDG_POPUP_V6_ERROR_INVALID_GRAB,
+      wl_resource_post_error(resource_.get(), ZXDG_POPUP_V6_ERROR_INVALID_GRAB,
                              "the surface has already been destroyed");
       return;
     }
     if (shell_surface_data_->shell_surface->GetWidget()) {
-      wl_resource_post_error(resource_, ZXDG_POPUP_V6_ERROR_INVALID_GRAB,
+      wl_resource_post_error(resource_.get(), ZXDG_POPUP_V6_ERROR_INVALID_GRAB,
                              "grab must be called before construction");
       return;
     }
@@ -491,8 +469,8 @@ class WaylandPopup : aura::WindowObserver {
     // Nothing to do here as popups don't have additional configure state.
   }
 
-  wl_resource* const resource_;
-  WaylandXdgSurface* shell_surface_data_;
+  const raw_ptr<wl_resource, ExperimentalAsh> resource_;
+  raw_ptr<WaylandXdgSurface, ExperimentalAsh> shell_surface_data_;
   base::WeakPtrFactory<WaylandPopup> weak_ptr_factory_{this};
 };
 
@@ -662,6 +640,8 @@ void xdg_shell_v6_get_xdg_surface(wl_client* client,
   // Xdg shell v6 surfaces are initially disabled and needs to be explicitly
   // mapped before they are enabled and can become visible.
   shell_surface->SetEnabled(false);
+
+  shell_surface->SetSecurityDelegate(GetSecurityDelegate(client));
 
   std::unique_ptr<WaylandXdgSurface> wayland_shell_surface =
       std::make_unique<WaylandXdgSurface>(std::move(shell_surface),

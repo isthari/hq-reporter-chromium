@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,17 +8,22 @@
 #include <memory>
 #include <vector>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/observer_list.h"
 #include "base/observer_list_types.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "content/public/browser/global_routing_id.h"
 #include "printing/print_settings.h"
 
 #if BUILDFLAG(IS_CHROMEOS)
 #include "chromeos/crosapi/mojom/local_printer.mojom.h"
+#endif
+
+#if BUILDFLAG(IS_WIN)
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #endif
 
 namespace base {
@@ -28,8 +33,8 @@ class RefCountedMemory;
 
 namespace printing {
 
-class JobEventDetails;
 class MetafilePlayer;
+class PrintJobManager;
 class PrintJobWorker;
 class PrintedDocument;
 #if BUILDFLAG(IS_WIN)
@@ -53,7 +58,9 @@ class PrintJob : public base::RefCountedThreadSafe<PrintJob> {
    public:
     virtual void OnDocDone(int job_id, PrintedDocument* document) {}
     virtual void OnJobDone() {}
+    virtual void OnCanceling() {}
     virtual void OnFailed() {}
+    virtual void OnDestruction() {}
   };
 
 #if BUILDFLAG(IS_CHROMEOS)
@@ -67,7 +74,8 @@ class PrintJob : public base::RefCountedThreadSafe<PrintJob> {
   // post-constructor initialization must be done with Initialize().
   // If PrintJob is created on Chrome OS, call SetSource() to set which
   // component initiated this print job.
-  PrintJob();
+  // `print_job_manager` must outlive this object.
+  explicit PrintJob(PrintJobManager* print_job_manager);
 
   PrintJob(const PrintJob&) = delete;
   PrintJob& operator=(const PrintJob&) = delete;
@@ -148,6 +156,10 @@ class PrintJob : public base::RefCountedThreadSafe<PrintJob> {
   // Posts the given task to be run.
   bool PostTask(const base::Location& from_here, base::OnceClosure task);
 
+  const base::ObserverList<Observer>& GetObserversForTesting() {
+    return observers_;
+  }
+
   // Adds and removes observers for `PrintJob` events. The order in
   // which notifications are sent to observers is undefined. Observers must be
   // sure to remove the observer before they go away.
@@ -159,6 +171,10 @@ class PrintJob : public base::RefCountedThreadSafe<PrintJob> {
   friend class base::RefCountedThreadSafe<PrintJob>;
 
   virtual ~PrintJob();
+
+  // Constructs a PrintJob with a null PrintJobManager instance. Used only in
+  // testing contexts.
+  PrintJob();
 
   // The functions below are used for tests only.
   void set_job_pending(bool pending);
@@ -223,6 +239,12 @@ class PrintJob : public base::RefCountedThreadSafe<PrintJob> {
   // worker thread per print job.
   std::unique_ptr<PrintJobWorker> worker_;
 
+  content::GlobalRenderFrameHostId rfh_id_;
+
+  // The global PrintJobManager. May be null in testing contexts
+  // only. Otherwise guaranteed to outlive this object.
+  raw_ptr<PrintJobManager, DanglingUntriaged> print_job_manager_ = nullptr;
+
   // The printed document.
   scoped_refptr<PrintedDocument> document_;
 
@@ -237,6 +259,7 @@ class PrintJob : public base::RefCountedThreadSafe<PrintJob> {
   class PdfConversionState;
   std::unique_ptr<PdfConversionState> pdf_conversion_state_;
   std::vector<uint32_t> pdf_page_mapping_;
+  absl::optional<bool> use_skia_;
 #endif  // BUILDFLAG(IS_WIN)
 
 #if BUILDFLAG(IS_CHROMEOS)
@@ -244,54 +267,12 @@ class PrintJob : public base::RefCountedThreadSafe<PrintJob> {
   Source source_;
 
   // ID of the source.
-  // This should be blank if the source is PRINT_PREVIEW or ARC.
+  // This should be blank if the source is kPrintPreview or kArc.
   std::string source_id_;
 #endif  // BUILDFLAG(IS_CHROMEOS)
 
   // Holds the quit closure while running a nested RunLoop to flush tasks.
   base::OnceClosure quit_closure_;
-};
-
-// Details for a NOTIFY_PRINT_JOB_EVENT notification. The members may be NULL.
-class JobEventDetails : public base::RefCountedThreadSafe<JobEventDetails> {
- public:
-  // Event type.
-  enum Type {
-    // A new document started printing.
-    NEW_DOC,
-
-    // A document is done printing. The worker thread is still alive. Warning:
-    // not a good moment to release the handle to PrintJob.
-    DOC_DONE,
-
-    // The worker thread is finished. A good moment to release the handle to
-    // PrintJob.
-    JOB_DONE,
-
-    // An error occured. Printing is canceled.
-    FAILED
-  };
-
-  JobEventDetails(Type type, int job_id, PrintedDocument* document);
-
-  JobEventDetails(const JobEventDetails&) = delete;
-  JobEventDetails& operator=(const JobEventDetails&) = delete;
-
-  // Getters.
-  PrintedDocument* document() const;
-  Type type() const {
-    return type_;
-  }
-  int job_id() const { return job_id_; }
-
- private:
-  friend class base::RefCountedThreadSafe<JobEventDetails>;
-
-  ~JobEventDetails();
-
-  scoped_refptr<PrintedDocument> document_;
-  const Type type_;
-  int job_id_;
 };
 
 }  // namespace printing

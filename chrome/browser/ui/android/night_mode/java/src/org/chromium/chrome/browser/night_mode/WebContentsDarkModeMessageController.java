@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,6 +30,7 @@ import org.chromium.components.messages.DismissReason;
 import org.chromium.components.messages.MessageBannerProperties;
 import org.chromium.components.messages.MessageDispatcher;
 import org.chromium.components.messages.MessageIdentifier;
+import org.chromium.components.messages.PrimaryActionClickBehavior;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.modaldialog.DialogDismissalCause;
 import org.chromium.ui.modaldialog.ModalDialogManager;
@@ -134,7 +135,10 @@ public class WebContentsDarkModeMessageController {
                         .with(MessageBannerProperties.PRIMARY_BUTTON_TEXT,
                                 resources.getString(R.string.auto_dark_message_button))
                         .with(MessageBannerProperties.ON_PRIMARY_ACTION,
-                                () -> { onOptOutPrimaryAction(activity, settingsLauncher); })
+                                () -> {
+                                    onOptOutPrimaryAction(activity, settingsLauncher);
+                                    return PrimaryActionClickBehavior.DISMISS_IMMEDIATELY;
+                                })
                         .with(MessageBannerProperties.ON_DISMISSED,
                                 (dismissReason) -> {
                                     onOptOutMessageDismissed(profile, dismissReason);
@@ -162,7 +166,10 @@ public class WebContentsDarkModeMessageController {
                         .with(MessageBannerProperties.PRIMARY_BUTTON_TEXT,
                                 resources.getString(R.string.auto_dark_message_opt_in_button))
                         .with(MessageBannerProperties.ON_PRIMARY_ACTION,
-                                () -> { onOptInPrimaryAction(profile, webContents); })
+                                () -> {
+                                    onOptInPrimaryAction(profile, webContents);
+                                    return PrimaryActionClickBehavior.DISMISS_IMMEDIATELY;
+                                })
                         .with(MessageBannerProperties.ON_DISMISSED,
                                 (dismissReason) -> {
                                     onOptInMessageDismissed(activity, profile, webContents,
@@ -261,7 +268,7 @@ public class WebContentsDarkModeMessageController {
                 if (buttonType == ButtonType.TITLE_ICON) return;
                 if (buttonType == ButtonType.POSITIVE) {
                     if (feedbackDialogEnabled) {
-                        showFeedback(feedbackLauncher, activity, profile, url);
+                        showFeedback(feedbackLauncher, activity, url);
                     } else {
                         openSettings(settingsLauncher, activity);
                     }
@@ -286,7 +293,7 @@ public class WebContentsDarkModeMessageController {
                                        .with(ModalDialogProperties.TITLE_ICON,
                                                AppCompatResources.getDrawable(activity,
                                                        R.drawable.ic_brightness_medium_24dp))
-                                       .with(ModalDialogProperties.MESSAGE, message)
+                                       .with(ModalDialogProperties.MESSAGE_PARAGRAPH_1, message)
                                        .with(ModalDialogProperties.POSITIVE_BUTTON_TEXT, resources,
                                                positiveButtonId)
                                        .with(ModalDialogProperties.NEGATIVE_BUTTON_TEXT, resources,
@@ -300,11 +307,10 @@ public class WebContentsDarkModeMessageController {
      * Show feedback.
      */
     private static void showFeedback(
-            HelpAndFeedbackLauncher launcher, Activity activity, Profile profile, String url) {
+            HelpAndFeedbackLauncher launcher, Activity activity, String url) {
         // TODO(crbug.com/1260152): Import ScreenshotMode instead of hardcoding value once new build
         //  target added.
-        launcher.showFeedback(activity, profile, url, null,
-                /* ScreenshotMode.DEFAULT */ 0, null);
+        launcher.showFeedback(activity, url, null, /* ScreenshotMode.DEFAULT */ 0, null);
     }
 
     /**

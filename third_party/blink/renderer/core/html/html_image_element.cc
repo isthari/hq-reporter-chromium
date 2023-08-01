@@ -36,8 +36,10 @@
 #include "third_party/blink/renderer/core/dom/events/event_dispatch_forbidden_scope.h"
 #include "third_party/blink/renderer/core/dom/node_traversal.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
-#include "third_party/blink/renderer/core/frame/deprecation.h"
+#include "third_party/blink/renderer/core/frame/attribution_src_loader.h"
+#include "third_party/blink/renderer/core/frame/deprecation/deprecation.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+#include "third_party/blink/renderer/core/frame/local_frame_client.h"
 #include "third_party/blink/renderer/core/html/canvas/html_canvas_element.h"
 #include "third_party/blink/renderer/core/html/cross_origin_attribute.h"
 #include "third_party/blink/renderer/core/html/forms/form_associated.h"
@@ -55,13 +57,12 @@
 #include "third_party/blink/renderer/core/layout/adjust_for_absolute_zoom.h"
 #include "third_party/blink/renderer/core/layout/layout_block_flow.h"
 #include "third_party/blink/renderer/core/layout/layout_image.h"
-#include "third_party/blink/renderer/core/layout/layout_object_factory.h"
 #include "third_party/blink/renderer/core/layout/ng/layout_ng_block_flow.h"
 #include "third_party/blink/renderer/core/loader/resource/image_resource_content.h"
 #include "third_party/blink/renderer/core/media_type_names.h"
 #include "third_party/blink/renderer/core/page/chrome_client.h"
 #include "third_party/blink/renderer/core/page/page.h"
-#include "third_party/blink/renderer/core/paint/paint_timing.h"
+#include "third_party/blink/renderer/core/paint/timing/paint_timing.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/core/style/content_data.h"
 #include "third_party/blink/renderer/core/svg/graphics/svg_image_for_container.h"
@@ -98,6 +99,7 @@ HTMLImageElement::HTMLImageElement(Document& document,
 
 HTMLImageElement::HTMLImageElement(Document& document, bool created_by_parser)
     : HTMLElement(html_names::kImgTag, document),
+      ActiveScriptWrappable<HTMLImageElement>({}),
       image_loader_(MakeGarbageCollected<HTMLImageLoader>(this)),
       image_device_pixel_ratio_(1.0f),
       source_(nullptr),
@@ -113,9 +115,7 @@ HTMLImageElement::HTMLImageElement(Document& document, bool created_by_parser)
       is_ad_related_(false),
       is_lcp_element_(false),
       is_changed_shortly_after_mouseover_(false),
-      referrer_policy_(network::mojom::ReferrerPolicy::kDefault) {
-  SetHasCustomStyleCallbacks();
-}
+      has_sizes_attribute_in_img_or_sibling_(false) {}
 
 HTMLImageElement::~HTMLImageElement() = default;
 
@@ -314,20 +314,28 @@ void HTMLImageElement::ParseAttribute(
   } else if (name == html_names::kUsemapAttr) {
     SetIsLink(!params.new_value.IsNull());
   } else if (name == html_names::kReferrerpolicyAttr) {
-    network::mojom::ReferrerPolicy old_referrer_policy = referrer_policy_;
-    referrer_policy_ = network::mojom::ReferrerPolicy::kDefault;
+    network::mojom::ReferrerPolicy new_referrer_policy =
+        network::mojom::ReferrerPolicy::kDefault;
     if (!params.new_value.IsNull()) {
       UseCounter::Count(GetDocument(),
                         WebFeature::kHTMLImageElementReferrerPolicyAttribute);
 
       SecurityPolicy::ReferrerPolicyFromString(
           params.new_value, kSupportReferrerPolicyLegacyKeywords,
-          &referrer_policy_);
+          &new_referrer_policy);
     }
 
-    if (referrer_policy_ != old_referrer_policy) {
+    network::mojom::ReferrerPolicy old_referrer_policy =
+        network::mojom::ReferrerPolicy::kDefault;
+    if (!params.old_value.IsNull()) {
+      SecurityPolicy::ReferrerPolicyFromString(
+          params.old_value, kSupportReferrerPolicyLegacyKeywords,
+          &old_referrer_policy);
+    }
+
+    if (new_referrer_policy != old_referrer_policy) {
       GetImageLoader().UpdateFromElement(
-          ImageLoader::kUpdateIgnorePreviousError, referrer_policy_);
+          ImageLoader::kUpdateIgnorePreviousError);
     }
   } else if (name == html_names::kDecodingAttr) {
     UseCounter::Count(GetDocument(), WebFeature::kImageDecodingAttribute);
@@ -336,13 +344,13 @@ void HTMLImageElement::ParseAttribute(
     LoadingAttributeValue loading = GetLoadingAttributeValue(params.new_value);
     if (loading == LoadingAttributeValue::kEager ||
         (loading == LoadingAttributeValue::kAuto)) {
-      GetImageLoader().LoadDeferredImage(referrer_policy_);
+      GetImageLoader().LoadDeferredImage();
     }
-  } else if (name == html_names::kImportanceAttr &&
+  } else if (name == html_names::kFetchpriorityAttr &&
              RuntimeEnabledFeatures::PriorityHintsEnabled(
                  GetExecutionContext())) {
     // We only need to keep track of usage here, as the communication of the
-    // |importance| attribute to the loading pipeline takes place in
+    // |fetchPriority| attribute to the loading pipeline takes place in
     // ImageLoader.
     UseCounter::Count(GetDocument(), WebFeature::kPriorityHints);
   } else if (name == html_names::kCrossoriginAttr) {
@@ -361,7 +369,13 @@ void HTMLImageElement::ParseAttribute(
     if (new_crossorigin_state != old_crossorigin_state) {
       // Update the current state so we can detect future state changes.
       GetImageLoader().UpdateFromElement(
-          ImageLoader::kUpdateIgnorePreviousError, referrer_policy_);
+          ImageLoader::kUpdateIgnorePreviousError);
+    }
+  } else if (name == html_names::kAttributionsrcAttr) {
+    LocalDOMWindow* window = GetDocument().domWindow();
+    if (window && window->GetFrame()) {
+      window->GetFrame()->GetAttributionSrcLoader()->Register(params.new_value,
+                                                              /*element=*/this);
     }
   } else {
     HTMLElement::ParseAttribute(params);
@@ -391,12 +405,17 @@ bool HTMLImageElement::SupportedImageType(
     const HashSet<String>* disabled_image_types) {
   String trimmed_type = ContentType(type).GetType();
   // An empty type attribute is implicitly supported.
-  if (trimmed_type.IsEmpty())
+  if (trimmed_type.empty())
     return true;
   if (disabled_image_types && disabled_image_types->Contains(trimmed_type)) {
     return false;
   }
   return MIMETypeRegistry::IsSupportedImagePrefixedMIMEType(trimmed_type);
+}
+
+bool HTMLImageElement::HasLazyLoadingAttribute() const {
+  return GetLoadingAttributeValue(FastGetAttribute(html_names::kLoadingAttr)) ==
+         LoadingAttributeValue::kLazy;
 }
 
 // http://picture.responsiveimages.org/#update-source-set
@@ -422,7 +441,7 @@ ImageCandidate HTMLImageElement::FindBestFitImageFromPictureParent() {
                                     WebFeature::kPictureSourceSrc);
     }
     String srcset = source->FastGetAttribute(html_names::kSrcsetAttr);
-    if (srcset.IsEmpty())
+    if (srcset.empty())
       continue;
     String type = source->FastGetAttribute(html_names::kTypeAttr);
     if (!SupportedImageType(type, &disabled_image_types))
@@ -442,21 +461,16 @@ ImageCandidate HTMLImageElement::FindBestFitImageFromPictureParent() {
   return ImageCandidate();
 }
 
-LayoutObject* HTMLImageElement::CreateLayoutObject(const ComputedStyle& style,
-                                                   LegacyLayout legacy) {
-  const ContentData* content_data = style.GetContentData();
-  if (content_data && content_data->IsImage()) {
-    const StyleImage* content_image =
-        To<ImageContentData>(content_data)->GetImage();
-    bool error_occurred = content_image && content_image->CachedImage() &&
-                          content_image->CachedImage()->ErrorOccurred();
-    if (!error_occurred)
-      return LayoutObject::CreateObject(this, style, legacy);
+LayoutObject* HTMLImageElement::CreateLayoutObject(const ComputedStyle& style) {
+  if (auto* content_image =
+          DynamicTo<ImageContentData>(style.GetContentData())) {
+    if (!content_image->GetImage()->ErrorOccurred())
+      return LayoutObject::CreateObject(this, style);
   }
 
   switch (layout_disposition_) {
     case LayoutDisposition::kFallbackContent:
-      return LayoutObjectFactory::CreateBlockFlow(*this, style, legacy);
+      return LayoutObject::CreateBlockFlowOrListItem(this, style);
     case LayoutDisposition::kPrimaryContent: {
       LayoutImage* image = MakeGarbageCollected<LayoutImage>(this);
       image->SetImageResource(MakeGarbageCollected<LayoutImageResource>());
@@ -500,33 +514,38 @@ Node::InsertionNotificationRequest HTMLImageElement::InsertedInto(
     was_added_to_picture_parent = picture_parent == insertion_point;
   }
 
-  bool image_was_modified = false;
-  if (GetDocument().IsActive() && was_added_to_picture_parent) {
-    ImageCandidate candidate = FindBestFitImageFromPictureParent();
-    if (!candidate.IsEmpty()) {
-      InvalidateAttributeMapping();
-      SetBestFitURLAndDPRFromImageCandidate(candidate);
-      image_was_modified = true;
+  if (was_added_to_picture_parent) {
+    SelectSourceURL(ImageLoader::kUpdateIgnorePreviousError);
+  } else if (insertion_point.isConnected()) {
+    // If the <img> was inserted into the tree, and the image is not
+    // potentially available, fallback rendering needs to be triggered.
+    if (!GetImageLoader().ImageIsPotentiallyAvailable()) {
+      GetImageLoader().NoImageResourceToLoad();
     }
-  }
-
-  if (image_was_modified || GetImageLoader().ShouldUpdateOnInsertedInto(
-                                insertion_point, referrer_policy_)) {
-    GetImageLoader().UpdateFromElement(ImageLoader::kUpdateNormal,
-                                       referrer_policy_);
   }
   return HTMLElement::InsertedInto(insertion_point);
 }
 
 void HTMLImageElement::RemovedFrom(ContainerNode& insertion_point) {
-  InvalidateAttributeMapping();
+  if (InActiveDocument() && !last_reported_ad_rect_.IsEmpty()) {
+    gfx::Rect empty_rect;
+    GetDocument().GetFrame()->Client()->OnMainFrameImageAdRectangleChanged(
+        DOMNodeIds::IdForNode(this), empty_rect);
+    last_reported_ad_rect_ = empty_rect;
+  }
+
   if (!form_ || NodeTraversal::HighestAncestorOrSelf(*form_.Get()) !=
                     NodeTraversal::HighestAncestorOrSelf(*this))
     ResetFormOwner();
-  if (listener_) {
+  if (listener_)
     GetDocument().GetMediaQueryMatcher().RemoveViewportListener(listener_);
-    if (auto* picture_parent = DynamicTo<HTMLPictureElement>(parentNode()))
-      picture_parent->RemoveListenerFromSourceChildren();
+  bool was_removed_from_parent = !parentNode();
+  auto* picture_parent = DynamicTo<HTMLPictureElement>(
+      was_removed_from_parent ? &insertion_point : parentNode());
+  if (picture_parent) {
+    picture_parent->RemoveListenerFromSourceChildren();
+    if (was_removed_from_parent)
+      SelectSourceURL(ImageLoader::kUpdateIgnorePreviousError);
   }
   HTMLElement::RemovedFrom(insertion_point);
 }
@@ -591,11 +610,8 @@ LayoutSize HTMLImageElement::DensityCorrectedIntrinsicDimensions() const {
       image_content->DevicePixelRatioHeaderValue() > 0)
     pixel_density = 1 / image_content->DevicePixelRatioHeaderValue();
 
-  RespectImageOrientationEnum respect_image_orientation =
-      LayoutObject::ShouldRespectImageOrientation(GetLayoutObject());
-
   LayoutSize natural_size(
-      image_content->IntrinsicSize(respect_image_orientation));
+      image_content->GetImage()->Size(kRespectImageOrientation));
   natural_size.Scale(pixel_density);
   return natural_size;
 }
@@ -659,6 +675,48 @@ bool HTMLImageElement::HasLegalLinkAttribute(const QualifiedName& name) const {
 
 const QualifiedName& HTMLImageElement::SubResourceAttributeName() const {
   return html_names::kSrcAttr;
+}
+
+void HTMLImageElement::SetIsAdRelated() {
+  if (!is_ad_related_ && GetDocument().View()) {
+    GetDocument().View()->RegisterForLifecycleNotifications(this);
+  }
+
+  is_ad_related_ = true;
+}
+
+void HTMLImageElement::DidFinishLifecycleUpdate(
+    const LocalFrameView& local_frame_view) {
+  DCHECK(is_ad_related_);
+
+  // Scope to the outermost frame to avoid counting image ads that are (likely)
+  // already in ad iframes.
+  LocalFrame* frame = GetDocument().GetFrame();
+  if (!frame || !frame->View() || !frame->IsOutermostMainFrame()) {
+    return;
+  }
+
+  gfx::Rect rect_to_report;
+  if (LayoutObject* r = GetLayoutObject()) {
+    gfx::Rect rect_in_viewport = r->AbsoluteBoundingBoxRect();
+
+    // Exclude image ads that are invisible or too small (e.g. tracking pixels).
+    if (rect_in_viewport.width() > 1 && rect_in_viewport.height() > 1) {
+      if (!image_ad_use_counter_recorded_) {
+        UseCounter::Count(GetDocument(), WebFeature::kImageAd);
+        image_ad_use_counter_recorded_ = true;
+      }
+
+      rect_to_report =
+          rect_in_viewport + frame->View()->LayoutViewport()->ScrollOffsetInt();
+    }
+  }
+
+  if (last_reported_ad_rect_ != rect_to_report) {
+    frame->Client()->OnMainFrameImageAdRectangleChanged(
+        DOMNodeIds::IdForNode(this), rect_to_report);
+    last_reported_ad_rect_ = rect_to_report;
+  }
 }
 
 bool HTMLImageElement::draggable() const {
@@ -775,25 +833,26 @@ static bool SourceSizeValue(const Element* element,
   return exists;
 }
 
-FetchParameters::ResourceWidth HTMLImageElement::GetResourceWidth() const {
-  FetchParameters::ResourceWidth resource_width;
+absl::optional<float> HTMLImageElement::GetResourceWidth() const {
+  absl::optional<float> resource_width;
+  float width_value;
   Element* element = source_.Get();
-  resource_width.is_set = SourceSizeValue(element ? element : this,
-                                          GetDocument(), resource_width.width);
+  if (SourceSizeValue(element ? element : this, GetDocument(), width_value)) {
+    resource_width = width_value;
+  }
   return resource_width;
 }
 
 float HTMLImageElement::SourceSize(Element& element) {
   float value;
-  // We don't care here if the sizes attribute exists, so we ignore the return
-  // value.  If it doesn't exist, we just return the default.
-  SourceSizeValue(&element, GetDocument(), value);
+  // We only care if the sizes attribute exist here for use counter purposes..
+  has_sizes_attribute_in_img_or_sibling_ =
+      SourceSizeValue(&element, GetDocument(), value);
   return value;
 }
 
 void HTMLImageElement::ForceReload() const {
-  GetImageLoader().UpdateFromElement(ImageLoader::kUpdateForcedReload,
-                                     referrer_policy_);
+  GetImageLoader().UpdateFromElement(ImageLoader::kUpdateForcedReload);
 }
 
 void HTMLImageElement::SelectSourceURL(
@@ -822,7 +881,7 @@ void HTMLImageElement::SelectSourceURL(
   // spurious downloads. See https://github.com/whatwg/html/issues/4646
   if (behavior != HTMLImageLoader::kUpdateSizeChanged ||
       best_fit_image_url_ != old_url) {
-    GetImageLoader().UpdateFromElement(behavior, referrer_policy_);
+    GetImageLoader().UpdateFromElement(behavior);
   }
 
   if (GetImageLoader().ImageIsPotentiallyAvailable())
@@ -875,6 +934,17 @@ bool HTMLImageElement::IsCollapsed() const {
   return layout_disposition_ == LayoutDisposition::kCollapsed;
 }
 
+void HTMLImageElement::SetAutoSizesUsecounter() {
+  if (listener_ && HasLazyLoadingAttribute()) {
+    UseCounter::Count(
+        GetDocument(),
+        has_sizes_attribute_in_img_or_sibling_
+            ? WebFeature::kViewportDependentLazyLoadedImageWithSizesAttribute
+            : WebFeature::
+                  kViewportDependentLazyLoadedImageWithoutSizesAttribute);
+  }
+}
+
 void HTMLImageElement::SetLayoutDisposition(
     LayoutDisposition layout_disposition,
     bool force_reattach) {
@@ -884,6 +954,11 @@ void HTMLImageElement::SetLayoutDisposition(
   DCHECK(!GetDocument().InStyleRecalc());
 
   layout_disposition_ = layout_disposition;
+  if (layout_disposition == LayoutDisposition::kFallbackContent) {
+    SetHasCustomStyleCallbacks();
+  } else {
+    UnsetHasCustomStyleCallbacks();
+  }
 
   if (layout_disposition_ == LayoutDisposition::kFallbackContent) {
     EventDispatchForbiddenScope::AllowUserAgentEvents allow_events;
@@ -898,22 +973,9 @@ void HTMLImageElement::SetLayoutDisposition(
   SetForceReattachLayoutTree();
 }
 
-scoped_refptr<ComputedStyle> HTMLImageElement::CustomStyleForLayoutObject(
-    const StyleRecalcContext& style_recalc_context) {
-  switch (layout_disposition_) {
-    case LayoutDisposition::kPrimaryContent:  // Fall through.
-    case LayoutDisposition::kCollapsed:
-      return OriginalStyleForLayoutObject(style_recalc_context);
-    case LayoutDisposition::kFallbackContent: {
-      scoped_refptr<ComputedStyle> style =
-          OriginalStyleForLayoutObject(style_recalc_context);
-      HTMLImageFallbackHelper::CustomStyleForAltText(*this, *style);
-      return style;
-    }
-    default:
-      NOTREACHED();
-      return nullptr;
-  }
+void HTMLImageElement::AdjustStyle(ComputedStyleBuilder& builder) {
+  DCHECK_EQ(layout_disposition_, LayoutDisposition::kFallbackContent);
+  HTMLImageFallbackHelper::CustomStyleForAltText(*this, builder);
 }
 
 void HTMLImageElement::AssociateWith(HTMLFormElement* form) {
@@ -923,43 +985,6 @@ void HTMLImageElement::AssociateWith(HTMLFormElement* form) {
     form_->Associate(*this);
     form_->DidAssociateByParser();
   }
-}
-
-// Minimum height or width of the image to start lazyloading.
-constexpr int kMinDimensionToLazyLoad = 10;
-
-HTMLImageElement::LazyLoadDimensionType
-HTMLImageElement::GetAttributeLazyLoadDimensionType(
-    const String& attribute_value) {
-  HTMLDimension dimension;
-  if (ParseDimensionValue(attribute_value, dimension) &&
-      dimension.IsAbsolute()) {
-    return dimension.Value() <= kMinDimensionToLazyLoad
-               ? LazyLoadDimensionType::kAbsoluteSmall
-               : LazyLoadDimensionType::kAbsoluteNotSmall;
-  }
-  return LazyLoadDimensionType::kNotAbsolute;
-}
-
-HTMLImageElement::LazyLoadDimensionType
-HTMLImageElement::GetInlineStyleDimensionsType(
-    const CSSPropertyValueSet* property_set) {
-  if (!property_set)
-    return LazyLoadDimensionType::kNotAbsolute;
-  const CSSValue* height =
-      property_set->GetPropertyCSSValue(CSSPropertyID::kHeight);
-  const CSSValue* width =
-      property_set->GetPropertyCSSValue(CSSPropertyID::kWidth);
-  const auto* width_prim = DynamicTo<CSSPrimitiveValue>(width);
-  const auto* height_prim = DynamicTo<CSSPrimitiveValue>(height);
-  if (!width_prim || !height_prim || !width_prim->IsPx() ||
-      !height_prim->IsPx()) {
-    return LazyLoadDimensionType::kNotAbsolute;
-  }
-  return (height_prim->GetDoubleValue() <= kMinDimensionToLazyLoad) &&
-                 (width_prim->GetDoubleValue() <= kMinDimensionToLazyLoad)
-             ? LazyLoadDimensionType::kAbsoluteSmall
-             : LazyLoadDimensionType::kAbsoluteNotSmall;
 }
 
 }  // namespace blink

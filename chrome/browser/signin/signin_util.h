@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,32 @@
 
 #include <string>
 
+#include "base/containers/enum_set.h"
+#include "base/files/file_path.h"
+#include "base/supports_user_data.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
+#include "components/signin/public/base/signin_metrics.h"
+#include "components/signin/public/identity_manager/tribool.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class Profile;
 
 namespace signin_util {
+
+enum class ProfileSeparationPolicyState {
+  kEnforcedByExistingProfile,
+  kEnforcedByInterceptedAccount,
+  kStrict,
+  kEnforcedOnMachineLevel,
+  kKeepsBrowsingData,
+  kMaxValue = kKeepsBrowsingData
+};
+
+using ProfileSeparationPolicyStateSet =
+    base::EnumSet<ProfileSeparationPolicyState,
+                  ProfileSeparationPolicyState::kEnforcedByExistingProfile,
+                  ProfileSeparationPolicyState::kMaxValue>;
 
 // This class calls ResetForceSigninForTesting when destroyed, so that
 // ForcedSigning doesn't leak across tests.
@@ -19,6 +40,10 @@ class ScopedForceSigninSetterForTesting {
  public:
   explicit ScopedForceSigninSetterForTesting(bool enable);
   ~ScopedForceSigninSetterForTesting();
+  ScopedForceSigninSetterForTesting(const ScopedForceSigninSetterForTesting&) =
+      delete;
+  ScopedForceSigninSetterForTesting& operator=(
+      const ScopedForceSigninSetterForTesting&) = delete;
 };
 
 // Return whether the force sign in policy is enabled or not.
@@ -33,40 +58,40 @@ void SetForceSigninForTesting(bool enable);
 // Reset force sign in to uninitialized state for testing.
 void ResetForceSigninForTesting();
 
-// Returns true if clearing the primary profile is allowed.
-bool IsUserSignoutAllowedForProfile(Profile* profile);
-
-// Sign-out is allowed by default, but some Chrome profiles (e.g. for cloud-
-// managed enterprise accounts) may wish to disallow user-initiated sign-out.
-// Note that this exempts sign-outs that are not user-initiated (e.g. sign-out
-// triggered when cloud policy no longer allows current email pattern). See
-// ChromeSigninClient::PreSignOut().
-void SetUserSignoutAllowedForProfile(Profile* profile, bool is_allowed);
-
-// Updates the user sign-out state to |true| if is was never initialized.
-// This should be called at the end of the flow to initialize a profile to
-// ensure that the signout allowed flag is updated.
-void EnsureUserSignoutAllowedIsInitializedForProfile(Profile* profile);
-
-// Ensures that the primary account for |profile| is allowed:
-// * If profile does not have any primary account, then this is a no-op.
-// * If |IsUserSignoutAllowedForProfile| is allowed and the primary account
-//   is no longer allowed, then this clears the primary account.
-// * If |IsUserSignoutAllowedForProfile| is not allowed and the primary account
-//   is not longer allowed, then this removes the profile.
-void EnsurePrimaryAccountAllowedForProfile(Profile* profile);
+// Returns true if profile deletion is allowed.
+bool IsProfileDeletionAllowed(Profile* profile);
 
 #if !BUILDFLAG(IS_ANDROID)
-// Returns true if profile separation is enforced by policy.
+#if !BUILDFLAG(IS_CHROMEOS)
+// Returns the state of profile separation on any account that would signin
+// inside `profile`. Returns an empty set if profile separation is not enforced
+// on accounts that will sign in the content area of `profile`.
+ProfileSeparationPolicyStateSet GetProfileSeparationPolicyState(
+    Profile* profile,
+    const absl::optional<std::string>& intercepted_account_level_policy_value =
+        absl::nullopt);
+
+// Returns true if profile separation must be enforced on an account signing in
+// the content area of `profile` by the ManagedAccountsSigninRestriction policy
+// for `profile` or if the value of 'intercepted_account_level_policy_value'
+// enforces profile separation for an intercepted account.
+// `intercepted_account_level_policy_value` has a value only in the case of an
+// account interception. This is used mainly in DiceWebSigninInterceptor to
+// determine if an intercepted account requires a new profile.
 bool ProfileSeparationEnforcedByPolicy(
     Profile* profile,
-    const std::string& intercepted_account_level_policy_value);
+    const absl::optional<std::string>& intercepted_account_level_policy_value =
+        absl::nullopt);
 
+bool ProfileSeparationAllowsKeepingUnmanagedBrowsingDataInManagedProfile(
+    Profile* profile,
+    const std::string& intercepted_account_level_policy_value);
+#endif  // !BUILDFLAG(IS_CHROMEOS)
 // Records a UMA metric if the user accepts or not to create an enterprise
 // profile.
 void RecordEnterpriseProfileCreationUserChoice(bool enforced_by_policy,
                                                bool created);
-#endif
+#endif  // !BUILDFLAG(IS_ANDROID)
 
 }  // namespace signin_util
 

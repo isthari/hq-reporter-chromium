@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,10 @@
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
 #include "ash/system/tray/system_nudge.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/memory/raw_ptr.h"
+#include "base/metrics/histogram_functions.h"
+#include "base/strings/strcat.h"
 #include "base/time/time.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
@@ -27,6 +30,19 @@ constexpr gfx::Tween::Type kNudgeFadeOpacityAnimationTweenType =
     gfx::Tween::LINEAR;
 constexpr gfx::Tween::Type kNudgeFadeScalingAnimationTweenType =
     gfx::Tween::LINEAR_OUT_SLOW_IN;
+
+constexpr char NotifierFrameworkNudgeHistogram[] =
+    "Ash.NotifierFramework.Nudge";
+
+// Used in histogram names.
+std::string GetNudgeTimeToActionRange(const base::TimeDelta& time) {
+  if (time <= base::Minutes(1))
+    return "Within1m";
+  if (time <= base::Hours(1))
+    return "Within1h";
+  return "WithinSession";
+}
+
 }  // namespace
 
 // A class for observing the nudge fade out animation. Once the fade
@@ -58,7 +74,7 @@ class ImplicitNudgeHideAnimationObserver
  private:
   std::unique_ptr<SystemNudge> nudge_;
   // Owned by the shell.
-  SystemNudgeController* const controller_;
+  const raw_ptr<SystemNudgeController, ExperimentalAsh> controller_;
 };
 
 SystemNudgeController::SystemNudgeController() = default;
@@ -67,9 +83,36 @@ SystemNudgeController::~SystemNudgeController() {
   hide_nudge_animation_observer_.reset();
 }
 
+// static
+void SystemNudgeController::RecordNudgeAction(NudgeCatalogName catalog_name) {
+  auto& nudge_registry = GetNudgeRegistry();
+  auto it = std::find_if(
+      std::begin(nudge_registry), std::end(nudge_registry),
+      [catalog_name](
+          const std::pair<NudgeCatalogName, base::TimeTicks> registry_entry) {
+        return catalog_name == registry_entry.first;
+      });
+
+  // Don't record "TimeToAction" metric if the nudge hasn't been shown before.
+  if (it == std::end(nudge_registry))
+    return;
+
+  const base::TimeDelta delta = base::TimeTicks::Now() - (*it).second;
+  const std::string time_range = GetNudgeTimeToActionRange(delta);
+
+  base::UmaHistogramEnumeration(
+      base::StrCat({NotifierFrameworkNudgeHistogram, ".TimeToAction.",
+                    time_range.c_str()}),
+      catalog_name);
+
+  nudge_registry.erase(it);
+}
+
 void SystemNudgeController::ShowNudge() {
   if (nudge_ && !nudge_->widget()->IsClosed()) {
-    hide_nudge_timer_.AbandonAndStop();
+    if (hide_nudge_timer_) {
+      hide_nudge_timer_->AbandonAndStop();
+    }
     nudge_->Close();
   }
 
@@ -77,11 +120,13 @@ void SystemNudgeController::ShowNudge() {
   nudge_ = CreateSystemNudge();
   nudge_->Show();
   StartFadeAnimation(/*show=*/true);
+  RecordNudgeShown(nudge_->catalog_name());
 
+  hide_nudge_timer_ = std::make_unique<base::OneShotTimer>();
   // Start a timer to close the nudge after a set amount of time.
-  hide_nudge_timer_.Start(FROM_HERE, kNudgeShowTime,
-                          base::BindOnce(&SystemNudgeController::HideNudge,
-                                         weak_ptr_factory_.GetWeakPtr()));
+  hide_nudge_timer_->Start(FROM_HERE, kNudgeShowTime,
+                           base::BindOnce(&SystemNudgeController::HideNudge,
+                                          weak_ptr_factory_.GetWeakPtr()));
 }
 
 void SystemNudgeController::ForceCloseAnimatingNudge() {
@@ -89,18 +134,39 @@ void SystemNudgeController::ForceCloseAnimatingNudge() {
 }
 
 void SystemNudgeController::FireHideNudgeTimerForTesting() {
-  hide_nudge_timer_.FireNow();
+  hide_nudge_timer_->FireNow();
+}
+
+void SystemNudgeController::ResetNudgeRegistryForTesting() {
+  GetNudgeRegistry().clear();
 }
 
 void SystemNudgeController::HideNudge() {
   StartFadeAnimation(/*show=*/false);
 }
 
+// static
+std::vector<std::pair<NudgeCatalogName, base::TimeTicks>>&
+SystemNudgeController::GetNudgeRegistry() {
+  static auto nudge_registry =
+      std::vector<std::pair<NudgeCatalogName, base::TimeTicks>>();
+  return nudge_registry;
+}
+
 void SystemNudgeController::StartFadeAnimation(bool show) {
+  hide_nudge_timer_.reset();
   // Clean any pending animation observer.
   hide_nudge_animation_observer_.reset();
 
+  // `nudge_` may not exist if `StartFadeAnimation(false)` has been called
+  // before a new nudge has been created.
+  if (!nudge_)
+    return;
+
   ui::Layer* layer = nudge_->widget()->GetLayer();
+  if (layer->GetAnimator()->is_animating()) {
+    return;
+  }
   gfx::Rect widget_bounds = layer->bounds();
 
   gfx::Transform scaled_nudge_transform;
@@ -134,6 +200,25 @@ void SystemNudgeController::StartFadeAnimation(bool show) {
               std::move(nudge_), this);
       settings.AddObserver(hide_nudge_animation_observer_.get());
     }
+  }
+}
+
+void SystemNudgeController::RecordNudgeShown(NudgeCatalogName catalog_name) {
+  base::UmaHistogramEnumeration("Ash.NotifierFramework.Nudge.ShownCount",
+                                catalog_name);
+  auto& nudge_registry = GetNudgeRegistry();
+
+  auto it = std::find_if(
+      std::begin(nudge_registry), std::end(nudge_registry),
+      [catalog_name](
+          const std::pair<NudgeCatalogName, base::TimeTicks> registry_entry) {
+        return catalog_name == registry_entry.first;
+      });
+
+  if (it == std::end(nudge_registry)) {
+    nudge_registry.emplace_back(catalog_name, base::TimeTicks::Now());
+  } else {
+    (*it).second = base::TimeTicks::Now();
   }
 }
 

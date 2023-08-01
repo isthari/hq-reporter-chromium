@@ -1,10 +1,11 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/core/html/html_iframe_element.h"
 
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/permissions_policy/origin_with_possible_wildcards.h"
 #include "third_party/blink/public/mojom/permissions_policy/permissions_policy.mojom-blink.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
@@ -209,12 +210,12 @@ TEST_F(HTMLIFrameElementTest, ConstructContainerPolicy) {
             container_policy[0].feature);
   EXPECT_FALSE(container_policy[0].matches_all_origins);
   EXPECT_EQ(1UL, container_policy[0].allowed_origins.size());
-  EXPECT_TRUE(container_policy[0].allowed_origins.begin()->IsSameOriginWith(
+  EXPECT_TRUE(container_policy[0].allowed_origins.begin()->DoesMatchOrigin(
       GetOriginForPermissionsPolicy(frame_element_)->ToUrlOrigin()));
   EXPECT_EQ(mojom::blink::PermissionsPolicyFeature::kUsb,
             container_policy[1].feature);
   EXPECT_EQ(1UL, container_policy[1].allowed_origins.size());
-  EXPECT_TRUE(container_policy[1].allowed_origins.begin()->IsSameOriginWith(
+  EXPECT_TRUE(container_policy[1].allowed_origins.begin()->DoesMatchOrigin(
       GetOriginForPermissionsPolicy(frame_element_)->ToUrlOrigin()));
 }
 
@@ -245,7 +246,7 @@ TEST_F(HTMLIFrameElementTest, ConstructContainerPolicyWithAllowPaymentRequest) {
             container_policy[0].feature);
   EXPECT_FALSE(container_policy[0].matches_all_origins);
   EXPECT_EQ(1UL, container_policy[0].allowed_origins.size());
-  EXPECT_TRUE(container_policy[0].allowed_origins.begin()->IsSameOriginWith(
+  EXPECT_TRUE(container_policy[0].allowed_origins.begin()->DoesMatchOrigin(
       GetOriginForPermissionsPolicy(frame_element_)->ToUrlOrigin()));
   EXPECT_EQ(mojom::blink::PermissionsPolicyFeature::kPayment,
             container_policy[1].feature);
@@ -270,12 +271,12 @@ TEST_F(HTMLIFrameElementTest, ConstructContainerPolicyWithAllowAttributes) {
             container_policy[0].feature);
   EXPECT_FALSE(container_policy[0].matches_all_origins);
   EXPECT_EQ(1UL, container_policy[0].allowed_origins.size());
-  EXPECT_TRUE(container_policy[0].allowed_origins.begin()->IsSameOriginWith(
+  EXPECT_TRUE(container_policy[0].allowed_origins.begin()->DoesMatchOrigin(
       GetOriginForPermissionsPolicy(frame_element_)->ToUrlOrigin()));
   EXPECT_EQ(mojom::blink::PermissionsPolicyFeature::kUsb,
             container_policy[1].feature);
   EXPECT_EQ(1UL, container_policy[1].allowed_origins.size());
-  EXPECT_TRUE(container_policy[1].allowed_origins.begin()->IsSameOriginWith(
+  EXPECT_TRUE(container_policy[1].allowed_origins.begin()->DoesMatchOrigin(
       GetOriginForPermissionsPolicy(frame_element_)->ToUrlOrigin()));
   EXPECT_EQ(mojom::blink::PermissionsPolicyFeature::kFullscreen,
             container_policy[2].feature);

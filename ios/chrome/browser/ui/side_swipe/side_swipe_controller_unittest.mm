@@ -1,40 +1,35 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/side_swipe/side_swipe_controller.h"
+#import "ios/chrome/browser/ui/side_swipe/side_swipe_controller+private.h"
 
 #import <WebKit/WebKit.h>
 
-#include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
-#include "ios/chrome/browser/chrome_url_constants.h"
-#import "ios/chrome/browser/main/test_browser.h"
-#import "ios/chrome/browser/web_state_list/web_state_list.h"
-#import "ios/chrome/browser/web_state_list/web_state_opener.h"
+#import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
+#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/url/chrome_url_constants.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_opener.h"
 #import "ios/chrome/test/scoped_key_window.h"
 #import "ios/web/common/crw_web_view_content_view.h"
-#include "ios/web/common/features.h"
+#import "ios/web/common/features.h"
 #import "ios/web/public/navigation/navigation_item.h"
 #import "ios/web/public/test/fakes/fake_navigation_context.h"
 #import "ios/web/public/test/fakes/fake_navigation_manager.h"
 #import "ios/web/public/test/fakes/fake_web_state.h"
-#include "ios/web/public/test/web_task_environment.h"
+#import "ios/web/public/test/web_task_environment.h"
 #import "ios/web/public/ui/crw_web_view_proxy.h"
 #import "ios/web/public/ui/crw_web_view_scroll_view_proxy.h"
-#include "testing/platform_test.h"
+#import "testing/platform_test.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
 #import "third_party/ocmock/gtest_support.h"
-#include "third_party/ocmock/ocmock_extensions.h"
+#import "third_party/ocmock/ocmock_extensions.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
-
-@interface SideSwipeController (ExposedForTesting)
-@property(nonatomic, assign) BOOL leadingEdgeNavigationEnabled;
-@property(nonatomic, assign) BOOL trailingEdgeNavigationEnabled;
-- (void)updateNavigationEdgeSwipeForWebState:(web::WebState*)webState;
-@end
 
 namespace {
 
@@ -46,7 +41,8 @@ class SideSwipeControllerTest : public PlatformTest {
             configuration:[[WKWebViewConfiguration alloc] init]]),
         content_view_([[CRWWebViewContentView alloc]
             initWithWebView:web_view_
-                 scrollView:web_view_.scrollView]) {
+                 scrollView:web_view_.scrollView
+            fullscreenState:CrFullscreenState::kNotInFullScreen]) {
     auto original_web_state(std::make_unique<web::FakeWebState>());
     original_web_state->SetView(content_view_);
     CRWWebViewScrollViewProxy* scroll_view_proxy =
@@ -84,16 +80,6 @@ class SideSwipeControllerTest : public PlatformTest {
 
 TEST_F(SideSwipeControllerTest, TestConstructor) {
   EXPECT_TRUE(side_swipe_controller_);
-}
-
-TEST_F(SideSwipeControllerTest, TestSwipeRecognizers) {
-  NSSet* recognizers = [side_swipe_controller_ swipeRecognizers];
-  BOOL hasRecognizer = NO;
-  for (UISwipeGestureRecognizer* swipeRecognizer in recognizers) {
-    hasRecognizer = YES;
-    EXPECT_TRUE(swipeRecognizer);
-  }
-  EXPECT_TRUE(hasRecognizer);
 }
 
 // Tests that pages that need to use Chromium native swipe

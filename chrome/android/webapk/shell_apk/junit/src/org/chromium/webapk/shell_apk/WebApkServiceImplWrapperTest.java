@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,18 +15,18 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mockito;
+import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 import org.robolectric.shadows.ShadowBinder;
 
-import org.chromium.testing.local.LocalRobolectricTestRunner;
 import org.chromium.webapk.lib.runtime_library.IWebApkApi;
 import org.chromium.webapk.lib.runtime_library.WebApkServiceImpl;
 
 import java.lang.reflect.Field;
 
 /** Tests for WebApkServiceImplWrapper. */
-@RunWith(LocalRobolectricTestRunner.class)
+@RunWith(RobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
 public class WebApkServiceImplWrapperTest {
     private static final String FUNCTION_NAME_NOTIFY_NOTIFICATION =

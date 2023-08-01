@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,7 @@ cr.define('cr.ArcOverviewTracing', function() {
      * Initializes internal structures.
      */
     initialize() {
-      var maxTime = $('arc-overview-tracing-max-time');
+      const maxTime = $('arc-overview-tracing-max-time');
       maxTime.addEventListener('change', function(event) {
         chrome.send('setMaxTime', [parseInt(maxTime.value)]);
       }, false);

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,11 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewStub;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.TextView;
 
 import androidx.annotation.Nullable;
+import androidx.annotation.StringRes;
 import androidx.annotation.VisibleForTesting;
 import androidx.appcompat.widget.Toolbar.OnMenuItemClickListener;
 import androidx.core.view.ViewCompat;
@@ -24,7 +26,8 @@ import androidx.recyclerview.widget.RecyclerView.AdapterDataObserver;
 import androidx.recyclerview.widget.RecyclerView.ItemAnimator;
 import androidx.recyclerview.widget.RecyclerView.OnScrollListener;
 
-import org.chromium.base.ApiCompatibilityUtils;
+import org.chromium.base.supplier.ObservableSupplier;
+import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.components.browser_ui.widget.FadingShadow;
 import org.chromium.components.browser_ui.widget.FadingShadowView;
 import org.chromium.components.browser_ui.widget.R;
@@ -32,6 +35,7 @@ import org.chromium.components.browser_ui.widget.displaystyle.DisplayStyleObserv
 import org.chromium.components.browser_ui.widget.displaystyle.HorizontalDisplayStyle;
 import org.chromium.components.browser_ui.widget.displaystyle.UiConfig;
 import org.chromium.components.browser_ui.widget.displaystyle.UiConfig.DisplayStyle;
+import org.chromium.components.browser_ui.widget.gesture.BackPressHandler;
 import org.chromium.components.browser_ui.widget.selectable_list.SelectionDelegate.SelectionObserver;
 import org.chromium.ui.widget.LoadingView;
 
@@ -49,13 +53,15 @@ import java.util.List;
  *
  * @param <E> The type of the selectable items this layout holds.
  */
-public class SelectableListLayout<E>
-        extends FrameLayout implements DisplayStyleObserver, SelectionObserver<E> {
+public class SelectableListLayout<E> extends FrameLayout
+        implements DisplayStyleObserver, SelectionObserver<E>, BackPressHandler {
     private static final int WIDE_DISPLAY_MIN_PADDING_DP = 16;
     private RecyclerView.Adapter mAdapter;
     private ViewStub mToolbarStub;
     private TextView mEmptyView;
+    private TextView mEmptyStateSubHeadingView;
     private View mEmptyViewWrapper;
+    private ImageView mEmptyImageView;
     private LoadingView mLoadingView;
     private RecyclerView mRecyclerView;
     private ItemAnimator mItemAnimator;
@@ -63,9 +69,11 @@ public class SelectableListLayout<E>
     private FadingShadowView mToolbarShadow;
 
     private int mEmptyStringResId;
-    private int mSearchEmptyStringResId;
 
     private UiConfig mUiConfig;
+
+    private final ObservableSupplierImpl<Boolean> mBackPressStateSupplier =
+            new ObservableSupplierImpl<>();
 
     private final AdapterDataObserver mAdapterObserver = new AdapterDataObserver() {
         @Override
@@ -95,6 +103,7 @@ public class SelectableListLayout<E>
 
     public SelectableListLayout(Context context, AttributeSet attrs) {
         super(context, attrs);
+        onBackPressStateChanged(); // Initialize back press state.
     }
 
     @Override
@@ -212,8 +221,7 @@ public class SelectableListLayout<E>
 
         mToolbarShadow = findViewById(R.id.shadow);
         mToolbarShadow.init(
-                ApiCompatibilityUtils.getColor(getResources(), R.color.toolbar_shadow_color),
-                FadingShadow.POSITION_TOP);
+                getContext().getColor(R.color.toolbar_shadow_color), FadingShadow.POSITION_TOP);
 
         delegate.addObserver(this);
         setToolbarShadowVisibility();
@@ -225,12 +233,10 @@ public class SelectableListLayout<E>
      * Initializes the view shown when the selectable list is empty.
      *
      * @param emptyStringResId The string to show when the selectable list is empty.
-     * @param searchEmptyStringResId The string to show when the selectable list is empty during
-     *                               a search.
      * @return The {@link TextView} displayed when the list is empty.
      */
-    public TextView initializeEmptyView(int emptyStringResId, int searchEmptyStringResId) {
-        setEmptyViewText(emptyStringResId, searchEmptyStringResId);
+    public TextView initializeEmptyView(int emptyStringResId) {
+        setEmptyViewText(emptyStringResId);
 
         // Dummy listener to have the touch events dispatched to this view tree for navigation UI.
         mEmptyViewWrapper.setOnTouchListener((v, event) -> true);
@@ -239,16 +245,59 @@ public class SelectableListLayout<E>
     }
 
     /**
+     * Initializes the empty state view with an image, heading, and subheading.
+     * @param imageResId Image view to show when the selectable list is empty.
+     * @param emptyHeadingStringResId Heading string to show when the selectable list is empty.
+     * @param emptySubheadingStringResId SubString to show when the selectable list is empty.
+     * @return The {@link TextView} displayed when the list is empty.
+     */
+    // @TODO: (crbugs.com/1443648) Refactor return value for ForTesting method
+    public TextView initializeEmptyStateView(
+            int imageResId, int emptyHeadingStringResId, int emptySubheadingStringResId) {
+        // Initialize and inflate empty state view stub.
+        ViewStub emptyViewStub = findViewById(R.id.empty_state_view_stub);
+        View emptyStateView = emptyViewStub.inflate();
+
+        // Initialize empty state resource.
+        mEmptyView = emptyStateView.findViewById(R.id.empty_state_text_title);
+        mEmptyStateSubHeadingView = emptyStateView.findViewById(R.id.empty_state_text_description);
+        mEmptyImageView = emptyStateView.findViewById(R.id.empty_state_icon);
+        mEmptyViewWrapper = emptyStateView.findViewById(R.id.empty_state_container);
+
+        // Set empty state properties.
+        setEmptyStateImageRes(imageResId);
+        setEmptyStateViewText(emptyHeadingStringResId, emptySubheadingStringResId);
+        return mEmptyView;
+    }
+
+    /**
+     * Sets the empty state view image when the selectable list is empty.
+     * @param imageResId The image view to show when the selectable list is empty.
+     */
+    public void setEmptyStateImageRes(int imageResId) {
+        mEmptyImageView.setImageResource(imageResId);
+    }
+
+    /**
      * Sets the view text when the selectable list is empty.
      * @param emptyStringResId The string to show when the selectable list is empty.
-     * @param searchEmptyStringResId The string to show when the selectable list is empty during
-     *                               a search.
      */
-    public void setEmptyViewText(int emptyStringResId, int searchEmptyStringResId) {
+    public void setEmptyViewText(int emptyStringResId) {
         mEmptyStringResId = emptyStringResId;
-        mSearchEmptyStringResId = searchEmptyStringResId;
 
         mEmptyView.setText(mEmptyStringResId);
+    }
+
+    /**
+     * Sets the view text when the selectable list is empty.
+     * @param emptyStringResId Heading string to show when the selectable list is empty.
+     * @param emptySubheadingStringResId SubString to show when the selectable list is empty.
+     */
+    public void setEmptyStateViewText(int emptyHeadingStringResId, int emptySubheadingStringResId) {
+        mEmptyStringResId = emptyHeadingStringResId;
+
+        mEmptyView.setText(mEmptyStringResId);
+        mEmptyStateSubHeadingView.setText(emptySubheadingStringResId);
     }
 
     /**
@@ -294,16 +343,29 @@ public class SelectableListLayout<E>
 
     @Override
     public void onSelectionStateChange(List<E> selectedItems) {
+        onBackPressStateChanged();
         setToolbarShadowVisibility();
     }
 
     /**
      * Called when a search is starting.
+     * @param searchEmptyStringResId The string to show when the selectable list is empty during a
+     *         search.
      */
-    public void onStartSearch() {
+    public void onStartSearch(@StringRes int searchEmptyStringResId) {
+        onStartSearch(getContext().getString(searchEmptyStringResId));
+    }
+
+    /**
+     * Called when a search is starting.
+     * @param searchEmptyString The string to show when the selectable list is empty during a
+     *         search.
+     */
+    public void onStartSearch(String searchEmptyString) {
         mRecyclerView.setItemAnimator(null);
         mToolbarShadow.setVisibility(View.VISIBLE);
-        mEmptyView.setText(mSearchEmptyStringResId);
+        mEmptyView.setText(searchEmptyString);
+        onBackPressStateChanged();
     }
 
     /**
@@ -313,6 +375,7 @@ public class SelectableListLayout<E>
         mRecyclerView.setItemAnimator(mItemAnimator);
         setToolbarShadowVisibility();
         mEmptyView.setText(mEmptyStringResId);
+        onBackPressStateChanged();
     }
 
     /**
@@ -384,5 +447,26 @@ public class SelectableListLayout<E>
         }
 
         return false;
+    }
+
+    @Override
+    public @BackPressResult int handleBackPress() {
+        var ret = onBackPressed();
+        assert ret;
+        return ret ? BackPressResult.SUCCESS : BackPressResult.FAILURE;
+    }
+
+    @Override
+    public ObservableSupplier<Boolean> getHandleBackPressChangedSupplier() {
+        return mBackPressStateSupplier;
+    }
+
+    private void onBackPressStateChanged() {
+        if (mToolbar == null) {
+            mBackPressStateSupplier.set(false);
+            return;
+        }
+        mBackPressStateSupplier.set(
+                mToolbar.getSelectionDelegate().isSelectionEnabled() || mToolbar.isSearching());
     }
 }

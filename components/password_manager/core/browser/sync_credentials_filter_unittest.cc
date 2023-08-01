@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,14 +10,17 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/user_action_tester.h"
 #include "base/test/scoped_feature_list.h"
+#include "components/autofill/core/browser/ui/suggestion.h"
 #include "components/password_manager/core/browser/fake_form_fetcher.h"
 #include "components/password_manager/core/browser/mock_password_store_interface.h"
+#include "components/password_manager/core/browser/mock_webauthn_credentials_delegate.h"
+#include "components/password_manager/core/browser/passkey_credential.h"
 #include "components/password_manager/core/browser/password_form.h"
 #include "components/password_manager/core/browser/password_form_manager.h"
 #include "components/password_manager/core/browser/password_manager_test_utils.h"
@@ -48,6 +51,8 @@ class FakePasswordManagerClient : public StubPasswordManagerClient {
             features::kPasswordReuseDetectionEnabled)) {
       return;
     }
+    ON_CALL(webauthn_credentials_delegate_, GetPasskeys)
+        .WillByDefault(testing::ReturnRef(passkeys_));
 
     // Initializes and configures prefs.
     prefs_ = std::make_unique<TestingPrefServiceSimple>();
@@ -76,6 +81,10 @@ class FakePasswordManagerClient : public StubPasswordManagerClient {
   signin::IdentityManager* GetIdentityManager() override {
     return identity_manager_;
   }
+  MockWebAuthnCredentialsDelegate* GetWebAuthnCredentialsDelegateForDriver(
+      password_manager::PasswordManagerDriver*) override {
+    return &webauthn_credentials_delegate_;
+  }
 
   void set_last_committed_entry_url(base::StringPiece url_spec) {
     last_committed_origin_ = url::Origin::Create(GURL(url_spec));
@@ -83,14 +92,16 @@ class FakePasswordManagerClient : public StubPasswordManagerClient {
 
   PrefService* GetPrefs() const override { return prefs_.get(); }
 
-  bool IsIncognito() const override { return is_incognito_; }
+  bool IsOffTheRecord() const override { return is_incognito_; }
 
-  void SetIsIncognito(bool is_incognito) { is_incognito_ = is_incognito; }
+  void SetIsOffTheRecord(bool is_incognito) { is_incognito_ = is_incognito; }
 
  private:
   url::Origin last_committed_origin_;
   scoped_refptr<testing::NiceMock<MockPasswordStoreInterface>> password_store_ =
       new testing::NiceMock<MockPasswordStoreInterface>;
+  MockWebAuthnCredentialsDelegate webauthn_credentials_delegate_;
+  absl::optional<std::vector<PasskeyCredential>> passkeys_;
   bool is_incognito_ = false;
   raw_ptr<signin::IdentityManager> identity_manager_;
   std::unique_ptr<TestingPrefServiceSimple> prefs_;
@@ -219,14 +230,15 @@ TEST_P(CredentialsFilterTest, ShouldSave_NotSignedIn) {
                   ->GetPrimaryAccountInfo(signin::ConsentLevel::kSync)
                   .IsEmpty());
   SetSyncingPasswords(false);
-  // If kEnablePasswordsAccountStorage is enabled, then Chrome shouldn't offer
-  // to save the password for the primary account. If there is no primary
-  // account yet, then the just-signed-in account will *become* the primary
-  // account immediately, so it shouldn't be saved either.
+  // See comments inside ShouldSave() for the justification.
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_IOS)
+  EXPECT_TRUE(filter_->ShouldSave(form));
+#else
   if (base::FeatureList::IsEnabled(features::kEnablePasswordsAccountStorage))
     EXPECT_FALSE(filter_->ShouldSave(form));
   else
     EXPECT_TRUE(filter_->ShouldSave(form));
+#endif
 }
 
 TEST_P(CredentialsFilterTest, ShouldSave_NotSyncCredential) {
@@ -276,7 +288,7 @@ TEST_P(CredentialsFilterTest, ShouldSaveGaiaPasswordHash) {
 }
 
 TEST_P(CredentialsFilterTest, ShouldNotSaveGaiaPasswordHashIncognito) {
-  client_->SetIsIncognito(true);
+  client_->SetIsOffTheRecord(true);
   PasswordForm gaia_form = SimpleGaiaForm("user@gmail.org");
   EXPECT_FALSE(filter_->ShouldSaveGaiaPasswordHash(gaia_form));
 
@@ -297,7 +309,7 @@ TEST_P(CredentialsFilterTest, ShouldSaveEnterprisePasswordHash) {
 }
 
 TEST_P(CredentialsFilterTest, ShouldNotSaveEnterprisePasswordHashIncognito) {
-  client_->SetIsIncognito(true);
+  client_->SetIsOffTheRecord(true);
   PasswordForm gaia_form = SimpleGaiaForm("user@gmail.org");
   EXPECT_FALSE(filter_->ShouldSaveEnterprisePasswordHash(gaia_form));
 
@@ -320,7 +332,7 @@ TEST_P(CredentialsFilterTest, IsSyncAccountEmail) {
 }
 
 TEST_P(CredentialsFilterTest, IsSyncAccountEmailIncognito) {
-  client_->SetIsIncognito(true);
+  client_->SetIsOffTheRecord(true);
   FakeSigninAs("user@gmail.com");
   EXPECT_FALSE(filter_->IsSyncAccountEmail("user"));
   EXPECT_FALSE(filter_->IsSyncAccountEmail("user2@gmail.com"));

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,14 @@
 
 #include <memory>
 
-#include "ash/components/cryptohome/system_salt_getter.h"
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "ash/constants/ash_switches.h"
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_command_line.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "chrome/browser/ash/login/demo_mode/demo_session.h"
 #include "chrome/browser/ash/login/demo_mode/demo_setup_test_utils.h"
@@ -22,10 +24,12 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/scoped_testing_local_state.h"
 #include "chrome/test/base/testing_browser_process.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/session_manager/session_manager_client.h"
-#include "chromeos/system/fake_statistics_provider.h"
-#include "chromeos/tpm/stub_install_attributes.h"
+#include "chromeos/ash/components/cryptohome/system_salt_getter.h"
+#include "chromeos/ash/components/dbus/dbus_thread_manager.h"
+#include "chromeos/ash/components/dbus/session_manager/session_manager_client.h"
+#include "chromeos/ash/components/install_attributes/stub_install_attributes.h"
+#include "chromeos/ash/components/system/fake_statistics_provider.h"
+#include "chromeos/constants/chromeos_features.h"
 #include "components/policy/core/common/cloud/mock_cloud_policy_store.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -37,10 +41,7 @@ namespace {
 using test::DemoModeSetupResult;
 using test::SetupDummyOfflinePolicyDir;
 using test::SetupMockDemoModeNoEnrollmentHelper;
-using test::SetupMockDemoModeOfflineEnrollmentHelper;
 using test::SetupMockDemoModeOnlineEnrollmentHelper;
-// TODO(https://crbug.com/1164001): remove after moving to ash::
-using ::chromeos::ScopedStubInstallAttributes;
 using ::testing::_;
 
 class DemoSetupControllerTestHelper {
@@ -141,6 +142,7 @@ class DemoSetupControllerTest : public testing::Test {
 
   std::unique_ptr<DemoSetupControllerTestHelper> helper_;
   std::unique_ptr<DemoSetupController> tested_controller_;
+  base::test::ScopedFeatureList feature_list_;
 
  private:
   base::test::TaskEnvironment task_environment_;
@@ -148,142 +150,6 @@ class DemoSetupControllerTest : public testing::Test {
   ScopedStubInstallAttributes test_install_attributes_;
   system::ScopedFakeStatisticsProvider statistics_provider_;
 };
-
-TEST_F(DemoSetupControllerTest, OfflineSuccess) {
-  base::ScopedTempDir temp_dir;
-  ASSERT_TRUE(SetupDummyOfflinePolicyDir("test", &temp_dir));
-  SetupMockDemoModeOfflineEnrollmentHelper(DemoModeSetupResult::SUCCESS);
-  policy::MockCloudPolicyStore mock_store;
-  EXPECT_CALL(mock_store, Store(_))
-      .WillOnce(testing::InvokeWithoutArgs(
-          &mock_store, &policy::MockCloudPolicyStore::NotifyStoreLoaded));
-  tested_controller_->SetDeviceLocalAccountPolicyStoreForTest(&mock_store);
-
-  tested_controller_->set_demo_config(DemoSession::DemoModeConfig::kOffline);
-  tested_controller_->SetPreinstalledOfflineResourcesPathForTesting(
-      temp_dir.GetPath());
-  tested_controller_->TryMountPreinstalledDemoResources(base::DoNothing());
-  tested_controller_->Enroll(
-      base::BindOnce(&DemoSetupControllerTestHelper::OnSetupSuccess,
-                     base::Unretained(helper_.get())),
-      base::BindOnce(&DemoSetupControllerTestHelper::OnSetupError,
-                     base::Unretained(helper_.get())),
-      base::BindRepeating(&DemoSetupControllerTestHelper::SetCurrentSetupStep,
-                          base::Unretained(helper_.get())));
-
-  EXPECT_TRUE(
-      helper_->WaitResult(true, DemoSetupController::DemoSetupStep::kComplete));
-  EXPECT_EQ("", GetDeviceRequisition());
-}
-
-TEST_F(DemoSetupControllerTest, OfflineDeviceLocalAccountPolicyStoreFailed) {
-  base::ScopedTempDir temp_dir;
-  ASSERT_TRUE(SetupDummyOfflinePolicyDir("test", &temp_dir));
-  SetupMockDemoModeOfflineEnrollmentHelper(DemoModeSetupResult::SUCCESS);
-
-  policy::MockCloudPolicyStore mock_store;
-  EXPECT_CALL(mock_store, Store(_))
-      .WillOnce(testing::InvokeWithoutArgs(
-          &mock_store, &policy::MockCloudPolicyStore::NotifyStoreError));
-  tested_controller_->SetDeviceLocalAccountPolicyStoreForTest(&mock_store);
-
-  tested_controller_->set_demo_config(DemoSession::DemoModeConfig::kOffline);
-  tested_controller_->SetPreinstalledOfflineResourcesPathForTesting(
-      temp_dir.GetPath());
-  tested_controller_->TryMountPreinstalledDemoResources(base::DoNothing());
-  tested_controller_->Enroll(
-      base::BindOnce(&DemoSetupControllerTestHelper::OnSetupSuccess,
-                     base::Unretained(helper_.get())),
-      base::BindOnce(&DemoSetupControllerTestHelper::OnSetupError,
-                     base::Unretained(helper_.get())),
-      base::BindRepeating(&DemoSetupControllerTestHelper::SetCurrentSetupStep,
-                          base::Unretained(helper_.get())));
-
-  EXPECT_TRUE(helper_->WaitResult(
-      false, DemoSetupController::DemoSetupStep::kDownloadResources));
-  EXPECT_TRUE(helper_->RequiresPowerwash());
-  EXPECT_EQ("", GetDeviceRequisition());
-}
-
-TEST_F(DemoSetupControllerTest, OfflineInvalidDeviceLocalAccountPolicyBlob) {
-  base::ScopedTempDir temp_dir;
-  ASSERT_TRUE(SetupDummyOfflinePolicyDir("", &temp_dir));
-  SetupMockDemoModeOfflineEnrollmentHelper(DemoModeSetupResult::SUCCESS);
-
-  tested_controller_->set_demo_config(DemoSession::DemoModeConfig::kOffline);
-  tested_controller_->SetPreinstalledOfflineResourcesPathForTesting(
-      temp_dir.GetPath());
-  tested_controller_->TryMountPreinstalledDemoResources(base::DoNothing());
-  tested_controller_->Enroll(
-      base::BindOnce(&DemoSetupControllerTestHelper::OnSetupSuccess,
-                     base::Unretained(helper_.get())),
-      base::BindOnce(&DemoSetupControllerTestHelper::OnSetupError,
-                     base::Unretained(helper_.get())),
-      base::BindRepeating(&DemoSetupControllerTestHelper::SetCurrentSetupStep,
-                          base::Unretained(helper_.get())));
-
-  EXPECT_TRUE(helper_->WaitResult(
-      false, DemoSetupController::DemoSetupStep::kDownloadResources));
-  EXPECT_TRUE(helper_->RequiresPowerwash());
-  EXPECT_EQ("", GetDeviceRequisition());
-}
-
-TEST_F(DemoSetupControllerTest, OfflineErrorDefault) {
-  base::ScopedTempDir temp_dir;
-  ASSERT_TRUE(SetupDummyOfflinePolicyDir("test", &temp_dir));
-
-  SetupMockDemoModeOfflineEnrollmentHelper(DemoModeSetupResult::ERROR_DEFAULT);
-
-  policy::MockCloudPolicyStore mock_store;
-  EXPECT_CALL(mock_store, Store(_)).Times(0);
-  tested_controller_->SetDeviceLocalAccountPolicyStoreForTest(&mock_store);
-
-  tested_controller_->set_demo_config(DemoSession::DemoModeConfig::kOffline);
-  tested_controller_->SetPreinstalledOfflineResourcesPathForTesting(
-      temp_dir.GetPath());
-  tested_controller_->TryMountPreinstalledDemoResources(base::DoNothing());
-  tested_controller_->Enroll(
-      base::BindOnce(&DemoSetupControllerTestHelper::OnSetupSuccess,
-                     base::Unretained(helper_.get())),
-      base::BindOnce(&DemoSetupControllerTestHelper::OnSetupError,
-                     base::Unretained(helper_.get())),
-      base::BindRepeating(&DemoSetupControllerTestHelper::SetCurrentSetupStep,
-                          base::Unretained(helper_.get())));
-
-  EXPECT_TRUE(helper_->WaitResult(
-      false, DemoSetupController::DemoSetupStep::kDownloadResources));
-  EXPECT_FALSE(helper_->RequiresPowerwash());
-  EXPECT_EQ("", GetDeviceRequisition());
-}
-
-TEST_F(DemoSetupControllerTest, OfflineErrorPowerwashRequired) {
-  base::ScopedTempDir temp_dir;
-  ASSERT_TRUE(SetupDummyOfflinePolicyDir("test", &temp_dir));
-
-  SetupMockDemoModeOfflineEnrollmentHelper(
-      DemoModeSetupResult::ERROR_POWERWASH_REQUIRED);
-
-  policy::MockCloudPolicyStore mock_store;
-  EXPECT_CALL(mock_store, Store(_)).Times(0);
-  tested_controller_->SetDeviceLocalAccountPolicyStoreForTest(&mock_store);
-
-  tested_controller_->set_demo_config(DemoSession::DemoModeConfig::kOffline);
-  tested_controller_->SetPreinstalledOfflineResourcesPathForTesting(
-      temp_dir.GetPath());
-  tested_controller_->TryMountPreinstalledDemoResources(base::DoNothing());
-  tested_controller_->Enroll(
-      base::BindOnce(&DemoSetupControllerTestHelper::OnSetupSuccess,
-                     base::Unretained(helper_.get())),
-      base::BindOnce(&DemoSetupControllerTestHelper::OnSetupError,
-                     base::Unretained(helper_.get())),
-      base::BindRepeating(&DemoSetupControllerTestHelper::SetCurrentSetupStep,
-                          base::Unretained(helper_.get())));
-
-  EXPECT_TRUE(helper_->WaitResult(
-      false, DemoSetupController::DemoSetupStep::kDownloadResources));
-  EXPECT_TRUE(helper_->RequiresPowerwash());
-  EXPECT_EQ("", GetDeviceRequisition());
-}
 
 TEST_F(DemoSetupControllerTest, OnlineSuccess) {
   SetupMockDemoModeOnlineEnrollmentHelper(DemoModeSetupResult::SUCCESS);
@@ -404,8 +270,9 @@ TEST_F(DemoSetupControllerTest, GetSubOrganizationEmail) {
 
   // Test other supported countries.
   const std::string testing_supported_countries[] = {
-      "US", "BE", "CA", "DK", "FI", "FR", "DE", "IE",
-      "IT", "JP", "LU", "NL", "NO", "ES", "SE", "GB"};
+      "US", "AT", "AU", "BE", "BR", "CA", "DE", "DK", "ES",
+      "FI", "FR", "GB", "IE", "IN", "IT", "JP", "LU", "MX",
+      "NL", "NO", "NZ", "PL", "PT", "SE", "ZA"};
 
   for (auto country : testing_supported_countries) {
     g_browser_process->local_state()->SetString(prefs::kDemoModeCountry,
@@ -458,6 +325,115 @@ TEST_F(DemoSetupControllerTest, GetSubOrganizationEmailWithLowercase) {
   email = DemoSetupController::GetSubOrganizationEmail();
   EXPECT_EQ(email, "");
 }
+
+TEST_F(DemoSetupControllerTest, GetSubOrganizationEmailForBlazeyDevice) {
+  feature_list_.InitAndEnableFeature(chromeos::features::kCloudGamingDevice);
+
+  std::string email;
+
+  // Test other supported countries.
+  const std::string testing_supported_countries[] = {
+      "US", "AT", "AU", "BE", "BR", "CA", "DE", "DK", "ES",
+      "FI", "FR", "GB", "IE", "IN", "IT", "JP", "LU", "MX",
+      "NL", "NO", "NZ", "PL", "PT", "SE", "ZA"};
+
+  for (auto country : testing_supported_countries) {
+    g_browser_process->local_state()->SetString(prefs::kDemoModeCountry,
+                                                country);
+    email = DemoSetupController::GetSubOrganizationEmail();
+
+    std::string country_lowercase = base::ToLowerASCII(country);
+    EXPECT_EQ(email, "admin-" + country_lowercase + "-blazey@" +
+                         policy::kDemoModeDomain);
+  }
+
+  // Test unsupported country string.
+  g_browser_process->local_state()->SetString(prefs::kDemoModeCountry, "KR");
+  email = DemoSetupController::GetSubOrganizationEmail();
+  EXPECT_EQ(email, "");
+
+  // Test unsupported region string.
+  g_browser_process->local_state()->SetString(prefs::kDemoModeCountry,
+                                              "NORDIC");
+  email = DemoSetupController::GetSubOrganizationEmail();
+  EXPECT_EQ(email, "");
+
+  // Test random string.
+  g_browser_process->local_state()->SetString(prefs::kDemoModeCountry, "foo");
+  email = DemoSetupController::GetSubOrganizationEmail();
+  EXPECT_EQ(email, "");
+}
+
+TEST_F(DemoSetupControllerTest, GetSubOrganizationEmailForCustomOU) {
+  base::test::ScopedCommandLine command_line;
+  command_line.GetProcessCommandLine()->AppendSwitchASCII(
+      switches::kDemoModeEnrollingUsername, "test-user-name");
+
+  std::string email = DemoSetupController::GetSubOrganizationEmail();
+  EXPECT_EQ(email, "test-user-name@cros-demo-mode.com");
+}
+
+TEST_F(DemoSetupControllerTest, OnlineSuccessWithValidRetailerAndStore) {
+  SetupMockDemoModeOnlineEnrollmentHelper(DemoModeSetupResult::SUCCESS);
+
+  tested_controller_->set_demo_config(DemoSession::DemoModeConfig::kOnline);
+  tested_controller_->SetAndCanonicalizeRetailerName("Retailer");
+  tested_controller_->set_store_number("1234");
+  tested_controller_->Enroll(
+      base::BindOnce(&DemoSetupControllerTestHelper::OnSetupSuccess,
+                     base::Unretained(helper_.get())),
+      base::BindOnce(&DemoSetupControllerTestHelper::OnSetupError,
+                     base::Unretained(helper_.get())),
+      base::BindRepeating(&DemoSetupControllerTestHelper::SetCurrentSetupStep,
+                          base::Unretained(helper_.get())));
+
+  EXPECT_TRUE(
+      helper_->WaitResult(true, DemoSetupController::DemoSetupStep::kComplete));
+  EXPECT_EQ("", GetDeviceRequisition());
+  EXPECT_EQ("retailer", g_browser_process->local_state()->GetString(
+                            prefs::kDemoModeRetailerId));
+  EXPECT_EQ("1234", g_browser_process->local_state()->GetString(
+                        prefs::kDemoModeStoreId));
+}
+
+struct RetailerNameCanonicalizationTestCase {
+  std::string retailer_name;
+  std::string canonicalized_retailer_name;
+};
+
+class RetailerNameCanonicalizationTest
+    : public DemoSetupControllerTest,
+      public ::testing::WithParamInterface<
+          RetailerNameCanonicalizationTestCase> {
+ public:
+  RetailerNameCanonicalizationTest() = default;
+  ~RetailerNameCanonicalizationTest() override = default;
+};
+
+TEST_P(RetailerNameCanonicalizationTest, SetAndCanonicalizeRetailerName) {
+  tested_controller_->SetAndCanonicalizeRetailerName(GetParam().retailer_name);
+  ASSERT_EQ(tested_controller_->get_retailer_name_for_testing(),
+            GetParam().canonicalized_retailer_name);
+}
+
+const RetailerNameCanonicalizationTestCase kRetailerNameTestCases[] = {
+    {"retailer", "retailer"},
+    {"RETAILER", "retailer"},
+    {"ReTaiLeR", "retailer"},
+    {"retailer with spaces", "retailerwithspaces"},
+    {"retailer' w:th $ymbols", "retailerwthymbols"},
+    // Don't remove numeric chars
+    {"r3ta1ler", "r3ta1ler"},
+    // Test various case-sensitive diacritics and non-latin characters
+    {"rétailër", "rétailër"},
+    {"RÉTAILËR", "rétailër"},
+    {"RÆTÅILØR", "rætåilør"},
+    {"بائع تجزئة", "بائعتجزئة"},
+    {"小売業者.com", "小売業者com"}};
+
+INSTANTIATE_TEST_SUITE_P(TestRetailerNameTransformations,
+                         RetailerNameCanonicalizationTest,
+                         testing::ValuesIn(kRetailerNameTestCases));
 
 }  // namespace
 }  //  namespace ash

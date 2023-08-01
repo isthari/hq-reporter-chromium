@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,31 +6,37 @@ package org.chromium.base.metrics;
 
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.is;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
-import static org.mockito.Mockito.verifyZeroInteractions;
 
 import androidx.test.filters.MediumTest;
 
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
+import org.chromium.base.Callback;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
 /** Unit tests for {@link CachingUmaRecorderTest}. */
 @RunWith(BaseRobolectricTestRunner.class)
+@SuppressWarnings("DoNotMock") // Ok to mock UmaRecorder since this is testing metrics.
 public final class CachingUmaRecorderTest {
     @Mock
     UmaRecorder mUmaRecorder;
@@ -46,7 +52,7 @@ public final class CachingUmaRecorderTest {
 
         cachingUmaRecorder.setDelegate(mUmaRecorder);
 
-        verifyZeroInteractions(mUmaRecorder);
+        verifyNoMoreInteractions(mUmaRecorder);
     }
 
     @Test
@@ -59,6 +65,17 @@ public final class CachingUmaRecorderTest {
                 "cachingUmaRecorderTest.recordBooleanHistogram", true);
         cachingUmaRecorder.recordBooleanHistogram(
                 "cachingUmaRecorderTest.recordBooleanHistogram", false);
+
+        assertEquals(3,
+                cachingUmaRecorder.getHistogramTotalCountForTesting(
+                        "cachingUmaRecorderTest.recordBooleanHistogram"));
+        assertEquals(2,
+                cachingUmaRecorder.getHistogramValueCountForTesting(
+                        "cachingUmaRecorderTest.recordBooleanHistogram", 1));
+        assertEquals(1,
+                cachingUmaRecorder.getHistogramValueCountForTesting(
+                        "cachingUmaRecorderTest.recordBooleanHistogram", 0));
+
         cachingUmaRecorder.setDelegate(mUmaRecorder);
 
         verify(mUmaRecorder, times(2))
@@ -73,6 +90,12 @@ public final class CachingUmaRecorderTest {
 
         cachingUmaRecorder.recordExponentialHistogram(
                 "cachingUmaRecorderTest.recordExponentialHistogram", 72, 1, 1000, 50);
+        assertEquals(1,
+                cachingUmaRecorder.getHistogramTotalCountForTesting(
+                        "cachingUmaRecorderTest.recordExponentialHistogram"));
+        assertEquals(1,
+                cachingUmaRecorder.getHistogramValueCountForTesting(
+                        "cachingUmaRecorderTest.recordExponentialHistogram", 72));
         cachingUmaRecorder.setDelegate(mUmaRecorder);
 
         verify(mUmaRecorder)
@@ -86,6 +109,13 @@ public final class CachingUmaRecorderTest {
 
         cachingUmaRecorder.recordLinearHistogram(
                 "cachingUmaRecorderTest.recordLinearHistogram", 72, 1, 1000, 50);
+        assertEquals(1,
+                cachingUmaRecorder.getHistogramTotalCountForTesting(
+                        "cachingUmaRecorderTest.recordLinearHistogram"));
+        assertEquals(1,
+                cachingUmaRecorder.getHistogramValueCountForTesting(
+                        "cachingUmaRecorderTest.recordLinearHistogram", 72));
+
         cachingUmaRecorder.setDelegate(mUmaRecorder);
 
         verify(mUmaRecorder)
@@ -99,6 +129,12 @@ public final class CachingUmaRecorderTest {
 
         cachingUmaRecorder.recordSparseHistogram(
                 "cachingUmaRecorderTest.recordSparseHistogram", 72);
+        assertEquals(1,
+                cachingUmaRecorder.getHistogramTotalCountForTesting(
+                        "cachingUmaRecorderTest.recordSparseHistogram"));
+        assertEquals(1,
+                cachingUmaRecorder.getHistogramValueCountForTesting(
+                        "cachingUmaRecorderTest.recordSparseHistogram", 72));
         cachingUmaRecorder.setDelegate(mUmaRecorder);
 
         verify(mUmaRecorder)
@@ -201,7 +237,7 @@ public final class CachingUmaRecorderTest {
         cachingUmaRecorder.setDelegate(new NoopUmaRecorder());
         cachingUmaRecorder.recordSparseHistogram("CachingUmaRecorderTest.stopOldDelegation", 72);
 
-        verifyZeroInteractions(mUmaRecorder);
+        verifyNoMoreInteractions(mUmaRecorder);
     }
 
     @Test
@@ -258,7 +294,7 @@ public final class CachingUmaRecorderTest {
 
         recordingThread.join();
         swappingThread.join();
-        verifyZeroInteractions(mUmaRecorder);
+        verifyNoMoreInteractions(mUmaRecorder);
     }
 
     @SuppressWarnings("ThreadPriorityCheck")
@@ -298,8 +334,6 @@ public final class CachingUmaRecorderTest {
         @Override
         public void recordExponentialHistogram(
                 String name, int sample, int min, int max, int numBuckets) {
-            // Ignore internal cache metrics.
-            if (name.startsWith("UMA.JavaCachingRecorder")) return;
             throw new UnsupportedOperationException();
         }
 
@@ -316,6 +350,31 @@ public final class CachingUmaRecorderTest {
 
         @Override
         public void recordUserAction(String name, long elapsedRealtimeMillis) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public int getHistogramValueCountForTesting(String name, int sample) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public int getHistogramTotalCountForTesting(String name) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public List<HistogramBucket> getHistogramSamplesForTesting(String name) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void addUserActionCallbackForTesting(Callback<String> callback) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void removeUserActionCallbackForTesting(Callback<String> callback) {
             throw new UnsupportedOperationException();
         }
     }
@@ -348,7 +407,7 @@ public final class CachingUmaRecorderTest {
             thread.join();
         }
         cachingRecorder.setDelegate(mUmaRecorder);
-        verifyZeroInteractions(mUmaRecorder);
+        verifyNoMoreInteractions(mUmaRecorder);
         for (int i = 0; i < numThreads; i++) {
             int actualSamples = 0;
             for (HistogramTestingUmaRecorder recorder : testingRecorders) {
@@ -387,8 +446,6 @@ public final class CachingUmaRecorderTest {
         @Override
         public void recordExponentialHistogram(
                 String name, int sample, int min, int max, int numBuckets) {
-            // Ignore internal cache metrics.
-            if (name.startsWith("UMA.JavaCachingRecorder")) return;
             throw new UnsupportedOperationException();
         }
 
@@ -406,6 +463,31 @@ public final class CachingUmaRecorderTest {
         @Override
         public void recordUserAction(String name, long elapsedRealtimeMillis) {
             recordedSamples.addAndGet((int) elapsedRealtimeMillis, 1);
+        }
+
+        @Override
+        public int getHistogramValueCountForTesting(String name, int sample) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public int getHistogramTotalCountForTesting(String name) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public List<HistogramBucket> getHistogramSamplesForTesting(String name) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void addUserActionCallbackForTesting(Callback<String> callback) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void removeUserActionCallbackForTesting(Callback<String> callback) {
+            throw new UnsupportedOperationException();
         }
     }
 
@@ -437,7 +519,7 @@ public final class CachingUmaRecorderTest {
             thread.join();
         }
         cachingRecorder.setDelegate(mUmaRecorder);
-        verifyZeroInteractions(mUmaRecorder);
+        verifyNoMoreInteractions(mUmaRecorder);
         for (int i = 0; i < numThreads; i++) {
             int actualSamples = 0;
             for (UserActionTestingUmaRecorder recorder : testingRecorders) {
@@ -459,5 +541,59 @@ public final class CachingUmaRecorderTest {
         });
         thread.start();
         return thread;
+    }
+
+    @Test
+    public void testUserActionCallbacksTriggeredWithoutDelegate() {
+        CachingUmaRecorder cachingRecorder = new CachingUmaRecorder();
+
+        AtomicInteger callbackCount = new AtomicInteger();
+        Callback<String> testCallback1 = (result) -> callbackCount.incrementAndGet();
+        cachingRecorder.addUserActionCallbackForTesting(testCallback1);
+
+        // Ensure that the callback is notified if attached to the caching recorder (will not
+        // be notified once a delegate is responsible).
+        Assert.assertEquals(0, callbackCount.get());
+        cachingRecorder.recordUserAction("TEST", 0);
+        Assert.assertEquals(1, callbackCount.get());
+        cachingRecorder.recordUserAction("TEST", 0);
+        Assert.assertEquals(2, callbackCount.get());
+
+        // Remove the callback and ensure it is no longer called.
+        cachingRecorder.removeUserActionCallbackForTesting(testCallback1);
+        Assert.assertEquals(2, callbackCount.get());
+        cachingRecorder.recordUserAction("TEST", 0);
+        Assert.assertEquals(2, callbackCount.get());
+    }
+
+    @Test
+    public void testUserActionCallbacksSwappedBetweenDelegates() {
+        CachingUmaRecorder cachingRecorder = new CachingUmaRecorder();
+
+        Callback<String> testCallback1 = (result) -> {};
+        Callback<String> testCallback2 = (result) -> {};
+        cachingRecorder.addUserActionCallbackForTesting(testCallback1);
+        cachingRecorder.addUserActionCallbackForTesting(testCallback2);
+
+        // Validate that previously added callbacks are passed to the new delegate.
+        UmaRecorder delegate1 = Mockito.mock(UmaRecorder.class);
+        cachingRecorder.setDelegate(delegate1);
+        verify(delegate1).addUserActionCallbackForTesting(testCallback1);
+        verify(delegate1).addUserActionCallbackForTesting(testCallback2);
+
+        // Validate that previously added callbacks are removed from the previous delegate, and
+        // passed to the new delegate.
+        UmaRecorder delegate2 = Mockito.mock(UmaRecorder.class);
+        cachingRecorder.setDelegate(delegate2);
+        verify(delegate1).removeUserActionCallbackForTesting(testCallback1);
+        verify(delegate1).removeUserActionCallbackForTesting(testCallback2);
+        verify(delegate2).addUserActionCallbackForTesting(testCallback1);
+        verify(delegate2).addUserActionCallbackForTesting(testCallback2);
+
+        // Ensure a callback added later is also added correctly.
+        Callback<String> testCallback3 = (result) -> {};
+        cachingRecorder.addUserActionCallbackForTesting(testCallback3);
+        verifyNoMoreInteractions(delegate1);
+        verify(delegate2).addUserActionCallbackForTesting(testCallback3);
     }
 }

@@ -1,19 +1,20 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/allocator/partition_allocator/tagging.h"
 
+#include "base/allocator/partition_allocator/partition_alloc_base/compiler_specific.h"
+#include "base/allocator/partition_allocator/partition_alloc_base/cpu.h"
 #include "base/allocator/partition_allocator/partition_alloc_check.h"
 #include "base/allocator/partition_allocator/partition_alloc_config.h"
-#include "base/cpu.h"
-#include "base/files/file_path.h"
-#include "base/native_library.h"
 #include "build/build_config.h"
 
-#if defined(PA_HAS_MEMORY_TAGGING)
+#if PA_CONFIG(HAS_MEMORY_TAGGING)
 #include <arm_acle.h>
+#include <asm/hwcap.h>
 #include <sys/auxv.h>
+#include <sys/ifunc.h>
 #include <sys/prctl.h>
 #define PR_SET_TAGGED_ADDR_CTRL 55
 #define PR_GET_TAGGED_ADDR_CTRL 56
@@ -40,25 +41,25 @@
 #endif
 
 #if BUILDFLAG(IS_ANDROID)
-#include "base/native_library.h"
+#include "base/allocator/partition_allocator/partition_alloc_base/files/file_path.h"
+#include "base/allocator/partition_allocator/partition_alloc_base/native_library.h"
 #endif  // BUILDFLAG(IS_ANDROID)
 
 namespace partition_alloc {
 
-#if defined(PA_HAS_MEMORY_TAGGING)
+#if PA_CONFIG(HAS_MEMORY_TAGGING)
 namespace {
 void ChangeMemoryTaggingModeInternal(unsigned prctl_mask) {
-  base::CPU cpu;
-  if (cpu.has_mte()) {
+  if (internal::base::CPU::GetInstanceNoAllocation().has_mte()) {
     int status = prctl(PR_SET_TAGGED_ADDR_CTRL, prctl_mask, 0, 0, 0);
     PA_CHECK(status == 0);
   }
 }
 }  // namespace
-#endif  // defined(PA_HAS_MEMORY_TAGGING)
+#endif  // PA_CONFIG(HAS_MEMORY_TAGGING)
 
 void ChangeMemoryTaggingModeForCurrentThread(TagViolationReportingMode m) {
-#if defined(PA_HAS_MEMORY_TAGGING)
+#if PA_CONFIG(HAS_MEMORY_TAGGING)
   if (m == TagViolationReportingMode::kSynchronous) {
     ChangeMemoryTaggingModeInternal(PR_TAGGED_ADDR_ENABLE | PR_MTE_TCF_SYNC |
                                     (0xfffe << PR_MTE_TAG_SHIFT));
@@ -68,7 +69,7 @@ void ChangeMemoryTaggingModeForCurrentThread(TagViolationReportingMode m) {
   } else {
     ChangeMemoryTaggingModeInternal(PR_TAGGED_ADDR_ENABLE | PR_MTE_TCF_NONE);
   }
-#endif  // defined(PA_HAS_MEMORY_TAGGING)
+#endif  // PA_CONFIG(HAS_MEMORY_TAGGING)
 }
 
 namespace internal {
@@ -76,7 +77,7 @@ namespace internal {
 #if BUILDFLAG(IS_ANDROID)
 void ChangeMemoryTaggingModeForAllThreadsPerProcess(
     TagViolationReportingMode m) {
-#if defined(PA_HAS_MEMORY_TAGGING)
+#if PA_CONFIG(HAS_MEMORY_TAGGING)
   // In order to support Android NDK API level below 26, we need to call
   // mallopt via dynamic linker.
   // int mallopt(int param, int value);
@@ -86,7 +87,8 @@ void ChangeMemoryTaggingModeForAllThreadsPerProcess(
     base::FilePath module_path;
     base::NativeLibraryLoadError load_error;
     base::FilePath library_path = module_path.Append("libc.so");
-    base::NativeLibrary library = LoadNativeLibrary(library_path, &load_error);
+    base::NativeLibrary library =
+        base::LoadNativeLibrary(library_path, &load_error);
     PA_CHECK(library);
     void* func_ptr =
         base::GetFunctionPointerFromNativeLibrary(library, "mallopt");
@@ -106,7 +108,7 @@ void ChangeMemoryTaggingModeForAllThreadsPerProcess(
                            M_HEAP_TAGGING_LEVEL_NONE);
   }
   PA_CHECK(status);
-#endif  // defined(PA_HAS_MEMORY_TAGGING)
+#endif  // PA_CONFIG(HAS_MEMORY_TAGGING)
 }
 #endif  // BUILDFLAG(IS_ANDROID)
 
@@ -119,19 +121,14 @@ namespace {
   return ret;
 }
 
-#if defined(PA_HAS_MEMORY_TAGGING)
-static bool HasCPUMemoryTaggingExtension() {
-  return base::CPU::GetInstanceNoAllocation().has_mte();
-}
-#endif  // defined(PA_HAS_MEMORY_TAGGING)
-
-#if defined(PA_HAS_MEMORY_TAGGING)
+#if PA_CONFIG(HAS_MEMORY_TAGGING)
 void* TagRegionRandomlyForMTE(void* ptr, size_t sz, uint64_t mask) {
   // Randomly tag a region (MTE-enabled systems only). The first 16-byte
   // granule is randomly tagged, all other granules in the region are
   // then assigned that initial tag via __arm_mte_set_tag.
-  if (!CheckTagRegionParameters(ptr, sz))
+  if (!CheckTagRegionParameters(ptr, sz)) {
     return nullptr;
+  }
   // __arm_mte_create_random_tag generates a randomly tagged pointer via the
   // hardware's random number generator, but does not apply it to the memory.
   char* nptr = reinterpret_cast<char*>(__arm_mte_create_random_tag(ptr, mask));
@@ -146,8 +143,9 @@ void* TagRegionRandomlyForMTE(void* ptr, size_t sz, uint64_t mask) {
 void* TagRegionIncrementForMTE(void* ptr, size_t sz) {
   // Increment a region's tag (MTE-enabled systems only), using the tag of the
   // first granule.
-  if (!CheckTagRegionParameters(ptr, sz))
+  if (!CheckTagRegionParameters(ptr, sz)) {
     return nullptr;
+  }
   // Increment ptr's tag.
   char* nptr = reinterpret_cast<char*>(__arm_mte_increment_tag(ptr, 1u));
   for (size_t i = 0; i < sz; i += kMemTagGranuleSize) {
@@ -158,13 +156,12 @@ void* TagRegionIncrementForMTE(void* ptr, size_t sz) {
 }
 
 void* RemaskVoidPtrForMTE(void* ptr) {
-  if (LIKELY(ptr)) {
+  if (PA_LIKELY(ptr)) {
     // Can't look up the tag for a null ptr (segfaults).
     return __arm_mte_get_tag(ptr);
   }
   return nullptr;
 }
-#endif
 
 void* TagRegionIncrementNoOp(void* ptr, size_t sz) {
   // Region parameters are checked even on non-MTE systems to check the
@@ -181,41 +178,70 @@ void* TagRegionRandomlyNoOp(void* ptr, size_t sz, uint64_t mask) {
 void* RemaskVoidPtrNoOp(void* ptr) {
   return ptr;
 }
+#endif
 
 }  // namespace
 
-void InitializeMTESupportIfNeeded() {
-#if defined(PA_HAS_MEMORY_TAGGING)
-  if (HasCPUMemoryTaggingExtension()) {
-    global_remask_void_ptr_fn = RemaskVoidPtrForMTE;
-    global_tag_memory_range_increment_fn = TagRegionIncrementForMTE;
-    global_tag_memory_range_randomly_fn = TagRegionRandomlyForMTE;
+#if PA_CONFIG(HAS_MEMORY_TAGGING)
+using RemaskPtrInternalFn = void*(void* ptr);
+using TagMemoryRangeIncrementInternalFn = void*(void* ptr, size_t size);
+
+using TagMemoryRangeRandomlyInternalFn = void*(void* ptr,
+                                               size_t size,
+                                               uint64_t mask);
+
+extern "C" TagMemoryRangeIncrementInternalFn(
+    *ResolveTagMemoryRangeIncrement(uint64_t hwcap, struct __ifunc_arg_t* hw)) {
+  if ((hwcap & _IFUNC_ARG_HWCAP) && (hw->_hwcap2 & HWCAP2_MTE)) {
+    return TagRegionIncrementForMTE;
   }
-#endif
+  return TagRegionIncrementNoOp;
 }
 
-RemaskPtrInternalFn* global_remask_void_ptr_fn = RemaskVoidPtrNoOp;
-TagMemoryRangeIncrementInternalFn* global_tag_memory_range_increment_fn =
-    TagRegionIncrementNoOp;
-TagMemoryRangeRandomlyInternalFn* global_tag_memory_range_randomly_fn =
-    TagRegionRandomlyNoOp;
+extern "C" TagMemoryRangeRandomlyInternalFn(
+    *ResolveTagMemoryRandomly(uint64_t hwcap, struct __ifunc_arg_t* hw)) {
+  if ((hwcap & _IFUNC_ARG_HWCAP) && (hw->_hwcap2 & HWCAP2_MTE)) {
+    return TagRegionRandomlyForMTE;
+  }
+  return TagRegionRandomlyNoOp;
+}
+
+extern "C" RemaskPtrInternalFn(
+    *ResolveRemaskPointer(uint64_t hwcap, struct __ifunc_arg_t* hw)) {
+  if ((hwcap & _IFUNC_ARG_HWCAP) && (hw->_hwcap2 & HWCAP2_MTE)) {
+    return RemaskVoidPtrForMTE;
+  }
+  return RemaskVoidPtrNoOp;
+}
+
+void* TagMemoryRangeIncrementInternal(void* ptr, size_t size)
+    __attribute__((ifunc("ResolveTagMemoryRangeIncrement")));
+void* TagMemoryRangeRandomlyInternal(void* ptr, size_t size, uint64_t mask)
+    __attribute__((ifunc("ResolveTagMemoryRandomly")));
+void* RemaskPointerInternal(void* ptr)
+    __attribute__((ifunc("ResolveRemaskPointer")));
+#endif // PA_CONFIG(HAS_MEMORY_TAGGING)
 
 TagViolationReportingMode GetMemoryTaggingModeForCurrentThread() {
-#if defined(PA_HAS_MEMORY_TAGGING)
+#if PA_CONFIG(HAS_MEMORY_TAGGING)
   base::CPU cpu;
   if (!cpu.has_mte()) {
     return TagViolationReportingMode::kUndefined;
   }
   int status = prctl(PR_GET_TAGGED_ADDR_CTRL, 0, 0, 0, 0);
   PA_CHECK(status >= 0);
-  if ((status & PR_TAGGED_ADDR_ENABLE) && (status & PR_MTE_TCF_SYNC)) {
-    return TagViolationReportingMode::kSynchronous;
-  }
+  // Check for Asynchronous first because ASYNC on Android sets both
+  // PR_MTE_TCF_ASYNC and PR_MTE_TCF_SYNC bits.
   if ((status & PR_TAGGED_ADDR_ENABLE) && (status & PR_MTE_TCF_ASYNC)) {
     return TagViolationReportingMode::kAsynchronous;
   }
-#endif  // defined(PA_HAS_MEMORY_TAGGING)
+  if ((status & PR_TAGGED_ADDR_ENABLE) && (status & PR_MTE_TCF_SYNC)) {
+    return TagViolationReportingMode::kSynchronous;
+  }
+  return TagViolationReportingMode::kDisabled;
+#else
   return TagViolationReportingMode::kUndefined;
+#endif  // PA_CONFIG(HAS_MEMORY_TAGGING)
 }
 
 }  // namespace internal

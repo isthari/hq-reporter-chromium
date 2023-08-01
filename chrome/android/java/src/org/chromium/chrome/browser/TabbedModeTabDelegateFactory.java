@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@ package org.chromium.chrome.browser;
 
 import android.app.Activity;
 
-import org.chromium.base.jank_tracker.JankTracker;
-import org.chromium.base.supplier.BooleanSupplier;
+import androidx.annotation.Nullable;
+
 import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.browser.app.tab_activity_glue.ActivityTabWebContentsDelegateAndroid;
 import org.chromium.chrome.browser.browser_controls.BrowserControlsStateProvider;
@@ -30,6 +30,7 @@ import org.chromium.chrome.browser.tab.TabStateBrowserControlsVisibilityDelegate
 import org.chromium.chrome.browser.tab.TabWebContentsDelegateAndroid;
 import org.chromium.chrome.browser.tabmodel.TabCreatorManager;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
+import org.chromium.chrome.browser.tasks.HomeSurfaceTracker;
 import org.chromium.chrome.browser.toolbar.top.Toolbar;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
 import org.chromium.chrome.browser.ui.native_page.NativePage;
@@ -65,10 +66,8 @@ public class TabbedModeTabDelegateFactory implements TabDelegateFactory {
     private final Supplier<Tab> mCurrentTabSupplier;
     private final ActivityLifecycleDispatcher mLifecycleDispatcher;
     private final WindowAndroid mWindowAndroid;
-    private final Supplier<Long> mLastUserInteractionTimeSupplier;
-    private final BooleanSupplier mHadWarmStartSupplier;
-    private final JankTracker mJankTracker;
     private final Supplier<Toolbar> mToolbarSupplier;
+    private final HomeSurfaceTracker mHomeSurfaceTracker;
 
     private NativePageFactory mNativePageFactory;
 
@@ -86,8 +85,7 @@ public class TabbedModeTabDelegateFactory implements TabDelegateFactory {
             Supplier<SnackbarManager> snackbarManagerSupplier,
             BrowserControlsManager browserControlsManager, Supplier<Tab> currentTabSupplier,
             ActivityLifecycleDispatcher lifecycleDispatcher, WindowAndroid windowAndroid,
-            Supplier<Long> lastUserInteractionTimeSupplier, BooleanSupplier hadWarmStartSupplier,
-            JankTracker jankTracker, Supplier<Toolbar> toolbarSupplier) {
+            Supplier<Toolbar> toolbarSupplier, @Nullable HomeSurfaceTracker homeSurfaceTracker) {
         mActivity = activity;
         mAppBrowserControlsVisibilityDelegate = appBrowserControlsVisibilityDelegate;
         mShareDelegateSupplier = shareDelegateSupplier;
@@ -107,10 +105,8 @@ public class TabbedModeTabDelegateFactory implements TabDelegateFactory {
         mCurrentTabSupplier = currentTabSupplier;
         mLifecycleDispatcher = lifecycleDispatcher;
         mWindowAndroid = windowAndroid;
-        mLastUserInteractionTimeSupplier = lastUserInteractionTimeSupplier;
-        mHadWarmStartSupplier = hadWarmStartSupplier;
-        mJankTracker = jankTracker;
         mToolbarSupplier = toolbarSupplier;
+        mHomeSurfaceTracker = homeSurfaceTracker;
     }
 
     @Override
@@ -150,8 +146,7 @@ public class TabbedModeTabDelegateFactory implements TabDelegateFactory {
             mNativePageFactory = new NativePageFactory(mActivity, mBottomSheetController,
                     mBrowserControlsManager, mCurrentTabSupplier, mSnackbarManagerSupplier,
                     mLifecycleDispatcher, mTabModelSelectorSupplier.get(), mShareDelegateSupplier,
-                    mWindowAndroid, mLastUserInteractionTimeSupplier, mHadWarmStartSupplier,
-                    mJankTracker, mToolbarSupplier);
+                    mWindowAndroid, mToolbarSupplier, mHomeSurfaceTracker);
         }
         return mNativePageFactory.createNativePage(url, candidatePage, tab);
     }

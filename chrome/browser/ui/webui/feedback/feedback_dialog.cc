@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 #include "base/logging.h"
 #include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
 #include "chrome/browser/profiles/keep_alive/profile_keep_alive_types.h"
-#include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/webui/feedback/feedback_handler.h"
 #include "chrome/common/webui_url_constants.h"
@@ -19,6 +19,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "extensions/common/api/feedback_private.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/views/view_class_properties.h"
 #include "ui/views/widget/widget.h"
 #include "url/gurl.h"
 
@@ -33,8 +34,7 @@ const int kDefaultHeight = 628;
 
 }  // namespace
 
-using extensions::api::feedback_private::FEEDBACK_FLOW_LOGIN;
-using extensions::api::feedback_private::FEEDBACK_FLOW_SADTABCRASH;
+using extensions::api::feedback_private::FeedbackFlow;
 using extensions::api::feedback_private::FeedbackInfo;
 
 // static
@@ -44,6 +44,9 @@ FeedbackDialog* FeedbackDialog::current_instance_ = nullptr;
 FeedbackDialog* FeedbackDialog::GetInstanceForTest() {
   return current_instance_;
 }
+
+DEFINE_CLASS_ELEMENT_IDENTIFIER_VALUE(FeedbackDialog,
+                                      kFeedbackDialogForTesting);
 
 // static
 void FeedbackDialog::CreateOrShow(
@@ -72,6 +75,10 @@ void FeedbackDialog::CreateOrShow(
       chrome::ShowWebDialog(nullptr, profile, current_instance_,
                             /*show=*/false);
   current_instance_->widget_ = views::Widget::GetWidgetForNativeWindow(window);
+  views::View* root = current_instance_->widget_->GetRootView();
+  if (root != nullptr) {
+    root->SetProperty(views::kElementIdentifierKey, kFeedbackDialogForTesting);
+  }
 }
 
 FeedbackDialog::FeedbackDialog(
@@ -80,7 +87,18 @@ FeedbackDialog::FeedbackDialog(
     : feedback_info_(info.ToValue()),
       feedback_flow_(info.flow),
       widget_(nullptr),
-      profile_keep_alive_(profile, ProfileKeepAliveOrigin::kFeedbackDialog) {
+      // We need to use GetOriginalProfile() here because `profile` may be an
+      // OTR Profile (when opening Feedback dialog on ChromeOS login screen, for
+      // example), and ScopedProfileKeepAlive only supports non-OTR Profiles.
+      // Trying to acquire a keepalive on the OTR Profile would trigger a
+      // DCHECK.
+      //
+      // TODO(crbug.com/1153922): Once OTR Profiles use refcounting, remove the
+      // call to GetOriginalProfile(). The OTR Profile will hold a keepalive on
+      // the regular Profile, so the ownership model will be more
+      // straightforward.
+      profile_keep_alive_(profile->GetOriginalProfile(),
+                          ProfileKeepAliveOrigin::kFeedbackDialog) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   set_can_resize(false);
   set_can_minimize(true);
@@ -96,13 +114,13 @@ ui::ModalType FeedbackDialog::GetDialogModalType() const {
   // On the login screen, set to Modal mode. Otherwise, this is not visible.
   // For other cases, set to none Modal mode so the user can navigate to
   // other windows.
-  return (feedback_flow_ == FEEDBACK_FLOW_LOGIN) ? ui::MODAL_TYPE_SYSTEM
-                                                 : ui::MODAL_TYPE_NONE;
+  return (feedback_flow_ == FeedbackFlow::kLogin) ? ui::MODAL_TYPE_SYSTEM
+                                                  : ui::MODAL_TYPE_NONE;
 }
 
 std::u16string FeedbackDialog::GetDialogTitle() const {
   return l10n_util::GetStringUTF16(
-      (feedback_flow_ == FEEDBACK_FLOW_SADTABCRASH)
+      (feedback_flow_ == FeedbackFlow::kSadTabCrash)
           ? IDS_FEEDBACK_REPORT_PAGE_TITLE_SAD_TAB_FLOW
           : IDS_FEEDBACK_REPORT_PAGE_TITLE);
 }
@@ -124,7 +142,7 @@ void FeedbackDialog::GetWebUIMessageHandlers(
 // chrome.getVariableValue('dialogArguments')
 std::string FeedbackDialog::GetDialogArgs() const {
   std::string data;
-  base::JSONWriter::Write(*feedback_info_, &data);
+  base::JSONWriter::Write(feedback_info_, &data);
   return data;
 }
 

@@ -1,10 +1,14 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.app.tabmodel;
 
+import org.chromium.base.Callback;
+import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
+import org.chromium.chrome.browser.compositor.overlays.strip.StripLayoutHelperManager.TabModelStartupInfo;
+import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorBase;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorImpl;
@@ -21,6 +25,8 @@ public abstract class TabModelOrchestrator {
     protected TabModelSelectorBase mTabModelSelector;
     protected TabPersistencePolicy mTabPersistencePolicy;
     private boolean mTabModelsInitialized;
+    private Callback<String> mOnStandardActiveIndexRead;
+    private ObservableSupplierImpl<TabModelStartupInfo> mTabModelStartupInfoSupplier;
 
     /**
      * @return Whether the tab models have been fully initialized.
@@ -34,6 +40,14 @@ public abstract class TabModelOrchestrator {
      */
     public TabModelSelectorBase getTabModelSelector() {
         return mTabModelSelector;
+    }
+
+    /**
+     * Sets {@link TabPersistentStore} for testing.
+     * @param tabPersistentStore The {@link TabPersistentStore}.
+     */
+    void setTabPersistentStoreForTesting(TabPersistentStore tabPersistentStore) {
+        mTabPersistentStore = tabPersistentStore;
     }
 
     /**
@@ -83,8 +97,12 @@ public abstract class TabModelOrchestrator {
      * Load the saved tab state. This should be called before any new tabs are created. The saved
      * tabs shall not be restored until {@link #restoreTabs} is called.
      * @param ignoreIncognitoFiles Whether to skip loading incognito tabs.
+     * @param onStandardActiveIndexRead The callback to be called when the active non-incognito Tab
+     *                                  is found.
      */
-    public void loadState(boolean ignoreIncognitoFiles) {
+    public void loadState(
+            boolean ignoreIncognitoFiles, Callback<String> onStandardActiveIndexRead) {
+        mOnStandardActiveIndexRead = onStandardActiveIndexRead;
         mTabPersistentStore.loadState(ignoreIncognitoFiles);
     }
 
@@ -142,13 +160,74 @@ public abstract class TabModelOrchestrator {
         return mTabPersistentStore.getRestoredTabCount();
     }
 
+    /**
+     * Sets whether to skip saving all of the non-active Ntps when serializing the Tab model meta
+     * data.
+     */
+    public void setSkipSavingNonActiveNtps(boolean skipSavingNonActiveNtps) {
+        mTabPersistentStore.setSkipSavingNonActiveNtps(skipSavingNonActiveNtps);
+    }
+
+    /**
+     * Sets the supplier for {@link TabModelStartupInfo} on startup.
+     * @param observableSupplier The {@link TabModelStartupInfo} supplier.
+     */
+    public void setStartupInfoObservableSupplier(
+            ObservableSupplierImpl<TabModelStartupInfo> observableSupplier) {
+        mTabModelStartupInfoSupplier = observableSupplier;
+    }
+
     protected void wireSelectorAndStore() {
         // Notify TabModelSelector when TabPersistentStore initializes tab state
         final TabPersistentStoreObserver persistentStoreObserver =
                 new TabPersistentStoreObserver() {
+                    int mStandardCount;
+                    int mIncognitoCount;
+                    int mStandardActiveIndex;
+                    int mIncognitoActiveIndex;
+
+                    {
+                        mStandardCount = 0;
+                        mIncognitoCount = 0;
+                        mStandardActiveIndex = Tab.INVALID_TAB_ID;
+                        mIncognitoActiveIndex = Tab.INVALID_TAB_ID;
+                    }
+
                     @Override
                     public void onStateLoaded() {
                         mTabModelSelector.markTabStateInitialized();
+                    }
+
+                    @Override
+                    public void onDetailsRead(int index, int id, String url,
+                            boolean isStandardActiveIndex, boolean isIncognitoActiveIndex,
+                            Boolean isIncognito) {
+                        if (isIncognito == null || !isIncognito.booleanValue()) {
+                            mStandardCount++;
+                        } else {
+                            mIncognitoCount++;
+                        }
+
+                        if (isStandardActiveIndex) {
+                            mStandardActiveIndex = index;
+                        } else if (isIncognitoActiveIndex) {
+                            mIncognitoActiveIndex = index;
+                        }
+
+                        if (mOnStandardActiveIndexRead != null && isStandardActiveIndex) {
+                            mOnStandardActiveIndexRead.onResult(url);
+                        }
+                    }
+
+                    @Override
+                    public void onInitialized(int tabCountAtStartup) {
+                        // Resets the callback once the read of the Tab state file is completed.
+                        mOnStandardActiveIndexRead = null;
+
+                        if (mTabModelStartupInfoSupplier != null) {
+                            mTabModelStartupInfoSupplier.set(new TabModelStartupInfo(mStandardCount,
+                                    mIncognitoCount, mStandardActiveIndex, mIncognitoActiveIndex));
+                        }
                     }
                 };
         mTabPersistentStore.addObserver(persistentStoreObserver);

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,9 +17,11 @@ class MockCompositorFrameSinkClient
   // mojom::blink::CompositorFrameSinkClient implementation:
   MOCK_METHOD1(DidReceiveCompositorFrameAck,
                void(WTF::Vector<viz::ReturnedResource>));
-  MOCK_METHOD2(OnBeginFrame,
+  MOCK_METHOD4(OnBeginFrame,
                void(const viz::BeginFrameArgs&,
-                    const WTF::HashMap<uint32_t, viz::FrameTimingDetails>&));
+                    const WTF::HashMap<uint32_t, viz::FrameTimingDetails>&,
+                    bool frame_ack,
+                    WTF::Vector<viz::ReturnedResource>));
   MOCK_METHOD1(ReclaimResources, void(WTF::Vector<viz::ReturnedResource>));
   MOCK_METHOD2(WillDrawSurface,
                void(const viz::LocalSurfaceId&, const gfx::Rect&));

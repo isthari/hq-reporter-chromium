@@ -1,10 +1,11 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 module device.mojom;
 
 import "device/gamepad/public/mojom/gamepad.mojom";
+import "device/vr/public/mojom/xr_session.mojom";
 import "mojo/public/mojom/base/big_buffer.mojom";
 import "mojo/public/mojom/base/time.mojom";
 import "gpu/ipc/common/mailbox_holder.mojom";
@@ -22,19 +23,18 @@ import "ui/gfx/mojom/transform.mojom";
 // Note on terminology: unless otherwise noted, all poses passed across mojo are
 // expressed in device space, aka mojo space, aka world space.
 
-// TODO(https://crbug.com/966099): Use EnableIf to only define values on
-// platforms that have implementations.
 // XRDeviceId is used in metrics, so don't reorder or reuse.
 enum XRDeviceId {
   WEB_TEST_DEVICE_ID = 0, // Fake device used by web_tests.
   FAKE_DEVICE_ID = 1, // Fake device used in unit tests.
   ORIENTATION_DEVICE_ID = 2,
-  GVR_DEVICE_ID = 3,
+  [EnableIf=enable_gvr_services] GVR_DEVICE_ID = 3,
   // OPENVR_DEVICE_ID = 4,
   // OCULUS_DEVICE_ID = 5,
   // WINDOWS_MIXED_REALITY_ID = 6,
-  ARCORE_DEVICE_ID = 7,
+  [EnableIf=enable_arcore] ARCORE_DEVICE_ID = 7,
   [EnableIf=enable_openxr] OPENXR_DEVICE_ID = 8,
+  [EnableIf=enable_cardboard] CARDBOARD_DEVICE_ID = 9,
 };
 
 enum XRHandedness {
@@ -49,27 +49,6 @@ enum XRTargetRayMode {
   TAPPING = 3
 };
 
-// These correspond with the features from the WebXR Spec:
-// https://immersive-web.github.io/webxr/#feature-descriptor
-enum XRSessionFeature {
-  REF_SPACE_VIEWER = 1,
-  REF_SPACE_LOCAL = 2,
-  REF_SPACE_LOCAL_FLOOR = 3,
-  REF_SPACE_BOUNDED_FLOOR = 4,
-  REF_SPACE_UNBOUNDED = 5,
-
-  DOM_OVERLAY = 6,
-  HIT_TEST = 7,
-  LIGHT_ESTIMATION = 8,
-  ANCHORS = 9,
-  CAMERA_ACCESS = 10,
-  PLANE_DETECTION = 11,
-  DEPTH = 12,
-  IMAGE_TRACKING = 13,
-  HAND_INPUT = 14,
-  SECONDARY_VIEWS = 15,
-};
-
 // These values are persisted to logs. Entries should not be renumbered and
 // numeric values should never be reused.
 // This enum corresponds to 'XRFeatureRequestStatus' in
@@ -79,16 +58,6 @@ enum XRSessionFeatureRequestStatus {
   kRequired = 1,
   kOptionalAccepted = 2,
   kOptionalRejected = 3,
-};
-
-// These values are persisted to logs. Entries should not be renumbered and
-// numeric values should never be reused.
-// These enum names come from the WebXR spec:
-// https://immersive-web.github.io/webxr/#xrsessionmode-enum
-enum XRSessionMode {
-  kInline = 1,
-  kImmersiveVr = 2,
-  kImmersiveAr = 3,
 };
 
 // These enum names come from the WebXR spec:
@@ -166,6 +135,9 @@ struct XRSessionOptions {
   // Must be present if either optional or required features contain
   // depth sensing API.
   XRDepthOptions? depth_options;
+
+  // ID of this request, used for tracing.
+  uint64 trace_id;
 };
 
 struct XRDepthConfig {
@@ -183,6 +155,11 @@ struct XRSessionDeviceConfig {
   // The default scale that should be applied to the native framebuffer size
   // unless overridden by the developer.
   float default_framebuffer_scale = 1.0;
+
+  // Information about all the views in the device at the time the session was
+  // created. Views may change on any frame, so the session should inspect
+  // subsequent views in XRFrameData on each frame.
+  array<XRView> views;
 
   // Indicates whether the device supports dynamic viewport scaling via
   // XRView.requestViewportScale which results in UpdateLayerBounds mojo calls.
@@ -217,9 +194,6 @@ struct XRSession {
   // TODO(http://crbug.com/842025) Move where the client_receiver gets set to the
   // device process then mark this as non-optional.
   pending_receiver<XRSessionClient>? client_receiver;
-  // TODO(http://crbug.com/842025) Move the information that is sent in display
-  // info to more sensible places so that this doesn't need to be sent here.
-  VRDisplayInfo display_info;
   XRPresentationConnection? submit_frame_sink;
 
   // Represents the set of requested features that are both supported by the
@@ -475,12 +449,6 @@ struct VRStageParameters {
   // no need to transform them by the accompanying standing transform) and
   // in a clockwise winding order.
   array<gfx.mojom.Point3F>? bounds;
-};
-
-struct VRDisplayInfo {
-  // Parameters required to distort a scene for viewing in a VR headset. Only
-  // required for devices which have the can_present capability.
-  array<XRView> views;
 };
 
 // Frame transport method from the Renderer's point of view.
@@ -1173,9 +1141,10 @@ interface XRPresentationProvider {
               mojo_base.mojom.TimeDelta time_waited);
 
   // XRPresentationTransportMethod SUBMIT_AS_TEXTURE_HANDLE
-  // TODO(https://crbug.com/676224): Support preprocessing of mojom files, since
-  // this is Windows only.
-  SubmitFrameWithTextureHandle(int16 frameId, handle<platform> texture);
+  // |texture| should only be used after |sync_token| has passed.
+  [EnableIf=is_win]
+  SubmitFrameWithTextureHandle(int16 frameId, handle<platform> texture,
+                               gpu.mojom.SyncToken sync_token);
 
   // XRPresentationTransportMethod DRAW_INTO_TEXTURE_MAILBOX
   SubmitFrameDrawnIntoTexture(int16 frameId, gpu.mojom.SyncToken sync_token,
@@ -1226,7 +1195,6 @@ enum XRVisibilityState {
 
 // Functions for pushing device information to the sessions.
 interface XRSessionClient {
-  OnChanged(VRDisplayInfo display);
   OnExitPresent();
   // Indicates a change in the visibility of the WebXR content.
   OnVisibilityStateChanged(XRVisibilityState visibility_state);

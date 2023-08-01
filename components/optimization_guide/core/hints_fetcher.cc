@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,9 +11,12 @@
 #include "base/feature_list.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/strings/strcat.h"
 #include "base/time/default_clock.h"
 #include "components/optimization_guide/core/hints_processing_util.h"
+#include "components/optimization_guide/core/optimization_guide_common.mojom.h"
 #include "components/optimization_guide/core/optimization_guide_features.h"
+#include "components/optimization_guide/core/optimization_guide_logger.h"
 #include "components/optimization_guide/core/optimization_guide_prefs.h"
 #include "components/optimization_guide/core/optimization_guide_switches.h"
 #include "components/optimization_guide/core/optimization_guide_util.h"
@@ -56,6 +59,10 @@ std::string GetStringNameForRequestContext(
       return "BatchUpdateActiveTabs";
     case proto::RequestContext::CONTEXT_BOOKMARKS:
       return "Bookmarks";
+    case proto::RequestContext::CONTEXT_JOURNEYS:
+      return "Journeys";
+    case proto::RequestContext::CONTEXT_NEW_TAB_PAGE:
+      return "NewTabPage";
   }
   NOTREACHED();
   return std::string();
@@ -75,13 +82,15 @@ void RecordRequestStatusHistogram(proto::RequestContext request_context,
 HintsFetcher::HintsFetcher(
     scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     const GURL& optimization_guide_service_url,
-    PrefService* pref_service)
+    PrefService* pref_service,
+    OptimizationGuideLogger* optimization_guide_logger)
     : optimization_guide_service_url_(net::AppendOrReplaceQueryParameter(
           optimization_guide_service_url,
           "key",
           features::GetOptimizationGuideServiceAPIKey())),
       pref_service_(pref_service),
-      time_clock_(base::DefaultClock::GetInstance()) {
+      time_clock_(base::DefaultClock::GetInstance()),
+      optimization_guide_logger_(optimization_guide_logger) {
   url_loader_factory_ = std::move(url_loader_factory);
   // Allow non-https scheme only when it is overridden in command line. This is
   // needed for iOS EG2 tests which don't support HTTPS embedded test servers
@@ -97,6 +106,7 @@ HintsFetcher::~HintsFetcher() {
   if (active_url_loader_) {
     if (hints_fetched_callback_)
       std::move(hints_fetched_callback_).Run(absl::nullopt);
+
     base::UmaHistogramExactLinear(
         "OptimizationGuide.HintsFetcher.GetHintsRequest."
         "ActiveRequestCanceled." +
@@ -107,9 +117,8 @@ HintsFetcher::~HintsFetcher() {
 
 // static
 void HintsFetcher::ClearHostsSuccessfullyFetched(PrefService* pref_service) {
-  DictionaryPrefUpdate hosts_fetched_list(
-      pref_service, prefs::kHintsFetcherHostsSuccessfullyFetched);
-  hosts_fetched_list->DictClear();
+  pref_service->SetDict(prefs::kHintsFetcherHostsSuccessfullyFetched,
+                        base::Value::Dict());
 }
 
 void HintsFetcher::SetTimeClockForTesting(const base::Clock* time_clock) {
@@ -132,10 +141,10 @@ bool HintsFetcher::WasHostCoveredByFetch(PrefService* pref_service,
     return false;
   }
 
-  DictionaryPrefUpdate hosts_fetched(
+  ScopedDictPrefUpdate hosts_fetched(
       pref_service, prefs::kHintsFetcherHostsSuccessfullyFetched);
   absl::optional<double> value =
-      hosts_fetched->FindDoubleKey(HashHostForDictionary(host));
+      hosts_fetched->FindDouble(HashHostForDictionary(host));
   if (!value)
     return false;
 
@@ -147,20 +156,19 @@ bool HintsFetcher::WasHostCoveredByFetch(PrefService* pref_service,
 // static
 void HintsFetcher::ClearSingleFetchedHost(PrefService* pref_service,
                                           const std::string& host) {
-  DictionaryPrefUpdate hosts_fetched_list(
+  ScopedDictPrefUpdate hosts_fetched_list(
       pref_service, prefs::kHintsFetcherHostsSuccessfullyFetched);
-  hosts_fetched_list->RemovePath(HashHostForDictionary(host));
+  hosts_fetched_list->RemoveByDottedPath(HashHostForDictionary(host));
 }
 
 // static
 void HintsFetcher::AddFetchedHostForTesting(PrefService* pref_service,
                                             const std::string& host,
                                             base::Time time) {
-  DictionaryPrefUpdate hosts_fetched_list(
+  ScopedDictPrefUpdate hosts_fetched_list(
       pref_service, prefs::kHintsFetcherHostsSuccessfullyFetched);
-  hosts_fetched_list->SetDoubleKey(
-      HashHostForDictionary(host),
-      time.ToDeltaSinceWindowsEpoch().InSecondsF());
+  hosts_fetched_list->Set(HashHostForDictionary(host),
+                          time.ToDeltaSinceWindowsEpoch().InSecondsF());
 }
 
 bool HintsFetcher::FetchOptimizationGuideServiceHints(
@@ -170,12 +178,17 @@ bool HintsFetcher::FetchOptimizationGuideServiceHints(
         optimization_types,
     optimization_guide::proto::RequestContext request_context,
     const std::string& locale,
+    bool skip_cache,
     HintsFetchedCallback hints_fetched_callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK_GT(optimization_types.size(), 0u);
   request_context_ = request_context;
 
   if (active_url_loader_) {
+    OPTIMIZATION_GUIDE_LOG(
+        optimization_guide_common::mojom::LogSource::HINTS,
+        optimization_guide_logger_,
+        "No hints fetched: HintsFetcher busy in another fetch");
     RecordRequestStatusHistogram(request_context_,
                                  HintsFetcherRequestStatus::kFetcherBusy);
     std::move(hints_fetched_callback).Run(absl::nullopt);
@@ -183,9 +196,12 @@ bool HintsFetcher::FetchOptimizationGuideServiceHints(
   }
 
   std::vector<std::string> filtered_hosts =
-      GetSizeLimitedHostsDueForHintsRefresh(hosts);
+      GetSizeLimitedHostsDueForHintsRefresh(hosts, skip_cache);
   std::vector<GURL> valid_urls = GetSizeLimitedURLsForFetching(urls);
   if (filtered_hosts.empty() && valid_urls.empty()) {
+    OPTIMIZATION_GUIDE_LOG(optimization_guide_common::mojom::LogSource::HINTS,
+                           optimization_guide_logger_,
+                           "No hints fetched: No hosts/URLs");
     RecordRequestStatusHistogram(
         request_context_, HintsFetcherRequestStatus::kNoHostsOrURLsToFetch);
     std::move(hints_fetched_callback).Run(absl::nullopt);
@@ -198,6 +214,9 @@ bool HintsFetcher::FetchOptimizationGuideServiceHints(
             valid_urls.size());
 
   if (optimization_types.empty()) {
+    OPTIMIZATION_GUIDE_LOG(optimization_guide_common::mojom::LogSource::HINTS,
+                           optimization_guide_logger_,
+                           "No hints fetched: No supported optimization types");
     RecordRequestStatusHistogram(
         request_context_,
         HintsFetcherRequestStatus::kNoSupportedOptimizationTypes);
@@ -216,10 +235,10 @@ bool HintsFetcher::FetchOptimizationGuideServiceHints(
 
   get_hints_request.set_context(request_context_);
 
-  *get_hints_request.mutable_active_field_trials() =
-      GetActiveFieldTrialsAllowedForFetch();
-
   get_hints_request.set_locale(locale);
+
+  *get_hints_request.mutable_origin_info() =
+      optimization_guide::GetClientOriginInfo();
 
   for (const auto& url : valid_urls)
     get_hints_request.add_urls()->set_url(url.spec());
@@ -238,20 +257,28 @@ bool HintsFetcher::FetchOptimizationGuideServiceHints(
           sender: "HintsFetcher"
           description:
             "Requests Hints from the Optimization Guide Service for use in "
-            "providing data saving and pageload optimizations for Chrome."
+            "providing metadata about page loads for Chrome for features such "
+            "as price tracking and trust information about the websites users "
+            "visit."
           trigger:
-            "Requested periodically if Data Saver is enabled and the browser "
-            "has Hints that are older than a threshold set by "
-            "the server."
-          data: "A list of the user's most engaged websites."
+            "Requested once per page load if user has consented to sending "
+            "URLs to Google to make browsing better and the browser does not "
+            "have a valid hint for the current page load."
+          data: "The URL and host of the current page load."
           destination: GOOGLE_OWNED_SERVICE
         }
         policy {
           cookies_allowed: NO
           setting:
-            "Users can control Data Saver on Android via 'Data Saver' setting. "
-            "Data Saver is not available on iOS."
-          policy_exception_justification: "Not implemented."
+            "Users can control this via the Make searches and browsing better' "
+            "under Settings > Sync and Google services > Make searches and "
+            "browsing better."
+          chrome_policy {
+            UrlKeyedAnonymizedDataCollectionEnabled {
+              policy_options {mode: MANDATORY}
+              UrlKeyedAnonymizedDataCollectionEnabled: false
+            }
+          }
         })");
 
   auto resource_request = std::make_unique<network::ResourceRequest>();
@@ -278,20 +305,13 @@ bool HintsFetcher::FetchOptimizationGuideServiceHints(
       "OptimizationGuide.HintsFetcher.GetHintsRequest.UrlCount",
       valid_urls.size());
 
-  // |active_url_loader_| should not retry on 5xx errors since the server may
-  // already be overloaded. |active_url_loader_| should retry on network changes
-  // since the network stack may receive the connection change event later than
-  // |this|.
-  static const int kMaxRetries = 1;
-  active_url_loader_->SetRetryOptions(
-      kMaxRetries, network::SimpleURLLoader::RETRY_ON_NETWORK_CHANGE);
-
   // It's safe to use |base::Unretained(this)| here because |this| owns
   // |active_url_loader_| and the callback will be canceled if
   // |active_url_loader_| is destroyed.
   active_url_loader_->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
       url_loader_factory_.get(),
-      base::BindOnce(&HintsFetcher::OnURLLoadComplete, base::Unretained(this)));
+      base::BindOnce(&HintsFetcher::OnURLLoadComplete, base::Unretained(this),
+                     skip_cache));
 
   hints_fetched_callback_ = std::move(hints_fetched_callback);
   hosts_fetched_ = filtered_hosts;
@@ -300,7 +320,8 @@ bool HintsFetcher::FetchOptimizationGuideServiceHints(
 
 void HintsFetcher::HandleResponse(const std::string& get_hints_response_data,
                                   int net_status,
-                                  int response_code) {
+                                  int response_code,
+                                  bool skip_cache) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   std::unique_ptr<proto::GetHintsResponse> get_hints_response =
@@ -329,6 +350,15 @@ void HintsFetcher::HandleResponse(const std::string& get_hints_response_data,
         "OptimizationGuide.HintsFetcher.GetHintsRequest.FetchLatency." +
             GetStringNameForRequestContext(request_context_),
         fetch_latency);
+    if (skip_cache) {
+      RecordRequestStatusHistogram(request_context_,
+                                   HintsFetcherRequestStatus::kSuccess);
+      std::move(hints_fetched_callback_).Run(std::move(get_hints_response));
+
+      return;
+    }
+
+    // Check cache duration and update.
     base::TimeDelta valid_duration =
         features::StoredFetchedHintsFreshnessDuration();
     if (get_hints_response->has_max_cache_duration()) {
@@ -354,19 +384,19 @@ void HintsFetcher::UpdateHostsSuccessfullyFetched(
     return;
   }
 
-  DictionaryPrefUpdate hosts_fetched_list(
+  ScopedDictPrefUpdate hosts_fetched_list(
       pref_service_, prefs::kHintsFetcherHostsSuccessfullyFetched);
 
   // Remove any expired hosts.
   std::vector<std::string> entries_to_remove;
-  for (auto it : hosts_fetched_list->DictItems()) {
+  for (auto it : *hosts_fetched_list) {
     if (base::Time::FromDeltaSinceWindowsEpoch(
             base::Seconds(it.second.GetDouble())) < time_clock_->Now()) {
       entries_to_remove.emplace_back(it.first);
     }
   }
   for (const auto& host : entries_to_remove) {
-    hosts_fetched_list->RemovePath(host);
+    hosts_fetched_list->RemoveByDottedPath(host);
   }
 
   if (hosts_fetched_.empty())
@@ -374,36 +404,37 @@ void HintsFetcher::UpdateHostsSuccessfullyFetched(
 
   // Ensure there is enough space in the dictionary pref for the
   // most recent set of hosts to be stored.
-  if (hosts_fetched_list->DictSize() + hosts_fetched_.size() >
+  if (hosts_fetched_list->size() + hosts_fetched_.size() >
       features::MaxHostsForRecordingSuccessfullyCovered()) {
     entries_to_remove.clear();
     size_t num_entries_to_remove =
-        hosts_fetched_list->DictSize() + hosts_fetched_.size() -
+        hosts_fetched_list->size() + hosts_fetched_.size() -
         features::MaxHostsForRecordingSuccessfullyCovered();
-    for (auto it : hosts_fetched_list->DictItems()) {
+    for (auto it : *hosts_fetched_list) {
       if (entries_to_remove.size() >= num_entries_to_remove)
         break;
       entries_to_remove.emplace_back(it.first);
     }
     for (const auto& host : entries_to_remove) {
-      hosts_fetched_list->RemovePath(host);
+      hosts_fetched_list->RemoveByDottedPath(host);
     }
   }
 
   // Add the covered hosts in |hosts_fetched_| to the dictionary pref.
   base::Time host_invalid_time = time_clock_->Now() + valid_duration;
   for (const std::string& host : hosts_fetched_) {
-    hosts_fetched_list->SetDoubleKey(
+    hosts_fetched_list->Set(
         HashHostForDictionary(host),
         host_invalid_time.ToDeltaSinceWindowsEpoch().InSecondsF());
   }
-  DCHECK_LE(hosts_fetched_list->DictSize(),
+  DCHECK_LE(hosts_fetched_list->size(),
             features::MaxHostsForRecordingSuccessfullyCovered());
   hosts_fetched_.clear();
 }
 
 // Callback is only invoked if |active_url_loader_| is bound and still alive.
 void HintsFetcher::OnURLLoadComplete(
+    bool skip_cache,
     std::unique_ptr<std::string> response_body) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -418,7 +449,8 @@ void HintsFetcher::OnURLLoadComplete(
   // handling may destroy |this|.
   active_url_loader_.reset();
 
-  HandleResponse(response_body ? *response_body : "", net_error, response_code);
+  HandleResponse(response_body ? *response_body : "", net_error, response_code,
+                 skip_cache);
 }
 
 // Returns the subset of URLs from |urls| for which the URL is considered
@@ -433,20 +465,35 @@ std::vector<GURL> HintsFetcher::GetSizeLimitedURLsForFetching(
           "OptimizationGuide.HintsFetcher.GetHintsRequest.DroppedUrls." +
               GetStringNameForRequestContext(request_context_),
           urls.size() - i);
+      OPTIMIZATION_GUIDE_LOG(
+          optimization_guide_common::mojom::LogSource::HINTS,
+          optimization_guide_logger_,
+          base::StrCat({"Skipped adding URL due to limit, context:",
+                        GetStringNameForRequestContext(request_context_),
+                        " URL:", urls[i].possibly_invalid_spec()}));
       break;
     }
-    if (IsValidURLForURLKeyedHint(urls[i]))
+    if (IsValidURLForURLKeyedHint(urls[i])) {
       valid_urls.push_back(urls[i]);
+    } else {
+      OPTIMIZATION_GUIDE_LOG(
+          optimization_guide_common::mojom::LogSource::HINTS,
+          optimization_guide_logger_,
+          base::StrCat({"Skipped adding invalid URL, context:",
+                        GetStringNameForRequestContext(request_context_),
+                        " URL:", urls[i].possibly_invalid_spec()}));
+    }
   }
   return valid_urls;
 }
 
 std::vector<std::string> HintsFetcher::GetSizeLimitedHostsDueForHintsRefresh(
-    const std::vector<std::string>& hosts) const {
+    const std::vector<std::string>& hosts,
+    bool skip_cache) const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  DictionaryPrefUpdate hosts_fetched(
-      pref_service_, prefs::kHintsFetcherHostsSuccessfullyFetched);
+  const base::Value::Dict& hosts_fetched =
+      pref_service_->GetDict(prefs::kHintsFetcherHostsSuccessfullyFetched);
 
   std::vector<std::string> target_hosts;
   target_hosts.reserve(hosts.size());
@@ -469,13 +516,21 @@ std::vector<std::string> HintsFetcher::GetSizeLimitedHostsDueForHintsRefresh(
     std::string canonicalized_host(net::CanonicalizeHost(host, &host_info));
     if (host_info.IsIPAddress() ||
         !net::IsCanonicalizedHostCompliant(canonicalized_host)) {
+      OPTIMIZATION_GUIDE_LOG(
+          optimization_guide_common::mojom::LogSource::HINTS,
+          optimization_guide_logger_,
+          base::StrCat({"Skipped adding invalid host:", host}));
+      continue;
+    }
+    if (skip_cache) {
+      target_hosts.push_back(host);
       continue;
     }
 
     bool host_hints_due_for_refresh = true;
 
     absl::optional<double> value =
-        hosts_fetched->FindDoubleKey(HashHostForDictionary(host));
+        hosts_fetched.FindDouble(HashHostForDictionary(host));
     if (value && optimization_guide::features::ShouldPersistHintsToDisk()) {
       base::Time host_valid_time =
           base::Time::FromDeltaSinceWindowsEpoch(base::Seconds(*value));
@@ -483,8 +538,14 @@ std::vector<std::string> HintsFetcher::GetSizeLimitedHostsDueForHintsRefresh(
           (host_valid_time - features::GetHostHintsFetchRefreshDuration() <=
            time_clock_->Now());
     }
-    if (host_hints_due_for_refresh)
+    if (host_hints_due_for_refresh) {
       target_hosts.push_back(host);
+    } else {
+      OPTIMIZATION_GUIDE_LOG(
+          optimization_guide_common::mojom::LogSource::HINTS,
+          optimization_guide_logger_,
+          base::StrCat({"Skipped refreshing hints for host:", host}));
+    }
   }
   DCHECK_GE(features::MaxHostsForOptimizationGuideServiceHintsFetch(),
             target_hosts.size());

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,6 @@ import static org.chromium.chrome.browser.browserservices.TrustedWebActivityTest
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
-import android.os.Build;
 
 import androidx.browser.customtabs.CustomTabsIntent;
 import androidx.browser.customtabs.TrustedWebUtils;
@@ -34,24 +33,22 @@ import org.chromium.base.CommandLine;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.metrics.RecordHistogram;
+import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.cc.input.BrowserControlsState;
 import org.chromium.chrome.browser.app.metrics.LaunchCauseMetrics;
 import org.chromium.chrome.browser.customtabs.CustomTabActivity;
 import org.chromium.chrome.browser.customtabs.CustomTabActivityTestRule;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabBrowserControlsConstraintsHelper;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.util.ChromeTabUtils;
-import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
 import org.chromium.chrome.test.util.browser.ThemeTestUtils;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.content_public.common.ContentSwitches;
@@ -68,6 +65,7 @@ import java.util.concurrent.TimeoutException;
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
+@Batch(Batch.PER_CLASS)
 public class TrustedWebActivityTest {
     // TODO(peconn): Add test for navigating away from the trusted origin.
     public CustomTabActivityTestRule mCustomTabActivityTestRule = new CustomTabActivityTestRule();
@@ -133,7 +131,6 @@ public class TrustedWebActivityTest {
 
     @Test
     @MediumTest
-    @DisableFeatures(ChromeFeatureList.TRUSTED_WEB_ACTIVITY_QUALITY_ENFORCEMENT_FORCED)
     public void leavesTwa_VerificationFailure() throws TimeoutException {
         Intent intent = createTrustedWebActivityIntent(mTestPage);
         createSession(intent, PACKAGE_NAME);
@@ -151,7 +148,6 @@ public class TrustedWebActivityTest {
     @Test
     @MediumTest
     @Feature({"StatusBar"})
-    @MinAndroidSdkLevel(Build.VERSION_CODES.LOLLIPOP_MR1)
     @Restriction({UiRestriction.RESTRICTION_TYPE_PHONE})
     // Customizing status bar color is disallowed for tablets.
     public void testStatusBarColorHasPageThemeColor() throws ExecutionException, TimeoutException {
@@ -173,7 +169,6 @@ public class TrustedWebActivityTest {
     @Test
     @MediumTest
     @Feature({"StatusBar"})
-    @MinAndroidSdkLevel(Build.VERSION_CODES.LOLLIPOP_MR1)
     @Restriction({UiRestriction.RESTRICTION_TYPE_PHONE})
     public void testStatusBarColorNoPageThemeColor() throws ExecutionException, TimeoutException {
         final String pageWithThemeColor = mEmbeddedTestServerRule.getServer().getURL(
@@ -204,9 +199,7 @@ public class TrustedWebActivityTest {
     @Test
     @MediumTest
     @Feature({"StatusBar"})
-    @MinAndroidSdkLevel(Build.VERSION_CODES.LOLLIPOP_MR1)
     @Restriction({UiRestriction.RESTRICTION_TYPE_PHONE})
-    @DisabledTest(message = "https://crbug.com/1111997")
     public void testStatusBarColorCertificateError() throws ExecutionException, TimeoutException {
         final String pageWithThemeColor = mEmbeddedTestServerRule.getServer().getURL(
                 "/chrome/test/data/android/theme_color_test.html");
@@ -228,8 +221,7 @@ public class TrustedWebActivityTest {
 
         int defaultColor = TestThreadUtils.runOnUiThreadBlocking(
                 () -> ThemeTestUtils.getDefaultThemeColor(activity.getActivityTab()));
-        int expectedColor =
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? defaultColor : Color.BLACK;
+        int expectedColor = defaultColor;
         // Use longer-than-default timeout to give page time to finish loading.
         ThemeTestUtils.waitForThemeColor(activity, defaultColor, 10000 /* timeoutMs */);
         ThemeTestUtils.assertStatusBarColor(activity, expectedColor);
@@ -248,7 +240,7 @@ public class TrustedWebActivityTest {
      */
     @Test
     @MediumTest
-    @DisabledTest(message = "https://crbug.com/1111997")
+    @DisabledTest(message = "https://crbug.com/1112720")
     public void testToolbarVisibleCertificateError() throws ExecutionException, TimeoutException {
         final String pageWithoutCertError =
                 mEmbeddedTestServerRule.getServer().getURL("/chrome/test/data/android/about.html");

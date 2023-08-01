@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,5 +15,5 @@ public interface OverrideUrlLoadingDelegate {
      * Returns true if the delegate will handle loading for the given parameters.
      */
     boolean willHandleLoadUrlWithPostData(String url, @PageTransition int transition,
-            String postDataType, byte[] postData, boolean incognito);
+            long inputStart, String postDataType, byte[] postData, boolean incognito);
 }

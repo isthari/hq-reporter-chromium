@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,7 +45,7 @@ TEST(NumberFormattingTest, FormatNumber) {
   }
 }
 
-TEST(NumberFormattingTest, FormatDouble) {
+TEST(NumberFormattingTest, FormatDoubleWithFixedFractionalDigits) {
   static const struct {
     double number;
     int frac_digits;
@@ -91,6 +91,55 @@ TEST(NumberFormattingTest, FormatDouble) {
   }
 }
 
+TEST(NumberFormattingTest, FormatDoubleWithFractionalDigitRange) {
+  static const struct {
+    double number;
+    int min_frac_digits;
+    int max_frac_digits;
+    const char* expected_english;
+    const char* expected_german;
+  } cases[] = {
+    {0.0, 0, 0, "0", "0"},
+#if !BUILDFLAG(IS_ANDROID)
+    // Bionic can't printf negative zero correctly.
+    {-0.0, 0, 4, "-0", "-0"},
+#endif
+    {1024.2, 0, 0, "1,024", "1.024"},
+    {-1024.223, 0, 2, "-1,024.22", "-1.024,22"},
+    {std::numeric_limits<double>::max(), 0, 6,
+     "179,769,313,486,231,570,000,000,000,000,000,000,000,000,000,000,000,"
+     "000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,"
+     "000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,"
+     "000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,"
+     "000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,"
+     "000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,000,"
+     "000",
+     "179.769.313.486.231.570.000.000.000.000.000.000.000.000.000.000.000."
+     "000.000.000.000.000.000.000.000.000.000.000.000.000.000.000.000.000."
+     "000.000.000.000.000.000.000.000.000.000.000.000.000.000.000.000.000."
+     "000.000.000.000.000.000.000.000.000.000.000.000.000.000.000.000.000."
+     "000.000.000.000.000.000.000.000.000.000.000.000.000.000.000.000.000."
+     "000.000.000.000.000.000.000.000.000.000.000.000.000.000.000.000.000."
+     "000"},
+    {std::numeric_limits<double>::min(), 2, 2, "0.00", "0,00"},
+    {-42.7, 0, 3, "-42.7", "-42,7"},
+  };
+
+  test::ScopedRestoreICUDefaultLocale restore_locale;
+  for (const auto& i : cases) {
+    i18n::SetICUDefaultLocale("en");
+    ResetFormattersForTesting();
+    EXPECT_EQ(i.expected_english,
+              UTF16ToUTF8(FormatDouble(i.number, i.min_frac_digits,
+                                       i.max_frac_digits)));
+    i18n::SetICUDefaultLocale("de");
+    ResetFormattersForTesting();
+    EXPECT_EQ(i.expected_german,
+              UTF16ToUTF8(FormatDouble(i.number, i.min_frac_digits,
+                                       i.max_frac_digits)));
+  }
+}
+
 TEST(NumberFormattingTest, FormatPercent) {
   static const struct {
     int64_t number;
@@ -107,11 +156,11 @@ TEST(NumberFormattingTest, FormatPercent) {
     const char* expected_arabic;
     const char* expected_arabic_egypt;
   } cases[] = {
-      {0, "0%", u8"0\u00a0%", u8"\u06f0\u066a", u8"0\u200e%\u200e",
-       u8"\u0660\u066a\u061c"},
-      {42, "42%", "42\u00a0%", u8"\u06f4\u06f2\u066a", u8"42\u200e%\u200e",
+      {0, "0%", "0\u00a0%", "\u06f0\u066a", "0\u200e%\u200e",
+       "\u0660\u066a\u061c"},
+      {42, "42%", "42\u00a0%", "\u06f4\u06f2\u066a", "42\u200e%\u200e",
        "\u0664\u0662\u066a\u061c"},
-      {1024, "1,024%", "1.024\u00a0%", u8"\u06f1\u066c\u06f0\u06f2\u06f4\u066a",
+      {1024, "1,024%", "1.024\u00a0%", "\u06f1\u066c\u06f0\u06f2\u06f4\u066a",
        "1,024\u200e%\u200e", "\u0661\u066c\u0660\u0662\u0664\u066a\u061c"},
   };
 

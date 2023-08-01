@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,9 @@ import org.chromium.base.ContextUtils;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.DeferredStartupHandler;
 import org.chromium.chrome.browser.IntentHandler;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.media.ui.ChromeMediaNotificationManager;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabUtils;
@@ -65,6 +67,22 @@ public class ChromeMediaRouterClient extends MediaRouterClient {
         FragmentActivity currentActivity =
                 (FragmentActivity) ApplicationStatus.getLastTrackedFocusedActivity();
         return currentActivity == null ? null : currentActivity.getSupportFragmentManager();
+    }
+
+    @Override
+    public void addDeferredTask(Runnable deferredTask) {
+        DeferredStartupHandler.getInstance().addDeferredTask(deferredTask);
+        DeferredStartupHandler.getInstance().queueDeferredTasksOnIdleHandler();
+    }
+
+    @Override
+    public boolean isCafMrpDeferredDiscoveryEnabled() {
+        return ChromeFeatureList.isEnabled(ChromeFeatureList.CAF_MRP_DEFERRED_DISCOVERY);
+    }
+
+    @Override
+    public boolean isCastAnotherContentWhileCastingEnabled() {
+        return ChromeFeatureList.isEnabled(ChromeFeatureList.CAST_ANOTHER_CONTENT_WHILE_CASTING);
     }
 
     @CalledByNative

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "components/gwp_asan/client/guarded_page_allocator.h"
 #include "components/gwp_asan/client/sampling_state.h"
 #include "components/gwp_asan/common/crash_key_name.h"
+#include "components/gwp_asan/common/lightweight_detector.h"
 
 namespace gwp_asan {
 namespace internal {
@@ -26,11 +27,14 @@ SamplingState<PARTITIONALLOC> sampling_state;
 // for every access.
 GuardedPageAllocator* gpa = nullptr;
 
-bool AllocationHook(void** out, int flags, size_t size, const char* type_name) {
+bool AllocationHook(void** out,
+                    unsigned int flags,
+                    size_t size,
+                    const char* type_name) {
   if (UNLIKELY(sampling_state.Sample())) {
     // Ignore allocation requests with unknown flags.
-    constexpr int kKnownFlags =
-        base::PartitionAllocReturnNull | base::PartitionAllocZeroFill;
+    constexpr int kKnownFlags = partition_alloc::AllocFlags::kReturnNull |
+                                partition_alloc::AllocFlags::kZeroFill;
     if (flags & ~kKnownFlags)
       return false;
 
@@ -65,23 +69,34 @@ GWP_ASAN_EXPORT GuardedPageAllocator& GetPartitionAllocGpaForTesting() {
   return *gpa;
 }
 
+void QuarantineHook(void* address, size_t size) {
+  gpa->RecordLightweightDeallocation(address, size);
+}
+
 void InstallPartitionAllocHooks(
     size_t max_allocated_pages,
     size_t num_metadata,
     size_t total_pages,
     size_t sampling_frequency,
-    GuardedPageAllocator::OutOfMemoryCallback callback) {
+    GuardedPageAllocator::OutOfMemoryCallback callback,
+    LightweightDetector::State lightweight_detector_state,
+    size_t num_lightweight_detector_metadata) {
   static crash_reporter::CrashKeyString<24> pa_crash_key(
       kPartitionAllocCrashKey);
   gpa = new GuardedPageAllocator();
   gpa->Init(max_allocated_pages, num_metadata, total_pages, std::move(callback),
-            true);
+            true, lightweight_detector_state,
+            num_lightweight_detector_metadata);
   pa_crash_key.Set(gpa->GetCrashKey());
   sampling_state.Init(sampling_frequency);
   // TODO(vtsyrklevich): Allow SetOverrideHooks to be passed in so we can hook
   // PDFium's PartitionAlloc fork.
-  base::PartitionAllocHooks::SetOverrideHooks(&AllocationHook, &FreeHook,
-                                              &ReallocHook);
+  partition_alloc::PartitionAllocHooks::SetOverrideHooks(
+      &AllocationHook, &FreeHook, &ReallocHook);
+  if (lightweight_detector_state == LightweightDetector::State::kEnabled) {
+    partition_alloc::PartitionAllocHooks::SetQuarantineOverrideHook(
+        &QuarantineHook);
+  }
 }
 
 }  // namespace internal

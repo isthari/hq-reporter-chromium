@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -106,7 +106,7 @@ TEST_F(ResourceTest, RevalidationFailed) {
   const char kData[5] = "abcd";
   resource->AppendData(kData, 4);
   resource->FinishForTest();
-  GetMemoryCache()->Add(resource);
+  MemoryCache::Get()->Add(resource);
 
   // Simulate revalidation start.
   resource->SetRevalidatingRequest(ResourceRequest(url));
@@ -122,7 +122,7 @@ TEST_F(ResourceTest, RevalidationFailed) {
   EXPECT_FALSE(resource->IsCacheValidator());
   EXPECT_EQ(200, resource->GetResponse().HttpStatusCode());
   EXPECT_FALSE(resource->ResourceBuffer());
-  EXPECT_EQ(resource, GetMemoryCache()->ResourceForURL(url));
+  EXPECT_EQ(resource, MemoryCache::Get()->ResourceForURL(url));
 
   resource->AppendData(kData, 4);
 
@@ -147,7 +147,7 @@ TEST_F(ResourceTest, RevalidationSucceeded) {
   const char kData[5] = "abcd";
   resource->AppendData(kData, 4);
   resource->FinishForTest();
-  GetMemoryCache()->Add(resource);
+  MemoryCache::Get()->Add(resource);
 
   // Simulate a successful revalidation.
   resource->SetRevalidatingRequest(ResourceRequest(url));
@@ -163,9 +163,9 @@ TEST_F(ResourceTest, RevalidationSucceeded) {
   EXPECT_FALSE(resource->IsCacheValidator());
   EXPECT_EQ(200, resource->GetResponse().HttpStatusCode());
   EXPECT_EQ(4u, resource->ResourceBuffer()->size());
-  EXPECT_EQ(resource, GetMemoryCache()->ResourceForURL(url));
+  EXPECT_EQ(resource, MemoryCache::Get()->ResourceForURL(url));
 
-  GetMemoryCache()->Remove(resource);
+  MemoryCache::Get()->Remove(resource);
 
   resource->RemoveClient(client);
   EXPECT_FALSE(resource->IsAlive());
@@ -181,7 +181,7 @@ TEST_F(ResourceTest, RevalidationSucceededForResourceWithoutBody) {
   response.SetHttpStatusCode(200);
   resource->ResponseReceived(response);
   resource->FinishForTest();
-  GetMemoryCache()->Add(resource);
+  MemoryCache::Get()->Add(resource);
 
   // Simulate a successful revalidation.
   resource->SetRevalidatingRequest(ResourceRequest(url));
@@ -196,8 +196,8 @@ TEST_F(ResourceTest, RevalidationSucceededForResourceWithoutBody) {
   EXPECT_FALSE(resource->IsCacheValidator());
   EXPECT_EQ(200, resource->GetResponse().HttpStatusCode());
   EXPECT_FALSE(resource->ResourceBuffer());
-  EXPECT_EQ(resource, GetMemoryCache()->ResourceForURL(url));
-  GetMemoryCache()->Remove(resource);
+  EXPECT_EQ(resource, MemoryCache::Get()->ResourceForURL(url));
+  MemoryCache::Get()->Remove(resource);
 
   resource->RemoveClient(client);
   EXPECT_FALSE(resource->IsAlive());
@@ -219,7 +219,7 @@ TEST_F(ResourceTest, RevalidationSucceededUpdateHeaders) {
   response.AddHttpHeaderField("x-custom", "custom value");
   resource->ResponseReceived(response);
   resource->FinishForTest();
-  GetMemoryCache()->Add(resource);
+  MemoryCache::Get()->Add(resource);
 
   // Simulate a successful revalidation.
   resource->SetRevalidatingRequest(ResourceRequest(url));
@@ -293,7 +293,7 @@ TEST_F(ResourceTest, RedirectDuringRevalidation) {
   const char kData[5] = "abcd";
   resource->AppendData(kData, 4);
   resource->FinishForTest();
-  GetMemoryCache()->Add(resource);
+  MemoryCache::Get()->Add(resource);
 
   EXPECT_FALSE(resource->IsCacheValidator());
   EXPECT_EQ(url, resource->GetResourceRequest().Url());
@@ -335,7 +335,7 @@ TEST_F(ResourceTest, RedirectDuringRevalidation) {
   EXPECT_FALSE(resource->IsCacheValidator());
   EXPECT_EQ(200, resource->GetResponse().HttpStatusCode());
   EXPECT_EQ(3u, resource->ResourceBuffer()->size());
-  EXPECT_EQ(resource, GetMemoryCache()->ResourceForURL(url));
+  EXPECT_EQ(resource, MemoryCache::Get()->ResourceForURL(url));
 
   EXPECT_TRUE(client->NotifyFinishedCalled());
 
@@ -350,7 +350,7 @@ TEST_F(ResourceTest, RedirectDuringRevalidation) {
 
   EXPECT_TRUE(client2->NotifyFinishedCalled());
 
-  GetMemoryCache()->Remove(resource);
+  MemoryCache::Get()->Remove(resource);
 
   resource->RemoveClient(client);
   resource->RemoveClient(client2);
@@ -433,6 +433,36 @@ TEST_F(ResourceTest, StaleWhileRevalidateCacheControlWithRedirect) {
   EXPECT_TRUE(resource->StaleRevalidationRequested());
 }
 
+TEST_F(ResourceTest, FreshnessLifetime) {
+  const KURL url("http://127.0.0.1:8000/foo.html");
+  const KURL redirect_target_url("http://127.0.0.1:8000/food.html");
+  ResourceResponse response(url);
+  response.SetHttpHeaderField(http_names::kCacheControl, "max-age=50");
+  response.SetHttpStatusCode(200);
+
+  auto* resource = MakeGarbageCollected<MockResource>(url);
+  resource->ResponseReceived(response);
+  resource->FinishForTest();
+  EXPECT_EQ(resource->FreshnessLifetime(), base::Seconds(50));
+
+  // The revalidating request is redirected.
+  ResourceResponse redirect_response(url);
+  redirect_response.SetHttpHeaderField(
+      "location", AtomicString(redirect_target_url.GetString()));
+  redirect_response.SetHttpStatusCode(302);
+  redirect_response.SetHttpHeaderField(http_names::kCacheControl, "max-age=10");
+  redirect_response.SetAsyncRevalidationRequested(true);
+  ResourceRequest redirected_revalidating_request(redirect_target_url);
+
+  auto* resource_redirected = MakeGarbageCollected<MockResource>(url);
+  resource_redirected->WillFollowRedirect(redirected_revalidating_request,
+                                          redirect_response);
+  resource_redirected->ResponseReceived(response);
+  resource_redirected->FinishForTest();
+
+  EXPECT_EQ(resource_redirected->FreshnessLifetime(), base::Seconds(10));
+}
+
 // This is a regression test for https://crbug.com/1062837.
 TEST_F(ResourceTest, DefaultOverheadSize) {
   const KURL url("http://127.0.0.1:8000/foo.html");
@@ -456,7 +486,7 @@ TEST_F(ResourceTest, GarbageCollection) {
   ResourceResponse response(url);
   resource->ResponseReceived(response);
   resource->FinishForTest();
-  GetMemoryCache()->Add(resource);
+  MemoryCache::Get()->Add(resource);
 
   // Add a client.
   Persistent<MockResourceClient> client =

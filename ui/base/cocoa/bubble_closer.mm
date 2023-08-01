@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,17 +6,25 @@
 
 #import <AppKit/AppKit.h>
 
+#include <memory>
+
+#include "base/memory/weak_ptr.h"
+
 namespace ui {
+
+struct BubbleCloser::ObjCStorage {
+  id event_tap = nil;  // Weak. Owned by AppKit.
+};
 
 BubbleCloser::BubbleCloser(NSWindow* window,
                            base::RepeatingClosure on_click_outside)
-    : on_click_outside_(std::move(on_click_outside)), factory_(this) {
-  // Capture a WeakPtr via NSObject. This allows the block to detect another
-  // event monitor for the same event deleting |this|.
-  WeakPtrNSObject* handle = factory_.handle();
+    : on_click_outside_(std::move(on_click_outside)),
+      objc_storage_(std::make_unique<ObjCStorage>()) {
+  // Capture a WeakPtr. This allows the block to detect another event monitor
+  // for the same event deleting |this|.
+  base::WeakPtr<BubbleCloser> weak_ptr = factory_.GetWeakPtr();
 
   // Note that |window| will be retained when captured by the block below.
-  // |this| is captured, but not retained.
   auto block = ^NSEvent*(NSEvent* event) {
     NSWindow* event_window = [event window];
     if ([event_window isSheet])
@@ -38,18 +46,20 @@ BubbleCloser::BubbleCloser(NSWindow* window,
       ancestor = [ancestor parentWindow];
     }
 
-    if (BubbleCloser* owner = WeakPtrNSObjectFactory<BubbleCloser>::Get(handle))
-      owner->OnClickOutside();
+    if (weak_ptr) {
+      weak_ptr->OnClickOutside();
+    }
+
     return event;
   };
-  event_tap_ =
-      [NSEvent addLocalMonitorForEventsMatchingMask:NSLeftMouseDownMask |
-                                                    NSRightMouseDownMask
+  objc_storage_->event_tap =
+      [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown |
+                                                    NSEventMaskRightMouseDown
                                             handler:block];
 }
 
 BubbleCloser::~BubbleCloser() {
-  [NSEvent removeMonitor:event_tap_];
+  [NSEvent removeMonitor:objc_storage_->event_tap];
 }
 
 void BubbleCloser::OnClickOutside() {

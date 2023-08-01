@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -89,11 +89,14 @@ const char kTabIndexNotFoundError[] = "No tab at index: *.";
 const char kNotFoundNextPageError[] = "Cannot find a next page in history.";
 const char kTabNotFoundError[] = "No tab with id: *.";
 const char kCannotDiscardTab[] = "Cannot discard tab with id: *.";
+const char kCannotDuplicateTab[] = "Cannot duplicate tab with id: *.";
 const char kCannotFindTabToDiscard[] = "Cannot find a tab to discard.";
 const char kTabStripNotEditableError[] =
     "Tabs cannot be edited right now (user may be dragging a tab).";
 const char kTabStripNotEditableQueryError[] =
     "Tabs cannot be queried right now (user may be dragging a tab).";
+const char kTabStripDoesNotSupportTabGroupsError[] =
+    "Grouping is not supported by tabs in this window.";
 const char kNoSelectedTabError[] = "No selected tab";
 const char kNoHighlightedTabError[] = "No highlighted tab";
 const char kIncognitoModeIsDisabled[] = "Incognito mode is disabled.";
@@ -106,6 +109,9 @@ const char kNotImplementedError[] = "This call is not yet implemented";
 const char kSupportedInWindowsOnlyError[] = "Supported in Windows only";
 const char kInvalidWindowTypeError[] = "Invalid value for type";
 const char kInvalidWindowStateError[] = "Invalid value for state";
+const char kInvalidWindowBoundsError[] =
+    "Invalid value for bounds. Bounds must be at least 50% within visible "
+    "screen space.";
 const char kScreenshotsDisabled[] = "Taking screenshots has been disabled";
 const char kScreenshotsDisabledByDlp[] =
     "Administrator policy disables screen capture when confidential content is "

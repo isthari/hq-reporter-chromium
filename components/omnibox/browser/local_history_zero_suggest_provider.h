@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,9 +19,6 @@ class AutocompleteProviderListener;
 namespace history {
 class QueryResults;
 }  // namespace history
-
-extern const int kLocalHistoryZPSAuthenticatedRelevance;
-extern const int kLocalHistoryZPSUnauthenticatedRelevance;
 
 // Autocomplete provider for on-focus zero-prefix query suggestions from local
 // history when Google is the default search engine.
@@ -63,9 +60,6 @@ class LocalHistoryZeroSuggestProvider : public AutocompleteProvider {
 
   // Client for accessing TemplateUrlService, prefs, etc.
   const raw_ptr<AutocompleteProviderClient> client_;
-
-  // Listener to notify when matches are available.
-  const raw_ptr<AutocompleteProviderListener> listener_;
 
   // Used for the async tasks querying the HistoryService.
   base::CancelableTaskTracker history_task_tracker_;

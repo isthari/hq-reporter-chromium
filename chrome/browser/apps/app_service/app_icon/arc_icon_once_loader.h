@@ -1,4 +1,4 @@
-// Copyright (c) 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,10 +11,11 @@
 #include <string>
 #include <utility>
 
-#include "base/callback_forward.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_icon_descriptor.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_icon_factory.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
+#include "base/functional/callback_forward.h"
+#include "base/memory/raw_ptr.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_icon_descriptor.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_icon_factory.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_list_prefs.h"
 #include "components/services/app_service/public/cpp/icon_types.h"
 
 class ArcAppIcon;
@@ -87,8 +88,8 @@ class ArcIconOnceLoader : public ArcAppListPrefs::Observer {
   // |pending_requests_| to load icons.
   void MaybeLoadPendingIconRequest();
 
-  Profile* const profile_;
-  bool stop_observing_called_;
+  const raw_ptr<Profile, ExperimentalAsh> profile_;
+  bool stop_observing_called_ = false;
   std::map<SizeAndType, std::unique_ptr<SizeSpecificLoader>>
       size_specific_loaders_;
 

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "base/test/test_reg_util_win.h"
 #include "base/win/registry.h"
 #include "build/branding_buildflags.h"
+#include "chrome/browser/chrome_for_testing/buildflags.h"
 #include "chrome/browser/prefs/browser_prefs.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
@@ -62,7 +63,7 @@ class PlatformStateStoreWinTest : public ::testing::Test {
     RegisterUserProfilePrefs(prefs->registry());
     profile_ = profile_manager_.CreateTestingProfile(
         kProfileName_, std::move(prefs), base::UTF8ToUTF16(kProfileName_), 0,
-        std::string(), TestingProfile::TestingFactories(),
+        TestingProfile::TestingFactories(), /*is_supervised_profile=*/false,
         absl::optional<bool>(new_profile));
     if (new_profile)
       ASSERT_TRUE(profile_->IsNewProfile());
@@ -117,6 +118,9 @@ const char PlatformStateStoreWinTest::kProfileName_[] = "test_profile";
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
 const wchar_t PlatformStateStoreWinTest::kStoreKeyName_[] =
     L"Software\\Google\\Chrome\\IncidentsSent";
+#elif BUILDFLAG(GOOGLE_CHROME_FOR_TESTING_BRANDING)
+const wchar_t PlatformStateStoreWinTest::kStoreKeyName_[] =
+    L"Software\\Google\\Chrome for Testing\\IncidentsSent";
 #else
 const wchar_t PlatformStateStoreWinTest::kStoreKeyName_[] =
     L"Software\\Chromium\\IncidentsSent";

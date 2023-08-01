@@ -1,9 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "services/network/socket_factory.h"
 
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -20,6 +21,8 @@
 #include "net/ssl/ssl_config.h"
 #include "net/ssl/ssl_config_service.h"
 #include "net/url_request/url_request_context.h"
+#include "services/network/public/cpp/simple_host_resolver.h"
+#include "services/network/restricted_udp_socket.h"
 #include "services/network/tls_client_socket.h"
 #include "services/network/udp_socket.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -35,11 +38,12 @@ SocketFactory::SocketFactory(net::NetLog* net_log,
     client_socket_factory_ =
         url_request_context->GetNetworkSessionContext()->client_socket_factory;
   }
-  if (!client_socket_factory_)
+  if (!client_socket_factory_) {
     client_socket_factory_ = net::ClientSocketFactory::GetDefaultFactory();
+  }
 }
 
-SocketFactory::~SocketFactory() {}
+SocketFactory::~SocketFactory() = default;
 
 void SocketFactory::CreateUDPSocket(
     mojo::PendingReceiver<mojom::UDPSocket> receiver,
@@ -49,22 +53,72 @@ void SocketFactory::CreateUDPSocket(
       std::move(receiver));
 }
 
+void SocketFactory::CreateRestrictedUDPSocket(
+    const net::IPEndPoint& addr,
+    mojom::RestrictedUDPSocketMode mode,
+    const net::MutableNetworkTrafficAnnotationTag& traffic_annotation,
+    mojom::RestrictedUDPSocketParamsPtr params,
+    mojo::PendingReceiver<mojom::RestrictedUDPSocket> receiver,
+    mojo::PendingRemote<mojom::UDPSocketListener> listener,
+    std::unique_ptr<SimpleHostResolver> resolver,
+    mojom::NetworkContext::CreateRestrictedUDPSocketCallback callback) {
+  auto udp_socket = std::make_unique<UDPSocket>(std::move(listener), net_log_);
+  switch (mode) {
+    case mojom::RestrictedUDPSocketMode::BOUND:
+      udp_socket->Bind(addr, /*options=*/
+                       params ? std::move(params->socket_options) : nullptr,
+                       std::move(callback));
+      break;
+    case mojom::RestrictedUDPSocketMode::CONNECTED:
+      udp_socket->Connect(addr, /*options=*/
+                          params ? std::move(params->socket_options) : nullptr,
+                          std::move(callback));
+      break;
+  }
+  auto restricted_udp_socket = std::make_unique<RestrictedUDPSocket>(
+      std::move(udp_socket), traffic_annotation, std::move(resolver));
+#if BUILDFLAG(IS_CHROMEOS)
+  if (params && params->connection_tracker) {
+    restricted_udp_socket->AttachConnectionTracker(
+        std::move(params->connection_tracker));
+  }
+#endif  // BUILDFLAG(IS_CHROMEOS)
+  restricted_udp_socket_receivers_.Add(std::move(restricted_udp_socket),
+                                       std::move(receiver));
+}
+
 void SocketFactory::CreateTCPServerSocket(
     const net::IPEndPoint& local_addr,
-    int backlog,
+    mojom::TCPServerSocketOptionsPtr options,
     const net::NetworkTrafficAnnotationTag& traffic_annotation,
     mojo::PendingReceiver<mojom::TCPServerSocket> receiver,
     mojom::NetworkContext::CreateTCPServerSocketCallback callback) {
   auto socket =
       std::make_unique<TCPServerSocket>(this, net_log_, traffic_annotation);
-  net::IPEndPoint local_addr_out;
-  int result = socket->Listen(local_addr, backlog, &local_addr_out);
-  if (result != net::OK) {
-    std::move(callback).Run(result, absl::nullopt);
+#if BUILDFLAG(IS_CHROMEOS)
+  if (options->connection_tracker) {
+    socket->AttachConnectionTracker(std::move(options->connection_tracker));
+  }
+#endif  // BUILDFLAG(IS_CHROMEOS)
+  absl::optional<bool> ipv6_only;
+  switch (options->ipv6_only) {
+    case mojom::OptionalBool::kTrue:
+      ipv6_only = true;
+      break;
+    case mojom::OptionalBool::kFalse:
+      ipv6_only = false;
+      break;
+    case mojom::OptionalBool::kUnset:
+      break;
+  }
+  base::expected<net::IPEndPoint, int32_t> result =
+      socket->Listen(local_addr, options->backlog, ipv6_only);
+  if (!result.has_value()) {
+    std::move(callback).Run(result.error(), absl::nullopt);
     return;
   }
   tcp_server_socket_receivers_.Add(std::move(socket), std::move(receiver));
-  std::move(callback).Run(result, local_addr_out);
+  std::move(callback).Run(net::OK, result.value());
 }
 
 void SocketFactory::CreateTCPConnectedSocket(

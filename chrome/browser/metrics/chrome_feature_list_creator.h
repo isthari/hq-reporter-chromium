@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -91,7 +91,15 @@ class ChromeFeatureListCreator {
  private:
   void CreatePrefService();
   void ConvertFlagsToSwitches();
-  void SetUpFieldTrials();
+
+  // Sets up the field trials and related initialization. Call only after
+  // about:flags have been converted to switches. However,
+  // |command_line_variation_ids| should be the value of the
+  // "--force-variation-ids" switch before it is mutated. See
+  // VariationsFieldTrialCreator::SetUpFieldTrials() for the format of
+  // |command_line_variation_ids|.
+  void SetUpFieldTrials(const std::string& command_line_variation_ids);
+
   void CreateMetricsServices();
 
   // Imports variations initial preference any preferences (to local state)
@@ -112,7 +120,8 @@ class ChromeFeatureListCreator {
   std::string actual_locale_;
 
   // This is owned by |metrics_services_manager_| but we need to expose it.
-  raw_ptr<ChromeMetricsServicesManagerClient> metrics_services_manager_client_;
+  raw_ptr<ChromeMetricsServicesManagerClient, DanglingUntriaged>
+      metrics_services_manager_client_;
 
   std::unique_ptr<metrics_services_manager::MetricsServicesManager>
       metrics_services_manager_;

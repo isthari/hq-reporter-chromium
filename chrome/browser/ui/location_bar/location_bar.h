@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,14 +32,7 @@ class LocationBar {
   virtual ui::PageTransition GetPageTransition() const = 0;
   virtual base::TimeTicks GetMatchSelectionTimestamp() const = 0;
   virtual bool IsInputTypedUrlWithoutScheme() const = 0;
-
-  // Accepts the current string of text entered in the location bar.
-  virtual void AcceptInput() = 0;
-
-  // Accepts the current string of text entered in the location bar. If
-  // |match_selection_timestamp| is not null, uses this value to track
-  // latency of page loads starting at user input.
-  virtual void AcceptInput(base::TimeTicks match_selection_timestamp) = 0;
+  virtual bool IsInputTypedUrlWithHttpScheme() const = 0;
 
   // Focuses the location bar. User-initiated focuses (like pressing Ctrl+L)
   // should have |is_user_initiated| set to true. In those cases, we want to

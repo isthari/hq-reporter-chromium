@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,8 +35,7 @@ TEST_F(WhitespaceAttacherTest, WhitespaceAfterReattachedBlock) {
   AdvanceToRebuildLayoutTree();
 
   // Force LayoutText to see that the reattach works.
-  text->SetLayoutObject(text->CreateTextLayoutObject(
-      GetDocument().body()->ComputedStyleRef(), LegacyLayout::kAuto));
+  text->SetLayoutObject(text->CreateTextLayoutObject());
 
   WhitespaceAttacher attacher;
   attacher.DidVisitText(text);
@@ -77,8 +76,8 @@ TEST_F(WhitespaceAttacherTest, WhitespaceAfterReattachedWhitespace) {
   AdvanceToRebuildLayoutTree();
 
   // Force LayoutText on the second whitespace to see that the reattach works.
-  second_whitespace->SetLayoutObject(second_whitespace->CreateTextLayoutObject(
-      GetDocument().body()->ComputedStyleRef(), LegacyLayout::kAuto));
+  second_whitespace->SetLayoutObject(
+      second_whitespace->CreateTextLayoutObject());
 
   WhitespaceAttacher attacher;
   attacher.DidVisitText(second_whitespace);
@@ -167,8 +166,7 @@ TEST_F(WhitespaceAttacherTest, ReattachWhitespaceInsideBlockExitingScope) {
     EXPECT_FALSE(text->GetLayoutObject());
 
     // Force LayoutText to see that the reattach works.
-    text->SetLayoutObject(text->CreateTextLayoutObject(div->ComputedStyleRef(),
-                                                       LegacyLayout::kAuto));
+    text->SetLayoutObject(text->CreateTextLayoutObject());
   }
   EXPECT_FALSE(text->GetLayoutObject());
 }
@@ -211,8 +209,7 @@ TEST_F(WhitespaceAttacherTest, SlottedWhitespaceAfterReattachedBlock) {
   AdvanceToRebuildLayoutTree();
 
   // Force LayoutText to see that the reattach works.
-  text->SetLayoutObject(text->CreateTextLayoutObject(host->ComputedStyleRef(),
-                                                     LegacyLayout::kAuto));
+  text->SetLayoutObject(text->CreateTextLayoutObject());
 
   WhitespaceAttacher attacher;
   attacher.DidVisitText(text);
@@ -264,8 +261,7 @@ TEST_F(WhitespaceAttacherTest,
   AdvanceToRebuildLayoutTree();
 
   // Force LayoutText to see that the reattach works.
-  text->SetLayoutObject(text->CreateTextLayoutObject(
-      contents->ComputedStyleRef(), LegacyLayout::kAuto));
+  text->SetLayoutObject(text->CreateTextLayoutObject());
 
   WhitespaceAttacher attacher;
   attacher.DidVisitElement(contents);
@@ -315,8 +311,7 @@ TEST_F(WhitespaceAttacherTest,
   AdvanceToRebuildLayoutTree();
 
   // Force LayoutText to see that the reattach works.
-  text->SetLayoutObject(text->CreateTextLayoutObject(
-      contents->ComputedStyleRef(), LegacyLayout::kAuto));
+  text->SetLayoutObject(text->CreateTextLayoutObject());
 
   WhitespaceAttacher attacher;
   attacher.DidVisitText(text);
@@ -343,8 +338,7 @@ TEST_F(WhitespaceAttacherTest,
   AdvanceToRebuildLayoutTree();
 
   // Force LayoutText to see that the reattach works.
-  text->SetLayoutObject(text->CreateTextLayoutObject(
-      contents->ComputedStyleRef(), LegacyLayout::kAuto));
+  text->SetLayoutObject(text->CreateTextLayoutObject());
 
   WhitespaceAttacher attacher;
   attacher.DidVisitText(text);

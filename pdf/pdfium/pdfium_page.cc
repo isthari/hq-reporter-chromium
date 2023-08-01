@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright 2010 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,10 +11,9 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/check_op.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/numerics/math_constants.h"
 #include "base/numerics/safe_math.h"
@@ -26,12 +25,16 @@
 #include "pdf/pdfium/pdfium_api_string_buffer_adapter.h"
 #include "pdf/pdfium/pdfium_engine.h"
 #include "pdf/pdfium/pdfium_unsupported_features.h"
-#include "pdf/ppapi_migration/geometry_conversions.h"
 #include "pdf/ui/thumbnail.h"
 #include "printing/units.h"
 #include "third_party/pdfium/public/cpp/fpdf_scopers.h"
 #include "third_party/pdfium/public/fpdf_annot.h"
 #include "third_party/pdfium/public/fpdf_catalog.h"
+#include "third_party/pdfium/public/fpdf_edit.h"
+#include "third_party/pdfium/public/fpdfview.h"
+#include "third_party/skia/include/core/SkImageInfo.h"
+#include "third_party/skia/include/core/SkPixmap.h"
+#include "ui/accessibility/accessibility_features.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/point_f.h"
 #include "ui/gfx/geometry/rect.h"
@@ -54,6 +57,17 @@ constexpr float k90DegreesInRadians = base::kPiFloat / 2;
 constexpr float k180DegreesInRadians = base::kPiFloat;
 constexpr float k270DegreesInRadians = 3 * base::kPiFloat / 2;
 constexpr float k360DegreesInRadians = 2 * base::kPiFloat;
+
+constexpr float kPointsToPixels = static_cast<float>(printing::kPixelsPerInch) /
+                                  static_cast<float>(printing::kPointsPerInch);
+
+// Page rotations in clockwise degrees.
+enum class Rotation {
+  kRotate0 = 0,
+  kRotate90 = 1,
+  kRotate180 = 2,
+  kRotate270 = 3,
+};
 
 gfx::RectF FloatPageRectToPixelRect(FPDF_PAGE page, const gfx::RectF& input) {
   int output_width = FPDF_GetPageWidthF(page);
@@ -192,64 +206,6 @@ bool FloatEquals(float f1, float f2) {
          kEpsilonScale * fmaxf(fmaxf(fabsf(f1), fabsf(f2)), kEpsilonScale);
 }
 
-// Count overlaps across text annotations.
-template <typename T, typename U>
-uint32_t CountOverlaps(const std::vector<T>& first_set,
-                       const std::vector<U>& second_set) {
-  // This method assumes vectors passed are sorted by `start_char_index`.
-  uint32_t overlaps = 0;
-  // Count overlaps between `first_set` and `second_set`.
-  for (const auto& first_set_object : first_set) {
-    gfx::Range first_range(
-        first_set_object.start_char_index,
-        first_set_object.start_char_index + first_set_object.char_count);
-    for (const auto& second_set_object : second_set) {
-      gfx::Range second_range(
-          second_set_object.start_char_index,
-          second_set_object.start_char_index + second_set_object.char_count);
-      if (first_range.Intersects(second_range)) {
-        overlaps++;
-      } else if (first_range.start() < second_range.start()) {
-        // Both range vectors are sorted by `start_char_index`. In case they
-        // don't overlap, and the `second_range` starts after the `first_range`,
-        // then all successive `second_set_object` will not overlap with
-        // `first_range`.
-        break;
-      }
-    }
-  }
-  return overlaps;
-}
-
-// Count overlaps within text annotations.
-template <typename T>
-uint32_t CountInternalTextOverlaps(const std::vector<T>& text_objects) {
-  // This method assumes text_objects is sorted by `start_char_index`.
-  uint32_t overlaps = 0;
-  for (size_t i = 0; i < text_objects.size(); ++i) {
-    gfx::Range range1(
-        text_objects[i].start_char_index,
-        text_objects[i].start_char_index + text_objects[i].char_count);
-    for (size_t j = i + 1; j < text_objects.size(); ++j) {
-      DCHECK_GE(text_objects[j].start_char_index,
-                text_objects[i].start_char_index);
-      gfx::Range range2(
-          text_objects[j].start_char_index,
-          text_objects[j].start_char_index + text_objects[j].char_count);
-      if (range1.Intersects(range2)) {
-        overlaps++;
-      } else {
-        // The input is sorted by `start_char_index`. In case `range1` and
-        // `range2` do not overlap, and `range2` starts after `range1`, then
-        // successive ranges in the inner loop will also not overlap with
-        // `range1`.
-        break;
-      }
-    }
-  }
-  return overlaps;
-}
-
 bool IsRadioButtonOrCheckBox(int button_type) {
   return button_type == FPDF_FORMFIELD_CHECKBOX ||
          button_type == FPDF_FORMFIELD_RADIOBUTTON;
@@ -333,6 +289,80 @@ bool AreTextStyleEqual(FPDF_TEXTPAGE text_page,
          char_style.stroke_color == style.stroke_color &&
          char_style.is_italic == style.is_italic &&
          char_style.is_bold == style.is_bold;
+}
+
+// Returns the bounds with the smallest left, smallest bottom, largest right,
+// and largest top.
+FS_RECTF GetLargestBounds(const FS_RECTF& largest_bounds,
+                          const FS_RECTF& bounds) {
+  return {std::min(largest_bounds.left, bounds.left),
+          std::max(largest_bounds.top, bounds.top),
+          std::max(largest_bounds.right, bounds.right),
+          std::min(largest_bounds.bottom, bounds.bottom)};
+}
+
+gfx::RectF GetRotatedRectF(Rotation rotation,
+                           gfx::SizeF page_size,
+                           const FS_RECTF& original_bounds) {
+  FS_RECTF bounds;
+
+  // When the page is rotated 90 degrees or 270 degrees, the page width and
+  // height are swapped. Swap it back for calculations.
+  if (rotation == Rotation::kRotate90 || rotation == Rotation::kRotate270) {
+    page_size.Transpose();
+  }
+
+  switch (rotation) {
+    case Rotation::kRotate0: {
+      bounds = original_bounds;
+      break;
+    }
+    case Rotation::kRotate90: {
+      bounds.left = original_bounds.bottom;
+      bounds.top = page_size.width() - original_bounds.left;
+      bounds.right = original_bounds.top;
+      bounds.bottom = page_size.width() - original_bounds.right;
+      break;
+    }
+    case Rotation::kRotate180: {
+      bounds.left = page_size.width() - original_bounds.right;
+      bounds.top = page_size.height() - original_bounds.bottom;
+      bounds.right = page_size.width() - original_bounds.left;
+      bounds.bottom = page_size.height() - original_bounds.top;
+      break;
+    }
+    case Rotation::kRotate270: {
+      bounds.left = page_size.height() - original_bounds.top;
+      bounds.top = original_bounds.right;
+      bounds.right = page_size.height() - original_bounds.bottom;
+      bounds.bottom = original_bounds.left;
+      break;
+    }
+  }
+
+  return gfx::RectF(bounds.left, bounds.bottom, bounds.right - bounds.left,
+                    bounds.top - bounds.bottom);
+}
+
+// Get the effective crop box. If empty or failed to calculate the effective
+// crop box, default to a `gfx::RectF` with dimensions page width by page
+// height.
+gfx::RectF GetEffectiveCropBox(FPDF_PAGE page,
+                               Rotation rotation,
+                               const gfx::SizeF& page_size) {
+  gfx::RectF effective_crop_box;
+  FS_RECTF effective_crop_bounds;
+  if (FPDF_GetPageBoundingBox(page, &effective_crop_bounds)) {
+    effective_crop_box =
+        GetRotatedRectF(rotation, page_size, effective_crop_bounds);
+  }
+
+  if (effective_crop_box.IsEmpty()) {
+    effective_crop_box =
+        gfx::RectF(0, 0, page_size.width(), page_size.height());
+  }
+
+  return effective_crop_box;
 }
 
 }  // namespace
@@ -427,24 +457,6 @@ void PDFiumPage::CalculatePageObjectTextRunBreaks() {
   }
 }
 
-void PDFiumPage::LogOverlappingAnnotations() {
-  if (logged_overlapping_annotations_)
-    return;
-  logged_overlapping_annotations_ = true;
-
-  DCHECK(calculated_page_object_text_run_breaks_);
-
-  std::vector<Link> links = links_;
-  std::sort(links.begin(), links.end(), [](const Link& a, const Link& b) {
-    return a.start_char_index < b.start_char_index;
-  });
-  uint32_t overlap_count = CountLinkHighlightOverlaps(links, highlights_);
-  // We log this overlap count per page of the PDF. Typically we expect only a
-  // few overlaps because intersecting links/highlights are not that common.
-  base::UmaHistogramCustomCounts("PDF.LinkHighlightOverlapsInPage",
-                                 overlap_count, 1, 100, 50);
-}
-
 absl::optional<AccessibilityTextRunInfo> PDFiumPage::GetTextRunInfo(
     int start_char_index) {
   FPDF_PAGE page = GetPage();
@@ -474,9 +486,6 @@ absl::optional<AccessibilityTextRunInfo> PDFiumPage::GetTextRunInfo(
       actual_start_char_index > start_char_index
           ? GetFloatCharRectInPixels(page, text_page, start_char_index)
           : gfx::RectF();
-
-  // Pdfium trims more than 1 consecutive spaces to 1 space.
-  DCHECK_LE(actual_start_char_index - start_char_index, 1);
 
   int char_index = actual_start_char_index;
 
@@ -636,6 +645,82 @@ gfx::RectF PDFiumPage::GetCroppedRect() {
   return FloatPageRectToPixelRect(page, rect);
 }
 
+gfx::RectF PDFiumPage::GetBoundingBox() {
+  FPDF_PAGE page = GetPage();
+  if (!page) {
+    return gfx::RectF();
+  }
+
+  // Page width and height are already swapped based on page rotation.
+  gfx::SizeF page_size(FPDF_GetPageWidthF(page), FPDF_GetPageHeightF(page));
+  Rotation rotation = static_cast<Rotation>(FPDFPage_GetRotation(page));
+
+  // Start with bounds with the left and bottom values at the max possible
+  // bounds and the right and top values at the min possible bounds. Bounds are
+  // relative to the media box.
+  FS_RECTF largest_bounds = {page_size.width(), 0, 0, page_size.height()};
+  for (int i = 0; i < FPDFPage_CountObjects(page); ++i) {
+    FPDF_PAGEOBJECT page_object = FPDFPage_GetObject(page, i);
+    if (!page_object) {
+      continue;
+    }
+
+    FS_RECTF bounds;
+    if (FPDFPageObj_GetBounds(page_object, &bounds.left, &bounds.bottom,
+                              &bounds.right, &bounds.top)) {
+      largest_bounds = GetLargestBounds(largest_bounds, bounds);
+    }
+  }
+  for (int i = 0; i < FPDFPage_GetAnnotCount(page); ++i) {
+    ScopedFPDFAnnotation annotation(FPDFPage_GetAnnot(page, i));
+    if (!annotation) {
+      continue;
+    }
+
+    FS_RECTF bounds;
+    if (FPDFAnnot_GetRect(annotation.get(), &bounds)) {
+      largest_bounds = GetLargestBounds(largest_bounds, bounds);
+    }
+  }
+
+  gfx::RectF bounding_box =
+      GetRotatedRectF(rotation, page_size, largest_bounds);
+
+  gfx::RectF effective_crop_box =
+      GetEffectiveCropBox(page, rotation, page_size);
+
+  // If the bounding box is empty, default to the effective crop box.
+  if (bounding_box.IsEmpty()) {
+    bounding_box = effective_crop_box;
+  } else {
+    // Some bounding boxes may be out-of-bounds of `effective_crop_box`. Clip to
+    // be within `effective_crop_box`.
+    bounding_box.Intersect(effective_crop_box);
+  }
+
+  // Set the bounding box to be relative to the effective crop box.
+  bounding_box.set_x(bounding_box.x() - effective_crop_box.x());
+  bounding_box.set_y(bounding_box.y() - effective_crop_box.y());
+
+  // Scale to page pixels.
+  bounding_box.Scale(kPointsToPixels);
+
+  return bounding_box;
+}
+
+bool PDFiumPage::IsCharInPageBounds(int char_index,
+                                    const gfx::RectF& page_bounds) {
+  gfx::RectF char_bounds = GetCharBounds(char_index);
+
+  // Make sure `char_bounds` has a minimum size so Intersects() works correctly.
+  if (char_bounds.IsEmpty()) {
+    static constexpr gfx::SizeF kMinimumSize(0.0001f, 0.0001f);
+    char_bounds.set_size(kMinimumSize);
+  }
+
+  return page_bounds.Intersects(char_bounds);
+}
+
 std::vector<AccessibilityLinkInfo> PDFiumPage::GetLinkInfo(
     const std::vector<AccessibilityTextRunInfo>& text_runs) {
   std::vector<AccessibilityLinkInfo> link_info;
@@ -684,6 +769,7 @@ std::vector<AccessibilityImageInfo> PDFiumPage::GetImageInfo(
     cur_info.bounds =
         gfx::RectF(image.bounding_rect.x(), image.bounding_rect.y(),
                    image.bounding_rect.width(), image.bounding_rect.height());
+    cur_info.image_data = image.image_data;
     image_info.push_back(std::move(cur_info));
   }
   return image_info;
@@ -950,7 +1036,7 @@ float PDFiumPage::PreProcessAndTransformInPageCoordX(float x) {
   // If `x` < 0, scroll to the left side of the page.
   // If `x` > page width, scroll to the right side of the page.
   return TransformPageToScreenX(
-      base::clamp(x, 0.0f, FPDF_GetPageWidthF(GetPage())));
+      std::clamp(x, 0.0f, FPDF_GetPageWidthF(GetPage())));
 }
 
 float PDFiumPage::PreProcessAndTransformInPageCoordY(float y) {
@@ -982,7 +1068,7 @@ PDFiumPage::Area PDFiumPage::GetURITarget(FPDF_ACTION uri_action,
     std::string url = CallPDFiumStringBufferApi(
         base::BindRepeating(&FPDFAction_GetURIPath, engine_->doc(), uri_action),
         /*check_expected_size=*/true);
-    if (!url.empty())
+    if (!url.empty() && base::IsStringUTF8AllowingNoncharacters(url))
       target->url = url;
   }
   return WEBLINK_AREA;
@@ -1161,6 +1247,7 @@ void PDFiumPage::CalculateImages() {
       continue;
 
     Image image;
+    image.page_object_index = i;
     image.bounding_rect = PageToScreen(gfx::Point(), 1.0, left, top, right,
                                        bottom, PageOrientation::kOriginal);
 
@@ -1183,6 +1270,33 @@ void PDFiumPage::CalculateImages() {
 
   if (!marked_content_id_image_map.empty())
     PopulateImageAltText(marked_content_id_image_map);
+
+  if (!features::IsPdfOcrEnabled())
+    return;
+
+  // If requested by the user, we store the raw image data so that the OCR
+  // service can try and retrieve textual and layout information from the image.
+  // This is because alt text might be empty, or the PDF might simply be
+  // untagged for accessibility.
+  for (Image& image : images_) {
+    if (!image.alt_text.empty())
+      continue;
+
+    FPDF_PAGEOBJECT page_object =
+        FPDFPage_GetObject(page, image.page_object_index);
+    ScopedFPDFBitmap bitmap(
+        FPDFImageObj_GetRenderedBitmap(engine_->doc(), page, page_object));
+    if (!bitmap)
+      continue;
+
+    SkImageInfo info = SkImageInfo::Make(
+        FPDFBitmap_GetWidth(bitmap.get()), FPDFBitmap_GetHeight(bitmap.get()),
+        kBGRA_8888_SkColorType, kOpaque_SkAlphaType);
+    const size_t row_bytes = FPDFBitmap_GetStride(bitmap.get());
+    SkPixmap pixels(info, FPDFBitmap_GetBuffer(bitmap.get()), row_bytes);
+    if (image.image_data.tryAllocPixels(info, row_bytes))
+      image.image_data.writePixels(pixels);
+  }
 }
 
 void PDFiumPage::PopulateImageAltText(
@@ -1568,9 +1682,16 @@ Thumbnail PDFiumPage::GenerateThumbnail(float device_pixel_ratio) {
   // The combination of the `FPDF_REVERSE_BYTE_ORDER` rendering flag and the
   // `FPDFBitmap_BGRA` format when initializing `fpdf_bitmap` results in an RGBA
   // rendering, which is the format required by HTML <canvas>.
+  constexpr int kRenderingFlags = FPDF_ANNOT | FPDF_REVERSE_BYTE_ORDER;
   FPDF_RenderPageBitmap(fpdf_bitmap.get(), GetPage(), /*start_x=*/0,
                         /*start_y=*/0, image_size.width(), image_size.height(),
-                        /*rotate=*/0, FPDF_ANNOT | FPDF_REVERSE_BYTE_ORDER);
+                        ToPDFiumRotation(PageOrientation::kOriginal),
+                        kRenderingFlags);
+
+  // Draw the forms.
+  FPDF_FFLDraw(engine_->form(), fpdf_bitmap.get(), GetPage(), /*start_x=*/0,
+               /*start_y=*/0, image_size.width(), image_size.height(),
+               ToPDFiumRotation(PageOrientation::kOriginal), kRenderingFlags);
 
   return thumbnail;
 }
@@ -1645,29 +1766,5 @@ PDFiumPage::Button::Button() = default;
 PDFiumPage::Button::Button(const Button& that) = default;
 
 PDFiumPage::Button::~Button() = default;
-
-// static
-uint32_t PDFiumPage::CountLinkHighlightOverlaps(
-    const std::vector<Link>& links,
-    const std::vector<Highlight>& highlights) {
-  return CountOverlaps(links, highlights) + CountInternalTextOverlaps(links) +
-         CountInternalTextOverlaps(highlights);
-}
-
-int ToPDFiumRotation(PageOrientation orientation) {
-  // Could use static_cast<int>(orientation), but using an exhaustive switch
-  // will trigger an error if we ever change the definition of
-  // `PageOrientation`.
-  switch (orientation) {
-    case PageOrientation::kOriginal:
-      return 0;
-    case PageOrientation::kClockwise90:
-      return 1;
-    case PageOrientation::kClockwise180:
-      return 2;
-    case PageOrientation::kClockwise270:
-      return 3;
-  }
-}
 
 }  // namespace chrome_pdf

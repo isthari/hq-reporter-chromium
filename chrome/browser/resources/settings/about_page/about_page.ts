@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,39 +7,47 @@
  * information.
  */
 
-import '../icons.js';
-import '../prefs/prefs.js';
+import '../icons.html.js';
+import 'chrome://resources/cr_components/settings_prefs/prefs.js';
 // <if expr="not chromeos_ash">
 import '../relaunch_confirmation_dialog.js';
 // </if>
 import '../settings_page/settings_section.js';
-import '../settings_page_css.js';
-import '../settings_shared_css.js';
-import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
-import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
+import '../settings_page_styles.css.js';
+import '../settings_shared.css.js';
+import 'chrome://resources/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.js';
 import 'chrome://resources/cr_elements/cr_link_row/cr_link_row.js';
-import 'chrome://resources/cr_elements/icons.m.js';
-import 'chrome://resources/cr_elements/shared_style_css.m.js';
+import 'chrome://resources/cr_elements/icons.html.js';
+import 'chrome://resources/cr_elements/cr_shared_style.css.js';
 import 'chrome://resources/polymer/v3_0/iron-flex-layout/iron-flex-layout-classes.js';
 import 'chrome://resources/polymer/v3_0/iron-icon/iron-icon.js';
 
-import {assert} from 'chrome://resources/js/assert.m.js';
-import {I18nMixin} from 'chrome://resources/js/i18n_mixin.js';
-import {parseHtmlSubset} from 'chrome://resources/js/parse_html_subset.m.js';
-import {WebUIListenerMixin} from 'chrome://resources/js/web_ui_listener_mixin.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
+import {WebUiListenerMixin} from 'chrome://resources/cr_elements/web_ui_listener_mixin.js';
+import {assert} from 'chrome://resources/js/assert_ts.js';
+import {sanitizeInnerHtml} from 'chrome://resources/js/parse_html_subset.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {loadTimeData} from '../i18n_setup.js';
 import {RelaunchMixin, RestartType} from '../relaunch_mixin.js';
-
-import {AboutPageBrowserProxy, AboutPageBrowserProxyImpl, UpdateStatus, UpdateStatusChangedEvent} from './about_page_browser_proxy.js';
-// <if expr="_google_chrome and is_macosx">
-import {PromoteUpdaterStatus} from './about_page_browser_proxy.js';
+// <if expr="_google_chrome">
+import {routes} from '../route.js';
+import {Router} from '../router.js';
 
 // </if>
 
+import {getTemplate} from './about_page.html.js';
+import {AboutPageBrowserProxy, AboutPageBrowserProxyImpl, UpdateStatus, UpdateStatusChangedEvent} from './about_page_browser_proxy.js';
+// clang-format off
+// <if expr="_google_chrome and is_macosx">
+import {PromoteUpdaterStatus} from './about_page_browser_proxy.js';
+// </if>
+// clang-format on
+
+
 const SettingsAboutPageElementBase =
-    RelaunchMixin(WebUIListenerMixin(I18nMixin(PolymerElement)));
+    RelaunchMixin(WebUiListenerMixin(I18nMixin(PolymerElement)));
 
 export class SettingsAboutPageElement extends SettingsAboutPageElementBase {
   static get is() {
@@ -47,7 +55,7 @@ export class SettingsAboutPageElement extends SettingsAboutPageElementBase {
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
@@ -58,7 +66,7 @@ export class SettingsAboutPageElement extends SettingsAboutPageElementBase {
           message: '',
           progress: 0,
           rollback: false,
-          status: UpdateStatus.DISABLED
+          status: UpdateStatus.DISABLED,
         },
       },
 
@@ -73,11 +81,24 @@ export class SettingsAboutPageElement extends SettingsAboutPageElementBase {
         },
       },
 
+      // <if expr="_google_chrome">
+      /**
+       * Whether to show the "Get the most out of Chrome" section.
+       */
+      showGetTheMostOutOfChromeSection_: {
+        type: Boolean,
+        value() {
+          return loadTimeData.getBoolean('showGetTheMostOutOfChromeSection') &&
+              !loadTimeData.getBoolean('isGuest');
+        },
+      },
+      // </if>
+
       // <if expr="_google_chrome and is_macosx">
       promoteUpdaterStatus_: Object,
       // </if>
 
-      // <if expr="not chromeos">
+      // <if expr="not chromeos_ash">
       obsoleteSystemInfo_: {
         type: Object,
         value() {
@@ -103,7 +124,7 @@ export class SettingsAboutPageElement extends SettingsAboutPageElementBase {
     };
   }
 
-  // <if expr="not chromeos">
+  // <if expr="not chromeos_ash">
   static get observers() {
     return [
       'updateShowUpdateStatus_(' +
@@ -117,11 +138,15 @@ export class SettingsAboutPageElement extends SettingsAboutPageElementBase {
   private currentUpdateStatusEvent_: UpdateStatusChangedEvent|null;
   private isManaged_: boolean;
 
+  // <if expr="_google_chrome">
+  private showGetTheMostOutOfChromeSection_: boolean;
+  // </if>
+
   // <if expr="_google_chrome and is_macosx">
   private promoteUpdaterStatus_: PromoteUpdaterStatus;
   // </if>
 
-  // <if expr="not chromeos">
+  // <if expr="not chromeos_ash">
   private obsoleteSystemInfo_: {obsolete: boolean, endOfLine: boolean};
   private showUpdateStatus_: boolean;
   private showButtonContainer_: boolean;
@@ -131,12 +156,12 @@ export class SettingsAboutPageElement extends SettingsAboutPageElementBase {
   private aboutBrowserProxy_: AboutPageBrowserProxy =
       AboutPageBrowserProxyImpl.getInstance();
 
-  connectedCallback() {
+  override connectedCallback() {
     super.connectedCallback();
 
     this.aboutBrowserProxy_.pageReady();
 
-    // <if expr="not chromeos">
+    // <if expr="not chromeos_ash">
     this.startListening_();
     // </if>
   }
@@ -151,12 +176,12 @@ export class SettingsAboutPageElement extends SettingsAboutPageElementBase {
     return '';
   }
 
-  // <if expr="not chromeos">
+  // <if expr="not chromeos_ash">
   private startListening_() {
-    this.addWebUIListener(
+    this.addWebUiListener(
         'update-status-changed', this.onUpdateStatusChanged_.bind(this));
     // <if expr="_google_chrome and is_macosx">
-    this.addWebUIListener(
+    this.addWebUiListener(
         'promotion-state-changed',
         this.onPromoteUpdaterStatusChanged_.bind(this));
     // </if>
@@ -176,7 +201,7 @@ export class SettingsAboutPageElement extends SettingsAboutPageElementBase {
   /**
    * If #promoteUpdater isn't disabled, trigger update promotion.
    */
-  private onPromoteUpdaterTap_() {
+  private onPromoteUpdaterClick_() {
     // This is necessary because #promoteUpdater is not a button, so by default
     // disable doesn't do anything.
     if (this.promoteUpdaterStatus_.disabled) {
@@ -186,21 +211,21 @@ export class SettingsAboutPageElement extends SettingsAboutPageElementBase {
   }
   // </if>
 
-  private onLearnMoreTap_(event: Event) {
+  private onLearnMoreClick_(event: Event) {
     // Stop the propagation of events, so that clicking on links inside
     // actionable items won't trigger action.
     event.stopPropagation();
   }
 
-  private onHelpTap_() {
+  private onHelpClick_() {
     this.aboutBrowserProxy_.openHelpPage();
   }
 
-  private onRelaunchTap_() {
+  private onRelaunchClick_() {
     this.performRestart(RestartType.RELAUNCH);
   }
 
-  // <if expr="not chromeos">
+  // <if expr="not chromeos_ash">
   private updateShowUpdateStatus_() {
     if (this.obsoleteSystemInfo_.endOfLine) {
       this.showUpdateStatus_ = false;
@@ -226,7 +251,7 @@ export class SettingsAboutPageElement extends SettingsAboutPageElementBase {
     return this.currentUpdateStatusEvent_!.status === UpdateStatus.FAILED;
   }
 
-  private getUpdateStatusMessage_(): string {
+  private getUpdateStatusMessage_(): TrustedHTML {
     switch (this.currentUpdateStatusEvent_!.status) {
       case UpdateStatus.CHECKING:
       case UpdateStatus.NEED_PERMISSION_TO_UPDATE:
@@ -251,21 +276,17 @@ export class SettingsAboutPageElement extends SettingsAboutPageElementBase {
         }
         return this.i18nAdvanced('aboutUpgradeUpdating');
       default:
-        function formatMessage(msg: string) {
-          return (parseHtmlSubset('<b>' + msg + '</b>', ['br', 'pre'])
-                      .firstChild as HTMLElement)
-              .innerHTML;
-        }
         let result = '';
         const message = this.currentUpdateStatusEvent_!.message;
         if (message) {
-          result += formatMessage(message);
+          result += message;
         }
         const connectMessage = this.currentUpdateStatusEvent_!.connectionTypes;
         if (connectMessage) {
-          result += '<div>' + formatMessage(connectMessage) + '</div>';
+          result += `<div>${connectMessage}</div>`;
         }
-        return result;
+
+        return sanitizeInnerHtml(result, {tags: ['br', 'pre']});
     }
   }
 
@@ -308,21 +329,11 @@ export class SettingsAboutPageElement extends SettingsAboutPageElementBase {
     return this.currentUpdateStatusEvent_!.status === status;
   }
 
-  private onManagementPageTap_() {
+  private onManagementPageClick_() {
     window.location.href = 'chrome://management';
   }
 
-  // <if expr="chromeos">
-  private getUpdateOsSettingsLink_(): string {
-    // Note: This string contains raw HTML and thus requires i18nAdvanced().
-    // Since the i18n template syntax (e.g., $i18n{}) does not include an
-    // "advanced" version, it's not possible to inline this link directly in the
-    // HTML.
-    return this.i18nAdvanced('aboutUpdateOsSettingsLink');
-  }
-  // </if>
-
-  private onProductLogoTap_() {
+  private onProductLogoClick_() {
     this.$['product-logo'].animate(
         {
           transform: ['none', 'rotate(-10turn)'],
@@ -334,12 +345,16 @@ export class SettingsAboutPageElement extends SettingsAboutPageElementBase {
   }
 
   // <if expr="_google_chrome">
-  private onReportIssueTap_() {
+  private onReportIssueClick_() {
     this.aboutBrowserProxy_.openFeedbackDialog();
+  }
+
+  private onGetTheMostOutOfChromeClick_() {
+    Router.getInstance().navigateTo(routes.GET_MOST_CHROME);
   }
   // </if>
 
-  // <if expr="not chromeos">
+  // <if expr="not chromeos_ash">
   private shouldShowIcons_(): boolean {
     if (this.obsoleteSystemInfo_.endOfLine) {
       return true;

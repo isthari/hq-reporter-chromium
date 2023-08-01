@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,11 @@ package org.chromium.chrome.browser.sync;
 
 import static androidx.test.espresso.Espresso.onView;
 import static androidx.test.espresso.action.ViewActions.click;
+import static androidx.test.espresso.assertion.ViewAssertions.doesNotExist;
 import static androidx.test.espresso.assertion.ViewAssertions.matches;
 import static androidx.test.espresso.matcher.RootMatchers.isDialog;
 import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
+import static androidx.test.espresso.matcher.ViewMatchers.thatMatchesFirst;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
 
 import static org.hamcrest.CoreMatchers.allOf;
@@ -28,10 +30,11 @@ import org.junit.Test;
 import org.junit.rules.RuleChain;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.Feature;
-import org.chromium.chrome.R;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.settings.SettingsActivityTestRule;
@@ -39,14 +42,21 @@ import org.chromium.chrome.browser.signin.services.IdentityServicesProvider;
 import org.chromium.chrome.browser.sync.settings.AccountManagementFragment;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.util.ChromeRenderTestRule;
+import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
+import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.chrome.test.util.browser.signin.AccountManagerTestRule;
+import org.chromium.chrome.test.util.browser.signin.SigninTestRule;
+import org.chromium.components.signin.base.AccountInfo;
+import org.chromium.components.signin.base.CoreAccountInfo;
 import org.chromium.components.signin.identitymanager.ConsentLevel;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
 /** Tests {@link AccountManagementFragment}. */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
+@Batch(Batch.PER_CLASS)
 public class AccountManagementFragmentTest {
     private static final String CHILD_ACCOUNT_NAME =
             AccountManagerTestRule.generateChildEmail("account@gmail.com");
@@ -64,11 +74,13 @@ public class AccountManagementFragmentTest {
             RuleChain.outerRule(mActivityTestRule).around(mSettingsActivityTestRule);
 
     @Rule
-    public final AccountManagerTestRule mAccountManagerTestRule = new AccountManagerTestRule();
+    public final SigninTestRule mSigninTestRule = new SigninTestRule();
 
     @Rule
     public final ChromeRenderTestRule mRenderTestRule =
-            ChromeRenderTestRule.Builder.withPublicCorpus().build();
+            ChromeRenderTestRule.Builder.withPublicCorpus()
+                    .setBugComponent(ChromeRenderTestRule.Component.SERVICES_SYNC)
+                    .build();
 
     @Before
     public void setUp() {
@@ -78,8 +90,9 @@ public class AccountManagementFragmentTest {
     @Test
     @MediumTest
     @Feature("RenderTest")
+    @DisableFeatures(ChromeFeatureList.HIDE_NON_DISPLAYABLE_ACCOUNT_EMAIL)
     public void testAccountManagementFragmentView() throws Exception {
-        mAccountManagerTestRule.addTestAccountThenSigninAndEnableSync();
+        mSigninTestRule.addTestAccountThenSigninAndEnableSync();
         mSettingsActivityTestRule.startSettingsActivity();
         View view = mSettingsActivityTestRule.getFragment().getView();
         onViewWaiting(allOf(is(view), isDisplayed()));
@@ -89,9 +102,23 @@ public class AccountManagementFragmentTest {
     @Test
     @MediumTest
     @Feature("RenderTest")
+    @EnableFeatures(ChromeFeatureList.HIDE_NON_DISPLAYABLE_ACCOUNT_EMAIL)
+    public void testAccountManagementFragmentViewWithHideNonDisplayableAccountEmailEnabled()
+            throws Exception {
+        mSigninTestRule.addTestAccountThenSigninAndEnableSync();
+        mSettingsActivityTestRule.startSettingsActivity();
+        View view = mSettingsActivityTestRule.getFragment().getView();
+        onViewWaiting(allOf(is(view), isDisplayed()));
+        mRenderTestRule.render(
+                view, "account_management_fragment_view_with_hide_non_displayable_account_email");
+    }
+
+    @Test
+    @MediumTest
+    @Feature("RenderTest")
     public void testSignedInAccountShownOnTop() throws Exception {
-        mAccountManagerTestRule.addAccount("testSecondary@gmail.com");
-        mAccountManagerTestRule.addTestAccountThenSigninAndEnableSync();
+        mSigninTestRule.addAccount("testSecondary@gmail.com");
+        mSigninTestRule.addTestAccountThenSigninAndEnableSync();
         mSettingsActivityTestRule.startSettingsActivity();
         View view = mSettingsActivityTestRule.getFragment().getView();
         onViewWaiting(allOf(is(view), isDisplayed()));
@@ -100,9 +127,61 @@ public class AccountManagementFragmentTest {
 
     @Test
     @MediumTest
+    @EnableFeatures({ChromeFeatureList.HIDE_NON_DISPLAYABLE_ACCOUNT_EMAIL})
+    public void testAccountManagementViewForChildAccountWithNonDisplayableAccountEmail()
+            throws Exception {
+        AccountInfo accountInfo = mSigninTestRule.addAccount(
+                CHILD_ACCOUNT_NAME, SigninTestRule.NON_DISPLAYABLE_EMAIL_ACCOUNT_CAPABILITIES);
+        mSigninTestRule.waitForSeeding();
+        mSigninTestRule.waitForSignin(accountInfo);
+        mSettingsActivityTestRule.startSettingsActivity();
+
+        // Force update the fragment so that NON_DISPLAYABLE_EMAIL_ACCOUNT_CAPABILITIES is
+        // actually utilized. This is to replicate downstream implementation behavior, where
+        // checkIfDisplayableEmailAddress() differs.
+        CriteriaHelper.pollUiThread(() -> {
+            return !mSettingsActivityTestRule.getFragment()
+                            .getProfileDataCacheForTesting()
+                            .getProfileDataOrDefault(CHILD_ACCOUNT_NAME)
+                            .hasDisplayableEmailAddress();
+        });
+        TestThreadUtils.runOnUiThreadBlocking(mSettingsActivityTestRule.getFragment()::update);
+        View view = mSettingsActivityTestRule.getFragment().getView();
+        onViewWaiting(allOf(is(view), isDisplayed()));
+        onView(thatMatchesFirst(withText(accountInfo.getFullName()))).check(matches(isDisplayed()));
+        onView(withText(accountInfo.getEmail())).check(doesNotExist());
+    }
+
+    @Test
+    @MediumTest
+    @EnableFeatures({ChromeFeatureList.HIDE_NON_DISPLAYABLE_ACCOUNT_EMAIL})
+    public void
+    testAccountManagementViewForChildAccountWithNonDisplayableAccountEmailWithEmptyDisplayName()
+            throws Exception {
+        CoreAccountInfo accountInfo = mSigninTestRule.addAccount(CHILD_ACCOUNT_NAME, "", "", null,
+                SigninTestRule.NON_DISPLAYABLE_EMAIL_ACCOUNT_CAPABILITIES);
+        mSigninTestRule.waitForSeeding();
+        mSigninTestRule.waitForSignin(accountInfo);
+        mSettingsActivityTestRule.startSettingsActivity();
+        CriteriaHelper.pollUiThread(() -> {
+            return !mSettingsActivityTestRule.getFragment()
+                            .getProfileDataCacheForTesting()
+                            .getProfileDataOrDefault(CHILD_ACCOUNT_NAME)
+                            .hasDisplayableEmailAddress();
+        });
+        TestThreadUtils.runOnUiThreadBlocking(mSettingsActivityTestRule.getFragment()::update);
+        View view = mSettingsActivityTestRule.getFragment().getView();
+        onViewWaiting(allOf(is(view), isDisplayed()));
+        onView(withText(accountInfo.getEmail())).check(doesNotExist());
+        onView(thatMatchesFirst(withText(R.string.default_google_account_username)))
+                .check(matches(isDisplayed()));
+    }
+
+    @Test
+    @MediumTest
     @Feature("RenderTest")
     public void testAccountManagementViewForChildAccount() throws Exception {
-        mAccountManagerTestRule.addAccountAndWaitForSeeding(CHILD_ACCOUNT_NAME);
+        mSigninTestRule.addAccountAndWaitForSeeding(CHILD_ACCOUNT_NAME);
         final Profile profile = TestThreadUtils.runOnUiThreadBlockingNoException(
                 Profile::getLastUsedRegularProfile);
         CriteriaHelper.pollUiThread(profile::isChild);
@@ -110,22 +189,21 @@ public class AccountManagementFragmentTest {
         CriteriaHelper.pollUiThread(() -> {
             return mSettingsActivityTestRule.getFragment()
                     .getProfileDataCacheForTesting()
-                    .hasProfileData(CHILD_ACCOUNT_NAME);
+                    .hasProfileDataForTesting(CHILD_ACCOUNT_NAME);
         });
         View view = mSettingsActivityTestRule.getFragment().getView();
         onViewWaiting(allOf(is(view), isDisplayed()));
-        mRenderTestRule.render(view, "account_management_fragment_for_child_account");
+        mRenderTestRule.render(view,
+                "account_management_fragment_for_child_account_with_add_account_for_supervised_users");
     }
 
     @Test
     @MediumTest
     @Feature("RenderTest")
     public void testAccountManagementViewForChildAccountWithSecondaryEduAccount() throws Exception {
-        mAccountManagerTestRule.addAccount(CHILD_ACCOUNT_NAME);
-        // The code under test doesn't care what account type this is, though in practice only
-        // EDU accounts are supported on devices where the primary account is a child account.
-        mAccountManagerTestRule.addAccount("account@school.com");
-        mAccountManagerTestRule.waitForSeeding();
+        mSigninTestRule.addAccount(CHILD_ACCOUNT_NAME);
+        mSigninTestRule.addAccount("account@school.com");
+        mSigninTestRule.waitForSeeding();
         final Profile profile = TestThreadUtils.runOnUiThreadBlockingNoException(
                 Profile::getLastUsedRegularProfile);
         CriteriaHelper.pollUiThread(profile::isChild);
@@ -133,17 +211,18 @@ public class AccountManagementFragmentTest {
         CriteriaHelper.pollUiThread(() -> {
             return mSettingsActivityTestRule.getFragment()
                     .getProfileDataCacheForTesting()
-                    .hasProfileData(CHILD_ACCOUNT_NAME);
+                    .hasProfileDataForTesting(CHILD_ACCOUNT_NAME);
         });
         View view = mSettingsActivityTestRule.getFragment().getView();
         onViewWaiting(allOf(is(view), isDisplayed()));
-        mRenderTestRule.render(view, "account_management_fragment_for_child_and_edu_accounts");
+        mRenderTestRule.render(view,
+                "account_management_fragment_for_child_and_edu_accounts_with_add_account_for_supervised_users");
     }
 
     @Test
     @SmallTest
     public void testSignOutUserWithoutShowingSignOutDialog() {
-        mAccountManagerTestRule.addTestAccountThenSignin();
+        mSigninTestRule.addTestAccountThenSignin();
         mSettingsActivityTestRule.startSettingsActivity();
 
         onView(withText(R.string.sign_out)).perform(click());
@@ -158,10 +237,12 @@ public class AccountManagementFragmentTest {
     @Test
     @SmallTest
     public void showSignOutDialogBeforeSigningUserOut() {
-        mAccountManagerTestRule.addTestAccountThenSigninAndEnableSync();
+        mSigninTestRule.addTestAccountThenSigninAndEnableSync();
         mSettingsActivityTestRule.startSettingsActivity();
 
         onView(withText(R.string.sign_out_and_turn_off_sync)).perform(click());
-        onView(withText(R.string.signout_title)).inRoot(isDialog()).check(matches(isDisplayed()));
+        onView(withText(R.string.turn_off_sync_and_signout_title))
+                .inRoot(isDialog())
+                .check(matches(isDisplayed()));
     }
 }

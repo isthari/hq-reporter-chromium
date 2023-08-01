@@ -31,9 +31,9 @@
 #include "third_party/blink/renderer/core/dom/static_node_list.h"
 #include "third_party/blink/renderer/core/dom/xml_document.h"
 #include "third_party/blink/renderer/core/editing/frame_selection.h"
-#include "third_party/blink/renderer/core/frame/deprecation.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
+#include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/html_names.h"
 #include "third_party/blink/renderer/core/layout/layout_object.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
@@ -310,8 +310,8 @@ static bool IntersectsAllowingEmpty(const gfx::RectF& r1,
 // canvas.  Specifically: circle, ellipse, image, line, path, polygon, polyline,
 // rect, text and use.
 static bool IsIntersectionOrEnclosureTarget(LayoutObject* layout_object) {
-  return layout_object->IsSVGShape() || layout_object->IsSVGText() ||
-         layout_object->IsNGSVGText() || layout_object->IsSVGImage() ||
+  return layout_object->IsSVGShape() || layout_object->IsNGSVGText() ||
+         layout_object->IsSVGImage() ||
          IsA<SVGUseElement>(*layout_object->GetNode());
 }
 
@@ -471,37 +471,38 @@ AffineTransform SVGSVGElement::LocalCoordinateSpaceTransform(
                         y_->CurrentValue()->Value(length_context));
   } else if (mode == kScreenScope) {
     if (LayoutObject* layout_object = GetLayoutObject()) {
-      TransformationMatrix matrix;
+      gfx::Transform matrix;
       // Adjust for the zoom level factored into CSS coordinates (WK bug
       // #96361).
       matrix.Scale(1.0 / layout_object->View()->StyleRef().EffectiveZoom());
 
       // Apply transforms from our ancestor coordinate space, including any
       // non-SVG ancestor transforms.
-      matrix.Multiply(layout_object->LocalToAbsoluteTransform());
+      matrix.PreConcat(layout_object->LocalToAbsoluteTransform());
 
       // At the SVG/HTML boundary (aka LayoutSVGRoot), we need to apply the
       // localToBorderBoxTransform to map an element from SVG viewport
       // coordinates to CSS box coordinates.
-      matrix.Multiply(TransformationMatrix(
-          To<LayoutSVGRoot>(layout_object)->LocalToBorderBoxTransform()));
+      matrix.PreConcat(To<LayoutSVGRoot>(layout_object)
+                           ->LocalToBorderBoxTransform()
+                           .ToTransform());
       // Drop any potential non-affine parts, because we're not able to convey
       // that information further anyway until getScreenCTM returns a DOMMatrix
       // (4x4 matrix.)
-      return matrix.ToAffineTransform();
+      return AffineTransform::FromTransform(matrix);
     }
   }
   if (!HasEmptyViewBox())
-    transform.Multiply(ViewBoxToViewTransform(CurrentViewportSize()));
+    transform.PreConcat(ViewBoxToViewTransform(CurrentViewportSize()));
   return transform;
 }
 
-bool SVGSVGElement::LayoutObjectIsNeeded(const ComputedStyle& style) const {
+bool SVGSVGElement::LayoutObjectIsNeeded(const DisplayStyle& style) const {
   // FIXME: We should respect display: none on the documentElement svg element
   // but many things in LocalFrameView and SVGImage depend on the LayoutSVGRoot
   // when they should instead depend on the LayoutView.
   // https://bugs.webkit.org/show_bug.cgi?id=103493
-  if (GetDocument().documentElement() == this)
+  if (IsDocumentElement())
     return true;
 
   // <svg> elements don't need an SVG parent to render, so we bypass
@@ -516,9 +517,7 @@ void SVGSVGElement::AttachLayoutTree(AttachContext& context) {
     To<LayoutSVGRoot>(GetLayoutObject())->IntrinsicSizingInfoChanged();
 }
 
-LayoutObject* SVGSVGElement::CreateLayoutObject(const ComputedStyle&,
-                                                LegacyLayout) {
-  UseCounter::Count(GetDocument(), WebFeature::kLegacyLayoutBySVG);
+LayoutObject* SVGSVGElement::CreateLayoutObject(const ComputedStyle&) {
   if (IsOutermostSVGSVGElement())
     return MakeGarbageCollected<LayoutSVGRoot>(this);
 
@@ -589,8 +588,10 @@ bool SVGSVGElement::HasEmptyViewBox() const {
 }
 
 bool SVGSVGElement::ShouldSynthesizeViewBox() const {
-  return GetLayoutObject() && GetLayoutObject()->IsSVGRoot() &&
-         To<LayoutSVGRoot>(GetLayoutObject())->IsEmbeddedThroughSVGImage();
+  if (!IsDocumentElement())
+    return false;
+  const auto* svg_root = DynamicTo<LayoutSVGRoot>(GetLayoutObject());
+  return svg_root && svg_root->IsEmbeddedThroughSVGImage();
 }
 
 gfx::RectF SVGSVGElement::CurrentViewBoxRect() const {
@@ -634,10 +635,11 @@ gfx::SizeF SVGSVGElement::CurrentViewportSize() const {
     return gfx::SizeF();
 
   if (layout_object->IsSVGRoot()) {
-    LayoutSize content_size = To<LayoutSVGRoot>(layout_object)->ContentSize();
+    PhysicalRect content_rect =
+        To<LayoutSVGRoot>(layout_object)->PhysicalContentBoxRectFromNG();
     float zoom = layout_object->StyleRef().EffectiveZoom();
-    return gfx::SizeF(content_size.Width() / zoom,
-                      content_size.Height() / zoom);
+    return gfx::SizeF(content_rect.size.width / zoom,
+                      content_rect.size.height / zoom);
   }
 
   gfx::RectF viewport_rect =

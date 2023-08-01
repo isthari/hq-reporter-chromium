@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -73,6 +73,15 @@ ScriptPromise PushManager::subscribe(
                                       "Window is detached.");
     return ScriptPromise();
   }
+
+  ExecutionContext* execution_context = ExecutionContext::From(script_state);
+  if (execution_context->IsInFencedFrame()) {
+    exception_state.ThrowDOMException(
+        DOMExceptionCode::kNotAllowedError,
+        "subscribe() is not allowed in fenced frames.");
+    return ScriptPromise();
+  }
+
   if (!registration_->active()) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kAbortError,
@@ -88,7 +97,8 @@ ScriptPromise PushManager::subscribe(
   if (!ValidateOptions(options, exception_state))
     return ScriptPromise();
 
-  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(
+      script_state, exception_state.GetContext());
   ScriptPromise promise = resolver->Promise();
 
   // The window is the only reasonable context from which to ask the

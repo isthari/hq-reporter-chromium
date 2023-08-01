@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,7 @@
 #include <utility>
 #include <vector>
 
-#include "base/callback_forward.h"
-#include "base/containers/lru_cache.h"
-#include "base/containers/queue.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
@@ -69,20 +67,25 @@ class MEDIA_GPU_EXPORT V4L2VideoDecoder
   bool IsPlatformDecoder() const override;
   // VideoDecoderMixin implementation, specific part.
   void ApplyResolutionChange() override;
+  size_t GetMaxOutputFramePoolSize() const override;
 
   // V4L2VideoDecoderBackend::Client implementation
   void OnBackendError() override;
   bool IsDecoding() const override;
   void InitiateFlush() override;
   void CompleteFlush() override;
+  void RestartStream() override;
   void ChangeResolution(gfx::Size pic_size,
                         gfx::Rect visible_rect,
-                        size_t num_output_frames) override;
+                        size_t num_codec_reference_frames,
+                        uint8_t bit_depth) override;
   void OutputFrame(scoped_refptr<VideoFrame> frame,
                    const gfx::Rect& visible_rect,
                    const VideoColorSpace& color_space,
                    base::TimeDelta timestamp) override;
   DmabufVideoFramePool* GetVideoFramePool() const override;
+
+  void SetDmaIncoherentV4L2(bool incoherent) override;
 
  private:
   friend class V4L2VideoDecoderTest;
@@ -111,20 +114,6 @@ class MEDIA_GPU_EXPORT V4L2VideoDecoder
     kError,
   };
 
-  class BitstreamIdGenerator {
-   public:
-    BitstreamIdGenerator() { DETACH_FROM_SEQUENCE(sequence_checker_); }
-    int32_t GetNextBitstreamId() {
-      DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-      next_bitstream_buffer_id_ = (next_bitstream_buffer_id_ + 1) & 0x7FFFFFFF;
-      return next_bitstream_buffer_id_;
-    }
-
-   private:
-    int32_t next_bitstream_buffer_id_ = 0;
-    SEQUENCE_CHECKER(sequence_checker_);
-  };
-
   // Setup format for input queue.
   bool SetupInputFormat(uint32_t input_format_fourcc);
 
@@ -136,7 +125,9 @@ class MEDIA_GPU_EXPORT V4L2VideoDecoder
   // Return CroStatus::Codes::kResetRequired if the setup is aborted.
   // Return CroStatus::Codes::kFailedToChangeResolution if other error occurs.
   CroStatus SetupOutputFormat(const gfx::Size& size,
-                              const gfx::Rect& visible_rect);
+                              const gfx::Rect& visible_rect,
+                              size_t num_codec_reference_frames,
+                              uint8_t bit_depth);
 
   // Start streaming V4L2 input and (if |start_output_queue| is true) output
   // queues. Attempt to start |device_poll_thread_| after streaming starts.
@@ -154,7 +145,8 @@ class MEDIA_GPU_EXPORT V4L2VideoDecoder
   // Return CroStatus::Codes::kFailedToChangeResolution if any error occurs.
   CroStatus ContinueChangeResolution(const gfx::Size& pic_size,
                                      const gfx::Rect& visible_rect,
-                                     const size_t num_output_frames);
+                                     size_t num_codec_reference_frames,
+                                     uint8_t bit_depth);
   void OnChangeResolutionDone(CroStatus status);
 
   // Change the state and check the state transition is valid.
@@ -187,11 +179,6 @@ class MEDIA_GPU_EXPORT V4L2VideoDecoder
   // State of the instance.
   State state_ = State::kUninitialized;
 
-  // Number of output frames requested to |frame_pool_|.
-  // The default value is only used at the first time of
-  // DmabufVideoFramePool::Initialize() during Initialize().
-  size_t num_output_frames_ = 1;
-
   // Aspect ratio from config to use for output frames.
   VideoAspectRatio aspect_ratio_;
 
@@ -207,9 +194,11 @@ class MEDIA_GPU_EXPORT V4L2VideoDecoder
   scoped_refptr<V4L2Queue> input_queue_;
   scoped_refptr<V4L2Queue> output_queue_;
 
-  BitstreamIdGenerator bitstream_id_generator_;
-
   SEQUENCE_CHECKER(decoder_sequence_checker_);
+
+  // Whether or not our V4L2Queues should be requested with
+  // V4L2_MEMORY_FLAG_NON_COHERENT
+  bool incoherent_ = false;
 
   // |weak_this_for_polling_| must be dereferenced and invalidated on
   // |decoder_task_runner_|.

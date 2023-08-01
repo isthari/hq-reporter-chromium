@@ -1,19 +1,20 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/commerce/merchant_viewer/merchant_viewer_data_manager.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/histogram_macros_local.h"
+#include "base/ranges/algorithm.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "chrome/browser/commerce/merchant_viewer/merchant_viewer_data_manager_factory.h"
-#include "chrome/browser/persisted_state_db/profile_proto_db.h"
-#include "chrome/browser/persisted_state_db/profile_proto_db_factory.h"
+#include "chrome/browser/persisted_state_db/session_proto_db_factory.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/commerce/core/commerce_feature_list.h"
+#include "components/session_proto_db/session_proto_db.h"
 #include "content/public/browser/android/browser_context_handle.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -65,9 +66,8 @@ class MerchantViewerDataManagerTest : public testing::Test {
                              MerchantViewerDataManager::MerchantSignals found) {
     EXPECT_EQ(true, success);
     vector<string> found_hostnames;
-    std::transform(found.begin(), found.end(),
-                   std::back_inserter(found_hostnames),
-                   [](const auto& item) { return item.second.key(); });
+    base::ranges::transform(found, std::back_inserter(found_hostnames),
+                            [](const auto& item) { return item.second.key(); });
 
     std::sort(found_hostnames.begin(), found_hostnames.end());
     std::sort(expected_hostnames.begin(), expected_hostnames.end());
@@ -92,7 +92,7 @@ const char kMockMerchantUrlB[] = "https://bar.com/";
 TEST_F(MerchantViewerDataManagerTest, TestDeleteMerchantViewerDataForOrigins) {
   base::HistogramTester histogram_tester;
 
-  ProfileProtoDB<merchant_signal_db::MerchantSignalContentProto>* db =
+  SessionProtoDB<merchant_signal_db::MerchantSignalContentProto>* db =
       service_->GetDB();
 
   merchant_signal_db::MerchantSignalContentProto protoA =
@@ -143,7 +143,7 @@ TEST_F(MerchantViewerDataManagerTest,
        TestDeleteMerchantViewerDataForOriginsEmpty) {
   base::HistogramTester histogram_tester;
 
-  ProfileProtoDB<merchant_signal_db::MerchantSignalContentProto>* db =
+  SessionProtoDB<merchant_signal_db::MerchantSignalContentProto>* db =
       service_->GetDB();
 
   merchant_signal_db::MerchantSignalContentProto protoA =
@@ -180,7 +180,7 @@ TEST_F(MerchantViewerDataManagerTest,
 TEST_F(MerchantViewerDataManagerTest, DeleteMerchantViewerDataForTimeRange) {
   base::HistogramTester histogram_tester;
 
-  ProfileProtoDB<merchant_signal_db::MerchantSignalContentProto>* db =
+  SessionProtoDB<merchant_signal_db::MerchantSignalContentProto>* db =
       service_->GetDB();
 
   base::Time start_time = base::Time::Now();
@@ -232,7 +232,7 @@ TEST_F(MerchantViewerDataManagerTest,
        DeleteMerchantViewerDataForTimeRangeNoDeletion) {
   base::HistogramTester histogram_tester;
 
-  ProfileProtoDB<merchant_signal_db::MerchantSignalContentProto>* db =
+  SessionProtoDB<merchant_signal_db::MerchantSignalContentProto>* db =
       service_->GetDB();
 
   base::Time start_time = base::Time::Now();
@@ -280,7 +280,7 @@ TEST_F(MerchantViewerDataManagerTest,
        DeleteMerchantViewerDataForTimeRangeWithinWindow) {
   base::HistogramTester histogram_tester;
 
-  ProfileProtoDB<merchant_signal_db::MerchantSignalContentProto>* db =
+  SessionProtoDB<merchant_signal_db::MerchantSignalContentProto>* db =
       service_->GetDB();
 
   base::Time start_time = base::Time::Now();
@@ -331,7 +331,7 @@ TEST_F(MerchantViewerDataManagerTest,
        DeleteMerchantViewerDataForOrigins_OriginNotFound) {
   base::HistogramTester histogram_tester;
 
-  ProfileProtoDB<merchant_signal_db::MerchantSignalContentProto>* db =
+  SessionProtoDB<merchant_signal_db::MerchantSignalContentProto>* db =
       service_->GetDB();
 
   base::RunLoop run_loop[1];
@@ -350,7 +350,7 @@ TEST_F(MerchantViewerDataManagerTest,
        DeleteMerchantViewerDataForOrigins_VerifyCount) {
   base::HistogramTester histogram_tester;
 
-  ProfileProtoDB<merchant_signal_db::MerchantSignalContentProto>* db =
+  SessionProtoDB<merchant_signal_db::MerchantSignalContentProto>* db =
       service_->GetDB();
 
   merchant_signal_db::MerchantSignalContentProto protoA =
@@ -403,7 +403,7 @@ TEST_F(MerchantViewerDataManagerTest,
 
   base::HistogramTester histogram_tester;
 
-  ProfileProtoDB<merchant_signal_db::MerchantSignalContentProto>* db =
+  SessionProtoDB<merchant_signal_db::MerchantSignalContentProto>* db =
       service_->GetDB();
 
   merchant_signal_db::MerchantSignalContentProto protoA =
@@ -455,7 +455,7 @@ TEST_F(MerchantViewerDataManagerTest,
 
   base::HistogramTester histogram_tester;
 
-  ProfileProtoDB<merchant_signal_db::MerchantSignalContentProto>* db =
+  SessionProtoDB<merchant_signal_db::MerchantSignalContentProto>* db =
       service_->GetDB();
 
   base::Time start_time = base::Time::Now();

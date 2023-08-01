@@ -1,46 +1,47 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/autofill/form_input_accessory/form_input_accessory_mediator.h"
 
-#include "base/ios/block_types.h"
-#include "base/ios/ios_util.h"
-#include "base/mac/foundation_util.h"
-#include "base/metrics/histogram_functions.h"
+#import "base/ios/block_types.h"
+#import "base/ios/ios_util.h"
+#import "base/mac/foundation_util.h"
+#import "base/metrics/histogram_functions.h"
+#import "base/metrics/user_metrics.h"
 #import "base/strings/sys_string_conversions.h"
-#include "components/autofill/core/browser/personal_data_manager.h"
-#include "components/autofill/core/common/autofill_features.h"
+#import "components/autofill/core/browser/personal_data_manager.h"
+#import "components/autofill/core/common/autofill_features.h"
 #import "components/autofill/ios/browser/form_suggestion.h"
 #import "components/autofill/ios/browser/form_suggestion_provider.h"
 #import "components/autofill/ios/browser/personal_data_manager_observer_bridge.h"
 #import "components/autofill/ios/form_util/form_activity_observer_bridge.h"
-#include "components/autofill/ios/form_util/form_activity_params.h"
+#import "components/autofill/ios/form_util/form_activity_params.h"
+#import "components/prefs/pref_service.h"
 #import "ios/chrome/browser/autofill/form_input_accessory_view_handler.h"
 #import "ios/chrome/browser/autofill/form_input_suggestions_provider.h"
 #import "ios/chrome/browser/autofill/form_suggestion_tab_helper.h"
-#import "ios/chrome/browser/autofill/form_suggestion_view.h"
 #import "ios/chrome/browser/autofill/manual_fill/passwords_fetcher.h"
-#import "ios/chrome/browser/passwords/password_generation_utils.h"
+#import "ios/chrome/browser/default_browser/utils.h"
+#import "ios/chrome/browser/shared/coordinator/chrome_coordinator/chrome_coordinator.h"
+#import "ios/chrome/browser/shared/model/application_context/application_context.h"
+#import "ios/chrome/browser/shared/model/prefs/pref_names.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/shared/public/commands/security_alert_commands.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
+#import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/autofill/form_input_accessory/form_input_accessory_chromium_text_data.h"
 #import "ios/chrome/browser/ui/autofill/form_input_accessory/form_input_accessory_consumer.h"
-#import "ios/chrome/browser/ui/commands/security_alert_commands.h"
-#import "ios/chrome/browser/ui/coordinators/chrome_coordinator.h"
-#import "ios/chrome/browser/ui/default_promo/default_browser_utils.h"
-#import "ios/chrome/browser/ui/ui_feature_flags.h"
-#import "ios/chrome/browser/ui/util/keyboard_observer_helper.h"
-#import "ios/chrome/browser/ui/util/ui_util.h"
-#import "ios/chrome/browser/ui/util/uikit_ui_util.h"
-#import "ios/chrome/browser/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/ui/autofill/form_input_accessory/form_suggestion_view.h"
 #import "ios/chrome/common/ui/elements/form_input_accessory_view.h"
-#include "ios/chrome/common/ui/reauthentication/reauthentication_event.h"
+#import "ios/chrome/common/ui/reauthentication/reauthentication_event.h"
 #import "ios/chrome/common/ui/reauthentication/reauthentication_module.h"
-#include "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/grit/ios_strings.h"
 #import "ios/web/common/url_scheme_util.h"
-#include "ios/web/public/js_messaging/web_frame.h"
-#include "ios/web/public/js_messaging/web_frames_manager.h"
+#import "ios/web/public/js_messaging/web_frame.h"
+#import "ios/web/public/js_messaging/web_frames_manager.h"
 #import "ios/web/public/web_state.h"
-#include "ui/base/l10n/l10n_util_mac.h"
+#import "ui/base/l10n/l10n_util_mac.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -48,18 +49,9 @@
 
 using base::UmaHistogramEnumeration;
 
-namespace {
-
-// Kill switch guarding a workaround for keyboard flicker, see crbug.com/1253561
-const base::Feature kFormInputKeyboardReloadInputViews{
-    "FormInputKeyboardReloadInputViews", base::FEATURE_ENABLED_BY_DEFAULT};
-
-}  // namespace
-
 @interface FormInputAccessoryMediator () <FormActivityObserver,
                                           FormInputAccessoryViewDelegate,
                                           CRWWebStateObserver,
-                                          KeyboardObserverHelperConsumer,
                                           PasswordFetcherDelegate,
                                           PersonalDataManagerObserver,
                                           WebStateListObserving>
@@ -76,9 +68,6 @@ const base::Feature kFormInputKeyboardReloadInputViews{
 // The form input handler. This is in charge of form navigation.
 @property(nonatomic, strong)
     FormInputAccessoryViewHandler* formNavigationHandler;
-
-// The observer to determine when the keyboard dissapears and when it stays.
-@property(nonatomic, strong) KeyboardObserverHelper* keyboardObserver;
 
 // The object that provides suggestions while filling forms.
 @property(nonatomic, weak) id<FormInputSuggestionsProvider> provider;
@@ -123,7 +112,7 @@ const base::Feature kFormInputKeyboardReloadInputViews{
   // Bridge to observe the web state from Objective-C.
   std::unique_ptr<web::WebStateObserverBridge> _webStateObserverBridge;
 
-  // Bridge to observe form activity in |_webState|.
+  // Bridge to observe form activity in `_webState`.
   std::unique_ptr<autofill::FormActivityObserverBridge>
       _formActivityObserverBridge;
 
@@ -131,10 +120,10 @@ const base::Feature kFormInputKeyboardReloadInputViews{
   BOOL _suggestionsHaveBeenShown;
 
   // The last seen valid params of a form before retrieving suggestions. Or
-  // empty if |_hasLastSeenParams| is NO.
+  // empty if `_hasLastSeenParams` is NO.
   autofill::FormActivityParams _lastSeenParams;
 
-  // If YES |_lastSeenParams| is valid.
+  // If YES `_lastSeenParams` is valid.
   BOOL _hasLastSeenParams;
 }
 
@@ -143,9 +132,12 @@ const base::Feature kFormInputKeyboardReloadInputViews{
                    handler:(id<FormInputAccessoryMediatorHandler>)handler
               webStateList:(WebStateList*)webStateList
        personalDataManager:(autofill::PersonalDataManager*)personalDataManager
-             passwordStore:
-                 (scoped_refptr<password_manager::PasswordStoreInterface>)
-                     passwordStore
+      profilePasswordStore:
+          (scoped_refptr<password_manager::PasswordStoreInterface>)
+              profilePasswordStore
+      accountPasswordStore:
+          (scoped_refptr<password_manager::PasswordStoreInterface>)
+              accountPasswordStore
       securityAlertHandler:(id<SecurityAlertCommands>)securityAlertHandler
     reauthenticationModule:(ReauthenticationModule*)reauthenticationModule {
   self = [super init];
@@ -182,18 +174,20 @@ const base::Feature kFormInputKeyboardReloadInputViews{
                       selector:@selector(applicationDidEnterBackground:)
                           name:UIApplicationDidEnterBackgroundNotification
                         object:nil];
-
-    _keyboardObserver = [[KeyboardObserverHelper alloc] init];
-    _keyboardObserver.consumer = self;
+    [defaultCenter addObserver:self
+                      selector:@selector(keyboardWillShow:)
+                          name:UIKeyboardWillShowNotification
+                        object:nil];
 
     // In BVC unit tests the password store doesn't exist. Skip creating the
     // fetcher.
     // TODO:(crbug.com/878388) Remove this workaround.
-    if (passwordStore) {
-      _passwordFetcher =
-          [[PasswordFetcher alloc] initWithPasswordStore:passwordStore
-                                                delegate:self
-                                                     URL:GURL::EmptyGURL()];
+    if (profilePasswordStore) {
+      _passwordFetcher = [[PasswordFetcher alloc]
+          initWithProfilePasswordStore:profilePasswordStore
+                  accountPasswordStore:accountPasswordStore
+                              delegate:self
+                                   URL:GURL::EmptyGURL()];
     }
     if (personalDataManager) {
       _personalDataManager = personalDataManager;
@@ -259,12 +253,10 @@ const base::Feature kFormInputKeyboardReloadInputViews{
   return _lastSeenParams.field_type == autofill::kPasswordFieldType;
 }
 
-#pragma mark - KeyboardObserverHelperConsumer
+#pragma mark - KeyboardNotification
 
-- (void)keyboardWillChangeToState:(KeyboardState)keyboardState {
-  if (keyboardState.isVisible) {
-    [self updateSuggestionsIfNeeded];
-  }
+- (void)keyboardWillShow:(NSNotification*)notification {
+  [self updateSuggestionsIfNeeded];
 }
 
 #pragma mark - FormActivityObserver
@@ -275,7 +267,7 @@ const base::Feature kFormInputKeyboardReloadInputViews{
   DCHECK_EQ(_webState, webState);
   self.validActivityForAccessoryView = NO;
 
-  // Return early if |params| is not complete.
+  // Return early if `params` is not complete.
   if (params.input_missing) {
     return;
   }
@@ -295,7 +287,7 @@ const base::Feature kFormInputKeyboardReloadInputViews{
   }
 
   // Return early and reset if frame is missing or can't call JS.
-  if (!frame || !frame->CanCallJavaScriptFunction()) {
+  if (!frame) {
     [self reset];
     return;
   }
@@ -307,12 +299,6 @@ const base::Feature kFormInputKeyboardReloadInputViews{
   }
 
   self.validActivityForAccessoryView = YES;
-  static bool form_input_keyboard_reload_input_views_workaround =
-      base::FeatureList::IsEnabled(kFormInputKeyboardReloadInputViews);
-  if (!form_input_keyboard_reload_input_views_workaround) {
-    [GetFirstResponder() reloadInputViews];
-  }
-
   NSString* frameID;
   if (frame) {
     frameID = base::SysUTF8ToNSString(frame->GetFrameId());
@@ -328,8 +314,7 @@ const base::Feature kFormInputKeyboardReloadInputViews{
     return;
   }
 
-  if (form_input_keyboard_reload_input_views_workaround &&
-      _lastSeenParams.field_type != params.field_type) {
+  if (_lastSeenParams.field_type != params.field_type) {
     [GetFirstResponder() reloadInputViews];
   }
   _lastSeenParams = params;
@@ -356,6 +341,26 @@ const base::Feature kFormInputKeyboardReloadInputViews{
 - (FormInputAccessoryViewTextData*)textDataforFormInputAccessoryView:
     (FormInputAccessoryView*)sender {
   return ChromiumAccessoryViewTextData();
+}
+
+#pragma mark - BrandingViewControllerDelegate
+
+- (void)brandingIconPressed {
+  base::RecordAction(base::UserMetricsAction("Autofill_BrandingTapped"));
+}
+
+- (BOOL)brandingIconShouldPerformPopAnimation {
+  return GetApplicationContext()->GetLocalState()->GetInteger(
+             prefs::kAutofillBrandingIconAnimationRemainingCountPrefName) > 0;
+}
+
+- (void)brandingIconDidPerformPopAnimation {
+  PrefService* local_state = GetApplicationContext()->GetLocalState();
+  const int current_remaining_count = local_state->GetInteger(
+      prefs::kAutofillBrandingIconAnimationRemainingCountPrefName);
+  local_state->SetInteger(
+      prefs::kAutofillBrandingIconAnimationRemainingCountPrefName,
+      current_remaining_count - 1);
 }
 
 #pragma mark - CRWWebStateObserver
@@ -488,7 +493,6 @@ const base::Feature kFormInputKeyboardReloadInputViews{
   [self.consumer showAccessorySuggestions:@[]];
 
   [self.handler resetFormInputView];
-  [self.formNavigationHandler reset];
 
   self.suggestionsDisabled = NO;
   self.currentProvider = nil;
@@ -501,9 +505,9 @@ const base::Feature kFormInputKeyboardReloadInputViews{
   DCHECK_EQ(webState, self.webState);
   DCHECK(_hasLastSeenParams);
 
-  __weak id<FormInputSuggestionsProvider> provider = self.provider;
+  __weak id<FormInputSuggestionsProvider> weakProvider = self.provider;
   __weak __typeof(self) weakSelf = self;
-  [provider
+  [weakProvider
       retrieveSuggestionsForForm:params
                         webState:self.webState
         accessoryViewUpdateBlock:^(NSArray<FormSuggestion*>* suggestions,
@@ -516,24 +520,26 @@ const base::Feature kFormInputKeyboardReloadInputViews{
         }];
 }
 
-// Post the passed |suggestionView| to the consumer. In case suggestions are
-// disabled, it's keep for later.
+// Post the passed `suggestions` to the consumer.
 - (void)updateWithProvider:(id<FormInputSuggestionsProvider>)provider
                suggestions:(NSArray<FormSuggestion*>*)suggestions {
-  // If the suggestions are disabled, post this view with no suggestions to the
-  // consumer. This allows the navigation buttons be in sync.
-  if (self.suggestionsDisabled) {
+  if (self.suggestionsDisabled)
     return;
-  } else {
-    // If suggestions are enabled update |currentProvider|.
-    self.currentProvider = provider;
-    // Post it to the consumer.
-    [self.consumer showAccessorySuggestions:suggestions];
-    if (suggestions.count) {
-      if (provider.type == SuggestionProviderTypeAutofill) {
-        LogLikelyInterestedDefaultBrowserUserActivity(
-            DefaultPromoTypeMadeForIOS);
-      }
+
+  // If suggestions are enabled, update `currentProvider`.
+  self.currentProvider = provider;
+
+  // Post it to the consumer.
+  self.consumer.suggestionType = provider.suggestionType;
+  self.consumer.currentFieldId = _lastSeenParams.unique_field_id;
+  [self.consumer showAccessorySuggestions:suggestions];
+  if (suggestions.count) {
+    if (provider.type == SuggestionProviderTypeAutofill) {
+      LogLikelyInterestedDefaultBrowserUserActivity(DefaultPromoTypeMadeForIOS);
+    }
+
+    if (suggestions.firstObject.featureForIPH.length > 0) {
+      [self.handler showAutofillSuggestionIPHIfNeeded];
     }
   }
 }
@@ -550,10 +556,20 @@ const base::Feature kFormInputKeyboardReloadInputViews{
                           ReauthenticationEvent::kAttempt);
   __weak __typeof(self) weakSelf = self;
   auto suggestionHandler = ^() {
-    if (weakSelf.currentProvider.type == SuggestionProviderTypePassword) {
+    __typeof(self) strongSelf = weakSelf;
+    if (!strongSelf) {
+      return;
+    }
+    if (strongSelf.currentProvider.type == SuggestionProviderTypePassword) {
       LogLikelyInterestedDefaultBrowserUserActivity(DefaultPromoTypeStaySafe);
     }
-    [weakSelf.currentProvider didSelectSuggestion:formSuggestion];
+    if (formSuggestion.featureForIPH.length) {
+      // The IPH is only shown if the suggestion was the first one. It doesn't
+      // matter if the IPH was shown for this suggestion as we don't want to
+      // show more IPH's to the user.
+      [self.handler notifyAutofillSuggestionWithIPHSelected];
+    }
+    [strongSelf.currentProvider didSelectSuggestion:formSuggestion];
   };
 
   if (!formSuggestion.requiresReauth) {

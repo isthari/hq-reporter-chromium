@@ -1,11 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/page_info/core/page_info_history_data_source.h"
 
-#include "base/callback.h"
-#include "base/callback_helpers.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/i18n/number_formatting.h"
 #include "base/i18n/time_formatting.h"
 #include "base/strings/string_util.h"
@@ -36,9 +36,11 @@ std::u16string PageInfoHistoryDataSource::FormatLastVisitedTimestamp(
   base::TimeDelta delta = midnight_today - mightnight_last_visited;
   // Adjust delta for DST, add or remove one hour as need to make the delta
   // divisible by 24 (in hours).
-  if (delta % kDay != base::Milliseconds(0)) {
-    DCHECK(delta % kDay == -base::Hours(23) || delta % kDay == base::Hours(1));
-    delta += delta % kDay == base::Hours(1) ? -base::Hours(1) : base::Hours(1);
+  const base::TimeDelta remainder =
+      delta % kDay < base::Milliseconds(0) ? -(delta % kDay) : delta % kDay;
+  if (remainder != base::Milliseconds(0)) {
+    DCHECK(remainder == base::Hours(23) || remainder == base::Hours(1));
+    delta += remainder == base::Hours(1) ? -base::Hours(1) : base::Hours(1);
   }
 
   if (delta == base::Milliseconds(0))

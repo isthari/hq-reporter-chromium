@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,8 @@
 #include <memory>
 #include <utility>
 
+#include "base/numerics/safe_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "mojo/public/cpp/system/simple_watcher.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/mojom/blob/blob_registry.mojom-blink.h"
@@ -23,7 +25,6 @@
 #include "third_party/blink/renderer/platform/network/parsed_content_disposition.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 #include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
-#include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_utf8_adaptor.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
@@ -70,7 +71,11 @@ class FetchDataLoaderAsBlobHandle final : public FetchDataLoader,
     data_pipe_loader_->Start(consumer_, this);
   }
 
-  void Cancel() override { consumer_->Cancel(); }
+  void Cancel() override {
+    load_canceled_ = true;
+    blob_handle_.reset();
+    consumer_->Cancel();
+  }
 
   void DidFetchDataStartedDataPipe(
       mojo::ScopedDataPipeConsumerHandle handle) override {
@@ -79,8 +84,9 @@ class FetchDataLoaderAsBlobHandle final : public FetchDataLoader,
         mime_type_ ? mime_type_ : "", /*content_disposition=*/"",
         /*length_hint=*/0, std::move(handle),
         mojo::PendingAssociatedRemote<mojom::blink::ProgressClient>(),
-        WTF::Bind(&FetchDataLoaderAsBlobHandle::FinishedCreatingFromDataPipe,
-                  WrapWeakPersistent(this)));
+        WTF::BindOnce(
+            &FetchDataLoaderAsBlobHandle::FinishedCreatingFromDataPipe,
+            WrapWeakPersistent(this)));
   }
 
   void DidFetchDataLoadedDataPipe() override {
@@ -105,6 +111,8 @@ class FetchDataLoaderAsBlobHandle final : public FetchDataLoader,
  private:
   void FinishedCreatingFromDataPipe(
       const scoped_refptr<BlobDataHandle>& blob_handle) {
+    if (load_canceled_)
+      return;
     if (!blob_handle) {
       DidFetchDataLoadFailed();
       return;
@@ -124,6 +132,7 @@ class FetchDataLoaderAsBlobHandle final : public FetchDataLoader,
   const scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
   scoped_refptr<BlobDataHandle> blob_handle_;
   bool load_complete_ = false;
+  bool load_canceled_ = false;
 };
 
 class FetchDataLoaderAsArrayBuffer final : public FetchDataLoader,
@@ -152,7 +161,7 @@ class FetchDataLoaderAsArrayBuffer final : public FetchDataLoader,
         return;
       if (result == BytesConsumer::Result::kOk) {
         if (available > 0) {
-          bool ok = Append(buffer, SafeCast<wtf_size_t>(available));
+          bool ok = Append(buffer, base::checked_cast<wtf_size_t>(available));
           if (!ok) {
             [[maybe_unused]] auto unused = consumer_->EndRead(0);
             consumer_->Cancel();
@@ -208,7 +217,7 @@ class FetchDataLoaderAsArrayBuffer final : public FetchDataLoader,
   // Builds a DOMArrayBuffer from the received bytes.
   DOMArrayBuffer* BuildArrayBuffer() {
     DOMArrayBuffer* result = DOMArrayBuffer::CreateUninitializedOrNull(
-        SafeCast<unsigned>(buffer_->size()), 1);
+        base::checked_cast<unsigned>(buffer_->size()), 1);
     // Handle a failed allocation.
     if (!result) {
       return result;
@@ -321,8 +330,12 @@ class FetchDataLoaderAsFormData final : public FetchDataLoader,
             multipart_parser_->AppendData(buffer, available);
         const bool multipart_receive_failed = multipart_parser_->IsCancelled();
         result = consumer_->EndRead(available);
-        if (!buffer_appended || multipart_receive_failed)
-          result = BytesConsumer::Result::kError;
+        if (!buffer_appended || multipart_receive_failed) {
+          // No point in reading any more as the input is invalid.
+          consumer_->Cancel();
+          client_->DidFetchDataLoadFailed();
+          return;
+        }
       }
       switch (result) {
         case BytesConsumer::Result::kOk:
@@ -616,7 +629,7 @@ class FetchDataLoaderAsDataPipe final : public FetchDataLoader,
         if (available == 0) {
           result = consumer_->EndRead(0);
         } else {
-          uint32_t num_bytes = SafeCast<uint32_t>(available);
+          uint32_t num_bytes = base::checked_cast<uint32_t>(available);
           MojoResult mojo_result = out_data_pipe_->WriteData(
               buffer, &num_bytes, MOJO_WRITE_DATA_FLAG_NONE);
           if (mojo_result == MOJO_RESULT_OK) {

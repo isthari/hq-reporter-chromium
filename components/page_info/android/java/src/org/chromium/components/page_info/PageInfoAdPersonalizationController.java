@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,9 @@ package org.chromium.components.page_info;
 import android.view.View;
 import android.view.ViewGroup;
 
-import java.util.Arrays;
-import java.util.Collections;
+import androidx.annotation.NonNull;
+import androidx.annotation.VisibleForTesting;
+
 import java.util.List;
 
 /**
@@ -16,23 +17,31 @@ import java.util.List;
  */
 public class PageInfoAdPersonalizationController extends PageInfoPreferenceSubpageController {
     public static final int ROW_ID = View.generateViewId();
+    private static List<String> sTopicsForTesting;
 
     private final PageInfoMainController mMainController;
     private final PageInfoRowView mRowView;
     private PageInfoAdPersonalizationPreference mSubPage;
 
-    private List<String> mInfo;
+    private boolean mHasJoinedUserToInterestGroup;
+    private List<String> mTopics;
 
     public PageInfoAdPersonalizationController(PageInfoMainController mainController,
             PageInfoRowView rowView, PageInfoControllerDelegate delegate) {
         super(delegate);
         mMainController = mainController;
         mRowView = rowView;
+    }
 
-        fetchAdPersonalizationInfo();
-
+    public void setAdPersonalizationInfo(
+            boolean hasJoinedUserToInterestGroup, List<String> topics) {
+        mHasJoinedUserToInterestGroup = hasJoinedUserToInterestGroup;
+        mTopics = topics;
+        if (mTopics.isEmpty() && sTopicsForTesting != null) {
+            mTopics = sTopicsForTesting;
+        }
         PageInfoRowView.ViewParams rowParams = new PageInfoRowView.ViewParams();
-        rowParams.visible = !mInfo.isEmpty();
+        rowParams.visible = hasJoinedUserToInterestGroup || !mTopics.isEmpty();
         rowParams.title = getSubpageTitle();
         rowParams.iconResId = R.drawable.gm_ads_click_24;
         rowParams.decreaseIconSize = true;
@@ -40,30 +49,35 @@ public class PageInfoAdPersonalizationController extends PageInfoPreferenceSubpa
         mRowView.setParams(rowParams);
     }
 
-    private void fetchAdPersonalizationInfo() {
-        // TODO(crbug.com/1286276): Populate with real data from site.
-        if (mMainController.getURL().domainIs("example.com")) {
-            mInfo = Arrays.asList("Foo", "Bar");
-        } else {
-            mInfo = Collections.emptyList();
-        }
-    }
-
     private void launchSubpage() {
         mMainController.recordAction(PageInfoAction.PAGE_INFO_AD_PERSONALIZATION_PAGE_OPENED);
         mMainController.launchSubpage(this);
     }
 
+    @NonNull
     @Override
     public String getSubpageTitle() {
+        var siteSettingsDelegate = getDelegate().getSiteSettingsDelegate();
         return mRowView.getContext().getResources().getString(
-                R.string.page_info_ad_personalization_title);
+                siteSettingsDelegate.isPrivacySandboxSettings4Enabled()
+                        ? R.string.page_info_ad_privacy_header
+                        : R.string.page_info_ad_personalization_title);
     }
 
     @Override
     public View createViewForSubpage(ViewGroup parent) {
         assert mSubPage == null;
         mSubPage = new PageInfoAdPersonalizationPreference();
+        PageInfoAdPersonalizationPreference.Params params =
+                new PageInfoAdPersonalizationPreference.Params();
+        params.hasJoinedUserToInterestGroup = mHasJoinedUserToInterestGroup;
+        params.topicInfo = mTopics;
+        params.onManageInterestsButtonClicked = () -> {
+            mMainController.recordAction(
+                    PageInfoAction.PAGE_INFO_AD_PERSONALIZATION_SETTINGS_OPENED);
+            getDelegate().showAdPersonalizationSettings();
+        };
+        mSubPage.setParams(params);
         return addSubpageFragment(mSubPage);
     }
 
@@ -77,5 +91,10 @@ public class PageInfoAdPersonalizationController extends PageInfoPreferenceSubpa
     public void onSubpageRemoved() {
         removeSubpageFragment();
         mSubPage = null;
+    }
+
+    @VisibleForTesting
+    public static void setTopicsForTesting(List<String> topics) {
+        sTopicsForTesting = topics;
     }
 }

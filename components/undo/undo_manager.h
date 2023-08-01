@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/observer_list.h"
 
 class UndoManagerObserver;
@@ -104,7 +105,7 @@ class UndoManager {
   void NotifyOnUndoManagerStateChange();
 
   // Handle the addition of |new_undo_group| to the active undo group container.
-  void AddUndoGroup(UndoGroup* new_undo_group);
+  void AddUndoGroup(std::unique_ptr<UndoGroup> new_undo_group);
 
   // Returns the undo or redo UndoGroup container that should store the next
   // change taking into account if an undo or redo is being executed.
@@ -124,7 +125,9 @@ class UndoManager {
   std::unique_ptr<UndoGroup> pending_grouped_action_;
 
   // The action that is in the process of being undone.
-  UndoGroup* undo_in_progress_action_;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION UndoGroup* undo_in_progress_action_;
 
   // Supports the suspension of undo tracking.
   int undo_suspended_count_;

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -55,13 +55,15 @@ class CONTENT_EXPORT TouchSelectionControllerClientAura
   // better not to send context menu request from the renderer in this case and
   // instead decide in the client about showing the quick menu in response to
   // selection events. (http://crbug.com/548245)
-  bool HandleContextMenu(const ContextMenuParams& params);
+  virtual bool HandleContextMenu(const ContextMenuParams& params);
 
   void UpdateClientSelectionBounds(const gfx::SelectionBound& start,
                                    const gfx::SelectionBound& end);
 
   // TouchSelectionControllerClientManager.
   void DidStopFlinging() override;
+  void OnSwipeToMoveCursorBegin() override;
+  void OnSwipeToMoveCursorEnd() override;
   void UpdateClientSelectionBounds(
       const gfx::SelectionBound& start,
       const gfx::SelectionBound& end,
@@ -82,6 +84,7 @@ class CONTENT_EXPORT TouchSelectionControllerClientAura
   bool IsQuickMenuAvailable() const;
   void ShowQuickMenu();
   void UpdateQuickMenu();
+  void UpdateMagnifier();
 
   // ui::TouchSelectionControllerClient:
   bool SupportsAnimation() const override;
@@ -124,7 +127,7 @@ class CONTENT_EXPORT TouchSelectionControllerClientAura
     void DidScroll() override;
 
    private:
-    raw_ptr<RenderWidgetHostViewAura> rwhva_;
+    raw_ptr<RenderWidgetHostViewAura, DanglingUntriaged> rwhva_;
   } internal_client_;
 
   // Keep track of which client interface to use.

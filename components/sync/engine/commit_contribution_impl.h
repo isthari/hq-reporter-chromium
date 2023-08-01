@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "components/sync/base/passphrase_enums.h"
 #include "components/sync/engine/commit_and_get_updates_types.h"
@@ -72,6 +72,9 @@ class CommitContributionImpl : public CommitContribution {
  private:
   // Generates id for new entities and encrypts entity if needed.
   void AdjustCommitProto(sync_pb::SyncEntity* commit_proto);
+
+  // Encrypt the specifics and hide the title if necessary.
+  void EncryptPasswordSpecificsData(sync_pb::SyncEntity* commit_proto);
 
   const ModelType type_;
 

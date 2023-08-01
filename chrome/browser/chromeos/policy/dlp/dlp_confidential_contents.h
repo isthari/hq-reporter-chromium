@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,8 @@
 #include <vector>
 
 #include "base/containers/flat_set.h"
+#include "base/ranges/algorithm.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
@@ -31,7 +33,7 @@ namespace policy {
 // Used to cache and later show information about observed confidential contents
 // to the user.
 struct DlpConfidentialContent {
-  DlpConfidentialContent();
+  DlpConfidentialContent() = delete;
   // Constructs DlpConfidentialContent from the title and icon obtained from
   // |web_contents|, which cannot be null.
   explicit DlpConfidentialContent(content::WebContents* web_contents);
@@ -67,6 +69,27 @@ class DlpConfidentialContents {
   DlpConfidentialContents& operator=(const DlpConfidentialContents& other);
   ~DlpConfidentialContents();
 
+  friend bool operator==(const DlpConfidentialContents& a,
+                         const DlpConfidentialContents& b) {
+    return a.contents_ == b.contents_;
+  }
+  friend bool operator!=(const DlpConfidentialContents& a,
+                         const DlpConfidentialContents& b) {
+    return !(a == b);
+  }
+
+  // Returns true if all the elements in |a| and |b| are equal (i.e. have the
+  // same url) and the same title, and false otherwise. Useful to detect changes
+  // in titles, even if the set of the confidential contents hasn't changed.
+  friend bool EqualWithTitles(const DlpConfidentialContents& a,
+                              const DlpConfidentialContents& b) {
+    return base::ranges::equal(
+        a.contents_, b.contents_,
+        [](const DlpConfidentialContent& x, const DlpConfidentialContent& y) {
+          return x == y && x.title == y.title;
+        });
+  }
+
   // Returns a reference to the underlying content container.
   base::flat_set<DlpConfidentialContent>& GetContents();
 
@@ -79,8 +102,6 @@ class DlpConfidentialContents {
   // Same for |window| and |url| pair.
   void Add(aura::Window* window, const GURL& url);
 
-  void Add(const DlpConfidentialContent& content);
-
   // Removes all stored confidential content, if there was any, and adds
   // |web_contents| converted to a DlpConfidentialContent.
   void ClearAndAdd(content::WebContents* web_contents);
@@ -92,7 +113,7 @@ class DlpConfidentialContents {
 
   // Adds all content stored in |other| to the underlying container, without
   // duplicates.
-  void UnionWith(const DlpConfidentialContents& other);
+  void InsertOrUpdate(const DlpConfidentialContents& other);
 
  private:
   base::flat_set<DlpConfidentialContent> contents_;

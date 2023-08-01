@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,11 @@
 
 #include <inttypes.h>
 
-#include "base/bind.h"
-#include "base/callback_forward.h"
-#include "base/callback_helpers.h"
-#include "base/cxx17_backports.h"
+#include <algorithm>
+
+#include "base/functional/bind.h"
+#include "base/functional/callback_forward.h"
+#include "base/functional/callback_helpers.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/run_loop.h"
@@ -17,7 +18,6 @@
 #include "base/strings/stringprintf.h"
 #include "base/synchronization/lock.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "net/base/test_completion_callback.h"
@@ -563,7 +563,8 @@ void TestDownloadHttpResponse::PauseResponsesAndWaitForResumption() {
       FROM_HERE,
       base::BindOnce(
           std::move(pause_callback),
-          base::BindOnce(OnResume, base::ThreadTaskRunnerHandle::Get(),
+          base::BindOnce(OnResume,
+                         base::SingleThreadTaskRunner::GetCurrentDefault(),
                          std::move(continue_closure))));
 }
 
@@ -575,8 +576,8 @@ void TestDownloadHttpResponse::SendResponseBodyChunk() {
   }
 
   int64_t upper_bound =
-      base::clamp(response_sent_offset_ + kBufferSize,
-                  range_.first_byte_position(), range_.last_byte_position());
+      std::clamp(response_sent_offset_ + kBufferSize,
+                 range_.first_byte_position(), range_.last_byte_position());
   auto buffer_range =
       net::HttpByteRange::Bounded(response_sent_offset_, upper_bound);
 
@@ -632,7 +633,7 @@ std::unique_ptr<net::test_server::HttpResponse>
 TestDownloadResponseHandler::HandleTestDownloadRequest(
     TestDownloadHttpResponse::OnResponseSentCallback callback,
     const net::test_server::HttpRequest& request) {
-  server_task_runner_ = base::ThreadTaskRunnerHandle::Get();
+  server_task_runner_ = base::SingleThreadTaskRunner::GetCurrentDefault();
 
   if (request.headers.find(net::HttpRequestHeaders::kHost) ==
       request.headers.end()) {

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,18 +7,22 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <memory>
 #include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "base/callback.h"
 #include "base/component_export.h"
 #include "base/containers/flat_map.h"
+#include "base/dcheck_is_on.h"
 #include "base/feature_list.h"
+#include "base/files/file_path.h"
+#include "base/functional/callback.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/memory/ref_counted.h"
 #include "base/sequence_checker.h"
 #include "base/strings/string_piece.h"
@@ -26,22 +30,29 @@
 #include "base/types/pass_key.h"
 #include "sql/internal_api_token.h"
 #include "sql/sql_features.h"
+#include "sql/sqlite_result_code.h"
+#include "sql/sqlite_result_code_values.h"
 #include "sql/statement_id.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
+// Forward declaration for SQLite structures. Headers in the public sql:: API
+// must NOT include sqlite3.h.
 struct sqlite3;
+struct sqlite3_file;
 struct sqlite3_stmt;
 
-namespace base {
-class FilePath;
-namespace trace_event {
+namespace base::trace_event {
 class ProcessMemoryDump;
-}  // namespace trace_event
-}  // namespace base
+}  // namespace base::trace_event
+
+namespace perfetto::protos::pbzero {
+class ChromeSqlDiagnostics;
+}
 
 namespace sql {
 
 class DatabaseMemoryDumpProvider;
+class Recovery;
 class Statement;
 
 namespace test {
@@ -61,8 +72,10 @@ struct COMPONENT_EXPORT(SQL) DatabaseOptions {
   // on every transaction, and comes with a small performance penalty.
   //
   // Setting this to true causes the locking protocol to be used once, when the
-  // database is opened. No other process will be able to access the database at
-  // the same time.
+  // database is opened. No other SQLite process will be able to access the
+  // database at the same time. Note that this uses OS-level
+  // advisory/cooperative locking, so this does not protect the database file
+  // from uncooperative processes.
   //
   // More details at https://www.sqlite.org/pragma.html#pragma_locking_mode
   //
@@ -73,6 +86,25 @@ struct COMPONENT_EXPORT(SQL) DatabaseOptions {
   // up a transaction. It also removes the need of handling transaction failures
   // due to lock contention.
   bool exclusive_locking = true;
+
+  // If true, enables exclusive=true vfs URI parameter on the database file.
+  // This is only supported on Windows.
+  //
+  // If this option is true then the database file cannot be opened by any
+  // processes on the system until the database has been closed. Note, this is
+  // not the same as `exclusive_locking` above, which refers to
+  // advisory/cooperative locks. This option sets file handle sharing attributes
+  // to prevent the database files from being opened from any process including
+  // being opened a second time by the hosting process.
+  //
+  // A side effect of setting this flag is that the database cannot be
+  // preloaded. If you would like to set this flag on a preloaded database,
+  // please reach out to a //sql owner.
+  //
+  // This option is experimental and will be merged into the `exclusive_locking`
+  // option above if proven to cause no OS compatibility issues.
+  // TODO(crbug.com/1429117): Merge into above option, if possible.
+  bool exclusive_database_file_lock = false;
 
   // If true, enables SQLite's Write-Ahead Logging (WAL).
   //
@@ -90,6 +122,26 @@ struct COMPONENT_EXPORT(SQL) DatabaseOptions {
   // More details at https://www.sqlite.org/wal.html
   bool wal_mode =
       base::FeatureList::IsEnabled(sql::features::kEnableWALModeByDefault);
+
+  // If true, transaction commit waits for data to reach persistent media.
+  //
+  // This is currently only meaningful on macOS. All other operating systems
+  // only support flushing directly to disk.
+  //
+  // If both `flush_to_media` and `wal_mode` are false, power loss can lead to
+  // database corruption.
+  //
+  // By default, SQLite considers that transactions commit when they reach the
+  // disk controller's memory. This guarantees durability in the event of
+  // software crashes, up to and including the operating system. In the event of
+  // power loss, SQLite may lose data. If `wal_mode` is false (SQLite uses a
+  // rollback journal), power loss can lead to database corruption.
+  //
+  // When this option is enabled, committing a transaction causes SQLite to wait
+  // until the data is written to the persistent media. This guarantees
+  // durability in the event of power loss, which is needed to guarantee the
+  // integrity of non-WAL databases.
+  bool flush_to_media = false;
 
   // Database page size.
   //
@@ -162,10 +214,54 @@ struct COMPONENT_EXPORT(SQL) DatabaseOptions {
   bool enable_virtual_tables_discouraged = false;
 };
 
+// Holds database diagnostics in a structured format.
+struct COMPONENT_EXPORT(SQL) DatabaseDiagnostics {
+  DatabaseDiagnostics();
+  ~DatabaseDiagnostics();
+
+  using TraceProto = perfetto::protos::pbzero::ChromeSqlDiagnostics;
+  // Write a representation of this object into tracing proto.
+  void WriteIntoTrace(perfetto::TracedProto<TraceProto> context) const;
+
+  // This was the original error code that triggered the error callback. Should
+  // generally match `error_code`, but this isn't guaranteed by the code.
+  int reported_sqlite_error_code = 0;
+
+  // Corresponds to `Database::GetErrorCode()`.
+  int error_code = 0;
+
+  // Corresponds to `Database::GetLastErrno()`.
+  int last_errno = 0;
+
+  // Corresponds to `Statement::GetSQLStatement()` of the problematic statement.
+  // This doesn't include the bound values, and therefore is free of any PII.
+  std::string sql_statement;
+
+  // The 'version' value stored in the user database's meta table, if it can be
+  // read. If we fail to read the version of the user database, it's left as 0.
+  int version = 0;
+
+  // Most rows in 'sql_schema' have a non-NULL 'sql' column. Those rows' 'sql'
+  // contents are logged here, one element per row.
+  std::vector<std::string> schema_sql_rows;
+
+  // Some rows of 'sql_schema' have a NULL 'sql' column. They are typically
+  // autogenerated indices, like "sqlite_autoindex_downloads_slices_1". These
+  // are also logged here by their 'name' column, one element per row.
+  std::vector<std::string> schema_other_row_names;
+
+  // Sanity checks used for all errors.
+  bool has_valid_header = false;
+  bool has_valid_schema = false;
+
+  // Corresponds to `Database::GetErrorMessage()`.
+  std::string error_message;
+};
+
 // Handle to an open SQLite database.
 //
-// Instances of this class are thread-unsafe and DCHECK that they are accessed
-// on the same sequence.
+// Instances of this class are not thread-safe. After construction, a Database
+// instance should only be accessed from one sequence.
 //
 // When a Database instance goes out of scope, any uncommitted transactions are
 // rolled back.
@@ -194,6 +290,8 @@ class COMPONENT_EXPORT(SQL) Database {
 
   Database(const Database&) = delete;
   Database& operator=(const Database&) = delete;
+  Database(Database&&) = delete;
+  Database& operator=(Database&&) = delete;
   ~Database();
 
   // Allows mmapping to be disabled globally by default in the calling process.
@@ -228,29 +326,38 @@ class COMPONENT_EXPORT(SQL) Database {
   // The callback will be called on the sequence used for database operations.
   // The callback will never be called after the Database instance is destroyed.
   using ErrorCallback = base::RepeatingCallback<void(int, Statement*)>;
-  void set_error_callback(const ErrorCallback& callback) {
-    error_callback_ = callback;
+  void set_error_callback(ErrorCallback callback) {
+    DCHECK(!callback.is_null()) << "Use reset_error_callback() explicitly";
+    DCHECK(error_callback_.is_null())
+        << "Overwriting previously set error callback";
+    error_callback_ = std::move(callback);
   }
-  bool has_error_callback() const { return !error_callback_.is_null(); }
   void reset_error_callback() { error_callback_.Reset(); }
+  bool has_error_callback() const { return !error_callback_.is_null(); }
 
   // Developer-friendly database ID used in logging output and memory dumps.
   void set_histogram_tag(const std::string& tag);
 
-  // Run "PRAGMA integrity_check" and post each line of
-  // results into |messages|.  Returns the success of running the
-  // statement - per the SQLite documentation, if no errors are found the
-  // call should succeed, and a single value "ok" should be in messages.
+  // Asks SQLite to perform a full integrity check on the database.
+  //
+  // Returns true if the integrity check was completed successfully. Success
+  // does not necessarily entail that the database is healthy. Finding
+  // corruption and reporting it in `messages` counts as success.
+  //
+  // If the method returns true, `messages` is populated with a list of
+  // diagnostic messages. If the integrity check finds no errors, `messages`
+  // will contain exactly one "ok" string. This unusual API design is explained
+  // by the fact that SQLite exposes integrity check functionality as a PRAGMA,
+  // and the PRAGMA returns "ok" in case of success.
   bool FullIntegrityCheck(std::vector<std::string>* messages);
 
-  // Runs "PRAGMA quick_check" and, unlike the FullIntegrityCheck method,
-  // interprets the results returning true if the the statement executes
-  // without error and results in a single "ok" value.
-  [[nodiscard]] bool QuickIntegrityCheck();
-
   // Meant to be called from a client error callback so that it's able to
-  // get diagnostic information about the database.
-  std::string GetDiagnosticInfo(int extended_error, Statement* statement);
+  // get diagnostic information about the database. `diagnostics` is an optional
+  // out parameter. If `diagnostics` is defined, this method populates all of
+  // its fields.
+  std::string GetDiagnosticInfo(int extended_error,
+                                Statement* statement,
+                                DatabaseDiagnostics* diagnostics = nullptr);
 
   // Reports memory usage into provided memory dump with the given name.
   bool ReportMemoryUsage(base::trace_event::ProcessMemoryDump* pmd,
@@ -258,20 +365,30 @@ class COMPONENT_EXPORT(SQL) Database {
 
   // Initialization ------------------------------------------------------------
 
-  // Initializes the SQL database for the given file, returning true if the
-  // file could be opened. You can call this or OpenInMemory.
-  [[nodiscard]] bool Open(const base::FilePath& path);
+  // Opens or creates a database on disk.
+  //
+  // `db_file_path` points to the file storing database pages. Other files
+  // associated with the database (rollback journal, write-ahead log,
+  // shared-memory file) may be created.
+  //
+  // Returns true in case of success, false in case of failure.
+  [[nodiscard]] bool Open(const base::FilePath& db_file_path);
 
-  // Initializes the SQL database for a temporary in-memory database. There
-  // will be no associated file on disk, and the initial database will be
-  // empty. You can call this or Open.
+  // Alternative to Open() that creates an in-memory database.
+  //
+  // Returns true in case of success, false in case of failure.
+  //
+  // The memory associated with the database will be released when the database
+  // is closed.
   [[nodiscard]] bool OpenInMemory();
 
-  // Create a temporary on-disk database.  The database will be
-  // deleted after close.  This kind of database is similar to
-  // OpenInMemory() for small databases, but can page to disk if the
-  // database becomes large.
-  [[nodiscard]] bool OpenTemporary();
+  // Alternative to Open() that creates a temporary on-disk database.
+  //
+  // Returns true in case of success, false in case of failure.
+  //
+  // The files associated with the temporary database will be deleted when the
+  // database is closed.
+  [[nodiscard]] bool OpenTemporary(base::PassKey<Recovery>);
 
   // Returns true if the database has been successfully opened.
   bool is_open() const { return static_cast<bool>(db_); }
@@ -282,17 +399,17 @@ class COMPONENT_EXPORT(SQL) Database {
   // an uninitialized or already-closed database.
   void Close();
 
-  // Reads the first <cache-size>*<page-size> bytes of the file to prime the
-  // filesystem cache.  This can be more efficient than faulting pages
-  // individually.  Since this involves blocking I/O, it should only be used if
-  // the caller will immediately read a substantial amount of data from the
-  // database.
+  // Hints the file system that the database will be accessed soon.
   //
-  // TODO(shess): Design a set of histograms or an experiment to inform this
-  // decision.  Preloading should almost always improve later performance
-  // numbers for this database simply because it pulls operations forward, but
-  // if the data isn't actually used soon then preloading just slows down
-  // everything else.
+  // This method should be called on databases that are on the critical path to
+  // Chrome startup. Informing the filesystem about our expected access pattern
+  // early on reduces the likelihood that we'll be blocked on disk I/O. This has
+  // a high impact on startup time.
+  //
+  // This method should not be used for non-critical databases. While using it
+  // will likely improve micro-benchmarks involving one specific database,
+  // overuse risks randomizing the disk I/O scheduler, slowing down Chrome
+  // startup.
   void Preload();
 
   // Release all non-essential memory associated with this database connection.
@@ -339,10 +456,9 @@ class COMPONENT_EXPORT(SQL) Database {
   // Close() should still be called at some point.
   void Poison();
 
-  // Raze() the database and Poison() the handle.  Returns the return
-  // value from Raze().
-  // TODO(shess): Rename to RazeAndPoison().
-  bool RazeAndClose();
+  // `Raze()` the database and `Poison()` the handle. Returns the return
+  // value from `Raze()`.
+  bool RazeAndPoison();
 
   // Delete the underlying database files associated with |path|. This should be
   // used on a database which is not opened by any Database instance. Open
@@ -473,6 +589,13 @@ class COMPONENT_EXPORT(SQL) Database {
   // See GetCachedStatement above for examples and error information.
   scoped_refptr<StatementRef> GetUniqueStatement(const char* sql);
 
+  // Returns a non-cached statement same as `GetUniqueStatement()`, except
+  // returns an invalid statement if the statement makes direct changes to the
+  // database file. This readonly check does not include changes made by
+  // application-defined functions. See more at:
+  // https://www.sqlite.org/c3ref/stmt_readonly.html.
+  scoped_refptr<Database::StatementRef> GetReadonlyStatement(const char* sql);
+
   // Performs a passive checkpoint on the main attached database if it is in
   // WAL mode. Returns true if the checkpoint was successful and false in case
   // of an error. It is a no-op if the database is not in WAL mode.
@@ -506,7 +629,7 @@ class COMPONENT_EXPORT(SQL) Database {
   // Returns sqlite's count of the number of rows modified by the last
   // statement executed. Will be 0 if no statement has executed or the database
   // is closed.
-  int GetLastChangeCount() const;
+  int64_t GetLastChangeCount();
 
   // Approximates the amount of memory used by SQLite for this database.
   //
@@ -540,7 +663,7 @@ class COMPONENT_EXPORT(SQL) Database {
   // |error_callback| should use IsExpectedSqliteError() to check for unexpected
   // errors; if one is detected, DLOG(DCHECK) is generally appropriate (see
   // OnSqliteError implementation).
-  static bool IsExpectedSqliteError(int error);
+  static bool IsExpectedSqliteError(int sqlite_error_code);
 
   // Computes the path of a database's rollback journal.
   //
@@ -578,6 +701,7 @@ class COMPONENT_EXPORT(SQL) Database {
   // Internal state accessed by other classes in //sql.
   sqlite3* db(InternalApiToken) const { return db_; }
   bool poisoned(InternalApiToken) const { return poisoned_; }
+  base::FilePath DbPath(InternalApiToken) const { return DbPath(); }
 
   // Interface with sql::test::ScopedErrorExpecter.
   using ScopedErrorExpecterCallback = base::RepeatingCallback<bool(int)>;
@@ -593,22 +717,45 @@ class COMPONENT_EXPORT(SQL) Database {
 
   FRIEND_TEST_ALL_PREFIXES(SQLDatabaseTest, CachedStatement);
   FRIEND_TEST_ALL_PREFIXES(SQLDatabaseTest, CollectDiagnosticInfo);
-  FRIEND_TEST_ALL_PREFIXES(SQLDatabaseTest, GetAppropriateMmapSize);
-  FRIEND_TEST_ALL_PREFIXES(SQLDatabaseTest, GetAppropriateMmapSizeAltStatus);
+  FRIEND_TEST_ALL_PREFIXES(SQLDatabaseTest, ComputeMmapSizeForOpen);
+  FRIEND_TEST_ALL_PREFIXES(SQLDatabaseTest, ComputeMmapSizeForOpenAltStatus);
   FRIEND_TEST_ALL_PREFIXES(SQLDatabaseTest, OnMemoryDump);
   FRIEND_TEST_ALL_PREFIXES(SQLDatabaseTest, RegisterIntentToUpload);
   FRIEND_TEST_ALL_PREFIXES(SQLiteFeaturesTest, WALNoClose);
+  FRIEND_TEST_ALL_PREFIXES(SQLEmptyPathDatabaseTest, EmptyPathTest);
 
-  // Internal initialize function used by both Init and InitInMemory. The file
-  // name is always 8 bits since we want to use the 8-bit version of
-  // sqlite3_open. The string can also be sqlite's special ":memory:" string.
+  // Enables a special behavior for OpenInternal().
+  enum class OpenMode {
+    // No special behavior.
+    kNone = 0,
+
+    // Retry if the database error handler is invoked and closes the database.
+    // Database error handlers that call RazeAndPoison() take advantage of this.
+    kRetryOnPoision = 1,
+
+    // Open an in-memory database. Used by OpenInMemory().
+    kInMemory = 2,
+
+    // Open a temporary database. Used by OpenTemporary().
+    kTemporary = 3,
+  };
+
+  // Implements Open(), OpenInMemory(), and OpenTemporary().
   //
-  // |retry_flag| controls retrying the open if the error callback
-  // addressed errors using RazeAndClose().
-  enum Retry { NO_RETRY = 0, RETRY_ON_POISON };
-  bool OpenInternal(const std::string& file_name, Retry retry_flag);
+  // `db_file_path` is a UTF-8 path to the file storing the database pages. The
+  // path must be empty if `mode` is kTemporary. The path must be the SQLite
+  // magic memory path string if `mode` is kMemory.
+  bool OpenInternal(const std::string& file_name, OpenMode mode);
 
-  // Internal close function used by Close() and RazeAndClose().
+  // Configures the underlying sqlite3* object via sqlite3_db_config().
+  //
+  // To minimize the number of possible SQLite code paths executed in Chrome,
+  // this method must be called right after the underlying sqlite3* object is
+  // obtained from sqlite3_open*(), before any other sqlite3_*() methods are
+  // called on the object.
+  void ConfigureSqliteDatabaseObject();
+
+  // Internal close function used by Close() and RazeAndPoison().
   // |forced| indicates that orderly-shutdown checks should not apply.
   void CloseInternal(bool forced);
 
@@ -656,6 +803,8 @@ class COMPONENT_EXPORT(SQL) Database {
 
     StatementRef(const StatementRef&) = delete;
     StatementRef& operator=(const StatementRef&) = delete;
+    StatementRef(StatementRef&&) = delete;
+    StatementRef& operator=(StatementRef&&) = delete;
 
     // When true, the statement can be used.
     bool is_valid() const { return !!stmt_; }
@@ -674,7 +823,7 @@ class COMPONENT_EXPORT(SQL) Database {
 
     // Destroys the compiled statement and sets it to nullptr. The statement
     // will no longer be active. |forced| is used to indicate if
-    // orderly-shutdown checks should apply (see Database::RazeAndClose()).
+    // orderly-shutdown checks should apply (see Database::RazeAndPoison()).
     void Close(bool forced);
 
     // Construct a ScopedBlockingCall to annotate IO calls, but only if
@@ -707,33 +856,36 @@ class COMPONENT_EXPORT(SQL) Database {
   void StatementRefCreated(StatementRef* ref);
   void StatementRefDeleted(StatementRef* ref);
 
-  // Called when a sqlite function returns an error, which is passed
-  // as |err|.  The return value is the error code to be reflected
-  // back to client code.  |stmt| is non-null if the error relates to
-  // an sql::Statement instance.  |sql| is non-nullptr if the error
-  // relates to non-statement sql code (Execute, for instance).  Both
-  // can be null, but both should never be set.
-  // NOTE(shess): Originally, the return value was intended to allow
-  // error handlers to transparently convert errors into success.
-  // Unfortunately, transactions are not generally restartable, so
-  // this did not work out.
-  int OnSqliteError(int err, Statement* stmt, const char* sql) const;
-
-  // Like Execute(), but returns the error code given by SQLite.
+  // Used by sql:: internals to report a SQLite error related to this database.
   //
-  // This is only exposed to the Database implementation. Code that uses
-  // sql::Database should not be concerned with SQLite error codes.
-  [[nodiscard]] int ExecuteAndReturnErrorCode(const char* sql);
+  // `sqlite_error_code` contains the error code reported by SQLite. Possible
+  // values are documented at https://www.sqlite.org/rescode.html
+  //
+  // `statement` is non-null if the error is associated with a sql::Statement.
+  // Otherwise, `sql_statement` will be a non-null string pointing to a
+  // statically-allocated (valid for the entire duration of the process) buffer
+  // pointing to either a SQL statement or a SQL comment (starting with "-- ")
+  // pointing to a "sqlite3_" function name.
+  void OnSqliteError(SqliteErrorCode sqlite_error_code,
+                     Statement* statement,
+                     const char* sql_statement);
+
+  // Like Execute(), but returns a SQLite result code.
+  //
+  // This method returns SqliteResultCode::kOk or a SQLite error code. In other
+  // words, it never returns SqliteResultCode::{kDone, kRow}.
+  //
+  // This method is only exposed to the Database implementation. Code that uses
+  // sql::Database should not be concerned with SQLite result codes.
+  [[nodiscard]] SqliteResultCode ExecuteAndReturnResultCode(const char* sql);
 
   // Like |Execute()|, but retries if the database is locked.
   [[nodiscard]] bool ExecuteWithTimeout(const char* sql,
                                         base::TimeDelta ms_timeout);
 
   // Implementation helper for GetUniqueStatement() and GetCachedStatement().
-  scoped_refptr<StatementRef> GetStatementImpl(const char* sql);
-
-  [[nodiscard]] bool IntegrityCheckHelper(const char* pragma_sql,
-                                          std::vector<std::string>* messages);
+  scoped_refptr<StatementRef> GetStatementImpl(const char* sql,
+                                               bool is_readonly);
 
   // Release page-cache memory if memory-mapped I/O is enabled and the database
   // was changed.  Passing true for |implicit_change_performed| allows
@@ -748,29 +900,65 @@ class COMPONENT_EXPORT(SQL) Database {
   // Helper to collect diagnostic info for a corrupt database.
   std::string CollectCorruptionInfo();
 
-  // Helper to collect diagnostic info for errors.
-  std::string CollectErrorInfo(int error, Statement* stmt) const;
+  // Helper to collect diagnostic info for errors. `diagnostics` is an optional
+  // out parameter. If `diagnostics` is defined, this method populates SOME of
+  // its fields. Some of the fields are left unmodified for the caller.
+  std::string CollectErrorInfo(int sqlite_error_code,
+                               Statement* stmt,
+                               DatabaseDiagnostics* diagnostics) const;
 
-  // Calculates a value appropriate to pass to "PRAGMA mmap_size = ".  So errors
-  // can make it unsafe to map a file, so the file is read using regular I/O,
-  // with any errors causing 0 (don't map anything) to be returned.  If the
-  // entire file is read without error, a large value is returned which will
-  // allow the entire file to be mapped in most cases.
+  // The size of the memory mapping that SQLite should use for this database.
   //
-  // Results are recorded in the database's meta table for future reference, so
-  // the file should only be read through once.
-  size_t GetAppropriateMmapSize();
+  // The return value follows the semantics of "PRAGMA mmap_size". In
+  // particular, zero (0) means memory-mapping should be disabled, and the value
+  // is capped by SQLITE_MAX_MMAP_SIZE. More details at
+  // https://www.sqlite.org/pragma.html#pragma_mmap_size
+  //
+  // "Memory-mapped access" is usually shortened to "mmap", which is the name of
+  // the POSIX system call used to implement. The same principles apply on
+  // Windows, but its more-descriptive API names don't make for good shorthands.
+  //
+  // When mmap is enabled, SQLite attempts to use the memory-mapped area (by
+  // calling xFetch() in the VFS file API) instead of requesting a database page
+  // buffer from the pager and reading (via xRead() in the VFS API) into it.
+  // When this works out, the database page cache ends up only storing pages
+  // whose contents has been modified. More details at
+  // https://sqlite.org/mmap.html
+  //
+  // I/O errors on memory-mapped files result in crashes in Chrome. POSIX
+  // systems signal SIGSEGV or SIGBUS on I/O errors in mmap-ed files. Windows
+  // raises the EXECUTE_IN_PAGE_ERROR strucuted exception in this case. Chrome
+  // does not catch signals or structured exceptions.
+  //
+  // In order to avoid crashes, this method attempts to read the file using
+  // regular I/O, and returns 0 (no mmap) if it encounters any error.
+  size_t ComputeMmapSizeForOpen();
 
-  // Helpers for GetAppropriateMmapSize().
+  // Helpers for ComputeMmapSizeForOpen().
   bool GetMmapAltStatus(int64_t* status);
   bool SetMmapAltStatus(int64_t status);
 
   // sqlite3_prepare_v3() flags for this database.
   int SqlitePrepareFlags() const;
 
+  // Returns a SQLite VFS interface pointer to the file storing database pages.
+  //
+  // Returns null if the database is not backed by a VFS file. This is always
+  // the case for in-memory databases. Temporary databases (only used by sq
+  // ::Recovery) start without a backing VFS file, and only get a file when they
+  // outgrow their page cache.
+  //
+  // This method must only be called while the database is successfully opened.
+  sqlite3_file* GetSqliteVfsFile();
+
+  // Will eventually be checked on all methods. See https://crbug.com/1306694
+  SEQUENCE_CHECKER(sequence_checker_);
+
   // The actual sqlite database. Will be null before Init has been called or if
   // Init resulted in an error.
-  sqlite3* db_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION sqlite3* db_ = nullptr;
 
   // TODO(shuagga@microsoft.com): Make `options_` const after removing all
   // setters.
@@ -800,7 +988,7 @@ class COMPONENT_EXPORT(SQL) Database {
   // with Open().
   bool in_memory_ = false;
 
-  // |true| if the Database was closed using RazeAndClose().  Used
+  // |true| if the Database was closed using RazeAndPoison().  Used
   // to enable diagnostics to distinguish calls to never-opened
   // databases (incorrect use of the API) from calls to once-valid
   // databases.
@@ -815,7 +1003,7 @@ class COMPONENT_EXPORT(SQL) Database {
 
   // Used by ReleaseCacheMemoryIfNeeded() to track if new changes have happened
   // since memory was last released.
-  int total_changes_at_last_release_ = 0;
+  int64_t total_changes_at_last_release_ = 0;
 
   // Called when a SQLite error occurs.
   //

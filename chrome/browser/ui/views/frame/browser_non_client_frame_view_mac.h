@@ -1,16 +1,26 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_UI_VIEWS_FRAME_BROWSER_NON_CLIENT_FRAME_VIEW_MAC_H_
 #define CHROME_BROWSER_UI_VIEWS_FRAME_BROWSER_NON_CLIENT_FRAME_VIEW_MAC_H_
 
+#include "base/memory/raw_ptr.h"
+
 #import <CoreGraphics/CGBase.h>
+
+#include <memory>
 
 #include "base/gtest_prod_util.h"
 #include "base/mac/scoped_nsobject.h"
 #include "chrome/browser/ui/views/frame/browser_non_client_frame_view.h"
+#include "chrome/browser/web_applications/app_registrar_observer.h"
+#include "chrome/browser/web_applications/web_app_registrar.h"
 #include "components/prefs/pref_member.h"
+
+namespace base {
+class OneShotTimer;
+}
 
 namespace views {
 class Label;
@@ -19,9 +29,9 @@ class Label;
 @class FullscreenToolbarController;
 
 class CaptionButtonPlaceholderContainer;
-class WindowControlsOverlayInputRoutingMac;
 
-class BrowserNonClientFrameViewMac : public BrowserNonClientFrameView {
+class BrowserNonClientFrameViewMac : public BrowserNonClientFrameView,
+                                     public web_app::AppRegistrarObserver {
  public:
   // Mac implementation of BrowserNonClientFrameView.
   BrowserNonClientFrameViewMac(BrowserFrame* frame, BrowserView* browser_view);
@@ -37,13 +47,16 @@ class BrowserNonClientFrameViewMac : public BrowserNonClientFrameView {
   bool CaptionButtonsOnLeadingEdge() const override;
   gfx::Rect GetBoundsForTabStripRegion(
       const gfx::Size& tabstrip_minimum_size) const override;
+  gfx::Rect GetBoundsForWebAppFrameToolbar(
+      const gfx::Size& toolbar_preferred_size) const override;
+  void LayoutWebAppWindowTitle(const gfx::Rect& available_space,
+                               views::Label& window_title_label) const override;
   int GetTopInset(bool restored) const override;
   int GetThemeBackgroundXInset() const override;
   void UpdateFullscreenTopUI() override;
   bool ShouldHideTopUIForFullscreen() const override;
   void UpdateThrobber(bool running) override;
   void PaintAsActiveChanged() override;
-  void UpdateFrameColor() override;
   void OnThemeChanged() override;
 
   // views::NonClientFrameView:
@@ -53,14 +66,23 @@ class BrowserNonClientFrameViewMac : public BrowserNonClientFrameView {
   int NonClientHitTest(const gfx::Point& point) override;
   void GetWindowMask(const gfx::Size& size, SkPath* window_mask) override;
   void UpdateWindowIcon() override;
-  void UpdateWindowTitle() override;
   void SizeConstraintsChanged() override;
   void UpdateMinimumSize() override;
   void WindowControlsOverlayEnabledChanged() override;
 
   // views::View:
   gfx::Size GetMinimumSize() const override;
-  void AddedToWidget() override;
+  void PaintChildren(const views::PaintInfo& info) override;
+
+  // web_app::AppRegistrarObserver
+  void OnAlwaysShowToolbarInFullscreenChanged(const web_app::AppId& app_id,
+                                              bool show) override;
+  void OnAppRegistrarDestroyed() override;
+
+  gfx::Insets GetCaptionButtonInsets() const;
+
+  // Used by TabContainerOverlayView to paint the tab strip background.
+  void PaintThemedFrame(gfx::Canvas* canvas) override;
 
  protected:
   // views::View:
@@ -71,70 +93,59 @@ class BrowserNonClientFrameViewMac : public BrowserNonClientFrameView {
   FRIEND_TEST_ALL_PREFIXES(BrowserNonClientFrameViewMacTest,
                            GetCenteredTitleBounds);
   FRIEND_TEST_ALL_PREFIXES(BrowserNonClientFrameViewMacTest,
-                           GetWebAppFrameToolbarAvailableBounds);
-  FRIEND_TEST_ALL_PREFIXES(BrowserNonClientFrameViewMacTest,
                            GetCaptionButtonPlaceholderBounds);
 
-  static gfx::Rect GetCenteredTitleBounds(int frame_width,
-                                          int frame_height,
-                                          int left_inset_x,
-                                          int right_inset_x,
-                                          int title_width);
-
-  static gfx::Rect GetWebAppFrameToolbarAvailableBounds(
-      bool is_rtl,
-      const gfx::Size& frame,
-      int y,
-      int caption_button_container_width);
-  static gfx::Rect GetCaptionButtonPlaceholderBounds(bool is_rtl,
-                                                     bool is_fullscreen,
-                                                     const gfx::Size& frame,
-                                                     int y,
-                                                     int width);
-
-  void PaintThemedFrame(gfx::Canvas* canvas);
+  static gfx::Rect GetCenteredTitleBounds(gfx::Rect frame,
+                                          gfx::Rect available_space,
+                                          int preferred_title_width);
+  static gfx::Rect GetCaptionButtonPlaceholderBounds(
+      const gfx::Rect& frame,
+      const gfx::Insets& caption_button_insets);
 
   CGFloat FullscreenBackingBarHeight() const;
 
   // Calculate the y offset the top UI needs to shift down due to showing the
   // slide down menu bar at the very top in full screen.
   int TopUIFullscreenYOffset() const;
-  void LayoutTitleBarForWebApp();
   void LayoutWindowControlsOverlay();
 
   void UpdateCaptionButtonPlaceholderContainerBackground();
-
-  void AddRoutingForWindowControlsOverlayViews();
 
   // Toggle the visibility of the web_app_frame_toolbar_view() for PWAs with
   // window controls overlay display override when entering full screen or when
   // toolbar style is changed.
   void ToggleWebAppFrameToolbarViewVisibility();
 
+  // Returns the current value of the "always show toolbar in fullscreen"
+  // preference, either reading the value from the kShowFullscreenToolbar
+  // preference or if this is a window for an app, from the settings for that
+  // app.
+  bool AlwaysShowToolbarInFullscreen() const;
+
+  // Emits the duration of the current fullscreen session, if any.
+  void EmitFullscreenSessionHistograms();
+
   // Used to keep track of the update of kShowFullscreenToolbar preference.
   BooleanPrefMember show_fullscreen_toolbar_;
-
-  views::Label* window_title_ = nullptr;
+  base::ScopedObservation<web_app::WebAppRegistrar,
+                          web_app::AppRegistrarObserver>
+      always_show_toolbar_in_fullscreen_observation_{this};
 
   // A placeholder container that lies on top of the traffic lights to indicate
   // NonClientArea. Only for PWAs with window controls overlay display override.
-  CaptionButtonPlaceholderContainer* caption_button_placeholder_container_ =
-      nullptr;
-
-  // PWAs with window controls overlay display override covers the browser
-  // window with WebContentsViewCocoa natively even if the views::view 'looks'
-  // right and so events end up in the client area.
-  // WindowControlsOverlayInputRoutingMac overlays a NSView the non client
-  // area so events can be routed to the right view in the non client area. Two
-  // separate WindowControlsOverlayInputRoutingMac instances are needed
-  // since there are two dis jointed areas of non client area.
-  std::unique_ptr<WindowControlsOverlayInputRoutingMac>
-      caption_buttons_overlay_input_routing_view_;
-  std::unique_ptr<WindowControlsOverlayInputRoutingMac>
-      web_app_frame_toolbar_overlay_routing_view_;
+  raw_ptr<CaptionButtonPlaceholderContainer>
+      caption_button_placeholder_container_ = nullptr;
 
   base::scoped_nsobject<FullscreenToolbarController>
       fullscreen_toolbar_controller_;
+
+  // Mark the start of a fullscreen session. Applies to both immersive and
+  // standard fullscreen.
+  absl::optional<base::TimeTicks> fullscreen_session_start_;
+
+  // Fires after 24 hours to emit the duration of the current fullscreen
+  // session, if any.
+  std::unique_ptr<base::OneShotTimer> fullscreen_session_timer_;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_FRAME_BROWSER_NON_CLIENT_FRAME_VIEW_MAC_H_

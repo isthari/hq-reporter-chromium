@@ -38,11 +38,13 @@ namespace blink {
 LayoutCustomScrollbarPart::LayoutCustomScrollbarPart(
     ScrollableArea* scrollable_area,
     CustomScrollbar* scrollbar,
-    ScrollbarPart part)
+    ScrollbarPart part,
+    bool suppress_use_counters)
     : LayoutReplaced(nullptr, LayoutSize()),
       scrollable_area_(scrollable_area),
       scrollbar_(scrollbar),
-      part_(part) {
+      part_(part),
+      suppress_use_counters_(suppress_use_counters) {
   DCHECK(scrollable_area_);
 }
 
@@ -83,13 +85,22 @@ LayoutCustomScrollbarPart* LayoutCustomScrollbarPart::CreateAnonymous(
     Document* document,
     ScrollableArea* scrollable_area,
     CustomScrollbar* scrollbar,
-    ScrollbarPart part) {
+    ScrollbarPart part,
+    bool suppress_use_counters) {
   LayoutCustomScrollbarPart* layout_object =
-      MakeGarbageCollected<LayoutCustomScrollbarPart>(scrollable_area,
-                                                      scrollbar, part);
-  RecordScrollbarPartStats(*document, part);
+      MakeGarbageCollected<LayoutCustomScrollbarPart>(
+          scrollable_area, scrollbar, part, suppress_use_counters);
+  if (!suppress_use_counters) {
+    RecordScrollbarPartStats(*document, part);
+  }
   layout_object->SetDocumentForAnonymous(document);
   return layout_object;
+}
+
+void LayoutCustomScrollbarPart::Trace(Visitor* visitor) const {
+  visitor->Trace(scrollable_area_);
+  visitor->Trace(scrollbar_);
+  LayoutReplaced::Trace(visitor);
 }
 
 // TODO(crbug.com/1020913): Support subpixel layout of scrollbars and remove
@@ -109,13 +120,14 @@ int LayoutCustomScrollbarPart::ComputeWidth(int container_width) const {
   if (StyleRef().Display() == EDisplay::kNone)
     return 0;
 
-  int width =
-      ComputeSize(kMainOrPreferredSize, StyleRef().Width(), container_width);
-  int min_width = ComputeSize(kMinSize, StyleRef().MinWidth(), container_width);
+  int width = ComputeSize(kMainOrPreferredSize, StyleRef().UsedWidth(),
+                          container_width);
+  int min_width =
+      ComputeSize(kMinSize, StyleRef().UsedMinWidth(), container_width);
   int max_width =
-      StyleRef().MaxWidth().IsNone()
+      StyleRef().UsedMaxWidth().IsNone()
           ? width
-          : ComputeSize(kMaxSize, StyleRef().MaxWidth(), container_width);
+          : ComputeSize(kMaxSize, StyleRef().UsedMaxWidth(), container_width);
   return std::max(min_width, std::min(max_width, width));
 }
 
@@ -124,14 +136,14 @@ int LayoutCustomScrollbarPart::ComputeHeight(int container_height) const {
   if (StyleRef().Display() == EDisplay::kNone)
     return 0;
 
-  int height =
-      ComputeSize(kMainOrPreferredSize, StyleRef().Height(), container_height);
+  int height = ComputeSize(kMainOrPreferredSize, StyleRef().UsedHeight(),
+                           container_height);
   int min_height =
-      ComputeSize(kMinSize, StyleRef().MinHeight(), container_height);
+      ComputeSize(kMinSize, StyleRef().UsedMinHeight(), container_height);
   int max_height =
-      StyleRef().MaxHeight().IsNone()
+      StyleRef().UsedMaxHeight().IsNone()
           ? height
-          : ComputeSize(kMaxSize, StyleRef().MaxHeight(), container_height);
+          : ComputeSize(kMaxSize, StyleRef().UsedMaxHeight(), container_height);
   return std::max(min_height, std::min(max_height, height));
 }
 
@@ -155,6 +167,21 @@ int LayoutCustomScrollbarPart::ComputeLength() const {
   if (scrollbar_->Orientation() == kHorizontalScrollbar)
     return ComputeWidth(visible_content_rect.width());
   return ComputeHeight(visible_content_rect.height());
+}
+
+void LayoutCustomScrollbarPart::SetOverriddenFrameRect(const LayoutRect& rect) {
+  NOT_DESTROYED();
+  overridden_rect_ = rect;
+}
+
+LayoutPoint LayoutCustomScrollbarPart::Location() const {
+  NOT_DESTROYED();
+  return overridden_rect_.Location();
+}
+
+LayoutSize LayoutCustomScrollbarPart::Size() const {
+  NOT_DESTROYED();
+  return overridden_rect_.Size();
 }
 
 static LayoutUnit ComputeMargin(const Length& style_margin) {
@@ -203,15 +230,18 @@ void LayoutCustomScrollbarPart::StyleDidChange(StyleDifference diff,
                                                const ComputedStyle* old_style) {
   NOT_DESTROYED();
   LayoutReplaced::StyleDidChange(diff, old_style);
-  if (old_style && (diff.NeedsPaintInvalidation() || diff.NeedsLayout()))
+  if (old_style &&
+      (diff.NeedsNormalPaintInvalidation() || diff.NeedsLayout())) {
     SetNeedsPaintInvalidation();
+  }
   RecordPercentLengthStats();
 }
 
 void LayoutCustomScrollbarPart::RecordPercentLengthStats() const {
   NOT_DESTROYED();
-  if (!scrollbar_)
+  if (!scrollbar_ || suppress_use_counters_) {
     return;
+  }
 
   auto feature = part_ == kScrollbarBGPart
                      ? WebFeature::kCustomScrollbarPercentThickness

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,12 @@
 #include <memory>
 #include <string>
 
-#include "ash/components/geolocation/simple_geolocation_provider.h"
-#include "ash/components/settings/timezone_settings.h"
 #include "ash/public/cpp/night_light_controller.h"
-#include "base/memory/weak_ptr.h"
+#include "base/memory/raw_ptr.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
+#include "chromeos/ash/components/geolocation/simple_geolocation_provider.h"
+#include "chromeos/ash/components/settings/timezone_settings.h"
 
 namespace base {
 class Clock;
@@ -31,6 +31,7 @@ class NightLightClient : public ash::NightLightController::Observer,
                          public ash::system::TimezoneSettings::Observer {
  public:
   explicit NightLightClient(
+      const SimpleGeolocationProvider::Delegate* delegate,
       scoped_refptr<network::SharedURLLoaderFactory> factory);
 
   NightLightClient(const NightLightClient&) = delete;
@@ -90,7 +91,8 @@ class NightLightClient : public ash::NightLightController::Observer,
   // The IP-based geolocation provider.
   ash::SimpleGeolocationProvider provider_;
 
-  ash::NightLightController* night_light_controller_ = nullptr;
+  raw_ptr<ash::NightLightController, ExperimentalAsh> night_light_controller_ =
+      nullptr;
 
   // Delay after which a new request is retried after a failed one.
   base::TimeDelta backoff_delay_;
@@ -98,7 +100,7 @@ class NightLightClient : public ash::NightLightController::Observer,
   std::unique_ptr<base::OneShotTimer> timer_;
 
   // Optional Used in tests to override the time of "Now".
-  base::Clock* clock_ = nullptr;  // Not owned.
+  raw_ptr<base::Clock, ExperimentalAsh> clock_ = nullptr;  // Not owned.
 
   // Last successful geoposition coordinates and its timestamp.
   base::Time last_successful_geo_request_time_;

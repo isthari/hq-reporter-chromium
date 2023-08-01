@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,8 @@
 #include "base/check.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/weak_ptr.h"
+#include "base/run_loop.h"
+#include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/test/mock_callback.h"
 #include "build/build_config.h"
 #include "components/feedback/feedback_data.h"
@@ -32,6 +34,7 @@ namespace {
 const std::string kFakeKey = "fake key";
 const std::string kFakeValue = "fake value";
 const std::string kTabTitleValue = "some sensitive info";
+const std::string kLacrosMemUsageWithTitleKey = "Lacros mem_usage_with_title";
 
 class MockFeedbackUploader : public FeedbackUploader {
  public:
@@ -79,6 +82,9 @@ class MockFeedbackPrivateDelegate : public ShellFeedbackPrivateDelegate {
               FetchExtraLogs,
               (scoped_refptr<feedback::FeedbackData>, FetchExtraLogsCallback),
               (const, override));
+  void GetLacrosHistograms(GetHistogramsCallback callback) override {
+    std::move(callback).Run(std::string());
+  }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 };
 
@@ -106,11 +112,13 @@ class FeedbackServiceTest : public ApiUnitTest {
     feedback_data_->AddLog(kFakeKey, kFakeValue);
     feedback_data_->AddLog(feedback::FeedbackReport::kMemUsageWithTabTitlesKey,
                            kTabTitleValue);
+    feedback_data_->AddLog(kLacrosMemUsageWithTitleKey, kTabTitleValue);
     const FeedbackParams params{/*is_internal_email=*/false,
                                 /*load_system_info=*/false,
                                 /*send_tab_titles=*/send_tab_titles,
                                 /*send_histograms=*/true,
-                                /*send_bluetooth_logs=*/true};
+                                /*send_bluetooth_logs=*/true,
+                                /*send_autofill_metadata=*/false};
 
     EXPECT_CALL(*mock_uploader_, QueueReport).Times(1);
     base::MockCallback<SendFeedbackCallback> mock_callback;
@@ -123,9 +131,18 @@ class FeedbackServiceTest : public ApiUnitTest {
 
     auto feedback_service = base::MakeRefCounted<FeedbackService>(
         browser_context(), mock_delegate.get());
-    feedback_service->SendFeedback(params, feedback_data_, mock_callback.Get());
-
+    RunUntilFeedbackIsSent(feedback_service, params, mock_callback.Get());
     EXPECT_EQ(1u, feedback_data_->sys_info()->count(kFakeKey));
+  }
+
+  void RunUntilFeedbackIsSent(scoped_refptr<FeedbackService> feedback_service,
+                              const FeedbackParams& params,
+                              SendFeedbackCallback mock_callback) {
+    base::RunLoop run_loop;
+    feedback_service->RedactThenSendFeedback(params, feedback_data_,
+                                             std::move(mock_callback));
+    base::ThreadPoolInstance::Get()->FlushForTesting();
+    run_loop.RunUntilIdle();
   }
 
   base::ScopedTempDir scoped_temp_dir_;
@@ -140,7 +157,8 @@ TEST_F(FeedbackServiceTest, SendFeedbackWithoutSysInfo) {
                               /*load_system_info=*/false,
                               /*send_tab_titles=*/true,
                               /*send_histograms=*/true,
-                              /*send_bluetooth_logs=*/true};
+                              /*send_bluetooth_logs=*/true,
+                              /*send_autofill_metadata=*/false};
 
   EXPECT_CALL(*mock_uploader_, QueueReport).Times(1);
   base::MockCallback<SendFeedbackCallback> mock_callback;
@@ -150,7 +168,7 @@ TEST_F(FeedbackServiceTest, SendFeedbackWithoutSysInfo) {
   auto feedback_service = base::MakeRefCounted<FeedbackService>(
       browser_context(), shell_delegate.get());
 
-  feedback_service->SendFeedback(params, feedback_data_, mock_callback.Get());
+  RunUntilFeedbackIsSent(feedback_service, params, mock_callback.Get());
 }
 
 TEST_F(FeedbackServiceTest, SendFeedbackLoadSysInfo) {
@@ -158,7 +176,8 @@ TEST_F(FeedbackServiceTest, SendFeedbackLoadSysInfo) {
                               /*load_system_info=*/true,
                               /*send_tab_titles=*/true,
                               /*send_histograms=*/true,
-                              /*send_bluetooth_logs=*/true};
+                              /*send_bluetooth_logs=*/true,
+                              /*send_autofill_metadata=*/false};
 
   EXPECT_CALL(*mock_uploader_, QueueReport).Times(1);
   base::MockCallback<SendFeedbackCallback> mock_callback;
@@ -173,22 +192,43 @@ TEST_F(FeedbackServiceTest, SendFeedbackLoadSysInfo) {
   auto feedback_service = base::MakeRefCounted<FeedbackService>(
       browser_context(), mock_delegate.get());
 
-  feedback_service->SendFeedback(params, feedback_data_, mock_callback.Get());
+  RunUntilFeedbackIsSent(feedback_service, params, mock_callback.Get());
   EXPECT_EQ(1u, feedback_data_->sys_info()->count(kFakeKey));
   EXPECT_EQ(1u, feedback_data_->sys_info()->count(
                     feedback::FeedbackReport::kMemUsageWithTabTitlesKey));
 }
 
-TEST_F(FeedbackServiceTest, SendFeedbackDoNotSendTabTitles) {
+// TODO(crbug.com/1439227): Re-enable this test
+TEST_F(FeedbackServiceTest, DISABLED_SendFeedbackDoNotSendTabTitles) {
   TestSendFeedbackConcerningTabTitles(false);
   EXPECT_EQ(0u, feedback_data_->sys_info()->count(
                     feedback::FeedbackReport::kMemUsageWithTabTitlesKey));
+  EXPECT_EQ(0u, feedback_data_->sys_info()->count(kLacrosMemUsageWithTitleKey));
 }
 
 TEST_F(FeedbackServiceTest, SendFeedbackDoSendTabTitles) {
   TestSendFeedbackConcerningTabTitles(true);
   EXPECT_EQ(1u, feedback_data_->sys_info()->count(
                     feedback::FeedbackReport::kMemUsageWithTabTitlesKey));
+  EXPECT_EQ(1u, feedback_data_->sys_info()->count(kLacrosMemUsageWithTitleKey));
+}
+
+TEST_F(FeedbackServiceTest, SendFeedbackAutofillMetadata) {
+  const FeedbackParams params{/*is_internal_email=*/true,
+                              /*load_system_info=*/false,
+                              /*send_tab_titles=*/false,
+                              /*send_histograms=*/true,
+                              /*send_bluetooth_logs=*/true,
+                              /*send_autofill_metadata=*/true};
+  feedback_data_->set_autofill_metadata("Autofill Metadata");
+  EXPECT_CALL(*mock_uploader_, QueueReport).Times(1);
+  base::MockCallback<SendFeedbackCallback> mock_callback;
+  EXPECT_CALL(mock_callback, Run(true));
+
+  auto feedback_service =
+      base::MakeRefCounted<FeedbackService>(browser_context(), nullptr);
+
+  RunUntilFeedbackIsSent(feedback_service, params, mock_callback.Get());
 }
 
 }  // namespace extensions

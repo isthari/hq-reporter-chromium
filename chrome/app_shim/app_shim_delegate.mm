@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -59,6 +59,12 @@
 
 - (NSMenu*)applicationDockMenu:(NSApplication*)sender {
   return _appShimController->GetApplicationDockMenu();
+}
+
+// Called when the app is shutting down. Used to persist the current state of
+// the app.
+- (void)applicationWillTerminate:(NSNotification*)aNotification {
+  _appShimController->ApplicationWillTerminate();
 }
 
 @end

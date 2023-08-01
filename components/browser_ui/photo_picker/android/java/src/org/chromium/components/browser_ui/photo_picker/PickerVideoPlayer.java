@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,8 +34,9 @@ import androidx.core.math.MathUtils;
 import androidx.core.view.GestureDetectorCompat;
 
 import org.chromium.base.task.PostTask;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.ui.UiUtils;
+import org.chromium.ui.base.ViewUtils;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -403,9 +404,11 @@ public class PickerVideoPlayer
         }
 
         mVideoView.setLayoutParams(layoutParams);
-        mVideoView.requestLayout();
+        ViewUtils.requestLayout(
+                mVideoView, "PickerVideoPlayer.adjustVideoLayoutParamsToOrientation mVideoView");
         mVideoControls.setLayoutParams(layoutParams);
-        mVideoControls.requestLayout();
+        ViewUtils.requestLayout(mVideoControls,
+                "PickerVideoPlayer.adjustVideoLayoutParamsToOrientation mVideoControls");
     }
 
     private boolean onSingleTapVideo() {
@@ -816,7 +819,7 @@ public class PickerVideoPlayer
     }
 
     private void startPlaybackMonitorTask() {
-        PostTask.postDelayedTask(UiThreadTaskTraits.DEFAULT, () -> updateProgress(), 250);
+        PostTask.postDelayedTask(TaskTraits.UI_DEFAULT, () -> updateProgress(), 250);
     }
 
     private void stopPlaybackMonitor() {

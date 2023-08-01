@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,59 +7,35 @@
 
 #import <UIKit/UIKit.h>
 
-#import "ios/chrome/browser/ui/commands/application_commands.h"
-#import "ios/chrome/browser/ui/commands/browser_commands.h"
-#import "ios/chrome/browser/ui/commands/find_in_page_commands.h"
-#import "ios/chrome/browser/ui/commands/omnibox_commands.h"
+#import "ios/chrome/browser/shared/public/commands/application_commands.h"
+#import "ios/chrome/browser/shared/public/commands/browser_coordinator_commands.h"
+#import "ios/chrome/browser/shared/public/commands/find_in_page_commands.h"
+#import "ios/chrome/browser/shared/public/commands/omnibox_commands.h"
+#import "ios/chrome/browser/ui/keyboard/key_command_actions.h"
 
-class WebNavigationBrowserAgent;
-
-@protocol KeyCommandsPlumbing <NSObject>
-
-#pragma mark Query information
-
-// Whether the current profile is off-the-record.
-- (BOOL)isOffTheRecord;
-
-// Whether the Find in Page is available on current page. For example it's not
-// supported on NTP and other native content pages.
-- (BOOL)isFindInPageAvailable;
-
-// Returns the current number of tabs.
-- (NSUInteger)tabsCount;
-
-#pragma mark Call for action
-
-// Called to put the tab at index in focus.
-- (void)focusTabAtIndex:(NSUInteger)index;
-
-// Called to focus the next tab.
-- (void)focusNextTab;
-
-// Called to focus the previous tab.
-- (void)focusPreviousTab;
-
-// Called to reopen the last closed tab.
-- (void)reopenClosedTab;
-
-@end
+@protocol BookmarksCommands;
+class Browser;
 
 // Handles the keyboard commands registration and handling for the
 // BrowserViewController.
-@interface KeyCommandsProvider : NSObject
+@interface KeyCommandsProvider : UIResponder <KeyCommandActions>
 
-- (NSArray*)keyCommandsForConsumer:(id<KeyCommandsPlumbing>)consumer
-                baseViewController:(UIViewController*)baseViewController
-                        dispatcher:(id<ApplicationCommands,
-                                       BrowserCommands,
-                                       FindInPageCommands>)dispatcher
-                   navigationAgent:(WebNavigationBrowserAgent*)navigationAgent
-                    omniboxHandler:(id<OmniboxCommands>)omniboxHandler
-                       editingText:(BOOL)editingText;
+// Key command actions are converted to Chrome commands and sent to these
+// handlers.
+@property(nonatomic, weak) id<ApplicationCommands, FindInPageCommands>
+    dispatcher;
+@property(nonatomic, weak) id<BookmarksCommands> bookmarksCommandsHandler;
+@property(nonatomic, weak) id<BrowserCoordinatorCommands>
+    browserCoordinatorCommandsHandler;
+@property(nonatomic, weak) id<OmniboxCommands> omniboxHandler;
 
-// Set this flag to YES when the key shortcut bound to Escape key that dismisses
-// modals should be enabled.
-@property(nonatomic, assign) BOOL canDismissModals;
+- (instancetype)initWithBrowser:(Browser*)browser NS_DESIGNATED_INITIALIZER;
+- (instancetype)init NS_UNAVAILABLE;
+
+// Adds the receiver in the chain between the view controller and its original
+// next responder.
+- (void)respondBetweenViewController:(UIViewController*)viewController
+                        andResponder:(UIResponder*)nextResponder;
 
 @end
 

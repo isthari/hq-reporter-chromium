@@ -1,11 +1,13 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import './sandboxed_load_time_data.js';
 
-import {assertCast, MessagePipe} from './message_pipe.m.js';
-import {FileContext, LoadFilesMessage, Message, OpenAllowedFileMessage, OpenAllowedFileResponse, OpenFilesWithPickerMessage, OverwriteFileMessage, OverwriteViaFilePickerResponse, RenameFileResponse, RenameResult, RequestSaveFileMessage, RequestSaveFileResponse, SaveAsMessage, SaveAsResponse} from './message_types.js';
+import {addColorChangeListener, removeColorChangeListener, startColorChangeUpdater} from '//resources/cr_components/color_change_listener/colors_css_updater.js';
+
+import {assertCast, MessagePipe} from './message_pipe.js';
+import {EditInPhotosMessage, FileContext, IsFileArcWritableMessage, IsFileArcWritableResponse, IsFileBrowserWritableMessage, IsFileBrowserWritableResponse, LoadFilesMessage, Message, OpenAllowedFileMessage, OpenAllowedFileResponse, OpenFilesWithPickerMessage, OverwriteFileMessage, OverwriteViaFilePickerResponse, RenameFileResponse, RenameResult, RequestSaveFileMessage, RequestSaveFileResponse, SaveAsMessage, SaveAsResponse} from './message_types.js';
 import {loadPiex} from './piex_module_loader.js';
 
 /** A pipe through which we can send messages to the parent frame. */
@@ -39,6 +41,44 @@ class ReceivedFile {
       this.renameOriginalFile = (/** string */ newName) =>
           this.renameOriginalFileImpl(newName);
     }
+  }
+
+  /**
+   * @override
+   * @return {!Promise<boolean>}
+   */
+  async isArcWritable() {
+    /** @type {!IsFileArcWritableMessage} */
+    const message = {token: this.token};
+
+    const {writable} = /** @type {!IsFileArcWritableResponse} */ (
+        await parentMessagePipe.sendMessage(
+            Message.IS_FILE_ARC_WRITABLE, message));
+    return writable;
+  }
+
+  /**
+   * @override
+   * @return {!Promise<boolean>}
+   */
+  async isBrowserWritable() {
+    /** @type {!IsFileBrowserWritableMessage} */
+    const message = {token: this.token};
+
+    const {writable} = /** @type {!IsFileBrowserWritableResponse} */ (
+        await parentMessagePipe.sendMessage(
+            Message.IS_FILE_BROWSER_WRITABLE, message));
+    return writable;
+  }
+
+  /**
+   * @override
+   */
+  async editInPhotos() {
+    /** @type {!EditInPhotosMessage} */
+    const message = {token: this.token, mimeType: this.mimeType};
+
+    await parentMessagePipe.sendMessage(Message.EDIT_IN_PHOTOS, message);
   }
 
   /**
@@ -216,18 +256,14 @@ export class ReceivedFileList {
     this.observers.push(observer);
   }
 
-  /** @override */
-  async openFile() {
-    await parentMessagePipe.sendMessage(Message.OPEN_FILE);
-  }
-
   /**
    * @override
    * @param {!Array<string>} acceptTypeKeys
    * @param {?mediaApp.AbstractFile} startInFolder
+   * @param {?boolean} isSingleFile
    * @return {!Promise<undefined>}
    */
-  async openFilesWithFilePicker(acceptTypeKeys, startInFolder) {
+  async openFilesWithFilePicker(acceptTypeKeys, startInFolder, isSingleFile) {
     // AbstractFile doesn't guarantee tokens. Use one from a ReceivedFile if
     // there is one, after ensuring it is valid.
     const fileRep = /** @type {{token: (number|undefined)}} */ (startInFolder);
@@ -236,8 +272,19 @@ export class ReceivedFileList {
     const msg = {
       startInToken: startInToken > 0 ? startInToken : 0,
       accept: acceptTypeKeys,
+      isSingleFile,
     };
     await parentMessagePipe.sendMessage(Message.OPEN_FILES_WITH_PICKER, msg);
+  }
+
+  /**
+   * @override
+   * @param {!function(!mediaApp.AbstractFile): boolean} filter
+   */
+  filterInPlace(filter) {
+    this.files = this.files.filter(filter);
+    this.length = this.files.length;
+    this.currentFileIndex = this.length > 0 ? 0 : -1;
   }
 
   /** @param {!Array<!ReceivedFile>} files */
@@ -302,12 +349,6 @@ const DELEGATE = {
     return new ReceivedFile(response.pickedFileContext);
   },
   /**
-   * @return {!Promise<undefined>}
-   */
-  async openFile() {
-    await parentMessagePipe.sendMessage(Message.OPEN_FILE);
-  },
-  /**
    * @param {string|undefined} name
    * @param {string|undefined} type
    */
@@ -330,7 +371,22 @@ const DELEGATE = {
       }
       throw e;
     }
-  }
+  },
+  /**
+   * @param {string} title
+   * @param {string} blobUuid
+   */
+  openInSandboxedViewer(title, blobUuid) {
+    parentMessagePipe.sendMessage(
+        Message.OPEN_IN_SANDBOXED_VIEWER, {title, blobUuid});
+  },
+  reloadMainFrame() {
+    parentMessagePipe.sendMessage(Message.RELOAD_MAIN_FRAME);
+  },
+  maybeTriggerPdfHats() {
+    parentMessagePipe.sendMessage(Message.MAYBE_TRIGGER_PDF_HATS);
+  },
+  // TODO(b/219631600): Implement openUrlInBrowserTab() for LacrOS if needed.
 };
 
 /**
@@ -382,6 +438,10 @@ function mutationCallback(mutationsList, observer) {
 }
 
 window.addEventListener('DOMContentLoaded', () => {
+  // Start listening to color change events. These events get picked up by logic
+  // in ts_helpers.ts on the google3 side.
+  startColorChangeUpdater();
+
   const app = getApp();
   if (app) {
     initializeApp(app);
@@ -397,7 +457,7 @@ window.addEventListener('DOMContentLoaded', () => {
 // empty file list available.
 window.customLaunchData = {
   delegate: DELEGATE,
-  files: new ReceivedFileList({files: [], currentFileIndex: -1})
+  files: new ReceivedFileList({files: [], currentFileIndex: -1}),
 };
 
 // Attempting to show file pickers in the sandboxed <iframe> is guaranteed to
@@ -408,6 +468,11 @@ window['chooseFileSystemEntries'] = null;
 window['showOpenFilePicker'] = null;
 window['showSaveFilePicker'] = null;
 window['showDirectoryPicker'] = null;
+
+// Expose functions to bind to color change events to window so they can be
+// automatically picked up by installColors(). See ts_helpers.ts in google3.
+window['addColorChangeListener'] = addColorChangeListener;
+window['removeColorChangeListener'] = removeColorChangeListener;
 
 export const TEST_ONLY = {
   RenameResult,

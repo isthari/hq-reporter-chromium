@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,20 +27,20 @@ static NativeLibraryObjCStatus GetObjCStatusForImage(
 
   // See if the image contains an "ObjC image info" segment. This method
   // of testing is used in _CFBundleGrokObjcImageInfoFromFile in
-  // CF-744/CFBundle.c, around lines 2447-2474.
+  // CF-1153.18/CFBundle_Grok.c, around line 349.
   //
   // In 64-bit images, ObjC can be recognized in __DATA,__objc_imageinfo.
-  const section_64* section = getsectbynamefromheader_64(
-      reinterpret_cast<const struct mach_header_64*>(info.dli_fbase), SEG_DATA,
-      "__objc_imageinfo");
-  if (section)
+  const auto* header =
+      reinterpret_cast<const struct mach_header_64*>(info.dli_fbase);
+  unsigned long size = 0;
+  getsectiondata(header, SEG_DATA, "__objc_imageinfo", &size);
+  if (size > 0) {
     return OBJC_PRESENT;
+  }
   // ....except when "SharedRegionEncodingV2" is on, it's in
   // __DATA_CONST,__objc_image_info (see https://crbug.com/1220459#c16)
-  section = getsectbynamefromheader_64(
-      reinterpret_cast<const struct mach_header_64*>(info.dli_fbase),
-      "__DATA_CONST", "__objc_imageinfo");
-  return section ? OBJC_PRESENT : OBJC_NOT_PRESENT;
+  getsectiondata(header, "__DATA_CONST", "__objc_imageinfo", &size);
+  return size > 0 ? OBJC_PRESENT : OBJC_NOT_PRESENT;
 }
 
 std::string NativeLibraryLoadError::ToString() const {
@@ -65,10 +65,8 @@ NativeLibrary LoadNativeLibraryWithOptions(const FilePath& library_path,
     return native_lib;
   }
   ScopedCFTypeRef<CFURLRef> url(CFURLCreateFromFileSystemRepresentation(
-      kCFAllocatorDefault,
-      (const UInt8*)library_path.value().c_str(),
-      library_path.value().length(),
-      true));
+      kCFAllocatorDefault, (const UInt8*)library_path.value().c_str(),
+      checked_cast<CFIndex>(library_path.value().length()), true));
   if (!url)
     return nullptr;
   CFBundleRef bundle = CFBundleCreate(kCFAllocatorDefault, url.get());
@@ -78,7 +76,6 @@ NativeLibrary LoadNativeLibraryWithOptions(const FilePath& library_path,
   NativeLibrary native_lib = new NativeLibraryStruct();
   native_lib->type = BUNDLE;
   native_lib->bundle = bundle;
-  native_lib->bundle_resource_ref = CFBundleOpenBundleResourceMap(bundle);
   native_lib->objc_status = OBJC_UNKNOWN;
   return native_lib;
 }
@@ -86,8 +83,6 @@ NativeLibrary LoadNativeLibraryWithOptions(const FilePath& library_path,
 void UnloadNativeLibrary(NativeLibrary library) {
   if (library->objc_status == OBJC_NOT_PRESENT) {
     if (library->type == BUNDLE) {
-      CFBundleCloseBundleResourceMap(library->bundle,
-                                     library->bundle_resource_ref);
       CFRelease(library->bundle);
     } else {
       dlclose(library->dylib);

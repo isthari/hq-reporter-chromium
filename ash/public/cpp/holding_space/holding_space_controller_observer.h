@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,6 +20,11 @@ class ASH_PUBLIC_EXPORT HoldingSpaceControllerObserver
 
   // Called when a model gets detached from the HoldingSpaceController.
   virtual void OnHoldingSpaceModelDetached(HoldingSpaceModel* model) = 0;
+
+  // Called when holding space:
+  // * (a) should be forced to show in the shelf, or
+  // * (b) should no longer be forced to show in the shelf.
+  virtual void OnHoldingSpaceForceShowInShelfChanged() {}
 };
 
 }  // namespace ash

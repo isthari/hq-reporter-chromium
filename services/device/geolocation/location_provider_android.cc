@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,8 @@
 
 #include <memory>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/task/single_thread_task_runner.h"
 #include "services/device/geolocation/location_api_adapter_android.h"
 
 namespace device {
@@ -21,11 +22,11 @@ LocationProviderAndroid::~LocationProviderAndroid() {
 }
 
 void LocationProviderAndroid::NotifyNewGeoposition(
-    const mojom::Geoposition& position) {
+    mojom::GeopositionResultPtr result) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  last_position_ = position;
+  last_result_ = std::move(result);
   if (!callback_.is_null())
-    callback_.Run(this, position);
+    callback_.Run(this, last_result_.Clone());
 }
 
 void LocationProviderAndroid::SetUpdateCallback(
@@ -47,9 +48,9 @@ void LocationProviderAndroid::StopProvider() {
   LocationApiAdapterAndroid::GetInstance()->Stop();
 }
 
-const mojom::Geoposition& LocationProviderAndroid::GetPosition() {
+const mojom::GeopositionResult* LocationProviderAndroid::GetPosition() {
   DCHECK(thread_checker_.CalledOnValidThread());
-  return last_position_;
+  return last_result_.get();
 }
 
 void LocationProviderAndroid::OnPermissionGranted() {

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,6 @@
 class SkRegion;
 
 namespace aura {
-class Window;
 template <typename T>
 using WindowProperty = ui::ClassProperty<T>;
 }  // namespace aura
@@ -26,6 +25,7 @@ enum class WindowStateType;
 
 namespace gfx {
 class Rect;
+class Size;
 }
 
 namespace ash {
@@ -102,10 +102,6 @@ ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool>* const
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<bool*>* const
     kMinimizeOnBackKey;
 
-// A property key to store the window state the window had before entering PIP.
-ASH_PUBLIC_EXPORT extern const aura::WindowProperty<
-    chromeos::WindowStateType>* const kPrePipWindowStateTypeKey;
-
 // If true, the current PIP window is spawned from this window.
 // Android PIP has two types of behavior depending on how many activities the
 // original task has before entering PIP.
@@ -181,11 +177,6 @@ ASH_PUBLIC_EXPORT extern const aura::WindowProperty<ResizeShadowType>* const
 // inside the region, system gesture e.g. back gesture shouldn't be triggered.
 ASH_PUBLIC_EXPORT extern const aura::WindowProperty<SkRegion*>* const
     kSystemGestureExclusionKey;
-
-// A property key to store the address of the source window that the drag
-// originated from if the window is currently in tab-dragging process.
-ASH_PUBLIC_EXPORT extern const aura::WindowProperty<aura::Window*>* const
-    kTabDraggingSourceWindowKey;
 
 // A property key to indicate whether ash should perform auto management of
 // window positions; when you open a second browser, ash will move the two to

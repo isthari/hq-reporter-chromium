@@ -1,15 +1,19 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/account_manager/account_apps_availability.h"
 
 #include <memory>
+#include <utility>
 
 #include "ash/constants/ash_features.h"
+#include "base/memory/raw_ptr.h"
 #include "base/test/bind.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
+#include "base/test/test_future.h"
 #include "components/account_manager_core/account.h"
 #include "components/account_manager_core/account_manager_facade.h"
 #include "components/account_manager_core/mock_account_manager_facade.h"
@@ -62,16 +66,10 @@ class MockObserver : public AccountAppsAvailability::Observer {
 
 base::flat_set<account_manager::Account> GetAccountsAvailableInArcSync(
     AccountAppsAvailability* availability) {
-  base::flat_set<account_manager::Account> result;
-  base::RunLoop run_loop;
-  availability->GetAccountsAvailableInArc(base::BindLambdaForTesting(
-      [&result,
-       &run_loop](const base::flat_set<account_manager::Account>& accounts) {
-        result = accounts;
-        run_loop.Quit();
-      }));
-  run_loop.Run();
-  return result;
+  base::test::TestFuture<const base::flat_set<account_manager::Account>&>
+      future;
+  availability->GetAccountsAvailableInArc(future.GetCallback());
+  return future.Get();
 }
 
 MATCHER_P(AccountEqual, other, "") {
@@ -81,11 +79,13 @@ MATCHER_P(AccountEqual, other, "") {
 }  // namespace
 
 class AccountAppsAvailabilityTest : public testing::Test {
- protected:
-  AccountAppsAvailabilityTest() = default;
+ public:
   AccountAppsAvailabilityTest(const AccountAppsAvailabilityTest&) = delete;
   AccountAppsAvailabilityTest& operator=(const AccountAppsAvailabilityTest&) =
       delete;
+
+ protected:
+  AccountAppsAvailabilityTest() = default;
   ~AccountAppsAvailabilityTest() override = default;
 
   void SetUp() override {
@@ -94,9 +94,9 @@ class AccountAppsAvailabilityTest : public testing::Test {
     AccountAppsAvailability::RegisterPrefs(pref_service_->registry());
 
     auto fake_user_manager = std::make_unique<user_manager::FakeUserManager>();
-    fake_user_manager_ = new user_manager::FakeUserManager();
+    fake_user_manager_ = fake_user_manager.get();
     scoped_user_manager_ = std::make_unique<user_manager::ScopedUserManager>(
-        base::WrapUnique(fake_user_manager_));
+        std::move(fake_user_manager));
 
     primary_account_ = identity_test_env()->MakePrimaryAccountAvailable(
         kPrimaryAccountEmail, signin::ConsentLevel::kSignin);
@@ -121,9 +121,9 @@ class AccountAppsAvailabilityTest : public testing::Test {
   void LoginUserSession() {
     auto account_id = AccountId::FromUserEmailGaiaId(primary_account_.email,
                                                      primary_account_.gaia);
-    fake_user_manager_->AddUser(account_id);
-    fake_user_manager_->UserLoggedIn(
-        account_id, account_id.GetUserEmail() + "-hash", false, false);
+    auto* user = fake_user_manager_->AddUser(account_id);
+    fake_user_manager_->UserLoggedIn(account_id, user->username_hash(), false,
+                                     false);
   }
 
   base::test::SingleThreadTaskEnvironment task_environment_;
@@ -131,20 +131,40 @@ class AccountAppsAvailabilityTest : public testing::Test {
   std::unique_ptr<TestingPrefServiceSimple> pref_service_;
   AccountInfo primary_account_;
   // Owned by `scoped_user_manager_`.
-  user_manager::FakeUserManager* fake_user_manager_ = nullptr;
+  raw_ptr<user_manager::FakeUserManager, ExperimentalAsh> fake_user_manager_ =
+      nullptr;
   std::unique_ptr<user_manager::ScopedUserManager> scoped_user_manager_;
 };
 
 TEST_F(AccountAppsAvailabilityTest, InitializationPrefIsPersistedOnDisk) {
+  base::HistogramTester tester;
   auto account_apps_availability = CreateAccountAppsAvailability();
   EXPECT_FALSE(account_apps_availability->IsInitialized());
   // Wait for `GetAccounts` call to finish.
   base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(account_apps_availability->IsInitialized());
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(
+      0u,
+      tester.GetAllSamples(AccountAppsAvailability::kNumAccountsInArcMetricName)
+          .size());
+  EXPECT_EQ(0u,
+            tester
+                .GetAllSamples(
+                    AccountAppsAvailability::kPercentAccountsInArcMetricName)
+                .size());
   account_apps_availability.reset();
 
   account_apps_availability = CreateAccountAppsAvailability();
   EXPECT_TRUE(account_apps_availability->IsInitialized());
+  // Wait for `GetAccounts` call to finish.
+  base::RunLoop().RunUntilIdle();
+  tester.ExpectUniqueSample(
+      AccountAppsAvailability::kNumAccountsInArcMetricName,
+      /*sample=*/1, /*expected_bucket_count=*/1);
+  tester.ExpectUniqueSample(
+      AccountAppsAvailability::kPercentAccountsInArcMetricName,
+      /*sample=*/100, /*expected_bucket_count=*/1);
 }
 
 TEST_F(AccountAppsAvailabilityTest, CallsBeforeInitialization) {
@@ -160,23 +180,17 @@ TEST_F(AccountAppsAvailabilityTest, CallsBeforeInitialization) {
   // Make secondary account unavailable in ARC.
   account_apps_availability->SetIsAccountAvailableInArc(secondary_account,
                                                         false);
-  base::flat_set<account_manager::Account> result;
-  base::RunLoop run_loop;
-  account_apps_availability->GetAccountsAvailableInArc(
-      base::BindLambdaForTesting(
-          [&result, &run_loop](
-              const base::flat_set<account_manager::Account>& accounts) {
-            result = accounts;
-            run_loop.Quit();
-          }));
 
+  base::test::TestFuture<const base::flat_set<account_manager::Account>&>
+      future;
   // Wait for initialization and for `GetAccountsAvailableInArc` call
   // completion.
-  run_loop.Run();
+  account_apps_availability->GetAccountsAvailableInArc(future.GetCallback());
+  base::flat_set<account_manager::Account> result = future.Get();
   EXPECT_TRUE(account_apps_availability->IsInitialized());
 
   // Only primary account is available, secondary account was removed.
-  EXPECT_EQ(result.size(), 1ul);
+  EXPECT_EQ(result.size(), 1u);
   EXPECT_THAT(result, Contains(AccountEqual(primary_account)));
 }
 
@@ -195,7 +209,7 @@ TEST_F(AccountAppsAvailabilityTest, GetAccountsAvailableInArc) {
   // All accounts are available after initialization:
   auto accounts =
       GetAccountsAvailableInArcSync(account_apps_availability.get());
-  EXPECT_EQ(accounts.size(), 2ul);
+  EXPECT_EQ(accounts.size(), 2u);
   EXPECT_THAT(accounts, Contains(AccountEqual(primary_account)));
   EXPECT_THAT(accounts, Contains(AccountEqual(secondary_account)));
 
@@ -204,7 +218,7 @@ TEST_F(AccountAppsAvailabilityTest, GetAccountsAvailableInArc) {
                                                         false);
   auto accounts_1 =
       GetAccountsAvailableInArcSync(account_apps_availability.get());
-  EXPECT_EQ(accounts_1.size(), 1ul);
+  EXPECT_EQ(accounts_1.size(), 1u);
   EXPECT_THAT(accounts_1, Contains(AccountEqual(primary_account)));
 }
 
@@ -224,7 +238,7 @@ TEST_F(AccountAppsAvailabilityTest, SetIsAccountAvailableInArc) {
   {
     auto accounts =
         GetAccountsAvailableInArcSync(account_apps_availability.get());
-    EXPECT_EQ(accounts.size(), 2ul);
+    EXPECT_EQ(accounts.size(), 2u);
     EXPECT_THAT(accounts, Contains(AccountEqual(primary_account)));
     EXPECT_THAT(accounts, Contains(AccountEqual(secondary_account_1)));
   }
@@ -235,7 +249,7 @@ TEST_F(AccountAppsAvailabilityTest, SetIsAccountAvailableInArc) {
   {
     auto accounts =
         GetAccountsAvailableInArcSync(account_apps_availability.get());
-    EXPECT_EQ(accounts.size(), 1l);
+    EXPECT_EQ(accounts.size(), 1u);
     EXPECT_THAT(accounts, Contains(AccountEqual(primary_account)));
   }
 
@@ -249,7 +263,7 @@ TEST_F(AccountAppsAvailabilityTest, SetIsAccountAvailableInArc) {
   {
     auto accounts =
         GetAccountsAvailableInArcSync(account_apps_availability.get());
-    EXPECT_EQ(accounts.size(), 2ul);
+    EXPECT_EQ(accounts.size(), 2u);
     EXPECT_THAT(accounts, Contains(AccountEqual(primary_account)));
     EXPECT_THAT(accounts, Contains(AccountEqual(secondary_account_2)));
   }
@@ -263,7 +277,7 @@ TEST_F(AccountAppsAvailabilityTest, SetIsAccountAvailableInArc) {
   {
     auto accounts =
         GetAccountsAvailableInArcSync(account_apps_availability.get());
-    EXPECT_EQ(accounts.size(), 2ul);
+    EXPECT_EQ(accounts.size(), 2u);
     EXPECT_THAT(accounts, Contains(AccountEqual(primary_account)));
     EXPECT_THAT(accounts, Contains(AccountEqual(secondary_account_2)));
   }
@@ -277,7 +291,7 @@ TEST_F(AccountAppsAvailabilityTest, SetIsAccountAvailableInArc) {
   {
     auto accounts =
         GetAccountsAvailableInArcSync(account_apps_availability.get());
-    EXPECT_EQ(accounts.size(), 2ul);
+    EXPECT_EQ(accounts.size(), 2u);
     EXPECT_THAT(accounts, Contains(AccountEqual(primary_account)));
     EXPECT_THAT(accounts, Contains(AccountEqual(secondary_account_1)));
   }

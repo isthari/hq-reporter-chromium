@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,44 +8,45 @@
 #include <memory>
 #include <utility>
 
-#include "ash/components/login/session/session_termination_manager.h"
 #include "ash/constants/ash_pref_names.h"
 #include "ash/public/cpp/session/session_controller.h"
 #include "ash/public/cpp/session/session_types.h"
-#include "base/bind.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/time/time.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
 #include "chrome/browser/ash/crosapi/browser_manager.h"
 #include "chrome/browser/ash/crosapi/browser_util.h"
 #include "chrome/browser/ash/login/demo_mode/demo_session.h"
+#include "chrome/browser/ash/login/lock/screen_locker.h"
 #include "chrome/browser/ash/login/ui/user_adding_screen.h"
 #include "chrome/browser/ash/login/users/chrome_user_manager.h"
 #include "chrome/browser/ash/login/users/multi_profile_user_controller.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/ash/settings/device_settings_service.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
+#include "chrome/browser/lifetime/termination_notification.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/profiles_state.h"
-#include "chrome/browser/supervised_user/supervised_user_service.h"
 #include "chrome/browser/supervised_user/supervised_user_service_factory.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_util.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/managed_ui.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/assistant/buildflags.h"
-#include "chromeos/dbus/session_manager/session_manager_client.h"
+#include "chromeos/ash/components/assistant/buildflags.h"
+#include "chromeos/ash/components/dbus/session_manager/session_manager_client.h"
+#include "chromeos/ash/components/login/session/session_termination_manager.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_service.h"
 #include "components/session_manager/core/session_manager.h"
+#include "components/supervised_user/core/browser/supervised_user_service.h"
 #include "components/user_manager/user_type.h"
 #include "content/public/browser/browser_context.h"
-#include "content/public/browser/notification_service.h"
-#include "mojo/public/cpp/bindings/equals_traits.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/chromeos/resources/grit/ui_chromeos_resources.h"
 #include "ui/gfx/image/image_skia.h"
@@ -56,6 +57,10 @@ using session_manager::SessionState;
 using user_manager::User;
 using user_manager::UserList;
 using user_manager::UserManager;
+
+// TODO(b/228873153): Remove after figuring out the root cause of the bug
+#undef ENABLED_VLOG_LEVEL
+#define ENABLED_VLOG_LEVEL 1
 
 namespace {
 
@@ -129,27 +134,13 @@ void OnAcceptMultiprofilesIntroDialog(bool accept, bool never_show_again) {
 
 }  // namespace
 
-namespace mojo {
-
-// When comparing two mojom::UserSession objects we need to decide if the avatar
-// images are changed. Consider them equal if they have the same storage rather
-// than comparing the backing pixels.
-template <>
-struct EqualsTraits<gfx::ImageSkia> {
-  static bool Equals(const gfx::ImageSkia& a, const gfx::ImageSkia& b) {
-    return a.BackedBySameObjectAs(b);
-  }
-};
-
-}  // namespace mojo
-
 SessionControllerClientImpl::SessionControllerClientImpl() {
   SessionManager::Get()->AddObserver(this);
   UserManager::Get()->AddSessionStateObserver(this);
   UserManager::Get()->AddObserver(this);
 
-  registrar_.Add(this, chrome::NOTIFICATION_APP_TERMINATING,
-                 content::NotificationService::AllSources());
+  subscription_ = browser_shutdown::AddAppTerminatingCallback(base::BindOnce(
+      &SessionControllerClientImpl::OnAppTerminating, base::Unretained(this)));
 
   local_state_registrar_ = std::make_unique<PrefChangeRegistrar>();
   local_state_registrar_->Init(g_browser_process->local_state());
@@ -216,7 +207,8 @@ void SessionControllerClientImpl::NotifyChromeLockAnimationsComplete() {
 }
 
 void SessionControllerClientImpl::RunUnlockAnimation(
-    base::OnceClosure animation_finished_callback) {
+    ash::SessionController::RunUnlockAnimationCallback
+        animation_finished_callback) {
   session_controller_->RunUnlockAnimation(
       std::move(animation_finished_callback));
 }
@@ -230,8 +222,16 @@ void SessionControllerClientImpl::RequestLockScreen() {
   DoLockScreen();
 }
 
+void SessionControllerClientImpl::RequestHideLockScreen() {
+  ash::ScreenLocker::Hide();
+}
+
 void SessionControllerClientImpl::RequestSignOut() {
   chrome::AttemptUserExit();
+}
+
+void SessionControllerClientImpl::RequestRestartForUpdate() {
+  chrome::AttemptRelaunch();
 }
 
 void SessionControllerClientImpl::AttemptRestartChrome() {
@@ -295,7 +295,7 @@ void SessionControllerClientImpl::EmitAshInitialized() {
   // purely by emitting D-Bus signals, and thus has to be run whenever Ash is
   // started so Ash (DetachableBaseHandler in particular) gets the proper view
   // of the current detachable base state.
-  chromeos::SessionManagerClient::Get()->EmitAshInitialized();
+  ash::SessionManagerClient::Get()->EmitAshInitialized();
 }
 
 PrefService* SessionControllerClientImpl::GetSigninScreenPrefService() {
@@ -315,6 +315,12 @@ PrefService* SessionControllerClientImpl::GetUserPrefService(
 bool SessionControllerClientImpl::IsEnterpriseManaged() const {
   const ash::ChromeUserManager* user_manager = ash::ChromeUserManager::Get();
   return user_manager && user_manager->IsEnterpriseManaged();
+}
+
+absl::optional<int> SessionControllerClientImpl::GetExistingUsersCount() const {
+  const ash::ChromeUserManager* user_manager = ash::ChromeUserManager::Get();
+  return !user_manager ? absl::nullopt
+                       : absl::optional<int>(user_manager->GetUsers().size());
 }
 
 // static
@@ -425,8 +431,9 @@ void SessionControllerClientImpl::DoLockScreen() {
   if (!CanLockScreen())
     return;
 
-  VLOG(1) << "Requesting screen lock from SessionControllerClientImpl";
-  chromeos::SessionManagerClient::Get()->RequestLockScreen();
+  VLOG(1) << "b/228873153 : Requesting screen lock from "
+             "SessionControllerClientImpl";
+  ash::SessionManagerClient::Get()->RequestLockScreen();
 }
 
 // static
@@ -457,10 +464,8 @@ void SessionControllerClientImpl::DoCycleActiveUser(
   AccountId account_id = UserManager::Get()->GetActiveUser()->GetAccountId();
 
   // Get an iterator positioned at the active user.
-  auto it = std::find_if(logged_in_users.begin(), logged_in_users.end(),
-                         [account_id](const User* user) {
-                           return user->GetAccountId() == account_id;
-                         });
+  auto it =
+      base::ranges::find(logged_in_users, account_id, &User::GetAccountId);
 
   // Active user not found.
   if (it == logged_in_users.end())
@@ -510,18 +515,8 @@ void SessionControllerClientImpl::OnCustodianInfoChanged() {
     SendUserSession(*user);
 }
 
-void SessionControllerClientImpl::Observe(
-    int type,
-    const content::NotificationSource& source,
-    const content::NotificationDetails& details) {
-  switch (type) {
-    case chrome::NOTIFICATION_APP_TERMINATING:
-      session_controller_->NotifyChromeTerminating();
-      break;
-    default:
-      NOTREACHED() << "Unexpected notification " << type;
-      break;
-  }
+void SessionControllerClientImpl::OnAppTerminating() {
+  session_controller_->NotifyChromeTerminating();
 }
 
 void SessionControllerClientImpl::OnLoginUserProfilePrepared(Profile* profile) {
@@ -621,7 +616,7 @@ void SessionControllerClientImpl::SendSessionLengthLimit() {
   base::TimeDelta session_length_limit;
   if (local_state->HasPrefPath(prefs::kSessionLengthLimit)) {
     session_length_limit = base::Milliseconds(
-        base::clamp(local_state->GetInteger(prefs::kSessionLengthLimit),
+        std::clamp(local_state->GetInteger(prefs::kSessionLengthLimit),
                     kSessionLengthLimitMinMs, kSessionLengthLimitMaxMs));
   }
   base::Time session_start_time;

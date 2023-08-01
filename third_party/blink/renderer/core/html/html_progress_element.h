@@ -49,6 +49,8 @@ class CORE_EXPORT HTMLProgressElement final : public HTMLElement {
 
   bool CanContainRangeEndPoint() const override { return false; }
 
+  bool IsRichlyEditableForAccessibility() const override { return false; }
+
   void Trace(Visitor*) const override;
 
  private:
@@ -56,7 +58,7 @@ class CORE_EXPORT HTMLProgressElement final : public HTMLElement {
   bool ShouldAppearIndeterminate() const override;
   bool IsLabelable() const override { return true; }
 
-  LayoutObject* CreateLayoutObject(const ComputedStyle&, LegacyLayout) override;
+  LayoutObject* CreateLayoutObject(const ComputedStyle&) override;
   LayoutProgress* GetLayoutProgress() const;
 
   void ParseAttribute(const AttributeModificationParams&) override;
@@ -66,7 +68,7 @@ class CORE_EXPORT HTMLProgressElement final : public HTMLElement {
   void DidElementStateChange();
   void DidAddUserAgentShadowRoot(ShadowRoot&) override;
   bool IsDeterminate() const;
-  void SetValueWidthPercentage(double) const;
+  void SetInlineSizePercentage(double) const;
 
   Member<Element> value_;
 };

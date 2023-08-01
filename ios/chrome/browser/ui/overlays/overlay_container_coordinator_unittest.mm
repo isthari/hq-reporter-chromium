@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,19 +6,19 @@
 #import "ios/chrome/browser/ui/overlays/overlay_container_coordinator+initialization.h"
 
 #import "base/test/ios/wait_util.h"
-#include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
-#import "ios/chrome/browser/main/test_browser.h"
-#include "ios/chrome/browser/overlays/public/overlay_request.h"
+#import "ios/chrome/browser/overlays/public/overlay_request.h"
 #import "ios/chrome/browser/overlays/public/test_modality/test_contained_overlay_request_config.h"
 #import "ios/chrome/browser/overlays/public/test_modality/test_presented_overlay_request_config.h"
+#import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
+#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
 #import "ios/chrome/browser/ui/overlays/overlay_presentation_context_impl.h"
 #import "ios/chrome/browser/ui/overlays/overlay_presentation_context_util.h"
 #import "ios/chrome/browser/ui/overlays/overlay_presentation_context_view_controller.h"
-#include "ios/chrome/browser/ui/overlays/test/fake_overlay_request_coordinator_delegate.h"
+#import "ios/chrome/browser/ui/overlays/test/fake_overlay_request_coordinator_delegate.h"
 #import "ios/chrome/browser/ui/overlays/test/test_overlay_presentation_context.h"
-#include "ios/chrome/test/scoped_key_window.h"
-#include "ios/web/public/test/web_task_environment.h"
-#include "testing/platform_test.h"
+#import "ios/chrome/test/scoped_key_window.h"
+#import "ios/web/public/test/web_task_environment.h"
+#import "testing/platform_test.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -43,7 +43,7 @@ class OverlayContainerCoordinatorTest : public PlatformTest {
     scoped_window_.Get().rootViewController = root_view_controller_;
   }
   ~OverlayContainerCoordinatorTest() override {
-    // The browser needs to be destroyed before |context_| so that observers
+    // The browser needs to be destroyed before `context_` so that observers
     // can be unhooked due to BrowserDestroyed().  This is not a problem for
     // non-test OverlayPresentationContextImpls since they're owned by the
     // Browser and get destroyed after BrowserDestroyed() is called.
@@ -99,11 +99,11 @@ TEST_F(OverlayContainerCoordinatorTest, PresentationContextSetup) {
            !presented_view_controller.beingPresented;
   }));
 
-  // Once |presented_view_controller| is finished being presented, it should
+  // Once `presented_view_controller` is finished being presented, it should
   // update the presentation capabilities to allow presented overlay UI.
   EXPECT_TRUE(OverlayPresentationContextSupportsPresentedUI(context_.get()));
 
-  // Stop the container coordinator and wait for |presented_view_controller| to
+  // Stop the container coordinator and wait for `presented_view_controller` to
   // finish being dismissed, verifying that the context no longer supports
   // presented overlay UI.
   [coordinator_ stop];

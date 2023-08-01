@@ -1,11 +1,12 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.offlinepages;
 
-import android.support.test.InstrumentationRegistry;
+import android.os.Build;
 
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.SmallTest;
 
 import org.junit.After;
@@ -18,10 +19,11 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.ContentUriUtils;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
-import org.chromium.base.test.util.DisableIf;
 import org.chromium.base.test.util.DisabledTest;
+import org.chromium.base.test.util.MaxAndroidSdkLevel;
 import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.offlinepages.OfflinePageBridge.OfflinePageModelObserver;
@@ -31,7 +33,6 @@ import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.batch.BlankCTATabInitialStateRule;
 import org.chromium.components.offlinepages.SavePageResult;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.NetworkChangeNotifier;
 import org.chromium.net.test.EmbeddedTestServer;
@@ -66,7 +67,7 @@ public class OfflinePageArchivePublisherBridgeTest {
 
     private void initializeBridgeForProfile() throws InterruptedException {
         final Semaphore semaphore = new Semaphore(0);
-        PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT, () -> {
+        PostTask.runOrPostTask(TaskTraits.UI_DEFAULT, () -> {
             // Ensure we start in an offline state.
             mOfflinePageBridge = OfflinePageBridge.getForProfile(mProfile);
             if (mOfflinePageBridge == null || mOfflinePageBridge.isOfflinePageModelLoaded()) {
@@ -99,7 +100,8 @@ public class OfflinePageArchivePublisherBridgeTest {
         initializeBridgeForProfile();
         Assert.assertNotNull(mOfflinePageBridge);
 
-        mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
+        mTestServer = EmbeddedTestServer.createAndStartServer(
+                ApplicationProvider.getApplicationContext());
         mTestPage = mTestServer.getURL(TEST_PAGE);
     }
 
@@ -108,11 +110,13 @@ public class OfflinePageArchivePublisherBridgeTest {
         mTestServer.stopAndDestroyServer();
     }
 
-    // TODO(iwells): Change "29" to "Build.VERSION_CODES.Q" when it's available.
     @Test
     @SmallTest
-    @DisableIf.Build(sdk_is_greater_than = 28)
-    public void testAddCompletedDownload() throws InterruptedException, TimeoutException {
+    @MaxAndroidSdkLevel(value = Build.VERSION_CODES.P,
+            reason = "On Android Q+, publish offline pages to the downloads collection "
+                    + "rather than DownloadManager.")
+    public void
+    testAddCompletedDownload() throws InterruptedException, TimeoutException {
         Assert.assertTrue(OfflinePageArchivePublisherBridge.isAndroidDownloadManagerInstalled());
 
         sActivityTestRule.loadUrl(mTestPage);
@@ -127,8 +131,11 @@ public class OfflinePageArchivePublisherBridgeTest {
 
     @Test
     @SmallTest
-    @DisableIf.Build(sdk_is_greater_than = 28)
-    public void testRemove() throws InterruptedException, TimeoutException {
+    @MaxAndroidSdkLevel(value = Build.VERSION_CODES.P,
+            reason = "On Android Q+, publish offline pages to the downloads collection "
+                    + "rather than DownloadManager.")
+    public void
+    testRemove() throws InterruptedException, TimeoutException {
         Assert.assertTrue(OfflinePageArchivePublisherBridge.isAndroidDownloadManagerInstalled());
 
         sActivityTestRule.loadUrl(mTestPage);

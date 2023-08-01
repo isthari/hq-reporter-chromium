@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "base/component_export.h"
 #include "base/files/file_path.h"
 #include "base/memory/weak_ptr.h"
+#include "base/time/time.h"
 #include "base/timer/timer.h"
 
 namespace app_restore {
@@ -87,7 +88,7 @@ class COMPONENT_EXPORT(APP_RESTORE) ArcSaveHandler {
                                uint32_t primary_color,
                                uint32_t status_bar_color);
 
-  // Generates the ARC session id (0 - 1,000,000,000) for ARC apps.
+  // Generates the ARC session id (0 - 1,000,000,000) for save ARC apps.
   int32_t GetArcSessionId();
 
   // Returns the app id that associates with |window|.

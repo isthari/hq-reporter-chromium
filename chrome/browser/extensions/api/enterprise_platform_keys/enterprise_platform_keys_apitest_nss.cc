@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,13 +9,12 @@
 #include <string>
 
 #include "ash/constants/ash_switches.h"
-#include "base/bind.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
 #include "base/json/json_writer.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
-#include "base/task/post_task.h"
+#include "base/test/gtest_tags.h"
 #include "base/values.h"
 #include "chrome/browser/ash/login/test/device_state_mixin.h"
 #include "chrome/browser/ash/platform_keys/platform_keys_service_factory.h"
@@ -137,10 +136,22 @@ const unsigned char privateKeyPkcs8System[] = {
     0xd8, 0x71, 0x69, 0x5e, 0x8d, 0xb4, 0x48, 0x1c, 0xa4, 0x01, 0xce, 0xc1,
     0xb5, 0x6f, 0xe9, 0x1b, 0x32, 0x91, 0x34, 0x38};
 
-base::FilePath GetExtensionDirName() {
-  return base::PathService::CheckedGet(chrome::DIR_TEST_DATA)
-      .Append(
-          FILE_PATH_LITERAL("extensions/api_test/enterprise_platform_keys/"));
+using ContextType = ExtensionBrowserTest::ContextType;
+
+base::FilePath GetExtensionDirName(ContextType context_type) {
+  base::FilePath path =
+      base::PathService::CheckedGet(chrome::DIR_TEST_DATA)
+          .Append(FILE_PATH_LITERAL(
+              "extensions/api_test/enterprise_platform_keys/basic/"));
+
+  if (context_type == ContextType::kServiceWorker) {
+    path = path.AppendASCII("service_worker");
+  } else {
+    DCHECK(context_type == ContextType::kPersistentBackground);
+    path = path.AppendASCII("persistent_background");
+  }
+
+  return path;
 }
 
 base::FilePath GetExtensionPemFileName() {
@@ -178,9 +189,9 @@ void ImportPrivateKeyPKCS8ToSlot(const unsigned char* pkcs8_der,
 
 // Builds the tests configuration dictionary and serializes it.
 std::string BuildCustomArg(bool user_session_test, bool system_token_enabled) {
-  base::Value custom_arg_value(base::Value::Type::DICTIONARY);
-  custom_arg_value.SetBoolKey(kIsUserSessionTestConfig, user_session_test);
-  custom_arg_value.SetBoolKey(kSystemTokenEnabledConfig, system_token_enabled);
+  base::Value::Dict custom_arg_value;
+  custom_arg_value.Set(kIsUserSessionTestConfig, user_session_test);
+  custom_arg_value.Set(kSystemTokenEnabledConfig, system_token_enabled);
 
   std::string custom_arg;
   if (!base::JSONWriter::Write(custom_arg_value, &custom_arg)) {
@@ -192,14 +203,17 @@ std::string BuildCustomArg(bool user_session_test, bool system_token_enabled) {
 struct Params {
   Params(PlatformKeysTestBase::SystemTokenStatus system_token_status,
          PlatformKeysTestBase::EnrollmentStatus enrollment_status,
-         PlatformKeysTestBase::UserStatus user_status)
+         PlatformKeysTestBase::UserStatus user_status,
+         ContextType context_type)
       : system_token_status_(system_token_status),
         enrollment_status_(enrollment_status),
-        user_status_(user_status) {}
+        user_status_(user_status),
+        context_type_(context_type) {}
 
   PlatformKeysTestBase::SystemTokenStatus system_token_status_;
   PlatformKeysTestBase::EnrollmentStatus enrollment_status_;
   PlatformKeysTestBase::UserStatus user_status_;
+  ContextType context_type_;
 };
 
 class EnterprisePlatformKeysTest
@@ -230,21 +244,16 @@ class EnterprisePlatformKeysTest
         profile(), mock_policy_provider());
   }
 
-  void DidGetCertDatabase(base::OnceClosure done_callback,
-                          net::NSSCertDatabase* cert_db) {
-    // In order to use a prepared certificate, import a private key to the
-    // user's token for which the Javscript test will import the certificate.
-    ImportPrivateKeyPKCS8ToSlot(privateKeyPkcs8User,
-                                base::size(privateKeyPkcs8User),
-                                cert_db->GetPrivateSlot().get());
-    std::move(done_callback).Run();
-  }
-
  protected:
   bool IsSystemTokenEnabled() const {
     return system_token_status() == SystemTokenStatus::EXISTS &&
            enrollment_status() == EnrollmentStatus::ENROLLED &&
            user_status() == UserStatus::MANAGED_AFFILIATED_DOMAIN;
+  }
+
+  void AddScreenplayTag() {
+    base::AddTagToTestResult("feature_id",
+                             "screenplay-f9cdeb9c-d567-4d70-a2dc-9ee4203175e6");
   }
 
   ExtensionForceInstallMixin extension_force_install_mixin_{&mixin_host_};
@@ -255,7 +264,7 @@ class EnterprisePlatformKeysTest
     // Import a private key to the system slot.  The Javascript part of this
     // test has a prepared certificate for this key.
     ImportPrivateKeyPKCS8ToSlot(privateKeyPkcs8System,
-                                base::size(privateKeyPkcs8System),
+                                std::size(privateKeyPkcs8System),
                                 system_slot->slot());
   }
 
@@ -269,17 +278,21 @@ class EnterprisePlatformKeysTest
 }  // namespace
 
 IN_PROC_BROWSER_TEST_P(EnterprisePlatformKeysTest, PRE_Basic) {
+  AddScreenplayTag();
   RunPreTest();
 }
 
 IN_PROC_BROWSER_TEST_P(EnterprisePlatformKeysTest, Basic) {
+  AddScreenplayTag();
   {
-    base::RunLoop loop;
+    base::test::TestFuture<net::NSSCertDatabase*> get_db_future;
     NssServiceFactory::GetForContext(profile())
-        ->UnsafelyGetNSSCertDatabaseForTesting(
-            base::BindOnce(&EnterprisePlatformKeysTest::DidGetCertDatabase,
-                           base::Unretained(this), loop.QuitClosure()));
-    loop.Run();
+        ->UnsafelyGetNSSCertDatabaseForTesting(get_db_future.GetCallback());
+    // In order to use a prepared certificate, import a private key to the
+    // user's token for which the Javscript test will import the certificate.
+    ImportPrivateKeyPKCS8ToSlot(privateKeyPkcs8User,
+                                std::size(privateKeyPkcs8User),
+                                get_db_future.Get()->GetPrivateSlot().get());
   }
 
   SetCustomArg(BuildCustomArg(/*user_session_test=*/true,
@@ -289,46 +302,78 @@ IN_PROC_BROWSER_TEST_P(EnterprisePlatformKeysTest, Basic) {
 
   extensions::ExtensionId extension_id;
   ASSERT_TRUE(extension_force_install_mixin_.ForceInstallFromSourceDir(
-      GetExtensionDirName(), GetExtensionPemFileName(),
-      ExtensionForceInstallMixin::WaitMode::kBackgroundPageFirstLoad,
-      &extension_id));
+      GetExtensionDirName(GetParam().context_type_), GetExtensionPemFileName(),
+      ExtensionForceInstallMixin::WaitMode::kLoad, &extension_id));
   ASSERT_EQ(kExtensionId, extension_id);
 
   ASSERT_TRUE(catcher.GetNextResult());
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    CheckSystemTokenAvailability,
+    PersistentBackground_CheckSystemTokenAvailability,
     EnterprisePlatformKeysTest,
     ::testing::Values(
         Params(PlatformKeysTestBase::SystemTokenStatus::EXISTS,
                PlatformKeysTestBase::EnrollmentStatus::ENROLLED,
-               PlatformKeysTestBase::UserStatus::MANAGED_AFFILIATED_DOMAIN),
+               PlatformKeysTestBase::UserStatus::MANAGED_AFFILIATED_DOMAIN,
+               ContextType::kPersistentBackground),
         Params(PlatformKeysTestBase::SystemTokenStatus::EXISTS,
                PlatformKeysTestBase::EnrollmentStatus::ENROLLED,
-               PlatformKeysTestBase::UserStatus::MANAGED_OTHER_DOMAIN),
+               PlatformKeysTestBase::UserStatus::MANAGED_OTHER_DOMAIN,
+               ContextType::kPersistentBackground),
         Params(PlatformKeysTestBase::SystemTokenStatus::EXISTS,
                PlatformKeysTestBase::EnrollmentStatus::NOT_ENROLLED,
-               PlatformKeysTestBase::UserStatus::MANAGED_OTHER_DOMAIN),
+               PlatformKeysTestBase::UserStatus::MANAGED_OTHER_DOMAIN,
+               ContextType::kPersistentBackground),
         Params(PlatformKeysTestBase::SystemTokenStatus::DOES_NOT_EXIST,
                PlatformKeysTestBase::EnrollmentStatus::ENROLLED,
-               PlatformKeysTestBase::UserStatus::MANAGED_AFFILIATED_DOMAIN)));
+               PlatformKeysTestBase::UserStatus::MANAGED_AFFILIATED_DOMAIN,
+               ContextType::kPersistentBackground)));
+
+INSTANTIATE_TEST_SUITE_P(
+    ServiceWorker_CheckSystemTokenAvailability,
+    EnterprisePlatformKeysTest,
+    ::testing::Values(
+        Params(PlatformKeysTestBase::SystemTokenStatus::EXISTS,
+               PlatformKeysTestBase::EnrollmentStatus::ENROLLED,
+               PlatformKeysTestBase::UserStatus::MANAGED_AFFILIATED_DOMAIN,
+               ContextType::kServiceWorker),
+        Params(PlatformKeysTestBase::SystemTokenStatus::EXISTS,
+               PlatformKeysTestBase::EnrollmentStatus::ENROLLED,
+               PlatformKeysTestBase::UserStatus::MANAGED_OTHER_DOMAIN,
+               ContextType::kServiceWorker),
+        Params(PlatformKeysTestBase::SystemTokenStatus::EXISTS,
+               PlatformKeysTestBase::EnrollmentStatus::NOT_ENROLLED,
+               PlatformKeysTestBase::UserStatus::MANAGED_OTHER_DOMAIN,
+               ContextType::kServiceWorker),
+        Params(PlatformKeysTestBase::SystemTokenStatus::DOES_NOT_EXIST,
+               PlatformKeysTestBase::EnrollmentStatus::ENROLLED,
+               PlatformKeysTestBase::UserStatus::MANAGED_AFFILIATED_DOMAIN,
+               ContextType::kServiceWorker)));
+
+class EnterprisePlatformKeysIsRestrictedTest
+    : public ExtensionApiTest,
+      public ::testing::WithParamInterface<ContextType> {
+ public:
+  EnterprisePlatformKeysIsRestrictedTest() : ExtensionApiTest(GetParam()) {}
+  ~EnterprisePlatformKeysIsRestrictedTest() override = default;
+  EnterprisePlatformKeysIsRestrictedTest(
+      const EnterprisePlatformKeysIsRestrictedTest&) = delete;
+  EnterprisePlatformKeysIsRestrictedTest& operator=(
+      const EnterprisePlatformKeysIsRestrictedTest&) = delete;
+};
 
 // Ensure that extensions that are not pre-installed by policy throw an install
 // warning if they request the enterprise.platformKeys permission in the
 // manifest and that such extensions don't see the
 // chrome.enterprise.platformKeys namespace.
-IN_PROC_BROWSER_TEST_F(ExtensionApiTest,
-                       EnterprisePlatformKeysIsRestrictedToPolicyExtension) {
-  ASSERT_TRUE(RunExtensionTest("enterprise_platform_keys",
-                               {.page_url = "api_not_available.html"},
+IN_PROC_BROWSER_TEST_P(EnterprisePlatformKeysIsRestrictedTest,
+                       NonPolicyExtension) {
+  ASSERT_TRUE(RunExtensionTest("enterprise_platform_keys/api_not_available", {},
                                {.ignore_manifest_warnings = true}));
 
-  base::FilePath extension_path =
-      test_data_dir_.AppendASCII("enterprise_platform_keys");
-  ExtensionRegistry* registry = ExtensionRegistry::Get(profile());
-  const Extension* extension =
-      GetExtensionByPath(registry->enabled_extensions(), extension_path);
+  const Extension* extension = GetSingleLoadedExtension();
+  ASSERT_TRUE(extension);
   ASSERT_EQ(2u, extension->install_warnings().size());
   // TODO(https://crbug.com/1269161): Remove the check for the deprecated
   // manifest version when the test extension is updated to MV3.
@@ -340,8 +385,17 @@ IN_PROC_BROWSER_TEST_F(ExtensionApiTest,
       extension->install_warnings()[1].message);
 }
 
+INSTANTIATE_TEST_SUITE_P(PersistentBackground,
+                         EnterprisePlatformKeysIsRestrictedTest,
+                         ::testing::Values(ContextType::kPersistentBackground));
+
+INSTANTIATE_TEST_SUITE_P(ServiceWorker,
+                         EnterprisePlatformKeysIsRestrictedTest,
+                         ::testing::Values(ContextType::kServiceWorker));
+
 class EnterprisePlatformKeysLoginScreenTest
-    : public MixinBasedInProcessBrowserTest {
+    : public extensions::MixinBasedExtensionApiTest,
+      public ::testing::WithParamInterface<ContextType> {
  public:
   EnterprisePlatformKeysLoginScreenTest() = default;
   EnterprisePlatformKeysLoginScreenTest(
@@ -355,23 +409,28 @@ class EnterprisePlatformKeysLoginScreenTest
     return &extension_force_install_mixin_;
   }
 
+  void AddScreenplayTag() {
+    base::AddTagToTestResult("feature_id",
+                             "screenplay-f9cdeb9c-d567-4d70-a2dc-9ee4203175e6");
+  }
+
  private:
   void SetUp() override {
     ash::platform_keys::PlatformKeysServiceFactory::GetInstance()
         ->SetTestingMode(true);
 
-    MixinBasedInProcessBrowserTest::SetUp();
+    MixinBasedExtensionApiTest::SetUp();
   }
 
   void SetUpOnMainThread() override {
-    MixinBasedInProcessBrowserTest::SetUpOnMainThread();
+    MixinBasedExtensionApiTest::SetUpOnMainThread();
 
     extension_force_install_mixin_.InitWithDeviceStateMixin(
         GetOriginalSigninProfile(), &device_state_mixin_);
   }
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    MixinBasedInProcessBrowserTest::SetUpCommandLine(command_line);
+    MixinBasedExtensionApiTest::SetUpCommandLine(command_line);
 
     command_line->AppendSwitch(ash::switches::kLoginManager);
     command_line->AppendSwitchASCII(switches::kAllowlistedExtensionID,
@@ -391,23 +450,34 @@ class EnterprisePlatformKeysLoginScreenTest
       scoped_chaps_util_override_;
 };
 
-IN_PROC_BROWSER_TEST_F(EnterprisePlatformKeysLoginScreenTest, Basic) {
-  base::DictionaryValue config;
-  config.SetStringKey("customArg",
-                      BuildCustomArg(/*user_session_test=*/false,
-                                     /*system_token_enabled=*/true));
+IN_PROC_BROWSER_TEST_P(EnterprisePlatformKeysLoginScreenTest, Basic) {
+  AddScreenplayTag();
+  base::Value::Dict config;
+  config.Set("customArg", BuildCustomArg(/*user_session_test=*/false,
+                                         /*system_token_enabled=*/true));
   extensions::TestGetConfigFunction::set_test_config_state(&config);
 
   extensions::ResultCatcher catcher;
 
   extensions::ExtensionId extension_id;
+
   ASSERT_TRUE(extension_force_install_mixin()->ForceInstallFromSourceDir(
-      GetExtensionDirName(), GetExtensionPemFileName(),
-      ExtensionForceInstallMixin::WaitMode::kBackgroundPageFirstLoad,
-      &extension_id));
+      GetExtensionDirName(GetParam()), GetExtensionPemFileName(),
+      ExtensionForceInstallMixin::WaitMode::kLoad, &extension_id));
   ASSERT_EQ(kExtensionId, extension_id);
 
   ASSERT_TRUE(catcher.GetNextResult());
 }
+
+INSTANTIATE_TEST_SUITE_P(PersistentBackground,
+                         EnterprisePlatformKeysLoginScreenTest,
+                         ::testing::Values(ContextType::kPersistentBackground));
+
+// TODO(crbug.com/1303197): Service workers don't work in the login screen
+// context. Investigate and fix.
+// INSTANTIATE_TEST_SUITE_P(
+//    ServiceWorker,
+//    EnterprisePlatformKeysLoginScreenTest,
+//    ::testing::Values(ContextType::kServiceWorker));
 
 }  // namespace extensions

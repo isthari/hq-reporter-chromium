@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,11 +34,14 @@ class SaveAddressProfileBannerRequestConfig
   // The description.
   std::u16string description() const { return description_; }
 
-  // The name of the icon image.
-  NSString* icon_image_name() const { return icon_image_name_; }
-
   // The banner type.
   BOOL is_update_banner() const { return is_update_banner_; }
+
+  BOOL is_migration_to_account() const { return is_migration_to_account_; }
+
+  BOOL is_profile_an_account_profile() const {
+    return is_profile_an_account_profile_;
+  }
 
  private:
   OVERLAY_USER_DATA_SETUP(SaveAddressProfileBannerRequestConfig);
@@ -49,15 +52,20 @@ class SaveAddressProfileBannerRequestConfig
 
   // The InfoBar causing this banner.
   infobars::InfoBar* infobar_ = nullptr;
-  // Configuration data extracted from |infobar_|'s save address profile
+  // Configuration data extracted from `infobar_`'s save address profile
   // delegate.
   std::u16string message_text_;
   std::u16string description_;
   std::u16string button_label_text_;
-  NSString* icon_image_name_ = nil;
+
+  // Denotes that the profile will be saved to Google Account.
+  bool is_migration_to_account_ = false;
 
   // Determines the type of the banner, true for save and false for the update.
   bool is_update_banner_ = false;
+
+  // Denotes that the profile is an account profile.
+  bool is_profile_an_account_profile_ = false;
 };
 
 }  // namespace autofill_address_profile_infobar_overlays

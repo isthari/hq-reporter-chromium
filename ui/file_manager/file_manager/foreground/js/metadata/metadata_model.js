@@ -1,14 +1,16 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import {util} from '../../../common/js/util.js';
 import {VolumeManager} from '../../../externs/volume_manager.js';
+import {getStore} from '../../../state/store.js';
 
 import {ContentMetadataProvider} from './content_metadata_provider.js';
+import {DlpMetadataProvider} from './dlp_metadata_provider.js';
 import {ExternalMetadataProvider} from './external_metadata_provider.js';
 import {FileSystemMetadataProvider} from './file_system_metadata_provider.js';
-import {MetadataCacheSet, MetadataCacheSetStorageForObject} from './metadata_cache_set.js';
+import {MetadataCacheSet} from './metadata_cache_set.js';
 import {MetadataItem} from './metadata_item.js';
 import {MetadataProvider} from './metadata_provider.js';
 import {MultiMetadataProvider} from './multi_metadata_provider.js';
@@ -44,8 +46,8 @@ export class MetadataModel {
     /** @private @const {!MetadataProvider} */
     this.rawProvider_ = rawProvider;
 
-    /** @private @const {!MetadataProviderCache} */
-    this.cache_ = new MetadataProviderCache();
+    /** @private @const {!MetadataCacheSet} */
+    this.cache_ = new MetadataCacheSet();
 
     /** @private @const {!Array<!MetadataProviderCallbackRequest>} */
     this.callbackRequests_ = [];
@@ -64,7 +66,8 @@ export class MetadataModel {
   static create(volumeManager) {
     return new MetadataModel(new MultiMetadataProvider(
         new FileSystemMetadataProvider(), new ExternalMetadataProvider(),
-        new ContentMetadataProvider(), volumeManager));
+        new ContentMetadataProvider(), new DlpMetadataProvider(),
+        volumeManager));
   }
 
   /**
@@ -146,6 +149,41 @@ export class MetadataModel {
   }
 
   /**
+   * Updates the metadata of the given fileUrls with the provided values for
+   * each specified metadata name.
+   * @param {!Array<!string>} fileUrls FileURLs to have their metadata updated
+   * @param {!Array<string>} names Metadata property names to be updated.
+   * @param {!Array<!Array<string|number|boolean>>} values
+   */
+  update(fileUrls, names, values) {
+    const {allEntries} = getStore().getState();
+
+    // Only update corresponding entries that are available in the store.
+    const itemsToUpdate = [];
+    const entriesToUpdate = [];
+    for (let i = 0; i < fileUrls.length; i++) {
+      const url = fileUrls[i];
+      const entry = allEntries[url]?.entry;
+      if (!entry) {
+        continue;
+      }
+      entriesToUpdate.push(entry);
+      const item = new MetadataItem();
+      names.forEach((key, j) => item[key] = values[i][j]);
+      itemsToUpdate.push(item);
+    }
+
+    if (entriesToUpdate.length === 0) {
+      return;
+    }
+
+    this.cache_.invalidate(
+        this.cache_.generateRequestId(), entriesToUpdate, names);
+    this.cache_.storeProperties(
+        this.cache_.generateRequestId(), entriesToUpdate, itemsToUpdate, names);
+  }
+
+  /**
    * Obtains metadata cache for entries.
    * @param {!Array<!Entry>} entries Entries.
    * @param {!Array<string>} names Metadata property names to be obtained.
@@ -155,6 +193,18 @@ export class MetadataModel {
     // Check if the property name is correct or not.
     this.rawProvider_.checkPropertyNames(names);
     return this.cache_.get(entries, names);
+  }
+
+  /**
+   * Obtains metadata cache for file URLs.
+   * @param {!Array<!string>} urls File URLs.
+   * @param {!Array<string>} names Metadata property names to be obtained.
+   * @return {!Array<!MetadataItem>}
+   */
+  getCacheByUrls(urls, names) {
+    // Check if the property name is correct or not.
+    this.rawProvider_.checkPropertyNames(names);
+    return this.cache_.getByUrls(urls, names);
   }
 
   /**
@@ -209,7 +259,7 @@ export class MetadataModel {
   /**
    * Adds event listener to internal cache object.
    * @param {string} type
-   * @param {function(Event):undefined} callback
+   * @param {function(Event):void} callback
    */
   addEventListener(type, callback) {
     this.cache_.addEventListener(type, callback);
@@ -218,7 +268,7 @@ export class MetadataModel {
   /**
    * Removes event listener from internal cache object.
    * @param {string} type Name of the event to removed.
-   * @param {function(Event):undefined} callback Event listener.
+   * @param {function(Event):void} callback Event listener.
    */
   removeEventListener(type, callback) {
     this.cache_.removeEventListener(type, callback);
@@ -231,7 +281,7 @@ class MetadataProviderCallbackRequest {
    * @param {!Array<!Entry>} entries
    * @param {!Array<string>} names
    * @param {!MetadataCacheSet} cache
-   * @param {function(!MetadataItem):undefined} fulfill
+   * @param {function(!Array<MetadataItem>):undefined} fulfill
    */
   constructor(entries, names, cache, fulfill) {
     /**
@@ -253,7 +303,7 @@ class MetadataProviderCallbackRequest {
     this.cache_ = cache;
 
     /**
-     * @private {function(!MetadataItem):undefined}
+     * @private {function(!Array<MetadataItem>):undefined}
      * @const
      */
     this.fulfill_ = fulfill;
@@ -274,28 +324,5 @@ class MetadataProviderCallbackRequest {
       return true;
     }
     return false;
-  }
-}
-
-/**
- * Helper wrapper for LRUCache.
- * @final
- */
-class MetadataProviderCache extends MetadataCacheSet {
-  constructor() {
-    super(new MetadataCacheSetStorageForObject({}));
-
-    /**
-     * @private {number}
-     */
-    this.requestIdCounter_ = 0;
-  }
-
-  /**
-   * Generates a unique request ID every time when it is called.
-   * @return {number}
-   */
-  generateRequestId() {
-    return this.requestIdCounter_++;
   }
 }

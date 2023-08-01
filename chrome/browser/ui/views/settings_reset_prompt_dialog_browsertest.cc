@@ -1,6 +1,8 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+#include "chrome/browser/ui/views/settings_reset_prompt_dialog.h"
 
 #include <algorithm>
 #include <initializer_list>
@@ -11,8 +13,7 @@
 #include <utility>
 #include <vector>
 
-#include "base/callback.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
@@ -25,7 +26,6 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/test/test_browser_dialog.h"
-#include "chrome/browser/ui/views/settings_reset_prompt_dialog.h"
 #include "content/public/test/browser_test.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -71,12 +71,12 @@ class MockSettingsResetPromptModel
             profile,
             std::make_unique<NiceMock<MockSettingsResetPromptConfig>>(),
             std::make_unique<NiceMock<MockProfileResetter>>(profile)) {
-    EXPECT_LE(params.startup_pages, base::size(kStartupUrls));
+    EXPECT_LE(params.startup_pages, std::size(kStartupUrls));
 
     // Set up startup URLs to be returned by member functions based on the
     // constructor arguments.
     for (size_t i = 0;
-         i < std::min(base::size(kStartupUrls), params.startup_pages); ++i) {
+         i < std::min(std::size(kStartupUrls), params.startup_pages); ++i) {
       startup_urls_.push_back(GURL(kStartupUrls[i]));
     }
 
@@ -84,7 +84,7 @@ class MockSettingsResetPromptModel
       startup_urls_to_reset_ = startup_urls_;
 
     ON_CALL(*this, ShouldPromptForReset()).WillByDefault(Return(true));
-    ON_CALL(*this, MockPerformReset(_, _)).WillByDefault(Return());
+    ON_CALL(*this, PerformReset(_, _)).WillByDefault(Return());
     ON_CALL(*this, DialogShown()).WillByDefault(Return());
 
     ON_CALL(*this, homepage()).WillByDefault(Return(GURL(kHomepageUrl)));
@@ -117,21 +117,22 @@ class MockSettingsResetPromptModel
 
   ~MockSettingsResetPromptModel() override {}
 
-  void PerformReset(std::unique_ptr<BrandcodedDefaultSettings> default_settings,
-                    base::OnceClosure callback) override {
-    MockPerformReset(default_settings.get(), std::move(callback));
-  }
-  MOCK_METHOD2(MockPerformReset,
-               void(BrandcodedDefaultSettings*, base::OnceClosure));
-  MOCK_CONST_METHOD0(ShouldPromptForReset, bool());
-  MOCK_METHOD0(DialogShown, void());
-  MOCK_CONST_METHOD0(homepage, GURL());
-  MOCK_CONST_METHOD0(homepage_reset_state, ResetState());
-  MOCK_CONST_METHOD0(default_search, GURL());
-  MOCK_CONST_METHOD0(default_search_reset_state, ResetState());
-  MOCK_CONST_METHOD0(startup_urls, const std::vector<GURL>&());
-  MOCK_CONST_METHOD0(startup_urls_to_reset, const std::vector<GURL>&());
-  MOCK_CONST_METHOD0(startup_urls_reset_state, ResetState());
+  MOCK_METHOD(void,
+              PerformReset,
+              (std::unique_ptr<BrandcodedDefaultSettings>, base::OnceClosure),
+              (override));
+  MOCK_METHOD(bool, ShouldPromptForReset, (), (const, override));
+  MOCK_METHOD(void, DialogShown, (), (override));
+  MOCK_METHOD(GURL, homepage, (), (const, override));
+  MOCK_METHOD(ResetState, homepage_reset_state, (), (const, override));
+  MOCK_METHOD(GURL, default_search, (), (const, override));
+  MOCK_METHOD(ResetState, default_search_reset_state, (), (const, override));
+  MOCK_METHOD(const std::vector<GURL>&, startup_urls, (), (const, override));
+  MOCK_METHOD(const std::vector<GURL>&,
+              startup_urls_to_reset,
+              (),
+              (const, override));
+  MOCK_METHOD(ResetState, startup_urls_reset_state, (), (const, override));
 
  private:
   std::vector<GURL> startup_urls_;
@@ -192,7 +193,7 @@ class SettingsResetPromptDialogCloseTest : public DialogBrowserTest {
   void DismissUi() override { dialog_->Close(); }
 
  private:
-  raw_ptr<SettingsResetPromptDialog> dialog_ = nullptr;
+  raw_ptr<SettingsResetPromptDialog, DanglingUntriaged> dialog_ = nullptr;
 };
 
 IN_PROC_BROWSER_TEST_F(SettingsResetPromptDialogCloseTest,

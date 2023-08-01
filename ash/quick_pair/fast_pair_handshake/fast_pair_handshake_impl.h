@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,8 +23,9 @@ class FastPairHandshakeImpl : public FastPairHandshake {
   FastPairHandshakeImpl(const FastPairHandshakeImpl&) = delete;
   FastPairHandshakeImpl& operator=(const FastPairHandshakeImpl&) = delete;
   ~FastPairHandshakeImpl() override;
-
-  bool IsConnected() override;
+  void SetUpHandshake(OnFailureCallback on_failure_callback,
+                      OnCompleteCallbackNew on_success_callback) override;
+  void Reset() override;
 
  private:
   void OnGattClientInitializedCallback(absl::optional<PairFailure> failure);

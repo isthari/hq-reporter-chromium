@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,7 +30,7 @@ public class NetworkTrafficAnnotationTag {
 
     /**
      * For network requests that don't need an annotation, because they're in an
-     * allowlisted file (see tools/traffic_annotation/auditor/safe_list.txt).
+     * allowlisted file (see tools/traffic_annotation/safe_list.txt).
      */
     public static final NetworkTrafficAnnotationTag MISSING_TRAFFIC_ANNOTATION =
             createComplete("undefined", "Function called without traffic annotation.");

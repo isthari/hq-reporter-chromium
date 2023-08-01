@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 // Enum representing the existing set of menu scenarios. Current values should
 // not be renumbered. Please keep in sync with "IOSMenuScenario" in
 // src/tools/metrics/histograms/enums.xml.
-enum class MenuScenario {
+enum class MenuScenarioHistogram {
   kBookmarkEntry = 0,
   kBookmarkFolder = 1,
   kReadingListEntry = 2,
@@ -23,13 +23,21 @@ enum class MenuScenario {
   kTabGridAddTo = 11,
   kTabGridEdit = 12,
   kToolbarMenu = 13,
-  kMaxValue = kToolbarMenu,
+  kTabGridSearchResult = 14,
+  kThumbStrip = 15,
+  kOmniboxMostVisitedEntry = 16,
+  kPinnedTabsEntry = 17,
+  kTabStripEntry =
+      18,  // TODO(crbug.com/1428071): Currently not recorded. With the current
+           // tabStrip implementation we can't display context menus.
+  kInactiveTabsEntry = 19,
+  kMaxValue = kInactiveTabsEntry,
 };
 
-// Records a menu shown histogram metric for the |scenario|.
-void RecordMenuShown(MenuScenario scenario);
+// Records a menu shown histogram metric for the `scenario`.
+void RecordMenuShown(MenuScenarioHistogram scenario);
 
-// Retrieves a histogram name for the given menu |scenario|'s actions.
-const char* GetActionsHistogramName(MenuScenario scenario);
+// Retrieves a histogram name for the given menu `scenario`'s actions.
+const char* GetActionsHistogramName(MenuScenarioHistogram scenario);
 
 #endif  // IOS_CHROME_BROWSER_UI_MENU_MENU_HISTOGRAMS_H_

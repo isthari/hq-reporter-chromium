@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,22 +7,26 @@ package org.chromium.chrome.browser.app.flags;
 import android.text.TextUtils;
 
 import org.chromium.build.BuildConfig;
-import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
+import org.chromium.chrome.browser.WarmupManager;
+import org.chromium.chrome.browser.app.ChromeActivity;
+import org.chromium.chrome.browser.back_press.MinimizeAppAndCloseTabBackPressHandler;
 import org.chromium.chrome.browser.customtabs.CustomTabActivity;
 import org.chromium.chrome.browser.customtabs.CustomTabIntentDataProvider;
+import org.chromium.chrome.browser.customtabs.features.branding.BrandingController;
+import org.chromium.chrome.browser.device.DeviceClassManager;
 import org.chromium.chrome.browser.feed.FeedPlaceholderLayout;
 import org.chromium.chrome.browser.firstrun.FirstRunUtils;
 import org.chromium.chrome.browser.flags.CachedFeatureFlags;
 import org.chromium.chrome.browser.flags.CachedFieldTrialParameter;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.notifications.chime.ChimeFeatures;
+import org.chromium.chrome.browser.omaha.VersionNumberGetter;
+import org.chromium.chrome.browser.omnibox.OmniboxFeatures;
 import org.chromium.chrome.browser.optimization_guide.OptimizationGuidePushNotificationManager;
-import org.chromium.chrome.browser.page_annotations.PageAnnotationsServiceConfig;
-import org.chromium.chrome.browser.paint_preview.StartupPaintPreviewHelper;
-import org.chromium.chrome.browser.tasks.ConditionalTabStripUtils;
-import org.chromium.chrome.browser.tasks.ReturnToChromeExperimentsUtil;
+import org.chromium.chrome.browser.tab.state.FilePersistedTabDataStorage;
+import org.chromium.chrome.browser.tabmodel.TabPersistentStore;
+import org.chromium.chrome.browser.tasks.tab_management.TabManagementFieldTrial;
 import org.chromium.chrome.browser.tasks.tab_management.TabUiFeatureUtilities;
-import org.chromium.chrome.browser.theme.ThemeUtils;
 import org.chromium.chrome.features.start_surface.StartSurfaceConfiguration;
 
 import java.util.ArrayList;
@@ -40,14 +44,10 @@ public class ChromeCachedFlags {
      * A list of field trial parameters that will be cached when starting minimal browser mode. See
      * {@link #cacheMinimalBrowserFlags()}.
      */
-    private static final List<CachedFieldTrialParameter> MINIMAL_BROWSER_FIELD_TRIALS =
-            new ArrayList<CachedFieldTrialParameter>() {
-                {
-                    // This is used by CustomTabsConnection implementation, which does not
-                    // necessarily start chrome.
-                    add(CustomTabActivity.EXPERIMENTS_FOR_AGSA_PARAMS);
-                }
-            };
+    private static final List<CachedFieldTrialParameter> MINIMAL_BROWSER_FIELD_TRIALS = List.of(
+            // This is used by CustomTabsConnection implementation, which does not
+            // necessarily start chrome.
+            CustomTabActivity.EXPERIMENTS_FOR_AGSA_PARAMS);
 
     /**
      * @return The {@link ChromeCachedFlags} singleton.
@@ -65,118 +65,57 @@ public class ChromeCachedFlags {
         if (mIsFinishedCachingNativeFlags) return;
         FirstRunUtils.cacheFirstRunPrefs();
 
-        // Workaround for crbug.com/1223545: Do not use Arrays.asList().
-        List<String> featuresToCache = new ArrayList<String>() {
-            {
-                add(ChromeFeatureList.ANONYMOUS_UPDATE_CHECKS);
-                add(ChromeFeatureList.APP_MENU_MOBILE_SITE_OPTION);
-                add(ChromeFeatureList.APP_TO_WEB_ATTRIBUTION);
-                add(ChromeFeatureList.BOOKMARK_BOTTOM_SHEET);
-                add(ChromeFeatureList.CCT_INCOGNITO);
-                add(ChromeFeatureList.CCT_INCOGNITO_AVAILABLE_TO_THIRD_PARTY);
-                add(ChromeFeatureList.CCT_REMOVE_REMOTE_VIEW_IDS);
-                add(ChromeFeatureList.CCT_RESIZABLE_90_MAXIMUM_HEIGHT);
-                add(ChromeFeatureList.CCT_RESIZABLE_ALLOW_RESIZE_BY_USER_GESTURE);
-                add(ChromeFeatureList.CCT_RESIZABLE_FOR_FIRST_PARTIES);
-                add(ChromeFeatureList.CCT_RESIZABLE_FOR_THIRD_PARTIES);
-                add(ChromeFeatureList.CLOSE_TAB_SUGGESTIONS);
-                add(ChromeFeatureList.CRITICAL_PERSISTED_TAB_DATA);
-                add(ChromeFeatureList.COMMAND_LINE_ON_NON_ROOTED);
-                add(ChromeFeatureList.CONDITIONAL_TAB_STRIP_ANDROID);
-                add(ChromeFeatureList.DOWNLOADS_AUTO_RESUMPTION_NATIVE);
-                add(ChromeFeatureList.DYNAMIC_COLOR_ANDROID);
-                add(ChromeFeatureList.EARLY_LIBRARY_LOAD);
-                add(ChromeFeatureList.ELASTIC_OVERSCROLL);
-                add(ChromeFeatureList.ELIDE_PRIORITIZATION_OF_PRE_NATIVE_BOOTSTRAP_TASKS);
-                add(ChromeFeatureList.ELIDE_TAB_PRELOAD_AT_STARTUP);
-                add(ChromeFeatureList.FEED_LOADING_PLACEHOLDER);
-                add(ChromeFeatureList
-                                .GIVE_JAVA_UI_THREAD_DEFAULT_TASK_TRAITS_USER_BLOCKING_PRIORITY);
-                add(ChromeFeatureList.GRID_TAB_SWITCHER_FOR_TABLETS);
-                add(ChromeFeatureList.IMMERSIVE_UI_MODE);
-                add(ChromeFeatureList.INSTANT_START);
-                add(ChromeFeatureList.INSTANCE_SWITCHER);
-                add(ChromeFeatureList.INTEREST_FEED_V2);
-                add(ChromeFeatureList.NEW_WINDOW_APP_MENU);
-                add(ChromeFeatureList.OPTIMIZATION_GUIDE_PUSH_NOTIFICATIONS);
-                add(ChromeFeatureList.PAINT_PREVIEW_DEMO);
-                add(ChromeFeatureList.PAINT_PREVIEW_SHOW_ON_STARTUP);
-                add(ChromeFeatureList.READ_LATER);
-                add(ChromeFeatureList.START_SURFACE_ANDROID);
-                add(ChromeFeatureList.STORE_HOURS);
-                add(ChromeFeatureList.SWAP_PIXEL_FORMAT_TO_FIX_CONVERT_FROM_TRANSLUCENT);
-                add(ChromeFeatureList.TAB_GRID_LAYOUT_ANDROID);
-                add(ChromeFeatureList.TAB_GROUPS_ANDROID);
-                add(ChromeFeatureList.TAB_GROUPS_FOR_TABLETS);
-                add(ChromeFeatureList.TAB_GROUPS_CONTINUATION_ANDROID);
-                add(ChromeFeatureList.TAB_TO_GTS_ANIMATION);
-                add(ChromeFeatureList.TAB_STRIP_IMPROVEMENTS);
-                add(ChromeFeatureList.THEME_REFACTOR_ANDROID);
-                add(ChromeFeatureList.TOOLBAR_USE_HARDWARE_BITMAP_DRAW);
-                add(ChromeFeatureList.USE_CHIME_ANDROID_SDK);
-                add(ChromeFeatureList.WEB_APK_TRAMPOLINE_ON_INITIAL_INTENT);
-            }
-        };
-        CachedFeatureFlags.cacheNativeFlags(featuresToCache);
+        CachedFeatureFlags.cacheNativeFlags(ChromeFeatureList.sFlagsCachedFullBrowser);
         CachedFeatureFlags.cacheAdditionalNativeFlags();
 
-        List<CachedFieldTrialParameter> fieldTrialsToCache =
-                new ArrayList<CachedFieldTrialParameter>() {
-                    {
-                        add(ChimeFeatures.ALWAYS_REGISTER);
-                        add(StartSurfaceConfiguration.BEHAVIOURAL_TARGETING);
-                        add(ConditionalTabStripUtils.CONDITIONAL_TAB_STRIP_INFOBAR_LIMIT);
-                        add(ConditionalTabStripUtils.CONDITIONAL_TAB_STRIP_INFOBAR_PERIOD);
-                        add(ConditionalTabStripUtils.CONDITIONAL_TAB_STRIP_SESSION_TIME_MS);
-                        add(FeedPlaceholderLayout.ENABLE_INSTANT_START_ANIMATION);
-                        add(OptimizationGuidePushNotificationManager.MAX_CACHE_SIZE);
-                        add(PageAnnotationsServiceConfig.PAGE_ANNOTATIONS_BASE_URL);
-                        add(ReturnToChromeExperimentsUtil.TAB_SWITCHER_ON_RETURN_MS);
-                        add(CustomTabIntentDataProvider.THIRD_PARTIES_DEFAULT_POLICY);
-                        add(CustomTabIntentDataProvider.DENYLIST_ENTRIES);
-                        add(CustomTabIntentDataProvider.ALLOWLIST_ENTRIES);
-                        add(StartSurfaceConfiguration.CHECK_SYNC_BEFORE_SHOW_START_AT_STARTUP);
-                        add(StartSurfaceConfiguration.FINALE_ANIMATION_ENABLED);
-                        add(StartSurfaceConfiguration.HOME_BUTTON_ON_GRID_TAB_SWITCHER);
-                        add(StartSurfaceConfiguration.IS_DOODLE_SUPPORTED);
-                        add(StartSurfaceConfiguration.NEW_SURFACE_FROM_HOME_BUTTON);
-                        add(StartSurfaceConfiguration.NUM_DAYS_KEEP_SHOW_START_AT_STARTUP);
-                        add(StartSurfaceConfiguration.NUM_DAYS_USER_CLICK_BELOW_THRESHOLD);
-                        add(StartSurfaceConfiguration.OMNIBOX_FOCUSED_ON_NEW_TAB);
-                        add(StartSurfaceConfiguration.SHOW_NTP_TILES_ON_OMNIBOX);
-                        add(StartSurfaceConfiguration.SHOW_TABS_IN_MRU_ORDER);
-                        add(StartSurfaceConfiguration.SIGNIN_PROMO_NTP_COUNT_LIMIT);
-                        add(StartSurfaceConfiguration
-                                        .SIGNIN_PROMO_NTP_SINCE_FIRST_TIME_SHOWN_LIMIT_HOURS);
-                        add(StartSurfaceConfiguration.SIGNIN_PROMO_NTP_RESET_AFTER_HOURS);
-                        add(StartSurfaceConfiguration.SPARE_RENDERER_DELAY_MS);
-                        add(StartSurfaceConfiguration.START_SURFACE_EXCLUDE_MV_TILES);
-                        add(StartSurfaceConfiguration.START_SURFACE_EXCLUDE_QUERY_TILES);
-                        add(StartSurfaceConfiguration.START_SURFACE_HIDE_INCOGNITO_SWITCH_NO_TAB);
-                        add(StartSurfaceConfiguration.START_SURFACE_LAST_ACTIVE_TAB_ONLY);
-                        add(StartSurfaceConfiguration.START_SURFACE_OPEN_NTP_INSTEAD_OF_START);
-                        add(StartSurfaceConfiguration.START_SURFACE_VARIATION);
-                        add(StartSurfaceConfiguration.SUPPORT_ACCESSIBILITY);
-                        add(StartSurfaceConfiguration.TAB_COUNT_BUTTON_ON_START_SURFACE);
-                        add(StartSurfaceConfiguration.USER_CLICK_THRESHOLD);
-                        add(StartSurfaceConfiguration.WARM_UP_RENDERER);
-                        add(StartupPaintPreviewHelper.ACCESSIBILITY_SUPPORT_PARAM);
-                        add(TabContentManager.ALLOW_TO_REFETCH_TAB_THUMBNAIL_VARIATION);
-                        add(TabUiFeatureUtilities.ENABLE_LAUNCH_BUG_FIX);
-                        add(TabUiFeatureUtilities.ENABLE_LAUNCH_POLISH);
-                        add(TabUiFeatureUtilities.ENABLE_SEARCH_CHIP);
-                        add(TabUiFeatureUtilities.ENABLE_SEARCH_CHIP_ADAPTIVE);
-                        add(TabUiFeatureUtilities.ENABLE_TAB_GROUP_AUTO_CREATION);
-                        add(TabUiFeatureUtilities.SHOW_OPEN_IN_TAB_GROUP_MENU_ITEM_FIRST);
-                        add(TabUiFeatureUtilities.ENABLE_TAB_GROUP_SHARING);
-                        add(TabUiFeatureUtilities.ZOOMING_MIN_MEMORY);
-                        add(TabUiFeatureUtilities.ZOOMING_MIN_SDK);
-                        add(TabUiFeatureUtilities.SKIP_SLOW_ZOOMING);
-                        add(TabUiFeatureUtilities.TAB_GRID_LAYOUT_ANDROID_NEW_TAB_TILE);
-                        add(TabUiFeatureUtilities.THUMBNAIL_ASPECT_RATIO);
-                        add(ThemeUtils.ENABLE_FULL_DYNAMIC_COLORS);
-                    }
-                };
+        List<CachedFieldTrialParameter> fieldTrialsToCache = List.of(
+                BrandingController.BRANDING_CADENCE_MS,
+                BrandingController.MAX_BLANK_TOOLBAR_TIMEOUT_MS,
+                BrandingController.USE_TEMPORARY_STORAGE,
+                BrandingController.ANIMATE_TOOLBAR_ICON_TRANSITION, ChimeFeatures.ALWAYS_REGISTER,
+                DeviceClassManager.GTS_ACCESSIBILITY_SUPPORT,
+                DeviceClassManager.GTS_LOW_END_SUPPORT,
+                FeedPlaceholderLayout.ENABLE_INSTANT_START_ANIMATION,
+                FilePersistedTabDataStorage.DELAY_SAVES_UNTIL_DEFERRED_STARTUP_PARAM,
+                OptimizationGuidePushNotificationManager.MAX_CACHE_SIZE,
+                OmniboxFeatures.ENABLE_MODERNIZE_VISUAL_UPDATE_ON_TABLET,
+                OmniboxFeatures.MODERNIZE_VISUAL_UPDATE_ACTIVE_COLOR_ON_OMNIBOX,
+                OmniboxFeatures.MODERNIZE_VISUAL_UPDATE_MERGE_CLIPBOARD_ON_NTP,
+                OmniboxFeatures.MODERNIZE_VISUAL_UPDATE_SMALL_BOTTOM_MARGIN,
+                OmniboxFeatures.MODERNIZE_VISUAL_UPDATE_SMALLER_MARGINS,
+                OmniboxFeatures.MODERNIZE_VISUAL_UPDATE_SMALLEST_MARGINS,
+                CustomTabIntentDataProvider.AUTO_TRANSLATE_ALLOW_ALL_FIRST_PARTIES,
+                CustomTabIntentDataProvider.AUTO_TRANSLATE_PACKAGE_NAME_ALLOWLIST,
+                CustomTabIntentDataProvider.THIRD_PARTIES_DEFAULT_POLICY,
+                CustomTabIntentDataProvider.DENYLIST_ENTRIES,
+                CustomTabIntentDataProvider.ALLOWLIST_ENTRIES,
+                WarmupManager.SPARE_TAB_INITIALIZE_RENDERER,
+                StartSurfaceConfiguration.IS_DOODLE_SUPPORTED,
+                StartSurfaceConfiguration.START_SURFACE_RETURN_TIME_SECONDS,
+                StartSurfaceConfiguration.START_SURFACE_RETURN_TIME_ON_TABLET_SECONDS,
+                StartSurfaceConfiguration.START_SURFACE_RETURN_TIME_USE_MODEL,
+                StartSurfaceConfiguration.SHOW_TABS_IN_MRU_ORDER,
+                StartSurfaceConfiguration.SIGNIN_PROMO_NTP_COUNT_LIMIT,
+                StartSurfaceConfiguration.SIGNIN_PROMO_NTP_SINCE_FIRST_TIME_SHOWN_LIMIT_HOURS,
+                StartSurfaceConfiguration.SIGNIN_PROMO_NTP_RESET_AFTER_HOURS,
+                StartSurfaceConfiguration.START_SURFACE_HIDE_INCOGNITO_SWITCH_NO_TAB,
+                StartSurfaceConfiguration.START_SURFACE_LAST_ACTIVE_TAB_ONLY,
+                StartSurfaceConfiguration.START_SURFACE_OPEN_NTP_INSTEAD_OF_START,
+                StartSurfaceConfiguration.START_SURFACE_OPEN_START_AS_HOMEPAGE,
+                TabPersistentStore.CRITICAL_PERSISTED_TAB_DATA_SAVE_ONLY_PARAM,
+                TabUiFeatureUtilities.ENABLE_TAB_GROUP_AUTO_CREATION,
+                TabUiFeatureUtilities.GTS_ACCESSIBILITY_LIST_MODE,
+                TabUiFeatureUtilities.SHOW_OPEN_IN_TAB_GROUP_MENU_ITEM_FIRST,
+                TabUiFeatureUtilities.ZOOMING_MIN_MEMORY, TabUiFeatureUtilities.SKIP_SLOW_ZOOMING,
+                TabUiFeatureUtilities.THUMBNAIL_ASPECT_RATIO,
+                TabUiFeatureUtilities.TAB_STRIP_REDESIGN_DISABLE_NTB_ANCHOR,
+                TabUiFeatureUtilities.TAB_STRIP_REDESIGN_DISABLE_BUTTON_STYLE,
+                TabManagementFieldTrial.DELAY_TEMP_STRIP_TIMEOUT_MS,
+                TabManagementFieldTrial.TAB_STRIP_REDESIGN_ENABLE_FOLIO,
+                TabManagementFieldTrial.TAB_STRIP_REDESIGN_ENABLE_DETACHED,
+                VersionNumberGetter.MIN_SDK_VERSION, ChromeActivity.CONTENT_VIS_DELAY_MS,
+                MinimizeAppAndCloseTabBackPressHandler.SYSTEM_BACK);
+        // clang-format on
         tryToCatchMissingParameters(fieldTrialsToCache);
         CachedFeatureFlags.cacheFieldTrialParameters(fieldTrialsToCache);
 
@@ -210,17 +149,7 @@ public class ChromeCachedFlags {
      */
     public void cacheMinimalBrowserFlags() {
         CachedFeatureFlags.cacheMinimalBrowserFlagsTimeFromNativeTime();
-
-        // TODO(crbug.com/995355): Move other related flags from cacheNativeFlags() to here.
-        List<String> featuresToCache = new ArrayList<String>() {
-            {
-                add(ChromeFeatureList.EXPERIMENTS_FOR_AGSA);
-                add(ChromeFeatureList.SERVICE_MANAGER_FOR_DOWNLOAD);
-                add(ChromeFeatureList.SERVICE_MANAGER_FOR_BACKGROUND_PREFETCH);
-            }
-        };
-        CachedFeatureFlags.cacheNativeFlags(featuresToCache);
-
+        CachedFeatureFlags.cacheNativeFlags(ChromeFeatureList.sFlagsCachedInMinimalBrowser);
         CachedFeatureFlags.cacheFieldTrialParameters(MINIMAL_BROWSER_FIELD_TRIALS);
     }
 }

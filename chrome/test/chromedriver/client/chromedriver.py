@@ -1,8 +1,7 @@
-# Copyright 2013 The Chromium Authors. All rights reserved.
+# Copyright 2013 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import platform
 import sys
 import util
 
@@ -13,62 +12,12 @@ from command_executor import Command
 from webelement import WebElement
 from webshadowroot import WebShadowRoot
 from websocket_connection import WebSocketConnection
+from exceptions import *
 
 ELEMENT_KEY_W3C = "element-6066-11e4-a52e-4f735466cecf"
 ELEMENT_KEY = "ELEMENT"
 SHADOW_KEY = "shadow-6066-11e4-a52e-4f735466cecf"
 MAX_RETRY_COUNT = 5
-
-class ChromeDriverException(Exception):
-  pass
-class NoSuchElement(ChromeDriverException):
-  pass
-class NoSuchFrame(ChromeDriverException):
-  pass
-class UnknownCommand(ChromeDriverException):
-  pass
-class StaleElementReference(ChromeDriverException):
-  pass
-class ElementNotVisible(ChromeDriverException):
-  pass
-class InvalidElementState(ChromeDriverException):
-  pass
-class UnknownError(ChromeDriverException):
-  pass
-class JavaScriptError(ChromeDriverException):
-  pass
-class XPathLookupError(ChromeDriverException):
-  pass
-class Timeout(ChromeDriverException):
-  pass
-class NoSuchWindow(ChromeDriverException):
-  pass
-class InvalidCookieDomain(ChromeDriverException):
-  pass
-class ScriptTimeout(ChromeDriverException):
-  pass
-class InvalidSelector(ChromeDriverException):
-  pass
-class SessionNotCreated(ChromeDriverException):
-  pass
-class InvalidSessionId(ChromeDriverException):
-  pass
-class UnexpectedAlertOpen(ChromeDriverException):
-  pass
-class NoSuchAlert(ChromeDriverException):
-  pass
-class NoSuchCookie(ChromeDriverException):
-  pass
-class InvalidArgument(ChromeDriverException):
-  pass
-class ElementNotInteractable(ChromeDriverException):
-  pass
-class UnsupportedOperation(ChromeDriverException):
-  pass
-class NoSuchShadowRoot(ChromeDriverException):
-  pass
-class DetachedShadowRoot(ChromeDriverException):
-  pass
 
 def _ExceptionForLegacyResponse(response):
   exception_class_map = {
@@ -187,7 +136,6 @@ class ChromeDriver(object):
     self._executor = command_executor.CommandExecutor(server_url)
     self._server_url = server_url
     self.w3c_compliant = False
-    self._websocket = None
 
     options = {}
 
@@ -217,6 +165,9 @@ class ChromeDriver(object):
     if chrome_switches is None:
       chrome_switches = []
     chrome_switches.append('force-color-profile=srgb')
+
+    # Resampling can change the distance of a synthetic scroll.
+    chrome_switches.append('disable-features=ResamplingScrollEvents')
 
     if chrome_switches:
       assert type(chrome_switches) is list
@@ -404,11 +355,7 @@ class ChromeDriver(object):
     return self._UnwrapValue(response['value'])
 
   def CreateWebSocketConnection(self):
-    if self._websocket:
-      return self._websocket
-    else:
-      self._websocket = WebSocketConnection(self._server_url, self._session_id)
-      return self._websocket
+    return WebSocketConnection(self._server_url, self._session_id)
 
   def GetWindowHandles(self):
     return self.ExecuteCommand(Command.GET_WINDOW_HANDLES)
@@ -488,6 +435,16 @@ class ChromeDriver(object):
     return self.ExecuteCommand(Command.GET_TIMEOUTS)
 
   def SetTimeouts(self, params):
+    if (len(params) == 0):
+      return;
+    sorted_params = sorted(params.items(), key=lambda x: x[1])
+    max_kv = sorted_params[-1];
+    # make sure that we have ms on the both sides of inequality
+    if (self._executor.HttpTimeout() * 500 < max_kv[1]):
+      raise ChromeDriverException(
+        'Timeout "%s" for ChromeDriver exceeds 50%% of the '
+            'HTTP connection timeout'
+         % max_kv[0])
     return self.ExecuteCommand(Command.SET_TIMEOUTS, params)
 
   def GetCurrentUrl(self):
@@ -776,8 +733,44 @@ class ChromeDriver(object):
     params = {'mode': mode}
     return self.ExecuteCommand(Command.SET_SPC_TRANSACTION_MODE, params)
 
+  def SetRPHRegistrationMode(self, mode):
+    params = {'mode': mode}
+    return self.ExecuteCommand(Command.SET_RPH_REGISTRATION_MODE, params)
+
+  def CancelFedCmDialog(self):
+    return self.ExecuteCommand(Command.CANCEL_FEDCM_DIALOG, {})
+
+  def SelectAccount(self, index):
+    params = {'accountIndex': index}
+    return self.ExecuteCommand(Command.SELECT_ACCOUNT, params)
+
+  def GetAccounts(self):
+    return self.ExecuteCommand(Command.GET_ACCOUNTS, {})
+
+  def GetFedCmTitle(self):
+    return self.ExecuteCommand(Command.GET_FEDCM_TITLE, {})
+
+  def GetDialogType(self):
+    return self.ExecuteCommand(Command.GET_DIALOG_TYPE, {})
+
+  def SetDelayEnabled(self, enabled):
+    params = {'enabled': enabled}
+    return self.ExecuteCommand(Command.SET_DELAY_ENABLED, params)
+
+  def ResetCooldown(self):
+    return self.ExecuteCommand(Command.RESET_COOLDOWN, {})
+
   def GetSessionId(self):
     if not hasattr(self, '_session_id'):
       return None
     return self._session_id
 
+  def GetCastSinks(self, vendorId):
+    params = {'vendorId': vendorId}
+    return self.ExecuteCommand(Command.GET_CAST_SINKS, params)
+
+  def __enter__(self):
+    return self
+
+  def __exit__(self, *args):
+    self.Quit()

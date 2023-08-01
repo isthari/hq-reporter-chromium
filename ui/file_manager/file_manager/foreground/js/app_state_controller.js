@@ -1,15 +1,16 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {assert} from 'chrome://resources/js/assert.m.js';
+import {assert} from 'chrome://resources/ash/common/assert.js';
 
 import {appUtil} from '../../common/js/app_util.js';
 import {DialogType} from '../../common/js/dialog_type.js';
+import {storage} from '../../common/js/storage.js';
 import {util} from '../../common/js/util.js';
-import {xfm} from '../../common/js/xfm.js';
 
 import {DirectoryModel} from './directory_model.js';
+import {GROUP_BY_FIELD_DIRECTORY, GROUP_BY_FIELD_MODIFICATION_TIME} from './file_list_model.js';
 import {FileManagerUI} from './ui/file_manager_ui.js';
 import {ListContainer} from './ui/list_container.js';
 
@@ -51,8 +52,7 @@ export class AppStateController {
   async loadInitialViewOptions() {
     // Load initial view option.
     try {
-      const values =
-          await xfm.storage.local.getAsync(this.viewOptionStorageKey_);
+      const values = await storage.local.getAsync(this.viewOptionStorageKey_);
 
       this.viewOptions_ = {};
 
@@ -77,7 +77,7 @@ export class AppStateController {
       }
     } catch (error) {
       this.viewOptions_ = {};
-      console.error(error);
+      console.warn(error);
     }
   }
 
@@ -90,9 +90,10 @@ export class AppStateController {
 
     this.ui_ = ui;
     this.directoryModel_ = directoryModel;
+    const {table} = ui.listContainer;
 
     // Register event listeners.
-    ui.listContainer.table.addEventListener(
+    table.addEventListener(
         'column-resize-end', this.saveViewOptions.bind(this));
     directoryModel.getFileList().addEventListener(
         'sorted', this.onFileListSorted_.bind(this));
@@ -102,7 +103,7 @@ export class AppStateController {
         'directory-changed', this.onDirectoryChanged_.bind(this));
 
     // Restore preferences.
-    this.ui_.setCurrentListType(
+    ui.setCurrentListType(
         this.viewOptions_.listType || ListContainer.ListType.DETAIL);
     if (this.viewOptions_.sortField) {
       this.fileListSortField_ = this.viewOptions_.sortField;
@@ -116,8 +117,10 @@ export class AppStateController {
       this.directoryModel_.getFileFilter().setAllAndroidFoldersVisible(true);
     }
     if (this.viewOptions_.columnConfig) {
-      this.ui_.listContainer.table.columnModel.restoreColumnConfig(
-          this.viewOptions_.columnConfig);
+      table.columnModel.restoreColumnConfig(this.viewOptions_.columnConfig);
+      // The stored config might not match the current table width, do a
+      // normalization here after restoration.
+      table.columnModel.normalizeWidths(table.clientWidth);
     }
   }
 
@@ -131,14 +134,14 @@ export class AppStateController {
       columnConfig: {},
       listType: this.ui_.listContainer.currentListType,
       isAllAndroidFoldersVisible:
-          this.directoryModel_.getFileFilter().isAllAndroidFoldersVisible()
+          this.directoryModel_.getFileFilter().isAllAndroidFoldersVisible(),
     };
     const cm = this.ui_.listContainer.table.columnModel;
     prefs.columnConfig = cm.exportColumnConfig();
     // Save the global default.
     const items = {};
     items[this.viewOptionStorageKey_] = JSON.stringify(prefs);
-    xfm.storage.local.setAsync(items);
+    storage.local.setAsync(items);
 
     // Save the window-specific preference.
     if (window.appState) {
@@ -192,15 +195,22 @@ export class AppStateController {
     // 1) 'date-mofidied' and 'desc' order on Recent folder.
     // 2) preferred field and direction on other folders.
     const isOnRecent = util.isRecentRoot(event.newDirEntry);
+    const fileListModel = this.directoryModel_.getFileList();
+    this.ui_.listContainer.isOnRecent = isOnRecent;
     const isOnRecentBefore =
         event.previousDirEntry && util.isRecentRoot(event.previousDirEntry);
     if (isOnRecent != isOnRecentBefore) {
       if (isOnRecent) {
-        this.directoryModel_.getFileList().sort(
+        fileListModel.groupByField = GROUP_BY_FIELD_MODIFICATION_TIME;
+        fileListModel.sort(
             AppStateController.DEFAULT_SORT_FIELD,
             AppStateController.DEFAULT_SORT_DIRECTION);
       } else {
-        this.directoryModel_.getFileList().sort(
+        const isGridView = this.ui_.listContainer.currentListType ===
+            ListContainer.ListType.THUMBNAIL;
+        fileListModel.groupByField =
+            isGridView ? GROUP_BY_FIELD_DIRECTORY : null;
+        fileListModel.sort(
             this.fileListSortField_, this.fileListSortDirection_);
       }
     }

@@ -1,12 +1,12 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import {assertInstanceof} from '../assert.js';
 import * as Comlink from '../lib/comlink.js';
 
-import {clearAsyncInterval, setAsyncInterval} from './async_interval.js';
-import {BarcodeWorkerInterface} from './barcode_worker.js';
+import {AsyncIntervalRunner} from './async_interval.js';
+import {BarcodeWorker} from './barcode_worker.js';
 
 // The delay interval between consecutive barcode detections.
 const SCAN_INTERVAL = 200;
@@ -19,13 +19,15 @@ const MAX_SCAN_SIZE = 720;
 // TODO(b/172879638): Change 1.0 to match the final UI spec.
 const ACTIVE_SCAN_RATIO = 1.0;
 
+const BARCODE_WORKER = Comlink.wrap<BarcodeWorker>(
+    new Worker('/js/models/barcode_worker.js', {type: 'module'}));
+
 /**
  * A barcode scanner to detect barcodes from a camera stream.
  */
 export class BarcodeScanner {
-  private readonly worker = Comlink.wrap<BarcodeWorkerInterface>(
-      new Worker('/js/models/barcode_worker.js', {type: 'module'}));
-  private intervalId: number|null = null;
+  private scanRunner: AsyncIntervalRunner|null = null;
+
   /**
    * @param video The video to be scanned for barcode.
    * @param callback The callback for the detected barcodes.
@@ -39,12 +41,12 @@ export class BarcodeScanner {
    * already started would be no-op.
    */
   start(): void {
-    if (this.intervalId !== null) {
+    if (this.scanRunner !== null) {
       return;
     }
-    this.intervalId = setAsyncInterval(async () => {
+    this.scanRunner = new AsyncIntervalRunner(async (stopped) => {
       const code = await this.scan();
-      if (code !== null) {
+      if (!stopped.isSignaled() && code !== null) {
         this.callback(code);
       }
     }, SCAN_INTERVAL);
@@ -54,18 +56,18 @@ export class BarcodeScanner {
    * Stops scanning barcodes.
    */
   stop(): void {
-    if (this.intervalId === null) {
+    if (this.scanRunner === null) {
       return;
     }
-    clearAsyncInterval(this.intervalId);
-    this.intervalId = null;
+    this.scanRunner.stop();
+    this.scanRunner = null;
   }
 
   /**
    * Grabs the current video frame for scanning. If the video resolution is too
    * high, the image would be scaled and/or cropped from the center.
    */
-  private async grabFrameForScan(): Promise<ImageBitmap> {
+  private grabFrameForScan(): Promise<ImageBitmap> {
     const {videoWidth: vw, videoHeight: vh} = this.video;
     if (vw <= MAX_SCAN_SIZE && vh <= MAX_SCAN_SIZE) {
       return createImageBitmap(this.video);
@@ -87,16 +89,17 @@ export class BarcodeScanner {
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(this.video, sx, sy, sw, sh, 0, 0, scanSize, scanSize);
-    return canvas.transferToImageBitmap();
+    return Promise.resolve(canvas.transferToImageBitmap());
   }
 
   /**
    * Scans barcodes from the current frame.
+   *
    * @return The detected barcode value, or null if no barcode is detected.
    */
   private async scan(): Promise<string|null> {
     const frame = await this.grabFrameForScan();
-    const value = await this.worker.detect(Comlink.transfer(frame, [frame]));
+    const value = await BARCODE_WORKER.detect(Comlink.transfer(frame, [frame]));
     return value;
   }
 }

@@ -1,18 +1,21 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import './scanning_mojom_imports.js';
 import 'chrome://scanning/scan_preview.js';
 
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+import {loadTimeData} from 'chrome://resources/ash/common/load_time_data.m.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 import {setAccessibilityFeaturesForTesting} from 'chrome://scanning/mojo_interface_provider.js';
 import {AppState} from 'chrome://scanning/scanning_app_types.js';
 import {ScanningBrowserProxyImpl} from 'chrome://scanning/scanning_browser_proxy.js';
+import {assertEquals, assertFalse, assertNotEquals, assertTrue} from 'chrome://webui-test/chromeos/chai_assert.js';
+import {MockController} from 'chrome://webui-test/chromeos/mock_controller.m.js';
+import {isVisible} from 'chrome://webui-test/chromeos/test_util.js';
+import {flushTasks, waitAfterNextRender} from 'chrome://webui-test/polymer_test_util.js';
 
-import {assertEquals, assertFalse, assertNotEquals, assertTrue} from '../../chai_assert.js';
-import {flushTasks, isVisible, waitAfterNextRender} from '../../test_util.js';
-
+import {FakeMediaQueryList} from './scanning_app_test_utils.js';
 import {TestScanningBrowserProxy} from './test_scanning_browser_proxy.js';
 
 /** @implements {ash.common.mojom.AccessibilityFeaturesInterface} */
@@ -44,7 +47,7 @@ class FakeAccessibilityFeatures {
   }
 }
 
-export function scanPreviewTest() {
+suite('scanPreviewTest', function() {
   /** @type {?ScanPreviewElement} */
   let scanPreview = null;
 
@@ -62,6 +65,40 @@ export function scanPreviewTest() {
   /** @type {!HTMLElement} */
   let cancelingProgress;
 
+  /** @type {{createFunctionMock: Function, reset: Function}} */
+  let mockController;
+
+  /** @type {?FakeMediaQueryList} */
+  let fakePrefersColorSchemeDarkMediaQuery;
+
+  /**
+   * Type alias for SVGUseElement.
+   * @typedef {{href: {baseVal: string}}}
+   */
+  let SVGUseElement;
+
+  /**
+   * @param {boolean} enabled
+   * @return {!Promise}
+   */
+  function setFakePrefersColorSchemeDark(enabled) {
+    assertTrue(!!scanPreview);
+    fakePrefersColorSchemeDarkMediaQuery.matches = enabled;
+
+    return flushTasks();
+  }
+
+  /**
+   * @param {boolean} enabled
+   * @returns {!Promise}
+   */
+  function setJellyEnabled(enabled) {
+    assertTrue(!!scanPreview);
+    scanPreview.setIsJellyEnabledForTesting(enabled);
+
+    return flushTasks();
+  }
+
   setup(() => {
     fakeAccessibilityFeatures_ = new FakeAccessibilityFeatures();
     setAccessibilityFeaturesForTesting(fakeAccessibilityFeatures_);
@@ -69,6 +106,15 @@ export function scanPreviewTest() {
         document.createElement('scan-preview'));
     assertTrue(!!scanPreview);
     ScanningBrowserProxyImpl.instance_ = new TestScanningBrowserProxy();
+
+    // Setup mock for matchMedia.
+    mockController = new MockController();
+    const mockMatchMedia =
+        mockController.createFunctionMock(window, 'matchMedia');
+    fakePrefersColorSchemeDarkMediaQuery =
+        new FakeMediaQueryList('(prefers-color-scheme: dark)');
+    mockMatchMedia.returnValue = fakePrefersColorSchemeDarkMediaQuery;
+
     document.body.appendChild(scanPreview);
 
     helpOrProgress =
@@ -87,6 +133,7 @@ export function scanPreviewTest() {
     if (scanPreview) {
       scanPreview.remove();
     }
+    mockController.reset();
     scanPreview = null;
   });
 
@@ -412,4 +459,42 @@ export function scanPreviewTest() {
               getComputedStyle(actionToolbar).getPropertyValue('visibility'));
         });
   });
-}
+
+  // TODO(b/276493795): After the Jelly experiment is launched, remove test.
+  // Verify correct svg displayed when page is in dark mode.
+  test('readyToScanSvgSetByColorScheme', async () => {
+    await setJellyEnabled(false);
+    const srcBase = 'chrome://scanning/';
+    const lightModeSvg = `${srcBase}svg/ready_to_scan.svg`;
+    const darkModeSvg = `${srcBase}svg/ready_to_scan_dark.svg`;
+    const getReadyToScanSvg = () =>
+        (/** @type {!HTMLImageElement} */ (scanPreview.$$('#readyToScanImg')));
+
+    // Mock media query state for light mode.
+    await setFakePrefersColorSchemeDark(false);
+    assertEquals(lightModeSvg, getReadyToScanSvg().src);
+
+    // Mock media query state for dark mode.
+    await setFakePrefersColorSchemeDark(true);
+    assertEquals(darkModeSvg, getReadyToScanSvg().src);
+  });
+
+  // Verify "loading scanners" dynamic SVG use when dynamic colors enabled.
+  test('jellyColors_LoadingScannersSvg', async () => {
+    await setJellyEnabled(true);
+    const dynamicSvg = `svg/illo_ready_to_scan.svg#illo_ready_to_scan`;
+
+    const getLoadingScannersSvgValue = () =>
+        (/** @type {!SVGUseElement} */ (
+             scanPreview.shadowRoot.querySelector('#readyToScanSvg > use'))
+             .href.baseVal);
+
+    // Setup UI to display no scanners div.
+    await setFakePrefersColorSchemeDark(false);
+    assertEquals(dynamicSvg, getLoadingScannersSvgValue());
+
+    // Mock media query state for dark mode.
+    await setFakePrefersColorSchemeDark(true);
+    assertEquals(dynamicSvg, getLoadingScannersSvgValue());
+  });
+});

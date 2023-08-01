@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,18 +7,16 @@ package org.chromium.chrome.browser.compositor.layouts;
 import android.content.Context;
 import android.view.ViewGroup;
 
-import org.chromium.base.jank_tracker.JankTracker;
 import org.chromium.base.supplier.ObservableSupplier;
-import org.chromium.base.supplier.OneshotSupplierImpl;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
 import org.chromium.chrome.browser.compositor.layouts.phone.SimpleAnimationLayout;
 import org.chromium.chrome.browser.device.DeviceClassManager;
+import org.chromium.chrome.browser.layouts.LayoutType;
 import org.chromium.chrome.browser.tab.Tab;
-import org.chromium.chrome.browser.tab.TabLaunchType;
 import org.chromium.chrome.browser.tabmodel.TabCreatorManager;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
-import org.chromium.chrome.browser.tabmodel.TabModelUtils;
+import org.chromium.chrome.browser.tasks.tab_management.TabSwitcher;
 import org.chromium.chrome.browser.theme.TopUiThemeColorProvider;
 import org.chromium.chrome.browser.toolbar.ControlContainer;
 import org.chromium.chrome.features.start_surface.StartSurface;
@@ -36,19 +34,21 @@ public class LayoutManagerChromePhone extends LayoutManagerChrome {
      * Creates an instance of a {@link LayoutManagerChromePhone}.
      * @param host         A {@link LayoutManagerHost} instance.
      * @param contentContainer A {@link ViewGroup} for Android views to be bound to.
-     * @param startSurface An interface to talk to the Grid Tab Switcher. If it's NULL, VTS
-     *                     should be used, otherwise GTS should be used.
+     * @param startSurfaceSupplier Supplier for an interface to talk to the Grid Tab Switcher when
+     *         Start surface refactor is disabled. Used to create overviewLayout if it has value,
+     *         otherwise will use the accessibility overview layout.
+     * @param tabSwitcherSupplier Supplier for an interface to talk to the Grid Tab Switcher when
+     *         Start surface refactor is enabled. Used to create overviewLayout if it has value,
+     *         otherwise will use the accessibility overview layout.
      * @param tabContentManagerSupplier Supplier of the {@link TabContentManager} instance.
-     * @param overviewModeBehaviorSupplier Supplier of the {@link OverviewModeBehavior}.
      * @param topUiThemeColorProvider {@link ThemeColorProvider} for top UI.
      */
     public LayoutManagerChromePhone(LayoutManagerHost host, ViewGroup contentContainer,
-            StartSurface startSurface,
+            Supplier<StartSurface> startSurfaceSupplier, Supplier<TabSwitcher> tabSwitcherSupplier,
             ObservableSupplier<TabContentManager> tabContentManagerSupplier,
-            OneshotSupplierImpl<OverviewModeBehavior> overviewModeBehaviorSupplier,
-            Supplier<TopUiThemeColorProvider> topUiThemeColorProvider, JankTracker jankTracker) {
-        super(host, contentContainer, true, startSurface, tabContentManagerSupplier,
-                overviewModeBehaviorSupplier, topUiThemeColorProvider, jankTracker);
+            Supplier<TopUiThemeColorProvider> topUiThemeColorProvider) {
+        super(host, contentContainer, startSurfaceSupplier, tabSwitcherSupplier,
+                tabContentManagerSupplier, topUiThemeColorProvider, null, null);
     }
 
     @Override
@@ -70,58 +70,42 @@ public class LayoutManagerChromePhone extends LayoutManagerChrome {
     }
 
     @Override
-    public boolean closeAllTabsRequest(boolean incognito) {
-        if (getActiveLayout() == mStaticLayout && !incognito) {
-            startShowing(DeviceClassManager.enableAccessibilityLayout(mHost.getContext())
-                            ? mOverviewListLayout
-                            : mOverviewLayout,
-                    /* animate= */ false);
+    protected Layout getLayoutForType(int layoutType) {
+        if (layoutType == LayoutType.SIMPLE_ANIMATION) {
+            return mSimpleAnimationLayout;
         }
-        return super.closeAllTabsRequest(incognito);
+        return super.getLayoutForType(layoutType);
     }
 
     @Override
-    protected LayoutManagerTabModelObserver createTabModelObserver() {
-        return new LayoutManagerTabModelObserver() {
-            @Override
-            public void willCloseTab(Tab tab, boolean animate) {
-                super.willCloseTab(tab, animate);
-                if (animate) tabClosing(tab.getId());
-            }
-        };
-    }
-
-    private void tabClosing(int id) {
-        Tab closedTab = getTabById(id);
-        if (closedTab == null) return;
-
-        if (getActiveLayout().handlesTabClosing()) {
-            // The user is currently interacting with the {@code LayoutHost}.
-            // Allow the foreground layout to animate the tab closing.
-            getActiveLayout().onTabClosing(time(), id);
-        } else if (animationsEnabled()) {
-            startShowing(mSimpleAnimationLayout, false);
-            getActiveLayout().onTabClosing(time(), id);
+    public void onTabsAllClosing(boolean incognito) {
+        if (getActiveLayout() == mStaticLayout && !incognito) {
+            startShowing(DeviceClassManager.enableAccessibilityLayout(mHost.getContext())
+                            ? mOverviewListLayout
+                            : (mTabSwitcherLayout != null ? mTabSwitcherLayout : mOverviewLayout),
+                    /* animate= */ false);
         }
+        super.onTabsAllClosing(incognito);
     }
 
     @Override
     protected void tabClosed(int id, int nextId, boolean incognito, boolean tabRemoved) {
         boolean showOverview = nextId == Tab.INVALID_TAB_ID;
-        Layout overviewLayout = DeviceClassManager.enableAccessibilityLayout(mHost.getContext())
-                ? mOverviewListLayout
-                : mOverviewLayout;
-        if (getActiveLayout() != overviewLayout && showOverview) {
+        if (getActiveLayoutType() != LayoutType.TAB_SWITCHER
+                && getActiveLayoutType() != LayoutType.START_SURFACE && showOverview) {
             // Since there will be no 'next' tab to display, switch to
             // overview mode when the animation is finished.
-            setNextLayout(overviewLayout);
+            if (getActiveLayoutType() == LayoutType.SIMPLE_ANIMATION) {
+                setNextLayout(getLayoutForType(LayoutType.TAB_SWITCHER), true);
+            } else {
+                showLayout(LayoutType.TAB_SWITCHER, true);
+            }
         }
         getActiveLayout().onTabClosed(time(), id, nextId, incognito);
-        Tab nextTab = getTabById(nextId);
-        if (nextTab != null && nextTab.getView() != null) nextTab.getView().requestFocus();
         boolean animate = !tabRemoved && animationsEnabled();
-        if (getActiveLayout() != overviewLayout && showOverview && !animate) {
-            showOverview(false);
+        if (getActiveLayoutType() != LayoutType.TAB_SWITCHER
+                && getActiveLayoutType() != LayoutType.START_SURFACE && showOverview && !animate) {
+            showLayout(LayoutType.TAB_SWITCHER, false);
         }
     }
 
@@ -134,9 +118,10 @@ public class LayoutManagerChromePhone extends LayoutManagerChrome {
             // smoothly.
             getActiveLayout().onTabCreating(sourceId);
         } else if (animationsEnabled()) {
-            if (!overviewVisible()) {
+            if (!isLayoutVisible(LayoutType.TAB_SWITCHER)
+                    && !isLayoutVisible(LayoutType.START_SURFACE)) {
                 if (getActiveLayout() != null && getActiveLayout().isStartingToHide()) {
-                    setNextLayout(mSimpleAnimationLayout);
+                    setNextLayout(mSimpleAnimationLayout, true);
                     // The method Layout#doneHiding() will automatically show the next layout.
                     getActiveLayout().doneHiding();
                 } else {
@@ -166,16 +151,5 @@ public class LayoutManagerChromePhone extends LayoutManagerChrome {
             }
         }
         return false;
-    }
-
-    @Override
-    protected void tabCreated(int id, int sourceId, @TabLaunchType int launchType,
-            boolean isIncognito, boolean willBeSelected, float originX, float originY) {
-        super.tabCreated(id, sourceId, launchType, isIncognito, willBeSelected, originX, originY);
-
-        if (willBeSelected) {
-            Tab newTab = TabModelUtils.getTabById(getTabModelSelector().getModel(isIncognito), id);
-            if (newTab != null && newTab.getView() != null) newTab.getView().requestFocus();
-        }
     }
 }

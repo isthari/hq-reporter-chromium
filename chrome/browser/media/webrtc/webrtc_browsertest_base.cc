@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,11 +32,6 @@
 #include "content/public/test/browser_test_utils.h"
 #include "extensions/browser/extension_registry.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
-
-#if BUILDFLAG(IS_WIN)
-// For fine-grained suppression.
-#include "base/win/windows_version.h"
-#endif
 
 const char WebRtcTestBase::kAudioVideoCallConstraints[] =
     "{audio: true, video: true}";
@@ -87,7 +82,7 @@ bool JavascriptErrorDetectingLogHandler(int severity,
                                         int line,
                                         size_t message_start,
                                         const std::string& str) {
-  if (file == NULL || std::string("CONSOLE") != file)
+  if (file == nullptr || std::string("CONSOLE") != file)
     return false;
 
   // TODO(crbug.com/918871): Fix AppRTC and stop ignoring this error.
@@ -105,23 +100,20 @@ bool JavascriptErrorDetectingLogHandler(int severity,
 
 std::vector<std::string> JsonArrayToVectorOfStrings(
     const std::string& json_array) {
-  std::unique_ptr<base::Value> value =
-      base::JSONReader::ReadDeprecated(json_array);
-  EXPECT_TRUE(value);
-  EXPECT_TRUE(value->is_list());
-  std::unique_ptr<base::ListValue> list =
-      base::ListValue::From(std::move(value));
-  std::vector<std::string> vector;
-  vector.reserve(list->GetList().size());
-  for (size_t i = 0; i < list->GetList().size(); ++i) {
-    base::Value* item;
-    EXPECT_TRUE(list->Get(i, &item));
-    EXPECT_TRUE(item->is_string());
-    std::string item_str;
-    EXPECT_TRUE(item->GetAsString(&item_str));
-    vector.push_back(std::move(item_str));
+  std::vector<std::string> result;
+  absl::optional<base::Value> value = base::JSONReader::Read(json_array);
+  if (!value || !value->is_list()) {
+    ADD_FAILURE();
+    return result;
   }
-  return vector;
+
+  base::Value::List& list = value->GetList();
+  result.reserve(list.size());
+  for (base::Value& item : list) {
+    EXPECT_TRUE(item.is_string());
+    result.push_back(std::move(item).TakeString());
+  }
+  return result;
 }
 
 }  // namespace
@@ -152,29 +144,25 @@ bool WebRtcTestBase::GetUserMediaAndAccept(
 bool WebRtcTestBase::GetUserMediaWithSpecificConstraintsAndAccept(
     content::WebContents* tab_contents,
     const std::string& constraints) const {
-  std::string result;
   permissions::PermissionRequestManager::FromWebContents(tab_contents)
       ->set_auto_response_for_test(
           permissions::PermissionRequestManager::ACCEPT_ALL);
   permissions::PermissionRequestObserver observer(tab_contents);
   GetUserMedia(tab_contents, constraints);
   EXPECT_TRUE(observer.request_shown());
-  EXPECT_TRUE(content::ExecuteScriptAndExtractString(
-      tab_contents->GetMainFrame(), "obtainGetUserMediaResult();", &result));
-  return kOkGotStream == result;
+  return kOkGotStream == content::EvalJs(tab_contents->GetPrimaryMainFrame(),
+                                         "obtainGetUserMediaResult();");
 }
 
 bool WebRtcTestBase::GetUserMediaWithSpecificConstraintsAndAcceptIfPrompted(
     content::WebContents* tab_contents,
     const std::string& constraints) const {
-  std::string result;
   permissions::PermissionRequestManager::FromWebContents(tab_contents)
       ->set_auto_response_for_test(
           permissions::PermissionRequestManager::ACCEPT_ALL);
   GetUserMedia(tab_contents, constraints);
-  EXPECT_TRUE(content::ExecuteScriptAndExtractString(
-      tab_contents->GetMainFrame(), "obtainGetUserMediaResult();", &result));
-  return kOkGotStream == result;
+  return kOkGotStream == content::EvalJs(tab_contents->GetPrimaryMainFrame(),
+                                         "obtainGetUserMediaResult();");
 }
 
 void WebRtcTestBase::GetUserMediaAndDeny(content::WebContents* tab_contents) {
@@ -185,21 +173,19 @@ void WebRtcTestBase::GetUserMediaAndDeny(content::WebContents* tab_contents) {
 void WebRtcTestBase::GetUserMediaWithSpecificConstraintsAndDeny(
     content::WebContents* tab_contents,
     const std::string& constraints) const {
-  std::string result;
   permissions::PermissionRequestManager::FromWebContents(tab_contents)
       ->set_auto_response_for_test(
           permissions::PermissionRequestManager::DENY_ALL);
   permissions::PermissionRequestObserver observer(tab_contents);
   GetUserMedia(tab_contents, constraints);
   EXPECT_TRUE(observer.request_shown());
-  EXPECT_TRUE(content::ExecuteScriptAndExtractString(
-      tab_contents->GetMainFrame(), "obtainGetUserMediaResult();", &result));
-  EXPECT_EQ(kFailedWithNotAllowedError, result);
+  EXPECT_EQ(kFailedWithNotAllowedError,
+            content::EvalJs(tab_contents->GetPrimaryMainFrame(),
+                            "obtainGetUserMediaResult();"));
 }
 
 void WebRtcTestBase::GetUserMediaAndDismiss(
     content::WebContents* tab_contents) const {
-  std::string result;
   permissions::PermissionRequestManager::FromWebContents(tab_contents)
       ->set_auto_response_for_test(
           permissions::PermissionRequestManager::DISMISS);
@@ -207,14 +193,13 @@ void WebRtcTestBase::GetUserMediaAndDismiss(
   GetUserMedia(tab_contents, kAudioVideoCallConstraints);
   EXPECT_TRUE(observer.request_shown());
   // A dismiss should be treated like a deny.
-  EXPECT_TRUE(content::ExecuteScriptAndExtractString(
-      tab_contents->GetMainFrame(), "obtainGetUserMediaResult();", &result));
-  EXPECT_EQ(kFailedWithNotAllowedError, result);
+  EXPECT_EQ(kFailedWithNotAllowedError,
+            content::EvalJs(tab_contents->GetPrimaryMainFrame(),
+                            "obtainGetUserMediaResult();"));
 }
 
 void WebRtcTestBase::GetUserMediaAndExpectAutoAcceptWithoutPrompt(
     content::WebContents* tab_contents) const {
-  std::string result;
   // We issue a GetUserMedia() request. We expect that the origin already has a
   // sticky "accept" permission (e.g. because the caller previously called
   // GetUserMediaAndAccept()), and therefore the GetUserMedia() request
@@ -229,14 +214,12 @@ void WebRtcTestBase::GetUserMediaAndExpectAutoAcceptWithoutPrompt(
   permissions::PermissionRequestObserver observer(tab_contents);
   GetUserMedia(tab_contents, kAudioVideoCallConstraints);
   EXPECT_FALSE(observer.request_shown());
-  EXPECT_TRUE(content::ExecuteScriptAndExtractString(
-      tab_contents->GetMainFrame(), "obtainGetUserMediaResult();", &result));
-  EXPECT_EQ(kOkGotStream, result);
+  EXPECT_EQ(kOkGotStream, content::EvalJs(tab_contents->GetPrimaryMainFrame(),
+                                          "obtainGetUserMediaResult();"));
 }
 
 void WebRtcTestBase::GetUserMediaAndExpectAutoDenyWithoutPrompt(
     content::WebContents* tab_contents) const {
-  std::string result;
   // We issue a GetUserMedia() request. We expect that the origin already has a
   // sticky "deny" permission (e.g. because the caller previously called
   // GetUserMediaAndDeny()), and therefore the GetUserMedia() request
@@ -251,17 +234,17 @@ void WebRtcTestBase::GetUserMediaAndExpectAutoDenyWithoutPrompt(
   permissions::PermissionRequestObserver observer(tab_contents);
   GetUserMedia(tab_contents, kAudioVideoCallConstraints);
   EXPECT_FALSE(observer.request_shown());
-  EXPECT_TRUE(content::ExecuteScriptAndExtractString(
-      tab_contents->GetMainFrame(), "obtainGetUserMediaResult();", &result));
-  EXPECT_EQ(kFailedWithNotAllowedError, result);
+  EXPECT_EQ(kFailedWithNotAllowedError,
+            content::EvalJs(tab_contents->GetPrimaryMainFrame(),
+                            "obtainGetUserMediaResult();"));
 }
 
 void WebRtcTestBase::GetUserMedia(content::WebContents* tab_contents,
                                   const std::string& constraints) const {
   // Request user media: this will launch the media stream info bar or bubble.
-  std::string result;
-  EXPECT_TRUE(content::ExecuteScriptAndExtractString(
-      tab_contents, "doGetUserMedia(" + constraints + ");", &result));
+  std::string result =
+      content::EvalJs(tab_contents, "doGetUserMedia(" + constraints + ");")
+          .ExtractString();
   EXPECT_TRUE(result == "request-callback-denied" ||
               result == "request-callback-granted");
 }
@@ -269,16 +252,14 @@ void WebRtcTestBase::GetUserMedia(content::WebContents* tab_contents,
 void WebRtcTestBase::GetUserMediaReturnsFalseIfWaitIsTooLong(
     content::WebContents* tab_contents,
     const std::string& constraints) const {
-  std::string result;
   permissions::PermissionRequestManager::FromWebContents(tab_contents)
       ->set_auto_response_for_test(
           permissions::PermissionRequestManager::ACCEPT_ALL);
   permissions::PermissionRequestObserver observer(tab_contents);
   // Request user media: this will launch the media stream info bar or bubble.
-  EXPECT_TRUE(content::ExecuteScriptAndExtractString(
-      tab_contents, "doGetUserMedia(" + constraints + ");", &result));
-
-  EXPECT_TRUE(result == "request-timedout");
+  EXPECT_EQ(
+      content::EvalJs(tab_contents, "doGetUserMedia(" + constraints + ");"),
+      "request-timedout");
 }
 
 content::WebContents* WebRtcTestBase::OpenPageAndGetUserMediaInNewTab(
@@ -301,10 +282,8 @@ WebRtcTestBase::OpenPageAndGetUserMediaInNewTabWithConstraints(
       ->set_auto_response_for_test(
           permissions::PermissionRequestManager::ACCEPT_ALL);
   GetUserMedia(new_tab, constraints);
-  std::string result;
-  EXPECT_TRUE(content::ExecuteScriptAndExtractString(
-      new_tab->GetMainFrame(), "obtainGetUserMediaResult();", &result));
-  EXPECT_EQ(kOkGotStream, result);
+  EXPECT_EQ(kOkGotStream, content::EvalJs(new_tab->GetPrimaryMainFrame(),
+                                          "obtainGetUserMediaResult();"));
   return new_tab;
 }
 
@@ -340,10 +319,7 @@ void WebRtcTestBase::CloseLastLocalStream(
 std::string WebRtcTestBase::ExecuteJavascript(
     const std::string& javascript,
     content::WebContents* tab_contents) const {
-  std::string result;
-  EXPECT_TRUE(content::ExecuteScriptAndExtractString(
-      tab_contents, javascript, &result));
-  return result;
+  return content::EvalJs(tab_contents, javascript).ExtractString();
 }
 
 void WebRtcTestBase::ChangeToLegacyGetStats(content::WebContents* tab) const {
@@ -496,6 +472,24 @@ bool WebRtcTestBase::WaitForVideoToStop(
   return is_video_stopped;
 }
 
+void WebRtcTestBase::EnableVideoFrameCallbacks(
+    content::WebContents* tab_contents,
+    const std::string& video_element) const {
+  std::string javascript = base::StringPrintf("enableVideoFrameCallbacks('%s')",
+                                              video_element.c_str());
+  EXPECT_EQ("ok-started", ExecuteJavascript(javascript, tab_contents));
+}
+
+int WebRtcTestBase::GetNumVideoFrameCallbacks(
+    content::WebContents* tab_contents) const {
+  int counter = 0;
+  auto result = ExecuteJavascript("getNumVideoFrameCallbacks()", tab_contents);
+  if (base::StringToInt(result, &counter)) {
+    return counter;
+  }
+  return -1;
+}
+
 std::string WebRtcTestBase::GetStreamSize(
     content::WebContents* tab_contents,
     const std::string& video_element) const {
@@ -504,14 +498,6 @@ std::string WebRtcTestBase::GetStreamSize(
   std::string result = ExecuteJavascript(javascript, tab_contents);
   EXPECT_TRUE(base::StartsWith(result, "ok-", base::CompareCase::SENSITIVE));
   return result.substr(3);
-}
-
-bool WebRtcTestBase::OnWin8OrHigher() const {
-#if BUILDFLAG(IS_WIN)
-  return base::win::GetVersion() >= base::win::Version::WIN8;
-#else
-  return false;
-#endif
 }
 
 void WebRtcTestBase::OpenDatabase(content::WebContents* tab) const {
@@ -533,12 +519,6 @@ void WebRtcTestBase::GenerateAndCloneCertificate(
   EXPECT_EQ("ok-generated-and-cloned", ExecuteJavascript(javascript, tab));
 }
 
-void WebRtcTestBase::VerifyStatsGeneratedCallback(
-    content::WebContents* tab) const {
-  EXPECT_EQ("ok-got-stats",
-            ExecuteJavascript("verifyLegacyStatsGenerated()", tab));
-}
-
 std::vector<std::string> WebRtcTestBase::VerifyStatsGeneratedPromise(
     content::WebContents* tab) const {
   std::string result = ExecuteJavascript("verifyStatsGeneratedPromise()", tab);
@@ -546,30 +526,17 @@ std::vector<std::string> WebRtcTestBase::VerifyStatsGeneratedPromise(
   return JsonArrayToVectorOfStrings(result.substr(3));
 }
 
-double WebRtcTestBase::MeasureGetStatsCallbackPerformance(
-    content::WebContents* tab) const {
-  std::string result = ExecuteJavascript(
-      "measureGetStatsCallbackPerformance()", tab);
-  EXPECT_TRUE(base::StartsWith(result, "ok-", base::CompareCase::SENSITIVE));
-  double ms;
-  if (!base::StringToDouble(result.substr(3), &ms))
-    return std::numeric_limits<double>::infinity();
-  return ms;
-}
-
 scoped_refptr<content::TestStatsReportDictionary>
 WebRtcTestBase::GetStatsReportDictionary(content::WebContents* tab) const {
   std::string result = ExecuteJavascript("getStatsReportDictionary()", tab);
   EXPECT_TRUE(base::StartsWith(result, "ok-", base::CompareCase::SENSITIVE));
-  std::unique_ptr<base::Value> parsed_json =
-      base::JSONReader::ReadDeprecated(result.substr(3));
-  base::DictionaryValue* dictionary;
+  absl::optional<base::Value> parsed_json =
+      base::JSONReader::Read(result.substr(3));
   CHECK(parsed_json);
-  CHECK(parsed_json->GetAsDictionary(&dictionary));
-  std::ignore = parsed_json.release();
-  return scoped_refptr<content::TestStatsReportDictionary>(
-      new content::TestStatsReportDictionary(
-          std::unique_ptr<base::DictionaryValue>(dictionary)));
+  base::Value::Dict* dictionary = parsed_json->GetIfDict();
+  CHECK(dictionary);
+  return base::MakeRefCounted<content::TestStatsReportDictionary>(
+      std::move(*dictionary));
 }
 
 double WebRtcTestBase::MeasureGetStatsPerformance(

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,10 +18,8 @@ namespace printing {
 namespace print_management {
 namespace {
 
-namespace mojom = printing_manager::mojom;
-namespace proto = ::chromeos::printing::proto;
+namespace mojom = ::chromeos::printing::printing_manager::mojom;
 
-using ::chromeos::CupsPrintJob;
 using ::chromeos::PrinterErrorCode;
 
 mojom::PrintJobCompletionStatus PrintJobStatusProtoToMojom(
@@ -90,6 +88,8 @@ mojom::PrinterErrorCode PrinterErrorCodeProtoToMojom(
       return mojom::PrinterErrorCode::kUnknownError;
     case proto::PrintJobInfo_PrinterErrorCode_CLIENT_UNAUTHORIZED:
       return mojom::PrinterErrorCode::kClientUnauthorized;
+    case proto::PrintJobInfo_PrinterErrorCode_EXPIRED_CERTIFICATE:
+      return mojom::PrinterErrorCode::kExpiredCertificate;
     case proto::
         PrintJobInfo_PrinterErrorCode_PrintJobInfo_PrinterErrorCode_INT_MIN_SENTINEL_DO_NOT_USE_:
     case proto::
@@ -126,6 +126,8 @@ mojom::PrinterErrorCode PrinterErrorCodeToMojom(PrinterErrorCode error_code) {
       return mojom::PrinterErrorCode::kUnknownError;
     case PrinterErrorCode::CLIENT_UNAUTHORIZED:
       return mojom::PrinterErrorCode::kClientUnauthorized;
+    case PrinterErrorCode::EXPIRED_CERTIFICATE:
+      return mojom::PrinterErrorCode::kExpiredCertificate;
   }
   return mojom::PrinterErrorCode::kUnknownError;
 }

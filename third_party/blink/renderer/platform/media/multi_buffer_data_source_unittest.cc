@@ -1,8 +1,8 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "third_party/blink/public/platform/media/multi_buffer_data_source.h"
+#include "third_party/blink/renderer/platform/media/multi_buffer_data_source.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -10,8 +10,7 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
@@ -22,9 +21,9 @@
 #include "media/base/mock_filters.h"
 #include "media/base/test_helpers.h"
 #include "services/network/public/mojom/fetch_api.mojom.h"
-#include "third_party/blink/public/platform/media/buffered_data_source_host_impl.h"
 #include "third_party/blink/public/platform/web_url.h"
 #include "third_party/blink/public/platform/web_url_response.h"
+#include "third_party/blink/renderer/platform/media/buffered_data_source_host_impl.h"
 #include "third_party/blink/renderer/platform/media/multi_buffer_reader.h"
 #include "third_party/blink/renderer/platform/media/resource_multi_buffer_data_provider.h"
 #include "third_party/blink/renderer/platform/media/testing/mock_resource_fetch_context.h"
@@ -262,6 +261,7 @@ class MultiBufferDataSourceTest : public testing::Test {
     response_generator_ =
         std::make_unique<TestResponseGenerator>(gurl, file_size);
     EXPECT_CALL(*this, OnInitialize(expected));
+    data_source_->SetIsClientAudioElement(is_client_audio_element_);
     data_source_->Initialize(base::BindOnce(
         &MultiBufferDataSourceTest::OnInitialize, base::Unretained(this)));
     base::RunLoop().RunUntilIdle();
@@ -361,7 +361,7 @@ class MultiBufferDataSourceTest : public testing::Test {
 
   MOCK_METHOD1(ReadCallback, void(int size));
 
-  void ReadAt(int64_t position, int64_t howmuch = kDataSize) {
+  void ReadAt(int64_t position, int howmuch = kDataSize) {
     data_source_->Read(position, howmuch, buffer_,
                        base::BindOnce(&MultiBufferDataSourceTest::ReadCallback,
                                       base::Unretained(this)));
@@ -473,9 +473,13 @@ class MultiBufferDataSourceTest : public testing::Test {
   }
   double data_source_playback_rate() { return data_source_->playback_rate_; }
   bool is_local_source() { return data_source_->AssumeFullyBuffered(); }
+  bool is_client_audio_element() { return loader()->is_client_audio_element_; }
   scoped_refptr<UrlData> url_data() { return data_source_->url_data_; }
   void set_might_be_reused_from_cache_in_future(bool value) {
     url_data()->set_cacheable(value);
+  }
+  void set_is_client_audio_element(bool value) {
+    is_client_audio_element_ = value;
   }
 
  protected:
@@ -494,6 +498,8 @@ class MultiBufferDataSourceTest : public testing::Test {
 
   // Used for calling MultiBufferDataSource::Read().
   uint8_t buffer_[kDataSize * 2];
+
+  bool is_client_audio_element_ = false;
 };
 
 TEST_F(MultiBufferDataSourceTest, Range_Supported) {
@@ -915,7 +921,7 @@ TEST_F(MultiBufferDataSourceTest, StopDuringRead) {
   InitializeWith206Response();
 
   uint8_t buffer[256];
-  data_source_->Read(kDataSize, base::size(buffer), buffer,
+  data_source_->Read(kDataSize, std::size(buffer), buffer,
                      base::BindOnce(&MultiBufferDataSourceTest::ReadCallback,
                                     base::Unretained(this)));
 
@@ -966,7 +972,7 @@ TEST_F(MultiBufferDataSourceTest, SetBitrate) {
 TEST_F(MultiBufferDataSourceTest, MediaPlaybackRateChanged) {
   InitializeWith206Response();
 
-  data_source_->MediaPlaybackRateChanged(2.0);
+  data_source_->OnMediaPlaybackRateChanged(2.0);
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(2.0, data_source_playback_rate());
 
@@ -1108,7 +1114,7 @@ TEST_F(MultiBufferDataSourceTest, LocalResource_DeferStrategy) {
   EXPECT_TRUE(is_local_source());
   CheckCapacityDefer();
 
-  data_source_->MediaIsPlaying();
+  data_source_->OnMediaIsPlaying();
   CheckCapacityDefer();
 
   Stop();
@@ -1122,7 +1128,7 @@ TEST_F(MultiBufferDataSourceTest, LocalResource_PreloadMetadata_DeferStrategy) {
   EXPECT_TRUE(is_local_source());
   CheckReadThenDefer();
 
-  data_source_->MediaIsPlaying();
+  data_source_->OnMediaIsPlaying();
   CheckCapacityDefer();
 
   Stop();
@@ -1136,7 +1142,7 @@ TEST_F(MultiBufferDataSourceTest, ExternalResource_Reponse200_DeferStrategy) {
   EXPECT_FALSE(data_source_->range_supported());
   CheckCapacityDefer();
 
-  data_source_->MediaIsPlaying();
+  data_source_->OnMediaIsPlaying();
   CheckCapacityDefer();
 
   Stop();
@@ -1152,7 +1158,7 @@ TEST_F(MultiBufferDataSourceTest,
   EXPECT_FALSE(data_source_->range_supported());
   CheckReadThenDefer();
 
-  data_source_->MediaIsPlaying();
+  data_source_->OnMediaIsPlaying();
   CheckCapacityDefer();
 
   Stop();
@@ -1166,11 +1172,11 @@ TEST_F(MultiBufferDataSourceTest, ExternalResource_Reponse206_DeferStrategy) {
   EXPECT_TRUE(data_source_->range_supported());
   CheckCapacityDefer();
 
-  data_source_->MediaIsPlaying();
+  data_source_->OnMediaIsPlaying();
   CheckCapacityDefer();
 
   set_might_be_reused_from_cache_in_future(true);
-  data_source_->MediaIsPlaying();
+  data_source_->OnMediaIsPlaying();
   CheckCapacityDefer();
 
   Stop();
@@ -1186,11 +1192,11 @@ TEST_F(MultiBufferDataSourceTest,
   EXPECT_TRUE(data_source_->range_supported());
   CheckReadThenDefer();
 
-  data_source_->MediaIsPlaying();
+  data_source_->OnMediaIsPlaying();
   CheckCapacityDefer();
 
   set_might_be_reused_from_cache_in_future(true);
-  data_source_->MediaIsPlaying();
+  data_source_->OnMediaIsPlaying();
   CheckCapacityDefer();
 
   set_might_be_reused_from_cache_in_future(false);
@@ -1336,7 +1342,7 @@ TEST_F(MultiBufferDataSourceTest,
   // Marking the media as playing should prevent deferral. It also tells the
   // data source to start buffering beyond the initial load.
   EXPECT_FALSE(data_source_->cancel_on_defer_for_testing());
-  data_source_->MediaIsPlaying();
+  data_source_->OnMediaIsPlaying();
   data_source_->OnBufferingHaveEnough(false);
   CheckCapacityDefer();
   ASSERT_TRUE(active_loader());
@@ -1363,7 +1369,7 @@ TEST_F(MultiBufferDataSourceTest,
   EXPECT_FALSE(active_loader_allownull());
 
   // Verify playback resumes correctly too.
-  data_source_->MediaIsPlaying();
+  data_source_->OnMediaIsPlaying();
   EXPECT_FALSE(data_source_->cancel_on_defer_for_testing());
 
   // A read from a previously buffered range won't create a new loader yet.
@@ -1381,6 +1387,48 @@ TEST_F(MultiBufferDataSourceTest,
     ReceiveData(kDataSize);
     ASSERT_TRUE(active_loader());
   }
+}
+
+// This test triggers an edge case where request destination is not
+// properly set to "audio" (crbug.com/12345). The edge case is triggered when
+// preload omitted or is set to metadata, and a read from an unbuffered range
+// takes place.
+TEST_F(MultiBufferDataSourceTest,
+       ExternalResource_Response206_CheckIsClientAudioElement) {
+  set_preload(MultiBufferDataSource::METADATA);
+  set_is_client_audio_element(true);
+  InitializeWith206Response();
+  EXPECT_EQ(MultiBufferDataSource::METADATA, preload());
+  EXPECT_FALSE(is_local_source());
+  EXPECT_TRUE(is_client_audio_element());
+  EXPECT_TRUE(data_source_->range_supported());
+  CheckReadThenDefer();
+
+  // Reset the reader on defer. As a result, during the next unbuffered range
+  // read, a locked resource loader will be created.
+  data_source_->OnBufferingHaveEnough(true);
+
+  // Deliver data until capacity is reached and verify deferral.
+  int bytes_received = 0;
+  EXPECT_CALL(host_, AddBufferedByteRange(_, _)).Times(testing::AtLeast(1));
+  while (active_loader_allownull() && !data_provider()->deferred()) {
+    ReceiveData(kDataSize);
+    bytes_received += kDataSize;
+  }
+  EXPECT_GT(bytes_received, 0);
+  EXPECT_LT(bytes_received + kDataSize, kFileSize);
+  EXPECT_FALSE(active_loader_allownull());
+
+  // Read from an unbuffered range will create a new resource loader.
+  ReadAt(kFarReadPosition);
+  EXPECT_CALL(*this, ReadCallback(kDataSize));
+  EXPECT_CALL(host_, AddBufferedByteRange(kFarReadPosition,
+                                          kFarReadPosition + kDataSize));
+  EXPECT_TRUE(is_client_audio_element());
+  Respond(response_generator_->Generate206(kFarReadPosition));
+  ReceiveData(kDataSize);
+
+  Stop();
 }
 
 TEST_F(MultiBufferDataSourceTest, SeekPastEOF) {

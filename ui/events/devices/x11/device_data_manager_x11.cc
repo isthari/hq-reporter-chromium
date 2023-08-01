@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,18 +6,20 @@
 
 #include <stddef.h>
 
+#include <algorithm>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/at_exit.h"
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/memory/singleton.h"
 #include "base/system/sys_info.h"
 #include "base/version.h"
 #include "build/build_config.h"
 #include "ui/display/display.h"
+#include "ui/events/devices/keyboard_device.h"
 #include "ui/events/devices/x11/device_list_cache_x11.h"
 #include "ui/events/devices/x11/touch_factory_x11.h"
 #include "ui/events/devices/x11/xinput_util.h"
@@ -108,7 +110,7 @@ constexpr const char* kCachedAtoms[] = {
 };
 
 // Make sure the sizes of enum and |kCachedAtoms| are aligned.
-static_assert(base::size(kCachedAtoms) ==
+static_assert(std::size(kCachedAtoms) ==
                   ui::DeviceDataManagerX11::DT_LAST_ENTRY,
               "kCachedAtoms count / enum mismatch");
 
@@ -876,7 +878,7 @@ void DeviceDataManagerX11::SetDisabledKeyboardAllowedKeys(
 void DeviceDataManagerX11::DisableDevice(x11::Input::DeviceId deviceid) {
   blocked_devices_.set(static_cast<uint32_t>(deviceid), true);
   // TODO(rsadam@): Support blocking touchscreen devices.
-  std::vector<InputDevice> keyboards = GetKeyboardDevices();
+  std::vector<KeyboardDevice> keyboards = GetKeyboardDevices();
   auto it = FindDeviceWithId(keyboards.begin(), keyboards.end(), deviceid);
   if (it != std::end(keyboards)) {
     blocked_keyboard_devices_.emplace(deviceid, *it);
@@ -889,7 +891,7 @@ void DeviceDataManagerX11::EnableDevice(x11::Input::DeviceId deviceid) {
   blocked_devices_.set(static_cast<uint32_t>(deviceid), false);
   auto it = blocked_keyboard_devices_.find(deviceid);
   if (it != blocked_keyboard_devices_.end()) {
-    std::vector<InputDevice> devices = GetKeyboardDevices();
+    std::vector<KeyboardDevice> devices = GetKeyboardDevices();
     // Add device to current list of active devices.
     devices.push_back((*it).second);
     blocked_keyboard_devices_.erase(it);
@@ -919,8 +921,8 @@ bool DeviceDataManagerX11::IsEventBlocked(const x11::Event& x11_event) {
 }
 
 void DeviceDataManagerX11::OnKeyboardDevicesUpdated(
-    const std::vector<InputDevice>& devices) {
-  std::vector<InputDevice> keyboards(devices);
+    const std::vector<KeyboardDevice>& devices) {
+  std::vector<KeyboardDevice> keyboards(devices);
   for (auto blocked_iter = blocked_keyboard_devices_.begin();
        blocked_iter != blocked_keyboard_devices_.end();) {
     // Check if the blocked device still exists in list of devices.

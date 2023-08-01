@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,8 @@
 #define BASE_SYNCHRONIZATION_LOCK_IMPL_H_
 
 #include "base/base_export.h"
-#include "base/check_op.h"
+#include "base/check.h"
+#include "base/dcheck_is_on.h"
 #include "base/thread_annotations.h"
 #include "build/build_config.h"
 
@@ -16,7 +17,6 @@
 #include <errno.h>
 #include <pthread.h>
 #include <string.h>
-#include <ostream>
 #endif
 
 namespace base {
@@ -75,25 +75,22 @@ class BASE_EXPORT LockImpl {
   static bool PriorityInheritanceAvailable();
 #endif
 
-  void LockInternalWithTracking();
+  void LockInternal();
   NativeHandle native_handle_;
 };
 
 void LockImpl::Lock() {
-  // The ScopedLockAcquireActivity in LockInternalWithTracking() (not inlined
-  // here because of circular includes) is relatively expensive and so its
-  // actions can become significant due to the very large number of locks that
-  // tend to be used throughout the build. It is also not needed unless the lock
-  // is contended.
-  //
-  // To avoid this cost in the vast majority of the calls, simply "try" the lock
-  // first and only do the (tracked) blocking call if that fails. |Try()| is
+  // Try the lock first to acquire it cheaply if it's not contended. Try() is
   // cheap on platforms with futex-type locks, as it doesn't call into the
-  // kernel.
-  if (LIKELY(Try()))
+  // kernel. Not marked LIKELY(), as:
+  // 1. We don't know how much contention the lock would experience
+  // 2. This may lead to weird-looking code layout when inlined into a caller
+  // with (UN)LIKELY() annotations.
+  if (Try()) {
     return;
+  }
 
-  LockInternalWithTracking();
+  LockInternal();
 }
 
 #if BUILDFLAG(IS_WIN)
@@ -108,18 +105,24 @@ void LockImpl::Unlock() {
 
 #elif BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
 
-BASE_EXPORT std::string SystemErrorCodeToString(int error_code);
+#if DCHECK_IS_ON()
+BASE_EXPORT void dcheck_trylock_result(int rv);
+BASE_EXPORT void dcheck_unlock_result(int rv);
+#endif
 
 bool LockImpl::Try() {
   int rv = pthread_mutex_trylock(&native_handle_);
-  DCHECK(rv == 0 || rv == EBUSY)
-      << ". " << base::internal::SystemErrorCodeToString(rv);
+#if DCHECK_IS_ON()
+  dcheck_trylock_result(rv);
+#endif
   return rv == 0;
 }
 
 void LockImpl::Unlock() {
-  int rv = pthread_mutex_unlock(&native_handle_);
-  DCHECK_EQ(rv, 0) << ". " << strerror(rv);
+  [[maybe_unused]] int rv = pthread_mutex_unlock(&native_handle_);
+#if DCHECK_IS_ON()
+  dcheck_unlock_result(rv);
+#endif
 }
 #endif
 

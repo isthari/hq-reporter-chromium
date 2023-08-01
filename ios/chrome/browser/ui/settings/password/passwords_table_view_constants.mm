@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 #endif
 
 NSString* const kPasswordsTableViewId = @"PasswordsTableViewId";
-NSString* const kPasswordsExportConfirmViewId = @"PasswordsExportConfirmViewId";
 NSString* const kPasswordsSearchBarId = @"PasswordsSearchBar";
 NSString* const kPasswordsScrimViewId = @"PasswordsScrimViewId";
 
@@ -21,12 +20,11 @@ NSString* const kPasswordsAddPasswordSaveButtonId =
 NSString* const kPasswordsAddPasswordCancelButtonId =
     @"PasswordsAddPasswordCancelButtonId";
 
-NSString* const kSavePasswordSwitchTableViewId =
-    @"kSavePasswordSwitchTableViewId";
-NSString* const kSavePasswordManagedTableViewId =
-    @"kSavePasswordSwitchTableViewId";
-
-NSString* const kSettingsPasswordsInOtherAppsCellId =
-    @"kSettingsPasswordsInOtherAppsCellId";
+NSString* const kAddPasswordButtonId = @"addPasswordItem";
 
 NSString* const kPasswordIssuesTableViewId = @"kPasswordIssuesTableViewId";
+
+NSString* const kDeleteButtonForPasswordDetailsId =
+    @"kDeleteButtonForPasswordDetailsId";
+
+NSString* const kLocalOnlyPasswordIconId = @"kLocalOnlyPasswordIconId";

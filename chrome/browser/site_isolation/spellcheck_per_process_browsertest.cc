@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 
 // spellcheck_per_process_browsertest.cc
 
-#include "base/callback_helpers.h"
 #include "base/feature_list.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
@@ -273,9 +273,8 @@ class ChromeSitePerProcessSpellCheckTest : public ChromeSitePerProcessTest {
     // When delayed initialization of the spellcheck service is enabled by
     // default, want to maintain test coverage for the older code path that
     // initializes spellcheck on browser startup.
-    feature_list_.InitWithFeatures(
-        /*enabled_features=*/{spellcheck::kWinUseBrowserSpellChecker},
-        /*disabled_features=*/{spellcheck::kWinDelaySpellcheckServiceInit});
+    feature_list_.InitAndDisableFeature(
+        spellcheck::kWinDelaySpellcheckServiceInit);
 #endif  // BUILDFLAG(IS_WIN) && BUILDFLAG(USE_BROWSER_SPELLCHECKER)
 
     ChromeSitePerProcessTest::SetUp();
@@ -295,7 +294,7 @@ class ChromeSitePerProcessSpellCheckTest : public ChromeSitePerProcessTest {
     content::WebContents* web_contents =
         browser()->tab_strip_model()->GetActiveWebContents();
     content::RenderFrameHost* cross_site_subframe =
-        ChildFrameAt(web_contents->GetMainFrame(), 0);
+        ChildFrameAt(web_contents->GetPrimaryMainFrame(), 0);
 
     MockSpellCheckHost* spell_check_host =
         spell_check_helper.GetSpellCheckHostForProcess(
@@ -330,7 +329,7 @@ class ChromeSitePerProcessSpellCheckTest : public ChromeSitePerProcessTest {
     content::WebContents* web_contents =
         browser()->tab_strip_model()->GetActiveWebContents();
     content::RenderFrameHost* cross_site_subframe =
-        ChildFrameAt(web_contents->GetMainFrame(), 0);
+        ChildFrameAt(web_contents->GetPrimaryMainFrame(), 0);
 
     MockSpellCheckHost* spell_check_host =
         spell_check_helper.GetSpellCheckHostForProcess(
@@ -370,7 +369,7 @@ IN_PROC_BROWSER_TEST_F(ChromeSitePerProcessSpellCheckTest,
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
   content::RenderFrameHost* cross_site_subframe =
-      ChildFrameAt(web_contents->GetMainFrame(), 0);
+      ChildFrameAt(web_contents->GetPrimaryMainFrame(), 0);
 
   EXPECT_TRUE(cross_site_subframe->IsCrossProcessSubframe());
 
@@ -395,10 +394,8 @@ class ChromeSitePerProcessSpellCheckTestDelayInit
 
   void SetUp() override {
     // Don't initialize the SpellcheckService on browser launch.
-    feature_list_.InitWithFeatures(
-        /*enabled_features=*/{spellcheck::kWinUseBrowserSpellChecker,
-                              spellcheck::kWinDelaySpellcheckServiceInit},
-        /*disabled_features=*/{});
+    feature_list_.InitAndEnableFeature(
+        spellcheck::kWinDelaySpellcheckServiceInit);
 
     ChromeSitePerProcessTest::SetUp();
   }

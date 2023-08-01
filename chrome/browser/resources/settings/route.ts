@@ -1,29 +1,48 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+import {assert} from 'chrome://resources/js/assert_ts.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 
 import {pageVisibility} from './page_visibility.js';
-import {Route, Router} from './router.js';
-import {SettingsRoutes} from './settings_routes.js';
+import {Route, Router, SettingsRoutes} from './router.js';
 
 /**
  * Add all of the child routes that originate from the privacy route,
  * regardless of whether the privacy section under basic or advanced.
  */
-function addPrivacyChildRoutes(r: SettingsRoutes) {
+function addPrivacyChildRoutes(r: Partial<SettingsRoutes>) {
+  assert(r.PRIVACY);
   r.CLEAR_BROWSER_DATA = r.PRIVACY.createChild('/clearBrowserData');
   r.CLEAR_BROWSER_DATA.isNavigableDialog = true;
 
   r.SAFETY_CHECK = r.PRIVACY.createSection('/safetyCheck', 'safetyCheck');
 
-  if (loadTimeData.getBoolean('privacyReviewEnabled')) {
-    r.PRIVACY_REVIEW = r.PRIVACY.createChild('review');
+  if (loadTimeData.getBoolean('showPrivacyGuide')) {
+    r.PRIVACY_GUIDE = r.PRIVACY.createChild('guide');
   }
   r.SITE_SETTINGS = r.PRIVACY.createChild('/content');
   r.COOKIES = r.PRIVACY.createChild('/cookies');
   r.SECURITY = r.PRIVACY.createChild('/security');
+
+  if (loadTimeData.getBoolean('isPrivacySandboxSettings4') &&
+      !loadTimeData.getBoolean('isPrivacySandboxRestricted')) {
+    r.PRIVACY_SANDBOX = r.PRIVACY.createChild('/adPrivacy');
+    r.PRIVACY_SANDBOX_TOPICS =
+        r.PRIVACY_SANDBOX.createChild('/adPrivacy/interests');
+    r.PRIVACY_SANDBOX_FLEDGE =
+        r.PRIVACY_SANDBOX.createChild('/adPrivacy/sites');
+    r.PRIVACY_SANDBOX_AD_MEASUREMENT =
+        r.PRIVACY_SANDBOX.createChild('/adPrivacy/measurement');
+  } else if (loadTimeData.getBoolean(
+                 'isPrivacySandboxRestrictedNoticeEnabled')) {
+    r.PRIVACY_SANDBOX = r.PRIVACY.createChild('/adPrivacy');
+    // When the view is restricted, but the notice is configured to show, allow
+    // measurement settings only.
+    r.PRIVACY_SANDBOX_AD_MEASUREMENT =
+        r.PRIVACY_SANDBOX.createChild('/adPrivacy/measurement');
+  }
 
   // <if expr="use_nss_certs">
   r.CERTIFICATES = r.SECURITY.createChild('/certificates');
@@ -33,6 +52,14 @@ function addPrivacyChildRoutes(r: SettingsRoutes) {
     r.SECURITY_KEYS = r.SECURITY.createChild('/securityKeys');
     r.SECURITY_KEYS_PHONES =
         r.SECURITY_KEYS.createChild('/securityKeys/phones');
+    // <if expr="is_win">
+  } else {
+    r.SECURITY_KEYS_PHONES = r.SECURITY.createChild('/securityKeys/phones');
+    // </if>
+  }
+
+  if (loadTimeData.getBoolean('showPreloadingSubPage')) {
+    r.PRELOADING = r.COOKIES.createChild('/preloading');
   }
 
   r.SITE_SETTINGS_ALL = r.SITE_SETTINGS.createChild('all');
@@ -47,15 +74,13 @@ function addPrivacyChildRoutes(r: SettingsRoutes) {
   r.SITE_SETTINGS_AR = r.SITE_SETTINGS.createChild('ar');
   r.SITE_SETTINGS_AUTOMATIC_DOWNLOADS =
       r.SITE_SETTINGS.createChild('automaticDownloads');
+  if (loadTimeData.getBoolean('privateStateTokensEnabled')) {
+    r.SITE_SETTINGS_AUTO_VERIFY = r.SITE_SETTINGS.createChild('autoVerify');
+  }
   r.SITE_SETTINGS_BACKGROUND_SYNC =
       r.SITE_SETTINGS.createChild('backgroundSync');
   r.SITE_SETTINGS_CAMERA = r.SITE_SETTINGS.createChild('camera');
   r.SITE_SETTINGS_CLIPBOARD = r.SITE_SETTINGS.createChild('clipboard');
-  if (!loadTimeData.getBoolean('consolidatedSiteStorageControlsEnabled')) {
-    r.SITE_SETTINGS_SITE_DATA = r.COOKIES.createChild('/siteData');
-    r.SITE_SETTINGS_DATA_DETAILS =
-        r.SITE_SETTINGS_SITE_DATA.createChild('/cookies/detail');
-  }
   r.SITE_SETTINGS_IDLE_DETECTION = r.SITE_SETTINGS.createChild('idleDetection');
   r.SITE_SETTINGS_IMAGES = r.SITE_SETTINGS.createChild('images');
   r.SITE_SETTINGS_MIXEDSCRIPT = r.SITE_SETTINGS.createChild('insecureContent');
@@ -82,33 +107,44 @@ function addPrivacyChildRoutes(r: SettingsRoutes) {
     r.SITE_SETTINGS_PAYMENT_HANDLER =
         r.SITE_SETTINGS.createChild('paymentHandler');
   }
+  if (loadTimeData.getBoolean('enableFederatedIdentityApiContentSetting')) {
+    r.SITE_SETTINGS_FEDERATED_IDENTITY_API =
+        r.SITE_SETTINGS.createChild('federatedIdentityApi');
+  }
+  if (loadTimeData.getBoolean('isPrivacySandboxSettings4')) {
+    r.SITE_SETTINGS_SITE_DATA = r.SITE_SETTINGS.createChild('siteData');
+  }
   r.SITE_SETTINGS_VR = r.SITE_SETTINGS.createChild('vr');
   if (loadTimeData.getBoolean('enableExperimentalWebPlatformFeatures')) {
     r.SITE_SETTINGS_BLUETOOTH_SCANNING =
         r.SITE_SETTINGS.createChild('bluetoothScanning');
   }
-  r.SITE_SETTINGS_WINDOW_PLACEMENT =
-      r.SITE_SETTINGS.createChild('windowPlacement');
+
+  r.SITE_SETTINGS_WINDOW_MANAGEMENT =
+      r.SITE_SETTINGS.createChild('windowManagement');
   r.SITE_SETTINGS_FILE_SYSTEM_WRITE = r.SITE_SETTINGS.createChild('filesystem');
-  r.SITE_SETTINGS_FONT_ACCESS = r.SITE_SETTINGS.createChild('fontAccess');
+  r.SITE_SETTINGS_LOCAL_FONTS = r.SITE_SETTINGS.createChild('localFonts');
 }
 
 /**
  * Adds Route objects for each path.
  */
 function createBrowserSettingsRoutes(): SettingsRoutes {
-  const r = {} as SettingsRoutes;
+  const r: Partial<SettingsRoutes> = {};
 
   // Root pages.
   r.BASIC = new Route('/');
-  r.ABOUT = new Route('/help');
+  r.ABOUT = new Route('/help', loadTimeData.getString('aboutPageTitle'));
 
-  r.SEARCH = r.BASIC.createSection('/search', 'search');
+  r.SEARCH = r.BASIC.createSection(
+      '/search', 'search', loadTimeData.getString('searchPageTitle'));
+
   if (!loadTimeData.getBoolean('isGuest')) {
-    r.PEOPLE = r.BASIC.createSection('/people', 'people');
+    r.PEOPLE = r.BASIC.createSection(
+        '/people', 'people', loadTimeData.getString('peoplePageTitle'));
+    // <if expr="not chromeos_ash">
     r.SIGN_OUT = r.PEOPLE.createChild('/signOut');
     r.SIGN_OUT.isNavigableDialog = true;
-    // <if expr="not chromeos">
     r.IMPORT_DATA = r.PEOPLE.createChild('/importData');
     r.IMPORT_DATA.isNavigableDialog = true;
     // </if>
@@ -119,65 +155,82 @@ function createBrowserSettingsRoutes(): SettingsRoutes {
 
   const visibility = pageVisibility || {};
 
-  // <if expr="not chromeos">
+  // <if expr="not chromeos_ash">
   if (visibility.people !== false) {
+    assert(r.PEOPLE);
     r.MANAGE_PROFILE = r.PEOPLE.createChild('/manageProfile');
   }
   // </if>
 
   if (visibility.appearance !== false) {
-    r.APPEARANCE = r.BASIC.createSection('/appearance', 'appearance');
+    r.APPEARANCE = r.BASIC.createSection(
+        '/appearance', 'appearance',
+        loadTimeData.getString('appearancePageTitle'));
     r.FONTS = r.APPEARANCE.createChild('/fonts');
   }
 
   if (visibility.autofill !== false) {
-    r.AUTOFILL = r.BASIC.createSection('/autofill', 'autofill');
-    r.PASSWORDS = r.AUTOFILL.createChild('/passwords');
-    r.CHECK_PASSWORDS = r.PASSWORDS.createChild('check');
+    r.AUTOFILL = r.BASIC.createSection(
+        '/autofill', 'autofill', loadTimeData.getString('autofillPageTitle'));
+    if (!loadTimeData.getBoolean('enableNewPasswordManagerPage')) {
+      r.PASSWORDS = r.AUTOFILL.createChild('/passwords');
+      if (loadTimeData.getBoolean('enablePasswordViewPage')) {
+        r.PASSWORD_VIEW = r.PASSWORDS.createChild('view');
+      }
+      r.CHECK_PASSWORDS = r.PASSWORDS.createChild('check');
 
-    r.DEVICE_PASSWORDS = r.PASSWORDS.createChild('device');
+      r.DEVICE_PASSWORDS = r.PASSWORDS.createChild('device');
+    }
 
     r.PAYMENTS = r.AUTOFILL.createChild('/payments');
     r.ADDRESSES = r.AUTOFILL.createChild('/addresses');
+
+    // <if expr="is_win or is_macosx">
+    r.PASSKEYS = r.AUTOFILL.createChild('/passkeys');
+    // </if>
   }
 
   if (visibility.privacy !== false) {
-    r.PRIVACY = r.BASIC.createSection('/privacy', 'privacy');
+    r.PRIVACY = r.BASIC.createSection(
+        '/privacy', 'privacy', loadTimeData.getString('privacyPageTitle'));
     addPrivacyChildRoutes(r);
   }
 
-  // <if expr="not chromeos and not lacros">
+  // <if expr="not is_chromeos">
   if (visibility.defaultBrowser !== false) {
-    r.DEFAULT_BROWSER =
-        r.BASIC.createSection('/defaultBrowser', 'defaultBrowser');
+    r.DEFAULT_BROWSER = r.BASIC.createSection(
+        '/defaultBrowser', 'defaultBrowser',
+        loadTimeData.getString('defaultBrowser'));
   }
   // </if>
 
   r.SEARCH_ENGINES = r.SEARCH.createChild('/searchEngines');
 
   if (visibility.onStartup !== false) {
-    r.ON_STARTUP = r.BASIC.createSection('/onStartup', 'onStartup');
+    r.ON_STARTUP = r.BASIC.createSection(
+        '/onStartup', 'onStartup', loadTimeData.getString('onStartup'));
   }
 
   // Advanced Routes
   if (visibility.advancedSettings !== false) {
     r.ADVANCED = new Route('/advanced');
 
-    r.LANGUAGES = r.ADVANCED.createSection('/languages', 'languages');
-    // <if expr="not chromeos and not is_macosx">
-    r.EDIT_DICTIONARY = r.LANGUAGES.createChild('/editDictionary');
-    // </if>
-    // <if expr="not chromeos and not lacros">
-    if (loadTimeData.getBoolean('enableDesktopRestructuredLanguageSettings')) {
-      r.LANGUAGE_SETTINGS = r.LANGUAGES.createChild('/languageSettings');
-    }
+    r.LANGUAGES = r.ADVANCED.createSection(
+        '/languages', 'languages',
+        loadTimeData.getString('languagesPageTitle'));
+    r.SPELL_CHECK = r.LANGUAGES.createSection('/spellCheck', 'spellCheck');
+    // <if expr="not chromeos_ash and not is_macosx">
+    r.EDIT_DICTIONARY = r.SPELL_CHECK.createChild('/editDictionary');
     // </if>
 
     if (visibility.downloads !== false) {
-      r.DOWNLOADS = r.ADVANCED.createSection('/downloads', 'downloads');
+      r.DOWNLOADS = r.ADVANCED.createSection(
+          '/downloads', 'downloads',
+          loadTimeData.getString('downloadsPageTitle'));
     }
 
-    r.ACCESSIBILITY = r.ADVANCED.createSection('/accessibility', 'a11y');
+    r.ACCESSIBILITY = r.ADVANCED.createSection(
+        '/accessibility', 'a11y', loadTimeData.getString('a11yPageTitle'));
 
     // <if expr="is_linux">
     r.CAPTIONS = r.ACCESSIBILITY.createChild('/captions');
@@ -189,12 +242,14 @@ function createBrowserSettingsRoutes(): SettingsRoutes {
     }
     // </if>
 
-    // <if expr="not chromeos and not lacros">
-    r.SYSTEM = r.ADVANCED.createSection('/system', 'system');
+    // <if expr="not chromeos_ash">
+    r.SYSTEM = r.ADVANCED.createSection(
+        '/system', 'system', loadTimeData.getString('systemPageTitle'));
     // </if>
 
     if (visibility.reset !== false) {
-      r.RESET = r.ADVANCED.createSection('/reset', 'reset');
+      r.RESET = r.ADVANCED.createSection(
+          '/reset', 'reset', loadTimeData.getString('resetPageTitle'));
       r.RESET_DIALOG = r.RESET.createChild('/resetProfileSettings');
       r.RESET_DIALOG.isNavigableDialog = true;
       r.TRIGGERED_RESET_DIALOG =
@@ -208,8 +263,23 @@ function createBrowserSettingsRoutes(): SettingsRoutes {
       }
       // </if>
     }
+
+    if (visibility.performance !== false) {
+      r.PERFORMANCE = r.BASIC.createSection(
+          '/performance', 'performance',
+          loadTimeData.getString('performancePageTitle'));
+    }
+
+    // <if expr="_google_chrome">
+    if (visibility.getMostChrome !== false &&
+        loadTimeData.getBoolean('showGetTheMostOutOfChromeSection')) {
+      r.GET_MOST_CHROME = r.ADVANCED.createSection(
+          '/getMostChrome', 'getMostChrome',
+          loadTimeData.getString('getTheMostOutOfChrome'));
+    }
+    // </if>
   }
-  return r;
+  return r as unknown as SettingsRoutes;
 }
 
 /**

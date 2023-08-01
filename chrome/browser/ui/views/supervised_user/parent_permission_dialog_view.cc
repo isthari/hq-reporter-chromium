@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,15 +7,16 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
-#include "chrome/browser/supervised_user/supervised_user_service.h"
+#include "chrome/browser/supervised_user/supervised_user_browser_utils.h"
 #include "chrome/browser/supervised_user/supervised_user_service_factory.h"
-#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/supervised_user/parent_permission_dialog.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/chrome_typography.h"
@@ -25,10 +26,10 @@
 #include "components/signin/public/identity_manager/access_token_fetcher.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/signin/public/identity_manager/scope_set.h"
-#include "components/user_manager/user_manager.h"
+#include "components/supervised_user/core/browser/supervised_user_service.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
-#include "extensions/browser/image_loader.h"
+#include "extensions/browser/extension_util.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_icon_set.h"
@@ -82,7 +83,7 @@ class MaybeEmptyLabel : public views::Label {
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override {
     views::Label::GetAccessibleNodeData(node_data);
     if (!GetText().empty())
-      node_data->SetName(GetText());
+      node_data->SetNameChecked(GetText());
     else
       node_data->SetNameExplicitlyEmpty();
   }
@@ -90,13 +91,6 @@ class MaybeEmptyLabel : public views::Label {
 
 BEGIN_METADATA(MaybeEmptyLabel, views::Label)
 END_METADATA
-
-// Returns bitmap for the default icon with size equal to the default icon's
-// pixel size under maximal supported scale factor.
-const gfx::ImageSkia& GetDefaultIconBitmapForMaxScaleFactor(bool is_app) {
-  return is_app ? extensions::util::GetDefaultAppIcon()
-                : extensions::util::GetDefaultExtensionIcon();
-}
 
 TestParentPermissionDialogViewObserver* test_view_observer = nullptr;
 
@@ -208,8 +202,8 @@ class ParentPermissionInputSection : public views::TextfieldController {
     const ChromeLayoutProvider* provider = ChromeLayoutProvider::Get();
     const gfx::Insets content_insets = provider->GetDialogInsetsForContentType(
         views::DialogContentType::kControl, views::DialogContentType::kControl);
-    view->SetBorder(views::CreateEmptyBorder(0, content_insets.left(), 0,
-                                             content_insets.right()));
+    view->SetBorder(views::CreateEmptyBorder(gfx::Insets::TLBR(
+        0, content_insets.left(), 0, content_insets.right())));
 
     // Add to main view.
     main_view->AddChildView(std::move(view));
@@ -240,10 +234,10 @@ class ParentPermissionInputSection : public views::TextfieldController {
   base::CallbackListSubscription parent_1_subscription_;
 
   // The credential input field.
-  views::Textfield* credential_input_field_ = nullptr;
+  raw_ptr<views::Textfield> credential_input_field_ = nullptr;
 
   // Owned by the parent view class, not this class.
-  ParentPermissionDialogView* main_view_;
+  raw_ptr<ParentPermissionDialogView> main_view_;
 };
 
 struct ParentPermissionDialogView::Params {
@@ -258,10 +252,10 @@ struct ParentPermissionDialogView::Params {
   std::u16string message;
 
   // An optional extension whose permissions should be displayed
-  const extensions::Extension* extension = nullptr;
+  raw_ptr<const extensions::Extension, DanglingUntriaged> extension = nullptr;
 
   // The user's profile
-  Profile* profile = nullptr;
+  raw_ptr<Profile> profile = nullptr;
 
   // The parent window to this window. This member may be nullptr.
   gfx::NativeWindow window = nullptr;
@@ -288,6 +282,8 @@ ParentPermissionDialogView::ParentPermissionDialogView(
 
   SetModalType(ui::MODAL_TYPE_WINDOW);
   SetShowCloseButton(true);
+  SetCloseCallback(base::BindOnce(&ParentPermissionDialogView::OnDialogClose,
+                                  base::Unretained(this)));
   set_fixed_width(views::LayoutProvider::Get()->GetDistanceMetric(
       views::DISTANCE_MODAL_DIALOG_PREFERRED_WIDTH));
 
@@ -323,12 +319,6 @@ void ParentPermissionDialogView::SetRepromptAfterIncorrectCredential(
 
 bool ParentPermissionDialogView::GetRepromptAfterIncorrectCredential() const {
   return reprompt_after_incorrect_credential_;
-}
-
-std::u16string ParentPermissionDialogView::GetActiveUserFirstName() const {
-  user_manager::UserManager* manager = user_manager::UserManager::Get();
-  const user_manager::User* user = manager->GetActiveUser();
-  return user->GetGivenName();
 }
 
 void ParentPermissionDialogView::AddedToWidget() {
@@ -377,12 +367,30 @@ void ParentPermissionDialogView::AddedToWidget() {
   GetBubbleFrameView()->SetTitleView(std::move(message_container).Build());
 }
 
+void ParentPermissionDialogView::OnThemeChanged() {
+  views::DialogDelegateView::OnThemeChanged();
+  invalid_credential_label_->SetEnabledColor(
+      GetColorProvider()->GetColor(ui::kColorAlertHighSeverity));
+}
+
+void ParentPermissionDialogView::OnDialogClose() {
+  // If the dialog is closed without the user clicking "approve" consider this
+  // as ParentPermissionCanceled to avoid showing an error message. If the
+  // user clicked "accept", then that async process will send the result, or if
+  // that doesn't complete, eventually the destructor will send a failure
+  // result.
+  if (!is_approve_clicked_) {
+    SendResultOnce(ParentPermissionDialog::Result::kParentPermissionCanceled);
+  }
+}
+
 bool ParentPermissionDialogView::Cancel() {
-  SendResult(ParentPermissionDialog::Result::kParentPermissionCanceled);
+  SendResultOnce(ParentPermissionDialog::Result::kParentPermissionCanceled);
   return true;
 }
 
 bool ParentPermissionDialogView::Accept() {
+  is_approve_clicked_ = true;
   // Disable the dialog temporarily while we validate the parent's credentials,
   // which can take some time because it involves a series of async network
   // requests.
@@ -410,15 +418,17 @@ void ParentPermissionDialogView::CreateContents() {
   const gfx::Insets content_insets = provider->GetDialogInsetsForContentType(
       views::DialogContentType::kControl, views::DialogContentType::kControl);
   const int content_width = GetPreferredSize().width() - content_insets.width();
-  set_margins(gfx::Insets(content_insets.top(), 0, content_insets.bottom(), 0));
+  set_margins(
+      gfx::Insets::TLBR(content_insets.top(), 0, content_insets.bottom(), 0));
 
   // Extension-specific views.
   if (params_->extension && !prompt_permissions_.permissions.empty()) {
     auto install_permissions_section_container =
         std::make_unique<views::View>();
-    install_permissions_section_container->SetBorder(views::CreateEmptyBorder(
-        kPermissionSectionPaddingTop, content_insets.left(),
-        kPermissionSectionPaddingBottom, content_insets.right()));
+    install_permissions_section_container->SetBorder(
+        views::CreateEmptyBorder(gfx::Insets::TLBR(
+            kPermissionSectionPaddingTop, content_insets.left(),
+            kPermissionSectionPaddingBottom, content_insets.right())));
     install_permissions_section_container->SetLayoutManager(
         std::make_unique<views::BoxLayout>(
             views::BoxLayout::Orientation::kVertical, gfx::Insets(),
@@ -437,15 +447,17 @@ void ParentPermissionDialogView::CreateContents() {
     }
     std::u16string permission_header_label = l10n_util::GetStringFUTF16(
         IDS_PARENT_PERMISSION_PROMPT_CHILD_WANTS_TO_INSTALL_LABEL,
-        GetActiveUserFirstName(), extension_type);
+        base::UTF8ToUTF16(
+            supervised_user::GetAccountGivenName(*params_->profile)),
+        extension_type);
 
     views::Label* permissions_header = new views::Label(
         permission_header_label, views::style::CONTEXT_DIALOG_BODY_TEXT);
     permissions_header->SetMultiLine(true);
     permissions_header->SetHorizontalAlignment(gfx::ALIGN_LEFT);
     permissions_header->SizeToFit(content_width);
-    permissions_header->SetBorder(views::CreateEmptyBorder(
-        0, content_insets.left(), 0, content_insets.right()));
+    permissions_header->SetBorder(views::CreateEmptyBorder(gfx::Insets::TLBR(
+        0, content_insets.left(), 0, content_insets.right())));
 
     // Add this outside the scrolling section, so it can't be obscured by
     // scrolling.
@@ -487,17 +499,15 @@ void ParentPermissionDialogView::CreateContents() {
   auto invalid_credential_label = std::make_unique<MaybeEmptyLabel>("", font);
 
   invalid_credential_label->SetBorder(views::CreateEmptyBorder(
-      kInvalidCredentialLabelTopPadding, content_insets.left(), 0,
-      content_insets.right()));
+      gfx::Insets::TLBR(kInvalidCredentialLabelTopPadding,
+                        content_insets.left(), 0, content_insets.right())));
   invalid_credential_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   invalid_credential_label->SetMultiLine(true);
-  invalid_credential_label->SetEnabledColor(gfx::kGoogleRed600);
   invalid_credential_label->SizeToFit(content_width);
 
   // Cache the pointer so we we can update the invalid credential label when we
   // get an incorrect password.
-  invalid_credential_label_ = invalid_credential_label.get();
-  AddChildView(std::move(invalid_credential_label));
+  invalid_credential_label_ = AddChildView(std::move(invalid_credential_label));
 }
 
 void ParentPermissionDialogView::ShowDialog() {
@@ -512,7 +522,7 @@ void ParentPermissionDialogView::ShowDialog() {
           kOpened);
 
   if (params_->extension)
-    InitializeExtensionData(params_->extension);
+    InitializeExtensionData(params_->extension.get());
   else
     ShowDialogInternal();
 }
@@ -562,7 +572,6 @@ void ParentPermissionDialogView::ShowDialogInternal() {
   // because they can potentially rely on the side effects of loading info
   // from an extension.
   CreateContents();
-  chrome::RecordDialogCreation(chrome::DialogIdentifier::PARENT_PERMISSION);
   views::Widget* widget =
       params_->window
           ? constrained_window::CreateBrowserModalDialogViews(this,
@@ -577,7 +586,7 @@ void ParentPermissionDialogView::ShowDialogInternal() {
 void ParentPermissionDialogView::LoadParentEmailAddresses() {
   // Get the parents' email addresses.  There can be a max of 2 parent email
   // addresses, the primary and the secondary.
-  SupervisedUserService* service =
+  supervised_user::SupervisedUserService* service =
       SupervisedUserServiceFactory::GetForProfile(params_->profile);
 
   std::u16string primary_parent_email =
@@ -594,41 +603,8 @@ void ParentPermissionDialogView::LoadParentEmailAddresses() {
     supervised_user_metrics_recorder_.RecordParentPermissionDialogUmaMetrics(
         SupervisedUserExtensionsMetricsRecorder::ParentPermissionDialogState::
             kNoParentError);
-    SendResult(ParentPermissionDialog::Result::kParentPermissionFailed);
+    SendResultOnce(ParentPermissionDialog::Result::kParentPermissionFailed);
   }
-}
-
-void ParentPermissionDialogView::OnExtensionIconLoaded(
-    const gfx::Image& image) {
-  // The order of preference for the icon to use is:
-  //  1. Icon loaded from extension, if not empty.
-  //  2. Icon passed in params, if not empty.
-  //  3. Default Icon.
-  if (!image.IsEmpty()) {
-    // Use the image that was loaded from the extension if it's not empty
-    params_->icon = *image.ToImageSkia();
-  } else if (params_->icon.isNull()) {
-    // If icon is empty, use a default icon.:
-    params_->icon =
-        GetDefaultIconBitmapForMaxScaleFactor(params_->extension->is_app());
-  }
-
-  ShowDialogInternal();
-}
-
-void ParentPermissionDialogView::LoadExtensionIcon() {
-  DCHECK(params_->extension);
-
-  // Load the image asynchronously. The response will be sent to
-  // OnExtensionIconLoaded.
-  extensions::ImageLoader* loader =
-      extensions::ImageLoader::Get(params_->profile);
-  loader->LoadImageAtEveryScaleFactorAsync(
-      params_->extension,
-      gfx::Size(extension_misc::EXTENSION_ICON_LARGE,
-                extension_misc::EXTENSION_ICON_LARGE),
-      base::BindOnce(&ParentPermissionDialogView::OnExtensionIconLoaded,
-                     weak_factory_.GetWeakPtr()));
 }
 
 void ParentPermissionDialogView::CloseWithReason(
@@ -644,20 +620,16 @@ void ParentPermissionDialogView::CloseWithReason(
 
 std::string ParentPermissionDialogView::GetParentObfuscatedGaiaID(
     const std::u16string& parent_email) const {
-  SupervisedUserService* service =
+  supervised_user::SupervisedUserService* service =
       SupervisedUserServiceFactory::GetForProfile(params_->profile);
 
   if (service->GetCustodianEmailAddress() == base::UTF16ToUTF8(parent_email))
     return service->GetCustodianObfuscatedGaiaId();
 
-  if (service->GetSecondCustodianEmailAddress() ==
-      base::UTF16ToUTF8(parent_email)) {
-    return service->GetSecondCustodianObfuscatedGaiaId();
-  }
-
-  NOTREACHED()
+  CHECK_EQ(service->GetSecondCustodianEmailAddress(),
+           base::UTF16ToUTF8(parent_email))
       << "Tried to get obfuscated gaia id for a non-custodian email address";
-  return std::string();
+  return service->GetSecondCustodianObfuscatedGaiaId();
 }
 
 void ParentPermissionDialogView::StartReauthAccessTokenFetch(
@@ -685,7 +657,7 @@ void ParentPermissionDialogView::OnAccessTokenFetchComplete(
     signin::AccessTokenInfo access_token_info) {
   oauth2_access_token_fetcher_.reset();
   if (error.state() != GoogleServiceAuthError::NONE) {
-    SendResult(ParentPermissionDialog::Result::kParentPermissionFailed);
+    SendResultOnce(ParentPermissionDialog::Result::kParentPermissionFailed);
     CloseWithReason(views::Widget::ClosedReason::kUnspecified);
     return;
   }
@@ -707,7 +679,7 @@ void ParentPermissionDialogView::StartParentReauthProofTokenFetch(
       child_access_token, parent_obfuscated_gaia_id, credential);
 }
 
-void ParentPermissionDialogView::SendResult(
+void ParentPermissionDialogView::SendResultOnce(
     ParentPermissionDialog::Result result) {
   if (!params_->done_callback)
     return;
@@ -734,7 +706,7 @@ void ParentPermissionDialogView::SendResult(
 
 void ParentPermissionDialogView::OnReAuthProofTokenSuccess(
     const std::string& reauth_proof_token) {
-  SendResult(ParentPermissionDialog::Result::kParentPermissionReceived);
+  SendResultOnce(ParentPermissionDialog::Result::kParentPermissionReceived);
   CloseWithReason(views::Widget::ClosedReason::kAcceptButtonClicked);
 }
 
@@ -757,7 +729,7 @@ void ParentPermissionDialogView::OnReAuthProofTokenFailure(
       return;
     }
   }
-  SendResult(ParentPermissionDialog::Result::kParentPermissionFailed);
+  SendResultOnce(ParentPermissionDialog::Result::kParentPermissionFailed);
   CloseWithReason(views::Widget::ClosedReason::kUnspecified);
 }
 
@@ -782,7 +754,7 @@ void ParentPermissionDialogView::InitializeExtensionData(
       IDS_PARENT_PERMISSION_PROMPT_GO_GET_A_PARENT_FOR_EXTENSION_LABEL,
       base::UTF8ToUTF16(extension->name()));
 
-  LoadExtensionIcon();
+  ShowDialogInternal();
 }
 
 BEGIN_METADATA(ParentPermissionDialogView, views::DialogDelegateView)
@@ -790,7 +762,6 @@ ADD_PROPERTY_METADATA(std::u16string, SelectedParentPermissionEmail)
 ADD_PROPERTY_METADATA(std::u16string, ParentPermissionCredential)
 ADD_READONLY_PROPERTY_METADATA(bool, InvalidCredentialReceived)
 ADD_PROPERTY_METADATA(bool, RepromptAfterIncorrectCredential)
-ADD_READONLY_PROPERTY_METADATA(std::u16string, ActiveUserFirstName)
 END_METADATA
 
 class ParentPermissionDialogImpl : public ParentPermissionDialog,
@@ -809,7 +780,7 @@ class ParentPermissionDialogImpl : public ParentPermissionDialog,
   void OnParentPermissionDialogViewDestroyed() override;
 
  private:
-  ParentPermissionDialogView* view_ = nullptr;
+  raw_ptr<ParentPermissionDialogView> view_ = nullptr;
 };
 
 ParentPermissionDialogImpl::ParentPermissionDialogImpl(

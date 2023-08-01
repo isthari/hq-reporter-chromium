@@ -1,29 +1,30 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/settings/password/passwords_in_other_apps/passwords_in_other_apps_view_controller.h"
 
-#include "base/ios/ios_util.h"
-#include "components/password_manager/core/common/password_manager_features.h"
-#import "ios/chrome/browser/ui/elements/instruction_view.h"
+#import "base/ios/ios_util.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
+#import "ios/chrome/browser/shared/ui/elements/instruction_view.h"
+#import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/settings/password/passwords_in_other_apps/constants.h"
 #import "ios/chrome/browser/ui/settings/password/passwords_in_other_apps/passwords_in_other_apps_view_controller_delegate.h"
 #import "ios/chrome/browser/ui/settings/settings_navigation_controller.h"
 #import "ios/chrome/browser/ui/settings/utils/password_auto_fill_status_manager.h"
-#include "ios/chrome/browser/ui/ui_feature_flags.h"
-#import "ios/chrome/browser/ui/util/uikit_ui_util.h"
-#include "ios/chrome/common/string_util.h"
+#import "ios/chrome/common/button_configuration_util.h"
+#import "ios/chrome/common/string_util.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
 #import "ios/chrome/common/ui/elements/highlight_button.h"
 #import "ios/chrome/common/ui/util/button_util.h"
 #import "ios/chrome/common/ui/util/image_util.h"
 #import "ios/chrome/common/ui/util/pointer_interaction_util.h"
-#include "ios/chrome/grit/ios_google_chrome_strings.h"
-#include "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/common/ui/util/text_view_util.h"
+#import "ios/chrome/grit/ios_google_chrome_strings.h"
+#import "ios/chrome/grit/ios_strings.h"
 #import "ios/public/provider/chrome/browser/password_auto_fill/password_auto_fill_api.h"
 #import "ui/base/device_form_factor.h"
-#include "ui/base/l10n/l10n_util.h"
+#import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -39,11 +40,6 @@ CGFloat const kContentWidthMultiplier = 0.65;
 CGFloat const kBottomMargin = 10;
 CGFloat const kButtonHorizontalMargin = 4;
 CGFloat const kContentOptimalWidth = 327;
-
-BOOL isPasswordManagerBrandingUpdateEnabled() {
-  return base::FeatureList::IsEnabled(
-      password_manager::features::kIOSEnablePasswordManagerBrandingUpdate);
-}
 }  // namespace
 
 @interface PasswordsInOtherAppsViewController ()
@@ -51,7 +47,9 @@ BOOL isPasswordManagerBrandingUpdateEnabled() {
 // Properties set on initialization.
 @property(nonatomic, copy, readonly) NSString* titleText;
 @property(nonatomic, copy, readonly) NSString* subtitleText;
-@property(nonatomic, strong, readonly) UIImage* bannerImage;
+// Whether banner is light or dark mode
+@property(nonatomic, assign) UIUserInterfaceStyle bannerStyle;
+@property(nonatomic, copy, readonly) NSString* bannerName;
 @property(nonatomic, copy, readonly) NSString* actionString;
 
 // Visible UI components.
@@ -79,7 +77,7 @@ BOOL isPasswordManagerBrandingUpdateEnabled() {
 @property(nonatomic, strong) UINavigationBarAppearance* defaultAppearance;
 
 // Whether the image is currently being calculated; used to prevent infinite
-// recursions caused by |viewDidLayoutSubviews|.
+// recursions caused by `viewDidLayoutSubviews`.
 @property(nonatomic, assign) BOOL calculatingImageSize;
 @end
 
@@ -97,25 +95,19 @@ BOOL isPasswordManagerBrandingUpdateEnabled() {
     _titleText =
         l10n_util::GetNSString(IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS);
     _actionString = l10n_util::GetNSString(IDS_IOS_OPEN_SETTINGS);
-    if (isPasswordManagerBrandingUpdateEnabled()) {
-      UIUserInterfaceIdiom idiom =
-          [[UIDevice currentDevice] userInterfaceIdiom];
-      if (idiom == UIUserInterfaceIdiomPad) {
-        _subtitleText = l10n_util::GetNSString(
-            IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_SUBTITLE_IPAD);
-      } else {
-        _subtitleText = l10n_util::GetNSString(
-            IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_SUBTITLE_IPHONE);
-      }
 
-      _bannerImage =
-          [UIImage imageNamed:@"settings_passwords_in_other_apps_banner"];
+    UIUserInterfaceIdiom idiom = [[UIDevice currentDevice] userInterfaceIdiom];
+    if (idiom == UIUserInterfaceIdiomPad) {
+      _subtitleText = l10n_util::GetNSString(
+          IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_SUBTITLE_IPAD);
     } else {
       _subtitleText = l10n_util::GetNSString(
-          IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_SUBTITLE);
-      _bannerImage = [UIImage
-          imageNamed:@"legacy_settings_passwords_in_other_apps_banner"];
+          IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_SUBTITLE_IPHONE);
     }
+
+    _bannerName = @"settings_passwords_in_other_apps_banner";
+
+    self.bannerStyle = UIUserInterfaceStyleUnspecified;
   }
   return self;
 }
@@ -323,7 +315,7 @@ BOOL isPasswordManagerBrandingUpdateEnabled() {
 - (void)viewDidLayoutSubviews {
   [super viewDidLayoutSubviews];
 
-  // Prevents potential recursive calls to |viewDidLayoutSubviews|.
+  // Prevents potential recursive calls to `viewDidLayoutSubviews`.
   if (self.calculatingImageSize) {
     return;
   }
@@ -400,6 +392,7 @@ BOOL isPasswordManagerBrandingUpdateEnabled() {
     _titleLabel.adjustsFontForContentSizeCategory = YES;
     _titleLabel.accessibilityIdentifier =
         kPasswordsInOtherAppsTitleAccessibilityIdentifier;
+    _titleLabel.accessibilityTraits |= UIAccessibilityTraitHeader;
   }
   return _titleLabel;
 }
@@ -441,8 +434,28 @@ BOOL isPasswordManagerBrandingUpdateEnabled() {
 - (UIButton*)actionButton {
   if (!_actionButton) {
     _actionButton = [[HighlightButton alloc] initWithFrame:CGRectZero];
-    _actionButton.contentEdgeInsets =
-        UIEdgeInsetsMake(kButtonVerticalInsets, 0, kButtonVerticalInsets, 0);
+
+    // TODO(crbug.com/1418068): Simplify after minimum version required is >=
+    // iOS 15.
+    if (base::ios::IsRunningOnIOS15OrLater() &&
+        IsUIButtonConfigurationEnabled()) {
+      if (@available(iOS 15, *)) {
+        UIButtonConfiguration* buttonConfiguration =
+            [UIButtonConfiguration plainButtonConfiguration];
+        buttonConfiguration.contentInsets = NSDirectionalEdgeInsetsMake(
+            kButtonVerticalInsets, kButtonHorizontalMargin,
+            kButtonVerticalInsets, kButtonHorizontalMargin);
+        _actionButton.configuration = buttonConfiguration;
+      }
+    } else {
+      UIEdgeInsets contentEdgeInsets =
+          UIEdgeInsetsMake(kButtonVerticalInsets, 0, kButtonVerticalInsets, 0);
+      UIEdgeInsets titleEdgeInsets = UIEdgeInsetsMake(
+          0, kButtonHorizontalMargin, 0, kButtonHorizontalMargin);
+      SetContentEdgeInsets(_actionButton, contentEdgeInsets);
+      SetTitleEdgeInsets(_actionButton, titleEdgeInsets);
+    }
+
     [_actionButton
         setBackgroundColor:[UIColor
                                colorNamed:kGroupedSecondaryBackgroundColor]];
@@ -461,8 +474,7 @@ BOOL isPasswordManagerBrandingUpdateEnabled() {
     _actionButton.titleLabel.adjustsFontForContentSizeCategory = YES;
     _actionButton.accessibilityIdentifier =
         kPasswordsInOtherAppsActionAccessibilityIdentifier;
-    _actionButton.titleEdgeInsets = UIEdgeInsetsMake(
-        0, kButtonHorizontalMargin, 0, kButtonHorizontalMargin);
+
     _actionButton.titleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
     [_actionButton addTarget:self
                       action:@selector(didTapActionButton)
@@ -645,10 +657,16 @@ BOOL isPasswordManagerBrandingUpdateEnabled() {
 }
 
 - (NSArray<NSString*>*)steps {
+  BOOL isIOS16AndAbove = NO;
+  if (@available(iOS 16, *)) {
+    isIOS16AndAbove = YES;
+  }
   if (self.useShortInstruction) {
     return @[
       l10n_util::GetNSString(
-          IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_SHORTENED_STEP_1),
+          isIOS16AndAbove
+              ? IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_SHORTENED_STEP_1_IOS16
+              : IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_SHORTENED_STEP_1),
       l10n_util::GetNSString(
           IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_SHORTENED_STEP_2)
     ];
@@ -660,7 +678,9 @@ BOOL isPasswordManagerBrandingUpdateEnabled() {
         : l10n_util::GetNSString(
               IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_STEP_1_IPHONE),
     l10n_util::GetNSString(IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_STEP_2),
-    l10n_util::GetNSString(IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_STEP_3),
+    l10n_util::GetNSString(
+        isIOS16AndAbove ? IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_STEP_3_IOS16
+                        : IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_STEP_3),
     l10n_util::GetNSString(IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_STEP_4)
   ];
 }
@@ -686,8 +706,14 @@ BOOL isPasswordManagerBrandingUpdateEnabled() {
 
 // Returns caption text that shows below the subtitle in turnOffInstructions.
 - (UITextView*)drawCaptionTextView {
-  NSString* text =
-      l10n_util::GetNSString(IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_CAPTION);
+  NSString* text;
+  if (@available(iOS 16, *)) {
+    text = l10n_util::GetNSString(
+        IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_CAPTION_IOS16);
+  } else {
+    text = l10n_util::GetNSString(
+        IDS_IOS_SETTINGS_PASSWORDS_IN_OTHER_APPS_CAPTION);
+  }
   NSDictionary* textAttributes = @{
     NSForegroundColorAttributeName : [UIColor colorNamed:kGrey600Color],
     NSFontAttributeName :
@@ -702,7 +728,7 @@ BOOL isPasswordManagerBrandingUpdateEnabled() {
     NSLinkAttributeName : l10n_util::GetNSString(IDS_IOS_OPEN_SETTINGS),
   };
 
-  UITextView* captionTextView = [[UITextView alloc] init];
+  UITextView* captionTextView = CreateUITextViewWithTextKit1();
   captionTextView.attributedText =
       AttributedStringFromStringWithLink(text, textAttributes, linkAttributes);
   captionTextView.editable = NO;
@@ -718,18 +744,27 @@ BOOL isPasswordManagerBrandingUpdateEnabled() {
   return captionTextView;
 }
 
-// Returns a new UIImage which is |sourceImage| resized to |newSize|.
-// Returns |currentImage| if it is already at the correct size.
+// Returns a new UIImage which is `sourceImage` resized to `newSize`.
+// Returns `currentImage` if it is already at the correct size.
 // Returns nil when the view should not show an image (iPhone landscape mode).
 - (UIImage*)createOrUpdateImage:(UIImage*)currentImage {
   if (IsCompactHeight(self)) {
     return nil;
   }
+  UIUserInterfaceStyle currentStyle =
+      UITraitCollection.currentTraitCollection.userInterfaceStyle;
   CGSize newSize = [self computeBannerImageSize];
-  if (CGSizeEqualToSize(newSize, currentImage.size)) {
+  if (CGSizeEqualToSize(newSize, currentImage.size) &&
+      self.bannerStyle == currentStyle) {
     return currentImage;
   }
-  return ResizeImage(self.bannerImage, newSize, ProjectionMode::kAspectFit);
+  self.bannerStyle = currentStyle;
+  return ResizeImage([self bannerImage], newSize, ProjectionMode::kAspectFit);
+}
+
+// The banner image
+- (UIImage*)bannerImage {
+  return [UIImage imageNamed:self.bannerName];
 }
 
 // Computes banner's image size.
@@ -737,7 +772,7 @@ BOOL isPasswordManagerBrandingUpdateEnabled() {
   CGFloat destinationHeight =
       roundf(self.view.bounds.size.height * kDefaultBannerMultiplier);
   CGFloat destinationWidth =
-      roundf(self.bannerImage.size.width / self.bannerImage.size.height *
+      roundf([self bannerImage].size.width / [self bannerImage].size.height *
              destinationHeight);
   CGSize newSize = CGSizeMake(destinationWidth, destinationHeight);
   return newSize;

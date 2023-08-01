@@ -1,17 +1,22 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "device/fido/mac/keychain.h"
 
+#import <Foundation/Foundation.h>
+
+#include "base/mac/foundation_util.h"
+#include "base/mac/scoped_cftyperef.h"
 #include "base/no_destructor.h"
 
-namespace device {
-namespace fido {
-namespace mac {
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
-static API_AVAILABLE(macos(10.12.2)) Keychain* g_keychain_instance_override =
-    nullptr;
+namespace device::fido::mac {
+
+static Keychain* g_keychain_instance_override = nullptr;
 
 // static
 Keychain& Keychain::GetInstance() {
@@ -64,6 +69,10 @@ OSStatus Keychain::ItemDelete(CFDictionaryRef query) {
   return SecItemDelete(query);
 }
 
-}  // namespace mac
-}  // namespace fido
-}  // namespace device
+OSStatus Keychain::ItemUpdate(
+    CFDictionaryRef query,
+    base::ScopedCFTypeRef<CFMutableDictionaryRef> keychain_data) {
+  return SecItemUpdate(query, keychain_data);
+}
+
+}  // namespace device::fido::mac

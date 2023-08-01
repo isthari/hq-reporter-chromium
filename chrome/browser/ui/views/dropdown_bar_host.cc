@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,8 +53,7 @@ void DropdownBarHost::Init(views::View* host_view,
   views::Widget::InitParams params(views::Widget::InitParams::TYPE_CONTROL);
   params.delegate = this;
   params.name = "DropdownBarHost";
-  params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  params.parent = browser_view_->GetWidget()->GetNativeView();
+  params.parent = browser_view_->GetWidgetForAnchoring()->GetNativeView();
   params.opacity = views::Widget::InitParams::WindowOpacity::kTranslucent;
 #if BUILDFLAG(IS_MAC)
   params.activatable = views::Widget::InitParams::Activatable::kYes;
@@ -67,13 +66,10 @@ void DropdownBarHost::Init(views::View* host_view,
   // Start listening to focus changes, so we can register and unregister our
   // own handler for Escape.
   focus_manager_ = host_->GetFocusManager();
-  if (focus_manager_) {
-    focus_manager_->AddFocusChangeListener(this);
-  } else {
-    // In some cases (see bug http://crbug.com/17056) it seems we may not have
-    // a focus manager.  Please reopen the bug if you hit this.
-    NOTREACHED();
-  }
+  // In some cases (see bug http://crbug.com/17056) it seems we may not have
+  // a focus manager.  Please reopen the bug if you hit this.
+  CHECK(focus_manager_);
+  focus_manager_->AddFocusChangeListener(this);
 
   animation_ = std::make_unique<gfx::SlideAnimation>(this);
   if (!gfx::Animation::ShouldRenderRichAnimation())
@@ -100,6 +96,8 @@ void DropdownBarHost::StopAnimation() {
 }
 
 void DropdownBarHost::Show(bool animate) {
+  DCHECK(host_);
+
   if (!focus_tracker_) {
     // Stores the currently focused view, and tracks focus changes so that we
     // can restore focus when the dropdown widget is closed.
@@ -213,6 +211,7 @@ void DropdownBarHost::AnimationEnded(const gfx::Animation* animation) {
 
   if (!animation_->IsShowing()) {
     // Animation has finished closing.
+    DCHECK(host_);
     host_->Hide();
     is_visible_ = false;
     OnVisibilityChanged();

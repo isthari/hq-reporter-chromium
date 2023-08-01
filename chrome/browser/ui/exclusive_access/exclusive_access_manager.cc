@@ -1,4 +1,4 @@
-// Copyright (c) 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -78,7 +78,8 @@ void ExclusiveAccessManager::UpdateExclusiveAccessExitBubbleContent(
   GURL url = GetExclusiveAccessBubbleURL();
   ExclusiveAccessBubbleType bubble_type = GetExclusiveAccessExitBubbleType();
   exclusive_access_context_->UpdateExclusiveAccessExitBubbleContent(
-      url, bubble_type, std::move(bubble_first_hide_callback), force_update);
+      url, bubble_type, std::move(bubble_first_hide_callback),
+      /*notify_download=*/false, force_update);
 }
 
 GURL ExclusiveAccessManager::GetExclusiveAccessBubbleURL() const {
@@ -135,43 +136,4 @@ void ExclusiveAccessManager::ExitExclusiveAccess() {
   fullscreen_controller_.ExitExclusiveAccessToPreviousState();
   keyboard_lock_controller_.LostKeyboardLock();
   mouse_lock_controller_.LostMouseLock();
-}
-
-void ExclusiveAccessManager::RecordBubbleReshownUMA(
-    ExclusiveAccessBubbleType type) {
-  // Figure out whether fullscreen, mouselock, or keyboardlock is in effect.
-  bool fullscreen = false;
-  bool mouselock = false;
-  bool keyboardlock = false;
-  switch (type) {
-    case EXCLUSIVE_ACCESS_BUBBLE_TYPE_NONE:
-      // None in effect.
-      break;
-    case EXCLUSIVE_ACCESS_BUBBLE_TYPE_FULLSCREEN_EXIT_INSTRUCTION:
-    case EXCLUSIVE_ACCESS_BUBBLE_TYPE_BROWSER_FULLSCREEN_EXIT_INSTRUCTION:
-    case EXCLUSIVE_ACCESS_BUBBLE_TYPE_EXTENSION_FULLSCREEN_EXIT_INSTRUCTION:
-      // Only fullscreen in effect.
-      fullscreen = true;
-      break;
-    case EXCLUSIVE_ACCESS_BUBBLE_TYPE_KEYBOARD_LOCK_EXIT_INSTRUCTION:
-      fullscreen = true;
-      keyboardlock = true;
-      break;
-    case EXCLUSIVE_ACCESS_BUBBLE_TYPE_MOUSELOCK_EXIT_INSTRUCTION:
-      // Only mouselock in effect.
-      mouselock = true;
-      break;
-    case EXCLUSIVE_ACCESS_BUBBLE_TYPE_FULLSCREEN_MOUSELOCK_EXIT_INSTRUCTION:
-      // Both in effect.
-      fullscreen = true;
-      mouselock = true;
-      break;
-  }
-
-  if (fullscreen)
-    fullscreen_controller_.RecordBubbleReshownUMA();
-  if (mouselock)
-    mouse_lock_controller_.RecordBubbleReshownUMA();
-  if (keyboardlock)
-    keyboard_lock_controller_.RecordBubbleReshownUMA();
 }

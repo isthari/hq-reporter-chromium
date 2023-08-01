@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@ import android.view.animation.DecelerateInterpolator;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
+import org.chromium.ui.ElidedUrlTextView;
 import org.chromium.ui.widget.ChromeImageButton;
 
 /**
@@ -60,15 +61,16 @@ public class PageInfoContainer extends FrameLayout {
     }
 
     public void setParams(Params params) {
+        View urlWrapper = findViewById(R.id.page_info_url_wrapper);
+        initializeUrlView(urlWrapper, params);
+
         mExpandedUrlTitle = findViewById(R.id.page_info_url);
-        initializeUrlView(mExpandedUrlTitle, params);
         mExpandedUrlTitle.setUrl(params.url, params.urlOriginLength);
         // Adjust mExpandedUrlTitle for displaying the non-truncated URL.
         mExpandedUrlTitle.toggleTruncation();
 
-        mTruncatedUrlTitle = findViewById(R.id.page_info_truncated_url);
         // Use a separate view for truncated URL display.
-        initializeUrlView(mTruncatedUrlTitle, params);
+        mTruncatedUrlTitle = findViewById(R.id.page_info_truncated_url);
         mTruncatedUrlTitle = findViewById(R.id.page_info_truncated_url);
         mTruncatedUrlTitle.setText(params.truncatedUrl);
 
@@ -82,7 +84,7 @@ public class PageInfoContainer extends FrameLayout {
 
     private void initializeUrlView(View view, Params params) {
         if (params.urlTitleClickCallback != null) {
-            view.setOnClickListener(v -> { params.urlTitleClickCallback.run(); });
+            view.setOnClickListener(v -> params.urlTitleClickCallback.run());
         }
         if (params.urlTitleLongClickCallback != null) {
             view.setOnLongClickListener(v -> {

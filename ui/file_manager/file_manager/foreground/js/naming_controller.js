@@ -1,18 +1,19 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {assert} from 'chrome://resources/js/assert.m.js';
-import {ConfirmDialog} from 'chrome://resources/js/cr/ui/dialogs.m.js';
-import {getFile} from '../../common/js/api.js';
+import {assert} from 'chrome://resources/ash/common/assert.js';
 
-import {strf, util} from '../../common/js/util.js';
+import {getFile} from '../../common/js/api.js';
+import {getKeyModifiers} from '../../common/js/dom_utils.js';
+import {strf, UserCanceledError, util} from '../../common/js/util.js';
 import {VolumeInfo} from '../../externs/volume_info.js';
 
 import {FileFilter} from './directory_contents.js';
 import {DirectoryModel} from './directory_model.js';
 import {renameEntry, validateEntryName, validateFileName} from './file_rename.js';
 import {FileSelectionHandler} from './file_selection.js';
+import {ConfirmDialog} from './ui/dialogs.js';
 import {FilesAlertDialog} from './ui/files_alert_dialog.js';
 import {ListContainer} from './ui/list_container.js';
 
@@ -102,12 +103,12 @@ export class NamingController {
     try {
       const isValid = await this.validateFileName(directory, filename);
       if (!isValid) {
-        throw 'Invalid filename.';
+        throw new Error('Invalid filename.');
       }
 
       if (directory && util.isFakeEntry(directory)) {
         // Can't save a file into a fake directory.
-        throw 'Cannot save into fake entry.';
+        throw new Error('Cannot save into fake entry.');
       }
 
       await getFile(directory, filename, {create: false});
@@ -124,7 +125,7 @@ export class NamingController {
       }
 
       // Unexpected error.
-      console.error('File save failed: ' + error.code);
+      console.warn('File save failed: ' + error.code);
       throw error;
     }
 
@@ -133,7 +134,7 @@ export class NamingController {
     return new Promise((fulfill, reject) => {
       this.confirmDialog_.show(
           strf('CONFIRM_OVERWRITE_FILE', filename), fulfill.bind(null, fileUrl),
-          reject.bind(null, 'Cancelled'));
+          () => reject(new UserCanceledError('Canceled')));
     });
   }
 
@@ -232,7 +233,7 @@ export class NamingController {
       event.stopPropagation();
     }
 
-    switch (util.getKeyModifiers(event) + event.key) {
+    switch (getKeyModifiers(event) + event.key) {
       case 'Escape':
         this.cancelRename_();
         event.preventDefault();
@@ -285,7 +286,8 @@ export class NamingController {
     try {
       input.validation_ = true;
       await validateEntryName(
-          entry, newName, false, volumeInfo, isRemovableRoot);
+          entry, newName, this.fileFilter_.isHiddenFilesVisible(), volumeInfo,
+          isRemovableRoot);
     } catch (error) {
       await this.alertDialog_.showAsync(/** @type {string} */ (error.message));
 

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,29 +28,6 @@ class VR_BASE_EXPORT UiBrowserInterface {
   virtual ~UiBrowserInterface() = default;
 
   virtual void ExitPresent() = 0;
-  virtual void ExitFullscreen() = 0;
-  virtual void Navigate(GURL gurl, NavigationMethod method) = 0;
-  virtual void NavigateBack() = 0;
-  virtual void NavigateForward() = 0;
-  virtual void ReloadTab() = 0;
-  virtual void OpenNewTab(bool incognito) = 0;
-  virtual void OpenBookmarks() = 0;
-  virtual void OpenRecentTabs() = 0;
-  virtual void OpenHistory() = 0;
-  virtual void OpenDownloads() = 0;
-  virtual void OpenShare() = 0;
-  virtual void OpenSettings() = 0;
-  virtual void CloseAllIncognitoTabs() = 0;
-  virtual void OpenFeedback() = 0;
-  virtual void CloseHostedDialog() = 0;
-  virtual void OnUnsupportedMode(UiUnsupportedMode mode) = 0;
-  virtual void OnExitVrPromptResult(ExitVrPromptChoice choice,
-                                    UiUnsupportedMode reason) = 0;
-  virtual void OnContentScreenBoundsChanged(const gfx::SizeF& bounds) = 0;
-  virtual void SetVoiceSearchActive(bool active) = 0;
-  virtual void StartAutocomplete(const AutocompleteRequest& request) = 0;
-  virtual void StopAutocomplete() = 0;
-  virtual void ShowPageInfo() = 0;
 };
 
 }  // namespace vr

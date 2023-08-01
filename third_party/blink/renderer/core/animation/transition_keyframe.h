@@ -1,10 +1,11 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_TRANSITION_KEYFRAME_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_TRANSITION_KEYFRAME_H_
 
+#include "base/notreached.h"
 #include "third_party/blink/renderer/core/animation/css/compositor_keyframe_value.h"
 #include "third_party/blink/renderer/core/animation/keyframe.h"
 #include "third_party/blink/renderer/core/animation/typed_interpolation_value.h"
@@ -25,7 +26,10 @@ class CORE_EXPORT TransitionKeyframe : public Keyframe {
   }
 
   TransitionKeyframe(const TransitionKeyframe& copy_from)
-      : Keyframe(copy_from.offset_, copy_from.composite_, copy_from.easing_),
+      : Keyframe(copy_from.offset_,
+                 copy_from.timeline_offset_,
+                 copy_from.composite_,
+                 copy_from.easing_),
         property_(copy_from.property_),
         value_(copy_from.value_->Clone()),
         compositor_value_(copy_from.compositor_value_) {}

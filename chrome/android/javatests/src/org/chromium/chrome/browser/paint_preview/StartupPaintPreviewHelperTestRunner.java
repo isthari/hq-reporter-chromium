@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,9 @@ package org.chromium.chrome.browser.paint_preview;
 
 import android.content.Context;
 import android.provider.Settings;
-import android.support.test.InstrumentationRegistry;
 import android.text.TextUtils;
+
+import androidx.test.core.app.ApplicationProvider;
 
 import org.junit.runners.model.InitializationError;
 
@@ -34,7 +35,7 @@ public class StartupPaintPreviewHelperTestRunner extends ChromeJUnit4ClassRunner
     @Override
     protected List<SkipCheck> getSkipChecks() {
         return addToList(super.getSkipChecks(),
-                new StartupPaintPreviewSkipCheck(InstrumentationRegistry.getTargetContext()));
+                new StartupPaintPreviewSkipCheck(ApplicationProvider.getApplicationContext()));
     }
 
     private static class StartupPaintPreviewSkipCheck extends RestrictionSkipCheck {

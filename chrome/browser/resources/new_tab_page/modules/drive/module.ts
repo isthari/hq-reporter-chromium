@@ -1,13 +1,13 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import '../module_header.js';
 import 'chrome://resources/cr_elements/cr_auto_img/cr_auto_img.js';
-import 'chrome://resources/cr_elements/cr_lazy_render/cr_lazy_render.m.js';
+import 'chrome://resources/cr_elements/cr_lazy_render/cr_lazy_render.js';
 
-import {CrLazyRenderElement} from 'chrome://resources/cr_elements/cr_lazy_render/cr_lazy_render.m.js';
-import {DomRepeatEvent, html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {CrLazyRenderElement} from 'chrome://resources/cr_elements/cr_lazy_render/cr_lazy_render.js';
+import {DomRepeat, DomRepeatEvent, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {File} from '../../drive.mojom-webui.js';
 import {I18nMixin, loadTimeData} from '../../i18n_setup.js';
@@ -15,9 +15,12 @@ import {InfoDialogElement} from '../info_dialog.js';
 import {ModuleDescriptor} from '../module_descriptor.js';
 
 import {DriveProxy} from './drive_module_proxy.js';
+import {getTemplate} from './module.html.js';
 
-interface DriveModuleElement {
+export interface DriveModuleElement {
   $: {
+    files: HTMLElement,
+    fileRepeat: DomRepeat,
     infoDialogRender: CrLazyRenderElement<InfoDialogElement>,
   };
 }
@@ -26,10 +29,14 @@ interface DriveModuleElement {
  * The Drive module, which serves as an inside look in to recent activity within
  * a user's Google Drive.
  */
-class DriveModuleElement extends I18nMixin
+export class DriveModuleElement extends I18nMixin
 (PolymerElement) {
   static get is() {
     return 'ntp-drive-module';
+  }
+
+  static get template() {
+    return getTemplate();
   }
 
   static get properties() {
@@ -80,10 +87,6 @@ class DriveModuleElement extends I18nMixin
     const index = e.model.index;
     chrome.metricsPrivate.recordSmallCount('NewTabPage.Drive.FileClick', index);
   }
-
-  static get template() {
-    return html`{__html_template__}`;
-  }
 }
 
 customElements.define(DriveModuleElement.is, DriveModuleElement);
@@ -99,6 +102,4 @@ async function createDriveElement(): Promise<DriveModuleElement|null> {
 }
 
 export const driveDescriptor: ModuleDescriptor = new ModuleDescriptor(
-    /*id=*/ 'drive',
-    /*name=*/ loadTimeData.getString('modulesDriveSentence'),
-    createDriveElement);
+    /*id=*/ 'drive', createDriveElement);

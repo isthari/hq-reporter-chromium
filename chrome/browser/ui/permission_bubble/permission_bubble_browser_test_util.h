@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -49,6 +49,10 @@ class TestPermissionBubbleViewDelegate
   void Deny() override {}
   void Dismiss() override {}
   void Ignore() override {}
+  void PreIgnoreQuietPrompt() override {}
+  void SetManageClicked() override {}
+  void SetLearnMoreClicked() override {}
+  void SetHatsShownCallback(base::OnceCallback<void()> callback) override {}
 
   absl::optional<permissions::PermissionUiSelector::QuietUiReason>
   ReasonForUsingQuietUi() const override;
@@ -56,8 +60,12 @@ class TestPermissionBubbleViewDelegate
   bool ShouldDropCurrentRequestIfCannotShowQuietly() const override;
   bool WasCurrentRequestAlreadyDisplayed() override;
   void SetDismissOnTabClose() override {}
-  void SetBubbleShown() override {}
+  void SetPromptShown() override {}
   void SetDecisionTime() override {}
+  bool RecreateView() override;
+  content::WebContents* GetAssociatedWebContents() override;
+
+  base::WeakPtr<permissions::PermissionPrompt::Delegate> GetWeakPtr() override;
 
   void set_requests(std::vector<permissions::PermissionRequest*> requests) {
     requests_ = requests;
@@ -65,6 +73,7 @@ class TestPermissionBubbleViewDelegate
 
  private:
   std::vector<permissions::PermissionRequest*> requests_;
+  base::WeakPtrFactory<TestPermissionBubbleViewDelegate> weak_factory_{this};
 };
 
 // Use this class to test on a default window or an app window. Inheriting from

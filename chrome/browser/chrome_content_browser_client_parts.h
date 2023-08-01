@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -47,7 +47,6 @@ class ChromeContentBrowserClientParts {
 
   virtual void RenderProcessWillLaunch(content::RenderProcessHost* host) {}
   virtual void SiteInstanceGotProcess(content::SiteInstance* site_instance) {}
-  virtual void SiteInstanceDeleting(content::SiteInstance* site_instance) {}
   virtual void OverrideWebkitPrefs(content::WebContents* web_contents,
                                    blink::web_pref::WebPreferences* web_prefs) {
   }

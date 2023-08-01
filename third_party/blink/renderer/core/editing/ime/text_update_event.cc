@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,47 +10,51 @@
 
 namespace blink {
 
-TextUpdateEvent::TextUpdateEvent(const TextUpdateEventInit* dict) {
-  if (dict->hasUpdateText())
-    update_text_ = dict->updateText();
+TextUpdateEvent::TextUpdateEvent(const AtomicString& type,
+                                 const TextUpdateEventInit* initializer)
+    : Event(type, initializer) {
+  if (initializer->hasText()) {
+    text_ = initializer->text();
+  }
 
-  if (dict->hasUpdateRangeStart())
-    update_range_start_ = dict->updateRangeStart();
+  if (initializer->hasUpdateRangeStart())
+    update_range_start_ = initializer->updateRangeStart();
 
-  if (dict->hasUpdateRangeEnd())
-    update_range_end_ = dict->updateRangeEnd();
+  if (initializer->hasUpdateRangeEnd())
+    update_range_end_ = initializer->updateRangeEnd();
 
-  if (dict->hasNewSelectionStart())
-    new_selection_start_ = dict->newSelectionStart();
+  if (initializer->hasSelectionStart()) {
+    selection_start_ = initializer->selectionStart();
+  }
 
-  if (dict->hasNewSelectionEnd())
-    new_selection_end_ = dict->newSelectionEnd();
+  if (initializer->hasSelectionEnd()) {
+    selection_end_ = initializer->selectionEnd();
+  }
 }
 
-TextUpdateEvent::TextUpdateEvent(const String& update_text,
+TextUpdateEvent::TextUpdateEvent(const AtomicString& type,
+                                 const String& text,
                                  uint32_t update_range_start,
                                  uint32_t update_range_end,
-                                 uint32_t new_selection_start,
-                                 uint32_t new_selection_end)
-    : Event(event_type_names::kTextupdate,
-            Bubbles::kNo,
-            Cancelable::kYes,
-            ComposedMode::kComposed,
-            base::TimeTicks::Now()),
-      update_text_(update_text),
+                                 uint32_t selection_start,
+                                 uint32_t selection_end)
+    : Event(type, Bubbles::kNo, Cancelable::kYes, ComposedMode::kComposed),
+      text_(text),
       update_range_start_(update_range_start),
       update_range_end_(update_range_end),
-      new_selection_start_(new_selection_start),
-      new_selection_end_(new_selection_end) {}
+      selection_start_(selection_start),
+      selection_end_(selection_end) {}
 
-TextUpdateEvent* TextUpdateEvent::Create(const TextUpdateEventInit* dict) {
-  return MakeGarbageCollected<TextUpdateEvent>(dict);
+TextUpdateEvent* TextUpdateEvent::Create(
+    const AtomicString& type,
+    const TextUpdateEventInit* initializer) {
+  return MakeGarbageCollected<TextUpdateEvent>(type, initializer);
 }
 
 TextUpdateEvent::~TextUpdateEvent() = default;
 
-String TextUpdateEvent::updateText() const {
-  return update_text_;
+String TextUpdateEvent::text() const {
+  return text_;
 }
 
 uint32_t TextUpdateEvent::updateRangeStart() const {
@@ -61,11 +65,11 @@ uint32_t TextUpdateEvent::updateRangeEnd() const {
   return update_range_end_;
 }
 
-uint32_t TextUpdateEvent::newSelectionStart() const {
-  return new_selection_start_;
+uint32_t TextUpdateEvent::selectionStart() const {
+  return selection_start_;
 }
-uint32_t TextUpdateEvent::newSelectionEnd() const {
-  return new_selection_end_;
+uint32_t TextUpdateEvent::selectionEnd() const {
+  return selection_end_;
 }
 
 const AtomicString& TextUpdateEvent::InterfaceName() const {

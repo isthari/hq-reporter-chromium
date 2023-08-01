@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "chromeos/dbus/power/power_manager_client.h"
 #include "chromeos/dbus/power_manager/power_supply_properties.pb.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/image/image_skia.h"
 
 namespace gfx {
@@ -196,10 +197,11 @@ class ASH_EXPORT PowerStatus : public chromeos::PowerManagerClient::Observer {
   void CalculateBatteryImageInfo(BatteryImageInfo* info) const;
 
   // Creates a new image that should be shown for the battery's current state.
-  static gfx::ImageSkia GetBatteryImage(const BatteryImageInfo& info,
-                                        int height,
-                                        SkColor bg_color,
-                                        SkColor fg_color);
+  static gfx::ImageSkia GetBatteryImage(
+      const BatteryImageInfo& info,
+      int height,
+      SkColor fg_color,
+      absl::optional<SkColor> badge_color = absl::nullopt);
 
   // Returns a string describing the current state for accessibility.
   std::u16string GetAccessibleNameString(bool full_description) const;
@@ -217,8 +219,14 @@ class ASH_EXPORT PowerStatus : public chromeos::PowerManagerClient::Observer {
   // Returns the device's preferred minimum power input in watts (W).
   double GetPreferredMinimumPower() const;
 
+  // Returns true if battery saver is active.
+  bool IsBatterySaverActive() const;
+
   // Updates |proto_|. Does not notify observers.
   void SetProtoForTesting(const power_manager::PowerSupplyProperties& proto);
+
+  // Updates |battery_saver_active_|. Does not notify observers.
+  void SetBatterySaverStateForTesting(bool active);
 
  protected:
   PowerStatus();
@@ -227,11 +235,27 @@ class ASH_EXPORT PowerStatus : public chromeos::PowerManagerClient::Observer {
  private:
   // Overriden from PowerManagerClient::Observer.
   void PowerChanged(const power_manager::PowerSupplyProperties& proto) override;
+  void BatterySaverModeStateChanged(
+      const power_manager::BatterySaverModeState& state) override;
+
+  // Callback used to query battery saver state from PowerManagerClient on
+  // startup.
+  void OnGotBatterySaverState(
+      absl::optional<power_manager::BatterySaverModeState> state);
 
   base::ObserverList<Observer>::Unchecked observers_;
 
   // Current state.
   power_manager::PowerSupplyProperties proto_;
+
+  // Has proto_ been set with a value from Power Manager yet?
+  bool proto_initialized_{false};
+
+  // Current state of battery saver, queried on startup and updated in
+  // BatterySaverModeStateChanged.
+  bool battery_saver_active_{false};
+
+  base::WeakPtrFactory<PowerStatus> weak_ptr_factory_{this};
 };
 
 }  // namespace ash

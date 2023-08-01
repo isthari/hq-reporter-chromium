@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/task/single_thread_task_runner.h"
@@ -118,7 +118,9 @@ class AppShimHostTest : public testing::Test,
                         public AppShimHostBootstrap::Client,
                         public AppShimHost::Client {
  public:
-  AppShimHostTest() { task_runner_ = base::ThreadTaskRunnerHandle::Get(); }
+  AppShimHostTest() {
+    task_runner_ = base::SingleThreadTaskRunner::GetCurrentDefault();
+  }
   AppShimHostTest(const AppShimHostTest&) = delete;
   AppShimHostTest& operator=(const AppShimHostTest&) = delete;
   ~AppShimHostTest() override {}
@@ -186,6 +188,7 @@ class AppShimHostTest : public testing::Test,
                         const std::vector<GURL>& urls) override {}
   void OnShimOpenAppWithOverrideUrl(AppShimHost* host,
                                     const GURL& override_url) override {}
+  void OnShimWillTerminate(AppShimHost* host) override {}
 
   chrome::mojom::AppShimLaunchResult launch_result_ =
       chrome::mojom::AppShimLaunchResult::kSuccess;

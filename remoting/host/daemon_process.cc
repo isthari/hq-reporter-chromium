@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,20 +9,20 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/task/single_thread_task_runner.h"
+#include "mojo/public/cpp/bindings/pending_associated_receiver.h"
 #include "remoting/base/auto_thread_task_runner.h"
 #include "remoting/base/constants.h"
 #include "remoting/host/base/host_exit_codes.h"
 #include "remoting/host/base/screen_resolution.h"
 #include "remoting/host/branding.h"
-#include "remoting/host/chromoting_messages.h"
 #include "remoting/host/config_file_watcher.h"
 #include "remoting/host/desktop_session.h"
 #include "remoting/host/host_event_logger.h"
@@ -81,42 +81,6 @@ void DaemonProcess::OnChannelConnected(int32_t peer_pid) {
   SendHostConfigToNetworkProcess(serialized_config_);
 }
 
-bool DaemonProcess::OnMessageReceived(const IPC::Message& message) {
-  DCHECK(caller_task_runner()->BelongsToCurrentThread());
-
-  bool handled = true;
-  IPC_BEGIN_MESSAGE_MAP(DaemonProcess, message)
-    IPC_MESSAGE_HANDLER(ChromotingNetworkHostMsg_ConnectTerminal,
-                        CreateDesktopSession)
-    IPC_MESSAGE_HANDLER(ChromotingNetworkHostMsg_DisconnectTerminal,
-                        CloseDesktopSession)
-    IPC_MESSAGE_HANDLER(ChromotingNetworkDaemonMsg_SetScreenResolution,
-                        SetScreenResolution)
-    IPC_MESSAGE_HANDLER(ChromotingNetworkDaemonMsg_AccessDenied,
-                        OnAccessDenied)
-    IPC_MESSAGE_HANDLER(ChromotingNetworkDaemonMsg_ClientAuthenticated,
-                        OnClientAuthenticated)
-    IPC_MESSAGE_HANDLER(ChromotingNetworkDaemonMsg_ClientConnected,
-                        OnClientConnected)
-    IPC_MESSAGE_HANDLER(ChromotingNetworkDaemonMsg_ClientDisconnected,
-                        OnClientDisconnected)
-    IPC_MESSAGE_HANDLER(ChromotingNetworkDaemonMsg_ClientRouteChange,
-                        OnClientRouteChange)
-    IPC_MESSAGE_HANDLER(ChromotingNetworkDaemonMsg_HostStarted,
-                        OnHostStarted)
-    IPC_MESSAGE_HANDLER(ChromotingNetworkDaemonMsg_HostShutdown,
-                        OnHostShutdown)
-    IPC_MESSAGE_UNHANDLED(handled = false)
-  IPC_END_MESSAGE_MAP()
-
-  if (!handled) {
-    LOG(ERROR) << "Received unexpected IPC type: " << message.type();
-    CrashNetworkProcess(FROM_HERE);
-  }
-
-  return handled;
-}
-
 void DaemonProcess::OnPermanentError(int exit_code) {
   DCHECK(caller_task_runner()->BelongsToCurrentThread());
   DCHECK(kMinPermanentErrorExitCode <= exit_code &&
@@ -125,15 +89,50 @@ void DaemonProcess::OnPermanentError(int exit_code) {
   Stop();
 }
 
-void DaemonProcess::OnWorkerProcessStopped() {}
+void DaemonProcess::OnWorkerProcessStopped() {
+  desktop_session_manager_.reset();
+  host_status_observer_.reset();
+}
 
 void DaemonProcess::OnAssociatedInterfaceRequest(
     const std::string& interface_name,
     mojo::ScopedInterfaceEndpointHandle handle) {
-  // TODO(b/178114059): Implement this after migrating IPC macros to Mojo.
-  LOG(ERROR) << "Received unexpected associated interface request: "
-             << interface_name;
-  CrashNetworkProcess(FROM_HERE);
+  DCHECK(caller_task_runner()->BelongsToCurrentThread());
+
+  // Typically we'd want to ensure that an associated receiver was not requested
+  // multiple times as that would indicate a logic error (or that the calling
+  // process had possibly been compromised). In the case of the network process,
+  // which handles network traffic and encoding, it's possible that there is a
+  // protocol error or OS driver fault which causes the process to crash. When
+  // that occurs, the daemon process will launch a new instance of the network
+  // process (which is handled outside of this class) and that new instance will
+  // attempt to retrieve the set of associated interfaces it needs to do its
+  // work. If that occurs, we log a warning and allow the new process to set up
+  // its associated remotes. In other areas of the code we might crash the
+  // requesting (or current) process but that could lead to a crash loop here.
+
+  if (interface_name == mojom::DesktopSessionManager::Name_) {
+    LOG_IF(WARNING, desktop_session_manager_)
+        << "Associated interface requested "
+        << "while |desktop_session_manager_| was still bound.";
+
+    desktop_session_manager_.reset();
+    mojo::PendingAssociatedReceiver<mojom::DesktopSessionManager>
+        pending_receiver(std::move(handle));
+    desktop_session_manager_.Bind(std::move(pending_receiver));
+  } else if (interface_name == mojom::HostStatusObserver::Name_) {
+    LOG_IF(WARNING, host_status_observer_)
+        << "Associated interface requested "
+        << "while |host_status_observer_| was still bound.";
+
+    host_status_observer_.reset();
+    mojo::PendingAssociatedReceiver<mojom::HostStatusObserver> pending_receiver(
+        std::move(handle));
+    host_status_observer_.Bind(std::move(pending_receiver));
+  } else {
+    LOG(ERROR) << "Received unexpected associated interface request: "
+               << interface_name;
+  }
 }
 
 void DaemonProcess::CloseDesktopSession(int terminal_id) {
@@ -158,15 +157,15 @@ void DaemonProcess::CloseDesktopSession(int terminal_id) {
   // It is OK if the terminal ID wasn't found. There is a race between
   // the network and daemon processes. Each frees its own recources first and
   // notifies the other party if there was something to clean up.
-  if (i == desktop_sessions_.end())
+  if (i == desktop_sessions_.end()) {
     return;
+  }
 
   delete *i;
   desktop_sessions_.erase(i);
 
   VLOG(1) << "Daemon: closed desktop session " << terminal_id;
-  SendToNetwork(
-      new ChromotingDaemonNetworkMsg_TerminalDisconnected(terminal_id));
+  SendTerminalDisconnected(terminal_id);
 }
 
 DaemonProcess::DaemonProcess(
@@ -206,8 +205,7 @@ void DaemonProcess::CreateDesktopSession(int terminal_id,
       DoCreateDesktopSession(terminal_id, resolution, virtual_terminal);
   if (!session) {
     LOG(ERROR) << "Failed to create a desktop session.";
-    SendToNetwork(
-        new ChromotingDaemonNetworkMsg_TerminalDisconnected(terminal_id));
+    SendTerminalDisconnected(terminal_id);
     return;
   }
 
@@ -245,8 +243,9 @@ void DaemonProcess::SetScreenResolution(int terminal_id,
   // It is OK if the terminal ID wasn't found. There is a race between
   // the network and daemon processes. Each frees its own resources first and
   // notifies the other party if there was something to clean up.
-  if (i == desktop_sessions_.end())
+  if (i == desktop_sessions_.end()) {
     return;
+  }
 
   (*i)->SetScreenResolution(resolution);
 }
@@ -285,66 +284,62 @@ bool DaemonProcess::WasTerminalIdAllocated(int terminal_id) {
   return terminal_id < next_terminal_id_;
 }
 
-void DaemonProcess::OnAccessDenied(const std::string& jid) {
+void DaemonProcess::OnClientAccessDenied(const std::string& signaling_id) {
   DCHECK(caller_task_runner()->BelongsToCurrentThread());
 
-  for (auto& observer : status_monitor_->observers())
-    observer.OnAccessDenied(jid);
+  for (auto& observer : status_monitor_->observers()) {
+    observer.OnClientAccessDenied(signaling_id);
+  }
 }
 
-void DaemonProcess::OnClientAuthenticated(const std::string& jid) {
+void DaemonProcess::OnClientAuthenticated(const std::string& signaling_id) {
   DCHECK(caller_task_runner()->BelongsToCurrentThread());
 
-  for (auto& observer : status_monitor_->observers())
-    observer.OnClientAuthenticated(jid);
+  for (auto& observer : status_monitor_->observers()) {
+    observer.OnClientAuthenticated(signaling_id);
+  }
 }
 
-void DaemonProcess::OnClientConnected(const std::string& jid) {
+void DaemonProcess::OnClientConnected(const std::string& signaling_id) {
   DCHECK(caller_task_runner()->BelongsToCurrentThread());
 
-  for (auto& observer : status_monitor_->observers())
-    observer.OnClientConnected(jid);
+  for (auto& observer : status_monitor_->observers()) {
+    observer.OnClientConnected(signaling_id);
+  }
 }
 
-void DaemonProcess::OnClientDisconnected(const std::string& jid) {
+void DaemonProcess::OnClientDisconnected(const std::string& signaling_id) {
   DCHECK(caller_task_runner()->BelongsToCurrentThread());
 
-  for (auto& observer : status_monitor_->observers())
-    observer.OnClientDisconnected(jid);
+  for (auto& observer : status_monitor_->observers()) {
+    observer.OnClientDisconnected(signaling_id);
+  }
 }
 
-void DaemonProcess::OnClientRouteChange(const std::string& jid,
+void DaemonProcess::OnClientRouteChange(const std::string& signaling_id,
                                         const std::string& channel_name,
-                                        const SerializedTransportRoute& route) {
+                                        const protocol::TransportRoute& route) {
   DCHECK(caller_task_runner()->BelongsToCurrentThread());
 
-  protocol::TransportRoute parsed_route;
-  parsed_route.type = route.type;
-
-  net::IPAddress remote_ip(route.remote_ip.data(), route.remote_ip.size());
-  CHECK(remote_ip.empty() || remote_ip.IsValid());
-  parsed_route.remote_address = net::IPEndPoint(remote_ip, route.remote_port);
-
-  net::IPAddress local_ip(route.local_ip.data(), route.local_ip.size());
-  CHECK(local_ip.empty() || local_ip.IsValid());
-  parsed_route.local_address = net::IPEndPoint(local_ip, route.local_port);
-
-  for (auto& observer : status_monitor_->observers())
-    observer.OnClientRouteChange(jid, channel_name, parsed_route);
+  for (auto& observer : status_monitor_->observers()) {
+    observer.OnClientRouteChange(signaling_id, channel_name, route);
+  }
 }
 
-void DaemonProcess::OnHostStarted(const std::string& xmpp_login) {
+void DaemonProcess::OnHostStarted(const std::string& owner_email) {
   DCHECK(caller_task_runner()->BelongsToCurrentThread());
 
-  for (auto& observer : status_monitor_->observers())
-    observer.OnStart(xmpp_login);
+  for (auto& observer : status_monitor_->observers()) {
+    observer.OnHostStarted(owner_email);
+  }
 }
 
 void DaemonProcess::OnHostShutdown() {
   DCHECK(caller_task_runner()->BelongsToCurrentThread());
 
-  for (auto& observer : status_monitor_->observers())
-    observer.OnShutdown();
+  for (auto& observer : status_monitor_->observers()) {
+    observer.OnHostShutdown();
+  }
 }
 
 void DaemonProcess::DeleteAllDesktopSessions() {

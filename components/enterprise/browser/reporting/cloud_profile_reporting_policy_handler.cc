@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,7 +35,7 @@ bool CloudProfileReportingPolicyHandler::CheckPolicySettings(
 
   if (policy->source != policy::POLICY_SOURCE_CLOUD ||
       policy->scope != policy::POLICY_SCOPE_USER) {
-    errors->AddError(policy_name(), IDS_POLICY_CLOUD_SOURCE_ONLY_ERROR);
+    errors->AddError(policy_name(), IDS_POLICY_CLOUD_USER_ONLY_ERROR);
     return false;
   }
 
@@ -46,7 +46,7 @@ void CloudProfileReportingPolicyHandler::ApplyPolicySettings(
     const policy::PolicyMap& policies,
     PrefValueMap* prefs) {
   const base::Value* cloud_profile_reporting_policy_value =
-      policies.GetValue(policy_name());
+      policies.GetValue(policy_name(), base::Value::Type::BOOLEAN);
 
   if (cloud_profile_reporting_policy_value) {
     prefs->SetBoolean(kCloudProfileReportingEnabled,

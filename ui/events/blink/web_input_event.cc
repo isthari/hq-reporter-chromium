@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,10 +21,6 @@
 namespace ui {
 
 namespace {
-
-// The scroll percentage per mousewheel tick. Used to determine scroll delta
-// if percent based scrolling is enabled.
-const float kScrollPercentPerLineOrChar = 0.05;
 
 gfx::PointF GetScreenLocationFromEvent(const LocatedEvent& event) {
   return event.target() ? event.target()->GetScreenLocationF(event)
@@ -437,6 +433,7 @@ blink::WebMouseEvent MakeWebMouseEventFromUiEvent(const MouseEvent& event) {
   webkit_event.twist = event.pointer_details().twist;
   webkit_event.id = event.pointer_details().id;
   webkit_event.pointer_type = event.pointer_details().pointer_type;
+  webkit_event.device_id = event.source_device_id();
 
   return webkit_event;
 }
@@ -476,8 +473,10 @@ blink::WebMouseWheelEvent MakeWebMouseWheelEventFromUiEvent(
   // in the renderer.
   // TODO(yshalivskyy) Currently, for page based scrolling we always scroll
   // by one page dismissing delta_y/delta_x values. https://crbug.com/1196092
-  if (base::FeatureList::IsEnabled(features::kPercentBasedScrolling) &&
-      webkit_event.delta_units != ui::ScrollGranularity::kScrollByPage) {
+  if (features::IsPercentBasedScrollingEnabled() &&
+      webkit_event.delta_units != ui::ScrollGranularity::kScrollByPage &&
+      webkit_event.delta_units !=
+          ui::ScrollGranularity::kScrollByPrecisePixel) {
     webkit_event.delta_units = ui::ScrollGranularity::kScrollByPercentage;
     webkit_event.delta_y *=
         (kScrollPercentPerLineOrChar / MouseWheelEvent::kWheelDelta);

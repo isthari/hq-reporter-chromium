@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "base/sequence_checker.h"
+#include "base/task/single_thread_task_runner.h"
 #include "third_party/blink/public/mojom/permissions/permission.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/native_value_traits_impl.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
@@ -26,6 +27,7 @@ class ScriptPromiseResolver;
 class LocalFrame;
 class ExecutionContext;
 class ClipboardItemOptions;
+class ClipboardUnsanitizedFormats;
 
 class ClipboardPromise final : public GarbageCollected<ClipboardPromise>,
                                public ExecutionContextLifecycleObserver {
@@ -33,7 +35,7 @@ class ClipboardPromise final : public GarbageCollected<ClipboardPromise>,
   // Creates promise to execute Clipboard API functions off the main thread.
   static ScriptPromise CreateForRead(ExecutionContext*,
                                      ScriptState*,
-                                     ClipboardItemOptions*);
+                                     ClipboardUnsanitizedFormats*);
   static ScriptPromise CreateForReadText(ExecutionContext*, ScriptState*);
   static ScriptPromise CreateForWrite(ExecutionContext*,
                                       ScriptState*,
@@ -70,7 +72,7 @@ class ClipboardPromise final : public GarbageCollected<ClipboardPromise>,
   void WriteNextRepresentation();
 
   // Checks Read/Write permission (interacting with PermissionService).
-  void HandleRead(ClipboardItemOptions*);
+  void HandleRead(ClipboardUnsanitizedFormats*);
   void HandleReadText();
   void HandleWrite(HeapVector<Member<ClipboardItem>>*);
   void HandleWriteText(const String&);
@@ -89,7 +91,7 @@ class ClipboardPromise final : public GarbageCollected<ClipboardPromise>,
   mojom::blink::PermissionService* GetPermissionService();
   void RequestPermission(
       mojom::blink::PermissionName permission,
-      bool allow_without_sanitization,
+      bool will_be_sanitized,
       base::OnceCallback<void(::blink::mojom::PermissionStatus)> callback);
 
   scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunner();
@@ -104,6 +106,9 @@ class ClipboardPromise final : public GarbageCollected<ClipboardPromise>,
 
   // Checks for Read and Write permission.
   HeapMojoRemote<mojom::blink::PermissionService> permission_service_;
+
+  // Indicates whether unsanitized HTML content will be read from the clipboard.
+  bool will_read_unsanitized_html_ = false;
 
   // Only for use in writeText().
   String plain_text_;

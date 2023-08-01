@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,9 @@
 
 #include <jni.h>
 
+#include <algorithm>
+
 #include "base/android/jni_string.h"
-#include "base/cxx17_backports.h"
 #include "chrome/browser/android/browserservices/metrics/jni_headers/WebApkUkmRecorder_jni.h"
 #include "components/webapps/browser/android/webapk/webapk_types.h"
 #include "services/metrics/public/cpp/metrics_utils.h"
@@ -15,6 +16,7 @@
 #include "url/gurl.h"
 
 using base::android::JavaParamRef;
+using PassKey = base::PassKey<WebApkUkmRecorder>;
 
 namespace {
 
@@ -34,8 +36,8 @@ void WebApkUkmRecorder::RecordInstall(const GURL& manifest_url,
   if (!manifest_url.is_valid())
     return;
 
-  ukm::SourceId source_id =
-      ukm::UkmRecorder::GetSourceIdForWebApkManifestUrl(manifest_url);
+  ukm::SourceId source_id = ukm::UkmRecorder::GetSourceIdForWebApkManifestUrl(
+      PassKey(), manifest_url);
 
   // All installs through this method are browser-installs (ie, they should all
   // use the "browser" distributor).
@@ -54,8 +56,8 @@ void WebApkUkmRecorder::RecordSessionDuration(const GURL& manifest_url,
   if (!manifest_url.is_valid())
     return;
 
-  ukm::SourceId source_id =
-      ukm::UkmRecorder::GetSourceIdForWebApkManifestUrl(manifest_url);
+  ukm::SourceId source_id = ukm::UkmRecorder::GetSourceIdForWebApkManifestUrl(
+      PassKey(), manifest_url);
   ukm::builders::WebAPK_SessionEnd(source_id)
       .SetDistributor(distributor)
       .SetAppVersion(version_code)
@@ -71,8 +73,8 @@ void WebApkUkmRecorder::RecordVisit(const GURL& manifest_url,
   if (!manifest_url.is_valid())
     return;
 
-  ukm::SourceId source_id =
-      ukm::UkmRecorder::GetSourceIdForWebApkManifestUrl(manifest_url);
+  ukm::SourceId source_id = ukm::UkmRecorder::GetSourceIdForWebApkManifestUrl(
+      PassKey(), manifest_url);
   ukm::builders::WebAPK_Visit(source_id)
       .SetDistributor(distributor)
       .SetAppVersion(version_code)
@@ -88,9 +90,9 @@ void WebApkUkmRecorder::RecordUninstall(const GURL& manifest_url,
                                         int64_t launch_count,
                                         int64_t installed_duration_ms) {
   // UKM metric |launch_count| parameter is enum. '2' indicates >= 2 launches.
-  launch_count = base::clamp<int64_t>(launch_count, 0, 2);
-  ukm::SourceId source_id =
-      ukm::UkmRecorder::GetSourceIdForWebApkManifestUrl(manifest_url);
+  launch_count = std::clamp<int64_t>(launch_count, 0, 2);
+  ukm::SourceId source_id = ukm::UkmRecorder::GetSourceIdForWebApkManifestUrl(
+      PassKey(), manifest_url);
   ukm::builders::WebAPK_Uninstall(source_id)
       .SetDistributor(distributor)
       .SetAppVersion(version_code)
@@ -106,8 +108,8 @@ void WebApkUkmRecorder::RecordWebApkableVisit(const GURL& manifest_url) {
   if (!manifest_url.is_valid())
     return;
 
-  ukm::SourceId source_id =
-      ukm::UkmRecorder::GetSourceIdForWebApkManifestUrl(manifest_url);
+  ukm::SourceId source_id = ukm::UkmRecorder::GetSourceIdForWebApkManifestUrl(
+      PassKey(), manifest_url);
   ukm::builders::PWA_Visit(source_id).SetWebAPKableSiteVisit(1).Record(
       ukm::UkmRecorder::Get());
 }

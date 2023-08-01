@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@ import android.content.Context;
 import android.text.TextUtils;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ObserverList;
@@ -22,6 +23,7 @@ import org.chromium.chrome.browser.settings.SettingsLauncherImpl;
 import org.chromium.components.browser_ui.settings.SettingsLauncher;
 import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.components.embedder_support.util.UrlUtilities;
+import org.chromium.url.GURL;
 
 /**
  * Provides information regarding homepage enabled states and URI.
@@ -121,24 +123,27 @@ public class HomepageManager implements HomepagePolicyManager.HomepagePolicyStat
     }
 
     /**
-     * Get the current homepage URI string, if it's enabled. Null otherwise or uninitialized.
+     * Get the current homepage URI string. If the homepage is disabled, return null; otherwise it
+     * will always return a non-empty string. In cases when the homepage is specifically set as
+     * empty, this function will fallback to return {@link UrlConstants.NTP_URL}.
      *
      * This function checks different source to get the current homepage, which listed below
      * according to their priority:
      *
      * <b>isManagedByPolicy > useChromeNTP > useDefaultUri > useCustomUri</b>
      *
-     * @return Homepage URI string, if it's enabled. Null otherwise or uninitialized.
+     * @return A non-empty homepage URI string, if homepage is enabled. Null otherwise.
      *
      * @see HomepagePolicyManager#isHomepageManagedByPolicy()
      * @see #getPrefHomepageUseChromeNTP()
      * @see #getPrefHomepageUseDefaultUri()
      */
+    @Nullable
     public static String getHomepageUri() {
         if (!isHomepageEnabled()) return null;
 
         String homepageUri = getInstance().getHomepageUriIgnoringEnabledState();
-        return TextUtils.isEmpty(homepageUri) ? null : homepageUri;
+        return TextUtils.isEmpty(homepageUri) ? UrlConstants.NTP_URL : homepageUri;
     }
 
     /**
@@ -147,14 +152,23 @@ public class HomepageManager implements HomepagePolicyManager.HomepagePolicyStat
      */
     public static String getDefaultHomepageUri() {
         if (PartnerBrowserCustomizations.getInstance().isHomepageProviderAvailableAndEnabled()) {
-            return PartnerBrowserCustomizations.getInstance().getHomePageUrl();
+            return PartnerBrowserCustomizations.getInstance().getHomePageUrl().getSpec();
         }
 
-        String homepagePartnerDefaultUri = SharedPreferencesManager.getInstance().readString(
-                ChromePreferenceKeys.HOMEPAGE_PARTNER_CUSTOMIZED_DEFAULT_URI, "");
+        String homepagePartnerDefaultUri;
+        String homepagePartnerDefaultGurlSerialized =
+                SharedPreferencesManager.getInstance().readString(
+                        ChromePreferenceKeys.HOMEPAGE_PARTNER_CUSTOMIZED_DEFAULT_GURL, "");
+        if (!homepagePartnerDefaultGurlSerialized.equals("")) {
+            homepagePartnerDefaultUri =
+                    GURL.deserialize(homepagePartnerDefaultGurlSerialized).getSpec();
+        } else {
+            homepagePartnerDefaultUri = SharedPreferencesManager.getInstance().readString(
+                    ChromePreferenceKeys.HOMEPAGE_PARTNER_CUSTOMIZED_DEFAULT_URI, "");
+        }
         if (!homepagePartnerDefaultUri.equals("")) return homepagePartnerDefaultUri;
 
-        return UrlConstants.NTP_NON_NATIVE_URL;
+        return UrlConstants.NTP_URL;
     }
 
     /**
@@ -188,10 +202,10 @@ public class HomepageManager implements HomepagePolicyManager.HomepagePolicyStat
      */
     private @NonNull String getHomepageUriIgnoringEnabledState() {
         if (HomepagePolicyManager.isHomepageManagedByPolicy()) {
-            return HomepagePolicyManager.getHomepageUrl();
+            return HomepagePolicyManager.getHomepageUrl().getSpec();
         }
         if (getPrefHomepageUseChromeNTP()) {
-            return UrlConstants.NTP_NON_NATIVE_URL;
+            return UrlConstants.NTP_URL;
         }
         if (getPrefHomepageUseDefaultUri()) {
             return getDefaultHomepageUri();

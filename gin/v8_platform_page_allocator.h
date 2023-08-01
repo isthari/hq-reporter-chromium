@@ -1,14 +1,14 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef GIN_V8_PLATFROM_PAGE_ALLOCATOR_H_
-#define GIN_V8_PLATFROM_PAGE_ALLOCATOR_H_
+#ifndef GIN_V8_PLATFORM_PAGE_ALLOCATOR_H_
+#define GIN_V8_PLATFORM_PAGE_ALLOCATOR_H_
 
 #include "build/build_config.h"
 #include "build/buildflag.h"
 
-#include "base/allocator/buildflags.h"
+#include "base/allocator/partition_allocator/partition_alloc_buildflags.h"
 
 #if BUILDFLAG(USE_PARTITION_ALLOC)
 
@@ -44,17 +44,21 @@ class GIN_EXPORT PageAllocator final : public v8::PageAllocator {
                       size_t length,
                       Permission permissions) override;
 
+  bool RecommitPages(void* address,
+                     size_t length,
+                     Permission permissions) override;
+
   bool DiscardSystemPages(void* address, size_t size) override;
 
   bool DecommitPages(void* address, size_t size) override;
 
   // For testing purposes only: Map the v8 page permissions into a page
   // configuration from base.
-  ::partition_alloc::PageAccessibilityConfiguration GetPageConfigForTesting(
-      v8::PageAllocator::Permission permission);
+  ::partition_alloc::PageAccessibilityConfiguration::Permissions
+  GetPageConfigPermissionsForTesting(v8::PageAllocator::Permission permission);
 };
 }  // namespace gin
 
 #endif  // BUILDFLAG(USE_PARTITION_ALLOC)
 
-#endif  // GIN_V8_PLATFROM_PAGE_ALLOCATOR_H_
+#endif  // GIN_V8_PLATFORM_PAGE_ALLOCATOR_H_

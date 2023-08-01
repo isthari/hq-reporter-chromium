@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,19 +6,22 @@
 
 #include <vector>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 namespace shape_detection {
 
 namespace {
 
-mojom::LandmarkPtr API_AVAILABLE(macos(10.13))
-    BuildLandmark(VNFaceLandmarkRegion2D* landmark_region,
-                  mojom::LandmarkType landmark_type,
-                  gfx::RectF bounding_box) {
+mojom::LandmarkPtr BuildLandmark(VNFaceLandmarkRegion2D* landmark_region,
+                                 mojom::LandmarkType landmark_type,
+                                 gfx::RectF bounding_box) {
   auto landmark = mojom::Landmark::New();
   landmark->type = landmark_type;
   landmark->locations.reserve(landmark_region.pointCount);
@@ -68,7 +71,7 @@ void FaceDetectionImplMacVision::OnFacesDetected(VNRequest* request,
   if (receiver_)  // Can be unbound in unit testing.
     receiver_->ResumeIncomingMethodCallProcessing();
 
-  if (![request.results count] || error) {
+  if (!request.results.count || error) {
     std::move(detected_callback_).Run({});
     return;
   }

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,7 +42,7 @@
     }
   };
 
-  let controller = new Timeline.TimelineController(SDK.targetManager.mainTarget(), new TestTimelineControllerClient());
+  let controller = new Timeline.TimelineController(SDK.targetManager.primaryPageTarget(), new TestTimelineControllerClient());
   controller.startRecording({}, []).then(() => {
     TestRunner.addResult('TimelineControllerClient.recordingStarted');
   });

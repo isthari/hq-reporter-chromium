@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,11 +29,12 @@ class InstallableManagerUnitTest : public testing::Test {
     manifest->name = u"foo";
     manifest->short_name = u"bar";
     manifest->start_url = GURL("http://example.com");
+    manifest->id = manifest->start_url;
     manifest->display = blink::mojom::DisplayMode::kStandalone;
 
     blink::Manifest::ImageResource primary_icon;
     primary_icon.type = u"image/png";
-    primary_icon.sizes.push_back(gfx::Size(144, 144));
+    primary_icon.sizes.emplace_back(144, 144);
     primary_icon.purpose.push_back(IconPurpose::ANY);
     manifest->icons.push_back(primary_icon);
 
@@ -108,10 +109,12 @@ TEST_F(InstallableManagerUnitTest, ManifestRequiresValidStartURL) {
   blink::mojom::ManifestPtr manifest = GetValidManifest();
 
   manifest->start_url = GURL();
+  manifest->id = GURL();
   EXPECT_FALSE(IsManifestValid(*manifest));
   EXPECT_EQ(START_URL_NOT_VALID, GetErrorCode());
 
   manifest->start_url = GURL("/");
+  manifest->id = GURL("/");
   EXPECT_FALSE(IsManifestValid(*manifest));
   EXPECT_EQ(START_URL_NOT_VALID, GetErrorCode());
 }
@@ -168,27 +171,15 @@ TEST_F(InstallableManagerUnitTest, ManifestSupportsImageWebP) {
 
   manifest->icons[0].type = u"image/webp";
   manifest->icons[0].src = GURL("http://example.com/");
-// TODO(https://crbug.com/466958): Add WebP support for Android.
-#if BUILDFLAG(IS_ANDROID)
-  EXPECT_FALSE(IsManifestValid(*manifest));
-  EXPECT_EQ(MANIFEST_MISSING_SUITABLE_ICON, GetErrorCode());
-#else
   EXPECT_TRUE(IsManifestValid(*manifest));
   EXPECT_EQ(NO_ERROR_DETECTED, GetErrorCode());
-#endif
 
   // If the type is null, the icon src is checked instead.
   // Case is ignored.
   manifest->icons[0].type.clear();
   manifest->icons[0].src = GURL("http://example.com/icon.wEBp");
-// TODO(https://crbug.com/466958): Add WebP support for Android.
-#if BUILDFLAG(IS_ANDROID)
-  EXPECT_FALSE(IsManifestValid(*manifest));
-  EXPECT_EQ(MANIFEST_MISSING_SUITABLE_ICON, GetErrorCode());
-#else
   EXPECT_TRUE(IsManifestValid(*manifest));
   EXPECT_EQ(NO_ERROR_DETECTED, GetErrorCode());
-#endif
 }
 
 TEST_F(InstallableManagerUnitTest, ManifestRequiresPurposeAny) {
@@ -205,7 +196,7 @@ TEST_F(InstallableManagerUnitTest, ManifestRequiresPurposeAny) {
   EXPECT_EQ(NO_ERROR_DETECTED, GetErrorCode());
 }
 
-TEST_F(InstallableManagerUnitTest, ManifestRequiresMinimalSize) {
+TEST_F(InstallableManagerUnitTest, ManifestRequiresIconSize) {
   blink::mojom::ManifestPtr manifest = GetValidManifest();
 
   // The icon MUST be 144x144 size at least.
@@ -226,6 +217,22 @@ TEST_F(InstallableManagerUnitTest, ManifestRequiresMinimalSize) {
   manifest->icons[0].sizes[1] = gfx::Size(200, 200);
   EXPECT_TRUE(IsManifestValid(*manifest));
   EXPECT_EQ(NO_ERROR_DETECTED, GetErrorCode());
+
+  // Icon size matching the maximum size requirement is correct.
+  manifest->icons[0].sizes[1] = gfx::Size(1024, 1024);
+  EXPECT_TRUE(IsManifestValid(*manifest));
+  EXPECT_EQ(NO_ERROR_DETECTED, GetErrorCode());
+
+  // Icon size larger than maximum size 1024x1024 should not
+  // be accepted on desktop.
+  manifest->icons[0].sizes[1] = gfx::Size(1025, 1025);
+#if BUILDFLAG(IS_ANDROID)
+  EXPECT_TRUE(IsManifestValid(*manifest));
+  EXPECT_EQ(NO_ERROR_DETECTED, GetErrorCode());
+#else
+  EXPECT_FALSE(IsManifestValid(*manifest));
+  EXPECT_EQ(MANIFEST_MISSING_SUITABLE_ICON, GetErrorCode());
+#endif  // BUILDFLAG(IS_ANDROID)
 
   // Non-square is okay.
   manifest->icons[0].sizes[1] = gfx::Size(144, 200);
@@ -331,20 +338,7 @@ TEST_F(InstallableManagerUnitTest, FallbackToBrowser) {
   EXPECT_EQ(NO_ERROR_DETECTED, GetErrorCode());
 }
 
-class InstallableManagerUnitTest_WindowControlsOverlay
-    : public InstallableManagerUnitTest {
- public:
-  InstallableManagerUnitTest_WindowControlsOverlay() {
-    scoped_feature_list_.InitWithFeatures(
-        {features::kWebAppWindowControlsOverlay}, {});
-  }
-
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
-};
-
-TEST_F(InstallableManagerUnitTest_WindowControlsOverlay,
-       SupportWindowControlsOverlay) {
+TEST_F(InstallableManagerUnitTest, SupportWindowControlsOverlay) {
   blink::mojom::ManifestPtr manifest = GetValidManifest();
 
   manifest->display_override.push_back(

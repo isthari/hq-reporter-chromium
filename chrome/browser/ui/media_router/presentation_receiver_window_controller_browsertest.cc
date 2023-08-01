@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,11 @@
 
 #include <string>
 
-#include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
-#include "base/task/post_task.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/timer/elapsed_timer.h"
 #include "chrome/browser/profiles/profile.h"
@@ -87,8 +86,9 @@ class FakeControllerConnection final
   }
 
   // blink::mojom::PresentationConnection implementation
-  MOCK_METHOD1(OnMessage,
-               void(blink::mojom::PresentationConnectionMessagePtr message));
+  MOCK_METHOD(void,
+              OnMessage,
+              (blink::mojom::PresentationConnectionMessagePtr message));
   void DidChangeState(
       blink::mojom::PresentationConnectionState state) override {}
   void DidClose(
@@ -166,8 +166,14 @@ class PresentationReceiverWindowControllerBrowserTest
   }
 };
 
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+// TODO(crbug.com/1424970): Re-enable on lacros.
+#define MAYBE_CreatesWindow DISABLED_CreatesWindow
+#else
+#define MAYBE_CreatesWindow CreatesWindow
+#endif
 IN_PROC_BROWSER_TEST_F(PresentationReceiverWindowControllerBrowserTest,
-                       CreatesWindow) {
+                       MAYBE_CreatesWindow) {
   ReceiverWindowDestroyer destroyer;
   auto receiver_window =
       PresentationReceiverWindowController::CreateFromOriginalProfile(
@@ -249,8 +255,8 @@ IN_PROC_BROWSER_TEST_F(PresentationReceiverWindowControllerBrowserTest,
 
   content::WebContentsDestroyedWatcher destroyed_watcher(
       receiver_window->web_contents());
-  ASSERT_TRUE(content::ExecuteScript(receiver_window->web_contents(),
-                                     "window.location = 'about:blank'"));
+  ASSERT_TRUE(content::ExecJs(receiver_window->web_contents(),
+                              "window.location = 'about:blank'"));
   destroyed_watcher.Wait();
 
   destroyer.AwaitTerminate(std::move(receiver_window));

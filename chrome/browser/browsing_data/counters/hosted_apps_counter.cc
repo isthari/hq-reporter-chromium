@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,9 @@
 
 #include "chrome/browser/extensions/extension_special_storage_policy.h"
 #include "chrome/browser/profiles/profile.h"
+#include "components/app_constants/constants.h"
 #include "components/browsing_data/core/pref_names.h"
 #include "extensions/browser/extension_registry.h"
-#include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 
 HostedAppsCounter::HostedAppsCounter(Profile* profile)
@@ -26,16 +26,16 @@ const char* HostedAppsCounter::GetPrefName() const {
 void HostedAppsCounter::Count() {
   std::vector<std::string> names;
 
-  std::unique_ptr<extensions::ExtensionSet> extensions =
+  const extensions::ExtensionSet extensions =
       extensions::ExtensionRegistry::Get(profile_)
           ->GenerateInstalledExtensionsSet();
   auto* special_storage_policy = profile_->GetExtensionSpecialStoragePolicy();
 
-  for (const auto& extension : *extensions) {
+  for (const auto& extension : extensions) {
     // Exclude kChromeAppId because this is not a proper hosted app. It is just
     // a shortcut to launch Chrome on Chrome OS.
     if (special_storage_policy->NeedsProtection(extension.get()) &&
-        extension->id() != extension_misc::kChromeAppId) {
+        extension->id() != app_constants::kChromeAppId) {
       names.push_back(extension->short_name());
     }
   }

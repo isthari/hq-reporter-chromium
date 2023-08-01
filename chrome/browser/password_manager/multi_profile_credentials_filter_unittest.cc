@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,9 @@
 
 #include <string>
 
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile_attributes_entry.h"
@@ -34,9 +34,14 @@ namespace {
 
 // Dummy DiceWebSigninInterceptor::Delegate that does nothing.
 class TestDiceWebSigninInterceptorDelegate
-    : public DiceWebSigninInterceptor::Delegate {
+    : public WebSigninInterceptor::Delegate {
  public:
-  std::unique_ptr<ScopedDiceWebSigninInterceptionBubbleHandle>
+  bool IsSigninInterceptionSupported(
+      const content::WebContents& web_contents) override {
+    return true;
+  }
+
+  std::unique_ptr<ScopedWebSigninInterceptionBubbleHandle>
   ShowSigninInterceptionBubble(
       content::WebContents* web_contents,
       const BubbleParameters& bubble_parameters,
@@ -46,8 +51,8 @@ class TestDiceWebSigninInterceptorDelegate
   void ShowFirstRunExperienceInNewProfile(
       Browser* browser,
       const CoreAccountId& account_id,
-      DiceWebSigninInterceptor::SigninInterceptionType interception_type)
-      override {}
+      WebSigninInterceptor::SigninInterceptionType interception_type) override {
+  }
 };
 
 class TestPasswordManagerClient
@@ -197,6 +202,40 @@ TEST_F(MultiProfileCredentialsFilterTest, NonGaia) {
   password_manager::PasswordForm form =
       password_manager::SyncUsernameTestBase::SimpleNonGaiaForm(
           "user@example.org");
+  ASSERT_TRUE(sync_filter_.ShouldSave(form));
+
+  MultiProfileCredentialsFilter multi_profile_filter(
+      password_manager_client(), GetSyncServiceCallback(),
+      dice_web_signin_interceptor());
+  EXPECT_TRUE(multi_profile_filter.ShouldSave(form));
+}
+
+// Returns false for an invalid email address.
+// Regression test for https://crbug.com/1401924
+TEST_F(MultiProfileCredentialsFilterTest, InvalidEmail) {
+  // Disallow profile creation to prevent the intercept.
+  g_browser_process->local_state()->SetBoolean(prefs::kBrowserAddPersonEnabled,
+                                               false);
+
+  password_manager::PasswordForm form =
+      password_manager::SyncUsernameTestBase::SimpleGaiaForm("user@");
+  ASSERT_TRUE(sync_filter_.ShouldSave(form));
+
+  MultiProfileCredentialsFilter multi_profile_filter(
+      password_manager_client(), GetSyncServiceCallback(),
+      dice_web_signin_interceptor());
+  EXPECT_FALSE(multi_profile_filter.ShouldSave(form));
+}
+
+// Returns true for email addresses with no domain part when sign-in is not
+// intercepted.
+TEST_F(MultiProfileCredentialsFilterTest, UsernameWithNoDomain) {
+  // Disallow profile creation to prevent the intercept.
+  g_browser_process->local_state()->SetBoolean(prefs::kBrowserAddPersonEnabled,
+                                               false);
+
+  password_manager::PasswordForm form =
+      password_manager::SyncUsernameTestBase::SimpleGaiaForm("user");
   ASSERT_TRUE(sync_filter_.ShouldSave(form));
 
   MultiProfileCredentialsFilter multi_profile_filter(

@@ -22,6 +22,7 @@
 #include "third_party/blink/renderer/core/paint/theme_painter.h"
 
 #include "build/build_config.h"
+#include "third_party/blink/public/mojom/use_counter/metrics/web_feature.mojom-shared.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
@@ -41,6 +42,7 @@
 #include "third_party/blink/renderer/platform/graphics/graphics_context_state_saver.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_canvas.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
+#include "third_party/blink/renderer/platform/text/writing_mode.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/native_theme/native_theme.h"
 
@@ -166,9 +168,16 @@ bool ThemePainter::Paint(const LayoutObject& o,
       return PaintSliderThumb(element, style, paint_info, r);
     }
     case kMediaSliderPart:
+      COUNT_APPEARANCE(doc, MediaSlider);
+      return true;
     case kMediaSliderThumbPart:
+      COUNT_APPEARANCE(doc, MediaSliderThumb);
+      return true;
     case kMediaVolumeSliderPart:
+      COUNT_APPEARANCE(doc, MediaVolumeSlider);
+      return true;
     case kMediaVolumeSliderThumbPart:
+      COUNT_APPEARANCE(doc, MediaVolumeSliderThumb);
       return true;
     case kMenulistButtonPart:
       return true;
@@ -292,11 +301,22 @@ void ThemePainter::PaintSliderTicks(const LayoutObject& o,
 
   double min = input->Minimum();
   double max = input->Maximum();
+  if (min >= max)
+    return;
+
   ControlPart part = o.StyleRef().EffectiveAppearance();
   // We don't support ticks on alternate sliders like MediaVolumeSliders.
-  if (part != kSliderHorizontalPart && part != kSliderVerticalPart)
+  if (part != kSliderHorizontalPart &&
+      (part != kSliderVerticalPart ||
+       RuntimeEnabledFeatures::
+           RemoveNonStandardAppearanceValueSliderVerticalEnabled())) {
     return;
-  bool is_horizontal = part == kSliderHorizontalPart;
+  }
+  bool is_horizontal =
+      part == kSliderHorizontalPart &&
+      !(RuntimeEnabledFeatures::
+            FormControlsVerticalWritingModeSupportEnabled() &&
+        !IsHorizontalWritingMode(o.StyleRef().GetWritingMode()));
 
   gfx::Size thumb_size;
   LayoutObject* thumb_layout_object =
@@ -349,7 +369,7 @@ void ThemePainter::PaintSliderTicks(const LayoutObject& o,
   for (unsigned i = 0; HTMLOptionElement* option_element = options->Item(i);
        i++) {
     String value = option_element->value();
-    if (option_element->IsDisabledFormControl() || value.IsEmpty())
+    if (option_element->IsDisabledFormControl() || value.empty())
       continue;
     if (!input->IsValidValue(value))
       continue;

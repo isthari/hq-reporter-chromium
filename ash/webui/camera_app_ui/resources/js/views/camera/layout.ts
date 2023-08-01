@@ -1,11 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {cssStyle} from '../../css.js';
+import {CameraManager} from '../../device/index.js';
 import * as dom from '../../dom.js';
 import * as state from '../../state.js';
-import {Mode} from '../../type.js';
 import {windowController} from '../../window_controller.js';
 
 /**
@@ -13,29 +12,41 @@ import {windowController} from '../../window_controller.js';
  */
 export class Layout {
   private readonly previewBox = dom.get('#preview-box', HTMLDivElement);
+
   private readonly faceOverlay =
       dom.get('#preview-face-overlay', HTMLCanvasElement);
-  private readonly viewportRule = cssStyle('#preview-viewport');
-  private readonly contentRule = cssStyle('.preview-content');
+
+  private readonly rootStyle = document.documentElement.style;
+
+  constructor(private readonly cameraManager: CameraManager) {}
 
   private setContentSize(width: number, height: number) {
-    this.contentRule.setProperty('width', `${width}px`);
-    this.contentRule.setProperty('height', `${height}px`);
+    // Not using attributeStyleMap / StylePropertyMap here since custom
+    // properties can only use CSSUnparsedValue, which doesn't make the code
+    // simpler. (@property / CSS.registerProperty only applies when the var is
+    // computed, but doesn't affect the type when the var is set, See
+    // https://drafts.css-houdini.org/css-properties-values-api/#parsing-custom-properties)
+    this.rootStyle.setProperty(
+        '--preview-content-width', CSS.px(width).toString());
+    this.rootStyle.setProperty(
+        '--preview-content-height', CSS.px(height).toString());
     this.faceOverlay.width = width;
     this.faceOverlay.height = height;
   }
 
   private setViewportSize(width: number, height: number) {
-    this.viewportRule.setProperty('width', `${width}px`);
-    this.viewportRule.setProperty('height', `${height}px`);
+    this.rootStyle.setProperty(
+        '--preview-viewport-width', CSS.px(width).toString());
+    this.rootStyle.setProperty(
+        '--preview-viewport-height', CSS.px(height).toString());
   }
 
   /**
    * Sets the offset between video content and viewport.
    */
   private setContentOffset(dx: number, dy: number) {
-    this.contentRule.setProperty('left', `${dx}px`);
-    this.contentRule.setProperty('top', `${dy}px`);
+    this.rootStyle.setProperty('--preview-content-left', CSS.px(dx).toString());
+    this.rootStyle.setProperty('--preview-content-top', CSS.px(dy).toString());
   }
 
   /**
@@ -51,7 +62,7 @@ export class Layout {
     const {width: boxW, height: boxH} = this.previewBox.getBoundingClientRect();
     const video = dom.get('#preview-video', HTMLVideoElement);
 
-    if (state.get(Mode.SQUARE)) {
+    if (this.cameraManager.useSquareResolution()) {
       const viewportSize = Math.min(boxW, boxH);
       this.setViewportSize(viewportSize, viewportSize);
       const scale =

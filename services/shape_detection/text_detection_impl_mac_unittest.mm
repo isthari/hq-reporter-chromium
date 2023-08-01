@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,11 @@
 
 #include <memory>
 
-#include "base/bind.h"
+#include "base/apple/bridging.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_cftyperef.h"
-#include "base/mac/scoped_nsobject.h"
 #include "base/run_loop.h"
 #include "base/test/gmock_callback_support.h"
 #include "base/test/task_environment.h"
@@ -20,6 +20,10 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/utils/mac/SkCGUtils.h"
 #include "ui/gl/gl_switches.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 using base::test::RunOnceClosure;
 
@@ -35,7 +39,7 @@ class TextDetectionImplMacTest : public ::testing::Test {
   }
   MOCK_METHOD1(Detection, void(size_t));
 
-  API_AVAILABLE(macosx(10.11)) std::unique_ptr<TextDetectionImplMac> impl_;
+  std::unique_ptr<TextDetectionImplMac> impl_;
   base::test::SingleThreadTaskEnvironment task_environment_;
 };
 
@@ -58,23 +62,22 @@ TEST_F(TextDetectionImplMacTest, ScanOnce) {
   base::ScopedCFTypeRef<CGContextRef> context(CGBitmapContextCreate(
       nullptr, width, height, 8 /* bitsPerComponent */,
       width * 4 /* rowBytes */, rgb_colorspace,
-      kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Host));
+      uint32_t{kCGImageAlphaPremultipliedFirst} | kCGBitmapByteOrder32Host));
 
   // Draw a white background.
   CGContextSetRGBFillColor(context, 1.0, 1.0, 1.0, 1.0);
   CGContextFillRect(context, CGRectMake(0.0, 0.0, width, height));
 
   // Create a line of Helvetica 16 text, and draw it in the |context|.
-  base::scoped_nsobject<NSFont> helvetica([NSFont fontWithName:@"Helvetica"
-                                                          size:16]);
-  NSDictionary* attributes = @{(id)kCTFontAttributeName : helvetica};
+  NSDictionary* attributes =
+      @{NSFontAttributeName : [NSFont fontWithName:@"Helvetica" size:16]};
 
-  base::scoped_nsobject<NSAttributedString> info([[NSAttributedString alloc]
-      initWithString:@"https://www.chromium.org"
-          attributes:attributes]);
+  NSAttributedString* info =
+      [[NSAttributedString alloc] initWithString:@"https://www.chromium.org"
+                                      attributes:attributes];
 
   base::ScopedCFTypeRef<CTLineRef> line(
-      CTLineCreateWithAttributedString((CFAttributedStringRef)info.get()));
+      CTLineCreateWithAttributedString(base::apple::NSToCFPtrCast(info)));
 
   CGContextSetTextPosition(context, 10.0, height / 2.0);
   CTLineDraw(line, context);

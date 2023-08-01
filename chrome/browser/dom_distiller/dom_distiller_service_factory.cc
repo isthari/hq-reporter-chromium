@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <utility>
 
-#include "base/task/post_task.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "build/build_config.h"
@@ -15,7 +14,6 @@
 #include "components/dom_distiller/content/browser/distiller_page_web_contents.h"
 #include "components/dom_distiller/core/article_entry.h"
 #include "components/dom_distiller/core/distiller.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/storage_partition.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
@@ -50,10 +48,16 @@ DomDistillerServiceFactory::GetForBrowserContext(
 }
 
 DomDistillerServiceFactory::DomDistillerServiceFactory()
-    : BrowserContextKeyedServiceFactory(
+    : ProfileKeyedServiceFactory(
           "DomDistillerService",
-          BrowserContextDependencyManager::GetInstance()) {
-}
+          // Makes normal profile and off-the-record profile use same service
+          // instance.
+          ProfileSelections::Builder()
+              .WithRegular(ProfileSelection::kRedirectedToOriginal)
+              // TODO(crbug.com/1418376): Check if this service is needed in
+              // Guest mode.
+              .WithGuest(ProfileSelection::kRedirectedToOriginal)
+              .Build()) {}
 
 DomDistillerServiceFactory::~DomDistillerServiceFactory() {}
 
@@ -101,12 +105,6 @@ KeyedService* DomDistillerServiceFactory::BuildServiceInstanceFor(
           std::move(distilled_page_prefs), std::move(distiller_ui_handle));
 
   return service;
-}
-
-content::BrowserContext* DomDistillerServiceFactory::GetBrowserContextToUse(
-    content::BrowserContext* context) const {
-  // Makes normal profile and off-the-record profile use same service instance.
-  return chrome::GetBrowserContextRedirectedInIncognito(context);
 }
 
 }  // namespace dom_distiller

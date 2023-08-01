@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <map>
 #include <memory>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/ui/views/payments/view_stack.h"
@@ -22,7 +22,6 @@
 
 namespace autofill {
 class AutofillProfile;
-class CreditCard;
 }  // namespace autofill
 
 class Profile;
@@ -57,6 +56,8 @@ class PaymentRequestDialogView : public views::DialogDelegateView,
    public:
     virtual void OnDialogOpened() = 0;
 
+    virtual void OnDialogClosed() = 0;
+
     virtual void OnContactInfoOpened() = 0;
 
     virtual void OnOrderSummaryOpened() = 0;
@@ -66,8 +67,6 @@ class PaymentRequestDialogView : public views::DialogDelegateView,
     virtual void OnShippingAddressSectionOpened() = 0;
 
     virtual void OnShippingOptionSectionOpened() = 0;
-
-    virtual void OnCreditCardEditorOpened() = 0;
 
     virtual void OnShippingAddressEditorOpened() = 0;
 
@@ -83,13 +82,13 @@ class PaymentRequestDialogView : public views::DialogDelegateView,
 
     virtual void OnSpecDoneUpdating() = 0;
 
-    virtual void OnCvcPromptShown() = 0;
-
     virtual void OnProcessingSpinnerShown() = 0;
 
     virtual void OnProcessingSpinnerHidden() = 0;
 
     virtual void OnPaymentHandlerWindowOpened() = 0;
+
+    virtual void OnPaymentHandlerTitleSet() = 0;
   };
 
   PaymentRequestDialogView(const PaymentRequestDialogView&) = delete;
@@ -122,6 +121,7 @@ class PaymentRequestDialogView : public views::DialogDelegateView,
       PaymentHandlerOpenWindowCallback callback) override;
   void RetryDialog() override;
   void ConfirmPaymentForTesting() override;
+  bool ClickOptOutForTesting() override;
 
   // PaymentRequestSpec::Observer:
   void OnStartUpdating(PaymentRequestSpec::UpdateReason reason) override;
@@ -138,17 +138,6 @@ class PaymentRequestDialogView : public views::DialogDelegateView,
   void ShowShippingProfileSheet();
   void ShowPaymentMethodSheet();
   void ShowShippingOptionSheet();
-  // |credit_card| is the card to be edited, or nullptr for adding a card.
-  // |on_edited| is called when |credit_card| was successfully edited, and
-  // |on_added| is called when a new credit card was added (the reference is
-  // short-lived; callee should make a copy of the CreditCard object).
-  // |back_navigation_type| identifies the type of navigation to execute once
-  // the editor has completed successfully.
-  void ShowCreditCardEditor(
-      BackNavigationType back_navigation_type,
-      base::OnceClosure on_edited,
-      base::OnceCallback<void(const autofill::CreditCard&)> on_added,
-      autofill::CreditCard* credit_card = nullptr);
   // |profile| is the address to be edited, or nullptr for adding an address.
   // |on_edited| is called when |profile| was successfully edited, and
   // |on_added| is called when a new profile was added (the reference is
@@ -173,12 +162,6 @@ class PaymentRequestDialogView : public views::DialogDelegateView,
       autofill::AutofillProfile* profile = nullptr);
   void EditorViewUpdated();
 
-  void ShowCvcUnmaskPrompt(
-      const autofill::CreditCard& credit_card,
-      base::WeakPtr<autofill::payments::FullCardRequest::ResultDelegate>
-          result_delegate,
-      content::RenderFrameHost* render_frame_host) override;
-
   // Hides the full dialog spinner with the "processing" label.
   void HideProcessingSpinner();
 
@@ -191,6 +174,10 @@ class PaymentRequestDialogView : public views::DialogDelegateView,
   // Calculates the dialog width depending on whether or not the large payment
   // handler window is currently showing.
   int GetActualDialogWidth() const;
+
+  // Called when a PaymentHandler dialog detects a title being set from the
+  // underlying WebContents.
+  void OnPaymentHandlerTitleSet();
 
   ViewStack* view_stack_for_testing() { return view_stack_; }
   ControllerMap* controller_map_for_testing() { return &controller_map_; }
@@ -219,7 +206,7 @@ class PaymentRequestDialogView : public views::DialogDelegateView,
   // The PaymentRequest object that initiated this dialog.
   base::WeakPtr<PaymentRequest> request_;
   ControllerMap controller_map_;
-  raw_ptr<ViewStack> view_stack_;
+  raw_ptr<ViewStack, DanglingUntriaged> view_stack_;
 
   // A full dialog overlay that shows a spinner and the "processing" label. It's
   // hidden until ShowProcessingSpinner is called.

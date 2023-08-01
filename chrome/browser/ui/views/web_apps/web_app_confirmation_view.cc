@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,13 @@
 #include <string>
 #include <utility>
 
-#include "base/callback_helpers.h"
 #include "base/feature_list.h"
+#include "base/functional/callback_helpers.h"
 #include "base/strings/string_util.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/web_apps/web_app_info_image_source.h"
+#include "chrome/browser/web_applications/mojom/user_display_mode.mojom.h"
 #include "chrome/browser/web_applications/web_app_constants.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/grit/generated_resources.h"
@@ -37,6 +38,7 @@ namespace {
 
 bool g_auto_accept_web_app_for_testing = false;
 bool g_auto_check_open_in_window_for_testing = false;
+const char* g_title_to_use_for_app = nullptr;
 
 bool ShowRadioButtons() {
   // This UI is only for prototyping and is not intended for shipping.
@@ -120,16 +122,18 @@ WebAppConfirmationView::WebAppConfirmationView(
           .set_margins(layout_provider->GetDialogInsetsForContentType(
               views::DialogContentType::kControl,
               views::DialogContentType::kText))
-          .AddChildren(
-              views::Builder<views::ImageView>()
-                  .SetImageSize(image_size)
-                  .SetImage(image),
-              views::Builder<views::Textfield>()
-                  .CopyAddressTo(&title_tf_)
-                  .SetText(NormalizeSuggestedAppTitle(web_app_info_->title))
-                  .SetAccessibleName(l10n_util::GetStringUTF16(
-                      IDS_BOOKMARK_APP_AX_BUBBLE_NAME_LABEL))
-                  .SetController(this));
+          .AddChildren(views::Builder<views::ImageView>()
+                           .SetImageSize(image_size)
+                           .SetImage(image),
+                       views::Builder<views::Textfield>()
+                           .CopyAddressTo(&title_tf_)
+                           .SetText(NormalizeSuggestedAppTitle(
+                               g_title_to_use_for_app != nullptr
+                                   ? base::ASCIIToUTF16(g_title_to_use_for_app)
+                                   : web_app_info_->title))
+                           .SetAccessibleName(l10n_util::GetStringUTF16(
+                               IDS_BOOKMARK_APP_AX_BUBBLE_NAME_LABEL))
+                           .SetController(this));
 
   const auto display_mode = web_app_info_->user_display_mode;
   // Build the content child views.
@@ -142,22 +146,25 @@ WebAppConfirmationView::WebAppConfirmationView(
             .SetText(
                 l10n_util::GetStringUTF16(IDS_BOOKMARK_APP_BUBBLE_OPEN_AS_TAB))
             .SetGroup(kRadioGroupId)
-            .SetChecked(display_mode == web_app::DisplayMode::kBrowser),
+            .SetChecked(display_mode ==
+                        web_app::mojom::UserDisplayMode::kBrowser),
         views::Builder<views::View>(),  // Column skip.
         views::Builder<views::RadioButton>()
             .CopyAddressTo(&open_as_window_radio_)
             .SetText(l10n_util::GetStringUTF16(
                 IDS_BOOKMARK_APP_BUBBLE_OPEN_AS_WINDOW))
             .SetGroup(kRadioGroupId)
-            .SetChecked(display_mode != web_app::DisplayMode::kBrowser &&
-                        display_mode != web_app::DisplayMode::kTabbed),
+            .SetChecked(
+                display_mode != web_app::mojom::UserDisplayMode::kBrowser &&
+                display_mode != web_app::mojom::UserDisplayMode::kTabbed),
         views::Builder<views::View>(),  // Column skip.
         views::Builder<views::RadioButton>()
             .CopyAddressTo(&open_as_tabbed_window_radio_)
             .SetText(l10n_util::GetStringUTF16(
                 IDS_BOOKMARK_APP_BUBBLE_OPEN_AS_TABBED_WINDOW))
             .SetGroup(kRadioGroupId)
-            .SetChecked(display_mode == web_app::DisplayMode::kTabbed));
+            .SetChecked(display_mode ==
+                        web_app::mojom::UserDisplayMode::kTabbed));
   } else {
     builder.AddChildren(
         views::Builder<views::View>(),  // Column skip.
@@ -165,7 +172,8 @@ WebAppConfirmationView::WebAppConfirmationView(
             .CopyAddressTo(&open_as_window_checkbox_)
             .SetText(l10n_util::GetStringUTF16(
                 IDS_BOOKMARK_APP_BUBBLE_OPEN_AS_WINDOW))
-            .SetChecked(display_mode != web_app::DisplayMode::kBrowser));
+            .SetChecked(display_mode !=
+                        web_app::mojom::UserDisplayMode::kBrowser));
   }
 
   std::move(builder).BuildChildren();
@@ -178,7 +186,6 @@ WebAppConfirmationView::WebAppConfirmationView(
   }
 
   title_tf_->SelectAll(true);
-  chrome::RecordDialogCreation(chrome::DialogIdentifier::WEB_APP_CONFIRMATION);
 }
 
 views::View* WebAppConfirmationView::GetInitiallyFocusedView() {
@@ -201,16 +208,19 @@ bool WebAppConfirmationView::Accept() {
   web_app_info_->title = GetTrimmedTitle();
   if (ShowRadioButtons()) {
     if (open_as_tabbed_window_radio_->GetChecked()) {
-      web_app_info_->user_display_mode = web_app::DisplayMode::kTabbed;
+      web_app_info_->user_display_mode =
+          web_app::mojom::UserDisplayMode::kTabbed;
     } else {
-      web_app_info_->user_display_mode = open_as_window_radio_->GetChecked()
-                                             ? web_app::DisplayMode::kStandalone
-                                             : web_app::DisplayMode::kBrowser;
+      web_app_info_->user_display_mode =
+          open_as_window_radio_->GetChecked()
+              ? web_app::mojom::UserDisplayMode::kStandalone
+              : web_app::mojom::UserDisplayMode::kBrowser;
     }
   } else {
-    web_app_info_->user_display_mode = open_as_window_checkbox_->GetChecked()
-                                           ? web_app::DisplayMode::kStandalone
-                                           : web_app::DisplayMode::kBrowser;
+    web_app_info_->user_display_mode =
+        open_as_window_checkbox_->GetChecked()
+            ? web_app::mojom::UserDisplayMode::kStandalone
+            : web_app::mojom::UserDisplayMode::kBrowser;
   }
   std::move(callback_).Run(true, std::move(web_app_info_));
   return true;
@@ -256,6 +266,10 @@ void SetAutoAcceptWebAppDialogForTesting(bool auto_accept,
                                          bool auto_open_in_window) {
   g_auto_accept_web_app_for_testing = auto_accept;
   g_auto_check_open_in_window_for_testing = auto_open_in_window;
+}
+
+void SetOverrideTitleForTesting(const char* title_to_use) {
+  g_title_to_use_for_app = title_to_use;
 }
 
 }  // namespace chrome

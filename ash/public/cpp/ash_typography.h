@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,8 +18,8 @@ enum AshTextContext {
   // A button that appears in the launcher's status area.
   CONTEXT_LAUNCHER_BUTTON = ASH_TEXT_CONTEXT_START,
 
-  // Buttons and labels that appear in the fullscreen toast overlay UI.
-  CONTEXT_TOAST_OVERLAY,
+  // Text label that used in launcher nudge label. Medium weight. 13pt size.
+  CONTEXT_LAUNCHER_NUDGE_LABEL,
 
   // A button that appears within a row of the tray popup.
   CONTEXT_TRAY_POPUP_BUTTON,
@@ -50,8 +50,13 @@ enum AshTextContext {
   // Title and details text label used in search result view. Usually 14 pt.
   CONTEXT_SEARCH_RESULT_VIEW,
 
+  // Big title text label used in search result view. Usually 36 pt.
+  CONTEXT_SEARCH_RESULT_BIG_TITLE,
+
+  // Big title superscript text label used in search result view. Usually 18 pt.
+  CONTEXT_SEARCH_RESULT_BIG_TITLE_SUPERSCRIPT,
+
   // Details text label used for inline answer search result view. Usually 12pt.
-  // Used when productivity launcher is enabled.
   CONTEXT_SEARCH_RESULT_VIEW_INLINE_ANSWER_DETAILS,
 
   // Label text for search result view categories. Usually 13 pt. Appears above
@@ -64,18 +69,15 @@ enum AshTextContext {
 enum AshTextStyle {
   ASH_TEXT_STYLE_START = views::style::VIEWS_TEXT_STYLE_END,
 
-  // Used to draw attention to a section of body text such as a matched search
-  // string.
-  STYLE_EMPHASIZED = ASH_TEXT_STYLE_START,
+  // Used to strongly draw attention to a section or body of text such as a
+  // matched search string.
+  STYLE_HIGHLIGHT = ASH_TEXT_STYLE_START,
 
   // Text styling specifically for the Chrome OS sharesheet.
   STYLE_SHARESHEET,
 
-  // Text styling for classic launcher's search result view.
-  STYLE_CLASSIC_LAUNCHER,
-
-  // Text styling for productivity launcher's search result view.
-  STYLE_PRODUCTIVITY_LAUNCHER,
+  // Text styling for launcher's search result view.
+  STYLE_LAUNCHER,
 
   ASH_TEXT_STYLE_END
 };

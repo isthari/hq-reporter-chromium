@@ -1,13 +1,12 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ref.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/test_timeouts.h"
-#include "chrome/browser/cart/cart_db_content.pb.h"
 #include "chrome/browser/cart/cart_service.h"
-#include "chrome/browser/persisted_state_db/profile_proto_db.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -15,10 +14,12 @@
 #include "chrome/test/base/chrome_test_utils.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/commerce/core/proto/cart_db_content.pb.h"
 #include "components/network_session_configurator/common/network_switches.h"
 #include "components/optimization_guide/core/optimization_guide_features.h"
 #include "components/prefs/pref_service.h"
 #include "components/search/ntp_features.h"
+#include "components/session_proto_db/session_proto_db.h"
 #include "components/ukm/test_ukm_recorder.h"
 #include "content/public/test/browser_test.h"
 #include "net/dns/mock_host_resolver.h"
@@ -44,7 +45,7 @@ const char kFakeMerchantURLB[] = "https://www.bar.com/cart.html";
 const char kMockMerchant[] = "walmart.com";
 const char kMockMerchantURL[] = "https://www.walmart.com";
 using ShoppingCarts =
-    std::vector<ProfileProtoDB<cart_db::ChromeCartContentProto>::KeyAndValue>;
+    std::vector<SessionProtoDB<cart_db::ChromeCartContentProto>::KeyAndValue>;
 }  // namespace
 
 std::unique_ptr<net::test_server::HttpResponse> BasicResponse(
@@ -60,7 +61,7 @@ class CartServiceBrowserTest : public InProcessBrowserTest {
  public:
   void SetUpInProcessBrowserTestFixture() override {
     scoped_feature_list_.InitWithFeatures(
-        {ntp_features::kModules, ntp_features::kNtpChromeCartModule,
+        {ntp_features::kNtpChromeCartModule,
          optimization_guide::features::kOptimizationHints},
         {});
   }
@@ -128,8 +129,8 @@ class CartServiceBrowserTest : public InProcessBrowserTest {
   }
 
   base::test::ScopedFeatureList scoped_feature_list_;
-  raw_ptr<CartService> service_;
-  raw_ptr<Profile> profile_;
+  raw_ptr<CartService, DanglingUntriaged> service_;
+  raw_ptr<Profile, DanglingUntriaged> profile_;
   net::EmbeddedTestServer https_server_{net::EmbeddedTestServer::TYPE_HTTPS};
 };
 
@@ -238,11 +239,11 @@ class FakeCartDiscountLinkFetcher : public CartDiscountLinkFetcher {
       std::unique_ptr<network::PendingSharedURLLoaderFactory> pending_factory,
       cart_db::ChromeCartContentProto cart_content_proto,
       CartDiscountLinkFetcherCallback callback) override {
-    std::move(callback).Run(discount_url_);
+    std::move(callback).Run(*discount_url_);
   }
 
  private:
-  const GURL& discount_url_;
+  const raw_ref<const GURL> discount_url_;
 };
 
 class CartServiceBrowserDiscountTest : public CartServiceBrowserTest {
@@ -283,7 +284,7 @@ IN_PROC_BROWSER_TEST_F(CartServiceBrowserDiscountTest,
   added_discount->set_rule_id("fake_id");
   added_discount->set_percent_off(5);
   added_discount->set_raw_merchant_offer_id("fake_offer_id");
-  service_->AddCart(kFakeMerchantA, absl::nullopt, merchant_proto);
+  service_->AddCart(GURL(kFakeMerchantURLA), absl::nullopt, merchant_proto);
 
   GURL foo_url("https://www.foo.com/cart.html");
   GURL bar_url("https://www.bar.com/cart.html");
@@ -294,5 +295,7 @@ IN_PROC_BROWSER_TEST_F(CartServiceBrowserDiscountTest,
   service_->PrepareForNavigation(foo_url, false);
   TabStripModel* model = browser()->tab_strip_model();
   NavigateToURL(foo_url);
-  ASSERT_EQ(bar_url, model->GetActiveWebContents()->GetVisibleURL());
+  ASSERT_EQ(GURL(bar_url.spec() +
+                 "?utm_source=chrome&utm_medium=app&utm_campaign=chrome-cart"),
+            model->GetActiveWebContents()->GetVisibleURL());
 }

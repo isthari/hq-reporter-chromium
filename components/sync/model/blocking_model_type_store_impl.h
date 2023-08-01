@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,16 +11,33 @@
 #include "base/sequence_checker.h"
 #include "base/task/sequenced_task_runner.h"
 #include "components/sync/base/model_type.h"
+#include "components/sync/base/storage_type.h"
 #include "components/sync/model/blocking_model_type_store.h"
 
 namespace syncer {
+
+// TODO(andreaorru): The following functions are public only
+// to support Lacros migration. Make them private again once
+// they are not needed anymore. See crbug.com/1147556 for more
+// context on move migration.
+
+// Formats key prefix for data records of |model_type| using |storage_type|.
+std::string FormatDataPrefix(ModelType model_type, StorageType storage_type);
+
+// Formats key prefix for metadata records of |model_type| using |storage_type|.
+std::string FormatMetaPrefix(ModelType model_type, StorageType storage_type);
+
+// Formats key for global metadata record of |model_type| using |storage_type|.
+std::string FormatGlobalMetadataKey(ModelType model_type,
+                                    StorageType storage_type);
 
 class ModelTypeStoreBackend;
 
 class BlockingModelTypeStoreImpl : public BlockingModelTypeStore {
  public:
   // |backend| must not be null.
-  BlockingModelTypeStoreImpl(ModelType type,
+  BlockingModelTypeStoreImpl(ModelType model_type,
+                             StorageType storage_type,
                              scoped_refptr<ModelTypeStoreBackend> backend);
 
   BlockingModelTypeStoreImpl(const BlockingModelTypeStoreImpl&) = delete;
@@ -43,10 +60,12 @@ class BlockingModelTypeStoreImpl : public BlockingModelTypeStore {
 
   // For advanced uses that require cross-thread batch posting. Avoid if
   // possible.
-  static std::unique_ptr<WriteBatch> CreateWriteBatchForType(ModelType type);
+  static std::unique_ptr<WriteBatch> CreateWriteBatch(ModelType model_type,
+                                                      StorageType storage_type);
 
  private:
-  const ModelType type_;
+  const ModelType model_type_;
+  const StorageType storage_type_;
   const scoped_refptr<ModelTypeStoreBackend> backend_;
 
   // Key prefix for data/metadata records of this model type.

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,15 +8,13 @@ import android.text.format.DateUtils;
 
 import androidx.annotation.VisibleForTesting;
 
-import org.chromium.base.annotations.JNINamespace;
-import org.chromium.base.annotations.MainDex;
-import org.chromium.base.annotations.NativeMethods;
+import org.chromium.build.annotations.MainDex;
+
+import java.util.List;
 
 /**
- * Java API for recording UMA histograms. Note that when updating this file, please also update
- * {@link ShadowRecordHistogram} so that it correctly shadows all the methods.
+ * Java API for recording UMA histograms.
  * */
-@JNINamespace("base::android")
 @MainDex
 public class RecordHistogram {
     /**
@@ -52,7 +50,7 @@ public class RecordHistogram {
      * @param name name of the histogram
      * @param sample sample to be recorded, at least 1 and at most 999999
      */
-    public static void recordCountHistogram(String name, int sample) {
+    public static void recordCount1MHistogram(String name, int sample) {
         UmaRecorderHolder.get().recordExponentialHistogram(name, sample, 1, 1_000_000, 50);
     }
 
@@ -262,37 +260,42 @@ public class RecordHistogram {
 
     /**
      * Returns the number of samples recorded in the given bucket of the given histogram.
-     * Does not reset between batched tests. Use HistogramTestRule instead.
+     *
+     * @deprecated Raw counts are easy to misuse. Does not reset between batched tests. Use
+     * {@link org.chromium.base.test.util.HistogramWatcher} instead.
      *
      * @param name name of the histogram to look up
      * @param sample the bucket containing this sample value will be looked up
      */
-    @VisibleForTesting
     @Deprecated
+    @VisibleForTesting
     public static int getHistogramValueCountForTesting(String name, int sample) {
-        return RecordHistogramJni.get().getHistogramValueCountForTesting(name, sample, 0);
+        return UmaRecorderHolder.get().getHistogramValueCountForTesting(name, sample);
     }
 
     /**
      * Returns the number of samples recorded for the given histogram.
-     * Does not reset between batched tests. Use HistogramTestRule instead.
+     *
+     * @deprecated Raw counts are easy to misuse. Does not reset between batched tests. Use
+     * {@link org.chromium.base.test.util.HistogramWatcher} instead.
+     *
+     * @param name name of the histogram to look up
+     */
+    @Deprecated
+    @VisibleForTesting
+    public static int getHistogramTotalCountForTesting(String name) {
+        return UmaRecorderHolder.get().getHistogramTotalCountForTesting(name);
+    }
+
+    /**
+     * Returns the buckets of samples recorded for the given histogram.
+     *
+     * Use {@link org.chromium.base.test.util.HistogramWatcher} instead of using this directly.
      *
      * @param name name of the histogram to look up
      */
     @VisibleForTesting
-    @Deprecated
-    public static int getHistogramTotalCountForTesting(String name) {
-        return RecordHistogramJni.get().getHistogramTotalCountForTesting(name, 0);
-    }
-
-    /**
-     * Natives API to read metrics reported when testing.
-     */
-    @NativeMethods
-    public interface Natives {
-        int getHistogramValueCountForTesting(String name, int sample, long snapshotPtr);
-        int getHistogramTotalCountForTesting(String name, long snapshotPtr);
-        long createHistogramSnapshotForTesting();
-        void destroyHistogramSnapshotForTesting(long snapshotPtr);
+    public static List<HistogramBucket> getHistogramSamplesForTesting(String name) {
+        return UmaRecorderHolder.get().getHistogramSamplesForTesting(name);
     }
 }

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,6 +19,11 @@
 #include "ash/constants/ash_switches.h"
 #include "base/command_line.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+#include "chromeos/crosapi/mojom/crosapi.mojom.h"
+#include "chromeos/startup/browser_init_params.h"
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
 
 namespace web_app {
 
@@ -79,7 +84,7 @@ class PreinstalledWebAppUtilsTest : public testing::Test {
 
 // ParseConfig() is also tested by PreinstalledWebAppManagerTest.
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
 
 namespace {
 
@@ -99,8 +104,16 @@ class PreinstalledWebAppUtilsTabletTest
  public:
   PreinstalledWebAppUtilsTabletTest() {
     if (GetParam()) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
       base::CommandLine::ForCurrentProcess()->AppendSwitch(
           ash::switches::kEnableTabletFormFactor);
+#else
+      auto init_params = crosapi::mojom::BrowserInitParams::New();
+      init_params->device_properties = crosapi::mojom::DeviceProperties::New();
+      init_params->device_properties->is_tablet_form_factor = true;
+      chromeos::BrowserInitParams::SetInitParamsForTests(
+          std::move(init_params));
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
     }
   }
   ~PreinstalledWebAppUtilsTabletTest() override = default;
@@ -141,8 +154,16 @@ class PreinstalledWebAppUtilsArcTest
  public:
   PreinstalledWebAppUtilsArcTest() {
     if (GetParam()) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
       base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
           ash::switches::kArcAvailability, "officially-supported");
+#else
+      auto init_params = crosapi::mojom::BrowserInitParams::New();
+      init_params->device_properties = crosapi::mojom::DeviceProperties::New();
+      init_params->device_properties->is_arc_available = true;
+      chromeos::BrowserInitParams::SetInitParamsForTests(
+          std::move(init_params));
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
     }
   }
   ~PreinstalledWebAppUtilsArcTest() override = default;
@@ -177,7 +198,7 @@ INSTANTIATE_TEST_SUITE_P(All,
                          ::testing::Values(true, false),
                          BoolParamToString);
 
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 // TODO(crbug.com/1119710): Loading icon.png is flaky on Windows.
 #if BUILDFLAG(IS_WIN)
@@ -193,6 +214,7 @@ TEST_F(PreinstalledWebAppUtilsTest, MAYBE_OfflineManifestValid) {
       "scope": "https://test.org/",
       "display": "standalone",
       "icon_any_pngs": ["icon.png"],
+      "icon_maskable_pngs": ["icon.png"],
       "theme_color_argb_hex": "AABBCCDD"
     }
   )")
@@ -205,6 +227,9 @@ TEST_F(PreinstalledWebAppUtilsTest, MAYBE_OfflineManifestValid) {
   EXPECT_EQ(app_info->display_mode, DisplayMode::kStandalone);
   EXPECT_EQ(app_info->icon_bitmaps.any.size(), 1u);
   EXPECT_EQ(app_info->icon_bitmaps.any.at(192).getColor(0, 0), SK_ColorBLUE);
+  EXPECT_EQ(app_info->icon_bitmaps.maskable.size(), 1u);
+  EXPECT_EQ(app_info->icon_bitmaps.maskable.at(192).getColor(0, 0),
+            SK_ColorBLUE);
   EXPECT_EQ(app_info->theme_color, SkColorSetARGB(0xFF, 0xBB, 0xCC, 0xDD));
 }
 
@@ -408,6 +433,47 @@ TEST_F(PreinstalledWebAppUtilsTest, OfflineManifestIconAnyPngs) {
       "icon_any_pngs": ["basic.html"]
     }
   )")) << "icon_any_pngs is a PNG";
+}
+
+TEST_F(PreinstalledWebAppUtilsTest, OfflineManifestIconMaskablePngs) {
+  EXPECT_FALSE(ParseOfflineManifest(R"(
+    {
+      "name": "Test App",
+      "start_url": "https://test.org/start.html",
+      "scope": "https://test.org/",
+      "display": "standalone"
+    }
+  )")) << "icon_any_pngs or icon_maskable_pngs is required";
+
+  EXPECT_FALSE(ParseOfflineManifest(R"(
+    {
+      "name": "Test App",
+      "start_url": "https://test.org/start.html",
+      "scope": "https://test.org/",
+      "display": "standalone",
+      "icon_maskable_pngs": "icon.png"
+    }
+  )")) << "icon_maskable_pngs is valid";
+
+  EXPECT_FALSE(ParseOfflineManifest(R"(
+    {
+      "name": "Test App",
+      "start_url": "https://test.org/start.html",
+      "scope": "https://test.org/",
+      "display": "standalone",
+      "icon_maskable_pngs": ["does-not-exist.png"]
+    }
+  )")) << "icon_maskable_pngs exists";
+
+  EXPECT_FALSE(ParseOfflineManifest(R"(
+    {
+      "name": "Test App",
+      "start_url": "https://test.org/start.html",
+      "scope": "https://test.org/",
+      "display": "standalone",
+      "icon_maskable_pngs": ["basic.html"]
+    }
+  )")) << "icon_maskable_pngs is a PNG";
 }
 
 TEST_F(PreinstalledWebAppUtilsTest, OfflineManifestThemeColorArgbHex) {

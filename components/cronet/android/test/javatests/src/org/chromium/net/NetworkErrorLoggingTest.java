@@ -1,18 +1,16 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.net;
 
-import static org.junit.Assert.assertEquals;
+import static com.google.common.truth.Truth.assertThat;
+
 import static org.junit.Assert.assertTrue;
 
-import static org.chromium.net.CronetTestRule.SERVER_CERT_PEM;
-import static org.chromium.net.CronetTestRule.SERVER_KEY_PKCS8_PEM;
 import static org.chromium.net.CronetTestRule.getContext;
 
-import android.support.test.runner.AndroidJUnit4;
-
+import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.filters.SmallTest;
 
 import org.junit.After;
@@ -21,7 +19,6 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import org.chromium.base.test.util.Feature;
 import org.chromium.net.CronetTestRule.OnlyRunNativeCronet;
 
 /**
@@ -36,9 +33,7 @@ public class NetworkErrorLoggingTest {
 
     @Before
     public void setUp() throws Exception {
-        TestFilesInstaller.installIfNeeded(getContext());
-        assertTrue(Http2TestServer.startHttp2TestServer(
-                getContext(), SERVER_CERT_PEM, SERVER_KEY_PKCS8_PEM));
+        assertTrue(Http2TestServer.startHttp2TestServer(getContext()));
     }
 
     @After
@@ -51,7 +46,6 @@ public class NetworkErrorLoggingTest {
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     public void testManualReportUpload() throws Exception {
         ExperimentalCronetEngine.Builder builder =
@@ -71,14 +65,13 @@ public class NetworkErrorLoggingTest {
         requestBuilder.build().start();
         callback.blockForDone();
         dataProvider.assertClosed();
-        assertEquals(200, callback.mResponseInfo.getHttpStatusCode());
+        assertThat(callback.mResponseInfo.getHttpStatusCode()).isEqualTo(200);
         assertTrue(Http2TestServer.getReportingCollector().containsReport(
                 "{\"type\": \"test_report\"}"));
     }
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     public void testUploadNELReportsFromHeaders() throws Exception {
         ExperimentalCronetEngine.Builder builder =
@@ -93,7 +86,7 @@ public class NetworkErrorLoggingTest {
                 mCronetEngine.newUrlRequestBuilder(url, callback, callback.getExecutor());
         requestBuilder.build().start();
         callback.blockForDone();
-        assertEquals(200, callback.mResponseInfo.getHttpStatusCode());
+        assertThat(callback.mResponseInfo.getHttpStatusCode()).isEqualTo(200);
         Http2TestServer.getReportingCollector().waitForReports(1);
         assertTrue(Http2TestServer.getReportingCollector().containsReport(""
                 + "{"
@@ -114,7 +107,6 @@ public class NetworkErrorLoggingTest {
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @OnlyRunNativeCronet
     public void testUploadNELReportsFromPreloadedPolicy() throws Exception {
         ExperimentalCronetEngine.Builder builder =
@@ -156,7 +148,7 @@ public class NetworkErrorLoggingTest {
                 mCronetEngine.newUrlRequestBuilder(url, callback, callback.getExecutor());
         requestBuilder.build().start();
         callback.blockForDone();
-        assertEquals(200, callback.mResponseInfo.getHttpStatusCode());
+        assertThat(callback.mResponseInfo.getHttpStatusCode()).isEqualTo(200);
         Http2TestServer.getReportingCollector().waitForReports(1);
         // Note that because we don't know in advance what the server IP address is for preloaded
         // origins, we'll always get a "downgraded" dns.address_changed NEL report if we don't

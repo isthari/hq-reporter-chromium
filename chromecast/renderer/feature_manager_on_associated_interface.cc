@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,7 @@ namespace chromecast {
 FeatureManagerOnAssociatedInterface::FeatureManagerOnAssociatedInterface(
     content::RenderFrame* render_frame)
     : content::RenderFrameObserver(render_frame), configured_(false) {
-  registry_.AddInterface(base::BindRepeating(
+  registry_.AddInterface<shell::mojom::FeatureManager>(base::BindRepeating(
       &FeatureManagerOnAssociatedInterface::OnFeatureManagerAssociatedRequest,
       base::Unretained(this)));
 }
@@ -48,8 +48,8 @@ void FeatureManagerOnAssociatedInterface::ConfigureFeatures(
     std::string app_id("MissingAppId");
     auto& feature =
         GetFeature(feature::kEnableTrackControlAppRendererFeatureUse);
-    std::string* app_id_received =
-        feature->config.FindStringPath(feature::kKeyAppId);
+    const std::string* app_id_received =
+        feature->config.FindString(feature::kKeyAppId);
     if (app_id_received) {
       app_id = *app_id_received;
     } else {
@@ -57,7 +57,7 @@ void FeatureManagerOnAssociatedInterface::ConfigureFeatures(
     }
     bool allow_insecure_content = false;
     absl::optional<bool> allow_insecure_content_received =
-        feature->config.FindBoolPath(feature::kKeyAllowInsecureContent);
+        feature->config.FindBool(feature::kKeyAllowInsecureContent);
     if (allow_insecure_content_received) {
       allow_insecure_content = *allow_insecure_content_received;
     } else {

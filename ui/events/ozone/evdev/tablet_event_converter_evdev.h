@@ -1,13 +1,16 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef UI_EVENTS_OZONE_EVDEV_TABLET_EVENT_CONVERTER_EVDEV_H_
 #define UI_EVENTS_OZONE_EVDEV_TABLET_EVENT_CONVERTER_EVDEV_H_
 
+#include <ostream>
+
 #include "base/component_export.h"
 #include "base/files/file_path.h"
 #include "base/files/scoped_file.h"
+#include "base/memory/raw_ptr.h"
 #include "base/message_loop/message_pump_libevent.h"
 #include "ui/events/event.h"
 #include "ui/events/event_modifiers.h"
@@ -42,6 +45,8 @@ class COMPONENT_EXPORT(EVDEV) TabletEventConverterEvdev
 
   void ProcessEvents(const struct input_event* inputs, int count);
 
+  std::ostream& DescribeForLog(std::ostream& os) const override;
+
  private:
   friend class MockTabletEventConverterEvdev;
   void ConvertKeyEvent(const input_event& input);
@@ -60,10 +65,10 @@ class COMPONENT_EXPORT(EVDEV) TabletEventConverterEvdev
   base::MessagePumpLibevent::FdWatchController controller_;
 
   // Shared cursor state.
-  CursorDelegateEvdev* const cursor_;
+  const raw_ptr<CursorDelegateEvdev> cursor_;
 
   // Dispatcher for events.
-  DeviceEventDispatcherEvdev* const dispatcher_;
+  const raw_ptr<DeviceEventDispatcherEvdev> dispatcher_;
 
   int y_abs_location_ = 0;
   int x_abs_location_ = 0;
@@ -82,8 +87,9 @@ class COMPONENT_EXPORT(EVDEV) TabletEventConverterEvdev
   float pressure_ = 0.0f;
   int pressure_max_;
 
-  // BTN_TOOL_ code for the active device
-  int stylus_ = 0;
+  // Bitfield of currently active tools, with BTN_TOOL_PEN in the least
+  // significant bit up to BTN_TOOL_LENS in the most significant bit.
+  uint8_t active_tools_ = 0;
 
   // Whether we need to move the cursor
   bool abs_value_dirty_ = false;

@@ -1,16 +1,19 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.support_lib_glue;
 
-import android.annotation.SuppressLint;
+import android.os.Build;
+import android.webkit.CookieManager;
 import android.webkit.SafeBrowsingResponse;
 import android.webkit.ServiceWorkerWebSettings;
 import android.webkit.WebMessagePort;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
+
+import androidx.annotation.RequiresApi;
 
 import com.android.webview.chromium.SafeBrowsingResponseAdapter;
 import com.android.webview.chromium.ServiceWorkerSettingsAdapter;
@@ -49,7 +52,6 @@ class SupportLibWebkitToCompatConverterAdapter implements WebkitToCompatConverte
     }
 
     // ServiceWorkerWebSettingsBoundaryInterface
-    @SuppressLint("NewApi")
     @Override
     public InvocationHandler convertServiceWorkerSettings(
             /* ServiceWorkerWebSettings */ Object serviceWorkerWebSettings) {
@@ -68,7 +70,6 @@ class SupportLibWebkitToCompatConverterAdapter implements WebkitToCompatConverte
         return new ServiceWorkerSettingsAdapter(supportLibWebSettings.getAwServiceWorkerSettings());
     }
 
-    @SuppressLint("NewApi")
     @Override
     public /* SupportLibWebResourceError */ InvocationHandler convertWebResourceError(
             /* WebResourceError */ Object webResourceError) {
@@ -86,8 +87,8 @@ class SupportLibWebkitToCompatConverterAdapter implements WebkitToCompatConverte
         return new WebResourceErrorAdapter(supportLibError.getAwWebResourceError());
     }
 
-    @SuppressLint("NewApi")
     @Override
+    @RequiresApi(Build.VERSION_CODES.O_MR1)
     public /* SupportLibSafeBrowsingResponse */ InvocationHandler convertSafeBrowsingResponse(
             /* SafeBrowsingResponse */ Object safeBrowsingResponse) {
         return BoundaryInterfaceReflectionUtil.createInvocationHandlerFor(
@@ -97,6 +98,7 @@ class SupportLibWebkitToCompatConverterAdapter implements WebkitToCompatConverte
     }
 
     @Override
+    @RequiresApi(Build.VERSION_CODES.O_MR1)
     public /* SafeBrowsingResponse */ Object convertSafeBrowsingResponse(
             /* SupportLibSafeBrowsingResponse */ InvocationHandler safeBrowsingResponse) {
         SupportLibSafeBrowsingResponse supportLibResponse =
@@ -106,7 +108,6 @@ class SupportLibWebkitToCompatConverterAdapter implements WebkitToCompatConverte
                 supportLibResponse.getAwSafeBrowsingResponseCallback());
     }
 
-    @SuppressLint("NewApi")
     @Override
     public /* SupportLibWebMessagePort */ InvocationHandler convertWebMessagePort(
             /* WebMessagePort */ Object webMessagePort) {
@@ -122,5 +123,14 @@ class SupportLibWebkitToCompatConverterAdapter implements WebkitToCompatConverte
                 (SupportLibWebMessagePortAdapter) BoundaryInterfaceReflectionUtil
                         .getDelegateFromInvocationHandler(webMessagePort);
         return new WebMessagePortAdapter(supportLibMessagePort.getPort());
+    }
+
+    // WebViewCookieManagerBoundaryInterface
+    @Override
+    public InvocationHandler convertCookieManager(Object cookieManager) {
+        return BoundaryInterfaceReflectionUtil.createInvocationHandlerFor(
+                new SupportLibWebViewCookieManagerAdapter(
+                        WebkitToSharedGlueConverter.getCookieManager(
+                                (CookieManager) cookieManager)));
     }
 }

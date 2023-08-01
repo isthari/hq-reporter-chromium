@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,7 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.process_launcher.ChildProcessConnection;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.CriteriaHelper;
@@ -25,7 +26,6 @@ import org.chromium.base.test.util.UrlUtils;
 import org.chromium.content.browser.ChildProcessLauncherHelperImpl;
 import org.chromium.content_public.browser.ChildProcessImportance;
 import org.chromium.content_public.browser.RenderFrameHost;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContentsStatics;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
@@ -345,7 +345,7 @@ public class WebContentsTest {
         mActivityTestRule.waitForActiveShellToBeDoneLoading();
         final WebContents webContents = activity.getActiveWebContents();
 
-        PostTask.postTask(UiThreadTaskTraits.DEFAULT, new Runnable() {
+        PostTask.postTask(TaskTraits.UI_DEFAULT, new Runnable() {
             @Override
             public void run() {
                 RenderFrameHost frameHost = webContents.getMainFrame();
@@ -412,16 +412,15 @@ public class WebContentsTest {
 
         final ChildProcessConnection connection = getSandboxedChildProcessConnection();
         // Need to poll here because there is an intentional delay for removing binding.
-        CriteriaHelper.pollInstrumentationThread(
-                ()
-                        -> ChildProcessLauncherTestUtils.runOnLauncherAndGetResult(
-                                () -> !connection.isModerateBindingBound()),
-                "Failed to remove moderate binding");
+        CriteriaHelper.pollInstrumentationThread(() -> {
+            return ChildProcessLauncherTestUtils.runOnLauncherAndGetResult(
+                    () -> !connection.isVisibleBindingBound());
+        }, "Failed to remove moderate binding");
 
         TestThreadUtils.runOnUiThreadBlocking(
                 () -> webContents.setImportance(ChildProcessImportance.MODERATE));
         ChildProcessLauncherTestUtils.runOnLauncherThreadBlocking(
-                () -> Assert.assertTrue(connection.isModerateBindingBound()));
+                () -> Assert.assertTrue(connection.isVisibleBindingBound()));
     }
 
     @Test

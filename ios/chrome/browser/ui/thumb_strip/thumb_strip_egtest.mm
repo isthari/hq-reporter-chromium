@@ -1,22 +1,23 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/ios/ios_util.h"
+#import "base/ios/ios_util.h"
 #import "base/mac/foundation_util.h"
 #import "base/test/ios/wait_util.h"
-#import "ios/chrome/browser/ui/fullscreen/fullscreen_features.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
+#import "ios/chrome/browser/ui/tab_switcher/test/query_title_server_util.h"
 #import "ios/chrome/browser/ui/thumb_strip/thumb_strip_feature.h"
-#import "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
 #import "ios/testing/earl_grey/app_launch_configuration.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
-#include "net/test/embedded_test_server/http_request.h"
-#include "net/test/embedded_test_server/http_response.h"
-#include "net/test/embedded_test_server/request_handler_util.h"
+#import "ios/web/common/features.h"
+#import "net/test/embedded_test_server/http_request.h"
+#import "net/test/embedded_test_server/http_response.h"
+#import "net/test/embedded_test_server/request_handler_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -25,40 +26,6 @@
 using chrome_test_util::NTPCollectionView;
 using chrome_test_util::PrimaryToolbar;
 using chrome_test_util::WebStateScrollViewMatcher;
-
-namespace {
-
-// net::EmbeddedTestServer handler that responds with the request's query as the
-// title and body.
-std::unique_ptr<net::test_server::HttpResponse> HandleQueryTitle(
-    const net::test_server::HttpRequest& request) {
-  std::unique_ptr<net::test_server::BasicHttpResponse> http_response(
-      new net::test_server::BasicHttpResponse);
-  http_response->set_content_type("text/html");
-  http_response->set_content("<html><head><title>" + request.GetURL().query() +
-                             "</title></head><body>" +
-                             request.GetURL().query() + "</body></html>");
-  return std::move(http_response);
-}
-
-// Returns a matcher that matches anything, but also fills |value| with the
-// accessbilityValue of the matched view.
-id<GREYMatcher> GetAccessibilityValue(__strong NSString** value) {
-  GREYMatchesBlock matches = ^BOOL(UIView* view) {
-    if (value) {
-      *value = view.accessibilityValue;
-    }
-    return YES;
-  };
-  GREYDescribeToBlock describe = ^void(id<GREYDescription> description) {
-    [description appendText:@"View is correct"];
-  };
-
-  return [[GREYElementMatcherBlock alloc] initWithMatchesBlock:matches
-                                              descriptionBlock:describe];
-}
-
-}  // namespace
 
 // Thumb Strip tests for Chrome.
 @interface ThumbStripTestCase : ChromeTestCase
@@ -69,16 +36,13 @@ id<GREYMatcher> GetAccessibilityValue(__strong NSString** value) {
 - (AppLaunchConfiguration)appConfigurationForTestCase {
   AppLaunchConfiguration config;
   config.features_enabled.push_back(kExpandedTabStrip);
-  config.features_disabled.push_back(
-      fullscreen::features::kSmoothScrollingDefault);
+  config.features_disabled.push_back(web::features::kSmoothScrollingDefault);
   return config;
 }
 
 // Sets up the EmbeddedTestServer as needed for tests.
 - (void)setUpTestServer {
-  self.testServer->RegisterDefaultHandler(base::BindRepeating(
-      net::test_server::HandlePrefixedRequest, "/querytitle",
-      base::BindRepeating(&HandleQueryTitle)));
+  RegisterQueryTitleHandler(self.testServer);
   GREYAssertTrue(self.testServer->Start(), @"Test server failed to start");
 }
 
@@ -93,7 +57,7 @@ id<GREYMatcher> GetAccessibilityValue(__strong NSString** value) {
 
   [self setUpTestServer];
 
-  const GURL URL = self.testServer->GetURL("/querytitle?Hello");
+  const GURL URL = GetQueryTitleURL(self.testServer, @"Hello");
 
   [ChromeEarlGrey loadURL:URL];
   [ChromeEarlGrey waitForWebStateContainingText:"Hello"];
@@ -120,19 +84,10 @@ id<GREYMatcher> GetAccessibilityValue(__strong NSString** value) {
 
   [self setUpTestServer];
 
-  const GURL URL = self.testServer->GetURL("/querytitle?Hello");
+  const GURL URL = GetQueryTitleURL(self.testServer, @"Hello");
 
   [ChromeEarlGrey loadURL:URL];
   [ChromeEarlGrey waitForWebStateContainingText:"Hello"];
-
-  // Save the text in the location bar because the hider view should have the
-  // same text.
-  NSString* locationBarAccessibilityValue;
-  [[EarlGrey
-      selectElementWithMatcher:grey_allOf(grey_kindOfClassName(
-                                              @"LocationBarSteadyButton"),
-                                          grey_minimumVisiblePercent(1), nil)]
-      assertWithMatcher:GetAccessibilityValue(&locationBarAccessibilityValue)];
 
   // Swipe down twice to reveal the thumb strip.
   [[EarlGrey selectElementWithMatcher:PrimaryToolbar()]
@@ -140,22 +95,9 @@ id<GREYMatcher> GetAccessibilityValue(__strong NSString** value) {
   [[EarlGrey selectElementWithMatcher:PrimaryToolbar()]
       performAction:grey_swipeSlowInDirection(kGREYDirectionDown)];
 
-  // Make sure that the hider view is visible, and the toolbar is not.
+  // Make sure that the toolbar is not visible.
   [[EarlGrey selectElementWithMatcher:grey_allOf(PrimaryToolbar(), nil)]
       assertWithMatcher:grey_notVisible()];
-  [[EarlGrey
-      selectElementWithMatcher:grey_accessibilityID(@"BrowserViewHiderView")]
-      assertWithMatcher:grey_notNil()];
-
-  // Make sure that the text on the hider view is the location bar text.
-  [[EarlGrey
-      selectElementWithMatcher:grey_allOf(
-                                   grey_kindOfClassName(
-                                       @"LocationBarSteadyView"),
-                                   grey_descendant(grey_accessibilityValue(
-                                       locationBarAccessibilityValue)),
-                                   grey_minimumVisiblePercent(1), nil)]
-      assertWithMatcher:grey_notNil()];
 }
 
 // Tests that scrolling the web content can open and close the thumb strip.
@@ -167,7 +109,7 @@ id<GREYMatcher> GetAccessibilityValue(__strong NSString** value) {
 
   [self setUpTestServer];
 
-  const GURL URL = self.testServer->GetURL("/querytitle?Hello");
+  const GURL URL = GetQueryTitleURL(self.testServer, @"Hello");
 
   [ChromeEarlGrey loadURL:URL];
   [ChromeEarlGrey waitForWebStateContainingText:"Hello"];
@@ -236,14 +178,14 @@ id<GREYMatcher> GetAccessibilityValue(__strong NSString** value) {
 
   [self setUpTestServer];
 
-  const GURL URL1 = self.testServer->GetURL("/querytitle?Page1");
+  const GURL URL1 = GetQueryTitleURL(self.testServer, @"Page1");
   [ChromeEarlGrey loadURL:URL1];
   [ChromeEarlGrey waitForWebStateContainingText:"Page1"];
 
   // Open and load second tab.
   [ChromeEarlGrey openNewTab];
 
-  const GURL URL2 = self.testServer->GetURL("/querytitle?Page2");
+  const GURL URL2 = GetQueryTitleURL(self.testServer, @"Page2");
 
   [ChromeEarlGrey loadURL:URL2];
   [ChromeEarlGrey waitForWebStateContainingText:"Page2"];

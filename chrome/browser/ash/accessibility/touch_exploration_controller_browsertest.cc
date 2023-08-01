@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,10 @@
 
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
+#include "base/memory/raw_ptr.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
 #include "chrome/browser/ash/accessibility/accessibility_manager.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -70,21 +70,16 @@ class TouchExplorationTest : public InProcessBrowserTest {
   base::TimeTicks Now() { return simulated_clock_->NowTicks(); }
 
   ui::GestureDetector::Config gesture_detector_config_;
-  base::SimpleTestTickClock* simulated_clock_;
-  aura::Window* root_window_;
+  raw_ptr<base::SimpleTestTickClock, ExperimentalAsh> simulated_clock_;
+  raw_ptr<aura::Window, ExperimentalAsh> root_window_;
   std::unique_ptr<ui::test::TestEventHandler> event_handler_;
 };
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-// crbug.com/422943
-#define MAYBE_NoRewritingEventsWhenOff DISABLED_NoRewritingEventsWhenOff
-#else
-#define MAYBE_NoRewritingEventsWhenOff NoRewritingEventsWhenOff
-#endif
-
 // This test turns the touch exploration mode off and confirms that events
 // aren't modified.
-IN_PROC_BROWSER_TEST_F(TouchExplorationTest, MAYBE_NoRewritingEventsWhenOff) {
+// Disabled: crbug.com/422943
+IN_PROC_BROWSER_TEST_F(TouchExplorationTest,
+                       DISABLED_NoRewritingEventsWhenOff) {
   SwitchTouchExplorationMode(false);
   ui::test::EventGenerator generator(root_window_);
 

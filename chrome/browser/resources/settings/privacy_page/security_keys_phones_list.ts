@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,14 +6,15 @@
  * @fileoverview An element that lists phones usable as security keys,
     optionally with a drop-down menu for editing or deleting them.
  */
-import '../settings_shared_css.js';
-import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
+import '../settings_shared.css.js';
+import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.js';
 import 'chrome://resources/cr_elements/cr_action_menu/cr_action_menu.js';
 
 import {AnchorAlignment} from 'chrome://resources/cr_elements/cr_action_menu/cr_action_menu.js';
-import {assert} from 'chrome://resources/js/assert.m.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+
 import {SecurityKeysPhone} from './security_keys_browser_proxy.js';
+import {getTemplate} from './security_keys_phones_list.html.js';
 
 class SecurityKeysPhonesListElement extends PolymerElement {
   static get is() {
@@ -21,7 +22,7 @@ class SecurityKeysPhonesListElement extends PolymerElement {
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
@@ -32,7 +33,7 @@ class SecurityKeysPhonesListElement extends PolymerElement {
   }
 
   immutable: boolean;
-  phones: Array<SecurityKeysPhone>;
+  phones: SecurityKeysPhone[];
   // Contains the public key of the phone that the action menu was opened for.
   private publicKeyForActionMenu_: string|null;
 

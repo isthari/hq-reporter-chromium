@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/singleton.h"
 #include "base/time/default_clock.h"
 #include "components/keyed_service/ios/browser_state_dependency_manager.h"
@@ -127,7 +127,8 @@ WebViewDeviceInfoSyncServiceFactory::BuildServiceInstanceFor(
       browser_state->GetPrefs(), sync_invalidations_service);
   auto local_device_info_provider =
       std::make_unique<syncer::LocalDeviceInfoProviderImpl>(
-          version_info::Channel::STABLE, version_info::GetVersionNumber(),
+          version_info::Channel::STABLE,
+          std::string(version_info::GetVersionNumber()),
           device_info_sync_client.get());
   auto device_prefs = std::make_unique<syncer::DeviceInfoPrefs>(
       browser_state->GetPrefs(), base::DefaultClock::GetInstance());

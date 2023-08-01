@@ -1,21 +1,24 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_ASH_PLUGIN_VM_PLUGIN_VM_MANAGER_IMPL_H_
 #define CHROME_BROWSER_ASH_PLUGIN_VM_PLUGIN_VM_MANAGER_IMPL_H_
 
+#include <memory>
 #include "base/files/file_path.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
+#include "chrome/browser/ash/guest_os/guest_os_dlc_helper.h"
 #include "chrome/browser/ash/plugin_vm/plugin_vm_manager.h"
 #include "chrome/browser/ash/plugin_vm/plugin_vm_metrics_util.h"
 #include "chrome/browser/ash/plugin_vm/plugin_vm_uninstaller_notification.h"
+#include "chrome/browser/ash/plugin_vm/plugin_vm_util.h"
 #include "chrome/browser/ash/vm_starting_observer.h"
-#include "chromeos/dbus/concierge/concierge_service.pb.h"
-#include "chromeos/dbus/dlcservice/dlcservice_client.h"
-#include "chromeos/dbus/vm_plugin_dispatcher/vm_plugin_dispatcher.pb.h"
-#include "chromeos/dbus/vm_plugin_dispatcher/vm_plugin_dispatcher_client.h"
+#include "chromeos/ash/components/dbus/vm_concierge/concierge_service.pb.h"
+#include "chromeos/ash/components/dbus/vm_plugin_dispatcher/vm_plugin_dispatcher.pb.h"
+#include "chromeos/ash/components/dbus/vm_plugin_dispatcher/vm_plugin_dispatcher_client.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 class Profile;
@@ -40,9 +43,8 @@ constexpr int PRL_ERR_NOT_ENOUGH_DISK_SPACE_TO_START_VM = 0x80000456;
 // The PluginVmManagerImpl is responsible for connecting to the D-Bus services
 // to manage the Plugin Vm.
 
-class PluginVmManagerImpl
-    : public PluginVmManager,
-      public chromeos::VmPluginDispatcherClient::Observer {
+class PluginVmManagerImpl : public PluginVmManager,
+                            public ash::VmPluginDispatcherClient::Observer {
  public:
   using LaunchPluginVmCallback = base::OnceCallback<void(bool success)>;
 
@@ -64,7 +66,7 @@ class PluginVmManagerImpl
 
   uint64_t seneschal_server_handle() const override;
 
-  // chromeos::VmPluginDispatcherClient::Observer:
+  // ash::VmPluginDispatcherClient::Observer:
   void OnVmToolsStateChanged(
       const vm_tools::plugin_dispatcher::VmToolsStateChangedSignal& signal)
       override;
@@ -93,7 +95,7 @@ class PluginVmManagerImpl
   void OnInstallPluginVmDlc(
       base::OnceCallback<void(bool default_vm_exists)> success_callback,
       base::OnceClosure error_callback,
-      const chromeos::DlcserviceClient::InstallResult& install_result);
+      guest_os::GuestOsDlcInstallation::Result install_result);
   void OnStartDispatcher(
       base::OnceCallback<void(bool default_vm_exists)> success_callback,
       base::OnceClosure error_callback,
@@ -142,7 +144,11 @@ class PluginVmManagerImpl
       PluginVmUninstallerNotification::FailedReason reason =
           PluginVmUninstallerNotification::FailedReason::kUnknown);
 
-  Profile* profile_;
+  // Called when Plugin VM changes availability e.g. installed, uninstalled,
+  // policy changes.
+  void OnAvailabilityChanged(bool is_allowed, bool is_configured);
+
+  raw_ptr<Profile, ExperimentalAsh> profile_;
   std::string owner_id_;
   uint64_t seneschal_server_handle_ = 0;
 
@@ -155,6 +161,8 @@ class PluginVmManagerImpl
       vm_tools::plugin_dispatcher::VmState::VM_STATE_UNKNOWN;
 
   base::ObserverList<ash::VmStartingObserver> vm_starting_observers_;
+
+  std::unique_ptr<guest_os::GuestOsDlcInstallation> in_progress_installation_;
 
   // Members used in the launch flow.
 
@@ -187,6 +195,9 @@ class PluginVmManagerImpl
   // We can't immediately destroy the VM when it is in states like
   // suspending, so delay until an in progress operation finishes.
   bool pending_destroy_disk_image_ = false;
+
+  // For notifying the GuestOsSharePath.
+  std::unique_ptr<PluginVmAvailabilitySubscription> availability_subscription_;
 
   base::WeakPtrFactory<PluginVmManagerImpl> weak_ptr_factory_{this};
 };

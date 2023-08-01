@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 #include <utility>
 #include <vector>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/profiler/metadata_recorder.h"
 #include "base/profiler/module_cache.h"
@@ -80,6 +80,7 @@ class CallStackProfileBuilder : public base::ProfileBuilder {
       base::TimeTicks period_start,
       base::TimeTicks period_end,
       const base::MetadataRecorder::Item& item) override;
+  void AddProfileMetadata(const base::MetadataRecorder::Item& item) override;
   void OnSampleCompleted(std::vector<base::Frame> frames,
                          base::TimeTicks sample_timestamp) override;
   void OnProfileCompleted(base::TimeDelta profile_duration,
@@ -93,10 +94,18 @@ class CallStackProfileBuilder : public base::ProfileBuilder {
           callback);
 
   // Sets the CallStackProfileCollector interface from |browser_interface|.
-  // This function must be called within child processes.
+  // This function must be called within child processes, and must only be
+  // called once.
   static void SetParentProfileCollectorForChildProcess(
       mojo::PendingRemote<metrics::mojom::CallStackProfileCollector>
           browser_interface);
+
+  // Resets the ChildCallStackProfileCollector to its default state. This will
+  // discard all collected profiles, remove any CallStackProfileCollector
+  // interface set through SetParentProfileCollectorForChildProcess, and allow
+  // SetParentProfileCollectorForChildProcess to be called multiple times during
+  // tests.
+  static void ResetChildCallStackProfileCollectorForTesting();
 
  protected:
   // Test seam.

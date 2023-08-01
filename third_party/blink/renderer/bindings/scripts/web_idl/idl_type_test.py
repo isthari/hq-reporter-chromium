@@ -1,4 +1,4 @@
-# Copyright 2019 The Chromium Authors. All rights reserved.
+# Copyright 2019 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -14,6 +14,7 @@ class IdlTypesTest(unittest.TestCase):
         factory = IdlTypeFactory()
 
         self.assertTrue(factory.simple_type('any').is_any)
+        self.assertTrue(factory.simple_type('bigint').is_bigint)
         self.assertTrue(factory.simple_type('boolean').is_boolean)
         self.assertTrue(factory.simple_type('object').is_object)
         self.assertTrue(factory.simple_type('void').is_void)
@@ -78,6 +79,7 @@ class IdlTypesTest(unittest.TestCase):
             'ByteString': 'ByteString',
             'USVString': 'USVString',
             'any': 'Any',
+            'bigint': 'Bigint',
             'boolean': 'Boolean',
             'object': 'Object',
             'void': 'Void',

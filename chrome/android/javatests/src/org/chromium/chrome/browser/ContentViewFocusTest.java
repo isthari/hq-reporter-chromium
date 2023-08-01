@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,10 @@ package org.chromium.chrome.browser;
 
 import static org.chromium.ui.test.util.ViewUtils.createMotionEvent;
 
-import android.support.test.InstrumentationRegistry;
 import android.view.View;
 
 import androidx.test.filters.MediumTest;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -18,23 +18,24 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.CriteriaHelper;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.FlakyTest;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.base.test.util.UrlUtils;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.compositor.layouts.LayoutManagerImpl;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
+import org.chromium.chrome.browser.layouts.LayoutTestUtils;
+import org.chromium.chrome.browser.layouts.LayoutType;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.util.ChromeTabUtils;
-import org.chromium.chrome.test.util.OverviewModeBehaviorWatcher;
 import org.chromium.components.browser_ui.widget.gesture.SwipeGestureListener.ScrollDirection;
 import org.chromium.components.browser_ui.widget.gesture.SwipeGestureListener.SwipeHandler;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.ViewEventSink;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContentsObserver;
@@ -113,7 +114,7 @@ public class ContentViewFocusTest {
      * @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
      */
     @Test
-    @FlakyTest(message = "http://crbug.com/172473")
+    @DisabledTest(message = "http://crbug.com/172473")
     public void testHideSelectionOnPhoneTabSwiping() throws Exception {
         mActivityTestRule.startMainActivityOnBlankPage();
         // Setup
@@ -132,7 +133,7 @@ public class ContentViewFocusTest {
         addFocusChangedListener(view);
         final SwipeHandler swipeHandler =
                 mActivityTestRule.getActivity().getLayoutManager().getToolbarSwipeHandler();
-        PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT, () -> {
+        PostTask.runOrPostTask(TaskTraits.UI_DEFAULT, () -> {
             swipeHandler.onSwipeStarted(ScrollDirection.RIGHT, createMotionEvent(0, 0));
             swipeHandler.onSwipeUpdated(
                     createMotionEvent(100 * mDpToPx, 0), 100 * mDpToPx, 0, 100 * mDpToPx, 0);
@@ -148,7 +149,7 @@ public class ContentViewFocusTest {
         Assert.assertFalse("Content view didn't lose focus", blockForFocusChanged());
 
         // End the drag
-        PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT, swipeHandler::onSwipeFinished);
+        PostTask.runOrPostTask(TaskTraits.UI_DEFAULT, swipeHandler::onSwipeFinished);
 
         CriteriaHelper.pollUiThread(() -> {
             LayoutManagerImpl driver = mActivityTestRule.getActivity().getLayoutManager();
@@ -169,14 +170,10 @@ public class ContentViewFocusTest {
     @MediumTest
     @Feature({"TabContents"})
     @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
-    @FlakyTest(message = "http://crbug.com/967128")
+    @DisabledTest(message = "http://crbug.com/967128")
     public void testHideSelectionOnPhoneTabSwitcher() throws Exception {
         mActivityTestRule.startMainActivityOnBlankPage();
         // Setup
-        OverviewModeBehaviorWatcher showWatcher = new OverviewModeBehaviorWatcher(
-                mActivityTestRule.getActivity().getLayoutManager(), true, false);
-        OverviewModeBehaviorWatcher hideWatcher = new OverviewModeBehaviorWatcher(
-                mActivityTestRule.getActivity().getLayoutManager(), false, true);
         View currentView = mActivityTestRule.getActivity().getActivityTab().getContentView();
         addFocusChangedListener(currentView);
 
@@ -186,7 +183,8 @@ public class ContentViewFocusTest {
         Assert.assertNotNull("'tab_switcher_button' view is not found.", tabSwitcherButton);
         TouchCommon.singleClickView(
                 mActivityTestRule.getActivity().findViewById(R.id.tab_switcher_button));
-        showWatcher.waitForBehavior();
+        LayoutTestUtils.waitForLayout(
+                mActivityTestRule.getActivity().getLayoutManager(), LayoutType.TAB_SWITCHER);
 
         // Make sure the view loses focus. It is immediately given focus back
         // because it's the only focusable view.
@@ -197,7 +195,8 @@ public class ContentViewFocusTest {
         Assert.assertNotNull("'tab_switcher_button' view is not found.", tabSwitcherButton);
         TouchCommon.singleClickView(
                 mActivityTestRule.getActivity().findViewById(R.id.tab_switcher_button));
-        hideWatcher.waitForBehavior();
+        LayoutTestUtils.waitForLayout(
+                mActivityTestRule.getActivity().getLayoutManager(), LayoutType.BROWSING);
 
         Assert.assertTrue("Content view didn't regain focus", blockForFocusChanged());
         Assert.assertFalse("Unexpected focus change", haveFocusChanges());
@@ -231,11 +230,11 @@ public class ContentViewFocusTest {
         onTitleUpdatedHelper.waitForCallback(callCount);
         Assert.assertEquals("initial", mTitle);
         callCount = onTitleUpdatedHelper.getCallCount();
-        PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT, () -> eventSink.onPauseForTesting());
+        PostTask.runOrPostTask(TaskTraits.UI_DEFAULT, () -> eventSink.onPauseForTesting());
         onTitleUpdatedHelper.waitForCallback(callCount);
         Assert.assertEquals("blurred", mTitle);
         callCount = onTitleUpdatedHelper.getCallCount();
-        PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT, () -> eventSink.onResumeForTesting());
+        PostTask.runOrPostTask(TaskTraits.UI_DEFAULT, () -> eventSink.onResumeForTesting());
         onTitleUpdatedHelper.waitForCallback(callCount);
         Assert.assertEquals("focused", mTitle);
         TestThreadUtils.runOnUiThreadBlocking(

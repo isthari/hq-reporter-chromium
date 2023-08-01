@@ -117,7 +117,7 @@ constructor since it seemed reasonable to do:
 
 **Best practice**
 
-The [current version](https://source.chromium.org/chromium/chromium/src/+/main:chrome/browser/ui/views/file_system_access/file_system_access_usage_bubble_view.cc;l=196;drc=532834e1da3874a57dde3ed76511f53b8eb8ecdf)
+The [current version](https://source.chromium.org/chromium/chromium/src/+/main:chrome/browser/ui/views/file_system_access/file_system_access_usage_bubble_view.cc?q=symbol%3A%5CbCollapsibleListView%3A%3AOnThemeChanged%5Cb%20case%3Ayes)
 moves this to `OnThemeChanged()` and thus handles theme changes correctly:
 
 |||---|||
@@ -132,6 +132,7 @@ explicit CollapsibleListView(ui::TableModel* model) {
   ...
   auto button =
       views::CreateVectorToggleImageButton(this);
+  ...
 
 
 
@@ -170,16 +171,21 @@ explicit CollapsibleListView(ui::TableModel* model) {
 
 void CollapsibleListView::OnThemeChanged() {
   views::View::OnThemeChanged();
-  const SkColor icon_color =
-      GetColorProvider()->GetColor(ui::kColorIcon);
-
-
+  const auto* color_provider = GetColorProvider();
+  const SkColor icon_color = 
+      color_provider->GetColor(ui::kColorIcon);
+  const SkColor disabled_icon_color =
+      color_provider->GetColor(ui::kColorIconDisabled);
   views::SetImageFromVectorIconWithColor(
-      expand_collapse_button_, kCaretDownIcon,
-      ui::TableModel::kIconSize, icon_color);
+      expand_collapse_button_,
+      vector_icons::kCaretDownIcon,
+      ui::TableModel::kIconSize, icon_color,
+      disabled_icon_color);
   views::SetToggledImageFromVectorIconWithColor(
-      expand_collapse_button_, kCaretUpIcon,
-      ui::TableModel::kIconSize, icon_color);
+      expand_collapse_button_,
+      vector_icons::kCaretUpIcon,
+      ui::TableModel::kIconSize, icon_color,
+      disabled_icon_color);
 }
 
 ```
@@ -331,7 +337,7 @@ constant to paint the drop indicator, since they have the same physical color:
 
 **Best practice**
 
-[Current version](https://source.chromium.org/chromium/chromium/src/+/main:ui/views/controls/menu/submenu_view.cc;l=229;drc=7910ceae672184033abc44a287e309f14e664b5e)
+[Current version](https://source.chromium.org/chromium/chromium/src/+/main:ui/views/controls/menu/submenu_view.cc;drc=69982e42da25a60eba54c7c88e97577f7cf67fd2;l=233)
 defines these as distinct logical colors with the same default physical color,
 better accommodating platforms where menu text and menu icons may differ:
 
@@ -389,11 +395,11 @@ void SubmenuView::PaintChildren(
     const PaintInfo& paint_info) {
   ...
   const SkColor drop_indicator_color =
-      GetNativeTheme()->GetSystemColor(
-          ui::NativeTheme::
-              kColorId_MenuDropIndicator);
+      GetColorProvider()->GetColor(
+          ui::kColorMenuDropmarker);
   recorder.canvas()->FillRect(
       bounds, drop_indicator_color);
+  ...
 }
 ```
 
@@ -513,14 +519,14 @@ An improved version could split the image into a fixed color portion and an
 uncolored portion using alpha that is programmatically computed based on the
 desired foreground color.
 
-## Use colors inside a View
+## Use colors inside a rooted entity.
 
-**Do not use colors outside a `View`**, since doing so correctly is difficult.
-Global access to theming objects is deprecated and will eventually be removed,
-since it's error-prone and hinders future design goals. Direct use of physical
-colors and obtaining colors from `View` instances are problematic for reasons
-given above. If you need something like this, talk to the toolkit team about the
-best approach.
+**Do not use colors outside a known rooted entity**, since doing so correctly is
+difficult. Global access to theming objects is deprecated and will eventually be
+removed, since it's error-prone and hinders future design goals. Direct use of
+physical colors and obtaining colors from `View` instances are problematic for
+reasons given above. If you need something like this, talk to the toolkit team
+about the best approach.
 
 |||---|||
 
@@ -537,7 +543,7 @@ Old code in `tab_strip_ui_handler.cc` uses global theming objects:
 [Current version](https://source.chromium.org/chromium/chromium/src/+/main:chrome/browser/ui/webui/tab_strip/tab_strip_ui_handler.cc;l=524;drc=cfa76e5827628eb2104df0e0b55d5d89f4a93eaf)
 gets colors from its embedding `View`; this will still require the caller to
 guarantee the `View`'s colors are up to date, monitor for potential changes in
-those colors, etc.:
+those colors, etc. The `View` should be rooted within a `Widget`:
 
 |||---|||
 
@@ -574,29 +580,128 @@ void TabStripUIHandler::HandleGetThemeColors(
 #####
 
 ```
-class TabStripUIHandler
-    : public content::WebUIMessageHandler,
-      public TabStripModelObserver {
+class TabStripPageHandler : public tab_strip::mojom::PageHandler,
+                            public TabStripModelObserver,
+                            public content::WebContentsDelegate,
+                            public ThemeServiceObserver,
+                            public ui::NativeThemeObserver {
   ...
  private:
-  TabStripUIEmbedder* const embedder_;
+  const raw_ptr<TabStripUIEmbedder> embedder_;
   ...
 }
 
-void TabStripUIHandler::HandleGetThemeColors(
-    const base::ListValue* args) {
-  ...
-
-
-
-  base::DictionaryValue colors;
-  colors.SetString(
-      "--tabstrip-background-color",
-      color_utils::SkColorToRgbaString(
-          embedder_->GetColor(
-              ThemeProperties::COLOR_FRAME)));
+void TabStripPageHandler::GetThemeColors(
+    GetThemeColorsCallback callback) {
+  // This should return an object of CSS variables to rgba values so that
+  // the WebUI can use the CSS variables to color the tab strip
+  base::flat_map<std::string, std::string> colors;
+  colors["--tabstrip-background-color"] = color_utils::SkColorToRgbaString(
+      embedder_->GetColor(ThemeProperties::COLOR_FRAME_ACTIVE));
+  colors["--tabstrip-tab-background-color"] = color_utils::SkColorToRgbaString(
+      embedder_->GetColor(ThemeProperties::COLOR_TOOLBAR));
   ...
 }
 ```
 
 |||---|||
+
+Under MacOS, a top-level window (`Widget`) may not be available in the process
+from which the correct `ThemeProvider` or `ColorProvider` are obtained. In this
+case, the `AppController` is available from which the `ThemeProvider` can be
+obtained.
+
+**NOTE:** For code running within a top-level window, refer the previous best
+practice section for the preferred technique.
+
+```
+@interface AppController
+    : NSObject <NSUserInterfaceValidations,
+                NSMenuDelegate,
+                NSApplicationDelegate,
+                ASWebAuthenticationSessionWebBrowserSessionHandling> {
+
+...
+
+// Returns the last active ThemeProvider. It is only valid to call this with a
+// last available profile.
+- (const ui::ThemeProvider&)lastActiveThemeProvider;
+
+...
+
+@end
+
+class HistoryMenuBridge : public sessions::TabRestoreServiceObserver,
+                          public MainMenuItem,
+                          public history::HistoryServiceObserver {
+ public:
+
+  ...
+
+  // Adds an item for the group entry with a submenu containing its tabs.
+  // Returns whether the item was successfully added.
+  bool AddGroupEntryToMenu(sessions::TabRestoreService::Group* group,
+                           NSMenu* menu,
+                           NSInteger tag,
+                           NSInteger index);
+
+...
+
+bool HistoryMenuBridge::AddGroupEntryToMenu(
+    sessions::TabRestoreService::Group* group,
+    NSMenu* menu,
+    NSInteger tag,
+    NSInteger index) {
+
+...
+
+  // Set the icon of the group to the group color circle.
+  AppController* controller =
+      base::mac::ObjCCastStrict<AppController>([NSApp delegate]);
+  const auto& theme = [controller lastActiveThemeProvider];
+  const int color_id =
+      GetTabGroupContextMenuColorIdDeprecated(group->visual_data.color());
+  gfx::ImageSkia group_icon = gfx::CreateVectorIcon(
+      kTabGroupIcon, gfx::kFaviconSize, theme.GetColor(color_id));
+
+```
+
+|||---|||
+
+For WebUI, `content::WebContents` is used for obtaining the `ThemeProvider`.
+
+```
+namespace webui {
+
+...
+
+#if defined(TOOLKIT_VIEWS)
+
+...
+
+// Returns the ThemeProvider instance associated with the given web contents.
+const ui::ThemeProvider* GetThemeProvider(content::WebContents* web_contents);
+
+...
+
+#endif  // defined(TOOLKIT_VIEWS)
+
+}  // namespace webui
+
+void NTPResourceCache::CreateNewTabIncognitoCSS(
+    const content::WebContents::Getter& wc_getter) {
+  auto* web_contents = wc_getter.Run();
+  const ui::NativeTheme* native_theme = webui::GetNativeTheme(web_contents);
+  DCHECK(native_theme);
+
+  // Requesting the incognito CSS is only done from within incognito browser
+  // windows. The ThemeProvider associated with the requesting WebContents will
+  // wrap the relevant incognito bits.
+  const ui::ThemeProvider* tp = webui::GetThemeProvider(web_contents);
+  DCHECK(tp);
+
+  ...
+
+}
+
+```

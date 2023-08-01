@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@ import static androidx.test.espresso.action.ViewActions.closeSoftKeyboard;
 import static androidx.test.espresso.action.ViewActions.typeText;
 import static androidx.test.espresso.assertion.ViewAssertions.doesNotExist;
 import static androidx.test.espresso.assertion.ViewAssertions.matches;
+import static androidx.test.espresso.matcher.ViewMatchers.assertThat;
 import static androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom;
 import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static androidx.test.espresso.matcher.ViewMatchers.isRoot;
@@ -25,7 +26,6 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.sameInstance;
-import static org.junit.Assert.assertThat;
 
 import static org.chromium.chrome.browser.password_manager.settings.PasswordSettingsTestHelper.ARES_AT_OLYMP;
 import static org.chromium.chrome.browser.password_manager.settings.PasswordSettingsTestHelper.DEIMOS_AT_OLYMP;
@@ -44,7 +44,6 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.ColorFilter;
 import android.graphics.drawable.Drawable;
-import android.support.test.InstrumentationRegistry;
 import android.view.MenuItem;
 import android.view.View;
 import android.widget.LinearLayout;
@@ -55,6 +54,7 @@ import androidx.appcompat.view.menu.ActionMenuItemView;
 import androidx.core.graphics.drawable.DrawableCompat;
 import androidx.test.espresso.Espresso;
 import androidx.test.filters.SmallTest;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.hamcrest.Matcher;
 import org.junit.After;
@@ -69,10 +69,9 @@ import org.mockito.MockitoAnnotations;
 import org.chromium.base.test.BaseActivityTestRule;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.RequiresRestart;
-import org.chromium.chrome.R;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.history.HistoryActivity;
 import org.chromium.chrome.browser.history.HistoryContentManager;
@@ -81,7 +80,7 @@ import org.chromium.chrome.browser.password_check.PasswordCheck;
 import org.chromium.chrome.browser.password_check.PasswordCheckFactory;
 import org.chromium.chrome.browser.settings.SettingsActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
-import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
+import org.chromium.chrome.test.R;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
 import java.util.Date;
@@ -456,7 +455,7 @@ public class PasswordSettingsSearchTest {
     @Test
     @SmallTest
     @Feature({"Preferences"})
-    @DisableFeatures({ChromeFeatureList.EDIT_PASSWORDS_IN_SETTINGS})
+    @DisabledTest(message = "crbug/1202907 - The edit UI is now launched via native.")
     @RequiresRestart("crbug/1137002 - Figure out why this flakes as a batched test.")
     public void testSearchResultsPersistAfterEntryInspection() {
         mTestHelper.setPasswordSourceWithMultipleEntries(GREEK_GODS);
@@ -489,7 +488,7 @@ public class PasswordSettingsSearchTest {
         monitor.waitForActivityWithTimeout(UI_UPDATING_TIMEOUT_MS);
         Assert.assertEquals("Monitor for has not been called", 1, monitor.getHits());
         InstrumentationRegistry.getInstrumentation().removeMonitor(monitor);
-        onView(withContentDescription(R.string.password_entry_viewer_view_stored_password))
+        onView(withContentDescription(R.string.password_entry_viewer_show_stored_password))
                 .perform(click());
         InstrumentationRegistry.getInstrumentation().waitForIdleSync();
 

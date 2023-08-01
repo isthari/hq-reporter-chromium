@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,8 +12,8 @@
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
 #include "ui/views/controls/label.h"
 
-namespace gfx {
-class ImageSkia;
+namespace ui {
+class ImageModel;
 }
 
 // The app dialog that may display the app's name, icon. This is the base class
@@ -21,7 +21,7 @@ class ImageSkia;
 class AppDialogView : public views::BubbleDialogDelegateView {
  public:
   METADATA_HEADER(AppDialogView);
-  explicit AppDialogView(const gfx::ImageSkia& image);
+  explicit AppDialogView(const ui::ImageModel& image);
   ~AppDialogView() override;
 
  protected:

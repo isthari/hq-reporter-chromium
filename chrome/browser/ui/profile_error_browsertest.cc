@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -93,14 +93,12 @@ IN_PROC_BROWSER_TEST_P(ProfileErrorBrowserTest, MAYBE_CorruptedProfile) {
 
   // Wait for the page to produce a frame, the first visually non-empty paint
   // metric is not valid until then.
-  bool loaded = false;
-  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      contents,
-      "requestAnimationFrame(function() {"
-      "  window.domAutomationController.send(true);"
-      "});",
-      &loaded));
-  ASSERT_TRUE(loaded);
+  ASSERT_EQ(true, content::EvalJs(contents,
+                                  "new Promise(resolve => {"
+                                  "  requestAnimationFrame(function() {"
+                                  "    resolve(true);"
+                                  "  });"
+                                  "});"));
 
   if (do_corrupt_) {
     histogram_tester_.ExpectTotalCount(kPaintHistogram, 0);

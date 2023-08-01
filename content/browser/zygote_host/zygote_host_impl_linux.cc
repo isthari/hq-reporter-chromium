@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,13 +16,23 @@
 #include "base/process/memory.h"
 #include "base/strings/string_number_conversions.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "content/common/zygote/zygote_commands_linux.h"
+#include "content/common/zygote/zygote_communication_linux.h"
+#include "content/common/zygote/zygote_handle_impl_linux.h"
+#include "content/public/common/zygote/zygote_handle.h"
 #include "sandbox/linux/services/credentials.h"
 #include "sandbox/linux/services/namespace_sandbox.h"
 #include "sandbox/linux/suid/client/setuid_sandbox_host.h"
 #include "sandbox/linux/suid/common/sandbox.h"
 #include "sandbox/policy/linux/sandbox_linux.h"
 #include "sandbox/policy/switches.h"
+
+#if BUILDFLAG(IS_CHROMEOS)
+#include "content/common/zygote/zygote_communication_linux.h"
+#include "content/common/zygote/zygote_handle_impl_linux.h"
+#include "content/public/common/zygote/zygote_handle.h"
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 namespace content {
 
@@ -187,8 +197,8 @@ pid_t ZygoteHostImpl::LaunchZygote(
 
     // First we receive a message from the zygote boot process.
     base::ProcessId boot_pid;
-    CHECK(ReceiveFixedMessage(fds[0], kZygoteBootMessage,
-                              sizeof(kZygoteBootMessage), &boot_pid));
+    PCHECK(ReceiveFixedMessage(fds[0], kZygoteBootMessage,
+                               sizeof(kZygoteBootMessage), &boot_pid));
 
     // Within the PID namespace, the zygote boot process thinks it's PID 1,
     // but its real PID can never be 1. This gives us a reliable test that
@@ -201,8 +211,8 @@ pid_t ZygoteHostImpl::LaunchZygote(
     // Now receive the message that the zygote's ready to go, along with the
     // main zygote process's ID.
     pid_t real_pid;
-    CHECK(ReceiveFixedMessage(fds[0], kZygoteHelloMessage,
-                              sizeof(kZygoteHelloMessage), &real_pid));
+    PCHECK(ReceiveFixedMessage(fds[0], kZygoteHelloMessage,
+                               sizeof(kZygoteHelloMessage), &real_pid));
     CHECK_GT(real_pid, 1);
 
     if (real_pid != pid) {
@@ -267,12 +277,6 @@ void ZygoteHostImpl::AdjustRendererOOMScore(base::ProcessHandle pid,
   if (selinux)
     return;
 
-  // If heap profiling is running, these processes are not exiting, at least
-  // on ChromeOS. The easiest thing to do is not launch them when profiling.
-  // TODO(stevenjb): Investigate further and fix.
-  if (base::allocator::IsHeapProfilerRunning())
-    return;
-
   std::vector<std::string> adj_oom_score_cmdline;
   adj_oom_score_cmdline.push_back(sandbox_binary_);
   adj_oom_score_cmdline.push_back(sandbox::kAdjustOOMScoreSwitch);
@@ -289,5 +293,18 @@ void ZygoteHostImpl::AdjustRendererOOMScore(base::ProcessHandle pid,
     base::EnsureProcessGetsReaped(std::move(sandbox_helper_process));
 }
 #endif
+
+#if BUILDFLAG(IS_CHROMEOS)
+void ZygoteHostImpl::ReinitializeLogging(uint32_t logging_dest,
+                                         base::PlatformFile log_file_fd) {
+  content::ZygoteCommunication* generic_zygote = content::GetGenericZygote();
+  content::ZygoteCommunication* unsandboxed_zygote =
+      content::GetUnsandboxedZygote();
+  if (generic_zygote)
+    generic_zygote->ReinitializeLogging(logging_dest, log_file_fd);
+  if (unsandboxed_zygote)
+    unsandboxed_zygote->ReinitializeLogging(logging_dest, log_file_fd);
+}
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 }  // namespace content

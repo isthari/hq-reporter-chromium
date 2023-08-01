@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,6 +19,7 @@
 #include "components/content_settings/core/common/cookie_settings_base.h"
 #include "components/keyed_service/core/refcounted_keyed_service.h"
 #include "components/prefs/pref_change_registrar.h"
+#include "net/cookies/cookie_setting_override.h"
 
 class GURL;
 class PrefService;
@@ -80,11 +81,10 @@ class CookieSettings : public CookieSettingsBase,
   ContentSetting GetDefaultCookieSetting(std::string* provider_id) const;
 
   // Returns all patterns with a non-default cookie setting, mapped to their
-  // actual settings, in the precedence order of the setting rules. |settings|
-  // must be a non-nullptr outparam.
+  // actual settings, in the precedence order of the setting rules.
   //
   // This may be called on any thread.
-  void GetCookieSettings(ContentSettingsForOneType* settings) const;
+  ContentSettingsForOneType GetCookieSettings() const;
 
   // Sets the default content setting (CONTENT_SETTING_ALLOW,
   // CONTENT_SETTING_BLOCK, or CONTENT_SETTING_SESSION_ONLY) for cookies.
@@ -96,6 +96,26 @@ class CookieSettings : public CookieSettingsBase,
   //
   // This should only be called on the UI thread.
   void SetCookieSetting(const GURL& primary_url, ContentSetting setting);
+
+  // Represents the TTL of each User Bypass entries.
+  static constexpr base::TimeDelta kUserBypassEntriesTTL = base::Days(90);
+
+  // Sets the cookie setting to allow for the |first_party_url|.
+  void SetCookieSettingForUserBypass(const GURL& first_party_url);
+
+  // Determines the current state of User Bypass for the given
+  // |first_party_url|. This method only takes into consideration the hard-coded
+  // default and user-specified values of cookie setting.
+  //
+  // Notes:
+  // - Storage partitioning could be enabled by default even when third-party
+  // cookies are allowed.
+  // - Also, user bypass as of now is only integrated with the runtime feature
+  // of the top-level frame.
+  // - Cases like WebUIs, allowlisted internal apps, and extension iframes are
+  // usually being exempted from storage partitioning or are allowlisted. Thus,
+  // not covered by user bypass at this state of art.
+  bool IsStoragePartitioningBypassEnabled(const GURL& first_party_url);
 
   // Resets the cookie setting for the given url.
   //
@@ -129,8 +149,8 @@ class CookieSettings : public CookieSettingsBase,
   virtual bool ShouldBlockThirdPartyCookies() const;
 
   // content_settings::CookieSettingsBase:
-  void GetSettingForLegacyCookieAccess(const std::string& cookie_domain,
-                                       ContentSetting* setting) const override;
+  ContentSetting GetSettingForLegacyCookieAccess(
+      const std::string& cookie_domain) const override;
   bool ShouldIgnoreSameSiteRestrictions(
       const GURL& url,
       const net::SiteForCookies& site_for_cookies) const override;
@@ -166,6 +186,7 @@ class CookieSettings : public CookieSettingsBase,
       const GURL& url,
       const GURL& first_party_url,
       bool is_third_party_request,
+      net::CookieSettingOverrides overrides,
       content_settings::SettingSource* source) const override;
 
   // content_settings::Observer:

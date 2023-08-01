@@ -1,10 +1,12 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef ASH_CLIPBOARD_VIEWS_CLIPBOARD_HISTORY_MAIN_BUTTON_H_
 #define ASH_CLIPBOARD_VIEWS_CLIPBOARD_HISTORY_MAIN_BUTTON_H_
 
+#include "base/memory/raw_ptr.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/controls/button/button.h"
 
 namespace ash {
@@ -13,6 +15,7 @@ class ClipboardHistoryItemView;
 // The view responding to mouse click or gesture tap events.
 class ClipboardHistoryMainButton : public views::Button {
  public:
+  METADATA_HEADER(ClipboardHistoryMainButton);
   explicit ClipboardHistoryMainButton(ClipboardHistoryItemView* container);
   ClipboardHistoryMainButton(const ClipboardHistoryMainButton& rhs) = delete;
   ClipboardHistoryMainButton& operator=(const ClipboardHistoryMainButton& rhs) =
@@ -25,14 +28,13 @@ class ClipboardHistoryMainButton : public views::Button {
   void SetShouldHighlight(bool should_highlight);
 
   // views::Button:
-  const char* GetClassName() const override;
   void OnClickCanceled(const ui::Event& event) override;
   void OnThemeChanged() override;
   void OnGestureEvent(ui::GestureEvent* event) override;
   void PaintButtonContents(gfx::Canvas* canvas) override;
 
   // The parent view.
-  ClipboardHistoryItemView* const container_;
+  const raw_ptr<ClipboardHistoryItemView, ExperimentalAsh> container_;
 
   // Indicates whether the view should be highlighted.
   bool should_highlight_ = false;

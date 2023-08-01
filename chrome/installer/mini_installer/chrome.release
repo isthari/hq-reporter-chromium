@@ -1,4 +1,4 @@
-# Copyright (c) 2012 The Chromium Authors. All rights reserved.
+# Copyright 2012 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -23,6 +23,7 @@ chrome_100_percent.pak: %(VersionDir)s\
 chrome_child.dll: %(VersionDir)s\
 chrome_elf.dll: %(VersionDir)s\
 chrome_pwa_launcher.exe: %(VersionDir)s\
+chrome_wer.dll: %(VersionDir)s\
 d3dcompiler_47.dll: %(VersionDir)s\
 eventlog_provider.dll: %(VersionDir)s\
 icudtl.dat: %(VersionDir)s\
@@ -53,12 +54,6 @@ locales\*.pak: %(VersionDir)s\Locales
 # %(VersionDir)\VisualElements.
 Logo.png: %(VersionDir)s\VisualElements\
 SmallLogo.png: %(VersionDir)s\VisualElements\
-
-#
-# SwiftShader sub-dir
-#
-swiftshader\libEGL.dll: %(VersionDir)s\swiftshader\
-swiftshader\libGLESv2.dll: %(VersionDir)s\swiftshader\
 
 #
 # MEI Preload sub dir
@@ -103,6 +98,8 @@ WidevineCdm\_platform_specific\win_x86\widevinecdm.dll: %(VersionDir)s\WidevineC
 WidevineCdm\_platform_specific\win_x86\widevinecdm.dll.sig: %(VersionDir)s\WidevineCdm\_platform_specific\win_x86\
 WidevineCdm\_platform_specific\win_x64\widevinecdm.dll: %(VersionDir)s\WidevineCdm\_platform_specific\win_x64\
 WidevineCdm\_platform_specific\win_x64\widevinecdm.dll.sig: %(VersionDir)s\WidevineCdm\_platform_specific\win_x64\
+WidevineCdm\_platform_specific\win_arm64\widevinecdm.dll: %(VersionDir)s\WidevineCdm\_platform_specific\win_arm64\
+WidevineCdm\_platform_specific\win_arm64\widevinecdm.dll.sig: %(VersionDir)s\WidevineCdm\_platform_specific\win_arm64\
 
 [SNAPSHOTBLOB]
 # The snapshot_blob.bin V8 snapshot is needed in builds that don't use

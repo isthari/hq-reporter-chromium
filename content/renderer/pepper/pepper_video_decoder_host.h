@@ -1,4 +1,4 @@
-// Copyright (c) 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -134,6 +134,9 @@ class PepperVideoDecoderHost : public ppapi::host::ResourceHost,
   bool software_fallback_allowed_ = false;
   bool software_fallback_used_ = false;
 
+  // Used to record UMA values.
+  bool mojo_video_decoder_path_initialized_ = false;
+
   // Used for UMA stats; not frame-accurate.
   gfx::Size coded_size_;
 
@@ -171,6 +174,12 @@ class PepperVideoDecoderHost : public ppapi::host::ResourceHost,
 
   bool initialized_ = false;
 };
+
+// Checks the corresponding flag and enterprise policy to know if the
+// MojoVideoDecoder should be used in Pepper for hardware video decoding.
+// Returns true if the MojoVideoDecoder should be used and false if the
+// legacy VDA path should be used instead.
+bool ShouldUseMojoVideoDecoderForPepper();
 
 }  // namespace content
 

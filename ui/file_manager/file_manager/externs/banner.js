@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -116,6 +116,17 @@ Banner.DiskThresholdMinRatio;
 Banner.Event = {
   BANNER_DISMISSED: 'banner-dismissed',
   BANNER_DISMISSED_FOREVER: 'banner-dismissed-forever',
+};
+
+/**
+ * Event source for BANNER_DISMISSED_FOREVER event.
+ * @enum {string}
+ * @const
+ */
+Banner.DismissedForeverEventSource = {
+  EXTRA_BUTTON: 'extra-button',
+  DEFAULT_DISMISS_BUTTON: 'default-dismiss-button',
+  OVERRIDEN_DISMISS_BUTTON: 'overriden-dismiss-button',
 };
 
 /**

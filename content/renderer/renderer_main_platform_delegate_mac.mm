@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,10 @@
 extern "C" {
 CGError CGSSetDenyWindowServerConnections(bool);
 }
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 namespace content {
 
@@ -37,8 +41,7 @@ void DisableSystemServices() {
 RendererMainPlatformDelegate::RendererMainPlatformDelegate(
     const MainFunctionParams& parameters) {}
 
-RendererMainPlatformDelegate::~RendererMainPlatformDelegate() {
-}
+RendererMainPlatformDelegate::~RendererMainPlatformDelegate() = default;
 
 // TODO(mac-port): Any code needed to initialize a process for purposes of
 // running a renderer needs to also be reflected in chrome_main.cc for

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,8 +21,6 @@ EasyUnlockIconState GetEasyUnlockIconStateFromUserPodCustomIconId(
   switch (icon) {
     case proximity_auth::ScreenlockBridge::USER_POD_CUSTOM_ICON_NONE:
       return EasyUnlockIconState::NONE;
-    case proximity_auth::ScreenlockBridge::USER_POD_CUSTOM_ICON_HARDLOCKED:
-      return EasyUnlockIconState::HARDLOCKED;
     case proximity_auth::ScreenlockBridge::USER_POD_CUSTOM_ICON_LOCKED:
       return EasyUnlockIconState::LOCKED;
     case proximity_auth::ScreenlockBridge::
@@ -56,9 +54,6 @@ EasyUnlockIconInfo ToEasyUnlockIconInfo(
   if (!user_pod_icon_info.aria_label().empty())
     easy_unlock_icon_info.aria_label = user_pod_icon_info.aria_label();
 
-  if (user_pod_icon_info.hardlock_on_click())
-    easy_unlock_icon_info.hardlock_on_click = true;
-
   return easy_unlock_icon_info;
 }
 
@@ -77,10 +72,9 @@ void UserBoardViewMojo::SetPublicSessionDisplayName(
 
 void UserBoardViewMojo::SetPublicSessionLocales(
     const AccountId& account_id,
-    std::unique_ptr<base::ListValue> locales,
+    base::Value::List locales,
     const std::string& default_locale,
     bool multiple_recommended_locales) {
-  DCHECK(locales);
   LoginScreen::Get()->GetModel()->SetPublicSessionLocales(
       account_id,
       lock_screen_utils::FromListValueToLocaleItem(std::move(locales)),

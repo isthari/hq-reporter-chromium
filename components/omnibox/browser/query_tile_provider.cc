@@ -1,13 +1,15 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/omnibox/browser/query_tile_provider.h"
 
 #include "base/strings/string_util.h"
+#include "base/strings/utf_string_conversions.h"
 #include "components/omnibox/browser/autocomplete_provider_client.h"
 #include "components/omnibox/browser/autocomplete_provider_listener.h"
 #include "components/query_tiles/tile_service.h"
+#include "components/search/search.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/url_formatter/url_fixer.h"
 
@@ -29,7 +31,7 @@ bool TextMatchesTileQueryText(const std::u16string& input_text,
   return trimmed_input == trimmed_tile_text;
 }
 
-// Helper function to determine if we are currently showing an URL and the
+// Helper function to determine if we are currently showing a URL and the
 // omnibox text matches this URL.
 bool TextMatchesPageURL(const AutocompleteInput& input) {
   const GURL fixed_url(url_formatter::FixupURL(base::UTF16ToUTF8(input.text()),
@@ -50,14 +52,15 @@ QueryTileProvider::QueryTileProvider(AutocompleteProviderClient* client,
                                      AutocompleteProviderListener* listener)
     : AutocompleteProvider(AutocompleteProvider::TYPE_QUERY_TILE),
       client_(client),
-      listener_(listener),
-      tile_service_(client_->GetQueryTileService()) {}
+      tile_service_(client_->GetQueryTileService()) {
+  AddListener(listener);
+}
 
 QueryTileProvider::~QueryTileProvider() = default;
 
 void QueryTileProvider::Start(const AutocompleteInput& input,
                               bool minimal_changes) {
-  done_ = !input.want_asynchronous_matches();
+  done_ = input.omit_asynchronous_matches();
   matches_.clear();
   if (!AllowQueryTileSuggestions(input)) {
     done_ = true;
@@ -80,7 +83,7 @@ void QueryTileProvider::Start(const AutocompleteInput& input,
 
 void QueryTileProvider::Stop(bool clear_cached_results,
                              bool due_to_user_inactivity) {
-  done_ = true;
+  AutocompleteProvider::Stop(clear_cached_results, due_to_user_inactivity);
 
   // The request was stopped. Cancel any in-flight requests for fetching query
   // tiles from TileService.
@@ -95,14 +98,10 @@ bool QueryTileProvider::AllowQueryTileSuggestions(
   if (client_->IsOffTheRecord())
     return false;
 
-  TemplateURLService* template_url_service = client_->GetTemplateURLService();
-  const TemplateURL* default_provider = GetDefaultSearchProvider(client_);
-  bool is_search_provider_enabled =
-      default_provider &&
-      default_provider->GetEngineType(
-          template_url_service->search_terms_data()) == SEARCH_ENGINE_GOOGLE;
-  if (!is_search_provider_enabled)
+  if (!search::DefaultSearchProviderIsGoogle(
+          client_->GetTemplateURLService())) {
     return false;
+  }
 
   // Only show suggestions for NTP or schemes that users recognize.
   const auto& page_url = input.current_url();
@@ -170,5 +169,5 @@ void QueryTileProvider::BuildSuggestion(const AutocompleteInput& input,
     match.SetAllowedToBeDefault(input);
 
   matches_.push_back(match);
-  listener_->OnProviderUpdate(true);
+  NotifyListeners(true);
 }

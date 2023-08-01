@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,11 +10,12 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/task/single_thread_task_runner.h"
 #include "cc/trees/layer_tree_frame_sink_client.h"
 #include "cc/trees/single_thread_proxy.h"
 #include "cc/trees/task_runner_provider.h"
+#include "components/viz/common/features.h"
 #include "components/viz/common/frame_sinks/begin_frame_args.h"
 #include "components/viz/common/resources/bitmap_allocation.h"
 #include "components/viz/service/display/direct_renderer.h"
@@ -39,12 +40,20 @@ TestLayerTreeFrameSink::TestLayerTreeFrameSink(
     bool disable_display_vsync,
     double refresh_rate,
     viz::BeginFrameSource* begin_frame_source)
-    : LayerTreeFrameSink(std::move(compositor_context_provider),
-                         std::move(worker_context_provider),
-                         task_runner_provider->HasImplThread()
-                             ? task_runner_provider->ImplThreadTaskRunner()
-                             : task_runner_provider->MainThreadTaskRunner(),
-                         gpu_memory_buffer_manager),
+    : LayerTreeFrameSink(
+          std::move(compositor_context_provider),
+          worker_context_provider
+              ? base::MakeRefCounted<RasterContextProviderWrapper>(
+                    std::move(worker_context_provider),
+                    /*dark_mode_filter=*/nullptr,
+                    ImageDecodeCacheUtils::GetWorkingSetBytesForImageDecode(
+                        /*for_renderer=*/false))
+              : nullptr,
+          task_runner_provider->HasImplThread()
+              ? task_runner_provider->ImplThreadTaskRunner()
+              : task_runner_provider->MainThreadTaskRunner(),
+          gpu_memory_buffer_manager,
+          /*shared_image_interface=*/nullptr),
       synchronous_composite_(synchronous_composite),
       disable_display_vsync_(disable_display_vsync),
       renderer_settings_(renderer_settings),
@@ -80,14 +89,14 @@ bool TestLayerTreeFrameSink::BindToClient(LayerTreeFrameSinkClient* client) {
   std::unique_ptr<viz::DisplayCompositorMemoryAndTaskController>
       display_controller;
   std::unique_ptr<viz::OutputSurface> display_output_surface;
-  if (renderer_settings_.use_skia_renderer) {
+  const bool gpu_accelerated = context_provider();
+  if (gpu_accelerated) {
     display_controller = test_client_->CreateDisplayController();
     auto output_surface =
-        test_client_->CreateDisplaySkiaOutputSurface(display_controller.get());
+        test_client_->CreateSkiaOutputSurface(display_controller.get());
     display_output_surface = std::move(output_surface);
   } else {
-    display_output_surface =
-        test_client_->CreateDisplayOutputSurface(context_provider());
+    display_output_surface = test_client_->CreateSoftwareOutputSurface();
   }
 
   std::unique_ptr<viz::DisplayScheduler> scheduler;
@@ -141,6 +150,14 @@ bool TestLayerTreeFrameSink::BindToClient(LayerTreeFrameSinkClient* client) {
   display_->SetDisplayColorSpaces(display_color_spaces_);
   display_->SetVisible(true);
   return true;
+}
+
+void TestLayerTreeFrameSink::UnregisterBeginFrameSource() {
+  if (display_begin_frame_source_) {
+    frame_sink_manager_->UnregisterBeginFrameSource(
+        display_begin_frame_source_);
+    display_begin_frame_source_ = nullptr;
+  }
 }
 
 void TestLayerTreeFrameSink::DetachFromClient() {
@@ -202,7 +219,7 @@ void TestLayerTreeFrameSink::SubmitCompositorFrame(viz::CompositorFrame frame,
   support_->SubmitCompositorFrame(local_surface_id, std::move(frame));
 
   if (!display_->has_scheduler()) {
-    display_->DrawAndSwap(base::TimeTicks::Now(), base::TimeTicks::Now());
+    display_->DrawAndSwap({base::TimeTicks::Now(), base::TimeTicks::Now()});
     // Post this to get a new stack frame so that we exit this function before
     // calling the client to tell it that it is done.
     compositor_task_runner_->PostTask(
@@ -249,7 +266,18 @@ void TestLayerTreeFrameSink::DidReceiveCompositorFrameAck(
 
 void TestLayerTreeFrameSink::OnBeginFrame(
     const viz::BeginFrameArgs& args,
-    const viz::FrameTimingDetailsMap& timing_details) {
+    const viz::FrameTimingDetailsMap& timing_details,
+    bool frame_ack,
+    std::vector<viz::ReturnedResource> resources) {
+  // We do not want to Ack the first OnBeginFrame. Only deliver Acks once there
+  // is a valid activated surface, and we have pending frames.
+  if (features::IsOnBeginFrameAcksEnabled()) {
+    if (frame_ack) {
+      DidReceiveCompositorFrameAck(std::move(resources));
+    } else if (!resources.empty()) {
+      ReclaimResources(std::move(resources));
+    }
+  }
   DebugScopedSetImplThread impl(task_runner_provider_);
   for (const auto& pair : timing_details)
     client_->DidPresentCompositorFrame(pair.first, pair.second);
@@ -260,6 +288,10 @@ void TestLayerTreeFrameSink::ReclaimResources(
     std::vector<viz::ReturnedResource> resources) {
   DebugScopedSetImplThread impl(task_runner_provider_);
   client_->ReclaimResources(std::move(resources));
+}
+
+void TestLayerTreeFrameSink::OnBeginFramePausedChanged(bool paused) {
+  external_begin_frame_source_.OnSetBeginFrameSourcePaused(paused);
 }
 
 void TestLayerTreeFrameSink::DisplayOutputSurfaceLost() {
@@ -284,6 +316,9 @@ void TestLayerTreeFrameSink::DisplayDidReceiveCALayerParams(
 
 void TestLayerTreeFrameSink::DisplayDidCompleteSwapWithSize(
     const gfx::Size& pixel_Size) {}
+
+void TestLayerTreeFrameSink::DisplayAddChildWindowToBrowser(
+    gpu::SurfaceHandle child_window) {}
 
 void TestLayerTreeFrameSink::OnNeedsBeginFrames(bool needs_begin_frames) {
   support_->SetNeedsBeginFrame(needs_begin_frames);

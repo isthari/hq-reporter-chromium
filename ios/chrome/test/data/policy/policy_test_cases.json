@@ -1,5 +1,43 @@
 {
   "-- Instructions --": "See https://chromium.googlesource.com/chromium/src/+/refs/heads/main/docs/enterprise/policy_pref_mapping_test.md (This file is interpreted by //ios/chrome/browser/policy/policy_unittest.mm)",
+  "AppStoreRatingEnabled": {
+    "os": [
+      "ios"
+    ],
+    "policy_pref_mapping_tests": [
+      {
+        "note": "Default value (no policies set).",
+        "prefs": {
+          "ios.app_store_rating_enabled": {
+            "location": "local_state",
+            "default_value": true
+          }
+        }
+      },
+      {
+        "policies": {
+          "AppStoreRatingEnabled": false
+        },
+        "prefs": {
+          "ios.app_store_rating_enabled": {
+            "location": "local_state",
+            "value": false
+          }
+        }
+      },
+      {
+        "policies": {
+          "AppStoreRatingEnabled": true
+        },
+        "prefs": {
+          "ios.app_store_rating_enabled": {
+            "location": "local_state",
+            "value": true
+          }
+        }
+      }
+    ]
+  },
   "AutofillAddressEnabled": {
     "os": [
       "ios"
@@ -48,6 +86,32 @@
         },
         "prefs": {
           "autofill.credit_card_enabled": {
+            "value": false
+          }
+        }
+      }
+    ]
+  },
+  "AllowChromeDataInBackups": {
+    "os": [
+      "ios"
+    ],
+    "policy_pref_mapping_tests": [
+      {
+        "note": "Default value (no policies set).",
+        "prefs": {
+          "ios.allow_chrome_data_in_backups": {
+            "default_value": true
+          }
+        }
+      },
+      {
+        "note": "Simple value.",
+        "policies": {
+          "AllowChromeDataInBackups": false
+        },
+        "prefs": {
+          "ios.allow_chrome_data_in_backups": {
             "value": false
           }
         }
@@ -114,6 +178,47 @@
       }
     ]
   },
+  "CloudReportingUploadFrequency": {
+    "os": [
+      "ios"
+    ],
+    "policy_pref_mapping_tests": [
+      {
+        "policies": {
+          "CloudReportingUploadFrequency": 12
+        },
+        "policies_settings": {
+          "CloudReportingUploadFrequency": {
+            "scope": "machine",
+            "source": "cloud"
+          }
+        },
+        "prefs": {
+          "enterprise_reporting.upload_frequency": {
+            "value": "43200000000",
+            "location": "local_state"
+          }
+        }
+      },
+      {
+        "policies": {
+          "CloudReportingUploadFrequency": 1
+        },
+        "policies_settings": {
+          "CloudReportingUploadFrequency": {
+            "scope": "machine",
+            "source": "cloud"
+          }
+        },
+        "prefs": {
+          "enterprise_reporting.upload_frequency": {
+            "value": "10800000000",
+            "location": "local_state"
+          }
+        }
+      }
+    ]
+  },
   "ChromeVariations": {
     "os": [
       "ios"
@@ -144,6 +249,67 @@
   },
   "CloudPolicyOverridesPlatformPolicy": {
     "reason_for_missing_test": "This policy has no pref as it is only directly read by the policy system."
+  },
+  "CloudUserPolicyMerge": {
+    "reason_for_missing_test": "This policy has no pref as it is only directly read by the policy system."
+  },
+  "CloudUserPolicyOverridesCloudMachinePolicy": {
+    "reason_for_missing_test": "This policy has no pref as it is only directly read by the policy system."
+  },
+  "ComponentUpdatesEnabled": {
+    "os": [
+      "ios"
+    ],
+    "policy_pref_mapping_tests": [
+      {
+        "policies": {
+          "ComponentUpdatesEnabled": true
+        },
+        "prefs": {
+          "component_updates.component_updates_enabled": {
+            "location": "local_state"
+          }
+        }
+      }
+    ]
+  },
+  "CredentialProviderPromoEnabled": {
+    "os": [
+      "ios"
+    ],
+    "policy_pref_mapping_tests": [
+      {
+        "note": "Default value (no policies set).",
+        "prefs": {
+          "ios.credential_provider_promo_policy": {
+            "location": "local_state",
+            "default_value": true
+          }
+        }
+      },
+      {
+        "policies": {
+          "CredentialProviderPromoEnabled": false
+        },
+        "prefs": {
+          "ios.credential_provider_promo_policy": {
+            "location": "local_state",
+            "value": false
+          }
+        }
+      },
+      {
+        "policies": {
+          "CredentialProviderPromoEnabled": true
+        },
+        "prefs": {
+          "ios.credential_provider_promo_policy": {
+            "location": "local_state",
+            "value": true
+          }
+        }
+      }
+    ]
   },
   "DefaultPopupsSetting": {
     "os": [
@@ -272,6 +438,35 @@
       }
     ]
   },
+  "LensCameraAssistedSearchEnabled": {
+    "os": [
+      "ios"
+    ],
+    "policy_pref_mapping_tests": [
+      {
+        "policies": {
+          "LensCameraAssistedSearchEnabled": true
+        },
+        "prefs": {
+          "ios.lens_camera_assited_search_policy.allowed": {
+            "location": "local_state",
+            "value": true
+          }
+        }
+      },
+      {
+        "policies": {
+          "LensCameraAssistedSearchEnabled": false
+        },
+        "prefs": {
+          "ios.lens_camera_assited_search_policy.allowed": {
+            "location": "local_state",
+            "value": false
+          }
+        }
+      }
+    ]
+  },
   "MetricsReportingEnabled": {
     "os": [
       "ios"
@@ -289,16 +484,54 @@
       }
     ]
   },
+  "MixedContentAutoupgradeEnabled": {
+    "os": [
+      "ios"
+    ],
+    "policy_pref_mapping_tests": [
+      {
+        "policies": {
+          "MixedContentAutoupgradeEnabled": true
+        },
+        "prefs": {
+          "ios.mixed_content_autoupgrade_enabled": {
+            "value": true
+          }
+        }
+      },
+      {
+        "note": "Check non-default value.",
+        "policies": {
+          "MixedContentAutoupgradeEnabled": false
+        },
+        "prefs": {
+          "ios.mixed_content_autoupgrade_enabled": {
+            "value": false
+          }
+        }
+      }
+    ]
+  },
   "NewTabPageLocation": {
     "os": [ "ios" ],
     "policy_pref_mapping_tests": [
       {
         "policies": {
-            "NewTabPageLocation": "not_a_url"
+            "NewTabPageLocation": ""
         },
         "prefs": {
           "ios.ntp.location_override": {
               "default_value": ""
+          }
+        }
+      },
+      {
+        "policies": {
+            "NewTabPageLocation": "m.youtube.com"
+        },
+        "prefs": {
+          "ios.ntp.location_override": {
+              "value": "https://m.youtube.com"
           }
         }
       },
@@ -329,6 +562,9 @@
       }
     ]
   },
+  "OptimizationGuideFetchingEnabled": {
+    "reason_for_missing_test": "Policy was removed"
+  },
   "PasswordManagerEnabled": {
     "os": [
       "ios"
@@ -344,6 +580,15 @@
         }
       }
     ]
+  },
+  "PolicyAtomicGroupsEnabled": {
+    "reason_for_missing_test": "This policy has no pref as it is only directly read by the policy system."
+  },
+  "PolicyDictionaryMultipleSourceMergeList": {
+    "reason_for_missing_test": "This policy has no pref as it is only directly read by the policy system."
+  },
+  "PolicyListMultipleSourceMergeList": {
+    "reason_for_missing_test": "This policy has no pref as it is only directly read by the policy system."
   },
   "PolicyRefreshRate": {
     "os": [
@@ -753,5 +998,20 @@
   },
   "EnableExperimentalPolicies": {
     "reason_for_missing_test": "This policy has no pref as it is only directly read by the policy system."
+  },
+  "ShoppingListEnabled": {
+    "os": [
+      "ios"
+    ],
+    "policy_pref_mapping_tests": [
+      {
+        "policies": {
+          "ShoppingListEnabled": false
+        },
+        "prefs": {
+          "shopping_list_enabled": {}
+        }
+      }
+    ]
   }
 }

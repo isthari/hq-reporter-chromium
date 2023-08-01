@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,11 @@
 
 #include <string>
 
+#include "ash/ambient/ui/ambient_slideshow_peripheral_ui.h"
 #include "ash/ambient/ui/ambient_view_delegate.h"
 #include "ash/ash_export.h"
 #include "ash/public/cpp/ambient/ambient_backend_controller.h"
+#include "base/memory/raw_ptr.h"
 #include "base/scoped_multi_source_observation.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/controls/image_view.h"
@@ -18,9 +20,6 @@
 #include "ui/views/view_observer.h"
 
 namespace ash {
-
-class AmbientInfoView;
-class MediaStringView;
 
 // AmbientBackgroundImageView--------------------------------------------------
 // A custom ImageView to display photo image and details information on ambient.
@@ -53,6 +52,9 @@ class ASH_EXPORT AmbientBackgroundImageView : public views::View,
   void UpdateImageDetails(const std::u16string& details,
                           const std::u16string& related_details);
 
+  // Shows/Hides the peripheral ui.
+  void SetPeripheralUiVisibility(bool visible);
+
   gfx::ImageSkia GetCurrentImage();
 
   gfx::Rect GetImageBoundsInScreenForTesting() const;
@@ -61,8 +63,6 @@ class ASH_EXPORT AmbientBackgroundImageView : public views::View,
 
  private:
   void InitLayout();
-
-  void UpdateGlanceableInfoPosition();
 
   void UpdateLayout();
   bool UpdateRelatedImageViewVisibility();
@@ -77,13 +77,13 @@ class ASH_EXPORT AmbientBackgroundImageView : public views::View,
   bool HasPairedImages() const;
 
   // Owned by |AmbientController| and should always outlive |this|.
-  AmbientViewDelegate* delegate_ = nullptr;
+  raw_ptr<AmbientViewDelegate, ExperimentalAsh> delegate_ = nullptr;
 
   // View to display current image(s) on ambient. Owned by the view hierarchy.
-  views::View* image_container_ = nullptr;
-  views::FlexLayout* image_layout_ = nullptr;
-  views::ImageView* image_view_ = nullptr;
-  views::ImageView* related_image_view_ = nullptr;
+  raw_ptr<views::View, ExperimentalAsh> image_container_ = nullptr;
+  raw_ptr<views::FlexLayout, ExperimentalAsh> image_layout_ = nullptr;
+  raw_ptr<views::ImageView, ExperimentalAsh> image_view_ = nullptr;
+  raw_ptr<views::ImageView, ExperimentalAsh> related_image_view_ = nullptr;
 
   // The unscaled images used for scaling and displaying in different bounds.
   gfx::ImageSkia image_unscaled_;
@@ -96,9 +96,8 @@ class ASH_EXPORT AmbientBackgroundImageView : public views::View,
 
   ::ambient::TopicType topic_type_ = ::ambient::TopicType::kOther;
 
-  AmbientInfoView* ambient_info_view_ = nullptr;
-
-  MediaStringView* media_string_view_ = nullptr;
+  raw_ptr<AmbientSlideshowPeripheralUi, ExperimentalAsh>
+      ambient_peripheral_ui_ = nullptr;
 
   base::ScopedMultiSourceObservation<views::View, views::ViewObserver>
       observed_views_{this};

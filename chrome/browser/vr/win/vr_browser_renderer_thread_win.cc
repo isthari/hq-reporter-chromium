@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,11 @@
 
 #include <vector>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/vr/audio_delegate.h"
 #include "chrome/browser/vr/browser_renderer.h"
 #include "chrome/browser/vr/content_input_delegate.h"
-#include "chrome/browser/vr/keyboard_delegate.h"
 #include "chrome/browser/vr/model/location_bar_state.h"
 #include "chrome/browser/vr/text_input_delegate.h"
 #include "chrome/browser/vr/ui.h"
@@ -49,7 +49,7 @@ VRBrowserRendererThreadWin* VRBrowserRendererThreadWin::instance_for_testing_ =
 VRBrowserRendererThreadWin::VRBrowserRendererThreadWin(
     device::mojom::XRCompositorHost* compositor)
     : compositor_(compositor),
-      task_runner_(base::ThreadTaskRunnerHandle::Get()) {
+      task_runner_(base::SingleThreadTaskRunner::GetCurrentDefault()) {
   DCHECK(instance_for_testing_ == nullptr);
   instance_for_testing_ = this;
 }
@@ -70,11 +70,18 @@ void VRBrowserRendererThreadWin::StopOverlay() {
   scheduler_ui_ = nullptr;
 }
 
-void VRBrowserRendererThreadWin::SetVRDisplayInfo(
-    device::mojom::VRDisplayInfoPtr display_info) {
-  display_info_ = std::move(display_info);
-  if (graphics_)
-    graphics_->SetVRDisplayInfo(display_info_.Clone());
+void VRBrowserRendererThreadWin::SetDefaultXrViews(
+    const std::vector<device::mojom::XRViewPtr>& views) {
+  if (graphics_) {
+    graphics_->SetXrViews(views);
+  }
+
+  for (auto& view : views) {
+    if (view->eye == device::mojom::XREye::kLeft ||
+        view->eye == device::mojom::XREye::kRight) {
+      default_views_.push_back(view.Clone());
+    }
+  }
 }
 
 void VRBrowserRendererThreadWin::SetLocationInfo(GURL gurl) {
@@ -253,29 +260,6 @@ class VRUiBrowserInterface : public UiBrowserInterface {
   ~VRUiBrowserInterface() override = default;
 
   void ExitPresent() override {}
-  void ExitFullscreen() override {}
-  void Navigate(GURL gurl, NavigationMethod method) override {}
-  void NavigateBack() override {}
-  void NavigateForward() override {}
-  void ReloadTab() override {}
-  void OpenNewTab(bool incognito) override {}
-  void OpenBookmarks() override {}
-  void OpenRecentTabs() override {}
-  void OpenHistory() override {}
-  void OpenDownloads() override {}
-  void OpenShare() override {}
-  void OpenSettings() override {}
-  void CloseAllIncognitoTabs() override {}
-  void OpenFeedback() override {}
-  void CloseHostedDialog() override {}
-  void OnUnsupportedMode(UiUnsupportedMode mode) override {}
-  void OnExitVrPromptResult(ExitVrPromptChoice choice,
-                            UiUnsupportedMode reason) override {}
-  void OnContentScreenBoundsChanged(const gfx::SizeF& bounds) override {}
-  void SetVoiceSearchActive(bool active) override {}
-  void StartAutocomplete(const AutocompleteRequest& request) override {}
-  void StopAutocomplete() override {}
-  void ShowPageInfo() override {}
 };
 
 void VRBrowserRendererThreadWin::StartOverlay() {
@@ -287,6 +271,10 @@ void VRBrowserRendererThreadWin::StartOverlay() {
     return;
   }
 
+  // We should have received valid views from the ui host before rendering.
+  DCHECK(!default_views_.empty());
+  initializing_graphics_->SetXrViews(default_views_);
+
   initializing_graphics_->InitializeOnGLThread();
   initializing_graphics_->BindContext();
 
@@ -296,15 +284,9 @@ void VRBrowserRendererThreadWin::StartOverlay() {
   ui_initial_state.in_web_vr = true;
   ui_initial_state.browsing_disabled = true;
   ui_initial_state.supports_selection = false;
-  std::unique_ptr<Ui> ui = std::make_unique<Ui>(
-      ui_browser_interface_.get(), nullptr /*input*/,
-      nullptr /*keyboard_delegate*/, nullptr /*text_input_delegate*/,
-      nullptr /*audio_delegate*/, ui_initial_state);
-  static_cast<UiInterface*>(ui.get())->OnGlInitialized(
-      kGlTextureLocationLocal,
-      0 /* content_texture_id - we don't support content */,
-      0 /* content_overlay_texture_id - we don't support content overlays */,
-      0 /* platform_ui_texture_id - we don't support platform UI */);
+  std::unique_ptr<Ui> ui =
+      std::make_unique<Ui>(ui_browser_interface_.get(), ui_initial_state);
+  static_cast<UiInterface*>(ui.get())->OnGlInitialized();
   ui_ = static_cast<BrowserUiInterface*>(ui.get());
   ui_->SetWebVrMode(true);
   scheduler_ui_ = static_cast<UiInterface*>(ui.get())->GetSchedulerUiPtr();
@@ -325,7 +307,6 @@ void VRBrowserRendererThreadWin::StartOverlay() {
       std::make_unique<SchedulerDelegateWin>();
   scheduler_ = scheduler_delegate.get();
   graphics_ = initializing_graphics_.get();
-  graphics_->SetVRDisplayInfo(display_info_.Clone());
   std::unique_ptr<InputDelegateWin> input_delegate =
       std::make_unique<InputDelegateWin>();
   input_ = input_delegate.get();
@@ -422,7 +403,7 @@ void VRBrowserRendererThreadWin::OnPose(int request_id,
   // If we're getting poses and should be drawing, StartOverlay() should have
   // initialized graphics_.
   DCHECK(graphics_);
-  graphics_->UpdateViews(std::move(data->views));
+  graphics_->SetXrViews(std::move(data->views));
 
   if (!PreRender())
     return;
@@ -476,8 +457,8 @@ void VRBrowserRendererThreadWin::SubmitFrame(int16_t frame_id) {
   graphics_->PostRender();
 
   overlay_->SubmitOverlayTexture(
-      frame_id, graphics_->GetTexture(), graphics_->GetLeft(),
-      graphics_->GetRight(),
+      frame_id, graphics_->GetTexture(), graphics_->GetSyncToken(),
+      graphics_->GetLeft(), graphics_->GetRight(),
       base::BindOnce(&VRBrowserRendererThreadWin::SubmitResult,
                      base::Unretained(this)));
 }

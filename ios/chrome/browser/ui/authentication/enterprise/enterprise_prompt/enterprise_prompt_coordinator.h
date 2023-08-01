@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,14 +7,14 @@
 
 #import <Foundation/Foundation.h>
 
+#import "ios/chrome/browser/shared/coordinator/chrome_coordinator/chrome_coordinator.h"
 #import "ios/chrome/browser/ui/authentication/enterprise/enterprise_prompt/enterprise_prompt_type.h"
-#import "ios/chrome/browser/ui/coordinators/chrome_coordinator.h"
 
 // Delegate for the coordinator.
 @protocol EnterprisePromptCoordinatorDelegate
 
 // Command to clean up the prompt. Stops the coordinator and sets it to
-// nil. |learnMore| is YES if the user tapped the "learn more" button.
+// nil. `learnMore` is YES if the user tapped the "learn more" button.
 - (void)hideEnterprisePrompForLearnMore:(BOOL)learnMore;
 
 @end
@@ -22,7 +22,7 @@
 // Coordinator for enterprise prompt alerts.
 @interface EnterprisePromptCoordinator : ChromeCoordinator
 
-// Initializes this Coordinator with its |browser| and the |promptType|.
+// Initializes this Coordinator with its `browser` and the `promptType`.
 - (instancetype)initWithBaseViewController:(UIViewController*)baseViewController
                                    browser:(Browser*)browser
                                 promptType:(EnterprisePromptType)promptType

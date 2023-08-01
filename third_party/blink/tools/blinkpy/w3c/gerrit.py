@@ -1,16 +1,19 @@
-# Copyright 2017 The Chromium Authors. All rights reserved.
+# Copyright 2017 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
 import base64
 import json
 import logging
-from six.moves.urllib.error import HTTPError
+import urllib.parse
+from datetime import datetime
+from requests.exceptions import HTTPError
 
 from blinkpy.common.net.network_transaction import NetworkTimeout
+from blinkpy.common.path_finder import RELATIVE_WPT_TESTS
 from blinkpy.w3c.chromium_commit import ChromiumCommit
 from blinkpy.w3c.chromium_finder import absolute_chromium_dir
-from blinkpy.w3c.common import CHROMIUM_WPT_DIR, is_file_exportable
+from blinkpy.w3c.common import is_file_exportable
 
 _log = logging.getLogger(__name__)
 URL_BASE = 'https://chromium-review.googlesource.com'
@@ -122,6 +125,12 @@ class GerritCL(object):
         return self._data['change_id']
 
     @property
+    def id(self):
+        repo = urllib.parse.quote('chromium/src', safe='')
+        branch = 'main'
+        return f"{repo}~{branch}~{self.change_id}"
+
+    @property
     def owner_email(self):
         return self._data['owner']['email']
 
@@ -147,6 +156,13 @@ class GerritCL(object):
         return self._data['status']
 
     @property
+    def updated(self):
+        # Timestamps are given in UTC and have the format "'yyyy-mm-dd hh:mm:ss.fffffffff'"
+        # where "'ffffffffff'" represents nanoseconds.
+        return datetime.strptime(self._data['updated'][:-10],
+                                 '%Y-%m-%d %H:%M:%S')
+
+    @property
     def messages(self):
         return self._data['messages']
 
@@ -156,14 +172,17 @@ class GerritCL(object):
 
     def post_comment(self, message):
         """Posts a comment to the CL."""
-        path = '/a/changes/{change_id}/revisions/current/review'.format(
-            change_id=self.change_id, )
+        path = '/a/changes/{id}/revisions/current/review'.format(id=self.id)
         try:
             return self.api.post(path, {'message': message})
         except HTTPError as e:
-            raise GerritError(
-                'Failed to post a comment to issue {} (code {}).'.format(
-                    self.change_id, e.code))
+            message = 'Failed to post a comment to issue {}'.format(
+                self.change_id)
+            if hasattr(e, 'response'):
+                message += ' (code {})'.format(e.response.status_code)
+            else:
+                message += ' (error {})'.format(e.response.status_code)
+            raise GerritError(message)
 
     def is_exportable(self):
         # TODO(robertma): Consolidate with the related part in chromium_exportable_commits.py.
@@ -186,7 +205,7 @@ class GerritCL(object):
         if 'NOEXPORT=true' in self.current_revision['commit_with_footers']:
             return False
 
-        files_in_wpt = [f for f in files if f.startswith(CHROMIUM_WPT_DIR)]
+        files_in_wpt = [f for f in files if f.startswith(RELATIVE_WPT_TESTS)]
         if not files_in_wpt:
             return False
 

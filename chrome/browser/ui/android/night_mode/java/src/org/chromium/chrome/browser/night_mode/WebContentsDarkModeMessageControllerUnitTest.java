@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -37,7 +37,6 @@ import org.chromium.base.FeatureList;
 import org.chromium.base.FeatureList.TestValues;
 import org.chromium.base.test.BaseRobolectricTestRunner;
 import org.chromium.base.test.util.JniMocker;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
 import org.chromium.chrome.browser.feedback.HelpAndFeedbackLauncher;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
@@ -106,7 +105,7 @@ public class WebContentsDarkModeMessageControllerUnitTest {
         }
 
         private void clickButton() {
-            mShownMessageModel.get(MessageBannerProperties.ON_PRIMARY_ACTION).run();
+            mShownMessageModel.get(MessageBannerProperties.ON_PRIMARY_ACTION).get();
         }
     }
 
@@ -406,8 +405,7 @@ public class WebContentsDarkModeMessageControllerUnitTest {
                 TEST_URL, mModalDialogManager, mMockSettingsLauncher, mMockFeedbackLauncher);
         mModalDialogManager.clickButton(ButtonType.POSITIVE);
         verify(mMockFeedbackLauncher, times(1))
-                .showFeedback(
-                        eq(mMockActivity), eq(mMockProfile), eq(TEST_URL), any(), anyInt(), any());
+                .showFeedback(eq(mMockActivity), eq(TEST_URL), any(), anyInt(), any());
 
         // Verify dismissal.
         Assert.assertNull("Shown dialog model should be null after clicking the positive button.",

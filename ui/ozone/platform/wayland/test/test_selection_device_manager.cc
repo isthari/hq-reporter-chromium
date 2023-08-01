@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,17 +7,16 @@
 #include <wayland-server-core.h>
 
 #include <cstdint>
+#include <utility>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/check.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/notreached.h"
-#include "base/task/post_task.h"
 #include "base/task/sequenced_task_runner.h"
-#include "base/task/task_runner_util.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "ui/ozone/platform/wayland/test/server_object.h"
@@ -56,15 +55,13 @@ void WriteDataOnWorkerThread(base::ScopedFD fd,
 
 // TestSelectionOffer implementation.
 TestSelectionOffer::TestSelectionOffer(wl_resource* resource,
-                                       Delegate* delegate)
+                                       std::unique_ptr<Delegate> delegate)
     : ServerObject(resource),
-      delegate_(delegate),
+      delegate_(std::move(delegate)),
       task_runner_(
           base::ThreadPool::CreateSequencedTaskRunner({base::MayBlock()})) {}
 
-TestSelectionOffer::~TestSelectionOffer() {
-  delegate_->OnDestroying();
-}
+TestSelectionOffer::~TestSelectionOffer() = default;
 
 void TestSelectionOffer::OnOffer(const std::string& mime_type,
                                  ui::PlatformClipboard::Data data) {
@@ -85,9 +82,9 @@ void TestSelectionOffer::Receive(wl_client* client,
 
 // TestSelectionSource implementation.
 TestSelectionSource::TestSelectionSource(wl_resource* resource,
-                                         Delegate* delegate)
+                                         std::unique_ptr<Delegate> delegate)
     : ServerObject(resource),
-      delegate_(delegate),
+      delegate_(std::move(delegate)),
       task_runner_(
           base::ThreadPool::CreateSequencedTaskRunner({base::MayBlock()})) {}
 
@@ -105,15 +102,23 @@ void TestSelectionSource::ReadData(const std::string& mime_type,
 
   // 2. Schedule the ReadDataOnWorkerThread task. The result of read
   // operation will be then passed in to the callback requested by the caller.
-  base::PostTaskAndReplyWithResult(
-      task_runner_.get(), FROM_HERE,
-      base::BindOnce(&ReadDataOnWorkerThread, std::move(read_fd)),
+  task_runner_->PostTaskAndReplyWithResult(
+      FROM_HERE, base::BindOnce(&ReadDataOnWorkerThread, std::move(read_fd)),
       std::move(callback));
+}
+
+void TestSelectionSource::OnFinished() {
+  delegate_->SendFinished();
+  mime_types_.clear();
 }
 
 void TestSelectionSource::OnCancelled() {
   delegate_->SendCancelled();
   mime_types_.clear();
+}
+
+void TestSelectionSource::OnDndAction(uint32_t action) {
+  delegate_->SendDndAction(action);
 }
 
 void TestSelectionSource::Offer(struct wl_client* client,
@@ -126,12 +131,10 @@ void TestSelectionSource::Offer(struct wl_client* client,
 
 // TestSelectionDevice implementation.
 TestSelectionDevice::TestSelectionDevice(wl_resource* resource,
-                                         Delegate* delegate)
-    : ServerObject(resource), delegate_(delegate) {}
+                                         std::unique_ptr<Delegate> delegate)
+    : ServerObject(resource), delegate_(std::move(delegate)) {}
 
-TestSelectionDevice::~TestSelectionDevice() {
-  delegate_->OnDestroying();
-}
+TestSelectionDevice::~TestSelectionDevice() = default;
 
 TestSelectionOffer* TestSelectionDevice::OnDataOffer() {
   return delegate_->CreateAndSendOffer();
@@ -148,25 +151,26 @@ void TestSelectionDevice::SetSelection(struct wl_client* client,
   CHECK(GetUserDataAs<TestSelectionDevice>(resource));
   auto* self = GetUserDataAs<TestSelectionDevice>(resource);
   auto* src = source ? GetUserDataAs<TestSelectionSource>(source) : nullptr;
+  self->selection_serial_ = serial;
   self->delegate_->HandleSetSelection(src, serial);
+  if (self->manager_)
+    self->manager_->set_source(src);
 }
 
 TestSelectionDeviceManager::TestSelectionDeviceManager(
     const InterfaceInfo& info,
-    Delegate* delegate)
+    std::unique_ptr<Delegate> delegate)
     : GlobalObject(info.interface, info.implementation, info.version),
-      delegate_(delegate) {}
+      delegate_(std::move(delegate)) {}
 
-TestSelectionDeviceManager::~TestSelectionDeviceManager() {
-  delegate_->OnDestroying();
-}
+TestSelectionDeviceManager::~TestSelectionDeviceManager() = default;
 
 void TestSelectionDeviceManager::CreateSource(wl_client* client,
                                               wl_resource* manager_resource,
                                               uint32_t id) {
   CHECK(GetUserDataAs<TestSelectionDeviceManager>(manager_resource));
   auto* manager = GetUserDataAs<TestSelectionDeviceManager>(manager_resource);
-  manager->source_ = manager->delegate_->CreateSource(client, id);
+  manager->delegate_->CreateSource(client, id);
 }
 
 void TestSelectionDeviceManager::GetDevice(wl_client* client,
@@ -175,7 +179,9 @@ void TestSelectionDeviceManager::GetDevice(wl_client* client,
                                            wl_resource* seat_resource) {
   CHECK(GetUserDataAs<TestSelectionDeviceManager>(manager_resource));
   auto* manager = GetUserDataAs<TestSelectionDeviceManager>(manager_resource);
-  manager->device_ = manager->delegate_->CreateDevice(client, id);
+  auto* new_device = manager->delegate_->CreateDevice(client, id);
+  new_device->set_manager(manager);
+  manager->device_ = new_device;
 }
 
 }  // namespace wl

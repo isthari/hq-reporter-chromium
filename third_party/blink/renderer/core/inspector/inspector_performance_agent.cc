@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <utility>
 
-#include "base/cxx17_backports.h"
 #include "base/process/process.h"
 #include "base/process/process_metrics.h"
 #include "base/time/time_override.h"
@@ -15,7 +14,7 @@
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/inspector/inspected_frames.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
-#include "third_party/blink/renderer/core/paint/paint_timing.h"
+#include "third_party/blink/renderer/core/paint/timing/paint_timing.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/platform/bindings/v8_per_isolate_data.h"
 #include "third_party/blink/renderer/platform/instrumentation/instance_counters.h"
@@ -24,8 +23,6 @@
 namespace blink {
 
 namespace TimeDomain = protocol::Performance::SetTimeDomain::TimeDomainEnum;
-
-using protocol::Response;
 
 namespace {
 constexpr bool isPlural(const char* str, int len) {
@@ -88,29 +85,29 @@ protocol::Response InspectorPerformanceAgent::enable(
   String time_domain = optional_time_domain.fromMaybe(TimeDomain::TimeTicks);
   if (enabled_.Get()) {
     if (!HasTimeDomain(time_domain)) {
-      return Response::ServerError(
+      return protocol::Response::ServerError(
           "Cannot change time domain while performance metrics collection is "
           "enabled.");
     }
-    return Response::Success();
+    return protocol::Response::Success();
   }
 
-  Response response = InnerSetTimeDomain(time_domain);
+  protocol::Response response = InnerSetTimeDomain(time_domain);
   if (!response.IsSuccess())
     return response;
 
   enabled_.Set(true);
   InnerEnable();
-  return Response::Success();
+  return protocol::Response::Success();
 }
 
 protocol::Response InspectorPerformanceAgent::disable() {
   if (!enabled_.Get())
-    return Response::Success();
+    return protocol::Response::Success();
   enabled_.Clear();
   instrumenting_agents_->RemoveInspectorPerformanceAgent(this);
   Thread::Current()->RemoveTaskTimeObserver(this);
-  return Response::Success();
+  return protocol::Response::Success();
 }
 
 namespace {
@@ -125,9 +122,10 @@ void AppendMetric(protocol::Array<protocol::Performance::Metric>* container,
 }  // namespace
 
 // TODO(crbug.com/1056306): remove this redundant API.
-Response InspectorPerformanceAgent::setTimeDomain(const String& time_domain) {
+protocol::Response InspectorPerformanceAgent::setTimeDomain(
+    const String& time_domain) {
   if (enabled_.Get()) {
-    return Response::ServerError(
+    return protocol::Response::ServerError(
         "Cannot set time domain while performance metrics collection"
         " is enabled.");
   }
@@ -155,35 +153,35 @@ bool InspectorPerformanceAgent::HasTimeDomain(const String& time_domain) {
                                  : time_domain == TimeDomain::TimeTicks;
 }
 
-Response InspectorPerformanceAgent::InnerSetTimeDomain(
+protocol::Response InspectorPerformanceAgent::InnerSetTimeDomain(
     const String& time_domain) {
   DCHECK(!enabled_.Get());
 
   if (time_domain == TimeDomain::TimeTicks) {
     use_thread_ticks_.Clear();
-    return Response::Success();
+    return protocol::Response::Success();
   }
 
   if (time_domain == TimeDomain::ThreadTicks) {
     if (!base::ThreadTicks::IsSupported()) {
-      return Response::ServerError(
+      return protocol::Response::ServerError(
           "Thread time is not supported on this platform.");
     }
     base::ThreadTicks::WaitUntilInitialized();
     use_thread_ticks_.Set(true);
-    return Response::Success();
+    return protocol::Response::Success();
   }
 
-  return Response::ServerError("Invalid time domain specification.");
+  return protocol::Response::ServerError("Invalid time domain specification.");
 }
 
-Response InspectorPerformanceAgent::getMetrics(
+protocol::Response InspectorPerformanceAgent::getMetrics(
     std::unique_ptr<protocol::Array<protocol::Performance::Metric>>*
         out_result) {
   if (!enabled_.Get()) {
     *out_result =
         std::make_unique<protocol::Array<protocol::Performance::Metric>>();
-    return Response::Success();
+    return protocol::Response::Success();
   }
 
   auto result =
@@ -193,7 +191,7 @@ Response InspectorPerformanceAgent::getMetrics(
                base::TimeTicks::Now().since_origin().InSecondsF());
 
   // Renderer instance counters.
-  for (size_t i = 0; i < base::size(kInstanceCounterNames); ++i) {
+  for (size_t i = 0; i < std::size(kInstanceCounterNames); ++i) {
     AppendMetric(result.get(), kInstanceCounterNames[i],
                  InstanceCounters::CounterValue(
                      static_cast<InstanceCounters::CounterType>(i)));
@@ -273,7 +271,7 @@ Response InspectorPerformanceAgent::getMetrics(
   }
 
   *out_result = std::move(result);
-  return Response::Success();
+  return protocol::Response::Success();
 }
 
 void InspectorPerformanceAgent::ConsoleTimeStamp(const String& title) {

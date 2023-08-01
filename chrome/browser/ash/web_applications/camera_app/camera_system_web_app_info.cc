@@ -1,15 +1,16 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/web_applications/camera_app/camera_system_web_app_info.h"
 
 #include "ash/constants/ash_pref_names.h"
-#include "ash/grit/ash_camera_app_resources.h"
 #include "ash/webui/camera_app_ui/resources/strings/grit/ash_camera_app_strings.h"
 #include "ash/webui/camera_app_ui/url_constants.h"
+#include "ash/webui/grit/ash_camera_app_resources.h"
 #include "chrome/browser/ash/web_applications/camera_app/chrome_camera_app_ui_constants.h"
 #include "chrome/browser/ash/web_applications/system_web_app_install_utils.h"
+#include "chrome/browser/web_applications/mojom/user_display_mode.mojom.h"
 #include "chrome/browser/web_applications/web_app_constants.h"
 #include "chrome/browser/web_applications/web_app_install_info.h"
 #include "components/prefs/pref_service.h"
@@ -46,7 +47,7 @@ std::unique_ptr<WebAppInstallInfo> CreateWebAppInfoForCameraSystemWebApp() {
       cros_styles::ColorName::kGoogleGrey900, /*is_dark_mode=*/true,
       /*use_debug_colors=*/false);
   info->display_mode = blink::mojom::DisplayMode::kStandalone;
-  info->user_display_mode = blink::mojom::DisplayMode::kStandalone;
+  info->user_display_mode = web_app::mojom::UserDisplayMode::kStandalone;
   return info;
 }
 
@@ -58,15 +59,10 @@ gfx::Rect GetDefaultBoundsForCameraApp(Browser*) {
 }
 
 CameraSystemAppDelegate::CameraSystemAppDelegate(Profile* profile)
-    : web_app::SystemWebAppDelegate(
-          web_app::SystemAppType::CAMERA,
-          "Camera",
-          GURL("chrome://camera-app/views/main.html"),
-          profile,
-          web_app::OriginTrialsMap(
-              {{web_app::GetOrigin("chrome://camera-app"), {"FileHandling"}},
-               {web_app::GetOrigin("chrome-untrusted://camera-app"),
-                {"WebAssemblyDynamicTiering"}}})) {}
+    : ash::SystemWebAppDelegate(ash::SystemWebAppType::CAMERA,
+                                "Camera",
+                                GURL("chrome://camera-app/views/main.html"),
+                                profile) {}
 
 std::unique_ptr<WebAppInstallInfo> CameraSystemAppDelegate::GetWebAppInfo()
     const {
@@ -83,4 +79,8 @@ gfx::Size CameraSystemAppDelegate::GetMinimumWindowSize() const {
 
 gfx::Rect CameraSystemAppDelegate::GetDefaultBounds(Browser* browser) const {
   return GetDefaultBoundsForCameraApp(browser);
+}
+
+bool CameraSystemAppDelegate::UseSystemThemeColor() const {
+  return false;
 }

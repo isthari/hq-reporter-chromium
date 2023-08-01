@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,12 @@
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/ui_test_utils.h"
-#include "components/version_info/version_info.h"
-#include "content/public/browser/storage_partition.h"
+#include "content/public/browser/service_worker_context.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/service_worker_test_helpers.h"
 #include "extensions/browser/api/messaging/message_service.h"
+#include "extensions/browser/browsertest_util.h"
+#include "extensions/browser/extension_util.h"
 #include "extensions/browser/service_worker/service_worker_test_utils.h"
 #include "extensions/test/extension_test_message_listener.h"
 #include "extensions/test/result_catcher.h"
@@ -82,18 +83,11 @@ class ServiceWorkerMessagingTest : public ExtensionApiTest {
   }
 
  protected:
-  // TODO(lazyboy): Move this to a common place so it can be shared with other
-  // tests.
   void StopServiceWorker(const Extension& extension) {
-    content::StoragePartition* storage_partition =
-        browser()->profile()->GetDefaultStoragePartition();
-    content::ServiceWorkerContext* context =
-        storage_partition->GetServiceWorkerContext();
-    base::RunLoop run_loop;
-    // The service worker is registered at the root scope.
-    content::StopServiceWorkerForScope(context, extension.url(),
-                                       run_loop.QuitClosure());
-    run_loop.Run();
+    // TODO(lazyboy): Ideally we'd want to test worker shutdown on idle, do that
+    // once //content API allows to override test timeouts for Service Workers.
+    browsertest_util::StopServiceWorkerForExtensionGlobalScope(
+        browser()->profile(), extension.id());
   }
 
   extensions::ScopedTestNativeMessagingHost test_host_;
@@ -110,13 +104,13 @@ class ServiceWorkerMessagingTestWithActivityLog
 // Tests one-way message from content script to SW extension using
 // chrome.runtime.sendMessage.
 IN_PROC_BROWSER_TEST_F(ServiceWorkerMessagingTest, TabToWorkerOneWay) {
-  ExtensionTestMessageListener worker_listener("WORKER_RUNNING", false);
+  ExtensionTestMessageListener worker_listener("WORKER_RUNNING");
   const Extension* extension = LoadExtension(test_data_dir_.AppendASCII(
       "service_worker/messaging/send_message_tab_to_worker_one_way"));
   ASSERT_TRUE(extension);
   EXPECT_TRUE(worker_listener.WaitUntilSatisfied());
 
-  ExtensionTestMessageListener test_listener("WORKER_RECEIVED_MESSAGE", false);
+  ExtensionTestMessageListener test_listener("WORKER_RECEIVED_MESSAGE");
   test_listener.set_failure_message("FAILURE");
 
   {
@@ -133,14 +127,13 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerMessagingTest, TabToWorkerOneWay) {
 
 // Tests chrome.runtime.sendMessage from content script to SW extension.
 IN_PROC_BROWSER_TEST_F(ServiceWorkerMessagingTest, TabToWorker) {
-  ExtensionTestMessageListener worker_listener("WORKER_RUNNING", false);
+  ExtensionTestMessageListener worker_listener("WORKER_RUNNING");
   const Extension* extension = LoadExtension(test_data_dir_.AppendASCII(
       "service_worker/messaging/send_message_tab_to_worker"));
   ASSERT_TRUE(extension);
   EXPECT_TRUE(worker_listener.WaitUntilSatisfied());
 
-  ExtensionTestMessageListener reply_listener("CONTENT_SCRIPT_RECEIVED_REPLY",
-                                              false);
+  ExtensionTestMessageListener reply_listener("CONTENT_SCRIPT_RECEIVED_REPLY");
   reply_listener.set_failure_message("FAILURE");
 
   {
@@ -371,7 +364,7 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerMessagingTest,
   // Step 2/2: Load an extension with service worker background, verify that
   // stopping the service worker doesn't cause message port in
   // |message_port_extension| to crash.
-  ExtensionTestMessageListener worker_running_listener("worker_running", false);
+  ExtensionTestMessageListener worker_running_listener("worker_running");
 
   TestExtensionDir worker_extension_dir;
   const Extension* service_worker_extension =
@@ -413,6 +406,113 @@ IN_PROC_BROWSER_TEST_F(ServiceWorkerMessagingTestWithActivityLog, ActivityLog) {
   // The test passes when /activiy_log/ extension sees activities from
   // |friend_extension|.
   ASSERT_TRUE(RunExtensionTest("service_worker/messaging/activity_log/"));
+}
+
+// Tests port creation (chrome.runtime.connect) from content script to an
+// extension SW should not, by itself, create an external request that keeps the
+// SW alive.
+IN_PROC_BROWSER_TEST_F(ServiceWorkerMessagingTest, LongLivedChannelNoMessage) {
+  ASSERT_TRUE(StartEmbeddedTestServer());
+
+  service_worker_test_utils::TestRegistrationObserver observer(
+      browser()->profile());
+  const Extension* extension = LoadExtension(test_data_dir_.AppendASCII(
+      "service_worker/messaging/connect_to_worker/connect"));
+  ASSERT_TRUE(extension);
+  observer.WaitForWorkerStart();
+
+  // Load the tab with content script to open a Port to |extension|.
+  ResultCatcher catcher;
+  {
+    content::WebContents* new_web_contents = browsertest_util::AddTab(
+        browser(),
+        embedded_test_server()->GetURL("/extensions/test_file.html"));
+    EXPECT_TRUE(new_web_contents);
+  }
+  EXPECT_TRUE(catcher.GetNextResult()) << catcher.message();
+
+  // The service worker will be terminated because there is no in-flight
+  // external request.
+  base::RunLoop().RunUntilIdle();
+  content::ServiceWorkerContext* context =
+      util::GetServiceWorkerContextForExtensionId(extension->id(),
+                                                  browser()->profile());
+  EXPECT_FALSE(content::TriggerTimeoutAndCheckRunningState(
+      context, observer.GetServiceWorkerVersionId()));
+}
+
+// Tests that one-time messages (chrome.runtime.sendMessage) from content script
+// to an extension SW should add in-flight external request.
+IN_PROC_BROWSER_TEST_F(ServiceWorkerMessagingTest, OneTimeChannel) {
+  ASSERT_TRUE(StartEmbeddedTestServer());
+
+  service_worker_test_utils::TestRegistrationObserver observer(
+      browser()->profile());
+  const Extension* extension = LoadExtension(test_data_dir_.AppendASCII(
+      "service_worker/messaging/connect_to_worker/send_message"));
+  ASSERT_TRUE(extension);
+  observer.WaitForWorkerStart();
+
+  // Load the tab with content script to open a Port to |extension|.
+  ResultCatcher catcher;
+  {
+    content::WebContents* new_web_contents = browsertest_util::AddTab(
+        browser(),
+        embedded_test_server()->GetURL("/extensions/test_file.html"));
+    EXPECT_TRUE(new_web_contents);
+  }
+  EXPECT_TRUE(catcher.GetNextResult()) << catcher.message();
+
+  // The service worker will not be terminated because there is an in-flight
+  // external request. The onMessage listener indicates an asynchronous response
+  // but never respond. It keeps the port open. As a result the in-flight
+  // request is not finished.
+  base::RunLoop().RunUntilIdle();
+  content::ServiceWorkerContext* context =
+      util::GetServiceWorkerContextForExtensionId(extension->id(),
+                                                  browser()->profile());
+  EXPECT_TRUE(content::TriggerTimeoutAndCheckRunningState(
+      context, observer.GetServiceWorkerVersionId()));
+}
+
+// Tests post messages through a long-lived channel from content script to an
+// extension SW should extend SW lifetime.
+IN_PROC_BROWSER_TEST_F(ServiceWorkerMessagingTest,
+                       LongLivedChannelPostMessage) {
+  ASSERT_TRUE(StartEmbeddedTestServer());
+
+  service_worker_test_utils::TestRegistrationObserver observer(
+      browser()->profile());
+  const Extension* extension = LoadExtension(test_data_dir_.AppendASCII(
+      "service_worker/messaging/connect_to_worker/connect_and_post"));
+  ASSERT_TRUE(extension);
+  observer.WaitForWorkerStart();
+
+  // Set idle timeout to 1 second.
+  content::ServiceWorkerContext* context =
+      util::GetServiceWorkerContextForExtensionId(extension->id(),
+                                                  browser()->profile());
+  content::SetServiceWorkerIdleDelay(
+      context, observer.GetServiceWorkerVersionId(), base::Seconds(1));
+
+  // Load the tab with content script to open a Port to |extension|.
+  ResultCatcher catcher;
+  {
+    content::WebContents* new_web_contents = browsertest_util::AddTab(
+        browser(),
+        embedded_test_server()->GetURL("/extensions/test_file.html"));
+    EXPECT_TRUE(new_web_contents);
+  }
+  // Catching the succeed test message means the service worker has been alive
+  // for longer than 2 seconds.
+  EXPECT_TRUE(catcher.GetNextResult()) << catcher.message();
+
+  // The content script is sending messages over the long-lived channel every
+  // 100ms. The service worker is still running at this point verifies that
+  // sending messages prolongs the service worker lifetime.
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(content::CheckServiceWorkerIsRunning(
+      context, observer.GetServiceWorkerVersionId()));
 }
 
 }  // namespace extensions

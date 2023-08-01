@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -14,12 +14,14 @@
 #include <stdint.h>
 #include <va/va.h>
 
+#include <map>
 #include <memory>
 #include <set>
 #include <vector>
 
 #include "base/files/file.h"
 #include "base/gtest_prod_util.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/synchronization/lock.h"
@@ -39,7 +41,7 @@
 #endif                        // BUILDFLAG(USE_VAAPI_X11)
 
 namespace gfx {
-enum class BufferFormat;
+enum class BufferFormat : uint8_t;
 class NativePixmap;
 class NativePixmapDmaBuf;
 class Rect;
@@ -52,6 +54,7 @@ class Rect;
 namespace media {
 constexpr unsigned int kInvalidVaRtFormat = 0u;
 
+class VADisplayStateSingleton;
 class VideoFrame;
 
 // Enum, function and callback type to allow VaapiWrapper to log errors in VA
@@ -94,6 +97,42 @@ enum class VAImplementation {
   kInvalid,
 };
 
+// A VADisplayStateHandle is somewhat like a scoped_refptr for a
+// VADisplayStateSingleton (an internal class used to keep track of a singleton
+// VADisplay). As long as a non-null VADisplayStateHandle exists, the underlying
+// VADisplay is initialized and can be used. When the last non-null
+// VADisplayStateHandle is destroyed, the underlying VADisplay is cleaned up.
+//
+// Unlike a scoped_refptr, a VADisplayStateHandle is move-only.
+//
+// Note: a VADisplayStateHandle instance is thread- and sequence-safe, but the
+// underlying VADisplay may need protection. See the comments for the
+// VADisplayStateSingleton documentation.
+class VADisplayStateHandle {
+ public:
+  // Creates a null VADisplayStateHandle.
+  VADisplayStateHandle();
+
+  VADisplayStateHandle(VADisplayStateHandle&& other) = default;
+  VADisplayStateHandle& operator=(VADisplayStateHandle&& other) = default;
+
+  VADisplayStateHandle(const VADisplayStateHandle&) = delete;
+  VADisplayStateHandle& operator=(const VADisplayStateHandle&) = delete;
+
+  ~VADisplayStateHandle();
+
+  VADisplayStateSingleton* operator->() { return va_display_state_; }
+
+  explicit operator bool() const { return !!va_display_state_; }
+
+ private:
+  friend class VADisplayStateSingleton;
+
+  explicit VADisplayStateHandle(VADisplayStateSingleton* va_display_state);
+
+  raw_ptr<VADisplayStateSingleton> va_display_state_;
+};
+
 // This class handles VA-API calls and ensures proper locking of VA-API calls
 // to libva, the userspace shim to the HW codec driver. The thread safety of
 // libva depends on the backend. If the backend is not thread-safe, we need to
@@ -121,6 +160,11 @@ enum class VAImplementation {
 class MEDIA_GPU_EXPORT VaapiWrapper
     : public base::RefCountedThreadSafe<VaapiWrapper> {
  public:
+  // Whether it's okay or not to try to disable the VA-API global lock on the
+  // current process. This is intended to be set only once during process
+  // start-up.
+  static bool allow_disabling_global_lock_;
+
   enum CodecMode {
     kDecode,
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -137,6 +181,7 @@ class MEDIA_GPU_EXPORT VaapiWrapper
     kEncodeConstantBitrate,  // Encode with Constant Bitrate algorithm.
     kEncodeConstantQuantizationParameter,  // Encode with Constant Quantization
                                            // Parameter algorithm.
+    kEncodeVariableBitrate,  // Encode with variable bitrate algorithm.
     kVideoProcess,
     kCodecModeMax,
   };
@@ -206,18 +251,16 @@ class MEDIA_GPU_EXPORT VaapiWrapper
   // Returns false if |rt_format| or |va_profile| is not supported for decoding.
   static bool IsDecodingSupportedForInternalFormat(VAProfile va_profile,
                                                    unsigned int rt_format);
-
-  // Gets the minimum surface size allowed for decoding using |va_profile|.
-  // Returns true if the size can be obtained, false otherwise. The minimum
-  // dimension (width or height) returned is 1. Particularly, if a dimension is
-  // not reported by the driver, the dimension is returned as 1.
-  static bool GetDecodeMinResolution(VAProfile va_profile, gfx::Size* min_size);
-
-  // Gets the maximum surface size allowed for decoding using |va_profile|.
-  // Returns true if the size can be obtained, false otherwise. Because of the
-  // initialization in VASupportedProfiles::FillProfileInfo_Locked(), the size
-  // is guaranteed to not be empty (as long as this method returns true).
-  static bool GetDecodeMaxResolution(VAProfile va_profile, gfx::Size* max_size);
+  // Gets the minimum and maximum surface sizes allowed for |va_profile| in
+  // |codec_mode|. Returns true if both sizes can be obtained, false otherwise.
+  // Each dimension in |min_size| will be at least 1 (as long as this method
+  // returns true). Additionally, because of the initialization in
+  // VASupportedProfiles::FillProfileInfo_Locked(), the |max_size| is guaranteed
+  // to not be empty (as long as this method returns true).
+  static bool GetSupportedResolutions(VAProfile va_profile,
+                                      CodecMode codec_mode,
+                                      gfx::Size& min_size,
+                                      gfx::Size& max_size);
 
   // Obtains a suitable FOURCC that can be used in vaCreateImage() +
   // vaGetImage(). |rt_format| corresponds to the JPEG's subsampling format.
@@ -418,7 +461,7 @@ class MEDIA_GPU_EXPORT VaapiWrapper
   struct VABufferDescriptor {
     VABufferType type;
     size_t size;
-    const void* data;
+    raw_ptr<const void> data;
   };
   [[nodiscard]] bool SubmitBuffers(
       const std::vector<VABufferDescriptor>& va_buffers);
@@ -532,14 +575,17 @@ class MEDIA_GPU_EXPORT VaapiWrapper
   );
 
   // Initialize static data before sandbox is enabled.
-  static void PreSandboxInitialization();
+  static void PreSandboxInitialization(
+      bool allow_disabling_global_lock = false);
 
   // vaDestroySurfaces() a vector or a single VASurfaceID.
   virtual void DestroySurfaces(std::vector<VASurfaceID> va_surfaces);
   virtual void DestroySurface(VASurfaceID va_surface_id);
 
  protected:
-  explicit VaapiWrapper(CodecMode mode, bool enforce_sequence_affinity = true);
+  VaapiWrapper(VADisplayStateHandle va_display_state_handle,
+               CodecMode mode,
+               bool enforce_sequence_affinity = true);
   virtual ~VaapiWrapper();
 
  private:
@@ -624,13 +670,21 @@ class MEDIA_GPU_EXPORT VaapiWrapper
   const bool enforce_sequence_affinity_;
   base::SequenceCheckerImpl sequence_checker_;
 
-  // If using global VA lock, this is a pointer to VADisplayState's member
-  // |va_lock_|. Guaranteed to be valid for the lifetime of VaapiWrapper.
-  base::Lock* va_lock_;
+  // This is declared before |va_display_| and |va_lock_| to guarantee their
+  // validity for as long as the VaapiWrapper is alive.
+  VADisplayStateHandle va_display_state_handle_;
+
+  // If using a global VA lock, this is a pointer to VADisplayStateSingleton's
+  // member |va_lock_|. Guaranteed to be valid for the lifetime of the
+  // VaapiWrapper due to the |va_display_state_handle_| above.
+  raw_ptr<base::Lock> va_lock_;
+
+  // Guaranteed to be valid for the lifetime of the VaapiWrapper due to the
+  // |va_display_state_handle_| above.
+  VADisplay va_display_ GUARDED_BY(va_lock_);
 
   // VA handles.
   // All valid after successful Initialize() and until Deinitialize().
-  VADisplay va_display_ GUARDED_BY(va_lock_);
   VAConfigID va_config_id_{VA_INVALID_ID};
   // Created in CreateContext() or CreateContextAndSurfaces() and valid until
   // DestroyContext() or DestroyContextAndSurfaces().

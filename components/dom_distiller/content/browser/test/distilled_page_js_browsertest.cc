@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,10 +40,8 @@ class DistilledPageJsTest : public content::ContentBrowserTest {
   void LoadAndExecuteTestScript(const std::string& file) {
     distilled_page_->AppendScriptFile(file);
     distilled_page_->Load(embedded_test_server(), shell()->web_contents());
-    bool allTestsPassed;
-    ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-        shell()->web_contents(), "mocha.run()", &allTestsPassed));
-    EXPECT_TRUE(allTestsPassed);
+    EXPECT_TRUE(content::ExecJs(shell()->web_contents(),
+                                "mocha.run(); window.completePromise"));
   }
 
   std::unique_ptr<FakeDistilledPage> distilled_page_;

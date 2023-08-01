@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,9 +11,10 @@
 #include "ash/test/ash_test_base.h"
 #include "ash/wm/desks/desk.h"
 #include "ash/wm/desks/desk_mini_view.h"
-#include "ash/wm/desks/desks_bar_view.h"
+#include "ash/wm/desks/desk_preview_view.h"
 #include "ash/wm/desks/desks_controller.h"
 #include "ash/wm/desks/desks_test_util.h"
+#include "ash/wm/desks/legacy_desk_bar_view.h"
 #include "ash/wm/overview/overview_controller.h"
 #include "ash/wm/overview/overview_grid.h"
 #include "ash/wm/overview/overview_highlight_controller.h"
@@ -316,8 +317,9 @@ TEST_F(WmGestureHandlerTest, ActivateHighlightedDeskWithVerticalScroll) {
           ->desks_bar_view()
           ->mini_views()[1];
 
-  overview_session->highlight_controller()->MoveHighlightToView(mini_view_1);
-  EXPECT_TRUE(mini_view_1->IsViewHighlighted());
+  overview_session->highlight_controller()->MoveHighlightToView(
+      mini_view_1->desk_preview());
+  EXPECT_TRUE(mini_view_1->desk_preview()->IsViewHighlighted());
 
   // Exit overview with 3-fingers downward swipes.
   DeskSwitchAnimationWaiter waiter;

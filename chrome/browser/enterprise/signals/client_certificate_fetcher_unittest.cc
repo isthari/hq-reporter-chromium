@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -77,36 +77,34 @@ class ClientCertificateFetcherTest : public testing::Test {
     return net::FakeClientCertIdentityListFromCertificateList(client_certs_);
   }
 
-  void SetPolicyValueInContentSettings(
-      const std::vector<base::Value>& filters) {
+  void SetPolicyValueInContentSettings(base::Value::List filters) {
     HostContentSettingsMap* m =
         HostContentSettingsMapFactory::GetForProfile(profile());
 
-    std::unique_ptr<base::DictionaryValue> root =
-        std::make_unique<base::DictionaryValue>();
-    root->SetKey("filters", base::Value(std::move(filters)));
+    base::Value::Dict root;
+    root.Set("filters", std::move(filters));
 
     m->SetWebsiteSettingDefaultScope(
         GURL(kRequestingUrl), GURL(),
         ContentSettingsType::AUTO_SELECT_CERTIFICATE,
-        base::Value::FromUniquePtrValue(std::move(root)));
+        base::Value(std::move(root)));
   }
 
-  base::Value CreateFilterValue(const std::string& issuer,
-                                const std::string& subject) {
+  base::Value::Dict CreateFilterValue(const std::string& issuer,
+                                      const std::string& subject) {
     EXPECT_FALSE(issuer.empty() && subject.empty());
 
-    base::Value filter(base::Value::Type::DICTIONARY);
+    base::Value::Dict filter;
     if (!issuer.empty()) {
-      base::Value issuer_value(base::Value::Type::DICTIONARY);
-      issuer_value.SetStringKey("CN", issuer);
-      filter.SetKey("ISSUER", std::move(issuer_value));
+      base::Value::Dict issuer_value;
+      issuer_value.Set("CN", issuer);
+      filter.Set("ISSUER", std::move(issuer_value));
     }
 
     if (!subject.empty()) {
-      base::Value subject_value(base::Value::Type::DICTIONARY);
-      subject_value.SetStringKey("CN", subject);
-      filter.SetKey("SUBJECT", std::move(subject_value));
+      base::Value::Dict subject_value;
+      subject_value.Set("CN", subject);
+      filter.Set("SUBJECT", std::move(subject_value));
     }
 
     return filter;
@@ -166,10 +164,10 @@ TEST_F(ClientCertificateFetcherTest, ReturnsFirstCertIfMatching) {
   std::unique_ptr<MockClientCertStore> cert_store =
       std::make_unique<MockClientCertStore>();
 
-  std::vector<base::Value> filters;
-  filters.push_back(CreateFilterValue("", "Client Cert A"));
+  base::Value::List filters;
+  filters.Append(CreateFilterValue("", "Client Cert A"));
 
-  SetPolicyValueInContentSettings(filters);
+  SetPolicyValueInContentSettings(std::move(filters));
 
   // Keep a raw pointer to simulate running the callback.
   MockClientCertStore* cert_store_ptr = cert_store.get();
@@ -195,10 +193,10 @@ TEST_F(ClientCertificateFetcherTest, ReturnsSecondCertIfMatching) {
   std::unique_ptr<MockClientCertStore> cert_store =
       std::make_unique<MockClientCertStore>();
 
-  std::vector<base::Value> filters;
-  filters.push_back(CreateFilterValue("E CA", ""));
+  base::Value::List filters;
+  filters.Append(CreateFilterValue("E CA", ""));
 
-  SetPolicyValueInContentSettings(filters);
+  SetPolicyValueInContentSettings(std::move(filters));
 
   // Keep a raw pointer to simulate running the callback.
   MockClientCertStore* cert_store_ptr = cert_store.get();
@@ -224,10 +222,10 @@ TEST_F(ClientCertificateFetcherTest, ReturnsNoCertIfNoFiltersMatch) {
   std::unique_ptr<MockClientCertStore> cert_store =
       std::make_unique<MockClientCertStore>();
 
-  std::vector<base::Value> filters;
-  filters.push_back(CreateFilterValue("E CA", "Bad Subject"));
+  base::Value::List filters;
+  filters.Append(CreateFilterValue("E CA", "Bad Subject"));
 
-  SetPolicyValueInContentSettings(filters);
+  SetPolicyValueInContentSettings(std::move(filters));
 
   // Keep a raw pointer to simulate running the callback.
   MockClientCertStore* cert_store_ptr = cert_store.get();

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,9 @@
 
 #include "ash/ash_export.h"
 #include "ash/style/icon_button.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/memory/raw_ptr.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/gfx/vector_icon_types.h"
 #include "ui/views/view.h"
 
@@ -24,18 +26,17 @@ class FeaturePodControllerBase;
 // A toggle button with an icon used by feature pods and in other places.
 class ASH_EXPORT FeaturePodIconButton : public IconButton {
  public:
+  METADATA_HEADER(FeaturePodIconButton);
   FeaturePodIconButton(PressedCallback callback, bool is_togglable);
   FeaturePodIconButton(const FeaturePodIconButton&) = delete;
   FeaturePodIconButton& operator=(const FeaturePodIconButton&) = delete;
   ~FeaturePodIconButton() override;
-
-  // views::ImageButton:
-  const char* GetClassName() const override;
 };
 
 // Button internally used in FeaturePodButton. Should not be used directly.
 class ASH_EXPORT FeaturePodLabelButton : public views::Button {
  public:
+  METADATA_HEADER(FeaturePodLabelButton);
   explicit FeaturePodLabelButton(PressedCallback callback);
 
   FeaturePodLabelButton(const FeaturePodLabelButton&) = delete;
@@ -59,7 +60,6 @@ class ASH_EXPORT FeaturePodLabelButton : public views::Button {
   // views::Button:
   void Layout() override;
   gfx::Size CalculatePreferredSize() const override;
-  const char* GetClassName() const override;
   void OnThemeChanged() override;
 
  private:
@@ -69,9 +69,9 @@ class ASH_EXPORT FeaturePodLabelButton : public views::Button {
   void OnEnabledChanged();
 
   // Owned by views hierarchy.
-  views::Label* const label_;
-  views::Label* const sub_label_;
-  views::ImageView* const detailed_view_arrow_;
+  const raw_ptr<views::Label, ExperimentalAsh> label_;
+  const raw_ptr<views::Label, ExperimentalAsh> sub_label_;
+  const raw_ptr<views::ImageView, ExperimentalAsh> detailed_view_arrow_;
   base::CallbackListSubscription enabled_changed_subscription_ =
       AddEnabledChangedCallback(
           base::BindRepeating(&FeaturePodLabelButton::OnEnabledChanged,
@@ -86,8 +86,9 @@ class ASH_EXPORT FeaturePodLabelButton : public views::Button {
 // See the comment in FeaturePodsView for detail.
 class ASH_EXPORT FeaturePodButton : public views::View {
  public:
-  FeaturePodButton(FeaturePodControllerBase* controller,
-                   bool is_togglable = true);
+  METADATA_HEADER(FeaturePodButton);
+  explicit FeaturePodButton(FeaturePodControllerBase* controller,
+                            bool is_togglable = true);
 
   FeaturePodButton(const FeaturePodButton&) = delete;
   FeaturePodButton& operator=(const FeaturePodButton&) = delete;
@@ -146,22 +147,23 @@ class ASH_EXPORT FeaturePodButton : public views::View {
   void SetVisible(bool visible) override;
   bool HasFocus() const override;
   void RequestFocus() override;
-  const char* GetClassName() const override;
 
   bool visible_preferred() const { return visible_preferred_; }
 
   FeaturePodIconButton* icon_button() const { return icon_button_; }
+  FeaturePodLabelButton* label_button() const { return label_button_; }
 
  private:
   // For unit tests.
   friend class BluetoothFeaturePodControllerTest;
   friend class NetworkFeaturePodControllerTest;
+  friend class NightLightFeaturePodControllerTest;
 
   void OnEnabledChanged();
 
   // Owned by views hierarchy.
-  FeaturePodIconButton* const icon_button_;
-  FeaturePodLabelButton* const label_button_;
+  const raw_ptr<FeaturePodIconButton, ExperimentalAsh> icon_button_;
+  const raw_ptr<FeaturePodLabelButton, ExperimentalAsh> label_button_;
 
   // If true, it is preferred by the FeaturePodController that the view is
   // visible. Usually, this should match visible(), but in case that the

@@ -1,22 +1,20 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "extensions/renderer/bindings/api_bindings_system.h"
+#include "extensions/renderer/bindings/api_bindings_system_unittest.h"
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/containers/contains.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/strings/stringprintf.h"
-#include "base/values.h"
 #include "extensions/common/mojom/event_dispatcher.mojom.h"
 #include "extensions/renderer/bindings/api_binding.h"
 #include "extensions/renderer/bindings/api_binding_hooks.h"
 #include "extensions/renderer/bindings/api_binding_hooks_test_delegate.h"
 #include "extensions/renderer/bindings/api_binding_test_util.h"
 #include "extensions/renderer/bindings/api_binding_types.h"
-#include "extensions/renderer/bindings/api_bindings_system_unittest.h"
+#include "extensions/renderer/bindings/api_bindings_system.h"
 #include "extensions/renderer/bindings/api_invocation_errors.h"
 #include "extensions/renderer/bindings/test_interaction_provider.h"
 #include "gin/arguments.h"
@@ -69,7 +67,12 @@ const char kAlphaAPISpec[] = R"(
         "parameters": [{"name": "e", "$ref": "alpha.enumRef"}]
       }],
       "events": [{
-        "name": "alphaEvent"
+        "name": "alphaEvent",
+        "parameters": [{
+          "name": "eventArg",
+          "type": "object",
+          "properties": { "key": {"type": "integer"} }
+        }]
       }, {
         "name": "alphaOtherEvent"
       }]
@@ -123,7 +126,7 @@ bool AllowPromises(v8::Local<v8::Context> context) {
 
 }  // namespace
 
-APIBindingsSystemTest::APIBindingsSystemTest() {}
+APIBindingsSystemTest::APIBindingsSystemTest() = default;
 APIBindingsSystemTest::~APIBindingsSystemTest() = default;
 
 void APIBindingsSystemTest::SetUp() {
@@ -131,9 +134,7 @@ void APIBindingsSystemTest::SetUp() {
 
   // Create the fake API schemas.
   for (const auto& api : GetAPIs()) {
-    std::unique_ptr<base::DictionaryValue> api_schema =
-        DictionaryValueFromString(api.spec);
-    ASSERT_TRUE(api_schema);
+    base::Value::Dict api_schema = DictValueFromString(api.spec);
     api_schemas_[api.name] = std::move(api_schema);
   }
 
@@ -190,10 +191,10 @@ void APIBindingsSystemTest::AddConsoleError(v8::Local<v8::Context> context,
   console_errors_.push_back(error);
 }
 
-const base::DictionaryValue& APIBindingsSystemTest::GetAPISchema(
+const base::Value::Dict& APIBindingsSystemTest::GetAPISchema(
     const std::string& api_name) {
   EXPECT_TRUE(base::Contains(api_schemas_, api_name));
-  return *api_schemas_[api_name];
+  return api_schemas_[api_name];
 }
 
 void APIBindingsSystemTest::OnAPIRequest(
@@ -206,7 +207,7 @@ void APIBindingsSystemTest::OnAPIRequest(
 void APIBindingsSystemTest::OnEventListenersChanged(
     const std::string& event_name,
     binding::EventListenersChanged changed,
-    const base::DictionaryValue* filter,
+    const base::Value::Dict* filter,
     bool was_manual,
     v8::Local<v8::Context> context) {}
 
@@ -214,12 +215,9 @@ void APIBindingsSystemTest::ValidateLastRequest(
     const std::string& expected_name,
     const std::string& expected_arguments) {
   ASSERT_TRUE(last_request());
-  // Note that even if no arguments are provided by the API call, we should
-  // have an empty list.
-  ASSERT_TRUE(last_request()->arguments_list);
   EXPECT_EQ(expected_name, last_request()->method_name);
   EXPECT_EQ(ReplaceSingleQuotes(expected_arguments),
-            ValueToString(*last_request()->arguments_list));
+            ValueToString(last_request()->arguments_list));
 }
 
 v8::Local<v8::Value> APIBindingsSystemTest::CallFunctionOnObject(
@@ -265,10 +263,9 @@ TEST_F(APIBindingsSystemTest, TestInitializationAndCallbacks) {
     ValidateLastRequest("alpha.functionWithCallback", "['foo']");
 
     const char kResponseArgsJson[] = R"(["response"])";
-    std::unique_ptr<base::ListValue> expected_args =
-        ListValueFromString(kResponseArgsJson);
     bindings_system()->CompleteRequest(last_request()->request_id,
-                                       *expected_args, std::string());
+                                       ListValueFromString(kResponseArgsJson),
+                                       std::string());
 
     EXPECT_EQ(kResponseArgsJson,
               GetStringPropertyFromObject(context->Global(), context,
@@ -290,7 +287,7 @@ TEST_F(APIBindingsSystemTest, TestInitializationAndCallbacks) {
                         "[{'prop1':'alpha','prop2':42}]");
 
     bindings_system()->CompleteRequest(last_request()->request_id,
-                                       base::ListValue(), std::string());
+                                       base::Value::List(), std::string());
 
     EXPECT_EQ("[]", GetStringPropertyFromObject(context->Global(), context,
                                                 "callbackArguments"));
@@ -304,7 +301,7 @@ TEST_F(APIBindingsSystemTest, TestInitializationAndCallbacks) {
     v8::Local<v8::Function> function = FunctionFromString(context, kTestCall);
     v8::Local<v8::Value> args[] = {alpha_api};
     RunFunctionAndExpectError(
-        function, context, base::size(args), args,
+        function, context, std::size(args), args,
         "Uncaught TypeError: " +
             api_errors::InvocationError(
                 "alpha.functionWithEnum", "alpha.enumRef e",
@@ -322,11 +319,10 @@ TEST_F(APIBindingsSystemTest, TestInitializationAndCallbacks) {
         });)";
     CallFunctionOnObject(context, alpha_api, kTestCall);
 
-    const char kResponseArgsJson[] = R"(["response",1,{"key":42}])";
-    std::unique_ptr<base::ListValue> expected_args =
-        ListValueFromString(kResponseArgsJson);
+    const char kResponseArgsJson[] = R"([{"key":42}])";
+    base::Value::List expected_args = ListValueFromString(kResponseArgsJson);
     bindings_system()->FireEventInContext("alpha.alphaEvent", context,
-                                          *expected_args, nullptr);
+                                          expected_args, nullptr);
 
     EXPECT_EQ(kResponseArgsJson,
               GetStringPropertyFromObject(context->Global(), context,
@@ -376,9 +372,8 @@ TEST_F(APIBindingsSystemTest, TestCustomHooks) {
   auto test_hooks = std::make_unique<APIBindingHooksTestDelegate>();
   test_hooks->AddHandler("alpha.functionWithCallback",
                          base::BindRepeating(hook, &did_call));
-  APIBindingHooks* binding_hooks =
-      bindings_system()->GetHooksForAPI(kAlphaAPIName);
-  binding_hooks->SetDelegate(std::move(test_hooks));
+  bindings_system()->RegisterHooksDelegate(kAlphaAPIName,
+                                           std::move(test_hooks));
 
   v8::Local<v8::Object> alpha_api =
       bindings_system()->CreateAPIInstance(kAlphaAPIName, context, nullptr);
@@ -414,7 +409,7 @@ TEST_F(APIBindingsSystemTest, TestSetCustomCallback_SuccessWithCallback) {
   v8::Local<v8::Function> function =
       FunctionFromString(context, kCustomCallbackHook);
   v8::Local<v8::Value> args[] = {js_hooks};
-  RunFunctionOnGlobal(function, context, base::size(args), args);
+  RunFunctionOnGlobal(function, context, std::size(args), args);
 
   const char kTestCall[] = R"(
       obj.functionWithCallback('foo', function() {
@@ -433,9 +428,8 @@ TEST_F(APIBindingsSystemTest, TestSetCustomCallback_SuccessWithCallback) {
   // potentially send the response validator to the custom callback adaptor
   // and validate the result returned from the custom callback before sending
   // it on to the original callback.
-  std::unique_ptr<base::ListValue> response =
-      ListValueFromString(R"(["alpha","beta"])");
-  bindings_system()->CompleteRequest(last_request()->request_id, *response,
+  bindings_system()->CompleteRequest(last_request()->request_id,
+                                     ListValueFromString(R"(["alpha","beta"])"),
                                      std::string());
 
   EXPECT_EQ(R"(["alpha","beta"])",
@@ -460,7 +454,7 @@ TEST_F(APIBindingsSystemTest, TestSetCustomCallback_SuccessWithPromise) {
   v8::Local<v8::Function> function =
       FunctionFromString(context, kCustomCallbackHook);
   v8::Local<v8::Value> args[] = {js_hooks};
-  RunFunctionOnGlobal(function, context, base::size(args), args);
+  RunFunctionOnGlobal(function, context, std::size(args), args);
 
   const char kTestCall[] = R"(return obj.functionWithCallback('bar');)";
   v8::Local<v8::Value> result =
@@ -471,10 +465,9 @@ TEST_F(APIBindingsSystemTest, TestSetCustomCallback_SuccessWithPromise) {
   ASSERT_TRUE(GetValueAs(result, &promise));
   EXPECT_EQ(v8::Promise::kPending, promise->State());
 
-  std::unique_ptr<base::ListValue> response =
-      ListValueFromString(R"(["gamma","delta"])");
-  bindings_system()->CompleteRequest(last_request()->request_id, *response,
-                                     std::string());
+  bindings_system()->CompleteRequest(
+      last_request()->request_id, ListValueFromString(R"(["gamma","delta"])"),
+      std::string());
 
   EXPECT_EQ(R"(["gamma","delta"])",
             GetStringPropertyFromObject(context->Global(), context, "results"));
@@ -497,7 +490,7 @@ TEST_F(APIBindingsSystemTest, TestSetCustomCallback_ErrorWithCallback) {
   v8::Local<v8::Function> function =
       FunctionFromString(context, kCustomCallbackThrowHook);
   v8::Local<v8::Value> args[] = {js_hooks};
-  RunFunctionOnGlobal(function, context, base::size(args), args);
+  RunFunctionOnGlobal(function, context, std::size(args), args);
 
   const char kTestCall[] = R"(
       obj.functionWithCallback('baz', function() {
@@ -508,11 +501,10 @@ TEST_F(APIBindingsSystemTest, TestSetCustomCallback_ErrorWithCallback) {
   ValidateLastRequest("alpha.functionWithCallback", "['baz']");
   ASSERT_TRUE(console_errors().empty());
 
-  std::unique_ptr<base::ListValue> response =
-      ListValueFromString(R"(["alpha", "beta"])");
   TestJSRunner::AllowErrors allow_errors;
-  bindings_system()->CompleteRequest(last_request()->request_id, *response,
-                                     std::string());
+  bindings_system()->CompleteRequest(
+      last_request()->request_id, ListValueFromString(R"(["alpha", "beta"])"),
+      std::string());
 
   // The callback should have never been called and there should now be a
   // console error logged.
@@ -539,7 +531,7 @@ TEST_F(APIBindingsSystemTest, TestSetCustomCallback_ErrorWithPromise) {
   v8::Local<v8::Function> function =
       FunctionFromString(context, kCustomCallbackThrowHook);
   v8::Local<v8::Value> args[] = {js_hooks};
-  RunFunctionOnGlobal(function, context, base::size(args), args);
+  RunFunctionOnGlobal(function, context, std::size(args), args);
 
   const char kTestCall[] = R"(return obj.functionWithCallback('boz');)";
   v8::Local<v8::Value> result =
@@ -551,11 +543,10 @@ TEST_F(APIBindingsSystemTest, TestSetCustomCallback_ErrorWithPromise) {
   EXPECT_EQ(v8::Promise::kPending, promise->State());
   ASSERT_TRUE(console_errors().empty());
 
-  std::unique_ptr<base::ListValue> response =
-      ListValueFromString(R"(["gamma", "delta"])");
   TestJSRunner::AllowErrors allow_errors;
-  bindings_system()->CompleteRequest(last_request()->request_id, *response,
-                                     std::string());
+  bindings_system()->CompleteRequest(
+      last_request()->request_id, ListValueFromString(R"(["gamma", "delta"])"),
+      std::string());
 
   // The promise will remain pending and there should now be a console error
   // logged.
@@ -604,9 +595,8 @@ TEST_F(APIBindingsSystemTest, TestCustomEvent) {
 
   auto test_hooks = std::make_unique<APIBindingHooksTestDelegate>();
   test_hooks->SetCustomEvent(base::BindRepeating(create_custom_event));
-  APIBindingHooks* binding_hooks =
-      bindings_system()->GetHooksForAPI(kAlphaAPIName);
-  binding_hooks->SetDelegate(std::move(test_hooks));
+  bindings_system()->RegisterHooksDelegate(kAlphaAPIName,
+                                           std::move(test_hooks));
 
   v8::Local<v8::Object> api =
       bindings_system()->CreateAPIInstance(kAlphaAPIName, context, nullptr);

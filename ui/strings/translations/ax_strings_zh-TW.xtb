@@ -2,7 +2,7 @@
 <!DOCTYPE translationbundle>
 <translationbundle lang="zh-TW">
 <translation id="1018939186200882850">選單項目</translation>
-<translation id="10623998915015855">切換按鈕</translation>
+<translation id="10623998915015855">切換鈕</translation>
 <translation id="1188858454923323853">補充</translation>
 <translation id="1206619573307042055">marquee</translation>
 <translation id="1206693055195146388">滑桿</translation>
@@ -15,6 +15,7 @@
 <translation id="1650423536718072820">重要引述</translation>
 <translation id="1821985195704844674">樹狀目錄網格</translation>
 <translation id="1823704031293214298">頁尾</translation>
+<translation id="1838681052457320736">警示對話方塊</translation>
 <translation id="1842960171412779397">選取</translation>
 <translation id="190587075670221089">刪除</translation>
 <translation id="1907737156431278478">範例</translation>

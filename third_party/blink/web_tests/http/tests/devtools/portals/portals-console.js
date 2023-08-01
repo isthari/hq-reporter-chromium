@@ -1,10 +1,13 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {TestRunner} from 'test_runner';
+import {ConsoleTestRunner} from 'console_test_runner';
+
 (async function() {
   TestRunner.addResult(`Tests that the console works correctly with portals`);
-  await TestRunner.loadLegacyModule('console'); await TestRunner.loadTestModule('console_test_runner');
+  await TestRunner.loadLegacyModule('console');
   await TestRunner.showPanel('console');
 
   await TestRunner.navigatePromise('resources/append-predecessor-host.html');
@@ -49,9 +52,9 @@
 
     async function activate(next) {
       TestRunner.evaluateInPage('activate()');
-      await TestRunner.waitForTargetRemoved(SDK.targetManager.mainTarget());
+      await TestRunner.waitForTargetRemoved(SDK.targetManager.rootTarget());
       await TestRunner.waitForTarget();
-      await TestRunner.waitForTarget(target => target != SDK.targetManager.mainTarget());
+      await TestRunner.waitForTarget(target => target != SDK.targetManager.rootTarget());
       await TestRunner.waitForExecutionContext(TestRunner.runtimeModel);
       targets = SDK.targetManager.targets();
       next();

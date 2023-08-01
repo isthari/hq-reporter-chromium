@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 
 #include "ash/ash_export.h"
 #include "ash/shelf/home_button.h"
+#include "base/memory/raw_ptr.h"
 #include "ui/compositor/layer_animation_observer.h"
 #include "ui/views/animation/ink_drop_painted_layer_delegates.h"
 #include "ui/views/view.h"
@@ -54,7 +55,7 @@ class ASH_EXPORT AssistantOverlay : public views::View,
 
   std::unique_ptr<ui::Layer> ripple_layer_;
 
-  HomeButton* host_view_;
+  raw_ptr<HomeButton, ExperimentalAsh> host_view_;
 
   AnimationState animation_state_ = AnimationState::HIDDEN;
 

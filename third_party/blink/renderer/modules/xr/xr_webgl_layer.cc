@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <utility>
 
-#include "base/cxx17_backports.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/trace_event/trace_event.h"
 #include "third_party/blink/renderer/core/frame/web_feature.h"
@@ -117,8 +116,8 @@ XRWebGLLayer* XRWebGLLayer::Create(XRSession* session,
     // small to see or unreasonably large.
     // TODO(bajones): Would be best to have the max value communicated from the
     // service rather than limited to the native res.
-    framebuffer_scale = base::clamp(initializer->framebufferScaleFactor(),
-                                    kFramebufferMinScale, max_scale);
+    framebuffer_scale = std::clamp(initializer->framebufferScaleFactor(),
+                                   kFramebufferMinScale, max_scale);
   }
 
   gfx::SizeF framebuffers_size = session->RecommendedFramebufferSize();
@@ -127,8 +126,8 @@ XRWebGLLayer* XRWebGLLayer::Create(XRSession* session,
       gfx::ToFlooredSize(gfx::ScaleSize(framebuffers_size, framebuffer_scale));
 
   // Create an opaque WebGL Framebuffer
-  WebGLFramebuffer* framebuffer =
-      WebGLFramebuffer::CreateOpaque(webgl_context, want_stencil_buffer);
+  WebGLFramebuffer* framebuffer = WebGLFramebuffer::CreateOpaque(
+      webgl_context, want_depth_buffer, want_stencil_buffer);
 
   scoped_refptr<XRWebGLDrawingBuffer> drawing_buffer =
       XRWebGLDrawingBuffer::Create(webgl_context->GetDrawingBuffer(),
@@ -413,7 +412,10 @@ void XRWebGLLayer::OnFrameEnd() {
       // Always call submit, but notify if the contents were changed or not.
       session()->xr()->frameProvider()->SubmitWebGLLayer(this,
                                                          framebuffer_dirty);
-      if (camera_image_mailbox_holder_ && camera_image_texture_id_) {
+      if (camera_image_texture_id_) {
+        // We shouldn't ever have a camera texture if the holder wasn't present:
+        DCHECK(camera_image_mailbox_holder_);
+
         DVLOG(3) << __func__
                  << ": deleting camera image texture, camera_image_texture_id_="
                  << camera_image_texture_id_;

@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,11 +25,12 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.StrictMode;
-import android.support.test.InstrumentationRegistry;
 import android.telephony.TelephonyManager;
 
+import androidx.test.InstrumentationRegistry;
 import androidx.test.filters.MediumTest;
 
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -189,6 +190,7 @@ public class NetworkChangeNotifierTest {
         private boolean mActiveNetworkExists;
         private int mNetworkType;
         private int mNetworkSubtype;
+        private boolean mIsMetered;
         private boolean mIsPrivateDnsActive;
         private String mPrivateDnsServerName;
         private NetworkCallback mLastRegisteredNetworkCallback;
@@ -196,7 +198,7 @@ public class NetworkChangeNotifierTest {
 
         @Override
         public NetworkState getNetworkState(WifiManagerDelegate wifiManagerDelegate) {
-            return new NetworkState(mActiveNetworkExists, mNetworkType, mNetworkSubtype,
+            return new NetworkState(mActiveNetworkExists, mNetworkType, mNetworkSubtype, mIsMetered,
                     mNetworkType == ConnectivityManager.TYPE_WIFI
                             ? wifiManagerDelegate.getWifiSsid()
                             : null,
@@ -269,6 +271,10 @@ public class NetworkChangeNotifierTest {
 
         public void setNetworkType(int networkType) {
             mNetworkType = networkType;
+        }
+
+        public void setIsMetered(boolean isMetered) {
+            mIsMetered = isMetered;
         }
 
         public void setNetworkSubtype(int networkSubtype) {
@@ -374,6 +380,8 @@ public class NetworkChangeNotifierTest {
         @Override
         public void onConnectionTypeChanged(int newConnectionType) {}
         @Override
+        public void onConnectionCostChanged(int newConnectionCost) {}
+        @Override
         public void onConnectionSubtypeChanged(int newConnectionSubtype) {}
 
         @Override
@@ -441,10 +449,17 @@ public class NetworkChangeNotifierTest {
                                                      .getApplicationContext()) {
             // Mock out to avoid unintended system interaction.
             @Override
-            public Intent registerReceiver(BroadcastReceiver receiver, IntentFilter filter) {
+            public Intent registerReceiver(BroadcastReceiver receiver, IntentFilter filter,
+                    String permission, Handler scheduler, int flags) {
                 // Should not be used starting with Pie.
                 Assert.assertFalse(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P);
                 return null;
+            }
+
+            @Override
+            public Intent registerReceiver(BroadcastReceiver receiver, IntentFilter filter,
+                    String permission, Handler scheduler) {
+                return registerReceiver(receiver, filter, permission, scheduler, 0);
             }
 
             @Override
@@ -485,6 +500,10 @@ public class NetworkChangeNotifierTest {
         return mReceiver.getCurrentNetworkState().getConnectionType();
     }
 
+    private int getCurrentConnectionCost() {
+        return mReceiver.getCurrentNetworkState().getConnectionCost();
+    }
+
     @Before
     public void setUp() throws Throwable {
         LibraryLoader.getInstance().setLibraryProcessType(LibraryProcessType.PROCESS_BROWSER);
@@ -501,6 +520,12 @@ public class NetworkChangeNotifierTest {
             setApplicationHasVisibleActivities(false);
             createTestNotifier(WatchForChanges.ONLY_WHEN_APP_IN_FOREGROUND);
         });
+    }
+
+    @After
+    public void tearDown() {
+        // Reset the network change notifier.
+        NetworkChangeNotifier.resetInstanceForTests();
     }
 
     /**
@@ -556,6 +581,20 @@ public class NetworkChangeNotifierTest {
 
         triggerApplicationStateChange(policy, ApplicationState.HAS_RUNNING_ACTIVITIES);
         Assert.assertTrue(mReceiver.isReceiverRegisteredForTesting());
+    }
+
+    /**
+     * Tests that getCurrentConnectionCost() returns the correct result.
+     */
+    @Test
+    @UiThreadTest
+    @MediumTest
+    @Feature({"Android-AppBase"})
+    public void testNetworkChangeNotifierConnectionCost() {
+        mConnectivityDelegate.setIsMetered(true);
+        Assert.assertEquals(ConnectionCost.METERED, getCurrentConnectionCost());
+        mConnectivityDelegate.setIsMetered(false);
+        Assert.assertEquals(ConnectionCost.UNMETERED, getCurrentConnectionCost());
     }
 
     /**

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,32 +16,34 @@
 #include "components/viz/service/display/display.h"
 #include "components/viz/service/frame_sinks/frame_sink_manager_impl.h"
 #include "components/viz/test/test_gpu_memory_buffer_manager.h"
-#include "components/viz/test/test_image_factory.h"
 #include "components/viz/test/test_shared_bitmap_manager.h"
 #include "gpu/ipc/common/surface_handle.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/viz/privileged/mojom/compositing/vsync_parameter_observer.mojom.h"
 #include "ui/compositor/compositor.h"
 
+namespace cc {
+class RasterContextProviderWrapper;
+}
+
 namespace viz {
 class HostFrameSinkManager;
+class TestInProcessContextProvider;
 }
 
 namespace ui {
-class InProcessContextProvider;
 
 class InProcessContextFactory : public ContextFactory {
  public:
   // Both |host_frame_sink_manager| and |frame_sink_manager| must outlive the
-  // ContextFactory. The constructor without |use_skia_renderer| will use
-  // SkiaRenderer if the feature is enabled.
+  // ContextFactory.
   // TODO(crbug.com/657959): |frame_sink_manager| should go away and we should
   // use the LayerTreeFrameSink from the HostFrameSinkManager.
-  InProcessContextFactory(viz::HostFrameSinkManager* host_frame_sink_manager,
-                          viz::FrameSinkManagerImpl* frame_sink_manager);
+  // The default for |output_to_window| will create an OutputSurface that does
+  // not display anything. Set to true if you want to see results on the screen.
   InProcessContextFactory(viz::HostFrameSinkManager* host_frame_sink_manager,
                           viz::FrameSinkManagerImpl* frame_sink_manager,
-                          bool use_skia_renderer);
+                          bool output_to_window = false);
 
   InProcessContextFactory(const InProcessContextFactory&) = delete;
   InProcessContextFactory& operator=(const InProcessContextFactory&) = delete;
@@ -52,15 +54,13 @@ class InProcessContextFactory : public ContextFactory {
     return frame_sink_manager_;
   }
 
-  // If true (the default) an OutputSurface is created that does not display
-  // anything. Set to false if you want to see results on the screen.
-  void set_use_test_surface(bool use_test_surface) {
-    use_test_surface_ = use_test_surface;
-  }
-
-  // Set refresh rate will be set to 200 to spend less time waiting for
-  // BeginFrame when used for tests.
-  void SetUseFastRefreshRateForTests();
+  // Setting a higher refresh rate will spend less time waiting for BeginFrame;
+  // while setting a lower refresh rate will reduce the workload per unit of
+  // time, which could be useful, e.g., when using mock time and fast forwarding
+  // by a long duration.
+  //
+  // Takes effect for the next CreateLayerTreeFrameSink() call.
+  void SetRefreshRateForTests(double refresh_rate);
 
   // ContextFactory implementation.
   void CreateLayerTreeFrameSink(base::WeakPtr<Compositor> compositor) override;
@@ -77,10 +77,12 @@ class InProcessContextFactory : public ContextFactory {
   viz::SubtreeCaptureId AllocateSubtreeCaptureId() override;
   viz::HostFrameSinkManager* GetHostFrameSinkManager() override;
 
-  skia::Matrix44 GetOutputColorMatrix(Compositor* compositor) const;
+  SkM44 GetOutputColorMatrix(Compositor* compositor) const;
   gfx::DisplayColorSpaces GetDisplayColorSpaces(Compositor* compositor) const;
   base::TimeTicks GetDisplayVSyncTimeBase(Compositor* compositor) const;
   base::TimeDelta GetDisplayVSyncTimeInterval(Compositor* compositor) const;
+  absl::optional<base::TimeDelta> GetMaxVrrInterval(
+      Compositor* compositor) const;
   void ResetDisplayOutputParameters(Compositor* compositor);
 
  private:
@@ -88,15 +90,15 @@ class InProcessContextFactory : public ContextFactory {
 
   PerCompositorData* CreatePerCompositorData(Compositor* compositor);
 
-  scoped_refptr<InProcessContextProvider> shared_main_thread_contexts_;
-  scoped_refptr<InProcessContextProvider> shared_worker_context_provider_;
+  scoped_refptr<viz::TestInProcessContextProvider> shared_main_thread_contexts_;
+  scoped_refptr<cc::RasterContextProviderWrapper>
+      shared_worker_context_provider_wrapper_;
   viz::TestSharedBitmapManager shared_bitmap_manager_;
   viz::TestGpuMemoryBufferManager gpu_memory_buffer_manager_;
-  viz::TestImageFactory image_factory_;
   cc::TestTaskGraphRunner task_graph_runner_;
   viz::FrameSinkIdAllocator frame_sink_id_allocator_;
   viz::SubtreeCaptureIdAllocator subtree_capture_id_allocator_;
-  bool use_test_surface_;
+  bool output_to_window_ = false;
   bool disable_vsync_ = false;
   double refresh_rate_ = 60.0;
   const raw_ptr<viz::HostFrameSinkManager> host_frame_sink_manager_;

@@ -1,9 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_fragment_item.h"
 
+#include "base/debug/dump_without_crashing.h"
 #include "third_party/blink/renderer/core/editing/bidi_adjustment.h"
 #include "third_party/blink/renderer/core/editing/position_with_affinity.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/layout_ng_text_combine.h"
@@ -14,6 +15,7 @@
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_item_result.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_physical_box_fragment.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_inline_text.h"
+#include "third_party/blink/renderer/core/paint/ng/ng_inline_paint_context.h"
 #include "third_party/blink/renderer/platform/fonts/ng_text_fragment_paint_info.h"
 #include "third_party/blink/renderer/platform/wtf/size_assertions.h"
 
@@ -22,13 +24,16 @@ namespace blink {
 namespace {
 
 struct SameSizeAsNGFragmentItem {
-  struct {
-    void* pointer;
-    NGTextOffset text_offset;
-  } type_data;
+  union {
+    NGFragmentItem::TextItem text_;
+    NGFragmentItem::SvgTextItem svg_text_;
+    NGFragmentItem::GeneratedTextItem generated_text_;
+    NGFragmentItem::LineItem line_;
+    NGFragmentItem::BoxItem box_;
+  };
   PhysicalRect rect;
   NGInkOverflow ink_overflow;
-  UntracedMember<void*> members[1];
+  Member<void*> member;
   wtf_size_t sizes[2];
   unsigned flags;
 };
@@ -40,18 +45,19 @@ ASSERT_SIZE(NGFragmentItem, SameSizeAsNGFragmentItem);
 NGFragmentItem::NGFragmentItem(
     const NGInlineItem& inline_item,
     scoped_refptr<const ShapeResultView> shape_result,
-    const NGTextOffset& text_offset,
+    const NGTextOffsetRange& text_offset,
     const PhysicalSize& size,
     bool is_hidden_for_paint)
-    : layout_object_(inline_item.GetLayoutObject()),
-      text_({std::move(shape_result), text_offset}),
+    : text_({std::move(shape_result), text_offset}),
       rect_({PhysicalOffset(), size}),
+      layout_object_(inline_item.GetLayoutObject()),
+      const_traced_type_(kNone),
       type_(kText),
       sub_type_(static_cast<unsigned>(inline_item.TextType())),
       style_variant_(static_cast<unsigned>(inline_item.StyleVariant())),
       is_hidden_for_paint_(is_hidden_for_paint),
       text_direction_(static_cast<unsigned>(inline_item.Direction())),
-      ink_overflow_type_(NGInkOverflow::kNotSet),
+      ink_overflow_type_(static_cast<unsigned>(NGInkOverflow::Type::kNotSet)),
       is_dirty_(false),
       is_last_for_node_(true) {
 #if DCHECK_IS_ON()
@@ -73,15 +79,16 @@ NGFragmentItem::NGFragmentItem(
     const String& text_content,
     const PhysicalSize& size,
     bool is_hidden_for_paint)
-    : layout_object_(&layout_object),
-      generated_text_({std::move(shape_result), text_content}),
+    : generated_text_({std::move(shape_result), text_content}),
       rect_({PhysicalOffset(), size}),
+      layout_object_(&layout_object),
+      const_traced_type_(kNone),
       type_(kGeneratedText),
       sub_type_(static_cast<unsigned>(text_type)),
       style_variant_(static_cast<unsigned>(style_variant)),
       is_hidden_for_paint_(is_hidden_for_paint),
       text_direction_(static_cast<unsigned>(direction)),
-      ink_overflow_type_(NGInkOverflow::kNotSet),
+      ink_overflow_type_(static_cast<unsigned>(NGInkOverflow::Type::kNotSet)),
       is_dirty_(false),
       is_last_for_node_(true) {
   DCHECK(layout_object_);
@@ -106,15 +113,16 @@ NGFragmentItem::NGFragmentItem(
                      is_hidden_for_paint) {}
 
 NGFragmentItem::NGFragmentItem(const NGPhysicalLineBoxFragment& line)
-    : layout_object_(line.ContainerLayoutObject()),
-      line_({&line, /* descendants_count */ 1}),
+    : line_({&line, /* descendants_count */ 1}),
       rect_({PhysicalOffset(), line.Size()}),
+      layout_object_(line.ContainerLayoutObject()),
+      const_traced_type_(kLineItem),
       type_(kLine),
       sub_type_(static_cast<unsigned>(line.LineBoxType())),
       style_variant_(static_cast<unsigned>(line.StyleVariant())),
       is_hidden_for_paint_(false),
       text_direction_(static_cast<unsigned>(line.BaseDirection())),
-      ink_overflow_type_(NGInkOverflow::kNotSet),
+      ink_overflow_type_(static_cast<unsigned>(NGInkOverflow::Type::kNotSet)),
       is_dirty_(false),
       is_last_for_node_(true) {
   DCHECK(!IsFormattingContextRoot());
@@ -122,21 +130,25 @@ NGFragmentItem::NGFragmentItem(const NGPhysicalLineBoxFragment& line)
 
 NGFragmentItem::NGFragmentItem(const NGPhysicalBoxFragment& box,
                                TextDirection resolved_direction)
-    : layout_object_(box.GetLayoutObject()),
-      box_(&box, /* descendants_count */ 1),
+    : box_(&box, /* descendants_count */ 1),
       rect_({PhysicalOffset(), box.Size()}),
+      layout_object_(box.GetLayoutObject()),
+      const_traced_type_(kBoxItem),
       type_(kBox),
       style_variant_(static_cast<unsigned>(box.StyleVariant())),
       is_hidden_for_paint_(box.IsHiddenForPaint()),
       text_direction_(static_cast<unsigned>(resolved_direction)),
-      ink_overflow_type_(NGInkOverflow::kNotSet),
+      ink_overflow_type_(static_cast<unsigned>(NGInkOverflow::Type::kNotSet)),
       is_dirty_(false),
       is_last_for_node_(true) {
   DCHECK_EQ(IsFormattingContextRoot(), box.IsFormattingContextRoot());
 }
 
+// |const_traced_type_| will be re-initialized in another constructor called
+// inside this one.
 NGFragmentItem::NGFragmentItem(NGLogicalLineItem&& line_item,
-                               WritingMode writing_mode) {
+                               WritingMode writing_mode)
+    : const_traced_type_(kNone) {
   DCHECK(line_item.CanCreateFragmentItem());
 
   if (line_item.inline_item) {
@@ -181,20 +193,23 @@ NGFragmentItem::NGFragmentItem(NGLogicalLineItem&& line_item,
 }
 
 NGFragmentItem::NGFragmentItem(const NGFragmentItem& source)
-    : layout_object_(source.layout_object_),
-      rect_(source.rect_),
+    : rect_(source.rect_),
+      layout_object_(source.layout_object_),
       fragment_id_(source.fragment_id_),
       delta_to_next_for_same_layout_object_(
           source.delta_to_next_for_same_layout_object_),
+      const_traced_type_(source.const_traced_type_),
       type_(source.type_),
       sub_type_(source.sub_type_),
       style_variant_(source.style_variant_),
       is_hidden_for_paint_(source.is_hidden_for_paint_),
       text_direction_(source.text_direction_),
-      ink_overflow_type_(NGInkOverflow::kNotSet),
+      ink_overflow_type_(static_cast<unsigned>(NGInkOverflow::Type::kNotSet)),
       is_dirty_(source.is_dirty_),
       is_last_for_node_(source.is_last_for_node_) {
   switch (Type()) {
+    case kInvalid:
+      NOTREACHED_NORETURN() << "Cannot construct invalid value";
     case kText:
       new (&text_) TextItem(source.text_);
       break;
@@ -215,19 +230,20 @@ NGFragmentItem::NGFragmentItem(const NGFragmentItem& source)
   }
 
   if (source.IsInkOverflowComputed()) {
-    ink_overflow_type_ = source.InkOverflowType();
+    ink_overflow_type_ = static_cast<unsigned>(source.InkOverflowType());
     new (&ink_overflow_)
         NGInkOverflow(source.InkOverflowType(), source.ink_overflow_);
   }
 }
 
 NGFragmentItem::NGFragmentItem(NGFragmentItem&& source)
-    : layout_object_(source.layout_object_),
-      rect_(source.rect_),
+    : rect_(source.rect_),
       ink_overflow_(source.InkOverflowType(), std::move(source.ink_overflow_)),
+      layout_object_(source.layout_object_),
       fragment_id_(source.fragment_id_),
       delta_to_next_for_same_layout_object_(
           source.delta_to_next_for_same_layout_object_),
+      const_traced_type_(source.const_traced_type_),
       type_(source.type_),
       sub_type_(source.sub_type_),
       style_variant_(source.style_variant_),
@@ -237,6 +253,8 @@ NGFragmentItem::NGFragmentItem(NGFragmentItem&& source)
       is_dirty_(source.is_dirty_),
       is_last_for_node_(source.is_last_for_node_) {
   switch (Type()) {
+    case kInvalid:
+      NOTREACHED_NORETURN() << "Cannot construct invalid value";
     case kText:
       new (&text_) TextItem(std::move(source.text_));
       break;
@@ -258,6 +276,9 @@ NGFragmentItem::NGFragmentItem(NGFragmentItem&& source)
 
 NGFragmentItem::~NGFragmentItem() {
   switch (Type()) {
+    case kInvalid:
+      // Slot can be zeroed, do nothing.
+      return;
     case kText:
       text_.~TextItem();
       break;
@@ -295,11 +316,18 @@ bool NGFragmentItem::IsAtomicInline() const {
 }
 
 bool NGFragmentItem::IsBlockInInline() const {
-  if (Type() != kBox)
-    return false;
-  if (const NGPhysicalBoxFragment* box = BoxFragment())
-    return box->IsBlockInInline();
-  return false;
+  switch (Type()) {
+    case kBox:
+      if (auto* box = BoxFragment())
+        return box->IsBlockInInline();
+      return false;
+    case kLine:
+      if (auto* line_box = LineBoxFragment())
+        return line_box->IsBlockInInline();
+      return false;
+    default:
+      return false;
+  }
 }
 
 bool NGFragmentItem::IsFloating() const {
@@ -331,10 +359,9 @@ bool NGFragmentItem::IsListMarker() const {
   return layout_object_ && layout_object_->IsLayoutNGOutsideListMarker();
 }
 
-LayoutBlock& NGFragmentItem::BlockInInline() const {
+LayoutObject& NGFragmentItem::BlockInInline() const {
   DCHECK(IsBlockInInline());
-  auto* const block =
-      To<LayoutBlock>(To<LayoutNGBlockFlow>(GetLayoutObject())->FirstChild());
+  auto* const block = To<LayoutNGBlockFlow>(GetLayoutObject())->FirstChild();
   DCHECK(block) << this;
   return *block;
 }
@@ -342,7 +369,6 @@ LayoutBlock& NGFragmentItem::BlockInInline() const {
 void NGFragmentItem::ConvertToSvgText(std::unique_ptr<NGSvgFragmentData> data,
                                       const PhysicalRect& unscaled_rect,
                                       bool is_hidden) {
-  DCHECK(RuntimeEnabledFeatures::SVGTextNGEnabled());
   DCHECK_EQ(Type(), kText);
   is_hidden_for_paint_ = is_hidden;
   text_.~TextItem();
@@ -360,7 +386,7 @@ void NGFragmentItem::SetSvgLineLocalRect(const PhysicalRect& unscaled_rect) {
 gfx::RectF NGFragmentItem::ObjectBoundingBox(
     const NGFragmentItems& items) const {
   DCHECK_EQ(Type(), kSvgText);
-  const Font scaled_font = ScaledFont();
+  const Font& scaled_font = ScaledFont();
   gfx::RectF ink_bounds = scaled_font.TextInkBounds(TextPaintInfo(items));
   if (const auto* font_data = scaled_font.PrimaryFont())
     ink_bounds.Offset(0.0f, font_data->GetFontMetrics().FloatAscent());
@@ -435,15 +461,13 @@ bool NGFragmentItem::HasSelfPaintingLayer() const {
   return false;
 }
 
-NGFragmentItem::BoxItem::BoxItem(const BoxItem& other)
-    : box_fragment(other.box_fragment->PostLayout()),
-      descendants_count(other.descendants_count) {}
+NGFragmentItem::BoxItem::BoxItem(const NGPhysicalBoxFragment* box_fragment,
+                                 wtf_size_t descendants_count)
+    : box_fragment(box_fragment), descendants_count(descendants_count) {}
 
-NGFragmentItem::BoxItem::BoxItem(
-    scoped_refptr<const NGPhysicalBoxFragment> box_fragment,
-    wtf_size_t descendants_count)
-    : box_fragment(std::move(box_fragment)),
-      descendants_count(descendants_count) {}
+void NGFragmentItem::BoxItem::Trace(Visitor* visitor) const {
+  visitor->Trace(box_fragment);
+}
 
 const NGPhysicalBoxFragment* NGFragmentItem::BoxItem::PostLayout() const {
   if (box_fragment)
@@ -464,6 +488,13 @@ void NGFragmentItem::LayoutObjectWillBeMoved() const {
   // before clearing this IFC. This happens e.g., when split inlines moves
   // inline children into a child anonymous block.
   const_cast<NGFragmentItem*>(this)->layout_object_ = nullptr;
+}
+
+const PhysicalOffset NGFragmentItem::ContentOffsetInContainerFragment() const {
+  PhysicalOffset offset = OffsetInContainerFragment();
+  if (const NGPhysicalBoxFragment* box = BoxFragment())
+    offset += box->ContentOffset();
+  return offset;
 }
 
 inline const LayoutBox* NGFragmentItem::InkOverflowOwnerBox() const {
@@ -509,7 +540,7 @@ const ShapeResultView* NGFragmentItem::TextShapeResult() const {
   return nullptr;
 }
 
-NGTextOffset NGFragmentItem::TextOffset() const {
+NGTextOffsetRange NGFragmentItem::TextOffset() const {
   if (Type() == kText)
     return text_.text_offset;
   if (Type() == kSvgText)
@@ -611,7 +642,7 @@ AffineTransform NGFragmentItem::BuildSvgTransformForPaint() const {
   AffineTransform transform = BuildSvgTransformForBoundingBox();
   AffineTransform length_adjust = BuildSvgTransformForLengthAdjust();
   if (!length_adjust.IsIdentity())
-    transform.PreMultiply(length_adjust);
+    transform.PostConcat(length_adjust);
   return transform;
 }
 
@@ -667,7 +698,7 @@ AffineTransform NGFragmentItem::BuildSvgTransformForTextPath(
     x += font_data->GetFontMetrics().FixedDescent(font_baseline);
     transform.Translate(svg_data.baseline_shift, -svg_data.rect.height() / 2);
   }
-  transform.Multiply(length_adjust);
+  transform.PreConcat(length_adjust);
   transform.SetE(transform.E() + x);
   transform.SetF(transform.F() + y);
   transform.Translate(-x, -y);
@@ -728,13 +759,13 @@ String NGFragmentItem::ToString() const {
   // For ease of rebasing, we use same |DebugName()| as |NGPaintFrgment|.
   if (Type() == NGFragmentItem::kBox) {
     StringBuilder name;
-    name.Append("NGPhysicalBoxFragment ");
+    name.Append("NGFragmentItem Box ");
     name.Append(layout_object_->DebugName());
     return name.ToString();
   }
   if (Type() == NGFragmentItem::kText) {
     StringBuilder name;
-    name.Append("NGPhysicalTextFragment '");
+    name.Append("NGFragmentItem Text ");
     const NGFragmentItems* fragment_items = nullptr;
     if (const LayoutBlockFlow* block_flow =
             layout_object_->FragmentItemsContainer()) {
@@ -747,14 +778,13 @@ String NGFragmentItem::ToString() const {
       }
     }
     if (fragment_items)
-      name.Append(Text(*fragment_items));
+      name.Append(Text(*fragment_items).ToString().EncodeForDebugging());
     else
-      name.Append("(container not found)");
-    name.Append('\'');
+      name.Append("\"(container not found)\"");
     return name.ToString();
   }
   if (Type() == NGFragmentItem::kLine)
-    return "NGPhysicalLineBoxFragment";
+    return "NGFragmentItem Line";
   return "NGFragmentItem";
 }
 
@@ -778,11 +808,13 @@ PhysicalRect NGFragmentItem::LocalVisualRectFor(
 }
 
 void NGFragmentItem::InvalidateInkOverflow() {
-  ink_overflow_type_ = ink_overflow_.Invalidate(InkOverflowType());
+  ink_overflow_type_ =
+      static_cast<unsigned>(ink_overflow_.Invalidate(InkOverflowType()));
 }
 
 PhysicalRect NGFragmentItem::RecalcInkOverflowForCursor(
-    NGInlineCursor* cursor) {
+    NGInlineCursor* cursor,
+    NGInlinePaintContext* inline_context) {
   DCHECK(cursor);
   DCHECK(!cursor->Current() || cursor->IsAtFirst());
   PhysicalRect contents_ink_overflow;
@@ -792,14 +824,14 @@ PhysicalRect NGFragmentItem::RecalcInkOverflowForCursor(
     if (UNLIKELY(item->IsLayoutObjectDestroyedOrMoved())) {
       // TODO(crbug.com/1099613): This should not happen, as long as it is
       // layout-clean. It looks like there are cases where the layout is dirty.
-      NOTREACHED();
       continue;
     }
     if (UNLIKELY(item->HasSelfPaintingLayer()))
       continue;
 
     PhysicalRect child_rect;
-    item->GetMutableForPainting().RecalcInkOverflow(*cursor, &child_rect);
+    item->GetMutableForPainting().RecalcInkOverflow(*cursor, inline_context,
+                                                    &child_rect);
     if (!child_rect.IsEmpty()) {
       child_rect.offset += item->OffsetInContainerFragment();
       contents_ink_overflow.Unite(child_rect);
@@ -810,6 +842,7 @@ PhysicalRect NGFragmentItem::RecalcInkOverflowForCursor(
 
 void NGFragmentItem::RecalcInkOverflow(
     const NGInlineCursor& cursor,
+    NGInlinePaintContext* inline_context,
     PhysicalRect* self_and_contents_rect_out) {
   DCHECK_EQ(this, cursor.CurrentItem());
 
@@ -833,28 +866,37 @@ void NGFragmentItem::RecalcInkOverflow(
     NGTextFragmentPaintInfo paint_info = TextPaintInfo(cursor.Items());
     if (paint_info.shape_result) {
       if (Type() == kSvgText) {
-        ink_overflow_type_ = ink_overflow_.SetSvgTextInkOverflow(
-            InkOverflowType(), paint_info, Style(), ScaledFont(),
-            SvgFragmentData()->rect, SvgScalingFactor(),
-            SvgFragmentData()->length_adjust_scale,
-            BuildSvgTransformForBoundingBox(), self_and_contents_rect_out);
+        ink_overflow_type_ =
+            static_cast<unsigned>(ink_overflow_.SetSvgTextInkOverflow(
+                InkOverflowType(), cursor, paint_info, Style(), ScaledFont(),
+                SvgFragmentData()->rect, SvgScalingFactor(),
+                SvgFragmentData()->length_adjust_scale,
+                BuildSvgTransformForBoundingBox(), self_and_contents_rect_out));
         return;
       }
-      ink_overflow_type_ = ink_overflow_.SetTextInkOverflow(
-          InkOverflowType(), paint_info, Style(), Size(),
-          self_and_contents_rect_out);
+      // Create |ScopedInlineItem| here because the decoration box is not
+      // supported for SVG.
+      NGInlinePaintContext::ScopedInlineItem scoped_inline_item(*this,
+                                                                inline_context);
+      ink_overflow_type_ =
+          static_cast<unsigned>(ink_overflow_.SetTextInkOverflow(
+              InkOverflowType(), cursor, paint_info, Style(),
+              RectInContainerFragment(), inline_context,
+              self_and_contents_rect_out));
       return;
     }
 
-    ink_overflow_type_ = ink_overflow_.Reset(InkOverflowType());
+    ink_overflow_type_ =
+        static_cast<unsigned>(ink_overflow_.Reset(InkOverflowType()));
     *self_and_contents_rect_out = LocalRect();
     return;
   }
 
-  const NGPhysicalBoxFragment* box_fragment = BoxFragment();
-  if (box_fragment) {
-    box_fragment = box_fragment->PostLayout();
-    if (box_fragment && !box_fragment->IsInlineBox()) {
+  if (Type() == kBox) {
+    const NGPhysicalBoxFragment* box_fragment = PostLayoutBoxFragment();
+    if (UNLIKELY(!box_fragment))
+      return;
+    if (!box_fragment->IsInlineBox()) {
       DCHECK(!HasChildren());
       if (box_fragment->CanUseFragmentsForInkOverflow()) {
         box_fragment->GetMutableForPainting().RecalcInkOverflow();
@@ -867,30 +909,12 @@ void NGFragmentItem::RecalcInkOverflow(
       *self_and_contents_rect_out = owner_box->PhysicalVisualOverflowRect();
       return;
     }
-  }
 
-  // Re-compute descendants, then compute the contents ink overflow from them.
-  NGInlineCursor descendants_cursor = cursor.CursorForDescendants();
-  PhysicalRect contents_rect = RecalcInkOverflowForCursor(&descendants_cursor);
-
-  // |contents_rect| is relative to the inline formatting context. Make it
-  // relative to |this|.
-  contents_rect.offset -= OffsetInContainerFragment();
-
-  if (Type() == kLine) {
-    const auto* const text_combine =
-        DynamicTo<LayoutNGTextCombine>(GetLayoutObject());
-    if (UNLIKELY(text_combine))
-      contents_rect = text_combine->AdjustRectForBoundingBox(contents_rect);
-    // Line boxes don't have self overflow. Compute content overflow only.
-    *self_and_contents_rect_out = UnionRect(LocalRect(), contents_rect);
-    ink_overflow_type_ =
-        ink_overflow_.SetContents(InkOverflowType(), contents_rect, Size());
-    return;
-  }
-
-  if (box_fragment) {
     DCHECK(box_fragment->IsInlineBox());
+    NGInlinePaintContext::ScopedInlineItem scoped_inline_item(*this,
+                                                              inline_context);
+    const PhysicalRect contents_rect =
+        RecalcInkOverflowForDescendantsOf(cursor, inline_context);
     DCHECK(box_fragment->Children().empty());
     DCHECK_EQ(box_fragment->Size(), Size());
     box_fragment->GetMutableForPainting().RecalcInkOverflow(contents_rect);
@@ -898,7 +922,36 @@ void NGFragmentItem::RecalcInkOverflow(
     return;
   }
 
+  if (Type() == kLine) {
+    NGInlinePaintContext::ScopedLineBox scoped_line_box(cursor, inline_context);
+    PhysicalRect contents_rect =
+        RecalcInkOverflowForDescendantsOf(cursor, inline_context);
+    const auto* const text_combine =
+        DynamicTo<LayoutNGTextCombine>(GetLayoutObject());
+    if (UNLIKELY(text_combine))
+      contents_rect = text_combine->AdjustRectForBoundingBox(contents_rect);
+    // Line boxes don't have self overflow. Compute content overflow only.
+    *self_and_contents_rect_out = UnionRect(LocalRect(), contents_rect);
+    ink_overflow_type_ = static_cast<unsigned>(
+        ink_overflow_.SetContents(InkOverflowType(), contents_rect, Size()));
+    return;
+  }
+
   NOTREACHED();
+}
+
+PhysicalRect NGFragmentItem::RecalcInkOverflowForDescendantsOf(
+    const NGInlineCursor& cursor,
+    NGInlinePaintContext* inline_context) const {
+  // Re-compute descendants, then compute the contents ink overflow from them.
+  NGInlineCursor descendants_cursor = cursor.CursorForDescendants();
+  PhysicalRect contents_rect =
+      RecalcInkOverflowForCursor(&descendants_cursor, inline_context);
+
+  // |contents_rect| is relative to the inline formatting context. Make it
+  // relative to |this|.
+  contents_rect.offset -= OffsetInContainerFragment();
+  return contents_rect;
 }
 
 void NGFragmentItem::SetDeltaToNextForSameLayoutObject(wtf_size_t delta) const {
@@ -1083,9 +1136,20 @@ unsigned NGFragmentItem::TextOffsetForPoint(
   return inline_offset <= size.inline_size / 2 ? StartOffset() : EndOffset();
 }
 
+void NGFragmentItem::Trace(Visitor* visitor) const {
+  visitor->Trace(layout_object_);
+  // Looking up |const_trace_type_| inside Trace() is safe since it is const.
+  if (const_traced_type_ == kLineItem)
+    visitor->Trace(line_);
+  else if (const_traced_type_ == kBoxItem)
+    visitor->Trace(box_);
+}
+
 std::ostream& operator<<(std::ostream& ostream, const NGFragmentItem& item) {
   ostream << "{";
   switch (item.Type()) {
+    case NGFragmentItem::kInvalid:
+      NOTREACHED_NORETURN() << "Invalid NGFragmentItem";
     case NGFragmentItem::kText:
       ostream << "Text " << item.StartOffset() << "-" << item.EndOffset() << " "
               << (IsLtr(item.ResolvedDirection()) ? "LTR" : "RTL");

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include "chrome/browser/sync/test/integration/typed_urls_helper.h"
 #include "chrome/browser/sync/test/integration/updated_progress_marker_checker.h"
 #include "components/history/core/browser/history_types.h"
-#include "components/sync/driver/sync_service_impl.h"
+#include "components/sync/service/sync_service_impl.h"
 #include "content/public/test/browser_test.h"
 
 using typed_urls_helper::AddUrlToHistory;
@@ -17,6 +17,9 @@ using typed_urls_helper::DeleteUrlFromHistory;
 using typed_urls_helper::GetTypedUrlsFromClient;
 
 const char kSanityHistoryUrl[] = "http://www.sanity-history.google.com";
+
+// TODO(crbug.com/1365291): Evaluate which of these tests should be kept after
+// kSyncEnableHistoryDataType is enabled and HISTORY has replaced TYPED_URLS.
 
 class SingleClientTypedUrlsSyncTest : public SyncTest {
  public:

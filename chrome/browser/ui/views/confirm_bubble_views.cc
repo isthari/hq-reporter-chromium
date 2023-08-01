@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <utility>
 
-#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/confirm_bubble.h"
 #include "chrome/browser/ui/confirm_bubble_model.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
@@ -18,7 +17,6 @@
 #include "ui/base/buildflags.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
-#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/controls/button/image_button_factory.h"
 #include "ui/views/controls/label.h"
@@ -61,8 +59,6 @@ ConfirmBubbleViews::ConfirmBubbleViews(
   label_->SetMultiLine(true);
   // Use a fixed maximum message width, so longer messages will wrap.
   label_->SetMaximumWidth(400);
-
-  chrome::RecordDialogCreation(chrome::DialogIdentifier::CONFIRM_BUBBLE);
 }
 
 ConfirmBubbleViews::~ConfirmBubbleViews() {
@@ -77,8 +73,7 @@ bool ConfirmBubbleViews::ShouldShowCloseButton() const {
 }
 
 void ConfirmBubbleViews::OnWidgetInitialized() {
-  GetWidget()->GetRootView()->GetViewAccessibility().OverrideDescribedBy(
-      label_);
+  GetWidget()->GetRootView()->SetAccessibleDescription(label_);
 }
 
 BEGIN_METADATA(ConfirmBubbleViews, views::DialogDelegateView)

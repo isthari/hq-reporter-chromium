@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,13 +6,13 @@ package org.chromium.chrome.browser.autofill;
 
 import android.app.Activity;
 import android.content.pm.ActivityInfo;
-import android.content.res.Configuration;
-import android.support.test.InstrumentationRegistry;
 import android.view.View;
 
 import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.MediumTest;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.hamcrest.Matchers;
 import org.junit.After;
@@ -34,8 +34,6 @@ import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.CriteriaNotSatisfiedException;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.FlakyTest;
-import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.AutofillProfile;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
@@ -43,6 +41,7 @@ import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.ChromeJUnit4RunnerDelegate;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
 import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
@@ -54,7 +53,6 @@ import org.chromium.content_public.browser.test.util.TouchCommon;
 import org.chromium.content_public.browser.test.util.WebContentsUtils;
 import org.chromium.net.test.EmbeddedTestServer;
 import org.chromium.ui.DropdownPopupWindowInterface;
-import org.chromium.ui.R;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -90,7 +88,6 @@ public class AutofillPopupTest {
     private static final String PHONE_NUMBER = "4158889999";
     private static final String EMAIL = "john@acme.inc";
     private static final String LANGUAGE_CODE = "";
-    private static final String ORIGIN = "https://www.example.com";
 
     private static final String TEST_SERVER_DIR = "components/test/data/autofill";
     private static final String BASIC_PAGE_DATA = "autofill_basic_page_data.html";
@@ -145,7 +142,7 @@ public class AutofillPopupTest {
         );
         Features.getInstance().enable(ChromeFeatureList.AUTOFILL_ALLOW_NON_HTTP_ACTIVATION);
         mServer = new EmbeddedTestServer();
-        mServer.initializeNative(InstrumentationRegistry.getContext(),
+        mServer.initializeNative(ApplicationProvider.getApplicationContext(),
                 EmbeddedTestServer.ServerHTTPSSetting.USE_HTTP);
         mServer.addDefaultHandlers(TEST_SERVER_DIR);
         mServer.start();
@@ -187,10 +184,20 @@ public class AutofillPopupTest {
 
         // Add an Autofill profile.
         mHelper = new AutofillTestHelper();
-        AutofillProfile profile = new AutofillProfile("" /* guid */, ORIGIN,
-                "" /* honorific prefix */, FIRST_NAME + " " + LAST_NAME, COMPANY_NAME,
-                STREET_ADDRESS_TEXTAREA, STATE, CITY, DEPENDENT_LOCALITY, ZIP_CODE, SORTING_CODE,
-                COUNTRY, PHONE_NUMBER, EMAIL, LANGUAGE_CODE);
+        AutofillProfile profile = AutofillProfile.builder()
+                                          .setFullName(FIRST_NAME + " " + LAST_NAME)
+                                          .setCompanyName(COMPANY_NAME)
+                                          .setStreetAddress(STREET_ADDRESS_TEXTAREA)
+                                          .setRegion(STATE)
+                                          .setLocality(CITY)
+                                          .setDependentLocality(DEPENDENT_LOCALITY)
+                                          .setPostalCode(ZIP_CODE)
+                                          .setSortingCode(SORTING_CODE)
+                                          .setCountryCode(COUNTRY)
+                                          .setPhoneNumber(PHONE_NUMBER)
+                                          .setEmailAddress(EMAIL)
+                                          .setLanguageCode(LANGUAGE_CODE)
+                                          .build();
         mHelper.setProfile(profile);
         Assert.assertEquals(1, mHelper.getNumberOfProfilesToSuggest());
 
@@ -340,7 +347,7 @@ public class AutofillPopupTest {
     @Test
     @MediumTest
     @Feature({"autofill"})
-    @FlakyTest(message = "crbug.com/1075791")
+    @DisabledTest(message = "crbug.com/1075791")
     public void testNotLoggingInvalidOption() throws TimeoutException {
         loadAndFillForm(INVALID_OPTION, "o");
         final String profileFullName = FIRST_NAME + " " + LAST_NAME;
@@ -351,49 +358,6 @@ public class AutofillPopupTest {
         assertLogged(LAST_NAME, profileFullName);
         assertLogged(EMAIL, profileFullName);
         // Country will not be logged since "US" is not a valid <option>.
-    }
-
-    @Test
-    @MediumTest
-    @Feature({"autofill"})
-    @EnableFeatures(ChromeFeatureList.AUTOFILL_REFRESH_STYLE_ANDROID)
-    public void testScreenOrientationPortrait() throws TimeoutException {
-        runTestScreenOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
-    }
-
-    @Test
-    @MediumTest
-    @Feature({"autofill"})
-    @EnableFeatures(ChromeFeatureList.AUTOFILL_REFRESH_STYLE_ANDROID)
-    public void testScreenOrientationLandscape() throws TimeoutException {
-        runTestScreenOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
-    }
-
-    private void runTestScreenOrientation(int orientation) throws TimeoutException {
-        // TODO(crbug.com/905081): Also test different screen sizes.
-        loadForm(BASIC_PAGE_DATA, "J", activity -> activity.setRequestedOrientation(orientation));
-
-        ChromeActivity activity = mActivityTestRule.getActivity();
-        final WebContents webContents = activity.getCurrentWebContents();
-        final Configuration config = activity.getResources().getConfiguration();
-        final boolean shouldShowPopup = config.orientation == Configuration.ORIENTATION_PORTRAIT
-                || config.isLayoutSizeAtLeast(Configuration.SCREENLAYOUT_SIZE_XLARGE);
-        final View view = webContents.getViewAndroidDelegate().getContainerView();
-        if (shouldShowPopup) {
-            waitForAnchorViewAdd(view);
-        } else {
-            InstrumentationRegistry.getInstrumentation().waitForIdleSync();
-        }
-        final View popup = view.findViewById(R.id.dropdown_popup_window);
-
-        final String message = "Mismatched dropdown_popup_window for orientation: "
-                + (orientation == ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE ? "landscape"
-                                                                            : "portrait");
-        if (shouldShowPopup) {
-            Assert.assertNotNull(message, popup);
-        } else {
-            Assert.assertNull(message, popup);
-        }
     }
 
     // Wait and assert helper methods -------------------------------------------------------------

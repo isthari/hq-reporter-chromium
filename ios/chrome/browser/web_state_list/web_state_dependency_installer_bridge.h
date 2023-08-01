@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 
 #import <Foundation/Foundation.h>
 
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/web_state_list/web_state_dependency_installation_observer.h"
-#import "ios/chrome/browser/web_state_list/web_state_list.h"
 
 // Protocol for classes wishing to install and/or uninstall dependencies
 // (delegates, etc) for each WebState using WebStateDependencyInstallerBridge.
@@ -44,7 +44,7 @@ class WebStateDependencyInstallerBridge : public DependencyInstaller {
   id<DependencyInstalling> installing_;
 
   // The observer which informs this bridge that a dependency needs to be
-  // installed/uninstalled; those calls are then forwarded to |installing_|.
+  // installed/uninstalled; those calls are then forwarded to `installing_`.
   WebStateDependencyInstallationObserver observer_;
 };
 

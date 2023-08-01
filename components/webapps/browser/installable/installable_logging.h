@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 
 #include <string>
 
-#include "third_party/blink/public/mojom/devtools/console_message.mojom.h"
+#include "third_party/blink/public/mojom/devtools/console_message.mojom-forward.h"
 
 namespace content {
 struct InstallabilityError;
@@ -64,6 +64,10 @@ enum InstallableStatusCode {
   MANIFEST_DISPLAY_OVERRIDE_NOT_SUPPORTED = 39,
   WARN_NOT_OFFLINE_CAPABLE = 40,
   PIPELINE_RESTARTED = 41,
+  DATA_TIMED_OUT = 42,
+  WEBAPK_INSTALL_FAILED = 43,
+  // MANIFEST_URL_SCHEME_NOT_SUPPORTED_FOR_WEBAPK = 44 (DEPRECATED),
+  // SERVICE_WORKER_NOT_REQUIRED = 45 (DEPRECATED),
   MAX_ERROR_CODE,
 };
 

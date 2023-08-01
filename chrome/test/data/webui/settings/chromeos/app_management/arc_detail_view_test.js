@@ -1,28 +1,25 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// clang-format off
-// #import 'chrome://os-settings/chromeos/os_settings.js';
-
-// #import {AppManagementStore, FakePageHandler, PermissionType, updateSelectedAppId, getPermissionValueBool} from 'chrome://os-settings/chromeos/os_settings.js';
-// #import {setupFakeHandler, replaceStore, replaceBody, isHiddenByDomIf, isHidden, getPermissionItemByType, getPermissionCrToggleByType} from './test_util.m.js';
-// #import {flushTasks} from 'chrome://test/test_util.js';
-// clang-format on
-
 'use strict';
+
+import {AppManagementStore, updateSelectedAppId} from 'chrome://os-settings/os_settings.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
+import {getPermissionValueBool} from 'chrome://resources/cr_components/app_management/util.js';
+import {createBoolPermission, createTriStatePermission} from 'chrome://resources/cr_components/app_management/permission_util.js';
+import {setupFakeHandler, replaceStore, replaceBody, isHiddenByDomIf, isHidden, getPermissionItemByType, getPermissionCrToggleByType} from './test_util.js';
+import {flushTasks} from 'chrome://webui-test/polymer_test_util.js';
+import {AppType, PermissionType, TriState} from 'chrome://resources/cr_components/app_management/app_management.mojom-webui.js';
+import {FakePageHandler} from './fake_page_handler.js';
+
 
 suite('<app-management-arc-detail-view>', () => {
   let arcPermissionView;
   let fakeHandler;
 
-  function expandPermissions() {
-    arcPermissionView.root.querySelector('#subpermission-expand-row').click();
-  }
-
   function getPermissionBoolByType(permissionType) {
-    return app_management.util.getPermissionValueBool(
-        arcPermissionView.app_, permissionType);
+    return getPermissionValueBool(arcPermissionView.app_, permissionType);
   }
 
   async function clickPermissionToggle(permissionType) {
@@ -41,34 +38,33 @@ suite('<app-management-arc-detail-view>', () => {
 
     // Create an ARC app without microphone permissions.
     const arcOptions = {
-      type: apps.mojom.AppType.kArc,
-      permissions: app_management.FakePageHandler.createArcPermissions([
+      type: AppType.kArc,
+      permissions: FakePageHandler.createArcPermissions([
         PermissionType.kCamera,
         PermissionType.kLocation,
         PermissionType.kNotifications,
         PermissionType.kContacts,
         PermissionType.kStorage,
-      ])
+      ]),
     };
 
     // Add an arc app, and make it the currently selected app.
     const app = await fakeHandler.addApp(null, arcOptions);
-    app_management.AppManagementStore.getInstance().dispatch(
-        app_management.actions.updateSelectedAppId(app.id));
+    AppManagementStore.getInstance().dispatch(updateSelectedAppId(app.id));
 
     arcPermissionView =
         document.createElement('app-management-arc-detail-view');
     replaceBody(arcPermissionView);
+    await flushTasks();
   });
 
   test('App is rendered correctly', () => {
     assertEquals(
-        app_management.AppManagementStore.getInstance().data.selectedAppId,
+        AppManagementStore.getInstance().data.selectedAppId,
         arcPermissionView.app_.id);
   });
 
   test('Permissions are hidden correctly', () => {
-    expandPermissions();
     assertTrue(
         isHidden(getPermissionItemByType(arcPermissionView, 'kMicrophone')));
     assertFalse(
@@ -100,7 +96,6 @@ suite('<app-management-arc-detail-view>', () => {
                      .checked);
     };
 
-    expandPermissions();
     await checkPermissionToggle('kLocation');
     await checkPermissionToggle('kCamera');
     await checkPermissionToggle('kNotifications');
@@ -126,7 +121,6 @@ suite('<app-management-arc-detail-view>', () => {
                      .checked);
     };
 
-    expandPermissions();
     await checkPermissionItemOnClick('kLocation');
     await checkPermissionItemOnClick('kCamera');
     await checkPermissionItemOnClick('kNotifications');
@@ -135,22 +129,133 @@ suite('<app-management-arc-detail-view>', () => {
   });
 
   test('No permissions requested label', async () => {
-    expectTrue(isHiddenByDomIf(
-        arcPermissionView.root.querySelector('#no-permissions')));
+    assertTrue(isHiddenByDomIf(
+        arcPermissionView.shadowRoot.querySelector('#noPermissions')));
 
     // Create an ARC app without any permissions.
     const arcOptions = {
-      type: apps.mojom.AppType.kArc,
-      permissions: app_management.FakePageHandler.createArcPermissions([])
+      type: AppType.kArc,
+      permissions: FakePageHandler.createArcPermissions([]),
     };
 
     // Add an arc app, and make it the currently selected app.
     const app = await fakeHandler.addApp(null, arcOptions);
-    app_management.AppManagementStore.getInstance().dispatch(
-        app_management.actions.updateSelectedAppId(app.id));
-    await test_util.flushTasks();
+    AppManagementStore.getInstance().dispatch(updateSelectedAppId(app.id));
+    await flushTasks();
 
-    expectFalse(isHiddenByDomIf(
-        arcPermissionView.root.querySelector('#no-permissions')));
+    assertFalse(isHiddenByDomIf(
+        arcPermissionView.shadowRoot.querySelector('#noPermissions')));
   });
+
+  suite('Read-only permissions', () => {
+    setup(async () => {
+      loadTimeData.overrideValues(
+          {'appManagementArcReadOnlyPermissions': true});
+
+      // Re-render with the new loadTimeData.
+      arcPermissionView =
+          document.createElement('app-management-arc-detail-view');
+      replaceBody(arcPermissionView);
+      await flushTasks();
+    });
+
+    teardown(() => {
+      loadTimeData.overrideValues(
+          {'appManagementArcReadOnlyPermissions': false});
+    });
+
+    test('Boolean permission display', async () => {
+      const locationItem =
+          getPermissionItemByType(arcPermissionView, 'kLocation');
+      assertEquals(
+          'app-management-read-only-permission-item',
+          locationItem.tagName.toLowerCase());
+
+      assertEquals(
+          'Allowed',
+          locationItem.shadowRoot.querySelector('#description')
+              .textContent.trim());
+
+      // Simulate the permission being changed by the OS, and verify that the
+      // description text updates.
+      fakeHandler.setPermission(
+          arcPermissionView.app_.id,
+          createBoolPermission(
+              PermissionType.kLocation, /*value=*/ false,
+              /*is_managed=*/ false));
+      await flushTasks();
+
+      assertEquals(
+          'Denied',
+          locationItem.shadowRoot.querySelector('#description')
+              .textContent.trim());
+    });
+
+    test('Tri-state permission display', async () => {
+      const locationItem =
+          getPermissionItemByType(arcPermissionView, 'kLocation');
+
+      fakeHandler.setPermission(
+          arcPermissionView.app_.id,
+          createTriStatePermission(
+              PermissionType.kLocation, /*value=*/ TriState.kAllow,
+              /*is_managed=*/ false));
+      await flushTasks();
+
+      assertEquals(
+          'Allowed',
+          locationItem.shadowRoot.querySelector('#description')
+              .textContent.trim());
+
+      fakeHandler.setPermission(
+          arcPermissionView.app_.id,
+          createTriStatePermission(
+              PermissionType.kLocation, /*value=*/ TriState.kAsk,
+              /*is_managed=*/ false));
+      await flushTasks();
+
+      assertEquals(
+          'Ask every time',
+          locationItem.shadowRoot.querySelector('#description')
+              .textContent.trim());
+
+      fakeHandler.setPermission(
+          arcPermissionView.app_.id,
+          createTriStatePermission(
+              PermissionType.kLocation, /*value=*/ TriState.kBlock,
+              /*is_managed=*/ false));
+      await flushTasks();
+
+      assertEquals(
+          'Denied',
+          locationItem.shadowRoot.querySelector('#description')
+              .textContent.trim());
+    });
+
+
+    test('Permission display with detail', async () => {
+      const permission = createBoolPermission(
+          PermissionType.kLocation, /*value=*/ true,
+          /*is_managed=*/ false);
+      permission.details = 'While in use';
+
+      fakeHandler.setPermission(arcPermissionView.app_.id, permission);
+      await flushTasks();
+
+      const locationItem =
+          getPermissionItemByType(arcPermissionView, 'kLocation');
+
+      assertTrue(locationItem.shadowRoot.querySelector('#description')
+                     .textContent.includes('While in use'));
+
+      permission.value.boolValue = false;
+
+      fakeHandler.setPermission(arcPermissionView.app_.id, permission);
+      await flushTasks();
+
+      assertFalse(locationItem.shadowRoot.querySelector('#description')
+                      .textContent.includes('While in use'));
+    });
+  });
+
 });

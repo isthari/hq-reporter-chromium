@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,20 @@
 
 #include <string>
 
+#include "base/memory/raw_ptr.h"
+#include "base/memory/weak_ptr.h"
+#include "chrome/browser/ui/quick_answers/ui/quick_answers_view.h"
+#include "chrome/browser/ui/quick_answers/ui/rich_answers_view.h"
+#include "chrome/browser/ui/quick_answers/ui/user_consent_view.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/views/widget/unique_widget_ptr.h"
+#include "ui/views/widget/widget.h"
 
 class QuickAnswersView;
 class QuickAnswersControllerImpl;
 
 namespace quick_answers {
+class RichAnswersView;
 class UserConsentView;
 struct QuickAnswer;
 }  // namespace quick_answers
@@ -27,7 +35,7 @@ class QuickAnswersUiController {
   QuickAnswersUiController(const QuickAnswersUiController&) = delete;
   QuickAnswersUiController& operator=(const QuickAnswersUiController&) = delete;
 
-  // Constructs/resets |quick_answers_view_|.
+  // Constructs/resets the Quick Answers card view.
   void CreateQuickAnswersView(const gfx::Rect& anchor_bounds,
                               const std::string& title,
                               const std::string& query,
@@ -35,6 +43,9 @@ class QuickAnswersUiController {
 
   // Returns true if there was a QuickAnswersView to close.
   bool CloseQuickAnswersView();
+
+  // Returns true if there was a RichAnswersView to close.
+  bool CloseRichAnswersView();
 
   void OnQuickAnswersViewPressed();
 
@@ -61,18 +72,6 @@ class QuickAnswersUiController {
   // Closes the user consent view.
   void CloseUserConsentView();
 
-  // Used by the controller to check if the user consent view is currently
-  // showing instead of QuickAnswers.
-  bool is_showing_user_consent_view() const {
-    return user_consent_view_ != nullptr;
-  }
-
-  // Used by the controller to check if the QuickAnswers view is currently
-  // showing.
-  bool is_showing_quick_answers_view() const {
-    return quick_answers_view_ != nullptr;
-  }
-
   // Invoked when user clicks the Dogfood button on Quick-Answers related views.
   void OnDogfoodButtonPressed();
 
@@ -86,20 +85,45 @@ class QuickAnswersUiController {
   // Handle consent result from user consent view.
   void OnUserConsentResult(bool consented);
 
-  const QuickAnswersView* quick_answers_view_for_testing() const {
-    return quick_answers_view_;
+  // Used by the controller to check if the user consent view is currently
+  // showing instead of QuickAnswers.
+  bool IsShowingUserConsentView() const;
+
+  // Used by the controller to check if the QuickAnswers view is currently
+  // showing.
+  bool IsShowingQuickAnswersView() const;
+
+  // Used by the controller to check if the RichAnswers view is currently
+  // showing.
+  bool IsShowingRichAnswersView() const;
+
+  quick_answers::QuickAnswersView* quick_answers_view() {
+    return static_cast<quick_answers::QuickAnswersView*>(
+        quick_answers_widget_->GetContentsView());
   }
-  const quick_answers::UserConsentView* consent_view_for_testing() const {
-    return user_consent_view_;
+  quick_answers::UserConsentView* user_consent_view() {
+    return static_cast<quick_answers::UserConsentView*>(
+        user_consent_widget_->GetContentsView());
+  }
+  quick_answers::RichAnswersView* rich_answers_view() {
+    return static_cast<quick_answers::RichAnswersView*>(
+        rich_answers_widget_->GetContentsView());
   }
 
  private:
-  QuickAnswersControllerImpl* controller_ = nullptr;
+  // Constructs/resets the Quick Answers rich card view.
+  void CreateRichAnswersView();
 
-  // Owned by view hierarchy.
-  QuickAnswersView* quick_answers_view_ = nullptr;
-  quick_answers::UserConsentView* user_consent_view_ = nullptr;
+  raw_ptr<QuickAnswersControllerImpl> controller_ = nullptr;
+
+  // Widget pointers for quick answers related views.
+  views::UniqueWidgetPtr quick_answers_widget_;
+  views::UniqueWidgetPtr user_consent_widget_;
+  views::UniqueWidgetPtr rich_answers_widget_;
+
   std::string query_;
+
+  base::WeakPtrFactory<QuickAnswersUiController> weak_factory_{this};
 };
 
 #endif  // CHROME_BROWSER_UI_QUICK_ANSWERS_QUICK_ANSWERS_UI_CONTROLLER_H_

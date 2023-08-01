@@ -1,9 +1,8 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import {Dialog, NavigationHelper, Page, PageState} from 'chrome://extensions/extensions.js';
-import {assert} from 'chrome://resources/js/assert.m.js';
 import {assertDeepEquals, assertEquals, assertTrue} from 'chrome://webui-test/chai_assert.js';
 import {MockMethod} from 'chrome://webui-test/mock_controller.js';
 
@@ -13,7 +12,7 @@ const extension_navigation_helper_tests = {
     Basic: 'basic',
     Conversions: 'conversions',
     PushAndReplaceState: 'push and replace state',
-    SupportedRoutes: 'supported routes'
+    SupportedRoutes: 'supported routes',
   },
 };
 
@@ -36,11 +35,11 @@ suite(extension_navigation_helper_tests.suiteName, function() {
   let navigationHelper: NavigationHelper;
 
   setup(function() {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     navigationHelper = new NavigationHelper();
   });
 
-  test(assert(extension_navigation_helper_tests.TestNames.Basic), function() {
+  test(extension_navigation_helper_tests.TestNames.Basic, function() {
     const id = 'a'.repeat(32);
     const mock = new MockMethod();
 
@@ -78,8 +77,7 @@ suite(extension_navigation_helper_tests.suiteName, function() {
   });
 
   test(
-      assert(extension_navigation_helper_tests.TestNames.Conversions),
-      function() {
+      extension_navigation_helper_tests.TestNames.Conversions, function() {
         const id = 'a'.repeat(32);
         const stateUrlPairs: {[k: string]: {url: string, state: PageState}} = {
           extensions: {
@@ -110,19 +108,23 @@ suite(extension_navigation_helper_tests.suiteName, function() {
             url: 'chrome://extensions/sitePermissions',
             state: {page: Page.SITE_PERMISSIONS},
           },
+          sitePermissionsAllSites: {
+            url: 'chrome://extensions/sitePermissions/allSites',
+            state: {page: Page.SITE_PERMISSIONS_ALL_SITES},
+          },
         };
 
         // Test url -> state.
-        for (let key in stateUrlPairs) {
-          let entry = stateUrlPairs[key];
+        for (const key in stateUrlPairs) {
+          const entry = stateUrlPairs[key];
           assertTrue(!!entry);
           history.pushState({}, '', entry.url);
           assertDeepEquals(entry.state, navigationHelper.getCurrentPage(), key);
         }
 
         // Test state -> url.
-        for (let key in stateUrlPairs) {
-          let entry = stateUrlPairs[key];
+        for (const key in stateUrlPairs) {
+          const entry = stateUrlPairs[key];
           assertTrue(!!entry);
           navigationHelper.updateHistory(entry.state, false);
           assertEquals(entry.url, location.href, key);
@@ -130,7 +132,7 @@ suite(extension_navigation_helper_tests.suiteName, function() {
       });
 
   test(
-      assert(extension_navigation_helper_tests.TestNames.PushAndReplaceState),
+      extension_navigation_helper_tests.TestNames.PushAndReplaceState,
       function() {
         const id1 = 'a'.repeat(32);
         const id2 = 'b'.repeat(32);
@@ -182,8 +184,7 @@ suite(extension_navigation_helper_tests.suiteName, function() {
       });
 
   test(
-      assert(extension_navigation_helper_tests.TestNames.SupportedRoutes),
-      function() {
+      extension_navigation_helper_tests.TestNames.SupportedRoutes, function() {
         function removeEndSlash(url: string): string {
           const CANONICAL_PATH_REGEX = /([\/-\w]+)\/$/;
           return url.replace(CANONICAL_PATH_REGEX, '$1');

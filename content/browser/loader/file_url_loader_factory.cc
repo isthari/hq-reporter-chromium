@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,22 +9,20 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
-#include "content/browser/web_package/web_bundle_utils.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
@@ -51,6 +49,7 @@
 #include "services/network/public/cpp/cors/cors.h"
 #include "services/network/public/cpp/cors/cors_error_status.h"
 #include "services/network/public/cpp/cors/origin_access_list.h"
+#include "services/network/public/cpp/features.h"
 #include "services/network/public/cpp/request_mode.h"
 #include "services/network/public/cpp/resource_request.h"
 #include "services/network/public/mojom/cors.mojom-shared.h"
@@ -67,12 +66,7 @@
 namespace content {
 namespace {
 
-constexpr size_t kDefaultFileUrlPipeSize = 65536;
-
-// Because this makes things simpler.
-static_assert(kDefaultFileUrlPipeSize >= net::kMaxBytesToSniff,
-              "Default file data pipe size must be at least as large as a MIME-"
-              "type sniffing buffer.");
+constexpr size_t kDefaultFileDirectoryLoaderPipeSize = 65536;
 
 // Policy to control how a FileURLLoader will handle directory URLs.
 enum class DirectoryLoadingPolicy {
@@ -220,7 +214,8 @@ class FileURLDirectoryLoader
 
     mojo::ScopedDataPipeProducerHandle producer_handle;
     mojo::ScopedDataPipeConsumerHandle consumer_handle;
-    if (mojo::CreateDataPipe(kDefaultFileUrlPipeSize, producer_handle,
+    if (mojo::CreateDataPipe(kDefaultFileDirectoryLoaderPipeSize,
+                             producer_handle,
                              consumer_handle) != MOJO_RESULT_OK) {
       client->OnComplete(network::URLLoaderCompletionStatus(net::ERR_FAILED));
       return;
@@ -230,9 +225,8 @@ class FileURLDirectoryLoader
     head->mime_type = "text/html";
     head->charset = "utf-8";
     head->response_type = response_type;
-    client->OnReceiveResponse(std::move(head),
-                              mojo::ScopedDataPipeConsumerHandle());
-    client->OnStartLoadingResponseBody(std::move(consumer_handle));
+    client->OnReceiveResponse(std::move(head), std::move(consumer_handle),
+                              absl::nullopt);
     client_ = std::move(client);
 
     lister_ = std::make_unique<net::DirectoryLister>(path_, this);
@@ -240,6 +234,20 @@ class FileURLDirectoryLoader
 
     data_producer_ =
         std::make_unique<mojo::DataPipeProducer>(std::move(producer_handle));
+
+    const std::u16string& title = path_.AsUTF16Unsafe();
+    pending_data_.append(net::GetDirectoryListingHeader(title));
+
+    // If not a top-level directory, add a link to the parent directory. To
+    // figure this out, first normalize |path_| by stripping trailing
+    // separators. Then compare the result to its DirName(). For the top-level
+    // directory, e.g. "/" or "c:\\", the normalized path is equal to its own
+    // DirName().
+    base::FilePath stripped_path = path_.StripTrailingSeparators();
+    if (stripped_path != stripped_path.DirName()) {
+      pending_data_.append(net::GetParentDirectoryLink());
+    }
+    MaybeTransferPendingData();
   }
 
   void OnMojoDisconnect() {
@@ -258,22 +266,6 @@ class FileURLDirectoryLoader
   // net::DirectoryLister::DirectoryListerDelegate:
   void OnListFile(
       const net::DirectoryLister::DirectoryListerData& data) override {
-    if (!wrote_header_) {
-      wrote_header_ = true;
-
-      const std::u16string& title = path_.AsUTF16Unsafe();
-      pending_data_.append(net::GetDirectoryListingHeader(title));
-
-      // If not a top-level directory, add a link to the parent directory. To
-      // figure this out, first normalize |path_| by stripping trailing
-      // separators. Then compare the result to its DirName(). For the top-level
-      // directory, e.g. "/" or "c:\\", the normalized path is equal to its own
-      // DirName().
-      base::FilePath stripped_path = path_.StripTrailingSeparators();
-      if (stripped_path != stripped_path.DirName())
-        pending_data_.append(net::GetParentDirectoryLink());
-    }
-
     // Skip current / parent links from the listing.
     base::FilePath filename = data.info.GetName();
     if (filename.value() != base::FilePath::kCurrentDirectory &&
@@ -294,7 +286,11 @@ class FileURLDirectoryLoader
   void OnListDone(int error) override {
     listing_result_ = error;
     lister_.reset();
-    MaybeDeleteSelf();
+    if (!pending_data_.empty()) {
+      MaybeTransferPendingData();
+    } else {
+      MaybeDeleteSelf();
+    }
   }
 
   void MaybeTransferPendingData() {
@@ -350,7 +346,6 @@ class FileURLDirectoryLoader
 
   base::FilePath path_;
   std::unique_ptr<net::DirectoryLister> lister_;
-  bool wrote_header_ = false;
   int listing_result_;
 
   mojo::Receiver<network::mojom::URLLoader> receiver_{this};
@@ -524,7 +519,7 @@ class FileURLLoader : public network::mojom::URLLoader {
 #if BUILDFLAG(IS_WIN)
     base::FilePath shortcut_target;
     if (link_following_policy == LinkFollowingPolicy::kFollow &&
-        base::LowerCaseEqualsASCII(path.Extension(), ".lnk") &&
+        base::EqualsCaseInsensitiveASCII(path.Extension(), ".lnk") &&
         base::win::ResolveShortcut(path, &shortcut_target, nullptr)) {
       // Follow Windows shortcuts
       redirect_data_ = std::make_unique<RedirectData>();
@@ -562,7 +557,18 @@ class FileURLLoader : public network::mojom::URLLoader {
 
     mojo::ScopedDataPipeProducerHandle producer_handle;
     mojo::ScopedDataPipeConsumerHandle consumer_handle;
-    if (mojo::CreateDataPipe(kDefaultFileUrlPipeSize, producer_handle,
+
+    // Request the larger size data pipe for file:// URL loading.
+    uint32_t data_pipe_size =
+        network::features::GetDataPipeDefaultAllocationSize(
+            network::features::DataPipeAllocationSize::kLargerSizeIfPossible);
+    // This should already be static_asserted in network::features, but good
+    // to double-check.
+    DCHECK(data_pipe_size >= net::kMaxBytesToSniff)
+        << "Default file data pipe size must be at least as large as a "
+           "MIME-type sniffing buffer.";
+
+    if (mojo::CreateDataPipe(data_pipe_size, producer_handle,
                              consumer_handle) != MOJO_RESULT_OK) {
       OnClientComplete(net::ERR_FAILED, std::move(observer));
       return;
@@ -641,8 +647,8 @@ class FileURLLoader : public network::mojom::URLLoader {
 
     if (first_byte_to_send < initial_read_size) {
       // Write any data we read for MIME sniffing, constraining by range where
-      // applicable. This will always fit in the pipe (see assertion near
-      // |kDefaultFileUrlPipeSize| definition).
+      // applicable. This will always fit in the pipe (see DCHECK above, and
+      // assertions near network::features::GetDataPipeDefaultAllocationSize()).
       uint32_t write_size = std::min(
           static_cast<uint32_t>(initial_read_size - first_byte_to_send),
           static_cast<uint32_t>(total_bytes_to_send));
@@ -660,11 +666,7 @@ class FileURLLoader : public network::mojom::URLLoader {
       total_bytes_to_send -= write_size;
     }
 
-    // TODO(crbug.com/995177): Update mime_util.cc when WebBundles feature is
-    // launched and stop using GetWebBundleFileMimeTypeFromFile().
-    if (!web_bundle_utils::GetWebBundleFileMimeTypeFromFile(full_path,
-                                                            &head->mime_type) &&
-        !net::GetMimeTypeFromFile(full_path, &head->mime_type)) {
+    if (!net::GetMimeTypeFromFile(full_path, &head->mime_type)) {
       std::string new_type;
       net::SniffMimeType(
           base::StringPiece(initial_read_buffer.data(), read_result.bytes_read),
@@ -686,9 +688,8 @@ class FileURLLoader : public network::mojom::URLLoader {
     // implementation of document.lastModified can access it (crbug.com/875299).
     head->headers->AddHeader(net::HttpResponseHeaders::kLastModified,
                              base::TimeFormatHTTP(info.last_modified));
-    client_->OnReceiveResponse(std::move(head),
-                               mojo::ScopedDataPipeConsumerHandle());
-    client_->OnStartLoadingResponseBody(std::move(consumer_handle));
+    client_->OnReceiveResponse(std::move(head), std::move(consumer_handle),
+                               absl::nullopt);
 
     if (total_bytes_to_send == 0) {
       // There's definitely no more data, so we're already done.

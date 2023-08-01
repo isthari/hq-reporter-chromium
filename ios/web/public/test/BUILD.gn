@@ -1,4 +1,4 @@
-# Copyright 2017 The Chromium Authors. All rights reserved.
+# Copyright 2017 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -25,6 +25,8 @@ source_set("test") {
     "//ios/web/public/deprecated",
     "//ios/web/test:js_test_util_internal",
     "//ios/web/test:test_support",
+    "//ios/web/web_state:web_state_impl_header",
+    "//ios/web/web_state/ui:web_controller_header",
     "//ui/base",
   ]
 
@@ -39,8 +41,44 @@ source_set("test") {
     "test_redirect_observer.h",
     "test_redirect_observer.mm",
     "test_web_thread.h",
+    "web_state_test_util.h",
+    "web_state_test_util.mm",
     "web_task_environment.h",
   ]
+}
+
+source_set("download_test_utils") {
+  deps = [
+    "//base",
+    "//ios/web/public/download",
+  ]
+
+  sources = [
+    "download_task_test_util.h",
+    "download_task_test_util.mm",
+  ]
+
+  frameworks = [ "Foundation.framework" ]
+
+  configs += [ "//build/config/compiler:enable_arc" ]
+}
+
+source_set("javascript_test") {
+  configs += [ "//build/config/compiler:enable_arc" ]
+  testonly = true
+
+  deps = [
+    ":util",
+    "//base",
+    "//testing/gtest",
+  ]
+
+  sources = [
+    "javascript_test.h",
+    "javascript_test.mm",
+  ]
+
+  frameworks = [ "WebKit.framework" ]
 }
 
 # Those fixtures *must* not be used directly from //ios/chrome code as they
@@ -55,20 +93,16 @@ source_set("test_fixture") {
 
   visibility = [
     "//components/*",
+    "//ios/components/*",
     "//ios/web/*",
     "//ios/web_view/*",
 
     # Do not add new targets from //ios/chrome here. If you want to do it,
-    # please contact sdefresne@ or rohitrao@ to check with them. If you just
-    # want to use WebTest or WebTestWithWebState in //ios/chrome, instead use
-    # ChromeTest or ChromeWebTest respectively.
-    "//ios/chrome/browser/web:test_support",
+    # please contact sdefresne@ or rohitrao@ to check with them.
     "//ios/chrome/test:ios_chrome_unit_test_suite",
   ]
 
   sources = [
-    "web_state_test_util.h",
-    "web_state_test_util.mm",
     "web_test.h",
     "web_test.mm",
     "web_test_suite.h",
@@ -82,11 +116,14 @@ source_set("test_fixture") {
     "//ios/web/common:features",
     "//ios/web/js_messaging:java_script_feature",
     "//ios/web/navigation",
+    "//ios/web/navigation:core",
     "//ios/web/navigation:wk_navigation_util",
     "//ios/web/public/deprecated",
     "//ios/web/public/test:util",
     "//ios/web/public/test/fakes",
     "//ios/web/test:js_test_util_internal",
+    "//ios/web/web_state:web_state_impl_header",
+    "//ios/web/web_state/ui:web_controller_header",
     "//ui/base",
     "//url",
   ]
@@ -116,10 +153,13 @@ source_set("util") {
     "//ios/web/find_in_page",
     "//ios/web/js_messaging",
     "//ios/web/js_messaging:java_script_feature",
-    "//ios/web/public:public",
+    "//ios/web/js_messaging:web_view_js_utils",
+    "//ios/web/public",
     "//ios/web/public/js_messaging",
+    "//ios/web/test:js_test_util_internal",
     "//ios/web/web_state:web_state_impl_header",
-    "//ios/web/web_state/ui:ui",
+    "//ios/web/web_state/ui",
+    "//ios/web/web_state/ui:wk_web_view_configuration_provider_header",
     "//ios/web/web_view:util",
     "//net",
     "//testing/gtest",
@@ -132,12 +172,12 @@ source_set("util") {
   sources = [
     "error_test_util.h",
     "error_test_util.mm",
-    "js_test_storage_util.h",
-    "js_test_storage_util.mm",
     "js_test_util.h",
     "js_test_util.mm",
     "navigation_test_util.h",
     "navigation_test_util.mm",
+    "task_observer_util.h",
+    "task_observer_util.mm",
     "url_test_util.h",
     "web_view_content_test_util.h",
     "web_view_content_test_util.mm",

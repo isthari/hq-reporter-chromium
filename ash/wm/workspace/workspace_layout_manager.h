@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,12 @@
 #include <memory>
 
 #include "ash/ash_export.h"
+#include "ash/public/cpp/app_list/app_list_controller_observer.h"
 #include "ash/public/cpp/keyboard/keyboard_controller_observer.h"
 #include "ash/shelf/shelf_observer.h"
 #include "ash/shell_observer.h"
 #include "ash/wm/window_state_observer.h"
+#include "base/memory/raw_ptr.h"
 #include "ui/aura/layout_manager.h"
 #include "ui/aura/window_observer.h"
 #include "ui/display/display_observer.h"
@@ -33,7 +35,8 @@ class ASH_EXPORT WorkspaceLayoutManager : public aura::LayoutManager,
                                           public display::DisplayObserver,
                                           public ShellObserver,
                                           public WindowStateObserver,
-                                          public ShelfObserver {
+                                          public ShelfObserver,
+                                          public AppListControllerObserver {
  public:
   // |window| is the container for this layout manager.
   explicit WorkspaceLayoutManager(aura::Window* window);
@@ -46,6 +49,8 @@ class ASH_EXPORT WorkspaceLayoutManager : public aura::LayoutManager,
   BackdropController* backdrop_controller() {
     return backdrop_controller_.get();
   }
+
+  bool is_fullscreen() { return is_fullscreen_; }
 
   // aura::LayoutManager:
   void OnWindowResized() override;
@@ -95,11 +100,15 @@ class ASH_EXPORT WorkspaceLayoutManager : public aura::LayoutManager,
   void OnFullscreenStateChanged(bool is_fullscreen,
                                 aura::Window* container) override;
   void OnPinnedStateChanged(aura::Window* pinned_window) override;
+  void OnShellDestroying() override;
 
   // ShelfObserver:
   void OnAutoHideStateChanged(ShelfAutoHideState new_state) override;
   void OnHotseatStateChanged(HotseatState old_state,
                              HotseatState new_state) override;
+
+  // AppListControllerObserver:
+  void OnAppListVisibilityChanged(bool shown, int64_t display_id) override;
 
  private:
   friend class WorkspaceControllerTestApi;
@@ -132,7 +141,8 @@ class ASH_EXPORT WorkspaceLayoutManager : public aura::LayoutManager,
 
    private:
     // WorkspaceLayoutManager has at least as long a lifetime as this class.
-    const WorkspaceLayoutManager* workspace_layout_manager_;
+    raw_ptr<const WorkspaceLayoutManager, ExperimentalAsh>
+        workspace_layout_manager_;
     // The key is the window to be observed, and the value is the parent of the
     // window.
     std::map<aura::Window*, aura::Window*> observed_windows_;
@@ -166,9 +176,9 @@ class ASH_EXPORT WorkspaceLayoutManager : public aura::LayoutManager,
   // changes to system ui areas on the display they are on.
   void NotifySystemUiAreaChanged() const;
 
-  // Notifies the autoclick controller about a workspace event. If autoclick
-  // is enabled, the autoclick bubble may need to move in response to that
-  // event.
+  // Notifies the accessibility controller about a workspace event. If autoclick
+  // or stick keys is enabled, the autoclick bubble or sticky keys overlay may
+  // need to move in response to that event.
   void NotifyAccessibilityWorkspaceChanged() const;
 
   // Updates the window workspace.
@@ -176,13 +186,13 @@ class ASH_EXPORT WorkspaceLayoutManager : public aura::LayoutManager,
 
   bool IsPopupNotificationWindow(aura::Window* window) const;
 
-  aura::Window* window_;
-  aura::Window* root_window_;
-  RootWindowController* root_window_controller_;
+  raw_ptr<aura::Window, ExperimentalAsh> window_;
+  raw_ptr<aura::Window, ExperimentalAsh> root_window_;
+  raw_ptr<RootWindowController, ExperimentalAsh> root_window_controller_;
   FloatingWindowObserver floating_window_observer_;
-  aura::Window* settings_bubble_container_;
-  aura::Window* accessibility_bubble_container_;
-  aura::Window* shelf_container_;
+  raw_ptr<aura::Window, ExperimentalAsh> settings_bubble_container_;
+  raw_ptr<aura::Window, ExperimentalAsh> accessibility_bubble_container_;
+  raw_ptr<aura::Window, ExperimentalAsh> shelf_container_;
 
   display::ScopedDisplayObserver display_observer_{this};
 

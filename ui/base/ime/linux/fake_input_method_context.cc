@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 namespace ui {
 
-FakeInputMethodContext::FakeInputMethodContext() {}
+FakeInputMethodContext::FakeInputMethodContext() = default;
 
 // Overriden from ui::LinuxInputMethodContext
 
@@ -19,24 +19,27 @@ bool FakeInputMethodContext::IsPeekKeyEvent(const ui::KeyEvent& key_event) {
   return false;
 }
 
-void FakeInputMethodContext::Reset() {
-}
+void FakeInputMethodContext::Reset() {}
 
-void FakeInputMethodContext::Focus() {
-}
+void FakeInputMethodContext::UpdateFocus(bool has_client,
+                                         TextInputType old_type,
+                                         TextInputType new_type,
+                                         TextInputClient::FocusReason reason) {}
 
-void FakeInputMethodContext::Blur() {
-}
-
-void FakeInputMethodContext::SetCursorLocation(const gfx::Rect& rect) {
-}
+void FakeInputMethodContext::SetCursorLocation(const gfx::Rect& rect) {}
 
 void FakeInputMethodContext::SetSurroundingText(
     const std::u16string& text,
-    const gfx::Range& selection_range) {}
+    const gfx::Range& text_range,
+    const gfx::Range& selection_range,
+    const absl::optional<GrammarFragment>& fragment,
+    const absl::optional<AutocorrectInfo>& autocorrect) {}
 
-void FakeInputMethodContext::SetContentType(TextInputType input_type,
-                                            int input_flags) {}
+void FakeInputMethodContext::SetContentType(TextInputType type,
+                                            TextInputMode mode,
+                                            uint32_t flags,
+                                            bool should_do_learning,
+                                            bool can_compose_inline) {}
 
 VirtualKeyboardController*
 FakeInputMethodContext::GetVirtualKeyboardController() {

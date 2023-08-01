@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <memory>
 #include <ostream>
 
-#include "base/compiler_specific.h"
+#include "base/allocator/partition_allocator/partition_alloc_base/compiler_specific.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -17,8 +17,7 @@
 #include <xmmintrin.h>
 #endif
 
-namespace base {
-namespace internal {
+namespace partition_alloc::internal {
 
 namespace {
 
@@ -92,16 +91,16 @@ namespace {
 // must not actually be materialized.
 //
 // Parameter positiosn are explicit to test various calling conventions.
-NOINLINE void* RecursivelyPassOnParameterImpl(void* p1,
-                                              void* p2,
-                                              void* p3,
-                                              void* p4,
-                                              void* p5,
-                                              void* p6,
-                                              void* p7,
-                                              void* p8,
-                                              Stack* stack,
-                                              StackVisitor* visitor) {
+PA_NOINLINE void* RecursivelyPassOnParameterImpl(void* p1,
+                                                 void* p2,
+                                                 void* p3,
+                                                 void* p4,
+                                                 void* p5,
+                                                 void* p6,
+                                                 void* p7,
+                                                 void* p8,
+                                                 Stack* stack,
+                                                 StackVisitor* visitor) {
   if (p1) {
     return RecursivelyPassOnParameterImpl(nullptr, p1, nullptr, nullptr,
                                           nullptr, nullptr, nullptr, nullptr,
@@ -137,10 +136,10 @@ NOINLINE void* RecursivelyPassOnParameterImpl(void* p1,
   return nullptr;
 }
 
-NOINLINE void* RecursivelyPassOnParameter(size_t num,
-                                          void* parameter,
-                                          Stack* stack,
-                                          StackVisitor* visitor) {
+PA_NOINLINE void* RecursivelyPassOnParameter(size_t num,
+                                             void* parameter,
+                                             Stack* stack,
+                                             StackVisitor* visitor) {
   switch (num) {
     case 0:
       stack->IteratePointers(visitor);
@@ -265,16 +264,34 @@ TEST_F(PartitionAllocStackTest, IteratePointersFindsParameterNesting8) {
 
 // Excluded from test: rbp
 #define FOR_ALL_CALLEE_SAVED_REGS(V) \
-  V("rbx")                           \
-  V("r12")                           \
-  V("r13")                           \
-  V("r14")                           \
-  V("r15")
+  V(rbx)                             \
+  V(r12)                             \
+  V(r13)                             \
+  V(r14)                             \
+  V(r15)
 
 namespace {
+
 extern "C" void IteratePointersNoMangling(Stack* stack, StackVisitor* visitor) {
   stack->IteratePointers(visitor);
 }
+
+#define DEFINE_MOVE_INTO(reg)                                         \
+  PA_NOINLINE void MoveInto##reg(Stack* local_stack,                  \
+                                 StackScanner* local_scanner) {       \
+    asm volatile("   mov %0, %%" #reg                                 \
+                 "\n mov %1, %%rdi"                                   \
+                 "\n mov %2, %%rsi"                                   \
+                 "\n call %P3"                                        \
+                 "\n mov $0, %%" #reg                                 \
+                 :                                                    \
+                 : "r"(local_scanner->needle()), "r"(local_stack),    \
+                   "r"(local_scanner), "i"(IteratePointersNoMangling) \
+                 : "memory", #reg, "rdi", "rsi", "cc");               \
+  }
+
+FOR_ALL_CALLEE_SAVED_REGS(DEFINE_MOVE_INTO)
+
 }  // namespace
 
 TEST_F(PartitionAllocStackTest, IteratePointersFindsCalleeSavedRegisters) {
@@ -284,7 +301,7 @@ TEST_F(PartitionAllocStackTest, IteratePointersFindsCalleeSavedRegisters) {
   // may be part of  temporaries after setting it up through StackScanner.
 
 // First, clear all callee-saved registers.
-#define CLEAR_REGISTER(reg) asm("mov $0, %%" reg : : : reg);
+#define CLEAR_REGISTER(reg) asm("mov $0, %%" #reg : : : #reg);
 
   FOR_ALL_CALLEE_SAVED_REGS(CLEAR_REGISTER)
 #undef CLEAR_REGISTER
@@ -296,21 +313,11 @@ TEST_F(PartitionAllocStackTest, IteratePointersFindsCalleeSavedRegisters) {
 // Moves |local_scanner->needle()| into a callee-saved register, leaving the
 // callee-saved register as the only register referencing the needle.
 // (Ignoring implementation-dependent dirty registers/stack.)
-#define KEEP_ALIVE_FROM_CALLEE_SAVED(reg)                                \
-  local_scanner->Reset();                                                \
-  [local_stack, local_scanner]() NOINLINE {                              \
-    asm volatile("   mov %0, %%" reg                                     \
-                 "\n mov %1, %%rdi"                                      \
-                 "\n mov %2, %%rsi"                                      \
-                 "\n call %P3"                                           \
-                 "\n mov $0, %%" reg                                     \
-                 :                                                       \
-                 : "r"(local_scanner->needle()), "r"(local_stack),       \
-                   "r"(local_scanner), "i"(IteratePointersNoMangling)    \
-                 : "memory", reg, "rdi", "rsi", "cc");                   \
-  }();                                                                   \
-  EXPECT_TRUE(local_scanner->found())                                    \
-      << "pointer in callee-saved register not found. register: " << reg \
+#define KEEP_ALIVE_FROM_CALLEE_SAVED(reg)                                 \
+  local_scanner->Reset();                                                 \
+  MoveInto##reg(local_stack, local_scanner);                              \
+  EXPECT_TRUE(local_scanner->found())                                     \
+      << "pointer in callee-saved register not found. register: " << #reg \
       << std::endl;
 
   FOR_ALL_CALLEE_SAVED_REGS(KEEP_ALIVE_FROM_CALLEE_SAVED)
@@ -337,7 +344,6 @@ TEST_F(PartitionAllocStackTest, StackAlignment) {
 #endif  // BUILDFLAG(IS_LINUX) && (defined(ARCH_CPU_X86) ||
         // defined(ARCH_CPU_X86_64))
 
-}  // namespace internal
-}  // namespace base
+}  // namespace partition_alloc::internal
 
 #endif  // !defined(MEMORY_TOOL_REPLACES_ALLOCATOR)

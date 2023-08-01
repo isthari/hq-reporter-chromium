@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,10 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/trace_event/trace_event.h"
 #include "gpu/vulkan/init/vulkan_factory.h"
 #include "gpu/vulkan/vulkan_command_buffer.h"
@@ -144,7 +144,7 @@ bool VulkanRenderer::Initialize() {
       /* .pipelineBindPoint = */ VK_PIPELINE_BIND_POINT_GRAPHICS,
       /* .inputAttachmentCount = */ 0,
       /* .pInputAttachments = */ nullptr,
-      /* .colorAttachmentCount = */ base::size(color_attachment_references),
+      /* .colorAttachmentCount = */ std::size(color_attachment_references),
       /* .pColorAttachments = */ color_attachment_references,
       /* .pResolveAttachments = */ nullptr,
       /* .pDepthStencilAttachment = */ nullptr,
@@ -156,9 +156,9 @@ bool VulkanRenderer::Initialize() {
       /* .sType = */ VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
       /* .pNext = */ nullptr,
       /* .flags = */ 0,
-      /* .attachmentCount = */ base::size(render_pass_attachments),
+      /* .attachmentCount = */ std::size(render_pass_attachments),
       /* .pAttachments = */ render_pass_attachments,
-      /* .subpassCount = */ base::size(render_pass_subpasses),
+      /* .subpassCount = */ std::size(render_pass_subpasses),
       /* .pSubpasses = */ render_pass_subpasses,
       /* .dependencyCount = */ 0,
       /* .pDependencies = */ nullptr,
@@ -332,13 +332,14 @@ void VulkanRenderer::RenderFrame() {
     VkSemaphore end_semaphore = scoped_write.end_semaphore();
     CHECK(command_buffer.Submit(1, &begin_semaphore, 1, &end_semaphore));
   }
-  vulkan_surface_->SwapBuffers();
+  vulkan_surface_->SwapBuffers(
+      base::DoNothingAs<void(const gfx::PresentationFeedback&)>());
 
   PostRenderFrameTask();
 }
 
 void VulkanRenderer::PostRenderFrameTask() {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&VulkanRenderer::RenderFrame,
                                 weak_ptr_factory_.GetWeakPtr()));
 }

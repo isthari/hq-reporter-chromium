@@ -35,7 +35,6 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/ad_tracker.h"
-#include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource.h"
 
@@ -51,6 +50,7 @@ class WebSocketHandshakeRequest;
 namespace blink {
 
 class CoreProbeSink;
+class OffscreenCanvas;
 class ThreadDebugger;
 
 namespace protocol {
@@ -145,11 +145,14 @@ inline CoreProbeSink* ToCoreProbeSink(EventTarget* event_target) {
                       : nullptr;
 }
 
+CoreProbeSink* ToCoreProbeSink(OffscreenCanvas* offscreen_canvas);
+
 CORE_EXPORT void AllAsyncTasksCanceled(ExecutionContext*);
 
 }  // namespace probe
 }  // namespace blink
 
+#include "base/time/time.h"
 #include "third_party/blink/renderer/core/core_probes_inl.h"
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_CORE_PROBE_CORE_PROBES_H_

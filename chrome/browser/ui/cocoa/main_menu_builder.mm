@@ -1,10 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "chrome/browser/ui/cocoa/main_menu_builder.h"
 
 #include "base/feature_list.h"
+#include "base/mac/mac_util.h"
 #include "build/branding_buildflags.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/ui/cocoa/accelerators_cocoa.h"
@@ -49,7 +50,10 @@ base::scoped_nsobject<NSMenuItem> BuildAppMenu(
                     .target(app_delegate)
                     .action(@selector(showPreferences:))
                     .remove_if(is_pwa),
-                Item().is_separator().remove_if(is_pwa),
+                Item(IDS_PREFERENCES)
+                    .command_id(IDC_WEB_APP_SETTINGS)
+                    .remove_if(!is_pwa),
+                Item().is_separator(),
                 Item(IDS_CLEAR_BROWSING_DATA)
                     .command_id(IDC_CLEAR_BROWSING_DATA)
                     .remove_if(is_pwa),
@@ -270,6 +274,12 @@ base::scoped_nsobject<NSMenuItem> BuildViewMenu(
                 Item(IDS_ENTER_FULLSCREEN_MAC)
                     .tag(IDC_FULLSCREEN)
                     .action(@selector(toggleFullScreen:)),
+                Item(IDS_ENTER_FULLSCREEN_MAC)
+                    .action(@selector(toggleFullScreen:))
+                    .is_alternate()
+                    .remove_if(base::mac::IsAtMostOS11())
+                    .key_equivalent(@"f", NSEventModifierFlagCommand |
+                                              NSEventModifierFlagControl),
                 Item(IDS_TEXT_DEFAULT_MAC).command_id(IDC_ZOOM_NORMAL),
                 Item(IDS_TEXT_BIGGER_MAC).command_id(IDC_ZOOM_PLUS),
                 Item(IDS_TEXT_SMALLER_MAC).command_id(IDC_ZOOM_MINUS),
@@ -279,8 +289,8 @@ base::scoped_nsobject<NSMenuItem> BuildViewMenu(
                 Item(IDS_DISTILL_PAGE)
                     .command_id(IDC_DISTILL_PAGE)
                     .remove_if(!dom_distiller::IsDomDistillerEnabled()),
-                Item(IDS_TOGGLE_COMMANDER)
-                    .command_id(IDC_TOGGLE_COMMANDER)
+                Item(IDS_TOGGLE_QUICK_COMMANDS)
+                    .command_id(IDC_TOGGLE_QUICK_COMMANDS)
                     .remove_if(!commander::IsEnabled()),
 
                 Item().is_separator(),
@@ -436,28 +446,29 @@ base::scoped_nsobject<NSMenuItem> BuildTabMenu(
               Item(IDS_DUPLICATE_TARGET_TAB_MAC)
                   .command_id(IDC_DUPLICATE_TARGET_TAB)
                   .is_alternate()
-                  .key_equivalent(@"", NSAlternateKeyMask),
+                  .key_equivalent(@"", NSEventModifierFlagOption),
               Item(IDS_MUTE_SITE_MAC).command_id(IDC_WINDOW_MUTE_SITE),
               Item(IDS_MUTE_TARGET_SITE_MAC)
                   .command_id(IDC_MUTE_TARGET_SITE)
                   .is_alternate()
-                  .key_equivalent(@"", NSAlternateKeyMask),
+                  .key_equivalent(@"", NSEventModifierFlagOption),
               Item(IDS_PIN_TAB_MAC).command_id(IDC_WINDOW_PIN_TAB),
               Item(IDS_PIN_TARGET_TAB_MAC)
                   .command_id(IDC_PIN_TARGET_TAB)
                   .is_alternate()
-                  .key_equivalent(@"", NSAlternateKeyMask),
+                  .key_equivalent(@"", NSEventModifierFlagOption),
               Item(IDS_GROUP_TAB_MAC).command_id(IDC_WINDOW_GROUP_TAB),
               Item(IDS_GROUP_TARGET_TAB_MAC)
                   .command_id(IDC_GROUP_TARGET_TAB)
                   .is_alternate()
-                  .key_equivalent(@"", NSAlternateKeyMask),
+                  .key_equivalent(@"", NSEventModifierFlagOption),
               Item(IDS_TAB_CXMENU_CLOSEOTHERTABS)
                   .command_id(IDC_WINDOW_CLOSE_OTHER_TABS),
               Item(IDS_TAB_CXMENU_CLOSETABSTORIGHT)
                   .command_id(IDC_WINDOW_CLOSE_TABS_TO_RIGHT),
               Item(IDS_MOVE_TAB_TO_NEW_WINDOW)
                   .command_id(IDC_MOVE_TAB_TO_NEW_WINDOW),
+              Item(IDS_SEARCH_TABS).command_id(IDC_TAB_SEARCH),
               Item().is_separator(),
           })
           .Build();
@@ -542,8 +553,10 @@ base::scoped_nsobject<NSMenuItem> MenuItemBuilder::Build() const {
   if (tag_ != 0) {
     if (const ui::Accelerator* accelerator =
             AcceleratorsCocoa::GetInstance()->GetAcceleratorForCommand(tag_)) {
-      GetKeyEquivalentAndModifierMaskFromAccelerator(
-          *accelerator, &key_equivalent, &key_equivalent_flags);
+      KeyEquivalentAndModifierMask* equivalent =
+          GetKeyEquivalentAndModifierMaskFromAccelerator(*accelerator);
+      key_equivalent = equivalent.keyEquivalent;
+      key_equivalent_flags = equivalent.modifierMask;
     }
   }
 

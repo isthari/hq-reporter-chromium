@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,11 +15,11 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/cpu.h"
 #include "base/files/file.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/json/json_reader.h"
 #include "base/lazy_instance.h"
 #include "base/location.h"
@@ -28,7 +28,7 @@
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "components/nacl/common/nacl_host_messages.h"
 #include "components/nacl/common/nacl_messages.h"
@@ -49,7 +49,6 @@
 #include "content/public/renderer/pepper_plugin_instance.h"
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_thread.h"
-#include "content/public/renderer/render_view.h"
 #include "content/public/renderer/renderer_ppapi_host.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "net/base/data_url.h"
@@ -269,7 +268,7 @@ class ManifestServiceProxy : public ManifestServiceChannel::Delegate {
     if (process_type_ != kNativeNaClProcessType &&
         process_type_ != kPNaClTranslatorProcessType) {
       // Return an error.
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE, base::BindOnce(std::move(callback), base::File(), 0, 0));
       return;
     }
@@ -285,7 +284,7 @@ class ManifestServiceProxy : public ManifestServiceChannel::Delegate {
     bool is_helper_process = process_type_ == kPNaClTranslatorProcessType;
     if (!ManifestResolveKey(pp_instance_, is_helper_process, key, &url,
                             &pnacl_options)) {
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE, base::BindOnce(std::move(callback), base::File(), 0, 0));
       return;
     }
@@ -501,7 +500,7 @@ void PPBNaClPrivate::LaunchSelLdr(
           instance_info.channel_handle, IPC::Channel::MODE_CLIENT,
           /* listener = */ nullptr,
           content::RenderThread::Get()->GetIOTaskRunner(),
-          base::ThreadTaskRunnerHandle::Get(), true,
+          base::SingleThreadTaskRunner::GetCurrentDefault(), true,
           content::RenderThread::Get()->GetShutdownEvent());
     } else {
       // Save the channel handle for when StartPpapiProxy() is called.
@@ -614,7 +613,7 @@ std::string PnaclComponentURLToFilename(const std::string& url) {
   return r;
 }
 
-PP_FileHandle GetReadonlyPnaclFd(const char* url,
+PP_FileHandle GetReadonlyPnaclFd(const std::string& url,
                                  bool is_executable,
                                  uint64_t* nonce_lo,
                                  uint64_t* nonce_hi) {
@@ -1171,81 +1170,74 @@ PP_Bool PPBNaClPrivate::GetPnaclResourceInfo(PP_Instance instance,
                                              PP_Var* llc_tool_name,
                                              PP_Var* ld_tool_name,
                                              PP_Var* subzero_tool_name) {
-  static const char kFilename[] = "chrome://pnacl-translator/pnacl.json";
   NexeLoadManager* load_manager = GetNexeLoadManager(instance);
-  DCHECK(load_manager);
-  if (!load_manager)
-    return PP_FALSE;
+  CHECK(load_manager);
 
-  uint64_t nonce_lo = 0;
-  uint64_t nonce_hi = 0;
-  base::File file(GetReadonlyPnaclFd(kFilename, false /* is_executable */,
-                                     &nonce_lo, &nonce_hi));
-  if (!file.IsValid()) {
-    load_manager->ReportLoadError(
-        PP_NACL_ERROR_PNACL_RESOURCE_FETCH,
-        "The Portable Native Client (pnacl) component is not "
-        "installed. Please consult chrome://components for more "
-        "information.");
+  const auto get_info = [&]() -> base::expected<void, std::string> {
+    const std::string kFilename = "chrome://pnacl-translator/pnacl.json";
+    uint64_t nonce_lo = 0;
+    uint64_t nonce_hi = 0;
+    base::File file(GetReadonlyPnaclFd(kFilename, false /* is_executable */,
+                                       &nonce_lo, &nonce_hi));
+    if (!file.IsValid()) {
+      return base::unexpected(
+          "The Portable Native Client (pnacl) component is not installed. "
+          "Please consult chrome://components for more information.");
+    }
+
+    int64_t file_size = file.GetLength();
+    if (file_size < 0) {
+      return base::unexpected("GetPnaclResourceInfo, GetLength failed for: " +
+                              kFilename);
+    }
+
+    if (file_size > 1 << 20) {
+      return base::unexpected("GetPnaclResourceInfo, file too large: " +
+                              kFilename);
+    }
+
+    std::unique_ptr<char[]> buffer(new char[file_size + 1]);
+    int rc = file.Read(0, buffer.get(), file_size);
+    if (rc < 0 || rc != file_size) {
+      return base::unexpected("GetPnaclResourceInfo, reading failed for: " +
+                              kFilename);
+    }
+
+    // Null-terminate the bytes we we read from the file.
+    buffer.get()[rc] = 0;
+
+    // Expect the JSON file to contain a top-level object (dictionary).
+    auto parsed_json =
+        base::JSONReader::ReadAndReturnValueWithError(buffer.get());
+    if (!parsed_json.has_value()) {
+      return base::unexpected(
+          "Parsing resource info failed: JSON parse error: " +
+          parsed_json.error().message);
+    }
+
+    auto* json_dict = parsed_json->GetIfDict();
+    if (!json_dict) {
+      return base::unexpected(
+          "Parsing resource info failed: JSON parse error: Not a "
+          "dictionary.");
+    }
+
+    if (auto* pnacl_llc_name = json_dict->FindString("pnacl-llc-name")) {
+      *llc_tool_name = ppapi::StringVar::StringToPPVar(*pnacl_llc_name);
+    }
+    if (auto* pnacl_ld_name = json_dict->FindString("pnacl-ld-name")) {
+      *ld_tool_name = ppapi::StringVar::StringToPPVar(*pnacl_ld_name);
+    }
+    if (auto* pnacl_sz_name = json_dict->FindString("pnacl-sz-name")) {
+      *subzero_tool_name = ppapi::StringVar::StringToPPVar(*pnacl_sz_name);
+    }
+    return base::ok();
+  };
+  if (auto info = get_info(); !info.has_value()) {
+    load_manager->ReportLoadError(PP_NACL_ERROR_PNACL_RESOURCE_FETCH,
+                                  info.error());
     return PP_FALSE;
   }
-
-  int64_t file_size = file.GetLength();
-  if (file_size < 0) {
-    load_manager->ReportLoadError(
-        PP_NACL_ERROR_PNACL_RESOURCE_FETCH,
-        std::string("GetPnaclResourceInfo, GetLength failed for: ") +
-            kFilename);
-    return PP_FALSE;
-  }
-
-  if (file_size > 1 << 20) {
-    load_manager->ReportLoadError(
-        PP_NACL_ERROR_PNACL_RESOURCE_FETCH,
-        std::string("GetPnaclResourceInfo, file too large: ") + kFilename);
-    return PP_FALSE;
-  }
-
-  std::unique_ptr<char[]> buffer(new char[file_size + 1]);
-  int rc = file.Read(0, buffer.get(), file_size);
-  if (rc < 0 || rc != file_size) {
-    load_manager->ReportLoadError(
-        PP_NACL_ERROR_PNACL_RESOURCE_FETCH,
-        std::string("GetPnaclResourceInfo, reading failed for: ") + kFilename);
-    return PP_FALSE;
-  }
-
-  // Null-terminate the bytes we we read from the file.
-  buffer.get()[rc] = 0;
-
-  // Expect the JSON file to contain a top-level object (dictionary).
-  base::JSONReader::ValueWithError parsed_json =
-      base::JSONReader::ReadAndReturnValueWithError(buffer.get());
-  std::unique_ptr<base::DictionaryValue> json_dict;
-  if (parsed_json.value) {
-    json_dict = base::DictionaryValue::From(
-        base::Value::ToUniquePtrValue(std::move(*parsed_json.value)));
-  }
-  if (!json_dict) {
-    load_manager->ReportLoadError(
-        PP_NACL_ERROR_PNACL_RESOURCE_FETCH,
-        std::string("Parsing resource info failed: JSON parse error: ") +
-            parsed_json.error_message);
-    return PP_FALSE;
-  }
-
-  std::string pnacl_llc_name;
-  if (json_dict->GetString("pnacl-llc-name", &pnacl_llc_name))
-    *llc_tool_name = ppapi::StringVar::StringToPPVar(pnacl_llc_name);
-
-  std::string pnacl_ld_name;
-  if (json_dict->GetString("pnacl-ld-name", &pnacl_ld_name))
-    *ld_tool_name = ppapi::StringVar::StringToPPVar(pnacl_ld_name);
-
-  std::string pnacl_sz_name;
-  if (json_dict->GetString("pnacl-sz-name", &pnacl_sz_name))
-    *subzero_tool_name = ppapi::StringVar::StringToPPVar(pnacl_sz_name);
-
   return PP_TRUE;
 }
 
@@ -1428,7 +1420,7 @@ void DownloadFile(PP_Instance instance,
   NexeLoadManager* load_manager = GetNexeLoadManager(instance);
   DCHECK(load_manager);
   if (!load_manager) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback),
                                   static_cast<int32_t>(PP_ERROR_FAILED),
                                   kInvalidNaClFileInfo));
@@ -1440,19 +1432,18 @@ void DownloadFile(PP_Instance instance,
   if (base::StartsWith(url, kPNaClTranslatorBaseUrl,
                        base::CompareCase::SENSITIVE)) {
     PP_NaClFileInfo file_info = kInvalidNaClFileInfo;
-    PP_FileHandle handle = GetReadonlyPnaclFd(url.c_str(),
-                                              false /* is_executable */,
-                                              &file_info.token_lo,
-                                              &file_info.token_hi);
+    PP_FileHandle handle =
+        GetReadonlyPnaclFd(url, false /* is_executable */, &file_info.token_lo,
+                           &file_info.token_hi);
     if (handle == PP_kInvalidFileHandle) {
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE, base::BindOnce(std::move(callback),
                                     static_cast<int32_t>(PP_ERROR_FAILED),
                                     kInvalidNaClFileInfo));
       return;
     }
     file_info.handle = handle;
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback),
                                   static_cast<int32_t>(PP_OK), file_info));
     return;
@@ -1462,7 +1453,7 @@ void DownloadFile(PP_Instance instance,
   // before downloading it.
   const GURL& test_gurl = load_manager->plugin_base_url().Resolve(url);
   if (!test_gurl.is_valid()) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback),
                                   static_cast<int32_t>(PP_ERROR_FAILED),
                                   kInvalidNaClFileInfo));
@@ -1481,7 +1472,7 @@ void DownloadFile(PP_Instance instance,
     file_info.handle = file_handle;
     file_info.token_lo = file_token_lo;
     file_info.token_hi = file_token_hi;
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback),
                                   static_cast<int32_t>(PP_OK), file_info));
     return;
@@ -1495,7 +1486,7 @@ void DownloadFile(PP_Instance instance,
   content::PepperPluginInstance* plugin_instance =
       content::PepperPluginInstance::Get(instance);
   if (!plugin_instance) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback),
                                   static_cast<int32_t>(PP_ERROR_FAILED),
                                   kInvalidNaClFileInfo));
@@ -1694,7 +1685,7 @@ void PPBNaClPrivate::StreamPexe(PP_Instance instance,
   content::PepperPluginInstance* plugin_instance =
       content::PepperPluginInstance::Get(instance);
   if (!plugin_instance) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(handler->DidFinishStream, handler_user_data,
                                   static_cast<int32_t>(PP_ERROR_FAILED)));
     return;

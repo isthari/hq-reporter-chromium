@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 #include "components/optimization_guide/core/hints_fetcher_factory.h"
@@ -19,9 +19,11 @@ HintsFetcherFactory::HintsFetcherFactory(
 
 HintsFetcherFactory::~HintsFetcherFactory() = default;
 
-std::unique_ptr<HintsFetcher> HintsFetcherFactory::BuildInstance() {
+std::unique_ptr<HintsFetcher> HintsFetcherFactory::BuildInstance(
+    OptimizationGuideLogger* optimization_guide_logger) {
   return std::make_unique<HintsFetcher>(
-      url_loader_factory_, optimization_guide_service_url_, pref_service_);
+      url_loader_factory_, optimization_guide_service_url_, pref_service_,
+      optimization_guide_logger);
 }
 
 void HintsFetcherFactory::OverrideOptimizationGuideServiceUrlForTesting(

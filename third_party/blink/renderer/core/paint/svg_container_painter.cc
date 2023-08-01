@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/core/layout/layout_box_model_object.h"
+#include "third_party/blink/renderer/core/layout/ng/svg/layout_ng_svg_foreign_object.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_container.h"
-#include "third_party/blink/renderer/core/layout/svg/layout_svg_foreign_object.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_viewport_container.h"
 #include "third_party/blink/renderer/core/layout/svg/svg_layout_support.h"
 #include "third_party/blink/renderer/core/paint/object_painter.h"
@@ -33,6 +33,10 @@ bool SVGContainerPainter::CanUseCullRect() const {
   // paint its descendants so we cannot skip painting.
   if (layout_svg_container_.IsSVGHiddenContainer())
     return false;
+
+  if (layout_svg_container_.SVGDescendantMayHaveTransformRelatedAnimation())
+    return false;
+
   return SVGModelObjectPainter::CanUseCullRect(
       layout_svg_container_.StyleRef());
 }
@@ -54,6 +58,9 @@ void SVGContainerPainter::Paint(const PaintInfo& paint_info) {
             layout_svg_container_.VisualRectInLocalSVGCoordinates()))
       return;
     if (properties) {
+      // TODO(https://crbug.com/1278452): Also consider Translate, Rotate,
+      // Scale, and Offset, probably via a single transform operation to
+      // FirstFragment().PreTransform().
       if (const auto* transform = properties->Transform())
         paint_info_before_filtering.TransformCullRect(*transform);
     }
@@ -88,7 +95,7 @@ void SVGContainerPainter::Paint(const PaintInfo& paint_info) {
 
     for (LayoutObject* child = layout_svg_container_.FirstChild(); child;
          child = child->NextSibling()) {
-      if (auto* foreign_object = DynamicTo<LayoutSVGForeignObject>(*child)) {
+      if (auto* foreign_object = DynamicTo<LayoutNGSVGForeignObject>(child)) {
         SVGForeignObjectPainter(*foreign_object)
             .PaintLayer(paint_info_before_filtering);
       } else {

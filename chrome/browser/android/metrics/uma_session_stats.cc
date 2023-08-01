@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
@@ -17,6 +17,7 @@
 #include "chrome/android/chrome_jni_headers/UmaSessionStats_jni.h"
 #include "chrome/browser/android/metrics/android_session_durations_service.h"
 #include "chrome/browser/android/metrics/android_session_durations_service_factory.h"
+#include "chrome/browser/android/preferences/shared_preferences_migrator_android.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/flags/android/chrome_feature_list.h"
 #include "chrome/browser/metrics/chrome_metrics_service_accessor.h"
@@ -28,6 +29,7 @@
 #include "components/metrics_services_manager/metrics_services_manager.h"
 #include "components/prefs/pref_service.h"
 #include "components/ukm/ukm_service.h"
+#include "components/variations/synthetic_trial_registry.h"
 #include "content/public/browser/browser_thread.h"
 
 using base::android::ConvertJavaStringToUTF8;
@@ -38,6 +40,33 @@ namespace {
 // Used to keep the state of whether we should consider metric consent enabled.
 // This is used/read only within the ChromeMetricsServiceAccessor methods.
 bool g_metrics_consent_for_testing = false;
+}  // namespace
+
+namespace {
+// Counter for the number of times onPreCreate and onResume were called between
+// foreground sessions that reach native code. The code PXRY means:
+// * onPreCreate was called X times
+// * onResume was called Y times
+// * the counters are capped at 3, so that value means "3 or more".
+enum class ChromeTabbedActivityCounter : int32_t {
+  P0R0 = 0,
+  P0R1 = 1,
+  P0R2 = 2,
+  P0R3 = 3,
+  P1R0 = 4,
+  P1R1 = 5,
+  P1R2 = 6,
+  P1R3 = 7,
+  P2R0 = 8,
+  P2R1 = 9,
+  P2R2 = 10,
+  P2R3 = 11,
+  P3R0 = 12,
+  P3R1 = 13,
+  P3R2 = 14,
+  P3R3 = 15,
+  kMaxValue = 15,
+};
 }  // namespace
 
 void UmaSessionStats::UmaResumeSession(JNIEnv* env,
@@ -137,9 +166,10 @@ void UmaSessionStats::OnStartup() {
 // static
 void UmaSessionStats::RegisterSyntheticFieldTrial(
     const std::string& trial_name,
-    const std::string& group_name) {
-  ChromeMetricsServiceAccessor::RegisterSyntheticFieldTrial(trial_name,
-                                                            group_name);
+    const std::string& group_name,
+    variations::SyntheticTrialAnnotationMode annotation_mode) {
+  ChromeMetricsServiceAccessor::RegisterSyntheticFieldTrial(
+      trial_name, group_name, annotation_mode);
 }
 
 // static
@@ -147,6 +177,21 @@ bool UmaSessionStats::IsBackgroundSessionStartForTesting() {
   return !GetInstance()
               ->session_time_tracker_.background_session_start_time()
               .is_null();
+}
+
+void UmaSessionStats::EmitAndResetCounters() {
+  absl::optional<int> on_precreate_counter =
+      android::shared_preferences::GetAndClearInt(
+          "Chrome.UMA.OnPreCreateCounter");
+  absl::optional<int> on_resume_counter =
+      android::shared_preferences::GetAndClearInt("Chrome.UMA.OnResumeCounter");
+  int on_create_count = std::min(on_precreate_counter.value_or(0), 3);
+  int on_resume_count = std::min(on_resume_counter.value_or(0), 3);
+  ChromeTabbedActivityCounter count_code =
+      static_cast<ChromeTabbedActivityCounter>(4 * on_create_count +
+                                               on_resume_count);
+  UMA_HISTOGRAM_ENUMERATION("UMA.AndroidPreNative.ChromeTabbedActivityCounter",
+                            count_code);
 }
 
 void UmaSessionStats::SessionTimeTracker::AccumulateBackgroundSessionTime() {
@@ -176,6 +221,10 @@ void UmaSessionStats::SessionTimeTracker::ReportBackgroundSessionTime() {
 }
 
 bool UmaSessionStats::SessionTimeTracker::BeginForegroundSession() {
+  // Emit onPreCreate & onResume counters. This is done early in the session
+  // to ensure that these are captured even if the session is not ended
+  // cleanly.
+  UmaSessionStats::EmitAndResetCounters();
   AccumulateBackgroundSessionTime();
   background_session_start_time_ = {};
   session_start_time_ = base::TimeTicks::Now();
@@ -204,8 +253,10 @@ void UmaSessionStats::SessionTimeTracker::BeginBackgroundSession() {
 // the Java side.
 static void JNI_UmaSessionStats_ChangeMetricsReportingConsent(
     JNIEnv*,
-    jboolean consent) {
-  UpdateMetricsPrefsOnPermissionChange(consent);
+    jboolean consent,
+    jint called_from) {
+  UpdateMetricsPrefsOnPermissionChange(
+      consent, static_cast<ChangeMetricsReportingStateCalledFrom>(called_from));
 
   // This function ensures a consent file in the data directory is either
   // created, or deleted, depending on consent. Starting up metrics services
@@ -292,7 +343,7 @@ static void JNI_UmaSessionStats_RegisterExternalExperiment(
           : variations::SyntheticTrialRegistry::kDoNotOverrideExistingIds;
 
   g_browser_process->metrics_service()
-      ->synthetic_trial_registry()
+      ->GetSyntheticTrialRegistry()
       ->RegisterExternalExperiments(fallback_study_name, experiment_ids,
                                     override_mode);
 }
@@ -300,10 +351,13 @@ static void JNI_UmaSessionStats_RegisterExternalExperiment(
 static void JNI_UmaSessionStats_RegisterSyntheticFieldTrial(
     JNIEnv* env,
     const JavaParamRef<jstring>& jtrial_name,
-    const JavaParamRef<jstring>& jgroup_name) {
+    const JavaParamRef<jstring>& jgroup_name,
+    int annotation_mode) {
   std::string trial_name(ConvertJavaStringToUTF8(env, jtrial_name));
   std::string group_name(ConvertJavaStringToUTF8(env, jgroup_name));
-  UmaSessionStats::RegisterSyntheticFieldTrial(trial_name, group_name);
+  UmaSessionStats::RegisterSyntheticFieldTrial(
+      trial_name, group_name,
+      static_cast<variations::SyntheticTrialAnnotationMode>(annotation_mode));
 }
 
 static void JNI_UmaSessionStats_RecordTabCountPerLoad(

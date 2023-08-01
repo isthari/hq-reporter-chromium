@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,8 @@
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "components/services/screen_ai/buildflags/buildflags.h"
+#include "ui/base/command_id_constants.h"
 
 // This file lists all the command IDs understood by e.g. the browser.
 // It is used by Windows RC files, Mac NIB files, and other platforms too.
@@ -64,10 +66,16 @@
 #define IDC_MAXIMIZE_WINDOW             34047
 #define IDC_ALL_WINDOWS_FRONT           34048
 #define IDC_NAME_WINDOW                 34049
+#if BUILDFLAG(IS_CHROMEOS)
+#define IDC_TOGGLE_MULTITASK_MENU       34050
+#endif
+
+#if BUILDFLAG(IS_LINUX)
+#define IDC_USE_SYSTEM_TITLE_BAR        34051
+#endif
 
 // TODO(crbug.com/1052397): Revisit the macro expression once build flag switch of lacros-chrome is complete.
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
-#define IDC_USE_SYSTEM_TITLE_BAR        34051
 #define IDC_RESTORE_WINDOW              34052
 #endif
 
@@ -77,14 +85,10 @@
 // Web app window commands
 #define IDC_COPY_URL                    34060
 #define IDC_OPEN_IN_CHROME              34061
-#define IDC_SITE_SETTINGS               34062
+#define IDC_WEB_APP_SETTINGS            34062
 #define IDC_WEB_APP_MENU_APP_INFO    34063
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-// Terminal system app commands
-#define IDC_TERMINAL_LINUX   34070
-#define IDC_TERMINAL_SSH     34071
-
 // Move window to other user commands
 #define IDC_VISIT_DESKTOP_OF_LRU_USER_2 34080
 #define IDC_VISIT_DESKTOP_OF_LRU_USER_3 34081
@@ -112,9 +116,6 @@
 #define IDC_MIGRATE_LOCAL_CREDIT_CARD_FOR_PAGE 35015
 #define IDC_SEND_TAB_TO_SELF            35016
 #define IDC_FOCUS_THIS_TAB              35017
-#define IDC_CONTENT_LINK_SEND_TAB_TO_SELF 35018
-#define IDC_SEND_TAB_TO_SELF_SINGLE_TARGET  35019
-#define IDC_CONTENT_LINK_SEND_TAB_TO_SELF_SINGLE_TARGET  35020
 #define IDC_QRCODE_GENERATOR            35021
 #define IDC_WINDOW_CLOSE_TABS_TO_RIGHT  35022
 #define IDC_WINDOW_CLOSE_OTHER_TABS     35023
@@ -127,6 +128,14 @@
 #define IDC_VIRTUAL_CARD_MANUAL_FALLBACK 35030
 #define IDC_SHARING_HUB_SCREENSHOT      35031
 #define IDC_VIRTUAL_CARD_ENROLL         35032
+#define IDC_FOLLOW                      35033
+#define IDC_UNFOLLOW                    35034
+#define IDC_SAVE_IBAN_FOR_PAGE          35035
+#define IDC_AUTOFILL_MANDATORY_REAUTH   35036
+#define IDC_PASSWORDS_AND_AUTOFILL_MENU 35040
+#define IDC_SHOW_PASSWORD_MANAGER       35041
+#define IDC_SHOW_PAYMENT_METHODS        35042
+#define IDC_SHOW_ADDRESSES              35043
 
 // Page-manipulation commands that target a specified tab, which may not be the
 // active one.
@@ -147,6 +156,9 @@
 #define IDC_FIND_PREVIOUS               37002
 #define IDC_CLOSE_FIND_OR_STOP          37003
 #define IDC_FIND_MENU                   37100
+
+// Find/Edit sub menu
+#define IDC_FIND_AND_EDIT_MENU          37200
 
 // Zoom
 #define IDC_ZOOM_MENU                   38000
@@ -195,7 +207,6 @@
 #define IDC_BOOKMARKS_MENU              40029
 #define IDC_SHOW_SIGNIN                 40030
 #define IDC_EXTENSION_ERRORS            40031
-#define IDC_SHOW_SIGNIN_ERROR           40032
 #define IDC_SHOW_SETTINGS_CHANGE_FIRST  40033
 #define IDC_SHOW_SETTINGS_CHANGE_LAST   40133
 #define IDC_SHOW_AVATAR_MENU            40134
@@ -224,9 +235,25 @@
 #define IDC_CLOSE_SIGN_IN_PROMO        40258
 #define IDC_SHOW_FULL_URLS             40259
 #define IDC_CARET_BROWSING_TOGGLE      40260
-#define IDC_TOGGLE_COMMANDER     40261
+#define IDC_TOGGLE_QUICK_COMMANDS     40261
 #define IDC_CHROME_TIPS                40263
 #define IDC_CHROME_WHATS_NEW           40264
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#define IDC_LACROS_DATA_MIGRATION      40265
+#endif
+
+#define IDC_PERFORMANCE                             40266
+#define IDC_EXTENSIONS_SUBMENU                         40267
+#define IDC_EXTENSIONS_SUBMENU_MANAGE_EXTENSIONS       40268
+#define IDC_EXTENSIONS_SUBMENU_VISIT_CHROME_WEB_STORE  40269
+#define IDC_READING_LIST_MENU           40270
+#define IDC_READING_LIST_MENU_ADD_TAB   40271
+#define IDC_READING_LIST_MENU_SHOW_UI   40272
+#define IDC_BOOKMARKS_LIST_TITLE        40273
+#define IDC_SHOW_BOOKMARK_SIDE_PANEL    40274
+#define IDC_SHOW_SEARCH_COMPANION       40275
+#define IDC_SHOW_CHROME_LABS            40276
 
 // Spell-check
 // Insert any additional suggestions before _LAST; these have to be consecutive.
@@ -296,6 +323,8 @@
 #define IDC_CONTENT_CONTEXT_OPEN_ORIGINAL_IMAGE_NEW_TAB 50115
 #define IDC_CONTENT_CONTEXT_LOAD_IMAGE 50116
 #define IDC_CONTENT_CONTEXT_SEARCHLENSFORIMAGE 50117
+#define IDC_CONTENT_CONTEXT_TRANSLATEIMAGEWITHWEB 50118
+#define IDC_CONTENT_CONTEXT_TRANSLATEIMAGEWITHLENS 50119
 // Audio/video items.
 #define IDC_CONTENT_CONTEXT_SAVEAVAS 50120
 #define IDC_CONTENT_CONTEXT_COPYAVLOCATION 50121
@@ -329,7 +358,7 @@
 #define IDC_CONTENT_CONTEXT_NO_SPELLING_SUGGESTIONS 50156
 #define IDC_CONTENT_CONTEXT_SPELLING_SUGGESTION 50157
 #define IDC_CONTENT_CONTEXT_SPELLING_TOGGLE 50158
-// A gap here. Feel free to insert new IDs.
+#define IDC_CONTENT_CONTEXT_OPEN_IN_READING_MODE 50159
 #define IDC_CONTENT_CONTEXT_INSPECTBACKGROUNDPAGE 50161
 #define IDC_CONTENT_CONTEXT_RELOAD_PACKAGED_APP 50162
 #define IDC_CONTENT_CONTEXT_RESTART_PACKAGED_APP 50163
@@ -338,10 +367,13 @@
 #define IDC_CONTENT_CONTEXT_GENERATEPASSWORD 50166
 #define IDC_CONTENT_CONTEXT_EXIT_FULLSCREEN 50167
 #define IDC_CONTENT_CONTEXT_SHOWALLSAVEDPASSWORDS 50168
+#define IDC_CONTENT_CONTEXT_PARTIAL_TRANSLATE 50169
 // Frame items.
 #define IDC_CONTENT_CONTEXT_RELOADFRAME 50170
 #define IDC_CONTENT_CONTEXT_VIEWFRAMESOURCE 50171
 #define IDC_CONTENT_CONTEXT_VIEWFRAMEINFO 50172
+// User Notes.
+#define IDC_CONTENT_CONTEXT_ADD_A_NOTE 50175
 // Search items.
 #define IDC_CONTENT_CONTEXT_GOTOURL 50180
 #define IDC_CONTENT_CONTEXT_SEARCHWEBFOR 50181
@@ -381,6 +413,11 @@
 #define IDC_BOOKMARK_BAR_SHOW_APPS_SHORTCUT 51014
 #define IDC_BOOKMARK_BAR_SHOW_READING_LIST 51015
 #define IDC_BOOKMARK_BAR_SHOW_MANAGED_BOOKMARKS 51016
+#define IDC_BOOKMARK_BAR_TRACK_PRICE_FOR_SHOPPING_BOOKMARK 51017
+#define IDC_BOOKMARK_BAR_UNTRACK_PRICE_FOR_SHOPPING_BOOKMARK 51018
+#define IDC_BOOKMARK_BAR_ADD_TO_BOOKMARKS_BAR 51019
+#define IDC_BOOKMARK_BAR_REMOVE_FROM_BOOKMARKS_BAR 51020
+
 // Context menu items for Sharing
 #define IDC_CONTENT_CONTEXT_SHARING_CLICK_TO_CALL_SINGLE_DEVICE 51030
 #define IDC_CONTENT_CONTEXT_SHARING_CLICK_TO_CALL_MULTIPLE_DEVICES 51031
@@ -398,9 +435,6 @@
 #define IDC_MEDIA_ROUTER_ABOUT 51200
 #define IDC_MEDIA_ROUTER_HELP 51201
 #define IDC_MEDIA_ROUTER_LEARN_MORE 51202
-#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
-#define IDC_MEDIA_ROUTER_REPORT_ISSUE 51203
-#endif
 #define IDC_MEDIA_ROUTER_ALWAYS_SHOW_TOOLBAR_ACTION 51204
 #define IDC_MEDIA_ROUTER_SHOWN_BY_POLICY 51206
 #define IDC_MEDIA_ROUTER_SHOW_IN_TOOLBAR 51207
@@ -410,6 +444,7 @@
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
 #define IDC_MEDIA_TOOLBAR_CONTEXT_REPORT_CAST_ISSUE 51209
 #endif
+#define IDC_MEDIA_TOOLBAR_CONTEXT_SHOW_OTHER_SESSIONS 51210
 
 // Context menu items for media stream status tray
 #define IDC_MEDIA_STREAM_DEVICE_STATUS_TRAY 51300
@@ -446,6 +481,16 @@
 #define IDC_CONTENT_CONTEXT_QUICK_ANSWERS_INLINE_QUERY 52414
 #endif
 
+#if BUILDFLAG(ENABLE_SCREEN_AI_SERVICE)
+// Screen AI Visual Annotations.
+#define IDC_RUN_SCREEN_AI_VISUAL_ANNOTATIONS 52420
+#endif  // BUILDFLAG(ENABLE_SCREEN_AI_SERVICE)
+
+// PDF OCR
+#define IDC_CONTENT_CONTEXT_PDF_OCR 52421
+#define IDC_CONTENT_CONTEXT_PDF_OCR_ALWAYS 52422
+#define IDC_CONTENT_CONTEXT_PDF_OCR_ONCE 52423
+
 // Tab Search
 #define IDC_TAB_SEARCH 52500
 #define IDC_TAB_SEARCH_CLOSE 52501
@@ -455,6 +500,19 @@
 #define IDC_DEBUG_PRINT_VIEW_TREE 52511
 #define IDC_DEBUG_PRINT_VIEW_TREE_DETAILS 52512
 // Please leave a gap here for new debug commands.
+
+// Autofill feedback.
+#define IDC_CONTENT_CONTEXT_AUTOFILL_FEEDBACK 52990
+// Autofill context menu commands
+#define IDC_CONTENT_CONTEXT_AUTOFILL_CUSTOM_FIRST 53000
+#define IDC_CONTENT_CONTEXT_AUTOFILL_CUSTOM_LAST 53250
+
+// Live Caption
+#define IDC_LIVE_CAPTION 53251
+
+// Device API system tray icon
+#define IDC_DEVICE_SYSTEM_TRAY_ICON_FIRST 53260
+#define IDC_DEVICE_SYSTEM_TRAY_ICON_LAST 53299
 
 // NOTE: The last valid command value is 57343 (0xDFFF)
 // See http://msdn.microsoft.com/en-us/library/t2zechd4(VS.71).aspx
@@ -468,6 +526,6 @@
 // otherwise it'll conflict. Unbounded menus must also avoid conflicting with
 // each other, by only using every Nth id (where N is the number of unbounded
 // menus).
-#define IDC_FIRST_UNBOUNDED_MENU 0xE000
+#define IDC_FIRST_UNBOUNDED_MENU COMMAND_ID_FIRST_UNBOUNDED
 
 #endif  // CHROME_APP_CHROME_COMMAND_IDS_H_

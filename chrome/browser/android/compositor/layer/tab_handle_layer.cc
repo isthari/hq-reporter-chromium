@@ -1,15 +1,24 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/android/compositor/layer/tab_handle_layer.h"
 
+#include <math.h>
+
+#include <vector>
+
+#include "base/feature_list.h"
 #include "base/i18n/rtl.h"
-#include "cc/layers/layer.h"
-#include "cc/layers/solid_color_layer.h"
+#include "base/metrics/field_trial_params.h"
 #include "cc/resources/scoped_ui_resource.h"
+#include "cc/slim/filter.h"
+#include "cc/slim/layer.h"
+#include "cc/slim/nine_patch_layer.h"
+#include "cc/slim/solid_color_layer.h"
 #include "chrome/browser/android/compositor/decoration_title.h"
 #include "chrome/browser/android/compositor/layer_title_cache.h"
+#include "chrome/browser/flags/android/chrome_feature_list.h"
 #include "ui/android/resources/nine_patch_resource.h"
 #include "ui/android/resources/resource_manager.h"
 #include "ui/base/l10n/l10n_util_android.h"
@@ -25,6 +34,7 @@ scoped_refptr<TabHandleLayer> TabHandleLayer::Create(
 void TabHandleLayer::SetProperties(
     int id,
     ui::Resource* close_button_resource,
+    ui::Resource* divider_resource,
     ui::NinePatchResource* tab_handle_resource,
     ui::NinePatchResource* tab_handle_outline_resource,
     bool foreground,
@@ -35,17 +45,39 @@ void TabHandleLayer::SetProperties(
     float width,
     float height,
     float content_offset_x,
+    float content_offset_y,
+    float divider_offset_x,
+    float bottom_offset_y,
+    float close_button_padding,
     float close_button_alpha,
+    bool is_start_divider_visible,
+    bool is_end_divider_visible,
     bool is_loading,
     float spinner_rotation,
-    float brightness) {
-  if (brightness != brightness_ || foreground != foreground_) {
+    float brightness,
+    float opacity,
+    bool is_tab_strip_redesign_enabled) {
+  if (brightness != brightness_ || foreground != foreground_ ||
+      opacity != opacity_) {
     brightness_ = brightness;
     foreground_ = foreground;
-    cc::FilterOperations filters;
-    if (brightness_ != 1.0f && !foreground_)
-      filters.Append(cc::FilterOperation::CreateBrightnessFilter(brightness_));
-    layer_->SetFilters(filters);
+    opacity_ = opacity;
+
+    // With the Tab Strip Redesign (TSR), inactive tabs no longer have a visible
+    // container. To achieve the same dimming effect, we need to set the opacity
+    // rather than adding a brightness filter. We can't swap to simply setting
+    // the opacity when TSR is disabled, because then, the tab containers can
+    // be seen overlapping. (See https://crbug.com/1373632).
+    if (is_tab_strip_redesign_enabled) {
+      tab_->SetOpacity(brightness_);
+    } else {
+      std::vector<cc::slim::Filter> filters;
+      if (brightness_ != 1.0f) {
+        filters.push_back(cc::slim::Filter::CreateBrightness(brightness_));
+      }
+      layer_->SetFilters(std::move(filters));
+      tab_outline_->SetIsDrawable(true);
+    }
   }
 
   float original_x = x;
@@ -76,7 +108,8 @@ void TabHandleLayer::SetProperties(
     y = y - (margin_height - height);
     height = margin_height;
   }
-  gfx::Size tab_bounds(width, height);
+  height = ceil(height);
+  gfx::Size tab_bounds(width, height - bottom_offset_y);
 
   layer_->SetPosition(gfx::PointF(x, y));
   DecorationTitle* title_layer = nullptr;
@@ -87,12 +120,12 @@ void TabHandleLayer::SetProperties(
     title_layer->setOpacity(1.0f);
     unsigned expected_children = 4;
     title_layer_ = title_layer->layer();
-    if (layer_->children().size() < expected_children) {
-      layer_->AddChild(title_layer_);
-    } else if (layer_->children()[expected_children - 1]->id() !=
+    if (tab_->children().size() < expected_children) {
+      tab_->AddChild(title_layer_);
+    } else if (tab_->children()[expected_children - 1]->id() !=
                title_layer_->id()) {
-      layer_->ReplaceChild((layer_->children()[expected_children - 1]).get(),
-                           title_layer_);
+      tab_->ReplaceChild((tab_->children()[expected_children - 1]).get(),
+                         title_layer_);
     }
     title_layer->SetUIResourceIds();
   } else if (title_layer_.get()) {
@@ -106,6 +139,7 @@ void TabHandleLayer::SetProperties(
   decoration_tab_->SetBounds(tab_bounds);
   decoration_tab_->SetBorder(
       tab_handle_resource->Border(decoration_tab_->bounds()));
+  decoration_tab_->SetOpacity(opacity_);
 
   tab_outline_->SetUIResourceId(
       tab_handle_outline_resource->ui_resource()->id());
@@ -128,15 +162,64 @@ void TabHandleLayer::SetProperties(
   const float padding_right = tab_handle_resource->size().width() -
                               tab_handle_resource->padding().right();
   const float padding_left = tab_handle_resource->padding().x();
-  const float close_width = close_button_->bounds().width();
+
+  float close_width = close_button_->bounds().width();
+
+  // If close button is not shown, fill
+  // the remaining space with the title text
+  if (close_button_alpha == 0.f) {
+    close_width = 0.f;
+  }
+
+  int divider_y;
+  float divider_y_offset_mid =
+      (tab_handle_resource->padding().y() + height) / 2 -
+      start_divider_->bounds().height() / 2;
+  if (is_tab_strip_redesign_enabled) {
+    divider_y = content_offset_y;
+  } else {
+    divider_y = divider_y_offset_mid;
+  }
+
+  if (!is_start_divider_visible) {
+    start_divider_->SetIsDrawable(false);
+  } else {
+    start_divider_->SetIsDrawable(true);
+    start_divider_->SetUIResourceId(divider_resource->ui_resource()->id());
+    start_divider_->SetBounds(divider_resource->size());
+    int divider_x = is_rtl ? width - divider_offset_x : divider_offset_x;
+    start_divider_->SetPosition(gfx::PointF(divider_x, divider_y));
+    start_divider_->SetOpacity(1.0f);
+  }
+
+  if (!is_end_divider_visible) {
+    end_divider_->SetIsDrawable(false);
+  } else {
+    end_divider_->SetIsDrawable(true);
+    end_divider_->SetUIResourceId(divider_resource->ui_resource()->id());
+    end_divider_->SetBounds(divider_resource->size());
+    int divider_x = is_rtl ? divider_offset_x : width - divider_offset_x;
+    end_divider_->SetPosition(gfx::PointF(divider_x, divider_y));
+    end_divider_->SetOpacity(1.0f);
+  }
+
   if (title_layer) {
-    int title_y = tab_handle_resource->padding().y() / 2 + height / 2 -
-                  title_layer->size().height() / 2;
+    int title_y;
+    float title_y_offset_mid = tab_handle_resource->padding().y() / 2 +
+                               height / 2 - title_layer->size().height() / 2;
+    if (is_tab_strip_redesign_enabled) {
+      // 8dp top padding for folio and 10 dp for detached at default text size.
+      title_y = std::min(content_offset_y, title_y_offset_mid);
+    } else {
+      title_y = title_y_offset_mid;
+    }
+
     int title_x = is_rtl ? padding_left + close_width : padding_left;
     title_x += is_rtl ? 0 : content_offset_x;
-    title_layer->setBounds(gfx::Size(
-        width - padding_right - padding_left - close_width - content_offset_x,
-        height));
+    title_layer->setBounds(gfx::Size(width - padding_right - padding_left -
+                                         close_width - content_offset_x +
+                                         close_button_padding,
+                                     height));
     if (foreground_) {
       title_x += original_x;
       title_y += original_y;
@@ -149,16 +232,32 @@ void TabHandleLayer::SetProperties(
       title_layer->SetIsLoading(false);
     }
   }
-
   if (close_button_alpha == 0.f) {
     close_button_->SetIsDrawable(false);
   } else {
     close_button_->SetIsDrawable(true);
     const float close_max_width = close_button_->bounds().width();
-    int close_y = (tab_handle_resource->padding().y() + height) / 2 -
-                  close_button_->bounds().height() / 2;
-    int close_x = is_rtl ? padding_left - close_max_width + close_width
-                         : width - padding_right - close_width;
+    int close_y;
+    float close_y_offset_mid =
+        (tab_handle_resource->padding().y() + height) / 2 -
+        close_button_->bounds().height() / 2;
+    if (is_tab_strip_redesign_enabled) {
+      // Close button image is larger than divider image, so close button will
+      // appear slightly lower even the close_y are set in the same value as
+      // divider_y. Thus need this offset to account for the effect of image
+      // size difference has on close_y.
+      int close_y_offset_tsr =
+          std::max(0, (close_button_resource->size().height() -
+                       divider_resource->size().height()) /
+                          2);
+      close_y = content_offset_y - std::abs(close_y_offset_tsr);
+    } else {
+      close_y = close_y_offset_mid;
+    }
+    int close_x =
+        is_rtl ? padding_left - close_max_width + close_width -
+                     close_button_padding
+               : width - padding_right - close_width + close_button_padding;
     if (foreground_) {
       close_y += original_y;
       close_x += original_x;
@@ -169,23 +268,32 @@ void TabHandleLayer::SetProperties(
   }
 }
 
-scoped_refptr<cc::Layer> TabHandleLayer::layer() {
+scoped_refptr<cc::slim::Layer> TabHandleLayer::layer() {
   return layer_;
 }
 
 TabHandleLayer::TabHandleLayer(LayerTitleCache* layer_title_cache)
     : layer_title_cache_(layer_title_cache),
-      layer_(cc::Layer::Create()),
-      close_button_(cc::UIResourceLayer::Create()),
-      decoration_tab_(cc::NinePatchLayer::Create()),
-      tab_outline_(cc::NinePatchLayer::Create()),
+      layer_(cc::slim::Layer::Create()),
+      tab_(cc::slim::Layer::Create()),
+      close_button_(cc::slim::UIResourceLayer::Create()),
+      start_divider_(cc::slim::UIResourceLayer::Create()),
+      end_divider_(cc::slim::UIResourceLayer::Create()),
+      decoration_tab_(cc::slim::NinePatchLayer::Create()),
+      tab_outline_(cc::slim::NinePatchLayer::Create()),
       brightness_(1.0f),
       foreground_(false) {
   decoration_tab_->SetIsDrawable(true);
-  tab_outline_->SetIsDrawable(true);
-  layer_->AddChild(decoration_tab_);
-  layer_->AddChild(tab_outline_);
-  layer_->AddChild(close_button_);
+
+  tab_->AddChild(decoration_tab_);
+  tab_->AddChild(tab_outline_);
+  tab_->AddChild(close_button_);
+
+  // The divider is added as a separate child so its opacity can be controlled
+  // separately from the other tab items.
+  layer_->AddChild(tab_);
+  layer_->AddChild(start_divider_);
+  layer_->AddChild(end_divider_);
 }
 
 TabHandleLayer::~TabHandleLayer() {

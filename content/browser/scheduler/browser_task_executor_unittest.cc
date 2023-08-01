@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,15 +9,16 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/test/bind.h"
 #include "base/test/mock_callback.h"
 #include "base/test/task_environment.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "content/browser/scheduler/browser_io_thread_delegate.h"
+#include "content/browser/scheduler/browser_task_priority.h"
 #include "content/browser/scheduler/browser_task_queues.h"
 #include "content/browser/scheduler/browser_ui_thread_scheduler.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -47,26 +48,12 @@ class BrowserTaskExecutorTest : public testing::Test {
 using StrictMockTask =
     testing::StrictMock<base::MockCallback<base::RepeatingCallback<void()>>>;
 
-TEST_F(BrowserTaskExecutorTest, RegisterExecutorForBothThreads) {
-  GetUIThreadTaskRunner({})->PostTask(
-      FROM_HERE, base::BindOnce([]() {
-        EXPECT_THAT(base::GetTaskExecutorForCurrentThread(), NotNull());
-      }));
-
-  GetIOThreadTaskRunner({})->PostTask(
-      FROM_HERE, base::BindOnce([]() {
-        EXPECT_THAT(base::GetTaskExecutorForCurrentThread(), NotNull());
-      }));
-
-  BrowserTaskExecutor::RunAllPendingTasksOnThreadForTesting(BrowserThread::UI);
-  BrowserTaskExecutor::RunAllPendingTasksOnThreadForTesting(BrowserThread::IO);
-}
-
 TEST_F(BrowserTaskExecutorTest, RunAllPendingTasksForTestingOnUI) {
   StrictMockTask task_1;
   StrictMockTask task_2;
   EXPECT_CALL(task_1, Run).WillOnce(testing::Invoke([&]() {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, task_2.Get());
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(FROM_HERE,
+                                                                task_2.Get());
   }));
 
   GetUIThreadTaskRunner({})->PostTask(FROM_HERE, task_1.Get());
@@ -123,7 +110,7 @@ TEST_F(BrowserTaskExecutorTest, RunAllPendingTasksForTestingOnIOIsReentrant) {
 TEST_F(BrowserTaskExecutorTest, GetTaskRunnerWithBrowserTaskTraits) {
   StrictMockTask task_1;
 
-  GetUIThreadTaskRunner({BrowserTaskType::kPreconnect})
+  GetUIThreadTaskRunner({BrowserTaskType::kUserInput})
       ->PostTask(FROM_HERE, task_1.Get());
 
   EXPECT_CALL(task_1, Run);
@@ -150,12 +137,11 @@ TEST_F(BrowserTaskTraitsMappingTest, BrowserTaskTraitsMapToProperPriorities) {
   EXPECT_EQ(BrowserTaskExecutor::GetQueueType({TaskPriority::USER_BLOCKING}),
             QueueType::kUserBlocking);
 
-  EXPECT_EQ(BrowserTaskExecutor::GetQueueType({BrowserTaskType::kBootstrap}),
-            QueueType::kBootstrap);
   EXPECT_EQ(BrowserTaskExecutor::GetQueueType({BrowserTaskType::kDefault}),
             QueueType::kUserBlocking);
-  EXPECT_EQ(BrowserTaskExecutor::GetQueueType({BrowserTaskType::kPreconnect}),
-            QueueType::kPreconnection);
+  EXPECT_EQ(BrowserTaskExecutor::GetQueueType(
+                {BrowserTaskType::kServiceWorkerStorageControlResponse}),
+            QueueType::kServiceWorkerStorageControlResponse);
 
   EXPECT_EQ(BrowserTaskExecutor::GetQueueType({}), QueueType::kUserBlocking);
 }
@@ -163,7 +149,7 @@ TEST_F(BrowserTaskTraitsMappingTest, BrowserTaskTraitsMapToProperPriorities) {
 TEST_F(BrowserTaskTraitsMappingTest,
        UIThreadTaskRunnerHasSamePriorityAsUIBlocking) {
   auto ui_blocking = GetUIThreadTaskRunner({TaskPriority::USER_BLOCKING});
-  auto thread_task_runner = base::ThreadTaskRunnerHandle::Get();
+  auto thread_task_runner = base::SingleThreadTaskRunner::GetCurrentDefault();
 
   std::vector<int> order;
   ui_blocking->PostTask(
@@ -187,6 +173,7 @@ class BrowserTaskExecutorWithCustomSchedulerTest : public testing::Test {
    public:
     TaskEnvironmentWithCustomScheduler()
         : base::test::TaskEnvironment(
+              internal::CreateBrowserTaskPrioritySettings(),
               SubclassCreatesDefaultTaskRunner{},
               base::test::TaskEnvironment::MainThreadType::UI,
               base::test::TaskEnvironment::TimeSource::MOCK_TIME) {
@@ -194,11 +181,10 @@ class BrowserTaskExecutorWithCustomSchedulerTest : public testing::Test {
           BrowserUIThreadScheduler::CreateForTesting(sequence_manager());
       DeferredInitFromSubclass(
           browser_ui_thread_scheduler->GetHandle()->GetBrowserTaskRunner(
-              QueueType::kDefault));
+              QueueType::kUserBlocking));
       BrowserTaskExecutor::CreateForTesting(
           std::move(browser_ui_thread_scheduler),
           BrowserIOThreadDelegate::CreateForTesting(sequence_manager()));
-      BrowserTaskExecutor::BindToUIThreadForTesting();
     }
   };
 
@@ -249,12 +235,10 @@ TEST_F(BrowserTaskExecutorWithCustomSchedulerTest,
   GetUIThreadTaskRunner({base::TaskPriority::BEST_EFFORT})
       ->PostDelayedTask(FROM_HERE, best_effort.Get(), base::Milliseconds(100));
   GetUIThreadTaskRunner({base::TaskPriority::BEST_EFFORT})
-      ->PostTask(FROM_HERE,
-
-                 best_effort.Get());
+      ->PostTask(FROM_HERE, best_effort.Get());
   task_environment_.RunUntilIdle();
 
-  BrowserTaskExecutor::EnableAllQueues();
+  BrowserTaskExecutor::OnStartupComplete();
   EXPECT_CALL(best_effort, Run).Times(4);
   task_environment_.FastForwardBy(base::Milliseconds(100));
 }

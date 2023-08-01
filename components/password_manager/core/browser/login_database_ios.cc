@@ -1,9 +1,10 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/password_manager/core/browser/login_database.h"
 
+#include <CoreFoundation/CoreFoundation.h>
 #import <Security/Security.h>
 #include <stddef.h>
 
@@ -11,6 +12,7 @@
 
 #include "base/base64.h"
 #include "base/logging.h"
+#include "base/mac/foundation_util.h"
 #include "base/mac/mac_logging.h"
 #include "base/mac/scoped_cftyperef.h"
 #include "base/strings/sys_string_conversions.h"
@@ -32,7 +34,7 @@ namespace password_manager {
 
 LoginDatabase::EncryptionResult LoginDatabase::EncryptedString(
     const std::u16string& plain_text,
-    std::string* cipher_text) const {
+    std::string* cipher_text) {
   if (plain_text.size() == 0) {
     *cipher_text = std::string();
     return ENCRYPTION_RESULT_SUCCESS;
@@ -61,7 +63,10 @@ LoginDatabase::EncryptionResult LoginDatabase::EncryptedString(
 
   OSStatus status = SecItemAdd(attributes, NULL);
   if (status != errSecSuccess) {
-    NOTREACHED() << "Unable to save password in keychain: " << status;
+    // TODO(crbug.com/1091121): This was a NOTREACHED() that would trigger when
+    // sync runs on a locked device. When the linked bug is resolved it may be
+    // possible to turn the LOG(ERROR) back into a NOTREACHED().
+    LOG(ERROR) << "Unable to save password in keychain: " << status;
     if (status == errSecDuplicateItem || status == errSecDecode)
       return ENCRYPTION_RESULT_ITEM_FAILURE;
     else
@@ -74,7 +79,7 @@ LoginDatabase::EncryptionResult LoginDatabase::EncryptedString(
 
 LoginDatabase::EncryptionResult LoginDatabase::DecryptedString(
     const std::string& cipher_text,
-    std::u16string* plain_text) const {
+    std::u16string* plain_text) {
   if (cipher_text.size() == 0) {
     *plain_text = std::u16string();
     return ENCRYPTION_RESULT_SUCCESS;
@@ -91,8 +96,8 @@ LoginDatabase::EncryptionResult LoginDatabase::DecryptedString(
   CFDictionarySetValue(query, kSecAttrAccount, item_ref);
   CFDictionarySetValue(query, kSecReturnData, kCFBooleanTrue);
 
-  CFDataRef data;
-  OSStatus status = SecItemCopyMatching(query, (CFTypeRef*)&data);
+  ScopedCFTypeRef<CFTypeRef> data_cftype;
+  OSStatus status = SecItemCopyMatching(query, data_cftype.InitializeInto());
   if (status != errSecSuccess) {
     OSSTATUS_LOG(INFO, status) << "Failed to retrieve password from keychain";
     if (status == errSecItemNotFound || status == errSecDecode)
@@ -101,10 +106,10 @@ LoginDatabase::EncryptionResult LoginDatabase::DecryptedString(
       return ENCRYPTION_RESULT_SERVICE_FAILURE;
   }
 
+  CFDataRef data = base::mac::CFCast<CFDataRef>(data_cftype);
   const size_t size = CFDataGetLength(data);
   std::unique_ptr<UInt8[]> buffer(new UInt8[size]);
   CFDataGetBytes(data, CFRangeMake(0, size), buffer.get());
-  CFRelease(data);
 
   *plain_text = base::UTF8ToUTF16(
       std::string(static_cast<char*>(static_cast<void*>(buffer.get())),

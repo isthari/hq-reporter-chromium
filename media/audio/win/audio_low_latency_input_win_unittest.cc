@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,9 +11,9 @@
 
 #include <memory>
 
-#include "base/bind.h"
 #include "base/environment.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
@@ -57,10 +57,11 @@ ACTION_P4(CheckCountAndPostQuitTask, count, limit, task_runner, quit_closure) {
 
 class MockAudioInputCallback : public AudioInputStream::AudioInputCallback {
  public:
-  MOCK_METHOD3(OnData,
+  MOCK_METHOD4(OnData,
                void(const AudioBus* src,
                     base::TimeTicks capture_time,
-                    double volume));
+                    double volume,
+                    const AudioGlitchInfo& glitch_info));
   MOCK_METHOD0(OnError, void());
 };
 
@@ -83,7 +84,8 @@ class FakeAudioInputCallback : public AudioInputStream::AudioInputCallback {
 
   void OnData(const AudioBus* src,
               base::TimeTicks capture_time,
-              double volume) override {
+              double volume,
+              const AudioGlitchInfo& glitch_info) override {
     EXPECT_GE(capture_time, base::TimeTicks());
     num_received_audio_frames_ += src->frames();
     data_event_.Signal();
@@ -136,7 +138,8 @@ class WriteToFileAudioSink : public AudioInputStream::AudioInputCallback {
   // AudioInputStream::AudioInputCallback implementation.
   void OnData(const AudioBus* src,
               base::TimeTicks capture_time,
-              double volume) override {
+              double volume,
+              const AudioGlitchInfo& glitch_info) override {
     const int num_samples = src->frames() * src->channels();
     auto interleaved = std::make_unique<int16_t[]>(num_samples);
     const int bytes_per_sample = sizeof(interleaved[0]);
@@ -415,7 +418,8 @@ TEST_F(WinAudioInputTest, WASAPIAudioInputStreamHistograms) {
   sink.WaitForData();
   ais->Stop();
   ais.Close();
-  histogram_tester.ExpectTotalCount("Media.Audio.Capture.Win.Glitches", 1);
+  histogram_tester.ExpectTotalCount("Media.Audio.Capture.EarlyGlitchDetected",
+                                    1);
 }
 
 // Test some additional calling sequences.
@@ -464,7 +468,7 @@ TEST_F(WinAudioInputTest, WASAPIAudioInputStreamTestPacketSizes) {
     // All should contain valid packets of the same size and a valid delay
     // estimate.
     base::RunLoop run_loop;
-    EXPECT_CALL(sink, OnData(NotNull(), _, _))
+    EXPECT_CALL(sink, OnData(NotNull(), _, _, _))
         .Times(AtLeast(10))
         .WillRepeatedly(CheckCountAndPostQuitTask(
             &count, 10, task_environment_.GetMainThreadTaskRunner(),
@@ -487,7 +491,7 @@ TEST_F(WinAudioInputTest, WASAPIAudioInputStreamTestPacketSizes) {
 
   {
     base::RunLoop run_loop;
-    EXPECT_CALL(sink, OnData(NotNull(), _, _))
+    EXPECT_CALL(sink, OnData(NotNull(), _, _, _))
         .Times(AtLeast(10))
         .WillRepeatedly(CheckCountAndPostQuitTask(
             &count, 10, task_environment_.GetMainThreadTaskRunner(),
@@ -506,7 +510,7 @@ TEST_F(WinAudioInputTest, WASAPIAudioInputStreamTestPacketSizes) {
 
   {
     base::RunLoop run_loop;
-    EXPECT_CALL(sink, OnData(NotNull(), _, _))
+    EXPECT_CALL(sink, OnData(NotNull(), _, _, _))
         .Times(AtLeast(10))
         .WillRepeatedly(CheckCountAndPostQuitTask(
             &count, 10, task_environment_.GetMainThreadTaskRunner(),
@@ -614,12 +618,12 @@ TEST_F(WinAudioInputTest, DISABLED_WASAPIAudioInputStreamResampleToFile) {
   struct TestData {
     const int rate;
     const int frames;
-    ChannelLayout layout;
+    ChannelLayoutConfig layout;
   } tests[] = {
-      {8000, 80, CHANNEL_LAYOUT_MONO},
-      {8000, 80, CHANNEL_LAYOUT_STEREO},
-      {44100, 441, CHANNEL_LAYOUT_MONO},
-      {44100, 1024, CHANNEL_LAYOUT_STEREO},
+      {8000, 80, media::ChannelLayoutConfig::Mono()},
+      {8000, 80, media::ChannelLayoutConfig::Stereo()},
+      {44100, 441, media::ChannelLayoutConfig::Mono()},
+      {44100, 1024, media::ChannelLayoutConfig::Stereo()},
   };
 
   for (const auto& test : tests) {

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,13 +11,14 @@
 #include "ash/components/arc/test/fake_app_instance.h"
 #include "base/path_service.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/browser/ash/arc/arc_util.h"
 #include "chrome/browser/ash/arc/session/arc_session_manager.h"
 #include "chrome/browser/ash/login/demo_mode/demo_session.h"
+#include "chrome/browser/ash/login/demo_mode/demo_setup_test_utils.h"
 #include "chrome/browser/extensions/extension_apitest.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/common/chrome_paths.h"
-#include "chromeos/dbus/session_manager/fake_session_manager_client.h"
+#include "chromeos/ash/components/dbus/session_manager/fake_session_manager_client.h"
 #include "content/public/test/browser_test.h"
 #include "extensions/common/switches.h"
 #include "extensions/test/extension_test_message_listener.h"
@@ -54,8 +55,8 @@ class ArcAppsPrivateApiTest : public extensions::ExtensionApiTest {
     extensions::ExtensionApiTest::SetUpInProcessBrowserTestFixture();
     arc::ArcSessionManager::SetUiEnabledForTesting(false);
     // SessionManagerClient will be destroyed in ChromeBrowserMain.
-    chromeos::SessionManagerClient::InitializeFakeInMemory();
-    chromeos::FakeSessionManagerClient::Get()->set_arc_available(true);
+    ash::SessionManagerClient::InitializeFakeInMemory();
+    ash::FakeSessionManagerClient::Get()->set_arc_available(true);
   }
 
   void SetUpOnMainThread() override {
@@ -128,7 +129,7 @@ IN_PROC_BROWSER_TEST_F(ArcAppsPrivateApiTest, OnInstalled) {
   // newly installed app.
   SetCustomArg("Package_0");
   extensions::ResultCatcher catcher;
-  ExtensionTestMessageListener ready_listener("ready", false);
+  ExtensionTestMessageListener ready_listener("ready");
 
   base::FilePath path =
       test_data_dir_.AppendASCII("arc_app_launcher/install_event");
@@ -179,8 +180,7 @@ IN_PROC_BROWSER_TEST_F(ArcAppsPrivateApiTest,
 
 IN_PROC_BROWSER_TEST_F(ArcAppsPrivateApiTest, DemoModeAppLaunchSourceReported) {
   // Set Demo mode
-  ash::DemoSession::SetDemoConfigForTesting(
-      ash::DemoSession::DemoModeConfig::kOnline);
+  ash::test::LockDemoDeviceInstallAttributes();
   EXPECT_TRUE(ash::DemoSession::IsDeviceInDemoMode());
 
   base::HistogramTester histogram_tester;

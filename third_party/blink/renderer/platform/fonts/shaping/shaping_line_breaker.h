@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -102,6 +102,10 @@ class PLATFORM_EXPORT ShapingLineBreaker final {
                      result_out);
   }
 
+  scoped_refptr<const ShapeResultView> ShapeLineAt(unsigned start,
+                                                   unsigned end,
+                                                   unsigned options);
+
   // Disable breaking at soft hyphens (U+00AD).
   bool IsSoftHyphenEnabled() const { return is_soft_hyphen_enabled_; }
   void DisableSoftHyphen() { is_soft_hyphen_enabled_ = false; }
@@ -114,6 +118,7 @@ class PLATFORM_EXPORT ShapingLineBreaker final {
     STACK_ALLOCATED();
 
    public:
+    BreakOpportunity() = default;
     BreakOpportunity(unsigned new_offset, bool hyphenated)
         : offset(new_offset),
           is_hyphenated(hyphenated) {}
@@ -122,9 +127,9 @@ class PLATFORM_EXPORT ShapingLineBreaker final {
           non_hangable_run_end(run_end),
           is_hyphenated(hyphenated) {}
 
-    unsigned offset;
+    unsigned offset = 0;
     absl::optional<unsigned> non_hangable_run_end;
-    bool is_hyphenated;
+    bool is_hyphenated = false;
   };
   BreakOpportunity PreviousBreakOpportunity(unsigned offset,
                                             unsigned start) const;
@@ -146,6 +151,13 @@ class PLATFORM_EXPORT ShapingLineBreaker final {
                                                   unsigned first_safe,
                                                   unsigned range_start,
                                                   unsigned range_end);
+  scoped_refptr<const ShapeResultView> ConcatShapeResults(
+      unsigned start,
+      unsigned end,
+      unsigned first_safe,
+      unsigned last_safe,
+      scoped_refptr<const ShapeResult> line_start_result,
+      scoped_refptr<const ShapeResult> line_end_result);
 
   void SetBreakOffset(unsigned break_offset, const String&, Result*);
   void SetBreakOffset(const BreakOpportunity&, const String&, Result*);

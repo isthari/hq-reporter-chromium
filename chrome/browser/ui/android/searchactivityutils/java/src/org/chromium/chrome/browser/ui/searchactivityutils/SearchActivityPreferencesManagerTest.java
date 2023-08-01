@@ -1,13 +1,13 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.ui.searchactivityutils;
 
-import static org.mockito.Mockito.anyObject;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -21,6 +21,7 @@ import static org.chromium.chrome.browser.preferences.ChromePreferenceKeys.SEARC
 
 import androidx.test.filters.SmallTest;
 
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -28,13 +29,13 @@ import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
-import org.chromium.base.Consumer;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.test.BaseJUnit4ClassRunner;
 import org.chromium.base.test.UiThreadTest;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.chrome.browser.preferences.SharedPreferencesManager;
+import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.search_engines.TemplateUrlServiceFactory;
 import org.chromium.chrome.browser.ui.searchactivityutils.SearchActivityPreferencesManager.SearchActivityPreferences;
 import org.chromium.components.search_engines.TemplateUrl;
@@ -46,6 +47,7 @@ import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 /**
  * Tests for {@link SearchActivityPreferencesManager}.
@@ -62,6 +64,9 @@ public class SearchActivityPreferencesManagerTest {
     @Mock
     private TemplateUrl mTemplateUrlMock;
 
+    @Mock
+    private Profile mProfile;
+
     private LoadListener mTemplateUrlServiceLoadListener;
     private TemplateUrlServiceObserver mTemplateUrlServiceObserver;
 
@@ -71,20 +76,21 @@ public class SearchActivityPreferencesManagerTest {
         NativeLibraryTestUtils.loadNativeLibraryNoBrowserProcess();
         TemplateUrlServiceFactory.setInstanceForTesting(mTemplateUrlServiceMock);
         LibraryLoader.setLibraryLoaderForTesting(mLibraryLoaderMock);
+        Profile.setLastUsedProfileForTesting(mProfile);
 
         doAnswer(invocation -> {
             mTemplateUrlServiceLoadListener = (LoadListener) invocation.getArguments()[0];
             return null;
         })
                 .when(mTemplateUrlServiceMock)
-                .registerLoadListener(anyObject());
+                .registerLoadListener(any());
 
         doAnswer(invocation -> {
             mTemplateUrlServiceObserver = (TemplateUrlServiceObserver) invocation.getArguments()[0];
             return null;
         })
                 .when(mTemplateUrlServiceMock)
-                .addObserver(anyObject());
+                .addObserver(any());
 
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             SearchActivityPreferencesManager.resetForTesting();
@@ -95,6 +101,11 @@ public class SearchActivityPreferencesManagerTest {
         // Make sure there were no premature attempts to register observers.
         Assert.assertNull(mTemplateUrlServiceLoadListener);
         Assert.assertNull(mTemplateUrlServiceObserver);
+    }
+
+    @After
+    public void tearDown() {
+        Profile.setLastUsedProfileForTesting(null);
     }
 
     @Test
@@ -311,8 +322,8 @@ public class SearchActivityPreferencesManagerTest {
         // Signal the Manager that Native Libraries are ready.
         doReturn(true).when(mLibraryLoaderMock).isInitialized();
         SearchActivityPreferencesManager.onNativeLibraryReady();
-        verify(mTemplateUrlServiceMock, times(1)).registerLoadListener(anyObject());
-        verify(mTemplateUrlServiceMock, times(1)).addObserver(anyObject());
+        verify(mTemplateUrlServiceMock, times(1)).registerLoadListener(any());
+        verify(mTemplateUrlServiceMock, times(1)).addObserver(any());
         Assert.assertNotNull(mTemplateUrlServiceLoadListener);
         Assert.assertNotNull(mTemplateUrlServiceObserver);
         reset(mTemplateUrlServiceMock);

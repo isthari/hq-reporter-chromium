@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
 #include "net/base/net_errors.h"
+#include "net/http/http_response_headers.h"
 #include "net/http/http_util.h"
 #include "third_party/blink/public/common/user_agent/user_agent_metadata.h"
 #include "third_party/blink/public/mojom/loader/referrer.mojom.h"
@@ -77,6 +78,13 @@ ScopedJavaLocalRef<jobjectArray> NavigationImpl::GetResponseHeaders(
   return base::android::ToJavaArrayOfStrings(env, jni_headers);
 }
 
+jboolean NavigationImpl::GetIsConsentingContent(JNIEnv* env) {
+  if (GetState() != NavigationState::kComplete) {
+    return false;
+  }
+  return is_consenting_content_;
+}
+
 jboolean NavigationImpl::SetRequestHeader(
     JNIEnv* env,
     const base::android::JavaParamRef<jstring>& name,
@@ -138,6 +146,10 @@ jint NavigationImpl::GetNavigationEntryOffset(JNIEnv* env) {
   return GetNavigationEntryOffset();
 }
 
+jboolean NavigationImpl::WasFetchedFromCache(JNIEnv* env) {
+  return WasFetchedFromCache();
+}
+
 void NavigationImpl::SetResponse(
     std::unique_ptr<embedder_support::WebResourceResponse> response) {
   response_ = std::move(response);
@@ -181,6 +193,10 @@ int NavigationImpl::GetNavigationEntryOffset() {
   return navigation_handle_->GetNavigationEntryOffset();
 }
 
+bool NavigationImpl::WasFetchedFromCache() {
+  return navigation_handle_->WasResponseCached();
+}
+
 GURL NavigationImpl::GetURL() {
   return navigation_handle_->GetURL();
 }
@@ -207,6 +223,14 @@ int NavigationImpl::GetHttpStatusCode() {
 
 const net::HttpResponseHeaders* NavigationImpl::GetResponseHeaders() {
   return navigation_handle_->GetResponseHeaders();
+}
+
+std::string NavigationImpl::GetNormalizedHeader(const std::string& name) {
+  std::string header_value;
+  if (GetResponseHeaders()) {
+    GetResponseHeaders()->GetNormalizedHeader(name, &header_value);
+  }
+  return header_value;
 }
 
 bool NavigationImpl::IsSameDocument() {

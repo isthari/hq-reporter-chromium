@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <aura-shell-client-protocol.h>
 #include <xdg-shell-client-protocol.h>
-#include <xdg-shell-unstable-v6-client-protocol.h>
 
 #include <memory>
 
@@ -111,6 +110,18 @@ uint32_t TranslateConstraintAdjustment(
   return res;
 }
 
+zaura_popup_decoration_type TranslateDecorationType(
+    ui::PlatformWindowShadowType platformWindowShadowType) {
+  switch (platformWindowShadowType) {
+    case ui::PlatformWindowShadowType::kNone:
+      return ZAURA_POPUP_DECORATION_TYPE_NONE;
+    case ui::PlatformWindowShadowType::kDefault:
+      return ZAURA_POPUP_DECORATION_TYPE_NORMAL;
+    case ui::PlatformWindowShadowType::kDrop:
+      return ZAURA_POPUP_DECORATION_TYPE_SHADOW;
+  }
+}
+
 }  // namespace
 
 XDGPopupWrapperImpl::XDGPopupWrapperImpl(
@@ -163,7 +174,7 @@ bool XDGPopupWrapperImpl::Initialize(const ShellPopupParams& params) {
       &XDGPopupWrapperImpl::Repositioned,
   };
 
-  auto positioner = CreatePositioner(wayland_window_->parent_window());
+  auto positioner = CreatePositioner();
   if (!positioner)
     return false;
 
@@ -172,6 +183,7 @@ bool XDGPopupWrapperImpl::Initialize(const ShellPopupParams& params) {
                                          positioner.get()));
   if (!xdg_popup_)
     return false;
+  connection_->window_manager()->NotifyWindowRoleAssigned(wayland_window_);
 
   if (connection_->zaura_shell()) {
     uint32_t version =
@@ -183,6 +195,10 @@ bool XDGPopupWrapperImpl::Initialize(const ShellPopupParams& params) {
           version >=
               ZAURA_POPUP_SURFACE_SUBMISSION_IN_PIXEL_COORDINATES_SINCE_VERSION) {
         zaura_popup_surface_submission_in_pixel_coordinates(aura_popup_.get());
+      }
+      if (version >= ZAURA_POPUP_SET_MENU_SINCE_VERSION &&
+          wayland_window_->type() == PlatformWindowType::kMenu) {
+        zaura_popup_set_menu(aura_popup_.get());
       }
     }
   }
@@ -214,7 +230,7 @@ bool XDGPopupWrapperImpl::SetBounds(const gfx::Rect& new_bounds) {
   params_.bounds = new_bounds;
 
   // Create a new positioner with new bounds.
-  auto positioner = CreatePositioner(wayland_window_->parent_window());
+  auto positioner = CreatePositioner();
   if (!positioner)
     return false;
 
@@ -224,7 +240,7 @@ bool XDGPopupWrapperImpl::SetBounds(const gfx::Rect& new_bounds) {
   xdg_popup_reposition(xdg_popup_.get(), positioner.get(),
                        ++next_reposition_token_);
 
-  connection_->ScheduleFlush();
+  connection_->Flush();
   return true;
 }
 
@@ -238,8 +254,31 @@ void XDGPopupWrapperImpl::Grab(uint32_t serial) {
   xdg_popup_grab(xdg_popup_.get(), connection_->seat()->wl_object(), serial);
 }
 
-wl::Object<xdg_positioner> XDGPopupWrapperImpl::CreatePositioner(
-    WaylandWindow* parent_window) {
+bool XDGPopupWrapperImpl::SupportsDecoration() {
+  if (!aura_popup_)
+    return false;
+  uint32_t version = zaura_popup_get_version(aura_popup_.get());
+  return version >= ZAURA_POPUP_SET_DECORATION_SINCE_VERSION;
+}
+
+void XDGPopupWrapperImpl::Decorate(ui::PlatformWindowShadowType shadow_type) {
+  zaura_popup_set_decoration(aura_popup_.get(),
+                             TranslateDecorationType(shadow_type));
+}
+
+void XDGPopupWrapperImpl::SetScaleFactor(float scale_factor) {
+  if (aura_popup_ && zaura_popup_get_version(aura_popup_.get()) >=
+                         ZAURA_POPUP_SET_SCALE_FACTOR_SINCE_VERSION) {
+    uint32_t value = *reinterpret_cast<uint32_t*>(&scale_factor);
+    zaura_popup_set_scale_factor(aura_popup_.get(), value);
+  }
+}
+
+XDGPopupWrapperImpl* XDGPopupWrapperImpl::AsXDGPopupWrapper() {
+  return this;
+}
+
+wl::Object<xdg_positioner> XDGPopupWrapperImpl::CreatePositioner() {
   wl::Object<xdg_positioner> positioner(
       xdg_wm_base_create_positioner(connection_->shell()));
   if (!positioner)
@@ -252,9 +291,13 @@ wl::Object<xdg_positioner> XDGPopupWrapperImpl::CreatePositioner(
   FillAnchorData(params_, &anchor_rect, &anchor_position, &anchor_gravity,
                  &constraint_adjustment);
 
+  CHECK(anchor_rect.width() > 0 && anchor_rect.height() > 0)
+      << anchor_rect.ToString();
   xdg_positioner_set_anchor_rect(positioner.get(), anchor_rect.x(),
                                  anchor_rect.y(), anchor_rect.width(),
                                  anchor_rect.height());
+  CHECK(params_.bounds.width() > 0 && params_.bounds.height() > 0)
+      << params_.bounds.ToString();
   xdg_positioner_set_size(positioner.get(), params_.bounds.width(),
                           params_.bounds.height());
   xdg_positioner_set_anchor(positioner.get(), TranslateAnchor(anchor_position));

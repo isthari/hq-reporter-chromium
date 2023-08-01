@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,12 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <algorithm>
 #include <limits>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/numerics/safe_conversions.h"
 #include "build/build_config.h"
@@ -105,9 +106,21 @@ int CalculateSerializedSizeAndTurnOnMaskBit(
   return static_cast<int>(total_size);
 }
 
-base::Value NetLogBufferSizeParam(int buffer_size) {
-  base::Value dict(base::Value::Type::DICTIONARY);
-  dict.SetIntKey("read_buffer_size_in_bytes", buffer_size);
+base::Value::Dict NetLogBufferSizeParam(int buffer_size) {
+  base::Value::Dict dict;
+  dict.Set("read_buffer_size_in_bytes", buffer_size);
+  return dict;
+}
+
+base::Value::Dict NetLogFrameHeaderParam(const WebSocketFrameHeader* header) {
+  base::Value::Dict dict;
+  dict.Set("final", header->final);
+  dict.Set("reserved1", header->reserved1);
+  dict.Set("reserved2", header->reserved2);
+  dict.Set("reserved3", header->reserved3);
+  dict.Set("opcode", header->opcode);
+  dict.Set("masked", header->masked);
+  dict.Set("payload_length", static_cast<double>(header->payload_length));
   return dict;
 }
 
@@ -196,6 +209,8 @@ int WebSocketBasicStream::WriteFrames(
   char* dest = combined_buffer->data();
   int remaining_size = total_size;
   for (const auto& frame : *frames) {
+    net_log_.AddEvent(net::NetLogEventType::WEBSOCKET_SENT_FRAME_HEADER,
+                      [&] { return NetLogFrameHeaderParam(&frame->header); });
     WebSocketMaskingKey mask = generate_websocket_masking_key_();
     int result =
         WriteWebSocketFrameHeader(frame->header, &mask, dest, remaining_size);
@@ -233,6 +248,10 @@ std::string WebSocketBasicStream::GetSubProtocol() const {
 }
 
 std::string WebSocketBasicStream::GetExtensions() const { return extensions_; }
+
+const NetLogWithSource& WebSocketBasicStream::GetNetLogWithSource() const {
+  return net_log_;
+}
 
 /*static*/
 std::unique_ptr<WebSocketBasicStream>
@@ -374,6 +393,10 @@ int WebSocketBasicStream::ConvertChunksToFrames(
     auto& chunk = (*frame_chunks)[i];
     DCHECK(chunk == frame_chunks->back() || chunk->final_chunk)
         << "Only last chunk can have |final_chunk| set to be false.";
+    if (const auto& header = chunk->header) {
+      net_log_.AddEvent(net::NetLogEventType::WEBSOCKET_RECV_FRAME_HEADER,
+                        [&] { return NetLogFrameHeaderParam(header.get()); });
+    }
     std::unique_ptr<WebSocketFrame> frame;
     int result = ConvertChunkToFrame(std::move(chunk), &frame);
     if (result != OK)

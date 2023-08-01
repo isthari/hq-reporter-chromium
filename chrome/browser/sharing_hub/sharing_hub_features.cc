@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -37,22 +37,39 @@ bool ScreenshotsDisabledByPolicy(content::BrowserContext* context) {
 }  // namespace
 
 bool SharingHubOmniboxEnabled(content::BrowserContext* context) {
+#if BUILDFLAG(IS_CHROMEOS)
+  return false;
+#else
   Profile* profile = Profile::FromBrowserContext(context);
   if (!profile)
     return false;
-
   return !SharingHubDisabledByPolicy(context) &&
          !profile->IsIncognitoProfile() && !profile->IsGuestSession();
+#endif
 }
 
 bool DesktopScreenshotsFeatureEnabled(content::BrowserContext* context) {
-  return (base::FeatureList::IsEnabled(kDesktopScreenshots) ||
-          share::AreUpcomingSharingFeaturesEnabled()) &&
+  return base::FeatureList::IsEnabled(kDesktopScreenshots) &&
          !ScreenshotsDisabledByPolicy(context);
 }
 
-const base::Feature kDesktopScreenshots{"DesktopScreenshots",
-                                        base::FEATURE_DISABLED_BY_DEFAULT};
+bool SharingIsDisabledByPolicy(content::BrowserContext* context) {
+  // TODO(ellyjones): should we separate out sharing hub from generic sharing?
+  // Or should we rename the policy to be more general?
+  return SharingHubDisabledByPolicy(context);
+}
+
+bool HasPageAction(content::BrowserContext* context, bool is_popup_mode) {
+#if BUILDFLAG(IS_CHROMEOS)
+  return true;
+#else
+  return (SharingHubOmniboxEnabled(context) && !is_popup_mode);
+#endif
+}
+
+BASE_FEATURE(kDesktopScreenshots,
+             "DesktopScreenshots",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
 #if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS)
 void RegisterProfilePrefs(PrefRegistrySimple* registry) {

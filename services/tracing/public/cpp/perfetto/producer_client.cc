@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,13 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/auto_reset.h"
+#include "base/containers/adapters.h"
+#include "base/containers/contains.h"
+#include "base/functional/bind.h"
+#include "base/memory/unsafe_shared_memory_region.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/process/process.h"
-#include "base/task/post_task.h"
 #include "base/tracing/tracing_tls.h"
 #include "build/build_config.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -47,12 +50,12 @@ void ProducerClient::Connect(
     return;
   }
 
-  mojo::ScopedSharedBufferHandle shm;
+  base::UnsafeSharedMemoryRegion shm;
   {
     base::AutoLock lock(lock_);
-    shm = shared_memory_->Clone();
+    shm = shared_memory_->CloneRegion();
   }
-  CHECK(shm.is_valid());
+  CHECK(shm.IsValid());
 
   mojo::PendingRemote<mojom::ProducerClient> client;
   auto client_receiver = client.InitWithNewPipeAndPassReceiver();
@@ -85,6 +88,10 @@ void ProducerClient::BindInProcessSharedMemoryArbiter(
     arbiter = shared_memory_arbiter_.get();
   }
   arbiter->BindToProducerEndpoint(producer_endpoint, task_runner);
+}
+
+void ProducerClient::Disconnect() {
+  LOG(DFATAL) << "Not implemented yet";
 }
 
 void ProducerClient::BindStartupTargetBuffer(
@@ -266,8 +273,7 @@ void ProducerClient::Flush(uint64_t flush_request_id,
 
   // N^2, optimize once there's more than a couple of possible data sources.
   for (auto* data_source : PerfettoTracedProcess::Get()->data_sources()) {
-    if (std::find(data_source_ids.begin(), data_source_ids.end(),
-                  data_source->data_source_id()) != data_source_ids.end()) {
+    if (base::Contains(data_source_ids, data_source->data_source_id())) {
       data_source->Flush(base::BindRepeating(
           [](base::WeakPtr<ProducerClient> weak_ptr, uint64_t id) {
             if (weak_ptr) {
@@ -303,9 +309,9 @@ void ProducerClient::CommitData(const perfetto::CommitDataRequest& commit,
   // We need to make sure the CommitData IPC is sent off without triggering any
   // trace events, as that could stall waiting for SMB chunks to be freed up
   // which requires the tracing service to receive the IPC.
-  if (!base::tracing::GetThreadIsInTraceEventTLS()->Get()) {
-    base::tracing::AutoThreadLocalBoolean thread_is_in_trace_event(
-        base::tracing::GetThreadIsInTraceEventTLS());
+  if (!*base::tracing::GetThreadIsInTraceEvent()) {
+    const base::AutoReset<bool> resetter(
+        base::tracing::GetThreadIsInTraceEvent(), true);
 
     producer_host_->CommitData(commit, std::move(commit_callback));
     return;
@@ -399,12 +405,12 @@ bool ProducerClient::InitSharedMemoryIfNeeded() {
   // The shared memory buffer is always provided by the ProducerClient, but only
   // created upon the first tracing request.
   shared_memory_ =
-      std::make_unique<MojoSharedMemory>(GetPreferredSmbSizeBytes());
+      std::make_unique<ChromeBaseSharedMemory>(GetPreferredSmbSizeBytes());
 
-  // TODO(crbug/1057614): We see shared memory buffer creation fail on windows
+  // TODO(crbug/1057614): We see shared memory region creation fail on windows
   // in the field. Investigate why this can happen. Gather statistics on
   // failure rates.
-  bool valid = shared_memory_->shared_buffer().is_valid();
+  bool valid = shared_memory_->region().IsValid();
   base::UmaHistogramBoolean(kSharedBufferIsValidMetricName, valid);
 
   if (!valid) {
@@ -452,8 +458,8 @@ void ProducerClient::BindClientAndHostPipesOnSequence(
   // the MetadataSource first to ensure that it's also ready. Once the
   // Perfetto Observer interface is ready, we can remove this.
   const auto& data_sources = PerfettoTracedProcess::Get()->data_sources();
-  for (auto it = data_sources.crbegin(); it != data_sources.crend(); ++it) {
-    NewDataSourceAdded(*it);
+  for (const auto* data_source : base::Reversed(data_sources)) {
+    NewDataSourceAdded(data_source);
   }
 }
 

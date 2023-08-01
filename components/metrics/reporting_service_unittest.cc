@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,11 +10,11 @@
 #include <memory>
 #include <string>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/hash/sha1.h"
 #include "base/strings/string_util.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/test_simple_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "components/metrics/log_store.h"
 #include "components/metrics/test/test_metrics_service_client.h"
 #include "components/prefs/testing_pref_service.h"
@@ -65,14 +65,14 @@ class TestLogStore : public LogStore {
       staged_log_hash_ = base::SHA1HashString(logs_.front().log);
     }
   }
-  void DiscardStagedLog() override {
+  void DiscardStagedLog(base::StringPiece reason) override {
     if (!has_staged_log())
       return;
     logs_.pop_front();
     staged_log_hash_.clear();
   }
   void MarkStagedLogAsSent() override {}
-  void TrimAndPersistUnsentLogs() override {}
+  void TrimAndPersistUnsentLogs(bool overwrite_in_memory_store) override {}
   void LoadPersistedUnsentLogs() override {}
 
  private:
@@ -83,16 +83,20 @@ class TestLogStore : public LogStore {
 class TestReportingService : public ReportingService {
  public:
   TestReportingService(MetricsServiceClient* client, PrefService* local_state)
-      : ReportingService(client, local_state, 100) {
+      : ReportingService(client,
+                         local_state,
+                         100,
+                         /*logs_event_manager=*/nullptr) {
     Initialize();
   }
 
   TestReportingService(const TestReportingService&) = delete;
   TestReportingService& operator=(const TestReportingService&) = delete;
 
-  ~TestReportingService() override {}
+  ~TestReportingService() override = default;
 
   void AddLog(const TestLog& log) { log_store_.AddLog(log); }
+  bool HasUnsentLogs() { return log_store_.has_unsent_logs(); }
 
  private:
   // ReportingService:
@@ -111,7 +115,7 @@ class ReportingServiceTest : public testing::Test {
  public:
   ReportingServiceTest()
       : task_runner_(new base::TestSimpleTaskRunner),
-        task_runner_handle_(task_runner_) {
+        task_runner_current_default_handle_(task_runner_) {
     ReportingService::RegisterPrefs(testing_local_state_.registry());
   }
 
@@ -124,7 +128,8 @@ class ReportingServiceTest : public testing::Test {
 
  protected:
   scoped_refptr<base::TestSimpleTaskRunner> task_runner_;
-  base::ThreadTaskRunnerHandle task_runner_handle_;
+  base::SingleThreadTaskRunner::CurrentDefaultHandle
+      task_runner_current_default_handle_;
   TestMetricsServiceClient client_;
 
  private:
@@ -140,7 +145,6 @@ TEST_F(ReportingServiceTest, BasicTest) {
 
   service.EnableReporting();
   task_runner_->RunPendingTasks();
-  client_.uploader()->is_uploading();
   EXPECT_TRUE(client_.uploader()->is_uploading());
   EXPECT_EQ(1, client_.uploader()->reporting_info().attempt_count());
   EXPECT_FALSE(client_.uploader()->reporting_info().has_last_response_code());
@@ -197,6 +201,33 @@ TEST_F(ReportingServiceTest, UserIdLogsNotUploadedIfUserNotConsented) {
   // disabled. |client_.uploader()| should be nullptr since it is lazily
   // created when a log is to be uploaded for the first time.
   EXPECT_EQ(client_.uploader(), nullptr);
+}
+
+TEST_F(ReportingServiceTest, ForceDiscard) {
+  TestReportingService service(&client_, GetLocalState());
+  service.AddLog(TestLog("log1"));
+
+  service.EnableReporting();
+
+  // Simulate the server returning a 500 error, which indicates that the server
+  // is unhealthy.
+  task_runner_->RunPendingTasks();
+  EXPECT_TRUE(client_.uploader()->is_uploading());
+  client_.uploader()->CompleteUpload(500);
+  task_runner_->RunPendingTasks();
+  // Verify that the log is not discarded so that it can be re-sent later.
+  EXPECT_TRUE(service.HasUnsentLogs());
+  EXPECT_TRUE(client_.uploader()->is_uploading());
+
+  // Simulate the server returning a 500 error again, but this time, with
+  // |force_discard| set to true.
+  client_.uploader()->CompleteUpload(500, /*force_discard=*/true);
+  task_runner_->RunPendingTasks();
+  // Verify that the log was discarded, and that |service| is not uploading
+  // anymore since there are no more logs.
+  EXPECT_FALSE(service.HasUnsentLogs());
+  EXPECT_EQ(0U, task_runner_->NumPendingTasks());
+  EXPECT_FALSE(client_.uploader()->is_uploading());
 }
 
 }  // namespace metrics

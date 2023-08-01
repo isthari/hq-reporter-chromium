@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,21 +12,10 @@ bool ForceStartupSigninPromo() {
   return base::FeatureList::IsEnabled(switches::kForceStartupSigninPromo);
 }
 
-bool ForceDisableExtendedSyncPromos() {
-  return base::FeatureList::IsEnabled(
-      switches::kForceDisableExtendedSyncPromos);
-}
-
 const char kDelayThresholdMinutesToUpdateGaiaCookie[] =
     "minutes-delay-to-restore-gaia-cookies-if-deleted";
 
 const char kWaitThresholdMillisecondsForCapabilitiesApi[] =
     "wait-threshold-milliseconds-for-capabilities-api";
-
-const base::Feature kFREMobileIdentityConsistency{
-    "FREMobileIdentityConsistency", base::FEATURE_DISABLED_BY_DEFAULT};
-
-const base::Feature kEnableUnicornAccountSupport{
-    "EnableUnicornAccountSupport", base::FEATURE_DISABLED_BY_DEFAULT};
 
 }  // namespace signin

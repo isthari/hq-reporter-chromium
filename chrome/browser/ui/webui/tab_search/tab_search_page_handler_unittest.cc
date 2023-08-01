@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/test/bind.h"
-#include "base/test/scoped_feature_list.h"
 #include "base/timer/mock_timer.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -15,8 +14,11 @@
 #include "chrome/browser/sessions/tab_restore_service_factory.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/tabs/tab_enums.h"
 #include "chrome/browser/ui/tabs/tab_utils.h"
 #include "chrome/browser/ui/ui_features.h"
+#include "chrome/browser/ui/webui/metrics_reporter/metrics_reporter.h"
+#include "chrome/browser/ui/webui/metrics_reporter/mock_metrics_reporter.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "chrome/test/base/test_browser_window.h"
 #include "chrome/test/base/testing_profile_manager.h"
@@ -60,9 +62,9 @@ class MockPage : public tab_search::mojom::Page {
   }
   mojo::Receiver<tab_search::mojom::Page> receiver_{this};
 
-  MOCK_METHOD1(TabsChanged, void(tab_search::mojom::ProfileDataPtr));
-  MOCK_METHOD1(TabUpdated, void(tab_search::mojom::TabUpdateInfoPtr));
-  MOCK_METHOD1(TabsRemoved, void(tab_search::mojom::TabsRemovedInfoPtr));
+  MOCK_METHOD(void, TabsChanged, (tab_search::mojom::ProfileDataPtr));
+  MOCK_METHOD(void, TabUpdated, (tab_search::mojom::TabUpdateInfoPtr));
+  MOCK_METHOD(void, TabsRemoved, (tab_search::mojom::TabsRemovedInfoPtr));
 };
 
 void ExpectNewTab(const tab_search::mojom::Tab* tab,
@@ -108,7 +110,8 @@ class TestTabSearchPageHandler : public TabSearchPageHandler {
             mojo::PendingReceiver<tab_search::mojom::PageHandler>(),
             std::move(page),
             web_ui,
-            webui_controller) {
+            webui_controller,
+            &metrics_reporter_) {
     mock_debounce_timer_ = new base::MockRetainingOneShotTimer();
     SetTimerForTesting(base::WrapUnique(mock_debounce_timer_.get()));
   }
@@ -118,6 +121,7 @@ class TestTabSearchPageHandler : public TabSearchPageHandler {
 
  private:
   raw_ptr<base::MockRetainingOneShotTimer> mock_debounce_timer_;
+  testing::NiceMock<MockMetricsReporter> metrics_reporter_;
 };
 
 class TabSearchPageHandlerTest : public BrowserWithTestWindowTest {
@@ -128,7 +132,7 @@ class TabSearchPageHandlerTest : public BrowserWithTestWindowTest {
         content::WebContents::CreateParams(profile()));
     web_ui_.set_web_contents(web_contents_.get());
     profile2_ = profile_manager()->CreateTestingProfile(
-        "testing_profile2", nullptr, std::u16string(), 0, std::string(),
+        "testing_profile2", nullptr, std::u16string(), 0,
         GetTestingFactories());
     browser2_ = CreateTestBrowser(profile1(), false);
     browser3_ = CreateTestBrowser(
@@ -303,6 +307,8 @@ TEST_F(TabSearchPageHandlerTest, GetTabs) {
 }
 
 TEST_F(TabSearchPageHandlerTest, TabsAndGroups) {
+  ASSERT_TRUE(browser()->tab_strip_model()->SupportsTabGroups());
+
   TabRestoreServiceFactory::GetInstance()->SetTestingFactory(
       profile(),
       base::BindRepeating(&TabSearchPageHandlerTest::GetTabRestoreService));
@@ -374,8 +380,6 @@ TEST_F(TabSearchPageHandlerTest, TabsAndGroups) {
 }
 
 TEST_F(TabSearchPageHandlerTest, MediaTabsTest) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(features::kTabSearchMediaTabs);
   std::unique_ptr<content::WebContents> test_web_contents(
       content::WebContentsTester::CreateTestWebContents(
           content::WebContents::CreateParams(profile())));
@@ -399,6 +403,8 @@ TEST_F(TabSearchPageHandlerTest, MediaTabsTest) {
 }
 
 TEST_F(TabSearchPageHandlerTest, RecentlyClosedTabGroup) {
+  ASSERT_TRUE(browser()->tab_strip_model()->SupportsTabGroups());
+
   TabRestoreServiceFactory::GetInstance()->SetTestingFactory(
       profile(),
       base::BindRepeating(&TabSearchPageHandlerTest::GetTabRestoreService));
@@ -456,6 +462,8 @@ TEST_F(TabSearchPageHandlerTest, RecentlyClosedTabGroup) {
 }
 
 TEST_F(TabSearchPageHandlerTest, RecentlyClosedWindowWithGroupTabs) {
+  ASSERT_TRUE(browser()->tab_strip_model()->SupportsTabGroups());
+
   TabRestoreServiceFactory::GetInstance()->SetTestingFactory(
       profile(),
       base::BindRepeating(&TabSearchPageHandlerTest::GetTabRestoreService));
@@ -536,7 +544,7 @@ TEST_F(TabSearchPageHandlerTest, TabsChanged) {
   // Close a tab in browser 1.
   ASSERT_FALSE(IsTimerRunning());
   browser1()->tab_strip_model()->CloseWebContentsAt(
-      0, TabStripModel::CLOSE_CREATE_HISTORICAL_TAB);
+      0, TabCloseTypes::CLOSE_CREATE_HISTORICAL_TAB);
   ASSERT_FALSE(IsTimerRunning());
 }
 
@@ -560,7 +568,7 @@ TEST_F(TabSearchPageHandlerTest, EventsDoNotPropagatedWhenWebUIIsHidden) {
 
   // Closing a tab would usually result in a call to TabsRemoved().
   browser1()->tab_strip_model()->CloseWebContentsAt(
-      0, TabStripModel::CLOSE_CREATE_HISTORICAL_TAB);
+      0, TabCloseTypes::CLOSE_CREATE_HISTORICAL_TAB);
 }
 
 // Ensure that tab model changes in a browser with a different profile
@@ -705,6 +713,8 @@ TEST_F(TabSearchPageHandlerTest, RecentlyClosedTabsHaveNoRepeatedURLEntry) {
 
 TEST_F(TabSearchPageHandlerTest,
        RecentlyClosedTabGroupsHaveNoRepeatedURLEntries) {
+  ASSERT_TRUE(browser()->tab_strip_model()->SupportsTabGroups());
+
   TabRestoreServiceFactory::GetInstance()->SetTestingFactory(
       profile(),
       base::BindRepeating(&TabSearchPageHandlerTest::GetTabRestoreService));

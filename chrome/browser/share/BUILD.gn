@@ -1,4 +1,4 @@
-# Copyright 2019 The Chromium Authors. All rights reserved.
+# Copyright 2019 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -12,14 +12,19 @@ source_set("share") {
   sources = [
     "default_ranking.cc",
     "default_ranking.h",
+    "share_attempt.cc",
+    "share_attempt.h",
     "share_history.cc",
     "share_history.h",
     "share_ranking.cc",
     "share_ranking.h",
   ]
 
+  configs += [ "//build/config/compiler:wexit_time_destructors" ]
+
   deps = [
     "//base",
+    "//chrome/browser/favicon",
     "//chrome/browser/profiles:profile",
     "//chrome/browser/share/proto:proto",
     "//chrome/services/qrcode_generator/public/cpp",
@@ -44,6 +49,7 @@ source_set("share") {
     deps += [
       ":jni_headers",
       "//chrome/browser/share/android:jni_headers",
+      "//components/history/core/browser:browser",
       "//components/ukm/content:content",
       "//ui/android",
       "//url:gurl_android",
@@ -66,6 +72,8 @@ if (is_android) {
     deps = [
       ":jni_headers",
       "//base:base_java",
+      "//base:jni_java",
+      "//build/android:build_java",
       "//chrome/browser/preferences:java",
       "//chrome/browser/profiles/android:java",
       "//chrome/browser/tab:java",

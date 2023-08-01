@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,11 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <utility>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/raw_ptr.h"
 #include "build/chromeos_buildflags.h"
-#include "chrome/browser/ash/login/user_flow.h"
 #include "chrome/browser/ash/login/users/chrome_user_manager.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/prefs/testing_pref_service.h"
@@ -23,6 +23,7 @@
 static_assert(BUILDFLAG(IS_CHROMEOS_ASH), "For ChromeOS ash-chrome only");
 
 namespace ash {
+
 class FakeSupervisedUserManager;
 
 // Fake chrome user manager with a barebones implementation. Users can be added
@@ -56,6 +57,7 @@ class FakeChromeUserManager : public ChromeUserManager {
   user_manager::User* AddChildUser(const AccountId& account_id);
   user_manager::User* AddUserWithAffiliation(const AccountId& account_id,
                                              bool is_affiliated);
+  user_manager::User* AddSamlUser(const AccountId& account_id);
 
   // Creates and adds user with specified `account_id` and `user_type`. Sets
   // user affiliation. If `profile` is valid, maps it to the created user.
@@ -64,10 +66,6 @@ class FakeChromeUserManager : public ChromeUserManager {
       bool is_affiliated,
       user_manager::UserType user_type,
       TestingProfile* profile);
-
-  // Creates the instance returned by `GetLocalState()` (which returns nullptr
-  // by default).
-  void CreateLocalState();
 
   // Sets the user profile created flag to simulate finishing user
   // profile loading. Note this does not create a profile.
@@ -89,8 +87,7 @@ class FakeChromeUserManager : public ChromeUserManager {
   void SwitchToLastActiveUser() override;
   void OnSessionStarted() override;
   void RemoveUser(const AccountId& account_id,
-                  user_manager::UserRemovalReason reason,
-                  user_manager::RemoveUserDelegate* delegate) override;
+                  user_manager::UserRemovalReason reason) override;
   void RemoveUserFromList(const AccountId& account_id) override;
   bool IsKnownUser(const AccountId& account_id) const override;
   const user_manager::User* FindUser(
@@ -110,8 +107,7 @@ class FakeChromeUserManager : public ChromeUserManager {
   void SaveUserDisplayEmail(const AccountId& account_id,
                             const std::string& display_email) override;
   void SaveUserType(const user_manager::User* user) override;
-  void UpdateUserAccountData(const AccountId& account_id,
-                             const UserAccountData& account_data) override;
+  absl::optional<std::string> GetOwnerEmail() override;
   bool IsCurrentUserOwner() const override;
   bool IsCurrentUserNew() const override;
   bool IsCurrentUserCryptohomeDataEphemeral() const override;
@@ -132,7 +128,7 @@ class FakeChromeUserManager : public ChromeUserManager {
   bool IsGuestSessionAllowed() const override;
   bool IsGaiaUserAllowed(const user_manager::User& user) const override;
   bool IsUserAllowed(const user_manager::User& user) const override;
-  PrefService* GetLocalState() const override;
+  bool IsEphemeralAccountId(const AccountId& account_id) const override;
   const AccountId& GetGuestAccountId() const override;
   bool IsFirstExecAfterBoot() const override;
   void AsyncRemoveCryptohome(const AccountId& account_id) const override;
@@ -147,7 +143,6 @@ class FakeChromeUserManager : public ChromeUserManager {
                              base::OnceClosure on_resolved_callback,
                              std::string* out_resolved_locale) const override;
   bool IsValidDefaultUserImageId(int image_index) const override;
-  bool AreEphemeralUsersEnabled() const override;
   void SetIsCurrentUserNew(bool is_new) override;
   void Initialize() override;
 
@@ -155,46 +150,29 @@ class FakeChromeUserManager : public ChromeUserManager {
   const std::string& GetApplicationLocale() const override;
   void LoadDeviceLocalAccounts(std::set<AccountId>* users_set) override;
   bool IsEnterpriseManaged() const override;
-  void PerformPostUserListLoadingActions() override;
   void PerformPostUserLoggedInActions(bool browser_restart) override;
   bool IsDeviceLocalAccountMarkedForRemoval(
       const AccountId& account_id) const override;
   void KioskAppLoggedIn(user_manager::User* user) override;
   void PublicAccountUserLoggedIn(user_manager::User* user) override;
-  void OnUserRemoved(const AccountId& account_id) override;
+  // Just make it public for tests.
   void SetOwnerId(const AccountId& account_id) override;
 
   // UserManagerInterface override.
   MultiProfileUserController* GetMultiProfileUserController() override;
   UserImageManager* GetUserImageManager(const AccountId& account_id) override;
   SupervisedUserManager* GetSupervisedUserManager() override;
-  void SetUserFlow(const AccountId& account_id, UserFlow* flow) override;
-  UserFlow* GetCurrentUserFlow() const override;
-  UserFlow* GetUserFlow(const AccountId& account_id) const override;
-  void ResetUserFlow(const AccountId& account_id) override;
 
   // ChromeUserManager override.
   void SetUserAffiliation(
       const AccountId& account_id,
-      const AffiliationIDSet& user_affiliation_ids) override;
-  bool ShouldReportUser(const std::string& user_id) const override;
-  bool IsManagedSessionEnabledForUser(
-      const user_manager::User& active_user) const override;
-  bool IsFullManagementDisclosureNeeded(
-      policy::DeviceLocalAccountPolicyBroker* broker) const override;
-  void CacheRemovedUser(const std::string& user_email,
-                        user_manager::UserRemovalReason) override;
-  std::vector<std::pair<std::string, user_manager::UserRemovalReason>>
-  GetRemovedUserCache() const override;
-  void MarkReporterInitialized() override;
+      const base::flat_set<std::string>& user_affiliation_ids) override;
 
-  void set_ephemeral_users_enabled(bool ephemeral_users_enabled) {
-    fake_ephemeral_users_enabled_ = ephemeral_users_enabled;
-  }
+  void SetUserAffiliationForTesting(const AccountId& account_id,
+                                    bool is_affliated);
 
-  // TODO(mukai): remove this.
-  void set_owner_id(const AccountId& owner_account_id) {
-    SetOwnerId(owner_account_id);
+  void set_ephemeral_mode_config(EphemeralModeConfig ephemeral_mode_config) {
+    fake_ephemeral_mode_config_ = std::move(ephemeral_mode_config);
   }
 
   void set_multi_profile_user_controller(
@@ -223,21 +201,23 @@ class FakeChromeUserManager : public ChromeUserManager {
     last_session_active_account_id_ = last_session_active_account_id;
   }
 
+  void SetMockUserImageManagerForTesting() {
+    mock_user_image_manager_enabled_ = true;
+  }
+
  private:
   using UserImageManagerMap =
       std::map<AccountId, std::unique_ptr<UserImageManager>>;
-
-  // Lazily creates default user flow.
-  UserFlow* GetDefaultUserFlow() const;
 
   // Returns the active user.
   user_manager::User* GetActiveUserInternal() const;
 
   std::unique_ptr<FakeSupervisedUserManager> supervised_user_manager_;
-  bool fake_ephemeral_users_enabled_ = false;
+  EphemeralModeConfig fake_ephemeral_mode_config_;
   bool current_user_new_ = false;
   bool current_user_ephemeral_ = false;
   bool current_user_child_ = false;
+  bool mock_user_image_manager_enabled_ = false;
 
   raw_ptr<MultiProfileUserController> multi_profile_user_controller_ = nullptr;
 
@@ -247,17 +227,6 @@ class FakeChromeUserManager : public ChromeUserManager {
 
   AccountId last_session_active_account_id_ = EmptyAccountId();
 
-  // Lazy-initialized default flow.
-  mutable std::unique_ptr<UserFlow> default_flow_;
-
-  using FlowMap = std::map<AccountId, UserFlow*>;
-
-  std::unique_ptr<TestingPrefServiceSimple> local_state_;
-
-  // Specific flows by user e-mail.
-  // Keys should be canonicalized before access.
-  FlowMap specific_flows_;
-
   // Whether the device is enterprise managed.
   bool is_enterprise_managed_ = false;
 
@@ -266,15 +235,10 @@ class FakeChromeUserManager : public ChromeUserManager {
 
   // User avatar managers.
   UserImageManagerMap user_image_managers_;
-
-  // Fake cache of removed users. Used for reporting testing.
-  std::vector<std::pair<std::string, user_manager::UserRemovalReason>>
-      removed_user_cache_;
 };
 
 }  // namespace ash
 
-// TODO(https://crbug.com/1164001): remove when then migration is finished.
 namespace chromeos {
 using ::ash::FakeChromeUserManager;
 }

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "base/memory/ptr_util.h"
 #include "chrome/android/chrome_jni_headers/KnownInterceptionDisclosureInfoBar_jni.h"
 #include "chrome/browser/ssl/known_interception_disclosure_infobar_delegate.h"
+#include "ui/base/models/image_model.h"
 #include "ui/gfx/android/java_bitmap.h"
 #include "ui/gfx/image/image.h"
 
@@ -49,7 +50,8 @@ KnownInterceptionDisclosureInfoBar::CreateRenderInfoBar(
   ScopedJavaLocalRef<jobject> java_bitmap;
   if (delegate->GetIconId() == infobars::InfoBarDelegate::kNoIconID &&
       !delegate->GetIcon().IsEmpty()) {
-    java_bitmap = gfx::ConvertToJavaBitmap(*delegate->GetIcon().ToSkBitmap());
+    java_bitmap = gfx::ConvertToJavaBitmap(
+        *delegate->GetIcon().Rasterize(nullptr).bitmap());
   }
 
   return Java_KnownInterceptionDisclosureInfoBar_create(

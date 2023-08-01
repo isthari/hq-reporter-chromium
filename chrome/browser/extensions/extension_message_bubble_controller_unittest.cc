@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,9 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
@@ -20,7 +20,6 @@
 #include "build/build_config.h"
 #include "chrome/browser/extensions/dev_mode_bubble_delegate.h"
 #include "chrome/browser/extensions/extension_action_test_util.h"
-#include "chrome/browser/extensions/extension_function_test_utils.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_web_ui_override_registrar.h"
 #include "chrome/browser/extensions/load_error_reporter.h"
@@ -50,7 +49,6 @@
 #include "extensions/common/extension_builder.h"
 #include "extensions/common/feature_switch.h"
 #include "extensions/common/features/feature_channel.h"
-#include "extensions/common/value_builder.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using extensions::mojom::ManifestLocation;
@@ -199,11 +197,10 @@ class ExtensionMessageBubbleTest : public BrowserWithTestWindowTest {
                                                 const std::string& id,
                                                 ManifestLocation location) {
     ExtensionBuilder builder;
-    builder.SetManifest(DictionaryBuilder()
+    builder.SetManifest(base::Value::Dict()
                             .Set("name", std::string("Extension " + index))
                             .Set("version", "1.0")
-                            .Set("manifest_version", 2)
-                            .Build());
+                            .Set("manifest_version", 2));
     builder.SetLocation(location);
     builder.SetID(id);
     service_->AddExtension(builder.Build().get());
@@ -218,14 +215,12 @@ class ExtensionMessageBubbleTest : public BrowserWithTestWindowTest {
                                                    ManifestLocation location) {
     ExtensionBuilder builder;
     builder.SetManifest(
-        DictionaryBuilder()
+        base::Value::Dict()
             .Set("name", std::string("Extension " + index))
             .Set("version", "1.0")
             .Set("manifest_version", 2)
-            .Set("browser_action", DictionaryBuilder()
-                                       .Set("default_title", "Default title")
-                                       .Build())
-            .Build());
+            .Set("browser_action",
+                 base::Value::Dict().Set("default_title", "Default title")));
     builder.SetLocation(location);
     builder.SetID(id);
     service_->AddExtension(builder.Build().get());
@@ -240,15 +235,13 @@ class ExtensionMessageBubbleTest : public BrowserWithTestWindowTest {
       const std::string& id,
       ManifestLocation location) {
     ExtensionBuilder builder;
-    builder.SetManifest(DictionaryBuilder()
-                            .Set("name", std::string("Extension " + index))
-                            .Set("version", "1.0")
-                            .Set("manifest_version", 2)
-                            .Set("chrome_settings_overrides",
-                                 DictionaryBuilder()
-                                     .Set("homepage", "http://www.google.com")
-                                     .Build())
-                            .Build());
+    builder.SetManifest(
+        base::Value::Dict()
+            .Set("name", std::string("Extension " + index))
+            .Set("version", "1.0")
+            .Set("manifest_version", 2)
+            .Set("chrome_settings_overrides",
+                 base::Value::Dict().Set("homepage", "http://www.google.com")));
     builder.SetLocation(location);
     builder.SetID(id);
     service_->AddExtension(builder.Build().get());
@@ -264,16 +257,14 @@ class ExtensionMessageBubbleTest : public BrowserWithTestWindowTest {
       ManifestLocation location) {
     ExtensionBuilder builder;
     builder.SetManifest(
-        DictionaryBuilder()
+        base::Value::Dict()
             .Set("name", std::string("Extension " + index))
             .Set("version", "1.0")
             .Set("manifest_version", 2)
             .Set("chrome_settings_overrides",
-                 DictionaryBuilder()
-                     .Set("startup_pages",
-                          ListBuilder().Append("http://www.google.com").Build())
-                     .Build())
-            .Build());
+                 base::Value::Dict().Set(
+                     "startup_pages",
+                     base::Value::List().Append("http://www.google.com"))));
     builder.SetLocation(location);
     builder.SetID(id);
     service_->AddExtension(builder.Build().get());
@@ -289,13 +280,12 @@ class ExtensionMessageBubbleTest : public BrowserWithTestWindowTest {
       ManifestLocation location) {
     ExtensionBuilder builder;
     builder.SetManifest(
-        DictionaryBuilder()
+        base::Value::Dict()
             .Set("name", std::string("Extension " + index))
             .Set("version", "1.0")
             .Set("manifest_version", 2)
             .Set("chrome_url_overrides",
-                 DictionaryBuilder().Set("newtab", "Default.html").Build())
-            .Build());
+                 base::Value::Dict().Set("newtab", "Default.html")));
 
     builder.SetLocation(location);
     builder.SetID(id);
@@ -312,12 +302,11 @@ class ExtensionMessageBubbleTest : public BrowserWithTestWindowTest {
       ManifestLocation location) {
     ExtensionBuilder builder;
     builder.SetManifest(
-        DictionaryBuilder()
+        base::Value::Dict()
             .Set("name", std::string("Extension " + index))
             .Set("version", "1.0")
             .Set("manifest_version", 2)
-            .Set("permissions", ListBuilder().Append("proxy").Build())
-            .Build());
+            .Set("permissions", base::Value::List().Append("proxy")));
 
     builder.SetLocation(location);
     builder.SetID(id);
@@ -529,7 +518,7 @@ TEST_F(ExtensionMessageBubbleTest, WipeoutControllerTest) {
   EXPECT_TRUE(controller->ShouldShow());
   suspicious_extensions = controller->GetExtensionList();
   ASSERT_EQ(1U, suspicious_extensions.size());
-  EXPECT_TRUE(u"Extension 1" == suspicious_extensions[0]);
+  EXPECT_EQ(u"Extension 1", suspicious_extensions[0]);
   bubble.set_controller(controller.get());
   bubble.Show();  // Simulate showing the bubble.
   EXPECT_EQ(0U, controller->link_click_count());
@@ -553,8 +542,8 @@ TEST_F(ExtensionMessageBubbleTest, WipeoutControllerTest) {
   EXPECT_TRUE(controller->ShouldShow());
   suspicious_extensions = controller->GetExtensionList();
   ASSERT_EQ(2U, suspicious_extensions.size());
-  EXPECT_TRUE(u"Extension 1" == suspicious_extensions[1]);
-  EXPECT_TRUE(u"Extension 2" == suspicious_extensions[0]);
+  EXPECT_EQ(u"Extension 1", suspicious_extensions[1]);
+  EXPECT_EQ(u"Extension 2", suspicious_extensions[0]);
   bubble.set_controller(controller.get());
   bubble.Show();  // Simulate showing the bubble.
   EXPECT_EQ(1U, controller->link_click_count());
@@ -587,8 +576,8 @@ TEST_F(ExtensionMessageBubbleTest, DevModeControllerTest) {
   std::vector<std::u16string> dev_mode_extensions =
       controller->GetExtensionList();
   ASSERT_EQ(2U, dev_mode_extensions.size());
-  EXPECT_TRUE(u"Extension 2" == dev_mode_extensions[0]);
-  EXPECT_TRUE(u"Extension 1" == dev_mode_extensions[1]);
+  EXPECT_EQ(u"Extension 2", dev_mode_extensions[0]);
+  EXPECT_EQ(u"Extension 1", dev_mode_extensions[1]);
   EXPECT_EQ(0U, controller->link_click_count());
   EXPECT_EQ(0U, controller->dismiss_click_count());
   EXPECT_EQ(0U, controller->action_click_count());
@@ -603,8 +592,8 @@ TEST_F(ExtensionMessageBubbleTest, DevModeControllerTest) {
   EXPECT_EQ(0U, controller->action_click_count());
   EXPECT_EQ(1U, controller->dismiss_click_count());
   ExtensionRegistry* registry = ExtensionRegistry::Get(profile());
-  EXPECT_TRUE(registry->enabled_extensions().GetByID(kId1) != NULL);
-  EXPECT_TRUE(registry->enabled_extensions().GetByID(kId2) != NULL);
+  EXPECT_TRUE(registry->enabled_extensions().GetByID(kId1) != nullptr);
+  EXPECT_TRUE(registry->enabled_extensions().GetByID(kId2) != nullptr);
 
   // Do it again, but now press different button (Disable).
   bubble.set_action_on_show(
@@ -626,8 +615,8 @@ TEST_F(ExtensionMessageBubbleTest, DevModeControllerTest) {
   EXPECT_EQ(0U, controller->link_click_count());
   EXPECT_EQ(1U, controller->action_click_count());
   EXPECT_EQ(0U, controller->dismiss_click_count());
-  EXPECT_TRUE(registry->disabled_extensions().GetByID(kId1) != NULL);
-  EXPECT_TRUE(registry->disabled_extensions().GetByID(kId2) != NULL);
+  EXPECT_TRUE(registry->disabled_extensions().GetByID(kId1) != nullptr);
+  EXPECT_TRUE(registry->disabled_extensions().GetByID(kId2) != nullptr);
 
   // Re-enable the extensions (disabled by the action button above).
   service_->EnableExtension(kId1);
@@ -720,11 +709,6 @@ TEST_F(ExtensionMessageBubbleTest, ShowDevModeBubbleOncePerOriginalProfile) {
 #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
 
 TEST_F(ExtensionMessageBubbleTest, SettingsApiControllerTest) {
-#if BUILDFLAG(IS_MAC)
-  // On Mac, this API is limited to trunk.
-  ScopedCurrentChannel scoped_channel(version_info::Channel::UNKNOWN);
-#endif  // BUILDFLAG(IS_MAC)
-
   Init();
 
   for (int i = 0; i < 3; ++i) {
@@ -775,7 +759,7 @@ TEST_F(ExtensionMessageBubbleTest, SettingsApiControllerTest) {
     std::vector<std::u16string> override_extensions =
         controller->GetExtensionList();
     ASSERT_EQ(1U, override_extensions.size());
-    EXPECT_TRUE(u"Extension 2" == override_extensions[0]);
+    EXPECT_EQ(u"Extension 2", override_extensions[0]);
     EXPECT_EQ(0U, controller->link_click_count());
     EXPECT_EQ(0U, controller->dismiss_click_count());
     EXPECT_EQ(0U, controller->action_click_count());
@@ -935,7 +919,7 @@ TEST_F(ExtensionMessageBubbleTest,
   EXPECT_TRUE(controller->ShouldShow());
   suspicious_extensions = controller->GetExtensionList();
   ASSERT_EQ(1U, suspicious_extensions.size());
-  EXPECT_TRUE(u"Extension 1" == suspicious_extensions[0]);
+  EXPECT_EQ(u"Extension 1", suspicious_extensions[0]);
   bubble.set_controller(controller.get());
   bubble.set_action_on_show(FakeExtensionMessageBubble::BUBBLE_ACTION_IGNORE);
   bubble.Show();  // Simulate showing the bubble.
@@ -1001,8 +985,8 @@ void SetInstallTime(const std::string& extension_id,
                     const base::Time& time,
                     ExtensionPrefs* prefs) {
   std::string time_str = base::NumberToString(time.ToInternalValue());
-  prefs->UpdateExtensionPref(extension_id, "install_time",
-                             std::make_unique<base::Value>(time_str));
+  prefs->UpdateExtensionPref(extension_id, "last_update_time",
+                             base::Value(time_str));
 }
 
 // The feature this is meant to test is only implemented on Windows and Mac.
@@ -1071,9 +1055,9 @@ TEST_F(ExtensionMessageBubbleTest, MAYBE_ProxyOverriddenControllerTest) {
   EXPECT_EQ(1U, controller->dismiss_click_count());
   // No extension should have become disabled.
   ExtensionRegistry* registry = ExtensionRegistry::Get(profile());
-  EXPECT_TRUE(registry->enabled_extensions().GetByID(kId1) != NULL);
-  EXPECT_TRUE(registry->enabled_extensions().GetByID(kId2) != NULL);
-  EXPECT_TRUE(registry->enabled_extensions().GetByID(kId3) != NULL);
+  EXPECT_TRUE(registry->enabled_extensions().GetByID(kId1) != nullptr);
+  EXPECT_TRUE(registry->enabled_extensions().GetByID(kId2) != nullptr);
+  EXPECT_TRUE(registry->enabled_extensions().GetByID(kId3) != nullptr);
   // Only extension 2 should have been acknowledged.
   EXPECT_FALSE(controller->delegate()->HasBubbleInfoBeenAcknowledged(kId1));
   EXPECT_TRUE(controller->delegate()->HasBubbleInfoBeenAcknowledged(kId2));
@@ -1094,9 +1078,9 @@ TEST_F(ExtensionMessageBubbleTest, MAYBE_ProxyOverriddenControllerTest) {
   EXPECT_EQ(0U, controller->action_click_count());
   EXPECT_EQ(0U, controller->dismiss_click_count());
   // No extension should have become disabled.
-  EXPECT_TRUE(registry->enabled_extensions().GetByID(kId1) != NULL);
-  EXPECT_TRUE(registry->enabled_extensions().GetByID(kId2) != NULL);
-  EXPECT_TRUE(registry->enabled_extensions().GetByID(kId3) != NULL);
+  EXPECT_TRUE(registry->enabled_extensions().GetByID(kId1) != nullptr);
+  EXPECT_TRUE(registry->enabled_extensions().GetByID(kId2) != nullptr);
+  EXPECT_TRUE(registry->enabled_extensions().GetByID(kId3) != nullptr);
   // Only extension 2 should have been acknowledged.
   EXPECT_FALSE(controller->delegate()->HasBubbleInfoBeenAcknowledged(kId1));
   EXPECT_TRUE(controller->delegate()->HasBubbleInfoBeenAcknowledged(kId2));
@@ -1119,9 +1103,9 @@ TEST_F(ExtensionMessageBubbleTest, MAYBE_ProxyOverriddenControllerTest) {
   EXPECT_EQ(1U, controller->action_click_count());
   EXPECT_EQ(0U, controller->dismiss_click_count());
   // Only extension 2 should have become disabled.
-  EXPECT_TRUE(registry->enabled_extensions().GetByID(kId1) != NULL);
-  EXPECT_TRUE(registry->disabled_extensions().GetByID(kId2) != NULL);
-  EXPECT_TRUE(registry->enabled_extensions().GetByID(kId3) != NULL);
+  EXPECT_TRUE(registry->enabled_extensions().GetByID(kId1) != nullptr);
+  EXPECT_TRUE(registry->disabled_extensions().GetByID(kId2) != nullptr);
+  EXPECT_TRUE(registry->enabled_extensions().GetByID(kId3) != nullptr);
 
   // No extension should have been acknowledged (it got disabled).
   EXPECT_FALSE(controller->delegate()->HasBubbleInfoBeenAcknowledged(kId1));
@@ -1129,15 +1113,12 @@ TEST_F(ExtensionMessageBubbleTest, MAYBE_ProxyOverriddenControllerTest) {
   EXPECT_FALSE(controller->delegate()->HasBubbleInfoBeenAcknowledged(kId3));
 
   // Clean up after ourselves.
-  service_->UninstallExtension(kId1,
-                               extensions::UNINSTALL_REASON_FOR_TESTING,
-                               NULL);
-  service_->UninstallExtension(kId2,
-                               extensions::UNINSTALL_REASON_FOR_TESTING,
-                               NULL);
-  service_->UninstallExtension(kId3,
-                               extensions::UNINSTALL_REASON_FOR_TESTING,
-                               NULL);
+  service_->UninstallExtension(kId1, extensions::UNINSTALL_REASON_FOR_TESTING,
+                               nullptr);
+  service_->UninstallExtension(kId2, extensions::UNINSTALL_REASON_FOR_TESTING,
+                               nullptr);
+  service_->UninstallExtension(kId3, extensions::UNINSTALL_REASON_FOR_TESTING,
+                               nullptr);
 }
 
 // Tests that a bubble outliving the associated browser object doesn't crash.

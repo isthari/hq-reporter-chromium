@@ -1,10 +1,8 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.components.background_task_scheduler.internal;
-
-import android.os.Build;
 
 import androidx.annotation.VisibleForTesting;
 
@@ -20,14 +18,6 @@ public final class BackgroundTaskSchedulerFactoryInternal {
     private static BackgroundTaskScheduler sBackgroundTaskScheduler;
     private static BackgroundTaskFactory sBackgroundTaskFactory;
 
-    static BackgroundTaskSchedulerDelegate getSchedulerDelegateForSdk(int sdkInt) {
-        if (sdkInt >= Build.VERSION_CODES.M) {
-            return new BackgroundTaskSchedulerJobService();
-        } else {
-            return new BackgroundTaskSchedulerGcmNetworkManager();
-        }
-    }
-
     /**
      * @return the current instance of the {@link BackgroundTaskScheduler}. Creates one if none
      * exist.
@@ -35,9 +25,8 @@ public final class BackgroundTaskSchedulerFactoryInternal {
     public static BackgroundTaskScheduler getScheduler() {
         ThreadUtils.assertOnUiThread();
         if (sBackgroundTaskScheduler == null) {
-            sBackgroundTaskScheduler = new BackgroundTaskSchedulerImpl(
-                    getSchedulerDelegateForSdk(Build.VERSION.SDK_INT),
-                    new BackgroundTaskSchedulerAlarmManager());
+            sBackgroundTaskScheduler =
+                    new BackgroundTaskSchedulerImpl(new BackgroundTaskSchedulerJobService());
         }
         return sBackgroundTaskScheduler;
     }

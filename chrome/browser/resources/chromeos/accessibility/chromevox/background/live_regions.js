@@ -1,10 +1,17 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 /**
- * @fileoverview Implements support for live regions in ChromeVox Next.
+ * @fileoverview Implements support for live regions in ChromeVox.
  */
+import {AutomationUtil} from '../../common/automation_util.js';
+import {CursorRange} from '../../common/cursors/range.js';
+import {QueueMode, TtsCategory} from '../common/tts_types.js';
+
+import {ChromeVoxRange} from './chromevox_range.js';
+import {Output} from './output/output.js';
+import {OutputCustomEvent} from './output/output_types.js';
 
 const AutomationNode = chrome.automation.AutomationNode;
 const RoleType = chrome.automation.RoleType;
@@ -14,20 +21,11 @@ const TreeChangeObserverFilter = chrome.automation.TreeChangeObserverFilter;
 const TreeChangeType = chrome.automation.TreeChangeType;
 
 /**
- * ChromeVox2 live region handler.
+ * ChromeVox live region handler.
  */
 export class LiveRegions {
-  /**
-   * @param {!ChromeVoxState} chromeVoxState The ChromeVox state object,
-   *     keeping track of the current mode and current range.
-   */
-  constructor(chromeVoxState) {
-    /**
-     * @type {!ChromeVoxState}
-     * @private
-     */
-    this.chromeVoxState_ = chromeVoxState;
-
+  /** @private */
+  constructor() {
     /**
      * The time the last live region event was output.
      * @type {!Date}
@@ -51,7 +49,14 @@ export class LiveRegions {
 
     chrome.automation.addTreeChangeObserver(
         TreeChangeObserverFilter.LIVE_REGION_TREE_CHANGES,
-        this.onTreeChange.bind(this));
+        treeChange => this.onTreeChange(treeChange));
+  }
+
+  static init() {
+    if (LiveRegions.instance) {
+      throw 'Error: Trying to create two instances of singleton LiveRegions';
+    }
+    LiveRegions.instance = new LiveRegions();
   }
 
   /**
@@ -149,14 +154,14 @@ export class LiveRegions {
    * @private
    */
   outputLiveRegionChangeForNode_(node, opt_prependFormatStr) {
-    const range = cursors.Range.fromNode(node);
+    const range = CursorRange.fromNode(node);
     const output = new Output();
     output.withSpeechCategory(TtsCategory.LIVE);
 
     // Queue live regions coming from background tabs.
     let hostView = AutomationUtil.getTopLevelRoot(node);
     hostView = hostView ? hostView.parent : null;
-    const currentRange = this.chromeVoxState_.currentRange;
+    const currentRange = ChromeVoxRange.current;
     const forceQueue = !hostView || !hostView.state.focused ||
         (currentRange && currentRange.start.node.root !== node.root) ||
         node.containerLiveStatus === 'polite';
@@ -175,7 +180,7 @@ export class LiveRegions {
     if (opt_prependFormatStr) {
       output.format(opt_prependFormatStr);
     }
-    output.withSpeech(range, range, OutputEventType.NAVIGATE);
+    output.withSpeech(range, range, OutputCustomEvent.NAVIGATE);
 
     if (!output.hasSpeech && node.liveAtomic) {
       output.format('$joinedDescendants', node);
@@ -190,7 +195,6 @@ export class LiveRegions {
     // describe their tree changes especially during page load within the
     // LiveRegions.LIVE_REGION_MIN_SAME_NODE_MS to prevent excessive chatter.
     this.addNodeToNodeSetRecursive_(node);
-    window.prev = output;
     output.go();
     this.lastLiveRegionTime_ = currentTime;
   }
@@ -216,7 +220,7 @@ export class LiveRegions {
       return false;
     }
 
-    const currentRange = this.chromeVoxState_.currentRange;
+    const currentRange = ChromeVoxRange.current;
     if (currentRange && currentRange.start.node.root === node.root) {
       return false;
     }
@@ -243,22 +247,22 @@ export class LiveRegions {
 /**
  * Live region events received in fewer than this many milliseconds will
  * queue, otherwise they'll be output with a category flush.
- * @type {number}
- * @const
+ * @const {number}
  */
 LiveRegions.LIVE_REGION_QUEUE_TIME_MS = 5000;
 
 /**
  * Live region events received on the same node in fewer than this many
  * milliseconds will be dropped to avoid a stream of constant chatter.
- * @type {number}
- * @const
+ * @const {number}
  */
 LiveRegions.LIVE_REGION_MIN_SAME_NODE_MS = 20;
 
 /**
  * Whether live regions from background tabs should be announced or not.
- * @type {boolean}
- * @private
+ * @private {boolean}
  */
 LiveRegions.announceLiveRegionsFromBackgroundTabs_ = false;
+
+/** @type {LiveRegions} */
+LiveRegions.instance;

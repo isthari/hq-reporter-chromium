@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 #include <iostream>
 #include <type_traits>
 
-#include "base/cxx17_backports.h"
 #include "base/logging.h"
 #include "base/numerics/safe_conversions.h"
 #include "media/base/video_types.h"
@@ -54,7 +53,7 @@ static void FillIQMatrix(const JpegQuantizationTable* q_table,
     if (!q_table[i].valid)
       continue;
     iq_matrix->load_quantiser_table[i] = 1;
-    for (size_t j = 0; j < base::size(q_table[i].value); j++)
+    for (size_t j = 0; j < std::size(q_table[i].value); j++)
       iq_matrix->quantiser_table[i][j] = q_table[i].value[j];
   }
 }
@@ -155,15 +154,11 @@ static bool IsVaapiSupportedJpeg(const JpegParseResult& jpeg) {
 
   // Validate the coded size.
   gfx::Size min_jpeg_resolution;
-  if (!VaapiWrapper::GetDecodeMinResolution(VAProfileJPEGBaseline,
-                                            &min_jpeg_resolution)) {
-    DLOG(ERROR) << "Could not get the minimum resolution";
-    return false;
-  }
   gfx::Size max_jpeg_resolution;
-  if (!VaapiWrapper::GetDecodeMaxResolution(VAProfileJPEGBaseline,
-                                            &max_jpeg_resolution)) {
-    DLOG(ERROR) << "Could not get the maximum resolution";
+  if (!VaapiWrapper::GetSupportedResolutions(
+          VAProfileJPEGBaseline, VaapiWrapper::CodecMode::kDecode,
+          min_jpeg_resolution, max_jpeg_resolution)) {
+    DLOG(ERROR) << "Could not get the minimum and maximum resolutions";
     return false;
   }
   const int actual_jpeg_coded_width =
@@ -292,13 +287,9 @@ std::unique_ptr<ScopedVAImage> VaapiJpegDecoder::GetImage(
   // disable support for odd dimensions since the VAImage path is only expected
   // to be used in camera captures (and we don't expect JPEGs with odd
   // dimensions in that path).
-  if ((scoped_va_context_and_surface_->size().width() & 1) ||
-      (scoped_va_context_and_surface_->size().height() & 1)) {
-    VLOGF(1) << "Getting images with odd dimensions is not supported";
-    *status = VaapiImageDecodeStatus::kCannotGetImage;
-    NOTREACHED();
-    return nullptr;
-  }
+  CHECK((scoped_va_context_and_surface_->size().width() & 1) == 0 &&
+        (scoped_va_context_and_surface_->size().height() & 1) == 0)
+      << "Getting images with odd dimensions is not supported";
   auto scoped_image = vaapi_wrapper_->CreateVaImage(
       scoped_va_context_and_surface_->id(), &image_format,
       scoped_va_context_and_surface_->size());

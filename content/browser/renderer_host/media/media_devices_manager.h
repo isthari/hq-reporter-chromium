@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,8 +12,8 @@
 #include <utility>
 #include <vector>
 
-#include "base/callback.h"
 #include "base/containers/flat_map.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/system/system_monitor.h"
@@ -25,6 +25,7 @@
 #include "media/capture/video_capture_types.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "mojo/public/cpp/bindings/unique_receiver_set.h"
 #include "third_party/blink/public/common/mediastream/media_devices.h"
 #include "third_party/blink/public/mojom/mediastream/media_devices.mojom.h"
 
@@ -126,9 +127,6 @@ class CONTENT_EXPORT MediaDevicesManager
   // Stops device monitoring and disables caching for all device types.
   void StopMonitoring();
 
-  // Returns true if device monitoring is active, false otherwise.
-  bool IsMonitoringStarted();
-
   // Implements base::SystemMonitor::DevicesChangedObserver.
   // This function is only called in response to physical audio/video device
   // changes.
@@ -145,12 +143,18 @@ class CONTENT_EXPORT MediaDevicesManager
   // TODO(guidou): Remove this function once content::GetMediaDeviceIDForHMAC
   // is rewritten to receive devices via a callback.
   // See http://crbug.com/648155.
-  blink::WebMediaDeviceInfoArray GetCachedDeviceInfo(MediaDeviceType type);
-
-  MediaDevicesPermissionChecker* media_devices_permission_checker();
+  blink::WebMediaDeviceInfoArray GetCachedDeviceInfo(
+      MediaDeviceType type) const;
 
   const MediaDeviceSaltAndOriginCallback& salt_and_origin_callback() const {
     return salt_and_origin_callback_;
+  }
+
+  void RegisterDispatcherHost(
+      std::unique_ptr<blink::mojom::MediaDevicesDispatcherHost> dispatcher_host,
+      mojo::PendingReceiver<blink::mojom::MediaDevicesDispatcherHost> receiver);
+  size_t num_registered_dispatcher_hosts() const {
+    return dispatcher_hosts_.size();
   }
 
   // Used for testing only.
@@ -268,6 +272,7 @@ class CONTENT_EXPORT MediaDevicesManager
 
   // Callback for VideoCaptureManager::EnumerateDevices.
   void VideoInputDevicesEnumerated(
+      media::mojom::DeviceEnumerationResult result_code,
       const media::VideoCaptureDeviceDescriptors& descriptors);
 
   // Callback for AudioSystem::GetDeviceDescriptions.
@@ -350,6 +355,9 @@ class CONTENT_EXPORT MediaDevicesManager
 
   std::map<uint32_t, EnumerationState> enumeration_states_;
   uint32_t next_enumeration_state_id_ = 0;
+
+  mojo::UniqueReceiverSet<blink::mojom::MediaDevicesDispatcherHost>
+      dispatcher_hosts_;
 
   base::WeakPtrFactory<MediaDevicesManager> weak_factory_{this};
 };

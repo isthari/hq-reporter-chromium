@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "ash/app_list/model/app_list_item.h"
 #include "ash/app_list/model/app_list_model.h"
 #include "ash/public/cpp/app_list/app_list_model_delegate.h"
+#include "base/memory/raw_ptr.h"
 
 namespace ui {
 class SimpleMenuModel;
@@ -42,7 +43,7 @@ class AppListTestModel : public AppListModel, public AppListModelDelegate {
     void SetPosition(const syncer::StringOrdinal& new_position);
 
    private:
-    AppListTestModel* const model_;
+    const raw_ptr<AppListTestModel, ExperimentalAsh> model_;
   };
 
   static const char kItemType[];
@@ -58,10 +59,13 @@ class AppListTestModel : public AppListModel, public AppListModelDelegate {
                              const syncer::StringOrdinal& new_position,
                              RequestPositionUpdateReason reason) override;
   void RequestMoveItemToFolder(std::string id,
-                               const std::string& folder_id,
-                               RequestMoveToFolderReason reason) override;
+                               const std::string& folder_id) override;
   void RequestMoveItemToRoot(std::string id,
                              syncer::StringOrdinal target_position) override;
+  std::string RequestFolderCreation(std::string merge_target_id,
+                                    std::string item_to_merge_id) override;
+  void RequestFolderRename(std::string id,
+                           const std::string& new_name) override;
   void RequestAppListSort(AppListSortOrder order) override;
   void RequestAppListSortRevert() override;
 
@@ -109,7 +113,7 @@ class AppListTestModel : public AppListModel, public AppListModelDelegate {
   void ItemActivated(AppListTestItem* item);
 
   int activate_count_ = 0;
-  AppListItem* last_activated_ = nullptr;
+  raw_ptr<AppListItem, ExperimentalAsh> last_activated_ = nullptr;
   int naming_index_ = 0;
 
   // The last sort order requested using `RequestAppListSort()`.

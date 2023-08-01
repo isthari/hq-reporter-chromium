@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,10 +17,10 @@
 #include <ios>
 #include <limits>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
-#include "base/debug/activity_tracker.h"
+#include "base/debug/alias.h"
 #include "base/debug/stack_trace.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/metrics/histogram.h"
 #include "base/process/environment_internal.h"
@@ -97,10 +97,6 @@ bool GetAppOutputInternal(CommandLine::StringPieceType cl,
   }
 
   win::ScopedProcessInformation proc_info(temp_process_info);
-  debug::GlobalActivityTracker* tracker = debug::GlobalActivityTracker::Get();
-  if (tracker)
-    tracker->RecordProcessLaunch(proc_info.process_id(),
-                                 CommandLine::StringType(cl));
 
   // Close our writing end of pipe now. Otherwise later read would not be able
   // to detect end of child's output.
@@ -125,15 +121,45 @@ bool GetAppOutputInternal(CommandLine::StringPieceType cl,
     // process launched with GetAppOutput*() shouldn't wait back on the process
     // that launched it.
     internal::GetAppOutputScopedAllowBaseSyncPrimitives allow_wait;
+    ScopedBlockingCall scoped_blocking_call(FROM_HERE, BlockingType::MAY_BLOCK);
     WaitForSingleObject(proc_info.process_handle(), INFINITE);
   }
 
   TerminationStatus status =
       GetTerminationStatus(proc_info.process_handle(), exit_code);
-  debug::GlobalActivityTracker::RecordProcessExitIfEnabled(
-      proc_info.process_id(), *exit_code);
   return status != TERMINATION_STATUS_PROCESS_CRASHED &&
          status != TERMINATION_STATUS_ABNORMAL_TERMINATION;
+}
+
+Process LaunchElevatedProcess(const CommandLine& cmdline,
+                              bool start_hidden,
+                              bool wait) {
+  TRACE_EVENT0("base", "LaunchElevatedProcess");
+  const FilePath::StringType file = cmdline.GetProgram().value();
+  const CommandLine::StringType arguments = cmdline.GetArgumentsString();
+
+  SHELLEXECUTEINFO shex_info = {};
+  shex_info.cbSize = sizeof(shex_info);
+  shex_info.fMask = SEE_MASK_NOCLOSEPROCESS;
+  shex_info.hwnd = GetActiveWindow();
+  shex_info.lpVerb = L"runas";
+  shex_info.lpFile = file.c_str();
+  shex_info.lpParameters = arguments.c_str();
+  shex_info.lpDirectory = nullptr;
+  shex_info.nShow = start_hidden ? SW_HIDE : SW_SHOWNORMAL;
+  shex_info.hInstApp = nullptr;
+
+  if (!ShellExecuteEx(&shex_info)) {
+    DPLOG(ERROR);
+    return Process();
+  }
+
+  if (wait) {
+    ScopedBlockingCall scoped_blocking_call(FROM_HERE, BlockingType::MAY_BLOCK);
+    WaitForSingleObject(shex_info.hProcess, INFINITE);
+  }
+
+  return Process(shex_info.hProcess);
 }
 
 }  // namespace
@@ -209,12 +235,22 @@ void RouteStdioToConsole(bool create_console_if_not_found) {
 
 Process LaunchProcess(const CommandLine& cmdline,
                       const LaunchOptions& options) {
+  if (options.elevated)
+    return LaunchElevatedProcess(cmdline, options.start_hidden, options.wait);
   return LaunchProcess(cmdline.GetCommandLineString(), options);
 }
 
 Process LaunchProcess(const CommandLine::StringType& cmdline,
                       const LaunchOptions& options) {
-  CHECK(!options.elevated);
+  // Retain the command line on the stack for investigating shutdown hangs
+  // tracked in https://crbug.com/1431378
+  DEBUG_ALIAS_FOR_WCHARCSTR(cmdline_for_debugging, cmdline.c_str(), 200);
+
+  if (options.elevated) {
+    return LaunchElevatedProcess(base::CommandLine::FromString(cmdline),
+                                 options.start_hidden, options.wait);
+  }
+  TRACE_EVENT0("base", "LaunchProcess");
   // Mitigate the issues caused by loading DLLs on a background thread
   // (http://crbug/973868).
   SCOPED_MAY_LOAD_LIBRARY_AT_BACKGROUND_PRIORITY();
@@ -226,7 +262,7 @@ Process LaunchProcess(const CommandLine::StringType& cmdline,
   DWORD flags = 0;
 
   // Count extended attributes before reserving space.
-  int attribute_count = 0;
+  DWORD attribute_count = 0;
   // Count PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY.
   if (options.disable_cetcompat &&
       base::win::GetVersion() >= base::win::Version::WIN10_20H1) {
@@ -250,7 +286,7 @@ Process LaunchProcess(const CommandLine::StringType& cmdline,
   // Set PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY.
   if (options.disable_cetcompat &&
       base::win::GetVersion() >= base::win::Version::WIN10_20H1) {
-    DCHECK_GT(attribute_count, 0);
+    DCHECK_GT(attribute_count, 0u);
     process_mitigations[1] |=
         PROCESS_CREATION_MITIGATION_POLICY2_CET_USER_SHADOW_STACKS_ALWAYS_OFF;
     if (!startup_info_wrapper.UpdateProcThreadAttribute(
@@ -263,7 +299,7 @@ Process LaunchProcess(const CommandLine::StringType& cmdline,
   // Set PROC_THREAD_ATTRIBUTE_HANDLE_LIST.
   bool inherit_handles = options.inherit_mode == LaunchOptions::Inherit::kAll;
   if (!options.handles_to_inherit.empty()) {
-    DCHECK_GT(attribute_count, 0);
+    DCHECK_GT(attribute_count, 0u);
     DCHECK_EQ(options.inherit_mode, LaunchOptions::Inherit::kSpecific);
 
     if (options.handles_to_inherit.size() >
@@ -300,22 +336,17 @@ Process LaunchProcess(const CommandLine::StringType& cmdline,
 
   if (options.stdin_handle || options.stdout_handle || options.stderr_handle) {
     DCHECK(inherit_handles);
-    DCHECK(options.stdin_handle);
-    DCHECK(options.stdout_handle);
-    DCHECK(options.stderr_handle);
+    // If an explicit handle inheritance list is not set, require that all
+    // stdio handle values be explicitly specified.
+    if (options.handles_to_inherit.empty()) {
+      CHECK(options.stdin_handle);
+      CHECK(options.stdout_handle);
+      CHECK(options.stderr_handle);
+    }
     startup_info->dwFlags |= STARTF_USESTDHANDLES;
     startup_info->hStdInput = options.stdin_handle;
     startup_info->hStdOutput = options.stdout_handle;
     startup_info->hStdError = options.stderr_handle;
-  }
-
-  if (options.job_handle) {
-    // If this code is run under a debugger, the launched process is
-    // automatically associated with a job object created by the debugger.
-    // The CREATE_BREAKAWAY_FROM_JOB flag is used to prevent this on Windows
-    // releases that do not support nested jobs.
-    if (win::GetVersion() < win::Version::WIN8)
-      flags |= CREATE_BREAKAWAY_FROM_JOB;
   }
 
   if (options.force_breakaway_from_job_)
@@ -400,42 +431,12 @@ Process LaunchProcess(const CommandLine::StringType& cmdline,
     DPLOG(ERROR) << "Failed to grant foreground privilege to launched process";
   }
 
-  if (options.wait)
+  if (options.wait) {
+    ScopedBlockingCall scoped_blocking_call(FROM_HERE, BlockingType::MAY_BLOCK);
     WaitForSingleObject(process_info.process_handle(), INFINITE);
-
-  debug::GlobalActivityTracker::RecordProcessLaunchIfEnabled(
-      process_info.process_id(), cmdline);
-  return Process(process_info.TakeProcessHandle());
-}
-
-Process LaunchElevatedProcess(const CommandLine& cmdline,
-                              const LaunchOptions& options) {
-  CHECK(options.elevated);
-  const FilePath::StringType file = cmdline.GetProgram().value();
-  const CommandLine::StringType arguments = cmdline.GetArgumentsString();
-
-  SHELLEXECUTEINFO shex_info = {};
-  shex_info.cbSize = sizeof(shex_info);
-  shex_info.fMask = SEE_MASK_NOCLOSEPROCESS;
-  shex_info.hwnd = GetActiveWindow();
-  shex_info.lpVerb = L"runas";
-  shex_info.lpFile = file.c_str();
-  shex_info.lpParameters = arguments.c_str();
-  shex_info.lpDirectory = nullptr;
-  shex_info.nShow = options.start_hidden ? SW_HIDE : SW_SHOWNORMAL;
-  shex_info.hInstApp = nullptr;
-
-  if (!ShellExecuteEx(&shex_info)) {
-    DPLOG(ERROR);
-    return Process();
   }
 
-  if (options.wait)
-    WaitForSingleObject(shex_info.hProcess, INFINITE);
-
-  debug::GlobalActivityTracker::RecordProcessLaunchIfEnabled(
-      GetProcessId(shex_info.hProcess), file, arguments);
-  return Process(shex_info.hProcess);
+  return Process(process_info.TakeProcessHandle());
 }
 
 bool SetJobObjectLimitFlags(HANDLE job_object, DWORD limit_flags) {

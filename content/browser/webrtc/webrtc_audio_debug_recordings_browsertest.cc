@@ -1,9 +1,10 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <stdint.h>
 
+#include "base/command_line.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -32,9 +33,15 @@ constexpr char kBaseFilename[] = "audio_debug";
 // "/tmp/.com.google.Chrome.Z6UC3P.12345.aec_dump.1".
 base::FilePath GetExpectedAecDumpFileName(const base::FilePath& base_file_path,
                                           int renderer_pid) {
-  return base_file_path.AddExtensionASCII(base::NumberToString(renderer_pid))
-      .AddExtensionASCII("aec_dump")
-      .AddExtensionASCII(base::NumberToString(kExpectedConsumerId));
+  return media::IsChromeWideEchoCancellationEnabled()
+             ? base_file_path
+                   .AddExtensionASCII(base::NumberToString(kExpectedConsumerId))
+                   .AddExtensionASCII("aecdump")
+             : base_file_path
+                   .AddExtensionASCII(base::NumberToString(renderer_pid))
+                   .AddExtensionASCII("aec_dump")
+                   .AddExtensionASCII(
+                       base::NumberToString(kExpectedConsumerId));
 }
 
 // Get the file names of the recordings. The name will be
@@ -136,8 +143,8 @@ IN_PROC_BROWSER_TEST_F(WebRtcAudioDebugRecordingsBrowserTest,
   // Make a call.
   GURL url(embedded_test_server()->GetURL("/media/peerconnection-call.html"));
   EXPECT_TRUE(NavigateToURL(shell(), url));
-  ExecuteJavascriptAndWaitForOk("call({video: true, audio: true});");
-  ExecuteJavascriptAndWaitForOk("hangup();");
+  EXPECT_TRUE(ExecJs(shell(), "call({video: true, audio: true});"));
+  EXPECT_TRUE(ExecJs(shell(), "hangup();"));
 
   WebRTCInternals::GetInstance()->DisableAudioDebugRecordings();
 
@@ -154,7 +161,8 @@ IN_PROC_BROWSER_TEST_F(WebRtcAudioDebugRecordingsBrowserTest,
   // Two files are expected, one for each peer in the call.
   std::vector<base::FilePath> output_files =
       GetRecordingFileNames(FILE_PATH_LITERAL("output"), base_file_path);
-  EXPECT_EQ(output_files.size(), 2u);
+  EXPECT_EQ(output_files.size(),
+            media::IsChromeWideEchoCancellationEnabled() ? 1u : 2u);
   for (const base::FilePath& file_path : output_files) {
     file_size = 0;
     EXPECT_TRUE(base::GetFileSize(file_path, &file_size));
@@ -163,8 +171,12 @@ IN_PROC_BROWSER_TEST_F(WebRtcAudioDebugRecordingsBrowserTest,
   }
 
   // Verify that the expected AEC dump file exists and contains some data.
-  base::ProcessId render_process_id =
-      shell()->web_contents()->GetMainFrame()->GetProcess()->GetProcess().Pid();
+  base::ProcessId render_process_id = shell()
+                                          ->web_contents()
+                                          ->GetPrimaryMainFrame()
+                                          ->GetProcess()
+                                          ->GetProcess()
+                                          .Pid();
   base::FilePath file_path =
       GetExpectedAecDumpFileName(base_file_path, render_process_id);
   EXPECT_TRUE(base::PathExists(file_path));
@@ -221,8 +233,8 @@ IN_PROC_BROWSER_TEST_F(WebRtcAudioDebugRecordingsBrowserTest,
   // Make a call.
   GURL url(embedded_test_server()->GetURL("/media/peerconnection-call.html"));
   EXPECT_TRUE(NavigateToURL(shell(), url));
-  ExecuteJavascriptAndWaitForOk("call({video: true, audio: true});");
-  ExecuteJavascriptAndWaitForOk("hangup();");
+  EXPECT_TRUE(ExecJs(shell(), "call({video: true, audio: true});"));
+  EXPECT_TRUE(ExecJs(shell(), "hangup();"));
 
   // Verify that no files exist and remove temp dir.
   EXPECT_TRUE(base::IsDirectoryEmpty(temp_dir_path));
@@ -272,12 +284,11 @@ IN_PROC_BROWSER_TEST_F(WebRtcAudioDebugRecordingsBrowserTest,
   GURL url(embedded_test_server()->GetURL("/media/peerconnection-call.html"));
   EXPECT_TRUE(NavigateToURL(shell(), url));
   EXPECT_TRUE(NavigateToURL(shell2, url));
-  ExecuteJavascriptAndWaitForOk("call({video: true, audio: true});");
-  EXPECT_EQ("OK", EvalJs(shell2, "call({video: true, audio: true});",
-                         EXECUTE_SCRIPT_USE_MANUAL_REPLY));
+  EXPECT_TRUE(ExecJs(shell(), "call({video: true, audio: true});"));
+  EXPECT_TRUE(ExecJs(shell2, "call({video: true, audio: true});"));
 
-  ExecuteJavascriptAndWaitForOk("hangup();");
-  EXPECT_EQ("OK", EvalJs(shell2, "hangup();", EXECUTE_SCRIPT_USE_MANUAL_REPLY));
+  EXPECT_TRUE(ExecJs(shell(), "hangup();"));
+  EXPECT_TRUE(ExecJs(shell2, "hangup();"));
 
   WebRTCInternals::GetInstance()->DisableAudioDebugRecordings();
 

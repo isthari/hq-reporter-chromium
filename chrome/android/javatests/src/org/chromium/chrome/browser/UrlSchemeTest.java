@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@ package org.chromium.chrome.browser;
 import android.content.Context;
 import android.net.Uri;
 import android.os.Environment;
-import android.support.test.InstrumentationRegistry;
 
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.MediumTest;
 
 import org.hamcrest.Matchers;
@@ -59,10 +59,11 @@ public class UrlSchemeTest {
 
     @Before
     public void setUp() {
-        TestContentProvider.resetResourceRequestCounts(InstrumentationRegistry.getTargetContext());
+        TestContentProvider.resetResourceRequestCounts(ApplicationProvider.getApplicationContext());
         TestContentProvider.setDataFilePath(
-                InstrumentationRegistry.getTargetContext(), UrlUtils.getTestFilePath(""));
-        mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
+                ApplicationProvider.getApplicationContext(), UrlUtils.getTestFilePath(""));
+        mTestServer = EmbeddedTestServer.createAndStartServer(
+                ApplicationProvider.getApplicationContext());
     }
 
     @After
@@ -83,7 +84,7 @@ public class UrlSchemeTest {
         ensureResourceRequestCountInContentProvider(resource, 0);
         // Make a request to the content provider.
         Uri uri = Uri.parse(createContentUrl(resource));
-        Context context = InstrumentationRegistry.getContext();
+        Context context = ApplicationProvider.getApplicationContext();
         InputStream inputStream = null;
         try {
             inputStream = context.getContentResolver().openInputStream(uri);
@@ -321,7 +322,7 @@ public class UrlSchemeTest {
      * @param expectedCount Expected resource requests count
      */
     private void ensureResourceRequestCountInContentProvider(String resource, int expectedCount) {
-        Context context = InstrumentationRegistry.getTargetContext();
+        Context context = ApplicationProvider.getApplicationContext();
         int actualCount = TestContentProvider.getResourceRequestCount(context, resource);
         Assert.assertEquals(expectedCount, actualCount);
     }
@@ -333,7 +334,7 @@ public class UrlSchemeTest {
      */
     private void ensureResourceRequestCountInContentProviderNotLessThan(
             String resource, int expectedMinimalCount) {
-        Context context = InstrumentationRegistry.getTargetContext();
+        Context context = ApplicationProvider.getApplicationContext();
         int actualCount = TestContentProvider.getResourceRequestCount(context, resource);
         Assert.assertTrue("Minimal expected: " + expectedMinimalCount + ", actual: " + actualCount,
                 actualCount >= expectedMinimalCount);

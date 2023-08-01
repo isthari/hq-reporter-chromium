@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,13 @@
 
 #include <string>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "chrome/browser/download/download_confirmation_reason.h"
 #include "chrome/browser/download/download_confirmation_result.h"
 #include "components/download/public/common/download_danger_type.h"
 #include "components/download/public/common/download_item.h"
 #include "components/download/public/common/download_path_reservation_tracker.h"
-#include "components/download/public/common/download_schedule.h"
+#include "components/download/public/common/download_utils.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
@@ -24,10 +24,10 @@ class FilePath;
 // DownloadTargetDeterminer and is expected to outlive it.
 class DownloadTargetDeterminerDelegate {
  public:
-  // Callback to be invoked after GetMixedContentStatus() completes. The
+  // Callback to be invoked after GetInsecureDownloadStatus() completes. The
   // |should_block| bool represents whether the download should be aborted.
-  using GetMixedContentStatusCallback = base::OnceCallback<void(
-      download::DownloadItem::MixedContentStatus status)>;
+  using GetInsecureDownloadStatusCallback = base::OnceCallback<void(
+      download::DownloadItem::InsecureDownloadStatus status)>;
 
   // Callback to be invoked after NotifyExtensions() completes. The
   // |new_virtual_path| should be set to a new path if an extension wishes to
@@ -50,16 +50,16 @@ class DownloadTargetDeterminerDelegate {
   //    selection, then this parameter will be the empty path. On Chrome OS,
   //    this path may contain virtual mount points if the user chose a virtual
   //    path (e.g. Google Drive).
-  using ConfirmationCallback = base::OnceCallback<void(
-      DownloadConfirmationResult,
-      const base::FilePath& virtual_path,
-      absl::optional<download::DownloadSchedule> download_schedule)>;
+  using ConfirmationCallback =
+      base::OnceCallback<void(DownloadConfirmationResult,
+                              const base::FilePath& virtual_path)>;
 
-  // Callback to be invoked when DetermineLocalPath() completes. The argument
-  // should be the determined local path. It should be non-empty on success. If
-  // |virtual_path| is already a local path, then |virtual_path| should be
-  // returned as-is.
-  using LocalPathCallback = base::OnceCallback<void(const base::FilePath&)>;
+  // Callback to be invoked when RequestIncognitoWarningConfirmation()
+  // completes.
+  // |accepted|: boolean saying if user accepted or the prompt was
+  // dismissed.
+  using IncognitoWarningConfirmationCallback =
+      base::OnceCallback<void(bool /*accepted*/)>;
 
   // Callback to be invoked after CheckDownloadUrl() completes. The parameter to
   // the callback should indicate the danger type of the download based on the
@@ -72,12 +72,12 @@ class DownloadTargetDeterminerDelegate {
   // determined, it should be set to the empty string.
   typedef base::OnceCallback<void(const std::string&)> GetFileMimeTypeCallback;
 
-  // Returns whether the download should be warned/blocked based on its mixed
-  // content status, and if so, what kind of warning/blocking should be used.
-  virtual void GetMixedContentStatus(
+  // Returns whether the download should be warned/blocked based on its insecure
+  // download status, and if so, what kind of warning/blocking should be used.
+  virtual void GetInsecureDownloadStatus(
       download::DownloadItem* download,
       const base::FilePath& virtual_path,
-      GetMixedContentStatusCallback callback) = 0;
+      GetInsecureDownloadStatusCallback callback) = 0;
 
   // Notifies extensions of the impending filename determination. |virtual_path|
   // is the current suggested virtual path. The |callback| should be invoked to
@@ -113,14 +113,19 @@ class DownloadTargetDeterminerDelegate {
                                    const base::FilePath& virtual_path,
                                    DownloadConfirmationReason reason,
                                    ConfirmationCallback callback) = 0;
-
+#if BUILDFLAG(IS_ANDROID)
+  // Display a message prompt to the user containing an incognito warning.
+  // Should invoke |callback| upon completion.
+  virtual void RequestIncognitoWarningConfirmation(
+      IncognitoWarningConfirmationCallback callback) = 0;
+#endif
   // If |virtual_path| is not a local path, should return a possibly temporary
   // local path to use for storing the downloaded file. If |virtual_path| is
   // already local, then it should return the same path. |callback| should be
   // invoked to return the path.
   virtual void DetermineLocalPath(download::DownloadItem* download,
                                   const base::FilePath& virtual_path,
-                                  LocalPathCallback callback) = 0;
+                                  download::LocalPathCallback callback) = 0;
 
   // Check whether the download URL is malicious and invoke |callback| with a
   // suggested danger type for the download.

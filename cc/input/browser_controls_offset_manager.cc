@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 #include <utility>
 
 #include "base/check_op.h"
-#include "base/cxx17_backports.h"
 #include "base/memory/ptr_util.h"
 #include "cc/input/browser_controls_offset_manager_client.h"
 #include "cc/trees/layer_tree_impl.h"
@@ -194,6 +193,13 @@ void BrowserControlsOffsetManager::UpdateBrowserControlsState(
   }
 
   ResetAnimations();
+
+  // If we're about to animate the controls in, then restart the animation after
+  // the scroll completes.  We don't know if a scroll is in progress, but that's
+  // okay; the flag will be reset when a scroll starts next in that case.
+  if (animate && direction == AnimationDirection::SHOWING_CONTROLS) {
+    show_controls_when_scroll_completes_ = true;
+  }
 
   if (animate)
     SetupAnimation(direction);
@@ -387,6 +393,11 @@ void BrowserControlsOffsetManager::ScrollBegin() {
   if (pinch_gesture_active_)
     return;
 
+  // If an animation to show the controls is in progress, re-order the animation
+  // to start after the scroll completes.  This ensures that the user doesn't
+  // accidentally hide the controls with a gesture that would not normally be
+  // enough to hide them.
+  show_controls_when_scroll_completes_ = IsAnimatingToShowControls();
   ResetAnimations();
   ResetBaseline();
 }
@@ -446,8 +457,7 @@ gfx::Vector2dF BrowserControlsOffsetManager::ScrollBy(
   float min_ratio = base_on_top_controls ? TopControlsMinShownRatio()
                                          : BottomControlsMinShownRatio();
   float normalized_shown_ratio =
-      (base::clamp(shown_ratio, min_ratio, 1.f) - min_ratio) /
-      (1.f - min_ratio);
+      (std::clamp(shown_ratio, min_ratio, 1.f) - min_ratio) / (1.f - min_ratio);
   // Even though the real shown ratios (shown height / total height) of the top
   // and bottom controls can be different, they share the same
   // relative/normalized ratio to keep them in sync.
@@ -459,8 +469,13 @@ gfx::Vector2dF BrowserControlsOffsetManager::ScrollBy(
 
   // If the controls are fully visible, treat the current position as the
   // new baseline even if the gesture didn't end.
-  if (TopControlsShownRatio() == 1.f && BottomControlsShownRatio() == 1.f)
+  if (TopControlsShownRatio() == 1.f && BottomControlsShownRatio() == 1.f) {
     ResetBaseline();
+    // Once the controls are fully visible, then any cancelled animation to show
+    // them isn't relevant; the user definitely sees the controls and can decide
+    // if they'd like to keep them.
+    show_controls_when_scroll_completes_ = false;
+  }
 
   ResetAnimations();
 
@@ -475,6 +490,13 @@ gfx::Vector2dF BrowserControlsOffsetManager::ScrollBy(
 void BrowserControlsOffsetManager::ScrollEnd() {
   if (pinch_gesture_active_)
     return;
+
+  // See if we should animate the top bar in, in case there was a race between
+  // chrome showing the controls and the user performing a scroll.
+  if (show_controls_when_scroll_completes_) {
+    SetupAnimation(AnimationDirection::SHOWING_CONTROLS);
+    return;
+  }
 
   StartAnimationIfNecessary();
 }
@@ -520,9 +542,9 @@ gfx::Vector2dF BrowserControlsOffsetManager::Animate(
     // too low or too high |top_controls_min_height_offset_| values. So, we
     // should clamp it to a valid range.
     top_controls_min_height_offset_ =
-        base::clamp(top_controls_min_height_offset_ + top_offset_delta,
-                    top_min_height_offset_animation_range_->first,
-                    top_min_height_offset_animation_range_->second);
+        std::clamp(top_controls_min_height_offset_ + top_offset_delta,
+                   top_min_height_offset_animation_range_->first,
+                   top_min_height_offset_animation_range_->second);
     // Ticking the animation might reset it if it's at the final value.
     top_min_height_change_in_progress_ =
         top_controls_animation_.IsInitialized();
@@ -532,9 +554,9 @@ gfx::Vector2dF BrowserControlsOffsetManager::Animate(
     // in too low or too high |bottom_controls_min_height_offset_| values. So,
     // we should clamp it to a valid range.
     bottom_controls_min_height_offset_ =
-        base::clamp(bottom_controls_min_height_offset_ + bottom_offset_delta,
-                    bottom_min_height_offset_animation_range_->first,
-                    bottom_min_height_offset_animation_range_->second);
+        std::clamp(bottom_controls_min_height_offset_ + bottom_offset_delta,
+                   bottom_min_height_offset_animation_range_->first,
+                   bottom_min_height_offset_animation_range_->second);
     // Ticking the animation might reset it if it's at the final value.
     bottom_min_height_change_in_progress_ =
         bottom_controls_animation_.IsInitialized();
@@ -746,9 +768,10 @@ void BrowserControlsOffsetManager::Animation::SetBounds(float min, float max) {
 }
 
 absl::optional<float> BrowserControlsOffsetManager::Animation::Reset() {
-  auto ret = jump_to_end_on_reset_ ? absl::make_optional(base::clamp(
-                                         stop_value_, min_value_, max_value_))
-                                   : absl::nullopt;
+  auto ret =
+      jump_to_end_on_reset_
+          ? absl::make_optional(std::clamp(stop_value_, min_value_, max_value_))
+          : absl::nullopt;
 
   started_ = false;
   initialized_ = false;
@@ -773,7 +796,7 @@ bool BrowserControlsOffsetManager::Animation::IsComplete(float value) {
 }
 
 float BrowserControlsOffsetManager::Animation::FinalValue() {
-  return base::clamp(stop_value_, min_value_, max_value_);
+  return std::clamp(stop_value_, min_value_, max_value_);
 }
 
 }  // namespace cc

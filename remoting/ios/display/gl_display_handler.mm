@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,12 +11,12 @@
 
 #import "remoting/ios/display/gl_display_handler.h"
 
-#import "base/bind.h"
+#import "base/functional/bind.h"
 #import "remoting/client/display/sys_opengl.h"
 #import "remoting/ios/display/eagl_view.h"
 #import "remoting/ios/display/gl_demo_screen.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/memory/weak_ptr.h"
 #include "remoting/client/chromoting_client_runtime.h"

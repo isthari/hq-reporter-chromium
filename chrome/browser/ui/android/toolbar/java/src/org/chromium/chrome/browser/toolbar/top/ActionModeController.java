@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@ import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.content.res.TypedArray;
-import android.util.Property;
+import android.util.IntProperty;
 
 import androidx.appcompat.app.ActionBar;
 
@@ -31,14 +31,14 @@ public class ActionModeController {
     private final ActionBarDelegate mActionBarDelegate;
 
     /** Property for animating the top margin of ActionBarDelegate. */
-    public static final Property<ActionBarDelegate, Integer> TOP_MARGIN_ANIM_PROPERTY =
-            new Property<ActionBarDelegate, Integer>(Integer.class, "controlTopMargin") {
+    public static final IntProperty<ActionBarDelegate> TOP_MARGIN_ANIM_PROPERTY =
+            new IntProperty<ActionBarDelegate>("controlTopMargin") {
                 @Override
                 public Integer get(ActionBarDelegate delegate) {
                     return delegate.getControlTopMargin();
                 }
                 @Override
-                public void set(ActionBarDelegate delegate, Integer value) {
+                public void setValue(ActionBarDelegate delegate, int value) {
                     delegate.setControlTopMargin(value);
                 }
             };

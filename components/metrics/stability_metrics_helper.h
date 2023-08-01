@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,20 +27,21 @@ namespace metrics {
 enum class StabilityEventType {
   kPageLoad = 2,
   kRendererCrash = 3,
-  kRendererHang = 4,
+  // kRendererHang = 4,  // Removed due to disuse and correctness issues.
   kExtensionCrash = 5,
-  kChildProcessCrash = 6,
+  // kChildProcessCrash = 6,  // Removed due to disuse and alternative metrics.
   kLaunch = 15,
   kBrowserCrash = 16,
   // kIncompleteShutdown = 17,  // Removed due to disuse and correctness issues.
-  kPluginCrash = 22,
+  // kPluginCrash = 22,  // Removed due to plugin deprecation.
   kRendererFailedLaunch = 24,
   kExtensionRendererFailedLaunch = 25,
   kRendererLaunch = 26,
   kExtensionRendererLaunch = 27,
   kGpuCrash = 31,
   kUtilityCrash = 32,
-  kMaxValue = kUtilityCrash
+  kUtilityLaunch = 33,
+  kMaxValue = kUtilityLaunch,
 };
 
 class SystemProfileProto;
@@ -56,11 +57,17 @@ class StabilityMetricsHelper {
 
   ~StabilityMetricsHelper();
 
+#if BUILDFLAG(IS_ANDROID)
+  // A couple Local-State-pref-based stability counts are retained for Android
+  // WebView. Other platforms, including Android Chrome and WebLayer, should use
+  // Stability.Counts2 as the source of truth for these counts.
+
   // Provides stability metrics.
   void ProvideStabilityMetrics(SystemProfileProto* system_profile_proto);
 
   // Clears the gathered stability metrics.
   void ClearSavedStabilityMetrics();
+#endif  // BUILDFLAG(IS_ANDROID)
 
   // Records a utility process launch with name |metrics_name|.
   void BrowserUtilityProcessLaunched(const std::string& metrics_name);
@@ -80,22 +87,18 @@ class StabilityMetricsHelper {
 #endif
   );
 
-  // Records a browser child process crash.
-  void BrowserChildProcessCrashed();
-
   // Logs the initiation of a page load.
   void LogLoadStarted();
 
+#if !BUILDFLAG(IS_ANDROID)
   // Records a renderer process crash.
   void LogRendererCrash(bool was_extension_process,
                         base::TerminationStatus status,
                         int exit_code);
+#endif  // !BUILDFLAG(IS_ANDROID)
 
   // Records that a new renderer process was successfully launched.
   void LogRendererLaunched(bool was_extension_process);
-
-  // Records a renderer process hang.
-  void LogRendererHang();
 
   // Registers local state prefs used by this class.
   static void RegisterPrefs(PrefRegistrySimple* registry);

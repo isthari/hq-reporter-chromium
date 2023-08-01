@@ -1,13 +1,13 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import <Cocoa/Cocoa.h>
 #include <stdint.h>
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/containers/contains.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/mac/scoped_nsobject.h"
 #include "base/run_loop.h"
 #include "base/threading/thread.h"
@@ -146,7 +146,7 @@ TEST_F(ServiceDiscoveryClientMacTest, ParseServiceRecord) {
   const uint8_t record_bytes[] = {2, 'a', 'b', 3, 'd', '=', 'e'};
   base::scoped_nsobject<TestNSNetService> test_service([[TestNSNetService alloc]
       initWithData:[NSData dataWithBytes:record_bytes
-                                  length:base::size(record_bytes)]]);
+                                  length:std::size(record_bytes)]]);
 
   const std::string kIp = "2001:4860:4860::8844";
   const uint16_t kPort = 4321;
@@ -184,7 +184,7 @@ TEST_F(ServiceDiscoveryClientMacTest, ParseInvalidUnicodeRecord) {
   };
   base::scoped_nsobject<TestNSNetService> test_service([[TestNSNetService alloc]
       initWithData:[NSData dataWithBytes:record_bytes
-                                  length:base::size(record_bytes)]]);
+                                  length:std::size(record_bytes)]]);
 
   const std::string kIp = "2001:4860:4860::8844";
   const uint16_t kPort = 4321;

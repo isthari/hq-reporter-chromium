@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,8 +24,13 @@ FileSystemAccessIconView::FileSystemAccessIconView(
     : PageActionIconView(nullptr,
                          0,
                          icon_label_bubble_delegate,
-                         page_action_icon_delegate) {
+                         page_action_icon_delegate,
+                         "FileSystemAccess") {
   SetVisible(false);
+  SetAccessibilityProperties(
+      /*role*/ absl::nullopt,
+      l10n_util::GetStringUTF16(
+          IDS_FILE_SYSTEM_ACCESS_DIRECTORY_USAGE_TOOLTIP));
 }
 
 views::BubbleDialogDelegate* FileSystemAccessIconView::GetBubble() const {
@@ -40,7 +45,7 @@ void FileSystemAccessIconView::UpdateImpl() {
     has_write_access_ = false;
   } else {
     url::Origin origin =
-        GetWebContents()->GetMainFrame()->GetLastCommittedOrigin();
+        GetWebContents()->GetPrimaryMainFrame()->GetLastCommittedOrigin();
     auto* context =
         FileSystemAccessPermissionContextFactory::GetForProfileIfExists(
             GetWebContents()->GetBrowserContext());
@@ -53,24 +58,22 @@ void FileSystemAccessIconView::UpdateImpl() {
   if (has_write_access_ != had_write_access)
     UpdateIconImage();
 
+  SetAccessibleName(has_write_access_
+                        ? l10n_util::GetStringUTF16(
+                              IDS_FILE_SYSTEM_ACCESS_WRITE_USAGE_TOOLTIP)
+                        : l10n_util::GetStringUTF16(
+                              IDS_FILE_SYSTEM_ACCESS_DIRECTORY_USAGE_TOOLTIP));
+
   // If icon isn't visible, a bubble shouldn't be shown either. Close it if
   // it was still open.
   if (!GetVisible())
     FileSystemAccessUsageBubbleView::CloseCurrentBubble();
 }
 
-std::u16string FileSystemAccessIconView::GetTextForTooltipAndAccessibleName()
-    const {
-  return has_write_access_
-             ? l10n_util::GetStringUTF16(
-                   IDS_FILE_SYSTEM_ACCESS_WRITE_USAGE_TOOLTIP)
-             : l10n_util::GetStringUTF16(
-                   IDS_FILE_SYSTEM_ACCESS_DIRECTORY_USAGE_TOOLTIP);
-}
-
 void FileSystemAccessIconView::OnExecuting(ExecuteSource execute_source) {
   auto* web_contents = GetWebContents();
-  url::Origin origin = web_contents->GetMainFrame()->GetLastCommittedOrigin();
+  url::Origin origin =
+      web_contents->GetPrimaryMainFrame()->GetLastCommittedOrigin();
 
   auto* context =
       FileSystemAccessPermissionContextFactory::GetForProfileIfExists(

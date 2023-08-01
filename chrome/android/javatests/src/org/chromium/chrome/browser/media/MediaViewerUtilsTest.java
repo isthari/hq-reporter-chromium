@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@ package org.chromium.chrome.browser.media;
 
 import android.content.Intent;
 import android.net.Uri;
-import android.support.test.InstrumentationRegistry;
 
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.MediumTest;
 
 import org.junit.Assert;
@@ -18,7 +18,7 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.chrome.browser.customtabs.CustomTabActivityTestRule;
-import org.chromium.chrome.browser.customtabs.CustomTabsTestUtils;
+import org.chromium.chrome.browser.customtabs.CustomTabsIntentTestUtils;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.TestContentProvider;
@@ -42,8 +42,8 @@ public class MediaViewerUtilsTest {
     @MediumTest
     public void testCustomTabActivityInLightMode() throws Exception {
         mCustomTabActivityTestRule.startCustomTabActivityWithIntent(
-                CustomTabsTestUtils.createMinimalCustomTabIntentWithTheme(
-                        InstrumentationRegistry.getTargetContext(),
+                CustomTabsIntentTestUtils.createMinimalCustomTabIntentWithTheme(
+                        ApplicationProvider.getApplicationContext(),
                         ContentUrlConstants.ABOUT_BLANK_DISPLAY_URL, /* inNightMode= */ false));
 
         Uri uri = Uri.parse(TestContentProvider.createContentUrl("google.png"));
@@ -57,8 +57,8 @@ public class MediaViewerUtilsTest {
     @MediumTest
     public void testCustomTabActivityInDarkMode() throws Exception {
         mCustomTabActivityTestRule.startCustomTabActivityWithIntent(
-                CustomTabsTestUtils.createMinimalCustomTabIntentWithTheme(
-                        InstrumentationRegistry.getTargetContext(),
+                CustomTabsIntentTestUtils.createMinimalCustomTabIntentWithTheme(
+                        ApplicationProvider.getApplicationContext(),
                         ContentUrlConstants.ABOUT_BLANK_DISPLAY_URL, /* inNightMode= */ true));
 
         Uri uri = Uri.parse(TestContentProvider.createContentUrl("google.png"));

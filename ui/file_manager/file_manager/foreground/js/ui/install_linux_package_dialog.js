@@ -1,10 +1,10 @@
-// Copyright (c) 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {assert} from 'chrome://resources/js/assert.m.js';
+import {assert} from 'chrome://resources/ash/common/assert.js';
 
-import {str} from '../../../common/js/util.js';
+import {str, util} from '../../../common/js/util.js';
 
 import {FileManagerDialogBase} from './file_manager_dialog_base.js';
 
@@ -12,9 +12,9 @@ import {FileManagerDialogBase} from './file_manager_dialog_base.js';
 /**
  * InstallLinuxPackageDialog is used as the handler for .deb files.
  */
-  /**
-   * Creates dialog in DOM tree.
-   */
+/**
+ * Creates dialog in DOM tree.
+ */
 export class InstallLinuxPackageDialog extends FileManagerDialogBase {
   /**
    * @param {HTMLElement} parentNode Node to be parent for this dialog.
@@ -36,9 +36,18 @@ export class InstallLinuxPackageDialog extends FileManagerDialogBase {
 
     // The OK button normally dismisses the dialog, so add a button we can
     // customize.
-    this.installButton_ = this.okButton.cloneNode(false /* deep */);
-    this.installButton_.textContent =
-        str('INSTALL_LINUX_PACKAGE_INSTALL_BUTTON');
+    if (util.isJellyEnabled()) {
+      // Need to copy the whole sub tree because we need child elements.
+      this.installButton_ = this.okButton.cloneNode(true /* deep */);
+      // When Jelly is on, we have child elements inside the button, setting
+      // textContent of the button will remove all children.
+      this.installButton_.childNodes[0].textContent =
+          str('INSTALL_LINUX_PACKAGE_INSTALL_BUTTON');
+    } else {
+      this.installButton_ = this.okButton.cloneNode(false /* deep */);
+      this.installButton_.textContent =
+          str('INSTALL_LINUX_PACKAGE_INSTALL_BUTTON');
+    }
     this.installButton_.addEventListener(
         'click', this.onInstallClick_.bind(this));
     this.buttons.insertBefore(this.installButton_, this.okButton);
@@ -68,7 +77,7 @@ export class InstallLinuxPackageDialog extends FileManagerDialogBase {
     const show = super.showOkCancelDialog(title, message, null, null);
 
     if (!show) {
-      console.error('InstallLinuxPackageDialog can\'t be shown.');
+      console.warn('InstallLinuxPackageDialog can\'t be shown.');
       return;
     }
 
@@ -104,7 +113,7 @@ export class InstallLinuxPackageDialog extends FileManagerDialogBase {
     if (chrome.runtime.lastError) {
       this.resetDetailsFrame_(
           str('INSTALL_LINUX_PACKAGE_DETAILS_NOT_AVAILABLE'));
-      console.error(
+      console.warn(
           'Failed to retrieve app info: ' + chrome.runtime.lastError.message);
       return;
     }
@@ -114,11 +123,11 @@ export class InstallLinuxPackageDialog extends FileManagerDialogBase {
     const details = [
       [
         str('INSTALL_LINUX_PACKAGE_DETAILS_APPLICATION_LABEL'),
-        linux_package_info.name
+        linux_package_info.name,
       ],
       [
         str('INSTALL_LINUX_PACKAGE_DETAILS_VERSION_LABEL'),
-        linux_package_info.version
+        linux_package_info.version,
       ],
     ];
 
@@ -133,7 +142,8 @@ export class InstallLinuxPackageDialog extends FileManagerDialogBase {
     }
     if (description) {
       details.push([
-        str('INSTALL_LINUX_PACKAGE_DETAILS_DESCRIPTION_LABEL'), description
+        str('INSTALL_LINUX_PACKAGE_DETAILS_DESCRIPTION_LABEL'),
+        description,
       ]);
     }
 
@@ -196,6 +206,6 @@ export class InstallLinuxPackageDialog extends FileManagerDialogBase {
     // surface the provided failure reason if one is provided.
     this.title.textContent = str('INSTALL_LINUX_PACKAGE_ERROR_TITLE');
     this.text.textContent = str('INSTALL_LINUX_PACKAGE_ERROR_DESCRIPTION');
-    console.error('Failed to begin package installation: ' + failure_reason);
+    console.warn('Failed to begin package installation: ' + failure_reason);
   }
 }

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,11 +14,10 @@
 #include "components/metrics/metrics_provider.h"
 #include "components/metrics/stability_metrics_helper.h"
 #include "content/public/browser/browser_child_process_observer.h"
-#include "content/public/browser/render_process_host.h"
+#include "content/public/browser/notification_observer.h"
+#include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/render_process_host_creation_observer.h"
 #include "content/public/browser/render_process_host_observer.h"
-#include "content/public/browser/web_contents_observer.h"
-#include "content/public/browser/web_contents_user_data.h"
 
 #if BUILDFLAG(IS_ANDROID)
 #include "components/crash/content/browser/crash_metrics_reporter_android.h"
@@ -39,7 +38,8 @@ class ContentStabilityMetricsProvider
       public crash_reporter::CrashMetricsReporter::Observer,
 #endif
       public content::RenderProcessHostCreationObserver,
-      public content::RenderProcessHostObserver {
+      public content::RenderProcessHostObserver,
+      public content::NotificationObserver {
  public:
   // |extensions_helper| is used to determine if a process corresponds to an
   // extension and is optional. If an ExtensionsHelper is not supplied it is
@@ -53,14 +53,17 @@ class ContentStabilityMetricsProvider
       const ContentStabilityMetricsProvider&) = delete;
   ~ContentStabilityMetricsProvider() override;
 
-  // MetricsDataProvider:
+  // MetricsProvider:
   void OnRecordingEnabled() override;
   void OnRecordingDisabled() override;
+#if BUILDFLAG(IS_ANDROID)
+  // A couple Local-State-pref-based stability counts are retained for Android
+  // WebView. Other platforms, including Android Chrome and WebLayer, should use
+  // Stability.Counts2 as the source of truth for these counts.
   void ProvideStabilityMetrics(
       SystemProfileProto* system_profile_proto) override;
   void ClearSavedStabilityMetrics() override;
-
-  static void SetupWebContentsObserver(content::WebContents* web_contents);
+#endif  // BUILDFLAG(IS_ANDROID)
 
  private:
   FRIEND_TEST_ALL_PREFIXES(ContentStabilityMetricsProviderTest,
@@ -72,16 +75,6 @@ class ContentStabilityMetricsProvider
   FRIEND_TEST_ALL_PREFIXES(ContentStabilityMetricsProviderTest,
                            ExtensionsNotificationObserver);
 
-  // content::BrowserChildProcessObserver:
-  void BrowserChildProcessCrashed(
-      const content::ChildProcessData& data,
-      const content::ChildProcessTerminationInfo& info) override;
-  void BrowserChildProcessLaunchedAndConnected(
-      const content::ChildProcessData& data) override;
-  void BrowserChildProcessLaunchFailed(
-      const content::ChildProcessData& data,
-      const content::ChildProcessTerminationInfo& info) override;
-
   // content::RenderProcessHostCreationObserver:
   void OnRenderProcessHostCreated(content::RenderProcessHost* host) override;
 
@@ -91,8 +84,20 @@ class ContentStabilityMetricsProvider
       const content::ChildProcessTerminationInfo& info) override;
   void RenderProcessHostDestroyed(content::RenderProcessHost* host) override;
 
-  void DidStartLoading();
-  void OnRendererUnresponsive();
+  // content::NotificationObserver:
+  void Observe(int type,
+               const content::NotificationSource& source,
+               const content::NotificationDetails& details) override;
+
+  // content::BrowserChildProcessObserver:
+  void BrowserChildProcessCrashed(
+      const content::ChildProcessData& data,
+      const content::ChildProcessTerminationInfo& info) override;
+  void BrowserChildProcessLaunchedAndConnected(
+      const content::ChildProcessData& data) override;
+  void BrowserChildProcessLaunchFailed(
+      const content::ChildProcessData& data,
+      const content::ChildProcessTerminationInfo& info) override;
 
 #if BUILDFLAG(IS_ANDROID)
   // crash_reporter::CrashMetricsReporter::Observer:
@@ -108,23 +113,14 @@ class ContentStabilityMetricsProvider
 
   StabilityMetricsHelper helper_;
 
-  std::unique_ptr<ExtensionsHelper> extensions_helper_;
-
   base::ScopedMultiSourceObservation<content::RenderProcessHost,
                                      content::RenderProcessHostObserver>
-      scoped_observations_{this};
+      host_observation_{this};
 
-  class WebContentsObserverImpl
-      : public content::WebContentsObserver,
-        public content::WebContentsUserData<WebContentsObserverImpl> {
-   public:
-    explicit WebContentsObserverImpl(content::WebContents* web_contents);
+  // Registrar for receiving stability-related notifications.
+  content::NotificationRegistrar registrar_;
 
-    void DidStartLoading() override;
-    void OnRendererUnresponsive(content::RenderProcessHost* host) override;
-
-    WEB_CONTENTS_USER_DATA_KEY_DECL();
-  };
+  std::unique_ptr<ExtensionsHelper> extensions_helper_;
 };
 
 }  // namespace metrics

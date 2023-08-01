@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include <memory>
 
 #include "ash/ash_export.h"
+#include "base/memory/raw_ptr.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_observer.h"
@@ -47,12 +48,15 @@ class ASH_EXPORT OutputProtectionDelegate : public aura::WindowObserver,
       const aura::WindowObserver::HierarchyChangeParams& params) override;
   void OnWindowDestroying(aura::Window* window) override;
 
-  void OnWindowMayHaveMovedToAnotherDisplay();
+  // Called when `window_` may have become a descendant of a different root
+  // window (on a different display), or a descendant of a different window
+  // (e.g. a browser window when `window_` is for a tab that has become active).
+  void OnWindowMayHaveMovedToAnotherDisplayOrWindow();
 
   bool RegisterClientIfNecessary();
 
   // Native window being observed.
-  aura::Window* window_ = nullptr;
+  raw_ptr<aura::Window, ExperimentalAsh> window_ = nullptr;
 
   // Display ID of the observed window.
   int64_t display_id_;

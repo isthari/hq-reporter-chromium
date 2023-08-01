@@ -1,26 +1,29 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/reading_list/reading_list_mediator.h"
 
-#include <algorithm>
+#import <algorithm>
 
 #import "base/mac/foundation_util.h"
-#include "base/metrics/histogram_macros.h"
-#include "base/strings/sys_string_conversions.h"
-#include "components/reading_list/core/reading_list_model.h"
+#import "base/memory/scoped_refptr.h"
+#import "base/metrics/histogram_macros.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/reading_list/core/reading_list_model.h"
+#import "components/reading_list/features/reading_list_switches.h"
 #import "components/reading_list/ios/reading_list_model_bridge_observer.h"
-#include "components/url_formatter/url_formatter.h"
+#import "components/url_formatter/url_formatter.h"
 #import "ios/chrome/browser/favicon/favicon_loader.h"
-#include "ios/chrome/browser/favicon/ios_chrome_favicon_loader_factory.h"
+#import "ios/chrome/browser/favicon/ios_chrome_favicon_loader_factory.h"
+#import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_data_sink.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_list_item.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_list_item_factory.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_list_item_util.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_table_view_item.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_utils.h"
-#import "ios/chrome/browser/ui/util/uikit_ui_util.h"
+#import "ios/chrome/common/ui/favicon/favicon_constants.h"
 #import "ios/chrome/common/ui/favicon/favicon_view.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -29,14 +32,10 @@
 
 namespace {
 // Sorter function that orders ReadingListEntries by their update time.
-bool EntrySorter(const ReadingListEntry* rhs, const ReadingListEntry* lhs) {
+bool EntrySorter(scoped_refptr<const ReadingListEntry> rhs,
+                 scoped_refptr<const ReadingListEntry> lhs) {
   return rhs->UpdateTime() > lhs->UpdateTime();
 }
-// Desired width and height of favicon.
-const CGFloat kFaviconWidthHeight = 24;
-// Minimum favicon size to retrieve.
-const CGFloat kFaviconMinWidthHeight = 16;
-
 }  // namespace
 
 @interface ReadingListMediator ()<ReadingListModelBridgeObserver> {
@@ -61,10 +60,6 @@ const CGFloat kFaviconMinWidthHeight = 16;
 @implementation ReadingListMediator
 
 @synthesize dataSink = _dataSink;
-@synthesize model = _model;
-@synthesize shouldMonitorModel = _shouldMonitorModel;
-@synthesize itemFactory = _itemFactory;
-@synthesize faviconLoader = _faviconLoader;
 
 #pragma mark - Public
 
@@ -84,18 +79,27 @@ const CGFloat kFaviconMinWidthHeight = 16;
   return self;
 }
 
-- (const ReadingListEntry*)entryFromItem:(id<ReadingListListItem>)item {
+- (scoped_refptr<const ReadingListEntry>)entryFromItem:
+    (id<ReadingListListItem>)item {
   return self.model->GetEntryByURL(item.entryURL);
 }
 
 - (void)markEntryRead:(const GURL&)URL {
-  self.model->SetReadStatus(URL, true);
+  self.model->SetReadStatusIfExists(URL, true);
+}
+
+- (void)disconnect {
+  _dataSink = nil;
+  _model = nullptr;
+  _itemFactory = nil;
+  _faviconLoader = nullptr;
+  _modelBridge.reset();
 }
 
 #pragma mark - ReadingListDataSource
 
 - (BOOL)isItemRead:(id<ReadingListListItem>)item {
-  const ReadingListEntry* readingListEntry =
+  scoped_refptr<const ReadingListEntry> readingListEntry =
       self.model->GetEntryByURL(item.entryURL);
 
   if (!readingListEntry) {
@@ -112,10 +116,10 @@ const CGFloat kFaviconMinWidthHeight = 16;
 }
 
 - (void)setReadStatus:(BOOL)read forItem:(id<ReadingListListItem>)item {
-  self.model->SetReadStatus(item.entryURL, read);
+  self.model->SetReadStatusIfExists(item.entryURL, read);
 }
 
-- (const ReadingListEntry*)entryWithURL:(const GURL&)URL {
+- (scoped_refptr<const ReadingListEntry>)entryWithURL:(const GURL&)URL {
   return self.model->GetEntryByURL(URL);
 }
 
@@ -126,32 +130,43 @@ const CGFloat kFaviconMinWidthHeight = 16;
 
 - (void)fillReadItems:(NSMutableArray<id<ReadingListListItem>>*)readArray
           unreadItems:(NSMutableArray<id<ReadingListListItem>>*)unreadArray {
-  std::vector<const ReadingListEntry*> readEntries;
-  std::vector<const ReadingListEntry*> unreadEntries;
+  std::vector<scoped_refptr<const ReadingListEntry>> readEntries;
+  std::vector<scoped_refptr<const ReadingListEntry>> unreadEntries;
 
-  for (const auto& url : self.model->Keys()) {
-    const ReadingListEntry* entry = self.model->GetEntryByURL(url);
+  for (const auto& url : self.model->GetKeys()) {
+    scoped_refptr<const ReadingListEntry> entry =
+        self.model->GetEntryByURL(url);
     DCHECK(entry);
     if (entry->IsRead()) {
-      readEntries.push_back(entry);
+      readEntries.push_back(std::move(entry));
     } else {
-      unreadEntries.push_back(entry);
+      unreadEntries.push_back(std::move(entry));
     }
   }
 
   std::sort(readEntries.begin(), readEntries.end(), EntrySorter);
   std::sort(unreadEntries.begin(), unreadEntries.end(), EntrySorter);
 
-  for (const ReadingListEntry* entry : readEntries) {
-    [readArray addObject:[self.itemFactory cellItemForReadingListEntry:entry]];
+  for (scoped_refptr<const ReadingListEntry> entry : readEntries) {
+    bool needsExplicitUpload =
+        self.model->NeedsExplicitUploadToSyncServer(entry->URL());
+    ListItem<ReadingListListItem>* item =
+        [self.itemFactory cellItemForReadingListEntry:entry.get()
+                                  needsExplicitUpload:needsExplicitUpload];
+    [readArray addObject:item];
   }
 
-  for (const ReadingListEntry* entry : unreadEntries) {
-    [unreadArray
-        addObject:[self.itemFactory cellItemForReadingListEntry:entry]];
+  for (scoped_refptr<const ReadingListEntry> entry : unreadEntries) {
+    bool needsExplicitUpload =
+        self.model->NeedsExplicitUploadToSyncServer(entry->URL());
+    ListItem<ReadingListListItem>* item =
+        [self.itemFactory cellItemForReadingListEntry:entry.get()
+                                  needsExplicitUpload:needsExplicitUpload];
+    [unreadArray addObject:item];
   }
 
-  DCHECK(self.model->Keys().size() == [readArray count] + [unreadArray count]);
+  DCHECK(self.model->GetKeys().size() ==
+         [readArray count] + [unreadArray count]);
 }
 
 - (void)fetchFaviconForItem:(id<ReadingListListItem>)item {
@@ -169,7 +184,7 @@ const CGFloat kFaviconMinWidthHeight = 16;
         [strongSelf.dataSink itemHasChangedAfterDelay:strongItem];
       };
   self.faviconLoader->FaviconForPageUrl(
-      item.faviconPageURL, kFaviconWidthHeight, kFaviconMinWidthHeight,
+      item.faviconPageURL, kDesiredSmallFaviconSizePt, kMinFaviconSizePt,
       /*fallback_to_google_server=*/false, completionBlock);
 }
 
@@ -251,9 +266,9 @@ const CGFloat kFaviconMinWidthHeight = 16;
 }
 
 // Returns whether there is a difference between the elements contained in the
-// |sectionIdentifier| and those in the |array|. The comparison is done with the
-// URL of the elements. If an element exist in both, the one in |currentSection|
-// will be overwriten with the informations contained in the one from|array|.
+// `sectionIdentifier` and those in the `array`. The comparison is done with the
+// URL of the elements. If an element exist in both, the one in `currentSection`
+// will be overwriten with the informations contained in the one from `array`.
 - (BOOL)currentSection:(NSArray<id<ReadingListListItem>>*)currentSection
     isDifferentOfArray:(NSArray<id<ReadingListListItem>>*)array {
   if (currentSection.count != array.count)
@@ -272,7 +287,7 @@ const CGFloat kFaviconMinWidthHeight = 16;
         oldItem.entryURL = newItem.entryURL;
         oldItem.distillationState = newItem.distillationState;
         oldItem.distillationDateText = newItem.distillationDateText;
-        oldItem.distillationSizeText = newItem.distillationSizeText;
+        oldItem.showCloudSlashIcon = newItem.showCloudSlashIcon;
       }
       if (oldItem.faviconPageURL != newItem.faviconPageURL) {
         oldItem.faviconPageURL = newItem.faviconPageURL;
@@ -288,9 +303,9 @@ const CGFloat kFaviconMinWidthHeight = 16;
   return NO;
 }
 
-// Logs the deletions histograms for the entry associated with |item|.
+// Logs the deletions histograms for the entry associated with `item`.
 - (void)logDeletionOfItem:(id<ReadingListListItem>)item {
-  const ReadingListEntry* entry = [self entryFromItem:item];
+  scoped_refptr<const ReadingListEntry> entry = [self entryFromItem:item];
 
   if (!entry)
     return;

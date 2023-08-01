@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #import <UIKit/UIKit.h>
 
+#import "components/password_manager/core/browser/bulk_leak_check_service_interface.h"
 #import "ios/chrome/common/ui/reauthentication/reauthentication_protocol.h"
 
 // EarlGreyScopedBlockSwizzlerAppInterface contains the app-side
@@ -17,10 +18,15 @@
 // Sets a re-authentication mock (i.e. what asks user for fingerprint to
 // view password) and its options for next test.
 + (void)setUpMockReauthenticationModule;
-+ (void)setUpMockReauthenticationModuleForExport;
++ (void)setUpMockReauthenticationModuleForAddPassword;
++ (void)setUpMockReauthenticationModuleForPasswordManager;
 + (void)mockReauthenticationModuleExpectedResult:
     (ReauthenticationResult)expectedResult;
 + (void)mockReauthenticationModuleCanAttempt:(BOOL)canAttempt;
+
+// Similar to the methods above, but with a companion to remove the override.
++ (void)setUpMockReauthenticationModuleForExportFromSettings;
++ (void)removeMockReauthenticationModuleForExportFromSettings;
 
 // Dismisses snack bar.  Used before next test.
 + (void)dismissSnackBar;
@@ -37,10 +43,31 @@
                    userName:(NSString*)userName
                      origin:(NSString*)origin;
 
-// Creates password form which is leaked.
-+ (BOOL)saveInsecurePassword:(NSString*)password
-                    userName:(NSString*)userName
-                      origin:(NSString*)origin;
+// Creates password form for given fields.
++ (BOOL)saveExampleNote:(NSString*)note
+               password:(NSString*)password
+               userName:(NSString*)userName
+                 origin:(NSString*)origin;
+
+// Creates a compromised password form.
++ (BOOL)saveCompromisedPassword:(NSString*)password
+                       userName:(NSString*)userName
+                         origin:(NSString*)origin;
+
+// Creates a muted compromised password form.
++ (BOOL)saveMutedCompromisedPassword:(NSString*)password
+                            userName:(NSString*)userName
+                              origin:(NSString*)origin;
+
+// Creates a reused password form.
++ (BOOL)saveReusedPassword:(NSString*)password
+                  userName:(NSString*)userName
+                    origin:(NSString*)origin;
+
+// Creates a weak password form.
++ (BOOL)saveWeakPassword:(NSString*)password
+                userName:(NSString*)userName
+                  origin:(NSString*)origin;
 
 // Creates a blocked password form for given origin.
 + (BOOL)saveExampleBlockedOrigin:(NSString*)origin;
@@ -53,8 +80,15 @@
 // Gets number of password form stored.
 + (NSInteger)passwordStoreResultsCount;
 
-// Returns YES is crdential service is enabled.
+// Returns YES if credential service is enabled.
 + (BOOL)isCredentialsServiceEnabled;
+
+// Replaces the BrowserState's BulkLeakCheckService with a fake one.
++ (void)setupFakeBulkLeakCheckService;
+
+// Sets the FakeBulkLeakCheck's buffered state.
++ (void)setFakeBulkLeakCheckBufferedState:
+    (password_manager::BulkLeakCheckServiceInterface::State)state;
 
 @end
 

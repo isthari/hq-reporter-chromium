@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,10 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/test/task_environment.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "chromecast/chromecast_buildflags.h"
 #include "chromecast/common/mojom/constants.mojom.h"
@@ -19,8 +20,8 @@
 #include "chromecast/external_mojo/external_service_support/fake_external_connector.h"
 #include "chromecast/media/api/cma_backend.h"
 #include "chromecast/media/api/test/mock_cma_backend.h"
+#include "chromecast/media/api/test/mock_cma_backend_factory.h"
 #include "chromecast/media/audio/mock_cast_audio_manager_helper_delegate.h"
-#include "chromecast/media/cma/test/mock_cma_backend_factory.h"
 #include "chromecast/media/cma/test/mock_multiroom_manager.h"
 #include "media/audio/audio_device_info_accessor_for_tests.h"
 #include "media/audio/fake_audio_log_factory.h"
@@ -46,19 +47,19 @@ namespace {
 
 const ::media::AudioParameters kDefaultAudioParams(
     ::media::AudioParameters::AUDIO_PCM_LOW_LATENCY,
-    ::media::CHANNEL_LAYOUT_STEREO,
+    ::media::ChannelLayoutConfig::Stereo(),
     ::media::AudioParameters::kAudioCDSampleRate,
     256);
 
 const ::media::AudioParameters kAudioParamsInvalidLayout(
     ::media::AudioParameters::AUDIO_PCM_LOW_LATENCY,
-    ::media::CHANNEL_LAYOUT_NONE,
+    ::media::ChannelLayoutConfig::FromLayout<::media::CHANNEL_LAYOUT_NONE>(),
     ::media::AudioParameters::kAudioCDSampleRate,
     256);
 
 int OnMoreData(base::TimeDelta delay,
                base::TimeTicks delay_timestamp,
-               int prior_frames_skipped,
+               const ::media::AudioGlitchInfo& glitch_info,
                ::media::AudioBus* dest) {
   dest->Zero();
   return kDefaultAudioParams.frames_per_buffer();

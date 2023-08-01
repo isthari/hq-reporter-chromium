@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,8 +36,12 @@ UpgradeParams::UpgradeParams()
       packages_cache_mode(GetPackagesCacheMode()),
       skip_gms_core_cache(base::CommandLine::ForCurrentProcess()->HasSwitch(
           ash::switches::kArcDisableGmsCoreCache)),
-      enable_arc_nearby_share(
-          base::FeatureList::IsEnabled(arc::kEnableArcNearbyShare)) {}
+      skip_tts_cache(base::CommandLine::ForCurrentProcess()->HasSwitch(
+          ash::switches::kArcDisableTtsCache)),
+      enable_priority_app_lmk_delay(
+          base::FeatureList::IsEnabled(kPriorityAppLmkDelay)),
+      priority_app_lmk_delay_second(kPriorityAppLmkDelaySecond.Get()),
+      priority_app_lmk_delay_list(kPriorityAppLmkDelayList.Get()) {}
 
 UpgradeParams::UpgradeParams(const UpgradeParams& other) = default;
 UpgradeParams::UpgradeParams(UpgradeParams&& other) = default;

@@ -1,4 +1,4 @@
-// Copyright (c) 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@ import {Intent} from '../intent.js';
 import * as metrics from '../metrics.js';
 import {FileAccessEntry} from '../models/file_system_access_entry.js';
 import {VideoSaver} from '../models/video_saver.js';
+import {ChromeHelper} from '../mojo/chrome_helper.js';
 import {PerfLogger} from '../perf.js';
 import {scaleImage} from '../thumbnailer.js';
 import {Resolution} from '../type.js';
@@ -19,7 +20,7 @@ import * as review from './review.js';
 
 /**
  * The maximum number of pixels in the downscaled intent photo result. Reference
- * from GCA: https://goto.google.com/gca-inline-bitmap-max-pixel-num
+ * from GCA: https://goto.google.com/gca-inline-bitmap-max-pixel-num.
  */
 const DOWNSCALE_INTENT_MAX_PIXEL_NUM = 50 * 1024;
 
@@ -58,6 +59,7 @@ export class CameraIntent extends Camera {
             return VideoSaver.createForIntent(intent, outputVideoRotation);
           },
           finishSaveVideo: async (video) => {
+            assert(video instanceof VideoSaver);
             this.videoResultFile = await video.endWrite();
           },
           saveGif: () => {
@@ -70,28 +72,36 @@ export class CameraIntent extends Camera {
   private reviewIntentResult(metricArgs: MetricArgs): Promise<void> {
     return this.prepareReview(async () => {
       const confirmed = await this.review.startReview(new review.OptionGroup({
-        template: review.ButtonGroupTemplate.intent,
+        template: review.ButtonGroupTemplate.INTENT,
         options: [
           new review.Option(
               {
                 label: I18nString.CONFIRM_REVIEW_BUTTON,
+                icon: 'camera_intent_result_confirm.svg',
                 templateId: 'review-intent-button-template',
+                primary: true,
               },
               {exitValue: true}),
           new review.Option(
               {
                 label: I18nString.CANCEL_REVIEW_BUTTON,
+                icon: 'camera_intent_result_cancel.svg',
                 templateId: 'review-intent-button-template',
               },
               {exitValue: false}),
         ],
-      }));
+      })) ??
+          false;
       metrics.sendCaptureEvent({
-        facing: this.facing,
+        facing: this.getFacing(),
         ...metricArgs,
         intentResult: confirmed ? metrics.IntentResultType.CONFIRMED :
                                   metrics.IntentResultType.CANCELED,
         shutterType: this.shutterType,
+        resolutionLevel:
+            this.cameraManager.getPhotoResolutionLevel(metricArgs.resolution),
+        aspectRatioSet:
+            this.cameraManager.getAspectRatioSet(metricArgs.resolution),
       });
       if (confirmed) {
         await this.intent.finish();
@@ -109,19 +119,21 @@ export class CameraIntent extends Camera {
     });
   }
 
-  async onPhotoCaptureDone(pendingPhotoResult: Promise<PhotoResult>):
+  override async onPhotoCaptureDone(pendingPhotoResult: Promise<PhotoResult>):
       Promise<void> {
     await super.onPhotoCaptureDone(pendingPhotoResult);
     const {blob, resolution} = await pendingPhotoResult;
     await this.review.setReviewPhoto(blob);
     await this.reviewIntentResult({resolution});
+    ChromeHelper.getInstance().maybeTriggerSurvey();
   }
 
-  async onVideoCaptureDone(videoResult: VideoResult): Promise<void> {
+  override async onVideoCaptureDone(videoResult: VideoResult): Promise<void> {
     await super.onVideoCaptureDone(videoResult);
     assert(this.videoResultFile !== null);
     await this.review.setReviewVideo(this.videoResultFile);
     await this.reviewIntentResult(
         {resolution: videoResult.resolution, duration: videoResult.duration});
+    ChromeHelper.getInstance().maybeTriggerSurvey();
   }
 }

@@ -1,9 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/update_client/protocol_serializer.h"
 
+#include <cmath>
 #include <string>
 #include <utility>
 #include <vector>
@@ -11,19 +12,18 @@
 #include "base/check.h"
 #include "base/containers/flat_map.h"
 #include "base/cpu.h"
-#include "base/guid.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/system/sys_info.h"
+#include "base/uuid.h"
 #include "base/values.h"
 #include "base/version.h"
 #include "build/build_config.h"
 #include "components/update_client/activity_data_service.h"
 #include "components/update_client/persisted_data.h"
 #include "components/update_client/update_query_params.h"
-#include "components/update_client/updater_state.h"
 #include "components/update_client/utils.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
@@ -37,9 +37,7 @@ namespace {
 
 // Returns the amount of physical memory in GB, rounded to the nearest GB.
 int GetPhysicalMemoryGB() {
-  const double kOneGB = 1024 * 1024 * 1024;
-  const int64_t phys_mem = base::SysInfo::AmountOfPhysicalMemory();
-  return static_cast<int>(std::floor(0.5 + phys_mem / kOneGB));
+  return base::ClampRound(base::SysInfo::AmountOfPhysicalMemoryMB() / 1024.0f);
 }
 
 std::string GetOSVersion() {
@@ -102,29 +100,28 @@ protocol_request::Request MakeProtocolRequest(
     const std::string& session_id,
     const std::string& prod_id,
     const std::string& browser_version,
-    const std::string& lang,
     const std::string& channel,
     const std::string& os_long_name,
     const std::string& download_preference,
     absl::optional<bool> domain_joined,
     const base::flat_map<std::string, std::string>& additional_attributes,
-    const std::map<std::string, std::string>* updater_state_attributes,
+    const base::flat_map<std::string, std::string>& updater_state_attributes,
     std::vector<protocol_request::App> apps) {
   protocol_request::Request request;
   request.protocol_version = kProtocolVersion;
   request.is_machine = is_machine;
 
   // Session id and request id.
-  DCHECK(!session_id.empty());
-  DCHECK(base::StartsWith(session_id, "{", base::CompareCase::SENSITIVE));
-  DCHECK(base::EndsWith(session_id, "}", base::CompareCase::SENSITIVE));
+  CHECK(!session_id.empty());
+  CHECK(base::StartsWith(session_id, "{", base::CompareCase::SENSITIVE));
+  CHECK(base::EndsWith(session_id, "}", base::CompareCase::SENSITIVE));
   request.session_id = session_id;
-  request.request_id = base::StrCat({"{", base::GenerateGUID(), "}"});
+  request.request_id = base::StrCat(
+      {"{", base::Uuid::GenerateRandomV4().AsLowercaseString(), "}"});
 
   request.updatername = prod_id;
   request.updaterversion = browser_version;
   request.prodversion = browser_version;
-  request.lang = lang;
   request.updaterchannel = channel;
   request.prodchannel = channel;
   request.operating_system = UpdateQueryParams::GetOS();
@@ -154,40 +151,40 @@ protocol_request::Request MakeProtocolRequest(
   request.os.platform = os_long_name;
   request.os.version = GetOSVersion();
   request.os.service_pack = GetServicePack();
-  request.os.arch = base::SysInfo().OperatingSystemArchitecture();
+  request.os.arch = GetArchitecture();
 
-  if (updater_state_attributes) {
+  if (!updater_state_attributes.empty()) {
     request.updater = absl::make_optional<protocol_request::Updater>();
-    auto it = updater_state_attributes->find("name");
-    if (it != updater_state_attributes->end())
+    auto it = updater_state_attributes.find("name");
+    if (it != updater_state_attributes.end())
       request.updater->name = it->second;
-    it = updater_state_attributes->find("version");
-    if (it != updater_state_attributes->end())
+    it = updater_state_attributes.find("version");
+    if (it != updater_state_attributes.end())
       request.updater->version = it->second;
-    it = updater_state_attributes->find("ismachine");
-    if (it != updater_state_attributes->end()) {
-      DCHECK(it->second == "0" || it->second == "1");
+    it = updater_state_attributes.find("ismachine");
+    if (it != updater_state_attributes.end()) {
+      CHECK(it->second == "0" || it->second == "1");
       request.updater->is_machine = it->second != "0";
     }
-    it = updater_state_attributes->find("autoupdatecheckenabled");
-    if (it != updater_state_attributes->end()) {
-      DCHECK(it->second == "0" || it->second == "1");
+    it = updater_state_attributes.find("autoupdatecheckenabled");
+    if (it != updater_state_attributes.end()) {
+      CHECK(it->second == "0" || it->second == "1");
       request.updater->autoupdate_check_enabled = it->second != "0";
     }
-    it = updater_state_attributes->find("laststarted");
-    if (it != updater_state_attributes->end()) {
+    it = updater_state_attributes.find("laststarted");
+    if (it != updater_state_attributes.end()) {
       int last_started = 0;
       if (base::StringToInt(it->second, &last_started))
         request.updater->last_started = last_started;
     }
-    it = updater_state_attributes->find("lastchecked");
-    if (it != updater_state_attributes->end()) {
+    it = updater_state_attributes.find("lastchecked");
+    if (it != updater_state_attributes.end()) {
       int last_checked = 0;
       if (base::StringToInt(it->second, &last_checked))
         request.updater->last_checked = last_checked;
     }
-    it = updater_state_attributes->find("updatepolicy");
-    if (it != updater_state_attributes->end()) {
+    it = updater_state_attributes.find("updatepolicy");
+    if (it != updater_state_attributes.end()) {
       int update_policy = 0;
       if (base::StringToInt(it->second, &update_policy))
         request.updater->update_policy = update_policy;
@@ -203,6 +200,8 @@ protocol_request::App MakeProtocolApp(
     const base::Version& version,
     const std::string& ap,
     const std::string& brand_code,
+    const std::string& lang,
+    const int install_date,
     const std::string& install_source,
     const std::string& install_location,
     const std::string& fingerprint,
@@ -213,14 +212,17 @@ protocol_request::App MakeProtocolApp(
     const std::string& release_channel,
     const std::vector<int>& disabled_reasons,
     absl::optional<protocol_request::UpdateCheck> update_check,
+    const std::vector<protocol_request::Data>& data,
     absl::optional<protocol_request::Ping> ping,
-    absl::optional<std::vector<base::Value>> events) {
+    absl::optional<std::vector<base::Value::Dict>> events) {
   protocol_request::App app;
   app.app_id = app_id;
   app.version = version.GetString();
   app.ap = ap;
   app.events = std::move(events);
   app.brand_code = FilterBrandCode(brand_code);
+  app.lang = lang;
+  app.install_date = install_date;
   app.install_source = install_source;
   app.install_location = install_location;
   app.fingerprint = fingerprint;
@@ -232,6 +234,7 @@ protocol_request::App MakeProtocolApp(
   app.enabled = disabled_reasons.empty();
   app.disabled_reasons = disabled_reasons;
   app.update_check = std::move(update_check);
+  app.data = data;
   app.ping = std::move(ping);
   return app;
 }
@@ -252,7 +255,7 @@ protocol_request::UpdateCheck MakeProtocolUpdateCheck(
 protocol_request::Ping MakeProtocolPing(const std::string& app_id,
                                         const PersistedData* metadata,
                                         bool active) {
-  DCHECK(metadata);
+  CHECK(metadata);
   protocol_request::Ping ping;
 
   if (active) {

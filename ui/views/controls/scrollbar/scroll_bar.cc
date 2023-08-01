@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,18 +8,16 @@
 #include <memory>
 #include <string>
 
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/callback_helpers.h"
 #include "base/compiler_specific.h"
 #include "base/containers/flat_map.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/no_destructor.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "ui/accessibility/ax_enums.mojom.h"
-#include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/events/event.h"
@@ -89,10 +87,6 @@ int ScrollBar::GetPosition() const {
 
 ///////////////////////////////////////////////////////////////////////////////
 // ScrollBar, View implementation:
-
-void ScrollBar::GetAccessibleNodeData(ui::AXNodeData* node_data) {
-  node_data->role = ax::mojom::Role::kScrollBar;
-}
 
 bool ScrollBar::OnMousePressed(const ui::MouseEvent& event) {
   if (event.IsOnlyLeftMouseButton())
@@ -192,9 +186,7 @@ void ScrollBar::OnGestureEvent(ui::GestureEvent* event) {
 
   if (event->type() == ui::ET_SCROLL_FLING_START) {
     scroll_status_ = ScrollStatus::kScrollInEnding;
-    if (!scroll_animator_)
-      scroll_animator_ = std::make_unique<ScrollAnimator>(this);
-    scroll_animator_->Start(
+    GetOrCreateScrollAnimator()->Start(
         IsHorizontal() ? event->details().velocity_x() : 0.f,
         IsHorizontal() ? 0.f : event->details().velocity_y());
     event->SetHandled();
@@ -381,11 +373,29 @@ void ScrollBar::ObserveScrollEvent(const ui::ScrollEvent& event) {
   }
 }
 
+ScrollAnimator* ScrollBar::GetOrCreateScrollAnimator() {
+  if (!scroll_animator_) {
+    scroll_animator_ = std::make_unique<ScrollAnimator>(this);
+    scroll_animator_->set_velocity_multiplier(fling_multiplier_);
+  }
+  return scroll_animator_.get();
+}
+
+void ScrollBar::SetFlingMultiplier(float fling_multiplier) {
+  fling_multiplier_ = fling_multiplier;
+  // `scroll_animator_` is lazily created when needed.
+  if (!scroll_animator_)
+    return;
+
+  GetOrCreateScrollAnimator()->set_velocity_multiplier(fling_multiplier_);
+}
+
 ScrollBar::ScrollBar(bool is_horiz)
     : is_horiz_(is_horiz),
       repeater_(base::BindRepeating(&ScrollBar::TrackClicked,
                                     base::Unretained(this))) {
   set_context_menu_controller(this);
+  SetAccessibilityProperties(ax::mojom::Role::kScrollBar);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -399,8 +409,8 @@ base::RetainingOneShotTimer* ScrollBar::GetHideTimerForTesting(
 }
 #endif
 
-int ScrollBar::GetThumbSizeForTesting() {
-  return thumb_->GetSize();
+int ScrollBar::GetThumbLengthForTesting() {
+  return thumb_->GetLength();
 }
 
 void ScrollBar::ProcessPressEvent(const ui::LocatedEvent& event) {
@@ -440,7 +450,7 @@ int ScrollBar::CalculateThumbPosition(int contents_scroll_offset) const {
   // In some combination of viewport_size and contents_size_, the result of
   // simple division can be rounded and there could be 1 pixel gap even when the
   // contents scroll down to the bottom. See crbug.com/244671.
-  int thumb_max = GetTrackSize() - thumb_->GetSize();
+  int thumb_max = GetTrackSize() - thumb_->GetLength();
   if (contents_scroll_offset + viewport_size_ == contents_size_)
     return thumb_max;
   return (contents_scroll_offset * thumb_max) /
@@ -449,7 +459,7 @@ int ScrollBar::CalculateThumbPosition(int contents_scroll_offset) const {
 
 int ScrollBar::CalculateContentsOffset(float thumb_position,
                                        bool scroll_to_middle) const {
-  float thumb_size = static_cast<float>(thumb_->GetSize());
+  float thumb_size = static_cast<float>(thumb_->GetLength());
   int track_size = GetTrackSize();
   if (track_size == thumb_size)
     return 0;
@@ -462,7 +472,7 @@ int ScrollBar::CalculateContentsOffset(float thumb_position,
 
 void ScrollBar::SetContentsScrollOffset(int contents_scroll_offset) {
   contents_scroll_offset_ =
-      base::clamp(contents_scroll_offset, GetMinPosition(), GetMaxPosition());
+      std::clamp(contents_scroll_offset, GetMinPosition(), GetMaxPosition());
 }
 
 ScrollBar::ScrollAmount ScrollBar::DetermineScrollAmountByKeyCode(

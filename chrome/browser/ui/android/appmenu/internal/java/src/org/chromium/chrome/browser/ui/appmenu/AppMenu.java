@@ -1,4 +1,4 @@
-// Copyright 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,6 @@ import android.graphics.Color;
 import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
-import android.os.Build;
 import android.os.SystemClock;
 import android.text.TextUtils;
 import android.view.Gravity;
@@ -32,17 +31,18 @@ import android.widget.ImageButton;
 import android.widget.ListView;
 import android.widget.PopupWindow;
 
+import androidx.annotation.ColorInt;
 import androidx.annotation.IdRes;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.Callback;
-import org.chromium.base.ContextUtils;
 import org.chromium.base.SysUtils;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.task.PostTask;
 import org.chromium.base.task.TaskTraits;
 import org.chromium.chrome.browser.ui.appmenu.internal.R;
+import org.chromium.components.browser_ui.styles.ChromeColors;
 import org.chromium.components.browser_ui.widget.chips.ChipView;
 import org.chromium.components.browser_ui.widget.highlight.ViewHighlighter;
 import org.chromium.components.browser_ui.widget.highlight.ViewHighlighter.HighlightParams;
@@ -84,7 +84,6 @@ class AppMenu implements OnItemClickListener, OnKeyListener, AppMenuClickHandler
     private AnimatorSet mMenuItemEnterAnimator;
     private long mMenuShownTimeMs;
     private boolean mSelectedItemBeforeDismiss;
-    private Integer mHighlightedItemId;
     private ModelList mModelList;
 
     /**
@@ -172,20 +171,20 @@ class AppMenu implements OnItemClickListener, OnKeyListener, AppMenuClickHandler
      * @param groupDividerResourceId     The resource id of divider menu items. This will be used to
      *         determine the number of dividers that appear in the menu.
      * @param customViewBinders     See {@link AppMenuPropertiesDelegate#getCustomViewBinders()}.
+     * @param isMenuIconAtStart     Whether the menu is being shown from a menu icon positioned at
+     *                              the start.
      */
     void show(Context context, final View anchorView, boolean isByPermanentButton,
             int screenRotation, Rect visibleDisplayFrame, int screenHeight,
             @IdRes int footerResourceId, @IdRes int headerResourceId,
             @IdRes int groupDividerResourceId, Integer highlightedItemId,
-            @Nullable List<CustomViewBinder> customViewBinders) {
+            @Nullable List<CustomViewBinder> customViewBinders, boolean isMenuIconAtStart) {
         mPopup = new PopupWindow(context);
         mPopup.setFocusable(true);
         mPopup.setInputMethodMode(PopupWindow.INPUT_METHOD_NOT_NEEDED);
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            // The window layout type affects the z-index of the popup window on M+.
-            mPopup.setWindowLayoutType(WindowManager.LayoutParams.TYPE_APPLICATION_SUB_PANEL);
-        }
+        // The window layout type affects the z-index of the popup window.
+        mPopup.setWindowLayoutType(WindowManager.LayoutParams.TYPE_APPLICATION_SUB_PANEL);
 
         mPopup.setOnDismissListener(() -> {
             recordTimeToTakeActionHistogram();
@@ -203,7 +202,6 @@ class AppMenu implements OnItemClickListener, OnKeyListener, AppMenuClickHandler
             mListView = null;
             mFooterView = null;
             mMenuItemEnterAnimator = null;
-            mHighlightedItemId = null;
         });
 
         // Some OEMs don't actually let us change the background... but they still return the
@@ -218,7 +216,10 @@ class AppMenu implements OnItemClickListener, OnKeyListener, AppMenuClickHandler
         // Make sure that the popup window will be closed when touch outside of it.
         mPopup.setOutsideTouchable(true);
 
-        if (!isByPermanentButton) mPopup.setAnimationStyle(R.style.OverflowMenuAnim);
+        if (!isByPermanentButton) {
+            mPopup.setAnimationStyle(
+                    isMenuIconAtStart ? R.style.StartIconMenuAnim : R.style.EndIconMenuAnim);
+        }
 
         // Turn off window animations for low end devices.
         if (SysUtils.isLowEndDevice()) mPopup.setAnimationStyle(0);
@@ -261,7 +262,6 @@ class AppMenu implements OnItemClickListener, OnKeyListener, AppMenuClickHandler
         int footerHeight = inflateFooter(footerResourceId, contentView, menuWidth);
         int headerHeight = inflateHeader(headerResourceId, contentView, menuWidth);
 
-        mHighlightedItemId = highlightedItemId;
         if (highlightedItemId != null) {
             View viewToHighlight = contentView.findViewById(highlightedItemId);
             HighlightParams highlightParams = new HighlightParams(HighlightShape.RECTANGLE);
@@ -291,8 +291,11 @@ class AppMenu implements OnItemClickListener, OnKeyListener, AppMenuClickHandler
                 mNegativeSoftwareVerticalOffset, mNegativeVerticalOffsetNotTopAnchored,
                 mCurrentScreenRotation, visibleDisplayFrame, sizingPadding, anchorView, popupWidth,
                 popupHeight, anchorView.getRootView().getLayoutDirection());
-
         mPopup.setContentView(contentView);
+
+        if (popupHeight + popupPosition[1] > visibleDisplayFrame.bottom) {
+            mPopup.setHeight(visibleDisplayFrame.height());
+        }
 
         try {
             mPopup.showAtLocation(anchorView.getRootView(), Gravity.NO_GRAVITY, popupPosition[0],
@@ -383,7 +386,7 @@ class AppMenu implements OnItemClickListener, OnKeyListener, AppMenuClickHandler
         int id = model.get(AppMenuItemProperties.MENU_ITEM_ID);
         mSelectedItemBeforeDismiss = true;
         dismiss();
-        mHandler.onOptionsItemSelected(id, mHighlightedItemId != null && mHighlightedItemId == id);
+        mHandler.onOptionsItemSelected(id);
     }
 
     @Override
@@ -400,8 +403,15 @@ class AppMenu implements OnItemClickListener, OnKeyListener, AppMenuClickHandler
 
     @VisibleForTesting
     boolean showToastForItem(CharSequence message, View view) {
-        Context context = ContextUtils.getApplicationContext();
-        return Toast.showAnchoredToast(context, view, message);
+        Context context = view.getContext();
+        final @ColorInt int backgroundColor =
+                ChromeColors.getSurfaceColor(context, R.dimen.toast_elevation);
+        return new Toast.Builder(context)
+                .withText(message)
+                .withAnchoredView(view)
+                .withBackgroundColor(backgroundColor)
+                .withTextAppearance(R.style.TextAppearance_TextSmall_Primary)
+                .buildAndShow();
     }
 
     @Override
@@ -412,7 +422,6 @@ class AppMenu implements OnItemClickListener, OnKeyListener, AppMenuClickHandler
     @Override
     public boolean onKey(View v, int keyCode, KeyEvent event) {
         if (mListView == null) return false;
-
         if (event.getKeyCode() == KeyEvent.KEYCODE_MENU) {
             if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
                 event.startTracking();

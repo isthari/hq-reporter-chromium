@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,51 +7,31 @@
 #include <algorithm>
 #include <iterator>
 #include <string>
+#include <vector>
 
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/callback_helpers.h"
+#include "base/check_op.h"
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
+#include "base/containers/contains.h"
+#include "base/files/file_path.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/process/launch.h"
-#include "base/strings/strcat.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
+#include "base/timer/elapsed_timer.h"
 #include "base/win/registry.h"
 #include "chrome/updater/constants.h"
 #include "chrome/updater/enum_traits.h"
 #include "chrome/updater/updater_scope.h"
+#include "chrome/updater/util/util.h"
+#include "chrome/updater/util/win_util.h"
 #include "chrome/updater/win/win_constants.h"
-#include "chrome/updater/win/win_util.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace updater {
 namespace {
-
-HKEY RootKey(UpdaterScope updater_scope) {
-  switch (updater_scope) {
-    case UpdaterScope::kUser:
-      return HKEY_CURRENT_USER;
-    case UpdaterScope::kSystem:
-      return HKEY_LOCAL_MACHINE;
-  }
-}
-
-// Opens the registry ClientState subkey for the `app_id`.
-absl::optional<base::win::RegKey> ClientStateAppKeyOpen(
-    UpdaterScope updater_scope,
-    const std::string& app_id,
-    REGSAM regsam) {
-  std::wstring subkey;
-  if (!base::UTF8ToWide(app_id.c_str(), app_id.size(), &subkey))
-    return absl::nullopt;
-  base::win::RegKey key(RootKey(updater_scope), CLIENT_STATE_KEY,
-                        Wow6432(regsam));
-  if (key.OpenKey(subkey.c_str(), Wow6432(regsam)) != ERROR_SUCCESS)
-    return absl::nullopt;
-  return key;
-}
 
 // Creates or opens the registry ClientState subkey for the `app_id`. `regsam`
 // must contain the KEY_WRITE access right for the creation of the subkey to
@@ -61,13 +41,62 @@ absl::optional<base::win::RegKey> ClientStateAppKeyCreate(
     const std::string& app_id,
     REGSAM regsam) {
   std::wstring subkey;
-  if (!base::UTF8ToWide(app_id.c_str(), app_id.size(), &subkey))
+  if (!base::UTF8ToWide(app_id.c_str(), app_id.size(), &subkey)) {
     return absl::nullopt;
-  base::win::RegKey key(RootKey(updater_scope), CLIENT_STATE_KEY,
+  }
+  base::win::RegKey key(UpdaterScopeToHKeyRoot(updater_scope), CLIENT_STATE_KEY,
                         Wow6432(regsam));
-  if (key.CreateKey(subkey.c_str(), Wow6432(regsam)) != ERROR_SUCCESS)
+  if (key.CreateKey(subkey.c_str(), Wow6432(regsam)) != ERROR_SUCCESS) {
     return absl::nullopt;
+  }
   return key;
+}
+
+bool RegRenameValue(base::win::RegKey& key,
+                    const std::wstring& old_value_name,
+                    const std::wstring& new_value_name) {
+  DWORD size = 0;
+  if (key.ReadValue(old_value_name.c_str(), nullptr, &size, nullptr) !=
+      ERROR_SUCCESS) {
+    return false;
+  }
+
+  std::vector<char> raw_value(size);
+  DWORD dtype = 0;
+  if (key.ReadValue(old_value_name.c_str(), raw_value.data(), &size, &dtype) !=
+      ERROR_SUCCESS) {
+    return false;
+  }
+
+  if (key.WriteValue(new_value_name.c_str(), raw_value.data(), size, dtype) !=
+      ERROR_SUCCESS) {
+    PLOG(WARNING) << "could not write: " << new_value_name;
+    return false;
+  }
+
+  PLOG_IF(WARNING, key.DeleteValue(old_value_name.c_str()) != ERROR_SUCCESS);
+  return true;
+}
+
+void PersistLastInstallerResultValues(UpdaterScope updater_scope,
+                                      const std::string& app_id) {
+  absl::optional<base::win::RegKey> key =
+      ClientStateAppKeyOpen(updater_scope, app_id, KEY_READ | KEY_WRITE);
+  if (!key) {
+    return;
+  }
+
+  // Rename InstallerResultXXX values to LastXXX.
+  RegRenameValue(key.value(), kRegValueInstallerResult,
+                 kRegValueLastInstallerResult);
+  RegRenameValue(key.value(), kRegValueInstallerError,
+                 kRegValueLastInstallerError);
+  RegRenameValue(key.value(), kRegValueInstallerExtraCode1,
+                 kRegValueLastInstallerExtraCode1);
+  RegRenameValue(key.value(), kRegValueInstallerResultUIString,
+                 kRegValueLastInstallerResultUIString);
+  RegRenameValue(key.value(), kRegValueInstallerSuccessLaunchCmdLine,
+                 kRegValueLastInstallerSuccessLaunchCmdLine);
 }
 
 }  // namespace
@@ -76,13 +105,30 @@ InstallerOutcome::InstallerOutcome() = default;
 InstallerOutcome::InstallerOutcome(const InstallerOutcome&) = default;
 InstallerOutcome::~InstallerOutcome() = default;
 
+absl::optional<base::win::RegKey> ClientStateAppKeyOpen(
+    UpdaterScope updater_scope,
+    const std::string& app_id,
+    REGSAM regsam) {
+  std::wstring subkey;
+  if (!base::UTF8ToWide(app_id.c_str(), app_id.size(), &subkey)) {
+    return absl::nullopt;
+  }
+  base::win::RegKey key(UpdaterScopeToHKeyRoot(updater_scope), CLIENT_STATE_KEY,
+                        Wow6432(regsam));
+  if (key.OpenKey(subkey.c_str(), Wow6432(regsam)) != ERROR_SUCCESS) {
+    return absl::nullopt;
+  }
+  return key;
+}
+
 bool ClientStateAppKeyDelete(UpdaterScope updater_scope,
                              const std::string& app_id) {
   std::wstring subkey;
-  if (!base::UTF8ToWide(app_id.c_str(), app_id.size(), &subkey))
+  if (!base::UTF8ToWide(app_id.c_str(), app_id.size(), &subkey)) {
     return false;
-  return base::win::RegKey(RootKey(updater_scope), CLIENT_STATE_KEY,
-                           Wow6432(KEY_WRITE))
+  }
+  return base::win::RegKey(UpdaterScopeToHKeyRoot(updater_scope),
+                           CLIENT_STATE_KEY, Wow6432(KEY_WRITE))
              .DeleteKey(subkey.c_str()) == ERROR_SUCCESS;
 }
 
@@ -97,7 +143,7 @@ int GetInstallerProgress(UpdaterScope updater_scope,
                   ERROR_SUCCESS) {
     return -1;
   }
-  return base::clamp(progress, DWORD{0}, DWORD{100});
+  return std::clamp(progress, DWORD{0}, DWORD{100});
 }
 
 bool SetInstallerProgressForTesting(UpdaterScope updater_scope,
@@ -120,11 +166,11 @@ bool DeleteInstallerOutput(UpdaterScope updater_scope,
                            const std::string& app_id) {
   absl::optional<base::win::RegKey> key = ClientStateAppKeyOpen(
       updater_scope, app_id, KEY_SET_VALUE | KEY_QUERY_VALUE);
-  if (!key)
+  if (!key) {
     return false;
+  }
   auto delete_value = [&key](const wchar_t* value) {
-    return key->HasValue(value) ? key->DeleteValue(value) == ERROR_SUCCESS
-                                : true;
+    return !key->HasValue(value) || key->DeleteValue(value) == ERROR_SUCCESS;
   };
   const bool results[] = {
       delete_value(kRegValueInstallerProgress),
@@ -134,8 +180,7 @@ bool DeleteInstallerOutput(UpdaterScope updater_scope,
       delete_value(kRegValueInstallerResultUIString),
       delete_value(kRegValueInstallerSuccessLaunchCmdLine),
   };
-  return std::all_of(std::begin(results), std::end(results),
-                     [](auto result) { return result; });
+  return !base::Contains(results, false);
 }
 
 absl::optional<InstallerOutcome> GetInstallerOutcome(
@@ -143,8 +188,9 @@ absl::optional<InstallerOutcome> GetInstallerOutcome(
     const std::string& app_id) {
   absl::optional<base::win::RegKey> key =
       ClientStateAppKeyOpen(updater_scope, app_id, KEY_READ);
-  if (!key)
+  if (!key) {
     return absl::nullopt;
+  }
   InstallerOutcome installer_outcome;
   {
     DWORD val = 0;
@@ -177,6 +223,8 @@ absl::optional<InstallerOutcome> GetInstallerOutcome(
     }
   }
 
+  PersistLastInstallerResultValues(updater_scope, app_id);
+
   return installer_outcome;
 }
 
@@ -185,8 +233,9 @@ bool SetInstallerOutcomeForTesting(UpdaterScope updater_scope,
                                    const InstallerOutcome& installer_outcome) {
   absl::optional<base::win::RegKey> key =
       ClientStateAppKeyCreate(updater_scope, app_id, KEY_WRITE);
-  if (!key)
+  if (!key) {
     return false;
+  }
   if (installer_outcome.installer_result) {
     if (key->WriteValue(
             kRegValueInstallerResult,
@@ -256,9 +305,10 @@ Installer::Result MakeInstallerResult(
         // This is unconditional success:
         // - use the command line if available, and ignore everything else.
         result.error = 0;
-        if (installer_outcome->installer_cmd_line)
+        if (installer_outcome->installer_cmd_line) {
           result.installer_cmd_line = *installer_outcome->installer_cmd_line;
-        DCHECK_EQ(result.error, 0);
+        }
+        CHECK_EQ(result.error, 0);
         break;
 
       case InstallerResult::kCustomError:
@@ -270,13 +320,16 @@ Installer::Result MakeInstallerResult(
         result.error = installer_outcome->installer_error
                            ? *installer_outcome->installer_error
                            : exit_code;
-        if (!result.error)
+        if (!result.error) {
           result.error = kErrorApplicationInstallerFailed;
-        if (installer_outcome->installer_extracode1)
+        }
+        if (installer_outcome->installer_extracode1) {
           result.extended_error = *installer_outcome->installer_extracode1;
-        if (installer_outcome->installer_text)
+        }
+        if (installer_outcome->installer_text) {
           result.installer_text = *installer_outcome->installer_text;
-        DCHECK_NE(result.error, 0);
+        }
+        CHECK_NE(result.error, 0);
         break;
 
       case InstallerResult::kMsiError:
@@ -286,12 +339,14 @@ Installer::Result MakeInstallerResult(
         result.error = installer_outcome->installer_error
                            ? *installer_outcome->installer_error
                            : exit_code;
-        if (!result.error)
+        if (!result.error) {
           result.error = kErrorApplicationInstallerFailed;
-        if (installer_outcome->installer_extracode1)
+        }
+        if (installer_outcome->installer_extracode1) {
           result.extended_error = *installer_outcome->installer_extracode1;
+        }
         result.installer_text = GetTextForSystemError(result.error);
-        DCHECK_NE(result.error, 0);
+        CHECK_NE(result.error, 0);
         break;
 
       case InstallerResult::kExitCode:
@@ -299,8 +354,9 @@ Installer::Result MakeInstallerResult(
         // - if success, then use the command line if available.
         // - if an error, then ignore everything.
         result.error = exit_code;
-        if (result.error == 0 && installer_outcome->installer_cmd_line)
+        if (result.error == 0 && installer_outcome->installer_cmd_line) {
           result.installer_cmd_line = *installer_outcome->installer_cmd_line;
+        }
         break;
     }
     return result;
@@ -321,41 +377,66 @@ Installer::Result MakeInstallerResult(
 // The installer progress is written by the application installer as a value
 // under the application's client state in the Windows registry and read by
 // polling in a loop, while waiting for the installer to exit.
-Installer::Result Installer::RunApplicationInstaller(
+AppInstallerResult RunApplicationInstaller(
+    const AppInfo& app_info,
     const base::FilePath& app_installer,
     const std::string& arguments,
-    ProgressCallback progress_callback) {
-  DeleteInstallerOutput(updater_scope_, app_id());
+    const absl::optional<base::FilePath>& installer_data_file,
+    bool usage_stats_enabled,
+    const base::TimeDelta& timeout,
+    InstallProgressCallback progress_callback) {
+  if (!base::PathExists(app_installer)) {
+    LOG(ERROR) << "application installer does not exist: " << app_installer;
+    return AppInstallerResult(kErrorMissingRunableFile);
+  }
 
+  if (!app_installer.MatchesExtension(L".exe") &&
+      !app_installer.MatchesExtension(L".msi")) {
+    return AppInstallerResult(
+        update_client::InstallError::LAUNCH_PROCESS_FAILED);
+  }
+
+  DeleteInstallerOutput(app_info.scope, app_info.app_id);
+
+  const std::wstring argsw = base::UTF8ToWide(arguments);
   const std::wstring cmdline =
-      base::StrCat({base::CommandLine(app_installer).GetCommandLineString(),
-                    L" ", base::UTF8ToWide(arguments)});
+      app_installer.MatchesExtension(L".msi")
+          ? BuildMsiCommandLine(argsw, installer_data_file, app_installer)
+          : BuildExeCommandLine(argsw, installer_data_file, app_installer);
   VLOG(1) << "Running application installer: " << cmdline;
 
   base::LaunchOptions options;
   options.start_hidden = true;
   options.environment = {
       {ENV_GOOGLE_UPDATE_IS_MACHINE,
-       updater_scope_ == UpdaterScope::kSystem ? L"1" : L"0"}};
+       IsSystemInstall(app_info.scope) ? L"1" : L"0"},
+      {base::UTF8ToWide(kUsageStatsEnabled),
+       usage_stats_enabled ? base::UTF8ToWide(kUsageStatsEnabledValueEnabled)
+                           : L"0"},
+  };
 
   auto process = base::LaunchProcess(cmdline, options);
+  if (!process.IsValid()) {
+    return AppInstallerResult(
+        update_client::InstallError::LAUNCH_PROCESS_FAILED);
+  }
+
   int exit_code = -1;
-  const auto time_begin = base::Time::NowFromSystemTime();
+  const base::ElapsedTimer timer;
   do {
     bool wait_result = process.WaitForExitWithTimeout(
         base::Seconds(kWaitForInstallerProgressSec), &exit_code);
-    auto progress = GetInstallerProgress(updater_scope_, app_id());
-    DVLOG(3) << "installer progress: " << progress;
+    auto progress = GetInstallerProgress(app_info.scope, app_info.app_id);
+    VLOG(3) << "installer progress: " << progress;
     progress_callback.Run(progress);
     if (wait_result) {
       VLOG(1) << "Installer exit code " << exit_code;
       break;
     }
-  } while (base::Time::NowFromSystemTime() - time_begin <=
-           base::Seconds(kWaitForAppInstallerSec));
+  } while (timer.Elapsed() < timeout);
 
-  return MakeInstallerResult(GetInstallerOutcome(updater_scope_, app_id()),
-                             exit_code);
+  return MakeInstallerResult(
+      GetInstallerOutcome(app_info.scope, app_info.app_id), exit_code);
 }
 
 }  // namespace updater

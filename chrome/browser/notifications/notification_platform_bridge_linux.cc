@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,26 +14,32 @@
 #include <vector>
 
 #include "base/barrier_closure.h"
-#include "base/bind.h"
+#include "base/callback_list.h"
 #include "base/containers/contains.h"
-#include "base/cxx17_backports.h"
 #include "base/environment.h"
 #include "base/files/file_path.h"
 #include "base/files/file_path_watcher.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/i18n/number_formatting.h"
+#include "base/logging.h"
 #include "base/memory/ptr_util.h"
-#include "base/metrics/histogram_macros.h"
+#include "base/memory/raw_ptr.h"
+#include "base/memory/ref_counted_memory.h"
+#include "base/strings/escape.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
 #include "base/version.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_notification_types.h"
+#include "chrome/browser/lifetime/termination_notification.h"
 #include "chrome/browser/notifications/notification_display_service_impl.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/themes/theme_service.h"
+#include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/common/channel_info.h"
 #include "chrome/common/notifications/notification_operation.h"
 #include "chrome/grit/chrome_unscaled_resources.h"
@@ -43,13 +49,9 @@
 #include "components/url_formatter/elide_url.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/browser/notification_observer.h"
-#include "content/public/browser/notification_registrar.h"
-#include "content/public/browser/notification_service.h"
 #include "dbus/bus.h"
 #include "dbus/message.h"
 #include "dbus/object_proxy.h"
-#include "net/base/escape.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "skia/ext/image_operations.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -77,17 +79,13 @@ const char kSignalNotificationClosed[] = "NotificationClosed";
 const char kSignalNotificationReplied[] = "NotificationReplied";
 
 // Capabilities.
-const char kCapabilityActionIcons[] = "action-icons";
 const char kCapabilityActions[] = "actions";
 const char kCapabilityBody[] = "body";
 const char kCapabilityBodyHyperlinks[] = "body-hyperlinks";
 const char kCapabilityBodyImages[] = "body-images";
 const char kCapabilityBodyMarkup[] = "body-markup";
-const char kCapabilityIconMulti[] = "icon-multi";
-const char kCapabilityIconStatic[] = "icon-static";
 const char kCapabilityInlineReply[] = "inline-reply";
 const char kCapabilityPersistence[] = "persistence";
-const char kCapabilitySound[] = "sound";
 const char kCapabilityXKdeOriginName[] = "x-kde-origin-name";
 const char kCapabilityXKdeReplyPlaceholderText[] =
     "x-kde-reply-placeholder-text";
@@ -182,8 +180,8 @@ gfx::Image ResizeImageToFdoMaxSize(const gfx::Image& image) {
   const SkBitmap* image_bitmap = image.ToSkBitmap();
   double scale = std::min(static_cast<double>(kMaxImageWidth) / width,
                           static_cast<double>(kMaxImageHeight) / height);
-  width = base::clamp<int>(scale * width, 1, kMaxImageWidth);
-  height = base::clamp<int>(scale * height, 1, kMaxImageHeight);
+  width = std::clamp<int>(scale * width, 1, kMaxImageWidth);
+  height = std::clamp<int>(scale * height, 1, kMaxImageHeight);
   return gfx::Image(
       gfx::ImageSkia::CreateFrom1xBitmap(skia::ImageOperations::Resize(
           *image_bitmap, skia::ImageOperations::RESIZE_LANCZOS3, width,
@@ -269,8 +267,7 @@ std::unique_ptr<ResourceFile> WriteDataToTmpFile(
     return nullptr;
 
   auto resource_file = std::make_unique<ResourceFile>(file_path);
-  if (base::WriteFile(file_path, data->front_as<char>(), data_len) !=
-      data_len) {
+  if (!base::WriteFile(file_path, *data)) {
     resource_file.reset();
   }
   return resource_file;
@@ -286,9 +283,9 @@ bool CheckNotificationsNameHasOwnerOrIsActivatable(dbus::Bus* bus) {
   std::unique_ptr<dbus::Response> name_has_owner_response =
       dbus_proxy->CallMethodAndBlock(&name_has_owner_call,
                                      dbus::ObjectProxy::TIMEOUT_USE_DEFAULT);
-  dbus::MessageReader reader(name_has_owner_response.get());
+  dbus::MessageReader owner_reader(name_has_owner_response.get());
   bool owned = false;
-  if (name_has_owner_response && reader.PopBool(&owned) && owned)
+  if (name_has_owner_response && owner_reader.PopBool(&owned) && owned)
     return true;
 
   // If the service currently isn't running, maybe it is activatable.
@@ -339,15 +336,19 @@ bool NotificationPlatformBridge::CanHandleType(
 
 class NotificationPlatformBridgeLinuxImpl
     : public NotificationPlatformBridge,
-      public content::NotificationObserver,
       public base::RefCountedThreadSafe<NotificationPlatformBridgeLinuxImpl> {
  public:
   explicit NotificationPlatformBridgeLinuxImpl(scoped_refptr<dbus::Bus> bus)
       : bus_(bus) {
     DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
     task_runner_ = dbus_thread_linux::GetTaskRunner();
-    registrar_.Add(this, chrome::NOTIFICATION_APP_TERMINATING,
-                   content::NotificationService::AllSources());
+    // base::Unretained(this) is safe here as this object owns
+    // |on_app_terminating_subscription_| and the callback won't be invoked
+    // after the subscription is destroyed.
+    on_app_terminating_subscription_ =
+        browser_shutdown::AddAppTerminatingCallback(base::BindOnce(
+            &NotificationPlatformBridgeLinuxImpl::OnAppTerminating,
+            base::Unretained(this)));
   }
   NotificationPlatformBridgeLinuxImpl(
       const NotificationPlatformBridgeLinuxImpl&) = delete;
@@ -380,7 +381,9 @@ class NotificationPlatformBridgeLinuxImpl
     // Make a deep copy of the notification as its resources cannot safely
     // be passed between threads.
     auto notification_copy = message_center::Notification::DeepCopy(
-        notification, body_images_supported_.value(),
+        notification,
+        ThemeServiceFactory::GetForProfile(profile)->GetColorProvider(),
+        body_images_supported_.value(),
         /*include_small_image=*/false, /*include_icon_images=*/false);
 
     task_runner_->PostTask(
@@ -478,11 +481,8 @@ class NotificationPlatformBridgeLinuxImpl
     DLOG_IF(ERROR, !clean_up_on_task_runner_called_) << "Not cleaned up";
   }
 
-  void Observe(int type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) override {
+  void OnAppTerminating() {
     DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-    DCHECK_EQ(chrome::NOTIFICATION_APP_TERMINATING, type);
     // The browser process is about to exit.  Post the CleanUp() task
     // while we still can.
     CleanUp();
@@ -527,7 +527,6 @@ class NotificationPlatformBridgeLinuxImpl
       for (const std::string& capability : capabilities)
         capabilities_.insert(capability);
     }
-    RecordMetricsForCapabilities();
     if (!base::Contains(capabilities_, kCapabilityBody) ||
         !base::Contains(capabilities_, kCapabilityActions)) {
       OnConnectionInitializationFinishedOnTaskRunner(
@@ -589,10 +588,10 @@ class NotificationPlatformBridgeLinuxImpl
     }
 
     DCHECK(task_runner_->RunsTasksInCurrentSequence());
+    notification_proxy_ = nullptr;
     if (bus_)
       bus_->ShutdownAndBlock();
     bus_ = nullptr;
-    notification_proxy_ = nullptr;
     product_logo_png_bytes_ = nullptr;
     product_logo_file_.reset();
     product_logo_file_watcher_.reset();
@@ -678,7 +677,7 @@ class NotificationPlatformBridgeLinuxImpl
         if (linkify_context_if_possible) {
           if (base::Contains(capabilities_, kCapabilityBodyHyperlinks)) {
             body << "<a href=\""
-                 << net::EscapeForHTML(notification->origin_url().spec())
+                 << base::EscapeForHTML(notification->origin_url().spec())
                  << "\">" << context_display_text << "</a>\n\n";
           } else {
             body << context_display_text << "\n\n";
@@ -696,14 +695,14 @@ class NotificationPlatformBridgeLinuxImpl
 
       if (notification->type() == message_center::NOTIFICATION_TYPE_MULTIPLE) {
         for (const auto& item : notification->items()) {
-          const std::string title = base::UTF16ToUTF8(item.title);
-          const std::string message = base::UTF16ToUTF8(item.message);
+          const std::string item_title = base::UTF16ToUTF8(item.title);
+          const std::string item_message = base::UTF16ToUTF8(item.message);
           // TODO(peter): Figure out the right way to internationalize
           // this for RTL languages.
           if (body_markup)
-            body << "<b>" << title << "</b> " << message << "\n";
+            body << "<b>" << item_title << "</b> " << item_message << "\n";
           else
-            body << title << " - " << message << "\n";
+            body << item_title << " - " << item_message << "\n";
         }
       } else if (notification->type() ==
                      message_center::NOTIFICATION_TYPE_IMAGE &&
@@ -712,7 +711,7 @@ class NotificationPlatformBridgeLinuxImpl
             ResizeImageToFdoMaxSize(notification->image()).As1xPNGBytes());
         if (image_file) {
           body << "<img src=\""
-               << "file://" + net::EscapePath(image_file->file_path().value())
+               << "file://" + base::EscapePath(image_file->file_path().value())
                << "\" alt=\"\"/>\n";
           data->resource_files.push_back(std::move(image_file));
         }
@@ -807,8 +806,8 @@ class NotificationPlatformBridgeLinuxImpl
     desktop_entry_writer.AppendVariantOfString(desktop_file.value());
     hints_writer.CloseContainer(&desktop_entry_writer);
 
-    std::unique_ptr<ResourceFile> icon_file =
-        WriteDataToTmpFile(notification->icon().As1xPNGBytes());
+    std::unique_ptr<ResourceFile> icon_file = WriteDataToTmpFile(
+        gfx::Image(notification->icon().Rasterize(nullptr)).As1xPNGBytes());
     if (icon_file) {
       for (const std::string& hint_name : {"image_path", "image-path"}) {
         dbus::MessageWriter image_path_writer(nullptr);
@@ -1040,10 +1039,6 @@ class NotificationPlatformBridgeLinuxImpl
   void OnConnectionInitializationFinishedOnTaskRunner(
       ConnectionInitializationStatusCode status) {
     DCHECK(task_runner_->RunsTasksInCurrentSequence());
-    UMA_HISTOGRAM_ENUMERATION(
-        "Notifications.Linux.BridgeInitializationStatus",
-        static_cast<int>(status),
-        static_cast<int>(ConnectionInitializationStatusCode::NUM_ITEMS));
     bool success = status == ConnectionInitializationStatusCode::SUCCESS;
 
     // Note: Not all code paths set connect_signals_in_progress_ to true!
@@ -1086,37 +1081,6 @@ class NotificationPlatformBridgeLinuxImpl
     product_logo_file_watcher_.reset();
   }
 
-  void RecordMetricsForCapabilities() {
-    // Histogram macros must be called with the same name for each
-    // callsite, so we can't roll the below into a nice loop.
-    UMA_HISTOGRAM_BOOLEAN(
-        "Notifications.Freedesktop.Capabilities.ActionIcons",
-        base::Contains(capabilities_, kCapabilityActionIcons));
-    UMA_HISTOGRAM_BOOLEAN("Notifications.Freedesktop.Capabilities.Actions",
-                          base::Contains(capabilities_, kCapabilityActions));
-    UMA_HISTOGRAM_BOOLEAN("Notifications.Freedesktop.Capabilities.Body",
-                          base::Contains(capabilities_, kCapabilityBody));
-    UMA_HISTOGRAM_BOOLEAN(
-        "Notifications.Freedesktop.Capabilities.BodyHyperlinks",
-        base::Contains(capabilities_, kCapabilityBodyHyperlinks));
-    UMA_HISTOGRAM_BOOLEAN("Notifications.Freedesktop.Capabilities.BodyImages",
-                          base::Contains(capabilities_, kCapabilityBodyImages));
-    UMA_HISTOGRAM_BOOLEAN("Notifications.Freedesktop.Capabilities.BodyMarkup",
-                          base::Contains(capabilities_, kCapabilityBodyMarkup));
-    UMA_HISTOGRAM_BOOLEAN("Notifications.Freedesktop.Capabilities.IconMulti",
-                          base::Contains(capabilities_, kCapabilityIconMulti));
-    UMA_HISTOGRAM_BOOLEAN("Notifications.Freedesktop.Capabilities.IconStatic",
-                          base::Contains(capabilities_, kCapabilityIconStatic));
-    UMA_HISTOGRAM_BOOLEAN(
-        "Notifications.Freedesktop.Capabilities.InlineReply",
-        base::Contains(capabilities_, kCapabilityInlineReply));
-    UMA_HISTOGRAM_BOOLEAN(
-        "Notifications.Freedesktop.Capabilities.Persistence",
-        base::Contains(capabilities_, kCapabilityPersistence));
-    UMA_HISTOGRAM_BOOLEAN("Notifications.Freedesktop.Capabilities.Sound",
-                          base::Contains(capabilities_, kCapabilitySound));
-  }
-
   void RewriteProductLogoFile() {
     product_logo_file_watcher_.reset();
     product_logo_file_ = WriteDataToTmpFile(product_logo_png_bytes_);
@@ -1142,7 +1106,7 @@ class NotificationPlatformBridgeLinuxImpl
 
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
 
-  content::NotificationRegistrar registrar_;
+  base::CallbackListSubscription on_app_terminating_subscription_;
 
   // State necessary for OnConnectionInitializationFinished() and
   // SetReadyCallback().
@@ -1158,7 +1122,7 @@ class NotificationPlatformBridgeLinuxImpl
 
   scoped_refptr<dbus::Bus> bus_;
 
-  dbus::ObjectProxy* notification_proxy_ = nullptr;
+  raw_ptr<dbus::ObjectProxy> notification_proxy_ = nullptr;
 
   std::unordered_set<std::string> capabilities_;
 

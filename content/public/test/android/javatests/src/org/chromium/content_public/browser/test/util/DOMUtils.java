@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@ import org.junit.Assert;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.annotations.JNINamespace;
+import org.chromium.base.annotations.NativeMethods;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.CriteriaNotSatisfiedException;
@@ -225,6 +226,8 @@ public class DOMUtils {
 
     /**
      * Click a DOM node by its id, scrolling it into view first.
+     * Warning: This method might cause flakiness in the tests
+     * See http://crbug.com/1327063
      * @param webContents The WebContents in which the node lives.
      * @param nodeId The id of the node.
      */
@@ -499,12 +502,12 @@ public class DOMUtils {
     }
 
     /**
-     * Returns the value of a given attribute of type {@code valueType} as a {@code T}.
+     * Returns the value of a given attribute of type {@code valueType} as a {@code T} or null.
      * @param attributeName The attribute to return the value from.
      * @param webContents The WebContents in which the node lives.
      * @param nodeId The id of the node.
      * @param valueType The type of the value to read.
-     * @return the attributes' value.
+     * @return the attributes' value or null if there is no attribute with such attributeName.
      */
     public static <T> T getNodeAttribute(String attributeName, final WebContents webContents,
             String nodeId, Class<T> valueType) throws InterruptedException, TimeoutException {
@@ -512,14 +515,29 @@ public class DOMUtils {
         sb.append("(function() {");
         sb.append("  var node = document.getElementById('" + nodeId + "');");
         sb.append("  if (!node) return null;");
-        sb.append("  return [ node.getAttribute('" + attributeName + "') ];");
+        sb.append("  var nodeAttr = node.getAttribute('" + attributeName + "');");
+        sb.append("  if (!nodeAttr) return null;");
+        sb.append("  return [ nodeAttr ];");
         sb.append("})();");
 
         String jsonText =
                 JavaScriptUtils.executeJavaScriptAndWaitForResult(webContents, sb.toString());
-        Assert.assertFalse("Failed to retrieve contents for " + nodeId,
-                jsonText.trim().equalsIgnoreCase("null"));
+        if (jsonText.trim().equalsIgnoreCase("null")) {
+            return null;
+        }
         return readValue(jsonText, valueType);
+    }
+
+    /**
+     * Click a DOM node by its id using a js MouseEvent with a fake gesture.
+     * This function is more reliable than {@link #clickNode(WebContents, String)},
+     * but it doesn't simulate a screen touch.
+     * @param webContents The WebContents in which the node lives.
+     * @param nodeId The id of the node.
+     */
+    public static void clickNodeWithJavaScript(WebContents webContents, String nodeId) {
+        WebContentsUtils.evaluateJavaScriptWithUserGesture(
+                webContents, createScriptToClickNode(nodeId), null);
     }
 
     /**
@@ -602,18 +620,13 @@ public class DOMUtils {
         int clickX = (int) coord.fromLocalCssToPix(bounds.exactCenterX());
         int clickY = (int) coord.fromLocalCssToPix(bounds.exactCenterY())
                 + getMaybeTopControlsHeight(webContents);
-
-        // This scale will almost always be 1. See the comments on
-        // DisplayAndroid#getAndroidUIScaling().
-        float scale = webContents.getTopLevelNativeWindow().getDisplay().getAndroidUIScaling();
-
-        return new int[] {(int) (clickX * scale), (int) (clickY * scale)};
+        return new int[] {clickX, clickY};
     }
 
     private static int getMaybeTopControlsHeight(final WebContents webContents) {
         try {
             return TestThreadUtils.runOnUiThreadBlocking(
-                    () -> nativeGetTopControlsShrinkBlinkHeight(webContents));
+                    () -> DOMUtilsJni.get().getTopControlsShrinkBlinkHeight(webContents));
         } catch (ExecutionException e) {
             return 0;
         }
@@ -667,5 +680,13 @@ public class DOMUtils {
         return new Rect(bounds[0], bounds[1], bounds[0] + bounds[2], bounds[1] + bounds[3]);
     }
 
-    private static native int nativeGetTopControlsShrinkBlinkHeight(WebContents webContents);
+    private static String createScriptToClickNode(String nodeId) {
+        String script = "document.getElementById('" + nodeId + "').click();";
+        return script;
+    }
+
+    @NativeMethods
+    interface Natives {
+        int getTopControlsShrinkBlinkHeight(WebContents webContents);
+    }
 }

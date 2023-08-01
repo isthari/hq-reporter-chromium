@@ -1,4 +1,4 @@
-# Copyright 2014 The Chromium Authors. All rights reserved.
+# Copyright 2014 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -19,7 +19,6 @@ static_library("search_engines") {
     "keyword_table.h",
     "keyword_web_data_service.cc",
     "keyword_web_data_service.h",
-    "omnibox_focus_type.h",
     "search_engines_pref_names.cc",
     "search_engines_pref_names.h",
     "search_engines_switches.cc",
@@ -45,6 +44,8 @@ static_library("search_engines") {
     "template_url_service.h",
     "template_url_service_client.h",
     "template_url_service_observer.h",
+    "template_url_starter_pack_data.cc",
+    "template_url_starter_pack_data.h",
     "util.cc",
     "util.h",
   ]
@@ -60,13 +61,13 @@ static_library("search_engines") {
     "//components/sync",
     "//components/webdata/common",
     "//third_party/metrics_proto",
+    "//third_party/omnibox_proto",
   ]
 
   deps = [
     "//base:i18n",
     "//components/country_codes",
     "//components/database_utils",
-    "//components/history/core/browser",
     "//components/infobars/core",
     "//components/lens:lens",
     "//components/omnibox/common",
@@ -84,6 +85,7 @@ static_library("search_engines") {
     "//services/network/public/mojom",
     "//sql",
     "//third_party/metrics_proto",
+    "//third_party/omnibox_proto",
     "//ui/base",
     "//ui/gfx",
     "//ui/gfx/geometry",

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,7 +28,7 @@ namespace {
 web::WebFrame* WaitForMainFrame(web::WebState* web_state) {
   __block web::WebFrame* main_frame = nullptr;
   DCHECK(WaitUntilConditionOrTimeout(kWaitForJSCompletionTimeout, ^bool {
-    main_frame = web_state->GetWebFramesManager()->GetMainWebFrame();
+    main_frame = web_state->GetPageWorldWebFramesManager()->GetMainWebFrame();
     return main_frame != nullptr;
   }));
   return main_frame;
@@ -70,7 +70,7 @@ DEFINE_PROTO_FUZZER(const web::ScriptMessageProto& proto_js_message) {
     // Insert the |frameID| at 98% probability. We still want to check how API
     // behaves at an invalid |frameID|.
     if (base::RandDouble() < 0.98) {
-      script_message->body()->SetStringKey("frameID", env.main_frame_id_);
+      script_message->body()->GetDict().Set("frameID", env.main_frame_id_);
     }
   }
 

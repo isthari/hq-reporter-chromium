@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/strings/string_piece.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "ios/web/common/user_agent.h"
@@ -24,9 +24,10 @@ class RefCountedMemory;
 
 class GURL;
 
+@protocol CRWFindSession;
 @protocol UITraitEnvironment;
-@class UIWebView;
 @class NSString;
+@class NSData;
 
 namespace net {
 class SSLInfo;
@@ -61,8 +62,8 @@ class WebClient {
 
   // An embedder may support schemes that are otherwise unknown to lower-level
   // components. To control how /net/url and other components interpret urls of
-  // such schemes, the embedder overrides |AddAdditionalSchemes| and adds to the
-  // vectors inside the |Schemes| structure.
+  // such schemes, the embedder overrides `AddAdditionalSchemes` and adds to the
+  // vectors inside the `Schemes` structure.
   struct Schemes {
     Schemes();
     ~Schemes();
@@ -137,18 +138,18 @@ class WebClient {
       BrowserState* browser_state) const;
 
   // Allows the embedder to bind an interface request for a WebState-scoped
-  // interface that originated from the main frame of |web_state|. Called if
-  // |web_state| could not bind the receiver itself.
+  // interface that originated from the main frame of `web_state`. Called if
+  // `web_state` could not bind the receiver itself.
   virtual void BindInterfaceReceiverFromMainFrame(
       WebState* web_state,
       mojo::GenericPendingReceiver receiver) {}
 
-  // Calls the given |callback| with the contents of an error page to display
-  // when a navigation error occurs. |error| is always a valid pointer. The
-  // string passed to |callback| will be nil if no error page should be
+  // Calls the given `callback` with the contents of an error page to display
+  // when a navigation error occurs. `error` is always a valid pointer. The
+  // string passed to `callback` will be nil if no error page should be
   // displayed. Otherwise, this string will contain the details of the error
-  // and maybe links to more info. |info| will have a value for SSL cert errors
-  // and otherwise be nullopt. |navigation_id| is passed into this method so
+  // and maybe links to more info. `info` will have a value for SSL cert errors
+  // and otherwise be nullopt. `navigation_id` is passed into this method so
   // that in the case of an SSL cert error, the blocking page can be associated
   // with the tab.
   virtual void PrepareErrorPage(WebState* web_state,
@@ -163,25 +164,57 @@ class WebClient {
   // Instructs the embedder to return a container that is attached to a window.
   virtual UIView* GetWindowedContainer();
 
-  // Enables the logic to handle long press and force
-  // touch through action sheet. Should return false to use the context menu
-  // API. Defaults to return true.
-  virtual bool EnableLongPressAndForceTouchHandling() const;
-
   // Enables the logic to handle long press context menu with UIContextMenu.
   virtual bool EnableLongPressUIContextMenu() const;
 
-  // Returns the UserAgentType that should be used by default for the web
-  // content, based on the |web_state|.
-  virtual UserAgentType GetDefaultUserAgent(web::WebState* web_state,
-                                            const GURL& url);
+  // Allows WKWebViews to be inspected using Safari's Web Inspector.
+  virtual bool EnableWebInspector(web::BrowserState* browser_state) const;
 
-  // Returns true if URL was restored via session restoration cache.
-  virtual bool RestoreSessionFromCache(web::WebState* web_state) const;
+  // Returns the UserAgentType that should be used by default for the web
+  // content, based on the `web_state`.
+  virtual UserAgentType GetDefaultUserAgent(web::WebState* web_state,
+                                            const GURL& url) const;
+
+  // Logs the default mode used (Mobile or Desktop). This is supposed to be
+  // called only if the user didn't force the mode.
+  virtual void LogDefaultUserAgent(web::WebState* web_state,
+                                   const GURL& url) const;
+
+  // Fetches the session data blob from cache for `web_state`. Returns nil if
+  // the blob could not be loaded (missing, feature disabled, ...).
+  virtual NSData* FetchSessionFromCache(web::WebState* web_state) const;
 
   // Correct missing NTP and reading list virtualURLs and titles. Native session
   // restoration may not properly restore these items.
   virtual void CleanupNativeRestoreURLs(web::WebState* web_state) const;
+
+  // Notify the embedder that `web_state` will display a prompt for the user.
+  // Note that the implementation of this method may destroy `web state`.
+  virtual void WillDisplayMediaCapturePermissionPrompt(
+      web::WebState* web_state) const;
+
+  // Returns whether `url1` and `url2` are actually pointing to the same page.
+  virtual bool IsPointingToSameDocument(const GURL& url1,
+                                        const GURL& url2) const;
+
+  // Provides a searchable object for the given `web_state` instance.
+  virtual id<CRWFindSession> CreateFindSessionForWebState(
+      web::WebState* web_state) const API_AVAILABLE(ios(16));
+
+  // Starts a text search in `web_state`.
+  virtual void StartTextSearchInWebState(web::WebState* web_state);
+
+  // Stops the ongoing text search in `web_state`.
+  virtual void StopTextSearchInWebState(web::WebState* web_state);
+
+  // Returns true if mixed content on HTTPS documents should be upgraded if
+  // possible.
+  virtual bool IsMixedContentAutoupgradeEnabled(
+      web::BrowserState* browser_state) const;
+
+  // Returns true if browser lockdown mode is enabled. Default return value is
+  // false.
+  virtual bool IsBrowserLockdownModeEnabled(web::BrowserState* browser_state);
 };
 
 }  // namespace web

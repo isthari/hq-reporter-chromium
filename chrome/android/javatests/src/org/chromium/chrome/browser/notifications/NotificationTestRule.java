@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,11 +13,13 @@ import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.components.browser_ui.modaldialog.ModalDialogTestUtils;
 import org.chromium.components.browser_ui.notifications.MockNotificationManagerProxy;
 import org.chromium.components.browser_ui.notifications.MockNotificationManagerProxy.NotificationEntry;
 import org.chromium.components.browser_ui.site_settings.PermissionInfo;
 import org.chromium.components.content_settings.ContentSettingValues;
 import org.chromium.components.content_settings.ContentSettingsType;
+import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
 import java.util.List;
@@ -41,11 +43,13 @@ public class NotificationTestRule extends ChromeTabbedActivityTestRule {
         // The NotificationPlatformBridge must be overriden prior to the browser process starting.
         mMockNotificationManager = new MockNotificationManagerProxy();
         NotificationPlatformBridge.overrideNotificationManagerForTesting(mMockNotificationManager);
-        startMainActivityFromLauncher();
+        startMainActivityWithURL(UrlConstants.NTP_URL);
+        ModalDialogTestUtils.overrideEnableButtonTapProtection(false);
     }
 
     private void tearDown() {
         NotificationPlatformBridge.overrideNotificationManagerForTesting(null);
+        ModalDialogTestUtils.overrideEnableButtonTapProtection(true);
     }
 
     /**

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,17 +13,17 @@
 #include <utility>
 #include <vector>
 
-#include "base/callback.h"
-#include "base/compiler_specific.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
-#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/scoped_multi_source_observation.h"
+#include "base/uuid.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "content/public/browser/devtools_agent_host_observer.h"
-#include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_process_host_observer.h"
+#include "content/public/browser/service_worker_external_request_timeout_type.h"
 #include "extensions/browser/activity.h"
 #include "extensions/browser/event_page_tracker.h"
 #include "extensions/browser/extension_host_observer.h"
@@ -118,9 +118,10 @@ class ProcessManager : public KeyedService,
   // the extension isn't running or doesn't have a background page.
   ExtensionHost* GetBackgroundHostForExtension(const std::string& extension_id);
 
-  // Returns the ExtensionHost for the given |render_frame_host|, if there is
-  // one.
-  ExtensionHost* GetExtensionHostForRenderFrameHost(
+  // Returns the background page ExtensionHost for the given
+  // |render_frame_host|, if |render_frame_host| is in primary main frame and
+  // within the extension's background.
+  ExtensionHost* GetBackgroundHostForRenderFrameHost(
       content::RenderFrameHost* render_frame_host);
 
   // Returns true if the (lazy) background host for the given extension has
@@ -161,8 +162,10 @@ class ProcessManager : public KeyedService,
   // worker with id |worker_id|.
   // The increment method returns the guid that needs to be passed to the
   // decrement method.
+  // |timeout_type| is the SW's timeout behavior.
   std::string IncrementServiceWorkerKeepaliveCount(
       const WorkerId& worker_id,
+      content::ServiceWorkerExternalRequestTimeoutType timeout_type,
       Activity::Type activity_type,
       const std::string& extra_data);
   // Decrements the ref-count of the specified worker with |worker_id| that
@@ -234,15 +237,14 @@ class ProcessManager : public KeyedService,
   // |worker_id|.
   bool HasServiceWorker(const WorkerId& worker_id) const;
 
-  // Returns all the Service Worker infos that is active in the given render
-  // process for the extension with |extension_id|.
-  std::vector<WorkerId> GetServiceWorkers(const ExtensionId& extension_id,
-                                          int render_process_id) const;
-
   // Returns all the Service Worker infos that is active for the extension with
   // |extension_id|.
   std::vector<WorkerId> GetServiceWorkersForExtension(
       const ExtensionId& extension_id) const;
+
+  // Returns the context ID for the given `worker_id`, if `worker_id` is
+  // registered in the process manager. Otherwise, returns an empty base::Uuid.
+  base::Uuid GetContextIdForWorker(const WorkerId& worker_id) const;
 
   bool startup_background_hosts_created_for_test() const {
     return startup_background_hosts_created_;
@@ -281,7 +283,6 @@ class ProcessManager : public KeyedService,
 
   // ExtensionHostObserver:
   void OnExtensionHostDestroyed(ExtensionHost* host) override;
-  void OnExtensionHostShouldClose(ExtensionHost* host) override;
 
   // Extra information we keep for each extension's background page.
   struct BackgroundPageData;
@@ -296,6 +297,10 @@ class ProcessManager : public KeyedService,
 
   // Called just after |host| is created so it can be registered in our lists.
   void OnBackgroundHostCreated(ExtensionHost* host);
+
+  // Handles a request from a created extension host to close the contents.
+  // This happens in cases such as the contents calling `window.close()`.
+  void HandleCloseExtensionHost(ExtensionHost* host);
 
   // Close the given |host| iff it's a background page.
   void CloseBackgroundHost(ExtensionHost* host);
@@ -361,13 +366,12 @@ class ProcessManager : public KeyedService,
   // information is not accessible at registration/deregistration time.
   ExtensionRenderFrames all_extension_frames_;
 
-  // TaskRunner for interacting with ServiceWorkerContexts.
-  // TODO(crbug.com/824858): This is unused when ServiceWorkerOnUI is enabled.
-  scoped_refptr<base::SequencedTaskRunner> worker_task_runner_;
-
   // Contains all active extension Service Worker information for all
   // extensions.
   WorkerIdSet all_extension_workers_;
+  // Maps worker IDs to extension context IDs (as used in the runtime API) for
+  // running workers.
+  std::map<WorkerId, base::Uuid> worker_context_ids_;
 
   BackgroundPageDataMap background_page_data_;
 

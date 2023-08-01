@@ -1,12 +1,12 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/main/incognito_blocker_scene_agent.h"
 
+#import "base/apple/bundle_locations.h"
 #import "base/ios/ios_util.h"
-#include "base/mac/bundle_locations.h"
-#include "base/mac/foundation_util.h"
+#import "base/mac/foundation_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -76,7 +76,7 @@
 - (void)showOverlay {
   NSArray<UIWindow*>* windows = self.sceneState.scene.windows;
 
-  // Adding |self.overlayView| to sceneState.window won't cover overlay windows
+  // Adding `self.overlayView` to sceneState.window won't cover overlay windows
   // such as fullscreen video.  Instead use the topmost window.
 
   NSArray<UIWindow*>* sortedWindows =
@@ -104,7 +104,7 @@
 }
 
 - (UIViewController*)loadLaunchScreenControllerFromBundle {
-  NSBundle* mainBundle = base::mac::FrameworkBundle();
+  NSBundle* mainBundle = base::apple::FrameworkBundle();
   NSArray* topObjects = [mainBundle loadNibNamed:@"LaunchScreen"
                                            owner:self
                                          options:nil];

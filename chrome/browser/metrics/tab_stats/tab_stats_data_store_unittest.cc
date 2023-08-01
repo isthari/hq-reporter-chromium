@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -67,6 +67,66 @@ TEST_F(TabStatsDataStoreTest, TabStatsGetsReloadedFromLocalState) {
   // pref service.
   EXPECT_EQ(0U, stats2.window_count);
   EXPECT_EQ(0U, stats2.total_tab_count);
+}
+
+TEST_F(TabStatsDataStoreTest, DiscardsFromLocalState) {
+  // This test updates the discard/reload counts to a data store instance and
+  // then reinitialize it. The data store instance should restore the discard
+  // and reload counts from the pref service.
+  constexpr size_t kExpectedDiscardsExternal = 3;
+  constexpr size_t kExpectedDiscardsUrgent = 5;
+  constexpr size_t kExpectedDiscardsProactive = 6;
+  constexpr size_t kExpectedReloadsExternal = 8;
+  constexpr size_t kExpectedReloadsUrgent = 13;
+  constexpr size_t kExpectedReloadsProactive = 4;
+  for (size_t i = 0; i < kExpectedDiscardsExternal; ++i) {
+    data_store_->OnTabDiscardStateChange(LifecycleUnitDiscardReason::EXTERNAL,
+                                         /*is_discarded=*/true);
+  }
+  for (size_t i = 0; i < kExpectedDiscardsUrgent; ++i) {
+    data_store_->OnTabDiscardStateChange(LifecycleUnitDiscardReason::URGENT,
+                                         /*is_discarded=*/true);
+  }
+  for (size_t i = 0; i < kExpectedDiscardsProactive; ++i) {
+    data_store_->OnTabDiscardStateChange(LifecycleUnitDiscardReason::PROACTIVE,
+                                         /*is_discarded=*/true);
+  }
+  for (size_t i = 0; i < kExpectedReloadsExternal; ++i) {
+    data_store_->OnTabDiscardStateChange(LifecycleUnitDiscardReason::EXTERNAL,
+                                         /*is_discarded=*/false);
+  }
+  for (size_t i = 0; i < kExpectedReloadsUrgent; ++i) {
+    data_store_->OnTabDiscardStateChange(LifecycleUnitDiscardReason::URGENT,
+                                         /*is_discarded=*/false);
+  }
+  for (size_t i = 0; i < kExpectedReloadsProactive; ++i) {
+    data_store_->OnTabDiscardStateChange(LifecycleUnitDiscardReason::PROACTIVE,
+                                         /*is_discarded=*/false);
+  }
+
+  const size_t external =
+      static_cast<size_t>(LifecycleUnitDiscardReason::EXTERNAL);
+  const size_t urgent = static_cast<size_t>(LifecycleUnitDiscardReason::URGENT);
+  const size_t proactive =
+      static_cast<size_t>(LifecycleUnitDiscardReason::PROACTIVE);
+  TabsStats stats = data_store_->tab_stats();
+  EXPECT_EQ(kExpectedDiscardsExternal, stats.tab_discard_counts[external]);
+  EXPECT_EQ(kExpectedDiscardsUrgent, stats.tab_discard_counts[urgent]);
+  EXPECT_EQ(kExpectedDiscardsProactive, stats.tab_discard_counts[proactive]);
+  EXPECT_EQ(kExpectedReloadsExternal, stats.tab_reload_counts[external]);
+  EXPECT_EQ(kExpectedReloadsUrgent, stats.tab_reload_counts[urgent]);
+  EXPECT_EQ(kExpectedReloadsProactive, stats.tab_reload_counts[proactive]);
+
+  // Resets the |data_store_| and checks discard/reload counters are restored.
+  data_store_ = std::make_unique<TabStatsDataStore>(&pref_service_);
+
+  TabsStats stats2 = data_store_->tab_stats();
+  EXPECT_EQ(kExpectedDiscardsExternal, stats2.tab_discard_counts[external]);
+  EXPECT_EQ(kExpectedDiscardsUrgent, stats2.tab_discard_counts[urgent]);
+  EXPECT_EQ(kExpectedDiscardsProactive, stats2.tab_discard_counts[proactive]);
+  EXPECT_EQ(kExpectedReloadsExternal, stats2.tab_reload_counts[external]);
+  EXPECT_EQ(kExpectedReloadsUrgent, stats2.tab_reload_counts[urgent]);
+  EXPECT_EQ(kExpectedReloadsProactive, stats2.tab_reload_counts[proactive]);
 }
 
 TEST_F(TabStatsDataStoreTest, TrackTabUsageDuringInterval) {

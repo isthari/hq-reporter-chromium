@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,21 +6,24 @@
 
 #include <memory>
 
-#include "ash/services/nearby/public/cpp/fake_firewall_hole.h"
-#include "ash/services/nearby/public/cpp/fake_firewall_hole_factory.h"
-#include "ash/services/nearby/public/cpp/fake_tcp_socket_factory.h"
-#include "ash/services/nearby/public/cpp/tcp_server_socket_port.h"
-#include "ash/services/nearby/public/mojom/firewall_hole.mojom.h"
+#include "base/memory/raw_ptr.h"
 #include "base/task/thread_pool.h"
 #include "base/test/task_environment.h"
+#include "base/threading/thread_restrictions.h"
+#include "base/values.h"
 #include "chrome/services/sharing/nearby/platform/wifi_lan_server_socket.h"
-#include "chromeos/login/login_state/login_state.h"
-#include "chromeos/network/managed_network_configuration_handler.h"
-#include "chromeos/network/network_configuration_handler.h"
-#include "chromeos/network/network_profile_handler.h"
-#include "chromeos/network/proxy/ui_proxy_config_service.h"
-#include "chromeos/services/network_config/in_process_instance.h"
-#include "chromeos/services/network_config/public/cpp/cros_network_config_test_helper.h"
+#include "chromeos/ash/components/login/login_state/login_state.h"
+#include "chromeos/ash/components/network/managed_network_configuration_handler.h"
+#include "chromeos/ash/components/network/network_configuration_handler.h"
+#include "chromeos/ash/components/network/network_profile_handler.h"
+#include "chromeos/ash/components/network/proxy/ui_proxy_config_service.h"
+#include "chromeos/ash/services/nearby/public/cpp/fake_firewall_hole.h"
+#include "chromeos/ash/services/nearby/public/cpp/fake_firewall_hole_factory.h"
+#include "chromeos/ash/services/nearby/public/cpp/fake_tcp_socket_factory.h"
+#include "chromeos/ash/services/nearby/public/cpp/tcp_server_socket_port.h"
+#include "chromeos/ash/services/nearby/public/mojom/firewall_hole.mojom.h"
+#include "chromeos/ash/services/network_config/in_process_instance.h"
+#include "chromeos/ash/services/network_config/public/cpp/cros_network_config_test_helper.h"
 #include "chromeos/services/network_config/public/mojom/cros_network_config.mojom.h"
 #include "components/onc/onc_constants.h"
 #include "components/onc/onc_pref_names.h"
@@ -37,7 +40,6 @@
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/cros_system_api/dbus/shill/dbus-constants.h"
 
-namespace location {
 namespace nearby {
 namespace chrome {
 
@@ -98,7 +100,7 @@ class WifiLanMediumTest : public ::testing::Test {
     // Sets up a test Wi-Fi network to varying degrees depending on |state|.
     // This is needed in order to fetch the local IP address during server
     // socket creation.
-    chromeos::LoginState::Initialize();
+    ash::LoginState::Initialize();
     switch (state) {
       case WifiInitState::kComplete:
         InitializeCrosNetworkConfig(/*use_managed_config_handler=*/true);
@@ -137,11 +139,12 @@ class WifiLanMediumTest : public ::testing::Test {
 
   void TearDown() override {
     wifi_lan_medium_.reset();
+    cros_network_config_helper_.reset();
     managed_network_config_handler_.reset();
     ui_proxy_config_service_.reset();
     network_configuration_handler_.reset();
     network_profile_handler_.reset();
-    chromeos::LoginState::Shutdown();
+    ash::LoginState::Shutdown();
   }
 
   // Calls ConnectToService()/ListenForService() from |num_threads|, which will
@@ -199,51 +202,54 @@ class WifiLanMediumTest : public ::testing::Test {
  protected:
   // Boiler plate to set up a test CrosNetworkConfig mojo service.
   void InitializeCrosNetworkConfig(bool use_managed_config_handler) {
+    cros_network_config_helper_ =
+        std::make_unique<ash::network_config::CrosNetworkConfigTestHelper>(
+            /*initialize=*/false);
+
     if (use_managed_config_handler) {
       network_profile_handler_ =
-          chromeos::NetworkProfileHandler::InitializeForTesting();
+          ash::NetworkProfileHandler::InitializeForTesting();
 
       network_configuration_handler_ =
-          chromeos::NetworkConfigurationHandler::InitializeForTest(
-              cros_network_config_helper_.network_state_helper()
+          ash::NetworkConfigurationHandler::InitializeForTest(
+              cros_network_config_helper_->network_state_helper()
                   .network_state_handler(),
-              cros_network_config_helper_.network_device_handler());
+              cros_network_config_helper_->network_device_handler());
 
       PrefProxyConfigTrackerImpl::RegisterProfilePrefs(user_prefs_.registry());
       PrefProxyConfigTrackerImpl::RegisterPrefs(local_state_.registry());
       ::onc::RegisterProfilePrefs(user_prefs_.registry());
       ::onc::RegisterPrefs(local_state_.registry());
 
-      ui_proxy_config_service_ =
-          std::make_unique<chromeos::UIProxyConfigService>(
-              &user_prefs_, &local_state_,
-              cros_network_config_helper_.network_state_helper()
-                  .network_state_handler(),
-              network_profile_handler_.get());
+      ui_proxy_config_service_ = std::make_unique<ash::UIProxyConfigService>(
+          &user_prefs_, &local_state_,
+          cros_network_config_helper_->network_state_helper()
+              .network_state_handler(),
+          network_profile_handler_.get());
 
       managed_network_config_handler_ =
-          chromeos::ManagedNetworkConfigurationHandler::InitializeForTesting(
-              cros_network_config_helper_.network_state_helper()
+          ash::ManagedNetworkConfigurationHandler::InitializeForTesting(
+              cros_network_config_helper_->network_state_helper()
                   .network_state_handler(),
               network_profile_handler_.get(),
-              cros_network_config_helper_.network_device_handler(),
+              cros_network_config_helper_->network_device_handler(),
               network_configuration_handler_.get(),
               ui_proxy_config_service_.get());
       managed_network_config_handler_->SetPolicy(
           ::onc::ONC_SOURCE_DEVICE_POLICY,
           /*userhash=*/std::string(),
-          /*network_configs_onc=*/base::ListValue(),
-          /*global_network_config=*/base::DictionaryValue());
+          /*network_configs_onc=*/base::Value::List(),
+          /*global_network_config=*/base::Value::Dict());
 
       base::RunLoop().RunUntilIdle();
     }
 
-    cros_network_config_helper_.Initialize(
+    cros_network_config_helper_->Initialize(
         managed_network_config_handler_.get());
-    cros_network_config_helper_.network_state_helper().ClearDevices();
-    cros_network_config_helper_.network_state_helper().ClearServices();
+    cros_network_config_helper_->network_state_helper().ClearDevices();
+    cros_network_config_helper_->network_state_helper().ClearServices();
 
-    chromeos::network_config::BindToInProcessInstance(
+    ash::network_config::BindToInProcessInstance(
         cros_network_config_.BindNewPipeAndPassReceiver());
 
     base::RunLoop().RunUntilIdle();
@@ -251,16 +257,16 @@ class WifiLanMediumTest : public ::testing::Test {
 
   void AddWifiService(bool add_ip_configs, const net::IPAddress& local_addr) {
     if (add_ip_configs) {
-      base::DictionaryValue ipv4;
-      ipv4.SetKey(shill::kAddressProperty, base::Value(local_addr.ToString()));
-      ipv4.SetKey(shill::kMethodProperty, base::Value(shill::kTypeIPv4));
-      cros_network_config_helper_.network_state_helper()
+      base::Value::Dict ipv4;
+      ipv4.Set(shill::kAddressProperty, local_addr.ToString());
+      ipv4.Set(shill::kMethodProperty, shill::kTypeIPv4);
+      cros_network_config_helper_->network_state_helper()
           .ip_config_test()
-          ->AddIPConfig(kIPv4ConfigPath, ipv4);
+          ->AddIPConfig(kIPv4ConfigPath, std::move(ipv4));
       base::RunLoop().RunUntilIdle();
     }
 
-    cros_network_config_helper_.network_state_helper()
+    cros_network_config_helper_->network_state_helper()
         .service_test()
         ->AddServiceWithIPConfig(kWifiServicePath, kWifiGuid, kWifiServiceName,
                                  shill::kTypeWifi, shill::kStateOnline,
@@ -304,26 +310,28 @@ class WifiLanMediumTest : public ::testing::Test {
   base::OnceClosure on_listen_calls_finished_;
 
   // TCP socket factory:
-  ash::nearby::FakeTcpSocketFactory* fake_socket_factory_;
+  raw_ptr<ash::nearby::FakeTcpSocketFactory, ExperimentalAsh>
+      fake_socket_factory_;
   mojo::SharedRemote<sharing::mojom::TcpSocketFactory>
       socket_factory_shared_remote_;
 
   // Local IP fetching:
   sync_preferences::TestingPrefServiceSyncable user_prefs_;
   TestingPrefServiceSimple local_state_;
-  std::unique_ptr<chromeos::NetworkProfileHandler> network_profile_handler_;
-  std::unique_ptr<chromeos::NetworkConfigurationHandler>
+  std::unique_ptr<ash::NetworkProfileHandler> network_profile_handler_;
+  std::unique_ptr<ash::NetworkConfigurationHandler>
       network_configuration_handler_;
-  std::unique_ptr<chromeos::UIProxyConfigService> ui_proxy_config_service_;
-  std::unique_ptr<chromeos::ManagedNetworkConfigurationHandler>
+  std::unique_ptr<ash::UIProxyConfigService> ui_proxy_config_service_;
+  std::unique_ptr<ash::ManagedNetworkConfigurationHandler>
       managed_network_config_handler_;
-  chromeos::network_config::CrosNetworkConfigTestHelper
-      cros_network_config_helper_{/*initialize=*/false};
+  std::unique_ptr<ash::network_config::CrosNetworkConfigTestHelper>
+      cros_network_config_helper_;
   mojo::SharedRemote<chromeos::network_config::mojom::CrosNetworkConfig>
       cros_network_config_;
 
   // Firewall hole factory:
-  ash::nearby::FakeFirewallHoleFactory* fake_firewall_hole_factory_;
+  raw_ptr<ash::nearby::FakeFirewallHoleFactory, ExperimentalAsh>
+      fake_firewall_hole_factory_;
   mojo::SharedRemote<sharing::mojom::FirewallHoleFactory>
       firewall_hole_factory_shared_remote_;
 
@@ -568,6 +576,15 @@ TEST_F(WifiLanMediumTest, Listen_DestroyWhileWaiting) {
 // End: ListenForService()
 /*============================================================================*/
 
+TEST_F(WifiLanMediumTest, GetDynamicPortRange) {
+  Initialize(WifiInitState::kComplete);
+
+  absl::optional<std::pair<std::int32_t, std::int32_t>> port_range =
+      wifi_lan_medium_->GetDynamicPortRange();
+
+  EXPECT_EQ(ash::nearby::TcpServerSocketPort::kMin, port_range->first);
+  EXPECT_EQ(ash::nearby::TcpServerSocketPort::kMax, port_range->second);
+}
+
 }  // namespace chrome
 }  // namespace nearby
-}  // namespace location

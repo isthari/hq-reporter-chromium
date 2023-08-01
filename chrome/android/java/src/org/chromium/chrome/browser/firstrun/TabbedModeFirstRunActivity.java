@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,6 +36,7 @@ public class TabbedModeFirstRunActivity extends FirstRunActivity {
         contentLayout.addView(contentView);
 
         contentLayout.setBackgroundResource(R.drawable.bg_white_dialog);
+        contentLayout.setClipToOutline(true);
 
         // We need an outer layout for two things:
         //   * centering the content
@@ -130,5 +131,12 @@ public class TabbedModeFirstRunActivity extends FirstRunActivity {
 
             super.onMeasure(widthMeasureSpec, heightMeasureSpec);
         }
+    }
+
+    @Override
+    public boolean canUseLandscapeLayout() {
+        // TabbedModeFirstRunActivity shows FRE in a dialog that always has the portrait
+        // orientation, so never use the landscape layout with that activity.
+        return false;
     }
 }

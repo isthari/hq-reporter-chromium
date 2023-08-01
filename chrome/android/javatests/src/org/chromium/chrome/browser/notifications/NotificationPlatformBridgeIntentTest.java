@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,9 @@ package org.chromium.chrome.browser.notifications;
 import android.app.Notification;
 import android.content.Context;
 import android.content.Intent;
-import android.support.test.InstrumentationRegistry;
 
 import androidx.test.filters.MediumTest;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.hamcrest.Matchers;
 import org.junit.Assert;
@@ -55,7 +55,6 @@ public class NotificationPlatformBridgeIntentTest {
      */
     @Test
     @MediumTest
-    @DisabledTest(message = "https://crbug.com/1246141")
     @Feature({"Browser", "Notifications"})
     public void testLaunchNotificationPreferencesForCategory() {
         Assert.assertFalse("The native library should not be loaded yet",
@@ -93,7 +92,6 @@ public class NotificationPlatformBridgeIntentTest {
      */
     @Test
     @MediumTest
-    @DisabledTest(message = "https://crbug.com/1246141")
     @Feature({"Browser", "Notifications"})
     public void testLaunchNotificationPreferencesForWebsite() {
         Assert.assertFalse("The native library should not be loaded yet",
@@ -137,8 +135,8 @@ public class NotificationPlatformBridgeIntentTest {
      */
     @Test
     @MediumTest
-    @DisabledTest(message = "https://crbug.com/950635")
     @Feature({"Browser", "Notifications"})
+    @DisabledTest(message = "https://crbug.com/1420990")
     public void testLaunchProcessForNotificationActivation() throws Exception {
         Assert.assertFalse("The native library should not be loaded yet",
                 LibraryLoader.getInstance().isInitialized());

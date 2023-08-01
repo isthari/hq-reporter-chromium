@@ -1,10 +1,14 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/path_service.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/thread_pool.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
+#include "base/threading/thread_restrictions.h"
 #include "components/optimization_guide/core/test_model_info_builder.h"
 #include "components/optimization_guide/core/test_optimization_guide_model_provider.h"
 #include "components/optimization_guide/core/test_tflite_model_executor.h"
@@ -28,6 +32,35 @@ class NoUnloadingTestTFLiteModelHandler : public TestTFLiteModelHandler {
   }
 };
 
+class EnsureCancelledTestTFLiteModelExecutor : public TestTFLiteModelExecutor {
+ protected:
+  absl::optional<std::vector<float>> Execute(
+      ModelExecutionTask* execution_task,
+      ExecutionStatus* out_status,
+      const std::vector<float>& input) override {
+    while (true) {
+      // Timing is tricky, so give a few invocations for the cancel flag in
+      // TFLite Support to be noticed.
+      absl::optional<std::vector<float>> out =
+          TestTFLiteModelExecutor::Execute(execution_task, out_status, input);
+      if (!out) {
+        return out;
+      }
+    }
+  }
+};
+
+class EnsureCancelledTestTFLiteModelHandler : public TestTFLiteModelHandler {
+ public:
+  EnsureCancelledTestTFLiteModelHandler(
+      OptimizationGuideModelProvider* model_provider,
+      scoped_refptr<base::SequencedTaskRunner> background_task_runner)
+      : TestTFLiteModelHandler(
+            model_provider,
+            background_task_runner,
+            std::make_unique<EnsureCancelledTestTFLiteModelExecutor>()) {}
+};
+
 class TFLiteModelExecutorTest : public testing::Test {
  public:
   TFLiteModelExecutorTest() = default;
@@ -44,16 +77,19 @@ class TFLiteModelExecutorTest : public testing::Test {
 
     test_model_provider_ =
         std::make_unique<TestOptimizationGuideModelProvider>();
+
+    execution_sequence_ =
+        base::ThreadPool::CreateSequencedTaskRunner({base::MayBlock()});
   }
 
   void TearDown() override { ResetModelHandler(); }
 
-  void CreateModelHandler() {
+  virtual void CreateModelHandler() {
     if (model_handler_)
       model_handler_.reset();
 
     model_handler_ = std::make_unique<TestTFLiteModelHandler>(
-        test_model_provider(), task_environment_.GetMainThreadTaskRunner());
+        test_model_provider(), execution_sequence_);
   }
 
   void ResetModelHandler(
@@ -82,17 +118,21 @@ class TFLiteModelExecutorTest : public testing::Test {
     return test_model_provider_.get();
   }
 
+  base::SequencedTaskRunner* execution_sequence() {
+    return execution_sequence_.get();
+  }
   base::test::TaskEnvironment* task_environment() { return &task_environment_; }
 
   void RunUntilIdle() { task_environment_.RunUntilIdle(); }
 
- private:
-  base::test::TaskEnvironment task_environment_;
+ protected:
+  std::unique_ptr<TestTFLiteModelHandler> model_handler_;
 
+ private:
+  scoped_refptr<base::SequencedTaskRunner> execution_sequence_;
+  base::test::TaskEnvironment task_environment_;
   base::FilePath model_file_path_;
   std::unique_ptr<TestOptimizationGuideModelProvider> test_model_provider_;
-
-  std::unique_ptr<TestTFLiteModelHandler> model_handler_;
 };
 
 TEST_F(TFLiteModelExecutorTest, ExecuteReturnsImmediatelyIfNoModelLoaded) {
@@ -111,16 +151,34 @@ TEST_F(TFLiteModelExecutorTest, ExecuteReturnsImmediatelyIfNoModelLoaded) {
       std::vector<float>{1, 1, 1});
   run_loop->Run();
 
+  // Ensures pending tasks are processed. They are generating UMA metrics.
+  RunUntilIdle();
+
   histogram_tester.ExpectTotalCount(
       "OptimizationGuide.ModelExecutor.TaskExecutionLatency." +
           optimization_guide::GetStringNameForOptimizationTarget(
               proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
-      0);
+      1);
   histogram_tester.ExpectTotalCount(
       "OptimizationGuide.ModelExecutor.TaskSchedulingLatency." +
           optimization_guide::GetStringNameForOptimizationTarget(
               proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
       1);
+  histogram_tester.ExpectTotalCount(
+      "OptimizationGuide.ModelExecutor.ExecutionLatency." +
+          optimization_guide::GetStringNameForOptimizationTarget(
+              proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
+      0);
+  histogram_tester.ExpectTotalCount(
+      "OptimizationGuide.ModelExecutor.ExecutionThreadTime." +
+          optimization_guide::GetStringNameForOptimizationTarget(
+              proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
+      0);
+  histogram_tester.ExpectTotalCount(
+      "OptimizationGuide.ModelExecutor.ExecutionThreadTimeMicroseconds." +
+          optimization_guide::GetStringNameForOptimizationTarget(
+              proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
+      0);
   histogram_tester.ExpectUniqueSample(
       "OptimizationGuide.ModelExecutor.ModelAvailableToLoad." +
           optimization_guide::GetStringNameForOptimizationTarget(
@@ -131,6 +189,67 @@ TEST_F(TFLiteModelExecutorTest, ExecuteReturnsImmediatelyIfNoModelLoaded) {
           optimization_guide::GetStringNameForOptimizationTarget(
               proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
       ExecutionStatus::kErrorModelFileNotAvailable, 1);
+}
+
+TEST_F(TFLiteModelExecutorTest, BatchExecuteReturnsImmediatelyIfNoModelLoaded) {
+  base::HistogramTester histogram_tester;
+  CreateModelHandler();
+
+  base::RunLoop run_loop;
+  model_handler()->BatchExecuteModelWithInput(
+      base::BindOnce(
+          [](base::RunLoop* run_loop,
+             const std::vector<absl::optional<std::vector<float>>>& output) {
+            for (const auto& out : output) {
+              EXPECT_FALSE(out.has_value());
+            }
+            run_loop->Quit();
+          },
+          &run_loop),
+      {
+          std::vector<float>{0, 0, 0},
+          std::vector<float>{1, 1, 1},
+      });
+  run_loop.Run();
+
+  // Ensures pending tasks are processed. They are generating UMA metrics.
+  RunUntilIdle();
+
+  histogram_tester.ExpectTotalCount(
+      "OptimizationGuide.ModelExecutor.TaskExecutionLatency." +
+          optimization_guide::GetStringNameForOptimizationTarget(
+              proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
+      1);
+  histogram_tester.ExpectTotalCount(
+      "OptimizationGuide.ModelExecutor.TaskSchedulingLatency." +
+          optimization_guide::GetStringNameForOptimizationTarget(
+              proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
+      1);
+  histogram_tester.ExpectTotalCount(
+      "OptimizationGuide.ModelExecutor.ExecutionLatency." +
+          optimization_guide::GetStringNameForOptimizationTarget(
+              proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
+      0);
+  histogram_tester.ExpectTotalCount(
+      "OptimizationGuide.ModelExecutor.ExecutionThreadTime." +
+          optimization_guide::GetStringNameForOptimizationTarget(
+              proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
+      0);
+  histogram_tester.ExpectTotalCount(
+      "OptimizationGuide.ModelExecutor.ExecutionThreadTimeMicroseconds." +
+          optimization_guide::GetStringNameForOptimizationTarget(
+              proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
+      0);
+  histogram_tester.ExpectUniqueSample(
+      "OptimizationGuide.ModelExecutor.ModelAvailableToLoad." +
+          optimization_guide::GetStringNameForOptimizationTarget(
+              proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
+      false, 1);
+  histogram_tester.ExpectUniqueSample(
+      "OptimizationGuide.ModelExecutor.ExecutionStatus." +
+          optimization_guide::GetStringNameForOptimizationTarget(
+              proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
+      ExecutionStatus::kErrorModelFileNotAvailable, 2);
 }
 
 TEST_F(TFLiteModelExecutorTest, ExecuteWithLoadedModel) {
@@ -167,6 +286,9 @@ TEST_F(TFLiteModelExecutorTest, ExecuteWithLoadedModel) {
       input);
   run_loop->Run();
 
+  // Ensures pending tasks are processed. They are generating UMA metrics.
+  RunUntilIdle();
+
   histogram_tester.ExpectTotalCount(
       "OptimizationGuide.ModelExecutor.TaskExecutionLatency." +
           optimization_guide::GetStringNameForOptimizationTarget(
@@ -174,6 +296,21 @@ TEST_F(TFLiteModelExecutorTest, ExecuteWithLoadedModel) {
       1);
   histogram_tester.ExpectTotalCount(
       "OptimizationGuide.ModelExecutor.TaskSchedulingLatency." +
+          optimization_guide::GetStringNameForOptimizationTarget(
+              proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
+      1);
+  histogram_tester.ExpectTotalCount(
+      "OptimizationGuide.ModelExecutor.ExecutionLatency." +
+          optimization_guide::GetStringNameForOptimizationTarget(
+              proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
+      1);
+  histogram_tester.ExpectTotalCount(
+      "OptimizationGuide.ModelExecutor.ExecutionThreadTime." +
+          optimization_guide::GetStringNameForOptimizationTarget(
+              proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
+      1);
+  histogram_tester.ExpectTotalCount(
+      "OptimizationGuide.ModelExecutor.ExecutionThreadTimeMicroseconds." +
           optimization_guide::GetStringNameForOptimizationTarget(
               proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
       1);
@@ -187,6 +324,82 @@ TEST_F(TFLiteModelExecutorTest, ExecuteWithLoadedModel) {
           optimization_guide::GetStringNameForOptimizationTarget(
               proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
       ExecutionStatus::kSuccess, 1);
+  histogram_tester.ExpectUniqueSample(
+      "OptimizationGuide.ModelExecutor.ModelLoadedSuccessfully." +
+          optimization_guide::GetStringNameForOptimizationTarget(
+              proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
+      true, 1);
+}
+
+TEST_F(TFLiteModelExecutorTest, BatchExecuteWithLoadedModel) {
+  base::HistogramTester histogram_tester;
+  CreateModelHandler();
+
+  PushModelFileToModelExecutor(
+      proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD,
+      /*model_metadata=*/absl::nullopt);
+  EXPECT_TRUE(model_handler()->ModelAvailable());
+
+  std::vector<float> input;
+  int expected_dims = 1 * 32 * 32 * 3;
+  input.reserve(expected_dims);
+  for (int i = 0; i < expected_dims; i++) {
+    input.emplace_back(1);
+  }
+
+  base::RunLoop run_loop;
+  model_handler()->BatchExecuteModelWithInput(
+      base::BindOnce(
+          [](base::RunLoop* run_loop,
+             const std::vector<absl::optional<std::vector<float>>>& output) {
+            for (const auto& out : output) {
+              EXPECT_TRUE(out.has_value());
+            }
+
+            run_loop->Quit();
+          },
+          &run_loop),
+      {input, input});
+  run_loop.Run();
+
+  // Ensures pending tasks are processed. They are generating UMA metrics.
+  RunUntilIdle();
+
+  histogram_tester.ExpectTotalCount(
+      "OptimizationGuide.ModelExecutor.TaskExecutionLatency." +
+          optimization_guide::GetStringNameForOptimizationTarget(
+              proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
+      1);
+  histogram_tester.ExpectTotalCount(
+      "OptimizationGuide.ModelExecutor.TaskSchedulingLatency." +
+          optimization_guide::GetStringNameForOptimizationTarget(
+              proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
+      1);
+  histogram_tester.ExpectTotalCount(
+      "OptimizationGuide.ModelExecutor.ExecutionLatency." +
+          optimization_guide::GetStringNameForOptimizationTarget(
+              proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
+      2);
+  histogram_tester.ExpectTotalCount(
+      "OptimizationGuide.ModelExecutor.ExecutionThreadTime." +
+          optimization_guide::GetStringNameForOptimizationTarget(
+              proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
+      2);
+  histogram_tester.ExpectTotalCount(
+      "OptimizationGuide.ModelExecutor.ExecutionThreadTimeMicroseconds." +
+          optimization_guide::GetStringNameForOptimizationTarget(
+              proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
+      2);
+  histogram_tester.ExpectUniqueSample(
+      "OptimizationGuide.ModelExecutor.ModelAvailableToLoad." +
+          optimization_guide::GetStringNameForOptimizationTarget(
+              proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
+      true, 1);
+  histogram_tester.ExpectUniqueSample(
+      "OptimizationGuide.ModelExecutor.ExecutionStatus." +
+          optimization_guide::GetStringNameForOptimizationTarget(
+              proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
+      ExecutionStatus::kSuccess, 2);
   histogram_tester.ExpectUniqueSample(
       "OptimizationGuide.ModelExecutor.ModelLoadedSuccessfully." +
           optimization_guide::GetStringNameForOptimizationTarget(
@@ -221,6 +434,8 @@ TEST_F(TFLiteModelExecutorTest, ExecuteTwiceWithLoadedModel) {
           run_loop.get()),
       input);
   run_loop->Run();
+
+  // Ensures pending tasks are processed. They are generating UMA metrics.
   RunUntilIdle();
 
   histogram_tester.ExpectTotalCount(
@@ -251,6 +466,9 @@ TEST_F(TFLiteModelExecutorTest, ExecuteTwiceWithLoadedModel) {
           run_loop.get()),
       input);
   run_loop->Run();
+
+  // Ensures pending tasks are processed. They are generating UMA metrics.
+  RunUntilIdle();
 
   // The model should have been loaded a second time.
   histogram_tester.ExpectUniqueSample(
@@ -284,12 +502,27 @@ TEST_F(TFLiteModelExecutorTest, ExecuteTwiceWithLoadedModel) {
           optimization_guide::GetStringNameForOptimizationTarget(
               proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
       1);
+  histogram_tester.ExpectTotalCount(
+      "OptimizationGuide.ModelExecutor.ExecutionLatency." +
+          optimization_guide::GetStringNameForOptimizationTarget(
+              proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
+      2);
+  histogram_tester.ExpectTotalCount(
+      "OptimizationGuide.ModelExecutor.ExecutionThreadTime." +
+          optimization_guide::GetStringNameForOptimizationTarget(
+              proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
+      2);
+  histogram_tester.ExpectTotalCount(
+      "OptimizationGuide.ModelExecutor.ExecutionThreadTimeMicroseconds." +
+          optimization_guide::GetStringNameForOptimizationTarget(
+              proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
+      2);
 }
 
 TEST_F(TFLiteModelExecutorTest, DoNotUnloadAfterExecution) {
   base::HistogramTester histogram_tester;
   ResetModelHandler(std::make_unique<NoUnloadingTestTFLiteModelHandler>(
-      test_model_provider(), task_environment()->GetMainThreadTaskRunner()));
+      test_model_provider(), execution_sequence()));
 
   proto::Any any_metadata;
   any_metadata.set_type_url("type.googleapis.com/com.foo.Duration");
@@ -325,7 +558,9 @@ TEST_F(TFLiteModelExecutorTest, DoNotUnloadAfterExecution) {
       input);
   run_loop->Run();
 
+  // Ensures pending tasks are processed. They are generating UMA metrics.
   RunUntilIdle();
+
   EXPECT_TRUE(model_handler()->ModelAvailable());
   EXPECT_TRUE(model_handler()
                   ->ParsedSupportedFeaturesForLoadedModel<proto::Duration>());
@@ -364,6 +599,9 @@ TEST_F(TFLiteModelExecutorTest, DoNotUnloadAfterExecution) {
       input);
   run_loop->Run();
 
+  // Ensures pending tasks are processed. They are generating UMA metrics.
+  RunUntilIdle();
+
   histogram_tester.ExpectTotalCount(
       "OptimizationGuide.ModelExecutor.TaskSchedulingLatency." +
           optimization_guide::GetStringNameForOptimizationTarget(
@@ -376,6 +614,124 @@ TEST_F(TFLiteModelExecutorTest, DoNotUnloadAfterExecution) {
       2);
   histogram_tester.ExpectUniqueSample(
       "OptimizationGuide.ModelExecutor.ModelAvailableToLoad." +
+          optimization_guide::GetStringNameForOptimizationTarget(
+              proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
+      true, 1);
+}
+
+class CancelledTFLiteModelExecutorTest : public TFLiteModelExecutorTest {
+ public:
+  CancelledTFLiteModelExecutorTest() {
+    scoped_feature_list_.InitAndEnableFeatureWithParameters(
+        features::kPreventLongRunningPredictionModels,
+        {{"model_execution_timeout_ms", "10"}});
+  }
+  ~CancelledTFLiteModelExecutorTest() override = default;
+
+  void CreateModelHandler() override {
+    model_handler_ = std::make_unique<EnsureCancelledTestTFLiteModelHandler>(
+        test_model_provider(), execution_sequence());
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+TEST_F(CancelledTFLiteModelExecutorTest, RunsTooLong) {
+  base::HistogramTester histogram_tester;
+  CreateModelHandler();
+
+  PushModelFileToModelExecutor(
+      proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD,
+      /*model_metadata=*/absl::nullopt);
+  EXPECT_TRUE(model_handler()->ModelAvailable());
+
+  std::vector<float> input;
+  size_t expected_dims = 1 * 32 * 32 * 3;
+  input.reserve(expected_dims);
+  for (size_t i = 0; i < expected_dims; i++) {
+    input.emplace_back(1);
+  }
+
+  base::RunLoop run_loop;
+  model_handler()->ExecuteModelWithInput(
+      base::BindOnce(
+          [](base::RunLoop* run_loop,
+             const absl::optional<std::vector<float>>& output) {
+            EXPECT_FALSE(output.has_value());
+            run_loop->Quit();
+          },
+          &run_loop),
+      input);
+  run_loop.Run();
+
+  // Ensures pending tasks are processed. They are generating UMA metrics.
+  RunUntilIdle();
+
+  histogram_tester.ExpectUniqueSample(
+      "OptimizationGuide.ModelExecutor.ExecutionStatus.PainfulPageLoad",
+      ExecutionStatus::kErrorCancelled, 1);
+
+  histogram_tester.ExpectUniqueSample(
+      "OptimizationGuide.ModelExecutor.DidTimeout.PainfulPageLoad", true, 1);
+}
+
+TEST_F(CancelledTFLiteModelExecutorTest, BatchRunsTooLong) {
+  base::HistogramTester histogram_tester;
+  CreateModelHandler();
+
+  PushModelFileToModelExecutor(
+      proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD,
+      /*model_metadata=*/absl::nullopt);
+  EXPECT_TRUE(model_handler()->ModelAvailable());
+
+  std::vector<float> input;
+  size_t expected_dims = 1 * 32 * 32 * 3;
+  input.reserve(expected_dims);
+  for (size_t i = 0; i < expected_dims; i++) {
+    input.emplace_back(1);
+  }
+
+  base::RunLoop run_loop;
+  model_handler()->BatchExecuteModelWithInput(
+      base::BindOnce(
+          [](base::RunLoop* run_loop,
+             const std::vector<absl::optional<std::vector<float>>>& output) {
+            for (const auto& out : output) {
+              EXPECT_FALSE(out.has_value());
+            }
+            run_loop->Quit();
+          },
+          &run_loop),
+      {input, input});
+  run_loop.Run();
+
+  // Ensures pending tasks are processed. They are generating UMA metrics.
+  RunUntilIdle();
+
+  histogram_tester.ExpectUniqueSample(
+      "OptimizationGuide.ModelExecutor.ExecutionStatus.PainfulPageLoad",
+      ExecutionStatus::kErrorCancelled, 2);
+
+  histogram_tester.ExpectUniqueSample(
+      "OptimizationGuide.ModelExecutor.DidTimeout.PainfulPageLoad", true, 2);
+}
+
+TEST_F(TFLiteModelExecutorTest, UpdateModelFileWithPreloading) {
+  base::HistogramTester histogram_tester;
+  CreateModelHandler();
+
+  model_handler_->SetShouldUnloadModelOnComplete(false);
+  // Invoke UpdateModelFile() to preload model.
+  PushModelFileToModelExecutor(
+      proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD,
+      /*model_metadata=*/absl::nullopt);
+
+  // Ensures pending tasks are processed. They are generating UMA metrics.
+  RunUntilIdle();
+
+  histogram_tester.ExpectUniqueSample(
+      "OptimizationGuide.ModelExecutor.ModelLoadedSuccessfully." +
           optimization_guide::GetStringNameForOptimizationTarget(
               proto::OptimizationTarget::OPTIMIZATION_TARGET_PAINFUL_PAGE_LOAD),
       true, 1);

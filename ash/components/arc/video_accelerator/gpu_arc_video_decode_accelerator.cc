@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,12 +10,15 @@
 #include "ash/components/arc/arc_features.h"
 #include "ash/components/arc/video_accelerator/arc_video_accelerator_util.h"
 #include "ash/components/arc/video_accelerator/protected_buffer_manager.h"
-#include "base/bind.h"
 #include "base/files/scoped_file.h"
+#include "base/functional/bind.h"
+#include "base/memory/platform_shared_memory_region.h"
+#include "base/memory/unsafe_shared_memory_region.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/posix/eintr_wrapper.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "media/base/media_log.h"
 #include "media/base/video_frame.h"
@@ -290,10 +293,20 @@ void GpuArcVideoDecodeAccelerator::ResetRequest(
   DCHECK(vda);
   // Invalidating the WeakPtrs here ensures that after a Reset, we don't run
   // decode tasks that were queued up waiting for the result of a query to the
-  // |protected_buffer_manager_|.
+  // |protected_buffer_manager_|. Note, however that we still need to notify the
+  // client that those decode tasks are "done."
   weak_ptr_factory_for_querying_protected_input_buffers_.InvalidateWeakPtrs();
   pending_reset_callback_ = std::move(cb);
   vda->Reset();
+  if (first_input_waiting_on_secure_buffer_) {
+    NotifyEndOfBitstreamBuffer(*first_input_waiting_on_secure_buffer_);
+    first_input_waiting_on_secure_buffer_.reset();
+  }
+  while (!decode_requests_waiting_for_first_secure_buffer_.empty()) {
+    NotifyEndOfBitstreamBuffer(
+        decode_requests_waiting_for_first_secure_buffer_.front().first);
+    decode_requests_waiting_for_first_secure_buffer_.pop();
+  }
 }
 
 void GpuArcVideoDecodeAccelerator::DecodeRequest(
@@ -386,9 +399,12 @@ void GpuArcVideoDecodeAccelerator::InitializeTask(
       CreateVdaConfig(profile_, use_vd);
   if (use_vd) {
     VLOGF(2) << "Using VideoDecoder-backed VdVideoDecodeAccelerator.";
+    // Decoded video frames are sent "quickly" (i.e. without much buffering)
+    // to SurfaceFlinger, so we consider it a |low_delay| pipeline.
     vda_ = media::VdVideoDecodeAccelerator::Create(
         base::BindRepeating(&media::VideoDecoderPipeline::Create), this,
-        vda_config, base::SequencedTaskRunnerHandle::Get());
+        vda_config, true /* low_delay */,
+        base::SequencedTaskRunner::GetCurrentDefault());
   } else {
     VLOGF(2) << "Using original VDA";
     auto vda_factory = media::GpuVideoDecodeAcceleratorFactory::Create(
@@ -460,17 +476,20 @@ void GpuArcVideoDecodeAccelerator::Decode(
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 
   // We may be waiting on the first query to the |protected_buffer_manager_|,
-  // i.e., |awaiting_first_secure_buffer_| is true. In that case, we need to
-  // queue the current Decode() request in order to keep the ordering of input
-  // buffers. Additionally, it's possible that we're no longer waiting on the
-  // |protected_buffer_manager_|, but incoming Decode() tasks still need to run
-  // after the ones that have been queued up so far.
-  if (awaiting_first_secure_buffer_ ||
+  // i.e., |first_input_waiting_on_secure_buffer_| is set. In that case, we need
+  // to queue the current Decode() request in order to keep the ordering of
+  // input buffers. Additionally, it's possible that we're no longer waiting on
+  // the |protected_buffer_manager_|, but incoming Decode() tasks still need to
+  // run after the ones that have been queued up so far.
+  const int32_t bitstream_id = bitstream_buffer->bitstream_id;
+  if (first_input_waiting_on_secure_buffer_ ||
       !decode_requests_waiting_for_first_secure_buffer_.empty()) {
-    decode_requests_waiting_for_first_secure_buffer_.push(base::BindOnce(
-        &GpuArcVideoDecodeAccelerator::Decode,
-        weak_ptr_factory_for_querying_protected_input_buffers_.GetWeakPtr(),
-        std::move(bitstream_buffer)));
+    decode_requests_waiting_for_first_secure_buffer_.push(std::make_pair(
+        bitstream_id,
+        base::BindOnce(
+            &GpuArcVideoDecodeAccelerator::Decode,
+            weak_ptr_factory_for_querying_protected_input_buffers_.GetWeakPtr(),
+            std::move(bitstream_buffer))));
     return;
   }
 
@@ -499,7 +518,8 @@ void GpuArcVideoDecodeAccelerator::Decode(
           mojom::VideoDecodeAccelerator::Result::INVALID_ARGUMENT);
       return;
     }
-    awaiting_first_secure_buffer_ = !secure_mode_.has_value();
+    if (!secure_mode_.has_value())
+      first_input_waiting_on_secure_buffer_ = bitstream_id;
     protected_buffer_manager_->GetProtectedSharedMemoryRegionFor(
         std::move(dup_fd),
         base::BindOnce(
@@ -512,13 +532,13 @@ void GpuArcVideoDecodeAccelerator::Decode(
   DCHECK(secure_mode_);
   DCHECK(!*secure_mode_);
   ContinueDecode(std::move(bitstream_buffer), std::move(handle_fd),
-                 base::subtle::PlatformSharedMemoryRegion());
+                 base::UnsafeSharedMemoryRegion());
 }
 
 void GpuArcVideoDecodeAccelerator::ContinueDecode(
     mojom::BitstreamBufferPtr bitstream_buffer,
     base::ScopedFD handle_fd,
-    base::subtle::PlatformSharedMemoryRegion shm_region) {
+    base::UnsafeSharedMemoryRegion shm_region) {
   DVLOGF(4);
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   if (!vda_) {
@@ -529,12 +549,12 @@ void GpuArcVideoDecodeAccelerator::ContinueDecode(
   if (!secure_mode_.has_value()) {
     secure_mode_ = shm_region.IsValid();
     VLOGF(2) << "Input buffer is secure buffer? " << *secure_mode_;
-    awaiting_first_secure_buffer_ = false;
+    first_input_waiting_on_secure_buffer_.reset();
     if (!decode_requests_waiting_for_first_secure_buffer_.empty()) {
       // Note: we PostTask() in order to keep the right order of input buffers
       // and to avoid having to reason about the re-entrancy of Decode() and/or
       // ContinueDecode().
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE,
           base::BindOnce(&GpuArcVideoDecodeAccelerator::
                              ResumeDecodingAfterFirstSecureBuffer,
@@ -546,9 +566,6 @@ void GpuArcVideoDecodeAccelerator::ContinueDecode(
       VLOGF(2) << "Reinitializing decoder for secure mode";
       media::VideoDecodeAccelerator::Config vda_config =
           CreateVdaConfig(profile_, true);
-      // TODO(jkardatzke): Properly set the encryption scheme when we
-      // implement this for Intel. For AMD it doesn't matter since it uses
-      // transcryption.
       vda_config.encryption_scheme = media::EncryptionScheme::kCenc;
       // Set a |pending_init_callback_| to force queueing up any incoming decode
       // requests.
@@ -569,10 +586,11 @@ void GpuArcVideoDecodeAccelerator::ContinueDecode(
       return;
     }
     DCHECK(!shm_region.IsValid());
-    shm_region = base::subtle::PlatformSharedMemoryRegion::Take(
-        std::move(handle_fd),
-        base::subtle::PlatformSharedMemoryRegion::Mode::kUnsafe, handle_size,
-        base::UnguessableToken::Create());
+    shm_region = base::UnsafeSharedMemoryRegion::Deserialize(
+        base::subtle::PlatformSharedMemoryRegion::Take(
+            std::move(handle_fd),
+            base::subtle::PlatformSharedMemoryRegion::Mode::kUnsafe,
+            handle_size, base::UnguessableToken::Create()));
   }
 
   if (!shm_region.IsValid()) {
@@ -598,7 +616,7 @@ void GpuArcVideoDecodeAccelerator::ContinueDecode(
 
 void GpuArcVideoDecodeAccelerator::ResumeDecodingAfterFirstSecureBuffer() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  DCHECK(!awaiting_first_secure_buffer_);
+  DCHECK(!first_input_waiting_on_secure_buffer_);
 
   // Note: we move into |callbacks_to_call| so that
   // |decode_requests_waiting_for_first_secure_buffer_| is emptied out. This is
@@ -608,7 +626,7 @@ void GpuArcVideoDecodeAccelerator::ResumeDecodingAfterFirstSecureBuffer() {
   auto callbacks_to_call =
       std::move(decode_requests_waiting_for_first_secure_buffer_);
   while (!callbacks_to_call.empty()) {
-    std::move(callbacks_to_call.front()).Run();
+    std::move(callbacks_to_call.front().second).Run();
     callbacks_to_call.pop();
   }
 }

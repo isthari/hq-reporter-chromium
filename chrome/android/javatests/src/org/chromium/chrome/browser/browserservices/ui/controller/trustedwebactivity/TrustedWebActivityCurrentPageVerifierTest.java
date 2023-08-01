@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@ import static org.chromium.base.test.util.Batch.PER_CLASS;
 
 import android.content.Intent;
 import android.net.Uri;
-import android.support.test.InstrumentationRegistry;
 
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.LargeTest;
 
 import org.junit.Before;
@@ -62,7 +62,7 @@ public final class TrustedWebActivityCurrentPageVerifierTest {
     }
 
     private void launchTwa(String url) throws TimeoutException {
-        String packageName = InstrumentationRegistry.getTargetContext().getPackageName();
+        String packageName = ApplicationProvider.getApplicationContext().getPackageName();
         Intent intent = TrustedWebActivityTestUtil.createTrustedWebActivityIntent(url);
         TrustedWebActivityTestUtil.spoofVerification(packageName, url);
         TrustedWebActivityTestUtil.createSession(intent, packageName);

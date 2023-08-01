@@ -1,11 +1,10 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 #include "chrome/browser/bitmap_fetcher/bitmap_fetcher_service_factory.h"
 
 #include "chrome/browser/bitmap_fetcher/bitmap_fetcher_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 
 /// Factory
 BitmapFetcherService* BitmapFetcherServiceFactory::GetForBrowserContext(
@@ -20,10 +19,14 @@ BitmapFetcherServiceFactory* BitmapFetcherServiceFactory::GetInstance() {
 }
 
 BitmapFetcherServiceFactory::BitmapFetcherServiceFactory()
-    : BrowserContextKeyedServiceFactory(
+    : ProfileKeyedServiceFactory(
           "BitmapFetcherService",
-          BrowserContextDependencyManager::GetInstance()) {
-}
+          ProfileSelections::Builder()
+              .WithRegular(ProfileSelection::kOriginalOnly)
+              // TODO(crbug.com/1418376): Check if this service is needed in
+              // Guest mode.
+              .WithGuest(ProfileSelection::kOriginalOnly)
+              .Build()) {}
 
 BitmapFetcherServiceFactory::~BitmapFetcherServiceFactory() {
 }

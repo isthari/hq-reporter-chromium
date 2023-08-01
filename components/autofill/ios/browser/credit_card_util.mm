@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,9 +20,8 @@ NSString* GetCreditCardName(const CreditCard& credit_card,
       autofill::AutofillType(autofill::CREDIT_CARD_NAME_FULL), locale));
 }
 
-NSString* GetCreditCardIdentifierString(const CreditCard& credit_card) {
-  return base::SysUTF16ToNSString(
-      credit_card.CardIdentifierStringForAutofillDisplay());
+NSString* GetCreditCardNameAndLastFourDigits(const CreditCard& credit_card) {
+  return base::SysUTF16ToNSString(credit_card.CardNameAndLastFourDigits());
 }
 
 NSString* GetCreditCardNicknameString(const CreditCard& credit_card) {

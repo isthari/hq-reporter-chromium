@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "base/memory/raw_ptr.h"
 #include "chrome/browser/ash/arc/accessibility/accessibility_info_data_wrapper.h"
 #include "ui/accessibility/ax_enum_util.h"
 #include "ui/accessibility/ax_node_data.h"
@@ -75,6 +76,7 @@ class AccessibilityNodeInfoDataWrapper : public AccessibilityInfoDataWrapper {
   void ComputeNameFromContentsInternal(std::vector<std::string>* names) const;
 
   bool IsClickable() const;
+  bool IsLongClickable() const;
   bool IsFocusable() const;
 
   bool IsScrollableContainer() const;
@@ -83,7 +85,8 @@ class AccessibilityNodeInfoDataWrapper : public AccessibilityInfoDataWrapper {
   bool HasImportantProperty() const;
   bool HasImportantPropertyInternal() const;
 
-  mojom::AccessibilityNodeInfoData* node_ptr_ = nullptr;
+  raw_ptr<mojom::AccessibilityNodeInfoData, ExperimentalAsh> node_ptr_ =
+      nullptr;
 
   // Properties which should be checked for recursive text computation.
   // It's not clear whether labeled by should be taken into account here.

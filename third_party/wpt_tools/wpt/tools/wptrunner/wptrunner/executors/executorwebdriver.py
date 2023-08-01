@@ -1,3 +1,5 @@
+# mypy: allow-untyped-defs
+
 import json
 import os
 import socket
@@ -18,6 +20,7 @@ from .protocol import (BaseProtocolPart,
                        TestharnessProtocolPart,
                        Protocol,
                        SelectorProtocolPart,
+                       AccessibilityProtocolPart,
                        ClickProtocolPart,
                        CookiesProtocolPart,
                        SendKeysProtocolPart,
@@ -83,10 +86,7 @@ addEventListener("__test_restart", e => {e.preventDefault(); callback(true)})"""
                 # by ignoring it it's possible to reload the test whilst the
                 # harness remains paused
                 pass
-            except (socket.timeout,
-                    error.NoSuchWindowException,
-                    error.UnknownErrorException,
-                    IOError):
+            except (socket.timeout, error.NoSuchWindowException, error.UnknownErrorException, OSError):
                 break
             except Exception:
                 self.logger.error(traceback.format_exc())
@@ -119,13 +119,20 @@ class WebDriverTestharnessProtocolPart(TestharnessProtocolPart):
         self.webdriver.actions.release()
         handles = [item for item in self.webdriver.handles if item != self.runner_handle]
         for handle in handles:
-            try:
-                self.webdriver.window_handle = handle
-                self.webdriver.window.close()
-            except error.NoSuchWindowException:
-                pass
+            self._close_window(handle)
         self.webdriver.window_handle = self.runner_handle
         return self.runner_handle
+
+    def _close_window(self, window_handle):
+        try:
+            self.webdriver.window_handle = window_handle
+            self.webdriver.window.close()
+        except error.NoSuchWindowException:
+            pass
+
+    def open_test_window(self, window_id):
+        self.webdriver.execute_script(
+            "window.open('about:blank', '%s', 'noopener')" % window_id)
 
     def get_test_window(self, window_id, parent, timeout=5):
         """Find the test window amongst all the open windows.
@@ -150,12 +157,7 @@ class WebDriverTestharnessProtocolPart(TestharnessProtocolPart):
                 pass
 
             if test_window is None:
-                after = self.webdriver.handles
-                if len(after) == 2:
-                    test_window = next(iter(set(after) - {parent}))
-                elif after[0] == parent and len(after) > 2:
-                    # Hope the first one here is the test window
-                    test_window = after[1]
+                test_window = self._poll_handles_for_test_window(parent)
 
             if test_window is not None:
                 assert test_window != parent
@@ -164,6 +166,16 @@ class WebDriverTestharnessProtocolPart(TestharnessProtocolPart):
             time.sleep(0.1)
 
         raise Exception("unable to find test window")
+
+    def _poll_handles_for_test_window(self, parent):
+        test_window = None
+        after = self.webdriver.handles
+        if len(after) == 2:
+            test_window = next(iter(set(after) - {parent}))
+        elif after[0] == parent and len(after) > 2:
+            # Hope the first one here is the test window
+            test_window = after[1]
+        return test_window
 
     def test_window_loaded(self):
         """Wait until the page in the new window has been loaded.
@@ -187,6 +199,17 @@ class WebDriverSelectorProtocolPart(SelectorProtocolPart):
         return self.webdriver.find.css(selector)
 
 
+class WebDriverAccessibilityProtocolPart(AccessibilityProtocolPart):
+    def setup(self):
+        self.webdriver = self.parent.webdriver
+
+    def get_computed_label(self, element):
+        return element.get_computed_label()
+
+    def get_computed_role(self, element):
+        return element.get_computed_role()
+
+
 class WebDriverClickProtocolPart(ClickProtocolPart):
     def setup(self):
         self.webdriver = self.parent.webdriver
@@ -204,6 +227,18 @@ class WebDriverCookiesProtocolPart(CookiesProtocolPart):
         self.logger.info("Deleting all cookies")
         return self.webdriver.send_session_command("DELETE", "cookie")
 
+    def get_all_cookies(self):
+        self.logger.info("Getting all cookies")
+        return self.webdriver.send_session_command("GET", "cookie")
+
+    def get_named_cookie(self, name):
+        self.logger.info("Getting cookie named %s" % name)
+        try:
+            return self.webdriver.send_session_command("GET", "cookie/%s" % name)
+        except error.NoSuchCookieException:
+            return None
+
+
 class WebDriverWindowProtocolPart(WindowProtocolPart):
     def setup(self):
         self.webdriver = self.parent.webdriver
@@ -215,6 +250,7 @@ class WebDriverWindowProtocolPart(WindowProtocolPart):
     def set_rect(self, rect):
         self.logger.info("Restoring")
         self.webdriver.window.rect = rect
+
 
 class WebDriverSendKeysProtocolPart(SendKeysProtocolPart):
     def setup(self):
@@ -237,6 +273,9 @@ class WebDriverActionSequenceProtocolPart(ActionSequenceProtocolPart):
 
     def send_actions(self, actions):
         self.webdriver.actions.perform(actions['actions'])
+
+    def release(self):
+        self.webdriver.actions.release()
 
 
 class WebDriverTestDriverProtocolPart(TestDriverProtocolPart):
@@ -277,13 +316,11 @@ class WebDriverSetPermissionProtocolPart(SetPermissionProtocolPart):
     def setup(self):
         self.webdriver = self.parent.webdriver
 
-    def set_permission(self, descriptor, state, one_realm):
+    def set_permission(self, descriptor, state):
         permission_params_dict = {
             "descriptor": descriptor,
             "state": state,
         }
-        if one_realm is not None:
-            permission_params_dict["oneRealm"] = one_realm
         self.webdriver.send_session_command("POST", "permissions", permission_params_dict)
 
 
@@ -304,7 +341,7 @@ class WebDriverVirtualAuthenticatorProtocolPart(VirtualAuthenticatorProtocolPart
         return self.webdriver.send_session_command("GET", "webauthn/authenticator/%s/credentials" % authenticator_id)
 
     def remove_credential(self, authenticator_id, credential_id):
-        return self.webdriver.send_session_command("DELETE", "webauthn/authenticator/%s/credentials/%s" % (authenticator_id, credential_id))
+        return self.webdriver.send_session_command("DELETE", f"webauthn/authenticator/{authenticator_id}/credentials/{credential_id}")
 
     def remove_all_credentials(self, authenticator_id):
         return self.webdriver.send_session_command("DELETE", "webauthn/authenticator/%s/credentials" % authenticator_id)
@@ -331,6 +368,7 @@ class WebDriverProtocol(Protocol):
     implements = [WebDriverBaseProtocolPart,
                   WebDriverTestharnessProtocolPart,
                   WebDriverSelectorProtocolPart,
+                  WebDriverAccessibilityProtocolPart,
                   WebDriverClickProtocolPart,
                   WebDriverCookiesProtocolPart,
                   WebDriverSendKeysProtocolPart,
@@ -344,13 +382,25 @@ class WebDriverProtocol(Protocol):
                   WebDriverDebugProtocolPart]
 
     def __init__(self, executor, browser, capabilities, **kwargs):
-        super(WebDriverProtocol, self).__init__(executor, browser)
+        super().__init__(executor, browser)
         self.capabilities = capabilities
         if hasattr(browser, "capabilities"):
             if self.capabilities is None:
                 self.capabilities = browser.capabilities
             else:
                 merge_dicts(self.capabilities, browser.capabilities)
+
+        pac = browser.pac
+        if pac is not None:
+            if self.capabilities is None:
+                self.capabilities = {}
+            merge_dicts(self.capabilities, {"proxy":
+                {
+                    "proxyType": "pac",
+                    "proxyAutoconfigUrl": urljoin(executor.server_url("http"), pac)
+                }
+            })
+
         self.url = browser.webdriver_url
         self.webdriver = None
 
@@ -430,8 +480,7 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
 
     def __init__(self, logger, browser, server_config, timeout_multiplier=1,
                  close_after_done=True, capabilities=None, debug_info=None,
-                 supports_eager_pageload=True, cleanup_after_test=True,
-                 **kwargs):
+                 cleanup_after_test=True, **kwargs):
         """WebDriver-based executor for testharness.js tests"""
         TestharnessExecutor.__init__(self, logger, browser, server_config,
                                      timeout_multiplier=timeout_multiplier,
@@ -444,7 +493,6 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
 
         self.close_after_done = close_after_done
         self.window_id = str(uuid.uuid4())
-        self.supports_eager_pageload = supports_eager_pageload
         self.cleanup_after_test = cleanup_after_test
 
     def is_alive(self):
@@ -477,7 +525,7 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
         parent_window = protocol.testharness.close_old_windows()
 
         # Now start the test harness
-        protocol.base.execute_script("window.open('about:blank', '%s', 'noopener')" % self.window_id)
+        protocol.testharness.open_test_window(self.window_id)
         test_window = protocol.testharness.get_test_window(self.window_id,
                                                            parent_window,
                                                            timeout=5*self.timeout_multiplier)
@@ -488,9 +536,6 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
 
         handler = WebDriverCallbackHandler(self.logger, protocol, test_window)
         protocol.webdriver.url = url
-
-        if not self.supports_eager_pageload:
-            self.wait_for_load(protocol)
 
         while True:
             result = protocol.base.execute_script(
@@ -522,36 +567,14 @@ class WebDriverTestharnessExecutor(TestharnessExecutor):
 
         return rv
 
-    def wait_for_load(self, protocol):
-        # pageLoadStrategy=eager doesn't work in Chrome so try to emulate in user script
-        loaded = False
-        seen_error = False
-        while not loaded:
-            try:
-                loaded = protocol.base.execute_script("""
-var callback = arguments[arguments.length - 1];
-if (location.href === "about:blank") {
-  callback(false);
-} else if (document.readyState !== "loading") {
-  callback(true);
-} else {
-  document.addEventListener("readystatechange", () => {if (document.readyState !== "loading") {callback(true)}});
-}""", asynchronous=True)
-            except error.JavascriptErrorException:
-                # We can get an error here if the script runs in the initial about:blank
-                # document before it has navigated, with the driver returning an error
-                # indicating that the document was unloaded
-                if seen_error:
-                    raise
-                seen_error = True
-
 
 class WebDriverRefTestExecutor(RefTestExecutor):
     protocol_cls = WebDriverProtocol
 
     def __init__(self, logger, browser, server_config, timeout_multiplier=1,
                  screenshot_cache=None, close_after_done=True,
-                 debug_info=None, capabilities=None, debug_test=False, **kwargs):
+                 debug_info=None, capabilities=None, debug_test=False,
+                 reftest_screenshot="unexpected", **kwargs):
         """WebDriver-based executor for reftests"""
         RefTestExecutor.__init__(self,
                                  logger,
@@ -559,7 +582,8 @@ class WebDriverRefTestExecutor(RefTestExecutor):
                                  server_config,
                                  screenshot_cache=screenshot_cache,
                                  timeout_multiplier=timeout_multiplier,
-                                 debug_info=debug_info)
+                                 debug_info=debug_info,
+                                 reftest_screenshot=reftest_screenshot)
         self.protocol = self.protocol_cls(self,
                                           browser,
                                           capabilities=capabilities)
@@ -614,6 +638,8 @@ class WebDriverRefTestExecutor(RefTestExecutor):
         self.protocol.base.execute_script(self.wait_script, True)
 
         screenshot = self.protocol.webdriver.screenshot()
+        if screenshot is None:
+            raise ValueError('screenshot is None')
 
         # strip off the data:img/png, part of the url
         if screenshot.startswith("data:image/png;base64,"):

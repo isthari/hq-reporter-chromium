@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/time/time.h"
 #include "components/autofill/core/browser/autofill_client.h"
 #include "components/autofill/core/browser/data_model/credit_card.h"
 #include "components/autofill/core/browser/payments/otp_unmask_delegate.h"
@@ -117,9 +118,9 @@ class CreditCardOtpAuthenticator : public OtpUnmaskDelegate {
   // Reset the authenticator to initial states.
   virtual void Reset();
 
- private:
-  friend class CreditCardOtpAuthenticatorTest;
+  std::string ContextTokenForTesting() const { return context_token_; }
 
+ private:
   // Display the OTP dialog UI.
   // Once user confirms the OTP, we wil invoke |OnUnmaskPromptAccepted(otp)|.
   // If user asks for a new OTP code, we will invoke

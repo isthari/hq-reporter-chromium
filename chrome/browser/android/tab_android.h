@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,7 +24,7 @@
 class GURL;
 class Profile;
 
-namespace cc {
+namespace cc::slim {
 class Layer;
 }
 
@@ -35,7 +35,7 @@ class TabWebContentsDelegateAndroid;
 namespace content {
 class DevToolsAgentHost;
 class WebContents;
-}
+}  // namespace content
 
 class TabAndroid : public base::SupportsUserData {
  public:
@@ -75,15 +75,16 @@ class TabAndroid : public base::SupportsUserData {
   // Return the WebContents, if any, currently owned by this TabAndroid.
   content::WebContents* web_contents() const { return web_contents_.get(); }
 
-  // Return the cc::Layer that represents the content for this TabAndroid.
-  scoped_refptr<cc::Layer> GetContentLayer() const;
+  // Return the cc::slim::Layer that represents the content for this TabAndroid.
+  scoped_refptr<cc::slim::Layer> GetContentLayer() const;
 
   // Return specific id information regarding this TabAndroid.
-  const SessionID& window_id() const { return session_window_id_; }
+  SessionID window_id() const { return session_window_id_; }
 
   int GetAndroidId() const;
   bool IsNativePage() const;
   int GetLaunchType() const;
+  int GetUserAgent() const;
 
   // Return the tab title.
   std::u16string GetTitle() const;
@@ -100,6 +101,15 @@ class TabAndroid : public base::SupportsUserData {
   Profile* GetProfile() const;
   sync_sessions::SyncedTabDelegate* GetSyncedTabDelegate() const;
 
+  // Whether this tab is an incognito tab. Prefer
+  // `GetProfile()->IsOffTheRecord()` unless `web_contents()` is nullptr.
+  bool IsIncognito() const;
+
+  // Returns the time at which the tab was last shown to the user. Note that the
+  // timestamp is when the tab comes into view, not the time it went out of
+  // view.
+  base::Time GetLastShownTimestamp() const;
+
   // Delete navigation entries matching predicate from frozen state.
   void DeleteFrozenNavigationEntries(
       const WebContentsState::DeletionPredicate& predicate);
@@ -113,6 +123,8 @@ class TabAndroid : public base::SupportsUserData {
 
   bool IsCustomTab();
   bool IsHidden();
+
+  static bool isHardwareKeyboardAvailable(TabAndroid* tab_android);
 
   // Observers -----------------------------------------------------------------
 
@@ -128,7 +140,6 @@ class TabAndroid : public base::SupportsUserData {
       jboolean incognito,
       jboolean is_background_tab,
       const base::android::JavaParamRef<jobject>& jweb_contents,
-      jint jparent_tab_id,
       const base::android::JavaParamRef<jobject>& jweb_contents_delegate,
       const base::android::JavaParamRef<jobject>&
           jcontext_menu_populator_factory);
@@ -150,6 +161,8 @@ class TabAndroid : public base::SupportsUserData {
       const base::android::JavaParamRef<jstring>& jtitle);
 
   void LoadOriginalImage(JNIEnv* env);
+  void OnShow(JNIEnv* env);
+
   scoped_refptr<content::DevToolsAgentHost> GetDevToolsAgentHost();
 
   void SetDevToolsAgentHost(scoped_refptr<content::DevToolsAgentHost> host);
@@ -160,7 +173,7 @@ class TabAndroid : public base::SupportsUserData {
   // Identifier of the window the tab is in.
   SessionID session_window_id_;
 
-  scoped_refptr<cc::Layer> content_layer_;
+  scoped_refptr<cc::slim::Layer> content_layer_;
 
   std::unique_ptr<content::WebContents> web_contents_;
   std::unique_ptr<android::TabWebContentsDelegateAndroid>

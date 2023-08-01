@@ -1,11 +1,11 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <memory>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/run_loop.h"
 #include "base/task/single_thread_task_runner.h"
@@ -75,6 +75,16 @@ constexpr gfx::Size kSizeJustRight = gfx::Size(201, 201);
                                      : WatchTimeKey::kVideoBackground##key, \
                     value))                                                 \
         .RetiresOnSaturation();                                             \
+  } while (0)
+
+#define EXPECT_WATCH_TIME_IF_AUDIO_VIDEO_MEDIAFOUNDATION(key, value)       \
+  do {                                                                     \
+    if (!has_video_ || !has_audio_)                                        \
+      break;                                                               \
+    EXPECT_CALL(*this,                                                     \
+                OnWatchTimeUpdate(                                         \
+                    WatchTimeKey::kAudioVideoMediaFoundation##key, value)) \
+        .RetiresOnSaturation();                                            \
   } while (0)
 
 #define EXPECT_WATCH_TIME_FINALIZED() \
@@ -195,6 +205,8 @@ class WatchTimeReporterTest
             case WatchTimeKey::kVideoBackgroundEme:
             case WatchTimeKey::kVideoBackgroundSrc:
             case WatchTimeKey::kVideoBackgroundEmbeddedExperience:
+            case WatchTimeKey::kAudioVideoMediaFoundationAll:
+            case WatchTimeKey::kAudioVideoMediaFoundationEme:
               // These keys do not support partial finalization.
               FAIL();
           };
@@ -272,6 +284,7 @@ class WatchTimeReporterTest
                     media::mojom::MediaURLScheme url_scheme,
                     media::mojom::MediaStreamType media_stream_type) override {}
     void OnError(const media::PipelineStatus& status) override {}
+    void OnFallback(const media::PipelineStatus& status) override {}
     void SetIsEME() override {}
     void SetTimeToMetadata(base::TimeDelta elapsed) override {}
     void SetTimeToFirstFrame(base::TimeDelta elapsed) override {}
@@ -305,16 +318,18 @@ class WatchTimeReporterTest
   }
 
  protected:
-  void Initialize(bool is_mse,
-                  bool is_encrypted,
-                  const gfx::Size& initial_video_size) {
+  void Initialize(
+      bool is_mse,
+      bool is_encrypted,
+      const gfx::Size& initial_video_size,
+      media::RendererType renderer_type = media::RendererType::kRendererImpl) {
     if (wtr_ && IsMonitoring())
       EXPECT_WATCH_TIME_FINALIZED();
 
     wtr_ = std::make_unique<WatchTimeReporter>(
         media::mojom::PlaybackProperties::New(
             has_audio_, has_video_, false, false, is_mse, is_encrypted, false,
-            media::mojom::MediaStreamType::kNone),
+            media::mojom::MediaStreamType::kNone, renderer_type),
         initial_video_size,
         base::BindRepeating(&WatchTimeReporterTest::GetCurrentMediaTime,
                             base::Unretained(this)),
@@ -662,7 +677,7 @@ TEST_P(WatchTimeReporterTest, WatchTimeReporter) {
   wtr_->OnPlaying();
   EXPECT_EQ(!has_video_, IsMonitoring());
 
-  Initialize(true, true, gfx::Size(100, 100));
+  Initialize(true, true, kSizeTooSmall);
   wtr_->OnPlaying();
   EXPECT_EQ(!has_video_, IsMonitoring());
 
@@ -2098,6 +2113,66 @@ TEST_P(WatchTimeReporterTest, HysteresisPartialExitStillFinalizes) {
             start_event(i);
           });
     }
+  }
+}
+
+// Tests Media Foundation related Keys being used and given to recorder.
+TEST_P(WatchTimeReporterTest, WatchTimeReporterMediaFoundation) {
+  constexpr base::TimeDelta kWatchTimeEarly = base::Seconds(5);
+
+  // Will include only audio and only video testing when the related keys are
+  // added.
+  if (has_audio_ && has_video_) {
+    EXPECT_CALL(*this, GetCurrentMediaTime())
+        .WillOnce(testing::Return(base::TimeDelta()))
+        .WillRepeatedly(testing::Return(kWatchTimeEarly));
+    Initialize(true, true, kSizeJustRight,
+               media::RendererType::kMediaFoundation);
+    wtr_->OnPlaying();
+
+    // Check the following keys are used.
+    EXPECT_WATCH_TIME(All, kWatchTimeEarly);
+    EXPECT_WATCH_TIME_IF_AUDIO_VIDEO_MEDIAFOUNDATION(All, kWatchTimeEarly);
+    EXPECT_WATCH_TIME_IF_AUDIO_VIDEO_MEDIAFOUNDATION(Eme, kWatchTimeEarly);
+    EXPECT_WATCH_TIME(Mse, kWatchTimeEarly);
+    EXPECT_WATCH_TIME(Eme, kWatchTimeEarly);
+    EXPECT_WATCH_TIME(Ac, kWatchTimeEarly);
+    EXPECT_WATCH_TIME_IF_VIDEO(DisplayInline, kWatchTimeEarly);
+    EXPECT_WATCH_TIME(NativeControlsOff, kWatchTimeEarly);
+
+    EXPECT_TRUE(IsMonitoring());
+
+    EXPECT_WATCH_TIME_FINALIZED();
+    wtr_.reset();
+  }
+}
+
+// Tests Media Foundation related keys given no EME.
+TEST_P(WatchTimeReporterTest, WatchTimeReporterMediaFoundationNoEme) {
+  constexpr base::TimeDelta kWatchTimeEarly = base::Seconds(5);
+
+  // Will include only audio and only video testing when the related keys are
+  // added.
+  if (has_audio_ && has_video_) {
+    EXPECT_CALL(*this, GetCurrentMediaTime())
+        .WillOnce(testing::Return(base::TimeDelta()))
+        .WillRepeatedly(testing::Return(kWatchTimeEarly));
+    Initialize(true, false, kSizeJustRight,
+               media::RendererType::kMediaFoundation);
+    wtr_->OnPlaying();
+
+    // Check the following keys are used.
+    EXPECT_WATCH_TIME(All, kWatchTimeEarly);
+    EXPECT_WATCH_TIME_IF_AUDIO_VIDEO_MEDIAFOUNDATION(All, kWatchTimeEarly);
+    EXPECT_WATCH_TIME(Mse, kWatchTimeEarly);
+    EXPECT_WATCH_TIME(Ac, kWatchTimeEarly);
+    EXPECT_WATCH_TIME_IF_VIDEO(DisplayInline, kWatchTimeEarly);
+    EXPECT_WATCH_TIME(NativeControlsOff, kWatchTimeEarly);
+
+    EXPECT_TRUE(IsMonitoring());
+
+    EXPECT_WATCH_TIME_FINALIZED();
+    wtr_.reset();
   }
 }
 

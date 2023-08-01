@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -161,10 +161,6 @@ class ResourceCreationProxy : public InterfaceProxy,
       PP_Instance instance,
       const PP_BrowserFont_Trusted_Description* description) override;
   PP_Resource CreateBuffer(PP_Instance instance, uint32_t size) override;
-  PP_Resource CreateFlashFontFile(
-      PP_Instance instance,
-      const PP_BrowserFont_Trusted_Description* description,
-      PP_PrivateFontCharset charset) override;
   PP_Resource CreateVideoCapture(PP_Instance instance) override;
   PP_Resource CreateVideoDecoderDev(
       PP_Instance instance,

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,8 +31,8 @@ class ChromeWebContentsMenuHelperUnitTest : public BrowserWithTestWindowTest {
     pref_service_ = prefs.get();
 
     return profile_manager()->CreateTestingProfile(
-        "test_profile", std::move(prefs), std::u16string(), 0, std::string(),
-        TestingProfile::TestingFactories(), absl::optional<bool>());
+        "test_profile", std::move(prefs), std::u16string(), 0,
+        TestingProfile::TestingFactories());
   }
 
   sync_preferences::PrefServiceSyncable* pref_service() {

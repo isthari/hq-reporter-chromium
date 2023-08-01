@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,14 @@
 
 #include "components/page_load_metrics/browser/page_load_metrics_util.h"
 #include "content/public/browser/navigation_handle.h"
+#include "ui/base/page_transition_types.h"
 
 namespace {
+
+const char kSearchInputToNavigationStart[] =
+    "Omnibox.SuggestionUsed.Search.InputToNavigationStart2";
+const char kURLInputToNavigationStart[] =
+    "Omnibox.SuggestionUsed.URL.InputToNavigationStart2";
 
 const char kSearchFirstContentfulPaint[] =
     "Omnibox.SuggestionUsed.Search.NavigationToFirstContentfulPaint";
@@ -26,12 +32,31 @@ const char kSearchLargestContentfulPaint2[] =
     "Omnibox.SuggestionUsed.Search.NavigationToLargestContentfulPaint2";
 const char kURLLargestContentfulPaint2[] =
     "Omnibox.SuggestionUsed.URL.NavigationToLargestContentfulPaint2";
+
+const char kSearchLargestContentfulPaint2Above2s[] =
+    "Omnibox.SuggestionUsed.Search.NavigationToLargestContentfulPaint2Above2s";
 }  // namespace
 
 OmniboxSuggestionUsedMetricsObserver::OmniboxSuggestionUsedMetricsObserver() =
     default;
 
 OmniboxSuggestionUsedMetricsObserver::~OmniboxSuggestionUsedMetricsObserver() {}
+
+page_load_metrics::PageLoadMetricsObserver::ObservePolicy
+OmniboxSuggestionUsedMetricsObserver::OnPrerenderStart(
+    content::NavigationHandle* navigation_handle,
+    const GURL& currently_committed_url) {
+  // TODO(https://crbug.com/1317494): Handle Prerendering cases.
+  return STOP_OBSERVING;
+}
+
+page_load_metrics::PageLoadMetricsObserver::ObservePolicy
+OmniboxSuggestionUsedMetricsObserver::OnFencedFramesStart(
+    content::NavigationHandle* navigation_handle,
+    const GURL& currently_committed_url) {
+  // This class is interested only in the primary page.
+  return STOP_OBSERVING;
+}
 
 page_load_metrics::PageLoadMetricsObserver::ObservePolicy
 OmniboxSuggestionUsedMetricsObserver::OnHidden(
@@ -41,9 +66,11 @@ OmniboxSuggestionUsedMetricsObserver::OnHidden(
 
 page_load_metrics::PageLoadMetricsObserver::ObservePolicy
 OmniboxSuggestionUsedMetricsObserver::OnCommit(
-    content::NavigationHandle* navigation_handle,
-    ukm::SourceId source_id) {
+    content::NavigationHandle* navigation_handle) {
   transition_type_ = navigation_handle->GetPageTransition();
+  if (!ui::PageTransitionIsNewNavigation(transition_type_)) {
+    return STOP_OBSERVING;
+  }
   return (transition_type_ & ui::PAGE_TRANSITION_FROM_ADDRESS_BAR) != 0
              ? CONTINUE_OBSERVING
              : STOP_OBSERVING;
@@ -56,9 +83,23 @@ void OmniboxSuggestionUsedMetricsObserver::OnFirstContentfulPaintInPage(
   if (GetDelegate().StartedInForeground()) {
     if (ui::PageTransitionCoreTypeIs(transition_type_,
                                      ui::PAGE_TRANSITION_GENERATED)) {
+      if (timing.input_to_navigation_start) {
+        // Use `PAGE_LOAD_SHORT_HISTOGRAM()`, and not `PAGE_LOAD_HISTOGRAM()`,
+        // as this has many (30-55%) of events <10ms, and almost no events
+        // >1minute.
+        PAGE_LOAD_SHORT_HISTOGRAM(kSearchInputToNavigationStart,
+                                  timing.input_to_navigation_start.value());
+      }
       PAGE_LOAD_HISTOGRAM(kSearchFirstContentfulPaint, fcp);
     } else if (ui::PageTransitionCoreTypeIs(transition_type_,
                                             ui::PAGE_TRANSITION_TYPED)) {
+      if (timing.input_to_navigation_start) {
+        // Use `PAGE_LOAD_SHORT_HISTOGRAM()`, and not `PAGE_LOAD_HISTOGRAM()`,
+        // as this has many (30-55%) of events <10ms, and almost no events
+        // >1minute.
+        PAGE_LOAD_SHORT_HISTOGRAM(kURLInputToNavigationStart,
+                                  timing.input_to_navigation_start.value());
+      }
       PAGE_LOAD_HISTOGRAM(kURLFirstContentfulPaint, fcp);
     }
     return;
@@ -89,6 +130,40 @@ OmniboxSuggestionUsedMetricsObserver::FlushMetricsOnAppEnterBackground(
   return STOP_OBSERVING;
 }
 
+void OmniboxSuggestionUsedMetricsObserver::OnTimingUpdate(
+    content::RenderFrameHost* subframe_rfh,
+    const page_load_metrics::mojom::PageLoadTiming& timing) {
+  RecordSearchLCP2Above2s();
+}
+
+void OmniboxSuggestionUsedMetricsObserver::RecordSearchLCP2Above2s() {
+  if (lcp2_above_2s_recorded_) {
+    return;
+  }
+  const page_load_metrics::ContentfulPaintTimingInfo& paint =
+      GetDelegate()
+          .GetLargestContentfulPaintHandler()
+          .MergeMainFrameAndSubframes();
+  if (!paint.ContainsValidTime() || paint.Time()->InMilliseconds() < 2000) {
+    return;
+  }
+  if (!ui::PageTransitionCoreTypeIs(transition_type_,
+                                    ui::PAGE_TRANSITION_GENERATED)) {
+    // Not a Search load.
+    return;
+  }
+
+  if (!page_load_metrics::WasStartedInForegroundOptionalEventInForeground(
+          paint.Time(), GetDelegate())) {
+    // Page was started in background or was backgrounded before reaching this
+    // LCP value.
+    return;
+  }
+  PAGE_LOAD_HISTOGRAM(kSearchLargestContentfulPaint2Above2s,
+                      paint.Time().value());
+  lcp2_above_2s_recorded_ = true;
+}
+
 void OmniboxSuggestionUsedMetricsObserver::OnComplete(
     const page_load_metrics::mojom::PageLoadTiming& timing) {
   RecordSessionEndHistograms(timing);
@@ -97,6 +172,8 @@ void OmniboxSuggestionUsedMetricsObserver::OnComplete(
 void OmniboxSuggestionUsedMetricsObserver::RecordSessionEndHistograms(
     const page_load_metrics::mojom::PageLoadTiming& timing) {
   DCHECK(GetDelegate().DidCommit());
+
+  RecordSearchLCP2Above2s();
 
   const page_load_metrics::ContentfulPaintTimingInfo& largest_contentful_paint =
       GetDelegate()

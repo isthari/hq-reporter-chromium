@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,9 +11,7 @@ import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.base.task.PostTask;
 import org.chromium.base.task.TaskTraits;
-import org.chromium.chrome.browser.browserservices.constants.LocationUpdateError;
-import org.chromium.chrome.browser.browserservices.constants.QualityEnforcementViolationType;
-import org.chromium.components.content_settings.ContentSettingsType;
+import org.chromium.components.content_settings.ContentSettingValues;
 import org.chromium.components.ukm.UkmRecorder;
 import org.chromium.content_public.browser.WebContents;
 
@@ -161,6 +159,16 @@ public class TrustedWebActivityUmaRecorder {
     }
 
     /**
+     * Records the notification permission request result for a TWA.
+     */
+    public static void recordNotificationPermissionRequestResult(
+            @ContentSettingValues int settingValue) {
+        RecordHistogram.recordEnumeratedHistogram(
+                "TrustedWebActivity.Notification.PermissionRequestResult", settingValue,
+                ContentSettingValues.NUM_SETTINGS);
+    }
+
+    /**
      * Records whether or not a splash screen has been shown when launching a TWA.
      * Uses {@link TaskTraits#BEST_EFFORT} in order to not get in the way of loading the page.
      */
@@ -199,27 +207,24 @@ public class TrustedWebActivityUmaRecorder {
         }
     }
 
-    public void recordPermissionChangedUma(
-            @ContentSettingsType int type, Boolean last, boolean enabled) {
-        if (type == ContentSettingsType.GEOLOCATION) {
-            @Nullable
-            @PermissionChanged
-            Integer change = null;
-            if (last == null) {
-                if (enabled) {
-                    change = PermissionChanged.NULL_TO_TRUE;
-                } else {
-                    change = PermissionChanged.NULL_TO_FALSE;
-                }
+    public void recordLocationPermissionChanged(Boolean last, boolean enabled) {
+        @Nullable
+        @PermissionChanged
+        Integer change = null;
+        if (last == null) {
+            if (enabled) {
+                change = PermissionChanged.NULL_TO_TRUE;
             } else {
-                if (last && !enabled) change = PermissionChanged.TRUE_TO_FALSE;
-                if (!last && enabled) change = PermissionChanged.FALSE_TO_TRUE;
+                change = PermissionChanged.NULL_TO_FALSE;
             }
-            if (change != null) {
-                RecordHistogram.recordEnumeratedHistogram(
-                        "TrustedWebActivity.LocationPermissionChanged", change,
-                        PermissionChanged.NUM_ENTRIES);
-            }
+        } else {
+            if (last && !enabled) change = PermissionChanged.TRUE_TO_FALSE;
+            if (!last && enabled) change = PermissionChanged.FALSE_TO_TRUE;
+        }
+        if (change != null) {
+            RecordHistogram.recordEnumeratedHistogram(
+                    "TrustedWebActivity.LocationPermissionChanged", change,
+                    PermissionChanged.NUM_ENTRIES);
         }
     }
 
@@ -228,28 +233,8 @@ public class TrustedWebActivityUmaRecorder {
                 "TrustedWebActivity.LocationPermissionRequestIsGranted", enabled);
     }
 
-    public void recordLocationUpdateError(@LocationUpdateError int error) {
-        RecordHistogram.recordEnumeratedHistogram("TrustedWebActivity.LocationUpdateErrorCode",
-                error, LocationUpdateError.MAX_VALUE + 1);
-    }
-
-    public void recordQualityEnforcementViolation(
-            WebContents webContents, @QualityEnforcementViolationType int type) {
-        RecordHistogram.recordEnumeratedHistogram("TrustedWebActivity.QualityEnforcementViolation",
-                type, QualityEnforcementViolationType.MAX_VALUE + 1);
-
-        if (webContents != null) {
-            new UkmRecorder.Bridge().recordEventWithIntegerMetric(webContents,
-                    /* eventName = */ "TrustedWebActivity.QualityEnforcementViolation",
-                    /* metricName = */ "ViolationType",
-                    /* metricValue = */ type);
-        }
-    }
-
-    public void recordQualityEnforcementViolationCrashed(
-            @QualityEnforcementViolationType int type) {
-        RecordHistogram.recordEnumeratedHistogram(
-                "TrustedWebActivity.QualityEnforcementViolation.Crashed", type,
-                QualityEnforcementViolationType.MAX_VALUE + 1);
+    public void recordExtraCommandSuccess(String command, boolean success) {
+        RecordHistogram.recordBooleanHistogram(
+                "TrustedWebActivity.ExtraCommandSuccess." + command, success);
     }
 }

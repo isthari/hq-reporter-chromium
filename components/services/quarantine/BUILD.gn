@@ -1,4 +1,4 @@
-# Copyright 2019 The Chromium Authors. All rights reserved.
+# Copyright 2019 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -31,6 +31,7 @@ static_library("quarantine") {
 
   if (is_mac) {
     sources += [ "quarantine_mac.mm" ]
+    configs += [ "//build/config/compiler:enable_arc" ]
     frameworks = [
       "Carbon.framework",
       "Foundation.framework",
@@ -69,6 +70,7 @@ source_set("common") {
       "common_mac.h",
       "common_mac.mm",
     ]
+    configs += [ "//build/config/compiler:enable_arc" ]
     frameworks = [
       "Carbon.framework",
       "Foundation.framework",
@@ -97,6 +99,7 @@ source_set("test_support") {
 
   if (is_mac) {
     sources += [ "test_support_mac.mm" ]
+    configs += [ "//build/config/compiler:enable_arc" ]
     frameworks = [
       "Carbon.framework",
       "Foundation.framework",
@@ -116,7 +119,7 @@ source_set("unit_tests") {
   # enabled, the devices use tmpfs which restricts the extended attributes that
   # can be set such that quarantining still would not work. (The platform
   # specific tests include a runtime guard to skip tests that need xattr.)
-  if (!is_chromecast) {
+  if (!is_castos && !is_cast_android) {
     sources += [ "quarantine_unittest.cc" ]
   }
 
@@ -139,6 +142,7 @@ source_set("unit_tests") {
 
   if (is_mac) {
     sources += [ "quarantine_mac_unittest.mm" ]
+    configs += [ "//build/config/compiler:enable_arc" ]
     frameworks = [
       "Carbon.framework",
       "Foundation.framework",

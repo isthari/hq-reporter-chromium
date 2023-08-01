@@ -1,16 +1,17 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/signin/chrome_account_manager_service_observer_bridge.h"
 
-#import "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
 #import "ios/chrome/browser/signin/chrome_account_manager_service.h"
 #import "ios/chrome/browser/signin/chrome_account_manager_service_factory.h"
-#include "ios/web/public/test/web_task_environment.h"
-#include "testing/platform_test.h"
+#import "ios/chrome/browser/signin/fake_system_identity.h"
+#import "ios/web/public/test/web_task_environment.h"
+#import "testing/platform_test.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
-#include "third_party/ocmock/gtest_support.h"
+#import "third_party/ocmock/gtest_support.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -47,16 +48,16 @@ class ChromeAccountManagerServiceObserverBridgeTest : public PlatformTest {
   id<ChromeAccountManagerServiceObserver> test_observer_ = nil;
 };
 
-// Tests that |onIdentityListChanged| is forwarded.
+// Tests that `onIdentityListChanged` is forwarded.
 TEST_F(ChromeAccountManagerServiceObserverBridgeTest, onIdentityListChanged) {
   OCMExpect([test_observer_ identityListChanged]);
   observer_bridge_->OnIdentityListChanged(false);
 }
 
-// Tests that |onIdentityChanged| is forwarded.
-TEST_F(ChromeAccountManagerServiceObserverBridgeTest, onIdentityChanged) {
-  ChromeIdentity* identity = [[ChromeIdentity alloc] init];
+// Tests that `onIdentityChanged` is forwarded.
+TEST_F(ChromeAccountManagerServiceObserverBridgeTest, onIdentityUpdated) {
+  id<SystemIdentity> identity = [FakeSystemIdentity fakeIdentity1];
 
-  OCMExpect([test_observer_ identityChanged:identity]);
-  observer_bridge_->OnIdentityChanged(identity);
+  OCMExpect([test_observer_ identityUpdated:identity]);
+  observer_bridge_->OnIdentityUpdated(identity);
 }

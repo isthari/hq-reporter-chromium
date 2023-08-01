@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,13 +32,13 @@ UntrustedProjectorAnnotatorUIConfig::~UntrustedProjectorAnnotatorUIConfig() =
 bool UntrustedProjectorAnnotatorUIConfig::IsWebUIEnabled(
     content::BrowserContext* browser_context) {
   Profile* profile = Profile::FromBrowserContext(browser_context);
-  return ash::features::IsProjectorAnnotatorEnabled() &&
-         IsProjectorAllowedForProfile(profile);
+  return IsProjectorAppEnabled(profile);
 }
 
 std::unique_ptr<content::WebUIController>
 UntrustedProjectorAnnotatorUIConfig::CreateWebUIController(
-    content::WebUI* web_ui) {
+    content::WebUI* web_ui,
+    const GURL& url) {
   ChromeUntrustedProjectorAnnotatorUIDelegate delegate;
   return std::make_unique<ash::UntrustedProjectorAnnotatorUI>(web_ui,
                                                               &delegate);

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@ import android.view.ViewGroup;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.android_webview.AwContents;
+import org.chromium.android_webview.common.Lifetime;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
@@ -22,6 +23,7 @@ import org.chromium.base.annotations.NativeMethods;
  * the render node hierarchy.
  */
 @JNINamespace("android_webview")
+@Lifetime.WebView
 public class AwGLFunctor implements AwFunctor {
     private final long mNativeAwGLFunctor;
     private final AwContents.NativeDrawGLFunctor mNativeDrawGLFunctor;
@@ -35,11 +37,7 @@ public class AwGLFunctor implements AwFunctor {
         mNativeAwGLFunctor = AwGLFunctorJni.get().create(this);
         mNativeDrawGLFunctor = nativeDrawFunctorFactory.createGLFunctor(mNativeAwGLFunctor);
         mContainerView = containerView;
-        if (mNativeDrawGLFunctor.supportsDrawGLFunctorReleasedCallback()) {
-            mFunctorReleasedCallback = () -> removeReference();
-        } else {
-            mFunctorReleasedCallback = null;
-        }
+        mFunctorReleasedCallback = () -> removeReference();
         addReference();
     }
 

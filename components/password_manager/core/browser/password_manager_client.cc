@@ -1,11 +1,12 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <utility>
 
 #include "components/autofill/core/common/password_generation_util.h"
-#include "components/device_reauth/biometric_authenticator.h"
+#include "components/autofill/core/common/unique_ids.h"
+#include "components/device_reauth/device_authenticator.h"
 #include "components/password_manager/core/browser/http_auth_manager.h"
 #include "components/password_manager/core/browser/password_form_manager_for_ui.h"
 #include "components/password_manager/core/browser/password_manager_client.h"
@@ -23,16 +24,22 @@ bool PasswordManagerClient::IsFillingEnabled(const GURL& url) const {
   return true;
 }
 
-bool PasswordManagerClient::IsFillingFallbackEnabled(const GURL& url) const {
-  return true;
+bool PasswordManagerClient::IsAutoSignInEnabled() const {
+  return false;
 }
 
-void PasswordManagerClient::ShowTouchToFill(PasswordManagerDriver* driver) {}
+#if BUILDFLAG(IS_ANDROID)
+void PasswordManagerClient::ShowPasswordManagerErrorMessage(
+    ErrorMessageFlowType flow_type,
+    password_manager::PasswordStoreBackendErrorType error_type) {}
 
-void PasswordManagerClient::OnPasswordSelected(const std::u16string& text) {}
+void PasswordManagerClient::ShowTouchToFill(
+    PasswordManagerDriver* driver,
+    autofill::mojom::SubmissionReadinessState submission_readiness) {}
+#endif
 
-scoped_refptr<device_reauth::BiometricAuthenticator>
-PasswordManagerClient::GetBiometricAuthenticator() {
+scoped_refptr<device_reauth::DeviceAuthenticator>
+PasswordManagerClient::GetDeviceAuthenticator() {
   return nullptr;
 }
 
@@ -47,7 +54,8 @@ void PasswordManagerClient::UpdateCredentialCache(
 void PasswordManagerClient::PasswordWasAutofilled(
     const std::vector<const PasswordForm*>& best_matches,
     const url::Origin& origin,
-    const std::vector<const PasswordForm*>* federated_matches) {}
+    const std::vector<const PasswordForm*>* federated_matches,
+    bool was_autofilled_on_pageload) {}
 
 void PasswordManagerClient::AutofillHttpAuth(
     const PasswordForm& preferred_match,
@@ -80,7 +88,7 @@ net::CertStatus PasswordManagerClient::GetMainFrameCertStatus() const {
 
 void PasswordManagerClient::PromptUserToEnableAutosignin() {}
 
-bool PasswordManagerClient::IsIncognito() const {
+bool PasswordManagerClient::IsOffTheRecord() const {
   return false;
 }
 
@@ -124,7 +132,7 @@ bool PasswordManagerClient::IsCommittedMainFrameSecure() const {
   return false;
 }
 
-const autofill::LogManager* PasswordManagerClient::GetLogManager() const {
+autofill::LogManager* PasswordManagerClient::GetLogManager() {
   return nullptr;
 }
 
@@ -151,12 +159,25 @@ network::mojom::NetworkContext* PasswordManagerClient::GetNetworkContext()
 }
 
 WebAuthnCredentialsDelegate*
-PasswordManagerClient::GetWebAuthnCredentialsDelegate() {
+PasswordManagerClient::GetWebAuthnCredentialsDelegateForDriver(
+    PasswordManagerDriver* driver) {
   return nullptr;
 }
 
+#if BUILDFLAG(IS_ANDROID)
+WebAuthnCredManDelegate*
+PasswordManagerClient::GetWebAuthnCredManDelegateForDriver(
+    PasswordManagerDriver* driver) {
+  return nullptr;
+}
+#endif  // BUILDFLAG(IS_ANDROID)
+
 version_info::Channel PasswordManagerClient::GetChannel() const {
   return version_info::Channel::UNKNOWN;
+}
+
+void PasswordManagerClient::RefreshPasswordManagerSettingsIfNeeded() const {
+  // For most implementations settings do not need to be refreshed.
 }
 
 }  // namespace password_manager

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,10 @@
   await TestRunner.loadTestModule('sdk_test_runner');
   await TestRunner.showPanel('sources');
 
-  SDK.targetManager.mainTarget().markAsNodeJSForTest();
+  SDK.targetManager.rootTarget().markAsNodeJSForTest();
   SourcesTestRunner.startDebuggerTest();
 
-  var debuggerModel = SDK.targetManager.mainTarget().model(SDK.DebuggerModel);
+  var debuggerModel = SDK.targetManager.rootTarget().model(SDK.DebuggerModel);
   var functionText = 'function foobar() { \nconsole.log(\'foobar execute!\');\n}';
   var sourceURL = Host.isWin() ? '\n//# sourceURL=c:\\prog\\foobar.js' : '\n//# sourceURL=/usr/local/home/prog/foobar.js';
   await TestRunner.evaluateInPageAnonymously(functionText + sourceURL);

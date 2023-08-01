@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,17 @@
 #include "ash/ash_export.h"
 #include "ash/public/cpp/metrics_util.h"
 #include "ash/wm/desks/desk_animation_base.h"
+#include "ash/wm/desks/desks_controller.h"
 #include "ash/wm/desks/desks_histogram_enums.h"
+#include "base/gtest_prod_util.h"
 #include "base/memory/weak_ptr.h"
+#include "base/time/time.h"
+
+namespace ui {
+class PresentationTimeRecorder;
+}
 
 namespace ash {
-
-class DesksController;
-class PresentationTimeRecorder;
 
 class ASH_EXPORT DeskActivationAnimation : public DeskAnimationBase {
  public:
@@ -31,17 +35,21 @@ class ASH_EXPORT DeskActivationAnimation : public DeskAnimationBase {
   bool Replace(bool moving_left, DesksSwitchSource source) override;
   bool UpdateSwipeAnimation(float scroll_delta_x) override;
   bool EndSwipeAnimation() override;
+  bool CanEnterOverview() const override;
   void OnStartingDeskScreenshotTakenInternal(int ending_desk_index) override;
   void OnDeskSwitchAnimationFinishedInternal() override;
-  metrics_util::ReportCallback GetReportCallback() const override;
+  LatencyReportCallback GetLatencyReportCallback() const override;
+  metrics_util::ReportCallback GetSmoothnessReportCallback() const override;
 
  private:
   FRIEND_TEST_ALL_PREFIXES(DeskActivationAnimationTest,
                            AnimatingAfterFastSwipe);
+  FRIEND_TEST_ALL_PREFIXES(OverviewDeskNavigationTest,
+                           ShortSwipeStaysInOverview);
 
   // Prepares the desk associated with |index| for taking a screenshot. Exits
   // overview and splitview if necessary and then activates the desk. Restores
-  // splitview if necessary after activating the desk.
+  // splitview or overview if necessary after activating the desk.
   void PrepareDeskForScreenshot(int index);
 
   // The switch source that requested this animation.
@@ -60,7 +68,10 @@ class ASH_EXPORT DeskActivationAnimation : public DeskAnimationBase {
   base::TimeTicks last_start_or_replace_time_;
 
   // Used to measure the presentation time of a continuous gesture swipe.
-  std::unique_ptr<PresentationTimeRecorder> presentation_time_recorder_;
+  std::unique_ptr<ui::PresentationTimeRecorder> presentation_time_recorder_;
+
+  // Callback that is run after the animation is finished for testing purposes.
+  base::OnceClosure on_animation_finished_callback_for_testing_;
 
   base::WeakPtrFactory<DeskActivationAnimation> weak_ptr_factory_{this};
 };
@@ -70,7 +81,8 @@ class DeskRemovalAnimation : public DeskAnimationBase {
   DeskRemovalAnimation(DesksController* controller,
                        int desk_to_remove_index,
                        int desk_to_activate_index,
-                       DesksCreationRemovalSource source);
+                       DesksCreationRemovalSource source,
+                       DeskCloseType close_type);
   DeskRemovalAnimation(const DeskRemovalAnimation&) = delete;
   DeskRemovalAnimation& operator=(const DeskRemovalAnimation&) = delete;
   ~DeskRemovalAnimation() override;
@@ -78,11 +90,13 @@ class DeskRemovalAnimation : public DeskAnimationBase {
   // DeskAnimationBase:
   void OnStartingDeskScreenshotTakenInternal(int ending_desk_index) override;
   void OnDeskSwitchAnimationFinishedInternal() override;
-  metrics_util::ReportCallback GetReportCallback() const override;
+  LatencyReportCallback GetLatencyReportCallback() const override;
+  metrics_util::ReportCallback GetSmoothnessReportCallback() const override;
 
  private:
   const int desk_to_remove_index_;
   const DesksCreationRemovalSource request_source_;
+  const DeskCloseType close_type_;
 };
 
 }  // namespace ash

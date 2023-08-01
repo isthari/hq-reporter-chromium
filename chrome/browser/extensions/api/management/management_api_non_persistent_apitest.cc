@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -82,8 +82,14 @@ IN_PROC_BROWSER_TEST_P(ManagementApiNonPersistentApiTest, UninstallSelf) {
 
 // Tests chrome.management.uninstall with a real user gesture
 // (i.e. browserAction.onClicked event).
-IN_PROC_BROWSER_TEST_P(ManagementApiNonPersistentApiTest,
-                       UninstallViaBrowserAction) {
+// TODO(https://crbug.com/1446968): The service worker version is flaky.
+using ManagementApiEventPageTest = ManagementApiNonPersistentApiTest;
+
+INSTANTIATE_TEST_SUITE_P(EventPage,
+                         ManagementApiEventPageTest,
+                         ::testing::Values(ContextType::kEventPage));
+
+IN_PROC_BROWSER_TEST_P(ManagementApiEventPageTest, UninstallViaBrowserAction) {
   const Extension* extension_b = LoadExtension(test_data_dir_.AppendASCII(
       "management/uninstall_via_browser_action/extension_b"));
   ASSERT_TRUE(extension_b);
@@ -100,7 +106,7 @@ IN_PROC_BROWSER_TEST_P(ManagementApiNonPersistentApiTest,
 
   // Load extension_a and wait for browserAction.onClicked listener
   // registration.
-  ExtensionTestMessageListener listener_added("ready", false);
+  ExtensionTestMessageListener listener_added("ready");
   const Extension* extension_a = LoadExtension(test_data_dir_.AppendASCII(
       "management/uninstall_via_browser_action/extension_a"));
   ASSERT_TRUE(extension_a);

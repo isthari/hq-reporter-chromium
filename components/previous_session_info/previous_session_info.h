@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 
 #import <UIKit/UIKit.h>
 
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 
 #include "url/gurl.h"
 
@@ -28,8 +28,8 @@ extern NSString* const kPreviousSessionInfoRestoringSession;
 // Key in the UserDefaults for an array which contains the ids for the connected
 // scene sessions on the previous run.
 extern NSString* const kPreviousSessionInfoConnectedSceneSessionIDs;
-// Key in the UserDefaults for a dictionary with session info params.
-extern NSString* const kPreviousSessionInfoParams;
+// Prefix key in the UserDefaults for a dictionary with session info params.
+extern NSString* const kPreviousSessionInfoParamsPrefix;
 // Key in the UserDefaults for the memory footprint of the browser process.
 extern NSString* const kPreviousSessionInfoMemoryFootprint;
 // Key in the UserDefaults for the number of open tabs.
@@ -107,14 +107,6 @@ enum class DeviceBatteryState {
 // session.
 @property(nonatomic, assign, readonly) BOOL OSRestartedAfterPreviousSession;
 
-// Whether the previous session was on Multi Window enabled version of the
-// application. A previous session doesn't have to be from a previous run, in
-// the case of single window to multiple windows migration, after the first
-// session created/restored the flag value should be updated to |YES|.
-// TODO(crbug.com/1109280): Remove after the migration to Multi-Window sessions
-// is done.
-@property(nonatomic, assign, readonly) BOOL isMultiWindowEnabledSession;
-
 // The OS version during the previous session or nil if no previous session data
 // is available.
 @property(nonatomic, strong, readonly) NSString* OSVersion;
@@ -138,7 +130,7 @@ enum class DeviceBatteryState {
     NSMutableSet<NSString*>* connectedSceneSessionsIDs;
 
 // Crash report parameters as key-value pairs.
-@property(nonatomic, readonly)
+@property(atomic, readonly)
     NSDictionary<NSString*, NSString*>* reportParameters;
 
 // Memory footprint in bytes of the browser process.
@@ -154,6 +146,9 @@ enum class DeviceBatteryState {
 // Number of open "off the record" tabs in the previous session.
 @property(nonatomic, readonly) NSInteger OTRTabCount;
 
+// The breadcrumbs from the previous session.
+@property(atomic, readonly) NSString* breadcrumbs;
+
 // Singleton PreviousSessionInfo. During the lifetime of the app, the returned
 // object is the same, and describes the previous session, even after a new
 // session has started (by calling beginRecordingCurrentSession).
@@ -162,6 +157,9 @@ enum class DeviceBatteryState {
 // Clears the persisted information about the previous session and starts
 // persisting information about the current session, for use in a next session.
 - (void)beginRecordingCurrentSession;
+
+// Start recording active field trials.
+- (void)beginRecordingFieldTrials;
 
 // Starts memory usage data recording with given |interval|.
 - (void)startRecordingMemoryFootprintWithInterval:(base::TimeDelta)interval;
@@ -201,11 +199,6 @@ enum class DeviceBatteryState {
 // Empties the list of connected session.
 - (void)resetConnectedSceneSessionIDs;
 
-// Updates the local and the saved Multi Window support status.
-// TODO(crbug.com/1109280): Remove after the migration to Multi-Window
-// sessions is done.
-- (void)updateMultiWindowSupportStatus;
-
 // Must be called when Chrome starts session restoration. The returned closure
 // runner will clear up the flag when destroyed. Can be used on different
 // threads.
@@ -220,6 +213,9 @@ enum class DeviceBatteryState {
 - (void)updateCurrentSessionTabCount:(NSInteger)count;
 // Records number of off the record tabs.
 - (void)updateCurrentSessionOTRTabCount:(NSInteger)count;
+
+// Records breadcrumbs from the previous session.
+- (void)setBreadcrumbsLog:(NSString*)breadcrumbs;
 
 // Records information crash report parameters.
 - (void)setReportParameterValue:(NSString*)value forKey:(NSString*)key;

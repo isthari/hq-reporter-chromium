@@ -1,10 +1,9 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.net;
 
-import android.annotation.TargetApi;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -19,17 +18,21 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
 
+import androidx.annotation.RequiresApi;
+
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
+import org.chromium.base.TraceEvent;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeClassQualifiedName;
 import org.chromium.base.annotations.NativeMethods;
-import org.chromium.base.annotations.UsedByReflection;
 import org.chromium.build.BuildConfig;
+import org.chromium.build.annotations.UsedByReflection;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.Locale;
 
 /**
  * This class partners with native ProxyConfigServiceAndroid to listen for
@@ -73,7 +76,6 @@ public class ProxyChangeListener {
             mExclusionList = exclusionList;
         }
 
-        @TargetApi(Build.VERSION_CODES.LOLLIPOP)
         private static ProxyConfig fromProxyInfo(ProxyInfo proxyInfo) {
             if (proxyInfo == null) {
                 return null;
@@ -83,6 +85,14 @@ public class ProxyChangeListener {
             return new ProxyConfig(host == null ? "" : host, proxyInfo.getPort(),
                     Uri.EMPTY.equals(pacFileUrl) ? null : pacFileUrl.toString(),
                     proxyInfo.getExclusionList());
+        }
+
+        @Override
+        public String toString() {
+            String possiblyRedactedHost =
+                    mHost.equals("localhost") || mHost.isEmpty() ? mHost : "<redacted>";
+            return String.format(Locale.US, "ProxyConfig [mHost=\"%s\", mPort=%d, mPacUrl=%s]",
+                    possiblyRedactedHost, mPort, mPacUrl == null ? "null" : "\"<redacted>\"");
         }
 
         public final String mHost;
@@ -123,17 +133,19 @@ public class ProxyChangeListener {
 
     @CalledByNative
     public void start(long nativePtr) {
-        assertOnThread();
-        assert mNativePtr == 0;
-        mNativePtr = nativePtr;
-        registerReceiver();
+        try (TraceEvent e = TraceEvent.scoped("ProxyChangeListener.start")) {
+            assertOnThread();
+            assert mNativePtr == 0;
+            mNativePtr = nativePtr;
+            registerBroadcastReceiver();
+        }
     }
 
     @CalledByNative
     public void stop() {
         assertOnThread();
         mNativePtr = 0;
-        unregisterReceiver();
+        unregisterBroadcastReceiver();
     }
 
     @UsedByReflection("WebView embedders call this to override proxy settings")
@@ -224,33 +236,43 @@ public class ProxyChangeListener {
         }
     }
 
-    @TargetApi(Build.VERSION_CODES.M)
+    @RequiresApi(Build.VERSION_CODES.M)
     private ProxyConfig getProxyConfig(Intent intent) {
         ConnectivityManager connectivityManager =
                 (ConnectivityManager) ContextUtils.getApplicationContext().getSystemService(
                         Context.CONNECTIVITY_SERVICE);
-        ProxyInfo proxyInfo = connectivityManager.getDefaultProxy();
-        if (proxyInfo == null) {
-            return ProxyConfig.DIRECT;
-        }
+        ProxyConfig configFromConnectivityManager =
+                ProxyConfig.fromProxyInfo(connectivityManager.getDefaultProxy());
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
-                && "localhost".equals(proxyInfo.getHost()) && proxyInfo.getPort() == -1) {
-            // There's a bug in Android Q+ PAC support. If ConnectivityManager
-            // returns localhost:-1 then use the intent from the PROXY_CHANGE_ACTION
-            // broadcast to extract the ProxyConfig. See http://crbug.com/993538.
-            // -1 is never a reasonable port so just keep this workaround for future
-            // versions until we're sure it's fixed on the platform side.
-            return extractNewProxy(intent);
+        if (configFromConnectivityManager == null) {
+            return ProxyConfig.DIRECT;
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+                && configFromConnectivityManager.mHost.equals("localhost")
+                && configFromConnectivityManager.mPort == -1) {
+            ProxyConfig configFromIntent = extractNewProxy(intent);
+            Log.i(TAG, "configFromConnectivityManager = %s, configFromIntent = %s",
+                    configFromConnectivityManager, configFromIntent);
+
+            // There's a bug in Android Q+ PAC support. If ConnectivityManager returns localhost:-1
+            // then use the intent from the PROXY_CHANGE_ACTION broadcast to extract the
+            // ProxyConfig's host and port. See http://crbug.com/993538.
+            //
+            // -1 is never a reasonable port so just keep this workaround for future versions until
+            // we're sure it's fixed on the platform side.
+            if (configFromIntent == null) return null;
+            String correctHost = configFromIntent.mHost;
+            int correctPort = configFromIntent.mPort;
+            return new ProxyConfig(correctHost, correctPort, configFromConnectivityManager.mPacUrl,
+                    configFromConnectivityManager.mExclusionList);
         }
-        return ProxyConfig.fromProxyInfo(proxyInfo);
+        return configFromConnectivityManager;
     }
 
     /* package */ void updateProxyConfigFromConnectivityManager(Intent intent) {
         runOnThread(() -> proxySettingsChanged(getProxyConfig(intent)));
     }
 
-    private void registerReceiver() {
+    private void registerBroadcastReceiver() {
         assertOnThread();
         assert mProxyReceiver == null;
         assert mRealProxyReceiver == null;
@@ -262,21 +284,29 @@ public class ProxyChangeListener {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
             // Proxy change broadcast receiver for Pre-M. Uses reflection to extract proxy
             // information from the intent extra.
-            ContextUtils.getApplicationContext().registerReceiver(mProxyReceiver, filter);
+            ContextUtils.registerProtectedBroadcastReceiver(
+                    ContextUtils.getApplicationContext(), mProxyReceiver, filter);
         } else {
-            // Register the instance of ProxyReceiver with an empty intent filter, so that it is
-            // still found via reflection, but is not called by the system. See: crbug.com/851995
-            ContextUtils.getApplicationContext().registerReceiver(
-                    mProxyReceiver, new IntentFilter());
+            if (!ContextUtils.isSdkSandboxProcess()) {
+                // Register the instance of ProxyReceiver with an empty intent filter, so that it is
+                // still found via reflection, but is not called by the system. See:
+                // crbug.com/851995
+                //
+                // Don't do this within an SDK Sandbox, because neither reflection nor registering a
+                // broadcast receiver with a blank IntentFilter is allowed.
+                ContextUtils.registerNonExportedBroadcastReceiver(
+                        ContextUtils.getApplicationContext(), mProxyReceiver, new IntentFilter());
+            }
 
             // Create a BroadcastReceiver that uses M+ APIs to fetch the proxy confuguration from
             // ConnectionManager.
             mRealProxyReceiver = new ProxyBroadcastReceiver(this);
-            ContextUtils.getApplicationContext().registerReceiver(mRealProxyReceiver, filter);
+            ContextUtils.registerProtectedBroadcastReceiver(
+                    ContextUtils.getApplicationContext(), mRealProxyReceiver, filter);
         }
     }
 
-    private void unregisterReceiver() {
+    private void unregisterBroadcastReceiver() {
         assertOnThread();
         assert mProxyReceiver != null;
 

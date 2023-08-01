@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -75,6 +75,13 @@ class Scrollbar : public base::RefCounted<Scrollbar> {
   virtual void PaintPart(PaintCanvas* canvas,
                          ScrollbarPart part,
                          const gfx::Rect& rect) = 0;
+
+  // The following two functions are called from blink only.
+  // Returns true if either the track or the thumb needs repaint, or the thumb
+  // moved (which doesn't need to repaint the track or the thumb in many
+  // scrollbar themes).
+  virtual bool NeedsUpdateDisplay() const = 0;
+  virtual void ClearNeedsUpdateDisplay() = 0;
 
   virtual bool UsesNinePatchThumbResource() const = 0;
   virtual gfx::Size NinePatchThumbCanvasSize() const = 0;

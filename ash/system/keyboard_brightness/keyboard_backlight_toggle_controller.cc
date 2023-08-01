@@ -1,15 +1,19 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/system/keyboard_brightness/keyboard_backlight_toggle_controller.h"
 
+#include "ash/constants/quick_settings_catalogs.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/strings/grit/ash_strings.h"
-#include "ash/style/ash_color_provider.h"
+#include "ash/style/ash_color_id.h"
+#include "ash/style/typography.h"
 #include "ash/system/tray/tray_popup_utils.h"
 #include "ash/system/unified/unified_slider_view.h"
 #include "ash/system/unified/unified_system_tray_model.h"
+#include "base/memory/raw_ptr.h"
+#include "chromeos/constants/chromeos_features.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/views/controls/label.h"
 
@@ -33,8 +37,15 @@ class UnifiedKeyboardBacklightToggleView
     model_->AddObserver(this);
 
     toast_label_ = AddChildView(std::make_unique<views::Label>());
-    TrayPopupUtils::SetLabelFontList(toast_label_,
-                                     TrayPopupUtils::FontStyle::kPodMenuHeader);
+    if (chromeos::features::IsJellyEnabled()) {
+      toast_label_->SetEnabledColorId(cros_tokens::kCrosSysOnSurface);
+      TypographyProvider::Get()->StyleLabel(TypographyToken::kCrosBody2,
+                                            *toast_label_);
+    } else {
+      toast_label_->SetEnabledColorId(kColorAshTextColorPrimary);
+      TrayPopupUtils::SetLabelFontList(
+          toast_label_, TrayPopupUtils::FontStyle::kPodMenuHeader);
+    }
     slider()->SetVisible(false);
   }
 
@@ -45,14 +56,6 @@ class UnifiedKeyboardBacklightToggleView
 
   ~UnifiedKeyboardBacklightToggleView() override {
     model_->RemoveObserver(this);
-  }
-
-  void OnThemeChanged() override {
-    views::View::OnThemeChanged();
-
-    DCHECK(toast_label_);
-    toast_label_->SetEnabledColor(AshColorProvider::Get()->GetContentLayerColor(
-        AshColorProvider::ContentLayerType::kTextColorPrimary));
   }
 
   // UnifiedSystemTrayModel::Observer:
@@ -66,8 +69,8 @@ class UnifiedKeyboardBacklightToggleView
   }
 
  private:
-  UnifiedSystemTrayModel* const model_;
-  views::Label* toast_label_ = nullptr;
+  const raw_ptr<UnifiedSystemTrayModel, ExperimentalAsh> model_;
+  raw_ptr<views::Label, ExperimentalAsh> toast_label_ = nullptr;
 };
 
 }  // namespace
@@ -79,10 +82,17 @@ KeyboardBacklightToggleController::KeyboardBacklightToggleController(
 KeyboardBacklightToggleController::~KeyboardBacklightToggleController() =
     default;
 
-views::View* KeyboardBacklightToggleController::CreateView() {
+std::unique_ptr<UnifiedSliderView>
+KeyboardBacklightToggleController::CreateView() {
   DCHECK(!slider_);
-  slider_ = new UnifiedKeyboardBacklightToggleView(this, model_);
-  return slider_;
+  auto slider =
+      std::make_unique<UnifiedKeyboardBacklightToggleView>(this, model_);
+  slider_ = slider.get();
+  return slider;
+}
+
+QsSliderCatalogName KeyboardBacklightToggleController::GetCatalogName() {
+  return QsSliderCatalogName::kKeyboardBrightness;
 }
 
 void KeyboardBacklightToggleController::SliderValueChanged(

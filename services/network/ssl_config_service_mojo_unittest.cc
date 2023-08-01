@@ -1,10 +1,9 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "services/network/ssl_config_service_mojo.h"
 
-#include "base/cxx17_backports.h"
 #include "base/feature_list.h"
 #include "base/files/file_util.h"
 #include "base/memory/raw_ptr.h"
@@ -98,6 +97,8 @@ class TestCertVerifierConfigObserver : public net::CertVerifier {
   void SetConfig(const Config& config) override {
     set_config_calls_.AddValue(config);
   }
+  void AddObserver(Observer* observer) override {}
+  void RemoveObserver(Observer* observer) override {}
 
   // Waits for a SSLConfig change. The first time it's called, waits for the
   // first change, if one hasn't been observed already, the second time, waits
@@ -346,15 +347,13 @@ TEST_F(NetworkServiceSSLConfigServiceTest, SSLVersion) {
     mojom::SSLVersion mojo_ssl_version;
     int net_ssl_version;
   } kVersionTable[] = {
-      {mojom::SSLVersion::kTLS1, net::SSL_PROTOCOL_VERSION_TLS1},
-      {mojom::SSLVersion::kTLS11, net::SSL_PROTOCOL_VERSION_TLS1_1},
       {mojom::SSLVersion::kTLS12, net::SSL_PROTOCOL_VERSION_TLS1_2},
       {mojom::SSLVersion::kTLS13, net::SSL_PROTOCOL_VERSION_TLS1_3},
   };
 
-  for (size_t min_index = 0; min_index < base::size(kVersionTable);
+  for (size_t min_index = 0; min_index < std::size(kVersionTable);
        ++min_index) {
-    for (size_t max_index = min_index; max_index < base::size(kVersionTable);
+    for (size_t max_index = min_index; max_index < std::size(kVersionTable);
          ++max_index) {
       // If the versions match the default values, skip this value in the table.
       // The defaults will get plenty of testing anyways, when switching back to

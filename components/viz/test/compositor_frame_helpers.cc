@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,16 @@
 #include <set>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "components/viz/common/frame_sinks/copy_output_request.h"
 #include "components/viz/common/quads/compositor_render_pass.h"
 #include "components/viz/common/quads/compositor_render_pass_draw_quad.h"
+#include "components/viz/common/quads/shared_element_draw_quad.h"
+#include "components/viz/common/quads/shared_quad_state.h"
 #include "components/viz/common/quads/solid_color_draw_quad.h"
 #include "components/viz/common/quads/surface_draw_quad.h"
 #include "components/viz/common/quads/texture_draw_quad.h"
+#include "components/viz/common/quads/yuv_video_draw_quad.h"
 #include "components/viz/common/resources/resource_id.h"
 
 namespace viz {
@@ -113,9 +116,19 @@ RenderPassBuilder& RenderPassBuilder::AddStubCopyOutputRequest(
   return *this;
 }
 
+RenderPassBuilder& RenderPassBuilder::AddSharedElementQuad(
+    const gfx::Rect& rect,
+    const ViewTransitionElementResourceId& id) {
+  auto* sqs = AppendDefaultSharedQuadState(rect, rect);
+  auto* quad = pass_->CreateAndAppendDrawQuad<SharedElementDrawQuad>();
+  quad->SetNew(sqs, rect, rect, id);
+
+  return *this;
+}
+
 RenderPassBuilder& RenderPassBuilder::AddSolidColorQuad(
     const gfx::Rect& rect,
-    SkColor color,
+    SkColor4f color,
     SolidColorQuadParms params) {
   return AddSolidColorQuad(rect, rect, color, params);
 }
@@ -123,7 +136,7 @@ RenderPassBuilder& RenderPassBuilder::AddSolidColorQuad(
 RenderPassBuilder& RenderPassBuilder::AddSolidColorQuad(
     const gfx::Rect& rect,
     const gfx::Rect& visible_rect,
-    SkColor color,
+    SkColor4f color,
     SolidColorQuadParms params) {
   auto* sqs = AppendDefaultSharedQuadState(rect, visible_rect);
   auto* quad = pass_->CreateAndAppendDrawQuad<SolidColorDrawQuad>();
@@ -146,6 +159,7 @@ RenderPassBuilder& RenderPassBuilder::AddSurfaceQuad(
     const SurfaceQuadParams& params) {
   auto* sqs = AppendDefaultSharedQuadState(rect, visible_rect);
   auto* quad = pass_->CreateAndAppendDrawQuad<SurfaceDrawQuad>();
+  // TODO (crbug.com/1308932) Change SurfaceQuadParams to use SKColor4f
   quad->SetNew(sqs, rect, visible_rect, surface_range,
                params.default_background_color,
                params.stretch_content_to_fill_bounds);
@@ -229,6 +243,25 @@ RenderPassBuilder& RenderPassBuilder::SetQuadClipRect(
   return *this;
 }
 
+RenderPassBuilder& RenderPassBuilder::SetQuadDamageRect(
+    const gfx::Rect& damage_rect) {
+  CHECK(!pass_->quad_list.empty());
+  DrawQuad* quad = pass_->quad_list.back();
+
+  if (quad->material == DrawQuad::Material::kTextureContent) {
+    auto* texture_quad = static_cast<TextureDrawQuad*>(quad);
+    texture_quad->damage_rect = damage_rect;
+  } else if (quad->material == DrawQuad::Material::kYuvVideoContent) {
+    auto* yuv_video_quad = static_cast<YUVVideoDrawQuad*>(quad);
+    yuv_video_quad->damage_rect = damage_rect;
+  } else {
+    NOTREACHED();
+  }
+
+  pass_->has_per_quad_damage = true;
+  return *this;
+}
+
 RenderPassBuilder& RenderPassBuilder::SetBlendMode(SkBlendMode blend_mode) {
   GetLastQuadSharedQuadState()->blend_mode = blend_mode;
   return *this;
@@ -240,6 +273,12 @@ RenderPassBuilder& RenderPassBuilder::SetMaskFilter(
   auto* sqs = GetLastQuadSharedQuadState();
   sqs->mask_filter_info = mask_filter_info;
   sqs->is_fast_rounded_corner = is_fast_rounded_corner;
+  return *this;
+}
+
+RenderPassBuilder& RenderPassBuilder::SetQuadLayerId(uint32_t layer_id) {
+  auto* sqs = GetLastQuadSharedQuadState();
+  sqs->layer_id = layer_id;
   return *this;
 }
 
@@ -349,6 +388,12 @@ CompositorFrameBuilder& CompositorFrameBuilder::SetBeginFrameAck(
   return *this;
 }
 
+CompositorFrameBuilder& CompositorFrameBuilder::SetBeginFrameSourceId(
+    uint64_t source_id) {
+  frame_->metadata.begin_frame_ack.frame_id.source_id = source_id;
+  return *this;
+}
+
 CompositorFrameBuilder& CompositorFrameBuilder::SetDeviceScaleFactor(
     float device_scale_factor) {
   frame_->metadata.device_scale_factor = device_scale_factor;
@@ -422,18 +467,25 @@ CompositorRenderPassList CopyRenderPasses(
   return copy_list;
 }
 
-CompositorFrame MakeDefaultCompositorFrame() {
-  return CompositorFrameBuilder().AddDefaultRenderPass().Build();
+CompositorFrame MakeDefaultCompositorFrame(uint64_t source_id) {
+  return CompositorFrameBuilder()
+      .AddDefaultRenderPass()
+      .SetBeginFrameSourceId(source_id)
+      .Build();
 }
 
 CompositorFrame MakeCompositorFrame(
     std::unique_ptr<CompositorRenderPass> render_pass) {
-  return CompositorFrameBuilder().AddRenderPass(std::move(render_pass)).Build();
+  return CompositorFrameBuilder()
+      .AddRenderPass(std::move(render_pass))
+      .PopulateResources()
+      .Build();
 }
 
 CompositorFrame MakeCompositorFrame(CompositorRenderPassList render_pass_list) {
   return CompositorFrameBuilder()
       .SetRenderPassList(std::move(render_pass_list))
+      .PopulateResources()
       .Build();
 }
 
@@ -466,7 +518,8 @@ void PopulateTransferableResources(CompositorFrame& frame) {
         // Adds a TransferableResource the first time seeing a ResourceId.
         if (resources_added.insert(resource_id).second) {
           frame.resource_list.push_back(TransferableResource::MakeSoftware(
-              SharedBitmap::GenerateId(), quad->rect.size(), RGBA_8888));
+              SharedBitmap::GenerateId(), quad->rect.size(),
+              SinglePlaneFormat::kRGBA_8888));
           frame.resource_list.back().id = resource_id;
         }
       }

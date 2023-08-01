@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,12 @@
 #include <cmath>
 #include <limits>
 
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/strings/string_number_conversions.h"
 #include "media/base/media_tracks.h"
+#include "media/base/stream_parser.h"
 #include "media/base/timestamp_constants.h"
 #include "media/filters/chunk_demuxer.h"
 #include "media/filters/source_buffer_parse_warnings.h"
@@ -42,20 +43,31 @@ static WebSourceBufferClient::ParseWarning ParseWarningToBlink(
 #undef CHROMIUM_PARSE_WARNING_TO_BLINK_ENUM_CASE
 }
 
+static_assert(media::kInfiniteDuration == base::TimeDelta::Max());
+static_assert(media::kNoTimestamp == base::TimeDelta::Min());
+
 static base::TimeDelta DoubleToTimeDelta(double time) {
   DCHECK(!std::isnan(time));
   DCHECK_NE(time, -std::numeric_limits<double>::infinity());
 
-  if (time == std::numeric_limits<double>::infinity())
+  // API sometimes needs conceptual +Infinity,
+  if (time == std::numeric_limits<double>::infinity()) {
     return media::kInfiniteDuration;
+  }
 
-  constexpr double max_time_in_seconds =
-      base::TimeDelta::FiniteMax().InSecondsF();
+  base::TimeDelta converted_time = base::Seconds(time);
 
-  if (time >= max_time_in_seconds)
+  // Avoid saturating finite positive input to kInfiniteDuration.
+  if (converted_time == media::kInfiniteDuration) {
     return base::TimeDelta::FiniteMax();
+  }
 
-  return base::Microseconds(time * base::Time::kMicrosecondsPerSecond);
+  // Avoid saturating finite negative input to KNoTimestamp.
+  if (converted_time == media::kNoTimestamp) {
+    return base::TimeDelta::FiniteMin();
+  }
+
+  return converted_time;
 }
 
 WebSourceBufferImpl::WebSourceBufferImpl(const std::string& id,
@@ -122,12 +134,17 @@ bool WebSourceBufferImpl::EvictCodedFrames(double currentPlaybackTime,
                                     newDataSize);
 }
 
-bool WebSourceBufferImpl::Append(const unsigned char* data,
-                                 unsigned length,
-                                 double* timestamp_offset) {
+bool WebSourceBufferImpl::AppendToParseBuffer(const unsigned char* data,
+                                              size_t length) {
+  return demuxer_->AppendToParseBuffer(id_, data, length);
+}
+
+media::StreamParser::ParseStatus WebSourceBufferImpl::RunSegmentParserLoop(
+    double* timestamp_offset) {
   base::TimeDelta old_offset = timestamp_offset_;
-  bool success = demuxer_->AppendData(id_, data, length, append_window_start_,
-                                      append_window_end_, &timestamp_offset_);
+  media::StreamParser::ParseStatus parse_result =
+      demuxer_->RunSegmentParserLoop(id_, append_window_start_,
+                                     append_window_end_, &timestamp_offset_);
 
   // Coded frame processing may update the timestamp offset. If the caller
   // provides a non-nullptr |timestamp_offset| and frame processing changes the
@@ -137,7 +154,7 @@ bool WebSourceBufferImpl::Append(const unsigned char* data,
   if (timestamp_offset && old_offset != timestamp_offset_)
     *timestamp_offset = timestamp_offset_.InSecondsF();
 
-  return success;
+  return parse_result;
 }
 
 bool WebSourceBufferImpl::AppendChunks(
@@ -170,7 +187,20 @@ void WebSourceBufferImpl::ResetParserState() {
 void WebSourceBufferImpl::Remove(double start, double end) {
   DCHECK_GE(start, 0);
   DCHECK_GE(end, 0);
-  demuxer_->Remove(id_, DoubleToTimeDelta(start), DoubleToTimeDelta(end));
+
+  const auto timedelta_start = DoubleToTimeDelta(start);
+  const auto timedelta_end = DoubleToTimeDelta(end);
+
+  // Since `start - end` may be less than 1 microsecond and base::TimeDelta is
+  // limited to microseconds, treat smaller ranges as zero.
+  //
+  // We could throw an error here, but removing nanosecond ranges is allowed by
+  // the spec and the risk of breaking existing sites is high.
+  if (timedelta_start == timedelta_end) {
+    return;
+  }
+
+  demuxer_->Remove(id_, timedelta_start, timedelta_end);
 }
 
 bool WebSourceBufferImpl::CanChangeType(const WebString& content_type,

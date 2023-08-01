@@ -1,9 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/borealis/borealis_service_fake.h"
 
+#include "chrome/browser/ash/borealis/borealis_install_url_handler.h"
 #include "chrome/browser/ash/borealis/borealis_service.h"
 #include "chrome/browser/ash/borealis/borealis_service_factory.h"
 
@@ -53,6 +54,11 @@ BorealisInstaller& BorealisServiceFake::Installer() {
   return *installer_;
 }
 
+BorealisInstallUrlHandler& BorealisServiceFake::InstallUrlHandler() {
+  CHECK(install_url_handler_);
+  return *install_url_handler_;
+}
+
 BorealisLaunchOptions& BorealisServiceFake::LaunchOptions() {
   CHECK(launch_options_);
   return *launch_options_;
@@ -61,11 +67,6 @@ BorealisLaunchOptions& BorealisServiceFake::LaunchOptions() {
 BorealisShutdownMonitor& BorealisServiceFake::ShutdownMonitor() {
   CHECK(shutdown_monitor_);
   return *shutdown_monitor_;
-}
-
-BorealisWaylandInterface& BorealisServiceFake::WaylandInterface() {
-  CHECK(wayland_interface_);
-  return *wayland_interface_;
 }
 
 BorealisWindowManager& BorealisServiceFake::WindowManager() {
@@ -101,14 +102,14 @@ void BorealisServiceFake::SetInstallerForTesting(BorealisInstaller* installer) {
   installer_ = installer;
 }
 
+void BorealisServiceFake::SetInstallUrlHandlerForTesting(
+    BorealisInstallUrlHandler* install_url_handler) {
+  install_url_handler_ = install_url_handler;
+}
+
 void BorealisServiceFake::SetShutdownMonitorForTesting(
     BorealisShutdownMonitor* shutdown_monitor) {
   shutdown_monitor_ = shutdown_monitor;
-}
-
-void BorealisServiceFake::SetWaylandInterfaceForTesting(
-    BorealisWaylandInterface* wayland_interface) {
-  wayland_interface_ = wayland_interface;
 }
 
 void BorealisServiceFake::SetWindowManagerForTesting(

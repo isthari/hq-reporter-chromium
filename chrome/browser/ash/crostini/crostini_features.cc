@@ -1,15 +1,13 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/crostini/crostini_features.h"
 
 #include "ash/constants/ash_features.h"
-#include "ash/constants/ash_switches.h"
 #include "base/feature_list.h"
 #include "chrome/browser/ash/crostini/crostini_manager.h"
 #include "chrome/browser/ash/crostini/crostini_pref_names.h"
-#include "chrome/browser/ash/crostini/crostini_util.h"
 #include "chrome/browser/ash/guest_os/virtual_machines/virtual_machines_util.h"
 #include "chrome/browser/ash/policy/core/browser_policy_connector_ash.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
@@ -21,6 +19,7 @@
 #include "chrome/common/chrome_features.h"
 #include "components/policy/proto/chrome_device_policy.pb.h"
 #include "components/prefs/pref_service.h"
+#include "components/user_manager/user.h"
 
 namespace {
 
@@ -133,7 +132,7 @@ void CanChangeManagedAdbSideloading(
   DCHECK(is_device_enterprise_managed || is_profile_enterprise_managed);
 
   if (!base::FeatureList::IsEnabled(
-          chromeos::features::kArcManagedAdbSideloadingSupport)) {
+          ash::features::kArcManagedAdbSideloadingSupport)) {
     DVLOG(1) << "adb sideloading is disabled by a feature flag";
     std::move(callback).Run(false);
     return;
@@ -181,6 +180,7 @@ CrostiniFeatures::~CrostiniFeatures() = default;
 bool CrostiniFeatures::CouldBeAllowed(Profile* profile, std::string* reason) {
   if (!base::FeatureList::IsEnabled(features::kCrostini)) {
     VLOG(1) << "Crostini is not enabled in feature list.";
+    // Prior to M105, the /dev/kvm check used the same reason string.
     *reason = "Crostini is not supported on this device";
     return false;
   }
@@ -188,7 +188,13 @@ bool CrostiniFeatures::CouldBeAllowed(Profile* profile, std::string* reason) {
   if (!crostini::CrostiniManager::IsDevKvmPresent()) {
     // Hardware is physically incapable, no matter what the user wants.
     VLOG(1) << "Cannot run crostini because /dev/kvm is not present.";
-    *reason = "Crostini is not supported on this device";
+    *reason = "Virtualization is not supported on this device";
+    return false;
+  }
+
+  if (!crostini::CrostiniManager::IsVmLaunchAllowed()) {
+    VLOG(1) << "Concierge does not allow VM to be launched.";
+    *reason = "Virtualization is not supported on this device";
     return false;
   }
 
@@ -203,20 +209,6 @@ bool CrostiniFeatures::CouldBeAllowed(Profile* profile, std::string* reason) {
       ash::ProfileHelper::IsLockScreenAppProfile(profile)) {
     VLOG(1) << "Profile is not allowed to run crostini.";
     *reason = "This user session is not allowed to run crostini";
-    return false;
-  }
-
-  bool kernelnext = base::CommandLine::ForCurrentProcess()->HasSwitch(
-      ash::switches::kKernelnextRestrictVMs);
-  bool kernelnext_override =
-      base::FeatureList::IsEnabled(features::kKernelnextVMs);
-  if (kernelnext && !kernelnext_override) {
-    // The host kernel is on an experimental version. In future updates this
-    // device may not have VM support, so we allow enabling VMs, but guard them
-    // on a chrome://flags switch (enable-experimental-kernel-vm-support).
-    VLOG(1) << "Cannot run crostini on experimental kernel without "
-            << "--enable-experimental-kernel-vm-support.";
-    *reason = "Crostini can not run on experimental kernel by default";
     return false;
   }
 

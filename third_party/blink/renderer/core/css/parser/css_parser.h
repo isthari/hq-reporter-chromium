@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,16 +10,21 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/css_property_names.h"
 #include "third_party/blink/renderer/core/css/css_property_value_set.h"
+#include "third_party/blink/renderer/core/css/parser/css_nesting_type.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser_context.h"
+#include "third_party/blink/renderer/core/css/parser/css_tokenizer.h"
+#include "third_party/blink/renderer/core/css/style_rule_keyframe.h"
 
 namespace blink {
 
 class Color;
 class CSSParserObserver;
+class CSSSelector;
 class CSSSelectorList;
 class Element;
 class ExecutionContext;
 class ImmutableCSSPropertyValueSet;
+class StyleRule;
 class StyleRuleBase;
 class StyleRuleKeyframe;
 class StyleSheetContents;
@@ -34,9 +39,11 @@ class CORE_EXPORT CSSParser {
 
  public:
   // As well as regular rules, allows @import and @namespace but not @charset
-  static StyleRuleBase* ParseRule(const CSSParserContext*,
-                                  StyleSheetContents*,
-                                  const String&);
+  static StyleRuleBase* ParseRule(const CSSParserContext* context,
+                                  StyleSheetContents* style_sheet,
+                                  CSSNestingType,
+                                  StyleRule* parent_rule_for_nesting,
+                                  const String& rule);
 
   static ParseSheetResult ParseSheet(
       const CSSParserContext*,
@@ -45,12 +52,17 @@ class CORE_EXPORT CSSParser {
       CSSDeferPropertyParsing defer_property_parsing =
           CSSDeferPropertyParsing::kNo,
       bool allow_import_rules = true);
-  static CSSSelectorList ParseSelector(const CSSParserContext*,
-                                       StyleSheetContents*,
-                                       const String&);
-  static CSSSelectorList ParsePageSelector(const CSSParserContext&,
-                                           StyleSheetContents*,
-                                           const String&);
+  // See CSSSelectorParser for lifetime of the returned value.
+  static base::span<CSSSelector> ParseSelector(
+      const CSSParserContext*,
+      CSSNestingType,
+      StyleRule* parent_rule_for_nesting,
+      StyleSheetContents*,
+      const String&,
+      HeapVector<CSSSelector>& arena);
+  static CSSSelectorList* ParsePageSelector(const CSSParserContext&,
+                                            StyleSheetContents*,
+                                            const String&);
   static bool ParseDeclarationList(const CSSParserContext*,
                                    MutableCSSPropertyValueSet*,
                                    const String&);
@@ -94,7 +106,9 @@ class CORE_EXPORT CSSParser {
   static ImmutableCSSPropertyValueSet*
   ParseInlineStyleDeclaration(const String&, CSSParserMode, SecureContextMode);
 
-  static std::unique_ptr<Vector<double>> ParseKeyframeKeyList(const String&);
+  static std::unique_ptr<Vector<KeyframeOffset>> ParseKeyframeKeyList(
+      const CSSParserContext*,
+      const String&);
   static StyleRuleKeyframe* ParseKeyframeRule(const CSSParserContext*,
                                               const String&);
 
@@ -115,8 +129,10 @@ class CORE_EXPORT CSSParser {
                                                const String&,
                                                CSSParserObserver&);
 
-  static CSSPrimitiveValue* ParseLengthPercentage(const String&,
-                                                  const CSSParserContext*);
+  static CSSPrimitiveValue* ParseLengthPercentage(
+      const String&,
+      const CSSParserContext*,
+      CSSPrimitiveValue::ValueRange);
 
   // https://html.spec.whatwg.org/multipage/canvas.html#dom-context-2d-font
   // https://drafts.csswg.org/css-font-loading/#find-the-matching-font-faces

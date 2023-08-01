@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,29 +12,34 @@
 #include "base/sequence_checker.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/thread_annotations.h"
+#include "remoting/base/constants.h"
 #include "remoting/base/running_samples.h"
+#include "remoting/base/session_options.h"
 #include "remoting/codec/webrtc_video_encoder.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/webrtc/api/video/video_codec_type.h"
 #include "third_party/webrtc/api/video_codecs/sdp_video_format.h"
 #include "third_party/webrtc/api/video_codecs/video_encoder.h"
+#include "third_party/webrtc/modules/desktop_capture/desktop_capture_types.h"
 
-namespace remoting {
-namespace protocol {
+namespace remoting::protocol {
 
-class VideoChannelStateObserver;
+class VideoStreamEventRouter;
 
-// WebrtcVideoEncoderWrapper is a wrapper around the remoting codecs, which
-// implements the webrtc::VideoEncoder interface. This class is instantiated
-// by WebRTC via the webrtc::VideoEncoderFactory, and all methods (including
-// the ctor) are called on WebRTC's foreground worker thread.
+// WebrtcVideoEncoderWrapper is a wrapper around the remoting codecs which
+// implement the webrtc::VideoEncoder interface. This class is instantiated by
+// WebRTC via the webrtc::VideoEncoderFactory, and all methods (including the
+// c'tor) are called on WebRTC's foreground worker thread.
 class WebrtcVideoEncoderWrapper : public webrtc::VideoEncoder {
  public:
   // Called by the VideoEncoderFactory. |video_channel_state_observer| is
   // notified of important events on the |main_task_runner| thread.
   WebrtcVideoEncoderWrapper(
       const webrtc::SdpVideoFormat& format,
+      const SessionOptions& session_options,
       scoped_refptr<base::SingleThreadTaskRunner> main_task_runner,
-      base::WeakPtr<VideoChannelStateObserver> video_channel_state_observer);
+      scoped_refptr<base::SingleThreadTaskRunner> encode_task_runner,
+      base::WeakPtr<VideoStreamEventRouter> video_stream_event_router);
   ~WebrtcVideoEncoderWrapper() override;
 
   void SetEncoderForTest(std::unique_ptr<WebrtcVideoEncoder> encoder);
@@ -73,6 +78,13 @@ class WebrtcVideoEncoderWrapper : public webrtc::VideoEncoder {
   // (compared with recent history) and the current bandwidth-estimation.
   bool ShouldDropQualityForLargeFrame(const webrtc::DesktopFrame& frame);
 
+  // Begins encoding |pending_frame_| if it contains valid frame data.
+  void SchedulePendingFrame();
+
+  // Clears |pending_frame_| and notifies WebRTC of the dropped frame when
+  // |pending_frame_| contains valid frame data.
+  void DropPendingFrame();
+
   std::unique_ptr<WebrtcVideoEncoder> encoder_
       GUARDED_BY_CONTEXT(sequence_checker_);
 
@@ -105,6 +117,8 @@ class WebrtcVideoEncoderWrapper : public webrtc::VideoEncoder {
   // True when a frame is being encoded. This guards against encoding multiple
   // frames in parallel, which the encoders are not prepared to handle.
   bool encode_pending_ GUARDED_BY_CONTEXT(sequence_checker_) = false;
+  std::unique_ptr<webrtc::VideoFrame> pending_frame_
+      GUARDED_BY_CONTEXT(sequence_checker_);
 
   // Stores the expected id of the next incoming frame to be encoded. If this
   // does not match, it means that WebRTC dropped a frame, and the original
@@ -140,10 +154,27 @@ class WebrtcVideoEncoderWrapper : public webrtc::VideoEncoder {
   base::TimeTicks latest_frame_encode_start_time_
       GUARDED_BY_CONTEXT(sequence_checker_);
 
+  // If a key-frame is requested, but this class needs to drop the frame, this
+  // flag remembers the request so it can be applied to the next frame.
+  bool pending_key_frame_request_ GUARDED_BY_CONTEXT(sequence_checker_) = false;
+
   // TaskRunner used for notifying |video_channel_state_observer_|.
   scoped_refptr<base::SingleThreadTaskRunner> main_task_runner_;
 
-  base::WeakPtr<VideoChannelStateObserver> video_channel_state_observer_;
+  // TaskRunner used for scheduling encoding tasks.
+  scoped_refptr<base::SingleThreadTaskRunner> encode_task_runner_;
+
+  // Stores the current frame interval, updated for each frame received.
+  base::TimeDelta current_frame_interval_ = base::Hertz(kTargetFrameRate);
+
+  // Stores the timestamp of the last frame that was sent for encoding.
+  base::Time last_frame_received_timestamp_;
+
+  // Represents the screen which is being encoded by this instance. Initialized
+  // after the first captured frame has been received.
+  absl::optional<webrtc::ScreenId> screen_id_;
+
+  base::WeakPtr<VideoStreamEventRouter> video_stream_event_router_;
 
   // This class lives on WebRTC's encoding thread. All methods (including ctor
   // and dtor) are expected to be called on the same thread.
@@ -152,7 +183,6 @@ class WebrtcVideoEncoderWrapper : public webrtc::VideoEncoder {
   base::WeakPtrFactory<WebrtcVideoEncoderWrapper> weak_factory_{this};
 };
 
-}  // namespace protocol
-}  // namespace remoting
+}  // namespace remoting::protocol
 
 #endif  // REMOTING_PROTOCOL_WEBRTC_VIDEO_ENCODER_WRAPPER_H_

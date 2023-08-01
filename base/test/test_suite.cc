@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,22 +8,25 @@
 
 #include <memory>
 
+#include "base/allocator/partition_allocator/partition_alloc_buildflags.h"
 #include "base/allocator/partition_allocator/tagging.h"
 #include "base/at_exit.h"
 #include "base/base_paths.h"
 #include "base/base_switches.h"
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/debug/asan_service.h"
 #include "base/debug/debugger.h"
 #include "base/debug/profiler.h"
 #include "base/debug/stack_trace.h"
 #include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/i18n/icu_util.h"
 #include "base/i18n/rtl.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/no_destructor.h"
 #include "base/path_service.h"
 #include "base/process/launch.h"
@@ -52,7 +55,6 @@
 
 #if BUILDFLAG(IS_APPLE)
 #include "base/mac/scoped_nsautorelease_pool.h"
-#include "base/process/port_provider_mac.h"
 #endif  // BUILDFLAG(IS_APPLE)
 
 #if BUILDFLAG(IS_IOS)
@@ -72,7 +74,7 @@
 #endif
 
 #if BUILDFLAG(IS_FUCHSIA)
-#include "base/fuchsia/build_info.h"
+#include "base/fuchsia/system_info.h"
 #endif
 
 #if BUILDFLAG(IS_WIN)
@@ -80,7 +82,13 @@
 #include <crtdbg.h>
 #endif  // _DEBUG
 #include <windows.h>
+
+#include "base/debug/handle_hooks_win.h"
 #endif  // BUILDFLAG(IS_WIN)
+
+#if BUILDFLAG(USE_PARTITION_ALLOC)
+#include "base/allocator/partition_alloc_support.h"
+#endif  // BUILDFLAG(USE_PARTITION_ALLOC)
 
 namespace base {
 
@@ -136,13 +144,12 @@ class FeatureListScopedToEachTest : public testing::EmptyTestEventListener {
       delete;
 
   void OnTestStart(const testing::TestInfo& test_info) override {
-    field_trial_list_ = std::make_unique<FieldTrialList>(
-        std::make_unique<MockEntropyProvider>());
-
     const CommandLine* command_line = CommandLine::ForCurrentProcess();
 
-    // Set up a FeatureList instance, so that code using that API will not hit a
-    // an error that it's not set. It will be cleared automatically.
+    // We set up a FeatureList via ScopedFeatureList::InitFromCommandLine().
+    // This ensures that code using that API will not hit an error that it's
+    // not set. It will be cleared by ~ScopedFeatureList().
+
     // TestFeatureForBrowserTest1 and TestFeatureForBrowserTest2 used in
     // ContentBrowserTestScopedFeatureListTest to ensure ScopedFeatureList keeps
     // features from command line.
@@ -168,15 +175,21 @@ class FeatureListScopedToEachTest : public testing::EmptyTestEventListener {
       new_command_line.AppendSwitchNative(iter.first, iter.second);
 
     *CommandLine::ForCurrentProcess() = new_command_line;
+
+    // TODO(https://crbug.com/1400059): Enable dangling pointer detector.
+    // TODO(https://crbug.com/1413674): Enable PartitionAlloc in unittests with
+    // ASAN.
+#if BUILDFLAG(USE_PARTITION_ALLOC) && !defined(ADDRESS_SANITIZER)
+    allocator::PartitionAllocSupport::Get()->ReconfigureAfterFeatureListInit(
+        "", /*configure_dangling_pointer_detector=*/false);
+#endif
   }
 
   void OnTestEnd(const testing::TestInfo& test_info) override {
     scoped_feature_list_.Reset();
-    field_trial_list_.reset();
   }
 
  private:
-  std::unique_ptr<FieldTrialList> field_trial_list_;
   test::ScopedFeatureList scoped_feature_list_;
 };
 
@@ -212,14 +225,24 @@ class CheckForLeakedGlobals : public testing::EmptyTestEventListener {
   }
 
  private:
-  FeatureList* feature_list_set_before_test_ = nullptr;
-  FeatureList* feature_list_set_before_case_ = nullptr;
-  ThreadPoolInstance* thread_pool_set_before_test_ = nullptr;
-  ThreadPoolInstance* thread_pool_set_before_case_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #constexpr-ctor-field-initializer
+  RAW_PTR_EXCLUSION FeatureList* feature_list_set_before_test_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #constexpr-ctor-field-initializer
+  RAW_PTR_EXCLUSION FeatureList* feature_list_set_before_case_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #constexpr-ctor-field-initializer
+  RAW_PTR_EXCLUSION ThreadPoolInstance* thread_pool_set_before_test_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #constexpr-ctor-field-initializer
+  RAW_PTR_EXCLUSION ThreadPoolInstance* thread_pool_set_before_case_ = nullptr;
 };
 
-// base::Process is not available on iOS
-#if !BUILDFLAG(IS_IOS)
+// iOS: base::Process is not available.
+// macOS: Tests may run at background priority locally (crbug.com/1358639#c6) or
+// on bots (crbug.com/931721#c7).
+#if !BUILDFLAG(IS_APPLE)
 class CheckProcessPriority : public testing::EmptyTestEventListener {
  public:
   CheckProcessPriority() { CHECK(!IsProcessBackgrounded()); }
@@ -231,34 +254,15 @@ class CheckProcessPriority : public testing::EmptyTestEventListener {
     EXPECT_FALSE(IsProcessBackgrounded());
   }
   void OnTestEnd(const testing::TestInfo& test) override {
-#if !BUILDFLAG(IS_MAC)
-    // Flakes are found on Mac OS 10.11. See https://crbug.com/931721#c7.
     EXPECT_FALSE(IsProcessBackgrounded());
-#endif
   }
 
  private:
-#if BUILDFLAG(IS_APPLE)
-  // Returns the calling process's task port, ignoring its argument.
-  class CurrentProcessPortProvider : public PortProvider {
-    mach_port_t TaskForPid(ProcessHandle process) const override {
-      // This PortProvider implementation only works for the current process.
-      CHECK_EQ(process, base::GetCurrentProcessHandle());
-      return mach_task_self();
-    }
-  };
-#endif
-
   bool IsProcessBackgrounded() const {
-#if BUILDFLAG(IS_APPLE)
-    CurrentProcessPortProvider port_provider;
-    return Process::Current().IsProcessBackgrounded(&port_provider);
-#else
     return Process::Current().IsProcessBackgrounded();
-#endif
   }
 };
-#endif  // !BUILDFLAG(IS_IOS)
+#endif  // !BUILDFLAG(IS_APPLE)
 
 const std::string& GetProfileName() {
   static const NoDestructor<std::string> profile_name([]() {
@@ -327,7 +331,7 @@ void TestSuite::InitializeFromCommandLine(int argc, char** argv) {
   testing::InitGoogleMock(&argc, argv);
 
 #if BUILDFLAG(IS_IOS)
-  InitIOSRunHook(this, argc, argv);
+  InitIOSArgs(argc, argv);
 #endif
 }
 
@@ -342,6 +346,10 @@ void TestSuite::InitializeFromCommandLine(int argc, wchar_t** argv) {
 
 void TestSuite::PreInitialize() {
   DCHECK(!is_initialized_);
+
+#if BUILDFLAG(IS_WIN)
+  base::debug::HandleHooks::PatchLoadedModules();
+#endif  // BUILDFLAG(IS_WIN)
 
   // The default death_test_style of "fast" is a frequent source of subtle test
   // flakiness. And on some platforms like macOS, use of system libraries after
@@ -412,10 +420,6 @@ void TestSuite::AddTestLauncherResultPrinter() {
 // Don't add additional code to this method.  Instead add it to
 // Initialize().  See bug 6436.
 int TestSuite::Run() {
-#if BUILDFLAG(IS_IOS)
-  RunTestsFromIOSApp();
-#endif
-
 #if BUILDFLAG(IS_APPLE)
   mac::ScopedNSAutoreleasePool scoped_pool;
 #endif
@@ -425,13 +429,13 @@ int TestSuite::Run() {
           switches::kTestChildProcess);
 
 #if BUILDFLAG(IS_FUCHSIA)
-  // Cache the BuildInfo so individual tests do not need to worry about it.
+  // Cache the system info so individual tests do not need to worry about it.
   // Some ProcessUtilTest cases, which use kTestChildProcess, do not pass any
-  // services, so skip this if that switch is not found.
+  // services, so skip this if that switch was present.
   // This must be called before Initialize() because, for example,
   // content::ContentTestSuite::Initialize() may use the cached values.
   if (client_func.empty())
-    FetchAndCacheSystemBuildInfo();
+    CHECK(FetchAndCacheSystemInfo());
 #endif
 
   Initialize();
@@ -578,6 +582,21 @@ void TestSuite::SuppressErrorDialogs() {
 void TestSuite::Initialize() {
   DCHECK(!is_initialized_);
 
+  // The AsanService causes ASAN errors to emit additional information. It is
+  // helpful on its own. It is also required by ASAN BackupRefPtr when
+  // reconfiguring PartitionAlloc below.
+#if defined(ADDRESS_SANITIZER)
+  base::debug::AsanService::GetInstance()->Initialize();
+#endif
+
+  // TODO(https://crbug.com/1400058): Enable BackupRefPtr in unittests on
+  // Android too. Same for ASAN.
+  // TODO(https://crbug.com/1413674): Enable PartitionAlloc in unittests with
+  // ASAN.
+#if BUILDFLAG(USE_PARTITION_ALLOC) && !defined(ADDRESS_SANITIZER)
+  allocator::PartitionAllocSupport::Get()->ReconfigureForTests();
+#endif  // BUILDFLAG(IS_WIN)
+
   test::ScopedRunLoopTimeout::SetAddGTestFailureOnTimeout();
 
   const CommandLine* command_line = CommandLine::ForCurrentProcess();
@@ -587,7 +606,7 @@ void TestSuite::Initialize() {
   }
 #endif
 
-#if defined(DCHECK_IS_CONFIGURABLE)
+#if BUILDFLAG(DCHECK_IS_CONFIGURABLE)
   // Default the configurable DCHECK level to FATAL when running death tests'
   // child process, so that they behave as expected.
   // TODO(crbug.com/1057995): Remove this in favor of the codepath in
@@ -595,7 +614,7 @@ void TestSuite::Initialize() {
   // are fixed to be invoked in the child process as expected.
   if (command_line->HasSwitch("gtest_internal_run_death_test"))
     logging::LOGGING_DCHECK = logging::LOG_FATAL;
-#endif
+#endif  // BUILDFLAG(DCHECK_IS_CONFIGURABLE)
 
 #if BUILDFLAG(IS_IOS)
   InitIOSTestMessageLoop();
@@ -643,7 +662,7 @@ void TestSuite::Initialize() {
   if (check_for_leaked_globals_)
     listeners.Append(new CheckForLeakedGlobals);
   if (check_for_thread_and_process_priority_) {
-#if !BUILDFLAG(IS_IOS)
+#if !BUILDFLAG(IS_APPLE)
     listeners.Append(new CheckProcessPriority);
 #endif
   }

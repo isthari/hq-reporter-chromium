@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,9 @@
 
 #include <memory>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/sequence_checker.h"
 #include "chrome/installer/util/experiment_metrics.h"
 #include "ui/events/event_handler.h"
@@ -101,7 +102,11 @@ class TryChromeDialog : public views::WidgetObserver, public ui::EventHandler {
   // the interaction.
   TryChromeDialog(size_t group, Delegate* delegate);
 
-  // Starts the process of presenting the dialog by initiating an asychronous
+  // Suppresses use of the TaskbarIconFinder for the sake of tests. This omits
+  // costly work that leads to flaky test failures.
+  void BypassTaskbarIconSearchForTesting();
+
+  // Starts the process of presenting the dialog by initiating an asynchronous
   // search for Chrome's taskbar icon via the encapsulated context object.
   void ShowDialogAsync();
 
@@ -128,9 +133,8 @@ class TryChromeDialog : public views::WidgetObserver, public ui::EventHandler {
   void ButtonPressed(installer::ExperimentMetrics::State state);
 
   // views::WidgetObserver:
-  void OnWidgetClosing(views::Widget* widget) override;
   void OnWidgetCreated(views::Widget* widget) override;
-  void OnWidgetDestroyed(views::Widget* widget) override;
+  void OnWidgetDestroying(views::Widget* widget) override;
 
   Result result() const { return result_; }
 
@@ -164,7 +168,9 @@ class TryChromeDialog : public views::WidgetObserver, public ui::EventHandler {
   raw_ptr<views::Widget> popup_ = nullptr;
 
   // The close button; owned by |popup_|.
-  views::View* close_button_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION views::View* close_button_ = nullptr;
 
   // True when the mouse is considered to be hovering over the dialog.
   bool has_hover_ = false;

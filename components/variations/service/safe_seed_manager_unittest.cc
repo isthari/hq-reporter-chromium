@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,15 +11,23 @@
 #include "base/command_line.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/time/time.h"
+#include "build/chromeos_buildflags.h"
 #include "components/metrics/clean_exit_beacon.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/variations/client_filterable_state.h"
 #include "components/variations/pref_names.h"
 #include "components/variations/variations_seed_store.h"
 #include "components/variations/variations_switches.h"
+#include "components/variations/variations_test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chromeos/ash/components/dbus/featured/fake_featured_client.h"
+#include "components/variations/cros/featured.pb.h"
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
 namespace variations {
+
 namespace {
 
 const char kTestSeed[] = "compressed, base-64 encoded serialized seed data";
@@ -92,8 +100,7 @@ class FakeSeedStore : public VariationsSeedStore {
 void SetDefaultActiveState(SafeSeedManager* safe_seed_manager,
                            PrefService* local_state) {
   std::unique_ptr<ClientFilterableState> client_state =
-      std::make_unique<ClientFilterableState>(
-          base::BindOnce([] { return false; }));
+      CreateDummyClientFilterableState();
   client_state->locale = kTestLocale;
   client_state->permanent_consistency_country =
       kTestPermanentConsistencyCountry;
@@ -123,7 +130,7 @@ void ExpectDefaultActiveState(const FakeSeedStore& seed_store) {
 
 }  // namespace
 
-class SafeSeedManagerTest : public testing::Test {
+class SafeSeedManagerTest : public ::testing::Test {
  public:
   SafeSeedManagerTest() {
     metrics::CleanExitBeacon::RegisterPrefs(prefs_.registry());
@@ -172,6 +179,83 @@ TEST_F(SafeSeedManagerTest,
   EXPECT_EQ(base::Time(), seed_store.fetch_time());
 }
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+TEST_F(SafeSeedManagerTest, GetSafeSeedStateForPlatform) {
+  SafeSeedManager safe_seed_manager(&prefs_);
+  FakeSeedStore seed_store(&prefs_);
+  SetDefaultActiveState(&safe_seed_manager, &prefs_);
+
+  featured::SeedDetails platform_seed =
+      safe_seed_manager.GetSafeSeedStateForPlatform();
+
+  EXPECT_EQ(kTestSeed, platform_seed.compressed_data());
+  EXPECT_EQ(kTestSignature, platform_seed.signature());
+  EXPECT_EQ(kTestSeedMilestone, platform_seed.milestone());
+  EXPECT_EQ(kTestLocale, platform_seed.locale());
+  EXPECT_EQ(kTestPermanentConsistencyCountry,
+            platform_seed.permanent_consistency_country());
+  EXPECT_EQ(kTestSessionConsistencyCountry,
+            platform_seed.session_consistency_country());
+  EXPECT_EQ(base::Time::UnixEpoch().ToDeltaSinceWindowsEpoch().InMilliseconds(),
+            platform_seed.date());
+  EXPECT_EQ(GetTestFetchTime().ToDeltaSinceWindowsEpoch().InMilliseconds(),
+            platform_seed.fetch_time());
+}
+
+TEST_F(SafeSeedManagerTest, SendSafeSeedToPlatform_SucceedFirstAttempt) {
+  SafeSeedManager safe_seed_manager(&prefs_);
+  FakeSeedStore seed_store(&prefs_);
+  SetDefaultActiveState(&safe_seed_manager, &prefs_);
+
+  ash::featured::FeaturedClient::InitializeFake();
+  ash::featured::FakeFeaturedClient* client =
+      ash::featured::FakeFeaturedClient::Get();
+  client->AddResponse(true);
+
+  safe_seed_manager.RecordSuccessfulFetch(&seed_store);
+  ExpectDefaultActiveState(seed_store);
+  EXPECT_EQ(client->handle_seed_fetched_attempts(), 1);
+
+  ash::featured::FeaturedClient::Shutdown();
+}
+
+TEST_F(SafeSeedManagerTest, SendSafeSeedToPlatform_FailFirstAttempt) {
+  SafeSeedManager safe_seed_manager(&prefs_);
+  FakeSeedStore seed_store(&prefs_);
+  SetDefaultActiveState(&safe_seed_manager, &prefs_);
+
+  ash::featured::FeaturedClient::InitializeFake();
+  ash::featured::FakeFeaturedClient* client =
+      ash::featured::FakeFeaturedClient::Get();
+  client->AddResponse(false);
+  client->AddResponse(true);
+
+  safe_seed_manager.RecordSuccessfulFetch(&seed_store);
+  ExpectDefaultActiveState(seed_store);
+  EXPECT_EQ(client->handle_seed_fetched_attempts(), 2);
+
+  ash::featured::FeaturedClient::Shutdown();
+}
+
+TEST_F(SafeSeedManagerTest, SendSafeSeedToPlatform_FailTwoAttempts) {
+  SafeSeedManager safe_seed_manager(&prefs_);
+  FakeSeedStore seed_store(&prefs_);
+  SetDefaultActiveState(&safe_seed_manager, &prefs_);
+
+  ash::featured::FeaturedClient::InitializeFake();
+  ash::featured::FakeFeaturedClient* client =
+      ash::featured::FakeFeaturedClient::Get();
+  client->AddResponse(false);
+  client->AddResponse(false);
+
+  safe_seed_manager.RecordSuccessfulFetch(&seed_store);
+  ExpectDefaultActiveState(seed_store);
+  EXPECT_EQ(client->handle_seed_fetched_attempts(), 2);
+
+  ash::featured::FeaturedClient::Shutdown();
+}
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
 TEST_F(SafeSeedManagerTest, FetchFailureMetrics_DefaultPrefs) {
   base::HistogramTester histogram_tester;
   SafeSeedManager safe_seed_manager(&prefs_);
@@ -205,7 +289,7 @@ TEST_F(SafeSeedManagerTest, ShouldRunInSafeMode_OverriddenByCommandlineFlag) {
       switches::kDisableVariationsSafeMode);
 
   SafeSeedManager safe_seed_manager(&prefs_);
-  EXPECT_FALSE(safe_seed_manager.ShouldRunInSafeMode());
+  EXPECT_EQ(SeedType::kRegularSeed, safe_seed_manager.GetSeedType());
 }
 
 TEST_F(SafeSeedManagerTest, ShouldRunInSafeMode_NoCrashes_NoFetchFailures) {
@@ -213,14 +297,14 @@ TEST_F(SafeSeedManagerTest, ShouldRunInSafeMode_NoCrashes_NoFetchFailures) {
   prefs_.SetInteger(prefs::kVariationsFailedToFetchSeedStreak, 0);
 
   SafeSeedManager safe_seed_manager(&prefs_);
-  EXPECT_FALSE(safe_seed_manager.ShouldRunInSafeMode());
+  EXPECT_EQ(SeedType::kRegularSeed, safe_seed_manager.GetSeedType());
 }
 
 TEST_F(SafeSeedManagerTest, ShouldRunInSafeMode_NoPrefs) {
   // Don't explicitly set either of the prefs. The implicit/default values
   // should be zero.
   SafeSeedManager safe_seed_manager(&prefs_);
-  EXPECT_FALSE(safe_seed_manager.ShouldRunInSafeMode());
+  EXPECT_EQ(SeedType::kRegularSeed, safe_seed_manager.GetSeedType());
 }
 
 TEST_F(SafeSeedManagerTest, ShouldRunInSafeMode_FewCrashes_FewFetchFailures) {
@@ -228,7 +312,7 @@ TEST_F(SafeSeedManagerTest, ShouldRunInSafeMode_FewCrashes_FewFetchFailures) {
   prefs_.SetInteger(prefs::kVariationsFailedToFetchSeedStreak, 2);
 
   SafeSeedManager safe_seed_manager(&prefs_);
-  EXPECT_FALSE(safe_seed_manager.ShouldRunInSafeMode());
+  EXPECT_EQ(SeedType::kRegularSeed, safe_seed_manager.GetSeedType());
 }
 
 TEST_F(SafeSeedManagerTest, ShouldRunInSafeMode_ManyCrashes_NoFetchFailures) {
@@ -236,23 +320,50 @@ TEST_F(SafeSeedManagerTest, ShouldRunInSafeMode_ManyCrashes_NoFetchFailures) {
   prefs_.SetInteger(prefs::kVariationsFailedToFetchSeedStreak, 0);
 
   SafeSeedManager safe_seed_manager(&prefs_);
-  EXPECT_TRUE(safe_seed_manager.ShouldRunInSafeMode());
+  EXPECT_EQ(SeedType::kSafeSeed, safe_seed_manager.GetSeedType());
+}
+
+TEST_F(SafeSeedManagerTest,
+       ShouldRunInSafeMode_ManyMoreCrashes_NoFetchFailures) {
+  prefs_.SetInteger(prefs::kVariationsCrashStreak, 6);
+  prefs_.SetInteger(prefs::kVariationsFailedToFetchSeedStreak, 0);
+
+  SafeSeedManager safe_seed_manager(&prefs_);
+  EXPECT_EQ(SeedType::kNullSeed, safe_seed_manager.GetSeedType());
 }
 
 TEST_F(SafeSeedManagerTest, ShouldRunInSafeMode_NoCrashes_ManyFetchFailures) {
   prefs_.SetInteger(prefs::kVariationsCrashStreak, 0);
+  prefs_.SetInteger(prefs::kVariationsFailedToFetchSeedStreak, 25);
+
+  SafeSeedManager safe_seed_manager(&prefs_);
+  EXPECT_EQ(SeedType::kSafeSeed, safe_seed_manager.GetSeedType());
+}
+
+TEST_F(SafeSeedManagerTest,
+       ShouldRunInSafeMode_NoCrashes_ManyMoreFetchFailures) {
+  prefs_.SetInteger(prefs::kVariationsCrashStreak, 0);
   prefs_.SetInteger(prefs::kVariationsFailedToFetchSeedStreak, 50);
 
   SafeSeedManager safe_seed_manager(&prefs_);
-  EXPECT_TRUE(safe_seed_manager.ShouldRunInSafeMode());
+  EXPECT_EQ(SeedType::kNullSeed, safe_seed_manager.GetSeedType());
 }
 
 TEST_F(SafeSeedManagerTest, ShouldRunInSafeMode_ManyCrashes_ManyFetchFailures) {
   prefs_.SetInteger(prefs::kVariationsCrashStreak, 3);
+  prefs_.SetInteger(prefs::kVariationsFailedToFetchSeedStreak, 25);
+
+  SafeSeedManager safe_seed_manager(&prefs_);
+  EXPECT_EQ(SeedType::kSafeSeed, safe_seed_manager.GetSeedType());
+}
+
+TEST_F(SafeSeedManagerTest,
+       ShouldRunInSafeMode_ManyMoreCrashes_ManyMoreFetchFailures) {
+  prefs_.SetInteger(prefs::kVariationsCrashStreak, 6);
   prefs_.SetInteger(prefs::kVariationsFailedToFetchSeedStreak, 50);
 
   SafeSeedManager safe_seed_manager(&prefs_);
-  EXPECT_TRUE(safe_seed_manager.ShouldRunInSafeMode());
+  EXPECT_EQ(SeedType::kNullSeed, safe_seed_manager.GetSeedType());
 }
 
 }  // namespace variations

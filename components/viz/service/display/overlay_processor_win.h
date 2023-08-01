@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,18 +18,16 @@
 #include "components/viz/service/viz_service_export.h"
 #include "gpu/ipc/common/surface_handle.h"
 
-namespace cc {
-class DisplayResourceProvider;
-}
-
 namespace viz {
+class DisplayResourceProvider;
+struct DebugRendererSettings;
+
 class VIZ_SERVICE_EXPORT OverlayProcessorWin
     : public OverlayProcessorInterface {
  public:
-  using CandidateList = DCLayerOverlayList;
-
   OverlayProcessorWin(
       OutputSurface* output_surface,
+      const DebugRendererSettings* debug_settings,
       std::unique_ptr<DCLayerOverlayProcessor> dc_layer_overlay_processor);
 
   OverlayProcessorWin(const OverlayProcessorWin&) = delete;
@@ -46,8 +44,11 @@ class VIZ_SERVICE_EXPORT OverlayProcessorWin
   // processor.
   bool NeedsSurfaceDamageRectList() const override;
 
-  // Set |is_video_capture_enabled_|.
+  // Sets |is_video_capture_enabled_|.
   void SetIsVideoCaptureEnabled(bool enabled) override;
+
+  // Sets |is_page_fullscreen_mode_|.
+  void SetIsPageFullscreen(bool enabled) override;
 
   void AdjustOutputSurfaceOverlay(absl::optional<OutputSurfaceOverlayPlane>*
                                       output_surface_plane) override {}
@@ -57,16 +58,20 @@ class VIZ_SERVICE_EXPORT OverlayProcessorWin
   void ProcessForOverlays(
       DisplayResourceProvider* resource_provider,
       AggregatedRenderPassList* render_passes,
-      const skia::Matrix44& output_color_matrix,
+      const SkM44& output_color_matrix,
       const FilterOperationsMap& render_pass_filters,
       const FilterOperationsMap& render_pass_backdrop_filters,
       SurfaceDamageRectList surface_damage_rect_list,
       OutputSurfaceOverlayPlane* output_surface_plane,
-      CandidateList* overlay_candidates,
+      OverlayCandidateList* overlay_candidates,
       gfx::Rect* damage_rect,
       std::vector<gfx::Rect>* content_bounds) override;
 
   void set_using_dc_layers_for_testing(bool value) { using_dc_layers_ = value; }
+  void set_frames_since_last_qualified_multi_overlays_for_testing(int value) {
+    GetOverlayProcessor()
+        ->set_frames_since_last_qualified_multi_overlays_for_testing(value);
+  }
 
  protected:
   // For testing.
@@ -75,7 +80,16 @@ class VIZ_SERVICE_EXPORT OverlayProcessorWin
   }
 
  private:
+  void InsertDebugBorderDrawQuadsForOverlayCandidates(
+      const OverlayCandidateList& dc_layer_overlays,
+      AggregatedRenderPass* root_render_pass,
+      const gfx::Rect& damage_rect);
+
   const raw_ptr<OutputSurface> output_surface_;
+
+  // Reference to the global viz singleton.
+  const raw_ptr<const DebugRendererSettings> debug_settings_;
+
   // Whether direct composition layers are being used with SetEnableDCLayers().
   bool using_dc_layers_ = false;
   // Number of frames since the last time direct composition layers were used.
@@ -85,6 +99,8 @@ class VIZ_SERVICE_EXPORT OverlayProcessorWin
   std::unique_ptr<DCLayerOverlayProcessor> dc_layer_overlay_processor_;
 
   bool is_video_capture_enabled_ = false;
+
+  bool is_page_fullscreen_mode_ = false;
 };
 
 }  // namespace viz

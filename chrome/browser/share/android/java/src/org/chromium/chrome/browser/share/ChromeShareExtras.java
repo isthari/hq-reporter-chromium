@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -158,6 +158,15 @@ public class ChromeShareExtras {
     }
 
     /**
+     * Whether the content being shared is an image based on the {@link #getDetailedContentType()}.
+     * */
+    public boolean isImage() {
+        return mDetailedContentType == DetailedContentType.IMAGE
+                || mDetailedContentType == DetailedContentType.GIF
+                || mDetailedContentType == DetailedContentType.SCREENSHOT;
+    }
+
+    /**
      * The builder for {@link ChromeShareExtras} objects.
      */
     public static class Builder {
@@ -219,14 +228,6 @@ public class ChromeShareExtras {
          */
         public Builder setContentUrl(GURL contentUrl) {
             mContentUrl = contentUrl;
-            return this;
-        }
-
-        /**
-         * Sets whether it is sharing a tab group.
-         */
-        public Builder setSharingTabGroup(boolean sharingTabGroup) {
-            mSharingTabGroup = sharingTabGroup;
             return this;
         }
 

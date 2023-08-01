@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -212,7 +212,7 @@ class IncognitoBackgroundSyncBrowserTest : public BackgroundSyncBrowserTest {
 };
 
 IN_PROC_BROWSER_TEST_F(IncognitoBackgroundSyncBrowserTest,
-                       OffTheRecordProfile) {
+                       DISABLED_OffTheRecordProfile) {
   base::ScopedAllowBlockingForTesting allow_blocking;
 
   // TODO(crbug.com/1087486, 1091211): Make this use

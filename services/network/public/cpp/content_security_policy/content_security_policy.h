@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,6 +53,19 @@ COMPONENT_EXPORT(NETWORK_CPP)
 mojom::AllowCSPFromHeaderValuePtr ParseAllowCSPFromHeader(
     const net::HttpResponseHeaders& headers);
 
+// Parses a CSP source expression.
+// https://w3c.github.io/webappsec-csp/#source-lists
+//
+// Return false on errors.
+// Adds parsing error messages to |parsing_errors|.
+// Notice that this can return true and still add some parsing error message
+// (for example, if there is a url with a non-empty query part).
+COMPONENT_EXPORT(NETWORK_CPP)
+bool ParseSource(mojom::CSPDirectiveName directive_name,
+                 base::StringPiece expression,
+                 mojom::CSPSource* csp_source,
+                 std::vector<std::string>& parsing_errors);
+
 // Return true when the |policy| allows a request to the |url| in relation to
 // the |directive| for a given |context|.
 // Note: Any policy violation are reported to the |context|.
@@ -65,7 +78,8 @@ bool CheckContentSecurityPolicy(const mojom::ContentSecurityPolicyPtr& policy,
                                 bool is_response_check,
                                 CSPContext* context,
                                 const mojom::SourceLocationPtr& source_location,
-                                bool is_form_submission);
+                                bool is_form_submission,
+                                bool is_opaque_fenced_frame = false);
 
 // Return true if the set of |policies| contains one "Upgrade-Insecure-request"
 // directive.
@@ -99,9 +113,6 @@ bool IsValidRequiredCSPAttr(
 COMPONENT_EXPORT(NETWORK_CPP)
 bool Subsumes(const mojom::ContentSecurityPolicy& policy_a,
               const std::vector<mojom::ContentSecurityPolicyPtr>& policies_b);
-
-COMPONENT_EXPORT(NETWORK_CPP)
-mojom::CSPDirectiveName ToCSPDirectiveName(const std::string& name);
 
 COMPONENT_EXPORT(NETWORK_CPP)
 std::string ToString(mojom::CSPDirectiveName name);

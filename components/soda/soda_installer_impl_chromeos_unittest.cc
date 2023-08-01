@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,11 @@
 
 #include "ash/constants/ash_features.h"
 #include "ash/constants/ash_pref_names.h"
+#include "base/memory/raw_ptr.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/dlcservice/fake_dlcservice_client.h"
+#include "chromeos/ash/components/dbus/dlcservice/fake_dlcservice_client.h"
 #include "components/live_caption/pref_names.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/soda/pref_names.h"
@@ -48,17 +48,15 @@ class SodaInstallerImplChromeOSTest : public testing::Test {
     pref_service_->registry()->RegisterStringPref(
         prefs::kLiveCaptionLanguageCode, kUsEnglishLocale);
 
-    chromeos::DBusThreadManager::Initialize();
-    chromeos::DlcserviceClient::InitializeFake();
-    fake_dlcservice_client_ = static_cast<chromeos::FakeDlcserviceClient*>(
-        chromeos::DlcserviceClient::Get());
+    ash::DlcserviceClient::InitializeFake();
+    fake_dlcservice_client_ =
+        static_cast<ash::FakeDlcserviceClient*>(ash::DlcserviceClient::Get());
   }
 
   void TearDown() override {
     soda_installer_impl_.reset();
     pref_service_.reset();
-    chromeos::DBusThreadManager::Shutdown();
-    chromeos::DlcserviceClient::Shutdown();
+    ash::DlcserviceClient::Shutdown();
   }
 
   SodaInstallerImplChromeOS* GetInstance() {
@@ -74,7 +72,7 @@ class SodaInstallerImplChromeOSTest : public testing::Test {
   }
 
   bool IsAnyLanguagePackInstalled() {
-    return soda_installer_impl_->IsAnyLanguagePackInstalled();
+    return soda_installer_impl_->IsAnyLanguagePackInstalledForTesting();
   }
 
   bool IsSodaDownloading() {
@@ -128,7 +126,7 @@ class SodaInstallerImplChromeOSTest : public testing::Test {
       base::test::TaskEnvironment::TimeSource::MOCK_TIME};
   std::unique_ptr<SodaInstallerImplChromeOS> soda_installer_impl_;
   std::unique_ptr<TestingPrefServiceSimple> pref_service_;
-  chromeos::FakeDlcserviceClient* fake_dlcservice_client_;
+  raw_ptr<ash::FakeDlcserviceClient, ExperimentalAsh> fake_dlcservice_client_;
   base::test::ScopedFeatureList scoped_feature_list_;
 };
 
@@ -197,7 +195,13 @@ TEST_F(SodaInstallerImplChromeOSTest, InstallSodaForTesting) {
   ASSERT_FALSE(IsSodaDownloading());
   ASSERT_FALSE(IsLanguageInstalled(kEnglishLocale));
   ASSERT_FALSE(IsSodaDownloading());
+
+  // Install just the binary.
   GetInstance()->NotifySodaInstalledForTesting();
+  ASSERT_FALSE(IsSodaDownloading());
+
+  // Now install the language pack.
+  GetInstance()->NotifySodaInstalledForTesting(kEnglishLocale);
   ASSERT_TRUE(IsSodaInstalled());
   ASSERT_FALSE(IsSodaDownloading());
   ASSERT_TRUE(IsLanguageInstalled(kEnglishLocale));
@@ -219,7 +223,7 @@ TEST_F(SodaInstallerImplChromeOSTest, SodaProgressForTesting) {
   ASSERT_FALSE(IsSodaDownloading());
   ASSERT_FALSE(IsLanguageInstalled(kEnglishLocale));
   Init();
-  GetInstance()->NotifySodaDownloadProgressForTesting(50);
+  GetInstance()->NotifySodaProgressForTesting(50);
   ASSERT_FALSE(IsSodaInstalled());
   ASSERT_FALSE(IsAnyLanguagePackInstalled());
   ASSERT_TRUE(IsSodaDownloading());
@@ -232,10 +236,10 @@ TEST_F(SodaInstallerImplChromeOSTest, LanguagePackForTesting) {
   Init();
   RunUntilIdle();
   ASSERT_FALSE(IsLanguageInstalled(fr_fr));
-  GetInstance()->NotifyOnSodaLanguagePackProgressForTesting(50, fr_fr);
+  GetInstance()->NotifySodaProgressForTesting(50, fr_fr);
   ASSERT_TRUE(GetInstance()->IsSodaDownloading(fr_fr));
   ASSERT_FALSE(IsLanguageInstalled(fr_fr));
-  GetInstance()->NotifyOnSodaLanguagePackInstalledForTesting(fr_fr);
+  GetInstance()->NotifySodaInstalledForTesting(fr_fr);
   ASSERT_TRUE(IsLanguageInstalled(fr_fr));
 }
 
@@ -245,10 +249,10 @@ TEST_F(SodaInstallerImplChromeOSTest, LanguagePackErrorForTesting) {
   Init();
   RunUntilIdle();
   ASSERT_FALSE(IsLanguageInstalled(fr_fr));
-  GetInstance()->NotifyOnSodaLanguagePackProgressForTesting(50, fr_fr);
+  GetInstance()->NotifySodaProgressForTesting(50, fr_fr);
   ASSERT_TRUE(GetInstance()->IsSodaDownloading(fr_fr));
   ASSERT_FALSE(IsLanguageInstalled(fr_fr));
-  GetInstance()->NotifyOnSodaLanguagePackErrorForTesting(fr_fr);
+  GetInstance()->NotifySodaErrorForTesting(fr_fr);
   ASSERT_FALSE(IsLanguageInstalled(fr_fr));
   ASSERT_FALSE(GetInstance()->IsSodaDownloading(fr_fr));
 }

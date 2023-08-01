@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include "services/device/geolocation/core_location_provider.h"
 
 #include "base/mac/scoped_cftyperef.h"
+#include "base/task/single_thread_task_runner.h"
 #include "services/device/public/cpp/device_features.h"
 #include "services/device/public/cpp/geolocation/location_system_permission_status.h"
 
@@ -60,8 +61,8 @@ void CoreLocationProvider::StopProvider() {
   geolocation_manager_->StopWatchingPosition();
 }
 
-const mojom::Geoposition& CoreLocationProvider::GetPosition() {
-  return last_position_;
+const mojom::GeopositionResult* CoreLocationProvider::GetPosition() {
+  return last_result_.get();
 }
 
 void CoreLocationProvider::OnPermissionGranted() {
@@ -79,8 +80,14 @@ void CoreLocationProvider::OnSystemPermissionUpdated(
 
 void CoreLocationProvider::OnPositionUpdated(
     const mojom::Geoposition& location) {
-  last_position_ = location;
-  callback_.Run(this, last_position_);
+  last_result_ = mojom::GeopositionResult::NewPosition(location.Clone());
+  callback_.Run(this, last_result_.Clone());
+}
+
+void CoreLocationProvider::OnPositionError(
+    const mojom::GeopositionError& error) {
+  last_result_ = mojom::GeopositionResult::NewError(error.Clone());
+  callback_.Run(this, last_result_.Clone());
 }
 
 std::unique_ptr<LocationProvider> NewSystemLocationProvider(

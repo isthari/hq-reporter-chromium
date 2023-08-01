@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 
 #include "base/metrics/histogram_samples.h"
 #include "base/test/metrics/histogram_tester.h"
-#include "chrome/test/base/in_process_browser_test.h"
+#include "chrome/test/interaction/interactive_browser_test.h"
 #include "components/autofill/core/common/form_data.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/password_manager/core/browser/fake_form_fetcher.h"
@@ -24,7 +24,7 @@ class ManagePasswordsUIController;
 
 // Test class for the various password management view bits and pieces. Provides
 // some helper methods to poke at the bubble, icon, and controller's state.
-class ManagePasswordsTest : public InProcessBrowserTest {
+class ManagePasswordsTest : public InteractiveBrowserTest {
  public:
   ManagePasswordsTest();
 
@@ -33,7 +33,7 @@ class ManagePasswordsTest : public InProcessBrowserTest {
 
   ~ManagePasswordsTest() override;
 
-  // InProcessBrowserTest:
+  // InteractiveBrowserTest:
   void SetUpOnMainThread() override;
   void SetUpInProcessBrowserTestFixture() override;
 
@@ -64,6 +64,10 @@ class ManagePasswordsTest : public InProcessBrowserTest {
   // Put the controller, icon, and bubble into a moving-password state.
   void SetupMovingPasswords();
 
+  // Always configures a signed-in user, and when |is_enabled| is true, it also
+  // configures the Sync service to sync passwords.
+  void ConfigurePasswordSync(bool is_enabled);
+
   // Get samples for |histogram|.
   std::unique_ptr<base::HistogramSamples> GetSamples(const char* histogram);
 
@@ -72,13 +76,11 @@ class ManagePasswordsTest : public InProcessBrowserTest {
   // Get the UI controller for the current WebContents.
   ManagePasswordsUIController* GetController();
 
-  MOCK_METHOD1(OnChooseCredential,
-               void(const password_manager::CredentialInfo&));
-
  private:
   std::unique_ptr<password_manager::PasswordFormManager> CreateFormManager();
 
   password_manager::PasswordForm password_form_;
+  password_manager::PasswordForm insecure_credential_;
   base::HistogramTester histogram_tester_;
   password_manager::StubPasswordManagerClient client_;
   password_manager::StubPasswordManagerDriver driver_;

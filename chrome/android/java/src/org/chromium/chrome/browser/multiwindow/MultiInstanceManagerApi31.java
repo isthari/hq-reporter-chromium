@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,11 +13,11 @@ import android.os.Bundle;
 import android.text.TextUtils;
 import android.text.format.DateUtils;
 import android.util.SparseBooleanArray;
+import android.util.SparseIntArray;
 
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ActivityState;
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.ApplicationStatus.ActivityStateListener;
 import org.chromium.base.ContextUtils;
@@ -68,7 +68,6 @@ class MultiInstanceManagerApi31 extends MultiInstanceManager implements Activity
     // Instance ID for the activity associated with this manager.
     private int mInstanceId = INVALID_INSTANCE_ID;
 
-    private TabModelSelectorTabModelObserver mTabModelObserver;
     private Tab mActiveTab;
     private TabObserver mActiveTabObserver = new EmptyTabObserver() {
         @Override
@@ -128,8 +127,8 @@ class MultiInstanceManagerApi31 extends MultiInstanceManager implements Activity
             reparentTabToRunningActivity((ChromeTabbedActivity) targetActivity, tab);
         } else {
             onMultiInstanceModeStarted();
-            Intent intent = MultiWindowUtils.createNewWindowIntent(
-                    mActivity, info.instanceId, /*preferNew=*/false, /*openAdjacently=*/true);
+            Intent intent = MultiWindowUtils.createNewWindowIntent(mActivity, info.instanceId,
+                    /*preferNew=*/false, /*openAdjacently=*/true, /*addTrustedIntentExtras=*/true);
             ReparentingTask.from(tab).begin(mActivity, intent,
                     mMultiWindowModeStateDispatcher.getOpenInOtherWindowActivityOptions(), null);
         }
@@ -275,6 +274,12 @@ class MultiInstanceManagerApi31 extends MultiInstanceManager implements Activity
         ApplicationStatus.registerStateListenerForActivity(this, mActivity);
     }
 
+    @Override
+    public void onTabStateInitialized() {
+        TabModelSelector selector = mTabModelOrchestratorSupplier.get().getTabModelSelector();
+        writeTabCount(mInstanceId, selector);
+    }
+
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
     protected void installTabModelObserver() {
         TabModelSelector selector = mTabModelOrchestratorSupplier.get().getTabModelSelector();
@@ -302,14 +307,15 @@ class MultiInstanceManagerApi31 extends MultiInstanceManager implements Activity
             }
 
             @Override
-            public void didAddTab(Tab tab, int type, int creationState) {
+            public void didAddTab(
+                    Tab tab, int type, int creationState, boolean markedForSelection) {
                 writeTabCount(mInstanceId, selector);
             }
 
             @Override
-            public void didCloseTab(Tab tab) {
-                // didCloseTab is called for both normal/incognito tabs, whereas tabClosureCommitted
-                // is called for normal tabs only.
+            public void onFinishingTabClosure(Tab tab) {
+                // onFinishingTabClosure is called for both normal/incognito tabs, whereas
+                // tabClosureCommitted is called for normal tabs only.
                 writeTabCount(mInstanceId, selector);
             }
 
@@ -354,7 +360,7 @@ class MultiInstanceManagerApi31 extends MultiInstanceManager implements Activity
     }
 
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
-    protected List<Activity> getAllRunningActivities() {
+    protected static List<Activity> getAllRunningActivities() {
         return ApplicationStatus.getRunningActivities();
     }
 
@@ -372,7 +378,7 @@ class MultiInstanceManagerApi31 extends MultiInstanceManager implements Activity
         return results;
     }
 
-    private Activity getActivityById(int id) {
+    private static Activity getActivityById(int id) {
         TabWindowManager windowManager = TabWindowManagerSingleton.getInstance();
         for (Activity activity : getAllRunningActivities()) {
             if (id == windowManager.getIndexForWindow(activity)) return activity;
@@ -484,6 +490,7 @@ class MultiInstanceManagerApi31 extends MultiInstanceManager implements Activity
 
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
     static void writeTabCount(int index, TabModelSelector selector) {
+        if (!selector.isTabStateInitialized()) return;
         SharedPreferencesManager prefs = SharedPreferencesManager.getInstance();
         int tabCount = selector.getModel(false).getCount();
         prefs.writeInt(tabCountKey(index), tabCount);
@@ -512,6 +519,24 @@ class MultiInstanceManagerApi31 extends MultiInstanceManager implements Activity
     }
 
     /**
+     * @return The window IDs of the currently running ChromeTabbedActivity's. It is possible to
+     *     have more number of saved instances than the number of currently running activities (for
+     *     example, when an activity is killed from the Android app menu, its instance state still
+     *     persists for use by Chrome).
+     */
+    @VisibleForTesting(otherwise = VisibleForTesting.PACKAGE_PRIVATE)
+    static SparseIntArray getWindowIdsOfRunningTabbedActivities() {
+        List<Activity> activities = ApplicationStatus.getRunningActivities();
+        var windowIdsOfRunningTabbedActivities = new SparseIntArray();
+        for (Activity activity : activities) {
+            if (!(activity instanceof ChromeTabbedActivity)) continue;
+            int windowId = TabWindowManagerSingleton.getInstance().getIndexForWindow(activity);
+            windowIdsOfRunningTabbedActivities.put(windowId, windowId);
+        }
+        return windowIdsOfRunningTabbedActivities;
+    }
+
+    /**
      * Open or launch a given instance.
      * @param instanceId ID of the instance to open.
      * @param taskId ID of the task the instance resides in.
@@ -529,13 +554,32 @@ class MultiInstanceManagerApi31 extends MultiInstanceManager implements Activity
         onMultiInstanceModeStarted();
         // TODO: Pass this flag from UI to control the window to open.
         boolean openAdjacently = true;
-        Intent intent = MultiWindowUtils.createNewWindowIntent(
-                mActivity, instanceId, /*preferNew=*/false, openAdjacently);
+        Intent intent = MultiWindowUtils.createNewWindowIntent(mActivity, instanceId,
+                /*preferNew=*/false, openAdjacently, /*addTrustedIntentExtras=*/true);
         if (openAdjacently) {
             mActivity.startActivity(
                     intent, mMultiWindowModeStateDispatcher.getOpenInOtherWindowActivityOptions());
         } else {
             mActivity.startActivity(intent);
+        }
+    }
+
+    /**
+     * Launch the given intent in an existing ChromeTabbedActivity instance.
+     * @param intent The intent to launch.
+     * @param instanceId ID of the instance to launch the intent in.
+     */
+    static void launchIntentInInstance(Intent intent, int instanceId) {
+        Activity activity = getActivityById(instanceId);
+        if (!(activity instanceof ChromeTabbedActivity)) return;
+        int taskId = activity.getTaskId();
+        if (taskId != INVALID_TASK_ID) {
+            // Launch the intent in the existing activity and bring the task to foreground if it is
+            // alive.
+            ((ChromeTabbedActivity) activity).onNewIntent(intent);
+            var activityManager =
+                    (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
+            activityManager.moveTaskToFront(taskId, 0);
         }
     }
 
@@ -547,9 +591,19 @@ class MultiInstanceManagerApi31 extends MultiInstanceManager implements Activity
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
     protected void closeInstance(int instanceId, int taskId) {
         removeInstanceInfo(instanceId);
+        TabModelSelector selector =
+                TabWindowManagerSingleton.getInstance().getTabModelSelectorById(instanceId);
+        if (selector != null) {
+            // Close all tabs as the window is closing. This ensures the tabs are added to the
+            // recent tabs page.
+            //
+            // TODO(crbug/1304883): This only works for windows with live activities. It is
+            // non-trivial to add recent tab entries without an active {@link Tab} instance.
+            selector.closeAllTabs(/*uponExit=*/true);
+        }
         mTabModelOrchestratorSupplier.get().cleanupInstance(instanceId);
         Activity activity = getActivityById(instanceId);
-        if (activity != null) ApiCompatibilityUtils.finishAndRemoveTask(activity);
+        if (activity != null) activity.finishAndRemoveTask();
     }
 
     private void bringTaskForeground(int taskId) {
@@ -639,10 +693,5 @@ class MultiInstanceManagerApi31 extends MultiInstanceManager implements Activity
                     "Android.MultiInstance.TotalDuration", current - startTime);
             prefs.writeLong(ChromePreferenceKeys.MULTI_INSTANCE_START_TIME, 0);
         }
-    }
-
-    @VisibleForTesting
-    TabModelSelectorTabModelObserver getTabModelObserverForTesting() {
-        return mTabModelObserver;
     }
 }

@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,6 +26,7 @@
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/chrome_select_file_policy.h"
+#include "chrome/browser/ui/color/chrome_color_id.h"
 #include "chrome/browser/ui/location_bar/location_bar.h"
 #include "chrome/browser/ui/search/omnibox_utils.h"
 #include "chrome/browser/ui/search/search_ipc_router_policy_impl.h"
@@ -36,6 +37,7 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/bookmarks/browser/bookmark_model.h"
+#include "components/feature_engagement/public/feature_constants.h"
 #include "components/google/core/common/google_util.h"
 #include "components/navigation_metrics/navigation_metrics.h"
 #include "components/profile_metrics/browser_profile_type.h"
@@ -46,8 +48,8 @@
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/sync/base/user_selectable_type.h"
-#include "components/sync/driver/sync_service.h"
-#include "components/sync/driver/sync_user_settings.h"
+#include "components/sync/service/sync_service.h"
+#include "components/sync/service/sync_user_settings.h"
 #include "components/vector_icons/vector_icons.h"
 #include "content/public/browser/navigation_details.h"
 #include "content/public/browser/navigation_entry.h"
@@ -59,6 +61,7 @@
 #include "extensions/common/constants.h"
 #include "google_apis/gaia/gaia_auth_util.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/color/color_provider.h"
 #include "ui/gfx/vector_icon_types.h"
 #include "url/gurl.h"
 
@@ -89,7 +92,7 @@ bool InInstantProcess(const InstantService* instant_service,
     return false;
 
   return instant_service->IsInstantProcess(
-      contents->GetMainFrame()->GetProcess()->GetID());
+      contents->GetPrimaryMainFrame()->GetProcess()->GetID());
 }
 
 // Called when an NTP finishes loading. If the load start time was noted,
@@ -187,6 +190,8 @@ void SearchTabHelper::OnTabActivated() {
 
   if (search::IsInstantNTP(web_contents()) && instant_service_)
     instant_service_->OnNewTabPageOpened();
+
+  CloseNTPCustomizeChromeFeaturePromo();
 }
 
 void SearchTabHelper::OnTabDeactivated() {
@@ -216,6 +221,8 @@ void SearchTabHelper::DidStartNavigation(
           entry, l10n_util::GetStringUTF16(IDS_NEW_TAB_TITLE));
     }
   }
+
+  CloseNTPCustomizeChromeFeaturePromo();
 }
 
 void SearchTabHelper::TitleWasSet(content::NavigationEntry* entry) {
@@ -260,7 +267,13 @@ void SearchTabHelper::NavigationEntryCommitted(
     ipc_router_.OnNavigationEntryCommitted();
 }
 
-void SearchTabHelper::NtpThemeChanged(const NtpTheme& theme) {
+void SearchTabHelper::NtpThemeChanged(NtpTheme theme) {
+  // Populate theme colors for this tab.
+  const auto& color_provider = web_contents()->GetColorProvider();
+  theme.background_color = color_provider.GetColor(kColorNewTabPageBackground);
+  theme.text_color = color_provider.GetColor(kColorNewTabPageText);
+  theme.text_color_light = color_provider.GetColor(kColorNewTabPageTextLight);
+
   ipc_router_.SendNtpTheme(theme);
 }
 
@@ -311,6 +324,21 @@ Profile* SearchTabHelper::profile() const {
 
 bool SearchTabHelper::IsInputInProgress() const {
   return search::IsOmniboxInputInProgress(web_contents());
+}
+
+void SearchTabHelper::CloseNTPCustomizeChromeFeaturePromo() {
+  const base::Feature& customize_chrome_feature =
+      feature_engagement::kIPHDesktopCustomizeChromeFeature;
+  if (!base::FeatureList::IsEnabled(customize_chrome_feature) ||
+      web_contents()->GetController().GetVisibleEntry()->GetURL() ==
+          GURL(chrome::kChromeUINewTabPageURL)) {
+    return;
+  }
+  auto* browser_window =
+      BrowserWindow::FindBrowserWindowWithWebContents(web_contents());
+  if (browser_window) {
+    browser_window->CloseFeaturePromo(customize_chrome_feature);
+  }
 }
 
 WEB_CONTENTS_USER_DATA_KEY_IMPL(SearchTabHelper);

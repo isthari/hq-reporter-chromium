@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,9 +21,8 @@ import androidx.annotation.ColorInt;
 import androidx.annotation.ColorRes;
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.drawable.DrawableCompat;
-import androidx.core.widget.TextViewCompat;
+import androidx.core.widget.ImageViewCompat;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.chrome.tab_ui.R;
 import org.chromium.components.browser_ui.styles.SemanticColorUtils;
 import org.chromium.ui.KeyboardVisibilityDelegate;
@@ -86,7 +85,7 @@ public class TabGroupUiToolbarView extends FrameLayout {
     }
 
     void updateTitleTextFocus(boolean shouldFocus) {
-        if (!TabUiFeatureUtilities.isLaunchPolishEnabled()) return;
+        if (!TabUiFeatureUtilities.isTabGroupsAndroidContinuationEnabled(getContext())) return;
         if (mTitleTextView.isFocused() == shouldFocus) return;
         if (shouldFocus) {
             mTitleTextView.requestFocus();
@@ -96,7 +95,7 @@ public class TabGroupUiToolbarView extends FrameLayout {
     }
 
     void updateKeyboardVisibility(boolean shouldShow) {
-        if (!TabUiFeatureUtilities.isLaunchPolishEnabled()) return;
+        if (!TabUiFeatureUtilities.isTabGroupsAndroidContinuationEnabled(getContext())) return;
         // This is equal to the animation duration of toolbar menu hiding.
         int showKeyboardDelay = 150;
         if (shouldShow) {
@@ -172,11 +171,11 @@ public class TabGroupUiToolbarView extends FrameLayout {
     }
 
     void setTint(ColorStateList tint) {
-        ApiCompatibilityUtils.setImageTintList(mLeftButton, tint);
-        ApiCompatibilityUtils.setImageTintList(mRightButton, tint);
+        ImageViewCompat.setImageTintList(mLeftButton, tint);
+        ImageViewCompat.setImageTintList(mRightButton, tint);
         if (mTitleTextView != null) mTitleTextView.setTextColor(tint);
         if (mMenuButton != null) {
-            ApiCompatibilityUtils.setImageTintList(mMenuButton, tint);
+            ImageViewCompat.setImageTintList(mMenuButton, tint);
         }
     }
 
@@ -189,22 +188,27 @@ public class TabGroupUiToolbarView extends FrameLayout {
      */
     void setupDialogToolbarLayout() {
         Context context = getContext();
-        mLeftButton.setImageResource(org.chromium.chrome.R.drawable.ic_arrow_back_24dp);
+        mLeftButton.setImageResource(R.drawable.ic_arrow_back_24dp);
         int topicMargin =
                 (int) context.getResources().getDimension(R.dimen.tab_group_toolbar_topic_margin);
         MarginLayoutParams params = (MarginLayoutParams) mTitleTextView.getLayoutParams();
         params.setMarginStart(topicMargin);
         mTitleTextView.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-        TextViewCompat.setTextAppearance(
-                mTitleTextView, org.chromium.chrome.R.style.TextAppearance_Headline_Primary);
+        mTitleTextView.setTextAppearance(R.style.TextAppearance_Headline_Primary);
     }
 
     /**
-     * Hide the UI widgets related to tab group continuation features.
+     * Hide the title widgets related to tab group continuation features.
      */
-    void hideTabGroupsContinuationWidgets() {
+    void hideTitleWidget() {
         mTitleTextView.setFocusable(false);
         mTitleTextView.setBackgroundColor(Color.TRANSPARENT);
+    }
+
+    /**
+     * Hide the menu button related to tab group continuation and selection editor features.
+     */
+    void hideMenuButton() {
         mMainContent.removeView(mMenuButton);
     }
 

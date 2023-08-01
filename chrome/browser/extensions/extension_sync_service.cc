@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <utility>
 
 #include "base/auto_reset.h"
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/one_shot_event.h"
 #include "base/strings/utf_string_conversions.h"
@@ -21,8 +21,8 @@
 #include "chrome/browser/sync/glue/sync_start_util.h"
 #include "chrome/common/buildflags.h"
 #include "chrome/common/extensions/extension_constants.h"
+#include "components/supervised_user/core/common/buildflags.h"
 #include "components/sync/model/sync_change.h"
-#include "components/sync/model/sync_error_factory.h"
 #include "extensions/browser/app_sorting.h"
 #include "extensions/browser/blocklist_extension_prefs.h"
 #include "extensions/browser/extension_system.h"
@@ -34,8 +34,8 @@
 #include "extensions/common/permissions/permissions_data.h"
 
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS)
-#include "chrome/browser/supervised_user/supervised_user_service.h"
 #include "chrome/browser/supervised_user/supervised_user_service_factory.h"
+#include "components/supervised_user/core/browser/supervised_user_service.h"
 #endif
 
 using extensions::AppSorting;
@@ -83,7 +83,7 @@ syncer::SyncDataList ToSyncerSyncDataList(
   return result;
 }
 
-static_assert(extensions::disable_reason::DISABLE_REASON_LAST == (1LL << 22),
+static_assert(extensions::disable_reason::DISABLE_REASON_LAST == (1LL << 23),
               "Please consider whether your new disable reason should be"
               " syncable, and if so update this bitmask accordingly!");
 const int kKnownSyncableDisableReasons =
@@ -158,8 +158,7 @@ absl::optional<syncer::ModelError>
 ExtensionSyncService::MergeDataAndStartSyncing(
     syncer::ModelType type,
     const syncer::SyncDataList& initial_sync_data,
-    std::unique_ptr<syncer::SyncChangeProcessor> sync_processor,
-    std::unique_ptr<syncer::SyncErrorFactory> sync_error_factory) {
+    std::unique_ptr<syncer::SyncChangeProcessor> sync_processor) {
   CHECK(sync_processor.get());
   LOG_IF(FATAL, type != syncer::EXTENSIONS && type != syncer::APPS)
       << "Got " << type << " ModelType";
@@ -177,24 +176,6 @@ ExtensionSyncService::MergeDataAndStartSyncing(
     if (extension_sync_data &&
         !ExtensionPrefs::Get(profile_)->NeedsSync(extension_sync_data->id())) {
       ApplySyncData(*extension_sync_data);
-    }
-  }
-
-  ExtensionRegistry* registry = ExtensionRegistry::Get(profile_);
-  std::unique_ptr<ExtensionSet> all_extensions =
-      registry->GenerateInstalledExtensionsSet();
-  for (const auto& extension : *all_extensions) {
-    if (extension->from_deprecated_bookmark()) {
-      // Deleting deprecated bookmark apps.
-      const std::string& id = extension->id();
-      std::u16string error;
-      bool uninstalled = extension_service()->UninstallExtension(
-          id, extensions::UNINSTALL_REASON_SYNC, &error);
-      if (!uninstalled) {
-        LOG(WARNING) << "Failed to uninstall bookmark apps with id '" << id
-                     << "' : " << error;
-      }
-      base::UmaHistogramBoolean("Extensions.UninstallBookmarkApp", uninstalled);
     }
   }
 

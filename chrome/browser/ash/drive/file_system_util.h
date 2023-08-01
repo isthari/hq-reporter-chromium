@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,6 +33,9 @@ bool IsDriveAvailableForProfile(Profile* profile);
 
 // Returns true if Drive is currently enabled for the given Profile.
 bool IsDriveEnabledForProfile(Profile* profile);
+
+// Returns true if bulk pinning is currently enabled for the given Profile.
+bool IsDriveFsBulkPinningEnabled();
 
 // Enum type for describing the current connection status to Drive.
 enum ConnectionStatusType {

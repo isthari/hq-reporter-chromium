@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,11 +12,12 @@
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
 #include "base/android/jni_weak_ref.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/metrics/field_trial_params.h"
+#include "base/types/cxx23_to_underlying.h"
 #include "components/infobars/content/content_infobar_manager.h"
 #include "components/translate/content/android/translate_utils.h"
 #include "components/translate/core/browser/translate_infobar_delegate.h"
-#include "components/variations/variations_associated_data.h"
 #include "content/public/browser/browser_context.h"
 #include "weblayer/browser/java/jni/TranslateCompactInfoBar_jni.h"
 #include "weblayer/browser/tab_impl.h"
@@ -117,13 +118,11 @@ void TranslateCompactInfoBar::ApplyStringTranslateOption(
   if (option == translate::TranslateUtils::OPTION_SOURCE_CODE) {
     std::string source_code =
         base::android::ConvertJavaStringToUTF8(env, value);
-    if (delegate->source_language_code().compare(source_code) != 0)
-      delegate->UpdateSourceLanguage(source_code);
+    delegate->UpdateSourceLanguage(source_code);
   } else if (option == translate::TranslateUtils::OPTION_TARGET_CODE) {
     std::string target_code =
         base::android::ConvertJavaStringToUTF8(env, value);
-    if (delegate->target_language_code().compare(target_code) != 0)
-      delegate->UpdateTargetLanguage(target_code);
+    delegate->UpdateTargetLanguage(target_code);
   } else {
     DCHECK(false);
   }
@@ -186,9 +185,10 @@ jboolean TranslateCompactInfoBar::IsIncognito(
 int TranslateCompactInfoBar::GetParam(const std::string& paramName,
                                       int default_value) {
   std::map<std::string, std::string> params;
-  if (!variations::GetVariationParams(translate::kTranslateCompactUI.name,
-                                      &params))
+  if (!base::GetFieldTrialParams(translate::kTranslateCompactUI.name,
+                                 &params)) {
     return default_value;
+  }
   int value = 0;
   base::StringToInt(params[paramName], &value);
   return value <= 0 ? default_value : value;
@@ -204,7 +204,7 @@ translate::TranslateInfoBarDelegate* TranslateCompactInfoBar::GetDelegate() {
 
 void TranslateCompactInfoBar::OnTranslateStepChanged(
     translate::TranslateStep step,
-    translate::TranslateErrors::Type error_type) {
+    translate::TranslateErrors error_type) {
   // If the tab lost active state while translation was occurring, the Java
   // infobar will now be gone. In that case there is nothing to do here.
   if (!HasSetJavaInfoBar())
@@ -216,8 +216,8 @@ void TranslateCompactInfoBar::OnTranslateStepChanged(
   if ((step == translate::TRANSLATE_STEP_AFTER_TRANSLATE) ||
       (step == translate::TRANSLATE_STEP_TRANSLATE_ERROR)) {
     JNIEnv* env = base::android::AttachCurrentThread();
-    Java_TranslateCompactInfoBar_onPageTranslated(env, GetJavaInfoBar(),
-                                                  error_type);
+    Java_TranslateCompactInfoBar_onPageTranslated(
+        env, GetJavaInfoBar(), base::to_underlying(error_type));
   }
 }
 

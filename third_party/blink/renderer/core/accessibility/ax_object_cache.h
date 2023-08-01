@@ -33,6 +33,7 @@
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/platform/wtf/hash_counted_set.h"
+#include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace gfx {
 class Point;
@@ -40,25 +41,27 @@ class Point;
 
 namespace ui {
 class AXMode;
+struct AXTreeUpdate;
 }
 
 namespace blink {
 
+class AriaNotificationOptions;
 class AXObject;
-class AbstractInlineTextBox;
 class AccessibleNode;
 class HTMLCanvasElement;
 class HTMLOptionElement;
+class HTMLTableElement;
 class HTMLFrameOwnerElement;
 class HTMLSelectElement;
 class LayoutRect;
 class LocalFrameView;
+class NGAbstractInlineTextBox;
 
 class CORE_EXPORT AXObjectCache : public GarbageCollected<AXObjectCache> {
  public:
-  using BlinkAXEventIntentsSet = HashCountedSet<BlinkAXEventIntent,
-                                                BlinkAXEventIntentHash,
-                                                BlinkAXEventIntentHashTraits>;
+  using BlinkAXEventIntentsSet =
+      HashCountedSet<BlinkAXEventIntent, BlinkAXEventIntentHashTraits>;
 
   static AXObjectCache* Create(Document&, const ui::AXMode&);
 
@@ -73,10 +76,12 @@ class CORE_EXPORT AXObjectCache : public GarbageCollected<AXObjectCache> {
   virtual void SetAXMode(const ui::AXMode&) = 0;
 
   // A Freeze() occurs during a serialization run.
-  // Used here as a hint for DCHECKS to enforce the following behavior:
-  // objects in the ax hierarchy should not be destroyed during serialization.
   virtual void Freeze() = 0;
   virtual void Thaw() = 0;
+
+  // Ensure that accessibility is clean and up-to-date for both the main and
+  // popup document. Ensures layout is clean as well.
+  virtual void UpdateAXForAllDocuments() = 0;
 
   virtual void SelectionChanged(Node*) = 0;
   virtual void ChildrenChanged(Node*) = 0;
@@ -87,15 +92,19 @@ class CORE_EXPORT AXObjectCache : public GarbageCollected<AXObjectCache> {
   virtual void ListboxOptionStateChanged(HTMLOptionElement*) = 0;
   virtual void ListboxSelectedChildrenChanged(HTMLSelectElement*) = 0;
   virtual void ListboxActiveIndexChanged(HTMLSelectElement*) = 0;
+  virtual void SetMenuListOptionsBounds(HTMLSelectElement*,
+                                        const WTF::Vector<gfx::Rect>&) = 0;
   virtual void LocationChanged(const LayoutObject*) = 0;
   virtual void ImageLoaded(const LayoutObject*) = 0;
 
   // Removes AXObject backed by passed-in object, if there is one.
+  // Will also notify the parent that its children have changed, so that the
+  // parent will recompute its children and be reserialized.
   virtual void Remove(AccessibleNode*) = 0;
-  // Returns true if the AXObject is removed.
-  virtual bool Remove(LayoutObject*) = 0;
+  virtual void Remove(LayoutObject*) = 0;
   virtual void Remove(Node*) = 0;
-  virtual void Remove(AbstractInlineTextBox*) = 0;
+  virtual void Remove(Document*) = 0;
+  virtual void Remove(NGAbstractInlineTextBox*) = 0;
 
   virtual const Element* RootAXEditableElement(const Node*) = 0;
 
@@ -119,7 +128,6 @@ class CORE_EXPORT AXObjectCache : public GarbageCollected<AXObjectCache> {
                                              Element* new_focused_node) = 0;
   virtual void HandleInitialFocus() = 0;
   virtual void HandleEditableTextContentChanged(Node*) = 0;
-  virtual void HandleScaleAndLocationChanged(Document*) = 0;
   virtual void HandleTextMarkerDataAdded(Node* start, Node* end) = 0;
   virtual void HandleTextFormControlChanged(Node*) = 0;
   virtual void HandleValueChanged(Node*) = 0;
@@ -143,6 +151,9 @@ class CORE_EXPORT AXObjectCache : public GarbageCollected<AXObjectCache> {
   // Changes to virtual Accessibility Object Model nodes.
   virtual void HandleAttributeChanged(const QualifiedName& attr_name,
                                       AccessibleNode*) = 0;
+
+  // Called when the DOM parser has reached the closing tag of a table element.
+  virtual void FinishedParsingTable(HTMLTableElement*) = 0;
 
   // Called when a HTMLFrameOwnerElement (such as an iframe element) changes the
   // embedding token of its child frame.
@@ -172,8 +183,25 @@ class CORE_EXPORT AXObjectCache : public GarbageCollected<AXObjectCache> {
 
   virtual void OnTouchAccessibilityHover(const gfx::Point&) = 0;
 
+  // Gets the AXID of the given Node. If there is not yet an associated
+  // AXObject, this method will create one (along with its parent chain) and
+  // return the id.
   virtual AXID GetAXID(Node*) = 0;
+
+  // Crash dumps have shown there are times where AXID's are queried
+  // 'out-of-band' where we may not be in a state where creating AXObjects and
+  // repairing parent chains is possible. This will look for the current
+  // AXObject associated with the given node and return its id without creating
+  // or recomputing any state.
+  virtual AXID GetExistingAXID(Node*) = 0;
+
   virtual AXObject* ObjectFromAXID(AXID) const = 0;
+
+  virtual AXID GenerateAXID() const = 0;
+
+  virtual void AddAriaNotification(Node*,
+                                   const String,
+                                   const AriaNotificationOptions*) = 0;
 
   typedef AXObjectCache* (*AXObjectCacheCreateFunction)(Document&,
                                                         const ui::AXMode&);
@@ -183,7 +211,73 @@ class CORE_EXPORT AXObjectCache : public GarbageCollected<AXObjectCache> {
   static bool IsInsideFocusableElementOrARIAWidget(const Node&);
 
   // Returns true if there are any pending updates that need processing.
-  virtual bool IsDirty() const = 0;
+  virtual bool IsDirty() = 0;
+
+  virtual void SerializeLocationChanges() = 0;
+
+  virtual AXObject* GetPluginRoot() = 0;
+
+  // Serialize entire tree, returning true if successful.
+  virtual bool SerializeEntireTree(size_t max_node_count,
+                                   base::TimeDelta timeout,
+                                   ui::AXTreeUpdate*) = 0;
+
+  // Recompute the entire tree and reserialize it.
+  // This method is useful when something that potentially affects most of the
+  // page occurs, such as an inertness change or a fullscreen toggle.
+  // This keeps the existing nodes, but recomputes all of their properties and
+  // reserializes everything.
+  // Compared with ResetSerializer() and MarkAXObjectDirtyWithDetails() with
+  // subtree = true, this does more work, because it recomputes the entire tree
+  // structure and properties of each node.
+  virtual void MarkDocumentDirty() = 0;
+
+  // Compared with MarkDocumentDirty(), this does less work, because it assumes
+  // the AXObjectCache's tree of objects and properties is correct, but needs to
+  // be reserialized.
+  virtual void ResetSerializer() = 0;
+
+  virtual void MarkElementDirty(const Node*) = 0;
+
+  virtual void MarkAllImageAXObjectsDirty() = 0;
+
+  // Notifies that an AXObject is dirty and its state needs
+  // to be serialized again. If |subtree| is true, the entire subtree is
+  // dirty.
+  // |event_from| and |event_from_action| annotate this node change with info
+  // about the event which caused the change. For example, an event from a user
+  // or an event from a focus action.
+  virtual void MarkAXObjectDirtyWithDetails(
+      AXObject* obj,
+      bool subtree,
+      ax::mojom::blink::EventFrom event_from,
+      ax::mojom::blink::Action event_from_action,
+      const std::vector<ui::AXEventIntent>& event_intents) = 0;
+
+  virtual void SerializeDirtyObjectsAndEvents(
+      bool has_plugin_tree_source,
+      std::vector<ui::AXTreeUpdate>& updates,
+      std::vector<ui::AXEvent>& events,
+      bool& had_end_of_test_event,
+      bool& had_load_complete_messages,
+      bool& need_to_send_location_changes) = 0;
+
+  // Returns a vector of the images found in |updates|.
+  virtual void GetImagesToAnnotate(ui::AXTreeUpdate& updates,
+                                   std::vector<ui::AXNodeData*>&) = 0;
+
+  // Note that any pending event also causes its corresponding object to
+  // become dirty.
+  virtual bool HasDirtyObjects() const = 0;
+
+  // Adds the event to a list of pending events that is cleared out by
+  // a subsequent call to  duplicates are not represented.. Returns false if
+  // the event is already pending; duplicates are not represented.
+  virtual bool AddPendingEvent(const ui::AXEvent& event,
+                               bool insert_at_beginning) = 0;
+
+  // Ensure that a call to ProcessDeferredAccessibilityEvents() will occur soon.
+  virtual void ScheduleAXUpdate() const = 0;
 
  protected:
   friend class ScopedBlinkAXEventIntent;

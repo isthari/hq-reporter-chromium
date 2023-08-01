@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,6 +53,14 @@ void WebStateDependencyInstallationObserver::WebStateDetachedAt(
     web::WebState* web_state,
     int index) {
   OnWebStateRemoved(web_state);
+}
+
+void WebStateDependencyInstallationObserver::WebStateListDestroyed(
+    WebStateList* web_state_list) {
+  // Checking that all WebStates have been destroyed before destroying
+  // the WebStateList, so we should not be observing anything.
+  DCHECK(!web_state_observations_.IsObservingAnySource());
+  web_state_list_observation_.Reset();
 }
 
 void WebStateDependencyInstallationObserver::OnWebStateAdded(

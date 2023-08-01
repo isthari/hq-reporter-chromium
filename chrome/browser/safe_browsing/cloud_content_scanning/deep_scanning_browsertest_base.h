@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -38,8 +38,8 @@ class DeepScanningBrowserTestBase : public InProcessBrowserTest {
 
   // Callbacks used to set up the fake delegate factory.
   enterprise_connectors::ContentAnalysisResponse StatusCallback(
+      const std::string& contents,
       const base::FilePath& path);
-  bool EncryptionStatusCallback(const base::FilePath& path);
 
   // Creates temporary files for testing in |temp_dir_|, and add them to |data|.
   void CreateFilesForTest(

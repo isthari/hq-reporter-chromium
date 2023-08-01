@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,7 +42,8 @@ ScriptPromise CustomLayoutChild::intrinsicSizes(
     return ScriptPromise();
   }
 
-  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(
+      script_state, exception_state.GetContext());
   CustomLayoutScope::Current()->Queue()->emplace_back(
       MakeGarbageCollected<CustomLayoutWorkTask>(
           this, token_, resolver,
@@ -83,7 +84,8 @@ ScriptPromise CustomLayoutChild::layoutNextFragment(
     }
   }
 
-  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(
+      script_state, exception_state.GetContext());
   CustomLayoutScope::Current()->Queue()->emplace_back(
       MakeGarbageCollected<CustomLayoutWorkTask>(
           this, token_, resolver, options, std::move(constraint_data),
@@ -92,6 +94,7 @@ ScriptPromise CustomLayoutChild::layoutNextFragment(
 }
 
 void CustomLayoutChild::Trace(Visitor* visitor) const {
+  visitor->Trace(node_);
   visitor->Trace(style_map_);
   visitor->Trace(token_);
   ScriptWrappable::Trace(visitor);

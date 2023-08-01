@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <memory>
 #include <string>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/values.h"
 #include "build/build_config.h"
@@ -88,8 +88,9 @@ class COMPONENT_EXPORT(PRINTING) PrintingContext {
   // default device settings.
   virtual mojom::ResultCode UseDefaultSettings() = 0;
 
-  // Updates the context with PDF printer settings.
-  mojom::ResultCode UsePdfSettings();
+  // Updates the context with PDF printer settings. The PDF settings are
+  // guaranteed to be valid.
+  void UsePdfSettings();
 
   // Returns paper size to be used for PDF or Cloud Print in device units.
   virtual gfx::Size GetPdfPaperSizeDeviceUnits() = 0;
@@ -98,9 +99,9 @@ class COMPONENT_EXPORT(PRINTING) PrintingContext {
   virtual mojom::ResultCode UpdatePrinterSettings(
       const PrinterSettings& printer_settings) = 0;
 
-  // Updates Print Settings. `job_settings` contains all print job
-  // settings information.
-  mojom::ResultCode UpdatePrintSettings(base::Value job_settings);
+  // Updates Print Settings. `job_settings` contains all print job settings
+  // information.
+  mojom::ResultCode UpdatePrintSettings(base::Value::Dict job_settings);
 
 #if BUILDFLAG(IS_CHROMEOS)
   // Updates Print Settings.
@@ -108,9 +109,16 @@ class COMPONENT_EXPORT(PRINTING) PrintingContext {
       std::unique_ptr<PrintSettings> job_settings);
 #endif
 
+  // Sets the print settings to `settings`.
+  void SetPrintSettings(const PrintSettings& settings);
+
   // Applies the print settings to this context.  Intended to be used only by
   // the Print Backend service process.
   void ApplyPrintSettings(const PrintSettings& settings);
+
+  // Set the printable area in print settings to be the default printable area.
+  // Intended to be used only for virtual printers.
+  void SetDefaultPrintableAreaForVirtualPrinters();
 
   // Does platform specific setup of the printer before the printing. Signal the
   // printer that a document is about to be spooled.

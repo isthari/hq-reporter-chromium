@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,7 @@
 #include "chrome/browser/apps/platform_apps/app_browsertest_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
-#include "content/public/browser/notification_service.h"
-#include "content/public/browser/notification_types.h"
+#include "components/services/app_service/public/cpp/app_launch_util.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/app_window/app_window_geometry_cache.h"
@@ -54,7 +53,7 @@ class GeometryCacheChangeHelper : AppWindowGeometryCache::Observer {
     content::RunMessageLoop();
   }
 
-  // Implements the content::NotificationObserver interface.
+  // Implements the AppWindowGeometryCache::Observer interface.
   void OnGeometryCacheChanged(const std::string& extension_id,
                               const std::string& window_id,
                               const gfx::Rect& bounds) override {
@@ -84,6 +83,11 @@ class GeometryCacheChangeHelper : AppWindowGeometryCache::Observer {
 // Helper class for tests related to the Apps Window API (chrome.app.window).
 class AppWindowAPITest : public extensions::PlatformAppBrowserTest {
  protected:
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    extensions::PlatformAppBrowserTest::SetUpCommandLine(command_line);
+    command_line->AppendSwitchASCII(::switches::kForceDeviceScaleFactor, "1.0");
+  }
+
   bool RunAppWindowAPITest(const char* testName) {
     if (!BeginAppWindowAPITest(testName))
       return false;
@@ -101,7 +105,8 @@ class AppWindowAPITest : public extensions::PlatformAppBrowserTest {
     if (!BeginAppWindowAPITest(testName))
       return false;
 
-    ExtensionTestMessageListener round_trip_listener("WaitForRoundTrip", true);
+    ExtensionTestMessageListener round_trip_listener("WaitForRoundTrip",
+                                                     ReplyBehavior::kWillReply);
     if (!round_trip_listener.WaitUntilSatisfied()) {
       message_ = "Did not get the 'WaitForRoundTrip' message.";
       return false;
@@ -120,7 +125,8 @@ class AppWindowAPITest : public extensions::PlatformAppBrowserTest {
 
  private:
   bool BeginAppWindowAPITest(const char* testName) {
-    ExtensionTestMessageListener launched_listener("Launched", true);
+    ExtensionTestMessageListener launched_listener("Launched",
+                                                   ReplyBehavior::kWillReply);
     LoadAndLaunchPlatformApp("window_api", &launched_listener);
     if (!launched_listener.WaitUntilSatisfied()) {
       message_ = "Did not get the 'Launched' message.";
@@ -216,11 +222,8 @@ IN_PROC_BROWSER_TEST_F(AppWindowAPITest,
   // test will check if the geometry cache entry for the test window has
   // changed. When the change happens, the test will let the app know so it can
   // continue running.
-  ExtensionTestMessageListener launched_listener("Launched", true);
-
-  content::WindowedNotificationObserver app_loaded_observer(
-      content::NOTIFICATION_LOAD_COMPLETED_MAIN_FRAME,
-      content::NotificationService::AllSources());
+  ExtensionTestMessageListener launched_listener("Launched",
+                                                 ReplyBehavior::kWillReply);
 
   const extensions::Extension* extension = LoadExtension(
       test_data_dir_.AppendASCII("platform_apps").AppendASCII("window_api"));
@@ -229,11 +232,11 @@ IN_PROC_BROWSER_TEST_F(AppWindowAPITest,
   apps::AppServiceProxyFactory::GetForProfile(browser()->profile())
       ->BrowserAppLauncher()
       ->LaunchAppWithParamsForTesting(apps::AppLaunchParams(
-          extension->id(), apps::mojom::LaunchContainer::kLaunchContainerNone,
-          WindowOpenDisposition::NEW_WINDOW,
-          apps::mojom::LaunchSource::kFromTest));
+          extension->id(), apps::LaunchContainer::kLaunchContainerNone,
+          WindowOpenDisposition::NEW_WINDOW, apps::LaunchSource::kFromTest));
 
-  ExtensionTestMessageListener geometry_listener("ListenGeometryChange", true);
+  ExtensionTestMessageListener geometry_listener("ListenGeometryChange",
+                                                 ReplyBehavior::kWillReply);
 
   ASSERT_TRUE(launched_listener.WaitUntilSatisfied());
   launched_listener.Reply("testRestoreAfterGeometryCacheChange");

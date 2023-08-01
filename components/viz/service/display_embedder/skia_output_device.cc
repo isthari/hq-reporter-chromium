@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,31 +7,47 @@
 #include <algorithm>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/check_op.h"
+#include "base/feature_list.h"
+#include "base/functional/bind.h"
 #include "base/notreached.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/task_features.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
-#include "components/viz/service/display/dc_layer_overlay.h"
 #include "gpu/command_buffer/service/memory_tracking.h"
 #include "gpu/command_buffer/service/skia_utils.h"
 #include "services/tracing/public/cpp/perfetto/flow_event_utils.h"
 #include "third_party/skia/include/core/SkDeferredDisplayList.h"
 #include "third_party/skia/include/core/SkSurface.h"
 #include "third_party/skia/include/gpu/GrDirectContext.h"
+#include "third_party/skia/include/gpu/graphite/Context.h"
+#include "third_party/skia/include/gpu/graphite/Recording.h"
 #include "ui/gfx/gpu_fence.h"
 #include "ui/gfx/presentation_feedback.h"
 #include "ui/latency/latency_tracker.h"
 
+#if BUILDFLAG(IS_WIN)
+#include "components/viz/service/display/dc_layer_overlay.h"
+#endif
+
 namespace viz {
 namespace {
+
+BASE_FEATURE(kAsyncGpuLatencyReporting,
+             "AsyncGpuLatencyReporting",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
 using ::perfetto::protos::pbzero::ChromeLatencyInfo;
 
 scoped_refptr<base::SequencedTaskRunner> CreateLatencyTracerRunner() {
   if (!base::ThreadPoolInstance::Get())
     return nullptr;
+
+  if (!base::FeatureList::IsEnabled(kAsyncGpuLatencyReporting))
+    return nullptr;
+
   return base::ThreadPool::CreateSequencedTaskRunner(
       {base::TaskPriority::BEST_EFFORT,
        base::TaskShutdownBehavior::SKIP_ON_SHUTDOWN});
@@ -91,19 +107,37 @@ bool SkiaOutputDevice::ScopedPaint::Draw(
   return device_->Draw(sk_surface_, std::move(ddl));
 }
 
+bool SkiaOutputDevice::ScopedPaint::Draw(
+    std::unique_ptr<skgpu::graphite::Recording> graphite_recording,
+    base::OnceClosure on_finished) {
+  return device_->Draw(sk_surface_, std::move(graphite_recording),
+                       std::move(on_finished));
+}
+
 SkiaOutputDevice::SkiaOutputDevice(
     GrDirectContext* gr_context,
+    skgpu::graphite::Context* graphite_context,
     gpu::MemoryTracker* memory_tracker,
     DidSwapBufferCompleteCallback did_swap_buffer_complete_callback)
     : gr_context_(gr_context),
+      graphite_context_(graphite_context),
       did_swap_buffer_complete_callback_(
           std::move(did_swap_buffer_complete_callback)),
       memory_type_tracker_(
           std::make_unique<gpu::MemoryTypeTracker>(memory_tracker)),
       latency_tracker_(std::make_unique<ui::LatencyTracker>()),
       latency_tracker_runner_(CreateLatencyTracerRunner()) {
-  DCHECK(gr_context);
-  capabilities_.max_render_target_size = gr_context->maxRenderTargetSize();
+  if (gr_context_) {
+    CHECK(!graphite_context_);
+    capabilities_.max_render_target_size = gr_context->maxRenderTargetSize();
+    capabilities_.max_texture_size = gr_context->maxTextureSize();
+  } else {
+    CHECK(graphite_context_);
+    // TODO(crbug.com/1434131): Determine correct texture/render_target size
+    // once Graphite exposes it.
+    capabilities_.max_render_target_size = 8192;
+    capabilities_.max_texture_size = 8192;
+  }
 }
 
 SkiaOutputDevice::~SkiaOutputDevice() {
@@ -112,9 +146,9 @@ SkiaOutputDevice::~SkiaOutputDevice() {
 }
 
 std::unique_ptr<SkiaOutputDevice::ScopedPaint>
-SkiaOutputDevice::BeginScopedPaint(bool allocate_frame_buffer) {
+SkiaOutputDevice::BeginScopedPaint() {
   std::vector<GrBackendSemaphore> end_semaphores;
-  SkSurface* sk_surface = BeginPaint(allocate_frame_buffer, &end_semaphores);
+  SkSurface* sk_surface = BeginPaint(&end_semaphores);
   if (!sk_surface) {
     return nullptr;
   }
@@ -122,29 +156,22 @@ SkiaOutputDevice::BeginScopedPaint(bool allocate_frame_buffer) {
       std::move(end_semaphores), this, sk_surface);
 }
 
+void SkiaOutputDevice::SetViewportSize(const gfx::Size& viewport_size) {}
+
 void SkiaOutputDevice::Submit(bool sync_cpu, base::OnceClosure callback) {
-  gr_context_->submit(sync_cpu);
+  if (gr_context_) {
+    gr_context_->submit(sync_cpu);
+  } else {
+    CHECK(graphite_context_);
+    graphite_context_->submit(sync_cpu ? skgpu::graphite::SyncToCpu::kYes
+                                       : skgpu::graphite::SyncToCpu::kNo);
+  }
   std::move(callback).Run();
 }
 
-void SkiaOutputDevice::CommitOverlayPlanes(BufferPresentedCallback feedback,
-                                           OutputSurfaceFrame frame) {
-  NOTREACHED();
-}
-
-void SkiaOutputDevice::PostSubBuffer(const gfx::Rect& rect,
-                                     BufferPresentedCallback feedback,
-                                     OutputSurfaceFrame frame) {
-  NOTREACHED();
-}
-
-bool SkiaOutputDevice::AllocateFrameBuffers(size_t n) {
+bool SkiaOutputDevice::EnsureMinNumberOfBuffers(size_t n) {
   NOTREACHED();
   return false;
-}
-
-void SkiaOutputDevice::ReleaseOneFrameBuffer() {
-  NOTREACHED();
 }
 
 bool SkiaOutputDevice::SetDrawRectangle(const gfx::Rect& draw_rectangle) {
@@ -372,6 +399,22 @@ bool SkiaOutputDevice::Draw(SkSurface* sk_surface,
   }
 #endif
   return sk_surface->draw(ddl);
+}
+
+bool SkiaOutputDevice::Draw(
+    SkSurface* sk_surface,
+    std::unique_ptr<skgpu::graphite::Recording> graphite_recording,
+    base::OnceClosure on_finished) {
+  CHECK(sk_surface);
+  CHECK(graphite_recording);
+  CHECK(graphite_context_);
+  skgpu::graphite::InsertRecordingInfo info;
+  info.fRecording = graphite_recording.get();
+  info.fTargetSurface = sk_surface;
+  if (on_finished) {
+    gpu::AddCleanupTaskForGraphiteRecording(std::move(on_finished), &info);
+  }
+  return graphite_context_->insertRecording(info);
 }
 
 }  // namespace viz

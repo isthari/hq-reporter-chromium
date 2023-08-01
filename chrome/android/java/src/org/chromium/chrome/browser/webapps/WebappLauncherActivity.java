@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,7 +24,6 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.IntentUtils;
 import org.chromium.base.Log;
@@ -35,6 +34,7 @@ import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntent
 import org.chromium.chrome.browser.browserservices.intents.WebappConstants;
 import org.chromium.chrome.browser.browserservices.intents.WebappIntentUtils;
 import org.chromium.chrome.browser.customtabs.BaseCustomTabActivity;
+import org.chromium.chrome.browser.customtabs.CustomTabLocator;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
 import org.chromium.chrome.browser.firstrun.FirstRunFlowSequencer;
 import org.chromium.components.webapk.lib.client.WebApkValidator;
@@ -109,7 +109,7 @@ public class WebappLauncherActivity extends Activity {
      */
     public static boolean bringWebappToFront(int tabId) {
         WeakReference<BaseCustomTabActivity> customTabActivity =
-                WebappLocator.findWebappActivityWithTabId(tabId);
+                CustomTabLocator.findCustomTabActivityWithTabId(tabId);
         if (customTabActivity == null || customTabActivity.get() == null) return false;
         customTabActivity.get().getWebContentsDelegate().activateContents();
         return true;
@@ -135,10 +135,12 @@ public class WebappLauncherActivity extends Activity {
     }
 
     @Override
+    @SuppressWarnings("UnsafeIntentLaunch")
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         long createTimestamp = SystemClock.elapsedRealtime();
+        // Triggers UnsafeIntentLaunch lint warning. https://crbug.com/1412281
         Intent intent = getIntent();
 
         if (WebappActionsNotificationManager.handleNotificationAction(intent)) {
@@ -162,8 +164,7 @@ public class WebappLauncherActivity extends Activity {
             return;
         }
 
-        if (FirstRunFlowSequencer.launch(this, intent, false /* requiresBroadcast */,
-                    shouldPreferLightweightFre(launchData))) {
+        if (FirstRunFlowSequencer.launch(this, intent, shouldPreferLightweightFre(launchData))) {
             // Do not remove the current task. The full FRE reuses the task due to
             // android:launchMode arguments, while the LWFRE does not. So removing the task would
             // break the full FRE. The LWFRE will still clean up the task since this is the only
@@ -240,7 +241,7 @@ public class WebappLauncherActivity extends Activity {
 
         IntentUtils.safeStartActivity(launchingActivity, launchIntent);
         if (IntentUtils.isIntentForNewTaskOrNewDocument(launchIntent)) {
-            ApiCompatibilityUtils.finishAndRemoveTask(launchingActivity);
+            launchingActivity.finishAndRemoveTask();
         } else {
             launchingActivity.finish();
             launchingActivity.overridePendingTransition(0, R.anim.no_anim);
@@ -265,7 +266,7 @@ public class WebappLauncherActivity extends Activity {
                 sourceIntent, launchData.webApkPackageName, launchData.url);
         launchAfterDelay(
                 launchingActivity.getApplicationContext(), launchIntent, WEBAPK_LAUNCH_DELAY_MS);
-        ApiCompatibilityUtils.finishAndRemoveTask(launchingActivity);
+        launchingActivity.finishAndRemoveTask();
     }
 
     /** Extracts start URL from source intent and launches URL in Chrome tab. */
@@ -287,7 +288,7 @@ public class WebappLauncherActivity extends Activity {
         Log.e(TAG, "Shortcut (%s) opened in Chrome.", webappUrl);
 
         IntentUtils.safeStartActivity(appContext, launchIntent);
-        ApiCompatibilityUtils.finishAndRemoveTask(launchingActivity);
+        launchingActivity.finishAndRemoveTask();
     }
 
     /**

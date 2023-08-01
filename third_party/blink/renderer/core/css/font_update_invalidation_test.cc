@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -236,7 +236,6 @@ TEST_F(FontUpdateInvalidationTest, LayoutInvalidationOnModalDialog) {
   main_resource.Finish();
 }
 
-// https://crbug.com/1101483
 TEST_F(FontUpdateInvalidationTest, FallbackBetweenPendingAndLoadedCustomFonts) {
   SimRequest main_resource("https://example.com", "text/html");
   SimSubresourceRequest slow_font_resource("https://example.com/nonexist.woff2",

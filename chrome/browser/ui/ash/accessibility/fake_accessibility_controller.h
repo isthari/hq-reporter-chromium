@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -64,8 +64,8 @@ class FakeAccessibilityController : ash::AccessibilityController {
   void DisableSwitchAccessDisableConfirmationDialogTesting() override;
   void UpdateDictationButtonOnSpeechRecognitionDownloadChanged(
       int download_progress) override;
-  void ShowSpeechRecognitionDownloadNotificationForDictation(
-      bool succeeded,
+  void ShowNotificationForDictation(
+      ash::DictationNotificationType type,
       const std::u16string& display_language) override;
   void UpdateDictationBubble(
       bool visible,
@@ -73,6 +73,7 @@ class FakeAccessibilityController : ash::AccessibilityController {
       const absl::optional<std::u16string>& text,
       const absl::optional<std::vector<ash::DictationBubbleHintType>>& hints)
       override;
+  void SilenceSpokenFeedback() override;
 
  private:
   bool was_client_set_ = false;

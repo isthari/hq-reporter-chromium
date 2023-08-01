@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,13 +11,20 @@
 
 #include "ash/ambient/ambient_access_token_controller.h"
 #include "ash/ambient/ambient_controller.h"
-#include "ash/ambient/test/test_ambient_client.h"
+#include "ash/ambient/ui/ambient_animation_view.h"
 #include "ash/ambient/ui/ambient_background_image_view.h"
-#include "ash/public/cpp/ambient/ambient_animation_theme.h"
+#include "ash/ambient/ui/ambient_info_view.h"
+#include "ash/ambient/ui/photo_view.h"
+#include "ash/constants/ambient_theme.h"
 #include "ash/public/cpp/ambient/proto/photo_cache_entry.pb.h"
 #include "ash/public/cpp/test/test_image_downloader.h"
 #include "ash/test/ash_test_base.h"
+#include "ash/test/test_ash_web_view_factory.h"
+#include "base/functional/callback.h"
+#include "base/time/time.h"
+#include "chromeos/ash/components/login/auth/auth_events_recorder.h"
 #include "services/media_session/public/mojom/media_session.mojom.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
 
@@ -29,9 +36,20 @@ namespace ash {
 
 class AmbientAccessTokenController;
 class AmbientContainerView;
+class AmbientManagedPhotoController;
 class AmbientPhotoController;
+class AmbientUiSettings;
 class FakeAmbientBackendControllerImpl;
 class MediaStringView;
+class ScreensaverImagesPolicyHandler;
+
+namespace {
+
+// The default factor to multiply ambient timeouts by. Slightly greater than 1
+// to reduce flakiness by making sure the timeouts have expired.
+inline constexpr float kDefaultFastForwardFactor = 1.001;
+
+}  // namespace
 
 // The base class to test the Ambient Mode in Ash.
 class AmbientAshTestBase : public AshTestBase {
@@ -46,15 +64,26 @@ class AmbientAshTestBase : public AshTestBase {
   // Enables/disables ambient mode for the currently active user session.
   void SetAmbientModeEnabled(bool enabled);
 
-  // Sets the AmbientAnimationTheme to use when ShowAmbientScreen() is called.
-  // To reflect real world usage, the incoming |theme| does not take effect
+  // Enables/disables the managed ambient mode pref in the currently active pref
+  // service.
+  void SetAmbientModeManagedScreensaverEnabled(bool enabled);
+
+  // Sets the |AmbientUiSettings| to use when ShowAmbientScreen() is called.
+  // To reflect real world usage, the incoming settings do not take effect
   // immediately if the test is currently displaying the ambient screen. In that
-  // case, the ambient screen must be closed, and the new |theme| will take
+  // case, the ambient screen must be closed, and the new settings will take
   // effect with the next call to ShowAmbientScreen().
-  void SetAmbientAnimationTheme(AmbientAnimationTheme theme);
+  void SetAmbientUiSettings(const AmbientUiSettings& settings);
+
+  // Convenient form of the above that only sets |AmbientUiSettings::theme| and
+  // leaves the rest of the settings unset.
+  void SetAmbientTheme(AmbientTheme theme);
+
+  // Sets jitters configs to zero for pixel testing.
+  void DisableJitter();
 
   // Creates ambient screen in its own widget.
-  void ShowAmbientScreen();
+  void SetAmbientShownAndWaitForWidgets();
 
   // Hides ambient screen. Can only be called after |ShowAmbientScreen| has been
   // called.
@@ -96,6 +125,9 @@ class AmbientAshTestBase : public AshTestBase {
   // Wait until the event has been processed.
   void SetScreenIdleStateAndWait(bool is_screen_dimmed, bool is_off);
 
+  // Simulates clicking the power button.
+  void SimulatePowerButtonClick();
+
   void SimulateMediaMetadataChanged(media_session::MediaMetadata metadata);
 
   void SimulateMediaPlaybackStateChanged(
@@ -104,27 +136,39 @@ class AmbientAshTestBase : public AshTestBase {
   // Set the size of the next image that will be loaded.
   void SetDecodedPhotoSize(int width, int height);
 
+  // Set the color of the next image that will be loaded.
+  void SetDecodedPhotoColor(SkColor color);
+
   void SetPhotoOrientation(bool portrait);
 
   void SetPhotoTopicType(::ambient::TopicType topic_type);
 
   // Advance the task environment timer to expire the lock screen inactivity
-  // timer.
-  void FastForwardToLockScreenTimeout();
+  // timer, scaled by `factor`.
+  void FastForwardByLockScreenInactivityTimeout(
+      float factor = kDefaultFastForwardFactor);
 
-  // Advance the task environment timer to load the next photo.
-  void FastForwardToNextImage();
+  // Approximately how much of the lock screen inactivity timeout is left.
+  // Bounded to [0,1], 1 meaning that the timer just started. If the lock screen
+  // inactivity timer is not running, returns null.
+  absl::optional<float> GetRemainingLockScreenTimeoutFraction();
+
+  // Advance the task environment timer to load the next photo, scaled by
+  // `factor`.
+  void FastForwardByPhotoRefreshInterval(
+      float factor = kDefaultFastForwardFactor);
 
   // Advance the task environment timer a tiny amount. This is intended to
   // trigger any pending async operations.
   void FastForwardTiny();
 
   // Advance the task environment timer to load the weather info.
-  void FastForwardToRefreshWeather();
+  void FastForwardByWeatherRefreshInterval();
 
-  // Advance the task environment timer to ambient mode lock screen delay.
-  void FastForwardToBackgroundLockScreenTimeout();
-  void FastForwardHalfLockScreenDelay();
+  // Advance the task environment timer to ambient mode lock screen delay,
+  // scaled by `factor`.
+  void FastForwardByBackgroundLockScreenTimeout(
+      float factor = kDefaultFastForwardFactor);
 
   void SetPowerStateCharging();
   void SetPowerStateDischarging();
@@ -153,6 +197,10 @@ class AmbientAshTestBase : public AshTestBase {
   std::vector<MediaStringView*> GetMediaStringViews();
   // Returns the media string view for the default display.
   MediaStringView* GetMediaStringView();
+  PhotoView* GetPhotoView();
+  AmbientAnimationView* GetAmbientAnimationView();
+  AmbientInfoView* GetAmbientInfoView();
+  AmbientSlideshowPeripheralUi* GetAmbientSlideshowPeripheralUi();
 
   const std::map<int, ::ambient::PhotoCacheEntry>& GetCachedFiles();
   const std::map<int, ::ambient::PhotoCacheEntry>& GetBackupCachedFiles();
@@ -161,7 +209,13 @@ class AmbientAshTestBase : public AshTestBase {
 
   AmbientPhotoController* photo_controller();
 
+  AmbientManagedPhotoController* managed_photo_controller();
+
+  ScreensaverImagesPolicyHandler* managed_policy_handler();
+
   AmbientPhotoCache* photo_cache();
+
+  AmbientWeatherController* weather_controller();
 
   // Returns the top-level views which contains all the ambient components.
   std::vector<AmbientContainerView*> GetContainerViews();
@@ -188,10 +242,27 @@ class AmbientAshTestBase : public AshTestBase {
 
   void SetDecodePhotoImage(const gfx::ImageSkia& image);
 
+  void SetPhotoDownloadDelay(base::TimeDelta delay);
+
+  void CreateTestImageJpegFile(base::FilePath path,
+                               size_t width,
+                               size_t height,
+                               SkColor color);
+  void DisableBackupCacheDownloads();
+
+  void SetScreenSaverDuration(int minutes);
+
+  int GetScreenSaverDuration();
+
  private:
+  void SpinWaitForAmbientViewAvailable(
+      const base::RepeatingClosure& quit_closure);
+
+  TestAshWebViewFactory web_view_factory_;
   std::unique_ptr<views::Widget> widget_;
   power_manager::PowerSupplyProperties proto_;
   TestImageDownloader image_downloader_;
+  std::unique_ptr<ash::AuthEventsRecorder> recorder_;
 };
 
 }  // namespace ash

@@ -1,9 +1,13 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/system/ime/ime_feature_pod_controller.h"
 
+#include <string>
+
+#include "ash/constants/ash_features.h"
+#include "ash/constants/quick_settings_catalogs.h"
 #include "ash/ime/ime_controller_impl.h"
 #include "ash/keyboard/ui/keyboard_util.h"
 #include "ash/resources/vector_icons/vector_icons.h"
@@ -11,7 +15,10 @@
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/system/tray/system_tray_notifier.h"
 #include "ash/system/unified/feature_pod_button.h"
+#include "ash/system/unified/feature_tile.h"
+#include "ash/system/unified/quick_settings_metrics_util.h"
 #include "ash/system/unified/unified_system_tray_controller.h"
+#include "base/functional/bind.h"
 #include "ui/base/l10n/l10n_util.h"
 
 namespace ash {
@@ -64,22 +71,44 @@ IMEFeaturePodController::~IMEFeaturePodController() {
 }
 
 FeaturePodButton* IMEFeaturePodController::CreateButton() {
+  DCHECK(!features::IsQsRevampEnabled());
   button_ = new FeaturePodButton(this, /*is_togglable=*/false);
   button_->SetVectorIcon(kUnifiedMenuKeyboardIcon);
   button_->SetLabel(l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_IME_SHORT));
   button_->SetIconAndLabelTooltips(GetTooltipString());
   button_->ShowDetailedViewArrow();
   button_->DisableLabelButtonFocus();
+  // Init the button with invisible state. The `Update` method will update the
+  // visibility based on the current condition.
+  button_->SetVisible(false);
   Update();
   return button_;
 }
 
-void IMEFeaturePodController::OnIconPressed() {
-  tray_controller_->ShowIMEDetailedView();
+std::unique_ptr<FeatureTile> IMEFeaturePodController::CreateTile(bool compact) {
+  DCHECK(features::IsQsRevampEnabled());
+  auto tile = std::make_unique<FeatureTile>(
+      base::BindRepeating(&IMEFeaturePodController::OnIconPressed,
+                          weak_factory_.GetWeakPtr()),
+      /*is_togglable=*/false);
+  tile_ = tile.get();
+  tile_->SetVectorIcon(kUnifiedMenuKeyboardIcon);
+  tile_->SetLabel(l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_IME_SHORT));
+  tile_->SetTooltipText(GetTooltipString());
+  tile_->CreateDecorativeDrillInArrow();
+  // `Update` will update the visibility.
+  tile_->SetVisible(false);
+  Update();
+  return tile;
 }
 
-SystemTrayItemUmaType IMEFeaturePodController::GetUmaType() const {
-  return SystemTrayItemUmaType::UMA_IME;
+QsFeatureCatalogName IMEFeaturePodController::GetCatalogName() {
+  return QsFeatureCatalogName::kIME;
+}
+
+void IMEFeaturePodController::OnIconPressed() {
+  TrackDiveInUMA();
+  tray_controller_->ShowIMEDetailedView();
 }
 
 void IMEFeaturePodController::OnIMERefresh() {
@@ -91,8 +120,27 @@ void IMEFeaturePodController::OnIMEMenuActivationChanged(bool is_active) {
 }
 
 void IMEFeaturePodController::Update() {
-  button_->SetSubLabel(GetLabelString());
-  button_->SetVisible(IsButtonVisible());
+  bool is_button_visible = IsButtonVisible();
+  const std::u16string tooltip = GetTooltipString();
+  if (features::IsQsRevampEnabled()) {
+    tile_->SetSubLabel(GetLabelString());
+    tile_->SetTooltipText(tooltip);
+    // If the tile's visibility changes from invisible to visible, log its
+    // visibility.
+    if (!tile_->GetVisible() && is_button_visible) {
+      TrackVisibilityUMA();
+    }
+    tile_->SetVisible(is_button_visible);
+  } else {
+    button_->SetSubLabel(GetLabelString());
+    button_->SetLabelTooltip(tooltip);
+    // If the button's visibility changes from invisible to visible, log its
+    // visibility.
+    if (!button_->GetVisible() && is_button_visible) {
+      TrackVisibilityUMA();
+    }
+    button_->SetVisible(is_button_visible);
+  }
 }
 
 }  // namespace ash

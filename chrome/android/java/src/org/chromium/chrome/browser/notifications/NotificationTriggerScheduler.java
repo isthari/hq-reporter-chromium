@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -80,14 +80,6 @@ public class NotificationTriggerScheduler {
 
         long delay = Math.max(nextTrigger - now, 0);
         NotificationTriggerBackgroundTask.schedule(nextTrigger, delay);
-    }
-
-    /**
-     * Method for rescheduling a background task to wake up Chrome for processing notification
-     * trigger events in the event of an OS upgrade or Google Play Services upgrade.
-     */
-    public void reschedule() {
-        schedule(mClock.currentTimeMillis() + RESCHEDULE_DELAY_TIME);
     }
 
     /**

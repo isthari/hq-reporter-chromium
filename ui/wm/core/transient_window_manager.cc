@@ -1,14 +1,17 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ui/wm/core/transient_window_manager.h"
 
-#include <algorithm>
 #include <functional>
 
 #include "base/auto_reset.h"
+#include "base/containers/adapters.h"
 #include "base/containers/contains.h"
+#include "base/memory/ptr_util.h"
+#include "base/observer_list.h"
+#include "base/ranges/algorithm.h"
 #include "ui/aura/client/transient_window_client.h"
 #include "ui/aura/client/transient_window_client_observer.h"
 #include "ui/aura/window.h"
@@ -26,21 +29,21 @@ DEFINE_UI_CLASS_PROPERTY_TYPE(::wm::TransientWindowManager*)
 namespace wm {
 namespace {
 
-DEFINE_OWNED_UI_CLASS_PROPERTY_KEY(TransientWindowManager, kPropertyKey, NULL)
+DEFINE_OWNED_UI_CLASS_PROPERTY_KEY(TransientWindowManager,
+                                   kPropertyKey,
+                                   nullptr)
 
 }  // namespace
 
-TransientWindowManager::~TransientWindowManager() {
-}
+TransientWindowManager::~TransientWindowManager() = default;
 
 // static
 TransientWindowManager* TransientWindowManager::GetOrCreate(Window* window) {
-  TransientWindowManager* manager = window->GetProperty(kPropertyKey);
-  if (!manager) {
-    manager = new TransientWindowManager(window);
-    window->SetProperty(kPropertyKey, manager);
-  }
-  return manager;
+  if (auto* manager = window->GetProperty(kPropertyKey))
+    return manager;
+  // Using WrapUnique due to private constructor.
+  return window->SetProperty(
+      kPropertyKey, base::WrapUnique(new TransientWindowManager(window)));
 }
 
 // static
@@ -89,8 +92,7 @@ void TransientWindowManager::AddTransientChild(Window* child) {
 }
 
 void TransientWindowManager::RemoveTransientChild(Window* child) {
-  auto i =
-      std::find(transient_children_.begin(), transient_children_.end(), child);
+  auto i = base::ranges::find(transient_children_, child);
   DCHECK(i != transient_children_.end());
   transient_children_.erase(i);
   TransientWindowManager* child_manager = GetOrCreate(child);
@@ -141,13 +143,14 @@ void TransientWindowManager::RestackTransientDescendants() {
   // |window_|. The existing stacking order is preserved by iterating backwards
   // and always stacking on top.
   Window::Windows children(parent->children());
-  for (auto it = children.rbegin(); it != children.rend(); ++it) {
-    if ((*it) != window_ && HasTransientAncestor(*it, window_)) {
-      TransientWindowManager* descendant_manager = GetOrCreate(*it);
+  for (auto* child_window : base::Reversed(children)) {
+    if (child_window != window_ &&
+        HasTransientAncestor(child_window, window_)) {
+      TransientWindowManager* descendant_manager = GetOrCreate(child_window);
       base::AutoReset<Window*> resetter(
           &descendant_manager->stacking_target_,
           window_);
-      parent->StackChildAbove((*it), window_);
+      parent->StackChildAbove(child_window, window_);
     }
   }
 }
@@ -235,8 +238,7 @@ void TransientWindowManager::OnWindowStackingChanged(Window* window) {
   // Do nothing if we initiated the stacking change.
   const TransientWindowManager* transient_manager = GetIfExists(window);
   if (transient_manager && transient_manager->stacking_target_) {
-    auto window_i = std::find(window->parent()->children().begin(),
-                              window->parent()->children().end(), window);
+    auto window_i = base::ranges::find(window->parent()->children(), window);
     DCHECK(window_i != window->parent()->children().end());
     if (window_i != window->parent()->children().begin() &&
         (*(window_i - 1) == transient_manager->stacking_target_))

@@ -1,10 +1,11 @@
-# Copyright 2016 The Chromium Authors. All rights reserved.
+# Copyright 2016 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
 import("//build/buildflag_header.gni")
 import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/features.gni")
+import("//build/config/logging.gni")
 import("//build/config/ui.gni")
 import("//gpu/vulkan/features.gni")
 import("//media/gpu/args.gni")
@@ -24,6 +25,15 @@ buildflag_header("buildflags") {
   ]
 }
 
+if (is_android) {
+  generate_stubs("mediacodec_stubs") {
+    extra_header = "android/mediacodec.fragment"
+    sigs = [ "android/mediacodec.sigs" ]
+    output_name = "android/mediacodec_stubs"
+    deps = [ "//base" ]
+  }
+}
+
 component("gpu") {
   output_name = "media_gpu"
 
@@ -41,11 +51,14 @@ component("gpu") {
     "//components/viz/service/main",
     "//content/gpu:*",
     "//content/renderer:*",
+    "//media/audio:unit_tests",
     "//media/gpu/ipc/*",
     "//media/gpu/test/*",
     "//media/gpu/vaapi/*",
     "//media/mojo/*",
     "//remoting/codec:encoder",
+    "//third_party/blink/renderer/modules:unit_tests",
+    "//ui/gl:gl_unittests",
 
     # TODO(crbug.com/1184041): Remove //remoting/host:common when the usage is removed.
     "//remoting/host:common",
@@ -58,6 +71,10 @@ component("gpu") {
   }
 
   defines = [ "MEDIA_GPU_IMPLEMENTATION" ]
+  if (!use_runtime_vlog) {
+    # Enable VLOG(1) when using build time VLOG.
+    defines += [ "ENABLED_VLOG_LEVEL=1" ]
+  }
 
   sources = [
     "gpu_video_accelerator_util.cc",
@@ -87,6 +104,9 @@ component("gpu") {
   ]
   libs = []
   ldflags = []
+
+  # V4L2 and VAAPI for video acceleration should not be enabled simultaneously.
+  assert(!(use_v4l2_codec && use_vaapi))
 
   # TODO(crbug.com/1006266): consider using |use_chromeos_video_acceleration|.
   if (use_v4l2_codec || use_vaapi) {
@@ -132,6 +152,9 @@ component("gpu") {
       "android/maybe_render_early_manager.h",
       "android/media_codec_video_decoder.cc",
       "android/media_codec_video_decoder.h",
+      "android/ndk_constants.cc",
+      "android/ndk_video_encode_accelerator.cc",
+      "android/ndk_video_encode_accelerator.h",
       "android/pooled_shared_image_video_provider.cc",
       "android/pooled_shared_image_video_provider.h",
       "android/promotion_hint_aggregator.h",
@@ -141,13 +164,21 @@ component("gpu") {
       "android/shared_image_video_provider.h",
       "android/surface_chooser_helper.cc",
       "android/surface_chooser_helper.h",
+      "android/video_accelerator_util.cc",
+      "android/video_accelerator_util.h",
       "android/video_frame_factory.h",
       "android/video_frame_factory_impl.cc",
       "android/video_frame_factory_impl.h",
     ]
+    defines += [
+      # We need to reference functions and constants from NDK API levels
+      # beyond the one Chromium compiles with by default.
+      # Therefore relax the verification of functions and constants.
+      "__ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__",
+    ]
     libs += [ "android" ]
     deps += [
-      "//gpu/ipc/common:android_image_reader_utils",
+      ":mediacodec_stubs",
 
       # TODO(crbug.com/789435): This can be removed once CdmManager is removed.
       "//gpu/ipc/common",
@@ -171,6 +202,10 @@ component("gpu") {
     ]
   }
 
+  if (is_fuchsia) {
+    public_deps += [ "//media/fuchsia/video" ]
+  }
+
   if (is_win) {
     sources += [
       "windows/av1_guids.h",
@@ -185,7 +220,6 @@ component("gpu") {
       "windows/d3d11_h264_accelerator.h",
       "windows/d3d11_picture_buffer.cc",
       "windows/d3d11_picture_buffer.h",
-      "windows/d3d11_status.cc",
       "windows/d3d11_status.h",
       "windows/d3d11_texture_selector.cc",
       "windows/d3d11_texture_selector.h",
@@ -206,22 +240,51 @@ component("gpu") {
       "windows/d3d11_vp9_accelerator.h",
       "windows/d3d11_vp9_picture.cc",
       "windows/d3d11_vp9_picture.h",
+      "windows/d3d_accelerator.cc",
+      "windows/d3d_accelerator.h",
       "windows/dxva_picture_buffer_win.cc",
       "windows/dxva_picture_buffer_win.h",
       "windows/dxva_video_decode_accelerator_win.cc",
       "windows/dxva_video_decode_accelerator_win.h",
+      "windows/gl_image_egl_stream.cc",
+      "windows/gl_image_egl_stream.h",
+      "windows/gl_image_pbuffer.cc",
+      "windows/gl_image_pbuffer.h",
       "windows/init_guid.cc",
       "windows/media_foundation_video_encode_accelerator_win.cc",
       "windows/media_foundation_video_encode_accelerator_win.h",
+      "windows/mf_audio_encoder.cc",
+      "windows/mf_audio_encoder.h",
       "windows/supported_profile_helpers.cc",
       "windows/supported_profile_helpers.h",
+      "windows/video_rate_control_wrapper.h",
+      "windows/vp9_video_rate_control_wrapper.cc",
+      "windows/vp9_video_rate_control_wrapper.h",
     ]
-    configs += [ "//third_party/khronos:khronos_headers" ]
-    public_deps += [ "//media/base/win:media_foundation_util" ]
+    if (enable_hevc_parser_and_hw_decoder) {
+      sources += [
+        "windows/d3d11_h265_accelerator.cc",
+        "windows/d3d11_h265_accelerator.h",
+      ]
+    }
+    if (enable_libaom) {
+      sources += [
+        "windows/av1_video_rate_control_wrapper.cc",
+        "windows/av1_video_rate_control_wrapper.h",
+      ]
+      configs += [ "//third_party/libaom:libaom_config" ]
+      deps += [ "//third_party/libaom:libaomrc" ]
+    }
+    configs += [
+      "//third_party/khronos:khronos_headers",
+      "//third_party/libvpx:libvpx_config",
+    ]
     deps += [
       "//gpu/ipc/common:common",
+      "//media/base/win:color_space_util_win",
       "//media/parsers",
       "//third_party/angle:includes",
+      "//third_party/libvpx:libvpxrc",
       "//ui/display",
     ]
     libs += [
@@ -251,8 +314,6 @@ source_set("common") {
   defines = [ "MEDIA_GPU_IMPLEMENTATION" ]
   sources = [
     "accelerated_video_decoder.h",
-    "buffer_validation.cc",
-    "buffer_validation.h",
     "codec_picture.cc",
     "codec_picture.h",
     "gpu_video_decode_accelerator_helpers.cc",
@@ -272,7 +333,7 @@ source_set("common") {
     "vp9_reference_frame_vector.h",
   ]
 
-  if (enable_platform_hevc_decoding) {
+  if (enable_hevc_parser_and_hw_decoder) {
     sources += [
       "h265_decoder.cc",
       "h265_decoder.h",
@@ -313,13 +374,16 @@ source_set("common") {
 
   if (is_win || use_vaapi) {
     sources += [
+      "video_rate_control.cc",
+      "video_rate_control.h",
       "vp9_svc_layers.cc",
       "vp9_svc_layers.h",
-      "vpx_rate_control.cc",
-      "vpx_rate_control.h",
     ]
     configs += [ "//third_party/libvpx:libvpx_config" ]
-    deps += [ "//third_party/libvpx:libvpxrc" ]
+    deps += [
+      "//third_party/libaom:libaomrc",
+      "//third_party/libvpx:libvpxrc",
+    ]
   }
   if (use_libgav1_parser) {
     sources += [
@@ -328,8 +392,23 @@ source_set("common") {
       "av1_picture.cc",
       "av1_picture.h",
     ]
-    public_deps += [ "//third_party/libgav1:libgav1" ]
+    public_deps += [ "//third_party/libgav1:libgav1_parser" ]
   }
+}
+
+# The buffer validation functionality is in its own component so that it can be
+# depended on without pulling the entire //media/gpu target.
+component("buffer_validation") {
+  defines = [ "IS_MEDIA_GPU_BUFFER_VALIDATION_IMPL" ]
+  sources = [
+    "buffer_validation.cc",
+    "buffer_validation.h",
+  ]
+
+  public_deps = [
+    "//base",
+    "//media",
+  ]
 }
 
 source_set("command_buffer_helper") {
@@ -337,9 +416,16 @@ source_set("command_buffer_helper") {
   sources = [
     "command_buffer_helper.cc",
     "command_buffer_helper.h",
-    "gles2_decoder_helper.cc",
-    "gles2_decoder_helper.h",
   ]
+
+  if (!is_android) {
+    # This code is used only by the legacy VDA implementation, which is not
+    # supported on Android.
+    sources += [
+      "gles2_decoder_helper.cc",
+      "gles2_decoder_helper.h",
+    ]
+  }
 
   public_deps = [
     "//base",
@@ -444,6 +530,7 @@ source_set("android_video_decode_accelerator_unittests") {
       "android/mock_promotion_hint_aggregator.h",
       "android/mock_shared_image_video_provider.cc",
       "android/mock_shared_image_video_provider.h",
+      "android/ndk_video_encode_accelerator_tests.cc",
       "android/pooled_shared_image_video_provider_unittest.cc",
       "android/promotion_hint_aggregator_impl_unittest.cc",
       "android/surface_chooser_helper_unittest.cc",
@@ -458,6 +545,7 @@ source_set("android_video_decode_accelerator_unittests") {
       "//media:test_support",
       "//testing/gmock",
       "//testing/gtest",
+      "//third_party/libyuv:libyuv",
       "//ui/gl",
       "//ui/gl/init",
     ]
@@ -493,10 +581,17 @@ source_set("unit_tests") {
     "//ui/gl:test_support",
   ]
   sources = [ "h264_decoder_unittest.cc" ]
-  if (enable_platform_hevc_decoding) {
+  if (enable_hevc_parser_and_hw_decoder) {
     sources += [ "h265_decoder_unittest.cc" ]
   }
-  if (is_chromeos_ash && (use_v4l2_codec || use_vaapi)) {
+  if (is_linux || is_chromeos) {
+    sources += [ "buffer_validation_unittest.cc" ]
+
+    deps += [ ":buffer_validation" ]
+  }
+
+  # TODO(b/219079009): consider running these tests without VA-API or V4L2.
+  if (is_chromeos && (use_v4l2_codec || use_vaapi)) {
     deps += [ "//media/gpu/chromeos:unit_tests" ]
   }
   if (use_vaapi) {
@@ -511,7 +606,7 @@ source_set("unit_tests") {
     sources += [ "vp8_decoder_unittest.cc" ]
   }
 
-  if (use_libgav1_parser) {
+  if (use_libgav1_parser && media_use_ffmpeg) {
     sources += [ "av1_decoder_unittest.cc" ]
     deps += [
       "//build:chromeos_buildflags",
@@ -519,7 +614,7 @@ source_set("unit_tests") {
     ]
   }
 
-  if (is_win && enable_library_cdms) {
+  if (is_win) {
     sources += [
       "windows/d3d11_copying_texture_wrapper_unittest.cc",
       "windows/d3d11_decoder_configurator_unittest.cc",
@@ -543,80 +638,7 @@ source_set("unit_tests") {
   }
 }
 
-# TODO(crbug.com/1006266): consider using |use_chromeos_video_acceleration|.
-if (use_v4l2_codec || use_vaapi) {
-  test("video_decode_accelerator_tests") {
-    assert(enable_av1_decoder)
-    testonly = true
-    sources = [ "video_decode_accelerator_tests.cc" ]
-    data = [ "//media/test/data/" ]
-    deps = [
-      ":buildflags",
-      "test:frame_file_writer",
-      "test:frame_validator",
-      "test:helpers",
-      "test:test_helpers",
-      "test:video_player",
-      "test:video_player_test_environment",
-      "test:video_player_thumbnail_renderer",
-      "//media:test_support",
-      "//testing/gtest",
-    ]
-  }
-
-  test("video_decode_accelerator_perf_tests") {
-    testonly = true
-    sources = [ "video_decode_accelerator_perf_tests.cc" ]
-    data = [ "//media/test/data/" ]
-    deps = [
-      ":buildflags",
-      "test:helpers",
-      "test:video_player",
-      "test:video_player_test_environment",
-      "//media:test_support",
-      "//sandbox/linux:sandbox_services",
-      "//testing/gtest",
-    ]
-  }
-
-  test("video_encode_accelerator_tests") {
-    testonly = true
-    sources = [ "video_encode_accelerator_tests.cc" ]
-    data = [ "//media/test/data/" ]
-    deps = [
-      ":buildflags",
-      ":common",
-      "test:frame_file_writer",
-      "test:frame_validator",
-      "test:helpers",
-      "test:test_helpers",
-      "test:video_encoder",
-      "test:video_encoder_test_environment",
-      "//media:test_support",
-      "//testing/gtest",
-    ]
-  }
-
-  test("video_encode_accelerator_perf_tests") {
-    testonly = true
-    sources = [ "video_encode_accelerator_perf_tests.cc" ]
-    data = [ "//media/test/data/" ]
-    deps = [
-      ":buildflags",
-      ":common",
-      "test:frame_validator",
-      "test:helpers",
-      "test:test_helpers",
-      "test:video_encoder",
-      "test:video_encoder_test_environment",
-      "test:video_encoder_test_environment",
-      "//media:test_support",
-      "//testing/gtest",
-    ]
-  }
-}
-
-if (enable_platform_hevc_decoding) {
+if (enable_hevc_parser_and_hw_decoder) {
   fuzzer_test("media_h265_decoder_fuzzer") {
     sources = [ "h265_decoder_fuzzertest.cc" ]
     deps = [

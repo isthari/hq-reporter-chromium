@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,9 @@
 
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/style/ash_color_provider.h"
-#include "ash/wm/desks/desk_mini_view.h"
 #include "ash/wm/desks/desk_preview_view.h"
-#include "ash/wm/desks/desks_bar_view.h"
-#include "base/bind.h"
+#include "ash/wm/desks/legacy_desk_bar_view.h"
+#include "base/functional/bind.h"
 #include "ui/compositor/layer.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/paint_vector_icon.h"
@@ -23,7 +22,7 @@ namespace ash {
 
 ScrollArrowButton::ScrollArrowButton(base::RepeatingClosure on_scroll,
                                      bool is_left_arrow,
-                                     DesksBarView* bar_view)
+                                     DeskBarViewBase* bar_view)
     : on_scroll_(std::move(on_scroll)),
       state_change_subscription_(AddStateChangedCallback(
           base::BindRepeating(&ScrollArrowButton::OnStateChanged,

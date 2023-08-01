@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 #include "base/memory/raw_ptr.h"
 #include "base/test/values_test_util.h"
 #include "chrome/browser/media/router/test/provider_test_helpers.h"
-#include "components/cast_channel/cast_message_util.h"
-#include "components/cast_channel/cast_test_util.h"
+#include "components/media_router/common/providers/cast/channel/cast_message_util.h"
+#include "components/media_router/common/providers/cast/channel/cast_test_util.h"
 #include "components/media_router/common/test/test_helper.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -17,7 +17,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 using base::test::IsJson;
-using base::test::ParseJson;
+using base::test::ParseJsonDict;
 using cast_channel::kMediaNamespace;
 using cast_channel::kReceiverNamespace;
 using testing::_;
@@ -69,13 +69,15 @@ class MockCastSessionObserver : public CastSessionTracker::Observer {
   MockCastSessionObserver() = default;
   ~MockCastSessionObserver() override = default;
 
-  MOCK_METHOD2(OnSessionAddedOrUpdated,
-               void(const MediaSinkInternal& sink, const CastSession& session));
-  MOCK_METHOD1(OnSessionRemoved, void(const MediaSinkInternal& sink));
-  MOCK_METHOD3(OnMediaStatusUpdated,
-               void(const MediaSinkInternal& sink,
-                    const base::Value& media_status,
-                    absl::optional<int> request_id));
+  MOCK_METHOD(void,
+              OnSessionAddedOrUpdated,
+              (const MediaSinkInternal& sink, const CastSession& session));
+  MOCK_METHOD(void, OnSessionRemoved, (const MediaSinkInternal& sink));
+  MOCK_METHOD(void,
+              OnMediaStatusUpdated,
+              (const MediaSinkInternal& sink,
+               const base::Value::Dict& media_status,
+               absl::optional<int> request_id));
 };
 
 class CastSessionTrackerTest : public testing::Test {
@@ -103,7 +105,7 @@ class CastSessionTrackerTest : public testing::Test {
         sink_.cast_data().cast_channel_id,
         cast_channel::InternalMessage(
             cast_channel::CastMessageType::kReceiverStatus, kReceiverNamespace,
-            ParseJson(kReceiverStatus)));
+            ParseJsonDict(kReceiverStatus)));
 
     session_ = session_tracker_.GetSessions().begin()->second.get();
     ASSERT_TRUE(session_);
@@ -149,7 +151,7 @@ TEST_F(CastSessionTrackerTest, RemoveSession) {
       sink_.cast_data().cast_channel_id,
       cast_channel::InternalMessage(
           cast_channel::CastMessageType::kReceiverStatus, kReceiverNamespace,
-          ParseJson(kIdleReceiverStatus)));
+          ParseJsonDict(kIdleReceiverStatus)));
 }
 
 TEST_F(CastSessionTrackerTest, GetSessions) {
@@ -196,7 +198,7 @@ TEST_F(CastSessionTrackerTest, HandleMediaStatusMessageBasic) {
   session_tracker_.OnInternalMessage(
       sink_.cast_data().cast_channel_id,
       cast_channel::InternalMessage(cast_channel::CastMessageType::kMediaStatus,
-                                    kMediaNamespace, ParseJson(R"({
+                                    kMediaNamespace, ParseJsonDict(R"({
     "status": [{
         "playerState": "anything but IDLE",
         "supportedMediaCommands": 0,
@@ -209,7 +211,7 @@ TEST_F(CastSessionTrackerTest, HandleMediaStatusMessageBasic) {
 
   // Check that the stored media value is the same as the 'status' field in the
   // outgoing message.
-  EXPECT_THAT(*session_->value().FindKey("media"), IsJson(R"([{
+  EXPECT_THAT(*session_->value().Find("media"), IsJson(R"([{
     "playerState": "anything but IDLE",
     "sessionId": "theSessionId",
     "supportedMediaCommands": [],
@@ -257,7 +259,7 @@ TEST_F(CastSessionTrackerTest, HandleMediaStatusMessageFancy) {
   session_tracker_.OnInternalMessage(
       sink_.cast_data().cast_channel_id,
       cast_channel::InternalMessage(cast_channel::CastMessageType::kMediaStatus,
-                                    kMediaNamespace, ParseJson(R"({
+                                    kMediaNamespace, ParseJsonDict(R"({
     "requestId": 12345,
     "status": [{
         "playerState": "anything but IDLE",
@@ -272,7 +274,7 @@ TEST_F(CastSessionTrackerTest, HandleMediaStatusMessageFancy) {
 
   // Check that the stored media value is the same as the 'status' field in the
   // outgoing message.
-  EXPECT_THAT(*session_->value().FindKey("media"), IsJson(R"([{
+  EXPECT_THAT(*session_->value().Find("media"), IsJson(R"([{
     "playerState": "anything but IDLE",
     "sessionId": "theSessionId",
     "supportedMediaCommands": ["pause"],
@@ -292,7 +294,7 @@ TEST_F(CastSessionTrackerTest, CopySavedMediaFieldsToMediaList) {
   session_tracker_.OnInternalMessage(
       sink_.cast_data().cast_channel_id,
       cast_channel::InternalMessage(cast_channel::CastMessageType::kMediaStatus,
-                                    kMediaNamespace, ParseJson(R"({
+                                    kMediaNamespace, ParseJsonDict(R"({
     "status": [{
         "media": "theMedia",
         "mediaSessionId": 345,
@@ -304,7 +306,7 @@ TEST_F(CastSessionTrackerTest, CopySavedMediaFieldsToMediaList) {
   })")));
 
   // Check that the stored media value is what we expected.
-  ASSERT_THAT(*session_->value().FindKey("media"), IsJson(R"([{
+  ASSERT_THAT(*session_->value().Find("media"), IsJson(R"([{
     "mediaSessionId": 345,
     "media": "theMedia",
     "playerState": "anything but IDLE",
@@ -338,7 +340,7 @@ TEST_F(CastSessionTrackerTest, CopySavedMediaFieldsToMediaList) {
   session_tracker_.OnInternalMessage(
       sink_.cast_data().cast_channel_id,
       cast_channel::InternalMessage(cast_channel::CastMessageType::kMediaStatus,
-                                    kMediaNamespace, ParseJson(R"({
+                                    kMediaNamespace, ParseJsonDict(R"({
     "status": [{
         "mediaSessionId": 345,
         "playerState": "anything but IDLE",
@@ -350,7 +352,7 @@ TEST_F(CastSessionTrackerTest, CopySavedMediaFieldsToMediaList) {
 
   // Check that the stored media value is the same as the 'status' field in the
   // outgoing message.
-  EXPECT_THAT(*session_->value().FindKey("media"), IsJson(R"([{
+  EXPECT_THAT(*session_->value().Find("media"), IsJson(R"([{
     "media": "theMedia",
     "mediaSessionId": 345,
     "playerState": "anything but IDLE",
@@ -367,7 +369,7 @@ TEST_F(CastSessionTrackerTest, DoNotCopySavedMediaFieldsWhenFieldPresent) {
   session_tracker_.OnInternalMessage(
       sink_.cast_data().cast_channel_id,
       cast_channel::InternalMessage(cast_channel::CastMessageType::kMediaStatus,
-                                    kMediaNamespace, ParseJson(R"({
+                                    kMediaNamespace, ParseJsonDict(R"({
     "status": [{
         "media": "oldMedia",
         "mediaSessionId": 345,
@@ -383,7 +385,7 @@ TEST_F(CastSessionTrackerTest, DoNotCopySavedMediaFieldsWhenFieldPresent) {
   session_tracker_.OnInternalMessage(
       sink_.cast_data().cast_channel_id,
       cast_channel::InternalMessage(cast_channel::CastMessageType::kMediaStatus,
-                                    kMediaNamespace, ParseJson(R"({
+                                    kMediaNamespace, ParseJsonDict(R"({
     "status": [{
         "media": "newMedia",
         "mediaSessionId": 345,
@@ -395,7 +397,7 @@ TEST_F(CastSessionTrackerTest, DoNotCopySavedMediaFieldsWhenFieldPresent) {
   })")));
 
   // Check that 'media' field has the new value rather than the cached value.
-  EXPECT_THAT(*session_->value().FindKey("media"), IsJson(R"([{
+  EXPECT_THAT(*session_->value().Find("media"), IsJson(R"([{
     "media": "newMedia",
     "mediaSessionId": 345,
     "playerState": "anything but IDLE",

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,7 +20,6 @@
 #include "base/base_paths.h"
 #include "base/command_line.h"
 #include "base/environment.h"
-#include "base/feature_list.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -44,12 +43,11 @@
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/shell_integration.h"
+#include "chrome/browser/web_applications/os_integration/web_app_shortcut.h"
 #include "chrome/browser/web_applications/web_app_helpers.h"
-#include "chrome/browser/web_applications/web_app_shortcut.h"
 #include "chrome/common/buildflags.h"
 #include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_constants.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/grit/chrome_unscaled_resources.h"
 #include "components/version_info/version_info.h"
@@ -113,9 +111,9 @@ const int EXIT_XDG_SETTINGS_SYNTAX_ERROR = 1;
 // system fails, as the system copy may be missing capabilities of the Chrome
 // copy.
 
-// If |protocol| is empty this function sets Chrome as the default browser,
-// otherwise it sets Chrome as the default handler application for |protocol|.
-bool SetDefaultWebClient(const std::string& protocol) {
+// If |scheme| is empty this function sets Chrome as the default browser,
+// otherwise it sets Chrome as the default handler application for |scheme|.
+bool SetDefaultWebClient(const std::string& scheme) {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   return true;
 #else
@@ -124,11 +122,11 @@ bool SetDefaultWebClient(const std::string& protocol) {
   std::vector<std::string> argv;
   argv.push_back(kXdgSettings);
   argv.push_back("set");
-  if (protocol.empty()) {
+  if (scheme.empty()) {
     argv.push_back(kXdgSettingsDefaultBrowser);
   } else {
     argv.push_back(kXdgSettingsDefaultSchemeHandler);
-    argv.push_back(protocol);
+    argv.push_back(scheme);
   }
   argv.push_back(chrome::GetDesktopName(env.get()));
 
@@ -144,11 +142,11 @@ bool SetDefaultWebClient(const std::string& protocol) {
 #endif
 }
 
-// If |protocol| is empty this function checks if Chrome is the default browser,
+// If |scheme| is empty this function checks if Chrome is the default browser,
 // otherwise it checks if Chrome is the default handler application for
-// |protocol|.
+// |scheme|.
 shell_integration::DefaultWebClientState GetIsDefaultWebClient(
-    const std::string& protocol) {
+    const std::string& scheme) {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   return shell_integration::UNKNOWN_DEFAULT;
 #else
@@ -160,11 +158,11 @@ shell_integration::DefaultWebClientState GetIsDefaultWebClient(
   std::vector<std::string> argv;
   argv.push_back(kXdgSettings);
   argv.push_back("check");
-  if (protocol.empty()) {
+  if (scheme.empty()) {
     argv.push_back(kXdgSettingsDefaultBrowser);
   } else {
     argv.push_back(kXdgSettingsDefaultSchemeHandler);
-    argv.push_back(protocol);
+    argv.push_back(scheme);
   }
   argv.push_back(chrome::GetDesktopName(env.get()));
 
@@ -295,12 +293,72 @@ void SetActionsForDesktopApplication(
 }
 #endif
 
+base::FilePath GetDesktopFileForDefaultSchemeHandler(base::Environment* env,
+                                                     const GURL& url) {
+  base::ScopedBlockingCall scoped_blocking_call(FROM_HERE,
+                                                base::BlockingType::MAY_BLOCK);
+
+  std::vector<std::string> argv;
+  argv.push_back(shell_integration_linux::kXdgSettings);
+  argv.push_back("get");
+  argv.push_back(shell_integration_linux::kXdgSettingsDefaultSchemeHandler);
+  argv.push_back(url.scheme());
+  argv.push_back(chrome::GetDesktopName(env));
+
+  std::string desktop_file_name;
+  if (base::GetAppOutput(base::CommandLine(argv), &desktop_file_name) &&
+      desktop_file_name.find(".desktop") != std::string::npos) {
+    // Remove trailing newline
+    desktop_file_name.erase(desktop_file_name.length() - 1, 1);
+    return base::FilePath(desktop_file_name);
+  }
+
+  return base::FilePath();
+}
+
+std::string GetDesktopEntryStringValueFromFromDesktopFile(
+    const std::string& key,
+    const std::string& shortcut_contents) {
+  std::string key_value;
+#if defined(USE_GLIB)
+  // An empty file causes a crash with glib <= 2.32, so special case here.
+  if (shortcut_contents.empty())
+    return key_value;
+
+  GKeyFile* key_file = g_key_file_new();
+  GError* err = nullptr;
+  if (!g_key_file_load_from_data(key_file, shortcut_contents.c_str(),
+                                 shortcut_contents.size(), G_KEY_FILE_NONE,
+                                 &err)) {
+    LOG(WARNING) << "Unable to read desktop file template: " << err->message;
+    g_error_free(err);
+    g_key_file_free(key_file);
+    return key_value;
+  }
+
+  char* key_c_string =
+      g_key_file_get_string(key_file, kDesktopEntry, key.c_str(), &err);
+  if (key_c_string) {
+    key_value = key_c_string;
+    g_free(key_c_string);
+  } else {
+    g_error_free(err);
+  }
+
+  g_key_file_free(key_file);
+#else
+  NOTIMPLEMENTED();
+#endif
+
+  return key_value;
+}
+
 }  // namespace
 
 // Allows LaunchXdgUtility to join a process.
 // thread_restrictions.h assumes it to be in shell_integration_linux namespace.
-class LaunchXdgUtilityScopedAllowBaseSyncPrimitives
-    : public base::ScopedAllowBaseSyncPrimitives {};
+class [[maybe_unused, nodiscard]] LaunchXdgUtilityScopedAllowBaseSyncPrimitives
+    : public base::ScopedAllowBaseSyncPrimitives{};
 
 bool LaunchXdgUtility(const std::vector<std::string>& argv, int* exit_code) {
   // xdg-settings internally runs xdg-mime, which uses mv to move newly-created
@@ -366,42 +424,20 @@ std::vector<base::FilePath> GetDataSearchLocations(base::Environment* env) {
 
 namespace internal {
 
+std::string GetDesktopEntryStringValueFromFromDesktopFileForTest(
+    const std::string& key,
+    const std::string& shortcut_contents) {
+  return shell_integration_linux::GetDesktopEntryStringValueFromFromDesktopFile(
+      key, shortcut_contents);
+}
+
 // Get the value of NoDisplay from the [Desktop Entry] section of a .desktop
 // file, given in |shortcut_contents|. If the key is not found, returns false.
 bool GetNoDisplayFromDesktopFile(const std::string& shortcut_contents) {
-#if defined(USE_GLIB)
-  // An empty file causes a crash with glib <= 2.32, so special case here.
-  if (shortcut_contents.empty())
-    return false;
-
-  GKeyFile* key_file = g_key_file_new();
-  GError* err = NULL;
-  if (!g_key_file_load_from_data(key_file, shortcut_contents.c_str(),
-                                 shortcut_contents.size(), G_KEY_FILE_NONE,
-                                 &err)) {
-    LOG(WARNING) << "Unable to read desktop file template: " << err->message;
-    g_error_free(err);
-    g_key_file_free(key_file);
-    return false;
-  }
-
-  bool nodisplay = false;
-  char* nodisplay_c_string = g_key_file_get_string(key_file, kDesktopEntry,
-                                                   "NoDisplay", &err);
-  if (nodisplay_c_string) {
-    if (!g_strcmp0(nodisplay_c_string, "true"))
-      nodisplay = true;
-    g_free(nodisplay_c_string);
-  } else {
-    g_error_free(err);
-  }
-
-  g_key_file_free(key_file);
-  return nodisplay;
-#else
-  NOTIMPLEMENTED();
-  return false;
-#endif
+  std::string nodisplay_value =
+      shell_integration_linux::GetDesktopEntryStringValueFromFromDesktopFile(
+          "NoDisplay", shortcut_contents);
+  return nodisplay_value == "true";
 }
 
 // Gets the path to the Chrome executable or wrapper script.
@@ -644,11 +680,8 @@ std::string GetDesktopFileContentsForCommand(
   g_key_file_set_string(key_file, kDesktopEntry, "StartupWMClass",
                         wmclass.c_str());
 
-  if (base::FeatureList::IsEnabled(
-          features::kDesktopPWAsAppIconShortcutsMenuUI)) {
-    SetActionsForDesktopApplication(command_line, key_file,
-                                    std::move(action_info));
-  }
+  SetActionsForDesktopApplication(command_line, key_file,
+                                  std::move(action_info));
 
   gsize length = 0;
   gchar* data_dump = g_key_file_to_data(key_file, &length, NULL);
@@ -769,16 +802,27 @@ bool SetAsDefaultBrowser() {
   return shell_integration_linux::SetDefaultWebClient(std::string());
 }
 
-bool SetAsDefaultProtocolClient(const std::string& protocol) {
-  return shell_integration_linux::SetDefaultWebClient(protocol);
+bool SetAsDefaultClientForScheme(const std::string& scheme) {
+  return shell_integration_linux::SetDefaultWebClient(scheme);
 }
 
-DefaultWebClientSetPermission GetDefaultWebClientSetPermission() {
-  return SET_DEFAULT_UNATTENDED;
-}
+std::u16string GetApplicationNameForScheme(const GURL& url) {
+  std::unique_ptr<base::Environment> env(base::Environment::Create());
 
-std::u16string GetApplicationNameForProtocol(const GURL& url) {
-  return u"xdg-open";
+  std::string desktop_file_contents;
+  std::string application_name;
+  base::FilePath desktop_filepath =
+      shell_integration_linux::GetDesktopFileForDefaultSchemeHandler(env.get(),
+                                                                     url);
+  if (shell_integration_linux::GetExistingShortcutContents(
+          env.get(), desktop_filepath, &desktop_file_contents)) {
+    application_name =
+        shell_integration_linux::GetDesktopEntryStringValueFromFromDesktopFile(
+            "Name", desktop_file_contents);
+  }
+
+  return application_name.empty() ? u"xdg-open"
+                                  : base::ASCIIToUTF16(application_name);
 }
 
 DefaultWebClientState GetDefaultBrowser() {
@@ -797,8 +841,17 @@ bool IsFirefoxDefaultBrowser() {
   return browser.find("irefox") != std::string::npos;
 }
 
-DefaultWebClientState IsDefaultProtocolClient(const std::string& protocol) {
-  return shell_integration_linux::GetIsDefaultWebClient(protocol);
+DefaultWebClientState IsDefaultClientForScheme(const std::string& scheme) {
+  return shell_integration_linux::GetIsDefaultWebClient(scheme);
 }
+
+namespace internal {
+
+DefaultWebClientSetPermission GetPlatformSpecificDefaultWebClientSetPermission(
+    WebClientSetMethod method) {
+  return SET_DEFAULT_UNATTENDED;
+}
+
+}  // namespace internal
 
 }  // namespace shell_integration

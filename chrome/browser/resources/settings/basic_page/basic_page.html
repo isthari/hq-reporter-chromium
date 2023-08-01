@@ -1,15 +1,8 @@
-    <style include="cr-shared-style settings-page-styles cr-hidden-style iron-flex settings-shared">
+    <style include="cr-shared-style settings-page-styles cr-hidden-style iron-flex">
       :host([is-subpage-animating]) {
         /* Prevent an unwanted horizontal scrollbar when transitioning back from
          * a sub-page. */
         overflow: hidden;
-      }
-
-      #osSettingsBanner {
-        background-color: var(--cr-card-background-color);
-        border-radius: var(--cr-card-border-radius);
-        box-shadow: var(--cr-card-shadow);
-        margin-top: 21px;
       }
 
       :host(:not([in-search-mode])) settings-section:not([active]) {
@@ -23,20 +16,6 @@
           <settings-reset-profile-banner on-close="onResetProfileBannerClosed_">
           </settings-reset-profile-banner>
         </template>
-<if expr="chromeos_ash or chromeos_lacros">
-        <template is="dom-if" if="[[showOSSettingsBanner_]]">
-          <div id="osSettingsBanner" class="cr-row first">
-            <div class="flex cr-padded-text"
-                on-click="onOSSettingsBannerClick_">
-              $i18nRaw{osSettingsBannerText}
-            </div>
-            <cr-icon-button class="icon-clear"
-                title="$i18n{close}"
-                on-click="onOSSettingsBannerClosed_">
-            </cr-icon-button>
-          </div>
-        </template>
-</if>
         <template is="dom-if" if="[[showPage_(pageVisibility.people)]]" restamp>
           <settings-section page-title="$i18n{peoplePageTitle}"
               section="people">
@@ -52,12 +31,12 @@
             <settings-autofill-page prefs="{{prefs}}"></settings-autofill-page>
           </settings-section>
         </template>
-        <settings-section id="privacyReviewPromoSection" page-title=""
-            hidden$="[[!showPrivacyReviewPromo_]]" nest-under-section="privacy"
+        <settings-section id="privacyGuidePromoSection" page-title=""
+            hidden$="[[!showPrivacyGuidePromo_]]" nest-under-section="privacy"
             no-search>
-          <settings-privacy-review-promo id="privacyReviewPromo"
+          <settings-privacy-guide-promo id="privacyGuidePromo"
               prefs="{{prefs}}">
-          </settings-privacy-review-promo>
+          </settings-privacy-guide-promo>
         </settings-section>
         <template is="dom-if" if="[[showPage_(pageVisibility.safetyCheck)]]"
             restamp>
@@ -77,6 +56,33 @@
             </settings-privacy-page>
           </settings-section>
         </template>
+        <template is="dom-if"
+            if="[[showPerformancePage_(pageVisibility.performance)]]"
+            restamp>
+          <settings-section page-title="$i18n{performancePageTitle}"
+<if expr="_google_chrome">
+              show-send-feedback-button
+              on-send-feedback="onSendHighEfficiencyFeedbackClick_"
+</if>
+              section="performance" id="performanceSettingsSection">
+            <settings-performance-page prefs="{{prefs}}">
+            </settings-performance-page>
+          </settings-section>
+        </template>
+        <template is="dom-if"
+            if="[[showBatteryPage_(pageVisibility.performance)]]"
+            restamp>
+          <settings-section page-title="$i18n{batteryPageTitle}"
+              section="battery" nest-under-section="performance"
+<if expr="_google_chrome">
+              show-send-feedback-button
+              on-send-feedback="onSendBatterySaverFeedbackClick_"
+</if>
+              id="batterySettingsSection" hidden="[[!showBatterySettings_]]">
+            <settings-battery-page prefs="{{prefs}}">
+            </settings-battery-page>
+          </settings-section>
+        </template>
         <template is="dom-if" if="[[showPage_(pageVisibility.appearance)]]"
             restamp>
           <settings-section page-title="$i18n{appearancePageTitle}"
@@ -90,7 +96,7 @@
             section="search">
           <settings-search-page prefs="{{prefs}}"></settings-search-page>
         </settings-section>
-<if expr="not chromeos and not lacros">
+<if expr="not is_chromeos">
         <template is="dom-if" if="[[showPage_(pageVisibility.defaultBrowser)]]"
             restamp>
           <settings-section page-title="$i18n{defaultBrowser}"
@@ -108,8 +114,8 @@
         </template>
       </div>
     </template>
-
-    <template is="dom-if" if="[[showAdvancedSettings_(pageVisibility.advancedSettings)]]">
+    <template is="dom-if"
+        if="[[showAdvancedSettings_(pageVisibility.advancedSettings)]]">
       <settings-idle-load id="advancedPageTemplate">
         <template>
           <div id="advancedPage" hidden$="[[!showAdvancedPage_(
@@ -117,20 +123,56 @@
               advancedToggleExpanded)]]">
             <template is="dom-if" if="[[showPage_(pageVisibility.languages)]]"
                 restamp>
-              <settings-section page-title="$i18n{languagesPageTitle}"
+<if expr="not chromeos_ash">
+              <settings-languages languages="{{languages}}" prefs="{{prefs}}"
+                  language-helper="{{languageHelper}}">
+              </settings-languages>
+</if>
+              <settings-section
+<if expr="not chromeos_ash">
+                  page-title="$i18n{languagesCardTitle}"
+</if>
+<if expr="chromeos_ash">
+                  page-title="$i18n{languagesPageTitle}"
+</if>
                   section="languages">
-<if expr="chromeos">
+<if expr="chromeos_ash">
                 <cr-link-row id="openChromeOSLanguagesSettings"
-                    on-click="onOpenChromeOSLanguagesSettingsClick_"
+                    on-click="onOpenChromeOsLanguagesSettingsClick_"
                     label="$i18n{openChromeOSLanguagesSettingsLabel}" external>
                 </cr-link-row>
 </if>
-<if expr="not chromeos">
-                <settings-languages-page prefs="{{prefs}}">
+<if expr="not chromeos_ash">
+                <settings-languages-page prefs="{{prefs}}"
+                    languages="{{languages}}"
+                    language-helper="{{languageHelper}}">
                 </settings-languages-page>
 </if>
               </settings-section>
             </template>
+<if expr="not chromeos_ash">
+            <template is="dom-if" if="[[showPage_(pageVisibility.spellCheck)]]"
+                restamp>
+              <settings-section page-title="$i18n{spellCheckTitle}"
+                  section="spellCheck" nest-under-section="languages"
+                  id="spellCheckSettingsSection">
+                <settings-spell-check-page prefs="{{prefs}}"
+                    languages="{{languages}}"
+                    language-helper="{{languageHelper}}">
+                </settings-spell-check-page>
+              </settings-section>
+            </template>
+            <template is="dom-if"
+                if="[[enableDesktopDetailedLanguageSettings_]]" restamp>
+              <settings-section page-title="$i18n{translatePageTitle}"
+                  section="translate" nest-under-section="languages">
+                <settings-translate-page prefs="{{prefs}}"
+                    languages="{{languages}}"
+                    language-helper="{{languageHelper}}">
+                </settings-translate-page>
+              </settings-section>
+            </template>
+</if>
             <template is="dom-if" if="[[showPage_(pageVisibility.downloads)]]"
                 restamp>
               <settings-section page-title="$i18n{downloadsPageTitle}"
@@ -143,10 +185,13 @@
                 restamp>
               <settings-section page-title="$i18n{a11yPageTitle}"
                   section="a11y">
-                <settings-a11y-page prefs="{{prefs}}"></settings-a11y-page>
+                <settings-a11y-page prefs="{{prefs}}"
+                    languages="{{languages}}"
+                    language-helper="{{languageHelper}}">
+                </settings-a11y-page>
               </settings-section>
             </template>
-<if expr="not chromeos and not lacros">
+<if expr="not chromeos_ash">
             <settings-section page-title="$i18n{systemPageTitle}"
                 section="system">
               <settings-system-page prefs="{{prefs}}"></settings-system-page>
@@ -159,6 +204,16 @@
                 <settings-reset-page prefs="{{prefs}}"></settings-reset-page>
               </settings-section>
             </template>
+<if expr="_google_chrome">
+            <template is="dom-if"
+                if="[[showGetMostChrome_(pageVisibility.getMostChrome)]]"
+                restamp>
+              <settings-section page-title="$i18n{getTheMostOutOfChrome}"
+                  section="getMostChrome" no-search>
+                <settings-get-most-chrome-page></settings-get-most-chrome-page>
+              </settings-section>
+            </template>
+</if>
           </div>
         </template>
       </settings-idle-load>

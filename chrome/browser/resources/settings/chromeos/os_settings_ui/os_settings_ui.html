@@ -10,6 +10,8 @@
       * whatever value the percentage of would equal to the max width. */
     --settings-main-basis: calc(var(--cr-centered-card-max-width) /
         var(--cr-centered-card-width-percentage));
+    --cr-card-border-radius: 4px;
+    --cr-card-shadow: var(--cr-elevation-1);
     --cr-toolbar-padding-top: 8px;
   }
 
@@ -94,7 +96,7 @@
     query-matches="{{isNarrow}}">
 </iron-media-query>
 <template is="dom-if" if="[[showToolbar_]]">
-  <os-toolbar on-os-toolbar-menu-tap="onMenuButtonTap_"
+  <os-toolbar on-os-toolbar-menu-tap="onMenuButtonClick_"
       spinner-active="[[toolbarSpinnerActive_]]"
       role="banner"
       narrow="[[isNarrow]]"
@@ -117,15 +119,9 @@
     <div slot="body">
       <template is="dom-if" id="drawerTemplate">
         <os-settings-menu
-            show-apps="[[showApps_]]"
-            show-crostini="[[showCrostini_]]"
-            show-plugin-vm="[[showPluginVm_]]"
-            show-reset="[[showReset_]]"
-            show-startup="[[showStartup_]]"
-            have-play-store-app="[[havePlayStoreApp_]]"
-            on-iron-activate="onIronActivate_"
-            advanced-opened="{{advancedOpenedInMenu_}}"
-            show-kerberos-section="[[showKerberosSection_]]">
+            page-availability="[[pageAvailability_]]"
+            on-iron-activate="onSectionSelect_"
+            advanced-opened="{{advancedOpenedInMenu_}}">
         </os-settings-menu>
       </template>
     </div>
@@ -134,29 +130,18 @@
 <div id="container" class="no-outline">
   <div id="left">
     <template is="dom-if" if="[[showNavMenu_]]">
-      <os-settings-menu page-visibility="[[pageVisibility_]]"
-          show-crostini="[[showCrostini_]]"
-          show-reset="[[showReset_]]"
-          show-startup="[[showStartup_]]"
-          have-play-store-app="[[havePlayStoreApp_]]"
-          on-iron-activate="onIronActivate_"
-          advanced-opened="{{advancedOpenedInMenu_}}"
-          show-kerberos-section="[[showKerberosSection_]]">
+      <os-settings-menu
+          page-availability="[[pageAvailability_]]"
+          on-iron-activate="onSectionSelect_"
+          advanced-opened="{{advancedOpenedInMenu_}}">
       </os-settings-menu>
     </template>
   </div>
-  <os-settings-main id="main" prefs="{{prefs}}"
+  <os-settings-main id="main"
+      prefs="{{prefs}}"
       toolbar-spinner-active="{{toolbarSpinnerActive_}}"
-      page-visibility="[[pageVisibility_]]"
-      show-android-apps="[[showAndroidApps_]]"
-      show-arcvm-manage-usb="[[showArcvmManageUsb_]]"
-      show-crostini="[[showCrostini_]]"
-      show-plugin-vm="[[showPluginVm_]]"
-      show-reset="[[showReset_]]"
-      show-startup="[[showStartup_]]"
-      have-play-store-app="[[havePlayStoreApp_]]"
-      advanced-toggle-expanded="{{advancedOpenedInMain_}}"
-      show-kerberos-section="[[showKerberosSection_]]">
+      page-availability="[[pageAvailability_]]"
+      advanced-toggle-expanded="{{advancedOpenedInMain_}}">
   </os-settings-main>
   <!-- An additional child of the flex #container to take up space,
         aligned with the right-hand child of the flex toolbar. -->

@@ -37,6 +37,8 @@ class CORE_EXPORT HTMLBRElement final : public HTMLElement {
 
   bool CanContainRangeEndPoint() const override { return false; }
 
+  bool IsRichlyEditableForAccessibility() const override { return false; }
+
  private:
   bool IsPresentationAttribute(const QualifiedName&) const override;
   void CollectStyleForPresentationAttribute(
@@ -44,7 +46,7 @@ class CORE_EXPORT HTMLBRElement final : public HTMLElement {
       const AtomicString&,
       MutableCSSPropertyValueSet*) override;
 
-  LayoutObject* CreateLayoutObject(const ComputedStyle&, LegacyLayout) override;
+  LayoutObject* CreateLayoutObject(const ComputedStyle&) override;
 };
 
 }  // namespace blink

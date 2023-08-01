@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,9 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/containers/queue.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/task/single_thread_task_runner.h"
@@ -228,10 +228,18 @@ class CastAudioDecoderImpl : public CastAudioDecoder {
       output_config_.samples_per_second = decoded->sample_rate();
     }
 
-    if (decoded->channel_count() != output_config_.channel_number) {
+    ChannelLayout decoded_channel_layout =
+        DecoderConfigAdapter::ToChannelLayout(decoded->channel_layout());
+    if (decoded->channel_count() != output_config_.channel_number ||
+        decoded_channel_layout != output_config_.channel_layout) {
       LOG(WARNING) << "channel_count changed to " << decoded->channel_count()
-                   << " from " << output_config_.channel_number;
+                   << " from " << output_config_.channel_number
+                   << ", channel_layout changed to "
+                   << static_cast<int>(decoded_channel_layout) << " from "
+                   << static_cast<int>(output_config_.channel_layout);
       output_config_.channel_number = decoded->channel_count();
+      output_config_.channel_layout =
+          DecoderConfigAdapter::ToChannelLayout(decoded->channel_layout());
       decoded_bus_.reset();
     }
 

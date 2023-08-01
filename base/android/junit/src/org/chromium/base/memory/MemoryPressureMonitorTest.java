@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@ import android.os.Looper;
 
 import androidx.test.filters.SmallTest;
 
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -90,6 +91,11 @@ public class MemoryPressureMonitorTest {
 
         mMonitor = new MemoryPressureMonitor(THROTTLING_INTERVAL_MS);
         mMonitor.setCurrentPressureSupplierForTesting(null);
+    }
+
+    @After
+    public void tearDown() {
+        ThreadUtils.clearUiThreadForTesting();
     }
 
     /**

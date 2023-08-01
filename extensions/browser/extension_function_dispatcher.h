@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,12 +13,14 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "extensions/browser/extension_function.h"
+#include "extensions/common/features/feature.h"
 #include "extensions/common/mojom/frame.mojom.h"
 #include "ipc/ipc_sender.h"
 
 namespace content {
 class BrowserContext;
 class RenderFrameHost;
+class RenderProcessHost;
 class WebContents;
 }
 
@@ -26,7 +28,6 @@ namespace extensions {
 
 class Extension;
 class ExtensionAPI;
-class ProcessMap;
 class WindowController;
 
 // ExtensionFunctionDispatcher receives requests to execute functions from
@@ -42,8 +43,7 @@ class WindowController;
 // we can gracefully handle cases like WebContents, where the RVH, extension,
 // and URL can all change over the lifetime of the tab. Instead, these items
 // are all passed into each request.
-class ExtensionFunctionDispatcher
-    : public base::SupportsWeakPtr<ExtensionFunctionDispatcher> {
+class ExtensionFunctionDispatcher {
  public:
   class Delegate {
    public:
@@ -76,14 +76,13 @@ class ExtensionFunctionDispatcher
   // Dispatches a request and the response is sent in |callback| that is a reply
   // of mojom::LocalFrameHost::Request.
   void Dispatch(mojom::RequestParamsPtr params,
-                content::RenderFrameHost* render_frame_host,
-                int render_process_id,
+                content::RenderFrameHost& frame,
                 mojom::LocalFrameHost::RequestCallback callback);
 
   // Message handlers.
   // Dispatches a request for service woker and the response is sent to the
   // corresponding render process in an ExtensionMsg_ResponseWorker message.
-  void DispatchForServiceWorker(const mojom::RequestParams& params,
+  void DispatchForServiceWorker(mojom::RequestParamsPtr params,
                                 int render_process_id);
 
   // Called when an ExtensionFunction is done executing, after it has sent
@@ -112,6 +111,10 @@ class ExtensionFunctionDispatcher
   void ProcessServiceWorkerResponse(int request_id,
                                     int64_t service_worker_version_id);
 
+  base::WeakPtr<ExtensionFunctionDispatcher> AsWeakPtr() {
+    return weak_ptr_factory_.GetWeakPtr();
+  }
+
  private:
   // For a given RenderFrameHost instance, ResponseCallbackWrapper
   // creates ExtensionFunction::ResponseCallback instances which send responses
@@ -137,22 +140,22 @@ class ExtensionFunctionDispatcher
       int requesting_process_id,
       bool is_worker_request,
       const GURL* rfh_url,
-      const ProcessMap& process_map,
+      Feature::Context context_type,
       ExtensionAPI* api,
-      void* profile_id,
-      ExtensionFunction::ResponseCallback callback);
+      ExtensionFunction::ResponseCallback callback,
+      content::RenderFrameHost* render_frame_host);
 
   void DispatchWithCallbackInternal(
       const mojom::RequestParams& params,
       content::RenderFrameHost* render_frame_host,
-      int render_process_id,
+      content::RenderProcessHost& render_process_host,
       ExtensionFunction::ResponseCallback callback);
 
   void RemoveWorkerCallbacksForProcess(int render_process_id);
 
-  raw_ptr<content::BrowserContext> browser_context_;
+  raw_ptr<content::BrowserContext, DanglingUntriaged> browser_context_;
 
-  raw_ptr<Delegate> delegate_;
+  raw_ptr<Delegate, DanglingUntriaged> delegate_;
 
   // This map doesn't own either the keys or the values. When a RenderFrameHost
   // instance goes away, the corresponding entry in this map (if exists) will be
@@ -173,6 +176,8 @@ class ExtensionFunctionDispatcher
   // the renderer. These are removed once the response is processed.
   // The lifetimes of the instances are managed by the instances themselves.
   std::set<ExtensionFunction*> worker_response_targets_;
+
+  base::WeakPtrFactory<ExtensionFunctionDispatcher> weak_ptr_factory_{this};
 };
 
 }  // namespace extensions

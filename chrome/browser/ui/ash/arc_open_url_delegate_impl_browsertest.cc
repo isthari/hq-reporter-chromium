@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,23 +7,26 @@
 #include <memory>
 #include <string>
 
+#include "ash/webui/system_apps/public/system_web_app_type.h"
+#include "base/ranges/algorithm.h"
+#include "base/run_loop.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
+#include "chrome/browser/ash/system_web_apps/system_web_app_manager.h"
 #include "chrome/browser/chromeos/arc/arc_web_contents_data.h"
-#include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/ui/ash/system_web_apps/system_web_app_ui_utils.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
-#include "chrome/browser/ui/web_applications/system_web_app_ui_utils.h"
 #include "chrome/browser/ui/web_applications/test/web_app_navigation_browsertest.h"
 #include "chrome/browser/ui/webui/settings/chromeos/constants/routes.mojom.h"
-#include "chrome/browser/web_applications/system_web_apps/system_web_app_manager.h"
-#include "chrome/browser/web_applications/system_web_apps/system_web_app_types.h"
+#include "chrome/browser/web_applications/mojom/user_display_mode.mojom.h"
 #include "chrome/browser/web_applications/test/web_app_install_test_utils.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "chrome/test/base/ui_test_utils.h"
 #include "components/arc/intent_helper/intent_constants.h"
 #include "components/services/app_service/public/cpp/share_target.h"
 #include "content/public/browser/web_contents.h"
@@ -38,12 +41,11 @@ using arc::mojom::ChromePage;
 
 // Return the number of windows that hosts OS Settings.
 size_t GetNumberOfSettingsWindows() {
-  auto* browser_list = BrowserList::GetInstance();
-  return std::count_if(browser_list->begin(), browser_list->end(),
-                       [](Browser* browser) {
-                         return web_app::IsBrowserForSystemWebApp(
-                             browser, web_app::SystemAppType::SETTINGS);
-                       });
+  return base::ranges::count_if(*BrowserList::GetInstance(),
+                                [](Browser* browser) {
+                                  return ash::IsBrowserForSystemWebApp(
+                                      browser, ash::SystemWebAppType::SETTINGS);
+                                });
 }
 
 // Give the underlying function a clearer name.
@@ -97,20 +99,18 @@ IN_PROC_BROWSER_TEST_F(ArcOpenUrlDelegateImplWebAppBrowserTest, OpenWebApp) {
 void TestOpenSettingFromArc(Browser* browser,
                             ChromePage page,
                             const GURL& expected_url,
-                            size_t expected_setting_window_count) {
+                            bool expected_setting_window) {
   // Install the Settings App.
-  web_app::WebAppProvider::GetForTest(browser->profile())
-      ->system_web_app_manager()
-      .InstallSystemAppsForTesting();
+  ash::SystemWebAppManager::GetForTest(browser->profile())
+      ->InstallSystemAppsForTesting();
 
+  ui_test_utils::BrowserChangeObserver browser_opened(
+      nullptr, ui_test_utils::BrowserChangeObserver::ChangeType::kAdded);
   ArcOpenUrlDelegateImpl::GetForTesting()->OpenChromePageFromArc(page);
+  if (expected_setting_window)
+    browser_opened.Wait();
 
-  // The above OpenChromePageFromArc() should trigger an asynchronous call to
-  // launch OS Settings SWA. Flush Mojo calls so the browser window is created.
-  web_app::FlushSystemWebAppLaunchesForTesting(
-      GetLastActiveBrowser()->profile());
-
-  EXPECT_EQ(expected_setting_window_count, GetNumberOfSettingsWindows());
+  EXPECT_EQ(expected_setting_window ? 1ul : 0ul, GetNumberOfSettingsWindows());
 
   // The right settings are loaded (not just the settings main page).
   content::WebContents* contents =
@@ -124,14 +124,14 @@ IN_PROC_BROWSER_TEST_F(ArcOpenUrlDelegateImplBrowserTest,
   TestOpenSettingFromArc(
       browser(), ChromePage::AUTOFILL,
       GURL("chrome://settings/").Resolve(chrome::kAutofillSubPage),
-      /*expected_setting_window_count=*/0u);
+      /*expected_setting_window=*/false);
 
   // But opening an OS setting should open the OS setting window.
   TestOpenSettingFromArc(
       browser(), ChromePage::POWER,
       GURL("chrome://os-settings/")
           .Resolve(chromeos::settings::mojom::kPowerSubpagePath),
-      /*expected_setting_window_count=*/1u);
+      /*expected_setting_window=*/true);
 }
 
 IN_PROC_BROWSER_TEST_F(ArcOpenUrlDelegateImplBrowserTest, OpenAboutChromePage) {
@@ -156,7 +156,8 @@ IN_PROC_BROWSER_TEST_F(ArcOpenUrlDelegateImplWebAppBrowserTest,
   web_app_info->scope =
       https_server().GetURL(GetAppUrlHost(), GetAppScopePath());
   web_app_info->title = base::UTF8ToUTF16(GetAppName());
-  web_app_info->user_display_mode = blink::mojom::DisplayMode::kStandalone;
+  web_app_info->user_display_mode =
+      web_app::mojom::UserDisplayMode::kStandalone;
   apps::ShareTarget share_target;
   share_target.method = apps::ShareTarget::Method::kGet;
   share_target.action = app_url;
@@ -164,8 +165,6 @@ IN_PROC_BROWSER_TEST_F(ArcOpenUrlDelegateImplWebAppBrowserTest,
   web_app_info->share_target = share_target;
   std::string id =
       web_app::test::InstallWebApp(profile(), std::move(web_app_info));
-  apps::AppServiceProxyFactory::GetForProfile(profile())
-      ->FlushMojoCallsForTesting();
 
   const char* arc_transition_key =
       arc::ArcWebContentsData::ArcWebContentsData::kArcTransitionFlag;
@@ -237,6 +236,8 @@ IN_PROC_BROWSER_TEST_F(ArcOpenUrlDelegateImplWebAppBrowserTest,
 }
 
 void TestOpenChromePage(ChromePage page, const GURL& expected_url) {
+  // Note: It is impossible currently to 'wait until done' for this method, as
+  // it doesn't guarantee a new browser, web contents, or even navigation.
   ArcOpenUrlDelegateImpl::GetForTesting()->OpenChromePageFromArc(page);
   content::WebContents* contents =
       GetLastActiveBrowser()->tab_strip_model()->GetActiveWebContents();
@@ -262,9 +263,9 @@ void TestOpenOSSettingsChromePage(ChromePage page, const GURL& expected_url) {
   TestSettingsWindowManager test_manager;
   chrome::SettingsWindowManager::SetInstanceForTesting(&test_manager);
 
+  // Note: It is impossible currently to 'wait until done' for this method, as
+  // it doesn't guarantee a new browser, web contents, or even navigation.
   ArcOpenUrlDelegateImpl::GetForTesting()->OpenChromePageFromArc(page);
-  web_app::FlushSystemWebAppLaunchesForTesting(
-      ProfileManager::GetActiveUserProfile());
 
   EXPECT_EQ(expected_url, test_manager.last_navigation_url());
 
@@ -293,6 +294,20 @@ void TestAllOSSettingPages(const GURL& base_url) {
       ChromePage::DISPLAY,
       base_url.Resolve(chromeos::settings::mojom::kDisplaySubpagePath));
   TestOpenOSSettingsChromePage(
+      ChromePage::AUDIO,
+      base_url.Resolve(chromeos::settings::mojom::kAudioSubpagePath));
+  TestOpenOSSettingsChromePage(
+      ChromePage::PERDEVICEMOUSE,
+      base_url.Resolve(chromeos::settings::mojom::kPerDeviceMouseSubpagePath));
+  TestOpenOSSettingsChromePage(
+      ChromePage::PERDEVICETOUCHPAD,
+      base_url.Resolve(
+          chromeos::settings::mojom::kPerDeviceTouchpadSubpagePath));
+  TestOpenOSSettingsChromePage(
+      ChromePage::PERDEVICEPOINTINGSTICK,
+      base_url.Resolve(
+          chromeos::settings::mojom::kPerDevicePointingStickSubpagePath));
+  TestOpenOSSettingsChromePage(
       ChromePage::HELP,
       base_url.Resolve(chromeos::settings::mojom::kAboutChromeOsSectionPath));
   TestOpenOSSettingsChromePage(
@@ -303,9 +318,6 @@ void TestAllOSSettingPages(const GURL& base_url) {
       ChromePage::BLUETOOTHDEVICES,
       base_url.Resolve(
           chromeos::settings::mojom::kBluetoothDevicesSubpagePath));
-  TestOpenOSSettingsChromePage(
-      ChromePage::CHANGEPICTURE,
-      base_url.Resolve(chromeos::settings::mojom::kChangePictureSubpagePath));
   TestOpenOSSettingsChromePage(
       ChromePage::CUPSPRINTERS,
       base_url.Resolve(chromeos::settings::mojom::kPrintingDetailsSubpagePath));
@@ -324,8 +336,7 @@ void TestAllOSSettingPages(const GURL& base_url) {
           chromeos::settings::mojom::kSecurityAndSignInSubpagePathV2));
   TestOpenOSSettingsChromePage(
       ChromePage::MANAGEACCESSIBILITY,
-      base_url.Resolve(
-          chromeos::settings::mojom::kManageAccessibilitySubpagePath));
+      base_url.Resolve(chromeos::settings::mojom::kAccessibilitySectionPath));
   TestOpenOSSettingsChromePage(
       ChromePage::NETWORKSTYPEVPN,
       base_url.Resolve(chromeos::settings::mojom::kVpnDetailsSubpagePath));
@@ -341,6 +352,13 @@ void TestAllOSSettingPages(const GURL& base_url) {
   TestOpenOSSettingsChromePage(
       ChromePage::MANAGEACCESSIBILITYTTS,
       base_url.Resolve(chromeos::settings::mojom::kTextToSpeechSubpagePath));
+  TestOpenOSSettingsChromePage(
+      ChromePage::PRIVACYHUB,
+      base_url.Resolve(chromeos::settings::mojom::kPrivacyHubSubpagePath));
+  TestOpenOSSettingsChromePage(
+      ChromePage::PERDEVICEKEYBOARD,
+      base_url.Resolve(
+          chromeos::settings::mojom::kPerDeviceKeyboardSubpagePath));
 }
 
 void TestAllBrowserSettingPages(const GURL& base_url) {
@@ -352,8 +370,6 @@ void TestAllBrowserSettingPages(const GURL& base_url) {
                      base_url.Resolve(chrome::kAutofillSubPage));
   TestOpenChromePage(ChromePage::CLEARBROWSERDATA,
                      base_url.Resolve(chrome::kClearBrowserDataSubPage));
-  TestOpenChromePage(ChromePage::CLOUDPRINTERS,
-                     base_url.Resolve(chrome::kCloudPrintersSubPage));
   TestOpenChromePage(ChromePage::DOWNLOADS,
                      base_url.Resolve(chrome::kDownloadsSubPage));
   TestOpenChromePage(ChromePage::ONSTARTUP,
@@ -380,13 +396,18 @@ void TestAllAboutPages() {
 
 IN_PROC_BROWSER_TEST_F(ArcOpenUrlDelegateImplBrowserTest, TestOpenChromePage) {
   // Install the Settings App.
-  web_app::WebAppProvider::GetForTest(browser()->profile())
-      ->system_web_app_manager()
-      .InstallSystemAppsForTesting();
+  ash::SystemWebAppManager::GetForTest(browser()->profile())
+      ->InstallSystemAppsForTesting();
 
   TestAllOSSettingPages(GURL(chrome::kChromeUIOSSettingsURL));
   TestAllBrowserSettingPages(GURL(chrome::kChromeUISettingsURL));
   TestAllAboutPages();
+  // This is required to make sure that all pending launches are flushed through
+  // the system. Ideally waiters could be added for each settings page, however
+  // due to some settings page 'opens' not triggering any navigations, this ends
+  // up being impossible currently. So this allows any pending launches to
+  // complete.
+  base::RunLoop().RunUntilIdle();
 }
 
 }  // namespace

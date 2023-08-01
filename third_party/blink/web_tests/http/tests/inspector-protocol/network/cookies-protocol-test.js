@@ -78,11 +78,38 @@
     testRunner.log(`Cookies as seen on server: ${JSON.stringify(body)}`);
   }
 
+  function listenForSiteHasCookieInOtherPartition(event) {
+    testRunner.log(
+      'Site has cookie in other partition: '
+          + event.params.siteHasCookieInOtherPartition);
+  }
+
+  function listenForResponsePartitionKey(event) {
+    const partitionKey = event.params.cookiePartitionKeyOpaque ?
+      '<opaque>' : event.params.cookiePartitionKey;
+    testRunner.log('Current cookie partition key: ' + partitionKey);
+  }
+
+  async function getPartitionedCookies() {
+    dp.Network.onRequestWillBeSentExtraInfo(
+        listenForSiteHasCookieInOtherPartition);
+    dp.Network.onResponseReceivedExtraInfo(listenForResponsePartitionKey);
+
+    await page.navigate('https://devtools.test:8443/inspector-protocol/resources/iframe-third-party-cookie-parent.php');
+    logCookies((await dp.Network.getCookies()).result);
+
+    dp.Network.offRequestWillBeSentExtraInfo(
+        listenForSiteHasCookieInOtherPartition);
+    dp.Network.offResponseReceivedExtraInfo(listenForResponsePartitionKey);
+  }
+
   testRunner.log('Test started');
   testRunner.log('Enabling network');
   await dp.Network.enable();
 
   testRunner.runTestSuite([
+    deleteAllCookies,
+
     async function simpleCookieAdd() {
       await setCookie({url: 'http://127.0.0.1', name: 'foo', value: 'bar1'});
     },
@@ -232,10 +259,12 @@
 
     deleteAllCookies,
 
+    getPartitionedCookies,
+
     async function setPartitionedCookie() {
-      await setCookie({url: 'https://devtools.test:8443', secure: true, name: '__Host-foo', value: 'bar', partitionKey: 'https://example.test:8443'});
-      await setCookie({url: 'https://example.test:8443', secure: true, name: '__Host-foo', value: 'bar', partitionKey: 'https://devtools.test:8443'});
-      await setCookie({url: 'https://example.test:8443', secure: true, name: '__Host-foo', value: 'bar', partitionKey: 'https://notinset.test:8443'});
+      await setCookie({url: 'https://devtools.test:8443', secure: true, name: '__Host-foo', value: 'bar', partitionKey: 'https://example.test:8443', sameSite: 'None'});
+      await setCookie({url: 'https://example.test:8443', secure: true, name: '__Host-foo', value: 'bar', partitionKey: 'https://devtools.test:8443', sameSite: 'None'});
+      await setCookie({url: 'https://example.test:8443', secure: true, name: '__Host-foo', value: 'bar', partitionKey: 'https://notinset.test:8443', sameSite: 'None'});
     },
 
     deleteAllCookies,
@@ -243,22 +272,26 @@
 
     async function setPartitionedCookies() {
       await setCookies([
-        {url: 'https://devtools.test:8443', secure: true, name: '__Host-foo', value: 'bar', partitionKey: 'https://example.test:8443'},
-        {url: 'https://example.test:8443', secure: true, name: '__Host-foo', value: 'bar', partitionKey: 'https://devtools.test:8443'},
-        {url: 'https://example.test:8443', secure: true, name: '__Host-foo', value: 'bar', partitionKey: 'https://notinset.test:8443'}
+        {url: 'https://devtools.test:8443', secure: true, name: '__Host-foo', value: 'bar', partitionKey: 'https://example.test:8443', sameSite: 'None'},
+        {url: 'https://example.test:8443', secure: true, name: '__Host-foo', value: 'bar', partitionKey: 'https://devtools.test:8443', sameSite: 'None'},
+        {url: 'https://example.test:8443', secure: true, name: '__Host-foo', value: 'bar', partitionKey: 'https://notinset.test:8443', sameSite: 'None'}
       ]);
     },
 
-    async function getPartitionedCookie() {
-      await page.navigate('https://devtools.test:8443/inspector-protocol/resources/iframe-third-party-cookie-parent.php');
-      logCookies((await dp.Network.getCookies()).result);
-    },
-
+    getPartitionedCookies,
     deleteAllCookies,
 
     async function getPartitionedCookieFromOpaqueOrigin() {
+      dp.Network.onRequestWillBeSentExtraInfo(
+        listenForSiteHasCookieInOtherPartition);
+      dp.Network.onResponseReceivedExtraInfo(listenForResponsePartitionKey);
+
       await page.navigate('https://devtools.test:8443/inspector-protocol/resources/iframe-third-party-cookie-parent.php?opaque');
       logCookies((await dp.Network.getCookies()).result);
+
+      dp.Network.offRequestWillBeSentExtraInfo(
+        listenForSiteHasCookieInOtherPartition);
+      dp.Network.offResponseReceivedExtraInfo(listenForResponsePartitionKey);
     },
 
     deleteAllCookies,

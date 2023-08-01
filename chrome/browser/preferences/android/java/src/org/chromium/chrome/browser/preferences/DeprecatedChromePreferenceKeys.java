@@ -1,10 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.preferences;
 
-import org.chromium.base.annotations.CheckDiscard;
+import org.chromium.build.annotations.CheckDiscard;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -19,14 +19,14 @@ public class DeprecatedChromePreferenceKeys {
     static List<String> getKeysForTesting() {
         // clang-format off
         return Arrays.asList(
-                "AUTOFILL_ASSISTANT_ONBOARDING_ACCEPTED",
                 "AUTOFILL_ASSISTANT_SKIP_INIT_SCREEN",
                 "BANDWIDTH_REDUCTION_PROXY_ENABLED",
                 "BANDWIDTH_REDUCTION_FIRST_ENABLED_TIME",
                 "Chrome.AccountPickerBottomSheet.ShownCount",
-                "Chrome.AutofillAssistant.LiteScriptFirstTimeUser",
+                "Chrome.Assistant.Enabled",
+                "Chrome.AssistantVoiceConsentTapsCounter.ConsentTapsCount",
                 "Chrome.AutofillAssistant.NumberOfLiteScriptsCanceled",
-                "Chrome.AutofillAssistant.ProactiveHelp",
+                "Chrome.FirstRun.FieldTrialEnabled",
                 "Chrome.Flags.PaintPreviewTestEnabled",
                 "Chrome.Flags.SafeBool.*",
                 "Chrome.Flags.SafeDouble.*",
@@ -39,6 +39,10 @@ public class DeprecatedChromePreferenceKeys {
                 "Chrome.OfflineMeasurements.TimeBetweenChecksMillisList",
                 "Chrome.OfflineMeasurements.UserStateList",
                 "Chrome.PriceTracking.PriceDropAlerts",
+                "Chrome.RequestDesktopSiteGlobalSetting.DefaultEnabledShowMessage",
+                "Chrome.RequestDesktopSiteGlobalSetting.OptInMessageShown",
+                "Chrome.SigninPromo.NTPImpressions",
+                "Chrome.VideoTutorials.ShareUrls",
                 "PersistedNotificationId",
                 "PhysicalWeb.ActivityReferral",
                 "PhysicalWeb.HasDeferredMetrics",
@@ -60,7 +64,6 @@ public class DeprecatedChromePreferenceKeys {
                 "allow_low_end_device_ui",
                 "allow_prefetch",
                 "allow_starting_service_manager_only",
-                "autofill_assistant_switch",
                 "bookmark_search_history",
                 "bottom_toolbar_enabled",
                 "bottom_toolbar_variation",
@@ -73,6 +76,25 @@ public class DeprecatedChromePreferenceKeys {
                 "chrome_modern_design_enabled",
                 "chromium.invalidations.uuid",
                 "click_to_call_open_dialer_directly",
+                "contextual_search_all_time_open_count",
+                "contextual_search_all_time_tap_count",
+                "contextual_search_all_time_tap_quick_answer_count",
+                "contextual_search_clicks_week_*",
+                "contextual_search_current_week_number",
+                "contextual_search_entity_impressions_count",
+                "contextual_search_entity_opens_count",
+                "contextual_search_impressions_week_*",
+                "contextual_search_last_animation_time",
+                "contextual_search_newest_week",
+                "contextual_search_oldest_week",
+                "contextual_search_previous_interaction_encoded_outcomes",
+                "contextual_search_previous_interaction_event_id",
+                "contextual_search_previous_interaction_timestamp",
+                "contextual_search_promo_open_count",
+                "contextual_search_quick_action_impressions_count",
+                "contextual_search_quick_actions_ignored_count",
+                "contextual_search_quick_actions_taken_count",
+                "contextual_search_tap_count",
                 "crash_dump_upload",
                 "crash_dump_upload_no_cellular",
                 "data_reduction_site_breakdown_allowed_date",
@@ -83,6 +105,7 @@ public class DeprecatedChromePreferenceKeys {
                 "displayed_data_reduction_promo_version",
                 "displayed_data_reduction_snackbar_promo_saved_bytes",
                 "darken_websites_enabled",
+                "first_run_signin_complete",
                 "fre_promo_opt_out",
                 "home_page_button_force_enabled",
                 "homepage_tile_enabled",
@@ -106,6 +129,10 @@ public class DeprecatedChromePreferenceKeys {
                 "prefetch_notification_offline_counter",
                 "prefetch_notification_shown_time",
                 "prioritize_bootstrap_tasks",
+                "service_manager_for_background_prefetch",
+                "service_manager_for_download_resumption",
+                "signin_promo_impressions_count_bookmarks",
+                "signin_promo_impressions_count_settings",
                 "sole_integration_enabled",
                 "start_surface_single_pane_enabled",
                 "tab_persistent_store_task_runner_enabled",

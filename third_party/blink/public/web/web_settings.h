@@ -42,6 +42,7 @@
 
 namespace blink {
 
+enum class LCDTextPreference;
 class WebString;
 
 // WebSettings is owned by the WebView and allows code to modify the settings
@@ -91,7 +92,7 @@ class WebSettings {
   virtual bool ShrinksViewportContentToFit() const = 0;
   virtual bool ViewportEnabled() const = 0;
   virtual void SetAccelerated2dCanvasMSAASampleCount(int) = 0;
-  virtual void SetPreferCompositingToLCDTextEnabled(bool) = 0;
+  virtual void SetLCDTextPreference(LCDTextPreference) = 0;
   // Not implemented yet, see http://crbug.com/178119
   virtual void SetAcceleratedCompositingForTransitionEnabled(bool) {}
   // If set to true, allows frames with an https origin to display passive
@@ -113,7 +114,10 @@ class WebSettings {
   virtual void SetAntialiased2dCanvasEnabled(bool) = 0;
   virtual void SetAntialiasedClips2dCanvasEnabled(bool) = 0;
   virtual void SetAutoplayPolicy(mojom::AutoplayPolicy) = 0;
-  virtual void SetAutoZoomFocusedNodeToLegibleScale(bool) = 0;
+  virtual void SetRequireTransientActivationForGetDisplayMedia(bool) = 0;
+  virtual void SetRequireTransientActivationForShowFileOrDirectoryPicker(
+      bool) = 0;
+  virtual void SetAutoZoomFocusedEditableToLegibleScale(bool) = 0;
   virtual void SetCaretBrowsingEnabled(bool) = 0;
   virtual void SetClobberUserAgentInitialScaleQuirk(bool) = 0;
   virtual void SetCookieEnabled(bool) = 0;
@@ -140,6 +144,8 @@ class WebSettings {
   virtual void SetWebGL2Enabled(bool) = 0;
   virtual void SetFantasyFontFamily(const WebString&,
                                     UScriptCode = USCRIPT_COMMON) = 0;
+  virtual void SetMathFontFamily(const WebString&,
+                                 UScriptCode = USCRIPT_COMMON) = 0;
   virtual void SetFixedFontFamily(const WebString&,
                                   UScriptCode = USCRIPT_COMMON) = 0;
   virtual void SetNetworkQuietTimeout(double timeout) = 0;
@@ -163,7 +169,6 @@ class WebSettings {
   virtual void SetMainFrameResizesAreOrientationChanges(bool) = 0;
   virtual void SetMaxTouchPoints(int) = 0;
   virtual void SetPictureInPictureEnabled(bool) = 0;
-  virtual void SetDataSaverHoldbackWebApi(bool) = 0;
   virtual void SetWebAppScope(const WebString&) = 0;
   virtual void SetPresentationRequiresUserGesture(bool) = 0;
   virtual void SetEmbeddedMediaExperienceEnabled(bool) = 0;
@@ -179,6 +184,8 @@ class WebSettings {
   virtual void SetPrimaryPointerType(blink::mojom::PointerType) = 0;
   virtual void SetAvailableHoverTypes(int) = 0;
   virtual void SetPrimaryHoverType(blink::mojom::HoverType) = 0;
+  virtual void SetOutputDeviceUpdateAbilityType(
+      blink::mojom::OutputDeviceUpdateAbilityType) = 0;
   virtual void SetPreferHiddenVolumeControls(bool) = 0;
   virtual void SetShouldProtectAgainstIpcFlooding(bool) = 0;
   virtual void SetRenderVSyncNotificationEnabled(bool) = 0;
@@ -232,7 +239,6 @@ class WebSettings {
   virtual void SetTextTrackTextShadow(const WebString&) = 0;
   virtual void SetTextTrackTextSize(const WebString&) = 0;
   virtual void SetTextTrackWindowColor(const WebString&) = 0;
-  virtual void SetTextTrackWindowPadding(const WebString&) = 0;
   virtual void SetTextTrackWindowRadius(const WebString&) = 0;
   virtual void SetThreadedScrollingEnabled(bool) = 0;
   virtual void SetTouchDragDropEnabled(bool) = 0;
@@ -276,8 +282,7 @@ class WebSettings {
   virtual void SetSelectionClipboardBufferAvailable(bool) = 0;
   virtual void SetAccessibilityIncludeSvgGElement(bool) = 0;
   virtual void SetWebXRImmersiveArAllowed(bool) = 0;
-  virtual void SetLitePageSubresourceRedirectOrigin(const WebString&) = 0;
-  virtual void SetWindowPlacementAlwaysAllowed(bool) = 0;
+  virtual void SetModalContextMenu(bool) = 0;
 
  protected:
   ~WebSettings() = default;

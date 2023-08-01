@@ -1,14 +1,19 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/webui/theme_source.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/ref_counted_memory.h"
+#include "base/ranges/algorithm.h"
+#include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
+#include "base/strings/stringprintf.h"
 #include "build/branding_buildflags.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/resources_util.h"
 #include "chrome/browser/search/instant_service.h"
@@ -16,6 +21,8 @@
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
+#include "chrome/browser/ui/color/chrome_color_id.h"
+#include "chrome/browser/ui/color/chrome_color_provider_utils.h"
 #include "chrome/browser/ui/webui/ntp/ntp_resource_cache.h"
 #include "chrome/browser/ui/webui/ntp/ntp_resource_cache_factory.h"
 #include "chrome/common/channel_info.h"
@@ -25,15 +32,25 @@
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/url_data_source.h"
+#include "content/public/browser/web_contents.h"
 #include "content/public/common/url_constants.h"
+#include "net/base/url_util.h"
 #include "services/network/public/mojom/content_security_policy.mojom.h"
 #include "ui/base/layout.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/webui/web_ui_util.h"
+#include "ui/color/color_provider.h"
+#include "ui/color/color_provider_utils.h"
 #include "ui/gfx/codec/png_codec.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/image/image_skia_rep.h"
 #include "url/gurl.h"
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chrome/grit/cros_styles_resources.h"  // nogncheck crbug.com/1113869
+#include "chromeos/constants/chromeos_features.h"
+#include "ui/chromeos/styles/cros_tokens_color_mappings.h"
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace {
 
@@ -97,6 +114,22 @@ void ThemeSource::StartDataRequest(
     return;
   }
 
+  // kColorsCssPath should stay consistent with COLORS_CSS_SELECTOR in
+  // colors_css_updater.js.
+  constexpr char kColorsCssPath[] = "colors.css";
+  if (parsed_path == kColorsCssPath) {
+    SendColorsCss(url, wc_getter, std::move(callback));
+    return;
+  }
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  constexpr char kTypographyCssPath[] = "typography.css";
+  if (parsed_path == kTypographyCssPath) {
+    SendTypographyCss(std::move(callback));
+    return;
+  }
+#endif
+
   int resource_id = -1;
   if (parsed_path == "current-channel-logo") {
     switch (chrome::GetChannel()) {
@@ -145,7 +178,7 @@ void ThemeSource::StartDataRequest(
     // user can also enter these into the omnibox, so we need to fail
     // gracefully.
     std::move(callback).Run(nullptr);
-  } else if ((GetMimeType(path) == "image/png") &&
+  } else if ((GetMimeType(url) == "image/png") &&
              ((scale > max_scale) || (frame != -1))) {
     // This will extract and scale frame 0 of animated images.
     // TODO(reveman): Support scaling of animated images and avoid scaling and
@@ -157,10 +190,14 @@ void ThemeSource::StartDataRequest(
   }
 }
 
-std::string ThemeSource::GetMimeType(const std::string& path) {
-  std::string parsed_path;
-  webui::ParsePathAndScale(GetThemeUrl(path), &parsed_path, nullptr);
-  return IsNewTabCssPath(parsed_path) ? "text/css" : "image/png";
+std::string ThemeSource::GetMimeType(const GURL& url) {
+  const base::StringPiece file_path = url.path_piece();
+
+  if (base::EndsWith(file_path, ".css", base::CompareCase::INSENSITIVE_ASCII)) {
+    return "text/css";
+  }
+
+  return "image/png";
 }
 
 bool ThemeSource::AllowCaching() {
@@ -216,6 +253,113 @@ void ThemeSource::SendThemeImage(
   std::move(callback).Run(data.get());
 }
 
+void ThemeSource::SendColorsCss(
+    const GURL& url,
+    const content::WebContents::Getter& wc_getter,
+    content::URLDataSource::GotDataCallback callback) {
+  const ui::ColorProvider& color_provider = wc_getter.Run()->GetColorProvider();
+
+  std::string sets_param;
+  std::vector<base::StringPiece> color_id_sets;
+  bool generate_rgb_vars = false;
+  std::string generate_rgb_vars_query_value;
+  if (net::GetValueForKeyInQuery(url, "generate_rgb_vars",
+                                 &generate_rgb_vars_query_value)) {
+    generate_rgb_vars =
+        base::ToLowerASCII(generate_rgb_vars_query_value) == "true";
+  }
+  if (!net::GetValueForKeyInQuery(url, "sets", &sets_param)) {
+    LOG(ERROR)
+        << "colors.css requires a 'sets' query parameter to specify the color "
+           "id sets returned e.g chrome://theme/colors.css?sets=ui,chrome";
+    std::move(callback).Run(nullptr);
+    return;
+  }
+  color_id_sets = base::SplitStringPiece(sets_param, ",", base::TRIM_WHITESPACE,
+                                         base::SPLIT_WANT_ALL);
+
+  using ColorIdCSSCallback = base::RepeatingCallback<std::string(ui::ColorId)>;
+  auto generate_color_mapping = [&color_id_sets, &color_provider,
+                                 &generate_rgb_vars](
+                                    std::string set_name, ui::ColorId start,
+                                    ui::ColorId end,
+                                    ColorIdCSSCallback color_css_name) {
+    // Only return these mappings if specified in the query parameter.
+    auto it = base::ranges::find(color_id_sets, set_name);
+    if (it == color_id_sets.end()) {
+      return std::string();
+    }
+    color_id_sets.erase(it);
+    std::string css_string;
+    for (ui::ColorId id = start; id < end; ++id) {
+      const SkColor color = color_provider.GetColor(id);
+      std::string css_id_to_color_mapping =
+          base::StringPrintf("%s:%s;", color_css_name.Run(id).c_str(),
+                             ui::ConvertSkColorToCSSColor(color).c_str());
+      base::StrAppend(&css_string, {css_id_to_color_mapping});
+      if (generate_rgb_vars) {
+        // Also generate a r,g,b string for each color so apps can construct
+        // colors with their own opacities in css.
+        const std::string css_rgb_color_str =
+            color_utils::SkColorToRgbString(color);
+        const std::string css_id_to_rgb_color_mapping =
+            base::StringPrintf("%s-rgb:%s;", color_css_name.Run(id).c_str(),
+                               css_rgb_color_str.c_str());
+        base::StrAppend(&css_string, {css_id_to_rgb_color_mapping});
+      }
+    }
+    return css_string;
+  };
+
+  // Convenience lambda for wrapping
+  // |ConvertColorProviderColorIdToCSSColorId|.
+  auto generate_color_provider_mapping = [&generate_color_mapping](
+                                             std::string set_name,
+                                             ui::ColorId start, ui::ColorId end,
+                                             std::string (*color_id_name)(
+                                                 ui::ColorId)) {
+    auto color_id_to_css_name = base::BindRepeating(
+        [](std::string (*color_id_name)(ui::ColorId), ui::ColorId id) {
+          return ui::ConvertColorProviderColorIdToCSSColorId(color_id_name(id));
+        },
+        color_id_name);
+    return generate_color_mapping(set_name, start, end, color_id_to_css_name);
+  };
+
+  std::string css_string = base::StrCat({
+    // This selector requires more specificity than other existing CSS
+    // selectors that define variables. We increase the specifity by adding
+    // a pseudoselector.
+    "html:not(#z) {",
+        generate_color_provider_mapping("ui", ui::kUiColorsStart,
+                                        ui::kUiColorsEnd, ui::ColorIdName),
+        generate_color_provider_mapping("chrome", kChromeColorsStart,
+                                        kChromeColorsEnd, &ChromeColorIdName),
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+        generate_color_mapping("ref", cros_tokens::kCrosRefColorsStart,
+                               cros_tokens::kCrosRefColorsEnd,
+                               base::BindRepeating(cros_tokens::ColorIdName)),
+        generate_color_mapping("sys", cros_tokens::kCrosSysColorsStart,
+                               cros_tokens::kCrosSysColorsEnd,
+                               base::BindRepeating(cros_tokens::ColorIdName)),
+        generate_color_mapping("legacy",
+                               cros_tokens::kLegacySemanticColorsStart,
+                               cros_tokens::kLegacySemanticColorsEnd,
+                               base::BindRepeating(cros_tokens::ColorIdName)),
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+        "}"
+  });
+  if (!color_id_sets.empty()) {
+    LOG(ERROR)
+        << "Unrecognized color set(s) specified for chrome://theme/colors.css: "
+        << base::JoinString(color_id_sets, ",");
+    std::move(callback).Run(nullptr);
+    return;
+  }
+  std::move(callback).Run(
+      base::MakeRefCounted<base::RefCountedString>(std::move(css_string)));
+}
+
 std::string ThemeSource::GetAccessControlAllowOriginForOrigin(
     const std::string& origin) {
   std::string allowed_origin_prefix = content::kChromeUIScheme;
@@ -227,6 +371,22 @@ std::string ThemeSource::GetAccessControlAllowOriginForOrigin(
 
   return content::URLDataSource::GetAccessControlAllowOriginForOrigin(origin);
 }
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+void ThemeSource::SendTypographyCss(
+    content::URLDataSource::GotDataCallback callback) {
+  if (!chromeos::features::IsJellyEnabled()) {
+    std::move(callback).Run(base::MakeRefCounted<base::RefCountedString>(
+        std::string("/* This file is intentionally blank */")));
+    return;
+  }
+
+  const ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
+  std::move(callback).Run(rb.LoadDataResourceBytesForScale(
+      IDR_CROS_STYLES_UI_CHROMEOS_STYLES_CROS_TYPOGRAPHY_CSS,
+      ui::kScaleFactorNone));
+}
+#endif
 
 std::string ThemeSource::GetContentSecurityPolicy(
     network::mojom::CSPDirectiveName directive) {

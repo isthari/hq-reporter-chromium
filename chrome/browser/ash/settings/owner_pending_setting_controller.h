@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_ASH_SETTINGS_OWNER_PENDING_SETTING_CONTROLLER_H_
 
 #include "base/callback_list.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
 #include "base/sequence_checker.h"
@@ -36,7 +37,7 @@ namespace ash {
 // a pending write is queued that is completed as soon as the OSS is ready.
 // This write will complete even if Chrome is restarted in the meantime.
 // The caller need not care whether the write was immediate or pending, as long
-// as they also use this class to read the value of kStatsReportingPref.
+// as they also use this class to read the value of the device pref.
 // IsEnabled will return the pending value until ownership is taken and the
 // pending value is written - from then on it will return the signed, stored
 // value from CrosSettings.
@@ -111,7 +112,7 @@ class OwnerPendingSettingController
 
   SEQUENCE_CHECKER(sequence_checker_);
 
-  PrefService* local_state_;
+  raw_ptr<PrefService, DanglingUntriaged | ExperimentalAsh> local_state_;
   absl::optional<base::Value> value_notified_to_observers_;
   base::RepeatingClosureList callback_list_;
   base::CallbackListSubscription setting_subscription_;

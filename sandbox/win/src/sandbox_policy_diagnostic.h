@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -41,9 +41,9 @@ class PolicyDiagnostic final : public PolicyInfo {
  private:
   // |json_string_| is lazily constructed.
   std::unique_ptr<std::string> json_string_;
-  std::vector<uint32_t> process_ids_;
+  uint32_t process_id_;
   TokenLevel lockdown_level_ = USER_LAST;
-  JobLevel job_level_ = JOB_NONE;
+  JobLevel job_level_ = JobLevel::kUnprotected;
   IntegrityLevel desired_integrity_level_ = INTEGRITY_LEVEL_LAST;
   MitigationFlags desired_mitigations_ = 0;
   absl::optional<base::win::Sid> app_container_sid_;
@@ -55,6 +55,7 @@ class PolicyDiagnostic final : public PolicyInfo {
   std::unique_ptr<PolicyGlobal> policy_rules_;
   bool is_csrss_connected_ = false;
   HandleMap handles_to_close_;
+  std::string tag_;
 };
 
 }  // namespace sandbox

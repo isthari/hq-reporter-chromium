@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 
 #include "base/auto_reset.h"
 #include "base/gtest_prod_util.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/ash/login/signin/token_handle_util.h"
 #include "components/account_id/account_id.h"
@@ -41,7 +42,9 @@ class SigninErrorNotifier : public SigninErrorController::Observer,
 
   ~SigninErrorNotifier() override;
 
+  // This also makes AuthErrorObserver do not report errors.
   static std::unique_ptr<base::AutoReset<bool>> IgnoreSyncErrorsForTesting();
+  static bool ShouldIgnoreSyncErrorsForTesting();
 
   static void RegisterPrefs(PrefRegistrySimple* registry);
 
@@ -83,18 +86,19 @@ class SigninErrorNotifier : public SigninErrorController::Observer,
       absl::optional<int> button_index);
 
   // The error controller to query for error details.
-  SigninErrorController* error_controller_;
+  raw_ptr<SigninErrorController, ExperimentalAsh> error_controller_;
 
   std::unique_ptr<TokenHandleUtil> token_handle_util_;
 
   // The Profile this service belongs to.
-  Profile* const profile_;
+  const raw_ptr<Profile, ExperimentalAsh> profile_;
 
   // A non-owning pointer to IdentityManager.
-  signin::IdentityManager* const identity_manager_;
+  const raw_ptr<signin::IdentityManager, ExperimentalAsh> identity_manager_;
 
   // A non-owning pointer.
-  account_manager::AccountManager* const account_manager_;
+  const raw_ptr<account_manager::AccountManager, ExperimentalAsh>
+      account_manager_;
 
   // Used to keep track of the message center notifications.
   std::string device_account_notification_id_;
@@ -104,11 +108,5 @@ class SigninErrorNotifier : public SigninErrorController::Observer,
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
-// source migration is finished.
-namespace chromeos {
-using ::ash::SigninErrorNotifier;
-}
 
 #endif  // CHROME_BROWSER_ASH_LOGIN_SIGNIN_SIGNIN_ERROR_NOTIFIER_H_

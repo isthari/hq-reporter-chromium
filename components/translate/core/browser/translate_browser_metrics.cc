@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,12 +20,9 @@ const char kTranslateLanguageDetectionContentLength[] =
     "Translate.LanguageDetection.ContentLength";
 const char kTranslateUnsupportedLanguageAtInitiation[] =
     "Translate.UnsupportedLanguageAtInitiation";
-const char kTranslateSourceLanguage[] = "Translate.SourceLanguage";
-const char kTranslateTargetLanguage[] = "Translate.TargetLanguage";
 const char kTranslateHrefHintStatus[] = "Translate.HrefHint.Status";
 const char kTranslateHrefHintPrefsFilterStatus[] =
     "Translate.HrefHint.PrefsFilterStatus";
-const char kTranslateTargetLanguageOrigin[] = "Translate.TargetLanguage.Origin";
 const char kTranslateMenuTranslationUnavailableReasons[] =
     "Translate.MenuTranslation.UnavailableReasons";
 
@@ -56,16 +53,6 @@ void ReportUnsupportedLanguageAtInitiation(base::StringPiece language) {
                            language_code);
 }
 
-void ReportTranslateSourceLanguage(base::StringPiece language) {
-  base::UmaHistogramSparse(kTranslateSourceLanguage,
-                           base::HashMetricName(language));
-}
-
-void ReportTranslateTargetLanguage(base::StringPiece language) {
-  base::UmaHistogramSparse(kTranslateTargetLanguage,
-                           base::HashMetricName(language));
-}
-
 void ReportTranslateHrefHintStatus(HrefTranslateStatus status) {
   base::UmaHistogramEnumeration(kTranslateHrefHintStatus, status);
 }
@@ -73,10 +60,6 @@ void ReportTranslateHrefHintStatus(HrefTranslateStatus status) {
 void ReportTranslateHrefHintPrefsFilterStatus(
     HrefTranslatePrefsFilterStatus status) {
   base::UmaHistogramEnumeration(kTranslateHrefHintPrefsFilterStatus, status);
-}
-
-void ReportTranslateTargetLanguageOrigin(TargetLanguageOrigin origin) {
-  base::UmaHistogramEnumeration(kTranslateTargetLanguageOrigin, origin);
 }
 
 }  // namespace TranslateBrowserMetrics

@@ -1,10 +1,11 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/site_isolation/site_isolation_policy.h"
 
 #include "base/base_switches.h"
+#include "base/command_line.h"
 #include "base/json/values_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/no_destructor.h"
@@ -12,7 +13,7 @@
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/mock_entropy_provider.h"
 #include "base/test/scoped_feature_list.h"
-#include "base/test/scoped_field_trial_list_resetter.h"
+#include "base/time/time.h"
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
 #include "components/prefs/pref_registry_simple.h"
@@ -72,6 +73,14 @@ class BaseSiteIsolationTest : public testing::Test {
 
   ~BaseSiteIsolationTest() override {
     content::SetBrowserClientForTesting(original_client_);
+  }
+
+  void SetUp() override {
+    SiteIsolationPolicy::SetDisallowMemoryThresholdCachingForTesting(true);
+  }
+
+  void TearDown() override {
+    SiteIsolationPolicy::SetDisallowMemoryThresholdCachingForTesting(false);
   }
 
  protected:
@@ -154,9 +163,9 @@ class WebTriggeredIsolatedOriginsPolicyTest : public SiteIsolationPolicyTest {
 
   std::vector<std::string> GetStoredOrigins() {
     std::vector<std::string> origins;
-    auto* dict = user_prefs::UserPrefs::Get(browser_context())
-                     ->GetDictionary(prefs::kWebTriggeredIsolatedOrigins);
-    for (auto pair : dict->DictItems())
+    const auto& dict = user_prefs::UserPrefs::Get(browser_context())
+                           ->GetDict(prefs::kWebTriggeredIsolatedOrigins);
+    for (auto pair : dict)
       origins.push_back(pair.first);
     return origins;
   }
@@ -165,7 +174,7 @@ class WebTriggeredIsolatedOriginsPolicyTest : public SiteIsolationPolicyTest {
   void SetUp() override {
     // Set up the COOP isolation feature with persistence enabled and a maximum
     // of 3 stored sites.
-    base::test::ScopedFeatureList::FeatureAndParams coop_feature = {
+    base::test::FeatureRefAndParams coop_feature = {
         ::features::kSiteIsolationForCrossOriginOpenerPolicy,
         {{::features::kSiteIsolationForCrossOriginOpenerPolicyMaxSitesParam
               .name,
@@ -177,7 +186,7 @@ class WebTriggeredIsolatedOriginsPolicyTest : public SiteIsolationPolicyTest {
     // Some machines running this test may be below the default memory
     // threshold.  To ensure that COOP isolation is also enabled on those
     // machines, set a very low 128MB threshold.
-    base::test::ScopedFeatureList::FeatureAndParams memory_threshold_feature = {
+    base::test::FeatureRefAndParams memory_threshold_feature = {
         site_isolation::features::kSiteIsolationMemoryThresholds,
         {{site_isolation::features::
               kPartialSiteIsolationMemoryThresholdParamName,
@@ -242,15 +251,15 @@ TEST_F(WebTriggeredIsolatedOriginsPolicyTest, PersistIsolatedOrigin) {
 TEST_F(WebTriggeredIsolatedOriginsPolicyTest, UpdatedMaxSize) {
   // Populate the pref manually with more entries than the 3 allowed by the
   // field trial param.
-  DictionaryPrefUpdate update(
+  ScopedDictPrefUpdate update(
       user_prefs::UserPrefs::Get(browser_context()),
       site_isolation::prefs::kWebTriggeredIsolatedOrigins);
-  base::Value* dict = update.Get();
-  dict->SetKey("https://foo1.com", base::TimeToValue(base::Time::Now()));
-  dict->SetKey("https://foo2.com", base::TimeToValue(base::Time::Now()));
-  dict->SetKey("https://foo3.com", base::TimeToValue(base::Time::Now()));
-  dict->SetKey("https://foo4.com", base::TimeToValue(base::Time::Now()));
-  dict->SetKey("https://foo5.com", base::TimeToValue(base::Time::Now()));
+  base::Value::Dict& dict = update.Get();
+  dict.Set("https://foo1.com", base::TimeToValue(base::Time::Now()));
+  dict.Set("https://foo2.com", base::TimeToValue(base::Time::Now()));
+  dict.Set("https://foo3.com", base::TimeToValue(base::Time::Now()));
+  dict.Set("https://foo4.com", base::TimeToValue(base::Time::Now()));
+  dict.Set("https://foo5.com", base::TimeToValue(base::Time::Now()));
   EXPECT_THAT(GetStoredOrigins(),
               testing::UnorderedElementsAre(
                   "https://foo1.com", "https://foo2.com", "https://foo3.com",
@@ -345,10 +354,10 @@ TEST_F(PasswordSiteIsolationPolicyTest, ApplyPersistedIsolatedOrigins) {
 
   // Add foo.com and bar.com to stored isolated origins.
   {
-    ListPrefUpdate update(prefs(), prefs::kUserTriggeredIsolatedOrigins);
-    base::Value* list = update.Get();
-    list->Append("http://foo.com");
-    list->Append("https://bar.com");
+    ScopedListPrefUpdate update(prefs(), prefs::kUserTriggeredIsolatedOrigins);
+    base::Value::List& list = update.Get();
+    list.Append("http://foo.com");
+    list.Append("https://bar.com");
   }
 
   // New SiteInstances for foo.com and bar.com shouldn't require a dedicated
@@ -426,9 +435,8 @@ TEST_F(NoPasswordSiteIsolationPolicyTest,
 
   // Add foo.com to stored isolated origins.
   {
-    ListPrefUpdate update(prefs(), prefs::kUserTriggeredIsolatedOrigins);
-    base::Value* list = update.Get();
-    list->Append("http://foo.com");
+    ScopedListPrefUpdate update(prefs(), prefs::kUserTriggeredIsolatedOrigins);
+    update->Append("http://foo.com");
   }
 
   // Applying saved isolated origins should have no effect, since site
@@ -524,6 +532,7 @@ class SitePerProcessMemoryThresholdBrowserTest
     // On Android official builds, we expect to isolate an additional set of
     // built-in origins.
     expected_embedder_origins_ = GetBrowserSpecificBuiltInIsolatedOrigins();
+    BaseSiteIsolationTest::SetUp();
   }
 
  protected:
@@ -690,8 +699,9 @@ INSTANTIATE_TEST_SUITE_P(
 // or disabled state.
 class PasswordSiteIsolationFieldTrialTest : public BaseSiteIsolationTest {
  public:
-  explicit PasswordSiteIsolationFieldTrialTest(bool should_enable)
-      : field_trial_list_(std::make_unique<base::MockEntropyProvider>()) {
+  explicit PasswordSiteIsolationFieldTrialTest(bool should_enable) {
+    empty_feature_scope_.InitWithEmptyFeatureAndFieldTrialLists();
+
     const std::string kTrialName = "PasswordSiteIsolation";
     const std::string kGroupName = "FooGroup";  // unused
     scoped_refptr<base::FieldTrial> trial =
@@ -726,12 +736,16 @@ class PasswordSiteIsolationFieldTrialTest : public BaseSiteIsolationTest {
     base::CommandLine::ForCurrentProcess()->AppendSwitch(
         switches::kEnableLowEndDeviceMode);
     EXPECT_EQ(512, base::SysInfo::AmountOfPhysicalMemoryMB());
+    BaseSiteIsolationTest::SetUp();
   }
 
  protected:
-  base::test::ScopedFieldTrialListResetter trial_list_resetter_;
+  // |empty_feature_scope_| is used to prepare an environment with empty
+  // features and field trial lists.
+  base::test::ScopedFeatureList empty_feature_scope_;
+  // |feature_list_| is used to enable and disable features for
+  // PasswordSiteIsolationFieldTrialTest.
   base::test::ScopedFeatureList feature_list_;
-  base::FieldTrialList field_trial_list_;
 };
 
 class EnabledPasswordSiteIsolationFieldTrialTest
@@ -898,8 +912,9 @@ TEST_F(DisabledPasswordSiteIsolationFieldTrialTest,
 // or disabled state.
 class StrictOriginIsolationFieldTrialTest : public BaseSiteIsolationTest {
  public:
-  explicit StrictOriginIsolationFieldTrialTest(bool should_enable)
-      : field_trial_list_(std::make_unique<base::MockEntropyProvider>()) {
+  explicit StrictOriginIsolationFieldTrialTest(bool should_enable) {
+    empty_feature_scope_.InitWithEmptyFeatureAndFieldTrialLists();
+
     const std::string kTrialName = "StrictOriginIsolation";
     const std::string kGroupName = "FooGroup";  // unused
     scoped_refptr<base::FieldTrial> trial =
@@ -934,12 +949,16 @@ class StrictOriginIsolationFieldTrialTest : public BaseSiteIsolationTest {
     base::CommandLine::ForCurrentProcess()->AppendSwitch(
         switches::kEnableLowEndDeviceMode);
     EXPECT_EQ(512, base::SysInfo::AmountOfPhysicalMemoryMB());
+    BaseSiteIsolationTest::SetUp();
   }
 
  protected:
-  base::test::ScopedFieldTrialListResetter trial_list_resetter_;
+  // |empty_feature_scope_| is used to prepare an environment with empty
+  // features and field trial lists.
+  base::test::ScopedFeatureList empty_feature_scope_;
+  // |feature_list_| is used to enable and disable features for
+  // StrictOriginIsolationFieldTrialTest.
   base::test::ScopedFeatureList feature_list_;
-  base::FieldTrialList field_trial_list_;
 };
 
 class EnabledStrictOriginIsolationFieldTrialTest
@@ -1056,6 +1075,7 @@ class BuiltInIsolatedOriginsTest : public SiteIsolationPolicyTest {
     base::CommandLine::ForCurrentProcess()->AppendSwitch(
         switches::kEnableLowEndDeviceMode);
     EXPECT_EQ(512, base::SysInfo::AmountOfPhysicalMemoryMB());
+    SiteIsolationPolicyTest::SetUp();
   }
 };
 

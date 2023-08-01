@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include "third_party/blink/renderer/core/dom/layout_tree_builder_traversal.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/html/html_olist_element.h"
-#include "third_party/blink/renderer/core/layout/layout_list_item.h"
+#include "third_party/blink/renderer/core/layout/ng/list/layout_ng_inline_list_item.h"
 #include "third_party/blink/renderer/core/layout/ng/list/layout_ng_list_item.h"
 
 namespace blink {
@@ -17,12 +17,17 @@ namespace blink {
 ListItemOrdinal::ListItemOrdinal() : type_(kNeedsUpdate) {}
 
 bool ListItemOrdinal::IsList(const Node& node) {
-  return IsA<HTMLUListElement>(node) || IsA<HTMLOListElement>(node);
+  // Counters can not cross elements with style containment, hence we
+  // pretend such elements are lists for the purposes of calculating ordinal
+  // values.
+  //
+  // https://drafts.csswg.org/css-contain-2/#containment-style
+  return IsA<HTMLUListElement>(node) || IsA<HTMLOListElement>(node) ||
+         HasStyleContainment(node);
 }
 
 bool ListItemOrdinal::IsListItem(const LayoutObject* layout_object) {
-  return layout_object &&
-         (layout_object->IsListItem() || layout_object->IsLayoutNGListItem());
+  return layout_object && layout_object->IsListItemIncludingNG();
 }
 
 bool ListItemOrdinal::IsListItem(const Node& node) {
@@ -36,14 +41,21 @@ bool ListItemOrdinal::IsInReversedOrderedList(const Node& node) {
 }
 
 ListItemOrdinal* ListItemOrdinal::Get(const Node& item_node) {
-  LayoutObject* layout_object = item_node.GetLayoutObject();
-  if (layout_object) {
-    if (layout_object->IsListItem())
-      return &To<LayoutListItem>(layout_object)->Ordinal();
-    if (layout_object->IsLayoutNGListItem())
-      return &To<LayoutNGListItem>(layout_object)->Ordinal();
+  auto* object = item_node.GetLayoutObject();
+  if (auto* list_item = DynamicTo<LayoutNGListItem>(object)) {
+    return &list_item->Ordinal();
+  } else if (auto* inline_list_item =
+                 DynamicTo<LayoutNGInlineListItem>(object)) {
+    return &inline_list_item->Ordinal();
   }
   return nullptr;
+}
+
+bool ListItemOrdinal::HasStyleContainment(const Node& node) {
+  if (LayoutObject* layout_object = node.GetLayoutObject()) {
+    return layout_object->ShouldApplyStyleContainment();
+  }
+  return false;
 }
 
 // Returns the enclosing list with respect to the DOM order.
@@ -181,11 +193,13 @@ void ListItemOrdinal::InvalidateSelf(const Node& item_node, ValueType type) {
   DCHECK_NE(type, kUpdated);
   SetType(type);
 
-  LayoutObject* layout_object = item_node.GetLayoutObject();
-  if (layout_object->IsListItem())
-    To<LayoutListItem>(layout_object)->OrdinalValueChanged();
-  else if (layout_object->IsLayoutNGListItem())
-    To<LayoutNGListItem>(layout_object)->OrdinalValueChanged();
+  auto* object = item_node.GetLayoutObject();
+  if (auto* list_item = DynamicTo<LayoutNGListItem>(object)) {
+    list_item->OrdinalValueChanged();
+  } else if (auto* inline_list_item =
+                 DynamicTo<LayoutNGInlineListItem>(object)) {
+    inline_list_item->OrdinalValueChanged();
+  }
 }
 
 // Invalidate items after |item_node| in the DOM order.
@@ -260,7 +274,7 @@ void ListItemOrdinal::InvalidateAllItemsForOrderedList(
 void ListItemOrdinal::ItemUpdated(const LayoutObject* layout_list_item,
                                   UpdateType type) {
   const Node* item_node = layout_list_item->GetNode();
-  if (item_node->GetDocument().IsSlotAssignmentOrLegacyDistributionDirty())
+  if (item_node->GetDocument().IsSlotAssignmentDirty())
     return;
   if (item_node->GetDocument().IsFlatTreeTraversalForbidden())
     return;

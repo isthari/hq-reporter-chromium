@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,10 @@
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
+#include "components/segmentation_platform/public/input_context.h"
 #include "components/segmentation_platform/public/segment_selection_result.h"
 #include "components/segmentation_platform/public/segmentation_platform_service.h"
+#include "components/segmentation_platform/public/testing/mock_segmentation_platform_service.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -22,20 +24,6 @@ constexpr char kProfile1[] = "profile-1";
 constexpr char kProfile2[] = "profile-2";
 
 }  // namespace
-
-class MockSegmentationPlatformService : public SegmentationPlatformService {
- public:
-  MockSegmentationPlatformService() = default;
-  ~MockSegmentationPlatformService() override = default;
-  MOCK_METHOD(void,
-              GetSelectedSegment,
-              (const std::string&, SegmentSelectionCallback));
-  MOCK_METHOD(SegmentSelectionResult,
-              GetCachedSegmentResult,
-              (const std::string&));
-  MOCK_METHOD(void, EnableMetrics, (bool));
-  MOCK_METHOD(void, GetServiceStatus, ());
-};
 
 class SegmentationPlatformProfileObserverTest : public testing::Test {
  public:
@@ -91,7 +79,7 @@ TEST_F(SegmentationPlatformProfileObserverTest,
 
   // Kill the OTR profile. The signal collection resumes.
   EXPECT_CALL(segmentation_platform_service_, EnableMetrics(true)).Times(1);
-  ProfileDestroyer::DestroyProfileWhenAppropriate(profile1_otr1);
+  ProfileDestroyer::DestroyOTRProfileWhenAppropriate(profile1_otr1);
 
   // Start again another OTR profile. The signal collection should stop.
   EXPECT_CALL(segmentation_platform_service_, EnableMetrics(false)).Times(1);
@@ -112,13 +100,13 @@ TEST_F(SegmentationPlatformProfileObserverTest,
   // Start killing the OTR profiles one by one. The signal collection resumes
   // only after the last one is killed.
   EXPECT_CALL(segmentation_platform_service_, EnableMetrics(_)).Times(0);
-  ProfileDestroyer::DestroyProfileWhenAppropriate(profile1_otr2_secondary);
+  ProfileDestroyer::DestroyOTRProfileWhenAppropriate(profile1_otr2_secondary);
 
   EXPECT_CALL(segmentation_platform_service_, EnableMetrics(_)).Times(0);
-  ProfileDestroyer::DestroyProfileWhenAppropriate(profile1_otr2);
+  ProfileDestroyer::DestroyOTRProfileWhenAppropriate(profile1_otr2);
 
   EXPECT_CALL(segmentation_platform_service_, EnableMetrics(true)).Times(1);
-  ProfileDestroyer::DestroyProfileWhenAppropriate(profile2_otr1);
+  ProfileDestroyer::DestroyOTRProfileWhenAppropriate(profile2_otr1);
 
   // Cleanup profiles.
   testing_profile_manager_->DeleteTestingProfile(kProfile1);
@@ -138,7 +126,7 @@ TEST_F(SegmentationPlatformProfileObserverTest, StartWithOTRProfile) {
 
   // Kill the OTR profile. The signal collection resumes.
   EXPECT_CALL(segmentation_platform_service_, EnableMetrics(true)).Times(1);
-  ProfileDestroyer::DestroyProfileWhenAppropriate(otr);
+  ProfileDestroyer::DestroyOTRProfileWhenAppropriate(otr);
 
   // Cleanup profiles.
   EXPECT_CALL(segmentation_platform_service_, EnableMetrics(_)).Times(0);

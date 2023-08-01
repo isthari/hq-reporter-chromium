@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/timer/elapsed_timer.h"
 #include "chrome/browser/ash/crosapi/browser_data_migrator.h"
@@ -41,7 +40,7 @@ void CopyMigrator::Migrate() {
       FROM_HERE,
       {base::MayBlock(), base::TaskPriority::USER_VISIBLE,
        base::TaskShutdownBehavior::BLOCK_SHUTDOWN},
-      base::BindOnce(&CopyMigrator::MigrateInternal, original_profile_dir_,
+      base::BindOnce(&CopyMigrator::MigrateInternal, *original_profile_dir_,
                      std::move(progress_tracker_), cancel_flag_),
       std::move(finished_callback_));
 }
@@ -51,8 +50,8 @@ BrowserDataMigratorImpl::MigrationResult CopyMigrator::MigrateInternal(
     const base::FilePath& original_profile_dir,
     std::unique_ptr<MigrationProgressTracker> progress_tracker,
     scoped_refptr<browser_data_migrator_util::CancelFlag> cancel_flag) {
-  BrowserDataMigratorImpl::ResultValue data_wipe_result =
-      BrowserDataMigratorImpl::ResultValue::kSkipped;
+  BrowserDataMigratorImpl::DataWipeResult data_wipe_result =
+      BrowserDataMigratorImpl::DataWipeResult::kSkipped;
 
   const base::FilePath tmp_dir =
       original_profile_dir.Append(browser_data_migrator_util::kTmpDir);
@@ -63,10 +62,10 @@ BrowserDataMigratorImpl::MigrationResult CopyMigrator::MigrateInternal(
     if (!base::DeletePathRecursively(new_user_dir)) {
       PLOG(ERROR) << "Deleting " << new_user_dir.value() << " failed: ";
       UMA_HISTOGRAM_ENUMERATION(kFinalStatus, FinalStatus::kDataWipeFailed);
-      return {BrowserDataMigratorImpl::ResultValue::kFailed,
-              BrowserDataMigratorImpl::ResultValue::kFailed};
+      return {BrowserDataMigratorImpl::DataWipeResult::kFailed,
+              {BrowserDataMigrator::ResultKind::kFailed}};
     }
-    data_wipe_result = BrowserDataMigratorImpl::ResultValue::kSucceeded;
+    data_wipe_result = BrowserDataMigratorImpl::DataWipeResult::kSucceeded;
   }
 
   // Check if tmp directory already exists and delete if it does.
@@ -77,14 +76,14 @@ BrowserDataMigratorImpl::MigrationResult CopyMigrator::MigrateInternal(
     if (!base::DeletePathRecursively(tmp_dir)) {
       PLOG(ERROR) << "Failed to delete tmp dir";
       UMA_HISTOGRAM_ENUMERATION(kFinalStatus, FinalStatus::kDeleteTmpDirFailed);
-      return {data_wipe_result, BrowserDataMigratorImpl::ResultValue::kFailed};
+      return {data_wipe_result, {BrowserDataMigrator::ResultKind::kFailed}};
     }
   }
 
   browser_data_migrator_util::TargetItems need_copy_items =
       browser_data_migrator_util::GetTargetItems(
           original_profile_dir,
-          browser_data_migrator_util::ItemType::kNeedCopy);
+          browser_data_migrator_util::ItemType::kNeedCopyForCopy);
   browser_data_migrator_util::TargetItems lacros_items =
       browser_data_migrator_util::GetTargetItems(
           original_profile_dir, browser_data_migrator_util::ItemType::kLacros);
@@ -94,10 +93,13 @@ BrowserDataMigratorImpl::MigrationResult CopyMigrator::MigrateInternal(
 
   base::ElapsedTimer timer;
 
-  if (!browser_data_migrator_util::HasEnoughDiskSpace(total_copy_size,
-                                                      original_profile_dir)) {
+  uint64_t required_size =
+      browser_data_migrator_util::ExtraBytesRequiredToBeFreed(
+          total_copy_size, original_profile_dir);
+  if (required_size > 0) {
     UMA_HISTOGRAM_ENUMERATION(kFinalStatus, FinalStatus::kNotEnoughSpace);
-    return {data_wipe_result, BrowserDataMigratorImpl::ResultValue::kFailed};
+    return {data_wipe_result,
+            {BrowserDataMigrator::ResultKind::kFailed, required_size}};
   }
 
   // Copy files to `tmp_dir`.
@@ -109,12 +111,11 @@ BrowserDataMigratorImpl::MigrationResult CopyMigrator::MigrateInternal(
     if (cancel_flag->IsSet()) {
       LOG(WARNING) << "Migration was cancelled.";
       UMA_HISTOGRAM_ENUMERATION(kFinalStatus, FinalStatus::kCancelled);
-      return {data_wipe_result,
-              BrowserDataMigratorImpl::ResultValue::kCancelled};
+      return {data_wipe_result, {BrowserDataMigrator::ResultKind::kCancelled}};
     }
 
     UMA_HISTOGRAM_ENUMERATION(kFinalStatus, FinalStatus::kCopyFailed);
-    return {data_wipe_result, BrowserDataMigratorImpl::ResultValue::kFailed};
+    return {data_wipe_result, {BrowserDataMigrator::ResultKind::kFailed}};
   }
 
   // Move `tmp_dir` to `new_user_dir`.
@@ -124,7 +125,7 @@ BrowserDataMigratorImpl::MigrationResult CopyMigrator::MigrateInternal(
       base::DeletePathRecursively(tmp_dir);
     }
     UMA_HISTOGRAM_ENUMERATION(kFinalStatus, FinalStatus::kMoveFailed);
-    return {data_wipe_result, BrowserDataMigratorImpl::ResultValue::kFailed};
+    return {data_wipe_result, {BrowserDataMigrator::ResultKind::kFailed}};
   }
 
   LOG(WARNING) << "BrowserDataMigratorImpl::Migrate took "
@@ -140,7 +141,7 @@ BrowserDataMigratorImpl::MigrationResult CopyMigrator::MigrateInternal(
   UMA_HISTOGRAM_CUSTOM_COUNTS(
       kCommonDataSize, need_copy_items.total_size / 1024 / 1024, 1, 10000, 100);
   UMA_HISTOGRAM_MEDIUM_TIMES(kTotalTime, timer.Elapsed());
-  return {data_wipe_result, BrowserDataMigratorImpl::ResultValue::kSucceeded};
+  return {data_wipe_result, {BrowserDataMigratorImpl::ResultKind::kSucceeded}};
 }
 
 // static

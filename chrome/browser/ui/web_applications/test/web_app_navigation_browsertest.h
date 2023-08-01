@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,10 @@
 #include <memory>
 #include <string>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
+#include "base/memory/raw_ptr.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "chrome/browser/ui/web_applications/web_app_controller_browsertest.h"
 #include "chrome/browser/web_applications/web_app_id.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "content/public/test/content_mock_cert_verifier.h"
@@ -26,7 +28,7 @@ class WebContents;
 
 namespace web_app {
 
-class WebAppNavigationBrowserTest : public InProcessBrowserTest {
+class WebAppNavigationBrowserTest : public WebAppControllerBrowserTest {
  public:
   enum class LinkTarget {
     SELF,
@@ -89,6 +91,7 @@ class WebAppNavigationBrowserTest : public InProcessBrowserTest {
   void TearDownInProcessBrowserTestFixture() override;
   void SetUpCommandLine(base::CommandLine* command_line) override;
   void SetUpOnMainThread() override;
+  void TearDownOnMainThread() override;
 
   Profile* profile();
 
@@ -118,11 +121,14 @@ class WebAppNavigationBrowserTest : public InProcessBrowserTest {
 
   const AppId& test_web_app_id() const { return test_web_app_; }
 
+  const GURL& test_web_app_start_url();
+
  private:
   net::EmbeddedTestServer https_server_;
   // Similar to net::MockCertVerifier, but also updates the CertVerifier
   // used by the NetworkService.
   content::ContentMockCertVerifier cert_verifier_;
+  raw_ptr<Profile, DanglingUntriaged> profile_ = nullptr;
   AppId test_web_app_;
   base::HistogramTester histogram_tester_;
 };

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,8 @@
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
 #include "base/android/jni_utils.h"
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/json/json_writer.h"
 #include "chrome/android/test_support_jni_headers/OfflineTestUtil_jni.h"
 #include "chrome/browser/android/profile_key_util.h"
@@ -24,7 +24,6 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "components/offline_pages/core/background/request_coordinator.h"
 #include "components/offline_pages/core/offline_page_model.h"
-#include "components/offline_pages/core/prefetch/prefetch_prefs.h"
 #include "content/public/browser/network_service_instance.h"
 #include "content/public/test/url_loader_interceptor.h"
 
@@ -80,7 +79,7 @@ void OnGetVisualsDoneExtractThumbnail(
 void OnDeletePageDone(const ScopedJavaGlobalRef<jobject>& j_callback_obj,
                       OfflinePageModel::DeletePageResult result) {
   base::android::RunIntCallbackAndroid(j_callback_obj,
-                                       static_cast<int>(result));
+                                       static_cast<int32_t>(result));
 }
 
 std::string RequestListToString(
@@ -275,25 +274,6 @@ void JNI_OfflineTestUtil_WaitForConnectivityState(
                 : network::mojom::ConnectionType::CONNECTION_NONE;
   NetworkConnectionObserver::WaitForConnectionType(
       type, base::android::ScopedJavaGlobalRef<jobject>(env, callback));
-}
-
-void JNI_OfflineTestUtil_SetPrefetchingEnabledByServer(
-    JNIEnv* env,
-    const jboolean enabled) {
-  ProfileKey* key = ::android::GetLastUsedRegularProfileKey();
-
-  prefetch_prefs::SetEnabledByServer(key->GetPrefs(), enabled);
-  if (!enabled) {
-    prefetch_prefs::ResetForbiddenStateForTesting(key->GetPrefs());
-  }
-}
-
-void JNI_OfflineTestUtil_SetGCMTokenForTesting(
-    JNIEnv* env,
-    const JavaParamRef<jstring>& gcm_token) {
-  prefetch_prefs::SetCachedPrefetchGCMToken(
-      ::android::GetLastUsedRegularProfileKey()->GetPrefs(),
-      base::android::ConvertJavaStringToUTF8(env, gcm_token));
 }
 
 }  // namespace offline_pages

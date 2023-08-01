@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@ class BookmarkModel;
 
 @class CSSearchableItem;
 @class TopSitesSpotlightManager;
+@class SpotlightInterface;
 
 @protocol BookmarkUpdatedDelegate
 
@@ -36,23 +37,28 @@ class BookmarkModel;
 // needed.
 - (void)reindexBookmarksIfNeeded;
 
-// Methods below here are for testing use only.
+// Methods below here are for testing or debugging only.
 
 - (instancetype)
-initWithLargeIconService:(favicon::LargeIconService*)largeIconService
-           bookmarkModel:(bookmarks::BookmarkModel*)bookmarkModel;
+    initWithLargeIconService:(favicon::LargeIconService*)largeIconService
+               bookmarkModel:(bookmarks::BookmarkModel*)bookmarkModel
+          spotlightInterface:(SpotlightInterface*)spotlightInterface;
 
 // Recursively adds node ancestors titles to keywords. Permanent nodes are
 // ignored.
 - (void)getParentKeywordsForNode:(const bookmarks::BookmarkNode*)node
                          inArray:(NSMutableArray*)keywords;
 
-// Adds keywords to |item|.
+// Adds keywords to `item`.
 - (void)addKeywords:(NSArray*)keywords toSearchableItem:(CSSearchableItem*)item;
 
 // Called before the instance is deallocated. This method should be overridden
 // by the subclasses and de-activate the instance.
 - (void)shutdown;
+
+// Clears all the bookmarks in the Spotlight index then index the bookmarks in
+// the model.
+- (void)clearAndReindexModelWithCompletionBlock:(void (^)(NSError* error))block;
 
 @end
 

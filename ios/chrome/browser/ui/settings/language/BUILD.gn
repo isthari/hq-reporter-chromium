@@ -1,4 +1,4 @@
-# Copyright 2019 The Chromium Authors. All rights reserved.
+# Copyright 2019 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -15,10 +15,10 @@ source_set("language") {
     "//components/prefs",
     "//components/prefs/ios",
     "//components/translate/core/browser",
-    "//ios/chrome/app/strings:ios_strings",
-    "//ios/chrome/browser",
-    "//ios/chrome/browser/browser_state",
+    "//ios/chrome/app/strings",
     "//ios/chrome/browser/language",
+    "//ios/chrome/browser/shared/model/application_context",
+    "//ios/chrome/browser/shared/model/browser_state",
     "//ios/chrome/browser/translate",
     "//ios/chrome/browser/ui/settings/language/cells",
     "//ios/chrome/browser/ui/settings/utils",
@@ -45,24 +45,23 @@ source_set("language_ui") {
     "//components/password_manager/core/common:features",
     "//components/prefs",
     "//components/translate/core/browser:translate_pref_names",
-    "//ios/chrome/app/strings:ios_strings_grit",
-    "//ios/chrome/browser",
+    "//ios/chrome/app/strings",
     "//ios/chrome/browser/net:crurl",
-    "//ios/chrome/browser/ui:feature_flags",
-    "//ios/chrome/browser/ui/list_model",
+    "//ios/chrome/browser/shared/model/application_context",
+    "//ios/chrome/browser/shared/public/features",
+    "//ios/chrome/browser/shared/ui/list_model",
+    "//ios/chrome/browser/shared/ui/table_view",
+    "//ios/chrome/browser/shared/ui/table_view:utils",
+    "//ios/chrome/browser/shared/ui/table_view/cells",
+    "//ios/chrome/browser/shared/ui/util",
     "//ios/chrome/browser/ui/settings:constants",
     "//ios/chrome/browser/ui/settings:settings_root",
     "//ios/chrome/browser/ui/settings/cells",
     "//ios/chrome/browser/ui/settings/cells:public",
     "//ios/chrome/browser/ui/settings/elements:enterprise_info_popover_view_controller",
     "//ios/chrome/browser/ui/settings/language/cells",
-    "//ios/chrome/browser/ui/table_view",
-    "//ios/chrome/browser/ui/table_view:utils",
-    "//ios/chrome/browser/ui/table_view/cells",
-    "//ios/chrome/browser/ui/table_view/cells",
-    "//ios/chrome/browser/ui/table_view/cells:cells_constants",
-    "//ios/chrome/browser/ui/util",
     "//ios/chrome/common/ui/colors",
+    "//ios/chrome/common/ui/table_view:cells_constants",
     "//ios/chrome/common/ui/util",
     "//net",
     "//ui/base",
@@ -91,8 +90,8 @@ source_set("unit_tests") {
     "//components/sync_preferences",
     "//components/sync_preferences:test_support",
     "//components/translate/core/browser",
-    "//ios/chrome/browser/browser_state:test_support",
-    "//ios/chrome/browser/prefs:browser_prefs",
+    "//ios/chrome/browser/shared/model/browser_state:test_support",
+    "//ios/chrome/browser/shared/model/prefs:browser_prefs",
     "//ios/chrome/browser/translate",
     "//ios/chrome/browser/ui/settings/language",
     "//ios/chrome/browser/ui/settings/language/cells",
@@ -112,7 +111,7 @@ source_set("eg_app_support+eg2") {
   deps = [
     "//components/language/core/browser",
     "//components/translate/core/browser",
-    "//ios/chrome/browser/browser_state",
+    "//ios/chrome/browser/shared/model/browser_state",
     "//ios/chrome/browser/translate",
     "//ios/chrome/test/app:test_support",
   ]
@@ -128,10 +127,7 @@ source_set("eg_test_support+eg2") {
     "language_settings_app_interface.h",
     "language_settings_app_interface_stub.mm",
   ]
-  deps = [
-    "//ios/testing/earl_grey:eg_test_support+eg2",
-    "//ios/third_party/earl_grey2:test_lib",
-  ]
+  deps = [ "//ios/testing/earl_grey:eg_test_support+eg2" ]
 }
 
 source_set("eg2_tests") {
@@ -145,13 +141,12 @@ source_set("eg2_tests") {
     ":language_ui_constants",
     "//base/test:test_support",
     "//components/translate/core/browser:translate_pref_names",
-    "//ios/chrome/app/strings:ios_strings_grit",
-    "//ios/chrome/browser/ui:feature_flags",
+    "//ios/chrome/app/strings",
+    "//ios/chrome/browser/shared/public/features",
     "//ios/chrome/browser/ui/settings:settings_root_constants",
     "//ios/chrome/browser/ui/settings/language:eg_test_support+eg2",
     "//ios/chrome/test/earl_grey:eg_test_support+eg2",
     "//ios/testing/earl_grey:eg_test_support+eg2",
-    "//ios/third_party/earl_grey2:test_lib",
     "//ui/strings:ui_strings_grit",
   ]
   frameworks = [ "UIKit.framework" ]

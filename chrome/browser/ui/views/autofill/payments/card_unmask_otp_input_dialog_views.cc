@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <string>
 
 #include "base/strings/strcat.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/ui/autofill/payments/card_unmask_otp_input_dialog_controller.h"
 #include "chrome/browser/ui/autofill/payments/payments_ui_constants.h"
 #include "chrome/browser/ui/views/autofill/payments/payments_view_util.h"
@@ -81,7 +82,7 @@ void CardUnmaskOtpInputDialogViews::ShowInvalidState(
   otp_input_textfield_invalid_label_->SetVisible(true);
   otp_input_textfield_invalid_label_->SetText(invalid_label_text);
   otp_input_textfield_invalid_label_padding_->SetVisible(false);
-  otp_input_textfield_->SetAssociatedLabel(otp_input_textfield_invalid_label_);
+  otp_input_textfield_->SetAccessibleName(otp_input_textfield_invalid_label_);
 }
 
 void CardUnmaskOtpInputDialogViews::Dismiss(
@@ -93,7 +94,7 @@ void CardUnmaskOtpInputDialogViews::Dismiss(
     progress_throbber_->Stop();
     progress_label_->SetText(controller_->GetConfirmationMessage());
     progress_throbber_->SetChecked(true);
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(&CardUnmaskOtpInputDialogViews::CloseWidget,
                        weak_ptr_factory_.GetWeakPtr(), user_closed_dialog,
@@ -212,7 +213,7 @@ void CardUnmaskOtpInputDialogViews::CreateOtpInputView() {
 void CardUnmaskOtpInputDialogViews::OnNewCodeLinkClicked() {
   controller_->OnNewCodeLinkClicked();
   SetDialogFooter(/*enabled=*/false);
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&CardUnmaskOtpInputDialogViews::EnableNewCodeLink,
                      weak_ptr_factory_.GetWeakPtr()),
@@ -255,7 +256,7 @@ void CardUnmaskOtpInputDialogViews::HideInvalidState() {
   otp_input_textfield_->SetInvalid(false);
   otp_input_textfield_invalid_label_->SetText(std::u16string());
   otp_input_textfield_invalid_label_->SetVisible(false);
-  otp_input_textfield_->SetAssociatedLabel(otp_input_textfield_invalid_label_);
+  otp_input_textfield_->SetAccessibleName(otp_input_textfield_invalid_label_);
   otp_input_textfield_invalid_label_padding_->SetVisible(true);
 }
 
@@ -281,7 +282,6 @@ void CardUnmaskOtpInputDialogViews::SetDialogFooter(bool enabled) {
             &CardUnmaskOtpInputDialogViews::OnNewCodeLinkClicked,
             weak_ptr_factory_.GetWeakPtr()));
   } else {
-    style_info.disable_line_wrapping = true;
     style_info.text_style = views::style::STYLE_DISABLED;
   }
   footer_label_->AddStyleRange(

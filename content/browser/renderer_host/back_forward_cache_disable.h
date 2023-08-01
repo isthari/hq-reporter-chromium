@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,13 +26,13 @@ class CONTENT_EXPORT BackForwardCacheDisable {
     kWebAuthenticationAPI = 3,
     kFileChooser = 4,
     kSerial = 5,
-    kFileSystemAccess = 6,
+    // kFileSystemAccess = 6, Removed. See https://crbug.com/1259861.
     kMediaDevicesDispatcherHost = 7,
     kWebBluetooth = 8,
     kWebUSB = 9,
 
     // MediaSession's playback state is changed (crbug.com/1177661).
-    kMediaSession = 10,
+    // kMediaSession = 10 Removed after implementing support
 
     // MediaSession's service is used (crbug.com/1243599).
     kMediaSessionService = 11,

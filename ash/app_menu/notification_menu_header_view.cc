@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,7 +26,7 @@ constexpr int kNotificationHeaderLineHeight = 20;
 }  // namespace
 
 NotificationMenuHeaderView::NotificationMenuHeaderView() {
-  SetBorder(views::CreateEmptyBorder(gfx::Insets(
+  SetBorder(views::CreateEmptyBorder(gfx::Insets::VH(
       kNotificationVerticalPadding, kNotificationHorizontalPadding)));
 
   notification_title_ = new views::Label(
@@ -35,14 +35,14 @@ NotificationMenuHeaderView::NotificationMenuHeaderView() {
       {views::Label::GetDefaultFontList().DeriveWithSizeDelta(1)});
   notification_title_->SetEnabledColor(kNotificationHeaderTextColor);
   notification_title_->SetLineHeight(kNotificationHeaderLineHeight);
-  AddChildView(notification_title_);
+  AddChildView(notification_title_.get());
 
   counter_ = new views::Label(
       std::u16string(),
       {views::Label::GetDefaultFontList().DeriveWithSizeDelta(1)});
   counter_->SetEnabledColor(kNotificationHeaderTextColor);
   counter_->SetLineHeight(kNotificationHeaderLineHeight);
-  AddChildView(counter_);
+  AddChildView(counter_.get());
 }
 
 NotificationMenuHeaderView::~NotificationMenuHeaderView() = default;

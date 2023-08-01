@@ -1,10 +1,8 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.toolbar.top;
-
-import static org.junit.Assert.assertTrue;
 
 import static org.chromium.chrome.browser.tasks.tab_management.TabUiTestHelper.enterTabSwitcher;
 import static org.chromium.chrome.browser.tasks.tab_management.TabUiTestHelper.verifyTabSwitcherCardCount;
@@ -27,12 +25,10 @@ import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
-import org.chromium.chrome.browser.compositor.layouts.Layout;
-import org.chromium.chrome.browser.flags.CachedFeatureFlags;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.incognito.IncognitoUtils;
-import org.chromium.chrome.features.start_surface.StartSurfaceLayout;
+import org.chromium.chrome.browser.tasks.tab_management.TabUiTestHelper;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.ActivityTestUtils;
@@ -44,7 +40,8 @@ import org.chromium.ui.test.util.UiRestriction;
 // clang-format off
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
 @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
-@Features.DisableFeatures({ChromeFeatureList.TAB_GROUPS_ANDROID})
+@Features.DisableFeatures({
+    ChromeFeatureList.TAB_GROUPS_ANDROID, ChromeFeatureList.START_SURFACE_ANDROID})
 public class AdaptiveToolbarTest {
     // Params to turn off new tab variation in GTS.
     private static final String NO_NEW_TAB_VARIATION_PARAMS = "force-fieldtrial-params=" +
@@ -58,13 +55,12 @@ public class AdaptiveToolbarTest {
 
     @After
     public void tearDown() {
-        CachedFeatureFlags.setForTesting(ChromeFeatureList.TAB_GRID_LAYOUT_ANDROID, null);
+        ChromeFeatureList.sTabGridLayoutAndroid.setForTesting(null);
         ActivityTestUtils.clearActivityOrientation(mActivityTestRule.getActivity());
     }
 
     private void setupFlagsAndLaunchActivity(boolean isGridTabSwitcherEnabled) {
-        CachedFeatureFlags.setForTesting(
-                ChromeFeatureList.TAB_GRID_LAYOUT_ANDROID, isGridTabSwitcherEnabled);
+        ChromeFeatureList.sTabGridLayoutAndroid.setForTesting(isGridTabSwitcherEnabled);
         mActivityTestRule.startMainActivityOnBlankPage();
         CriteriaHelper.pollUiThread(
                 mActivityTestRule.getActivity().getTabModelSelector()::isTabStateInitialized);
@@ -73,14 +69,14 @@ public class AdaptiveToolbarTest {
     @Test
     @MediumTest
     // clang-format off
+    @Features.EnableFeatures(ChromeFeatureList.TAB_GROUPS_ANDROID)
     @CommandLineFlags.Add({"enable-features=" + ChromeFeatureList.TAB_GRID_LAYOUT_ANDROID +
             "<Study", "force-fieldtrials=Study/Group", NO_NEW_TAB_VARIATION_PARAMS})
     public void testTopToolbar_WithGTS() throws InterruptedException {
         // clang-format on
         setupFlagsAndLaunchActivity(true);
         final ChromeTabbedActivity cta = mActivityTestRule.getActivity();
-        Layout layout = cta.getLayoutManager().getOverviewLayout();
-        assertTrue(layout instanceof StartSurfaceLayout);
+        TabUiTestHelper.verifyTabSwitcherLayoutType(cta);
         enterTabSwitcher(cta);
         verifyTabSwitcherCardCount(cta, 1);
 
@@ -96,14 +92,14 @@ public class AdaptiveToolbarTest {
     @Test
     @MediumTest
     // clang-format off
+    @Features.EnableFeatures(ChromeFeatureList.TAB_GROUPS_ANDROID)
     @CommandLineFlags.Add({"enable-features=" + ChromeFeatureList.TAB_GRID_LAYOUT_ANDROID +
             "<Study", "force-fieldtrials=Study/Group", NEW_TAB_VARIATION_PARAMS})
     public void testTopToolbar_NewTabVariation() {
         // clang-format on
         setupFlagsAndLaunchActivity(true);
         final ChromeTabbedActivity cta = mActivityTestRule.getActivity();
-        Layout layout = cta.getLayoutManager().getOverviewLayout();
-        assertTrue(layout instanceof StartSurfaceLayout);
+        TabUiTestHelper.verifyTabSwitcherLayoutType(mActivityTestRule.getActivity());
         enterTabSwitcher(cta);
         verifyTabSwitcherCardCount(cta, 1);
 
@@ -123,6 +119,7 @@ public class AdaptiveToolbarTest {
     @Test
     @MediumTest
     // clang-format off
+    @Features.EnableFeatures(ChromeFeatureList.TAB_GROUPS_ANDROID)
     @CommandLineFlags.Add({"enable-features=" + ChromeFeatureList.TAB_GRID_LAYOUT_ANDROID +
             "<Study", "force-fieldtrials=Study/Group", NEW_TAB_VARIATION_PARAMS})
     public void testTopToolbar_NewTabVariation_IncognitoDisabled() {
@@ -130,8 +127,7 @@ public class AdaptiveToolbarTest {
         IncognitoUtils.setEnabledForTesting(false);
         setupFlagsAndLaunchActivity(true);
         final ChromeTabbedActivity cta = mActivityTestRule.getActivity();
-        Layout layout = cta.getLayoutManager().getOverviewLayout();
-        assertTrue(layout instanceof StartSurfaceLayout);
+        TabUiTestHelper.verifyTabSwitcherLayoutType(cta);
         enterTabSwitcher(cta);
         verifyTabSwitcherCardCount(cta, 1);
 

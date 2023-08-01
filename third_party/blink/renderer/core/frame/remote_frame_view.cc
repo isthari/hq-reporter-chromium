@@ -1,10 +1,11 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/core/frame/remote_frame_view.h"
 
-#include "base/cxx17_backports.h"
+#include <algorithm>
+
 #include "components/paint_preview/common/paint_preview_tracker.h"
 #include "printing/buildflags/buildflags.h"
 #include "third_party/blink/public/common/frame/frame_owner_element_type.h"
@@ -27,7 +28,7 @@
 
 #if BUILDFLAG(ENABLE_PRINTING)
 // nogncheck because dependency on //printing is conditional upon
-// enable_basic_printing flags.
+// enable_printing flags.
 #include "printing/metafile_skia.h"  // nogncheck
 #endif
 
@@ -126,17 +127,10 @@ void RemoteFrameView::SetNeedsOcclusionTracking(bool needs_tracking) {
   }
 }
 
-void RemoteFrameView::UpdateCompositingRect() {
-  remote_frame_->UpdateCompositedLayerBounds();
-  gfx::Rect previous_rect = compositing_rect_;
-  compositing_rect_ = gfx::Rect();
+gfx::Rect RemoteFrameView::ComputeCompositingRect() const {
   LocalFrameView* local_root_view = ParentLocalRootFrameView();
   LayoutEmbeddedContent* owner_layout_object =
       remote_frame_->OwnerLayoutObject();
-  if (!local_root_view || !owner_layout_object) {
-    needs_frame_rect_propagation_ = true;
-    return;
-  }
 
   // For main frames we constrain the rect that gets painted to the viewport.
   // If the local frame root is an OOPIF itself, then we use the root's
@@ -155,11 +149,11 @@ void RemoteFrameView::UpdateCompositingRect() {
       owner_layout_object->PhysicalContentBoxOffset());
   owner_layout_object->MapLocalToAncestor(nullptr, local_root_transform_state,
                                           kTraverseDocumentBoundaries);
-  TransformationMatrix matrix =
-      local_root_transform_state.AccumulatedTransform().Inverse();
+  gfx::Transform matrix =
+      local_root_transform_state.AccumulatedTransform().InverseOrIdentity();
   PhysicalRect local_viewport_rect = PhysicalRect::EnclosingRect(
       matrix.ProjectQuad(gfx::QuadF(gfx::RectF(viewport_rect))).BoundingBox());
-  compositing_rect_ = ToEnclosingRect(local_viewport_rect);
+  gfx::Rect compositing_rect = ToEnclosingRect(local_viewport_rect);
   gfx::Size frame_size = Size();
 
   // Iframes that fit within the window viewport get fully rastered. For
@@ -170,15 +164,45 @@ void RemoteFrameView::UpdateCompositingRect() {
   // it seems to make guttering rare with slow to medium speed wheel scrolling.
   // Can we collect UMA data to estimate how much extra rastering this causes,
   // and possibly how common guttering is?
-  compositing_rect_.Outset(ceilf(local_viewport_rect.Width() * 0.15f),
-                           ceilf(local_viewport_rect.Height() * 0.15f));
-  compositing_rect_.set_width(
-      std::min(frame_size.width(), compositing_rect_.width()));
-  compositing_rect_.set_height(
-      std::min(frame_size.height(), compositing_rect_.height()));
-  gfx::Point compositing_rect_location = compositing_rect_.origin();
+  compositing_rect.Outset(
+      gfx::Outsets::VH(ceilf(local_viewport_rect.Height() * 0.15f),
+                       ceilf(local_viewport_rect.Width() * 0.15f)));
+  compositing_rect.set_width(
+      std::min(frame_size.width(), compositing_rect.width()));
+  compositing_rect.set_height(
+      std::min(frame_size.height(), compositing_rect.height()));
+  gfx::Point compositing_rect_location = compositing_rect.origin();
   compositing_rect_location.SetToMax(gfx::Point());
-  compositing_rect_.set_origin(compositing_rect_location);
+  compositing_rect.set_origin(compositing_rect_location);
+
+  return compositing_rect;
+}
+
+void RemoteFrameView::UpdateCompositingRect() {
+  remote_frame_->UpdateCompositedLayerBounds();
+  gfx::Rect previous_rect = compositing_rect_;
+  compositing_rect_ = gfx::Rect();
+  LocalFrameView* local_root_view = ParentLocalRootFrameView();
+  LayoutEmbeddedContent* owner_layout_object =
+      remote_frame_->OwnerLayoutObject();
+  if (!local_root_view || !owner_layout_object) {
+    needs_frame_rect_propagation_ = true;
+    return;
+  }
+
+  // The |compositing_rect_| provides the child compositor the rectangle (in its
+  // local coordinate space) which should be rasterized/composited. Its based on
+  // the child frame's intersection with the viewport and an optimization to
+  // avoid large iframes rasterizing their complete viewport.
+  // Since this rectangle is dependent on the child frame's position in the
+  // embedding frame, updating this can be used for communication with a fenced
+  // frame. So if the frame size is frozen, we use the complete viewport of the
+  // child frame as its compositing rect.
+  if (frozen_size_) {
+    compositing_rect_ = gfx::Rect(*frozen_size_);
+  } else {
+    compositing_rect_ = ComputeCompositingRect();
+  }
 
   if (compositing_rect_ != previous_rect)
     needs_frame_rect_propagation_ = true;
@@ -201,8 +225,8 @@ void RemoteFrameView::UpdateCompositingScaleFactor() {
                                           kTraverseDocumentBoundaries);
 
   float frame_to_local_root_scale_factor = 1.0f;
-  gfx::Transform local_root_transform = TransformationMatrix::ToTransform(
-      local_root_transform_state.AccumulatedTransform());
+  gfx::Transform local_root_transform =
+      local_root_transform_state.AccumulatedTransform();
   absl::optional<gfx::Vector2dF> scale_components =
       gfx::TryComputeTransform2dScaleComponents(local_root_transform);
   if (!scale_components) {
@@ -228,8 +252,8 @@ void RemoteFrameView::UpdateCompositingScaleFactor() {
   constexpr float kMinCompositingScaleFactor = 0.25f;
   constexpr float kMaxCompositingScaleFactor = 5.0f;
   compositing_scale_factor_ =
-      base::clamp(compositing_scale_factor_, kMinCompositingScaleFactor,
-                  kMaxCompositingScaleFactor);
+      std::clamp(compositing_scale_factor_, kMinCompositingScaleFactor,
+                 kMaxCompositingScaleFactor);
 
   if (compositing_scale_factor_ != previous_scale_factor)
     remote_frame_->SynchronizeVisualProperties();
@@ -245,9 +269,26 @@ void RemoteFrameView::Dispose() {
 }
 
 void RemoteFrameView::SetFrameRect(const gfx::Rect& rect) {
+  UpdateFrozenSize();
   EmbeddedContentView::SetFrameRect(rect);
   if (needs_frame_rect_propagation_)
     PropagateFrameRects();
+}
+
+void RemoteFrameView::UpdateFrozenSize() {
+  if (frozen_size_)
+    return;
+  auto* layout_embedded_content = GetLayoutEmbeddedContent();
+  if (!layout_embedded_content)
+    return;
+  absl::optional<PhysicalSize> frozen_phys_size =
+      layout_embedded_content->FrozenFrameSize();
+  if (!frozen_phys_size)
+    return;
+  const gfx::Size rounded_frozen_size(frozen_phys_size->width.Ceil(),
+                                      frozen_phys_size->height.Ceil());
+  frozen_size_ = rounded_frozen_size;
+  needs_frame_rect_propagation_ = true;
 }
 
 void RemoteFrameView::PropagateFrameRects() {
@@ -256,12 +297,14 @@ void RemoteFrameView::PropagateFrameRects() {
   // any remote frames, if any, is accounted for by the embedder.
   needs_frame_rect_propagation_ = false;
   gfx::Rect frame_rect(FrameRect());
-  gfx::Rect screen_space_rect = frame_rect;
+  gfx::Rect rect_in_local_root = frame_rect;
 
   if (LocalFrameView* parent = ParentFrameView()) {
-    screen_space_rect = parent->ConvertToRootFrame(screen_space_rect);
+    rect_in_local_root = parent->ConvertToRootFrame(rect_in_local_root);
   }
-  remote_frame_->FrameRectsChanged(frame_rect, screen_space_rect);
+
+  gfx::Size frame_size = frozen_size_.value_or(frame_rect.size());
+  remote_frame_->FrameRectsChanged(frame_size, rect_in_local_root);
 }
 
 void RemoteFrameView::Paint(GraphicsContext& context,

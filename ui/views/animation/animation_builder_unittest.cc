@@ -1,11 +1,15 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ui/views/animation/animation_builder.h"
 
-#include "base/bind.h"
+#include <memory>
+#include <utility>
+
+#include "base/functional/bind.h"
 #include "base/test/gtest_util.h"
+#include "base/time/time.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/compositor/layer.h"
@@ -16,9 +20,13 @@
 #include "ui/compositor/test/layer_animator_test_controller.h"
 #include "ui/compositor/test/test_layer_animation_delegate.h"
 #include "ui/gfx/geometry/rounded_corners_f.h"
+#include "ui/gfx/geometry/transform.h"
+#include "ui/gfx/interpolated_transform.h"
 #include "ui/views/animation/animation_abort_handle.h"
 
 namespace views {
+
+namespace {
 
 class TestAnimatibleLayerOwner : public ui::LayerOwner {
  public:
@@ -32,6 +40,18 @@ class TestAnimatibleLayerOwner : public ui::LayerOwner {
  private:
   ui::TestLayerAnimationDelegate delegate_;
 };
+
+// Configures the layer animation on `layer_owner` and returns the builder.
+AnimationBuilder BuildLayerOpacityAnimationAndReturnBuilder(
+    ui::LayerOwner* layer_owner,
+    const base::TimeDelta& duration) {
+  EXPECT_NE(0.f, layer_owner->layer()->opacity());
+  AnimationBuilder builder;
+  builder.Once().SetDuration(duration).SetOpacity(layer_owner, 0.f);
+  return builder;
+}
+
+}  // namespace
 
 class AnimationBuilderTest : public testing::Test {
  public:
@@ -341,6 +361,102 @@ TEST_F(AnimationBuilderTest, CheckTweenType) {
   EXPECT_NEAR(gfx::Tween::CalculateValue(tween_type, 0.5) * opacity_end_val,
               first_animating_view->delegate()->GetOpacityForAnimation(),
               0.001f);
+}
+
+// Verify that destroying the layers tracked by the animation abort handle
+// before the animation ends should not cause any crash.
+TEST_F(AnimationBuilderTest, DestroyLayerBeforeAnimationEnd) {
+  TestAnimatibleLayerOwner* first_animating_view = CreateTestLayerOwner();
+  TestAnimatibleLayerOwner* second_animating_view = CreateTestLayerOwner();
+
+  std::unique_ptr<AnimationAbortHandle> abort_handle;
+  {
+    AnimationBuilder builder;
+    abort_handle = builder.GetAbortHandle();
+    builder.Once()
+        .SetDuration(base::Seconds(3))
+        .SetOpacity(first_animating_view, 0.5f)
+        .SetOpacity(second_animating_view, 0.5f);
+  }
+
+  EXPECT_TRUE(first_animating_view->layer()->GetAnimator()->is_animating());
+  EXPECT_TRUE(second_animating_view->layer()->GetAnimator()->is_animating());
+  first_animating_view->ReleaseLayer();
+  second_animating_view->ReleaseLayer();
+}
+
+// Verify that destroying layers tracked by the animation abort handle when
+// the animation ends should not cause any crash.
+TEST_F(AnimationBuilderTest, DestroyLayerWhenAnimationEnd) {
+  TestAnimatibleLayerOwner* first_animating_view = CreateTestLayerOwner();
+  TestAnimatibleLayerOwner* second_animating_view = CreateTestLayerOwner();
+
+  auto end_callback = [](TestAnimatibleLayerOwner* first_animating_view,
+                         TestAnimatibleLayerOwner* second_animating_view) {
+    first_animating_view->ReleaseLayer();
+    second_animating_view->ReleaseLayer();
+  };
+
+  constexpr auto kDelay = base::Seconds(3);
+  std::unique_ptr<AnimationAbortHandle> abort_handle;
+  {
+    AnimationBuilder builder;
+    abort_handle = builder.GetAbortHandle();
+    builder
+        .OnEnded(base::BindOnce(end_callback, first_animating_view,
+                                second_animating_view))
+        .Once()
+        .SetDuration(kDelay)
+        .SetOpacity(first_animating_view, 0.5f)
+        .SetOpacity(second_animating_view, 0.5f);
+  }
+
+  EXPECT_TRUE(first_animating_view->layer()->GetAnimator()->is_animating());
+  EXPECT_TRUE(second_animating_view->layer()->GetAnimator()->is_animating());
+
+  Step(kDelay * 2);
+
+  // Verify that layers are destroyed when the animation ends.
+  EXPECT_FALSE(first_animating_view->layer());
+  EXPECT_FALSE(second_animating_view->layer());
+}
+
+// Verify that destroying layers tracked by the animation abort handle when
+// the animation is aborted should not cause any crash.
+TEST_F(AnimationBuilderTest, DestroyLayerWhenAnimationAborted) {
+  TestAnimatibleLayerOwner* first_animating_view = CreateTestLayerOwner();
+  TestAnimatibleLayerOwner* second_animating_view = CreateTestLayerOwner();
+
+  auto abort_callback = [](TestAnimatibleLayerOwner* first_animating_view,
+                           TestAnimatibleLayerOwner* second_animating_view) {
+    first_animating_view->ReleaseLayer();
+    second_animating_view->ReleaseLayer();
+  };
+
+  constexpr auto kDelay = base::Seconds(3);
+  std::unique_ptr<AnimationAbortHandle> abort_handle;
+  {
+    AnimationBuilder builder;
+    abort_handle = builder.GetAbortHandle();
+    builder
+        .OnAborted(base::BindOnce(abort_callback, first_animating_view,
+                                  second_animating_view))
+        .Once()
+        .SetDuration(kDelay)
+        .SetOpacity(first_animating_view, 0.5f)
+        .SetOpacity(second_animating_view, 0.5f);
+  }
+
+  Step(0.5 * kDelay);
+  EXPECT_TRUE(first_animating_view->layer()->GetAnimator()->is_animating());
+  EXPECT_TRUE(second_animating_view->layer()->GetAnimator()->is_animating());
+
+  // Abort the animation in the half way.
+  first_animating_view->layer()->GetAnimator()->AbortAllAnimations();
+
+  // Verify that layers are destroyed by the animation abortion callback.
+  EXPECT_FALSE(first_animating_view->layer());
+  EXPECT_FALSE(second_animating_view->layer());
 }
 
 TEST_F(AnimationBuilderTest, CheckStartEndCallbacks) {
@@ -850,9 +966,12 @@ TEST_F(AnimationBuilderTest, RepeatedBlocks) {
 
   {
     AnimationBuilder builder;
-    auto block = builder.Repeatedly();
+    builder.Repeatedly();
     for (const auto& opacity : kOpacity) {
-      block = block.SetDuration(kDuration).SetOpacity(view, opacity).Then();
+      builder.GetCurrentSequence()
+          .SetDuration(kDuration)
+          .SetOpacity(view, opacity)
+          .Then();
     }
   }
 
@@ -1032,6 +1151,97 @@ TEST_F(AnimationBuilderTest, AbortHandle) {
     EXPECT_FLOAT_EQ(delegate->GetBrightnessForAnimation(), 0.8f);
     EXPECT_FLOAT_EQ(delegate->GetOpacityForAnimation(), 0.8f);
   }
+}
+
+// Verifies that configuring layer animations with an animation builder returned
+// from a function works as expected.
+TEST_F(AnimationBuilderTest, BuildAnimationWithBuilderFromScope) {
+  TestAnimatibleLayerOwner* first_animating_view = CreateTestLayerOwner();
+  TestAnimatibleLayerOwner* second_animating_view = CreateTestLayerOwner();
+  EXPECT_EQ(1.f, first_animating_view->layer()->opacity());
+  EXPECT_EQ(1.f, second_animating_view->layer()->opacity());
+
+  constexpr auto kDuration = base::Seconds(3);
+  {
+    // Build a layer animation on `second_animating_view` with a builder
+    // returned from a function.
+    AnimationBuilder builder = BuildLayerOpacityAnimationAndReturnBuilder(
+        first_animating_view, kDuration);
+    builder.GetCurrentSequence().SetOpacity(second_animating_view, 0.f);
+  }
+
+  // Verify that both views are under animation.
+  EXPECT_TRUE(first_animating_view->layer()->GetAnimator()->is_animating());
+  EXPECT_TRUE(second_animating_view->layer()->GetAnimator()->is_animating());
+
+  Step(kDuration);
+
+  // Verify that after `kDuration` time, both layer animations end. In addition,
+  // both layers are set with the target opacity.
+  EXPECT_FALSE(first_animating_view->layer()->GetAnimator()->is_animating());
+  EXPECT_FALSE(second_animating_view->layer()->GetAnimator()->is_animating());
+  EXPECT_EQ(0.f, first_animating_view->delegate()->GetOpacityForAnimation());
+  EXPECT_EQ(0.f, second_animating_view->delegate()->GetOpacityForAnimation());
+}
+
+// Verifies that it is disallowed to animate transform using both
+// `SetInterpolatedTransform()` and `SetTransform()` in the same block on the
+// same target.
+TEST_F(AnimationBuilderTest,
+       DisallowMultipleSameBlockSameTargetTransformPropertyAnimations) {
+  TestAnimatibleLayerOwner* target = CreateTestLayerOwner();
+  EXPECT_DCHECK_DEATH_WITH(
+      AnimationBuilder()
+          .Once()
+          .SetInterpolatedTransform(
+              target, std::make_unique<ui::InterpolatedMatrixTransform>(
+                          /*start_transform=*/gfx::Transform(),
+                          /*end_transform=*/gfx::Transform()))
+          .SetTransform(target, gfx::Transform()),
+      "Animate \\(target, property\\) at most once per block.");
+}
+
+// Verifies that transform can be animated using `SetInterpolatedTransform()`.
+TEST_F(AnimationBuilderTest, SetInterpolatedTransform) {
+  // Create a nested transform. Note the use of irregular `start_time` and
+  // `end_time` to verify that out of bounds values are handled.
+  auto transform = std::make_unique<ui::InterpolatedScale>(
+      /*start_scale=*/0.f, /*end_scale=*/1.f, /*start_time=*/-1.f,
+      /*end_time=*/2.f);
+  transform->SetChild(std::make_unique<ui::InterpolatedRotation>(
+      /*start_degrees=*/0.f, /*end_degrees=*/360.f, /*start_time=*/0.5f,
+      /*end_time=*/0.75f));
+
+  // Cache expected transforms at key animation points.
+  const gfx::Transform expected_start_transform = transform->Interpolate(0.f);
+  const gfx::Transform expected_mid_transform = transform->Interpolate(0.5f);
+  const gfx::Transform expected_end_transform = transform->Interpolate(1.f);
+
+  // Verify initial state.
+  TestAnimatibleLayerOwner* target = CreateTestLayerOwner();
+  EXPECT_EQ(target->delegate()->GetTransformForAnimation(), gfx::Transform());
+
+  // Start animation.
+  constexpr auto kDuration = base::Seconds(2);
+  AnimationBuilder().Once().SetDuration(kDuration).SetInterpolatedTransform(
+      target, std::move(transform));
+
+  // Verify state at animation start.
+  EXPECT_TRUE(target->layer()->GetAnimator()->is_animating());
+  EXPECT_EQ(target->delegate()->GetTransformForAnimation(),
+            expected_start_transform);
+
+  // Verify state at animation midpoint.
+  Step(kDuration / 2);
+  EXPECT_TRUE(target->layer()->GetAnimator()->is_animating());
+  EXPECT_EQ(target->delegate()->GetTransformForAnimation(),
+            expected_mid_transform);
+
+  // Verify state at animation end.
+  Step(kDuration / 2);
+  EXPECT_FALSE(target->layer()->GetAnimator()->is_animating());
+  EXPECT_EQ(target->delegate()->GetTransformForAnimation(),
+            expected_end_transform);
 }
 
 }  // namespace views

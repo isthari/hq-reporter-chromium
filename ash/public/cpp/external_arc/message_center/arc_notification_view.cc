@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,12 @@
 
 #include <algorithm>
 
-#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/external_arc/message_center/arc_notification_content_view.h"
 #include "ash/public/cpp/external_arc/message_center/arc_notification_item.h"
 #include "ash/public/cpp/message_center/arc_notification_constants.h"
 #include "ash/style/ash_color_provider.h"
+#include "ash/system/message_center/message_center_constants.h"
+#include "base/time/time.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/accessibility/ax_action_data.h"
 #include "ui/accessibility/ax_enums.mojom.h"
@@ -19,6 +20,7 @@
 #include "ui/base/ime/text_input_type.h"
 #include "ui/color/color_id.h"
 #include "ui/color/color_provider.h"
+#include "ui/compositor/layer.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/message_center/public/cpp/message_center_constants.h"
 #include "ui/message_center/views/notification_background_painter.h"
@@ -29,6 +31,13 @@
 #include "ui/views/painter.h"
 
 DEFINE_UI_CLASS_PROPERTY_TYPE(ash::ArcNotificationView*)
+
+namespace {
+// The animation duration must be 360ms because it's separately defined in
+// Android side.
+constexpr base::TimeDelta kArcNotificationAnimationDuration =
+    base::Milliseconds(360);
+}  // namespace
 
 namespace ash {
 
@@ -43,10 +52,12 @@ ArcNotificationView* ArcNotificationView::FromView(views::View* view) {
 
 ArcNotificationView::ArcNotificationView(
     ArcNotificationItem* item,
-    const message_center::Notification& notification)
+    const message_center::Notification& notification,
+    bool shown_in_popup)
     : message_center::MessageView(notification),
       item_(item),
-      content_view_(new ArcNotificationContentView(item_, notification, this)) {
+      content_view_(new ArcNotificationContentView(item_, notification, this)),
+      shown_in_popup_(shown_in_popup) {
   DCHECK_EQ(message_center::NOTIFICATION_TYPE_CUSTOM, notification.type());
   DCHECK_EQ(kArcNotificationCustomViewType, notification.custom_view_type());
 
@@ -54,17 +65,19 @@ ArcNotificationView::ArcNotificationView(
 
   item_->AddObserver(this);
 
-  AddChildView(content_view_);
+  AddChildView(content_view_.get());
 
   if (content_view_->background()) {
-    if (ash::features::IsNotificationsRefreshEnabled()) {
-      background()->SetNativeControlColor(
-          AshColorProvider::Get()->GetBaseLayerColor(
-              AshColorProvider::BaseLayerType::kTransparent80));
-    } else {
-      background()->SetNativeControlColor(
-          content_view_->background()->get_color());
-    }
+    background()->SetNativeControlColor(
+        AshColorProvider::Get()->GetBaseLayerColor(
+            AshColorProvider::BaseLayerType::kTransparent80));
+  }
+
+  if (shown_in_popup) {
+    layer()->SetBackgroundBlur(ColorProvider::kBackgroundBlurSigma);
+    layer()->SetBackdropFilterQuality(ColorProvider::kBackgroundBlurQuality);
+    layer()->SetRoundedCornerRadius(
+        gfx::RoundedCornersF{kMessagePopupCornerRadius});
   }
 
   UpdateCornerRadius(message_center::kNotificationCornerRadius,
@@ -103,6 +116,15 @@ void ArcNotificationView::UpdateCornerRadius(int top_radius,
   MessageView::UpdateCornerRadius(top_radius, bottom_radius);
 
   content_view_->UpdateCornerRadius(top_radius, bottom_radius);
+}
+
+void ArcNotificationView::UpdateBackgroundPainter() {
+  SetBackground(views::CreateSolidBackground(
+      shown_in_popup_ ? AshColorProvider::Get()->GetBaseLayerColor(
+                            AshColorProvider::BaseLayerType::kTransparent80)
+                      : AshColorProvider::Get()->GetControlsLayerColor(
+                            AshColorProvider::ControlsLayerType::
+                                kControlBackgroundColorInactive)));
 }
 
 void ArcNotificationView::UpdateControlButtonsVisibility() {
@@ -172,13 +194,20 @@ void ArcNotificationView::OnSnoozeButtonPressed(const ui::Event& event) {
 
 void ArcNotificationView::OnThemeChanged() {
   message_center::MessageView::OnThemeChanged();
+
+  // TODO(yhanada): Migrate to views::FocusRing to support rounded-corner ring.
   focus_painter_ = views::Painter::CreateSolidFocusPainter(
-      GetColorProvider()->GetColor(ui::kColorFocusableBorderFocused),
-      gfx::Insets(0, 1, 3, 2));
+      GetColorProvider()->GetColor(ui::kColorFocusableBorderFocused), 2,
+      gfx::InsetsF(3));
 }
 
 void ArcNotificationView::OnContainerAnimationEnded() {
   content_view_->OnContainerAnimationEnded();
+}
+
+base::TimeDelta ArcNotificationView::GetBoundsAnimationDuration(
+    const message_center::Notification&) const {
+  return kArcNotificationAnimationDuration;
 }
 
 void ArcNotificationView::OnSlideChanged(bool in_progress) {
@@ -188,7 +217,7 @@ void ArcNotificationView::OnSlideChanged(bool in_progress) {
 
 gfx::Size ArcNotificationView::CalculatePreferredSize() const {
   const gfx::Insets insets = GetInsets();
-  const int contents_width = content_view_->notification_width();
+  const int contents_width = kNotificationInMessageCenterWidth;
   const int contents_height = content_view_->GetHeightForWidth(contents_width);
   return gfx::Size(contents_width + insets.width(),
                    contents_height + insets.height());

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -147,7 +147,8 @@ class ChromeMediaNotificationControllerDelegate implements MediaNotificationCont
         public void onCreate() {
             super.onCreate();
             IntentFilter filter = new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY);
-            getService().registerReceiver(mAudioBecomingNoisyReceiver, filter);
+            ContextUtils.registerProtectedBroadcastReceiver(
+                    getService(), mAudioBecomingNoisyReceiver, filter);
         }
 
         @Override

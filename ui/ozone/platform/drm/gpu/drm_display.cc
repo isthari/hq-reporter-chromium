@@ -1,13 +1,14 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ui/ozone/platform/drm/gpu/drm_display.h"
 
 #include <xf86drmMode.h>
+
+#include <algorithm>
 #include <memory>
 
-#include "base/cxx17_backports.h"
 #include "base/logging.h"
 #include "base/trace_event/trace_event.h"
 #include "build/chromeos_buildflags.h"
@@ -139,8 +140,37 @@ DrmDisplay::PrivacyScreenProperty::GetWritePrivacyScreenProperty() const {
   return privacy_screen_legacy_.get();
 }
 
-DrmDisplay::DrmDisplay(const scoped_refptr<DrmDevice>& drm)
-    : drm_(drm), current_color_space_(gfx::ColorSpace::CreateSRGB()) {}
+DrmDisplay::DrmDisplay(const scoped_refptr<DrmDevice>& drm,
+                       HardwareDisplayControllerInfo* info,
+                       const display::DisplaySnapshot& display_snapshot)
+    : display_id_(display_snapshot.display_id()),
+      base_connector_id_(display_snapshot.base_connector_id()),
+      drm_(drm),
+      crtc_(info->crtc()->crtc_id),
+      connector_(info->ReleaseConnector()) {
+  modes_ = GetDrmModeVector(connector_.get());
+  origin_ = display_snapshot.origin();
+  is_hdr_capable_ = display_snapshot.bits_per_channel() > 8 &&
+                    display_snapshot.color_space().IsHDR();
+  hdr_static_metadata_ = display_snapshot.hdr_static_metadata();
+  current_color_space_ = gfx::ColorSpace::CreateSRGB();
+  privacy_screen_property_ =
+      std::make_unique<PrivacyScreenProperty>(drm_, connector_.get());
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  is_hdr_capable_ =
+      is_hdr_capable_ &&
+      base::FeatureList::IsEnabled(display::features::kUseHDRTransferFunction);
+
+  if (base::FeatureList::IsEnabled(
+          display::features::kEnableExternalDisplayHDR10Mode) &&
+      display_snapshot.color_space() == gfx::ColorSpace::CreateHDR10()) {
+    current_color_space_ = gfx::ColorSpace::CreateHDR10();
+    // More likely it should be end users' choice to turn on the hdr mode or
+    // not. For now we always turn it on.
+    SetHDR10Mode();
+  }
+#endif
+}
 
 DrmDisplay::~DrmDisplay() = default;
 
@@ -149,34 +179,33 @@ uint32_t DrmDisplay::connector() const {
   return connector_->connector_id;
 }
 
-std::unique_ptr<display::DisplaySnapshot> DrmDisplay::Update(
-    HardwareDisplayControllerInfo* info,
-    uint8_t device_index) {
-  std::unique_ptr<display::DisplaySnapshot> params = CreateDisplaySnapshot(
-      info, drm_->get_fd(), drm_->device_path(), device_index, origin_);
-  crtc_ = info->crtc()->crtc_id;
-  // TODO(crbug.com/1119499): consider taking ownership of |info->connector()|
-  connector_ = ScopedDrmConnectorPtr(
-      drm_->GetConnector(info->connector()->connector_id));
-  if (!connector_) {
-    PLOG(ERROR) << "Failed to get connector "
-                << info->connector()->connector_id;
-    return nullptr;
-  }
+bool DrmDisplay::SetHdcpKeyProp(const std::string& key) {
+  DCHECK(connector_);
 
-  display_id_ = params->display_id();
-  modes_ = GetDrmModeVector(info->connector());
-  is_hdr_capable_ =
-      params->bits_per_channel() > 8 && params->color_space().IsHDR();
-  privacy_screen_property_ =
-      std::make_unique<PrivacyScreenProperty>(drm(), connector_.get());
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  is_hdr_capable_ =
-      is_hdr_capable_ &&
-      base::FeatureList::IsEnabled(display::features::kUseHDRTransferFunction);
+  TRACE_EVENT1("drm", "DrmDisplay::SetHdcpKeyProp", "connector",
+               connector_->connector_id);
+
+  // The HDCP key is secret, we want to create it as write only so the user
+  // space can't read it back. (i.e. through `modetest`)
+  ScopedDrmPropertyBlob key_blob;
+  // TODO(markyacoub): the flag requires being merged to libdrm then backported
+  // to CrOS. Remove the #if once that happens.
+#if defined(DRM_MODE_CREATE_BLOB_WRITE_ONLY)
+  key_blob = drm_->CreatePropertyBlobWithFlags(key.data(), key.size(),
+                                               DRM_MODE_CREATE_BLOB_WRITE_ONLY);
 #endif
 
-  return params;
+  if (!key_blob) {
+    LOG(ERROR) << "Failed to create HDCP Key property blob";
+    return false;
+  }
+
+  ScopedDrmPropertyPtr hdcp_key_property(
+      drm_->GetProperty(connector_.get(), kContentProtectionKey));
+  DCHECK(hdcp_key_property);
+
+  return drm_->SetProperty(connector_->connector_id, hdcp_key_property->prop_id,
+                           key_blob->id());
 }
 
 // When reading DRM state always check that it's still valid. Any sort of events
@@ -184,8 +213,7 @@ std::unique_ptr<display::DisplaySnapshot> DrmDisplay::Update(
 bool DrmDisplay::GetHDCPState(
     display::HDCPState* hdcp_state,
     display::ContentProtectionMethod* protection_method) {
-  if (!connector_)
-    return false;
+  DCHECK(connector_);
 
   TRACE_EVENT1("drm", "DrmDisplay::GetHDCPState", "connector",
                connector_->connector_id);
@@ -248,9 +276,7 @@ bool DrmDisplay::GetHDCPState(
 bool DrmDisplay::SetHDCPState(
     display::HDCPState state,
     display::ContentProtectionMethod protection_method) {
-  if (!connector_) {
-    return false;
-  }
+  DCHECK(connector_);
 
   if (protection_method != display::CONTENT_PROTECTION_METHOD_NONE) {
     ScopedDrmPropertyPtr content_type_property(
@@ -313,6 +339,113 @@ void DrmDisplay::SetGammaCorrection(
 
 bool DrmDisplay::SetPrivacyScreen(bool enabled) {
   return privacy_screen_property_->SetPrivacyScreenProperty(enabled);
+}
+
+gfx::HDRStaticMetadata::Eotf DrmDisplay::GetEotf(
+    const gfx::ColorSpace::TransferID transfer_id) {
+  if (!is_hdr_capable_) {
+    return gfx::HDRStaticMetadata::Eotf::kGammaSdrRange;
+  }
+
+  switch (transfer_id) {
+    case gfx::ColorSpace::TransferID::PQ:
+      return gfx::HDRStaticMetadata::Eotf::kPq;
+    case gfx::ColorSpace::TransferID::HLG:
+      return gfx::HDRStaticMetadata::Eotf::kHlg;
+    case gfx::ColorSpace::TransferID::SRGB_HDR:
+    case gfx::ColorSpace::TransferID::LINEAR_HDR:
+    case gfx::ColorSpace::TransferID::CUSTOM_HDR:
+    case gfx::ColorSpace::TransferID::PIECEWISE_HDR:
+    case gfx::ColorSpace::TransferID::SCRGB_LINEAR_80_NITS:
+      return gfx::HDRStaticMetadata::Eotf::kGammaHdrRange;
+    default:
+      NOTREACHED();
+      return gfx::HDRStaticMetadata::Eotf::kGammaSdrRange;
+  }
+}
+
+bool DrmDisplay::SetHdrOutputMetadata(const gfx::ColorSpace color_space) {
+  DCHECK(connector_);
+  DCHECK(hdr_static_metadata_.has_value());
+  DCHECK(color_space.IsValid());
+
+  drm_hdr_output_metadata* hdr_output_metadata =
+      static_cast<drm_hdr_output_metadata*>(
+          malloc(sizeof(drm_hdr_output_metadata)));
+  hdr_output_metadata->metadata_type = 0;
+  hdr_output_metadata->hdmi_metadata_type1.metadata_type = 0;
+
+  gfx::HDRStaticMetadata::Eotf eotf = GetEotf(color_space.GetTransferID());
+  DCHECK(hdr_static_metadata_->IsEotfSupported(eotf));
+  hdr_output_metadata->hdmi_metadata_type1.eotf = static_cast<uint8_t>(eotf);
+
+  hdr_output_metadata->hdmi_metadata_type1.max_cll = 0;
+  hdr_output_metadata->hdmi_metadata_type1.max_fall =
+      hdr_static_metadata_->max_avg;
+  hdr_output_metadata->hdmi_metadata_type1.max_display_mastering_luminance =
+      hdr_static_metadata_->max;
+  hdr_output_metadata->hdmi_metadata_type1.min_display_mastering_luminance =
+      hdr_static_metadata_->min;
+
+  SkColorSpacePrimaries primaries = color_space.GetPrimaries();
+  constexpr int kPrimariesFixedPoint = 50000;
+  hdr_output_metadata->hdmi_metadata_type1.display_primaries[0].x =
+      primaries.fRX * kPrimariesFixedPoint;
+  hdr_output_metadata->hdmi_metadata_type1.display_primaries[0].y =
+      primaries.fRY * kPrimariesFixedPoint;
+  hdr_output_metadata->hdmi_metadata_type1.display_primaries[1].x =
+      primaries.fGX * kPrimariesFixedPoint;
+  hdr_output_metadata->hdmi_metadata_type1.display_primaries[1].y =
+      primaries.fGY * kPrimariesFixedPoint;
+  hdr_output_metadata->hdmi_metadata_type1.display_primaries[2].x =
+      primaries.fBX * kPrimariesFixedPoint;
+  hdr_output_metadata->hdmi_metadata_type1.display_primaries[2].y =
+      primaries.fBY * kPrimariesFixedPoint;
+  hdr_output_metadata->hdmi_metadata_type1.white_point.x =
+      primaries.fWX * kPrimariesFixedPoint;
+  hdr_output_metadata->hdmi_metadata_type1.white_point.y =
+      primaries.fWY * kPrimariesFixedPoint;
+
+  ScopedDrmHdrOutputMetadataPtr hdr_output_metadata_blob(hdr_output_metadata);
+
+  ScopedDrmPropertyBlob hdr_output_metadata_property_blob =
+      drm_->CreatePropertyBlob(hdr_output_metadata_blob.get(),
+                               sizeof(drm_hdr_output_metadata));
+  ScopedDrmPropertyPtr hdr_output_metadata_property(
+      drm_->GetProperty(connector_.get(), kHdrOutputMetadata));
+  if (!hdr_output_metadata_property) {
+    PLOG(INFO) << "'" << kHdrOutputMetadata << "' property doesn't exist.";
+    return false;
+  }
+
+  if (!drm_->SetProperty(connector_->connector_id,
+                         hdr_output_metadata_property->prop_id,
+                         hdr_output_metadata_property_blob->id())) {
+    PLOG(INFO) << "Cannot set '" << kHdrOutputMetadata << "' property.";
+    return false;
+  }
+  return true;
+}
+
+bool DrmDisplay::SetHDR10Mode() {
+  DCHECK(connector_);
+  DCHECK(hdr_static_metadata_.has_value());
+  ScopedDrmPropertyPtr color_space_property(
+      drm_->GetProperty(connector_.get(), kColorSpace));
+  if (!color_space_property) {
+    PLOG(INFO) << "'" << kColorSpace << "' property doesn't exist.";
+    return false;
+  }
+  if (!drm_->SetProperty(
+          connector_->connector_id, color_space_property->prop_id,
+          GetEnumValueForName(*drm_, color_space_property->prop_id,
+                              kColorSpaceBT2020RGBEnumName))) {
+    PLOG(INFO) << "Cannot set '" << kColorSpaceBT2020RGBEnumName
+               << "' to 'Colorspace' property.";
+    return false;
+  }
+
+  return SetHdrOutputMetadata(gfx::ColorSpace::CreateHDR10());
 }
 
 void DrmDisplay::SetColorSpace(const gfx::ColorSpace& color_space) {

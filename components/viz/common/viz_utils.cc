@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,9 @@
 #include "base/command_line.h"
 #include "base/system/sys_info.h"
 #include "build/build_config.h"
+#include "cc/base/math_util.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/rrect_f.h"
 
 #if BUILDFLAG(IS_ANDROID)
@@ -147,6 +149,46 @@ bool GatherFDStats(base::TimeDelta* delta_time_taken,
   *delta_time_taken = timer.Elapsed();
   return true;
 #endif  // BUILDFLAG(IS_POSIX)
+}
+gfx::RectF ClippedQuadRectangleF(const DrawQuad* quad) {
+  gfx::RectF quad_rect = cc::MathUtil::MapClippedRect(
+      quad->shared_quad_state->quad_to_target_transform,
+      gfx::RectF(quad->rect));
+  if (quad->shared_quad_state->clip_rect)
+    quad_rect.Intersect(gfx::RectF(*quad->shared_quad_state->clip_rect));
+  return quad_rect;
+}
+
+gfx::Rect ClippedQuadRectangle(const DrawQuad* quad) {
+  return gfx::ToEnclosingRect(ClippedQuadRectangleF(quad));
+}
+
+gfx::Rect GetExpandedRectWithPixelMovingForegroundFilter(
+    const DrawQuad& rpdq,
+    const cc::FilterOperations& filters) {
+  const SharedQuadState* shared_quad_state = rpdq.shared_quad_state;
+  gfx::Rect expanded_rect = filters.ExpandRectForPixelMovement(rpdq.rect);
+
+  // expanded_rect in the target space
+  return cc::MathUtil::MapEnclosingClippedRect(
+      shared_quad_state->quad_to_target_transform, expanded_rect);
+}
+
+gfx::Transform GetViewTransitionTransform(
+    gfx::Rect shared_element_quad,
+    gfx::Rect view_transition_content_output) {
+  gfx::Transform view_transition_transform;
+
+  view_transition_transform.Scale(
+      shared_element_quad.width() /
+          static_cast<SkScalar>(view_transition_content_output.width()),
+      shared_element_quad.height() /
+          static_cast<SkScalar>(view_transition_content_output.height()));
+
+  view_transition_transform.Translate(-view_transition_content_output.x(),
+                                      -view_transition_content_output.y());
+
+  return view_transition_transform;
 }
 
 }  // namespace viz

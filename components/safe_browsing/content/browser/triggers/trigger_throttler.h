@@ -1,4 +1,4 @@
-// Copyright (c) 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/time/clock.h"
+#include "base/time/time.h"
 
 class PrefService;
 
@@ -25,14 +26,6 @@ extern const size_t kSuspiciousSiteTriggerDefaultQuota;
 // Param name of the finch param containing the quota for the suspicious site
 // trigger.
 extern const char kSuspiciousSiteTriggerQuotaParam[];
-
-// Param name of the finch param containing the comma-separated list of trigger
-// types and daily quotas.
-// TODO(crbug.com/744869): This param should be deprecated after ad sampler
-// launch in favour of having a unique quota feature and param per trigger.
-// Having a single shared feature makes it impossible to run multiple trigger
-// trials simultaneously.
-extern const char kTriggerTypeAndQuotaParam[];
 
 enum class TriggerType {
   SECURITY_INTERSTITIAL = 1,
@@ -105,7 +98,7 @@ class TriggerThrottler {
 
   // Pref service for accessing local state prefs (ie: unsynced, tied to the
   // browser not to a profile). Used to persist quota.
-  raw_ptr<PrefService> local_state_prefs_;
+  raw_ptr<PrefService, DanglingUntriaged> local_state_prefs_;
 
   // Can be set for testing.
   raw_ptr<base::Clock> clock_;

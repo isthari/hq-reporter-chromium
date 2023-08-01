@@ -1,8 +1,9 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/memory/raw_ptr.h"
+#include "base/no_destructor.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "chrome/browser/vr/test/mock_xr_device_hook_base.h"
@@ -16,6 +17,16 @@
 // End-to-end tests for user input interaction with WebXR.
 
 namespace vr {
+
+namespace {
+const std::vector<std::string>& GetDefaultOpenXrProfiles() {
+  static base::NoDestructor<std::vector<std::string>> kDefaultOpenXrProfiles{
+      {"microsoft-mixed-reality", "windows-mixed-reality",
+       "generic-trigger-squeeze-touchpad-thumbstick"}};
+
+  return *kDefaultOpenXrProfiles;
+}
+}  // namespace
 
 // Helper function for verifying the XRInputSource.profiles array contents.
 void VerifyInputSourceProfilesArray(
@@ -148,8 +159,7 @@ class WebXrControllerInputMock : public MockXRDeviceHookBase {
                          bool is_valid) {
     auto controller_data = GetCurrentControllerData(index);
     controller_data.pose_data.is_valid = is_valid;
-    device_to_origin.matrix().asColMajorf(
-        controller_data.pose_data.device_to_origin);
+    device_to_origin.GetColMajorF(controller_data.pose_data.device_to_origin);
     UpdateControllerAndWait(index, controller_data);
   }
 
@@ -238,7 +248,7 @@ class WebXrControllerInputMock : public MockXRDeviceHookBase {
     return iter->second;
   }
 
-  raw_ptr<base::RunLoop> wait_loop_ = nullptr;
+  raw_ptr<base::RunLoop, DanglingUntriaged> wait_loop_ = nullptr;
   unsigned int num_submitted_frames_ = 0;
   unsigned int target_submitted_frames_ = 0;
 };
@@ -398,12 +408,7 @@ WEBXR_VR_ALL_RUNTIMES_BROWSER_TEST_F(TestGamepadMinimumData) {
                                  WebXrVrBrowserTestBase::kPollTimeoutShort);
 
   if (t->GetRuntimeType() == XrBrowserTestBase::RuntimeType::RUNTIME_OPENXR) {
-    // OpenXR will still report having squeeze, menu, touchpad, and thumbstick
-    // because it only supports that type of controller and fills in default
-    // values if those inputs don't exist.
-    VerifyInputSourceProfilesArray(
-        t, {"windows-mixed-reality",
-            "generic-trigger-squeeze-touchpad-thumbstick"});
+    VerifyInputSourceProfilesArray(t, GetDefaultOpenXrProfiles());
   }
 
   t->RunJavaScriptOrFail("done()");
@@ -467,12 +472,7 @@ WEBXR_VR_ALL_RUNTIMES_BROWSER_TEST_F(TestMultipleGamepads) {
   t->PollJavaScriptBooleanOrFail("isButtonPressedEqualTo(0, false, 0)");
 
   if (t->GetRuntimeType() == XrBrowserTestBase::RuntimeType::RUNTIME_OPENXR) {
-    // OpenXR will still report having squeeze, menu, touchpad, and thumbstick
-    // because it only supports that type of controller and fills in default
-    // values if those inputs don't exist.
-    VerifyInputSourceProfilesArray(
-        t, {"windows-mixed-reality",
-            "generic-trigger-squeeze-touchpad-thumbstick"});
+    VerifyInputSourceProfilesArray(t, GetDefaultOpenXrProfiles());
   }
 
   t->RunJavaScriptOrFail("done()");
@@ -563,12 +563,7 @@ WEBXR_VR_ALL_RUNTIMES_BROWSER_TEST_F(TestGamepadCompleteData) {
                                  WebXrVrBrowserTestBase::kPollTimeoutShort);
 
   if (t->GetRuntimeType() == XrBrowserTestBase::RuntimeType::RUNTIME_OPENXR) {
-    // OpenXR will still report having squeeze, menu, touchpad, and thumbstick
-    // because it only supports that type of controller and fills in default
-    // values if those inputs don't exist.
-    VerifyInputSourceProfilesArray(
-        t, {"windows-mixed-reality",
-            "generic-trigger-squeeze-touchpad-thumbstick"});
+    VerifyInputSourceProfilesArray(t, GetDefaultOpenXrProfiles());
   }
 
   t->RunJavaScriptOrFail("done()");
@@ -755,7 +750,7 @@ WEBXR_VR_ALL_RUNTIMES_BROWSER_TEST_F(TestControllerInputRegistered) {
 
 std::string TransformToColMajorString(const gfx::Transform& t) {
   float array[16];
-  t.matrix().asColMajorf(array);
+  t.GetColMajorF(array);
   std::string array_string = "[";
   for (int i = 0; i < 16; i++) {
     array_string += base::NumberToString(array[i]) + ",";

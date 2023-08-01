@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,14 +35,6 @@ void SchedulerDelegateWin::OnExitPresent() {
   NOTREACHED();
 }
 
-void SchedulerDelegateWin::SetWebXrMode(bool enabled) {
-  NOTREACHED();
-}
-
-void SchedulerDelegateWin::SetShowingVrDialog(bool showing) {
-  NOTREACHED();
-}
-
 void SchedulerDelegateWin::SetBrowserRenderer(
     SchedulerBrowserRendererInterface* browser_renderer) {
   browser_renderer_ = browser_renderer;
@@ -59,7 +51,6 @@ void SchedulerDelegateWin::AddInputSourceState(
 }
 
 void SchedulerDelegateWin::ConnectPresentingService(
-    device::mojom::VRDisplayInfoPtr display_info,
     device::mojom::XRRuntimeSessionOptionsPtr options) {
   NOTREACHED();
 }

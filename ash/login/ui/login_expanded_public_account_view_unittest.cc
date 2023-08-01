@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,25 +12,24 @@
 #include "ash/login/ui/views_utils.h"
 #include "ash/public/cpp/login_types.h"
 #include "ash/strings/grit/ash_strings.h"
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
+#include "base/memory/raw_ptr.h"
 #include "base/ranges/algorithm.h"
+#include "base/time/time.h"
 #include "chromeos/strings/grit/chromeos_strings.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/events/event.h"
 #include "ui/events/test/event_generator.h"
-#include "ui/views/controls/link.h"
-#include "ui/views/layout/box_layout.h"
+#include "ui/events/types/event_type.h"
+#include "ui/views/controls/link_fragment.h"
+#include "ui/views/layout/box_layout_view.h"
 #include "ui/views/test/combobox_test_api.h"
 #include "ui/views/widget/widget.h"
 
 namespace ash {
 
 namespace {
-
-// Total width of the expanded view.
-constexpr int kBubbleTotalWidthDp = 628;
-// Total height of the expanded view.
-constexpr int kBubbleTotalHeightDp = 324;
 
 // Fake language and keyboard information.
 constexpr char kEnglishLanguageCode[] = "language_code1";
@@ -43,9 +42,24 @@ constexpr char kKeyboardNameForItem1[] = "keyboard1";
 constexpr char kKeyboardIdForItem2[] = "keyboard_id2";
 constexpr char kKeyboardNameForItem2[] = "keyboard2";
 
+enum class InputMethod {
+  kMouse,
+  kTouch,
+};
+
+enum class Orientation {
+  kLandscape,
+  kPortrait,
+};
+
+struct TestParams {
+  const InputMethod input_method;
+  const Orientation orientation;
+};
+
 class LoginExpandedPublicAccountViewTest
     : public LoginTestBase,
-      public ::testing::WithParamInterface<const char*> {
+      public ::testing::WithParamInterface<TestParams> {
  public:
   LoginExpandedPublicAccountViewTest(
       const LoginExpandedPublicAccountViewTest&) = delete;
@@ -68,12 +82,22 @@ class LoginExpandedPublicAccountViewTest
 
     other_view_ = new views::View();
 
-    container_ = new views::View();
-    container_->SetLayoutManager(std::make_unique<views::BoxLayout>(
-        views::BoxLayout::Orientation::kHorizontal));
-    container_->AddChildView(public_account_);
-    container_->AddChildView(other_view_);
-    SetWidget(CreateWidgetWithContent(container_));
+    container_ = new views::BoxLayoutView();
+    container_->SetCrossAxisAlignment(
+        views::BoxLayout::CrossAxisAlignment::kStart);
+    container_->AddChildView(public_account_.get());
+    container_->AddChildView(other_view_.get());
+    auto widget = CreateWidgetWithContent(container_);
+    switch (GetParam().orientation) {
+      case Orientation::kLandscape:
+        widget->SetSize({800, 600});
+        break;
+      case Orientation::kPortrait:
+        widget->SetSize({600, 800});
+        break;
+    }
+    widget->LayoutRootViewIfNecessary();
+    SetWidget(std::move(widget));
   }
 
   // Add two fake language items, the first item is selected by default.
@@ -110,33 +134,39 @@ class LoginExpandedPublicAccountViewTest
   }
 
   void TapOnView(views::View* tap_target) {
-    if (GetParam() == std::string("mouse")) {
-      GetEventGenerator()->MoveMouseTo(
-          tap_target->GetBoundsInScreen().CenterPoint());
-      GetEventGenerator()->ClickLeftButton();
-    } else {
-      GetEventGenerator()->MoveTouch(
-          tap_target->GetBoundsInScreen().CenterPoint());
-      GetEventGenerator()->PressTouch();
-      GetEventGenerator()->ReleaseTouch();
+    // Layout test view container first, giving the expanded view the
+    // opportunity to assign `tap_target` non-zero size.
+    widget()->LayoutRootViewIfNecessary();
+    switch (GetParam().input_method) {
+      case InputMethod::kMouse:
+        GetEventGenerator()->MoveMouseTo(
+            tap_target->GetBoundsInScreen().CenterPoint());
+        GetEventGenerator()->ClickLeftButton();
+        break;
+      case InputMethod::kTouch:
+        GetEventGenerator()->MoveTouch(
+            tap_target->GetBoundsInScreen().CenterPoint());
+        GetEventGenerator()->PressTouch();
+        GetEventGenerator()->ReleaseTouch();
+        break;
     }
   }
 
   LoginUserInfo user_;
 
   // Owned by test widget view hierarchy.
-  views::View* container_ = nullptr;
-  LoginExpandedPublicAccountView* public_account_ = nullptr;
-  views::View* other_view_ = nullptr;
+  raw_ptr<views::BoxLayoutView, ExperimentalAsh> container_ = nullptr;
+  raw_ptr<LoginExpandedPublicAccountView, ExperimentalAsh> public_account_ =
+      nullptr;
+  raw_ptr<views::View, ExperimentalAsh> other_view_ = nullptr;
 };
 
 }  // namespace
 
 // Verifies toggle advanced view will update the layout correctly.
 TEST_P(LoginExpandedPublicAccountViewTest, ToggleAdvancedView) {
-  public_account_->SizeToPreferredSize();
-  EXPECT_EQ(public_account_->width(), kBubbleTotalWidthDp);
-  EXPECT_EQ(public_account_->height(), kBubbleTotalHeightDp);
+  const int initial_width = public_account_->width();
+  const int initial_height = public_account_->height();
 
   LoginExpandedPublicAccountView::TestApi test_api(public_account_);
   EXPECT_FALSE(user_.public_account_info->show_advanced_view);
@@ -148,16 +178,20 @@ TEST_P(LoginExpandedPublicAccountViewTest, ToggleAdvancedView) {
 
   // Advanced view is shown and the overall size does not change.
   EXPECT_TRUE(test_api.advanced_view()->GetVisible());
-  EXPECT_EQ(public_account_->width(), kBubbleTotalWidthDp);
-  EXPECT_EQ(public_account_->height(), kBubbleTotalHeightDp);
+  ui::MouseEvent fake_event(ui::EventType::ET_MOUSE_MOVED, gfx::Point(),
+                            gfx::Point(), base::TimeTicks(), 0, 0);
+  EXPECT_EQ(test_api.advanced_view_button()->GetCursor(fake_event),
+            ui::mojom::CursorType::kHand);
+  EXPECT_EQ(public_account_->width(), initial_width);
+  EXPECT_EQ(public_account_->height(), initial_height);
 
   // Click on the show advanced button.
   TapOnView(test_api.advanced_view_button());
 
   // Advanced view is hidden and the overall size does not change.
   EXPECT_FALSE(test_api.advanced_view()->GetVisible());
-  EXPECT_EQ(public_account_->width(), kBubbleTotalWidthDp);
-  EXPECT_EQ(public_account_->height(), kBubbleTotalHeightDp);
+  EXPECT_EQ(public_account_->width(), initial_width);
+  EXPECT_EQ(public_account_->height(), initial_height);
 }
 
 // Verifies learn more dialog shows up correctly.
@@ -167,8 +201,9 @@ TEST_P(LoginExpandedPublicAccountViewTest, ShowLearnMoreDialog) {
 
   // Tap on the learn more link.
   const auto& children = test_api.learn_more_label()->children();
-  const auto it = base::ranges::find(children, views::Link::kViewClassName,
-                                     &views::View::GetClassName);
+  const auto it =
+      base::ranges::find(children, views::LinkFragment::kViewClassName,
+                         &views::View::GetClassName);
   DCHECK(it != children.cend());
   TapOnView(*it);
   ASSERT_NE(test_api.learn_more_dialog(), nullptr);
@@ -241,8 +276,8 @@ TEST_P(LoginExpandedPublicAccountViewTest, ShowLanguageAndKeyboardMenu) {
 
   // First language item is selected.
   EXPECT_EQ(test_api.selected_language_item_value(), kEnglishLanguageCode);
-  ASSERT_EQ(2, language_menu_view->GetRowCount());
-  EXPECT_EQ(0, language_menu_view->GetSelectedRow());
+  ASSERT_EQ(2u, language_menu_view->GetRowCount());
+  EXPECT_EQ(0u, language_menu_view->GetSelectedRow());
 
   // Once the menu is open, the focus is set on the entire view.
   // The first key press will set the focus on the language item, the second
@@ -259,8 +294,8 @@ TEST_P(LoginExpandedPublicAccountViewTest, ShowLanguageAndKeyboardMenu) {
 
   // Second keyboard item is selected.
   EXPECT_EQ(test_api.selected_keyboard_item_value(), kKeyboardIdForItem2);
-  ASSERT_EQ(2, keyboard_menu_view->GetRowCount());
-  EXPECT_EQ(1, keyboard_menu_view->GetSelectedRow());
+  ASSERT_EQ(2u, keyboard_menu_view->GetRowCount());
+  EXPECT_EQ(1u, keyboard_menu_view->GetSelectedRow());
 
   // Once the menu is open, the focus is set on the entire view.
   // The first key press will set the focus on the keyboard item, the second
@@ -345,8 +380,11 @@ TEST_P(LoginExpandedPublicAccountViewTest, ChangeWarningLabel) {
   EXPECT_EQ(label->GetText(), full_warning);
 }
 
-INSTANTIATE_TEST_SUITE_P(All,
-                         LoginExpandedPublicAccountViewTest,
-                         ::testing::Values("mouse", "touch"));
+INSTANTIATE_TEST_SUITE_P(
+    All,
+    LoginExpandedPublicAccountViewTest,
+    ::testing::Values(TestParams{InputMethod::kMouse, Orientation::kLandscape},
+                      TestParams{InputMethod::kTouch, Orientation::kLandscape},
+                      TestParams{InputMethod::kTouch, Orientation::kPortrait}));
 
 }  // namespace ash

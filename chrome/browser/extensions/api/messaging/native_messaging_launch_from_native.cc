@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,11 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_util.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/api/messaging/native_message_port.h"
@@ -28,6 +28,7 @@
 #include "extensions/browser/api/messaging/native_message_host.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_registry.h"
+#include "extensions/common/api/messaging/channel_type.h"
 #include "extensions/common/api/messaging/messaging_endpoint.h"
 #include "extensions/common/api/messaging/serialization_format.h"
 #include "extensions/common/permissions/permission_set.h"
@@ -115,7 +116,7 @@ class NativeMessagingHostErrorReporter : public NativeMessageHost::Client {
 
     timeout_.AbandonAndStop();
 
-    base::SequencedTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, this);
+    base::SequencedTaskRunner::GetCurrentDefault()->DeleteSoon(FROM_HERE, this);
   }
 
   MovableScopedKeepAlive keep_alive_;
@@ -248,7 +249,7 @@ void LaunchNativeMessageHostFromNativeApp(const std::string& extension_id,
       extensions::ChannelEndpoint(profile), port_id,
       extensions::MessagingEndpoint::ForNativeApp(host_id),
       std::move(native_message_port), extension_id, GURL(),
-      std::string() /* channel_name */);
+      ChannelType::kNative, std::string() /* channel_name */);
 }
 
 }  // namespace extensions

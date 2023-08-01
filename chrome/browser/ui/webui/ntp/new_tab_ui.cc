@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,10 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 
-#include "base/bind.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
 #include "base/i18n/rtl.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/strings/utf_string_conversions.h"
@@ -63,9 +64,7 @@ NewTabUI::NewTabUI(content::WebUI* web_ui) : content::WebUIController(web_ui) {
   // The title should be "New Tab" for regular mode and guest mode, while it
   // should be "New Incognito Tab" for incognito mode.
   const int title_resource_id =
-      base::FeatureList::IsEnabled(
-          features::kUpdateHistoryEntryPointsInIncognito) &&
-              profile->IsOffTheRecord() && !profile->IsGuestSession()
+      profile->IsOffTheRecord() && !profile->IsGuestSession()
           ? IDS_NEW_INCOGNITO_TAB_TITLE
           : IDS_NEW_TAB_TITLE;
   web_ui->OverrideTitle(l10n_util::GetStringUTF16(title_resource_id));
@@ -102,10 +101,10 @@ bool NewTabUI::IsNewTab(const GURL& url) {
 }
 
 // static
-void NewTabUI::SetUrlTitleAndDirection(base::Value* dictionary,
+void NewTabUI::SetUrlTitleAndDirection(base::Value::Dict* dictionary,
                                        const std::u16string& title,
                                        const GURL& gurl) {
-  dictionary->SetStringKey("url", gurl.spec());
+  dictionary->Set("url", gurl.spec());
 
   bool using_url_as_the_title = false;
   std::u16string title_to_set(title);
@@ -131,15 +130,15 @@ void NewTabUI::SetUrlTitleAndDirection(base::Value* dictionary,
   else
     direction = GetHtmlTextDirection(title);
 
-  dictionary->SetStringKey("title", title_to_set);
-  dictionary->SetStringKey("direction", direction);
+  dictionary->Set("title", title_to_set);
+  dictionary->Set("direction", direction);
 }
 
 // static
 void NewTabUI::SetFullNameAndDirection(const std::u16string& full_name,
-                                       base::DictionaryValue* dictionary) {
-  dictionary->SetString("full_name", full_name);
-  dictionary->SetString("full_name_direction", GetHtmlTextDirection(full_name));
+                                       base::Value::Dict* dictionary) {
+  dictionary->Set("full_name", full_name);
+  dictionary->Set("full_name_direction", GetHtmlTextDirection(full_name));
 }
 
 Profile* NewTabUI::GetProfile() const {
@@ -183,13 +182,12 @@ void NewTabUI::NewTabHTMLSource::StartDataRequest(
       NTPResourceCache::GetWindowType(profile_for_window_type);
   scoped_refptr<base::RefCountedMemory> html_bytes(
       NTPResourceCacheFactory::GetForProfile(profile_)->GetNewTabHTML(
-          win_type));
+          win_type, wc_getter));
 
   std::move(callback).Run(html_bytes.get());
 }
 
-std::string NewTabUI::NewTabHTMLSource::GetMimeType(
-    const std::string& resource) {
+std::string NewTabUI::NewTabHTMLSource::GetMimeType(const GURL&) {
   return "text/html";
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <memory>
 #include <utility>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -65,7 +65,8 @@ class LeakDetectionCheckImpl::RequestPayloadHelper {
   signin::IdentityManager* GetIdentityManager();
 
   void RequestAccessToken(AccessTokenFetcher::TokenCallback callback);
-  void PreparePayload(const std::string& username,
+  void PreparePayload(LeakDetectionInitiator initiator,
+                      const std::string& username,
                       const std::string& password,
                       SingleLeakRequestDataCallback callback);
 
@@ -132,10 +133,12 @@ void LeakDetectionCheckImpl::RequestPayloadHelper::RequestAccessToken(
 }
 
 void LeakDetectionCheckImpl::RequestPayloadHelper::PreparePayload(
+    LeakDetectionInitiator initiator,
     const std::string& username,
     const std::string& password,
     SingleLeakRequestDataCallback callback) {
-  PrepareSingleLeakRequestData(username, password, std::move(callback));
+  PrepareSingleLeakRequestData(initiator, username, password,
+                               std::move(callback));
 }
 
 void LeakDetectionCheckImpl::RequestPayloadHelper::OnGotAccessToken(
@@ -192,7 +195,8 @@ bool LeakDetectionCheckImpl::HasAccountForRequest(
           !identity_manager->GetAccountsWithRefreshTokens().empty());
 }
 
-void LeakDetectionCheckImpl::Start(const GURL& url,
+void LeakDetectionCheckImpl::Start(LeakDetectionInitiator initiator,
+                                   const GURL& url,
                                    std::u16string username,
                                    std::u16string password) {
   DCHECK(payload_helper_);
@@ -210,11 +214,9 @@ void LeakDetectionCheckImpl::Start(const GURL& url,
     payload_helper_->OnGotAccessToken(/*access_token=*/absl::nullopt);
   }
   payload_helper_->PreparePayload(
-      base::UTF16ToUTF8(username_), base::UTF16ToUTF8(password_),
-      TimeCallback(
-          base::BindOnce(&LeakDetectionCheckImpl::OnRequestDataReady,
-                         weak_ptr_factory_.GetWeakPtr()),
-          "PasswordManager.LeakDetection.PrepareSingleLeakRequestTime"));
+      initiator, base::UTF16ToUTF8(username_), base::UTF16ToUTF8(password_),
+      base::BindOnce(&LeakDetectionCheckImpl::OnRequestDataReady,
+                     weak_ptr_factory_.GetWeakPtr()));
 }
 
 void LeakDetectionCheckImpl::OnAccessTokenRequestCompleted(

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,19 +10,16 @@
 #include <array>
 #include <iosfwd>
 #include <list>
-#include <map>
 #include <string>
 #include <vector>
 
-#include "base/compiler_specific.h"
-#include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "components/autofill/core/browser/autofill_type.h"
 #include "components/autofill/core/browser/data_model/address.h"
 #include "components/autofill/core/browser/data_model/autofill_data_model.h"
+#include "components/autofill/core/browser/data_model/birthdate.h"
 #include "components/autofill/core/browser/data_model/contact_info.h"
 #include "components/autofill/core/browser/data_model/phone_number.h"
-#include "components/autofill/core/browser/proto/server.pb.h"
 
 namespace autofill {
 
@@ -36,6 +33,8 @@ struct AutofillMetadata;
 // to the requested form group type.
 class AutofillProfile : public AutofillDataModel {
  public:
+  // `RecordType` is deprecated and `SERVER_PROFILE` essentially unused.
+  // TODO(crbug.com/1177366): Remove
   enum RecordType {
     // A profile stored and editable locally.
     LOCAL_PROFILE,
@@ -43,15 +42,32 @@ class AutofillProfile : public AutofillDataModel {
     SERVER_PROFILE,
   };
 
-  AutofillProfile(const std::string& guid, const std::string& origin);
+  // Describes where the profile is stored and how it is synced.
+  // GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.autofill
+  enum class Source {
+    // Not synced at all or synced through the `AutofillProfileSyncBridge`. This
+    // corresponds to profiles that local to Autofill only.
+    kLocalOrSyncable = 0,
+    // Synced through the `ContactInfoSyncBridge`. This corresponds to profiles
+    // that are shared beyond Autofill across different services.
+    kAccount = 1,
+    kMaxValue = kAccount,
+  };
+
+  // The values used to represent Autofill in the `initial_creator_id()` and
+  // `last_modifier_id()`.
+  static constexpr int kInitialCreatorOrModifierChrome = 70073;
+
+  AutofillProfile();
+  explicit AutofillProfile(const std::string& guid,
+                           Source source = Source::kLocalOrSyncable);
+  explicit AutofillProfile(Source source);
 
   // Server profile constructor. The type must be SERVER_PROFILE (this serves
   // to differentiate this constructor). |server_id| can be empty. If empty,
   // callers should invoke GenerateServerProfileIdentifier after setting data.
   AutofillProfile(RecordType type, const std::string& server_id);
 
-  // For use in STL containers.
-  AutofillProfile();
   AutofillProfile(const AutofillProfile& profile);
   ~AutofillProfile() override;
 
@@ -59,10 +75,8 @@ class AutofillProfile : public AutofillDataModel {
 
   // AutofillDataModel:
   AutofillMetadata GetMetadata() const override;
-  bool SetMetadata(const AutofillMetadata metadata) override;
-  // Returns whether the profile is deletable: if it is not verified and has not
-  // been used for longer than |kDisusedAddressDeletionTimeDelta|.
-  bool IsDeletable() const override;
+  double GetRankingScore(base::Time current_time) const override;
+  bool SetMetadata(const AutofillMetadata& metadata) override;
 
   // FormGroup:
   void GetMatchingTypes(const std::u16string& text,
@@ -70,10 +84,17 @@ class AutofillProfile : public AutofillDataModel {
                         ServerFieldTypeSet* matching_types) const override;
 
   std::u16string GetRawInfo(ServerFieldType type) const override;
-  void SetRawInfoWithVerificationStatus(
+
+  int GetRawInfoAsInt(ServerFieldType type) const override;
+
+  void SetRawInfoWithVerificationStatus(ServerFieldType type,
+                                        const std::u16string& value,
+                                        VerificationStatus status) override;
+
+  void SetRawInfoAsIntWithVerificationStatus(
       ServerFieldType type,
-      const std::u16string& value,
-      structured_address::VerificationStatus status) override;
+      int value,
+      VerificationStatus status) override;
 
   void GetSupportedTypes(ServerFieldTypeSet* supported_types) const override;
 
@@ -117,11 +138,22 @@ class AutofillProfile : public AutofillDataModel {
   bool operator==(const AutofillProfile& profile) const;
   virtual bool operator!=(const AutofillProfile& profile) const;
 
-  // Like IsSubsetOf, but considers only the given |types|.
+  // Tests that for every supported type of AutofillProfile, the values of
+  // `this` and `profile` either agree or the value of `*this` is empty (meaning
+  // that `this` is a subset of `profile`).
+  // Note that a profile is considered a subset of itself.
+  // Comparisons are done using the `comparator`.
+  bool IsSubsetOf(const AutofillProfileComparator& comparator,
+                  const AutofillProfile& profile) const;
+
+  // Like `IsSubsetOf()`, but considers only the given `types`.
   bool IsSubsetOfForFieldSet(const AutofillProfileComparator& comparator,
                              const AutofillProfile& profile,
-                             const std::string& app_locale,
                              const ServerFieldTypeSet& types) const;
+
+  // Like `IsSubsetOf()`, but for strict superset instead of subset.
+  bool IsStrictSupersetOf(const AutofillProfileComparator& comparator,
+                          const AutofillProfile& profile) const;
 
   // Overwrites the data of |this| profile with data from the given |profile|.
   // Expects that the profiles have the same guid.
@@ -133,16 +165,9 @@ class AutofillProfile : public AutofillDataModel {
   bool MergeDataFrom(const AutofillProfile& profile,
                      const std::string& app_locale);
 
-  // Merges structured data from |this| profile and the given |profile| into
-  // |this| profile. Expected to be called if |this| profile is already
-  // verified. Returns true if the profile was modified.
-  bool MergeStructuredDataFrom(const AutofillProfile& profile,
-                               const std::string& app_locale);
-
   // Saves info from |profile| into |this|, provided |this| and |profile| do not
-  // have any direct conflicts (i.e. data is present but different). Will not
-  // make changes if |this| is verified and |profile| is not. Returns true if
-  // |this| and |profile| are similar.
+  // have any direct conflicts (i.e. data is present but different).
+  // Returns true if |this| and |profile| are similar.
   bool SaveAdditionalInfo(const AutofillProfile& profile,
                           const std::string& app_locale);
 
@@ -213,10 +238,6 @@ class AutofillProfile : public AutofillDataModel {
   bool has_converted() const { return has_converted_; }
   void set_has_converted(bool has_converted) { has_converted_ = has_converted; }
 
-  base::WeakPtr<const AutofillProfile> GetWeakPtr() const {
-    return weak_ptr_factory_.GetWeakPtr();
-  }
-
   // Calls |FinalizeAfterImport()| on all |FormGroup| members that are
   // implemented using the hybrid-structure |AddressComponent|.
   // If possible, this will initiate the completion of the structure tree to
@@ -242,26 +263,45 @@ class AutofillProfile : public AutofillDataModel {
   // Sets the label of the profile.
   void set_profile_label(const std::string& label) { profile_label_ = label; }
 
-  bool disallow_settings_visible_updates() const {
-    return disallow_settings_visible_updates_;
+  Source source() const { return source_; }
+  void set_source_for_testing(AutofillProfile::Source source) {
+    source_ = source;
   }
-  void set_disallow_settings_visible_updates(bool disallow) {
-    disallow_settings_visible_updates_ = disallow;
+
+  int initial_creator_id() const { return initial_creator_id_; }
+  void set_initial_creator_id(int creator_id) {
+    initial_creator_id_ = creator_id;
   }
+
+  int last_modifier_id() const { return last_modifier_id_; }
+  void set_last_modifier_id(int modifier_id) {
+    last_modifier_id_ = modifier_id;
+  }
+
+  // Converts a kLocalOrSyncable profile to a kAccount profile and returns it.
+  // The converted profile shares the same content, but with a different GUID
+  // and with `source_` kAccount. Additional kAccount-specific metadata is set.
+  AutofillProfile ConvertToAccountProfile() const;
+
+  // Checks for non-empty setting-inaccessible fields and returns all that were
+  // found.
+  ServerFieldTypeSet FindInaccessibleProfileValues() const;
+
+  // Clears all specified |fields| from the profile.
+  void ClearFields(const ServerFieldTypeSet& fields);
 
  private:
   // FormGroup:
   std::u16string GetInfoImpl(const AutofillType& type,
                              const std::string& app_locale) const override;
 
-  structured_address::VerificationStatus GetVerificationStatusImpl(
+  VerificationStatus GetVerificationStatusImpl(
       const ServerFieldType type) const override;
 
-  bool SetInfoWithVerificationStatusImpl(
-      const AutofillType& type,
-      const std::u16string& value,
-      const std::string& app_locale,
-      structured_address::VerificationStatus status) override;
+  bool SetInfoWithVerificationStatusImpl(const AutofillType& type,
+                                         const std::u16string& value,
+                                         const std::string& app_locale,
+                                         VerificationStatus status) override;
 
   // Creates inferred labels for |profiles| at indices corresponding to
   // |indices|, and stores the results to the corresponding elements of
@@ -278,9 +318,9 @@ class AutofillProfile : public AutofillDataModel {
 
   // Utilities for listing and lookup of the data members that constitute
   // user-visible profile information.
-  std::array<const FormGroup*, 5> FormGroups() const {
+  std::array<const FormGroup*, 6> FormGroups() const {
     // Adjust the return type size as necessary.
-    return {&name_, &email_, &company_, &phone_number_, &address_};
+    return {&name_, &email_, &company_, &phone_number_, &address_, &birthdate_};
   }
 
   const FormGroup* FormGroupForType(const AutofillType& type) const;
@@ -295,6 +335,7 @@ class AutofillProfile : public AutofillDataModel {
   CompanyInfo company_;
   PhoneNumber phone_number_;
   Address address_;
+  Birthdate birthdate_;
 
   // The label is chosen by the user and can contain an arbitrary value.
   // However, there are two labels that play a special role to indicate that an
@@ -304,12 +345,6 @@ class AutofillProfile : public AutofillDataModel {
 
   // The BCP 47 language code that can be used to format |address_| for display.
   std::string language_code_;
-
-  // The state indicates if the profile qualifies to get merged with a
-  // profile observed in a form submission. If true, the profile can still be
-  // updated silently, but it should not be considered for merges that need to
-  // involve user interactions.
-  bool disallow_settings_visible_updates_{false};
 
   // ID used for identifying this profile. Only set for SERVER_PROFILEs. This is
   // a hash of the contents.
@@ -324,7 +359,18 @@ class AutofillProfile : public AutofillDataModel {
   // converted to a local profile.
   bool has_converted_;
 
-  mutable base::WeakPtrFactory<AutofillProfile> weak_ptr_factory_{this};
+  Source source_;
+
+  // Indicates the application that initially created the profile and the
+  // application that performed the last non-metadata modification of it.
+  // Only relevant for `source_ == kAccount` profiles, since `kLocalOrSyncable`
+  // profiles are only used within Autofill.
+  // The integer values represent a server-side enum `BillableService`, which is
+  // not duplicated in Chromium. For Autofill, the exact application that
+  // created/modified the profile is thus opaque. However, Autofill is
+  // represented by the value `kInitialCreatorOrModifierChrome`.
+  int initial_creator_id_ = 0;
+  int last_modifier_id_ = 0;
 };
 
 // So we can compare AutofillProfiles with EXPECT_EQ().

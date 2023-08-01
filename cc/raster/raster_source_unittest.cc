@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,9 +17,14 @@
 #include "cc/test/test_skcanvas.h"
 #include "cc/tiles/software_image_decode_cache.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/skia/include/core/SkBitmap.h"
+#include "third_party/skia/include/core/SkCanvas.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "third_party/skia/include/core/SkPixelRef.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
+#include "third_party/skia/include/core/SkScalar.h"
 #include "third_party/skia/include/core/SkShader.h"
+#include "third_party/skia/include/core/SkSurfaceProps.h"
 #include "ui/gfx/geometry/axis_transform2d.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size_conversions.h"
@@ -51,7 +56,7 @@ TEST(RasterSourceTest, AnalyzeIsSolidUnscaled) {
   solid_flags.setColor(solid_color);
 
   SkColor non_solid_color = SkColorSetARGB(128, 45, 56, 67);
-  SkColor color = SK_ColorTRANSPARENT;
+  SkColor4f color = SkColors::kTransparent;
   PaintFlags non_solid_flags;
   bool is_solid_color = false;
   non_solid_flags.setColor(non_solid_color);
@@ -68,7 +73,7 @@ TEST(RasterSourceTest, AnalyzeIsSolidUnscaled) {
       gfx::Rect rect(x, y, 100, 100);
       is_solid_color = raster->PerformSolidColorAnalysis(rect, &color);
       EXPECT_TRUE(is_solid_color) << rect.ToString();
-      EXPECT_COLOR_EQ(solid_color, color) << rect.ToString();
+      EXPECT_COLOR_EQ(solid_color, color.toSkColor()) << rect.ToString();
     }
   }
 
@@ -78,35 +83,35 @@ TEST(RasterSourceTest, AnalyzeIsSolidUnscaled) {
   recording_source->Rerecord();
   raster = recording_source->CreateRasterSource();
 
-  color = SK_ColorTRANSPARENT;
+  color = SkColors::kTransparent;
   is_solid_color =
       raster->PerformSolidColorAnalysis(gfx::Rect(0, 0, 100, 100), &color);
   EXPECT_FALSE(is_solid_color);
 
-  color = SK_ColorTRANSPARENT;
+  color = SkColors::kTransparent;
   is_solid_color =
       raster->PerformSolidColorAnalysis(gfx::Rect(100, 0, 100, 100), &color);
   EXPECT_TRUE(is_solid_color);
-  EXPECT_COLOR_EQ(solid_color, color);
+  EXPECT_COLOR_EQ(solid_color, color.toSkColor());
 
   // Boundaries should be clipped.
-  color = SK_ColorTRANSPARENT;
+  color = SkColors::kTransparent;
   is_solid_color =
       raster->PerformSolidColorAnalysis(gfx::Rect(350, 0, 100, 100), &color);
   EXPECT_TRUE(is_solid_color);
-  EXPECT_COLOR_EQ(solid_color, color);
+  EXPECT_COLOR_EQ(solid_color, color.toSkColor());
 
-  color = SK_ColorTRANSPARENT;
+  color = SkColors::kTransparent;
   is_solid_color =
       raster->PerformSolidColorAnalysis(gfx::Rect(0, 350, 100, 100), &color);
   EXPECT_TRUE(is_solid_color);
-  EXPECT_COLOR_EQ(solid_color, color);
+  EXPECT_COLOR_EQ(solid_color, color.toSkColor());
 
-  color = SK_ColorTRANSPARENT;
+  color = SkColors::kTransparent;
   is_solid_color =
       raster->PerformSolidColorAnalysis(gfx::Rect(350, 350, 100, 100), &color);
   EXPECT_TRUE(is_solid_color);
-  EXPECT_COLOR_EQ(solid_color, color);
+  EXPECT_COLOR_EQ(solid_color, color.toSkColor());
 }
 
 TEST(RasterSourceTest, AnalyzeIsSolidScaled) {
@@ -123,7 +128,7 @@ TEST(RasterSourceTest, AnalyzeIsSolidScaled) {
     solid_flags.setColor(solid_color);
 
     SkColor non_solid_color = SkColorSetARGB(128, 45, 56, 67);
-    SkColor color = SK_ColorTRANSPARENT;
+    SkColor4f color = SkColors::kTransparent;
     PaintFlags non_solid_flags;
     bool is_solid_color = false;
     non_solid_flags.setColor(non_solid_color);
@@ -142,7 +147,7 @@ TEST(RasterSourceTest, AnalyzeIsSolidScaled) {
         is_solid_color = raster->PerformSolidColorAnalysis(rect, &color);
         EXPECT_TRUE(is_solid_color)
             << rect.ToString() << " recording_scale: " << recording_scale;
-        EXPECT_COLOR_EQ(solid_color, color)
+        EXPECT_COLOR_EQ(solid_color, color.toSkColor())
             << rect.ToString() << " recording_scale: " << recording_scale;
       }
     }
@@ -155,43 +160,43 @@ TEST(RasterSourceTest, AnalyzeIsSolidScaled) {
     recording_source->Rerecord();
     raster = recording_source->CreateRasterSource();
 
-    color = SK_ColorTRANSPARENT;
+    color = SkColors::kTransparent;
     is_solid_color =
         raster->PerformSolidColorAnalysis(gfx::Rect(0, 0, 100, 100), &color);
     EXPECT_FALSE(is_solid_color) << " recording_scale: " << recording_scale;
 
-    color = SK_ColorTRANSPARENT;
+    color = SkColors::kTransparent;
     is_solid_color =
         raster->PerformSolidColorAnalysis(gfx::Rect(0, 0, 51, 51), &color);
     EXPECT_FALSE(is_solid_color) << " recording_scale: " << recording_scale;
 
-    color = SK_ColorTRANSPARENT;
+    color = SkColors::kTransparent;
     is_solid_color =
         raster->PerformSolidColorAnalysis(gfx::Rect(51, 0, 100, 100), &color);
     EXPECT_TRUE(is_solid_color) << " recording_scale: " << recording_scale;
-    EXPECT_COLOR_EQ(solid_color, color)
+    EXPECT_COLOR_EQ(solid_color, color.toSkColor())
         << " recording_scale: " << recording_scale;
 
     // Boundaries should be clipped.
-    color = SK_ColorTRANSPARENT;
+    color = SkColors::kTransparent;
     is_solid_color =
         raster->PerformSolidColorAnalysis(gfx::Rect(350, 0, 100, 100), &color);
     EXPECT_TRUE(is_solid_color) << " recording_scale: " << recording_scale;
-    EXPECT_COLOR_EQ(solid_color, color)
+    EXPECT_COLOR_EQ(solid_color, color.toSkColor())
         << " recording_scale: " << recording_scale;
 
-    color = SK_ColorTRANSPARENT;
+    color = SkColors::kTransparent;
     is_solid_color =
         raster->PerformSolidColorAnalysis(gfx::Rect(0, 350, 100, 100), &color);
     EXPECT_TRUE(is_solid_color) << " recording_scale: " << recording_scale;
-    EXPECT_COLOR_EQ(solid_color, color)
+    EXPECT_COLOR_EQ(solid_color, color.toSkColor())
         << " recording_scale: " << recording_scale;
 
-    color = SK_ColorTRANSPARENT;
+    color = SkColors::kTransparent;
     is_solid_color = raster->PerformSolidColorAnalysis(
         gfx::Rect(350, 350, 100, 100), &color);
     EXPECT_TRUE(is_solid_color) << " recording_scale: " << recording_scale;
-    EXPECT_COLOR_EQ(solid_color, color)
+    EXPECT_COLOR_EQ(solid_color, color.toSkColor())
         << " recording_scale: " << recording_scale;
   }
 }
@@ -223,25 +228,28 @@ TEST(RasterSourceTest, PixelRefIteratorDiscardableRefsOneTile) {
 
   // Tile sized iterators. These should find only one pixel ref.
   {
-    gfx::ColorSpace target_color_space = gfx::ColorSpace::CreateSRGB();
+    TargetColorParams target_color_params;
     std::vector<const DrawImage*> images;
     raster->GetDiscardableImagesInRect(gfx::Rect(0, 0, 256, 256), &images);
-    EXPECT_EQ(1u, images.size());
+    ASSERT_EQ(1u, images.size());
     DrawImage image(*images[0], 1.f, PaintImage::kDefaultFrameIndex,
-                    target_color_space);
-    EXPECT_EQ(discardable_image[0][0], images[0]->paint_image());
-    EXPECT_EQ(target_color_space, image.target_color_space());
+                    target_color_params);
+    EXPECT_TRUE(
+        discardable_image[0][0].IsSameForTesting(images[0]->paint_image()));
+    EXPECT_EQ(target_color_params.color_space, image.target_color_space());
   }
   // Shifted tile sized iterators. These should find only one pixel ref.
   {
-    gfx::ColorSpace target_color_space = gfx::ColorSpace::CreateXYZD50();
+    TargetColorParams target_color_params;
+    target_color_params.color_space = gfx::ColorSpace::CreateXYZD50();
     std::vector<const DrawImage*> images;
     raster->GetDiscardableImagesInRect(gfx::Rect(260, 260, 256, 256), &images);
-    EXPECT_EQ(1u, images.size());
+    ASSERT_EQ(1u, images.size());
     DrawImage image(*images[0], 1.f, PaintImage::kDefaultFrameIndex,
-                    target_color_space);
-    EXPECT_EQ(discardable_image[1][1], images[0]->paint_image());
-    EXPECT_EQ(target_color_space, image.target_color_space());
+                    target_color_params);
+    EXPECT_TRUE(
+        discardable_image[1][1].IsSameForTesting(images[0]->paint_image()));
+    EXPECT_EQ(target_color_params.color_space, image.target_color_space());
   }
   // Ensure there's no discardable pixel refs in the empty cell
   {
@@ -253,10 +261,13 @@ TEST(RasterSourceTest, PixelRefIteratorDiscardableRefsOneTile) {
   {
     std::vector<const DrawImage*> images;
     raster->GetDiscardableImagesInRect(gfx::Rect(0, 0, 512, 512), &images);
-    EXPECT_EQ(3u, images.size());
-    EXPECT_EQ(discardable_image[0][0], images[0]->paint_image());
-    EXPECT_EQ(discardable_image[0][1], images[1]->paint_image());
-    EXPECT_EQ(discardable_image[1][1], images[2]->paint_image());
+    ASSERT_EQ(3u, images.size());
+    EXPECT_TRUE(
+        discardable_image[0][0].IsSameForTesting(images[0]->paint_image()));
+    EXPECT_TRUE(
+        discardable_image[0][1].IsSameForTesting(images[1]->paint_image()));
+    EXPECT_TRUE(
+        discardable_image[1][1].IsSameForTesting(images[2]->paint_image()));
   }
 }
 
@@ -267,7 +278,7 @@ TEST(RasterSourceTest, RasterFullContents) {
 
   std::unique_ptr<FakeRecordingSource> recording_source =
       FakeRecordingSource::CreateFilledRecordingSource(layer_bounds);
-  recording_source->SetBackgroundColor(SK_ColorBLACK);
+  recording_source->SetBackgroundColor(SkColors::kBlack);
 
   // Because the caller sets content opaque, it also promises that it
   // has at least filled in layer_bounds opaquely.
@@ -296,12 +307,12 @@ TEST(RasterSourceTest, RasterFullContents) {
       // up to one pixel outside the content rect is guaranteed to be opaque.
       // Outside of that is undefined.
       gfx::Rect canvas_rect(content_rect);
-      canvas_rect.Inset(0, 0, -1, -1);
+      canvas_rect.Inset(gfx::Insets::TLBR(0, 0, -1, -1));
 
       SkBitmap bitmap;
       bitmap.allocN32Pixels(canvas_rect.width(), canvas_rect.height());
       SkCanvas canvas(bitmap, SkSurfaceProps{});
-      canvas.clear(SK_ColorTRANSPARENT);
+      canvas.clear(SkColors::kTransparent);
 
       raster->PlaybackToCanvas(
           &canvas, content_bounds, canvas_rect, canvas_rect,
@@ -332,7 +343,7 @@ TEST(RasterSourceTest, RasterFullContentsWithRasterTranslation) {
 
   std::unique_ptr<FakeRecordingSource> recording_source =
       FakeRecordingSource::CreateFilledRecordingSource(layer_bounds);
-  recording_source->SetBackgroundColor(SK_ColorBLACK);
+  recording_source->SetBackgroundColor(SkColors::kBlack);
 
   // Because the caller sets content opaque, it also promises that it
   // has at least filled in layer_bounds opaquely.
@@ -362,7 +373,7 @@ TEST(RasterSourceTest, RasterFullContentsWithRasterTranslation) {
       SkBitmap bitmap;
       bitmap.allocN32Pixels(canvas_rect.width(), canvas_rect.height());
       SkCanvas canvas(bitmap, SkSurfaceProps{});
-      canvas.clear(SK_ColorTRANSPARENT);
+      canvas.clear(SkColors::kTransparent);
 
       raster->PlaybackToCanvas(
           &canvas, content_bounds, canvas_rect, canvas_rect,
@@ -392,7 +403,7 @@ TEST(RasterSourceTest, RasterPartialContents) {
 
   std::unique_ptr<FakeRecordingSource> recording_source =
       FakeRecordingSource::CreateFilledRecordingSource(layer_bounds);
-  recording_source->SetBackgroundColor(SK_ColorGREEN);
+  recording_source->SetBackgroundColor(SkColors::kGreen);
 
   // First record everything as white.
   PaintFlags white_flags;
@@ -436,7 +447,7 @@ TEST(RasterSourceTest, RasterPartialContents) {
 
   // We're going to playback from "everything is black" into a smaller area,
   // that touches the edge pixels of the recording.
-  playback_rect.Inset(1, 2, 0, 1);
+  playback_rect.Inset(gfx::Insets::TLBR(2, 1, 1, 0));
   raster->PlaybackToCanvas(
       &canvas, content_bounds, raster_full_rect, playback_rect,
       gfx::AxisTransform2d(contents_scale, gfx::Vector2dF()),
@@ -466,7 +477,7 @@ TEST(RasterSourceTest, RasterPartialContentsWithRasterTranslation) {
 
   std::unique_ptr<FakeRecordingSource> recording_source =
       FakeRecordingSource::CreateFilledRecordingSource(layer_bounds);
-  recording_source->SetBackgroundColor(SK_ColorGREEN);
+  recording_source->SetBackgroundColor(SkColors::kGreen);
 
   // First record everything as white.
   PaintFlags white_flags;
@@ -518,7 +529,7 @@ TEST(RasterSourceTest, RasterPartialContentsWithRasterTranslation) {
 
   // We're going to playback from "everything is black" into a smaller area,
   // that touches the edge pixels of the recording.
-  playback_rect.Inset(1, 2, 0, 1);
+  playback_rect.Inset(gfx::Insets::TLBR(2, 1, 1, 0));
   raster->PlaybackToCanvas(
       &canvas, content_bounds, raster_full_rect, playback_rect,
       gfx::AxisTransform2d(1.0f, gfx::Vector2dF(0.3f, 0.7f)),
@@ -557,14 +568,14 @@ TEST(RasterSourceTest, RasterPartialClear) {
 
   std::unique_ptr<FakeRecordingSource> recording_source =
       FakeRecordingSource::CreateFilledRecordingSource(layer_bounds);
-  recording_source->SetBackgroundColor(SK_ColorGREEN);
+  recording_source->SetBackgroundColor(SkColors::kGreen);
   recording_source->SetRequiresClear(true);
 
   // First record everything as white.
-  const unsigned alpha_dark = 10u;
+  const float alpha_dark = 0.04f;
   PaintFlags white_flags;
   white_flags.setColor(SK_ColorWHITE);
-  white_flags.setAlpha(alpha_dark);
+  white_flags.setAlphaf(alpha_dark);
   recording_source->add_draw_rect_with_flags(gfx::Rect(layer_bounds),
                                              white_flags);
   recording_source->Rerecord();
@@ -587,7 +598,7 @@ TEST(RasterSourceTest, RasterPartialClear) {
       gfx::AxisTransform2d(contents_scale, gfx::Vector2dF()),
       RasterSource::PlaybackSettings());
 
-  SkColor pixel_dark = SkColorSetARGB(alpha_dark, 255, 255, 255);
+  SkColor pixel_dark = SkColor4f{1, 1, 1, alpha_dark}.toSkColor();
   for (int i = 0; i < bitmap.width(); ++i) {
     for (int j = 0; j < bitmap.height(); ++j)
       EXPECT_COLOR_EQ(pixel_dark, bitmap.getColor(i, j)) << i << "," << j;
@@ -595,12 +606,12 @@ TEST(RasterSourceTest, RasterPartialClear) {
 
   std::unique_ptr<FakeRecordingSource> recording_source_light =
       FakeRecordingSource::CreateFilledRecordingSource(layer_bounds);
-  recording_source_light->SetBackgroundColor(SK_ColorGREEN);
+  recording_source_light->SetBackgroundColor(SkColors::kGreen);
   recording_source_light->SetRequiresClear(true);
 
   // Record everything as a slightly lighter white.
-  const unsigned alpha_light = 18u;
-  white_flags.setAlpha(alpha_light);
+  const float alpha_light = 0.1f;
+  white_flags.setAlphaf(alpha_light);
   recording_source_light->add_draw_rect_with_flags(gfx::Rect(layer_bounds),
                                                    white_flags);
   recording_source_light->Rerecord();
@@ -619,7 +630,7 @@ TEST(RasterSourceTest, RasterPartialClear) {
       RasterSource::PlaybackSettings());
 
   // Test that the whole playback_rect was cleared and repainted with new alpha.
-  SkColor pixel_light = SkColorSetARGB(alpha_light, 255, 255, 255);
+  SkColor pixel_light = SkColor4f{1, 1, 1, alpha_light}.toSkColor();
   for (int i = 0; i < playback_rect.width(); ++i) {
     for (int j = 0; j < playback_rect.height(); ++j)
       EXPECT_COLOR_EQ(pixel_light, bitmap.getColor(i, j)) << i << "," << j;
@@ -632,7 +643,7 @@ TEST(RasterSourceTest, RasterContentsTransparent) {
 
   std::unique_ptr<FakeRecordingSource> recording_source =
       FakeRecordingSource::CreateFilledRecordingSource(layer_bounds);
-  recording_source->SetBackgroundColor(SK_ColorTRANSPARENT);
+  recording_source->SetBackgroundColor(SkColors::kTransparent);
   recording_source->SetRequiresClear(true);
   recording_source->Rerecord();
 
@@ -641,7 +652,7 @@ TEST(RasterSourceTest, RasterContentsTransparent) {
       gfx::ScaleToCeiledSize(layer_bounds, contents_scale));
 
   gfx::Rect canvas_rect(content_bounds);
-  canvas_rect.Inset(0, 0, -1, -1);
+  canvas_rect.Inset(gfx::Insets::TLBR(0, 0, -1, -1));
 
   SkBitmap bitmap;
   bitmap.allocN32Pixels(canvas_rect.width(), canvas_rect.height());

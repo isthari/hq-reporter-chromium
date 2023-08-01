@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,19 +14,22 @@
 #include "content/public/common/content_switches.h"
 #include "content/public/common/url_constants.h"
 #include "media/base/media_switches.h"
+#include "services/network/public/mojom/content_security_policy.mojom.h"
 
 namespace content {
 namespace {
 
-WebUIDataSource* CreateMediaInternalsHTMLSource() {
-  WebUIDataSource* source =
-      WebUIDataSource::Create(kChromeUIMediaInternalsHost);
+void CreateAndAddMediaInternalsHTMLSource(BrowserContext* browser_context) {
+  WebUIDataSource* source = WebUIDataSource::CreateAndAdd(
+      browser_context, kChromeUIMediaInternalsHost);
 
   source->UseStringsJs();
   source->AddResourcePaths(
       base::make_span(kMediaInternalsResources, kMediaInternalsResourcesSize));
   source->SetDefaultResource(IDR_MEDIA_INTERNALS_MEDIA_INTERNALS_HTML);
-  return source;
+  source->OverrideContentSecurityPolicy(
+      network::mojom::CSPDirectiveName::TrustedTypes,
+      "trusted-types static-types;");
 }
 
 }  // namespace
@@ -41,9 +44,8 @@ MediaInternalsUI::MediaInternalsUI(WebUI* web_ui)
     : WebUIController(web_ui) {
   web_ui->AddMessageHandler(std::make_unique<MediaInternalsMessageHandler>());
 
-  BrowserContext* browser_context =
-      web_ui->GetWebContents()->GetBrowserContext();
-  WebUIDataSource::Add(browser_context, CreateMediaInternalsHTMLSource());
+  CreateAndAddMediaInternalsHTMLSource(
+      web_ui->GetWebContents()->GetBrowserContext());
 }
 
 }  // namespace content

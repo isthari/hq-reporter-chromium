@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,12 +14,14 @@
 #include <string>
 #include <vector>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
 #include "base/synchronization/lock.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/threading/watchdog.h"
+#include "base/time/time.h"
 #include "chrome/chrome_cleaner/cleaner/cleaner.h"
 #include "chrome/chrome_cleaner/components/component_api.h"
 #include "chrome/chrome_cleaner/components/component_manager.h"
@@ -37,6 +39,7 @@ namespace chrome_cleaner {
 class ComponentAPI;
 class RebooterAPI;
 class RegistryLogger;
+class ShutdownWatchdog;
 
 enum class TimedOutStage {
   kScanning,
@@ -226,7 +229,7 @@ class MainController : public ComponentManagerDelegate,
   bool removable_uws_found_ = false;
 
   // Watchdog for terminating if scanning or cleaning takes too long.
-  std::unique_ptr<base::Watchdog> watchdog_;
+  std::unique_ptr<ShutdownWatchdog> watchdog_;
 
   // Quit closure to indicate the current scan & cleanup or validation is done.
   base::OnceClosure quit_closure_;

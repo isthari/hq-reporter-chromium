@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/profiles/profile.h"
@@ -20,10 +20,13 @@
 #include "chrome/browser/ui/signin_modal_dialog.h"
 #include "chrome/browser/ui/signin_modal_dialog_impl.h"
 #include "chrome/browser/ui/signin_view_controller_delegate.h"
+#include "chrome/browser/ui/tabs/tab_strip_user_gesture_details.h"
+#include "chrome/browser/ui/webui/signin/signin_utils.h"
 #include "components/signin/public/base/consent_level.h"
 #include "components/signin/public/base/signin_buildflags.h"
 #include "components/signin/public/identity_manager/account_info.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
+#include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
 #include "google_apis/gaia/core_account_id.h"
 
@@ -54,7 +57,6 @@ namespace {
 
 // Returns the sign-in reason for |mode|.
 signin_metrics::Reason GetSigninReasonFromMode(profiles::BubbleViewMode mode) {
-  DCHECK(SigninViewController::ShouldShowSigninForMode(mode));
   switch (mode) {
     case profiles::BUBBLE_VIEW_MODE_GAIA_SIGNIN:
       return signin_metrics::Reason::kSigninPrimaryAccount;
@@ -74,7 +76,7 @@ void ShowTabOverwritingNTP(Browser* browser, const GURL& url) {
   params.disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
   params.window_action = NavigateParams::SHOW_WINDOW;
   params.user_gesture = false;
-  params.tabstrip_add_types |= TabStripModel::ADD_INHERIT_OPENER;
+  params.tabstrip_add_types |= AddTabTypes::ADD_INHERIT_OPENER;
 
   content::WebContents* contents =
       browser->tab_strip_model()->GetActiveWebContents();
@@ -155,20 +157,10 @@ SigninViewController::~SigninViewController() {
   CloseModalSignin();
 }
 
-// static
-bool SigninViewController::ShouldShowSigninForMode(
-    profiles::BubbleViewMode mode) {
-  return mode == profiles::BUBBLE_VIEW_MODE_GAIA_SIGNIN ||
-         mode == profiles::BUBBLE_VIEW_MODE_GAIA_ADD_ACCOUNT ||
-         mode == profiles::BUBBLE_VIEW_MODE_GAIA_REAUTH;
-}
-
 #if BUILDFLAG(ENABLE_DICE_SUPPORT)
 void SigninViewController::ShowSignin(profiles::BubbleViewMode mode,
                                       signin_metrics::AccessPoint access_point,
                                       const GURL& redirect_url) {
-  DCHECK(ShouldShowSigninForMode(mode));
-
   Profile* profile = browser_->profile();
   std::string email;
   signin_metrics::Reason signin_reason = GetSigninReasonFromMode(mode);
@@ -225,7 +217,6 @@ SigninViewController::ShowReauthPrompt(
   dialog_ = std::make_unique<SigninReauthViewController>(
       browser_, account_id, access_point, GetOnModalDialogClosedCallback(),
       std::move(wrapped_reauth_callback));
-  chrome::RecordDialogCreation(chrome::DialogIdentifier::SIGNIN_REAUTH);
   return abort_handle;
 }
 
@@ -240,37 +231,58 @@ void SigninViewController::ShowModalInterceptFirstRunExperienceDialog(
   // Casts pointer to a base class.
   dialog_ = std::move(fre_dialog);
   raw_dialog->Show();
-  chrome::RecordDialogCreation(
-      chrome::DialogIdentifier::SIGNIN_INTERCEPT_FIRST_RUN_EXPERIENCE);
 }
 #endif  // BUILDFLAG(ENABLE_DICE_SUPPORT)
 
-void SigninViewController::ShowModalSyncConfirmationDialog() {
+#if BUILDFLAG(ENABLE_DICE_SUPPORT) || BUILDFLAG(IS_CHROMEOS_LACROS)
+void SigninViewController::ShowModalProfileCustomizationDialog(
+    bool is_local_profile_creation) {
   CloseModalSignin();
   dialog_ = std::make_unique<SigninModalDialogImpl>(
-      SigninViewControllerDelegate::CreateSyncConfirmationDelegate(browser_),
+      SigninViewControllerDelegate::CreateProfileCustomizationDelegate(
+          browser_, is_local_profile_creation,
+          /*show_profile_switch_iph=*/true),
       GetOnModalDialogClosedCallback());
-  chrome::RecordDialogCreation(
-      chrome::DialogIdentifier::SIGN_IN_SYNC_CONFIRMATION);
+}
+
+void SigninViewController::ShowModalSigninEmailConfirmationDialog(
+    const std::string& last_email,
+    const std::string& email,
+    SigninEmailConfirmationDialog::Callback callback) {
+  CloseModalSignin();
+  content::WebContents* active_contents =
+      browser_->tab_strip_model()->GetActiveWebContents();
+  dialog_ = std::make_unique<SigninModalDialogImpl>(
+      SigninEmailConfirmationDialog::AskForConfirmation(
+          active_contents, browser_->profile(), last_email, email,
+          std::move(callback)),
+      GetOnModalDialogClosedCallback());
+}
+#endif  // BUILDFLAG(ENABLE_DICE_SUPPORT) || BUILDFLAG(IS_CHROMEOS_LACROS)
+
+void SigninViewController::ShowModalSyncConfirmationDialog(
+    bool is_signin_intercept) {
+  CloseModalSignin();
+  dialog_ = std::make_unique<SigninModalDialogImpl>(
+      SigninViewControllerDelegate::CreateSyncConfirmationDelegate(
+          browser_, is_signin_intercept),
+      GetOnModalDialogClosedCallback());
 }
 
 void SigninViewController::ShowModalEnterpriseConfirmationDialog(
     const AccountInfo& account_info,
+    bool force_new_profile,
+    bool show_link_data_option,
     SkColor profile_color,
-    base::OnceCallback<void(bool)> callback) {
+    signin::SigninChoiceCallback callback) {
 #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \
     BUILDFLAG(IS_CHROMEOS_LACROS)
   CloseModalSignin();
   dialog_ = std::make_unique<SigninModalDialogImpl>(
       SigninViewControllerDelegate::CreateEnterpriseConfirmationDelegate(
-          browser_, account_info, profile_color,
-          base::BindOnce(
-              [](Browser* browser, base::OnceCallback<void(bool)> callback,
-                 bool result) { std::move(callback).Run(result); },
-              base::Unretained(browser_), std::move(callback))),
+          browser_, account_info, force_new_profile, show_link_data_option,
+          profile_color, std::move(callback)),
       GetOnModalDialogClosedCallback());
-  chrome::RecordDialogCreation(
-      chrome::DialogIdentifier::SIGNIN_ENTERPRISE_INTERCEPTION);
 #else
   NOTREACHED() << "Enterprise confirmation dialog modal not supported";
 #endif
@@ -281,7 +293,6 @@ void SigninViewController::ShowModalSigninErrorDialog() {
   dialog_ = std::make_unique<SigninModalDialogImpl>(
       SigninViewControllerDelegate::CreateSigninErrorDelegate(browser_),
       GetOnModalDialogClosedCallback());
-  chrome::RecordDialogCreation(chrome::DialogIdentifier::SIGN_IN_ERROR);
 }
 
 bool SigninViewController::ShowsModalDialog() {
@@ -349,7 +360,7 @@ void SigninViewController::ShowDiceSigninTab(
   GURL signin_url =
       signin_reason == signin_metrics::Reason::kAddSecondaryAccount
           ? signin::GetAddAccountURLForDice(email_hint, continue_url)
-          : signin::GetChromeSyncURLForDice(email_hint, continue_url);
+          : signin::GetChromeSyncURLForDice({email_hint, continue_url});
 
   content::WebContents* active_contents = nullptr;
   if (access_point == signin_metrics::AccessPoint::ACCESS_POINT_START_PAGE) {
@@ -367,8 +378,10 @@ void SigninViewController::ShowDiceSigninTab(
           signin_metrics::AccessPoint::ACCESS_POINT_EXTENSIONS) {
         // Extensions do not activate the tab to prevent misbehaving
         // extensions to keep focusing the signin tab.
-        tab_strip->ActivateTabAt(dice_tab_index,
-                                 {TabStripModel::GestureType::kOther});
+        tab_strip->ActivateTabAt(
+            dice_tab_index,
+            TabStripUserGestureDetails(
+                TabStripUserGestureDetails::GestureType::kOther));
       }
       // Do not create a new signin tab, because there is already one.
       return;
@@ -378,8 +391,13 @@ void SigninViewController::ShowDiceSigninTab(
     active_contents = browser_->tab_strip_model()->GetActiveWebContents();
   }
 
+  // Checks that we have right contents, in which the signin page is being
+  // loaded. Note that we need to check the original URL, being mindful of
+  // possible redirects, but also the navigation hasn't happened yet.
   DCHECK(active_contents);
-  DCHECK_EQ(signin_url, active_contents->GetVisibleURL());
+  DCHECK_EQ(
+      signin_url,
+      active_contents->GetController().GetVisibleEntry()->GetUserTypedURL());
   DiceTabHelper::CreateForWebContents(active_contents);
   DiceTabHelper* tab_helper = DiceTabHelper::FromWebContents(active_contents);
 
@@ -435,22 +453,6 @@ void SigninViewController::ShowGaiaLogoutTab(
       browser_->tab_strip_model()->GetActiveWebContents();
   DCHECK(logout_tab_contents);
   LogoutTabHelper::CreateForWebContents(logout_tab_contents);
-}
-
-void SigninViewController::ShowModalSigninEmailConfirmationDialog(
-    const std::string& last_email,
-    const std::string& email,
-    SigninEmailConfirmationDialog::Callback callback) {
-  CloseModalSignin();
-  content::WebContents* active_contents =
-      browser_->tab_strip_model()->GetActiveWebContents();
-  dialog_ = std::make_unique<SigninModalDialogImpl>(
-      SigninEmailConfirmationDialog::AskForConfirmation(
-          active_contents, browser_->profile(), last_email, email,
-          std::move(callback)),
-      GetOnModalDialogClosedCallback());
-  chrome::RecordDialogCreation(
-      chrome::DialogIdentifier::SIGN_IN_EMAIL_CONFIRMATION);
 }
 #endif  // BUILDFLAG(ENABLE_DICE_SUPPORT)
 

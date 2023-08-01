@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,18 +11,21 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/notreached.h"
 #include "base/sequence_checker.h"
+#include "base/strings/string_split.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "chromeos/crosapi/mojom/remoting.mojom.h"
 #include "chromeos/lacros/lacros_service.h"
 #include "extensions/browser/api/messaging/native_message_host.h"
+#include "google_apis/gaia/gaia_auth_util.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -37,9 +40,9 @@ namespace {
 
 constexpr int kInvalidMessageId = -1;
 
-int GetMessageId(const base::Value& message) {
-  const auto* message_id = message.FindPath(kMessageId);
-  return message_id ? message_id->GetInt() : kInvalidMessageId;
+int GetMessageId(const base::Value::Dict& message) {
+  absl::optional<int> message_id = message.FindInt(kMessageId);
+  return message_id.value_or(kInvalidMessageId);
 }
 
 protocol::ErrorCode SupportSessionErrorToProtocolError(
@@ -50,6 +53,15 @@ protocol::ErrorCode SupportSessionErrorToProtocolError(
     default:
       return protocol::ErrorCode::UNKNOWN_ERROR;
   }
+}
+
+// This function checks the email address provided to see if it is properly
+// formatted. It does not validate the username or domain sections.
+// TODO(joedow): Move to a shared location.
+bool IsValidEmailAddress(const std::string& email) {
+  return base::SplitString(email, "@", base::KEEP_WHITESPACE,
+                           base::SPLIT_WANT_ALL)
+             .size() == 2U;
 }
 
 // This class is JSON <-> Mojo message converter which enables communication
@@ -89,19 +101,18 @@ class It2MeNativeMessagingHostLacros : public extensions::NativeMessageHost,
 
  private:
   void ProcessHello(int message_id);
-  void ProcessConnect(int message_id, base::Value message);
+  void ProcessConnect(int message_id, base::Value::Dict message);
   void ProcessDisconnect(int message_id);
-  void SendMessageToClient(base::Value message) const;
+  void SendMessageToClient(base::Value::Dict message) const;
   void SendErrorAndExit(const protocol::ErrorCode error_code,
                         int message_id = kInvalidMessageId) const;
 
-  void HandleHostStateChange(
-      It2MeHostState state,
-      base::Value message = base::Value(base::Value::Type::DICTIONARY));
+  void HandleHostStateChange(It2MeHostState state,
+                             base::Value::Dict message = base::Value::Dict());
 
   SEQUENCE_CHECKER(sequence_checker_);
 
-  Client* client_ GUARDED_BY_CONTEXT(sequence_checker_) = nullptr;
+  raw_ptr<Client> client_ GUARDED_BY_CONTEXT(sequence_checker_) = nullptr;
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 
   int connect_response_id_ = kInvalidMessageId;
@@ -126,7 +137,7 @@ It2MeNativeMessagingHostLacros::~It2MeNativeMessagingHostLacros() = default;
 void It2MeNativeMessagingHostLacros::OnMessage(const std::string& message) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   std::string type;
-  base::Value contents;
+  base::Value::Dict contents;
   if (!ParseNativeMessageJson(message, type, contents)) {
     client_->CloseChannel(std::string());
     return;
@@ -187,9 +198,9 @@ void It2MeNativeMessagingHostLacros::OnHostStateReceivedAccessCode(
     const std::string& access_code,
     base::TimeDelta lifetime) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  base::Value message(base::Value::Type::DICTIONARY);
-  message.SetStringKey(kAccessCode, access_code);
-  message.SetIntKey(kAccessCodeLifetime, lifetime.InSeconds());
+  base::Value::Dict message;
+  message.Set(kAccessCode, access_code);
+  message.Set(kAccessCodeLifetime, static_cast<int>(lifetime.InSeconds()));
   HandleHostStateChange(It2MeHostState::kReceivedAccessCode,
                         std::move(message));
 }
@@ -202,17 +213,17 @@ void It2MeNativeMessagingHostLacros::OnHostStateConnecting() {
 void It2MeNativeMessagingHostLacros::OnHostStateConnected(
     const std::string& remote_username) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  base::Value message(base::Value::Type::DICTIONARY);
-  message.SetStringKey(kClient, remote_username);
+  base::Value::Dict message;
+  message.Set(kClient, remote_username);
   HandleHostStateChange(It2MeHostState::kConnected, std::move(message));
 }
 
 void It2MeNativeMessagingHostLacros::OnHostStateDisconnected(
     const absl::optional<std::string>& disconnect_reason) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  base::Value message(base::Value::Type::DICTIONARY);
+  base::Value::Dict message;
   if (disconnect_reason.has_value()) {
-    message.SetStringKey(kDisconnectReason, disconnect_reason.value());
+    message.Set(kDisconnectReason, disconnect_reason.value());
   }
   HandleHostStateChange(It2MeHostState::kDisconnected, std::move(message));
 }
@@ -220,12 +231,11 @@ void It2MeNativeMessagingHostLacros::OnHostStateDisconnected(
 void It2MeNativeMessagingHostLacros::OnNatPolicyChanged(
     mojom::NatPolicyStatePtr policy_state) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  base::Value message(base::Value::Type::DICTIONARY);
-  message.SetStringKey(kMessageType, kNatPolicyChangedMessage);
-  message.SetBoolKey(kNatPolicyChangedMessageNatEnabled,
-                     policy_state->nat_enabled);
-  message.SetBoolKey(kNatPolicyChangedMessageRelayEnabled,
-                     policy_state->relay_enabled);
+  base::Value::Dict message;
+  message.Set(kMessageType, kNatPolicyChangedMessage);
+  message.Set(kNatPolicyChangedMessageNatEnabled, policy_state->nat_enabled);
+  message.Set(kNatPolicyChangedMessageRelayEnabled,
+              policy_state->relay_enabled);
   SendMessageToClient(std::move(message));
 }
 
@@ -239,8 +249,8 @@ void It2MeNativeMessagingHostLacros::OnHostStateError(int64_t error_code) {
 
 void It2MeNativeMessagingHostLacros::OnPolicyError() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  base::Value response(base::Value::Type::DICTIONARY);
-  response.SetStringKey(kMessageType, kPolicyErrorMessage);
+  base::Value::Dict response;
+  response.Set(kMessageType, kPolicyErrorMessage);
   SendMessageToClient(std::move(response));
   client_->CloseChannel(std::string());
 }
@@ -252,38 +262,36 @@ void It2MeNativeMessagingHostLacros::OnInvalidDomainError() {
 
 void It2MeNativeMessagingHostLacros::HandleHostStateChange(
     It2MeHostState state,
-    base::Value message) {
-  DCHECK(message.is_dict());
-
-  message.SetStringKey(kMessageType, kHostStateChangedMessage);
+    base::Value::Dict message) {
+  message.Set(kMessageType, kHostStateChangedMessage);
 
   switch (state) {
     case It2MeHostState::kStarting:
-      message.SetStringKey(kState, kHostStateStarting);
+      message.Set(kState, kHostStateStarting);
       break;
 
     case It2MeHostState::kRequestedAccessCode:
-      message.SetStringKey(kState, kHostStateRequestedAccessCode);
+      message.Set(kState, kHostStateRequestedAccessCode);
       break;
 
     case It2MeHostState::kReceivedAccessCode:
-      message.SetStringKey(kState, kHostStateReceivedAccessCode);
+      message.Set(kState, kHostStateReceivedAccessCode);
       break;
 
     case It2MeHostState::kConnecting:
-      message.SetStringKey(kState, kHostStateConnecting);
+      message.Set(kState, kHostStateConnecting);
       break;
 
     case It2MeHostState::kConnected:
-      message.SetStringKey(kState, kHostStateConnected);
+      message.Set(kState, kHostStateConnected);
       break;
 
     case It2MeHostState::kDisconnected:
-      message.SetStringKey(kState, kHostStateDisconnected);
+      message.Set(kState, kHostStateDisconnected);
       break;
 
     case It2MeHostState::kInvalidDomainError:
-      message.SetStringKey(kState, kHostStateDomainError);
+      message.Set(kState, kHostStateDomainError);
       break;
 
     default:
@@ -321,11 +329,11 @@ void It2MeNativeMessagingHostLacros::OnSupportSessionStarted(
 
   support_host_observer_.Bind(std::move(mojo_response->get_observer()));
 
-  base::Value response(base::Value::Type::DICTIONARY);
-  response.SetStringKey(kMessageType, kConnectResponse);
+  base::Value::Dict response;
+  response.Set(kMessageType, kConnectResponse);
 
   if (response_id != kInvalidMessageId) {
-    response.SetIntKey(kMessageId, response_id);
+    response.Set(kMessageId, response_id);
   }
 
   SendMessageToClient(std::move(response));
@@ -340,24 +348,24 @@ void It2MeNativeMessagingHostLacros::ProcessHello(int message_id) {
     return;
   }
 
-  base::Value response(base::Value::Type::DICTIONARY);
-  response.SetStringKey(kMessageType, kHelloResponse);
+  base::Value::Dict response;
+  response.Set(kMessageType, kHelloResponse);
   if (message_id != kInvalidMessageId) {
-    response.SetIntKey(kMessageId, message_id);
+    response.Set(kMessageId, message_id);
   }
 
-  response.SetStringKey(kHostVersion, host_details_.get()->host_version);
+  response.Set(kHostVersion, host_details_.get()->host_version);
 
-  std::vector<base::Value> features;
+  base::Value::List features;
   for (const auto& feature : host_details_.get()->supported_features) {
-    features.emplace_back(base::Value(feature));
+    features.Append(feature);
   }
-  response.SetKey(kSupportedFeatures, base::Value(std::move(features)));
+  response.Set(kSupportedFeatures, std::move(features));
   SendMessageToClient(std::move(response));
 }
 
 void It2MeNativeMessagingHostLacros::ProcessConnect(int message_id,
-                                                    base::Value message) {
+                                                    base::Value::Dict message) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   if (message_id != kInvalidMessageId) {
@@ -367,20 +375,29 @@ void It2MeNativeMessagingHostLacros::ProcessConnect(int message_id,
   mojom::SupportSessionParamsPtr session_params =
       mojom::SupportSessionParams::New();
 
-  const std::string* user_name = message.FindStringKey(kUserName);
+  const std::string* user_name = message.FindString(kUserName);
   if (!user_name) {
     SendErrorAndExit(protocol::ErrorCode::INCOMPATIBLE_PROTOCOL, message_id);
     return;
   }
   session_params->user_name = *user_name;
 
-  const std::string* access_token =
-      message.FindStringKey(kAuthServiceWithToken);
+  const std::string* access_token = message.FindString(kAuthServiceWithToken);
   if (!access_token) {
     SendErrorAndExit(protocol::ErrorCode::INCOMPATIBLE_PROTOCOL, message_id);
     return;
   }
   session_params->oauth_access_token = *access_token;
+
+  const std::string* authorized_helper = message.FindString(kAuthorizedHelper);
+  if (authorized_helper) {
+    session_params->authorized_helper =
+        gaia::CanonicalizeEmail(*authorized_helper);
+    if (!IsValidEmailAddress(session_params->authorized_helper.value())) {
+      SendErrorAndExit(protocol::ErrorCode::INCOMPATIBLE_PROTOCOL, message_id);
+      return;
+    }
+  }
 
   // TODO(joedow): Add the ability to toggle the RemoteCommand settings for
   // testing purposes. This should probably be encapsulated in a check that the
@@ -405,18 +422,18 @@ void It2MeNativeMessagingHostLacros::ProcessDisconnect(int message_id) {
   // will cause a message to be sent to the client so it can update its UI.
   HandleHostStateChange(It2MeHostState::kDisconnected);
 
-  base::Value response(base::Value::Type::DICTIONARY);
-  response.SetStringKey(kMessageType, kDisconnectResponse);
+  base::Value::Dict response;
+  response.Set(kMessageType, kDisconnectResponse);
 
   if (message_id != kInvalidMessageId) {
-    response.SetIntKey(kMessageId, message_id);
+    response.Set(kMessageId, message_id);
   }
 
   SendMessageToClient(std::move(response));
 }
 
 void It2MeNativeMessagingHostLacros::SendMessageToClient(
-    base::Value message) const {
+    base::Value::Dict message) const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   std::string message_json;
   base::JSONWriter::Write(message, &message_json);
@@ -427,14 +444,13 @@ void It2MeNativeMessagingHostLacros::SendErrorAndExit(
     const protocol::ErrorCode error_code,
     int message_id) const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  base::Value message(base::Value::Type::DICTIONARY);
+  base::Value::Dict message;
 
-  message.SetStringKey(kMessageType, kErrorMessage);
+  message.Set(kMessageType, kErrorMessage);
   if (message_id != kInvalidMessageId) {
-    message.SetIntKey(kMessageId, message_id);
+    message.Set(kMessageId, message_id);
   }
-  message.SetStringKey(kErrorMessageCode, ErrorCodeToString(error_code));
-  message.SetStringKey(kErrorMessageDescription, ErrorCodeToString(error_code));
+  message.Set(kErrorMessageCode, ErrorCodeToString(error_code));
 
   SendMessageToClient(std::move(message));
 
@@ -447,8 +463,7 @@ void It2MeNativeMessagingHostLacros::SendErrorAndExit(
 std::unique_ptr<extensions::NativeMessageHost>
 CreateIt2MeNativeMessagingHostForLacros(
     scoped_refptr<base::SingleThreadTaskRunner> ui_runner) {
-  return std::make_unique<It2MeNativeMessagingHostLacros>(
-      std::move(ui_runner));
+  return std::make_unique<It2MeNativeMessagingHostLacros>(std::move(ui_runner));
 }
 
 }  // namespace remoting

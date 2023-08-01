@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,13 +19,12 @@ import org.junit.runner.RunWith;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 
-import org.chromium.base.test.UiThreadTest;
-import org.chromium.testing.local.LocalRobolectricTestRunner;
+import org.chromium.base.test.BaseRobolectricTestRunner;
 
 /**
  * Tests for {@link RoundedCornerOutlineProvider}.
  */
-@RunWith(LocalRobolectricTestRunner.class)
+@RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
 public class RoundedCornerOutlineProviderUnitTest {
     private static final int VIEW_WIDTH = 120;
@@ -58,7 +57,6 @@ public class RoundedCornerOutlineProviderUnitTest {
 
     @Test
     @SmallTest
-    @UiThreadTest
     public void verifyCanClipWithRounding() {
         mProvider.getOutline(mView, mOutline);
         mOutline.getRect(mRect);
@@ -69,7 +67,6 @@ public class RoundedCornerOutlineProviderUnitTest {
 
     @Test
     @SmallTest
-    @UiThreadTest
     public void verifyCanClipWithNoRounding() {
         mProvider = new RoundedCornerOutlineProvider();
         mProvider.getOutline(mView, mOutline);
@@ -81,7 +78,6 @@ public class RoundedCornerOutlineProviderUnitTest {
 
     @Test
     @SmallTest
-    @UiThreadTest
     public void verifyRespectsRoundingUpdates() {
         mProvider.setRadius(RADIUS * 3);
         mProvider.getOutline(mView, mOutline);
@@ -97,7 +93,6 @@ public class RoundedCornerOutlineProviderUnitTest {
 
     @Test
     @SmallTest
-    @UiThreadTest
     public void verifyRespectsPaddings() {
         mView.setPaddingRelative(15, 10, 25, 20);
         mProvider.getOutline(mView, mOutline);
@@ -109,7 +104,6 @@ public class RoundedCornerOutlineProviderUnitTest {
 
     @Test
     @SmallTest
-    @UiThreadTest
     public void verifyRespectsPaddingsInRTLMode() {
         mView.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         Assert.assertEquals("layout direction not supported", View.LAYOUT_DIRECTION_RTL,
@@ -125,13 +119,108 @@ public class RoundedCornerOutlineProviderUnitTest {
 
     @Test
     @SmallTest
-    @UiThreadTest
     public void verifyViewOriginDoesNotImpactOutline() {
         mView.layout(10, 15, 10 + VIEW_WIDTH, 15 + VIEW_HEIGHT);
         mView.setPaddingRelative(15, 10, 25, 20);
         mProvider.getOutline(mView, mOutline);
         mOutline.getRect(mRect);
         Assert.assertEquals(new Rect(15, 10, VIEW_WIDTH - 25, VIEW_HEIGHT - 20), mRect);
+        Assert.assertEquals(RADIUS, mOutline.getRadius(), 0.001);
+        Assert.assertTrue(mOutline.canClip());
+    }
+
+    @Test
+    @SmallTest
+    public void verifyLeftEdgeExclusion() {
+        mView.layout(10, 15, 10 + VIEW_WIDTH, 15 + VIEW_HEIGHT);
+        mView.setPaddingRelative(15, 10, 25, 20);
+        mProvider.setRoundingEdges(/*left=*/false, /*top=*/true, /*right=*/true, /*bottom=*/true);
+
+        mProvider.getOutline(mView, mOutline);
+        mOutline.getRect(mRect);
+
+        Assert.assertEquals(new Rect(15 - RADIUS, 10, VIEW_WIDTH - 25, VIEW_HEIGHT - 20), mRect);
+        Assert.assertEquals(RADIUS, mOutline.getRadius(), 0.001);
+        Assert.assertTrue(mOutline.canClip());
+    }
+
+    @Test
+    @SmallTest
+    public void verifyTopEdgeExclusion() {
+        mView.layout(10, 15, 10 + VIEW_WIDTH, 15 + VIEW_HEIGHT);
+        mView.setPaddingRelative(15, 10, 25, 20);
+        mProvider.setRoundingEdges(/*left=*/true, /*top=*/false, /*right=*/true, /*bottom=*/true);
+
+        mProvider.getOutline(mView, mOutline);
+        mOutline.getRect(mRect);
+
+        Assert.assertEquals(new Rect(15, 10 - RADIUS, VIEW_WIDTH - 25, VIEW_HEIGHT - 20), mRect);
+        Assert.assertEquals(RADIUS, mOutline.getRadius(), 0.001);
+        Assert.assertTrue(mOutline.canClip());
+    }
+
+    @Test
+    @SmallTest
+    public void verifyRightEdgeExclusion() {
+        mView.layout(10, 15, 10 + VIEW_WIDTH, 15 + VIEW_HEIGHT);
+        mView.setPaddingRelative(15, 10, 25, 20);
+        mProvider.setRoundingEdges(/*left=*/true, /*top=*/true, /*right=*/false, /*bottom=*/true);
+
+        mProvider.getOutline(mView, mOutline);
+        mOutline.getRect(mRect);
+
+        Assert.assertEquals(new Rect(15, 10, VIEW_WIDTH - 25 + RADIUS, VIEW_HEIGHT - 20), mRect);
+        Assert.assertEquals(RADIUS, mOutline.getRadius(), 0.001);
+        Assert.assertTrue(mOutline.canClip());
+    }
+
+    @Test
+    @SmallTest
+    public void verifyBottomEdgeExclusion() {
+        mView.layout(10, 15, 10 + VIEW_WIDTH, 15 + VIEW_HEIGHT);
+        mView.setPaddingRelative(15, 10, 25, 20);
+        mProvider.setRoundingEdges(/*left=*/true, /*top=*/true, /*right=*/true, /*bottom=*/false);
+
+        mProvider.getOutline(mView, mOutline);
+        mOutline.getRect(mRect);
+
+        Assert.assertEquals(new Rect(15, 10, VIEW_WIDTH - 25, VIEW_HEIGHT - 20 + RADIUS), mRect);
+        Assert.assertEquals(RADIUS, mOutline.getRadius(), 0.001);
+        Assert.assertTrue(mOutline.canClip());
+    }
+
+    @Test
+    @SmallTest
+    public void verifyRightBottomEdgeExclusion() {
+        mView.layout(10, 15, 10 + VIEW_WIDTH, 15 + VIEW_HEIGHT);
+        mView.setPaddingRelative(15, 10, 25, 20);
+        // Disable rounding near the right and bottom edges.
+        // The effect is that only top-left edge is rounded.
+        mProvider.setRoundingEdges(/*left=*/true, /*top=*/true, /*right=*/false, /*bottom=*/false);
+
+        mProvider.getOutline(mView, mOutline);
+        mOutline.getRect(mRect);
+
+        Assert.assertEquals(
+                new Rect(15, 10, VIEW_WIDTH - 25 + RADIUS, VIEW_HEIGHT - 20 + RADIUS), mRect);
+        Assert.assertEquals(RADIUS, mOutline.getRadius(), 0.001);
+        Assert.assertTrue(mOutline.canClip());
+    }
+
+    @Test
+    @SmallTest
+    public void verifyTopBottomEdgeExclusion() {
+        mView.layout(10, 15, 10 + VIEW_WIDTH, 15 + VIEW_HEIGHT);
+        mView.setPaddingRelative(15, 10, 25, 20);
+        // Disable rounding near the top and bottom edges.
+        // The effect is that rounding is effectively disabled.
+        mProvider.setRoundingEdges(/*left=*/true, /*top=*/false, /*right=*/true, /*bottom=*/false);
+
+        mProvider.getOutline(mView, mOutline);
+        mOutline.getRect(mRect);
+
+        Assert.assertEquals(
+                new Rect(15, 10 - RADIUS, VIEW_WIDTH - 25, VIEW_HEIGHT - 20 + RADIUS), mRect);
         Assert.assertEquals(RADIUS, mOutline.getRadius(), 0.001);
         Assert.assertTrue(mOutline.canClip());
     }

@@ -1,16 +1,18 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/webui/projector_app/projector_xhr_sender.h"
 
+#include "ash/constants/ash_features.h"
 #include "ash/webui/projector_app/test/mock_app_client.h"
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/run_loop.h"
-#include "base/test/bind.h"
+#include "base/functional/callback.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
+#include "base/test/test_future.h"
 #include "base/time/time.h"
+#include "google_apis/google_api_keys.h"
+#include "net/base/url_util.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
@@ -18,12 +20,32 @@
 namespace {
 
 const char kTestUserEmail[] = "testuser1@gmail.com";
+const char kTestUserSecondaryEmail[] = "testuser2@gmail.com";
+const char kInvalidTestUserEmail[] = "testuser0@gmail.com";
 const base::TimeDelta kExpiryTimeFromNow = base::Minutes(10);
-constexpr char kValidUrl[] = "https://www.googleapis.com/drive/v3/files/fileID";
-constexpr char kValidUrl2[] =
+constexpr char kTestDriveRequestUrl[] =
+    "https://www.googleapis.com/drive/v3/files/fileID";
+constexpr char kTestTranslationRequestUrl[] =
     "https://translation.googleapis.com/language/translate/v2";
 
+GURL GetUrlWithApiKey(const GURL& url) {
+  return net::AppendQueryParameter(url, "key", google_apis::GetAPIKey());
+}
+
+using SendRequestFuture =
+    base::test::TestFuture<const std::string&,
+                           ash::projector::mojom::XhrResponseCode>;
+
 }  // namespace
+
+// Used to verify the access token is removed from cache on
+// net::HTTP_UNAUTHORIZED.
+class MockIdentityDiagnosticsObserver
+    : public signin::IdentityManager::DiagnosticsObserver {
+ public:
+  MOCK_METHOD2(OnAccessTokenRemovedFromCache,
+               void(const CoreAccountId&, const signin::ScopeSet&));
+};
 
 namespace ash {
 
@@ -38,6 +60,14 @@ class ProjectorXhrSenderTest : public testing::Test {
   void SetUp() override {
     sender_ = std::make_unique<ProjectorXhrSender>(
         mock_app_client_.GetUrlLoaderFactory());
+    mock_app_client_.AddSecondaryAccount(kTestUserSecondaryEmail);
+  }
+
+  void VerifySendRequestFuture(SendRequestFuture& future,
+                               const std::string& response_body,
+                               const projector::mojom::XhrResponseCode code) {
+    EXPECT_EQ(response_body, future.Get<0>());
+    EXPECT_EQ(code, future.Get<1>());
   }
 
   ProjectorXhrSender* sender() { return sender_.get(); }
@@ -50,142 +80,225 @@ class ProjectorXhrSenderTest : public testing::Test {
 };
 
 TEST_F(ProjectorXhrSenderTest, Success) {
-  base::RunLoop run_loop;
+  SendRequestFuture future;
 
   const std::string& test_response_body = "{}";
-  sender()->Send(
-      GURL(kValidUrl), "GET", /*request_body=*/"", /*useCredential=*/false,
-      base::BindOnce(
-          [](const std::string& expected_response_body,
-             base::RepeatingClosure quit_closure, bool success,
-             const std::string& response_body, const std::string& error) {
-            EXPECT_TRUE(success);
-            EXPECT_EQ(expected_response_body, response_body);
-            EXPECT_EQ("", error);
-            quit_closure.Run();
-          },
-          test_response_body, run_loop.QuitClosure()));
+  sender()->Send(GURL(kTestDriveRequestUrl),
+                 projector::mojom::RequestType::kGet, /*request_body=*/"",
+                 /*use_credentials=*/false,
+                 /*use_api_key=*/false, future.GetCallback());
 
-  mock_app_client().test_url_loader_factory().AddResponse(kValidUrl,
+  mock_app_client().test_url_loader_factory().AddResponse(kTestDriveRequestUrl,
                                                           test_response_body);
 
   mock_app_client().GrantOAuthTokenFor(
       kTestUserEmail,
       /* expiry_time = */ base::Time::Now() + kExpiryTimeFromNow);
-  run_loop.Run();
+  VerifySendRequestFuture(future, test_response_body,
+                          projector::mojom::XhrResponseCode::kSuccess);
 }
 
 TEST_F(ProjectorXhrSenderTest, TwoRequests) {
-  base::RunLoop run_loop;
+  SendRequestFuture future1;
+
   const std::string& test_response_body = "{}";
-  sender()->Send(
-      GURL(kValidUrl), "GET", /*request_body=*/"", /*useCredential=*/false,
-      base::BindOnce(
-          [](const std::string& expected_response_body,
-             base::RepeatingClosure quit_closure, bool success,
-             const std::string& response_body, const std::string& error) {
-            EXPECT_TRUE(success);
-            EXPECT_EQ(expected_response_body, response_body);
-            EXPECT_EQ("", error);
-            quit_closure.Run();
-          },
-          test_response_body, run_loop.QuitClosure()));
+  sender()->Send(GURL(kTestDriveRequestUrl),
+                 projector::mojom::RequestType::kGet, /*request_body=*/"",
+                 /*use_credentials=*/false,
+                 /*use_api_key=*/false, future1.GetCallback());
 
-  base::RunLoop run_loop2;
+  SendRequestFuture future2;
   const std::string& test_response_body2 = "{data: {}}";
-  sender()->Send(
-      GURL(kValidUrl2), "GET", /*request_body=*/"", /*useCredential=*/false,
-      base::BindOnce(
-          [](const std::string& expected_response_body,
-             base::RepeatingClosure quit_closure, bool success,
-             const std::string& response_body, const std::string& error) {
-            EXPECT_TRUE(success);
-            EXPECT_EQ(expected_response_body, response_body);
-            EXPECT_EQ("", error);
-            quit_closure.Run();
-          },
-          test_response_body2, run_loop2.QuitClosure()));
+  auto translation_url = GURL(kTestTranslationRequestUrl);
+  sender()->Send(translation_url, projector::mojom::RequestType::kGet,
+                 /*request_body=*/"",
+                 /*use_credentials=*/false,
+                 /*use_api_key=*/false, future2.GetCallback());
 
-  mock_app_client().test_url_loader_factory().AddResponse(kValidUrl,
+  mock_app_client().test_url_loader_factory().AddResponse(kTestDriveRequestUrl,
                                                           test_response_body);
 
-  mock_app_client().test_url_loader_factory().AddResponse(kValidUrl2,
-                                                          test_response_body2);
+  mock_app_client().test_url_loader_factory().AddResponse(
+      translation_url.spec(), test_response_body2);
 
   mock_app_client().GrantOAuthTokenFor(
       kTestUserEmail,
       /* expiry_time = */ base::Time::Now() + kExpiryTimeFromNow);
-  run_loop.Run();
-  run_loop2.Run();
+  VerifySendRequestFuture(future1, test_response_body,
+                          projector::mojom::XhrResponseCode::kSuccess);
+  VerifySendRequestFuture(future2, test_response_body2,
+                          projector::mojom::XhrResponseCode::kSuccess);
 }
 
 TEST_F(ProjectorXhrSenderTest, UseCredentials) {
-  base::RunLoop run_loop;
+  SendRequestFuture future;
 
   const std::string& test_response_body = "{}";
-  sender()->Send(
-      GURL(kValidUrl), "GET", /*request_body=*/"", /*useCredential=*/true,
-      base::BindOnce(
-          [](const std::string& expected_response_body,
-             base::RepeatingClosure quit_closure, bool success,
-             const std::string& response_body, const std::string& error) {
-            EXPECT_TRUE(success);
-            EXPECT_EQ(expected_response_body, response_body);
-            EXPECT_EQ("", error);
-            quit_closure.Run();
-          },
-          test_response_body, run_loop.QuitClosure()));
+  sender()->Send(GURL(kTestDriveRequestUrl),
+                 projector::mojom::RequestType::kGet, /*request_body=*/"",
+                 /*use_credentials=*/true,
+                 /*use_api_key=*/false, future.GetCallback());
 
-  // Verify that http request is sent without granting OAuth token.
-  mock_app_client().test_url_loader_factory().AddResponse(kValidUrl,
+  mock_app_client().test_url_loader_factory().AddResponse(kTestDriveRequestUrl,
                                                           test_response_body);
-
-  run_loop.Run();
-}
-
-TEST_F(ProjectorXhrSenderTest, NetworkError) {
-  base::RunLoop run_loop;
-
-  sender()->Send(
-      GURL(kValidUrl), /*method=*/"GET", /*request_body=*/"",
-      /*use_credentials=*/false,
-      base::BindOnce(
-          [](base::RepeatingClosure quit_closure, bool success,
-             const std::string& response_body, const std::string& error) {
-            EXPECT_FALSE(success);
-            EXPECT_EQ("", response_body);
-            EXPECT_EQ("XHR_FETCH_FAILURE", error);
-            quit_closure.Run();
-          },
-          run_loop.QuitClosure()));
-
-  mock_app_client().test_url_loader_factory().AddResponse(
-      GURL(kValidUrl), network::mojom::URLResponseHead::New(), std::string(),
-      network::URLLoaderCompletionStatus(net::HTTP_NOT_FOUND));
 
   mock_app_client().GrantOAuthTokenFor(
       kTestUserEmail,
       /* expiry_time = */ base::Time::Now() + kExpiryTimeFromNow);
-  run_loop.Run();
+
+  VerifySendRequestFuture(future, test_response_body,
+                          projector::mojom::XhrResponseCode::kSuccess);
+}
+
+TEST_F(ProjectorXhrSenderTest, UseApiKey) {
+  SendRequestFuture future;
+
+  auto url = GURL(kTestTranslationRequestUrl);
+  const std::string& test_response_body = "{}";
+  sender()->Send(url, projector::mojom::RequestType::kGet, /*request_body=*/"",
+                 /*use_credentials=*/false,
+                 /*use_api_key=*/true, future.GetCallback());
+
+  // Verify that http request is sent with API key.
+  mock_app_client().test_url_loader_factory().AddResponse(
+      GetUrlWithApiKey(url).spec(), test_response_body);
+
+  VerifySendRequestFuture(future, test_response_body,
+                          projector::mojom::XhrResponseCode::kSuccess);
+}
+
+TEST_F(ProjectorXhrSenderTest, NetworkError) {
+  SendRequestFuture future;
+
+  sender()->Send(
+      GURL(kTestDriveRequestUrl),
+      /*method=*/projector::mojom::RequestType::kGet, /*request_body=*/"",
+      /*use_credentials=*/false, /*use_api_key=*/false, future.GetCallback());
+
+  mock_app_client().test_url_loader_factory().AddResponse(
+      GURL(kTestDriveRequestUrl), network::mojom::URLResponseHead::New(),
+      std::string(), network::URLLoaderCompletionStatus(net::HTTP_NOT_FOUND));
+
+  mock_app_client().GrantOAuthTokenFor(
+      kTestUserEmail,
+      /* expiry_time = */ base::Time::Now() + kExpiryTimeFromNow);
+  VerifySendRequestFuture(future, "",
+                          projector::mojom::XhrResponseCode::kXhrFetchFailure);
+}
+
+TEST_F(ProjectorXhrSenderTest, TokenFetchFailure) {
+  EXPECT_CALL(mock_app_client(), HandleAccountReauth(kTestUserEmail));
+  SendRequestFuture future;
+  sender()->Send(
+      GURL(kTestDriveRequestUrl),
+      /*method=*/projector::mojom::RequestType::kGet, /*request_body=*/"",
+      /*use_credentials=*/false, /*use_api_key=*/false, future.GetCallback());
+
+  mock_app_client().MakeFetchTokenFailWithError(GoogleServiceAuthError(
+      GoogleServiceAuthError::State::INVALID_GAIA_CREDENTIALS));
+  VerifySendRequestFuture(
+      future, "", projector::mojom::XhrResponseCode::kTokenFetchFailure);
+}
+
+TEST_F(ProjectorXhrSenderTest, UnauthorizedToken) {
+  testing::NiceMock<MockIdentityDiagnosticsObserver> identity_observer;
+  mock_app_client().GetIdentityManager()->AddDiagnosticsObserver(
+      &identity_observer);
+  EXPECT_CALL(identity_observer,
+              OnAccessTokenRemovedFromCache(testing::_, testing::_));
+
+  SendRequestFuture future;
+
+  sender()->Send(
+      GURL(kTestDriveRequestUrl),
+      /*method=*/projector::mojom::RequestType::kGet, /*request_body=*/"",
+      /*use_credentials=*/false, /*use_api_key=*/false, future.GetCallback());
+
+  mock_app_client().test_url_loader_factory().AddResponse(
+      kTestDriveRequestUrl, std::string(), net::HTTP_UNAUTHORIZED);
+
+  mock_app_client().GrantOAuthTokenFor(
+      kTestUserEmail,
+      /* expiry_time = */ base::Time::Now() + kExpiryTimeFromNow);
+  VerifySendRequestFuture(future, "",
+                          projector::mojom::XhrResponseCode::kXhrFetchFailure);
+
+  mock_app_client().GetIdentityManager()->RemoveDiagnosticsObserver(
+      &identity_observer);
 }
 
 TEST_F(ProjectorXhrSenderTest, UnsupportedUrl) {
-  base::RunLoop run_loop;
+  SendRequestFuture future;
 
   sender()->Send(
-      GURL("https://example.com"), /*method=*/"GET", /*request_body=*/"",
-      /*use_credentials=*/false,
-      base::BindOnce(
-          [](base::RepeatingClosure quit_closure, bool success,
-             const std::string& response_body, const std::string& error) {
-            EXPECT_FALSE(success);
-            EXPECT_EQ("", response_body);
-            EXPECT_EQ("UNSUPPORTED_URL", error);
-            quit_closure.Run();
-          },
-          run_loop.QuitClosure()));
+      GURL("https://example.com"),
+      /*method=*/projector::mojom::RequestType::kGet, /*request_body=*/"",
+      /*use_credentials=*/false, /*use_api_key=*/false, future.GetCallback());
+  VerifySendRequestFuture(future, "",
+                          projector::mojom::XhrResponseCode::kUnsupportedURL);
+}
 
-  run_loop.Run();
+TEST_F(ProjectorXhrSenderTest, SuccessWithPrimaryEmail) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatureState(
+      features::kProjectorViewerUseSecondaryAccount, true /* use */);
+  SendRequestFuture future;
+
+  const std::string& test_response_body = "{}";
+  sender()->Send(GURL(kTestDriveRequestUrl),
+                 projector::mojom::RequestType::kGet, /*request_body=*/"",
+                 /*use_credentials=*/false,
+                 /*use_api_key=*/false, future.GetCallback(),
+                 base::flat_map<std::string, std::string>(), kTestUserEmail);
+
+  mock_app_client().test_url_loader_factory().AddResponse(kTestDriveRequestUrl,
+                                                          test_response_body);
+
+  mock_app_client().GrantOAuthTokenFor(
+      kTestUserEmail,
+      /* expiry_time = */ base::Time::Now() + kExpiryTimeFromNow);
+  VerifySendRequestFuture(future, test_response_body,
+                          projector::mojom::XhrResponseCode::kSuccess);
+}
+
+TEST_F(ProjectorXhrSenderTest, InvalidAccountEmail) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatureState(
+      features::kProjectorViewerUseSecondaryAccount, true /* use */);
+  SendRequestFuture future;
+
+  sender()->Send(
+      GURL(kTestDriveRequestUrl),
+      /*method=*/projector::mojom::RequestType::kGet, /*request_body=*/"",
+      /*use_credentials=*/false, /*use_api_key=*/false, future.GetCallback(),
+      /*headers=*/base::flat_map<std::string, std::string>(),
+      /*account_email*/ kInvalidTestUserEmail);
+  VerifySendRequestFuture(
+      future, "", projector::mojom::XhrResponseCode::kInvalidAccountEmail);
+}
+
+TEST_F(ProjectorXhrSenderTest, SuccessWithSecondaryEmail) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatureState(
+      features::kProjectorViewerUseSecondaryAccount, true /* use */);
+  SendRequestFuture future;
+
+  const std::string& test_response_body = "{}";
+  sender()->Send(
+      GURL(kTestDriveRequestUrl), projector::mojom::RequestType::kGet,
+      /*request_body=*/"",
+      /*use_credentials=*/false,
+      /*use_api_key=*/false, future.GetCallback(),
+      base::flat_map<std::string, std::string>(), kTestUserSecondaryEmail);
+
+  mock_app_client().test_url_loader_factory().AddResponse(kTestDriveRequestUrl,
+                                                          test_response_body);
+
+  mock_app_client().GrantOAuthTokenFor(
+      kTestUserSecondaryEmail,
+      /* expiry_time = */ base::Time::Now() + kExpiryTimeFromNow);
+  VerifySendRequestFuture(future, test_response_body,
+                          projector::mojom::XhrResponseCode::kSuccess);
 }
 
 }  // namespace ash

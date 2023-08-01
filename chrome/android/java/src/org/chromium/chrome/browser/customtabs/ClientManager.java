@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,26 +19,30 @@ import android.util.SparseBooleanArray;
 
 import androidx.annotation.IntDef;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 import androidx.browser.customtabs.CustomTabsCallback;
 import androidx.browser.customtabs.CustomTabsService;
 import androidx.browser.customtabs.CustomTabsService.Relation;
 import androidx.browser.customtabs.CustomTabsSessionToken;
+import androidx.browser.customtabs.EngagementSignalsCallback;
 import androidx.browser.customtabs.PostMessageServiceConnection;
 
 import org.chromium.base.ContextUtils;
+import org.chromium.base.SysUtils;
 import org.chromium.base.metrics.RecordHistogram;
+import org.chromium.base.supplier.Supplier;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.browserservices.PostMessageHandler;
-import org.chromium.chrome.browser.browserservices.verification.OriginVerifier;
-import org.chromium.chrome.browser.browserservices.verification.OriginVerifier.OriginVerificationListener;
-import org.chromium.chrome.browser.browserservices.verification.OriginVerifierFactory;
-import org.chromium.chrome.browser.browserservices.verification.OriginVerifierFactoryImpl;
+import org.chromium.chrome.browser.browserservices.verification.ChromeOriginVerifier;
+import org.chromium.chrome.browser.browserservices.verification.ChromeOriginVerifierFactory;
+import org.chromium.chrome.browser.browserservices.verification.ChromeOriginVerifierFactoryImpl;
+import org.chromium.components.content_relationship_verification.OriginVerifier.OriginVerificationListener;
 import org.chromium.components.embedder_support.util.Origin;
 import org.chromium.components.embedder_support.util.UrlUtilities;
 import org.chromium.components.installedapp.InstalledAppProviderImpl;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.common.Referrer;
 import org.chromium.url.GURL;
@@ -102,6 +106,41 @@ class ClientManager {
         int SESSION_WARMUP = 4;
         @VisibleForTesting
         int NUM_ENTRIES = 5;
+    }
+
+    // These values are persisted to logs. Entries should not be renumbered and
+    // numeric values should never be reused.
+    // Values for the "CustomTabs.SessionDisconnectStatus" UMA histogram. Append-only.
+    @IntDef({SessionDisconnectStatus.UNKNOWN, SessionDisconnectStatus.CT_FOREGROUND,
+            SessionDisconnectStatus.CT_FOREGROUND_KEEP_ALIVE, SessionDisconnectStatus.CT_BACKGROUND,
+            SessionDisconnectStatus.CT_BACKGROUND_KEEP_ALIVE,
+            SessionDisconnectStatus.LOW_MEMORY_CT_FOREGROUND,
+            SessionDisconnectStatus.LOW_MEMORY_CT_FOREGROUND_KEEP_ALIVE,
+            SessionDisconnectStatus.LOW_MEMORY_CT_BACKGROUND,
+            SessionDisconnectStatus.LOW_MEMORY_CT_BACKGROUND_KEEP_ALIVE,
+            SessionDisconnectStatus.NUM_ENTRIES})
+    @Retention(RetentionPolicy.SOURCE)
+    @interface SessionDisconnectStatus {
+        @VisibleForTesting
+        int UNKNOWN = 0;
+        @VisibleForTesting
+        int CT_FOREGROUND = 1;
+        @VisibleForTesting
+        int CT_FOREGROUND_KEEP_ALIVE = 2;
+        @VisibleForTesting
+        int CT_BACKGROUND = 3;
+        @VisibleForTesting
+        int CT_BACKGROUND_KEEP_ALIVE = 4;
+        @VisibleForTesting
+        int LOW_MEMORY_CT_FOREGROUND = 5;
+        @VisibleForTesting
+        int LOW_MEMORY_CT_FOREGROUND_KEEP_ALIVE = 6;
+        @VisibleForTesting
+        int LOW_MEMORY_CT_BACKGROUND = 7;
+        @VisibleForTesting
+        int LOW_MEMORY_CT_BACKGROUND_KEEP_ALIVE = 8;
+        @VisibleForTesting
+        int NUM_ENTRIES = 9;
     }
 
     /** To be called when a client gets disconnected. */
@@ -168,11 +207,12 @@ class ClientManager {
     private static class SessionParams {
         public final int uid;
         private CustomTabsCallback mCustomTabsCallback;
+        private EngagementSignalsCallback mEngagementSignalsCallback;
         public final DisconnectCallback disconnectCallback;
         public final PostMessageHandler postMessageHandler;
         public final PostMessageServiceConnection serviceConnection;
         public final Set<Origin> mLinkedOrigins = new HashSet<>();
-        public OriginVerifier originVerifier;
+        public ChromeOriginVerifier originVerifier;
         public boolean mIgnoreFragments;
         public boolean lowConfidencePrediction;
         public boolean highConfidencePrediction;
@@ -188,6 +228,9 @@ class ClientManager {
         private boolean mAllowParallelRequest;
         private boolean mAllowResourcePrefetch;
         private boolean mShouldGetPageLoadMetrics;
+        private boolean mCustomTabIsInForeground;
+        private boolean mWasSessionDisconnectStatusLogged;
+        private Supplier<Boolean> mEngagementSignalsAvailableSupplier;
 
         public SessionParams(Context context, int uid, CustomTabsCallback customTabsCallback,
                 DisconnectCallback callback, PostMessageHandler postMessageHandler,
@@ -271,6 +314,22 @@ class ClientManager {
         public void setCustomTabsCallback(CustomTabsCallback customTabsCallback) {
             mCustomTabsCallback = customTabsCallback;
         }
+
+        public EngagementSignalsCallback getEngagementSignalsCallback() {
+            return mEngagementSignalsCallback;
+        }
+
+        public void setEngagementSignalsCallback(EngagementSignalsCallback callback) {
+            mEngagementSignalsCallback = callback;
+        }
+
+        public void setEngagementSignalsAvailableSupplier(Supplier<Boolean> supplier) {
+            mEngagementSignalsAvailableSupplier = supplier;
+        }
+
+        public Supplier<Boolean> getEngagementSignalsAvailableSupplier() {
+            return mEngagementSignalsAvailableSupplier;
+        }
     }
 
     /** A wrapper around {@link InstalledAppProviderImpl} to aid testing. */
@@ -289,7 +348,7 @@ class ClientManager {
         }
     }
 
-    private final OriginVerifierFactory mOriginVerifierFactory;
+    private final ChromeOriginVerifierFactory mOriginVerifierFactory;
     private final InstalledAppProviderWrapper mInstalledAppProviderWrapper;
 
     private final Map<CustomTabsSessionToken, SessionParams> mSessionParams = new HashMap<>();
@@ -298,10 +357,10 @@ class ClientManager {
     private boolean mWarmupHasBeenCalled;
 
     public ClientManager() {
-        this(new OriginVerifierFactoryImpl(), new ProdInstalledAppProviderWrapper());
+        this(new ChromeOriginVerifierFactoryImpl(), new ProdInstalledAppProviderWrapper());
     }
 
-    public ClientManager(OriginVerifierFactory originVerifierFactory,
+    public ClientManager(ChromeOriginVerifierFactory originVerifierFactory,
             InstalledAppProviderWrapper installedAppProviderWrapper) {
         mOriginVerifierFactory = originVerifierFactory;
         mInstalledAppProviderWrapper = installedAppProviderWrapper;
@@ -321,7 +380,9 @@ class ClientManager {
             @NonNull PostMessageServiceConnection serviceConnection) {
         if (session == null || session.getCallback() == null) return false;
         if (mSessionParams.containsKey(session)) {
-            mSessionParams.get(session).setCustomTabsCallback(session.getCallback());
+            SessionParams params = mSessionParams.get(session);
+            params.setCustomTabsCallback(session.getCallback());
+            params.mWasSessionDisconnectStatusLogged = false;
         } else {
             SessionParams params = new SessionParams(ContextUtils.getApplicationContext(), uid,
                     session.getCallback(), onDisconnect, postMessageHandler, serviceConnection);
@@ -455,32 +516,35 @@ class ClientManager {
     }
 
     /**
-     * See {@link PostMessageHandler#initializeWithPostMessageUri(Uri)}.
+     * See {@link PostMessageHandler#initializeWithPostMessageUri(Uri, Uri)}.
      */
     public void initializeWithPostMessageOriginForSession(
-            CustomTabsSessionToken session, Uri origin) {
-        callOnSession(
-                session, params -> params.postMessageHandler.initializeWithPostMessageUri(origin));
+            CustomTabsSessionToken session, Uri origin, Uri targetOrigin) {
+        callOnSession(session,
+                params
+                -> params.postMessageHandler.initializeWithPostMessageUri(origin, targetOrigin));
     }
 
     public synchronized boolean validateRelationship(
             CustomTabsSessionToken session, int relation, Origin origin, Bundle extras) {
-        return validateRelationshipInternal(session, relation, origin, false);
+        return validateRelationshipInternal(session, relation, origin, null, false);
     }
 
     /**
      * Validates the link between the client and the origin.
      */
     public synchronized void verifyAndInitializeWithPostMessageOriginForSession(
-            CustomTabsSessionToken session, Origin origin, @Relation int relation) {
-        validateRelationshipInternal(session, relation, origin, true);
+            CustomTabsSessionToken session, Origin origin, Origin targetOrigin,
+            @Relation int relation) {
+        validateRelationshipInternal(session, relation, origin, targetOrigin, true);
     }
 
     /**
      * Can't be called on UI Thread.
      */
     private synchronized boolean validateRelationshipInternal(CustomTabsSessionToken session,
-            int relation, Origin origin, boolean initializePostMessageChannel) {
+            int relation, Origin origin, @Nullable Origin targetOrigin,
+            boolean initializePostMessageChannel) {
         SessionParams params = mSessionParams.get(session);
         if (params == null || TextUtils.isEmpty(params.getPackageName())) return false;
 
@@ -497,16 +561,19 @@ class ClientManager {
                 callback.onRelationshipValidationResult(relation, origin.uri(), verified, extras);
             }
             if (initializePostMessageChannel) {
-                params.postMessageHandler
-                        .onOriginVerified(packageName, verifiedOrigin, verified, online);
+                if (targetOrigin != null) {
+                    params.postMessageHandler.setPostMessageTargetUri(targetOrigin.uri());
+                }
+                params.postMessageHandler.onOriginVerified(
+                        packageName, verifiedOrigin, verified, online);
             }
         };
 
         params.originVerifier = mOriginVerifierFactory.create(params.getPackageName(), relation,
                 /* webContents= */ null, /* externalAuthUtils= */ null);
 
-        PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT,
-                () -> { params.originVerifier.start(listener, origin); });
+        PostTask.runOrPostTask(
+                TaskTraits.UI_DEFAULT, () -> { params.originVerifier.start(listener, origin); });
         if (relation == CustomTabsService.RELATION_HANDLE_ALL_URLS
                 && mInstalledAppProviderWrapper.isAppInstalledAndAssociatedWithOrigin(
                         params.getPackageName(), origin)) {
@@ -522,6 +589,16 @@ class ClientManager {
     Uri getPostMessageOriginForSessionForTesting(CustomTabsSessionToken session) {
         return callOnSession(session, null,
                 params -> params.postMessageHandler.getPostMessageUriForTesting() // IN-TEST
+        );
+    }
+
+    /**
+     * @return The postMessage target origin for the given session.
+     */
+    @VisibleForTesting
+    Uri getPostMessageTargetOriginForSessionForTesting(CustomTabsSessionToken session) {
+        return callOnSession(session, null,
+                params -> params.postMessageHandler.getPostMessageTargetUriForTesting() // IN-TEST
         );
     }
 
@@ -707,8 +784,8 @@ class ClientManager {
      */
     public synchronized boolean isFirstPartyOriginForSession(
             CustomTabsSessionToken session, Origin origin) {
-        return OriginVerifier.wasPreviouslyVerified(getClientPackageNameForSession(session), origin,
-                CustomTabsService.RELATION_USE_AS_ORIGIN);
+        return ChromeOriginVerifier.wasPreviouslyVerified(getClientPackageNameForSession(session),
+                origin, CustomTabsService.RELATION_USE_AS_ORIGIN);
     }
 
     /** Tries to bind to a client to keep it alive, and returns true for success. */
@@ -784,6 +861,7 @@ class ClientManager {
      */
     private void cleanupSessionInternal(CustomTabsSessionToken session) {
         callOnSession(session, params -> {
+            logConnectionClosed(params);
             mSessionParams.remove(session);
             if (params.serviceConnection != null) {
                 params.serviceConnection.cleanup(ContextUtils.getApplicationContext());
@@ -801,10 +879,13 @@ class ClientManager {
      */
     public synchronized void cleanupSession(CustomTabsSessionToken session) {
         if (session.hasId() && mSessionParams.containsKey(session)) {
+            SessionParams params = mSessionParams.get(session);
+            // Logging as soon as we know a session has been disconnected.
+            logConnectionClosed(params);
             // Leave session parameters, so client might update callback later.
             // The session will be completely removed when system runs low on memory.
             // {@see #cleanupUnusedSessions}
-            mSessionParams.get(session).setCustomTabsCallback(null);
+            params.setCustomTabsCallback(null);
         } else {
             cleanupSessionInternal(session);
         }
@@ -821,6 +902,64 @@ class ClientManager {
                 cleanupSessionInternal(session);
             }
         }
+    }
+
+    public void setCustomTabIsInForeground(
+            @Nullable CustomTabsSessionToken session, boolean isInForeground) {
+        callOnSession(session, params -> { params.mCustomTabIsInForeground = isInForeground; });
+    }
+
+    public void setEngagementSignalsCallbackForSession(
+            CustomTabsSessionToken session, EngagementSignalsCallback callback) {
+        callOnSession(session, params -> params.setEngagementSignalsCallback(callback));
+    }
+
+    public @Nullable EngagementSignalsCallback getEngagementSignalsCallbackForSession(
+            CustomTabsSessionToken session) {
+        return callOnSession(session, null, SessionParams::getEngagementSignalsCallback);
+    }
+
+    public void setEngagementSignalsAvailableSupplierForSession(
+            CustomTabsSessionToken session, Supplier<Boolean> supplier) {
+        callOnSession(session, params -> params.setEngagementSignalsAvailableSupplier(supplier));
+    }
+
+    public @Nullable Supplier<Boolean> getEngagementSignalsAvailableSupplierForSession(
+            CustomTabsSessionToken session) {
+        return callOnSession(session, null, SessionParams::getEngagementSignalsAvailableSupplier);
+    }
+
+    private void logConnectionClosed(SessionParams sessionParams) {
+        if (sessionParams.mWasSessionDisconnectStatusLogged) return;
+
+        boolean isCustomTabInForeground = sessionParams.mCustomTabIsInForeground;
+        boolean isKeepAlive = sessionParams.getKeepAliveConnection() != null;
+        boolean isLowMemory = SysUtils.isCurrentlyLowMemory();
+
+        @SessionDisconnectStatus
+        int status = SessionDisconnectStatus.UNKNOWN;
+        if (isLowMemory && isCustomTabInForeground && isKeepAlive) {
+            status = SessionDisconnectStatus.LOW_MEMORY_CT_FOREGROUND_KEEP_ALIVE;
+        } else if (isLowMemory && isCustomTabInForeground && !isKeepAlive) {
+            status = SessionDisconnectStatus.LOW_MEMORY_CT_FOREGROUND;
+        } else if (isLowMemory && !isCustomTabInForeground && isKeepAlive) {
+            status = SessionDisconnectStatus.LOW_MEMORY_CT_BACKGROUND_KEEP_ALIVE;
+        } else if (isLowMemory && !isCustomTabInForeground && !isKeepAlive) {
+            status = SessionDisconnectStatus.LOW_MEMORY_CT_BACKGROUND;
+        } else if (isCustomTabInForeground && !isKeepAlive) {
+            status = SessionDisconnectStatus.CT_FOREGROUND;
+        } else if (isCustomTabInForeground && isKeepAlive) {
+            status = SessionDisconnectStatus.CT_FOREGROUND_KEEP_ALIVE;
+        } else if (!isCustomTabInForeground && !isKeepAlive) {
+            status = SessionDisconnectStatus.CT_BACKGROUND;
+        } else if (!isCustomTabInForeground && isKeepAlive) {
+            status = SessionDisconnectStatus.CT_BACKGROUND_KEEP_ALIVE;
+        }
+
+        RecordHistogram.recordEnumeratedHistogram(
+                "CustomTabs.SessionDisconnectStatus", status, SessionDisconnectStatus.NUM_ENTRIES);
+
+        sessionParams.mWasSessionDisconnectStatusLogged = true;
     }
 
     private interface SessionParamsCallback<T> {

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,15 +6,17 @@
 
 #include <tuple>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_notification_types.h"
+#include "chrome/browser/lifetime/termination_notification.h"
 #include "chrome/browser/profiles/keep_alive/profile_keep_alive_types.h"
 #include "chrome/browser/profiles/keep_alive/scoped_profile_keep_alive.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/task_manager/web_contents_tags.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/commander/commander_backend.h"
@@ -25,9 +27,9 @@
 #include "chrome/browser/ui/webui/commander/commander_ui.h"
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/grit/generated_resources.h"
-#include "content/public/browser/notification_service.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/gfx/geometry/rounded_corners_f.h"
 #include "ui/views/controls/webview/unhandled_keyboard_event_handler.h"
 #include "ui/views/controls/webview/webview.h"
 #include "ui/views/widget/widget.h"
@@ -95,6 +97,11 @@ class CommanderWebView : public views::WebView {
     return event_handler_.HandleKeyboardEvent(event, owner_->GetFocusManager());
   }
 
+  bool HandleContextMenu(content::RenderFrameHost& render_frame_host,
+                         const content::ContextMenuParams& params) override {
+    return true;
+  }
+
   void AddedToWidget() override {
     views::WebView::AddedToWidget();
     holder()->SetCornerRadii(gfx::RoundedCornersF(kCornerRadius));
@@ -110,7 +117,9 @@ class CommanderWebView : public views::WebView {
 
  private:
   views::UnhandledKeyboardEventHandler event_handler_;
-  views::View* owner_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION views::View* owner_ = nullptr;
 };
 
 BEGIN_METADATA(CommanderWebView, views::WebView)
@@ -123,8 +132,8 @@ CommanderFrontendViews::CommanderFrontendViews(
   backend_->SetUpdateCallback(
       base::BindRepeating(&CommanderFrontendViews::OnViewModelUpdated,
                           weak_ptr_factory_.GetWeakPtr()));
-  registrar_.Add(this, chrome::NOTIFICATION_APP_TERMINATING,
-                 content::NotificationService::AllSources());
+  subscription_ = browser_shutdown::AddAppTerminatingCallback(base::BindOnce(
+      &CommanderFrontendViews::OnAppTerminating, base::Unretained(this)));
 }
 
 CommanderFrontendViews::~CommanderFrontendViews() {
@@ -134,6 +143,9 @@ CommanderFrontendViews::~CommanderFrontendViews() {
 }
 void CommanderFrontendViews::ToggleForBrowser(Browser* browser) {
   DCHECK(browser);
+  // This ensures that quick commands are only available for normal browsers.
+  if (!browser->is_type_normal())
+    return;
   bool should_show = !browser_ || browser != browser_;
   if (browser_)
     Hide();
@@ -155,8 +167,9 @@ void CommanderFrontendViews::Show(Browser* browser) {
   views::Widget::InitParams params(
       views::Widget::InitParams::TYPE_WINDOW_FRAMELESS);
   params.delegate = widget_delegate_.get();
-  params.name = "Commander";
+  params.name = "Quick Commands";
   params.parent = parent->GetWidget()->GetNativeView();
+  params.opacity = views::Widget::InitParams::WindowOpacity::kTranslucent;
 // On Windows, this defaults to DesktopNativeWidgetAura, which has incorrect
 // parenting behavior for this widget.
 #if BUILDFLAG(IS_WIN)
@@ -209,11 +222,7 @@ void CommanderFrontendViews::OnBrowserClosing(Browser* browser) {
     Hide();
 }
 
-void CommanderFrontendViews::Observe(
-    int type,
-    const content::NotificationSource& source,
-    const content::NotificationDetails& details) {
-  DCHECK_EQ(chrome::NOTIFICATION_APP_TERMINATING, type);
+void CommanderFrontendViews::OnAppTerminating() {
   if (is_showing())
     Hide();
 }
@@ -286,8 +295,8 @@ std::unique_ptr<CommanderWebView> CommanderFrontendViews::CreateWebView(
   web_view->set_allow_accelerators(true);
   // Make the commander WebContents show up in the task manager.
   content::WebContents* web_contents = web_view->GetWebContents();
-  task_manager::WebContentsTags::CreateForToolContents(web_contents,
-                                                       IDS_COMMANDER_LABEL);
+  task_manager::WebContentsTags::CreateForToolContents(
+      web_contents, IDS_QUICK_COMMANDS_LABEL);
   web_view->LoadInitialURL(GURL(chrome::kChromeUICommanderURL));
   return web_view;
 }

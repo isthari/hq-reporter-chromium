@@ -5,4 +5,13 @@ Tests DOM.scrollIntoViewIfNeeded.
 202;1902
 600;2300
 423;2234
+0;0
+{
+    error : {
+        code : -32000
+        message : Node does not have a layout object
+    }
+    id : <number>
+    sessionId : <string>
+}
 

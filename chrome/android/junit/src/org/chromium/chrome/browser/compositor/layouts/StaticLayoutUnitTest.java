@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -53,7 +54,7 @@ import org.chromium.url.GURL;
 import org.chromium.url.JUnitTestGURLs;
 
 import java.util.Arrays;
-import java.util.LinkedList;
+import java.util.Collections;
 
 /**
  * Unit tests for {@link StaticLayout}.
@@ -71,14 +72,13 @@ public class StaticLayoutUnitTest {
     private static final int BACKGROUND_COLOR = Color.WHITE;
     private static final int TOOLBAR_BACKGROUND_COLOR = Color.BLUE;
     private static final int TEXT_BOX_BACKGROUND_COLOR = Color.BLACK;
-    private static final float TEXT_BOX_ALPHA = 1.0f;
     private static final int WIDTH = 9;
     private static final int HEIGHT = 16;
 
     @Mock
     private Context mContext;
     @Mock
-    private Resources mResource;
+    private Resources mResources;
     @Mock
     private DisplayMetrics mDisplayMetrics;
     @Mock
@@ -134,8 +134,8 @@ public class StaticLayoutUnitTest {
         mTab1 = prepareTab(TAB1_ID, JUnitTestGURLs.getGURL(TAB1_URL));
         mTab2 = prepareTab(TAB2_ID, JUnitTestGURLs.getGURL(TAB2_URL));
 
-        doReturn(mResource).when(mContext).getResources();
-        doReturn(mDisplayMetrics).when(mResource).getDisplayMetrics();
+        doReturn(mResources).when(mContext).getResources();
+        doReturn(mDisplayMetrics).when(mResources).getDisplayMetrics();
         mDisplayMetrics.density = 1;
 
         doReturn(mTabModel).when(mTabModel).getComprehensiveModel();
@@ -171,19 +171,19 @@ public class StaticLayoutUnitTest {
                 .when(mTopUiThemeColorProvider)
                 .getSceneLayerBackground(any());
         mStaticLayout.setTextBoxBackgroundColorForTesting(TEXT_BOX_BACKGROUND_COLOR);
-        mStaticLayout.setToolbarTextBoxAlphaForTesting(TEXT_BOX_ALPHA);
 
         initAndAssertAllDependencies();
 
         mStaticLayout.show(System.currentTimeMillis(), false);
         initAndAssertAllProperties();
+        // Reset calls to the mock as it will have been called during init.
+        reset(mTabContentManager);
     }
 
     @After
     public void tearDown() {
         CompositorAnimationHandler.setTestingMode(false);
         mStaticLayout.setTextBoxBackgroundColorForTesting(null);
-        mStaticLayout.setToolbarTextBoxAlphaForTesting(null);
         mStaticLayout.destroy();
     }
 
@@ -204,7 +204,6 @@ public class StaticLayoutUnitTest {
         assertEquals(HEIGHT, mModel.get(LayoutTab.MAX_CONTENT_HEIGHT), 0);
         assertEquals(BACKGROUND_COLOR, mModel.get(LayoutTab.BACKGROUND_COLOR));
         assertEquals(TOOLBAR_BACKGROUND_COLOR, mModel.get(LayoutTab.TOOLBAR_BACKGROUND_COLOR));
-        assertEquals(TEXT_BOX_ALPHA, mModel.get(LayoutTab.TEXT_BOX_ALPHA), 0);
         assertEquals(TEXT_BOX_BACKGROUND_COLOR, mModel.get(LayoutTab.TEXT_BOX_BACKGROUND_COLOR));
 
         assertFalse(mModel.get(LayoutTab.IS_INCOGNITO));
@@ -250,6 +249,25 @@ public class StaticLayoutUnitTest {
         assertFalse(mModel.get(LayoutTab.SHOULD_STALL));
         assertEquals(0.0f, mModel.get(LayoutTab.STATIC_TO_VIEW_BLEND), 0);
         assertEquals(1.0f, mModel.get(LayoutTab.SATURATION), 0);
+        assertTrue(mModel.get(LayoutTab.CAN_USE_LIVE_TEXTURE));
+        verify(mTabContentManager).updateVisibleIds(eq(Collections.emptyList()), eq(TAB2_ID));
+    }
+
+    @Test
+    public void testTabSelectionNativeTab() {
+        assertNotEquals(mTab2.getId(), mModel.get(LayoutTab.TAB_ID));
+        doReturn(true).when(mTab2).isNativePage();
+
+        getTabModelSelectorTabModelObserverFromCaptor().didSelectTab(
+                mTab2, TabSelectionType.FROM_USER, TAB1_ID);
+
+        assertEquals(mTab2.getId(), mModel.get(LayoutTab.TAB_ID));
+        assertFalse(mModel.get(LayoutTab.SHOULD_STALL));
+        assertEquals(0.0f, mModel.get(LayoutTab.STATIC_TO_VIEW_BLEND), 0);
+        assertEquals(1.0f, mModel.get(LayoutTab.SATURATION), 0);
+        assertFalse(mModel.get(LayoutTab.CAN_USE_LIVE_TEXTURE));
+        verify(mTabContentManager)
+                .updateVisibleIds(eq(Collections.singletonList(TAB2_ID)), eq(TAB2_ID));
     }
 
     @Test
@@ -262,6 +280,8 @@ public class StaticLayoutUnitTest {
         assertTrue(mModel.get(LayoutTab.SHOULD_STALL));
         assertEquals(1.0f, mModel.get(LayoutTab.STATIC_TO_VIEW_BLEND), 0);
         assertEquals(0.0f, mModel.get(LayoutTab.SATURATION), 0);
+        verify(mTabContentManager)
+                .updateVisibleIds(eq(Collections.singletonList(TAB2_ID)), eq(TAB2_ID));
     }
 
     @Test
@@ -272,6 +292,7 @@ public class StaticLayoutUnitTest {
         assertFalse(mModel.get(LayoutTab.SHOULD_STALL));
         assertEquals(0.0f, mModel.get(LayoutTab.STATIC_TO_VIEW_BLEND), 0);
         assertEquals(1.0f, mModel.get(LayoutTab.SATURATION), 0);
+        verify(mTabContentManager).updateVisibleIds(eq(Collections.emptyList()), eq(TAB1_ID));
     }
 
     @Test
@@ -282,6 +303,8 @@ public class StaticLayoutUnitTest {
         assertTrue(mModel.get(LayoutTab.SHOULD_STALL));
         assertEquals(1.0f, mModel.get(LayoutTab.STATIC_TO_VIEW_BLEND), 0);
         assertEquals(0.0f, mModel.get(LayoutTab.SATURATION), 0);
+        verify(mTabContentManager)
+                .updateVisibleIds(eq(Collections.singletonList(TAB2_ID)), eq(TAB2_ID));
 
         // Index 1 is the TabObserver for mTab2.
         mTabObserverCaptor.getAllValues().get(1).onPageLoadFinished(
@@ -290,6 +313,7 @@ public class StaticLayoutUnitTest {
         assertFalse(mModel.get(LayoutTab.SHOULD_STALL));
         assertEquals(0.0f, mModel.get(LayoutTab.STATIC_TO_VIEW_BLEND), 0);
         assertEquals(1.0f, mModel.get(LayoutTab.SATURATION), 0);
+        verify(mTabContentManager).updateVisibleIds(eq(Collections.emptyList()), eq(TAB2_ID));
     }
 
     @Test
@@ -300,10 +324,10 @@ public class StaticLayoutUnitTest {
         mTabObserverCaptor.getAllValues().get(1).onShown(mTab2, TabSelectionType.FROM_USER);
         assertEquals(TAB2_ID, mModel.get(LayoutTab.TAB_ID));
         assertTrue(mModel.get(LayoutTab.CAN_USE_LIVE_TEXTURE));
+        assertFalse(mModel.get(LayoutTab.SHOULD_STALL));
         assertEquals(0.0f, mModel.get(LayoutTab.STATIC_TO_VIEW_BLEND), 0);
 
-        LinkedList visibleIdList = new LinkedList<Integer>(Arrays.asList(TAB2_ID));
-        verify(mTabContentManager).updateVisibleIds(eq(visibleIdList), eq(TAB2_ID));
+        verify(mTabContentManager).updateVisibleIds(eq(Collections.emptyList()), eq(TAB2_ID));
     }
 
     @Test
@@ -312,6 +336,8 @@ public class StaticLayoutUnitTest {
         mTabObserverCaptor.getAllValues().get(0).onContentChanged(mTab1);
         assertTrue(mModel.get(LayoutTab.CAN_USE_LIVE_TEXTURE));
         assertEquals(0.0f, mModel.get(LayoutTab.STATIC_TO_VIEW_BLEND), 0);
+
+        verify(mTabContentManager).updateVisibleIds(eq(Collections.emptyList()), eq(TAB1_ID));
     }
 
     @Test

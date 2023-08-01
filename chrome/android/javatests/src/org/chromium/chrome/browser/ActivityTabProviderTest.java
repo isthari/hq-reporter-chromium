@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,8 @@ package org.chromium.chrome.browser;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 
-import android.support.test.InstrumentationRegistry;
-
 import androidx.test.filters.SmallTest;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.junit.Before;
 import org.junit.Rule;
@@ -18,10 +17,16 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.Criteria;
+import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.Features;
+import org.chromium.base.test.util.Matchers;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.chrome.browser.ActivityTabProvider.ActivityTabTabObserver;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
+import org.chromium.chrome.browser.layouts.LayoutManager;
 import org.chromium.chrome.browser.layouts.LayoutTestUtils;
 import org.chromium.chrome.browser.layouts.LayoutType;
 import org.chromium.chrome.browser.tab.Tab;
@@ -138,14 +143,14 @@ public class ActivityTabProviderTest {
                 mActivityTab);
 
         TestThreadUtils.runOnUiThreadBlocking(
-                () -> mActivity.getLayoutManager().showOverview(false));
+                () -> mActivity.getLayoutManager().showLayout(LayoutType.TAB_SWITCHER, false));
         mActivityTabChangedHelper.waitForCallback(1);
         assertEquals("Entering the tab switcher should have triggered the event once.", 2,
                 mActivityTabChangedHelper.getCallCount());
         assertEquals("The activity tab should be null.", null, mActivityTab);
 
         TestThreadUtils.runOnUiThreadBlocking(
-                () -> mActivity.getLayoutManager().hideOverview(false));
+                () -> mActivity.getLayoutManager().showLayout(LayoutType.BROWSING, false));
         mActivityTabChangedHelper.waitForCallback(2);
         assertEquals("Exiting the tab switcher should have triggered the event once.", 3,
                 mActivityTabChangedHelper.getCallCount());
@@ -253,18 +258,42 @@ public class ActivityTabProviderTest {
         tabObserver.destroy();
     }
 
+    /** Test activityTabProvider before layout state provider is available. */
+    @Test
+    @SmallTest
+    @Feature({"ActivityTabObserver"})
+    @Features.
+    EnableFeatures({ChromeFeatureList.INSTANT_START, ChromeFeatureList.BACK_GESTURE_REFACTOR})
+    public void testBeforeLayoutManagerAvailable() {
+        ActivityTabProvider activityTabProvider =
+                TestThreadUtils.runOnUiThreadBlockingNoException(ActivityTabProvider::new);
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            activityTabProvider.setTabModelSelector(mActivity.getTabModelSelector());
+        });
+        ChromeTabUtils.fullyLoadUrlInNewTab(InstrumentationRegistry.getInstrumentation(), mActivity,
+                ContentUrlConstants.ABOUT_BLANK_DISPLAY_URL, false);
+        assertEquals("The activity tab should be the selected tab.", getModelSelectedTab(),
+                activityTabProvider.get());
+
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            mActivity.getLayoutManager().showLayout(LayoutType.TAB_SWITCHER, false);
+            activityTabProvider.setLayoutStateProvider(mActivity.getLayoutManager());
+        });
+        CriteriaHelper.pollInstrumentationThread(() -> {
+            Criteria.checkThat("The activity tab should be null on tab switcher.",
+                    activityTabProvider.get(), Matchers.equalTo(null));
+        });
+        TestThreadUtils.runOnUiThreadBlocking(activityTabProvider::destroy);
+    }
+
     /**
      * Enter or exit the tab switcher with animations and wait for the scene to change.
      * @param inSwitcher Whether to enter or exit the tab switcher.
      */
-    private void setTabSwitcherModeAndWait(boolean inSwitcher) throws TimeoutException {
-        TestThreadUtils.runOnUiThreadBlocking(() -> {
-            if (inSwitcher) {
-                mActivity.getLayoutManager().showOverview(true);
-            } else {
-                mActivity.getLayoutManager().hideOverview(true);
-            }
-        });
-        LayoutTestUtils.waitForLayout(mActivity.getLayoutManager(), LayoutType.TAB_SWITCHER);
+    private void setTabSwitcherModeAndWait(boolean inSwitcher) {
+        LayoutManager layoutManager = mActivityTestRule.getActivity().getLayoutManager();
+        @LayoutType
+        int layout = inSwitcher ? LayoutType.TAB_SWITCHER : LayoutType.BROWSING;
+        LayoutTestUtils.startShowingAndWaitForLayout(layoutManager, layout, true);
     }
 }

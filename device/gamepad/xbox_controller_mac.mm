@@ -1,12 +1,8 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "device/gamepad/xbox_controller_mac.h"
-
-#include <algorithm>
-#include <cmath>
-#include <limits>
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/IOCFPlugIn.h>
@@ -15,16 +11,23 @@
 #include <IOKit/usb/IOUSBLib.h>
 #include <IOKit/usb/USB.h>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
 #include "base/check_op.h"
-#include "base/cxx17_backports.h"
+#include "base/containers/fixed_flat_set.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/mac/foundation_util.h"
 #include "base/mac/scoped_ioobject.h"
 #include "base/task/sequenced_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "device/gamepad/gamepad_uma.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 namespace device {
 
@@ -332,14 +335,14 @@ double XboxControllerMac::GetMaxEffectDurationMillis() {
   return kXboxOneMaxEffectDurationMillis;
 }
 
-void XboxControllerMac::SetVibration(double strong_magnitude,
-                                     double weak_magnitude) {
+void XboxControllerMac::SetVibration(mojom::GamepadEffectParametersPtr params) {
   if (!SupportsVibration())
     return;
 
   // Clamp magnitudes to [0,1]
-  strong_magnitude = base::clamp<double>(strong_magnitude, 0.0, 1.0);
-  weak_magnitude = base::clamp<double>(weak_magnitude, 0.0, 1.0);
+  double strong_magnitude =
+      std::clamp<double>(params->strong_magnitude, 0.0, 1.0);
+  double weak_magnitude = std::clamp<double>(params->weak_magnitude, 0.0, 1.0);
 
   if (xinput_type_ == kXInputTypeXbox360) {
     WriteXbox360Rumble(static_cast<uint8_t>(strong_magnitude * 255.0),
@@ -586,8 +589,14 @@ void XboxControllerMac::SetLEDPattern(LEDPattern pattern) {
 }
 
 bool XboxControllerMac::SupportsVibration() const {
-  // The Xbox Adaptive Controller has no vibration actuators.
-  return gamepad_id_ != GamepadId::kMicrosoftProduct0b0a;
+  static constexpr auto kNoVibration = base::MakeFixedFlatSet<GamepadId>({
+      // The Xbox Adaptive Controller has no vibration actuators.
+      GamepadId::kMicrosoftProduct0b0a,
+      // SteelSeries Stratus Duo is XInput but does not support vibration.
+      GamepadId::kSteelSeriesProduct1430,
+      GamepadId::kSteelSeriesProduct1431,
+  });
+  return !kNoVibration.contains(gamepad_id_);
 }
 
 // static

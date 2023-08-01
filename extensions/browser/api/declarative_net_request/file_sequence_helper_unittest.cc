@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,11 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/files/file_util.h"
 #include "base/format_macros.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
-#include "base/task/post_task.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/threading/thread_restrictions.h"
 #include "components/crx_file/id_util.h"
@@ -36,12 +35,10 @@ namespace declarative_net_request {
 namespace {
 
 api::declarative_net_request::Rule GetAPIRule(const TestRule& rule) {
-  std::unique_ptr<base::DictionaryValue> value = rule.ToValue();
-  EXPECT_TRUE(value);
   api::declarative_net_request::Rule result;
   std::u16string error;
-  EXPECT_TRUE(
-      api::declarative_net_request::Rule::Populate(*value, &result, &error))
+  EXPECT_TRUE(api::declarative_net_request::Rule::Populate(rule.ToValue(),
+                                                           result, error))
       << error;
   EXPECT_TRUE(error.empty()) << error;
   return result;
@@ -345,8 +342,7 @@ TEST_F(FileSequenceHelperTest, UpdateDynamicRules) {
   {
     base::ScopedAllowBlockingForTesting allow_blocking_for_testing;
     std::string data = "Invalid JSON";
-    ASSERT_EQ(data.size(), static_cast<size_t>(base::WriteFile(
-                               source.json_path(), data.c_str(), data.size())));
+    ASSERT_TRUE(base::WriteFile(source.json_path(), data));
   }
 
   {

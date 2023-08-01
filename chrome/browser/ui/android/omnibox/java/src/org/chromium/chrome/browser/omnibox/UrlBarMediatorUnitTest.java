@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.text.Selection;
 import android.text.SpannableStringBuilder;
-import android.text.TextWatcher;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -39,10 +38,6 @@ public class UrlBarMediatorUnitTest {
     UrlBar.UrlTextChangeListener mMockUrlTextListener;
     @Mock
     UrlBar.UrlTextChangeListener mAnotherUrlTextMockListener;
-    @Mock
-    TextWatcher mMockTextWatcher;
-    @Mock
-    TextWatcher mAnotherMockTextWatcher;
     @Mock
     Callback<Boolean> mFocusChangeCallback;
 
@@ -106,7 +101,7 @@ public class UrlBarMediatorUnitTest {
         Assert.assertFalse(mMediator.setUrlBarData(data1, UrlBar.ScrollType.SCROLL_TO_TLD, 4));
         Assert.assertFalse(mMediator.setUrlBarData(data2, UrlBar.ScrollType.SCROLL_TO_TLD, 4));
 
-        Mockito.verifyZeroInteractions(observer);
+        Mockito.verifyNoMoreInteractions(observer);
     }
 
     @Test
@@ -278,20 +273,6 @@ public class UrlBarMediatorUnitTest {
                 .onTextChanged(text, textWithAutocomplete);
         Mockito.verify(mAnotherUrlTextMockListener, Mockito.times(1))
                 .onTextChanged(text, textWithAutocomplete);
-    }
-
-    @Test
-    public void textWatcherCompositeObserver() {
-        mMediator.addTextChangedListener(mMockTextWatcher);
-
-        CharSequence text = "foo";
-        mMediator.onTextChanged(text, 0, 1, 2);
-        Mockito.verify(mMockTextWatcher, Mockito.times(1)).onTextChanged(text, 0, 1, 2);
-
-        mMediator.addTextChangedListener(mAnotherMockTextWatcher);
-        mMediator.onTextChanged(text, 0, 1, 2);
-        Mockito.verify(mMockTextWatcher, Mockito.times(2)).onTextChanged(text, 0, 1, 2);
-        Mockito.verify(mAnotherMockTextWatcher, Mockito.times(1)).onTextChanged(text, 0, 1, 2);
     }
 
     private static SpannableStringBuilder spannable(String text) {

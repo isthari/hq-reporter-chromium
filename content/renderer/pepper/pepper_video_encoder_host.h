@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -74,7 +74,7 @@ class PepperVideoEncoderHost : public ppapi::host::ResourceHost,
   void BitstreamBufferReady(
       int32_t bitstream_buffer_id,
       const media::BitstreamBufferMetadata& metadata) override;
-  void NotifyError(media::VideoEncodeAccelerator::Error error) override;
+  void NotifyErrorStatus(const media::EncoderStatus& status) override;
 
   // ResourceHost implementation.
   int32_t OnResourceMessageReceived(
@@ -85,11 +85,6 @@ class PepperVideoEncoderHost : public ppapi::host::ResourceHost,
   void OnGpuControlLostContext() final;
   void OnGpuControlLostContextMaybeReentrant() final;
   void OnGpuControlErrorMessage(const char* msg, int id) final {}
-  void OnGpuControlSwapBuffersCompleted(
-      const gpu::SwapBuffersCompleteParams& params,
-      gfx::GpuFenceHandle release_fence) final {}
-  void OnSwapBufferPresented(uint64_t swap_id,
-                             const gfx::PresentationFeedback& feedback) final {}
   void OnGpuControlReturnData(base::span<const uint8_t> data) final;
 
   int32_t OnHostMsgGetSupportedProfiles(

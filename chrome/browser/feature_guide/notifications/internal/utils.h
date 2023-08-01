@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,6 +32,9 @@ const base::Feature& GetNotificationIphFeatureForFeature(FeatureType& feature);
 const base::Feature* GetUsedIphFeatureForFeature(FeatureType& feature);
 
 #endif
+
+// Whether the feature should only target low engaged users.
+bool ShouldTargetLowEngagedUsers(FeatureType feature);
 
 }  // namespace feature_guide
 

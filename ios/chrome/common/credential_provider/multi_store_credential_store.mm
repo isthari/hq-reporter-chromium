@@ -1,11 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/common/credential_provider/multi_store_credential_store.h"
 
-#include "base/check.h"
-#include "base/notreached.h"
+#import "base/check.h"
+#import "base/notreached.h"
 #import "ios/chrome/common/credential_provider/credential.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -32,8 +32,13 @@
 #pragma mark - CredentialStore
 
 - (NSArray<id<Credential>>*)credentials {
-  return
-      [self.stores valueForKeyPath:@"credentials.@distinctUnionOfArrays.self"];
+  NSMutableSet<id<Credential>>* uniqueCredentials = [[NSMutableSet alloc] init];
+  for (id<CredentialStore> store in self.stores) {
+    for (id<Credential> credential in store.credentials) {
+      [uniqueCredentials addObject:credential];
+    }
+  }
+  return uniqueCredentials.allObjects;
 }
 
 - (id<Credential>)credentialWithRecordIdentifier:(NSString*)recordIdentifier {

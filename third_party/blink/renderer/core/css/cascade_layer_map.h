@@ -1,13 +1,14 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CASCADE_LAYER_MAP_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_CSS_CASCADE_LAYER_MAP_H_
 
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/active_style_sheets.h"
 #include "third_party/blink/renderer/core/css/cascade_layer.h"
-#include "third_party/blink/renderer/platform/wtf/hash_map.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
 
 namespace blink {
 
@@ -16,12 +17,19 @@ namespace blink {
 // layers in each sheet to the sorted layer order number.
 class CORE_EXPORT CascadeLayerMap : public GarbageCollected<CascadeLayerMap> {
  public:
-  static const unsigned kImplicitOuterLayerOrder;
+  static constexpr unsigned kImplicitOuterLayerOrder =
+      std::numeric_limits<unsigned>::max();
 
-  explicit CascadeLayerMap(const ActiveStyleSheetVector&);
+  CascadeLayerMap(const ActiveStyleSheetVector& sheets,
+                  const LayerMap& super_rule_set_mapping);
 
   unsigned GetLayerOrder(const CascadeLayer& layer) const {
-    return layer_order_map_.at(&layer);
+    const auto mapped_layer = super_rule_set_mapping_.find(&layer);
+    if (mapped_layer != super_rule_set_mapping_.end()) {
+      return layer_order_map_.at(mapped_layer->value);
+    } else {
+      return layer_order_map_.at(&layer);
+    }
   }
 
   // Compare the layer orders of two CascadeLayer objects, possibly from
@@ -31,8 +39,12 @@ class CORE_EXPORT CascadeLayerMap : public GarbageCollected<CascadeLayerMap> {
 
   void Trace(blink::Visitor*) const;
 
+  const CascadeLayer* GetRootLayer() const;
+
  private:
+  Member<const CascadeLayer> canonical_root_layer_;
   HeapHashMap<Member<const CascadeLayer>, unsigned> layer_order_map_;
+  LayerMap super_rule_set_mapping_;
 };
 
 }  // namespace blink

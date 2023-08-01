@@ -1,10 +1,16 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/safe_browsing/client_side_detection_service_factory.h"
 
 #include "base/command_line.h"
+#include "base/memory/scoped_refptr.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/task_traits.h"
+#include "base/task/thread_pool.h"
+#include "chrome/browser/optimization_guide/optimization_guide_keyed_service.h"
+#include "chrome/browser/optimization_guide/optimization_guide_keyed_service_factory.h"
 #include "chrome/browser/profiles/incognito_helpers.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/safe_browsing/chrome_client_side_detection_service_delegate.h"
@@ -20,11 +26,6 @@ namespace safe_browsing {
 // static
 ClientSideDetectionService* ClientSideDetectionServiceFactory::GetForProfile(
     Profile* profile) {
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          ::switches::kDisableClientSidePhishingDetection)) {
-    return nullptr;
-  }
-
   return static_cast<ClientSideDetectionService*>(
       GetInstance()->GetServiceForBrowserContext(profile, /* create= */
                                                  true));
@@ -37,31 +38,39 @@ ClientSideDetectionServiceFactory::GetInstance() {
 }
 
 ClientSideDetectionServiceFactory::ClientSideDetectionServiceFactory()
-    : BrowserContextKeyedServiceFactory(
+    : ProfileKeyedServiceFactory(
           "ClientSideDetectionService",
-          BrowserContextDependencyManager::GetInstance()) {}
+          ProfileSelections::Builder()
+              .WithRegular(ProfileSelection::kOriginalOnly)
+              // TODO(crbug.com/1418376): Check if this service is needed in
+              // Guest mode.
+              .WithGuest(ProfileSelection::kOriginalOnly)
+              // ChromeOS creates various profiles (login, lock screen...) that
+              // do not display web content and thus do not need the
+              // client side phishing detection
+              .WithAshInternals(ProfileSelection::kNone)
+              .Build()) {}
 
 KeyedService* ClientSideDetectionServiceFactory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {
-  bool client_side_detection_enabled =
-#if BUILDFLAG(FULL_SAFE_BROWSING)
-      true;
-#else
-      base::FeatureList::IsEnabled(
-          safe_browsing::kClientSideDetectionForAndroid);
-#endif
-  if (!client_side_detection_enabled)
-    return nullptr;
-
   Profile* profile = Profile::FromBrowserContext(context);
-  return new ClientSideDetectionService(
-      std::make_unique<ChromeClientSideDetectionServiceDelegate>(profile));
-}
 
-content::BrowserContext*
-ClientSideDetectionServiceFactory::GetBrowserContextToUse(
-    content::BrowserContext* context) const {
-  return chrome::GetBrowserContextOwnInstanceInIncognito(context);
+  auto* opt_guide = OptimizationGuideKeyedServiceFactory::GetForProfile(
+      Profile::FromBrowserContext(context));
+
+  if (base::FeatureList::IsEnabled(
+          kClientSideDetectionModelOptimizationGuide) &&
+      !opt_guide) {
+    return nullptr;
+  }
+
+  scoped_refptr<base::SequencedTaskRunner> background_task_runner =
+      base::ThreadPool::CreateSequencedTaskRunner(
+          {base::MayBlock(), base::TaskPriority::BEST_EFFORT});
+
+  return new ClientSideDetectionService(
+      std::make_unique<ChromeClientSideDetectionServiceDelegate>(profile),
+      opt_guide, background_task_runner);
 }
 
 }  // namespace safe_browsing

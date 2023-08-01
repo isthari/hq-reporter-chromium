@@ -1,13 +1,13 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
 #include "ui/platform_window/fuchsia/initialize_presenter_api_view.h"
 
-#include <fuchsia/ui/policy/cpp/fidl.h>
 #include <lib/sys/cpp/component_context.h>
 #include <lib/ui/scenic/cpp/view_ref_pair.h>
 #include <lib/ui/scenic/cpp/view_token_pair.h>
+#include <zircon/rights.h>
 
 #include <utility>
 
@@ -31,26 +31,6 @@ FlatlandPresentViewCallback& GetFlatlandViewPresenterInternal() {
 
 }  // namespace
 
-void InitializeViewTokenAndPresentView(
-    ui::PlatformWindowInitProperties* window_properties_out) {
-  DCHECK(window_properties_out);
-
-  // Generate ViewToken and ViewHolderToken for the new view.
-  auto view_tokens = scenic::ViewTokenPair::New();
-  window_properties_out->view_token = std::move(view_tokens.view_token);
-
-  // Create a ViewRefPair so the view can be registered to the SemanticsManager.
-  window_properties_out->view_ref_pair = scenic::ViewRefPair::New();
-
-  // Request Presenter to show the view full-screen.
-  auto presenter = base::ComponentContextForProcess()
-                       ->svc()
-                       ->Connect<::fuchsia::ui::policy::Presenter>();
-
-  presenter->PresentOrReplaceView(std::move(view_tokens.view_holder_token),
-                                  nullptr);
-}
-
 void SetScenicViewPresenter(ScenicPresentViewCallback view_presenter) {
   GetScenicViewPresenterInternal() = std::move(view_presenter);
 }
@@ -70,15 +50,19 @@ const FlatlandPresentViewCallback& GetFlatlandViewPresenter() {
 void IgnorePresentCallsForTest() {
   SetScenicViewPresenter(
       base::BindRepeating([](::fuchsia::ui::views::ViewHolderToken view_holder,
-                             ::fuchsia::ui::views::ViewRef view_ref) {
+                             ::fuchsia::ui::views::ViewRef view_ref)
+                              -> ::fuchsia::element::ViewControllerPtr {
         DCHECK(view_holder.value);
         DCHECK(view_ref.reference);
         DVLOG(1) << "Present call ignored for test.";
+        return nullptr;
       }));
   SetFlatlandViewPresenter(base::BindRepeating(
-      [](::fuchsia::ui::views::ViewportCreationToken viewport_creation_token) {
+      [](::fuchsia::ui::views::ViewportCreationToken viewport_creation_token)
+          -> ::fuchsia::element::ViewControllerPtr {
         DCHECK(viewport_creation_token.value);
         DVLOG(1) << "Present call ignored for test.";
+        return nullptr;
       }));
 }
 

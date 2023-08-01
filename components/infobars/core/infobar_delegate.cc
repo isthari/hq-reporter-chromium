@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include "build/build_config.h"
 #include "components/infobars/core/infobar.h"
 #include "components/infobars/core/infobar_manager.h"
+#include "ui/base/models/image_model.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/vector_icon_types.h"
 
@@ -36,20 +37,20 @@ const gfx::VectorIcon& InfoBarDelegate::GetVectorIcon() const {
   return empty_icon;
 }
 
-gfx::Image InfoBarDelegate::GetIcon() const {
+ui::ImageModel InfoBarDelegate::GetIcon() const {
 #if !BUILDFLAG(IS_IOS) && !BUILDFLAG(IS_ANDROID)
   const gfx::VectorIcon& vector_icon = GetVectorIcon();
-  if (!vector_icon.is_empty()) {
-    return gfx::Image(
-        gfx::CreateVectorIcon(vector_icon, 20, gfx::kGoogleBlue500));
-  }
+  if (!vector_icon.is_empty())
+    return ui::ImageModel::FromVectorIcon(vector_icon, ui::kColorInfoBarIcon,
+                                          20);
 #endif
 
   int icon_id = GetIconId();
   return icon_id == kNoIconID
-             ? gfx::Image()
-             : ui::ResourceBundle::GetSharedInstance().GetNativeImageNamed(
-                   icon_id);
+             ? ui::ImageModel()
+             : ui::ImageModel::FromImage(
+                   ui::ResourceBundle::GetSharedInstance().GetNativeImageNamed(
+                       icon_id));
 }
 
 std::u16string InfoBarDelegate::GetLinkText() const {
@@ -92,10 +93,6 @@ bool InfoBarDelegate::ShouldAnimate() const {
 }
 
 ConfirmInfoBarDelegate* InfoBarDelegate::AsConfirmInfoBarDelegate() {
-  return nullptr;
-}
-
-HungRendererInfoBarDelegate* InfoBarDelegate::AsHungRendererInfoBarDelegate() {
   return nullptr;
 }
 

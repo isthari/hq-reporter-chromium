@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,43 +7,41 @@
 
 #import <Foundation/Foundation.h>
 
-#include <memory>
-#include <vector>
+#import <memory>
+#import <vector>
+
+#import "ios/chrome/browser/ui/settings/password/passwords_table_view_constants.h"
 
 namespace password_manager {
-struct PasswordForm;
+struct CredentialUIEntry;
+class AffiliatedGroup;
 }  // namespace password_manager
-
-// Enum with all possible UI states of password check.
-typedef NS_ENUM(NSInteger, PasswordCheckUIState) {
-  // When no compromised passwords were detected.
-  PasswordCheckStateSafe,
-  // When user has compromised passwords.
-  PasswordCheckStateUnSafe,
-  // When check was not perfect and state is unclear.
-  PasswordCheckStateDefault,
-  // When password check is running.
-  PasswordCheckStateRunning,
-  // When user has no passwords and check can't be performed.
-  PasswordCheckStateDisabled,
-  // When password check failed due to network issues, quota limit or others.
-  PasswordCheckStateError,
-};
 
 // Consumer for the Passwords Screen.
 @protocol PasswordsConsumer <NSObject>
 
-// Displays current password check UI state on screen.
+// Displays current password check UI state on screen for insecure credentials.
 - (void)setPasswordCheckUIState:(PasswordCheckUIState)state
-      compromisedPasswordsCount:(NSInteger)count;
+         insecurePasswordsCount:(NSInteger)insecureCount;
 
 // Displays password and blocked forms.
-- (void)
-    setPasswordsForms:(std::vector<password_manager::PasswordForm>)savedForms
-         blockedForms:(std::vector<password_manager::PasswordForm>)blockedForms;
+// TODO(crbug.com/1359392): Remove this.
+- (void)setPasswords:(std::vector<password_manager::CredentialUIEntry>)passwords
+        blockedSites:
+            (std::vector<password_manager::CredentialUIEntry>)blockedSites;
 
-// Updates "On/Off" state for Passwords In Other Apps item.
-- (void)updatePasswordsInOtherAppsDetailedText;
+// Updates whether passwords are being saved to an account or only locally.
+- (void)setSavingPasswordsToAccount:(BOOL)savingPasswordsToAccount;
+
+// Displays affiliated groups for the Password Manager.
+// This method relates to the -setPasswords method above. This will eventually
+// replace it when the feature is done.
+- (void)setAffiliatedGroups:
+            (const std::vector<password_manager::AffiliatedGroup>&)
+                affiliatedGroups
+               blockedSites:
+                   (const std::vector<password_manager::CredentialUIEntry>&)
+                       blockedSites;
 
 @end
 

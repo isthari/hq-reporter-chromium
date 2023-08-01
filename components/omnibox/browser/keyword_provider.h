@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -15,6 +15,7 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "base/compiler_specific.h"
 #include "base/memory/raw_ptr.h"
@@ -83,6 +84,14 @@ class KeywordProvider : public AutocompleteProvider {
   static const TemplateURL* GetSubstitutingTemplateURLForInput(
       TemplateURLService* model,
       AutocompleteInput* input);
+
+  // If the keyword mode for a starter pack engine, returns `input` with the
+  // keyword stripped and the starter pack's `TemplateURL`. E.g. for "@History
+  // text", the input 'text' and the history `TemplateURL` are
+  // returned. Otherwise, returns `input` untouched and `nullptr`.
+  static std::pair<AutocompleteInput, const TemplateURL*>
+  AdjustInputForStarterPackEngines(const AutocompleteInput& input,
+                                   TemplateURLService* model);
 
   // If |text| corresponds (in the sense of
   // TemplateURLModel::CleanUserInputKeyword()) to an enabled, substituting
@@ -164,8 +173,6 @@ class KeywordProvider : public AutocompleteProvider {
       const TemplateURLService* template_url_service,
       const std::u16string& keyword);
 
-  raw_ptr<AutocompleteProviderListener> listener_;
-
   // Input when searching against the keyword provider.
   AutocompleteInput keyword_input_;
 
@@ -175,6 +182,8 @@ class KeywordProvider : public AutocompleteProvider {
   // Delegate to handle the extensions-only logic for KeywordProvider.
   // NULL when extensions are not enabled. May be NULL for tests.
   std::unique_ptr<KeywordExtensionsDelegate> extensions_delegate_;
+
+  raw_ptr<AutocompleteProviderClient> client_;
 };
 
 #endif  // COMPONENTS_OMNIBOX_BROWSER_KEYWORD_PROVIDER_H_

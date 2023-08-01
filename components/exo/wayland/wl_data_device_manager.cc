@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include <string>
 #include <utility>
 
+#include "base/memory/raw_ptr.h"
 #include "components/exo/data_device.h"
 #include "components/exo/data_device_delegate.h"
 #include "components/exo/data_offer.h"
@@ -133,8 +134,8 @@ class WaylandDataSourceDelegate : public DataSourceDelegate {
   }
 
  private:
-  wl_client* const client_;
-  wl_resource* const data_source_resource_;
+  const raw_ptr<wl_client, ExperimentalAsh> client_;
+  const raw_ptr<wl_resource, ExperimentalAsh> data_source_resource_;
 };
 
 void data_source_offer(wl_client* client,
@@ -194,7 +195,7 @@ class WaylandDataOfferDelegate : public DataOfferDelegate {
   }
 
  private:
-  wl_resource* const data_offer_resource_;
+  const raw_ptr<wl_resource, ExperimentalAsh> data_offer_resource_;
 };
 
 void data_offer_accept(wl_client* client,
@@ -296,6 +297,7 @@ class WaylandDataDeviceDelegate : public DataDeviceDelegate {
   }
   void OnDrop() override {
     wl_data_device_send_drop(data_device_resource_);
+    wl_data_device_send_leave(data_device_resource_);
     wl_client_flush(client_);
   }
   void OnSelection(const DataOffer& data_offer) override {
@@ -345,11 +347,11 @@ class WaylandDataDeviceDelegate : public DataDeviceDelegate {
   }
 
  private:
-  wl_client* const client_;
-  wl_resource* const data_device_resource_;
+  const raw_ptr<wl_client, ExperimentalAsh> client_;
+  const raw_ptr<wl_resource, ExperimentalAsh> data_device_resource_;
 
   // Owned by Server, which always outlives this delegate.
-  SerialTracker* const serial_tracker_;
+  const raw_ptr<SerialTracker, ExperimentalAsh> serial_tracker_;
 };
 
 void data_device_start_drag(wl_client* client,

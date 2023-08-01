@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -40,6 +40,11 @@
 #include "ui/message_center/public/cpp/notification.h"
 #include "ui/message_center/public/cpp/notification_delegate.h"
 #include "url/gurl.h"
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/constants/notifier_catalogs.h"
+#include "chrome/browser/ash/crosapi/browser_util.h"
+#endif
 
 namespace {
 
@@ -188,6 +193,14 @@ void WebUsbDetector::Initialize() {
   if (!base::FeatureList::IsEnabled(features::kWebUsbDeviceDetection))
     return;
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  // Delegate to the Lacros browser if it is primary to prevent duplicate
+  // notifications.
+  if (crosapi::browser_util::IsLacrosPrimaryBrowser()) {
+    return;
+  }
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
   // Tests may set a fake manager.
   if (!device_manager_) {
     // Receive mojo::Remote<UsbDeviceManager> from DeviceService.
@@ -234,11 +247,17 @@ void WebUsbDetector::OnDeviceAdded(
           IDS_WEBUSB_DEVICE_DETECTED_NOTIFICATION,
           url_formatter::FormatUrlForSecurityDisplay(
               landing_page, url_formatter::SchemeDisplay::OMIT_CRYPTOGRAPHIC)),
-      gfx::Image(gfx::CreateVectorIcon(vector_icons::kUsbIcon, 64,
-                                       gfx::kChromeIconGrey)),
+      ui::ImageModel::FromVectorIcon(vector_icons::kUsbIcon, ui::kColorIcon,
+                                     64),
       std::u16string(), GURL(),
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+      message_center::NotifierId(message_center::NotifierType::SYSTEM_COMPONENT,
+                                 kNotifierWebUsb,
+                                 ash::NotificationCatalogName::kWebUsb),
+#else
       message_center::NotifierId(message_center::NotifierType::SYSTEM_COMPONENT,
                                  kNotifierWebUsb),
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
       rich_notification_data,
       base::MakeRefCounted<WebUsbNotificationDelegate>(
           weak_factory_.GetWeakPtr(), landing_page, notification_id));

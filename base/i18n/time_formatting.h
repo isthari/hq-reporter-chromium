@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -80,16 +80,14 @@ BASE_I18N_EXPORT std::u16string TimeFormatShortDateNumeric(const Time& time);
 BASE_I18N_EXPORT std::u16string TimeFormatShortDateAndTime(const Time& time);
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-// Returns a month and year, e.g. "November 2007"
-// Note: If `time_zone` is non-null, the time will be formatted in the provided
-// time zone. Otherwise, it will default to local time.
-BASE_I18N_EXPORT std::u16string TimeFormatMonthAndYear(
+// Returns a month and year, e.g. "November 2007" for the specified time zone.
+BASE_I18N_EXPORT std::u16string TimeFormatMonthAndYearForTimeZone(
     const Time& time,
-    const icu::TimeZone* time_zone = nullptr);
-#else
+    const icu::TimeZone* time_zone);
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
 // Returns a month and year, e.g. "November 2007"
 BASE_I18N_EXPORT std::u16string TimeFormatMonthAndYear(const Time& time);
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 // Returns a numeric date and time with time zone such as
 // "12/13/52 2:44:30 PM PST".
@@ -115,16 +113,16 @@ BASE_I18N_EXPORT std::u16string TimeFormatWithPattern(const Time& time,
 // "3:07" or "3 hours, 7 minutes", and returns true on success. See
 // DurationFormatWidth for details.
 [[nodiscard]] BASE_I18N_EXPORT bool TimeDurationFormat(
-    const TimeDelta time,
-    const DurationFormatWidth width,
+    TimeDelta time,
+    DurationFormatWidth width,
     std::u16string* out);
 
 // Formats a time duration of hours, minutes and seconds into various formats,
 // e.g., "3:07:30" or "3 hours, 7 minutes, 30 seconds", and returns true on
 // success. See DurationFormatWidth for details.
 [[nodiscard]] BASE_I18N_EXPORT bool TimeDurationFormatWithSeconds(
-    const TimeDelta time,
-    const DurationFormatWidth width,
+    TimeDelta time,
+    DurationFormatWidth width,
     std::u16string* out);
 
 // Formats a date interval into various formats, e.g. "2 December - 4 December"

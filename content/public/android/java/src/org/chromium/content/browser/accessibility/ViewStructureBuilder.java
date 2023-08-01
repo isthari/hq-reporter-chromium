@@ -1,10 +1,14 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.content.browser.accessibility;
 
-import android.annotation.TargetApi;
+import static org.chromium.content.browser.accessibility.AccessibilityNodeInfoBuilder.EXTRAS_KEY_UNCLIPPED_HEIGHT;
+import static org.chromium.content.browser.accessibility.AccessibilityNodeInfoBuilder.EXTRAS_KEY_UNCLIPPED_LEFT;
+import static org.chromium.content.browser.accessibility.AccessibilityNodeInfoBuilder.EXTRAS_KEY_UNCLIPPED_TOP;
+import static org.chromium.content.browser.accessibility.AccessibilityNodeInfoBuilder.EXTRAS_KEY_UNCLIPPED_WIDTH;
+
 import android.app.assist.AssistStructure.ViewNode;
 import android.graphics.Rect;
 import android.os.Build;
@@ -33,7 +37,6 @@ public class ViewStructureBuilder {
         this.mRenderCoordinates = renderCoordinates;
     }
 
-    @TargetApi(Build.VERSION_CODES.M)
     @CalledByNative
     private void populateViewStructureNode(ViewStructure node, String text, boolean hasSelection,
             int selStart, int selEnd, int color, int bgcolor, float size, boolean bold,
@@ -58,10 +61,10 @@ public class ViewStructureBuilder {
         }
     }
 
-    @TargetApi(Build.VERSION_CODES.M)
     @CalledByNative
     private void setViewStructureNodeBounds(ViewStructure node, boolean isRootNode,
-            int parentRelativeLeft, int parentRelativeTop, int width, int height) {
+            int parentRelativeLeft, int parentRelativeTop, int width, int height, int unclippedLeft,
+            int unclippedTop, int unclippedWidth, int unclippedHeight) {
         int left = (int) mRenderCoordinates.fromLocalCssToPix(parentRelativeLeft);
         int top = (int) mRenderCoordinates.fromLocalCssToPix(parentRelativeTop);
         width = (int) mRenderCoordinates.fromLocalCssToPix(width);
@@ -73,9 +76,20 @@ public class ViewStructureBuilder {
         }
 
         node.setDimens(boundsInParent.left, boundsInParent.top, 0, 0, width, height);
+
+        // Add unclipped bounds in the Bundle extras for services interested in these values.
+        int unclippedLeftCSS = (int) mRenderCoordinates.fromLocalCssToPix(unclippedLeft);
+        int unclippedTopCSS = (int) mRenderCoordinates.fromLocalCssToPix(unclippedTop);
+        int unclippedWidthCSS = (int) mRenderCoordinates.fromLocalCssToPix(unclippedWidth);
+        int unclippedHeightCSS = (int) mRenderCoordinates.fromLocalCssToPix(unclippedHeight);
+
+        Bundle extras = node.getExtras();
+        extras.putInt(EXTRAS_KEY_UNCLIPPED_LEFT, unclippedLeftCSS);
+        extras.putInt(EXTRAS_KEY_UNCLIPPED_TOP, unclippedTopCSS);
+        extras.putInt(EXTRAS_KEY_UNCLIPPED_WIDTH, unclippedWidthCSS);
+        extras.putInt(EXTRAS_KEY_UNCLIPPED_HEIGHT, unclippedHeightCSS);
     }
 
-    @TargetApi(Build.VERSION_CODES.M)
     @CalledByNative
     protected void setViewStructureNodeHtmlInfo(
             ViewStructure node, String htmlTag, String cssDisplay, String[][] htmlAttributes) {
@@ -87,7 +101,6 @@ public class ViewStructureBuilder {
         }
     }
 
-    @TargetApi(Build.VERSION_CODES.M)
     @CalledByNative
     protected void setViewStructureNodeHtmlMetadata(ViewStructure node, String[] metadataStrings) {
         Bundle extras = node.getExtras();
@@ -95,13 +108,11 @@ public class ViewStructureBuilder {
                 "metadata", new ArrayList<String>(Arrays.asList(metadataStrings)));
     }
 
-    @TargetApi(Build.VERSION_CODES.M)
     @CalledByNative
     private void commitViewStructureNode(ViewStructure node) {
         node.asyncCommit();
     }
 
-    @TargetApi(Build.VERSION_CODES.M)
     @CalledByNative
     private ViewStructure addViewStructureNodeChild(ViewStructure node, int index) {
         return node.asyncNewChild(index);

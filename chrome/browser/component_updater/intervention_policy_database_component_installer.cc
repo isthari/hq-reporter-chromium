@@ -1,15 +1,15 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/component_updater/intervention_policy_database_component_installer.h"
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/check.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/values.h"
 #include "chrome/browser/resource_coordinator/intervention_policy_database.h"
 #include "components/component_updater/component_updater_paths.h"
 #include "components/component_updater/component_updater_service.h"
@@ -58,7 +58,7 @@ bool InterventionPolicyDatabaseComponentInstallerPolicy::
 
 update_client::CrxInstaller::Result
 InterventionPolicyDatabaseComponentInstallerPolicy::OnCustomInstall(
-    const base::Value& manifest,
+    const base::Value::Dict& manifest,
     const base::FilePath& install_dir) {
   return update_client::CrxInstaller::Result(0);
 }
@@ -67,7 +67,7 @@ void InterventionPolicyDatabaseComponentInstallerPolicy::OnCustomUninstall() {}
 
 // Called during startup and installation before ComponentReady().
 bool InterventionPolicyDatabaseComponentInstallerPolicy::VerifyInstallation(
-    const base::Value& manifest,
+    const base::Value::Dict& manifest,
     const base::FilePath& install_dir) const {
   return base::PathExists(
       install_dir.Append(kInterventionPolicyDatabaseBinaryPbFileName));
@@ -79,7 +79,7 @@ bool InterventionPolicyDatabaseComponentInstallerPolicy::VerifyInstallation(
 void InterventionPolicyDatabaseComponentInstallerPolicy::ComponentReady(
     const base::Version& version,
     const base::FilePath& install_dir,
-    base::Value manifest) {
+    base::Value::Dict manifest) {
   DCHECK(database_);
   database_->InitializeDatabaseWithProtoFile(
       install_dir.Append(kInterventionPolicyDatabaseBinaryPbFileName), version,
@@ -96,7 +96,7 @@ void InterventionPolicyDatabaseComponentInstallerPolicy::GetHash(
     std::vector<uint8_t>* hash) const {
   hash->assign(kInterventionPolicyDatabasePublicKeySHA256,
                kInterventionPolicyDatabasePublicKeySHA256 +
-                   base::size(kInterventionPolicyDatabasePublicKeySHA256));
+                   std::size(kInterventionPolicyDatabasePublicKeySHA256));
 }
 
 std::string InterventionPolicyDatabaseComponentInstallerPolicy::GetName()

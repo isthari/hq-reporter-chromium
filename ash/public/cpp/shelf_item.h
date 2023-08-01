@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 
 #include "ash/public/cpp/ash_public_export.h"
 #include "ash/public/cpp/shelf_types.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/image/image_skia.h"
 
 namespace ash {
@@ -18,6 +19,9 @@ struct ASH_PUBLIC_EXPORT ShelfItem {
   ShelfItem();
   ShelfItem(const ShelfItem& shelf_item);
   ~ShelfItem();
+
+  // Returns true if the pin state of the item is forced and can not be changed.
+  bool IsPinStateForced() const;
 
   ShelfItemType type = TYPE_UNDEFINED;
 
@@ -49,6 +53,10 @@ struct ASH_PUBLIC_EXPORT ShelfItem {
   // Whether the item is pinned by a policy preference. If so, pin state should
   // not be modifiable by user.
   bool pinned_by_policy = false;
+
+  // Whether the item pin state is forced according to its app type. The pin
+  // state can not be modified by user if this is set to true.
+  bool pin_state_forced_by_type = false;
 
   // Whether the item has a notification.
   bool has_notification = false;

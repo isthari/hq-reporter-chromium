@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -58,6 +58,21 @@ class InsetsOutsetsFBase {
     return *static_cast<T*>(this);
   }
 
+  // In addition to the above, we can also use the following methods to
+  // construct InsetsF/OutsetsF.
+  // TLBR() is for Chomium UI code. We should not use it in blink code because
+  // the order of parameters is different from the normal orders used in blink.
+  // Blink code can use the above setters and VH().
+  static constexpr inline T TLBR(float top,
+                                 float left,
+                                 float bottom,
+                                 float right) {
+    return T().set_top(top).set_left(left).set_bottom(bottom).set_right(right);
+  }
+  static constexpr inline T VH(float vertical, float horizontal) {
+    return TLBR(vertical, horizontal, vertical, horizontal);
+  }
+
   // Sets each side to the maximum of the side and the corresponding side of
   // |other|.
   void SetToMax(const T& other) {
@@ -75,12 +90,14 @@ class InsetsOutsetsFBase {
   }
   void Scale(float scale) { Scale(scale, scale); }
 
-  bool operator==(const T& other) const {
+  bool operator==(const InsetsOutsetsFBase<T>& other) const {
     return top_ == other.top_ && left_ == other.left_ &&
            bottom_ == other.bottom_ && right_ == other.right_;
   }
 
-  bool operator!=(const T& other) const { return !(*this == other); }
+  bool operator!=(const InsetsOutsetsFBase<T>& other) const {
+    return !(*this == other);
+  }
 
   void operator+=(const T& other) {
     top_ += other.top_;

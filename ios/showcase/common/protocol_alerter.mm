@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #import <objc/runtime.h>
 
-#include "base/logging.h"
+#import "base/logging.h"
 #import "base/strings/sys_string_conversions.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -53,12 +53,10 @@ char kAssociatedProtocolNameKey;
 
 - (NSMethodSignature*)methodSignatureForSelector:(SEL)sel {
   for (Protocol* protocol in _protocols) {
-    for (NSNumber* required in @[ @(YES), @(NO) ]) {
-      struct objc_method_description method =
-          protocol_getMethodDescription(protocol,
-                                        sel,
-                                        required.boolValue,
-                                        YES /* an instance method */);
+    const BOOL kYesAndNoArray[] = {YES, NO};
+    for (BOOL required : kYesAndNoArray) {
+      struct objc_method_description method = protocol_getMethodDescription(
+          protocol, sel, required, YES /* an instance method */);
       if (method.name != NULL) {
         NSMethodSignature* signature =
             [NSMethodSignature signatureWithObjCTypes:method.types];

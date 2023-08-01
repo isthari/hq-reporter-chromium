@@ -1,14 +1,17 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/updater/policy/mac/managed_preference_policy_manager_impl.h"
 
 #include "base/enterprise_util.h"
-#include "base/mac/scoped_nsobject.h"
 #include "chrome/updater/constants.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/gtest_mac.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 namespace updater {
 
@@ -30,11 +33,10 @@ TEST(CRUManagedPreferencePolicyManagerTest, TestPolicyValues) {
       @"TargetVersionPrefix" : @"82.",
     },
   };
-  base::scoped_nsobject<CRUManagedPreferencePolicyManager> policyManager(
-      [[CRUManagedPreferencePolicyManager alloc]
-          initWithDictionary:policyDict]);
+  CRUManagedPreferencePolicyManager* policyManager =
+      [[CRUManagedPreferencePolicyManager alloc] initWithDictionary:policyDict];
   EXPECT_NSEQ([policyManager source], @"ManagedPreference");
-  EXPECT_EQ([policyManager managed], base::IsMachineExternallyManaged());
+  EXPECT_EQ([policyManager managed], base::IsManagedOrEnterpriseDevice());
 
   // Verify global level policies.
   EXPECT_EQ([policyManager lastCheckPeriodMinutes], kPolicyNotSet);
@@ -66,19 +68,17 @@ TEST(CRUManagedPreferencePolicyManagerTest, TestPolicyValues) {
 
 TEST(CRUManagedPreferencePolicyManagerTest, TestEmptyPolicyValues) {
   CRUUpdatePolicyDictionary* policyDict = @{};
-  base::scoped_nsobject<CRUManagedPreferencePolicyManager> policyManager(
-      [[CRUManagedPreferencePolicyManager alloc]
-          initWithDictionary:policyDict]);
+  CRUManagedPreferencePolicyManager* policyManager =
+      [[CRUManagedPreferencePolicyManager alloc] initWithDictionary:policyDict];
   EXPECT_FALSE([policyManager managed]);
 }
 
 TEST(CRUManagedPreferencePolicyManagerTest, TestNoGlobalPolicy) {
   CRUUpdatePolicyDictionary* policyDict = @{@"some.app" : @{}};
-  base::scoped_nsobject<CRUManagedPreferencePolicyManager> policyManager(
-      [[CRUManagedPreferencePolicyManager alloc]
-          initWithDictionary:policyDict]);
+  CRUManagedPreferencePolicyManager* policyManager =
+      [[CRUManagedPreferencePolicyManager alloc] initWithDictionary:policyDict];
   EXPECT_NSEQ([policyManager source], @"ManagedPreference");
-  EXPECT_EQ([policyManager managed], base::IsMachineExternallyManaged());
+  EXPECT_EQ([policyManager managed], base::IsManagedOrEnterpriseDevice());
 
   // Verify global level policies are set to default.
   EXPECT_EQ([policyManager lastCheckPeriodMinutes], kPolicyNotSet);
@@ -113,11 +113,10 @@ TEST(CRUManagedPreferencePolicyManagerTest, TestInvalidPolicyValues) {
     },
     @"com.google.Foo" : @"PolicyValueIsNotDictionary",
   };
-  base::scoped_nsobject<CRUManagedPreferencePolicyManager> policyManager(
-      [[CRUManagedPreferencePolicyManager alloc]
-          initWithDictionary:policyDict]);
+  CRUManagedPreferencePolicyManager* policyManager =
+      [[CRUManagedPreferencePolicyManager alloc] initWithDictionary:policyDict];
   EXPECT_NSEQ([policyManager source], @"ManagedPreference");
-  EXPECT_EQ([policyManager managed], base::IsMachineExternallyManaged());
+  EXPECT_EQ([policyManager managed], base::IsManagedOrEnterpriseDevice());
 
   // Verify global level policies.
   EXPECT_EQ([policyManager lastCheckPeriodMinutes], kPolicyNotSet);

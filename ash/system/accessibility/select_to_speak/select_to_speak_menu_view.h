@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include "ash/ash_export.h"
 #include "ash/public/cpp/accessibility_controller_enums.h"
+#include "base/memory/raw_ptr.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/events/event.h"
 #include "ui/views/controls/button/button.h"
@@ -77,7 +78,7 @@ class SelectToSpeakMenuView : public views::BoxLayoutView {
   FloatingMenuButton* stop_button_ = nullptr;
   FloatingMenuButton* speed_button_ = nullptr;
 
-  Delegate* delegate_;
+  raw_ptr<Delegate, ExperimentalAsh> delegate_;
   bool is_paused_ = false;
 };
 

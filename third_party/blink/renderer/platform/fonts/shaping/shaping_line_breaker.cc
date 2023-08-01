@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -102,21 +102,21 @@ unsigned ShapingLineBreaker::Hyphenate(unsigned offset,
   DCHECK_GE(offset, word_start);
   DCHECK_LE(offset, word_end);
   unsigned word_len = word_end - word_start;
-  if (word_len <= Hyphenation::kMinimumSuffixLength)
+  if (word_len < hyphenation_->MinWordLength())
     return 0;
 
   const String& text = GetText();
   const StringView word(text, word_start, word_len);
   const unsigned word_offset = offset - word_start;
   if (backwards) {
-    if (word_offset < Hyphenation::kMinimumPrefixLength)
+    if (word_offset < hyphenation_->MinPrefixLength())
       return 0;
     unsigned prefix_length =
         hyphenation_->LastHyphenLocation(word, word_offset + 1);
     DCHECK(!prefix_length || prefix_length <= word_offset);
     return prefix_length;
   } else {
-    if (word_len - word_offset < Hyphenation::kMinimumSuffixLength)
+    if (word_len - word_offset < hyphenation_->MinSuffixLength())
       return 0;
     unsigned prefix_length = hyphenation_->FirstHyphenLocation(
         word, word_offset ? word_offset - 1 : 0);
@@ -314,35 +314,59 @@ scoped_refptr<const ShapeResultView> ShapingLineBreaker::ShapeLine(
   // look for breaking opportunityes after the end of the sequence.
   // https://www.unicode.org/reports/tr14/#BA
   // TODO(jfernandez): if break-spaces, do special handling.
-  BreakOpportunity break_opportunity =
-      !IsBreakableSpace(text[candidate_break]) || is_break_after_any_space
-          ? PreviousBreakOpportunity(candidate_break, start)
-          : NextBreakOpportunity(std::max(candidate_break, start + 1), start,
-                                 range_end);
+  BreakOpportunity break_opportunity;
+  const bool use_previous_break_opportunity =
+      !IsBreakableSpace(text[candidate_break]) || is_break_after_any_space;
+  if (use_previous_break_opportunity) {
+    break_opportunity = PreviousBreakOpportunity(candidate_break, start);
 
-  // There are no break opportunity before candidate_break, overflow.
-  // Find the next break opportunity after the candidate_break.
-  // TODO: (jfernandez): Maybe also non_hangable_run_end <= start ?
-  result_out->is_overflow = break_opportunity.offset <= start;
-  if (result_out->is_overflow) {
-    DCHECK(is_break_after_any_space ||
-           !IsBreakableSpace(text[candidate_break]));
-    if (options & kNoResultIfOverflow)
-      return nullptr;
-    // No need to scan past range_end for a break opportunity.
+    // Overflow if there are no break opportunity before candidate_break.
+    // Find the next break opportunity after the candidate_break.
+    // TODO: (jfernandez): Maybe also non_hangable_run_end <= start ?
+    result_out->is_overflow = break_opportunity.offset <= start;
+    if (result_out->is_overflow) {
+      DCHECK(use_previous_break_opportunity);
+      if (options & kNoResultIfOverflow)
+        return nullptr;
+      // No need to scan past range_end for a break opportunity.
+      break_opportunity = NextBreakOpportunity(
+          std::max(candidate_break, start + 1), start, range_end);
+    }
+  } else {
     break_opportunity = NextBreakOpportunity(
         std::max(candidate_break, start + 1), start, range_end);
-  }
+    DCHECK_GT(break_opportunity.offset, start);
+    DCHECK(!result_out->is_overflow);
 
-  // We don't care whether this result contains only spaces if we
-  // are breaking after any space. We shouldn't early return either
-  // in that case.
-  if (!is_break_after_any_space && break_opportunity.non_hangable_run_end &&
-      break_opportunity.non_hangable_run_end <= start) {
-    // TODO (jfenandez): There may be cases where candidate_break is
-    // not a breakable space but we also want to early return for
-    // triggering the trailing spaces handling
-    if (IsBreakableSpace(text[candidate_break])) {
+    // If we were looking for a next break opportunity and found one that is
+    // after candidate_break but doesn't have a corresponding non-hangable run
+    // that spans to at least candidate_break, that would be an overflow.
+    // However, there might still be break opportunities before candidate_break
+    // that we haven't checked, so we look for them first.
+    if (break_opportunity.offset > candidate_break &&
+        (!break_opportunity.non_hangable_run_end ||
+         *break_opportunity.non_hangable_run_end > candidate_break)) {
+      BreakOpportunity previous_opportunity =
+          PreviousBreakOpportunity(candidate_break, start);
+      if (previous_opportunity.offset > start) {
+        break_opportunity = previous_opportunity;
+      } else {
+        result_out->is_overflow = true;
+        if (options & kNoResultIfOverflow)
+          return nullptr;
+      }
+    }
+
+    // We don't care whether this result contains only spaces if we
+    // are breaking after any space. We shouldn't early return either
+    // in that case.
+    DCHECK(!is_break_after_any_space);
+    DCHECK(IsBreakableSpace(text[candidate_break]));
+    if (break_opportunity.non_hangable_run_end &&
+        break_opportunity.non_hangable_run_end <= start) {
+      // TODO (jfenandez): There may be cases where candidate_break is
+      // not a breakable space but we also want to early return for
+      // triggering the trailing spaces handling
       result_out->has_trailing_spaces = true;
       result_out->break_offset = std::min(range_end, break_opportunity.offset);
       result_out->non_hangable_run_end = break_opportunity.non_hangable_run_end;
@@ -499,22 +523,35 @@ scoped_refptr<const ShapeResultView> ShapingLineBreaker::ShapeLine(
             (line_start_result ? line_start_result->NumCharacters() : 0) +
                 (last_safe > first_safe ? last_safe - first_safe : 0) +
                 (line_end_result ? line_end_result->NumCharacters() : 0));
+  SetBreakOffset(break_opportunity, text, result_out);
 
   // Create shape results for the line by copying from the re-shaped result (if
   // reshaping was needed) and the original shape results.
+  return ConcatShapeResults(start, break_opportunity.offset, first_safe,
+                            last_safe, std::move(line_start_result),
+                            std::move(line_end_result));
+}
+scoped_refptr<const ShapeResultView> ShapingLineBreaker::ConcatShapeResults(
+    unsigned start,
+    unsigned end,
+    unsigned first_safe,
+    unsigned last_safe,
+    scoped_refptr<const ShapeResult> line_start_result,
+    scoped_refptr<const ShapeResult> line_end_result) {
   ShapeResultView::Segment segments[3];
-  unsigned max_length = std::numeric_limits<unsigned>::max();
+  constexpr unsigned max_length = std::numeric_limits<unsigned>::max();
   unsigned count = 0;
-  if (line_start_result)
+  if (line_start_result) {
     segments[count++] = {line_start_result.get(), 0, max_length};
-  if (last_safe > first_safe)
+  }
+  if (last_safe > first_safe) {
     segments[count++] = {result_.get(), first_safe, last_safe};
-  if (line_end_result)
+  }
+  if (line_end_result) {
     segments[count++] = {line_end_result.get(), last_safe, max_length};
+  }
   auto line_result = ShapeResultView::Create({&segments[0], count});
-  DCHECK_EQ(break_opportunity.offset - start, line_result->NumCharacters());
-
-  SetBreakOffset(break_opportunity, text, result_out);
+  DCHECK_EQ(end - start, line_result->NumCharacters());
   return line_result;
 }
 
@@ -553,6 +590,47 @@ scoped_refptr<const ShapeResultView> ShapingLineBreaker::ShapeToEnd(
       {line_start.get(), 0, std::numeric_limits<unsigned>::max()},
       {result_.get(), first_safe, range_end}};
   return ShapeResultView::Create(segments);
+}
+
+scoped_refptr<const ShapeResultView> ShapingLineBreaker::ShapeLineAt(
+    unsigned start,
+    unsigned end,
+    unsigned options) {
+  DCHECK_GT(end, start);
+
+  unsigned first_safe;
+  scoped_refptr<const ShapeResult> line_start_result;
+  if (options & kDontReshapeStart) {
+    first_safe = start;
+  } else {
+    first_safe = result_->CachedNextSafeToBreakOffset(start);
+    DCHECK_GE(first_safe, start);
+    if (first_safe != start) {
+      if (first_safe >= end) {
+        // There is no safe-to-break, reshape the whole range.
+        scoped_refptr<ShapeResult> line_result = Shape(start, end);
+        return ShapeResultView::Create(line_result.get());
+      }
+      line_start_result = Shape(start, first_safe);
+    }
+  }
+
+  unsigned last_safe;
+  scoped_refptr<const ShapeResult> line_end_result;
+  if ((options & kDontReshapeEndIfAtSpace) &&
+      IsBreakableSpace(GetText()[end - 1])) {
+    last_safe = end;
+  } else {
+    last_safe = result_->CachedPreviousSafeToBreakOffset(end);
+    DCHECK_GE(last_safe, first_safe);
+    if (last_safe != end) {
+      line_end_result = Shape(last_safe, end);
+    }
+  }
+
+  return ConcatShapeResults(start, end, first_safe, last_safe,
+                            std::move(line_start_result),
+                            std::move(line_end_result));
 }
 
 }  // namespace blink

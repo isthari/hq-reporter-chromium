@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,6 +29,12 @@ public interface PasswordCheckComponentUi {
          * @param credential A {@link CompromisedCredential}.
          */
         void removeCredential(CompromisedCredential credential);
+
+        /**
+         * Register the start of a manual password change flow.
+         * @param credential A {@link CompromisedCredential} for which a flow was started.
+         */
+        void onManualPasswordChangeStarted(CompromisedCredential credential);
     }
 
     /**

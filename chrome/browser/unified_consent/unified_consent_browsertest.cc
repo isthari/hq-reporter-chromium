@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,7 @@
 #include "chrome/test/base/scoped_testing_local_state.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/embedder_support/pref_names.h"
-#include "components/sync/test/fake_server/fake_server_network_resources.h"
+#include "components/sync/test/fake_server_network_resources.h"
 #include "components/unified_consent/unified_consent_metrics.h"
 #include "components/unified_consent/unified_consent_service.h"
 #include "content/public/test/browser_test.h"
@@ -45,13 +45,15 @@ class UnifiedConsentBrowserTest : public SyncTest {
 
     sync_blocker_ = GetSyncService(client_id)->GetSetupInProgressHandle();
     ASSERT_TRUE(GetClient(client_id)->SignInPrimaryAccount());
-    GetSyncService(client_id)->GetUserSettings()->SetSyncRequested(true);
+    GetSyncService(client_id)->SetSyncFeatureRequested();
     ASSERT_TRUE(GetClient(client_id)->AwaitEngineInitialization());
   }
 
   void FinishSyncSetup(int client_id) {
-    GetSyncService(client_id)->GetUserSettings()->SetFirstSetupComplete(
-        syncer::SyncFirstSetupCompleteSource::BASIC_FLOW);
+    GetSyncService(client_id)
+        ->GetUserSettings()
+        ->SetInitialSyncFeatureSetupComplete(
+            syncer::SyncFirstSetupCompleteSource::BASIC_FLOW);
     sync_blocker_.reset();
     ASSERT_TRUE(GetClient(client_id)->AwaitSyncSetupCompletion());
   }
@@ -63,7 +65,7 @@ class UnifiedConsentBrowserTest : public SyncTest {
  protected:
   base::HistogramTester histogram_tester_;
   const std::string histogram_name_ =
-      "UnifiedConsent.MakeSearchesAndBrowsingBetter.OnStartup";
+      "UnifiedConsent.MakeSearchesAndBrowsingBetter.OnProfileLoad";
 
  private:
   void InitializeSyncClientsIfNeeded() {
@@ -86,12 +88,6 @@ IN_PROC_BROWSER_TEST_F(
     UnifiedConsentBrowserTest,
     PRE_SettingsHistogram_UrlKeyedAnonymizedDataCollectionEnabled) {
   EnableSync(0);
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
-  // Lacros only supports syncing profiles for now.
-  // TODO(https://crbug.com/1260291): Revisit this once non-syncing profiles
-  // are allowed.
-  EnableSync(1);
-#endif
   consent_service()->SetUrlKeyedAnonymizedDataCollectionEnabled(true);
 }
 
@@ -125,7 +121,9 @@ IN_PROC_BROWSER_TEST_F(UnifiedConsentBrowserTest,
   // Second client: Start sync setup.
   StartSyncSetup(1);
   ASSERT_TRUE(GetSyncService(1)->IsSetupInProgress());
-  ASSERT_FALSE(GetSyncService(1)->GetUserSettings()->IsFirstSetupComplete());
+  ASSERT_FALSE(GetSyncService(1)
+                   ->GetUserSettings()
+                   ->IsInitialSyncFeatureSetupComplete());
 
   // Second client: Turn on pref B while sync setup is in progress.
   GetProfile(1)->GetPrefs()->SetBoolean(pref_B, true);

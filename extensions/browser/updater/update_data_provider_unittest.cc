@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,12 +10,11 @@
 #include <string>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "components/update_client/update_client.h"
 #include "extensions/browser/disable_reason.h"
 #include "extensions/browser/extension_prefs.h"
@@ -87,10 +86,8 @@ class UpdateDataProviderTest : public ExtensionsTest {
                           const base::FilePath& relative_path,
                           const std::string& content) const {
     const base::FilePath full_path = directory.Append(relative_path);
-    if (!base::CreateDirectory(full_path.DirName()))
-      return false;
-    int result = base::WriteFile(full_path, content.data(), content.size());
-    return (static_cast<size_t>(result) == content.size());
+    return base::CreateDirectory(full_path.DirName()) &&
+           base::WriteFile(full_path, content);
   }
 
   void AddExtension(const std::string& extension_id,
@@ -119,13 +116,13 @@ class UpdateDataProviderTest : public ExtensionsTest {
     ASSERT_TRUE(AddFileToDirectory(temp_dir.GetPath(), bar_html, "world"));
 
     ExtensionBuilder builder;
-    DictionaryBuilder manifest_builder;
-    manifest_builder.Set("name", "My First Extension")
-        .Set("version", version)
-        .Set("manifest_version", 2);
+    auto manifest_builder = base::Value::Dict()
+                                .Set("name", "My First Extension")
+                                .Set("version", version)
+                                .Set("manifest_version", 2);
     if (!fingerprint.empty())
       manifest_builder.Set("differential_fingerprint", fingerprint);
-    builder.SetManifest(manifest_builder.Build());
+    builder.SetManifest(std::move(manifest_builder));
     builder.SetID(extension_id);
     builder.SetPath(temp_dir.GetPath());
     builder.SetLocation(location);

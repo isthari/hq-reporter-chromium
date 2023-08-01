@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -43,6 +43,9 @@ fn main() {
     assert!(Path::new(&env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("build.rs").exists());
     assert!(Path::new("build.rs").exists());
     assert!(Path::new(&env::var_os("OUT_DIR").unwrap()).exists());
+    // Confirm the following env var is set, but do not attempt to validate content
+    // since the whole point is that it will differ on different platforms.
+    env::var_os("CARGO_CFG_TARGET_ARCH").unwrap();
 
     generate_some_code().unwrap();
 }

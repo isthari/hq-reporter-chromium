@@ -1,14 +1,16 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/login/quick_unlock/pin_storage_prefs.h"
 
 #include "ash/constants/ash_pref_names.h"
+#include "base/memory/raw_ptr.h"
 #include "chrome/browser/ash/login/quick_unlock/quick_unlock_factory.h"
 #include "chrome/browser/ash/login/quick_unlock/quick_unlock_storage.h"
 #include "chrome/browser/ash/login/quick_unlock/quick_unlock_utils.h"
 #include "chrome/test/base/testing_profile.h"
+#include "chromeos/ash/components/dbus/userdataauth/userdataauth_client.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "content/public/test/browser_task_environment.h"
@@ -28,9 +30,11 @@ class PinStoragePrefsUnitTest : public testing::Test {
   ~PinStoragePrefsUnitTest() override = default;
 
   // testing::Test:
-  void SetUp() override { EnabledForTesting(true); }
-
-  void TearDown() override { EnabledForTesting(false); }
+  void SetUp() override {
+    test_api_ = std::make_unique<TestApi>(/*override_quick_unlock=*/true);
+    test_api_->EnablePinByPolicy(Purpose::kAny);
+    UserDataAuthClient::InitializeFake();
+  }
 
   PinStoragePrefs* PinStoragePrefs() const {
     return QuickUnlockFactory::GetForProfile(profile_.get())
@@ -39,6 +43,7 @@ class PinStoragePrefsUnitTest : public testing::Test {
 
   content::BrowserTaskEnvironment task_environment_;
   std::unique_ptr<TestingProfile> profile_;
+  std::unique_ptr<TestApi> test_api_;
 };
 
 }  // namespace
@@ -58,14 +63,15 @@ class PinStoragePrefsTestApi {
   std::string PinSecret() const { return pin_storage_->PinSecret(); }
 
   bool IsPinAuthenticationAvailable() const {
-    return pin_storage_->IsPinAuthenticationAvailable();
+    return pin_storage_->IsPinAuthenticationAvailable(Purpose::kAny);
   }
   bool TryAuthenticatePin(const std::string& secret, Key::KeyType key_type) {
-    return pin_storage_->TryAuthenticatePin(Key(key_type, "" /*salt*/, secret));
+    return pin_storage_->TryAuthenticatePin(Key(key_type, "" /*salt*/, secret),
+                                            Purpose::kAny);
   }
 
  private:
-  PinStoragePrefs* pin_storage_;
+  raw_ptr<PinStoragePrefs, ExperimentalAsh> pin_storage_;
 };
 
 // Verifies that:

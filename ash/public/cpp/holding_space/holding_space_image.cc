@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,14 @@
 #include <map>
 #include <set>
 
-#include "ash/public/cpp/file_icon_util.h"
 #include "ash/public/cpp/holding_space/holding_space_constants.h"
 #include "ash/public/cpp/image_util.h"
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/location.h"
+#include "chromeos/ui/base/file_icon_util.h"
 #include "ui/gfx/image/image_skia_operations.h"
+#include "ui/gfx/image/image_skia_rep.h"
 #include "ui/gfx/image/image_skia_source.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/skia_util.h"
@@ -100,10 +101,10 @@ HoldingSpaceImage::CreateDefaultPlaceholderImageSkiaResolver(
 
         const gfx::ImageSkia file_type_icon =
             is_folder.value_or(false)
-                ? GetIconFromType(
-                      IconType::kFolder,
+                ? chromeos::GetIconFromType(
+                      chromeos::IconType::kFolder,
                       dark_background.value_or(!use_light_mode_as_default))
-                : GetIconForPath(
+                : chromeos::GetIconForPath(
                       backing_file_path,
                       dark_background.value_or(!use_light_mode_as_default));
 
@@ -197,22 +198,7 @@ gfx::ImageSkia HoldingSpaceImage::GetImageSkia(
   if (image_skia_.size() == size)
     return image_skia_;
 
-  gfx::ImageSkia image_skia(image_skia_);
-
-  // Resize.
-  const float scale_x = size.width() / static_cast<float>(image_skia.width());
-  const float scale_y = size.height() / static_cast<float>(image_skia.height());
-  const float scale = std::max(scale_x, scale_y);
-  DCHECK_LE(scale, 1.f);  // Upscaling would result in pixelation.
-  gfx::Size scaled_size = gfx::ScaleToCeiledSize(image_skia.size(), scale);
-  image_skia = gfx::ImageSkiaOperations::CreateResizedImage(
-      image_skia, skia::ImageOperations::ResizeMethod::RESIZE_BEST,
-      scaled_size);
-
-  // Crop.
-  gfx::Rect cropped_bounds(image_skia.size());
-  cropped_bounds.ClampToCenteredSize(size);
-  return gfx::ImageSkiaOperations::ExtractSubset(image_skia, cropped_bounds);
+  return image_util::ResizeAndCropImage(image_skia_, size);
 }
 
 void HoldingSpaceImage::Invalidate() {

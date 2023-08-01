@@ -1,26 +1,29 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "services/network/sct_auditing/sct_auditing_handler.h"
 
 #include "base/base64.h"
-#include "base/feature_list.h"
+#include "base/containers/cxx20_erase.h"
+#include "base/containers/span.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/rand_util.h"
+#include "base/ranges/algorithm.h"
 #include "base/task/bind_post_task.h"
-#include "base/task/post_task.h"
 #include "base/task/sequenced_task_runner.h"
-#include "base/task/task_runner_util.h"
 #include "base/task/thread_pool.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "net/base/backoff_entry.h"
 #include "net/base/backoff_entry_serializer.h"
 #include "net/base/hash_value.h"
+#include "net/cert/merkle_tree_leaf.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "services/network/network_context.h"
 #include "services/network/network_service.h"
@@ -48,6 +51,18 @@ std::string LoadReports(const base::FilePath& path) {
 const char kReporterKeyKey[] = "reporter_key";
 const char kBackoffEntryKey[] = "backoff_entry";
 const char kReportKey[] = "report";
+const char kSCTHashdanceMetadataKey[] = "sct_metadata";
+const char kAlreadyCountedKey[] = "counted_towards_report_limit";
+
+void RecordPopularSCTSkippedMetrics(bool popular_sct_skipped) {
+  base::UmaHistogramBoolean("Security.SCTAuditing.OptOut.PopularSCTSkipped",
+                            popular_sct_skipped);
+}
+
+void RecordReportDroppedDueToLogNotFound(bool report_dropped) {
+  base::UmaHistogramBoolean(
+      "Security.SCTAuditing.OptOut.DroppedDueToLogNotFound", report_dropped);
+}
 
 }  // namespace
 
@@ -57,29 +72,26 @@ SCTAuditingHandler::SCTAuditingHandler(NetworkContext* context,
     : owner_network_context_(context),
       pending_reporters_(cache_size),
       persistence_path_(persistence_path),
-      foreground_runner_(base::SequencedTaskRunnerHandle::Get()) {
-  if (base::FeatureList::IsEnabled(features::kSCTAuditingRetryReports) &&
-      base::FeatureList::IsEnabled(features::kSCTAuditingPersistReports)) {
-    // If no persistence path is set, only store pending reporters in memory.
-    if (persistence_path_.empty()) {
-      return;
-    }
-
-    // Persisting reports uses a low priority task runner as it should not block
-    // anything user-visible, but it should block shutdown to ensure updates are
-    // persisted to disk (particularly clearing entries or the entire
-    // persisted state).
-    background_runner_ = base::ThreadPool::CreateSequencedTaskRunner(
-        {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
-         base::TaskShutdownBehavior::BLOCK_SHUTDOWN});
-    writer_ = std::make_unique<base::ImportantFileWriter>(persistence_path_,
-                                                          background_runner_);
-
-    // Post a task to load persisted state after startup has finished.
-    foreground_runner_->PostTask(
-        FROM_HERE, base::BindOnce(&SCTAuditingHandler::OnStartupFinished,
-                                  weak_factory_.GetWeakPtr()));
+      foreground_runner_(base::SequencedTaskRunner::GetCurrentDefault()) {
+  // If no persistence path is set, only store pending reporters in memory.
+  if (persistence_path_.empty()) {
+    return;
   }
+
+  // Persisting reports uses a low priority task runner as it should not block
+  // anything user-visible, but it should block shutdown to ensure updates are
+  // persisted to disk (particularly clearing entries or the entire
+  // persisted state).
+  background_runner_ = base::ThreadPool::CreateSequencedTaskRunner(
+      {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+       base::TaskShutdownBehavior::BLOCK_SHUTDOWN});
+  writer_ = std::make_unique<base::ImportantFileWriter>(persistence_path_,
+                                                        background_runner_);
+
+  // Post a task to load persisted state after startup has finished.
+  foreground_runner_->PostTask(
+      FROM_HERE, base::BindOnce(&SCTAuditingHandler::OnStartupFinished,
+                                weak_factory_.GetWeakPtr()));
 }
 
 SCTAuditingHandler::~SCTAuditingHandler() {
@@ -89,31 +101,127 @@ SCTAuditingHandler::~SCTAuditingHandler() {
   }
 }
 
-bool SCTAuditingHandler::SerializeData(std::string* output) {
+void SCTAuditingHandler::MaybeEnqueueReport(
+    const net::HostPortPair& host_port_pair,
+    const net::X509Certificate* validated_certificate_chain,
+    const net::SignedCertificateTimestampAndStatusList&
+        signed_certificate_timestamps) {
+  if (mode_ == mojom::SCTAuditingMode::kDisabled) {
+    return;
+  }
+
+  // Only audit valid SCTs. This ensures that they come from a known log, have
+  // a valid signature, and thus are expected to be public certificates. If
+  // there are no valid SCTs, there's no need to report anything.
+  net::SignedCertificateTimestampAndStatusList validated_scts;
+  base::ranges::copy_if(
+      signed_certificate_timestamps, std::back_inserter(validated_scts),
+      [](const auto& sct) { return sct.status == net::ct::SCT_STATUS_OK; });
+  if (validated_scts.empty()) {
+    return;
+  }
+
+  absl::optional<SCTAuditingReporter::SCTHashdanceMetadata> sct_metadata;
+  if (mode_ == mojom::SCTAuditingMode::kHashdance) {
+    // Randomly select a single entry and calculate its leaf hash for the
+    // hashdance lookup query.
+    sct_metadata.emplace();
+    const net::ct::SignedCertificateTimestamp* sct =
+        validated_scts.at(base::RandInt(0, validated_scts.size() - 1))
+            .sct.get();
+    sct_metadata->issued = sct->timestamp;
+    net::ct::MerkleTreeLeaf tree_leaf;
+    bool result = net::ct::GetMerkleTreeLeaf(validated_certificate_chain, sct,
+                                             &tree_leaf);
+    DCHECK(result);
+    result = net::ct::HashMerkleTreeLeaf(tree_leaf, &sct_metadata->leaf_hash);
+    DCHECK(result);
+
+    // Do not report if this is a known popular SCT.
+    if (owner_network_context_->network_service()
+            ->sct_auditing_cache()
+            ->IsPopularSCT(
+                base::as_bytes(base::make_span(sct_metadata->leaf_hash)))) {
+      RecordPopularSCTSkippedMetrics(true);
+      return;
+    }
+    RecordPopularSCTSkippedMetrics(false);
+
+    // Find the corresponding log entry metadata.
+    const std::vector<mojom::CTLogInfoPtr>& logs =
+        owner_network_context_->network_service()->log_list();
+    auto log = base::ranges::find(logs, sct->log_id, &mojom::CTLogInfo::id);
+    // It's possible that log entry metadata may not exist for a few reasons:
+    //
+    // 1) The PKI Metadata component has not yet been loaded and no log list
+    //    has been set.
+    // 2) The PKI Metadata component was updated sometime between the SCTs
+    //    being validated and MaybeEnqueueReport() being called.
+    // 3) The log is actually unknown. (This last case should not happen as the
+    //    SCTs should not have been considered valid.)
+    //
+    // In particular, (1) can occur for a short duration at browser startup, so
+    // handle this gracefully and drop the report.
+    if (log == logs.end()) {
+      RecordReportDroppedDueToLogNotFound(true);
+      return;
+    }
+    RecordReportDroppedDueToLogNotFound(false);
+
+    sct_metadata->log_id = log->get()->id;
+    sct_metadata->log_mmd = log->get()->mmd;
+    sct_metadata->certificate_expiry =
+        validated_certificate_chain->valid_expiry();
+  }
+  absl::optional<SCTAuditingCache::ReportEntry> report =
+      owner_network_context_->network_service()
+          ->sct_auditing_cache()
+          ->MaybeGenerateReportEntry(
+              host_port_pair, validated_certificate_chain, validated_scts);
+  if (!report) {
+    return;
+  }
+  AddReporter(std::move(report->key), std::move(report->report),
+              std::move(sct_metadata));
+}
+
+absl::optional<std::string> SCTAuditingHandler::SerializeData() {
   DCHECK(foreground_runner_->RunsTasksInCurrentSequence());
 
-  base::Value reports(base::Value::Type::LIST);
+  base::Value::List reports;
   for (const auto& kv : pending_reporters_) {
     auto reporter_key = kv.first;
     auto* reporter = kv.second.get();
 
-    base::Value report_entry(base::Value::Type::DICTIONARY);
+    base::Value::Dict report_entry;
 
-    report_entry.SetStringKey(kReporterKeyKey, reporter_key.ToString());
+    report_entry.Set(kReporterKeyKey, reporter_key.ToString());
 
-    base::Value backoff_entry_value =
-        net::BackoffEntrySerializer::SerializeToValue(
-            *reporter->backoff_entry(), base::Time::Now());
-    report_entry.SetKey(kBackoffEntryKey, std::move(backoff_entry_value));
+    if (reporter->sct_hashdance_metadata()) {
+      report_entry.Set(kSCTHashdanceMetadataKey,
+                       reporter->sct_hashdance_metadata()->ToValue());
+    }
+
+    base::Value::List backoff_entry_value =
+        net::BackoffEntrySerializer::SerializeToList(*reporter->backoff_entry(),
+                                                     base::Time::Now());
+    report_entry.Set(kBackoffEntryKey, std::move(backoff_entry_value));
+    report_entry.Set(kAlreadyCountedKey,
+                     reporter->counted_towards_report_limit());
 
     std::string serialized_report;
     reporter->report()->SerializeToString(&serialized_report);
     base::Base64Encode(serialized_report, &serialized_report);
-    report_entry.SetStringKey(kReportKey, serialized_report);
+    report_entry.Set(kReportKey, serialized_report);
 
     reports.Append(std::move(report_entry));
   }
-  return base::JSONWriter::Write(reports, output);
+
+  std::string output;
+  if (!base::JSONWriter::Write(reports, &output)) {
+    return absl::nullopt;
+  }
+  return output;
 }
 
 void SCTAuditingHandler::DeserializeData(const std::string& serialized) {
@@ -122,20 +230,26 @@ void SCTAuditingHandler::DeserializeData(const std::string& serialized) {
   // Parse the serialized reports.
   absl::optional<base::Value> value = base::JSONReader::Read(serialized);
   if (!value || !value->is_list()) {
+    base::UmaHistogramCounts100(
+        "Security.SCTAuditing.NumPersistedReportsLoaded", 0);
     return;
   }
 
   size_t num_reporters_deserialized = 0u;
-  for (const base::Value& sct_entry : value->GetList()) {
+  for (base::Value& sct_entry : value->GetList()) {
+    base::Value::Dict* entry_dict = sct_entry.GetIfDict();
     if (!sct_entry.is_dict()) {
       continue;
     }
 
-    const std::string* reporter_key_string =
-        sct_entry.FindStringKey(kReporterKeyKey);
-    const std::string* report_string = sct_entry.FindStringKey(kReportKey);
-    const base::Value* backoff_entry_value =
-        sct_entry.FindKey(kBackoffEntryKey);
+    std::string* reporter_key_string = entry_dict->FindString(kReporterKeyKey);
+    std::string* report_string = entry_dict->FindString(kReportKey);
+    const absl::optional<base::Value> sct_metadata_value =
+        entry_dict->Extract(kSCTHashdanceMetadataKey);
+    const base::Value::List* backoff_entry_value =
+        entry_dict->FindList(kBackoffEntryKey);
+    const absl::optional<bool> counted_towards_report_limit =
+        entry_dict->FindBool(kAlreadyCountedKey);
 
     if (!reporter_key_string || !report_string || !backoff_entry_value) {
       continue;
@@ -157,7 +271,7 @@ void SCTAuditingHandler::DeserializeData(const std::string& serialized) {
 
     // Try to recreate the BackoffEntry from the serialized value.
     std::unique_ptr<net::BackoffEntry> backoff_entry =
-        net::BackoffEntrySerializer::DeserializeFromValue(
+        net::BackoffEntrySerializer::DeserializeFromList(
             *backoff_entry_value, &SCTAuditingReporter::kDefaultBackoffPolicy,
             nullptr, base::Time::Now());
     if (!backoff_entry) {
@@ -174,10 +288,22 @@ void SCTAuditingHandler::DeserializeData(const std::string& serialized) {
       continue;
     }
 
-    AddReporter(cache_key, std::move(audit_report), std::move(backoff_entry));
+    absl::optional<SCTAuditingReporter::SCTHashdanceMetadata> sct_metadata;
+    if (sct_metadata_value) {
+      sct_metadata = SCTAuditingReporter::SCTHashdanceMetadata::FromValue(
+          *sct_metadata_value);
+      if (!sct_metadata) {
+        continue;
+      }
+    }
+
+    AddReporter(cache_key, std::move(audit_report), std::move(sct_metadata),
+                std::move(backoff_entry),
+                counted_towards_report_limit.value_or(false));
     ++num_reporters_deserialized;
   }
-  // TODO(crbug.com/1144205): Add metrics for number of reporters deserialized.
+  base::UmaHistogramCounts100("Security.SCTAuditing.NumPersistedReportsLoaded",
+                              num_reporters_deserialized);
 }
 
 void SCTAuditingHandler::OnStartupFinished() {
@@ -194,28 +320,25 @@ void SCTAuditingHandler::OnStartupFinished() {
 void SCTAuditingHandler::AddReporter(
     net::HashValue reporter_key,
     std::unique_ptr<sct_auditing::SCTClientReport> report,
-    std::unique_ptr<net::BackoffEntry> backoff_entry) {
+    absl::optional<SCTAuditingReporter::SCTHashdanceMetadata> sct_metadata,
+    std::unique_ptr<net::BackoffEntry> backoff_entry,
+    bool already_counted) {
   DCHECK(foreground_runner_->RunsTasksInCurrentSequence());
-  if (!enabled_) {
+  if (mode_ == mojom::SCTAuditingMode::kDisabled) {
     return;
   }
 
-  // Get the ReportURI and traffic annotation as configured on the
-  // SCTAuditingCache.
-  auto report_uri = owner_network_context_->network_service()
-                        ->sct_auditing_cache()
-                        ->report_uri();
-  auto traffic_annotation = owner_network_context_->network_service()
-                                ->sct_auditing_cache()
-                                ->traffic_annotation();
-
   auto reporter = std::make_unique<SCTAuditingReporter>(
-      reporter_key, std::move(report), GetURLLoaderFactory(), report_uri,
-      traffic_annotation,
+      owner_network_context_, reporter_key, std::move(report),
+      mode_ == mojom::SCTAuditingMode::kHashdance, std::move(sct_metadata),
+      owner_network_context_->network_service()
+          ->sct_auditing_cache()
+          ->GetConfiguration(),
+      GetURLLoaderFactory(),
       base::BindRepeating(&SCTAuditingHandler::OnReporterStateUpdated,
                           GetWeakPtr()),
       base::BindOnce(&SCTAuditingHandler::OnReporterFinished, GetWeakPtr()),
-      std::move(backoff_entry));
+      std::move(backoff_entry), already_counted);
   reporter->Start();
   pending_reporters_.Put(reporter->key(), std::move(reporter));
 
@@ -239,11 +362,8 @@ void SCTAuditingHandler::OnReportsLoadedFromDisk(
   DeserializeData(serialized);
 }
 
-// TODOO(crbug.com/1144205): This method should take a completion callback (for
-// callers like NetworkContext::ClearNetworkingHistoryBetween() that want to be
-// able to wait for the write completing), and pass it through to the `writer_`,
-// like TransportSecurityState does.
-void SCTAuditingHandler::ClearPendingReports() {
+void SCTAuditingHandler::ClearPendingReports(base::OnceClosure callback) {
+  DCHECK(foreground_runner_->RunsTasksInCurrentSequence());
   // Delete any outstanding Reporters. This will delete any extant URLLoader
   // instances owned by the Reporters, which will cancel any outstanding
   // requests/connections. Pending (delayed) retry tasks will fast-fail when
@@ -251,23 +371,42 @@ void SCTAuditingHandler::ClearPendingReports() {
   // task.
   pending_reporters_.Clear();
   if (writer_) {
-    writer_->ScheduleWrite(this);
+    writer_->RegisterOnNextWriteCallbacks(
+        base::OnceClosure(),
+        // The callback set by NetworkContext is a BarrierClosure that does not
+        // take any arguments. The ImportantFileWriter runs its callbacks on the
+        // background sequence. This addresses both issues by setting up the
+        // `after_write_callback` to post back to the foreground task runner and
+        // adapts the type signatures to drop the unused bool.
+        base::BindPostTask(
+            foreground_runner_,
+            base::BindOnce(
+                [](base::OnceCallback<void()> cb, bool /* unused */) {
+                  return std::move(cb).Run();
+                },
+                std::move(callback))));
+    absl::optional<std::string> data = SerializeData();
+    if (data) {
+      writer_->WriteNow(std::move(*data));
+    }
+  } else {
+    std::move(callback).Run();
   }
 }
 
-void SCTAuditingHandler::SetEnabled(bool enabled) {
-  enabled_ = enabled;
+void SCTAuditingHandler::SetMode(mojom::SCTAuditingMode mode) {
+  mode_ = mode;
 
   // High-water-mark metrics get logged hourly (rather than once-per-session at
   // shutdown, as Network Service shutdown is not consistent and non-browser
   // processes can fail to report metrics during shutdown). The timer should
   // only be running if SCT auditing is enabled.
-  if (enabled) {
-    histogram_timer_.Start(FROM_HERE, base::Hours(1), this,
+  if (mode != mojom::SCTAuditingMode::kDisabled) {
+    histogram_timer_.Start(FROM_HERE, hwm_metrics_period_, this,
                            &SCTAuditingHandler::ReportHWMMetrics);
   } else {
     histogram_timer_.Stop();
-    ClearPendingReports();
+    ClearPendingReports(base::DoNothing());
   }
 }
 
@@ -299,7 +438,7 @@ void SCTAuditingHandler::OnReporterFinished(net::HashValue reporter_key) {
 }
 
 void SCTAuditingHandler::ReportHWMMetrics() {
-  if (!enabled_) {
+  if (mode_ == mojom::SCTAuditingMode::kDisabled) {
     return;
   }
   base::UmaHistogramCounts1000("Security.SCTAuditing.OptIn.ReportersHWM",

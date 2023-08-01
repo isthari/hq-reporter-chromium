@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,20 +7,38 @@
 #include <utility>
 
 #include "base/ranges/algorithm.h"
-#include "chrome/browser/profiles/profile.h"
 #include "content/public/browser/device_service.h"
+#include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "services/device/hid/hid_service.h"
 #include "third_party/blink/public/mojom/hid/hid.mojom.h"
 
 namespace ash {
 
-HIDImpl::HIDImpl(content::BrowserContext* browser_context)
-    : browser_context_(browser_context) {
-  // TODO(b/214330822): Remove this when browser_context_ is used.
-  (void)browser_context_;
+namespace {
+
+void OnConnectResponse(
+    HIDImpl::ConnectCallback callback,
+    mojo::PendingRemote<device::mojom::HidConnection> connection) {
+  if (!connection) {
+    std::move(callback).Run(mojo::NullRemote());
+    return;
+  }
+
+  std::move(callback).Run(std::move(connection));
 }
 
-HIDImpl::~HIDImpl() {}
+}  // namespace
+
+// static
+void HIDImpl::Bind(Profile* profile,
+                   const content::ServiceWorkerVersionBaseInfo& info,
+                   mojo::PendingReceiver<blink::mojom::CrosHID> receiver) {
+  mojo::MakeSelfOwnedReceiver(std::make_unique<HIDImpl>(), std::move(receiver));
+}
+
+HIDImpl::HIDImpl() = default;
+
+HIDImpl::~HIDImpl() = default;
 
 void HIDImpl::AccessDevices(
     std::vector<blink::mojom::HidDeviceFilterPtr> filters,
@@ -130,7 +148,22 @@ device::mojom::HidManager* HIDImpl::GetHidManager() {
   return hid_manager_remote_.get();
 }
 
+void HIDImpl::Connect(
+    const std::string& device_guid,
+    mojo::PendingRemote<device::mojom::HidConnectionClient> client,
+    ConnectCallback callback) {
+  mojo::PendingRemote<device::mojom::HidConnectionWatcher> watcher;
+  watchers_.Add(this, watcher.InitWithNewPipeAndPassReceiver());
+
+  GetHidManager()->Connect(
+      device_guid, std::move(client), std::move(watcher),
+      /*allow_protected_reports=*/false,
+      /*allow_fido_reports=*/false,
+      base::BindOnce(&OnConnectResponse, std::move(callback)));
+}
+
 void HIDImpl::DeviceAdded(device::mojom::HidDeviceInfoPtr device_info) {}
 void HIDImpl::DeviceRemoved(device::mojom::HidDeviceInfoPtr device_info) {}
 void HIDImpl::DeviceChanged(device::mojom::HidDeviceInfoPtr device_info) {}
+
 }  // namespace ash

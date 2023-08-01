@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,7 @@ import androidx.preference.PreferenceViewHolder;
 
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.firstrun.FirstRunSignInProcessor;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.preferences.Pref;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.signin.SyncConsentActivityLauncherImpl;
@@ -49,6 +49,10 @@ public class SignInPreference
     private final ProfileDataCache mProfileDataCache;
     private final AccountManagerFacade mAccountManagerFacade;
 
+    public ProfileDataCache getProfileDataCache() {
+        return mProfileDataCache;
+    }
+
     /**
      * Constructor for inflating from XML.
      */
@@ -71,7 +75,6 @@ public class SignInPreference
                 .getSigninManager(Profile.getLastUsedRegularProfile())
                 .addSignInStateObserver(this);
         mProfileDataCache.addObserver(this);
-        FirstRunSignInProcessor.updateSigninManagerFirstRunCheckDone();
         SyncService syncService = SyncService.get();
         if (syncService != null) {
             syncService.addSyncStateChangedListener(this);
@@ -139,7 +142,6 @@ public class SignInPreference
         setSummary(R.string.sign_in_to_chrome_disabled_summary);
         setFragment(null);
         setIcon(ManagedPreferencesUtils.getManagedByEnterpriseIconId());
-        setWidgetLayoutResource(0);
         setViewEnabled(false);
         setOnPreferenceClickListener(pref -> {
             ManagedPreferencesUtils.showManagedByAdministratorToast(getContext());
@@ -158,11 +160,10 @@ public class SignInPreference
 
         setFragment(null);
         setIcon(AppCompatResources.getDrawable(getContext(), R.drawable.logo_avatar_anonymous));
-        setWidgetLayoutResource(0);
         setViewEnabled(true);
         setOnPreferenceClickListener(pref
                 -> SyncConsentActivityLauncherImpl.get().launchActivityIfAllowed(
-                        getContext(), SigninAccessPoint.SETTINGS));
+                        getContext(), SigninAccessPoint.SETTINGS_SYNC_OFF_ROW));
 
         if (!mWasGenericSigninPromoDisplayed) {
             RecordUserAction.record("Signin_Impression_FromSettings");
@@ -173,12 +174,14 @@ public class SignInPreference
 
     private void setupSignedIn(String accountName) {
         DisplayableProfileData profileData = mProfileDataCache.getProfileDataOrDefault(accountName);
-
-        setTitle(profileData.getFullNameOrEmail());
-        setSummary(accountName);
+        final boolean canShowEmailAddress = profileData.hasDisplayableEmailAddress()
+                || !ChromeFeatureList.isEnabled(
+                        ChromeFeatureList.HIDE_NON_DISPLAYABLE_ACCOUNT_EMAIL);
+        setSummary(canShowEmailAddress ? accountName : "");
+        setTitle(SyncSettingsUtils.getDisplayableFullNameOrEmailWithPreference(
+                profileData, getContext(), SyncSettingsUtils.TitlePreference.FULL_NAME));
         setFragment(AccountManagementFragment.class.getName());
         setIcon(profileData.getImage());
-        setWidgetLayoutResource(0);
         setViewEnabled(true);
         setOnPreferenceClickListener(null);
 

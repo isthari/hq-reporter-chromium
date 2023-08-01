@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,9 +15,9 @@
 #include <unordered_map>
 #include <utility>
 
-#include "base/callback.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/callback.h"
 #include "base/logging.h"
 #include "base/native_library.h"
 #include "base/strings/string_piece.h"
@@ -53,8 +53,7 @@ bool ExtractEmbeddedLibraries(Engine::Name engine,
       LOG(ERROR) << "Failed to load " << name_id.first << " from resources";
       return false;
     }
-    if (base::WriteFile(extraction_dir.Append(name_id.first),
-                        library_data.data(), library_data.size()) < 0) {
+    if (!base::WriteFile(extraction_dir.Append(name_id.first), library_data)) {
       PLOG(ERROR) << "Failed to write " << name_id.first;
       return false;
     }

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,16 +24,21 @@
 #include "ui/gl/gl_workarounds.h"
 #include "ui/gl/gpu_preference.h"
 
-namespace gfx {
-class ColorSpace;
-}  // namespace gfx
-
 namespace gl {
-class YUVToRGBConverter;
+class GLDisplayEGL;
 }  // namespace gl
 
 namespace gpu {
 class GLContextVirtual;
+
+#if BUILDFLAG(IS_APPLE)
+class GL_EXPORT BackpressureMetalSharedEvent {
+ public:
+  virtual ~BackpressureMetalSharedEvent() = default;
+  virtual bool HasCompleted() const = 0;
+};
+#endif  // #if BUILDFLAG(IS_APPLE)
+
 }  // namespace gpu
 
 namespace gl {
@@ -71,10 +76,15 @@ enum ContextPriority {
 
 // Angle allows selecting context virtualization group at context creation time.
 // This enum is used to specify the group number to use for a given context.
-// Currently all contexts which does not specify any group number are part of
-// default angle context virtualization group. DrDc will use below enum to
-// become part of different virtualization group.
-enum class AngleContextVirtualizationGroup { kDefault = -1, kDrDc = 1 };
+// Currently all contexts which do not specify any group number are part of
+// default angle context virtualization group. The below use cases in Chrome use
+// become part of different virtualization groups via this enum.
+enum class AngleContextVirtualizationGroup {
+  kDefault = -1,
+  kDrDc = 1,
+  kGLImageProcessor = 2,
+  kWebViewRenderThread = 3
+};
 
 struct GL_EXPORT GLContextAttribs {
   GLContextAttribs();
@@ -105,6 +115,9 @@ struct GL_EXPORT GLContextAttribs {
   // If true, EGL_ANGLE_external_context_and_surface extension will be used to
   // create ANGLE context from the current native EGL context.
   bool angle_create_from_external_context = false;
+
+  // If true, ANGLE will support the creation of client arrays.
+  bool angle_create_context_client_arrays = false;
 
   // If true, an ANGLE external context will be created with
   // EGL_EXTERNAL_CONTEXT_SAVE_STATE_ANGLE is true, so when ReleaseCurrent is
@@ -222,11 +235,6 @@ class GL_EXPORT GLContext : public base::RefCounted<GLContext>,
   // Returns the GL renderer string. The context must be current.
   virtual std::string GetGLRenderer();
 
-  // Returns a helper structure to convert the YUV color space |color_space|
-  // to its associated full-range RGB color space.
-  virtual YUVToRGBConverter* GetYUVToRGBConverter(
-      const gfx::ColorSpace& color_space);
-
   // Get the CurrentGL object for this context containing the driver, version
   // and API.
   CurrentGL* GetCurrentGL();
@@ -247,7 +255,15 @@ class GL_EXPORT GLContext : public base::RefCounted<GLContext>,
   // context is made current.
   void DirtyVirtualContextState();
 
+#if defined(USE_EGL)
+  // Returns GLDisplayEGL this context belongs to if this context is a
+  // GLContextEGL; returns nullptr otherwise.
+  virtual GLDisplayEGL* GetGLDisplayEGL();
+#endif  // USE_EGL
+
 #if BUILDFLAG(IS_APPLE)
+  virtual void AddMetalSharedEventsForBackpressure(
+      std::vector<std::unique_ptr<gpu::BackpressureMetalSharedEvent>> events);
   // Create a fence for all work submitted to this context so far, and return a
   // monotonically increasing handle to it. This returned handle never needs to
   // be freed. This method is used to create backpressure to throttle GL work
@@ -255,6 +271,9 @@ class GL_EXPORT GLContext : public base::RefCounted<GLContext>,
   virtual uint64_t BackpressureFenceCreate();
   // Perform a client-side wait on a previously-created fence.
   virtual void BackpressureFenceWait(uint64_t fence);
+#endif
+
+#if BUILDFLAG(IS_MAC)
   // Flush the underlying context to avoid crashes due to driver bugs on macOS.
   // https://crbug.com/863817
   virtual void FlushForDriverCrashWorkaround();
@@ -339,7 +358,13 @@ class GL_EXPORT GLContext : public base::RefCounted<GLContext>,
   bool context_lost_ = false;
 
 #if BUILDFLAG(IS_APPLE)
-  std::map<uint64_t, std::unique_ptr<GLFence>> backpressure_fences_;
+  using GLFenceAndMetalSharedEvents = std::pair<
+      std::unique_ptr<GLFence>,
+      std::vector<std::unique_ptr<gpu::BackpressureMetalSharedEvent>>>;
+
+  std::vector<std::unique_ptr<gpu::BackpressureMetalSharedEvent>>
+      next_backpressure_events_;
+  std::map<uint64_t, GLFenceAndMetalSharedEvents> backpressure_fences_;
   uint64_t next_backpressure_fence_ = 0;
 #endif
 };

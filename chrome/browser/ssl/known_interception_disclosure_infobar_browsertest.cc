@@ -1,13 +1,16 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/files/file_util.h"
 #include "base/test/simple_test_clock.h"
 #include "base/threading/thread_restrictions.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ssl/known_interception_disclosure_infobar_delegate.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/tabs/tab_enums.h"
+#include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/infobars/content/content_infobar_manager.h"
@@ -19,6 +22,7 @@
 #include "net/cert/crl_set.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/test_data_directory.h"
+#include "services/cert_verifier/public/mojom/cert_verifier_service_factory.mojom.h"
 #include "ui/base/window_open_disposition.h"
 
 namespace {
@@ -75,11 +79,8 @@ class KnownInterceptionDisclosureInfobarTest : public InProcessBrowserTest {
                                  "crlset_known_interception_by_root.raw"),
                              &crl_set_bytes);
     }
-    network::mojom::NetworkService* network_service =
-        content::GetNetworkService();
-    DCHECK(network_service);
     base::RunLoop run_loop;
-    network_service->UpdateCRLSet(
+    content::GetCertVerifierServiceFactory()->UpdateCRLSet(
         base::as_bytes(base::make_span(crl_set_bytes)), run_loop.QuitClosure());
     run_loop.Run();
   }
@@ -115,7 +116,7 @@ IN_PROC_BROWSER_TEST_F(KnownInterceptionDisclosureInfobarTest,
 
   // Close the new tab.
   tab_strip_model->CloseWebContentsAt(tab_strip_model->active_index(),
-                                      TabStripModel::CLOSE_USER_GESTURE);
+                                      TabCloseTypes::CLOSE_USER_GESTURE);
 
   // Reload the first page -- infobar should still show.
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), kInterceptedUrl));
@@ -152,8 +153,15 @@ IN_PROC_BROWSER_TEST_F(KnownInterceptionDisclosureInfobarTest,
   EXPECT_EQ(0u, GetInfobarCount(tab));
 }
 
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+#define MAYBE_CooldownResetsOnBrowserRestartDesktop \
+  DISABLED_CooldownResetsOnBrowserRestartDesktop
+#else
+#define MAYBE_CooldownResetsOnBrowserRestartDesktop \
+  CooldownResetsOnBrowserRestartDesktop
+#endif
 IN_PROC_BROWSER_TEST_F(KnownInterceptionDisclosureInfobarTest,
-                       CooldownResetsOnBrowserRestartDesktop) {
+                       MAYBE_CooldownResetsOnBrowserRestartDesktop) {
   const GURL kInterceptedUrl(https_server_.GetURL("/ssl/google.html"));
 
   // On restart, no infobar should be shown initially.

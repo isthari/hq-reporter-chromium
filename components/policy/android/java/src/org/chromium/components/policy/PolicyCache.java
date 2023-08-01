@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -236,6 +236,13 @@ public class PolicyCache {
 
         // Policy Service is up and there is no need to get policy from here anymore.
         enableWriteOnlyMode();
+    }
+
+    /** Delete all entries from the cache. */
+    public void reset() {
+        SharedPreferences.Editor sharedPreferencesEditor = getSharedPreferencesEditor();
+        sharedPreferencesEditor.clear();
+        sharedPreferencesEditor.apply();
     }
 
     private void enableWriteOnlyMode() {

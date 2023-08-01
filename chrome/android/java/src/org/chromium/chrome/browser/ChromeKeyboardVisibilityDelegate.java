@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -88,5 +88,14 @@ public class ChromeKeyboardVisibilityDelegate extends SingleWindowKeyboardVisibi
     @Override
     public @Px int calculateSoftKeyboardHeight(View rootView) {
         return calculateKeyboardHeight(rootView);
+    }
+
+    @Override
+    public int calculateTotalKeyboardHeight(View rootView) {
+        int accessoryHeight = 0;
+        if (mManualFillingComponentSupplier.hasValue()) {
+            accessoryHeight = mManualFillingComponentSupplier.get().getKeyboardExtensionHeight();
+        }
+        return calculateKeyboardHeight(rootView) + accessoryHeight;
     }
 }

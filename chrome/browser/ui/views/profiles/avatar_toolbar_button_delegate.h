@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,11 +16,12 @@
 #include "chrome/browser/ui/browser_list_observer.h"
 #include "chrome/browser/ui/views/profiles/avatar_toolbar_button.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
-#include "components/sync/driver/sync_service.h"
-#include "components/sync/driver/sync_service_observer.h"
+#include "components/sync/service/sync_service.h"
+#include "components/sync/service/sync_service_observer.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/gfx/image/image.h"
 
+class Browser;
 class Profile;
 
 // Handles the business logic for AvatarToolbarButton. This includes
@@ -30,7 +31,7 @@ class AvatarToolbarButtonDelegate : public BrowserListObserver,
                                     public signin::IdentityManager::Observer,
                                     public syncer::SyncServiceObserver {
  public:
-  AvatarToolbarButtonDelegate(AvatarToolbarButton* button, Profile* profile);
+  AvatarToolbarButtonDelegate(AvatarToolbarButton* button, Browser* browser);
 
   AvatarToolbarButtonDelegate(const AvatarToolbarButtonDelegate&) = delete;
   AvatarToolbarButtonDelegate& operator=(const AvatarToolbarButtonDelegate&) =
@@ -70,7 +71,6 @@ class AvatarToolbarButtonDelegate : public BrowserListObserver,
   void NotifyClick();
   void OnMouseExited();
   void OnBlur();
-  void OnHighlightChanged();
 
  private:
   enum class IdentityAnimationState { kNotShowing, kWaitingForImage, kShowing };
@@ -125,6 +125,7 @@ class AvatarToolbarButtonDelegate : public BrowserListObserver,
       identity_manager_observation_{this};
 
   const raw_ptr<AvatarToolbarButton> avatar_toolbar_button_;
+  const raw_ptr<Browser> browser_;
   const raw_ptr<Profile> profile_;
   IdentityAnimationState identity_animation_state_ =
       IdentityAnimationState::kNotShowing;

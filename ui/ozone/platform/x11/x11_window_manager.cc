@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,7 +42,7 @@ void X11WindowManager::GrabEvents(X11Window* window) {
   // - |located_events_grabber_| is set to have capture.
   // OR
   // - The topmost window underneath the mouse is managed by Chrome.
-  auto* old_grabber = located_events_grabber_;
+  auto* old_grabber = located_events_grabber_.get();
 
   // Update |located_events_grabber_| prior to calling OnXWindowLostCapture() to
   // avoid releasing pointer grab.
@@ -58,7 +58,7 @@ void X11WindowManager::UngrabEvents(X11Window* window) {
   // Release mouse grab asynchronously. A window managed by Chrome is likely
   // the topmost window underneath the mouse so the capture release being
   // asynchronous is likely inconsequential.
-  auto* old_grabber = located_events_grabber_;
+  auto* old_grabber = located_events_grabber_.get();
   located_events_grabber_ = nullptr;
   old_grabber->OnXWindowLostCapture();
 }
@@ -87,7 +87,6 @@ void X11WindowManager::RemoveWindow(X11Window* window) {
 }
 
 X11Window* X11WindowManager::GetWindow(gfx::AcceleratedWidget widget) const {
-  DCHECK_NE(gfx::kNullAcceleratedWidget, widget);
   auto it = windows_.find(widget);
   return it != windows_.end() ? it->second : nullptr;
 }
@@ -98,13 +97,6 @@ void X11WindowManager::MouseOnWindow(X11Window* window) {
 
   window_mouse_currently_on_ = window;
   window->OnMouseEnter();
-}
-
-std::vector<X11Window*> X11WindowManager::GetAllOpenWindows() const {
-  std::vector<X11Window*> all_windows;
-  for (const auto& item : windows_)
-    all_windows.push_back(item.second);
-  return all_windows;
 }
 
 }  // namespace ui

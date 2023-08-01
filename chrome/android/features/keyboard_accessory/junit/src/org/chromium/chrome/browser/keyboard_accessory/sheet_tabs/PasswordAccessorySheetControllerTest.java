@@ -1,13 +1,14 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.keyboard_accessory.sheet_tabs;
 
+import static androidx.test.espresso.matcher.ViewMatchers.assertThat;
+
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.Matchers.equalTo;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -21,16 +22,15 @@ import static org.chromium.chrome.browser.keyboard_accessory.ManualFillingMetric
 import static org.chromium.chrome.browser.keyboard_accessory.ManualFillingMetricsRecorder.UMA_KEYBOARD_ACCESSORY_TOGGLE_CLICKED;
 import static org.chromium.chrome.browser.keyboard_accessory.ManualFillingMetricsRecorder.UMA_KEYBOARD_ACCESSORY_TOGGLE_IMPRESSION;
 import static org.chromium.chrome.browser.keyboard_accessory.ManualFillingMetricsRecorder.getHistogramForType;
+import static org.chromium.chrome.browser.keyboard_accessory.sheet_tabs.AccessorySheetTabItemsModel.AccessorySheetDataPiece.Type.FOOTER_COMMAND;
+import static org.chromium.chrome.browser.keyboard_accessory.sheet_tabs.AccessorySheetTabItemsModel.AccessorySheetDataPiece.Type.PASSWORD_INFO;
+import static org.chromium.chrome.browser.keyboard_accessory.sheet_tabs.AccessorySheetTabItemsModel.AccessorySheetDataPiece.Type.TITLE;
+import static org.chromium.chrome.browser.keyboard_accessory.sheet_tabs.AccessorySheetTabItemsModel.AccessorySheetDataPiece.getType;
 import static org.chromium.chrome.browser.keyboard_accessory.sheet_tabs.AccessorySheetTabMetricsRecorder.UMA_KEYBOARD_ACCESSORY_SHEET_SUGGESTIONS;
-import static org.chromium.chrome.browser.keyboard_accessory.sheet_tabs.AccessorySheetTabModel.AccessorySheetDataPiece.Type.FOOTER_COMMAND;
-import static org.chromium.chrome.browser.keyboard_accessory.sheet_tabs.AccessorySheetTabModel.AccessorySheetDataPiece.Type.PASSWORD_INFO;
-import static org.chromium.chrome.browser.keyboard_accessory.sheet_tabs.AccessorySheetTabModel.AccessorySheetDataPiece.Type.TITLE;
-import static org.chromium.chrome.browser.keyboard_accessory.sheet_tabs.AccessorySheetTabModel.AccessorySheetDataPiece.getType;
 
 import android.graphics.drawable.Drawable;
 
-import androidx.recyclerview.widget.RecyclerView;
-
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -42,11 +42,9 @@ import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 
 import org.chromium.base.metrics.RecordHistogram;
-import org.chromium.base.metrics.RecordHistogramJni;
-import org.chromium.base.metrics.test.ShadowRecordHistogram;
+import org.chromium.base.metrics.UmaRecorderHolder;
 import org.chromium.base.task.test.CustomShadowAsyncTask;
 import org.chromium.base.test.BaseRobolectricTestRunner;
-import org.chromium.base.test.util.JniMocker;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.keyboard_accessory.AccessoryAction;
 import org.chromium.chrome.browser.keyboard_accessory.AccessoryTabType;
@@ -59,6 +57,7 @@ import org.chromium.chrome.browser.keyboard_accessory.data.KeyboardAccessoryData
 import org.chromium.chrome.browser.keyboard_accessory.data.PropertyProvider;
 import org.chromium.chrome.browser.keyboard_accessory.data.Provider;
 import org.chromium.chrome.browser.keyboard_accessory.data.UserInfoField;
+import org.chromium.chrome.browser.util.ChromeAccessibilityUtil;
 import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.ui.modelutil.ListObservable;
 
@@ -68,33 +67,32 @@ import java.util.concurrent.atomic.AtomicReference;
  * Controller tests for the password accessory sheet.
  */
 @RunWith(BaseRobolectricTestRunner.class)
-@Config(manifest = Config.NONE,
-        shadows = {CustomShadowAsyncTask.class, ShadowRecordHistogram.class})
+@Config(manifest = Config.NONE, shadows = {CustomShadowAsyncTask.class})
 @Features.EnableFeatures(ChromeFeatureList.AUTOFILL_KEYBOARD_ACCESSORY)
 public class PasswordAccessorySheetControllerTest {
     @Rule
-    public JniMocker mocker = new JniMocker();
-    @Rule
     public TestRule mFeaturesProcessorRule = new Features.JUnitProcessor();
     @Mock
-    private RecyclerView mMockView;
+    private AccessorySheetTabView mMockView;
     @Mock
     private ListObservable.ListObserver<Void> mMockItemListObserver;
-    @Mock
-    private RecordHistogram.Natives mMockRecordHistogramNatives;
 
     private PasswordAccessorySheetCoordinator mCoordinator;
-    private AccessorySheetTabModel mSheetDataPieces;
+    private AccessorySheetTabItemsModel mSheetDataPieces;
 
     @Before
     public void setUp() {
-        ShadowRecordHistogram.reset();
+        UmaRecorderHolder.resetForTesting();
         MockitoAnnotations.initMocks(this);
-        mocker.mock(RecordHistogramJni.TEST_HOOKS, mMockRecordHistogramNatives);
         AccessorySheetTabCoordinator.IconProvider.setIconForTesting(mock(Drawable.class));
         mCoordinator = new PasswordAccessorySheetCoordinator(RuntimeEnvironment.application, null);
         assertNotNull(mCoordinator);
         mSheetDataPieces = mCoordinator.getSheetDataPiecesForTesting();
+    }
+
+    @After
+    public void tearDown() {
+        ChromeAccessibilityUtil.get().setAccessibilityEnabledForTesting(false);
     }
 
     @Test
@@ -113,6 +111,18 @@ public class PasswordAccessorySheetControllerTest {
         assertNotNull(tab.getListener());
         tab.getListener().onTabCreated(mMockView);
         verify(mMockView).setAdapter(any());
+    }
+
+    @Test
+    public void testRequestDefaultFocus() {
+        ChromeAccessibilityUtil.get().setAccessibilityEnabledForTesting(true);
+
+        when(mMockView.getParent()).thenReturn(mMockView);
+        KeyboardAccessoryData.Tab tab = mCoordinator.getTab();
+        tab.getListener().onTabCreated(mMockView);
+        tab.getListener().onTabShown();
+
+        verify(mMockView).requestDefaultA11yFocus();
     }
 
     @Test

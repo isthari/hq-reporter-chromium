@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@ package org.chromium.chrome.browser.customtabs;
 import static org.junit.Assert.assertEquals;
 
 import android.content.Intent;
-import android.support.test.InstrumentationRegistry;
 
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.MediumTest;
 
 import org.junit.Before;
@@ -60,8 +60,8 @@ public class CustomTabActivityIncognitoMetricTest {
     }
 
     private Intent createMinimalIncognitoCustomTabIntent() {
-        return CustomTabsTestUtils.createMinimalIncognitoCustomTabIntent(
-                InstrumentationRegistry.getContext(), mTestPage);
+        return CustomTabsIntentTestUtils.createMinimalIncognitoCustomTabIntent(
+                ApplicationProvider.getApplicationContext(), mTestPage);
     }
 
     @Test

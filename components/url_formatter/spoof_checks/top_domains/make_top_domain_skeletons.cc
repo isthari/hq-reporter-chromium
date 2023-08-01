@@ -1,4 +1,4 @@
-// Copyright (c) 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -38,8 +38,7 @@ base::FilePath GetPath(base::StringPiece basename) {
 
 bool WriteToFile(const std::string& content, base::StringPiece basename) {
   base::FilePath path = GetPath(basename);
-  int size = base::checked_cast<int>(content.size());
-  bool succeeded = base::WriteFile(path, content.data(), size) == size;
+  bool succeeded = base::WriteFile(path, content.data());
   if (!succeeded)
     std::cerr << "Failed to write to " << path.AsUTF8Unsafe() << '\n';
   return succeeded;
@@ -87,7 +86,7 @@ int GenerateSkeletons(const char* input_file_name,
   std::u16string kLabelSeparators = u".-";
   std::stringstream input(input_content);
   std::string output =
-      R"(# Copyright 2018 The Chromium Authors. All rights reserved.
+      R"(# Copyright 2018 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 

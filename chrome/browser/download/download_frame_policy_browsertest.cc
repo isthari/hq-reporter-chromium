@@ -1,9 +1,9 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -165,7 +165,8 @@ class DownloadFramePolicyBrowserTest
     if (initiate_with_gesture) {
       EXPECT_TRUE(ExecJs(adapter, script));
     } else {
-      EXPECT_TRUE(ExecuteScriptWithoutUserGesture(adapter, script));
+      EXPECT_TRUE(
+          ExecJs(adapter, script, content::EXECUTE_SCRIPT_NO_USER_GESTURE));
     }
   }
 
@@ -197,7 +198,7 @@ class DownloadFramePolicyBrowserTest
     }
 
     content::TestNavigationObserver navigation_observer(web_contents());
-    EXPECT_TRUE(content::ExecJs(web_contents()->GetMainFrame(), script,
+    EXPECT_TRUE(content::ExecJs(web_contents()->GetPrimaryMainFrame(), script,
                                 content::EXECUTE_SCRIPT_NO_USER_GESTURE));
 
     navigation_observer.Wait();
@@ -223,8 +224,8 @@ class DownloadFramePolicyBrowserTest
             browser()->tab_strip_model(), &web_feature_waiter_);
     content::TestNavigationObserver popup_observer(main_url);
     popup_observer.StartWatchingNewWebContents();
-    EXPECT_TRUE(ExecuteScript(GetSubframeRfh(),
-                              "window.open(\"" + main_url.spec() + "\");"));
+    EXPECT_TRUE(
+        ExecJs(GetSubframeRfh(), "window.open(\"" + main_url.spec() + "\");"));
     popup_observer.Wait();
     ASSERT_EQ(2, browser()->tab_strip_model()->count());
     ASSERT_TRUE(browser()->tab_strip_model()->IsTabSelected(1));
@@ -276,7 +277,7 @@ class DownloadFramePolicyBrowserTest
   std::unique_ptr<content::DownloadTestObserver> download_observer_;
   std::unique_ptr<page_load_metrics::PageLoadMetricsTestWaiter>
       web_feature_waiter_;
-  raw_ptr<content::RenderFrameHost> subframe_rfh_ = nullptr;
+  raw_ptr<content::RenderFrameHost, DanglingUntriaged> subframe_rfh_ = nullptr;
   size_t expected_num_downloads_ = 0;
 };
 
@@ -510,12 +511,9 @@ IN_PROC_BROWSER_TEST_P(OtherFrameNavigationDownloadBrowserTest_AdFrame,
                              is_cross_origin /* is_cross_origin */);
 
   if (!prevent_frame_busting) {
-    // Currently, cross-process navigation doesn't carry the gesture regardless
-    // whether the initiator frame has gesture or not.
-    bool expect_gesture = initiate_with_gesture && !is_cross_origin;
-
     bool expect_download =
-        !block_downloads_in_ad_frame_without_user_activation || expect_gesture;
+        !block_downloads_in_ad_frame_without_user_activation ||
+        initiate_with_gesture;
 
     SetNumDownloadsExpectation(expect_download);
 
@@ -524,7 +522,7 @@ IN_PROC_BROWSER_TEST_P(OtherFrameNavigationDownloadBrowserTest_AdFrame,
     GetWebFeatureWaiter()->AddWebFeatureExpectation(
         blink::mojom::WebFeature::kDownloadInAdFrame);
 
-    if (!expect_gesture) {
+    if (!initiate_with_gesture) {
       GetWebFeatureWaiter()->AddWebFeatureExpectation(
           blink::mojom::WebFeature::kDownloadInAdFrameWithoutUserGesture);
     }
@@ -551,7 +549,8 @@ IN_PROC_BROWSER_TEST_P(OtherFrameNavigationDownloadBrowserTest_AdFrame,
     if (initiate_with_gesture) {
       EXPECT_TRUE(ExecJs(web_contents(), script));
     } else {
-      EXPECT_TRUE(ExecuteScriptWithoutUserGesture(web_contents(), script));
+      EXPECT_TRUE(ExecJs(web_contents(), script,
+                         content::EXECUTE_SCRIPT_NO_USER_GESTURE));
     }
   }
 
@@ -650,7 +649,7 @@ IN_PROC_BROWSER_TEST_P(
                              is_cross_origin);
 
   EXPECT_TRUE(
-      ExecJs(web_contents()->GetMainFrame(),
+      ExecJs(web_contents()->GetPrimaryMainFrame(),
              content::JsReplace("document.querySelector('iframe').sandbox = $1",
                                 update_to_token)));
 
@@ -658,10 +657,10 @@ IN_PROC_BROWSER_TEST_P(
   content::TestNavigationManager navigation_observer(web_contents(),
                                                      download_url);
   EXPECT_TRUE(
-      ExecJs(web_contents()->GetMainFrame(),
+      ExecJs(web_contents()->GetPrimaryMainFrame(),
              content::JsReplace("document.querySelector('iframe').src = $1",
                                 download_url)));
-  navigation_observer.WaitForNavigationFinished();
+  ASSERT_TRUE(navigation_observer.WaitForNavigationFinished());
   EXPECT_FALSE(navigation_observer.was_successful());
 
   GetHistogramTester()->ExpectBucketCount(
@@ -693,7 +692,7 @@ IN_PROC_BROWSER_TEST_P(DownloadFramePolicyBrowserTest_UpdateIframeSandboxFlags,
                              is_cross_origin);
 
   EXPECT_TRUE(
-      ExecJs(web_contents()->GetMainFrame(),
+      ExecJs(web_contents()->GetPrimaryMainFrame(),
              content::JsReplace("document.querySelector('iframe').sandbox = $1",
                                 update_to_token)));
 
@@ -702,7 +701,7 @@ IN_PROC_BROWSER_TEST_P(DownloadFramePolicyBrowserTest_UpdateIframeSandboxFlags,
                                                      download_url);
   EXPECT_TRUE(ExecJs(GetSubframeRfh(),
                      content::JsReplace("top.location = $1", download_url)));
-  navigation_observer.WaitForNavigationFinished();
+  ASSERT_TRUE(navigation_observer.WaitForNavigationFinished());
   EXPECT_FALSE(navigation_observer.was_successful());
 
   GetHistogramTester()->ExpectBucketCount(

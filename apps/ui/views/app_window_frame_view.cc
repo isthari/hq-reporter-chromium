@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,7 +25,6 @@
 #include "ui/gfx/image/image.h"
 #include "ui/strings/grit/ui_strings.h"  // Accessibility names
 #include "ui/views/controls/button/image_button.h"
-#include "ui/views/layout/grid_layout.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 
@@ -170,12 +169,8 @@ int AppWindowFrameView::NonClientHitTest(const gfx::Point& point) {
     return HTCLIENT;
 
   gfx::Rect expanded_bounds = bounds();
-  if (resize_outside_bounds_size_) {
-    expanded_bounds.Inset(gfx::Insets(-resize_outside_bounds_size_,
-                                      -resize_outside_bounds_size_,
-                                      -resize_outside_bounds_size_,
-                                      -resize_outside_bounds_size_));
-  }
+  if (resize_outside_bounds_size_)
+    expanded_bounds.Outset(resize_outside_bounds_size_);
   // Points outside the (possibly expanded) bounds can be discarded.
   if (!expanded_bounds.Contains(point))
     return HTNOWHERE;

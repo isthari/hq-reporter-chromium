@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,14 +9,14 @@
 
 #include "base/metrics/histogram_macros.h"
 #include "services/network/public/mojom/web_sandbox_flags.mojom-blink.h"
-#include "third_party/blink/public/common/action_after_pagehide.h"
+#include "third_party/blink/renderer/bindings/core/v8/capture_source_location.h"
 #include "third_party/blink/renderer/bindings/core/v8/serialization/post_message_helper.h"
-#include "third_party/blink/renderer/bindings/core/v8/source_location.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_window.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_window_post_message_options.h"
 #include "third_party/blink/renderer/bindings/core/v8/window_proxy_manager.h"
 #include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/event_target_names.h"
 #include "third_party/blink/renderer/core/events/message_event.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/execution_context/security_context.h"
@@ -37,12 +37,29 @@
 #include "third_party/blink/renderer/core/page/focus_controller.h"
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
+#include "third_party/blink/renderer/platform/bindings/source_location.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
 
 namespace blink {
+
+namespace {
+
+String CoopReportOnlyErrorMessage(const String& property_name) {
+  String call;
+  if (property_name == "named") {
+    call = "window[\"name\"]";
+  } else if (property_name == "indexed") {
+    call = "window[i]";
+  } else {
+    call = "window." + property_name;
+  }
+  return "Cross-Origin-Opener-Policy policy would block the " + call + " call.";
+}
+
+}  // namespace
 
 DOMWindow::DOMWindow(Frame& frame)
     : frame_(frame),
@@ -169,7 +186,7 @@ DOMWindow* DOMWindow::parent() const {
       WebFeature::kWindowProxyCrossOriginAccessParent,
       WebFeature::kWindowProxyCrossOriginAccessFromOtherPageParent);
 
-  Frame* parent = GetFrame()->Tree().Parent(FrameTreeBoundary::kFenced);
+  Frame* parent = GetFrame()->Tree().Parent();
   return parent ? parent->DomWindow() : GetFrame()->DomWindow();
 }
 
@@ -181,7 +198,7 @@ DOMWindow* DOMWindow::top() const {
       WebFeature::kWindowProxyCrossOriginAccessTop,
       WebFeature::kWindowProxyCrossOriginAccessFromOtherPageTop);
 
-  return GetFrame()->Tree().Top(FrameTreeBoundary::kFenced).DomWindow();
+  return GetFrame()->Tree().Top().DomWindow();
 }
 
 void DOMWindow::postMessage(v8::Isolate* isolate,
@@ -194,7 +211,7 @@ void DOMWindow::postMessage(v8::Isolate* isolate,
       WebFeature::kWindowProxyCrossOriginAccessFromOtherPagePostMessage);
   WindowPostMessageOptions* options = WindowPostMessageOptions::Create();
   options->setTargetOrigin(target_origin);
-  if (!transfer.IsEmpty())
+  if (!transfer.empty())
     options->setTransfer(transfer);
   postMessage(isolate, message, options, exception_state);
 }
@@ -378,7 +395,7 @@ void DOMWindow::close(v8::Isolate* isolate) {
 void DOMWindow::Close(LocalDOMWindow* incumbent_window) {
   DCHECK(incumbent_window);
 
-  if (!GetFrame() || !GetFrame()->IsMainFrame())
+  if (!GetFrame() || !GetFrame()->IsOutermostMainFrame())
     return;
 
   Page* page = GetFrame()->GetPage();
@@ -402,14 +419,21 @@ void DOMWindow::Close(LocalDOMWindow* incumbent_window) {
   bool allow_scripts_to_close_windows =
       settings && settings->GetAllowScriptsToCloseWindows();
 
-  if (!page->OpenedByDOM() && GetFrame()->Client()->BackForwardLength() > 1 &&
-      !allow_scripts_to_close_windows) {
-    active_document->domWindow()->GetFrameConsole()->AddMessage(
-        MakeGarbageCollected<ConsoleMessage>(
-            mojom::ConsoleMessageSource::kJavaScript,
-            mojom::ConsoleMessageLevel::kWarning,
-            "Scripts may close only the windows that were opened by them."));
-    return;
+  if (!page->OpenedByDOM() && !allow_scripts_to_close_windows) {
+    if (GetFrame()->Client()->BackForwardLength() > 1) {
+      active_document->domWindow()->GetFrameConsole()->AddMessage(
+          MakeGarbageCollected<ConsoleMessage>(
+              mojom::blink::ConsoleMessageSource::kJavaScript,
+              mojom::blink::ConsoleMessageLevel::kWarning,
+              "Scripts may close only the windows that were opened by them."));
+      return;
+    } else {
+      // https://html.spec.whatwg.org/multipage/nav-history-apis.html#script-closable
+      // allows a window to be closed if its history length is 1, even if it was
+      // not opened by script.
+      UseCounter::Count(active_document,
+                        WebFeature::kWindowCloseHistoryLengthOne);
+    }
   }
 
   if (!GetFrame()->ShouldClose())
@@ -439,6 +463,18 @@ void DOMWindow::focus(v8::Isolate* isolate) {
   if (!page)
     return;
 
+  if (!frame->AllowFocusWithoutUserActivation()) {
+    // Disallow script focus that crosses a fenced frame boundary on a
+    // frame that doesn't have transient user activation. Note: all calls to
+    // DOMWindow::focus come from JavaScript calls in the web platform
+    if (!frame->HasTransientUserActivation())
+      return;
+    // Fenced frames should consume user activation when attempting to pull
+    // focus across a fenced boundary into itself.
+    if (frame->IsInFencedFrameTree())
+      LocalFrame::ConsumeTransientUserActivation(DynamicTo<LocalFrame>(frame));
+  }
+
   RecordWindowProxyAccessMetrics(
       WebFeature::kWindowProxyCrossOriginAccessFocus,
       WebFeature::kWindowProxyCrossOriginAccessFromOtherPageFocus);
@@ -463,7 +499,7 @@ void DOMWindow::focus(v8::Isolate* isolate) {
   }
 
   // If we're a top level window, bring the window to the front.
-  if (frame->IsMainFrame() && allow_focus) {
+  if (frame->IsOutermostMainFrame() && allow_focus) {
     frame->FocusPage(incumbent_window->GetFrame());
   } else if (auto* local_frame = DynamicTo<LocalFrame>(frame)) {
     // We are depending on user activation twice since IsFocusAllowed() will
@@ -511,6 +547,7 @@ void DOMWindow::InstallCoopAccessMonitor(
   CoopAccessMonitor monitor;
 
   DCHECK(accessing_frame->IsMainFrame());
+  DCHECK(!accessing_frame->IsInFencedFrameTree());
   monitor.report_type = coop_reporter_params->report_type;
   monitor.accessing_main_frame = accessing_frame->GetLocalFrameToken();
   monitor.endpoint_defined = coop_reporter_params->endpoint_defined;
@@ -524,8 +561,8 @@ void DOMWindow::InstallCoopAccessMonitor(
   // TODO(arthursonzogni): Consider observing |accessing_main_frame| deletion
   // instead.
   monitor.reporter.set_disconnect_handler(
-      WTF::Bind(&DOMWindow::DisconnectCoopAccessMonitor,
-                WrapWeakPersistent(this), monitor.accessing_main_frame));
+      WTF::BindOnce(&DOMWindow::DisconnectCoopAccessMonitor,
+                    WrapWeakPersistent(this), monitor.accessing_main_frame));
 
   // As long as RenderDocument isn't shipped, it can exist a CoopAccessMonitor
   // for the same |accessing_main_frame|, because it might now host a different
@@ -553,7 +590,7 @@ void DOMWindow::InstallCoopAccessMonitor(
 // Check if the accessing context would be able to access this window if COOP
 // was enforced. If this isn't a report is sent.
 void DOMWindow::ReportCoopAccess(const char* property_name) {
-  if (coop_access_monitor_.IsEmpty())  // Fast early return. Very likely true.
+  if (coop_access_monitor_.empty())  // Fast early return. Very likely true.
     return;
 
   v8::Isolate* isolate = window_proxy_manager_->GetIsolate();
@@ -567,14 +604,15 @@ void DOMWindow::ReportCoopAccess(const char* property_name) {
 
   // Iframes are allowed to trigger reports, only when they are same-origin with
   // their top-level document.
-  if (accessing_frame->IsCrossOriginToMainFrame())
+  if (accessing_frame->IsCrossOriginToOutermostMainFrame())
     return;
 
-  // See https://crbug.com/1183571
-  // We assumed accessing_frame->IsCrossOriginToMainFrame() implies
-  // accessing_frame->Tree().Top() to be a LocalFrame. This might not be the
-  // case after all, some crashes are reported. This block speculatively returns
-  // early to avoid crashing.
+  // We returned early if accessing_frame->IsCrossOriginToOutermostMainFrame()
+  // was true. This means we are not in a fenced frame and that the nearest main
+  // frame is same-origin. This generally implies accessing_frame->Tree().Top()
+  // to be a LocalFrame. On rare occasions same-origin frames in a page might
+  // not share a process. This block speculatively returns early to avoid
+  // crashing.
   // TODO(https://crbug.com/1183571): Check if crashes are still happening and
   // remove this block.
   if (!accessing_frame->Tree().Top().IsLocalFrame()) {
@@ -596,7 +634,7 @@ void DOMWindow::ReportCoopAccess(const char* property_name) {
 
     // TODO(arthursonzogni): Send the blocked-window-url.
 
-    auto location = SourceLocation::Capture(
+    auto location = CaptureSourceLocation(
         ExecutionContext::From(isolate->GetCurrentContext()));
     // TODO(arthursonzogni): Once implemented, use the SourceLocation typemap
     // https://chromium-review.googlesource.com/c/chromium/src/+/2041657
@@ -604,7 +642,11 @@ void DOMWindow::ReportCoopAccess(const char* property_name) {
         location->Url() ? location->Url() : "", location->LineNumber(),
         location->ColumnNumber());
 
-    // TODO(https://crbug.com/1124251): Notify Devtool about the access attempt.
+    accessing_window->GetFrameConsole()->AddMessage(
+        MakeGarbageCollected<ConsoleMessage>(
+            mojom::blink::ConsoleMessageSource::kJavaScript,
+            mojom::blink::ConsoleMessageLevel::kError,
+            CoopReportOnlyErrorMessage(property_name), location->Clone()));
 
     // If the reporting document hasn't specified any network report
     // endpoint(s), then it is likely not interested in receiving
@@ -646,17 +688,6 @@ void DOMWindow::DoPostMessage(scoped_refptr<SerializedScriptValue> message,
       source_frame->GetDocument()->UnloadEventInProgress();
   if (!unload_event_in_progress && source_frame && source_frame->GetPage() &&
       source_frame->GetPage()->DispatchedPagehideAndStillHidden()) {
-    // The postMessage call is done after the pagehide event got dispatched
-    // and the page is still hidden, which is not normally possible (this
-    // might happen if we're doing a same-site cross-RenderFrame navigation
-    // where we dispatch pagehide during the new RenderFrame's commit but
-    // won't unload/freeze the page after the new RenderFrame finished
-    // committing). We should track this case to measure how often this is
-    // happening, except for when the unload event is currently in progress,
-    // which means the page is not actually stored in the back-forward cache and
-    // this behavior is ok.
-    UMA_HISTOGRAM_ENUMERATION("BackForwardCache.SameSite.ActionAfterPagehide2",
-                              ActionAfterPagehide::kSentPostMessage);
   }
   if (!IsCurrentlyDisplayedInFrame())
     return;
@@ -744,16 +775,50 @@ void DOMWindow::DoPostMessage(scoped_refptr<SerializedScriptValue> message,
   if (options->includeUserActivation())
     user_activation = UserActivation::CreateSnapshot(source);
 
-  // TODO(mustaq): This is an ad-hoc mechanism to support delegating a single
-  // capability.  We need to add a structure to support passing other
-  // capabilities.  An explainer for the general delegation API is here:
-  // https://github.com/mustaqahmed/capability-delegation
-  bool delegate_payment_request = false;
-  if (LocalFrame::HasTransientUserActivation(source_frame) &&
-      options->hasDelegate()) {
+  // Capability Delegation permits a script to delegate its ability to call a
+  // restricted API to another browsing context it trusts. User activation is
+  // currently consumed when a supported capability is specified, to prevent
+  // potentially abusive repeated delegation attempts.
+  // https://wicg.github.io/capability-delegation/spec.html
+  // TODO(mustaq): Explore use cases for delegating multiple capabilities.
+  mojom::blink::DelegatedCapability delegated_capability =
+      mojom::blink::DelegatedCapability::kNone;
+  if (options->hasDelegate()) {
     Vector<String> capability_list;
     options->delegate().Split(' ', capability_list);
-    delegate_payment_request = capability_list.Contains("payment");
+    if (capability_list.Contains("payment")) {
+      delegated_capability = mojom::blink::DelegatedCapability::kPaymentRequest;
+    } else if (capability_list.Contains("fullscreen")) {
+      delegated_capability =
+          mojom::blink::DelegatedCapability::kFullscreenRequest;
+    } else if (capability_list.Contains("display-capture")) {
+      delegated_capability =
+          mojom::blink::DelegatedCapability::kDisplayCaptureRequest;
+    } else {
+      exception_state.ThrowDOMException(
+          DOMExceptionCode::kNotSupportedError,
+          "Delegation of \'" + options->delegate() + "\' is not supported.");
+      return;
+    }
+
+    // TODO(mustaq): Add checks for allowed-to-use policy as proposed here:
+    // https://wicg.github.io/capability-delegation/spec.html#monkey-patch-to-html-initiating-delegation
+
+    if (!target) {
+      exception_state.ThrowDOMException(
+          DOMExceptionCode::kNotAllowedError,
+          "Delegation to target origin '*' is not allowed.");
+      return;
+    }
+
+    if (!LocalFrame::HasTransientUserActivation(source_frame)) {
+      exception_state.ThrowDOMException(
+          DOMExceptionCode::kNotAllowedError,
+          "Delegation is not allowed without transient user activation.");
+      return;
+    }
+
+    LocalFrame::ConsumeTransientUserActivation(source_frame);
   }
 
   PostedMessage* posted_message = MakeGarbageCollected<PostedMessage>();
@@ -763,7 +828,7 @@ void DOMWindow::DoPostMessage(scoped_refptr<SerializedScriptValue> message,
   posted_message->channels = std::move(channels);
   posted_message->source = source;
   posted_message->user_activation = user_activation;
-  posted_message->delegate_payment_request = delegate_payment_request;
+  posted_message->delegated_capability = delegated_capability;
   SchedulePostMessage(posted_message);
 }
 
@@ -810,22 +875,19 @@ BlinkTransferableMessage
 DOMWindow::PostedMessage::ToBlinkTransferableMessage() && {
   BlinkTransferableMessage result;
 
-  // Message data and cluster ID (optional).
   result.message = std::move(data);
-  if (result.message->IsLockedToAgentCluster())
-    result.locked_agent_cluster_id = source->GetAgentClusterID();
+  result.sender_agent_cluster_id = source->GetAgentClusterID();
+  result.locked_to_sender_agent_cluster =
+      result.message->IsLockedToAgentCluster();
 
-  // Ports
   result.ports = std::move(channels);
 
-  // User activation
   if (user_activation) {
     result.user_activation = mojom::blink::UserActivationSnapshot::New(
         user_activation->hasBeenActive(), user_activation->isActive());
   }
 
-  // Capability delegation
-  result.delegate_payment_request = delegate_payment_request;
+  result.delegated_capability = delegated_capability;
 
   return result;
 }

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,9 +11,11 @@
 #include "ash/hud_display/hud_properties.h"
 #include "ash/shell.h"
 #include "ash/shell_delegate.h"
-#include "base/bind.h"
 #include "base/compiler_specific.h"
+#include "base/functional/bind.h"
+#include "base/memory/raw_ptr.h"
 #include "base/strings/stringprintf.h"
+#include "base/time/time.h"
 #include "cc/debug/layer_tree_debug_state.h"
 #include "components/viz/common/display/renderer_settings.h"
 #include "components/viz/host/host_frame_sink_manager.h"
@@ -26,7 +28,7 @@
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/paint_throbber.h"
-#include "ui/views/accessibility/accessibility_paint_checks.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/background.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/button/checkbox.h"
@@ -60,10 +62,10 @@ class HUDCheckboxHandler {
   HUDCheckboxHandler(const HUDCheckboxHandler&) = delete;
   HUDCheckboxHandler& operator=(const HUDCheckboxHandler&) = delete;
 
-  void UpdateState() const { update_state_.Run(checkbox_); }
+  void UpdateState() const { update_state_.Run(checkbox_.get()); }
 
  private:
-  views::Checkbox* const checkbox_;  // not owned.
+  const raw_ptr<views::Checkbox, ExperimentalAsh> checkbox_;  // not owned.
   base::RepeatingCallback<void(views::Checkbox*)> update_state_;
 };
 
@@ -159,10 +161,6 @@ class AnimationSpeedSlider : public views::Slider {
   AnimationSpeedSlider(const base::flat_set<float>& values,
                        views::SliderListener* listener = nullptr)
       : views::Slider(listener) {
-    // TODO(crbug.com/1218186): Remove this, this is in place temporarily to be
-    // able to submit accessibility checks, but this focusable View needs to
-    // add a name so that the screen reader knows what to announce.
-    SetProperty(views::kSkipAccessibilityPaintChecks, true);
     SetAllowedValues(&values);
   }
 
@@ -230,8 +228,10 @@ class AnimationSpeedControl : public views::SliderListener, public views::View {
   // Map slider values to animation scale.
   using SliderValuesMap = base::flat_map<float, float>;
 
-  views::View* hints_container_ = nullptr;  // not owned.
-  AnimationSpeedSlider* slider_ = nullptr;  // not owned.
+  raw_ptr<views::View, ExperimentalAsh> hints_container_ =
+      nullptr;  // not owned.
+  raw_ptr<AnimationSpeedSlider, ExperimentalAsh> slider_ =
+      nullptr;  // not owned.
 
   SliderValuesMap slider_values_;
 };
@@ -266,8 +266,8 @@ AnimationSpeedControl::AnimationSpeedControl() {
         std::make_unique<views::Label>(text, views::style::CONTEXT_LABEL));
     label->SetAutoColorReadabilityEnabled(false);
     label->SetEnabledColor(kHUDDefaultColor);
-    label->SetBorder(views::CreateEmptyBorder(
-        gfx::Insets(/*vertical=*/0, /*horizontal=*/kLabelBorderWidth)));
+    label->SetBorder(
+        views::CreateEmptyBorder(gfx::Insets::VH(0, kLabelBorderWidth)));
     label->SetHorizontalAlignment(gfx::ALIGN_CENTER);
     multipliers.push_back(multiplier);
   };
@@ -305,6 +305,11 @@ AnimationSpeedControl::AnimationSpeedControl() {
   slider_->SetProperty(kHUDClickHandler, HTCLIENT);
   if (slider_value != -1)
     slider_->SetValue(slider_value);
+
+  // Because the slider is focusable, it needs to have an accessible name so
+  // that the screen reader knows what to announce. Indicating the slider is
+  // labelled by the title will cause ViewAccessibility to set the name.
+  slider_->GetViewAccessibility().OverrideLabelledBy(title);
 }
 
 AnimationSpeedControl::~AnimationSpeedControl() = default;
@@ -344,8 +349,8 @@ void AnimationSpeedControl::Layout() {
   // correct size.
   gfx::Size slider_size(hints_total_size.width(), 30);
   slider_->SetPreferredSize(slider_size);
-  slider_->SetBorder(views::CreateEmptyBorder(
-      gfx::Insets(/*vertical=*/0, /*horizontal=*/max_size.width() / 2)));
+  slider_->SetBorder(
+      views::CreateEmptyBorder(gfx::Insets::VH(0, max_size.width() / 2)));
   views::View::Layout();
 }
 
@@ -524,7 +529,7 @@ HUDSettingsView::HUDSettingsView(HUDDisplayView* hud_display) {
           views::BoxLayout::CrossAxisAlignment::kStretch);
 
   ui_devtools_controls->SetBorder(
-      views::CreateEmptyBorder(gfx::Insets(kUiDevToolsControlButtonMargin)));
+      views::CreateEmptyBorder(kUiDevToolsControlButtonMargin));
   ui_dev_tools_control_button_ =
       ui_devtools_controls->AddChildView(std::make_unique<HUDActionButton>(
           base::BindRepeating(&HUDSettingsView::OnEnableUiDevToolsButtonPressed,
@@ -533,7 +538,7 @@ HUDSettingsView::HUDSettingsView(HUDDisplayView* hud_display) {
   UpdateDevToolsControlButtonLabel();
 
   tracing_controls->SetBorder(
-      views::CreateEmptyBorder(gfx::Insets(kTracingControlButtonMargin)));
+      views::CreateEmptyBorder(kTracingControlButtonMargin));
   tracing_control_button_ =
       tracing_controls->AddChildView(std::make_unique<HUDActionButton>(
           base::BindRepeating(&HUDSettingsView::OnEnableTracingButtonPressed,
@@ -546,8 +551,8 @@ HUDSettingsView::HUDSettingsView(HUDDisplayView* hud_display) {
           std::u16string(), views::style::CONTEXT_LABEL));
   tracing_status_message_->SetAutoColorReadabilityEnabled(false);
   tracing_status_message_->SetEnabledColor(kHUDDefaultColor);
-  tracing_status_message_->SetBorder(views::CreateEmptyBorder(
-      gfx::Insets(/*vertical=*/0, /*horizontal=*/kLabelBorderWidth)));
+  tracing_status_message_->SetBorder(
+      views::CreateEmptyBorder(gfx::Insets::VH(0, kLabelBorderWidth)));
   tracing_status_message_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
 
   views::Label* pii_label = tracing_controls->AddChildView(std::make_unique<
@@ -558,8 +563,8 @@ HUDSettingsView::HUDSettingsView(HUDDisplayView* hud_display) {
   pii_label->SetMultiLine(true);
   pii_label->SetAutoColorReadabilityEnabled(false);
   pii_label->SetEnabledColor(kHUDDefaultColor);
-  pii_label->SetBorder(views::CreateEmptyBorder(
-      gfx::Insets(/*vertical=*/0, /*horizontal=*/kLabelBorderWidth)));
+  pii_label->SetBorder(
+      views::CreateEmptyBorder(gfx::Insets::VH(0, kLabelBorderWidth)));
   pii_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
 
   UpdateTracingControlButton();

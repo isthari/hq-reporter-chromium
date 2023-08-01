@@ -1,14 +1,14 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_ASH_ATTESTATION_ATTESTATION_POLICY_OBSERVER_H_
 #define CHROME_BROWSER_ASH_ATTESTATION_ATTESTATION_POLICY_OBSERVER_H_
 
-#include "base/callback.h"
-#include "base/memory/weak_ptr.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
 #include "chrome/browser/ash/settings/cros_settings.h"
-#include "chromeos/dbus/constants/attestation_constants.h"
+#include "chromeos/ash/components/dbus/constants/attestation_constants.h"
 
 namespace ash {
 namespace attestation {
@@ -37,8 +37,8 @@ class AttestationPolicyObserver {
   // Checks attestation policy and starts any necessary work.
   void Start();
 
-  CrosSettings* cros_settings_;
-  MachineCertificateUploader* certificate_uploader_;
+  raw_ptr<CrosSettings, ExperimentalAsh> cros_settings_;
+  raw_ptr<MachineCertificateUploader, ExperimentalAsh> certificate_uploader_;
 
   base::CallbackListSubscription attestation_subscription_;
 };

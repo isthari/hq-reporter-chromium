@@ -1,10 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef GPU_IPC_COMMON_CONTEXT_CREATION_ATTRIBS_MOJOM_TRAITS_H_
 #define GPU_IPC_COMMON_CONTEXT_CREATION_ATTRIBS_MOJOM_TRAITS_H_
 
+#include "base/notreached.h"
 #include "gpu/command_buffer/common/context_creation_attribs.h"
 #include "gpu/gpu_export.h"
 #include "gpu/ipc/common/gpu_channel.mojom-shared.h"
@@ -160,11 +161,6 @@ struct GPU_EXPORT StructTraits<gpu::mojom::ContextCreationAttribsDataView,
   static bool should_use_native_gmb_for_backbuffer(
       const gpu::ContextCreationAttribs& attribs) {
     return attribs.should_use_native_gmb_for_backbuffer;
-  }
-
-  static bool own_offscreen_surface(
-      const gpu::ContextCreationAttribs& attribs) {
-    return attribs.own_offscreen_surface;
   }
 
   static bool single_buffer(const gpu::ContextCreationAttribs& attribs) {

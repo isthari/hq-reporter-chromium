@@ -1,41 +1,36 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import 'chrome://resources/cr_elements/cr_action_menu/cr_action_menu.js';
-import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
-import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.m.js';
-import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
-import 'chrome://resources/cr_elements/cr_icons_css.m.js';
-import 'chrome://resources/cr_elements/cr_input/cr_input.m.js';
+import 'chrome://resources/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
+import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.js';
+import 'chrome://resources/cr_elements/cr_icons.css.js';
+import 'chrome://resources/cr_elements/cr_input/cr_input.js';
 import 'chrome://resources/cr_elements/cr_toast/cr_toast.js';
-import 'chrome://resources/cr_elements/hidden_style_css.m.js';
+import 'chrome://resources/cr_elements/cr_hidden_style.css.js';
 
 import {CrActionMenuElement} from 'chrome://resources/cr_elements/cr_action_menu/cr_action_menu.js';
-import {CrDialogElement} from 'chrome://resources/cr_elements/cr_dialog/cr_dialog.m.js';
+import {CrDialogElement} from 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
 import {CrToastElement} from 'chrome://resources/cr_elements/cr_toast/cr_toast.js';
-import {assert} from 'chrome://resources/js/assert.m.js';
+import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
+import {assert} from 'chrome://resources/js/assert_ts.js';
 import {skColorToRgba} from 'chrome://resources/js/color_utils.js';
-import {isMac} from 'chrome://resources/js/cr.m.js';
-import {FocusOutlineManager} from 'chrome://resources/js/cr/ui/focus_outline_manager.m.js';
-import {EventTracker} from 'chrome://resources/js/event_tracker.m.js';
-import {I18nMixin} from 'chrome://resources/js/i18n_mixin.js';
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
-import {hasKeyModifiers} from 'chrome://resources/js/util.m.js';
+import {EventTracker} from 'chrome://resources/js/event_tracker.js';
+import {FocusOutlineManager} from 'chrome://resources/js/focus_outline_manager.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
+import {isMac} from 'chrome://resources/js/platform.js';
+import {hasKeyModifiers} from 'chrome://resources/js/util_ts.js';
 import {TextDirection} from 'chrome://resources/mojo/mojo/public/mojom/base/text_direction.mojom-webui.js';
 import {SkColor} from 'chrome://resources/mojo/skia/public/mojom/skcolor.mojom-webui.js';
 import {Url} from 'chrome://resources/mojo/url/mojom/url.mojom-webui.js';
-import {DomRepeat, DomRepeatEvent, html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {DomRepeat, DomRepeatEvent, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {MostVisitedBrowserProxy} from './browser_proxy.js';
+import {getTemplate} from './most_visited.html.js';
 import {MostVisitedInfo, MostVisitedPageCallbackRouter, MostVisitedPageHandlerRemote, MostVisitedTheme, MostVisitedTile} from './most_visited.mojom-webui.js';
 import {MostVisitedWindowProxy} from './window_proxy.js';
-
-enum ScreenWidth {
-  NARROW = 0,
-  MEDIUM = 1,
-  WIDE = 2,
-}
 
 function resetTilePosition(tile: HTMLElement) {
   tile.style.position = '';
@@ -49,7 +44,7 @@ function setTilePosition(tile: HTMLElement, {x, y}: {x: number, y: number}) {
   tile.style.top = `${y}px`;
 }
 
-function getHitIndex(rects: Array<DOMRect>, x: number, y: number): number {
+function getHitIndex(rects: DOMRect[], x: number, y: number): number {
   return rects.findIndex(
       r => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom);
 }
@@ -88,9 +83,29 @@ export class MostVisitedElement extends MostVisitedElementBase {
     return 'cr-most-visited';
   }
 
+  static get template() {
+    return getTemplate();
+  }
+
   static get properties() {
     return {
       theme: Object,
+
+      /**
+       * If true, renders MV tiles in a single row up to 10 columns wide.
+       * If false, renders MV tiles in up to 2 rows up to 5 columns wide.
+       */
+      singleRow: {
+        type: Boolean,
+        value: false,
+        observer: 'onSingleRowChange_',
+      },
+
+      /** If true, reflows tiles that are overflowing. */
+      reflowOnOverflow: {
+        type: Boolean,
+        value: false,
+      },
 
       /**
        * When the tile icon background is dark, the icon color is white for
@@ -114,12 +129,13 @@ export class MostVisitedElement extends MostVisitedElementBase {
 
       columnCount_: {
         type: Number,
-        computed: `computeColumnCount_(tiles_, screenWidth_, maxTiles_)`,
+        computed:
+            `computeColumnCount_(singleRow, tiles_, maxVisibleColumnCount_, maxTiles_)`,
       },
 
       rowCount_: {
         type: Number,
-        computed: 'computeRowCount_(columnCount_, tiles_)',
+        computed: 'computeRowCount_(singleRow, columnCount_, tiles_)',
       },
 
       customLinksEnabled_: {
@@ -193,7 +209,7 @@ export class MostVisitedElement extends MostVisitedElementBase {
 
       showToastButtons_: Boolean,
 
-      screenWidth_: Number,
+      maxVisibleColumnCount_: Number,
 
       tiles_: Array,
 
@@ -206,7 +222,9 @@ export class MostVisitedElement extends MostVisitedElementBase {
     };
   }
 
-  private theme: MostVisitedTheme|null;
+  public theme: MostVisitedTheme|null;
+  public reflowOnOverflow: boolean;
+  public singleRow: boolean;
   private useWhiteTileIcon_: boolean;
   private useTitlePill_: boolean;
   private columnCount_: number;
@@ -225,11 +243,10 @@ export class MostVisitedElement extends MostVisitedElementBase {
   private maxVisibleTiles_: number;
   private showAdd_: boolean;
   private showToastButtons_: boolean;
-  private screenWidth_: ScreenWidth;
-  private tiles_: Array<MostVisitedTile>;
+  private maxVisibleColumnCount_: number;
+  private tiles_: MostVisitedTile[];
   private toastContent_: string;
   private visible_: boolean;
-
   private adding_: boolean = false;
   private callbackRouter_: MostVisitedPageCallbackRouter;
   private pageHandler_: MostVisitedPageHandlerRemote;
@@ -237,12 +254,10 @@ export class MostVisitedElement extends MostVisitedElementBase {
   private setMostVisitedInfoListenerId_: number|null = null;
   private actionMenuTargetIndex_: number = -1;
   private dragOffset_: {x: number, y: number}|null;
-  private tileRects_: Array<DOMRect> = [];
+  private tileRects_: DOMRect[] = [];
   private isRtl_: boolean;
+  private mediaEventTracker_: EventTracker;
   private eventTracker_: EventTracker;
-  private boundOnWidthChange_: () => void;
-  private mediaListenerWideWidth_: MediaQueryList;
-  private mediaListenerMediumWidth_: MediaQueryList;
   private boundOnDocumentKeyDown_: (e: KeyboardEvent) => void;
 
   private get tileElements_() {
@@ -268,13 +283,17 @@ export class MostVisitedElement extends MostVisitedElementBase {
      * of the tile being dragged.
      */
     this.dragOffset_ = null;
+
+    this.mediaEventTracker_ = new EventTracker();
+    this.eventTracker_ = new EventTracker();
   }
 
-  connectedCallback() {
+  override connectedCallback() {
     super.connectedCallback();
 
     this.isRtl_ = window.getComputedStyle(this)['direction'] === 'rtl';
-    this.eventTracker_ = new EventTracker();
+
+    this.onSingleRowChange_();
 
     this.setMostVisitedInfoListenerId_ =
         this.callbackRouter_.setMostVisitedInfo.addListener(
@@ -283,7 +302,8 @@ export class MostVisitedElement extends MostVisitedElementBase {
                   'most-visited-mojo', 'most-visited-mojo-start');
               this.visible_ = info.visible;
               this.customLinksEnabled_ = info.customLinksEnabled;
-              this.tiles_ = info.tiles.slice(0, assert(this.maxTiles_));
+              assert(this.maxTiles_);
+              this.tiles_ = info.tiles.slice(0, this.maxTiles_);
             });
     performance.mark('most-visited-mojo-start');
     this.eventTracker_.add(document, 'visibilitychange', () => {
@@ -297,28 +317,17 @@ export class MostVisitedElement extends MostVisitedElementBase {
     FocusOutlineManager.forDocument(document);
   }
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
     super.disconnectedCallback();
-    this.mediaListenerWideWidth_.removeListener(
-        assert(this.boundOnWidthChange_));
-    this.mediaListenerMediumWidth_.removeListener(
-        assert(this.boundOnWidthChange_));
+    this.mediaEventTracker_.removeAll();
+    this.eventTracker_.removeAll();
     this.ownerDocument.removeEventListener(
         'keydown', this.boundOnDocumentKeyDown_);
-    this.eventTracker_.removeAll();
   }
 
-  ready() {
+  override ready() {
     super.ready();
 
-    this.boundOnWidthChange_ = this.updateScreenWidth_.bind(this);
-    this.mediaListenerWideWidth_ =
-        this.windowProxy_.matchMedia('(min-width: 672px)');
-    this.mediaListenerWideWidth_.addListener(this.boundOnWidthChange_);
-    this.mediaListenerMediumWidth_ =
-        this.windowProxy_.matchMedia('(min-width: 560px)');
-    this.mediaListenerMediumWidth_.addListener(this.boundOnWidthChange_);
-    this.updateScreenWidth_();
     this.boundOnDocumentKeyDown_ = e => this.onDocumentKeyDown_(e);
     this.ownerDocument.addEventListener(
         'keydown', this.boundOnDocumentKeyDown_);
@@ -338,26 +347,30 @@ export class MostVisitedElement extends MostVisitedElementBase {
   }
 
   private computeColumnCount_(): number {
-    let maxColumns = 3;
-    if (this.screenWidth_ === ScreenWidth.WIDE) {
-      maxColumns = 5;
-    } else if (this.screenWidth_ === ScreenWidth.MEDIUM) {
-      maxColumns = 4;
-    }
-
     const shortcutCount = this.tiles_ ? this.tiles_.length : 0;
     const canShowAdd = this.maxTiles_ > shortcutCount;
     const tileCount =
         Math.min(this.maxTiles_, shortcutCount + (canShowAdd ? 1 : 0));
-    const columnCount = tileCount <= maxColumns ?
+    const columnCount = tileCount <= this.maxVisibleColumnCount_ ?
         tileCount :
-        Math.min(maxColumns, Math.ceil(tileCount / 2));
+        Math.min(
+            this.maxVisibleColumnCount_,
+            Math.ceil(tileCount / (this.singleRow ? 1 : 2)));
     return columnCount || 3;
   }
 
   private computeRowCount_(): number {
     if (this.columnCount_ === 0) {
       return 0;
+    }
+
+    if (this.reflowOnOverflow && this.tiles_) {
+      return Math.ceil(
+          (this.tiles_.length + (this.showAdd_ ? 1 : 0)) / this.columnCount_);
+    }
+
+    if (this.singleRow) {
+      return 1;
     }
 
     const shortcutCount = this.tiles_ ? this.tiles_.length : 0;
@@ -369,6 +382,10 @@ export class MostVisitedElement extends MostVisitedElementBase {
   }
 
   private computeMaxVisibleTiles_(): number {
+    if (this.reflowOnOverflow) {
+      return this.computeMaxTiles_();
+    }
+
     return this.columnCount_ * this.rowCount_;
   }
 
@@ -440,7 +457,7 @@ export class MostVisitedElement extends MostVisitedElementBase {
       return;
     }
     const dragIndex = (this.$.tiles.modelForElement(dragElement) as unknown as {
-                        index: number
+                        index: number,
                       }).index;
     dragElement.classList.remove('dragging');
     this.tileElements_.forEach(el => resetTilePosition(el));
@@ -481,7 +498,7 @@ export class MostVisitedElement extends MostVisitedElementBase {
       return;
     }
     const dragIndex = (this.$.tiles.modelForElement(dragElement) as unknown as {
-                        index: number
+                        index: number,
                       }).index;
     setTilePosition(dragElement, {
       x: x - this.dragOffset_!.x,
@@ -543,9 +560,9 @@ export class MostVisitedElement extends MostVisitedElementBase {
   private getFaviconUrl_(url: Url): string {
     const faviconUrl = new URL('chrome://favicon2/');
     faviconUrl.searchParams.set('size', '24');
-    faviconUrl.searchParams.set('scale_factor', '1x');
-    faviconUrl.searchParams.set('show_fallback_monogram', '');
-    faviconUrl.searchParams.set('page_url', url.url);
+    faviconUrl.searchParams.set('scaleFactor', '1x');
+    faviconUrl.searchParams.set('showFallbackMonogram', '');
+    faviconUrl.searchParams.set('pageUrl', url.url);
     return faviconUrl.href;
   }
 
@@ -561,7 +578,32 @@ export class MostVisitedElement extends MostVisitedElementBase {
   }
 
   private isHidden_(index: number): boolean {
+    if (this.reflowOnOverflow) {
+      return false;
+    }
+
     return index >= this.maxVisibleTiles_;
+  }
+
+  private onSingleRowChange_() {
+    if (!this.isConnected) {
+      return;
+    }
+    this.mediaEventTracker_.removeAll();
+    const queryLists: MediaQueryList[] = [];
+    const updateCount = () => {
+      const index = queryLists.findIndex(listener => listener.matches);
+      this.maxVisibleColumnCount_ =
+          3 + (index > -1 ? queryLists.length - index : 0);
+    };
+    const maxColumnCount = this.singleRow ? 10 : 5;
+    for (let i = maxColumnCount; i >= 4; i--) {
+      const query = `(min-width: ${112 * (i + 1)}px)`;
+      const queryList = this.windowProxy_.matchMedia(query);
+      this.mediaEventTracker_.add(queryList, 'change', updateCount);
+      queryLists.push(queryList);
+    }
+    updateCount();
   }
 
   private onAdd_() {
@@ -817,25 +859,11 @@ export class MostVisitedElement extends MostVisitedElementBase {
     this.tileFocus_(index);
   }
 
-  private updateScreenWidth_() {
-    if (this.mediaListenerWideWidth_.matches) {
-      this.screenWidth_ = ScreenWidth.WIDE;
-    } else if (this.mediaListenerMediumWidth_.matches) {
-      this.screenWidth_ = ScreenWidth.MEDIUM;
-    } else {
-      this.screenWidth_ = ScreenWidth.NARROW;
-    }
-  }
-
   private onTilesRendered_() {
     performance.measure('most-visited-rendered');
+    assert(this.maxVisibleTiles_);
     this.pageHandler_.onMostVisitedTilesRendered(
-        this.tiles_.slice(0, assert(this.maxVisibleTiles_)),
-        this.windowProxy_.now());
-  }
-
-  static get template() {
-    return html`{__html_template__}`;
+        this.tiles_.slice(0, this.maxVisibleTiles_), this.windowProxy_.now());
   }
 }
 

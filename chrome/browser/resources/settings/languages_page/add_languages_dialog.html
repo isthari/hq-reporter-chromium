@@ -36,12 +36,14 @@
         </cr-search-field>
       </div>
       <div id="dialog-body" slot="body" scrollable>
-        <iron-list class="ripple-padding" scroll-target="[[$$('[slot=body]')]]"
-            items="[[getLanguages_(filterValue_)]]">
+        <iron-list class="ripple-padding" scroll-target="dialog-body"
+            role="grid" items="[[getLanguages_(filterValue_)]]"
+            aria-rowcount$="[[getLanguagesCount_(filterValue_)]]">
           <template>
-            <cr-checkbox class="list-item no-outline"
+            <cr-checkbox class="list-item no-outline" role="row"
                 checked="[[willAdd_(item.code)]]" tab-index="[[tabIndex]]"
-                title$="[[item.nativeDisplayName]]"
+                aria-rowindex$="[[getAriaRowindex_(index)]]"
+                aria-label="[[i18n('addLanguageAriaLabel', item.displayName)]]"
                 on-change="onLanguageCheckboxChange_">
               [[getDisplayText_(item)]]
             </cr-checkbox>
@@ -49,10 +51,10 @@
         </iron-list>
       </div>
       <div slot="button-container">
-        <cr-button class="cancel-button" on-click="onCancelButtonTap_">
+        <cr-button class="cancel-button" on-click="onCancelButtonClick_">
           $i18n{cancel}
         </cr-button>
-        <cr-button class="action-button" on-click="onActionButtonTap_"
+        <cr-button class="action-button" on-click="onActionButtonClick_"
             disabled="[[disableActionButton_]]">
           $i18n{add}
         </cr-button>

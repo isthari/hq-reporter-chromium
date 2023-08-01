@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,9 +19,10 @@ enum GpuFeatureType {
   GPU_FEATURE_TYPE_ACCELERATED_WEBGL2,
   GPU_FEATURE_TYPE_ANDROID_SURFACE_CONTROL,
   GPU_FEATURE_TYPE_ACCELERATED_GL,
-  GPU_FEATURE_TYPE_METAL,
   GPU_FEATURE_TYPE_VULKAN,
   GPU_FEATURE_TYPE_CANVAS_OOP_RASTERIZATION,
+  GPU_FEATURE_TYPE_ACCELERATED_WEBGPU,
+  GPU_FEATURE_TYPE_SKIA_GRAPHITE,
   NUMBER_OF_GPU_FEATURE_TYPES
 };
 

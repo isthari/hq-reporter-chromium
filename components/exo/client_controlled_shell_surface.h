@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,8 +11,9 @@
 #include "ash/display/screen_orientation_controller.h"
 #include "ash/public/cpp/arc_resize_lock_type.h"
 #include "ash/wm/client_controlled_state.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/gtest_prod_util.h"
+#include "base/memory/raw_ptr.h"
 #include "components/exo/client_controlled_accelerators.h"
 #include "components/exo/shell_surface_base.h"
 #include "ui/base/hit_test.h"
@@ -62,7 +63,8 @@ class ClientControlledShellSurface : public ShellSurfaceBase,
   ClientControlledShellSurface(Surface* surface,
                                bool can_minimize,
                                int container,
-                               bool default_scale_cancellation);
+                               bool default_scale_cancellation,
+                               bool supports_floated_state);
 
   ClientControlledShellSurface(const ClientControlledShellSurface&) = delete;
   ClientControlledShellSurface& operator=(const ClientControlledShellSurface&) =
@@ -83,7 +85,7 @@ class ClientControlledShellSurface : public ShellSurfaceBase,
   void SetBounds(int64_t display_id, const gfx::Rect& bounds);
 
   // Set origin of bounds for surface while preserving the size.
-  void SetBoundsOrigin(const gfx::Point& origin);
+  void SetBoundsOrigin(int64_t display_id, const gfx::Point& origin);
 
   // Set size of bounds for surface while preserving the origin.
   void SetBoundsSize(const gfx::Size& size);
@@ -169,10 +171,6 @@ class ClientControlledShellSurface : public ShellSurfaceBase,
   // Set the extra title for the surface.
   void SetExtraTitle(const std::u16string& extra_title);
 
-  // Set the accessibility ID provided by client for the surface. If
-  // |accessibility_id| is negative value, it will unset the ID.
-  void SetClientAccessibilityId(int32_t accessibility_id);
-
   // Rebind a surface as the root surface of the shell surface.
   void RebindRootSurface(Surface* root_surface,
                          bool can_minimize,
@@ -186,15 +184,17 @@ class ClientControlledShellSurface : public ShellSurfaceBase,
   bool IsInputEnabled(Surface* surface) const override;
   void OnSetFrame(SurfaceFrameType type) override;
   void OnSetFrameColors(SkColor active_color, SkColor inactive_color) override;
-  void SetSnappedToPrimary() override;
-  void SetSnappedToSecondary() override;
+  void SetSnapPrimary(float snap_ratio) override;
+  void SetSnapSecondary(float snap_ratio) override;
   void SetPip() override;
   void UnsetPip() override;
+  void SetFloat() override;
 
   // Overridden from views::WidgetDelegate:
   bool CanMaximize() const override;
   std::unique_ptr<views::NonClientFrameView> CreateNonClientFrameView(
       views::Widget* widget) override;
+  bool ShouldSaveWindowPlacement() const override;
   void SaveWindowPlacement(const gfx::Rect& bounds,
                            ui::WindowShowState show_state) override;
   bool GetSavedWindowPlacement(const views::Widget* widget,
@@ -206,6 +206,7 @@ class ClientControlledShellSurface : public ShellSurfaceBase,
   void OnDeviceScaleFactorChanged(float old_dsf, float new_dsf) override;
 
   // Overridden from aura::WindowObserver:
+  void OnWindowDestroying(aura::Window* window) override;
   void OnWindowAddedToRootWindow(aura::Window* window) override;
 
   // Overridden from display::DisplayObserver:
@@ -232,11 +233,18 @@ class ClientControlledShellSurface : public ShellSurfaceBase,
   // Used to scale incoming coordinates from the client to DP.
   float GetClientToDpScale() const;
 
+  // Used to scale incoming coordinates from the client to DP before the pending
+  // scale is committed.
+  float GetClientToDpPendingScale() const;
+
   // Sets the resize lock type to the surface.
   void SetResizeLockType(ash::ArcResizeLockType resize_lock_type);
 
   // Update the resizability based on the resize lock type.
   void UpdateResizability() override;
+
+  // Overridden from exo::ShellSurfaceBase
+  void SetSystemModal(bool system_modal) override;
 
  protected:
   // Overridden from ShellSurfaceBase:
@@ -249,7 +257,8 @@ class ClientControlledShellSurface : public ShellSurfaceBase,
   class ScopedLockedToRoot;
 
   // Overridden from ShellSurfaceBase:
-  void SetWidgetBounds(const gfx::Rect& bounds) override;
+  void SetWidgetBounds(const gfx::Rect& bounds,
+                       bool adjusted_by_server) override;
   gfx::Rect GetShadowBounds() const override;
   void InitializeWindowState(ash::WindowState* window_state) override;
   absl::optional<gfx::Rect> GetWidgetBounds() const override;
@@ -272,6 +281,8 @@ class ClientControlledShellSurface : public ShellSurfaceBase,
 
   void UpdateFrameType() override;
 
+  bool GetCanResizeFromSizeConstraints() const override;
+
   void AttemptToStartDrag(int component, const gfx::PointF& location);
 
   // Lock the compositor if it's not already locked, or extends the
@@ -284,8 +295,7 @@ class ClientControlledShellSurface : public ShellSurfaceBase,
   ash::NonClientFrameViewAsh* GetFrameView();
   const ash::NonClientFrameViewAsh* GetFrameView() const;
 
-  void EnsurePendingScale();
-  float GetClientToDpPendingScale() const;
+  void EnsurePendingScale(bool commit_immediately);
 
   gfx::Rect GetClientBoundsForWindowBoundsAndWindowState(
       const gfx::Rect& window_bounds,
@@ -309,7 +319,8 @@ class ClientControlledShellSurface : public ShellSurfaceBase,
   Orientation orientation_ = Orientation::LANDSCAPE;
   Orientation expected_orientation_ = Orientation::LANDSCAPE;
 
-  ash::ClientControlledState* client_controlled_state_ = nullptr;
+  raw_ptr<ash::ClientControlledState, ExperimentalAsh>
+      client_controlled_state_ = nullptr;
 
   chromeos::WindowStateType pending_window_state_ =
       chromeos::WindowStateType::kNormal;
@@ -358,11 +369,11 @@ class ClientControlledShellSurface : public ShellSurfaceBase,
   // Client controlled specific accelerator target.
   std::unique_ptr<ClientControlledAcceleratorTarget> accelerator_target_;
 
-  // Accessibility ID provided by client.
-  absl::optional<int32_t> client_accessibility_id_;
-
   ash::ArcResizeLockType pending_resize_lock_type_ =
       ash::ArcResizeLockType::NONE;
+
+  // True if the window supports the floated state.
+  const bool supports_floated_state_;
 };
 
 }  // namespace exo

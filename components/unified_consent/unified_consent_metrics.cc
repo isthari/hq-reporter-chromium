@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 #include "components/autofill/core/common/autofill_prefs.h"
 #include "components/prefs/pref_service.h"
 #include "components/sync/base/user_selectable_type.h"
-#include "components/sync/driver/sync_user_settings.h"
+#include "components/sync/service/sync_user_settings.h"
 #include "components/unified_consent/pref_names.h"
 
 namespace unified_consent {
@@ -34,9 +34,9 @@ enum class SyncDataType {
   kPasswords = 8,
   kAutofill = 9,
   kPayments = 10,
-  kSync = 11,
+  // kSync = 11,
 
-  kMaxValue = kSync
+  kMaxValue = kPayments
 };
 
 void RecordSyncDataTypeSample(SyncDataType data_type) {
@@ -50,13 +50,6 @@ void RecordSyncDataTypeSample(SyncDataType data_type) {
 // Returns true if a sample was recorded.
 bool RecordSyncSetupDataTypesImpl(syncer::SyncUserSettings* sync_settings,
                                   PrefService* pref_service) {
-#if BUILDFLAG(IS_ANDROID)
-  if (!sync_settings->IsSyncRequested()) {
-    RecordSyncDataTypeSample(SyncDataType::kSync);
-    return true;  // Don't record states of data types if sync is disabled.
-  }
-#endif
-
   bool metric_recorded = false;
 
   std::vector<std::pair<SyncDataType, syncer::UserSelectableType>> sync_types;
@@ -81,9 +74,9 @@ bool RecordSyncSetupDataTypesImpl(syncer::SyncUserSettings* sync_settings,
                           syncer::UserSelectableType::kThemes);
 #endif
 
-  for (const auto& data_type : sync_types) {
-    if (!sync_settings->GetSelectedTypes().Has(data_type.second)) {
-      RecordSyncDataTypeSample(data_type.first);
+  for (const auto& [bucket, type] : sync_types) {
+    if (!sync_settings->GetSelectedTypes().Has(type)) {
+      RecordSyncDataTypeSample(bucket);
       metric_recorded = true;
     }
   }
@@ -101,7 +94,7 @@ void RecordSettingsHistogram(PrefService* pref_service) {
   bool is_enabled =
       pref_service->GetBoolean(prefs::kUrlKeyedAnonymizedDataCollectionEnabled);
   UMA_HISTOGRAM_BOOLEAN(
-      "UnifiedConsent.MakeSearchesAndBrowsingBetter.OnStartup", is_enabled);
+      "UnifiedConsent.MakeSearchesAndBrowsingBetter.OnProfileLoad", is_enabled);
 }
 
 void RecordSyncSetupDataTypesHistrogam(syncer::SyncUserSettings* sync_settings,

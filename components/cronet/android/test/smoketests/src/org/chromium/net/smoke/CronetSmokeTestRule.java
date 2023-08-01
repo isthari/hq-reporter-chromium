@@ -1,11 +1,14 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.net.smoke;
 
+import static com.google.common.truth.Truth.assertThat;
+
 import android.content.Context;
-import android.support.test.InstrumentationRegistry;
+
+import androidx.test.core.app.ApplicationProvider;
 
 import org.junit.Assert;
 import org.junit.rules.TestRule;
@@ -56,7 +59,7 @@ public class CronetSmokeTestRule implements TestRule {
 
     private void ruleSetUp() throws Exception {
         mCronetEngineBuilder =
-                new ExperimentalCronetEngine.Builder(InstrumentationRegistry.getTargetContext());
+                new ExperimentalCronetEngine.Builder(ApplicationProvider.getApplicationContext());
         initTestSupport();
     }
 
@@ -76,28 +79,28 @@ public class CronetSmokeTestRule implements TestRule {
             throw new RuntimeException(
                     "The request failed with an error", callback.getFailureError());
         }
-        Assert.assertEquals(SmokeTestRequestCallback.State.Succeeded, callback.getFinalState());
+        assertThat(callback.getFinalState()).isEqualTo(SmokeTestRequestCallback.State.Succeeded);
 
         // Check the response info
         UrlResponseInfo responseInfo = callback.getResponseInfo();
         Assert.assertNotNull(responseInfo);
         Assert.assertFalse(responseInfo.wasCached());
-        Assert.assertEquals(url, responseInfo.getUrl());
-        Assert.assertEquals(
-                url, responseInfo.getUrlChain().get(responseInfo.getUrlChain().size() - 1));
-        Assert.assertEquals(200, responseInfo.getHttpStatusCode());
-        Assert.assertTrue(responseInfo.toString().length() > 0);
+        assertThat(responseInfo.getUrl()).isEqualTo(url);
+        assertThat(responseInfo.getUrlChain().get(responseInfo.getUrlChain().size() - 1))
+                .isEqualTo(url);
+        assertThat(responseInfo.getHttpStatusCode()).isEqualTo(200);
+        assertThat(responseInfo.toString()).isNotEmpty();
     }
 
     static void assertJavaEngine(CronetEngine engine) {
         Assert.assertNotNull(engine);
-        Assert.assertEquals("org.chromium.net.impl.JavaCronetEngine", engine.getClass().getName());
+        assertThat(engine.getClass().getName()).isEqualTo("org.chromium.net.impl.JavaCronetEngine");
     }
 
     static void assertNativeEngine(CronetEngine engine) {
         Assert.assertNotNull(engine);
-        Assert.assertEquals(
-                "org.chromium.net.impl.CronetUrlRequestContext", engine.getClass().getName());
+        assertThat(engine.getClass().getName())
+                .isEqualTo("org.chromium.net.impl.CronetUrlRequestContext");
     }
 
     /**
@@ -107,8 +110,9 @@ public class CronetSmokeTestRule implements TestRule {
      *
      * @throws Exception if the class cannot be instantiated.
      */
+    @SuppressWarnings("DiscouragedApi")
     private void initTestSupport() throws Exception {
-        Context ctx = InstrumentationRegistry.getTargetContext();
+        Context ctx = ApplicationProvider.getApplicationContext();
         String packageName = ctx.getPackageName();
         int resId = ctx.getResources().getIdentifier(SUPPORT_IMPL_RES_KEY, "string", packageName);
         String className = ctx.getResources().getString(resId);

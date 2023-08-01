@@ -1,10 +1,10 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <stdint.h>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/path_service.h"
 #include "base/strings/strcat.h"
@@ -13,6 +13,7 @@
 #include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/browser/renderer_host/render_view_host_delegate_view.h"
 #include "content/browser/renderer_host/render_widget_helper.h"
+#include "content/common/features.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/storage_partition.h"
@@ -78,6 +79,11 @@ class RenderViewHostTest : public RenderViewHostImplTestHarness {
 
 // Ensure we do not grant bindings to a process shared with unprivileged views.
 TEST_F(RenderViewHostTest, DontGrantBindingsToSharedProcess) {
+  // This test does not make sense when AllowBindings checks for WebUIs is
+  // enabled as it explicitly violates what the check is supposed to prevent.
+  if (base::FeatureList::IsEnabled(kEnsureAllowBindingsIsAlwaysForWebUI)) {
+    GTEST_SKIP();
+  }
   // Create another view in the same process.
   std::unique_ptr<TestWebContents> new_web_contents(TestWebContents::Create(
       browser_context(), main_rfh()->GetSiteInstance()));
@@ -93,7 +99,8 @@ class MockDraggingRenderViewHostDelegateView
   void StartDragging(const DropData& drop_data,
                      blink::DragOperationsMask allowed_ops,
                      const gfx::ImageSkia& image,
-                     const gfx::Vector2d& image_offset,
+                     const gfx::Vector2d& cursor_offset,
+                     const gfx::Rect& drag_obj_rect,
                      const blink::mojom::DragEventSourceInfo& event_info,
                      RenderWidgetHostImpl* source_rwh) override {
     drag_url_ = drop_data.url;
@@ -230,9 +237,9 @@ TEST_F(RenderViewHostTest, NavigationWithBadHistoryItemFiles) {
 TEST_F(RenderViewHostTest, RoutingIdSane) {
   RenderFrameHostImpl* root_rfh =
       contents()->GetPrimaryFrameTree().root()->current_frame_host();
-  EXPECT_EQ(contents()->GetMainFrame(), root_rfh);
+  EXPECT_EQ(contents()->GetPrimaryMainFrame(), root_rfh);
   EXPECT_EQ(test_rvh()->GetProcess(), root_rfh->GetProcess());
-  EXPECT_NE(test_rvh()->GetRoutingID(), root_rfh->routing_id());
+  EXPECT_NE(test_rvh()->GetRoutingID(), root_rfh->GetRoutingID());
 }
 
 }  // namespace content

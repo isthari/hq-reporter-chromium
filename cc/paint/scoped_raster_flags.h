@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define CC_PAINT_SCOPED_RASTER_FLAGS_H_
 
 #include "base/containers/stack_container.h"
+#include "base/memory/raw_ptr.h"
 #include "cc/paint/decode_stashing_image_provider.h"
 #include "cc/paint/paint_export.h"
 #include "cc/paint/paint_flags.h"
@@ -18,11 +19,35 @@ namespace cc {
 class CC_PAINT_EXPORT ScopedRasterFlags {
  public:
   // |flags| and |image_provider| must outlive this class.
+  template <class F, class = std::enable_if_t<std::is_same_v<F, float>>>
   ScopedRasterFlags(const PaintFlags* flags,
                     ImageProvider* image_provider,
                     const SkMatrix& ctm,
                     int max_texture_size,
-                    uint8_t alpha);
+                    F alpha)
+      : original_flags_(flags) {
+    if (image_provider) {
+      decode_stashing_image_provider_.emplace(image_provider);
+
+      // We skip the op if any images fail to decode.
+      DecodeImageShader(ctm);
+      if (decode_failed_)
+        return;
+      DecodeRecordShader(ctm, max_texture_size);
+      if (decode_failed_)
+        return;
+      DecodeFilter();
+      if (decode_failed_)
+        return;
+    }
+
+    if (alpha != 1.0f) {
+      DCHECK(flags->SupportsFoldingAlpha());
+      MutableFlags()->setAlphaf(flags->getAlphaf() * alpha);
+    }
+
+    AdjustStrokeIfNeeded(ctm);
+  }
   ScopedRasterFlags(const ScopedRasterFlags&) = delete;
   ~ScopedRasterFlags();
 
@@ -34,7 +59,11 @@ class CC_PAINT_EXPORT ScopedRasterFlags {
     if (decode_failed_)
       return nullptr;
 
-    return modified_flags_ ? &*modified_flags_ : original_flags_;
+    if (modified_flags_.has_value()) {
+      return &*modified_flags_;
+    }
+
+    return original_flags_;
   }
 
  private:
@@ -50,7 +79,7 @@ class CC_PAINT_EXPORT ScopedRasterFlags {
     return &*modified_flags_;
   }
 
-  const PaintFlags* original_flags_;
+  raw_ptr<const PaintFlags> original_flags_;
   absl::optional<PaintFlags> modified_flags_;
   absl::optional<DecodeStashingImageProvider> decode_stashing_image_provider_;
   bool decode_failed_ = false;

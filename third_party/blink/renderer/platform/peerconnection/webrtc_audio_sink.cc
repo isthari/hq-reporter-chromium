@@ -1,17 +1,18 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/platform/peerconnection/webrtc_audio_sink.h"
 
-#include <algorithm>
 #include <limits>
 
-#include "base/callback_helpers.h"
 #include "base/check_op.h"
 #include "base/containers/contains.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/trace_event/trace_event.h"
 #include "media/base/audio_timestamp_helper.h"
 #include "third_party/blink/public/platform/modules/webrtc/webrtc_logging.h"
@@ -139,9 +140,6 @@ void WebRtcAudioSink::DeliverRebufferedAudio(const media::AudioBus& audio_bus,
   TRACE_EVENT1("audio", "WebRtcAudioSink::DeliverRebufferedAudio", "frames",
                audio_bus.frames());
 
-  // TODO(miu): Why doesn't a WebRTC sink care about reference time passed to
-  // OnData(), and the |frame_delay| here?  How is AV sync achieved otherwise?
-
   // TODO(henrika): Remove this conversion once the interface in libjingle
   // supports float vectors.
   static_assert(sizeof(interleaved_data_[0]) == 2,
@@ -159,7 +157,6 @@ void WebRtcAudioSink::DeliverRebufferedAudio(const media::AudioBus& audio_bus,
 }
 
 namespace {
-// TODO(miu): MediaStreamAudioProcessor destructor requires this nonsense.
 void DereferenceOnMainThread(
     const scoped_refptr<webrtc::AudioProcessorInterface>& processor) {}
 }  // namespace
@@ -247,7 +244,7 @@ void WebRtcAudioSink::Adapter::RemoveSink(
   SendLogMessage(
       base::StringPrintf("Adapter::RemoveSink([label=%s])", label_.c_str()));
   base::AutoLock auto_lock(lock_);
-  const auto it = std::find(sinks_.begin(), sinks_.end(), sink);
+  auto** it = base::ranges::find(sinks_, sink);
   if (it != sinks_.end())
     sinks_.erase(it);
 }

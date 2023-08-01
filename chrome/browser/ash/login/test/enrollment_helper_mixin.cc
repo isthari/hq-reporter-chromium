@@ -1,15 +1,15 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/login/test/enrollment_helper_mixin.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "chrome/browser/ash/login/enrollment/enrollment_screen.h"
 #include "chrome/browser/ash/login/enrollment/enterprise_enrollment_helper.h"
 #include "chrome/browser/ash/login/enrollment/enterprise_enrollment_helper_mock.h"
 #include "chrome/browser/ash/login/wizard_controller.h"
-#include "chrome/browser/ash/policy/active_directory/active_directory_join_delegate.h"
+#include "chrome/browser/ash/policy/enrollment/enrollment_status.h"
 
 namespace ash {
 namespace test {
@@ -59,24 +59,36 @@ void EnrollmentHelperMixin::ResetMock() {
   EnterpriseEnrollmentHelper::SetEnrollmentHelperMock(std::move(mock));
 }
 
+void EnrollmentHelperMixin::VerifyAndClear() {
+  testing::Mock::VerifyAndClear(mock_);
+}
+
 void EnrollmentHelperMixin::ExpectNoEnrollment() {
   EXPECT_CALL(*mock_, Setup(_, _, _)).Times(0);
 }
 
 void EnrollmentHelperMixin::ExpectEnrollmentMode(
     policy::EnrollmentConfig::Mode mode) {
-  EXPECT_CALL(*mock_, Setup(_, ConfigModeMatches(mode), _));
+  EXPECT_CALL(*mock_, Setup(ConfigModeMatches(mode), _, _));
 }
 
 void EnrollmentHelperMixin::ExpectEnrollmentModeRepeated(
     policy::EnrollmentConfig::Mode mode) {
-  EXPECT_CALL(*mock_, Setup(_, ConfigModeMatches(mode), _)).Times(AtLeast(1));
+  EXPECT_CALL(*mock_, Setup(ConfigModeMatches(mode), _, _)).Times(AtLeast(1));
 }
 
 void EnrollmentHelperMixin::ExpectSuccessfulOAuthEnrollment() {
   EXPECT_CALL(*mock_, EnrollUsingAuthCode(kTestAuthCode))
       .WillOnce(InvokeWithoutArgs(
           [this]() { mock_->status_consumer()->OnDeviceEnrolled(); }));
+}
+
+void EnrollmentHelperMixin::ExpectOAuthEnrollmentError(
+    policy::EnrollmentStatus status) {
+  EXPECT_CALL(*mock_, EnrollUsingAuthCode(kTestAuthCode))
+      .WillOnce(InvokeWithoutArgs([this, status]() {
+        mock_->status_consumer()->OnEnrollmentError(status);
+      }));
 }
 
 void EnrollmentHelperMixin::ExpectAttestationEnrollmentSuccess() {
@@ -98,23 +110,6 @@ void EnrollmentHelperMixin::ExpectAttestationEnrollmentErrorRepeated(
   EXPECT_CALL(*mock_, EnrollUsingAttestation())
       .Times(AtLeast(1))
       .WillRepeatedly(InvokeWithoutArgs([this, status]() {
-        mock_->status_consumer()->OnEnrollmentError(status);
-      }));
-}
-
-void EnrollmentHelperMixin::ExpectOfflineEnrollmentSuccess() {
-  ExpectEnrollmentMode(policy::EnrollmentConfig::MODE_OFFLINE_DEMO);
-
-  EXPECT_CALL(*mock_, EnrollForOfflineDemo())
-      .WillOnce(InvokeWithoutArgs(
-          [this]() { mock_->status_consumer()->OnDeviceEnrolled(); }));
-}
-
-void EnrollmentHelperMixin::ExpectOfflineEnrollmentError(
-    policy::EnrollmentStatus status) {
-  ExpectEnrollmentMode(policy::EnrollmentConfig::MODE_OFFLINE_DEMO);
-  EXPECT_CALL(*mock_, EnrollForOfflineDemo())
-      .WillOnce(InvokeWithoutArgs([this, status]() {
         mock_->status_consumer()->OnEnrollmentError(status);
       }));
 }
@@ -150,24 +145,6 @@ void EnrollmentHelperMixin::ExpectAttributePromptUpdate(
       .WillOnce(InvokeWithoutArgs([this]() {
         mock_->status_consumer()->OnDeviceAttributeUploadCompleted(true);
       }));
-}
-
-void EnrollmentHelperMixin::SetupActiveDirectoryJoin(
-    policy::ActiveDirectoryJoinDelegate* delegate,
-    const std::string& expected_domain,
-    const std::string& domain_join_config,
-    const std::string& dm_token) {
-  EXPECT_CALL(*mock_, EnrollUsingAuthCode(kTestAuthCode))
-      .WillOnce(InvokeWithoutArgs(
-          [delegate, expected_domain, domain_join_config, dm_token]() {
-            delegate->JoinDomain(dm_token, domain_join_config,
-                                 base::BindOnce(
-                                     [](const std::string& expected_domain,
-                                        const std::string& domain) {
-                                       ASSERT_EQ(expected_domain, domain);
-                                     },
-                                     expected_domain));
-          }));
 }
 
 }  // namespace test

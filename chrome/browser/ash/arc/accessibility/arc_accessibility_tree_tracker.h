@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,10 +11,12 @@
 #include <string>
 #include <tuple>
 
+#include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ref.h"
 #include "base/scoped_observation.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/browser/ash/arc/accessibility/accessibility_helper_instance_remote_proxy.h"
 #include "chrome/browser/ash/arc/accessibility/ax_tree_source_arc.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
 #include "chrome/common/extensions/api/accessibility_private.h"
 #include "ui/aura/client/focus_change_observer.h"
 #include "ui/aura/env.h"
@@ -110,25 +112,44 @@ class ArcAccessibilityTreeTracker : public aura::EnvObserver {
   // Invalidates all trees (resets serializers).
   void InvalidateTrees();
 
+  int GetTrackingArcWindowCount() const;
+
+  bool IsArcFocused() const;
+
   const TreeMap& trees_for_test() const { return trees_; }
+
+  bool is_native_chromevox_enabled() const { return native_chromevox_enabled_; }
 
  protected:
   // Start observing the given window.
   void TrackWindow(aura::Window* window);
 
+  // Start observing the given window as a children of the toplevel ARC window.
+  void TrackChildWindow(aura::Window* window);
+
  private:
   class FocusChangeObserver;
   class WindowsObserver;
+  class ChildWindowsObserver;
   class ArcInputMethodManagerServiceObserver;
   class MojoConnectionObserver;
   class ArcNotificationSurfaceManagerObserver;
+  class UmaRecorder;
 
   AXTreeSourceArc* GetFromKey(const TreeKey&);
   AXTreeSourceArc* CreateFromKey(TreeKey, aura::Window* window);
 
-  // Update |window_id_to_task_id_| with a given window if necessary.
-  void UpdateWindowIdMapping(aura::Window* window);
+  // Updates task_id and window_id properties when properties of the toplevel
+  // ARC++ window change.
+  // As a side-effect, when a new task id is assigned to the window, it may
+  // also trigger updating child window ids.
+  void UpdateTopWindowIds(aura::Window* window);
 
+  // Updates task_id and window_id propertied when properties of child ARC++
+  // window change.
+  void UpdateChildWindowIds(aura::Window* window);
+
+  // Updates properties set to the given aura::Window.
   void UpdateWindowProperties(aura::Window* window);
 
   void StartTrackingWindows();
@@ -139,23 +160,29 @@ class ArcAccessibilityTreeTracker : public aura::EnvObserver {
   virtual void DispatchCustomSpokenFeedbackToggled(bool enabled);
   virtual aura::Window* GetFocusedArcWindow() const;
 
-  Profile* const profile_;
-  AXTreeSourceArc::Delegate* tree_source_delegate_;
-  const AccessibilityHelperInstanceRemoteProxy& accessibility_helper_instance_;
+  const raw_ptr<Profile, ExperimentalAsh> profile_;
+  raw_ptr<AXTreeSourceArc::Delegate, ExperimentalAsh> tree_source_delegate_;
+  const raw_ref<const AccessibilityHelperInstanceRemoteProxy, ExperimentalAsh>
+      accessibility_helper_instance_;
 
   TreeMap trees_;
 
   std::unique_ptr<FocusChangeObserver> focus_change_observer_;
   std::unique_ptr<WindowsObserver> windows_observer_;
+  std::unique_ptr<ChildWindowsObserver> child_windows_observer_;
   std::unique_ptr<ArcInputMethodManagerServiceObserver>
       input_manager_service_observer_;
   std::unique_ptr<MojoConnectionObserver> connection_observer_;
   std::unique_ptr<ArcNotificationSurfaceManagerObserver>
       notification_surface_observer_;
 
+  std::unique_ptr<UmaRecorder> uma_recorder_;
+
   base::ScopedObservation<aura::Env, aura::EnvObserver> env_observation_{this};
 
+  // a11y window id (obtained from exo, put for each window) to task id.
   std::map<int32_t, int32_t> window_id_to_task_id_;
+  // task id to top aura::window.
   std::map<int32_t, aura::Window*> task_id_to_window_;
 
   arc::mojom::AccessibilityFilterType filter_type_ =

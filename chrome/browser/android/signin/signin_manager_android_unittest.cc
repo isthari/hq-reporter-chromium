@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 #include <memory>
 #include <set>
 
-#include "base/bind.h"
 #include "base/containers/contains.h"
+#include "base/functional/bind.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
@@ -31,6 +31,7 @@
 #include "content/public/browser/storage_partition.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 #include "url/origin.h"
 
 namespace {
@@ -141,9 +142,10 @@ TEST_F(SigninManagerAndroidTest, DISABLED_DeleteGoogleServiceWorkerCaches) {
       profile()->GetDefaultStoragePartition());
 
   for (const TestCase& test_case : kTestCases)
-    helper->Add(url::Origin::Create(GURL(test_case.worker_url)));
+    helper->Add(blink::StorageKey::CreateFirstParty(
+        url::Origin::Create(GURL(test_case.worker_url))));
 
-  ASSERT_EQ(base::size(kTestCases), helper->GetCount());
+  ASSERT_EQ(std::size(kTestCases), helper->GetCount());
 
   // Delete service workers and wait for completion.
   base::RunLoop run_loop;
@@ -153,13 +155,15 @@ TEST_F(SigninManagerAndroidTest, DISABLED_DeleteGoogleServiceWorkerCaches) {
   run_loop.Run();
 
   // Test whether the correct service worker caches were deleted.
-  std::set<url::Origin> remaining_cache_storages = helper->GetOrigins();
+  std::set<blink::StorageKey> remaining_cache_storages =
+      helper->GetStorageKeys();
 
   // TODO(crbug.com/929456): If deleted, the key should not be present.
   for (const TestCase& test_case : kTestCases) {
     EXPECT_EQ(test_case.should_be_deleted,
               base::Contains(remaining_cache_storages,
-                             url::Origin::Create(GURL(test_case.worker_url))))
+                             blink::StorageKey::CreateFromStringForTesting(
+                                 test_case.worker_url)))
         << test_case.worker_url << " should "
         << (test_case.should_be_deleted ? "" : "NOT ")
         << "be deleted, but it was"

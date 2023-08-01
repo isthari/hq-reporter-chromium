@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,43 +13,15 @@
 #include "base/files/file_path.h"
 #include "base/memory/raw_ptr.h"
 #include "chrome/browser/ui/webui/web_ui_test_handler.h"
+#include "chrome/test/base/devtools_agent_coverage_observer.h"
 #include "chrome/test/base/devtools_listener.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/javascript_browser_test.h"
-#include "content/public/browser/devtools_agent_host_observer.h"
+#include "services/network/public/mojom/clear_data_filter.mojom.h"
 
 namespace {
 class WebUITestMessageHandler;
-
-// Observes new DevToolsAgentHost's and ensures code coverage is enabled and
-// can be collected.
-class WebUICoverageObserver : public content::DevToolsAgentHostObserver {
- public:
-  explicit WebUICoverageObserver(base::FilePath devtools_code_coverage_dir);
-  ~WebUICoverageObserver() override;
-
-  bool CoverageEnabled();
-  void CollectCoverage(const std::string& test_name);
-
- protected:
-  // content::DevToolsAgentHostObserver
-  bool ShouldForceDevToolsAgentHostCreation() override;
-  void DevToolsAgentHostCreated(content::DevToolsAgentHost* host) override;
-  void DevToolsAgentHostAttached(content::DevToolsAgentHost* host) override;
-  void DevToolsAgentHostNavigated(content::DevToolsAgentHost* host) override;
-  void DevToolsAgentHostDetached(content::DevToolsAgentHost* host) override;
-  void DevToolsAgentHostCrashed(content::DevToolsAgentHost* host,
-                                base::TerminationStatus status) override;
-
- private:
-  using DevToolsAgentMap =  // agent hosts: have a unique devtools listener
-      std::map<content::DevToolsAgentHost*,
-               std::unique_ptr<coverage::DevToolsListener>>;
-  base::FilePath devtools_code_coverage_dir_;
-  DevToolsAgentMap devtools_agent_;
-};
-
-}  // namespace
+}
 
 namespace base {
 class Value;
@@ -82,7 +54,7 @@ class BaseWebUIBrowserTest : public JavaScriptBrowserTest {
                              base::Value arg1,
                              base::Value arg2);
   bool RunJavascriptFunction(const std::string& function_name,
-                             std::vector<base::Value> function_arguments);
+                             base::Value::List function_arguments);
 
   // Runs a test fixture that may include calls to functions in test_api.js.
   bool RunJavascriptTestF(bool is_async,
@@ -97,7 +69,7 @@ class BaseWebUIBrowserTest : public JavaScriptBrowserTest {
                          base::Value arg1,
                          base::Value arg2);
   bool RunJavascriptTest(const std::string& test_name,
-                         std::vector<base::Value> test_arguments);
+                         base::Value::List test_arguments);
 
   // Runs a test that may include calls to functions in test_api.js, and waits
   // for call to testDone().  Takes ownership of Value* arguments.
@@ -111,7 +83,7 @@ class BaseWebUIBrowserTest : public JavaScriptBrowserTest {
                               base::Value arg2,
                               base::Value arg3);
   bool RunJavascriptAsyncTest(const std::string& test_name,
-                              std::vector<base::Value> test_arguments);
+                              base::Value::List test_arguments);
 
   // Sends message through |preload_frame| to preload javascript libraries and
   // sets the |libraries_preloaded| flag to prevent re-loading at next
@@ -168,7 +140,7 @@ class BaseWebUIBrowserTest : public JavaScriptBrowserTest {
   }
 
   // Handles collection of code coverage.
-  std::unique_ptr<WebUICoverageObserver> coverage_handler_;
+  std::unique_ptr<DevToolsAgentCoverageObserver> coverage_handler_;
 
  private:
   // Loads all libraries added with AddLibrary(), and calls |function_name| with
@@ -179,7 +151,7 @@ class BaseWebUIBrowserTest : public JavaScriptBrowserTest {
   // the renderer frame for evaluation at the appropriate time before the onload
   // call is made. Passes |is_async| along to runTest wrapper.
   bool RunJavascriptUsingHandler(const std::string& function_name,
-                                 std::vector<base::Value> function_arguments,
+                                 base::Value::List function_arguments,
                                  bool is_test,
                                  bool is_async,
                                  content::RenderFrameHost* preload_frame);
@@ -208,7 +180,8 @@ class BaseWebUIBrowserTest : public JavaScriptBrowserTest {
 
   // When this is non-NULL, this is The WebUI instance used for testing.
   // Otherwise the selected tab's web_ui is used.
-  raw_ptr<content::WebUI> override_selected_web_ui_ = nullptr;
+  raw_ptr<content::WebUI, DanglingUntriaged> override_selected_web_ui_ =
+      nullptr;
 
   std::unique_ptr<TestChromeWebUIControllerFactory> test_factory_;
   std::unique_ptr<content::ScopedWebUIControllerFactoryRegistration>
@@ -226,7 +199,8 @@ class WebUIBrowserTest : public BaseWebUIBrowserTest {
 
  private:
   // Owned by |test_handler_| in BaseWebUIBrowserTest.
-  const raw_ptr<WebUITestMessageHandler> test_message_handler_;
+  const raw_ptr<WebUITestMessageHandler, DanglingUntriaged>
+      test_message_handler_;
 };
 
 #endif  // CHROME_TEST_BASE_WEB_UI_BROWSER_TEST_H_

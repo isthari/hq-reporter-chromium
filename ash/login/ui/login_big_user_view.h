@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "ash/public/cpp/session/user_info.h"
 #include "ash/public/cpp/wallpaper/wallpaper_controller.h"
 #include "ash/public/cpp/wallpaper/wallpaper_controller_observer.h"
+#include "base/memory/raw_ptr.h"
 
 namespace ash {
 
@@ -32,7 +33,7 @@ class ASH_EXPORT LoginBigUserView : public NonAccessibleView,
     void Remove();
 
    private:
-    LoginBigUserView* const view_;
+    const raw_ptr<LoginBigUserView, ExperimentalAsh> view_;
   };
 
   LoginBigUserView(
@@ -44,6 +45,9 @@ class ASH_EXPORT LoginBigUserView : public NonAccessibleView,
   LoginBigUserView& operator=(const LoginBigUserView&) = delete;
 
   ~LoginBigUserView() override;
+
+  // NonAccessibleView:
+  void OnThemeChanged() override;
 
   // Base on the user type, call CreateAuthUser or CreatePublicAccount.
   void CreateChildView(const LoginUserInfo& user);
@@ -80,8 +84,9 @@ class ASH_EXPORT LoginBigUserView : public NonAccessibleView,
   void CreatePublicAccount(const LoginUserInfo& user);
 
   // Either |auth_user_| or |public_account_| must be null.
-  LoginPublicAccountUserView* public_account_ = nullptr;
-  LoginAuthUserView* auth_user_ = nullptr;
+  raw_ptr<LoginPublicAccountUserView, ExperimentalAsh> public_account_ =
+      nullptr;
+  raw_ptr<LoginAuthUserView, ExperimentalAsh> auth_user_ = nullptr;
 
   LoginAuthUserView::Callbacks auth_user_callbacks_;
   LoginPublicAccountUserView::Callbacks public_account_callbacks_;

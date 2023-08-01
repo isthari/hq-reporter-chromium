@@ -1,15 +1,16 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/public/cpp/app_list/app_list_metrics.h"
 
 #include "ash/public/cpp/app_list/app_list_types.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 
 namespace {
 
-// The following constants affect logging, and  should not be changed without
+// The following constants affect logging, and should not be changed without
 // deprecating the related UMA histograms.
 
 const char kAppListSearchResultOpenTypeHistogram[] =
@@ -18,10 +19,6 @@ const char kAppListSearchResultOpenTypeHistogramInTablet[] =
     "Apps.AppListSearchResultOpenTypeV2.TabletMode";
 const char kAppListSearchResultOpenTypeHistogramInClamshell[] =
     "Apps.AppListSearchResultOpenTypeV2.ClamshellMode";
-const char kAppListSuggestionChipOpenTypeHistogramInClamshell[] =
-    "Apps.AppListSuggestedChipOpenType.ClamshellMode";
-const char kAppListSuggestionChipOpenTypeHistogramInTablet[] =
-    "Apps.AppListSuggestedChipOpenType.TabletMode";
 const char kAppListContinueTaskOpenTypeHistogramInClamshell[] =
     "Apps.AppListContinueTaskOpenType.ClamshellMode";
 const char kAppListContinueTaskOpenTypeHistogramInTablet[] =
@@ -52,6 +49,28 @@ constexpr int kMaxLoggedUserQueryLength = 20;
 
 namespace ash {
 
+constexpr char kClamshellPrefOrderClearActionHistogram[] =
+    "Apps.Launcher.AppListSortClearAction.ClamshellMode";
+constexpr char kTabletPrefOrderClearActionHistogram[] =
+    "Apps.Launcher.AppListSortClearAction.TabletMode";
+
+constexpr char kClamshellAppListSortOrderOnSessionStartHistogram[] =
+    "Apps.AppList.SortOrderOnSessionStart.ClamshellMode";
+constexpr char kTabletAppListSortOrderOnSessionStartHistogram[] =
+    "Apps.AppList.SortOrderOnSessionStart.TabletMode";
+
+constexpr char kAppListSortDiscoveryDurationAfterNudge[] =
+    "Apps.AppList.SortDiscoveryDurationAfterEducationNudge";
+
+constexpr char kAppListSortDiscoveryDurationAfterActivation[] =
+    "Apps.AppList."
+    "AppListSortDiscoveryDurationAfterActivation";
+
+constexpr char kAppListSortDiscoveryDurationAfterNudgeClamshell[] =
+    "Apps.AppList.SortDiscoveryDurationAfterEducationNudgeV2.ClamshellMode";
+constexpr char kAppListSortDiscoveryDurationAfterNudgeTablet[] =
+    "Apps.AppList.SortDiscoveryDurationAfterEducationNudgeV2.TabletMode";
+
 void RecordSearchResultOpenTypeHistogram(AppListLaunchedFrom launch_location,
                                          SearchResultType type,
                                          bool is_tablet_mode) {
@@ -73,17 +92,6 @@ void RecordSearchResultOpenTypeHistogram(AppListLaunchedFrom launch_location,
             SEARCH_RESULT_TYPE_BOUNDARY);
       }
       break;
-    case AppListLaunchedFrom::kLaunchedFromSuggestionChip:
-      if (is_tablet_mode) {
-        UMA_HISTOGRAM_ENUMERATION(
-            kAppListSuggestionChipOpenTypeHistogramInTablet, type,
-            SEARCH_RESULT_TYPE_BOUNDARY);
-      } else {
-        UMA_HISTOGRAM_ENUMERATION(
-            kAppListSuggestionChipOpenTypeHistogramInClamshell, type,
-            SEARCH_RESULT_TYPE_BOUNDARY);
-      }
-      break;
     case AppListLaunchedFrom::kLaunchedFromContinueTask:
       if (is_tablet_mode) {
         UMA_HISTOGRAM_ENUMERATION(kAppListContinueTaskOpenTypeHistogramInTablet,
@@ -97,6 +105,8 @@ void RecordSearchResultOpenTypeHistogram(AppListLaunchedFrom launch_location,
     case AppListLaunchedFrom::kLaunchedFromShelf:
     case AppListLaunchedFrom::kLaunchedFromGrid:
     case AppListLaunchedFrom::kLaunchedFromRecentApps:
+    case AppListLaunchedFrom::DEPRECATED_kLaunchedFromSuggestionChip:
+    case AppListLaunchedFrom::kLaunchedFromQuickAppAccess:
       // Search results don't live in the shelf, the app grid or recent apps.
       NOTREACHED();
       break;
@@ -140,6 +150,42 @@ void RecordSuccessfulAppLaunchUsingSearch(AppListLaunchedFrom launched_from,
   if (query_length > 0) {
     UMA_HISTOGRAM_ENUMERATION(kSearchSuccessAppLaunch, launched_from);
     UMA_HISTOGRAM_COUNTS_100(kSearchQueryLengthAppLaunch, query_length);
+  }
+}
+
+void ReportPrefOrderClearAction(AppListOrderUpdateEvent action,
+                                bool in_tablet) {
+  if (in_tablet) {
+    base::UmaHistogramEnumeration(kTabletPrefOrderClearActionHistogram, action);
+  } else {
+    base::UmaHistogramEnumeration(kClamshellPrefOrderClearActionHistogram,
+                                  action);
+  }
+}
+
+void RecordFirstSearchResult(SearchResultType type, bool in_tablet) {
+  if (in_tablet) {
+    UMA_HISTOGRAM_ENUMERATION(
+        "Apps.AppList.LaunchedResultInNewUsersFirstSearch.TabletMode", type,
+        SEARCH_RESULT_TYPE_BOUNDARY);
+  } else {
+    UMA_HISTOGRAM_ENUMERATION(
+        "Apps.AppList.LaunchedResultInNewUsersFirstSearch.ClamshellMode", type,
+        SEARCH_RESULT_TYPE_BOUNDARY);
+  }
+}
+
+void ReportPrefSortOrderOnSessionStart(AppListSortOrder permanent_order,
+                                       bool in_tablet) {
+  // NOTE: kNameReverseAlphabetical is not used outside of tests.
+  DCHECK(permanent_order != AppListSortOrder::kNameReverseAlphabetical);
+
+  if (in_tablet) {
+    base::UmaHistogramEnumeration(
+        kTabletAppListSortOrderOnSessionStartHistogram, permanent_order);
+  } else {
+    base::UmaHistogramEnumeration(
+        kClamshellAppListSortOrderOnSessionStartHistogram, permanent_order);
   }
 }
 

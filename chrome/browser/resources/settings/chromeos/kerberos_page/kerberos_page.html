@@ -1,9 +1,9 @@
 <style include="settings-shared iron-flex"></style>
-<settings-animated-pages id="pages" section="kerberos"
+<os-settings-animated-pages id="pages" section="kerberos"
     focus-config="[[focusConfig_]]">
   <div route-path="default">
-    <cr-link-row id="kerberos-accounts-subpage-trigger"
-        on-click="onKerberosAccountsTap_"
+    <cr-link-row id="kerberosAccountsSubpageTrigger"
+        on-click="onKerberosAccountsClick_"
         label="$i18n{kerberosAccountsSubMenuLabel}"
         role-description="$i18n{subpageArrowRoleDescription}">
       <cr-policy-indicator indicator-type="userPolicy">
@@ -11,8 +11,8 @@
     </cr-link-row>
   </div>
   <template is="dom-if" route-path="/kerberos/kerberosAccounts">
-    <settings-subpage page-title="$i18n{kerberosAccountsPageTitle}">
-      <settings-kerberos-accounts></settings-kerberos-accounts>
-    </settings-subpage>
+    <os-settings-subpage page-title="$i18n{kerberosAccountsPageTitle}">
+      <settings-kerberos-accounts-subpage></settings-kerberos-accounts-subpage>
+    </os-settings-subpage>
   </template>
-</settings-animated-pages>
+</os-settings-animated-pages>

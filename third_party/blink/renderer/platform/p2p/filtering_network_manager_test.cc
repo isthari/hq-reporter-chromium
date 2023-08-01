@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,19 +11,17 @@
 #include <vector>
 
 #include "base/check.h"
-#include "base/cxx17_backports.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/notreached.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/test_simple_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "media/base/media_permission.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/platform/p2p/empty_network_manager.h"
 #include "third_party/webrtc/rtc_base/ip_address.h"
 
-using NetworkList = rtc::NetworkManager::NetworkList;
 using ::testing::SizeIs;
 
 namespace {
@@ -80,8 +78,9 @@ class MockNetworkManager : public rtc::NetworkManagerBase {
       SignalNetworksChanged();
   }
   void StopUpdating() override {}
-  void GetNetworks(NetworkList* networks) const override {
-    networks->push_back(network_.get());
+
+  std::vector<const rtc::Network*> GetNetworks() const override {
+    return {network_.get()};
   }
 
   void SendNetworksChanged() {
@@ -162,7 +161,7 @@ class FilteringNetworkManagerTest : public testing::Test,
   FilteringNetworkManagerTest()
       : media_permission_(new MockMediaPermission()),
         task_runner_(new base::TestSimpleTaskRunner()),
-        task_runner_handle_(task_runner_) {
+        task_runner_current_default_handle_(task_runner_) {
     networks_.emplace_back("test_eth0", "Test Network Adapter 1",
                            rtc::IPAddress(0x12345600U), 24,
                            rtc::ADAPTER_TYPE_ETHERNET),
@@ -242,9 +241,8 @@ class FilteringNetworkManagerTest : public testing::Test,
   }
 
  protected:
-  const NetworkList& GetP2PNetworkList() {
-    network_list_.clear();
-    network_manager_->GetNetworks(&network_list_);
+  const std::vector<const rtc::Network*>& GetP2PNetworkList() {
+    network_list_ = network_manager_->GetNetworks();
     return network_list_;
   }
 
@@ -262,9 +260,10 @@ class FilteringNetworkManagerTest : public testing::Test,
   std::vector<rtc::Network> networks_;
   int next_new_network_id_ = 0;
 
-  NetworkList network_list_;
+  std::vector<const rtc::Network*> network_list_;
   scoped_refptr<base::TestSimpleTaskRunner> task_runner_;
-  base::ThreadTaskRunnerHandle task_runner_handle_;
+  base::SingleThreadTaskRunner::CurrentDefaultHandle
+      task_runner_current_default_handle_;
 };
 
 // Test that when multiple routes is not requested, SignalNetworksChanged is
@@ -291,7 +290,7 @@ TEST_F(FilteringNetworkManagerTest, MultipleRoutesNotRequested) {
       {kMockNetworksChangedWithSameNetwork, kNoSignal},
   };
 
-  RunTests(tests, base::size(tests));
+  RunTests(tests, std::size(tests));
 }
 
 // Test that multiple routes request is blocked and signaled right after
@@ -318,7 +317,7 @@ TEST_F(FilteringNetworkManagerTest, BlockMultipleRoutesByStartUpdating) {
       {kStopUpdating, kNoSignal},
   };
 
-  RunTests(tests, base::size(tests));
+  RunTests(tests, std::size(tests));
 }
 
 // Test that multiple routes request is blocked and signaled right after
@@ -343,7 +342,7 @@ TEST_F(FilteringNetworkManagerTest, BlockMultipleRoutesByPermissionsDenied) {
       {kMockNetworksChangedWithNewNetwork, kNoSignal},
   };
 
-  RunTests(tests, base::size(tests));
+  RunTests(tests, std::size(tests));
 }
 
 // Test that after permissions have been denied, a network change signal from
@@ -363,7 +362,7 @@ TEST_F(FilteringNetworkManagerTest, BlockMultipleRoutesByNetworksChanged) {
       {kStopUpdating, kNoSignal},
   };
 
-  RunTests(tests, base::size(tests));
+  RunTests(tests, std::size(tests));
 }
 
 // Test that multiple routes request is granted and signaled right after
@@ -390,7 +389,7 @@ TEST_F(FilteringNetworkManagerTest, AllowMultipleRoutesByPermissionsGranted) {
       {kMockNetworksChangedWithNewNetwork, kNoSignal},
   };
 
-  RunTests(tests, base::size(tests));
+  RunTests(tests, std::size(tests));
 }
 
 // Test that multiple routes request is granted and signaled right after
@@ -416,7 +415,7 @@ TEST_F(FilteringNetworkManagerTest, AllowMultipleRoutesByStartUpdating) {
       {kMockNetworksChangedWithNewNetwork, kNoSignal},
   };
 
-  RunTests(tests, base::size(tests));
+  RunTests(tests, std::size(tests));
 }
 
 // Test that multiple routes request is granted and signaled right after
@@ -440,7 +439,7 @@ TEST_F(FilteringNetworkManagerTest, AllowMultipleRoutesByNetworksChanged) {
       {kMockNetworksChangedWithNewNetwork, kNoSignal},
   };
 
-  RunTests(tests, base::size(tests));
+  RunTests(tests, std::size(tests));
 }
 
 // Test that the networks provided by the GetNetworks() and
@@ -459,17 +458,15 @@ TEST_F(FilteringNetworkManagerTest, NullMdnsResponderAfterPermissionGranted) {
       // ENUMERATION_ALLOWED.
       {kStartUpdating, kSignalEnumerationAllowed},
   };
-  RunTests(setup_steps, base::size(setup_steps));
+  RunTests(setup_steps, std::size(setup_steps));
 
-  NetworkList networks;
-  network_manager_->GetNetworks(&networks);
+  std::vector<const rtc::Network*> networks = network_manager_->GetNetworks();
   EXPECT_THAT(networks, SizeIs(1u));
   for (const rtc::Network* network : networks) {
     EXPECT_EQ(nullptr, network->GetMdnsResponder());
   }
 
-  networks.clear();
-  network_manager_->GetAnyAddressNetworks(&networks);
+  networks = network_manager_->GetAnyAddressNetworks();
   EXPECT_THAT(networks, SizeIs(2u));
   for (const rtc::Network* network : networks) {
     EXPECT_EQ(nullptr, network->GetMdnsResponder());
@@ -486,11 +483,10 @@ TEST_F(FilteringNetworkManagerTest,
   EXPECT_EQ(rtc::NetworkManager::ENUMERATION_BLOCKED,
             network_manager_->enumeration_permission());
 
-  NetworkList networks;
-  network_manager_->GetNetworks(&networks);
+  std::vector<const rtc::Network*> networks = network_manager_->GetNetworks();
   EXPECT_TRUE(networks.empty());
 
-  network_manager_->GetAnyAddressNetworks(&networks);
+  networks = network_manager_->GetAnyAddressNetworks();
   EXPECT_THAT(networks, SizeIs(2u));
   EXPECT_NE(nullptr, network_manager_->GetMdnsResponder());
   for (const rtc::Network* network : networks) {
@@ -510,11 +506,10 @@ TEST_F(FilteringNetworkManagerTest,
   EXPECT_EQ(rtc::NetworkManager::ENUMERATION_BLOCKED,
             network_manager_->enumeration_permission());
 
-  NetworkList networks;
-  network_manager_->GetNetworks(&networks);
+  std::vector<const rtc::Network*> networks = network_manager_->GetNetworks();
   EXPECT_TRUE(networks.empty());
 
-  network_manager_->GetAnyAddressNetworks(&networks);
+  networks = network_manager_->GetAnyAddressNetworks();
   EXPECT_THAT(networks, SizeIs(2u));
   for (const rtc::Network* network : networks) {
     EXPECT_EQ(nullptr, network->GetMdnsResponder());

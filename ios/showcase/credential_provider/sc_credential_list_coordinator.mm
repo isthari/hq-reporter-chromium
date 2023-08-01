@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,7 +27,7 @@
 @synthesize serviceIdentifier = _serviceIdentifier;
 @synthesize serviceName = _serviceName;
 @synthesize user = _user;
-@synthesize validationIdentifier = _validationIdentifier;
+@synthesize note = _note;
 
 - (instancetype)initWithServiceName:(NSString*)serviceName
                   serviceIdentifier:(NSString*)serviceIdentifier

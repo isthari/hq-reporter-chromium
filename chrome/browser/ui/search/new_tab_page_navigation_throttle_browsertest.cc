@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -135,6 +135,60 @@ IN_PROC_BROWSER_TEST_F(NewTabPageNavigationThrottleTest, 204Throttle) {
   EXPECT_EQ(chrome::kChromeUINewTabPageThirdPartyURL, NavigateToNewTabPage());
 }
 
+class OverrideNavigationParamsObserver : public content::WebContentsObserver {
+ public:
+  explicit OverrideNavigationParamsObserver(content::WebContents* contents)
+      : WebContentsObserver(contents) {}
+
+  // WebContentsObserver overrides:
+  void DidFinishNavigation(content::NavigationHandle* handle) override {
+    EXPECT_TRUE(handle);
+
+    // Check the values that are changed in OverrideNavigationParams.
+    EXPECT_EQ(absl::nullopt, handle->GetInitiatorOrigin());
+    EXPECT_FALSE(handle->IsRendererInitiated());
+    ui::PageTransitionCoreTypeIs(handle->GetPageTransition(),
+                                 ui::PAGE_TRANSITION_AUTO_BOOKMARK);
+  }
+};
+
+// Check that ChromeContentBrowserClient::OverrideNavigationParams behaves
+// correctly when navigating from a custom 3P NTP with an HTTPS scheme.
+// OverrideNavigationParams changes the params on renderer initiated navigations
+// from the NTP. It identifies a page as an NTP by using the site URL, not the
+// lock URL, of the initiator process.
+IN_PROC_BROWSER_TEST_F(NewTabPageNavigationThrottleTest,
+                       OverrideNavigationParams_ThirdPartyNTP) {
+  ASSERT_TRUE(https_test_server()->Start());
+  std::string ntp_url =
+      https_test_server()->GetURL("/instant_extended.html").spec();
+  SetNewTabPage(ntp_url);
+  EXPECT_EQ(ntp_url, NavigateToNewTabPage());
+
+  const GURL page_url = https_test_server()->GetURL("/simple.html");
+  auto* web_contents = browser()->tab_strip_model()->GetActiveWebContents();
+  OverrideNavigationParamsObserver observer(web_contents);
+  EXPECT_TRUE(content::NavigateToURLFromRenderer(web_contents, page_url));
+}
+
+// Check that ChromeContentBrowserClient::OverrideNavigationParams behaves
+// correctly when navigating from a chrome:// NTP.
+// OverrideNavigationParams changes the params on renderer initiated navigations
+// from the NTP. It identifies a page as an NTP by using the site URL, not the
+// lock URL, of the initiator process. This test uses a chrome:// URL for the
+// NTP, so the lock and site URLs are the same.
+IN_PROC_BROWSER_TEST_F(NewTabPageNavigationThrottleTest,
+                       OverrideNavigationParams_ChromeURLNTP) {
+  ASSERT_TRUE(https_test_server()->Start());
+  SetNewTabPage(chrome::kChromeUINewTabPageThirdPartyURL);
+  EXPECT_EQ(chrome::kChromeUINewTabPageThirdPartyURL, NavigateToNewTabPage());
+
+  const GURL page_url = https_test_server()->GetURL("/simple.html");
+  auto* web_contents = browser()->tab_strip_model()->GetActiveWebContents();
+  OverrideNavigationParamsObserver observer(web_contents);
+  EXPECT_TRUE(content::NavigateToURLFromRenderer(web_contents, page_url));
+}
+
 class NewTabPageNavigationThrottlePrerenderTest
     : public NewTabPageNavigationThrottleTest {
  public:
@@ -233,7 +287,7 @@ IN_PROC_BROWSER_TEST_F(NewTabPageNavigationThrottleFencedFrameTest,
       https_test_server()->GetURL("/fenced_frames/title1.html");
   content::RenderFrameHost* fenced_frame_host =
       fenced_frame_test_helper().CreateFencedFrame(
-          web_contents()->GetMainFrame(), fenced_frame_url);
+          web_contents()->GetPrimaryMainFrame(), fenced_frame_url);
   EXPECT_NE(nullptr, fenced_frame_host);
   EXPECT_FALSE(core_tab_helper->new_tab_start_time().is_null());
   histogram_tester.ExpectTotalCount("Tab.NewTabOnload.Other", 1);
@@ -251,7 +305,7 @@ IN_PROC_BROWSER_TEST_F(NewTabPageNavigationThrottleFencedFrameTest,
 
   content::RenderFrameHost* fenced_frame_host =
       fenced_frame_test_helper().CreateFencedFrame(
-          web_contents()->GetMainFrame(), ntp_url);
+          web_contents()->GetPrimaryMainFrame(), ntp_url);
   EXPECT_NE(nullptr, fenced_frame_host);
   // Fenced frames should not update the title of the web contents.
   EXPECT_EQ(u"Title Of Awesomeness", web_contents()->GetTitle());

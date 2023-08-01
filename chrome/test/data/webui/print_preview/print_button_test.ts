@@ -1,15 +1,14 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import {CrButtonElement, NativeInitialSettings, NativeLayerImpl, PluginProxyImpl, PrintPreviewAppElement, PrintTicket} from 'chrome://print/print_preview.js';
-// <if expr="chromeos_ash or chromeos_lacros">
+// <if expr="is_chromeos">
 import {GooglePromotedDestinationId} from 'chrome://print/print_preview.js';
 // </if>
-import {assert} from 'chrome://resources/js/assert.m.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
 
-// <if expr="chromeos_ash or chromeos_lacros">
+// <if expr="is_chromeos">
 import {setNativeLayerCrosInstance} from './native_layer_cros_stub.js';
 // </if>
 
@@ -42,10 +41,10 @@ suite(print_button_test.suiteName, function() {
   setup(function() {
     nativeLayer = new NativeLayerStub();
     NativeLayerImpl.setInstance(nativeLayer);
-    // <if expr="chromeos_ash or chromeos_lacros">
+    // <if expr="is_chromeos">
     setNativeLayerCrosInstance();
     // </if>
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     nativeLayer.setInitialSettings(initialSettings);
     const localDestinationInfos = [
       {printerName: 'FooName', deviceName: 'FooDevice'},
@@ -91,7 +90,7 @@ suite(print_button_test.suiteName, function() {
 
   // Tests that hidePreview() is called before print() if a local printer is
   // selected and the user clicks print while the preview is loading.
-  test(assert(print_button_test.TestNames.LocalPrintHidePreview), function() {
+  test(print_button_test.TestNames.LocalPrintHidePreview, function() {
     printBeforePreviewReady = true;
 
     return waitForInitialPreview()
@@ -111,7 +110,7 @@ suite(print_button_test.suiteName, function() {
 
   // Tests that hidePreview() is not called if Save as PDF is selected and
   // the user clicks print while the preview is loading.
-  test(assert(print_button_test.TestNames.PDFPrintVisiblePreview), function() {
+  test(print_button_test.TestNames.PDFPrintVisiblePreview, function() {
     printBeforePreviewReady = false;
 
     return waitForInitialPreview()
@@ -147,13 +146,12 @@ suite(print_button_test.suiteName, function() {
         });
   });
 
-  // <if expr="chromeos_ash or chromeos_lacros">
+  // <if expr="is_chromeos">
   // Tests that hidePreview() is not called if Save to Drive is selected on
   // Chrome OS and the user clicks print while the preview is loading because
   // Save to Drive needs to be treated like Save as PDF.
   test(
-      assert(print_button_test.TestNames.SaveToDriveVisiblePreviewCros),
-      function() {
+      print_button_test.TestNames.SaveToDriveVisiblePreviewCros, function() {
         printBeforePreviewReady = false;
 
         return waitForInitialPreview()

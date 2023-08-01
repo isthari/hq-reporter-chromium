@@ -1,4 +1,4 @@
-# Copyright 2021 The Chromium Authors. All rights reserved.
+# Copyright 2021 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -11,9 +11,12 @@ source_set("default_browser") {
   deps = [
     ":default_browser_ui",
     "//base",
+    "//components/feature_engagement/public",
+    "//ios/chrome/browser/default_browser:utils",
+    "//ios/chrome/browser/feature_engagement",
     "//ios/chrome/browser/first_run",
-    "//ios/chrome/browser/ui/coordinators:chrome_coordinators",
-    "//ios/chrome/browser/ui/default_promo:utils",
+    "//ios/chrome/browser/shared/coordinator/chrome_coordinator",
+    "//ios/chrome/browser/shared/model/browser",
     "//ios/chrome/browser/ui/first_run:screen_delegate",
   ]
   frameworks = [ "UIKit.framework" ]
@@ -27,7 +30,8 @@ source_set("default_browser_ui") {
   ]
   deps = [
     "//ios/chrome/app/strings",
-    "//ios/chrome/browser/ui/elements",
+    "//ios/chrome/browser/first_run",
+    "//ios/chrome/browser/shared/ui/elements",
     "//ios/chrome/browser/ui/first_run:constants",
     "//ios/chrome/browser/ui/first_run/resources:default_browser_screen_banner",
     "//ios/chrome/common/ui/colors",

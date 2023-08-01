@@ -1,9 +1,10 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/optimization_guide/optimization_guide_tab_helper.h"
+#import "ios/chrome/browser/optimization_guide/optimization_guide_tab_helper.h"
 
+#import "base/command_line.h"
 #import "base/test/metrics/histogram_tester.h"
 #import "base/test/scoped_feature_list.h"
 #import "base/test/task_environment.h"
@@ -11,11 +12,11 @@
 #import "components/optimization_guide/core/optimization_guide_navigation_data.h"
 #import "components/optimization_guide/core/optimization_guide_switches.h"
 #import "components/optimization_guide/core/optimization_guide_test_util.h"
-#import "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#import "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
 #import "ios/chrome/browser/optimization_guide/optimization_guide_service.h"
 #import "ios/chrome/browser/optimization_guide/optimization_guide_service_factory.h"
 #import "ios/chrome/browser/optimization_guide/optimization_guide_test_utils.h"
+#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
 #import "ios/web/public/test/fakes/fake_navigation_context.h"
 #import "ios/web/public/test/fakes/fake_web_state.h"
 #import "testing/gmock/include/gmock/gmock.h"
@@ -108,7 +109,15 @@ class OptimizationGuideTabHelperTest : public PlatformTest {
     scoped_feature_list_.InitWithFeatures(
         {optimization_guide::features::kOptimizationHints}, {});
 
-    browser_state_ = TestChromeBrowserState::Builder().Build();
+    TestChromeBrowserState::Builder builder;
+    builder.AddTestingFactory(
+        OptimizationGuideServiceFactory::GetInstance(),
+        OptimizationGuideServiceFactory::GetDefaultFactory());
+    browser_state_ = builder.Build();
+    optimization_guide_service_ =
+        OptimizationGuideServiceFactory::GetForBrowserState(
+            browser_state_.get());
+    optimization_guide_service_->DoFinalInit();
 
     web_state_.SetBrowserState(browser_state_.get());
     optimization_guide_service_ =

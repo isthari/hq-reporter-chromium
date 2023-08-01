@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,8 @@
 
 #include "ash/public/cpp/login_accelerators.h"
 #include "ash/public/cpp/login_screen.h"
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/i18n/rtl.h"
 #include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
@@ -18,26 +18,25 @@
 #include "base/values.h"
 #include "chrome/browser/ash/app_mode/kiosk_app_manager.h"
 #include "chrome/browser/ash/login/ui/login_display_host_webui.h"
-#include "chrome/browser/ash/login/ui/login_display_webui.h"
 #include "chrome/browser/ash/login/ui/web_contents_forced_title.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
-#include "chrome/browser/chrome_notification_types.h"
+#include "chrome/browser/lifetime/termination_notification.h"
 #include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
 #include "chrome/browser/password_manager/chrome_password_manager_client.h"
 #include "chrome/browser/renderer_preferences_util.h"
+#include "chrome/browser/safe_browsing/chrome_password_reuse_detection_manager_client.h"
 #include "chrome/browser/sessions/session_tab_helper_factory.h"
-#include "chrome/browser/ui/ash/keyboard/chrome_keyboard_controller_client.h"
 #include "chrome/browser/ui/ash/login_screen_client_impl.h"
 #include "chrome/browser/ui/ash/system_tray_client_impl.h"
 #include "chrome/browser/ui/autofill/chrome_autofill_client.h"
-#include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
-#include "chromeos/dbus/session_manager/session_manager_client.h"
-#include "chromeos/network/network_state.h"
-#include "chromeos/network/network_state_handler.h"
+#include "chrome/browser/ui/webui/ash/login/oobe_ui.h"
+#include "chrome/grit/generated_resources.h"
+#include "chromeos/ash/components/dbus/session_manager/session_manager_client.h"
+#include "chromeos/ash/components/network/network_state.h"
+#include "chromeos/ash/components/network/network_state_handler.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
 #include "components/password_manager/core/browser/password_manager.h"
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
-#include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host.h"
@@ -48,6 +47,8 @@
 #include "extensions/common/mojom/view_type.mojom.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
 #include "third_party/blink/public/common/renderer_preferences/renderer_preferences.h"
+#include "ui/accessibility/ax_node_data.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
@@ -92,10 +93,9 @@ class ScopedArrowKeyTraversal {
 WebUILoginView::WebUILoginView(const WebViewSettings& settings,
                                base::WeakPtr<LoginDisplayHostWebUI> controller)
     : settings_(settings), controller_(controller) {
-  ChromeKeyboardControllerClient::Get()->AddObserver(this);
-
-  registrar_.Add(this, chrome::NOTIFICATION_APP_TERMINATING,
-                 content::NotificationService::AllSources());
+  on_app_terminating_subscription_ =
+      browser_shutdown::AddAppTerminatingCallback(base::BindOnce(
+          &WebUILoginView::OnAppTerminating, base::Unretained(this)));
 
   session_observation_.Observe(session_manager::SessionManager::Get());
 
@@ -130,7 +130,6 @@ WebUILoginView::~WebUILoginView() {
   // TODO(crbug.com/1188526) - Improve the observation of the system tray
   if (observing_system_tray_focus_ && LoginScreenClientImpl::HasInstance())
     LoginScreenClientImpl::Get()->RemoveSystemTrayObserver(this);
-  ChromeKeyboardControllerClient::Get()->RemoveObserver(this);
 
   // Clear any delegates we have set on the WebView.
   WebContents* web_contents = web_view_->GetWebContents();
@@ -158,7 +157,10 @@ void WebUILoginView::InitializeWebView(views::WebView* web_view,
   // Create the password manager that is needed for the proxy.
   ChromePasswordManagerClient::CreateForWebContentsWithAutofillClient(
       web_contents,
-      autofill::ChromeAutofillClient::FromWebContents(web_contents));
+      autofill::ContentAutofillClient::FromWebContents(web_contents));
+
+  // Create the password reuse detection manager.
+  ChromePasswordReuseDetectionManagerClient::CreateForWebContents(web_contents);
 
   // LoginHandlerViews uses a constrained window for the password manager view.
   WebContentsModalDialogManager::CreateForWebContents(web_contents);
@@ -263,7 +265,7 @@ void WebUILoginView::SetStatusAreaVisible(bool visible) {
   SystemTrayClientImpl::Get()->SetPrimaryTrayVisible(visible);
 }
 
-void WebUILoginView::SetUIEnabled(bool enabled) {
+void WebUILoginView::SetKeyboardEventsAndSystemTrayEnabled(bool enabled) {
   forward_keyboard_event_ = enabled;
 
   SystemTrayClientImpl::Get()->SetPrimaryTrayEnabled(enabled);
@@ -289,20 +291,9 @@ void WebUILoginView::AboutToRequestFocusFromTabTraversal(bool reverse) {
   web_view_->web_contents()->FocusThroughTabTraversal(reverse);
   GetWidget()->Activate();
   web_view_->web_contents()->Focus();
-
-  if (!GetOobeUI())
-    return;
-  CoreOobeView* view = GetOobeUI()->GetCoreOobeView();
-  if (view)
-    view->FocusReturned(reverse);
 }
 
-void WebUILoginView::Observe(int type,
-                             const content::NotificationSource& source,
-                             const content::NotificationDetails& details) {
-  DCHECK_EQ(chrome::NOTIFICATION_APP_TERMINATING, type)
-      << "Unexpected notification " << type;
-
+void WebUILoginView::OnAppTerminating() {
   // In some tests, WebUILoginView remains after LoginScreenClientImpl gets
   // deleted on shutdown. It should unregister itself before the deletion
   // happens.
@@ -312,25 +303,9 @@ void WebUILoginView::Observe(int type,
   }
 }
 
-void WebUILoginView::OnNetworkErrorScreenShown() {
-  OnLoginPromptVisible();
-  session_observation_.Reset();
-}
-
 void WebUILoginView::OnLoginOrLockScreenVisible() {
   OnLoginPromptVisible();
   session_observation_.Reset();
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// ChromeKeyboardControllerClient::Observer
-
-void WebUILoginView::OnKeyboardVisibilityChanged(bool visible) {
-  if (!GetOobeUI())
-    return;
-  CoreOobeView* view = GetOobeUI()->GetCoreOobeView();
-  if (view)
-    view->SetVirtualKeyboardShown(visible);
 }
 
 // WebUILoginView private: -----------------------------------------------------
@@ -403,12 +378,7 @@ void WebUILoginView::OnFocusLeavingSystemTray(bool reverse) {
   AboutToRequestFocusFromTabTraversal(reverse);
 }
 
-void WebUILoginView::OnSystemTrayBubbleShown() {
-  if (!GetOobeUI())
-    return;
-
-  GetOobeUI()->OnSystemTrayBubbleShown();
-}
+void WebUILoginView::OnSystemTrayBubbleShown() {}
 
 void WebUILoginView::OnLoginPromptVisible() {
   if (!observing_system_tray_focus_ && LoginScreenClientImpl::HasInstance()) {
@@ -427,6 +397,12 @@ void WebUILoginView::OnLoginPromptVisible() {
   }
 
   webui_visible_ = true;
+}
+
+void WebUILoginView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
+  node_data->role = ax::mojom::Role::kWindow;
+  node_data->SetName(
+      l10n_util::GetStringUTF16(IDS_OOBE_ACCESSIBLE_SCREEN_NAME));
 }
 
 BEGIN_METADATA(WebUILoginView, views::View)

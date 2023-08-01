@@ -1,17 +1,19 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_APPS_APP_SERVICE_LAUNCH_UTILS_H_
 #define CHROME_BROWSER_APPS_APP_SERVICE_LAUNCH_UTILS_H_
 
+#include <stdint.h>
 #include <string>
 #include <vector>
 
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/apps/app_service/app_launch_params.h"
-#include "components/services/app_service/public/mojom/types.mojom.h"
+#include "components/services/app_service/public/cpp/app_launch_util.h"
+#include "components/services/app_service/public/cpp/intent.h"
 #include "extensions/common/constants.h"
 #include "ui/base/window_open_disposition.h"
 
@@ -21,7 +23,7 @@
 #endif  // BUILDFLAG(IS_CHROMEOS)
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "ash/components/arc/mojom/app.mojom.h"
+#include "ash/components/arc/mojom/app.mojom-forward.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 class Browser;
@@ -54,28 +56,25 @@ Browser* CreateBrowserWithNewTabPage(Profile* profile);
 AppLaunchParams CreateAppIdLaunchParamsWithEventFlags(
     const std::string& app_id,
     int event_flags,
-    apps::mojom::LaunchSource source,
+    LaunchSource source,
     int64_t display_id,
-    apps::mojom::LaunchContainer fallback_container);
+    LaunchContainer fallback_container);
 
-apps::AppLaunchParams CreateAppLaunchParamsForIntent(
+AppLaunchParams CreateAppLaunchParamsForIntent(
     const std::string& app_id,
     int32_t event_flags,
-    apps::mojom::LaunchSource source,
+    LaunchSource source,
     int64_t display_id,
-    apps::mojom::LaunchContainer fallback_container,
-    apps::mojom::IntentPtr&& intent,
+    LaunchContainer fallback_container,
+    IntentPtr&& intent,
     Profile* profile);
 
-extensions::AppLaunchSource GetAppLaunchSource(
-    apps::mojom::LaunchSource launch_source);
+extensions::AppLaunchSource GetAppLaunchSource(LaunchSource launch_source);
 
-// Returns event flag for |container| and |disposition|. If |prefer_container|
-// is true, |disposition| will be ignored. Otherwise, |container| is ignored and
-// an event flag based on |disposition| will be returned.
-int GetEventFlags(apps::mojom::LaunchContainer container,
-                  WindowOpenDisposition disposition,
-                  bool prefer_container);
+// Returns event flag for |disposition|. If |prefer_container|
+// is true, |disposition| will be ignored. Otherwise, an event flag based on
+// |disposition| will be returned.
+int GetEventFlags(WindowOpenDisposition disposition, bool prefer_container);
 
 // Returns the browser's session id for restoration if |web_contents| is valid
 // for a system web app, or for a web app not opened in tab. Otherwise, returns
@@ -83,14 +82,9 @@ int GetEventFlags(apps::mojom::LaunchContainer container,
 int GetSessionIdForRestoreFromWebContents(
     const content::WebContents* web_contents);
 
-// Helper to create apps::mojom::WindowInfoPtr using |display_id|, which is the
-// id of the display from which the app is launched.
-apps::mojom::WindowInfoPtr MakeWindowInfo(int64_t display_id);
-
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 // Helper to convert apps::mojom::WindowInfoPtr to arc::mojom::WindowInfoPtr.
-arc::mojom::WindowInfoPtr MakeArcWindowInfo(
-    apps::mojom::WindowInfoPtr window_info);
+arc::mojom::WindowInfoPtr MakeArcWindowInfo(WindowInfoPtr window_info);
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if BUILDFLAG(IS_CHROMEOS)
@@ -98,22 +92,47 @@ arc::mojom::WindowInfoPtr MakeArcWindowInfo(
 // This is needed because we cannot use traits to convert Intent at the moment,
 // After that is done, this can be moved to the mojom type traits.
 crosapi::mojom::LaunchParamsPtr ConvertLaunchParamsToCrosapi(
-    const apps::AppLaunchParams& params,
+    const AppLaunchParams& params,
     Profile* profile);
 
 // Helper to convert crosapi::mojom::LaunchParams to apps::AppLaunchParams.
 // This is needed because we cannot use traits to convert Intent at the moment,
 // After that is done, this can be moved to the mojom type traits.
-apps::AppLaunchParams ConvertCrosapiToLaunchParams(
+AppLaunchParams ConvertCrosapiToLaunchParams(
     const crosapi::mojom::LaunchParamsPtr& crosapi_params,
     Profile* profile);
 
 crosapi::mojom::LaunchParamsPtr CreateCrosapiLaunchParamsWithEventFlags(
-    apps::AppServiceProxy* proxy,
+    AppServiceProxy* proxy,
     const std::string& app_id,
     int event_flags,
-    apps::mojom::LaunchSource launch_source,
+    LaunchSource launch_source,
     int64_t display_id);
+
+// Container for holding possible app IDs that can launch a PWA for a given URL.
+struct AppIdsToLaunchForUrl {
+  AppIdsToLaunchForUrl();
+  AppIdsToLaunchForUrl(AppIdsToLaunchForUrl&&);
+  ~AppIdsToLaunchForUrl();
+
+  // Apps that can handle a given URL.
+  std::vector<std::string> candidates;
+  // The users preference for an app to handle a given URL.
+  absl::optional<std::string> preferred;
+};
+
+// Takes a `url` and returns a vector of app IDs and the users preferred choice
+// of app that can launch a PWA for the given `url`.
+AppIdsToLaunchForUrl FindAppIdsToLaunchForUrl(AppServiceProxy* proxy,
+                                              const GURL& url);
+
+// Checks to see if any apps handle `url` and is selected as the users
+// preference. If so, launches the preferred app, otherwise opens `url` in a
+// browser tab.
+void MaybeLaunchPreferredAppForUrl(Profile* profile,
+                                   const GURL& url,
+                                   LaunchSource launch_source);
+
 #endif  // BUILDFLAG(IS_CHROMEOS)
 
 }  // namespace apps

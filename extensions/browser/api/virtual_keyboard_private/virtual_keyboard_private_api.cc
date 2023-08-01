@@ -1,22 +1,29 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "extensions/browser/api/virtual_keyboard_private/virtual_keyboard_private_api.h"
 
-#include <memory>
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/lazy_instance.h"
+#include "base/notreached.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/chromeos_buildflags.h"
 #include "extensions/browser/api/extensions_api_client.h"
 #include "extensions/browser/api/virtual_keyboard_private/virtual_keyboard_delegate.h"
-#include "extensions/browser/extension_function_registry.h"
 #include "extensions/common/api/virtual_keyboard_private.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
-#include "ui/events/event.h"
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/clipboard/clipboard_history_item.h"
+#include "chromeos/crosapi/mojom/clipboard_history.mojom.h"
+#include "content/public/browser/web_contents.h"
+#include "ui/base/webui/web_ui_util.h"
+#include "ui/color/color_provider.h"
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace extensions {
 
@@ -33,14 +40,63 @@ const char kSetAreaToRemainOnScreenFailed[] =
 const char kSetWindowBoundsInScreenFailed[] =
     "Setting bounds of the virtual keyboard failed";
 const char kUnknownError[] = "Unknown error.";
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+const char kGetClipboardHistoryFailed[] =
+    "Getting the clipboard history failed";
 const char kPasteClipboardItemFailed[] = "Pasting the clipboard item failed";
 const char kDeleteClipboardItemFailed[] = "Deleting the clipboard item failed";
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace keyboard = api::virtual_keyboard_private;
 
 gfx::Rect KeyboardBoundsToRect(const keyboard::Bounds& bounds) {
   return {bounds.left, bounds.top, bounds.width, bounds.height};
 }
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+base::Value::Dict SerializeClipboardHistoryItem(
+    const ui::ColorProvider& color_provider,
+    const ash::ClipboardHistoryItem& item) {
+  using extensions::api::virtual_keyboard_private::DisplayFormat;
+
+  extensions::api::virtual_keyboard_private::ClipboardItem clipboard_item;
+  clipboard_item.id = item.id().ToString();
+  clipboard_item.time_copied = item.time_copied().ToJsTimeIgnoringNull();
+  if (const auto& maybe_image = item.display_image()) {
+    clipboard_item.image_data =
+        webui::GetBitmapDataUrl(*maybe_image->GetImage().ToSkBitmap());
+  }
+
+  switch (item.display_format()) {
+    case crosapi::mojom::ClipboardHistoryDisplayFormat::kUnknown:
+      NOTREACHED_NORETURN();
+    case crosapi::mojom::ClipboardHistoryDisplayFormat::kText:
+      clipboard_item.text_data = base::UTF16ToUTF8(item.display_text());
+      clipboard_item.display_format = DisplayFormat::kText;
+      break;
+    case crosapi::mojom::ClipboardHistoryDisplayFormat::kPng:
+      clipboard_item.display_format = DisplayFormat::kPng;
+      break;
+    case crosapi::mojom::ClipboardHistoryDisplayFormat::kHtml:
+      clipboard_item.display_format = DisplayFormat::kHtml;
+      break;
+    case crosapi::mojom::ClipboardHistoryDisplayFormat::kFile:
+      DCHECK(!clipboard_item.image_data.has_value());
+
+      const auto& icon = item.icon();
+      DCHECK(icon.has_value());
+
+      clipboard_item.image_data =
+          webui::GetBitmapDataUrl(*icon->Rasterize(&color_provider).bitmap());
+      clipboard_item.text_data = base::UTF16ToUTF8(item.display_text());
+      clipboard_item.display_format = DisplayFormat::kFile;
+      break;
+  }
+
+  return clipboard_item.ToValue();
+}
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 }  // namespace
 
@@ -59,8 +115,6 @@ bool VirtualKeyboardPrivateFunction::PreRunValidation(std::string* error) {
   return true;
 }
 
-VirtualKeyboardPrivateFunction::~VirtualKeyboardPrivateFunction() {}
-
 ExtensionFunction::ResponseAction
 VirtualKeyboardPrivateInsertTextFunction::Run() {
   EXTENSION_FUNCTION_VALIDATE(args().size() >= 1);
@@ -73,8 +127,8 @@ VirtualKeyboardPrivateInsertTextFunction::Run() {
 
 ExtensionFunction::ResponseAction
 VirtualKeyboardPrivateSendKeyEventFunction::Run() {
-  std::unique_ptr<keyboard::SendKeyEvent::Params> params(
-      keyboard::SendKeyEvent::Params::Create(args()));
+  absl::optional<keyboard::SendKeyEvent::Params> params =
+      keyboard::SendKeyEvent::Params::Create(args());
   EXTENSION_FUNCTION_VALIDATE(params);
   EXTENSION_FUNCTION_VALIDATE(params->key_event.modifiers);
   const keyboard::VirtualKeyboardEvent& event = params->key_event;
@@ -128,10 +182,8 @@ VirtualKeyboardPrivateGetKeyboardConfigFunction::Run() {
 }
 
 void VirtualKeyboardPrivateGetKeyboardConfigFunction::OnKeyboardConfig(
-    std::unique_ptr<base::DictionaryValue> results) {
-  Respond(results
-              ? OneArgument(base::Value::FromUniquePtrValue(std::move(results)))
-              : Error(kUnknownError));
+    absl::optional<base::Value::Dict> results) {
+  Respond(results ? WithArguments(std::move(*results)) : Error(kUnknownError));
 }
 
 ExtensionFunction::ResponseAction
@@ -153,7 +205,7 @@ VirtualKeyboardPrivateOpenSuggestionSettingsFunction::Run() {
 
 ExtensionFunction::ResponseAction
 VirtualKeyboardPrivateSetContainerBehaviorFunction::Run() {
-  std::unique_ptr<keyboard::SetContainerBehavior::Params> params =
+  absl::optional<keyboard::SetContainerBehavior::Params> params =
       keyboard::SetContainerBehavior::Params::Create(args());
   EXTENSION_FUNCTION_VALIDATE(params);
 
@@ -169,12 +221,12 @@ VirtualKeyboardPrivateSetContainerBehaviorFunction::Run() {
 
 void VirtualKeyboardPrivateSetContainerBehaviorFunction::OnSetContainerBehavior(
     bool success) {
-  Respond(OneArgument(base::Value(success)));
+  Respond(WithArguments(success));
 }
 
 ExtensionFunction::ResponseAction
 VirtualKeyboardPrivateSetDraggableAreaFunction::Run() {
-  std::unique_ptr<keyboard::SetDraggableArea::Params> params =
+  absl::optional<keyboard::SetDraggableArea::Params> params =
       keyboard::SetDraggableArea::Params::Create(args());
   EXTENSION_FUNCTION_VALIDATE(params);
   if (!delegate()->SetDraggableArea(params->bounds))
@@ -184,7 +236,7 @@ VirtualKeyboardPrivateSetDraggableAreaFunction::Run() {
 
 ExtensionFunction::ResponseAction
 VirtualKeyboardPrivateSetKeyboardStateFunction::Run() {
-  std::unique_ptr<keyboard::SetKeyboardState::Params> params =
+  absl::optional<keyboard::SetKeyboardState::Params> params =
       keyboard::SetKeyboardState::Params::Create(args());
   EXTENSION_FUNCTION_VALIDATE(params);
   if (!delegate()->SetRequestedKeyboardState(params->state))
@@ -194,14 +246,15 @@ VirtualKeyboardPrivateSetKeyboardStateFunction::Run() {
 
 ExtensionFunction::ResponseAction
 VirtualKeyboardPrivateSetOccludedBoundsFunction::Run() {
-  std::unique_ptr<keyboard::SetOccludedBounds::Params> params =
+  absl::optional<keyboard::SetOccludedBounds::Params> params =
       keyboard::SetOccludedBounds::Params::Create(args());
   EXTENSION_FUNCTION_VALIDATE(params);
 
   std::vector<gfx::Rect> occluded_bounds;
   occluded_bounds.reserve(params->bounds_list.size());
-  for (const auto& bounds : params->bounds_list)
+  for (const auto& bounds : params->bounds_list) {
     occluded_bounds.push_back(KeyboardBoundsToRect(bounds));
+  }
 
   if (!delegate()->SetOccludedBounds(occluded_bounds))
     return RespondNow(Error(kVirtualKeyboardNotEnabled));
@@ -210,14 +263,15 @@ VirtualKeyboardPrivateSetOccludedBoundsFunction::Run() {
 
 ExtensionFunction::ResponseAction
 VirtualKeyboardPrivateSetHitTestBoundsFunction::Run() {
-  std::unique_ptr<keyboard::SetHitTestBounds::Params> params =
+  absl::optional<keyboard::SetHitTestBounds::Params> params =
       keyboard::SetHitTestBounds::Params::Create(args());
   EXTENSION_FUNCTION_VALIDATE(params);
 
   std::vector<gfx::Rect> hit_test_bounds;
   hit_test_bounds.reserve(params->bounds_list.size());
-  for (const auto& bounds : params->bounds_list)
+  for (const auto& bounds : params->bounds_list) {
     hit_test_bounds.push_back(KeyboardBoundsToRect(bounds));
+  }
 
   if (!delegate()->SetHitTestBounds(hit_test_bounds))
     return RespondNow(Error(kVirtualKeyboardNotEnabled));
@@ -226,7 +280,7 @@ VirtualKeyboardPrivateSetHitTestBoundsFunction::Run() {
 
 ExtensionFunction::ResponseAction
 VirtualKeyboardPrivateSetAreaToRemainOnScreenFunction::Run() {
-  std::unique_ptr<keyboard::SetAreaToRemainOnScreen::Params> params =
+  absl::optional<keyboard::SetAreaToRemainOnScreen::Params> params =
       keyboard::SetAreaToRemainOnScreen::Params::Create(args());
   EXTENSION_FUNCTION_VALIDATE(params);
 
@@ -238,7 +292,7 @@ VirtualKeyboardPrivateSetAreaToRemainOnScreenFunction::Run() {
 
 ExtensionFunction::ResponseAction
 VirtualKeyboardPrivateSetWindowBoundsInScreenFunction::Run() {
-  std::unique_ptr<keyboard::SetWindowBoundsInScreen::Params> params =
+  absl::optional<keyboard::SetWindowBoundsInScreen::Params> params =
       keyboard::SetWindowBoundsInScreen::Params::Create(args());
   EXTENSION_FUNCTION_VALIDATE(params);
 
@@ -251,29 +305,34 @@ VirtualKeyboardPrivateSetWindowBoundsInScreenFunction::Run() {
 VirtualKeyboardPrivateSetWindowBoundsInScreenFunction ::
     ~VirtualKeyboardPrivateSetWindowBoundsInScreenFunction() = default;
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 ExtensionFunction::ResponseAction
 VirtualKeyboardPrivateGetClipboardHistoryFunction::Run() {
-  std::unique_ptr<keyboard::GetClipboardHistory::Params> params =
+  absl::optional<keyboard::GetClipboardHistory::Params> params =
       keyboard::GetClipboardHistory::Params::Create(args());
   EXTENSION_FUNCTION_VALIDATE(params);
-  std::set<std::string> item_id_filter;
-  if (params->options.item_ids) {
-    for (const auto& id : *(params->options.item_ids)) {
-      item_id_filter.insert(id);
-    }
-  }
 
-  delegate()->GetClipboardHistory(
-      item_id_filter,
-      base::BindOnce(&VirtualKeyboardPrivateGetClipboardHistoryFunction::
-                         OnGetClipboardHistory,
-                     this));
+  delegate()->GetClipboardHistory(base::BindOnce(
+      &VirtualKeyboardPrivateGetClipboardHistoryFunction::OnGetClipboardHistory,
+      this));
   return did_respond() ? AlreadyResponded() : RespondLater();
 }
 
 void VirtualKeyboardPrivateGetClipboardHistoryFunction::OnGetClipboardHistory(
-    base::Value results) {
-  Respond(OneArgument(std::move(results)));
+    std::vector<ash::ClipboardHistoryItem> items) {
+  const auto* web_contents = GetSenderWebContents();
+  if (!web_contents) {
+    Respond(Error(kGetClipboardHistoryFailed));
+    return;
+  }
+
+  base::Value::List results;
+  for (const auto& item : items) {
+    results.Append(
+        SerializeClipboardHistoryItem(web_contents->GetColorProvider(), item));
+  }
+
+  Respond(WithArguments(std::move(results)));
 }
 
 VirtualKeyboardPrivateGetClipboardHistoryFunction ::
@@ -281,7 +340,7 @@ VirtualKeyboardPrivateGetClipboardHistoryFunction ::
 
 ExtensionFunction::ResponseAction
 VirtualKeyboardPrivatePasteClipboardItemFunction::Run() {
-  std::unique_ptr<keyboard::PasteClipboardItem::Params> params =
+  absl::optional<keyboard::PasteClipboardItem::Params> params =
       keyboard::PasteClipboardItem::Params::Create(args());
   EXTENSION_FUNCTION_VALIDATE(params);
 
@@ -295,7 +354,7 @@ VirtualKeyboardPrivatePasteClipboardItemFunction ::
 
 ExtensionFunction::ResponseAction
 VirtualKeyboardPrivateDeleteClipboardItemFunction::Run() {
-  std::unique_ptr<keyboard::DeleteClipboardItem::Params> params =
+  absl::optional<keyboard::DeleteClipboardItem::Params> params =
       keyboard::DeleteClipboardItem::Params::Create(args());
   EXTENSION_FUNCTION_VALIDATE(params);
 
@@ -306,14 +365,14 @@ VirtualKeyboardPrivateDeleteClipboardItemFunction::Run() {
 
 VirtualKeyboardPrivateDeleteClipboardItemFunction ::
     ~VirtualKeyboardPrivateDeleteClipboardItemFunction() = default;
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 VirtualKeyboardAPI::VirtualKeyboardAPI(content::BrowserContext* context) {
   delegate_ =
       ExtensionsAPIClient::Get()->CreateVirtualKeyboardDelegate(context);
 }
 
-VirtualKeyboardAPI::~VirtualKeyboardAPI() {
-}
+VirtualKeyboardAPI::~VirtualKeyboardAPI() = default;
 
 static base::LazyInstance<BrowserContextKeyedAPIFactory<VirtualKeyboardAPI>>::
     DestructorAtExit g_factory = LAZY_INSTANCE_INITIALIZER;

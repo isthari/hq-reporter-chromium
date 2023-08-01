@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,10 @@
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
 #include "chrome/browser/ui/toolbar/app_menu_icon_controller.h"
-#include "chrome/browser/ui/user_education/feature_promo_controller.h"
+#include "chrome/browser/ui/toolbar/app_menu_model.h"
 #include "chrome/browser/ui/views/frame/app_menu_button.h"
+#include "components/user_education/common/feature_promo_controller.h"
+#include "components/user_education/common/feature_promo_handle.h"
 #include "ui/base/interaction/element_identifier.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/view.h"
@@ -28,6 +30,8 @@ class BrowserAppMenuButton : public AppMenuButton {
   BrowserAppMenuButton& operator=(const BrowserAppMenuButton&) = delete;
   ~BrowserAppMenuButton() override;
 
+  // Returns true if a text is set and is visible.
+  bool IsLabelPresentAndVisible() const;
   void SetTypeAndSeverity(
       AppMenuIconController::TypeAndSeverity type_and_severity);
 
@@ -38,6 +42,12 @@ class BrowserAppMenuButton : public AppMenuButton {
   // Opens the app menu immediately during a drag-and-drop operation.
   // Used only in testing.
   static bool g_open_app_immediately_for_testing;
+
+  void UpdateColors();
+
+  // Updates the inkdrop highlight and ripple properties depending on whether
+  // the chip is expanded.
+  void UpdateInkdrop();
 
   // AppMenuButton:
   void OnThemeChanged() override;
@@ -52,7 +62,15 @@ class BrowserAppMenuButton : public AppMenuButton {
 
   void UpdateTextAndHighlightColor();
 
+  bool ShouldPaintBorder() const override;
+  absl::optional<SkColor> GetHighlightTextColor() const override;
+
+  SkColor GetForegroundColor(ButtonState state) const override;
   void SetHasInProductHelpPromo(bool has_in_product_help_promo);
+
+  // Closes and continue the flow of an in-product help promo; Returns
+  // AlertMenuItem which indicates the app menu item that should be alerted.
+  AlertMenuItem CloseFeaturePromoAndContinue();
 
   AppMenuIconController::TypeAndSeverity type_and_severity_{
       AppMenuIconController::IconType::NONE,
@@ -61,7 +79,7 @@ class BrowserAppMenuButton : public AppMenuButton {
   // Our owning toolbar view.
   const raw_ptr<ToolbarView> toolbar_view_;
 
-  FeaturePromoController::PromoHandle reopen_tab_promo_handle_;
+  user_education::FeaturePromoHandle promo_handle_;
 
   base::CallbackListSubscription subscription_ =
       ui::TouchUiController::Get()->RegisterCallback(

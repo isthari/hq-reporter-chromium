@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,10 +45,10 @@ class IOSChromeSigninClient : public SigninClient {
       content_settings::Observer* observer) override;
   void RemoveContentSettingsObserver(
       content_settings::Observer* observer) override;
+  bool AreNetworkCallsDelayed() override;
   void DelayNetworkCall(base::OnceClosure callback) override;
 
  private:
-
   // Helper to delay callbacks until connection becomes online again.
   std::unique_ptr<WaitForNetworkCallbackHelper> network_callback_helper_;
   // The browser state associated with this service.

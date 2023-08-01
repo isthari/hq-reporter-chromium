@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,8 +21,9 @@
 #include "third_party/blink/renderer/core/css/cssom/css_unit_value.h"
 #include "third_party/blink/renderer/core/css/cssom/css_unparsed_value.h"
 #include "third_party/blink/renderer/core/css/cssom/css_unsupported_color.h"
+#include "third_party/blink/renderer/platform/scheduler/public/non_main_thread.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
-#include "third_party/blink/renderer/platform/scheduler/public/thread.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_std.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 
 namespace blink {
@@ -87,7 +88,7 @@ class CrossThreadStyleValueTest : public testing::Test {
   }
 
  protected:
-  std::unique_ptr<blink::Thread> thread_;
+  std::unique_ptr<blink::NonMainThread> thread_;
 };
 
 // Ensure that a CrossThreadUnsupportedValue can be safely passed cross
@@ -98,7 +99,7 @@ TEST_F(CrossThreadStyleValueTest, PassUnsupportedValueCrossThread) {
   DCHECK(value);
 
   // Use a Thread to emulate worklet thread.
-  thread_ = blink::Thread::CreateThread(
+  thread_ = blink::NonMainThread::CreateThread(
       ThreadCreationParams(ThreadType::kTestThread).SetSupportsGC(true));
   base::WaitableEvent waitable_event;
   PostCrossThreadTask(
@@ -129,7 +130,7 @@ TEST_F(CrossThreadStyleValueTest, PassUnparsedValueCrossThread) {
   DCHECK(value);
 
   // Use a Thread to emulate worklet thread.
-  thread_ = blink::Thread::CreateThread(
+  thread_ = blink::NonMainThread::CreateThread(
       ThreadCreationParams(ThreadType::kTestThread).SetSupportsGC(true));
   base::WaitableEvent waitable_event;
   PostCrossThreadTask(
@@ -161,7 +162,7 @@ TEST_F(CrossThreadStyleValueTest, PassKeywordValueCrossThread) {
   DCHECK(value);
 
   // Use a Thread to emulate worklet thread.
-  thread_ = blink::Thread::CreateThread(
+  thread_ = blink::NonMainThread::CreateThread(
       ThreadCreationParams(ThreadType::kTestThread).SetSupportsGC(true));
   base::WaitableEvent waitable_event;
   PostCrossThreadTask(
@@ -193,7 +194,7 @@ TEST_F(CrossThreadStyleValueTest, PassUnitValueCrossThread) {
   DCHECK(value);
 
   // Use a Thread to emulate worklet thread.
-  thread_ = blink::Thread::CreateThread(
+  thread_ = blink::NonMainThread::CreateThread(
       ThreadCreationParams(ThreadType::kTestThread).SetSupportsGC(true));
   base::WaitableEvent waitable_event;
   PostCrossThreadTask(
@@ -225,7 +226,7 @@ TEST_F(CrossThreadStyleValueTest, PassColorValueCrossThread) {
   DCHECK(value);
 
   // Use a Thread to emulate worklet thread.
-  thread_ = blink::Thread::CreateThread(
+  thread_ = blink::NonMainThread::CreateThread(
       ThreadCreationParams(ThreadType::kTestThread).SetSupportsGC(true));
   base::WaitableEvent waitable_event;
   PostCrossThreadTask(

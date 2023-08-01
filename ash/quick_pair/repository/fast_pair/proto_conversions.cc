@@ -1,11 +1,15 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/quick_pair/repository/fast_pair/proto_conversions.h"
 
+#include "ash/constants/ash_features.h"
 #include "ash/quick_pair/proto/fastpair_data.pb.h"
 #include "ash/quick_pair/repository/fast_pair/device_metadata.h"
+#include "ash/quick_pair/repository/fast_pair_repository.h"
+#include "base/memory/ref_counted_memory.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 
 namespace ash {
@@ -14,17 +18,32 @@ namespace quick_pair {
 nearby::fastpair::FastPairInfo BuildFastPairInfo(
     const std::string& hex_model_id,
     const std::vector<uint8_t>& account_key,
+    const std::string& mac_address,
+    const absl::optional<std::string>& display_name,
     DeviceMetadata* device_metadata) {
   nearby::fastpair::FastPairInfo proto;
   auto* device = proto.mutable_device();
   device->set_account_key(std::string(account_key.begin(), account_key.end()));
+
+  // Create a SHA256 hash of the |mac_address| with the |account_key| as salt.
+  // The hash is used to identify devices via non discoverable advertisements.
+  device->set_sha256_account_key_public_address(
+      FastPairRepository::GenerateSha256OfAccountKeyAndMacAddress(
+          std::string(account_key.begin(), account_key.end()), mac_address));
 
   auto& details = device_metadata->GetDetails();
   auto& strings = device_metadata->response().strings();
   nearby::fastpair::StoredDiscoveryItem discovery_item;
   discovery_item.set_id(hex_model_id);
   discovery_item.set_trigger_id(hex_model_id);
-  discovery_item.set_title(details.name());
+
+  if (ash::features::IsFastPairSavedDevicesNicknamesEnabled() &&
+      display_name.has_value()) {
+    discovery_item.set_title(display_name.value());
+  } else {
+    discovery_item.set_title(details.name());
+  }
+
   discovery_item.set_description(strings.initial_notification_description());
   discovery_item.set_type(nearby::fastpair::NearbyType::NEARBY_DEVICE);
   discovery_item.set_action_url_type(nearby::fastpair::ResolvedUrlType::APP);
@@ -93,6 +112,13 @@ nearby::fastpair::FastPairInfo BuildFastPairInfo(
 
   device->set_discovery_item_bytes(discovery_item.SerializeAsString());
 
+  return proto;
+}
+
+nearby::fastpair::FastPairInfo BuildFastPairInfoForOptIn(
+    nearby::fastpair::OptInStatus opt_in_status) {
+  nearby::fastpair::FastPairInfo proto;
+  proto.set_opt_in_status(opt_in_status);
   return proto;
 }
 

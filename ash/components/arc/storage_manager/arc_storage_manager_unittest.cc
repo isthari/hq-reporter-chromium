@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "ash/components/arc/test/connection_holder_util.h"
 #include "ash/components/arc/test/fake_storage_manager_instance.h"
 #include "ash/components/arc/test/test_browser_context.h"
+#include "base/memory/raw_ptr.h"
 #include "base/test/bind.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -41,7 +42,7 @@ class ArcStorageManagerTest : public testing::Test {
   ArcServiceManager arc_service_manager_;
   FakeStorageManagerInstance storage_manager_instance_;
   TestBrowserContext context_;
-  ArcStorageManager* const bridge_;
+  const raw_ptr<ArcStorageManager, ExperimentalAsh> bridge_;
 };
 
 TEST_F(ArcStorageManagerTest, ConstructDestruct) {}
@@ -64,18 +65,6 @@ TEST_F(ArcStorageManagerTest, GetApplicationsSize) {
   EXPECT_TRUE(bridge()->GetApplicationsSize(base::BindLambdaForTesting(
       [&called](bool, mojom::ApplicationsSizePtr) { called = true; })));
   EXPECT_EQ(1u, storage_manager_instance()->num_get_applications_size_called());
-  EXPECT_TRUE(called);
-}
-
-// Tests that calling DeleteApplicationsCache() ends up calling the mojo
-// instance Also verifies that the bridge passes the callback to the instance.
-TEST_F(ArcStorageManagerTest, DeleteApplicationsCache) {
-  ASSERT_NE(nullptr, bridge());
-  bool called = false;
-  EXPECT_TRUE(bridge()->DeleteApplicationsCache(
-      base::BindLambdaForTesting([&called]() { called = true; })));
-  EXPECT_EQ(1u,
-            storage_manager_instance()->num_delete_applications_cache_called());
   EXPECT_TRUE(called);
 }
 

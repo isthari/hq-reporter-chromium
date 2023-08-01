@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 package org.chromium.android_webview.services;
@@ -92,7 +92,7 @@ public final class MetricsBridgeService extends Service {
     // These values are persisted to logs. Entries should not be renumbered and
     // numeric values should never be reused.
     @VisibleForTesting
-    @IntDef({RetrieveMetricsTaskStatus.EXECUTION_EXCEPTION,
+    @IntDef({RetrieveMetricsTaskStatus.SUCCESS, RetrieveMetricsTaskStatus.EXECUTION_EXCEPTION,
             RetrieveMetricsTaskStatus.INTERRUPTED_EXCEPTION})
     public @interface RetrieveMetricsTaskStatus {
         int SUCCESS = 0;
@@ -137,7 +137,7 @@ public final class MetricsBridgeService extends Service {
                     mRecordsList.add(proto.toByteArray());
                 }
                 logParsingLogResult(ParsingLogResult.SUCCESS);
-            } catch (InvalidProtocolBufferException e) {
+            } catch (InvalidProtocolBufferException | IllegalStateException e) {
                 Log.e(TAG, "Malformed metrics log proto", e);
                 logParsingLogResult(ParsingLogResult.MALFORMED_PROTOBUF);
                 deleteMetricsLogFile();

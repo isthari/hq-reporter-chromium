@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,7 +40,7 @@ public class PrivacySandboxSnackbarController implements SnackbarManager.Snackba
         mSnackbarManager.dismissSnackbars(this);
         mSnackbarManager.showSnackbar(
                 Snackbar.make(mContext.getString(R.string.privacy_sandbox_snackbar_message), this,
-                                Snackbar.TYPE_ACTION, Snackbar.UMA_PRIVACY_SANDBOX_PAGE_OPEN)
+                                Snackbar.TYPE_PERSISTENT, Snackbar.UMA_PRIVACY_SANDBOX_PAGE_OPEN)
                         .setAction(mContext.getString(R.string.more), null)
                         .setSingleLine(false));
     }
@@ -55,7 +55,7 @@ public class PrivacySandboxSnackbarController implements SnackbarManager.Snackba
     // Implement SnackbarController.
     @Override
     public void onAction(Object actionData) {
-        PrivacySandboxSettingsFragmentV3.launchPrivacySandboxSettings(
+        PrivacySandboxSettingsBaseFragment.launchPrivacySandboxSettings(
                 mContext, mSettingsLauncher, PrivacySandboxReferrer.COOKIES_SNACKBAR);
     }
 

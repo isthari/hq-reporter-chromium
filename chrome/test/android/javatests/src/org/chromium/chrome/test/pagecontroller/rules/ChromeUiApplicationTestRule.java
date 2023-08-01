@@ -1,17 +1,17 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.test.pagecontroller.rules;
 
-import android.support.test.InstrumentationRegistry;
+import androidx.test.core.app.ApplicationProvider;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.junit.rules.ExternalResource;
 
 import org.chromium.base.Log;
 import org.chromium.chrome.test.pagecontroller.controllers.PageController;
 import org.chromium.chrome.test.pagecontroller.controllers.first_run.SyncConfirmationViewPageController;
-import org.chromium.chrome.test.pagecontroller.controllers.first_run.TOSController;
 import org.chromium.chrome.test.pagecontroller.controllers.ntp.NewTabPageController;
 import org.chromium.chrome.test.pagecontroller.utils.UiAutomatorUtils;
 import org.chromium.chrome.test.pagecontroller.utils.UiLocationException;
@@ -55,10 +55,6 @@ public class ChromeUiApplicationTestRule extends ExternalResource {
      */
     public NewTabPageController navigateToNewTabPageOnFirstRun() {
         PageController controller = detectPageOnFirstRun();
-        if (controller instanceof TOSController) {
-            ((TOSController) controller).acceptAndContinue();
-            controller = detectPageOnFirstRun();
-        }
         if (controller instanceof SyncConfirmationViewPageController) {
             ((SyncConfirmationViewPageController) controller).clickNoThanks();
             controller = detectPageOnFirstRun();
@@ -88,7 +84,7 @@ public class ChromeUiApplicationTestRule extends ExternalResource {
         // If the runner didn't pass the package name under test to us, then we can assume
         // that the target package name provided in the AndroidManifest is the app-under-test.
         if (mPackageName == null) {
-            mPackageName = InstrumentationRegistry.getTargetContext().getPackageName();
+            mPackageName = ApplicationProvider.getApplicationContext().getPackageName();
         }
     }
 
@@ -100,8 +96,7 @@ public class ChromeUiApplicationTestRule extends ExternalResource {
      * @throws UiLocationException If page can't be determined.
      */
     private static PageController detectPageOnFirstRun() {
-        return detectPageAmong(TOSController.getInstance(),
-                SyncConfirmationViewPageController.getInstance(),
+        return detectPageAmong(SyncConfirmationViewPageController.getInstance(),
                 NewTabPageController.getInstance());
     }
 }

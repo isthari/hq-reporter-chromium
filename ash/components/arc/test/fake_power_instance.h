@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,6 +45,8 @@ class FakePowerInstance : public mojom::PowerInstance {
   void GetWakefulnessMode(GetWakefulnessModeCallback callback) override;
   void OnCpuRestrictionChanged(
       mojom::CpuRestrictionState cpu_restriction_state) override;
+  void OnBatterySaverModeStateChanged(
+      mojom::BatterySaverModeStatePtr state) override;
 
  private:
   mojo::Remote<mojom::PowerHost> host_remote_;
@@ -67,6 +69,9 @@ class FakePowerInstance : public mojom::PowerInstance {
 
   // Number of calls to OnCpuRestrictionChanged().
   int cpu_restriction_state_count_ = 0;
+
+  // Number of calls to OnBatterySaverModeStateChanged().
+  int battery_saver_mode_state_count_ = 0;
 
   // Last passed argument to OnCpuRestrictionChanged().
   mojom::CpuRestrictionState last_cpu_restriction_state_ =

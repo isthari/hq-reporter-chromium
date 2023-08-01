@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <memory>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/i18n/time_formatting.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/strcat.h"
@@ -23,19 +23,6 @@ namespace {
 const char kApplicationName[] = "com.google.chrome.fcm.invalidations";
 // Sender ID coming from the Firebase console.
 const char kInvalidationGCMSenderId[] = "8181035976";
-
-// Added in M76.
-void MigratePrefs(PrefService* prefs, const std::string& sender_id) {
-  if (!prefs->HasPrefPath(prefs::kFCMInvalidationClientIDCacheDeprecated)) {
-    return;
-  }
-  DictionaryPrefUpdate update(prefs, prefs::kInvalidationClientIDCache);
-  update->SetStringKey(
-      sender_id,
-      prefs->GetString(prefs::kFCMInvalidationClientIDCacheDeprecated));
-  prefs->ClearPref(prefs::kFCMInvalidationClientIDCacheDeprecated);
-}
-
 }  // namespace
 
 FCMInvalidationServiceBase::FCMInvalidationServiceBase(
@@ -66,8 +53,6 @@ FCMInvalidationServiceBase::~FCMInvalidationServiceBase() {
 
 // static
 void FCMInvalidationServiceBase::RegisterPrefs(PrefRegistrySimple* registry) {
-  registry->RegisterStringPref(prefs::kFCMInvalidationClientIDCacheDeprecated,
-                               /*default_value=*/std::string());
   registry->RegisterDictionaryPref(prefs::kInvalidationClientIDCache);
 }
 
@@ -102,6 +87,15 @@ bool FCMInvalidationServiceBase::UpdateInterestedTopics(
   return true;
 }
 
+void FCMInvalidationServiceBase::UnsubscribeFromUnregisteredTopics(
+    InvalidationHandler* handler) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DVLOG(2) << "Unsubscribing from unregistered topics";
+  invalidator_registrar_.RemoveUnregisteredTopics(handler);
+  DoUpdateSubscribedTopicsIfNeeded();
+  logger_.OnUpdatedTopics(invalidator_registrar_.GetHandlerNameToTopicsMap());
+}
+
 void FCMInvalidationServiceBase::UnregisterInvalidationHandler(
     InvalidationHandler* handler) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -130,8 +124,7 @@ InvalidationLogger* FCMInvalidationServiceBase::GetInvalidationLogger() {
 }
 
 void FCMInvalidationServiceBase::RequestDetailedStatus(
-    base::RepeatingCallback<void(const base::DictionaryValue&)> return_callback)
-    const {
+    base::RepeatingCallback<void(base::Value::Dict)> return_callback) const {
   return_callback.Run(CollectDebugData());
   invalidator_registrar_.RequestDetailedStatus(return_callback);
 
@@ -167,22 +160,22 @@ void FCMInvalidationServiceBase::InitForTest(
   DoUpdateSubscribedTopicsIfNeeded();
 }
 
-base::DictionaryValue FCMInvalidationServiceBase::CollectDebugData() const {
-  base::DictionaryValue status;
+base::Value::Dict FCMInvalidationServiceBase::CollectDebugData() const {
+  base::Value::Dict status;
 
-  status.SetString(
+  status.SetByDottedPath(
       "InvalidationService.IID-requested",
       base::TimeFormatShortDateAndTime(diagnostic_info_.instance_id_requested));
-  status.SetString(
+  status.SetByDottedPath(
       "InvalidationService.IID-received",
       base::TimeFormatShortDateAndTime(diagnostic_info_.instance_id_received));
-  status.SetString(
+  status.SetByDottedPath(
       "InvalidationService.IID-cleared",
       base::TimeFormatShortDateAndTime(diagnostic_info_.instance_id_cleared));
-  status.SetString(
+  status.SetByDottedPath(
       "InvalidationService.Service-stopped",
       base::TimeFormatShortDateAndTime(diagnostic_info_.service_was_stopped));
-  status.SetString(
+  status.SetByDottedPath(
       "InvalidationService.Service-started",
       base::TimeFormatShortDateAndTime(diagnostic_info_.service_was_started));
   return status;
@@ -208,8 +201,8 @@ void FCMInvalidationServiceBase::StartInvalidator() {
   // the startup cached messages might exists.
   invalidation_listener_ =
       std::make_unique<FCMInvalidationListener>(std::move(network));
-  auto subscription_manager = per_user_topic_subscription_manager_callback_.Run(
-      sender_id_, /*migrate_prefs=*/sender_id_ == kInvalidationGCMSenderId);
+  auto subscription_manager =
+      per_user_topic_subscription_manager_callback_.Run(sender_id_);
   invalidation_listener_->Start(this, std::move(subscription_manager));
 
   PopulateClientID();
@@ -236,15 +229,11 @@ void FCMInvalidationServiceBase::StopInvalidatorPermanently() {
 void FCMInvalidationServiceBase::PopulateClientID() {
   diagnostic_info_.instance_id_requested = base::Time::Now();
 
-  if (sender_id_ == kInvalidationGCMSenderId) {
-    MigratePrefs(pref_service_, sender_id_);
-  }
-
   // Retrieve any client ID (aka Instance ID) from a previous run, which was
   // cached in prefs.
   const std::string* client_id_pref =
-      pref_service_->GetDictionary(prefs::kInvalidationClientIDCache)
-          ->FindStringKey(sender_id_);
+      pref_service_->GetDict(prefs::kInvalidationClientIDCache)
+          .FindString(sender_id_);
   client_id_ = client_id_pref ? *client_id_pref : "";
 
   // There might already be clients (handlers) registered, so tell them about
@@ -275,8 +264,8 @@ void FCMInvalidationServiceBase::ResetClientID() {
   // source of truth, and are responsible for ensuring that the deletion
   // actually happens.
   client_id_.clear();
-  DictionaryPrefUpdate update(pref_service_, prefs::kInvalidationClientIDCache);
-  update->RemoveKey(sender_id_);
+  ScopedDictPrefUpdate update(pref_service_, prefs::kInvalidationClientIDCache);
+  update->Remove(sender_id_);
 
   // Also let the registrar (and its observers) know that the instance ID is
   // gone.
@@ -294,9 +283,9 @@ void FCMInvalidationServiceBase::OnInstanceIDReceived(
   diagnostic_info_.instance_id_received = base::Time::Now();
   if (client_id_ != instance_id) {
     client_id_ = instance_id;
-    DictionaryPrefUpdate update(pref_service_,
+    ScopedDictPrefUpdate update(pref_service_,
                                 prefs::kInvalidationClientIDCache);
-    update->SetStringKey(sender_id_, instance_id);
+    update->Set(sender_id_, instance_id);
     invalidator_registrar_.UpdateInvalidatorInstanceId(instance_id);
   }
 }

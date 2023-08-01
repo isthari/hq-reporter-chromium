@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,15 +9,13 @@
 #include <set>
 #include <string>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
-// TODO(https://crbug.com/1164001): forward declare AttestationClient
-// before ChromeOS source migration.
-#include "chromeos/dbus/attestation/attestation_client.h"
-#include "chromeos/dbus/attestation/interface.pb.h"
-#include "chromeos/dbus/constants/attestation_constants.h"
+#include "chromeos/ash/components/dbus/attestation/interface.pb.h"
+#include "chromeos/ash/components/dbus/constants/attestation_constants.h"
 #include "components/account_id/account_id.h"
 #include "url/gurl.h"
 
@@ -32,6 +30,9 @@ class User;
 }  // namespace user_manager
 
 namespace ash {
+
+class AttestationClient;
+
 namespace attestation {
 
 class AttestationFlow;
@@ -232,10 +233,10 @@ class PlatformVerificationFlow
                                 AttestationStatus operation_status,
                                 const std::string& certificate_chain);
 
-  AttestationFlow* attestation_flow_;
+  raw_ptr<AttestationFlow, ExperimentalAsh> attestation_flow_;
   std::unique_ptr<AttestationFlow> default_attestation_flow_;
-  AttestationClient* const attestation_client_;
-  Delegate* delegate_;
+  const raw_ptr<AttestationClient, ExperimentalAsh> attestation_client_;
+  raw_ptr<Delegate, ExperimentalAsh> delegate_;
   std::unique_ptr<Delegate> default_delegate_;
   base::TimeDelta timeout_delay_;
   std::set<std::string> renewals_in_progress_;

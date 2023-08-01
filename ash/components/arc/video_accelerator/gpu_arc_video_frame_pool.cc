@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,10 @@
 
 #include "ash/components/arc/video_accelerator/arc_video_accelerator_util.h"
 #include "ash/components/arc/video_accelerator/protected_buffer_manager.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/posix/eintr_wrapper.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "gpu/ipc/common/gpu_memory_buffer_support.h"
 #include "media/base/decoder_status.h"
@@ -71,7 +73,7 @@ GpuArcVideoFramePool::GpuArcVideoFramePool(
 
   weak_this_ = weak_this_factory_.GetWeakPtr();
 
-  client_task_runner_ = base::ThreadTaskRunnerHandle::Get();
+  client_task_runner_ = base::SingleThreadTaskRunner::GetCurrentDefault();
   vda_video_frame_pool_ = std::make_unique<media::VdaVideoFramePool>(
       weak_this_, client_task_runner_);
 }

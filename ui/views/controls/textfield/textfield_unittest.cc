@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,13 +12,13 @@
 #include <vector>
 
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
 #include "base/format_macros.h"
 #include "base/i18n/rtl.h"
 #include "base/memory/raw_ptr.h"
 #include "base/pickle.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "ui/accessibility/ax_enums.mojom.h"
@@ -29,12 +29,13 @@
 #include "ui/base/dragdrop/mojom/drag_drop_types.mojom.h"
 #include "ui/base/emoji/emoji_panel_helper.h"
 #include "ui/base/ime/constants.h"
+#include "ui/base/ime/ime_key_event_dispatcher.h"
 #include "ui/base/ime/init/input_method_factory.h"
 #include "ui/base/ime/input_method_base.h"
-#include "ui/base/ime/input_method_delegate.h"
 #include "ui/base/ime/text_edit_commands.h"
 #include "ui/base/ime/text_input_client.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/base/ui_base_switches.h"
 #include "ui/base/ui_base_switches_util.h"
 #include "ui/events/event.h"
@@ -46,6 +47,7 @@
 #include "ui/gfx/render_text.h"
 #include "ui/gfx/render_text_test_api.h"
 #include "ui/strings/grit/ui_strings.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/textfield/textfield_model.h"
 #include "ui/views/controls/textfield/textfield_test_api.h"
@@ -63,10 +65,9 @@
 #include "base/win/windows_version.h"
 #endif
 
-// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
-// of lacros-chrome is complete.
-#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
-#include "ui/base/ime/linux/text_edit_key_bindings_delegate_auralinux.h"
+#if BUILDFLAG(IS_LINUX)
+#include "ui/linux/fake_linux_ui.h"
+#include "ui/linux/linux_ui.h"
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -79,24 +80,19 @@
 #include "ui/base/cocoa/text_services_context_menu.h"
 #endif
 
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
 #include "ui/events/ozone/layout/keyboard_layout_engine_test_utils.h"
 #endif
 
-namespace views {
-namespace test {
+namespace views::test {
 
 const char16_t kHebrewLetterSamekh = 0x05E1;
 
 // Convenience to make constructing a GestureEvent simpler.
-class GestureEventForTest : public ui::GestureEvent {
- public:
-  GestureEventForTest(int x, int y, ui::GestureEventDetails details)
-      : GestureEvent(x, y, ui::EF_NONE, base::TimeTicks(), details) {}
-
-  GestureEventForTest(const GestureEventForTest&) = delete;
-  GestureEventForTest& operator=(const GestureEventForTest&) = delete;
-};
+ui::GestureEvent
+CreateTestGestureEvent(int x, int y, const ui::GestureEventDetails& details) {
+  return ui::GestureEvent(x, y, ui::EF_NONE, base::TimeTicks(), details);
+}
 
 // This controller will happily destroy the target field passed on
 // construction when a key event is triggered.
@@ -159,7 +155,7 @@ class MockInputMethod : public ui::InputMethodBase {
 
   // InputMethod:
   ui::EventDispatchDetails DispatchKeyEvent(ui::KeyEvent* key) override;
-  void OnTextInputTypeChanged(const ui::TextInputClient* client) override;
+  void OnTextInputTypeChanged(ui::TextInputClient* client) override;
   void OnCaretBoundsChanged(const ui::TextInputClient* client) override {}
   void CancelComposition(const ui::TextInputClient* client) override;
   bool IsCandidatePopupOpen() const override;
@@ -167,6 +163,16 @@ class MockInputMethod : public ui::InputMethodBase {
     if (visibility)
       count_show_virtual_keyboard_++;
   }
+
+#if BUILDFLAG(IS_WIN)
+  bool OnUntranslatedIMEMessage(
+      const CHROME_MSG event,
+      InputMethod::NativeEventResult* result) override {
+    return false;
+  }
+  void OnInputLocaleChanged() override {}
+  bool IsInputLocaleCJK() const override { return false; }
+#endif
 
   bool untranslated_ime_message_called() const {
     return untranslated_ime_message_called_;
@@ -274,8 +280,7 @@ ui::EventDispatchDetails MockInputMethod::DispatchKeyEvent(ui::KeyEvent* key) {
   return dispatch_details;
 }
 
-void MockInputMethod::OnTextInputTypeChanged(
-    const ui::TextInputClient* client) {
+void MockInputMethod::OnTextInputTypeChanged(ui::TextInputClient* client) {
   if (IsTextInputClientFocused(client))
     text_input_type_changed_ = true;
   InputMethodBase::OnTextInputTypeChanged(client);
@@ -411,10 +416,10 @@ void TextfieldTest::SetUp() {
       std::make_unique<ui::TestClipboard>());
   ViewsTestBase::SetUp();
 
-#if defined(USE_OZONE)
-  // TODO(crbug.com/1209477): Wayland bots use Weston with Headless backend that
-  // sets up XkbKeyboardLayoutEngine differently. When that is fixed, remove the
-  // workaround below.
+#if BUILDFLAG(IS_OZONE)
+  // Setting up the keyboard layout engine depends on the implementation and may
+  // be asynchronous.  We ensure that it is ready to use so that tests could
+  // handle key events properly.
   ui::WaitUntilLayoutEngineIsReadyForTest();
 #endif
 }
@@ -468,15 +473,15 @@ void TextfieldTest::OnAfterCutOrCopy(ui::ClipboardBuffer clipboard_type) {
 void TextfieldTest::InitTextfield(int count) {
   ASSERT_FALSE(textfield_);
   textfield_ = PrepareTextfields(count, std::make_unique<TestTextfield>(),
-                                 gfx::Rect(100, 100, 100, 100));
+                                 gfx::Rect(100, 100, 200, 200));
 }
 
 void TextfieldTest::PrepareTextfieldsInternal(int count,
                                               Textfield* textfield,
                                               View* container,
                                               gfx::Rect bounds) {
-  input_method_->SetDelegate(
-      test::WidgetTest::GetInputMethodDelegateForWidget(widget_.get()));
+  input_method_->SetImeKeyEventDispatcher(
+      test::WidgetTest::GetImeKeyEventDispatcherForWidget(widget_.get()));
 
   textfield->set_controller(this);
   textfield->SetBoundsRect(bounds);
@@ -716,12 +721,12 @@ void TextfieldTest::MouseClick(const gfx::Rect bound, int x_offset) {
 void TextfieldTest::NonClientMouseClick() {
   ui::MouseEvent click(ui::ET_MOUSE_PRESSED, gfx::Point(), gfx::Point(),
                        ui::EventTimeForNow(),
-                       ui::EF_LEFT_MOUSE_BUTTON | ui::EF_IS_NON_CLIENT,
+                       int{ui::EF_LEFT_MOUSE_BUTTON} | ui::EF_IS_NON_CLIENT,
                        ui::EF_LEFT_MOUSE_BUTTON);
   event_target_->OnMousePressed(click);
   ui::MouseEvent release(ui::ET_MOUSE_RELEASED, gfx::Point(), gfx::Point(),
                          ui::EventTimeForNow(),
-                         ui::EF_LEFT_MOUSE_BUTTON | ui::EF_IS_NON_CLIENT,
+                         int{ui::EF_LEFT_MOUSE_BUTTON} | ui::EF_IS_NON_CLIENT,
                          ui::EF_LEFT_MOUSE_BUTTON);
   event_target_->OnMouseReleased(release);
 }
@@ -808,12 +813,14 @@ void TextfieldTest::MoveMouseTo(const gfx::Point& where) {
 void TextfieldTest::TapAtCursor(ui::EventPointerType pointer_type) {
   ui::GestureEventDetails tap_down_details(ui::ET_GESTURE_TAP_DOWN);
   tap_down_details.set_primary_pointer_type(pointer_type);
-  GestureEventForTest tap_down(GetCursorPositionX(0), 0, tap_down_details);
+  ui::GestureEvent tap_down =
+      CreateTestGestureEvent(GetCursorPositionX(0), 0, tap_down_details);
   textfield_->OnGestureEvent(&tap_down);
 
   ui::GestureEventDetails tap_up_details(ui::ET_GESTURE_TAP);
   tap_up_details.set_primary_pointer_type(pointer_type);
-  GestureEventForTest tap_up(GetCursorPositionX(0), 0, tap_up_details);
+  ui::GestureEvent tap_up =
+      CreateTestGestureEvent(GetCursorPositionX(0), 0, tap_up_details);
   textfield_->OnGestureEvent(&tap_up);
 }
 
@@ -854,7 +861,7 @@ TEST_F(TextfieldTest, Scroll) {
   render_text_test_api.SetGlyphWidth(kGlyphWidth);
   constexpr int kCursorWidth = 1;
   test_api_->GetRenderText()->SetDisplayRect(
-      gfx::Rect(0, 0, kGlyphWidth * 10 + kCursorWidth, 20));
+      gfx::Rect(kGlyphWidth * 10 + kCursorWidth, 20));
   textfield_->SetTextWithoutCaretBoundsChangeNotification(
       u"0123456789_123456789_123456789", 0);
   test_api_->SetDisplayOffsetX(0);
@@ -1365,7 +1372,7 @@ TEST_F(TextfieldTest, DeletionWithSelection) {
   InitTextfield();
   // [Ctrl] ([Alt] on Mac) + [Delete]/[Backspace] should delete the active
   // selection, regardless of [Shift].
-  for (size_t i = 0; i < base::size(cases); ++i) {
+  for (size_t i = 0; i < std::size(cases); ++i) {
     SCOPED_TRACE(base::StringPrintf("Testing cases[%" PRIuS "]", i));
     textfield_->SetText(u"one two three");
     textfield_->SetSelectedRange(gfx::Range(2, 6));
@@ -1392,7 +1399,7 @@ TEST_F(TextfieldTest, DeletionWithMultipleSelections) {
   InitTextfield();
   // [Ctrl] ([Alt] on Mac) + [Delete]/[Backspace] should delete the active
   // selection, regardless of [Shift].
-  for (size_t i = 0; i < base::size(cases); ++i) {
+  for (size_t i = 0; i < std::size(cases); ++i) {
     SCOPED_TRACE(base::StringPrintf("Testing cases[%" PRIuS "]", i));
     textfield_->SetText(u"one two three");
     // Select: o[ne] [two] th[re]e
@@ -1420,7 +1427,7 @@ TEST_F(TextfieldTest, DeletionWithEditCommands) {
   };
 
   InitTextfield();
-  for (size_t i = 0; i < base::size(cases); ++i) {
+  for (size_t i = 0; i < std::size(cases); ++i) {
     SCOPED_TRACE(base::StringPrintf("Testing cases[%" PRIuS "]", i));
     textfield_->SetText(u"one two three");
     textfield_->SetSelectedRange(gfx::Range(4));
@@ -1467,6 +1474,22 @@ TEST_F(TextfieldTest, PasswordTest) {
   EXPECT_EQ(u"foofoofoo", textfield_->GetText());
 }
 
+TEST_F(TextfieldTest, PasswordSelectWordTest) {
+  InitTextfield();
+  textfield_->SetTextInputType(ui::TEXT_INPUT_TYPE_PASSWORD);
+  textfield_->SetText(u"password word test");
+
+  // Select word command should be disabled.
+  textfield_->SetEditableSelectionRange(gfx::Range(2));
+  EXPECT_FALSE(textfield_->IsCommandIdEnabled(Textfield::kSelectWord));
+  textfield_->ExecuteCommand(Textfield::kPaste, 0);
+  EXPECT_EQ(u"", textfield_->GetSelectedText());
+
+  // Select word should select whole text instead of the nearest word.
+  textfield_->SelectWord();
+  EXPECT_EQ(u"password word test", textfield_->GetSelectedText());
+}
+
 // Check that text insertion works appropriately for password and read-only
 // textfields.
 TEST_F(TextfieldTest, TextInputType_InsertionTest) {
@@ -1475,15 +1498,15 @@ TEST_F(TextfieldTest, TextInputType_InsertionTest) {
   EXPECT_EQ(ui::TEXT_INPUT_TYPE_PASSWORD, textfield_->GetTextInputType());
 
   SendKeyEvent(ui::VKEY_A);
-  EXPECT_EQ(-1, textfield_->GetPasswordCharRevealIndex());
+  EXPECT_FALSE(textfield_->GetPasswordCharRevealIndex().has_value());
   SendKeyEvent(kHebrewLetterSamekh, ui::EF_NONE, true /* from_vk */);
 #if !BUILDFLAG(IS_MAC)
   // Don't verifies the password character reveal on MacOS, because on MacOS,
   // the text insertion is not done through TextInputClient::InsertChar().
-  EXPECT_EQ(1, textfield_->GetPasswordCharRevealIndex());
+  EXPECT_EQ(1u, textfield_->GetPasswordCharRevealIndex());
 #endif
   SendKeyEvent(ui::VKEY_B);
-  EXPECT_EQ(-1, textfield_->GetPasswordCharRevealIndex());
+  EXPECT_FALSE(textfield_->GetPasswordCharRevealIndex().has_value());
 
   EXPECT_EQ(
       u"a\x05E1"
@@ -1581,11 +1604,9 @@ TEST_F(TextfieldTest, OnKeyPress) {
 TEST_F(TextfieldTest, OnKeyPressBinding) {
   InitTextfield();
 
-// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
-// of lacros-chrome is complete.
-#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_LINUX)
   // Install a TextEditKeyBindingsDelegateAuraLinux that does nothing.
-  class TestDelegate : public ui::TextEditKeyBindingsDelegateAuraLinux {
+  class TestDelegate : public ui::FakeLinuxUi {
    public:
     TestDelegate() = default;
 
@@ -1594,15 +1615,15 @@ TEST_F(TextfieldTest, OnKeyPressBinding) {
 
     ~TestDelegate() override = default;
 
-    bool MatchEvent(
+    bool GetTextEditCommandsForEvent(
         const ui::Event& event,
         std::vector<ui::TextEditCommandAuraLinux>* commands) override {
       return false;
     }
   };
 
-  TestDelegate delegate;
-  ui::SetTextEditKeyBindingsDelegate(&delegate);
+  auto test_delegate = std::make_unique<TestDelegate>();
+  auto* old_linux_ui = ui::LinuxUi::SetInstance(test_delegate.get());
 #endif
 
   SendKeyEvent(ui::VKEY_A, false, false);
@@ -1622,10 +1643,8 @@ TEST_F(TextfieldTest, OnKeyPressBinding) {
   EXPECT_EQ(u"a", textfield_->GetText());
   textfield_->clear();
 
-// TODO(crbug.com/1052397): Revisit the macro expression once build flag switch
-// of lacros-chrome is complete.
-#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
-  ui::SetTextEditKeyBindingsDelegate(nullptr);
+#if BUILDFLAG(IS_LINUX)
+  ui::LinuxUi::SetInstance(old_linux_ui);
 #endif
 }
 
@@ -1733,6 +1752,36 @@ TEST_F(TextfieldTest, ShouldShowCursor) {
   textfield_->AddSecondarySelectedRange({1, 3});
   EXPECT_FALSE(test_api_->ShouldShowCursor());
 }
+
+#if BUILDFLAG(IS_MAC)
+TEST_F(TextfieldTest, MacCursorAlphaTest) {
+  InitTextfield();
+
+  const int cursor_y = GetCursorYForTesting();
+  MoveMouseTo(gfx::Point(GetCursorPositionX(0), cursor_y));
+  ClickRightMouseButton();
+  EXPECT_TRUE(textfield_->HasFocus());
+
+  const float kOpaque = 1.0;
+  EXPECT_FLOAT_EQ(kOpaque, test_api_->CursorLayerOpacity());
+
+  test_api_->FlashCursor();
+
+  const float kAlmostTransparent = 1.0 / 255.0;
+  EXPECT_FLOAT_EQ(kAlmostTransparent, test_api_->CursorLayerOpacity());
+
+  test_api_->FlashCursor();
+
+  EXPECT_FLOAT_EQ(kOpaque, test_api_->CursorLayerOpacity());
+
+  const float kTransparent = 0.0;
+  test_api_->SetCursorLayerOpacity(kTransparent);
+  ASSERT_FLOAT_EQ(kTransparent, test_api_->CursorLayerOpacity());
+
+  test_api_->UpdateCursorVisibility();
+  EXPECT_FLOAT_EQ(kOpaque, test_api_->CursorLayerOpacity());
+}
+#endif
 
 TEST_F(TextfieldTest, FocusTraversalTest) {
   InitTextfield(3);
@@ -1967,7 +2016,10 @@ TEST_F(TextfieldTest, DragAndDrop_AcceptDrop) {
       ui::DragDropTypes::DRAG_COPY | ui::DragDropTypes::DRAG_MOVE);
   EXPECT_EQ(ui::DragDropTypes::DRAG_COPY | ui::DragDropTypes::DRAG_MOVE,
             textfield_->OnDragUpdated(drop));
-  EXPECT_EQ(ui::mojom::DragOperation::kCopy, textfield_->OnPerformDrop(drop));
+  ui::mojom::DragOperation output_drag_op = ui::mojom::DragOperation::kNone;
+  auto cb = textfield_->GetDropCallback(drop);
+  std::move(cb).Run(drop, output_drag_op, /*drag_image_layer_owner=*/nullptr);
+  EXPECT_EQ(ui::mojom::DragOperation::kCopy, output_drag_op);
   EXPECT_EQ(u"hello string world", textfield_->GetText());
 
   // Ensure that textfields do not accept non-OSExchangeData::STRING types.
@@ -2060,7 +2112,10 @@ TEST_F(TextfieldTest, DragAndDrop_ToTheRight) {
   EXPECT_TRUE(textfield_->CanDrop(data));
   ui::DropTargetEvent drop_a(data, kDropPoint, kDropPoint, operations);
   EXPECT_EQ(ui::DragDropTypes::DRAG_MOVE, textfield_->OnDragUpdated(drop_a));
-  EXPECT_EQ(ui::mojom::DragOperation::kMove, textfield_->OnPerformDrop(drop_a));
+  ui::mojom::DragOperation output_drag_op = ui::mojom::DragOperation::kNone;
+  auto cb = textfield_->GetDropCallback(drop_a);
+  std::move(cb).Run(drop_a, output_drag_op, /*drag_image_layer_owner=*/nullptr);
+  EXPECT_EQ(ui::mojom::DragOperation::kMove, output_drag_op);
   EXPECT_EQ(u"h welloorld", textfield_->GetText());
   textfield_->OnDragDone();
 
@@ -2111,7 +2166,10 @@ TEST_F(TextfieldTest, DragAndDrop_ToTheLeft) {
   gfx::PointF drop_point(GetCursorPositionX(1), cursor_y);
   ui::DropTargetEvent drop_a(data, drop_point, drop_point, operations);
   EXPECT_EQ(ui::DragDropTypes::DRAG_MOVE, textfield_->OnDragUpdated(drop_a));
-  EXPECT_EQ(ui::mojom::DragOperation::kMove, textfield_->OnPerformDrop(drop_a));
+  ui::mojom::DragOperation output_drag_op = ui::mojom::DragOperation::kNone;
+  auto cb = textfield_->GetDropCallback(drop_a);
+  std::move(cb).Run(drop_a, output_drag_op, /*drag_image_layer_owner=*/nullptr);
+  EXPECT_EQ(ui::mojom::DragOperation::kMove, output_drag_op);
   EXPECT_EQ(u"h worlellod", textfield_->GetText());
   textfield_->OnDragDone();
 
@@ -2128,45 +2186,6 @@ TEST_F(TextfieldTest, DragAndDrop_ToTheLeft) {
   EXPECT_EQ(u"h worlellod", textfield_->GetText());
   SendKeyEvent(ui::VKEY_Z, true, true);
   EXPECT_EQ(u"h worlellod", textfield_->GetText());
-}
-
-TEST_F(TextfieldTest, DropCallbackRun) {
-  InitTextfield();
-  textfield_->SetText(u"hello world");
-  const int cursor_y = GetCursorYForTesting();
-
-  std::u16string string;
-  ui::OSExchangeData data;
-  int formats = 0;
-  int operations = 0;
-  std::set<ui::ClipboardFormatType> format_types;
-
-  // Start dragging "hello".
-  textfield_->SetSelectedRange(gfx::Range(0, 5));
-  gfx::Point point(GetCursorPositionX(3), cursor_y);
-  MoveMouseTo(point);
-  PressLeftMouseButton();
-  EXPECT_TRUE(textfield_->CanStartDragForView(textfield_, point, gfx::Point()));
-  operations = textfield_->GetDragOperationsForView(textfield_, point);
-  EXPECT_EQ(ui::DragDropTypes::DRAG_MOVE | ui::DragDropTypes::DRAG_COPY,
-            operations);
-  textfield_->WriteDragDataForView(nullptr, point, &data);
-  EXPECT_TRUE(data.GetString(&string));
-  EXPECT_EQ(textfield_->GetSelectedText(), string);
-  EXPECT_TRUE(textfield_->GetDropFormats(&formats, &format_types));
-  EXPECT_EQ(ui::OSExchangeData::STRING, formats);
-  EXPECT_TRUE(format_types.empty());
-
-  // Drop "hello" after "d".
-  EXPECT_TRUE(textfield_->CanDrop(data));
-  gfx::PointF drop_point(GetCursorPositionX(11), cursor_y);
-  ui::DropTargetEvent drop_a(data, drop_point, drop_point, operations);
-  EXPECT_EQ(ui::DragDropTypes::DRAG_MOVE, textfield_->OnDragUpdated(drop_a));
-  ui::mojom::DragOperation output_drag_op = ui::mojom::DragOperation::kNone;
-  auto cb = textfield_->GetDropCallback(drop_a);
-  std::move(cb).Run(drop_a, output_drag_op);
-  EXPECT_EQ(ui::mojom::DragOperation::kMove, output_drag_op);
-  EXPECT_EQ(u" worldhello", textfield_->GetText());
 }
 
 TEST_F(TextfieldTest, DropCallbackCancelled) {
@@ -2205,7 +2224,7 @@ TEST_F(TextfieldTest, DropCallbackCancelled) {
   ui::mojom::DragOperation output_drag_op = ui::mojom::DragOperation::kNone;
   auto cb = textfield_->GetDropCallback(drop_a);
   textfield_->AppendText(u"new text");
-  std::move(cb).Run(drop_a, output_drag_op);
+  std::move(cb).Run(drop_a, output_drag_op, /*drag_image_layer_owner=*/nullptr);
   EXPECT_EQ(ui::mojom::DragOperation::kNone, output_drag_op);
   EXPECT_EQ(u"hello worldnew text", textfield_->GetText());
 }
@@ -2323,8 +2342,10 @@ TEST_F(TextfieldTest, TextInputClientTest) {
   EXPECT_TRUE(client->GetTextFromRange(range, &substring));
   EXPECT_EQ(u"123", substring);
 
+#if BUILDFLAG(IS_MAC)
   EXPECT_TRUE(client->DeleteRange(range));
   EXPECT_EQ(u"0456789", textfield_->GetText());
+#endif
 
   ui::CompositionText composition;
   composition.text = u"321";
@@ -2705,6 +2726,157 @@ TEST_F(TextfieldTest, CutCopyPasteWithEditCommand) {
   EXPECT_EQ(u"oo", textfield_->GetText());
 }
 
+TEST_F(TextfieldTest, SelectWordFromEmptySelection) {
+  InitTextfield();
+  textfield_->SetText(u"ab cde.123 4");
+
+  // Place the cursor at the beginning of the text.
+  textfield_->SetEditableSelectionRange(gfx::Range(0));
+  textfield_->SelectWord();
+  EXPECT_EQ(u"ab", textfield_->GetSelectedText());
+  EXPECT_EQ(gfx::Range(0, 2), textfield_->GetSelectedRange());
+
+  // Place the cursor after "c".
+  textfield_->SetEditableSelectionRange(gfx::Range(4));
+  textfield_->SelectWord();
+  EXPECT_EQ(u"cde", textfield_->GetSelectedText());
+  EXPECT_EQ(gfx::Range(3, 6), textfield_->GetSelectedRange());
+
+  // Place the cursor after "2".
+  textfield_->SetEditableSelectionRange(gfx::Range(9));
+  textfield_->SelectWord();
+  EXPECT_EQ(u"123", textfield_->GetSelectedText());
+  EXPECT_EQ(gfx::Range(7, 10), textfield_->GetSelectedRange());
+
+  // Place the cursor at the end of the text.
+  textfield_->SetEditableSelectionRange(gfx::Range(12));
+  textfield_->SelectWord();
+  EXPECT_EQ(u"4", textfield_->GetSelectedText());
+  EXPECT_EQ(gfx::Range(11, 12), textfield_->GetSelectedRange());
+}
+
+TEST_F(TextfieldTest, SelectWordFromNonEmptySelection) {
+  InitTextfield();
+  textfield_->SetText(u"ab cde.123 4");
+
+  // Select "b".
+  textfield_->SetEditableSelectionRange(gfx::Range(1, 2));
+  textfield_->SelectWord();
+  EXPECT_EQ(u"ab", textfield_->GetSelectedText());
+  EXPECT_EQ(gfx::Range(0, 2), textfield_->GetSelectedRange());
+
+  // Select "b c"
+  textfield_->SetEditableSelectionRange(gfx::Range(1, 4));
+  textfield_->SelectWord();
+  EXPECT_EQ(u"ab cde", textfield_->GetSelectedText());
+  EXPECT_EQ(gfx::Range(0, 6), textfield_->GetSelectedRange());
+
+  // Select "e."
+  textfield_->SetEditableSelectionRange(gfx::Range(5, 7));
+  textfield_->SelectWord();
+  EXPECT_EQ(u"cde.", textfield_->GetSelectedText());
+  EXPECT_EQ(gfx::Range(3, 7), textfield_->GetSelectedRange());
+
+  // Select "e.1"
+  textfield_->SetEditableSelectionRange(gfx::Range(5, 8));
+  textfield_->SelectWord();
+  EXPECT_EQ(u"cde.123", textfield_->GetSelectedText());
+  EXPECT_EQ(gfx::Range(3, 10), textfield_->GetSelectedRange());
+}
+
+TEST_F(TextfieldTest, SelectWordFromNonAlphaNumericFragment) {
+  InitTextfield();
+  textfield_->SetText(u"  HELLO  !!  WO     RLD");
+
+  // Place the cursor within "  !!  ".
+  textfield_->SetEditableSelectionRange(gfx::Range(8));
+  textfield_->SelectWord();
+  EXPECT_EQ(u"  !!  ", textfield_->GetSelectedText());
+  EXPECT_EQ(gfx::Range(7, 13), textfield_->GetSelectedRange());
+
+  textfield_->SetEditableSelectionRange(gfx::Range(10));
+  textfield_->SelectWord();
+  EXPECT_EQ(u"  !!  ", textfield_->GetSelectedText());
+  EXPECT_EQ(gfx::Range(7, 13), textfield_->GetSelectedRange());
+}
+
+TEST_F(TextfieldTest, SelectWordFromWhitespaceFragment) {
+  InitTextfield();
+  textfield_->SetText(u"  HELLO  !!  WO     RLD");
+  textfield_->SetEditableSelectionRange(gfx::Range(17));
+  textfield_->SelectWord();
+  EXPECT_EQ(u"     ", textfield_->GetSelectedText());
+  EXPECT_EQ(gfx::Range(15, 20), textfield_->GetSelectedRange());
+}
+
+TEST_F(TextfieldTest, SelectCommands) {
+  InitTextfield();
+  textfield_->SetText(u"hello string world");
+
+  // Select all and select word commands should both be enabled when there is no
+  // selection.
+  textfield_->SetEditableSelectionRange(gfx::Range(8));
+  EXPECT_TRUE(textfield_->IsCommandIdEnabled(Textfield::kSelectAll));
+  EXPECT_TRUE(textfield_->IsCommandIdEnabled(Textfield::kSelectWord));
+  EXPECT_FALSE(test_api_->touch_selection_controller());
+
+  // Select word at current position. Select word command should now be disabled
+  // since there is already a selection.
+  textfield_->ExecuteCommand(Textfield::kSelectWord, 0);
+  EXPECT_EQ(u"string", textfield_->GetSelectedText());
+  EXPECT_EQ(gfx::Range(6, 12), textfield_->GetSelectedRange());
+  EXPECT_TRUE(textfield_->IsCommandIdEnabled(Textfield::kSelectAll));
+  EXPECT_FALSE(textfield_->IsCommandIdEnabled(Textfield::kSelectWord));
+  EXPECT_FALSE(test_api_->touch_selection_controller());
+
+  // Select all text. Select all and select word commands should now both be
+  // disabled.
+  textfield_->ExecuteCommand(Textfield::kSelectAll, 0);
+  EXPECT_EQ(u"hello string world", textfield_->GetSelectedText());
+  EXPECT_EQ(gfx::Range(0, 18), textfield_->GetSelectedRange());
+  EXPECT_FALSE(textfield_->IsCommandIdEnabled(Textfield::kSelectAll));
+  EXPECT_FALSE(textfield_->IsCommandIdEnabled(Textfield::kSelectWord));
+  EXPECT_FALSE(test_api_->touch_selection_controller());
+}
+
+// No touch on desktop Mac.
+#if !BUILDFLAG(IS_MAC)
+TEST_F(TextfieldTest, SelectCommandsFromTouchEvent) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatures(
+      /*enabled_features=*/{::features::kTouchTextEditingRedesign},
+      /*disabled_features=*/{});
+
+  InitTextfield();
+  textfield_->SetText(u"hello string world");
+
+  // Select all and select word commands should both be enabled when there is no
+  // selection.
+  textfield_->SetEditableSelectionRange(gfx::Range(8));
+  EXPECT_TRUE(textfield_->IsCommandIdEnabled(Textfield::kSelectAll));
+  EXPECT_TRUE(textfield_->IsCommandIdEnabled(Textfield::kSelectWord));
+  EXPECT_FALSE(test_api_->touch_selection_controller());
+
+  // Select word at current position. Select word command should now be disabled
+  // since there is already a selection.
+  textfield_->ExecuteCommand(Textfield::kSelectWord, ui::EF_FROM_TOUCH);
+  EXPECT_EQ(u"string", textfield_->GetSelectedText());
+  EXPECT_EQ(gfx::Range(6, 12), textfield_->GetSelectedRange());
+  EXPECT_TRUE(textfield_->IsCommandIdEnabled(Textfield::kSelectAll));
+  EXPECT_FALSE(textfield_->IsCommandIdEnabled(Textfield::kSelectWord));
+  EXPECT_TRUE(test_api_->touch_selection_controller());
+
+  // Select all text. Select all and select word commands should now both be
+  // disabled.
+  textfield_->ExecuteCommand(Textfield::kSelectAll, ui::EF_FROM_TOUCH);
+  EXPECT_EQ(u"hello string world", textfield_->GetSelectedText());
+  EXPECT_EQ(gfx::Range(0, 18), textfield_->GetSelectedRange());
+  EXPECT_FALSE(textfield_->IsCommandIdEnabled(Textfield::kSelectAll));
+  EXPECT_FALSE(textfield_->IsCommandIdEnabled(Textfield::kSelectWord));
+  EXPECT_TRUE(test_api_->touch_selection_controller());
+}
+#endif
+
 TEST_F(TextfieldTest, OvertypeMode) {
   InitTextfield();
   // Overtype mode should be disabled (no-op [Insert]).
@@ -3064,10 +3236,10 @@ TEST_F(TextfieldTest, CommitComposingTextTest) {
   ui::CompositionText composition;
   composition.text = u"abc123";
   textfield_->SetCompositionText(composition);
-  uint32_t composed_text_length =
+  size_t composed_text_length =
       textfield_->ConfirmCompositionText(/* keep_selection */ false);
 
-  EXPECT_EQ(composed_text_length, static_cast<uint32_t>(6));
+  EXPECT_EQ(composed_text_length, 6u);
 }
 
 TEST_F(TextfieldTest, CommitEmptyComposingTextTest) {
@@ -3075,10 +3247,10 @@ TEST_F(TextfieldTest, CommitEmptyComposingTextTest) {
   ui::CompositionText composition;
   composition.text = u"";
   textfield_->SetCompositionText(composition);
-  uint32_t composed_text_length =
+  size_t composed_text_length =
       textfield_->ConfirmCompositionText(/* keep_selection */ false);
 
-  EXPECT_EQ(composed_text_length, static_cast<uint32_t>(0));
+  EXPECT_EQ(composed_text_length, 0u);
 }
 
 #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
@@ -3148,7 +3320,7 @@ TEST_F(TextfieldTest, GetCompositionCharacterBounds_ComplexText) {
       // U+0020 SPACE
       0x0020,
   };
-  const size_t kUtf16CharsCount = base::size(kUtf16Chars);
+  const size_t kUtf16CharsCount = std::size(kUtf16Chars);
 
   ui::CompositionText composition;
   composition.text.assign(kUtf16Chars, kUtf16Chars + kUtf16CharsCount);
@@ -3192,7 +3364,8 @@ TEST_F(TextfieldTest,
 
   textfield_->SetText(u"abc");
 
-  EXPECT_TRUE(textfield_->SetAutocorrectRange(gfx::Range()));
+  // TODO(b/161490813): Change to EXPECT_TRUE after fixing set range.
+  EXPECT_FALSE(textfield_->SetAutocorrectRange(gfx::Range()));
   EXPECT_TRUE(textfield_->GetAutocorrectRange().is_empty());
 }
 
@@ -3208,8 +3381,7 @@ TEST_F(TextfieldTest, GetAutocorrectCharacterBoundsTest) {
 
   gfx::Rect rect_for_long_text = textfield_->GetAutocorrectCharacterBounds();
 
-  // Clear the text
-  textfield_->DeleteRange(gfx::Range(0, 99));
+  textfield_->clear();
 
   textfield_->InsertText(
       u"hello placeholder text",
@@ -3459,13 +3631,433 @@ TEST_F(TextfieldTest, TestLongPressInitiatesDragDrop) {
       switches::kEnableTouchDragDrop);
 
   // Create a long press event in the selected region should start a drag.
-  GestureEventForTest long_press(
+  ui::GestureEvent long_press = CreateTestGestureEvent(
       kStringPoint.x(), kStringPoint.y(),
       ui::GestureEventDetails(ui::ET_GESTURE_LONG_PRESS));
   textfield_->OnGestureEvent(&long_press);
   EXPECT_TRUE(
       textfield_->CanStartDragForView(nullptr, kStringPoint, kStringPoint));
 }
+
+// No touch on desktop Mac.
+#if !BUILDFLAG(IS_MAC)
+TEST_F(TextfieldTest, ScrollToAdjustDisplayOffset) {
+  InitTextfield();
+
+  // Size the textfield wide enough to hold 10 characters.
+  gfx::test::RenderTextTestApi render_text_test_api(test_api_->GetRenderText());
+  constexpr int kGlyphWidth = 10;
+  render_text_test_api.SetGlyphWidth(kGlyphWidth);
+  constexpr int kCursorWidth = 1;
+  test_api_->GetRenderText()->SetDisplayRect(
+      gfx::Rect(kGlyphWidth * 10 + kCursorWidth, 20));
+  textfield_->SetTextWithoutCaretBoundsChangeNotification(
+      u"0123456789_123456789_123456789", 0);
+  test_api_->SetDisplayOffsetX(0);
+  constexpr gfx::Range kSelectionRange(2, 7);
+  textfield_->SetEditableSelectionRange(kSelectionRange);
+
+  // Scroll starting at a vertical angle to adjust the display offset.
+  constexpr int kDisplayOffsetXAdjustment = -30;
+  const gfx::Point kScrollStart = views::View::ConvertPointToScreen(
+      textfield_, {GetCursorPositionX(5), GetCursorYForTesting()});
+  const gfx::Point kScrollEnd =
+      kScrollStart + gfx::Vector2d(kDisplayOffsetXAdjustment, 60);
+  event_generator_->GestureScrollSequence(kScrollStart, kScrollEnd,
+                                          /*duration=*/base::Milliseconds(50),
+                                          /*steps=*/5);
+
+  // Display offset should have updated without the selection changing.
+  gfx::Range range;
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, kSelectionRange);
+  EXPECT_FALSE(test_api_->touch_selection_controller());
+  EXPECT_EQ(test_api_->GetDisplayOffsetX(), kDisplayOffsetXAdjustment);
+}
+
+TEST_F(TextfieldTest, TwoFingerScroll) {
+  InitTextfield();
+
+  // Size the textfield wide enough to hold 10 characters.
+  gfx::test::RenderTextTestApi render_text_test_api(test_api_->GetRenderText());
+  constexpr int kGlyphWidth = 10;
+  render_text_test_api.SetGlyphWidth(kGlyphWidth);
+  constexpr int kCursorWidth = 1;
+  test_api_->GetRenderText()->SetDisplayRect(
+      gfx::Rect(kGlyphWidth * 10 + kCursorWidth, 20));
+  textfield_->SetTextWithoutCaretBoundsChangeNotification(
+      u"0123456789_123456789_123456789", 0);
+  test_api_->SetDisplayOffsetX(0);
+  constexpr gfx::Range kSelectionRange(2, 7);
+  textfield_->SetEditableSelectionRange(kSelectionRange);
+
+  // Scroll with two fingers to adjust the display offset.
+  constexpr int kDisplayOffsetXAdjustment = -30;
+  const gfx::Point kStart1 = views::View::ConvertPointToScreen(
+      textfield_, {GetCursorPositionX(5), GetCursorYForTesting()});
+  const gfx::Point kStart2 = kStart1 + gfx::Vector2d(20, 0);
+  const gfx::Point kStart[] = {kStart1, kStart2};
+  event_generator_->GestureMultiFingerScroll(
+      /*count=*/2, kStart,
+      /*event_separation_time_ms=*/50,
+      /*steps=*/5, /*move_x=*/kDisplayOffsetXAdjustment,
+      /*move_y=*/0);
+
+  // Display offset should have updated without the selection changing.
+  gfx::Range range;
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, kSelectionRange);
+  EXPECT_FALSE(test_api_->touch_selection_controller());
+  EXPECT_EQ(test_api_->GetDisplayOffsetX(), kDisplayOffsetXAdjustment);
+}
+
+TEST_F(TextfieldTest, ScrollToPlaceCursor) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatures(
+      /*enabled_features=*/{::features::kTouchTextEditingRedesign},
+      /*disabled_features=*/{});
+
+  InitTextfield();
+  textfield_->SetText(u"Hello string world");
+
+  // Scroll in a horizontal direction to move the cursor.
+  constexpr int kCursorStartPos = 2;
+  constexpr int kCursorEndPos = 15;
+  const gfx::Point kScrollStart = views::View::ConvertPointToScreen(
+      textfield_,
+      {GetCursorPositionX(kCursorStartPos), GetCursorYForTesting()});
+  const gfx::Point kScrollEnd = views::View::ConvertPointToScreen(
+      textfield_, {GetCursorPositionX(kCursorEndPos), GetCursorYForTesting()});
+  event_generator_->GestureScrollSequence(kScrollStart, kScrollEnd,
+                                          /*duration=*/base::Milliseconds(50),
+                                          /*steps=*/5);
+
+  gfx::Range range;
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(kCursorEndPos));
+}
+
+TEST_F(TextfieldTest, ScrollToPlaceCursorAdjustsDisplayOffset) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatures(
+      /*enabled_features=*/{::features::kTouchTextEditingRedesign},
+      /*disabled_features=*/{});
+
+  InitTextfield();
+
+  // Size the textfield wide enough to hold 10 characters.
+  gfx::test::RenderTextTestApi render_text_test_api(test_api_->GetRenderText());
+  constexpr int kGlyphWidth = 10;
+  render_text_test_api.SetGlyphWidth(kGlyphWidth);
+  constexpr int kCursorWidth = 1;
+  test_api_->GetRenderText()->SetDisplayRect(
+      gfx::Rect(kGlyphWidth * 10 + kCursorWidth, 20));
+  textfield_->SetTextWithoutCaretBoundsChangeNotification(
+      u"0123456789_123456789_123456789", 0);
+  test_api_->SetDisplayOffsetX(0);
+
+  // Scroll in a horizontal direction to move the cursor.
+  const gfx::Point kScrollStart = views::View::ConvertPointToScreen(
+      textfield_, {GetCursorPositionX(2), GetCursorYForTesting()});
+  const gfx::Point kScrollEnd = views::View::ConvertPointToScreen(
+      textfield_, {GetCursorPositionX(30), GetCursorYForTesting()});
+  event_generator_->GestureScrollSequence(kScrollStart, kScrollEnd,
+                                          /*duration=*/base::Milliseconds(50),
+                                          /*steps=*/5);
+
+  // Cursor should have moved and display should be offset so that the cursor is
+  // visible in the textfield.
+  gfx::Range range;
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(30));
+  EXPECT_EQ(test_api_->GetDisplayOffsetX(), -200);
+}
+
+TEST_F(TextfieldTest, TwoFingerScrollUpdate) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatures(
+      /*enabled_features=*/{::features::kTouchTextEditingRedesign},
+      /*disabled_features=*/{});
+
+  InitTextfield();
+
+  // Size the textfield wide enough to hold 10 characters.
+  gfx::test::RenderTextTestApi render_text_test_api(test_api_->GetRenderText());
+  constexpr int kGlyphWidth = 10;
+  render_text_test_api.SetGlyphWidth(kGlyphWidth);
+  constexpr int kCursorWidth = 1;
+  test_api_->GetRenderText()->SetDisplayRect(
+      gfx::Rect(kGlyphWidth * 10 + kCursorWidth, 20));
+  textfield_->SetTextWithoutCaretBoundsChangeNotification(
+      u"0123456789_123456789_123456789", 0);
+  test_api_->SetDisplayOffsetX(0);
+  textfield_->SetEditableSelectionRange(gfx::Range(2, 7));
+
+  // Perform a scroll which starts with one finger then adds another finger
+  // after a delay.
+  const gfx::Point kStart1 = views::View::ConvertPointToScreen(
+      textfield_, {GetCursorPositionX(8), GetCursorYForTesting()});
+  const gfx::Point kStart2 = kStart1 + gfx::Vector2d(20, 0);
+  const gfx::Point kStart[] = {kStart1, kStart2};
+  constexpr gfx::Vector2d kDelta[] = {
+      gfx::Vector2d(-50, 0),
+      gfx::Vector2d(-30, 0),
+  };
+  constexpr int kDelayAddingFingerMs[] = {0, 40};
+  constexpr int kDelayReleasingFingerMs[] = {150, 150};
+  event_generator_->GestureMultiFingerScrollWithDelays(
+      /*count=*/2, kStart, kDelta, kDelayAddingFingerMs,
+      kDelayReleasingFingerMs, /*event_separation_time_ms=*/20, /*steps=*/5);
+
+  // Since the scroll started with one finger, the cursor should have moved.
+  gfx::Range range;
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(6));
+  EXPECT_TRUE(test_api_->touch_selection_controller());
+  // Since a second finger was added, the display should also be slightly
+  // offset.
+  EXPECT_LT(test_api_->GetDisplayOffsetX(), 0);
+}
+
+TEST_F(TextfieldTest, LongPressDragLTR_Forward) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatures(
+      /*enabled_features=*/{::features::kTouchTextEditingRedesign},
+      /*disabled_features=*/{});
+
+  InitTextfield();
+  textfield_->SetText(u"Hello string world");
+  gfx::Range range;
+
+  // Long press should select the word at the pressed location.
+  ui::GestureEvent long_press = CreateTestGestureEvent(
+      GetCursorPositionX(9), GetCursorYForTesting(),
+      ui::GestureEventDetails(ui::ET_GESTURE_LONG_PRESS));
+  textfield_->OnGestureEvent(&long_press);
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(6, 12));
+
+  // Dragging right while long pressing should expand the selection forwards.
+  ui::GestureEvent scroll_begin = CreateTestGestureEvent(
+      GetCursorPositionX(9), GetCursorYForTesting(),
+      ui::GestureEventDetails(ui::ET_GESTURE_SCROLL_BEGIN, 1, 0));
+  textfield_->OnGestureEvent(&scroll_begin);
+  EXPECT_EQ(range, gfx::Range(6, 12));
+
+  ui::GestureEvent scroll_update = CreateTestGestureEvent(
+      GetCursorPositionX(16), GetCursorYForTesting(),
+      ui::GestureEventDetails(ui::ET_GESTURE_SCROLL_UPDATE));
+  textfield_->OnGestureEvent(&scroll_update);
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(6, 18));
+}
+
+TEST_F(TextfieldTest, LongPressDragLTR_Backward) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatures(
+      /*enabled_features=*/{::features::kTouchTextEditingRedesign},
+      /*disabled_features=*/{});
+
+  InitTextfield();
+  textfield_->SetText(u"Hello string world");
+  gfx::Range range;
+
+  // Long press should select the word at the pressed location.
+  ui::GestureEvent long_press = CreateTestGestureEvent(
+      GetCursorPositionX(9), GetCursorYForTesting(),
+      ui::GestureEventDetails(ui::ET_GESTURE_LONG_PRESS));
+  textfield_->OnGestureEvent(&long_press);
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(6, 12));
+
+  // Dragging left while long pressing should expand the selection backwards.
+  ui::GestureEvent scroll_begin = CreateTestGestureEvent(
+      GetCursorPositionX(9), GetCursorYForTesting(),
+      ui::GestureEventDetails(ui::ET_GESTURE_SCROLL_BEGIN, -1, 0));
+  textfield_->OnGestureEvent(&scroll_begin);
+  textfield_->GetEditableSelectionRange(&range);
+  // Selection range is reversed since the left endpoint should move while the
+  // right endpoint should stay fixed.
+  EXPECT_EQ(range, gfx::Range(12, 6));
+
+  ui::GestureEvent scroll_update = CreateTestGestureEvent(
+      GetCursorPositionX(3), GetCursorYForTesting(),
+      ui::GestureEventDetails(ui::ET_GESTURE_SCROLL_UPDATE));
+  textfield_->OnGestureEvent(&scroll_update);
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(12, 0));
+}
+
+TEST_F(TextfieldTest, LongPressDragRTL_Forward) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatures(
+      /*enabled_features=*/{::features::kTouchTextEditingRedesign},
+      /*disabled_features=*/{});
+
+  InitTextfield();
+  textfield_->SetText(u"مرحبا بالعالم مرحبا");
+  gfx::Range range;
+
+  // Long press should select the word at the pressed location.
+  ui::GestureEvent long_press = CreateTestGestureEvent(
+      GetCursorPositionX(9), GetCursorYForTesting(),
+      ui::GestureEventDetails(ui::ET_GESTURE_LONG_PRESS));
+  textfield_->OnGestureEvent(&long_press);
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(6, 13));
+
+  // Dragging left while long pressing should expand the selection forwards.
+  ui::GestureEvent scroll_begin = CreateTestGestureEvent(
+      GetCursorPositionX(9), GetCursorYForTesting(),
+      ui::GestureEventDetails(ui::ET_GESTURE_SCROLL_BEGIN, -1, 0));
+  textfield_->OnGestureEvent(&scroll_begin);
+  EXPECT_EQ(range, gfx::Range(6, 13));
+
+  ui::GestureEvent scroll_update = CreateTestGestureEvent(
+      GetCursorPositionX(18), GetCursorYForTesting(),
+      ui::GestureEventDetails(ui::ET_GESTURE_SCROLL_UPDATE));
+  textfield_->OnGestureEvent(&scroll_update);
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(6, 19));
+}
+
+TEST_F(TextfieldTest, LongPressDragRTL_Backward) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatures(
+      /*enabled_features=*/{::features::kTouchTextEditingRedesign},
+      /*disabled_features=*/{});
+
+  InitTextfield();
+  textfield_->SetText(u"مرحبا بالعالم مرحبا");
+  gfx::Range range;
+
+  // Long press should select the word at the pressed location.
+  ui::GestureEvent long_press = CreateTestGestureEvent(
+      GetCursorPositionX(9), GetCursorYForTesting(),
+      ui::GestureEventDetails(ui::ET_GESTURE_LONG_PRESS));
+  textfield_->OnGestureEvent(&long_press);
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(6, 13));
+
+  // Dragging right while long pressing should expand the selection backwards.
+  ui::GestureEvent scroll_begin = CreateTestGestureEvent(
+      GetCursorPositionX(9), GetCursorYForTesting(),
+      ui::GestureEventDetails(ui::ET_GESTURE_SCROLL_BEGIN, 1, 0));
+  textfield_->OnGestureEvent(&scroll_begin);
+  textfield_->GetEditableSelectionRange(&range);
+  // Selection range is reversed since the right endpoint should move while the
+  // left endpoint should stay fixed.
+  EXPECT_EQ(range, gfx::Range(13, 6));
+
+  ui::GestureEvent scroll_update = CreateTestGestureEvent(
+      GetCursorPositionX(3), GetCursorYForTesting(),
+      ui::GestureEventDetails(ui::ET_GESTURE_SCROLL_UPDATE));
+  textfield_->OnGestureEvent(&scroll_update);
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(13, 0));
+}
+
+TEST_F(TextfieldTest, DoubleTapDown) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatures(
+      /*enabled_features=*/{::features::kTouchTextEditingRedesign},
+      /*disabled_features=*/{});
+
+  InitTextfield();
+  textfield_->SetText(u"Hello string world");
+  gfx::Range range;
+
+  // Second tap down in a repeated tap sequence should select word but not show
+  // touch selection handles.
+  ui::GestureEventDetails tap_down_details(ui::ET_GESTURE_TAP_DOWN);
+  tap_down_details.set_tap_down_count(2);
+  ui::GestureEvent tap_down = CreateTestGestureEvent(
+      GetCursorPositionX(2), GetCursorYForTesting(), tap_down_details);
+  textfield_->OnGestureEvent(&tap_down);
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(0, 5));
+  EXPECT_FALSE(test_api_->touch_selection_controller());
+
+  // After tap, word should still be selected and touch selection handles should
+  // appear.
+  ui::GestureEventDetails tap_details(ui::ET_GESTURE_TAP);
+  tap_details.set_tap_count(2);
+  ui::GestureEvent tap = CreateTestGestureEvent(
+      GetCursorPositionX(2), GetCursorYForTesting(), tap_details);
+  textfield_->OnGestureEvent(&tap);
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(0, 5));
+  EXPECT_TRUE(test_api_->touch_selection_controller());
+}
+
+TEST_F(TextfieldTest, TripleTapDown) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatures(
+      /*enabled_features=*/{::features::kTouchTextEditingRedesign},
+      /*disabled_features=*/{});
+
+  InitTextfield();
+  textfield_->SetText(u"Hello string world");
+  gfx::Range range;
+
+  // Third tap down in a repeated tap sequence should select all text.
+  ui::GestureEventDetails tap_down_details(ui::ET_GESTURE_TAP_DOWN);
+  tap_down_details.set_tap_down_count(3);
+  ui::GestureEvent tap_down = CreateTestGestureEvent(
+      GetCursorPositionX(2), GetCursorYForTesting(), tap_down_details);
+  textfield_->OnGestureEvent(&tap_down);
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(0, 18));
+  EXPECT_FALSE(test_api_->touch_selection_controller());
+
+  // After tap, text should still be selected and touch selection handles should
+  // appear.
+  ui::GestureEventDetails tap_details(ui::ET_GESTURE_TAP);
+  tap_details.set_tap_count(3);
+  ui::GestureEvent tap = CreateTestGestureEvent(
+      GetCursorPositionX(2), GetCursorYForTesting(), tap_details);
+  textfield_->OnGestureEvent(&tap);
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(0, 18));
+  EXPECT_TRUE(test_api_->touch_selection_controller());
+}
+
+// TODO(b/271058426): Rewrite these gesture tests using
+// ui::test::EventGenerator.
+TEST_F(TextfieldTest, DoubleTapDrag) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatures(
+      /*enabled_features=*/{::features::kTouchTextEditingRedesign},
+      /*disabled_features=*/{});
+
+  InitTextfield();
+  textfield_->SetText(u"Hello string world");
+  gfx::Range range;
+
+  // Second tap down in a repeated tap sequence should select word.
+  ui::GestureEventDetails tap_down_details(ui::ET_GESTURE_TAP_DOWN);
+  tap_down_details.set_tap_down_count(2);
+  ui::GestureEvent tap_down = CreateTestGestureEvent(
+      GetCursorPositionX(2), GetCursorYForTesting(), tap_down_details);
+  textfield_->OnGestureEvent(&tap_down);
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(0, 5));
+
+  // Dragging should expand the selection.
+  ui::GestureEvent scroll_begin = CreateTestGestureEvent(
+      GetCursorPositionX(2), GetCursorYForTesting(),
+      ui::GestureEventDetails(ui::ET_GESTURE_SCROLL_BEGIN, 1, 0));
+  textfield_->OnGestureEvent(&scroll_begin);
+  EXPECT_EQ(range, gfx::Range(0, 5));
+
+  ui::GestureEvent scroll_update = CreateTestGestureEvent(
+      GetCursorPositionX(10), GetCursorYForTesting(),
+      ui::GestureEventDetails(ui::ET_GESTURE_SCROLL_UPDATE));
+  textfield_->OnGestureEvent(&scroll_update);
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(0, 12));
+}
+#endif
 
 TEST_F(TextfieldTest, GetTextfieldBaseline_FontFallbackTest) {
   InitTextfield();
@@ -3520,6 +4112,37 @@ TEST_F(TextfieldTest, SetAccessibleNameNotifiesAccessibilityEvent) {
   const std::string& name =
       data.GetStringAttribute(ax::mojom::StringAttribute::kName);
   EXPECT_EQ(test_tooltip_text, base::ASCIIToUTF16(name));
+
+  // `NameFrom::kAttribute` is appropriate when the name is explicitly set to
+  // a developer-provided string (rather than a label, tooltip, or placeholder
+  // for which there are other `NameFrom` values). `NameFrom::kContents` is
+  // typically not an appropriate value.
+  EXPECT_EQ(data.GetNameFrom(), ax::mojom::NameFrom::kAttribute);
+}
+
+TEST_F(TextfieldTest, AccessibleNameFromLabel) {
+  InitTextfield();
+
+  const std::u16string label_text = u"Some label";
+  View label;
+  label.SetAccessibleName(label_text);
+  textfield_->SetAccessibleName(&label);
+
+  // Use `ViewAccessibility::GetAccessibleNodeData` so that we can get the
+  // label's accessible id to compare with the textfield's labelled-by id.
+  ui::AXNodeData label_data;
+  label.GetViewAccessibility().GetAccessibleNodeData(&label_data);
+
+  ui::AXNodeData textfield_data;
+  textfield_->GetAccessibleNodeData(&textfield_data);
+  EXPECT_EQ(
+      textfield_data.GetString16Attribute(ax::mojom::StringAttribute::kName),
+      label_text);
+  EXPECT_EQ(textfield_->GetAccessibleName(), label_text);
+  EXPECT_EQ(textfield_data.GetNameFrom(), ax::mojom::NameFrom::kRelatedElement);
+  EXPECT_EQ(textfield_data.GetIntListAttribute(
+                ax::mojom::IntListAttribute::kLabelledbyIds)[0],
+            label_data.id);
 }
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -3543,7 +4166,7 @@ TEST_F(TextfieldTest, VirtualKeyboardFocusEnsureCaretNotInRect) {
   EXPECT_EQ(widget_->GetNativeView()->bounds(), orig_widget_bounds);
 
   // Simulate virtual keyboard.
-  input_method_->SetOnScreenKeyboardBounds(keyboard_view_bounds);
+  input_method_->SetVirtualKeyboardBounds(keyboard_view_bounds);
 
   // Window should be shifted.
   EXPECT_EQ(widget_->GetNativeView()->bounds(), shifted_widget_bounds);
@@ -3562,26 +4185,27 @@ class TextfieldTouchSelectionTest : public TextfieldTest {
  protected:
   // Simulates a complete tap.
   void Tap(const gfx::Point& point) {
-    GestureEventForTest begin(point.x(), point.y(),
-                              ui::GestureEventDetails(ui::ET_GESTURE_BEGIN));
+    ui::GestureEvent begin = CreateTestGestureEvent(
+        point.x(), point.y(), ui::GestureEventDetails(ui::ET_GESTURE_BEGIN));
     textfield_->OnGestureEvent(&begin);
 
-    GestureEventForTest tap_down(
+    ui::GestureEvent tap_down = CreateTestGestureEvent(
         point.x(), point.y(), ui::GestureEventDetails(ui::ET_GESTURE_TAP_DOWN));
     textfield_->OnGestureEvent(&tap_down);
 
-    GestureEventForTest show_press(
+    ui::GestureEvent show_press = CreateTestGestureEvent(
         point.x(), point.y(),
         ui::GestureEventDetails(ui::ET_GESTURE_SHOW_PRESS));
     textfield_->OnGestureEvent(&show_press);
 
     ui::GestureEventDetails tap_details(ui::ET_GESTURE_TAP);
     tap_details.set_tap_count(1);
-    GestureEventForTest tap(point.x(), point.y(), tap_details);
+    ui::GestureEvent tap =
+        CreateTestGestureEvent(point.x(), point.y(), tap_details);
     textfield_->OnGestureEvent(&tap);
 
-    GestureEventForTest end(point.x(), point.y(),
-                            ui::GestureEventDetails(ui::ET_GESTURE_END));
+    ui::GestureEvent end = CreateTestGestureEvent(
+        point.x(), point.y(), ui::GestureEventDetails(ui::ET_GESTURE_END));
     textfield_->OnGestureEvent(&end);
   }
 };
@@ -3597,7 +4221,7 @@ TEST_F(TextfieldTouchSelectionTest, TouchSelectionAndDraggingTest) {
   // Tapping on the textfield should turn on the TouchSelectionController.
   ui::GestureEventDetails tap_details(ui::ET_GESTURE_TAP);
   tap_details.set_tap_count(1);
-  GestureEventForTest tap(x, 0, tap_details);
+  ui::GestureEvent tap = CreateTestGestureEvent(x, 0, tap_details);
   textfield_->OnGestureEvent(&tap);
   EXPECT_TRUE(test_api_->touch_selection_controller());
 
@@ -3608,7 +4232,7 @@ TEST_F(TextfieldTouchSelectionTest, TouchSelectionAndDraggingTest) {
 
   // With touch editing enabled, long press should not show context menu.
   // Instead, select word and invoke TouchSelectionController.
-  GestureEventForTest long_press_1(
+  ui::GestureEvent long_press_1 = CreateTestGestureEvent(
       x, 0, ui::GestureEventDetails(ui::ET_GESTURE_LONG_PRESS));
   textfield_->OnGestureEvent(&long_press_1);
   EXPECT_EQ(u"hello", textfield_->GetSelectedText());
@@ -3618,7 +4242,7 @@ TEST_F(TextfieldTouchSelectionTest, TouchSelectionAndDraggingTest) {
   // With touch drag drop enabled, long pressing in the selected region should
   // start a drag and remove TouchSelectionController.
   ASSERT_TRUE(switches::IsTouchDragDropEnabled());
-  GestureEventForTest long_press_2(
+  ui::GestureEvent long_press_2 = CreateTestGestureEvent(
       x, 0, ui::GestureEventDetails(ui::ET_GESTURE_LONG_PRESS));
   textfield_->OnGestureEvent(&long_press_2);
   EXPECT_EQ(u"hello", textfield_->GetSelectedText());
@@ -3630,7 +4254,7 @@ TEST_F(TextfieldTouchSelectionTest, TouchSelectionAndDraggingTest) {
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kDisableTouchDragDrop);
   ASSERT_FALSE(switches::IsTouchDragDropEnabled());
-  GestureEventForTest long_press_3(
+  ui::GestureEvent long_press_3 = CreateTestGestureEvent(
       x, 0, ui::GestureEventDetails(ui::ET_GESTURE_LONG_PRESS));
   textfield_->OnGestureEvent(&long_press_3);
   EXPECT_EQ(u"hello", textfield_->GetSelectedText());
@@ -3699,6 +4323,206 @@ TEST_F(TextfieldTouchSelectionTest, MAYBE_TapOnSelection) {
   EXPECT_EQ(tap_range, range);
 }
 
+TEST_F(TextfieldTest, MoveCaret) {
+  InitTextfield();
+  textfield_->SetText(u"hello world");
+  const int cursor_y = GetCursorYForTesting();
+  gfx::Range range;
+
+  textfield_->MoveCaret(gfx::Point(GetCursorPositionX(3), cursor_y));
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(3));
+
+  textfield_->MoveCaret(gfx::Point(GetCursorPositionX(0), cursor_y));
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(0));
+
+  textfield_->MoveCaret(gfx::Point(GetCursorPositionX(11), cursor_y));
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(11));
+}
+
+TEST_F(TextfieldTest, MoveRangeSelectionExtent) {
+  InitTextfield();
+  textfield_->SetText(u"hello world");
+  const int cursor_y = GetCursorYForTesting();
+  gfx::Range range;
+
+  textfield_->SelectBetweenCoordinates(
+      gfx::Point(GetCursorPositionX(2), cursor_y),
+      gfx::Point(GetCursorPositionX(3), cursor_y));
+  textfield_->MoveRangeSelectionExtent(
+      gfx::Point(GetCursorPositionX(5), cursor_y));
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(2, 5));
+
+  textfield_->MoveRangeSelectionExtent(
+      gfx::Point(GetCursorPositionX(0), cursor_y));
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(2, 0));
+}
+
+TEST_F(TextfieldTest, MoveRangeSelectionExtentToTextEnd) {
+  InitTextfield();
+  textfield_->SetText(u"hello world a");
+  const int cursor_y = GetCursorYForTesting();
+  gfx::Range range;
+
+  textfield_->SelectBetweenCoordinates(
+      gfx::Point(GetCursorPositionX(2), cursor_y),
+      gfx::Point(GetCursorPositionX(3), cursor_y));
+  textfield_->MoveRangeSelectionExtent(
+      gfx::Point(GetCursorPositionX(13), cursor_y));
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(2, 13));
+}
+
+TEST_F(TextfieldTest, MoveRangeSelectionExtentByCharacter) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatures(
+      /*enabled_features=*/{},
+      /*disabled_features=*/{::features::kTouchTextEditingRedesign});
+
+  InitTextfield();
+  textfield_->SetText(u"hello world");
+  const int cursor_y = GetCursorYForTesting();
+  gfx::Range range;
+
+  textfield_->SelectBetweenCoordinates(
+      gfx::Point(GetCursorPositionX(2), cursor_y),
+      gfx::Point(GetCursorPositionX(3), cursor_y));
+  textfield_->MoveRangeSelectionExtent(
+      gfx::Point(GetCursorPositionX(4), cursor_y));
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(2, 4));
+  EXPECT_EQ(textfield_->GetSelectedText(), u"ll");
+
+  textfield_->MoveRangeSelectionExtent(
+      gfx::Point(GetCursorPositionX(8), cursor_y));
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(2, 8));
+  EXPECT_EQ(textfield_->GetSelectedText(), u"llo wo");
+
+  textfield_->MoveRangeSelectionExtent(
+      gfx::Point(GetCursorPositionX(1), cursor_y));
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(2, 1));
+  EXPECT_EQ(textfield_->GetSelectedText(), u"e");
+}
+
+TEST_F(TextfieldTest, MoveRangeSelectionExtentExpandByWord) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatures(
+      /*enabled_features=*/{::features::kTouchTextEditingRedesign},
+      /*disabled_features=*/{});
+
+  InitTextfield();
+  textfield_->SetText(u"some textfield text");
+  const int cursor_y = GetCursorYForTesting();
+  textfield_->SelectBetweenCoordinates(
+      gfx::Point(GetCursorPositionX(2), cursor_y),
+      gfx::Point(GetCursorPositionX(3), cursor_y));
+
+  // Expand the selection. The end of the selection should move to the nearest
+  // word boundary.
+  textfield_->MoveRangeSelectionExtent(
+      gfx::Point(GetCursorPositionX(11), cursor_y));
+  gfx::Range range;
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(2, 14));
+  EXPECT_EQ(textfield_->GetSelectedText(), u"me textfield");
+
+  // Shrink then expand the selection again.
+  textfield_->MoveRangeSelectionExtent(
+      gfx::Point(GetCursorPositionX(8), cursor_y));
+  textfield_->MoveRangeSelectionExtent(
+      gfx::Point(GetCursorPositionX(18), cursor_y));
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(2, 19));
+  EXPECT_EQ(textfield_->GetSelectedText(), u"me textfield text");
+}
+
+TEST_F(TextfieldTest, MoveRangeSelectionExtentShrinkByCharacter) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatures(
+      /*enabled_features=*/{::features::kTouchTextEditingRedesign},
+      /*disabled_features=*/{});
+
+  InitTextfield();
+  textfield_->SetText(u"some textfield text");
+  const int cursor_y = GetCursorYForTesting();
+  textfield_->SelectBetweenCoordinates(
+      gfx::Point(GetCursorPositionX(2), cursor_y),
+      gfx::Point(GetCursorPositionX(12), cursor_y));
+
+  // Shrink the selection.
+  textfield_->MoveRangeSelectionExtent(
+      gfx::Point(GetCursorPositionX(11), cursor_y));
+  gfx::Range range;
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(2, 11));
+  EXPECT_EQ(textfield_->GetSelectedText(), u"me textfi");
+}
+
+TEST_F(TextfieldTest, MoveRangeSelectionExtentOffset) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitWithFeatures(
+      /*enabled_features=*/{::features::kTouchTextEditingRedesign},
+      /*disabled_features=*/{});
+
+  InitTextfield();
+  textfield_->SetText(u"some textfield text");
+  const int cursor_y = GetCursorYForTesting();
+  textfield_->SelectBetweenCoordinates(
+      gfx::Point(GetCursorPositionX(2), cursor_y),
+      gfx::Point(GetCursorPositionX(3), cursor_y));
+
+  // Expand the selection. The end of the selection should move to the nearest
+  // word boundary.
+  textfield_->MoveRangeSelectionExtent(
+      gfx::Point(GetCursorPositionX(11), cursor_y));
+  gfx::Range range;
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(2, 14));
+  EXPECT_EQ(textfield_->GetSelectedText(), u"me textfield");
+
+  // Shrink the selection. The offset between the selection extent and the end
+  // of the selection should be preserved.
+  const int offset = GetCursorPositionX(14) - GetCursorPositionX(11);
+  textfield_->MoveRangeSelectionExtent(
+      gfx::Point(GetCursorPositionX(12) - offset, cursor_y));
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(2, 12));
+  EXPECT_EQ(textfield_->GetSelectedText(), u"me textfie");
+
+  // Move the extent past the end of the selection. The offset should be reset
+  // and the selection should expand.
+  textfield_->MoveRangeSelectionExtent(
+      gfx::Point(GetCursorPositionX(13), cursor_y));
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(2, 13));
+  EXPECT_EQ(textfield_->GetSelectedText(), u"me textfiel");
+}
+
+TEST_F(TextfieldTest, SelectBetweenCoordinates) {
+  InitTextfield();
+  textfield_->SetText(u"hello world");
+  const int cursor_y = GetCursorYForTesting();
+  gfx::Range range;
+
+  textfield_->SelectBetweenCoordinates(
+      gfx::Point(GetCursorPositionX(1), cursor_y),
+      gfx::Point(GetCursorPositionX(2), cursor_y));
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(1, 2));
+
+  textfield_->SelectBetweenCoordinates(
+      gfx::Point(GetCursorPositionX(0), cursor_y),
+      gfx::Point(GetCursorPositionX(11), cursor_y));
+  textfield_->GetEditableSelectionRange(&range);
+  EXPECT_EQ(range, gfx::Range(0, 11));
+}
+
 TEST_F(TextfieldTest, AccessiblePasswordTest) {
   InitTextfield();
   textfield_->SetText(u"password");
@@ -3719,6 +4543,22 @@ TEST_F(TextfieldTest, AccessiblePasswordTest) {
   EXPECT_TRUE(node_data_protected.HasState(ax::mojom::State::kProtected));
 }
 
+TEST_F(TextfieldTest, AccessibleRole) {
+  InitTextfield();
+
+  ui::AXNodeData data;
+  textfield_->GetAccessibleNodeData(&data);
+  EXPECT_EQ(data.role, ax::mojom::Role::kTextField);
+  EXPECT_EQ(textfield_->GetAccessibleRole(), ax::mojom::Role::kTextField);
+
+  textfield_->SetAccessibleRole(ax::mojom::Role::kSearchBox);
+
+  data = ui::AXNodeData();
+  textfield_->GetAccessibleNodeData(&data);
+  EXPECT_EQ(data.role, ax::mojom::Role::kSearchBox);
+  EXPECT_EQ(textfield_->GetAccessibleRole(), ax::mojom::Role::kSearchBox);
+}
+
 // Verify that cursor visibility is controlled by SetCursorEnabled.
 TEST_F(TextfieldTest, CursorVisibility) {
   InitTextfield();
@@ -3737,9 +4577,8 @@ TEST_F(TextfieldTest, FitToLocalBounds) {
   const int kBorderWidth = 5;
   InitTextfield();
   textfield_->SetBounds(0, 0, kDisplayRectWidth, 100);
-  textfield_->SetBorder(views::CreateEmptyBorder(
-      gfx::Insets(kBorderWidth, kBorderWidth, kBorderWidth, kBorderWidth)));
-  test_api_->GetRenderText()->SetDisplayRect(gfx::Rect(0, 0, 20, 20));
+  textfield_->SetBorder(views::CreateEmptyBorder(kBorderWidth));
+  test_api_->GetRenderText()->SetDisplayRect(gfx::Rect(20, 20));
   ASSERT_EQ(20, test_api_->GetRenderText()->display_rect().width());
   textfield_->FitToLocalBounds();
   EXPECT_EQ(kDisplayRectWidth - 2 * kBorderWidth,
@@ -3881,7 +4720,7 @@ TEST_F(TextfieldTest, EmojiItem_EmptyField) {
   // A normal empty field may show the Emoji option (if supported).
   ui::MenuModel* context_menu = GetContextMenuModel();
   EXPECT_TRUE(context_menu);
-  EXPECT_GT(context_menu->GetItemCount(), 0);
+  EXPECT_GT(context_menu->GetItemCount(), 0u);
   // Not all OS/versions support the emoji menu.
   EXPECT_EQ(ui::IsEmojiPanelSupported(),
             context_menu->GetLabelAt(0) ==
@@ -3896,7 +4735,7 @@ TEST_F(TextfieldTest, EmojiItem_ReadonlyField) {
   // In no case is the emoji option showing on a read-only field.
   ui::MenuModel* context_menu = GetContextMenuModel();
   EXPECT_TRUE(context_menu);
-  EXPECT_GT(context_menu->GetItemCount(), 0);
+  EXPECT_GT(context_menu->GetItemCount(), 0u);
   EXPECT_NE(context_menu->GetLabelAt(0),
             l10n_util::GetStringUTF16(IDS_CONTENT_CONTEXT_EMOJI));
 }
@@ -3918,7 +4757,7 @@ TEST_F(TextfieldTest, EmojiItem_FieldWithText) {
   textfield_->SelectAll(false);
   ui::MenuModel* context_menu = GetContextMenuModel();
   EXPECT_TRUE(context_menu);
-  EXPECT_GT(context_menu->GetItemCount(), 0);
+  EXPECT_GT(context_menu->GetItemCount(), 0u);
   // Not all OS/versions support the emoji menu.
   EXPECT_EQ(ui::IsEmojiPanelSupported(),
             context_menu->GetLabelAt(kExpectedEmojiIndex) ==
@@ -3969,7 +4808,7 @@ TEST_F(TextfieldTest, LookUpPassword) {
 
   ui::MenuModel* context_menu = GetContextMenuModel();
   EXPECT_TRUE(context_menu);
-  EXPECT_GT(context_menu->GetItemCount(), 0);
+  EXPECT_GT(context_menu->GetItemCount(), 0u);
   EXPECT_NE(context_menu->GetCommandIdAt(0), IDS_CONTENT_CONTEXT_LOOK_UP);
   EXPECT_NE(context_menu->GetLabelAt(0),
             l10n_util::GetStringFUTF16(IDS_CONTENT_CONTEXT_LOOK_UP, kText));
@@ -4218,5 +5057,4 @@ TEST_F(TextfieldTest, ScrollCommands) {
       ui::TextEditCommand::SCROLL_TO_END_OF_DOCUMENT));
 #endif
 }
-}  // namespace test
-}  // namespace views
+}  // namespace views::test

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,10 +17,11 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.android_webview.AwContents;
+import org.chromium.android_webview.test.TestAwContentsClient.OnReceivedErrorHelper;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.Feature;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.test.util.TestCallbackHelperContainer;
 import org.chromium.content_public.common.ContentUrlConstants;
 import org.chromium.net.test.util.TestWebServer;
@@ -118,14 +119,14 @@ public class ClientOnPageStartedTest {
             private boolean mAllowAboutBlank;
 
             @Override
-            public void onReceivedError(int errorCode, String description, String failingUrl) {
-                Assert.assertEquals("onReceivedError called twice for " + failingUrl, false,
+            public void onReceivedError(AwWebResourceRequest request, AwWebResourceError error) {
+                Assert.assertEquals("onReceivedError called twice for " + request.url, false,
                         mIsOnReceivedErrorCalled);
                 mIsOnReceivedErrorCalled = true;
                 Assert.assertEquals(
-                        "onPageStarted not called before onReceivedError for " + failingUrl, true,
+                        "onPageStarted not called before onReceivedError for " + request.url, true,
                         mIsOnPageStartedCalled);
-                super.onReceivedError(errorCode, description, failingUrl);
+                super.onReceivedError(request, error);
             }
 
             @Override
@@ -150,8 +151,7 @@ public class ClientOnPageStartedTest {
         LocalTestClient testContentsClient = new LocalTestClient();
         setTestAwContentsClient(testContentsClient);
 
-        TestCallbackHelperContainer.OnReceivedErrorHelper onReceivedErrorHelper =
-                mContentsClient.getOnReceivedErrorHelper();
+        OnReceivedErrorHelper onReceivedErrorHelper = mContentsClient.getOnReceivedErrorHelper();
         TestCallbackHelperContainer.OnPageStartedHelper onPageStartedHelper =
                 mContentsClient.getOnPageStartedHelper();
         TestCallbackHelperContainer.OnPageFinishedHelper onPageFinishedHelper =
@@ -160,7 +160,7 @@ public class ClientOnPageStartedTest {
         String invalidUrl = "http://localhost:7/non_existent";
         mActivityTestRule.loadUrlSync(mAwContents, onPageFinishedHelper, invalidUrl);
 
-        Assert.assertEquals(invalidUrl, onReceivedErrorHelper.getFailingUrl());
+        Assert.assertEquals(invalidUrl, onReceivedErrorHelper.getRequest().url);
         Assert.assertEquals(invalidUrl, onPageStartedHelper.getUrl());
 
         // Rather than wait a fixed time to see that another onPageStarted callback isn't issued
@@ -212,7 +212,7 @@ public class ClientOnPageStartedTest {
         int shouldOverrideUrlLoadingCount =
                 mContentsClient.getShouldOverrideUrlLoadingHelper().getCallCount();
         int onLoadResourceCount = mContentsClient.getOnLoadResourceHelper().getCallCount();
-        PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT, () -> {
+        PostTask.runOrPostTask(TaskTraits.UI_DEFAULT, () -> {
             mAwContents.evaluateJavaScript(
                     "window.location.assign(\"" + downloadUrl + "\");", null);
         });
@@ -248,7 +248,7 @@ public class ClientOnPageStartedTest {
                 mContentsClient.getShouldOverrideUrlLoadingHelper().getCallCount();
         int onLoadResourceCount = mContentsClient.getOnLoadResourceHelper().getCallCount();
         int hangingRequestCount = mHangingRequestCallbackHelper.getCallCount();
-        PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT, () -> {
+        PostTask.runOrPostTask(TaskTraits.UI_DEFAULT, () -> {
             mAwContents.evaluateJavaScript(
                     "window.location.assign(\"" + mHangingUrl + "\");", null);
         });
@@ -319,7 +319,7 @@ public class ClientOnPageStartedTest {
                 mContentsClient.getShouldOverrideUrlLoadingHelper().getCallCount();
         int onLoadResourceCount = mContentsClient.getOnLoadResourceHelper().getCallCount();
         int hangingRequestCount = mHangingRequestCallbackHelper.getCallCount();
-        PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT, () -> {
+        PostTask.runOrPostTask(TaskTraits.UI_DEFAULT, () -> {
             mAwContents.evaluateJavaScript(
                     "window.location.assign(\"" + mRedirectToHangingUrl + "\");", null);
         });

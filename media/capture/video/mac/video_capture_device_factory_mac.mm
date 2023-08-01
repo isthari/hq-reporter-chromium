@@ -1,27 +1,27 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "media/capture/video/mac/video_capture_device_factory_mac.h"
 
-#import <IOKit/audio/IOAudioTypes.h>
 #include <stddef.h>
-
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/strings/string_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/task/task_runner_util.h"
+#include "media/base/mac/video_capture_device_avfoundation_helpers.h"
 #import "media/capture/video/mac/video_capture_device_avfoundation_mac.h"
 #import "media/capture/video/mac/video_capture_device_avfoundation_utils_mac.h"
 #import "media/capture/video/mac/video_capture_device_decklink_mac.h"
 #include "media/capture/video/mac/video_capture_device_mac.h"
-#include "services/video_capture/public/uma/video_capture_service_event.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 namespace {
 
@@ -30,7 +30,7 @@ void EnsureRunsOnCFRunLoopEnabledThread() {
   if (!has_checked_cfrunloop_for_video_capture) {
     base::ScopedCFTypeRef<CFRunLoopMode> mode(
         CFRunLoopCopyCurrentMode(CFRunLoopGetCurrent()));
-    CHECK(mode != NULL)
+    CHECK(mode != nullptr)
         << "The MacOS video capture code must be run on a CFRunLoop-enabled "
            "thread";
     has_checked_cfrunloop_for_video_capture = true;
@@ -40,26 +40,30 @@ void EnsureRunsOnCFRunLoopEnabledThread() {
 media::VideoCaptureFormats GetDeviceSupportedFormats(
     const media::VideoCaptureDeviceDescriptor& descriptor) {
   media::VideoCaptureFormats formats;
-  NSArray* devices = [AVCaptureDevice devices];
+
+  NSArray<AVCaptureDevice*>* devices = media::GetVideoCaptureDevices(
+      base::FeatureList::IsEnabled(media::kUseAVCaptureDeviceDiscoverySession));
+
   AVCaptureDevice* device = nil;
   for (device in devices) {
-    if (base::SysNSStringToUTF8([device uniqueID]) == descriptor.device_id)
+    if (base::SysNSStringToUTF8(device.uniqueID) == descriptor.device_id) {
       break;
+    }
   }
   if (device == nil)
     return media::VideoCaptureFormats();
-  for (AVCaptureDeviceFormat* format in device.formats) {
+  for (AVCaptureDeviceFormat* device_format in device.formats) {
     // MediaSubType is a CMPixelFormatType but can be used as CVPixelFormatType
     // as well according to CMFormatDescription.h
     const media::VideoPixelFormat pixelFormat = [VideoCaptureDeviceAVFoundation
         FourCCToChromiumPixelFormat:CMFormatDescriptionGetMediaSubType(
-                                        [format formatDescription])];
+                                        device_format.formatDescription)];
 
     CMVideoDimensions dimensions =
-        CMVideoFormatDescriptionGetDimensions([format formatDescription]);
+        CMVideoFormatDescriptionGetDimensions(device_format.formatDescription);
 
-    for (AVFrameRateRange* frameRate in
-         [format videoSupportedFrameRateRanges]) {
+    for (AVFrameRateRange* frameRate in device_format
+             .videoSupportedFrameRateRanges) {
       media::VideoCaptureFormat format(
           gfx::Size(dimensions.width, dimensions.height),
           frameRate.maxFrameRate, pixelFormat);
@@ -75,8 +79,6 @@ media::VideoCaptureFormats GetDeviceSupportedFormats(
 // uniqueId. At the moment these are just Blackmagic devices.
 const char* kBlockedCamerasIdSignature[] = {"-01FDA82C8A9C"};
 
-int32_t get_device_descriptors_retry_count = 0;
-
 }  // anonymous namespace
 
 namespace media {
@@ -84,7 +86,7 @@ namespace media {
 static bool IsDeviceBlocked(const VideoCaptureDeviceDescriptor& descriptor) {
   bool is_device_blocked = false;
   for (size_t i = 0;
-       !is_device_blocked && i < base::size(kBlockedCamerasIdSignature); ++i) {
+       !is_device_blocked && i < std::size(kBlockedCamerasIdSignature); ++i) {
     is_device_blocked =
         base::EndsWith(descriptor.device_id, kBlockedCamerasIdSignature[i],
                        base::CompareCase::INSENSITIVE_ASCII);
@@ -99,18 +101,7 @@ VideoCaptureDeviceFactoryMac::VideoCaptureDeviceFactoryMac() {
   thread_checker_.DetachFromThread();
 }
 
-VideoCaptureDeviceFactoryMac::~VideoCaptureDeviceFactoryMac() {
-}
-
-// static
-void VideoCaptureDeviceFactoryMac::SetGetDevicesInfoRetryCount(int count) {
-  get_device_descriptors_retry_count = count;
-}
-
-// static
-int VideoCaptureDeviceFactoryMac::GetGetDevicesInfoRetryCount() {
-  return get_device_descriptors_retry_count;
-}
+VideoCaptureDeviceFactoryMac::~VideoCaptureDeviceFactoryMac() = default;
 
 VideoCaptureErrorOrDevice VideoCaptureDeviceFactoryMac::CreateDevice(
     const VideoCaptureDeviceDescriptor& descriptor) {
@@ -143,26 +134,21 @@ void VideoCaptureDeviceFactoryMac::GetDevicesInfo(
   // Loop through all available devices and add to |devices_info|.
   std::vector<VideoCaptureDeviceInfo> devices_info;
   DVLOG(1) << "Enumerating video capture devices using AVFoundation";
-  base::scoped_nsobject<NSDictionary> capture_devices =
+  NSDictionary<NSString*, DeviceNameAndTransportType*>* capture_devices =
       GetVideoCaptureDeviceNames();
   // Enumerate all devices found by AVFoundation, translate the info for each
   // to class Name and add it to |device_names|.
-  for (NSString* key in capture_devices.get()) {
-    const std::string device_id = [key UTF8String];
+  for (NSString* key in capture_devices) {
+    const std::string device_id = base::SysNSStringToUTF8(key);
     const VideoCaptureApi capture_api = VideoCaptureApi::MACOSX_AVFOUNDATION;
-    int transport_type = [[capture_devices valueForKey:key] transportType];
-    // Transport types are defined for Audio devices and reused for video.
     VideoCaptureTransportType device_transport_type =
-        (transport_type == kIOAudioDeviceTransportTypeBuiltIn ||
-         transport_type == kIOAudioDeviceTransportTypeUSB)
-            ? VideoCaptureTransportType::MACOSX_USB_OR_BUILT_IN
-            : VideoCaptureTransportType::OTHER_TRANSPORT;
+        [capture_devices[key] deviceTransportType];
     const std::string model_id = VideoCaptureDeviceMac::GetDeviceModelId(
         device_id, capture_api, device_transport_type);
     const VideoCaptureControlSupport control_support =
         VideoCaptureDeviceMac::GetControlSupport(model_id);
     VideoCaptureDeviceDescriptor descriptor(
-        [[[capture_devices valueForKey:key] deviceName] UTF8String], device_id,
+        base::SysNSStringToUTF8([capture_devices[key] deviceName]), device_id,
         model_id, capture_api, control_support, device_transport_type);
     if (IsDeviceBlocked(descriptor))
       continue;
@@ -175,11 +161,6 @@ void VideoCaptureDeviceFactoryMac::GetDevicesInfo(
 
   // Also retrieve Blackmagic devices, if present, via DeckLink SDK API.
   VideoCaptureDeviceDeckLinkMac::EnumerateDevices(&devices_info);
-
-  if ([capture_devices count] > 0 && devices_info.empty()) {
-    video_capture::uma::LogMacbookRetryGetDeviceInfosEvent(
-        video_capture::uma::AVF_DROPPED_DESCRIPTORS_AT_FACTORY);
-  }
 
   std::move(callback).Run(std::move(devices_info));
 }

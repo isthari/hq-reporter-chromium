@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,15 @@
 #include <memory>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
+#include "base/memory/raw_ptr.h"
 #include "base/message_loop/message_pump_type.h"
 #include "base/rand_util.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
@@ -21,6 +23,7 @@
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "crypto/sha2.h"
 #include "net/base/net_errors.h"
@@ -32,11 +35,13 @@
 #include "net/cert/cert_verify_result.h"
 #include "net/cert/crl_set.h"
 #include "net/cert/ev_root_ca_metadata.h"
-#include "net/cert/internal/parse_certificate.h"
-#include "net/cert/internal/signature_algorithm.h"
 #include "net/cert/internal/system_trust_store.h"
 #include "net/cert/ocsp_revocation_status.h"
 #include "net/cert/pem.h"
+#include "net/cert/pki/extended_key_usage.h"
+#include "net/cert/pki/parse_certificate.h"
+#include "net/cert/pki/signature_algorithm.h"
+#include "net/cert/pki/trust_store.h"
 #include "net/cert/test_root_certs.h"
 #include "net/cert/x509_certificate.h"
 #include "net/cert/x509_util.h"
@@ -60,21 +65,22 @@
 #include "net/url_request/url_request_context_getter.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/boringssl/src/include/openssl/bytestring.h"
 #include "third_party/boringssl/src/include/openssl/mem.h"
+#include "third_party/boringssl/src/include/openssl/pool.h"
 
 #if BUILDFLAG(IS_ANDROID)
-#include "base/android/build_info.h"
 #include "net/cert/cert_verify_proc_android.h"
 #elif BUILDFLAG(IS_IOS)
 #include "base/ios/ios_util.h"
 #include "net/cert/cert_verify_proc_ios.h"
 #elif BUILDFLAG(IS_MAC)
 #include "base/mac/mac_util.h"
-#include "net/cert/cert_verify_proc_mac.h"
 #include "net/cert/internal/trust_store_mac.h"
-#elif BUILDFLAG(IS_WIN)
-#include "base/win/windows_version.h"
-#include "net/cert/cert_verify_proc_win.h"
+#endif
+
+#if BUILDFLAG(CHROME_ROOT_STORE_SUPPORTED)
+#include "net/cert/internal/trust_store_chrome.h"
 #endif
 
 // TODO(crbug.com/649017): Add tests that only certificates with
@@ -93,14 +99,40 @@ const char kTrustAnchorVerifyHistogram[] = "Net.Certificate.TrustAnchor.Verify";
 const char kTrustAnchorVerifyOutOfDateHistogram[] =
     "Net.Certificate.TrustAnchor.VerifyOutOfDate";
 
+// Returns a TLV to use as an unknown signature algorithm when building a cert.
+// The specific contents are as follows (the OID is from
+// https://davidben.net/oid):
+//
+// SEQUENCE {
+//   OBJECT_IDENTIFIER { 1.2.840.113554.4.1.72585.0 }
+//   NULL {}
+// }
+std::string TestOid0SignatureAlgorithmTLV() {
+  constexpr uint8_t kTestOid0SigAlgTLV[] = {0x30, 0x10, 0x06, 0x0c, 0x2a, 0x86,
+                                            0x48, 0x86, 0xf7, 0x12, 0x04, 0x01,
+                                            0x84, 0xb7, 0x09, 0x00, 0x05, 0x00};
+  return std::string(std::begin(kTestOid0SigAlgTLV),
+                     std::end(kTestOid0SigAlgTLV));
+}
+
+// An OID for use in tests, from https://davidben.net/oid
+// OBJECT_IDENTIFIER { 1.2.840.113554.4.1.72585.0 }
+der::Input TestOid0() {
+  static uint8_t kTestOid0[] = {0x06, 0x0c, 0x2a, 0x86, 0x48, 0x86, 0xf7,
+                                0x12, 0x04, 0x01, 0x84, 0xb7, 0x09, 0x00};
+  return der::Input(kTestOid0);
+}
+
 // Mock CertVerifyProc that sets the CertVerifyResult to a given value for
 // all certificates that are Verify()'d
 class MockCertVerifyProc : public CertVerifyProc {
  public:
   explicit MockCertVerifyProc(const CertVerifyResult& result)
-      : result_(result) {}
+      : CertVerifyProc(CRLSet::BuiltinCRLSet()), result_(result) {}
   MockCertVerifyProc(const CertVerifyResult& result, int error)
-      : result_(result), error_(error) {}
+      : CertVerifyProc(CRLSet::BuiltinCRLSet()),
+        result_(result),
+        error_(error) {}
 
   MockCertVerifyProc(const MockCertVerifyProc&) = delete;
   MockCertVerifyProc& operator=(const MockCertVerifyProc&) = delete;
@@ -117,7 +149,6 @@ class MockCertVerifyProc : public CertVerifyProc {
                      const std::string& ocsp_response,
                      const std::string& sct_list,
                      int flags,
-                     CRLSet* crl_set,
                      const CertificateList& additional_trust_anchors,
                      CertVerifyResult* verify_result,
                      const NetLogWithSource& net_log) override;
@@ -132,7 +163,6 @@ int MockCertVerifyProc::VerifyInternal(
     const std::string& ocsp_response,
     const std::string& sct_list,
     int flags,
-    CRLSet* crl_set,
     const CertificateList& additional_trust_anchors,
     CertVerifyResult* verify_result,
     const NetLogWithSource& net_log) {
@@ -148,19 +178,9 @@ int MockCertVerifyProc::VerifyInternal(
 enum CertVerifyProcType {
   CERT_VERIFY_PROC_ANDROID,
   CERT_VERIFY_PROC_IOS,
-  CERT_VERIFY_PROC_MAC,
-  CERT_VERIFY_PROC_WIN,
   CERT_VERIFY_PROC_BUILTIN,
+  CERT_VERIFY_PROC_BUILTIN_CHROME_ROOTS,
 };
-
-// Wrapper for base::mac::IsAtLeastOS10_12() to avoid littering ifdefs.
-bool IsMacAtLeastOS10_12() {
-#if BUILDFLAG(IS_MAC)
-  return base::mac::IsAtLeastOS10_12();
-#else
-  return false;
-#endif
-}
 
 // Returns a textual description of the CertVerifyProc implementation
 // that is being tested, used to give better names to parameterized
@@ -172,37 +192,41 @@ std::string VerifyProcTypeToName(
       return "CertVerifyProcAndroid";
     case CERT_VERIFY_PROC_IOS:
       return "CertVerifyProcIOS";
-    case CERT_VERIFY_PROC_MAC:
-      return "CertVerifyProcMac";
-    case CERT_VERIFY_PROC_WIN:
-      return "CertVerifyProcWin";
     case CERT_VERIFY_PROC_BUILTIN:
       return "CertVerifyProcBuiltin";
+    case CERT_VERIFY_PROC_BUILTIN_CHROME_ROOTS:
+      return "CertVerifyProcBuiltinChromeRoots";
   }
 
-  return nullptr;
+  return "";
 }
 
 scoped_refptr<CertVerifyProc> CreateCertVerifyProc(
     CertVerifyProcType type,
-    scoped_refptr<CertNetFetcher> cert_net_fetcher) {
+    scoped_refptr<CertNetFetcher> cert_net_fetcher,
+    scoped_refptr<CRLSet> crl_set) {
   switch (type) {
 #if BUILDFLAG(IS_ANDROID)
     case CERT_VERIFY_PROC_ANDROID:
-      return new CertVerifyProcAndroid(std::move(cert_net_fetcher));
+      return base::MakeRefCounted<CertVerifyProcAndroid>(
+          std::move(cert_net_fetcher), std::move(crl_set));
 #elif BUILDFLAG(IS_IOS)
     case CERT_VERIFY_PROC_IOS:
-      return new CertVerifyProcIOS();
-#elif BUILDFLAG(IS_MAC)
-    case CERT_VERIFY_PROC_MAC:
-      return new CertVerifyProcMac();
-#elif BUILDFLAG(IS_WIN)
-    case CERT_VERIFY_PROC_WIN:
-      return new CertVerifyProcWin();
+      return base::MakeRefCounted<CertVerifyProcIOS>(std::move(crl_set));
 #endif
+#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
     case CERT_VERIFY_PROC_BUILTIN:
       return CreateCertVerifyProcBuiltin(std::move(cert_net_fetcher),
+                                         std::move(crl_set),
                                          CreateSslSystemTrustStore());
+#endif
+#if BUILDFLAG(CHROME_ROOT_STORE_SUPPORTED)
+    case CERT_VERIFY_PROC_BUILTIN_CHROME_ROOTS:
+      return CreateCertVerifyProcBuiltin(
+          std::move(cert_net_fetcher), std::move(crl_set),
+          CreateSslSystemTrustStoreChromeRoot(
+              std::make_unique<net::TrustStoreChrome>()));
+#endif
     default:
       return nullptr;
   }
@@ -214,28 +238,25 @@ scoped_refptr<CertVerifyProc> CreateCertVerifyProc(
 // TODO(crbug.com/649017): Enable CERT_VERIFY_PROC_BUILTIN everywhere. Right
 // now this is gated on having CertVerifyProcBuiltin understand the roots added
 // via TestRootCerts.
-const std::vector<CertVerifyProcType> kAllCertVerifiers = {
+constexpr CertVerifyProcType kAllCertVerifiers[] = {
 #if BUILDFLAG(IS_ANDROID)
-    CERT_VERIFY_PROC_ANDROID
+    CERT_VERIFY_PROC_ANDROID,
 #elif BUILDFLAG(IS_IOS)
-    CERT_VERIFY_PROC_IOS
-#elif BUILDFLAG(IS_MAC)
-    CERT_VERIFY_PROC_MAC, CERT_VERIFY_PROC_BUILTIN
-#elif BUILDFLAG(IS_WIN)
-    CERT_VERIFY_PROC_WIN
+    CERT_VERIFY_PROC_IOS,
 #elif BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
-    CERT_VERIFY_PROC_BUILTIN
-#else
-#error Unsupported platform
+    CERT_VERIFY_PROC_BUILTIN,
 #endif
-};  // namespace
+#if BUILDFLAG(CHROME_ROOT_STORE_SUPPORTED)
+    CERT_VERIFY_PROC_BUILTIN_CHROME_ROOTS,
+#endif
+};
+static_assert(std::size(kAllCertVerifiers) != 0, "Unsupported platform");
 
 // Returns true if a test root added through ScopedTestRoot can verify
 // successfully as a target certificate with chain of length 1 on the given
 // CertVerifyProcType.
 bool ScopedTestRootCanTrustTargetCert(CertVerifyProcType verify_proc_type) {
-  return verify_proc_type == CERT_VERIFY_PROC_MAC ||
-         verify_proc_type == CERT_VERIFY_PROC_IOS ||
+  return verify_proc_type == CERT_VERIFY_PROC_IOS ||
          verify_proc_type == CERT_VERIFY_PROC_ANDROID;
 }
 
@@ -244,24 +265,10 @@ bool ScopedTestRootCanTrustTargetCert(CertVerifyProcType verify_proc_type) {
 // CertVerifyProcType.
 bool ScopedTestRootCanTrustIntermediateCert(
     CertVerifyProcType verify_proc_type) {
-  return verify_proc_type == CERT_VERIFY_PROC_MAC ||
-         verify_proc_type == CERT_VERIFY_PROC_IOS ||
+  return verify_proc_type == CERT_VERIFY_PROC_IOS ||
          verify_proc_type == CERT_VERIFY_PROC_BUILTIN ||
+         verify_proc_type == CERT_VERIFY_PROC_BUILTIN_CHROME_ROOTS ||
          verify_proc_type == CERT_VERIFY_PROC_ANDROID;
-}
-
-// TODO(crbug.com/649017): This is not parameterized by the CertVerifyProc
-// because the CertVerifyProc::Verify() does this unconditionally based on the
-// platform.
-bool AreSHA1IntermediatesAllowed() {
-#if BUILDFLAG(IS_WIN)
-  // TODO(rsleevi): Remove this once https://crbug.com/588789 is resolved
-  // for Windows 7/2008 users.
-  // Note: This must be kept in sync with cert_verify_proc.cc
-  return base::win::GetVersion() < base::win::Version::WIN8;
-#else
-  return false;
-#endif
 }
 
 std::string MakeRandomHexString(size_t num_bytes) {
@@ -282,25 +289,30 @@ std::string MakeRandomHexString(size_t num_bytes) {
 class CertVerifyProcInternalTest
     : public testing::TestWithParam<CertVerifyProcType> {
  protected:
-  void SetUp() override { SetUpWithCertNetFetcher(nullptr); }
+  void SetUp() override { SetUpCertVerifyProc(CRLSet::BuiltinCRLSet()); }
 
   // CertNetFetcher may be initialized by subclasses that want to use net
   // fetching by calling SetUpWithCertNetFetcher instead of SetUp.
-  void SetUpWithCertNetFetcher(scoped_refptr<CertNetFetcher> cert_net_fetcher) {
+  void SetUpWithCertNetFetcher(scoped_refptr<CertNetFetcher> cert_net_fetcher,
+                               scoped_refptr<CRLSet> crl_set) {
     CertVerifyProcType type = verify_proc_type();
-    verify_proc_ = CreateCertVerifyProc(type, std::move(cert_net_fetcher));
+    verify_proc_ = CreateCertVerifyProc(type, std::move(cert_net_fetcher),
+                                        std::move(crl_set));
     ASSERT_TRUE(verify_proc_);
+  }
+
+  virtual void SetUpCertVerifyProc(scoped_refptr<CRLSet> crl_set) {
+    SetUpWithCertNetFetcher(nullptr, std::move(crl_set));
   }
 
   int Verify(X509Certificate* cert,
              const std::string& hostname,
              int flags,
-             CRLSet* crl_set,
              const CertificateList& additional_trust_anchors,
              CertVerifyResult* verify_result,
              const NetLogWithSource& net_log) {
     return verify_proc_->Verify(cert, hostname, /*ocsp_response=*/std::string(),
-                                /*sct_list=*/std::string(), flags, crl_set,
+                                /*sct_list=*/std::string(), flags,
                                 additional_trust_anchors, verify_result,
                                 net_log);
   }
@@ -308,30 +320,22 @@ class CertVerifyProcInternalTest
   int Verify(X509Certificate* cert,
              const std::string& hostname,
              int flags,
-             CRLSet* crl_set,
              const CertificateList& additional_trust_anchors,
              CertVerifyResult* verify_result) {
-    return Verify(cert, hostname, flags, crl_set, additional_trust_anchors,
+    return Verify(cert, hostname, flags, additional_trust_anchors,
                   verify_result, NetLogWithSource());
+  }
+
+  int Verify(X509Certificate* cert, const std::string& hostname) {
+    CertVerifyResult verify_result;
+    int flags = 0;
+    return Verify(cert, hostname, flags, CertificateList(), &verify_result);
   }
 
   CertVerifyProcType verify_proc_type() const { return GetParam(); }
 
   bool SupportsAdditionalTrustAnchors() const {
     return verify_proc_->SupportsAdditionalTrustAnchors();
-  }
-
-  bool SupportsReturningVerifiedChain() const {
-#if BUILDFLAG(IS_ANDROID)
-    // Before API level 17 (SDK_VERSION_JELLY_BEAN_MR1), Android does
-    // not expose the APIs necessary to get at the verified
-    // certificate chain.
-    if (verify_proc_type() == CERT_VERIFY_PROC_ANDROID &&
-        base::android::BuildInfo::GetInstance()->sdk_int() <
-            base::android::SDK_VERSION_JELLY_BEAN_MR1)
-      return false;
-#endif
-    return true;
   }
 
   // Returns true if the RSA/DSA keysize will be considered weak on the current
@@ -343,13 +347,6 @@ class CertVerifyProcInternalTest
     // 2048 bits. See https://support.apple.com/en-us/HT210176
     if (verify_proc_type() == CERT_VERIFY_PROC_IOS &&
         base::ios::IsRunningOnIOS13OrLater()) {
-      return size < 2048;
-    }
-#elif BUILDFLAG(IS_MAC)
-    // Beginning with macOS 10.15, the minimum key size for RSA/DSA algorithms
-    // is 2048 bits. See https://support.apple.com/en-us/HT210176
-    if (verify_proc_type() == CERT_VERIFY_PROC_MAC &&
-        base::mac::IsAtLeastOS10_15()) {
       return size < 2048;
     }
 #endif
@@ -365,12 +362,6 @@ class CertVerifyProcInternalTest
       // On iOS using SecTrustEvaluateWithError it is not possible to
       // distinguish between weak and invalid key sizes.
       return IsWeakRsaDsaKeySize(size);
-    }
-#elif BUILDFLAG(IS_MAC)
-    // Starting with Mac OS 10.12, certs with keys < 1024 are invalid.
-    if (verify_proc_type() == CERT_VERIFY_PROC_MAC &&
-        base::mac::IsAtLeastOS10_12()) {
-      return size < 1024;
     }
 #endif
 
@@ -420,33 +411,50 @@ class CertVerifyProcInternalTest
     return false;
   }
 
-  bool SupportsCRLSet() const {
-    return verify_proc_type() == CERT_VERIFY_PROC_WIN ||
-           verify_proc_type() == CERT_VERIFY_PROC_MAC ||
-           verify_proc_type() == CERT_VERIFY_PROC_BUILTIN;
-  }
+  bool SupportsCRLSet() const { return VerifyProcTypeIsBuiltin(); }
 
   bool SupportsCRLSetsInPathBuilding() const {
-    return verify_proc_type() == CERT_VERIFY_PROC_WIN ||
-           verify_proc_type() == CERT_VERIFY_PROC_BUILTIN;
+    return VerifyProcTypeIsBuiltin();
   }
 
   bool SupportsEV() const {
-    // TODO(crbug.com/117478): Android and iOS do not support EV.
-    return verify_proc_type() == CERT_VERIFY_PROC_WIN ||
-           verify_proc_type() == CERT_VERIFY_PROC_MAC ||
-           verify_proc_type() == CERT_VERIFY_PROC_BUILTIN;
+    // Android and iOS do not support EV.  See https://crbug.com/117478#7
+#if defined(PLATFORM_USES_CHROMIUM_EV_METADATA)
+    return true;
+#else
+    return false;
+#endif
   }
 
-  bool SupportsSoftFailRevChecking() const {
-    return verify_proc_type() == CERT_VERIFY_PROC_WIN ||
-           verify_proc_type() == CERT_VERIFY_PROC_MAC ||
-           verify_proc_type() == CERT_VERIFY_PROC_BUILTIN;
-  }
+  bool SupportsSoftFailRevChecking() const { return VerifyProcTypeIsBuiltin(); }
 
   bool SupportsRevCheckingRequiredLocalAnchors() const {
-    return verify_proc_type() == CERT_VERIFY_PROC_WIN ||
-           verify_proc_type() == CERT_VERIFY_PROC_BUILTIN;
+    return VerifyProcTypeIsBuiltin();
+  }
+
+  bool VerifyProcTypeIsBuiltin() const {
+    return verify_proc_type() == CERT_VERIFY_PROC_BUILTIN ||
+           verify_proc_type() == CERT_VERIFY_PROC_BUILTIN_CHROME_ROOTS;
+  }
+
+  bool VerifyProcTypeIsIOSAtMostOS14() const {
+#if BUILDFLAG(IS_IOS)
+    if (verify_proc_type() == CERT_VERIFY_PROC_IOS &&
+        !base::ios::IsRunningOnIOS15OrLater()) {
+      return true;
+    }
+#endif
+    return false;
+  }
+
+  bool VerifyProcTypeIsIOSAtMostOS15() const {
+#if BUILDFLAG(IS_IOS)
+    if (verify_proc_type() == CERT_VERIFY_PROC_IOS &&
+        !base::ios::IsRunningOnIOS16OrLater()) {
+      return true;
+    }
+#endif
+    return false;
   }
 
   CertVerifyProc* verify_proc() const { return verify_proc_.get(); }
@@ -460,6 +468,33 @@ INSTANTIATE_TEST_SUITE_P(All,
                          testing::ValuesIn(kAllCertVerifiers),
                          VerifyProcTypeToName);
 
+TEST_P(CertVerifyProcInternalTest, DistrustedIntermediate) {
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
+  scoped_refptr<X509Certificate> chain = leaf->GetX509CertificateChain();
+  constexpr char kHostname[] = "www.example.com";
+
+  // Chain should not verify without any ScopedTestRoots.
+  EXPECT_THAT(Verify(chain.get(), kHostname),
+              IsError(ERR_CERT_AUTHORITY_INVALID));
+
+  // Trusting root should cause chain to verify successfully.
+  ScopedTestRoot trust_root(root->GetX509Certificate().get(),
+                            CertificateTrust::ForTrustAnchor());
+  EXPECT_THAT(Verify(chain.get(), kHostname), IsOk());
+
+  ScopedTestRoot distrust_intermediate(intermediate->GetX509Certificate().get(),
+                                       CertificateTrust::ForDistrusted());
+  if (VerifyProcTypeIsBuiltin()) {
+    // Distrusting intermediate should cause chain to not verify again.
+    EXPECT_THAT(Verify(chain.get(), kHostname),
+                IsError(ERR_CERT_AUTHORITY_INVALID));
+  } else {
+    // Specifying trust types for the platform verifiers through ScopedTestRoot
+    // is not supported, so this should still verify successfully.
+    EXPECT_THAT(Verify(chain.get(), kHostname), IsOk());
+  }
+}
+
 // Tests that a certificate is recognized as EV, when the valid EV policy OID
 // for the trust anchor is the second candidate EV oid in the target
 // certificate. This is a regression test for crbug.com/705285.
@@ -469,13 +504,16 @@ TEST_P(CertVerifyProcInternalTest, EVVerificationMultipleOID) {
     return;
   }
 
-  scoped_refptr<X509Certificate> cert =
-      ImportCertFromFile(GetTestCertsDirectory(), "ev-multi-oid.pem");
-  scoped_refptr<X509Certificate> root =
-      ImportCertFromFile(GetTestCertsDirectory(), "root_ca_cert.pem");
-  ASSERT_TRUE(cert);
-  ASSERT_TRUE(root);
-  ScopedTestRoot test_root(root.get());
+  auto [leaf, root] = CertBuilder::CreateSimpleChain2();
+
+  // The policies that target certificate asserts.
+  static const char kOtherTestCertPolicy[] = "2.23.140.1.1";
+  static const char kEVTestCertPolicy[] = "1.2.3.4";
+  // Specify the extraneous policy first, then the actual policy.
+  leaf->SetCertificatePolicies({kOtherTestCertPolicy, kEVTestCertPolicy});
+
+  scoped_refptr<X509Certificate> cert = leaf->GetX509Certificate();
+  ScopedTestRoot test_root(root->GetX509Certificate().get());
 
   // Build a CRLSet that covers the target certificate.
   //
@@ -483,27 +521,23 @@ TEST_P(CertVerifyProcInternalTest, EVVerificationMultipleOID) {
   // so this test does not depend on online revocation checking.
   base::StringPiece spki;
   ASSERT_TRUE(asn1::ExtractSPKIFromDERCert(
-      x509_util::CryptoBufferAsStringPiece(root->cert_buffer()), &spki));
+      x509_util::CryptoBufferAsStringPiece(root->GetCertBuffer()), &spki));
   SHA256HashValue spki_sha256;
   crypto::SHA256HashString(spki, spki_sha256.data, sizeof(spki_sha256.data));
-  scoped_refptr<CRLSet> crl_set(
-      CRLSet::ForTesting(false, &spki_sha256, "", "", {}));
+  SetUpCertVerifyProc(CRLSet::ForTesting(false, &spki_sha256, "", "", {}));
 
-  // The policies that "ev-multi-oid.pem" target certificate asserts.
-  static const char kOtherTestCertPolicy[] = "2.23.140.1.1";
-  static const char kEVTestCertPolicy[] = "1.2.3.4";
   // Consider the root of the test chain a valid EV root for the test policy.
   ScopedTestEVPolicy scoped_test_ev_policy(
       EVRootCAMetadata::GetInstance(),
-      X509Certificate::CalculateFingerprint256(root->cert_buffer()),
+      X509Certificate::CalculateFingerprint256(root->GetCertBuffer()),
       kEVTestCertPolicy);
   ScopedTestEVPolicy scoped_test_other_policy(
       EVRootCAMetadata::GetInstance(), SHA256HashValue(), kOtherTestCertPolicy);
 
   CertVerifyResult verify_result;
   int flags = 0;
-  int error = Verify(cert.get(), "127.0.0.1", flags, crl_set.get(),
-                     CertificateList(), &verify_result);
+  int error = Verify(cert.get(), "www.example.com", flags, CertificateList(),
+                     &verify_result);
   EXPECT_THAT(error, IsOk());
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_IS_EV);
 }
@@ -512,21 +546,20 @@ TEST_P(CertVerifyProcInternalTest, EVVerificationMultipleOID) {
 // length 1 because the target cert was directly trusted in the trust store.
 // Should verify OK but not with STATUS_IS_EV.
 TEST_P(CertVerifyProcInternalTest, TrustedTargetCertWithEVPolicy) {
-  // The policy that "explicit-policy-chain.pem" target certificate asserts.
+  auto [leaf, root] = CertBuilder::CreateSimpleChain2();
+
   static const char kEVTestCertPolicy[] = "1.2.3.4";
+  leaf->SetCertificatePolicies({kEVTestCertPolicy});
   ScopedTestEVPolicy scoped_test_ev_policy(
       EVRootCAMetadata::GetInstance(), SHA256HashValue(), kEVTestCertPolicy);
 
-  scoped_refptr<X509Certificate> cert =
-      ImportCertFromFile(GetTestCertsDirectory(), "explicit-policy-chain.pem");
-  ASSERT_TRUE(cert);
+  scoped_refptr<X509Certificate> cert = leaf->GetX509Certificate();
   ScopedTestRoot scoped_test_root(cert.get());
 
   CertVerifyResult verify_result;
   int flags = 0;
-  int error =
-      Verify(cert.get(), "policy_test.example", flags,
-             CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
+  int error = Verify(cert.get(), "www.example.com", flags, CertificateList(),
+                     &verify_result);
   if (ScopedTestRootCanTrustTargetCert(verify_proc_type())) {
     EXPECT_THAT(error, IsOk());
     ASSERT_TRUE(verify_result.verified_cert);
@@ -543,28 +576,21 @@ TEST_P(CertVerifyProcInternalTest, TrustedTargetCertWithEVPolicy) {
 // explode if it does.
 TEST_P(CertVerifyProcInternalTest,
        TrustedTargetCertWithEVPolicyAndEVFingerprint) {
-  // The policy that "explicit-policy-chain.pem" target certificate asserts.
-  static const char kEVTestCertPolicy[] = "1.2.3.4";
-  // This the fingerprint of the "explicit-policy-chain.pem" target certificate.
-  // See net/data/ssl/certificates/explicit-policy-chain.pem
-  static const SHA256HashValue kEVTestCertFingerprint = {
-      {0x71, 0xac, 0xfa, 0x12, 0xa4, 0x42, 0x31, 0x3c, 0xff, 0x10, 0xd2,
-       0x9d, 0xb6, 0x1b, 0x4a, 0xe8, 0x25, 0x4e, 0x77, 0xd3, 0x9f, 0xa3,
-       0x2f, 0xb3, 0x19, 0x8d, 0x46, 0x9f, 0xb7, 0x73, 0x07, 0x30}};
-  ScopedTestEVPolicy scoped_test_ev_policy(EVRootCAMetadata::GetInstance(),
-                                           kEVTestCertFingerprint,
-                                           kEVTestCertPolicy);
+  auto [leaf, root] = CertBuilder::CreateSimpleChain2();
 
-  scoped_refptr<X509Certificate> cert =
-      ImportCertFromFile(GetTestCertsDirectory(), "explicit-policy-chain.pem");
-  ASSERT_TRUE(cert);
+  static const char kEVTestCertPolicy[] = "1.2.3.4";
+  leaf->SetCertificatePolicies({kEVTestCertPolicy});
+  ScopedTestEVPolicy scoped_test_ev_policy(
+      EVRootCAMetadata::GetInstance(),
+      X509Certificate::CalculateFingerprint256(leaf->GetCertBuffer()),
+      kEVTestCertPolicy);
+  scoped_refptr<X509Certificate> cert = leaf->GetX509Certificate();
   ScopedTestRoot scoped_test_root(cert.get());
 
   CertVerifyResult verify_result;
   int flags = 0;
-  int error =
-      Verify(cert.get(), "policy_test.example", flags,
-             CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
+  int error = Verify(cert.get(), "www.example.com", flags, CertificateList(),
+                     &verify_result);
   if (ScopedTestRootCanTrustTargetCert(verify_proc_type())) {
     EXPECT_THAT(error, IsOk());
     ASSERT_TRUE(verify_result.verified_cert);
@@ -590,51 +616,30 @@ TEST_P(CertVerifyProcInternalTest, TrustedIntermediateCertWithEVPolicy) {
     return;
   }
 
-  CertificateList orig_certs = CreateCertificateListFromFile(
-      GetTestCertsDirectory(), "explicit-policy-chain.pem",
-      X509Certificate::FORMAT_AUTO);
-  ASSERT_EQ(3U, orig_certs.size());
-
   for (bool trust_the_intermediate : {false, true}) {
+    SCOPED_TRACE(trust_the_intermediate);
+
     // Need to build unique certs for each try otherwise caching can break
     // things.
-    CertBuilder root(orig_certs[2]->cert_buffer(), nullptr);
-    CertBuilder intermediate(orig_certs[1]->cert_buffer(), &root);
-    CertBuilder leaf(orig_certs[0]->cert_buffer(), &intermediate);
+    auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
 
-    // The policy that "explicit-policy-chain.pem" target certificate asserts.
     static const char kEVTestCertPolicy[] = "1.2.3.4";
+    leaf->SetCertificatePolicies({kEVTestCertPolicy});
+    intermediate->SetCertificatePolicies({kEVTestCertPolicy});
     // Consider the root of the test chain a valid EV root for the test policy.
     ScopedTestEVPolicy scoped_test_ev_policy(
         EVRootCAMetadata::GetInstance(),
-        X509Certificate::CalculateFingerprint256(root.GetCertBuffer()),
+        X509Certificate::CalculateFingerprint256(root->GetCertBuffer()),
         kEVTestCertPolicy);
 
-    // CRLSet which covers the leaf.
-    base::StringPiece intermediate_spki;
-    ASSERT_TRUE(asn1::ExtractSPKIFromDERCert(
-        x509_util::CryptoBufferAsStringPiece(intermediate.GetCertBuffer()),
-        &intermediate_spki));
-    SHA256HashValue intermediate_spki_hash;
-    crypto::SHA256HashString(intermediate_spki, &intermediate_spki_hash,
-                             sizeof(SHA256HashValue));
-    scoped_refptr<CRLSet> crl_set =
-        CRLSet::ForTesting(false, &intermediate_spki_hash, "", "", {});
-
-    std::vector<bssl::UniquePtr<CRYPTO_BUFFER>> intermediates;
-    intermediates.push_back(bssl::UpRef(intermediate.GetCertBuffer()));
-    scoped_refptr<X509Certificate> cert = X509Certificate::CreateFromBuffer(
-        bssl::UpRef(leaf.GetCertBuffer()), std::move(intermediates));
+    scoped_refptr<X509Certificate> cert = leaf->GetX509CertificateChain();
     ASSERT_TRUE(cert.get());
 
     scoped_refptr<X509Certificate> intermediate_cert =
-        X509Certificate::CreateFromBuffer(
-            bssl::UpRef(intermediate.GetCertBuffer()), {});
+        intermediate->GetX509Certificate();
     ASSERT_TRUE(intermediate_cert.get());
 
-    scoped_refptr<X509Certificate> root_cert =
-        X509Certificate::CreateFromBuffer(bssl::UpRef(root.GetCertBuffer()),
-                                          {});
+    scoped_refptr<X509Certificate> root_cert = root->GetX509Certificate();
     ASSERT_TRUE(root_cert.get());
 
     if (!trust_the_intermediate) {
@@ -643,8 +648,8 @@ TEST_P(CertVerifyProcInternalTest, TrustedIntermediateCertWithEVPolicy) {
       ScopedTestRoot scoped_test_root({root_cert});
       CertVerifyResult verify_result;
       int flags = 0;
-      int error = Verify(cert.get(), "policy_test.example", flags,
-                         crl_set.get(), CertificateList(), &verify_result);
+      int error = Verify(cert.get(), "www.example.com", flags,
+                         CertificateList(), &verify_result);
       EXPECT_THAT(error, IsOk());
       ASSERT_TRUE(verify_result.verified_cert);
       // Verified chain should include the intermediate and the root.
@@ -656,8 +661,8 @@ TEST_P(CertVerifyProcInternalTest, TrustedIntermediateCertWithEVPolicy) {
       ScopedTestRoot scoped_test_root({intermediate_cert, root_cert});
       CertVerifyResult verify_result;
       int flags = 0;
-      int error = Verify(cert.get(), "policy_test.example", flags,
-                         crl_set.get(), CertificateList(), &verify_result);
+      int error = Verify(cert.get(), "www.example.com", flags,
+                         CertificateList(), &verify_result);
       EXPECT_THAT(error, IsOk());
       ASSERT_TRUE(verify_result.verified_cert);
       // Verified chain should only go to the trusted intermediate, not the
@@ -670,11 +675,9 @@ TEST_P(CertVerifyProcInternalTest, TrustedIntermediateCertWithEVPolicy) {
 }
 
 TEST_P(CertVerifyProcInternalTest, CertWithNullInCommonNameAndNoSAN) {
-  std::unique_ptr<CertBuilder> leaf, intermediate, root;
-  CertBuilder::CreateSimpleChain(&leaf, &intermediate, &root);
-  ASSERT_TRUE(leaf && intermediate && root);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
 
-  leaf->EraseExtension(SubjectAltNameOid());
+  leaf->EraseExtension(der::Input(kSubjectAltNameOid));
 
   std::string common_name;
   common_name += "www.fake.com";
@@ -689,9 +692,8 @@ TEST_P(CertVerifyProcInternalTest, CertWithNullInCommonNameAndNoSAN) {
 
   int flags = 0;
   CertVerifyResult verify_result;
-  int error =
-      Verify(chain.get(), "www.fake.com", flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+  int error = Verify(chain.get(), "www.fake.com", flags, CertificateList(),
+                     &verify_result);
 
   // This actually fails because Chrome only looks for hostnames in
   // SubjectAltNames now and no SubjectAltName is present.
@@ -699,9 +701,7 @@ TEST_P(CertVerifyProcInternalTest, CertWithNullInCommonNameAndNoSAN) {
 }
 
 TEST_P(CertVerifyProcInternalTest, CertWithNullInCommonNameAndValidSAN) {
-  std::unique_ptr<CertBuilder> leaf, intermediate, root;
-  CertBuilder::CreateSimpleChain(&leaf, &intermediate, &root);
-  ASSERT_TRUE(leaf && intermediate && root);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
 
   leaf->SetSubjectAltName("www.fake.com");
 
@@ -718,18 +718,15 @@ TEST_P(CertVerifyProcInternalTest, CertWithNullInCommonNameAndValidSAN) {
 
   int flags = 0;
   CertVerifyResult verify_result;
-  int error =
-      Verify(chain.get(), "www.fake.com", flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+  int error = Verify(chain.get(), "www.fake.com", flags, CertificateList(),
+                     &verify_result);
 
   // SubjectAltName is valid and Chrome does not use the common name.
   EXPECT_THAT(error, IsOk());
 }
 
 TEST_P(CertVerifyProcInternalTest, CertWithNullInSAN) {
-  std::unique_ptr<CertBuilder> leaf, intermediate, root;
-  CertBuilder::CreateSimpleChain(&leaf, &intermediate, &root);
-  ASSERT_TRUE(leaf && intermediate && root);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
 
   std::string hostname;
   hostname += "www.fake.com";
@@ -744,9 +741,8 @@ TEST_P(CertVerifyProcInternalTest, CertWithNullInSAN) {
 
   int flags = 0;
   CertVerifyResult verify_result;
-  int error =
-      Verify(chain.get(), "www.fake.com", flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+  int error = Verify(chain.get(), "www.fake.com", flags, CertificateList(),
+                     &verify_result);
 
   // SubjectAltName is invalid.
   EXPECT_THAT(error, IsError(ERR_CERT_COMMON_NAME_INVALID));
@@ -757,8 +753,17 @@ TEST_P(CertVerifyProcInternalTest, CertWithNullInSAN) {
 TEST_P(CertVerifyProcInternalTest, InvalidTarget) {
   base::FilePath certs_dir =
       GetTestNetDataDirectory().AppendASCII("parse_certificate_unittest");
-  scoped_refptr<X509Certificate> bad_cert =
-      ImportCertFromFile(certs_dir, "signature_algorithm_null.pem");
+  scoped_refptr<X509Certificate> bad_cert;
+  if (VerifyProcTypeIsBuiltin()) {
+    // Builtin verifier doesn't distinguish between invalid signature algorithm
+    // and unknown signature algorithm, so use a different test file that will
+    // fail in ParsedCertificate::Create. The other verifiers use a different
+    // test file since the platform verifiers don't all consider empty
+    // extensions sequence invalid.
+    bad_cert = ImportCertFromFile(certs_dir, "extensions_empty_sequence.pem");
+  } else {
+    bad_cert = ImportCertFromFile(certs_dir, "signature_algorithm_null.pem");
+  }
   ASSERT_TRUE(bad_cert);
 
   scoped_refptr<X509Certificate> ok_cert(
@@ -775,9 +780,8 @@ TEST_P(CertVerifyProcInternalTest, InvalidTarget) {
 
   int flags = 0;
   CertVerifyResult verify_result;
-  int error =
-      Verify(cert_with_bad_target.get(), "127.0.0.1", flags,
-             CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
+  int error = Verify(cert_with_bad_target.get(), "127.0.0.1", flags,
+                     CertificateList(), &verify_result);
 
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_INVALID);
   EXPECT_THAT(error, IsError(ERR_CERT_INVALID));
@@ -815,8 +819,7 @@ TEST_P(CertVerifyProcInternalTest, UnnecessaryInvalidIntermediate) {
   int flags = 0;
   CertVerifyResult verify_result;
   int error = Verify(cert_with_bad_intermediate.get(), "127.0.0.1", flags,
-                     CRLSet::BuiltinCRLSet().get(), CertificateList(),
-                     &verify_result, net_log);
+                     CertificateList(), &verify_result, net_log);
 
   EXPECT_THAT(error, IsOk());
   EXPECT_EQ(0u, verify_result.cert_status);
@@ -824,63 +827,27 @@ TEST_P(CertVerifyProcInternalTest, UnnecessaryInvalidIntermediate) {
   auto events = net_log_observer.GetEntriesForSource(net_log.source());
   EXPECT_FALSE(events.empty());
 
-  auto event = std::find_if(events.begin(), events.end(), [](const auto& e) {
-    return e.type == NetLogEventType::CERT_VERIFY_PROC;
-  });
+  auto event = base::ranges::find(events, NetLogEventType::CERT_VERIFY_PROC,
+                                  &NetLogEntry::type);
   ASSERT_NE(event, events.end());
   EXPECT_EQ(net::NetLogEventPhase::BEGIN, event->phase);
-  ASSERT_TRUE(event->params.is_dict());
-  const std::string* host = event->params.FindStringKey("host");
+  const std::string* host = event->params.FindString("host");
   ASSERT_TRUE(host);
   EXPECT_EQ("127.0.0.1", *host);
 
-  if (verify_proc_type() == CERT_VERIFY_PROC_BUILTIN) {
-    event = std::find_if(events.begin(), events.end(), [](const auto& e) {
-      return e.type == NetLogEventType::CERT_VERIFY_PROC_INPUT_CERT;
-    });
+  if (VerifyProcTypeIsBuiltin()) {
+    event =
+        base::ranges::find(events, NetLogEventType::CERT_VERIFY_PROC_INPUT_CERT,
+                           &NetLogEntry::type);
     ASSERT_NE(event, events.end());
     EXPECT_EQ(net::NetLogEventPhase::NONE, event->phase);
-    ASSERT_TRUE(event->params.is_dict());
-    const std::string* errors = event->params.FindStringKey("errors");
+    const std::string* errors = event->params.FindString("errors");
     ASSERT_TRUE(errors);
     EXPECT_EQ(
         "ERROR: Failed parsing Certificate SEQUENCE\nERROR: Failed parsing "
         "Certificate\n",
         *errors);
   }
-}
-
-// A regression test for http://crbug.com/31497.
-TEST_P(CertVerifyProcInternalTest, IntermediateCARequireExplicitPolicy) {
-  if (verify_proc_type() == CERT_VERIFY_PROC_ANDROID) {
-    // Disabled on Android, as the Android verification libraries require an
-    // explicit policy to be specified, even when anyPolicy is permitted.
-    LOG(INFO) << "Skipping test on Android";
-    return;
-  }
-
-  base::FilePath certs_dir = GetTestCertsDirectory();
-
-  CertificateList certs = CreateCertificateListFromFile(
-      certs_dir, "explicit-policy-chain.pem", X509Certificate::FORMAT_AUTO);
-  ASSERT_EQ(3U, certs.size());
-
-  std::vector<bssl::UniquePtr<CRYPTO_BUFFER>> intermediates;
-  intermediates.push_back(bssl::UpRef(certs[1]->cert_buffer()));
-
-  scoped_refptr<X509Certificate> cert = X509Certificate::CreateFromBuffer(
-      bssl::UpRef(certs[0]->cert_buffer()), std::move(intermediates));
-  ASSERT_TRUE(cert.get());
-
-  ScopedTestRoot scoped_root(certs[2].get());
-
-  int flags = 0;
-  CertVerifyResult verify_result;
-  int error =
-      Verify(cert.get(), "policy_test.example", flags,
-             CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
-  EXPECT_THAT(error, IsOk());
-  EXPECT_EQ(0u, verify_result.cert_status);
 }
 
 TEST_P(CertVerifyProcInternalTest, RejectExpiredCert) {
@@ -898,8 +865,7 @@ TEST_P(CertVerifyProcInternalTest, RejectExpiredCert) {
   int flags = 0;
   CertVerifyResult verify_result;
   int error =
-      Verify(cert.get(), "127.0.0.1", flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+      Verify(cert.get(), "127.0.0.1", flags, CertificateList(), &verify_result);
   EXPECT_THAT(error, IsError(ERR_CERT_DATE_INVALID));
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_DATE_INVALID);
 }
@@ -949,8 +915,7 @@ TEST_P(CertVerifyProcInternalTest, RejectWeakKeys) {
       ASSERT_TRUE(cert_chain);
 
       CertVerifyResult verify_result;
-      int error = Verify(cert_chain.get(), "127.0.0.1", 0,
-                         CRLSet::BuiltinCRLSet().get(), CertificateList(),
+      int error = Verify(cert_chain.get(), "127.0.0.1", 0, CertificateList(),
                          &verify_result);
 
       if (IsInvalidKeyType(*ee_type) || IsInvalidKeyType(*signer_type)) {
@@ -972,20 +937,6 @@ TEST_P(CertVerifyProcInternalTest, RejectWeakKeys) {
 
 // Regression test for http://crbug.com/108514.
 TEST_P(CertVerifyProcInternalTest, ExtraneousMD5RootCert) {
-  if (!SupportsReturningVerifiedChain()) {
-    LOG(INFO) << "Skipping this test in this platform.";
-    return;
-  }
-
-  if (verify_proc_type() == CERT_VERIFY_PROC_MAC) {
-    // Disabled on OS X - Security.framework doesn't ignore superflous
-    // certificates provided by servers.
-    // TODO(eroman): Is this still needed?
-    LOG(INFO) << "Skipping this test as Security.framework doesn't ignore "
-                 "superflous certificates provided by servers.";
-    return;
-  }
-
   base::FilePath certs_dir = GetTestCertsDirectory();
 
   scoped_refptr<X509Certificate> server_cert =
@@ -1010,9 +961,8 @@ TEST_P(CertVerifyProcInternalTest, ExtraneousMD5RootCert) {
 
   CertVerifyResult verify_result;
   int flags = 0;
-  int error =
-      Verify(cert_chain.get(), "127.0.0.1", flags,
-             CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
+  int error = Verify(cert_chain.get(), "127.0.0.1", flags, CertificateList(),
+                     &verify_result);
   EXPECT_THAT(error, IsOk());
 
   // The extra MD5 root should be discarded
@@ -1021,8 +971,6 @@ TEST_P(CertVerifyProcInternalTest, ExtraneousMD5RootCert) {
   EXPECT_TRUE(x509_util::CryptoBufferEqual(
       verify_result.verified_cert->intermediate_buffers().front().get(),
       root_cert->cert_buffer()));
-
-  EXPECT_FALSE(verify_result.has_md5);
 }
 
 // Test for bug 94673.
@@ -1045,46 +993,69 @@ TEST_P(CertVerifyProcInternalTest, GoogleDigiNotarTest) {
 
   CertVerifyResult verify_result;
   int flags = CertVerifyProc::VERIFY_REV_CHECKING_ENABLED;
-  int error =
-      Verify(cert_chain.get(), "mail.google.com", flags,
-             CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
+  int error = Verify(cert_chain.get(), "mail.google.com", flags,
+                     CertificateList(), &verify_result);
   EXPECT_NE(OK, error);
 
   // Now turn off revocation checking.  Certificate verification should still
   // fail.
   flags = 0;
-  error =
-      Verify(cert_chain.get(), "mail.google.com", flags,
-             CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
+  error = Verify(cert_chain.get(), "mail.google.com", flags, CertificateList(),
+                 &verify_result);
   EXPECT_NE(OK, error);
 }
 
 TEST_P(CertVerifyProcInternalTest, NameConstraintsOk) {
-  CertificateList ca_cert_list =
-      CreateCertificateListFromFile(GetTestCertsDirectory(), "root_ca_cert.pem",
-                                    X509Certificate::FORMAT_AUTO);
-  ASSERT_EQ(1U, ca_cert_list.size());
-  ScopedTestRoot test_root(ca_cert_list[0].get());
+  auto [leaf, root] = CertBuilder::CreateSimpleChain2();
 
-  scoped_refptr<X509Certificate> leaf = CreateCertificateChainFromFile(
-      GetTestCertsDirectory(), "name_constraint_good.pem",
-      X509Certificate::FORMAT_AUTO);
-  ASSERT_TRUE(leaf);
-  ASSERT_EQ(0U, leaf->intermediate_buffers().size());
+  // Use the private key matching the public_key_hash of the kDomainsTest
+  // constraint in CertVerifyProc::HasNameConstraintsViolation.
+  ASSERT_TRUE(leaf->UseKeyFromFile(
+      GetTestCertsDirectory().AppendASCII("name_constrained_key.pem")));
+  // example.com is allowed by kDomainsTest, and notarealtld is not a known
+  // TLD, so that's allowed too.
+  leaf->SetSubjectAltNames({"test.ExAmPlE.CoM", "example.notarealtld",
+                            "*.test2.ExAmPlE.CoM", "*.example2.notarealtld"},
+                           {});
+
+  ScopedTestRoot test_root(root->GetX509Certificate().get());
+
+  scoped_refptr<X509Certificate> leaf_cert = leaf->GetX509Certificate();
 
   int flags = 0;
   CertVerifyResult verify_result;
-  int error =
-      Verify(leaf.get(), "test.example.com", flags,
-             CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
+  int error = Verify(leaf_cert.get(), "test.example.com", flags,
+                     CertificateList(), &verify_result);
   EXPECT_THAT(error, IsOk());
   EXPECT_EQ(0U, verify_result.cert_status);
 
-  error =
-      Verify(leaf.get(), "foo.test2.example.com", flags,
-             CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
+  error = Verify(leaf_cert.get(), "foo.test2.example.com", flags,
+                 CertificateList(), &verify_result);
   EXPECT_THAT(error, IsOk());
   EXPECT_EQ(0U, verify_result.cert_status);
+}
+
+TEST_P(CertVerifyProcInternalTest, NameConstraintsFailure) {
+  auto [leaf, root] = CertBuilder::CreateSimpleChain2();
+
+  // Use the private key matching the public_key_hash of the kDomainsTest
+  // constraint in CertVerifyProc::HasNameConstraintsViolation.
+  ASSERT_TRUE(leaf->UseKeyFromFile(
+      GetTestCertsDirectory().AppendASCII("name_constrained_key.pem")));
+  // example.com is allowed by kDomainsTest, but example.org is not.
+  leaf->SetSubjectAltNames({"test.ExAmPlE.CoM", "test.ExAmPlE.OrG"}, {});
+
+  ScopedTestRoot test_root(root->GetX509Certificate().get());
+
+  scoped_refptr<X509Certificate> leaf_cert = leaf->GetX509Certificate();
+
+  int flags = 0;
+  CertVerifyResult verify_result;
+  int error = Verify(leaf_cert.get(), "test.example.com", flags,
+                     CertificateList(), &verify_result);
+  EXPECT_THAT(error, IsError(ERR_CERT_NAME_CONSTRAINT_VIOLATION));
+  EXPECT_EQ(CERT_STATUS_NAME_CONSTRAINT_VIOLATION,
+            verify_result.cert_status & CERT_STATUS_NAME_CONSTRAINT_VIOLATION);
 }
 
 // This fixture is for testing the verification of a certificate chain which
@@ -1104,25 +1075,6 @@ class CertVerifyProcInspectSignatureAlgorithmsTest : public ::testing::Test {
     // TBSCertificate.algorithm
     DigestAlgorithm tbs_algorithm;
   };
-
-  // On some platforms trying to import a certificate with mismatched signature
-  // will fail. Consequently the rest of the tests can't be performed.
-  [[nodiscard]] bool SupportsImportingMismatchedAlgorithms() const {
-#if BUILDFLAG(IS_IOS)
-    LOG(INFO) << "Skipping test on iOS because certs with mismatched "
-                 "algorithms cannot be imported";
-    return false;
-#elif BUILDFLAG(IS_MAC)
-    if (base::mac::IsAtLeastOS10_12()) {
-      LOG(INFO) << "Skipping test on macOS >= 10.12 because certs with "
-                   "mismatched algorithms cannot be imported";
-      return false;
-    }
-    return true;
-#else
-    return true;
-#endif
-  }
 
   // Shorthand for VerifyChain() where only the leaf's parameters need
   // to be specified.
@@ -1158,8 +1110,8 @@ class CertVerifyProcInspectSignatureAlgorithmsTest : public ::testing::Test {
   // Manufactures a certificate chain where each certificate has the indicated
   // signature algorithms, and then returns the result of verifying this chain.
   //
-  // TODO(eroman): Instead of building certificates at runtime, move their
-  //               generation to external scripts.
+  // TODO(mattm): Replace the custom cert mangling code in this test with
+  // CertBuilder.
   [[nodiscard]] int VerifyChain(const std::vector<CertParams>& chain_params) {
     auto chain = CreateChain(chain_params);
     if (!chain) {
@@ -1171,13 +1123,12 @@ class CertVerifyProcInspectSignatureAlgorithmsTest : public ::testing::Test {
     CertVerifyResult dummy_result;
     CertVerifyResult verify_result;
 
-    scoped_refptr<CertVerifyProc> verify_proc =
-        new MockCertVerifyProc(dummy_result);
+    auto verify_proc = base::MakeRefCounted<MockCertVerifyProc>(dummy_result);
 
     return verify_proc->Verify(
-        chain.get(), "test.example.com", /*ocsp_response=*/std::string(),
-        /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-        CertificateList(), &verify_result, NetLogWithSource());
+        chain.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
+        /*sct_list=*/std::string(), flags, CertificateList(), &verify_result,
+        NetLogWithSource());
   }
 
  private:
@@ -1247,7 +1198,7 @@ class CertVerifyProcInspectSignatureAlgorithmsTest : public ::testing::Test {
     if (!tbs_certificate.ReadTag(der::kInteger, &serial_value_der))
       return false;
 
-    *serial_value = serial_value_der.AsStringPiece();
+    *serial_value = serial_value_der.AsStringView();
     return true;
   }
 
@@ -1258,7 +1209,7 @@ class CertVerifyProcInspectSignatureAlgorithmsTest : public ::testing::Test {
     // Dosn't really matter which base certificate is used, so long as it is
     // valid and uses a signature AlgorithmIdentifier with the same encoded
     // length as sha1WithRSASignature.
-    const char* kLeafFilename = "name_constraint_good.pem";
+    const char* kLeafFilename = "ok_cert.pem";
 
     auto cert = CreateCertificateChainFromFile(
         GetTestCertsDirectory(), kLeafFilename, X509Certificate::FORMAT_AUTO);
@@ -1358,9 +1309,6 @@ TEST_F(CertVerifyProcInspectSignatureAlgorithmsTest, LeafSha256Sha256) {
 //  Certificate.signatureAlgorithm:  sha1WithRSASignature
 //  TBSCertificate.algorithm:        sha256WithRSAEncryption
 TEST_F(CertVerifyProcInspectSignatureAlgorithmsTest, LeafSha1Sha256) {
-  if (!SupportsImportingMismatchedAlgorithms())
-    return;
-
   int rv = VerifyLeaf({DigestAlgorithm::Sha1, DigestAlgorithm::Sha256});
   ASSERT_THAT(rv, IsError(ERR_CERT_INVALID));
 }
@@ -1370,9 +1318,6 @@ TEST_F(CertVerifyProcInspectSignatureAlgorithmsTest, LeafSha1Sha256) {
 //  Certificate.signatureAlgorithm:  sha256WithRSAEncryption
 //  TBSCertificate.algorithm:        sha1WithRSASignature
 TEST_F(CertVerifyProcInspectSignatureAlgorithmsTest, LeafSha256Sha1) {
-  if (!SupportsImportingMismatchedAlgorithms())
-    return;
-
   int rv = VerifyLeaf({DigestAlgorithm::Sha256, DigestAlgorithm::Sha1});
   ASSERT_THAT(rv, IsError(ERR_CERT_INVALID));
 }
@@ -1382,9 +1327,6 @@ TEST_F(CertVerifyProcInspectSignatureAlgorithmsTest, LeafSha256Sha1) {
 //  Certificate.signatureAlgorithm:  sha256WithRSAEncryption
 //  TBSCertificate.algorithm:        ?
 TEST_F(CertVerifyProcInspectSignatureAlgorithmsTest, LeafSha256Unknown) {
-  if (!SupportsImportingMismatchedAlgorithms())
-    return;
-
   int rv = VerifyLeaf({DigestAlgorithm::Sha256, kUnknownDigestAlgorithm});
   ASSERT_THAT(rv, IsError(ERR_CERT_INVALID));
 }
@@ -1394,9 +1336,6 @@ TEST_F(CertVerifyProcInspectSignatureAlgorithmsTest, LeafSha256Unknown) {
 //  Certificate.signatureAlgorithm:  ?
 //  TBSCertificate.algorithm:        sha256WithRSAEncryption
 TEST_F(CertVerifyProcInspectSignatureAlgorithmsTest, LeafUnknownSha256) {
-  if (!SupportsImportingMismatchedAlgorithms())
-    return;
-
   int rv = VerifyLeaf({kUnknownDigestAlgorithm, DigestAlgorithm::Sha256});
   ASSERT_THAT(rv, IsError(ERR_CERT_INVALID));
 }
@@ -1406,9 +1345,6 @@ TEST_F(CertVerifyProcInspectSignatureAlgorithmsTest, LeafUnknownSha256) {
 //  Certificate.signatureAlgorithm:  sha1WithRSASignature
 //  TBSCertificate.algorithm:        sha256WithRSAEncryption
 TEST_F(CertVerifyProcInspectSignatureAlgorithmsTest, IntermediateSha1Sha256) {
-  if (!SupportsImportingMismatchedAlgorithms())
-    return;
-
   int rv = VerifyIntermediate({DigestAlgorithm::Sha1, DigestAlgorithm::Sha256});
   ASSERT_THAT(rv, IsError(ERR_CERT_INVALID));
 }
@@ -1418,9 +1354,6 @@ TEST_F(CertVerifyProcInspectSignatureAlgorithmsTest, IntermediateSha1Sha256) {
 //  Certificate.signatureAlgorithm:  sha256WithRSAEncryption
 //  TBSCertificate.algorithm:        sha1WithRSASignature
 TEST_F(CertVerifyProcInspectSignatureAlgorithmsTest, IntermediateSha256Sha1) {
-  if (!SupportsImportingMismatchedAlgorithms())
-    return;
-
   int rv = VerifyIntermediate({DigestAlgorithm::Sha256, DigestAlgorithm::Sha1});
   ASSERT_THAT(rv, IsError(ERR_CERT_INVALID));
 }
@@ -1430,9 +1363,6 @@ TEST_F(CertVerifyProcInspectSignatureAlgorithmsTest, IntermediateSha256Sha1) {
 //  Certificate.signatureAlgorithm:  sha256WithRSAEncryption
 //  TBSCertificate.algorithm:        sha1WithRSASignature
 TEST_F(CertVerifyProcInspectSignatureAlgorithmsTest, RootSha256Sha1) {
-  if (!SupportsImportingMismatchedAlgorithms())
-    return;
-
   int rv = VerifyRoot({DigestAlgorithm::Sha256, DigestAlgorithm::Sha1});
   ASSERT_THAT(rv, IsOk());
 }
@@ -1442,42 +1372,8 @@ TEST_F(CertVerifyProcInspectSignatureAlgorithmsTest, RootSha256Sha1) {
 //  Certificate.signatureAlgorithm:  ?
 //  TBSCertificate.algorithm:        sha256WithRSAEncryption
 TEST_F(CertVerifyProcInspectSignatureAlgorithmsTest, RootUnknownSha256) {
-  if (!SupportsImportingMismatchedAlgorithms())
-    return;
-
   int rv = VerifyRoot({kUnknownDigestAlgorithm, DigestAlgorithm::Sha256});
   ASSERT_THAT(rv, IsOk());
-}
-
-TEST_P(CertVerifyProcInternalTest, NameConstraintsFailure) {
-  if (!SupportsReturningVerifiedChain()) {
-    LOG(INFO) << "Skipping this test in this platform.";
-    return;
-  }
-
-  CertificateList ca_cert_list =
-      CreateCertificateListFromFile(GetTestCertsDirectory(), "root_ca_cert.pem",
-                                    X509Certificate::FORMAT_AUTO);
-  ASSERT_EQ(1U, ca_cert_list.size());
-  ScopedTestRoot test_root(ca_cert_list[0].get());
-
-  CertificateList cert_list = CreateCertificateListFromFile(
-      GetTestCertsDirectory(), "name_constraint_bad.pem",
-      X509Certificate::FORMAT_AUTO);
-  ASSERT_EQ(1U, cert_list.size());
-
-  scoped_refptr<X509Certificate> leaf = X509Certificate::CreateFromBuffer(
-      bssl::UpRef(cert_list[0]->cert_buffer()), {});
-  ASSERT_TRUE(leaf);
-
-  int flags = 0;
-  CertVerifyResult verify_result;
-  int error =
-      Verify(leaf.get(), "test.example.com", flags,
-             CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
-  EXPECT_THAT(error, IsError(ERR_CERT_NAME_CONSTRAINT_VIOLATION));
-  EXPECT_EQ(CERT_STATUS_NAME_CONSTRAINT_VIOLATION,
-            verify_result.cert_status & CERT_STATUS_NAME_CONSTRAINT_VIOLATION);
 }
 
 TEST(CertVerifyProcTest, TestHasTooLongValidity) {
@@ -1536,8 +1432,8 @@ TEST(CertVerifyProcTest, VerifyCertValidityTooLong) {
     CertVerifyResult verify_result;
     int error = verify_proc->Verify(
         cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
-        /*sct_list=*/std::string(), 0, CRLSet::BuiltinCRLSet().get(),
-        CertificateList(), &verify_result, NetLogWithSource());
+        /*sct_list=*/std::string(), 0, CertificateList(), &verify_result,
+        NetLogWithSource());
     EXPECT_THAT(error, IsOk());
     EXPECT_EQ(0u, verify_result.cert_status & CERT_STATUS_ALL_ERRORS);
   }
@@ -1551,8 +1447,8 @@ TEST(CertVerifyProcTest, VerifyCertValidityTooLong) {
     CertVerifyResult verify_result;
     int error = verify_proc->Verify(
         cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
-        /*sct_list=*/std::string(), 0, CRLSet::BuiltinCRLSet().get(),
-        CertificateList(), &verify_result, NetLogWithSource());
+        /*sct_list=*/std::string(), 0, CertificateList(), &verify_result,
+        NetLogWithSource());
     EXPECT_THAT(error, IsError(ERR_CERT_VALIDITY_TOO_LONG));
     // TODO(mattm): generate a dedicated cert or use CertBuilder so that this
     // test doesn't also hit CERT_STATUS_NON_UNIQUE_NAME.
@@ -1572,8 +1468,8 @@ TEST(CertVerifyProcTest, VerifyCertValidityTooLong) {
     CertVerifyResult verify_result;
     int error = verify_proc->Verify(
         cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
-        /*sct_list=*/std::string(), 0, CRLSet::BuiltinCRLSet().get(),
-        CertificateList(), &verify_result, NetLogWithSource());
+        /*sct_list=*/std::string(), 0, CertificateList(), &verify_result,
+        NetLogWithSource());
     EXPECT_THAT(error, IsError(ERR_CERT_AUTHORITY_INVALID));
     // TODO(mattm): generate a dedicated cert or use CertBuilder so that this
     // test doesn't also hit CERT_STATUS_NON_UNIQUE_NAME.
@@ -1583,21 +1479,20 @@ TEST(CertVerifyProcTest, VerifyCertValidityTooLong) {
   }
 }
 
-TEST_P(CertVerifyProcInternalTest, TestKnownRoot) {
+TEST_P(CertVerifyProcInternalTest, DISABLED_TestKnownRoot) {
   base::FilePath certs_dir = GetTestCertsDirectory();
   scoped_refptr<X509Certificate> cert_chain = CreateCertificateChainFromFile(
-      certs_dir, "cert-manager.com-chain.pem", X509Certificate::FORMAT_AUTO);
+      certs_dir, "leaf_from_known_root.pem", X509Certificate::FORMAT_AUTO);
   ASSERT_TRUE(cert_chain);
 
   int flags = 0;
   CertVerifyResult verify_result;
-  int error =
-      Verify(cert_chain.get(), "ov-validation.cert-manager.com", flags,
-             CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
+  int error = Verify(cert_chain.get(), "horseweather.com", flags,
+                     CertificateList(), &verify_result);
   EXPECT_THAT(error, IsOk()) << "This test relies on a real certificate that "
-                             << "expires on June 2, 2022. If failing on/after "
+                             << "expires on May 10 2024. If failing on/after "
                              << "that date, please disable and file a bug "
-                             << "against rsleevi.";
+                             << "against mattm.";
   EXPECT_TRUE(verify_result.is_issued_by_known_root);
 #if BUILDFLAG(IS_MAC)
   if (verify_proc_type() == CERT_VERIFY_PROC_BUILTIN) {
@@ -1616,11 +1511,6 @@ TEST_P(CertVerifyProcInternalTest, TestKnownRoot) {
 // CertVerifyResult::public_key_hashes is filled with a SHA256 hash for each
 // of the certificates in the chain.
 TEST_P(CertVerifyProcInternalTest, PublicKeyHashes) {
-  if (!SupportsReturningVerifiedChain()) {
-    LOG(INFO) << "Skipping this test in this platform.";
-    return;
-  }
-
   base::FilePath certs_dir = GetTestCertsDirectory();
   CertificateList certs = CreateCertificateListFromFile(
       certs_dir, "x509_verify_results.chain.pem", X509Certificate::FORMAT_AUTO);
@@ -1638,9 +1528,8 @@ TEST_P(CertVerifyProcInternalTest, PublicKeyHashes) {
 
   int flags = 0;
   CertVerifyResult verify_result;
-  int error =
-      Verify(cert_chain.get(), "127.0.0.1", flags,
-             CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
+  int error = Verify(cert_chain.get(), "127.0.0.1", flags, CertificateList(),
+                     &verify_result);
   EXPECT_THAT(error, IsOk());
 
   EXPECT_EQ(3u, verify_result.public_key_hashes.size());
@@ -1665,97 +1554,36 @@ TEST_P(CertVerifyProcInternalTest, PublicKeyHashes) {
               testing::UnorderedElementsAreArray(public_key_hash_strings));
 }
 
-// A regression test for http://crbug.com/70293.
-// The certificate in question has a key purpose of clientAuth, and also lacks
-// the required key usage for serverAuth.
-// TODO(mattm): This cert fails for many reasons, replace with a generated one
-// that tests only the desired case.
-//
-// Disabled on Android, crbug.com/1167663.
-#if BUILDFLAG(IS_ANDROID)
-#define MAYBE_WrongKeyPurpose DISABLED_WrongKeyPurpose
-#else
-#define MAYBE_WrongKeyPurpose WrongKeyPurpose
-#endif
-TEST_P(CertVerifyProcInternalTest, MAYBE_WrongKeyPurpose) {
-  base::FilePath certs_dir = GetTestCertsDirectory();
-
-  scoped_refptr<X509Certificate> server_cert =
-      ImportCertFromFile(certs_dir, "invalid_key_usage_cert.der");
-  ASSERT_NE(static_cast<X509Certificate*>(nullptr), server_cert.get());
-
-  int flags = 0;
-  CertVerifyResult verify_result;
-  int error =
-      Verify(server_cert.get(), "jira.aquameta.com", flags,
-             CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
-
-  EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_COMMON_NAME_INVALID);
-
-#if BUILDFLAG(IS_IOS)
-  if (verify_proc_type() == CERT_VERIFY_PROC_IOS) {
-    if (base::ios::IsRunningOnIOS13OrLater() ||
-        !base::ios::IsRunningOnIOS12OrLater()) {
-      EXPECT_THAT(error, IsError(ERR_CERT_INVALID));
-    } else {
-      EXPECT_THAT(error, IsError(ERR_CERT_AUTHORITY_INVALID));
-    }
-    return;
-  }
-#endif
-
-  // TODO(crbug.com/649017): Don't special-case builtin verifier.
-  if (verify_proc_type() != CERT_VERIFY_PROC_BUILTIN)
-    EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_INVALID);
-
-  if (verify_proc_type() != CERT_VERIFY_PROC_ANDROID) {
-    // The certificate is issued by an unknown CA.
-    EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_AUTHORITY_INVALID);
-  }
-
-  // TODO(crbug.com/649017): Don't special-case builtin verifier.
-  if (verify_proc_type() == CERT_VERIFY_PROC_BUILTIN) {
-    EXPECT_THAT(error, IsError(ERR_CERT_AUTHORITY_INVALID));
-  } else {
-    EXPECT_THAT(error, IsError(ERR_CERT_INVALID));
-  }
-}
-
 // Tests that a Netscape Server Gated crypto is accepted in place of a
 // serverAuth EKU.
 // TODO(crbug.com/843735): Deprecate support for this.
 TEST_P(CertVerifyProcInternalTest, Sha1IntermediateUsesServerGatedCrypto) {
-  base::FilePath certs_dir =
-      GetTestNetDataDirectory()
-          .AppendASCII("verify_certificate_chain_unittest")
-          .AppendASCII("intermediate-eku-server-gated-crypto");
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
 
-  scoped_refptr<X509Certificate> cert_chain = CreateCertificateChainFromFile(
-      certs_dir, "sha1-chain.pem", X509Certificate::FORMAT_AUTO);
+  root->GenerateRSAKey();
+  root->SetSignatureAlgorithm(SignatureAlgorithm::kRsaPkcs1Sha1);
 
-  ASSERT_TRUE(cert_chain);
-  ASSERT_FALSE(cert_chain->intermediate_buffers().empty());
+  intermediate->SetExtendedKeyUsages({der::Input(kNetscapeServerGatedCrypto)});
+  intermediate->SetSignatureAlgorithm(SignatureAlgorithm::kRsaPkcs1Sha1);
 
-  auto root = X509Certificate::CreateFromBuffer(
-      bssl::UpRef(cert_chain->intermediate_buffers().back().get()), {});
-
-  ScopedTestRoot scoped_root(root.get());
+  ScopedTestRoot scoped_root(root->GetX509Certificate().get());
 
   int flags = 0;
   CertVerifyResult verify_result;
+  // The cert chain including the root is passed to Verify, as on recent
+  // Android versions (something like 11+) the verifier fails on SHA1 certs and
+  // then the CertVerifyProc wrapper just returns the input chain, which this
+  // test then depends on for its expectations. (This is all kind of silly, but
+  // this is just matching how the test was originally written, and we'll
+  // delete this sometime soon anyway so there's not much benefit to thinking
+  // about it too hard.)
   int error =
-      Verify(cert_chain.get(), "test.example", flags,
-             CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
+      Verify(leaf->GetX509CertificateFullChain().get(), "www.example.com",
+             flags, CertificateList(), &verify_result);
 
-  if (AreSHA1IntermediatesAllowed()) {
-    EXPECT_THAT(error, IsOk());
-    EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_SHA1_SIGNATURE_PRESENT);
-  } else {
-    EXPECT_NE(error, OK);
-    EXPECT_TRUE(verify_result.cert_status &
-                CERT_STATUS_WEAK_SIGNATURE_ALGORITHM);
-    EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_SHA1_SIGNATURE_PRESENT);
-  }
+  EXPECT_NE(error, OK);
+  EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_WEAK_SIGNATURE_ALGORITHM);
+  EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_SHA1_SIGNATURE_PRESENT);
 }
 
 // Basic test for returning the chain in CertVerifyResult. Note that the
@@ -1765,11 +1593,6 @@ TEST_P(CertVerifyProcInternalTest, Sha1IntermediateUsesServerGatedCrypto) {
 // used to ensure that the actual, verified chain is being returned by
 // Verify().
 TEST_P(CertVerifyProcInternalTest, VerifyReturnChainBasic) {
-  if (!SupportsReturningVerifiedChain()) {
-    LOG(INFO) << "Skipping this test in this platform.";
-    return;
-  }
-
   base::FilePath certs_dir = GetTestCertsDirectory();
   CertificateList certs = CreateCertificateListFromFile(
       certs_dir, "x509_verify_results.chain.pem", X509Certificate::FORMAT_AUTO);
@@ -1790,14 +1613,12 @@ TEST_P(CertVerifyProcInternalTest, VerifyReturnChainBasic) {
   CertVerifyResult verify_result;
   EXPECT_EQ(static_cast<X509Certificate*>(nullptr),
             verify_result.verified_cert.get());
-  int error =
-      Verify(google_full_chain.get(), "127.0.0.1", 0,
-             CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
+  int error = Verify(google_full_chain.get(), "127.0.0.1", 0, CertificateList(),
+                     &verify_result);
   EXPECT_THAT(error, IsOk());
   ASSERT_NE(static_cast<X509Certificate*>(nullptr),
             verify_result.verified_cert.get());
 
-  EXPECT_NE(google_full_chain, verify_result.verified_cert);
   EXPECT_TRUE(
       x509_util::CryptoBufferEqual(google_full_chain->cert_buffer(),
                                    verify_result.verified_cert->cert_buffer()));
@@ -1815,11 +1636,12 @@ TEST_P(CertVerifyProcInternalTest, VerifyReturnChainBasic) {
 // CAs are flagged appropriately, while certificates that are issued by
 // internal CAs are not flagged.
 TEST(CertVerifyProcTest, IntranetHostsRejected) {
-  CertificateList cert_list = CreateCertificateListFromFile(
-      GetTestCertsDirectory(), "reject_intranet_hosts.pem",
-      X509Certificate::FORMAT_AUTO);
-  ASSERT_EQ(1U, cert_list.size());
-  scoped_refptr<X509Certificate> cert(cert_list[0]);
+  const std::string kIntranetHostname = "webmail";
+
+  auto [leaf, root] = CertBuilder::CreateSimpleChain2();
+  leaf->SetSubjectAltName(kIntranetHostname);
+
+  scoped_refptr<X509Certificate> cert(leaf->GetX509Certificate());
 
   CertVerifyResult verify_result;
   int error = 0;
@@ -1827,12 +1649,11 @@ TEST(CertVerifyProcTest, IntranetHostsRejected) {
   // Intranet names for public CAs should be flagged:
   CertVerifyResult dummy_result;
   dummy_result.is_issued_by_known_root = true;
-  scoped_refptr<CertVerifyProc> verify_proc =
-      new MockCertVerifyProc(dummy_result);
-  error = verify_proc->Verify(
-      cert.get(), "webmail", /*ocsp_response=*/std::string(),
-      /*sct_list=*/std::string(), 0, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result, NetLogWithSource());
+  auto verify_proc = base::MakeRefCounted<MockCertVerifyProc>(dummy_result);
+  error = verify_proc->Verify(cert.get(), kIntranetHostname,
+                              /*ocsp_response=*/std::string(),
+                              /*sct_list=*/std::string(), 0, CertificateList(),
+                              &verify_result, NetLogWithSource());
   EXPECT_THAT(error, IsOk());
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_NON_UNIQUE_NAME);
 
@@ -1840,10 +1661,10 @@ TEST(CertVerifyProcTest, IntranetHostsRejected) {
   dummy_result.Reset();
   dummy_result.is_issued_by_known_root = false;
   verify_proc = base::MakeRefCounted<MockCertVerifyProc>(dummy_result);
-  error = verify_proc->Verify(
-      cert.get(), "webmail", /*ocsp_response=*/std::string(),
-      /*sct_list=*/std::string(), 0, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result, NetLogWithSource());
+  error = verify_proc->Verify(cert.get(), kIntranetHostname,
+                              /*ocsp_response=*/std::string(),
+                              /*sct_list=*/std::string(), 0, CertificateList(),
+                              &verify_result, NetLogWithSource());
   EXPECT_THAT(error, IsOk());
   EXPECT_FALSE(verify_result.cert_status & CERT_STATUS_NON_UNIQUE_NAME);
 }
@@ -1886,8 +1707,8 @@ TEST(CertVerifyProcTest, SymantecCertsRejected) {
     CertVerifyResult test_result_1;
     error = verify_proc->Verify(
         cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
-        /*sct_list=*/std::string(), 0, CRLSet::BuiltinCRLSet().get(),
-        CertificateList(), &test_result_1, NetLogWithSource());
+        /*sct_list=*/std::string(), 0, CertificateList(), &test_result_1,
+        NetLogWithSource());
     EXPECT_THAT(error, IsError(ERR_CERT_SYMANTEC_LEGACY));
     EXPECT_TRUE(test_result_1.cert_status & CERT_STATUS_SYMANTEC_LEGACY);
 
@@ -1903,8 +1724,8 @@ TEST(CertVerifyProcTest, SymantecCertsRejected) {
     CertVerifyResult test_result_2;
     error = verify_proc->Verify(
         cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
-        /*sct_list=*/std::string(), 0, CRLSet::BuiltinCRLSet().get(),
-        CertificateList(), &test_result_2, NetLogWithSource());
+        /*sct_list=*/std::string(), 0, CertificateList(), &test_result_2,
+        NetLogWithSource());
     EXPECT_THAT(error, IsOk());
     EXPECT_FALSE(test_result_2.cert_status & CERT_STATUS_AUTHORITY_INVALID);
 
@@ -1913,78 +1734,63 @@ TEST(CertVerifyProcTest, SymantecCertsRejected) {
     error = verify_proc->Verify(
         cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
         /*sct_list=*/std::string(),
-        CertVerifyProc::VERIFY_DISABLE_SYMANTEC_ENFORCEMENT,
-        CRLSet::BuiltinCRLSet().get(), CertificateList(), &test_result_3,
-        NetLogWithSource());
+        CertVerifyProc::VERIFY_DISABLE_SYMANTEC_ENFORCEMENT, CertificateList(),
+        &test_result_3, NetLogWithSource());
     EXPECT_THAT(error, IsOk());
     EXPECT_FALSE(test_result_3.cert_status & CERT_STATUS_SYMANTEC_LEGACY);
   }
 
   // Test that certificates from the legacy Symantec infrastructure issued
-  // after 2016-06-01 approriately accept or reject based on the base::Feature
-  // flag.
-  for (bool feature_flag_enabled : {false, true}) {
-    base::test::ScopedFeatureList scoped_feature_list;
-    scoped_feature_list.InitWithFeatureState(
-        CertVerifyProc::kLegacySymantecPKIEnforcement, feature_flag_enabled);
+  // after 2016-06-01 appropriately rejected.
+  scoped_refptr<X509Certificate> cert = CreateCertificateChainFromFile(
+      GetTestCertsDirectory(), "post_june_2016.pem",
+      X509Certificate::FORMAT_AUTO);
+  ASSERT_TRUE(cert);
 
-    scoped_refptr<X509Certificate> cert = CreateCertificateChainFromFile(
-        GetTestCertsDirectory(), "post_june_2016.pem",
-        X509Certificate::FORMAT_AUTO);
-    ASSERT_TRUE(cert);
+  scoped_refptr<CertVerifyProc> verify_proc;
+  int error = 0;
 
-    scoped_refptr<CertVerifyProc> verify_proc;
-    int error = 0;
+  // Test that a legacy Symantec certificate is rejected if the feature
+  // flag is enabled, and accepted if it is not.
+  CertVerifyResult symantec_result;
+  symantec_result.verified_cert = cert;
+  symantec_result.public_key_hashes.push_back(HashValue(kSymantecHashValue));
+  symantec_result.is_issued_by_known_root = true;
+  verify_proc = base::MakeRefCounted<MockCertVerifyProc>(symantec_result);
 
-    // Test that a legacy Symantec certificate is rejected if the feature
-    // flag is enabled, and accepted if it is not.
-    CertVerifyResult symantec_result;
-    symantec_result.verified_cert = cert;
-    symantec_result.public_key_hashes.push_back(HashValue(kSymantecHashValue));
-    symantec_result.is_issued_by_known_root = true;
-    verify_proc = base::MakeRefCounted<MockCertVerifyProc>(symantec_result);
+  CertVerifyResult test_result_1;
+  error = verify_proc->Verify(cert.get(), "127.0.0.1",
+                              /*ocsp_response=*/std::string(),
+                              /*sct_list=*/std::string(), 0, CertificateList(),
+                              &test_result_1, NetLogWithSource());
+  EXPECT_THAT(error, IsError(ERR_CERT_SYMANTEC_LEGACY));
+  EXPECT_TRUE(test_result_1.cert_status & CERT_STATUS_SYMANTEC_LEGACY);
 
-    CertVerifyResult test_result_1;
-    error = verify_proc->Verify(
-        cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
-        /*sct_list=*/std::string(), 0, CRLSet::BuiltinCRLSet().get(),
-        CertificateList(), &test_result_1, NetLogWithSource());
-    if (feature_flag_enabled) {
-      EXPECT_THAT(error, IsError(ERR_CERT_SYMANTEC_LEGACY));
-      EXPECT_TRUE(test_result_1.cert_status & CERT_STATUS_SYMANTEC_LEGACY);
-    } else {
-      EXPECT_THAT(error, IsOk());
-      EXPECT_FALSE(test_result_1.cert_status & CERT_STATUS_SYMANTEC_LEGACY);
-    }
+  // ... Unless the Symantec cert chains through a allowlisted intermediate.
+  CertVerifyResult allowlisted_result;
+  allowlisted_result.verified_cert = cert;
+  allowlisted_result.public_key_hashes.push_back(HashValue(kSymantecHashValue));
+  allowlisted_result.public_key_hashes.push_back(HashValue(kGoogleHashValue));
+  allowlisted_result.is_issued_by_known_root = true;
+  verify_proc = base::MakeRefCounted<MockCertVerifyProc>(allowlisted_result);
 
-    // ... Unless the Symantec cert chains through a allowlisted intermediate.
-    CertVerifyResult allowlisted_result;
-    allowlisted_result.verified_cert = cert;
-    allowlisted_result.public_key_hashes.push_back(
-        HashValue(kSymantecHashValue));
-    allowlisted_result.public_key_hashes.push_back(HashValue(kGoogleHashValue));
-    allowlisted_result.is_issued_by_known_root = true;
-    verify_proc = base::MakeRefCounted<MockCertVerifyProc>(allowlisted_result);
+  CertVerifyResult test_result_2;
+  error = verify_proc->Verify(cert.get(), "127.0.0.1",
+                              /*ocsp_response=*/std::string(),
+                              /*sct_list=*/std::string(), 0, CertificateList(),
+                              &test_result_2, NetLogWithSource());
+  EXPECT_THAT(error, IsOk());
+  EXPECT_FALSE(test_result_2.cert_status & CERT_STATUS_AUTHORITY_INVALID);
 
-    CertVerifyResult test_result_2;
-    error = verify_proc->Verify(
-        cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
-        /*sct_list=*/std::string(), 0, CRLSet::BuiltinCRLSet().get(),
-        CertificateList(), &test_result_2, NetLogWithSource());
-    EXPECT_THAT(error, IsOk());
-    EXPECT_FALSE(test_result_2.cert_status & CERT_STATUS_AUTHORITY_INVALID);
-
-    // ... Or the caller disabled enforcement of Symantec policies.
-    CertVerifyResult test_result_3;
-    error = verify_proc->Verify(
-        cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
-        /*sct_list=*/std::string(),
-        CertVerifyProc::VERIFY_DISABLE_SYMANTEC_ENFORCEMENT,
-        CRLSet::BuiltinCRLSet().get(), CertificateList(), &test_result_3,
-        NetLogWithSource());
-    EXPECT_THAT(error, IsOk());
-    EXPECT_FALSE(test_result_3.cert_status & CERT_STATUS_SYMANTEC_LEGACY);
-  }
+  // ... Or the caller disabled enforcement of Symantec policies.
+  CertVerifyResult test_result_3;
+  error = verify_proc->Verify(
+      cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
+      /*sct_list=*/std::string(),
+      CertVerifyProc::VERIFY_DISABLE_SYMANTEC_ENFORCEMENT, CertificateList(),
+      &test_result_3, NetLogWithSource());
+  EXPECT_THAT(error, IsOk());
+  EXPECT_FALSE(test_result_3.cert_status & CERT_STATUS_SYMANTEC_LEGACY);
 }
 
 // Test that the certificate returned in CertVerifyResult is able to reorder
@@ -1993,11 +1799,6 @@ TEST(CertVerifyProcTest, SymantecCertsRejected) {
 // of intermediate certificates are combined, it's possible that order may
 // not be maintained.
 TEST_P(CertVerifyProcInternalTest, VerifyReturnChainProperlyOrdered) {
-  if (!SupportsReturningVerifiedChain()) {
-    LOG(INFO) << "Skipping this test in this platform.";
-    return;
-  }
-
   base::FilePath certs_dir = GetTestCertsDirectory();
   CertificateList certs = CreateCertificateListFromFile(
       certs_dir, "x509_verify_results.chain.pem", X509Certificate::FORMAT_AUTO);
@@ -2018,9 +1819,8 @@ TEST_P(CertVerifyProcInternalTest, VerifyReturnChainProperlyOrdered) {
 
   CertVerifyResult verify_result;
   EXPECT_FALSE(verify_result.verified_cert);
-  int error =
-      Verify(google_full_chain.get(), "127.0.0.1", 0,
-             CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
+  int error = Verify(google_full_chain.get(), "127.0.0.1", 0, CertificateList(),
+                     &verify_result);
   EXPECT_THAT(error, IsOk());
   ASSERT_TRUE(verify_result.verified_cert);
 
@@ -2040,11 +1840,6 @@ TEST_P(CertVerifyProcInternalTest, VerifyReturnChainProperlyOrdered) {
 // Test that Verify() filters out certificates which are not related to
 // or part of the certificate chain being verified.
 TEST_P(CertVerifyProcInternalTest, VerifyReturnChainFiltersUnrelatedCerts) {
-  if (!SupportsReturningVerifiedChain()) {
-    LOG(INFO) << "Skipping this test in this platform.";
-    return;
-  }
-
   base::FilePath certs_dir = GetTestCertsDirectory();
   CertificateList certs = CreateCertificateListFromFile(
       certs_dir, "x509_verify_results.chain.pem", X509Certificate::FORMAT_AUTO);
@@ -2075,9 +1870,8 @@ TEST_P(CertVerifyProcInternalTest, VerifyReturnChainFiltersUnrelatedCerts) {
 
   CertVerifyResult verify_result;
   EXPECT_FALSE(verify_result.verified_cert);
-  int error =
-      Verify(google_full_chain.get(), "127.0.0.1", 0,
-             CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
+  int error = Verify(google_full_chain.get(), "127.0.0.1", 0, CertificateList(),
+                     &verify_result);
   EXPECT_THAT(error, IsOk());
   ASSERT_TRUE(verify_result.verified_cert);
 
@@ -2117,8 +1911,7 @@ TEST_P(CertVerifyProcInternalTest, AdditionalTrustAnchors) {
   int flags = 0;
   CertVerifyResult verify_result;
   int error =
-      Verify(cert.get(), "127.0.0.1", flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+      Verify(cert.get(), "127.0.0.1", flags, CertificateList(), &verify_result);
   EXPECT_THAT(error, IsError(ERR_CERT_AUTHORITY_INVALID));
   EXPECT_EQ(CERT_STATUS_AUTHORITY_INVALID, verify_result.cert_status);
   EXPECT_FALSE(verify_result.is_issued_by_additional_trust_anchor);
@@ -2126,16 +1919,15 @@ TEST_P(CertVerifyProcInternalTest, AdditionalTrustAnchors) {
   // Now add the |ca_cert| to the |trust_anchors|, and verification should pass.
   CertificateList trust_anchors;
   trust_anchors.push_back(ca_cert);
-  error = Verify(cert.get(), "127.0.0.1", flags, CRLSet::BuiltinCRLSet().get(),
-                 trust_anchors, &verify_result);
+  error = Verify(cert.get(), "127.0.0.1", flags, trust_anchors, &verify_result);
   EXPECT_THAT(error, IsOk());
   EXPECT_EQ(0U, verify_result.cert_status);
   EXPECT_TRUE(verify_result.is_issued_by_additional_trust_anchor);
 
   // Clearing the |trust_anchors| makes verification fail again (the cache
   // should be skipped).
-  error = Verify(cert.get(), "127.0.0.1", flags, CRLSet::BuiltinCRLSet().get(),
-                 CertificateList(), &verify_result);
+  error =
+      Verify(cert.get(), "127.0.0.1", flags, CertificateList(), &verify_result);
   EXPECT_THAT(error, IsError(ERR_CERT_AUTHORITY_INVALID));
   EXPECT_EQ(CERT_STATUS_AUTHORITY_INVALID, verify_result.cert_status);
   EXPECT_FALSE(verify_result.is_issued_by_additional_trust_anchor);
@@ -2156,8 +1948,7 @@ TEST_P(CertVerifyProcInternalTest, IsIssuedByKnownRootIgnoresTestRoots) {
   int flags = 0;
   CertVerifyResult verify_result;
   int error =
-      Verify(cert.get(), "127.0.0.1", flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+      Verify(cert.get(), "127.0.0.1", flags, CertificateList(), &verify_result);
   EXPECT_THAT(error, IsOk());
   EXPECT_EQ(0U, verify_result.cert_status);
   // But should not be marked as a known root.
@@ -2187,11 +1978,10 @@ TEST_P(CertVerifyProcInternalTest,
 
   int flags = 0;
   CertVerifyResult verify_result;
-  int error =
-      verify_proc()->Verify(chain.get(), "treadclimber.com",
-                            /*ocsp_response=*/std::string(), sct_list, flags,
-                            CRLSet::BuiltinCRLSet().get(), CertificateList(),
-                            &verify_result, NetLogWithSource());
+  int error = verify_proc()->Verify(chain.get(), "treadclimber.com",
+                                    /*ocsp_response=*/std::string(), sct_list,
+                                    flags, CertificateList(), &verify_result,
+                                    NetLogWithSource());
 
   // Since the valid |sct_list| was passed to Verify, verification should
   // succeed on all verifiers and OS versions.
@@ -2222,8 +2012,7 @@ TEST_P(CertVerifyProcInternalTest, CRLSet) {
   int flags = 0;
   CertVerifyResult verify_result;
   int error =
-      Verify(cert.get(), "127.0.0.1", flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+      Verify(cert.get(), "127.0.0.1", flags, CertificateList(), &verify_result);
   EXPECT_THAT(error, IsOk());
   EXPECT_EQ(0U, verify_result.cert_status);
 
@@ -2236,8 +2025,9 @@ TEST_P(CertVerifyProcInternalTest, CRLSet) {
       &crl_set_bytes));
   ASSERT_TRUE(CRLSet::Parse(crl_set_bytes, &crl_set));
 
-  error = Verify(cert.get(), "127.0.0.1", flags, crl_set.get(),
-                 CertificateList(), &verify_result);
+  SetUpCertVerifyProc(crl_set);
+  error =
+      Verify(cert.get(), "127.0.0.1", flags, CertificateList(), &verify_result);
   EXPECT_THAT(error, IsError(ERR_CERT_REVOKED));
 
   // Second, test revocation by serial number of a cert directly under the
@@ -2248,8 +2038,9 @@ TEST_P(CertVerifyProcInternalTest, CRLSet) {
       &crl_set_bytes));
   ASSERT_TRUE(CRLSet::Parse(crl_set_bytes, &crl_set));
 
-  error = Verify(cert.get(), "127.0.0.1", flags, crl_set.get(),
-                 CertificateList(), &verify_result);
+  SetUpCertVerifyProc(crl_set);
+  error =
+      Verify(cert.get(), "127.0.0.1", flags, CertificateList(), &verify_result);
   EXPECT_THAT(error, IsError(ERR_CERT_REVOKED));
 }
 
@@ -2274,8 +2065,7 @@ TEST_P(CertVerifyProcInternalTest, CRLSetLeafSerial) {
   int flags = 0;
   CertVerifyResult verify_result;
   int error =
-      Verify(leaf.get(), "127.0.0.1", flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+      Verify(leaf.get(), "127.0.0.1", flags, CertificateList(), &verify_result);
   EXPECT_THAT(error, IsOk());
 
   // Test revocation by serial number of a certificate not under the root.
@@ -2286,8 +2076,9 @@ TEST_P(CertVerifyProcInternalTest, CRLSetLeafSerial) {
       &crl_set_bytes));
   ASSERT_TRUE(CRLSet::Parse(crl_set_bytes, &crl_set));
 
-  error = Verify(leaf.get(), "127.0.0.1", flags, crl_set.get(),
-                 CertificateList(), &verify_result);
+  SetUpCertVerifyProc(crl_set);
+  error =
+      Verify(leaf.get(), "127.0.0.1", flags, CertificateList(), &verify_result);
   EXPECT_THAT(error, IsError(ERR_CERT_REVOKED));
 }
 
@@ -2312,8 +2103,7 @@ TEST_P(CertVerifyProcInternalTest, CRLSetRootReturnsChain) {
   int flags = 0;
   CertVerifyResult verify_result;
   int error =
-      Verify(leaf.get(), "127.0.0.1", flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+      Verify(leaf.get(), "127.0.0.1", flags, CertificateList(), &verify_result);
   EXPECT_THAT(error, IsOk());
 
   // Test revocation of the root itself.
@@ -2324,8 +2114,9 @@ TEST_P(CertVerifyProcInternalTest, CRLSetRootReturnsChain) {
       &crl_set_bytes));
   ASSERT_TRUE(CRLSet::Parse(crl_set_bytes, &crl_set));
 
-  error = Verify(leaf.get(), "127.0.0.1", flags, crl_set.get(),
-                 CertificateList(), &verify_result);
+  SetUpCertVerifyProc(crl_set);
+  error =
+      Verify(leaf.get(), "127.0.0.1", flags, CertificateList(), &verify_result);
   EXPECT_THAT(error, IsError(ERR_CERT_REVOKED));
 
   EXPECT_EQ(3u, verify_result.public_key_hashes.size());
@@ -2355,12 +2146,13 @@ TEST_P(CertVerifyProcInternalTest, CRLSetRevokedBySubject) {
   CertVerifyResult verify_result;
 
   // Confirm that verifying the certificate chain with an empty CRLSet succeeds.
-  scoped_refptr<CRLSet> crl_set = CRLSet::EmptyCRLSetForTesting();
-  int error = Verify(leaf.get(), "127.0.0.1", flags, crl_set.get(),
-                     CertificateList(), &verify_result);
+  SetUpCertVerifyProc(CRLSet::EmptyCRLSetForTesting());
+  int error =
+      Verify(leaf.get(), "127.0.0.1", flags, CertificateList(), &verify_result);
   EXPECT_THAT(error, IsOk());
 
   std::string crl_set_bytes;
+  scoped_refptr<CRLSet> crl_set;
 
   // Revoke the leaf by subject. Verification should now fail.
   ASSERT_TRUE(base::ReadFileToString(
@@ -2368,8 +2160,9 @@ TEST_P(CertVerifyProcInternalTest, CRLSetRevokedBySubject) {
       &crl_set_bytes));
   ASSERT_TRUE(CRLSet::Parse(crl_set_bytes, &crl_set));
 
-  error = Verify(leaf.get(), "127.0.0.1", flags, crl_set.get(),
-                 CertificateList(), &verify_result);
+  SetUpCertVerifyProc(crl_set);
+  error =
+      Verify(leaf.get(), "127.0.0.1", flags, CertificateList(), &verify_result);
   EXPECT_THAT(error, IsError(ERR_CERT_REVOKED));
 
   // Revoke the root by subject. Verification should now fail.
@@ -2378,8 +2171,9 @@ TEST_P(CertVerifyProcInternalTest, CRLSetRevokedBySubject) {
       &crl_set_bytes));
   ASSERT_TRUE(CRLSet::Parse(crl_set_bytes, &crl_set));
 
-  error = Verify(leaf.get(), "127.0.0.1", flags, crl_set.get(),
-                 CertificateList(), &verify_result);
+  SetUpCertVerifyProc(crl_set);
+  error =
+      Verify(leaf.get(), "127.0.0.1", flags, CertificateList(), &verify_result);
   EXPECT_THAT(error, IsError(ERR_CERT_REVOKED));
 
   // Revoke the leaf by subject, but only if the SPKI doesn't match the given
@@ -2389,8 +2183,9 @@ TEST_P(CertVerifyProcInternalTest, CRLSetRevokedBySubject) {
       &crl_set_bytes));
   ASSERT_TRUE(CRLSet::Parse(crl_set_bytes, &crl_set));
 
-  error = Verify(leaf.get(), "127.0.0.1", flags, crl_set.get(),
-                 CertificateList(), &verify_result);
+  SetUpCertVerifyProc(crl_set);
+  error =
+      Verify(leaf.get(), "127.0.0.1", flags, CertificateList(), &verify_result);
   EXPECT_THAT(error, IsOk());
 }
 
@@ -2410,10 +2205,11 @@ TEST_P(CertVerifyProcInternalTest, BlockedInterceptionByRoot) {
 
   // A default/built-in CRLSet should not block
   scoped_refptr<CRLSet> crl_set = CRLSet::BuiltinCRLSet();
+  SetUpCertVerifyProc(crl_set);
   int flags = 0;
   CertVerifyResult verify_result;
-  int error = Verify(cert.get(), "127.0.0.1", flags, crl_set.get(),
-                     CertificateList(), &verify_result);
+  int error =
+      Verify(cert.get(), "127.0.0.1", flags, CertificateList(), &verify_result);
   EXPECT_THAT(error, IsOk());
   EXPECT_EQ(0U, verify_result.cert_status);
 
@@ -2425,8 +2221,9 @@ TEST_P(CertVerifyProcInternalTest, BlockedInterceptionByRoot) {
                              &crl_set_bytes));
   ASSERT_TRUE(CRLSet::Parse(crl_set_bytes, &crl_set));
 
-  error = Verify(cert.get(), "127.0.0.1", flags, crl_set.get(),
-                 CertificateList(), &verify_result);
+  SetUpCertVerifyProc(crl_set);
+  error =
+      Verify(cert.get(), "127.0.0.1", flags, CertificateList(), &verify_result);
   if (SupportsCRLSet()) {
     EXPECT_THAT(error, IsError(ERR_CERT_KNOWN_INTERCEPTION_BLOCKED));
     EXPECT_TRUE(verify_result.cert_status &
@@ -2453,10 +2250,11 @@ TEST_P(CertVerifyProcInternalTest, BlockedInterceptionByIntermediate) {
 
   // A default/built-in CRLSEt should not block
   scoped_refptr<CRLSet> crl_set = CRLSet::BuiltinCRLSet();
+  SetUpCertVerifyProc(crl_set);
   int flags = 0;
   CertVerifyResult verify_result;
-  int error = Verify(cert.get(), "127.0.0.1", flags, crl_set.get(),
-                     CertificateList(), &verify_result);
+  int error =
+      Verify(cert.get(), "127.0.0.1", flags, CertificateList(), &verify_result);
   EXPECT_THAT(error, IsOk());
   EXPECT_EQ(0U, verify_result.cert_status);
 
@@ -2468,8 +2266,9 @@ TEST_P(CertVerifyProcInternalTest, BlockedInterceptionByIntermediate) {
       &crl_set_bytes));
   ASSERT_TRUE(CRLSet::Parse(crl_set_bytes, &crl_set));
 
-  error = Verify(cert.get(), "127.0.0.1", flags, crl_set.get(),
-                 CertificateList(), &verify_result);
+  SetUpCertVerifyProc(crl_set);
+  error =
+      Verify(cert.get(), "127.0.0.1", flags, CertificateList(), &verify_result);
   if (SupportsCRLSet()) {
     EXPECT_THAT(error, IsError(ERR_CERT_KNOWN_INTERCEPTION_BLOCKED));
     EXPECT_TRUE(verify_result.cert_status &
@@ -2485,8 +2284,9 @@ TEST_P(CertVerifyProcInternalTest, BlockedInterceptionByIntermediate) {
       GetTestCertsDirectory(), "ok_cert.pem", X509Certificate::FORMAT_AUTO);
   ASSERT_TRUE(second_cert);
 
-  error = Verify(second_cert.get(), "127.0.0.1", flags, crl_set.get(),
-                 CertificateList(), &verify_result);
+  SetUpCertVerifyProc(crl_set);
+  error = Verify(second_cert.get(), "127.0.0.1", flags, CertificateList(),
+                 &verify_result);
   EXPECT_THAT(error, IsOk());
   EXPECT_EQ(0U, verify_result.cert_status);
 }
@@ -2506,10 +2306,11 @@ TEST_P(CertVerifyProcInternalTest, DetectsInterceptionByRoot) {
 
   // A default/built-in CRLSet should not block
   scoped_refptr<CRLSet> crl_set = CRLSet::BuiltinCRLSet();
+  SetUpCertVerifyProc(crl_set);
   int flags = 0;
   CertVerifyResult verify_result;
-  int error = Verify(cert.get(), "127.0.0.1", flags, crl_set.get(),
-                     CertificateList(), &verify_result);
+  int error =
+      Verify(cert.get(), "127.0.0.1", flags, CertificateList(), &verify_result);
   EXPECT_THAT(error, IsOk());
   EXPECT_EQ(0U, verify_result.cert_status);
 
@@ -2521,8 +2322,9 @@ TEST_P(CertVerifyProcInternalTest, DetectsInterceptionByRoot) {
                              &crl_set_bytes));
   ASSERT_TRUE(CRLSet::Parse(crl_set_bytes, &crl_set));
 
-  error = Verify(cert.get(), "127.0.0.1", flags, crl_set.get(),
-                 CertificateList(), &verify_result);
+  SetUpCertVerifyProc(crl_set);
+  error =
+      Verify(cert.get(), "127.0.0.1", flags, CertificateList(), &verify_result);
   EXPECT_THAT(error, IsOk());
   EXPECT_TRUE(verify_result.cert_status &
               CERT_STATUS_KNOWN_INTERCEPTION_DETECTED);
@@ -2610,10 +2412,11 @@ TEST_P(CertVerifyProcInternalTest, CRLSetDuringPathBuilding) {
         GetTestCertsDirectory().AppendASCII(testcase.crlset), &crl_set_bytes));
     ASSERT_TRUE(CRLSet::Parse(crl_set_bytes, &crl_set));
 
+    SetUpCertVerifyProc(crl_set);
     int flags = 0;
     CertVerifyResult verify_result;
-    int error = Verify(cert.get(), "127.0.0.1", flags, crl_set.get(),
-                       CertificateList(), &verify_result);
+    int error = Verify(cert.get(), "127.0.0.1", flags, CertificateList(),
+                       &verify_result);
 
     if (!testcase.expect_valid) {
       EXPECT_NE(OK, error);
@@ -2647,9 +2450,7 @@ TEST_P(CertVerifyProcInternalTest, CRLSetDuringPathBuilding) {
 }
 
 TEST_P(CertVerifyProcInternalTest, ValidityDayPlus5MinutesBeforeNotBefore) {
-  std::unique_ptr<CertBuilder> leaf, intermediate, root;
-  CertBuilder::CreateSimpleChain(&leaf, &intermediate, &root);
-  ASSERT_TRUE(leaf && intermediate && root);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
   base::Time not_before = base::Time::Now() + base::Days(1) + base::Minutes(5);
   base::Time not_after = base::Time::Now() + base::Days(30);
   leaf->SetValidity(not_before, not_after);
@@ -2661,18 +2462,15 @@ TEST_P(CertVerifyProcInternalTest, ValidityDayPlus5MinutesBeforeNotBefore) {
 
   int flags = 0;
   CertVerifyResult verify_result;
-  int error =
-      Verify(chain.get(), "www.example.com", flags,
-             CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
+  int error = Verify(chain.get(), "www.example.com", flags, CertificateList(),
+                     &verify_result);
   // Current time is before certificate's notBefore. Verification should fail.
   EXPECT_THAT(error, IsError(ERR_CERT_DATE_INVALID));
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_DATE_INVALID);
 }
 
 TEST_P(CertVerifyProcInternalTest, ValidityDayBeforeNotBefore) {
-  std::unique_ptr<CertBuilder> leaf, intermediate, root;
-  CertBuilder::CreateSimpleChain(&leaf, &intermediate, &root);
-  ASSERT_TRUE(leaf && intermediate && root);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
   base::Time not_before = base::Time::Now() + base::Days(1);
   base::Time not_after = base::Time::Now() + base::Days(30);
   leaf->SetValidity(not_before, not_after);
@@ -2684,18 +2482,15 @@ TEST_P(CertVerifyProcInternalTest, ValidityDayBeforeNotBefore) {
 
   int flags = 0;
   CertVerifyResult verify_result;
-  int error =
-      Verify(chain.get(), "www.example.com", flags,
-             CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
+  int error = Verify(chain.get(), "www.example.com", flags, CertificateList(),
+                     &verify_result);
   // Current time is before certificate's notBefore. Verification should fail.
   EXPECT_THAT(error, IsError(ERR_CERT_DATE_INVALID));
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_DATE_INVALID);
 }
 
 TEST_P(CertVerifyProcInternalTest, ValidityJustBeforeNotBefore) {
-  std::unique_ptr<CertBuilder> leaf, intermediate, root;
-  CertBuilder::CreateSimpleChain(&leaf, &intermediate, &root);
-  ASSERT_TRUE(leaf && intermediate && root);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
   base::Time not_before = base::Time::Now() + base::Minutes(5);
   base::Time not_after = base::Time::Now() + base::Days(30);
   leaf->SetValidity(not_before, not_after);
@@ -2707,18 +2502,15 @@ TEST_P(CertVerifyProcInternalTest, ValidityJustBeforeNotBefore) {
 
   int flags = 0;
   CertVerifyResult verify_result;
-  int error =
-      Verify(chain.get(), "www.example.com", flags,
-             CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
+  int error = Verify(chain.get(), "www.example.com", flags, CertificateList(),
+                     &verify_result);
   // Current time is before certificate's notBefore. Verification should fail.
   EXPECT_THAT(error, IsError(ERR_CERT_DATE_INVALID));
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_DATE_INVALID);
 }
 
 TEST_P(CertVerifyProcInternalTest, ValidityJustAfterNotBefore) {
-  std::unique_ptr<CertBuilder> leaf, intermediate, root;
-  CertBuilder::CreateSimpleChain(&leaf, &intermediate, &root);
-  ASSERT_TRUE(leaf && intermediate && root);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
   base::Time not_before = base::Time::Now() - base::Seconds(1);
   base::Time not_after = base::Time::Now() + base::Days(30);
   leaf->SetValidity(not_before, not_after);
@@ -2730,18 +2522,15 @@ TEST_P(CertVerifyProcInternalTest, ValidityJustAfterNotBefore) {
 
   int flags = 0;
   CertVerifyResult verify_result;
-  int error =
-      Verify(chain.get(), "www.example.com", flags,
-             CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
+  int error = Verify(chain.get(), "www.example.com", flags, CertificateList(),
+                     &verify_result);
   // Current time is between notBefore and notAfter. Verification should
   // succeed.
   EXPECT_THAT(error, IsOk());
 }
 
 TEST_P(CertVerifyProcInternalTest, ValidityJustBeforeNotAfter) {
-  std::unique_ptr<CertBuilder> leaf, intermediate, root;
-  CertBuilder::CreateSimpleChain(&leaf, &intermediate, &root);
-  ASSERT_TRUE(leaf && intermediate && root);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
   base::Time not_before = base::Time::Now() - base::Days(30);
   base::Time not_after = base::Time::Now() + base::Minutes(5);
   leaf->SetValidity(not_before, not_after);
@@ -2753,18 +2542,15 @@ TEST_P(CertVerifyProcInternalTest, ValidityJustBeforeNotAfter) {
 
   int flags = 0;
   CertVerifyResult verify_result;
-  int error =
-      Verify(chain.get(), "www.example.com", flags,
-             CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
+  int error = Verify(chain.get(), "www.example.com", flags, CertificateList(),
+                     &verify_result);
   // Current time is between notBefore and notAfter. Verification should
   // succeed.
   EXPECT_THAT(error, IsOk());
 }
 
 TEST_P(CertVerifyProcInternalTest, ValidityJustAfterNotAfter) {
-  std::unique_ptr<CertBuilder> leaf, intermediate, root;
-  CertBuilder::CreateSimpleChain(&leaf, &intermediate, &root);
-  ASSERT_TRUE(leaf && intermediate && root);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
   base::Time not_before = base::Time::Now() - base::Days(30);
   base::Time not_after = base::Time::Now() - base::Seconds(1);
   leaf->SetValidity(not_before, not_after);
@@ -2776,40 +2562,35 @@ TEST_P(CertVerifyProcInternalTest, ValidityJustAfterNotAfter) {
 
   int flags = 0;
   CertVerifyResult verify_result;
-  int error =
-      Verify(chain.get(), "www.example.com", flags,
-             CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
+  int error = Verify(chain.get(), "www.example.com", flags, CertificateList(),
+                     &verify_result);
   // Current time is after certificate's notAfter. Verification should fail.
   EXPECT_THAT(error, IsError(ERR_CERT_DATE_INVALID));
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_DATE_INVALID);
 }
 
 TEST_P(CertVerifyProcInternalTest, FailedIntermediateSignatureValidation) {
-  base::FilePath certs_dir =
-      GetTestNetDataDirectory()
-          .AppendASCII("verify_certificate_chain_unittest")
-          .AppendASCII(
-              "intermediate-wrong-signature-no-authority-key-identifier");
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
 
-  CertificateList certs = CreateCertificateListFromFile(
-      certs_dir, "chain.pem", X509Certificate::FORMAT_AUTO);
-  ASSERT_EQ(3U, certs.size());
+  // Intermediate has no authorityKeyIdentifier. Also remove
+  // subjectKeyIdentifier from root for good measure.
+  intermediate->EraseExtension(der::Input(kAuthorityKeyIdentifierOid));
+  root->EraseExtension(der::Input(kSubjectKeyIdentifierOid));
 
-  std::vector<bssl::UniquePtr<CRYPTO_BUFFER>> intermediates;
-  intermediates.push_back(bssl::UpRef(certs[1]->cert_buffer()));
+  // Get the chain with the leaf and the intermediate signed by the original
+  // key of |root|.
+  scoped_refptr<X509Certificate> cert = leaf->GetX509CertificateChain();
 
-  scoped_refptr<X509Certificate> cert = X509Certificate::CreateFromBuffer(
-      bssl::UpRef(certs[0]->cert_buffer()), std::move(intermediates));
-  ASSERT_TRUE(cert.get());
+  // Generate a new key for root.
+  root->GenerateECKey();
 
-  // Trust the root certificate.
-  ScopedTestRoot scoped_root(certs.back().get());
+  // Trust the new root certificate.
+  ScopedTestRoot scoped_root(root->GetX509Certificate().get());
 
   int flags = 0;
   CertVerifyResult verify_result;
-  int error =
-      Verify(cert.get(), "test.example", flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+  int error = Verify(cert.get(), "www.example.com", flags, CertificateList(),
+                     &verify_result);
 
   // The intermediate was signed by a different root with a different key but
   // with the same name as the trusted one, and the intermediate has no
@@ -2820,30 +2601,35 @@ TEST_P(CertVerifyProcInternalTest, FailedIntermediateSignatureValidation) {
 }
 
 TEST_P(CertVerifyProcInternalTest, FailedTargetSignatureValidation) {
-  base::FilePath certs_dir =
-      GetTestNetDataDirectory()
-          .AppendASCII("verify_certificate_chain_unittest")
-          .AppendASCII("target-wrong-signature-no-authority-key-identifier");
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
 
-  CertificateList certs = CreateCertificateListFromFile(
-      certs_dir, "chain.pem", X509Certificate::FORMAT_AUTO);
-  ASSERT_EQ(3U, certs.size());
+  // Leaf has no authorityKeyIdentifier. Also remove subjectKeyIdentifier from
+  // intermediate for good measure.
+  leaf->EraseExtension(der::Input(kAuthorityKeyIdentifierOid));
+  intermediate->EraseExtension(der::Input(kSubjectKeyIdentifierOid));
 
+  // Get a copy of the leaf signed by the original key of intermediate.
+  bssl::UniquePtr<CRYPTO_BUFFER> leaf_wrong_signature = leaf->DupCertBuffer();
+
+  // Generate a new key for intermediate.
+  intermediate->GenerateECKey();
+
+  // Make a chain that includes the original leaf with the wrong signature and
+  // the new intermediate.
   std::vector<bssl::UniquePtr<CRYPTO_BUFFER>> intermediates;
-  intermediates.push_back(bssl::UpRef(certs[1]->cert_buffer()));
+  intermediates.push_back(intermediate->DupCertBuffer());
 
   scoped_refptr<X509Certificate> cert = X509Certificate::CreateFromBuffer(
-      bssl::UpRef(certs[0]->cert_buffer()), std::move(intermediates));
+      bssl::UpRef(leaf_wrong_signature), std::move(intermediates));
   ASSERT_TRUE(cert.get());
 
   // Trust the root certificate.
-  ScopedTestRoot scoped_root(certs.back().get());
+  ScopedTestRoot scoped_root(root->GetX509Certificate().get());
 
   int flags = 0;
   CertVerifyResult verify_result;
-  int error =
-      Verify(cert.get(), "test.example", flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+  int error = Verify(cert.get(), "www.example.com", flags, CertificateList(),
+                     &verify_result);
 
   // The leaf was signed by a different intermediate with a different key but
   // with the same name as the one in the chain, and the leaf has no
@@ -2855,15 +2641,6 @@ TEST_P(CertVerifyProcInternalTest, FailedTargetSignatureValidation) {
 
 class CertVerifyProcNameNormalizationTest : public CertVerifyProcInternalTest {
  protected:
-  void SetUp() override {
-    CertVerifyProcInternalTest::SetUp();
-
-    scoped_refptr<X509Certificate> root_cert =
-        ImportCertFromFile(GetTestCertsDirectory(), "ocsp-test-root.pem");
-    ASSERT_TRUE(root_cert);
-    test_root_ = std::make_unique<ScopedTestRoot>(root_cert.get());
-  }
-
   std::string HistogramName() const {
     std::string prefix("Net.CertVerifier.NameNormalizationPrivateRoots.");
     switch (verify_proc_type()) {
@@ -2871,11 +2648,8 @@ class CertVerifyProcNameNormalizationTest : public CertVerifyProcInternalTest {
         return prefix + "Android";
       case CERT_VERIFY_PROC_IOS:
         return prefix + "IOS";
-      case CERT_VERIFY_PROC_MAC:
-        return prefix + "Mac";
-      case CERT_VERIFY_PROC_WIN:
-        return prefix + "Win";
       case CERT_VERIFY_PROC_BUILTIN:
+      case CERT_VERIFY_PROC_BUILTIN_CHROME_ROOTS:
         return prefix + "Builtin";
     }
   }
@@ -2897,7 +2671,6 @@ class CertVerifyProcNameNormalizationTest : public CertVerifyProcInternalTest {
   }
 
  private:
-  std::unique_ptr<ScopedTestRoot> test_root_;
   base::HistogramTester histograms_;
 };
 
@@ -2910,25 +2683,28 @@ INSTANTIATE_TEST_SUITE_P(All,
 // the intermediate's subject CN is UTF8String, and verifies the proper
 // histogram is logged.
 TEST_P(CertVerifyProcNameNormalizationTest, StringType) {
-  scoped_refptr<X509Certificate> chain = CreateCertificateChainFromFile(
-      GetTestCertsDirectory(), "name-normalization-printable-utf8.pem",
-      X509Certificate::FORMAT_PEM_CERT_SEQUENCE);
-  ASSERT_TRUE(chain);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
+
+  std::string issuer_cn = CertBuilder::MakeRandomHexString(12);
+  leaf->SetIssuerTLV(CertBuilder::BuildNameWithCommonNameOfType(
+      issuer_cn, CBS_ASN1_PRINTABLESTRING));
+  intermediate->SetSubjectTLV(CertBuilder::BuildNameWithCommonNameOfType(
+      issuer_cn, CBS_ASN1_UTF8STRING));
+
+  ScopedTestRoot scoped_root(root->GetX509Certificate().get());
 
   int flags = 0;
   CertVerifyResult verify_result;
-  int error =
-      Verify(chain.get(), "example.test", flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+  int error = Verify(leaf->GetX509CertificateChain().get(), "www.example.com",
+                     flags, CertificateList(), &verify_result);
 
   switch (verify_proc_type()) {
     case CERT_VERIFY_PROC_IOS:
-    case CERT_VERIFY_PROC_MAC:
-    case CERT_VERIFY_PROC_WIN:
       EXPECT_THAT(error, IsError(ERR_CERT_AUTHORITY_INVALID));
       break;
     case CERT_VERIFY_PROC_ANDROID:
     case CERT_VERIFY_PROC_BUILTIN:
+    case CERT_VERIFY_PROC_BUILTIN_CHROME_ROOTS:
       EXPECT_THAT(error, IsOk());
       break;
   }
@@ -2940,49 +2716,54 @@ TEST_P(CertVerifyProcNameNormalizationTest, StringType) {
 // subject CN are both PrintableString but have differing case on the first
 // character, and verifies the proper histogram is logged.
 TEST_P(CertVerifyProcNameNormalizationTest, CaseFolding) {
-  scoped_refptr<X509Certificate> chain = CreateCertificateChainFromFile(
-      GetTestCertsDirectory(), "name-normalization-case-folding.pem",
-      X509Certificate::FORMAT_PEM_CERT_SEQUENCE);
-  ASSERT_TRUE(chain);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
+
+  std::string issuer_hex = CertBuilder::MakeRandomHexString(12);
+  leaf->SetIssuerTLV(CertBuilder::BuildNameWithCommonNameOfType(
+      "Z" + issuer_hex, CBS_ASN1_PRINTABLESTRING));
+  intermediate->SetSubjectTLV(CertBuilder::BuildNameWithCommonNameOfType(
+      "z" + issuer_hex, CBS_ASN1_PRINTABLESTRING));
+
+  ScopedTestRoot scoped_root(root->GetX509Certificate().get());
 
   int flags = 0;
   CertVerifyResult verify_result;
-  int error =
-      Verify(chain.get(), "example.test", flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+  int error = Verify(leaf->GetX509CertificateChain().get(), "www.example.com",
+                     flags, CertificateList(), &verify_result);
 
-  switch (verify_proc_type()) {
-    case CERT_VERIFY_PROC_WIN:
-      EXPECT_THAT(error, IsError(ERR_CERT_AUTHORITY_INVALID));
-      break;
-    case CERT_VERIFY_PROC_ANDROID:
-    case CERT_VERIFY_PROC_IOS:
-    case CERT_VERIFY_PROC_MAC:
-    case CERT_VERIFY_PROC_BUILTIN:
-      EXPECT_THAT(error, IsOk());
-      break;
-  }
-
+  EXPECT_THAT(error, IsOk());
   ExpectNormalizationHistogram(error);
 }
 
-// Confirms that a chain generated by the generate-name-normalization-certs.py
-// script which does not require normalization validates ok, and that the
-// ByteEqual histogram is logged.
+// Confirms that a chain generated by the same pattern as the other
+// NameNormalizationTest cases which does not require normalization validates
+// ok, and that the ByteEqual histogram is logged.
 TEST_P(CertVerifyProcNameNormalizationTest, ByteEqual) {
-  scoped_refptr<X509Certificate> chain = CreateCertificateChainFromFile(
-      GetTestCertsDirectory(), "name-normalization-byteequal.pem",
-      X509Certificate::FORMAT_PEM_CERT_SEQUENCE);
-  ASSERT_TRUE(chain);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
+
+  std::string issuer_hex = CertBuilder::MakeRandomHexString(12);
+  leaf->SetIssuerTLV(CertBuilder::BuildNameWithCommonNameOfType(
+      issuer_hex, CBS_ASN1_PRINTABLESTRING));
+  intermediate->SetSubjectTLV(CertBuilder::BuildNameWithCommonNameOfType(
+      issuer_hex, CBS_ASN1_PRINTABLESTRING));
+
+  ScopedTestRoot scoped_root(root->GetX509Certificate().get());
 
   int flags = 0;
   CertVerifyResult verify_result;
-  int error =
-      Verify(chain.get(), "example.test", flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+  int error = Verify(leaf->GetX509CertificateChain().get(), "www.example.com",
+                     flags, CertificateList(), &verify_result);
 
   EXPECT_THAT(error, IsOk());
   ExpectByteEqualHistogram();
+}
+
+std::string Md5WithRSAEncryption() {
+  const uint8_t kMd5WithRSAEncryption[] = {0x30, 0x0d, 0x06, 0x09, 0x2a,
+                                           0x86, 0x48, 0x86, 0xf7, 0x0d,
+                                           0x01, 0x01, 0x04, 0x05, 0x00};
+  return std::string(std::begin(kMd5WithRSAEncryption),
+                     std::end(kMd5WithRSAEncryption));
 }
 
 // This is the same as CertVerifyProcInternalTest, but it additionally sets up
@@ -3022,7 +2803,7 @@ class CertVerifyProcInternalWithNetFetchingTest
     initialization_complete_event.Wait();
     EXPECT_TRUE(cert_net_fetcher_);
 
-    CertVerifyProcInternalTest::SetUpWithCertNetFetcher(cert_net_fetcher_);
+    CertVerifyProcInternalTest::SetUp();
 
     EXPECT_FALSE(test_server_.Started());
 
@@ -3036,6 +2817,11 @@ class CertVerifyProcInternalWithNetFetchingTest
         &CertVerifyProcInternalWithNetFetchingTest::DispatchToRequestHandler,
         base::Unretained(this)));
     EXPECT_TRUE(test_server_.Start());
+  }
+
+  void SetUpCertVerifyProc(scoped_refptr<CRLSet> crl_set) override {
+    EXPECT_TRUE(cert_net_fetcher_);
+    SetUpWithCertNetFetcher(cert_net_fetcher_, std::move(crl_set));
   }
 
   void TearDown() override {
@@ -3082,9 +2868,7 @@ class CertVerifyProcInternalWithNetFetchingTest
       std::string* ca_issuers_path,
       bssl::UniquePtr<CRYPTO_BUFFER>* out_intermediate,
       scoped_refptr<X509Certificate>* out_root) {
-    std::unique_ptr<CertBuilder> leaf, intermediate, root;
-    CertBuilder::CreateSimpleChain(&leaf, &intermediate, &root);
-    ASSERT_TRUE(leaf && intermediate && root);
+    auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
 
     // Make the leaf certificate have an AIA (CA Issuers) that points to the
     // embedded test server. This uses a random URL for predictable behavior in
@@ -3103,11 +2887,25 @@ class CertVerifyProcInternalWithNetFetchingTest
   // Creates a CRL issued and signed by |crl_issuer|, marking |revoked_serials|
   // as revoked, and registers it to be served by the test server.
   // Returns the full URL to retrieve the CRL from the test server.
-  GURL CreateAndServeCrl(CertBuilder* crl_issuer,
-                         const std::vector<uint64_t>& revoked_serials,
-                         DigestAlgorithm digest = DigestAlgorithm::Sha256) {
+  GURL CreateAndServeCrl(
+      CertBuilder* crl_issuer,
+      const std::vector<uint64_t>& revoked_serials,
+      absl::optional<SignatureAlgorithm> signature_algorithm = absl::nullopt) {
     std::string crl = BuildCrl(crl_issuer->GetSubject(), crl_issuer->GetKey(),
-                               revoked_serials, digest);
+                               revoked_serials, signature_algorithm);
+    std::string crl_path = MakeRandomPath(".crl");
+    return RegisterSimpleTestServerHandler(crl_path, HTTP_OK,
+                                           "application/pkix-crl", crl);
+  }
+
+  GURL CreateAndServeCrlWithAlgorithmTlvAndDigest(
+      CertBuilder* crl_issuer,
+      const std::vector<uint64_t>& revoked_serials,
+      const std::string& signature_algorithm_tlv,
+      const EVP_MD* digest) {
+    std::string crl = BuildCrlWithAlgorithmTlvAndDigest(
+        crl_issuer->GetSubject(), crl_issuer->GetKey(), revoked_serials,
+        signature_algorithm_tlv, digest);
     std::string crl_path = MakeRandomPath(".crl");
     return RegisterSimpleTestServerHandler(crl_path, HTTP_OK,
                                            "application/pkix-crl", crl);
@@ -3205,7 +3003,8 @@ INSTANTIATE_TEST_SUITE_P(All,
 #else
 #define MAYBE_IntermediateFromAia404 IntermediateFromAia404
 #endif
-TEST_P(CertVerifyProcInternalWithNetFetchingTest, MAYBE_IntermediateFromAia404) {
+TEST_P(CertVerifyProcInternalWithNetFetchingTest,
+       MAYBE_IntermediateFromAia404) {
   const char kHostname[] = "www.example.com";
 
   // Create a chain where the leaf has an AIA that points to test server.
@@ -3232,19 +3031,11 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest, MAYBE_IntermediateFromAia404) 
 
   // Verifying the chain should fail as the intermediate is missing, and
   // cannot be fetched via AIA.
-  error = Verify(leaf.get(), kHostname, flags, CRLSet::BuiltinCRLSet().get(),
-                 CertificateList(), &verify_result);
+  error =
+      Verify(leaf.get(), kHostname, flags, CertificateList(), &verify_result);
   EXPECT_NE(OK, error);
 
-  if (verify_proc_type() == CERT_VERIFY_PROC_WIN) {
-    // CertVerifyProcWin has a flaky result of ERR_CERT_AUTHORITY_INVALID or
-    // ERR_CERT_INVALID (https://crbug.com/859387) - accept either.
-    EXPECT_TRUE(error == ERR_CERT_AUTHORITY_INVALID ||
-                error == ERR_CERT_INVALID)
-        << "Unexpected error: " << error;
-  } else {
-    EXPECT_THAT(error, IsError(ERR_CERT_AUTHORITY_INVALID));
-  }
+  EXPECT_THAT(error, IsError(ERR_CERT_AUTHORITY_INVALID));
 }
 #undef MAYBE_IntermediateFromAia404
 
@@ -3279,15 +3070,28 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   // intermediate and root).
   ASSERT_EQ(0u, leaf->intermediate_buffers().size());
 
-  const int flags = 0;
-  int error;
-  CertVerifyResult verify_result;
+  // VERIFY_DISABLE_NETWORK_FETCHES flag is not implemented in
+  // CertVerifyProcIOS, only test it on other verifiers.
+  if (verify_proc_type() != CERT_VERIFY_PROC_IOS) {
+    CertVerifyResult verify_result;
+    // If VERIFY_DISABLE_NETWORK_FETCHES is specified, AIA should not be
+    // attempted and verifying the chain should fail since the intermediate
+    // can't be found.
+    int error = Verify(leaf.get(), kHostname,
+                       CertVerifyProc::VERIFY_DISABLE_NETWORK_FETCHES,
+                       CertificateList(), &verify_result);
+    EXPECT_THAT(error, IsError(ERR_CERT_AUTHORITY_INVALID));
+    EXPECT_EQ(0u, verify_result.verified_cert->intermediate_buffers().size());
+  }
 
-  // Verifying the chain should succeed as the missing intermediate can be
-  // fetched via AIA.
-  error = Verify(leaf.get(), kHostname, flags, CRLSet::BuiltinCRLSet().get(),
-                 CertificateList(), &verify_result);
-  EXPECT_THAT(error, IsOk());
+  {
+    CertVerifyResult verify_result;
+    // Verifying the chain should succeed as the missing intermediate can be
+    // fetched via AIA.
+    int error = Verify(leaf.get(), kHostname, /*flags=*/0, CertificateList(),
+                       &verify_result);
+    EXPECT_THAT(error, IsOk());
+  }
 }
 
 // This test is the same as IntermediateFromAia200Der, except the certificate is
@@ -3334,8 +3138,8 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
 
   // Verifying the chain should succeed as the missing intermediate can be
   // fetched via AIA.
-  error = Verify(leaf.get(), kHostname, flags, CRLSet::BuiltinCRLSet().get(),
-                 CertificateList(), &verify_result);
+  error =
+      Verify(leaf.get(), kHostname, flags, CertificateList(), &verify_result);
 
   if (verify_proc_type() == CERT_VERIFY_PROC_ANDROID) {
     // Android doesn't support PEM - https://crbug.com/725180
@@ -3387,8 +3191,8 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
 
   // Verifying the chain should succeed as the missing intermediate can be
   // fetched via AIA.
-  error = Verify(leaf.get(), kHostname, flags, CRLSet::BuiltinCRLSet().get(),
-                 CertificateList(), &verify_result);
+  error =
+      Verify(leaf.get(), kHostname, flags, CertificateList(), &verify_result);
 
   if (verify_proc_type() == CERT_VERIFY_PROC_ANDROID) {
     // Android doesn't support PEM - https://crbug.com/725180
@@ -3406,42 +3210,30 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
        Sha1IntermediateButAIAHasSha256) {
   const char kHostname[] = "www.example.com";
 
-  base::FilePath certs_dir =
-      GetTestNetDataDirectory()
-          .AppendASCII("verify_certificate_chain_unittest")
-          .AppendASCII("target-and-intermediate");
-
-  CertificateList orig_certs = CreateCertificateListFromFile(
-      certs_dir, "chain.pem", X509Certificate::FORMAT_AUTO);
-  ASSERT_EQ(3U, orig_certs.size());
-
-  // Build slightly modified variants of |orig_certs|.
-  CertBuilder root(orig_certs[2]->cert_buffer(), nullptr);
-  CertBuilder intermediate(orig_certs[1]->cert_buffer(), &root);
-  CertBuilder leaf(orig_certs[0]->cert_buffer(), &intermediate);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
 
   // Make the leaf certificate have an AIA (CA Issuers) that points to the
   // embedded test server. This uses a random URL for predictable behavior in
   // the presence of global caching.
   std::string ca_issuers_path = MakeRandomPath(".cer");
   GURL ca_issuers_url = GetTestServerAbsoluteUrl(ca_issuers_path);
-  leaf.SetCaIssuersUrl(ca_issuers_url);
-  leaf.SetSubjectAltName(kHostname);
+  leaf->SetCaIssuersUrl(ca_issuers_url);
+  leaf->SetSubjectAltName(kHostname);
 
   // Make two versions of the intermediate - one that is SHA256 signed, and one
   // that is SHA1 signed. Note that the subjectKeyIdentifier for `intermediate`
   // is intentionally not changed, so that path building will consider both
   // certificate paths.
-  intermediate.SetSignatureAlgorithmRsaPkca1(DigestAlgorithm::Sha256);
-  intermediate.SetRandomSerialNumber();
-  auto intermediate_sha256 = intermediate.DupCertBuffer();
+  intermediate->SetSignatureAlgorithm(SignatureAlgorithm::kEcdsaSha256);
+  intermediate->SetRandomSerialNumber();
+  auto intermediate_sha256 = intermediate->DupCertBuffer();
 
-  intermediate.SetSignatureAlgorithmRsaPkca1(DigestAlgorithm::Sha1);
-  intermediate.SetRandomSerialNumber();
-  auto intermediate_sha1 = intermediate.DupCertBuffer();
+  intermediate->SetSignatureAlgorithm(SignatureAlgorithm::kEcdsaSha1);
+  intermediate->SetRandomSerialNumber();
+  auto intermediate_sha1 = intermediate->DupCertBuffer();
 
   // Trust the root certificate.
-  auto root_cert = root.GetX509Certificate();
+  auto root_cert = root->GetX509Certificate();
   ScopedTestRoot scoped_root(root_cert.get());
 
   // Setup the test server to reply with the SHA256 intermediate.
@@ -3454,17 +3246,15 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   std::vector<bssl::UniquePtr<CRYPTO_BUFFER>> intermediates;
   intermediates.push_back(bssl::UpRef(intermediate_sha1.get()));
   scoped_refptr<X509Certificate> chain_sha1 = X509Certificate::CreateFromBuffer(
-      leaf.DupCertBuffer(), std::move(intermediates));
+      leaf->DupCertBuffer(), std::move(intermediates));
   ASSERT_TRUE(chain_sha1.get());
 
   const int flags = 0;
   CertVerifyResult verify_result;
-  int error =
-      Verify(chain_sha1.get(), kHostname, flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+  int error = Verify(chain_sha1.get(), kHostname, flags, CertificateList(),
+                     &verify_result);
 
-  if (verify_proc_type() == CERT_VERIFY_PROC_BUILTIN ||
-      verify_proc_type() == CERT_VERIFY_PROC_MAC) {
+  if (VerifyProcTypeIsBuiltin()) {
     // Should have built a chain through the SHA256 intermediate. This was only
     // available via AIA, and not the (SHA1) one provided directly to path
     // building.
@@ -3476,18 +3266,6 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
 
     EXPECT_FALSE(verify_result.has_sha1);
     EXPECT_THAT(error, IsOk());
-  } else if (verify_proc_type() == CERT_VERIFY_PROC_WIN) {
-    // TODO(eroman): Make these test expectations exact.
-    // This seemed to be working on Windows when !AreSHA1IntermediatesAllowed()
-    // from previous testing, but then failed on the Windows 10 bot.
-    if (error != OK) {
-      EXPECT_TRUE(verify_result.cert_status &
-                  CERT_STATUS_WEAK_SIGNATURE_ALGORITHM);
-      EXPECT_TRUE(verify_result.cert_status &
-                  CERT_STATUS_SHA1_SIGNATURE_PRESENT);
-      EXPECT_TRUE(verify_result.has_sha1);
-      EXPECT_THAT(error, IsError(ERR_CERT_WEAK_SIGNATURE_ALGORITHM));
-    }
   } else {
     EXPECT_NE(OK, error);
     if (verify_proc_type() == CERT_VERIFY_PROC_ANDROID &&
@@ -3516,9 +3294,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest, RevocationHardFailNoCrls) {
 
   // Create certs which have no AIA or CRL distribution points.
   const char kHostname[] = "www.example.com";
-  std::unique_ptr<CertBuilder> leaf, intermediate, root;
-  CertBuilder::CreateSimpleChain(&leaf, &intermediate, &root);
-  ASSERT_TRUE(leaf && intermediate && root);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
 
   // Trust the root and build a chain to verify that includes the intermediate.
   ScopedTestRoot scoped_root(root->GetX509Certificate().get());
@@ -3529,11 +3305,40 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest, RevocationHardFailNoCrls) {
   const int flags = CertVerifyProc::VERIFY_REV_CHECKING_REQUIRED_LOCAL_ANCHORS;
   CertVerifyResult verify_result;
   int error =
-      Verify(chain.get(), kHostname, flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+      Verify(chain.get(), kHostname, flags, CertificateList(), &verify_result);
 
   EXPECT_THAT(error, IsError(ERR_CERT_NO_REVOCATION_MECHANISM));
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_REV_CHECKING_ENABLED);
+}
+
+TEST_P(CertVerifyProcInternalWithNetFetchingTest,
+       RevocationHardFailNoCrlsDisableNetworkFetches) {
+  if (!SupportsRevCheckingRequiredLocalAnchors()) {
+    LOG(INFO) << "Skipping test as verifier doesn't support "
+                 "VERIFY_REV_CHECKING_REQUIRED_LOCAL_ANCHORS";
+    return;
+  }
+
+  // Create certs which have no AIA or CRL distribution points.
+  const char kHostname[] = "www.example.com";
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
+
+  // Trust the root and build a chain to verify that includes the intermediate.
+  ScopedTestRoot scoped_root(root->GetX509Certificate().get());
+  scoped_refptr<X509Certificate> chain = leaf->GetX509CertificateChain();
+  ASSERT_TRUE(chain.get());
+
+  // Verify with flags for both hard-fail revocation checking for local anchors
+  // and disabling network fetches.
+  const int flags = CertVerifyProc::VERIFY_REV_CHECKING_REQUIRED_LOCAL_ANCHORS |
+                    CertVerifyProc::VERIFY_DISABLE_NETWORK_FETCHES;
+  CertVerifyResult verify_result;
+  int error =
+      Verify(chain.get(), kHostname, flags, CertificateList(), &verify_result);
+
+  // Should succeed, VERIFY_DISABLE_NETWORK_FETCHES takes priority.
+  EXPECT_THAT(error, IsOk());
+  EXPECT_FALSE(verify_result.cert_status & CERT_STATUS_REV_CHECKING_ENABLED);
 }
 
 // CRL hard fail test where both leaf and intermediate are covered by valid
@@ -3548,9 +3353,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   }
 
   const char kHostname[] = "www.example.com";
-  std::unique_ptr<CertBuilder> leaf, intermediate, root;
-  CertBuilder::CreateSimpleChain(&leaf, &intermediate, &root);
-  ASSERT_TRUE(leaf && intermediate && root);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
 
   // Serve a root-issued CRL which does not revoke intermediate.
   intermediate->SetCrlDistributionPointUrl(CreateAndServeCrl(root.get(), {}));
@@ -3567,8 +3370,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   const int flags = CertVerifyProc::VERIFY_REV_CHECKING_REQUIRED_LOCAL_ANCHORS;
   CertVerifyResult verify_result;
   int error =
-      Verify(chain.get(), kHostname, flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+      Verify(chain.get(), kHostname, flags, CertificateList(), &verify_result);
 
   // Should pass, leaf and intermediate were covered by CRLs and were not
   // revoked.
@@ -3588,9 +3390,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   }
 
   const char kHostname[] = "www.example.com";
-  std::unique_ptr<CertBuilder> leaf, intermediate, root;
-  CertBuilder::CreateSimpleChain(&leaf, &intermediate, &root);
-  ASSERT_TRUE(leaf && intermediate && root);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
 
   // Root-issued CRL revokes leaf's serial number. This is irrelevant.
   intermediate->SetCrlDistributionPointUrl(
@@ -3610,8 +3410,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   const int flags = CertVerifyProc::VERIFY_REV_CHECKING_REQUIRED_LOCAL_ANCHORS;
   CertVerifyResult verify_result;
   int error =
-      Verify(chain.get(), kHostname, flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+      Verify(chain.get(), kHostname, flags, CertificateList(), &verify_result);
 
   // Should pass, leaf and intermediate were covered by CRLs and were not
   // revoked.
@@ -3628,9 +3427,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   }
 
   const char kHostname[] = "www.example.com";
-  std::unique_ptr<CertBuilder> leaf, intermediate, root;
-  CertBuilder::CreateSimpleChain(&leaf, &intermediate, &root);
-  ASSERT_TRUE(leaf && intermediate && root);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
 
   // Root-issued CRL which does not revoke intermediate.
   intermediate->SetCrlDistributionPointUrl(CreateAndServeCrl(root.get(), {}));
@@ -3648,8 +3445,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   const int flags = CertVerifyProc::VERIFY_REV_CHECKING_REQUIRED_LOCAL_ANCHORS;
   CertVerifyResult verify_result;
   int error =
-      Verify(chain.get(), kHostname, flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+      Verify(chain.get(), kHostname, flags, CertificateList(), &verify_result);
 
   // Should fail, leaf is revoked.
   EXPECT_THAT(error, IsError(ERR_CERT_REVOKED));
@@ -3665,9 +3461,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   }
 
   const char kHostname[] = "www.example.com";
-  std::unique_ptr<CertBuilder> leaf, intermediate, root;
-  CertBuilder::CreateSimpleChain(&leaf, &intermediate, &root);
-  ASSERT_TRUE(leaf && intermediate && root);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
 
   // Intermediate is revoked by root issued CRL.
   intermediate->SetCrlDistributionPointUrl(
@@ -3685,8 +3479,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   const int flags = CertVerifyProc::VERIFY_REV_CHECKING_REQUIRED_LOCAL_ANCHORS;
   CertVerifyResult verify_result;
   int error =
-      Verify(chain.get(), kHostname, flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+      Verify(chain.get(), kHostname, flags, CertificateList(), &verify_result);
 
   // Should fail, intermediate is revoked.
   EXPECT_THAT(error, IsError(ERR_CERT_REVOKED));
@@ -3705,9 +3498,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   }
 
   const char kHostname[] = "www.example.com";
-  std::unique_ptr<CertBuilder> leaf, intermediate, root;
-  CertBuilder::CreateSimpleChain(&leaf, &intermediate, &root);
-  ASSERT_TRUE(leaf && intermediate && root);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
 
   // Serve a root-issued CRL which does not revoke intermediate.
   intermediate->SetCrlDistributionPointUrl(CreateAndServeCrl(root.get(), {}));
@@ -3725,8 +3516,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   const int flags = CertVerifyProc::VERIFY_REV_CHECKING_REQUIRED_LOCAL_ANCHORS;
   CertVerifyResult verify_result;
   int error =
-      Verify(chain.get(), kHostname, flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+      Verify(chain.get(), kHostname, flags, CertificateList(), &verify_result);
 
   // Should fail since no revocation information was available for the leaf.
   EXPECT_THAT(error, IsError(ERR_CERT_UNABLE_TO_CHECK_REVOCATION));
@@ -3745,9 +3535,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   }
 
   const char kHostname[] = "www.example.com";
-  std::unique_ptr<CertBuilder> leaf, intermediate, root;
-  CertBuilder::CreateSimpleChain(&leaf, &intermediate, &root);
-  ASSERT_TRUE(leaf && intermediate && root);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
 
   // Serve a 404 for the root-issued CRL distribution point url.
   intermediate->SetCrlDistributionPointUrl(RegisterSimpleTestServerHandler(
@@ -3765,8 +3553,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   const int flags = CertVerifyProc::VERIFY_REV_CHECKING_REQUIRED_LOCAL_ANCHORS;
   CertVerifyResult verify_result;
   int error =
-      Verify(chain.get(), kHostname, flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+      Verify(chain.get(), kHostname, flags, CertificateList(), &verify_result);
 
   // Should fail since no revocation information was available for the
   // intermediate.
@@ -3783,9 +3570,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest, RevocationSoftFailNoCrls) {
 
   // Create certs which have no AIA or CRL distribution points.
   const char kHostname[] = "www.example.com";
-  std::unique_ptr<CertBuilder> leaf, intermediate, root;
-  CertBuilder::CreateSimpleChain(&leaf, &intermediate, &root);
-  ASSERT_TRUE(leaf && intermediate && root);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
 
   // Trust the root and build a chain to verify that includes the intermediate.
   ScopedTestRoot scoped_root(root->GetX509Certificate().get());
@@ -3796,8 +3581,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest, RevocationSoftFailNoCrls) {
   const int flags = CertVerifyProc::VERIFY_REV_CHECKING_ENABLED;
   CertVerifyResult verify_result;
   int error =
-      Verify(chain.get(), kHostname, flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+      Verify(chain.get(), kHostname, flags, CertificateList(), &verify_result);
 
   EXPECT_THAT(error, IsOk());
   EXPECT_FALSE(verify_result.cert_status & CERT_STATUS_NO_REVOCATION_MECHANISM);
@@ -3818,9 +3602,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   }
 
   const char kHostname[] = "www.example.com";
-  std::unique_ptr<CertBuilder> leaf, intermediate, root;
-  CertBuilder::CreateSimpleChain(&leaf, &intermediate, &root);
-  ASSERT_TRUE(leaf && intermediate && root);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
 
   // Serve a root-issued CRL which does not revoke intermediate.
   intermediate->SetCrlDistributionPointUrl(CreateAndServeCrl(root.get(), {}));
@@ -3837,8 +3619,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   const int flags = CertVerifyProc::VERIFY_REV_CHECKING_ENABLED;
   CertVerifyResult verify_result;
   int error =
-      Verify(chain.get(), kHostname, flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+      Verify(chain.get(), kHostname, flags, CertificateList(), &verify_result);
 
   EXPECT_THAT(error, IsOk());
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_REV_CHECKING_ENABLED);
@@ -3856,9 +3637,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   }
 
   const char kHostname[] = "www.example.com";
-  std::unique_ptr<CertBuilder> leaf, intermediate, root;
-  CertBuilder::CreateSimpleChain(&leaf, &intermediate, &root);
-  ASSERT_TRUE(leaf && intermediate && root);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
 
   // Root-issued CRL revokes leaf's serial number. This is irrelevant.
   intermediate->SetCrlDistributionPointUrl(
@@ -3878,8 +3657,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   const int flags = CertVerifyProc::VERIFY_REV_CHECKING_ENABLED;
   CertVerifyResult verify_result;
   int error =
-      Verify(chain.get(), kHostname, flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+      Verify(chain.get(), kHostname, flags, CertificateList(), &verify_result);
 
   EXPECT_THAT(error, IsOk());
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_REV_CHECKING_ENABLED);
@@ -3894,9 +3672,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   }
 
   const char kHostname[] = "www.example.com";
-  std::unique_ptr<CertBuilder> leaf, intermediate, root;
-  CertBuilder::CreateSimpleChain(&leaf, &intermediate, &root);
-  ASSERT_TRUE(leaf && intermediate && root);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
 
   // Root-issued CRL which does not revoke intermediate.
   intermediate->SetCrlDistributionPointUrl(CreateAndServeCrl(root.get(), {}));
@@ -3914,18 +3690,47 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   const int flags = CertVerifyProc::VERIFY_REV_CHECKING_ENABLED;
   CertVerifyResult verify_result;
   int error =
-      Verify(chain.get(), kHostname, flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+      Verify(chain.get(), kHostname, flags, CertificateList(), &verify_result);
 
-  if (verify_proc_type() == CERT_VERIFY_PROC_MAC && IsMacAtLeastOS10_12()) {
-    // CRL handling seems broken on macOS >= 10.12.
-    // TODO(mattm): followup on this.
-    EXPECT_THAT(error, IsOk());
-  } else {
-    // Should fail, leaf is revoked.
-    EXPECT_THAT(error, IsError(ERR_CERT_REVOKED));
-  }
+  // Should fail, leaf is revoked.
+  EXPECT_THAT(error, IsError(ERR_CERT_REVOKED));
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_REV_CHECKING_ENABLED);
+}
+
+TEST_P(CertVerifyProcInternalWithNetFetchingTest,
+       RevocationSoftFailLeafRevokedByCrlDisableNetworkFetches) {
+  if (!SupportsSoftFailRevChecking()) {
+    LOG(INFO) << "Skipping test as verifier doesn't support "
+                 "VERIFY_REV_CHECKING_ENABLED";
+    return;
+  }
+
+  const char kHostname[] = "www.example.com";
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
+
+  // Root-issued CRL which does not revoke intermediate.
+  intermediate->SetCrlDistributionPointUrl(CreateAndServeCrl(root.get(), {}));
+
+  // Leaf is revoked by intermediate issued CRL.
+  leaf->SetCrlDistributionPointUrl(
+      CreateAndServeCrl(intermediate.get(), {leaf->GetSerialNumber()}));
+
+  // Trust the root and build a chain to verify that includes the intermediate.
+  ScopedTestRoot scoped_root(root->GetX509Certificate().get());
+  scoped_refptr<X509Certificate> chain = leaf->GetX509CertificateChain();
+  ASSERT_TRUE(chain.get());
+
+  // Verify with flags for both soft-fail revocation checking and disabling
+  // network fetches.
+  const int flags = CertVerifyProc::VERIFY_REV_CHECKING_ENABLED |
+                    CertVerifyProc::VERIFY_DISABLE_NETWORK_FETCHES;
+  CertVerifyResult verify_result;
+  int error =
+      Verify(chain.get(), kHostname, flags, CertificateList(), &verify_result);
+
+  // Should succeed, VERIFY_DISABLE_NETWORK_FETCHES takes priority.
+  EXPECT_THAT(error, IsOk());
+  EXPECT_FALSE(verify_result.cert_status & CERT_STATUS_REV_CHECKING_ENABLED);
 }
 
 TEST_P(CertVerifyProcInternalWithNetFetchingTest,
@@ -3937,9 +3742,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   }
 
   const char kHostname[] = "www.example.com";
-  std::unique_ptr<CertBuilder> leaf, intermediate, root;
-  CertBuilder::CreateSimpleChain(&leaf, &intermediate, &root);
-  ASSERT_TRUE(leaf && intermediate && root);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
 
   // Intermediate is revoked by root issued CRL.
   intermediate->SetCrlDistributionPointUrl(
@@ -3957,17 +3760,10 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   const int flags = CertVerifyProc::VERIFY_REV_CHECKING_ENABLED;
   CertVerifyResult verify_result;
   int error =
-      Verify(chain.get(), kHostname, flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+      Verify(chain.get(), kHostname, flags, CertificateList(), &verify_result);
 
-  if (verify_proc_type() == CERT_VERIFY_PROC_MAC && IsMacAtLeastOS10_12()) {
-    // CRL handling seems broken on macOS >= 10.12.
-    // TODO(mattm): followup on this.
-    EXPECT_THAT(error, IsOk());
-  } else {
-    // Should fail, intermediate is revoked.
-    EXPECT_THAT(error, IsError(ERR_CERT_REVOKED));
-  }
+  // Should fail, intermediate is revoked.
+  EXPECT_THAT(error, IsError(ERR_CERT_REVOKED));
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_REV_CHECKING_ENABLED);
 }
 
@@ -3980,17 +3776,16 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   }
 
   const char kHostname[] = "www.example.com";
-  std::unique_ptr<CertBuilder> leaf, intermediate, root;
-  CertBuilder::CreateSimpleChain(&leaf, &intermediate, &root);
-  ASSERT_TRUE(leaf && intermediate && root);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
 
   // Root-issued CRL which does not revoke intermediate.
   intermediate->SetCrlDistributionPointUrl(CreateAndServeCrl(root.get(), {}));
 
   // Leaf is revoked by intermediate issued CRL which is signed with
-  // sha1WithRSAEncryption.
-  leaf->SetCrlDistributionPointUrl(CreateAndServeCrl(
-      intermediate.get(), {leaf->GetSerialNumber()}, DigestAlgorithm::Sha1));
+  // ecdsaWithSha256.
+  leaf->SetCrlDistributionPointUrl(
+      CreateAndServeCrl(intermediate.get(), {leaf->GetSerialNumber()},
+                        SignatureAlgorithm::kEcdsaSha1));
 
   // Trust the root and build a chain to verify that includes the intermediate.
   ScopedTestRoot scoped_root(root->GetX509Certificate().get());
@@ -4001,17 +3796,10 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   const int flags = CertVerifyProc::VERIFY_REV_CHECKING_ENABLED;
   CertVerifyResult verify_result;
   int error =
-      Verify(chain.get(), kHostname, flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+      Verify(chain.get(), kHostname, flags, CertificateList(), &verify_result);
 
-  if (verify_proc_type() == CERT_VERIFY_PROC_MAC && IsMacAtLeastOS10_12()) {
-    // CRL handling seems broken on macOS >= 10.12.
-    // TODO(mattm): followup on this.
-    EXPECT_THAT(error, IsOk());
-  } else {
-    // Should fail, leaf is revoked.
-    EXPECT_THAT(error, IsError(ERR_CERT_REVOKED));
-  }
+  // Should fail, leaf is revoked.
+  EXPECT_THAT(error, IsError(ERR_CERT_REVOKED));
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_REV_CHECKING_ENABLED);
 }
 
@@ -4024,17 +3812,21 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   }
 
   const char kHostname[] = "www.example.com";
-  std::unique_ptr<CertBuilder> leaf, intermediate, root;
-  CertBuilder::CreateSimpleChain(&leaf, &intermediate, &root);
-  ASSERT_TRUE(leaf && intermediate && root);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
 
   // Root-issued CRL which does not revoke intermediate.
   intermediate->SetCrlDistributionPointUrl(CreateAndServeCrl(root.get(), {}));
+  // This test wants to check handling of MD5 CRLs, but ecdsa-with-md5
+  // signatureAlgorithm does not exist. Use an RSA private key for intermediate
+  // so that the CRL will be signed with the md5WithRSAEncryption algorithm.
+  intermediate->GenerateRSAKey();
+  leaf->SetSignatureAlgorithm(SignatureAlgorithm::kRsaPkcs1Sha256);
 
   // Leaf is revoked by intermediate issued CRL which is signed with
   // md5WithRSAEncryption.
-  leaf->SetCrlDistributionPointUrl(CreateAndServeCrl(
-      intermediate.get(), {leaf->GetSerialNumber()}, DigestAlgorithm::Md5));
+  leaf->SetCrlDistributionPointUrl(CreateAndServeCrlWithAlgorithmTlvAndDigest(
+      intermediate.get(), {leaf->GetSerialNumber()}, Md5WithRSAEncryption(),
+      EVP_md5()));
 
   // Trust the root and build a chain to verify that includes the intermediate.
   ScopedTestRoot scoped_root(root->GetX509Certificate().get());
@@ -4045,19 +3837,12 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   const int flags = CertVerifyProc::VERIFY_REV_CHECKING_ENABLED;
   CertVerifyResult verify_result;
   int error =
-      Verify(chain.get(), kHostname, flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+      Verify(chain.get(), kHostname, flags, CertificateList(), &verify_result);
 
-  if (verify_proc_type() == CERT_VERIFY_PROC_WIN ||
-      (verify_proc_type() == CERT_VERIFY_PROC_MAC && !IsMacAtLeastOS10_12())) {
-    // Windows and Mac <= 10.11 honor MD5 CRLs. ¯\_(ツ)_/¯
-    EXPECT_THAT(error, IsError(ERR_CERT_REVOKED));
-  } else {
-    // Verification should succeed: MD5 signature algorithm is not supported
-    // and soft-fail checking will ignore the inability to get revocation
-    // status.
-    EXPECT_THAT(error, IsOk());
-  }
+  // Verification should succeed: MD5 signature algorithm is not supported
+  // and soft-fail checking will ignore the inability to get revocation
+  // status.
+  EXPECT_THAT(error, IsOk());
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_REV_CHECKING_ENABLED);
 }
 
@@ -4073,9 +3858,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   }
 
   const char kHostname[] = "www.example.com";
-  std::unique_ptr<CertBuilder> leaf, intermediate, root;
-  CertBuilder::CreateSimpleChain(&leaf, &intermediate, &root);
-  ASSERT_TRUE(leaf && intermediate && root);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
 
   // Serve a root-issued CRL which does not revoke intermediate.
   intermediate->SetCrlDistributionPointUrl(CreateAndServeCrl(root.get(), {}));
@@ -4093,8 +3876,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   const int flags = CertVerifyProc::VERIFY_REV_CHECKING_ENABLED;
   CertVerifyResult verify_result;
   int error =
-      Verify(chain.get(), kHostname, flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+      Verify(chain.get(), kHostname, flags, CertificateList(), &verify_result);
 
   // Should succeed due to soft-fail revocation checking.
   EXPECT_THAT(error, IsOk());
@@ -4113,9 +3895,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   }
 
   const char kHostname[] = "www.example.com";
-  std::unique_ptr<CertBuilder> leaf, intermediate, root;
-  CertBuilder::CreateSimpleChain(&leaf, &intermediate, &root);
-  ASSERT_TRUE(leaf && intermediate && root);
+  auto [leaf, intermediate, root] = CertBuilder::CreateSimpleChain3();
 
   // Serve a 404 for the root-issued CRL distribution point url.
   intermediate->SetCrlDistributionPointUrl(RegisterSimpleTestServerHandler(
@@ -4133,8 +3913,7 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
   const int flags = CertVerifyProc::VERIFY_REV_CHECKING_ENABLED;
   CertVerifyResult verify_result;
   int error =
-      Verify(chain.get(), kHostname, flags, CRLSet::BuiltinCRLSet().get(),
-             CertificateList(), &verify_result);
+      Verify(chain.get(), kHostname, flags, CertificateList(), &verify_result);
 
   // Should succeed due to soft-fail revocation checking.
   EXPECT_THAT(error, IsOk());
@@ -4176,16 +3955,15 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
 
   CertVerifyResult verify_result;
   int flags = 0;
-  int error =
-      Verify(chain.get(), ocsp_test_server.host_port_pair().host(), flags,
-             CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
+  int error = Verify(chain.get(), ocsp_test_server.host_port_pair().host(),
+                     flags, CertificateList(), &verify_result);
   EXPECT_THAT(error, IsOk());
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_IS_EV);
-  EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_REV_CHECKING_ENABLED);
+  EXPECT_FALSE(verify_result.cert_status & CERT_STATUS_REV_CHECKING_ENABLED);
 }
 
 // Tests that an EV cert verification with that could not retrieve online OCSP
-// revocation information is verified but not marked as CERT_STATUS_IS_EV.
+// revocation information is verified but still marked as CERT_STATUS_IS_EV.
 TEST_P(CertVerifyProcInternalWithNetFetchingTest,
        EVOnlineOCSPRevocationCheckingSoftFail) {
   if (!SupportsEV()) {
@@ -4219,16 +3997,15 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
 
   CertVerifyResult verify_result;
   int flags = 0;
-  int error =
-      Verify(chain.get(), ocsp_test_server.host_port_pair().host(), flags,
-             CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
+  int error = Verify(chain.get(), ocsp_test_server.host_port_pair().host(),
+                     flags, CertificateList(), &verify_result);
   EXPECT_THAT(error, IsOk());
-  EXPECT_FALSE(verify_result.cert_status & CERT_STATUS_IS_EV);
+  EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_IS_EV);
+  EXPECT_FALSE(verify_result.cert_status & CERT_STATUS_REV_CHECKING_ENABLED);
 }
 
 // Tests that an EV cert verification with online OCSP returning affirmatively
-// revoked is not marked as CERT_STATUS_IS_EV. On some platforms verification
-// will fail with ERR_CERT_REVOKED.
+// revoked is marked as CERT_STATUS_IS_EV.
 TEST_P(CertVerifyProcInternalWithNetFetchingTest,
        EVOnlineOCSPRevocationCheckingRevoked) {
   if (!SupportsEV()) {
@@ -4262,119 +4039,1594 @@ TEST_P(CertVerifyProcInternalWithNetFetchingTest,
 
   CertVerifyResult verify_result;
   int flags = 0;
-  int error =
-      Verify(chain.get(), ocsp_test_server.host_port_pair().host(), flags,
-             CRLSet::BuiltinCRLSet().get(), CertificateList(), &verify_result);
-  if (verify_proc_type() == CERT_VERIFY_PROC_BUILTIN)
-    EXPECT_THAT(error, IsOk());
-  else
-    EXPECT_THAT(error, IsError(ERR_CERT_REVOKED));
-  EXPECT_FALSE(verify_result.cert_status & CERT_STATUS_IS_EV);
+  int error = Verify(chain.get(), ocsp_test_server.host_port_pair().host(),
+                     flags, CertificateList(), &verify_result);
+  EXPECT_THAT(error, IsOk());
+  EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_IS_EV);
+  EXPECT_FALSE(verify_result.cert_status & CERT_STATUS_REV_CHECKING_ENABLED);
 }
 
-TEST(CertVerifyProcTest, RejectsMD2) {
-  scoped_refptr<X509Certificate> cert(
-      ImportCertFromFile(GetTestCertsDirectory(), "ok_cert.pem"));
-  ASSERT_TRUE(cert);
+// A set of tests that check how various constraints are enforced when they
+// appear at different points in the chain, such as on the trust anchor versus
+// on intermediates.
+class CertVerifyProcConstraintsTest : public CertVerifyProcInternalTest {
+ protected:
+  void SetUp() override {
+    CertVerifyProcInternalTest::SetUp();
 
-  CertVerifyResult result;
-  result.has_md2 = true;
-  scoped_refptr<CertVerifyProc> verify_proc = new MockCertVerifyProc(result);
-
-  int flags = 0;
-  CertVerifyResult verify_result;
-  int error = verify_proc->Verify(
-      cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
-      /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result, NetLogWithSource());
-  EXPECT_THAT(error, IsError(ERR_CERT_INVALID));
-  EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_INVALID);
-}
-
-TEST(CertVerifyProcTest, RejectsMD4) {
-  scoped_refptr<X509Certificate> cert(
-      ImportCertFromFile(GetTestCertsDirectory(), "ok_cert.pem"));
-  ASSERT_TRUE(cert);
-
-  CertVerifyResult result;
-  result.has_md4 = true;
-  scoped_refptr<CertVerifyProc> verify_proc = new MockCertVerifyProc(result);
-
-  int flags = 0;
-  CertVerifyResult verify_result;
-  int error = verify_proc->Verify(
-      cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
-      /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result, NetLogWithSource());
-  EXPECT_THAT(error, IsError(ERR_CERT_INVALID));
-  EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_INVALID);
-}
-
-TEST(CertVerifyProcTest, RejectsMD5) {
-  scoped_refptr<X509Certificate> cert(
-      ImportCertFromFile(GetTestCertsDirectory(), "ok_cert.pem"));
-  ASSERT_TRUE(cert);
-
-  CertVerifyResult result;
-  result.has_md5 = true;
-  scoped_refptr<CertVerifyProc> verify_proc = new MockCertVerifyProc(result);
-
-  int flags = 0;
-  CertVerifyResult verify_result;
-  int error = verify_proc->Verify(
-      cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
-      /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result, NetLogWithSource());
-  EXPECT_THAT(error, IsError(ERR_CERT_WEAK_SIGNATURE_ALGORITHM));
-  EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_WEAK_SIGNATURE_ALGORITHM);
-}
-
-TEST(CertVerifyProcTest, RejectsPublicSHA1Leaves) {
-  scoped_refptr<X509Certificate> cert(
-      ImportCertFromFile(GetTestCertsDirectory(), "ok_cert.pem"));
-  ASSERT_TRUE(cert);
-
-  CertVerifyResult result;
-  result.has_sha1 = true;
-  result.has_sha1_leaf = true;
-  result.is_issued_by_known_root = true;
-  scoped_refptr<CertVerifyProc> verify_proc = new MockCertVerifyProc(result);
-
-  int flags = 0;
-  CertVerifyResult verify_result;
-  int error = verify_proc->Verify(
-      cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
-      /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result, NetLogWithSource());
-  EXPECT_THAT(error, IsError(ERR_CERT_WEAK_SIGNATURE_ALGORITHM));
-  EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_WEAK_SIGNATURE_ALGORITHM);
-}
-
-TEST(CertVerifyProcTest, RejectsPublicSHA1IntermediatesUnlessAllowed) {
-  scoped_refptr<X509Certificate> cert(ImportCertFromFile(
-      GetTestCertsDirectory(), "39_months_after_2015_04.pem"));
-  ASSERT_TRUE(cert);
-
-  CertVerifyResult result;
-  result.has_sha1 = true;
-  result.has_sha1_leaf = false;
-  result.is_issued_by_known_root = true;
-  scoped_refptr<CertVerifyProc> verify_proc = new MockCertVerifyProc(result);
-
-  int flags = 0;
-  CertVerifyResult verify_result;
-  int error = verify_proc->Verify(
-      cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
-      /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result, NetLogWithSource());
-  if (AreSHA1IntermediatesAllowed()) {
-    EXPECT_THAT(error, IsOk());
-    EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_SHA1_SIGNATURE_PRESENT);
-  } else {
-    EXPECT_THAT(error, IsError(ERR_CERT_WEAK_SIGNATURE_ALGORITHM));
-    EXPECT_TRUE(verify_result.cert_status &
-                CERT_STATUS_WEAK_SIGNATURE_ALGORITHM);
+    chain_ = CertBuilder::CreateSimpleChain(/*chain_length=*/4);
   }
+
+  int VerifyWithTrust(CertificateTrust trust) {
+    ScopedTestRoot test_root(chain_.back()->GetX509Certificate().get(), trust);
+    CertVerifyResult verify_result;
+    int flags = 0;
+    return CertVerifyProcInternalTest::Verify(
+        chain_.front()->GetX509CertificateChain().get(), "www.example.com",
+        flags, CertificateList(), &verify_result);
+  }
+
+  int Verify() { return VerifyWithTrust(CertificateTrust::ForTrustAnchor()); }
+
+  int VerifyWithExpiryAndConstraints() {
+    return VerifyWithTrust(CertificateTrust::ForTrustAnchor()
+                               .WithEnforceAnchorExpiry()
+                               .WithEnforceAnchorConstraints());
+  }
+
+  int VerifyWithExpiryAndFullConstraints() {
+    return VerifyWithTrust(CertificateTrust::ForTrustAnchor()
+                               .WithEnforceAnchorExpiry()
+                               .WithEnforceAnchorConstraints()
+                               .WithRequireAnchorBasicConstraints());
+  }
+
+  int ExpectedIntermediateConstraintError() {
+    if (verify_proc_type() == CERT_VERIFY_PROC_ANDROID)
+      return ERR_CERT_AUTHORITY_INVALID;
+    return ERR_CERT_INVALID;
+  }
+
+  std::vector<std::unique_ptr<CertBuilder>> chain_;
+};
+
+INSTANTIATE_TEST_SUITE_P(All,
+                         CertVerifyProcConstraintsTest,
+                         testing::ValuesIn(kAllCertVerifiers),
+                         VerifyProcTypeToName);
+
+TEST_P(CertVerifyProcConstraintsTest, BaseCase) {
+  // Without changing anything on the test chain, it should validate
+  // successfully. If this is not true then the rest of the tests in this class
+  // are unlikely to be useful.
+  EXPECT_THAT(Verify(), IsOk());
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsOk());
+    EXPECT_THAT(VerifyWithExpiryAndFullConstraints(), IsOk());
+    EXPECT_THAT(VerifyWithTrust(CertificateTrust::ForTrustAnchorOrLeaf()),
+                IsOk());
+    EXPECT_THAT(VerifyWithTrust(CertificateTrust::ForTrustedLeaf()),
+                IsError(ERR_CERT_AUTHORITY_INVALID));
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, BasicConstraintsNotCaRoot) {
+  chain_[3]->SetBasicConstraints(/*is_ca=*/false, /*path_len=*/-1);
+
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(Verify(), IsOk());
+    EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsError(ERR_CERT_INVALID));
+    EXPECT_THAT(VerifyWithExpiryAndFullConstraints(),
+                IsError(ERR_CERT_INVALID));
+  } else if (verify_proc_type() == CERT_VERIFY_PROC_ANDROID) {
+    EXPECT_THAT(Verify(), IsOk());
+  } else {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_INVALID));
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, BasicConstraintsNotCaIntermediate) {
+  chain_[2]->SetBasicConstraints(/*is_ca=*/false, /*path_len=*/-1);
+
+  EXPECT_THAT(Verify(), IsError(ExpectedIntermediateConstraintError()));
+}
+
+TEST_P(CertVerifyProcConstraintsTest, BasicConstraintsIsCaLeaf) {
+  for (bool has_key_usage_cert_sign : {false, true}) {
+    chain_[0]->SetBasicConstraints(/*is_ca=*/true, /*path_len=*/-1);
+
+    if (has_key_usage_cert_sign) {
+      chain_[0]->SetKeyUsages(
+          {KEY_USAGE_BIT_KEY_CERT_SIGN, KEY_USAGE_BIT_DIGITAL_SIGNATURE});
+    } else {
+      chain_[0]->SetKeyUsages({KEY_USAGE_BIT_DIGITAL_SIGNATURE});
+    }
+    EXPECT_THAT(Verify(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, BasicConstraintsPathlen0Root) {
+  chain_[3]->SetBasicConstraints(/*is_ca=*/true, /*path_len=*/0);
+
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(Verify(), IsOk());
+    EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsError(ERR_CERT_INVALID));
+  } else if (VerifyProcTypeIsIOSAtMostOS14() ||
+             verify_proc_type() == CERT_VERIFY_PROC_ANDROID) {
+    EXPECT_THAT(Verify(), IsOk());
+  } else {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_INVALID));
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, BasicConstraintsPathlen1Root) {
+  chain_[3]->SetBasicConstraints(/*is_ca=*/true, /*path_len=*/1);
+
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(Verify(), IsOk());
+    EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsError(ERR_CERT_INVALID));
+  } else if (VerifyProcTypeIsIOSAtMostOS14() ||
+             verify_proc_type() == CERT_VERIFY_PROC_ANDROID) {
+    EXPECT_THAT(Verify(), IsOk());
+  } else {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_INVALID));
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, BasicConstraintsPathlen2Root) {
+  chain_[3]->SetBasicConstraints(/*is_ca=*/true, /*path_len=*/2);
+
+  EXPECT_THAT(Verify(), IsOk());
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest,
+       BasicConstraintsPathlen0IntermediateParent) {
+  chain_[2]->SetBasicConstraints(/*is_ca=*/true, /*path_len=*/0);
+
+  EXPECT_THAT(Verify(), IsError(ExpectedIntermediateConstraintError()));
+}
+
+TEST_P(CertVerifyProcConstraintsTest,
+       BasicConstraintsPathlen1IntermediateParent) {
+  chain_[2]->SetBasicConstraints(/*is_ca=*/true, /*path_len=*/1);
+
+  EXPECT_THAT(Verify(), IsOk());
+}
+
+TEST_P(CertVerifyProcConstraintsTest,
+       BasicConstraintsPathlen0IntermediateChild) {
+  chain_[1]->SetBasicConstraints(/*is_ca=*/true, /*path_len=*/0);
+
+  EXPECT_THAT(Verify(), IsOk());
+}
+
+TEST_P(CertVerifyProcConstraintsTest, BasicConstraintsNotPresentRoot) {
+  chain_[3]->EraseExtension(der::Input(kBasicConstraintsOid));
+
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(Verify(), IsOk());
+    EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsOk());
+    EXPECT_THAT(VerifyWithExpiryAndFullConstraints(),
+                IsError(ERR_CERT_INVALID));
+  } else if (verify_proc_type() == CERT_VERIFY_PROC_ANDROID) {
+    EXPECT_THAT(Verify(), IsOk());
+  } else {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_INVALID));
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, BasicConstraintsNotPresentRootX509V1) {
+  chain_[3]->SetCertificateVersion(CertificateVersion::V1);
+  chain_[3]->ClearExtensions();
+
+  EXPECT_THAT(Verify(), IsOk());
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsOk());
+    EXPECT_THAT(VerifyWithExpiryAndFullConstraints(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, BasicConstraintsNotPresentIntermediate) {
+  chain_[2]->EraseExtension(der::Input(kBasicConstraintsOid));
+
+  EXPECT_THAT(Verify(), IsError(ExpectedIntermediateConstraintError()));
+}
+
+TEST_P(CertVerifyProcConstraintsTest, BasicConstraintsNotPresentLeaf) {
+  chain_[0]->EraseExtension(der::Input(kBasicConstraintsOid));
+
+  EXPECT_THAT(Verify(), IsOk());
+}
+
+TEST_P(CertVerifyProcConstraintsTest, NameConstraintsNotMatchingRoot) {
+  chain_[3]->SetNameConstraintsDnsNames(/*permitted_dns_names=*/{"example.org"},
+                                        /*excluded_dns_names=*/{});
+
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(Verify(), IsOk());
+    EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsError(ERR_CERT_INVALID));
+  } else if (verify_proc_type() == CERT_VERIFY_PROC_ANDROID) {
+    EXPECT_THAT(Verify(), IsOk());
+  } else {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_INVALID));
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, NameConstraintsNotMatchingIntermediate) {
+  chain_[2]->SetNameConstraintsDnsNames(
+      /*permitted_dns_names=*/{"example.org"},
+      /*excluded_dns_names=*/{});
+
+  EXPECT_THAT(Verify(), IsError(ExpectedIntermediateConstraintError()));
+}
+
+TEST_P(CertVerifyProcConstraintsTest, NameConstraintsMatchingRoot) {
+  chain_[3]->SetNameConstraintsDnsNames(/*permitted_dns_names=*/{"example.com"},
+                                        /*excluded_dns_names=*/{});
+
+  EXPECT_THAT(Verify(), IsOk());
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, NameConstraintsMatchingIntermediate) {
+  chain_[2]->SetNameConstraintsDnsNames(
+      /*permitted_dns_names=*/{"example.com"},
+      /*excluded_dns_names=*/{});
+
+  EXPECT_THAT(Verify(), IsOk());
+}
+
+TEST_P(CertVerifyProcConstraintsTest, NameConstraintsOnLeaf) {
+  chain_[0]->SetNameConstraintsDnsNames(
+      /*permitted_dns_names=*/{"example.com"},
+      /*excluded_dns_names=*/{});
+
+  // TODO(mattm): this should be an error
+  // RFC 5280 4.2.1.10 says: "The name constraints extension, which MUST be
+  // used only in a CA certificate, ..."
+  EXPECT_THAT(Verify(), IsOk());
+}
+
+TEST_P(CertVerifyProcConstraintsTest, ValidityExpiredRoot) {
+  chain_[3]->SetValidity(base::Time::Now() - base::Days(14),
+                         base::Time::Now() - base::Days(7));
+
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(Verify(), IsOk());
+    EXPECT_THAT(VerifyWithExpiryAndConstraints(),
+                IsError(ERR_CERT_DATE_INVALID));
+    EXPECT_THAT(VerifyWithExpiryAndFullConstraints(),
+                IsError(ERR_CERT_DATE_INVALID));
+  } else if (verify_proc_type() == CERT_VERIFY_PROC_ANDROID) {
+    EXPECT_THAT(Verify(), IsOk());
+  } else {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_DATE_INVALID));
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, ValidityNotYetValidRoot) {
+  chain_[3]->SetValidity(base::Time::Now() + base::Days(7),
+                         base::Time::Now() + base::Days(14));
+
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(Verify(), IsOk());
+    EXPECT_THAT(VerifyWithExpiryAndConstraints(),
+                IsError(ERR_CERT_DATE_INVALID));
+    EXPECT_THAT(VerifyWithExpiryAndFullConstraints(),
+                IsError(ERR_CERT_DATE_INVALID));
+  } else if (verify_proc_type() == CERT_VERIFY_PROC_ANDROID) {
+    EXPECT_THAT(Verify(), IsOk());
+  } else {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_DATE_INVALID));
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, ValidityExpiredIntermediate) {
+  chain_[2]->SetValidity(base::Time::Now() - base::Days(14),
+                         base::Time::Now() - base::Days(7));
+
+  if (verify_proc_type() == CERT_VERIFY_PROC_ANDROID) {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_AUTHORITY_INVALID));
+  } else {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_DATE_INVALID));
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, ValidityNotYetValidIntermediate) {
+  chain_[2]->SetValidity(base::Time::Now() + base::Days(7),
+                         base::Time::Now() + base::Days(14));
+
+  if (verify_proc_type() == CERT_VERIFY_PROC_ANDROID) {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_AUTHORITY_INVALID));
+  } else {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_DATE_INVALID));
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, PolicyConstraints0Root) {
+  for (bool leaf_has_policy : {false, true}) {
+    SCOPED_TRACE(leaf_has_policy);
+
+    static const char kPolicy1[] = "1.2.3.4";
+    static const char kPolicy2[] = "1.2.3.4.5";
+    static const char kPolicy3[] = "1.2.3.5";
+    chain_[3]->SetPolicyConstraints(
+        /*require_explicit_policy=*/0,
+        /*inhibit_policy_mapping=*/absl::nullopt);
+    chain_[3]->SetCertificatePolicies({kPolicy1, kPolicy2});
+    chain_[2]->SetCertificatePolicies({kPolicy3, kPolicy1});
+    chain_[1]->SetCertificatePolicies({kPolicy1});
+
+    if (leaf_has_policy) {
+      chain_[0]->SetCertificatePolicies({kPolicy1});
+      EXPECT_THAT(Verify(), IsOk());
+      if (VerifyProcTypeIsBuiltin()) {
+        EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsOk());
+      }
+    } else {
+      chain_[0]->SetCertificatePolicies({});
+      if (VerifyProcTypeIsBuiltin()) {
+        EXPECT_THAT(Verify(), IsOk());
+        EXPECT_THAT(VerifyWithExpiryAndConstraints(),
+                    IsError(ERR_CERT_INVALID));
+      } else if (verify_proc_type() == CERT_VERIFY_PROC_IOS ||
+                 verify_proc_type() == CERT_VERIFY_PROC_ANDROID) {
+        EXPECT_THAT(Verify(), IsOk());
+      } else {
+        EXPECT_THAT(Verify(), IsError(ERR_CERT_INVALID));
+      }
+    }
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, PolicyConstraints4Root) {
+  // Explicit policy is required after 4 certs. Since the chain is 4 certs
+  // long, an explicit policy is never required.
+  chain_[3]->SetPolicyConstraints(
+      /*require_explicit_policy=*/4,
+      /*inhibit_policy_mapping=*/absl::nullopt);
+
+  EXPECT_THAT(Verify(), IsOk());
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, PolicyConstraints3Root) {
+  // Explicit policy is required after 3 certs. Since the chain is 4 certs
+  // long, an explicit policy is required and the chain should fail if anchor
+  // constraints are enforced.
+  chain_[3]->SetPolicyConstraints(
+      /*require_explicit_policy=*/3,
+      /*inhibit_policy_mapping=*/absl::nullopt);
+
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(Verify(), IsOk());
+    EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsError(ERR_CERT_INVALID));
+  } else {
+    // Windows seems to have an off-by-one error in how it enforces
+    // requireExplicitPolicy.
+    // (The mac/android verifiers are Ok here since they don't enforce
+    // policyConstraints on anchors.)
+    EXPECT_THAT(Verify(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, PolicyConstraints2Root) {
+  // Explicit policy is required after 2 certs. Since the chain is 4 certs
+  // long, an explicit policy is required and the chain should fail if anchor
+  // constraints are enforced.
+  chain_[3]->SetPolicyConstraints(
+      /*require_explicit_policy=*/2,
+      /*inhibit_policy_mapping=*/absl::nullopt);
+
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(Verify(), IsOk());
+    EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsError(ERR_CERT_INVALID));
+  } else if (verify_proc_type() == CERT_VERIFY_PROC_IOS ||
+             verify_proc_type() == CERT_VERIFY_PROC_ANDROID) {
+    EXPECT_THAT(Verify(), IsOk());
+  } else {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_INVALID));
+  }
+}
+
+// This is also a regression test for https://crbug.com/31497: If an
+// intermediate has requireExplicitPolicy in its policyConstraints extension,
+// verification should still succeed as long as some policy is valid for the
+// chain, since Chrome does not specify any required policy as an input to
+// certificate verification (allows anyPolicy).
+TEST_P(CertVerifyProcConstraintsTest, PolicyConstraints0Intermediate) {
+  for (bool leaf_has_policy : {false, true}) {
+    SCOPED_TRACE(leaf_has_policy);
+
+    static const char kPolicy1[] = "1.2.3.4";
+    static const char kPolicy2[] = "1.2.3.4.5";
+    static const char kPolicy3[] = "1.2.3.5";
+    chain_[2]->SetPolicyConstraints(
+        /*require_explicit_policy=*/0,
+        /*inhibit_policy_mapping=*/absl::nullopt);
+    chain_[2]->SetCertificatePolicies({kPolicy1, kPolicy2});
+    chain_[1]->SetCertificatePolicies({kPolicy3, kPolicy1});
+
+    if (leaf_has_policy) {
+      chain_[0]->SetCertificatePolicies({kPolicy1});
+      EXPECT_THAT(Verify(), IsOk());
+      if (VerifyProcTypeIsBuiltin()) {
+        EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsOk());
+      }
+    } else {
+      chain_[0]->SetCertificatePolicies({});
+      EXPECT_THAT(Verify(), IsError(ExpectedIntermediateConstraintError()));
+      if (VerifyProcTypeIsBuiltin()) {
+        EXPECT_THAT(VerifyWithExpiryAndConstraints(),
+                    IsError(ERR_CERT_INVALID));
+      }
+    }
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, PolicyConstraints3Intermediate) {
+  // Explicit policy is required after 3 certs. Since the chain up to
+  // |chain_[2]| is 3 certs long, an explicit policy is never required.
+  chain_[2]->SetPolicyConstraints(
+      /*require_explicit_policy=*/3,
+      /*inhibit_policy_mapping=*/absl::nullopt);
+
+  EXPECT_THAT(Verify(), IsOk());
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, PolicyConstraints2Intermediate) {
+  // Explicit policy is required after 2 certs. Since the chain up to
+  // |chain_[2]| is 3 certs long, an explicit policy will be required and this
+  // should fail to verify.
+  chain_[2]->SetPolicyConstraints(
+      /*require_explicit_policy=*/2,
+      /*inhibit_policy_mapping=*/absl::nullopt);
+
+    EXPECT_THAT(Verify(), IsError(ExpectedIntermediateConstraintError()));
+    if (VerifyProcTypeIsBuiltin()) {
+      EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsError(ERR_CERT_INVALID));
+    }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, PolicyConstraints1Intermediate) {
+  // Explicit policy is required after 1 cert. Since the chain up to
+  // |chain_[2]| is 3 certs long, an explicit policy will be required and this
+  // should fail to verify.
+  chain_[2]->SetPolicyConstraints(
+      /*require_explicit_policy=*/1,
+      /*inhibit_policy_mapping=*/absl::nullopt);
+
+  EXPECT_THAT(Verify(), IsError(ExpectedIntermediateConstraintError()));
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsError(ERR_CERT_INVALID));
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, PolicyConstraints0Leaf) {
+  // Setting requireExplicitPolicy to 0 on the target certificate should make
+  // an explicit policy required for the chain. (Ref: RFC 5280 section 6.1.5.b
+  // and the final paragraph of 6.1.5)
+  chain_[0]->SetPolicyConstraints(
+      /*require_explicit_policy=*/0,
+      /*inhibit_policy_mapping=*/absl::nullopt);
+
+  EXPECT_THAT(Verify(), IsError(ExpectedIntermediateConstraintError()));
+}
+
+TEST_P(CertVerifyProcConstraintsTest, InhibitPolicyMapping0Root) {
+  static const char kPolicy1[] = "1.2.3.4";
+  static const char kPolicy2[] = "1.2.3.5";
+
+  // Root inhibits policy mapping immediately.
+  chain_[3]->SetPolicyConstraints(
+      /*require_explicit_policy=*/absl::nullopt,
+      /*inhibit_policy_mapping=*/0);
+
+  // Policy constraints are specified on an intermediate so that an explicit
+  // policy will be required regardless if root constraints are applied.
+  chain_[2]->SetPolicyConstraints(
+      /*require_explicit_policy=*/0,
+      /*inhibit_policy_mapping=*/absl::nullopt);
+
+  // Intermediate uses policy mappings. This should not be allowed if the root
+  // constraints were enforced.
+  chain_[2]->SetCertificatePolicies({kPolicy1});
+  chain_[2]->SetPolicyMappings({{kPolicy1, kPolicy2}});
+
+  // Children require the policy mapping to have a valid policy.
+  chain_[1]->SetCertificatePolicies({kPolicy2});
+  chain_[0]->SetCertificatePolicies({kPolicy2});
+
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(Verify(), IsOk());
+    EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsError(ERR_CERT_INVALID));
+  } else if (verify_proc_type() == CERT_VERIFY_PROC_IOS ||
+             verify_proc_type() == CERT_VERIFY_PROC_ANDROID) {
+    EXPECT_THAT(Verify(), IsOk());
+  } else {
+    // Windows enforces inhibitPolicyMapping on the root.
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_INVALID));
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, InhibitPolicyMapping1Root) {
+  static const char kPolicy1[] = "1.2.3.4";
+  static const char kPolicy2[] = "1.2.3.5";
+
+  // Root inhibits policy mapping after 1 cert.
+  chain_[3]->SetPolicyConstraints(
+      /*require_explicit_policy=*/absl::nullopt,
+      /*inhibit_policy_mapping=*/1);
+
+  // Policy constraints are specified on an intermediate so that an explicit
+  // policy will be required regardless if root constraints are applied.
+  chain_[2]->SetPolicyConstraints(
+      /*require_explicit_policy=*/0,
+      /*inhibit_policy_mapping=*/absl::nullopt);
+
+  // Intermediate uses policy mappings. This should be allowed even if the root
+  // constraints were enforced, since policy mapping was allowed for 1 cert
+  // following the root.
+  chain_[2]->SetCertificatePolicies({kPolicy1});
+  chain_[2]->SetPolicyMappings({{kPolicy1, kPolicy2}});
+
+  // Children require the policy mapping to have a valid policy.
+  chain_[1]->SetCertificatePolicies({kPolicy2});
+  chain_[0]->SetCertificatePolicies({kPolicy2});
+
+  EXPECT_THAT(Verify(), IsOk());
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, InhibitAnyPolicy0Root) {
+  static const char kAnyPolicy[] = "2.5.29.32.0";
+  static const char kPolicy1[] = "1.2.3.4";
+
+  // Since inhibitAnyPolicy is 0, anyPolicy should not be allow for any certs
+  // after the root.
+  chain_[3]->SetInhibitAnyPolicy(0);
+  chain_[3]->SetCertificatePolicies({kAnyPolicy});
+
+  // Policy constraints are specified on an intermediate so that an explicit
+  // policy will be required regardless if root constraints are applied.
+  chain_[2]->SetPolicyConstraints(
+      /*require_explicit_policy=*/0,
+      /*inhibit_policy_mapping=*/absl::nullopt);
+
+  // This intermediate only asserts anyPolicy, so this chain should
+  // be invalid if policyConstraints from the root cert are enforced.
+  chain_[2]->SetCertificatePolicies({kAnyPolicy});
+
+  chain_[1]->SetCertificatePolicies({kPolicy1});
+  chain_[0]->SetCertificatePolicies({kPolicy1});
+
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(Verify(), IsOk());
+    EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsError(ERR_CERT_INVALID));
+  } else if (verify_proc_type() == CERT_VERIFY_PROC_IOS ||
+             verify_proc_type() == CERT_VERIFY_PROC_ANDROID) {
+    EXPECT_THAT(Verify(), IsOk());
+  } else {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_INVALID));
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, InhibitAnyPolicy1Root) {
+  for (bool chain_1_has_any_policy : {false, true}) {
+    SCOPED_TRACE(chain_1_has_any_policy);
+
+    static const char kAnyPolicy[] = "2.5.29.32.0";
+    static const char kPolicy1[] = "1.2.3.4";
+
+    // Since inhibitAnyPolicy is 1, anyPolicy should be allowed for the root's
+    // immediate child, but not after that.
+    chain_[3]->SetInhibitAnyPolicy(1);
+    chain_[3]->SetCertificatePolicies({kAnyPolicy});
+
+    // Policy constraints are specified on an intermediate so that an explicit
+    // policy will be required regardless if root constraints are applied.
+    chain_[2]->SetPolicyConstraints(
+        /*require_explicit_policy=*/0,
+        /*inhibit_policy_mapping=*/absl::nullopt);
+
+    // AnyPolicy should be allowed in this cert.
+    chain_[2]->SetCertificatePolicies({kAnyPolicy});
+
+    chain_[0]->SetCertificatePolicies({kPolicy1});
+
+    if (chain_1_has_any_policy) {
+      // AnyPolicy should not be allowed in this cert if the inhibitAnyPolicy
+      // constraint from the root is honored.
+      chain_[1]->SetCertificatePolicies({kAnyPolicy});
+
+      if (VerifyProcTypeIsBuiltin()) {
+        EXPECT_THAT(Verify(), IsOk());
+        EXPECT_THAT(VerifyWithExpiryAndConstraints(),
+                    IsError(ERR_CERT_INVALID));
+      } else if (verify_proc_type() == CERT_VERIFY_PROC_IOS ||
+                 verify_proc_type() == CERT_VERIFY_PROC_ANDROID) {
+        EXPECT_THAT(Verify(), IsOk());
+      } else {
+        EXPECT_THAT(Verify(), IsError(ERR_CERT_INVALID));
+      }
+    } else {
+      chain_[1]->SetCertificatePolicies({kPolicy1});
+
+      EXPECT_THAT(Verify(), IsOk());
+      if (VerifyProcTypeIsBuiltin()) {
+        EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsOk());
+      }
+    }
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, InhibitAnyPolicy0Intermediate) {
+  static const char kAnyPolicy[] = "2.5.29.32.0";
+  static const char kPolicy1[] = "1.2.3.4";
+
+  chain_[2]->SetInhibitAnyPolicy(0);
+  chain_[2]->SetPolicyConstraints(
+      /*require_explicit_policy=*/0,
+      /*inhibit_policy_mapping=*/absl::nullopt);
+
+  chain_[2]->SetCertificatePolicies({kAnyPolicy});
+  // This shouldn't be allowed as the parent cert set inhibitAnyPolicy=0.
+  chain_[1]->SetCertificatePolicies({kAnyPolicy});
+  chain_[0]->SetCertificatePolicies({kPolicy1});
+
+  EXPECT_THAT(Verify(), IsError(ExpectedIntermediateConstraintError()));
+}
+
+TEST_P(CertVerifyProcConstraintsTest, InhibitAnyPolicy1Intermediate) {
+  static const char kAnyPolicy[] = "2.5.29.32.0";
+  static const char kPolicy1[] = "1.2.3.4";
+
+  chain_[2]->SetInhibitAnyPolicy(1);
+  chain_[2]->SetPolicyConstraints(
+      /*require_explicit_policy=*/0,
+      /*inhibit_policy_mapping=*/absl::nullopt);
+
+  chain_[2]->SetCertificatePolicies({kAnyPolicy});
+  // This is okay as the parent cert set inhibitAnyPolicy=1.
+  chain_[1]->SetCertificatePolicies({kAnyPolicy});
+  chain_[0]->SetCertificatePolicies({kPolicy1});
+
+  EXPECT_THAT(Verify(), IsOk());
+}
+
+TEST_P(CertVerifyProcConstraintsTest, PoliciesRoot) {
+  static const char kPolicy1[] = "1.2.3.4";
+  static const char kPolicy2[] = "1.2.3.5";
+
+  for (bool root_has_matching_policy : {false, true}) {
+    SCOPED_TRACE(root_has_matching_policy);
+
+    if (root_has_matching_policy) {
+      // This chain should be valid whether or not policies from the root are
+      // processed.
+      chain_[3]->SetCertificatePolicies({kPolicy1});
+    } else {
+      // If the policies from the root are processed, this chain will not be
+      // valid for any policy.
+      chain_[3]->SetCertificatePolicies({kPolicy2});
+    }
+
+    // Policy constraints are specified on an intermediate so that an explicit
+    // policy will be required regardless if root constraints are applied.
+    chain_[2]->SetPolicyConstraints(
+        /*require_explicit_policy=*/0,
+        /*inhibit_policy_mapping=*/absl::nullopt);
+
+    chain_[2]->SetCertificatePolicies({kPolicy1});
+    chain_[1]->SetCertificatePolicies({kPolicy1});
+    chain_[0]->SetCertificatePolicies({kPolicy1});
+
+    if (root_has_matching_policy) {
+      EXPECT_THAT(Verify(), IsOk());
+      if (VerifyProcTypeIsBuiltin()) {
+        EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsOk());
+      }
+    } else {
+      if (VerifyProcTypeIsBuiltin()) {
+        EXPECT_THAT(Verify(), IsOk());
+        EXPECT_THAT(VerifyWithExpiryAndConstraints(),
+                    IsError(ERR_CERT_INVALID));
+      } else if (verify_proc_type() == CERT_VERIFY_PROC_IOS ||
+                 verify_proc_type() == CERT_VERIFY_PROC_ANDROID) {
+        EXPECT_THAT(Verify(), IsOk());
+      } else {
+        EXPECT_THAT(Verify(), IsError(ERR_CERT_INVALID));
+      }
+    }
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, PolicyMappingsRoot) {
+  static const char kPolicy1[] = "1.2.3.4";
+  static const char kPolicy2[] = "1.2.3.5";
+  static const char kPolicy3[] = "1.2.3.6";
+
+  for (bool root_has_matching_policy_mapping : {false, true}) {
+    SCOPED_TRACE(root_has_matching_policy_mapping);
+
+    if (root_has_matching_policy_mapping) {
+      // This chain should be valid if the policies and policy mapping on the
+      // root are processed, or if neither is processed. It will not be valid
+      // if the policies were processed and the policyMappings were not.
+      chain_[3]->SetCertificatePolicies({kPolicy1});
+      chain_[3]->SetPolicyMappings({{kPolicy1, kPolicy2}});
+    } else {
+      // This chain should not be valid if the policies and policyMappings on
+      // the root were processed. It will be valid if the policies were
+      // processed and policyMappings were not.
+      chain_[3]->SetCertificatePolicies({kPolicy2});
+      chain_[3]->SetPolicyMappings({{kPolicy2, kPolicy3}});
+    }
+
+    // Policy constraints are specified on an intermediate so that an explicit
+    // policy will be required regardless if root constraints are applied.
+    chain_[2]->SetPolicyConstraints(
+        /*require_explicit_policy=*/0,
+        /*inhibit_policy_mapping=*/absl::nullopt);
+
+    chain_[2]->SetCertificatePolicies({kPolicy2});
+    chain_[1]->SetCertificatePolicies({kPolicy2});
+    chain_[0]->SetCertificatePolicies({kPolicy2});
+
+    if (root_has_matching_policy_mapping) {
+      EXPECT_THAT(Verify(), IsOk());
+      if (VerifyProcTypeIsBuiltin()) {
+        EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsOk());
+      }
+    } else {
+      if (VerifyProcTypeIsBuiltin()) {
+        EXPECT_THAT(Verify(), IsOk());
+        EXPECT_THAT(VerifyWithExpiryAndConstraints(),
+                    IsError(ERR_CERT_INVALID));
+      } else if (verify_proc_type() == CERT_VERIFY_PROC_IOS ||
+                 verify_proc_type() == CERT_VERIFY_PROC_ANDROID) {
+        EXPECT_THAT(Verify(), IsOk());
+      } else {
+        EXPECT_THAT(Verify(), IsError(ERR_CERT_INVALID));
+      }
+    }
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, KeyUsageNoCertSignRoot) {
+  chain_[3]->SetKeyUsages({KEY_USAGE_BIT_CRL_SIGN});
+
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(Verify(), IsOk());
+    EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsError(ERR_CERT_INVALID));
+    EXPECT_THAT(VerifyWithExpiryAndFullConstraints(),
+                IsError(ERR_CERT_INVALID));
+  } else if (verify_proc_type() == CERT_VERIFY_PROC_ANDROID) {
+    EXPECT_THAT(Verify(), IsOk());
+  } else {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_INVALID));
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, KeyUsageNotPresentRoot) {
+  chain_[3]->EraseExtension(der::Input(kKeyUsageOid));
+
+  EXPECT_THAT(Verify(), IsOk());
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsOk());
+    EXPECT_THAT(VerifyWithExpiryAndFullConstraints(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, KeyUsageNoCertSignIntermediate) {
+  chain_[2]->SetKeyUsages({KEY_USAGE_BIT_CRL_SIGN});
+
+  EXPECT_THAT(Verify(), IsError(ExpectedIntermediateConstraintError()));
+}
+
+TEST_P(CertVerifyProcConstraintsTest, KeyUsageNotPresentIntermediate) {
+  chain_[2]->EraseExtension(der::Input(kKeyUsageOid));
+
+  EXPECT_THAT(Verify(), IsOk());
+}
+
+TEST_P(CertVerifyProcConstraintsTest, KeyUsageNoDigitalSignatureLeaf) {
+  // This test is mostly uninteresting since keyUsage on the end-entity is only
+  // checked at the TLS layer, not during cert verification.
+  chain_[0]->SetKeyUsages({KEY_USAGE_BIT_CRL_SIGN});
+
+  EXPECT_THAT(Verify(), IsOk());
+}
+
+TEST_P(CertVerifyProcConstraintsTest, KeyUsageNotPresentLeaf) {
+  // This test is mostly uninteresting since keyUsage on the end-entity is only
+  // checked at the TLS layer, not during cert verification.
+  chain_[0]->EraseExtension(der::Input(kKeyUsageOid));
+
+  EXPECT_THAT(Verify(), IsOk());
+}
+
+TEST_P(CertVerifyProcConstraintsTest, KeyUsageCertSignLeaf) {
+  // Test a leaf that has keyUsage asserting keyCertSign and basicConstraints
+  // asserting CA=false. This should be an error according to 5280 section
+  // 4.2.1.3 and 4.2.1.9, however most implementations seem to allow it.
+  // Perhaps because 5280 section 6 does not explicitly say to enforce this on
+  // the target cert.
+  chain_[0]->SetKeyUsages(
+      {KEY_USAGE_BIT_KEY_CERT_SIGN, KEY_USAGE_BIT_DIGITAL_SIGNATURE});
+
+  EXPECT_THAT(Verify(), IsOk());
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsOk());
+    EXPECT_THAT(VerifyWithExpiryAndFullConstraints(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, ExtendedKeyUsageNoServerAuthRoot) {
+  chain_[3]->SetExtendedKeyUsages({der::Input(kCodeSigning)});
+
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(Verify(), IsOk());
+    EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsError(ERR_CERT_INVALID));
+    EXPECT_THAT(VerifyWithExpiryAndFullConstraints(),
+                IsError(ERR_CERT_INVALID));
+  } else if (verify_proc_type() == CERT_VERIFY_PROC_ANDROID ||
+             verify_proc_type() == CERT_VERIFY_PROC_IOS) {
+    EXPECT_THAT(Verify(), IsOk());
+  } else {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_INVALID));
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, ExtendedKeyUsageServerAuthRoot) {
+  chain_[3]->SetExtendedKeyUsages({der::Input(kServerAuth)});
+
+  EXPECT_THAT(Verify(), IsOk());
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest,
+       ExtendedKeyUsageNoServerAuthIntermediate) {
+  chain_[2]->SetExtendedKeyUsages({der::Input(kCodeSigning)});
+
+  if (verify_proc_type() == CERT_VERIFY_PROC_ANDROID ||
+      VerifyProcTypeIsIOSAtMostOS15()) {
+    EXPECT_THAT(Verify(), IsOk());
+  } else {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_INVALID));
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, ExtendedKeyUsageServerAuthIntermediate) {
+  chain_[2]->SetExtendedKeyUsages({der::Input(kServerAuth)});
+
+  EXPECT_THAT(Verify(), IsOk());
+}
+
+TEST_P(CertVerifyProcConstraintsTest, ExtendedKeyUsageNoServerAuthLeaf) {
+  chain_[0]->SetExtendedKeyUsages({der::Input(kCodeSigning)});
+
+  EXPECT_THAT(Verify(), IsError(ERR_CERT_INVALID));
+}
+
+TEST_P(CertVerifyProcConstraintsTest, UnknownSignatureAlgorithmRoot) {
+  chain_[3]->SetSignatureAlgorithmTLV(TestOid0SignatureAlgorithmTLV());
+
+  EXPECT_THAT(Verify(), IsOk());
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, UnknownSignatureAlgorithmIntermediate) {
+  chain_[2]->SetSignatureAlgorithmTLV(TestOid0SignatureAlgorithmTLV());
+
+  if (verify_proc_type() == CERT_VERIFY_PROC_IOS) {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_AUTHORITY_INVALID));
+  } else {
+    EXPECT_THAT(Verify(), IsError(ExpectedIntermediateConstraintError()));
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, UnknownSignatureAlgorithmLeaf) {
+  chain_[0]->SetSignatureAlgorithmTLV(TestOid0SignatureAlgorithmTLV());
+
+  if (verify_proc_type() == CERT_VERIFY_PROC_IOS) {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_AUTHORITY_INVALID));
+  } else {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_INVALID));
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, UnknownExtensionRoot) {
+  for (bool critical : {true, false}) {
+    SCOPED_TRACE(critical);
+    chain_[3]->SetExtension(TestOid0(), "hello world", critical);
+
+    if (critical) {
+      if (VerifyProcTypeIsBuiltin()) {
+        EXPECT_THAT(Verify(), IsOk());
+        EXPECT_THAT(VerifyWithExpiryAndConstraints(),
+                    IsError(ERR_CERT_INVALID));
+        EXPECT_THAT(VerifyWithExpiryAndFullConstraints(),
+                    IsError(ERR_CERT_INVALID));
+      } else if (verify_proc_type() == CERT_VERIFY_PROC_IOS ||
+                 verify_proc_type() == CERT_VERIFY_PROC_ANDROID) {
+        EXPECT_THAT(Verify(), IsOk());
+      } else {
+        EXPECT_THAT(Verify(), IsError(ERR_CERT_INVALID));
+      }
+    } else {
+      EXPECT_THAT(Verify(), IsOk());
+      if (VerifyProcTypeIsBuiltin()) {
+        EXPECT_THAT(VerifyWithExpiryAndConstraints(), IsOk());
+      }
+    }
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, UnknownExtensionIntermediate) {
+  for (bool critical : {true, false}) {
+    SCOPED_TRACE(critical);
+    chain_[2]->SetExtension(TestOid0(), "hello world", critical);
+
+    if (critical) {
+      EXPECT_THAT(Verify(), IsError(ExpectedIntermediateConstraintError()));
+    } else {
+      EXPECT_THAT(Verify(), IsOk());
+    }
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTest, UnknownExtensionLeaf) {
+  for (bool critical : {true, false}) {
+    SCOPED_TRACE(critical);
+    chain_[0]->SetExtension(TestOid0(), "hello world", critical);
+
+    if (critical) {
+      EXPECT_THAT(Verify(), IsError(ExpectedIntermediateConstraintError()));
+    } else {
+      EXPECT_THAT(Verify(), IsOk());
+    }
+  }
+}
+
+// A set of tests that check how various constraints are enforced when they
+// are applied to a directly trusted non-self-signed leaf certificate.
+class CertVerifyProcConstraintsTrustedLeafTest
+    : public CertVerifyProcInternalTest {
+ protected:
+  void SetUp() override {
+    CertVerifyProcInternalTest::SetUp();
+
+    chain_ = CertBuilder::CreateSimpleChain(/*chain_length=*/2);
+  }
+
+  int VerifyWithTrust(CertificateTrust trust) {
+    ScopedTestRoot test_root(chain_[0]->GetX509Certificate().get(), trust);
+    CertVerifyResult verify_result;
+    int flags = 0;
+    return CertVerifyProcInternalTest::Verify(
+        chain_.front()->GetX509Certificate().get(), "www.example.com", flags,
+        CertificateList(), &verify_result);
+  }
+
+  int Verify() { return VerifyWithTrust(CertificateTrust::ForTrustAnchor()); }
+
+  int VerifyAsTrustedLeaf() {
+    return VerifyWithTrust(CertificateTrust::ForTrustedLeaf());
+  }
+
+  std::vector<std::unique_ptr<CertBuilder>> chain_;
+};
+
+INSTANTIATE_TEST_SUITE_P(All,
+                         CertVerifyProcConstraintsTrustedLeafTest,
+                         testing::ValuesIn(kAllCertVerifiers),
+                         VerifyProcTypeToName);
+
+TEST_P(CertVerifyProcConstraintsTrustedLeafTest, BaseCase) {
+  // Without changing anything on the test chain, it should validate
+  // successfully. If this is not true then the rest of the tests in this class
+  // are unlikely to be useful.
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_AUTHORITY_INVALID));
+    EXPECT_THAT(VerifyAsTrustedLeaf(), IsOk());
+    EXPECT_THAT(VerifyWithTrust(CertificateTrust::ForTrustAnchorOrLeaf()),
+                IsOk());
+    EXPECT_THAT(
+        VerifyWithTrust(
+            CertificateTrust::ForTrustedLeaf().WithRequireLeafSelfSigned()),
+        IsError(ERR_CERT_AUTHORITY_INVALID));
+    EXPECT_THAT(VerifyWithTrust(CertificateTrust::ForTrustAnchorOrLeaf()
+                                    .WithRequireLeafSelfSigned()),
+                IsError(ERR_CERT_AUTHORITY_INVALID));
+  } else {
+    EXPECT_THAT(Verify(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedLeafTest, RootAlsoTrusted) {
+  // Test verifying a chain where both the leaf and the root are marked as
+  // trusted.
+  // (Repeating the ScopedTestRoot before each call is due to the limitation
+  // with destroying any ScopedTestRoot removing all test roots.)
+  {
+    ScopedTestRoot test_root(chain_[1]->GetX509Certificate().get());
+    EXPECT_THAT(Verify(), IsOk());
+  }
+
+  if (VerifyProcTypeIsBuiltin()) {
+    {
+      ScopedTestRoot test_root1(chain_[1]->GetX509Certificate().get());
+      // An explicit trust entry for the leaf with a value of Unspecified
+      // should be no different than the leaf not being in the trust store at
+      // all.
+      EXPECT_THAT(VerifyWithTrust(CertificateTrust::ForUnspecified()), IsOk());
+    }
+    {
+      ScopedTestRoot test_root1(chain_[1]->GetX509Certificate().get());
+      // If the leaf is explicitly distrusted, verification should fail even if
+      // the root is trusted.
+      EXPECT_THAT(VerifyWithTrust(CertificateTrust::ForDistrusted()),
+                  IsError(ERR_CERT_AUTHORITY_INVALID));
+    }
+    {
+      ScopedTestRoot test_root(chain_[1]->GetX509Certificate().get());
+      EXPECT_THAT(VerifyAsTrustedLeaf(), IsOk());
+    }
+    {
+      ScopedTestRoot test_root(chain_[1]->GetX509Certificate().get());
+      EXPECT_THAT(VerifyWithTrust(CertificateTrust::ForTrustAnchorOrLeaf()),
+                  IsOk());
+    }
+    {
+      ScopedTestRoot test_root(chain_[1]->GetX509Certificate().get());
+      EXPECT_THAT(
+          VerifyWithTrust(
+              CertificateTrust::ForTrustedLeaf().WithRequireLeafSelfSigned()),
+          IsOk());
+    }
+    {
+      ScopedTestRoot test_root(chain_[1]->GetX509Certificate().get());
+      EXPECT_THAT(VerifyWithTrust(CertificateTrust::ForTrustAnchorOrLeaf()
+                                      .WithRequireLeafSelfSigned()),
+                  IsOk());
+    }
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedLeafTest, BasicConstraintsIsCa) {
+  for (bool has_key_usage_cert_sign : {false, true}) {
+    chain_[0]->SetBasicConstraints(/*is_ca=*/true, /*path_len=*/-1);
+
+    if (has_key_usage_cert_sign) {
+      chain_[0]->SetKeyUsages(
+          {KEY_USAGE_BIT_KEY_CERT_SIGN, KEY_USAGE_BIT_DIGITAL_SIGNATURE});
+    } else {
+      chain_[0]->SetKeyUsages({KEY_USAGE_BIT_DIGITAL_SIGNATURE});
+    }
+
+    if (VerifyProcTypeIsBuiltin()) {
+      EXPECT_THAT(Verify(), IsError(ERR_CERT_AUTHORITY_INVALID));
+      EXPECT_THAT(VerifyAsTrustedLeaf(), IsOk());
+    } else {
+      EXPECT_THAT(Verify(), IsOk());
+    }
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedLeafTest, BasicConstraintsPathlen) {
+  chain_[0]->SetBasicConstraints(/*is_ca=*/false, /*path_len=*/0);
+
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_AUTHORITY_INVALID));
+  } else {
+    EXPECT_THAT(Verify(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedLeafTest, BasicConstraintsMissing) {
+  chain_[0]->EraseExtension(der::Input(kBasicConstraintsOid));
+
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_AUTHORITY_INVALID));
+    EXPECT_THAT(VerifyAsTrustedLeaf(), IsOk());
+  } else {
+    EXPECT_THAT(Verify(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedLeafTest, NameConstraintsNotMatching) {
+  chain_[0]->SetNameConstraintsDnsNames(/*permitted_dns_names=*/{"example.org"},
+                                        /*excluded_dns_names=*/{});
+
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_AUTHORITY_INVALID));
+  } else {
+    EXPECT_THAT(Verify(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedLeafTest, ValidityExpired) {
+  chain_[0]->SetValidity(base::Time::Now() - base::Days(14),
+                         base::Time::Now() - base::Days(7));
+
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_AUTHORITY_INVALID));
+    EXPECT_THAT(VerifyAsTrustedLeaf(), IsError(ERR_CERT_DATE_INVALID));
+  } else {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_DATE_INVALID));
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedLeafTest, PolicyConstraints) {
+  static const char kPolicy1[] = "1.2.3.4";
+
+  for (bool leaf_has_policy : {false, true}) {
+    SCOPED_TRACE(leaf_has_policy);
+
+    chain_[0]->SetPolicyConstraints(
+        /*require_explicit_policy=*/0,
+        /*inhibit_policy_mapping=*/absl::nullopt);
+    if (leaf_has_policy) {
+      chain_[0]->SetCertificatePolicies({kPolicy1});
+    } else {
+      chain_[0]->SetCertificatePolicies({});
+    }
+
+    if (VerifyProcTypeIsBuiltin()) {
+      EXPECT_THAT(Verify(), IsError(ERR_CERT_AUTHORITY_INVALID));
+      EXPECT_THAT(VerifyAsTrustedLeaf(), IsOk());
+    } else {
+      // Succeeds since the ios/android verifiers appear to not enforce
+      // this constraint in the "directly trusted leaf" case.
+      EXPECT_THAT(Verify(), IsOk());
+    }
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedLeafTest, InhibitAnyPolicy) {
+  static const char kAnyPolicy[] = "2.5.29.32.0";
+  chain_[0]->SetPolicyConstraints(
+      /*require_explicit_policy=*/0,
+      /*inhibit_policy_mapping=*/absl::nullopt);
+  chain_[0]->SetInhibitAnyPolicy(0);
+  chain_[0]->SetCertificatePolicies({kAnyPolicy});
+
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_AUTHORITY_INVALID));
+    EXPECT_THAT(VerifyAsTrustedLeaf(), IsOk());
+  } else {
+    EXPECT_THAT(Verify(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedLeafTest, KeyUsageNoDigitalSignature) {
+  // This test is mostly uninteresting since keyUsage on the end-entity is only
+  // checked at the TLS layer, not during cert verification.
+  chain_[0]->SetKeyUsages({KEY_USAGE_BIT_CRL_SIGN});
+
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_AUTHORITY_INVALID));
+    EXPECT_THAT(VerifyAsTrustedLeaf(), IsOk());
+  } else {
+    EXPECT_THAT(Verify(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedLeafTest, KeyUsageCertSignLeaf) {
+  // Test a leaf that has keyUsage asserting keyCertSign with basicConstraints
+  // CA=false, which is an error according to 5280 (4.2.1.3 and 4.2.1.9).
+  chain_[0]->SetKeyUsages(
+      {KEY_USAGE_BIT_KEY_CERT_SIGN, KEY_USAGE_BIT_DIGITAL_SIGNATURE});
+
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_AUTHORITY_INVALID));
+    EXPECT_THAT(VerifyAsTrustedLeaf(), IsOk());
+  } else {
+    EXPECT_THAT(Verify(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedLeafTest, ExtendedKeyUsageNoServerAuth) {
+  chain_[0]->SetExtendedKeyUsages({der::Input(kCodeSigning)});
+
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_AUTHORITY_INVALID));
+    EXPECT_THAT(VerifyAsTrustedLeaf(), IsError(ERR_CERT_INVALID));
+  } else {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_INVALID));
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedLeafTest, UnknownSignatureAlgorithm) {
+  chain_[0]->SetSignatureAlgorithmTLV(TestOid0SignatureAlgorithmTLV());
+
+  if (VerifyProcTypeIsBuiltin()) {
+    // Since no chain is found, signature is not checked, fails with generic
+    // error for untrusted chain.
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_AUTHORITY_INVALID));
+    // Valid since signature on directly trusted leaf is not checked.
+    EXPECT_THAT(VerifyAsTrustedLeaf(), IsOk());
+  } else {
+    EXPECT_THAT(Verify(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedLeafTest, WeakSignatureAlgorithm) {
+  chain_[0]->SetSignatureAlgorithm(SignatureAlgorithm::kEcdsaSha1);
+
+  if (VerifyProcTypeIsBuiltin()) {
+    // Since no chain is found, signature is not checked, fails with generic
+    // error for untrusted chain.
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_AUTHORITY_INVALID));
+
+    // Valid since signature on directly trusted leaf is not checked.
+    EXPECT_THAT(VerifyAsTrustedLeaf(), IsOk());
+
+    // Cert is not self-signed so directly trusted leaf with
+    // require_leaf_selfsigned should fail.
+    EXPECT_THAT(
+        VerifyWithTrust(
+            CertificateTrust::ForTrustedLeaf().WithRequireLeafSelfSigned()),
+        IsError(ERR_CERT_AUTHORITY_INVALID));
+  } else if (verify_proc_type() == CERT_VERIFY_PROC_IOS) {
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_INVALID));
+  } else {
+    EXPECT_THAT(Verify(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedLeafTest, UnknownExtension) {
+  for (bool critical : {true, false}) {
+    SCOPED_TRACE(critical);
+    chain_[0]->SetExtension(TestOid0(), "hello world", critical);
+
+    if (VerifyProcTypeIsBuiltin()) {
+      EXPECT_THAT(Verify(), IsError(ERR_CERT_AUTHORITY_INVALID));
+      if (critical) {
+        EXPECT_THAT(VerifyAsTrustedLeaf(), IsError(ERR_CERT_INVALID));
+      } else {
+        EXPECT_THAT(VerifyAsTrustedLeaf(), IsOk());
+      }
+    } else {
+      EXPECT_THAT(Verify(), IsOk());
+    }
+  }
+}
+
+// A set of tests that check how various constraints are enforced when they
+// are applied to a directly trusted self-signed leaf certificate.
+class CertVerifyProcConstraintsTrustedSelfSignedTest
+    : public CertVerifyProcInternalTest {
+ protected:
+  void SetUp() override {
+    CertVerifyProcInternalTest::SetUp();
+
+    cert_ = std::move(CertBuilder::CreateSimpleChain(/*chain_length=*/1)[0]);
+  }
+
+  int VerifyWithTrust(CertificateTrust trust) {
+    ScopedTestRoot test_root(cert_->GetX509Certificate().get(), trust);
+    CertVerifyResult verify_result;
+    int flags = 0;
+    return CertVerifyProcInternalTest::Verify(
+        cert_->GetX509Certificate().get(), "www.example.com", flags,
+        CertificateList(), &verify_result);
+  }
+
+  int Verify() { return VerifyWithTrust(CertificateTrust::ForTrustAnchor()); }
+
+  int VerifyAsTrustedSelfSignedLeaf() {
+    return VerifyWithTrust(
+        CertificateTrust::ForTrustedLeaf().WithRequireLeafSelfSigned());
+  }
+
+  std::unique_ptr<CertBuilder> cert_;
+};
+
+INSTANTIATE_TEST_SUITE_P(All,
+                         CertVerifyProcConstraintsTrustedSelfSignedTest,
+                         testing::ValuesIn(kAllCertVerifiers),
+                         VerifyProcTypeToName);
+
+TEST_P(CertVerifyProcConstraintsTrustedSelfSignedTest, BaseCase) {
+  // Without changing anything on the test cert, it should validate
+  // successfully. If this is not true then the rest of the tests in this class
+  // are unlikely to be useful.
+  if (VerifyProcTypeIsBuiltin()) {
+    // Should succeed when verified as a trusted leaf.
+    EXPECT_THAT(VerifyAsTrustedSelfSignedLeaf(), IsOk());
+    EXPECT_THAT(VerifyWithTrust(CertificateTrust::ForTrustedLeaf()), IsOk());
+    EXPECT_THAT(VerifyWithTrust(CertificateTrust::ForTrustAnchorOrLeaf()),
+                IsOk());
+
+    // Should also be allowed by verifying as anchor for itself.
+    EXPECT_THAT(Verify(), IsOk());
+
+    // Should fail if verified as anchor of itself with constraints enabled,
+    // enforcing the basicConstraints on the anchor will fail since the cert
+    // has CA=false.
+    EXPECT_THAT(
+        VerifyWithTrust(
+            CertificateTrust::ForTrustAnchor().WithEnforceAnchorConstraints()),
+        IsError(ERR_CERT_INVALID));
+
+    // Should be allowed since it will be evaluated as a trusted leaf, so
+    // anchor constraints being enabled doesn't matter.
+    EXPECT_THAT(VerifyWithTrust(CertificateTrust::ForTrustAnchorOrLeaf()
+                                    .WithEnforceAnchorConstraints()),
+                IsOk());
+  } else {
+    EXPECT_THAT(Verify(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedSelfSignedTest, BasicConstraintsIsCa) {
+  for (bool has_key_usage_cert_sign : {false, true}) {
+    cert_->SetBasicConstraints(/*is_ca=*/true, /*path_len=*/-1);
+
+    if (has_key_usage_cert_sign) {
+      cert_->SetKeyUsages(
+          {KEY_USAGE_BIT_KEY_CERT_SIGN, KEY_USAGE_BIT_DIGITAL_SIGNATURE});
+    } else {
+      cert_->SetKeyUsages({KEY_USAGE_BIT_DIGITAL_SIGNATURE});
+    }
+    EXPECT_THAT(Verify(), IsOk());
+    if (VerifyProcTypeIsBuiltin()) {
+      EXPECT_THAT(VerifyAsTrustedSelfSignedLeaf(), IsOk());
+    }
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedSelfSignedTest,
+       BasicConstraintsNotCaPathlen) {
+  cert_->SetBasicConstraints(/*is_ca=*/false, /*path_len=*/0);
+
+  EXPECT_THAT(Verify(), IsOk());
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(VerifyAsTrustedSelfSignedLeaf(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedSelfSignedTest,
+       BasicConstraintsIsCaPathlen) {
+  cert_->SetBasicConstraints(/*is_ca=*/true, /*path_len=*/0);
+
+  EXPECT_THAT(Verify(), IsOk());
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(VerifyAsTrustedSelfSignedLeaf(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedSelfSignedTest,
+       BasicConstraintsMissing) {
+  cert_->EraseExtension(der::Input(kBasicConstraintsOid));
+
+  EXPECT_THAT(Verify(), IsOk());
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(VerifyAsTrustedSelfSignedLeaf(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedSelfSignedTest,
+       NameConstraintsNotMatching) {
+  cert_->SetNameConstraintsDnsNames(/*permitted_dns_names=*/{"example.org"},
+                                    /*excluded_dns_names=*/{});
+
+  EXPECT_THAT(Verify(), IsOk());
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(VerifyAsTrustedSelfSignedLeaf(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedSelfSignedTest, ValidityExpired) {
+  cert_->SetValidity(base::Time::Now() - base::Days(14),
+                     base::Time::Now() - base::Days(7));
+
+  EXPECT_THAT(Verify(), IsError(ERR_CERT_DATE_INVALID));
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(VerifyAsTrustedSelfSignedLeaf(),
+                IsError(ERR_CERT_DATE_INVALID));
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedSelfSignedTest, PolicyConstraints) {
+  static const char kPolicy1[] = "1.2.3.4";
+
+  for (bool leaf_has_policy : {false, true}) {
+    SCOPED_TRACE(leaf_has_policy);
+
+    cert_->SetPolicyConstraints(
+        /*require_explicit_policy=*/0,
+        /*inhibit_policy_mapping=*/absl::nullopt);
+    if (leaf_has_policy) {
+      cert_->SetCertificatePolicies({kPolicy1});
+
+      EXPECT_THAT(Verify(), IsOk());
+    } else {
+      cert_->SetCertificatePolicies({});
+
+      if (VerifyProcTypeIsBuiltin()) {
+        EXPECT_THAT(Verify(), IsError(ERR_CERT_INVALID));
+        EXPECT_THAT(VerifyAsTrustedSelfSignedLeaf(), IsOk());
+      } else {
+        EXPECT_THAT(Verify(), IsOk());
+      }
+    }
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedSelfSignedTest, InhibitAnyPolicy) {
+  static const char kAnyPolicy[] = "2.5.29.32.0";
+  cert_->SetPolicyConstraints(
+      /*require_explicit_policy=*/0,
+      /*inhibit_policy_mapping=*/absl::nullopt);
+  cert_->SetInhibitAnyPolicy(0);
+  cert_->SetCertificatePolicies({kAnyPolicy});
+
+  EXPECT_THAT(Verify(), IsOk());
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(VerifyAsTrustedSelfSignedLeaf(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedSelfSignedTest,
+       KeyUsageNoDigitalSignature) {
+  // This test is mostly uninteresting since keyUsage on the end-entity is only
+  // checked at the TLS layer, not during cert verification.
+  cert_->SetKeyUsages({KEY_USAGE_BIT_CRL_SIGN});
+
+  EXPECT_THAT(Verify(), IsOk());
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(VerifyAsTrustedSelfSignedLeaf(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedSelfSignedTest, KeyUsageCertSignLeaf) {
+  // Test a leaf that has keyUsage asserting keyCertSign with basicConstraints
+  // CA=false, which is an error according to 5280 (4.2.1.3 and 4.2.1.9).
+  cert_->SetKeyUsages(
+      {KEY_USAGE_BIT_KEY_CERT_SIGN, KEY_USAGE_BIT_DIGITAL_SIGNATURE});
+
+  EXPECT_THAT(Verify(), IsOk());
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(
+        VerifyWithTrust(
+            CertificateTrust::ForTrustAnchor().WithEnforceAnchorConstraints()),
+        IsError(ERR_CERT_INVALID));
+    EXPECT_THAT(VerifyAsTrustedSelfSignedLeaf(), IsOk());
+    EXPECT_THAT(VerifyWithTrust(CertificateTrust::ForTrustAnchorOrLeaf()
+                                    .WithEnforceAnchorConstraints()
+                                    .WithRequireLeafSelfSigned()),
+                IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedSelfSignedTest,
+       ExtendedKeyUsageNoServerAuth) {
+  cert_->SetExtendedKeyUsages({der::Input(kCodeSigning)});
+
+  EXPECT_THAT(Verify(), IsError(ERR_CERT_INVALID));
+  if (VerifyProcTypeIsBuiltin()) {
+    EXPECT_THAT(VerifyAsTrustedSelfSignedLeaf(), IsError(ERR_CERT_INVALID));
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedSelfSignedTest,
+       UnknownSignatureAlgorithm) {
+  cert_->SetSignatureAlgorithmTLV(TestOid0SignatureAlgorithmTLV());
+  if (VerifyProcTypeIsBuiltin()) {
+    // Attempts to verify as anchor of itself, which fails when verifying the
+    // signature.
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_INVALID));
+
+    // Signature not checked when verified as a directly trusted leaf without
+    // require_leaf_selfsigned.
+    EXPECT_THAT(VerifyWithTrust(CertificateTrust::ForTrustedLeaf()), IsOk());
+
+    // PathBuilder override ignores require_leaf_selfsigned due to the
+    // self-signed check returning false (due to the invalid signature
+    // algorithm), thus this fails with AUTHORITY_INVALID due to failing to
+    // find a chain to another root.
+    EXPECT_THAT(VerifyAsTrustedSelfSignedLeaf(),
+                IsError(ERR_CERT_AUTHORITY_INVALID));
+
+    // PathBuilder override ignores require_leaf_selfsigned due to the invalid
+    // signature algorithm, thus this tries to verify as anchor of itself,
+    // which fails when verifying the signature.
+    EXPECT_THAT(VerifyWithTrust(CertificateTrust::ForTrustAnchorOrLeaf()
+                                    .WithRequireLeafSelfSigned()),
+                IsError(ERR_CERT_INVALID));
+  } else {
+    EXPECT_THAT(Verify(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedSelfSignedTest, WeakSignatureAlgorithm) {
+  cert_->SetSignatureAlgorithm(SignatureAlgorithm::kEcdsaSha1);
+  if (VerifyProcTypeIsBuiltin()) {
+    // Attempts to verify as anchor of itself, which fails due to the weak
+    // signature algorithm.
+    EXPECT_THAT(Verify(), IsError(ERR_CERT_WEAK_SIGNATURE_ALGORITHM));
+
+    // Signature not checked when verified as a directly trusted leaf without
+    // require_leaf_selfsigned.
+    EXPECT_THAT(VerifyWithTrust(CertificateTrust::ForTrustedLeaf()), IsOk());
+
+    // require_leaf_selfsigned allows any supported signature algorithm when
+    // doing the self-signed check, so this is okay.
+    EXPECT_THAT(VerifyAsTrustedSelfSignedLeaf(), IsOk());
+    EXPECT_THAT(VerifyWithTrust(CertificateTrust::ForTrustAnchorOrLeaf()
+                                    .WithRequireLeafSelfSigned()),
+                IsOk());
+  } else {
+    EXPECT_THAT(Verify(), IsOk());
+  }
+}
+
+TEST_P(CertVerifyProcConstraintsTrustedSelfSignedTest, UnknownExtension) {
+  for (bool critical : {true, false}) {
+    SCOPED_TRACE(critical);
+    cert_->SetExtension(TestOid0(), "hello world", critical);
+
+    if (VerifyProcTypeIsBuiltin()) {
+      if (critical) {
+        EXPECT_THAT(Verify(), IsError(ERR_CERT_INVALID));
+        EXPECT_THAT(VerifyAsTrustedSelfSignedLeaf(), IsError(ERR_CERT_INVALID));
+      } else {
+        EXPECT_THAT(Verify(), IsOk());
+        EXPECT_THAT(VerifyAsTrustedSelfSignedLeaf(), IsOk());
+      }
+    } else {
+      EXPECT_THAT(Verify(), IsOk());
+    }
+  }
+}
+
+TEST(CertVerifyProcTest, RejectsPublicSHA1) {
+  scoped_refptr<X509Certificate> cert(
+      ImportCertFromFile(GetTestCertsDirectory(), "ok_cert.pem"));
+  ASSERT_TRUE(cert);
+
+  CertVerifyResult result;
+  result.has_sha1 = true;
+  result.is_issued_by_known_root = true;
+  auto verify_proc = base::MakeRefCounted<MockCertVerifyProc>(result);
+
+  int flags = 0;
+  CertVerifyResult verify_result;
+  int error = verify_proc->Verify(
+      cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
+      /*sct_list=*/std::string(), flags, CertificateList(), &verify_result,
+      NetLogWithSource());
+  EXPECT_THAT(error, IsError(ERR_CERT_WEAK_SIGNATURE_ALGORITHM));
+  EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_WEAK_SIGNATURE_ALGORITHM);
+
+  // VERIFY_ENABLE_SHA1_LOCAL_ANCHORS should not impact this.
+  flags = CertVerifyProc::VERIFY_ENABLE_SHA1_LOCAL_ANCHORS;
+  verify_result.Reset();
+  error = verify_proc->Verify(
+      cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
+      /*sct_list=*/std::string(), flags, CertificateList(), &verify_result,
+      NetLogWithSource());
+  EXPECT_THAT(error, IsError(ERR_CERT_WEAK_SIGNATURE_ALGORITHM));
+  EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_WEAK_SIGNATURE_ALGORITHM);
 }
 
 TEST(CertVerifyProcTest, RejectsPrivateSHA1UnlessFlag) {
@@ -4384,17 +5636,16 @@ TEST(CertVerifyProcTest, RejectsPrivateSHA1UnlessFlag) {
 
   CertVerifyResult result;
   result.has_sha1 = true;
-  result.has_sha1_leaf = true;
   result.is_issued_by_known_root = false;
-  scoped_refptr<CertVerifyProc> verify_proc = new MockCertVerifyProc(result);
+  auto verify_proc = base::MakeRefCounted<MockCertVerifyProc>(result);
 
   // SHA-1 should be rejected by default for private roots...
   int flags = 0;
   CertVerifyResult verify_result;
   int error = verify_proc->Verify(
       cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
-      /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result, NetLogWithSource());
+      /*sct_list=*/std::string(), flags, CertificateList(), &verify_result,
+      NetLogWithSource());
   EXPECT_THAT(error, IsError(ERR_CERT_WEAK_SIGNATURE_ALGORITHM));
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_SHA1_SIGNATURE_PRESENT);
 
@@ -4403,18 +5654,15 @@ TEST(CertVerifyProcTest, RejectsPrivateSHA1UnlessFlag) {
   verify_result.Reset();
   error = verify_proc->Verify(
       cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
-      /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result, NetLogWithSource());
+      /*sct_list=*/std::string(), flags, CertificateList(), &verify_result,
+      NetLogWithSource());
   EXPECT_THAT(error, IsOk());
   EXPECT_TRUE(verify_result.cert_status & CERT_STATUS_SHA1_SIGNATURE_PRESENT);
 }
 
 enum ExpectedAlgorithms {
-  EXPECT_MD2 = 1 << 0,
-  EXPECT_MD4 = 1 << 1,
-  EXPECT_MD5 = 1 << 2,
-  EXPECT_SHA1 = 1 << 3,
-  EXPECT_SHA1_LEAF = 1 << 4,
+  EXPECT_SHA1 = 1 << 0,
+  EXPECT_STATUS_INVALID = 1 << 1,
 };
 
 struct WeakDigestTestData {
@@ -4445,7 +5693,7 @@ class CertVerifyProcWeakDigestTest
     : public testing::TestWithParam<WeakDigestTestData> {
  public:
   CertVerifyProcWeakDigestTest() = default;
-  virtual ~CertVerifyProcWeakDigestTest() = default;
+  ~CertVerifyProcWeakDigestTest() override = default;
 };
 
 // Tests that the CertVerifyProc::Verify() properly surfaces the (weak) hash
@@ -4487,27 +5735,26 @@ TEST_P(CertVerifyProcWeakDigestTest, VerifyDetectsAlgorithm) {
   //
   // This is sufficient for the purposes of this test, as the checking for weak
   // hash algorithms is done by CertVerifyProc::Verify().
-  scoped_refptr<CertVerifyProc> proc =
-      new MockCertVerifyProc(CertVerifyResult());
-  proc->Verify(ee_chain.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
-               /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-               CertificateList(), &verify_result, NetLogWithSource());
-  EXPECT_EQ(!!(data.expected_algorithms & EXPECT_MD2), verify_result.has_md2);
-  EXPECT_EQ(!!(data.expected_algorithms & EXPECT_MD4), verify_result.has_md4);
-  EXPECT_EQ(!!(data.expected_algorithms & EXPECT_MD5), verify_result.has_md5);
+  auto proc = base::MakeRefCounted<MockCertVerifyProc>(CertVerifyResult());
+  int error = proc->Verify(ee_chain.get(), "127.0.0.1",
+                           /*ocsp_response=*/std::string(),
+                           /*sct_list=*/std::string(), flags, CertificateList(),
+                           &verify_result, NetLogWithSource());
   EXPECT_EQ(!!(data.expected_algorithms & EXPECT_SHA1), verify_result.has_sha1);
-  EXPECT_EQ(!!(data.expected_algorithms & EXPECT_SHA1_LEAF),
-            verify_result.has_sha1_leaf);
+  EXPECT_EQ(!!(data.expected_algorithms & EXPECT_STATUS_INVALID),
+            !!(verify_result.cert_status & CERT_STATUS_INVALID));
+  EXPECT_EQ(!!(data.expected_algorithms & EXPECT_STATUS_INVALID),
+            error == ERR_CERT_INVALID);
 }
 
 // The signature algorithm of the root CA should not matter.
 const WeakDigestTestData kVerifyRootCATestData[] = {
     {"weak_digest_md5_root.pem", "weak_digest_sha1_intermediate.pem",
-     "weak_digest_sha1_ee.pem", EXPECT_SHA1 | EXPECT_SHA1_LEAF},
+     "weak_digest_sha1_ee.pem", EXPECT_SHA1},
     {"weak_digest_md4_root.pem", "weak_digest_sha1_intermediate.pem",
-     "weak_digest_sha1_ee.pem", EXPECT_SHA1 | EXPECT_SHA1_LEAF},
+     "weak_digest_sha1_ee.pem", EXPECT_SHA1},
     {"weak_digest_md2_root.pem", "weak_digest_sha1_intermediate.pem",
-     "weak_digest_sha1_ee.pem", EXPECT_SHA1 | EXPECT_SHA1_LEAF},
+     "weak_digest_sha1_ee.pem", EXPECT_SHA1},
 };
 INSTANTIATE_TEST_SUITE_P(VerifyRoot,
                          CertVerifyProcWeakDigestTest,
@@ -4516,11 +5763,11 @@ INSTANTIATE_TEST_SUITE_P(VerifyRoot,
 // The signature algorithm of intermediates should be properly detected.
 const WeakDigestTestData kVerifyIntermediateCATestData[] = {
     {"weak_digest_sha1_root.pem", "weak_digest_md5_intermediate.pem",
-     "weak_digest_sha1_ee.pem", EXPECT_MD5 | EXPECT_SHA1 | EXPECT_SHA1_LEAF},
+     "weak_digest_sha1_ee.pem", EXPECT_STATUS_INVALID | EXPECT_SHA1},
     {"weak_digest_sha1_root.pem", "weak_digest_md4_intermediate.pem",
-     "weak_digest_sha1_ee.pem", EXPECT_MD4 | EXPECT_SHA1 | EXPECT_SHA1_LEAF},
+     "weak_digest_sha1_ee.pem", EXPECT_STATUS_INVALID | EXPECT_SHA1},
     {"weak_digest_sha1_root.pem", "weak_digest_md2_intermediate.pem",
-     "weak_digest_sha1_ee.pem", EXPECT_MD2 | EXPECT_SHA1 | EXPECT_SHA1_LEAF},
+     "weak_digest_sha1_ee.pem", EXPECT_STATUS_INVALID | EXPECT_SHA1},
 };
 
 INSTANTIATE_TEST_SUITE_P(VerifyIntermediate,
@@ -4530,11 +5777,11 @@ INSTANTIATE_TEST_SUITE_P(VerifyIntermediate,
 // The signature algorithm of end-entity should be properly detected.
 const WeakDigestTestData kVerifyEndEntityTestData[] = {
     {"weak_digest_sha1_root.pem", "weak_digest_sha1_intermediate.pem",
-     "weak_digest_md5_ee.pem", EXPECT_MD5 | EXPECT_SHA1},
+     "weak_digest_md5_ee.pem", EXPECT_STATUS_INVALID},
     {"weak_digest_sha1_root.pem", "weak_digest_sha1_intermediate.pem",
-     "weak_digest_md4_ee.pem", EXPECT_MD4 | EXPECT_SHA1},
+     "weak_digest_md4_ee.pem", EXPECT_STATUS_INVALID},
     {"weak_digest_sha1_root.pem", "weak_digest_sha1_intermediate.pem",
-     "weak_digest_md2_ee.pem", EXPECT_MD2 | EXPECT_SHA1},
+     "weak_digest_md2_ee.pem", EXPECT_STATUS_INVALID},
 };
 
 INSTANTIATE_TEST_SUITE_P(VerifyEndEntity,
@@ -4548,11 +5795,11 @@ INSTANTIATE_TEST_SUITE_P(VerifyEndEntity,
 // this intermediate is treated like a trust anchor.
 const WeakDigestTestData kVerifyIncompleteIntermediateTestData[] = {
     {nullptr, "weak_digest_md5_intermediate.pem", "weak_digest_sha1_ee.pem",
-     /*EXPECT_MD5 |*/ EXPECT_SHA1 | EXPECT_SHA1_LEAF},
+     EXPECT_SHA1},
     {nullptr, "weak_digest_md4_intermediate.pem", "weak_digest_sha1_ee.pem",
-     /*EXPECT_MD4 |*/ EXPECT_SHA1 | EXPECT_SHA1_LEAF},
+     EXPECT_SHA1},
     {nullptr, "weak_digest_md2_intermediate.pem", "weak_digest_sha1_ee.pem",
-     /*EXPECT_MD2 |*/ EXPECT_SHA1 | EXPECT_SHA1_LEAF},
+     EXPECT_SHA1},
 };
 
 INSTANTIATE_TEST_SUITE_P(
@@ -4561,32 +5808,29 @@ INSTANTIATE_TEST_SUITE_P(
     testing::ValuesIn(kVerifyIncompleteIntermediateTestData));
 
 // Incomplete chains should report the status of the end-entity.
-// Note: really each of these tests should also expect EXPECT_SHA1 (included as
-// a comment). However CertVerifyProc::Verify() is unable to distinguish that
-// this is an intermediate and not a trust anchor, so this intermediate is
-// treated like a trust anchor.
+// since the intermediate is treated as a trust anchor these should
+// be still simply be invalid.
 const WeakDigestTestData kVerifyIncompleteEETestData[] = {
     {nullptr, "weak_digest_sha1_intermediate.pem", "weak_digest_md5_ee.pem",
-     /*EXPECT_SHA1 |*/ EXPECT_MD5},
+     EXPECT_STATUS_INVALID},
     {nullptr, "weak_digest_sha1_intermediate.pem", "weak_digest_md4_ee.pem",
-     /*EXPECT_SHA1 |*/ EXPECT_MD4},
+     EXPECT_STATUS_INVALID},
     {nullptr, "weak_digest_sha1_intermediate.pem", "weak_digest_md2_ee.pem",
-     /*EXPECT_SHA1 |*/ EXPECT_MD2},
+     EXPECT_STATUS_INVALID},
 };
 
 INSTANTIATE_TEST_SUITE_P(VerifyIncompleteEndEntity,
                          CertVerifyProcWeakDigestTest,
                          testing::ValuesIn(kVerifyIncompleteEETestData));
 
-// Differing algorithms between the intermediate and the EE should still be
-// reported.
+// Md2, Md4, and Md5 are all considered invalid.
 const WeakDigestTestData kVerifyMixedTestData[] = {
     {"weak_digest_sha1_root.pem", "weak_digest_md5_intermediate.pem",
-     "weak_digest_md2_ee.pem", EXPECT_MD2 | EXPECT_MD5},
+     "weak_digest_md2_ee.pem", EXPECT_STATUS_INVALID},
     {"weak_digest_sha1_root.pem", "weak_digest_md2_intermediate.pem",
-     "weak_digest_md5_ee.pem", EXPECT_MD2 | EXPECT_MD5},
+     "weak_digest_md5_ee.pem", EXPECT_STATUS_INVALID},
     {"weak_digest_sha1_root.pem", "weak_digest_md4_intermediate.pem",
-     "weak_digest_md2_ee.pem", EXPECT_MD2 | EXPECT_MD4},
+     "weak_digest_md2_ee.pem", EXPECT_STATUS_INVALID},
 };
 
 INSTANTIATE_TEST_SUITE_P(VerifyMixed,
@@ -4615,13 +5859,13 @@ class CertVerifyProcNameTest : public ::testing::Test {
     ASSERT_TRUE(cert);
     CertVerifyResult result;
     result.is_issued_by_known_root = false;
-    scoped_refptr<CertVerifyProc> verify_proc = new MockCertVerifyProc(result);
+    auto verify_proc = base::MakeRefCounted<MockCertVerifyProc>(result);
 
     CertVerifyResult verify_result;
     int error = verify_proc->Verify(
         cert.get(), hostname, /*ocsp_response=*/std::string(),
-        /*sct_list=*/std::string(), 0, CRLSet::BuiltinCRLSet().get(),
-        CertificateList(), &verify_result, NetLogWithSource());
+        /*sct_list=*/std::string(), 0, CertificateList(), &verify_result,
+        NetLogWithSource());
     if (valid) {
       EXPECT_THAT(error, IsOk());
       EXPECT_FALSE(verify_result.cert_status & CERT_STATUS_COMMON_NAME_INVALID);
@@ -4724,7 +5968,7 @@ TEST(CertVerifyProcTest, HasTrustAnchorVerifyUMA) {
 
   const base::HistogramBase::Sample kGTSRootR4HistogramID = 486;
 
-  scoped_refptr<CertVerifyProc> verify_proc = new MockCertVerifyProc(result);
+  auto verify_proc = base::MakeRefCounted<MockCertVerifyProc>(result);
 
   histograms.ExpectTotalCount(kTrustAnchorVerifyHistogram, 0);
 
@@ -4732,8 +5976,8 @@ TEST(CertVerifyProcTest, HasTrustAnchorVerifyUMA) {
   CertVerifyResult verify_result;
   int error = verify_proc->Verify(
       cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
-      /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result, NetLogWithSource());
+      /*sct_list=*/std::string(), flags, CertificateList(), &verify_result,
+      NetLogWithSource());
   EXPECT_EQ(OK, error);
   histograms.ExpectUniqueSample(kTrustAnchorVerifyHistogram,
                                 kGTSRootR4HistogramID, 1);
@@ -4772,7 +6016,7 @@ TEST(CertVerifyProcTest, LogsOnlyMostSpecificTrustAnchorUMA) {
 
   const base::HistogramBase::Sample kGTSRootR3HistogramID = 485;
 
-  scoped_refptr<CertVerifyProc> verify_proc = new MockCertVerifyProc(result);
+  auto verify_proc = base::MakeRefCounted<MockCertVerifyProc>(result);
 
   histograms.ExpectTotalCount(kTrustAnchorVerifyHistogram, 0);
 
@@ -4780,8 +6024,8 @@ TEST(CertVerifyProcTest, LogsOnlyMostSpecificTrustAnchorUMA) {
   CertVerifyResult verify_result;
   int error = verify_proc->Verify(
       cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
-      /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result, NetLogWithSource());
+      /*sct_list=*/std::string(), flags, CertificateList(), &verify_result,
+      NetLogWithSource());
   EXPECT_EQ(OK, error);
 
   // Only GTS Root R3 should be recorded.
@@ -4810,7 +6054,7 @@ TEST(CertVerifyProcTest, HasTrustAnchorVerifyOutOfDateUMA) {
   result.public_key_hashes.push_back(HashValue(root_hash));
   result.is_issued_by_known_root = true;
 
-  scoped_refptr<CertVerifyProc> verify_proc = new MockCertVerifyProc(result);
+  auto verify_proc = base::MakeRefCounted<MockCertVerifyProc>(result);
 
   histograms.ExpectTotalCount(kTrustAnchorVerifyHistogram, 0);
   histograms.ExpectTotalCount(kTrustAnchorVerifyOutOfDateHistogram, 0);
@@ -4819,8 +6063,8 @@ TEST(CertVerifyProcTest, HasTrustAnchorVerifyOutOfDateUMA) {
   CertVerifyResult verify_result;
   int error = verify_proc->Verify(
       cert.get(), "127.0.0.1", /*ocsp_response=*/std::string(),
-      /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result, NetLogWithSource());
+      /*sct_list=*/std::string(), flags, CertificateList(), &verify_result,
+      NetLogWithSource());
   EXPECT_EQ(OK, error);
   const base::HistogramBase::Sample kUnknownRootHistogramID = 0;
   histograms.ExpectUniqueSample(kTrustAnchorVerifyHistogram,
@@ -4843,15 +6087,15 @@ TEST(CertVerifyProcTest, DoesNotRecalculateStapledOCSPResult) {
   result.ocsp_result.response_status = OCSPVerifyResult::PROVIDED;
   result.ocsp_result.revocation_status = OCSPRevocationStatus::GOOD;
 
-  scoped_refptr<CertVerifyProc> verify_proc = new MockCertVerifyProc(result);
+  auto verify_proc = base::MakeRefCounted<MockCertVerifyProc>(result);
 
   int flags = 0;
   CertVerifyResult verify_result;
-  int error = verify_proc->Verify(
-      cert.get(), "127.0.0.1",
-      /*ocsp_response=*/"invalid OCSP data",
-      /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result, NetLogWithSource());
+  int error =
+      verify_proc->Verify(cert.get(), "127.0.0.1",
+                          /*ocsp_response=*/"invalid OCSP data",
+                          /*sct_list=*/std::string(), flags, CertificateList(),
+                          &verify_result, NetLogWithSource());
   EXPECT_EQ(OK, error);
 
   EXPECT_EQ(OCSPVerifyResult::PROVIDED,
@@ -4874,14 +6118,14 @@ TEST(CertVerifyProcTest, CalculateStapledOCSPResultIfNotAlreadyDone) {
   EXPECT_EQ(OCSPRevocationStatus::UNKNOWN,
             result.ocsp_result.revocation_status);
 
-  scoped_refptr<CertVerifyProc> verify_proc = new MockCertVerifyProc(result);
+  auto verify_proc = base::MakeRefCounted<MockCertVerifyProc>(result);
 
   int flags = 0;
   CertVerifyResult verify_result;
   int error = verify_proc->Verify(
       cert.get(), "127.0.0.1", /*ocsp_response=*/"invalid OCSP data",
-      /*sct_list=*/std::string(), flags, CRLSet::BuiltinCRLSet().get(),
-      CertificateList(), &verify_result, NetLogWithSource());
+      /*sct_list=*/std::string(), flags, CertificateList(), &verify_result,
+      NetLogWithSource());
   EXPECT_EQ(OK, error);
 
   EXPECT_EQ(OCSPVerifyResult::PARSE_RESPONSE_ERROR,

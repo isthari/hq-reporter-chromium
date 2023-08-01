@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,13 @@
 #define ASH_SYSTEM_UNIFIED_UNIFIED_SLIDER_BUBBLE_CONTROLLER_H_
 
 #include "ash/ash_export.h"
-#include "ash/components/audio/cras_audio_handler.h"
 #include "ash/shelf/shelf_observer.h"
 #include "ash/system/audio/unified_volume_slider_controller.h"
 #include "ash/system/tray/tray_bubble_view.h"
 #include "ash/system/unified/unified_system_tray_model.h"
+#include "base/memory/raw_ptr.h"
 #include "base/timer/timer.h"
+#include "chromeos/ash/components/audio/cras_audio_handler.h"
 
 namespace ash {
 
@@ -52,15 +53,25 @@ class ASH_EXPORT UnifiedSliderBubbleController
   // True if a slider bubble is shown.
   bool IsBubbleShown() const;
 
+  // Returns the height of the bubble. Used to calculate baseline offset for
+  // notification popups or side aligned toasts.
+  int GetBubbleHeight() const;
+
   // TrayBubbleView::Delegate:
   void BubbleViewDestroyed() override;
   void OnMouseEnteredView() override;
   void OnMouseExitedView() override;
 
+  // Displays the microphone mute toast.
+  void DisplayMicrophoneMuteToast();
+
   // CrasAudioHandler::AudioObserver:
+  void OnInputMuteChanged(
+      bool mute_on,
+      CrasAudioHandler::InputMuteChangeMethod method) override;
+  void OnInputMutedByMicrophoneMuteSwitchChanged(bool muted) override;
   void OnOutputNodeVolumeChanged(uint64_t node_id, int volume) override;
   void OnOutputMuteChanged(bool mute_on) override;
-  void OnInputMuteChanged(bool mute_on) override;
 
   // UnifiedSystemTrayModel::Observer:
   void OnDisplayBrightnessChanged(bool by_user) override;
@@ -83,12 +94,13 @@ class ASH_EXPORT UnifiedSliderBubbleController
   void StartAutoCloseTimer();
 
   // Unowned.
-  UnifiedSystemTray* const tray_;
+  const raw_ptr<UnifiedSystemTray, ExperimentalAsh> tray_;
 
   base::OneShotTimer autoclose_;
 
-  TrayBubbleView* bubble_view_ = nullptr;
-  views::Widget* bubble_widget_ = nullptr;
+  raw_ptr<TrayBubbleView, ExperimentalAsh> bubble_view_ = nullptr;
+  raw_ptr<views::Widget, ExperimentalAsh> bubble_widget_ = nullptr;
+  UnifiedSliderView* slider_view_ = nullptr;
 
   // Type of the currently shown slider.
   SliderType slider_type_ = SLIDER_TYPE_VOLUME;

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,9 @@
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/custom_handlers/chrome_protocol_handler_registry_delegate.h"
-#include "chrome/browser/profiles/incognito_helpers.h"
 #include "components/custom_handlers/protocol_handler_registry.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
+#include "components/user_prefs/user_prefs.h"
+#include "content/public/browser/browser_context.h"
 
 // static
 ProtocolHandlerRegistryFactory* ProtocolHandlerRegistryFactory::GetInstance() {
@@ -28,9 +28,15 @@ ProtocolHandlerRegistryFactory::GetForBrowserContext(
 }
 
 ProtocolHandlerRegistryFactory::ProtocolHandlerRegistryFactory()
-    : BrowserContextKeyedServiceFactory(
+    : ProfileKeyedServiceFactory(
           "ProtocolHandlerRegistry",
-          BrowserContextDependencyManager::GetInstance()) {}
+          // Allows the produced registry to be used in incognito mode.
+          ProfileSelections::Builder()
+              .WithRegular(ProfileSelection::kRedirectedToOriginal)
+              // TODO(crbug.com/1418376): Check if this service is needed in
+              // Guest mode.
+              .WithGuest(ProfileSelection::kRedirectedToOriginal)
+              .Build()) {}
 
 ProtocolHandlerRegistryFactory::~ProtocolHandlerRegistryFactory() {
 }
@@ -43,12 +49,6 @@ ProtocolHandlerRegistryFactory::ServiceIsCreatedWithBrowserContext() const {
   return true;
 }
 
-// Allows the produced registry to be used in incognito mode.
-content::BrowserContext* ProtocolHandlerRegistryFactory::GetBrowserContextToUse(
-    content::BrowserContext* context) const {
-  return chrome::GetBrowserContextRedirectedInIncognito(context);
-}
-
 // Do not create this service for tests. MANY tests will fail
 // due to the threading requirements of this service. ALSO,
 // not creating this increases test isolation (which is GOOD!)
@@ -58,18 +58,9 @@ bool ProtocolHandlerRegistryFactory::ServiceIsNULLWhileTesting() const {
 
 KeyedService* ProtocolHandlerRegistryFactory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {
-  custom_handlers::ProtocolHandlerRegistry* registry =
-      new custom_handlers::ProtocolHandlerRegistry(
-          context, std::make_unique<ChromeProtocolHandlerRegistryDelegate>());
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  // If installing defaults, they must be installed prior calling
-  // InitProtocolSettings
-  registry->InstallDefaultsForChromeOS();
-#endif
-
-  // Must be called as a part of the creation process.
-  registry->InitProtocolSettings();
-
-  return registry;
+  PrefService* prefs = user_prefs::UserPrefs::Get(context);
+  DCHECK(prefs);
+  return custom_handlers::ProtocolHandlerRegistry::Create(
+             prefs, std::make_unique<ChromeProtocolHandlerRegistryDelegate>())
+      .release();
 }

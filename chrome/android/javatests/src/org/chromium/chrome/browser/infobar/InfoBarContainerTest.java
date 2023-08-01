@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,12 @@ package org.chromium.chrome.browser.infobar;
 
 import android.graphics.Rect;
 import android.graphics.Region;
-import android.support.test.InstrumentationRegistry;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import android.widget.TextView;
 
 import androidx.test.filters.MediumTest;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.hamcrest.Matchers;
 import org.junit.After;
@@ -23,6 +23,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
@@ -30,18 +31,19 @@ import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.RequiresRestart;
-import org.chromium.chrome.R;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.prefetch.settings.PreloadPagesSettingsBridge;
 import org.chromium.chrome.browser.prefetch.settings.PreloadPagesState;
 import org.chromium.chrome.browser.ui.messages.infobar.SimpleConfirmInfoBarBuilder;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.batch.BlankCTATabInitialStateRule;
 import org.chromium.chrome.test.util.InfoBarTestAnimationListener;
 import org.chromium.chrome.test.util.InfoBarUtil;
+import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.components.infobars.InfoBar;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.test.EmbeddedTestServer;
 
@@ -125,7 +127,7 @@ public class InfoBarContainerTest {
         int previousCount = infoBars.size();
 
         final TestListener testListener = new TestListener();
-        PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT, () -> {
+        PostTask.runOrPostTask(TaskTraits.UI_DEFAULT, () -> {
             SimpleConfirmInfoBarBuilder.create(
                     sActivityTestRule.getActivity().getActivityTab().getWebContents(), testListener,
                     InfoBarIdentifier.TEST_INFOBAR, null, 0, MESSAGE_TEXT, null, null, null,
@@ -397,5 +399,27 @@ public class InfoBarContainerTest {
         // Additional manual test that this is working:
         // - adb shell dumpsys SurfaceFlinger
         // - Observe that Clank's overlay size changes (or disappears if URLbar is also gone).
+    }
+
+    /**
+     * Tests that infobar container view hides when browser control is offset.
+     */
+    @Test
+    @MediumTest
+    @Feature({"Browser"})
+    @EnableFeatures({ChromeFeatureList.INFOBAR_SCROLL_OPTIMIZATION})
+    public void testSyncWithBrowserControl() throws Exception {
+        final TestListener infobarListener = addInfoBarToCurrentTab(false);
+        Assert.assertEquals(1, sActivityTestRule.getInfoBars().size());
+        final InfoBar infoBar = sActivityTestRule.getInfoBars().get(0);
+        Assert.assertEquals(0, infoBar.getView().getTranslationY(), /*delta=*/0.1);
+
+        InfoBarContainer infoBarContainer = sActivityTestRule.getInfoBarContainer();
+        TestThreadUtils.runOnUiThreadBlocking(() -> {
+            infoBarContainer.getContainerViewForTesting().onControlsOffsetChanged(
+                    -100, 100, 0, 0, false);
+        });
+        Assert.assertNotEquals(
+                0, infoBarContainer.getContainerViewForTesting().getTranslationY(), /*delta=*/0.1);
     }
 }

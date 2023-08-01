@@ -1,15 +1,15 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "services/device/geolocation/wifi_data_provider_lacros.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "chromeos/lacros/lacros_service.h"
-#include "services/device/geolocation/wifi_data_provider_manager.h"
+#include "services/device/geolocation/wifi_data_provider_handle.h"
 #include "services/device/geolocation/wifi_polling_policy.h"
 
 namespace device {
@@ -38,7 +38,6 @@ void PopulateWifiData(
     ap_data.radio_signal_strength = access_point->radio_signal_strength;
     ap_data.channel = access_point->channel;
     ap_data.signal_to_noise = access_point->signal_to_noise;
-    ap_data.ssid = access_point->ssid;
     wifi_data.access_point_data.insert(std::move(ap_data));
   }
 }
@@ -50,8 +49,8 @@ bool IsGeolocationServiceAvailable() {
   if (!chromeos::LacrosService::Get())
     return false;
   const int crosapiVersion =
-      chromeos::LacrosService::Get()->GetInterfaceVersion(
-          crosapi::mojom::Crosapi::Uuid_);
+      chromeos::LacrosService::Get()
+          ->GetInterfaceVersion<crosapi::mojom::Crosapi>();
   const int minRequiredVersion = static_cast<int>(
       crosapi::mojom::Crosapi::kBindGeolocationServiceMinVersion);
   return crosapiVersion >= minRequiredVersion;
@@ -180,7 +179,7 @@ void WifiDataProviderLacros::DidWifiScanTask(
 }
 
 // static
-WifiDataProvider* WifiDataProviderManager::DefaultFactoryFunction() {
+WifiDataProvider* WifiDataProviderHandle::DefaultFactoryFunction() {
   return new WifiDataProviderLacros();
 }
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2018 The Chromium Authors. All rights reserved.
+# Copyright 2018 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -19,7 +19,7 @@ sys.path.append(os.path.join(_SRC_PATH, 'third_party', 'catapult', 'devil'))
 from devil.android import device_utils
 
 
-class Mapping(object):
+class Mapping:
   """A single entry (mapping) in /proc/[pid]/smaps."""
 
   def __init__(self, start, end, permissions, offset, pathname):
@@ -129,6 +129,8 @@ def _GetPageTableFootprint(device, pid):
     if line.startswith('VmPTE:'):
       value = int(line[len('VmPTE: '):line.index('kB')])
       return value
+  # Should not be reached.
+  return None
 
 
 def _SummarizeMapping(mapping, metric):
@@ -164,6 +166,17 @@ def _PrintSwapStats(mappings):
   _PrintMappingsMetric(mappings, 'Swap')
 
 
+def _PrintAnonymousMappingsStats(mappings):
+  print('Anonymous mappings sorted by Shared_Dirty memory:')
+  anonymous_mappings = [
+      mapping for mapping in mappings if mapping.pathname.startswith('[')
+  ]
+  _PrintMappingsMetric(anonymous_mappings, 'Shared_Dirty')
+
+  print('\n\nAnonymous mappings sorted by RSS:')
+  _PrintMappingsMetric(anonymous_mappings, 'Rss')
+
+
 def _FootprintForAnonymousMapping(mapping):
   assert mapping.pathname.startswith('[anon:')
   if (mapping.pathname == '[anon:libc_malloc]'
@@ -171,8 +184,7 @@ def _FootprintForAnonymousMapping(mapping):
     # libc_malloc mappings can come from the zygote. In this case, the shared
     # dirty memory is likely dirty in the zygote, don't count it.
     return mapping.fields['Rss']
-  else:
-    return mapping.fields['Private_Dirty']
+  return mapping.fields['Private_Dirty']
 
 
 def _PrintEstimatedFootprintStats(mappings, page_table_kb):
@@ -238,7 +250,8 @@ def _ShowAllocatorFootprint(mappings, allocator):
 
 def _CreateArgumentParser():
   parser = argparse.ArgumentParser()
-  parser.add_argument('--pid', help='PID.', required=True, type=int)
+  parser.add_argument('--pid', help='PID.', type=int)
+  parser.add_argument('--file', help='Pre-stored file', type=str)
   parser.add_argument('--estimate-footprint',
                       help='Show the estimated memory foootprint',
                       action='store_true')
@@ -256,17 +269,28 @@ def _CreateArgumentParser():
 def main():
   parser = _CreateArgumentParser()
   args = parser.parse_args()
-  devices = device_utils.DeviceUtils.HealthyDevices(device_arg=args.device)
-  if not devices:
-    logging.error('No connected devices')
-    return
 
-  device = devices[0]
-  if not device.HasRoot():
-    device.EnableRoot()
+  mappings = None
+
+  if args.file:
+    lines = []
+    with open(args.file, 'r') as f:
+      lines = f.readlines()
+    mappings = _ParseProcSmapsLines(lines)
+  else:
+    devices = device_utils.DeviceUtils.HealthyDevices(device_arg=args.device)
+    if not devices:
+      logging.error('No connected devices')
+      return
+
+    device = devices[0]
+    if not device.HasRoot():
+      device.EnableRoot()
+    mappings = ParseProcSmaps(device, args.pid, args.store_smaps)
+
   # Enable logging after device handling as devil is noisy at INFO level.
   logging.basicConfig(level=logging.INFO)
-  mappings = ParseProcSmaps(device, args.pid, args.store_smaps)
+
   if args.estimate_footprint:
     page_table_kb = _GetPageTableFootprint(device, args.pid)
     _PrintEstimatedFootprintStats(mappings, page_table_kb)
@@ -274,6 +298,8 @@ def main():
     print('\n\nEstimated Footprint = %d kiB' % footprint)
   else:
     _PrintSwapStats(mappings)
+    print('\n\n\n')
+    _PrintAnonymousMappingsStats(mappings)
 
   if args.show_allocator_footprint:
     print('\n\nMemory Allocators footprint:')

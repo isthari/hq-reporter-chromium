@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -46,8 +46,9 @@ class NewTabButton : public views::ImageButton,
   void AnimateToStateForTesting(views::InkDropState state);
 
   // views::ImageButton:
-  void AddLayerBeneathView(ui::Layer* new_layer) override;
-  void RemoveLayerBeneathView(ui::Layer* old_layer) override;
+  void AddLayerToRegion(ui::Layer* new_layer,
+                        views::LayerRegion region) override;
+  void RemoveLayerFromRegions(ui::Layer* old_layer) override;
 
  protected:
   virtual void PaintIcon(gfx::Canvas* canvas);
@@ -56,8 +57,20 @@ class NewTabButton : public views::ImageButton,
 
   SkColor GetForegroundColor() const;
 
+  // Returns the radius to use for the button corners.
+  virtual int GetCornerRadius() const;
+
+  // Returns the path for the given |origin| and |scale|.  If |extend_to_top| is
+  // true, the path is extended vertically to y = 0.
+  virtual SkPath GetBorderPath(const gfx::Point& origin,
+                               float scale,
+                               bool extend_to_top) const;
+
   // views::ImageButton:
   void OnBoundsChanged(const gfx::Rect& previous_bounds) override;
+  void AddedToWidget() override;
+  void RemovedFromWidget() override;
+  void OnThemeChanged() override;
 
  private:
   class HighlightPathGenerator;
@@ -74,27 +87,22 @@ class NewTabButton : public views::ImageButton,
   // views::MaskedTargeterDelegate:
   bool GetHitTestMask(SkPath* mask) const override;
 
-  // Returns the radius to use for the button corners.
-  int GetCornerRadius() const;
-
   // Paints the fill region of the button into |canvas|.
   void PaintFill(gfx::Canvas* canvas) const;
 
-  SkColor GetButtonFillColor() const;
-
-  // Returns the path for the given |origin| and |scale|.  If |extend_to_top| is
-  // true, the path is extended vertically to y = 0.
-  SkPath GetBorderPath(const gfx::Point& origin,
-                       float scale,
-                       bool extend_to_top) const;
-
-  void UpdateInkDropBaseColor();
-
   // Tab strip that contains this button.
-  raw_ptr<TabStrip> tab_strip_;
+  raw_ptr<TabStrip, DanglingUntriaged> tab_strip_;
 
   // Contains our ink drop layer so it can paint above our background.
-  raw_ptr<views::InkDropContainerView> ink_drop_container_;
+  raw_ptr<views::InkDropContainerView, DanglingUntriaged> ink_drop_container_;
+
+  base::CallbackListSubscription paint_as_active_subscription_;
+
+  // Stored ColorId values to differentiate for ChromeRefresh.
+  ui::ColorId foreground_frame_active_color_id_;
+  ui::ColorId foreground_frame_inactive_color_id_;
+  ui::ColorId background_frame_active_color_id_;
+  ui::ColorId background_frame_inactive_color_id_;
 
   // For tracking whether this object has been destroyed. Must be last.
   base::WeakPtrFactory<NewTabButton> weak_factory_{this};

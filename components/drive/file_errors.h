@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,7 +30,10 @@ enum FileError {
   FILE_ERROR_NO_CONNECTION = -16,
   FILE_ERROR_NO_LOCAL_SPACE = -17,
   FILE_ERROR_SERVICE_UNAVAILABLE = -18,
+  FILE_ERROR_OK_WITH_MORE_RESULTS = -19,
 };
+
+std::ostream& operator<<(std::ostream& out, FileError error);
 
 // Returns a string representation of FileError.
 std::string FileErrorToString(FileError error);

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,11 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ptr_util.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/run_loop.h"
@@ -36,9 +37,8 @@
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
-#include "chromeos/dbus/concierge/concierge_client.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/tpm/stub_install_attributes.h"
+#include "chromeos/ash/components/dbus/concierge/concierge_client.h"
+#include "chromeos/ash/components/install_attributes/stub_install_attributes.h"
 #include "components/enterprise/browser/reporting/common_pref_names.h"
 #include "components/enterprise/browser/reporting/report_scheduler.h"
 #include "components/policy/core/common/cloud/cloud_external_data_manager.h"
@@ -73,33 +73,29 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-namespace em = enterprise_management;
-
-using testing::_;
-using testing::AnyNumber;
-using testing::AtLeast;
-using testing::AtMost;
-using testing::DoAll;
-using testing::Mock;
-using testing::SaveArg;
+namespace policy {
 
 namespace {
+
+namespace em = ::enterprise_management;
+
+using ::testing::_;
+using ::testing::DoAll;
+using ::testing::Mock;
+using ::testing::SaveArg;
 
 const char kUMAReregistrationResult[] =
     "Enterprise.UserPolicyChromeOS.ReregistrationResult";
 
 enum PolicyRequired { POLICY_NOT_REQUIRED, POLICY_REQUIRED };
 
-void SendJobOKNowForBinding(
-    policy::FakeDeviceManagementService* service,
-    policy::DeviceManagementService::JobForTesting job,
-    const enterprise_management::DeviceManagementResponse& response) {
+void SendJobOKNowForBinding(FakeDeviceManagementService* service,
+                            DeviceManagementService::JobForTesting job,
+                            const em::DeviceManagementResponse& response) {
   service->SendJobOKNow(&job, response);
 }
 
 }  // namespace
-
-namespace policy {
 
 using PolicyEnforcement = UserCloudPolicyManagerAsh::PolicyEnforcement;
 
@@ -121,7 +117,7 @@ constexpr char kDeviceId[] = "id987";
 // UserCloudPolicyManagerAsh test class that can be used with different
 // feature flags.
 class UserCloudPolicyManagerAshTest
-    : public testing::TestWithParam<std::vector<base::Feature>> {
+    : public testing::TestWithParam<std::vector<base::test::FeatureRef>> {
  public:
   UserCloudPolicyManagerAshTest(const UserCloudPolicyManagerAshTest&) = delete;
   UserCloudPolicyManagerAshTest& operator=(
@@ -150,7 +146,7 @@ class UserCloudPolicyManagerAshTest
         profile_(nullptr),
         signin_profile_(nullptr),
         user_manager_(new ash::FakeChromeUserManager()),
-        user_manager_enabler_(base::WrapUnique(user_manager_)),
+        user_manager_enabler_(base::WrapUnique(user_manager_.get())),
         test_signin_shared_loader_factory_(
             base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
                 &test_signin_url_loader_factory_)),
@@ -159,12 +155,11 @@ class UserCloudPolicyManagerAshTest
                 &test_system_url_loader_factory_)) {}
 
   void SetUp() override {
-    chromeos::DBusThreadManager::Initialize();
-    chromeos::ConciergeClient::InitializeFake(/*fake_cicerone_client=*/nullptr);
+    ash::ConciergeClient::InitializeFake(/*fake_cicerone_client=*/nullptr);
 
     scoped_feature_list_.InitWithFeatures(
         GetParam() /* enabled_features */,
-        std::vector<base::Feature>() /* disabled_features */);
+        std::vector<base::test::FeatureRef>() /* disabled_features */);
 
     // The initialization path that blocks on the initial policy fetch requires
     // a signin Profile to use its URLRequestContext.
@@ -177,7 +172,7 @@ class UserCloudPolicyManagerAshTest
     profile_ = profile_manager_->CreateTestingProfile(
         chrome::kInitialProfile,
         std::unique_ptr<sync_preferences::PrefServiceSyncable>(), u"", 0,
-        std::string(), std::move(factories));
+        std::move(factories));
     identity_test_env_profile_adaptor_ =
         std::make_unique<IdentityTestEnvironmentProfileAdaptor>(profile_);
 
@@ -236,15 +231,14 @@ class UserCloudPolicyManagerAshTest
       manager_->RemoveObserver(&observer_);
       manager_->Shutdown();
     }
-    signin_profile_ = NULL;
-    profile_ = NULL;
+    signin_profile_ = nullptr;
+    profile_ = nullptr;
     identity_test_env_profile_adaptor_.reset();
     profile_manager_->DeleteTestingProfile(chrome::kInitialProfile);
     test_system_shared_loader_factory_->Detach();
     test_signin_shared_loader_factory_->Detach();
 
-    chromeos::ConciergeClient::Shutdown();
-    chromeos::DBusThreadManager::Shutdown();
+    ash::ConciergeClient::Shutdown();
   }
 
   void MakeManagerWithEmptyStore(const base::TimeDelta& fetch_timeout,
@@ -378,8 +372,9 @@ class UserCloudPolicyManagerAshTest
   testing::StrictMock<MockJobCreationHandler> job_creation_handler_;
   FakeDeviceManagementService device_management_service_{
       &job_creation_handler_};
-  MockCloudPolicyStore* store_;                          // Not owned.
-  MockCloudExternalDataManager* external_data_manager_;  // Not owned.
+  raw_ptr<MockCloudPolicyStore, ExperimentalAsh> store_;  // Not owned.
+  raw_ptr<MockCloudExternalDataManager, ExperimentalAsh>
+      external_data_manager_;  // Not owned.
   scoped_refptr<base::TestMockTimeTaskRunner> task_runner_;
   SchemaRegistry schema_registry_;
   std::unique_ptr<UserCloudPolicyManagerAsh> manager_;
@@ -387,13 +382,13 @@ class UserCloudPolicyManagerAshTest
 
   // Required by ProfileHelper to get the signin Profile context.
   std::unique_ptr<TestingProfileManager> profile_manager_;
-  TestingProfile* profile_;
-  TestingProfile* signin_profile_;
+  raw_ptr<TestingProfile, ExperimentalAsh> profile_;
+  raw_ptr<TestingProfile, ExperimentalAsh> signin_profile_;
   std::unique_ptr<IdentityTestEnvironmentProfileAdaptor>
       identity_test_env_profile_adaptor_;
   user_manager::UserType user_type_ = user_manager::UserType::USER_TYPE_REGULAR;
 
-  ash::FakeChromeUserManager* user_manager_;
+  raw_ptr<ash::FakeChromeUserManager, ExperimentalAsh> user_manager_;
   user_manager::ScopedUserManager user_manager_enabler_;
   // This is automatically checked in TearDown() to ensure that we get a
   // fatal error iff |fatal_error_expected_| is true.
@@ -409,8 +404,9 @@ class UserCloudPolicyManagerAshTest
     manager_ = std::make_unique<UserCloudPolicyManagerAsh>(
         ash::ProfileHelper::Get()->GetProfileByUser(active_user),
         std::move(store),
-        base::WrapUnique<MockCloudExternalDataManager>(external_data_manager_),
-        base::FilePath(), enforcement_type, fetch_timeout,
+        base::WrapUnique<MockCloudExternalDataManager>(
+            external_data_manager_.get()),
+        base::FilePath(), enforcement_type, &prefs_, fetch_timeout,
         base::BindOnce(&UserCloudPolicyManagerAshTest::OnFatalErrorEncountered,
                        base::Unretained(this)),
         active_user->GetAccountId(), task_runner_);
@@ -424,8 +420,8 @@ class UserCloudPolicyManagerAshTest
 
   void InitAndConnectManager() {
     manager_->Init(&schema_registry_);
-    manager_->Connect(&prefs_, &device_management_service_,
-                      /*system_url_loader_factory=*/nullptr);
+    manager_->ConnectManagementService(&device_management_service_,
+                                       /*system_url_loader_factory=*/nullptr);
     // Create the UserCloudPolicyTokenForwarder, which fetches the access
     // token using the IdentityManager and forwards it to the
     // UserCloudPolicyManagerAsh. This service is automatically created
@@ -478,8 +474,8 @@ class UserCloudPolicyManagerAshTest
 INSTANTIATE_TEST_SUITE_P(
     /* no prefix */,
     UserCloudPolicyManagerAshTest,
-    testing::Values(std::vector<base::Feature>(),
-                    std::vector<base::Feature>{
+    testing::Values(std::vector<base::test::FeatureRef>(),
+                    std::vector<base::test::FeatureRef>{
                         features::kDMServerOAuthForChildUser}));
 
 TEST_P(UserCloudPolicyManagerAshTest, BlockingFirstFetch) {
@@ -1195,7 +1191,7 @@ class UserCloudPolicyManagerAshChildTest
 INSTANTIATE_TEST_SUITE_P(
     /* no prefix */,
     UserCloudPolicyManagerAshChildTest,
-    testing::Values(std::vector<base::Feature>{
+    testing::Values(std::vector<base::test::FeatureRef>{
         features::kDMServerOAuthForChildUser}));
 
 TEST_P(UserCloudPolicyManagerAshChildTest, RefreshFetchDoesNotBlock) {

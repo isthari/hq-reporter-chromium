@@ -1,4 +1,4 @@
-// Copyright (c) 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 
 #if BUILDFLAG(IS_WIN)
 #include <io.h>
+#include <stdlib.h>
 #include <windows.h>
 #else
 #include <sys/socket.h>
@@ -19,9 +20,9 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/message_loop/message_pump_type.h"
@@ -30,7 +31,6 @@
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread.h"
-#include "build/build_config.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/devtools_agent_host.h"
@@ -40,6 +40,12 @@
 
 const size_t kReceiveBufferSizeForDevTools = 100 * 1024 * 1024;  // 100Mb
 const size_t kWritePacketSize = 1 << 16;
+
+// The following file descriptors are used by DevTools remote debugging pipe
+// handler to read and write protocol messages. These should be identical to
+// the ones specified in //components/devtools/devtools_pipe/devtools_pipe.h
+// which we cannot include here because //content should not depend on
+// components.
 const int kReadFD = 3;
 const int kWriteFD = 4;
 
@@ -94,6 +100,41 @@ class PipeIOBase {
   std::unique_ptr<base::Thread> thread_;
   base::AtomicFlag shutting_down_;
 };
+
+#if BUILDFLAG(IS_WIN)
+// Temporary CRT parameter validation error handler override that allows
+//  _get_osfhandle() to return INVALID_HANDLE_VALUE instead of crashing.
+class ScopedInvalidParameterHandlerOverride {
+ public:
+  ScopedInvalidParameterHandlerOverride()
+      : prev_invalid_parameter_handler_(
+            _set_thread_local_invalid_parameter_handler(
+                InvalidParameterHandler)) {}
+
+  ScopedInvalidParameterHandlerOverride(
+      const ScopedInvalidParameterHandlerOverride&) = delete;
+  ScopedInvalidParameterHandlerOverride& operator=(
+      const ScopedInvalidParameterHandlerOverride&) = delete;
+
+  ~ScopedInvalidParameterHandlerOverride() {
+    _set_thread_local_invalid_parameter_handler(
+        prev_invalid_parameter_handler_);
+  }
+
+ private:
+  // A do nothing invalid parameter handler that causes CRT routine to return
+  // error to the caller.
+  static void InvalidParameterHandler(const wchar_t* expression,
+                                      const wchar_t* function,
+                                      const wchar_t* file,
+                                      unsigned int line,
+                                      uintptr_t reserved) {}
+
+  const _invalid_parameter_handler prev_invalid_parameter_handler_;
+};
+
+#endif  // BUILDFLAG(IS_WIN)
+
 }  // namespace
 
 class PipeReaderBase : public PipeIOBase {
@@ -101,11 +142,11 @@ class PipeReaderBase : public PipeIOBase {
   PipeReaderBase(base::WeakPtr<DevToolsPipeHandler> devtools_handler,
                  int read_fd)
       : PipeIOBase("DevToolsPipeHandlerReadThread"),
-        devtools_handler_(std::move(devtools_handler)) {
+        devtools_handler_(std::move(devtools_handler)),
+        read_fd_(read_fd) {
 #if BUILDFLAG(IS_WIN)
+    ScopedInvalidParameterHandlerOverride invalid_parameter_handler_override;
     read_handle_ = reinterpret_cast<HANDLE>(_get_osfhandle(read_fd));
-#else
-    read_fd_ = read_fd;
 #endif
   }
 
@@ -121,7 +162,9 @@ class PipeReaderBase : public PipeIOBase {
 #if BUILDFLAG(IS_WIN)
     // Cancel pending synchronous read.
     CancelIoEx(read_handle_, nullptr);
-    CloseHandle(read_handle_);
+    ScopedInvalidParameterHandlerOverride invalid_parameter_handler_override;
+    _close(read_fd_);
+    read_handle_ = INVALID_HANDLE_VALUE;
 #else
     shutdown(read_fd_, SHUT_RDWR);
 #endif
@@ -175,21 +218,19 @@ class PipeReaderBase : public PipeIOBase {
   }
 
   base::WeakPtr<DevToolsPipeHandler> devtools_handler_;
+  int read_fd_;
 #if BUILDFLAG(IS_WIN)
   HANDLE read_handle_;
-#else
-  int read_fd_;
 #endif
 };
 
 class PipeWriterBase : public PipeIOBase {
  public:
   explicit PipeWriterBase(int write_fd)
-      : PipeIOBase("DevToolsPipeHandlerWriteThread") {
+      : PipeIOBase("DevToolsPipeHandlerWriteThread"), write_fd_(write_fd) {
 #if BUILDFLAG(IS_WIN)
+    ScopedInvalidParameterHandlerOverride invalid_parameter_handler_override;
     write_handle_ = reinterpret_cast<HANDLE>(_get_osfhandle(write_fd));
-#else
-    write_fd_ = write_fd;
 #endif
   }
 
@@ -204,7 +245,9 @@ class PipeWriterBase : public PipeIOBase {
  protected:
   void ClosePipe() override {
 #if BUILDFLAG(IS_WIN)
-    CloseHandle(write_handle_);
+    ScopedInvalidParameterHandlerOverride invalid_parameter_handler_override;
+    _close(write_fd_);
+    write_handle_ = INVALID_HANDLE_VALUE;
 #else
     shutdown(write_fd_, SHUT_RDWR);
 #endif
@@ -239,10 +282,9 @@ class PipeWriterBase : public PipeIOBase {
   }
 
  private:
+  int write_fd_;
 #if BUILDFLAG(IS_WIN)
   HANDLE write_handle_;
-#else
-  int write_fd_;
 #endif
 };
 
@@ -324,20 +366,22 @@ class PipeReaderCBOR : public PipeReaderBase {
 
   void ReadLoopInternal() override {
     while (true) {
-      const size_t kHeaderSize = 6;  // tag? type length*4
-      std::vector<uint8_t> buffer(kHeaderSize);
-      if (!ReadBytes(&buffer.front(), kHeaderSize, true))
+      const size_t kPeekSize =
+          8;  // tag tag_type? byte_string length*4 map_start
+      std::vector<uint8_t> buffer(kPeekSize);
+      if (!ReadBytes(&buffer.front(), kPeekSize, true))
         break;
-      const uint8_t* prefix = buffer.data();
-      if (prefix[0] != crdtp::cbor::InitialByteForEnvelope() ||
-          prefix[1] != crdtp::cbor::InitialByteFor32BitLengthByteString()) {
-        LOG(ERROR) << "Unexpected start of CBOR envelope " << prefix[0] << ","
-                   << prefix[1];
+      auto status_or_header = crdtp::cbor::EnvelopeHeader::ParseFromFragment(
+          crdtp::SpanFrom(buffer));
+      if (!status_or_header.ok()) {
+        LOG(ERROR) << "Error parsing CBOR envelope: "
+                   << status_or_header.status().ToASCIIString();
         return;
       }
-      uint32_t msg_size = UInt32FromCBOR(prefix + 2);
-      buffer.resize(kHeaderSize + msg_size);
-      if (!ReadBytes(&buffer.front() + kHeaderSize, msg_size, true))
+      const size_t msg_size = (*status_or_header).outer_size();
+      CHECK_GT(msg_size, kPeekSize);
+      buffer.resize(msg_size);
+      if (!ReadBytes(&buffer.front() + kPeekSize, msg_size - kPeekSize, true))
         return;
       HandleMessage(std::move(buffer));
     }

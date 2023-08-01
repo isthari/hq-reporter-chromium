@@ -1,14 +1,17 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "math.h"
+#include <math.h>
 
 #include "base/files/file_util.h"
 #include "base/path_service.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "cc/test/pixel_comparator.h"
 #include "cc/test/pixel_test_utils.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/color/chrome_color_id.h"
 #include "chrome/browser/ui/views/accessibility/accessibility_focus_highlight.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/common/chrome_paths.h"
@@ -163,7 +166,9 @@ IN_PROC_BROWSER_TEST_F(AccessibilityFocusHighlightBrowserTest,
   } while (CountPercentPixelsWithColor(image, SkColorSetRGB(204, 255, 255)) <
            90.0f);
 
-  SkColor highlight_color = AccessibilityFocusHighlight::default_color_;
+  BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser());
+  SkColor highlight_color =
+      browser_view->GetColorProvider()->GetColor(kColorFocusHighlightDefault);
 
   // Initially less than 0.05% of the image should be the focus ring's highlight
   // color.
@@ -173,7 +178,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityFocusHighlightBrowserTest,
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
   std::string script("document.getElementById('div').focus();");
-  EXPECT_TRUE(content::ExecuteScript(web_contents, script));
+  EXPECT_TRUE(content::ExecJs(web_contents, script));
 
   // Now wait until at least 0.1% of the image has the focus ring's highlight
   // color. If it never does, the test will time out.
@@ -196,7 +201,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityFocusHighlightBrowserTest,
       browser()->tab_strip_model()->GetActiveWebContents();
   content::FocusChangedObserver observer(web_contents);
   std::string script("document.getElementById('link').focus();");
-  ASSERT_TRUE(content::ExecuteScript(web_contents, script));
+  ASSERT_TRUE(content::ExecJs(web_contents, script));
   auto details = observer.Wait();
 
   gfx::Rect bounds = details.node_bounds_in_screen;
@@ -235,7 +240,7 @@ class ReadbackHolder : public base::RefCountedThreadSafe<ReadbackHolder> {
   std::unique_ptr<base::RunLoop> run_loop_;
 };
 
-const cc::ExactPixelComparator pixel_comparator(/*discard_alpha=*/false);
+const cc::ExactPixelComparator pixel_comparator;
 
 // Flaky on Lacros: https://crbug.com/1289366
 #if (BUILDFLAG(IS_MAC) &&                                     \
@@ -266,7 +271,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityFocusHighlightBrowserTest,
       browser()->tab_strip_model()->GetActiveWebContents();
   content::FocusChangedObserver observer(web_contents);
   std::string script("document.getElementById('link').focus();");
-  ASSERT_TRUE(content::ExecuteScript(web_contents, script));
+  ASSERT_TRUE(content::ExecJs(web_contents, script));
   observer.Wait();
   BrowserView* browser_view = BrowserView::GetBrowserViewForBrowser(browser());
   AccessibilityFocusHighlight* highlight =

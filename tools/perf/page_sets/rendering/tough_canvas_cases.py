@@ -1,4 +1,4 @@
-# Copyright 2014 The Chromium Authors. All rights reserved.
+# Copyright 2014 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 from telemetry.page import shared_page_state
@@ -36,12 +36,6 @@ class MicrosoftFirefliesPage(ToughCanvasPage):
   BASE_NAME = 'microsoft_fireflies'
   # pylint: disable=line-too-long
   URL = 'http://ie.microsoft.com/testdrive/Performance/Fireflies/Default.html'
-
-
-class GeoAPIsPage(ToughCanvasPage):
-  BASE_NAME = 'geo_apis'
-  URL = 'http://geoapis.appspot.com/agdnZW9hcGlzchMLEgtFeGFtcGxlQ29kZRjh1wIM'
-
 
 class RunwayPage(ToughCanvasPage):
   BASE_NAME = 'runway'
@@ -165,6 +159,11 @@ class CanvasFontCyclerPage(ToughCanvasPage):
 class CanvasAnimationNoClearPage(ToughCanvasPage):
   BASE_NAME = 'canvas_animation_no_clear'
   URL = 'file://../tough_canvas_cases/canvas-animation-no-clear.html'
+
+
+class CanvasGlobalAlpha(ToughCanvasPage):
+  BASE_NAME = 'canvas_globalAlpha'
+  URL = 'file://../tough_canvas_cases/canvas_globalAlpha.html'
 
 
 class CanvasToBlobPage(ToughCanvasPage):

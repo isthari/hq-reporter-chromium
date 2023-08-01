@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,8 +14,14 @@ class RenderViewContextMenu;
 
 class ContextMenuNotificationObserver {
  public:
-  // Wait for a context menu to be shown, and then execute |command_to_execute|.
-  explicit ContextMenuNotificationObserver(int command_to_execute);
+  // Wait for a context menu to be shown, and then execute |command_to_execute|
+  // with specified |event_flags|. Also executes |callback| after executing the
+  // command if provided.
+  explicit ContextMenuNotificationObserver(
+      int command_to_execute,
+      int event_flags = 0,
+      base::OnceCallback<void(RenderViewContextMenu*)> callback =
+          base::NullCallbackAs<void(RenderViewContextMenu*)>());
 
   ContextMenuNotificationObserver(const ContextMenuNotificationObserver&) =
       delete;
@@ -30,12 +36,18 @@ class ContextMenuNotificationObserver {
   void ExecuteCommand(RenderViewContextMenu* context_menu);
 
   int command_to_execute_;
+  int event_flags_;
+  base::OnceCallback<void(RenderViewContextMenu*)> callback_;
 };
 
 class ContextMenuWaiter {
  public:
   ContextMenuWaiter();
   explicit ContextMenuWaiter(int command_to_execute);
+  // `before_execute` will be run after the context menu is opened and before
+  // executing `command_to_execute`.
+  explicit ContextMenuWaiter(int command_to_execute,
+                             base::OnceClosure before_execute);
 
   ContextMenuWaiter(const ContextMenuWaiter&) = delete;
   ContextMenuWaiter& operator=(const ContextMenuWaiter&) = delete;
@@ -58,6 +70,7 @@ class ContextMenuWaiter {
 
   base::RunLoop run_loop_;
   absl::optional<int> maybe_command_to_execute_;
+  base::OnceClosure before_execute_;
 };
 
 #endif  // CHROME_BROWSER_RENDERER_CONTEXT_MENU_RENDER_VIEW_CONTEXT_MENU_BROWSERTEST_UTIL_H_

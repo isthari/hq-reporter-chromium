@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include "ash/components/arc/mojom/app.mojom.h"
 #include "ash/components/arc/session/connection_holder.h"
+#include "base/memory/raw_ptr.h"
 
 namespace arc {
 
@@ -58,10 +59,15 @@ class FakeAppHost : public mojom::AppHost {
       const absl::optional<std::string>& package_name) override;
   void OnInstallationFinished(
       arc::mojom::InstallationResultPtr result) override;
+  void OnInstallationProgressChanged(const std::string& package_name,
+                                     float progress) override;
+  void OnInstallationActiveChanged(const std::string& package_name,
+                                   bool active) override;
 
  private:
   // The connection holder must outlive |this| object.
-  ConnectionHolder<arc::mojom::AppInstance, arc::mojom::AppHost>* const
+  const raw_ptr<ConnectionHolder<arc::mojom::AppInstance, arc::mojom::AppHost>,
+                ExperimentalAsh>
       app_connection_holder_;
 };
 

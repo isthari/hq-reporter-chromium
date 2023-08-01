@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -51,6 +51,13 @@ class VisitAnnotationsDatabase {
       VisitID visit_id,
       const VisitContentAnnotations& visit_content_annotations);
 
+  // Updates an existing row. The new information is set on the row, using the
+  // VisitID as the key. The context annotations for the visit must exist.
+  // Ignores failures.
+  void UpdateContextAnnotationsForVisit(
+      VisitID visit_id,
+      const VisitContextAnnotations& visit_context_annotations);
+
   // Query for a `VisitContentAnnotations` given `visit_id`. If it's found and
   // valid, this method returns true, and `out_content_annotations` is filled.
   // Otherwise, this returns false, and `out_content_annotations` is unchanged.
@@ -65,18 +72,6 @@ class VisitAnnotationsDatabase {
       VisitID visit_id,
       VisitContextAnnotations* out_context_annotations);
 
-  // Get recent `AnnotatedVisit`s' IDs. Does not return visits without
-  // annotations.
-  std::vector<VisitID> GetRecentAnnotatedVisitIds(base::Time minimum_time,
-                                                  int max_results);
-
-  // Get all `AnnotatedVisitRow`s except unclustered visits. Does not return
-  // duplicates if a visit is in multiple `Cluster`s.
-  std::vector<AnnotatedVisitRow> GetClusteredAnnotatedVisits(int max_results);
-
-  // Gets all the context annotation rows for testing.
-  std::vector<AnnotatedVisitRow> GetAllContextAnnotationsForTesting();
-
   // Deletes the content & context annotations associated with `visit_id`. This
   // will also delete any associated annotations usage data. If no annotations
   // exist for the `VisitId`, this is a no-op. Ignores failures; i.e. continues
@@ -88,15 +83,66 @@ class VisitAnnotationsDatabase {
   // entries for any `Cluster` that it failed to add.
   void AddClusters(const std::vector<Cluster>& clusters);
 
-  // Get the `max_results` most recent `ClusterRow`s.
-  std::vector<ClusterRow> GetClusters(int max_results);
+  // Adds a cluster with no visits with `originator_cache_guid` and
+  // `originator_cluster_id` and returns the new cluster's ID.
+  // `originator_cache_guid` and `originator_cluster_id` can be the respective
+  // empty states if the cluster is a local cluster or the originator device
+  // does not support those fields yet.
+  int64_t ReserveNextClusterId(const std::string& originator_cache_guid,
+                               int64_t originator_cluster_id);
 
-  // Get recent `Cluster`s' IDs newer than `minimum_time`.
-  std::vector<int64_t> GetRecentClusterIds(base::Time minimum_time);
+  // Adds visits to the cluster with id `cluster_id`.
+  void AddVisitsToCluster(int64_t cluster_id,
+                          const std::vector<ClusterVisit>& visits);
 
-  // Get the `max_results` newest `VisitID`s in a cluster.
-  std::vector<VisitID> GetVisitIdsInCluster(int64_t cluster_id,
-                                            int max_results);
+  // Updates the triggerability attributes for each cluster in `clusters`.
+  void UpdateClusterTriggerability(
+      const std::vector<history::Cluster>& clusters);
+
+  // Updates the cluster visit with the same visit ID as `cluster_visit` that
+  // belongs to `cluster_id`.
+  void UpdateClusterVisit(int64_t cluster_id,
+                          const history::ClusterVisit& cluster_visit);
+
+  // Get a `Cluster`. Does not include the cluster's `visits` or
+  // `keyword_to_data_map`.
+  Cluster GetCluster(int64_t cluster_id);
+
+  // Get the most recent clusters within the constraints. The most recent visit
+  // of a cluster represents the cluster's time.
+  std::vector<int64_t> GetMostRecentClusterIds(base::Time inclusive_min_time,
+                                               base::Time exclusive_max_time,
+                                               int max_clusters);
+
+  // Get `VisitID`s in a cluster.
+  std::vector<VisitID> GetVisitIdsInCluster(int64_t cluster_id);
+
+  // Get a `ClusterVisit`.
+  ClusterVisit GetClusterVisit(VisitID visit_id);
+
+  // Get `VisitID`s for duplicate cluster visits.
+  std::vector<VisitID> GetDuplicateClusterVisitIdsForClusterVisit(
+      int64_t visit_id);
+
+  // Return the ID of the cluster containing `visit_id`. Returns 0 if `visit_id`
+  // is not in a cluster.`
+  int64_t GetClusterIdContainingVisit(VisitID visit_id);
+
+  // Return the ID of the cluster that has `originator_cache_guid` and
+  // `originator_cluster_id`. Returns 0 if a cluster does not have those
+  // details.
+  int64_t GetClusterIdForSyncedDetails(const std::string& originator_cache_guid,
+                                       int64_t originator_cluster_id);
+
+  // Return the keyword data associated with `cluster_id`.
+  base::flat_map<std::u16string, ClusterKeywordData> GetClusterKeywords(
+      int64_t cluster_id);
+
+  // Sets scores of cluster visits to 0 to hide them from the webUI.
+  void HideVisits(const std::vector<VisitID>& visit_ids);
+
+  // Delete `Cluster`s from the table.
+  void DeleteClusters(const std::vector<int64_t>& cluster_ids);
 
  protected:
   // Returns the database for the functions in this interface.
@@ -129,13 +175,67 @@ class VisitAnnotationsDatabase {
   // table by adding a related searches column.
   bool MigrateContentAnnotationsAddRelatedSearchesColumn();
 
-  // Called by the drived classes to migrate the older content_annotations
+  // Called by the derived classes to migrate the older content_annotations
   // table by adding a visibility score column.
   bool MigrateContentAnnotationsAddVisibilityScore();
 
-  // Called by the drived classes to migrate the older context_annotations
+  // Called by the derived classes to migrate the older context_annotations
   // table by adding a total foreground duration column.
   bool MigrateContextAnnotationsAddTotalForegroundDuration();
+
+  // Called by the derived classes to migrate the older content_annotations
+  // table by adding the search_normalized_url and search_terms columns.
+  bool MigrateContentAnnotationsAddSearchMetadata();
+
+  // Called by the derived classes to migrate the older content_annotations
+  // table by adding the alternative_title column.
+  bool MigrateContentAnnotationsAddAlternativeTitle();
+
+  // Called by the derived classes to delete the 'clusters' and
+  // 'clusters_and_visits' tables so they can be recreated with updated columns.
+  bool MigrateClustersAddColumns();
+
+  // Called by the derived classes to migrate the older context_annotations
+  // table by adding various columns that are (for now) needed by Sync:
+  // In context_annotations:
+  // * browser_type
+  // * window_id and tab_id
+  // * task_id, root_task_id, and parent_task_id
+  // * response_code
+  // In content_annotations:
+  // * page_language
+  // * password_state
+  bool MigrateAnnotationsAddColumnsForSync();
+
+  // Called by the derived classes to migrate the older clusters table by adding
+  // a triggerability calculated column.
+  bool MigrateClustersAddTriggerabilityCalculated();
+
+  // Called by the derived classes to migrate the older clusters table which
+  // aren't ready to accommodate Sync. It sets `id` to AUTOINCREMENT, and
+  // ensures the existence of the `originator_cache_guid` and
+  // `originator_cluster_id` columns.
+  bool MigrateClustersAutoincrementIdAndAddOriginatorColumns();
+
+  // Called by the derived classes to migrate the older content_annotations
+  // table by adding the has_url_keyed_image column.
+  bool MigrateContentAnnotationsAddHasUrlKeyedImage();
+
+  // Called by the derived class to migrate the older clusters_and_visits table
+  // by adding the interaction_state column.
+  bool MigrateClustersAndVisitsAddInteractionState();
+
+ private:
+  // Return true if the clusters table's schema contains "AUTOINCREMENT".
+  // false if table do not contain AUTOINCREMENT, or the table is not created.
+  bool ClustersTableContainsAutoincrement();
+
+  // Helper to create the 'clusters' table and avoid duplicating the code.
+  bool CreateClustersTable();
+
+  // Helper to create the 'clusters_and_visits' table and avoid duplicating the
+  // code.
+  bool CreateClustersAndVisitsTableAndIndex();
 };
 
 }  // namespace history

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include "base/test/scoped_feature_list.h"
 #include "components/autofill/core/browser/data_model/autofill_profile.h"
 #include "components/autofill/core/browser/data_model/autofill_structured_address_component.h"
-#include "components/autofill/core/browser/geo/country_names.h"
+#include "components/autofill/core/browser/field_types.h"
 #include "components/autofill/core/browser/test_autofill_clock.h"
 #include "components/autofill/core/browser/webdata/autofill_table.h"
 #include "components/autofill/core/common/autofill_constants.h"
@@ -18,8 +18,6 @@
 #include "components/sync/protocol/entity_specifics.pb.h"
 #include "testing/gtest/include/gtest/gtest.h"
 namespace autofill {
-
-using structured_address::VerificationStatus;
 
 namespace {
 using base::ASCIIToUTF16;
@@ -32,19 +30,17 @@ using syncer::EntityData;
 const char kGuid[] = "EDC609ED-7EEE-4F27-B00C-423242A9C44A";
 const char kGuidInvalid[] = "EDC609ED";
 
-const char kLocaleString[] = "en-US";
 const base::Time kJune2017 = base::Time::FromDoubleT(1497552271);
 
 // Returns a profile with all fields set.  Contains identical data to the data
 // returned from ConstructCompleteSpecifics().
 AutofillProfile ConstructCompleteProfile() {
-  AutofillProfile profile(kGuid, "https://www.example.com/");
+  AutofillProfile profile(kGuid, AutofillProfile::Source::kLocalOrSyncable);
 
   profile.set_use_count(7);
   profile.set_use_date(base::Time::FromTimeT(1423182152));
 
   profile.set_profile_label("profile_label");
-  profile.set_disallow_settings_visible_updates(true);
 
   // Set testing values and statuses for the name.
   profile.SetRawInfoWithVerificationStatus(NAME_HONORIFIC_PREFIX, u"Dr.",
@@ -95,6 +91,13 @@ AutofillProfile ConstructCompleteProfile() {
   profile.SetRawInfoWithVerificationStatus(ADDRESS_HOME_COUNTRY, u"US",
                                            VerificationStatus::kObserved);
 
+  profile.SetRawInfoWithVerificationStatus(ADDRESS_HOME_LANDMARK, u"Red tree",
+                                           VerificationStatus::kObserved);
+
+  profile.SetRawInfoWithVerificationStatus(ADDRESS_HOME_BETWEEN_STREETS,
+                                           u"Marcos y Oliva",
+                                           VerificationStatus::kObserved);
+
   profile.SetRawInfoWithVerificationStatus(ADDRESS_HOME_SORTING_CODE, u"CEDEX",
                                            VerificationStatus::kObserved);
 
@@ -123,6 +126,11 @@ AutofillProfile ConstructCompleteProfile() {
       ADDRESS_HOME_PREMISE_NAME, u"Premise", VerificationStatus::kFormatted);
   profile.set_language_code("en");
 
+  // Set testing values for the birthdate.
+  profile.SetRawInfoAsInt(BIRTHDATE_DAY, 14);
+  profile.SetRawInfoAsInt(BIRTHDATE_MONTH, 3);
+  profile.SetRawInfoAsInt(BIRTHDATE_4_DIGIT_YEAR, 1997);
+
   return profile;
 }
 
@@ -132,11 +140,12 @@ AutofillProfileSpecifics ConstructCompleteSpecifics() {
   AutofillProfileSpecifics specifics;
 
   specifics.set_guid(kGuid);
-  specifics.set_origin("https://www.example.com/");
+  // TODO(crbug.com/1441905): Remove. See comment in
+  // `CreateEntityDataFromAutofillProfile()`.
+  specifics.set_deprecated_origin(kSettingsOrigin);
   specifics.set_use_count(7);
   specifics.set_use_date(1423182152);
   specifics.set_profile_label("profile_label");
-  specifics.set_disallow_settings_visible_updates(true);
 
   // Set values and statuses for the names.
   specifics.add_name_honorific("Dr.");
@@ -245,6 +254,14 @@ AutofillProfileSpecifics ConstructCompleteSpecifics() {
   specifics.set_address_home_country_status(
       sync_pb::AutofillProfileSpecifics_VerificationStatus_OBSERVED);
 
+  specifics.set_address_home_landmark("Red tree");
+  specifics.set_address_home_landmark_status(
+      sync_pb::AutofillProfileSpecifics_VerificationStatus_OBSERVED);
+
+  specifics.set_address_home_between_streets("Marcos y Oliva");
+  specifics.set_address_home_between_streets_status(
+      sync_pb::AutofillProfileSpecifics_VerificationStatus_OBSERVED);
+
   specifics.set_address_home_sorting_code("CEDEX");
   specifics.set_address_home_sorting_code_status(
       sync_pb::AutofillProfileSpecifics_VerificationStatus_OBSERVED);
@@ -255,6 +272,11 @@ AutofillProfileSpecifics ConstructCompleteSpecifics() {
 
   specifics.set_address_home_language_code("en");
 
+  // Set values for the birthdate.
+  specifics.set_birthdate_day(14);
+  specifics.set_birthdate_month(3);
+  specifics.set_birthdate_year(1997);
+
   return specifics;
 }
 
@@ -263,27 +285,28 @@ class AutofillProfileSyncUtilTest : public testing::Test {
   AutofillProfileSyncUtilTest() {
     // Fix a time for implicitly constructed use_dates in AutofillProfile.
     test_clock_.SetNow(kJune2017);
-    CountryNames::SetLocaleString(kLocaleString);
+    features_.InitWithFeatures(
+        {features::kAutofillEnableSupportForLandmark,
+         features::kAutofillEnableSupportForBetweenStreets},
+        {});
   }
 
  private:
   autofill::TestAutofillClock test_clock_;
+  base::test::ScopedFeatureList features_;
 };
 
 // Ensure that all profile fields are able to be synced up from the client to
 // the server.
 TEST_F(AutofillProfileSyncUtilTest, CreateEntityDataFromAutofillProfile) {
   base::test::ScopedFeatureList structured_names_feature;
-  // With those three features enabled, the AutofillProfile supports all tokens
-  // and statuses assignable in the specifics. If one of those features is
+  // With this feature enabled, the AutofillProfile supports all tokens
+  // and statuses assignable in the specifics. If this feature is
   // disabled, for some tokens
   // AutofillProfile::GetRawInfo(AutofillProfile::SetRawInfo()) is not the
   // identify function. The same is true for the verification status.
-  structured_names_feature.InitWithFeatures(
-      {features::kAutofillEnableSupportForMoreStructureInAddresses,
-       features::kAutofillEnableSupportForMoreStructureInNames,
-       features::kAutofillEnableSupportForHonorificPrefixes},
-      {});
+  structured_names_feature.InitAndEnableFeature(
+      features::kAutofillEnableSupportForHonorificPrefixes);
 
   AutofillProfile profile = ConstructCompleteProfile();
   AutofillProfileSpecifics specifics = ConstructCompleteSpecifics();
@@ -299,18 +322,7 @@ TEST_F(AutofillProfileSyncUtilTest, CreateEntityDataFromAutofillProfile) {
 
 // Test that fields not set for the input are empty in the output.
 TEST_F(AutofillProfileSyncUtilTest, CreateEntityDataFromAutofillProfile_Empty) {
-  base::test::ScopedFeatureList structured_names_feature;
-  // With those two features enabled, the AutofillProfile supports all tokens
-  // and statuses assignable in the specifics. If one of those features is
-  // disabled, for some tokens
-  // AutofillProfile::GetRawInfo(AutofillProfile::SetRawInfo()) is not the
-  // identify function. The same is true for the verification status.
-  structured_names_feature.InitWithFeatures(
-      {features::kAutofillEnableSupportForMoreStructureInAddresses,
-       features::kAutofillEnableSupportForMoreStructureInNames},
-      {});
-
-  AutofillProfile profile(kGuid, std::string());
+  AutofillProfile profile(kGuid);
   ASSERT_FALSE(profile.HasRawInfo(NAME_FULL));
   ASSERT_FALSE(profile.HasRawInfo(COMPANY_NAME));
 
@@ -328,7 +340,7 @@ TEST_F(AutofillProfileSyncUtilTest,
   std::string kNameLong(AutofillTable::kMaxDataLength + 1, 'a');
   std::string kNameTrimmed(AutofillTable::kMaxDataLength, 'a');
 
-  AutofillProfile profile(kGuid, std::string());
+  AutofillProfile profile(kGuid);
   profile.SetRawInfo(NAME_FULL, ASCIIToUTF16(kNameLong));
 
   std::unique_ptr<EntityData> entity_data =
@@ -352,7 +364,7 @@ TEST_F(AutofillProfileSyncUtilTest,
     kNameTrimmed += "ä";
   }
 
-  AutofillProfile profile(kGuid, std::string());
+  AutofillProfile profile(kGuid);
   profile.SetRawInfo(NAME_FULL, UTF8ToUTF16(kNameLong));
 
   std::unique_ptr<EntityData> entity_data =
@@ -368,7 +380,6 @@ TEST_F(AutofillProfileSyncUtilTest, CreateAutofillProfileFromSpecifics) {
   // Fix a time for implicitly constructed use_dates in AutofillProfile.
   autofill::TestAutofillClock test_clock;
   test_clock.SetNow(kJune2017);
-  CountryNames::SetLocaleString(kLocaleString);
 
   AutofillProfileSpecifics specifics = ConstructCompleteSpecifics();
   AutofillProfile profile = ConstructCompleteProfile();
@@ -424,8 +435,6 @@ TEST_F(AutofillProfileSyncUtilTest,
 // into country code.
 TEST_F(AutofillProfileSyncUtilTest,
        CreateAutofillProfileFromSpecifics_CountryNameParsed) {
-  CountryNames::SetLocaleString(kLocaleString);
-
   AutofillProfileSpecifics specifics;
   specifics.set_guid(kGuid);
 
@@ -442,7 +451,7 @@ TEST_F(AutofillProfileSyncUtilTest,
 
 // Tests that guid is returned as storage key.
 TEST_F(AutofillProfileSyncUtilTest, GetStorageKeyFromAutofillProfile) {
-  AutofillProfile profile(kGuid, std::string());
+  AutofillProfile profile(kGuid);
 
   EXPECT_EQ(kGuid, GetStorageKeyFromAutofillProfile(profile));
 }

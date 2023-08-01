@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,21 +9,23 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/check_op.h"
 #include "base/containers/span.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
-#include "base/strings/string_piece.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/printing/print_backend_service_test_impl.h"
+#include "chrome/browser/printing/print_test_utils.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/services/printing/public/mojom/print_backend_service.mojom.h"
 #include "chrome/test/base/in_process_browser_test.h"
@@ -32,6 +34,7 @@
 #include "mojo/public/cpp/bindings/remote.h"
 #include "printing/backend/print_backend.h"
 #include "printing/backend/test_print_backend.h"
+#include "printing/buildflags/buildflags.h"
 #include "printing/metafile.h"
 #include "printing/mojom/print.mojom.h"
 #include "printing/print_job_constants.h"
@@ -39,6 +42,7 @@
 #include "printing/print_settings_conversion.h"
 #include "printing/printing_context.h"
 #include "printing/printing_context_factory_for_test.h"
+#include "printing/printing_features.h"
 #include "printing/test_printing_context.h"
 #include "testing/gmock/include/gmock/gmock-matchers.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -46,6 +50,8 @@
 
 #if BUILDFLAG(IS_WIN)
 #include "printing/emf_win.h"
+#else
+#include "printing/metafile_skia.h"
 #endif
 
 namespace printing {
@@ -55,8 +61,10 @@ using ::testing::UnorderedElementsAreArray;
 namespace {
 
 constexpr char kDefaultPrinterName[] = "default-test-printer";
+constexpr char16_t kDefaultPrinterName16[] = u"default-test-printer";
 constexpr char kAnotherPrinterName[] = "another-test-printer";
 constexpr char kInvalidPrinterName[] = "invalid-test-printer";
+constexpr char16_t kInvalidPrinterName16[] = u"invalid-test-printer";
 constexpr char kAccessDeniedPrinterName[] = "access-denied-test-printer";
 
 const PrinterBasicInfoOptions kDefaultPrintInfoOptions{{"opt1", "123"},
@@ -82,9 +90,8 @@ constexpr int kPrintSettingsCopies = 42;
 constexpr int kPrintSettingsDefaultDpi = 300;
 constexpr int kPrintSettingsOverrideDpi = 150;
 
-// TODO(crbug.com/809738)  `LoadMetafileDataFromFile()` can be used for other
-// platforms once support is added for `RenderPrintedDocument()`.
-#if BUILDFLAG(IS_WIN)
+const int32_t kTestDocumentCookie = PrintSettings::NewCookie();
+
 bool LoadMetafileDataFromFile(const std::string& file_name,
                               Metafile& metafile) {
   base::FilePath data_file;
@@ -101,7 +108,6 @@ bool LoadMetafileDataFromFile(const std::string& file_name,
   }
   return metafile.InitFromData(base::as_bytes(base::make_span(data)));
 }
-#endif  // BUILDFLAG(IS_WIN)
 
 }  // namespace
 
@@ -111,11 +117,22 @@ class PrintBackendBrowserTest : public InProcessBrowserTest {
   ~PrintBackendBrowserTest() override = default;
 
   void SetUp() override {
+    // Tests of the Print Backend service always imply out-of-process.
+    feature_list_.InitAndEnableFeatureWithParameters(
+        features::kEnableOopPrintDrivers,
+        {{features::kEnableOopPrintDriversJobPrint.name, "true"}});
+
     // Do local setup before calling base class, since the base class enters
     // the main run loop.
+    PrintBackend::SetPrintBackendForTesting(test_print_backend_.get());
     PrintingContext::SetPrintingContextFactoryForTest(
         &test_printing_context_factory_);
     InProcessBrowserTest::SetUp();
+  }
+
+  void SetUpOnMainThread() override {
+    LaunchService();
+    InProcessBrowserTest::SetUpOnMainThread();
   }
 
   void TearDown() override {
@@ -123,17 +140,7 @@ class PrintBackendBrowserTest : public InProcessBrowserTest {
     // of `SetUp`.
     InProcessBrowserTest::TearDown();
     PrintingContext::SetPrintingContextFactoryForTest(/*factory=*/nullptr);
-  }
-
-  void LaunchUninitialized() {
-    print_backend_service_ =
-        PrintBackendServiceTestImpl::LaunchUninitialized(remote_);
-  }
-
-  // Initialize and load the backend service with some test print drivers.
-  void LaunchService() {
-    print_backend_service_ = PrintBackendServiceTestImpl::LaunchForTesting(
-        remote_, test_print_backend_, /*sandboxed=*/true);
+    PrintBackend::SetPrintBackendForTesting(/*print_backend=*/nullptr);
   }
 
   // Load the test backend with a default printer driver.
@@ -142,6 +149,9 @@ class PrintBackendBrowserTest : public InProcessBrowserTest {
     // tests.
     auto default_caps = std::make_unique<PrinterSemanticCapsAndDefaults>();
     default_caps->copies_max = kCopiesMax;
+    default_caps->default_paper = test::kPaperLetter;
+    default_caps->papers.push_back(test::kPaperLetter);
+    default_caps->papers.push_back(test::kPaperLegal);
     test_print_backend_->AddValidPrinter(
         kDefaultPrinterName, std::move(default_caps),
         std::make_unique<PrinterBasicInfo>(kDefaultPrinterInfo));
@@ -163,15 +173,62 @@ class PrintBackendBrowserTest : public InProcessBrowserTest {
         printer_name);
   }
 
+  // `PrintBackendServiceTestImpl` does a debug check on shutdown that there
+  // are no residual persistent printing contexts left in the service.  For
+  // tests which are known to break this (either by design, for test simplicity
+  // or because a related change is only partly implemented), use this method
+  // to notify the service to not DCHECK on such a condition.
+  void SkipPersistentContextsCheckOnShutdown() {
+    print_backend_service_->SkipPersistentContextsCheckOnShutdown();
+  }
+
   // Common helpers to perform particular stages of printing a document.
-  mojom::ResultCode StartPrintingAndWait(const PrintSettings& print_settings) {
-    mojom::ResultCode result;
+  uint32_t EstablishPrintingContextAndWait() {
+    constexpr uint32_t kContextId = 7;
+#if BUILDFLAG(ENABLE_OOP_BASIC_PRINT_DIALOG)
+    constexpr uint32_t kParentWindowId = 8;
+#endif
+
+    GetPrintBackendService()->EstablishPrintingContext(kContextId
+#if BUILDFLAG(ENABLE_OOP_BASIC_PRINT_DIALOG)
+                                                       ,
+                                                       kParentWindowId
+#endif
+    );
+    return kContextId;
+  }
+
+  mojom::PrintSettingsResultPtr UpdatePrintSettingsAndWait(
+      uint32_t context_id,
+      const PrintSettings& print_settings) {
+    base::Value::Dict job_settings =
+        PrintSettingsToJobSettingsDebug(print_settings);
+    job_settings.Set(kSettingPrinterType,
+                     static_cast<int>(mojom::PrinterType::kLocal));
 
     // Safe to use base::Unretained(this) since waiting locally on the callback
     // forces a shorter lifetime than `this`.
+    mojom::PrintSettingsResultPtr settings;
+    GetPrintBackendService()->UpdatePrintSettings(
+        context_id, std::move(job_settings),
+        base::BindOnce(&PrintBackendBrowserTest::CapturePrintSettings,
+                       base::Unretained(this), std::ref(settings)));
+    WaitUntilCallbackReceived();
+    return settings;
+  }
+
+  mojom::ResultCode StartPrintingAndWait(uint32_t context_id,
+                                         const PrintSettings& print_settings) {
+    UpdatePrintSettingsAndWait(context_id, print_settings);
+
+    // Safe to use base::Unretained(this) since waiting locally on the callback
+    // forces a shorter lifetime than `this`.
+    mojom::ResultCode result;
     GetPrintBackendService()->StartPrinting(
-        /*document_cookie=*/1, u"document name",
-        mojom::PrintTargetType::kDirectToDevice, print_settings,
+        context_id, kTestDocumentCookie, u"document name",
+#if !BUILDFLAG(ENABLE_OOP_BASIC_PRINT_DIALOG)
+        /*settings=*/absl::nullopt,
+#endif
         base::BindOnce(&PrintBackendBrowserTest::CaptureResult,
                        base::Unretained(this), std::ref(result)));
     WaitUntilCallbackReceived();
@@ -190,9 +247,11 @@ class PrintBackendBrowserTest : public InProcessBrowserTest {
     if (!region_mapping.IsValid())
       return absl::nullopt;
 
+    // Safe to use base::Unretained(this) since waiting locally on the callback
+    // forces a shorter lifetime than `this`.
     mojom::ResultCode result;
     GetPrintBackendService()->RenderPrintedPage(
-        /*document_cookie=*/1,
+        kTestDocumentCookie,
         /*page_index=*/0, metafile.GetDataType(),
         std::move(region_mapping.region),
         /*page_size=*/gfx::Size(200, 200),
@@ -204,6 +263,55 @@ class PrintBackendBrowserTest : public InProcessBrowserTest {
     return result;
   }
 #endif  // BUILDFLAG(IS_WIN)
+
+// TODO(crbug.com/1008222)  Include Windows once XPS print pipeline is enabled.
+#if !BUILDFLAG(IS_WIN)
+  absl::optional<mojom::ResultCode> RenderDocumentAndWait() {
+    // Load a sample PDF file for a single page for testing handling.
+    MetafileSkia metafile;
+    if (!LoadMetafileDataFromFile("embedded_images.pdf", metafile))
+      return absl::nullopt;
+
+    base::MappedReadOnlyRegion region_mapping =
+        metafile.GetDataAsSharedMemoryRegion();
+    if (!region_mapping.IsValid())
+      return absl::nullopt;
+
+    // Safe to use base::Unretained(this) since waiting locally on the callback
+    // forces a shorter lifetime than `this`.
+    mojom::ResultCode result;
+    GetPrintBackendService()->RenderPrintedDocument(
+        kTestDocumentCookie, /*page_count=*/1u, metafile.GetDataType(),
+        std::move(region_mapping.region),
+        base::BindOnce(&PrintBackendBrowserTest::CaptureResult,
+                       base::Unretained(this), std::ref(result)));
+    WaitUntilCallbackReceived();
+    return result;
+  }
+#endif  // !BUILDFLAG(IS_WIN)
+
+  mojom::ResultCode DocumentDoneAndWait() {
+    mojom::ResultCode result;
+
+    // Safe to use base::Unretained(this) since waiting locally on the callback
+    // forces a shorter lifetime than `this`.
+    GetPrintBackendService()->DocumentDone(
+        kTestDocumentCookie,
+        base::BindOnce(&PrintBackendBrowserTest::CaptureResult,
+                       base::Unretained(this), std::ref(result)));
+    WaitUntilCallbackReceived();
+    return result;
+  }
+
+  void CancelAndWait() {
+    // Safe to use base::Unretained(this) since waiting locally on the callback
+    // forces a shorter lifetime than `this`.
+    GetPrintBackendService()->Cancel(
+        kTestDocumentCookie,
+        base::BindOnce(&PrintBackendBrowserTest::CheckForQuit,
+                       base::Unretained(this)));
+    WaitUntilCallbackReceived();
+  }
 
   // Public callbacks used by tests.
   void OnDidEnumeratePrinters(mojom::PrinterListResultPtr& capture_printer_list,
@@ -233,7 +341,15 @@ class PrintBackendBrowserTest : public InProcessBrowserTest {
     CheckForQuit();
   }
 
-  void OnDidUpdatePrintSettings(
+#if BUILDFLAG(IS_WIN)
+  void OnDidGetPaperPrintableArea(gfx::Rect& capture_printable_area_um,
+                                  const gfx::Rect& printable_area_um) {
+    capture_printable_area_um = printable_area_um;
+    CheckForQuit();
+  }
+#endif
+
+  void CapturePrintSettings(
       mojom::PrintSettingsResultPtr& capture_print_settings,
       mojom::PrintSettingsResultPtr print_settings) {
     capture_print_settings = std::move(print_settings);
@@ -299,6 +415,13 @@ class PrintBackendBrowserTest : public InProcessBrowserTest {
     std::string printer_name_;
   };
 
+  // Initialize and load the backend service with some test print drivers.
+  void LaunchService() {
+    print_backend_service_ = PrintBackendServiceTestImpl::LaunchForTesting(
+        remote_, test_print_backend_, /*sandboxed=*/true);
+  }
+
+  base::test::ScopedFeatureList feature_list_;
   bool received_message_ = false;
   base::OnceClosure quit_callback_;
 
@@ -310,38 +433,7 @@ class PrintBackendBrowserTest : public InProcessBrowserTest {
   std::unique_ptr<PrintBackendServiceTestImpl> print_backend_service_;
 };
 
-// A print backend service requires initialization prior to being used for a
-// query/command.  Verify that a query fails if one tries to use a new service
-// without having performed initialization.
-IN_PROC_BROWSER_TEST_F(PrintBackendBrowserTest, FailWithoutInit) {
-  // Launch the service, but without initializing to desired locale.
-  LaunchUninitialized();
-
-  mojom::DefaultPrinterNameResultPtr default_printer_name;
-  mojom::PrinterSemanticCapsAndDefaultsResultPtr printer_caps;
-
-  // Safe to use base::Unretained(this) since waiting locally on the callback
-  // forces a shorter lifetime than `this`.
-  GetPrintBackendService()->GetDefaultPrinterName(
-      base::BindOnce(&PrintBackendBrowserTest::OnDidGetDefaultPrinterName,
-                     base::Unretained(this), std::ref(default_printer_name)));
-  WaitUntilCallbackReceived();
-  ASSERT_TRUE(default_printer_name->is_result_code());
-  EXPECT_EQ(default_printer_name->get_result_code(),
-            mojom::ResultCode::kFailed);
-
-  GetPrintBackendService()->GetPrinterSemanticCapsAndDefaults(
-      kDefaultPrinterName,
-      base::BindOnce(
-          &PrintBackendBrowserTest::OnDidGetPrinterSemanticCapsAndDefaults,
-          base::Unretained(this), std::ref(printer_caps)));
-  WaitUntilCallbackReceived();
-  ASSERT_TRUE(printer_caps->is_result_code());
-  EXPECT_EQ(printer_caps->get_result_code(), mojom::ResultCode::kFailed);
-}
-
 IN_PROC_BROWSER_TEST_F(PrintBackendBrowserTest, EnumeratePrinters) {
-  LaunchService();
   AddDefaultPrinter();
   AddAnotherPrinter();
 
@@ -361,7 +453,6 @@ IN_PROC_BROWSER_TEST_F(PrintBackendBrowserTest, EnumeratePrinters) {
 }
 
 IN_PROC_BROWSER_TEST_F(PrintBackendBrowserTest, GetDefaultPrinterName) {
-  LaunchService();
   AddDefaultPrinter();
 
   mojom::DefaultPrinterNameResultPtr default_printer_name;
@@ -377,9 +468,9 @@ IN_PROC_BROWSER_TEST_F(PrintBackendBrowserTest, GetDefaultPrinterName) {
             kDefaultPrinterName);
 }
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 IN_PROC_BROWSER_TEST_F(PrintBackendBrowserTest,
                        GetPrinterSemanticCapsAndDefaults) {
-  LaunchService();
   AddDefaultPrinter();
 
   mojom::PrinterSemanticCapsAndDefaultsResultPtr printer_caps;
@@ -408,7 +499,6 @@ IN_PROC_BROWSER_TEST_F(PrintBackendBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(PrintBackendBrowserTest,
                        GetPrinterSemanticCapsAndDefaultsAccessDenied) {
-  LaunchService();
   AddAccessDeniedPrinter();
 
   mojom::PrinterSemanticCapsAndDefaultsResultPtr printer_caps;
@@ -426,9 +516,9 @@ IN_PROC_BROWSER_TEST_F(PrintBackendBrowserTest,
   ASSERT_TRUE(printer_caps->is_result_code());
   EXPECT_EQ(printer_caps->get_result_code(), mojom::ResultCode::kAccessDenied);
 }
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 IN_PROC_BROWSER_TEST_F(PrintBackendBrowserTest, FetchCapabilities) {
-  LaunchService();
   AddDefaultPrinter();
 
   mojom::PrinterCapsAndInfoResultPtr caps_and_info;
@@ -455,7 +545,6 @@ IN_PROC_BROWSER_TEST_F(PrintBackendBrowserTest, FetchCapabilities) {
 }
 
 IN_PROC_BROWSER_TEST_F(PrintBackendBrowserTest, FetchCapabilitiesAccessDenied) {
-  LaunchService();
   AddAccessDeniedPrinter();
 
   mojom::PrinterCapsAndInfoResultPtr caps_and_info;
@@ -471,32 +560,122 @@ IN_PROC_BROWSER_TEST_F(PrintBackendBrowserTest, FetchCapabilitiesAccessDenied) {
   EXPECT_EQ(caps_and_info->get_result_code(), mojom::ResultCode::kAccessDenied);
 }
 
-IN_PROC_BROWSER_TEST_F(PrintBackendBrowserTest, UpdatePrintSettings) {
-  LaunchService();
+#if BUILDFLAG(IS_WIN)
+IN_PROC_BROWSER_TEST_F(PrintBackendBrowserTest, GetPaperPrintableArea) {
   AddDefaultPrinter();
-  SetPrinterNameForSubsequentContexts(kDefaultPrinterName);
 
-  mojom::PrintSettingsResultPtr settings;
-
-  PrintSettings print_settings;
-  print_settings.set_device_name(
-      base::ASCIIToUTF16(base::StringPiece(kDefaultPrinterName)));
-  print_settings.set_dpi(kPrintSettingsOverrideDpi);
-  base::Value job_settings = PrintSettingsToJobSettingsDebug(print_settings);
-  job_settings.SetIntKey(kSettingPrinterType,
-                         static_cast<int>(mojom::PrinterType::kLocal));
+  mojom::PrinterCapsAndInfoResultPtr caps_and_info;
 
   // Safe to use base::Unretained(this) since waiting locally on the callback
   // forces a shorter lifetime than `this`.
-  GetPrintBackendService()->UpdatePrintSettings(
-      std::move(job_settings).TakeDictDeprecated(),
-      base::BindOnce(&PrintBackendBrowserTest::OnDidUpdatePrintSettings,
+  GetPrintBackendService()->FetchCapabilities(
+      kDefaultPrinterName,
+      base::BindOnce(&PrintBackendBrowserTest::OnDidFetchCapabilities,
+                     base::Unretained(this), std::ref(caps_and_info)));
+  WaitUntilCallbackReceived();
+
+  // Fetching capabiliities only provides the paper printable area for the
+  // default paper size.  Find a paper which is not the default, which should
+  // have been given an incorrect printable area that matches the paper size.
+  ASSERT_TRUE(caps_and_info->is_printer_caps_and_info());
+  absl::optional<PrinterSemanticCapsAndDefaults::Paper> non_default_paper;
+  const PrinterSemanticCapsAndDefaults::Paper& default_paper =
+      caps_and_info->get_printer_caps_and_info()->printer_caps.default_paper;
+  const PrinterSemanticCapsAndDefaults::Papers& papers =
+      caps_and_info->get_printer_caps_and_info()->printer_caps.papers;
+  for (const auto& paper : papers) {
+    if (paper != default_paper) {
+      non_default_paper = paper;
+      break;
+    }
+  }
+  ASSERT_TRUE(non_default_paper.has_value());
+  EXPECT_EQ(non_default_paper->printable_area_um,
+            gfx::Rect(non_default_paper->size_um));
+
+  // Request the printable area for this paper size, which should no longer
+  // match the physical size but have real printable area values.
+  gfx::Rect printable_area_um;
+  PrintSettings::RequestedMedia media(
+      /*.size_microns =*/non_default_paper->size_um,
+      /*.vendor_id = */ non_default_paper->vendor_id);
+  GetPrintBackendService()->GetPaperPrintableArea(
+      kDefaultPrinterName, media,
+      base::BindOnce(&PrintBackendBrowserTest::OnDidGetPaperPrintableArea,
+                     base::Unretained(this), std::ref(printable_area_um)));
+  WaitUntilCallbackReceived();
+  ASSERT_TRUE(!printable_area_um.IsEmpty());
+  EXPECT_NE(printable_area_um, non_default_paper->printable_area_um);
+}
+#endif  // BUILDFLAG(IS_WIN)
+
+IN_PROC_BROWSER_TEST_F(PrintBackendBrowserTest, UseDefaultSettings) {
+  AddDefaultPrinter();
+  SetPrinterNameForSubsequentContexts(kDefaultPrinterName);
+
+  // Isolated call has no corresponding cleanup of the printing context.
+  SkipPersistentContextsCheckOnShutdown();
+
+  const uint32_t context_id = EstablishPrintingContextAndWait();
+
+  mojom::PrintSettingsResultPtr settings;
+
+  // Safe to use base::Unretained(this) since waiting locally on the callback
+  // forces a shorter lifetime than `this`.
+  GetPrintBackendService()->UseDefaultSettings(
+      context_id, base::BindOnce(&PrintBackendBrowserTest::CapturePrintSettings,
+                                 base::Unretained(this), std::ref(settings)));
+  WaitUntilCallbackReceived();
+  ASSERT_TRUE(settings->is_settings());
+  EXPECT_EQ(settings->get_settings().copies(), kPrintSettingsCopies);
+  EXPECT_EQ(settings->get_settings().dpi(), kPrintSettingsDefaultDpi);
+}
+
+#if BUILDFLAG(ENABLE_OOP_BASIC_PRINT_DIALOG)
+IN_PROC_BROWSER_TEST_F(PrintBackendBrowserTest, AskUserForSettings) {
+  AddDefaultPrinter();
+  SetPrinterNameForSubsequentContexts(kDefaultPrinterName);
+
+  // Isolated call has no corresponding cleanup of the printing context.
+  SkipPersistentContextsCheckOnShutdown();
+
+  const uint32_t context_id = EstablishPrintingContextAndWait();
+
+  mojom::PrintSettingsResultPtr settings;
+
+  // Safe to use base::Unretained(this) since waiting locally on the callback
+  // forces a shorter lifetime than `this`.
+  GetPrintBackendService()->AskUserForSettings(
+      context_id,
+      /*max_pages=*/1, /*has_selection=*/false, /*is_scripted=*/false,
+      base::BindOnce(&PrintBackendBrowserTest::CapturePrintSettings,
                      base::Unretained(this), std::ref(settings)));
   WaitUntilCallbackReceived();
   ASSERT_TRUE(settings->is_settings());
   EXPECT_EQ(settings->get_settings().copies(), kPrintSettingsCopies);
+  EXPECT_EQ(settings->get_settings().dpi(), kPrintSettingsDefaultDpi);
+}
+#endif  // BUILDFLAG(ENABLE_OOP_BASIC_PRINT_DIALOG)
+
+IN_PROC_BROWSER_TEST_F(PrintBackendBrowserTest, UpdatePrintSettings) {
+  AddDefaultPrinter();
+  SetPrinterNameForSubsequentContexts(kDefaultPrinterName);
+
+  // Isolated call has no corresponding cleanup of the printing context.
+  SkipPersistentContextsCheckOnShutdown();
+
+  const uint32_t context_id = EstablishPrintingContextAndWait();
+
+  PrintSettings print_settings;
+  print_settings.set_device_name(kDefaultPrinterName16);
+  print_settings.set_dpi(kPrintSettingsOverrideDpi);
+
+  mojom::PrintSettingsResultPtr settings =
+      UpdatePrintSettingsAndWait(context_id, print_settings);
+  ASSERT_TRUE(settings->is_settings());
+  EXPECT_EQ(settings->get_settings().copies(), kPrintSettingsCopies);
   EXPECT_EQ(settings->get_settings().dpi(), kPrintSettingsOverrideDpi);
-#if BUILDFLAG(IS_LINUX) && defined(USE_CUPS)
+#if BUILDFLAG(IS_LINUX) && BUILDFLAG(USE_CUPS)
   const PrintSettings::AdvancedSettings& advanced_settings =
       settings->get_settings().advanced_settings();
   EXPECT_EQ(advanced_settings.size(), kDefaultPrintInfoOptions.size());
@@ -505,63 +684,109 @@ IN_PROC_BROWSER_TEST_F(PrintBackendBrowserTest, UpdatePrintSettings) {
     ASSERT_NE(option, kDefaultPrintInfoOptions.end());
     EXPECT_EQ(option->second, advanced_setting.second.GetString());
   }
-#endif  // BUILDFLAG(IS_LINUX) && defined(USE_CUPS)
+#endif  // BUILDFLAG(IS_LINUX) && BUILDFLAG(USE_CUPS)
 
   // Updating for an invalid printer should not return print settings.
-  print_settings.set_device_name(
-      base::ASCIIToUTF16(base::StringPiece(kInvalidPrinterName)));
-  job_settings = PrintSettingsToJobSettingsDebug(print_settings);
-  job_settings.SetIntKey(kSettingPrinterType,
-                         static_cast<int>(mojom::PrinterType::kLocal));
-  GetPrintBackendService()->UpdatePrintSettings(
-      std::move(job_settings).TakeDictDeprecated(),
-      base::BindOnce(&PrintBackendBrowserTest::OnDidUpdatePrintSettings,
-                     base::Unretained(this), std::ref(settings)));
-  WaitUntilCallbackReceived();
+  print_settings.set_device_name(kInvalidPrinterName16);
+
+  settings = UpdatePrintSettingsAndWait(context_id, print_settings);
   ASSERT_TRUE(settings->is_result_code());
   EXPECT_EQ(settings->get_result_code(), mojom::ResultCode::kFailed);
 }
 
-IN_PROC_BROWSER_TEST_F(PrintBackendBrowserTest, StartPrintingValidPrinter) {
-  LaunchService();
+IN_PROC_BROWSER_TEST_F(PrintBackendBrowserTest, StartPrinting) {
   AddDefaultPrinter();
   SetPrinterNameForSubsequentContexts(kDefaultPrinterName);
 
-  PrintSettings print_settings;
-  print_settings.set_device_name(
-      base::ASCIIToUTF16(base::StringPiece(kDefaultPrinterName)));
-
-  EXPECT_EQ(StartPrintingAndWait(print_settings), mojom::ResultCode::kSuccess);
-}
-
-IN_PROC_BROWSER_TEST_F(PrintBackendBrowserTest, StartPrintingInvalidPrinter) {
-  LaunchService();
-  AddDefaultPrinter();
-  SetPrinterNameForSubsequentContexts(kDefaultPrinterName);
+  const uint32_t context_id = EstablishPrintingContextAndWait();
 
   PrintSettings print_settings;
-  print_settings.set_device_name(
-      base::ASCIIToUTF16(base::StringPiece(kInvalidPrinterName)));
+  print_settings.set_device_name(kDefaultPrinterName16);
+  ASSERT_TRUE(UpdatePrintSettingsAndWait(context_id, print_settings));
 
-  EXPECT_EQ(StartPrintingAndWait(print_settings), mojom::ResultCode::kFailed);
+  EXPECT_EQ(StartPrintingAndWait(context_id, print_settings),
+            mojom::ResultCode::kSuccess);
 }
 
 #if BUILDFLAG(IS_WIN)
 IN_PROC_BROWSER_TEST_F(PrintBackendBrowserTest, RenderPrintedPage) {
-  LaunchService();
   AddDefaultPrinter();
   SetPrinterNameForSubsequentContexts(kDefaultPrinterName);
 
-  PrintSettings print_settings;
-  print_settings.set_device_name(
-      base::ASCIIToUTF16(base::StringPiece(kDefaultPrinterName)));
+  const uint32_t context_id = EstablishPrintingContextAndWait();
 
-  EXPECT_EQ(StartPrintingAndWait(print_settings), mojom::ResultCode::kSuccess);
+  PrintSettings print_settings;
+  print_settings.set_device_name(kDefaultPrinterName16);
+  ASSERT_TRUE(UpdatePrintSettingsAndWait(context_id, print_settings));
+
+  ASSERT_EQ(StartPrintingAndWait(context_id, print_settings),
+            mojom::ResultCode::kSuccess);
 
   absl::optional<mojom::ResultCode> result = RenderPageAndWait();
-  ASSERT_TRUE(result.has_value());
-  EXPECT_EQ(result.value(), mojom::ResultCode::kSuccess);
+  EXPECT_EQ(result, mojom::ResultCode::kSuccess);
 }
 #endif  // BUILDFLAG(IS_WIN)
+
+// TODO(crbug.com/1008222)  Include Windows for this test once XPS print
+// pipeline is enabled.
+#if !BUILDFLAG(IS_WIN)
+IN_PROC_BROWSER_TEST_F(PrintBackendBrowserTest, RenderPrintedDocument) {
+  AddDefaultPrinter();
+  SetPrinterNameForSubsequentContexts(kDefaultPrinterName);
+
+  const uint32_t context_id = EstablishPrintingContextAndWait();
+
+  PrintSettings print_settings;
+  print_settings.set_device_name(kDefaultPrinterName16);
+  ASSERT_TRUE(UpdatePrintSettingsAndWait(context_id, print_settings));
+
+  ASSERT_EQ(StartPrintingAndWait(context_id, print_settings),
+            mojom::ResultCode::kSuccess);
+
+  absl::optional<mojom::ResultCode> result = RenderDocumentAndWait();
+  EXPECT_EQ(result, mojom::ResultCode::kSuccess);
+}
+#endif  // !BUILDFLAG(IS_WIN)
+
+IN_PROC_BROWSER_TEST_F(PrintBackendBrowserTest, DocumentDone) {
+  AddDefaultPrinter();
+  SetPrinterNameForSubsequentContexts(kDefaultPrinterName);
+
+  const uint32_t context_id = EstablishPrintingContextAndWait();
+
+  PrintSettings print_settings;
+  print_settings.set_device_name(kDefaultPrinterName16);
+  ASSERT_TRUE(UpdatePrintSettingsAndWait(context_id, print_settings));
+
+  ASSERT_EQ(StartPrintingAndWait(context_id, print_settings),
+            mojom::ResultCode::kSuccess);
+
+  // TODO(crbug.com/1008222)  Include Windows coverage for RenderDocument()
+  // path once XPS print pipeline is enabled.
+#if BUILDFLAG(IS_WIN)
+  absl::optional<mojom::ResultCode> result = RenderPageAndWait();
+#else
+  absl::optional<mojom::ResultCode> result = RenderDocumentAndWait();
+#endif
+  EXPECT_EQ(result, mojom::ResultCode::kSuccess);
+
+  EXPECT_EQ(DocumentDoneAndWait(), mojom::ResultCode::kSuccess);
+}
+
+IN_PROC_BROWSER_TEST_F(PrintBackendBrowserTest, Cancel) {
+  AddDefaultPrinter();
+  SetPrinterNameForSubsequentContexts(kDefaultPrinterName);
+
+  const uint32_t context_id = EstablishPrintingContextAndWait();
+
+  PrintSettings print_settings;
+  print_settings.set_device_name(kDefaultPrinterName16);
+  ASSERT_TRUE(UpdatePrintSettingsAndWait(context_id, print_settings));
+
+  EXPECT_EQ(StartPrintingAndWait(context_id, print_settings),
+            mojom::ResultCode::kSuccess);
+
+  CancelAndWait();
+}
 
 }  // namespace printing

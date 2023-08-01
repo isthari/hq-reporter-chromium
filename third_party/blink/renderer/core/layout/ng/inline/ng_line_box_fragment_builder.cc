@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -52,13 +52,13 @@ void NGLineBoxFragmentBuilder::PropagateChildrenData(
       // An accumulated relative offset is applied to an OOF once it reaches its
       // inline container. Subtract out the relative offset to avoid adding it
       // twice.
-      PropagateChildData(
-          child.layout_result->PhysicalFragment(),
+      PropagateFromLayoutResultAndFragment(
+          *child.layout_result,
           child.Offset() -
-              ComputeRelativeOffsetForInline(*ConstraintSpace(),
+              ComputeRelativeOffsetForInline(ConstraintSpace(),
                                              child.PhysicalFragment()->Style()),
           ComputeRelativeOffsetForOOFInInline(
-              *ConstraintSpace(), child.PhysicalFragment()->Style()));
+              ConstraintSpace(), child.PhysicalFragment()->Style()));
 
       // Skip over any children, the information should have already been
       // propagated into this layout result.
@@ -75,20 +75,19 @@ void NGLineBoxFragmentBuilder::PropagateChildrenData(
     }
   }
 
-  DCHECK(oof_positioned_descendants_.IsEmpty());
+  DCHECK(oof_positioned_descendants_.empty());
   MoveOutOfFlowDescendantCandidatesToDescendants();
 }
 
-scoped_refptr<const NGLayoutResult>
-NGLineBoxFragmentBuilder::ToLineBoxFragment() {
+const NGLayoutResult* NGLineBoxFragmentBuilder::ToLineBoxFragment() {
   writing_direction_.SetWritingMode(ToLineWritingMode(GetWritingMode()));
 
-  scoped_refptr<const NGPhysicalLineBoxFragment> fragment =
+  const NGPhysicalLineBoxFragment* fragment =
       NGPhysicalLineBoxFragment::Create(this);
 
-  return base::AdoptRef(
-      new NGLayoutResult(NGLayoutResult::NGLineBoxFragmentBuilderPassKey(),
-                         std::move(fragment), this));
+  return MakeGarbageCollected<NGLayoutResult>(
+      NGLayoutResult::NGLineBoxFragmentBuilderPassKey(), std::move(fragment),
+      this);
 }
 
 }  // namespace blink

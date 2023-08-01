@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,18 +6,22 @@
 
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/i18n/time_formatting.h"
 #include "base/logging.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
 #include "base/sequence_checker.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/bind_post_task.h"
+#include "base/task/sequenced_task_runner.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/net/nss_service.h"
 #include "chrome/browser/net/nss_service_factory.h"
+#include "chrome/browser/net/system_network_context_manager.h"
 #include "chrome/browser/ui/crypto_module_password_dialog_nss.h"
 #include "chrome/common/net/x509_certificate_model_nss.h"
 #include "chrome/grit/generated_resources.h"
@@ -25,23 +29,25 @@
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/resource_context.h"
-#include "crypto/nss_util.h"
+#include "crypto/scoped_nss_types.h"
 #include "net/base/net_errors.h"
 #include "net/cert/cert_database.h"
+#include "net/cert/nss_cert_database.h"
 #include "net/cert/x509_certificate.h"
 #include "net/cert/x509_util_nss.h"
+#include "net/net_buildflags.h"
 #include "ui/base/l10n/l10n_util.h"
 
 #if BUILDFLAG(IS_CHROMEOS)
+#include "chrome/browser/certificate_provider/certificate_provider.h"
+#include "chrome/browser/certificate_provider/certificate_provider_service.h"
+#include "chrome/browser/certificate_provider/certificate_provider_service_factory.h"
 #include "chrome/browser/policy/networking/user_network_configuration_updater.h"
 #include "chrome/browser/policy/networking/user_network_configuration_updater_factory.h"
-#include "chromeos/network/policy_certificate_provider.h"
+#include "chromeos/ash/components/network/policy_certificate_provider.h"
 #endif  // BUILDFLAG(IS_CHROMEOS)
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/ash/certificate_provider/certificate_provider.h"
-#include "chrome/browser/ash/certificate_provider/certificate_provider_service.h"
-#include "chrome/browser/ash/certificate_provider/certificate_provider_service_factory.h"
 #include "chrome/browser/policy/networking/user_network_configuration_updater_ash.h"
 #include "chromeos/components/onc/certificate_scope.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
@@ -137,9 +143,10 @@ class CertificateManagerModel::CertsSource {
                             net::CertType type,
                             net::NSSCertDatabase::TrustBits trust_bits) = 0;
 
-  // Delete the cert. Returns true on success. |cert| is still valid when this
-  // function returns.
-  virtual bool Delete(CERTCertificate* cert) = 0;
+  // Remove the cert from the cert database.
+  virtual void RemoveFromDatabase(
+      net::ScopedCERTCertificate cert,
+      base::OnceCallback<void(bool /*success*/)> callback) = 0;
 
  protected:
   // To be called by subclasses to set the CertInfo list provided by this
@@ -228,17 +235,38 @@ class CertsSourcePlatformNSS : public CertificateManagerModel::CertsSource,
     return cert_db_->SetCertTrust(cert, type, trust_bits);
   }
 
-  bool Delete(CERTCertificate* cert) override {
+  void RemoveFromDatabase(net::ScopedCERTCertificate cert,
+                          base::OnceCallback<void(bool)> callback) override {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-    return cert_db_->DeleteCertAndKey(cert);
+    auto callback_and_runner =
+        base::BindPostTaskToCurrentDefault(std::move(callback));
+
+    // Passing Unretained(cert_db_) is safe because the corresponding profile
+    // should be alive during this call and therefore the deletion task for the
+    // database can only be scheduled on the IO thread after this task.
+    content::GetIOThreadTaskRunner({})->PostTask(
+        FROM_HERE, base::BindOnce(&net::NSSCertDatabase::DeleteCertAndKeyAsync,
+                                  base::Unretained(cert_db_), std::move(cert),
+                                  std::move(callback_and_runner)));
   }
 
  private:
   void RefreshSlotsUnlocked() {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     DVLOG(1) << "refresh listing certs...";
-    cert_db_->ListCertsInfo(base::BindOnce(&CertsSourcePlatformNSS::DidGetCerts,
-                                           weak_ptr_factory_.GetWeakPtr()));
+    cert_db_->ListCertsInfo(
+        base::BindOnce(&CertsSourcePlatformNSS::DidGetCerts,
+                       weak_ptr_factory_.GetWeakPtr()),
+#if BUILDFLAG(CHROME_ROOT_STORE_OPTIONAL)
+        SystemNetworkContextManager::IsUsingChromeRootStore()
+            ? net::NSSCertDatabase::NSSRootsHandling::kExclude
+            : net::NSSCertDatabase::NSSRootsHandling::kInclude
+#elif BUILDFLAG(CHROME_ROOT_STORE_ONLY)
+        net::NSSCertDatabase::NSSRootsHandling::kExclude
+#else
+        net::NSSCertDatabase::NSSRootsHandling::kInclude
+#endif
+    );
   }
 
   void DidGetCerts(net::NSSCertDatabase::CertInfoList cert_info_list) {
@@ -279,7 +307,7 @@ class CertsSourcePlatformNSS : public CertificateManagerModel::CertsSource,
   }
 
   // The source NSSCertDatabase used for listing certificates.
-  net::NSSCertDatabase* cert_db_;
+  raw_ptr<net::NSSCertDatabase> cert_db_;
 
   // ScopedObservation to keep track of the observer for net::CertDatabase.
   base::ScopedObservation<net::CertDatabase, net::CertDatabase::Observer>
@@ -291,7 +319,7 @@ class CertsSourcePlatformNSS : public CertificateManagerModel::CertsSource,
 #if BUILDFLAG(IS_CHROMEOS)
 // Provides certificates installed through enterprise policy.
 class CertsSourcePolicy : public CertificateManagerModel::CertsSource,
-                          chromeos::PolicyCertificateProvider::Observer {
+                          ash::PolicyCertificateProvider::Observer {
  public:
   // Defines which policy-provided certificates this CertsSourcePolicy instance
   // should yield.
@@ -305,7 +333,7 @@ class CertsSourcePolicy : public CertificateManagerModel::CertsSource,
   };
 
   CertsSourcePolicy(base::RepeatingClosure certs_source_updated_callback,
-                    chromeos::PolicyCertificateProvider* policy_certs_provider,
+                    ash::PolicyCertificateProvider* policy_certs_provider,
                     Mode mode)
       : CertsSource(certs_source_updated_callback),
         policy_certs_provider_(policy_certs_provider),
@@ -320,7 +348,7 @@ class CertsSourcePolicy : public CertificateManagerModel::CertsSource,
     policy_certs_provider_->RemovePolicyProvidedCertsObserver(this);
   }
 
-  // chromeos::PolicyCertificateProvider::Observer
+  // ash::PolicyCertificateProvider::Observer
   void OnPolicyProvidedCertsChanged() override {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
     Refresh();
@@ -352,10 +380,12 @@ class CertsSourcePolicy : public CertificateManagerModel::CertsSource,
     return false;
   }
 
-  bool Delete(CERTCertificate* cert) override {
+  void RemoveFromDatabase(net::ScopedCERTCertificate cert,
+                          base::OnceCallback<void(bool)> callback) override {
     // Policy-provided certificates can not be deleted.
     LOG(WARNING) << kOperationNotPermitted << "Policy";
-    return false;
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(std::move(callback), false));
   }
 
  private:
@@ -385,12 +415,10 @@ class CertsSourcePolicy : public CertificateManagerModel::CertsSource,
     SetCertInfos(std::move(cert_infos));
   }
 
-  chromeos::PolicyCertificateProvider* policy_certs_provider_;
+  raw_ptr<ash::PolicyCertificateProvider> policy_certs_provider_;
   Mode mode_;
 };
-#endif  // BUILDFLAG(IS_CHROMEOS)
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
 // Provides certificates made available by extensions through the
 // chrome.certificateProvider API.
 class CertsSourceExtensions : public CertificateManagerModel::CertsSource {
@@ -420,10 +448,12 @@ class CertsSourceExtensions : public CertificateManagerModel::CertsSource {
     return false;
   }
 
-  bool Delete(CERTCertificate* cert) override {
+  void RemoveFromDatabase(net::ScopedCERTCertificate cert,
+                          base::OnceCallback<void(bool)> callback) override {
     // Extension-provided certificates can not be deleted.
     LOG(WARNING) << kOperationNotPermitted << "Extension";
-    return false;
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(std::move(callback), false));
   }
 
  private:
@@ -459,7 +489,7 @@ class CertsSourceExtensions : public CertificateManagerModel::CertsSource {
 
   base::WeakPtrFactory<CertsSourceExtensions> weak_ptr_factory_{this};
 };
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 }  // namespace
 
@@ -510,9 +540,7 @@ void CertificateManagerModel::Create(
   params->policy_certs_provider =
       policy::UserNetworkConfigurationUpdaterFactory::GetForBrowserContext(
           browser_context);
-#endif
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
   chromeos::CertificateProviderService* certificate_provider_service =
       chromeos::CertificateProviderServiceFactory::GetForBrowserContext(
           browser_context);
@@ -568,9 +596,7 @@ CertificateManagerModel::CertificateManagerModel(
         certs_source_updated_callback, params->policy_certs_provider,
         CertsSourcePolicy::Mode::kPolicyCertsWithoutWebTrust));
   }
-#endif
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Extensions is the lowest priority CertsSource.
   if (params->extension_certificate_provider) {
     certs_sources_.push_back(std::make_unique<CertsSourceExtensions>(
@@ -674,11 +700,16 @@ bool CertificateManagerModel::SetCertTrust(
   return certs_source->SetCertTrust(cert, type, trust_bits);
 }
 
-bool CertificateManagerModel::Delete(CERTCertificate* cert) {
-  CertsSource* certs_source = FindCertsSourceForCert(cert);
-  if (!certs_source)
-    return false;
-  return certs_source->Delete(cert);
+void CertificateManagerModel::RemoveFromDatabase(
+    net::ScopedCERTCertificate cert,
+    base::OnceCallback<void(bool)> callback) {
+  CertsSource* certs_source = FindCertsSourceForCert(cert.get());
+  if (!certs_source) {
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(std::move(callback), false));
+    return;
+  }
+  return certs_source->RemoveFromDatabase(std::move(cert), std::move(callback));
 }
 
 // static

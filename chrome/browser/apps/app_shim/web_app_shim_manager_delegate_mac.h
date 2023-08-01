@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 
 #include "chrome/browser/apps/app_shim/app_shim_manager_mac.h"
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 
 namespace content {
 class WebContents;
@@ -19,12 +19,13 @@ struct AppLaunchParams;
 
 namespace web_app {
 
-using BrowserAppLauncherForTesting = base::OnceCallback<content::WebContents*(
-    const apps::AppLaunchParams& params)>;
+using BrowserAppLauncherForTesting =
+    base::RepeatingCallback<content::WebContents*(
+        const apps::AppLaunchParams& params)>;
 
 // Test helper that hooking calls to BrowserAppLauncher::LaunchAppWithParams
 void SetBrowserAppLauncherForTesting(
-    BrowserAppLauncherForTesting browserAppLauncherForTesting);
+    const BrowserAppLauncherForTesting& launcher);
 
 class WebAppShimManagerDelegate : public apps::AppShimManager::Delegate {
  public:
@@ -41,13 +42,14 @@ class WebAppShimManagerDelegate : public apps::AppShimManager::Delegate {
   void EnableExtension(Profile* profile,
                        const std::string& extension_id,
                        base::OnceCallback<void()> callback) override;
-  void LaunchApp(Profile* profile,
-                 const AppId& app_id,
-                 const std::vector<base::FilePath>& files,
-                 const std::vector<GURL>& urls,
-                 const GURL& override_url,
-                 chrome::mojom::AppShimLoginItemRestoreState
-                     login_item_restore_state) override;
+  void LaunchApp(
+      Profile* profile,
+      const AppId& app_id,
+      const std::vector<base::FilePath>& files,
+      const std::vector<GURL>& urls,
+      const GURL& override_url,
+      chrome::mojom::AppShimLoginItemRestoreState login_item_restore_state,
+      base::OnceClosure launch_finished_callback) override;
   void LaunchShim(Profile* profile,
                   const AppId& app_id,
                   bool recreate_shims,

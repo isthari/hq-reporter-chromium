@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,16 +8,17 @@
 #include <memory>
 #include <string>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/scoped_observation.h"
+#include "base/time/time.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkPath.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/base/pointer/touch_ui_controller.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/size.h"
-#include "ui/views/animation/ink_drop_host_view.h"
+#include "ui/views/animation/ink_drop_host.h"
 #include "ui/views/animation/ink_drop_observer.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/label.h"
@@ -26,10 +27,6 @@
 namespace gfx {
 class FontList;
 }  // namespace gfx
-
-namespace ui {
-struct AXNodeData;
-}
 
 namespace views {
 class AXVirtualView;
@@ -52,6 +49,9 @@ class IconLabelBubbleView : public views::InkDropObserver,
     // e.g. nearby text items.  By default, the IconLabelBubbleView will use
     // this as its foreground color, separator, and ink drop base color.
     virtual SkColor GetIconLabelBubbleSurroundingForegroundColor() const = 0;
+
+    // Returns the alpha to use when computing the color of the separator.
+    virtual SkAlpha GetIconLabelBubbleSeparatorAlpha() const;
 
     // Returns the base color for ink drops.  If not overridden, this returns
     // GetIconLabelBubbleSurroundingForegroundColor().
@@ -95,7 +95,13 @@ class IconLabelBubbleView : public views::InkDropObserver,
   // Returns true when the label should be visible.
   virtual bool ShouldShowLabel() const;
 
+  // Call to have the icon label paint over a solid background when the label
+  // text is shown.
+  void SetPaintLabelOverSolidBackground(bool paint_label_over_solid_backround);
+
   void SetLabel(const std::u16string& label);
+  void SetLabel(const std::u16string& label,
+                const std::u16string& accessible_name);
   void SetFontList(const gfx::FontList& font_list);
 
   const views::ImageView* GetImageView() const { return image(); }
@@ -128,8 +134,14 @@ class IconLabelBubbleView : public views::InkDropObserver,
   // Sets the label text and background colors.
   void UpdateLabelColors();
 
+  // Update the icon label's background if necessary.
+  virtual void UpdateBackground();
+
   // Returns true when the separator should be visible.
   virtual bool ShouldShowSeparator() const;
+
+  // Returns true when the label should be shown on animation ended.
+  virtual bool ShouldShowLabelAfterAnimation() const;
 
   // Gets the current width based on |slide_animation_| and given bounds.
   // Virtual for testing.
@@ -161,21 +173,29 @@ class IconLabelBubbleView : public views::InkDropObserver,
   void AnimationEnded(const gfx::Animation* animation) override;
   void AnimationProgressed(const gfx::Animation* animation) override;
   void AnimationCanceled(const gfx::Animation* animation) override;
-  void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
 
   const gfx::FontList& font_list() const { return label()->font_list(); }
 
+  // To avoid clang warning about SetImageModel being overridden, tell compiler
+  // to accept both SetImageModel functions.
+  using LabelButton::SetImageModel;
   void SetImageModel(const ui::ImageModel& image);
 
   gfx::Size GetSizeForLabelWidth(int label_width) const;
+
+  // Sets the border padding around this view.
+  virtual void UpdateBorder();
 
   // Set up for icons that animate their labels in. Animating out is initiated
   // manually.
   void SetUpForAnimation();
 
   // Set up for icons that animate their labels in and then automatically out
-  // after a period of time.
-  void SetUpForInOutAnimation();
+  // after a period of time. The duration of the slide includes the just the
+  // time when the label is fully expanded, it does not include the time to
+  // animate in and out.
+  void SetUpForInOutAnimation(
+      base::TimeDelta duration = base::Milliseconds(1800));
 
   // Animates the view in and disables highlighting for hover and focus. If a
   // |string_id| is provided it also sets/changes the label to that string.
@@ -197,12 +217,6 @@ class IconLabelBubbleView : public views::InkDropObserver,
   // the animation is set to fully shown or fully hidden.
   void ResetSlideAnimation(bool show);
 
-  // Slide animation for label.
-  gfx::SlideAnimation slide_animation_{this};
-
- private:
-  class HighlightPathGenerator;
-
   // Spacing between the image and the label.
   int GetInternalSpacing() const;
 
@@ -210,6 +224,12 @@ class IconLabelBubbleView : public views::InkDropObserver,
   // override this method. This may be used when we want to align the label text
   // to the suggestion text, like in the SelectedKeywordView.
   virtual int GetExtraInternalSpacing() const;
+
+  // Slide animation for label.
+  gfx::SlideAnimation slide_animation_{this};
+
+ private:
+  class HighlightPathGenerator;
 
   // Returns the width after the icon and before the separator. If the
   // separator is not shown, and ShouldShowExtraEndSpace() is false, this
@@ -232,10 +252,7 @@ class IconLabelBubbleView : public views::InkDropObserver,
   // bounds and separator visibility.
   SkPath GetHighlightPath() const;
 
-  // Sets the border padding around this view.
-  void UpdateBorder();
-
-  raw_ptr<Delegate> delegate_;
+  raw_ptr<Delegate, DanglingUntriaged> delegate_;
 
   // The contents of the bubble.
   raw_ptr<SeparatorView> separator_view_;
@@ -258,6 +275,12 @@ class IconLabelBubbleView : public views::InkDropObserver,
   // This is used to offset the label animation by the current width (e.g. the
   // icon). Set before animation begins in AnimateIn().
   int grow_animation_starting_width_ = 0;
+
+  // Controls whether the icon label should be painted over a solid background
+  // when the label text is showing.
+  // TODO(tluk): Remove the opt-in after UX has conslusively decided how icon
+  // labels should be painted when the label text is shown.
+  bool paint_label_over_solid_backround_ = false;
 
   // Virtual view, used for announcing changes to the state of this view. A
   // virtual child of this view.

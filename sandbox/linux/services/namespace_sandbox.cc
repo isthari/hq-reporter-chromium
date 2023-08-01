@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,6 @@
 
 #include "base/check_op.h"
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
 #include "base/environment.h"
 #include "base/files/scoped_file.h"
 #include "base/posix/eintr_wrapper.h"
@@ -78,7 +77,7 @@ void TerminationSignalHandler(int sig) {
   // Return a special exit code so that the process is detected as terminated by
   // a signal.
   const size_t sig_idx = static_cast<size_t>(sig);
-  if (sig_idx < base::size(g_signal_exit_codes)) {
+  if (sig_idx < std::size(g_signal_exit_codes)) {
     _exit(g_signal_exit_codes[sig_idx]);
   }
 
@@ -261,7 +260,7 @@ bool NamespaceSandbox::InstallTerminationSignalHandler(
   }
 
   const size_t sig_idx = static_cast<size_t>(sig);
-  CHECK_LT(sig_idx, base::size(g_signal_exit_codes));
+  CHECK_LT(sig_idx, std::size(g_signal_exit_codes));
 
   DCHECK_GE(exit_code, 0);
   DCHECK_LT(exit_code, 256);

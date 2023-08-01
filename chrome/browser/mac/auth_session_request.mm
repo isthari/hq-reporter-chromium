@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "components/policy/core/common/policy_pref_names.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/navigation_handle.h"
@@ -51,6 +52,12 @@ class AuthNavigationThrottle : public content::NavigationThrottle {
 
  private:
   ThrottleCheckResult HandleRequest() {
+    // Cancel any prerendering.
+    if (!navigation_handle()->IsInPrimaryMainFrame()) {
+      DCHECK(navigation_handle()->IsInPrerenderedMainFrame());
+      return CANCEL_AND_IGNORE;
+    }
+
     GURL url = navigation_handle()->GetURL();
     if (!url.SchemeIs(scheme_))
       return PROCEED;
@@ -175,8 +182,16 @@ absl::optional<std::string> AuthSessionRequest::CanonicalizeScheme(
 
 std::unique_ptr<content::NavigationThrottle> AuthSessionRequest::CreateThrottle(
     content::NavigationHandle* handle) {
-  if (!handle->IsInMainFrame())
-    return nil;
+  // Only attach a throttle to outermost main frames. Note non-primary main
+  // frames will cancel the navigation in the throttle.
+  switch (handle->GetNavigatingFrameType()) {
+    case content::FrameType::kSubframe:
+    case content::FrameType::kFencedFrameRoot:
+      return nil;
+    case content::FrameType::kPrimaryMainFrame:
+    case content::FrameType::kPrerenderMainFrame:
+      break;
+  }
 
   // base::Unretained is safe because throttles are owned by the
   // NavigationRequest, which won't outlive the WebContents, whose lifetime this
@@ -211,7 +226,7 @@ Browser* AuthSessionRequest::CreateBrowser(
 
   bool ephemeral_sessions_allowed_by_policy =
       IncognitoModePrefs::GetAvailability(profile->GetPrefs()) !=
-      IncognitoModePrefs::Availability::kDisabled;
+      policy::IncognitoModeAvailability::kDisabled;
 
   // As per the documentation for `shouldUseEphemeralSession`: "Whether the
   // request is honored depends on the user’s default web browser." If policy
@@ -281,37 +296,43 @@ void AuthSessionRequest::CancelAuthSession() {
   // macOS has requested that this authentication session be canceled. Close the
   // browser window and call it a day.
 
-  perform_cancellation_callback_ = false;
-
   DestroyWebContents();
   // `DestroyWebContents` triggered the death of this object; perform no more
   // work.
 }
 
 void AuthSessionRequest::SchemeWasNavigatedTo(const GURL& url) {
-  perform_cancellation_callback_ = false;
-
+  // Notify the OS that the authentication was successful, and provide the URL
+  // that was navigated to.
   [request_ completeWithCallbackURL:net::NSURLWithGURL(url)];
 
+  // This is a success, so no cancellation callback is needed.
+  perform_cancellation_callback_ = false;
+
+  // The authentication session is now complete, so close the browser window.
   DestroyWebContents();
   // `DestroyWebContents` triggered the death of this object; perform no more
   // work.
 }
 
 void AuthSessionRequest::WebContentsDestroyed() {
-  // This function can be called through one of three code paths:
+  // This function can be called through one of three code paths: one of a
+  // successful login, and two of cancellation.
   //
-  // 1. The user closed the window, in which case the "user canceled" callback
-  //    must be made.
-  // 2. The user successfully logged in, in which case the closure of the page
-  //    was triggered above in SchemeWasNavigatedTo().
-  // 3. The OS asked for cancellation, in which case the closure of the page was
-  //    triggered above in CancelAuthSession().
+  // Success code path:
   //
-  // In case 2, the success callback was already made; in case 3, no callback
-  // should be made. `perform_cancellation_callback_` is set to false in those
-  // cases. If `perform_cancellation_callback_` is true, then it was never
-  // changed after initialization, and that distinguishes case 1.
+  // - The user successfully logged in, in which case the closure of the page
+  //   was triggered above in `SchemeWasNavigatedTo()`.
+  //
+  // Cancellation code paths:
+  //
+  // - The user closed the window without successfully logging in.
+  // - The OS asked for cancellation, in which case the closure of the page was
+  //   triggered above in `CancelAuthSession()`.
+  //
+  // In both cancellation cases, the OS must receive a cancellation callback.
+  // (This is an undocumented requirement in the case that the OS asked for the
+  // cancellation; see https://crbug.com/1400714.)
 
   if (perform_cancellation_callback_) {
     NSError* error = [NSError

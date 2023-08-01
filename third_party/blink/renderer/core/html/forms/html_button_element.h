@@ -29,7 +29,7 @@
 
 namespace blink {
 
-class HTMLButtonElement final : public HTMLFormControlElement {
+class CORE_EXPORT HTMLButtonElement final : public HTMLFormControlElement {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
@@ -50,7 +50,7 @@ class HTMLButtonElement final : public HTMLFormControlElement {
 
   const AtomicString& FormControlType() const override;
 
-  LayoutObject* CreateLayoutObject(const ComputedStyle&, LegacyLayout) override;
+  LayoutObject* CreateLayoutObject(const ComputedStyle&) override;
 
   // HTMLFormControlElement always creates one, but buttons don't need it.
   bool AlwaysCreateUserAgentShadowRoot() const override { return false; }
@@ -60,6 +60,11 @@ class HTMLButtonElement final : public HTMLFormControlElement {
   bool IsPresentationAttribute(const QualifiedName&) const override;
   void DefaultEventHandler(Event&) override;
   bool HasActivationBehavior() const override;
+
+  // Buttons can trigger popovers.
+  PopoverTriggerSupport SupportsPopoverTriggering() const override {
+    return PopoverTriggerSupport::kSupported;
+  }
 
   void AppendToFormData(FormData&) override;
 

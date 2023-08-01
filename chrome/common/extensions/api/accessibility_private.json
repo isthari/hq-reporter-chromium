@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -89,7 +89,7 @@
       {
         "id": "SwitchAccessMenuAction",
         "type": "string",
-        "enum": [ "copy", "cut", "decrement", "dictation", "endTextSelection", "increment", "itemScan", "jumpToBeginningOfText", "jumpToEndOfText", "keyboard", "leftClick", "moveBackwardOneCharOfText", "moveBackwardOneWordOfText", "moveCursor", "moveDownOneLineOfText", "moveForwardOneCharOfText", "moveForwardOneWordOfText", "moveUpOneLineOfText", "paste", "pointScan", "rightClick", "scrollDown", "scrollLeft", "scrollRight", "scrollUp", "select", "settings", "startTextSelection", "shortcuts", "leaveGroup", "webMenu", "webBookmark", "webBottomOfPage", "webTopOfPage", "webFindInPage", "webDownloads", "webClearHistory", "systemMenu", "systemStatusBar", "systemLauncher", "systemTaskManager", "systemDiagnostics", "systemScreenshot", "systemHelp", "mediaMenu", "mediaMute", "mediaVolumeDown", "mediaVolumeUp", "mediaRewind", "mediaPlayPause", "mediaFastforward", "displayMenu", "displayMirror", "displayBrightnessDown", "displayBrightnessUp", "displayRotate", "displayZoomOut", "displayZoomIn", "userMenu", "userLock", "userPreviousUser", "userNextUser", "userSignOut", "actionRecorder", "startRecording", "stopRecording", "executeMacro"],
+        "enum": [ "copy", "cut", "decrement", "dictation", "endTextSelection", "increment", "itemScan", "jumpToBeginningOfText", "jumpToEndOfText", "keyboard", "leftClick", "moveBackwardOneCharOfText", "moveBackwardOneWordOfText", "moveCursor", "moveDownOneLineOfText", "moveForwardOneCharOfText", "moveForwardOneWordOfText", "moveUpOneLineOfText", "paste", "pointScan", "rightClick", "scrollDown", "scrollLeft", "scrollRight", "scrollUp", "select", "settings", "startTextSelection" ],
         "description": "Available actions to be shown in the Switch Access menu. Must be kept in sync with the strings in ash/system/accessibility/switch_access/switch_access_menu_view.cc"
       },
       {
@@ -234,7 +234,7 @@
       {
         "id": "AccessibilityFeature",
         "type": "string",
-        "enum": [ "enhancedNetworkVoices", "dictationCommands", "dictationHints" ],
+        "enum": [ "googleTtsLanguagePacks", "dictationContextChecking", "chromevoxTabsDeprecation", "chromevoxSettingsMigration"],
         "description": "Subset of accessibility features."
       },
       {
@@ -246,7 +246,7 @@
       {
         "id": "SetNativeChromeVoxResponse",
         "type": "string",
-        "enum": [ "success", "talkbackNotInstalled", "windowNotFound", "failure" ],
+        "enum": [ "success", "talkbackNotInstalled", "windowNotFound", "failure" , "needDeprecationConfirmation" ],
         "description": "Response code for onNativeChromeVoxArcSupportResult"
       },
       {
@@ -258,7 +258,7 @@
       {
         "id": "DictationBubbleHintType",
         "type": "string",
-        "enum": ["trySaying", "type", "delete", "selectAll", "undo", "help"],
+        "enum": ["trySaying", "type", "delete", "selectAll", "undo", "help", "unselect", "copy"],
         "description": "Types of hints displayed in the Dictation bubble UI."
       },
       {
@@ -283,6 +283,104 @@
             "items": { "$ref": "DictationBubbleHintType" },
             "description": "Array of hints to show in the UI.",
             "optional": true
+          }
+        }
+      },
+      {
+        "id": "DlcType",
+        "type": "string",
+        "enum": [
+          "ttsBnBd",
+          "ttsCsCz",
+          "ttsDaDk",
+          "ttsDeDe",
+          "ttsElGr",
+          "ttsEnAu",
+          "ttsEnGb",
+          "ttsEnUs",
+          "ttsEsEs",
+          "ttsEsUs",
+          "ttsFiFi",
+          "ttsFilPh",
+          "ttsFrFr",
+          "ttsHiIn",
+          "ttsHuHu",
+          "ttsIdId",
+          "ttsItIt",
+          "ttsJaJp",
+          "ttsKmKh",
+          "ttsKoKr",
+          "ttsNbNo",
+          "ttsNeNp",
+          "ttsNlNl",
+          "ttsPlPl",
+          "ttsPtBr",
+          "ttsSiLk",
+          "ttsSkSk",
+          "ttsSvSe",
+          "ttsThTh",
+          "ttsTrTr",
+          "ttsUkUa",
+          "ttsViVn",
+          "ttsYueHk"
+        ],
+        "description": "Types of accessibility-specific DLCs."
+      },
+      {
+        "id": "PumpkinData",
+        "type": "object",
+        "properties": {
+          "js_pumpkin_tagger_bin_js": {
+            "type": "binary",
+            "description": "The contents of the file as a Uint8Array."
+          },
+          "tagger_wasm_main_js": {
+            "type": "binary",
+            "description": "The contents of the file as a Uint8Array."
+          },
+          "tagger_wasm_main_wasm": {
+            "type": "binary",
+            "description": "The contents of the file as a Uint8Array."
+          },
+          "en_us_action_config_binarypb": {
+            "type": "binary",
+            "description": "The contents of the file as a Uint8Array."
+          },
+          "en_us_pumpkin_config_binarypb": {
+            "type": "binary",
+            "description": "The contents of the file as a Uint8Array."
+          },
+          "fr_fr_action_config_binarypb": {
+            "type": "binary",
+            "description": "The contents of the file as a Uint8Array."
+          },
+          "fr_fr_pumpkin_config_binarypb": {
+            "type": "binary",
+            "description": "The contents of the file as a Uint8Array."
+          },
+          "it_it_action_config_binarypb": {
+            "type": "binary",
+            "description": "The contents of the file as a Uint8Array."
+          },
+          "it_it_pumpkin_config_binarypb": {
+            "type": "binary",
+            "description": "The contents of the file as a Uint8Array."
+          },
+          "de_de_action_config_binarypb": {
+            "type": "binary",
+            "description": "The contents of the file as a Uint8Array."
+          },
+          "de_de_pumpkin_config_binarypb": {
+            "type": "binary",
+            "description": "The contents of the file as a Uint8Array."
+          },
+          "es_es_action_config_binarypb": {
+            "type": "binary",
+            "description": "The contents of the file as a Uint8Array."
+          },
+          "es_es_pumpkin_config_binarypb": {
+            "type": "binary",
+            "description": "The contents of the file as a Uint8Array."
           }
         }
       }
@@ -327,6 +425,22 @@
             {
               "name": "batteryDescription",
               "type": "string"
+            }
+          ]
+        }
+      },
+      {
+        "name": "installPumpkinForDictation",
+        "type": "function",
+        "description": "Called to request an install of the Pumpkin semantic parser for Dictation.",
+        "parameters": [],
+        "returns_async": {
+          "name": "callback",
+          "description": "Runs when Pumpkin download finishes.",
+          "parameters": [
+            {
+              "name": "data",
+              "$ref": "PumpkinData"
             }
           ]
         }
@@ -488,6 +602,12 @@
             "name": "keyEvent",
             "$ref": "SyntheticKeyboardEvent",
             "description": "The event to send."
+          },
+          {
+            "name": "useRewriters",
+            "type": "boolean",
+            "description": "If true, uses rewriters for the key event; only allowed if used from Dictation. Otherwise indicates that rewriters should be skipped.",
+            "optional": true
           }
         ]
       },
@@ -711,6 +831,52 @@
             "description": "Properties for the updated Dictation bubble UI."
           }
         ]
+      },
+      {
+        "name": "silenceSpokenFeedback",
+        "type": "function",
+        "description": "Cancels the current and queued speech from ChromeVox.",
+        "parameters": []
+      },
+      {
+        "name": "getDlcContents",
+        "type": "function",
+        "description": "Returns the contents of a DLC.",
+        "parameters": [
+          {
+            "name": "dlc",
+            "$ref": "DlcType",
+            "description": "The DLC of interest."
+          }
+        ],
+        "returns_async": {
+          "name": "callback",
+          "description": "A callback that is run when the contents are returned.",
+          "parameters": [
+            {
+              "name": "contents",
+              "type": "binary",
+              "description": "The contents of the DLC as a Uint8Array."
+            }
+          ]
+        }
+      },
+      {
+        "name": "isLacrosPrimary",
+        "type": "function",
+        "description": "Gets whether new browser windows and tabs should be in Lacros browser.",
+        "parameters": [],
+        "returns_async": {
+          "name": "callback",
+          "description": "A callback that is run when the result is returned.",
+          "parameters": [
+            {
+              "type": "boolean",
+              "name": "useLacros",
+              "description": "True if new browser windows and tabs should be in Lacros."
+            }
+          ]
+        }
       }
     ],
     "events": [
@@ -755,6 +921,41 @@
         "type": "function",
         "description": "Fired when Chrome OS wants to change the Select-to-Speak state, between selecting with the mouse, speaking, and inactive.",
         "parameters": []
+      },
+      {
+        "name": "onSelectToSpeakKeysPressedChanged",
+        "type": "function",
+        "description": "Fired when Chrome OS wants to send an updated list of keys currently pressed to Select to Speak.",
+        "parameters": [
+          {
+            "name": "keyCodes",
+            "type": "array",
+            "items": { "type": "integer" },
+            "description": "List of key codes that are currently pressed"
+          }
+        ]
+      },
+      {
+        "name": "onSelectToSpeakMouseChanged",
+        "type": "function",
+        "description": "Fired when Chrome OS wants to send a mouse event Select to Speak.",
+        "parameters": [
+          {
+            "name": "type",
+            "$ref": "SyntheticMouseEventType",
+            "description": "The type of the mouse event."
+          },
+          {
+            "name": "x",
+            "type": "integer",
+            "description": "The mouse x position in global coordinates."
+          },
+          {
+            "name": "y",
+            "type": "integer",
+            "description": "The mouse y position in global coordinates."
+          }
+        ]
       },
       {
         "name": "onSelectToSpeakPanelAction",

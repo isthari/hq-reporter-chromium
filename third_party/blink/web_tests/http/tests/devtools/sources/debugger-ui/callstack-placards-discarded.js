@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
       }
   `);
 
+  SourcesTestRunner.quiet = true;
   SourcesTestRunner.runDebuggerTestSuite([
     function testCallStackPlacardsDiscarded(next) {
       TestRunner.debuggerModel.addEventListener(SDK.DebuggerModel.Events.DebuggerPaused, didPause, this);
@@ -33,12 +34,14 @@
         SourcesTestRunner.runTestFunctionAndWaitUntilPaused(didPause1);
       }
       function didPause1() {
+        TestRunner.addResult('Script execution resumed.');
         SourcesTestRunner.resumeExecution(didResume1);
       }
       function didResume1() {
         SourcesTestRunner.runTestFunctionAndWaitUntilPaused(didPause2);
       }
       function didPause2() {
+        TestRunner.addResult('Script execution resumed.');
         SourcesTestRunner.resumeExecution(didResume2);
       }
       function didResume2() {

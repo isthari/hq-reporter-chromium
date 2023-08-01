@@ -1,10 +1,11 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/core/html/canvas/html_canvas_element.h"
 
 #include "third_party/blink/renderer/core/html/canvas/canvas_rendering_context.h"
+#include "third_party/blink/renderer/core/page/page_animator.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
 #include "third_party/blink/renderer/core/testing/core_unit_test_helper.h"
 #include "third_party/blink/renderer/platform/testing/paint_test_configurations.h"
@@ -135,6 +136,13 @@ TEST_P(HTMLCanvasElementTest, CanvasInvalidationInFrame) {
   ChildDocument().body()->appendChild(script);
   EXPECT_TRUE(
       GetDocument().GetPage()->Animator().has_canvas_invalidation_for_test());
+}
+
+TEST_P(HTMLCanvasElementTest, BrokenCanvasHighRes) {
+  EXPECT_NE(HTMLCanvasElement::BrokenCanvas(2.0).first,
+            HTMLCanvasElement::BrokenCanvas(1.0).first);
+  EXPECT_EQ(HTMLCanvasElement::BrokenCanvas(2.0).second, 2.0);
+  EXPECT_EQ(HTMLCanvasElement::BrokenCanvas(1.0).second, 1.0);
 }
 
 }  // namespace blink

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <map>
 
+#include "base/containers/enum_set.h"
 #include "components/page_load_metrics/browser/page_load_metrics_observer.h"
 #include "url/gurl.h"
 #include "url/origin.h"
@@ -39,6 +40,12 @@ class ThirdPartyMetricsObserver
   ~ThirdPartyMetricsObserver() override;
 
   // page_load_metrics::PageLoadMetricsObserver:
+  const char* GetObserverName() const override;
+  ObservePolicy OnPrerenderStart(content::NavigationHandle* navigation_handle,
+                                 const GURL& currently_committed_url) override;
+  ObservePolicy OnFencedFramesStart(
+      content::NavigationHandle* navigation_handle,
+      const GURL& currently_committed_url) override;
   ObservePolicy FlushMetricsOnAppEnterBackground(
       const page_load_metrics::mojom::PageLoadTiming& timing) override;
   void FrameReceivedUserActivation(
@@ -109,9 +116,25 @@ class ThirdPartyMetricsObserver
   // instead.
   std::map<GURL, ThirdPartyInfo> all_third_party_info_;
 
+  // Timing event types used to track which ones we've already recorded timing
+  // data for.
+  enum class TimingEventType : uint8_t {
+    kFirstContentfulPaint = 0,
+    kLargestContentfulPaint = 1,
+
+    kMaxValue = kLargestContentfulPaint,
+  };
+  using TimingEventTypeEnumSet =
+      base::EnumSet<TimingEventType,
+                    TimingEventType::kFirstContentfulPaint,
+                    TimingEventType::kMaxValue>;
+
   // A set of RenderFrameHosts that we've recorded timing data for. The
   // RenderFrameHosts are later removed when they navigate again or are deleted.
-  std::set<content::RenderFrameHost*> recorded_frames_;
+  // Note that we use `base::flat_map` here because at most `kMaxRecordedFrames`
+  // entries will be contained in the map.
+  base::flat_map<content::RenderFrameHost*, TimingEventTypeEnumSet>
+      recorded_frames_;
 
   // If the page has any blocked_by_policy cookie or DOM storage access (e.g.,
   // block third-party cookies is enabled) then we don't want to record any

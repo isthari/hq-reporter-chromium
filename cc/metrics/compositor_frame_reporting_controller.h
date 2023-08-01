@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,8 @@
 #include "cc/metrics/compositor_frame_reporter.h"
 #include "cc/metrics/event_metrics.h"
 #include "cc/metrics/frame_sequence_metrics.h"
+#include "cc/metrics/predictor_jank_tracker.h"
+#include "cc/metrics/scroll_jank_dropped_frame_tracker.h"
 
 namespace viz {
 struct FrameTimingDetails;
@@ -24,6 +26,7 @@ struct FrameTimingDetails;
 
 namespace cc {
 class DroppedFrameCounter;
+class EventLatencyTracker;
 class UkmManager;
 struct BeginMainFrameMetrics;
 struct FrameInfo;
@@ -40,12 +43,14 @@ class CC_EXPORT CompositorFrameReportingController {
   enum PipelineStage {
     kBeginImplFrame = 0,
     kBeginMainFrame,
+    kReadyToCommit,
     kCommit,
     kActivate,
     kNumPipelineStages
   };
 
-  CompositorFrameReportingController(bool should_report_metrics,
+  CompositorFrameReportingController(bool should_report_histograms,
+                                     bool should_report_ukm,
                                      int layer_tree_host_id);
   virtual ~CompositorFrameReportingController();
 
@@ -66,6 +71,7 @@ class CC_EXPORT CompositorFrameReportingController {
   virtual void DidActivate();
   virtual void DidSubmitCompositorFrame(
       uint32_t frame_token,
+      base::TimeTicks submit_time,
       const viz::BeginFrameId& current_frame_id,
       const viz::BeginFrameId& last_activated_frame_id,
       EventMetricsSet events_metrics,
@@ -107,9 +113,17 @@ class CC_EXPORT CompositorFrameReportingController {
     global_trackers_.frame_sequence_trackers = frame_sequence_trackers;
   }
 
+  void set_event_latency_tracker(EventLatencyTracker* event_latency_tracker) {
+    global_trackers_.event_latency_tracker = event_latency_tracker;
+  }
+
   void BeginMainFrameStarted(base::TimeTicks begin_main_frame_start_time) {
     begin_main_frame_start_time_ = begin_main_frame_start_time;
   }
+
+  bool HasReporterAt(PipelineStage stage) const;
+
+  void SetVisible(bool visible);
 
  protected:
   struct SubmittedCompositorFrame {
@@ -123,7 +137,6 @@ class CC_EXPORT CompositorFrameReportingController {
   };
   base::TimeTicks Now() const;
 
-  bool HasReporterAt(PipelineStage stage) const;
   bool next_activate_has_invalidation() const {
     return next_activate_has_invalidation_;
   }
@@ -165,7 +178,7 @@ class CC_EXPORT CompositorFrameReportingController {
   void AddSortedFrame(const viz::BeginFrameArgs& args,
                       const FrameInfo& frame_info);
 
-  const bool should_report_metrics_;
+  const bool should_report_histograms_;
   const int layer_tree_host_id_;
 
   viz::BeginFrameId last_submitted_frame_id_;
@@ -187,6 +200,9 @@ class CC_EXPORT CompositorFrameReportingController {
   // DO NOT reorder this line and the ones below. The latency_ukm_reporter_
   // must outlive the objects in |submitted_compositor_frames_|.
   std::unique_ptr<LatencyUkmReporter> latency_ukm_reporter_;
+  std::unique_ptr<PredictorJankTracker> predictor_jank_tracker_;
+  std::unique_ptr<ScrollJankDroppedFrameTracker>
+      scroll_jank_dropped_frame_tracker_;
 
   std::unique_ptr<CompositorFrameReporter>
       reporters_[PipelineStage::kNumPipelineStages];
@@ -229,6 +245,21 @@ class CC_EXPORT CompositorFrameReportingController {
 
   // interval of last begin frame args.
   base::TimeDelta last_interval_;
+
+  CompositorFrameReporter::CompositorLatencyInfo
+      previous_latency_predictions_main_;
+  CompositorFrameReporter::CompositorLatencyInfo
+      previous_latency_predictions_impl_;
+
+  // Container that stores the EventLatency stage latency predictions based on
+  // previous event traces.
+  CompositorFrameReporter::EventLatencyInfo event_latency_predictions_;
+
+  // Reporting controller needs to track transition of the page from invisible
+  // to visible in order to discard EventsMetrics impacted by duration of page
+  // being invisible
+  bool visible_ = true;
+  bool waiting_for_did_present_after_visible_ = false;
 };
 
 }  // namespace cc

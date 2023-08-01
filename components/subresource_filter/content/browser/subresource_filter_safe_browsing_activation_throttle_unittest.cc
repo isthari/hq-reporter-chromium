@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,17 +11,19 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/run_loop.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/test_mock_time_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "components/infobars/content/content_infobar_manager.h"
 #include "components/infobars/core/confirm_infobar_delegate.h"
 #include "components/infobars/core/infobar.h"
+#include "components/safe_browsing/core/common/features.h"
 #include "components/subresource_filter/content/browser/content_subresource_filter_throttle_manager.h"
 #include "components/subresource_filter/content/browser/content_subresource_filter_web_contents_helper.h"
 #include "components/subresource_filter/content/browser/devtools_interaction_tracker.h"
@@ -49,6 +51,10 @@
 #include "content/public/test/test_renderer_host.h"
 #include "services/metrics/public/cpp/ukm_builders.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+#if BUILDFLAG(IS_ANDROID)
+#include "components/messages/android/mock_message_dispatcher_bridge.h"
+#endif
 
 namespace subresource_filter {
 
@@ -145,7 +151,9 @@ class SubresourceFilterSafeBrowsingActivationThrottleTest
     : public content::RenderViewHostTestHarness,
       public content::WebContentsObserver {
  public:
-  SubresourceFilterSafeBrowsingActivationThrottleTest() {}
+  SubresourceFilterSafeBrowsingActivationThrottleTest()
+      : content::RenderViewHostTestHarness(
+            base::test::TaskEnvironment::TimeSource::MOCK_TIME) {}
 
   SubresourceFilterSafeBrowsingActivationThrottleTest(
       const SubresourceFilterSafeBrowsingActivationThrottleTest&) = delete;
@@ -164,7 +172,7 @@ class SubresourceFilterSafeBrowsingActivationThrottleTest
     ASSERT_NO_FATAL_FAILURE(test_ruleset_creator_.CreateRulesetWithRules(
         rules, &test_ruleset_pair_));
     ruleset_dealer_ = std::make_unique<VerifiedRulesetDealer::Handle>(
-        base::ThreadTaskRunnerHandle::Get());
+        base::SingleThreadTaskRunner::GetCurrentDefault());
     ruleset_dealer_->TryOpenAndSetRulesetFile(test_ruleset_pair_.indexed.path,
                                               /*expected_checksum=*/0,
                                               base::DoNothing());
@@ -180,6 +188,12 @@ class SubresourceFilterSafeBrowsingActivationThrottleTest
     Observe(contents);
 
     observer_ = std::make_unique<TestSubresourceFilterObserver>(contents);
+
+#if BUILDFLAG(IS_ANDROID)
+    message_dispatcher_bridge_.SetMessagesEnabledForEmbedder(true);
+    messages::MessageDispatcherBridge::SetInstanceForTesting(
+        &message_dispatcher_bridge_);
+#endif
   }
 
   virtual void Configure() {
@@ -202,6 +216,10 @@ class SubresourceFilterSafeBrowsingActivationThrottleTest
     RunUntilIdle();
 
     content::RenderViewHostTestHarness::TearDown();
+
+#if BUILDFLAG(IS_ANDROID)
+    messages::MessageDispatcherBridge::SetInstanceForTesting(nullptr);
+#endif
   }
 
   TestSubresourceFilterObserver* observer() { return observer_.get(); }
@@ -209,7 +227,7 @@ class SubresourceFilterSafeBrowsingActivationThrottleTest
   // content::WebContentsObserver:
   void DidStartNavigation(
       content::NavigationHandle* navigation_handle) override {
-    if (navigation_handle->IsInMainFrame()) {
+    if (IsInSubresourceFilterRoot(navigation_handle)) {
       navigation_handle->RegisterThrottleForTesting(
           std::make_unique<SubresourceFilterSafeBrowsingActivationThrottle>(
               navigation_handle, delegate(), test_io_task_runner_,
@@ -286,7 +304,7 @@ class SubresourceFilterSafeBrowsingActivationThrottleTest
     // TODO(csharrison): Consider adding finer grained control to the
     // NavigationSimulator by giving it an option to be driven by a
     // TestMockTimeTaskRunner. Also see https://crbug.com/703346.
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(&base::TestMockTimeTaskRunner::RunUntilIdle,
                        base::Unretained(test_io_task_runner_.get())));
@@ -345,21 +363,10 @@ class SubresourceFilterSafeBrowsingActivationThrottleTest
     return &scoped_configuration_;
   }
 
-  bool presenting_ads_blocked_infobar() {
-    auto* infobar_manager = infobars::ContentInfoBarManager::FromWebContents(
-        content::RenderViewHostTestHarness::web_contents());
-    if (infobar_manager->infobar_count() == 0)
-      return false;
-
-    // No infobars other than the ads blocked infobar should be displayed in the
-    // context of these tests.
-    EXPECT_EQ(infobar_manager->infobar_count(), 1u);
-    auto* infobar = infobar_manager->infobar_at(0);
-    EXPECT_EQ(infobar->delegate()->GetIdentifier(),
-              infobars::InfoBarDelegate::ADS_BLOCKED_INFOBAR_DELEGATE_ANDROID);
-
-    return true;
-  }
+ protected:
+#if BUILDFLAG(IS_ANDROID)
+  messages::MockMessageDispatcherBridge message_dispatcher_bridge_;
+#endif
 
  private:
   testing::ScopedSubresourceFilterConfigurator scoped_configuration_;
@@ -376,6 +383,40 @@ class SubresourceFilterSafeBrowsingActivationThrottleTest
   std::unique_ptr<TestSubresourceFilterObserver> observer_;
   scoped_refptr<FakeSafeBrowsingDatabaseManager> fake_safe_browsing_database_;
   base::HistogramTester tester_;
+};
+
+class SubresourceFilterSafeBrowsingActivationThrottleInfoBarUiTest
+    : public SubresourceFilterSafeBrowsingActivationThrottleTest {
+ public:
+  void SetUp() override {
+    SubresourceFilterSafeBrowsingActivationThrottleTest::SetUp();
+#if BUILDFLAG(IS_ANDROID)
+    message_dispatcher_bridge_.SetMessagesEnabledForEmbedder(false);
+    messages::MessageDispatcherBridge::SetInstanceForTesting(
+        &message_dispatcher_bridge_);
+#endif
+  }
+
+  bool presenting_ads_blocked_infobar() {
+    auto* infobar_manager = infobars::ContentInfoBarManager::FromWebContents(
+        content::RenderViewHostTestHarness::web_contents());
+    if (infobar_manager->infobar_count() == 0)
+      return false;
+
+    // No infobars other than the ads blocked infobar should be displayed in the
+    // context of these tests.
+    EXPECT_EQ(infobar_manager->infobar_count(), 1u);
+    auto* infobar = infobar_manager->infobar_at(0);
+    EXPECT_EQ(infobar->delegate()->GetIdentifier(),
+              infobars::InfoBarDelegate::ADS_BLOCKED_INFOBAR_DELEGATE_ANDROID);
+
+    return true;
+  }
+
+ protected:
+#if BUILDFLAG(IS_ANDROID)
+  messages::MockMessageDispatcherBridge message_dispatcher_bridge_;
+#endif
 };
 
 class SubresourceFilterSafeBrowsingActivationThrottleParamTest
@@ -585,12 +626,12 @@ TEST_F(SubresourceFilterSafeBrowsingActivationThrottleTest,
        NotificationVisibility) {
   GURL url(kURL);
   ConfigureForMatch(url);
+#if BUILDFLAG(IS_ANDROID)
+  EXPECT_CALL(message_dispatcher_bridge_, EnqueueMessage);
+#endif
   content::RenderFrameHost* rfh = SimulateNavigateAndCommit({url}, main_rfh());
 
   EXPECT_FALSE(CreateAndNavigateDisallowedSubframe(rfh));
-#if BUILDFLAG(IS_ANDROID)
-  EXPECT_TRUE(presenting_ads_blocked_infobar());
-#endif
 }
 
 TEST_F(SubresourceFilterSafeBrowsingActivationThrottleTest, ActivationList) {
@@ -756,11 +797,11 @@ TEST_F(SubresourceFilterSafeBrowsingActivationThrottleTest,
   const GURL url("https://example.test/");
 
   // Navigate initially, should be no activation.
+#if BUILDFLAG(IS_ANDROID)
+  EXPECT_CALL(message_dispatcher_bridge_, EnqueueMessage).Times(0);
+#endif
   SimulateNavigateAndCommit({url}, main_rfh());
   EXPECT_TRUE(CreateAndNavigateDisallowedSubframe(main_rfh()));
-#if BUILDFLAG(IS_ANDROID)
-  EXPECT_FALSE(presenting_ads_blocked_infobar());
-#endif
 
   // Simulate opening devtools and forcing activation.
   devtools_interaction_tracker->ToggleForceActivation(true);
@@ -768,11 +809,11 @@ TEST_F(SubresourceFilterSafeBrowsingActivationThrottleTest,
       kSubresourceFilterActionsHistogram,
       subresource_filter::SubresourceFilterAction::kForcedActivationEnabled, 1);
 
+#if BUILDFLAG(IS_ANDROID)
+  EXPECT_CALL(message_dispatcher_bridge_, EnqueueMessage);
+#endif
   SimulateNavigateAndCommit({url}, main_rfh());
   EXPECT_FALSE(CreateAndNavigateDisallowedSubframe(main_rfh()));
-#if BUILDFLAG(IS_ANDROID)
-  EXPECT_TRUE(presenting_ads_blocked_infobar());
-#endif
 
   histogram_tester.ExpectBucketCount(
       "SubresourceFilter.PageLoad.ActivationDecision",
@@ -798,14 +839,14 @@ TEST_F(SubresourceFilterSafeBrowsingActivationThrottleTest,
   base::HistogramTester histogram_tester;
   devtools_interaction_tracker->ToggleForceActivation(true);
   const GURL url("https://example.test/");
+#if BUILDFLAG(IS_ANDROID)
+  EXPECT_CALL(message_dispatcher_bridge_, EnqueueMessage);
+#endif
   SimulateNavigateAndCommit({url}, main_rfh());
   devtools_interaction_tracker->ToggleForceActivation(false);
 
   // Resource should be disallowed, since navigation commit had activation.
   EXPECT_FALSE(CreateAndNavigateDisallowedSubframe(main_rfh()));
-#if BUILDFLAG(IS_ANDROID)
-  EXPECT_TRUE(presenting_ads_blocked_infobar());
-#endif
 }
 
 TEST_P(SubresourceFilterSafeBrowsingActivationThrottleScopeTest,
@@ -885,7 +926,7 @@ TEST_P(SubresourceFilterSafeBrowsingActivationThrottleParamTest,
   SimulateStartAndExpectProceed(url);
   navigation_simulator()->SetReferrer(blink::mojom::Referrer::New(
       RenderViewHostTestHarness::web_contents()
-          ->GetMainFrame()
+          ->GetPrimaryMainFrame()
           ->GetLastCommittedURL(),
       network::mojom::ReferrerPolicy::kStrictOriginWhenCrossOrigin));
   SimulateCommitAndExpectProceed();
@@ -932,13 +973,28 @@ TEST_F(SubresourceFilterSafeBrowsingActivationThrottleTest,
 
   // Flush the pending tasks on the IO thread, so the delayed task surely gets
   // posted.
-  test_io_task_runner()->RunUntilIdle();
+  if (base::FeatureList::IsEnabled(safe_browsing::kSafeBrowsingOnUIThread)) {
+    task_environment()->RunUntilIdle();
+  } else {
+    test_io_task_runner()->RunUntilIdle();
+  }
 
   // Expect one delayed task, and fast forward time.
   base::TimeDelta expected_delay =
       SubresourceFilterSafeBrowsingClientRequest::kCheckURLTimeout;
-  EXPECT_EQ(expected_delay, test_io_task_runner()->NextPendingTaskDelay());
-  test_io_task_runner()->FastForwardBy(expected_delay);
+
+  if (base::FeatureList::IsEnabled(safe_browsing::kSafeBrowsingOnUIThread)) {
+    // When the safe browsing code runs on the UI thread, can't check
+    // task_environment()->NextMainThreadPendingTaskDelay() since there are many
+    // other tasks posted.
+    // EXPECT_EQ(expected_delay,
+    // task_environment()->NextMainThreadPendingTaskDelay());
+    task_environment()->FastForwardBy(expected_delay);
+  } else {
+    EXPECT_EQ(expected_delay, test_io_task_runner()->NextPendingTaskDelay());
+    test_io_task_runner()->FastForwardBy(expected_delay);
+  }
+
   SimulateCommitAndExpectProceed();
   EXPECT_EQ(mojom::ActivationLevel::kDisabled,
             *observer()->GetPageActivationForLastCommittedLoad());
@@ -1093,6 +1149,18 @@ TEST_F(SubresourceFilterSafeBrowsingActivationThrottleTest,
                   : mojom::ActivationLevel::kDisabled,
               *observer()->GetPageActivationForLastCommittedLoad());
   }
+}
+
+TEST_F(SubresourceFilterSafeBrowsingActivationThrottleInfoBarUiTest,
+       NotificationVisibility) {
+  GURL url(kURL);
+  ConfigureForMatch(url);
+  content::RenderFrameHost* rfh = SimulateNavigateAndCommit({url}, main_rfh());
+
+  EXPECT_FALSE(CreateAndNavigateDisallowedSubframe(rfh));
+#if BUILDFLAG(IS_ANDROID)
+  EXPECT_TRUE(presenting_ads_blocked_infobar());
+#endif
 }
 
 // Disabled due to flaky failures: https://crbug.com/753669.

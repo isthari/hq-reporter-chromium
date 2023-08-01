@@ -1,10 +1,10 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.offlinepages;
 
-import android.os.Bundle;
+import android.os.PersistableBundle;
 import android.text.format.DateUtils;
 
 import org.chromium.base.ContextUtils;
@@ -50,21 +50,9 @@ public class BackgroundScheduler {
         scheduleImpl(triggerConditions, delayStartMs, DateUtils.WEEK_IN_MILLIS, !OVERWRITE);
     }
 
-    /**
-     * Method for rescheduling a background task for offline pages in the event of OS upgrade or
-     * GooglePlayServices upgrade.
-     * We use the least restrictive trigger conditions.  A wakeup will cause the queue to be
-     * checked, and the trigger conditions will be replaced by the current trigger conditions
-     * needed.
-     */
-    public void reschedule() {
-        TriggerConditions triggerConditions = new TriggerConditions(false, 0, false);
-        scheduleBackup(triggerConditions, DateUtils.MINUTE_IN_MILLIS * 5);
-    }
-
     protected void scheduleImpl(TriggerConditions triggerConditions, long delayStartMs,
             long executionDeadlineMs, boolean overwrite) {
-        Bundle taskExtras = new Bundle();
+        PersistableBundle taskExtras = new PersistableBundle();
         TaskExtrasPacker.packTimeInBundle(taskExtras);
         TaskExtrasPacker.packTriggerConditionsInBundle(taskExtras, triggerConditions);
 

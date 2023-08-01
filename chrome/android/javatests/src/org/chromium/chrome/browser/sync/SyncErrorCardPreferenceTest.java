@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,8 +21,8 @@ import org.chromium.base.test.params.ParameterAnnotations;
 import org.chromium.base.test.params.ParameterizedRunner;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.night_mode.ChromeNightModeTestUtils;
 import org.chromium.chrome.browser.settings.SettingsActivityTestRule;
@@ -30,8 +30,9 @@ import org.chromium.chrome.browser.sync.settings.ManageSyncSettings;
 import org.chromium.chrome.browser.sync.settings.SyncSettingsUtils;
 import org.chromium.chrome.test.ChromeJUnit4RunnerDelegate;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.util.ChromeRenderTestRule;
-import org.chromium.chrome.test.util.browser.signin.AccountManagerTestRule;
+import org.chromium.chrome.test.util.browser.signin.SigninTestRule;
 import org.chromium.components.signin.base.GoogleServiceAuthError;
 import org.chromium.components.signin.identitymanager.AccountInfoServiceProvider;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
@@ -45,11 +46,12 @@ import java.util.concurrent.TimeoutException;
 @RunWith(ParameterizedRunner.class)
 @ParameterAnnotations.UseRunnerDelegate(ChromeJUnit4RunnerDelegate.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
+@DisabledTest(message = "crbug.com/1370824")
 public class SyncErrorCardPreferenceTest {
     // FakeAccountInfoService is required to create the ProfileDataCache entry with sync_error badge
     // for Sync error card.
     @Rule
-    public final AccountManagerTestRule mAccountManagerTestRule = new AccountManagerTestRule();
+    public final SigninTestRule mSigninTestRule = new SigninTestRule();
 
     @Rule
     public final ChromeTabbedActivityTestRule mActivityTestRule =
@@ -61,7 +63,10 @@ public class SyncErrorCardPreferenceTest {
 
     @Rule
     public final ChromeRenderTestRule mRenderTestRule =
-            ChromeRenderTestRule.Builder.withPublicCorpus().setRevision(6).build();
+            ChromeRenderTestRule.Builder.withPublicCorpus()
+                    .setRevision(8)
+                    .setBugComponent(ChromeRenderTestRule.Component.SERVICES_SYNC)
+                    .build();
 
     private FakeSyncServiceImpl mFakeSyncServiceImpl;
 
@@ -102,9 +107,10 @@ public class SyncErrorCardPreferenceTest {
     @LargeTest
     @Feature("RenderTest")
     @ParameterAnnotations.UseMethodParameter(NightModeTestUtils.NightModeParams.class)
-    public void testSyncErrorCardForAuthError(boolean nightModeEnabled) throws Exception {
+    public void testSyncErrorCardForAuthErrorWithUpmEnabled(boolean nightModeEnabled)
+            throws Exception {
         mFakeSyncServiceImpl.setAuthError(GoogleServiceAuthError.State.INVALID_GAIA_CREDENTIALS);
-        mAccountManagerTestRule.addTestAccountThenSigninAndEnableSync(mFakeSyncServiceImpl);
+        mSigninTestRule.addTestAccountThenSigninAndEnableSync(mFakeSyncServiceImpl);
         TestThreadUtils.runOnUiThreadBlocking(
                 ()
                         -> Assert.assertEquals("AUTH_ERROR SyncError should be set",
@@ -112,7 +118,8 @@ public class SyncErrorCardPreferenceTest {
                                 SyncSettingsUtils.getSyncError()));
 
         mSettingsActivityTestRule.startSettingsActivity();
-        mRenderTestRule.render(getPersonalizedSyncPromoView(), "sync_error_card_auth_error");
+        mRenderTestRule.render(getPersonalizedSyncPromoView(),
+                "sync_error_card_auth_error_with_new_title_and_upm");
     }
 
     @Test
@@ -121,7 +128,7 @@ public class SyncErrorCardPreferenceTest {
     @ParameterAnnotations.UseMethodParameter(NightModeTestUtils.NightModeParams.class)
     public void testSyncErrorCardForClientOutOfDate(boolean nightModeEnabled) throws Exception {
         mFakeSyncServiceImpl.setRequiresClientUpgrade(true);
-        mAccountManagerTestRule.addTestAccountThenSigninAndEnableSync(mFakeSyncServiceImpl);
+        mSigninTestRule.addTestAccountThenSigninAndEnableSync(mFakeSyncServiceImpl);
         TestThreadUtils.runOnUiThreadBlocking(
                 ()
                         -> Assert.assertEquals("CLIENT_OUT_OF_DATE SyncError should be set",
@@ -129,8 +136,8 @@ public class SyncErrorCardPreferenceTest {
                                 SyncSettingsUtils.getSyncError()));
 
         mSettingsActivityTestRule.startSettingsActivity();
-        mRenderTestRule.render(
-                getPersonalizedSyncPromoView(), "sync_error_card_client_out_of_date");
+        mRenderTestRule.render(getPersonalizedSyncPromoView(),
+                "sync_error_card_client_out_of_date_with_new_title");
     }
 
     @Test
@@ -139,7 +146,7 @@ public class SyncErrorCardPreferenceTest {
     @ParameterAnnotations.UseMethodParameter(NightModeTestUtils.NightModeParams.class)
     public void testSyncErrorCardForOtherErrors(boolean nightModeEnabled) throws Exception {
         mFakeSyncServiceImpl.setAuthError(GoogleServiceAuthError.State.CONNECTION_FAILED);
-        mAccountManagerTestRule.addTestAccountThenSigninAndEnableSync(mFakeSyncServiceImpl);
+        mSigninTestRule.addTestAccountThenSigninAndEnableSync(mFakeSyncServiceImpl);
         TestThreadUtils.runOnUiThreadBlocking(
                 ()
                         -> Assert.assertEquals("OTHER_ERRORS SyncError should be set",
@@ -147,7 +154,8 @@ public class SyncErrorCardPreferenceTest {
                                 SyncSettingsUtils.getSyncError()));
 
         mSettingsActivityTestRule.startSettingsActivity();
-        mRenderTestRule.render(getPersonalizedSyncPromoView(), "sync_error_card_other_errors");
+        mRenderTestRule.render(
+                getPersonalizedSyncPromoView(), "sync_error_card_other_errors_with_new_title");
     }
 
     @Test
@@ -157,7 +165,7 @@ public class SyncErrorCardPreferenceTest {
     public void testSyncErrorCardForPassphraseRequired(boolean nightModeEnabled) throws Exception {
         mFakeSyncServiceImpl.setEngineInitialized(true);
         mFakeSyncServiceImpl.setPassphraseRequiredForPreferredDataTypes(true);
-        mAccountManagerTestRule.addTestAccountThenSigninAndEnableSync(mFakeSyncServiceImpl);
+        mSigninTestRule.addTestAccountThenSigninAndEnableSync(mFakeSyncServiceImpl);
         TestThreadUtils.runOnUiThreadBlocking(
                 ()
                         -> Assert.assertEquals("PASSPHRASE_REQUIRED SyncError should be set",
@@ -165,8 +173,8 @@ public class SyncErrorCardPreferenceTest {
                                 SyncSettingsUtils.getSyncError()));
 
         mSettingsActivityTestRule.startSettingsActivity();
-        mRenderTestRule.render(
-                getPersonalizedSyncPromoView(), "sync_error_card_passphrase_required");
+        mRenderTestRule.render(getPersonalizedSyncPromoView(),
+                "sync_error_card_passphrase_required_with_new_title");
     }
 
     @Test
@@ -177,7 +185,7 @@ public class SyncErrorCardPreferenceTest {
         mFakeSyncServiceImpl.setEngineInitialized(true);
         mFakeSyncServiceImpl.setTrustedVaultKeyRequiredForPreferredDataTypes(true);
         mFakeSyncServiceImpl.setEncryptEverythingEnabled(true);
-        mAccountManagerTestRule.addTestAccountThenSigninAndEnableSync(mFakeSyncServiceImpl);
+        mSigninTestRule.addTestAccountThenSigninAndEnableSync(mFakeSyncServiceImpl);
         TestThreadUtils.runOnUiThreadBlocking(
                 ()
                         -> Assert.assertEquals(
@@ -187,8 +195,8 @@ public class SyncErrorCardPreferenceTest {
                                 SyncSettingsUtils.getSyncError()));
 
         mSettingsActivityTestRule.startSettingsActivity();
-        mRenderTestRule.render(
-                getPersonalizedSyncPromoView(), "sync_error_card_trusted_vault_key_required");
+        mRenderTestRule.render(getPersonalizedSyncPromoView(),
+                "sync_error_card_trusted_vault_key_required_with_new_title");
     }
 
     @Test
@@ -200,7 +208,7 @@ public class SyncErrorCardPreferenceTest {
         mFakeSyncServiceImpl.setEngineInitialized(true);
         mFakeSyncServiceImpl.setTrustedVaultKeyRequiredForPreferredDataTypes(true);
         mFakeSyncServiceImpl.setEncryptEverythingEnabled(false);
-        mAccountManagerTestRule.addTestAccountThenSigninAndEnableSync(mFakeSyncServiceImpl);
+        mSigninTestRule.addTestAccountThenSigninAndEnableSync(mFakeSyncServiceImpl);
         TestThreadUtils.runOnUiThreadBlocking(
                 ()
                         -> Assert.assertEquals(
@@ -211,7 +219,7 @@ public class SyncErrorCardPreferenceTest {
 
         mSettingsActivityTestRule.startSettingsActivity();
         mRenderTestRule.render(getPersonalizedSyncPromoView(),
-                "sync_error_card_trusted_vault_key_required_for_passwords");
+                "sync_error_card_trusted_vault_key_required_for_passwords_with_new_title");
     }
 
     @Test
@@ -223,7 +231,7 @@ public class SyncErrorCardPreferenceTest {
         mFakeSyncServiceImpl.setEngineInitialized(true);
         mFakeSyncServiceImpl.setTrustedVaultRecoverabilityDegraded(true);
         mFakeSyncServiceImpl.setEncryptEverythingEnabled(true);
-        mAccountManagerTestRule.addTestAccountThenSigninAndEnableSync(mFakeSyncServiceImpl);
+        mSigninTestRule.addTestAccountThenSigninAndEnableSync(mFakeSyncServiceImpl);
         TestThreadUtils.runOnUiThreadBlocking(
                 ()
                         -> Assert.assertEquals(
@@ -234,7 +242,7 @@ public class SyncErrorCardPreferenceTest {
 
         mSettingsActivityTestRule.startSettingsActivity();
         mRenderTestRule.render(getPersonalizedSyncPromoView(),
-                "sync_error_card_trusted_vault_recoverability_degraded_for_everything");
+                "sync_error_card_trusted_vault_recoverability_degraded_for_everything_with_new_title");
     }
 
     @Test
@@ -246,7 +254,7 @@ public class SyncErrorCardPreferenceTest {
         mFakeSyncServiceImpl.setEngineInitialized(true);
         mFakeSyncServiceImpl.setTrustedVaultRecoverabilityDegraded(true);
         mFakeSyncServiceImpl.setEncryptEverythingEnabled(false);
-        mAccountManagerTestRule.addTestAccountThenSigninAndEnableSync(mFakeSyncServiceImpl);
+        mSigninTestRule.addTestAccountThenSigninAndEnableSync(mFakeSyncServiceImpl);
         TestThreadUtils.runOnUiThreadBlocking(
                 ()
                         -> Assert.assertEquals(
@@ -257,7 +265,7 @@ public class SyncErrorCardPreferenceTest {
 
         mSettingsActivityTestRule.startSettingsActivity();
         mRenderTestRule.render(getPersonalizedSyncPromoView(),
-                "sync_error_card_trusted_vault_recoverability_degraded_for_passwords");
+                "sync_error_card_trusted_vault_recoverability_degraded_for_passwords_with_new_title");
     }
 
     @Test
@@ -267,7 +275,7 @@ public class SyncErrorCardPreferenceTest {
     public void testSyncErrorCardForSyncSetupIncomplete(boolean nightModeEnabled) throws Exception {
         // Passing a null SyncService instance here would sign-in the user but
         // FirstSetupComplete will be unset.
-        mAccountManagerTestRule.addTestAccountThenSigninAndEnableSync(
+        mSigninTestRule.addTestAccountThenSigninAndEnableSync(
                 /* syncService= */ null);
         TestThreadUtils.runOnUiThreadBlocking(
                 ()
@@ -276,8 +284,8 @@ public class SyncErrorCardPreferenceTest {
                                 SyncSettingsUtils.getSyncError()));
 
         mSettingsActivityTestRule.startSettingsActivity();
-        mRenderTestRule.render(
-                getPersonalizedSyncPromoView(), "sync_error_card_sync_setup_incomplete");
+        mRenderTestRule.render(getPersonalizedSyncPromoView(),
+                "sync_error_card_sync_setup_incomplete_with_new_title");
     }
 
     private View getPersonalizedSyncPromoView() {

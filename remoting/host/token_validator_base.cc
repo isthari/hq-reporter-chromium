@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,17 +7,17 @@
 #include <stddef.h>
 
 #include "base/base64.h"
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/json/json_reader.h"
 #include "base/logging.h"
 #include "base/memory/weak_ptr.h"
+#include "base/strings/escape.h"
 #include "base/strings/string_util.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "crypto/crypto_buildflags.h"
-#include "net/base/escape.h"
 #include "net/base/io_buffer.h"
 #include "net/base/request_priority.h"
 #include "net/base/upload_bytes_element_reader.h"
@@ -50,21 +50,24 @@ constexpr int kBufferSize = 4096;
 constexpr char kCertIssuerWildCard[] = "*";
 constexpr char kJsonSafetyPrefix[] = ")]}'\n";
 constexpr char kForbiddenExceptionToken[] = "ForbiddenException: ";
-constexpr char kAuthzDeniedErrorCode[] = "Error Code 23:";
+constexpr char kLocationAuthzError[] = "Error Code 23:";
 
 // Returns a value from the issuer field for certificate selection, in order of
 // preference.  If the O or OU entries are populated with multiple values, we
 // choose the first one.  This function should not be used for validation, only
 // for logging or determining which certificate to select for validation.
 std::string GetPreferredIssuerFieldValue(const net::X509Certificate* cert) {
-  if (!cert->issuer().common_name.empty())
+  if (!cert->issuer().common_name.empty()) {
     return cert->issuer().common_name;
+  }
   if (!cert->issuer().organization_names.empty() &&
-      !cert->issuer().organization_names[0].empty())
+      !cert->issuer().organization_names[0].empty()) {
     return cert->issuer().organization_names[0];
+  }
   if (!cert->issuer().organization_unit_names.empty() &&
-      !cert->issuer().organization_unit_names[0].empty())
+      !cert->issuer().organization_unit_names[0].empty()) {
     return cert->issuer().organization_unit_names[0];
+  }
 
   return std::string();
 }
@@ -94,14 +97,17 @@ bool WorseThan(const std::string& issuer,
                const base::Time& now,
                const net::X509Certificate* c1,
                const net::X509Certificate* c2) {
-  if (!IsCertificateValid(issuer, now, c2))
+  if (!IsCertificateValid(issuer, now, c2)) {
     return false;
+  }
 
-  if (!IsCertificateValid(issuer, now, c1))
+  if (!IsCertificateValid(issuer, now, c1)) {
     return true;
+  }
 
-  if (c1->valid_start() != c2->valid_start())
+  if (c1->valid_start() != c2->valid_start()) {
     return c1->valid_start() < c2->valid_start();
+  }
 
   return c1->valid_expiry() < c2->valid_expiry();
 }
@@ -150,7 +156,7 @@ const std::string& TokenValidatorBase::token_scope() const {
   return token_scope_;
 }
 
-// URLFetcherDelegate interface.
+// URLRequest::Delegate interface.
 void TokenValidatorBase::OnResponseStarted(net::URLRequest* source,
                                            int net_result) {
   DCHECK_NE(net_result, net::ERR_IO_PENDING);
@@ -163,8 +169,9 @@ void TokenValidatorBase::OnResponseStarted(net::URLRequest* source,
   }
 
   int bytes_read = request_->Read(buffer_.get(), kBufferSize);
-  if (bytes_read != net::ERR_IO_PENDING)
+  if (bytes_read != net::ERR_IO_PENDING) {
     OnReadCompleted(request_.get(), bytes_read);
+  }
 }
 
 void TokenValidatorBase::OnReadCompleted(net::URLRequest* source,
@@ -177,8 +184,9 @@ void TokenValidatorBase::OnReadCompleted(net::URLRequest* source,
     net_result = request_->Read(buffer_.get(), kBufferSize);
   }
 
-  if (net_result == net::ERR_IO_PENDING)
+  if (net_result == net::ERR_IO_PENDING) {
     return;
+  }
 
   retrying_request_ = false;
   auto validation_result = ProcessResponse(net_result);
@@ -250,17 +258,29 @@ void TokenValidatorBase::OnCertificatesSelected(
         return WorseThan(issuer, now, i1->certificate(), i2->certificate());
       });
 
-  if (best_match_position == selected_certs.end() ||
-      !IsCertificateValid(issuer, now, (*best_match_position)->certificate())) {
+  if (best_match_position == selected_certs.end()) {
+    LOG(ERROR) << "Failed to find a certificate from the list of candidates ("
+               << selected_certs.size() << ").";
     ContinueWithCertificate(nullptr, nullptr);
-  } else {
-    scoped_refptr<net::X509Certificate> cert =
-        (*best_match_position)->certificate();
-    net::ClientCertIdentity::SelfOwningAcquirePrivateKey(
-        std::move(*best_match_position),
-        base::BindOnce(&TokenValidatorBase::ContinueWithCertificate,
-                       weak_factory_.GetWeakPtr(), std::move(cert)));
+    return;
   }
+
+  scoped_refptr<net::X509Certificate> cert =
+      (*best_match_position)->certificate();
+  if (!IsCertificateValid(issuer, now, cert.get())) {
+    LOG(ERROR) << "Best client certificate match was not valid: " << std::endl
+               << "    issued by: " << GetPreferredIssuerFieldValue(cert.get())
+               << std::endl
+               << "    with start date: " << cert->valid_start() << std::endl
+               << "    and expiry date: " << cert->valid_expiry();
+    ContinueWithCertificate(nullptr, nullptr);
+    return;
+  }
+
+  net::ClientCertIdentity::SelfOwningAcquirePrivateKey(
+      std::move(*best_match_position),
+      base::BindOnce(&TokenValidatorBase::ContinueWithCertificate,
+                     weak_factory_.GetWeakPtr(), std::move(cert)));
 }
 
 void TokenValidatorBase::ContinueWithCertificate(
@@ -268,10 +288,12 @@ void TokenValidatorBase::ContinueWithCertificate(
     scoped_refptr<net::SSLPrivateKey> client_private_key) {
   if (request_) {
     if (client_cert) {
-      HOST_LOG << "Using client certificate issued by: '"
-               << GetPreferredIssuerFieldValue(client_cert.get())
-               << "' with start date: '" << client_cert->valid_start()
-               << "' and expiry date: '" << client_cert->valid_expiry() << "'";
+      auto* cert = client_cert.get();
+      HOST_LOG << "Using client certificate: " << std::endl
+               << "    issued by: " << GetPreferredIssuerFieldValue(cert)
+               << std::endl
+               << "    with start date: " << cert->valid_start() << std::endl
+               << "    and expiry date: " << cert->valid_expiry();
     }
 
     request_->ContinueWithCertificate(std::move(client_cert),
@@ -306,9 +328,11 @@ protocol::TokenValidator::ValidationResult TokenValidatorBase::ProcessResponse(
       // so seek forward to the exception info and then scan it for the code.
       size_t start_pos = data_.find(kForbiddenExceptionToken);
       if (start_pos != std::string::npos) {
-        if (data_.find(kAuthzDeniedErrorCode, start_pos) != std::string::npos) {
-          return RejectionReason::AUTHORIZATION_POLICY_CHECK_FAILED;
+        if (data_.find(kLocationAuthzError, start_pos) != std::string::npos) {
+          return RejectionReason::LOCATION_AUTHZ_POLICY_CHECK_FAILED;
         }
+
+        return RejectionReason::AUTHZ_POLICY_CHECK_FAILED;
       }
     }
 
@@ -329,7 +353,7 @@ protocol::TokenValidator::ValidationResult TokenValidatorBase::ProcessResponse(
     return RejectionReason::INVALID_CREDENTIALS;
   }
 
-  std::string* token_scope = value->FindStringKey("scope");
+  std::string* token_scope = value->GetDict().FindString("scope");
   if (!token_scope || !IsValidScope(*token_scope)) {
     LOG(ERROR) << "Invalid scope: '" << *token_scope << "', expected: '"
                << token_scope_ << "'.";
@@ -337,7 +361,7 @@ protocol::TokenValidator::ValidationResult TokenValidatorBase::ProcessResponse(
   }
 
   // Everything is valid, so return the shared secret to the caller.
-  std::string* shared_secret = value->FindStringKey("access_token");
+  std::string* shared_secret = value->GetDict().FindString("access_token");
   if (shared_secret && !shared_secret->empty()) {
     return *shared_secret;
   }

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 namespace content {
 class RenderFrameHost;
 class RenderProcessHost;
+struct GlobalRenderFrameHostId;
 }
 
 namespace printing {
@@ -46,12 +47,14 @@ class PrintViewManager : public PrintViewManagerBase,
   // selection or the entire frame is being printed.
   bool PrintPreviewNow(content::RenderFrameHost* rfh, bool has_selection);
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Initiate print preview of the current document and provide the renderer
   // a printing::mojom::PrintRenderer to perform the actual rendering of
   // the print document.
   bool PrintPreviewWithPrintRenderer(
       content::RenderFrameHost* rfh,
       mojo::PendingAssociatedRemote<mojom::PrintRenderer> print_renderer);
+#endif
 
   // Notify PrintViewManager that print preview is starting in the renderer for
   // a particular WebNode.
@@ -86,6 +89,16 @@ class PrintViewManager : public PrintViewManagerBase,
  protected:
   explicit PrintViewManager(content::WebContents* web_contents);
 
+#if BUILDFLAG(ENABLE_PRINT_CONTENT_ANALYSIS) && BUILDFLAG(IS_CHROMEOS)
+  // Helper to run scanning for print after the Chrome OS DLP checks. Runs
+  // `callback` with false if `should_proceed` is false, or calls
+  // `RejectPrintPreviewRequestIfRestrictedByContentAnalysis` otherwise.
+  virtual void OnDlpPrintingRestrictionsChecked(
+      content::GlobalRenderFrameHostId rfh_id,
+      base::OnceCallback<void(bool should_proceed)> callback,
+      bool should_proceed);
+#endif  // BUILDFLAG(ENABLE_PRINT_CONTENT_ANALYSIS) && BUILDFLAG(IS_CHROMEOS)
+
  private:
   friend class content::WebContentsUserData<PrintViewManager>;
 
@@ -102,41 +115,58 @@ class PrintViewManager : public PrintViewManagerBase,
   // false if print preview is impossible at the moment.
   bool PrintPreview(
       content::RenderFrameHost* rfh,
+#if BUILDFLAG(IS_CHROMEOS_ASH)
       mojo::PendingAssociatedRemote<mojom::PrintRenderer> print_renderer,
+#endif
       bool has_selection);
-
-  void OnScriptedPrintPreviewReply(SetupScriptedPrintPreviewCallback callback);
 
   // Helper method for ShowScriptedPrintPreview(), called from
   // RejectPrintPreviewRequestIfRestricted(). Based on value of
   // `should_proceed`, continues to show the print preview or cancels it.
   void OnScriptedPrintPreviewCallback(bool source_is_modifiable,
-                                      int render_process_id,
-                                      int render_frame_id,
+                                      content::GlobalRenderFrameHostId rfh_id,
                                       bool should_proceed);
 
   // Helper method for RequestPrintPreview(), called from
   // RejectPrintPreviewRequestIfRestricted(). Based on value of
   // `should_proceed`, continues to show the print preview or cancels it.
   void OnRequestPrintPreviewCallback(mojom::RequestPrintPreviewParamsPtr params,
-                                     int render_process_id,
-                                     int render_frame_id,
+                                     content::GlobalRenderFrameHostId rfh_id,
                                      bool should_proceed);
 
   void MaybeUnblockScriptedPreviewRPH();
+
+  // Helper used to set `print_preview_rfh_` to `rfh`. Performs sanity checks
+  // before doing so.
+  void SetPrintPreviewRenderFrameHost(content::RenderFrameHost* rfh);
 
   // Checks whether printing is currently restricted and aborts print preview if
   // needed. Since this check is performed asynchronously, invokes `callback`
   // with an indicator whether to proceed or not.
   // Virtual to allow tests to override.
   virtual void RejectPrintPreviewRequestIfRestricted(
+      content::GlobalRenderFrameHostId rfh_id,
       base::OnceCallback<void(bool should_proceed)> callback);
 
   // Helper method for RejectPrintPreviewRequestIfRestricted(). Handles any
   // tasks that need to be done when the request is rejected due to
   // restrictions.
-  void OnPrintPreviewRequestRejected(int render_process_id,
-                                     int render_frame_id);
+  void OnPrintPreviewRequestRejected(content::GlobalRenderFrameHostId rfh_id);
+
+#if BUILDFLAG(ENABLE_PRINT_CONTENT_ANALYSIS)
+  // Checks whether printing is currently restricted by scanning the
+  // page/document content for sensitive data and aborts print preview if
+  // needed. Since this check is performed asynchronously, invokes `callback`
+  // with an indicator whether to proceed or not.
+  // Virtual to allow tests to override.
+  void RejectPrintPreviewRequestIfRestrictedByContentAnalysis(
+      content::GlobalRenderFrameHostId rfh_id,
+      base::OnceCallback<void(bool should_proceed)> callback);
+#endif  // BUILDFLAG(ENABLE_PRINT_CONTENT_ANALYSIS)
+
+  // Virtual method that tests can override, in order to avoid actually
+  // displaying a system print dialog.
+  virtual void PrintForSystemDialogImpl();
 
   // Virtual method to be overridden in tests, in order to be notified whether
   // the print preview is shown or not due to policies or user actions.

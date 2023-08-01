@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,18 +13,19 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
+#include "ui/accessibility/ax_node_id_forward.h"
 #include "ui/accessibility/ax_position.h"
 #include "ui/accessibility/ax_tree.h"
 #include "ui/accessibility/ax_tree_data.h"
 #include "ui/accessibility/ax_tree_id.h"
-#include "ui/accessibility/test_ax_tree_manager.h"
+#include "ui/accessibility/single_ax_tree_manager.h"
 
 namespace ui {
 
 namespace {
 
 class AXComputedNodeDataTest : public ::testing::Test,
-                               public TestAXTreeManager {
+                               public SingleAXTreeManager {
  public:
   AXComputedNodeDataTest();
   ~AXComputedNodeDataTest() override;
@@ -145,7 +146,7 @@ void AXComputedNodeDataTest::SetUp() {
   root_node_ = tree->root();
   ASSERT_EQ(root_.id, root_node_->id());
 
-  // `SetTree` is defined in our `TestAXTreeManager` superclass and it passes
+  // `SetTree` is defined in our `SingleAXTreeManager` superclass and it passes
   // ownership of the created AXTree to the manager.
   SetTree(std::move(tree));
 }
@@ -159,6 +160,8 @@ using ::testing::StrEq;
 
 TEST_F(AXComputedNodeDataTest, UnignoredValues) {
   const AXNode* paragraph_0_node = root_node_->GetChildAtIndex(0);
+  const AXNode* static_text_0_0_ignored_node =
+      paragraph_0_node->GetChildAtIndex(0);
   const AXNode* paragraph_1_ignored_node = root_node_->GetChildAtIndex(1);
   const AXNode* static_text_1_0_node =
       paragraph_1_ignored_node->GetChildAtIndex(0);
@@ -183,6 +186,65 @@ TEST_F(AXComputedNodeDataTest, UnignoredValues) {
                      .GetOrComputeUnignoredIndexInParent());
     EXPECT_EQ(3, static_text_2_0_1_node->GetComputedNodeData()
                      .GetOrComputeUnignoredIndexInParent());
+
+    EXPECT_EQ(
+        kInvalidAXNodeID,
+        root_node_->GetComputedNodeData().GetOrComputeUnignoredParentID());
+    EXPECT_EQ(nullptr,
+              root_node_->GetComputedNodeData().GetOrComputeUnignoredParent());
+    EXPECT_FALSE(root_node_->GetComputedNodeData()
+                     .GetOrComputeIsDescendantOfPlatformLeaf());
+    EXPECT_EQ(root_node_->id(), paragraph_0_node->GetComputedNodeData()
+                                    .GetOrComputeUnignoredParentID());
+    EXPECT_EQ(
+        root_node_,
+        paragraph_0_node->GetComputedNodeData().GetOrComputeUnignoredParent());
+    EXPECT_FALSE(paragraph_0_node->GetComputedNodeData()
+                     .GetOrComputeIsDescendantOfPlatformLeaf());
+    EXPECT_EQ(paragraph_0_node->id(),
+              static_text_0_0_ignored_node->GetComputedNodeData()
+                  .GetOrComputeUnignoredParentID());
+    EXPECT_EQ(paragraph_0_node,
+              static_text_0_0_ignored_node->GetComputedNodeData()
+                  .GetOrComputeUnignoredParent());
+    EXPECT_TRUE(static_text_0_0_ignored_node->GetComputedNodeData()
+                    .GetOrComputeIsDescendantOfPlatformLeaf());
+    EXPECT_EQ(root_node_->id(), paragraph_1_ignored_node->GetComputedNodeData()
+                                    .GetOrComputeUnignoredParentID());
+    EXPECT_EQ(root_node_, paragraph_1_ignored_node->GetComputedNodeData()
+                              .GetOrComputeUnignoredParent());
+    EXPECT_FALSE(paragraph_1_ignored_node->GetComputedNodeData()
+                     .GetOrComputeIsDescendantOfPlatformLeaf());
+    EXPECT_EQ(root_node_->id(), static_text_1_0_node->GetComputedNodeData()
+                                    .GetOrComputeUnignoredParentID());
+    EXPECT_EQ(root_node_, static_text_1_0_node->GetComputedNodeData()
+                              .GetOrComputeUnignoredParent());
+    EXPECT_FALSE(static_text_1_0_node->GetComputedNodeData()
+                     .GetOrComputeIsDescendantOfPlatformLeaf());
+    EXPECT_EQ(root_node_->id(), paragraph_2_ignored_node->GetComputedNodeData()
+                                    .GetOrComputeUnignoredParentID());
+    EXPECT_EQ(root_node_, paragraph_2_ignored_node->GetComputedNodeData()
+                              .GetOrComputeUnignoredParent());
+    EXPECT_FALSE(paragraph_2_ignored_node->GetComputedNodeData()
+                     .GetOrComputeIsDescendantOfPlatformLeaf());
+    EXPECT_EQ(root_node_->id(), link_2_0_ignored_node->GetComputedNodeData()
+                                    .GetOrComputeUnignoredParentID());
+    EXPECT_EQ(root_node_, link_2_0_ignored_node->GetComputedNodeData()
+                              .GetOrComputeUnignoredParent());
+    EXPECT_FALSE(link_2_0_ignored_node->GetComputedNodeData()
+                     .GetOrComputeIsDescendantOfPlatformLeaf());
+    EXPECT_EQ(root_node_->id(), static_text_2_0_0_node->GetComputedNodeData()
+                                    .GetOrComputeUnignoredParentID());
+    EXPECT_EQ(root_node_, static_text_2_0_0_node->GetComputedNodeData()
+                              .GetOrComputeUnignoredParent());
+    EXPECT_FALSE(static_text_2_0_0_node->GetComputedNodeData()
+                     .GetOrComputeIsDescendantOfPlatformLeaf());
+    EXPECT_EQ(root_node_->id(), static_text_2_0_1_node->GetComputedNodeData()
+                                    .GetOrComputeUnignoredParentID());
+    EXPECT_EQ(root_node_, static_text_2_0_1_node->GetComputedNodeData()
+                              .GetOrComputeUnignoredParent());
+    EXPECT_FALSE(static_text_2_0_1_node->GetComputedNodeData()
+                     .GetOrComputeIsDescendantOfPlatformLeaf());
 
     EXPECT_EQ(
         4, root_node_->GetComputedNodeData().GetOrComputeUnignoredChildCount());
@@ -264,10 +326,10 @@ TEST_F(AXComputedNodeDataTest, HasOrCanComputeAttribute) {
       ax::mojom::IntListAttribute::kLabelledbyIds));
 }
 
-TEST_F(AXComputedNodeDataTest, DISABLED_GetOrComputeAttribute) {
+TEST_F(AXComputedNodeDataTest, GetOrComputeAttribute) {
   // Embedded object behavior is dependant on platform. We manually set it to a
   // specific value so that test results are consistent across platforms.
-  testing::ScopedAXEmbeddedObjectBehaviorSetter embedded_object_behaviour(
+  ScopedAXEmbeddedObjectBehaviorSetter embedded_object_behaviour(
       AXEmbeddedObjectBehavior::kSuppressCharacter);
 
   // Line breaks should be inserted between each paragraph to mirror how HTML's
@@ -446,10 +508,10 @@ TEST_F(AXComputedNodeDataTest, DISABLED_GetOrComputeAttribute) {
               SizeIs(0));
 }
 
-TEST_F(AXComputedNodeDataTest, DISABLED_GetOrComputeTextContent) {
+TEST_F(AXComputedNodeDataTest, GetOrComputeTextContent) {
   // Embedded object behavior is dependant on platform. We manually set it to a
   // specific value so that test results are consistent across platforms.
-  testing::ScopedAXEmbeddedObjectBehaviorSetter embedded_object_behaviour(
+  ScopedAXEmbeddedObjectBehaviorSetter embedded_object_behaviour(
       AXEmbeddedObjectBehavior::kSuppressCharacter);
 
   EXPECT_THAT(root_node_->GetComputedNodeData()

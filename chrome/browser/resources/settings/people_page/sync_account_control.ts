@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 /**
@@ -7,27 +7,28 @@
  * settings.
  */
 import '//resources/cr_elements/cr_action_menu/cr_action_menu.js';
-import '//resources/cr_elements/cr_button/cr_button.m.js';
-import '//resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
-import '//resources/cr_elements/icons.m.js';
-import '//resources/cr_elements/shared_style_css.m.js';
-import '//resources/cr_elements/shared_vars_css.m.js';
+import '//resources/cr_elements/cr_button/cr_button.js';
+import '//resources/cr_elements/cr_icon_button/cr_icon_button.js';
+import '//resources/cr_elements/icons.html.js';
+import '//resources/cr_elements/cr_shared_style.css.js';
+import '//resources/cr_elements/cr_shared_vars.css.js';
 import '//resources/polymer/v3_0/iron-icon/iron-icon.js';
-import './profile_info_browser_proxy.js';
-import '../icons.js';
-import '../prefs/prefs.js';
-import '../settings_shared_css.js';
+import '/shared/settings/people_page/profile_info_browser_proxy.js';
+import '../icons.html.js';
+import 'chrome://resources/cr_components/settings_prefs/prefs.js';
+import '../settings_shared.css.js';
 
-import {CrButtonElement} from '//resources/cr_elements/cr_button/cr_button.m.js';
-import {assert} from '//resources/js/assert.m.js';
-import {WebUIListenerMixin} from '//resources/js/web_ui_listener_mixin.js';
-import {DomRepeatEvent, html, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {CrButtonElement} from '//resources/cr_elements/cr_button/cr_button.js';
+import {WebUiListenerMixin} from '//resources/cr_elements/web_ui_listener_mixin.js';
+import {assert} from '//resources/js/assert_ts.js';
+import {DomRepeatEvent, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {StatusAction, StoredAccount, SyncBrowserProxy, SyncBrowserProxyImpl, SyncStatus} from '/shared/settings/people_page/sync_browser_proxy.js';
+import {PrefsMixin} from 'chrome://resources/cr_components/settings_prefs/prefs_mixin.js';
 
 import {loadTimeData} from '../i18n_setup.js';
-import {PrefsMixin} from '../prefs/prefs_mixin.js';
-import {Route, Router} from '../router.js';
+import {Router} from '../router.js';
 
-import {StatusAction, StoredAccount, SyncBrowserProxy, SyncBrowserProxyImpl, SyncStatus} from './sync_browser_proxy.js';
+import {getTemplate} from './sync_account_control.html.js';
 
 export const MAX_SIGNIN_PROMO_IMPRESSION: number = 10;
 
@@ -38,7 +39,7 @@ export interface SettingsSyncAccountControlElement {
 }
 
 const SettingsSyncAccountControlElementBase =
-    WebUIListenerMixin(PrefsMixin(PolymerElement));
+    WebUiListenerMixin(PrefsMixin(PolymerElement));
 
 export class SettingsSyncAccountControlElement extends
     SettingsSyncAccountControlElementBase {
@@ -47,7 +48,7 @@ export class SettingsSyncAccountControlElement extends
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
@@ -145,8 +146,8 @@ export class SettingsSyncAccountControlElement extends
   promoLabelWithNoAccount: string;
   promoSecondaryLabelWithAccount: string;
   promoSecondaryLabelWithNoAccount: string;
-  signedIn_: boolean;
-  storedAccounts_: Array<StoredAccount>;
+  private signedIn_: boolean;
+  private storedAccounts_: StoredAccount[];
   private shownAccount_: StoredAccount|null;
   showingPromo: boolean;
   embeddedInSubpage: boolean;
@@ -157,33 +158,22 @@ export class SettingsSyncAccountControlElement extends
   private syncBrowserProxy_: SyncBrowserProxy =
       SyncBrowserProxyImpl.getInstance();
 
-  connectedCallback() {
+  override connectedCallback() {
     super.connectedCallback();
 
     this.syncBrowserProxy_.getStoredAccounts().then(
         this.handleStoredAccounts_.bind(this));
-    this.addWebUIListener(
+    this.addWebUiListener(
         'stored-accounts-updated', this.handleStoredAccounts_.bind(this));
   }
 
   /**
-   * Records the following user actions:
-   * - Signin_Impression_FromSettings and
-   * - Signin_ImpressionWithAccount_FromSettings
-   * - Signin_ImpressionWithNoAccount_FromSettings
+   * Records Signin_Impression_FromSettings user action.
    */
-  recordImpressionUserActions_() {
+  private recordImpressionUserActions_() {
     assert(!this.syncStatus.signedIn);
-    assert(this.shownAccount_ !== undefined);
 
     chrome.metricsPrivate.recordUserAction('Signin_Impression_FromSettings');
-    if (this.shownAccount_) {
-      chrome.metricsPrivate.recordUserAction(
-          'Signin_ImpressionWithAccount_FromSettings');
-    } else {
-      chrome.metricsPrivate.recordUserAction(
-          'Signin_ImpressionWithNoAccount_FromSettings');
-    }
   }
 
   private computeSignedIn_(): boolean {
@@ -310,19 +300,13 @@ export class SettingsSyncAccountControlElement extends
   }
 
   private shouldShowTurnOffButton_(): boolean {
-    // <if expr="chromeos">
+    // <if expr="chromeos_ash">
     if (this.syncStatus.domain) {
       // Chrome OS cannot delete the user's profile like other platforms, so
       // hide the turn off sync button for enterprise users who are not
       // allowed to sign out.
       return false;
     }
-    // </if>
-
-    // <if expr="lacros">
-    // On Lacros the primary account doesn't support turning off sync yet.
-    // TODO(https://crbug.com/1217645): Remove after adding sync off state.
-    return false;
     // </if>
 
     return !this.hideButtons && !this.showSetupButtons_ &&
@@ -340,7 +324,20 @@ export class SettingsSyncAccountControlElement extends
         this.syncStatus.statusAction !== StatusAction.NO_ACTION;
   }
 
-  private handleStoredAccounts_(accounts: Array<StoredAccount>) {
+  private shouldAllowAccountSwitch_(): boolean {
+    // <if expr="chromeos_lacros">
+    if (!loadTimeData.getBoolean('isSecondaryUser')) {
+      // Sync account can't be changed in the main profile, it is always the
+      // device account.
+      return false;
+    }
+    // </if>
+    return !this.syncStatus.signedIn &&
+        (!loadTimeData.getBoolean('turnOffSyncAllowedForManagedProfiles') ||
+         !this.syncStatus.domain);
+  }
+
+  private handleStoredAccounts_(accounts: StoredAccount[]) {
     this.storedAccounts_ = accounts;
   }
 
@@ -352,12 +349,11 @@ export class SettingsSyncAccountControlElement extends
     return this.syncStatus.signedIn || this.storedAccounts_.length > 0;
   }
 
-  private onErrorButtonTap_() {
+  private onErrorButtonClick_() {
     const router = Router.getInstance();
-    const routes =
-        router.getRoutes() as {SIGN_OUT: Route, SYNC: Route, ABOUT: Route};
+    const routes = router.getRoutes();
     switch (this.syncStatus.statusAction) {
-      // <if expr="not chromeos">
+      // <if expr="not chromeos_ash">
       case StatusAction.REAUTHENTICATE:
         this.syncBrowserProxy_.startSignIn();
         break;
@@ -375,11 +371,11 @@ export class SettingsSyncAccountControlElement extends
     }
   }
 
-  private onSigninTap_() {
-    // <if expr="not chromeos">
+  private onSigninClick_() {
+    // <if expr="not chromeos_ash">
     this.syncBrowserProxy_.startSignIn();
     // </if>
-    // <if expr="chromeos">
+    // <if expr="chromeos_ash">
     // Chrome OS is always signed-in, so just turn on sync.
     this.syncBrowserProxy_.turnOnSync();
     // </if>
@@ -390,14 +386,14 @@ export class SettingsSyncAccountControlElement extends
     }
   }
 
-  // <if expr="not chromeos">
-  private onSignoutTap_() {
+  // <if expr="not chromeos_ash">
+  private onSignoutClick_() {
     this.syncBrowserProxy_.signOut(false /* deleteProfile */);
     this.shadowRoot!.querySelector('cr-action-menu')!.close();
   }
   // </if>
 
-  private onSyncButtonTap_() {
+  private onSyncButtonClick_() {
     assert(this.shownAccount_);
     assert(this.storedAccounts_.length > 0);
     const isDefaultPromoAccount =
@@ -407,16 +403,19 @@ export class SettingsSyncAccountControlElement extends
         this.shownAccount_!.email, isDefaultPromoAccount);
   }
 
-  private onTurnOffButtonTap_() {
+  private onTurnOffButtonClick_() {
     /* This will route to people_page's disconnect dialog. */
     const router = Router.getInstance();
-    router.navigateTo((router.getRoutes() as {SIGN_OUT: Route}).SIGN_OUT);
+    router.navigateTo(router.getRoutes().SIGN_OUT);
   }
 
-  private onMenuButtonTap_() {
-    const actionMenu = this.shadowRoot!.querySelector('cr-action-menu')!;
-    actionMenu.showAt(
-        assert(this.shadowRoot!.querySelector('#dropdown-arrow')!));
+  private onMenuButtonClick_() {
+    const actionMenu = this.shadowRoot!.querySelector('cr-action-menu');
+    assert(actionMenu);
+    const anchor =
+        this.shadowRoot!.querySelector<HTMLElement>('#dropdown-arrow');
+    assert(anchor);
+    actionMenu.showAt(anchor);
   }
 
   private onShouldShowAvatarRowChange_() {
@@ -428,7 +427,7 @@ export class SettingsSyncAccountControlElement extends
     }
   }
 
-  private onAccountTap_(e: DomRepeatEvent<StoredAccount>) {
+  private onAccountClick_(e: DomRepeatEvent<StoredAccount>) {
     this.shownAccount_ = e.model.item;
     this.shadowRoot!.querySelector('cr-action-menu')!.close();
   }

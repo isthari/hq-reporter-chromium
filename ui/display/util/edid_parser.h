@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -56,9 +56,11 @@ class DISPLAY_UTIL_EXPORT EdidParser {
   double gamma() const { return gamma_; }
   int32_t bits_per_channel() const { return bits_per_channel_; }
   const SkColorSpacePrimaries& primaries() const { return primaries_; }
-  const base::flat_set<gfx::ColorSpace::PrimaryID>&
-  supported_color_primary_ids() const {
-    return supported_color_primary_ids_;
+  using PrimaryMatrixPair =
+      std::pair<gfx::ColorSpace::PrimaryID, gfx::ColorSpace::MatrixID>;
+  const base::flat_set<PrimaryMatrixPair>& supported_color_primary_matrix_ids()
+      const {
+    return supported_color_primary_matrix_ids_;
   }
   const base::flat_set<gfx::ColorSpace::TransferID>&
   supported_color_transfer_ids() const {
@@ -66,6 +68,9 @@ class DISPLAY_UTIL_EXPORT EdidParser {
   }
   const absl::optional<gfx::HDRStaticMetadata>& hdr_static_metadata() const {
     return hdr_static_metadata_;
+  }
+  const absl::optional<uint16_t>& vsync_rate_min() const {
+    return vsync_rate_min_;
   }
   // Returns a 32-bit identifier for this display |manufacturer_id_| and
   // |product_id_|.
@@ -87,6 +92,14 @@ class DISPLAY_UTIL_EXPORT EdidParser {
   // Here, uniqueness is solely based on a display's EDID and is not guaranteed
   // due to known EDIDs' completeness and correctness issues.
   int64_t GetEdidBasedDisplayId() const;
+
+  // Bitmask of audio formats supported by the display.
+  enum : uint32_t {
+    kAudioBitstreamPcmLinear = 1u << 0,  // PCM is 'raw' amplitude samples.
+    kAudioBitstreamDts = 1u << 1,        // Compressed DTS bitstream.
+    kAudioBitstreamDtsHd = 1u << 2,      // Compressed DTS-HD bitstream.
+  };
+  uint32_t audio_formats() const { return audio_formats_; }
 
   // Splits the |product_code| (as returned by GetDisplayId()) into its
   // constituents |manufacturer_id| and |product_id|.
@@ -125,9 +138,12 @@ class DISPLAY_UTIL_EXPORT EdidParser {
   int bits_per_channel_;
   SkColorSpacePrimaries primaries_;
 
-  base::flat_set<gfx::ColorSpace::PrimaryID> supported_color_primary_ids_;
+  base::flat_set<PrimaryMatrixPair> supported_color_primary_matrix_ids_;
   base::flat_set<gfx::ColorSpace::TransferID> supported_color_transfer_ids_;
   absl::optional<gfx::HDRStaticMetadata> hdr_static_metadata_;
+  absl::optional<uint16_t> vsync_rate_min_;
+
+  uint32_t audio_formats_;
 };
 
 }  // namespace display

@@ -1,10 +1,10 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "content/public/common/content_client.h"
 
-#include "base/files/file_path.h"
+#include "base/memory/ref_counted_memory.h"
 #include "base/no_destructor.h"
 #include "base/notreached.h"
 #include "base/strings/string_piece.h"
@@ -20,9 +20,15 @@ namespace content {
 
 static ContentClient* g_client;
 
+static bool g_can_change_browser_client = true;
+
 class InternalTestInitializer {
  public:
   static ContentBrowserClient* SetBrowser(ContentBrowserClient* b) {
+    CHECK(g_can_change_browser_client)
+        << "The wrong ContentBrowserClient subclass is being used. In "
+           "content_browsertests, subclass "
+           "ContentBrowserTestContentBrowserClient.";
     ContentBrowserClient* rv = g_client->browser_;
     g_client->browser_ = b;
     return rv;
@@ -41,11 +47,29 @@ class InternalTestInitializer {
   }
 };
 
+// static
+void ContentClient::SetCanChangeContentBrowserClientForTesting(bool value) {
+  g_can_change_browser_client = value;
+}
+
+// static
+void ContentClient::SetBrowserClientAlwaysAllowForTesting(
+    ContentBrowserClient* b) {
+  bool old = g_can_change_browser_client;
+  g_can_change_browser_client = true;
+  SetBrowserClientForTesting(b);  // IN-TEST
+  g_can_change_browser_client = old;
+}
+
 void SetContentClient(ContentClient* client) {
   g_client = client;
 }
 
 ContentClient* GetContentClient() {
+  return g_client;
+}
+
+ContentClient* GetContentClientForTesting() {
   return g_client;
 }
 
@@ -90,19 +114,19 @@ base::RefCountedMemory* ContentClient::GetDataResourceBytes(int resource_id) {
   return nullptr;
 }
 
+std::string ContentClient::GetDataResourceString(int resource_id) {
+  // Default implementation in terms of GetDataResourceBytes.
+  scoped_refptr<base::RefCountedMemory> memory =
+      GetDataResourceBytes(resource_id);
+  if (!memory)
+    return std::string();
+  return std::string(memory->front_as<char>(), memory->size());
+}
+
 gfx::Image& ContentClient::GetNativeImageNamed(int resource_id) {
   static base::NoDestructor<gfx::Image> kEmptyImage;
   return *kEmptyImage;
 }
-
-#if BUILDFLAG(IS_MAC)
-base::FilePath ContentClient::GetChildProcessPath(
-    int child_flags,
-    const base::FilePath& helpers_path) {
-  NOTIMPLEMENTED();
-  return base::FilePath();
-}
-#endif
 
 std::string ContentClient::GetProcessTypeNameInEnglish(int type) {
   NOTIMPLEMENTED();
@@ -126,10 +150,5 @@ media::MediaDrmBridgeClient* ContentClient::GetMediaDrmBridgeClient() {
 void ContentClient::ExposeInterfacesToBrowser(
     scoped_refptr<base::SequencedTaskRunner> io_task_runner,
     mojo::BinderMap* binders) {}
-
-std::u16string ContentClient::GetLocalizedProtocolName(
-    const std::string& protocol) {
-  return base::UTF8ToUTF16(protocol);
-}
 
 }  // namespace content

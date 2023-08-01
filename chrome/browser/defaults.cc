@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,12 +25,16 @@ const bool kShowExitMenuItem = true;
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 const bool kShowUpgradeMenuItem = false;
 const bool kShowImportOnBookmarkBar = false;
-const bool kAlwaysOpenIncognitoWindow = true;
-const bool kAlwaysCreateTabbedBrowserOnSessionRestore = false;
+const bool kAlwaysOpenIncognitoBrowserIfStartedWithIncognitoSwitch = true;
 #else
 const bool kShowUpgradeMenuItem = true;
 const bool kShowImportOnBookmarkBar = true;
-const bool kAlwaysOpenIncognitoWindow = false;
+const bool kAlwaysOpenIncognitoBrowserIfStartedWithIncognitoSwitch = false;
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS)
+const bool kAlwaysCreateTabbedBrowserOnSessionRestore = false;
+#else
 const bool kAlwaysCreateTabbedBrowserOnSessionRestore = true;
 #endif
 
@@ -41,12 +45,6 @@ const bool kShowHelpMenuItemIcon = false;
 #endif
 
 const bool kDownloadPageHasShowInFolder = true;
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-const bool kSyncAutoStarts = true;
-#else
-const bool kSyncAutoStarts = false;
-#endif
 
 #if BUILDFLAG(IS_LINUX)
 const bool kScrollEventChangesTab = true;

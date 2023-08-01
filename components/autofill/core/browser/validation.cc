@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,13 +16,12 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
-#include "components/autofill/core/browser/autofill_data_util.h"
-#include "components/autofill/core/browser/autofill_regex_constants.h"
-#include "components/autofill/core/browser/autofill_regexes.h"
 #include "components/autofill/core/browser/data_model/credit_card.h"
 #include "components/autofill/core/browser/geo/phone_number_i18n.h"
 #include "components/autofill/core/browser/geo/state_names.h"
 #include "components/autofill/core/common/autofill_clock.h"
+#include "components/autofill/core/common/autofill_regex_constants.h"
+#include "components/autofill/core/common/autofill_regexes.h"
 #include "components/strings/grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 
@@ -53,6 +52,11 @@ bool IsValidCreditCardExpirationYear(int year, const base::Time& now) {
   return year >= now_exploded.year;
 }
 
+// Credit card validation logic is duplicated in
+// components/feedback/redaction_tool/validation.cc. Any changes here must
+// be copied there.
+// TODO(b/281812289) Deduplicate the logic and let the autofill component
+// depend on the code in //components/feedback/redaction_tool/.
 bool IsValidCreditCardNumber(const std::u16string& text) {
   const std::u16string number = CreditCard::StripSeparators(text);
 
@@ -97,7 +101,6 @@ bool HasCorrectLength(const std::u16string& number) {
   return true;
 }
 
-// TODO(crbug.com/927767): Add unit tests for this function.
 bool PassesLuhnCheck(const std::u16string& number) {
   // Use the Luhn formula [3] to validate the number.
   // [3] http://en.wikipedia.org/wiki/Luhn_algorithm
@@ -121,41 +124,17 @@ bool PassesLuhnCheck(const std::u16string& number) {
 }
 
 bool IsValidCreditCardSecurityCode(const std::u16string& code,
-                                   const base::StringPiece card_network) {
-  return code.length() == GetCvcLengthForCardNetwork(card_network) &&
+                                   const base::StringPiece card_network,
+                                   CvcType cvc_type) {
+  return code.length() == GetCvcLengthForCardNetwork(card_network, cvc_type) &&
          base::ContainsOnlyChars(code, u"0123456789");
-}
-
-bool IsValidCreditCardNumberForBasicCardNetworks(
-    const std::u16string& text,
-    const std::set<std::string>& supported_basic_card_networks,
-    std::u16string* error_message) {
-  DCHECK(error_message);
-
-  // The type check is cheaper than the credit card number check.
-  const std::string basic_card_issuer_network =
-      autofill::data_util::GetPaymentRequestData(
-          CreditCard::GetCardNetwork(text))
-          .basic_card_issuer_network;
-  if (!supported_basic_card_networks.count(basic_card_issuer_network)) {
-    *error_message = l10n_util::GetStringUTF16(
-        IDS_PAYMENTS_VALIDATION_UNSUPPORTED_CREDIT_CARD_TYPE);
-    return false;
-  }
-
-  if (IsValidCreditCardNumber(text))
-    return true;
-
-  *error_message = l10n_util::GetStringUTF16(
-      IDS_PAYMENTS_CARD_NUMBER_INVALID_VALIDATION_MESSAGE);
-  return false;
 }
 
 bool IsValidEmailAddress(const std::u16string& text) {
   // E-Mail pattern as defined by the WhatWG. (4.10.7.1.5 E-Mail state)
   static constexpr char16_t kEmailPattern[] =
       u"^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\\.[a-zA-Z0-9-]+)*$";
-  return MatchesPattern(text, kEmailPattern);
+  return MatchesRegex<kEmailPattern>(text);
 }
 
 bool IsValidState(const std::u16string& text) {
@@ -170,7 +149,7 @@ bool IsPossiblePhoneNumber(const std::u16string& text,
 
 bool IsValidZip(const std::u16string& text) {
   static constexpr char16_t kZipPattern[] = u"^\\d{5}(-\\d{4})?$";
-  return MatchesPattern(text, kZipPattern);
+  return MatchesRegex<kZipPattern>(text);
 }
 
 bool IsSSN(const std::u16string& text) {
@@ -291,16 +270,17 @@ bool IsValidForType(const std::u16string& value,
 
     case CREDIT_CARD_EXP_DATE_2_DIGIT_YEAR:
     case CREDIT_CARD_EXP_DATE_4_DIGIT_YEAR: {
-      const std::u16string pattern = type == CREDIT_CARD_EXP_DATE_2_DIGIT_YEAR
-                                         ? u"^[0-9]{1,2}[-/|]?[0-9]{2}$"
-                                         : u"^[0-9]{1,2}[-/|]?[0-9]{4}$";
+      static constexpr char16_t kDateYY[] = u"^[0-9]{1,2}[-/|]?[0-9]{2}$";
+      static constexpr char16_t kDateYYYY[] = u"^[0-9]{1,2}[-/|]?[0-9]{4}$";
 
       CreditCard temp;
       temp.SetExpirationDateFromString(value);
 
       // Expiration date was in an invalid format.
       if (temp.expiration_month() == 0 || temp.expiration_year() == 0 ||
-          !MatchesPattern(value, pattern)) {
+          (type == CREDIT_CARD_EXP_DATE_2_DIGIT_YEAR
+               ? !MatchesRegex<kDateYY>(value)
+               : !MatchesRegex<kDateYYYY>(value))) {
         if (error_message) {
           *error_message = l10n_util::GetStringUTF16(
               IDS_PAYMENTS_CARD_EXPIRATION_INVALID_VALIDATION_MESSAGE);
@@ -336,28 +316,31 @@ bool IsValidForType(const std::u16string& value,
   return false;
 }
 
-size_t GetCvcLengthForCardNetwork(const base::StringPiece card_network) {
-  if (card_network == kAmericanExpressCard)
+size_t GetCvcLengthForCardNetwork(const base::StringPiece card_network,
+                                  CvcType cvc_type) {
+  if (card_network == kAmericanExpressCard &&
+      cvc_type == CvcType::kRegularCvc) {
     return AMEX_CVC_LENGTH;
+  }
 
   return GENERAL_CVC_LENGTH;
 }
 
 bool IsUPIVirtualPaymentAddress(const std::u16string& value) {
-  return MatchesPattern(value, kUPIVirtualPaymentAddressRe);
+  return MatchesRegex<kUPIVirtualPaymentAddressRe>(value);
 }
 
 bool IsInternationalBankAccountNumber(const std::u16string& value) {
   std::u16string no_spaces;
   base::RemoveChars(value, u" ", &no_spaces);
-  return MatchesPattern(no_spaces, kInternationalBankAccountNumberRe);
+  return MatchesRegex<kInternationalBankAccountNumberValueRe>(no_spaces);
 }
 
 bool IsPlausibleCreditCardCVCNumber(const std::u16string& value) {
-  return MatchesPattern(value, kCreditCardCVCPattern);
+  return MatchesRegex<kCreditCardCVCPattern>(value);
 }
 
 bool IsPlausible4DigitExpirationYear(const std::u16string& value) {
-  return MatchesPattern(value, kCreditCard4DigitExpYearPattern);
+  return MatchesRegex<kCreditCard4DigitExpYearPattern>(value);
 }
 }  // namespace autofill

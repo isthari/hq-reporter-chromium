@@ -1,18 +1,19 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/exo/chrome_data_exchange_delegate.h"
 
-#include <algorithm>
 #include <string>
 #include <vector>
 
 #include "ash/constants/app_types.h"
 #include "ash/public/cpp/app_types_util.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/pickle.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/strcat.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ash/crosapi/browser_util.h"
@@ -21,14 +22,15 @@
 #include "chrome/browser/ash/crostini/crostini_util.h"
 #include "chrome/browser/ash/file_manager/fileapi_util.h"
 #include "chrome/browser/ash/file_manager/path_util.h"
+#include "chrome/browser/ash/fusebox/fusebox_server.h"
 #include "chrome/browser/ash/guest_os/guest_os_share_path.h"
 #include "chrome/browser/ash/plugin_vm/plugin_vm_util.h"
 #include "chrome/test/base/testing_profile.h"
-#include "chromeos/dbus/cicerone/cicerone_client.h"
-#include "chromeos/dbus/concierge/concierge_client.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/seneschal/fake_seneschal_client.h"
-#include "chromeos/dbus/seneschal/seneschal_client.h"
+#include "chromeos/ash/components/dbus/chunneld/chunneld_client.h"
+#include "chromeos/ash/components/dbus/cicerone/cicerone_client.h"
+#include "chromeos/ash/components/dbus/concierge/concierge_client.h"
+#include "chromeos/ash/components/dbus/seneschal/fake_seneschal_client.h"
+#include "chromeos/ash/components/dbus/seneschal/seneschal_client.h"
 #include "components/exo/shell_surface_util.h"
 #include "content/public/common/drop_data.h"
 #include "content/public/test/browser_task_environment.h"
@@ -48,7 +50,6 @@
 #include "ui/base/data_transfer_policy/data_transfer_endpoint.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
 #include "ui/gfx/geometry/rect.h"
-#include "url/origin.h"
 #include "url/url_constants.h"
 
 namespace ash {
@@ -73,10 +74,10 @@ void CaptureUTF16(std::string* result,
 class ChromeDataExchangeDelegateTest : public testing::Test {
  public:
   void SetUp() override {
-    chromeos::DBusThreadManager::Initialize();
-    chromeos::CiceroneClient::InitializeFake();
-    chromeos::ConciergeClient::InitializeFake();
-    chromeos::SeneschalClient::InitializeFake();
+    ChunneldClient::InitializeFake();
+    CiceroneClient::InitializeFake();
+    ConciergeClient::InitializeFake();
+    SeneschalClient::InitializeFake();
 
     profile_ = std::make_unique<TestingProfile>();
     test_helper_ =
@@ -94,23 +95,35 @@ class ChromeDataExchangeDelegateTest : public testing::Test {
 
     // Register my files and crostini.
     mount_points_ = storage::ExternalMountPoints::GetSystemInstance();
+    // For example, "Downloads-test%40example.com-hash"
     myfiles_mount_name_ =
         file_manager::util::GetDownloadsMountPointName(profile_.get());
+    // For example, "$HOME/Downloads"
     myfiles_dir_ =
         file_manager::util::GetMyFilesFolderForProfile(profile_.get());
     mount_points_->RegisterFileSystem(
         myfiles_mount_name_, storage::kFileSystemTypeLocal,
         storage::FileSystemMountOption(), myfiles_dir_);
+    // For example, "crostini_test_termina_penguin"
     crostini_mount_name_ =
         file_manager::util::GetCrostiniMountPointName(profile_.get());
+    // For example, "/media/fuse/crostini_test_termina_penguin"
     crostini_dir_ =
         file_manager::util::GetCrostiniMountDirectory(profile_.get());
     mount_points_->RegisterFileSystem(
         crostini_mount_name_, storage::kFileSystemTypeLocal,
         storage::FileSystemMountOption(), crostini_dir_);
 
+    // Register two fake Android (ARC content) mount points.
+    mount_points_->RegisterFileSystem(
+        kFakeAndroidAllowMountName, storage::kFileSystemTypeArcContent,
+        storage::FileSystemMountOption(), base::FilePath(kFakeAndroidAllowDir));
+    mount_points_->RegisterFileSystem(
+        kFakeAndroidDenyMountName, storage::kFileSystemTypeArcContent,
+        storage::FileSystemMountOption(), base::FilePath(kFakeAndroidDenyDir));
+
     // DBus seneschal client.
-    fake_seneschal_client_ = chromeos::FakeSeneschalClient::Get();
+    fake_seneschal_client_ = FakeSeneschalClient::Get();
     ASSERT_TRUE(fake_seneschal_client_);
   }
 
@@ -118,10 +131,10 @@ class ChromeDataExchangeDelegateTest : public testing::Test {
     mount_points_->RevokeAllFileSystems();
     test_helper_.reset();
     profile_.reset();
-    chromeos::SeneschalClient::Shutdown();
-    chromeos::ConciergeClient::Shutdown();
-    chromeos::CiceroneClient::Shutdown();
-    chromeos::DBusThreadManager::Shutdown();
+    SeneschalClient::Shutdown();
+    ConciergeClient::Shutdown();
+    CiceroneClient::Shutdown();
+    ChunneldClient::Shutdown();
   }
 
  protected:
@@ -133,13 +146,19 @@ class ChromeDataExchangeDelegateTest : public testing::Test {
 
   aura::test::TestWindowDelegate delegate_;
 
-  storage::ExternalMountPoints* mount_points_;
+  raw_ptr<storage::ExternalMountPoints, ExperimentalAsh> mount_points_;
   std::string myfiles_mount_name_;
   base::FilePath myfiles_dir_;
   std::string crostini_mount_name_;
   base::FilePath crostini_dir_;
 
-  chromeos::FakeSeneschalClient* fake_seneschal_client_ = nullptr;
+  static constexpr char kFakeAndroidAllowMountName[] = "fake_aa_mount_name";
+  static constexpr char kFakeAndroidDenyMountName[] = "fake_ad_mount_name";
+  static constexpr char kFakeAndroidAllowDir[] = "/fake/aa_dir";
+  static constexpr char kFakeAndroidDenyDir[] = "/fake/ad_dir";
+
+  raw_ptr<FakeSeneschalClient, ExperimentalAsh> fake_seneschal_client_ =
+      nullptr;
 };
 
 TEST_F(ChromeDataExchangeDelegateTest, GetDataTransferEndpointType) {
@@ -153,17 +172,17 @@ TEST_F(ChromeDataExchangeDelegateTest, GetDataTransferEndpointType) {
   aura::Window* arc_toplevel = aura::test::CreateTestWindowWithDelegate(
       &delegate_, 0, gfx::Rect(), &container_window);
   arc_toplevel->SetProperty(aura::client::kAppType,
-                            static_cast<int>(ash::AppType::ARC_APP));
-  ASSERT_TRUE(ash::IsArcWindow(arc_toplevel));
+                            static_cast<int>(AppType::ARC_APP));
+  ASSERT_TRUE(IsArcWindow(arc_toplevel));
   aura::Window* arc_window =
       aura::test::CreateTestWindowWithBounds(gfx::Rect(), arc_toplevel);
-  ASSERT_TRUE(ash::IsArcWindow(arc_window->GetToplevelWindow()));
+  ASSERT_TRUE(IsArcWindow(arc_window->GetToplevelWindow()));
 
   // Crostini:
   aura::Window* crostini_toplevel = aura::test::CreateTestWindowWithDelegate(
       &delegate_, 0, gfx::Rect(), &container_window);
   crostini_toplevel->SetProperty(aura::client::kAppType,
-                                 static_cast<int>(ash::AppType::CROSTINI_APP));
+                                 static_cast<int>(AppType::CROSTINI_APP));
   ASSERT_TRUE(crostini::IsCrostiniWindow(crostini_toplevel));
   aura::Window* crostini_window =
       aura::test::CreateTestWindowWithBounds(gfx::Rect(), crostini_toplevel);
@@ -223,7 +242,7 @@ TEST_F(ChromeDataExchangeDelegateTest, GetFilenames) {
   std::vector<ui::FileInfo> files = data_exchange_delegate.GetFilenames(
       ui::EndpointType::kArc,
       Data("\n\tfile:///file1\t\r\n#ignore\r\nfile:///file2\r\n"));
-  EXPECT_EQ(2, files.size());
+  EXPECT_EQ(2u, files.size());
   EXPECT_EQ("/file1", files[0].path.value());
   EXPECT_EQ("", files[0].display_name.value());
   EXPECT_EQ("/file2", files[1].path.value());
@@ -233,81 +252,81 @@ TEST_F(ChromeDataExchangeDelegateTest, GetFilenames) {
   files = data_exchange_delegate.GetFilenames(
       ui::EndpointType::kCrostini,
       Data("file:///mnt/chromeos/MyFiles/shared/file"));
-  EXPECT_EQ(1, files.size());
+  EXPECT_EQ(1u, files.size());
   EXPECT_EQ(shared_path.Append("file"), files[0].path);
 
   // Crostini homedir should be mapped.
   files = data_exchange_delegate.GetFilenames(
       ui::EndpointType::kCrostini, Data("file:///home/testuser/file"));
-  EXPECT_EQ(1, files.size());
+  EXPECT_EQ(1u, files.size());
   EXPECT_EQ(crostini_dir_.Append("file"), files[0].path);
 
   // Crostini internal paths should be mapped.
   files = data_exchange_delegate.GetFilenames(ui::EndpointType::kCrostini,
                                               Data("file:///etc/hosts"));
-  EXPECT_EQ(1, files.size());
+  EXPECT_EQ(1u, files.size());
   EXPECT_EQ("vmfile:termina:/etc/hosts", files[0].path.value());
 
   // Unshared paths should fail.
   files = data_exchange_delegate.GetFilenames(
       ui::EndpointType::kCrostini,
       Data("file:///mnt/chromeos/MyFiles/unshared/file"));
-  EXPECT_EQ(0, files.size());
+  EXPECT_EQ(0u, files.size());
   files = data_exchange_delegate.GetFilenames(
       ui::EndpointType::kCrostini,
       Data("file:///mnt/chromeos/MyFiles/shared/file1\r\n"
            "file:///mnt/chromeos/MyFiles/unshared/file2"));
-  EXPECT_EQ(1, files.size());
+  EXPECT_EQ(1u, files.size());
   EXPECT_EQ(shared_path.Append("file1"), files[0].path);
 
   // file:/path should fail.
   files = data_exchange_delegate.GetFilenames(
       ui::EndpointType::kCrostini, Data("file:/mnt/chromeos/MyFiles/file"));
-  EXPECT_EQ(0, files.size());
+  EXPECT_EQ(0u, files.size());
 
   // file:path should fail.
   files = data_exchange_delegate.GetFilenames(
       ui::EndpointType::kCrostini, Data("file:mnt/chromeos/MyFiles/file"));
-  EXPECT_EQ(0, files.size());
+  EXPECT_EQ(0u, files.size());
 
   // file:// should fail.
   files = data_exchange_delegate.GetFilenames(ui::EndpointType::kCrostini,
                                               Data("file://"));
-  EXPECT_EQ(0, files.size());
+  EXPECT_EQ(0u, files.size());
 
   // file:/// maps to internal root.
   files = data_exchange_delegate.GetFilenames(ui::EndpointType::kCrostini,
                                               Data("file:///"));
-  EXPECT_EQ(1, files.size());
+  EXPECT_EQ(1u, files.size());
   EXPECT_EQ("vmfile:termina:/", files[0].path.value());
 
   // /path should fail.
   files = data_exchange_delegate.GetFilenames(
       ui::EndpointType::kCrostini, Data("/mnt/chromeos/MyFiles/file"));
-  EXPECT_EQ(0, files.size());
+  EXPECT_EQ(0u, files.size());
 
   // Plugin VM shared paths should be mapped.
   files = data_exchange_delegate.GetFilenames(
       ui::EndpointType::kPluginVm, Data("file://ChromeOS/MyFiles/shared/file"));
-  EXPECT_EQ(1, files.size());
+  EXPECT_EQ(1u, files.size());
   EXPECT_EQ(shared_path.Append("file"), files[0].path);
 
   // Plugin VM internal paths should be mapped.
   files = data_exchange_delegate.GetFilenames(
       ui::EndpointType::kPluginVm, Data("file:///C:/WINDOWS/notepad.exe"));
-  EXPECT_EQ(1, files.size());
+  EXPECT_EQ(1u, files.size());
   EXPECT_EQ("vmfile:PvmDefault:C:/WINDOWS/notepad.exe", files[0].path.value());
 
   // Unshared paths should fail.
   files = data_exchange_delegate.GetFilenames(
       ui::EndpointType::kPluginVm,
       Data("file://ChromeOS/MyFiles/unshared/file"));
-  EXPECT_EQ(0, files.size());
+  EXPECT_EQ(0u, files.size());
   files = data_exchange_delegate.GetFilenames(
       ui::EndpointType::kPluginVm,
       Data("file://ChromeOS/MyFiles/shared/file1\r\n"
            "file://ChromeOS/MyFiles/unshared/file2"));
-  EXPECT_EQ(1, files.size());
+  EXPECT_EQ(1u, files.size());
   EXPECT_EQ(shared_path.Append("file1"), files[0].path);
 }
 
@@ -472,23 +491,38 @@ TEST_F(ChromeDataExchangeDelegateTest, HasUrlsInPickle) {
 
 TEST_F(ChromeDataExchangeDelegateTest, ParseFileSystemSources) {
   ChromeDataExchangeDelegate data_exchange_delegate;
+  const GURL file_manager_url = file_manager::util::GetFileManagerURL();
+  const url::Origin file_manager_origin = url::Origin::Create(file_manager_url);
+  fusebox::Server fusebox_server(nullptr);
+  // Accept the "allow" flavor (but reject the "deny" one).
+  fusebox_server.RegisterFSURLPrefix(
+      "my_subdir",
+      base::StrCat({"filesystem:", file_manager_origin.Serialize(),
+                    "/external/fake_aa_mount_name/"}),
+      true);
+
   base::FilePath shared_path = myfiles_dir_.Append("shared");
   auto* guest_os_share_path =
       guest_os::GuestOsSharePath::GetForProfile(profile());
   guest_os_share_path->RegisterSharedPath(crostini::kCrostiniDefaultVmName,
                                           shared_path);
-  const GURL file_manager_url = file_manager::util::GetFileManagerURL();
+  // Start with four file_names but the last one is rejected. Its FileSystemURL
+  // has type storage::kFileSystemTypeArcContent, so its cracked data does not
+  // refer to a real (kernel visible) file path. But also, the fusebox_server
+  // (configured above) has no registered mapping.
   std::vector<std::string> file_names = {
       "external/Downloads-test%2540example.com-hash/shared/file1",
       "external/Downloads-test%2540example.com-hash/shared/file2",
+      "external/fake_aa_mount_name/a/b/c.txt",
+      "external/fake_ad_mount_name/d/e/f.txt",
   };
   std::vector<std::string> file_urls;
-  std::transform(file_names.begin(), file_names.end(),
-                 std::back_inserter(file_urls),
-                 [&file_manager_url](const std::string& name) {
-                   return base::StrCat({url::kFileSystemScheme, ":",
-                                        file_manager_url.Resolve(name).spec()});
-                 });
+  base::ranges::transform(
+      file_names, std::back_inserter(file_urls),
+      [&file_manager_url](const std::string& name) {
+        return base::StrCat({url::kFileSystemScheme, ":",
+                             file_manager_url.Resolve(name).spec()});
+      });
   std::u16string urls(base::ASCIIToUTF16(base::JoinString(file_urls, "\n")));
   base::Pickle pickle;
   ui::WriteCustomDataToPickle(
@@ -496,14 +530,17 @@ TEST_F(ChromeDataExchangeDelegateTest, ParseFileSystemSources) {
           {{u"fs/tag", u"exo"}, {u"fs/sources", urls}}),
       &pickle);
 
-  ui::DataTransferEndpoint files_app(url::Origin::Create(file_manager_url));
+  ui::DataTransferEndpoint files_app(file_manager_url.Resolve("main.html"));
   std::vector<ui::FileInfo> file_info =
       data_exchange_delegate.ParseFileSystemSources(&files_app, pickle);
-  EXPECT_EQ(2, file_info.size());
+  EXPECT_EQ(3u, file_info.size());
   EXPECT_EQ(shared_path.Append("file1"), file_info[0].path);
   EXPECT_EQ(shared_path.Append("file2"), file_info[1].path);
+  EXPECT_EQ(base::FilePath("/media/fuse/fusebox/my_subdir/a/b/c.txt"),
+            file_info[2].path);
   EXPECT_EQ(base::FilePath(), file_info[0].display_name);
   EXPECT_EQ(base::FilePath(), file_info[1].display_name);
+  EXPECT_EQ(base::FilePath(), file_info[2].display_name);
 
   // Should return empty if source is not FilesApp.
   ui::DataTransferEndpoint crostini(ui::EndpointType::kCrostini);

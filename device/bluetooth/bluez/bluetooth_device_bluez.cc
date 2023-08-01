@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,13 +10,13 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
-#include "build/chromeos_buildflags.h"
+#include "base/task/sequenced_task_runner.h"
 #include "components/device_event_log/device_event_log.h"
 #include "dbus/bus.h"
 #include "device/bluetooth/bluetooth_socket.h"
@@ -27,6 +27,7 @@
 #include "device/bluetooth/bluez/bluetooth_remote_gatt_service_bluez.h"
 #include "device/bluetooth/bluez/bluetooth_service_record_bluez.h"
 #include "device/bluetooth/bluez/bluetooth_socket_bluez.h"
+#include "device/bluetooth/bluez/metrics_recorder.h"
 #include "device/bluetooth/dbus/bluetooth_adapter_client.h"
 #include "device/bluetooth/dbus/bluetooth_device_client.h"
 #include "device/bluetooth/dbus/bluetooth_gatt_service_client.h"
@@ -36,7 +37,7 @@
 #include "device/bluetooth/public/cpp/bluetooth_uuid.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS)
 #include "device/bluetooth/chromeos/bluetooth_utils.h"
 #endif
 
@@ -108,27 +109,50 @@ void ParseModalias(const dbus::ObjectPath& object_path,
 BluetoothDevice::ConnectErrorCode DBusErrorToConnectError(
     const std::string& error_name) {
   BluetoothDevice::ConnectErrorCode error_code = BluetoothDevice::ERROR_UNKNOWN;
-  if (error_name == bluetooth_device::kErrorConnectionAttemptFailed) {
-    error_code = BluetoothDevice::ERROR_FAILED;
+  if (error_name == bluetooth_device::kErrorNotReady) {
+    error_code = BluetoothDevice::ERROR_DEVICE_NOT_READY;
   } else if (error_name == bluetooth_device::kErrorFailed) {
     error_code = BluetoothDevice::ERROR_FAILED;
-  } else if (error_name == bluetooth_device::kErrorAuthenticationFailed) {
-    error_code = BluetoothDevice::ERROR_AUTH_FAILED;
+  } else if (error_name == bluetooth_device::kErrorInProgress) {
+    error_code = BluetoothDevice::ERROR_INPROGRESS;
+  } else if (error_name == bluetooth_device::kErrorAlreadyConnected) {
+    error_code = BluetoothDevice::ERROR_ALREADY_CONNECTED;
+  } else if (error_name == bluetooth_device::kErrorAlreadyExists) {
+    error_code = BluetoothDevice::ERROR_DEVICE_ALREADY_EXISTS;
+  } else if (error_name == bluetooth_device::kErrorNotConnected) {
+    error_code = BluetoothDevice::ERROR_DEVICE_UNCONNECTED;
+  } else if (error_name == bluetooth_device::kErrorDoesNotExist) {
+    error_code = BluetoothDevice::ERROR_DOES_NOT_EXIST;
+  } else if (error_name == bluetooth_device::kErrorInvalidArguments) {
+    error_code = BluetoothDevice::ERROR_INVALID_ARGS;
+  } else if (error_name == bluetooth_device::kErrorNotSupported) {
+    error_code = BluetoothDevice::ERROR_UNSUPPORTED_DEVICE;
   } else if (error_name == bluetooth_device::kErrorAuthenticationCanceled) {
     error_code = BluetoothDevice::ERROR_AUTH_CANCELED;
+  } else if (error_name == bluetooth_device::kErrorAuthenticationFailed) {
+    error_code = BluetoothDevice::ERROR_AUTH_FAILED;
   } else if (error_name == bluetooth_device::kErrorAuthenticationRejected) {
     error_code = BluetoothDevice::ERROR_AUTH_REJECTED;
   } else if (error_name == bluetooth_device::kErrorAuthenticationTimeout) {
     error_code = BluetoothDevice::ERROR_AUTH_TIMEOUT;
+  } else if (error_name == bluetooth_device::kErrorConnectionAttemptFailed) {
+    error_code = BluetoothDevice::ERROR_FAILED;
   }
   return error_code;
+}
+
+void OnForgetSuccess(base::OnceClosure callback) {
+#if BUILDFLAG(IS_CHROMEOS)
+  device::RecordForgetResult(device::ForgetResult::kSuccess);
+#endif
+  std::move(callback).Run();
 }
 
 void OnForgetError(dbus::ObjectPath object_path,
                    bluez::BluetoothDeviceBlueZ::ErrorCallback error_callback,
                    const std::string& error_name,
                    const std::string& error_message) {
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS)
   device::RecordForgetResult(device::ForgetResult::kFailure);
 #endif
   BLUETOOTH_LOG(ERROR) << object_path.value()
@@ -224,7 +248,7 @@ void BluetoothDeviceBlueZ::CreateGattConnectionImpl(
     absl::optional<BluetoothUUID> service_uuid) {
 // Once ConnectLE is supported on Linux, this buildflag will not be necessary
 // (this bluez code is only run on Chrome OS and Linux).
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS)
   if (num_connecting_calls_++ == 0)
     adapter()->NotifyDeviceChanged(this);
 
@@ -289,7 +313,7 @@ void BluetoothDeviceBlueZ::DisconnectGatt() {
 
 // Once DisconnectLE is supported on Linux, this buildflag will not be necessary
 // (this bluez code is only run on Chrome OS and Linux).
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS)
   bluez::BluezDBusManager::Get()->GetBluetoothDeviceClient()->DisconnectLE(
       object_path_, base::DoNothing(),
       base::BindOnce(&BluetoothDeviceBlueZ::OnDisconnectLEError,
@@ -301,7 +325,7 @@ void BluetoothDeviceBlueZ::DisconnectGatt() {
 
 // Once DisconnectLE is supported on Linux, this buildflag will not be necessary
 // (this bluez code is only run on Chrome OS and Linux).
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS)
 void BluetoothDeviceBlueZ::OnDisconnectLEError(
     const std::string& error_name,
     const std::string& error_message) {
@@ -399,12 +423,28 @@ bool BluetoothDeviceBlueZ::IsPaired() const {
           object_path_);
   DCHECK(properties);
 
-  // The Paired property reflects the successful pairing for BR/EDR/LE. The
-  // value of the Paired property is always false for the devices that don't
-  // support pairing. Once a device is paired successfully, both Paired and
-  // Trusted properties will be set to true.
+  // The "paired" property reflects the successful pairing for BR/EDR/LE. The
+  // value of the "paired" property is always false for the devices that don't
+  // support pairing. Once a device is paired successfully, both the "paired"
+  // and the "trusted" properties will be set to true.
   return properties->paired.value();
 }
+
+#if BUILDFLAG(IS_CHROMEOS)
+bool BluetoothDeviceBlueZ::IsBonded() const {
+  bluez::BluetoothDeviceClient::Properties* properties =
+      bluez::BluezDBusManager::Get()->GetBluetoothDeviceClient()->GetProperties(
+          object_path_);
+  DCHECK(properties);
+
+  // The "bonded" property reflects the successful pairing for BR/EDR/LE, where
+  // the information required to initiate and authenticate connections is stored
+  // on-device. The value of the "bonded" property is always false for the
+  // devices that don't support pairing. Once a device is bonded successfully,
+  // the "bonded", "paired", and "trusted" properties will be set to true.
+  return properties->bonded.value();
+}
+#endif
 
 bool BluetoothDeviceBlueZ::IsConnected() const {
   bluez::BluetoothDeviceClient::Properties* properties =
@@ -418,7 +458,7 @@ bool BluetoothDeviceBlueZ::IsConnected() const {
 bool BluetoothDeviceBlueZ::IsGattConnected() const {
 // Once the |connected_le| property is supported on Linux, this buildflag will
 // not be necessary (this bluez code is only run on Chrome OS and Linux).
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS)
   bluez::BluetoothDeviceClient::Properties* properties =
       bluez::BluezDBusManager::Get()->GetBluetoothDeviceClient()->GetProperties(
           object_path_);
@@ -700,21 +740,13 @@ void BluetoothDeviceBlueZ::Disconnect(base::OnceClosure callback,
 void BluetoothDeviceBlueZ::Forget(base::OnceClosure callback,
                                   ErrorCallback error_callback) {
   BLUETOOTH_LOG(EVENT) << object_path_.value() << ": Removing device";
+
+  // |this| can be destroyed during this call, so the callbacks are not class
+  // methods or else they may never be invoked.
   bluez::BluezDBusManager::Get()->GetBluetoothAdapterClient()->RemoveDevice(
       adapter()->object_path(), object_path_,
-      base::BindOnce(&BluetoothDeviceBlueZ::OnForgetSuccess,
-                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)),
+      base::BindOnce(&OnForgetSuccess, std::move(callback)),
       base::BindOnce(&OnForgetError, object_path_, std::move(error_callback)));
-}
-
-void BluetoothDeviceBlueZ::OnForgetSuccess(base::OnceClosure callback) {
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
-  device::RecordForgetResult(device::ForgetResult::kSuccess);
-#endif
-  if (IsPaired())
-    adapter_->NotifyDevicePairedChanged(this, false);
-
-  std::move(callback).Run();
 }
 
 void BluetoothDeviceBlueZ::ConnectToService(
@@ -728,7 +760,9 @@ void BluetoothDeviceBlueZ::ConnectToService(
                                                   socket_thread_);
   socket->Connect(this, uuid, BluetoothSocketBlueZ::SECURITY_LEVEL_MEDIUM,
                   base::BindOnce(std::move(callback), socket),
-                  std::move(error_callback));
+                  base::BindOnce(&BluetoothDeviceBlueZ::OnConnectToServiceError,
+                                 weak_ptr_factory_.GetWeakPtr(),
+                                 std::move(error_callback)));
 }
 
 void BluetoothDeviceBlueZ::ConnectToServiceInsecurely(
@@ -743,7 +777,9 @@ void BluetoothDeviceBlueZ::ConnectToServiceInsecurely(
                                                   socket_thread_);
   socket->Connect(this, uuid, BluetoothSocketBlueZ::SECURITY_LEVEL_LOW,
                   base::BindOnce(std::move(callback), socket),
-                  std::move(error_callback));
+                  base::BindOnce(&BluetoothDeviceBlueZ::OnConnectToServiceError,
+                                 weak_ptr_factory_.GetWeakPtr(),
+                                 std::move(error_callback)));
 }
 
 std::unique_ptr<device::BluetoothGattConnection>
@@ -762,7 +798,7 @@ void BluetoothDeviceBlueZ::GetServiceRecords(
                      std::move(error_callback)));
 }
 
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS)
 void BluetoothDeviceBlueZ::ExecuteWrite(
     base::OnceClosure callback,
     ExecuteWriteErrorCallback error_callback) {
@@ -782,6 +818,28 @@ void BluetoothDeviceBlueZ::AbortWrite(base::OnceClosure callback,
                      std::move(error_callback)));
 }
 #endif
+
+void BluetoothDeviceBlueZ::OnConnectToServiceError(
+    ConnectToServiceErrorCallback error_callback,
+    const std::string& error_message) {
+  BLUETOOTH_LOG(ERROR) << object_path_.value()
+                       << ": Failed to connect to service: " << error_message;
+
+#if BUILDFLAG(IS_CHROMEOS)
+  bluetooth::ConnectToServiceFailureReason reason =
+      bluetooth::ExtractFailureReasonFromErrorString(error_message);
+  bluetooth::RecordConnectToServiceFailureReason(reason);
+
+  // If the connection fails when we are supposedly bonded with the remote
+  // device, record this event specifically. This may indicate that we are in a
+  // "half paired" (or "half bonded") state as described in b/204274786.
+  if (IsBonded()) {
+    bluetooth::RecordBondedConnectToServiceFailureReason(reason);
+  }
+#endif  // BUILDFLAG(IS_CHROMEOS)
+
+  std::move(error_callback).Run(error_message);
+}
 
 void BluetoothDeviceBlueZ::UpdateServiceData() {
   bluez::BluetoothDeviceClient::Properties* properties =
@@ -1005,7 +1063,7 @@ void BluetoothDeviceBlueZ::OnGetServiceRecordsError(
   std::move(error_callback).Run(code);
 }
 
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS)
 void BluetoothDeviceBlueZ::OnExecuteWriteError(
     ExecuteWriteErrorCallback error_callback,
     const std::string& error_name,
@@ -1067,7 +1125,11 @@ void BluetoothDeviceBlueZ::OnConnect(ConnectCallback callback) {
   BLUETOOTH_LOG(EVENT) << object_path_.value() << ": Connected, "
                        << num_connecting_calls_ << " still in progress";
 
+  // For CrOS, set trusted upon outgoing connection established.
+  // No-op for non-CrOS since Chrome is not part of the OS.
+#if BUILDFLAG(IS_CHROMEOS)
   SetTrusted();
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
   std::move(callback).Run(/*error_code=*/absl::nullopt);
 }
@@ -1089,14 +1151,7 @@ void BluetoothDeviceBlueZ::OnConnectError(ConnectCallback callback,
                        << " still in progress";
 
   // Determine the error code from error_name.
-  ConnectErrorCode error_code = ERROR_UNKNOWN;
-  if (error_name == bluetooth_device::kErrorFailed) {
-    error_code = ERROR_FAILED;
-  } else if (error_name == bluetooth_device::kErrorInProgress) {
-    error_code = ERROR_INPROGRESS;
-  } else if (error_name == bluetooth_device::kErrorNotSupported) {
-    error_code = ERROR_UNSUPPORTED_DEVICE;
-  }
+  ConnectErrorCode error_code = DBusErrorToConnectError(error_name);
 
   std::move(callback).Run(error_code);
 }
@@ -1188,7 +1243,7 @@ void BluetoothDeviceBlueZ::OnSetTrusted(bool success) {
 }
 
 void BluetoothDeviceBlueZ::OnDisconnect(base::OnceClosure callback) {
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS)
   device::RecordUserInitiatedDisconnectResult(
       device::DisconnectResult::kSuccess,
       /*transport=*/GetType());
@@ -1200,7 +1255,7 @@ void BluetoothDeviceBlueZ::OnDisconnect(base::OnceClosure callback) {
 void BluetoothDeviceBlueZ::OnDisconnectError(ErrorCallback error_callback,
                                              const std::string& error_name,
                                              const std::string& error_message) {
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS)
   device::RecordUserInitiatedDisconnectResult(
       device::DisconnectResult::kFailure,
       /*transport=*/GetType());

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,7 +21,6 @@
 #include "components/viz/common/quads/compositor_render_pass.h"
 #include "components/viz/common/resources/shared_bitmap.h"
 #include "components/viz/service/display/aggregated_frame.h"
-#include "components/viz/service/display/gl_renderer.h"
 #include "components/viz/service/display/output_surface.h"
 #include "components/viz/service/display/skia_renderer.h"
 #include "components/viz/service/display/software_renderer.h"
@@ -52,9 +51,8 @@ class PixelTest : public testing::Test {
     kDefault,
     // SkiaRenderer with the Vulkan backend will be used.
     kSkiaVulkan,
-    // SkiaRenderer with the Dawn backend will be used; on Linux this will
-    // initialize Vulkan, and on Windows this will initialize D3D12.
-    kSkiaDawn,
+    // SkiaRenderer with the Skia Graphite on Dawn will be used.
+    kSkiaGraphite,
   };
 
   explicit PixelTest(GraphicsBackend backend = kDefault);
@@ -79,10 +77,6 @@ class PixelTest : public testing::Test {
       const base::FilePath& ref_file,
       const PixelComparator& comparator,
       const gfx::Rect* copy_rect);
-
-  viz::ContextProvider* context_provider() const {
-    return output_surface_->context_provider();
-  }
 
   viz::GpuServiceImpl* gpu_service() {
     return gpu_service_holder_->gpu_service();
@@ -129,14 +123,10 @@ class PixelTest : public testing::Test {
   raw_ptr<viz::SoftwareRenderer> software_renderer_ = nullptr;
   std::unique_ptr<SkBitmap> result_bitmap_;
 
-  void SetUpGLWithoutRenderer(gfx::SurfaceOrigin output_surface_origin);
-  void SetUpGLRenderer(gfx::SurfaceOrigin output_surface_origin);
   void SetUpSkiaRenderer(gfx::SurfaceOrigin output_surface_origin);
   void SetUpSoftwareRenderer();
 
   void TearDown() override;
-
-  void EnableExternalStencilTest();
 
  private:
   void ReadbackResult(base::OnceClosure quit_run_loop,

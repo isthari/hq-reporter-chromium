@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,15 @@ namespace switches {
 
 COMPONENT_EXPORT(CHROMEOS_STARTUP_CONSTANTS)
 extern const char kCrosStartupDataFD[];
+
+COMPONENT_EXPORT(CHROMEOS_STARTUP_CONSTANTS)
+extern const char kCrosPostLoginDataFD[];
+
+COMPONENT_EXPORT(CHROMEOS_STARTUP_CONSTANTS)
+extern const char kCrosPostLoginLogFile[];
+
+COMPONENT_EXPORT(CHROMEOS_STARTUP_CONSTANTS)
+extern const char kZygoteHugepageRemap[];
 
 }  // namespace switches
 }  // namespace chromeos

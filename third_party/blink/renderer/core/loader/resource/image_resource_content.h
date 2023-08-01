@@ -1,36 +1,43 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LOADER_RESOURCE_IMAGE_RESOURCE_CONTENT_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LOADER_RESOURCE_IMAGE_RESOURCE_CONTENT_H_
 
+#include <cstddef>
+
 #include "base/auto_reset.h"
 #include "base/dcheck_is_on.h"
+#include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/loader/resource/image_resource_observer.h"
 #include "third_party/blink/renderer/platform/graphics/image.h"
 #include "third_party/blink/renderer/platform/graphics/image_observer.h"
-#include "third_party/blink/renderer/platform/graphics/image_orientation.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_counted_set.h"
+#include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+#include "third_party/blink/renderer/platform/heap/member.h"
 #include "third_party/blink/renderer/platform/image-decoders/image_decoder.h"
-#include "third_party/blink/renderer/platform/loader/fetch/resource_error.h"
-#include "third_party/blink/renderer/platform/loader/fetch/resource_load_priority.h"
+#include "third_party/blink/renderer/platform/loader/fetch/media_timing.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_status.h"
-#include "third_party/blink/renderer/platform/weborigin/kurl.h"
-#include "third_party/blink/renderer/platform/wtf/hash_map.h"
-#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/size.h"
+
+namespace base {
+class TimeTicks;
+}
 
 namespace blink {
 
 class ExecutionContext;
 class FetchParameters;
 class ImageResourceInfo;
-class ImageResourceObserver;
+class KURL;
 class ResourceError;
 class ResourceFetcher;
 class ResourceResponse;
 class UseCounter;
+enum RespectImageOrientationEnum;
+struct ResourcePriority;
 
 // ImageResourceContent is a container that holds fetch result of
 // an ImageResource in a decoded form.
@@ -42,7 +49,8 @@ class UseCounter;
 // word 'observer' from ImageResource.
 class CORE_EXPORT ImageResourceContent final
     : public GarbageCollected<ImageResourceContent>,
-      public ImageObserver {
+      public ImageObserver,
+      public MediaTiming {
  public:
   // Used for loading.
   // Returned content will be associated immediately later with ImageResource.
@@ -106,15 +114,31 @@ class CORE_EXPORT ImageResourceContent final
   // ImageResourceContent::GetContentStatus() can be different from
   // ImageResource::GetStatus(). Use ImageResourceContent::GetContentStatus().
   ResourceStatus GetContentStatus() const;
+  void SetIsSufficientContentLoadedForPaint() override;
+  bool IsSufficientContentLoadedForPaint() const override;
   bool IsLoaded() const;
   bool IsLoading() const;
   bool ErrorOccurred() const;
   bool LoadFailedOrCanceled() const;
-  bool IsAnimatedImageWithPaintedFirstFrame() const;
+  bool IsAnimatedImage() const override;
+  bool IsPaintedFirstFrame() const override;
+  bool TimingAllowPassed() const override;
+  base::TimeTicks GetFirstVideoFrameTime() const override {
+    // This returns a null time, which is currently used to signal that this is
+    // an animated image, rather than a video, and we should use the
+    // ImagePaintTimingDetector to set the first frame time in the ImageRecord
+    // instead.
+    // TODO(iclelland): Find a better way to set this from IPTD and use it, to
+    // use this for images as well as videos.
+    return base::TimeTicks();
+  }
 
   // Redirecting methods to Resource.
-  const KURL& Url() const;
-  base::TimeTicks LoadResponseEnd() const;
+  const KURL& Url() const override;
+  bool IsDataUrl() const override;
+  base::TimeTicks LoadStart() const override;
+  base::TimeTicks LoadEnd() const override;
+  AtomicString MediaType() const override;
   bool IsAccessAllowed() const;
   const ResourceResponse& GetResponse() const;
   absl::optional<ResourceError> GetResourceError() const;
@@ -171,11 +195,15 @@ class CORE_EXPORT ImageResourceContent final
 
   void SetImageResourceInfo(ImageResourceInfo*);
 
-  ResourcePriority PriorityFromObservers() const;
+  // Returns priority information to be used for setting the Resource's
+  // priority. This is NOT the current Resource's priority.
+  std::pair<ResourcePriority, ResourcePriority> PriorityFromObservers() const;
+  // Returns the current Resource's priroity used by MediaTiming.
+  absl::optional<WebURLRequest::Priority> RequestPriority() const override;
   scoped_refptr<const SharedBuffer> ResourceBuffer() const;
   bool ShouldUpdateImageImmediately() const;
   bool HasObservers() const {
-    return !observers_.IsEmpty() || !finished_observers_.IsEmpty();
+    return !observers_.empty() || !finished_observers_.empty();
   }
   bool IsRefetchableDataFromDiskCache() const {
     return is_refetchable_data_from_disk_cache_;
@@ -188,7 +216,7 @@ class CORE_EXPORT ImageResourceContent final
   // file, but currently just returns the complete file size.
   // TODO(iclelland): Eventually switch this, and related calculations, to bits
   // rather than bytes.
-  uint64_t ContentSizeForEntropy() const;
+  uint64_t ContentSizeForEntropy() const override;
 
   // Returns true if the image content is well-compressed (and not full of
   // extraneous metadata). "well-compressed" is determined by comparing the
@@ -201,9 +229,29 @@ class CORE_EXPORT ImageResourceContent final
   // Returns whether the resource request has been tagged as an ad.
   bool IsAdResource() const;
 
+  base::TimeTicks DiscoveryTime() const override;
+
+  void SetDiscoveryTime(base::TimeTicks discovery_time);
+
   // Records the decoded image type in a UseCounter if the image is a
   // BitmapImage. |use_counter| may be a null pointer.
   void RecordDecodedImageType(UseCounter* use_counter);
+
+  void SetIsLoadedFromMemoryCache(bool is_loaded_from_memory_cache) {
+    is_loaded_from_memory_cache_ = is_loaded_from_memory_cache;
+  }
+
+  void SetIsPreloadedWithEarlyHints(bool is_preloaded_with_early_hints) {
+    is_preloaded_with_early_hints_ = is_preloaded_with_early_hints;
+  }
+
+  bool IsLoadedFromMemoryCache() const override {
+    return is_loaded_from_memory_cache_;
+  }
+
+  bool IsPreloadedWithEarlyHints() const override {
+    return is_preloaded_with_early_hints_;
+  }
 
  private:
   using CanDeferInvalidation = ImageResourceObserver::CanDeferInvalidation;
@@ -246,6 +294,12 @@ class CORE_EXPORT ImageResourceContent final
   bool has_device_pixel_ratio_header_value_;
 
   scoped_refptr<blink::Image> image_;
+
+  base::TimeTicks discovery_time_;
+
+  bool is_loaded_from_memory_cache_;
+
+  bool is_preloaded_with_early_hints_;
 
   HeapHashCountedSet<WeakMember<ImageResourceObserver>> observers_;
   HeapHashCountedSet<WeakMember<ImageResourceObserver>> finished_observers_;

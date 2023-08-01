@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,13 +6,14 @@ package org.chromium.chrome.browser.toolbar;
 
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
+import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.base.supplier.Supplier;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.back_press.BackPressManager;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.toolbar.bottom.BottomControlsCoordinator;
+import org.chromium.chrome.browser.ui.native_page.NativePage;
 import org.chromium.components.embedder_support.util.UrlConstants;
-import org.chromium.components.embedder_support.util.UrlUtilities;
 import org.chromium.components.feature_engagement.EventConstants;
 import org.chromium.components.feature_engagement.Tracker;
 import org.chromium.components.profile_metrics.BrowserProfileType;
@@ -27,10 +28,10 @@ public class ToolbarTabControllerImpl implements ToolbarTabController {
     private final Supplier<Tab> mTabSupplier;
     private final Supplier<Boolean> mOverrideHomePageSupplier;
     private final Supplier<Tracker> mTrackerSupplier;
-    private final Supplier<BottomControlsCoordinator> mBottomControlsCoordinatorSupplier;
+    private final ObservableSupplier<BottomControlsCoordinator> mBottomControlsCoordinatorSupplier;
     private final Supplier<String> mHomepageUrlSupplier;
     private final Runnable mOnSuccessRunnable;
-
+    private final Supplier<Tab> mActivityTabSupplier;
     /**
      *
      * @param tabSupplier Supplier for the currently active tab.
@@ -40,18 +41,23 @@ public class ToolbarTabControllerImpl implements ToolbarTabController {
      * @param homepageUrlSupplier Supplier for the homepage URL.
      * @param onSuccessRunnable Runnable that is invoked when the active tab is asked to perform the
      *         corresponding ToolbarTabController action; it is not invoked if the tab cannot
-     *         perform the action or for openHompage.
+     * @param activityTabSupplier Supplier for the currently active and interactable tab. Both
+     *         tabSupplier and activityTabSupplier can return the same tab if tab is active and
+     *         interactable. But activityTabSupplier will return null if it is non-interactable,
+     *         such as on overview mode.
      */
     public ToolbarTabControllerImpl(Supplier<Tab> tabSupplier,
             Supplier<Boolean> overrideHomePageSupplier, Supplier<Tracker> trackerSupplier,
-            Supplier<BottomControlsCoordinator> bottomControlsCoordinatorSupplier,
-            Supplier<String> homepageUrlSupplier, Runnable onSuccessRunnable) {
+            ObservableSupplier<BottomControlsCoordinator> bottomControlsCoordinatorSupplier,
+            Supplier<String> homepageUrlSupplier, Runnable onSuccessRunnable,
+            Supplier<Tab> activityTabSupplier) {
         mTabSupplier = tabSupplier;
         mOverrideHomePageSupplier = overrideHomePageSupplier;
         mTrackerSupplier = trackerSupplier;
         mBottomControlsCoordinatorSupplier = bottomControlsCoordinatorSupplier;
         mHomepageUrlSupplier = homepageUrlSupplier;
         mOnSuccessRunnable = onSuccessRunnable;
+        mActivityTabSupplier = activityTabSupplier;
     }
 
     @Override
@@ -60,9 +66,13 @@ public class ToolbarTabControllerImpl implements ToolbarTabController {
         if (controlsCoordinator != null && controlsCoordinator.onBackPressed()) {
             return true;
         }
-
-        Tab tab = mTabSupplier.get();
+        Tab tab = BackPressManager.isEnabled() ? mActivityTabSupplier.get() : mTabSupplier.get();
         if (tab != null && tab.canGoBack()) {
+            NativePage nativePage = tab.getNativePage();
+            if (nativePage != null) {
+                nativePage.notifyHidingWithBack();
+            }
+
             tab.goBack();
             mOnSuccessRunnable.run();
             return true;
@@ -101,13 +111,11 @@ public class ToolbarTabControllerImpl implements ToolbarTabController {
         RecordUserAction.record("Home");
         recordHomeButtonUserPerProfileType();
         if (mOverrideHomePageSupplier.get()) {
-            if (ChromeFeatureList.isEnabled(ChromeFeatureList.TOOLBAR_IPH_ANDROID)) {
-                // While some other element is handling the routing of this click event, something
-                // still needs to notify the event. This approach allows consolidation of events for
-                // the home button.
-                Tracker tracker = mTrackerSupplier.get();
-                if (tracker != null) tracker.notifyEvent(EventConstants.HOMEPAGE_BUTTON_CLICKED);
-            }
+            // While some other element is handling the routing of this click event, something
+            // still needs to notify the event. This approach allows consolidation of events for
+            // the home button.
+            Tracker tracker = mTrackerSupplier.get();
+            if (tracker != null) tracker.notifyEvent(EventConstants.HOMEPAGE_BUTTON_CLICKED);
             return;
         }
         Tab currentTab = mTabSupplier.get();
@@ -129,6 +137,21 @@ public class ToolbarTabControllerImpl implements ToolbarTabController {
         currentTab.loadUrl(new LoadUrlParams(homePageUrl, PageTransition.HOME_PAGE));
     }
 
+    /**
+     * Whether Toolbar Tab Controller can consume a back press.
+     * @return True if a back press can be consumed.
+     */
+    boolean canGoBack() {
+        BottomControlsCoordinator controlsCoordinator = mBottomControlsCoordinatorSupplier.get();
+        if (controlsCoordinator != null
+                && Boolean.TRUE.equals(
+                        controlsCoordinator.getHandleBackPressChangedSupplier().get())) {
+            return true;
+        }
+        Tab tab = BackPressManager.isEnabled() ? mActivityTabSupplier.get() : mTabSupplier.get();
+        return tab != null && tab.canGoBack();
+    }
+
     /** Record that homepage button was used for IPH reasons */
     private void recordHomeButtonUseForIPH(String homepageUrl) {
         Tab tab = mTabSupplier.get();
@@ -136,10 +159,6 @@ public class ToolbarTabControllerImpl implements ToolbarTabController {
         if (tab == null || tracker == null) return;
 
         tracker.notifyEvent(EventConstants.HOMEPAGE_BUTTON_CLICKED);
-
-        if (UrlUtilities.isNTPUrl(homepageUrl)) {
-            tracker.notifyEvent(EventConstants.NTP_HOME_BUTTON_CLICKED);
-        }
     }
 
     private void recordHomeButtonUserPerProfileType() {

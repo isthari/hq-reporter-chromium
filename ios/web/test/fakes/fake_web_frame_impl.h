@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,7 +23,7 @@ class FakeWebFrameImpl : public FakeWebFrame, public WebFrameInternal {
                    GURL security_origin);
 
   // Returns the JavaScriptContentWorld parameter value received in the last
-  // call to |CallJavaScriptFunctionInContentWorld|.
+  // call to `CallJavaScriptFunctionInContentWorld`.
   JavaScriptContentWorld* last_received_content_world();
 
   // WebFrame:
@@ -31,53 +31,51 @@ class FakeWebFrameImpl : public FakeWebFrame, public WebFrameInternal {
   std::string GetFrameId() const override;
   bool IsMainFrame() const override;
   GURL GetSecurityOrigin() const override;
-  bool CanCallJavaScriptFunction() const override;
   BrowserState* GetBrowserState() override;
+  bool CallJavaScriptFunction(const std::string& name,
+                              const base::Value::List& parameters) override;
   bool CallJavaScriptFunction(
       const std::string& name,
-      const std::vector<base::Value>& parameters) override;
-  bool CallJavaScriptFunction(
-      const std::string& name,
-      const std::vector<base::Value>& parameters,
+      const base::Value::List& parameters,
       base::OnceCallback<void(const base::Value*)> callback,
       base::TimeDelta timeout) override;
-  bool ExecuteJavaScript(const std::string& script) override;
+  bool ExecuteJavaScript(const std::u16string& script) override;
   bool ExecuteJavaScript(
-      const std::string& script,
+      const std::u16string& script,
       base::OnceCallback<void(const base::Value*)> callback) override;
   bool ExecuteJavaScript(
-      const std::string& script,
-      base::OnceCallback<void(const base::Value*, bool)> callback) override;
+      const std::u16string& script,
+      base::OnceCallback<void(const base::Value*, NSError*)> callback) override;
 
   // FakeWebFrame:
-  std::string GetLastJavaScriptCall() const override;
-  const std::vector<std::string>& GetJavaScriptCallHistory() override;
+  std::u16string GetLastJavaScriptCall() const override;
+  const std::vector<std::u16string>& GetJavaScriptCallHistory() override;
+  void ClearJavaScriptCallHistory() override;
   void set_browser_state(BrowserState* browser_state) override;
   void AddJsResultForFunctionCall(base::Value* js_result,
                                   const std::string& function_name) override;
+  void AddResultForExecutedJs(base::Value* js_result,
+                              const std::u16string& executed_js) override;
   void set_force_timeout(bool force_timeout) override;
-  void set_can_call_function(bool can_call_function) override;
   void set_call_java_script_function_callback(
       base::RepeatingClosure callback) override;
 
   // WebFrameInternal:
-  // If |CanCallJavaScriptFunction()| is true, the JavaScript call which would
-  // be executed by a real WebFrame will be added to |java_script_calls_|.
-  // Returns the value of |CanCallJavaScriptFunction()|. |content_world| is
-  // stored to |last_received_content_world_|.
+  // The JavaScript call which would be executed by a real WebFrame will be
+  // added to `java_script_calls_`. `content_world` is stored to
+  // `last_received_content_world_`. Always returns true.
   bool CallJavaScriptFunctionInContentWorld(
       const std::string& name,
-      const std::vector<base::Value>& parameters,
+      const base::Value::List& parameters,
       JavaScriptContentWorld* content_world) override;
-  // If |CanCallJavaScriptFunction()| is true, the JavaScript call which would
-  // be executed by a real WebFrame will be added to |java_script_calls_|.
-  // Returns the value of |CanCallJavaScriptFunction()|.
-  // |callback| will be executed with the value passed in to
+  // The JavaScript call which would be executed by a real WebFrame will be
+  // added to `java_script_calls_`. Always returns true.
+  // `callback` will be executed with the value passed in to
   // AddJsResultForFunctionCall() or null if no such result has been added.
-  // |content_world| is stored to |last_received_content_world_|.
+  // `content_world` is stored to `last_received_content_world_`.
   bool CallJavaScriptFunctionInContentWorld(
       const std::string& name,
-      const std::vector<base::Value>& parameters,
+      const base::Value::List& parameters,
       JavaScriptContentWorld* content_world,
       base::OnceCallback<void(const base::Value*)> callback,
       base::TimeDelta timeout) override;
@@ -86,9 +84,12 @@ class FakeWebFrameImpl : public FakeWebFrame, public WebFrameInternal {
 
  private:
   // Map holding values to be passed in CallJavaScriptFunction() callback. Keyed
-  // by JavaScript function |name| expected to be passed into
+  // by JavaScript function `name` expected to be passed into
   // CallJavaScriptFunction().
   std::map<std::string, base::Value*> result_map_;
+  // Map holding values to be passed in ExecuteJavaScript() callback. Keyed by
+  // by JavaScript expected to be passed to ExecuteJavaScript().
+  std::map<std::u16string, base::Value*> executed_js_result_map_;
   // The frame identifier which uniquely identifies this frame across the
   // application's lifetime.
   std::string frame_id_;
@@ -98,9 +99,7 @@ class FakeWebFrameImpl : public FakeWebFrame, public WebFrameInternal {
   GURL security_origin_;
   // Vector holding history of all javascript handler calls made in this frame.
   // The calls are sorted with the most recent appended at the end.
-  std::vector<std::string> java_script_calls_;
-  // The return value of CanCallJavaScriptFunction().
-  bool can_call_function_ = true;
+  std::vector<std::u16string> java_script_calls_;
   // When set to true, will force calls to CallJavaScriptFunction to fail with
   // timeout.
   bool force_timeout_ = false;

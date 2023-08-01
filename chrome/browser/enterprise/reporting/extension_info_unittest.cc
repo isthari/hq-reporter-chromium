@@ -1,17 +1,14 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/enterprise/reporting/extension_info.h"
 
-#include "base/feature_list.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_service_test_base.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/test/base/testing_profile.h"
 #include "extensions/common/extension_builder.h"
 #include "extensions/common/manifest_constants.h"
-#include "extensions/common/value_builder.h"
 
 using extensions::mojom::ManifestLocation;
 
@@ -60,8 +57,7 @@ class ExtensionInfoTest : public extensions::ExtensionServiceTestBase {
         .AddPermission(kPermission2)
         .AddPermission(kPermission3);
     if (is_app) {
-      extensionBuilder.SetManifestPath({"app", "launch", "web_url"},
-                                       kAppLaunchUrl);
+      extensionBuilder.SetManifestPath("app.launch.web_url", kAppLaunchUrl);
     }
     if (from_webstore) {
       extensionBuilder.AddFlags(extensions::Extension::FROM_WEBSTORE);
@@ -70,8 +66,6 @@ class ExtensionInfoTest : public extensions::ExtensionServiceTestBase {
     service()->AddExtension(extension.get());
     return extension;
   }
-
-  base::test::ScopedFeatureList feature_list_;
 };
 
 TEST_F(ExtensionInfoTest, ExtensionReport) {
@@ -87,9 +81,7 @@ TEST_F(ExtensionInfoTest, ExtensionReport) {
   EXPECT_EQ(kName, actual_extension_report.name());
   EXPECT_EQ(kVersion, actual_extension_report.version());
   EXPECT_EQ(kDescription, actual_extension_report.description());
-  // Manifest version reporting flag is not enabled, so the manifest version is
-  // not passed into the extension info proto.
-  EXPECT_EQ(0, actual_extension_report.manifest_version());
+  EXPECT_EQ(kManifestVersion, actual_extension_report.manifest_version());
 
   EXPECT_EQ(em::Extension_ExtensionType_TYPE_EXTENSION,
             actual_extension_report.app_type());
@@ -106,26 +98,6 @@ TEST_F(ExtensionInfoTest, ExtensionReport) {
   EXPECT_EQ(kPermission2, actual_extension_report.permissions(1));
   EXPECT_EQ(1, actual_extension_report.host_permissions_size());
   EXPECT_EQ(kPermission3, actual_extension_report.host_permissions(0));
-}
-
-TEST_F(ExtensionInfoTest, ExtensionReport_ManifestVersionEnabled) {
-  // Enable the manifest version reporting flag so that the actual manifest
-  // version is passed into the extension info proto.
-  feature_list_.InitAndEnableFeature(
-      features::kEnterpriseReportingExtensionManifestVersion);
-  auto extension = BuildExtension();
-
-  em::ChromeUserProfileInfo info;
-  AppendExtensionInfoIntoProfileReport(profile(), &info);
-
-  EXPECT_EQ(1, info.extensions_size());
-  const em::Extension actual_extension_report = info.extensions(0);
-
-  EXPECT_EQ(kId, actual_extension_report.id());
-  EXPECT_EQ(kName, actual_extension_report.name());
-  EXPECT_EQ(kVersion, actual_extension_report.version());
-  EXPECT_EQ(kDescription, actual_extension_report.description());
-  EXPECT_EQ(kManifestVersion, actual_extension_report.manifest_version());
 }
 
 TEST_F(ExtensionInfoTest, MultipleExtensions) {

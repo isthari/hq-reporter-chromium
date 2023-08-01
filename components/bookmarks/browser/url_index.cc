@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,10 @@
 #include <iterator>
 
 #include "base/containers/adapters.h"
-#include "base/guid.h"
+#include "base/logging.h"
+#include "base/uuid.h"
 #include "components/bookmarks/browser/url_and_title.h"
+#include "components/bookmarks/common/url_load_stats.h"
 
 namespace bookmarks {
 
@@ -23,7 +25,7 @@ namespace {
 // calling site.
 void AddStatsForBookmarksWithSameUrl(
     std::vector<const BookmarkNode*>* bookmarks_with_same_url,
-    UrlIndex::Stats* stats) {
+    UrlLoadStats* stats) {
   if (bookmarks_with_same_url->size() <= 1)
     return;
 
@@ -64,6 +66,28 @@ void AddStatsForBookmarksWithSameUrl(
       duplicate_title_and_parent_count;
 }
 
+void AddTimeStatsForBookmark(BookmarkNode* node,
+                             base::Time now,
+                             UrlLoadStats* stats) {
+  stats->avg_num_days_since_added += (now - node->date_added()).InDays();
+
+  // It's possible that date_last_used hasn't been populated for this node.
+  if (node->date_last_used() != base::Time()) {
+    stats->used_url_bookmark_count += 1;
+    int mru_days = std::max(0, (now - node->date_last_used()).InDays());
+    stats->most_recently_used_bookmark_days =
+        std::min<size_t>(mru_days, stats->most_recently_used_bookmark_days);
+  }
+
+  stats->most_recently_saved_bookmark_days =
+      std::min<size_t>(std::max(0, (now - node->date_added()).InDays()),
+                       stats->most_recently_saved_bookmark_days);
+
+  stats->most_recently_saved_folder_days = std::min<size_t>(
+      std::max(0, (now - node->parent()->date_added()).InDays()),
+      stats->most_recently_saved_folder_days);
+}
+
 }  // namespace
 
 UrlIndex::UrlIndex(std::unique_ptr<BookmarkNode> root)
@@ -84,7 +108,7 @@ std::unique_ptr<BookmarkNode> UrlIndex::Remove(BookmarkNode* node,
   base::AutoLock url_lock(url_lock_);
   RemoveImpl(node, removed_urls);
   BookmarkNode* parent = node->parent();
-  return parent->Remove(static_cast<size_t>(parent->GetIndexOf(node)));
+  return parent->Remove(parent->GetIndexOf(node).value());
 }
 
 void UrlIndex::SetUrl(BookmarkNode* node, const GURL& url) {
@@ -113,7 +137,7 @@ void UrlIndex::GetNodesWithIconUrl(const GURL& icon_url,
 void UrlIndex::GetNodesByUrl(const GURL& url,
                              std::vector<const BookmarkNode*>* nodes) {
   base::AutoLock url_lock(url_lock_);
-  BookmarkNode tmp_node(/*id=*/0, base::GUID::GenerateRandomV4(), url);
+  BookmarkNode tmp_node(/*id=*/0, base::Uuid::GenerateRandomV4(), url);
   auto i = nodes_ordered_by_url_set_.find(&tmp_node);
   while (i != nodes_ordered_by_url_set_.end() && (*i)->url() == url) {
     nodes->push_back(*i);
@@ -126,10 +150,15 @@ bool UrlIndex::HasBookmarks() const {
   return !nodes_ordered_by_url_set_.empty();
 }
 
-UrlIndex::Stats UrlIndex::ComputeStats() const {
+UrlLoadStats UrlIndex::ComputeStats() const {
   base::AutoLock url_lock(url_lock_);
-  UrlIndex::Stats stats;
+
+  base::Time now = base::Time::Now();
+  UrlLoadStats stats;
   stats.total_url_bookmark_count = nodes_ordered_by_url_set_.size();
+  if (nodes_ordered_by_url_set_.begin() != nodes_ordered_by_url_set_.end()) {
+    AddTimeStatsForBookmark(*nodes_ordered_by_url_set_.begin(), now, &stats);
+  }
 
   if (stats.total_url_bookmark_count <= 1)
     return stats;
@@ -138,14 +167,17 @@ UrlIndex::Stats UrlIndex::ComputeStats() const {
   auto prev_i = nodes_ordered_by_url_set_.begin();
   for (auto i = std::next(prev_i); i != nodes_ordered_by_url_set_.end();
        ++i, ++prev_i) {
+    // Handle duplicate URL stats.
     if ((*prev_i)->url() != (*i)->url()) {
       AddStatsForBookmarksWithSameUrl(&bookmarks_with_same_url, &stats);
       bookmarks_with_same_url.clear();
     }
-
     bookmarks_with_same_url.push_back(*i);
+
+    AddTimeStatsForBookmark(*i, now, &stats);
   }
 
+  stats.avg_num_days_since_added /= nodes_ordered_by_url_set_.size();
   AddStatsForBookmarksWithSameUrl(&bookmarks_with_same_url, &stats);
   return stats;
 }
@@ -176,7 +208,7 @@ UrlIndex::~UrlIndex() = default;
 
 bool UrlIndex::IsBookmarkedNoLock(const GURL& url) {
   url_lock_.AssertAcquired();
-  BookmarkNode tmp_node(/*id=*/0, base::GUID::GenerateRandomV4(), url);
+  BookmarkNode tmp_node(/*id=*/0, base::Uuid::GenerateRandomV4(), url);
   return (nodes_ordered_by_url_set_.find(&tmp_node) !=
           nodes_ordered_by_url_set_.end());
 }

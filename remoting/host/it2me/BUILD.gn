@@ -1,4 +1,4 @@
-# Copyright 2014 The Chromium Authors. All rights reserved.
+# Copyright 2014 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -48,7 +48,9 @@ source_set("common") {
     "it2me_native_messaging_host.h",
   ]
 
-  if (is_linux && !is_chromeos_lacros) {
+  deps = []
+
+  if (is_linux) {
     sources += [ "it2me_confirmation_dialog_linux.cc" ]
   }
 
@@ -74,11 +76,13 @@ source_set("common") {
     ":helpers",
   ]
 
-  deps = [
+  deps += [
     "//base:i18n",
     "//build:chromeos_buildflags",
     "//components/policy:policy_code_generate",
+    "//components/webrtc:thread_wrapper",
     "//extensions/browser/api/messaging:native_messaging",
+    "//google_apis:google_apis",
     "//mojo/core/embedder",
     "//net",
     "//remoting/base",
@@ -92,7 +96,7 @@ source_set("common") {
     "//services/network/public/cpp:cpp",
   ]
 
-  if (is_linux && !is_chromeos_lacros) {
+  if (is_linux) {
     deps += [
       "//build/config/linux/gtk",
       "//ui/base:base",
@@ -100,6 +104,7 @@ source_set("common") {
       # GTK pulls pangoft2, which requires HarfBuzz symbols. When linking
       # our own HarfBuzz avoid mixing symbols from system HarfBuzz and
       # our own through the indirect dependency to harfbuzz-ng here.
+      "//remoting/host/linux:wayland",
       "//third_party:freetype_harfbuzz",
     ]
   }
@@ -123,7 +128,7 @@ source_set("common") {
   }
 }
 
-if (is_chromeos_ash || is_chromeos_lacros) {
+if (is_chromeos) {
   source_set("chrome_os_host") {
     sources = [
       "it2me_native_messaging_host_allowed_origins.cc",
@@ -142,6 +147,7 @@ if (is_chromeos_ash || is_chromeos_lacros) {
         "//chromeos/crosapi/mojom",
         "//chromeos/lacros",
         "//extensions/browser/api/messaging:native_messaging",
+        "//google_apis:google_apis",
         "//remoting/host/native_messaging",
         "//remoting/protocol:errors",
       ]
@@ -159,6 +165,7 @@ if (is_chromeos_ash || is_chromeos_lacros) {
         "//remoting/base:base",
         "//remoting/host:common",
         "//remoting/host/chromeos:enterprise_support",
+        "//remoting/host/chromeos:features",
         "//remoting/host/mojom:mojom",
         "//remoting/host/native_messaging",
         "//skia",
@@ -203,10 +210,15 @@ if (!is_chromeos_ash && enable_remoting_host) {
       "//ui/gfx",
     ]
 
-    if (is_linux && !is_chromeos_lacros) {
+    if (is_linux) {
+      deps += [ "//remoting/host/linux:wayland" ]
+    }
+    if (is_linux && remoting_use_x11) {
+      defines = [ "REMOTING_USE_X11" ]
       deps += [
         "//build/config/linux/gtk",
         "//ui/events/platform/x11",
+        "//ui/gtk:gtk_config",
       ]
     }
 
@@ -221,7 +233,6 @@ if (!is_chromeos_ash && enable_remoting_host) {
 
       deps = [
         ":main_headers",
-        "//base/allocator",
         "//remoting/host/win:dpi_aware_exe_manifest",
         "//remoting/host/win:remoting_core",
         "//remoting/host/win:remoting_windows_resources",
@@ -247,7 +258,6 @@ if (!is_chromeos_ash && enable_remoting_host) {
 
       deps = [
         ":main_headers",
-        "//base/allocator",
         "//remoting/host/win:remoting_core",
         "//remoting/host/win:remoting_windows_resources",
       ]

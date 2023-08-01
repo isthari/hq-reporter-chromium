@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,28 +7,28 @@
 
 #include <memory>
 
+#include "base/cancelable_callback.h"
 #include "base/gtest_prod_util.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
 #include "chrome/browser/ui/views/frame/browser_frame_header_chromeos.h"
 #include "chrome/browser/ui/views/frame/browser_non_client_frame_view.h"
 #include "chrome/browser/ui/views/frame/immersive_mode_controller.h"
 #include "chrome/browser/ui/views/tab_icon_view_model.h"
+#include "chromeos/ui/frame/highlight_border_overlay.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_observer.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/display/display_observer.h"
 #include "ui/display/tablet_state.h"
 
-namespace {
-class WebAppNonClientFrameViewAshTest;
-}
-
 class ProfileIndicatorIcon;
 class TabIconView;
 
 namespace chromeos {
 class FrameCaptionButtonContainerView;
+class HighlightBorderOverlay;
 }  // namespace chromeos
 
 // Provides the BrowserNonClientFrameView for Chrome OS.
@@ -54,9 +54,12 @@ class BrowserNonClientFrameViewChromeOS
   // BrowserNonClientFrameView:
   gfx::Rect GetBoundsForTabStripRegion(
       const gfx::Size& tabstrip_minimum_size) const override;
+  gfx::Rect GetBoundsForWebAppFrameToolbar(
+      const gfx::Size& toolbar_preferred_size) const override;
+  void LayoutWebAppWindowTitle(const gfx::Rect& available_space,
+                               views::Label& window_title_label) const override;
   int GetTopInset(bool restored) const override;
   int GetThemeBackgroundXInset() const override;
-  void UpdateFrameColor() override;
   void UpdateThrobber(bool running) override;
   bool CanUserExitFullscreen() const override;
   SkColor GetCaptionColor(BrowserFrameActiveState active_state) const override;
@@ -116,8 +119,7 @@ class BrowserNonClientFrameViewChromeOS
   void OnImmersiveRevealEnded() override;
   void OnImmersiveFullscreenExited() override;
 
-  chromeos::FrameCaptionButtonContainerView*
-  caption_button_container_for_testing() {
+  chromeos::FrameCaptionButtonContainerView* caption_button_container() {
     return caption_button_container_;
   }
 
@@ -125,59 +127,23 @@ class BrowserNonClientFrameViewChromeOS
   // BrowserNonClientFrameView:
   void PaintAsActiveChanged() override;
   void OnProfileAvatarChanged(const base::FilePath& profile_path) override;
+  void AddedToWidget() override;
 
  private:
-  // TODO(pkasting): Test the public API or create a test helper class, don't
-  // add this many friends
-  FRIEND_TEST_ALL_PREFIXES(BrowserNonClientFrameViewChromeOSTestNoWebUiTabStrip,
-                           NonImmersiveFullscreen);
-  FRIEND_TEST_ALL_PREFIXES(BrowserNonClientFrameViewChromeOSTestNoWebUiTabStrip,
-                           CaptionButtonsHiddenNonImmersiveFullscreen);
+  friend class BrowserNonClientFrameViewChromeOSTestApi;
   FRIEND_TEST_ALL_PREFIXES(ImmersiveModeBrowserViewTestNoWebUiTabStrip,
                            ImmersiveFullscreen);
-  FRIEND_TEST_ALL_PREFIXES(BrowserNonClientFrameViewChromeOSTest,
-                           ToggleTabletModeRelayout);
-  FRIEND_TEST_ALL_PREFIXES(BrowserNonClientFrameViewChromeOSTestNoWebUiTabStrip,
-                           AvatarDisplayOnTeleportedWindow);
-  FRIEND_TEST_ALL_PREFIXES(BrowserNonClientFrameViewChromeOSTest,
-                           BrowserHeaderVisibilityInTabletModeTest);
-  FRIEND_TEST_ALL_PREFIXES(BrowserNonClientFrameViewChromeOSTest,
-                           AppHeaderVisibilityInTabletModeTest);
-  FRIEND_TEST_ALL_PREFIXES(BrowserNonClientFrameViewChromeOSTest,
-                           ImmersiveModeTopViewInset);
-  FRIEND_TEST_ALL_PREFIXES(BrowserNonClientFrameViewChromeOSTest,
-                           ToggleTabletModeOnMinimizedWindow);
-  FRIEND_TEST_ALL_PREFIXES(WebAppNonClientFrameViewAshTest,
-                           ActiveStateOfButtonMatchesWidget);
-  FRIEND_TEST_ALL_PREFIXES(BrowserNonClientFrameViewChromeOSTest,
-                           RestoreMinimizedBrowserUpdatesCaption);
-  FRIEND_TEST_ALL_PREFIXES(ImmersiveModeControllerChromeosWebAppBrowserTest,
-                           FrameLayoutToggleTabletMode);
-  FRIEND_TEST_ALL_PREFIXES(HomeLauncherBrowserNonClientFrameViewChromeOSTest,
-                           TabletModeBrowserCaptionButtonVisibility);
-  FRIEND_TEST_ALL_PREFIXES(
-      HomeLauncherBrowserNonClientFrameViewChromeOSTest,
-      CaptionButtonVisibilityForBrowserLaunchedInTabletMode);
-  FRIEND_TEST_ALL_PREFIXES(HomeLauncherBrowserNonClientFrameViewChromeOSTest,
-                           TabletModeAppCaptionButtonVisibility);
-  FRIEND_TEST_ALL_PREFIXES(NonHomeLauncherBrowserNonClientFrameViewChromeOSTest,
-                           HeaderHeightForSnappedBrowserInSplitView);
-  FRIEND_TEST_ALL_PREFIXES(TabSearchFrameCaptionButtonTest,
-                           TabSearchBubbleHostTest);
 
-  friend class WebAppNonClientFrameViewAshTest;
+  bool AppIsBorderlessPwa() const;
 
-  // Returns true if GetShowCaptionButtonsWhenNotInOverview() returns true
-  // and this browser window is not showing in overview or in fullscreen mode.
+  // Returns true if `GetShowCaptionButtonsWhenNotInOverview()` returns true
+  // and this browser window is not showing in overview.
   bool GetShowCaptionButtons() const;
 
-  // In tablet mode, to prevent accidental taps of the window controls, and to
-  // give more horizontal space for tabs and the new tab button (especially in
-  // split view), we hide the window controls even when this browser window is
-  // not showing in overview. We only do this when the Home Launcher feature is
-  // enabled, because it gives the user the ability to minimize all windows when
-  // pressing the Launcher button on the shelf. So, this function returns true
-  // if the Home Launcher feature is disabled or we are in clamshell mode.
+  // Returns whether we should show caption buttons. False for fullscreen,
+  // tablet mode and webUI tab strip in most cases. The exceptions are if this
+  // is a packaged app, as they have immersive mode enabled, and floated windows
+  // in tablet mode.
   bool GetShowCaptionButtonsWhenNotInOverview() const;
 
   // Distance between the edge of the NonClientFrameView and the web app frame
@@ -214,7 +180,7 @@ class BrowserNonClientFrameViewChromeOS
 
   void LayoutProfileIndicator();
 
-  void LayoutWindowControlsOverlay();
+  void UpdateBorderlessModeEnabled();
 
   // Returns whether this window is currently in the overview list.
   bool GetOverviewMode() const;
@@ -227,21 +193,38 @@ class BrowserNonClientFrameViewChromeOS
   // Called any time the frame color may have changed.
   void OnUpdateFrameColor();
 
+  // Called any time the theme has changed and may need to be animated.
+  void MaybeAnimateThemeChanged();
+
+  // Returns whether the associated window is currently floated or not.
+  bool IsFloated() const;
+
+  // Helper to check whether we should enable immersive mode.
+  bool ShouldEnableImmersiveModeController() const;
+
+  // True if the the associated browser window should be using the WebUI tab
+  // strip.
+  bool UseWebUITabStrip() const;
+
   // Returns the top level aura::Window for this browser window.
   const aura::Window* GetFrameWindow() const;
   aura::Window* GetFrameWindow();
 
+  // Generates a nine patch layer painted with a highlight border.
+  std::unique_ptr<HighlightBorderOverlay> highlight_border_overlay_;
+
   // View which contains the window controls.
-  chromeos::FrameCaptionButtonContainerView* caption_button_container_ =
+  raw_ptr<chromeos::FrameCaptionButtonContainerView> caption_button_container_ =
       nullptr;
 
-  TabSearchBubbleHost* tab_search_bubble_host_ = nullptr;
+  raw_ptr<TabSearchBubbleHost> tab_search_bubble_host_ = nullptr;
 
   // For popups, the window icon.
   TabIconView* window_icon_ = nullptr;
 
   // This is used for teleported windows (in multi-profile mode).
-  ProfileIndicatorIcon* profile_indicator_icon_ = nullptr;
+  raw_ptr<ProfileIndicatorIcon, DanglingUntriaged> profile_indicator_icon_ =
+      nullptr;
 
   // Helper class for painting the header.
   std::unique_ptr<chromeos::FrameHeader> frame_header_;
@@ -252,6 +235,10 @@ class BrowserNonClientFrameViewChromeOS
   absl::optional<display::ScopedDisplayObserver> display_observer_;
 
   gfx::Size last_minimum_size_;
+
+  // Callback to invoke to animate back in the layer associated with the
+  // `contents_web_view()` native view following a theme changed event.
+  base::CancelableOnceCallback<void(bool)> theme_changed_animation_callback_;
 
   base::WeakPtrFactory<BrowserNonClientFrameViewChromeOS> weak_ptr_factory_{
       this};

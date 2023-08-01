@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,16 @@
 
 #include <memory>
 
+#include "ash/public/cpp/holding_space/holding_space_client.h"
 #include "ash/webui/camera_app_ui/camera_app_ui_delegate.h"
-#include "base/callback.h"
 #include "base/files/file_path_watcher.h"
-#include "chrome/browser/ui/webui/chromeos/system_web_dialog_delegate.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
+#include "base/memory/weak_ptr.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/time/time.h"
+#include "base/timer/timer.h"
+#include "chrome/browser/ui/webui/ash/system_web_dialog_delegate.h"
 #include "content/public/browser/media_stream_request.h"
 #include "content/public/browser/web_ui.h"
 
@@ -38,7 +44,7 @@ enum ModalType;
  */
 class ChromeCameraAppUIDelegate : public ash::CameraAppUIDelegate {
  public:
-  class CameraAppDialog : public chromeos::SystemWebDialogDelegate {
+  class CameraAppDialog : public ash::SystemWebDialogDelegate {
    public:
     CameraAppDialog(const CameraAppDialog&) = delete;
     CameraAppDialog& operator=(const CameraAppDialog&) = delete;
@@ -87,6 +93,32 @@ class ChromeCameraAppUIDelegate : public ash::CameraAppUIDelegate {
     std::unique_ptr<base::FilePathWatcher> file_watcher_;
   };
 
+  class StorageMonitor {
+   public:
+    explicit StorageMonitor(
+        scoped_refptr<base::SequencedTaskRunner> task_runner);
+    StorageMonitor(const StorageMonitor&) = delete;
+    StorageMonitor& operator=(const StorageMonitor&) = delete;
+    ~StorageMonitor();
+    void StartMonitoring(
+        base::FilePath monitor_path,
+        base::RepeatingCallback<void(StorageMonitorStatus)> callback);
+    void StopMonitoring();
+    base::WeakPtr<ChromeCameraAppUIDelegate::StorageMonitor> GetWeakPtr();
+
+   private:
+    StorageMonitorStatus GetCurrentStatus();
+    void MonitorCurrentStatus();
+
+    base::RepeatingCallback<void(StorageMonitorStatus)> callback_;
+    base::RepeatingTimer timer_;
+    base::FilePath monitor_path_;
+    StorageMonitorStatus status_;
+    scoped_refptr<base::SequencedTaskRunner> task_runner_;
+    base::WeakPtrFactory<ChromeCameraAppUIDelegate::StorageMonitor>
+        weak_factory_{this};
+  };
+
   explicit ChromeCameraAppUIDelegate(content::WebUI* web_ui);
 
   ChromeCameraAppUIDelegate(const ChromeCameraAppUIDelegate&) = delete;
@@ -95,6 +127,7 @@ class ChromeCameraAppUIDelegate : public ash::CameraAppUIDelegate {
   ~ChromeCameraAppUIDelegate() override;
 
   // ash::CameraAppUIDelegate
+  ash::HoldingSpaceClient* GetHoldingSpaceClient() override;
   void SetLaunchDirectory() override;
   void PopulateLoadTimeData(content::WebUIDataSource* source) override;
   bool IsMetricsAndCrashReportingEnabled() override;
@@ -105,20 +138,41 @@ class ChromeCameraAppUIDelegate : public ash::CameraAppUIDelegate {
   void MonitorFileDeletion(
       const std::string& name,
       base::OnceCallback<void(FileMonitorResult)> callback) override;
+  void MaybeTriggerSurvey() override;
+  void StartStorageMonitor(base::RepeatingCallback<void(StorageMonitorStatus)>
+                               monitor_callback) override;
+  void StopStorageMonitor() override;
+  void OpenStorageManagement() override;
+  base::FilePath GetFilePathByName(const std::string& name) override;
 
  private:
-  base::FilePath GetFilePathByName(const std::string& name);
-  void InitFileMonitorOnFileThread();
+  base::FilePath GetMyFilesFolder();
+  void OnFileMonitorInitialized(std::unique_ptr<FileMonitor> file_monitor);
   void MonitorFileDeletionOnFileThread(
       FileMonitor* file_monitor,
       const base::FilePath& file_path,
       base::OnceCallback<void(FileMonitorResult)> callback);
 
-  content::WebUI* web_ui_;  // Owns |this|.
+  void IntializeStorageMonitor();
+  void OnStorageMonitorInitialized(std::unique_ptr<StorageMonitor> monitor);
+
+  raw_ptr<content::WebUI, ExperimentalAsh> web_ui_;  // Owns |this|.
+
+  base::Time session_start_time_;
 
   scoped_refptr<base::SequencedTaskRunner> file_task_runner_;
   // It should only be created, used and destroyed on |file_task_runner_|.
   std::unique_ptr<FileMonitor> file_monitor_;
+
+  // Storage monitor running on separate task runner.
+  scoped_refptr<base::SequencedTaskRunner> storage_task_runner_;
+  std::unique_ptr<StorageMonitor> storage_monitor_;
+  base::WeakPtr<ChromeCameraAppUIDelegate::StorageMonitor>
+      storage_monitor_weak_ptr_;
+
+  // Weak pointer for this class |ChromeCameraAppUIDelegate|, used to run on
+  // main thread (mojo thread).
+  base::WeakPtrFactory<ChromeCameraAppUIDelegate> weak_factory_{this};
 };
 
 #endif  // CHROME_BROWSER_ASH_WEB_APPLICATIONS_CAMERA_APP_CHROME_CAMERA_APP_UI_DELEGATE_H_

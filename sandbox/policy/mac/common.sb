@@ -1,4 +1,4 @@
-; Copyright 2017 The Chromium Authors. All rights reserved.
+; Copyright 2017 The Chromium Authors
 ; Use of this source code is governed by a BSD-style license that can be
 ; found in the LICENSE file.
 (version 1)
@@ -14,7 +14,6 @@
 (define bundle-id "BUNDLE_ID")
 (define bundle-path "BUNDLE_PATH")
 (define component-path "COMPONENT_PATH")
-(define current-pid "CURRENT_PID")
 (define disable-sandbox-denial-logging "DISABLE_SANDBOX_DENIAL_LOGGING")
 (define enable-logging "ENABLE_LOGGING")
 (define executable-path "EXECUTABLE_PATH")
@@ -30,10 +29,6 @@
 (define filter-syscalls "FILTER_SYSCALLS")
 (define filter-syscalls-debug "FILTER_SYSCALLS_DEBUG")
 
-; Backwards compatibility for 10.11.
-(if (not (defined? 'iokit-registry-entry-class))
-  (define iokit-registry-entry-class iokit-user-client-class))
-
 ; --enable-sandbox-logging causes the sandbox to log failures to the syslog.
 (if (param-true? disable-sandbox-denial-logging)
   (deny default (with no-log))
@@ -43,6 +38,9 @@
 
 ; Allow sending signals to self - https://crbug.com/20370
 (allow signal (target self))
+
+; TODO(rsesek): Lock down `(deny process-info*)`.
+(allow process-info-pidinfo (target self))
 
 ; Consumes a subpath and appends it to the user's homedir path.
 (define (user-homedir-path subpath)
@@ -62,8 +60,6 @@
       (global-name "com.apple.FontObjectsServer")
       (global-name "com.apple.fonts")
     )
-    (if (< os-version 1012)
-      (allow mach-lookup (global-name "com.apple.FontServer")))
     ; To allow accessing downloaded and other hidden fonts in
     ; /System/Library/Asssets/com_apple_MobileAsset_Font*.
     ; (https://crbug.com/662686)
@@ -174,12 +170,8 @@
   (path "/dev/urandom")
 )
 
-(if (>= os-version 1013)
-  (begin (allow file-read* (subpath "/private/var/db/timezone"))
-         (allow file-read-data (subpath "/usr/share/zoneinfo.default"))))
-
-(if (< os-version 1013)
-  (allow file-read-data (subpath "/usr/share/zoneinfo")))
+(allow file-read* (subpath "/private/var/db/timezone"))
+(allow file-read-data (subpath "/usr/share/zoneinfo.default"))
 
 ; Reads from /Library.
 (allow file-read-data
@@ -198,16 +190,28 @@
   (path "/System/Library/CoreServices/checkfixlist")
 )
 
+; From /System/Library/Sandbox/Profiles/dyld-support.sb on macOS 13.
+(if (>= os-version 1300)
+  (allow file-read* file-map-executable
+    (subpath "/System/Cryptexes/App")
+    (subpath "/System/Cryptexes/OS")
+    (subpath "/System/Volumes/Preboot/Cryptexes/App/System")
+    (subpath "/System/Volumes/Preboot/Cryptexes/OS")
+  )
+)
+
 ; Reads from /usr.
 (allow file-read-data
   (subpath "/usr/share/icu")
+  (subpath "/usr/share/locale")
 )
 
 ; Access to the home directory.
 (allow file-read-data
   (path (string-append (user-homedir-path "/Library/Preferences/") (param bundle-id) ".plist"))
   (path (user-homedir-path "/Library/Preferences/.GlobalPreferences.plist"))
-  (regex (user-homedir-path #"/Library/Preferences/ByHost/.GlobalPreferences.*"))
+  (path (user-homedir-path "/Library/Preferences/.GlobalPreferences_m.plist"))
+  (prefix (user-homedir-path "/Library/Preferences/ByHost/.GlobalPreferences"))
   (path (user-homedir-path "/Library/Preferences/com.apple.LaunchServices/com.apple.launchservices.secure.plist"))
 )
 
@@ -229,6 +233,9 @@
   (sysctl-name "hw.logicalcpu_max")
   (sysctl-name "hw.machine")
   (sysctl-name "hw.ncpu")
+  (sysctl-name "hw.nperflevels")
+  (sysctl-name "hw.optional.arm.FEAT_SHA512")
+  (sysctl-name "hw.optional.armv8_2_sha512")
   (sysctl-name "hw.pagesize_compat")
   (sysctl-name "hw.physicalcpu_max")
   (sysctl-name "hw.tbfrequency_compat")
@@ -244,7 +251,7 @@
   (sysctl-name "kern.usrstack64")
   (sysctl-name "kern.version")
   (sysctl-name "sysctl.proc_cputype")
-  (sysctl-name (string-append "kern.proc.pid." (param current-pid)))
+  (sysctl-name-prefix "hw.perflevel")
 )
 
 (allow network-outbound
@@ -335,3 +342,13 @@
       (syscall-number SYS_workq_kernreturn)
       (syscall-number SYS_workq_open)
 )))
+
+; Explicit denials. These are already covered by the blanket `(deny default)`,
+; but benefit from explanation as to why they're denied.
+(deny mach-lookup
+  ; CFPreferences falls back to in-process access to preference plists, known as
+  ; direct mode, when cfprefsd is inaccessible. This in-process access ensures
+  ; that our sandbox policy limits which preference domains can be accessed via
+  ; CFPreferences or NSUserDefaults.
+  (global-name "com.apple.cfprefsd.daemon")
+)

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,7 +21,6 @@ struct AccessPointData {
   int radio_signal_strength;  // Measured in dBm
   int channel;
   int signal_to_noise;  // Ratio in dB
-  std::u16string ssid;  // Network identifier
 };
 
 // This is to allow AccessPointData to be used in std::set. We order

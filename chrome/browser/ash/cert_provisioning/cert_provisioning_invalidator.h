@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,18 +7,21 @@
 
 #include <memory>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
+#include "base/memory/raw_ptr.h"
 #include "base/scoped_observation.h"
 #include "base/sequence_checker.h"
 #include "chrome/browser/ash/policy/invalidation/affiliated_invalidation_service_provider.h"
 #include "components/invalidation/public/invalidation_handler.h"
-#include "components/invalidation/public/invalidation_service.h"
 #include "components/invalidation/public/invalidation_util.h"
 
 class Profile;
 
-namespace ash {
-namespace cert_provisioning {
+namespace invalidation {
+class InvalidationService;
+}  // namespace invalidation
+
+namespace ash::cert_provisioning {
 
 enum class CertScope;
 
@@ -92,7 +95,8 @@ class CertProvisioningInvalidationHandler
   const CertScope scope_;
 
   // An invalidation service providing the handler with incoming invalidations.
-  invalidation::InvalidationService* const invalidation_service_;
+  const raw_ptr<invalidation::InvalidationService, ExperimentalAsh>
+      invalidation_service_;
 
   // A topic representing certificate invalidations.
   const invalidation::Topic topic_;
@@ -103,11 +107,8 @@ class CertProvisioningInvalidationHandler
   // Automatically unregisters `this` as an observer on destruction. Should be
   // destroyed first so the other fields are still valid and can be used during
   // the unregistration.
-  base::ScopedObservation<
-      invalidation::InvalidationService,
-      invalidation::InvalidationHandler,
-      &invalidation::InvalidationService::RegisterInvalidationHandler,
-      &invalidation::InvalidationService::UnregisterInvalidationHandler>
+  base::ScopedObservation<invalidation::InvalidationService,
+                          invalidation::InvalidationHandler>
       invalidation_service_observation_{this};
 };
 
@@ -163,7 +164,7 @@ class CertProvisioningUserInvalidatorFactory
   std::unique_ptr<CertProvisioningInvalidator> Create() override;
 
  private:
-  Profile* profile_ = nullptr;
+  raw_ptr<Profile, ExperimentalAsh> profile_ = nullptr;
 };
 
 //=============== CertProvisioningUserInvalidator ==============================
@@ -176,7 +177,7 @@ class CertProvisioningUserInvalidator : public CertProvisioningInvalidator {
                 OnInvalidationCallback on_invalidation_callback) override;
 
  private:
-  Profile* profile_ = nullptr;
+  raw_ptr<Profile, ExperimentalAsh> profile_ = nullptr;
 };
 
 //=============== CertProvisioningDeviceInvalidatorFactory =====================
@@ -191,7 +192,8 @@ class CertProvisioningDeviceInvalidatorFactory
   std::unique_ptr<CertProvisioningInvalidator> Create() override;
 
  private:
-  policy::AffiliatedInvalidationServiceProvider* service_provider_ = nullptr;
+  raw_ptr<policy::AffiliatedInvalidationServiceProvider, ExperimentalAsh>
+      service_provider_ = nullptr;
 };
 
 //=============== CertProvisioningDeviceInvalidator ============================
@@ -215,10 +217,10 @@ class CertProvisioningDeviceInvalidator
 
   invalidation::Topic topic_;
   OnInvalidationCallback on_invalidation_callback_;
-  policy::AffiliatedInvalidationServiceProvider* service_provider_ = nullptr;
+  raw_ptr<policy::AffiliatedInvalidationServiceProvider, ExperimentalAsh>
+      service_provider_ = nullptr;
 };
 
-}  // namespace cert_provisioning
-}  // namespace ash
+}  // namespace ash::cert_provisioning
 
 #endif  // CHROME_BROWSER_ASH_CERT_PROVISIONING_CERT_PROVISIONING_INVALIDATOR_H_

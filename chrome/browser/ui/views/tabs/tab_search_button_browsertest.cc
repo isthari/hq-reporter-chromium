@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 
 #include "base/feature_list.h"
 #include "base/run_loop.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/browser.h"
@@ -33,15 +34,6 @@ ui::MouseEvent GetDummyEvent() {
 
 class TabSearchButtonBrowserTest : public InProcessBrowserTest {
  public:
-#if BUILDFLAG(IS_WIN)
-  // InProcessBrowserTest:
-  void SetUp() override {
-    scoped_feature_list_.InitAndDisableFeature(
-        features::kWin10TabSearchCaptionButton);
-    InProcessBrowserTest::SetUp();
-  }
-#endif  // BUILDFLAG(IS_WIN);
-
   BrowserView* browser_view() {
     return BrowserView::GetBrowserViewForBrowser(browser());
   }
@@ -61,16 +53,11 @@ class TabSearchButtonBrowserTest : public InProcessBrowserTest {
   void RunUntilBubbleWidgetDestroyed() {
     ASSERT_NE(nullptr, bubble_manager()->GetBubbleWidget());
     base::RunLoop run_loop;
-    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                  run_loop.QuitClosure());
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, run_loop.QuitClosure());
     run_loop.Run();
     ASSERT_EQ(nullptr, bubble_manager()->GetBubbleWidget());
   }
-
-#if BUILDFLAG(IS_WIN)
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
-#endif  // BUILDFLAG(IS_WIN);
 };
 
 IN_PROC_BROWSER_TEST_F(TabSearchButtonBrowserTest, ButtonClickCreatesBubble) {
@@ -87,13 +74,6 @@ IN_PROC_BROWSER_TEST_F(TabSearchButtonBrowserTest, ButtonClickCreatesBubble) {
 class TabSearchButtonBrowserUITest : public DialogBrowserTest {
  public:
   // DialogBrowserTest:
-#if BUILDFLAG(IS_WIN)
-  void SetUp() override {
-    scoped_feature_list_.InitAndDisableFeature(
-        features::kWin10TabSearchCaptionButton);
-    DialogBrowserTest::SetUp();
-  }
-#endif  // BUILDFLAG(IS_WIN);
   void ShowUi(const std::string& name) override {
     AppendTab(chrome::kChromeUISettingsURL);
     AppendTab(chrome::kChromeUIHistoryURL);
@@ -107,11 +87,6 @@ class TabSearchButtonBrowserUITest : public DialogBrowserTest {
   void AppendTab(std::string url) {
     chrome::AddTabAt(browser(), GURL(url), -1, true);
   }
-
-#if BUILDFLAG(IS_WIN)
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
-#endif  // BUILDFLAG(IS_WIN);
 };
 
 // Invokes a tab search bubble.

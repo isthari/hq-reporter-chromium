@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,20 @@ import {FilesAppState} from '../../common/js/files_app_state.js';
 import {ProgressCenterItem} from '../../common/js/progress_center_common.js';
 import {util} from '../../common/js/util.js';
 
-import {background} from './background.js';
+import {background} from './file_manager_base.js';
 import {launcher} from './launcher.js';
 import {test} from './test_util_base.js';
 
 export {test};
 
+/**
+ * Sanitizes the formatted date. Replaces unusual space with normal space.
+ * @param {string} strDate the date already in the string format.
+ * @return {string}
+ */
+export function sanitizeDate(strDate) {
+  return strDate.replace('\u202f', ' ');
+}
 /**
  * Opens the main Files app's window and waits until it is ready.
  *
@@ -64,7 +72,7 @@ test.util.sync.getFileList = contentWindow => {
       row.querySelector('.filename-label').textContent,
       row.querySelector('.size').textContent,
       row.querySelector('.type').textContent,
-      row.querySelector('.date').textContent
+      sanitizeDate(row.querySelector('.date').textContent || ''),
     ]);
   }
   return fileList;
@@ -109,7 +117,7 @@ test.util.sync.selectFile = (contentWindow, filename) => {
     test.util.sync.fakeKeyDown(
         contentWindow, '#file-list', 'ArrowDown', false, false, false);
   }
-  console.error('Failed to select file "' + filename + '"');
+  console.warn('Failed to select file "' + filename + '"');
   return false;
 };
 
@@ -185,7 +193,7 @@ test.util.async.selectInDirectoryTree =
           callback(
               test.util.sync.fakeMouseDown(contentWindow, query) &&
               test.util.sync.fakeMouseClick(contentWindow, query));
-        }
+        },
       };
       steps.checkQuery();
     };
@@ -359,7 +367,7 @@ test.util.sync.deleteFile = (contentWindow, filename) => {
  */
 test.util.sync.execCommand = (contentWindow, command) => {
   const ret = contentWindow.document.execCommand(command);
-  if (!ret && contentWindow.isSWA) {
+  if (!ret) {
     // TODO(b/191831968): Fix execCommand for SWA.
     console.warn(
         `execCommand(${command}) returned false for SWA, forcing ` +
@@ -375,13 +383,20 @@ test.util.sync.execCommand = (contentWindow, command) => {
  * @param {Window} contentWindow Window to be tested.
  * @param {Array<Object>} taskList List of tasks to be returned in
  *     fileManagerPrivate.getFileTasks().
+ * @param {boolean}
+ *     isPolicyDefault Whether the default is set by policy.
  * @return {boolean} Always return true.
  */
-test.util.sync.overrideTasks = (contentWindow, taskList) => {
-  const getFileTasks = (entries, onTasks) => {
+test.util.sync
+    .overrideTasks = (contentWindow, taskList, isPolicyDefault = false) => {
+  const getFileTasks = (entries, sourceUrls, onTasks) => {
     // Call onTask asynchronously (same with original getFileTasks).
     setTimeout(() => {
-      onTasks(taskList);
+      const policyDefaultHandlerStatus = isPolicyDefault ?
+          chrome.fileManagerPrivate.PolicyDefaultHandlerStatus
+              .DEFAULT_HANDLER_ASSIGNED_BY_POLICY :
+          undefined;
+      onTasks({tasks: taskList, policyDefaultHandlerStatus});
     }, 0);
   };
 
@@ -406,15 +421,20 @@ test.util.sync.overrideTasks = (contentWindow, taskList) => {
 /**
  * Obtains the list of executed tasks.
  * @param {Window} contentWindow Window to be tested.
- * @return {Array<!chrome.fileManagerPrivate.FileTaskDescriptor>} List of
- *     executed tasks.
+ * @return {Array<!{{descriptor: chrome.fileManagerPrivate.FileTaskDescriptor,
+ *     fileNames: !Array<string>}}>} List of executed tasks.
  */
 test.util.sync.getExecutedTasks = contentWindow => {
   if (!test.util.executedTasks_) {
     console.error('Please call overrideTasks() first.');
     return null;
   }
-  return test.util.executedTasks_.map(task => task.descriptor);
+  return test.util.executedTasks_.map(task => {
+    return {
+      descriptor: task.descriptor,
+      fileNames: task.entries.map(e => e.name),
+    };
+  });
 };
 
 /**
@@ -422,14 +442,23 @@ test.util.sync.getExecutedTasks = contentWindow => {
  * @param {Window} contentWindow Window to be tested.
  * @param {!chrome.fileManagerPrivate.FileTaskDescriptor} descriptor the task to
  *     check.
+ * @param {!Array<string>} fileNames Name of files that should have been passed
+ *     to the executeTasks().
  * @return {boolean} True if the task was executed.
  */
-test.util.sync.taskWasExecuted = (contentWindow, descriptor) => {
+test.util.sync.taskWasExecuted = (contentWindow, descriptor, fileNames) => {
   if (!test.util.executedTasks_) {
     console.error('Please call overrideTasks() first.');
     return null;
   }
-  return !!test.util.executedTasks_.find(util.descriptorEqual.bind(descriptor));
+  const task = test.util.executedTasks_.find(
+      task => util.descriptorEqual(task.descriptor, descriptor));
+  if (!task) {
+    return false;
+  }
+
+  return JSON.stringify(fileNames) ===
+      JSON.stringify(task.entries.map(e => e.name));
 };
 
 /**
@@ -465,26 +494,20 @@ test.util.sync.unload = contentWindow => {
 };
 
 /**
- * Returns the path shown in the location line breadcrumb.
+ * Returns the path shown in the breadcrumb.
  *
  * @param {Window} contentWindow Window to be tested.
  * @return {string} The breadcrumb path.
  */
 test.util.sync.getBreadcrumbPath = contentWindow => {
-  const breadcrumb =
-      contentWindow.document.querySelector('#location-breadcrumbs');
+  const doc = contentWindow.document;
+  const breadcrumb = doc.querySelector('#location-breadcrumbs xf-breadcrumb');
+
   if (!breadcrumb) {
     return '';
   }
 
-  let path = '';
-
-  const crumbs = breadcrumb.querySelector('bread-crumb');
-  if (crumbs) {
-    path = '/' + crumbs.path;
-  }
-
-  return path;
+  return '/' + breadcrumb.path;
 };
 
 /**
@@ -663,6 +686,12 @@ test.util.PrepareFake = class {
      * @private {number}
      */
     this.callCounter_ = 0;
+
+    /**
+     * List to record the arguments provided to the static fake calls.
+     * @private {!Array}
+     */
+    this.calledArgs_ = [];
   }
 
   /**
@@ -700,6 +729,7 @@ test.util.PrepareFake = class {
     this.parentObject_[this.leafAttrName_] = (...args) => {
       this.fake_(...args);
       this.callCounter_++;
+      this.calledArgs_.push([...args]);
     };
   }
 
@@ -882,6 +912,19 @@ test.util.sync.staticFakeCounter = (contentWindow, fakedApi) => {
 };
 
 /**
+ * Obtains the list of arguments with which the static fake api was called.
+ * @param {Window} contentWindow Window to be tested.
+ * @param {string} fakedApi Path of the method that is faked.
+ * @param {!Array<!Array<*>>} An array with all calls to this fake, each item is
+ *     an array with all args passed in when the fake was called.
+ */
+test.util.sync.staticFakeCalledArgs = (contentWindow, fakedApi) => {
+  const fake =
+      test.util.foregroundReplacedObjects_[contentWindow.appID][fakedApi];
+  return fake.calledArgs_;
+};
+
+/**
  * Send progress item to Foreground page to display.
  * @param {string} id Progress item id.
  * @param {ProgressItemType} type Type of progress item.
@@ -908,8 +951,3 @@ test.util.sync.sendProgressItem =
       background.progressCenter.updateItem(item);
       return true;
     };
-
-// Register the test utils, however the SWA uses a different util.
-if (!window.isSWA) {
-  test.util.registerRemoteTestUtils();
-}

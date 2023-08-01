@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import android.content.Intent;
-import android.os.Build.VERSION_CODES;
-import android.support.test.InstrumentationRegistry;
 
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.LargeTest;
 
 import org.hamcrest.Matchers;
@@ -28,8 +27,7 @@ import org.chromium.base.test.params.ParameterizedRunner;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
-import org.chromium.base.test.util.DisableIf;
-import org.chromium.chrome.browser.customtabs.CustomTabsTestUtils;
+import org.chromium.chrome.browser.customtabs.CustomTabsIntentTestUtils;
 import org.chromium.chrome.browser.customtabs.IncognitoCustomTabActivityTestRule;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
@@ -78,7 +76,8 @@ public class IncognitoHistoryLeakageTest {
 
     @Before
     public void setUp() throws TimeoutException {
-        mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
+        mTestServer = EmbeddedTestServer.createAndStartServer(
+                ApplicationProvider.getApplicationContext());
         mTestPage1 = mTestServer.getURL(TEST_PAGE_1);
         mTestPage2 = mTestServer.getURL(TEST_PAGE_2);
 
@@ -112,6 +111,10 @@ public class IncognitoHistoryLeakageTest {
         return historyObserver.getHistoryQueryResults();
     }
 
+    /**
+     * A general class providing test parameters encapsulating different Activity type pairs
+     * spliced on Regular and Incognito mode between whom we want to test leakage.
+     */
     public static class AllTypesToAllTypes implements ParameterProvider {
         @Override
         public List<ParameterSet> getParameters() {
@@ -125,8 +128,6 @@ public class IncognitoHistoryLeakageTest {
 
     @Test
     @LargeTest
-    @DisableIf.Build(message = "Flaky on Android M, see https://crbug.com/1184759",
-            sdk_is_greater_than = VERSION_CODES.LOLLIPOP_MR1, sdk_is_less_than = VERSION_CODES.N)
     public void
     testBrowsingHistoryDoNotLeakFromIncognitoTabbedActivity() throws TimeoutException {
         mChromeActivityTestRule.startMainActivityOnBlankPage();
@@ -140,8 +141,8 @@ public class IncognitoHistoryLeakageTest {
     @LargeTest
     public void testBrowsingHistoryDoNotLeakFromIncognitoCustomTabActivity()
             throws TimeoutException {
-        Intent intent = CustomTabsTestUtils.createMinimalIncognitoCustomTabIntent(
-                InstrumentationRegistry.getContext(), mTestPage1);
+        Intent intent = CustomTabsIntentTestUtils.createMinimalIncognitoCustomTabIntent(
+                ApplicationProvider.getApplicationContext(), mTestPage1);
         mCustomTabActivityTestRule.startCustomTabActivityWithIntent(intent);
         List<HistoryItem> historyEntriesOfIncognitoMode =
                 getBrowsingHistory(mCustomTabActivityTestRule.getActivity().getActivityTab());

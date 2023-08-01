@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include "ash/components/arc/session/connection_observer.h"
 #include "ash/public/cpp/external_arc/message_center/arc_notification_surface_manager.h"
 #include "base/callback_list.h"
+#include "base/memory/raw_ptr.h"
 #include "chrome/browser/ash/accessibility/accessibility_manager.h"
 #include "chrome/browser/ash/arc/accessibility/accessibility_helper_instance_remote_proxy.h"
 #include "chrome/browser/ash/arc/accessibility/arc_accessibility_tree_tracker.h"
@@ -113,6 +114,8 @@ class ArcAccessibilityHelperBridge
     return tree_tracker_.trees_for_test();
   }
 
+  static void EnsureFactoryBuilt();
+
  private:
   // virtual for testing.
   virtual extensions::EventRouter* GetEventRouter() const;
@@ -125,6 +128,10 @@ class ArcAccessibilityHelperBridge
   void OnGetTextLocationDataResult(
       const ui::AXActionData& data,
       const absl::optional<gfx::Rect>& result_rect) const;
+
+  void PopulateActionParameters(
+      const ui::AXActionData& chrome_data,
+      arc::mojom::AccessibilityActionData& action_data) const;
 
   absl::optional<gfx::Rect> OnGetTextLocationDataResultInternal(
       const ui::AXTreeID& ax_tree_id,
@@ -141,8 +148,8 @@ class ArcAccessibilityHelperBridge
 
   bool is_focus_event_enabled_ = false;
   bool use_full_focus_mode_ = false;
-  Profile* const profile_;
-  ArcBridgeService* const arc_bridge_service_;
+  const raw_ptr<Profile, ExperimentalAsh> profile_;
+  const raw_ptr<ArcBridgeService, ExperimentalAsh> arc_bridge_service_;
 
   const AccessibilityHelperInstanceRemoteProxy accessibility_helper_instance_;
 

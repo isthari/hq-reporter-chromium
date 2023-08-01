@@ -94,6 +94,25 @@ NOTE: The typescript generator extends the css generator, as such the css that
 the typescript file generates will respect the prefix option defined in
 options.css.prefix.
 
+**Preblend**
+
+```
+{
+    options: {
+        CSS: {
+            preblend: true
+        }
+    },
+    colors: {
+        color: 'blend(black, rgba(255, 255, 255, .3))'
+    }
+}
+```
+
+By default the css generator will output blends as `color-mix` calls. However
+when preblend is specified as true this is ignored and all blends are preblended
+at compile time and their final rgb value is outputted to the css.
+
 **Dark mode selector**
 
 `--generator-option 'dark_mode_selector=html[dark]'`
@@ -122,13 +141,6 @@ This should only be used if you want to generate a stylesheet for testing where
 you can control the switch to dark/light mode, in production always prefer to
 use the default behavior which will respect operating system level dark mode
 switches.
-
-**Debug placeholder**
-
-`--generator-option 'debug_placeholder=$i18n{CROS_COLORS_DEBUG_OVERRIDES}'`
-
-Adds the given token to the CSS output. Chromium will overwrite this token with
-the debug color CSS when the file is served and debug colors are enabled.
 
 **Suppress Sources Comment**
 

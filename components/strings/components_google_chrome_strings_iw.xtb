@@ -8,7 +8,6 @@
 <translation id="2588322182880276190">‏הלוגו של Chrome</translation>
 <translation id="3444832043240812445">דף זה מציג מידע על הקריסות האחרונות בלבד אם <ph name="BEGIN_LINK" />תפעיל את אפשרות הדיווח על קריסות<ph name="END_LINK" />.</translation>
 <translation id="3875312571075912821">‏כדאי לשנות את הגדרות חומת האש או האנטי-וירוס כדי לאפשר ל-Chrome לגשת לרשת.</translation>
-<translation id="4010643444566880169">‏מערכת ההפעלה של Chrome לא השלימה את ההגדרה הראשונית.</translation>
 <translation id="5005121315113832363">‏הדף הזה נחסם על ידי Chrome</translation>
 <translation id="6011049234605203654">‏יש לעבור אל
           תפריט Chrome‏ &gt;
@@ -40,4 +39,6 @@
 <translation id="8187289872471304532">‏יש לעבור אל
           'יישומים' &gt; 'העדפות מערכת' &gt; 'רשת' &gt; 'מתקדם' &gt; שרתי Proxy'
           ולבטל את הבחירה בשרתי proxy שנבחרו.</translation>
+<translation id="8232971017369963250">‏Chrome קיים הודות לפרויקט הקוד הפתוח של <ph name="BEGIN_LINK_CHROMIUM" />Chromium<ph name="END_LINK_CHROMIUM" />.</translation>
+<translation id="8279509328145658601">‏Chrome קיים גם הודות ל<ph name="BEGIN_LINK_OSS" />תוכנת קוד פתוח<ph name="END_LINK_OSS" /> אחרת.</translation>
 </translationbundle>

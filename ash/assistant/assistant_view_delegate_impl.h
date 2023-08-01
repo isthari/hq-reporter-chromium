@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <string>
 
 #include "ash/assistant/ui/assistant_view_delegate.h"
+#include "base/memory/raw_ptr.h"
 
 namespace ash {
 
@@ -37,7 +38,6 @@ class AssistantViewDelegateImpl : public AssistantViewDelegate {
   bool IsTabletMode() const override;
   void OnDialogPlateButtonPressed(AssistantButtonId id) override;
   void OnDialogPlateContentsCommitted(const std::string& text) override;
-  void OnHostViewVisibilityChanged(bool visible) override;
   void OnNotificationButtonPressed(const std::string& notification_id,
                                    int notification_button_index) override;
   void OnOnboardingShown() override;
@@ -47,7 +47,7 @@ class AssistantViewDelegateImpl : public AssistantViewDelegate {
   bool ShouldShowOnboarding() const override;
 
  private:
-  AssistantControllerImpl* const assistant_controller_;
+  const raw_ptr<AssistantControllerImpl, ExperimentalAsh> assistant_controller_;
   base::ObserverList<AssistantViewDelegateObserver> view_delegate_observers_;
 };
 

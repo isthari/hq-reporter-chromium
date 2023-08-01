@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,6 +40,12 @@ class NavigationImpl : public Navigation {
   bool should_stop_when_throttle_created() const {
     return should_stop_when_throttle_created_;
   }
+  void set_should_block_when_throttle_created() {
+    should_block_when_throttle_created_ = true;
+  }
+  bool should_block_when_throttle_created() const {
+    return should_block_when_throttle_created_;
+  }
 
   void set_safe_to_set_request_headers(bool value) {
     safe_to_set_request_headers_ = value;
@@ -71,6 +77,8 @@ class NavigationImpl : public Navigation {
 
   void set_finished() { finished_ = true; }
 
+  void set_consenting_content(bool value) { is_consenting_content_ = value; }
+
 #if BUILDFLAG(IS_ANDROID)
   int GetState(JNIEnv* env) { return static_cast<int>(GetState()); }
   base::android::ScopedJavaLocalRef<jstring> GetUri(JNIEnv* env);
@@ -78,6 +86,7 @@ class NavigationImpl : public Navigation {
   int GetHttpStatusCode(JNIEnv* env) { return GetHttpStatusCode(); }
   base::android::ScopedJavaLocalRef<jobjectArray> GetResponseHeaders(
       JNIEnv* env);
+  jboolean GetIsConsentingContent(JNIEnv* env);
   bool IsSameDocument(JNIEnv* env) { return IsSameDocument(); }
   bool IsErrorPage(JNIEnv* env) { return IsErrorPage(); }
   bool IsDownload(JNIEnv* env) { return IsDownload(); }
@@ -102,6 +111,7 @@ class NavigationImpl : public Navigation {
   base::android::ScopedJavaLocalRef<jstring> GetReferrer(JNIEnv* env);
   jlong GetPage(JNIEnv* env);
   int GetNavigationEntryOffset(JNIEnv* env);
+  jboolean WasFetchedFromCache(JNIEnv* env);
 
   void SetResponse(
       std::unique_ptr<embedder_support::WebResourceResponse> response);
@@ -113,6 +123,8 @@ class NavigationImpl : public Navigation {
     return java_navigation_;
   }
 #endif
+
+  std::string GetNormalizedHeader(const std::string& name);
 
   // Navigation implementation:
   GURL GetURL() override;
@@ -137,6 +149,7 @@ class NavigationImpl : public Navigation {
   GURL GetReferrer() override;
   Page* GetPage() override;
   int GetNavigationEntryOffset() override;
+  bool WasFetchedFromCache() override;
 
  private:
   raw_ptr<content::NavigationHandle> navigation_handle_;
@@ -148,6 +161,9 @@ class NavigationImpl : public Navigation {
   // Used to delay calling Stop() until safe. See
   // NavigationControllerImpl::NavigationThrottleImpl for details.
   bool should_stop_when_throttle_created_ = false;
+
+  // Used to prevent URLs from loading. Only set when starting navigation.
+  bool should_block_when_throttle_created_ = false;
 
   // Whether SetRequestHeader() is allowed at this time.
   bool safe_to_set_request_headers_ = false;
@@ -176,6 +192,8 @@ class NavigationImpl : public Navigation {
 
   // Whether this navigation has finished.
   bool finished_ = false;
+
+  bool is_consenting_content_ = false;
 
 #if BUILDFLAG(IS_ANDROID)
   base::android::ScopedJavaGlobalRef<jobject> java_navigation_;

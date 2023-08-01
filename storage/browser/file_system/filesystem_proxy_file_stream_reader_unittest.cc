@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,17 +10,18 @@
 #include <memory>
 #include <string>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/run_loop.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread.h"
+#include "base/time/time.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
 #include "net/base/test_completion_callback.h"
@@ -60,7 +61,7 @@ class FilesystemProxyFileStreamReaderTest : public FileStreamReaderTest {
                  size_t buf_size,
                  base::Time* modification_time) override {
     base::FilePath path = test_dir().AppendASCII(file_name);
-    base::WriteFile(path, buf, buf_size);
+    base::WriteFile(path, base::StringPiece(buf, buf_size));
 
     base::File::Info file_info;
     ASSERT_TRUE(base::GetFileInfo(path, &file_info));

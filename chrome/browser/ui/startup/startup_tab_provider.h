@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,8 +11,12 @@
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/ui/startup/startup_tab.h"
-#include "chrome/browser/ui/startup/startup_types.h"
+#include "components/signin/public/base/signin_buildflags.h"
 #include "url/gurl.h"
+
+#if BUILDFLAG(IS_WIN)
+#include "chrome/browser/ui/startup/startup_types.h"
+#endif
 
 class Profile;
 class StartupBrowserCreator;
@@ -21,6 +25,10 @@ struct SessionStartupPref;
 namespace base {
 class CommandLine;
 }  // namespace base
+
+namespace extensions {
+class ExtensionRegistry;
+}  // namespace extensions
 
 // Provides the sets of tabs to be shown at startup for given sets of policy.
 // For instance, this class answers the question, "which tabs, if any, need to
@@ -87,15 +95,16 @@ class StartupTabProvider {
       const base::CommandLine& command_line,
       const base::FilePath& cur_dir) const = 0;
 
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
-  // Returns the URLs given via the crosapi BrowserInitParams with
-  // kOpenWindowWithUrls action.
-  virtual StartupTabs GetCrosapiTabs() const = 0;
-#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
-
 #if !BUILDFLAG(IS_ANDROID)
   // Returns tabs related to the What's New UI (if applicable).
   virtual StartupTabs GetNewFeaturesTabs(bool whats_new_enabled) const = 0;
+
+  // Returns tabs required for the Privacy Sandbox confirmation dialog. If a
+  // suitable tab is present in |other_startup_tabs| no tab is returned,
+  // otherwise a suitable tab based on |profile| is returned.
+  virtual StartupTabs GetPrivacySandboxTabs(
+      Profile* profile,
+      const StartupTabs& other_startup_tabs) const = 0;
 #endif  // !BUILDFLAG(IS_ANDROID)
 };
 
@@ -119,6 +128,7 @@ class StartupTabProviderImpl : public StartupTabProvider {
   // system state relating to making those policy decisions. Exposed for
   // testing.
 
+#if BUILDFLAG(ENABLE_DICE_SUPPORT)
   // Returns true if showing the standard welcome page is permissible.
   static bool CanShowWelcome(bool is_signin_allowed,
                              bool is_supervised_user,
@@ -128,6 +138,7 @@ class StartupTabProviderImpl : public StartupTabProvider {
   // should only be used following a positive result from CanShowWelcome.
   static bool ShouldShowWelcomeForOnboarding(bool has_seen_welcome_page,
                                              bool is_signed_in);
+#endif
 
   // Determines which tabs should be shown according to onboarding/first
   // run policy.
@@ -171,14 +182,24 @@ class StartupTabProviderImpl : public StartupTabProvider {
 #if !BUILDFLAG(IS_ANDROID)
   // Determines if the what's new page should be shown.
   static StartupTabs GetNewFeaturesTabsForState(bool whats_new_enabled);
+
+  // Determines whether an additional tab to display the Privacy Sandbox
+  // confirmation dialog over is required, and if so, the URL of that tab.
+  // |ntp_url| must be the final NTP location, and not the generic new tab url.
+  static StartupTabs GetPrivacySandboxTabsForState(
+      extensions::ExtensionRegistry* extension_registry,
+      const GURL& ntp_url,
+      const StartupTabs& other_startup_tabs);
 #endif
 
+#if BUILDFLAG(ENABLE_DICE_SUPPORT)
   // Gets the URL for the Welcome page. If |use_later_run_variant| is true, a
   // URL parameter will be appended so as to access the variant page used when
   // onboarding occurs after the first Chrome execution (e.g., when creating an
   // additional profile).
   // TODO(hcarmona): it might be possible to deprecate use_later_run_variant.
   static GURL GetWelcomePageUrl(bool use_later_run_variant);
+#endif
 
   // In branded Windows builds, adds the URL for the Incompatible Applications
   // subpage of the Chrome settings.
@@ -216,12 +237,11 @@ class StartupTabProviderImpl : public StartupTabProvider {
       const base::CommandLine& command_line,
       const base::FilePath& cur_dir) const override;
 
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
-  StartupTabs GetCrosapiTabs() const override;
-#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
-
 #if !BUILDFLAG(IS_ANDROID)
   StartupTabs GetNewFeaturesTabs(bool whats_new_enabled) const override;
+  StartupTabs GetPrivacySandboxTabs(
+      Profile* profile,
+      const StartupTabs& other_startup_tabs) const override;
 #endif  // !BUILDFLAG(IS_ANDROID)
 
  private:

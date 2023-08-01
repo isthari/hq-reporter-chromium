@@ -1,14 +1,14 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/tabs/synced_window_delegate_browser_agent.h"
+#import "ios/chrome/browser/tabs/synced_window_delegate_browser_agent.h"
 
-#include "base/check_op.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/sessions/ios_chrome_session_tab_helper.h"
-#include "ios/chrome/browser/sync/ios_chrome_synced_tab_delegate.h"
-#import "ios/chrome/browser/web_state_list/web_state_list.h"
+#import "base/check_op.h"
+#import "ios/chrome/browser/sessions/ios_chrome_session_tab_helper.h"
+#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/sync/ios_chrome_synced_tab_delegate.h"
 #import "ios/web/public/navigation/navigation_manager.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)

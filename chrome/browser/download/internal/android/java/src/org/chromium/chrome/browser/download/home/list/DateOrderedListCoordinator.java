@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,6 @@ import org.chromium.base.Callback;
 import org.chromium.base.DiscardableReferencePool;
 import org.chromium.base.Log;
 import org.chromium.base.supplier.Supplier;
-import org.chromium.chrome.browser.download.dialogs.DownloadLaterDialogHelper;
 import org.chromium.chrome.browser.download.home.DownloadManagerUiConfig;
 import org.chromium.chrome.browser.download.home.FaviconProvider;
 import org.chromium.chrome.browser.download.home.StableIds;
@@ -24,15 +23,14 @@ import org.chromium.chrome.browser.download.home.empty.EmptyCoordinator;
 import org.chromium.chrome.browser.download.home.filter.FilterCoordinator;
 import org.chromium.chrome.browser.download.home.filter.Filters.FilterType;
 import org.chromium.chrome.browser.download.home.list.ListItem.ViewListItem;
-import org.chromium.chrome.browser.download.home.metrics.FilterChangeLogger;
 import org.chromium.chrome.browser.download.home.rename.RenameDialogManager;
 import org.chromium.chrome.browser.download.home.storage.StorageCoordinator;
 import org.chromium.chrome.browser.download.home.toolbar.ToolbarCoordinator;
 import org.chromium.chrome.browser.download.internal.R;
+import org.chromium.components.browser_ui.widget.gesture.BackPressHandler;
 import org.chromium.components.browser_ui.widget.selectable_list.SelectionDelegate;
 import org.chromium.components.offline_items_collection.OfflineContentProvider;
 import org.chromium.components.offline_items_collection.OfflineItem;
-import org.chromium.components.prefs.PrefService;
 import org.chromium.ui.modaldialog.ModalDialogManager;
 
 import java.util.List;
@@ -105,7 +103,6 @@ public class DateOrderedListCoordinator implements ToolbarCoordinator.ToolbarLis
      *                                  components that need to take action based on the visual
      *                                  state of the list.
      * @param dateOrderedListObserver   A {@link DateOrderedListObserver}.
-     * @param prefService               Used to update user preferences.
      * @param discardableReferencePool  A {@linK DiscardableReferencePool} reference to use for
      *                                  large objects (e.g. bitmaps) in the UI.
      */
@@ -114,8 +111,7 @@ public class DateOrderedListCoordinator implements ToolbarCoordinator.ToolbarLis
             DeleteController deleteController, SelectionDelegate<ListItem> selectionDelegate,
             FilterCoordinator.Observer filterObserver,
             DateOrderedListObserver dateOrderedListObserver, ModalDialogManager modalDialogManager,
-            PrefService prefService, FaviconProvider faviconProvider,
-            DiscardableReferencePool discardableReferencePool) {
+            FaviconProvider faviconProvider, DiscardableReferencePool discardableReferencePool) {
         mContext = context;
 
         ListItemModel model = new ListItemModel();
@@ -124,8 +120,7 @@ public class DateOrderedListCoordinator implements ToolbarCoordinator.ToolbarLis
                 new DateOrderedListView(context, config, decoratedModel, dateOrderedListObserver);
         mRenameDialogManager = new RenameDialogManager(context, modalDialogManager);
         mMediator = new DateOrderedListMediator(provider, faviconProvider, this::startShareIntent,
-                deleteController, this::startRename, selectionDelegate,
-                DownloadLaterDialogHelper.create(context, modalDialogManager, prefService), config,
+                deleteController, this::startRename, selectionDelegate, config,
                 dateOrderedListObserver, model, discardableReferencePool);
 
         mEmptyCoordinator = new EmptyCoordinator(context, mMediator.getEmptySource());
@@ -137,7 +132,6 @@ public class DateOrderedListCoordinator implements ToolbarCoordinator.ToolbarLis
         mFilterCoordinator.addObserver(mMediator::onFilterTypeSelected);
         mFilterCoordinator.addObserver(filterObserver);
         mFilterCoordinator.addObserver(mEmptyCoordinator);
-        mFilterCoordinator.addObserver(new FilterChangeLogger());
 
         decoratedModel.addHeader(
                 new ViewListItem(StableIds.STORAGE_HEADER, mStorageCoordinator.getView()));
@@ -154,7 +148,8 @@ public class DateOrderedListCoordinator implements ToolbarCoordinator.ToolbarLis
      */
     private void initializeView(Context context) {
         mMainView = new FrameLayout(context);
-        FrameLayout.LayoutParams emptyViewParams = new FrameLayout.LayoutParams(
+        FrameLayout.LayoutParams emptyViewParams;
+        emptyViewParams = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT);
         emptyViewParams.gravity = Gravity.CENTER;
         mMainView.addView(mEmptyCoordinator.getView(), emptyViewParams);
@@ -189,7 +184,14 @@ public class DateOrderedListCoordinator implements ToolbarCoordinator.ToolbarLis
 
     /** Called to handle a back press event. */
     public boolean handleBackPressed() {
-        return mMediator.handleBackPressed();
+        return mMediator.onBackPressed();
+    }
+
+    /**
+     * @return A list of {@link BackPressHandler}, which supports predictive back press.
+     */
+    public BackPressHandler getBackPressHandler() {
+        return mMediator;
     }
 
     @Override

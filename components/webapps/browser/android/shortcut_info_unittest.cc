@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "components/webapps/browser/android/webapps_icon_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/manifest/manifest.h"
 #include "third_party/blink/public/mojom/manifest/manifest.mojom.h"
 #include "url/gurl.h"
@@ -89,6 +90,50 @@ TEST_F(ShortcutInfoTest, AllAttributesUpdate) {
   ASSERT_EQ(manifest_.background_color, info_.background_color);
   ASSERT_EQ(1u, info_.icon_urls.size());
   ASSERT_EQ(manifest_.icons[0].src, GURL(info_.icon_urls[0]));
+}
+
+TEST_F(ShortcutInfoTest, GetAllWebApkIcons) {
+  GURL best_primary_icon_url("https://best_primary_icon.png");
+  GURL splash_image_url("https://splash_image.png");
+  GURL best_shortcut_icon_url_1("https://best_shortcut_icon_1.png");
+  GURL best_shortcut_icon_url_2("https://best_shortcut_icon_2.png");
+
+  info_.best_shortcut_icon_urls.push_back(best_shortcut_icon_url_1);
+  info_.best_shortcut_icon_urls.push_back(best_shortcut_icon_url_2);
+  info_.best_primary_icon_url = best_primary_icon_url;
+  info_.splash_image_url = splash_image_url;
+
+  std::vector<WebappIcon> result_icons = info_.GetWebApkIcons();
+  ASSERT_EQ(4u, result_icons.size());
+
+  std::vector<GURL> result_urls;
+  for (auto icon : result_icons) {
+    result_urls.push_back(icon.url());
+  }
+  std::vector<GURL> expected_urls{best_primary_icon_url, splash_image_url,
+                                  best_shortcut_icon_url_1,
+                                  best_shortcut_icon_url_2};
+  ASSERT_EQ(expected_urls, result_urls);
+}
+
+TEST_F(ShortcutInfoTest, NotContainEmptyOrDuplicateWebApkIcons) {
+  GURL best_primary_icon_url = GURL("https://best_primary_icon.com");
+  GURL best_shortcut_icon_url = GURL("https://best_shortcut_icon_1.com");
+
+  info_.best_shortcut_icon_urls.push_back(best_shortcut_icon_url);
+  info_.best_shortcut_icon_urls.push_back(best_primary_icon_url);
+  info_.best_primary_icon_url = best_primary_icon_url;
+
+  std::vector<WebappIcon> result_icons = info_.GetWebApkIcons();
+  std::vector<GURL> result_urls;
+  for (auto icon : result_icons) {
+    result_urls.push_back(icon.url());
+  }
+
+  std::vector<GURL> expected{best_primary_icon_url, best_shortcut_icon_url};
+
+  ASSERT_EQ(2u, result_icons.size());
+  ASSERT_EQ(expected, result_urls);
 }
 
 TEST_F(ShortcutInfoTest, NameFallsBackToShortName) {
@@ -200,6 +245,46 @@ TEST_F(ShortcutInfoTest, SplashIconFallbackToAny) {
 
   EXPECT_EQ(info_.splash_image_url.path(), "/icon_144.png");
   EXPECT_FALSE(info_.is_splash_image_maskable);
+}
+
+TEST_F(ShortcutInfoTest, DisplayOverride) {
+  manifest_.display = blink::mojom::DisplayMode::kBrowser;
+  manifest_.display_override = {blink::mojom::DisplayMode::kMinimalUi};
+  info_.UpdateFromManifest(manifest_);
+  EXPECT_EQ(info_.display, blink::mojom::DisplayMode::kMinimalUi);
+
+  manifest_.display = blink::mojom::DisplayMode::kFullscreen;
+  manifest_.display_override = {blink::mojom::DisplayMode::kBrowser};
+  info_.UpdateFromManifest(manifest_);
+  EXPECT_EQ(info_.display, blink::mojom::DisplayMode::kBrowser);
+
+  manifest_.display = blink::mojom::DisplayMode::kStandalone;
+  manifest_.display_override = {blink::mojom::DisplayMode::kFullscreen};
+  info_.UpdateFromManifest(manifest_);
+  EXPECT_EQ(info_.display, blink::mojom::DisplayMode::kFullscreen);
+
+  manifest_.display = blink::mojom::DisplayMode::kMinimalUi;
+  manifest_.display_override = {blink::mojom::DisplayMode::kStandalone};
+  info_.UpdateFromManifest(manifest_);
+  EXPECT_EQ(info_.display, blink::mojom::DisplayMode::kStandalone);
+}
+
+TEST_F(ShortcutInfoTest, ManifestIdGenerated) {
+  manifest_.start_url = GURL("https://new.com/start");
+  manifest_.id = GURL("https://new.com/new_id");
+
+  info_.UpdateFromManifest(manifest_);
+
+  EXPECT_EQ(info_.manifest_id.spec(), "https://new.com/new_id");
+}
+
+TEST_F(ShortcutInfoTest, ManifestIdFallback) {
+  manifest_.start_url = GURL("https://new.com/start");
+
+  info_.UpdateFromManifest(manifest_);
+
+  // If id is not specified, use start_url.
+  EXPECT_EQ(info_.manifest_id.spec(), manifest_.start_url.spec());
 }
 
 }  // namespace webapps

@@ -1,34 +1,48 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/passwords/bubble_controllers/save_update_bubble_controller.h"
 
+#include "base/containers/contains.h"
+#include "base/functional/bind.h"
 #include "base/metrics/field_trial_params.h"
+#include "base/ranges/algorithm.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/time/default_clock.h"
 #include "chrome/browser/password_manager/password_store_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_avatar_icon_util.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/sync/sync_service_factory.h"
-#include "chrome/browser/ui/passwords/manage_passwords_view_utils.h"
 #include "chrome/browser/ui/passwords/passwords_model_delegate.h"
+#include "chrome/browser/ui/passwords/ui_utils.h"
+#include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/theme_resources.h"
+#include "components/password_manager/core/browser/manage_passwords_referrer.h"
 #include "components/password_manager/core/browser/password_feature_manager.h"
 #include "components/password_manager/core/browser/password_form_metrics_recorder.h"
 #include "components/password_manager/core/browser/password_manager_features_util.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
+#include "components/password_manager/core/browser/password_manager_util.h"
 #include "components/password_manager/core/browser/password_store_interface.h"
+#include "components/password_manager/core/browser/reauth_purpose.h"
 #include "components/password_manager/core/browser/smart_bubble_stats_store.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
-#include "components/sync/driver/sync_service.h"
+#include "components/sync/service/sync_service.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/models/image_model.h"
 #include "ui/base/resource/resource_bundle.h"
+
+#if BUILDFLAG(IS_WIN)
+#include "chrome/browser/password_manager/password_manager_util_win.h"
+#elif BUILDFLAG(IS_MAC)
+#include "chrome/browser/password_manager/password_manager_util_mac.h"
+#endif
 
 namespace {
 
@@ -78,12 +92,20 @@ std::vector<password_manager::PasswordForm> DeepCopyForms(
     const std::vector<std::unique_ptr<password_manager::PasswordForm>>& forms) {
   std::vector<password_manager::PasswordForm> result;
   result.reserve(forms.size());
-  std::transform(
-      forms.begin(), forms.end(), std::back_inserter(result),
-      [](const std::unique_ptr<password_manager::PasswordForm>& form) {
-        return *form;
-      });
+  base::ranges::transform(
+      forms, std::back_inserter(result),
+      &std::unique_ptr<password_manager::PasswordForm>::operator*);
   return result;
+}
+
+bool IsSyncUser(Profile* profile) {
+  const syncer::SyncService* sync_service =
+      SyncServiceFactory::GetForProfile(profile);
+  password_manager::SyncState sync_state =
+      password_manager_util::GetPasswordSyncState(sync_service);
+  return sync_state == password_manager::SyncState::kSyncingNormalEncryption ||
+         sync_state ==
+             password_manager::SyncState::kSyncingWithCustomPassphrase;
 }
 
 }  // namespace
@@ -117,11 +139,7 @@ SaveUpdateBubbleController::SaveUpdateBubbleController(
       interaction_stats_.dismissal_count = stats->dismissal_count;
     }
   }
-  if (are_passwords_revealed_when_bubble_is_opened_) {
-    delegate_->OnPasswordsRevealed();
-  }
   // The condition for the password reauth:
-  // If the bubble opened after reauth -> no more reauth necessary.
   // If the bubble opened after successful submission -> no reauth because it's
   // a temporary state and we should not complicate that UX flow.
   // If a password was autofilled -> require reauth to view it.
@@ -129,7 +147,6 @@ SaveUpdateBubbleController::SaveUpdateBubbleController(
   // The manual fallback is a temporary state and it's better for the sake of
   // convenience for the user not to break the UX with the reauth prompt.
   password_revealing_requires_reauth_ =
-      !are_passwords_revealed_when_bubble_is_opened_ &&
       display_reason ==
           PasswordBubbleControllerBase::DisplayReason::kUserAction &&
       (pending_password_.form_has_autofilled_value ||
@@ -140,8 +157,7 @@ SaveUpdateBubbleController::SaveUpdateBubbleController(
 }
 
 SaveUpdateBubbleController::~SaveUpdateBubbleController() {
-  if (!interaction_reported_)
-    OnBubbleClosing();
+  OnBubbleClosing();
 }
 
 void SaveUpdateBubbleController::OnSaveClicked() {
@@ -191,19 +207,34 @@ void SaveUpdateBubbleController::OnCredentialEdited(
   pending_password_.password_value = std::move(new_password);
 }
 
+void SaveUpdateBubbleController::OnGooglePasswordManagerLinkClicked() {
+  if (delegate_) {
+    delegate_->NavigateToPasswordManagerSettingsPage(
+        password_manager::ManagePasswordsReferrer::kSaveUpdateBubble);
+  }
+}
+
 bool SaveUpdateBubbleController::IsCurrentStateUpdate() const {
   DCHECK(state_ == password_manager::ui::PENDING_PASSWORD_UPDATE_STATE ||
          state_ == password_manager::ui::PENDING_PASSWORD_STATE);
-  return std::any_of(existing_credentials_.begin(), existing_credentials_.end(),
-                     [this](const password_manager::PasswordForm& form) {
-                       return form.username_value ==
-                              pending_password_.username_value;
-                     });
+  return base::Contains(existing_credentials_, pending_password_.username_value,
+                        &password_manager::PasswordForm::username_value);
 }
 
-bool SaveUpdateBubbleController::IsCurrentStateAffectingTheAccountStore() {
+bool SaveUpdateBubbleController::ShouldShowFooter() const {
+  return (state_ == password_manager::ui::PENDING_PASSWORD_UPDATE_STATE ||
+          state_ == password_manager::ui::PENDING_PASSWORD_STATE) &&
+         IsSyncUser(GetProfile());
+}
+
+bool SaveUpdateBubbleController::
+    IsCurrentStateAffectingPasswordsStoredInTheGoogleAccount() {
   DCHECK(state_ == password_manager::ui::PENDING_PASSWORD_UPDATE_STATE ||
          state_ == password_manager::ui::PENDING_PASSWORD_STATE);
+
+  if (IsSyncUser(GetProfile()))
+    return true;
+
   bool is_update = false;
   bool is_update_in_account_store = false;
   for (const password_manager::PasswordForm& form : existing_credentials_) {
@@ -220,12 +251,31 @@ bool SaveUpdateBubbleController::IsCurrentStateAffectingTheAccountStore() {
   return is_update_in_account_store;
 }
 
-bool SaveUpdateBubbleController::RevealPasswords() {
-  bool reveal_immediately = !password_revealing_requires_reauth_ ||
-                            (delegate_ && delegate_->AuthenticateUser());
-  if (reveal_immediately)
+void SaveUpdateBubbleController::ShouldRevealPasswords(
+    PasswordsModelDelegate::AvailabilityCallback callback) {
+  // Password can be revealed immediately.
+  if (!delegate_ || !password_revealing_requires_reauth_) {
     delegate_->OnPasswordsRevealed();
-  return reveal_immediately;
+    std::move(callback).Run(true);
+    return;
+  }
+
+  std::u16string message;
+#if BUILDFLAG(IS_MAC)
+  message = password_manager_util_mac::GetMessageForLoginPrompt(
+      password_manager::ReauthPurpose::VIEW_PASSWORD);
+#elif BUILDFLAG(IS_WIN)
+  message = password_manager_util_win::GetMessageForLoginPrompt(
+      password_manager::ReauthPurpose::VIEW_PASSWORD);
+#endif
+  // Bind OnUserAuthenticationCompleted() using a weak_ptr such that if the
+  // bubble is closed (and controller is destructed) while the reauth flow is
+  // running, no callback will be invoked upon the conclusion of the
+  // authentication flow.
+  delegate_->AuthenticateUserWithMessage(
+      message,
+      base::BindOnce(&SaveUpdateBubbleController::OnUserAuthenticationCompleted,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
 }
 
 bool SaveUpdateBubbleController::ShouldShowPasswordStorePicker() const {
@@ -272,16 +322,17 @@ bool SaveUpdateBubbleController::IsAccountStorageOptInRequiredBeforeSave() {
   return true;
 }
 
-std::string SaveUpdateBubbleController::GetPrimaryAccountEmail() {
+std::u16string SaveUpdateBubbleController::GetPrimaryAccountEmail() {
   Profile* profile = GetProfile();
   if (!profile)
-    return std::string();
+    return std::u16string();
   signin::IdentityManager* identity_manager =
       IdentityManagerFactory::GetForProfile(profile);
   if (!identity_manager)
-    return std::string();
-  return identity_manager->GetPrimaryAccountInfo(signin::ConsentLevel::kSignin)
-      .email;
+    return std::u16string();
+  return base::UTF8ToUTF16(
+      identity_manager->GetPrimaryAccountInfo(signin::ConsentLevel::kSignin)
+          .email);
 }
 
 ui::ImageModel SaveUpdateBubbleController::GetPrimaryAccountAvatar(
@@ -301,10 +352,8 @@ ui::ImageModel SaveUpdateBubbleController::GetPrimaryAccountAvatar(
     account_icon = ui::ResourceBundle::GetSharedInstance().GetImageNamed(
         profiles::GetPlaceholderAvatarIconResourceID());
   }
-  return ui::ImageModel::FromImage(
-      profiles::GetSizedAvatarIcon(account_icon,
-                                   /*is_rectangle=*/true, icon_size_dip,
-                                   icon_size_dip, profiles::SHAPE_CIRCLE));
+  return ui::ImageModel::FromImage(profiles::GetSizedAvatarIcon(
+      account_icon, icon_size_dip, icon_size_dip, profiles::SHAPE_CIRCLE));
 }
 
 bool SaveUpdateBubbleController::DidAuthForAccountStoreOptInFail() const {
@@ -376,4 +425,13 @@ void SaveUpdateBubbleController::ReportInteractions() {
   // Record UKM statistics on dismissal reason.
   if (metrics_recorder_)
     metrics_recorder_->RecordUIDismissalReason(dismissal_reason_);
+}
+
+void SaveUpdateBubbleController::OnUserAuthenticationCompleted(
+    base::OnceCallback<void(bool)> completion,
+    bool authentication_result) {
+  if (authentication_result) {
+    delegate_->OnPasswordsRevealed();
+  }
+  std::move(completion).Run(authentication_result);
 }

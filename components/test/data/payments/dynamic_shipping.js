@@ -1,10 +1,8 @@
 /*
- * Copyright 2016 The Chromium Authors. All rights reserved.
+ * Copyright 2016 The Chromium Authors
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
-
-/* global PaymentRequest:false */
 
 /**
  * Launches the PaymentRequest UI that offers free shipping in California and
@@ -12,7 +10,7 @@
  *
  * Legacy entry-point until basic-card is disabled
  */
-function buy() { // eslint-disable-line no-unused-vars
+function buy() {
   buyWithMethods(
       [{supportedMethods: 'basic-card', data: {supportedNetworks: ['visa']}}]);
 }
@@ -23,7 +21,7 @@ function buy() { // eslint-disable-line no-unused-vars
  *
  * @param {String} methodData - An array of payment method objects.
  */
-function buyWithMethods(methodData) { // eslint-disable-line no-unused-vars
+function buyWithMethods(methodData) {
   try {
     var details = {
       total: {label: 'Total', amount: {currency: 'USD', value: '5.00'}},

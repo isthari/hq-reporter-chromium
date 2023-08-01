@@ -1,10 +1,12 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/permissions/android/permissions_android_feature_list.h"
 #include "base/android/jni_string.h"
+#include "base/notreached.h"
 #include "components/permissions/android/jni_headers/PermissionsAndroidFeatureList_jni.h"
+#include "components/permissions/features.h"
 
 using base::android::ConvertJavaStringToUTF8;
 using base::android::JavaParamRef;
@@ -18,6 +20,7 @@ namespace {
 // in other locations in the code base (e.g. content_features.h).
 const base::Feature* kFeaturesExposedToJava[] = {
     &kAndroidApproximateLocationPermissionSupport,
+    &permissions::features::kBlockMidiByDefault,
 };
 
 const base::Feature* FindFeatureExposedToJava(const std::string& feature_name) {
@@ -32,9 +35,9 @@ const base::Feature* FindFeatureExposedToJava(const std::string& feature_name) {
 
 }  // namespace
 
-const base::Feature kAndroidApproximateLocationPermissionSupport{
-    "AndroidApproximateLocationPermissionSupport",
-    base::FEATURE_ENABLED_BY_DEFAULT};
+BASE_FEATURE(kAndroidApproximateLocationPermissionSupport,
+             "AndroidApproximateLocationPermissionSupport",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
 static jboolean JNI_PermissionsAndroidFeatureList_IsInitialized(JNIEnv* env) {
   return !!base::FeatureList::GetInstance();

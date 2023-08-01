@@ -19,6 +19,10 @@
     width: var(--cr-toolbar-field-width);
   }
 
+  :host-context(body.jelly-enabled):host {
+    --cr-toolbar-search-field-background: var(--cros-sys-input_field_on_shaded);
+  }
+
   @media (prefers-color-scheme: dark) {
     :host {
       --cr-toolbar-search-field-narrow-mode-prompt-opacity: 1;
@@ -44,6 +48,7 @@
         var(--cros-icon-color-primary);
     --cr-toolbar-search-field-input-text-color:
         var(--cros-text-color-primary);
+    --cr-toolbar-search-field-input-caret-color: currentColor;
     --cr-toolbar-search-field-prompt-color:
         var(--cros-text-color-secondary);
     --cr-toolbar-icon-button-focus-outline-color:
@@ -90,7 +95,7 @@
     border-radius: 0 0 20px 20px;
     box-shadow: var(--cr-elevation-3);
     display: table;
-    padding-bottom: 16px;
+    padding-bottom: 8px;
     width: var(--cr-toolbar-field-width);
   }
 
@@ -98,10 +103,30 @@
     max-height: 50vh;
   }
 
+  .pill-button-with-icon {
+    --border-color: transparent;
+    --cr-button-height: 24px;
+    --hover-bg-color: var(--cros-highlight-color);
+    --text-color: var(--cros-text-color-secondary);
+    border-radius: 24px;
+    margin-inline-end: 8px;
+    padding: 4px 8px;
+  }
+
+  .pill-button-with-icon:hover {
+    --text-color: var(--cros-text-color-prominent);
+  }
+
   #noSearchResultsContainer {
-    height: 24px;
-    margin-inline-start: 64px;
-    margin-top: var(--separator-height);
+    height: 32px;
+    line-height: 32px;
+    margin-inline-start: 24px;
+  }
+
+  #reportSearchResult {
+    display: flex;
+    justify-content: flex-end;
+    margin-inline-start: 8px;
   }
 
   /* The separator covers the top box shadow of the dropdown so that
@@ -116,6 +141,10 @@
     margin-inline-end: 0;
     margin-inline-start: 0;
     margin-top: -9px;
+  }
+
+  :host-context(body.jelly-enabled) .separator {
+    border-color: var(--cros-sys-separator);
   }
 </style>
 <cr-toolbar-search-field id="search" narrow="[[narrow]]"
@@ -150,8 +179,32 @@
         </os-search-result-row>
       </template>
     </iron-list>
-    <div id="noSearchResultsContainer" hidden="[[searchResultsExist_]]">
-      $i18n{searchNoResults}
+  <!-- noSearchResultsContainer is aria-hidden because the aria-label of this
+    specific container gets announced as soon as search results have changed
+    (onSearchResultsChanged_) and no search results exist.-->
+    <div
+      id="noSearchResultsContainer"
+      aria-hidden="true"
+      hidden="[[searchResultsExist_]]">
+        $i18n{searchNoResults}
     </div>
+    <if expr="_google_chrome">
+        <template is="dom-if" if="[[showFeedbackButton_]]">
+          <div id="reportSearchResult">
+            <cr-button
+                id="reportSearchResultButton"
+                class="pill-button-with-icon"
+                hidden="[[shouldHideFeedbackButton_]]"
+                on-click="onSendFeedbackClick_">
+                <iron-icon
+                    class="search-feedback-icon"
+                    icon="os-settings:feedback"
+                    slot="prefix-icon">
+                </iron-icon>
+                <span>$i18n{searchFeedbackButton}</span>
+            </cr-button>
+          </div>
+        </template>
+    </if>
   </div>
 </iron-dropdown>

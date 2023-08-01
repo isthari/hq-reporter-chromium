@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include <cctype>
 #include <limits>
 
-#include "base/cxx17_backports.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/memory/scoped_refptr.h"
@@ -15,7 +14,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/unguessable_token.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/policy/profile_policy_connector.h"
@@ -28,6 +27,8 @@
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/ash/profiles/profile_helper.h"
+#include "components/user_manager/user.h"
+#include "components/user_manager/user_type.h"
 #endif
 
 namespace webrtc_event_logging {
@@ -208,7 +209,7 @@ class BaseLogFileWriter : public LogFileWriter {
 
 BaseLogFileWriter::BaseLogFileWriter(const base::FilePath& path,
                                      absl::optional<size_t> max_file_size_bytes)
-    : task_runner_(base::SequencedTaskRunnerHandle::Get()),
+    : task_runner_(base::SequencedTaskRunner::GetCurrentDefault()),
       path_(path),
       state_(State::PRE_INIT),
       budget_(max_file_size_bytes) {}
@@ -218,7 +219,7 @@ BaseLogFileWriter::~BaseLogFileWriter() {
     // Chrome shut-down. The original task_runner_ is no longer running, so
     // no risk of concurrent access or races.
     DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-    task_runner_ = base::SequencedTaskRunnerHandle::Get();
+    task_runner_ = base::SequencedTaskRunner::GetCurrentDefault();
   }
 
   if (state() != State::CLOSED && state() != State::DELETED) {
@@ -449,8 +450,7 @@ bool GzippedLogFileWriter::Write(const std::string& input) {
     }
   }
 
-  NOTREACHED();
-  return false;  // Appease compiler.
+  NOTREACHED_NORETURN();
 }
 
 bool GzippedLogFileWriter::Finalize() {
@@ -582,8 +582,7 @@ LogCompressor::Result GzipLogCompressor::Compress(const std::string& input,
       return result;
   }
 
-  NOTREACHED();
-  return Result::ERROR_ENCOUNTERED;  // Appease compiler.
+  NOTREACHED_NORETURN();
 }
 
 bool GzipLogCompressor::CreateFooter(std::string* output) {
@@ -928,7 +927,7 @@ base::FilePath WebRtcEventLogPath(
 bool IsValidRemoteBoundLogFilename(const std::string& filename) {
   // The -1 is because of the implict \0.
   const size_t kPrefixLength =
-      base::size(kRemoteBoundWebRtcEventLogFileNamePrefix) - 1;
+      std::size(kRemoteBoundWebRtcEventLogFileNamePrefix) - 1;
 
   // [prefix]_[web_app_id]_[log_id]
   const size_t expected_length =
@@ -1008,7 +1007,7 @@ size_t ExtractRemoteBoundWebRtcEventLogWebAppIdFromPath(
 
   // The -1 is because of the implict \0.
   const size_t kPrefixLength =
-      base::size(kRemoteBoundWebRtcEventLogFileNamePrefix) - 1;
+      std::size(kRemoteBoundWebRtcEventLogFileNamePrefix) - 1;
 
   // The +1 is for the underscore between the prefix and the web-app ID.
   // Length verified by above call to IsValidRemoteBoundLogFilename().

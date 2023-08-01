@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 
 #include "base/containers/flat_set.h"
 #include "base/gtest_prod_util.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
 #include "chrome/browser/ash/printing/cups_printers_manager.h"
@@ -21,12 +22,11 @@ namespace ash {
 
 class UsbPrinterNotificationController;
 
-class AutomaticUsbPrinterConfigurer
-    : public chromeos::CupsPrintersManager::Observer {
+class AutomaticUsbPrinterConfigurer : public CupsPrintersManager::Observer {
  public:
   AutomaticUsbPrinterConfigurer(
-      std::unique_ptr<chromeos::PrinterConfigurer> printer_configurer,
-      chromeos::PrinterInstallationManager* installation_manager,
+      std::unique_ptr<PrinterConfigurer> printer_configurer,
+      PrinterInstallationManager* installation_manager,
       UsbPrinterNotificationController* notification_controller);
 
   AutomaticUsbPrinterConfigurer(const AutomaticUsbPrinterConfigurer&) = delete;
@@ -49,7 +49,7 @@ class AutomaticUsbPrinterConfigurer
 
   // Callback for PrinterConfiguer::SetUpPrinter().
   void OnSetupComplete(const chromeos::Printer& printer,
-                       chromeos::PrinterSetupResult result);
+                       PrinterSetupResult result);
 
   // Completes the configuration for |printer|. Saves printer in
   // |configured_printers_|.
@@ -74,9 +74,11 @@ class AutomaticUsbPrinterConfigurer
 
   SEQUENCE_CHECKER(sequence_);
 
-  std::unique_ptr<chromeos::PrinterConfigurer> printer_configurer_;
-  chromeos::PrinterInstallationManager* installation_manager_;  // Not owned.
-  UsbPrinterNotificationController* notification_controller_;  // Not owned.
+  std::unique_ptr<PrinterConfigurer> printer_configurer_;
+  raw_ptr<PrinterInstallationManager, ExperimentalAsh>
+      installation_manager_;  // Not owned.
+  raw_ptr<UsbPrinterNotificationController, ExperimentalAsh>
+      notification_controller_;  // Not owned.
   base::flat_set<std::string> configured_printers_;
   base::flat_set<std::string> unconfigured_printers_;
 

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,8 @@
 
 #include "ash/public/cpp/ash_public_export.h"
 #include "base/strings/string_piece.h"
+#include "components/access_code_cast/common/access_code_cast_metrics.h"
+#include "components/version_info/channel.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
@@ -56,6 +58,15 @@ class ASH_PUBLIC_EXPORT SystemTrayClient {
   // Shows OS settings related to privacy and security.
   virtual void ShowPrivacyAndSecuritySettings() = 0;
 
+  // Shows OS settings page for Privacy Hub.
+  virtual void ShowPrivacyHubSettings() = 0;
+
+  // Shows OS settings page for speak-on-mute detection setting in Privacy Hub.
+  virtual void ShowSpeakOnMuteDetectionSettings() = 0;
+
+  // Show OS smart privacy settings.
+  virtual void ShowSmartPrivacySettings() = 0;
+
   // Shows the page that lets you disable performance tracing.
   virtual void ShowChromeSlow() = 0;
 
@@ -74,6 +85,9 @@ class ASH_PUBLIC_EXPORT SystemTrayClient {
   // Shows the about chrome OS page and checks for updates after the page is
   // loaded.
   virtual void ShowAboutChromeOS() = 0;
+
+  // Shows the about chrome OS additional details page.
+  virtual void ShowAboutChromeOSDetails() = 0;
 
   // Shows accessibility help.
   virtual void ShowAccessibilityHelp() = 0;
@@ -122,35 +136,64 @@ class ASH_PUBLIC_EXPORT SystemTrayClient {
   // be any string.
   virtual void ShowNetworkSettings(const std::string& network_id) = 0;
 
+  // Shows the Hotspot subpage.
+  virtual void ShowHotspotSubpage() = 0;
+
   // Shows the MultiDevice setup flow dialog.
   virtual void ShowMultiDeviceSetup() = 0;
 
   // Shows the Firmware update app.
   virtual void ShowFirmwareUpdate() = 0;
 
-  // Attempts to restart the system for update.
-  virtual void RequestRestartForUpdate() = 0;
-
   // Sets the UI locale to |locale_iso_code| and exit the session to take
   // effect.
   virtual void SetLocaleAndExit(const std::string& locale_iso_code) = 0;
 
-  // Shows the access code casting dialog.
-  virtual void ShowAccessCodeCastingDialog() = 0;
+  // Shows the access code casting dialog. |open_location| is the location
+  // where the dialog was opened.
+  virtual void ShowAccessCodeCastingDialog(
+      AccessCodeCastDialogOpenLocation open_location) = 0;
 
-  // Shows a calendar event. If an event is present then we open it, otherwise
-  // we open Google Calendar with no arguments, which as of now just opens on
-  // today's date. We open the calendar PWA if it's installed (and assign true
-  // to |opened_pwa|), a new browser tab otherwise (and assign false to
-  // |opened_pwa|).
+  // Shows a calendar event. If an event is present then it's opened, otherwise
+  // Google Calendar is opened to `date`. Open in the calendar PWA if
+  // installed (and assign true to `opened_pwa`), in a new browser tab otherwise
+  // (and assign false to |opened_pwa|).
   //
   // The calendar PWA requires the event URL to have a specific prefix,
-  // so the URL we actually open may not be the same as the URL that was passed
-  // in.  This is guaranteed to be the case if no event URL was passed in.  The
-  // URL we actually opened is assigned to |finalized_event_url|.
+  // so the URL actually opened may not be the same as the passed-in URL.  This
+  // is guaranteed to be the case if no event URL was passed in.  The URL that's
+  // actually opened is assigned to `finalized_event_url`.
   virtual void ShowCalendarEvent(const absl::optional<GURL>& event_url,
+                                 const base::Time& date,
                                  bool& opened_pwa,
                                  GURL& finalized_event_url) = 0;
+
+  // Launches video conference url's.
+  // Opens in the Google Meet PWA if installed and `video_conference_url` is a
+  // Google Meet url, otherwise opens in the browser.
+  virtual void ShowVideoConference(const GURL& video_conference_url) = 0;
+
+  // Shown when the device is on a non-stable release track and the user clicks
+  // the channel/version button from quick settings.
+  virtual void ShowChannelInfoAdditionalDetails() = 0;
+
+  // Shown when the device is on a non-stable release track and the user clicks
+  // the "send feedback" button.
+  virtual void ShowChannelInfoGiveFeedback() = 0;
+
+  // Shows settings related to audio devices (input/output).
+  virtual void ShowAudioSettings() = 0;
+
+  // Shows a page with more info about auto update expiration for devices that
+  // reached end of life.
+  virtual void ShowEolInfoPage() = 0;
+
+  // Records a UMA metric that the end of life notice was shown.
+  virtual void RecordEolNoticeShown() = 0;
+
+  // Returns 'true' if the user preference is set to allow users to submit
+  // feedback, 'false' otherwise.
+  virtual bool IsUserFeedbackEnabled() = 0;
 
  protected:
   SystemTrayClient() {}

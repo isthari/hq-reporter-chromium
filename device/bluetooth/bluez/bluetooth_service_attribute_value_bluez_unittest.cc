@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,9 +23,8 @@ constexpr char kServiceUuid[] = "00001801-0000-1000-8000-00805f9b34fb";
 void CheckUuidValue(const BluetoothServiceAttributeValueBlueZ& value,
                     const std::string& uuid) {
   EXPECT_EQ(Type::UUID, value.type());
-  std::string str;
-  EXPECT_TRUE(value.value().GetAsString(&str));
-  EXPECT_EQ(uuid, str);
+  EXPECT_TRUE(value.value().is_string());
+  EXPECT_EQ(uuid, value.value().GetString());
 }
 
 void CheckIntValue(const BluetoothServiceAttributeValueBlueZ& value,
@@ -46,20 +45,18 @@ std::unique_ptr<Sequence> MakeSequence(
 }  // namespace
 
 TEST(BluetoothServiceAttributeBlueZTest, BasicValue) {
-  BluetoothServiceAttributeValueBlueZ value1(
-      Type::UUID, 16, std::make_unique<base::Value>(kServiceUuid));
+  BluetoothServiceAttributeValueBlueZ value1(Type::UUID, 16,
+                                             base::Value(kServiceUuid));
   BluetoothServiceAttributeValueBlueZ value2 = value1;
 
   CheckUuidValue(value2, kServiceUuid);
 }
 
 TEST(BluetoothServiceAttributeBlueZTest, Sequence) {
-  BluetoothServiceAttributeValueBlueZ value1(
-      Type::UUID, 16, std::make_unique<base::Value>(kServiceUuid));
-  BluetoothServiceAttributeValueBlueZ value2(
-      Type::INT, 4, std::make_unique<base::Value>(0x1337));
-  BluetoothServiceAttributeValueBlueZ value3(
-      Type::INT, 4, std::make_unique<base::Value>(0x7331));
+  BluetoothServiceAttributeValueBlueZ value1(Type::UUID, 16,
+                                             base::Value(kServiceUuid));
+  BluetoothServiceAttributeValueBlueZ value2(Type::INT, 4, base::Value(0x1337));
+  BluetoothServiceAttributeValueBlueZ value3(Type::INT, 4, base::Value(0x7331));
 
   BluetoothServiceAttributeValueBlueZ* value4 =
       new BluetoothServiceAttributeValueBlueZ(
@@ -78,10 +75,9 @@ TEST(BluetoothServiceAttributeBlueZTest, Sequence) {
 }
 
 TEST(BluetoothServiceAttributeBlueZTest, NestedValue) {
-  BluetoothServiceAttributeValueBlueZ value1(
-      Type::UUID, 16, std::make_unique<base::Value>(kServiceUuid));
-  BluetoothServiceAttributeValueBlueZ value2(
-      Type::INT, 4, std::make_unique<base::Value>(0x1337));
+  BluetoothServiceAttributeValueBlueZ value1(Type::UUID, 16,
+                                             base::Value(kServiceUuid));
+  BluetoothServiceAttributeValueBlueZ value2(Type::INT, 4, base::Value(0x1337));
   BluetoothServiceAttributeValueBlueZ value3(MakeSequence({value1, value2}));
   BluetoothServiceAttributeValueBlueZ value4(MakeSequence({value3}));
 
@@ -122,12 +118,10 @@ TEST(BluetoothServiceAttributeBlueZTest, NestedValue) {
 }
 
 TEST(BluetoothServiceAttributeBlueZTest, CopyAssignment) {
-  BluetoothServiceAttributeValueBlueZ value1(
-      Type::UUID, 16, std::make_unique<base::Value>(kServiceUuid));
-  BluetoothServiceAttributeValueBlueZ value2(
-      Type::INT, 4, std::make_unique<base::Value>(0x1337));
-  BluetoothServiceAttributeValueBlueZ value3(
-      Type::INT, 4, std::make_unique<base::Value>(0x7331));
+  BluetoothServiceAttributeValueBlueZ value1(Type::UUID, 16,
+                                             base::Value(kServiceUuid));
+  BluetoothServiceAttributeValueBlueZ value2(Type::INT, 4, base::Value(0x1337));
+  BluetoothServiceAttributeValueBlueZ value3(Type::INT, 4, base::Value(0x7331));
   std::unique_ptr<BluetoothServiceAttributeValueBlueZ> value4(
       new BluetoothServiceAttributeValueBlueZ(
           MakeSequence({value1, value2, value3})));

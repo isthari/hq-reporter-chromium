@@ -38,6 +38,8 @@
 
   #name {
     flex-grow: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .section {
@@ -89,6 +91,12 @@
     width: 18px;
   }
 
+  .link-icon-button {
+    --iron-icon-height: var(--cr-icon-size);
+    --iron-icon-width: var(--cr-icon-size);
+    margin-inline-start: 6px;
+  }
+
   #allowlist-warning {
     flex: 1;
   }
@@ -111,6 +119,17 @@
     padding: var(--cr-section-vertical-padding) var(--cr-section-padding);
   }
 
+  #show-access-requests-toggle {
+    margin-inline-start: var(--cr-section-indent-width);
+    min-height: var(--cr-section-min-height);
+    padding: 0;
+  }
+
+  #access-toggle-and-link {
+    color: var(--cr-primary-text-color);
+    display: flex;
+  }
+
   #load-path {
     word-break: break-all;
   }
@@ -129,6 +148,7 @@
     width: var(--cr-icon-size);
   }
 </style>
+<div id="cr-container-shadow-top" class="cr-container-shadow has-shadow"></div>
 <div class="page-container" id="container">
   <div class="page-content">
     <div class="page-header">
@@ -136,7 +156,7 @@
           aria-label$="[[getBackButtonAriaLabel_(data.name)]]"
           aria-roledescription$="[[
               getBackButtonAriaRoleDescription_(data.name)]]"
-          on-click="onCloseButtonTap_">
+          on-click="onCloseButtonClick_">
       </cr-icon-button>
       <img id="icon" src="[[data.iconUrl]]" alt="">
       <span id="name" class="cr-title-text" role="heading" aria-level="1">
@@ -156,7 +176,7 @@
         </cr-tooltip-icon>
         <template is="dom-if" if="[[showReloadButton_(data.state)]]">
           <cr-button id="terminated-reload-button" class="action-button"
-              on-click="onReloadTap_">
+              on-click="onReloadClick_">
             $i18n{itemReload}
           </cr-button>
         </template>
@@ -190,7 +210,7 @@
         </span>
         <template is="dom-if" if="[[!showReloadButton_(data.state)]]">
           <cr-button id="warnings-reload-button" class="action-button"
-              on-click="onReloadTap_">
+              on-click="onReloadClick_">
             $i18n{itemReload}
           </cr-button>
         </template>
@@ -200,7 +220,8 @@
         <iron-icon class="warning-icon" icon="cr:warning"></iron-icon>
         <span>
           $i18n{itemSuspiciousInstall}
-          <a target="_blank" href="$i18n{suspiciousInstallHelpUrl}">
+          <a target="_blank" href="$i18n{suspiciousInstallHelpUrl}"
+              aria-label="$i18n{itemSuspiciousInstallLearnMore}">
             $i18n{learnMore}
           </a>
         </span>
@@ -211,7 +232,7 @@
         <iron-icon class="warning-icon" icon="cr:warning"></iron-icon>
         <span>$i18n{itemCorruptInstall}</span>
         <cr-button id="repair-button" class="action-button"
-            on-click="onRepairTap_">
+            on-click="onRepairClick_">
           $i18n{itemRepair}
         </cr-button>
       </div>
@@ -225,6 +246,12 @@
         <iron-icon class="warning-icon" icon="cr:warning"></iron-icon>
         <span>$i18n{updateRequiredByPolicy}</span>
       </div>
+      <div class="cr-row continuation warning"
+          id="published-in-store-required-warning"
+          hidden$="[[!data.disableReasons.publishedInStoreRequired]]">
+        <iron-icon class="warning-icon" icon="cr:warning"></iron-icon>
+        <span>$i18n{publishedInStoreRequiredByPolicy}</span>
+      </div>
     </div>
     <div id="allowlist-warning" class="cr-row continuation"
         hidden$="[[!showAllowlistWarning_(data.*)]]">
@@ -233,7 +260,8 @@
       </iron-icon>
       <span class="cr-secondary-text">
         $i18n{itemAllowlistWarning}
-        <a href="$i18n{enhancedSafeBrowsingWarningHelpUrl}" target="_blank">
+        <a href="$i18n{enhancedSafeBrowsingWarningHelpUrl}" target="_blank"
+            aria-label="$i18n{itemAllowlistWarningLearnMoreLabel}">
           $i18n{learnMore}
         </a>
       </span>
@@ -278,10 +306,10 @@
             <li hidden="[[data.views.length]]">
               $i18n{noActiveViews}
             </li>
-            <template is="dom-repeat" items="[[data.views]]">
+            <template is="dom-repeat" items="[[sortedViews_]]">
               <li>
                 <a is="action-link" class="inspectable-view"
-                    on-click="onInspectTap_">
+                    on-click="onInspectClick_">
                   [[computeInspectLabel_(item)]]
                 </a>
               </li>
@@ -321,7 +349,8 @@
     <template is="dom-if" if="[[showSiteAccessSection_(data.*,
         enableEnhancedSiteControls)]]">
       <div class="section hr">
-        <div class="section-title" role="heading" aria-level="2">
+        <div class="section-title" role="heading" aria-level="2"
+            hidden$="[[enableEnhancedSiteControls]]">
           $i18n{itemSiteAccess}
         </div>
         <div class="section-content">
@@ -342,9 +371,27 @@
               if="[[showHostPermissionsToggleList_(data.*)]]">
             <extensions-host-permissions-toggle-list
                 permissions="[[data.permissions.runtimeHostPermissions]]"
+                enable-enhanced-site-controls="[[enableEnhancedSiteControls]]"
                 delegate="[[delegate]]"
                 item-id="[[data.id]]">
             </extensions-host-permissions-toggle-list>
+          </template>
+          <template is="dom-if" if="[[showEnableAccessRequestsToggle_(
+                data.*, enableEnhancedSiteControls)]]">
+            <extensions-toggle-row id="show-access-requests-toggle"
+                          checked="[[data.showAccessRequestsInToolbar]]"
+                          class="hr"
+                          on-change="onShowAccessRequestsChange_">
+              <div id="access-toggle-and-link">
+                <span>$i18n{itemShowAccessRequestsInToolbar}</span>
+                <a class="link-icon-button"
+                    aria-label="$i18n{itemShowAccessRequestsLearnMore}"
+                    href="$i18n{showAccessRequestsInToolbarLearnMoreLink}"
+                    target="_blank">
+                  <iron-icon icon="cr:help-outline"></iron-icon>
+                </a>
+              </div>
+            </extensions-toggle-row>
           </template>
         </div>
       </div>
@@ -364,6 +411,9 @@
         </div>
       </div>
     </template>
+    <cr-link-row class="hr"
+        id="siteSettings" label="$i18n{siteSettings}"
+        on-click="onSiteSettingsClick_" external></cr-link-row>
     <template is="dom-if" if="[[shouldShowOptionsSection_(data.*)]]">
       <div id="options-section">
         <template is="dom-if"
@@ -400,19 +450,19 @@
     <cr-link-row class="hr" id="extensionsOptions"
         disabled="[[!isEnabled_(data.state)]]"
         hidden="[[!shouldShowOptionsLink_(data.*)]]"
-        label="$i18n{itemOptions}" on-click="onExtensionOptionsTap_"
+        label="$i18n{itemOptions}" on-click="onExtensionOptionsClick_"
         external></cr-link-row>
     <cr-link-row class="hr"
         id="extensionsActivityLogLink" hidden$="[[!showActivityLog]]"
-        label="$i18n{viewActivityLog}" on-click="onActivityLogTap_"
+        label="$i18n{viewActivityLog}" on-click="onActivityLogClick_"
         role-description="$i18n{subpageArrowRoleDescription}">
     </cr-link-row>
     <cr-link-row class="hr" hidden="[[!data.manifestHomePageUrl.length]]"
         id="extensionWebsite" label="$i18n{extensionWebsite}"
-        on-click="onExtensionWebSiteTap_" external></cr-link-row>
+        on-click="onExtensionWebSiteClick_" external></cr-link-row>
     <cr-link-row class="hr" hidden="[[!data.webStoreUrl.length]]"
         id="viewInStore" label="$i18n{viewInStore}"
-        on-click="onViewInStoreTap_" external></cr-link-row>
+        on-click="onViewInStoreClick_" external></cr-link-row>
     <div class="section hr">
       <div class="section-title" role="heading" aria-level="2">
         $i18n{itemSource}
@@ -423,14 +473,14 @@
       <div id="load-path" class="section-content"
           hidden$="[[!data.prettifiedPath]]">
         <span>$i18n{itemExtensionPath}</span>
-        <a is="action-link" on-click="onLoadPathTap_">
+        <a is="action-link" on-click="onLoadPathClick_">
           [[data.prettifiedPath]]
         </a>
       </div>
     </div>
     <cr-link-row class="hr" id="remove-extension"
         hidden="[[data.mustRemainInstalled]]"
-        label="$i18n{itemRemoveExtension}" on-click="onRemoveTap_">
+        label="$i18n{itemRemoveExtension}" on-click="onRemoveClick_">
     </cr-link-row>
   </div>
 </div>

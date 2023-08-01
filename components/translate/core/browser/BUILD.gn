@@ -1,4 +1,4 @@
-# Copyright 2014 The Chromium Authors. All rights reserved.
+# Copyright 2014 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -9,8 +9,6 @@ static_library("browser") {
     "language_state.cc",
     "language_state.h",
     "page_translated_details.h",
-    "translate_accept_languages.cc",
-    "translate_accept_languages.h",
     "translate_browser_metrics.cc",
     "translate_browser_metrics.h",
     "translate_client.h",
@@ -42,6 +40,8 @@ static_library("browser") {
     "translate_trigger_decision.h",
     "translate_ui_delegate.cc",
     "translate_ui_delegate.h",
+    "translate_ui_languages_manager.cc",
+    "translate_ui_languages_manager.h",
     "translate_url_fetcher.cc",
     "translate_url_fetcher.h",
     "translate_url_util.cc",
@@ -83,8 +83,23 @@ static_library("browser") {
       "translate_infobar_delegate.cc",
       "translate_infobar_delegate.h",
     ]
-    deps += [ "//components/infobars/core" ]
+    public_deps += [ "//components/infobars/core" ]
   }
+}
+
+static_library("translate_model_service") {
+  sources = [
+    "translate_model_service.cc",
+    "translate_model_service.h",
+  ]
+  deps = [
+    ":browser",
+    "//base",
+    "//components/keyed_service/core",
+    "//components/optimization_guide/core",
+    "//components/optimization_guide/proto:optimization_guide_proto",
+    "//mojo/public/cpp/bindings",
+  ]
 }
 
 source_set("translate_pref_names") {
@@ -98,7 +113,6 @@ source_set("unit_tests") {
   testonly = true
   sources = [
     "language_state_unittest.cc",
-    "translate_accept_languages_unittest.cc",
     "translate_browser_metrics_unittest.cc",
     "translate_language_list_unittest.cc",
     "translate_manager_unittest.cc",
@@ -107,6 +121,7 @@ source_set("unit_tests") {
     "translate_ranker_impl_unittest.cc",
     "translate_script_unittest.cc",
     "translate_ui_delegate_unittest.cc",
+    "translate_ui_languages_manager_unittest.cc",
     "translate_url_util_unittest.cc",
   ]
   deps = [

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <vector>
 
+#include "base/memory/raw_ptr.h"
 #include "base/time/time.h"
 #include "components/autofill/core/browser/field_types.h"
 #include "components/autofill/core/common/signatures.h"
@@ -62,7 +63,7 @@ class FieldInfoTable {
   std::vector<FieldInfo> GetAllRowsForFormSignature(uint64_t form_signature);
 
  private:
-  sql::Database* db_ = nullptr;
+  raw_ptr<sql::Database> db_ = nullptr;
 };
 
 }  // namespace password_manager

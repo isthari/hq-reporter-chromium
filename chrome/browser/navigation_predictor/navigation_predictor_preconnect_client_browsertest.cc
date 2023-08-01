@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/test_timeouts.h"
 #include "build/build_config.h"
@@ -80,7 +81,7 @@ class NavigationPredictorPreconnectClientBrowserTest
 
   void OnPreresolveFinished(
       const GURL& url,
-      const net::NetworkIsolationKey& network_isolation_key,
+      const net::NetworkAnonymizationKey& network_anonymization_key,
       bool success) override {
     // The tests do not care about preresolves to non-test server (e.g., hard
     // coded preconnects to google.com).
@@ -213,7 +214,7 @@ IN_PROC_BROWSER_TEST_F(
 
   // We should not see additional preresolves.
   base::RunLoop run_loop;
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE, run_loop.QuitClosure(), TestTimeouts::tiny_timeout());
   run_loop.Run();
 
@@ -256,8 +257,9 @@ IN_PROC_BROWSER_TEST_F(
   EXPECT_EQ(2, preresolve_done_count_);
 }
 
-const base::Feature kPreconnectOnDidFinishNavigation{
-    "PreconnectOnDidFinishNavigation", base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kPreconnectOnDidFinishNavigation,
+             "PreconnectOnDidFinishNavigation",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
 class
     NavigationPredictorPreconnectClientBrowserTestPreconnectOnDidFinishNavigationSecondDelay
@@ -361,8 +363,9 @@ IN_PROC_BROWSER_TEST_F(
 
 namespace {
 // Feature to control preconnect to search.
-const base::Feature kPreconnectToSearchTest{"PreconnectToSearch",
-                                            base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kPreconnectToSearchTest,
+             "PreconnectToSearch",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 }  // namespace
 
 class NavigationPredictorPreconnectClientBrowserTestWithSearch
@@ -409,15 +412,15 @@ IN_PROC_BROWSER_TEST_F(NavigationPredictorPreconnectClientBrowserTestWithSearch,
       ->search_engine_preconnector()
       ->StartPreconnecting(/*with_startup_delay=*/false);
 
-  // There should be 2 DSE preconnects (2 NIKs).
-  WaitForPreresolveCount(2);
-  EXPECT_EQ(2, preresolve_done_count_);
+  // There should be a DSE preconnects.
+  WaitForPreresolveCount(1);
+  EXPECT_EQ(1, preresolve_done_count_);
 
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
   // Now there should be an onload preconnect as well as a navigation
   // preconnect.
-  WaitForPreresolveCount(4);
-  EXPECT_EQ(4, preresolve_done_count_);
+  WaitForPreresolveCount(3);
+  EXPECT_EQ(3, preresolve_done_count_);
 }
 
 class NavigationPredictorPreconnectClientLocalURLBrowserTest
@@ -551,7 +554,7 @@ IN_PROC_BROWSER_TEST_F(
       GetTestURL("/fenced_frames/anchors_different_area.html");
   content::RenderFrameHost* fenced_frame_host =
       fenced_frame_test_helper().CreateFencedFrame(
-          web_contents()->GetMainFrame(), fenced_frame_url);
+          web_contents()->GetPrimaryMainFrame(), fenced_frame_url);
   // The count should not increase in DidFinishLoad method.
   histogram_tester.ExpectTotalCount("NavigationPredictor.IsPubliclyRoutable",
                                     1);

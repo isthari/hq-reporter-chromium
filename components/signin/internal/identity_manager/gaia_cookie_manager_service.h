@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,12 +11,15 @@
 #include <utility>
 #include <vector>
 
-#include "base/callback_forward.h"
 #include "base/containers/circular_deque.h"
+#include "base/functional/callback_forward.h"
+#include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "components/prefs/pref_registry_simple.h"
+#include "components/signin/internal/identity_manager/account_tracker_service.h"
 #include "components/signin/internal/identity_manager/profile_oauth2_token_service.h"
 #include "components/signin/public/base/signin_client.h"
 #include "components/signin/public/identity_manager/accounts_cookie_mutator.h"
@@ -218,7 +221,8 @@ class GaiaCookieManagerService
     base::OnceClosure callback_;
   };
 
-  GaiaCookieManagerService(ProfileOAuth2TokenService* token_service,
+  GaiaCookieManagerService(AccountTrackerService* account_tracker_service_,
+                           ProfileOAuth2TokenService* token_service,
                            SigninClient* signin_client);
 
   GaiaCookieManagerService(const GaiaCookieManagerService&) = delete;
@@ -307,7 +311,7 @@ class GaiaCookieManagerService
   void SetGaiaAccountsInCookieUpdatedCallback(
       GaiaAccountsInCookieUpdatedCallback callback);
 
-  // If set, this callback will be invoked whenever the Gaia cookie has
+  // If set, this callback will be invoked whenever one of the Gaia cookies has
   // been deleted explicitly by a user action, e.g. from the settings or by an
   // extension.
   // This method can only be called once.
@@ -328,6 +332,7 @@ class GaiaCookieManagerService
   static void RegisterPrefs(PrefRegistrySimple* registry);
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(GaiaCookieManagerServiceCookieTest, CookieChange);
   scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory();
 
   // Calls the AddAccountToCookie completion callback.
@@ -391,6 +396,7 @@ class GaiaCookieManagerService
   // Start the next request, if needed.
   void HandleNextRequest();
 
+  const raw_ptr<AccountTrackerService> account_tracker_service_ = nullptr;
   raw_ptr<ProfileOAuth2TokenService> token_service_;
   raw_ptr<SigninClient> signin_client_;
 

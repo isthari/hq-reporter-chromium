@@ -1,11 +1,11 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef IOS_CHROME_BROWSER_UI_INFOBARS_COORDINATORS_INFOBAR_COORDINATOR_H_
 #define IOS_CHROME_BROWSER_UI_INFOBARS_COORDINATORS_INFOBAR_COORDINATOR_H_
 
-#import "ios/chrome/browser/ui/coordinators/chrome_coordinator.h"
+#import "ios/chrome/browser/shared/coordinator/chrome_coordinator/chrome_coordinator.h"
 
 #import "ios/chrome/browser/infobars/infobar_type.h"
 #import "ios/chrome/browser/ui/infobars/banners/infobar_banner_delegate.h"
@@ -36,9 +36,9 @@ enum class InfobarBannerPresentationState;
 @interface InfobarCoordinator
     : ChromeCoordinator <InfobarBannerDelegate, InfobarModalDelegate>
 
-// Designated Initializer. |infoBarDelegate| is used to configure the Infobar
-// and subsequently perform related actions. |badgeSupport| should be YES if the
-// Infobar will add a Badge and support a Modal. |infobarType| is the unique
+// Designated Initializer. `infoBarDelegate` is used to configure the Infobar
+// and subsequently perform related actions. `badgeSupport` should be YES if the
+// Infobar will add a Badge and support a Modal. `infobarType` is the unique
 // identifier for each Infobar, there can't be more than one infobar with the
 // same type added to the InfobarManager.
 - (instancetype)initWithInfoBarDelegate:
@@ -55,15 +55,15 @@ enum class InfobarBannerPresentationState;
 - (instancetype)initWithBaseViewController:(UIViewController*)viewController
                                    browser:(Browser*)browser NS_UNAVAILABLE;
 
-// Present the InfobarBanner using |self.baseViewController|.
+// Present the InfobarBanner using `self.baseViewController`.
 - (void)presentInfobarBannerAnimated:(BOOL)animated
                           completion:(ProceduralBlock)completion;
 
-// Present the InfobarModal using |self.baseViewController|.
+// Present the InfobarModal using `self.baseViewController`.
 - (void)presentInfobarModal;
 
 // Dismisses the InfobarBanner immediately, if none is being presented
-// |completion| will still run.
+// `completion` will still run.
 - (void)dismissInfobarBannerAnimated:(BOOL)animated
                           completion:(void (^)())completion;
 

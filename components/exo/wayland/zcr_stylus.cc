@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include <stylus-unstable-v2-server-protocol.h>
 
+#include "base/memory/raw_ptr.h"
 #include "components/exo/pointer.h"
 #include "components/exo/pointer_stylus_delegate.h"
 #include "components/exo/touch.h"
@@ -59,8 +60,8 @@ class WaylandTouchStylusDelegate : public TouchStylusDelegate {
   }
 
  private:
-  wl_resource* resource_;
-  Touch* touch_;
+  raw_ptr<wl_resource, ExperimentalAsh> resource_;
+  raw_ptr<Touch, ExperimentalAsh> touch_;
 };
 
 void touch_stylus_destroy(wl_client* client, wl_resource* resource) {
@@ -125,8 +126,8 @@ class WaylandPointerStylusDelegate : public PointerStylusDelegate {
   }
 
  private:
-  wl_resource* resource_;
-  Pointer* pointer_;
+  raw_ptr<wl_resource, ExperimentalAsh> resource_;
+  raw_ptr<Pointer, ExperimentalAsh> pointer_;
   bool supports_force_ = false;
   bool supports_tilt_ = false;
 };

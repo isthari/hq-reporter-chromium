@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -62,6 +62,16 @@ class MEDIA_EXPORT AudioBuffer
       int frame_count,
       const uint8_t* const* data,
       const base::TimeDelta timestamp,
+      scoped_refptr<AudioBufferMemoryPool> pool = nullptr);
+
+  // Create an AudioBuffer from a copy of the data in |audio_bus| and a given
+  // |channel_layout|. For optimal efficiency when many buffers are being
+  // created, a AudioBufferMemoryPool can be provided to avoid thrashing memory.
+  static scoped_refptr<AudioBuffer> CopyFrom(
+      ChannelLayout channel_layout,
+      int sample_rate,
+      const base::TimeDelta timestamp,
+      const AudioBus* audio_bus,
       scoped_refptr<AudioBufferMemoryPool> pool = nullptr);
 
   // Create an AudioBuffer from a copy of the data in |audio_bus|.

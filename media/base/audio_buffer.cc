@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include <cmath>
 
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/notreached.h"
 #include "media/base/audio_bus.h"
@@ -100,6 +101,7 @@ AudioBuffer::AudioBuffer(SampleFormat sample_format,
   CHECK_GE(channel_count_, 0);
   CHECK_LE(channel_count_, limits::kMaxChannels);
   CHECK_GE(frame_count, 0);
+
   DCHECK(channel_layout == CHANNEL_LAYOUT_DISCRETE ||
          ChannelLayoutToChannelCount(channel_layout) == channel_count);
 
@@ -112,6 +114,25 @@ AudioBuffer::AudioBuffer(SampleFormat sample_format,
 
   CHECK_NE(sample_format, kUnknownSampleFormat);
 
+  if (sample_format == kSampleFormatIECDts) {
+    // Allocate a contiguous buffer for IEC61937 encapsulated Bitstream.
+    data_size_ = frame_count * bytes_per_channel * channel_count_;
+    if (pool_) {
+      data_ = pool_->CreateBuffer(data_size_);
+    } else {
+      // Aligned buffer ensures compatibility with AudioBus
+      // and audio sink which have been optimized for SSE
+      data_.reset(static_cast<uint8_t*>(
+          base::AlignedAlloc(data_size_, kChannelAlignment)));
+    }
+    channel_data_.reserve(1);
+    channel_data_.push_back(data_.get());
+
+    // Copy data
+    if (data)
+      memcpy(channel_data_[0], data[0], data_size);
+    return;
+  }
   int data_size_per_channel = frame_count * bytes_per_channel;
   if (IsPlanar(sample_format)) {
     DCHECK(!IsBitstreamFormat()) << sample_format_;
@@ -188,6 +209,7 @@ scoped_refptr<AudioBuffer> AudioBuffer::CopyFrom(
 
 // static
 scoped_refptr<AudioBuffer> AudioBuffer::CopyFrom(
+    ChannelLayout channel_layout,
     int sample_rate,
     const base::TimeDelta timestamp,
     const AudioBus* audio_bus,
@@ -201,9 +223,22 @@ scoped_refptr<AudioBuffer> AudioBuffer::CopyFrom(
   for (int ch = 0; ch < channel_count; ch++)
     data[ch] = reinterpret_cast<const uint8_t*>(audio_bus->channel(ch));
 
-  return CopyFrom(kSampleFormatPlanarF32, GuessChannelLayout(channel_count),
-                  channel_count, sample_rate, audio_bus->frames(), data.data(),
-                  timestamp, std::move(pool));
+  return CopyFrom(kSampleFormatPlanarF32, channel_layout, channel_count,
+                  sample_rate, audio_bus->frames(), data.data(), timestamp,
+                  std::move(pool));
+}
+
+// static
+scoped_refptr<AudioBuffer> AudioBuffer::CopyFrom(
+    int sample_rate,
+    const base::TimeDelta timestamp,
+    const AudioBus* audio_bus,
+    scoped_refptr<AudioBufferMemoryPool> pool) {
+  const int channel_count = audio_bus->channels();
+  DCHECK(channel_count);
+
+  return CopyFrom(GuessChannelLayout(channel_count), sample_rate, timestamp,
+                  audio_bus, std::move(pool));
 }
 
 // static
@@ -300,7 +335,7 @@ std::unique_ptr<AudioBus> AudioBuffer::WrapOrCopyToAudioBus(
 
     // Keep |buffer| alive as long as |audio_bus|.
     audio_bus->SetWrappedDataDeleter(
-        base::BindOnce([](scoped_refptr<AudioBuffer>) {}, std::move(buffer)));
+        base::DoNothingWithBoundArgs(std::move(buffer)));
 
     return audio_bus;
   }
@@ -510,6 +545,8 @@ void AudioBuffer::TrimRange(int start, int end) {
       case kSampleFormatMpegHAudio:
       case kSampleFormatDts:
       case kSampleFormatDtsxP2:
+      case kSampleFormatIECDts:
+      case kSampleFormatDtse:
         NOTREACHED() << "Invalid sample format!";
     }
   } else {

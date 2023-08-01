@@ -1,13 +1,12 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <memory>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
-#include "build/build_config.h"
 #include "chrome/browser/geolocation/geolocation_permission_context_delegate.h"
 #include "chrome/browser/permissions/permission_manager_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -21,6 +20,7 @@
 #include "content/public/test/browser_test.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "third_party/blink/public/common/chrome_debug_urls.h"
+#include "third_party/blink/public/common/permissions/permission_utils.h"
 
 namespace {
 
@@ -33,6 +33,8 @@ permissions::PermissionManager::PermissionContextMap CreatePermissionContexts(
           std::make_unique<GeolocationPermissionContextDelegate>(profile));
   return permission_contexts;
 }
+
+}  // namespace
 
 // PermissionManager subclass that enables the test below to deterministically
 // wait until there is a permission status subscription from a service worker.
@@ -52,14 +54,16 @@ class SubscriptionInterceptingPermissionManager
   }
 
   SubscriptionId SubscribePermissionStatusChange(
-      content::PermissionType permission,
+      blink::PermissionType permission,
+      content::RenderProcessHost* render_process_host,
       content::RenderFrameHost* render_frame_host,
       const GURL& requesting_origin,
       base::RepeatingCallback<void(blink::mojom::PermissionStatus)> callback)
       override {
     SubscriptionId result =
         permissions::PermissionManager::SubscribePermissionStatusChange(
-            permission, render_frame_host, requesting_origin, callback);
+            permission, render_process_host, render_frame_host,
+            requesting_origin, callback);
     std::move(callback_).Run();
 
     return result;
@@ -68,8 +72,6 @@ class SubscriptionInterceptingPermissionManager
  private:
   base::RepeatingClosure callback_;
 };
-
-}  // namespace
 
 class PermissionManagerBrowserTest : public InProcessBrowserTest {
  public:
@@ -102,7 +104,7 @@ class PermissionManagerBrowserTest : public InProcessBrowserTest {
   Browser* incognito_browser() { return incognito_browser_; }
 
  private:
-  raw_ptr<Browser> incognito_browser_ = nullptr;
+  raw_ptr<Browser, DanglingUntriaged> incognito_browser_ = nullptr;
 };
 
 IN_PROC_BROWSER_TEST_F(PermissionManagerBrowserTest,
@@ -124,17 +126,8 @@ IN_PROC_BROWSER_TEST_F(PermissionManagerBrowserTest,
   // browser explicitly.
 }
 
-// Disable the test as it's flaky on Win7 dbg.
-// crbug.com/1068190
-#if BUILDFLAG(IS_WIN) && !defined(NDEBUG)
-#define MAYBE_ServiceWorkerPermissionAfterRendererCrash \
-  DISABLED_ServiceWorkerPermissionAfterRendererCrash
-#else
-#define MAYBE_ServiceWorkerPermissionAfterRendererCrash \
-  ServiceWorkerPermissionAfterRendererCrash
-#endif
 IN_PROC_BROWSER_TEST_F(PermissionManagerBrowserTest,
-                       MAYBE_ServiceWorkerPermissionAfterRendererCrash) {
+                       ServiceWorkerPermissionAfterRendererCrash) {
   content::ScopedAllowRendererCrashes scoped_allow_renderer_crashes_;
 
   content::RenderProcessHostWatcher crash_observer(

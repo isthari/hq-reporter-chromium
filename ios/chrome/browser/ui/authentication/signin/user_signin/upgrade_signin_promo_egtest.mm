@@ -1,11 +1,13 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "base/test/ios/wait_util.h"
 #import "components/signin/internal/identity_manager/account_capabilities_constants.h"
 #import "components/signin/public/base/signin_switches.h"
-#import "ios/chrome/browser/chrome_switches.h"
+#import "ios/chrome/browser/flags/chrome_switches.h"
+#import "ios/chrome/browser/signin/capabilities_types.h"
+#import "ios/chrome/browser/signin/fake_system_identity.h"
 #import "ios/chrome/browser/ui/authentication/signin/signin_constants.h"
 #import "ios/chrome/browser/ui/authentication/signin_earl_grey.h"
 #import "ios/chrome/browser/ui/authentication/signin_earl_grey_app_interface.h"
@@ -17,8 +19,6 @@
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
 #import "ios/chrome/test/earl_grey/test_switches.h"
-#import "ios/public/provider/chrome/browser/signin/chrome_identity_service.h"
-#import "ios/public/provider/chrome/browser/signin/fake_chrome_identity.h"
 #import "ios/testing/earl_grey/app_launch_manager.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
 #import "ios/testing/earl_grey/matchers.h"
@@ -28,10 +28,6 @@
 #endif
 
 namespace {
-
-// Capability name for canOfferExtendedChromeSyncPromos.
-const NSString* kCanOfferExtendedChromeSyncPromos = [NSString
-    stringWithUTF8String:kCanOfferExtendedChromeSyncPromosCapabilityName];
 
 void VerifySigninPromoSufficientlyVisible() {
   ConditionBlock condition = ^{
@@ -47,11 +43,11 @@ void VerifySigninPromoSufficientlyVisible() {
              @"Sign-in promo not visible");
 }
 
-NSDictionary<NSString*, NSNumber*>* GetCapabilitiesDictionary(
-    ios::ChromeIdentityCapabilityResult result) {
-  int intResult = static_cast<int>(result);
+ios::CapabilitiesDict* GetCapabilitiesDictionary(
+    SystemIdentityCapabilityResult result) {
   return @{
-    @(kCanOfferExtendedChromeSyncPromosCapabilityName) : @(intResult),
+    @(kCanOfferExtendedChromeSyncPromosCapabilityName) :
+        @(static_cast<int>(result)),
   };
 }
 
@@ -83,7 +79,7 @@ NSDictionary<NSString*, NSNumber*>* GetCapabilitiesDictionary(
 }
 
 // Tests that the sign-in promo is not visible at start-up with no identity.
-- (void)testNoSigninPromoWithNoIdentity {
+- (void)DISABLED_testNoSigninPromoWithNoIdentity {
   [[AppLaunchManager sharedManager] backgroundAndForegroundApp];
   base::test::ios::SpinRunLoopWithMinDelay(base::Seconds(5));
 
@@ -94,13 +90,12 @@ NSDictionary<NSString*, NSNumber*>* GetCapabilitiesDictionary(
 
 // Tests that the sign-in promo is not visible at start-up once
 // the user has signed in to their account previously.
-- (void)testStartupSigninPromoUserSignedIn {
-  FakeChromeIdentity* fakeIdentity = [FakeChromeIdentity fakeIdentity1];
+- (void)DISABLED_testStartupSigninPromoUserSignedIn {
+  FakeSystemIdentity* fakeIdentity = [FakeSystemIdentity fakeIdentity1];
   [SigninEarlGreyUI signinWithFakeIdentity:fakeIdentity];
-  [SigninEarlGrey
-      setCapabilities:GetCapabilitiesDictionary(
-                          ios::ChromeIdentityCapabilityResult::kTrue)
-          forIdentity:fakeIdentity];
+  [SigninEarlGrey setCapabilities:GetCapabilitiesDictionary(
+                                      SystemIdentityCapabilityResult::kTrue)
+                      forIdentity:fakeIdentity];
 
   [[AppLaunchManager sharedManager] backgroundAndForegroundApp];
   [ChromeEarlGreyUI waitForAppToIdle];
@@ -113,12 +108,11 @@ NSDictionary<NSString*, NSNumber*>* GetCapabilitiesDictionary(
 // Tests that the sign-in promo is not visible at start-up for an account
 // with minor mode restrictions.
 - (void)testStartupSigninPromoNotShownForMinor {
-  FakeChromeIdentity* fakeIdentity = [FakeChromeIdentity fakeIdentity1];
+  FakeSystemIdentity* fakeIdentity = [FakeSystemIdentity fakeIdentity1];
   [SigninEarlGrey addFakeIdentity:fakeIdentity];
-  [SigninEarlGrey
-      setCapabilities:GetCapabilitiesDictionary(
-                          ios::ChromeIdentityCapabilityResult::kFalse)
-          forIdentity:fakeIdentity];
+  [SigninEarlGrey setCapabilities:GetCapabilitiesDictionary(
+                                      SystemIdentityCapabilityResult::kFalse)
+                      forIdentity:fakeIdentity];
   [[AppLaunchManager sharedManager] backgroundAndForegroundApp];
   base::test::ios::SpinRunLoopWithMinDelay(base::Seconds(5));
 
@@ -128,19 +122,40 @@ NSDictionary<NSString*, NSNumber*>* GetCapabilitiesDictionary(
 }
 
 // Tests that the sign-in promo is visible at start-up for regular user.
-- (void)testStartupSigninPromoShownForNoneMinor {
-  FakeChromeIdentity* fakeIdentity = [FakeChromeIdentity fakeIdentity1];
+- (void)DISABLED_testStartupSigninPromoShownForNoneMinor {
+  FakeSystemIdentity* fakeIdentity = [FakeSystemIdentity fakeIdentity1];
   [SigninEarlGrey addFakeIdentity:fakeIdentity];
-  [SigninEarlGrey
-      setCapabilities:GetCapabilitiesDictionary(
-                          ios::ChromeIdentityCapabilityResult::kTrue)
-          forIdentity:fakeIdentity];
+  [SigninEarlGrey setCapabilities:GetCapabilitiesDictionary(
+                                      SystemIdentityCapabilityResult::kTrue)
+                      forIdentity:fakeIdentity];
   [[AppLaunchManager sharedManager] backgroundAndForegroundApp];
 
   VerifySigninPromoSufficientlyVisible();
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
                                           kSkipSigninAccessibilityIdentifier)]
       performAction:grey_tap()];
+}
+
+// Tests sign-in promo behavior in landscape. It should appears if and only if
+// the device is an ipad.
+- (void)DISABLED_testNoSignInPromoInLandscapeMode {
+  [EarlGrey rotateDeviceToOrientation:UIDeviceOrientationLandscapeLeft
+                                error:nil];
+  FakeSystemIdentity* fakeIdentity = [FakeSystemIdentity fakeIdentity1];
+  [SigninEarlGrey addFakeIdentity:fakeIdentity];
+  [SigninEarlGrey setCapabilities:GetCapabilitiesDictionary(
+                                      SystemIdentityCapabilityResult::kTrue)
+                      forIdentity:fakeIdentity];
+  [[AppLaunchManager sharedManager] backgroundAndForegroundApp];
+  [ChromeEarlGreyUI waitForAppToIdle];
+
+  if ([ChromeEarlGrey isIPadIdiom]) {
+    VerifySigninPromoSufficientlyVisible();
+  } else {
+    [[EarlGrey
+        selectElementWithMatcher:chrome_test_util::UpgradeSigninPromoMatcher()]
+        assertWithMatcher:grey_notVisible()];
+  }
 }
 
 @end

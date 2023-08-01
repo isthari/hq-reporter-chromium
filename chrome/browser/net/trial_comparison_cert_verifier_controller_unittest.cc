@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
-#include "base/task/post_task.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/branding_buildflags.h"
 #include "build/build_config.h"
@@ -24,7 +23,7 @@
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "components/security_interstitials/content/cert_logger.pb.h"
 #include "components/sync_preferences/testing_pref_service_syncable.h"
-#include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_utils.h"
 #include "mojo/public/cpp/bindings/receiver.h"
@@ -34,6 +33,7 @@
 #include "net/cert/cert_verify_result.h"
 #include "net/cert/x509_certificate.h"
 #include "net/cert/x509_util.h"
+#include "net/net_buildflags.h"
 #include "net/test/cert_test_util.h"
 #include "net/test/gtest_util.h"
 #include "net/test/test_data_directory.h"
@@ -98,7 +98,8 @@ class MockTrialComparisonCertVerifierConfigClient
       receiver_;
 };
 
-class TrialComparisonCertVerifierControllerTest : public testing::Test {
+class TrialComparisonCertVerifierControllerTest
+    : public testing::TestWithParam<bool> {
  public:
   void SetUp() override {
     cert_chain_1_ = CreateCertificateChainFromFile(
@@ -146,6 +147,21 @@ class TrialComparisonCertVerifierControllerTest : public testing::Test {
     // Initialize CertificateReportingService for |profile_|.
     ASSERT_TRUE(reporting_service());
     base::RunLoop().RunUntilIdle();
+  }
+
+  void SetExtendedReportingPref(bool enabled) {
+    if (GetParam()) {
+      // SetEnhancedProtectionPrefForTests sets both kSafeBrowsingEnabled and
+      // kSafeBrowsingEnhanced.
+      safe_browsing::SetEnhancedProtectionPrefForTests(pref_service(), enabled);
+    } else {
+      // SetExtendedReportingPrefForTests only sets
+      // kSafeBrowsingScoutReportingEnabled, so first set kSafeBrowsingEnabled.
+      // Keeping this consistent between the branches makes the test conditions
+      // easier to write.
+      safe_browsing::SetStandardProtectionPref(pref_service(), enabled);
+      safe_browsing::SetExtendedReportingPrefForTests(pref_service(), enabled);
+    }
   }
 
   void CreateController(Profile* profile) {
@@ -228,7 +244,7 @@ class TrialComparisonCertVerifierControllerTest : public testing::Test {
       mock_config_client_;
 };
 
-TEST_F(TrialComparisonCertVerifierControllerTest, NothingEnabled) {
+TEST_P(TrialComparisonCertVerifierControllerTest, NothingEnabled) {
   CreateController();
 
   // Trial should not be allowed.
@@ -236,7 +252,7 @@ TEST_F(TrialComparisonCertVerifierControllerTest, NothingEnabled) {
 
   // Enable the SBER pref, shouldn't matter since it's a non-official build and
   // field trial isn't enabled.
-  safe_browsing::SetExtendedReportingPrefForTests(pref_service(), true);
+  SetExtendedReportingPref(true);
 
   // Trial still not allowed, and OnTrialConfigUpdated should not be called
   // either.
@@ -253,13 +269,13 @@ TEST_F(TrialComparisonCertVerifierControllerTest, NothingEnabled) {
   reporting_service_test_helper()->ExpectNoRequests(reporting_service());
 }
 
-TEST_F(TrialComparisonCertVerifierControllerTest,
+TEST_P(TrialComparisonCertVerifierControllerTest,
        OfficialBuildTrialNotEnabled) {
   TrialComparisonCertVerifierController::SetFakeOfficialBuildForTesting(true);
   CreateController();
 
   EXPECT_FALSE(trial_controller().IsAllowed());
-  safe_browsing::SetExtendedReportingPrefForTests(pref_service(), true);
+  SetExtendedReportingPref(true);
 
   // Trial still not allowed, and OnTrialConfigUpdated should not be called
   // either.
@@ -278,7 +294,7 @@ TEST_F(TrialComparisonCertVerifierControllerTest,
   reporting_service_test_helper()->ExpectNoRequests(reporting_service());
 }
 
-TEST_F(TrialComparisonCertVerifierControllerTest,
+TEST_P(TrialComparisonCertVerifierControllerTest,
        NotOfficialBuildTrialEnabled) {
   scoped_feature_ = std::make_unique<base::test::ScopedFeatureList>();
   scoped_feature_->InitAndEnableFeature(
@@ -288,9 +304,10 @@ TEST_F(TrialComparisonCertVerifierControllerTest,
   EXPECT_FALSE(trial_controller().IsAllowed());
 #if defined(OFFICIAL_BUILD) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
   // In a real official build, expect the trial config to be updated.
+  EXPECT_CALL(mock_config_client(), OnTrialConfigUpdated(false)).Times(1);
   EXPECT_CALL(mock_config_client(), OnTrialConfigUpdated(true)).Times(1);
 #endif
-  safe_browsing::SetExtendedReportingPrefForTests(pref_service(), true);
+  SetExtendedReportingPref(true);
 
 #if defined(OFFICIAL_BUILD) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
   // In a real official build, expect the trial to be allowed now.  (Don't
@@ -316,7 +333,7 @@ TEST_F(TrialComparisonCertVerifierControllerTest,
 #endif
 }
 
-TEST_F(TrialComparisonCertVerifierControllerTest, OfficialBuildTrialEnabled) {
+TEST_P(TrialComparisonCertVerifierControllerTest, OfficialBuildTrialEnabled) {
   TrialComparisonCertVerifierController::SetFakeOfficialBuildForTesting(true);
   scoped_feature_ = std::make_unique<base::test::ScopedFeatureList>();
   scoped_feature_->InitAndEnableFeature(
@@ -327,8 +344,9 @@ TEST_F(TrialComparisonCertVerifierControllerTest, OfficialBuildTrialEnabled) {
 
   // Enable the SBER pref, which should trigger the OnTrialConfigUpdated
   // callback.
+  EXPECT_CALL(mock_config_client(), OnTrialConfigUpdated(false)).Times(1);
   EXPECT_CALL(mock_config_client(), OnTrialConfigUpdated(true)).Times(1);
-  safe_browsing::SetExtendedReportingPrefForTests(pref_service(), true);
+  SetExtendedReportingPref(true);
 
   // Trial should now be allowed.
   EXPECT_TRUE(trial_controller().IsAllowed());
@@ -379,8 +397,8 @@ TEST_F(TrialComparisonCertVerifierControllerTest, OfficialBuildTrialEnabled) {
 
   // Disable the SBER pref again, which should trigger the OnTrialConfigUpdated
   // callback.
-  EXPECT_CALL(mock_config_client(), OnTrialConfigUpdated(false)).Times(1);
-  safe_browsing::SetExtendedReportingPrefForTests(pref_service(), false);
+  EXPECT_CALL(mock_config_client(), OnTrialConfigUpdated(false)).Times(2);
+  SetExtendedReportingPref(false);
 
   // Not allowed now.
   EXPECT_FALSE(trial_controller().IsAllowed());
@@ -396,7 +414,7 @@ TEST_F(TrialComparisonCertVerifierControllerTest, OfficialBuildTrialEnabled) {
   reporting_service_test_helper()->ExpectNoRequests(reporting_service());
 }
 
-TEST_F(TrialComparisonCertVerifierControllerTest,
+TEST_P(TrialComparisonCertVerifierControllerTest,
        OfficialBuildTrialEnabledTwoClients) {
   TrialComparisonCertVerifierController::SetFakeOfficialBuildForTesting(true);
   scoped_feature_ = std::make_unique<base::test::ScopedFeatureList>();
@@ -423,9 +441,12 @@ TEST_F(TrialComparisonCertVerifierControllerTest,
 
   // Enable the SBER pref, which should trigger the OnTrialConfigUpdated
   // callback.
+  EXPECT_CALL(mock_config_client(), OnTrialConfigUpdated(false)).Times(1);
   EXPECT_CALL(mock_config_client(), OnTrialConfigUpdated(true)).Times(1);
+
+  EXPECT_CALL(mock_config_client_2, OnTrialConfigUpdated(false)).Times(1);
   EXPECT_CALL(mock_config_client_2, OnTrialConfigUpdated(true)).Times(1);
-  safe_browsing::SetExtendedReportingPrefForTests(pref_service(), true);
+  SetExtendedReportingPref(true);
 
   // Trial should now be allowed.
   EXPECT_TRUE(trial_controller().IsAllowed());
@@ -483,9 +504,9 @@ TEST_F(TrialComparisonCertVerifierControllerTest,
 
   // Disable the SBER pref again, which should trigger the OnTrialConfigUpdated
   // callback.
-  EXPECT_CALL(mock_config_client(), OnTrialConfigUpdated(false)).Times(1);
-  EXPECT_CALL(mock_config_client_2, OnTrialConfigUpdated(false)).Times(1);
-  safe_browsing::SetExtendedReportingPrefForTests(pref_service(), false);
+  EXPECT_CALL(mock_config_client(), OnTrialConfigUpdated(false)).Times(2);
+  EXPECT_CALL(mock_config_client_2, OnTrialConfigUpdated(false)).Times(2);
+  SetExtendedReportingPref(false);
 
   // Not allowed now.
   EXPECT_FALSE(trial_controller().IsAllowed());
@@ -505,7 +526,7 @@ TEST_F(TrialComparisonCertVerifierControllerTest,
   reporting_service_test_helper()->ExpectNoRequests(reporting_service());
 }
 
-TEST_F(TrialComparisonCertVerifierControllerTest,
+TEST_P(TrialComparisonCertVerifierControllerTest,
        OfficialBuildTrialEnabledUmaOnly) {
   TrialComparisonCertVerifierController::SetFakeOfficialBuildForTesting(true);
   scoped_feature_ = std::make_unique<base::test::ScopedFeatureList>();
@@ -517,8 +538,9 @@ TEST_F(TrialComparisonCertVerifierControllerTest,
 
   // Enable the SBER pref, which should trigger the OnTrialConfigUpdated
   // callback.
+  EXPECT_CALL(mock_config_client(), OnTrialConfigUpdated(false)).Times(1);
   EXPECT_CALL(mock_config_client(), OnTrialConfigUpdated(true)).Times(1);
-  safe_browsing::SetExtendedReportingPrefForTests(pref_service(), true);
+  SetExtendedReportingPref(true);
 
   // Trial should now be allowed.
   EXPECT_TRUE(trial_controller().IsAllowed());
@@ -541,7 +563,7 @@ TEST_F(TrialComparisonCertVerifierControllerTest,
   reporting_service_test_helper()->ExpectNoRequests(reporting_service());
 }
 
-TEST_F(TrialComparisonCertVerifierControllerTest,
+TEST_P(TrialComparisonCertVerifierControllerTest,
        IncognitoOfficialBuildTrialEnabled) {
   TrialComparisonCertVerifierController::SetFakeOfficialBuildForTesting(true);
   scoped_feature_ = std::make_unique<base::test::ScopedFeatureList>();
@@ -552,7 +574,7 @@ TEST_F(TrialComparisonCertVerifierControllerTest,
   EXPECT_FALSE(trial_controller().IsAllowed());
 
   // Enable the SBER pref, shouldn't matter since it's an incognito profile.
-  safe_browsing::SetExtendedReportingPrefForTests(pref_service(), true);
+  SetExtendedReportingPref(true);
 
   // Trial still not allowed, and OnTrialConfigUpdated should not be called
   // either.
@@ -568,3 +590,7 @@ TEST_F(TrialComparisonCertVerifierControllerTest,
   // Expect no report since the trial is not allowed.
   reporting_service_test_helper()->ExpectNoRequests(reporting_service());
 }
+
+INSTANTIATE_TEST_SUITE_P(Impl,
+                         TrialComparisonCertVerifierControllerTest,
+                         testing::Bool());

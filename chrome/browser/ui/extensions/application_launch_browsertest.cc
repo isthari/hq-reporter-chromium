@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
 #include "chrome/test/base/in_process_browser_test.h"
-#include "components/services/app_service/public/mojom/types.mojom.h"
+#include "components/services/app_service/public/cpp/app_launch_util.h"
 #include "content/public/test/browser_test.h"
 #include "ui/base/base_window.h"
 #include "ui/base/window_open_disposition.h"
@@ -22,7 +22,7 @@ IN_PROC_BROWSER_TEST_F(ApplicationLaunchBrowserTest, CreateWindowInDisplay) {
   display::DisplayManager* display_manager =
       ash::Shell::Get()->display_manager();
   display::test::DisplayManagerTestApi display_manager_test(display_manager);
-  display_manager_test.UpdateDisplay("800x800,801+0-800x800");
+  display_manager_test.UpdateDisplay("800x750,801+0-800x750");
   int64_t display1 = screen->GetPrimaryDisplay().id();
   int64_t display2 = display_manager_test.GetSecondaryDisplay().id();
   EXPECT_EQ(2, screen->GetNumDisplays());
@@ -33,10 +33,10 @@ IN_PROC_BROWSER_TEST_F(ApplicationLaunchBrowserTest, CreateWindowInDisplay) {
   EXPECT_EQ(display1, screen->GetDisplayForNewWindows().id());
 
   // Create browser2 on display 2.
-  apps::AppLaunchParams params(
-      "app_id", apps::mojom::LaunchContainer::kLaunchContainerWindow,
-      WindowOpenDisposition::NEW_WINDOW,
-      apps::mojom::LaunchSource::kFromAppListGrid, display2);
+  apps::AppLaunchParams params("app_id",
+                               apps::LaunchContainer::kLaunchContainerWindow,
+                               WindowOpenDisposition::NEW_WINDOW,
+                               apps::LaunchSource::kFromAppListGrid, display2);
   Browser* browser2 =
       CreateApplicationWindow(browser()->profile(), params, GURL());
   gfx::NativeWindow window2 = browser2->window()->GetNativeWindow();

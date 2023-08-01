@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -55,8 +55,7 @@ void HostEventWindowsEventLogger::LogEvent(const EventTraceData& data) {
   // change from a MOF based provider to a manifest based provider and define an
   // event schema.
   std::vector<std::string> payload(
-      {data.message.c_str(),
-       base::StringPrintf("pid: %d", data.process_id),
+      {data.message.c_str(), base::StringPrintf("pid: %d", data.process_id),
        base::StringPrintf("tid: %d", data.thread_id),
        EventTraceData::SeverityToString(data.severity),
        base::StringPrintf("%s(%d)", data.file_name.c_str(), data.line),

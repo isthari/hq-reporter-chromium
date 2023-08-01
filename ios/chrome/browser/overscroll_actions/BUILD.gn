@@ -1,4 +1,4 @@
-# Copyright 2019 The Chromium Authors. All rights reserved.
+# Copyright 2019 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -10,8 +10,7 @@ source_set("overscroll_actions") {
   deps = [
     "//base",
     "//components/keyed_service/ios",
-    "//ios/chrome/browser",
-    "//ios/chrome/browser/browser_state",
+    "//ios/chrome/browser/shared/model/browser_state",
     "//ios/chrome/browser/ui/overscroll_actions",
     "//ios/web/public",
   ]
@@ -26,7 +25,7 @@ source_set("unit_tests") {
     ":overscroll_actions",
     "//base",
     "//base/test:test_support",
-    "//ios/chrome/browser/browser_state:test_support",
+    "//ios/chrome/browser/shared/model/browser_state:test_support",
     "//ios/chrome/browser/ui/overscroll_actions",
     "//ios/chrome/common/ui/colors",
     "//ios/chrome/test/fakes",

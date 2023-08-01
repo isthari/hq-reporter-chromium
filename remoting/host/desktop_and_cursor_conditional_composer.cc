@@ -1,32 +1,39 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "remoting/host/desktop_and_cursor_conditional_composer.h"
 
+#include "base/functional/bind.h"
+#include "build/build_config.h"
+
+#if BUILDFLAG(IS_LINUX)
+#include "remoting/host/linux/wayland_utils.h"
+#endif
+
 namespace remoting {
 
 DesktopAndCursorConditionalComposer::DesktopAndCursorConditionalComposer(
-    std::unique_ptr<webrtc::DesktopCapturer> desktop_capturer)
-    : capturer_(
-          webrtc::DesktopAndCursorComposer::CreateWithoutMouseCursorMonitor(
-              std::move(desktop_capturer))) {}
+    std::unique_ptr<DesktopCapturer> desktop_capturer) {
+#if defined(WEBRTC_USE_GIO)
+  desktop_capturer_ = desktop_capturer.get();
+#endif
+  capturer_ = webrtc::DesktopAndCursorComposer::CreateWithoutMouseCursorMonitor(
+      std::move(desktop_capturer));
+}
 
 DesktopAndCursorConditionalComposer::~DesktopAndCursorConditionalComposer() =
     default;
 
-base::WeakPtr<DesktopAndCursorConditionalComposer>
-DesktopAndCursorConditionalComposer::GetWeakPtr() {
-  return weak_factory_.GetWeakPtr();
-}
-
 void DesktopAndCursorConditionalComposer::SetComposeEnabled(bool enabled) {
-  if (enabled == compose_enabled_)
+  if (enabled == compose_enabled_) {
     return;
+  }
 
   if (enabled) {
-    if (mouse_cursor_)
+    if (mouse_cursor_) {
       capturer_->OnMouseCursor(webrtc::MouseCursor::CopyOf(*mouse_cursor_));
+    }
   } else {
     webrtc::MouseCursor* empty = new webrtc::MouseCursor(
         new webrtc::BasicDesktopFrame(webrtc::DesktopSize(0, 0)),
@@ -38,16 +45,18 @@ void DesktopAndCursorConditionalComposer::SetComposeEnabled(bool enabled) {
 }
 
 void DesktopAndCursorConditionalComposer::SetMouseCursor(
-    webrtc::MouseCursor* mouse_cursor) {
-  mouse_cursor_.reset(mouse_cursor);
-  if (compose_enabled_)
+    std::unique_ptr<webrtc::MouseCursor> mouse_cursor) {
+  mouse_cursor_ = std::move(mouse_cursor);
+  if (compose_enabled_) {
     capturer_->OnMouseCursor(webrtc::MouseCursor::CopyOf(*mouse_cursor_));
+  }
 }
 
 void DesktopAndCursorConditionalComposer::SetMouseCursorPosition(
     const webrtc::DesktopVector& position) {
-  if (compose_enabled_)
+  if (compose_enabled_) {
     capturer_->OnMouseCursorPosition(position);
+  }
 }
 
 void DesktopAndCursorConditionalComposer::Start(
@@ -85,5 +94,25 @@ bool DesktopAndCursorConditionalComposer::IsOccluded(
     const webrtc::DesktopVector& pos) {
   return capturer_->IsOccluded(pos);
 }
+
+bool DesktopAndCursorConditionalComposer::SupportsFrameCallbacks() {
+#if BUILDFLAG(IS_LINUX)
+  return IsRunningWayland();
+#else
+  return false;
+#endif
+}
+
+void DesktopAndCursorConditionalComposer::SetMaxFrameRate(
+    uint32_t max_frame_rate) {
+  capturer_->SetMaxFrameRate(max_frame_rate);
+}
+
+#if defined(WEBRTC_USE_GIO)
+void DesktopAndCursorConditionalComposer::GetMetadataAsync(
+    base::OnceCallback<void(webrtc::DesktopCaptureMetadata)> callback) {
+  desktop_capturer_->GetMetadataAsync(std::move(callback));
+}
+#endif
 
 }  // namespace remoting

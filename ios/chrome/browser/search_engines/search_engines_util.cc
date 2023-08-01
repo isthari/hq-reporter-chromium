@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 
 #include "base/location.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "components/country_codes/country_codes.h"
 #include "components/prefs/pref_service.h"
 #include "components/search_engines/search_engines_pref_names.h"
@@ -33,8 +32,6 @@ void UpdateSearchEngine(TemplateURLService* service) {
   std::vector<std::unique_ptr<TemplateURLData>> new_engines =
       TemplateURLPrepopulateData::GetPrepopulatedEngines(nullptr,
                                                          &default_engine_index);
-  DCHECK(default_engine_index == 0);
-  DCHECK(new_engines[0]->prepopulate_id == kGoogleEnginePrepopulatedId);
   // The aim is to replace the old search engines with the new ones.
   // It is not possible to remove all of them, because removing the current
   // selected engine is not allowed.
@@ -80,7 +77,8 @@ class LoadedObserver : public TemplateURLServiceObserver {
     service_->RemoveObserver(this);
     UpdateSearchEngine(service_);
     // Only delete this class when this callback is finished.
-    base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, this);
+    base::SingleThreadTaskRunner::GetCurrentDefault()->DeleteSoon(FROM_HERE,
+                                                                  this);
   }
 
  private:

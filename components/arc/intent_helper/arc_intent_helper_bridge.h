@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "ash/components/arc/mojom/intent_helper.mojom.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/threading/thread_checker.h"
@@ -30,6 +31,7 @@ namespace arc {
 
 class AdaptiveIconDelegate;
 class ArcBridgeService;
+class ArcSettingsAppDelegate;
 class ControlCameraAppDelegate;
 class IntentFilter;
 class OpenUrlDelegate;
@@ -54,6 +56,8 @@ class ArcIntentHelperBridge : public KeyedService,
   static ArcIntentHelperBridge* GetForBrowserContextForTesting(
       content::BrowserContext* context);
 
+  static void ShutDownForTesting(content::BrowserContext* context);
+
   // Returns factory for the ArcIntentHelperBridge.
   static BrowserContextKeyedServiceFactory* GetFactory();
 
@@ -64,6 +68,9 @@ class ArcIntentHelperBridge : public KeyedService,
   static void SetOpenUrlDelegate(OpenUrlDelegate* delegate);
 
   static void SetControlCameraAppDelegate(ControlCameraAppDelegate* delegate);
+
+  static void SetArcSettingsAppDelegate(
+      std::unique_ptr<ArcSettingsAppDelegate> delegate);
 
   // Sets the Delegate instance.
   void SetDelegate(std::unique_ptr<Delegate> delegate);
@@ -105,25 +112,20 @@ class ArcIntentHelperBridge : public KeyedService,
   void IsChromeAppEnabled(arc::mojom::ChromeApp app,
                           IsChromeAppEnabledCallback callback) override;
   void OnSupportedLinksChanged(
-      std::vector<arc::mojom::SupportedLinksPtr> added_packages,
-      std::vector<arc::mojom::SupportedLinksPtr> removed_packages,
+      std::vector<arc::mojom::SupportedLinksPackagePtr> added_packages,
+      std::vector<arc::mojom::SupportedLinksPackagePtr> removed_packages,
       arc::mojom::SupportedLinkChangeSource source) override;
-  void OnDownloadAdded(const std::string& relative_path,
-                       const std::string& owner_package_name) override;
+  void OnDownloadAddedDeprecated(
+      const std::string& relative_path,
+      const std::string& owner_package_name) override;
   void OnOpenAppWithIntent(const GURL& start_url,
                            arc::mojom::LaunchIntentPtr intent) override;
+  void OnOpenGlobalActions() override;
+  void OnCloseSystemDialogs() override;
 
   // ArcIconCacheDelegete:
   GetResult GetActivityIcons(const std::vector<ActivityName>& activities,
                              OnIconsReadyCallback callback) override;
-
-  // Returns true when |url| can only be handled by Chrome. Otherwise, which is
-  // when there might be one or more ARC apps that can handle |url|, returns
-  // false. This function synchronously checks the |url| without making any IPC
-  // to ARC side. Note that this function only supports http and https. If url's
-  // scheme is neither http nor https, the function immediately returns true
-  // without checking the filters.
-  bool ShouldChromeHandleUrl(const GURL& url);
 
   void SetAdaptiveIconDelegate(AdaptiveIconDelegate* delegate);
 
@@ -139,15 +141,13 @@ class ArcIntentHelperBridge : public KeyedService,
 
   void SendNewCaptureBroadcast(bool is_video, std::string file_path);
 
-  // Returns false if |package_name| is for the intent_helper apk.
-  static bool IsIntentHelperPackage(const std::string& package_name);
+  void OnAndroidSettingChange(arc::mojom::AndroidSetting setting,
+                              bool is_enabled) override;
 
   // Filters out handlers that belong to the intent_helper apk and returns
   // a new array.
   static std::vector<mojom::IntentHandlerInfoPtr> FilterOutIntentHelper(
       std::vector<mojom::IntentHandlerInfoPtr> handlers);
-
-  static const char kArcIntentHelperPackageName[];
 
   const std::vector<IntentFilter>& GetIntentFilterForPackage(
       const std::string& package_name);
@@ -155,17 +155,15 @@ class ArcIntentHelperBridge : public KeyedService,
  private:
   THREAD_CHECKER(thread_checker_);
 
-  content::BrowserContext* const context_;
-  ArcBridgeService* const arc_bridge_service_;  // Owned by ArcServiceManager.
+  const raw_ptr<content::BrowserContext, ExperimentalAsh> context_;
+  const raw_ptr<ArcBridgeService, ExperimentalAsh>
+      arc_bridge_service_;  // Owned by ArcServiceManager.
 
   ActivityIconLoader icon_loader_;
 
   // A map of each package name to the intent filters for that package.
   // Used to determine if Chrome should handle a URL without handing off to
   // Android.
-  // TODO(crbug.com/853604): Now the package name exists in the map key as well
-  // as the IntentFilter struct, it is a duplication. Should update the ARC
-  // mojom type to optimise the structure.
   std::map<std::string, std::vector<IntentFilter>> intent_filters_;
 
   base::ObserverList<ArcIntentHelperObserver>::Unchecked observer_list_;

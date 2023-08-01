@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,9 @@ namespace blink {
 PictureInPictureWindow::PictureInPictureWindow(
     ExecutionContext* execution_context,
     const gfx::Size& size)
-    : ExecutionContextClient(execution_context), size_(size) {}
+    : ActiveScriptWrappable<PictureInPictureWindow>({}),
+      ExecutionContextClient(execution_context),
+      size_(size) {}
 
 void PictureInPictureWindow::OnClose() {
   size_ = gfx::Size();

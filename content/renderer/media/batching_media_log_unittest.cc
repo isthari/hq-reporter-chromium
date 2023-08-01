@@ -1,4 +1,4 @@
-// Copyright (c) 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -111,7 +111,7 @@ TEST_F(BatchingMediaLogTest, ThrottleSendingEvents) {
 
   // Verify contents.
   std::vector<media::MediaLogRecord> events = GetMediaLogRecords();
-  ASSERT_EQ(2u, events.size());
+  ASSERT_EQ(3u, events.size());
   EXPECT_EQ(media::MediaLogRecord::Type::kMediaEventTriggered, events[0].type);
   EXPECT_EQ(media::MediaLogRecord::Type::kMediaEventTriggered, events[1].type);
 
@@ -160,7 +160,7 @@ TEST_F(BatchingMediaLogTest, DurationChanged) {
   // Verify contents. There should only be a single buffered extents changed
   // event.
   std::vector<media::MediaLogRecord> events = GetMediaLogRecords();
-  ASSERT_EQ(3u, events.size());
+  ASSERT_EQ(4u, events.size());
   EXPECT_EQ(media::MediaLogRecord::Type::kMediaEventTriggered, events[0].type);
   EXPECT_EQ(media::MediaLogRecord::Type::kMediaEventTriggered, events[1].type);
   EXPECT_EQ(media::MediaLogRecord::Type::kMediaEventTriggered, events[2].type);
@@ -195,7 +195,7 @@ TEST_F(BatchingMediaLogTest, BufferingStateChanged) {
   // Verify contents. There should only be a single buffered extents changed
   // event.
   std::vector<media::MediaLogRecord> events = GetMediaLogRecords();
-  ASSERT_EQ(3u, events.size());
+  ASSERT_EQ(4u, events.size());
   EXPECT_EQ(media::MediaLogRecord::Type::kMediaEventTriggered, events[0].type);
   EXPECT_EQ(media::MediaLogRecord::Type::kMediaEventTriggered, events[1].type);
   EXPECT_EQ(media::MediaLogRecord::Type::kMediaEventTriggered, events[2].type);

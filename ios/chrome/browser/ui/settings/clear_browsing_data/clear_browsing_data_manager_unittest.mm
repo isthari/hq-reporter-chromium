@@ -1,50 +1,52 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/settings/clear_browsing_data/clear_browsing_data_manager.h"
 
-#include "base/bind.h"
-#include "base/mac/foundation_util.h"
-#include "base/test/scoped_feature_list.h"
-#include "components/browsing_data/core/pref_names.h"
-#include "components/pref_registry/pref_registry_syncable.h"
-#include "components/search_engines/template_url_data_util.h"
-#include "components/search_engines/template_url_prepopulate_data.h"
-#include "components/search_engines/template_url_service.h"
-#include "components/sync/driver/test_sync_service.h"
-#include "components/sync_preferences/pref_service_mock_factory.h"
-#include "components/sync_preferences/pref_service_syncable.h"
-#include "ios/chrome/browser/application_context.h"
-#include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
-#include "ios/chrome/browser/browsing_data/browsing_data_features.h"
-#include "ios/chrome/browser/browsing_data/cache_counter.h"
-#include "ios/chrome/browser/browsing_data/fake_browsing_data_remover.h"
+#import "base/functional/bind.h"
+#import "base/mac/foundation_util.h"
+#import "base/strings/utf_string_conversions.h"
+#import "components/browsing_data/core/pref_names.h"
+#import "components/pref_registry/pref_registry_syncable.h"
+#import "components/search_engines/template_url_data_util.h"
+#import "components/search_engines/template_url_prepopulate_data.h"
+#import "components/search_engines/template_url_service.h"
+#import "components/signin/public/base/signin_metrics.h"
+#import "components/sync/service/sync_service.h"
+#import "components/sync/test/test_sync_service.h"
+#import "components/sync_preferences/pref_service_mock_factory.h"
+#import "components/sync_preferences/pref_service_syncable.h"
+#import "ios/chrome/browser/browsing_data/browsing_data_features.h"
+#import "ios/chrome/browser/browsing_data/cache_counter.h"
+#import "ios/chrome/browser/browsing_data/fake_browsing_data_remover.h"
 #import "ios/chrome/browser/net/crurl.h"
-#include "ios/chrome/browser/pref_names.h"
-#include "ios/chrome/browser/prefs/browser_prefs.h"
-#include "ios/chrome/browser/search_engines/template_url_service_factory.h"
-#include "ios/chrome/browser/signin/authentication_service.h"
-#include "ios/chrome/browser/signin/authentication_service_delegate_fake.h"
-#include "ios/chrome/browser/signin/authentication_service_factory.h"
+#import "ios/chrome/browser/search_engines/template_url_service_factory.h"
+#import "ios/chrome/browser/shared/model/application_context/application_context.h"
+#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/prefs/browser_prefs.h"
+#import "ios/chrome/browser/shared/model/prefs/pref_names.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
+#import "ios/chrome/browser/shared/ui/table_view/cells/table_view_detail_icon_item.h"
+#import "ios/chrome/browser/shared/ui/table_view/cells/table_view_link_header_footer_item.h"
+#import "ios/chrome/browser/shared/ui/table_view/table_view_model.h"
+#import "ios/chrome/browser/signin/authentication_service.h"
+#import "ios/chrome/browser/signin/authentication_service_factory.h"
 #import "ios/chrome/browser/signin/chrome_account_manager_service.h"
 #import "ios/chrome/browser/signin/chrome_account_manager_service_factory.h"
-#include "ios/chrome/browser/sync/sync_service_factory.h"
-#include "ios/chrome/browser/sync/sync_setup_service_factory.h"
-#include "ios/chrome/browser/sync/sync_setup_service_mock.h"
+#import "ios/chrome/browser/signin/fake_authentication_service_delegate.h"
+#import "ios/chrome/browser/signin/fake_system_identity_manager.h"
+#import "ios/chrome/browser/sync/sync_service_factory.h"
+#import "ios/chrome/browser/sync/sync_setup_service_factory.h"
+#import "ios/chrome/browser/sync/sync_setup_service_mock.h"
 #import "ios/chrome/browser/ui/settings/clear_browsing_data/fake_browsing_data_counter_wrapper_producer.h"
-#import "ios/chrome/browser/ui/table_view/cells/table_view_detail_icon_item.h"
-#import "ios/chrome/browser/ui/table_view/cells/table_view_link_header_footer_item.h"
-#import "ios/chrome/browser/ui/table_view/table_view_model.h"
-#include "ios/chrome/browser/ui/ui_feature_flags.h"
-#include "ios/chrome/grit/ios_strings.h"
-#include "ios/chrome/test/ios_chrome_scoped_testing_local_state.h"
-#include "ios/public/provider/chrome/browser/signin/fake_chrome_identity_service.h"
-#include "ios/web/public/test/web_task_environment.h"
-#include "testing/gtest/include/gtest/gtest.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/test/ios_chrome_scoped_testing_local_state.h"
+#import "ios/web/public/test/web_task_environment.h"
+#import "testing/gtest/include/gtest/gtest.h"
 #import "testing/gtest_mac.h"
-#include "testing/platform_test.h"
-#include "ui/base/l10n/l10n_util_mac.h"
+#import "testing/platform_test.h"
+#import "ui/base/l10n/l10n_util_mac.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -86,7 +88,7 @@ class ClearBrowsingDataManagerTest : public PlatformTest {
 
     AuthenticationServiceFactory::CreateAndInitializeForBrowserState(
         browser_state_.get(),
-        std::make_unique<AuthenticationServiceDelegateFake>());
+        std::make_unique<FakeAuthenticationServiceDelegate>());
     account_manager_service_ =
         ChromeAccountManagerServiceFactory::GetForBrowserState(
             browser_state_.get());
@@ -96,8 +98,10 @@ class ClearBrowsingDataManagerTest : public PlatformTest {
         browser_state_.get());
     template_url_service_->Load();
 
-    ios::FakeChromeIdentityService::GetInstanceFromChromeProvider()
-        ->AddIdentities(@[ @"foo" ]);
+    FakeSystemIdentityManager* system_identity_manager =
+        FakeSystemIdentityManager::FromSystemIdentityManager(
+            GetApplicationContext()->GetSystemIdentityManager());
+    system_identity_manager->AddIdentities(@[ @"foo" ]);
 
     model_ = [[TableViewModel alloc] init];
     remover_ = std::make_unique<FakeBrowsingDataRemover>();
@@ -106,6 +110,7 @@ class ClearBrowsingDataManagerTest : public PlatformTest {
                        browsingDataRemover:remover_.get()
         browsingDataCounterWrapperProducer:
             [[FakeBrowsingDataCounterWrapperProducer alloc] init]];
+    [manager_ prepare];
 
     test_sync_service_ = static_cast<syncer::TestSyncService*>(
         SyncServiceFactory::GetForBrowserState(browser_state_.get()));
@@ -114,12 +119,14 @@ class ClearBrowsingDataManagerTest : public PlatformTest {
                           browser_state_->GetPrefs());
   }
 
-  ChromeIdentity* fake_identity() {
+  ~ClearBrowsingDataManagerTest() override { [manager_ disconnect]; }
+
+  id<SystemIdentity> fake_identity() {
     return account_manager_service_->GetDefaultIdentity();
   }
 
   // Adds a prepopulated search engine to TemplateURLService.
-  // |prepopulate_id| should be big enough (>1000) to avoid collision with real
+  // `prepopulate_id` should be big enough (>1000) to avoid collision with real
   // prepopulated search engines. The collision happens when
   // TemplateURLService::SetUserSelectedDefaultSearchProvider is called, in the
   // callback of PrefService the DefaultSearchManager will update the searchable
@@ -175,42 +182,53 @@ class ClearBrowsingDataManagerTest : public PlatformTest {
 
 // Tests model is set up with all appropriate items and sections.
 TEST_F(ClearBrowsingDataManagerTest, TestModel) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndDisableFeature(kSearchHistoryLinkIOS);
-
   [manager_ loadModel:model_];
 
-  EXPECT_EQ(3, [model_ numberOfSections]);
-  EXPECT_EQ(1, [model_ numberOfItemsInSection:0]);
-  EXPECT_EQ(5, [model_ numberOfItemsInSection:1]);
-  EXPECT_EQ(0, [model_ numberOfItemsInSection:2]);
+  EXPECT_EQ(2, [model_ numberOfSections]);
+  EXPECT_EQ(
+      1,
+      [model_ numberOfItemsInSection:[model_ sectionForSectionIdentifier:
+                                                 SectionIdentifierTimeRange]]);
+  EXPECT_EQ(
+      5,
+      [model_ numberOfItemsInSection:[model_ sectionForSectionIdentifier:
+                                                 SectionIdentifierDataTypes]]);
 }
 
 // Tests model is set up with correct number of items and sections if signed in
 // but sync is off.
 TEST_F(ClearBrowsingDataManagerTest, TestModelSignedInSyncOff) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndDisableFeature(kSearchHistoryLinkIOS);
-
   // Ensure that sync is not running.
-  test_sync_service_->SetDisableReasons(
-      syncer::SyncService::DISABLE_REASON_USER_CHOICE);
+  test_sync_service_->SetHasSyncConsent(false);
 
   AuthenticationServiceFactory::GetForBrowserState(browser_state_.get())
-      ->SignIn(fake_identity());
+      ->SignIn(fake_identity(),
+               signin_metrics::AccessPoint::ACCESS_POINT_SETTINGS);
 
   [manager_ loadModel:model_];
 
-  EXPECT_EQ(3, [model_ numberOfSections]);
-  EXPECT_EQ(1, [model_ numberOfItemsInSection:0]);
-  EXPECT_EQ(5, [model_ numberOfItemsInSection:1]);
-  EXPECT_EQ(0, [model_ numberOfItemsInSection:2]);
+  EXPECT_EQ(4, [model_ numberOfSections]);
+  EXPECT_EQ(
+      1,
+      [model_ numberOfItemsInSection:[model_ sectionForSectionIdentifier:
+                                                 SectionIdentifierTimeRange]]);
+  EXPECT_EQ(
+      5,
+      [model_ numberOfItemsInSection:[model_ sectionForSectionIdentifier:
+                                                 SectionIdentifierDataTypes]]);
+  EXPECT_EQ(
+      0,
+      [model_
+          numberOfItemsInSection:[model_ sectionForSectionIdentifier:
+                                             SectionIdentifierSavedSiteData]]);
+  EXPECT_EQ(
+      0,
+      [model_
+          numberOfItemsInSection:[model_ sectionForSectionIdentifier:
+                                             SectionIdentifierGoogleAccount]]);
 }
 
 TEST_F(ClearBrowsingDataManagerTest, TestCacheCounterFormattingForAllTime) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndDisableFeature(kSearchHistoryLinkIOS);
-
   ASSERT_EQ("en", GetApplicationContext()->GetApplicationLocale());
   PrefService* prefs = browser_state_->GetPrefs();
   prefs->SetInteger(browsing_data::prefs::kDeleteTimePeriod,
@@ -242,9 +260,6 @@ TEST_F(ClearBrowsingDataManagerTest, TestCacheCounterFormattingForAllTime) {
 
 TEST_F(ClearBrowsingDataManagerTest,
        TestCacheCounterFormattingForLessThanAllTime) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndDisableFeature(kSearchHistoryLinkIOS);
-
   ASSERT_EQ("en", GetApplicationContext()->GetApplicationLocale());
 
   PrefService* prefs = browser_state_->GetPrefs();
@@ -276,9 +291,6 @@ TEST_F(ClearBrowsingDataManagerTest,
 }
 
 TEST_F(ClearBrowsingDataManagerTest, TestOnPreferenceChanged) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndDisableFeature(kSearchHistoryLinkIOS);
-
   [manager_ loadModel:model_];
   NSArray* timeRangeItems =
       [model_ itemsInSectionWithIdentifier:SectionIdentifierTimeRange];
@@ -300,11 +312,9 @@ TEST_F(ClearBrowsingDataManagerTest, TestOnPreferenceChanged) {
 }
 
 TEST_F(ClearBrowsingDataManagerTest, TestGoogleDSETextSignedIn) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(kSearchHistoryLinkIOS);
-
   AuthenticationServiceFactory::GetForBrowserState(browser_state_.get())
-      ->SignIn(fake_identity());
+      ->SignIn(fake_identity(),
+               signin_metrics::AccessPoint::ACCESS_POINT_SETTINGS);
 
   [manager_ loadModel:model_];
 
@@ -322,11 +332,8 @@ TEST_F(ClearBrowsingDataManagerTest, TestGoogleDSETextSignedIn) {
 }
 
 TEST_F(ClearBrowsingDataManagerTest, TestGoogleDSETextSignedOut) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(kSearchHistoryLinkIOS);
-
   AuthenticationServiceFactory::GetForBrowserState(browser_state_.get())
-      ->SignOut(signin_metrics::ABORT_SIGNIN,
+      ->SignOut(signin_metrics::ProfileSignout::kAbortSignin,
                 /*force_clear_browsing_data=*/false, nil);
 
   [manager_ loadModel:model_];
@@ -336,11 +343,9 @@ TEST_F(ClearBrowsingDataManagerTest, TestGoogleDSETextSignedOut) {
 }
 
 TEST_F(ClearBrowsingDataManagerTest, TestPrepopulatedTextSignedIn) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(kSearchHistoryLinkIOS);
-
   AuthenticationServiceFactory::GetForBrowserState(browser_state_.get())
-      ->SignIn(fake_identity());
+      ->SignIn(fake_identity(),
+               signin_metrics::AccessPoint::ACCESS_POINT_SETTINGS);
 
   // Set DSE to one from "prepoulated list".
   const std::string kEngineP1Name = "prepopulated-1";
@@ -371,11 +376,8 @@ TEST_F(ClearBrowsingDataManagerTest, TestPrepopulatedTextSignedIn) {
 }
 
 TEST_F(ClearBrowsingDataManagerTest, TestPrepopulatedTextSignedOut) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(kSearchHistoryLinkIOS);
-
   AuthenticationServiceFactory::GetForBrowserState(browser_state_.get())
-      ->SignOut(signin_metrics::ABORT_SIGNIN,
+      ->SignOut(signin_metrics::ProfileSignout::kAbortSignin,
                 /*force_clear_browsing_data=*/false, nil);
 
   // Set DSE to one from "prepoulated list".
@@ -408,11 +410,9 @@ TEST_F(ClearBrowsingDataManagerTest, TestPrepopulatedTextSignedOut) {
 }
 
 TEST_F(ClearBrowsingDataManagerTest, TestCustomTextSignedIn) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(kSearchHistoryLinkIOS);
-
   AuthenticationServiceFactory::GetForBrowserState(browser_state_.get())
-      ->SignIn(fake_identity());
+      ->SignIn(fake_identity(),
+               signin_metrics::AccessPoint::ACCESS_POINT_SETTINGS);
 
   // Set DSE to a be fully custom.
   const std::string kEngineC1Name = "custom-1";
@@ -445,11 +445,8 @@ TEST_F(ClearBrowsingDataManagerTest, TestCustomTextSignedIn) {
 }
 
 TEST_F(ClearBrowsingDataManagerTest, TestCustomeTextSignedOut) {
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(kSearchHistoryLinkIOS);
-
   AuthenticationServiceFactory::GetForBrowserState(browser_state_.get())
-      ->SignOut(signin_metrics::ABORT_SIGNIN,
+      ->SignOut(signin_metrics::ProfileSignout::kAbortSignin,
                 /*force_clear_browsing_data=*/false, nil);
 
   // Set DSE to a be fully custom.

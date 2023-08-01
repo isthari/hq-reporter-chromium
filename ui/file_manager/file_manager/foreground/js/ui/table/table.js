@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,13 @@
  * @fileoverview This implements a table control.
  */
 
-import {dispatchSimpleEvent, getPropertyDescriptor, PropertyKind} from 'chrome://resources/js/cr.m.js';
-import {ArrayDataModel} from 'chrome://resources/js/cr/ui/array_data_model.m.js';
-import {List} from 'chrome://resources/js/cr/ui/list.m.js';
-import {ListItem} from 'chrome://resources/js/cr/ui/list_item.m.js';
-import {ListSelectionModel} from 'chrome://resources/js/cr/ui/list_selection_model.m.js';
-import {ListSingleSelectionModel} from 'chrome://resources/js/cr/ui/list_single_selection_model.m.js';
+import {dispatchSimpleEvent, getPropertyDescriptor, PropertyKind} from 'chrome://resources/ash/common/cr_deprecated.js';
+
+import {ArrayDataModel} from '../../../../common/js/array_data_model.js';
+import {List} from '../list.js';
+import {ListItem} from '../list_item.js';
+import {ListSelectionModel} from '../list_selection_model.js';
+import {ListSingleSelectionModel} from '../list_single_selection_model.js';
 
 import {TableColumnModel} from './table_column_model.js';
 import {TableHeader} from './table_header.js';
@@ -295,7 +296,26 @@ export class Table {
    */
   handleSorted_(e) {
     this.header_.redraw();
+    // If we have 'focus-outline-visible' on the root HTML element and focus
+    // has reverted to the body element it means this sort header creation
+    // was the result of a keyboard action so set focus to the (newly
+    // recreated) sort button in that case.
+    if (document.querySelector('html.focus-outline-visible') &&
+        (document.activeElement instanceof HTMLBodyElement)) {
+      const sortButton =
+          this.header_.querySelector('cr-icon-button[tabindex="0"]');
+      if (sortButton) {
+        sortButton.focus();
+      }
+    }
+    this.onDataModelSorted();
   }
+
+  /**
+   * Override to inject custom logic after data model sorting is done.
+   * @protected
+   */
+  onDataModelSorted() {}
 
   /**
    * This handles data model 'change' and 'splice' events.
@@ -419,20 +439,21 @@ export class Table {
 
   normalizeColumns() {
     this.columnModel.normalizeWidths(this.clientWidth);
+    dispatchSimpleEvent(this, 'column-resize-end', /*bubbles=*/ true);
   }
 }
 
-  Table.prototype.__proto__ = HTMLDivElement.prototype;
+Table.prototype.__proto__ = HTMLDivElement.prototype;
 
 
-  /**
-   * Whether the table or one of its descendents has focus. This is necessary
-   * because table contents can contain controls that can be focused, and for
-   * some purposes (e.g., styling), the table can still be conceptually focused
-   * at that point even though it doesn't actually have the page focus.
-   * @type {boolean}
-   */
-  Table.prototype.hasElementFocus;
-  Object.defineProperty(
-      Table.prototype, 'hasElementFocus',
-      getPropertyDescriptor('hasElementFocus', PropertyKind.BOOL_ATTR));
+/**
+ * Whether the table or one of its descendants has focus. This is necessary
+ * because table contents can contain controls that can be focused, and for
+ * some purposes (e.g., styling), the table can still be conceptually focused
+ * at that point even though it doesn't actually have the page focus.
+ * @type {boolean}
+ */
+Table.prototype.hasElementFocus;
+Object.defineProperty(
+    Table.prototype, 'hasElementFocus',
+    getPropertyDescriptor('hasElementFocus', PropertyKind.BOOL_ATTR));

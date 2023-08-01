@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,15 +9,14 @@
 #include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/public/platform/web_worker_fetch_context.h"
-#include "third_party/blink/renderer/bindings/core/v8/source_location.h"
 #include "third_party/blink/renderer/core/dom/document.h"
-#include "third_party/blink/renderer/core/frame/deprecation.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/core/inspector/devtools_agent.h"
 #include "third_party/blink/renderer/core/inspector/worker_devtools_params.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
 #include "third_party/blink/renderer/core/workers/global_scope_creation_params.h"
 #include "third_party/blink/renderer/core/workers/worker_global_scope.h"
+#include "third_party/blink/renderer/platform/bindings/source_location.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
 
@@ -30,20 +29,29 @@ static int g_live_messaging_proxy_count = 0;
 }  // namespace
 
 ThreadedMessagingProxyBase::ThreadedMessagingProxyBase(
-    ExecutionContext* execution_context)
+    ExecutionContext* execution_context,
+    scoped_refptr<base::SingleThreadTaskRunner> parent_agent_group_task_runner)
     : execution_context_(execution_context),
       parent_execution_context_task_runners_(
-          ParentExecutionContextTaskRunners::Create(execution_context_.Get())),
+          execution_context
+              ? ParentExecutionContextTaskRunners::Create(*execution_context)
+              : nullptr),
+      parent_agent_group_task_runner_(parent_agent_group_task_runner),
       terminate_sync_load_event_(
           base::WaitableEvent::ResetPolicy::MANUAL,
           base::WaitableEvent::InitialState::NOT_SIGNALED),
       feature_handle_for_scheduler_(
-          base::FeatureList::IsEnabled(
-              features::kBackForwardCacheDedicatedWorker)
+          (base::FeatureList::IsEnabled(
+               features::kBackForwardCacheDedicatedWorker) ||
+           !execution_context)
               ? FrameOrWorkerScheduler::SchedulingAffectingFeatureHandle()
               : execution_context->GetScheduler()->RegisterFeature(
                     SchedulingPolicy::Feature::kDedicatedWorkerOrWorklet,
                     {SchedulingPolicy::DisableBackForwardCache()})) {
+  DCHECK((parent_execution_context_task_runners_ &&
+          !parent_agent_group_task_runner_) ||
+         (!parent_execution_context_task_runners_ &&
+          parent_agent_group_task_runner_));
   DCHECK(IsParentContextThread());
   g_live_messaging_proxy_count++;
 }
@@ -67,7 +75,7 @@ void ThreadedMessagingProxyBase::InitializeWorkerThread(
     const absl::optional<const blink::DedicatedWorkerToken>& token) {
   DCHECK(IsParentContextThread());
 
-  KURL script_url = global_scope_creation_params->script_url.Copy();
+  KURL script_url = global_scope_creation_params->script_url;
 
   if (global_scope_creation_params->web_worker_fetch_context) {
     global_scope_creation_params->web_worker_fetch_context
@@ -78,13 +86,16 @@ void ThreadedMessagingProxyBase::InitializeWorkerThread(
 
   auto devtools_params = DevToolsAgent::WorkerThreadCreated(
       execution_context_.Get(), worker_thread_.get(), script_url,
-      global_scope_creation_params->global_scope_name.IsolatedCopy(), token);
+      global_scope_creation_params->global_scope_name, token);
 
   worker_thread_->Start(std::move(global_scope_creation_params),
                         thread_startup_data, std::move(devtools_params));
 
-  if (auto* scope = DynamicTo<WorkerGlobalScope>(*execution_context_)) {
-    scope->GetThread()->ChildThreadStartedOnWorkerThread(worker_thread_.get());
+  if (execution_context_) {
+    if (auto* scope = DynamicTo<WorkerGlobalScope>(*execution_context_)) {
+      scope->GetThread()->ChildThreadStartedOnWorkerThread(
+          worker_thread_.get());
+    }
   }
 }
 
@@ -125,12 +136,17 @@ void ThreadedMessagingProxyBase::WorkerThreadTerminated() {
   // exists, too.
   asked_to_terminate_ = true;
   WorkerThread* parent_thread = nullptr;
-  if (auto* scope = DynamicTo<WorkerGlobalScope>(*execution_context_))
-    parent_thread = scope->GetThread();
-  std::unique_ptr<WorkerThread> child_thread = std::move(worker_thread_);
-  if (child_thread) {
-    DevToolsAgent::WorkerThreadTerminated(execution_context_.Get(),
-                                          child_thread.get());
+  std::unique_ptr<WorkerThread> child_thread;
+
+  if (execution_context_) {
+    if (auto* scope = DynamicTo<WorkerGlobalScope>(*execution_context_)) {
+      parent_thread = scope->GetThread();
+    }
+    child_thread = std::move(worker_thread_);
+    if (child_thread) {
+      DevToolsAgent::WorkerThreadTerminated(execution_context_.Get(),
+                                            child_thread.get());
+    }
   }
 
   // If the parent Worker/Worklet object was already destroyed, this will
@@ -174,12 +190,26 @@ ThreadedMessagingProxyBase::GetParentExecutionContextTaskRunners() const {
   return parent_execution_context_task_runners_;
 }
 
+scoped_refptr<base::SingleThreadTaskRunner>
+ThreadedMessagingProxyBase::GetParentAgentGroupTaskRunner() const {
+  DCHECK(IsParentContextThread());
+  return parent_agent_group_task_runner_;
+}
+
 WorkerThread* ThreadedMessagingProxyBase::GetWorkerThread() const {
   DCHECK(IsParentContextThread());
   return worker_thread_.get();
 }
 
 bool ThreadedMessagingProxyBase::IsParentContextThread() const {
+  // `execution_context_` can be nullptr for the main thread for shared stoarge
+  // worklet. We'd still consider it a parent context thread, though it's not
+  // associated with an `ExecutionContext`.
+  if (!execution_context_) {
+    DCHECK(parent_agent_group_task_runner_);
+    return parent_agent_group_task_runner_->BelongsToCurrentThread();
+  }
+
   return execution_context_->IsContextThread();
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,8 @@ package org.chromium.chrome.browser.password_check;
 
 import android.app.Activity;
 import android.content.Context;
+
+import org.chromium.chrome.browser.password_manager.PasswordCheckReferrer;
 
 /**
  * This component allows to check for compromised passwords. It provides a settings page which shows
@@ -120,9 +122,4 @@ public interface PasswordCheck extends PasswordCheckComponentUi.Delegate {
      * Stops the password check, if one is running. Otherwise, does nothing.
      */
     void stopCheck();
-
-    /**
-     * Checks if scripts refreshment is finished.
-     */
-    boolean areScriptsRefreshed();
 }

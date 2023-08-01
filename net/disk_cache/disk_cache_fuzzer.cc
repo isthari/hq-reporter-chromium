@@ -1,4 +1,4 @@
-// Copyright (c) 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,12 +10,14 @@
 #include <string>
 
 #include "base/at_exit.h"
-#include "base/callback.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/callback.h"
 #include "base/logging.h"
+#include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/numerics/checked_math.h"
@@ -152,7 +154,9 @@ class DiskCacheLPMFuzzer {
     EntryInfo(const EntryInfo&) = delete;
     EntryInfo& operator=(const EntryInfo&) = delete;
 
-    disk_cache::Entry* entry_ptr = nullptr;
+    // This field is not a raw_ptr<> because it was filtered by the rewriter
+    // for: #addr-of, #constexpr-ctor-field-initializer
+    RAW_PTR_EXCLUSION disk_cache::Entry* entry_ptr = nullptr;
     std::unique_ptr<TestEntryResultCompletionCallback> tcb;
   };
   void RunTaskForTest(base::OnceClosure closure);
@@ -198,10 +202,10 @@ class DiskCacheLPMFuzzer {
   // Pointers to our backend. Only one of block_impl_, simple_cache_impl_, and
   // mem_cache_ are active at one time.
   std::unique_ptr<disk_cache::Backend> cache_;
-  disk_cache::BackendImpl* block_impl_ = nullptr;
+  raw_ptr<disk_cache::BackendImpl> block_impl_ = nullptr;
   std::unique_ptr<disk_cache::SimpleFileTracker> simple_file_tracker_;
-  disk_cache::SimpleBackendImpl* simple_cache_impl_ = nullptr;
-  disk_cache::MemBackendImpl* mem_cache_ = nullptr;
+  raw_ptr<disk_cache::SimpleBackendImpl> simple_cache_impl_ = nullptr;
+  raw_ptr<disk_cache::MemBackendImpl> mem_cache_ = nullptr;
 
   // Maximum size of the cache, that we have currently set.
   uint32_t max_size_ = kMaxSize;
@@ -1151,8 +1155,9 @@ void DiskCacheLPMFuzzer::CreateBackend(
     bool simple_cache_wait_for_index) {
   if (cache_backend == disk_cache_fuzzer::FuzzCommands::IN_MEMORY) {
     MAYBE_PRINT << "Using in-memory cache." << std::endl;
-    mem_cache_ = new disk_cache::MemBackendImpl(nullptr);
-    cache_.reset(mem_cache_);
+    auto cache = std::make_unique<disk_cache::MemBackendImpl>(nullptr);
+    mem_cache_ = cache.get();
+    cache_ = std::move(cache);
     CHECK(cache_);
   } else if (cache_backend == disk_cache_fuzzer::FuzzCommands::SIMPLE) {
     MAYBE_PRINT << "Using simple cache." << std::endl;
@@ -1162,13 +1167,12 @@ void DiskCacheLPMFuzzer::CreateBackend(
     if (!simple_file_tracker_)
       simple_file_tracker_ =
           std::make_unique<disk_cache::SimpleFileTracker>(kMaxFdsSimpleCache);
-    std::unique_ptr<disk_cache::SimpleBackendImpl> simple_backend =
-        std::make_unique<disk_cache::SimpleBackendImpl>(
-            cache_path_, /* cleanup_tracker = */ nullptr,
-            simple_file_tracker_.get(), max_size_, type,
-            /*net_log = */ nullptr);
-    int rv = simple_backend->Init(cb.callback());
-    CHECK_EQ(cb.GetResult(rv), net::OK);
+    auto simple_backend = std::make_unique<disk_cache::SimpleBackendImpl>(
+        /*file_operations=*/nullptr, cache_path_,
+        /*cleanup_tracker=*/nullptr, simple_file_tracker_.get(), max_size_,
+        type, /*net_log=*/nullptr);
+    simple_backend->Init(cb.callback());
+    CHECK_EQ(cb.WaitForResult(), net::OK);
     simple_cache_impl_ = simple_backend.get();
     cache_ = std::move(simple_backend);
 
@@ -1178,25 +1182,28 @@ void DiskCacheLPMFuzzer::CreateBackend(
       net::TestCompletionCallback wait_for_index_cb;
       simple_cache_impl_->index()->ExecuteWhenReady(
           wait_for_index_cb.callback());
-      rv = wait_for_index_cb.WaitForResult();
+      int rv = wait_for_index_cb.WaitForResult();
       CHECK_EQ(rv, net::OK);
     }
   } else {
     MAYBE_PRINT << "Using blockfile cache";
-
+    std::unique_ptr<disk_cache::BackendImpl> cache;
     if (mask) {
       MAYBE_PRINT << ", mask = " << mask << std::endl;
-      block_impl_ = new disk_cache::BackendImpl(cache_path_, mask,
-                                                /* runner = */ nullptr, type,
-                                                /* net_log = */ nullptr);
+      cache = std::make_unique<disk_cache::BackendImpl>(
+          cache_path_, mask,
+          /* runner = */ nullptr, type,
+          /* net_log = */ nullptr);
     } else {
       MAYBE_PRINT << "." << std::endl;
-      block_impl_ = new disk_cache::BackendImpl(cache_path_,
-                                                /* cleanup_tracker = */ nullptr,
-                                                /* runner = */ nullptr, type,
-                                                /* net_log = */ nullptr);
+      cache = std::make_unique<disk_cache::BackendImpl>(
+          cache_path_,
+          /* cleanup_tracker = */ nullptr,
+          /* runner = */ nullptr, type,
+          /* net_log = */ nullptr);
     }
-    cache_.reset(block_impl_);
+    block_impl_ = cache.get();
+    cache_ = std::move(cache);
     CHECK(cache_);
     // TODO(mpdenton) kNoRandom or not? It does a lot of waiting for IO. May be
     // good for avoiding leaks but tests a less realistic cache.
@@ -1204,8 +1211,8 @@ void DiskCacheLPMFuzzer::CreateBackend(
 
     // TODO(mpdenton) should I always wait here?
     net::TestCompletionCallback cb;
-    int rv = block_impl_->Init(cb.callback());
-    CHECK_EQ(cb.GetResult(rv), net::OK);
+    block_impl_->Init(cb.callback());
+    CHECK_EQ(cb.WaitForResult(), net::OK);
   }
 }
 

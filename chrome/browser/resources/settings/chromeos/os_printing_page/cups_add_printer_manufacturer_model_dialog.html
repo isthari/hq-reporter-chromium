@@ -40,14 +40,14 @@
       </cr-searchable-drop-down>
     </div>
     <div id="ppdLabel" class="cr-form-field-label">
-      <localized-link localized-string="$i18n{selectDriver}"
-          link-url="$i18n{printingCUPSPrintPpdLearnMoreUrl}">
+      <localized-link localized-string="$i18n{advancedConfigSelectDriver}"
+                      link-url="$i18n{printingCUPSPrintPpdLearnMoreUrl}">
       </localized-link>
     </div>
     <div class="settings-box two-line">
       <cr-input class="browse-file-input" readonly value="[[newUserPPD_]]"
           aria-labelledby="ppdLabel" invalid="[[invalidPPD_]]"
-          error-message="$i18n{selectDriverErrorMessage}" tabindex="-1">
+          error-message="$i18n{selectDriverErrorMessage}" input-tabindex="-1">
       </cr-input>
       <cr-button class="browse-button" on-click="onBrowseFile_"
           aria-label="$i18n{selectDriverButtonAriaLabel}">
@@ -62,7 +62,7 @@
       </div>
     </div>
     <div> <!-- Right group -->
-      <cr-button class="cancel-button" on-click="onCancelTap_">
+      <cr-button class="cancel-button" on-click="onCancelClick_">
         $i18n{cancel}
       </cr-button>
       <cr-button class="action-button" id="addPrinterButton"

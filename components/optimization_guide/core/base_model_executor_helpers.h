@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -48,12 +48,16 @@ class GenericModelExecutionTask
   absl::optional<OutputType> Execute(ExecutionStatus* out_status,
                                      InputTypes... args) {
     tflite::support::StatusOr<OutputType> maybe_output = this->Infer(args...);
-    if (maybe_output.ok()) {
-      *out_status = ExecutionStatus::kSuccess;
-      return maybe_output.value();
+    if (absl::IsCancelled(maybe_output.status())) {
+      *out_status = ExecutionStatus::kErrorCancelled;
+      return absl::nullopt;
     }
-    *out_status = ExecutionStatus::kErrorUnknown;
-    return absl::nullopt;
+    if (!maybe_output.ok()) {
+      *out_status = ExecutionStatus::kErrorUnknown;
+      return absl::nullopt;
+    }
+    *out_status = ExecutionStatus::kSuccess;
+    return maybe_output.value();
   }
 
  protected:

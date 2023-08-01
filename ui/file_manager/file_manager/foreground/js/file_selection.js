@@ -1,16 +1,19 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {assert} from 'chrome://resources/js/assert.m.js';
-import {dispatchSimpleEvent} from 'chrome://resources/js/cr.m.js';
-import {NativeEventTarget as EventTarget} from 'chrome://resources/js/cr/event_target.m.js';
+import {assert} from 'chrome://resources/ash/common/assert.js';
+import {dispatchSimpleEvent} from 'chrome://resources/ash/common/cr_deprecated.js';
+import {NativeEventTarget as EventTarget} from 'chrome://resources/ash/common/event_target.js';
 
 import {FileType} from '../../common/js/file_type.js';
 import {util} from '../../common/js/util.js';
 import {AllowedPaths} from '../../common/js/volume_manager_types.js';
 import {FileOperationManager} from '../../externs/background/file_operation_manager.js';
+import {Store} from '../../externs/ts/store.js';
 import {VolumeManager} from '../../externs/volume_manager.js';
+import {updateSelection} from '../../state/actions/current_directory.js';
+import {getStore} from '../../state/store.js';
 
 import {constants} from './constants.js';
 import {DirectoryModel} from './directory_model.js';
@@ -23,7 +26,7 @@ import {ListContainer} from './ui/list_container.js';
 export class FileSelection {
   /**
    * @param {!Array<number>} indexes
-   * @param {!Array<Entry>} entries
+   * @param {!Array<!Entry>} entries
    * @param {!VolumeManager} volumeManager
    */
   constructor(indexes, entries, volumeManager) {
@@ -70,9 +73,9 @@ export class FileSelection {
     this.anyFilesHosted = true;
 
     /**
-     * @public {?string}
+     * @public {boolean}
      */
-    this.iconType = null;
+    this.anyFilesEncrypted = true;
 
     /**
      * @private {Promise<boolean>}
@@ -83,15 +86,9 @@ export class FileSelection {
     this.hasReadOnlyEntry_ = false;
 
     entries.forEach(entry => {
-      if (this.iconType == null) {
-        this.iconType = FileType.getIcon(entry);
-      } else if (this.iconType != 'unknown') {
-        const iconType = FileType.getIcon(entry);
-        if (this.iconType != iconType) {
-          this.iconType = 'unknown';
-        }
+      if (!entry) {
+        return;
       }
-
       if (entry.isFile) {
         this.fileCount += 1;
       } else {
@@ -123,16 +120,18 @@ export class FileSelection {
                   this.entries,
                   constants.FILE_SELECTION_METADATA_PREFETCH_PROPERTY_NAMES)
               .then(props => {
-                const present = props.filter(p => {
+                this.anyFilesNotInCache = props.some(p => {
                   // If no availableOffline property, then assume it's
                   // available.
-                  return !('availableOffline' in p) || p.availableOffline;
+                  return ('availableOffline' in p) && !p.availableOffline;
                 });
-                const hosted = props.filter(p => {
+                this.anyFilesHosted = props.some(p => {
                   return p.hosted;
                 });
-                this.anyFilesNotInCache = present.length !== props.length;
-                this.anyFilesHosted = !!hosted.length;
+                this.anyFilesEncrypted = props.some((p, i) => {
+                  return FileType.isEncrypted(
+                      this.entries[i], p.contentMimeType);
+                });
                 this.mimeTypes = props.map(value => {
                   return value.contentMimeType || '';
                 });
@@ -194,6 +193,9 @@ export class FileSelectionHandler extends EventTarget {
      */
     this.selectionUpdateTimer_ = 0;
 
+    /** @private {!Store} */
+    this.store_ = getStore();
+
     /**
      * The time, in ms since the epoch, when it is OK to post next throttled
      * selection event. Can be directly compared with Date.now().
@@ -207,10 +209,11 @@ export class FileSelectionHandler extends EventTarget {
      */
     this.allowedPaths_ = allowedPaths;
 
-    util.addEventListenerToBackgroundComponent(
-        assert(fileOperationManager), 'entries-changed',
-        this.onFileSelectionChanged.bind(this));
-    // Register evnets to update file selections.
+    // Listens to changes in the selection model to propagate to other parts.
+    directoryModel.getFileListSelection().addEventListener(
+        'change', this.onFileSelectionChanged.bind(this));
+
+    // Register events to update file selections.
     directoryModel.addEventListener(
         'directory-changed', this.onFileSelectionChanged.bind(this));
   }
@@ -220,10 +223,14 @@ export class FileSelectionHandler extends EventTarget {
    */
   onFileSelectionChanged() {
     const indexes = this.listContainer_.selectionModel.selectedIndexes;
-    const entries = indexes.map(index => {
-      return /** @type {!Entry} */ (
-          this.directoryModel_.getFileList().item(index));
-    });
+    const entries =
+        indexes
+            .map(
+                index =>
+                    /** @type {!Entry} */ (
+                        this.directoryModel_.getFileList().item(index)))
+            // Filter out undefined for invalid index b/277232289.
+            .filter(entry => !!entry);
     this.selection = new FileSelection(indexes, entries, this.volumeManager_);
 
     if (this.selectionUpdateTimer_) {
@@ -245,6 +252,8 @@ export class FileSelectionHandler extends EventTarget {
       // 1 millisecond of delay.
       updateDelay = 1;
     }
+
+    this.updateStore_();
 
     const selection = this.selection;
     this.selectionUpdateTimer_ = setTimeout(() => {
@@ -280,6 +289,18 @@ export class FileSelectionHandler extends EventTarget {
   }
 
   /**
+   * Sends the current selection to the Store.
+   * @private
+   */
+  updateStore_() {
+    const entries = this.selection.entries;
+    this.store_.dispatch(updateSelection({
+      selectedKeys: entries.map(e => e.toURL()),
+      entries,
+    }));
+  }
+
+  /**
    * Returns true if all files in the selection files are selectable.
    * @return {boolean}
    */
@@ -290,7 +311,8 @@ export class FileSelectionHandler extends EventTarget {
 
     return !(
         this.isOfflineWithUncachedFilesSelected_() ||
-        this.isDialogWithHostedFilesSelected_());
+        this.isDialogWithHostedFilesSelected_() ||
+        this.isDialogWithEncryptedFilesSelected_());
   }
 
   /**
@@ -315,6 +337,50 @@ export class FileSelectionHandler extends EventTarget {
     return this.allowedPaths_ !== AllowedPaths.ANY_PATH_OR_URL &&
         this.selection.anyFilesHosted;
   }
+
+  /**
+   * Returns true if we're a dialog requiring real files with encrypted files
+   * selected.
+   * @return {boolean}
+   * @private
+   */
+  isDialogWithEncryptedFilesSelected_() {
+    return this.allowedPaths_ !== AllowedPaths.ANY_PATH_OR_URL &&
+        this.selection.anyFilesEncrypted;
+  }
+
+  /**
+   * Returns true if any file/directory in the selection is blocked by DLP
+   * policy.
+   * @return {boolean}
+   */
+  isDlpBlocked() {
+    if (!util.isDlpEnabled()) {
+      return false;
+    }
+
+    const selectedIndexes =
+        this.directoryModel_.getFileListSelection().selectedIndexes;
+    const selectedEntries = selectedIndexes.map(index => {
+      return /** @type {!Entry} */ (
+          this.directoryModel_.getFileList().item(index));
+    });
+    // Check if any of the selected entries are blocked by DLP:
+    // a volume/directory in case of file-saveas (managed by the VolumeManager),
+    // or a file in case file-open dialogs (stored in the metadata).
+    for (const entry of selectedEntries) {
+      const volumeInfo = this.volumeManager_.getVolumeInfo(entry);
+      if (volumeInfo && this.volumeManager_.isDisabled(volumeInfo.volumeType)) {
+        return true;
+      }
+      const metadata = this.metadataModel_.getCache(
+          [entry], ['isRestrictedForDestination'])[0];
+      if (metadata && !!metadata.isRestrictedForDestination) {
+        return true;
+      }
+    }
+    return false;
+  }
 }
 
 /**
@@ -331,7 +397,7 @@ FileSelectionHandler.EventType = {
    * If multiple changes are happened during the term, only one CHANGE_THROTTLED
    * event is dispatched.
    */
-  CHANGE_THROTTLED: 'changethrottled'
+  CHANGE_THROTTLED: 'changethrottled',
 };
 
 /**

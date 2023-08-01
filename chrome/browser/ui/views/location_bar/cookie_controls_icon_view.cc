@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,18 +7,20 @@
 #include <memory>
 
 #include "base/strings/utf_string_conversions.h"
-#include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/content_settings/cookie_settings_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/view_ids.h"
 #include "chrome/browser/ui/views/location_bar/cookie_controls_bubble_view.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/content_settings/browser/ui/cookie_controls_controller.h"
+#include "components/omnibox/browser/vector_icons.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/web_contents.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/paint_vector_icon.h"
+#include "ui/views/vector_icons.h"
 
 CookieControlsIconView::CookieControlsIconView(
     IconLabelBubbleView::Delegate* icon_label_bubble_delegate,
@@ -26,8 +28,12 @@ CookieControlsIconView::CookieControlsIconView(
     : PageActionIconView(nullptr,
                          0,
                          icon_label_bubble_delegate,
-                         page_action_icon_delegate) {
+                         page_action_icon_delegate,
+                         "CookieControls") {
   SetVisible(false);
+  SetAccessibilityProperties(
+      /*role*/ absl::nullopt,
+      l10n_util::GetStringUTF16(IDS_COOKIE_CONTROLS_TOOLTIP));
 }
 
 CookieControlsIconView::~CookieControlsIconView() = default;
@@ -74,15 +80,25 @@ void CookieControlsIconView::OnCookiesCountChanged(int allowed_cookies,
   }
 }
 
+void CookieControlsIconView::OnStatefulBounceCountChanged(int bounce_count) {
+  if (bounce_count > 0) {
+    has_blocked_cookies_ = true;
+    SetVisible(ShouldBeVisible());
+  }
+}
+
 bool CookieControlsIconView::ShouldBeVisible() const {
-  if (delegate()->ShouldHidePageActionIcons())
+  if (delegate()->ShouldHidePageActionIcons()) {
     return false;
+  }
 
-  if (GetAssociatedBubble())
+  if (GetAssociatedBubble()) {
     return true;
+  }
 
-  if (!delegate()->GetWebContentsForPageActionIconView())
+  if (!delegate()->GetWebContentsForPageActionIconView()) {
     return false;
+  }
 
   switch (status_) {
     case CookieControlsStatus::kDisabledForSite:
@@ -114,14 +130,9 @@ views::BubbleDialogDelegate* CookieControlsIconView::GetBubble() const {
 }
 
 const gfx::VectorIcon& CookieControlsIconView::GetVectorIcon() const {
-  if (status_ == CookieControlsStatus::kDisabledForSite)
-    return kEyeIcon;
-  return kEyeCrossedIcon;
-}
-
-std::u16string CookieControlsIconView::GetTextForTooltipAndAccessibleName()
-    const {
-  return l10n_util::GetStringUTF16(IDS_COOKIE_CONTROLS_TOOLTIP);
+  return status_ == CookieControlsStatus::kDisabledForSite
+             ? views::kEyeIcon
+             : views::kEyeCrossedIcon;
 }
 
 BEGIN_METADATA(CookieControlsIconView, PageActionIconView)

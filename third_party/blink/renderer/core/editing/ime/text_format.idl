@@ -1,11 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // TextFormat describes how the text in a composition should be styled.
 
 // Spec draft:
-// https://w3c.github.io/editing/docs/EditContext/index.html#textformatupdateevent
+// https://w3c.github.io/edit-context/#textformatupdateevent
 
 [
     Exposed=Window,

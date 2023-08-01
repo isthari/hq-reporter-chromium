@@ -24,12 +24,6 @@
     <message name="IDS_AR_INFOBAR_TEXT" desc="Text requesting permission for a site to use AR">
       <ph name="URL">$1<ex>google.com</ex></ph> wants to create a 3D map of your surroundings and track camera position
     </message>
-    <!-- TODO(https://bugs.chromium.org/p/chromium/issues/detail?id=1106874) -->
-    <message name="IDS_AR_AND_MEDIA_CAPTURE_VIDEO_INFOBAR_TEXT" desc="Text requesting permission for a site to use AR and the Camera Access Feature">
-      <ph name="URL">$1<ex>google.com</ex></ph> wants to:
-      • Create a 3D map of your surroundings and track camera position
-      • Use your camera
-    </message>
     <message name="IDS_IDLE_DETECTION_INFOBAR_TEXT" desc="Text requesting permission for a site to know when the user is idle.">
       <ph name="URL">$1<ex>google.com</ex></ph> wants to know when you're actively using this device
     </message>
@@ -83,15 +77,12 @@
       Allow 2 permissions?
     </message>
 </if>
-  <if expr="is_android or chromeos_ash or chromeos_lacros or is_win">
+  <if expr="is_android or is_chromeos or is_win">
     <message name="IDS_PROTECTED_MEDIA_IDENTIFIER_PERMISSION_FRAGMENT" desc="Permission fragment shown in the permissions bubble when a web page requests access to the computer's protected media identifier.">
       Know your unique device identifier
     </message>
     <message name="IDS_PROTECTED_MEDIA_IDENTIFIER_PER_ORIGIN_PROVISIONING_INFOBAR_TEXT" desc="Text requesting permission for a site to access protected media identifier. It shows the origin of the URL.">
       <ph name="URL">$1<ex>https://www.youtube.com</ex></ph> wants to play protected content. Your device’s identity will be verified by Google.
-    </message>
-    <message name="IDS_PROTECTED_MEDIA_IDENTIFIER_PER_DEVICE_PROVISIONING_INFOBAR_TEXT" desc="Text requesting permission for a site to access protected media identifier. It shows the origin of the URL.">
-      <ph name="URL">$1<ex>https://www.youtube.com</ex></ph> wants to play protected content. Your device's identity will be verified by Google and may be accessed by this site.
     </message>
   </if>
   <message name="IDS_GEOLOCATION_INFOBAR_PERMISSION_FRAGMENT" desc="Permission fragment used in the permission bubble, after 'This site wants to:' asking for permission to access the user's physical location.">
@@ -124,6 +115,9 @@
   <message name="IDS_AR_PERMISSION_FRAGMENT" desc="Permission request shown if the user is visiting a site that wants to use AR. Follows a prompt: 'This site would like to:">
     Create a 3D map of your surroundings and track camera position
   </message>
+  <message name="IDS_STORAGE_ACCESS_PERMISSION_TWO_ORIGIN_PROMPT_TITLE" translateable="false" desc="The label that is used to introduce storage access permission request to the user in a popup.">
+    <ph name="EMBEDDED_URL">$1<ex>news.site</ex></ph> wants to verify who you are before displaying content on <ph name="TOP_LEVEL_URL">$2<ex>content_domain.site</ex></ph>
+  </message>
   <message name="IDS_STORAGE_ACCESS_PERMISSION_FRAGMENT" desc="Permission request shown if the user is visiting a site needs access to its data while it is embedded into another site. Follows a prompt: 'This site would like to:'">
     Access cookies and site data.
   </message>
@@ -132,8 +126,11 @@ Do you want to allow <ph name="EMBEDDED_URL">$1<ex>news.site</ex></ph> to use co
 
 This will otherwise be blocked by your privacy settings. This will allow the content you interacted with to work correctly, but may allow <ph name="EMBEDDED_URL">$1<ex>news.site</ex></ph> to track your activity.
   </message>
-  <message name="IDS_WINDOW_PLACEMENT_PERMISSION_FRAGMENT" desc="Permission request shown if the user is visiting a site that wants to place windows. Follows a prompt: 'This site would like to:'">
-    Use info about your screens to open and place windows
+  <message name="IDS_STORAGE_ACCESS_PERMISSION_TWO_ORIGIN_EXPLANATION" translateable="false" desc="Explanation of the permission request shown if the user is visiting a site needs access to its data while it is embedded into another site.">
+    Allow <ph name="EMBEDDED_URL">$1<ex>news.site</ex></ph> to access info they've saved about you? Access lasts for 30 days. See settings to turn Embedded content on or off.
+  </message>
+  <message name="IDS_WINDOW_MANAGEMENT_PERMISSION_FRAGMENT" desc="Permission request shown if the user is visiting a site that wants to manage windows. Follows a prompt: 'This site would like to:'">
+    Manage windows on all your displays
   </message>
   <message name="IDS_FONT_ACCESS_PERMISSION_FRAGMENT" desc="Permission request shown if the user is visiting a site that wants to access locally installed font data. Follows a prompt: 'This site would like to:'">
     Use the fonts on your computer so you can create high-fidelity content
@@ -159,18 +156,21 @@ This will otherwise be blocked by your privacy settings. This will allow the con
   <message name="IDS_PERMISSION_DENY" desc="Label on button to deny a permissions request.">
     Block
   </message>
-  <message name="IDS_PERMISSION_ALLOW_ONCE">
-    Only this time
+  <message name="IDS_PERMISSION_ALLOW_THIS_TIME" desc="Label on button to one time grant in a one-time granting use case">
+    Allow this time
   </message>
-  <message name="IDS_PERMISSION_ALLOW_ALWAYS">
-    On every visit
+  <message name="IDS_PERMISSION_ALLOW_EVERY_VISIT" desc="Label on button to permanent grant in a one-time granting use case">
+    Allow on every visit
   </message>
-  <message name="IDS_PERMISSIONS_BUBBLE_PROMPT_ONE_TIME" desc="The label that is used to introduce permission request details to the user in a popup.">
-    Allow <ph name="SITE_NAME">$1<ex>google.com</ex></ph> to:
+  <message name="IDS_PERMISSION_DONT_ALLOW" desc="Label on button to permanent deny in a one-time granting use case">
+    Don't allow
+  </message>
+  <message name="IDS_PERMISSION_NEVER_ALLOW" desc="(Alternative label, to compare) label on button to permanent deny in a one-time granting use case.">
+    Never allow
   </message>
   <!-- Device Chooser -->
   <if expr="not is_android">
-    <message name="IDS_BLUETOOTH_DEVICE_CHOOSER_PROMPT_ORIGIN" desc="The label that is used to introduce Bluetooth chooser details to the user in a popup when it is from a website.">
+    <message name="IDS_BLUETOOTH_DEVICE_CHOOSER_PROMPT" desc="The label that is used to introduce Bluetooth chooser details to the user in a popup.">
       <ph name="Origin">$1<ex>www.google.com</ex></ph> wants to pair
     </message>
     <message name="IDS_BLUETOOTH_DEVICE_CHOOSER_NO_DEVICES_FOUND_PROMPT" desc="The label shown to the user to inform them that no Bluetooth devices were found matching the requirements that the application provided.">
@@ -192,7 +192,7 @@ This will otherwise be blocked by your privacy settings. This will allow the con
 
   <!-- Bluetooth Scanning Prompt -->
   <if expr="not is_android">
-    <message name="IDS_BLUETOOTH_SCANNING_PROMPT_ORIGIN" desc="The label that is used to introduce Bluetooth scanning prompt details to the user when it is from a website.">
+    <message name="IDS_BLUETOOTH_SCANNING_PROMPT" desc="The label that is used to introduce Bluetooth scanning prompt details to the user.">
       <ph name="Origin">$1<ex>www.google.com</ex></ph> wants to scan for nearby Bluetooth devices. The following devices have been found:
     </message>
     <message name="IDS_BLUETOOTH_SCANNING_DEVICE_UNKNOWN" desc="Text to identify Bluetooth devices of unknown or unsupported class.">
@@ -215,7 +215,7 @@ This will otherwise be blocked by your privacy settings. This will allow the con
   <message name="IDS_DEVICE_CHOOSER_NO_DEVICES_FOUND_PROMPT" desc="The label shown to the user to inform them that no USB devices were found matching the requirements that the application provided.">
     No compatible devices found.
   </message>
-  <message name="IDS_USB_DEVICE_CHOOSER_PROMPT_ORIGIN" desc="The label that is used to introduce USB chooser details to the user in a popup when it is from a website.">
+  <message name="IDS_USB_DEVICE_CHOOSER_PROMPT" desc="The label that is used to introduce USB chooser details to the user in a popup.">
     <ph name="Origin">$1<ex>www.google.com</ex></ph> wants to connect
   </message>
   <message name="IDS_USB_DEVICE_CHOOSER_CONNECT_BUTTON_TEXT" desc="Label on the button that closes the USB chooser popup and connects the selected device.">
@@ -226,6 +226,13 @@ This will otherwise be blocked by your privacy settings. This will allow the con
   </message>
   <message name="IDS_USB_DEVICE_CHOOSER_LOADING_LABEL_TOOLTIP" desc="Tooltip for the label that the browser is loading the list of USB devices.">
     Finding USB devices...
+  </message>
+
+  <message name="IDS_PRIVATE_NETWORK_DEVICE_CHOOSER_PROMPT_ORIGIN" desc="Text on a popup permission prompt asking the user whether they want to allow the site to access a private network device.">
+    <ph name="Origin">$1<ex>www.google.com</ex></ph> wants to access a device on your network:
+  </message>
+  <message name="IDS_PRIVATE_NETWORK_DEVICE_CHOOSER_CONNECT_BUTTON_TEXT" desc="Label on the button that closes the private network chooser popup and connects the selected device.">
+    Connect
   </message>
 
   <if expr="not is_android">
@@ -250,6 +257,9 @@ This will otherwise be blocked by your privacy settings. This will allow the con
     <message name="IDS_CLIPBOARD_PERMISSION_CHIP" desc="Button text representing a request for reading data from the system clipboard from a website. When clicked, shows a permission prompt bubble with more information.">
       Share clipboard?
     </message>
+    <message name="IDS_SAA_PERMISSION_CHIP" desc="Button text representing a request for using Storage Access API from a website embedded in another website. When clicked, shows a permission prompt bubble with more information.">
+      Allow embedded content?
+    </message>
     <message name="IDS_VR_PERMISSION_CHIP" desc="Button text representing a request for using VR from a website. When clicked, shows a permission prompt bubble with more information.">
       Allow VR?
     </message>
@@ -265,6 +275,64 @@ This will otherwise be blocked by your privacy settings. This will allow the con
     </message>
     <message name="IDS_NOTIFICATION_PERMISSIONS_BLOCKED_CHIP" desc="Button text representing a blocked or expired request for showing notifications from a website. When clicked, shows a permission prompt bubble with more information.">
       Notifications blocked
+    </message>
+
+    <message name="IDS_PERMISSIONS_PERMISSION_ALLOWED_CONFIRMATION" desc="Text displayed next to a permission icon confirming that a permission has been granted.">
+        Allowed
+    </message>
+    <message name="IDS_PERMISSIONS_PERMISSION_ALLOWED_ONCE_CONFIRMATION" desc="Text displayed next to a permission icon confirming that a permission has been granted once.">
+        Allowed this time
+    </message>
+    <message name="IDS_PERMISSIONS_PERMISSION_NOT_ALLOWED_CONFIRMATION" desc="Text displayed next to a permission icon confirming that a permission has not been granted.">
+        Not allowed
+    </message>
+      <message name="IDS_PERMISSIONS_NOTIFICATION_ALLOWED_CONFIRMATION_SCREENREADER_ANNOUNCEMENT" is_accessibility_with_no_ui="true" desc="Announcement to screen readers confirming that a notification permission requested has been granted.">
+        Notifications allowed
+    </message>
+      <message name="IDS_PERMISSIONS_NOTIFICATION_NOT_ALLOWED_CONFIRMATION_SCREENREADER_ANNOUNCEMENT" is_accessibility_with_no_ui="true" desc="Announcement to screen readers confirming that a notification permission requested has been denied.">
+        Notifications not allowed
+    </message>
+      <message name="IDS_PERMISSIONS_GEOLOCATION_ALLOWED_CONFIRMATION_SCREENREADER_ANNOUNCEMENT" is_accessibility_with_no_ui="true" desc="Announcement to screen readers confirming that a location permission requested has been granted..">
+        Location allowed
+    </message>
+    <message name="IDS_PERMISSIONS_GEOLOCATION_ALLOWED_ONCE_CONFIRMATION_SCREENREADER_ANNOUNCEMENT" is_accessibility_with_no_ui="true" desc="Announcement to screen readers confirming that a location permission requested has been granted once.">
+        Location allowed this time
+    </message>
+      <message name="IDS_PERMISSIONS_GEOLOCATION_NOT_ALLOWED_CONFIRMATION_SCREENREADER_ANNOUNCEMENT" is_accessibility_with_no_ui="true" desc="Announcement to screen readers confirming that a location permission requested has been denied.">
+        Location not allowed
+    </message>
+    <message name="IDS_PERMISSIONS_CAMERA_ALLOWED_CONFIRMATION_SCREENREADER_ANNOUNCEMENT" is_accessibility_with_no_ui="true" desc="Announcement to screen readers confirming that a camera permission requested has been granted..">
+        Camera allowed
+    </message>
+    <message name="IDS_PERMISSIONS_CAMERA_ALLOWED_ONCE_CONFIRMATION_SCREENREADER_ANNOUNCEMENT" is_accessibility_with_no_ui="true" desc="Announcement to screen readers confirming that a camera permission requested has been granted once.">
+        Camera allowed this time
+    </message>
+      <message name="IDS_PERMISSIONS_CAMERA_NOT_ALLOWED_CONFIRMATION_SCREENREADER_ANNOUNCEMENT" is_accessibility_with_no_ui="true" desc="Announcement to screen readers confirming that a camera permission requested has been denied.">
+        Camera not allowed
+    </message>
+      <message name="IDS_PERMISSIONS_MICROPHONE_ALLOWED_CONFIRMATION_SCREENREADER_ANNOUNCEMENT" is_accessibility_with_no_ui="true" desc="Announcement to screen readers confirming that a microphone permission requested has been granted.">
+        Microphone allowed
+    </message>
+    <message name="IDS_PERMISSIONS_MICROPHONE_ALLOWED_ONCE_CONFIRMATION_SCREENREADER_ANNOUNCEMENT" is_accessibility_with_no_ui="true" desc="Announcement to screen readers confirming that a microphone permission requested has been granted once.">
+        Microphone allowed this time
+    </message>
+      <message name="IDS_PERMISSIONS_MICROPHONE_NOT_ALLOWED_CONFIRMATION_SCREENREADER_ANNOUNCEMENT" is_accessibility_with_no_ui="true" desc="Announcement to screen readers confirming that a microphone permission requested has been denied.">
+        Microphone not allowed
+    </message>
+    <message name="IDS_PERMISSIONS_CAMERA_AND_MICROPHONE_ALLOWED_CONFIRMATION_SCREENREADER_ANNOUNCEMENT" is_accessibility_with_no_ui="true" desc="Announcement to screen readers confirming that a microphone and camera permission requested has been granted.">
+        Camera and microphone allowed
+    </message>
+    <message name="IDS_PERMISSIONS_CAMERA_AND_MICROPHONE_ALLOWED_ONCE_CONFIRMATION_SCREENREADER_ANNOUNCEMENT" is_accessibility_with_no_ui="true" desc="Announcement to screen readers confirming that a microphone and camera permission requested has been granted once.">
+        Camera and microphone allowed this time
+    </message>
+      <message name="IDS_PERMISSIONS_CAMERA_AND_MICROPHONE_NOT_ALLOWED_CONFIRMATION_SCREENREADER_ANNOUNCEMENT" is_accessibility_with_no_ui="true" desc="Announcement to screen readers confirming that a microphone and camera permission requested has been denied.">
+        Camera and microphone not allowed
+    </message>
+      <message name="IDS_PERMISSIONS_SAA_ALLOWED_CONFIRMATION_SCREENREADER_ANNOUNCEMENT" is_accessibility_with_no_ui="true" desc="Announcement to screen readers confirming that the Storage Access API permission requested has been granted.">
+        Embedded content allowed
+    </message>
+    <message name="IDS_PERMISSIONS_SAA_NOT_ALLOWED_CONFIRMATION_SCREENREADER_ANNOUNCEMENT" is_accessibility_with_no_ui="true" desc="Announcement to screen readers confirming that the Storage Access API permission requested has been denied.">
+        Embedded content not allowed
     </message>
   </if>
 

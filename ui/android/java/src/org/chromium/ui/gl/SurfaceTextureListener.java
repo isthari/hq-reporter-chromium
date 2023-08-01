@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,14 +7,12 @@ package org.chromium.ui.gl;
 import android.graphics.SurfaceTexture;
 
 import org.chromium.base.annotations.JNINamespace;
-import org.chromium.base.annotations.MainDex;
 import org.chromium.base.annotations.NativeMethods;
 
 /**
  * Listener to an android SurfaceTexture object for frame availability.
  */
 @JNINamespace("gl")
-@MainDex
 class SurfaceTextureListener implements SurfaceTexture.OnFrameAvailableListener {
     // Used to determine the class instance to dispatch the native call to.
     private final long mNativeSurfaceTextureListener;

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,10 @@
 #define CHROME_BROWSER_ASH_ANDROID_SMS_ANDROID_SMS_SERVICE_H_
 
 #include <memory>
+
+#include "base/memory/raw_ptr.h"
 #include "chrome/browser/ash/android_sms/android_sms_app_manager_impl.h"
 #include "chrome/browser/ash/android_sms/android_sms_pairing_state_tracker_impl.h"
-// TODO(https://crbug.com/1164001): move to forward declaration.
-#include "chromeos/services/multidevice_setup/public/cpp/android_sms_pairing_state_tracker.h"
-// TODO(https://crbug.com/1164001): move to forward declaration.
-#include "chromeos/services/multidevice_setup/public/cpp/multidevice_setup_client.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/session_manager/core/session_manager_observer.h"
 
@@ -27,6 +25,12 @@ class WebAppProvider;
 }  // namespace web_app
 
 namespace ash {
+
+namespace multidevice_setup {
+class AndroidSmsPairingStateTracker;
+class MultiDeviceSetupClient;
+}  // namespace multidevice_setup
+
 namespace android_sms {
 
 class AndroidSmsAppManager;
@@ -70,8 +74,9 @@ class AndroidSmsService : public KeyedService,
   // session_manager::SessionManagerObserver
   void OnSessionStateChanged() override;
 
-  Profile* profile_;
-  multidevice_setup::MultiDeviceSetupClient* multidevice_setup_client_;
+  raw_ptr<Profile, ExperimentalAsh> profile_;
+  raw_ptr<multidevice_setup::MultiDeviceSetupClient, ExperimentalAsh>
+      multidevice_setup_client_;
 
   std::unique_ptr<AndroidSmsAppSetupController>
       andoid_sms_app_setup_controller_;
@@ -83,12 +88,5 @@ class AndroidSmsService : public KeyedService,
 
 }  // namespace android_sms
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove after the migration is finished.
-namespace chromeos {
-namespace android_sms {
-using ::ash::android_sms::AndroidSmsService;
-}
-}  // namespace chromeos
 
 #endif  // CHROME_BROWSER_ASH_ANDROID_SMS_ANDROID_SMS_SERVICE_H_

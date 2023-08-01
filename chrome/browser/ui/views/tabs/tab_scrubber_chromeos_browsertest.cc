@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,9 +11,11 @@
 #include "ash/display/event_transformation_handler.h"
 #include "ash/shell.h"
 #include "base/command_line.h"
+#include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
+#include "chrome/browser/ui/tabs/tab_enums.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
@@ -21,6 +23,10 @@
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
+#include "chromeos/crosapi/cpp/crosapi_constants.h"
+#include "components/exo/shell_surface_util.h"
+#include "components/exo/test/shell_surface_builder.h"
+#include "components/exo/wm_helper.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/test/browser_test.h"
@@ -28,6 +34,7 @@
 #include "ui/aura/window.h"
 #include "ui/events/event_utils.h"
 #include "ui/events/test/event_generator.h"
+#include "ui/wm/core/window_util.h"
 
 namespace {
 
@@ -76,7 +83,7 @@ class ImmersiveRevealEndedWaiter : public ImmersiveModeController::Observer {
     immersive_controller_ = nullptr;
   }
 
-  ImmersiveModeController* immersive_controller_;
+  raw_ptr<ImmersiveModeController, ExperimentalAsh> immersive_controller_;
   base::OnceClosure quit_closure_;
 };
 
@@ -100,9 +107,13 @@ class TabScrubberChromeOSTest : public InProcessBrowserTest,
     ash::Shell* shell = ash::Shell::Get();
     shell->event_transformation_handler()->set_transformation_mode(
         ash::EventTransformationHandler::TRANSFORM_NONE);
+
+    wm_helper_ = std::make_unique<exo::WMHelper>();
   }
 
   void TearDownOnMainThread() override {
+    wm_helper_.reset();
+
     browser()->tab_strip_model()->RemoveObserver(this);
   }
 
@@ -264,11 +275,23 @@ class TabScrubberChromeOSTest : public InProcessBrowserTest,
     if (tab_strip_model->empty() || !selection.active_tab_changed())
       return;
 
-    activation_order_.push_back(selection.new_model.active());
+    ASSERT_TRUE(selection.new_model.active().has_value());
+    activation_order_.push_back(selection.new_model.active().value());
   }
 
+  std::unique_ptr<ui::test::EventGenerator> CreateEventGenerator(
+      Browser* browser) {
+    aura::Window* window = browser->window()->GetNativeWindow();
+    aura::Window* root = window->GetRootWindow();
+    return std::make_unique<ui::test::EventGenerator>(root, window);
+  }
   // History of tab activation. Scrub() resets it.
-  std::vector<int> activation_order_;
+  std::vector<size_t> activation_order_;
+
+ protected:
+  bool IsDelegatedToLacros(ui::ScrollEvent event) {
+    return TabScrubberChromeOS::MaybeDelegateHandlingToLacros(&event);
+  }
 
  private:
   // Used to generate a sequence of scrolls. Starts with a cancel, is followed
@@ -309,18 +332,12 @@ class TabScrubberChromeOSTest : public InProcessBrowserTest,
         TabScrubberChromeOS::GetInstance()->FinishScrub(true);
     }
 
-   private:
-    ui::test::EventGenerator* event_generator_;
+    raw_ptr<ui::test::EventGenerator, ExperimentalAsh> event_generator_;
     base::TimeTicks time_for_next_event_ = ui::EventTimeForNow();
     int last_x_offset_ = 0;
   };
 
-  std::unique_ptr<ui::test::EventGenerator> CreateEventGenerator(
-      Browser* browser) {
-    aura::Window* window = browser->window()->GetNativeWindow();
-    aura::Window* root = window->GetRootWindow();
-    return std::make_unique<ui::test::EventGenerator>(root, window);
-  }
+  std::unique_ptr<exo::WMHelper> wm_helper_;
 };
 
 // Swipe a single tab in each direction.
@@ -328,13 +345,11 @@ IN_PROC_BROWSER_TEST_F(TabScrubberChromeOSTest, Single) {
   AddTabs(browser(), 1);
 
   Scrub(browser(), 0, EACH_TAB);
-  EXPECT_EQ(1U, activation_order_.size());
-  EXPECT_EQ(0, activation_order_[0]);
+  EXPECT_THAT(activation_order_, testing::ElementsAre(0));
   EXPECT_EQ(0, browser()->tab_strip_model()->active_index());
 
   Scrub(browser(), 1, EACH_TAB);
-  EXPECT_EQ(1U, activation_order_.size());
-  EXPECT_EQ(1, activation_order_[0]);
+  EXPECT_THAT(activation_order_, testing::ElementsAre(1));
   EXPECT_EQ(1, browser()->tab_strip_model()->active_index());
 }
 
@@ -343,19 +358,11 @@ IN_PROC_BROWSER_TEST_F(TabScrubberChromeOSTest, Multi) {
   AddTabs(browser(), 4);
 
   Scrub(browser(), 0, EACH_TAB);
-  ASSERT_EQ(4U, activation_order_.size());
-  EXPECT_EQ(3, activation_order_[0]);
-  EXPECT_EQ(2, activation_order_[1]);
-  EXPECT_EQ(1, activation_order_[2]);
-  EXPECT_EQ(0, activation_order_[3]);
+  EXPECT_THAT(activation_order_, testing::ElementsAre(3, 2, 1, 0));
   EXPECT_EQ(0, browser()->tab_strip_model()->active_index());
 
   Scrub(browser(), 4, EACH_TAB);
-  ASSERT_EQ(4U, activation_order_.size());
-  EXPECT_EQ(1, activation_order_[0]);
-  EXPECT_EQ(2, activation_order_[1]);
-  EXPECT_EQ(3, activation_order_[2]);
-  EXPECT_EQ(4, activation_order_[3]);
+  EXPECT_THAT(activation_order_, testing::ElementsAre(1, 2, 3, 4));
   EXPECT_EQ(4, browser()->tab_strip_model()->active_index());
 }
 
@@ -398,11 +405,7 @@ IN_PROC_BROWSER_TEST_F(TabScrubberChromeOSTest, FullScreenBrowser) {
   EXPECT_EQ(4, browser()->tab_strip_model()->active_index());
   Scrub(browser(), 0, EACH_TAB);
   EXPECT_EQ(0, browser()->tab_strip_model()->active_index());
-  EXPECT_EQ(4U, activation_order_.size());
-  EXPECT_EQ(3, activation_order_[0]);
-  EXPECT_EQ(2, activation_order_[1]);
-  EXPECT_EQ(1, activation_order_[2]);
-  EXPECT_EQ(0, activation_order_[3]);
+  EXPECT_THAT(activation_order_, testing::ElementsAre(3, 2, 1, 0));
 }
 
 // Swipe 4 tabs in each direction with an extra swipe within each. The same
@@ -411,19 +414,11 @@ IN_PROC_BROWSER_TEST_F(TabScrubberChromeOSTest, Repeated) {
   AddTabs(browser(), 4);
 
   Scrub(browser(), 0, REPEAT_TABS);
-  ASSERT_EQ(4U, activation_order_.size());
-  EXPECT_EQ(3, activation_order_[0]);
-  EXPECT_EQ(2, activation_order_[1]);
-  EXPECT_EQ(1, activation_order_[2]);
-  EXPECT_EQ(0, activation_order_[3]);
+  EXPECT_THAT(activation_order_, testing::ElementsAre(3, 2, 1, 0));
   EXPECT_EQ(0, browser()->tab_strip_model()->active_index());
 
   Scrub(browser(), 4, REPEAT_TABS);
-  ASSERT_EQ(4U, activation_order_.size());
-  EXPECT_EQ(1, activation_order_[0]);
-  EXPECT_EQ(2, activation_order_[1]);
-  EXPECT_EQ(3, activation_order_[2]);
-  EXPECT_EQ(4, activation_order_[3]);
+  EXPECT_THAT(activation_order_, testing::ElementsAre(1, 2, 3, 4));
   EXPECT_EQ(4, browser()->tab_strip_model()->active_index());
 }
 
@@ -434,15 +429,11 @@ IN_PROC_BROWSER_TEST_F(TabScrubberChromeOSTest, Skipped) {
   AddTabs(browser(), 4);
 
   Scrub(browser(), 0, SKIP_TABS);
-  EXPECT_EQ(2U, activation_order_.size());
-  EXPECT_EQ(2, activation_order_[0]);
-  EXPECT_EQ(0, activation_order_[1]);
+  EXPECT_THAT(activation_order_, testing::ElementsAre(2, 0));
   EXPECT_EQ(0, browser()->tab_strip_model()->active_index());
 
   Scrub(browser(), 4, SKIP_TABS);
-  EXPECT_EQ(2U, activation_order_.size());
-  EXPECT_EQ(2, activation_order_[0]);
-  EXPECT_EQ(4, activation_order_[1]);
+  EXPECT_THAT(activation_order_, testing::ElementsAre(2, 4));
   EXPECT_EQ(4, browser()->tab_strip_model()->active_index());
 }
 
@@ -474,7 +465,7 @@ IN_PROC_BROWSER_TEST_F(TabScrubberChromeOSTest, DeleteHighlighted) {
   SendScrubEvent(browser(), 0);
   EXPECT_TRUE(TabScrubberChromeOS::GetInstance()->IsActivationPending());
   browser()->tab_strip_model()->CloseWebContentsAt(0,
-                                                   TabStripModel::CLOSE_NONE);
+                                                   TabCloseTypes::CLOSE_NONE);
   EXPECT_FALSE(TabScrubberChromeOS::GetInstance()->IsActivationPending());
 }
 
@@ -486,7 +477,7 @@ IN_PROC_BROWSER_TEST_F(TabScrubberChromeOSTest, DeleteBeforeHighlighted) {
   SendScrubEvent(browser(), 1);
   EXPECT_TRUE(TabScrubberChromeOS::GetInstance()->IsActivationPending());
   browser()->tab_strip_model()->CloseWebContentsAt(0,
-                                                   TabStripModel::CLOSE_NONE);
+                                                   TabCloseTypes::CLOSE_NONE);
   EXPECT_EQ(0, TabScrubberChromeOS::GetInstance()->highlighted_tab());
 }
 
@@ -545,19 +536,11 @@ IN_PROC_BROWSER_TEST_F(TabScrubberChromeOSTest, RTLMulti) {
   AddTabs(browser(), 4);
 
   Scrub(browser(), 0, EACH_TAB);
-  ASSERT_EQ(4U, activation_order_.size());
-  EXPECT_EQ(3, activation_order_[0]);
-  EXPECT_EQ(2, activation_order_[1]);
-  EXPECT_EQ(1, activation_order_[2]);
-  EXPECT_EQ(0, activation_order_[3]);
+  EXPECT_THAT(activation_order_, testing::ElementsAre(3, 2, 1, 0));
   EXPECT_EQ(0, browser()->tab_strip_model()->active_index());
 
   Scrub(browser(), 4, EACH_TAB);
-  ASSERT_EQ(4U, activation_order_.size());
-  EXPECT_EQ(1, activation_order_[0]);
-  EXPECT_EQ(2, activation_order_[1]);
-  EXPECT_EQ(3, activation_order_[2]);
-  EXPECT_EQ(4, activation_order_[3]);
+  EXPECT_THAT(activation_order_, testing::ElementsAre(1, 2, 3, 4));
   EXPECT_EQ(4, browser()->tab_strip_model()->active_index());
 }
 
@@ -571,15 +554,11 @@ IN_PROC_BROWSER_TEST_F(TabScrubberChromeOSTest, RTLSkipped) {
   AddTabs(browser(), 4);
 
   Scrub(browser(), 0, SKIP_TABS);
-  EXPECT_EQ(2U, activation_order_.size());
-  EXPECT_EQ(2, activation_order_[0]);
-  EXPECT_EQ(0, activation_order_[1]);
+  EXPECT_THAT(activation_order_, testing::ElementsAre(2, 0));
   EXPECT_EQ(0, browser()->tab_strip_model()->active_index());
 
   Scrub(browser(), 4, SKIP_TABS);
-  EXPECT_EQ(2U, activation_order_.size());
-  EXPECT_EQ(2, activation_order_[0]);
-  EXPECT_EQ(4, activation_order_[1]);
+  EXPECT_THAT(activation_order_, testing::ElementsAre(2, 4));
   EXPECT_EQ(4, browser()->tab_strip_model()->active_index());
 }
 
@@ -621,10 +600,86 @@ IN_PROC_BROWSER_TEST_F(TabScrubberChromeOSTest, DisabledIfWindowCycleListOpen) {
   StopCyclingWindows(browser());
   EXPECT_TRUE(IsTabScrubberChromeOSEnabled());
   Scrub(browser(), 0, EACH_TAB);
-  ASSERT_EQ(4U, activation_order_.size());
-  EXPECT_EQ(3, activation_order_[0]);
-  EXPECT_EQ(2, activation_order_[1]);
-  EXPECT_EQ(1, activation_order_[2]);
-  EXPECT_EQ(0, activation_order_[3]);
+  EXPECT_THAT(activation_order_, testing::ElementsAre(3, 2, 1, 0));
   EXPECT_EQ(0, browser()->tab_strip_model()->active_index());
+}
+
+// Check scroll events other than 3-fingers scroll are not stopped by
+// TabScrubber.
+IN_PROC_BROWSER_TEST_F(TabScrubberChromeOSTest,
+                       EventPropagationWithLacrosWindow) {
+  // Create Lacros window and activate.
+  auto shell_surface = exo::test::ShellSurfaceBuilder({100, 100})
+                           .BuildClientControlledShellSurface();
+  exo::SetShellApplicationId(shell_surface->GetWidget()->GetNativeWindow(),
+                             crosapi::kLacrosAppIdPrefix);
+  wm::ActivateWindow(shell_surface->GetWidget()->GetNativeWindow());
+  ASSERT_TRUE(
+      wm::IsActiveWindow(shell_surface->GetWidget()->GetNativeWindow()));
+
+  auto event_generator = CreateEventGenerator(browser());
+  constexpr int kOffset = 100;
+
+  // Stop propagation for 3-fingers scroll event.
+  ui::ScrollEvent scroll_event_with_3_fingers(
+      ui::ET_SCROLL, gfx::Point(0, 0), ui::EventTimeForNow(), 0, kOffset, 0,
+      kOffset, 0, kScrubbingGestureFingerCount);
+  event_generator->Dispatch(&scroll_event_with_3_fingers);
+  EXPECT_TRUE(scroll_event_with_3_fingers.stopped_propagation());
+
+  // Fling scroll event should be passed to Lacros via HandleTabScrubbing, but
+  // should not be stopped as it may be consumed elsewhere as well.
+  ui::ScrollEvent fling_scroll_event(ui::ET_SCROLL_FLING_START,
+                                     gfx::Point(0, 0), ui::EventTimeForNow(), 0,
+                                     kOffset, 0, kOffset, 0, 0);
+  event_generator->Dispatch(&fling_scroll_event);
+  EXPECT_FALSE(fling_scroll_event.stopped_propagation());
+
+  // Other scroll events should be not handled by TabScrubber and should not be
+  // stopped.
+  ui::ScrollEvent scroll_event_with_2_fingers(ui::ET_SCROLL, gfx::Point(0, 0),
+                                              ui::EventTimeForNow(), 0, kOffset,
+                                              0, kOffset, 0,
+                                              /*finger_count=*/2);
+  event_generator->Dispatch(&scroll_event_with_2_fingers);
+  EXPECT_FALSE(scroll_event_with_2_fingers.stopped_propagation());
+}
+
+IN_PROC_BROWSER_TEST_F(TabScrubberChromeOSTest, MaybeDelegateHandlingToLacros) {
+  constexpr int kOffset = 100;
+
+  ui::ScrollEvent fling_scroll_event(ui::ET_SCROLL_FLING_START,
+                                     gfx::Point(0, 0), ui::EventTimeForNow(), 0,
+                                     kOffset, 0, kOffset, 0, 0);
+
+  ui::ScrollEvent scroll_event_with_3_fingers(
+      ui::ET_SCROLL, gfx::Point(0, 0), ui::EventTimeForNow(), 0, kOffset, 0,
+      kOffset, 0, kScrubbingGestureFingerCount);
+
+  ui::ScrollEvent scroll_event_with_2_fingers(ui::ET_SCROLL, gfx::Point(0, 0),
+                                              ui::EventTimeForNow(), 0, kOffset,
+                                              0, kOffset, 0,
+                                              /*finger_count=*/2);
+
+  // When there is no activated Lacros window, all scroll events should not be
+  // delegated to Lacros.
+  EXPECT_FALSE(IsDelegatedToLacros(fling_scroll_event));
+  EXPECT_FALSE(IsDelegatedToLacros(scroll_event_with_3_fingers));
+  EXPECT_FALSE(IsDelegatedToLacros(scroll_event_with_2_fingers));
+
+  // Create Lacros window and activate.
+  auto shell_surface = exo::test::ShellSurfaceBuilder({100, 100})
+                           .BuildClientControlledShellSurface();
+  exo::SetShellApplicationId(shell_surface->GetWidget()->GetNativeWindow(),
+                             crosapi::kLacrosAppIdPrefix);
+  wm::ActivateWindow(shell_surface->GetWidget()->GetNativeWindow());
+  ASSERT_TRUE(
+      wm::IsActiveWindow(shell_surface->GetWidget()->GetNativeWindow()));
+
+  // If Lacros window is activated, delegate scroll events related to tab
+  // scrubbing to Lacros while do not delegate other scroll events such as
+  // 2-fingers scroll event.
+  EXPECT_TRUE(IsDelegatedToLacros(fling_scroll_event));
+  EXPECT_TRUE(IsDelegatedToLacros(scroll_event_with_3_fingers));
+  EXPECT_FALSE(IsDelegatedToLacros(scroll_event_with_2_fingers));
 }

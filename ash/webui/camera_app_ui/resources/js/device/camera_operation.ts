@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@ import {
   assertString,
 } from '../assert.js';
 import * as error from '../error.js';
+import * as expert from '../expert.js';
 import {DeviceOperator} from '../mojo/device_operator.js';
 import * as state from '../state.js';
 import {
@@ -22,41 +23,65 @@ import {CancelableEvent, WaitableEvent} from '../waitable_event.js';
 
 import {Camera3DeviceInfo} from './camera3_device_info.js';
 import {
-  PhotoConstraintsPreferrer,
-  VideoConstraintsPreferrer,
-} from './constraints_preferrer.js';
-import {DeviceInfoUpdater} from './device_info_updater.js';
+  CaptureCandidate,
+  FakeCameraCaptureCandidate,
+} from './capture_candidate.js';
+import {CaptureCandidatePreferrer} from './capture_candidate_preferrer.js';
 import {Modes, Video} from './mode/index.js';
 import {Preview} from './preview.js';
 import {StreamConstraints} from './stream_constraints.js';
 import {StreamManager} from './stream_manager.js';
-import {CameraInfo, CameraViewUI, ModeConstraints} from './type.js';
+import {StreamManagerChrome} from './stream_manager_chrome.js';
+import {
+  CameraConfig,
+  CameraConfigCandidate,
+  CameraInfo,
+  CameraViewUI,
+  ModeConstraints,
+} from './type.js';
 
 
 interface ConfigureCandidate {
   deviceId: string;
   mode: Mode;
-  captureResolution: Resolution;
+  captureCandidate: CaptureCandidate;
   constraints: StreamConstraints;
-  videoSnapshotResolution: Resolution;
+  videoSnapshotResolution: Resolution|null;
 }
 
 export interface EventListener {
-  onUpdateConfig(): Promise<void>;
+  onTryingNewConfig(config: CameraConfigCandidate): void;
+  onUpdateConfig(config: CameraConfig): Promise<void>;
   onUpdateCapability(cameraInfo: CameraInfo): void;
 }
 
+/**
+ * Controller for closing or opening camera with specific |CameraConfig|.
+ */
 class Reconfigurer {
-  // Preferred value for reconfiguring.
-  public deviceId: string|null = null;
+  /**
+   * Preferred configuration.
+   */
+  config: CameraConfig|null = null;
+
+  private readonly initialFacing: Facing|null;
+
+  private readonly initialMode: Mode;
 
   private shouldSuspend = false;
 
+  readonly capturePreferrer = new CaptureCandidatePreferrer();
+
   constructor(
-      private readonly preview: Preview, private readonly modes: Modes,
-      private readonly postConfigure: () => Promise<void>,
+      private readonly preview: Preview,
+      private readonly modes: Modes,
+      private readonly listener: EventListener,
       private readonly modeConstraints: ModeConstraints,
-      public facing: Facing) {}
+      facing: Facing|null,
+  ) {
+    this.initialMode = modeConstraints.mode;
+    this.initialFacing = facing;
+  }
 
   setShouldSuspend(value: boolean) {
     this.shouldSuspend = value;
@@ -84,14 +109,14 @@ class Reconfigurer {
     }
 
     const preferredFacing =
-        this.facing === Facing.NOT_SET ? util.getDefaultFacing() : this.facing;
+        this.config?.facing ?? this.initialFacing ?? util.getDefaultFacing();
     // Put the selected video device id first.
     const sorted = devices.map((device) => device.deviceId).sort((a, b) => {
       if (a === b) {
         return 0;
       }
-      if (this.deviceId ? a === this.deviceId :
-                          (facings && facings[a] === preferredFacing)) {
+      if (this.config !== null ? a === this.config.deviceId :
+                                 facings?.[a] === preferredFacing) {
         return -1;
       }
       return 1;
@@ -99,49 +124,49 @@ class Reconfigurer {
     return sorted;
   }
 
-  private async getModeCandidates(deviceId: string|null): Promise<Mode[]> {
-    const supportedModes = await this.modes.getSupportedModes(deviceId);
-    if (this.modeConstraints.exact !== undefined) {
-      assert(supportedModes.includes(this.modeConstraints.exact));
-      return [this.modeConstraints.exact];
+  private async getModeCandidates(deviceId: string): Promise<Mode[]> {
+    if (this.modeConstraints.kind === 'exact') {
+      assert(await this.modes.isSupported(this.modeConstraints.mode, deviceId));
+      return [this.modeConstraints.mode];
     }
-    const modes = this.modes.getModeCandidates().filter(
-        (m) => supportedModes.includes(m));
-    return modes;
+    return this.modes.getModeCandidates(
+        deviceId, this.config?.mode ?? this.initialMode);
   }
 
   private async *
       getConfigurationCandidates(cameraInfo: CameraInfo):
           AsyncIterable<ConfigureCandidate> {
-    const deviceOperator = await DeviceOperator.getInstance();
+    const deviceOperator = DeviceOperator.getInstance();
+    const hasAudio = await this.isAudioInputAvailable();
 
     for (const deviceId of this.getDeviceIdCandidates(cameraInfo)) {
       for (const mode of await this.getModeCandidates(deviceId)) {
-        let resolCandidates;
-        let photoRs;
+        let candidates: CaptureCandidate[];
+        let photoResolutions;
         if (deviceOperator !== null) {
-          resolCandidates = this.modes.getResolutionCandidates(mode, deviceId);
-          photoRs = await deviceOperator.getPhotoResolutions(deviceId);
+          assert(cameraInfo.camera3DevicesInfo !== null);
+          candidates = this.capturePreferrer.getSortedCandidates(
+              cameraInfo.camera3DevicesInfo, deviceId, mode, hasAudio);
+          photoResolutions = await deviceOperator.getPhotoResolutions(deviceId);
         } else {
-          resolCandidates =
-              this.modes.getFakeResolutionCandidates(mode, deviceId);
-          photoRs = resolCandidates.map((c) => c.resolution);
+          candidates = [new FakeCameraCaptureCandidate(
+              deviceId, mode === Mode.VIDEO, hasAudio)];
+          photoResolutions = candidates.map((c) => c.resolution);
         }
-        const maxResolution =
-            photoRs.reduce((maxR, r) => r.area > maxR.area ? r : maxR);
-        for (const {
-               resolution: captureResolution,
-               previewCandidates,
-             } of resolCandidates) {
+        const maxResolution = photoResolutions.reduce(
+            (maxR, r) =>
+                r !== null && (maxR === null || r.area > maxR.area) ? r : maxR);
+        for (const c of candidates) {
           const videoSnapshotResolution =
-              state.get(state.State.ENABLE_FULL_SIZED_VIDEO_SNAPSHOT) ?
+              expert.isEnabled(
+                  expert.ExpertOption.ENABLE_FULL_SIZED_VIDEO_SNAPSHOT) ?
               maxResolution :
-              captureResolution;
-          for (const constraints of previewCandidates) {
+              c.resolution;
+          for (const constraints of c.getStreamConstraintsCandidates()) {
             yield {
               deviceId,
               mode,
-              captureResolution,
+              captureCandidate: c,
               constraints,
               videoSnapshotResolution,
             };
@@ -149,6 +174,11 @@ class Reconfigurer {
         }
       }
     }
+  }
+
+  private async isAudioInputAvailable(): Promise<boolean> {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices.some((device) => device.kind === 'audioinput');
   }
 
   /**
@@ -160,11 +190,12 @@ class Reconfigurer {
         return false;
       }
       const modeSupport = state.get(state.State.USE_FAKE_CAMERA) ||
-          this.modes.isSupportPTZ(
-              c.mode,
-              c.captureResolution,
-              this.preview.getResolution(),
-          );
+          (c.captureCandidate.resolution !== null &&
+           this.modes.isSupportPTZ(
+               c.mode,
+               c.captureCandidate.resolution,
+               this.preview.getResolution(),
+               ));
       if (!modeSupport) {
         await this.preview.resetPTZ();
         return false;
@@ -187,58 +218,90 @@ class Reconfigurer {
       return false;
     }
 
-    const deviceOperator = await DeviceOperator.getInstance();
+    const deviceOperator = DeviceOperator.getInstance();
     state.set(state.State.USE_FAKE_CAMERA, deviceOperator === null);
 
     for await (const c of this.getConfigurationCandidates(cameraInfo)) {
       if (this.shouldSuspend) {
         return false;
       }
+
+      let facing = c.deviceId !== null ?
+          cameraInfo.getCamera3DeviceInfo(c.deviceId)?.facing ?? null :
+          null;
+      this.listener.onTryingNewConfig({
+        deviceId: c.deviceId,
+        facing,
+        mode: c.mode,
+        captureCandidate: c.captureCandidate,
+      });
       this.modes.setCaptureParams(
-          c.mode, c.constraints, c.captureResolution,
+          c.mode, c.constraints, c.captureCandidate.resolution,
           c.videoSnapshotResolution);
       try {
         await this.modes.prepareDevice();
         const factory = this.modes.getModeFactory(c.mode);
-        const stream = await this.preview.open(c.constraints);
-        const facing = this.preview.getFacing();
+        await this.preview.open(c.constraints);
+        // For non-ChromeOS VCD, the facing and device id can only be known
+        // after preview is actually opened.
+        facing = this.preview.getFacing();
         const deviceId = assertString(this.preview.getDeviceId());
 
         await this.checkEnablePTZ(c);
         factory.setPreviewVideo(this.preview.getVideo());
         factory.setFacing(facing);
-        await this.modes.updateModeSelectionUI(c.deviceId);
-        await this.modes.updateMode(factory, stream, facing, deviceId);
-        this.facing = facing;
-        this.deviceId = deviceId;
-        await this.postConfigure();
+        await this.modes.updateMode(factory);
+        this.config = {
+          deviceId,
+          facing,
+          mode: c.mode,
+          captureCandidate: c.captureCandidate,
+        };
+        if (this.config.mode === Mode.VIDEO) {
+          const fps = this.config.captureCandidate.getConstFps();
+          state.set(state.State.FPS_30, fps === 30);
+          state.set(state.State.FPS_60, fps === 60);
+        }
+        this.capturePreferrer.onUpdateConfig(this.config);
+        await this.listener.onUpdateConfig(this.config);
 
         return true;
       } catch (e) {
         await this.stopStreams();
 
-        let errorToReport = e;
+        let errorToReport: Error;
         // Since OverconstrainedError is not an Error instance.
         if (e instanceof OverconstrainedError) {
+          if (facing === Facing.EXTERNAL && e.constraint === 'deviceId') {
+            // External camera configuration failed with OverconstrainedError
+            // of deviceId means that the device is no longer available and is
+            // likely caused by external camera disconnected. Ignore this
+            // error.
+            continue;
+          }
           errorToReport =
               new Error(`${e.message} (constraint = ${e.constraint})`);
           errorToReport.name = 'OverconstrainedError';
-        } else if (e.name === 'NotReadableError') {
-          // TODO(b/187879603): Remove this hacked once we understand more
-          // about such error.
-          // We cannot get the camera facing from stream since it might
-          // not be successfully opened. Therefore, we asked the camera
-          // facing via Mojo API.
-          let facing = Facing.NOT_SET;
-          if (deviceOperator !== null) {
-            facing = await deviceOperator.getCameraFacing(c.deviceId);
+        } else {
+          assert(e instanceof Error);
+          if (e.name === 'NotReadableError') {
+            // TODO(b/187879603): Remove this hacked once we understand more
+            // about such error.
+            // We cannot get the camera facing from stream since it might
+            // not be successfully opened. Therefore, we asked the camera
+            // facing via Mojo API.
+            let facing: Facing|null = null;
+            if (deviceOperator !== null) {
+              facing = await deviceOperator.getCameraFacing(c.deviceId);
+            }
+            errorToReport = new Error(`${e.message} (facing = ${facing})`);
+            errorToReport.name = 'NotReadableError';
+          } else {
+            errorToReport = e;
           }
-          errorToReport = new Error(`${e.message} (facing = ${facing})`);
-          errorToReport.name = 'NotReadableError';
         }
         error.reportError(
-            ErrorType.START_CAMERA_FAILURE, ErrorLevel.ERROR,
-            assertInstanceof(errorToReport, Error));
+            ErrorType.START_CAMERA_FAILURE, ErrorLevel.ERROR, errorToReport);
       }
     }
     return false;
@@ -248,6 +311,11 @@ class Reconfigurer {
    * Stop extra stream and preview stream.
    */
   private async stopStreams() {
+    if (expert.isEnabled(
+            expert.ExpertOption.ENABLE_MULTISTREAM_RECORDING_CHROME)) {
+      StreamManagerChrome.getInstance().stopCaptureStream();
+    }
+
     await this.modes.clear();
     await this.preview.close();
   }
@@ -256,11 +324,13 @@ class Reconfigurer {
 class Capturer {
   constructor(private readonly modes: Modes) {}
 
-  async start(): Promise<() => Promise<void>> {
+  async start(): Promise<[Promise<void>]> {
+    assert(this.modes.current !== null);
     return this.modes.current.startCapture();
   }
 
   stop() {
+    assert(this.modes.current !== null);
     this.modes.current.stopCapture();
   }
 
@@ -278,45 +348,43 @@ class Capturer {
 }
 
 enum OperationType {
-  RECONFIGURE = 'reconfigure',
   CAPTURE = 'capture',
+  RECONFIGURE = 'reconfigure',
 }
 
 export class OperationScheduler {
-  public cameraInfo: CameraInfo|null = null;
+  cameraInfo: CameraInfo|null = null;
+
   private pendingUpdateInfo: CameraInfo|null = null;
-  private firstInfoUpdate = new WaitableEvent();
+
+  private readonly firstInfoUpdate = new WaitableEvent();
 
   readonly reconfigurer: Reconfigurer;
+
   readonly capturer: Capturer;
+
+  readonly modes = new Modes();
+
   private ongoingOperationType: OperationType|null = null;
-  private pendingReconfigureWaiters: CancelableEvent<boolean>[] = [];
-  public readonly photoPreferrer = new PhotoConstraintsPreferrer();
-  public readonly videoPreferrer = new VideoConstraintsPreferrer();
-  public readonly modes: Modes;
+
+  private pendingReconfigureWaiters: Array<CancelableEvent<boolean>> = [];
 
   constructor(
-      private readonly infoUpdater: DeviceInfoUpdater,
       private readonly listener: EventListener,
       preview: Preview,
-      defaultFacing: Facing,
+      defaultFacing: Facing|null,
       modeConstraints: ModeConstraints,
   ) {
-    const defaultMode =
-        modeConstraints.exact ?? modeConstraints.default ?? Mode.PHOTO;
-    this.modes = new Modes(
-        defaultMode, this.photoPreferrer, this.videoPreferrer,
-        async () => this.reconfigure());
     this.reconfigurer = new Reconfigurer(
         preview,
         this.modes,
-        async () => this.listener.onUpdateConfig(),
+        listener,
         modeConstraints,
         defaultFacing,
     );
     this.capturer = new Capturer(this.modes);
-    this.infoUpdater.addDeviceChangeListener(async (updater) => {
-      const info = new CameraInfo(updater);
+    StreamManager.getInstance().addRealDeviceChangeListener((devices) => {
+      const info = new CameraInfo(devices);
       if (this.ongoingOperationType !== null) {
         this.pendingUpdateInfo = info;
         return;
@@ -335,8 +403,8 @@ export class OperationScheduler {
     const isFirstUpdate = this.cameraInfo === null;
     this.cameraInfo = cameraInfo;
     if (cameraInfo.camera3DevicesInfo !== null) {
-      this.photoPreferrer.updateDevicesInfo(cameraInfo.camera3DevicesInfo);
-      this.videoPreferrer.updateDevicesInfo(cameraInfo.camera3DevicesInfo);
+      this.reconfigurer.capturePreferrer.updateCapability(
+          cameraInfo.camera3DevicesInfo);
     }
     this.listener.onUpdateCapability(cameraInfo);
     if (isFirstUpdate) {
@@ -348,6 +416,7 @@ export class OperationScheduler {
     if (this.ongoingOperationType !== null) {
       const event = new CancelableEvent<boolean>();
       this.pendingReconfigureWaiters.push(event);
+      this.stopCapture();
       return event.wait();
     }
     return this.startReconfigure();
@@ -389,7 +458,7 @@ export class OperationScheduler {
     }
   }
 
-  async startCapture(): Promise<() => Promise<void>>|null {
+  async startCapture(): Promise<[Promise<void>]|null> {
     if (this.ongoingOperationType !== null) {
       return null;
     }

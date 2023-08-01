@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -114,8 +114,8 @@ bool HandleDPI(FakeDisplaySnapshot::Builder* builder, StringPiece dpi) {
 // Returns false if any invalid options are provided. If an option appears more
 // than once it will have no effect the second time.
 bool HandleOptions(FakeDisplaySnapshot::Builder* builder, StringPiece options) {
-  for (size_t i = 0; i < options.size(); ++i) {
-    switch (options[i]) {
+  for (char option : options) {
+    switch (option) {
       case 'o':
         builder->SetHasOverscan(true);
         break;
@@ -123,13 +123,13 @@ bool HandleOptions(FakeDisplaySnapshot::Builder* builder, StringPiece options) {
         builder->SetHasColorCorrectionMatrix(true);
         break;
       case 'a':
-        builder->SetIsAspectPerservingScaling(true);
+        builder->SetIsAspectPreservingScaling(true);
         break;
       case 'i':
         builder->SetType(DISPLAY_CONNECTION_TYPE_INTERNAL);
         break;
       default:
-        LOG(ERROR) << "Invalid option specifier \"" << options[i] << "\"";
+        LOG(ERROR) << "Invalid option specifier \"" << option << "\"";
         return false;
     }
   }
@@ -141,9 +141,9 @@ bool HandleOptions(FakeDisplaySnapshot::Builder* builder, StringPiece options) {
 
 using Builder = FakeDisplaySnapshot::Builder;
 
-Builder::Builder() {}
+Builder::Builder() = default;
 
-Builder::~Builder() {}
+Builder::~Builder() = default;
 
 std::unique_ptr<FakeDisplaySnapshot> Builder::Build() {
   if (modes_.empty() || id_ == kInvalidDisplayId) {
@@ -169,10 +169,11 @@ std::unique_ptr<FakeDisplaySnapshot> Builder::Build() {
       id_, port_display_id_, edid_display_id_, connector_index_, origin_,
       physical_size, type_, base_connector_id_, path_topology_,
       is_aspect_preserving_scaling_, has_overscan_, privacy_screen_state_,
-      has_color_correction_matrix_, color_correction_in_linear_space_, name_,
-      std::move(modes_), current_mode_, native_mode_, product_code_,
-      maximum_cursor_size_, color_space_, bits_per_channel_,
-      hdr_static_metadata_);
+      has_content_protection_key_, has_color_correction_matrix_,
+      color_correction_in_linear_space_, name_, sys_path_, std::move(modes_),
+      current_mode_, native_mode_, product_code_, maximum_cursor_size_,
+      color_space_, bits_per_channel_, hdr_static_metadata_,
+      variable_refresh_rate_state_, vsync_rate_min_, DrmFormatsAndModifiers());
 }
 
 Builder& Builder::SetId(int64_t id) {
@@ -245,7 +246,7 @@ Builder& Builder::SetPathTopology(const std::vector<uint64_t>& path_topology) {
   return *this;
 }
 
-Builder& Builder::SetIsAspectPerservingScaling(bool val) {
+Builder& Builder::SetIsAspectPreservingScaling(bool val) {
   is_aspect_preserving_scaling_ = val;
   return *this;
 }
@@ -267,6 +268,11 @@ Builder& Builder::SetColorCorrectionInLinearSpace(bool val) {
 
 Builder& Builder::SetName(const std::string& name) {
   name_ = name;
+  return *this;
+}
+
+Builder& Builder::SetSysPath(const base::FilePath& sys_path) {
+  sys_path_ = sys_path;
   return *this;
 }
 
@@ -298,6 +304,11 @@ Builder& Builder::SetPrivacyScreen(PrivacyScreenState state) {
   return *this;
 }
 
+Builder& Builder::SetHasContentProtectionKey(bool has_content_protection_key) {
+  has_content_protection_key_ = has_content_protection_key;
+  return *this;
+}
+
 Builder& Builder::SetColorSpace(const gfx::ColorSpace& color_space) {
   color_space_ = color_space;
   return *this;
@@ -311,6 +322,18 @@ Builder& Builder::SetBitsPerChannel(uint32_t bits_per_channel) {
 Builder& Builder::SetHDRStaticMetadata(
     const gfx::HDRStaticMetadata& hdr_static_metadata) {
   hdr_static_metadata_ = hdr_static_metadata;
+  return *this;
+}
+
+Builder& Builder::SetVariableRefreshRateState(
+    VariableRefreshRateState variable_refresh_rate_state) {
+  variable_refresh_rate_state_ = variable_refresh_rate_state;
+  return *this;
+}
+
+Builder& Builder::SetVsyncRateMin(
+    const absl::optional<uint16_t>& vsync_rate_min) {
+  vsync_rate_min_ = vsync_rate_min;
   return *this;
 }
 
@@ -353,9 +376,11 @@ FakeDisplaySnapshot::FakeDisplaySnapshot(
     bool is_aspect_preserving_scaling,
     bool has_overscan,
     PrivacyScreenState privacy_screen_state,
+    bool has_content_protection_key,
     bool has_color_correction_matrix,
     bool color_correction_in_linear_space,
     std::string display_name,
+    const base::FilePath& sys_path,
     DisplayModeList modes,
     const DisplayMode* current_mode,
     const DisplayMode* native_mode,
@@ -363,7 +388,10 @@ FakeDisplaySnapshot::FakeDisplaySnapshot(
     const gfx::Size& maximum_cursor_size,
     const gfx::ColorSpace& color_space,
     uint32_t bits_per_channel,
-    const gfx::HDRStaticMetadata& hdr_static_metadata)
+    const gfx::HDRStaticMetadata& hdr_static_metadata,
+    VariableRefreshRateState variable_refresh_rate_state,
+    const absl::optional<uint16_t>& vsync_rate_min,
+    const DrmFormatsAndModifiers& drm_formats_and_modifiers)
     : DisplaySnapshot(display_id,
                       port_display_id,
                       edid_display_id,
@@ -376,13 +404,14 @@ FakeDisplaySnapshot::FakeDisplaySnapshot(
                       is_aspect_preserving_scaling,
                       has_overscan,
                       privacy_screen_state,
+                      has_content_protection_key,
                       has_color_correction_matrix,
                       color_correction_in_linear_space,
                       color_space,
                       bits_per_channel,
                       hdr_static_metadata,
                       display_name,
-                      base::FilePath(),
+                      sys_path,
                       std::move(modes),
                       display::PanelOrientation::kNormal,
                       std::vector<uint8_t>(),
@@ -390,9 +419,12 @@ FakeDisplaySnapshot::FakeDisplaySnapshot(
                       native_mode,
                       product_code,
                       2018 /*year_of_manufacture */,
-                      maximum_cursor_size) {}
+                      maximum_cursor_size,
+                      variable_refresh_rate_state,
+                      vsync_rate_min,
+                      drm_formats_and_modifiers) {}
 
-FakeDisplaySnapshot::~FakeDisplaySnapshot() {}
+FakeDisplaySnapshot::~FakeDisplaySnapshot() = default;
 
 // static
 std::unique_ptr<DisplaySnapshot> FakeDisplaySnapshot::CreateFromSpec(

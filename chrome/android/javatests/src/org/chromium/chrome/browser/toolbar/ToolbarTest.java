@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,9 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import android.support.test.InstrumentationRegistry;
-
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.MediumTest;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.hamcrest.Matchers;
 import org.junit.Assert;
@@ -24,16 +24,16 @@ import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.FlakyTest;
 import org.chromium.base.test.util.Restriction;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.findinpage.FindToolbar;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.chrome.test.util.MenuUtils;
 import org.chromium.chrome.test.util.OmniboxTestUtils;
@@ -100,27 +100,27 @@ public class ToolbarTest {
 
         assertNull("The scrim should be null.", scrimCoordinator.getViewForTesting());
         assertFalse("All tabs should not currently be obscured.",
-                activity.getTabObscuringHandler().areAllTabsObscured());
+                activity.getTabObscuringHandler().isTabContentObscured());
 
         ThreadUtils.runOnUiThreadBlocking(() -> toolbarManager.setUrlBarFocus(true, 0));
 
         assertNotNull("The scrim should not be null.", scrimCoordinator.getViewForTesting());
         assertTrue("All tabs should currently be obscured.",
-                activity.getTabObscuringHandler().areAllTabsObscured());
+                activity.getTabObscuringHandler().isTabContentObscured());
 
         ThreadUtils.runOnUiThreadBlocking(() -> toolbarManager.setUrlBarFocus(false, 0));
 
         assertNull("The scrim should be null.", scrimCoordinator.getViewForTesting());
         assertFalse("All tabs should not currently be obscured.",
-                activity.getTabObscuringHandler().areAllTabsObscured());
+                activity.getTabObscuringHandler().isTabContentObscured());
     }
 
     @Test
     @MediumTest
-    @FlakyTest(message = "https://crbug.com/1230091")
+    @DisabledTest(message = "https://crbug.com/1230091")
     public void testNTPNavigatesToErrorPageOnDisconnectedNetwork() {
-        EmbeddedTestServer testServer =
-                EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
+        EmbeddedTestServer testServer = EmbeddedTestServer.createAndStartServer(
+                ApplicationProvider.getApplicationContext());
         String testUrl = testServer.getURL(TEST_PAGE);
 
         Tab tab = mActivityTestRule.getActivity().getActivityTab();

@@ -1,12 +1,12 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <stddef.h>
 
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/format_macros.h"
+#include "base/functional/bind.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/trace_event/memory_dump_manager.h"
@@ -38,8 +38,6 @@
 #include "components/omnibox/browser/omnibox_edit_model.h"
 #include "components/omnibox/browser/omnibox_view.h"
 #include "components/search_engines/template_url_service.h"
-#include "content/public/browser/notification_service.h"
-#include "content/public/browser/notification_types.h"
 #include "content/public/test/browser_test.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/metrics_proto/omnibox_event.pb.h"
@@ -151,7 +149,7 @@ IN_PROC_BROWSER_TEST_F(AutocompleteBrowserTest, MAYBE_Autocomplete) {
         u"chrome", metrics::OmniboxEventProto::NTP,
         ChromeAutocompleteSchemeClassifier(browser()->profile()));
     input.set_prevent_inline_autocomplete(true);
-    input.set_want_asynchronous_matches(false);
+    input.set_omit_asynchronous_matches(true);
     autocomplete_controller->Start(input);
 
     EXPECT_TRUE(autocomplete_controller->done());
@@ -184,9 +182,7 @@ IN_PROC_BROWSER_TEST_F(AutocompleteBrowserTest, TabAwayRevertSelect) {
   OmniboxView* omnibox_view = location_bar->GetOmniboxView();
   EXPECT_EQ(url::kAboutBlankURL16, omnibox_view->GetText());
   omnibox_view->SetUserText(std::u16string());
-  content::WindowedNotificationObserver observer(
-      content::NOTIFICATION_LOAD_STOP,
-      content::NotificationService::AllSources());
+  content::CreateAndLoadWebContentsObserver observer;
   chrome::AddSelectedTabWithURL(browser(),
                                 GURL(url::kAboutBlankURL),
                                 ui::PAGE_TRANSITION_AUTO_TOPLEVEL);

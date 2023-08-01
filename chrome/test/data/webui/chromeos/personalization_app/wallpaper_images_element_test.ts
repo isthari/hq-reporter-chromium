@@ -1,21 +1,20 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {IFrameApi} from 'chrome://personalization/trusted/iframe_api.js';
-import {WallpaperLayout, WallpaperType} from 'chrome://personalization/trusted/personalization_app.mojom-webui.js';
-import {PersonalizationRouter} from 'chrome://personalization/trusted/personalization_router_element.js';
-import {getDarkLightImageTiles, getRegularImageTiles, WallpaperImages} from 'chrome://personalization/trusted/wallpaper/wallpaper_images_element.js';
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
-import {assertDeepEquals, assertEquals, assertFalse} from 'chrome://webui-test/chai_assert.js';
-import {flushTasks, waitAfterNextRender} from 'chrome://webui-test/test_util.js';
+import 'chrome://personalization/strings.m.js';
+import 'chrome://webui-test/mojo_webui_test_support.js';
 
-import {assertWindowObjectsEqual, baseSetup, initElement, setupTestIFrameApi, teardownElement} from './personalization_app_test_utils.js';
+import {ColorScheme, OnlineImageType, PersonalizationRouter, TimeOfDayWallpaperDialog, WallpaperGridItem, WallpaperImages} from 'chrome://personalization/js/personalization_app.js';
+import {assertDeepEquals, assertEquals, assertFalse, assertNotEquals, assertTrue} from 'chrome://webui-test/chai_assert.js';
+import {waitAfterNextRender} from 'chrome://webui-test/polymer_test_util.js';
+
+import {baseSetup, initElement, teardownElement} from './personalization_app_test_utils.js';
 import {TestPersonalizationStore} from './test_personalization_store.js';
 import {TestWallpaperProvider} from './test_wallpaper_interface_provider.js';
 
-export function WallpaperImagesTest() {
-  let wallpaperImagesElement: WallpaperImages|null = null;
+suite('WallpaperImagesTest', function() {
+  let wallpaperImagesElement: WallpaperImages|null;
   let wallpaperProvider: TestWallpaperProvider;
   let personalizationStore: TestPersonalizationStore;
 
@@ -28,228 +27,421 @@ export function WallpaperImagesTest() {
   teardown(async () => {
     await teardownElement(wallpaperImagesElement);
     wallpaperImagesElement = null;
-    await flushTasks();
   });
 
-  test('send current wallpaper asset id', async () => {
-    const testProxy = setupTestIFrameApi();
-
-    // Set the current wallpaper as an online wallpaper.
-    // The currentSelected asset id should be sent to iframe.
-    personalizationStore.data.wallpaper.currentSelected =
-        wallpaperProvider.currentWallpaper;
-
-    wallpaperImagesElement =
-        initElement(WallpaperImages, {collectionId: 'id_0'});
-
-    const iframe = wallpaperImagesElement.shadowRoot!.getElementById(
-                       'images-iframe') as HTMLIFrameElement;
-
-    // Wait for iframe to receive data.
-    let [targetWindow, data] =
-        await testProxy.whenCalled('sendCurrentWallpaperAssetId') as
-        Parameters<IFrameApi['sendCurrentWallpaperAssetId']>;
-
-    assertEquals(iframe.contentWindow, targetWindow);
-    assertDeepEquals(
-        BigInt(personalizationStore.data.wallpaper.currentSelected.key), data);
-
-    testProxy.resetResolver('sendCurrentWallpaperAssetId');
-
-    // Set the current wallpaper as a daily refresh wallpaper.
-    // The currentSelected asset id should be sent to iframe.
-    personalizationStore.data.wallpaper.currentSelected = {
-      attribution: ['Image 1'],
-      layout: WallpaperLayout.kCenter,
-      key: '2',
-      type: WallpaperType.kDaily,
-      url: {url: 'https://images.googleusercontent.com/1'},
+  async function createWithDefaultData(
+      collectionId: string = wallpaperProvider.collections![0]!.id) {
+    personalizationStore.data.wallpaper = {
+      ...personalizationStore.data.wallpaper,
+      backdrop: {
+        collections: wallpaperProvider.collections,
+        images: {[collectionId]: wallpaperProvider.images},
+      },
+      loading: {
+        ...personalizationStore.data.wallpaper.loading,
+        collections: false,
+        images: {[collectionId]: false},
+      },
+      currentSelected: wallpaperProvider.currentWallpaper,
     };
-    personalizationStore.notifyObservers();
+    const element = initElement(WallpaperImages, {collectionId});
+    await waitAfterNextRender(element);
+    return element;
+  }
 
-    // Wait for iframe to receive data.
-    [targetWindow, data] =
-        await testProxy.whenCalled('sendCurrentWallpaperAssetId') as
-        Parameters<IFrameApi['sendCurrentWallpaperAssetId']>;
-    assertEquals(iframe.contentWindow, targetWindow);
+  async function selectTimeOfDayWallpaper() {
+    // Click the first image that is not currently selected.
+    wallpaperImagesElement!.shadowRoot!
+        .querySelector<WallpaperGridItem>(`${
+            WallpaperGridItem
+                .is}[aria-selected='false'][data-is-time-of-day-wallpaper]`)!
+        .click();
+    await waitAfterNextRender(wallpaperImagesElement!);
+    return wallpaperImagesElement;
+  }
+
+  async function clickTimeOfDayWallpaperDialogButton(id: string) {
+    const dialog = wallpaperImagesElement!.shadowRoot!
+                       .querySelector<TimeOfDayWallpaperDialog>(
+                           TimeOfDayWallpaperDialog.is);
+    assertNotEquals(null, dialog, 'dialog element must exist to click button');
+    const button = dialog!.shadowRoot!.getElementById(id);
+    assertNotEquals(null, button, `button with id ${id} must exist`);
+    button!.click();
+    await waitAfterNextRender(wallpaperImagesElement!);
+    return wallpaperImagesElement;
+  }
+
+  test('sets aria-selected for current wallpaper asset id', async () => {
+    wallpaperImagesElement = await createWithDefaultData();
+    const selectedElements: WallpaperGridItem[] =
+        Array.from(wallpaperImagesElement.shadowRoot!.querySelectorAll(
+            `${WallpaperGridItem.is}[aria-selected='true']`));
+
+    assertEquals(selectedElements.length, 1, '1 item aria selected');
     assertDeepEquals(
-        BigInt(personalizationStore.data.wallpaper.currentSelected.key), data);
+        selectedElements[0]!.src,
+        [wallpaperProvider.images![0]!.url, wallpaperProvider.images![2]!.url],
+        `item has correct src`);
 
-    testProxy.resetResolver('sendCurrentWallpaperAssetId');
+    const notSelectedElements: HTMLDivElement[] =
+        Array.from(wallpaperImagesElement.shadowRoot!.querySelectorAll(
+            `${WallpaperGridItem.is}[aria-selected='false']`));
 
-    // Set the current wallpaper not as an online wallpaper.
-    // No asset id is sent to iframe.
-    personalizationStore.data.wallpaper.currentSelected = {
-      attribution: ['Image 2'],
-      layout: WallpaperLayout.kCenter,
-      key: '3',
-      type: WallpaperType.kDefault,
-      url: {url: 'https://images.googleusercontent.com/2'},
-    };
-    personalizationStore.notifyObservers();
+    const uniqueUnitIds =
+        new Set(wallpaperProvider.images!.map(img => img.unitId));
 
-    // Wait for iframe to receive data.
-    [targetWindow, data] =
-        await testProxy.whenCalled('sendCurrentWallpaperAssetId') as
-        Parameters<IFrameApi['sendCurrentWallpaperAssetId']>;
-    assertEquals(iframe.contentWindow, targetWindow);
-    assertEquals(undefined, data);
+    assertEquals(
+        uniqueUnitIds.size - 1, notSelectedElements.length,
+        'correct number of non-selected elements');
   });
 
-  test('displays images for current collection id', async () => {
+  test('displays images for current collectionId', async () => {
     personalizationStore.data.wallpaper.backdrop.images = {
-      'id_0': wallpaperProvider.images,
+      'id_0': [
+        {
+          assetId: BigInt(1),
+          attribution: ['Image 0-1'],
+          type: OnlineImageType.kUnknown,
+          unitId: BigInt(1),
+          url: {url: 'https://id_0-1/'},
+        },
+        {
+          assetId: BigInt(2),
+          attribution: ['Image 0-2'],
+          type: OnlineImageType.kUnknown,
+          unitId: BigInt(2),
+          url: {url: 'https://id_0-2/'},
+        },
+      ],
       'id_1': [
-        {assetId: BigInt(10), url: {url: 'https://id_1-0/'}},
-        {assetId: BigInt(20), url: {url: 'https://id_1-1/'}},
+        {
+          assetId: BigInt(10),
+          attribution: ['Image 1-10'],
+          type: OnlineImageType.kUnknown,
+          unitId: BigInt(10),
+          url: {url: 'https://id_1-10/'},
+        },
+        {
+          assetId: BigInt(20),
+          attribution: ['Image 1-20'],
+          type: OnlineImageType.kUnknown,
+          unitId: BigInt(20),
+          url: {url: 'https://id_1-20/'},
+        },
       ],
     };
     personalizationStore.data.wallpaper.backdrop.collections =
         wallpaperProvider.collections;
     personalizationStore.data.wallpaper.loading.images = {
       'id_0': false,
-      'id_1': false
+      'id_1': false,
     };
     personalizationStore.data.wallpaper.loading.collections = false;
 
-    const testProxy = setupTestIFrameApi();
     wallpaperImagesElement =
         initElement(WallpaperImages, {collectionId: 'id_0'});
-
-    const iframe = wallpaperImagesElement.shadowRoot!.getElementById(
-                       'images-iframe') as HTMLIFrameElement;
-
-    // Wait for iframe to receive data.
-    let [targetWindow, data] = await testProxy.whenCalled('sendImageTiles') as
-        Parameters<IFrameApi['sendImageTiles']>;
-    assertEquals(iframe.contentWindow, targetWindow);
-    assertDeepEquals(
-        getRegularImageTiles(
-            personalizationStore.data.wallpaper.backdrop.images['id_0']),
-        data);
-    // Wait for a render to happen.
     await waitAfterNextRender(wallpaperImagesElement);
-    assertFalse(iframe.hidden);
 
-    testProxy.resetResolver('sendImageTiles');
+    assertDeepEquals(
+        ['Image 0-1', 'Image 0-2'],
+        Array
+            .from(wallpaperImagesElement.shadowRoot!
+                      .querySelectorAll<WallpaperGridItem>(
+                          `${WallpaperGridItem.is}:not([hidden])`))
+            .map(elem => elem.getAttribute('aria-label')),
+        'expected aria labels are displayed for collectionId `id_0`');
+
     wallpaperImagesElement.collectionId = 'id_1';
-
-    // Wait for iframe to receive new data.
-    [targetWindow, data] = await testProxy.whenCalled('sendImageTiles') as
-        Parameters<IFrameApi['sendImageTiles']>;
-
     await waitAfterNextRender(wallpaperImagesElement);
 
-    assertFalse(iframe.hidden);
-
-    assertWindowObjectsEqual(iframe.contentWindow, targetWindow);
     assertDeepEquals(
-        getRegularImageTiles(
-            personalizationStore.data.wallpaper.backdrop.images['id_1']),
-        data);
+        ['Image 1-10', 'Image 1-20'],
+        Array
+            .from(wallpaperImagesElement.shadowRoot!
+                      .querySelectorAll<WallpaperGridItem>(
+                          `${WallpaperGridItem.is}:not([hidden])`))
+            .map(elem => elem.getAttribute('aria-label')),
+        'expected aria labels are displayed for collectionId `id_1`');
   });
 
-  test('display dark/light tile for personalization hub', async () => {
-    loadTimeData.overrideValues({isDarkLightModeEnabled: true});
+  test('displays time of day tile for images with same unitId', async () => {
     personalizationStore.data.wallpaper.backdrop.images = {
-      'id_0': wallpaperProvider.images,
-      'id_1': [
-        {assetId: BigInt(10), url: {url: 'https://id_1-0/'}},
-        {assetId: BigInt(20), url: {url: 'https://id_1-1/'}},
+      'id_0': [
+        {
+          assetId: BigInt(1),
+          attribution: ['Light Image 0-1'],
+          type: OnlineImageType.kLight,
+          unitId: BigInt(1),
+          url: {url: 'https://id_0-1/'},
+        },
+        {
+          assetId: BigInt(2),
+          attribution: ['Dark Image 0-2'],
+          type: OnlineImageType.kDark,
+          unitId: BigInt(1),
+          url: {url: 'https://id_0-2/'},
+        },
+        {
+          assetId: BigInt(3),
+          attribution: ['Morning Image 0-3'],
+          type: OnlineImageType.kMorning,
+          unitId: BigInt(1),
+          url: {url: 'https://id_0-3/'},
+        },
+        {
+          assetId: BigInt(4),
+          attribution: ['Late Afternoon Image 0-4'],
+          type: OnlineImageType.kLateAfternoon,
+          unitId: BigInt(1),
+          url: {url: 'https://id_0-4/'},
+        },
       ],
     };
     personalizationStore.data.wallpaper.backdrop.collections =
         wallpaperProvider.collections;
     personalizationStore.data.wallpaper.loading.images = {
       'id_0': false,
-      'id_1': false
     };
     personalizationStore.data.wallpaper.loading.collections = false;
 
-    const testProxy = setupTestIFrameApi();
     wallpaperImagesElement =
         initElement(WallpaperImages, {collectionId: 'id_0'});
-
-    const iframe = wallpaperImagesElement.shadowRoot!.getElementById(
-                       'images-iframe') as HTMLIFrameElement;
-
-    // Wait for iframe to receive data.
-    let [targetWindow, data] = await testProxy.whenCalled('sendImageTiles') as
-        Parameters<IFrameApi['sendImageTiles']>;
-    assertEquals(iframe.contentWindow, targetWindow);
-    const tiles = getDarkLightImageTiles(
-        false, personalizationStore.data.wallpaper.backdrop.images['id_0']);
-    assertDeepEquals(tiles, data);
-    assertEquals(data[0]!.preview.length, 2);
-    // Check that light variant comes before dark variant.
-    assertEquals(
-        data[0]!.preview[0]!.url, 'https://images.googleusercontent.com/1');
-    assertEquals(
-        data[0]!.preview[1]!.url, 'https://images.googleusercontent.com/0');
-    // Wait for a render to happen.
-    await waitAfterNextRender(wallpaperImagesElement);
-    assertFalse(iframe.hidden);
-
-    testProxy.resetResolver('sendImageTiles');
-    wallpaperImagesElement.collectionId = 'id_1';
-
-    // Wait for iframe to receive new data.
-    [targetWindow, data] = await testProxy.whenCalled('sendImageTiles') as
-        Parameters<IFrameApi['sendImageTiles']>;
-
     await waitAfterNextRender(wallpaperImagesElement);
 
-    assertFalse(iframe.hidden);
+    const elements = Array.from(
+        wallpaperImagesElement.shadowRoot!.querySelectorAll<WallpaperGridItem>(
+            `${WallpaperGridItem.is}:not([hidden])`));
 
-    assertWindowObjectsEqual(iframe.contentWindow, targetWindow);
     assertDeepEquals(
-        getDarkLightImageTiles(
-            false, personalizationStore.data.wallpaper.backdrop.images['id_1']),
-        data);
+        [
+          {url: 'https://id_0-1/'},
+          {url: 'https://id_0-2/'},
+          {url: 'https://id_0-3/'},
+          {url: 'https://id_0-4/'},
+        ],
+        elements[0]!.src, 'time of day image has four variant urls');
+    assertTrue(
+        elements[0]!.hasAttribute('data-is-time-of-day-wallpaper'),
+        'element has correct data attribute');
   });
 
-  test('navigates back to main page on loading failure', async () => {
-    const reloadPromise = new Promise<void>((resolve) => {
-      PersonalizationRouter.reloadAtWallpaper = resolve;
-    });
+  test(
+      'displays one preview tile for images with the same unitId', async () => {
+        personalizationStore.data.wallpaper.backdrop.images = {
+          'id_0': [
+            {
+              assetId: BigInt(0),
+              attribution: ['Late Afternoon Image 0-0'],
+              type: OnlineImageType.kPreview,
+              unitId: BigInt(1),
+              url: {url: 'https://id_0-0/'},
+            },
+            {
+              assetId: BigInt(1),
+              attribution: ['Light Image 0-1'],
+              type: OnlineImageType.kLight,
+              unitId: BigInt(1),
+              url: {url: 'https://id_0-1/'},
+            },
+            {
+              assetId: BigInt(2),
+              attribution: ['Dark Image 0-2'],
+              type: OnlineImageType.kDark,
+              unitId: BigInt(1),
+              url: {url: 'https://id_0-2/'},
+            },
+            {
+              assetId: BigInt(3),
+              attribution: ['Morning Image 0-3'],
+              type: OnlineImageType.kMorning,
+              unitId: BigInt(1),
+              url: {url: 'https://id_0-3/'},
+            },
+            {
+              assetId: BigInt(4),
+              attribution: ['Late Afternoon Image 0-4'],
+              type: OnlineImageType.kLateAfternoon,
+              unitId: BigInt(1),
+              url: {url: 'https://id_0-4/'},
+            },
+          ],
+        };
+        personalizationStore.data.wallpaper.backdrop.collections =
+            wallpaperProvider.collections;
+        personalizationStore.data.wallpaper.loading.images = {
+          'id_0': false,
+        };
+        personalizationStore.data.wallpaper.loading.collections = false;
 
-    personalizationStore.data.wallpaper.backdrop.collections =
-        wallpaperProvider.collections;
-    personalizationStore.data.wallpaper.backdrop.images = {'id_0': null};
-    personalizationStore.data.wallpaper.loading = {
-      collections: false,
-      images: {'id_0': true}
-    };
+        wallpaperImagesElement =
+            initElement(WallpaperImages, {collectionId: 'id_0'});
+        await waitAfterNextRender(wallpaperImagesElement);
 
+        const elements =
+            Array.from(wallpaperImagesElement.shadowRoot!
+                           .querySelectorAll<WallpaperGridItem>(
+                               `${WallpaperGridItem.is}:not([hidden])`));
+
+        assertDeepEquals(
+            [
+              {url: 'https://id_0-0/'},
+            ],
+            elements[0]!.src, 'preview image has only one url');
+      });
+
+  test('displays dark light tile for images with same unitId', async () => {
+    wallpaperImagesElement = await createWithDefaultData();
+
+    const elements = Array.from(
+        wallpaperImagesElement.shadowRoot!.querySelectorAll<WallpaperGridItem>(
+            `${WallpaperGridItem.is}:not([hidden])`));
+
+    assertDeepEquals(
+        ['Image 0 light', 'Image 2', 'Image 3'],
+        elements.map(elem => elem.ariaLabel),
+        'elements have correct aria labels for light mode');
+
+    assertDeepEquals(
+        [
+          {url: 'https://images.googleusercontent.com/1'},
+          {url: 'https://images.googleusercontent.com/0'},
+        ],
+        elements[0]?.src, 'dark/light mode image has dark light variant urls');
+
+    assertEquals(
+        OnlineImageType.kLight,
+        wallpaperProvider.images!
+            .find(image => image.url.url.endsWith('.com/1'))!.type,
+        'light image is first');
+
+    assertDeepEquals(
+        [{url: 'https://images.googleusercontent.com/2'}], elements[1]?.src,
+        'image 2 does not have dark light mode variants');
+  });
+
+  test('selects an image when clicked', async () => {
+    wallpaperImagesElement = await createWithDefaultData();
+    // Click the first image that is not currently selected.
+    wallpaperImagesElement.shadowRoot!
+        .querySelector<WallpaperGridItem>(
+            `${WallpaperGridItem.is}[aria-selected='false']`)!.click();
+    const [assetId, previewMode] =
+        await wallpaperProvider.whenCalled('selectWallpaper');
+    assertEquals(2n, assetId, 'correct asset id is passed');
+    assertEquals(
+        wallpaperProvider.isInTabletModeResponse, previewMode,
+        'preview mode is same as tablet mode');
+    assertEquals(
+        null,
+        wallpaperImagesElement.shadowRoot!.querySelector(
+            TimeOfDayWallpaperDialog.is),
+        'no time of day dialog when selecting a regular image');
+  });
+
+  test('shows dialog when clicking on a time of day wallpaper', async () => {
     wallpaperImagesElement =
-        initElement(WallpaperImages, {collectionId: 'id_0'});
+        await createWithDefaultData(wallpaperProvider.timeOfDayCollectionId);
 
-    // Simulate finish loading. Images still null. Should bail and reload
-    // application.
-    personalizationStore.data.wallpaper.loading = {images: {'id_0': false}};
+    await selectTimeOfDayWallpaper();
+    assertNotEquals(
+        null,
+        wallpaperImagesElement.shadowRoot!.querySelector(
+            TimeOfDayWallpaperDialog.is),
+        'dialog element exists');
+  });
+
+  test('dismiss time of day promo banner after showing images', async () => {
+    personalizationStore.setReducersEnabled(true);
+    personalizationStore.data.ambient.shouldShowTimeOfDayBanner = true;
+    wallpaperImagesElement =
+        await createWithDefaultData(wallpaperProvider.timeOfDayCollectionId);
+
+    assertFalse(
+        personalizationStore.data.ambient.shouldShowTimeOfDayBanner,
+        'banner is dismissed');
+  });
+
+  test('do not show time of day dialog with proper settings', async () => {
+    wallpaperImagesElement =
+        await createWithDefaultData(wallpaperProvider.timeOfDayCollectionId);
+    personalizationStore.data.theme.colorModeAutoScheduleEnabled = true;
+    personalizationStore.data.theme.colorSchemeSelected =
+        ColorScheme.kTonalSpot;
     personalizationStore.notifyObservers();
+    await waitAfterNextRender(wallpaperImagesElement);
 
-    await reloadPromise;
+    await selectTimeOfDayWallpaper();
+    assertEquals(
+        null,
+        wallpaperImagesElement.shadowRoot!.querySelector(
+            TimeOfDayWallpaperDialog.is),
+        'dialog element does not exist');
+    const [assetId, _] = await wallpaperProvider.whenCalled('selectWallpaper');
+    assertEquals(3n, assetId, 'correct asset id is passed');
   });
 
-  test('navigates back to main page on unknown collection id', async () => {
-    const reloadPromise = new Promise<void>((resolve) => {
+  test(
+      'clicking cancel dismisses the time of day wallpaper dialog',
+      async () => {
+        wallpaperImagesElement = await createWithDefaultData(
+            wallpaperProvider.timeOfDayCollectionId);
+
+        await selectTimeOfDayWallpaper();
+        await clickTimeOfDayWallpaperDialogButton('close');
+        assertEquals(
+            null,
+            wallpaperImagesElement.shadowRoot!.querySelector(
+                TimeOfDayWallpaperDialog.is),
+            'clicking cancel dismisses the dialog');
+        assertEquals(
+            wallpaperProvider.currentWallpaper,
+            personalizationStore.data.wallpaper.currentSelected,
+            'current wallpaper is not updated');
+      });
+
+  test('clicking confirm on the time of day wallpaper dialog', async () => {
+    wallpaperImagesElement =
+        await createWithDefaultData(wallpaperProvider.timeOfDayCollectionId);
+
+    await selectTimeOfDayWallpaper();
+    await clickTimeOfDayWallpaperDialogButton('accept');
+    assertEquals(
+        null,
+        wallpaperImagesElement.shadowRoot!.querySelector(
+            TimeOfDayWallpaperDialog.is),
+        'clicking accept dismisses the dialog');
+    const [assetId, previewMode] =
+        await wallpaperProvider.whenCalled('selectWallpaper');
+    assertEquals(3n, assetId, 'correct asset id is passed');
+    assertEquals(
+        wallpaperProvider.isInTabletModeResponse, previewMode,
+        'preview mode is same as tablet mode');
+  });
+
+  test('redirects to wallpaper page if no images', async () => {
+    const reloadOriginal = PersonalizationRouter.reloadAtWallpaper;
+    const reloadPromise = new Promise<void>(resolve => {
       PersonalizationRouter.reloadAtWallpaper = resolve;
     });
-
-    personalizationStore.data.wallpaper.backdrop.collections =
-        wallpaperProvider.collections;
-    personalizationStore.data.wallpaper.backdrop.images = {
-      'id_0': wallpaperProvider.images
+    const collectionId = wallpaperProvider.collections![0]!.id;
+    // Set all collections to have null images.
+    personalizationStore.data.wallpaper = {
+      ...personalizationStore.data.wallpaper,
+      backdrop: {
+        collections: wallpaperProvider.collections,
+        images: {[collectionId]: null},
+      },
+      loading: {
+        ...personalizationStore.data.wallpaper.loading,
+        collections: false,
+        images: {[collectionId]: false},
+      },
     };
-    personalizationStore.data.wallpaper.loading = {
-      collections: false,
-      images: {'id_0': false},
-    };
-
-    wallpaperImagesElement =
-        initElement(WallpaperImages, {collectionId: 'unknown_id'});
+    wallpaperImagesElement = initElement(WallpaperImages, {collectionId});
 
     await reloadPromise;
+
+    PersonalizationRouter.reloadAtWallpaper = reloadOriginal;
   });
-}
+});

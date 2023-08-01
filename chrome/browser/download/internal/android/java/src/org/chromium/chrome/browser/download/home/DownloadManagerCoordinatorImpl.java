@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,7 @@ import org.chromium.base.ObserverList;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.chrome.browser.download.home.filter.Filters;
 import org.chromium.chrome.browser.download.home.filter.Filters.FilterType;
 import org.chromium.chrome.browser.download.home.list.DateOrderedListCoordinator;
@@ -27,11 +28,10 @@ import org.chromium.chrome.browser.download.home.toolbar.ToolbarCoordinator;
 import org.chromium.chrome.browser.download.internal.R;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
 import org.chromium.components.browser_ui.styles.SemanticColorUtils;
+import org.chromium.components.browser_ui.widget.gesture.BackPressHandler;
 import org.chromium.components.browser_ui.widget.selectable_list.SelectionDelegate;
 import org.chromium.components.feature_engagement.Tracker;
 import org.chromium.components.offline_items_collection.OfflineContentProvider;
-import org.chromium.components.prefs.PrefService;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.ui.modaldialog.ModalDialogManager;
 
 import java.io.Closeable;
@@ -51,6 +51,7 @@ class DownloadManagerCoordinatorImpl
 
     private final Activity mActivity;
     private final Callback<Context> mSettingsLauncher;
+    private final BackPressHandler[] mBackPressHandlers;
 
     private ViewGroup mMainView;
 
@@ -60,9 +61,8 @@ class DownloadManagerCoordinatorImpl
     public DownloadManagerCoordinatorImpl(Activity activity, DownloadManagerUiConfig config,
             Supplier<Boolean> exploreOfflineTabVisibilitySupplier,
             Callback<Context> settingsLauncher, SnackbarManager snackbarManager,
-            ModalDialogManager modalDialogManager, PrefService prefService, Tracker tracker,
-            FaviconProvider faviconProvider, OfflineContentProvider provider,
-            DiscardableReferencePool discardableReferencePool) {
+            ModalDialogManager modalDialogManager, Tracker tracker, FaviconProvider faviconProvider,
+            OfflineContentProvider provider, DiscardableReferencePool discardableReferencePool) {
         mActivity = activity;
         mSettingsLauncher = settingsLauncher;
         mDeleteCoordinator = new DeleteUndoCoordinator(snackbarManager);
@@ -70,7 +70,7 @@ class DownloadManagerCoordinatorImpl
         mListCoordinator = new DateOrderedListCoordinator(mActivity, config,
                 exploreOfflineTabVisibilitySupplier, provider, mDeleteCoordinator::showSnackbar,
                 mSelectionDelegate, this::notifyFilterChanged, createDateOrderedListObserver(),
-                modalDialogManager, prefService, faviconProvider, discardableReferencePool);
+                modalDialogManager, faviconProvider, discardableReferencePool);
         mToolbarCoordinator = new ToolbarCoordinator(mActivity, this, mListCoordinator,
                 mSelectionDelegate, config.isSeparateActivity, tracker);
 
@@ -79,6 +79,8 @@ class DownloadManagerCoordinatorImpl
             updateForUrl(Filters.toUrl(Filters.FilterType.PREFETCHED));
         }
         RecordUserAction.record("Android.DownloadManager.Open");
+        mBackPressHandlers = new BackPressHandler[] {
+                mListCoordinator.getBackPressHandler(), mToolbarCoordinator};
     }
 
     /**
@@ -135,8 +137,12 @@ class DownloadManagerCoordinatorImpl
     @Override
     public boolean onBackPressed() {
         if (mListCoordinator.handleBackPressed()) return true;
-        if (mToolbarCoordinator.handleBackPressed()) return true;
-        return false;
+        return mToolbarCoordinator.handleBackPressed();
+    }
+
+    @Override
+    public BackPressHandler[] getBackPressHandlers() {
+        return mBackPressHandlers;
     }
 
     @Override
@@ -149,7 +155,7 @@ class DownloadManagerCoordinatorImpl
     @Override
     public void addObserver(Observer observer) {
         mObservers.addObserver(observer);
-        PostTask.postTask(UiThreadTaskTraits.DEFAULT,
+        PostTask.postTask(TaskTraits.UI_DEFAULT,
                 () -> observer.onUrlChanged(Filters.toUrl(mListCoordinator.getSelectedFilter())));
     }
 

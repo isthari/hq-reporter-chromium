@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "ash/public/cpp/login_accelerators.h"
 #include "ash/public/cpp/login_screen.h"
 #include "ash/public/cpp/system_tray_observer.h"
+#include "base/memory/raw_ptr.h"
 #include "base/time/time.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/gfx/native_widget_types.h"
@@ -77,7 +78,6 @@ class ASH_EXPORT LoginScreenController : public LoginScreen,
       base::Time validation_time,
       const std::string& code);
   bool GetSecurityTokenPinRequestCanceled() const;
-  void HardlockPod(const AccountId& account_id);
   void OnFocusPod(const AccountId& account_id);
   void OnNoPodFocused();
   void LoadWallpaper(const AccountId& account_id);
@@ -101,7 +101,6 @@ class ASH_EXPORT LoginScreenController : public LoginScreen,
   void ShowParentAccessHelpApp();
   void ShowLockScreenNotificationSettings();
   void FocusOobeDialog();
-  void NotifyUserActivity();
 
   // Enable or disable authentication for the debug overlay.
   enum class ForceFailAuth { kOff, kImmediate, kDelayed };
@@ -128,14 +127,11 @@ class ASH_EXPORT LoginScreenController : public LoginScreen,
 
   void RequestSecurityTokenPin(SecurityTokenPinRequest request) override;
   void ClearSecurityTokenPinRequest() override;
-  bool SetLoginShelfGestureHandler(const std::u16string& nudge_text,
-                                   const base::RepeatingClosure& fling_callback,
-                                   base::OnceClosure exit_callback) override;
-  void ClearLoginShelfGestureHandler() override;
+  views::Widget* GetLoginWindowWidget() override;
 
   // KioskAppMenu:
-  void SetKioskApps(
-      const std::vector<KioskAppMenuEntry>& kiosk_apps,
+  void SetKioskApps(const std::vector<KioskAppMenuEntry>& kiosk_apps) override;
+  void ConfigureKioskCallbacks(
       const base::RepeatingCallback<void(const KioskAppMenuEntry&)>& launch_app,
       const base::RepeatingClosure& on_show_menu) override;
 
@@ -162,11 +158,12 @@ class ASH_EXPORT LoginScreenController : public LoginScreen,
 
   LoginDataDispatcher login_data_dispatcher_;
 
-  LoginScreenClient* client_ = nullptr;
+  raw_ptr<LoginScreenClient, DanglingUntriaged | ExperimentalAsh> client_ =
+      nullptr;
 
   AuthenticationStage authentication_stage_ = AuthenticationStage::kIdle;
 
-  SystemTrayNotifier* system_tray_notifier_;
+  raw_ptr<SystemTrayNotifier, ExperimentalAsh> system_tray_notifier_;
 
   SecurityTokenRequestController security_token_request_controller_;
 

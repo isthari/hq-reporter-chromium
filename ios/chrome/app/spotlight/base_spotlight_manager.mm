@@ -1,31 +1,31 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/app/spotlight/base_spotlight_manager.h"
 
-#import <MobileCoreServices/MobileCoreServices.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
-#import <MaterialComponents/MaterialTypography.h>
+#import <memory>
+#import <set>
+#import <string>
 
-#include <memory>
-#include <set>
-#include <string>
-
-#include "base/bind.h"
-#include "base/containers/contains.h"
-#include "base/hash/md5.h"
-#include "base/strings/sys_string_conversions.h"
-#include "base/task/cancelable_task_tracker.h"
-#include "build/branding_buildflags.h"
-#include "components/favicon/core/fallback_url_util.h"
-#include "components/favicon/core/large_icon_service.h"
-#include "components/favicon_base/fallback_icon_style.h"
-#include "components/favicon_base/favicon_types.h"
-#include "ios/chrome/grit/ios_strings.h"
+#import "base/containers/contains.h"
+#import "base/functional/bind.h"
+#import "base/hash/md5.h"
+#import "base/strings/sys_string_conversions.h"
+#import "base/task/cancelable_task_tracker.h"
+#import "build/branding_buildflags.h"
+#import "components/favicon/core/fallback_url_util.h"
+#import "components/favicon/core/large_icon_service.h"
+#import "components/favicon_base/fallback_icon_style.h"
+#import "components/favicon_base/favicon_types.h"
+#import "ios/chrome/app/spotlight/spotlight_interface.h"
+#import "ios/chrome/app/spotlight/spotlight_logger.h"
+#import "ios/chrome/grit/ios_strings.h"
 #import "net/base/mac/url_conversions.h"
-#include "skia/ext/skia_utils_ios.h"
-#include "ui/base/l10n/l10n_util.h"
+#import "skia/ext/skia_utils_ios.h"
+#import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -44,8 +44,8 @@ const CGFloat kFallbackIconSize = 180;
 // Radius of the rounded corner of the fallback icon.
 const CGFloat kFallbackRoundedCorner = 8;
 
-// Create an image with a rounded square with color |backgroundColor| and
-// |string| centered in color |textColor|.
+// Create an image with a rounded square with color `backgroundColor` and
+// `string` centered in color `textColor`.
 UIImage* GetFallbackImageWithStringAndColor(NSString* string,
                                             UIColor* backgroundColor,
                                             UIColor* textColor) {
@@ -58,8 +58,8 @@ UIImage* GetFallbackImageWithStringAndColor(NSString* string,
       [UIBezierPath bezierPathWithRoundedRect:rect
                                  cornerRadius:kFallbackRoundedCorner];
   [rounded fill];
-  UIFont* font = [MDCTypography headlineFont];
-  font = [font fontWithSize:(kFallbackIconSize / 2)];
+  UIFont* font = [UIFont systemFontOfSize:(kFallbackIconSize / 2)
+                                   weight:UIFontWeightRegular];
   CGRect textRect = CGRectMake(0, (kFallbackIconSize - [font lineHeight]) / 2,
                                kFallbackIconSize, [font lineHeight]);
   NSMutableParagraphStyle* paragraphStyle =
@@ -97,7 +97,7 @@ UIImage* GetFallbackImageWithStringAndColor(NSString* string,
 }
 
 // Compute a hash consisting of the first 8 bytes of the MD5 hash of a string
-// containing |URL| and |title|.
+// containing `URL` and `title`.
 - (int64_t)hashForURL:(const GURL&)URL title:(NSString*)title;
 
 // Returns an array of Keywords for Spotlight search.
@@ -107,13 +107,15 @@ UIImage* GetFallbackImageWithStringAndColor(NSString* string,
 
 @implementation BaseSpotlightManager
 
-- (instancetype)initWithLargeIconService:
-                    (favicon::LargeIconService*)largeIconService
-                                  domain:(spotlight::Domain)domain {
+- (instancetype)
+    initWithLargeIconService:(favicon::LargeIconService*)largeIconService
+                      domain:(spotlight::Domain)domain
+          spotlightInterface:(SpotlightInterface*)spotlightInterface {
   self = [super init];
   if (self) {
     _spotlightDomain = domain;
     _largeIconService = largeIconService;
+    _spotlightInterface = spotlightInterface;
     _largeIconTaskTracker = std::make_unique<base::CancelableTaskTracker>();
   }
   return self;
@@ -151,7 +153,10 @@ UIImage* GetFallbackImageWithStringAndColor(NSString* string,
 
 - (void)clearAllSpotlightItems:(BlockWithError)callback {
   [self cancelAllLargeIconPendingTasks];
-  spotlight::DeleteSearchableDomainItems(_spotlightDomain, callback);
+  [self.spotlightInterface deleteSearchableItemsWithDomainIdentifiers:@[
+    spotlight::StringFromSpotlightDomain(_spotlightDomain)
+  ]
+                                                    completionHandler:callback];
 }
 
 - (CSSearchableItem*)spotlightItemWithItemID:(NSString*)itemID
@@ -183,8 +188,7 @@ UIImage* GetFallbackImageWithStringAndColor(NSString* string,
                                 : indexedURL.spec();
 
   CSSearchableItemAttributeSet* attributeSet =
-      [[CSSearchableItemAttributeSet alloc]
-          initWithItemContentType:(NSString*)kUTTypeURL];
+      [[CSSearchableItemAttributeSet alloc] initWithContentType:UTTypeURL];
   [attributeSet setTitle:defaultTitle];
   [attributeSet setDisplayName:defaultTitle];
   [attributeSet setURL:nsURL];
@@ -281,9 +285,8 @@ UIImage* GetFallbackImageWithStringAndColor(NSString* string,
                                            defaultTitle:title];
 
   if ([spotlightItems count]) {
-    [[CSSearchableIndex defaultSearchableIndex]
-        indexSearchableItems:spotlightItems
-           completionHandler:nil];
+    [self.spotlightInterface indexSearchableItems:spotlightItems
+                                completionHandler:nil];
   }
 }
 

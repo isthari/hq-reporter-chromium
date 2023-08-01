@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,13 +13,13 @@
 #include <utility>
 
 #include "base/bits.h"
-#include "base/cxx17_backports.h"
 #include "base/format_macros.h"
 #include "base/lazy_instance.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/stringprintf.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/trace_event/memory_dump_manager.h"
+#include "build/build_config.h"
 #include "gpu/command_buffer/common/gles2_cmd_utils.h"
 #include "gpu/command_buffer/service/context_state.h"
 #include "gpu/command_buffer/service/decoder_context.h"
@@ -31,6 +31,7 @@
 #include "gpu/command_buffer/service/service_discardable_manager.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_enums.h"
+#include "ui/gl/gl_image.h"
 #include "ui/gl/gl_implementation.h"
 #include "ui/gl/gl_state_restorer.h"
 #include "ui/gl/gl_version_info.h"
@@ -73,7 +74,6 @@ struct TextureSignature {
   bool can_render_;
   bool can_render_to_;
   bool npot_;
-  bool emulating_rgb_;
 
   // Since we will be hashing this signature structure, the padding must be
   // zero initialized. Although the C++11 specifications specify that this is
@@ -95,8 +95,7 @@ struct TextureSignature {
                    bool has_image,
                    bool can_render,
                    bool can_render_to,
-                   bool npot,
-                   bool emulating_rgb) {
+                   bool npot) {
     memset(this, 0, sizeof(TextureSignature));
     target_ = target;
     level_ = level;
@@ -123,7 +122,6 @@ struct TextureSignature {
     can_render_ = can_render;
     can_render_to_ = can_render_to;
     npot_ = npot;
-    emulating_rgb_ = emulating_rgb;
   }
 };
 
@@ -262,11 +260,11 @@ class FormatTypeValidator {
         {GL_RG, GL_RG, GL_HALF_FLOAT_OES},
     };
 
-    for (size_t ii = 0; ii < base::size(kSupportedFormatTypes); ++ii) {
+    for (size_t ii = 0; ii < std::size(kSupportedFormatTypes); ++ii) {
       supported_combinations_.insert(kSupportedFormatTypes[ii]);
     }
 
-    for (size_t ii = 0; ii < base::size(kSupportedFormatTypesES2Only); ++ii) {
+    for (size_t ii = 0; ii < std::size(kSupportedFormatTypesES2Only); ++ii) {
       supported_combinations_es2_only_.insert(kSupportedFormatTypesES2Only[ii]);
     }
   }
@@ -316,7 +314,7 @@ static const Texture::CompatibilitySwizzle kSwizzledFormats[] = {
 
 const Texture::CompatibilitySwizzle* GetCompatibilitySwizzleInternal(
     GLenum format) {
-  size_t count = base::size(kSwizzledFormats);
+  size_t count = std::size(kSwizzledFormats);
   for (size_t i = 0; i < count; ++i) {
     if (kSwizzledFormats[i].format == format)
       return &kSwizzledFormats[i];
@@ -500,7 +498,7 @@ void TextureManager::Destroy() {
   }
 
   if (have_context_) {
-    glDeleteTextures(base::size(black_texture_ids_), black_texture_ids_);
+    glDeleteTextures(std::size(black_texture_ids_), black_texture_ids_);
   }
 
   DCHECK_EQ(0u, memory_type_tracker_->GetMemRepresented());
@@ -566,6 +564,7 @@ void TexturePassthrough::MarkContextLost() {
   have_context_ = false;
 }
 
+#if !BUILDFLAG(IS_ANDROID)
 void TexturePassthrough::SetLevelImage(GLenum target,
                                        GLint level,
                                        gl::GLImage* image) {
@@ -581,14 +580,30 @@ gl::GLImage* TexturePassthrough::GetLevelImage(GLenum target,
 
   return level_images_[face_idx][level].image.get();
 }
+#endif
 
-void TexturePassthrough::SetStreamLevelImage(GLenum target,
-                                             GLint level,
-                                             gl::GLImage* stream_texture_image,
-                                             GLuint service_id) {
-  SetLevelImageInternal(target, level, stream_texture_image, service_id);
-  UpdateStreamTextureServiceId(target, level);
+#if BUILDFLAG(IS_ANDROID)
+void TexturePassthrough::BindToServiceId(GLuint service_id) {
+  if (service_id != 0 && service_id != service_id_) {
+    service_id_ = service_id;
+  }
+
+  if (gl::g_current_gl_driver->ext.b_GL_ANGLE_texture_external_update) {
+    // Notify the texture that its size has changed.
+    LevelInfo* level_0_info = GetLevelInfo(target_, 0);
+    GLint prev_texture = 0;
+    glGetIntegerv(GetTextureBindingQuery(target_), &prev_texture);
+    glBindTexture(target_, service_id_);
+
+    glTexImage2DExternalANGLE(
+        target_, /*level=*/0, level_0_info->internal_format,
+        level_0_info->width, level_0_info->height, level_0_info->border,
+        level_0_info->format, level_0_info->type);
+
+    glBindTexture(target_, prev_texture);
+  }
 }
+#endif
 
 void TexturePassthrough::SetEstimatedSize(size_t size) {
   estimated_size_ = size;
@@ -615,6 +630,7 @@ bool TexturePassthrough::LevelInfoExists(GLenum target,
   return true;
 }
 
+#if !BUILDFLAG(IS_ANDROID)
 void TexturePassthrough::SetLevelImageInternal(
     GLenum target,
     GLint level,
@@ -627,24 +643,7 @@ void TexturePassthrough::SetLevelImageInternal(
     service_id_ = service_id;
   }
 }
-
-void TexturePassthrough::UpdateStreamTextureServiceId(GLenum target,
-                                                      GLint level) {
-  if (gl::g_current_gl_driver->ext.b_GL_ANGLE_texture_external_update) {
-    LevelInfo* level_info = GetLevelInfo(target, level);
-    // Notify the texture that its size has changed
-    GLint prev_texture = 0;
-    glGetIntegerv(GetTextureBindingQuery(target_), &prev_texture);
-    glBindTexture(target_, service_id_);
-
-    glTexImage2DExternalANGLE(target_, level, level_info->internal_format,
-                              level_info->width, level_info->height,
-                              level_info->border, level_info->format,
-                              level_info->type);
-
-    glBindTexture(target_, prev_texture);
-  }
-}
+#endif
 
 TexturePassthrough::LevelInfo* TexturePassthrough::GetLevelInfo(GLenum target,
                                                                 GLint level) {
@@ -736,19 +735,7 @@ MemoryTypeTracker* Texture::GetMemTracker() {
   }
 }
 
-Texture::LevelInfo::LevelInfo()
-    : target(0),
-      level(-1),
-      internal_format(0),
-      width(0),
-      height(0),
-      depth(0),
-      border(0),
-      format(0),
-      type(0),
-      image_state(UNBOUND),
-      estimated_size(0),
-      internal_workaround(false) {}
+Texture::LevelInfo::LevelInfo() = default;
 
 Texture::LevelInfo::LevelInfo(const LevelInfo& rhs)
     : cleared_rect(rhs.cleared_rect),
@@ -762,9 +749,9 @@ Texture::LevelInfo::LevelInfo(const LevelInfo& rhs)
       format(rhs.format),
       type(rhs.type),
       image(rhs.image),
-      image_state(rhs.image_state),
       estimated_size(rhs.estimated_size),
-      internal_workaround(rhs.internal_workaround) {}
+      internal_workaround(rhs.internal_workaround),
+      image_state(rhs.image_state) {}
 
 Texture::LevelInfo::~LevelInfo() = default;
 
@@ -894,8 +881,7 @@ void Texture::AddToSignature(
       target, level, sampler_state_, usage_, info.internal_format, info.width,
       info.height, info.depth, base_level_, info.border, max_level_,
       info.format, info.type, info.image.get() != nullptr,
-      CanRender(feature_info), CanRenderTo(feature_info, level), npot_,
-      emulating_rgb_);
+      CanRender(feature_info), CanRenderTo(feature_info, level), npot_);
 
   signature->append(TextureTag, sizeof(TextureTag));
   signature->append(reinterpret_cast<const char*>(&signature_data),
@@ -1195,19 +1181,6 @@ void Texture::UpdateHasImages() {
     (*it)->manager()->UpdateNumImages(delta);
 }
 
-void Texture::UpdateEmulatingRGB() {
-  for (const FaceInfo& face_info : face_infos_) {
-    for (const LevelInfo& level_info : face_info.level_infos) {
-      if (level_info.image && level_info.image->EmulatingRGB()) {
-        emulating_rgb_ = true;
-        return;
-      }
-    }
-  }
-  emulating_rgb_ = false;
-}
-
-
 void Texture::IncAllFramebufferStateChangeCount() {
   for (RefSet::iterator it = refs_.begin(); it != refs_.end(); ++it)
     (*it)->manager()->IncFramebufferStateChangeCount();
@@ -1348,7 +1321,7 @@ void Texture::SetLevelInfo(GLenum target,
   info.format = format;
   info.type = type;
   info.image.reset();
-  info.image_state = UNBOUND;
+  info.image_state = NOIMAGE;
   info.internal_workaround = false;
 
   UpdateMipCleared(&info, width, height, cleared_rect);
@@ -1642,7 +1615,7 @@ void Texture::Update() {
     return;
 
   if (face_infos_.empty() ||
-      static_cast<size_t>(base_level_) >= face_infos_[0].level_infos.size()) {
+      static_cast<size_t>(base_level_) >= MaxValidMipLevel()) {
     texture_complete_ = false;
     cube_complete_ = false;
     return;
@@ -1896,6 +1869,8 @@ void Texture::SetLevelImageInternal(GLenum target,
                                     GLint level,
                                     gl::GLImage* image,
                                     ImageState state) {
+  DCHECK(image ? state != ImageState::NOIMAGE : state == ImageState::NOIMAGE);
+
   DCHECK_GE(level, 0);
   size_t face_index = GLES2Util::GLTargetToFaceIndex(target);
   DCHECK_LT(face_index, face_infos_.size());
@@ -1909,27 +1884,38 @@ void Texture::SetLevelImageInternal(GLenum target,
 
   UpdateCanRenderCondition();
   UpdateHasImages();
-  UpdateEmulatingRGB();
 }
 
-void Texture::SetLevelImage(GLenum target,
-                            GLint level,
-                            gl::GLImage* image,
-                            ImageState state) {
+void Texture::SetBoundLevelImage(GLenum target,
+                                 GLint level,
+                                 gl::GLImage* image) {
   SetStreamTextureServiceId(0);
-  SetLevelImageInternal(target, level, image, state);
+  SetLevelImageInternal(target, level, image, ImageState::BOUND);
 }
 
-void Texture::SetLevelStreamTextureImage(GLenum target,
-                                         GLint level,
-                                         gl::GLImage* image,
-                                         ImageState state,
-                                         GLuint service_id) {
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE)
+void Texture::SetUnboundLevelImage(GLenum target,
+                                   GLint level,
+                                   gl::GLImage* image) {
+  SetStreamTextureServiceId(0);
+  SetLevelImageInternal(target, level, image, ImageState::UNBOUND);
+}
+#endif
+
+void Texture::UnsetLevelImage(GLenum target, GLint level) {
+  SetStreamTextureServiceId(0);
+  SetLevelImageInternal(target, level, nullptr, ImageState::NOIMAGE);
+}
+
+#if BUILDFLAG(IS_ANDROID)
+void Texture::BindToServiceId(GLuint service_id) {
   SetStreamTextureServiceId(service_id);
-  SetLevelImageInternal(target, level, image, state);
+  UpdateCanRenderCondition();
 }
+#endif
 
-void Texture::SetLevelImageState(GLenum target, GLint level, ImageState state) {
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
+void Texture::MarkLevelImageBound(GLenum target, GLint level) {
   DCHECK_GE(level, 0);
   size_t face_index = GLES2Util::GLTargetToFaceIndex(target);
   DCHECK_LT(face_index, face_infos_.size());
@@ -1938,12 +1924,9 @@ void Texture::SetLevelImageState(GLenum target, GLint level, ImageState state) {
   Texture::LevelInfo& info = face_infos_[face_index].level_infos[level];
   DCHECK_EQ(info.target, target);
   DCHECK_EQ(info.level, level);
-  // Workaround for StreamTexture which must be re-copied on each access.
-  // TODO(ericrk): Remove this once SharedImage transition is complete.
-  if (info.image && !info.image->HasMutableState())
-    return;
-  info.image_state = state;
+  info.image_state = ImageState::BOUND;
 }
+#endif
 
 const Texture::LevelInfo* Texture::GetLevelInfo(GLint target,
                                                 GLint level) const {
@@ -1962,21 +1945,30 @@ const Texture::LevelInfo* Texture::GetLevelInfo(GLint target,
   return nullptr;
 }
 
-gl::GLImage* Texture::GetLevelImage(GLint target,
-                                    GLint level,
-                                    ImageState* state) const {
+gl::GLImage* Texture::GetLevelImage(GLint target, GLint level) const {
   const LevelInfo* info = GetLevelInfo(target, level);
   if (!info)
     return nullptr;
 
-  if (state)
-    *state = info->image_state;
   return info->image.get();
 }
 
-gl::GLImage* Texture::GetLevelImage(GLint target, GLint level) const {
-  return GetLevelImage(target, level, nullptr);
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
+bool Texture::HasUnboundLevelImage(GLint target, GLint level) const {
+  const LevelInfo* info = GetLevelInfo(target, level);
+  if (!info) {
+    return false;
+  }
+
+  if (!info->image.get()) {
+    DCHECK(info->image_state == ImageState::NOIMAGE);
+    return false;
+  }
+
+  DCHECK(info->image_state != ImageState::NOIMAGE);
+  return info->image_state == ImageState::UNBOUND;
 }
+#endif
 
 void Texture::DumpLevelMemory(base::trace_event::ProcessMemoryDump* pmd,
                               uint64_t client_tracing_id,
@@ -1993,19 +1985,11 @@ void Texture::DumpLevelMemory(base::trace_event::ProcessMemoryDump* pmd,
       std::string level_dump_name = base::StringPrintf(
           "%s/face_%d/level_%d", dump_name.c_str(), face_index, level_index);
 
-      // If a level has a GLImage, ask the GLImage to dump itself.
-      // If a level does not have a GLImage bound to it, then dump the
-      // texture allocation also as the storage is not provided by the
-      // GLImage in that case.
-      if (level_infos[level_index].image) {
-        level_infos[level_index].image->OnMemoryDump(pmd, client_tracing_id,
-                                                     level_dump_name);
-      } else {
-        MemoryAllocatorDump* dump = pmd->CreateAllocatorDump(level_dump_name);
-        dump->AddScalar(
-            MemoryAllocatorDump::kNameSize, MemoryAllocatorDump::kUnitsBytes,
-            static_cast<uint64_t>(level_infos[level_index].estimated_size));
-      }
+      // Dump the texture allocation.
+      MemoryAllocatorDump* dump = pmd->CreateAllocatorDump(level_dump_name);
+      dump->AddScalar(
+          MemoryAllocatorDump::kNameSize, MemoryAllocatorDump::kUnitsBytes,
+          static_cast<uint64_t>(level_infos[level_index].estimated_size));
     }
   }
 }
@@ -2029,8 +2013,7 @@ bool Texture::CanRenderTo(const FeatureInfo* feature_info, GLint level) const {
   // the time.
   if (face_infos_.size() == 6 && !cube_complete())
     return false;
-  DCHECK(level >= 0 &&
-         level < static_cast<GLint>(face_infos_[0].level_infos.size()));
+  DCHECK(level >= 0 && level < static_cast<GLint>(MaxValidMipLevel()));
   if (level > base_level_ && !texture_complete()) {
     return false;
   }
@@ -2065,15 +2048,11 @@ void Texture::SetCompatibilitySwizzle(const CompatibilitySwizzle* swizzle) {
 
 void Texture::ApplyFormatWorkarounds(const FeatureInfo* feature_info) {
   if (feature_info->gl_version_info().NeedsLuminanceAlphaEmulation()) {
-    if (static_cast<size_t>(base_level_) >= face_infos_[0].level_infos.size())
+    if (static_cast<size_t>(base_level_) >= MaxValidMipLevel())
       return;
     const Texture::LevelInfo& info = face_infos_[0].level_infos[base_level_];
     SetCompatibilitySwizzle(GetCompatibilitySwizzleInternal(info.format));
   }
-}
-
-bool Texture::EmulatingRGB() {
-  return emulating_rgb_;
 }
 
 TextureRef::TextureRef(TextureManager* manager,
@@ -2134,7 +2113,7 @@ void TextureRef::ForceContextLost() {
 }
 
 void TextureRef::SetSharedImageRepresentation(
-    std::unique_ptr<SharedImageRepresentationGLTexture> shared_image) {
+    std::unique_ptr<GLTextureImageRepresentation> shared_image) {
   shared_image_ = std::move(shared_image);
 }
 
@@ -2237,7 +2216,8 @@ void TextureManager::Initialize() {
   // so don't register a dump provider.
   if (memory_tracker_) {
     base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
-        this, "gpu::TextureManager", base::ThreadTaskRunnerHandle::Get());
+        this, "gpu::TextureManager",
+        base::SingleThreadTaskRunner::GetCurrentDefault());
   }
 }
 
@@ -2299,8 +2279,11 @@ scoped_refptr<TextureRef>
   return default_texture;
 }
 
-bool TextureManager::ValidForTarget(
-    GLenum target, GLint level, GLsizei width, GLsizei height, GLsizei depth) {
+bool TextureManager::ValidForTarget(GLenum target,
+                                    GLint level,
+                                    GLsizei width,
+                                    GLsizei height,
+                                    GLsizei depth) {
   if (level < 0 || level >= MaxLevelsForTarget(target))
     return false;
   GLsizei max_size = MaxSizeForTarget(target) >> level;
@@ -2318,6 +2301,18 @@ bool TextureManager::ValidForTarget(
            !GLES2Util::IsNPOT(depth))) &&
          (target != GL_TEXTURE_CUBE_MAP || (width == height && depth == 1)) &&
          (target != GL_TEXTURE_2D || (depth == 1));
+}
+
+bool TextureManager::ValidForTextureTarget(const Texture* texture,
+                                           GLint level,
+                                           GLsizei width,
+                                           GLsizei height,
+                                           GLsizei depth) {
+  if (texture->target() == 0)
+    return false;
+  if (level < 0 || static_cast<size_t>(level) >= texture->MaxValidMipLevel())
+    return false;
+  return ValidForTarget(texture->target(), level, width, height, depth);
 }
 
 void TextureManager::SetTarget(TextureRef* ref, GLenum target) {
@@ -2402,7 +2397,7 @@ TextureRef* TextureManager::Consume(
 
 TextureRef* TextureManager::ConsumeSharedImage(
     GLuint client_id,
-    std::unique_ptr<SharedImageRepresentationGLTexture> shared_image) {
+    std::unique_ptr<GLTextureImageRepresentation> shared_image) {
   DCHECK(client_id);
   Texture* texture = shared_image->GetTexture();
   TextureRef* ref = Consume(client_id, texture);
@@ -2605,32 +2600,29 @@ GLsizei TextureManager::ComputeMipMapCount(GLenum target,
   }
 }
 
-void TextureManager::SetLevelImage(TextureRef* ref,
-                                   GLenum target,
-                                   GLint level,
-                                   gl::GLImage* image,
-                                   Texture::ImageState state) {
-  DCHECK(ref);
-  ref->texture()->SetLevelImage(target, level, image, state);
-}
-
-void TextureManager::SetLevelStreamTextureImage(TextureRef* ref,
-                                                GLenum target,
-                                                GLint level,
-                                                gl::GLImage* image,
-                                                Texture::ImageState state,
-                                                GLuint service_id) {
-  DCHECK(ref);
-  ref->texture()->SetLevelStreamTextureImage(target, level, image, state,
-                                             service_id);
-}
-
-void TextureManager::SetLevelImageState(TextureRef* ref,
+void TextureManager::SetBoundLevelImage(TextureRef* ref,
                                         GLenum target,
                                         GLint level,
-                                        Texture::ImageState state) {
+                                        gl::GLImage* image) {
   DCHECK(ref);
-  ref->texture()->SetLevelImageState(target, level, state);
+  ref->texture()->SetBoundLevelImage(target, level, image);
+}
+
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_APPLE)
+void TextureManager::SetUnboundLevelImage(TextureRef* ref,
+                                          GLenum target,
+                                          GLint level,
+                                          gl::GLImage* image) {
+  DCHECK(ref);
+  ref->texture()->SetUnboundLevelImage(target, level, image);
+}
+#endif
+
+void TextureManager::UnsetLevelImage(TextureRef* ref,
+                                     GLenum target,
+                                     GLint level) {
+  DCHECK(ref);
+  ref->texture()->UnsetLevelImage(target, level);
 }
 
 size_t TextureManager::GetSignatureSize() const {
@@ -2803,14 +2795,6 @@ bool TextureManager::ValidateTexImage(ContextState* state,
       args.internal_format, args.level)) {
     return false;
   }
-  if (!ValidForTarget(args.target, args.level,
-                      args.width, args.height, args.depth) ||
-      args.border != 0) {
-    ERRORSTATE_SET_GL_ERROR(
-        error_state, GL_INVALID_VALUE, function_name,
-        "dimensions out of range");
-    return false;
-  }
   if ((GLES2Util::GetChannelsForFormat(args.format) &
        (GLES2Util::kDepth | GLES2Util::kStencil)) != 0 && args.pixels
       && !feature_info_->IsWebGL2OrES3Context()) {
@@ -2833,7 +2817,13 @@ bool TextureManager::ValidateTexImage(ContextState* state,
         "texture is immutable");
     return false;
   }
-
+  if (!ValidForTextureTarget(local_texture_ref->texture(), args.level,
+                             args.width, args.height, args.depth) ||
+      args.border != 0) {
+    ERRORSTATE_SET_GL_ERROR(error_state, GL_INVALID_VALUE, function_name,
+                            "dimensions out of range");
+    return false;
+  }
   Buffer* buffer = state->bound_pixel_unpack_buffer.get();
   if (buffer) {
     if (buffer->GetMappedRange()) {
@@ -3775,6 +3765,11 @@ bool TextureManager::OnMemoryDump(const base::trace_event::MemoryDumpArgs& args,
 
 void TextureManager::DumpTextureRef(base::trace_event::ProcessMemoryDump* pmd,
                                     TextureRef* ref) {
+  if (ref->shared_image()) {
+    // Shared images manage their own memory dumps.
+    return;
+  }
+
   uint32_t size = ref->texture()->estimated_size();
 
   // Ignore unallocated texture IDs.
@@ -3796,21 +3791,6 @@ void TextureManager::DumpTextureRef(base::trace_event::ProcessMemoryDump* pmd,
       memory_tracker_->ContextGroupTracingId(), ref->client_id());
   pmd->CreateSharedGlobalAllocatorDump(client_guid);
   pmd->AddOwnershipEdge(dump->guid(), client_guid);
-
-  // Add a |service_guid| which expresses shared ownership between the various
-  // |client_guid|s.
-  auto service_guid =
-      gl::GetGLTextureServiceGUIDForTracing(ref->texture()->service_id());
-  pmd->CreateSharedGlobalAllocatorDump(service_guid);
-
-  int importance = 0;  // Default importance.
-  // The link to the memory tracking |client_id| is given a higher importance
-  // than other refs.
-  if (!ref->texture()->has_lightweight_ref_ &&
-      (ref == ref->texture()->memory_tracking_ref_))
-    importance = 2;
-
-  pmd->AddOwnershipEdge(client_guid, service_guid, importance);
 
   // Dump all sub-levels held by the texture. They will appear below the main
   // gl/textures/client_X/texture_Y dump.
@@ -3870,6 +3850,7 @@ GLenum TextureManager::ExtractFormatFromStorageFormat(GLenum internalformat) {
     case GL_ETC1_RGB8_OES:
     case GL_RGB:
     case GL_RGB8:
+    case GL_RGBX8_ANGLE:
     case GL_SRGB8:
     case GL_RGB16:
     case GL_R11F_G11F_B10F:
@@ -4086,6 +4067,8 @@ GLenum TextureManager::ExtractTypeFromStorageFormat(GLenum internalformat) {
     case GL_RGB32I:
       return GL_INT;
     case GL_RGBA8:
+      return GL_UNSIGNED_BYTE;
+    case GL_RGBX8_ANGLE:
       return GL_UNSIGNED_BYTE;
     case GL_SRGB8_ALPHA8:
       return GL_UNSIGNED_BYTE;

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,44 +12,54 @@
 
 #include "ash/assistant/test/test_assistant_service.h"
 #include "ash/public/cpp/test/test_system_tray_client.h"
+#include "ash/quick_pair/common/quick_pair_browser_delegate.h"
+#include "ash/quick_pair/keyed_service/quick_pair_mediator.h"
 #include "ash/session/test_pref_service_provider.h"
 #include "ash/session/test_session_controller_client.h"
 #include "ash/shell_delegate.h"
 #include "ash/system/message_center/test_notifier_settings_controller.h"
+#include "ash/test/pixel/ash_pixel_test_init_params.h"
+#include "base/memory/raw_ptr.h"
 #include "base/test/scoped_command_line.h"
-#include "chromeos/services/bluetooth_config/scoped_bluetooth_config_test_helper.h"
-#include "chromeos/system/fake_statistics_provider.h"
+#include "chromeos/ash/components/system/fake_statistics_provider.h"
+#include "chromeos/ash/services/bluetooth_config/scoped_bluetooth_config_test_helper.h"
 #include "ui/aura/test/aura_test_helper.h"
 
 class PrefService;
 
 namespace aura {
 class Window;
-}
+}  // namespace aura
+
+namespace base {
+class SystemMonitor;
+}  // namespace base
 
 namespace display {
 class Display;
-}
+}  // namespace display
 
 namespace ui {
 class ContextFactory;
-}
+}  // namespace ui
 
 namespace views {
 class TestViewsDelegate;
-}
+}  // namespace views
 
 namespace ash {
 
 class AppListTestHelper;
 class AmbientAshTestHelper;
+class AshPixelTestHelper;
+class SavedDeskTestHelper;
 class TestKeyboardControllerObserver;
 class TestNewWindowDelegateProvider;
 class TestWallpaperControllerClient;
 
 namespace input_method {
-class MockInputMethodManager;
-}
+class MockInputMethodManagerImpl;
+}  // namespace input_method
 
 // A helper class that does common initialization required for Ash. Creates a
 // root window and an ash::Shell instance with a test delegate.
@@ -65,7 +75,16 @@ class AshTestHelper : public aura::test::AuraTestHelper {
     bool start_session = true;
     // If this is not set, a TestShellDelegate will be used automatically.
     std::unique_ptr<ShellDelegate> delegate;
-    PrefService* local_state = nullptr;
+    raw_ptr<PrefService, ExperimentalAsh> local_state = nullptr;
+
+    // Used only when setting up a pixel diff test.
+    absl::optional<pixel_test::InitParams> pixel_test_init_params;
+
+    // True if a fake global `CrasAudioHandler` should be created.
+    bool create_global_cras_audio_handler = true;
+
+    // True if a global `QuickPairMediator` should be created.
+    bool create_quick_pair_mediator = true;
   };
 
   // Instantiates/destroys an AshTestHelper. This can happen in a
@@ -100,6 +119,17 @@ class AshTestHelper : public aura::test::AuraTestHelper {
 
   display::Display GetSecondaryDisplay() const;
 
+  // Simulates a user sign-in. It creates a new user session, adds it to
+  // existing user sessions and makes it the active user session.
+  // NOTE: call `StabilizeUIForPixelTest()` after calling this function in a
+  // pixel test.
+  void SimulateUserLogin(
+      const AccountId& account_id,
+      user_manager::UserType user_type = user_manager::USER_TYPE_REGULAR);
+
+  // Stabilizes the variable UI components (such as the battery view).
+  void StabilizeUIForPixelTest();
+
   TestSessionControllerClient* test_session_controller_client() {
     return session_controller_client_.get();
   }
@@ -131,21 +161,33 @@ class AshTestHelper : public aura::test::AuraTestHelper {
     return ambient_ash_test_helper_.get();
   }
 
-  chromeos::bluetooth_config::ScopedBluetoothConfigTestHelper*
+  bluetooth_config::ScopedBluetoothConfigTestHelper*
   bluetooth_config_test_helper() {
     return &scoped_bluetooth_config_test_helper_;
+  }
+
+  SavedDeskTestHelper* saved_desk_test_helper() {
+    return saved_desk_test_helper_.get();
+  }
+
+  input_method::MockInputMethodManagerImpl* input_method_manager() {
+    return input_method_manager_;
   }
 
  private:
   // Scoping objects to manage init/teardown of services.
   class BluezDBusManagerInitializer;
+  class FlossDBusManagerInitializer;
   class PowerPolicyControllerInitializer;
+
+  // Must be constructed so that `base::SystemMonitor::Get()` returns a valid
+  // instance.
+  std::unique_ptr<base::SystemMonitor> system_monitor_;
 
   std::unique_ptr<base::test::ScopedCommandLine> command_line_ =
       std::make_unique<base::test::ScopedCommandLine>();
-  std::unique_ptr<chromeos::system::ScopedFakeStatisticsProvider>
-      statistics_provider_ =
-          std::make_unique<chromeos::system::ScopedFakeStatisticsProvider>();
+  std::unique_ptr<system::ScopedFakeStatisticsProvider> statistics_provider_ =
+      std::make_unique<system::ScopedFakeStatisticsProvider>();
   std::unique_ptr<TestPrefServiceProvider> prefs_provider_ =
       std::make_unique<TestPrefServiceProvider>();
   std::unique_ptr<TestNotifierSettingsController>
@@ -157,6 +199,7 @@ class AshTestHelper : public aura::test::AuraTestHelper {
       std::make_unique<TestSystemTrayClient>();
   std::unique_ptr<AppListTestHelper> app_list_test_helper_;
   std::unique_ptr<BluezDBusManagerInitializer> bluez_dbus_manager_initializer_;
+  std::unique_ptr<FlossDBusManagerInitializer> floss_dbus_manager_initializer_;
   std::unique_ptr<PowerPolicyControllerInitializer>
       power_policy_controller_initializer_;
   std::unique_ptr<TestNewWindowDelegateProvider> new_window_delegate_provider_;
@@ -166,12 +209,27 @@ class AshTestHelper : public aura::test::AuraTestHelper {
       test_keyboard_controller_observer_;
   std::unique_ptr<AmbientAshTestHelper> ambient_ash_test_helper_;
   std::unique_ptr<TestWallpaperControllerClient> wallpaper_controller_client_;
-  chromeos::bluetooth_config::ScopedBluetoothConfigTestHelper
+  std::unique_ptr<SavedDeskTestHelper> saved_desk_test_helper_;
+  std::unique_ptr<quick_pair::Mediator::Factory> quick_pair_mediator_factory_;
+  std::unique_ptr<quick_pair::QuickPairBrowserDelegate>
+      quick_pair_browser_delegate_;
+
+  // Used only for pixel tests.
+  std::unique_ptr<AshPixelTestHelper> pixel_test_helper_;
+
+  bluetooth_config::ScopedBluetoothConfigTestHelper
       scoped_bluetooth_config_test_helper_;
 
   // InputMethodManager is not owned by this class. It is stored in a
   // global that is registered via InputMethodManager::Initialize().
-  input_method::MockInputMethodManager* input_method_manager_ = nullptr;
+  raw_ptr<input_method::MockInputMethodManagerImpl,
+          DanglingUntriaged | ExperimentalAsh>
+      input_method_manager_ = nullptr;
+
+  // True if a fake global `CrasAudioHandler` should be created.
+  bool create_global_cras_audio_handler_ = true;
+  // True if a fake `QuickPairMediator` should be created.
+  bool create_quick_pair_mediator_ = true;
 };
 
 }  // namespace ash

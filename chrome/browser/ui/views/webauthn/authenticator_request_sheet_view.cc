@@ -1,11 +1,14 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/webauthn/authenticator_request_sheet_view.h"
 
+#include <memory>
 #include <utility>
 
+#include "cc/paint/skottie_wrapper.h"
+#include "chrome/browser/ui/color/chrome_color_id.h"
 #include "chrome/browser/ui/views/accessibility/non_accessible_image_view.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/chrome_typography.h"
@@ -16,27 +19,36 @@
 #include "components/vector_icons/vector_icons.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/base/resource/resource_bundle.h"
+#include "ui/color/color_provider.h"
 #include "ui/gfx/color_utils.h"
+#include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/paint_vector_icon.h"
+#include "ui/lottie/animation.h"
 #include "ui/native_theme/native_theme.h"
 #include "ui/views/border.h"
+#include "ui/views/controls/animated_image_view.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/controls/button/image_button_factory.h"
+#include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/progress_bar.h"
 #include "ui/views/layout/box_layout.h"
-#include "ui/views/layout/fill_layout.h"
 
 namespace {
 
-// Fixed height of the illustration shown in the top half of the sheet.
-constexpr int kIllustrationHeight = 148;
-
-// Height of the progress bar style activity indicator shown at the top of some
-// sheets.
-constexpr int kActivityIndicatorHeight = 4;
+// Margin between the top of the dialog and the start of any illustration.
+constexpr int kImageMarginTop = 22;
 
 using ImageColorScheme = AuthenticatorRequestSheetModel::ImageColorScheme;
+
+template <typename T>
+void ConfigureHeaderIllustration(T* illustration, gfx::Size header_size) {
+  illustration->SetBorder(views::CreateEmptyBorder(
+      gfx::Insets::TLBR(kImageMarginTop, 0, kImageMarginTop, 0)));
+  illustration->SetSize(header_size);
+  illustration->SetVerticalAlignment(views::ImageView::Alignment::kLeading);
+}
 
 }  // namespace
 
@@ -69,6 +81,9 @@ views::View* AuthenticatorRequestSheetView::GetInitiallyFocusedView() {
   if (should_focus_step_specific_content_ == AutoFocus::kYes) {
     return step_specific_content_;
   }
+  if (model()->ShouldFocusBackArrow()) {
+    return back_arrow_button_;
+  }
   return nullptr;
 }
 
@@ -80,53 +95,49 @@ AuthenticatorRequestSheetView::BuildStepSpecificContent() {
 
 std::unique_ptr<views::View>
 AuthenticatorRequestSheetView::CreateIllustrationWithOverlays() {
-  const int illustration_width = ChromeLayoutProvider::Get()->GetDistanceMetric(
+  constexpr int kImageHeight = 112, kImageMarginBottom = 2;
+  constexpr int kHeaderHeight =
+      kImageHeight + kImageMarginTop + kImageMarginBottom;
+  const int dialog_width = ChromeLayoutProvider::Get()->GetDistanceMetric(
       views::DISTANCE_MODAL_DIALOG_PREFERRED_WIDTH);
-  const gfx::Size illustration_size(illustration_width, kIllustrationHeight);
+  const gfx::Size header_size(dialog_width, kHeaderHeight);
+
+  // The actual illustration image is set in `UpdateIconImageFromModel`, below,
+  // because it's not until that point that we know whether the light or dark
+  // illustration should be used.
+  View* illustration;
+  if (model()->lottie_illustration_light_id()) {
+    auto animation = std::make_unique<views::AnimatedImageView>();
+    animation->SetPreferredSize(gfx::Size(dialog_width, kImageHeight));
+    ConfigureHeaderIllustration(animation.get(), header_size);
+    step_illustration_animation_ = animation.get();
+    illustration = animation.release();
+  } else if (&model()->GetStepIllustration(ImageColorScheme::kLight) !=
+             &gfx::kNoneIcon) {
+    auto image_view = std::make_unique<NonAccessibleImageView>();
+    ConfigureHeaderIllustration(image_view.get(), header_size);
+    step_illustration_image_ = image_view.get();
+    illustration = image_view.release();
+  } else {
+    return std::make_unique<views::View>();
+  }
 
   // The container view has no layout, so its preferred size is hardcoded to
-  // match the size of the image, and all overlays are absolutely positioned.
-  auto image_with_overlays = std::make_unique<views::View>();
-  image_with_overlays->SetPreferredSize(illustration_size);
-
-  auto image_view = std::make_unique<NonAccessibleImageView>();
-  step_illustration_ = image_view.get();
-  image_view->SetSize(illustration_size);
-  image_view->SetVerticalAlignment(views::ImageView::Alignment::kLeading);
-  image_with_overlays->AddChildView(image_view.release());
+  // match the size of the header, and all overlays are absolutely positioned.
+  auto header_view = std::make_unique<views::View>();
+  header_view->SetPreferredSize(header_size);
+  header_view->AddChildView(illustration);
 
   if (model()->IsActivityIndicatorVisible()) {
+    constexpr int kActivityIndicatorHeight = 4;
     auto activity_indicator = std::make_unique<views::ProgressBar>(
         kActivityIndicatorHeight, false /* allow_round_corner */);
     activity_indicator->SetValue(-1 /* inifinite animation */);
     activity_indicator->SetBackgroundColor(SK_ColorTRANSPARENT);
     activity_indicator->SetPreferredSize(
-        gfx::Size(illustration_width, kActivityIndicatorHeight));
+        gfx::Size(dialog_width, kActivityIndicatorHeight));
     activity_indicator->SizeToPreferredSize();
-    image_with_overlays->AddChildView(activity_indicator.release());
-  }
-
-  if (model()->IsBackButtonVisible()) {
-    auto back_arrow = views::CreateVectorImageButton(base::BindRepeating(
-        &AuthenticatorRequestSheetModel::OnBack, base::Unretained(model())));
-    back_arrow->SetAccessibleName(l10n_util::GetStringUTF16(
-        IDS_BACK_BUTTON_AUTHENTICATOR_REQUEST_DIALOG));
-
-    // Position the back button so that there is the standard amount of padding
-    // between the top/left side of the back button and the dialog borders.
-    const gfx::Insets dialog_insets =
-        views::LayoutProvider::Get()->GetDialogInsetsForContentType(
-            views::DialogContentType::kControl,
-            views::DialogContentType::kControl);
-    auto color_reference = std::make_unique<views::Label>(
-        std::u16string(), views::style::CONTEXT_DIALOG_TITLE,
-        views::style::STYLE_PRIMARY);
-    back_arrow->SizeToPreferredSize();
-    back_arrow->SetX(dialog_insets.left());
-    back_arrow->SetY(dialog_insets.top());
-    back_arrow_ = back_arrow.get();
-    back_arrow_button_ =
-        image_with_overlays->AddChildView(std::move(back_arrow));
+    header_view->AddChildView(activity_indicator.release());
   }
 
   if (GetWidget()) {
@@ -134,7 +145,7 @@ AuthenticatorRequestSheetView::CreateIllustrationWithOverlays() {
     UpdateIconColors();
   }
 
-  return image_with_overlays;
+  return header_view;
 }
 
 std::unique_ptr<views::View>
@@ -157,13 +168,15 @@ AuthenticatorRequestSheetView::CreateContentsBelowIllustration() {
       views::LayoutProvider::Get()->GetDistanceMetric(
           views::DISTANCE_RELATED_CONTROL_VERTICAL)));
 
-  auto title_label = std::make_unique<views::Label>(
-      model()->GetStepTitle(), views::style::CONTEXT_DIALOG_TITLE,
-      views::style::STYLE_PRIMARY);
-  title_label->SetMultiLine(true);
-  title_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-  title_label->SetAllowCharacterBreak(true);
-  label_container->AddChildView(title_label.release());
+  const std::u16string title = model()->GetStepTitle();
+  if (!title.empty()) {
+    auto title_label = std::make_unique<views::Label>(
+        title, views::style::CONTEXT_DIALOG_TITLE, views::style::STYLE_PRIMARY);
+    title_label->SetMultiLine(true);
+    title_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
+    title_label->SetAllowCharacterBreak(true);
+    label_container->AddChildView(title_label.release());
+  }
 
   std::u16string description = model()->GetStepDescription();
   if (!description.empty()) {
@@ -218,21 +231,38 @@ void AuthenticatorRequestSheetView::OnThemeChanged() {
 }
 
 void AuthenticatorRequestSheetView::UpdateIconImageFromModel() {
-  if (!step_illustration_)
-    return;
-
-  gfx::IconDescription icon_description(model()->GetStepIllustration(
-      GetNativeTheme()->ShouldUseDarkColors() ? ImageColorScheme::kDark
-                                              : ImageColorScheme::kLight));
-  step_illustration_->SetImage(gfx::CreateVectorIcon(icon_description));
+  const bool is_dark = GetNativeTheme()->ShouldUseDarkColors();
+  if (step_illustration_image_) {
+    gfx::IconDescription icon_description(model()->GetStepIllustration(
+        is_dark ? ImageColorScheme::kDark : ImageColorScheme::kLight));
+    step_illustration_image_->SetImage(gfx::CreateVectorIcon(icon_description));
+  } else if (step_illustration_animation_) {
+    const int lottie_id = is_dark ? *model()->lottie_illustration_dark_id()
+                                  : *model()->lottie_illustration_light_id();
+    absl::optional<std::vector<uint8_t>> lottie_bytes =
+        ui::ResourceBundle::GetSharedInstance().GetLottieData(lottie_id);
+    scoped_refptr<cc::SkottieWrapper> skottie =
+        cc::SkottieWrapper::CreateSerializable(std::move(*lottie_bytes));
+    step_illustration_animation_->SetAnimatedImage(
+        std::make_unique<lottie::Animation>(skottie));
+    step_illustration_animation_->SizeToPreferredSize();
+    step_illustration_animation_->Play();
+  }
 }
 
 void AuthenticatorRequestSheetView::UpdateIconColors() {
+  const auto* const cp = GetColorProvider();
   if (back_arrow_) {
-    views::SetImageFromVectorIcon(
+    views::SetImageFromVectorIconWithColor(
         back_arrow_, vector_icons::kBackArrowIcon,
-        color_utils::DeriveDefaultIconColor(views::style::GetColor(
-            *this, views::style::CONTEXT_LABEL, views::style::STYLE_PRIMARY)));
+        cp->GetColor(kColorWebAuthnBackArrowButtonIcon),
+        cp->GetColor(kColorWebAuthnBackArrowButtonIconDisabled));
+  }
+  if (close_button_) {
+    views::SetImageFromVectorIconWithColor(
+        close_button_, vector_icons::kCloseIcon,
+        cp->GetColor(kColorWebAuthnBackArrowButtonIcon),
+        cp->GetColor(kColorWebAuthnBackArrowButtonIconDisabled));
   }
 }
 

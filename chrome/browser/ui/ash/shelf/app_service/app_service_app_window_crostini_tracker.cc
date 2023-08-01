@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,13 +12,14 @@
 #include "base/time/time.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
+#include "chrome/browser/ash/borealis/borealis_window_manager.h"
 #include "chrome/browser/ash/crosapi/browser_util.h"
 #include "chrome/browser/ash/crostini/crostini_features.h"
 #include "chrome/browser/ash/crostini/crostini_force_close_watcher.h"
-#include "chrome/browser/ash/crostini/crostini_shelf_utils.h"
 #include "chrome/browser/ash/crostini/crostini_util.h"
 #include "chrome/browser/ash/guest_os/guest_os_registry_service.h"
 #include "chrome/browser/ash/guest_os/guest_os_registry_service_factory.h"
+#include "chrome/browser/ash/guest_os/guest_os_shelf_utils.h"
 #include "chrome/browser/ash/plugin_vm/plugin_vm_util.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
@@ -67,6 +68,18 @@ void MoveWindowFromOldDisplayToNewDisplay(aura::Window* window,
   window->SetBoundsInScreen(new_bounds, new_display);
 }
 
+// Returns true if the crostini tracker should ignore this window. Mainly used
+// to exclude other windows that are created by exo. Transient windows may
+// actually belong to crostini but we exclude them as well as their IDs will be
+// set at a later point.
+bool ShouldSkipWindow(aura::Window* window) {
+  return wm::GetTransientParent(window) ||
+         arc::GetWindowTaskOrSessionId(window).has_value() ||
+         crosapi::browser_util::IsLacrosWindow(window) ||
+         plugin_vm::IsPluginVmAppWindow(window) ||
+         borealis::BorealisWindowManager::IsBorealisWindow(window);
+}
+
 }  // namespace
 
 AppServiceAppWindowCrostiniTracker::AppServiceAppWindowCrostiniTracker(
@@ -79,14 +92,8 @@ AppServiceAppWindowCrostiniTracker::~AppServiceAppWindowCrostiniTracker() =
 void AppServiceAppWindowCrostiniTracker::OnWindowVisibilityChanged(
     aura::Window* window,
     const std::string& shelf_app_id) {
-  // Transient windows are set up after window init, so remove them here.
-  // Crostini shouldn't need to know about ARC app windows.
-  if (wm::GetTransientParent(window) ||
-      arc::GetWindowTaskOrSessionId(window).has_value() ||
-      crosapi::browser_util::IsLacrosWindow(window) ||
-      plugin_vm::IsPluginVmAppWindow(window)) {
+  if (ShouldSkipWindow(window))
     return;
-  }
 
   // Handle browser windows.
   Browser* browser = chrome::FindBrowserWithWindow(window);
@@ -103,7 +110,7 @@ void AppServiceAppWindowCrostiniTracker::OnWindowVisibilityChanged(
       ash::ProfileHelper::Get()->GetProfileByAccountId(primary_account_id);
 
   // Windows without an application id set will get filtered out here.
-  const std::string& crostini_shelf_app_id = crostini::GetCrostiniShelfAppId(
+  const std::string& crostini_shelf_app_id = guest_os::GetGuestOsShelfAppId(
       primary_account_profile, exo::GetShellApplicationId(window),
       exo::GetShellStartupId(window));
   if (crostini_shelf_app_id.empty())
@@ -135,7 +142,7 @@ void AppServiceAppWindowCrostiniTracker::OnWindowVisibilityChanged(
   // respective apps take at most another few seconds to start.
   // Work is ongoing to make this occur as infrequently as possible.
   // See https://crbug.com/854911.
-  if (crostini::IsUnmatchedCrostiniShelfAppId(shelf_app_id)) {
+  if (guest_os::IsUnregisteredCrostiniShelfAppId(shelf_app_id)) {
     ChromeShelfController::instance()
         ->GetShelfSpinnerController()
         ->CloseCrostiniSpinners();
@@ -199,21 +206,8 @@ void AppServiceAppWindowCrostiniTracker::OnAppLaunchRequested(
 
 std::string AppServiceAppWindowCrostiniTracker::GetShelfAppId(
     aura::Window* window) const {
-  // Transient windows are set up after window init, so remove them here.
-  // Crostini shouldn't need to know about ARC app windows.
-  if (wm::GetTransientParent(window) ||
-      arc::GetWindowTaskOrSessionId(window).has_value() ||
-      crosapi::browser_util::IsLacrosWindow(window) ||
-      plugin_vm::IsPluginVmAppWindow(window)) {
+  if (ShouldSkipWindow(window))
     return std::string();
-  }
-
-  ash::ShelfID shelf_id =
-      ash::ShelfID::Deserialize(window->GetProperty(ash::kShelfIDKey));
-  if (shelf_id.app_id == crostini::kCrostiniInstallerShelfId ||
-      shelf_id.app_id == crostini::kCrostiniUpgraderShelfId) {
-    return shelf_id.app_id;
-  }
 
   // Handle browser windows.
   Browser* browser = chrome::FindBrowserWithWindow(window);
@@ -223,24 +217,55 @@ std::string AppServiceAppWindowCrostiniTracker::GetShelfAppId(
   // Currently Crostini can only be used from the primary profile. In the
   // future, this may be replaced by some way of matching the container that
   // runs this app with the user that owns it.
-  const Profile* primary_account_profile =
+  Profile* primary_account_profile =
       ash::ProfileHelper::Get()->GetProfileByAccountId(
           user_manager::UserManager::Get()->GetPrimaryUser()->GetAccountId());
-  std::string shelf_app_id = crostini::GetCrostiniShelfAppId(
+  std::string shelf_app_id = guest_os::GetGuestOsShelfAppId(
       primary_account_profile, exo::GetShellApplicationId(window),
       exo::GetShellStartupId(window));
+
+  // When install a new Crostini app and run it directly, Crostini might not get
+  // the correct app id yet when `window` is created, but use an unregistered
+  // app id for a short term. Then the unregistered app id is saved in
+  // InstanceRegistry for `window`. So when the app id is set for `window`
+  // later, the app id inconsistent DCHECK is hit, which could affect the
+  // instance saved in InstanceRegistry. To prevent the updating for `window` in
+  // InstanceRegistry, call MaybeModifyInstance to check the saved app id and
+  // the expected shelf_app_id, and if they are not consistent, modify the app
+  // id to use `shelf_app_id`.
+  if (!shelf_app_id.empty())
+    MaybeModifyInstance(primary_account_profile, window, shelf_app_id);
   return shelf_app_id;
 }
 
 void AppServiceAppWindowCrostiniTracker::RegisterCrostiniWindowForForceClose(
     aura::Window* window,
     const std::string& app_name) {
-  if (!base::FeatureList::IsEnabled(features::kCrostiniForceClose))
-    return;
   exo::ShellSurfaceBase* surface = exo::GetShellSurfaceBaseForWindow(window);
   if (!surface)
     return;
   crostini::ForceCloseWatcher::Watch(
       std::make_unique<crostini::ShellSurfaceForceCloseDelegate>(surface,
                                                                  app_name));
+}
+
+void AppServiceAppWindowCrostiniTracker::MaybeModifyInstance(
+    Profile* profile,
+    aura::Window* window,
+    const std::string& app_id) const {
+  auto* proxy = apps::AppServiceProxyFactory::GetForProfile(profile);
+  DCHECK(proxy);
+  auto& instance_registry = proxy->InstanceRegistry();
+  std::string old_app_id = instance_registry.GetShelfId(window).app_id;
+  if (old_app_id.empty() || app_id == old_app_id)
+    return;
+
+  auto* app_service_instance_helper =
+      app_service_controller_->app_service_instance_helper();
+  DCHECK(app_service_instance_helper);
+  auto state = instance_registry.GetState(window);
+  app_service_instance_helper->OnInstances(old_app_id, window, std::string(),
+                                           apps::InstanceState::kDestroyed);
+  app_service_instance_helper->OnInstances(app_id, window, std::string(),
+                                           state);
 }

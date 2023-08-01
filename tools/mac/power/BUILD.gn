@@ -1,4 +1,4 @@
-# Copyright 2021 The Chromium Authors. All rights reserved.
+# Copyright 2021 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -47,6 +47,8 @@ static_library("power_sampler_lib") {
     "power_sampler/sampling_controller.h",
     "power_sampler/smc_sampler.h",
     "power_sampler/smc_sampler.mm",
+    "power_sampler/user_active_simulator.cc",
+    "power_sampler/user_active_simulator.h",
     "power_sampler/user_idle_level_sampler.cc",
     "power_sampler/user_idle_level_sampler.h",
   ]
@@ -62,6 +64,7 @@ static_library("power_sampler_lib") {
     "DisplayServices.framework",
     "IOKit.framework",
   ]
+  configs += [ "//build/config/compiler:enable_arc" ]
   framework_dirs = [ "$mac_sdk_path/System/Library/PrivateFrameworks" ]
 }
 
@@ -70,7 +73,6 @@ executable("power_sampler") {
   deps = [
     ":power_sampler_lib",
     "//base",
-    "//components/power_metrics",
   ]
 }
 
@@ -97,6 +99,8 @@ test("power_sampler_unittests") {
     "//testing/gmock",
     "//testing/gtest",
   ]
+
+  configs += [ "//build/config/compiler:enable_arc" ]
 }
 
 proto_library("proto") {

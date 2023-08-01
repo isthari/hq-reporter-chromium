@@ -43,14 +43,16 @@ LayoutHTMLCanvas::LayoutHTMLCanvas(HTMLCanvasElement* element)
 void LayoutHTMLCanvas::PaintReplaced(const PaintInfo& paint_info,
                                      const PhysicalOffset& paint_offset) const {
   NOT_DESTROYED();
+  if (ChildPaintBlockedByDisplayLock()) {
+    return;
+  }
   HTMLCanvasPainter(*this).PaintReplaced(paint_info, paint_offset);
 }
 
 void LayoutHTMLCanvas::CanvasSizeChanged() {
   NOT_DESTROYED();
   gfx::Size canvas_size = To<HTMLCanvasElement>(GetNode())->Size();
-  LayoutSize zoomed_size(canvas_size.width() * StyleRef().EffectiveZoom(),
-                         canvas_size.height() * StyleRef().EffectiveZoom());
+  LayoutSize zoomed_size = LayoutSize(canvas_size) * StyleRef().EffectiveZoom();
 
   if (zoomed_size == IntrinsicSize())
     return;

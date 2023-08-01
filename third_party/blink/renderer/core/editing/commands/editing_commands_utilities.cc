@@ -23,12 +23,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/core/editing/commands/editing_commands_utilities.h"
 
+#include "third_party/blink/public/web/web_local_frame_client.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/dom/text.h"
 #include "third_party/blink/renderer/core/editing/commands/selection_for_undo_step.h"
@@ -140,7 +141,7 @@ bool AreIdenticalElements(const Node& first, const Node& second) {
   if (!first_element->HasEquivalentAttributes(*second_element))
     return false;
 
-  return HasEditableStyle(*first_element) && HasEditableStyle(*second_element);
+  return IsEditable(*first_element) && IsEditable(*second_element);
 }
 
 // FIXME: need to dump this
@@ -253,8 +254,10 @@ bool LineBreakExistsAtPosition(const Position& position) {
     return false;
 
   const auto* text_node = DynamicTo<Text>(position.AnchorNode());
-  if (!text_node || !text_node->GetLayoutObject()->Style()->PreserveNewline())
+  if (!text_node ||
+      text_node->GetLayoutObject()->Style()->ShouldCollapseBreaks()) {
     return false;
+  }
 
   unsigned offset = position.OffsetInContainerNode();
   return offset < text_node->length() && text_node->data()[offset] == '\n';
@@ -321,8 +324,9 @@ Position LeadingCollapsibleWhitespacePosition(const Position& position,
     return Position();
   if (option == kNotConsiderNonCollapsibleWhitespace &&
       anchor_node->GetLayoutObject() &&
-      !anchor_node->GetLayoutObject()->Style()->CollapseWhiteSpace())
+      anchor_node->GetLayoutObject()->Style()->ShouldPreserveWhiteSpaces()) {
     return Position();
+  }
   const String& string = anchor_text_node->data();
   const UChar previous_character = string[prev.ComputeOffsetInContainerNode()];
   const bool is_space = option == kConsiderNonCollapsibleWhitespace
@@ -425,8 +429,8 @@ bool CanMergeLists(const Element& first_list, const Element& second_list) {
   return first_list.HasTagName(
              second_list
                  .TagQName())  // make sure the list types match (ol vs. ul)
-         && HasEditableStyle(first_list) &&
-         HasEditableStyle(second_list)  // both lists are editable
+         && IsEditable(first_list) &&
+         IsEditable(second_list)  // both lists are editable
          &&
          RootEditableElement(first_list) ==
              RootEditableElement(second_list)  // don't cross editing boundaries
@@ -506,12 +510,11 @@ const String& NonBreakingSpaceString() {
 // which assumes a document has a valid HTML structure. We should make the
 // editing code more robust, and should remove this hack. crbug.com/580941.
 void TidyUpHTMLStructure(Document& document) {
-  // hasEditableStyle() needs up-to-date ComputedStyle.
+  // IsEditable() needs up-to-date ComputedStyle.
   document.UpdateStyleAndLayoutTree();
   const bool needs_valid_structure =
-      HasEditableStyle(document) ||
-      (document.documentElement() &&
-       HasEditableStyle(*document.documentElement()));
+      IsEditable(document) ||
+      (document.documentElement() && IsEditable(*document.documentElement()));
   if (!needs_valid_structure)
     return;
 

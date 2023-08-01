@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -55,7 +55,7 @@ void ChildFrameCompositingHelper::SetSurfaceId(
   surface_layer_ = cc::SurfaceLayer::Create();
   surface_layer_->SetMasksToBounds(true);
   surface_layer_->SetSurfaceHitTestable(true);
-  surface_layer_->SetBackgroundColor(SK_ColorTRANSPARENT);
+  surface_layer_->SetBackgroundColor(SkColors::kTransparent);
 
   // If we're synchronizing surfaces, then use an infinite deadline to ensure
   // everything is synchronized.
@@ -91,7 +91,7 @@ ChildFrameCompositingHelper::PaintContentsToDisplayList() {
   auto layer_size = crash_ui_layer_->bounds();
   auto display_list = base::MakeRefCounted<cc::DisplayItemList>();
   display_list->StartPaint();
-  display_list->push<cc::DrawColorOp>(SK_ColorGRAY, SkBlendMode::kSrc);
+  display_list->push<cc::DrawColorOp>(SkColors::kGray, SkBlendMode::kSrc);
 
   SkBitmap* sad_bitmap = child_frame_compositor_->GetSadPageBitmap();
   if (sad_bitmap) {
@@ -112,7 +112,7 @@ ChildFrameCompositingHelper::PaintContentsToDisplayList() {
 
       auto image = cc::PaintImageBuilder::WithDefault()
                        .set_id(cc::PaintImage::GetNextId())
-                       .set_image(SkImage::MakeFromBitmap(*sad_bitmap),
+                       .set_image(SkImages::RasterFromBitmap(*sad_bitmap),
                                   cc::PaintImage::GetNextContentId())
                        .TakePaintImage();
       display_list->push<cc::DrawImageOp>(image, x, y);

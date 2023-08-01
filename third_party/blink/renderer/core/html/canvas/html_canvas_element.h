@@ -30,8 +30,7 @@
 
 #include <memory>
 
-#include "base/memory/weak_ptr.h"
-#include "base/task/single_thread_task_runner.h"
+#include "base/gtest_prod_util.h"
 #include "third_party/blink/public/common/privacy_budget/identifiable_surface.h"
 #include "third_party/blink/public/common/privacy_budget/identifiable_token.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
@@ -43,14 +42,13 @@
 #include "third_party/blink/renderer/core/html/html_element.h"
 #include "third_party/blink/renderer/core/imagebitmap/image_bitmap_source.h"
 #include "third_party/blink/renderer/core/page/page_visibility_observer.h"
-#include "third_party/blink/renderer/core/typed_arrays/dom_typed_array.h"
-#include "third_party/blink/renderer/platform/graphics/canvas_2d_layer_bridge.h"
 #include "third_party/blink/renderer/platform/graphics/canvas_resource_host.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_types.h"
 #include "third_party/blink/renderer/platform/graphics/graphics_types_3d.h"
 #include "third_party/blink/renderer/platform/graphics/offscreen_canvas_placeholder.h"
 #include "third_party/blink/renderer/platform/graphics/static_bitmap_image.h"
 #include "third_party/blink/renderer/platform/graphics/surface_layer_bridge.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/prefinalizer.h"
 #include "ui/gfx/geometry/rect_f.h"
@@ -63,6 +61,7 @@ namespace blink {
 class Canvas2DLayerBridge;
 class CanvasContextCreationAttributesCore;
 class CanvasDrawListener;
+class CanvasHighDynamicRangeOptions;
 class CanvasRenderingContext;
 class CanvasRenderingContextFactory;
 class CanvasResourceProvider;
@@ -75,6 +74,8 @@ class
     CanvasRenderingContext2DOrWebGLRenderingContextOrWebGL2RenderingContextOrImageBitmapRenderingContextOrGPUCanvasContext;
 typedef CanvasRenderingContext2DOrWebGLRenderingContextOrWebGL2RenderingContextOrImageBitmapRenderingContextOrGPUCanvasContext
     RenderingContext;
+
+CORE_EXPORT BASE_DECLARE_FEATURE(kStartCanvasWithAccelerationDisabled);
 
 // This contains the information of HTML Canvas Element,
 // There are four different types of rendering context this HTML Canvas can own.
@@ -134,6 +135,8 @@ class CORE_EXPORT HTMLCanvasElement final
               ExceptionState& exception_state) {
     return toBlob(callback, mime_type, ScriptValue(), exception_state);
   }
+  void configureHighDynamicRange(const CanvasHighDynamicRangeOptions*,
+                                 ExceptionState&);
 
   bool IsPresentationAttribute(const QualifiedName&) const final;
   void CollectStyleForPresentationAttribute(const QualifiedName&,
@@ -144,7 +147,7 @@ class CORE_EXPORT HTMLCanvasElement final
   void AddListener(CanvasDrawListener*);
   void RemoveListener(CanvasDrawListener*);
   // Derived from OffscreenCanvasPlaceholder.
-  bool HasCanvasCapture() const final { return !listeners_.IsEmpty(); }
+  bool HasCanvasCapture() const final { return !listeners_.empty(); }
 
   // Used for rendering
   void DidDraw(const SkIRect&) override;
@@ -182,11 +185,11 @@ class CORE_EXPORT HTMLCanvasElement final
   void DoDeferredPaintInvalidation();
 
   void PreFinalizeFrame() override;
-  void PostFinalizeFrame() override;
+  void PostFinalizeFrame(CanvasResourceProvider::FlushReason) override;
 
   CanvasResourceDispatcher* GetOrCreateResourceDispatcher() override;
 
-  bool PushFrame(scoped_refptr<CanvasResource> image,
+  bool PushFrame(scoped_refptr<CanvasResource>&& image,
                  const SkIRect& damage_rect) override;
 
   // ExecutionContextLifecycleObserver and PageVisibilityObserver implementation
@@ -197,6 +200,7 @@ class CORE_EXPORT HTMLCanvasElement final
 
   // CanvasImageSource implementation
   scoped_refptr<Image> GetSourceImageForCanvas(
+      CanvasResourceProvider::FlushReason,
       SourceImageStatus*,
       const gfx::SizeF&,
       const AlphaDisposition alpha_disposition = kPremultiplyAlpha) override;
@@ -238,7 +242,7 @@ class CORE_EXPORT HTMLCanvasElement final
                                   ExceptionState&) override;
 
   // OffscreenCanvasPlaceholder implementation.
-  void SetOffscreenCanvasResource(scoped_refptr<CanvasResource>,
+  void SetOffscreenCanvasResource(scoped_refptr<CanvasResource>&&,
                                   viz::ResourceId resource_id) override;
   void Trace(Visitor*) const override;
 
@@ -272,12 +276,14 @@ class CORE_EXPORT HTMLCanvasElement final
   }
 
   const KURL& GetExecutionContextUrl() const override {
-    return GetDocument().TopDocument().Url();
+    return GetDocument().Url();
   }
 
   DispatchEventResult HostDispatchEvent(Event* event) override {
     return DispatchEvent(*event);
   }
+
+  void UpdateSuspendOffscreenCanvasAnimation();
 
   // Gets the settings of this Html Canvas Element. If there is a frame, it will
   // return the settings from the frame. If it is a frameless element it will
@@ -286,13 +292,7 @@ class CORE_EXPORT HTMLCanvasElement final
   bool IsWebGL1Enabled() const override;
   bool IsWebGL2Enabled() const override;
   bool IsWebGLBlocked() const override;
-  void SetContextCreationWasBlocked() override {
-    context_creation_was_blocked_ = true;
-  }
-
-  ScriptPromise convertToBlob(ScriptState*,
-                              const ImageEncodeOptions*,
-                              ExceptionState&);
+  void SetContextCreationWasBlocked() override;
 
   bool NeedsUnbufferedInputEvents() const { return needs_unbuffered_input_; }
 
@@ -300,7 +300,8 @@ class CORE_EXPORT HTMLCanvasElement final
     needs_unbuffered_input_ = value;
   }
 
-  scoped_refptr<StaticBitmapImage> Snapshot(SourceDrawingBuffer) const;
+  scoped_refptr<StaticBitmapImage> Snapshot(CanvasResourceProvider::FlushReason,
+                                            SourceDrawingBuffer) const;
 
   // Returns the cc layer containing the contents. It's the cc layer of
   // SurfaceLayerBridge() or RenderingContext(), or nullptr if the canvas is not
@@ -316,11 +317,17 @@ class CORE_EXPORT HTMLCanvasElement final
 
   bool IsPlaceholder() const override { return IsOffscreenCanvasRegistered(); }
 
+  bool ShouldDisableAccelerationBecauseOfReadback() const;
+
  protected:
   void DidMoveToNewDocument(Document& old_document) override;
+  void DidRecalcStyle(const StyleRecalcChange change) override;
+  void RemovedFrom(ContainerNode& insertion_point) override;
 
  private:
   void Dispose();
+
+  void ColorSchemeMayHaveChanged();
 
   void RecordIdentifiabilityMetric(IdentifiableSurface surface,
                                    IdentifiableToken value) const;
@@ -340,9 +347,8 @@ class CORE_EXPORT HTMLCanvasElement final
   static CanvasRenderingContextFactory* GetRenderingContextFactory(int);
 
   bool ShouldAccelerate() const;
-
   void ParseAttribute(const AttributeModificationParams&) override;
-  LayoutObject* CreateLayoutObject(const ComputedStyle&, LegacyLayout) override;
+  LayoutObject* CreateLayoutObject(const ComputedStyle&) override;
   bool AreAuthorShadowsAllowed() const override { return false; }
 
   void Reset();
@@ -371,8 +377,14 @@ class CORE_EXPORT HTMLCanvasElement final
       const CanvasContextCreationAttributesCore&);
 
   scoped_refptr<StaticBitmapImage> GetSourceImageForCanvasInternal(
+      CanvasResourceProvider::FlushReason,
       SourceImageStatus*,
       const AlphaDisposition alpha_disposition = kPremultiplyAlpha);
+
+  static std::pair<blink::Image*, float> BrokenCanvas(
+      float device_scale_factor);
+
+  FRIEND_TEST_ALL_PREFIXES(HTMLCanvasElementTest, BrokenCanvasHighRes);
 
   HeapHashSet<WeakMember<CanvasDrawListener>> listeners_;
 

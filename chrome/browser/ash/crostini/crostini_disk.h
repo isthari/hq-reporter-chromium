@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,9 @@
 #include <vector>
 
 #include "chrome/browser/ash/crostini/crostini_simple_types.h"
-#include "chrome/browser/ash/crostini/crostini_types.mojom-forward.h"
+#include "chrome/browser/ash/crostini/crostini_types.mojom.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chromeos/dbus/concierge/concierge_service.pb.h"
+#include "chromeos/ash/components/dbus/vm_concierge/concierge_service.pb.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace crostini {
@@ -66,7 +66,7 @@ void GetDiskInfo(OnceDiskInfoCallback callback,
 void OnAmountOfFreeDiskSpace(OnceDiskInfoCallback callback,
                              Profile* profile,
                              std::string vm_name,
-                             int64_t free_space);
+                             absl::optional<int64_t> free_space);
 
 // Combined callback for EnsureConciergeRunning or EnsureVmRunning which passes
 // off to the next step in the chain. For getting full disk info, the VM must be

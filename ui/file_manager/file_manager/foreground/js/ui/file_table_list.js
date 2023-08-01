@@ -1,29 +1,35 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {assert} from 'chrome://resources/js/assert.m.js';
-import {isMac} from 'chrome://resources/js/cr.m.js';
-import {List} from 'chrome://resources/js/cr/ui/list.m.js';
-import {ListItem} from 'chrome://resources/js/cr/ui/list_item.m.js';
-import {ListSelectionController} from 'chrome://resources/js/cr/ui/list_selection_controller.m.js';
-import {ListSelectionModel} from 'chrome://resources/js/cr/ui/list_selection_model.m.js';
+import {assert} from 'chrome://resources/ash/common/assert.js';
 
 import {FileType} from '../../../common/js/file_type.js';
 import {str, strf, util} from '../../../common/js/util.js';
 import {EntryLocation} from '../../../externs/entry_location.js';
 import {FilesAppEntry} from '../../../externs/files_app_entry_interfaces.js';
+import {VolumeManager} from '../../../externs/volume_manager.js';
+import {FilesTooltip} from '../../elements/files_tooltip.js';
+import {FileListModel} from '../file_list_model.js';
 import {MetadataModel} from '../metadata/metadata_model.js';
 
 import {A11yAnnounce} from './a11y_announce.js';
+import {DragSelector} from './drag_selector.js';
 import {FileListSelectionModel, FileListSingleSelectionModel} from './file_list_selection_model.js';
 import {FileTapHandler} from './file_tap_handler.js';
+import {List} from './list.js';
+import {ListItem} from './list_item.js';
+import {ListSelectionController} from './list_selection_controller.js';
+import {ListSelectionModel} from './list_selection_model.js';
 import {TableList} from './table/table_list.js';
 
 /**
  * Namespace for utility functions.
  */
 const filelist = {};
+
+// Group Heading height, align with CSS #list-container .group-heading.
+const GROUP_HEADING_HEIGHT = 57;
 
 /**
  * File table list.
@@ -41,6 +47,14 @@ export class FileTableList extends TableList {
   }
 
   /**
+   * Returns the height of group heading.
+   * @return {number} The height of group heading.
+   */
+  getGroupHeadingHeight_() {
+    return GROUP_HEADING_HEIGHT;
+  }
+
+  /**
    * @param {function(number, number)} onMergeItems callback called from
    *     |mergeItems| with the parameters |beginIndex| and |endIndex|.
    */
@@ -53,6 +67,13 @@ export class FileTableList extends TableList {
   mergeItems(beginIndex, endIndex) {
     super.mergeItems(beginIndex, endIndex);
 
+    const fileListModel = /** @type {FileListModel} */ (this.dataModel);
+    const groupBySnapshot =
+        fileListModel ? fileListModel.getGroupBySnapshot() : [];
+    const startIndexToGroupLabel = new Map(groupBySnapshot.map(group => {
+      return [group.startIndex, group];
+    }));
+
     // Make sure that list item's selected attribute is updated just after the
     // mergeItems operation is done. This prevents checkmarks on selected items
     // from being animated unintentionally by redraw.
@@ -64,6 +85,16 @@ export class FileTableList extends TableList {
       const isSelected = this.selectionModel.getIndexSelected(i);
       if (item.selected !== isSelected) {
         item.selected = isSelected;
+      }
+      // Check if index i is the start of a new group.
+      if (startIndexToGroupLabel.has(i)) {
+        // For first item in each group, we add a title div before the element.
+        const title = document.createElement('div');
+        title.setAttribute('role', 'heading');
+        title.innerText = startIndexToGroupLabel.get(i).label;
+        title.classList.add(
+            'group-heading', `group-by-${fileListModel.groupByField}`);
+        this.insertBefore(title, item);
       }
     }
 
@@ -88,6 +119,170 @@ export class FileTableList extends TableList {
    */
   getItemLabel(index) {
     return this.table.getItemLabel(index);
+  }
+
+  /**
+   * Given a index, return how many group headings are there before this index.
+   * Note: not include index itself.
+   * @param {number} index
+   * @return {number}
+   * @private
+   */
+  getGroupHeadingCountBeforeIndex_(index) {
+    const fileListModel = /** @type {FileListModel} */ (this.dataModel);
+    const groupBySnapshot = fileListModel.getGroupBySnapshot();
+    let count = 0;
+    for (const group of groupBySnapshot) {
+      // index - 1 because we don't want to include index itself.
+      if (group.startIndex <= index - 1) {
+        count++;
+      } else {
+        break;
+      }
+    }
+    return count;
+  }
+
+  /**
+   * Given a index, return how many group headings are there after this index.
+   * Note: not include index itself.
+   * @param {number} index
+   * @return {number}
+   * @private
+   */
+  getGroupHeadingCountAfterIndex_(index) {
+    const fileListModel = /** @type {FileListModel} */ (this.dataModel);
+    const groupBySnapshot = fileListModel.getGroupBySnapshot();
+    if (groupBySnapshot.length > 0) {
+      const countBeforeIndex = this.getGroupHeadingCountBeforeIndex_(index + 1);
+      return groupBySnapshot.length - countBeforeIndex;
+    }
+    return 0;
+  }
+
+  /**
+   * Given a offset (e.g. scrollTop), return how many items can be included
+   * within this height. Override here because previously we just need to use
+   * the total height (offset) to divide the item height, now we also need to
+   * consider the potential group headings included in these items.
+   * @override
+   */
+  getIndexForListOffset_(offset) {
+    const fileListModel = /** @type {FileListModel} */ (this.dataModel);
+    const groupBySnapshot = fileListModel.getGroupBySnapshot();
+    const itemHeight = this.getDefaultItemHeight_();
+
+    // Without heading the original logic suffices.
+    if (groupBySnapshot.length === 0 || !itemHeight) {
+      return super.getIndexForListOffset_(offset);
+    }
+
+    // Loop through all the groups, calculate the accumulated height for all
+    // items (item height + group heading height), until the total height
+    // reaches "offset", then we know how many items can be included in this
+    // offset.
+    let currentHeight = 0;
+    for (const group of groupBySnapshot) {
+      const groupHeight = this.getGroupHeadingHeight_() +
+          (group.endIndex - group.startIndex + 1) * itemHeight;
+
+      if (currentHeight + groupHeight > offset) {
+        // Current offset falls into the current group. Calculates how many
+        // items in the offset within the group.
+        const remainingOffsetInGroup =
+            Math.max(0, offset - this.getGroupHeadingHeight_() - currentHeight);
+        return group.startIndex +
+            Math.floor(remainingOffsetInGroup / itemHeight);
+      }
+      currentHeight += groupHeight;
+    }
+    return fileListModel.length - 1;
+  }
+
+  /**
+   * Given an index, return the height (top) of all items before this index.
+   * Override here because previously we just need to use the index to multiply
+   * the item height, now we also need to add up the potential group heading
+   * heights included in these items.
+   *
+   * Note: for group start item, technically its height should be "all heights
+   * above it + current group heading height", but here we don't add the
+   * current group heading height (logic in getGroupHeadingCountBeforeIndex_),
+   * that's because it will break the "beforeFillerHeight" logic in the redraw
+   * of list.js.
+   * @override
+   */
+  getItemTop(index) {
+    const itemHeight = this.getDefaultItemHeight_();
+    const countOfGroupHeadings = this.getGroupHeadingCountBeforeIndex_(index);
+    return index * itemHeight +
+        countOfGroupHeadings * this.getGroupHeadingHeight_();
+  }
+
+  /**
+   * Given an index, return the height of all items after this index.
+   * Override here because previously we just need to use the remaining index
+   * to multiply the item height, now we also need to add up the potential
+   * group heading heights included in these items.
+   * @override
+   */
+  getAfterFillerHeight(lastIndex) {
+    if (lastIndex === 0) {
+      // A special case handled in the parent class, delegate it back to parent.
+      return super.getAfterFillerHeight(lastIndex);
+    }
+    const itemHeight = this.getDefaultItemHeight_();
+    const countOfGroupHeadings =
+        this.getGroupHeadingCountAfterIndex_(lastIndex);
+    return (this.dataModel.length - lastIndex) * itemHeight +
+        countOfGroupHeadings * this.getGroupHeadingHeight_();
+  }
+
+  /**
+   * Returns whether the drag event is inside a file entry in the list (and not
+   * the background padding area).
+   * @param {MouseEvent} event Drag start event.
+   * @return {boolean} True if the mouse is over an element in the list, False
+   *     if it is in the background.
+   */
+  hasDragHitElement(event) {
+    const pos = DragSelector.getScrolledPosition(this, event);
+    return this.getHitElements(pos.x, pos.y).length !== 0;
+  }
+
+  /**
+   * Obtains the index list of elements that are hit by the point or the
+   * rectangle.
+   *
+   * @param {number} x X coordinate value.
+   * @param {number} y Y coordinate value.
+   * @param {number=} opt_width Width of the coordinate.
+   * @param {number=} opt_height Height of the coordinate.
+   * @return {!Array<number>} Index list of hit elements.
+   */
+  getHitElements(x, y, opt_width, opt_height) {
+    const fileListModel = /** @type {FileListModel} */ (this.dataModel);
+    const groupBySnapshot =
+        fileListModel ? fileListModel.getGroupBySnapshot() : [];
+    const startIndexToGroupLabel = new Map(groupBySnapshot.map(group => {
+      return [group.startIndex, group];
+    }));
+
+    const currentSelection = [];
+    const startHeight = y;
+    const endHeight = y + (opt_height || 0);
+    for (let i = 0; i < this.selectionModel.length; i++) {
+      const itemMetrics = this.getHeightsForIndex(i);
+      // For group start item, we need to explicitly add group height because
+      // its top doesn't take that into consideration. (check notes in
+      // getItemTop())
+      const itemTop = itemMetrics.top +
+          (startIndexToGroupLabel.has(i) ? this.getGroupHeadingHeight_() : 0);
+      if (itemTop < endHeight && itemTop + itemMetrics.height >= startHeight) {
+        currentSelection.push(i);
+      }
+    }
+    return currentSelection;
   }
 }
 
@@ -153,23 +348,41 @@ class FileListSelectionController extends ListSelectionController {
  * @param {ListItem} li List item.
  * @param {Entry|FilesAppEntry} entry The entry.
  * @param {!MetadataModel} metadataModel Cache to
- *     retrieve metadada.
+ *     retrieve metadata.
+ * @param {!VolumeManager} volumeManager Used to retrieve VolumeInfo.
  */
-filelist.decorateListItem = (li, entry, metadataModel) => {
+filelist.decorateListItem = (li, entry, metadataModel, volumeManager) => {
   li.classList.add(entry.isDirectory ? 'directory' : 'file');
   // The metadata may not yet be ready. In that case, the list item will be
   // updated when the metadata is ready via updateListItemsMetadata. For files
   // not on an external backend, externalProps is not available.
   const externalProps = metadataModel.getCache([entry], [
-    'hosted', 'availableOffline', 'customIconUrl', 'shared', 'isMachineRoot',
-    'isExternalMedia', 'pinned'
+    'hosted',
+    'availableOffline',
+    'customIconUrl',
+    'shared',
+    'isMachineRoot',
+    'isExternalMedia',
+    'pinned',
+    'syncStatus',
+    'progress',
+    'contentMimeType',
+    'shortcut',
+    'canPin',
   ])[0];
   filelist.updateListItemExternalProps(
-      li, externalProps, util.isTeamDriveRoot(entry));
+      li, entry, externalProps, util.isTeamDriveRoot(entry));
 
   // Overriding the default role 'list' to 'listbox' for better
   // accessibility on ChromeOS.
   li.setAttribute('role', 'option');
+  const disabled = filelist.isDlpBlocked(entry, metadataModel, volumeManager);
+  li.toggleAttribute('disabled', disabled);
+  if (disabled) {
+    li.setAttribute('aria-disabled', 'true');
+  } else {
+    li.removeAttribute('aria-disabled');
+  }
 
   Object.defineProperty(li, 'selected', {
     /**
@@ -189,8 +402,40 @@ filelist.decorateListItem = (li, entry, metadataModel) => {
       } else {
         this.removeAttribute('selected');
       }
-    }
+    },
   });
+};
+
+/**
+ * Returns whether `entry` is blocked by DLP.
+ *
+ * Relies on the fact that volumeManager.isDisabled() can only be true for dirs
+ * in file-saveas dialogs, while metadata.isRestrictedForDestination can only be
+ * true for files in other types of select dialogs.
+ * @param {Entry|FilesAppEntry} entry The entry.
+ * @param {!MetadataModel} metadataModel Used to retrieve
+ *     isRestrictedForDestination value.
+ * @param {!VolumeManager} volumeManager Used to retrieve VolumeInfo and check
+ *     if it's disabled.
+ * @return {boolean} If `entry` is DLP blocked.
+ */
+filelist.isDlpBlocked = (entry, metadataModel, volumeManager) => {
+  if (!util.isDlpEnabled()) {
+    return false;
+  }
+  // TODO(b/259184588): Properly handle case when VolumeInfo is not
+  // available. E.g. for Crostini we might not have VolumeInfo before it's
+  // mounted.
+  const volumeInfo = volumeManager.getVolumeInfo(assert(entry));
+  if (volumeInfo && volumeManager.isDisabled(volumeInfo.volumeType)) {
+    return true;
+  }
+  const metadata =
+      metadataModel.getCache([entry], ['isRestrictedForDestination'])[0];
+  if (metadata && !!metadata.isRestrictedForDestination) {
+    return true;
+  }
+  return false;
 };
 
 /**
@@ -204,10 +449,22 @@ filelist.decorateListItem = (li, entry, metadataModel) => {
 filelist.renderFileTypeIcon = (doc, entry, locationInfo, opt_mimeType) => {
   const icon = /** @type {!HTMLDivElement} */ (doc.createElement('div'));
   icon.className = 'detail-icon';
+  const rootType = locationInfo && locationInfo.rootType || undefined;
   icon.setAttribute(
-      'file-type-icon',
-      FileType.getIcon(entry, opt_mimeType, locationInfo.rootType));
+      'file-type-icon', FileType.getIcon(entry, opt_mimeType, rootType));
   return icon;
+};
+
+/**
+ * Renders a div beside the row icon that is used to surface badges for
+ * individual items in the grid and list view.
+ * @param {!Document} doc Owner document.
+ * @returns {!HTMLDivElement}
+ */
+filelist.renderIconBadge = (doc) => {
+  const divElement = /** @type {!HTMLDivElement} */ (doc.createElement('div'));
+  divElement.classList.add('icon-badge');
+  return divElement;
 };
 
 /**
@@ -231,49 +488,147 @@ filelist.renderFileNameLabel = (doc, entry, locationInfo) => {
 };
 
 /**
- * Renders the Drive pinned marker in the detail table.
+ * Renders the drive encryption status (CSE files) in the detail table.
+ * @param {!Document} doc Owner document.
  * @return {!HTMLDivElement} Created element.
  */
-filelist.renderPinned = (doc) => {
-  const icon = /** @type {!HTMLDivElement} */ (doc.createElement('div'));
-  icon.className = 'detail-pinned';
-  icon.setAttribute('aria-label', str('OFFLINE_COLUMN_LABEL'));
-  return icon;
+filelist.renderEncryptionStatus = (doc) => {
+  const box = /** @type {!HTMLDivElement} */ (doc.createElement('div'));
+  box.className = 'encryption-status';
+
+  const encryptedIcon = doc.createElement('xf-icon');
+  encryptedIcon.size = 'extra_small';
+  encryptedIcon.type = 'encrypted';
+  box.appendChild(encryptedIcon);
+
+  return box;
+};
+
+/**
+ * Renders the drive inline status in the detail table.
+ * @param {!Document} doc Owner document.
+ * @return {!HTMLDivElement} Created element.
+ */
+filelist.renderInlineStatus = (doc) => {
+  const inlineStatus =
+      /** @type {!HTMLDivElement} */ (doc.createElement('div'));
+  inlineStatus.className = 'inline-status';
+
+  const inlineStatusIcon = doc.createElement('xf-icon');
+  inlineStatusIcon.size = 'extra_small';
+  inlineStatusIcon.type = 'offline';
+  inlineStatus.appendChild(inlineStatusIcon);
+
+  if (util.isInlineSyncStatusEnabled()) {
+    const syncProgress = doc.createElement('xf-pie-progress');
+    syncProgress.className = 'progress';
+    inlineStatus.appendChild(syncProgress);
+  }
+
+  /** @type {!FilesTooltip} */ (document.querySelector('files-tooltip'))
+      .addTarget(inlineStatus);
+
+  return inlineStatus;
 };
 
 /**
  * Updates grid item or table row for the externalProps.
  * @param {ListItem} li List item.
+ * @param {Entry|FilesAppEntry} entry The entry.
  * @param {Object} externalProps Metadata.
  */
-filelist.updateListItemExternalProps = (li, externalProps, isTeamDriveRoot) => {
-  if (li.classList.contains('file')) {
-    li.classList.toggle(
-        'dim-offline', externalProps.availableOffline === false);
-    li.classList.toggle('dim-hosted', !!externalProps.hosted);
-  }
+filelist.updateListItemExternalProps =
+    (li, entry, externalProps, isTeamDriveRoot) => {
+      if (li.classList.contains('file')) {
+        li.classList.toggle(
+            'dim-offline', externalProps.availableOffline === false);
+        li.classList.toggle('dim-hosted', !!externalProps.hosted);
+        if (externalProps.contentMimeType) {
+          li.classList.toggle(
+              'dim-encrypted',
+              FileType.isEncrypted(entry, externalProps.contentMimeType));
+        }
+      }
 
-  li.classList.toggle('pinned', !!externalProps.pinned);
+      li.classList.toggle('pinned', externalProps.pinned);
+      li.classList.toggle(
+          'encrypted',
+          FileType.isEncrypted(entry, externalProps.contentMimeType));
+      li.classList.toggle('shortcut', !!externalProps.shortcut);
 
-  const iconDiv = li.querySelector('.detail-icon');
-  if (!iconDiv) {
-    return;
-  }
+      const iconDiv = li.querySelector('.detail-icon');
+      if (!iconDiv) {
+        return;
+      }
+      iconDiv.style.backgroundImage = '';
 
-  if (externalProps.customIconUrl) {
-    iconDiv.style.backgroundImage = 'url(' + externalProps.customIconUrl + ')';
-  } else {
-    iconDiv.style.backgroundImage = '';  // Back to the default image.
-  }
+      if (li.classList.contains('directory')) {
+        iconDiv.classList.toggle('shared', !!externalProps.shared);
+        iconDiv.classList.toggle('team-drive-root', !!isTeamDriveRoot);
+        iconDiv.classList.toggle(
+            'computers-root', !!externalProps.isMachineRoot);
+        iconDiv.classList.toggle(
+            'external-media-root', !!externalProps.isExternalMedia);
+      }
 
-  if (li.classList.contains('directory')) {
-    iconDiv.classList.toggle('shared', !!externalProps.shared);
-    iconDiv.classList.toggle('team-drive-root', !!isTeamDriveRoot);
-    iconDiv.classList.toggle('computers-root', !!externalProps.isMachineRoot);
-    iconDiv.classList.toggle(
-        'external-media-root', !!externalProps.isExternalMedia);
-  }
-};
+      const inlineStatus = li.querySelector('.inline-status');
+      if (!inlineStatus) {
+        return;
+      }
+
+      if (util.isDriveFsBulkPinningEnabled()) {
+        const inlineIcon = inlineStatus.querySelector('xf-icon');
+
+        if (!util.isNullOrUndefined(externalProps.canPin) &&
+            !externalProps.canPin) {
+          // Items that can't be pinned should show a dashed icon to indicate
+          // they cannot be used offline (e.g. google forms can't be made
+          // available offline).
+          li.classList.toggle('cant-pin', true);
+          inlineIcon.type = 'cant-pin';
+          inlineStatus.setAttribute(
+              'aria-label', str('DRIVE_ITEM_UNAVAILABLE_OFFLINE'));
+          return;
+        }
+
+        // In the event a previous item that could not be pinned has instead
+        // become pinnable, ensure the inline status icon is reset and the class
+        // is removed.
+        li.classList.toggle('cant-pin', false);
+        inlineIcon.type = 'offline';
+      }
+
+      // Clear the inline status' aria label and set it to "in progress",
+      // "queued", or "available offline" with the respective order of
+      // precedence if applicable.
+      inlineStatus.setAttribute(
+          'aria-label',
+          externalProps.pinned ? str('OFFLINE_COLUMN_LABEL') : '');
+
+      const {syncStatus} = externalProps;
+      let progress = externalProps.progress ?? 0;
+      if (util.isInlineSyncStatusEnabled() && syncStatus) {
+        switch (syncStatus) {
+          case chrome.fileManagerPrivate.SyncStatus.QUEUED:
+          case chrome.fileManagerPrivate.SyncStatus.ERROR:
+            progress = 0;
+            inlineStatus.setAttribute('aria-label', str('QUEUED_LABEL'));
+            break;
+          case chrome.fileManagerPrivate.SyncStatus.IN_PROGRESS:
+            inlineStatus.setAttribute(
+                'aria-label',
+                `${str('IN_PROGRESS_LABEL')} - ${
+                    (progress * 100).toFixed(0)}%`);
+            break;
+          default:
+            break;
+        }
+
+        li.setAttribute('data-sync-status', syncStatus);
+        li.querySelector('.progress')
+            .setAttribute('progress', progress.toFixed(2));
+      }
+    };
 
 /**
  * Handles tap events on file list to change the selection state.
@@ -550,8 +905,7 @@ filelist.handleKeyDown = function(e) {
   // Ctrl/Meta+A. Use keyCode=65 to use the same shortcut key regardless of
   // keyboard layout.
   const pressedKeyA = e.keyCode === 65 || e.key === 'a';
-  if (sm.multiple && pressedKeyA &&
-      (isMac && e.metaKey || !isMac && e.ctrlKey)) {
+  if (sm.multiple && pressedKeyA && e.ctrlKey) {
     this.filesView.a11y.speakA11yMessage(str('SELECTION_ALL_ENTRIES'));
     sm.setCheckSelectMode(true);
     sm.selectAll();

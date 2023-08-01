@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2015 The Chromium Authors. All rights reserved.
+# Copyright 2015 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -15,6 +15,7 @@ import collections
 import glob
 import json
 import os
+import six
 import subprocess
 import sys
 
@@ -86,40 +87,6 @@ SKIP_GN_ISOLATE_MAP_TARGETS = {
     'previous_version_mini_installer',
     'symupload',
 
-    # iOS tests are listed in //ios/build/bots.
-    'cronet_test',
-    'cronet_unittests_ios',
-    'ios_chrome_bookmarks_eg2tests_module',
-    'ios_chrome_bookmarks_egtests',
-    'ios_chrome_integration_eg2tests_module',
-    'ios_chrome_integration_egtests',
-    'ios_chrome_reading_list_egtests',
-    'ios_chrome_settings_eg2tests_module',
-    'ios_chrome_settings_egtests',
-    'ios_chrome_signin_eg2tests_module',
-    'ios_chrome_signin_egtests',
-    'ios_chrome_smoke_eg2tests_module',
-    'ios_chrome_smoke_egtests',
-    'ios_chrome_translate_egtests',
-    'ios_chrome_ui_eg2tests_module',
-    'ios_chrome_ui_egtests',
-    'ios_chrome_unittests',
-    'ios_chrome_web_eg2tests_module',
-    'ios_chrome_web_egtests',
-    'ios_components_unittests',
-    'ios_crash_xcuitests_module',
-    'ios_net_unittests',
-    'ios_remoting_unittests',
-    'ios_showcase_eg2tests_module',
-    'ios_showcase_egtests',
-    'ios_testing_unittests',
-    'ios_web_inttests',
-    'ios_web_shell_eg2tests_module',
-    'ios_web_shell_egtests',
-    'ios_web_unittests',
-    'ios_web_view_inttests',
-    'ios_web_view_unittests',
-
     # These are listed in Builders that are skipped for other reasons.
     'chrome_junit_tests',
     'components_background_task_scheduler_junit_tests',
@@ -184,7 +151,6 @@ SKIP_GN_ISOLATE_MAP_TARGETS = {
     'telemetry_gpu_integration_test_scripts_only',
 
     # These are defined by an android internal gn_isolate_map.pyl file.
-    'resource_sizes_chrome_modern_minimal_apks',
     'resource_sizes_monochrome_minimal_apks',
     'resource_sizes_trichrome_google',
     'resource_sizes_system_webview_google_bundle',
@@ -254,7 +220,8 @@ def process_file(mode, test_name, tests_location, filepath, ninja_targets,
   try:
     config = json.loads(content)
   except ValueError as e:
-    raise Error('Exception raised while checking %s: %s' % (filepath, e))
+    six.raise_from(
+        Error('Exception raised while checking %s: %s' % (filepath, e)), e)
 
   for builder, data in sorted(config.items()):
     if builder in SKIP:
@@ -274,7 +241,7 @@ def process_file(mode, test_name, tests_location, filepath, ninja_targets,
           test not in SKIP_GN_ISOLATE_MAP_TARGETS):
         raise Error('%s: %s / %s is not listed in gn_isolate_map.pyl' %
                     (filename, builder, test))
-      elif test in ninja_targets:
+      if test in ninja_targets:
         ninja_targets_seen.add(test)
 
     for target in data.get('additional_compile_targets', []):
@@ -282,7 +249,7 @@ def process_file(mode, test_name, tests_location, filepath, ninja_targets,
           target not in SKIP_GN_ISOLATE_MAP_TARGETS):
         raise Error('%s: %s / %s is not listed in gn_isolate_map.pyl' %
                     (filename, builder, target))
-      elif target in ninja_targets:
+      if target in ninja_targets:
         ninja_targets_seen.add(target)
 
     gtest_tests = data.get('gtest_tests', [])
@@ -300,7 +267,7 @@ def process_file(mode, test_name, tests_location, filepath, ninja_targets,
           test not in SKIP_GN_ISOLATE_MAP_TARGETS):
         raise Error('%s: %s / %s is not listed in gn_isolate_map.pyl.' %
                     (filename, builder, test))
-      elif test in ninja_targets:
+      if test in ninja_targets:
         ninja_targets_seen.add(test)
 
       name = d.get('name', d['test'])
@@ -308,8 +275,6 @@ def process_file(mode, test_name, tests_location, filepath, ninja_targets,
         raise Error('%s: %s / %s is listed multiple times.' %
                     (filename, builder, name))
       seen.add(name)
-      d.setdefault('swarming', {}).setdefault(
-          'can_use_on_swarming_builders', False)
 
     if gtest_tests:
       config[builder]['gtest_tests'] = sorted(
@@ -321,16 +286,17 @@ def process_file(mode, test_name, tests_location, filepath, ninja_targets,
           name not in SKIP_GN_ISOLATE_MAP_TARGETS):
         raise Error('%s: %s / %s is not listed in gn_isolate_map.pyl.' %
                     (filename, builder, name))
-      elif name in ninja_targets:
+      if name in ninja_targets:
         ninja_targets_seen.add(name)
 
-    for d in data.get('instrumentation_tests', []):
+    for d in (data.get('instrumentation_tests', []) +
+              data.get('skylab_tests', [])):
       name = d['test']
       if (name not in ninja_targets and
           name not in SKIP_GN_ISOLATE_MAP_TARGETS):
         raise Error('%s: %s / %s is not listed in gn_isolate_map.pyl.' %
                     (filename, builder, name))
-      elif name in ninja_targets:
+      if name in ninja_targets:
         ninja_targets_seen.add(name)
 
     # The trick here is that process_builder_remaining() is called before
@@ -415,10 +381,12 @@ def print_remaining(test_name, tests_location):
   total = total_local + total_swarming
   p_local = 100. * total_local / total
   p_swarming = 100. * total_swarming / total
+  # pylint: disable=bad-string-format-type
   print('%s%-*s %4d (%4.1f%%)   %4d (%4.1f%%)' %
       (colorama.Fore.WHITE, l, 'Total:', total_local, p_local,
         total_swarming, p_swarming))
   print('%-*s                %4d' % (l, 'Total executions:', total))
+  #pylint: enable=bad-string-format-type
 
 
 def main():
@@ -463,6 +431,9 @@ def main():
     result = 0
     ninja_targets_seen = set()
     for filepath in glob.glob(os.path.join(THIS_DIR, '*.json')):
+      # This file is formatted differently from other json files
+      if 'autoshard_exceptions' in filepath:
+        continue
       if not process_file(args.mode, args.test_name, tests_location, filepath,
                           ninja_targets, ninja_targets_seen):
         result = 1

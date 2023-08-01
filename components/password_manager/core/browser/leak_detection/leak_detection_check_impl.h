@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -51,7 +51,8 @@ class LeakDetectionCheckImpl : public LeakDetectionCheck {
       const signin::IdentityManager* identity_manager);
 
   // LeakDetectionCheck:
-  void Start(const GURL& url,
+  void Start(LeakDetectionInitiator initiator,
+             const GURL& url,
              std::u16string username,
              std::u16string password) override;
 

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include <string>
 
+#include "ash/constants/notifier_catalogs.h"
 #include "ash/public/cpp/notification_utils.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/stringprintf.h"
@@ -13,7 +14,9 @@
 #include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/notifications/notification_display_service.h"
 #include "chrome/grit/generated_resources.h"
+#include "chromeos/constants/chromeos_features.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/chromeos/styles/cros_tokens_color_mappings.h"
 #include "ui/message_center/public/cpp/message_center_constants.h"
 
 namespace {
@@ -39,7 +42,11 @@ PluginVmUninstallerNotification::PluginVmUninstallerNotification(
     : profile_(profile) {
   message_center::RichNotificationData rich_notification_data;
   rich_notification_data.vector_small_image = &kNotificationPluginVmIcon;
-  rich_notification_data.accent_color = ash::kSystemNotificationColorNormal;
+  if (chromeos::features::IsJellyEnabled()) {
+    rich_notification_data.accent_color_id = cros_tokens::kCrosSysPrimary;
+  } else {
+    rich_notification_data.accent_color = ash::kSystemNotificationColorNormal;
+  }
   rich_notification_data.pinned = true;
   rich_notification_data.never_timeout = true;
 
@@ -50,11 +57,13 @@ PluginVmUninstallerNotification::PluginVmUninstallerNotification(
           IDS_PLUGIN_VM_REMOVING_NOTIFICATION_IN_PROGRESS_MESSAGE,
           app_name),     // title
       std::u16string(),  // message
-      gfx::Image(),      // icon
+      ui::ImageModel(),  // icon
       app_name,
       GURL(),  // origin_url
-      message_center::NotifierId(message_center::NotifierType::SYSTEM_COMPONENT,
-                                 kNotifierPluginVmUninstallOperation),
+      message_center::NotifierId(
+          message_center::NotifierType::SYSTEM_COMPONENT,
+          kNotifierPluginVmUninstallOperation,
+          ash::NotificationCatalogName::kPluginVMUninstaller),
       rich_notification_data,
       base::MakeRefCounted<message_center::NotificationDelegate>());
   notification_->set_progress(-1);
@@ -78,8 +87,12 @@ void PluginVmUninstallerNotification::SetFailed(FailedReason reason) {
   notification_->set_message(message);
   notification_->set_pinned(false);
   notification_->set_never_timeout(false);
-  notification_->set_accent_color(ash::kSystemNotificationColorCriticalWarning);
-
+  if (chromeos::features::IsJellyEnabled()) {
+    notification_->set_accent_color_id(cros_tokens::kCrosSysError);
+  } else {
+    notification_->set_accent_color(
+        ash::kSystemNotificationColorCriticalWarning);
+  }
   ForceRedisplay();
 }
 

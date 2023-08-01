@@ -1,30 +1,31 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/bookmarks/browser/bookmark_utils.h"
 
 #include <stdint.h>
+
 #include <memory>
 #include <unordered_set>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/containers/contains.h"
-#include "base/feature_list.h"
 #include "base/files/file_path.h"
-#include "base/guid.h"
+#include "base/functional/bind.h"
 #include "base/i18n/case_conversion.h"
 #include "base/i18n/string_search.h"
+#include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
+#include "base/uuid.h"
 #include "build/build_config.h"
 #include "components/bookmarks/browser/bookmark_client.h"
 #include "components/bookmarks/browser/bookmark_model.h"
-#include "components/bookmarks/browser/features.h"
 #include "components/bookmarks/browser/scoped_group_bookmark_actions.h"
 #include "components/bookmarks/common/bookmark_pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
@@ -60,8 +61,10 @@ void CloneBookmarkNodeImpl(BookmarkModel* model,
     Time date_added = reset_node_times ? Time::Now() : element.date_added;
     DCHECK(!date_added.is_null());
 
-    model->AddURL(parent, index_to_add_at, element.title, element.url,
-                  &meta_info_map, date_added);
+    const BookmarkNode* node = model->AddURL(
+        parent, index_to_add_at, element.title, element.url, &meta_info_map);
+    model->SetDateAdded(node, date_added);
+
   } else {
     const BookmarkNode* cloned_node = model->AddFolder(
         parent, index_to_add_at, element.title, &meta_info_map);
@@ -113,12 +116,15 @@ bool HasSelectedAncestor(BookmarkModel* model,
   return HasSelectedAncestor(model, selected_nodes, node->parent());
 }
 
-const BookmarkNode* GetNodeByID(const BookmarkNode* node, int64_t id) {
-  if (node->id() == id)
+// Recursively searches for a node satisfying the functor |pred| . Returns
+// nullptr if not found.
+template <typename Predicate>
+const BookmarkNode* FindNode(const BookmarkNode* node, Predicate pred) {
+  if (pred(node))
     return node;
 
   for (const auto& child : node->children()) {
-    const BookmarkNode* result = GetNodeByID(child.get(), id);
+    const BookmarkNode* result = FindNode(child.get(), pred);
     if (result)
       return result;
   }
@@ -179,15 +185,33 @@ void GetBookmarksMatchingPropertiesImpl(
   }
 }
 
+template <class Comparator>
+void GetMostRecentEntries(
+    BookmarkModel* model,
+    size_t limit,
+    std::multiset<const BookmarkNode*, Comparator>* nodes_set) {
+  ui::TreeNodeIterator<const BookmarkNode> iterator(model->root_node());
+  while (iterator.has_next()) {
+    const BookmarkNode* node = iterator.Next();
+    if (node->is_url()) {
+      nodes_set->insert(node);
+      if (nodes_set->size() > limit) {
+        nodes_set->erase(std::next(nodes_set->begin(), limit),
+                         nodes_set->end());
+      }
+    }
+  }
+}
+
 #if BUILDFLAG(IS_ANDROID)
 // Returns whether or not a bookmark model contains any bookmarks aside of the
 // permanent nodes.
 bool HasUserCreatedBookmarks(BookmarkModel* model) {
   const BookmarkNode* root_node = model->root_node();
 
-  return std::any_of(
-      root_node->children().cbegin(), root_node->children().cend(),
-      [](const auto& node) { return !node->children().empty(); });
+  return base::ranges::any_of(root_node->children(), [](const auto& node) {
+    return !node->children().empty();
+  });
 }
 #endif
 
@@ -224,29 +248,30 @@ void CloneBookmarkNode(BookmarkModel* model,
     CloneBookmarkNodeImpl(model, elements[i], parent, index_to_add_at + i,
                           reset_node_times);
   }
+
+  metrics::RecordCloneBookmarkNode(elements.size());
 }
 
 void CopyToClipboard(BookmarkModel* model,
                      const std::vector<const BookmarkNode*>& nodes,
-                     bool remove_nodes) {
+                     bool remove_nodes,
+                     metrics::BookmarkEditSource source) {
   if (nodes.empty())
     return;
 
   // Create array of selected nodes with descendants filtered out.
   std::vector<const BookmarkNode*> filtered_nodes;
-  for (size_t i = 0; i < nodes.size(); ++i)
-    if (!HasSelectedAncestor(model, nodes, nodes[i]->parent()))
-      filtered_nodes.push_back(nodes[i]);
+  for (const auto* node : nodes) {
+    if (!HasSelectedAncestor(model, nodes, node->parent()))
+      filtered_nodes.push_back(node);
+  }
 
   BookmarkNodeData(filtered_nodes).WriteToClipboard();
 
   if (remove_nodes) {
     ScopedGroupBookmarkActions group_cut(model);
-    for (size_t i = 0; i < filtered_nodes.size(); ++i) {
-      int index = filtered_nodes[i]->parent()->GetIndexOf(filtered_nodes[i]);
-      if (index > -1)
-        model->Remove(filtered_nodes[i]);
-    }
+    for (const auto* node : filtered_nodes)
+      model->Remove(node, source);
   }
 }
 
@@ -293,7 +318,7 @@ void PasteFromClipboard(BookmarkModel* model,
     GURL url = GetUrlFromClipboard(/*notify_if_restricted=*/true);
     if (!url.is_valid())
       return;
-    BookmarkNode node(/*id=*/0, base::GUID::GenerateRandomV4(), url);
+    BookmarkNode node(/*id=*/0, base::Uuid::GenerateRandomV4(), url);
     node.SetTitle(base::ASCIIToUTF16(url.spec()));
     bookmark_data = BookmarkNodeData(&node);
   }
@@ -366,23 +391,41 @@ std::vector<const BookmarkNode*> GetMostRecentlyModifiedUserFolders(
 void GetMostRecentlyAddedEntries(BookmarkModel* model,
                                  size_t count,
                                  std::vector<const BookmarkNode*>* nodes) {
-  ui::TreeNodeIterator<const BookmarkNode> iterator(model->root_node());
-  while (iterator.has_next()) {
-    const BookmarkNode* node = iterator.Next();
-    if (node->is_url()) {
-      auto insert_position = std::upper_bound(nodes->begin(), nodes->end(),
-                                              node, &MoreRecentlyAdded);
-      if (nodes->size() < count || insert_position != nodes->end()) {
-        nodes->insert(insert_position, node);
-        while (nodes->size() > count)
-          nodes->pop_back();
-      }
-    }
-  }
+  // std::set is used here since insert element into std::vector is slower than
+  // std::set, so we use std::set to find the most recent bookmarks, and then
+  // return to users as std::vector.
+  std::multiset<const BookmarkNode*, decltype(&MoreRecentlyAdded)> nodes_set(
+      &MoreRecentlyAdded);
+  GetMostRecentEntries(model, count, &nodes_set);
+
+  nodes->reserve(nodes_set.size());
+  std::move(nodes_set.begin(), nodes_set.end(), std::back_inserter(*nodes));
 }
 
 bool MoreRecentlyAdded(const BookmarkNode* n1, const BookmarkNode* n2) {
   return n1->date_added() > n2->date_added();
+}
+
+void GetMostRecentlyUsedEntries(BookmarkModel* model,
+                                size_t count,
+                                std::vector<const BookmarkNode*>* nodes) {
+  // std::set is used here since insert element into std::vector is slower than
+  // std::set, so we use std::set to find the most recent bookmarks, and then
+  // return to users as std::vector.
+  auto lastUsedComp = [](const BookmarkNode* n1, const BookmarkNode* n2) {
+    if (n1->date_last_used() == n2->date_last_used()) {
+      // Both bookmarks have same used date, we compare added date instead,
+      // normally this happens when both bookmarks are never used.
+      return n1->date_added() > n2->date_added();
+    }
+    return n1->date_last_used() > n2->date_last_used();
+  };
+  std::multiset<const BookmarkNode*, decltype(lastUsedComp)> nodes_set(
+      lastUsedComp);
+  GetMostRecentEntries(model, count, &nodes_set);
+
+  nodes->reserve(nodes_set.size());
+  std::move(nodes_set.begin(), nodes_set.end(), std::back_inserter(*nodes));
 }
 
 void GetBookmarksMatchingProperties(BookmarkModel* model,
@@ -430,38 +473,28 @@ bool DoesBookmarkContainWords(const std::u16string& title,
          DoesBookmarkTextContainWords(base::UTF8ToUTF16(url.spec()), words) ||
          DoesBookmarkTextContainWords(
              url_formatter::FormatUrl(url, url_formatter::kFormatUrlOmitNothing,
-                                      net::UnescapeRule::NORMAL, nullptr,
+                                      base::UnescapeRule::NORMAL, nullptr,
                                       nullptr, nullptr),
              words);
 }
 
 void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterBooleanPref(
-      prefs::kShowBookmarkBar,
-      false,
+      prefs::kShowBookmarkBar, false,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
   registry->RegisterBooleanPref(prefs::kEditBookmarksEnabled, true);
   registry->RegisterBooleanPref(
-      prefs::kShowAppsShortcutInBookmarkBar,
-      base::FeatureList::IsEnabled(features::kAppsShortcutDefaultOff) ? false
-                                                                      : true,
+      prefs::kShowAppsShortcutInBookmarkBar, false,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
   registry->RegisterBooleanPref(
-      prefs::kShowReadingListInBookmarkBar, true,
+      prefs::kShowManagedBookmarksInBookmarkBar, true,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
-  registry->RegisterBooleanPref(
-      prefs::kShowManagedBookmarksInBookmarkBar,
-      true,
-      user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
+  registry->RegisterBooleanPref(prefs::kAddedBookmarkSincePowerBookmarksLaunch,
+                                false);
   RegisterManagedBookmarksPrefs(registry);
 }
 
 void RegisterManagedBookmarksPrefs(PrefRegistrySimple* registry) {
-  // Don't sync this, as otherwise, due to a limitation in sync, it
-  // will cause a deadlock (see http://crbug.com/97955).  If we truly
-  // want to sync the expanded state of folders, it should be part of
-  // bookmark sync itself (i.e., a property of the sync folder nodes).
-  registry->RegisterListPref(prefs::kBookmarkEditorExpandedNodes);
   registry->RegisterListPref(prefs::kManagedBookmarks);
   registry->RegisterStringPref(
       prefs::kManagedBookmarksFolderName, std::string());
@@ -478,8 +511,10 @@ const BookmarkNode* GetParentForNewNodes(
 
   if (index) {
     if (selection.size() == 1 && selection[0]->is_url()) {
-      *index = static_cast<size_t>(real_parent->GetIndexOf(selection[0]) + 1);
-      DCHECK_NE(0u, *index);
+      absl::optional<size_t> selection_index =
+          real_parent->GetIndexOf(selection[0]);
+      DCHECK(selection_index.has_value());
+      *index = selection_index.value() + 1;
     } else {
       *index = real_parent->children().size();
     }
@@ -496,18 +531,23 @@ void DeleteBookmarkFolders(BookmarkModel* model,
     const BookmarkNode* node = GetBookmarkNodeByID(model, *iter);
     if (!node)
       continue;
-    model->Remove(node);
+    model->Remove(node, metrics::BookmarkEditSource::kUser);
   }
 }
 
-void AddIfNotBookmarked(BookmarkModel* model,
-                        const GURL& url,
-                        const std::u16string& title) {
+const BookmarkNode* AddIfNotBookmarked(BookmarkModel* model,
+                                       const GURL& url,
+                                       const std::u16string& title,
+                                       const BookmarkNode* parent) {
+  // Nothing to do, a user bookmark with that url already exists.
   if (IsBookmarkedByUser(model, url))
-    return;  // Nothing to do, a user bookmark with that url already exists.
-  model->client()->RecordAction(base::UserMetricsAction("BookmarkAdded"));
-  const BookmarkNode* parent = GetParentForNewNodes(model);
-  model->AddURL(parent, parent->children().size(), title, url);
+    return nullptr;
+
+  base::RecordAction(base::UserMetricsAction("BookmarkAdded"));
+
+  const auto* parent_to_use = parent ? parent : GetParentForNewNodes(model);
+  return model->AddNewURL(parent_to_use, parent_to_use->children().size(),
+                          title, url);
 }
 
 void RemoveAllBookmarks(BookmarkModel* model, const GURL& url) {
@@ -517,9 +557,8 @@ void RemoveAllBookmarks(BookmarkModel* model, const GURL& url) {
   // Remove all the user bookmarks.
   for (size_t i = 0; i < bookmarks.size(); ++i) {
     const BookmarkNode* node = bookmarks[i];
-    int index = node->parent()->GetIndexOf(node);
-    if (index > -1 && model->client()->CanBeEditedByUser(node))
-      model->Remove(node);
+    if (model->client()->CanBeEditedByUser(node))
+      model->Remove(node, metrics::BookmarkEditSource::kUser);
   }
 }
 
@@ -530,8 +569,8 @@ std::u16string CleanUpUrlForMatching(
   return base::i18n::ToLower(url_formatter::FormatUrlWithAdjustments(
       GURL(TruncateUrl(gurl.spec())),
       url_formatter::kFormatUrlOmitUsernamePassword,
-      net::UnescapeRule::SPACES | net::UnescapeRule::PATH_SEPARATORS |
-          net::UnescapeRule::URL_SPECIAL_CHARS_EXCEPT_PATH_SEPARATORS,
+      base::UnescapeRule::SPACES | base::UnescapeRule::PATH_SEPARATORS |
+          base::UnescapeRule::URL_SPECIAL_CHARS_EXCEPT_PATH_SEPARATORS,
       nullptr, nullptr, adjustments ? adjustments : &tmp_adjustments));
 }
 
@@ -560,8 +599,15 @@ bool IsBookmarkedByUser(BookmarkModel* model, const GURL& url) {
 
 const BookmarkNode* GetBookmarkNodeByID(const BookmarkModel* model,
                                         int64_t id) {
-  // TODO(sky): TreeNode needs a method that visits all nodes using a predicate.
-  return GetNodeByID(model->root_node(), id);
+  return FindNode(model->root_node(),
+                  [id](const BookmarkNode* node) { return node->id() == id; });
+}
+
+const BookmarkNode* GetBookmarkNodeByUuid(const BookmarkModel* model,
+                                          const base::Uuid& uuid) {
+  return FindNode(model->root_node(), [&uuid](const BookmarkNode* node) {
+    return node->uuid() == uuid;
+  });
 }
 
 bool IsDescendantOf(const BookmarkNode* node, const BookmarkNode* root) {

@@ -1,4 +1,4 @@
-# Copyright 2016 The Chromium Authors. All rights reserved.
+# Copyright 2016 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -53,6 +53,7 @@ source_set("views") {
       "overlay_agent_mac.h",
       "overlay_agent_mac.mm",
     ]
+    configs += [ "//build/config/compiler:enable_arc" ]
   }
 }
 

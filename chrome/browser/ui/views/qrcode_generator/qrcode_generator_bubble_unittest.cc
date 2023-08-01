@@ -1,15 +1,18 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/qrcode_generator/qrcode_generator_bubble.h"
 
+#include "base/logging.h"
 #include "base/memory/raw_ptr.h"
 #include "base/scoped_observation.h"
 #include "chrome/services/qrcode_generator/public/cpp/qrcode_generator_service.h"
 #include "chrome/test/views/chrome_views_test_base.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/views/accessibility/view_accessibility.h"
+#include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/view_observer.h"
@@ -47,7 +50,8 @@ TEST_F(QRCodeGeneratorBubbleTest, GeneratedCodeHasQuietZone) {
 
   auto image = QRCodeGeneratorBubble::AddQRCodeQuietZone(
       base_image,
-      gfx::Size(kBaseSizeDip / kTileToDip, kBaseSizeDip / kTileToDip));
+      gfx::Size(kBaseSizeDip / kTileToDip, kBaseSizeDip / kTileToDip),
+      SK_ColorTRANSPARENT);
 
   EXPECT_EQ(base_image.width(), kBaseSizeDip);
   EXPECT_EQ(base_image.height(), kBaseSizeDip);
@@ -56,22 +60,25 @@ TEST_F(QRCodeGeneratorBubbleTest, GeneratedCodeHasQuietZone) {
 
   EXPECT_EQ(SK_ColorRED, base_image.bitmap()->getColor(0, 0));
 
-  EXPECT_EQ(SK_ColorWHITE, image.bitmap()->getColor(0, 0));
-  EXPECT_EQ(SK_ColorWHITE,
+  EXPECT_EQ(SK_ColorTRANSPARENT, image.bitmap()->getColor(0, 0));
+  EXPECT_EQ(SK_ColorTRANSPARENT,
             image.bitmap()->getColor(kQuietZoneDip, kQuietZoneDip - 1));
-  EXPECT_EQ(SK_ColorWHITE,
+  EXPECT_EQ(SK_ColorTRANSPARENT,
             image.bitmap()->getColor(kQuietZoneDip - 1, kQuietZoneDip));
   EXPECT_EQ(SK_ColorRED,
             image.bitmap()->getColor(kQuietZoneDip, kQuietZoneDip));
 }
 
-// Test-fake implementation of QRCodeGeneratorService; the real implementation
+// Test-fake implementation of QRImageGenerator; the real implementation
 // can't be used in these tests because it requires spawning a service process.
-class FakeQRCodeGeneratorService : public mojom::QRCodeGeneratorService {
+class FakeQRCodeGeneratorService {
  public:
   FakeQRCodeGeneratorService() = default;
+
+  using GenerateQRCodeCallback =
+      base::OnceCallback<void(mojom::GenerateQRCodeResponsePtr)>;
   void GenerateQRCode(mojom::GenerateQRCodeRequestPtr request,
-                      GenerateQRCodeCallback callback) override {
+                      GenerateQRCodeCallback callback) {
     pending_callback_ = std::move(callback);
     if (run_loop_)
       run_loop_->Quit();
@@ -126,9 +133,15 @@ class QRCodeGeneratorBubbleUITest : public ChromeViewsTestBase {
     auto bubble = std::make_unique<QRCodeGeneratorBubble>(
         anchor_view_, nullptr, base::DoNothing(), base::DoNothing(),
         GURL("https://www.chromium.org/a"));
+
+    // `base::Unretained` is okay, because `TearDown` will run before
+    // destruction of `fake_service_` and will `reset` the `bubble_widget_`
+    // which will destroy the `bubble` which will destroy/drop the callback we
+    // are setting for testing below.
     bubble->SetQRCodeServiceForTesting(
-        mojo::Remote<mojom::QRCodeGeneratorService>(
-            receiver_.BindNewPipeAndPassRemote()));
+        base::BindRepeating(&FakeQRCodeGeneratorService::GenerateQRCode,
+                            base::Unretained(&fake_service_)));
+
     bubble_ = bubble.get();
     bubble_widget_.reset(
         views::BubbleDialogDelegateView::CreateBubble(std::move(bubble)));
@@ -143,6 +156,37 @@ class QRCodeGeneratorBubbleUITest : public ChromeViewsTestBase {
   QRCodeGeneratorBubble* bubble() { return bubble_; }
   views::ImageView* image() { return bubble_->image_for_testing(); }
   views::Textfield* textfield() { return bubble_->textfield_for_testing(); }
+  views::Label* error_label() { return bubble_->error_label_for_testing(); }
+  views::LabelButton* download_button() {
+    return bubble_->download_button_for_testing();
+  }
+
+  bool ImageShowing() {
+    return image()->GetVisible() && image()->GetPreferredSize().height() > 0 &&
+           image()->GetPreferredSize().width() > 0;
+  }
+
+  bool ImagePlaceholderShowing() {
+    return ImageShowing() && image()->GetImage().height() > 128 &&
+           image()->GetImage().width() > 128 &&
+           image()->GetImage().bitmap()->getColor(128, 128) ==
+               SK_ColorTRANSPARENT;
+  }
+
+  // Note that this function and the one below it are not opposites!
+  // ErrorLabelShowing() checks whether *all* the conditions for the label to
+  // appear are true, and ErrorLabelHiddenAndA11yIgnored() checks whether *none*
+  // of the conditions for the label to appear are true.
+  bool ErrorLabelShowing() {
+    return error_label()->GetVisible() &&
+           error_label()->GetPreferredSize().height() > 0 &&
+           error_label()->GetPreferredSize().width() > 0;
+  }
+
+  bool ErrorLabelHiddenAndA11yIgnored() {
+    return !error_label()->GetVisible() &&
+           error_label()->GetViewAccessibility().IsIgnored();
+  }
 
   FakeQRCodeGeneratorService* service() { return &fake_service_; }
 
@@ -153,7 +197,6 @@ class QRCodeGeneratorBubbleUITest : public ChromeViewsTestBase {
   WidgetAutoclosePtr bubble_widget_;
 
   FakeQRCodeGeneratorService fake_service_;
-  mojo::Receiver<mojom::QRCodeGeneratorService> receiver_{&fake_service_};
 };
 
 // This test is a bit fiddly because mojo imposes asynchronicity on both sender
@@ -164,26 +207,21 @@ class QRCodeGeneratorBubbleUITest : public ChromeViewsTestBase {
 TEST_F(QRCodeGeneratorBubbleUITest, ImageShowsAfterErrorState) {
   bubble()->Show();
 
-  auto image_showing = [&]() {
-    return image()->GetVisible() && image()->GetPreferredSize().height() > 0 &&
-           image()->GetPreferredSize().width() > 0;
-  };
-
-  EXPECT_TRUE(image_showing());
+  EXPECT_TRUE(ImageShowing());
 
   service()->WaitForRequest();
   ASSERT_TRUE(service()->HasPendingRequest());
   auto error_response = mojom::GenerateQRCodeResponse::New();
   error_response->error_code = mojom::QRCodeGeneratorError::UNKNOWN_ERROR;
 
-  EXPECT_TRUE(image_showing());
+  EXPECT_TRUE(ImageShowing());
 
   {
     ViewVisibilityWaiter waiter(image());
     service()->DeliverResponse(std::move(error_response));
     waiter.Wait();
 
-    EXPECT_FALSE(image_showing());
+    EXPECT_FALSE(ImageShowing());
   }
 
   // The UI regenerates the QR code when the user types new text, so synthesize
@@ -194,7 +232,6 @@ TEST_F(QRCodeGeneratorBubbleUITest, ImageShowsAfterErrorState) {
   auto ok_response = mojom::GenerateQRCodeResponse::New();
   ok_response->error_code = mojom::QRCodeGeneratorError::NONE;
   ok_response->bitmap.allocN32Pixels(16, 16);
-  ok_response->data.resize(16 * 16);
   ok_response->data_size = gfx::Size(16, 16);
 
   {
@@ -202,8 +239,107 @@ TEST_F(QRCodeGeneratorBubbleUITest, ImageShowsAfterErrorState) {
     service()->DeliverResponse(std::move(ok_response));
     waiter.Wait();
 
-    EXPECT_TRUE(image_showing());
+    EXPECT_TRUE(ImageShowing());
   }
+}
+
+TEST_F(QRCodeGeneratorBubbleUITest,
+       PlaceholderImageShowsAfterTextFieldEmptied) {
+  bubble()->Show();
+
+  EXPECT_TRUE(ImagePlaceholderShowing());
+
+  service()->WaitForRequest();
+  ASSERT_TRUE(service()->HasPendingRequest());
+  auto error_response = mojom::GenerateQRCodeResponse::New();
+  error_response->error_code = mojom::QRCodeGeneratorError::UNKNOWN_ERROR;
+
+  EXPECT_TRUE(ImagePlaceholderShowing());
+
+  {
+    ViewVisibilityWaiter waiter(image());
+    service()->DeliverResponse(std::move(error_response));
+    waiter.Wait();
+
+    EXPECT_FALSE(ImageShowing());
+  }
+
+  auto ok_response = mojom::GenerateQRCodeResponse::New();
+  ok_response->error_code = mojom::QRCodeGeneratorError::NONE;
+  ok_response->bitmap.allocN32Pixels(16, 16);
+  ok_response->bitmap.eraseColor(SK_ColorRED);
+  ok_response->data_size = gfx::Size(16, 16);
+
+  // The UI regenerates the QR code when the user types new text, so synthesize
+  // that.
+  textfield()->InsertOrReplaceText(u"https://www.chromium.org/b");
+  service()->WaitForRequest();
+
+  {
+    ViewVisibilityWaiter waiter(image());
+    service()->DeliverResponse(std::move(ok_response));
+    waiter.Wait();
+
+    EXPECT_TRUE(ImageShowing());
+    EXPECT_FALSE(ImagePlaceholderShowing());
+    EXPECT_TRUE(download_button()->GetEnabled());
+  }
+
+  textfield()->SelectAll(false);
+  textfield()->DeleteRange(textfield()->GetSelectedRange());
+
+  EXPECT_TRUE(ImageShowing());
+  EXPECT_TRUE(ImagePlaceholderShowing());
+  EXPECT_FALSE(download_button()->GetEnabled());
+}
+
+TEST_F(QRCodeGeneratorBubbleUITest, LabelHidesAfterErrorState) {
+  bubble()->Show();
+
+  EXPECT_TRUE(ImagePlaceholderShowing());
+  EXPECT_TRUE(ErrorLabelHiddenAndA11yIgnored());
+
+  service()->WaitForRequest();
+  ASSERT_TRUE(service()->HasPendingRequest());
+  auto error_response = mojom::GenerateQRCodeResponse::New();
+  error_response->error_code = mojom::QRCodeGeneratorError::UNKNOWN_ERROR;
+
+  EXPECT_TRUE(ImagePlaceholderShowing());
+
+  {
+    ViewVisibilityWaiter waiter(image());
+    service()->DeliverResponse(std::move(error_response));
+    waiter.Wait();
+
+    EXPECT_FALSE(ImageShowing());
+  }
+
+  auto too_long_response = mojom::GenerateQRCodeResponse::New();
+  too_long_response->error_code = mojom::QRCodeGeneratorError::INPUT_TOO_LONG;
+
+  // The UI regenerates the QR code when the user types new text, so synthesize
+  // that.
+  textfield()->InsertOrReplaceText(u"https://www.chromium.org/b");
+  service()->WaitForRequest();
+
+  {
+    ViewVisibilityWaiter waiter(image());
+    service()->DeliverResponse(std::move(too_long_response));
+    waiter.Wait();
+
+    EXPECT_TRUE(ImageShowing());
+    EXPECT_TRUE(ImagePlaceholderShowing());
+    EXPECT_TRUE(ErrorLabelShowing());
+    EXPECT_FALSE(download_button()->GetEnabled());
+  }
+
+  textfield()->SelectAll(false);
+  textfield()->DeleteRange(textfield()->GetSelectedRange());
+
+  EXPECT_TRUE(ImageShowing());
+  EXPECT_TRUE(ImagePlaceholderShowing());
+  EXPECT_TRUE(ErrorLabelHiddenAndA11yIgnored());
+  EXPECT_FALSE(download_button()->GetEnabled());
 }
 
 }  // namespace

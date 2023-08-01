@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,7 +29,8 @@ enum LinkGenerationError {
   kIFrame = 10,
   kTimeout = 11,
   kBlockList = 12,
-  kNoRemoteConnection = 13
+  kNoRemoteConnection = 13,
+  kNotGenerated = 14
 };
 
 // TextFragmentReceiver is used for requesting renderer to perform text fragment

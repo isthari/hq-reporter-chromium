@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,12 +12,11 @@
 #include <memory>
 
 #include "base/time/time.h"
+#include "base/trace_event/typed_macros.h"
 #include "build/build_config.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
 #include "third_party/blink/public/common/input/web_mouse_wheel_event.h"
 #include "third_party/blink/public/common/input/web_pointer_event.h"
-#include "ui/events/android/gesture_event_android.h"
-#include "ui/events/android/gesture_event_type.h"
 #include "ui/events/base_event_utils.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/gesture_detection/gesture_event_data.h"
@@ -29,6 +28,11 @@
 #include "ui/gfx/geometry/point_f.h"
 #include "ui/gfx/geometry/transform.h"
 #include "ui/gfx/geometry/vector2d_f.h"
+
+#if BUILDFLAG(IS_ANDROID)
+#include "ui/events/android/gesture_event_android.h"
+#include "ui/events/android/gesture_event_type.h"
+#endif
 
 using blink::WebGestureDevice;
 using blink::WebGestureEvent;
@@ -176,6 +180,7 @@ WebTouchPoint CreateWebTouchPoint(const MotionEvent& event,
                             event.GetY(pointer_index));
   touch.SetPositionInScreen(event.GetRawX(pointer_index),
                             event.GetRawY(pointer_index));
+  touch.device_id = event.GetSourceDeviceId(pointer_index);
 
   // A note on touch ellipse specifications:
   //
@@ -330,6 +335,8 @@ WebGestureEvent CreateWebGestureEvent(const GestureEventDetails& details,
   gesture.primary_unique_touch_event_id =
       details.primary_unique_touch_event_id();
   gesture.unique_touch_event_id = unique_touch_event_id;
+  gesture.GetModifiableEventLatencyMetadata() =
+      details.GetEventLatencyMetadata();
 
   switch (details.type()) {
     case ET_GESTURE_SHOW_PRESS:
@@ -365,6 +372,13 @@ WebGestureEvent CreateWebGestureEvent(const GestureEventDetails& details,
       gesture.data.tap.width =
           IfNanUseMaxFloat(details.bounding_box_f().width());
       gesture.data.tap.height =
+          IfNanUseMaxFloat(details.bounding_box_f().height());
+      break;
+    case ET_GESTURE_SHORT_PRESS:
+      gesture.SetType(WebInputEvent::Type::kGestureShortPress);
+      gesture.data.long_press.width =
+          IfNanUseMaxFloat(details.bounding_box_f().width());
+      gesture.data.long_press.height =
           IfNanUseMaxFloat(details.bounding_box_f().height());
       break;
     case ET_GESTURE_LONG_PRESS:
@@ -475,17 +489,21 @@ WebGestureEvent CreateWebGestureEventFromGestureEventData(
 
 std::unique_ptr<blink::WebInputEvent> ScaleWebInputEvent(
     const blink::WebInputEvent& event,
-    float scale) {
-  return TranslateAndScaleWebInputEvent(event, gfx::Vector2dF(0, 0), scale);
+    float scale,
+    absl::optional<int64_t> trace_id) {
+  return TranslateAndScaleWebInputEvent(event, gfx::Vector2dF(0, 0), scale,
+                                        trace_id);
 }
 
 std::unique_ptr<blink::WebInputEvent> TranslateAndScaleWebInputEvent(
     const blink::WebInputEvent& event,
     const gfx::Vector2dF& delta,
-    float scale) {
+    float scale,
+    absl::optional<int64_t> trace_id) {
   std::unique_ptr<blink::WebInputEvent> scaled_event;
-  if (scale == 1.f && delta.IsZero())
+  if (scale == 1.f && delta.IsZero()) {
     return scaled_event;
+  }
   if (event.GetType() == blink::WebMouseEvent::Type::kMouseWheel) {
     blink::WebMouseWheelEvent* wheel_event = new blink::WebMouseWheelEvent;
     scaled_event.reset(wheel_event);
@@ -593,6 +611,23 @@ std::unique_ptr<blink::WebInputEvent> TranslateAndScaleWebInputEvent(
       // TODO(oshima): Find out if ContextMenu needs to be scaled.
       default:
         break;
+    }
+
+    if (gesture_event->GetType() ==
+            blink::WebInputEvent::Type::kGestureScrollUpdate &&
+        trace_id.has_value()) {
+      TRACE_EVENT("input", "TranslateAndScaleWebInputEvent",
+                  [trace_id_value = *trace_id,
+                   delta_x = gesture_event->data.scroll_update.delta_x,
+                   delta_y = gesture_event->data.scroll_update.delta_y](
+                      perfetto::EventContext& ctx) {
+                    auto* event =
+                        ctx.event<perfetto::protos::pbzero::ChromeTrackEvent>();
+                    auto* scroll_data = event->set_scroll_deltas();
+                    scroll_data->set_trace_id(trace_id_value);
+                    scroll_data->set_original_delta_x(delta_x);
+                    scroll_data->set_original_delta_y(delta_y);
+                  });
     }
   }
   return scaled_event;

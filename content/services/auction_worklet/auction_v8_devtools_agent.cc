@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 
 #include <stdint.h>
 
-#include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/notreached.h"
@@ -36,7 +35,7 @@ AuctionV8DevToolsAgent::~AuctionV8DevToolsAgent() {
 }
 
 void AuctionV8DevToolsAgent::Connect(
-    mojo::PendingReceiver<blink::mojom::DevToolsAgent> agent,
+    mojo::PendingAssociatedReceiver<blink::mojom::DevToolsAgent> agent,
     int context_group_id) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(v8_sequence_checker_);
   receivers_.Add(this, std::move(agent), context_group_id);
@@ -68,7 +67,9 @@ void AuctionV8DevToolsAgent::AttachDevToolsSession(
     mojo::PendingReceiver<blink::mojom::DevToolsSession> io_session_receiver,
     blink::mojom::DevToolsSessionStatePtr reattach_session_state,
     bool client_expects_binary_responses,
-    const std::string& session_id) {
+    bool client_is_trusted,
+    const std::string& session_id,
+    bool session_waits_for_debugger) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(v8_sequence_checker_);
   int context_group_id = receivers_.current_context();
   ContextGroupInfo& context_group_info = context_groups_[context_group_id];
@@ -81,9 +82,9 @@ void AuctionV8DevToolsAgent::AttachDevToolsSession(
           base::Unretained(this));
   auto session_impl = std::make_unique<AuctionV8DevToolsSession>(
       v8_helper_, debug_command_queue_, context_group_id, session_id,
-      client_expects_binary_responses, std::move(host),
-      io_session_receiver_sequence_, std::move(io_session_receiver),
-      std::move(session_destroyed));
+      client_expects_binary_responses, session_waits_for_debugger,
+      std::move(host), io_session_receiver_sequence_,
+      std::move(io_session_receiver), std::move(session_destroyed));
   context_group_info.sessions.insert(session_impl.get());
   sessions_.Add(std::move(session_impl), std::move(session_receiver));
 }
@@ -98,6 +99,12 @@ void AuctionV8DevToolsAgent::ReportChildTargets(
     bool wait_for_debugger,
     ReportChildTargetsCallback callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(v8_sequence_checker_);
+  NOTIMPLEMENTED();  // Should not be used with this.
+}
+
+void AuctionV8DevToolsAgent::GetUniqueFormControlId(
+    int32_t nodeId,
+    GetUniqueFormControlIdCallback callback) {
   NOTIMPLEMENTED();  // Should not be used with this.
 }
 

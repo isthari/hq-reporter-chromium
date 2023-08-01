@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,10 +31,14 @@ embedder.setUp_ = function(config) {
       '/extensions/platform_apps/web_view/shim/empty_guest.html';
   embedder.windowOpenGuestURL = embedder.baseGuestURL +
       '/extensions/platform_apps/web_view/shim/guest.html';
+  embedder.windowOpenNoopenerGuestURL = embedder.baseGuestURL +
+      '/extensions/platform_apps/web_view/shim/guest_noopener.html';
   embedder.windowOpenGuestFromSameURL = embedder.baseGuestURL +
       '/extensions/platform_apps/web_view/shim/guest_from_opener.html';
   embedder.noReferrerGuestURL = embedder.baseGuestURL +
       '/extensions/platform_apps/web_view/shim/guest_noreferrer.html';
+  embedder.windowOpenMessageURL = embedder.baseGuestURL +
+      '/extensions/platform_apps/web_view/shim/window_open_message.html';
   embedder.detectUserAgentURL = embedder.baseGuestURL + '/detect-user-agent';
   embedder.redirectGuestURL = embedder.baseGuestURL + '/server-redirect';
   embedder.redirectGuestURLDest = embedder.baseGuestURL +
@@ -112,6 +116,13 @@ embedder.test.assertFalse = function(condition) {
     embedder.test.fail();
   }
 };
+
+// Promisify webview.executeScript.
+function executeScriptP(webview, details) {
+  return new Promise((resolve) => {
+    webview.executeScript(details, resolve);
+  });
+}
 
 // Tests begin.
 
@@ -1780,6 +1791,32 @@ function testNewWindowNoReferrerLink() {
   document.body.appendChild(webview);
 }
 
+// Test that a webview guest can attach to a webview element with an existing
+// guest.
+function testNewWindowAttachToExisting() {
+  let openerWebview = document.createElement('webview');
+  openerWebview.src = embedder.windowOpenGuestURL;
+  let otherWebview = document.createElement('webview');
+  otherWebview.src = embedder.emptyGuestURL;
+
+  openerWebview.addEventListener('newwindow', function(e) {
+    e.preventDefault();
+
+    otherWebview.addEventListener('loadstop', () => {
+      embedder.test.succeed();
+    }, { once: true });
+
+    // Attach the new window to the existing webview.
+    e.window.attach(otherWebview);
+  }, { once: true });
+
+  otherWebview.addEventListener('loadstop', () => {
+    document.body.appendChild(openerWebview);
+  }, { once: true });
+
+  document.body.appendChild(otherWebview);
+}
+
 // This test verifies that the load event fires when the a new page is
 // loaded.
 // TODO(fsamuel): Add a test to verify that subframe loads within a guest
@@ -2193,11 +2230,11 @@ function testLoadAbortInvalidNavigation() {
 // pseudo-scheme fires loadabort and doesn't cause a crash.
 function testLoadAbortNonWebSafeScheme() {
   var webview = document.createElement('webview');
-  var chromeGuestURL = 'chrome-guest://abc123/';
+  var chromeUntrustedURL = 'chrome-untrusted://abc123/';
   webview.addEventListener('loadabort', function(e) {
     embedder.test.assertEq(-301, e.code);
     embedder.test.assertEq('ERR_DISALLOWED_URL_SCHEME', e.reason);
-    embedder.test.assertEq(chromeGuestURL, e.url);
+    embedder.test.assertEq(chromeUntrustedURL, e.url);
   });
   webview.addEventListener('loadstop', function(e) {
     embedder.test.assertEq('about:blank', webview.src);
@@ -2207,7 +2244,7 @@ function testLoadAbortNonWebSafeScheme() {
     // We should not crash.
     embedder.test.fail();
   });
-  webview.src = chromeGuestURL;
+  webview.src = chromeUntrustedURL;
   document.body.appendChild(webview);
 }
 
@@ -2831,6 +2868,20 @@ function testFindInMultipleWebViews() {
       });
 }
 
+function testFindAfterTerminate() {
+  let webview = new WebView();
+  webview.src = 'data:text/html,<body><iframe></iframe></body>';
+  webview.addEventListener('loadstop', () => {
+    webview.find('A');
+    webview.terminate();
+    webview.find('B', {'backward': true});
+    webview.find('B', {'backward': true}, (results) => {
+      embedder.test.succeed();
+    });
+  });
+  document.body.appendChild(webview);
+}
+
 function testLoadDataAPI() {
   var webview = new WebView();
   webview.src = 'about:blank';
@@ -3091,10 +3142,12 @@ function testPlugin() {
 }
 
 function testGarbageCollect() {
-  var webview = new WebView();
+  let webview = new WebView();
   webview = null;
-  window.gc();
-  embedder.test.succeed();
+
+  window.gc({type: 'major', execution: 'async'}).then(() => {
+    embedder.test.succeed();
+  });
 }
 
 // This test verifies that when an app window is closed, only the state for the
@@ -3293,36 +3346,97 @@ function testRendererNavigationRedirectWhileUnattached() {
   webview.src = 'about:blank';
 };
 
-function testWebViewAndEmbedderInNewWindow() {
-  var webview = document.createElement('webview');
-  webview.addEventListener('newwindow', function(e) {
+function runNewWindowCrossWindowAttachTest(noopener) {
+  let firstWebviewUrl = noopener ? embedder.windowOpenNoopenerGuestURL :
+                                   embedder.windowOpenGuestURL;
+  let webview = document.createElement('webview');
+  webview.src = firstWebviewUrl;
+
+  async function checkOpenerRelationships(secondWebview) {
+    let hasOpenerResult =
+        await executeScriptP(secondWebview, {code: '!!window.opener;'});
+    embedder.test.assertEq(1, hasOpenerResult.length);
+    embedder.test.assertEq(!noopener, hasOpenerResult[0]);
+
+    if (!noopener) {
+      let openerUsageResult = await executeScriptP(
+          secondWebview, {code: 'window.opener.location.href;'});
+      embedder.test.assertEq(1, openerUsageResult.length);
+      embedder.test.assertEq(firstWebviewUrl, openerUsageResult[0]);
+
+      // The first webview should be able to get, by name, another window
+      // reference to the window it previously opened.
+      let refFromNameResult = await executeScriptP(
+          webview,
+          {code: 'window.open(\'\', \'namedWebview\').location.href;'});
+      embedder.test.assertEq(1, refFromNameResult.length);
+      embedder.test.assertEq(embedder.emptyGuestURL, refFromNameResult[0]);
+    }
+
+    // After this test exits, we'll still need to compare embedders in the
+    // C++ part of this test.
+    embedder.test.succeed();
+  }
+
+  webview.addEventListener('newwindow', (e) => {
     e.preventDefault();
-    var url = 'new_window_main.html';
-    chrome.app.window.create(url, {}, function (app_new_window) {
+    let secondAppWindowUrl = 'new_window_main.html';
+    chrome.app.window.create(secondAppWindowUrl, {}, function(app_new_window) {
       if (chrome.runtime.lastError) {
         console.log('Error:' + chrome.runtime.lastError.message);
         embedder.test.fail();
         return;
       }
 
-      var new_window = app_new_window.contentWindow;
-      new_window.onload = function(evt) {
-        var newwebview = new_window.document.createElement('webview');
-        // We could use e.targetUrl here I suppose, but it's about:blank so
-        // it doesn't seem to trigger a loadstop.
-        newwebview.setAttribute('src', embedder.emptyGuestURL);
-        newwebview.addEventListener('loadstop', function (evt2) {
-          // After this test exits, we'll still need to compare embedders in the
-          // C++ part of this test.
-          embedder.test.succeed();
+      let new_window = app_new_window.contentWindow;
+      new_window.onload = () => {
+        let new_webview = new_window.document.createElement('webview');
+        new_webview.addEventListener('loadstop', () => {
+          if (new_webview.src == embedder.emptyGuestURL) {
+            checkOpenerRelationships(new_webview);
+          }
         });
         // Be sure to do the attach before appending to document.
-        e.window.attach(newwebview);
-        new_window.document.body.appendChild(newwebview);
+        e.window.attach(new_webview);
+        new_window.document.body.appendChild(new_webview);
       };
     });
   });
-  webview.setAttribute('src', embedder.windowOpenGuestURL);
+  document.body.appendChild(webview);
+}
+
+function testWebViewAndEmbedderInNewWindow() {
+  runNewWindowCrossWindowAttachTest(false);
+}
+
+function testWebViewAndEmbedderInNewWindow_Noopener() {
+  runNewWindowCrossWindowAttachTest(true);
+}
+
+function testNewWindowNoDeadlock() {
+  let webview = document.createElement('webview');
+  let newwindowEvent = null;
+  webview.addEventListener('loadstop', () => {
+    // First, we send a message to the guest, which will perform a window.open.
+    webview.contentWindow.postMessage('', '*');
+  });
+  webview.addEventListener('newwindow', (e) => {
+    // Once the guest calls window.open, we receive the request here.
+    // However, we postpone the attachment until we get a message back from the
+    // guest. The implementation cannot delay responding to the sync window.open
+    // IPC until attachment, because the message handler below performs the
+    // attachment, and that does not run until the guest's window.open call
+    // returns and it sends a message back to this embedder.
+    e.preventDefault();
+    newwindowEvent = e;
+  });
+  window.addEventListener('message', (e) => {
+    let newwebview = document.createElement('webview');
+    newwindowEvent.window.attach(newwebview);
+    document.body.appendChild(newwebview);
+    embedder.test.succeed();
+  });
+  webview.src = embedder.windowOpenMessageURL;
   document.body.appendChild(webview);
 }
 
@@ -3373,6 +3487,68 @@ function testWebRequestBlockedNavigation() {
   document.body.appendChild(webview);
 }
 
+function testBlankWebview() {
+  var webview = new WebView();
+  webview.src = "about:blank";
+  document.body.appendChild(webview);
+  webview.addEventListener('loadstop', function() {
+    // This lets the browser know that it can start sending down input events
+    // for the remainder of the test.
+    embedder.test.succeed();
+  });
+}
+
+function testAddFencedFrame() {
+  let fencedFrameHostURL = embedder.baseGuestURL +
+      '/extensions/platform_apps/web_view/shim/fenced_frame_host.html';
+
+  let webview = new WebView();
+  webview.src = fencedFrameHostURL;
+  webview.addEventListener('loadstop', () => {
+    embedder.test.succeed();
+  });
+  document.body.appendChild(webview);
+}
+
+function testActivatePortal() {
+  let portalHostURL = embedder.baseGuestURL +
+      '/extensions/platform_apps/web_view/shim/portal_host.html';
+  let webview = new WebView();
+  webview.src = portalHostURL;
+  webview.addEventListener('loadstop', () => {
+    webview.contentWindow.postMessage('activate', '*');
+  });
+  window.addEventListener('message', (e) => {
+    // TODO(crbug.com/942534): Support portals in guest views.
+    // Once we do, update this test to check for correct behaviour. For now,
+    // we're basically just checking that attempting this doesn't cause a crash.
+    embedder.test.assertTrue(e.data.includes('Not implemented'));
+    embedder.test.succeed();
+  });
+
+  document.body.appendChild(webview);
+}
+
+// Inserting a webview element into a detached iframe's document shouldn't
+// crash.
+function testInsertIntoDetachedIframe() {
+  let webview = document.createElement('webview');
+  webview.src = embedder.emptyGuestURL;
+  let iframe = document.createElement('iframe');
+
+  iframe.addEventListener('load', () => {
+    let doc = iframe.contentDocument;
+    iframe.remove();
+    doc.body.appendChild(webview);
+
+    setTimeout(() => {
+      embedder.test.succeed();
+    });
+  });
+
+  document.body.appendChild(iframe);
+}
+
 embedder.test.testList = {
   'testAllowTransparencyAttribute': testAllowTransparencyAttribute,
   'testAutosizeHeight': testAutosizeHeight,
@@ -3381,6 +3557,7 @@ embedder.test.testList = {
   'testAutosizeRemoveAttributes': testAutosizeRemoveAttributes,
   'testAutosizeWithPartialAttributes': testAutosizeWithPartialAttributes,
   'testAPIMethodExistence': testAPIMethodExistence,
+  'testBlankWebview': testBlankWebview,
   'testCustomElementCallbacksInaccessible':
       testCustomElementCallbacksInaccessible,
   'testChromeExtensionURL': testChromeExtensionURL,
@@ -3438,6 +3615,7 @@ embedder.test.testList = {
   'testNewWindowTwoListeners': testNewWindowTwoListeners,
   'testNewWindowNoPreventDefault': testNewWindowNoPreventDefault,
   'testNewWindowNoReferrerLink': testNewWindowNoReferrerLink,
+  'testNewWindowAttachToExisting': testNewWindowAttachToExisting,
   'testContentLoadEvent': testContentLoadEvent,
   'testContentLoadEventWithDisplayNone': testContentLoadEventWithDisplayNone,
   'testDeclarativeWebRequestAPI': testDeclarativeWebRequestAPI,
@@ -3475,11 +3653,12 @@ embedder.test.testList = {
   'testResizeWebviewWithDisplayNoneResizesContent':
       testResizeWebviewWithDisplayNoneResizesContent,
   'testPostMessageCommChannel': testPostMessageCommChannel,
-  'testScreenshotCapture' : testScreenshotCapture,
-  'testZoomAPI' : testZoomAPI,
+  'testScreenshotCapture': testScreenshotCapture,
+  'testZoomAPI': testZoomAPI,
   'testFindAPI': testFindAPI,
   'testFindAPI_findupdate': testFindAPI_findupdate,
   'testFindInMultipleWebViews': testFindInMultipleWebViews,
+  'testFindAfterTerminate': testFindAfterTerminate,
   'testLoadDataAPI': testLoadDataAPI,
   'testLoadDataAPIAccessibleResources': testLoadDataAPIAccessibleResources,
   'testResizeEvents': testResizeEvents,
@@ -3496,11 +3675,17 @@ embedder.test.testList = {
   'testDialogInPdf': testDialogInPdf,
   'testMailtoLink': testMailtoLink,
   'testRendererNavigationRedirectWhileUnattached':
-       testRendererNavigationRedirectWhileUnattached,
+      testRendererNavigationRedirectWhileUnattached,
   'testBlobURL': testBlobURL,
   'testWebViewAndEmbedderInNewWindow': testWebViewAndEmbedderInNewWindow,
+  'testWebViewAndEmbedderInNewWindow_Noopener':
+      testWebViewAndEmbedderInNewWindow_Noopener,
+  'testNewWindowNoDeadlock': testNewWindowNoDeadlock,
   'testSelectPopupPositionInMac': testSelectPopupPositionInMac,
-  'testWebRequestBlockedNavigation': testWebRequestBlockedNavigation
+  'testWebRequestBlockedNavigation': testWebRequestBlockedNavigation,
+  'testAddFencedFrame': testAddFencedFrame,
+  'testActivatePortal': testActivatePortal,
+  'testInsertIntoDetachedIframe': testInsertIntoDetachedIframe,
 };
 
 onload = function() {

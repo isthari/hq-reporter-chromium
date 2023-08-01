@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,18 +10,17 @@ import android.content.Context;
 import android.graphics.PorterDuff;
 import android.text.Editable;
 import android.text.TextUtils;
-import android.text.TextWatcher;
 import android.util.AttributeSet;
 import android.view.View;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.Callback;
 import org.chromium.chrome.browser.download.internal.R;
 import org.chromium.components.browser_ui.widget.text.AlertDialogEditText;
 import org.chromium.components.offline_items_collection.RenameResult;
+import org.chromium.ui.text.EmptyTextWatcher;
 
 /**
  * Content View of dialog in Download Home that allows users to rename a downloaded file.
@@ -41,13 +40,7 @@ public class RenameDialogCustomView extends ScrollView {
         super.onFinishInflate();
         mErrorMessageView = findViewById(R.id.error_message);
         mFileName = findViewById(R.id.file_name);
-        mFileName.addTextChangedListener(new TextWatcher() {
-            @Override
-            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-
-            @Override
-            public void onTextChanged(CharSequence s, int start, int before, int count) {}
-
+        mFileName.addTextChangedListener(new EmptyTextWatcher() {
             @Override
             public void afterTextChanged(Editable s) {
                 if (mEmptyFileNameObserver == null) return;
@@ -146,8 +139,7 @@ public class RenameDialogCustomView extends ScrollView {
     }
 
     private void setErrorMessageVisibility(boolean hasError) {
-        mErrorMessageView.setTextColor(
-                ApiCompatibilityUtils.getColor(getResources(), R.color.default_text_color_error));
+        mErrorMessageView.setTextColor(getContext().getColor(R.color.default_text_color_error));
         mErrorMessageView.setVisibility(hasError ? View.VISIBLE : View.GONE);
     }
 
@@ -163,8 +155,7 @@ public class RenameDialogCustomView extends ScrollView {
         if (hasError) {
             // Change the edit text box underline tint color.
             mFileName.getBackground().setColorFilter(
-                    ApiCompatibilityUtils.getColor(getResources(), R.color.default_red),
-                    PorterDuff.Mode.SRC_IN);
+                    getContext().getColor(R.color.default_red), PorterDuff.Mode.SRC_IN);
         } else {
             mFileName.getBackground().clearColorFilter();
         }

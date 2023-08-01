@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,59 +32,8 @@ PolymerTest.prototype = {
 };
 
 /**
- * Test fixture for Polymer2 elements testing (deprecated).
- * TODO(crbug.com/965770): Delete once all remaining Polymer2 UIs have been
- * migrated.
- * @constructor
- * @extends PolymerTest
- */
-function Polymer2DeprecatedTest() {}
-
-Polymer2DeprecatedTest.prototype = {
-  __proto__: PolymerTest.prototype,
-
-  /**
-   * Files that need not be compiled.
-   * @override
-   */
-  extraLibraries: [
-    '//ui/webui/resources/js/cr.js',
-    '//ui/webui/resources/js/assert.js',
-    '//ui/webui/resources/js/promise_resolver.js',
-    '//third_party/mocha/mocha.js',
-    '//chrome/test/data/webui/mocha_adapter.js',
-    '//third_party/polymer/v1_0/components-chromium/iron-test-helpers/' +
-        'mock-interactions.js',
-  ],
-};
-
-/**
- * Imports the HTML file.
- * @param {string} src The URL to load.
- * @return {!Promise} A promise that is resolved/rejected on success/failure.
- */
-PolymerTest.importHtml = function(src) {
-  var link = document.createElement('link');
-  link.rel = 'import';
-  var promise = new Promise(function(resolve, reject) {
-    link.onload = resolve;
-    link.onerror = reject;
-  });
-  link.href = src;
-  document.head.appendChild(link);
-  return promise;
-};
-
-/**
- * Removes all content from the body. In a vulcanized build, this retains the
- * inlined tags so stylesheets and dom-modules are not discarded.
+ * Removes all content from the body.
  */
 PolymerTest.clearBody = function() {
-  // Save the div where vulcanize inlines content before clearing the page.
-  var vulcanizeDiv =
-      document.querySelector('body > div[hidden][by-polymer-bundler]');
-  document.body.innerHTML = '';
-  if (vulcanizeDiv) {
-    document.body.appendChild(vulcanizeDiv);
-  }
+  document.body.innerHTML = window.trustedTypes.emptyHTML;
 };

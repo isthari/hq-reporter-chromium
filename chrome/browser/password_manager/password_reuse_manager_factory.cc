@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,8 @@
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/password_manager/account_password_store_factory.h"
 #include "chrome/browser/password_manager/password_store_factory.h"
-#include "chrome/browser/profiles/incognito_helpers.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/password_manager/core/browser/password_reuse_manager_impl.h"
 #include "components/password_manager/core/browser/password_store_interface.h"
 #include "components/password_manager/core/browser/password_store_signin_notifier_impl.h"
@@ -44,9 +42,14 @@ bool IsSignedIn(Profile* profile) {
 }  // namespace
 
 PasswordReuseManagerFactory::PasswordReuseManagerFactory()
-    : BrowserContextKeyedServiceFactory(
+    : ProfileKeyedServiceFactory(
           "PasswordReuseManager",
-          BrowserContextDependencyManager::GetInstance()) {
+          ProfileSelections::Builder()
+              .WithRegular(ProfileSelection::kRedirectedToOriginal)
+              // TODO(crbug.com/1418376): Check if this service is needed in
+              // Guest mode.
+              .WithGuest(ProfileSelection::kRedirectedToOriginal)
+              .Build()) {
   DependsOn(IdentityManagerFactory::GetInstance());
   DependsOn(PasswordStoreFactory::GetInstance());
   DependsOn(AccountPasswordStoreFactory::GetInstance());
@@ -77,6 +80,15 @@ KeyedService* PasswordReuseManagerFactory::BuildServiceInstanceFor(
 
   Profile* profile = Profile::FromBrowserContext(context);
 
+  password_manager::PasswordStoreInterface* store =
+      PasswordStoreFactory::GetForProfile(profile,
+                                          ServiceAccessType::EXPLICIT_ACCESS)
+          .get();
+  // Incognito, guest, or system profiles doesn't have PasswordStore so
+  // PasswordReuseManager shouldn't be created as well.
+  if (!store)
+    return nullptr;
+
   password_manager::PasswordReuseManager* reuse_manager =
       new password_manager::PasswordReuseManagerImpl();
   reuse_manager->Init(profile->GetPrefs(),
@@ -102,9 +114,4 @@ KeyedService* PasswordReuseManagerFactory::BuildServiceInstanceFor(
 #endif
 
   return reuse_manager;
-}
-
-content::BrowserContext* PasswordReuseManagerFactory::GetBrowserContextToUse(
-    content::BrowserContext* context) const {
-  return chrome::GetBrowserContextRedirectedInIncognito(context);
 }

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 #include "base/location.h"
 #include "base/run_loop.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "base/trace_event/trace_config_memory_test_util.h"
 #include "base/trace_event/trace_event.h"
@@ -36,8 +35,8 @@ using tracing::EndTracing;
 void RequestGlobalDumpCallback(base::OnceClosure quit_closure,
                                bool success,
                                uint64_t) {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                std::move(quit_closure));
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, std::move(quit_closure));
   // TODO(ssid): Check for dump success once crbug.com/709524 is fixed.
 }
 
@@ -65,7 +64,7 @@ class MemoryTracingBrowserTest : public InProcessBrowserTest {
     content::WebContents* wc =
         browser()->tab_strip_model()->GetActiveWebContents();
     ASSERT_TRUE(wc);
-    ASSERT_TRUE(content::ExecuteScript(wc, ";"));
+    ASSERT_TRUE(content::ExecJs(wc, ";"));
   }
 
   void PerformDumpMemoryTestActions(

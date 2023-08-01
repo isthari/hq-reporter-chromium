@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,15 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <string>
 #include <tuple>
 
 #include "base/allocator/buildflags.h"
-#include "base/callback_helpers.h"
+#include "base/allocator/partition_alloc_support.h"
+#include "base/allocator/partition_allocator/partition_alloc_buildflags.h"
 #include "base/debug/crash_logging.h"
 #include "base/feature_list.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/numerics/safe_math.h"
@@ -63,9 +66,11 @@ constexpr base::FeatureState kDefaultEnabled =
     base::FEATURE_DISABLED_BY_DEFAULT;
 #endif
 
-const base::Feature kGwpAsanMalloc{"GwpAsanMalloc", kDefaultEnabled};
-const base::Feature kGwpAsanPartitionAlloc{"GwpAsanPartitionAlloc",
-                                           kDefaultEnabled};
+[[maybe_unused]] constexpr bool kDefaultEnableLightweightDetector = false;
+constexpr int kDefaultMaxLightweightMetadata = 255;
+
+BASE_FEATURE(kGwpAsanMalloc, "GwpAsanMalloc", kDefaultEnabled);
+BASE_FEATURE(kGwpAsanPartitionAlloc, "GwpAsanPartitionAlloc", kDefaultEnabled);
 
 // Returns whether this process should be sampled to enable GWP-ASan.
 bool SampleProcess(const base::Feature& feature, bool boost_sampling) {
@@ -135,21 +140,30 @@ size_t AllocationSamplingFrequency(const base::Feature& feature) {
 // Exported for testing.
 GWP_ASAN_EXPORT absl::optional<AllocatorSettings> GetAllocatorSettings(
     const base::Feature& feature,
-    bool boost_sampling) {
+    bool boost_sampling,
+    const char* process_type) {
   if (!base::FeatureList::IsEnabled(feature))
     return absl::nullopt;
 
-  static_assert(AllocatorState::kMaxSlots <= std::numeric_limits<int>::max(),
-                "kMaxSlots out of range");
-  constexpr int kMaxSlots = static_cast<int>(AllocatorState::kMaxSlots);
+  static_assert(
+      AllocatorState::kMaxRequestedSlots <= std::numeric_limits<int>::max(),
+      "kMaxRequestedSlots out of range");
+  constexpr int kMaxRequestedSlots =
+      static_cast<int>(AllocatorState::kMaxRequestedSlots);
 
   static_assert(AllocatorState::kMaxMetadata <= std::numeric_limits<int>::max(),
                 "kMaxMetadata out of range");
   constexpr int kMaxMetadata = static_cast<int>(AllocatorState::kMaxMetadata);
 
+  static_assert(AllocatorState::kMaxLightweightMetadata <=
+                    std::numeric_limits<int>::max(),
+                "kMaxMetadata out of range");
+  constexpr int kMaxLightweightMetadata =
+      static_cast<int>(AllocatorState::kMaxLightweightMetadata);
+
   int total_pages = GetFieldTrialParamByFeatureAsInt(feature, "TotalPages",
                                                      kDefaultTotalPages);
-  if (total_pages < 1 || total_pages > kMaxSlots) {
+  if (total_pages < 1 || total_pages > kMaxRequestedSlots) {
     DLOG(ERROR) << "GWP-ASan TotalPages is out-of-range: " << total_pages;
     return absl::nullopt;
   }
@@ -170,6 +184,33 @@ GWP_ASAN_EXPORT absl::optional<AllocatorSettings> GetAllocatorSettings(
     return absl::nullopt;
   }
 
+  LightweightDetector::State lightweight_detector_state =
+// The detector is not used on 32-bit systems because pointers there aren't big
+// enough to safely store metadata IDs.
+#if defined(ARCH_CPU_64_BITS)
+      // At the moment, BRP is the only client of the detector, and this extra
+      // check allows us to reduce the memory usage in BRP-disabled processes.
+      (base::allocator::PartitionAllocSupport::GetBrpConfiguration(process_type)
+           .enable_brp &&
+       GetFieldTrialParamByFeatureAsBool(feature, "EnableLightweightDetector",
+                                         kDefaultEnableLightweightDetector))
+          ? LightweightDetector::State::kEnabled
+          :
+#endif  // defined(ARCH_CPU_64_BITS)
+          LightweightDetector::State::kDisabled;
+
+  int max_lightweight_metadata = 0;
+  if (lightweight_detector_state == LightweightDetector::State::kEnabled) {
+    max_lightweight_metadata = GetFieldTrialParamByFeatureAsInt(
+        feature, "MaxLightweightMetadata", kDefaultMaxLightweightMetadata);
+    if (max_lightweight_metadata < 1 ||
+        max_lightweight_metadata > kMaxLightweightMetadata) {
+      DLOG(ERROR) << "GWP-ASan MaxLightweightMetadata is out-of-range: "
+                  << max_lightweight_metadata;
+      return absl::nullopt;
+    }
+  }
+
   size_t alloc_sampling_freq = AllocationSamplingFrequency(feature);
   if (!alloc_sampling_freq)
     return absl::nullopt;
@@ -177,9 +218,12 @@ GWP_ASAN_EXPORT absl::optional<AllocatorSettings> GetAllocatorSettings(
   if (!SampleProcess(feature, boost_sampling))
     return absl::nullopt;
 
-  return AllocatorSettings{
-      static_cast<size_t>(max_allocations), static_cast<size_t>(max_metadata),
-      static_cast<size_t>(total_pages), alloc_sampling_freq};
+  return AllocatorSettings{static_cast<size_t>(max_allocations),
+                           static_cast<size_t>(max_metadata),
+                           static_cast<size_t>(total_pages),
+                           alloc_sampling_freq,
+                           lightweight_detector_state,
+                           static_cast<size_t>(max_lightweight_metadata)};
 }
 
 }  // namespace internal
@@ -187,8 +231,8 @@ GWP_ASAN_EXPORT absl::optional<AllocatorSettings> GetAllocatorSettings(
 void EnableForMalloc(bool boost_sampling, const char* process_type) {
 #if BUILDFLAG(USE_ALLOCATOR_SHIM)
   static bool init_once = [&]() -> bool {
-    auto settings = internal::GetAllocatorSettings(internal::kGwpAsanMalloc,
-                                                   boost_sampling);
+    auto settings = internal::GetAllocatorSettings(
+        internal::kGwpAsanMalloc, boost_sampling, process_type);
     if (!settings)
       return false;
 
@@ -208,13 +252,15 @@ void EnableForPartitionAlloc(bool boost_sampling, const char* process_type) {
 #if BUILDFLAG(USE_PARTITION_ALLOC)
   static bool init_once = [&]() -> bool {
     auto settings = internal::GetAllocatorSettings(
-        internal::kGwpAsanPartitionAlloc, boost_sampling);
+        internal::kGwpAsanPartitionAlloc, boost_sampling, process_type);
     if (!settings)
       return false;
 
     internal::InstallPartitionAllocHooks(
         settings->max_allocated_pages, settings->num_metadata,
-        settings->total_pages, settings->sampling_frequency, base::DoNothing());
+        settings->total_pages, settings->sampling_frequency, base::DoNothing(),
+        settings->lightweight_detector_state,
+        settings->num_lightweight_metadata);
     return true;
   }();
   std::ignore = init_once;

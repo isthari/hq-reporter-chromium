@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -160,9 +160,7 @@ class BorderTest : public ViewsTestBase {
     view_ = std::make_unique<views::View>();
     view_->SetSize(gfx::Size(100, 50));
     recorder_ = std::make_unique<cc::PaintRecorder>();
-    canvas_ = std::make_unique<gfx::Canvas>(
-        recorder_->beginRecording(SkRect::MakeWH(kCanvasWidth, kCanvasHeight)),
-        1.0f);
+    canvas_ = std::make_unique<gfx::Canvas>(recorder_->beginRecording(), 1.0f);
   }
 
   void TearDown() override {
@@ -174,10 +172,10 @@ class BorderTest : public ViewsTestBase {
   }
 
   std::unique_ptr<MockCanvas> DrawIntoMockCanvas() {
-    sk_sp<cc::PaintRecord> record = recorder_->finishRecordingAsPicture();
+    cc::PaintRecord record = recorder_->finishRecordingAsPicture();
     std::unique_ptr<MockCanvas> mock(
         new MockCanvas(kCanvasWidth, kCanvasHeight));
-    record->Playback(mock.get());
+    record.Playback(mock.get());
     return mock;
   }
 
@@ -196,7 +194,7 @@ TEST_F(BorderTest, SolidBorder) {
   const SkColor kBorderColor = SK_ColorMAGENTA;
   std::unique_ptr<Border> border(CreateSolidBorder(3, kBorderColor));
   EXPECT_EQ(gfx::Size(6, 6), border->GetMinimumSize());
-  EXPECT_EQ(gfx::Insets(3, 3, 3, 3), border->GetInsets());
+  EXPECT_EQ(gfx::Insets(3), border->GetInsets());
   border->Paint(*view_, canvas_.get());
 
   std::unique_ptr<MockCanvas> mock = DrawIntoMockCanvas();
@@ -216,12 +214,12 @@ TEST_F(BorderTest, RoundedRectBorder) {
       3, LayoutProvider::Get()->GetCornerRadiusMetric(Emphasis::kLow),
       SK_ColorBLUE));
   EXPECT_EQ(gfx::Size(6, 6), border->GetMinimumSize());
-  EXPECT_EQ(gfx::Insets(3, 3, 3, 3), border->GetInsets());
+  EXPECT_EQ(gfx::Insets(3), border->GetInsets());
   border->Paint(*view_, canvas_.get());
 
   std::unique_ptr<MockCanvas> mock = DrawIntoMockCanvas();
   SkRRect expected_rrect;
-  expected_rrect.setRectXY(SkRect::MakeLTRB(1.5, 1.5, 98.5, 48.5), 4, 4);
+  expected_rrect.setRectXY(SkRect::MakeLTRB(1.5, 1.5, 98.5, 48.5), 2.5, 2.5);
   EXPECT_TRUE(mock->draw_rect_calls().empty());
   std::vector<MockCanvas::DrawRRectCall> draw_rrect_calls =
       mock->draw_rrect_calls();
@@ -234,10 +232,9 @@ TEST_F(BorderTest, RoundedRectBorder) {
 }
 
 TEST_F(BorderTest, EmptyBorder) {
-  constexpr gfx::Insets kInsets(1, 2, 3, 4);
+  constexpr auto kInsets = gfx::Insets::TLBR(1, 2, 3, 4);
 
-  std::unique_ptr<Border> border(CreateEmptyBorder(
-      kInsets.top(), kInsets.left(), kInsets.bottom(), kInsets.right()));
+  std::unique_ptr<Border> border(CreateEmptyBorder(kInsets));
   // The EmptyBorder has no minimum size despite nonzero insets.
   EXPECT_EQ(gfx::Size(), border->GetMinimumSize());
   EXPECT_EQ(kInsets, border->GetInsets());
@@ -250,11 +247,9 @@ TEST_F(BorderTest, EmptyBorder) {
 
 TEST_F(BorderTest, SolidSidedBorder) {
   constexpr SkColor kBorderColor = SK_ColorMAGENTA;
-  constexpr gfx::Insets kInsets(1, 2, 3, 4);
+  constexpr auto kInsets = gfx::Insets::TLBR(1, 2, 3, 4);
 
-  std::unique_ptr<Border> border(
-      CreateSolidSidedBorder(kInsets.top(), kInsets.left(), kInsets.bottom(),
-                             kInsets.right(), kBorderColor));
+  std::unique_ptr<Border> border(CreateSolidSidedBorder(kInsets, kBorderColor));
   EXPECT_EQ(gfx::Size(6, 4), border->GetMinimumSize());
   EXPECT_EQ(kInsets, border->GetInsets());
   border->Paint(*view_, canvas_.get());
@@ -272,7 +267,7 @@ TEST_F(BorderTest, SolidSidedBorder) {
 }
 
 TEST_F(BorderTest, BorderPainter) {
-  constexpr gfx::Insets kInsets(1, 2, 3, 4);
+  constexpr auto kInsets = gfx::Insets::TLBR(1, 2, 3, 4);
 
   std::unique_ptr<MockPainter> painter(new MockPainter());
   MockPainter* painter_ptr = painter.get();

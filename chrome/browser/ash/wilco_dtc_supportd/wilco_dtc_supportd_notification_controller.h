@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,8 @@
 
 #include <string>
 
+#include "ash/constants/notifier_catalogs.h"
+#include "base/memory/raw_ptr.h"
 #include "chrome/browser/ash/login/help_app_launcher.h"
 #include "ui/message_center/public/cpp/notification.h"
 
@@ -48,6 +50,7 @@ class WilcoDtcSupportdNotificationController {
  private:
   void DisplayNotification(
       const std::string& notification_id,
+      const NotificationCatalogName& catalog_name,
       const int title_id,
       const int message_id,
       const message_center::NotificationPriority priority,
@@ -55,7 +58,7 @@ class WilcoDtcSupportdNotificationController {
       const message_center::SystemNotificationWarningLevel color_type,
       const HelpAppLauncher::HelpTopic topic) const;
 
-  ProfileManager* profile_manager_;  // non-owned
+  raw_ptr<ProfileManager, ExperimentalAsh> profile_manager_;  // non-owned
 };
 
 }  // namespace ash

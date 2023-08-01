@@ -24,16 +24,19 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_CSS_RESOLVER_MATCHED_PROPERTIES_CACHE_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_CSS_RESOLVER_MATCHED_PROPERTIES_CACHE_H_
 
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/css_property_value_set.h"
 #include "third_party/blink/renderer/core/css/resolver/match_result.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 #include "third_party/blink/renderer/platform/heap/forward.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
-#include "third_party/blink/renderer/platform/wtf/hash_map.h"
 
 namespace blink {
 
 class ComputedStyle;
+class ComputedStyleBuilder;
 class StyleResolverState;
 
 class CORE_EXPORT CachedMatchedProperties final
@@ -46,11 +49,11 @@ class CORE_EXPORT CachedMatchedProperties final
   Vector<UntracedMember<CSSPropertyValueSet>> matched_properties;
   Vector<MatchedProperties::Data> matched_properties_types;
 
-  scoped_refptr<ComputedStyle> computed_style;
-  scoped_refptr<ComputedStyle> parent_computed_style;
+  scoped_refptr<const ComputedStyle> computed_style;
+  scoped_refptr<const ComputedStyle> parent_computed_style;
 
-  void Set(const ComputedStyle&,
-           const ComputedStyle& parent_style,
+  void Set(scoped_refptr<const ComputedStyle>&& style,
+           scoped_refptr<const ComputedStyle>&& parent_style,
            const MatchedPropertiesVector&);
   void Clear();
 
@@ -69,7 +72,7 @@ class CORE_EXPORT MatchedPropertiesCache {
   MatchedPropertiesCache();
   MatchedPropertiesCache(const MatchedPropertiesCache&) = delete;
   MatchedPropertiesCache& operator=(const MatchedPropertiesCache&) = delete;
-  ~MatchedPropertiesCache() { DCHECK(cache_.IsEmpty()); }
+  ~MatchedPropertiesCache() { DCHECK(cache_.empty()); }
 
   class CORE_EXPORT Key {
     STACK_ALLOCATED();
@@ -80,8 +83,7 @@ class CORE_EXPORT MatchedPropertiesCache {
     bool IsValid() const {
       // If hash_ happens to compute to the empty value or the deleted value,
       // the corresponding MatchResult can't be cached.
-      return hash_ != HashTraits<unsigned>::EmptyValue() &&
-             !HashTraits<unsigned>::IsDeletedValue(hash_);
+      return !WTF::IsHashTraitsEmptyOrDeletedValue<HashTraits<unsigned>>(hash_);
     }
 
    private:
@@ -95,13 +97,15 @@ class CORE_EXPORT MatchedPropertiesCache {
   };
 
   const CachedMatchedProperties* Find(const Key&, const StyleResolverState&);
-  void Add(const Key&, const ComputedStyle&, const ComputedStyle& parent_style);
+  void Add(const Key&,
+           scoped_refptr<const ComputedStyle>&&,
+           scoped_refptr<const ComputedStyle>&& parent_style);
 
   void Clear();
   void ClearViewportDependent();
 
   static bool IsCacheable(const StyleResolverState&);
-  static bool IsStyleCacheable(const ComputedStyle&);
+  static bool IsStyleCacheable(const ComputedStyleBuilder&);
 
   void Trace(Visitor*) const;
 
@@ -110,10 +114,7 @@ class CORE_EXPORT MatchedPropertiesCache {
   // long as *all* properties referred to by the entry are alive. This requires
   // custom weakness which is managed through
   // |RemoveCachedMatchedPropertiesWithDeadEntries|.
-  using Cache = HeapHashMap<unsigned,
-                            Member<CachedMatchedProperties>,
-                            DefaultHash<unsigned>::Hash,
-                            HashTraits<unsigned>>;
+  using Cache = HeapHashMap<unsigned, Member<CachedMatchedProperties>>;
 
   void RemoveCachedMatchedPropertiesWithDeadEntries(const LivenessBroker&);
 

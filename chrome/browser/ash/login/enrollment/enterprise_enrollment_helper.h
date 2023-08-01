@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,14 +9,15 @@
 #include <memory>
 #include <string>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
+#include "base/memory/raw_ptr.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 
 class GoogleServiceAuthError;
 
 namespace policy {
-class ActiveDirectoryJoinDelegate;
 struct EnrollmentConfig;
+enum class LicenseType;
 class EnrollmentStatus;
 }  // namespace policy
 
@@ -65,9 +66,9 @@ class EnterpriseEnrollmentHelper {
   // Factory method. Caller takes ownership of the returned object.
   static std::unique_ptr<EnterpriseEnrollmentHelper> Create(
       EnrollmentStatusConsumer* status_consumer,
-      policy::ActiveDirectoryJoinDelegate* ad_join_delegate,
       const policy::EnrollmentConfig& enrollment_config,
-      const std::string& enrolling_user_domain);
+      const std::string& enrolling_user_domain,
+      policy::LicenseType license_type);
 
   // Sets up a mock object that would be returned by next Create call.
   // This call passes ownership of `mock`.
@@ -98,12 +99,6 @@ class EnterpriseEnrollmentHelper {
   // lifetime, and only if none of the EnrollUsing* was called before.
   virtual void EnrollUsingAttestation() = 0;
 
-  // Starts enterprise enrollment for offline demo-mode.
-  // EnrollForOfflineDemo is used offline, no network connections. Thus it goes
-  // into enrollment without authentication -- and applies policies which are
-  // stored locally.
-  virtual void EnrollForOfflineDemo() = 0;
-
   // Starts device attribute update process. First tries to get
   // permission to update device attributes for current user
   // using stored during enrollment oauth token.
@@ -122,15 +117,18 @@ class EnterpriseEnrollmentHelper {
   // Calls `callback` on completion.
   virtual void ClearAuth(base::OnceClosure callback) = 0;
 
+  // Returns true if enrollment is in progress.
+  virtual bool InProgress() const = 0;
+
  protected:
   // The user of this class is responsible for clearing auth data in some cases
   // (see comment for EnrollUsingProfile()).
   EnterpriseEnrollmentHelper();
 
   // This method is called once from Create method.
-  virtual void Setup(policy::ActiveDirectoryJoinDelegate* ad_join_delegate,
-                     const policy::EnrollmentConfig& enrollment_config,
-                     const std::string& enrolling_user_domain) = 0;
+  virtual void Setup(const policy::EnrollmentConfig& enrollment_config,
+                     const std::string& enrolling_user_domain,
+                     policy::LicenseType license_type) = 0;
 
   // This method is used in Create method. `status_consumer` must outlive
   // `this`.
@@ -139,18 +137,12 @@ class EnterpriseEnrollmentHelper {
   EnrollmentStatusConsumer* status_consumer() const { return status_consumer_; }
 
  private:
-  EnrollmentStatusConsumer* status_consumer_;
+  raw_ptr<EnrollmentStatusConsumer, ExperimentalAsh> status_consumer_;
 
   // If this is not nullptr, then it will be used to as next enrollment helper.
   static EnterpriseEnrollmentHelper* mock_enrollment_helper_;
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
-// source migration is finished.
-namespace chromeos {
-using ::ash::EnterpriseEnrollmentHelper;
-}
 
 #endif  // CHROME_BROWSER_ASH_LOGIN_ENROLLMENT_ENTERPRISE_ENROLLMENT_HELPER_H_

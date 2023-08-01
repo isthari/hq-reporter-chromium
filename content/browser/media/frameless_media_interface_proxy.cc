@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,17 +6,26 @@
 
 #include <tuple>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "build/build_config.h"
 #include "content/public/browser/media_service.h"
+#include "content/public/browser/render_process_host.h"
 #include "media/base/cdm_context.h"
 #include "media/mojo/mojom/media_service.mojom.h"
 #include "media/mojo/mojom/renderer_extensions.mojom.h"
+#include "media/mojo/mojom/stable/stable_video_decoder.mojom.h"
+
+#if BUILDFLAG(ALLOW_OOP_VIDEO_DECODER)
+#include "content/public/browser/stable_video_decoder_factory.h"
+#include "media/base/media_switches.h"
+#endif  // BUILDFLAG(ALLOW_OOP_VIDEO_DECODER)
 
 namespace content {
 
-FramelessMediaInterfaceProxy::FramelessMediaInterfaceProxy() {
+FramelessMediaInterfaceProxy::FramelessMediaInterfaceProxy(
+    RenderProcessHost* render_process_host)
+    : render_process_host_(render_process_host) {
   DVLOG(1) << __func__;
 }
 
@@ -43,12 +52,42 @@ void FramelessMediaInterfaceProxy::CreateAudioDecoder(
 }
 
 void FramelessMediaInterfaceProxy::CreateVideoDecoder(
-    mojo::PendingReceiver<media::mojom::VideoDecoder> receiver) {
+    mojo::PendingReceiver<media::mojom::VideoDecoder> receiver,
+    mojo::PendingRemote<media::stable::mojom::StableVideoDecoder>
+        dst_video_decoder) {
   DVLOG(2) << __func__;
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  // The browser process cannot act as a proxy for video decoding and clients
+  // should not attempt to use it that way.
+  DCHECK(!dst_video_decoder);
+
   InterfaceFactory* factory = GetMediaInterfaceFactory();
-  if (factory)
-    factory->CreateVideoDecoder(std::move(receiver));
+  if (!factory)
+    return;
+
+  mojo::PendingRemote<media::stable::mojom::StableVideoDecoder>
+      oop_video_decoder;
+#if BUILDFLAG(ALLOW_OOP_VIDEO_DECODER)
+  if (media::IsOutOfProcessVideoDecodingEnabled()) {
+    if (!render_process_host_) {
+      if (!stable_vd_factory_remote_.is_bound()) {
+        LaunchStableVideoDecoderFactory(
+            stable_vd_factory_remote_.BindNewPipeAndPassReceiver());
+        stable_vd_factory_remote_.reset_on_disconnect();
+      }
+
+      CHECK(stable_vd_factory_remote_.is_bound());
+
+      stable_vd_factory_remote_->CreateStableVideoDecoder(
+          oop_video_decoder.InitWithNewPipeAndPassReceiver(), /*tracker=*/{});
+    } else {
+      render_process_host_->CreateStableVideoDecoder(
+          oop_video_decoder.InitWithNewPipeAndPassReceiver());
+    }
+  }
+#endif  // BUILDFLAG(ALLOW_OOP_VIDEO_DECODER)
+  factory->CreateVideoDecoder(std::move(receiver),
+                              std::move(oop_video_decoder));
 }
 
 void FramelessMediaInterfaceProxy::CreateAudioEncoder(
@@ -92,7 +131,9 @@ void FramelessMediaInterfaceProxy::CreateMediaFoundationRenderer(
     mojo::PendingRemote<media::mojom::MediaLog> media_log_remote,
     mojo::PendingReceiver<media::mojom::Renderer> receiver,
     mojo::PendingReceiver<media::mojom::MediaFoundationRendererExtension>
-        renderer_extension_receiver) {}
+        renderer_extension_receiver,
+    mojo::PendingRemote<media::mojom::MediaFoundationRendererClientExtension>
+        client_extension_remote) {}
 #endif  // BUILDFLAG(IS_WIN)
 
 void FramelessMediaInterfaceProxy::CreateCdm(const media::CdmConfig& cdm_config,

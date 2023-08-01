@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,11 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/scoped_refptr.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+
+class GURL;
 
 namespace update_client {
 class NetworkFetcher;
@@ -19,7 +22,7 @@ class NetworkFetcher;
 namespace updater {
 
 class DMStorage;
-class PolicyService;
+struct PolicyServiceProxyConfiguration;
 struct PolicyValidationResult;
 
 class DMClient {
@@ -29,7 +32,7 @@ class DMClient {
     virtual ~Configurator() = default;
 
     // URL at which to contact the DM server.
-    virtual std::string GetDMServerUrl() const = 0;
+    virtual GURL GetDMServerUrl() const = 0;
 
     // Agent reported in the "agent" query parameter.
     virtual std::string GetAgentParameter() const = 0;
@@ -49,7 +52,7 @@ class DMClient {
     kNoDeviceID,
 
     // Register request is not sent since the device is already registered.
-    kAleadyRegistered,
+    kAlreadyRegistered,
 
     // Request is not sent because the device is not managed.
     kNotManaged,
@@ -130,7 +133,9 @@ class DMClient {
       PolicyValidationReportCallback callback);
 
   static std::unique_ptr<Configurator> CreateDefaultConfigurator(
-      scoped_refptr<PolicyService> policy_service);
+      const GURL& server_url,
+      absl::optional<PolicyServiceProxyConfiguration>
+          policy_service_proxy_configuration);
 };
 
 }  // namespace updater

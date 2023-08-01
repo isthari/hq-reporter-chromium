@@ -1,24 +1,33 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/settings/google_services/manage_sync_settings_mediator.h"
 
-#include "base/auto_reset.h"
-#include "base/check_op.h"
-#include "base/mac/foundation_util.h"
-#include "base/notreached.h"
-#include "components/autofill/core/common/autofill_prefs.h"
-#include "components/prefs/pref_service.h"
+#import "base/auto_reset.h"
+#import "base/check_op.h"
+#import "base/containers/fixed_flat_map.h"
+#import "base/mac/foundation_util.h"
+#import "base/notreached.h"
+#import "components/autofill/core/common/autofill_prefs.h"
+#import "components/prefs/pref_service.h"
 #import "components/signin/public/identity_manager/objc/identity_manager_observer_bridge.h"
-#include "components/strings/grit/components_strings.h"
-#include "components/sync/base/pref_names.h"
-#include "components/sync/driver/sync_service.h"
+#import "components/strings/grit/components_strings.h"
+#import "components/sync/base/user_selectable_type.h"
+#import "components/sync/service/sync_service.h"
 #import "ios/chrome/browser/net/crurl.h"
-#include "ios/chrome/browser/sync/sync_observer_bridge.h"
-#include "ios/chrome/browser/sync/sync_setup_service.h"
-#import "ios/chrome/browser/ui/list_model/list_model.h"
-#import "ios/chrome/browser/ui/settings/cells/settings_image_detail_text_item.h"
+#import "ios/chrome/browser/shared/ui/list_model/list_model.h"
+#import "ios/chrome/browser/shared/ui/symbols/symbols.h"
+#import "ios/chrome/browser/shared/ui/table_view/cells/table_view_detail_icon_item.h"
+#import "ios/chrome/browser/shared/ui/table_view/cells/table_view_image_item.h"
+#import "ios/chrome/browser/shared/ui/table_view/cells/table_view_info_button_item.h"
+#import "ios/chrome/browser/shared/ui/table_view/cells/table_view_item.h"
+#import "ios/chrome/browser/shared/ui/table_view/cells/table_view_link_header_footer_item.h"
+#import "ios/chrome/browser/shared/ui/table_view/cells/table_view_text_item.h"
+#import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
+#import "ios/chrome/browser/sync/sync_observer_bridge.h"
+#import "ios/chrome/browser/sync/sync_setup_service.h"
+#import "ios/chrome/browser/ui/authentication/enterprise/enterprise_utils.h"
 #import "ios/chrome/browser/ui/settings/cells/sync_switch_item.h"
 #import "ios/chrome/browser/ui/settings/google_services/manage_sync_settings_command_handler.h"
 #import "ios/chrome/browser/ui/settings/google_services/manage_sync_settings_constants.h"
@@ -26,18 +35,12 @@
 #import "ios/chrome/browser/ui/settings/google_services/sync_error_settings_command_handler.h"
 #import "ios/chrome/browser/ui/settings/sync/utils/sync_util.h"
 #import "ios/chrome/browser/ui/settings/utils/pref_backed_boolean.h"
-#import "ios/chrome/browser/ui/table_view/cells/table_view_cells_constants.h"
-#import "ios/chrome/browser/ui/table_view/cells/table_view_image_item.h"
-#import "ios/chrome/browser/ui/table_view/cells/table_view_info_button_item.h"
-#import "ios/chrome/browser/ui/table_view/cells/table_view_item.h"
-#import "ios/chrome/browser/ui/table_view/cells/table_view_link_header_footer_item.h"
-#include "ios/chrome/browser/ui/table_view/cells/table_view_text_item.h"
-#import "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/common/ui/colors/semantic_color_names.h"
-#include "ios/chrome/grit/ios_chromium_strings.h"
-#include "ios/chrome/grit/ios_strings.h"
-#include "ui/base/l10n/l10n_util.h"
-#include "url/gurl.h"
+#import "ios/chrome/common/ui/table_view/table_view_cells_constants.h"
+#import "ios/chrome/grit/ios_chromium_strings.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "ui/base/l10n/l10n_util.h"
+#import "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -47,28 +50,27 @@ using l10n_util::GetNSString;
 
 namespace {
 
+// Ordered list of all sync switches.
+static const syncer::UserSelectableType kSyncSwitchItems[] = {
+    syncer::UserSelectableType::kAutofill,
+    syncer::UserSelectableType::kBookmarks,
+    syncer::UserSelectableType::kHistory,
+    syncer::UserSelectableType::kTabs,
+    syncer::UserSelectableType::kPasswords,
+    syncer::UserSelectableType::kReadingList,
+    syncer::UserSelectableType::kPreferences};
+
+// Returns the configuration to be used for the accessory.
+UIImageConfiguration* AccessoryConfiguration() {
+  return [UIImageSymbolConfiguration
+      configurationWithPointSize:kSymbolAccessoryPointSize
+                          weight:UIImageSymbolWeightRegular
+                           scale:UIImageSymbolScaleMedium];
+}
+
 // Enterprise icon.
 NSString* const kGoogleServicesEnterpriseImage = @"google_services_enterprise";
-// Sync error icon.
-NSString* const kGoogleServicesSyncErrorImage = @"google_services_sync_error";
-// Ordered list of all sync switches. If a new switch is added, a new entry
-// must be added in |kSyncableItemTypes| below.
-const std::vector<SyncSetupService::SyncableDatatype> kSyncSwitchItems = {
-    SyncSetupService::kSyncAutofill,       SyncSetupService::kSyncBookmarks,
-    SyncSetupService::kSyncOmniboxHistory, SyncSetupService::kSyncOpenTabs,
-    SyncSetupService::kSyncPasswords,      SyncSetupService::kSyncReadingList,
-    SyncSetupService::kSyncPreferences};
-// Map of all synceable types to the corresponding pref name.
-const std::map<SyncSetupService::SyncableDatatype, const char*>
-    kSyncableItemTypes = {
-        {SyncSetupService::kSyncAutofill, syncer::prefs::kSyncAutofill},
-        {SyncSetupService::kSyncBookmarks, syncer::prefs::kSyncBookmarks},
-        {SyncSetupService::kSyncOmniboxHistory, syncer::prefs::kSyncTypedUrls},
-        {SyncSetupService::kSyncOpenTabs, syncer::prefs::kSyncTabs},
-        {SyncSetupService::kSyncPasswords, syncer::prefs::kSyncPasswords},
-        {SyncSetupService::kSyncReadingList, syncer::prefs::kSyncReadingList},
-        {SyncSetupService::kSyncPreferences, syncer::prefs::kSyncPreferences},
-};
+
 }  // namespace
 
 @interface ManageSyncSettingsMediator () <
@@ -136,6 +138,7 @@ const std::map<SyncSetupService::SyncableDatatype, const char*>
     SyncSwitchItem* button =
         [[SyncSwitchItem alloc] initWithType:SyncEverythingItemType];
     button.text = GetNSString(IDS_IOS_SYNC_EVERYTHING_TITLE);
+    button.accessibilityIdentifier = kSyncEverythingItemAccessibilityIdentifier;
     self.syncEverythingItem = button;
     [self updateSyncEverythingItemNotifyConsumer:NO];
   } else {
@@ -143,12 +146,16 @@ const std::map<SyncSetupService::SyncableDatatype, const char*>
         [[TableViewInfoButtonItem alloc] initWithType:SyncEverythingItemType];
     button.text = GetNSString(IDS_IOS_SYNC_EVERYTHING_TITLE);
     button.statusText = GetNSString(IDS_IOS_SETTING_OFF);
+    button.accessibilityIdentifier = kSyncEverythingItemAccessibilityIdentifier;
     self.syncEverythingItem = button;
   }
+  self.syncEverythingItem.accessibilityIdentifier =
+      kSyncEverythingItemAccessibilityIdentifier;
   [model addItem:self.syncEverythingItem
       toSectionWithIdentifier:SyncDataTypeSectionIdentifier];
   NSMutableArray* syncSwitchItems = [[NSMutableArray alloc] init];
-  for (SyncSetupService::SyncableDatatype dataType : kSyncSwitchItems) {
+
+  for (syncer::UserSelectableType dataType : kSyncSwitchItems) {
     TableViewItem* switchItem = [self tableViewItemWithDataType:dataType];
     [syncSwitchItems addObject:switchItem];
     [model addItem:switchItem
@@ -156,7 +163,8 @@ const std::map<SyncSetupService::SyncableDatatype, const char*>
   }
   self.syncSwitchItems = syncSwitchItems;
 
-  if (![self isManagedSyncSettingsDataType:SyncSetupService::kSyncAutofill]) {
+  if (![self isManagedSyncSettingsDataType:syncer::UserSelectableType::
+                                               kAutofill]) {
     SyncSwitchItem* button =
         [[SyncSwitchItem alloc] initWithType:AutocompleteWalletItemType];
     button.text =
@@ -175,24 +183,23 @@ const std::map<SyncSetupService::SyncableDatatype, const char*>
   [self updateSyncItemsNotifyConsumer:NO];
 }
 
-// Updates the sync everything item, and notify the consumer if |notifyConsumer|
+// Updates the sync everything item, and notify the consumer if `notifyConsumer`
 // is set to YES.
 - (void)updateSyncEverythingItemNotifyConsumer:(BOOL)notifyConsumer {
   if ([self.syncEverythingItem isKindOfClass:[TableViewInfoButtonItem class]]) {
     // It's possible that the sync everything pref remains true when a policy
     // change doesn't allow to sync everthing anymore. Fix that here.
-    BOOL isSyncingEverything = self.syncSetupService->IsSyncingAllDataTypes();
+    BOOL isSyncingEverything = self.syncSetupService->IsSyncEverythingEnabled();
     BOOL canSyncEverything = self.allItemsAreSynceable;
     if (isSyncingEverything && !canSyncEverything) {
-      self.syncSetupService->SetSyncingAllDataTypes(NO);
+      self.syncSetupService->SetSyncEverythingEnabled(NO);
     }
     return;
   }
 
   BOOL shouldSyncEverythingBeEditable = !self.disabledBecauseOfSyncError;
   BOOL shouldSyncEverythingItemBeOn =
-      self.syncSetupService->IsSyncRequested() &&
-      self.syncSetupService->IsSyncingAllDataTypes();
+      self.syncSetupService->IsSyncEverythingEnabled();
   SyncSwitchItem* syncEverythingItem =
       base::mac::ObjCCastStrict<SyncSwitchItem>(self.syncEverythingItem);
   BOOL needsUpdate =
@@ -206,27 +213,24 @@ const std::map<SyncSetupService::SyncableDatatype, const char*>
 }
 
 // Updates all the items related to sync (sync data items and autocomplete
-// wallet item). The consumer is notified if |notifyConsumer| is set to YES.
+// wallet item). The consumer is notified if `notifyConsumer` is set to YES.
 - (void)updateSyncItemsNotifyConsumer:(BOOL)notifyConsumer {
   [self updateSyncDataItemsNotifyConsumer:notifyConsumer];
   [self updateAutocompleteWalletItemNotifyConsumer:notifyConsumer];
 }
 
 // Updates all the sync data type items, and notify the consumer if
-// |notifyConsumer| is set to YES.
+// `notifyConsumer` is set to YES.
 - (void)updateSyncDataItemsNotifyConsumer:(BOOL)notifyConsumer {
   for (TableViewItem* item in self.syncSwitchItems) {
     if ([item isKindOfClass:[TableViewInfoButtonItem class]])
       continue;
 
     SyncSwitchItem* syncSwitchItem = base::mac::ObjCCast<SyncSwitchItem>(item);
-    SyncSetupService::SyncableDatatype dataType =
-        static_cast<SyncSetupService::SyncableDatatype>(
-            syncSwitchItem.dataType);
-    syncer::ModelType modelType = self.syncSetupService->GetModelType(dataType);
+    syncer::UserSelectableType dataType =
+        static_cast<syncer::UserSelectableType>(syncSwitchItem.dataType);
     BOOL isDataTypeSynced =
-        self.syncSetupService->IsSyncRequested() &&
-        self.syncSetupService->IsDataTypePreferred(modelType);
+        self.syncSetupService->IsDataTypePreferred(dataType);
     BOOL isEnabled = self.shouldSyncDataItemEnabled &&
                      ![self isManagedSyncSettingsDataType:dataType];
     BOOL needsUpdate = (syncSwitchItem.on != isDataTypeSynced) ||
@@ -240,7 +244,7 @@ const std::map<SyncSetupService::SyncableDatatype, const char*>
 }
 
 // Updates the autocomplete wallet item. The consumer is notified if
-// |notifyConsumer| is set to YES.
+// `notifyConsumer` is set to YES.
 - (void)updateAutocompleteWalletItemNotifyConsumer:(BOOL)notifyConsumer {
   if ([self.autocompleteWalletItem
           isKindOfClass:[TableViewInfoButtonItem class]])
@@ -248,15 +252,11 @@ const std::map<SyncSetupService::SyncableDatatype, const char*>
 
   SyncSwitchItem* syncSwitchItem =
       base::mac::ObjCCast<SyncSwitchItem>(self.autocompleteWalletItem);
-  syncer::ModelType autofillModelType =
-      self.syncSetupService->GetModelType(SyncSetupService::kSyncAutofill);
-  BOOL isAutofillOn =
-      self.syncSetupService->IsSyncRequested() &&
-      self.syncSetupService->IsDataTypePreferred(autofillModelType);
+  BOOL isAutofillOn = self.syncSetupService->IsDataTypePreferred(
+      syncer::UserSelectableType::kAutofill);
   BOOL autocompleteWalletEnabled =
       isAutofillOn && self.shouldSyncDataItemEnabled;
-  BOOL autocompleteWalletOn = self.syncSetupService->IsSyncRequested() &&
-                              self.autocompleteWalletPreference.value;
+  BOOL autocompleteWalletOn = self.autocompleteWalletPreference.value;
   BOOL needsUpdate = (syncSwitchItem.enabled != autocompleteWalletEnabled) ||
                      (syncSwitchItem.on != autocompleteWalletOn);
   syncSwitchItem.enabled = autocompleteWalletEnabled;
@@ -275,18 +275,31 @@ const std::map<SyncSetupService::SyncableDatatype, const char*>
   // EncryptionItemType.
   self.encryptionItem =
       [[TableViewImageItem alloc] initWithType:EncryptionItemType];
+  self.encryptionItem.accessibilityIdentifier =
+      kEncryptionAccessibilityIdentifier;
   self.encryptionItem.title = GetNSString(IDS_IOS_MANAGE_SYNC_ENCRYPTION);
   // The detail text (if any) is an error message, so color it in red.
   self.encryptionItem.detailTextColor = [UIColor colorNamed:kRedColor];
-  // For kSyncServiceNeedsTrustedVaultKey, the disclosure indicator should not
+  // For kNeedsTrustedVaultKey, the disclosure indicator should not
   // be shown since the reauth dialog for the trusted vault is presented from
   // the bottom, and is not part of navigation controller.
+  const syncer::SyncService::UserActionableError error =
+      self.syncService->GetUserActionableError();
   BOOL hasDisclosureIndicator =
-      self.syncSetupService->GetSyncServiceState() !=
-      SyncSetupService::kSyncServiceNeedsTrustedVaultKey;
-  self.encryptionItem.accessoryType =
-      hasDisclosureIndicator ? UITableViewCellAccessoryDisclosureIndicator
-                             : UITableViewCellAccessoryNone;
+      error != syncer::SyncService::UserActionableError::
+                   kNeedsTrustedVaultKeyForPasswords &&
+      error != syncer::SyncService::UserActionableError::
+                   kNeedsTrustedVaultKeyForEverything;
+  if (hasDisclosureIndicator) {
+    self.encryptionItem.accessoryView = [[UIImageView alloc]
+        initWithImage:DefaultSymbolWithConfiguration(kChevronForwardSymbol,
+                                                     AccessoryConfiguration())];
+    self.encryptionItem.accessoryView.tintColor =
+        [UIColor colorNamed:kTextQuaternaryColor];
+  } else {
+    self.encryptionItem.accessoryView = nil;
+  }
+  self.encryptionItem.accessibilityTraits |= UIAccessibilityTraitButton;
   [self updateEncryptionItem:NO];
   [model addItem:self.encryptionItem
       toSectionWithIdentifier:AdvancedSettingsSectionIdentifier];
@@ -294,6 +307,11 @@ const std::map<SyncSetupService::SyncableDatatype, const char*>
   // GoogleActivityControlsItemType.
   TableViewImageItem* googleActivityControlsItem =
       [[TableViewImageItem alloc] initWithType:GoogleActivityControlsItemType];
+  googleActivityControlsItem.accessoryView = [[UIImageView alloc]
+      initWithImage:DefaultSymbolWithConfiguration(kExternalLinkSymbol,
+                                                   AccessoryConfiguration())];
+  googleActivityControlsItem.accessoryView.tintColor =
+      [UIColor colorNamed:kTextQuaternaryColor];
   googleActivityControlsItem.title =
       GetNSString(IDS_IOS_MANAGE_SYNC_GOOGLE_ACTIVITY_CONTROLS_TITLE);
   googleActivityControlsItem.detailText =
@@ -305,6 +323,11 @@ const std::map<SyncSetupService::SyncableDatatype, const char*>
   // AdvancedSettingsSectionIdentifier.
   TableViewImageItem* dataFromChromeSyncItem =
       [[TableViewImageItem alloc] initWithType:DataFromChromeSync];
+  dataFromChromeSyncItem.accessoryView = [[UIImageView alloc]
+      initWithImage:DefaultSymbolWithConfiguration(kExternalLinkSymbol,
+                                                   AccessoryConfiguration())];
+  dataFromChromeSyncItem.accessoryView.tintColor =
+      [UIColor colorNamed:kTextQuaternaryColor];
   dataFromChromeSyncItem.title =
       GetNSString(IDS_IOS_MANAGE_SYNC_DATA_FROM_CHROME_SYNC_TITLE);
   dataFromChromeSyncItem.detailText =
@@ -318,7 +341,7 @@ const std::map<SyncSetupService::SyncableDatatype, const char*>
   }
 }
 
-// Updates encryption item, and notifies the consumer if |notifyConsumer| is set
+// Updates encryption item, and notifies the consumer if `notifyConsumer` is set
 // to YES.
 - (void)updateEncryptionItem:(BOOL)notifyConsumer {
   BOOL needsUpdate =
@@ -396,54 +419,69 @@ const std::map<SyncSetupService::SyncableDatatype, const char*>
 // Creates a SyncSwitchItem or TableViewInfoButtonItem instance if the item is
 // managed.
 - (TableViewItem*)tableViewItemWithDataType:
-    (SyncSetupService::SyncableDatatype)dataType {
+    (syncer::UserSelectableType)dataType {
   NSInteger itemType = 0;
   int textStringID = 0;
+  NSString* accessibilityIdentifier = nil;
   switch (dataType) {
-    case SyncSetupService::kSyncBookmarks:
+    case syncer::UserSelectableType::kBookmarks:
       itemType = BookmarksDataTypeItemType;
       textStringID = IDS_SYNC_DATATYPE_BOOKMARKS;
+      accessibilityIdentifier = kSyncBookmarksIdentifier;
       break;
-    case SyncSetupService::kSyncOmniboxHistory:
+    case syncer::UserSelectableType::kHistory:
       itemType = HistoryDataTypeItemType;
       textStringID = IDS_SYNC_DATATYPE_TYPED_URLS;
+      accessibilityIdentifier = kSyncOmniboxHistoryIdentifier;
       break;
-    case SyncSetupService::kSyncPasswords:
+    case syncer::UserSelectableType::kPasswords:
       itemType = PasswordsDataTypeItemType;
       textStringID = IDS_SYNC_DATATYPE_PASSWORDS;
+      accessibilityIdentifier = kSyncPasswordsIdentifier;
       break;
-    case SyncSetupService::kSyncOpenTabs:
+    case syncer::UserSelectableType::kTabs:
       itemType = OpenTabsDataTypeItemType;
       textStringID = IDS_SYNC_DATATYPE_TABS;
+      accessibilityIdentifier = kSyncOpenTabsIdentifier;
       break;
-    case SyncSetupService::kSyncAutofill:
+    case syncer::UserSelectableType::kAutofill:
       itemType = AutofillDataTypeItemType;
       textStringID = IDS_SYNC_DATATYPE_AUTOFILL;
+      accessibilityIdentifier = kSyncAutofillIdentifier;
       break;
-    case SyncSetupService::kSyncPreferences:
+    case syncer::UserSelectableType::kPreferences:
       itemType = SettingsDataTypeItemType;
       textStringID = IDS_SYNC_DATATYPE_PREFERENCES;
+      accessibilityIdentifier = kSyncPreferencesIdentifier;
       break;
-    case SyncSetupService::kSyncReadingList:
+    case syncer::UserSelectableType::kReadingList:
       itemType = ReadingListDataTypeItemType;
       textStringID = IDS_SYNC_DATATYPE_READING_LIST;
+      accessibilityIdentifier = kSyncReadingListIdentifier;
       break;
-    case SyncSetupService::kNumberOfSyncableDatatypes:
+    case syncer::UserSelectableType::kThemes:
+    case syncer::UserSelectableType::kExtensions:
+    case syncer::UserSelectableType::kApps:
+    case syncer::UserSelectableType::kWifiConfigurations:
+    case syncer::UserSelectableType::kSavedTabGroups:
       NOTREACHED();
       break;
   }
   DCHECK_NE(itemType, 0);
   DCHECK_NE(textStringID, 0);
+  DCHECK(accessibilityIdentifier);
   if (![self isManagedSyncSettingsDataType:dataType]) {
     SyncSwitchItem* switchItem = [[SyncSwitchItem alloc] initWithType:itemType];
     switchItem.text = GetNSString(textStringID);
-    switchItem.dataType = dataType;
+    switchItem.dataType = static_cast<NSInteger>(dataType);
+    switchItem.accessibilityIdentifier = accessibilityIdentifier;
     return switchItem;
   } else {
     TableViewInfoButtonItem* button =
         [[TableViewInfoButtonItem alloc] initWithType:itemType];
     button.text = GetNSString(textStringID);
     button.statusText = GetNSString(IDS_IOS_SETTING_OFF);
+    button.accessibilityIdentifier = accessibilityIdentifier;
     return button;
   }
 }
@@ -451,25 +489,28 @@ const std::map<SyncSetupService::SyncableDatatype, const char*>
 #pragma mark - Properties
 
 - (BOOL)disabledBecauseOfSyncError {
-  switch (self.syncSetupService->GetSyncServiceState()) {
-    case SyncSetupService::kSyncServiceUnrecoverableError:
-    case SyncSetupService::kSyncServiceSignInNeedsUpdate:
-    case SyncSetupService::kSyncServiceCouldNotConnect:
-    case SyncSetupService::kSyncServiceServiceUnavailable:
+  switch (self.syncService->GetUserActionableError()) {
+    case syncer::SyncService::UserActionableError::kGenericUnrecoverableError:
+    case syncer::SyncService::UserActionableError::kSignInNeedsUpdate:
       return YES;
-    case SyncSetupService::kNoSyncServiceError:
-    case SyncSetupService::kSyncServiceNeedsPassphrase:
-    case SyncSetupService::kSyncServiceNeedsTrustedVaultKey:
-    case SyncSetupService::kSyncServiceTrustedVaultRecoverabilityDegraded:
+    case syncer::SyncService::UserActionableError::kNone:
+    case syncer::SyncService::UserActionableError::kNeedsPassphrase:
+    case syncer::SyncService::UserActionableError::
+        kNeedsTrustedVaultKeyForPasswords:
+    case syncer::SyncService::UserActionableError::
+        kNeedsTrustedVaultKeyForEverything:
+    case syncer::SyncService::UserActionableError::
+        kTrustedVaultRecoverabilityDegradedForPasswords:
+    case syncer::SyncService::UserActionableError::
+        kTrustedVaultRecoverabilityDegradedForEverything:
       return NO;
   }
   NOTREACHED();
 }
 
 - (BOOL)shouldSyncDataItemEnabled {
-  return (!self.syncSetupService->IsSyncingAllDataTypes() ||
-          !self.allItemsAreSynceable ||
-          !self.syncSetupService->IsSyncRequested()) &&
+  return (!self.syncSetupService->IsSyncEverythingEnabled() ||
+          !self.allItemsAreSynceable) &&
          !self.disabledBecauseOfSyncError;
 }
 
@@ -477,12 +518,16 @@ const std::map<SyncSetupService::SyncableDatatype, const char*>
 // to not need a trusted vault key.
 - (BOOL)shouldEncryptionItemBeEnabled {
   return !self.disabledBecauseOfSyncError &&
-         self.syncSetupService->GetSyncServiceState() !=
-             SyncSetupService::kSyncServiceNeedsTrustedVaultKey;
+         self.syncService->GetUserActionableError() !=
+             syncer::SyncService::UserActionableError::
+                 kNeedsTrustedVaultKeyForPasswords &&
+         self.syncService->GetUserActionableError() !=
+             syncer::SyncService::UserActionableError::
+                 kNeedsTrustedVaultKeyForEverything;
 }
 
 - (BOOL)syncConsentGiven {
-  return self.syncSetupService->IsFirstSetupComplete();
+  return self.syncSetupService->IsInitialSyncFeatureSetupComplete();
 }
 
 #pragma mark - ManageSyncSettingsTableViewControllerModelDelegate
@@ -548,7 +593,7 @@ const std::map<SyncSetupService::SyncableDatatype, const char*>
                 isKindOfClass:[TableViewInfoButtonItem class]])
           return;
 
-        self.syncSetupService->SetSyncingAllDataTypes(value);
+        self.syncSetupService->SetSyncEverythingEnabled(value);
         if (value) {
           // When sync everything is turned on, the autocomplete wallet
           // should be turned on. This code can be removed once
@@ -565,15 +610,12 @@ const std::map<SyncSetupService::SyncableDatatype, const char*>
       case SettingsDataTypeItemType: {
         // Don't try to toggle if item is managed.
         DCHECK(syncSwitchItem);
-        SyncSetupService::SyncableDatatype dataType =
-            static_cast<SyncSetupService::SyncableDatatype>(
-                syncSwitchItem.dataType);
+        syncer::UserSelectableType dataType =
+            static_cast<syncer::UserSelectableType>(syncSwitchItem.dataType);
         if ([self isManagedSyncSettingsDataType:dataType])
           break;
-        syncer::ModelType modelType =
-            self.syncSetupService->GetModelType(dataType);
-        self.syncSetupService->SetDataTypeEnabled(modelType, value);
-        if (dataType == SyncSetupService::kSyncAutofill) {
+        self.syncSetupService->SetDataTypeEnabled(dataType, value);
+        if (dataType == syncer::UserSelectableType::kAutofill) {
           // When the auto fill data type is updated, the autocomplete wallet
           // should be updated too. Autocomplete wallet should not be enabled
           // when auto fill data type disabled. This behaviour not be
@@ -584,9 +626,10 @@ const std::map<SyncSetupService::SyncableDatatype, const char*>
         break;
       }
       case AutocompleteWalletItemType:
-        if ([self
-                isManagedSyncSettingsDataType:SyncSetupService::kSyncAutofill])
+        if ([self isManagedSyncSettingsDataType:syncer::UserSelectableType::
+                                                    kAutofill]) {
           break;
+        }
         self.autocompleteWalletPreference.value = value;
         break;
       case SignOutItemType:
@@ -610,14 +653,19 @@ const std::map<SyncSetupService::SyncableDatatype, const char*>
 - (void)didSelectItem:(TableViewItem*)item cellRect:(CGRect)cellRect {
   SyncSettingsItemType itemType = static_cast<SyncSettingsItemType>(item.type);
   switch (itemType) {
-    case EncryptionItemType:
-      if (self.syncSetupService->GetSyncServiceState() ==
-          SyncSetupService::kSyncServiceNeedsTrustedVaultKey) {
+    case EncryptionItemType: {
+      const syncer::SyncService::UserActionableError error =
+          self.syncService->GetUserActionableError();
+      if (error == syncer::SyncService::UserActionableError::
+                       kNeedsTrustedVaultKeyForPasswords ||
+          error == syncer::SyncService::UserActionableError::
+                       kNeedsTrustedVaultKeyForEverything) {
         [self.syncErrorHandler openTrustedVaultReauthForFetchKeys];
         break;
       }
       [self.syncErrorHandler openPassphraseDialog];
       break;
+    }
     case GoogleActivityControlsItemType:
       [self.commandHandler openWebAppActivityDialog];
       break;
@@ -655,7 +703,7 @@ const std::map<SyncSetupService::SyncableDatatype, const char*>
   }
 }
 
-// Creates an item to display the sync error. |itemType| should only be one of
+// Creates an item to display the sync error. `itemType` should only be one of
 // those types:
 //   + ReauthDialogAsSyncIsInAuthErrorItemType
 //   + ShowPassphraseDialogErrorItemType
@@ -667,11 +715,12 @@ const std::map<SyncSetupService::SyncableDatatype, const char*>
          (itemType == SyncNeedsTrustedVaultKeyErrorItemType) ||
          (itemType == SyncTrustedVaultRecoverabilityDegradedErrorItemType))
       << "itemType: " << itemType;
-  SettingsImageDetailTextItem* syncErrorItem =
-      [[SettingsImageDetailTextItem alloc] initWithType:itemType];
+  TableViewDetailIconItem* syncErrorItem =
+      [[TableViewDetailIconItem alloc] initWithType:itemType];
+  syncErrorItem.textLayoutConstraintAxis = UILayoutConstraintAxisVertical;
   syncErrorItem.text = GetNSString(IDS_IOS_SYNC_ERROR_TITLE);
   syncErrorItem.detailText =
-      GetSyncErrorDescriptionForSyncSetupService(self.syncSetupService);
+      GetSyncErrorDescriptionForSyncService(self.syncService);
   syncErrorItem.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
   switch (itemType) {
     case ShowPassphraseDialogErrorItemType:
@@ -701,25 +750,24 @@ const std::map<SyncSetupService::SyncableDatatype, const char*>
       syncErrorItem.text = GetNSString(IDS_SYNC_NEEDS_VERIFICATION_TITLE);
       break;
   }
-  syncErrorItem.image = [UIImage imageNamed:kGoogleServicesSyncErrorImage];
+  syncErrorItem.iconImage = DefaultSettingsRootSymbol(kSyncErrorSymbol);
+  syncErrorItem.iconBackgroundColor = [UIColor colorNamed:kRed500Color];
+  syncErrorItem.iconTintColor = UIColor.whiteColor;
+  syncErrorItem.iconCornerRadius = kColorfulBackgroundSymbolCornerRadius;
   return syncErrorItem;
 }
 
 // Loads the sync errors section.
 - (void)loadSyncErrorsSection {
-  // The |self.consumer.tableViewModel| will be reset prior to this method.
-  // Ignore any previous value the |self.syncErrorItem| may have contained.
+  // The `self.consumer.tableViewModel` will be reset prior to this method.
+  // Ignore any previous value the `self.syncErrorItem` may have contained.
   self.syncErrorItem = nil;
   [self updateSyncErrorsSection:NO];
 }
 
-// Updates the sync errors section. If |notifyConsumer| is YES, the consumer is
+// Updates the sync errors section. If `notifyConsumer` is YES, the consumer is
 // notified about model changes.
 - (void)updateSyncErrorsSection:(BOOL)notifyConsumer {
-  if (!self.syncSetupService->HasFinishedInitialSetup()) {
-    return;
-  }
-
   // Checks if the sync setup service state has changed from the saved state in
   // the table view model.
   absl::optional<SyncSettingsItemType> type = [self syncErrorItemType];
@@ -773,27 +821,34 @@ const std::map<SyncSetupService::SyncableDatatype, const char*>
 // Returns the sync error item type or absl::nullopt if the item
 // is not an error.
 - (absl::optional<SyncSettingsItemType>)syncErrorItemType {
+  if (!self.syncConsentGiven) {
+    return absl::nullopt;
+  }
   if (self.isSyncDisabledByAdministrator) {
     return absl::make_optional<SyncSettingsItemType>(
         SyncDisabledByAdministratorErrorItemType);
   }
-  switch (self.syncSetupService->GetSyncServiceState()) {
-    case SyncSetupService::kSyncServiceSignInNeedsUpdate:
+  switch (self.syncService->GetUserActionableError()) {
+    case syncer::SyncService::UserActionableError::kSignInNeedsUpdate:
       return absl::make_optional<SyncSettingsItemType>(
           ReauthDialogAsSyncIsInAuthErrorItemType);
-    case SyncSetupService::kSyncServiceNeedsPassphrase:
+    case syncer::SyncService::UserActionableError::kNeedsPassphrase:
       return absl::make_optional<SyncSettingsItemType>(
           ShowPassphraseDialogErrorItemType);
-    case SyncSetupService::kSyncServiceNeedsTrustedVaultKey:
+    case syncer::SyncService::UserActionableError::
+        kNeedsTrustedVaultKeyForPasswords:
+    case syncer::SyncService::UserActionableError::
+        kNeedsTrustedVaultKeyForEverything:
       return absl::make_optional<SyncSettingsItemType>(
           SyncNeedsTrustedVaultKeyErrorItemType);
-    case SyncSetupService::kSyncServiceTrustedVaultRecoverabilityDegraded:
+    case syncer::SyncService::UserActionableError::
+        kTrustedVaultRecoverabilityDegradedForPasswords:
+    case syncer::SyncService::UserActionableError::
+        kTrustedVaultRecoverabilityDegradedForEverything:
       return absl::make_optional<SyncSettingsItemType>(
           SyncTrustedVaultRecoverabilityDegradedErrorItemType);
-    case SyncSetupService::kSyncServiceUnrecoverableError:
-    case SyncSetupService::kNoSyncServiceError:
-    case SyncSetupService::kSyncServiceCouldNotConnect:
-    case SyncSetupService::kSyncServiceServiceUnavailable:
+    case syncer::SyncService::UserActionableError::kGenericUnrecoverableError:
+    case syncer::SyncService::UserActionableError::kNone:
       return absl::nullopt;
   }
   NOTREACHED();
@@ -825,24 +880,23 @@ const std::map<SyncSetupService::SyncableDatatype, const char*>
 }
 
 // Returns YES if the given type is managed by policies (i.e. is not syncable)
-- (BOOL)isManagedSyncSettingsDataType:(SyncSetupService::SyncableDatatype)type {
-  return self.userPrefService->FindPreference(kSyncableItemTypes.at(type))
-      ->IsManaged();
+- (BOOL)isManagedSyncSettingsDataType:(syncer::UserSelectableType)type {
+  return IsManagedSyncDataType(self.syncService, type);
 }
 
 #pragma mark - Properties
 
 - (BOOL)isSyncDisabledByAdministrator {
-  return self.syncService->GetDisableReasons().Has(
+  return self.syncService->HasDisableReason(
       syncer::SyncService::DISABLE_REASON_ENTERPRISE_POLICY);
 }
 
 // Returns NO if any syncable item is managed, YES otherwise.
 - (BOOL)allItemsAreSynceable {
-  for (auto iter = kSyncableItemTypes.begin(); iter != kSyncableItemTypes.end();
-       ++iter) {
-    if ([self isManagedSyncSettingsDataType:iter->first])
+  for (const auto& type : kSyncSwitchItems) {
+    if ([self isManagedSyncSettingsDataType:type]) {
       return NO;
+    }
   }
   return YES;
 }

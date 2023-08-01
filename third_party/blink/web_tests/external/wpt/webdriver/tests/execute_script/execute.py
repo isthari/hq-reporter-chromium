@@ -1,21 +1,12 @@
 import pytest
 
+from webdriver import Element
 from webdriver.error import NoSuchAlertException
 from webdriver.transport import Response
 
 from tests.support.asserts import assert_error, assert_success
 from tests.support.sync import Poll
-
-
-def execute_script(session, script, args=None):
-    if args is None:
-        args = []
-    body = {"script": script, "args": args}
-
-    return session.transport.send(
-        "POST", "/session/{session_id}/execute/sync".format(
-            session_id=session.session_id),
-        body)
+from . import execute_script
 
 
 def test_null_parameter_value(session, http):
@@ -32,6 +23,27 @@ def test_no_top_browsing_context(session, closed_window):
 def test_no_browsing_context(session, closed_frame):
     response = execute_script(session, "return 1;")
     assert_error(response, "no such window")
+
+
+@pytest.mark.parametrize("expression, expected", [
+    ("null", None),
+    ("undefined", None),
+    ("true", True),
+    ("false", False),
+    ("23", 23),
+    ("'foo'", "foo"),
+    (
+        # Compute value in the runtime to reduce the potential for
+        # interference from encoding literal bytes or escape sequences in
+        # Python and HTTP.
+        "String.fromCharCode(0)",
+        "\x00"
+    )
+])
+def test_primitive_serialization(session, expression, expected):
+    response = execute_script(session, "return {};".format(expression))
+    value = assert_success(response)
+    assert value == expected
 
 
 def test_opening_new_window_keeps_current_window_handle(session, inline):

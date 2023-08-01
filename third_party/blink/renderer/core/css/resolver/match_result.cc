@@ -72,29 +72,28 @@ void MatchResult::FinishAddingUARules() {
 
 void MatchResult::FinishAddingUserRules() {
   DCHECK_EQ(current_origin_, CascadeOrigin::kUser);
+  current_origin_ = CascadeOrigin::kAuthorPresentationalHint;
+}
+
+void MatchResult::FinishAddingPresentationalHints() {
+  DCHECK_EQ(current_origin_, CascadeOrigin::kAuthorPresentationalHint);
   current_origin_ = CascadeOrigin::kAuthor;
 }
 
-void MatchResult::FinishAddingAuthorRulesForTreeScope(
+void MatchResult::BeginAddingAuthorRulesForTreeScope(
     const TreeScope& tree_scope) {
-  DCHECK_EQ(current_origin_, CascadeOrigin::kAuthor);
   tree_scopes_.push_back(&tree_scope);
-  current_tree_order_ = base::ClampAdd(current_tree_order_, 1);
 }
 
-MatchedExpansionsRange MatchResult::Expansions(const Document& document,
-                                               CascadeFilter filter) const {
-  return MatchedExpansionsRange(
-      MatchedExpansionsIterator(matched_properties_.begin(), document, filter,
-                                0),
-      MatchedExpansionsIterator(matched_properties_.end(), document, filter,
-                                matched_properties_.size()));
+void MatchResult::FinishAddingAuthorRulesForTreeScope() {
+  DCHECK_EQ(current_origin_, CascadeOrigin::kAuthor);
+  current_tree_order_ = base::ClampAdd(current_tree_order_, 1);
 }
 
 void MatchResult::Reset() {
   matched_properties_.clear();
   is_cacheable_ = true;
-  depends_on_container_queries_ = false;
+  depends_on_size_container_queries_ = false;
   current_origin_ = CascadeOrigin::kUserAgent;
   current_tree_order_ = 0;
   tree_scopes_.clear();

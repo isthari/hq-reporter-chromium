@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,11 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/memory/weak_ptr.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/threading/sequence_bound.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "remoting/base/string_resources.h"
 #include "ui/base/glib/glib_signal.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -46,7 +47,9 @@ class GtkFileChooserOnUiThread {
   void RunCallback(FileChooser::Result result);
   void CleanUp();
 
-  GObject* file_dialog_ = nullptr;
+  // This field is not a raw_ptr<> because of a static_cast not related by
+  // inheritance.
+  RAW_PTR_EXCLUSION GObject* file_dialog_ = nullptr;
   scoped_refptr<base::SequencedTaskRunner> caller_task_runner_;
   base::WeakPtr<FileChooserLinux> file_chooser_linux_;
 };
@@ -156,7 +159,7 @@ FileChooserLinux::FileChooserLinux(
     : callback_(std::move(callback)) {
   gtk_file_chooser_on_ui_thread_ =
       base::SequenceBound<GtkFileChooserOnUiThread>(
-          ui_task_runner, base::SequencedTaskRunnerHandle::Get(),
+          ui_task_runner, base::SequencedTaskRunner::GetCurrentDefault(),
           weak_ptr_factory_.GetWeakPtr());
 }
 

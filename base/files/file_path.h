@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -102,9 +102,7 @@
 #ifndef BASE_FILES_FILE_PATH_H_
 #define BASE_FILES_FILE_PATH_H_
 
-#include <stddef.h>
-
-#include <functional>
+#include <cstddef>
 #include <iosfwd>
 #include <string>
 #include <vector>
@@ -134,7 +132,14 @@
 
 // Macros for string literal initialization of FilePath::CharType[].
 #if BUILDFLAG(IS_WIN)
-#define FILE_PATH_LITERAL(x) L##x
+
+// The `FILE_PATH_LITERAL_INTERNAL` indirection allows `FILE_PATH_LITERAL` to
+// work correctly with macro parameters, for example
+// `FILE_PATH_LITERAL(TEST_FILE)` where `TEST_FILE` is a macro #defined as
+// "TestFile".
+#define FILE_PATH_LITERAL_INTERNAL(x) L##x
+#define FILE_PATH_LITERAL(x) FILE_PATH_LITERAL_INTERNAL(x)
+
 #elif BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
 #define FILE_PATH_LITERAL(x) x
 #endif  // BUILDFLAG(IS_WIN)
@@ -163,23 +168,28 @@ class BASE_EXPORT FilePath {
   typedef StringType::value_type CharType;
   typedef BasicStringPiece<CharType> StringPieceType;
 
-  // Null-terminated array of separators used to separate components in
-  // hierarchical paths.  Each character in this array is a valid separator,
-  // but kSeparators[0] is treated as the canonical separator and will be used
-  // when composing pathnames.
-  static const CharType kSeparators[];
+  // Null-terminated array of separators used to separate components in paths.
+  // Each character in this array is a valid separator, but kSeparators[0] is
+  // treated as the canonical separator and is used when composing pathnames.
+  static constexpr CharType kSeparators[] =
+#if defined(FILE_PATH_USES_WIN_SEPARATORS)
+      FILE_PATH_LITERAL("\\/");
+#else   // FILE_PATH_USES_WIN_SEPARATORS
+      FILE_PATH_LITERAL("/");
+#endif  // FILE_PATH_USES_WIN_SEPARATORS
 
-  // base::size(kSeparators).
-  static const size_t kSeparatorsLength;
+  // std::size(kSeparators), i.e., the number of separators in kSeparators plus
+  // one (the null terminator at the end of kSeparators).
+  static constexpr size_t kSeparatorsLength = std::size(kSeparators);
 
-  // A special path component meaning "this directory."
-  static const CharType kCurrentDirectory[];
+  // The special path component meaning "this directory."
+  static constexpr CharType kCurrentDirectory[] = FILE_PATH_LITERAL(".");
 
-  // A special path component meaning "the parent directory."
-  static const CharType kParentDirectory[];
+  // The special path component meaning "the parent directory."
+  static constexpr CharType kParentDirectory[] = FILE_PATH_LITERAL("..");
 
   // The character used to identify a file extension.
-  static const CharType kExtensionSeparator;
+  static constexpr CharType kExtensionSeparator = FILE_PATH_LITERAL('.');
 
   FilePath();
   FilePath(const FilePath& that);
@@ -205,7 +215,7 @@ class BASE_EXPORT FilePath {
 
   const StringType& value() const { return path_; }
 
-  bool empty() const { return path_.empty(); }
+  [[nodiscard]] bool empty() const { return path_.empty(); }
 
   void clear() { path_.clear(); }
 
@@ -222,7 +232,7 @@ class BASE_EXPORT FilePath {
   //
   // Posix:  "/foo/bar"  ->  [ "/", "foo", "bar" ]
   // Windows:  "C:\foo\bar"  ->  [ "C:", "\\", "foo", "bar" ]
-  void GetComponents(std::vector<FilePath::StringType>* components) const;
+  std::vector<FilePath::StringType> GetComponents() const;
 
   // Returns true if this FilePath is a parent or ancestor of the |child|.
   // Absolute and relative paths are accepted i.e. /foo is a parent to /foo/bar,
@@ -256,13 +266,10 @@ class BASE_EXPORT FilePath {
   // this is the only situation in which BaseName will return an absolute path.
   [[nodiscard]] FilePath BaseName() const;
 
-  // Returns ".jpg" for path "C:\pics\jojo.jpg", or an empty string if the file
-  // has no extension.  If non-empty, Extension() will always start with
-  // precisely one ".".
-  //
-  // For common double-extensions like ".tar.gz" and ".user.js", this method
-  // returns the combined extension.  For a single component, use
-  // FinalExtension().
+  // Returns the extension of a file path.  This method works very similarly to
+  // FinalExtension(), except when the file path ends with a common
+  // double-extension.  For common double-extensions like ".tar.gz" and
+  // ".user.js", this method returns the combined extension.
   //
   // Common means that detecting double-extensions is based on a hard-coded
   // allow-list (including but not limited to ".*.gz" and ".user.js") and isn't
@@ -282,11 +289,16 @@ class BASE_EXPORT FilePath {
   //   ASSERT(new_path == path.value());
   //
   // NOTE: this is different from the original file_util implementation which
-  // returned the extension without a leading "." ("jpg" instead of ".jpg")
+  // returned the extension without a leading "." ("jpg" instead of ".jpg").
   [[nodiscard]] StringType Extension() const;
 
-  // Returns the path's file extension, as in Extension(), but will
-  // never return a double extension.
+  // Returns the final extension of a file path, or an empty string if the file
+  // path has no extension.  In most cases, the final extension of a file path
+  // refers to the part of the file path from the last dot to the end (including
+  // the dot itself).  For example, this method applied to "/pics/jojo.jpg"
+  // and "/pics/jojo." returns ".jpg" and ".", respectively.  However, if the
+  // base name of the file path is either "." or "..", this method returns an
+  // empty string.
   //
   // TODO(davidben): Check all our extension-sensitive code to see if
   // we can rename this to Extension() and the other to something like
@@ -327,16 +339,20 @@ class BASE_EXPORT FilePath {
   // Returns "" if BaseName() == "." or "..".
   [[nodiscard]] FilePath ReplaceExtension(StringPieceType extension) const;
 
-  // Returns true if the file path matches the specified extension. The test is
+  // Returns true if file path's Extension() matches `extension`. The test is
   // case insensitive. Don't forget the leading period if appropriate.
   bool MatchesExtension(StringPieceType extension) const;
+
+  // Returns true if file path's FinalExtension() matches `extension`. The
+  // test is case insensitive. Don't forget the leading period if appropriate.
+  bool MatchesFinalExtension(StringPieceType extension) const;
 
   // Returns a FilePath by appending a separator and the supplied path
   // component to this object's path.  Append takes care to avoid adding
   // excessive separators if this object's path already ends with a separator.
-  // If this object's path is kCurrentDirectory, a new FilePath corresponding
-  // only to |component| is returned.  |component| must be a relative path;
-  // it is an error to pass an absolute path.
+  // If this object's path is kCurrentDirectory ('.'), a new FilePath
+  // corresponding only to |component| is returned.  |component| must be a
+  // relative path; it is an error to pass an absolute path.
   [[nodiscard]] FilePath Append(StringPieceType component) const;
   [[nodiscard]] FilePath Append(const FilePath& component) const;
   [[nodiscard]] FilePath Append(const SafeBaseName& component) const;
@@ -424,11 +440,11 @@ class BASE_EXPORT FilePath {
 
   // Normalize all path separators to backslash on Windows
   // (if FILE_PATH_USES_WIN_SEPARATORS is true), or do nothing on POSIX systems.
-  FilePath NormalizePathSeparators() const;
+  [[nodiscard]] FilePath NormalizePathSeparators() const;
 
   // Normalize all path separattors to given type on Windows
   // (if FILE_PATH_USES_WIN_SEPARATORS is true), or do nothing on POSIX systems.
-  FilePath NormalizePathSeparatorsTo(CharType separator) const;
+  [[nodiscard]] FilePath NormalizePathSeparatorsTo(CharType separator) const;
 
   // Compare two strings in the same way the file system does.
   // Note that these always ignore case, even on file systems that are case-
@@ -476,6 +492,9 @@ class BASE_EXPORT FilePath {
   // Returns true if the path is a content uri, or false otherwise.
   bool IsContentUri() const;
 #endif
+
+  // NOTE: When adding a new public method, consider adding it to
+  // file_path_fuzzer.cc as well.
 
  private:
   // Remove trailing separators from this object.  If the path is absolute, it

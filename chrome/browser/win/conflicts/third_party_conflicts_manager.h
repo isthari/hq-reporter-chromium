@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,8 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string_piece_forward.h"
@@ -180,7 +181,7 @@ class ThirdPartyConflictsManager : public ModuleDatabaseObserver {
   // |on_initialization_complete_callback_|.
   void SetTerminalState(State terminal_state);
 
-  ModuleDatabaseEventSource* const module_database_event_source_;
+  const raw_ptr<ModuleDatabaseEventSource> module_database_event_source_;
 
   scoped_refptr<base::SequencedTaskRunner> background_sequence_;
 

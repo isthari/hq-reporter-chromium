@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,14 +6,9 @@
 
 #include <memory>
 
-#include "base/strings/strcat.h"
 #include "base/strings/string_piece.h"
-#include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/webid/account_selection_view.h"
-#include "chrome/browser/ui/webid/webid_dialog.h"
-#include "components/infobars/core/infobar.h"
-#include "url/gurl.h"
 
 IdentityDialogController::IdentityDialogController() = default;
 
@@ -27,131 +22,98 @@ int IdentityDialogController::GetBrandIconIdealSize() {
   return AccountSelectionView::GetBrandIconIdealSize();
 }
 
-void IdentityDialogController::ShowInitialPermissionDialog(
-    content::WebContents* rp_web_contents,
-    const GURL& idp_url,
-    content::IdentityRequestDialogController::PermissionDialogMode mode,
-    InitialApprovalCallback callback) {
-  DCHECK(!view_);
-
-  // The WebContents should be that of RP page to make sure info bar is shown on
-  // the RP page.
-
-  // TODO(majidvp): Use the provider name/url here
-  auto idp_hostname =
-      base::UTF8ToUTF16(idp_url.DeprecatedGetOriginAsURL().host());
-
-  auto rp_hostname = base::UTF8ToUTF16(
-      rp_web_contents->GetVisibleURL().DeprecatedGetOriginAsURL().host());
-
-  GetOrCreateView(rp_web_contents)
-      .ShowInitialPermission(idp_hostname, rp_hostname, mode,
-                             std::move(callback));
-}
-
-void IdentityDialogController::ShowIdProviderWindow(
-    content::WebContents* rp_web_contents,
-    content::WebContents* idp_web_contents,
-    const GURL& idp_signin_url,
-    IdProviderWindowClosedCallback callback) {
-  view_closed_callback_ = std::move(callback);
-
-  GetOrCreateView(rp_web_contents)
-      .ShowSigninPage(idp_web_contents, idp_signin_url);
-}
-
-void IdentityDialogController::CloseIdProviderWindow() {
-  if (!view_)
-    return;
-
-  // Note that this leads to the window closed callback being run. If the
-  // token exchange permission dialog does not need to be displayed, the
-  // identity request will be completed synchronously and this controller will
-  // be destroyed.
-  view_->CloseSigninPage();
-
-  // Do not touch local state here since |this| is now destroyed.
-}
-
-void IdentityDialogController::ShowTokenExchangePermissionDialog(
-    content::WebContents* rp_web_contents,
-    const GURL& idp_url,
-    TokenExchangeApprovalCallback callback) {
-  auto idp_hostname =
-      base::UTF8ToUTF16(idp_url.DeprecatedGetOriginAsURL().host());
-
-  auto rp_hostname = base::UTF8ToUTF16(
-      rp_web_contents->GetVisibleURL().DeprecatedGetOriginAsURL().host());
-
-  GetOrCreateView(rp_web_contents)
-      .ShowTokenExchangePermission(idp_hostname, rp_hostname,
-                                   std::move(callback));
-}
-
-WebIdDialog& IdentityDialogController::GetOrCreateView(
-    content::WebContents* rp_web_contents) {
-  if (!view_)
-    view_ = WebIdDialog::Create(
-        rp_web_contents, base::BindOnce(&IdentityDialogController::OnViewClosed,
-                                        weak_ptr_factory_.GetWeakPtr()));
-
-  // It is expected that we use the same rp_web_contents during the lifetime
-  // of this controller.
-  DCHECK_EQ(view_->rp_web_contents(), rp_web_contents);
-
-  return *view_;
-}
-
 void IdentityDialogController::ShowAccountsDialog(
     content::WebContents* rp_web_contents,
-    content::WebContents* idp_web_contents,
-    const GURL& idp_url,
-    base::span<const content::IdentityRequestAccount> accounts,
-    const content::IdentityProviderMetadata& idp_metadata,
-    const content::ClientIdData& client_data,
+    const std::string& top_frame_for_display,
+    const absl::optional<std::string>& iframe_for_display,
+    const std::vector<content::IdentityProviderData>& identity_provider_data,
     content::IdentityRequestAccount::SignInMode sign_in_mode,
-    AccountSelectionCallback on_selected) {
-  // IDP scheme is expected to always be `https://`.
-  CHECK(idp_url.SchemeIs(url::kHttpsScheme));
-#if !BUILDFLAG(IS_ANDROID)
-  std::move(on_selected)
-      .Run(accounts[0].account_id,
-           accounts[0].login_state ==
-               content::IdentityRequestAccount::LoginState::kSignIn);
-#else
+    bool show_auto_reauthn_checkbox,
+    AccountSelectionCallback on_selected,
+    DismissCallback dismiss_callback) {
   rp_web_contents_ = rp_web_contents;
   on_account_selection_ = std::move(on_selected);
-  const GURL& rp_url = rp_web_contents_->GetLastCommittedURL();
-
+  on_dismiss_ = std::move(dismiss_callback);
   if (!account_view_)
     account_view_ = AccountSelectionView::Create(this);
-
-  account_view_->Show(rp_url, idp_url, accounts, idp_metadata, client_data,
-                      sign_in_mode);
-#endif
+  account_view_->Show(top_frame_for_display, iframe_for_display,
+                      identity_provider_data, sign_in_mode,
+                      show_auto_reauthn_checkbox);
 }
 
-void IdentityDialogController::OnAccountSelected(const Account& account) {
+void IdentityDialogController::ShowFailureDialog(
+    content::WebContents* rp_web_contents,
+    const std::string& top_frame_for_display,
+    const absl::optional<std::string>& iframe_for_display,
+    const std::string& idp_for_display,
+    const content::IdentityProviderMetadata& idp_metadata,
+    DismissCallback dismiss_callback,
+    SigninToIdPCallback signin_callback) {
+  const GURL rp_url = rp_web_contents->GetLastCommittedURL();
+  rp_web_contents_ = rp_web_contents;
+  on_dismiss_ = std::move(dismiss_callback);
+  on_signin_ = std::move(signin_callback);
+  if (!account_view_)
+    account_view_ = AccountSelectionView::Create(this);
+  // Else:
+  //   TODO: If the failure dialog is already being shown, notify user that
+  //   sign-in attempt failed.
+
+  account_view_->ShowFailureDialog(top_frame_for_display, iframe_for_display,
+                                   idp_for_display, idp_metadata);
+}
+
+void IdentityDialogController::OnSigninToIdP() {
+  std::move(on_signin_).Run();
+}
+
+void IdentityDialogController::ShowIdpSigninFailureDialog(
+    base::OnceClosure user_notified_callback) {
+  NOTIMPLEMENTED();
+}
+
+std::string IdentityDialogController::GetTitle() const {
+  return account_view_->GetTitle();
+}
+
+absl::optional<std::string> IdentityDialogController::GetSubtitle() const {
+  return account_view_->GetSubtitle();
+}
+
+void IdentityDialogController::OnAccountSelected(const GURL& idp_config_url,
+                                                 const Account& account) {
+  on_dismiss_.Reset();
   std::move(on_account_selection_)
-      .Run(account.account_id,
+      .Run(idp_config_url, account.id,
            account.login_state ==
                content::IdentityRequestAccount::LoginState::kSignIn);
 }
 
-void IdentityDialogController::OnDismiss() {
+void IdentityDialogController::OnDismiss(DismissReason dismiss_reason) {
   // |OnDismiss| can be called after |OnAccountSelected| which sets the callback
   // to null.
-  if (on_account_selection_)
-    std::move(on_account_selection_).Run(std::string(), false);
+  if (on_dismiss_) {
+    on_account_selection_.Reset();
+    std::move(on_dismiss_).Run(dismiss_reason);
+  }
 }
 
 gfx::NativeView IdentityDialogController::GetNativeView() {
   return rp_web_contents_->GetNativeView();
 }
 
-void IdentityDialogController::OnViewClosed() {
-  view_ = nullptr;
-  if (view_closed_callback_) {
-    std::move(view_closed_callback_).Run();
-  }
+content::WebContents* IdentityDialogController::GetWebContents() {
+  return rp_web_contents_;
+}
+
+content::WebContents* IdentityDialogController::ShowModalDialog(
+    const GURL& url,
+    DismissCallback dismiss_callback) {
+  // TODO(crbug.com/1429083): connect the dimiss_callback to the
+  // modal dialog close button.
+  return account_view_->ShowModalDialog(url);
+}
+
+void IdentityDialogController::CloseModalDialog() {
+  account_view_->CloseModalDialog();
 }

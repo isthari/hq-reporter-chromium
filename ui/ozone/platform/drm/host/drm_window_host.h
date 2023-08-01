@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 
 #include <memory>
 
+#include "base/memory/raw_ptr.h"
 #include "ui/display/types/display_snapshot.h"
 #include "ui/events/platform/platform_event_dispatcher.h"
 #include "ui/gfx/geometry/rect.h"
@@ -64,13 +65,15 @@ class DrmWindowHost : public PlatformWindow,
   void Close() override;
   bool IsVisible() const override;
   void PrepareForShutdown() override;
-  void SetBounds(const gfx::Rect& bounds) override;
-  gfx::Rect GetBounds() const override;
+  void SetBoundsInPixels(const gfx::Rect& bounds) override;
+  gfx::Rect GetBoundsInPixels() const override;
+  void SetBoundsInDIP(const gfx::Rect& bounds) override;
+  gfx::Rect GetBoundsInDIP() const override;
   void SetTitle(const std::u16string& title) override;
   void SetCapture() override;
   void ReleaseCapture() override;
   bool HasCapture() const override;
-  void ToggleFullscreen() override;
+  void SetFullscreen(bool fullscreen, int64_t target_display_id) override;
   void Maximize() override;
   void Minimize() override;
   void Restore() override;
@@ -82,8 +85,8 @@ class DrmWindowHost : public PlatformWindow,
   void SetCursor(scoped_refptr<PlatformCursor> cursor) override;
   void MoveCursorTo(const gfx::Point& location) override;
   void ConfineCursorToBounds(const gfx::Rect& bounds) override;
-  void SetRestoredBoundsInPixels(const gfx::Rect& bounds) override;
-  gfx::Rect GetRestoredBoundsInPixels() const override;
+  void SetRestoredBoundsInDIP(const gfx::Rect& bounds) override;
+  gfx::Rect GetRestoredBoundsInDIP() const override;
   void SetWindowIcons(const gfx::ImageSkia& window_icon,
                       const gfx::ImageSkia& app_icon) override;
   void SizeConstraintsChanged() override;
@@ -102,12 +105,16 @@ class DrmWindowHost : public PlatformWindow,
  private:
   void SendBoundsChange();
 
-  PlatformWindowDelegate* const delegate_;        // Not owned.
-  GpuThreadAdapter* const sender_;                // Not owned.
-  EventFactoryEvdev* const event_factory_;        // Not owned.
-  DrmCursor* const cursor_;                       // Not owned.
-  DrmWindowHostManager* const window_manager_;    // Not owned.
-  DrmDisplayHostManager* const display_manager_;  // Not owned.
+  const raw_ptr<PlatformWindowDelegate, ExperimentalAsh>
+      delegate_;                                             // Not owned.
+  const raw_ptr<GpuThreadAdapter, ExperimentalAsh> sender_;  // Not owned.
+  const raw_ptr<EventFactoryEvdev, ExperimentalAsh>
+      event_factory_;                                 // Not owned.
+  const raw_ptr<DrmCursor, ExperimentalAsh> cursor_;  // Not owned.
+  const raw_ptr<DrmWindowHostManager, ExperimentalAsh>
+      window_manager_;  // Not owned.
+  const raw_ptr<DrmDisplayHostManager, ExperimentalAsh>
+      display_manager_;  // Not owned.
 
   gfx::Rect bounds_;
   const gfx::AcceleratedWidget widget_;

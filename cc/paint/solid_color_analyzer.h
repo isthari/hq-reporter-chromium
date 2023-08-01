@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,8 +20,8 @@ class CC_PAINT_EXPORT SolidColorAnalyzer {
  public:
   SolidColorAnalyzer() = delete;
 
-  static absl::optional<SkColor> DetermineIfSolidColor(
-      const PaintOpBuffer* buffer,
+  static absl::optional<SkColor4f> DetermineIfSolidColor(
+      const PaintOpBuffer& buffer,
       const gfx::Rect& rect,
       int max_ops_to_analyze,
       const std::vector<size_t>* offsets = nullptr);

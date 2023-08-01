@@ -1,35 +1,112 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/password_manager/android/save_update_password_message_delegate.h"
+#include <utility>
 
-#include "base/callback.h"
+#include "base/android/jni_android.h"
+#include "base/check.h"
+#include "base/feature_list.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/android/android_theme_resources.h"
 #include "chrome/browser/android/resource_mapper.h"
+#include "chrome/browser/flags/android/chrome_feature_list.h"
+#include "chrome/browser/password_manager/android/local_passwords_migration_warning_util.h"
 #include "chrome/browser/password_manager/android/password_infobar_utils.h"
 #include "chrome/browser/password_manager/chrome_password_manager_client.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/passwords/manage_passwords_view_utils.h"
+#include "chrome/browser/ui/passwords/ui_utils.h"
+#include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
+#include "chrome/grit/google_chrome_strings.h"
 #include "components/messages/android/message_dispatcher_bridge.h"
-#include "components/messages/android/messages_feature.h"
 #include "components/password_manager/core/browser/password_form.h"
 #include "components/password_manager/core/browser/password_form_metrics_recorder.h"
+#include "components/password_manager/core/browser/password_manager_metrics_util.h"
 #include "components/password_manager/core/browser/password_ui_utils.h"
+#include "components/password_manager/core/common/password_manager_features.h"
 #include "components/url_formatter/elide_url.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "url/origin.h"
 
+using password_manager::features::kPasswordEditDialogWithDetails;
+
+namespace {
+
+// Duration of message before timeout; 20 seconds.
+const int kMessageDismissDurationMs = 20000;
+
+// Log the outcome of the save/update password workflow.
+// It differentiates whether the the flow was accepted/cancelled immediately
+// or after calling the password edit dialog.
+void LogSaveUpdatePasswordMessageDismissalReason(
+    SaveUpdatePasswordMessageDelegate::SaveUpdatePasswordMessageDismissReason
+        reason) {
+  base::UmaHistogramEnumeration(
+      "PasswordManager.SaveUpdateUIDismissalReasonAndroid", reason);
+}
+
+// Log the outcome of the save password workflow.
+// It differentiates whether the password was saved/canceled immediately or
+// after calling the password edit dialog.
+void LogSavePasswordMessageDismissalReason(
+    SaveUpdatePasswordMessageDelegate::SaveUpdatePasswordMessageDismissReason
+        reason) {
+  base::UmaHistogramEnumeration(
+      "PasswordManager.SaveUpdateUIDismissalReasonAndroid.Save", reason);
+}
+
+// Log the outcome of the update password workflow.
+// It differentiates whether the password was updated/canceled immediately or
+// after calling the password edit dialog.
+void LogUpdatePasswordMessageDismissalReason(
+    SaveUpdatePasswordMessageDelegate::SaveUpdatePasswordMessageDismissReason
+        reason) {
+  base::UmaHistogramEnumeration(
+      "PasswordManager.SaveUpdateUIDismissalReasonAndroid.Update", reason);
+}
+
+// Log the outcome of the update password workflow with multiple credentials
+// saved for current site.
+// Canceled in message | confirmed | canceled in dialog
+void LogConfirmUsernameMessageDismissalReason(
+    SaveUpdatePasswordMessageDelegate::SaveUpdatePasswordMessageDismissReason
+        reason) {
+  base::UmaHistogramEnumeration(
+      "PasswordManager.SaveUpdateUIDismissalReasonAndroid."
+      "UpdateWithUsernameConfirmation",
+      reason);
+}
+
+bool UPMExploratoryStringsEnabledWithSupportedParam() {
+  if (!base::FeatureList::IsEnabled(
+          password_manager::features::kExploratorySaveUpdatePasswordStrings)) {
+    return false;
+  }
+
+  int string_version =
+      password_manager::features::kSaveUpdatePromptSyncingStringVersion.Get();
+  return string_version == 2 || string_version == 3;
+}
+
+}  // namespace
+
 SaveUpdatePasswordMessageDelegate::SaveUpdatePasswordMessageDelegate()
     : SaveUpdatePasswordMessageDelegate(
-          base::BindRepeating(PasswordEditDialogBridge::Create)) {}
+          base::BindRepeating(PasswordEditDialogBridge::Create),
+          base::BindRepeating(&password_manager::ShowWarning)) {}
 
 SaveUpdatePasswordMessageDelegate::SaveUpdatePasswordMessageDelegate(
-    PasswordEditDialogFactory password_edit_dialog_factory)
-    : password_edit_dialog_factory_(std::move(password_edit_dialog_factory)) {}
+    PasswordEditDialogFactory password_edit_dialog_factory,
+    base::RepeatingCallback<void(gfx::NativeWindow)>
+        create_migration_warning_callback)
+    : password_edit_dialog_factory_(std::move(password_edit_dialog_factory)),
+      create_migration_warning_callback_(
+          std::move(create_migration_warning_callback)) {}
 
 SaveUpdatePasswordMessageDelegate::~SaveUpdatePasswordMessageDelegate() {
   DCHECK(web_contents_ == nullptr);
@@ -85,14 +162,24 @@ void SaveUpdatePasswordMessageDelegate::DisplaySaveUpdatePasswordPromptInternal(
   } else {
     passwords_state_.OnPendingPassword(std::move(form_to_save));
   }
-  account_email_ =
-      account_info.has_value() ? account_info.value().email : std::string();
+
+  if (account_info.has_value()) {
+    if (!account_info->CanHaveEmailAddressDisplayed() &&
+        base::FeatureList::IsEnabled(
+            chrome::android::kHideNonDisplayableAccountEmail)) {
+      account_email_ = account_info.value().full_name;
+    } else {
+      account_email_ = account_info.value().email;
+    }
+  } else {
+    account_email_ = std::string();
+  }
 
   CreateMessage(update_password);
   RecordMessageShownMetrics();
   messages::MessageDispatcherBridge::Get()->EnqueueMessage(
-      message_.get(), web_contents_, messages::MessageScopeType::NAVIGATION,
-      messages::MessagePriority::kNormal);
+      message_.get(), web_contents_, messages::MessageScopeType::WEB_CONTENTS,
+      messages::MessagePriority::kUrgent);
 }
 
 void SaveUpdatePasswordMessageDelegate::CreateMessage(bool update_password) {
@@ -115,13 +202,7 @@ void SaveUpdatePasswordMessageDelegate::CreateMessage(bool update_password) {
       base::BindOnce(&SaveUpdatePasswordMessageDelegate::HandleMessageDismissed,
                      base::Unretained(this)));
 
-  // The message duration experiment is controlled by a parameter, associated
-  // with MessagesForAndroidPasswords feature and thus should be adjusted for
-  // both save and update password prompt.
-  int message_dismiss_duration_ms =
-      messages::GetSavePasswordMessageDismissDurationMs();
-  if (message_dismiss_duration_ms != 0)
-    message_->SetDuration(message_dismiss_duration_ms);
+  message_->SetDuration(kMessageDismissDurationMs);
 
   const password_manager::PasswordForm& pending_credentials =
       passwords_state_.form_manager()->GetPendingCredentials();
@@ -136,52 +217,167 @@ void SaveUpdatePasswordMessageDelegate::CreateMessage(bool update_password) {
   }
   message_->SetTitle(l10n_util::GetStringUTF16(title_message_id));
 
-  // TODO(crbug.com/1188971): There is no password when federation_origin is
-  // set. Instead we should display federated provider in the description.
-  // GetDisplayFederation() returns federation origin for a given form.
-  const std::u16string masked_password =
-      std::u16string(pending_credentials.password_value.size(), L'•');
-  std::u16string description;
-  if (!account_email_.empty()) {
-    if (update_password) {
-      description = l10n_util::GetStringFUTF16(
-          IDS_UPDATE_PASSWORD_SIGNED_IN_MESSAGE_DESCRIPTION_GOOGLE_ACCOUNT,
-          base::UTF8ToUTF16(account_email_));
-    } else {
-      description = l10n_util::GetStringFUTF16(
-          IDS_SAVE_PASSWORD_SIGNED_IN_MESSAGE_DESCRIPTION_GOOGLE_ACCOUNT,
-          base::UTF8ToUTF16(account_email_));
-    }
-  } else {
-    description.append(pending_credentials.username_value)
-        .append(u" ")
-        .append(masked_password);
-  }
+  std::u16string description = GetMessageDescription(
+      pending_credentials, update_password,
+      password_manager::features::UsesUnifiedPasswordManagerBranding());
   message_->SetDescription(description);
 
   update_password_ = update_password;
 
-  bool use_followup_button_text = false;
-  if (update_password) {
-    std::vector<std::u16string> usernames;
-    GetDisplayUsernames(&usernames);
-    use_followup_button_text = usernames.size() > 1;
-  }
+  bool use_followup_button = HasMultipleCredentialsStored();
   message_->SetPrimaryButtonText(l10n_util::GetStringUTF16(
-      GetPrimaryButtonTextId(update_password, use_followup_button_text)));
+      GetPrimaryButtonTextId(update_password, use_followup_button)));
 
-  message_->SetIconResourceId(
-      ResourceMapper::MapToJavaDrawableId(IDR_ANDROID_INFOBAR_SAVE_PASSWORD));
-
-  if (!update_password) {
-    message_->SetSecondaryIconResourceId(
-        ResourceMapper::MapToJavaDrawableId(IDR_ANDROID_MESSAGE_SETTINGS));
-    message_->SetSecondaryButtonMenuText(
-        l10n_util::GetStringUTF16(IDS_PASSWORD_MANAGER_BLOCKLIST_BUTTON));
-    message_->SetSecondaryActionCallback(base::BindOnce(
-        &SaveUpdatePasswordMessageDelegate::HandleNeverSaveClicked,
-        base::Unretained(this)));
+  if (password_manager::features::UsesUnifiedPasswordManagerBranding()) {
+    message_->SetIconResourceId(ResourceMapper::MapToJavaDrawableId(
+        IDR_ANDROID_PASSWORD_MANAGER_LOGO_24DP));
+    message_->DisableIconTint();
+  } else {
+    message_->SetIconResourceId(
+        ResourceMapper::MapToJavaDrawableId(IDR_ANDROID_INFOBAR_SAVE_PASSWORD));
   }
+
+  // With kPasswordEditDialogWithDetails feature on: the cog button is always
+  // shown for the save message and for the update message when there is
+  // just one password stored for the web site. When there are multiple
+  // credentials stored, the dialog will be called anyway from the followup
+  // button, so there are no options to put under the cog.
+  // With kPasswordEditDialogWithDetails feature off: the cog button is
+  // shown only for the Save password message.
+  if (base::FeatureList::IsEnabled(kPasswordEditDialogWithDetails) &&
+      (!update_password || !use_followup_button)) {
+    SetupCogMenuForDialogWithDetails(message_, update_password);
+  } else if (!base::FeatureList::IsEnabled(kPasswordEditDialogWithDetails) &&
+             !update_password) {
+    SetupCogMenu(message_, update_password);
+  }
+}
+
+void SaveUpdatePasswordMessageDelegate::SetupCogMenu(
+    std::unique_ptr<messages::MessageWrapper>& message,
+    bool update_password) {
+  message->SetSecondaryIconResourceId(
+      ResourceMapper::MapToJavaDrawableId(IDR_ANDROID_MESSAGE_SETTINGS));
+  message->SetSecondaryButtonMenuText(l10n_util::GetStringUTF16(
+      password_manager::features::UsesUnifiedPasswordManagerBranding()
+          ? IDS_PASSWORD_MESSAGE_NEVER_SAVE_MENU_ITEM
+          : IDS_PASSWORD_MANAGER_BLOCKLIST_BUTTON));
+  message->SetSecondaryActionCallback(base::BindRepeating(
+      &SaveUpdatePasswordMessageDelegate::HandleNeverSaveClicked,
+      base::Unretained(this)));
+}
+
+void SaveUpdatePasswordMessageDelegate::SetupCogMenuForDialogWithDetails(
+    std::unique_ptr<messages::MessageWrapper>& message,
+    bool update_password) {
+  message->SetSecondaryIconResourceId(
+      ResourceMapper::MapToJavaDrawableId(IDR_ANDROID_MESSAGE_SETTINGS));
+  if (update_password) {
+    message->SetSecondaryActionCallback(base::BindRepeating(
+        &SaveUpdatePasswordMessageDelegate::DisplayEditDialog,
+        base::Unretained(this), update_password));
+  } else {
+    message_->SetSecondaryMenuItemSelectedCallback(base::BindRepeating(
+        &SaveUpdatePasswordMessageDelegate::HandleSaveMessageMenuItemClick,
+        base::Unretained(this)));
+    message_->AddSecondaryMenuItem(
+        static_cast<int>(SavePasswordDialogMenuItem::kNeverSave),
+        /*resource_id=*/0,
+        l10n_util::GetStringUTF16(IDS_PASSWORD_MESSAGE_NEVER_SAVE_MENU_ITEM),
+        l10n_util::GetStringUTF16(
+            IDS_PASSWORD_MESSAGE_NEVER_SAVE_MENU_ITEM_DESC));
+    message_->AddSecondaryMenuItem(
+        static_cast<int>(SavePasswordDialogMenuItem::kEditPassword),
+        /*resource_id=*/0,
+        l10n_util::GetStringUTF16(
+            IDS_PASSWORD_MESSAGE_EDIT_PASSWORD_MENU_ITEM));
+  }
+}
+
+void SaveUpdatePasswordMessageDelegate::HandleSaveMessageMenuItemClick(
+    int item_id) {
+  switch (static_cast<SavePasswordDialogMenuItem>(item_id)) {
+    case SavePasswordDialogMenuItem::kNeverSave:
+      HandleNeverSaveClicked();
+      break;
+    case SavePasswordDialogMenuItem::kEditPassword:
+      DisplayEditDialog(/*update_password=*/false);
+      break;
+  }
+}
+
+std::u16string SaveUpdatePasswordMessageDelegate::GetMessageDescription(
+    const password_manager::PasswordForm& pending_credentials,
+    bool update_password,
+    bool unified_password_manager) {
+  if (UPMExploratoryStringsEnabledWithSupportedParam()) {
+    return GetExploratoryStringsMessageDescription(update_password);
+  }
+
+  if (unified_password_manager) {
+    return GetUnifiedPasswordManagerMessageDescription(update_password);
+  }
+
+  if (!account_email_.empty()) {
+    return l10n_util::GetStringFUTF16(
+        update_password
+            ? IDS_UPDATE_PASSWORD_SIGNED_IN_MESSAGE_DESCRIPTION_GOOGLE_ACCOUNT
+            : IDS_SAVE_PASSWORD_SIGNED_IN_MESSAGE_DESCRIPTION_GOOGLE_ACCOUNT,
+        base::UTF8ToUTF16(account_email_));
+  }
+
+    // TODO(crbug.com/1188971): There is no password when federation_origin is
+    // set. Instead we should display federated provider in the description.
+    // GetDisplayFederation() returns federation origin for a given form.
+    const std::u16string masked_password =
+        std::u16string(pending_credentials.password_value.size(), L'•');
+    std::u16string description;
+    description.append(pending_credentials.username_value)
+        .append(u" ")
+        .append(masked_password);
+    return description;
+}
+
+std::u16string
+SaveUpdatePasswordMessageDelegate::GetExploratoryStringsMessageDescription(
+    bool update_password) {
+    if (account_email_.empty()) {
+      return l10n_util::GetStringUTF16(
+          IDS_PASSWORD_MANAGER_SAVE_UPDATE_PASSWORD_SIGNED_OUT_MESSAGE_DESCRIPTION_V1);
+    }
+
+    int string_version =
+        password_manager::features::kSaveUpdatePromptSyncingStringVersion.Get();
+    CHECK(string_version == 2 || string_version == 3);
+    if (string_version == 2) {
+      return l10n_util::GetStringFUTF16(
+          update_password
+              ? IDS_PASSWORD_MANAGER_UPDATE_PASSWORD_SIGNED_IN_MESSAGE_DESCRIPTION_V2
+              : IDS_PASSWORD_MANAGER_SAVE_PASSWORD_SIGNED_IN_MESSAGE_DESCRIPTION_V2,
+          base::UTF8ToUTF16(account_email_));
+    }
+    return l10n_util::GetStringFUTF16(
+        update_password
+            ? IDS_PASSWORD_MANAGER_UPDATE_PASSWORD_SIGNED_IN_MESSAGE_DESCRIPTION_V3
+            : IDS_PASSWORD_MANAGER_SAVE_PASSWORD_SIGNED_IN_MESSAGE_DESCRIPTION_V3,
+        base::UTF8ToUTF16(account_email_));
+}
+
+std::u16string
+SaveUpdatePasswordMessageDelegate::GetUnifiedPasswordManagerMessageDescription(
+    bool update_password) {
+    if (!account_email_.empty()) {
+      return l10n_util::GetStringFUTF16(
+          update_password
+              ? IDS_PASSWORD_MANAGER_UPDATE_PASSWORD_SIGNED_IN_MESSAGE_DESCRIPTION
+              : IDS_PASSWORD_MANAGER_SAVE_PASSWORD_SIGNED_IN_MESSAGE_DESCRIPTION,
+          base::UTF8ToUTF16(account_email_));
+    }
+
+    return l10n_util::GetStringUTF16(
+        update_password
+            ? IDS_PASSWORD_MANAGER_UPDATE_PASSWORD_SIGNED_OUT_MESSAGE_DESCRIPTION
+            : IDS_PASSWORD_MANAGER_SAVE_PASSWORD_SIGNED_OUT_MESSAGE_DESCRIPTION);
 }
 
 int SaveUpdatePasswordMessageDelegate::GetPrimaryButtonTextId(
@@ -191,9 +387,84 @@ int SaveUpdatePasswordMessageDelegate::GetPrimaryButtonTextId(
     return IDS_PASSWORD_MANAGER_SAVE_BUTTON;
   if (!use_followup_button_text)
     return IDS_PASSWORD_MANAGER_UPDATE_BUTTON;
-  if (messages::UseFollowupButtonTextForUpdatePasswordButton())
-    return IDS_PASSWORD_MANAGER_UPDATE_WITH_FOLLOWUP_BUTTON;
   return IDS_PASSWORD_MANAGER_CONTINUE_BUTTON;
+}
+
+unsigned int SaveUpdatePasswordMessageDelegate::GetDisplayUsernames(
+    std::vector<std::u16string>* usernames) {
+  unsigned int selected_username_index = 0;
+  // TODO(crbug.com/1054410): Fix the update logic to use all best matches,
+  // rather than current_forms which is best_matches without PSL-matched
+  // credentials.
+  const std::vector<std::unique_ptr<password_manager::PasswordForm>>&
+      password_forms = passwords_state_.GetCurrentForms();
+  const std::u16string& default_username =
+      passwords_state_.form_manager()->GetPendingCredentials().username_value;
+  for (const auto& form : password_forms) {
+    const std::u16string username =
+        base::FeatureList::IsEnabled(kPasswordEditDialogWithDetails)
+            ? form->username_value
+            : GetDisplayUsername(*form);
+    usernames->push_back(username);
+    if (form->username_value == default_username) {
+      selected_username_index = usernames->size() - 1;
+    }
+  }
+  return selected_username_index;
+}
+
+void SaveUpdatePasswordMessageDelegate::HandleSaveButtonClicked() {
+  passwords_state_.form_manager()->Save();
+
+  if (base::FeatureList::IsEnabled(
+          password_manager::features::
+              kUnifiedPasswordManagerLocalPasswordsMigrationWarning)) {
+    // TODO(crbug.com/439853): Check if the bottom sheet was shown a month ago
+    // or more.
+    create_migration_warning_callback_.Run(
+        web_contents_->GetTopLevelNativeWindow());
+  }
+}
+
+void SaveUpdatePasswordMessageDelegate::HandleNeverSaveClicked() {
+  passwords_state_.form_manager()->Blocklist();
+  DismissSaveUpdatePasswordMessage(messages::DismissReason::SECONDARY_ACTION);
+}
+
+void SaveUpdatePasswordMessageDelegate::HandleUpdateButtonClicked() {
+  std::vector<std::u16string> usernames;
+  if (HasMultipleCredentialsStored()) {
+    DisplayEditDialog(/*update_password=*/true);
+  } else {
+    passwords_state_.form_manager()->Save();
+  }
+}
+
+void SaveUpdatePasswordMessageDelegate::DisplayEditDialog(
+    bool update_password) {
+  const std::u16string& current_username =
+      passwords_state_.form_manager()->GetPendingCredentials().username_value;
+  const std::u16string& current_password =
+      passwords_state_.form_manager()->GetPendingCredentials().password_value;
+
+  CreatePasswordEditDialog();
+
+  // Password edit dialog factory method can return nullptr when web_contents
+  // is not attached to a window. See crbug.com/1049090 for details.
+  if (!password_edit_dialog_)
+    return;
+
+  std::vector<std::u16string> usernames;
+  int selected_username_index = GetDisplayUsernames(&usernames);
+  if (base::FeatureList::IsEnabled(kPasswordEditDialogWithDetails)) {
+    password_edit_dialog_->ShowPasswordEditDialog(
+        usernames, current_username, current_password, account_email_);
+  } else {
+    password_edit_dialog_->ShowLegacyPasswordEditDialog(
+        usernames, selected_username_index, account_email_);
+  }
+
+  DismissSaveUpdatePasswordMessage(messages::DismissReason::SECONDARY_ACTION);
 }
 
 void SaveUpdatePasswordMessageDelegate::HandleMessageDismissed(
@@ -207,31 +478,23 @@ void SaveUpdatePasswordMessageDelegate::HandleMessageDismissed(
   // Record metrics and cleanup state.
   RecordDismissalReasonMetrics(
       MessageDismissReasonToPasswordManagerUIDismissalReason(dismiss_reason));
+  if (base::FeatureList::IsEnabled(kPasswordEditDialogWithDetails)) {
+    RecordSaveUpdateUIDismissalReason(
+        GetSaveUpdatePasswordMessageDismissReason(dismiss_reason));
+  }
   ClearState();
 }
 
-void SaveUpdatePasswordMessageDelegate::HandleSaveButtonClicked() {
-  passwords_state_.form_manager()->Save();
+bool SaveUpdatePasswordMessageDelegate::HasMultipleCredentialsStored() {
+  // TODO(crbug.com/1054410): Fix the update logic to use all best matches,
+  // rather than current_forms which is best_matches without PSL-matched
+  // credentials.
+  const std::vector<std::unique_ptr<password_manager::PasswordForm>>&
+      password_forms = passwords_state_.GetCurrentForms();
+  return password_forms.size() > 1;
 }
 
-void SaveUpdatePasswordMessageDelegate::HandleNeverSaveClicked() {
-  passwords_state_.form_manager()->Blocklist();
-  DismissSaveUpdatePasswordMessage(messages::DismissReason::SECONDARY_ACTION);
-}
-
-void SaveUpdatePasswordMessageDelegate::HandleUpdateButtonClicked() {
-  std::vector<std::u16string> usernames;
-  int selected_username_index = GetDisplayUsernames(&usernames);
-  if (usernames.size() > 1) {
-    DisplayUsernameConfirmDialog(std::move(usernames), selected_username_index);
-  } else {
-    passwords_state_.form_manager()->Save();
-  }
-}
-
-void SaveUpdatePasswordMessageDelegate::DisplayUsernameConfirmDialog(
-    std::vector<std::u16string> usernames,
-    int selected_username_index) {
+void SaveUpdatePasswordMessageDelegate::CreatePasswordEditDialog() {
   // Binding with base::Unretained(this) is safe here because
   // SaveUpdatePasswordMessageDelegate owns password_edit_dialog_. Callbacks
   // won't be called after the SaveUpdatePasswordMessageDelegate object is
@@ -241,67 +504,41 @@ void SaveUpdatePasswordMessageDelegate::DisplayUsernameConfirmDialog(
       base::BindOnce(
           &SaveUpdatePasswordMessageDelegate::HandleSavePasswordFromDialog,
           base::Unretained(this)),
+      base::BindOnce(&SaveUpdatePasswordMessageDelegate::
+                         HandleSavePasswordFromLegacyDialog,
+                     base::Unretained(this)),
       base::BindOnce(&SaveUpdatePasswordMessageDelegate::HandleDialogDismissed,
                      base::Unretained(this)));
-
-  // Password edit dialog factory method can return nullptr when web_contents
-  // is not attached to a window. See crbug.com/1049090 for details.
-  if (!password_edit_dialog_)
-    return;
-
-  std::u16string origin = url_formatter::FormatOriginForSecurityDisplay(
-      url::Origin::Create(passwords_state_.form_manager()->GetURL()),
-      url_formatter::SchemeDisplay::OMIT_HTTP_AND_HTTPS);
-  password_edit_dialog_->Show(
-      usernames, selected_username_index,
-      passwords_state_.form_manager()->GetPendingCredentials().password_value,
-      origin, std::string());
-}
-
-unsigned int SaveUpdatePasswordMessageDelegate::GetDisplayUsernames(
-    std::vector<std::u16string>* usernames) {
-  unsigned int selected_username_index = 0;
-  // TODO(crbug.com/1054410): Fix the update logic to use all best matches,
-  // rather than current_forms which is best_matches without PSL-matched
-  // credentials.
-  const std::vector<std::unique_ptr<password_manager::PasswordForm>>&
-      password_forms = passwords_state_.GetCurrentForms();
-  const std::u16string& default_username =
-      passwords_state_.form_manager()->GetPendingCredentials().username_value;
-  if (password_forms.size() > 1) {
-    // If multiple credentials can be updated, we display a dropdown with all
-    // the corresponding usernames.
-    for (const auto& form : password_forms) {
-      usernames->push_back(GetDisplayUsername(*form));
-      if (form->username_value == default_username) {
-        selected_username_index = usernames->size() - 1;
-      }
-    }
-  } else {
-    usernames->push_back(GetDisplayUsername(
-        passwords_state_.form_manager()->GetPendingCredentials()));
-  }
-  return selected_username_index;
 }
 
 void SaveUpdatePasswordMessageDelegate::HandleDialogDismissed(
-    bool dialogAccepted) {
-  password_edit_dialog_.reset();
+    bool dialog_accepted) {
   RecordDismissalReasonMetrics(
-      dialogAccepted ? password_manager::metrics_util::CLICKED_ACCEPT
-                     : password_manager::metrics_util::CLICKED_CANCEL);
+      dialog_accepted ? password_manager::metrics_util::CLICKED_ACCEPT
+                      : password_manager::metrics_util::CLICKED_CANCEL);
+  if (base::FeatureList::IsEnabled(kPasswordEditDialogWithDetails)) {
+    RecordSaveUpdateUIDismissalReason(
+        GetPasswordEditDialogDismissReason(dialog_accepted));
+  }
+
+  password_edit_dialog_.reset();
   ClearState();
 }
 
 void SaveUpdatePasswordMessageDelegate::HandleSavePasswordFromDialog(
-    int selected_username_index) {
-  if (passwords_state_.GetCurrentForms().size() > 1) {
-    UpdatePasswordFormUsernameAndPassword(
-        passwords_state_.GetCurrentForms()[selected_username_index]
-            ->username_value,
-        passwords_state_.form_manager()->GetPendingCredentials().password_value,
-        passwords_state_.form_manager());
-  }
+    const std::u16string& username,
+    const std::u16string& password) {
+  UpdatePasswordFormUsernameAndPassword(username, password,
+                                        passwords_state_.form_manager());
+  passwords_state_.form_manager()->Save();
+}
+
+void SaveUpdatePasswordMessageDelegate::HandleSavePasswordFromLegacyDialog(
+    int username_index) {
+  UpdatePasswordFormUsernameAndPassword(
+      passwords_state_.GetCurrentForms()[username_index]->username_value,
+      passwords_state_.form_manager()->GetPendingCredentials().password_value,
+      passwords_state_.form_manager());
   passwords_state_.form_manager()->Save();
 }
 
@@ -342,6 +579,58 @@ void SaveUpdatePasswordMessageDelegate::RecordDismissalReasonMetrics(
   if (auto* recorder = passwords_state_.form_manager()->GetMetricsRecorder()) {
     recorder->RecordUIDismissalReason(ui_dismissal_reason);
   }
+}
+
+void SaveUpdatePasswordMessageDelegate::RecordSaveUpdateUIDismissalReason(
+    SaveUpdatePasswordMessageDismissReason dismiss_reason) {
+  LogSaveUpdatePasswordMessageDismissalReason(dismiss_reason);
+  if (update_password_ && HasMultipleCredentialsStored()) {
+    LogConfirmUsernameMessageDismissalReason(dismiss_reason);
+    return;
+  }
+  if (update_password_) {
+    LogUpdatePasswordMessageDismissalReason(dismiss_reason);
+    return;
+  }
+  LogSavePasswordMessageDismissalReason(dismiss_reason);
+}
+
+SaveUpdatePasswordMessageDelegate::SaveUpdatePasswordMessageDismissReason
+SaveUpdatePasswordMessageDelegate::GetPasswordEditDialogDismissReason(
+    bool accepted) {
+  DCHECK(password_edit_dialog_ != nullptr);
+
+  if (update_password_ && HasMultipleCredentialsStored()) {
+    return accepted ? SaveUpdatePasswordMessageDismissReason::
+                          kAcceptInUsernameConfirmDialog
+                    : SaveUpdatePasswordMessageDismissReason::kCancelInDialog;
+  }
+  return accepted ? SaveUpdatePasswordMessageDismissReason::kAcceptInDialog
+                  : SaveUpdatePasswordMessageDismissReason::kCancelInDialog;
+}
+
+SaveUpdatePasswordMessageDelegate::SaveUpdatePasswordMessageDismissReason
+SaveUpdatePasswordMessageDelegate::GetSaveUpdatePasswordMessageDismissReason(
+    messages::DismissReason dismiss_reason) {
+  DCHECK(password_edit_dialog_ == nullptr);
+
+  SaveUpdatePasswordMessageDismissReason save_update_dismiss_reason;
+  switch (dismiss_reason) {
+    case messages::DismissReason::PRIMARY_ACTION:
+      save_update_dismiss_reason =
+          SaveUpdatePasswordMessageDismissReason::kAccept;
+      break;
+    // This method is not called when the Edit password button is clicked.
+    case messages::DismissReason::SECONDARY_ACTION:
+      save_update_dismiss_reason =
+          SaveUpdatePasswordMessageDismissReason::kNeverSave;
+      break;
+    default:
+      save_update_dismiss_reason =
+          SaveUpdatePasswordMessageDismissReason::kCancel;
+      break;
+  }
+  return save_update_dismiss_reason;
 }
 
 // static

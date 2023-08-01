@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,9 +17,11 @@
 #include "android_webview/browser/safe_browsing/aw_safe_browsing_allowlist_manager.h"
 #include "android_webview/browser/safe_browsing/aw_safe_browsing_ui_manager.h"
 #include "android_webview/browser_jni_headers/AwSafeBrowsingConfigHelper_jni.h"
+#include "android_webview/browser_jni_headers/AwSafeBrowsingSafeModeAction_jni.h"
+#include "android_webview/common/aw_features.h"
 #include "base/android/jni_android.h"
-#include "base/bind.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
 #include "components/safe_browsing/core/browser/db/database_manager.h"
 #include "components/safe_browsing/core/browser/db/v4_protocol_manager_util.h"
 #include "components/safe_browsing/core/common/features.h"
@@ -79,10 +81,11 @@ void AwUrlCheckerDelegateImpl::StartDisplayingBlockingPageHelper(
     const security_interstitials::UnsafeResource& resource,
     const std::string& method,
     const net::HttpRequestHeaders& headers,
-    bool is_main_frame,
+    bool is_outermost_main_frame,
     bool has_user_gesture) {
-  AwWebResourceRequest request(resource.url.spec(), method, is_main_frame,
-                               has_user_gesture, headers);
+  AwWebResourceRequest request(resource.url.spec(), method,
+                               is_outermost_main_frame, has_user_gesture,
+                               headers);
 
   content::GetUIThreadTaskRunner({})->PostTask(
       FROM_HERE,
@@ -113,6 +116,14 @@ bool AwUrlCheckerDelegateImpl::ShouldSkipRequestCheck(
     int render_process_id,
     int render_frame_id,
     bool originated_from_service_worker) {
+  JNIEnv* env = base::android::AttachCurrentThread();
+  if (base::FeatureList::IsEnabled(
+          android_webview::features::kWebViewSafeBrowsingSafeMode)) {
+    if (Java_AwSafeBrowsingSafeModeAction_isSafeBrowsingDisabled(env)) {
+      return true;
+    }
+  }
+
   const content::GlobalRenderFrameHostId rfh_id(render_process_id,
                                                 render_frame_id);
 
@@ -145,7 +156,6 @@ bool AwUrlCheckerDelegateImpl::ShouldSkipRequestCheck(
     return false;
 
   // For other requests, follow user consent.
-  JNIEnv* env = base::android::AttachCurrentThread();
   bool safe_browsing_user_consent =
       Java_AwSafeBrowsingConfigHelper_getSafeBrowsingUserOptIn(env);
   return !safe_browsing_user_consent;
@@ -295,6 +305,19 @@ void AwUrlCheckerDelegateImpl::StartDisplayingDefaultBlockingPage(
   content::GetIOThreadTaskRunner({})->PostTask(
       FROM_HERE, base::BindOnce(resource.callback, false /* proceed */,
                                 false /* showed_interstitial */));
+}
+
+void AwUrlCheckerDelegateImpl::CheckLookupMechanismExperimentEligibility(
+    const security_interstitials::UnsafeResource& resource,
+    base::OnceCallback<void(bool)> callback,
+    scoped_refptr<base::SequencedTaskRunner> callback_task_runner) {
+  NOTREACHED();
+}
+void AwUrlCheckerDelegateImpl::CheckExperimentEligibilityAndStartBlockingPage(
+    const security_interstitials::UnsafeResource& resource,
+    base::OnceCallback<void(bool)> callback,
+    scoped_refptr<base::SequencedTaskRunner> callback_task_runner) {
+  NOTREACHED();
 }
 
 }  // namespace android_webview

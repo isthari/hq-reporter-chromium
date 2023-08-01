@@ -1,18 +1,20 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import './scanning_mojom_imports.js';
 import 'chrome://scanning/scanning_app.js';
+import 'chrome://resources/cr_elements/cr_button/cr_button.js';
 
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
-import {PromiseResolver} from 'chrome://resources/js/promise_resolver.m.js';
+import {PromiseResolver} from 'chrome://resources/ash/common/promise_resolver.js';
+import {loadTimeData} from 'chrome://resources/ash/common/load_time_data.m.js';
 import {setScanServiceForTesting} from 'chrome://scanning/mojo_interface_provider.js';
 import {MAX_NUM_SAVED_SCANNERS, ScannerArr, ScannerSetting, ScanSettings, StartMultiPageScanResponse} from 'chrome://scanning/scanning_app_types.js';
 import {getColorModeString, getPageSizeString, tokenToString} from 'chrome://scanning/scanning_app_util.js';
 import {ScanningBrowserProxyImpl} from 'chrome://scanning/scanning_browser_proxy.js';
-
-import {assertArrayEquals, assertEquals, assertFalse, assertNotEquals, assertTrue} from '../../chai_assert.js';
-import {flushTasks, isVisible, waitAfterNextRender} from '../../test_util.js';
+import {assertArrayEquals, assertEquals, assertFalse, assertNotEquals, assertTrue} from 'chrome://webui-test/chromeos/chai_assert.js';
+import {isVisible} from 'chrome://webui-test/chromeos/test_util.js';
+import {flushTasks, waitAfterNextRender} from 'chrome://webui-test/polymer_test_util.js';
 
 import {changeSelect, createScanner, createScannerSource} from './scanning_app_test_utils.js';
 import {TestScanningBrowserProxy} from './test_scanning_browser_proxy.js';
@@ -79,7 +81,7 @@ const firstCapabilities = {
     createScannerSource(
         SourceType.FLATBED, PLATEN, secondPageSizes, firstColorModes,
         firstResolutions),
-  ]
+  ],
 };
 
 const secondCapabilities = {
@@ -90,7 +92,7 @@ const secondCapabilities = {
     createScannerSource(
         SourceType.ADF_SIMPLEX, ADF_SIMPLEX, secondPageSizes, secondColorModes,
         secondResolutions),
-  ]
+  ],
 };
 
 /** @implements {ash.scanning.mojom.ScanServiceInterface} */
@@ -138,7 +140,7 @@ class FakeScanService {
    * @private
    */
   getResolver_(methodName) {
-    let method = this.resolverMap_.get(methodName);
+    const method = this.resolverMap_.get(methodName);
     assertTrue(!!method, `Method '${methodName}' not found.`);
     return method;
   }
@@ -291,7 +293,7 @@ class FakeScanService {
       this.scanJobObserverRemote_ = remote;
       this.methodCalled('startMultiPageScan');
       resolve({
-        controller: this.failStartScan_ ? null : this.multiPageScanController_
+        controller: this.failStartScan_ ? null : this.multiPageScanController_,
       });
     });
   }
@@ -333,7 +335,7 @@ class FakeMultiPageScanController {
    * @private
    */
   getResolver_(methodName) {
-    let method = this.resolverMap_.get(methodName);
+    const method = this.resolverMap_.get(methodName);
     assertTrue(!!method, `Method '${methodName}' not found.`);
     return method;
   }
@@ -403,7 +405,7 @@ class FakeMultiPageScanController {
   }
 }
 
-export function scanningAppTest() {
+suite('scanningAppTest', function() {
   /** @type {?ScanningAppElement} */
   let scanningApp = null;
 
@@ -458,6 +460,11 @@ export function scanningAppTest() {
   /** @type {?HTMLElement} */
   let scannedImages = null;
 
+  /** @type {?HTMLLinkElement} */
+  let linkEl = null;
+
+  const disabledUrl = 'chrome://resources/chromeos/colors/cros_styles.css';
+
   /**
    * @type {!Map<!mojoBase.mojom.UnguessableToken,
    *     !ash.scanning.mojom.ScannerCapabilities>}
@@ -469,7 +476,7 @@ export function scanningAppTest() {
   /** @type {!ScannerArr} */
   const expectedScanners = [
     createScanner(firstScannerId, firstScannerName),
-    createScanner(secondScannerId, secondScannerName)
+    createScanner(secondScannerId, secondScannerName),
   ];
 
   suiteSetup(() => {
@@ -483,12 +490,19 @@ export function scanningAppTest() {
 
   setup(function() {
     document.body.innerHTML = '';
+    linkEl = /**@type {HTMLLinkElement}*/ (document.createElement('link'));
+    linkEl.href = disabledUrl;
+    document.head.appendChild(linkEl);
   });
 
   teardown(function() {
     fakeScanService_.resetForTest();
     if (scanningApp) {
       scanningApp.remove();
+    }
+    if (linkEl) {
+      document.head.removeChild(linkEl);
+      linkEl = null;
     }
     scanningApp = null;
     scannerSelect = null;
@@ -850,7 +864,8 @@ export function scanningAppTest() {
 
           // Simulate the ESC key by sending the `cancel` event to the native
           // dialog.
-          scanFailedDialog.$$('dialog').dispatchEvent(new Event('cancel'));
+          scanFailedDialog.shadowRoot.querySelector('#dialog').dispatchEvent(
+              new Event('cancel'));
           assertFalse(scanningApp.$$('#scanFailedDialog').open);
           assertFalse(scanButton.disabled);
           assertTrue(isVisible(/** @type {!CrButtonElement} */ (scanButton)));
@@ -2446,10 +2461,6 @@ export function scanningAppTest() {
   // Verify that the multi-page scanning checkbox is only visible when both
   // Flatbed and PDF scan settings are selected.
   test('showMultiPageCheckbox', () => {
-    if (!loadTimeData.getBoolean('scanAppMultiPageScanEnabled')) {
-      return;
-    }
-
     return initializeScanningApp(expectedScanners, capabilities)
         .then(() => {
           return getScannerCapabilities();
@@ -2614,4 +2625,25 @@ export function scanningAppTest() {
               scanningApp.$$('#pageSizeSelect').$$('select').value);
         });
   });
-}
+
+  // Verify cros_styles.css kept when `isJellyEnabledForScanningApp` is false.
+  test('IsJellyEnabledForScanningApp_DisabledKeepsCSS', async () => {
+    loadTimeData.overrideValues({
+      isJellyEnabledForScanningApp: false,
+    });
+    await initializeScanningApp(expectedScanners, capabilities);
+
+    assertTrue(linkEl.href.includes(disabledUrl));
+  });
+
+  // Verify cros_styles.css replaced when `isJellyEnabledForScanningApp` is
+  // true.
+  test('IsJellyEnabledForScanningApp_EnabledUpdateCSS', async () => {
+    loadTimeData.overrideValues({
+      isJellyEnabledForScanningApp: true,
+    });
+    await initializeScanningApp(expectedScanners, capabilities);
+
+    assertTrue(linkEl.href.includes('chrome://theme/colors.css'));
+  });
+});

@@ -1,4 +1,4 @@
-// Copyright 2010 The Chromium Authors. All rights reserved.
+// Copyright 2010 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <algorithm>
 #include <unordered_set>
 #include <utility>
@@ -15,6 +16,8 @@
 #include "base/location.h"
 #include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram.h"
+#include "base/notreached.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
@@ -33,7 +36,7 @@
 #include "cc/trees/transform_node.h"
 #include "components/viz/common/frame_sinks/copy_output_request.h"
 #include "components/viz/common/frame_sinks/copy_output_result.h"
-#include "components/viz/common/shared_element_resource_id.h"
+#include "components/viz/common/view_transition_element_resource_id.h"
 #include "third_party/skia/include/core/SkImageFilter.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/vector2d_conversions.h"
@@ -51,10 +54,10 @@ struct SameSizeAsLayer : public base::RefCounted<SameSizeAsLayer>,
     LayerList children;
     gfx::Size bounds;
     unsigned bitfields;
-    SkColor background_color;
+    SkColor4f background_color;
     TouchActionRegion touch_action_region;
     ElementId element_id;
-    void* rare_inputs;
+    raw_ptr<void> rare_inputs;
   } inputs;
   raw_ptr<void> layer_tree_inputs;
   gfx::Rect update_rect;
@@ -82,7 +85,7 @@ Layer::Inputs::Inputs()
       contents_opaque_for_text(false),
       is_drawable(false),
       double_sided(true),
-      background_color(0) {}
+      background_color(SkColors::kTransparent) {}
 
 Layer::Inputs::~Inputs() = default;
 
@@ -139,7 +142,7 @@ Layer::LayerTreeInputs& Layer::EnsureLayerTreeInputs() {
 #if DCHECK_IS_ON()
 const Layer::LayerTreeInputs* Layer::layer_tree_inputs() const {
   DCHECK(!IsAttached() || !IsUsingLayerLists());
-  return layer_tree_inputs_.Read(*this).get();
+  return layer_tree_inputs_.Read(*this);
 }
 #endif
 
@@ -212,8 +215,12 @@ void Layer::SetDebugName(const std::string& name) {
   EnsureDebugInfo().name = name;
 }
 
-viz::SharedElementResourceId Layer::DocumentTransitionResourceId() const {
-  return viz::SharedElementResourceId();
+viz::ViewTransitionElementResourceId Layer::ViewTransitionResourceId() const {
+  return viz::ViewTransitionElementResourceId();
+}
+
+bool Layer::IsSolidColorLayerForTesting() const {
+  return false;
 }
 
 void Layer::SetNeedsFullTreeSync() {
@@ -233,15 +240,7 @@ bool Layer::IsPropertyChangeAllowed() const {
     return true;
   DCHECK(IsMainThread());
 
-  return !layer_tree_host()->in_paint_layer_contents() &&
-         !layer_tree_host()->InProtectedSequence();
-}
-
-bool Layer::IsMutationAllowed() const {
-  if (!IsAttached())
-    return true;
-  DCHECK(IsMainThread());
-  return !layer_tree_host()->InProtectedSequence();
+  return !layer_tree_host()->in_paint_layer_contents();
 }
 
 void Layer::CaptureContent(const gfx::Rect& rect,
@@ -251,13 +250,23 @@ sk_sp<const SkPicture> Layer::GetPicture() const {
   return nullptr;
 }
 
-void Layer::SetParent(Layer* layer) {
-  DCHECK(IsMutationAllowed());
+void Layer::SetParent(Layer* layer, RemovalReason reason) {
   DCHECK(!layer || !layer->HasAncestor(this));
+  DCHECK(reason == RemovalReason::kNormal || !layer);
 
   raw_ptr<Layer>& parent = parent_.Write(*this);
   parent = layer;
-  SetLayerTreeHost(parent ? parent->layer_tree_host() : nullptr);
+  if (reason == RemovalReason::kForReadd) {
+    // When passing kForReadd, the caller is responsible for calling
+    // SetLayerTreeHost.  Deferring this until after the readd means that the
+    // single SetLayerTreeHost call will generally set layer_tree_host_ to the
+    // same value, and thus be able to optimize away the recursive tree walk.
+#if DCHECK_IS_ON()
+    DCHECK(allow_remove_for_readd_);
+#endif
+  } else {
+    SetLayerTreeHost(parent ? parent->layer_tree_host() : nullptr);
+  }
 
   SetPropertyTreesNeedRebuild();
 }
@@ -268,15 +277,16 @@ void Layer::AddChild(scoped_refptr<Layer> child) {
 
 void Layer::InsertChild(scoped_refptr<Layer> child, size_t index) {
   DCHECK(IsPropertyChangeAllowed());
-  child->RemoveFromParent();
+  AllowRemoveForReadd allow(child.get());
+  child->RemoveFromParentForReadd();
   AddDrawableDescendants(child->NumDescendantsThatDrawContent() +
                          (child->draws_content() ? 1 : 0));
-  child->SetParent(this);
+  child->SetParent(this, RemovalReason::kNormal);
   child->SetSubtreePropertyChanged();
 
   auto& inputs = inputs_.Write(*this);
   index = std::min(index, inputs.children.size());
-  const auto& layer_tree_inputs = layer_tree_inputs_.Read(*this);
+  const auto* layer_tree_inputs = layer_tree_inputs_.Read(*this);
   if (layer_tree_inputs && layer_tree_inputs->mask_layer && index &&
       index == inputs.children.size()) {
     // Ensure that the mask layer is always the last child.
@@ -290,11 +300,17 @@ void Layer::InsertChild(scoped_refptr<Layer> child, size_t index) {
 void Layer::RemoveFromParent() {
   DCHECK(IsPropertyChangeAllowed());
   if (parent_.Read(*this))
-    parent_.Write(*this)->RemoveChild(this);
+    parent_.Write(*this)->RemoveChild(this, RemovalReason::kNormal);
 }
 
-void Layer::RemoveChild(Layer* child) {
-  const auto& layer_tree_inputs = layer_tree_inputs_.Read(*this);
+void Layer::RemoveFromParentForReadd() {
+  DCHECK(IsPropertyChangeAllowed());
+  if (parent_.Read(*this))
+    parent_.Write(*this)->RemoveChild(this, RemovalReason::kForReadd);
+}
+
+void Layer::RemoveChild(Layer* child, RemovalReason reason) {
+  const auto* layer_tree_inputs = layer_tree_inputs_.Read(*this);
   if (layer_tree_inputs && child == layer_tree_inputs->mask_layer)
     layer_tree_inputs_.Write(*this)->mask_layer = nullptr;
 
@@ -304,7 +320,7 @@ void Layer::RemoveChild(Layer* child) {
     if (iter->get() != child)
       continue;
 
-    child->SetParent(nullptr);
+    child->SetParent(nullptr, reason);
     AddDrawableDescendants(-child->NumDescendantsThatDrawContent() -
                            (child->draws_content() ? 1 : 0));
     inputs.children.erase(iter);
@@ -368,17 +384,13 @@ void Layer::ReplaceChild(Layer* reference, scoped_refptr<Layer> new_layer) {
 
   // Find the index of |reference| in |children_|.
   auto& inputs = inputs_.Write(*this);
-  auto reference_it =
-      std::find_if(inputs.children.begin(), inputs.children.end(),
-                   [reference](const scoped_refptr<Layer>& layer) {
-                     return layer.get() == reference;
-                   });
+  auto reference_it = base::ranges::find(inputs.children, reference,
+                                         &scoped_refptr<Layer>::get);
   DCHECK(reference_it != inputs.children.end());
   size_t reference_index = reference_it - inputs.children.begin();
   reference->RemoveFromParent();
 
   if (new_layer.get()) {
-    new_layer->RemoveFromParent();
     InsertChild(new_layer, reference_index);
   }
 }
@@ -400,7 +412,7 @@ void Layer::SetBounds(const gfx::Size& size) {
   // size of this layer.
   if (!IsUsingLayerLists()) {
     if (subtree_capture_id().is_valid() || masks_to_bounds() || mask_layer() ||
-        HasRoundedCorner()) {
+        HasMaskFilter()) {
       SetSubtreePropertyChanged();
       SetPropertyTreesNeedRebuild();
     }
@@ -437,7 +449,6 @@ void Layer::RemoveAllChildren() {
 
 void Layer::SetChildLayerList(LayerList new_children) {
   DCHECK(IsUsingLayerLists());
-  DCHECK(IsMutationAllowed());
 
   // Early out without calling |LayerTreeHost::SetNeedsFullTreeSync| if no
   // layer has changed.
@@ -452,7 +463,7 @@ void Layer::SetChildLayerList(LayerList new_children) {
     for (auto& new_child : new_children)
       children_to_remove.erase(new_child.get());
     for (auto* child : children_to_remove) {
-      child->SetParent(nullptr);
+      child->SetParent(nullptr, RemovalReason::kNormal);
       AddDrawableDescendants(-child->NumDescendantsThatDrawContent() -
                              (child->draws_content() ? 1 : 0));
     }
@@ -474,10 +485,11 @@ void Layer::SetChildLayerList(LayerList new_children) {
   // |child->parent()| such as the above loop.
   for (auto& child : new_children) {
     if (child->parent() != this) {
-      child->RemoveFromParent();
+      AllowRemoveForReadd allow(child.get());
+      child->RemoveFromParentForReadd();
       AddDrawableDescendants(child->NumDescendantsThatDrawContent() +
                              (child->draws_content() ? 1 : 0));
-      child->SetParent(this);
+      child->SetParent(this, RemovalReason::kNormal);
       child->SetSubtreePropertyChanged();
     }
   }
@@ -501,8 +513,8 @@ void Layer::RequestCopyOfOutput(
   auto& inputs = EnsureLayerTreeInputs();
   if (request->has_source()) {
     const base::UnguessableToken& source = request->source();
-    auto it = std::find_if(
-        inputs.copy_requests.begin(), inputs.copy_requests.end(),
+    auto it = base::ranges::find_if(
+        inputs.copy_requests,
         [&source](const std::unique_ptr<viz::CopyOutputRequest>& x) {
           return x->has_source() && x->source() == source;
         });
@@ -517,7 +529,7 @@ void Layer::RequestCopyOfOutput(
     layer_tree_host()->SetHasCopyRequest(true);
 }
 
-void Layer::SetBackgroundColor(SkColor background_color) {
+void Layer::SetBackgroundColor(SkColor4f background_color) {
   DCHECK(IsPropertyChangeAllowed());
   auto& inputs = inputs_.Write(*this);
   if (inputs.background_color == background_color)
@@ -527,9 +539,9 @@ void Layer::SetBackgroundColor(SkColor background_color) {
   SetNeedsCommit();
 }
 
-void Layer::SetSafeOpaqueBackgroundColor(SkColor background_color) {
+void Layer::SetSafeOpaqueBackgroundColor(SkColor4f background_color) {
   DCHECK(IsPropertyChangeAllowed());
-  SkColor opaque_color = SkColorSetA(background_color, SK_AlphaOPAQUE);
+  SkColor4f opaque_color = background_color.makeOpaque();
   auto& inputs = EnsureLayerTreeInputs();
   if (inputs.safe_opaque_background_color == opaque_color)
     return;
@@ -537,40 +549,28 @@ void Layer::SetSafeOpaqueBackgroundColor(SkColor background_color) {
   SetNeedsPushProperties();
 }
 
-SkColor Layer::SafeOpaqueBackgroundColor(SkColor host_background_color) const {
+SkColor4f Layer::SafeOpaqueBackgroundColor() const {
   if (contents_opaque()) {
-    if (!IsAttached() || !IsUsingLayerLists()) {
+    if (!IsUsingLayerLists()) {
       // In layer tree mode, PropertyTreeBuilder should have calculated the safe
       // opaque background color and called SetSafeOpaqueBackgroundColor().
       DCHECK(layer_tree_inputs());
-      DCHECK_EQ(SkColorGetA(layer_tree_inputs()->safe_opaque_background_color),
-                SK_AlphaOPAQUE);
+      DCHECK(layer_tree_inputs()->safe_opaque_background_color.isOpaque());
       return layer_tree_inputs()->safe_opaque_background_color;
     }
     // In layer list mode, the PropertyTreeBuilder algorithm doesn't apply
     // because it depends on the layer tree hierarchy. Instead we use
-    // background_color() if it's not transparent, or layer_tree_host_'s
-    // background_color(), with the alpha channel forced to be opaque.
-    SkColor color = background_color() == SK_ColorTRANSPARENT
-                        ? host_background_color
-                        : background_color();
-    return SkColorSetA(color, SK_AlphaOPAQUE);
+    // background_color() made opaque.
+    return background_color().makeOpaque();
   }
-  if (SkColorGetA(background_color()) == SK_AlphaOPAQUE) {
+  if (background_color().isOpaque()) {
     // The layer is not opaque while the background color is, meaning that the
-    // background color doesn't cover the whole layer. Use SK_ColorTRANSPARENT
-    // to avoid intrusive checkerboard where the layer is not covered by the
-    // background color.
-    return SK_ColorTRANSPARENT;
+    // background color doesn't cover the whole layer. Use
+    // SkColors::kTransparent to avoid intrusive checkerboard where the layer is
+    // not covered by the background color.
+    return SkColors::kTransparent;
   }
   return background_color();
-}
-
-SkColor Layer::SafeOpaqueBackgroundColor() const {
-  SkColor host_background_color =
-      IsAttached() ? layer_tree_host()->pending_commit_state()->background_color
-                   : layer_tree_inputs()->safe_opaque_background_color;
-  return SafeOpaqueBackgroundColor(host_background_color);
 }
 
 void Layer::SetMasksToBounds(bool masks_to_bounds) {
@@ -604,11 +604,11 @@ void Layer::SetClipRect(const gfx::Rect& clip_rect) {
       node->clip += offset_to_transform_parent();
       property_trees->clip_tree_mutable().set_needs_update(true);
     }
-    if (HasRoundedCorner() && effect_tree_index() != kInvalidPropertyNodeId) {
+    if (HasMaskFilter() && effect_tree_index() != kInvalidPropertyNodeId) {
       if (EffectNode* node =
               property_trees->effect_tree_mutable().Node(effect_tree_index())) {
-        node->mask_filter_info =
-            gfx::MaskFilterInfo(effective_clip_rect, corner_radii());
+        node->mask_filter_info = gfx::MaskFilterInfo(
+            effective_clip_rect, corner_radii(), gradient_mask());
         node->effect_changed = true;
         property_trees->effect_tree_mutable().set_needs_update(true);
       }
@@ -700,13 +700,17 @@ void Layer::SetBackdropFilterQuality(const float quality) {
   EnsureLayerTreeInputs().backdrop_filter_quality = quality;
 }
 
-void Layer::SetRoundedCorner(const gfx::RoundedCornersF& corner_radii) {
+void Layer::UpdateMaskFilterInfo(const gfx::RoundedCornersF* corner_radii,
+                                 const gfx::LinearGradient* gradient_mask) {
   DCHECK(IsPropertyChangeAllowed());
   auto& inputs = EnsureLayerTreeInputs();
-  if (inputs.corner_radii == corner_radii)
-    return;
 
-  inputs.corner_radii = corner_radii;
+  if (corner_radii)
+    inputs.corner_radii = *corner_radii;
+
+  if (gradient_mask)
+    inputs.gradient_mask = *gradient_mask;
+
   SetSubtreePropertyChanged();
   SetNeedsCommit();
   PropertyTrees* property_trees =
@@ -715,13 +719,29 @@ void Layer::SetRoundedCorner(const gfx::RoundedCornersF& corner_radii) {
   if (property_trees && effect_tree_index() != kInvalidPropertyNodeId &&
       (node =
            property_trees->effect_tree_mutable().Node(effect_tree_index()))) {
-    node->mask_filter_info =
-        gfx::MaskFilterInfo(EffectiveClipRect(), corner_radii);
+    gfx::RectF effective_clip_rect = EffectiveClipRect();
+    effective_clip_rect += offset_to_transform_parent();
+    node->mask_filter_info = gfx::MaskFilterInfo(
+        effective_clip_rect, inputs.corner_radii, inputs.gradient_mask);
     node->effect_changed = true;
     property_trees->effect_tree_mutable().set_needs_update(true);
   } else {
     SetPropertyTreesNeedRebuild();
   }
+}
+
+void Layer::SetRoundedCorner(const gfx::RoundedCornersF& corner_radii) {
+  if (EnsureLayerTreeInputs().corner_radii == corner_radii)
+    return;
+
+  UpdateMaskFilterInfo(&corner_radii, nullptr);
+}
+
+void Layer::SetGradientMask(const gfx::LinearGradient& gradient_mask) {
+  if (EnsureLayerTreeInputs().gradient_mask == gradient_mask)
+    return;
+
+  UpdateMaskFilterInfo(nullptr, &gradient_mask);
 }
 
 void Layer::SetIsFastRoundedCorner(bool enable) {
@@ -919,7 +939,7 @@ bool Are2dAxisAligned(const gfx::Transform& a, const gfx::Transform& b) {
     return true;
   }
 
-  gfx::Transform inverse(gfx::Transform::kSkipInitialization);
+  gfx::Transform inverse;
   if (b.GetInverse(&inverse)) {
     inverse *= a;
     return inverse.Preserves2dAxisAlignment();
@@ -1174,6 +1194,7 @@ void Layer::SetCaptureBounds(viz::RegionCaptureBounds bounds) {
   EnsureRareInputs().capture_bounds = std::move(bounds);
   SetPropertyTreesNeedRebuild();
   SetNeedsCommit();
+  SetSubtreePropertyChanged();
 }
 
 void Layer::SetWheelEventRegion(Region wheel_event_region) {
@@ -1363,7 +1384,7 @@ void Layer::ClearDebugInfo() {
 }
 
 std::string Layer::DebugName() const {
-  const auto& info = debug_info_.Read(*this);
+  const auto* info = debug_info_.Read(*this);
   return info ? info->name : "";
 }
 
@@ -1391,7 +1412,7 @@ void Layer::SetIsDrawable(bool is_drawable) {
     return;
 
   inputs_.Write(*this).is_drawable = is_drawable;
-  SetDrawsContent(HasDrawableContent());
+  UpdateDrawsContent();
 }
 
 void Layer::SetHideLayerAndSubtree(bool hide) {
@@ -1438,8 +1459,7 @@ void Layer::PushPropertiesTo(LayerImpl* layer,
   layer->SetElementId(inputs.element_id);
   layer->SetHasTransformNode(has_transform_node());
   layer->SetBackgroundColor(inputs.background_color);
-  layer->SetSafeOpaqueBackgroundColor(
-      SafeOpaqueBackgroundColor(commit_state.background_color));
+  layer->SetSafeOpaqueBackgroundColor(SafeOpaqueBackgroundColor());
   layer->SetBounds(inputs.bounds);
   layer->SetTransformTreeIndex(transform_tree_index(property_trees));
   layer->SetEffectTreeIndex(effect_tree_index(property_trees));
@@ -1479,7 +1499,7 @@ void Layer::PushPropertiesTo(LayerImpl* layer,
   layer->SetNeedsPushProperties();
 
   // debug_info_->invalidations, if exist, will be cleared in the function.
-  layer->UpdateDebugInfo(debug_info_.Read(*this).get());
+  layer->UpdateDebugInfo(debug_info_.Write(*this).get());
 
   if (inputs.rare_inputs) {
     layer->SetNonFastScrollableRegion(
@@ -1527,7 +1547,8 @@ bool Layer::HasDrawableContent() const {
   return inputs_.Read(*this).is_drawable;
 }
 
-void Layer::SetDrawsContent(bool value) {
+void Layer::UpdateDrawsContent() {
+  bool value = HasDrawableContent();
   DCHECK(inputs_.Read(*this).is_drawable || !value);
   if (!SetBitFlag(value, kDrawsContentFlagMask, /*invalidate=*/true))
     return;

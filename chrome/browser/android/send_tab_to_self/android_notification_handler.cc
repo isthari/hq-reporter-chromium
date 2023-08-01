@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -107,8 +107,7 @@ void AndroidNotificationHandler::DisplayNewEntries(
 void AndroidNotificationHandler::DisplayNewEntriesOnUIThread(
     const std::vector<const SendTabToSelfEntry>& new_entries) {
   for (const SendTabToSelfEntry& entry : new_entries) {
-    if (base::FeatureList::IsEnabled(send_tab_to_self::kSendTabToSelfV2) ||
-        share::AreUpcomingSharingFeaturesEnabled()) {
+    if (base::FeatureList::IsEnabled(send_tab_to_self::kSendTabToSelfV2)) {
       if (profile_ != nullptr &&
           GetWebContentsForProfile(profile_) != nullptr) {
         web_contents_ = GetWebContentsForProfile(profile_)->GetWeakPtr();

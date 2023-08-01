@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,20 +20,20 @@ class LocationProviderAndroid : public LocationProvider {
   ~LocationProviderAndroid() override;
 
   // Called by the LocationApiAdapterAndroid.
-  void NotifyNewGeoposition(const mojom::Geoposition& position);
+  void NotifyNewGeoposition(mojom::GeopositionResultPtr result);
 
   // LocationProvider implementation.
   void SetUpdateCallback(
       const LocationProviderUpdateCallback& callback) override;
   void StartProvider(bool high_accuracy) override;
   void StopProvider() override;
-  const mojom::Geoposition& GetPosition() override;
+  const mojom::GeopositionResult* GetPosition() override;
   void OnPermissionGranted() override;
 
  private:
   base::ThreadChecker thread_checker_;
 
-  mojom::Geoposition last_position_;
+  mojom::GeopositionResultPtr last_result_;
   LocationProviderUpdateCallback callback_;
 
   base::WeakPtrFactory<LocationProviderAndroid> weak_ptr_factory_{this};

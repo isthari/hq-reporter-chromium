@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <memory>
 #include <vector>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/types/pass_key.h"
 #include "chrome/browser/web_applications/web_app_id.h"
@@ -67,6 +67,9 @@ class WebAppRegistryUpdate {
 class ScopedRegistryUpdate {
  public:
   explicit ScopedRegistryUpdate(WebAppSyncBridge* sync_bridge);
+  ScopedRegistryUpdate(WebAppSyncBridge* sync_bridge,
+                       base::OnceCallback<void(bool success)> commit_complete);
+  ScopedRegistryUpdate(ScopedRegistryUpdate&&) noexcept;
   ScopedRegistryUpdate(const ScopedRegistryUpdate&) = delete;
   ScopedRegistryUpdate& operator=(const ScopedRegistryUpdate&) = delete;
   ~ScopedRegistryUpdate();
@@ -76,6 +79,7 @@ class ScopedRegistryUpdate {
  private:
   std::unique_ptr<WebAppRegistryUpdate> update_;
   const raw_ptr<WebAppSyncBridge> sync_bridge_;
+  base::OnceCallback<void(bool success)> commit_complete_;
 };
 
 }  // namespace web_app

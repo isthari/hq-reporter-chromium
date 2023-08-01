@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,6 +42,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <stddef.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -55,18 +56,16 @@
 #include <string>
 #include <type_traits>
 
-#include <stddef.h>
-
 #include "base/base_paths.h"
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/containers/unique_ptr_adapters.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file_descriptor_watcher_posix.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
@@ -83,11 +82,11 @@
 #include "base/task/sequenced_task_runner_helpers.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/platform_thread.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "chrome/browser/process_singleton_internal.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/process_singleton_lock_posix.h"
 #include "chrome/grit/chromium_strings.h"
@@ -99,11 +98,6 @@
 
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
 #include "chrome/browser/ui/process_singleton_dialog_linux.h"
-#endif
-
-#if defined(TOOLKIT_VIEWS) && \
-    (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
-#include "ui/views/linux_ui/linux_ui.h"
 #endif
 
 using content::BrowserThread;
@@ -143,7 +137,7 @@ const char kACKToken[] = "ACK";
 const char kShutdownToken[] = "SHUTDOWN";
 const char kTokenDelimiter = '\0';
 const int kMaxMessageLength = 32 * 1024;
-const int kMaxACKMessageLength = base::size(kShutdownToken) - 1;
+const int kMaxACKMessageLength = std::size(kShutdownToken) - 1;
 
 bool g_disable_prompt = false;
 bool g_skip_is_chrome_process_check = false;
@@ -207,7 +201,7 @@ int WaitSocketForRead(int fd, const base::TimeDelta& timeout) {
   FD_ZERO(&read_fds);
   FD_SET(fd, &read_fds);
 
-  return HANDLE_EINTR(select(fd + 1, &read_fds, NULL, NULL, &tv));
+  return HANDLE_EINTR(select(fd + 1, &read_fds, nullptr, nullptr, &tv));
 }
 
 // Read a message from a socket fd, with an optional timeout.
@@ -258,7 +252,7 @@ bool SetupSockAddr(const std::string& path,
   // maximally-sized paths on a platform where the singleton socket path is
   // already long. 11.5 xnu-7195.141.2/bsd/kern/uipc_usrreq.c unp_bind,
   // unp_connect.
-  if (path.length() > base::size(addr->sun_path))
+  if (path.length() > std::size(addr->sun_path))
     return false;
 
   // On input to the kernel, sun_len is ignored and overwritten by the value of
@@ -278,10 +272,10 @@ bool SetupSockAddr(const std::string& path,
 #else
   // The portable version: NUL-terminate sun_path and don’t touch sun_len (which
   // may not even exist).
-  if (path.length() >= base::size(addr->sun_path))
+  if (path.length() >= std::size(addr->sun_path))
     return false;
   *socklen = sizeof(*addr);
-  base::strlcpy(addr->sun_path, path.c_str(), base::size(addr->sun_path));
+  base::strlcpy(addr->sun_path, path.c_str(), std::size(addr->sun_path));
 #endif
   return true;
 }
@@ -501,20 +495,6 @@ bool ReplaceOldSingletonLock(const base::FilePath& symlink_content,
 }
 #endif  // BUILDFLAG(IS_MAC)
 
-void SendRemoteProcessInteractionResultHistogram(
-    ProcessSingleton::RemoteProcessInteractionResult result) {
-  UMA_HISTOGRAM_ENUMERATION(
-      "Chrome.ProcessSingleton.RemoteProcessInteractionResult", result,
-      ProcessSingleton::REMOTE_PROCESS_INTERACTION_RESULT_COUNT);
-}
-
-void SendRemoteHungProcessTerminateReasonHistogram(
-    ProcessSingleton::RemoteHungProcessTerminateReason reason) {
-  UMA_HISTOGRAM_ENUMERATION(
-      "Chrome.ProcessSingleton.RemoteHungProcessTerminateReason", reason,
-      ProcessSingleton::REMOTE_HUNG_PROCESS_TERMINATE_REASON_COUNT);
-}
-
 }  // namespace
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -570,7 +550,7 @@ class ProcessSingleton::LinuxWatcher
         fd_watch_controller_;
 
     // The ProcessSingleton::LinuxWatcher that owns us.
-    ProcessSingleton::LinuxWatcher* const parent_;
+    const raw_ptr<ProcessSingleton::LinuxWatcher> parent_;
 
     // A reference to the UI task runner.
     scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner_;
@@ -590,7 +570,8 @@ class ProcessSingleton::LinuxWatcher
 
   // We expect to only be constructed on the UI thread.
   explicit LinuxWatcher(ProcessSingleton* parent)
-      : ui_task_runner_(base::ThreadTaskRunnerHandle::Get()), parent_(parent) {}
+      : ui_task_runner_(base::SingleThreadTaskRunner::GetCurrentDefault()),
+        parent_(parent) {}
 
   LinuxWatcher(const LinuxWatcher&) = delete;
   LinuxWatcher& operator=(const LinuxWatcher&) = delete;
@@ -626,7 +607,7 @@ class ProcessSingleton::LinuxWatcher
   scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner_;
 
   // The ProcessSingleton that owns us.
-  ProcessSingleton* const parent_;
+  const raw_ptr<ProcessSingleton, DanglingUntriaged> parent_;
 
   std::set<std::unique_ptr<SocketReader>, base::UniquePtrComparator> readers_;
 };
@@ -666,13 +647,13 @@ void ProcessSingleton::LinuxWatcher::HandleMessage(
   if (parent_->notification_callback_.Run(base::CommandLine(argv),
                                           base::FilePath(current_dir))) {
     // Send back "ACK" message to prevent the client process from starting up.
-    reader->FinishWithACK(kACKToken, base::size(kACKToken) - 1);
+    reader->FinishWithACK(kACKToken, std::size(kACKToken) - 1);
   } else {
     LOG(WARNING) << "Not handling interprocess notification as browser"
                     " is shutting down";
     // Send back "SHUTDOWN" message, so that the client process can start up
     // without killing this process.
-    reader->FinishWithACK(kShutdownToken, base::size(kShutdownToken) - 1);
+    reader->FinishWithACK(kShutdownToken, std::size(kShutdownToken) - 1);
     return;
   }
 }
@@ -713,7 +694,7 @@ void ProcessSingleton::LinuxWatcher::SocketReader::
   }
 
   // Validate the message.  The shortest message is kStartToken\0x\0x
-  const size_t kMinMessageLength = base::size(kStartToken) + 4;
+  const size_t kMinMessageLength = std::size(kStartToken) + 4;
   if (bytes_read_ < kMinMessageLength) {
     buf_[bytes_read_] = 0;
     LOG(ERROR) << "Invalid socket message (wrong length):" << buf_;
@@ -733,7 +714,7 @@ void ProcessSingleton::LinuxWatcher::SocketReader::
   }
 
   // Stop the expiration timer to prevent this SocketReader object from being
-  // terminated unexpectly.
+  // terminated unexpectedly.
   timer_.Stop();
 
   std::string current_dir = tokens[1];
@@ -776,8 +757,7 @@ ProcessSingleton::ProcessSingleton(
     const base::FilePath& user_data_dir,
     const NotificationCallback& notification_callback)
     : notification_callback_(notification_callback),
-      current_pid_(base::GetCurrentProcId()),
-      watcher_(new LinuxWatcher(this)) {
+      current_pid_(base::GetCurrentProcId()) {
   socket_path_ = user_data_dir.Append(chrome::kSingletonSocketFilename);
   lock_path_ = user_data_dir.Append(chrome::kSingletonLockFilename);
   cookie_path_ = user_data_dir.Append(chrome::kSingletonCookieFilename);
@@ -834,7 +814,7 @@ ProcessSingleton::NotifyResult ProcessSingleton::NotifyOtherProcessWithTimeout(
     if (hostname.empty()) {
       // Invalid lockfile.
       UnlinkPath(lock_path_);
-      SendRemoteProcessInteractionResultHistogram(INVALID_LOCK_FILE);
+      internal::SendRemoteProcessInteractionResultHistogram(INVALID_LOCK_FILE);
       return PROCESS_NONE;
     }
 
@@ -843,7 +823,7 @@ ProcessSingleton::NotifyResult ProcessSingleton::NotifyOtherProcessWithTimeout(
       // the profile, try to continue; otherwise quit.
       if (DisplayProfileInUseError(lock_path_, hostname, pid)) {
         UnlinkPath(lock_path_);
-        SendRemoteProcessInteractionResultHistogram(PROFILE_UNLOCKED);
+        internal::SendRemoteProcessInteractionResultHistogram(PROFILE_UNLOCKED);
         return PROCESS_NONE;
       }
       return PROFILE_IN_USE;
@@ -852,7 +832,7 @@ ProcessSingleton::NotifyResult ProcessSingleton::NotifyOtherProcessWithTimeout(
     if (!IsChromeProcess(pid)) {
       // Orphaned lockfile (no process with pid, or non-chrome process.)
       UnlinkPath(lock_path_);
-      SendRemoteProcessInteractionResultHistogram(ORPHANED_LOCK_FILE);
+      internal::SendRemoteProcessInteractionResultHistogram(ORPHANED_LOCK_FILE);
       return PROCESS_NONE;
     }
 
@@ -860,7 +840,8 @@ ProcessSingleton::NotifyResult ProcessSingleton::NotifyOtherProcessWithTimeout(
       // Orphaned lockfile (pid is part of same chrome instance we are, even
       // though we haven't tried to create a lockfile yet).
       UnlinkPath(lock_path_);
-      SendRemoteProcessInteractionResultHistogram(SAME_BROWSER_INSTANCE);
+      internal::SendRemoteProcessInteractionResultHistogram(
+          SAME_BROWSER_INSTANCE);
       return PROCESS_NONE;
     }
 
@@ -868,7 +849,8 @@ ProcessSingleton::NotifyResult ProcessSingleton::NotifyOtherProcessWithTimeout(
       // Retries failed.  Kill the unresponsive chrome process and continue.
       if (!kill_unresponsive || !KillProcessByLockPath(false))
         return PROFILE_IN_USE;
-      SendRemoteHungProcessTerminateReasonHistogram(NOTIFY_ATTEMPTS_EXCEEDED);
+      internal::SendRemoteHungProcessTerminateReasonHistogram(
+          NOTIFY_ATTEMPTS_EXCEEDED);
       return PROCESS_NONE;
     }
 
@@ -908,7 +890,8 @@ ProcessSingleton::NotifyResult ProcessSingleton::NotifyOtherProcessWithTimeout(
     // Try to kill the other process, because it might have been dead.
     if (!kill_unresponsive || !KillProcessByLockPath(true))
       return PROFILE_IN_USE;
-    SendRemoteHungProcessTerminateReasonHistogram(SOCKET_WRITE_FAILED);
+    internal::SendRemoteHungProcessTerminateReasonHistogram(
+        SOCKET_WRITE_FAILED);
     return PROCESS_NONE;
   }
 
@@ -924,24 +907,17 @@ ProcessSingleton::NotifyResult ProcessSingleton::NotifyOtherProcessWithTimeout(
   if (len <= 0) {
     if (!kill_unresponsive || !KillProcessByLockPath(true))
       return PROFILE_IN_USE;
-    SendRemoteHungProcessTerminateReasonHistogram(SOCKET_READ_FAILED);
+    internal::SendRemoteHungProcessTerminateReasonHistogram(SOCKET_READ_FAILED);
     return PROCESS_NONE;
   }
 
   buf[len] = '\0';
-  if (strncmp(buf, kShutdownToken, base::size(kShutdownToken) - 1) == 0) {
+  if (strncmp(buf, kShutdownToken, std::size(kShutdownToken) - 1) == 0) {
     // The other process is shutting down, it's safe to start a new process.
-    SendRemoteProcessInteractionResultHistogram(REMOTE_PROCESS_SHUTTING_DOWN);
+    internal::SendRemoteProcessInteractionResultHistogram(
+        REMOTE_PROCESS_SHUTTING_DOWN);
     return PROCESS_NONE;
-  } else if (strncmp(buf, kACKToken, base::size(kACKToken) - 1) == 0) {
-#if defined(TOOLKIT_VIEWS) && \
-    (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
-    // Likely NULL in unit tests.
-    views::LinuxUI* linux_ui = views::LinuxUI::instance();
-    if (linux_ui)
-      linux_ui->NotifyWindowManagerStartupComplete();
-#endif
-
+  } else if (strncmp(buf, kACKToken, std::size(kACKToken) - 1) == 0) {
     // Assume the other process is handling the request.
     return PROCESS_NOTIFIED;
   }
@@ -1074,10 +1050,9 @@ bool ProcessSingleton::Create() {
   // leaving a dangling symlink.
   base::FilePath socket_target_path =
       socket_dir_.GetPath().Append(chrome::kSingletonSocketFilename);
-  int sock;
   SockaddrUn addr;
   socklen_t socklen;
-  SetupSocket(socket_target_path.value(), &sock, &addr, &socklen);
+  SetupSocket(socket_target_path.value(), &sock_, &addr, &socklen);
 
   // Setup the socket symlink and the two cookies.
   base::FilePath cookie(GenerateCookie());
@@ -1096,21 +1071,26 @@ bool ProcessSingleton::Create() {
     return false;
   }
 
-  if (bind(sock, reinterpret_cast<sockaddr*>(&addr), socklen) < 0) {
+  if (bind(sock_, reinterpret_cast<sockaddr*>(&addr), socklen) < 0) {
     PLOG(ERROR) << "Failed to bind() " << socket_target_path.value();
-    CloseSocket(sock);
+    CloseSocket(sock_);
     return false;
   }
 
-  if (listen(sock, 5) < 0)
+  if (listen(sock_, 5) < 0)
     NOTREACHED() << "listen failed: " << base::safe_strerror(errno);
 
+  return true;
+}
+
+void ProcessSingleton::StartWatching() {
+  DCHECK_GE(sock_, 0);
+  DCHECK(!watcher_);
+  watcher_ = new LinuxWatcher(this);
   DCHECK(BrowserThread::IsThreadInitialized(BrowserThread::IO));
   content::GetIOThreadTaskRunner({})->PostTask(
       FROM_HERE, base::BindOnce(&ProcessSingleton::LinuxWatcher::StartListening,
-                                watcher_, sock));
-
-  return true;
+                                watcher_, sock_));
 }
 
 void ProcessSingleton::Cleanup() {
@@ -1141,14 +1121,15 @@ bool ProcessSingleton::KillProcessByLockPath(bool is_connected_to_socket) {
     bool res = DisplayProfileInUseError(lock_path_, hostname, pid);
     if (res) {
       UnlinkPath(lock_path_);
-      SendRemoteProcessInteractionResultHistogram(PROFILE_UNLOCKED_BEFORE_KILL);
+      internal::SendRemoteProcessInteractionResultHistogram(
+          PROFILE_UNLOCKED_BEFORE_KILL);
     }
     return res;
   }
   UnlinkPath(lock_path_);
 
   if (IsSameChromeInstance(pid)) {
-    SendRemoteProcessInteractionResultHistogram(
+    internal::SendRemoteProcessInteractionResultHistogram(
         SAME_BROWSER_INSTANCE_BEFORE_KILL);
     return true;
   }
@@ -1158,7 +1139,7 @@ bool ProcessSingleton::KillProcessByLockPath(bool is_connected_to_socket) {
     return true;
   }
 
-  SendRemoteProcessInteractionResultHistogram(FAILED_TO_EXTRACT_PID);
+  internal::SendRemoteProcessInteractionResultHistogram(FAILED_TO_EXTRACT_PID);
 
   LOG(ERROR) << "Failed to extract pid from path: " << lock_path_.value();
   return true;
@@ -1190,5 +1171,5 @@ void ProcessSingleton::KillProcess(int pid) {
         break;
     }
   }
-  SendRemoteProcessInteractionResultHistogram(action);
+  internal::SendRemoteProcessInteractionResultHistogram(action);
 }

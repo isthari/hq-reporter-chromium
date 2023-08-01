@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,7 +29,7 @@
 
   function waitForConsoleMessage(regex) {
     return new Promise(function(resolve) {
-      SDK.consoleModel.addEventListener(SDK.ConsoleModel.Events.MessageAdded, sniff);
+      SDK.targetManager.addModelListener(SDK.ConsoleModel, SDK.ConsoleModel.Events.MessageAdded, sniff);
 
       function sniff(e) {
         if (e.data && regex.test(e.data.messageText)) {

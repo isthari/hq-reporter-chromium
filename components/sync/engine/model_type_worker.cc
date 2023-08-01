@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,35 +9,40 @@
 #include <set>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/containers/contains.h"
 #include "base/containers/cxx20_erase.h"
+#include "base/containers/span.h"
+#include "base/feature_list.h"
 #include "base/format_macros.h"
-#include "base/guid.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/strcat.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/synchronization/waitable_event.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/trace_event/memory_usage_estimator.h"
+#include "base/uuid.h"
 #include "components/sync/base/client_tag_hash.h"
 #include "components/sync/base/data_type_histogram.h"
+#include "components/sync/base/features.h"
 #include "components/sync/base/hash_util.h"
 #include "components/sync/base/model_type.h"
+#include "components/sync/base/sync_invalidation_adapter.h"
 #include "components/sync/base/time.h"
-#include "components/sync/base/unique_position.h"
 #include "components/sync/engine/bookmark_update_preprocessing.h"
 #include "components/sync/engine/cancelation_signal.h"
 #include "components/sync/engine/commit_contribution.h"
 #include "components/sync/engine/commit_contribution_impl.h"
 #include "components/sync/engine/cycle/entity_change_metric_recording.h"
 #include "components/sync/engine/model_type_processor.h"
-#include "components/sync/engine/sync_engine_switches.h"
 #include "components/sync/protocol/data_type_progress_marker.pb.h"
 #include "components/sync/protocol/entity_specifics.pb.h"
+#include "components/sync/protocol/model_type_state_helper.h"
 #include "components/sync/protocol/proto_memory_estimations.h"
 #include "components/sync/protocol/sync_entity.pb.h"
 
@@ -51,6 +56,16 @@ const char kUndecryptablePendingUpdatesDroppedHistogramName[] =
     "Sync.ModelTypeUndecryptablePendingUpdatesDropped";
 const char kBlockedByUndecryptableUpdateHistogramName[] =
     "Sync.ModelTypeBlockedDueToUndecryptableUpdate";
+const char kPasswordNotesStateHistogramName[] =
+    "Sync.PasswordNotesStateInUpdate";
+
+BASE_FEATURE(kSyncKeepGcDirectiveDuringSyncCycle,
+             "SyncKeepGcDirectiveDuringSyncCycle",
+             base::FEATURE_ENABLED_BY_DEFAULT);
+
+void LogPasswordNotesState(PasswordNotesStateForUMA state) {
+  base::UmaHistogramEnumeration(kPasswordNotesStateHistogramName, state);
+}
 
 // A proxy which can be called from any sequence and delegates the work to the
 // commit queue injected on construction.
@@ -69,7 +84,7 @@ class CommitQueueProxy : public CommitQueue {
  private:
   const base::WeakPtr<CommitQueue> commit_queue_;
   const scoped_refptr<base::SequencedTaskRunner> commit_queue_thread_ =
-      base::SequencedTaskRunnerHandle::Get();
+      base::SequencedTaskRunner::GetCurrentDefault();
 };
 
 void AdaptClientTagForFullUpdateData(ModelType model_type,
@@ -96,6 +111,24 @@ void AdaptClientTagForFullUpdateData(ModelType model_type,
                                    data->specifics.autofill_offer()));
   } else {
     NOTREACHED();
+  }
+}
+
+void AdaptWebAuthnClientTagHash(syncer::EntityData* data) {
+  // Google Play Services may create entities where the client_tag_hash doesn't
+  // conform to the form expected by Chromium. These values are the hex-encoded,
+  // 16-byte random `sync_id` value, and will therefore always be 32 bytes long.
+  // Valid ClientTagHash values are Base64(SHA1(protobuf_prefix + client_tag))
+  // and therefore always 28 bytes.
+  const std::string& client_tag_hash = data->client_tag_hash.value();
+  if (client_tag_hash.size() == 32 &&
+      // base::HexEncode() returns upper case, `client_tag_hash` is lower case.
+      base::ToUpperASCII(client_tag_hash) ==
+          base::HexEncode(base::as_bytes(base::make_span(
+              data->specifics.webauthn_credential().sync_id())))) {
+    data->client_tag_hash = ClientTagHash::FromUnhashed(
+        ModelType::WEBAUTHN_CREDENTIAL,
+        data->specifics.webauthn_credential().sync_id());
   }
 }
 
@@ -165,6 +198,35 @@ bool DecryptPasswordSpecifics(const Cryptographer& cryptographer,
     DLOG(ERROR) << "Failed to decrypt a decryptable password";
     return false;
   }
+  // The `notes` field in the PasswordSpecificsData is the authoritative value.
+  // When set, it disregards whatever `encrypted_notes_backup` contains.
+  if (out->password().client_only_encrypted_data().has_notes()) {
+    LogPasswordNotesState(PasswordNotesStateForUMA::kSetInSpecificsData);
+    return true;
+  }
+  if (!in.password().has_encrypted_notes_backup()) {
+    LogPasswordNotesState(PasswordNotesStateForUMA::kUnset);
+    return true;
+  }
+  if (!base::FeatureList::IsEnabled(syncer::kPasswordNotesWithBackup)) {
+    return true;
+  }
+  // It is guaranteed that if `encrypted()` is decryptable, then
+  // `encrypted_notes_backup()` must be decryptable too. Failure to decrypt
+  // `encrypted_notes_backup()` indicates a data corruption.
+  if (!cryptographer.Decrypt(in.password().encrypted_notes_backup(),
+                             out->mutable_password()
+                                 ->mutable_client_only_encrypted_data()
+                                 ->mutable_notes())) {
+    LogPasswordNotesState(
+        PasswordNotesStateForUMA::kSetOnlyInBackupButCorrupted);
+    return false;
+  }
+  LogPasswordNotesState(PasswordNotesStateForUMA::kSetOnlyInBackup);
+  // TODO(crbug.com/1326554): Properly handle the case when both blobs are
+  // decryptable but with different keys. Ideally the password should be
+  // re-uploaded potentially by setting needs_reupload boolean in
+  // UpdateResponseData or EntityData.
   return true;
 }
 
@@ -184,10 +246,58 @@ ModelTypeWorker::ModelTypeWorker(ModelType type,
       model_type_state_(initial_state),
       encryption_enabled_(encryption_enabled),
       passphrase_type_(passphrase_type),
-      min_get_updates_to_ignore_key_(
-          switches::kMinGuResponsesToIgnoreKey.Get()) {
+      min_get_updates_to_ignore_key_(kMinGuResponsesToIgnoreKey.Get()) {
   DCHECK(cryptographer_);
   DCHECK(!AlwaysEncryptedUserTypes().Has(type_) || encryption_enabled_);
+
+  // GC directive is stored independently of progress marker and is used during
+  // a sync cycle (i.e. in-memory only). Clear GC directive on load to clean up
+  // previously persisted values.
+  model_type_state_.mutable_progress_marker()->clear_gc_directive();
+
+  if (!model_type_state_.invalidations().empty()) {
+    if (base::FeatureList::IsEnabled(kSyncPersistInvalidations)) {
+      if (static_cast<size_t>(model_type_state_.invalidations_size()) >
+          kMaxPendingInvalidations) {
+        DVLOG(1) << "Cleaning invalidations in |model_type_state_| due to "
+                    "invalidations overflow.";
+        model_type_state_.clear_invalidations();
+      }
+      // TODO(crbug/1365292): Persisted invaldiations are loaded in
+      // ModelTypeWorker::ctor(), but sync cycle is not scheduled. New sync
+      // cycle has to be triggered right after we loaded persisted
+      // invalidations.
+      for (int i = 0; i < model_type_state_.invalidations_size(); ++i) {
+        pending_invalidations_.emplace_back(
+            std::make_unique<SyncInvalidationAdapter>(
+                model_type_state_.invalidations(i).hint(),
+                model_type_state_.invalidations(i).has_version()
+                    ? absl::optional<int64_t>(
+                          model_type_state_.invalidations(i).version())
+                    : absl::nullopt),
+            false);
+      }
+
+      bool is_version_order_correct = true;
+      for (size_t i = 1; i < pending_invalidations_.size(); ++i) {
+        is_version_order_correct &= (SyncInvalidation::LessThanByVersion(
+            *pending_invalidations_[i - 1].pending_invalidation,
+            *pending_invalidations_[i].pending_invalidation));
+      }
+      if (!is_version_order_correct) {
+        DVLOG(1) << "Cleaning invalidations in |model_type_state| due to "
+                    "incorrect version order.";
+        pending_invalidations_.clear();
+        model_type_state_.clear_invalidations();
+      }
+    } else {
+      // In case the feature was enabled in previous session, some invalidations
+      // might be loaded to |model_type_state_| from storage. As feature is
+      // disabled now, invalidations in |model_type_state_| and
+      // |pending_invalidations_| should be in sync.
+      model_type_state_.clear_invalidations();
+    }
+  }
 
   if (!CommitOnlyTypes().Has(GetModelType())) {
     DCHECK_EQ(type, GetModelTypeFromSpecificsFieldNumber(
@@ -195,15 +305,32 @@ ModelTypeWorker::ModelTypeWorker(ModelType type,
   }
 }
 
+ModelTypeWorker::PendingInvalidation::PendingInvalidation() = default;
+ModelTypeWorker::PendingInvalidation::PendingInvalidation(
+    PendingInvalidation&&) = default;
+ModelTypeWorker::PendingInvalidation&
+ModelTypeWorker::PendingInvalidation::operator=(PendingInvalidation&&) =
+    default;
+ModelTypeWorker::PendingInvalidation::PendingInvalidation(
+    std::unique_ptr<SyncInvalidation> invalidation,
+    bool is_processed)
+    : pending_invalidation(std::move(invalidation)),
+      is_processed(is_processed) {}
+ModelTypeWorker::PendingInvalidation::~PendingInvalidation() = default;
+
 ModelTypeWorker::~ModelTypeWorker() {
-  base::UmaHistogramCounts1000(
-      std::string("Sync.UndecryptedEntitiesOnDataTypeDisabled.") +
-          ModelTypeToHistogramSuffix(type_),
-      entries_pending_decryption_.size());
   if (model_type_processor_) {
     // This will always be the case in production today.
     model_type_processor_->DisconnectSync();
   }
+  for (size_t i = 0; i < pending_invalidations_.size(); ++i) {
+    LogPendingInvalidationStatus(PendingInvalidationStatus::kLost);
+  }
+}
+
+void ModelTypeWorker::LogPendingInvalidationStatus(
+    PendingInvalidationStatus status) {
+  base::UmaHistogramEnumeration("Sync.PendingInvalidationStatus", status);
 }
 
 void ModelTypeWorker::ConnectSync(
@@ -219,19 +346,20 @@ void ModelTypeWorker::ConnectSync(
   model_type_processor_->ConnectSync(
       std::make_unique<CommitQueueProxy>(weak_ptr_factory_.GetWeakPtr()));
 
-  if (!model_type_state_.initial_sync_done()) {
+  if (!IsInitialSyncDone(model_type_state_.initial_sync_state())) {
     nudge_handler_->NudgeForInitialDownload(type_);
   }
 
   // |model_type_state_| might have an outdated encryption key name, e.g.
   // because |cryptographer_| was updated before this worker was constructed.
   // OnCryptographerChange() might never be called, so update the key manually
-  // here and push it to the processor. Only push if initial sync is done,
-  // otherwise this violates some of the processor assumptions; if initial sync
-  // isn't done, the now-updated key will be pushed on the first ApplyUpdates()
-  // call anyway.
+  // here and push it to the processor. SendPendingUpdatesToProcessorIfReady()
+  // takes care to only send updated if initial sync is (at least partially)
+  // done, otherwise this violates some of the processor assumptions; if initial
+  // sync isn't done, the now-updated key will be pushed on the first
+  // ApplyUpdates() call anyway.
   bool had_outdated_key_name = UpdateTypeEncryptionKeyName();
-  if (had_outdated_key_name && model_type_state_.initial_sync_done()) {
+  if (had_outdated_key_name) {
     SendPendingUpdatesToProcessorIfReady();
   }
 }
@@ -280,7 +408,7 @@ void ModelTypeWorker::UpdatePassphraseType(PassphraseType type) {
 
 bool ModelTypeWorker::IsInitialSyncEnded() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  return model_type_state_.initial_sync_done();
+  return IsInitialSyncDone(model_type_state_.initial_sync_state());
 }
 
 const sync_pb::DataTypeProgressMarker& ModelTypeWorker::GetDownloadProgress()
@@ -301,11 +429,22 @@ void ModelTypeWorker::ProcessGetUpdatesResponse(
     StatusController* status) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  const bool is_initial_sync = !model_type_state_.initial_sync_done();
+  const bool is_initial_sync =
+      !IsInitialSyncDone(model_type_state_.initial_sync_state());
 
   // TODO(rlarocque): Handle data type context conflicts.
   *model_type_state_.mutable_type_context() = mutated_context;
+
+  if (progress_marker.has_gc_directive() &&
+      base::FeatureList::IsEnabled(kSyncKeepGcDirectiveDuringSyncCycle)) {
+    // Clean up all the pending updates because a new GC directive has been
+    // received which means that all existing data should be cleaned up.
+    pending_updates_.clear();
+    entries_pending_decryption_.clear();
+  }
+
   *model_type_state_.mutable_progress_marker() = progress_marker;
+  ExtractGcDirective();
 
   for (const sync_pb::SyncEntity* update_entity : applicable_updates) {
     RecordEntityChangeMetrics(
@@ -378,6 +517,16 @@ void ModelTypeWorker::ProcessGetUpdatesResponse(
     base::UmaHistogramEnumeration(kBlockedByUndecryptableUpdateHistogramName,
                                   ModelTypeHistogramValue(type_));
   }
+
+  // Usually, updates must only be applied at the end of a sync cycle, once all
+  // updates have been downloaded. This is mostly important during initial sync,
+  // so that the merge of local and remote data can happen.
+  // Data types that do not do an actual merge also don't have to download all
+  // remote data first. Instead, apply updates as they come in. This saves the
+  // need to accumulate all data in memory.
+  if (ApplyUpdatesImmediatelyTypes().Has(type_)) {
+    ApplyUpdates(status, /*cycle_done=*/false);
+  }
 }
 
 // static
@@ -402,9 +551,6 @@ ModelTypeWorker::DecryptionStatus ModelTypeWorker::PopulateUpdateResponseData(
   // If so, still try to decrypt with the available keys regardless.
   if (specifics.password().has_encrypted()) {
     // Passwords use their own legacy encryption scheme.
-    // TODO(crbug.com/516866): If we switch away from the password legacy
-    // encryption, this method and DecryptStoredEntities() )should be already
-    // ready for that change. Add unit test for this future-proofness.
     if (!cryptographer.CanDecrypt(specifics.password().encrypted())) {
       return DECRYPTION_PENDING;
     }
@@ -430,7 +576,7 @@ ModelTypeWorker::DecryptionStatus ModelTypeWorker::PopulateUpdateResponseData(
   // Prepare the message for the model thread.
   data.id = update_entity.id_string();
   data.client_tag_hash =
-      ClientTagHash::FromHashed(update_entity.client_defined_unique_tag());
+      ClientTagHash::FromHashed(update_entity.client_tag_hash());
   data.creation_time = ProtoTimeToTime(update_entity.ctime());
   data.modification_time = ProtoTimeToTime(update_entity.mtime());
   data.name = update_entity.name();
@@ -457,18 +603,30 @@ ModelTypeWorker::DecryptionStatus ModelTypeWorker::PopulateUpdateResponseData(
   } else if (model_type == AUTOFILL_WALLET_DATA ||
              model_type == AUTOFILL_WALLET_OFFER) {
     AdaptClientTagForFullUpdateData(model_type, &data);
+  } else if (model_type == WEBAUTHN_CREDENTIAL) {
+    AdaptWebAuthnClientTagHash(&data);
   }
 
   response_data->entity = std::move(data);
   return SUCCESS;
 }
 
-void ModelTypeWorker::ApplyUpdates(StatusController* status) {
+void ModelTypeWorker::ApplyUpdates(StatusController* status, bool cycle_done) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  // Indicate to the processor that the initial download is done. The initial
-  // sync technically isn't done yet but by the time this value is persisted to
-  // disk on the model thread it will be.
-  model_type_state_.set_initial_sync_done(true);
+  // Indicate the new initial-sync state to the processor: If the current sync
+  // cycle was completed, the initial sync must be done. Otherwise, it's started
+  // now. The latter can only happen for ApplyUpdatesImmediatelyTypes(), since
+  // other types wait for the cycle to complete before applying any updates.
+  // Note that the initial sync technically isn't started/done yet but by the
+  // time this value is persisted to disk on the model thread it will be.
+  if (cycle_done) {
+    model_type_state_.set_initial_sync_state(
+        sync_pb::ModelTypeState_InitialSyncState_INITIAL_SYNC_DONE);
+  } else {
+    DCHECK(ApplyUpdatesImmediatelyTypes().Has(type_));
+    model_type_state_.set_initial_sync_state(
+        sync_pb::ModelTypeState_InitialSyncState_INITIAL_SYNC_PARTIALLY_DONE);
+  }
 
   if (!entries_pending_decryption_.empty() &&
       (!encryption_enabled_ || cryptographer_->CanEncrypt())) {
@@ -481,6 +639,37 @@ void ModelTypeWorker::ApplyUpdates(StatusController* status) {
     }
   }
 
+  // At the end of a sync cycle, clean up any invalidations that were used.
+  // (If the cycle is still ongoing, i.e. there are more updates to download,
+  // the invalidations must be kept and sent again in the next request, since
+  // they may still be relevant.)
+  if (cycle_done) {
+    // Processed pending invalidations are deleted, and unprocessed
+    // invalidations will be used again in the next sync cycle.
+    auto it = pending_invalidations_.begin();
+    while (it != pending_invalidations_.end()) {
+      if (it->is_processed) {
+        LogPendingInvalidationStatus(PendingInvalidationStatus::kAcknowledged);
+        it->pending_invalidation->Acknowledge();
+        it = pending_invalidations_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    if (base::FeatureList::IsEnabled(kSyncPersistInvalidations)) {
+      UpdateModelTypeStateInvalidations();
+    }
+
+    has_dropped_invalidation_ = false;
+
+    nudge_handler_->SetHasPendingInvalidations(type_,
+                                               HasPendingInvalidations());
+  }
+
+  if (HasNonDeletionUpdates()) {
+    status->add_updated_type(type_);
+  }
+
   // Download cycle is done, pass all updates to the processor.
   SendPendingUpdatesToProcessorIfReady();
 }
@@ -488,7 +677,8 @@ void ModelTypeWorker::ApplyUpdates(StatusController* status) {
 void ModelTypeWorker::SendPendingUpdatesToProcessorIfReady() {
   DCHECK(model_type_processor_);
 
-  if (!model_type_state_.initial_sync_done()) {
+  if (!IsInitialSyncAtLeastPartiallyDone(
+          model_type_state_.initial_sync_state())) {
     return;
   }
 
@@ -517,9 +707,10 @@ void ModelTypeWorker::SendPendingUpdatesToProcessorIfReady() {
   DeduplicatePendingUpdatesBasedOnOriginatorClientItemId();
 
   model_type_processor_->OnUpdateReceived(model_type_state_,
-                                          std::move(pending_updates_));
-
+                                          std::move(pending_updates_),
+                                          std::move(pending_gc_directive_));
   pending_updates_.clear();
+  pending_gc_directive_.reset();
 }
 
 void ModelTypeWorker::NudgeForCommit() {
@@ -540,7 +731,8 @@ void ModelTypeWorker::NudgeIfReadyToCommit() {
 std::unique_ptr<CommitContribution> ModelTypeWorker::GetContribution(
     size_t max_entries) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(model_type_state_.initial_sync_done());
+  DCHECK(IsInitialSyncAtLeastPartiallyDone(
+      model_type_state_.initial_sync_state()));
   DCHECK(model_type_processor_);
 
   // Early return if type is not ready to commit (initial sync isn't done or
@@ -634,14 +826,12 @@ size_t ModelTypeWorker::EstimateMemoryUsage() const {
   return memory_usage;
 }
 
-bool ModelTypeWorker::IsTypeInitialized() const {
-  return model_type_state_.initial_sync_done();
-}
-
 bool ModelTypeWorker::CanCommitItems() const {
   // We can only commit if we've received the initial update response and aren't
   // blocked by missing encryption keys.
-  return IsTypeInitialized() && !BlockForEncryption();
+  return IsInitialSyncAtLeastPartiallyDone(
+             model_type_state_.initial_sync_state()) &&
+         !BlockForEncryption();
 }
 
 bool ModelTypeWorker::BlockForEncryption() const {
@@ -801,7 +991,9 @@ void ModelTypeWorker::DeduplicatePendingUpdatesBasedOnOriginatorClientItemId() {
     // without deduplication, which is the case for all datatypes except
     // bookmarks, as well as bookmarks created before 2015, when the item ID was
     // not globally unique across clients.
-    if (!base::IsValidGUID(candidate.entity.originator_client_item_id)) {
+    if (!base::Uuid::ParseCaseInsensitive(
+             candidate.entity.originator_client_item_id)
+             .is_valid()) {
       pending_updates_.push_back(std::move(candidate));
       continue;
     }
@@ -837,8 +1029,7 @@ bool ModelTypeWorker::ShouldIgnoreUpdatesEncryptedWith(
       min_get_updates_to_ignore_key_) {
     return false;
   }
-  return base::FeatureList::IsEnabled(
-      switches::kIgnoreSyncEncryptionKeysLongMissing);
+  return base::FeatureList::IsEnabled(kIgnoreSyncEncryptionKeysLongMissing);
 }
 
 void ModelTypeWorker::MaybeDropPendingUpdatesEncryptedWith(
@@ -885,6 +1076,178 @@ ModelTypeWorker::RemoveKeysNoLongerUnknown() {
       });
 
   return removed_keys;
+}
+
+bool ModelTypeWorker::HasNonDeletionUpdates() const {
+  for (const UpdateResponseData& update : pending_updates_) {
+    if (!update.entity.is_deleted()) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void ModelTypeWorker::ExtractGcDirective() {
+  DCHECK(model_type_state_.has_progress_marker());
+  // This is a workaround for multiple GetUpdates during one sync cycle. The
+  // server returns gc_directive only if there are updates for the data type.
+  // For example, if there are many bookmarks to download and several Wallet
+  // entities (which use GC directive), there might be the following sequence of
+  // GetUpdates responses:
+  //
+  // 1. Response with Wallet updates and bookmarks:
+  // * wallet_entities: 10
+  // ** progress_marker: {progress_token: "w1", gc_directive: "1"}
+  // * bookmark_entities: 10
+  // ** progress_marker: {progress_token: "b1"}
+  //
+  // 2. Response with remaining bookmarks only:
+  // * wallet_entities: 0
+  // ** progress_marker: {progress_token: "w1"}
+  // * bookmark_entities: 15
+  // ** progress_marker: {progress_token: "b2"}
+  //
+  // In this case the GC directive from the first request has to be kept until
+  // the end of the sync cycle.
+  // TODO(crbug.com/1356900): consider a better approach instead of this
+  // workaround.
+
+  if (model_type_state_.progress_marker().has_gc_directive()) {
+    // Keep a new GC directive if received.
+    pending_gc_directive_ = model_type_state_.progress_marker().gc_directive();
+    model_type_state_.mutable_progress_marker()->clear_gc_directive();
+    return;
+  }
+
+  if (pending_gc_directive_.has_value() &&
+      !base::FeatureList::IsEnabled(kSyncKeepGcDirectiveDuringSyncCycle)) {
+    // Remove the GC directive if not present in the response, to mimic the
+    // previous behavior.
+    pending_gc_directive_.reset();
+    return;
+  }
+
+  // Note that normally if the server returns non-empty updates for a
+  // download-only data type, it returns a non-empty |gc_directive| as well.
+  // However, it's safer to keep the GC directive until it's applied even if the
+  // server returns non-empty updates without GC directive within the same sync
+  // cycle.
+}
+
+void ModelTypeWorker::RecordRemoteInvalidation(
+    std::unique_ptr<SyncInvalidation> incoming) {
+  DCHECK(incoming);
+  // Merge the incoming invalidation into our list of pending invalidations.
+  //
+  // We won't use STL algorithms here because our concept of equality doesn't
+  // quite fit the expectations of set_intersection.  In particular, two
+  // invalidations can be equal according to the SingleTopicInvalidationSet's
+  // rules (ie. have equal versions), but still have different AckHandle values
+  // and need to be acknowledged separately.
+  //
+  // The invalidations service can only track one outsanding invalidation per
+  // type and version, so the acknowledgement here should be redundant.  We'll
+  // acknowledge them anyway since it should do no harm, and makes this code a
+  // bit easier to test.
+  //
+  // Overlaps should be extremely rare for most invalidations.  They can happen
+  // for unknown version invalidations, though.
+
+  auto it = pending_invalidations_.begin();
+
+  // Find the lower bound.
+  while (it != pending_invalidations_.end() &&
+         SyncInvalidation::LessThanByVersion(*(it->pending_invalidation),
+                                             *incoming)) {
+    it++;
+  }
+
+  if (it != pending_invalidations_.end() &&
+      !SyncInvalidation::LessThanByVersion(*incoming,
+                                           *(it->pending_invalidation)) &&
+      !SyncInvalidation::LessThanByVersion(*(it->pending_invalidation),
+                                           *incoming)) {
+    // Incoming overlaps with existing.  Either both are unknown versions
+    // (likely) or these two have the same version number (very unlikely).
+    // Acknowledge and overwrite existing.
+
+    // Insert before the existing and get iterator to inserted.
+    auto it2 = pending_invalidations_.insert(it, {std::move(incoming), false});
+
+    // Increment that iterator to the old one, then acknowledge and remove it.
+    LogPendingInvalidationStatus(
+        (it2->pending_invalidation)->IsUnknownVersion()
+            ? PendingInvalidationStatus::kSameUnknownVersion
+            : PendingInvalidationStatus::kSameKnownVersion);
+    ++it2;
+    (it2->pending_invalidation)->Acknowledge();
+    pending_invalidations_.erase(it2);
+  } else {
+    // The incoming has a version not in the pending_invalidations_ list.
+    // Add it to the list at the proper position.
+    pending_invalidations_.insert(it, {std::move(incoming), false});
+  }
+
+  // The incoming invalidation may have caused us to exceed our buffer size.
+  // Trim some items from our list, if necessary.
+  while (pending_invalidations_.size() > kMaxPendingInvalidations) {
+    has_dropped_invalidation_ = true;
+    LogPendingInvalidationStatus(
+        PendingInvalidationStatus::kInvalidationsOverflow);
+    pending_invalidations_.front().pending_invalidation->Drop();
+    pending_invalidations_.erase(pending_invalidations_.begin());
+  }
+  nudge_handler_->SetHasPendingInvalidations(type_, HasPendingInvalidations());
+  if (base::FeatureList::IsEnabled(kSyncPersistInvalidations)) {
+    SendPendingInvalidationsToProcessor();
+  }
+}
+
+void ModelTypeWorker::CollectPendingInvalidations(
+    sync_pb::GetUpdateTriggers* msg) {
+  // Fill the list of payloads, if applicable.  The payloads must be ordered
+  // oldest to newest, so we insert them in the same order as we've been storing
+  // them internally.
+  for (PendingInvalidation& invalidation : pending_invalidations_) {
+    if (!invalidation.pending_invalidation->IsUnknownVersion()) {
+      msg->add_notification_hint(
+          invalidation.pending_invalidation->GetPayload());
+    }
+    invalidation.is_processed = true;
+  }
+
+  msg->set_server_dropped_hints(
+      !pending_invalidations_.empty() &&
+      (pending_invalidations_.begin()->pending_invalidation)
+          ->IsUnknownVersion());
+  msg->set_client_dropped_hints(has_dropped_invalidation_);
+}
+
+bool ModelTypeWorker::HasPendingInvalidations() const {
+  return !pending_invalidations_.empty() || has_dropped_invalidation_;
+}
+
+void ModelTypeWorker::SendPendingInvalidationsToProcessor() {
+  DCHECK(base::FeatureList::IsEnabled(kSyncPersistInvalidations));
+  UpdateModelTypeStateInvalidations();
+  model_type_processor_->StorePendingInvalidations(
+      std::vector<sync_pb::ModelTypeState::Invalidation>(
+          model_type_state_.invalidations().begin(),
+          model_type_state_.invalidations().end()));
+}
+
+void ModelTypeWorker::UpdateModelTypeStateInvalidations() {
+  DCHECK(base::FeatureList::IsEnabled(kSyncPersistInvalidations));
+  model_type_state_.clear_invalidations();
+  for (const auto& inv : pending_invalidations_) {
+    SyncInvalidation* invalidation = inv.pending_invalidation.get();
+    sync_pb::ModelTypeState_Invalidation* invalidation_to_store =
+        model_type_state_.add_invalidations();
+    invalidation_to_store->set_hint(invalidation->GetPayload());
+    if (!invalidation->IsUnknownVersion()) {
+      invalidation_to_store->set_version(invalidation->GetVersion());
+    }
+  }
 }
 
 GetLocalChangesRequest::GetLocalChangesRequest(

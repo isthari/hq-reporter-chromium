@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,11 @@
 
 #include "chrome/browser/ui/media_router/cast_dialog_controller.h"
 #include "chrome/browser/ui/media_router/cast_dialog_model.h"
+#include "chrome/browser/ui/media_router/media_route_starter.h"
 #include "chrome/browser/ui/media_router/ui_media_sink.h"
 #include "chrome/browser/ui/test/test_browser_dialog.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/media_router/cast_dialog_coordinator.h"
 #include "components/media_router/browser/presentation/start_presentation_context.h"
 #include "components/media_router/common/mojom/media_router.mojom.h"
 #include "content/public/test/browser_test.h"
@@ -64,11 +66,13 @@ class MockCastDialogController : public media_router::CastDialogController {
                     media_router::MediaCastMode cast_mode) override {}
   void StopCasting(const media_router::MediaRoute::Id& route_id) override {}
   void ClearIssue(const media_router::Issue::Id& issue_id) override {}
-  content::WebContents* GetInitiator() override { return nullptr; }
-  std::unique_ptr<media_router::StartPresentationContext>
-  TakeStartPresentationContext() override {
+  void FreezeRoute(const media_router::MediaRoute::Id& route_id) override {}
+  void UnfreezeRoute(const media_router::MediaRoute::Id& route_id) override {}
+  std::unique_ptr<media_router::MediaRouteStarter> TakeMediaRouteStarter()
+      override {
     return nullptr;
   }
+  void RegisterDestructor(base::OnceClosure destructor) override {}
 };
 
 }  // namespace
@@ -84,9 +88,9 @@ class CastDialogViewBrowserTest : public DialogBrowserTest {
 
   // DialogBrowserTest:
   void PreShow() override {
-    media_router::CastDialogView::ShowDialogCenteredForBrowserWindow(
+    cast_dialog_coordinator_.ShowDialogCenteredForBrowserWindow(
         controller_.get(), browser(), base::Time::Now(),
-        media_router::MediaRouterDialogOpenOrigin::TOOLBAR);
+        media_router::MediaRouterDialogActivationLocation::TOOLBAR);
   }
 
   void ShowUi(const std::string& name) override {
@@ -103,17 +107,17 @@ class CastDialogViewBrowserTest : public DialogBrowserTest {
           CreateConnectedSink(),
           CreateUnavailableSink(),
       });
-    } else if (name == "NoSinks") {
-      model = CreateModelWithSinks({});
     } else {
-      NOTREACHED() << "Unexpected test name " << name;
+      CHECK_EQ(name, "NoSinks");
+      model = CreateModelWithSinks({});
     }
     media_router::CastDialogView* dialog =
-        media_router::CastDialogView::GetInstance();
+        cast_dialog_coordinator_.GetCastDialogView();
     dialog->OnModelUpdated(model);
   }
 
  private:
+  media_router::CastDialogCoordinator cast_dialog_coordinator_;
   std::unique_ptr<MockCastDialogController> controller_;
 };
 

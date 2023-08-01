@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/containers/contains.h"
 #include "base/lazy_instance.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/trace_event/trace_event.h"
@@ -34,6 +35,7 @@
 #include "extensions/common/permissions/permission_set.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "google_apis/gaia/gaia_urls.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
 namespace extensions {
@@ -61,7 +63,7 @@ void IdentityAPI::SetGaiaIdForExtension(const std::string& extension_id,
                                         const std::string& gaia_id) {
   DCHECK(!gaia_id.empty());
   extension_prefs_->UpdateExtensionPref(extension_id, kIdentityGaiaIdPref,
-                                        std::make_unique<base::Value>(gaia_id));
+                                        base::Value(gaia_id));
 }
 
 absl::optional<std::string> IdentityAPI::GetGaiaIdForExtension(
@@ -76,7 +78,7 @@ absl::optional<std::string> IdentityAPI::GetGaiaIdForExtension(
 
 void IdentityAPI::EraseGaiaIdForExtension(const std::string& extension_id) {
   extension_prefs_->UpdateExtensionPref(extension_id, kIdentityGaiaIdPref,
-                                        nullptr);
+                                        absl::nullopt);
 }
 
 void IdentityAPI::EraseStaleGaiaIdsForAllExtensions() {
@@ -86,17 +88,11 @@ void IdentityAPI::EraseStaleGaiaIdsForAllExtensions() {
     return;
   std::vector<CoreAccountInfo> accounts =
       identity_manager_->GetAccountsWithRefreshTokens();
-  extensions::ExtensionIdList extensions;
-  extension_prefs_->GetExtensions(&extensions);
-  for (const ExtensionId& extension_id : extensions) {
+  for (const ExtensionId& extension_id : extension_prefs_->GetExtensions()) {
     absl::optional<std::string> gaia_id = GetGaiaIdForExtension(extension_id);
     if (!gaia_id)
       continue;
-    auto account_it = std::find_if(accounts.begin(), accounts.end(),
-                                   [&](const CoreAccountInfo& account) {
-                                     return account.gaia == *gaia_id;
-                                   });
-    if (account_it == accounts.end()) {
+    if (!base::Contains(accounts, *gaia_id, &CoreAccountInfo::gaia)) {
       EraseGaiaIdForExtension(extension_id);
     }
   }

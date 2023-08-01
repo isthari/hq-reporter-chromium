@@ -1,11 +1,11 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/toolbar/test_toolbar_actions_bar_bubble_delegate.h"
 
-#include "base/callback.h"
 #include "base/check.h"
+#include "base/functional/callback.h"
 #include "base/logging.h"
 #include "base/memory/raw_ptr.h"
 #include "base/threading/thread_restrictions.h"
@@ -59,11 +59,13 @@ class TestToolbarActionsBarBubbleDelegate::DelegateImpl
 TestToolbarActionsBarBubbleDelegate::TestToolbarActionsBarBubbleDelegate(
     const std::u16string& heading,
     const std::u16string& body,
-    const std::u16string& action)
+    const std::u16string& action,
+    const std::u16string& dismiss)
     : shown_(false),
       heading_(heading),
       body_(body),
       action_(action),
+      dismiss_(dismiss),
       default_button_(ui::DIALOG_BUTTON_NONE),
       close_on_deactivate_(true) {}
 

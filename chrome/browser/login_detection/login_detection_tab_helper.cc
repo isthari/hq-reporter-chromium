@@ -1,10 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/login_detection/login_detection_tab_helper.h"
 
-#include "base/metrics/histogram_functions.h"
+#include "base/metrics/histogram_macros_local.h"
 #include "chrome/browser/login_detection/login_detection_keyed_service.h"
 #include "chrome/browser/login_detection/login_detection_keyed_service_factory.h"
 #include "chrome/browser/login_detection/login_detection_prefs.h"
@@ -13,16 +13,11 @@
 #include "chrome/browser/profiles/profile.h"
 #include "components/prefs/pref_service.h"
 #include "components/site_isolation/site_isolation_policy.h"
-#include "components/ukm/content/source_url_recorder.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
-#include "services/metrics/public/cpp/ukm_builders.h"
-#include "services/metrics/public/cpp/ukm_recorder.h"
-#include "services/metrics/public/cpp/ukm_source.h"
-#include "services/metrics/public/cpp/ukm_source_id.h"
 
 namespace login_detection {
 
@@ -33,12 +28,8 @@ PrefService* GetPrefs(content::WebContents* web_contents) {
       ->GetPrefs();
 }
 
-void RecordLoginDetectionMetrics(LoginDetectionType type,
-                                 ukm::SourceId ukm_source_id) {
-  base::UmaHistogramEnumeration("Login.PageLoad.DetectionType", type);
-  ukm::builders::LoginDetection builder(ukm_source_id);
-  builder.SetPage_LoginType(static_cast<int64_t>(type))
-      .Record(ukm::UkmRecorder::Get());
+void RecordLoginDetectionMetrics(LoginDetectionType type) {
+  LOCAL_HISTOGRAM_ENUMERATION("Login.PageLoad.DetectionType", type);
 }
 
 }  // namespace
@@ -91,20 +82,11 @@ void LoginDetectionTabHelper::DidFinishNavigation(
   if (auto signedin_site = oauth_login_detector_->GetSuccessfulLoginFlowSite(
           prev_navigation_url, navigation_handle->GetRedirectChain())) {
     ProcessNewSignedInSite(*signedin_site);
-    RecordLoginDetectionMetrics(LoginDetectionType::kOauthFirstTimeLoginFlow,
-                                navigation_handle->GetNextPageUkmSourceId());
+    RecordLoginDetectionMetrics(LoginDetectionType::kOauthFirstTimeLoginFlow);
     return;
   }
 
-  LoginDetectionKeyedService* login_detection_keyed_service =
-      LoginDetectionKeyedServiceFactory::GetForProfile(
-          Profile::FromBrowserContext(web_contents()->GetBrowserContext()));
-  if (!login_detection_keyed_service)
-    return;
-
-  RecordLoginDetectionMetrics(
-      login_detection_keyed_service->GetPersistentLoginDetection(url),
-      navigation_handle->GetNextPageUkmSourceId());
+  RecordLoginDetectionMetrics(LoginDetectionType::kNoLogin);
 }
 
 void LoginDetectionTabHelper::DidOpenRequestedURL(
@@ -133,8 +115,7 @@ void LoginDetectionTabHelper::WebContentsDestroyed() {
   if (auto signedin_site = oauth_login_detector_->GetPopUpLoginFlowSite()) {
     ProcessNewSignedInSite(*signedin_site);
     RecordLoginDetectionMetrics(
-        LoginDetectionType::kOauthPopUpFirstTimeLoginFlow,
-        ukm::GetSourceIdForWebContentsDocument(web_contents()));
+        LoginDetectionType::kOauthPopUpFirstTimeLoginFlow);
   }
   oauth_login_detector_.reset();
 }

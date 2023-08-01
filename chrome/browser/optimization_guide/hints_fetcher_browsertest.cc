@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,14 +7,13 @@
 #include <string>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/containers/flat_set.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/strings/strcat.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
@@ -23,8 +22,8 @@
 #include "chrome/browser/optimization_guide/browser_test_util.h"
 #include "chrome/browser/optimization_guide/optimization_guide_keyed_service.h"
 #include "chrome/browser/optimization_guide/optimization_guide_keyed_service_factory.h"
-#include "chrome/browser/prefetch/no_state_prefetch/no_state_prefetch_manager_factory.h"
-#include "chrome/browser/prefetch/no_state_prefetch/prerender_test_utils.h"
+#include "chrome/browser/preloading/prefetch/no_state_prefetch/no_state_prefetch_manager_factory.h"
+#include "chrome/browser/preloading/prefetch/no_state_prefetch/no_state_prefetch_test_utils.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_paths.h"
@@ -53,7 +52,7 @@
 #include "components/site_engagement/content/site_engagement_service.h"
 #include "components/ukm/test_ukm_recorder.h"
 #include "components/variations/hashing.h"
-#include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_base.h"
 #include "content/public/test/browser_test_utils.h"
@@ -207,6 +206,10 @@ class HintsFetcherDisabledBrowserTest : public InProcessBrowserTest {
   // Creates hint data for the |hint_setup_url|'s so that the fetching of the
   // hints is triggered.
   void SetUpComponentUpdateHints(const GURL& hint_setup_url) {
+    optimization_guide::RetryForHistogramUntilCountReached(
+        GetHistogramTester(),
+        "OptimizationGuide.HintsManager.HintCacheInitialized", 1);
+
     const optimization_guide::HintsComponentInfo& component_info =
         test_hints_component_creator_.CreateHintsComponentInfoWithPageHints(
             optimization_guide::proto::NOSCRIPT, {hint_setup_url.host()}, "*");
@@ -327,7 +330,7 @@ class HintsFetcherDisabledBrowserTest : public InProcessBrowserTest {
 
     std::unique_ptr<prerender::NoStatePrefetchHandle> no_state_prefetch_handle =
         no_state_prefetch_manager->StartPrefetchingFromOmnibox(
-            url, storage_namespace, gfx::Size(640, 480));
+            url, storage_namespace, gfx::Size(640, 480), nullptr);
     ASSERT_EQ(no_state_prefetch_handle->contents(), test_prerender->contents());
 
     // The final status may be either  FINAL_STATUS_NOSTATE_PREFETCH_FINISHED or
@@ -434,12 +437,6 @@ class HintsFetcherDisabledBrowserTest : public InProcessBrowserTest {
       hosts_and_urls_requested.erase(host_or_url);
     }
     EXPECT_EQ(0u, hosts_and_urls_requested.size());
-
-    // We only expect 1 field trial to be allowed and sent up.
-    EXPECT_EQ(1, hints_request.active_field_trials_size());
-    EXPECT_EQ(variations::HashName(
-                  "scoped_feature_list_trial_for_OptimizationHintsFetching"),
-              hints_request.active_field_trials(0).name_hash());
   }
 
   void TearDownOnMainThread() override {
@@ -500,14 +497,12 @@ class HintsFetcherBrowserTest : public HintsFetcherDisabledBrowserTest {
   void SetUp() override {
     // Enable OptimizationHintsFetching with |kRemoteOptimizationGuideFetching|.
     scoped_feature_list_.InitWithFeaturesAndParameters(
-        {
-            {optimization_guide::features::kOptimizationHints, {}},
-            {optimization_guide::features::kRemoteOptimizationGuideFetching,
-             {{"max_concurrent_page_navigation_fetches", "2"}}},
-            {optimization_guide::features::kOptimizationHintsFieldTrials,
-             {{"allowed_field_trial_names",
-               "scoped_feature_list_trial_for_OptimizationHintsFetching"}}},
-        },
+        {{optimization_guide::features::kOptimizationHints, {}},
+         {
+             optimization_guide::features::kRemoteOptimizationGuideFetching,
+             {{"max_concurrent_page_navigation_fetches", "2"},
+              {"batch_update_hints_for_top_hosts", "true"}},
+         }},
         {});
     // Call to inherited class to match same set up with feature flags added.
     HintsFetcherDisabledBrowserTest::SetUp();
@@ -750,7 +745,8 @@ IN_PROC_BROWSER_TEST_F(
       1, 1);
 }
 
-IN_PROC_BROWSER_TEST_F(HintsFetcherBrowserTest, HintsFetcherClearFetchedHints) {
+IN_PROC_BROWSER_TEST_F(HintsFetcherBrowserTest,
+                       DISABLED_HintsFetcherClearFetchedHints) {
   const base::HistogramTester* histogram_tester = GetHistogramTester();
   GURL url = https_url();
 
@@ -1010,11 +1006,10 @@ IN_PROC_BROWSER_TEST_F(HintsFetcherBrowserTest,
             run_loop.get()));
     run_loop->Run();
 
-    // Second time should not refetch since no hosts or urls match.
+    // Second time should refetch since on-demand always fetches.
     histogram_tester.ExpectUniqueSample(
         "OptimizationGuide.HintsFetcher.RequestStatus.Bookmarks",
-        optimization_guide::HintsFetcherRequestStatus::kNoHostsOrURLsToFetch,
-        1);
+        optimization_guide::HintsFetcherRequestStatus::kSuccess, 1);
   }
 }
 

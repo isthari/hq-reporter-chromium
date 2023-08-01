@@ -1,4 +1,4 @@
-// Copyright (c) 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,12 +16,15 @@
 #include "chrome/browser/ui/views/tabs/new_tab_button.h"
 #include "chrome/browser/ui/views/tabs/tab.h"
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
+#include "chrome/browser/ui/views/tabs/tab_strip_scroll_container.h"
 #include "chrome/browser/ui/views/tabs/tab_style_views.h"
 #include "chrome/test/views/chrome_views_test_base.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gfx/animation/animation_test_api.h"
 #include "ui/views/layout/flex_layout.h"
+#include "ui/views/test/views_test_utils.h"
 #include "ui/views/view.h"
+#include "ui/views/view_utils.h"
 #include "ui/views/widget/widget.h"
 
 // TabStripRegionViewTestBase contains no test cases.
@@ -31,8 +34,10 @@ class TabStripRegionViewTestBase : public ChromeViewsTestBase {
       : animation_mode_reset_(gfx::AnimationTestApi::SetRichAnimationRenderMode(
             gfx::Animation::RichAnimationRenderMode::FORCE_ENABLED)) {
     if (has_scrolling) {
-      scoped_feature_list_.InitWithFeatures({features::kScrollableTabStrip},
-                                            {});
+      scoped_feature_list_.InitWithFeatures(
+          {features::kScrollableTabStrip,
+           features::kTabScrollingButtonPosition},
+          {});
     } else {
       scoped_feature_list_.InitWithFeatures({},
                                             {features::kScrollableTabStrip});
@@ -69,7 +74,9 @@ class TabStripRegionViewTestBase : public ChromeViewsTestBase {
 
  protected:
   int GetInactiveTabWidth() { return tab_strip_->GetInactiveTabWidth(); }
-  void CompleteAnimationAndLayout() { tab_strip_region_view_->Layout(); }
+  void CompleteAnimationAndLayout() {
+    views::test::RunScheduledLayout(tab_strip_region_view_);
+  }
 
   // Owned by TabStrip.
   raw_ptr<FakeBaseTabStripController> controller_ = nullptr;
@@ -99,7 +106,8 @@ TEST_P(TabStripRegionViewTest, GrabHandleSpaceStaysVisible) {
   tab_strip_region_view_->SetBounds(0, 0, kTabStripRegionViewWidth, 20);
 
   for (int i = 0; i < 100; ++i) {
-    controller_->AddTab(i, (i == 0));
+    controller_->AddTab(i,
+                        (i == 0) ? TabActive::kActive : TabActive::kInactive);
     CompleteAnimationAndLayout();
     EXPECT_LE(tab_strip_region_view_->reserved_grab_handle_space_for_testing()
                   ->bounds()
@@ -113,7 +121,8 @@ TEST_P(TabStripRegionViewTest, NewTabButtonStaysVisible) {
   tab_strip_region_view_->SetBounds(0, 0, kTabStripRegionViewWidth, 20);
 
   for (int i = 0; i < 100; ++i) {
-    controller_->AddTab(i, (i == 0));
+    controller_->AddTab(i,
+                        (i == 0) ? TabActive::kActive : TabActive::kInactive);
     CompleteAnimationAndLayout();
     EXPECT_LE(tab_strip_region_view_->new_tab_button()->bounds().right(),
               kTabStripRegionViewWidth);
@@ -124,7 +133,7 @@ TEST_P(TabStripRegionViewTest, NewTabButtonRightOfTabs) {
   const int kTabStripRegionViewWidth = 500;
   tab_strip_region_view_->SetBounds(0, 0, kTabStripRegionViewWidth, 20);
 
-  controller_->AddTab(0, true);
+  controller_->AddTab(0, TabActive::kActive);
 
   CompleteAnimationAndLayout();
 
@@ -144,7 +153,7 @@ TEST_P(TabStripRegionViewTest, NewTabButtonInkDrop) {
   for (int i = 0; i < 10; ++i) {
     tab_strip_region_view_->new_tab_button()->AnimateToStateForTesting(
         views::InkDropState::ACTION_TRIGGERED);
-    controller_->AddTab(i, true /* is_active */);
+    controller_->AddTab(i, TabActive::kActive);
     CompleteAnimationAndLayout();
     tab_strip_region_view_->new_tab_button()->AnimateToStateForTesting(
         views::InkDropState::HIDDEN);
@@ -160,7 +169,7 @@ TEST_P(TabStripRegionViewTest, NewTabButtonInkDrop) {
 // is maximized (Fitt's Law).
 TEST_P(TabStripRegionViewTest, ChildrenAreFlushWithTopOfTabStripRegionView) {
   tab_strip_region_view_->SetBounds(0, 0, 1000, 100);
-  controller_->AddTab(0, true);
+  controller_->AddTab(0, TabActive::kActive);
 
   CompleteAnimationAndLayout();
 
@@ -200,13 +209,14 @@ class TabStripRegionViewTestWithScrollingDisabled
 // TabStripRegionViewTestWithScrollingEnabled.TabStripCanBeLargerThanContainer.
 TEST_F(TabStripRegionViewTestWithScrollingDisabled,
        TabStripCannotBeLargerThanContainer) {
-  const int minimum_active_width = TabStyleViews::GetMinimumInactiveWidth();
-  controller_->AddTab(0, true);
+  const int minimum_active_width =
+      TabStyleViews::Create()->GetMinimumInactiveWidth();
+  controller_->AddTab(0, TabActive::kActive);
   CompleteAnimationAndLayout();
 
   // Add tabs to the tabstrip until it is full.
   while (GetInactiveTabWidth() > minimum_active_width) {
-    controller_->AddTab(0, false);
+    controller_->AddTab(0, TabActive::kInactive);
     CompleteAnimationAndLayout();
     EXPECT_LT(tab_strip_->width(), tab_strip_region_view_->width());
   }
@@ -214,7 +224,7 @@ TEST_F(TabStripRegionViewTestWithScrollingDisabled,
   // Add a few more tabs after the tabstrip is full to ensure tabs added
   // afterwards are not visible.
   for (int i = 0; i < 10; i++) {
-    controller_->AddTab(0, false);
+    controller_->AddTab(0, TabActive::kInactive);
     CompleteAnimationAndLayout();
   }
   EXPECT_LT(tab_strip_->width(), tab_strip_region_view_->width());
@@ -240,13 +250,14 @@ class TabStripRegionViewTestWithScrollingEnabled
 // TabStripCannotBeLargerThanContainer.
 TEST_F(TabStripRegionViewTestWithScrollingEnabled,
        TabStripCanBeLargerThanContainer) {
-  const int minimum_active_width = TabStyleViews::GetMinimumInactiveWidth();
-  controller_->AddTab(0, true);
+  const int minimum_active_width =
+      TabStyleViews::Create()->GetMinimumInactiveWidth();
+  controller_->AddTab(0, TabActive::kActive);
   CompleteAnimationAndLayout();
 
   // Add tabs to the tabstrip until it is full and should start overflowing.
   while (GetInactiveTabWidth() > minimum_active_width) {
-    controller_->AddTab(0, false);
+    controller_->AddTab(0, TabActive::kInactive);
     CompleteAnimationAndLayout();
     EXPECT_LT(tab_strip_->width(), tab_strip_region_view_->width());
   }
@@ -257,12 +268,62 @@ TEST_F(TabStripRegionViewTestWithScrollingEnabled,
   // region, not just the portion of that that's allocated to the tabstrip
   // itself (e.g. some of that space is for the NTB).
   for (int i = 0; i < 10; i++) {
-    controller_->AddTab(0, false);
+    controller_->AddTab(0, TabActive::kInactive);
     CompleteAnimationAndLayout();
   }
   EXPECT_GT(tab_strip_->width(), tab_strip_region_view_->width());
   EXPECT_TRUE(
       tab_strip_->tab_at(tab_strip_->GetModelCount() - 1)->GetVisible());
+}
+
+TEST_F(TabStripRegionViewTestWithScrollingEnabled,
+       TabStripScrollButtonsNotInWindowCaption) {
+  const int minimum_active_width =
+      TabStyleViews::Create()->GetMinimumInactiveWidth();
+  controller_->AddTab(0, TabActive::kActive);
+  CompleteAnimationAndLayout();
+
+  // Add tabs to the tabstrip until it is full and should start overflowing.
+  while (GetInactiveTabWidth() > minimum_active_width) {
+    controller_->AddTab(0, TabActive::kInactive);
+    CompleteAnimationAndLayout();
+  }
+
+  // Add a few more tabs after the tabstrip is full to ensure the tabstrip
+  // starts scrolling. This needs to expand the tabstrip width by a decent
+  // amount in order to get the tabstrip to be wider than the entire tabstrip
+  // region, not just the portion of that that's allocated to the tabstrip
+  // itself (e.g. some of that space is for the NTB).
+  for (int i = 0; i < 10; i++) {
+    controller_->AddTab(0, TabActive::kInactive);
+    CompleteAnimationAndLayout();
+  }
+
+  raw_ptr<TabStripScrollContainer> scroll_container =
+      views::AsViewClass<TabStripScrollContainer>(
+          tab_strip_region_view_->GetTabStripContainerForTesting());
+  raw_ptr<views::ImageButton> leading_scroll_button_ =
+      scroll_container->GetLeadingScrollButtonForTesting();
+  raw_ptr<views::ImageButton> trailing_scroll_button_ =
+      scroll_container->GetTrailingScrollButtonForTesting();
+
+  // Check to see if children are visible
+  EXPECT_TRUE(leading_scroll_button_ != nullptr &&
+              leading_scroll_button_->IsDrawn());
+  EXPECT_TRUE(trailing_scroll_button_ != nullptr &&
+              trailing_scroll_button_->IsDrawn());
+
+  gfx::Point scrolling_button_point =
+      leading_scroll_button_->bounds().CenterPoint();
+  gfx::Rect scrolling_button_rect =
+      gfx::Rect(scrolling_button_point, gfx::Size(1, 1));
+  gfx::RectF floating_rect_in_target_coords_f(scrolling_button_rect);
+  views::View::ConvertRectToTarget(leading_scroll_button_,
+                                   tab_strip_region_view_,
+                                   &floating_rect_in_target_coords_f);
+
+  EXPECT_FALSE(tab_strip_region_view_->IsRectInWindowCaption(
+      gfx::ToEnclosingRect(floating_rect_in_target_coords_f)));
 }
 
 INSTANTIATE_TEST_SUITE_P(All,

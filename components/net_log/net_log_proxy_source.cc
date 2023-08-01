@@ -1,8 +1,9 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/net_log/net_log_proxy_source.h"
+#include "base/task/sequenced_task_runner.h"
 
 namespace net_log {
 
@@ -12,7 +13,7 @@ NetLogProxySource::NetLogProxySource(
     mojo::Remote<network::mojom::NetLogProxySink> proxy_sink_remote)
     : proxy_source_receiver_(this, std::move(proxy_source_receiver)),
       proxy_sink_remote_(std::move(proxy_sink_remote)),
-      task_runner_(base::SequencedTaskRunnerHandle::Get()) {
+      task_runner_(base::SequencedTaskRunner::GetCurrentDefault()) {
   // Initialize a WeakPtr instance that can be safely referred to from other
   // threads when binding tasks posted back to this thread.
   weak_this_ = weak_factory_.GetWeakPtr();
@@ -94,7 +95,7 @@ void NetLogProxySource::SendNetLogEntry(net::NetLogEventType type,
                                         base::TimeTicks source_start_time,
                                         net::NetLogEventPhase phase,
                                         base::TimeTicks time,
-                                        base::Value params) {
+                                        base::Value::Dict params) {
   proxy_sink_remote_->AddEntry(
       static_cast<uint32_t>(type), static_cast<uint32_t>(source_type),
       source_id, source_start_time, phase, time, std::move(params));

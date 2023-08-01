@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -41,6 +41,7 @@ std::unique_ptr<CanvasResourceProvider> CreateProvider(
 }  // anonymous namespace
 
 scoped_refptr<StaticBitmapImage> GetImageWithAlphaDisposition(
+    CanvasResourceProvider::FlushReason reason,
     scoped_refptr<StaticBitmapImage>&& image,
     const AlphaDisposition alpha_disposition) {
   if (!image)
@@ -78,7 +79,8 @@ scoped_refptr<StaticBitmapImage> GetImageWithAlphaDisposition(
     paint.setBlendMode(SkBlendMode::kSrc);
     resource_provider->Canvas()->drawImage(paint_image, 0, 0,
                                            SkSamplingOptions(), &paint);
-    return resource_provider->Snapshot(image->CurrentFrameOrientation());
+    return resource_provider->Snapshot(reason,
+                                       image->CurrentFrameOrientation());
   }
 
   // To unpremul, read back the pixels.

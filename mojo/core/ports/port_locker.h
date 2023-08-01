@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,8 @@
 
 #include <stdint.h>
 
+#include "base/auto_reset.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "mojo/core/ports/port_ref.h"
 
 namespace mojo {
@@ -61,10 +63,14 @@ class PortLocker {
 #endif
 
  private:
+#if DCHECK_IS_ON()
+  const base::AutoReset<const PortLocker*> resetter_;
+#endif
+
   // `port_refs_` is not a raw_ptr<T> for performance reasons: PortLocker is
   // usually short-lived (e.g. allocated on the stack) + the stack (not on the
   // heap).
-  const PortRef** const port_refs_;
+  RAW_PTR_EXCLUSION const PortRef** const port_refs_;
   const size_t num_ports_;
 };
 
@@ -81,7 +87,9 @@ class COMPONENT_EXPORT(MOJO_CORE_PORTS) SinglePortLocker {
   Port* port() const { return locker_.GetPort(*port_ref_); }
 
  private:
-  const PortRef* port_ref_;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION const PortRef* port_ref_;
   PortLocker locker_;
 };
 

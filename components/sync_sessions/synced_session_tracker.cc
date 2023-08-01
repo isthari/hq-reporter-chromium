@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,13 @@
 #include <algorithm>
 #include <utility>
 
+#include "base/functional/callback.h"
 #include "base/logging.h"
 #include "base/ranges/algorithm.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/sync/protocol/session_specifics.pb.h"
+#include "components/sync_device_info/device_info_proto_enum_util.h"
 #include "components/sync_sessions/sync_sessions_client.h"
-#include "components/sync_sessions/synced_tab_delegate.h"
 
 namespace sync_sessions {
 
@@ -59,15 +60,15 @@ bool IsPresentable(SyncSessionsClient* sessions_client,
 bool IsValidSessionHeader(const sync_pb::SessionHeader& header) {
   std::set<int> session_window_ids;
   std::set<int> session_tab_ids;
-  for (int i = 0; i < header.window_size(); ++i) {
-    const sync_pb::SessionWindow& window = header.window(i);
-    if (!session_window_ids.insert(window.window_id()).second)
+  for (const sync_pb::SessionWindow& window : header.window()) {
+    if (!session_window_ids.insert(window.window_id()).second) {
       return false;
+    }
 
-    for (int j = 0; j < window.tab_size(); ++j) {
-      const int tab_id = window.tab(j);
-      if (!session_tab_ids.insert(tab_id).second)
+    for (int tab_id : window.tab()) {
+      if (!session_tab_ids.insert(tab_id).second) {
         return false;
+      }
     }
   }
 
@@ -94,12 +95,13 @@ void PopulateSyncedSessionWindowFromSpecifics(
     session_window->window_id =
         SessionID::FromSerializedValue(specifics.window_id());
   }
-  if (specifics.has_selected_tab_index())
+  if (specifics.has_selected_tab_index()) {
     session_window->selected_tab_index = specifics.selected_tab_index();
+  }
   synced_session_window->window_type = specifics.browser_type();
   if (specifics.has_browser_type()) {
     if (specifics.browser_type() ==
-        sync_pb::SessionWindow_BrowserType_TYPE_TABBED) {
+        sync_pb::SyncEnums_BrowserType_TYPE_TABBED) {
       session_window->type = sessions::SessionWindow::TYPE_NORMAL;
     } else {
       // Note: custom tabs are treated like popup windows on restore, as you can
@@ -122,13 +124,24 @@ void PopulateSyncedSessionFromSpecifics(
     base::Time mtime,
     SyncedSession* synced_session,
     SyncedSessionTracker* tracker) {
-  if (header_specifics.has_client_name())
-    synced_session->session_name = header_specifics.client_name();
-  if (header_specifics.has_device_type()) {
-    synced_session->device_type = header_specifics.device_type();
+  if (header_specifics.has_client_name()) {
+    synced_session->SetSessionName(header_specifics.client_name());
   }
-  synced_session->modified_time =
-      std::max(mtime, synced_session->modified_time);
+
+  syncer::DeviceInfo::FormFactor device_form_factor =
+      syncer::ToDeviceInfoFormFactor(header_specifics.device_form_factor());
+  // Old clients only populate the device type, so the form factor needs to be
+  // inferred.
+  if (device_form_factor == syncer::DeviceInfo::FormFactor::kUnknown) {
+    device_form_factor =
+        syncer::DeriveFormFactorFromDeviceType(header_specifics.device_type());
+  }
+  if (device_form_factor != syncer::DeviceInfo::FormFactor::kUnknown) {
+    synced_session->SetDeviceTypeAndFormFactor(header_specifics.device_type(),
+                                               device_form_factor);
+  }
+  synced_session->SetModifiedTime(
+      std::max(mtime, synced_session->GetModifiedTime()));
 
   // Process all the windows and their tab information.
   int num_windows = header_specifics.window_size();
@@ -142,7 +155,7 @@ void PopulateSyncedSessionFromSpecifics(
     // Window ID duplicates are filtered out in IsValidSessionHeader().
     DCHECK(success) << "Duplicate window ID in session";
     PopulateSyncedSessionWindowFromSpecifics(
-        session_tag, window_s, synced_session->modified_time,
+        session_tag, window_s, synced_session->GetModifiedTime(),
         synced_session->windows[window_id].get(), tracker);
   }
 }
@@ -161,15 +174,17 @@ SyncedSessionTracker::~SyncedSessionTracker() = default;
 void SyncedSessionTracker::InitLocalSession(
     const std::string& local_session_tag,
     const std::string& local_session_name,
-    sync_pb::SyncEnums::DeviceType local_device_type) {
+    sync_pb::SyncEnums::DeviceType local_device_type,
+    syncer::DeviceInfo::FormFactor local_device_form_factor) {
   DCHECK(local_session_tag_.empty());
   DCHECK(!local_session_tag.empty());
   local_session_tag_ = local_session_tag;
 
   SyncedSession* local_session = GetSession(local_session_tag);
-  local_session->session_name = local_session_name;
-  local_session->device_type = local_device_type;
-  local_session->session_tag = local_session_tag;
+  local_session->SetSessionName(local_session_name);
+  local_session->SetDeviceTypeAndFormFactor(local_device_type,
+                                            local_device_form_factor);
+  local_session->SetSessionTag(local_session_tag);
 }
 
 const std::string& SyncedSessionTracker::GetLocalSessionTag() const {
@@ -193,8 +208,9 @@ bool SyncedSessionTracker::LookupSessionWindows(
   windows->clear();
 
   const TrackedSession* session = LookupTrackedSession(session_tag);
-  if (!session)
+  if (!session) {
     return false;  // We have no record of this session.
+  }
 
   for (const auto& [window_id, window] : session->synced_session.windows) {
     windows->push_back(&window->wrapped_window);
@@ -206,33 +222,35 @@ bool SyncedSessionTracker::LookupSessionWindows(
 const sessions::SessionTab* SyncedSessionTracker::LookupSessionTab(
     const std::string& tag,
     SessionID tab_id) const {
-  if (!tab_id.is_valid())
+  if (!tab_id.is_valid()) {
     return nullptr;
+  }
 
   const TrackedSession* session = LookupTrackedSession(tag);
-  if (!session)
+  if (!session) {
     return nullptr;  // We have no record of this session.
+  }
 
   auto tab_iter = session->synced_tab_map.find(tab_id);
-  if (tab_iter == session->synced_tab_map.end())
+  if (tab_iter == session->synced_tab_map.end()) {
     return nullptr;  // We have no record of this tab.
+  }
 
   return tab_iter->second;
 }
 
-absl::optional<sync_pb::SessionWindow::BrowserType>
+absl::optional<sync_pb::SyncEnums::BrowserType>
 SyncedSessionTracker::LookupWindowType(const std::string& session_tag,
                                        SessionID window_id) const {
-  if (!base::FeatureList::IsEnabled(kSyncPopulateTabBrowserTypeInGetData))
-    return absl::nullopt;
-
   const TrackedSession* session = LookupTrackedSession(session_tag);
-  if (!session)
+  if (!session) {
     return absl::nullopt;
+  }
 
   auto window_iter = session->synced_window_map.find(window_id);
-  if (window_iter == session->synced_window_map.end())
+  if (window_iter == session->synced_window_map.end()) {
     return absl::nullopt;  // We have no record of this window.
+  }
 
   return window_iter->second->window_type;
 }
@@ -258,24 +276,19 @@ SyncedSession* SyncedSessionTracker::GetSession(
   return &GetTrackedSession(session_tag)->synced_session;
 }
 
-bool SyncedSessionTracker::DeleteForeignSession(
+void SyncedSessionTracker::DeleteForeignSession(
     const std::string& session_tag) {
   DCHECK_NE(local_session_tag_, session_tag);
 
   auto iter = session_map_.find(session_tag);
-  if (iter == session_map_.end())
-    return false;
+  if (iter == session_map_.end()) {
+    return;
+  }
 
-  // An implicitly created session that has children tabs but no header node
-  // will have never had the device_type changed from unset.
-  const bool header_existed =
-      iter->second.synced_session.device_type != sync_pb::SyncEnums::TYPE_UNSET;
   // SyncedSession's destructor will trigger deletion of windows which will in
   // turn trigger the deletion of tabs. This doesn't affect the convenience
   // maps.
   session_map_.erase(iter);
-
-  return header_existed;
 }
 
 void SyncedSessionTracker::ResetSessionTracking(
@@ -300,8 +313,9 @@ void SyncedSessionTracker::DeleteForeignTab(const std::string& session_tag,
                                             int tab_node_id) {
   DCHECK_NE(local_session_tag_, session_tag);
   TrackedSession* session = LookupTrackedSession(session_tag);
-  if (session)
+  if (session) {
     session->tab_node_pool.DeleteTabNode(tab_node_id);
+  }
 }
 
 const SyncedSessionTracker::TrackedSession*
@@ -320,13 +334,14 @@ SyncedSessionTracker::LookupTrackedSession(const std::string& session_tag) {
 SyncedSessionTracker::TrackedSession* SyncedSessionTracker::GetTrackedSession(
     const std::string& session_tag) {
   TrackedSession* session = LookupTrackedSession(session_tag);
-  if (session)
+  if (session) {
     return session;
+  }
 
   session = &session_map_[session_tag];
   DVLOG(1) << "Creating new session with tag " << session_tag << " at "
            << session;
-  session->synced_session.session_tag = session_tag;
+  session->synced_session.SetSessionTag(session_tag);
   return session;
 }
 
@@ -358,8 +373,9 @@ void SyncedSessionTracker::CleanupSessionImpl(
     const base::RepeatingCallback<bool(int /*tab_node_id*/)>&
         is_tab_node_unsynced_cb) {
   TrackedSession* session = LookupTrackedSession(session_tag);
-  if (!session)
+  if (!session) {
     return;
+  }
 
   for (const auto& [window_id, window] : session->unmapped_windows) {
     session->synced_window_map.erase(window_id);
@@ -378,9 +394,7 @@ void SyncedSessionTracker::CleanupSessionImpl(
 
       if ((time_since_last_modified < kMaxUnmappedButUnsyncedLocalTabAge) &&
           num_unmapped_and_unsynced < kMaxUnmappedButUnsyncedLocalTabCount &&
-          is_tab_node_unsynced_cb.Run(tab_node_id) &&
-          base::FeatureList::IsEnabled(
-              kDeferRecyclingOfSyncTabNodesIfUnsynced)) {
+          is_tab_node_unsynced_cb.Run(tab_node_id)) {
         // Our caller has decided that this tab node cannot be reused at this
         // point because there are pending changes to be committed that would
         // otherwise be lost). Hence, it stays unmapped but we do not free the
@@ -400,8 +414,9 @@ void SyncedSessionTracker::CleanupSessionImpl(
 
 bool SyncedSessionTracker::IsTabUnmappedForTesting(SessionID tab_id) {
   const TrackedSession* session = LookupTrackedSession(local_session_tag_);
-  if (!session)
+  if (!session) {
     return false;
+  }
 
   return session->unmapped_tabs.count(tab_id) != 0;
 }
@@ -473,11 +488,9 @@ void SyncedSessionTracker::PutTabInWindow(const std::string& session_tag,
     // window.
     for (auto& [existing_window_id, existing_window] :
          GetSession(session_tag)->windows) {
-      auto existing_tab_iter = base::ranges::find(
-          existing_window->wrapped_window.tabs, tab_ptr,
-          [](const std::unique_ptr<sessions::SessionTab>& tab) {
-            return tab.get();
-          });
+      auto existing_tab_iter =
+          base::ranges::find(existing_window->wrapped_window.tabs, tab_ptr,
+                             &std::unique_ptr<sessions::SessionTab>::get);
       if (existing_tab_iter != existing_window->wrapped_window.tabs.end()) {
         tab = std::move(*existing_tab_iter);
         existing_window->wrapped_window.tabs.erase(existing_tab_iter);
@@ -642,11 +655,9 @@ void SyncedSessionTracker::ReassociateLocalTab(int tab_node_id,
         for (auto& [existing_window_id, existing_window] :
              session->synced_session.windows) {
           auto& existing_window_tabs = existing_window->wrapped_window.tabs;
-          auto tab_iter = base::ranges::find(
-              existing_window_tabs, new_tab_ptr,
-              [](const std::unique_ptr<sessions::SessionTab>& tab) {
-                return tab.get();
-              });
+          auto tab_iter =
+              base::ranges::find(existing_window_tabs, new_tab_ptr,
+                                 &std::unique_ptr<sessions::SessionTab>::get);
           if (tab_iter != existing_window_tabs.end()) {
             existing_window_tabs.erase(tab_iter);
             break;
@@ -725,8 +736,9 @@ void UpdateTrackerWithSpecifics(const sync_pb::SessionSpecifics& specifics,
     // Delete any closed windows and unused tabs as necessary. We exclude the
     // local session here because it should be cleaned up explicitly with
     // CleanupLocalTabs().
-    if (session_tag != tracker->GetLocalSessionTag())
+    if (session_tag != tracker->GetLocalSessionTag()) {
       tracker->CleanupSession(session_tag);
+    }
   } else if (specifics.has_tab()) {
     const sync_pb::SessionTab& tab_s = specifics.tab();
     SessionID tab_id = SessionID::FromSerializedValue(tab_s.tab_id());
@@ -777,8 +789,9 @@ void UpdateTrackerWithSpecifics(const sync_pb::SessionSpecifics& specifics,
     SetSessionTabFromSyncData(tab_s, modification_time, tab);
 
     // Update the last modified time.
-    if (session->modified_time < modification_time)
-      session->modified_time = modification_time;
+    if (session->GetModifiedTime() < modification_time) {
+      session->SetModifiedTime(modification_time);
+    }
   } else {
     LOG(WARNING) << "Ignoring session node with missing header/tab "
                  << "fields and tag " << session_tag << ".";
@@ -794,10 +807,10 @@ void SerializeTrackerToSpecifics(
   for (const SyncedSession* session :
        tracker.LookupAllSessions(SyncedSessionTracker::RAW)) {
     // Request all tabs.
-    session_tag_to_node_ids[session->session_tag] =
-        tracker.LookupTabNodeIds(session->session_tag);
+    session_tag_to_node_ids[session->GetSessionTag()] =
+        tracker.LookupTabNodeIds(session->GetSessionTag());
     // Request the header too.
-    session_tag_to_node_ids[session->session_tag].insert(
+    session_tag_to_node_ids[session->GetSessionTag()].insert(
         TabNodePool::kInvalidTabNodeID);
   }
   SerializePartialTrackerToSpecifics(tracker, session_tag_to_node_ids,
@@ -826,7 +839,7 @@ void SerializePartialTrackerToSpecifics(
         sync_pb::SessionSpecifics header_pb;
         header_pb.set_session_tag(session_tag);
         session->ToSessionHeaderProto().Swap(header_pb.mutable_header());
-        output_cb.Run(session->session_name, &header_pb);
+        output_cb.Run(session->GetSessionName(), &header_pb);
         continue;
       }
 
@@ -857,7 +870,7 @@ void SerializePartialTrackerToSpecifics(
         tab_pb.set_tab_node_id(tab_node_id);
         *tab_pb.mutable_tab() = SessionTabToSyncData(
             *tab, tracker.LookupWindowType(session_tag, tab->window_id));
-        output_cb.Run(session->session_name, &tab_pb);
+        output_cb.Run(session->GetSessionName(), &tab_pb);
         continue;
       }
 
@@ -866,7 +879,7 @@ void SerializePartialTrackerToSpecifics(
       tab_pb.set_tab_node_id(tab_node_id);
       tab_pb.set_session_tag(session_tag);
       tab_pb.mutable_tab()->set_tab_id(tab_id.id());
-      output_cb.Run(session->session_name, &tab_pb);
+      output_cb.Run(session->GetSessionName(), &tab_pb);
     }
   }
 }

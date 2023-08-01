@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,8 @@
 #include <memory>
 
 #include "ash/public/cpp/system_tray.h"
+#include "ash/system/time/calendar_model.h"
+#include "base/memory/raw_ptr.h"
 
 namespace ash {
 
@@ -22,6 +24,10 @@ class TracingModel;
 class TrayNetworkStateModel;
 class UpdateModel;
 class VirtualKeyboardModel;
+class CalendarModel;
+namespace phonehub {
+class PhoneHubManager;
+}
 
 // Top level model of SystemTray.
 class SystemTrayModel : public SystemTray {
@@ -38,8 +44,8 @@ class SystemTrayModel : public SystemTray {
   void SetPrimaryTrayEnabled(bool enabled) override;
   void SetPrimaryTrayVisible(bool visible) override;
   void SetUse24HourClock(bool use_24_hour) override;
-  void SetEnterpriseDomainInfo(const std::string& enterprise_domain_manager,
-                               bool active_directory_managed) override;
+  void SetDeviceEnterpriseInfo(
+      const DeviceEnterpriseInfo& device_enterprise_info) override;
   void SetEnterpriseAccountDomainInfo(
       const std::string& account_domain_manager) override;
   void SetPerformanceTracingIconVisible(bool visible) override;
@@ -47,12 +53,13 @@ class SystemTrayModel : public SystemTray {
                      const std::string& current_locale_iso_code) override;
   void ShowUpdateIcon(UpdateSeverity severity,
                       bool factory_reset_required,
-                      bool rollback,
-                      UpdateType update_type) override;
+                      bool rollback) override;
   void SetRelaunchNotificationState(
       const RelaunchNotificationState& relaunch_notification_state) override;
   void ResetUpdateState() override;
+  void SetUpdateDeferred(DeferredUpdateState state) override;
   void SetUpdateOverCellularAvailableIconVisible(bool visible) override;
+  void SetShowEolNotice(bool show) override;
   void ShowVolumeSliderBubble() override;
   void ShowNetworkDetailedViewBubble() override;
   void SetPhoneHubManager(
@@ -76,6 +83,8 @@ class SystemTrayModel : public SystemTray {
     return active_network_icon_.get();
   }
   SystemTrayClient* client() { return client_; }
+  CalendarModel* calendar_model() { return calendar_model_.get(); }
+  phonehub::PhoneHubManager* phone_hub_manager() { return phone_hub_manager_; }
 
  private:
   std::unique_ptr<ClockModel> clock_;
@@ -87,9 +96,14 @@ class SystemTrayModel : public SystemTray {
   std::unique_ptr<VirtualKeyboardModel> virtual_keyboard_;
   std::unique_ptr<TrayNetworkStateModel> network_state_model_;
   std::unique_ptr<ActiveNetworkIcon> active_network_icon_;
+  std::unique_ptr<CalendarModel> calendar_model_;
 
   // Client interface in chrome browser. May be null in tests.
-  SystemTrayClient* client_ = nullptr;
+  raw_ptr<SystemTrayClient, ExperimentalAsh> client_ = nullptr;
+
+  // Unowned.
+  raw_ptr<phonehub::PhoneHubManager, ExperimentalAsh> phone_hub_manager_ =
+      nullptr;
 };
 
 }  // namespace ash

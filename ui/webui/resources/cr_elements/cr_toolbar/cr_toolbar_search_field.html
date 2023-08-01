@@ -8,6 +8,10 @@
         width: 44px;
       }
 
+      :host([disabled]) {
+        opacity: var(--cr-disabled-opacity);
+      }
+
       [hidden] {
         display: none !important;
       }
@@ -17,17 +21,17 @@
         margin: var(--cr-toolbar-icon-margin, 6px);
       }
 
+      :host-context([chrome-refresh-2023]) cr-icon-button {
+        --cr-icon-button-fill-color: var(--cr-toolbar-search-field-icon-color,
+            var(--color-toolbar-search-field-icon,
+            var(--cr-secondary-text-color)));
+        --cr-icon-button-size: var(--cr-toolbar-icon-container-size, 28px);
+        --cr-icon-button-icon-size: 20px;
+        margin: var(--cr-toolbar-icon-margin, 0);
+      }
+
       @media (prefers-color-scheme: light) {
         cr-icon-button {
-          --cr-icon-button-focus-outline-color: var(
-              --cr-toolbar-icon-button-focus-outline-color,
-              white);
-          --cr-icon-button-fill-color: var(
-              --cr-toolbar-search-field-input-icon-color,
-              white);
-        }
-
-        :host-context([enable-branding-update]) cr-icon-button {
           --cr-icon-button-fill-color: var(
               --cr-toolbar-search-field-input-icon-color,
               var(--google-grey-700));
@@ -50,14 +54,14 @@
       }
 
       #prompt {
-        color: var(--cr-toolbar-search-field-prompt-color, white);
+        color: var(--cr-toolbar-search-field-prompt-color,
+            var(--google-grey-700));
         opacity: 0;
       }
 
-      @media (prefers-color-scheme: light) {
-        :host-context([enable-branding-update]) #prompt {
-          color: var(--cr-toolbar-search-field-prompt-color,
-              var(--google-grey-700));
+      @media (prefers-color-scheme: dark) {
+        #prompt {
+          color: var(--cr-toolbar-search-field-prompt-color, white);
         }
       }
 
@@ -68,9 +72,16 @@
         }
       }
 
+      :host-context([chrome-refresh-2023]) #prompt {
+        color: var(--cr-toolbar-search-field-prompt-color,
+            var(--color-toolbar-search-field-foreground-placeholder,
+            var(--cr-secondary-text-color)));
+      }
+
       paper-spinner-lite {
         --paper-spinner-color:
-            var(--cr-toolbar-search-field-input-icon-color, white);
+            var(--cr-toolbar-search-field-input-icon-color,
+                var(--google-grey-700));
         height: var(--cr-icon-size);
         margin: var(--cr-toolbar-search-field-paper-spinner-margin, 0 6px);
         opacity: 0;
@@ -79,11 +90,10 @@
         width: var(--cr-icon-size);
       }
 
-      @media (prefers-color-scheme: light) {
-        :host-context([enable-branding-update]) paper-spinner-lite {
+      @media (prefers-color-scheme: dark) {
+        paper-spinner-lite {
           --paper-spinner-color: var(
-              --cr-toolbar-search-field-input-icon-color,
-              var(--google-grey-700));
+              --cr-toolbar-search-field-input-icon-color, white);
         }
       }
 
@@ -105,6 +115,12 @@
         position: relative;
       }
 
+      :host-context([chrome-refresh-2023]) #searchTerm {
+        font-size: 12px;
+        font-weight: 500;
+        margin: var(--cr-toolbar-search-field-term-margin, 0);
+      }
+
       label {
         bottom: 0;
         cursor: var(--cr-toolbar-search-field-cursor, text);
@@ -124,7 +140,10 @@
         -webkit-appearance: none;
         background: transparent;
         border: none;
-        color: var(--cr-toolbar-search-field-input-text-color, white);
+        caret-color: var(--cr-toolbar-search-field-input-caret-color,
+            var(--google-blue-700));
+        color: var(--cr-toolbar-search-field-input-text-color,
+            var(--google-grey-900));
         cursor: var(--cr-toolbar-search-field-cursor, text);
         font: inherit;
         outline: none;
@@ -133,12 +152,20 @@
         width: 100%;
       }
 
-      @media (prefers-color-scheme: light) {
-        :host-context([enable-branding-update]) input {
-          caret-color: var(--google-blue-700);
-          color: var(--cr-toolbar-search-field-input-text-color,
-              var(--google-grey-900));
+      @media (prefers-color-scheme: dark) {
+        input {
+          color: var(--cr-toolbar-search-field-input-text-color, white);
         }
+      }
+
+      :host-context([chrome-refresh-2023]) input {
+        caret-color: var(--cr-toolbar-serch-field-input-caret-color,
+            currentColor);
+        color: var(--cr-toolbar-search-field-input-text-color,
+            var(--color-toolbar-search-field-foreground,
+            var(--cr-fallback-color-on-surface)));
+        font-size: 12px;
+        font-weight: 500;
       }
 
       input[type='search']::-webkit-search-cancel-button {
@@ -153,48 +180,82 @@
       /** Wide layout. */
       :host(:not([narrow])) {
         background:
-            var(--cr-toolbar-search-field-background, rgba(0, 0, 0, 0.22));
+            var(--cr-toolbar-search-field-background, var(--google-grey-100));
         border-radius:
-            var(--cr-toolbar-search-field-border-radius, 2px);
+            var(--cr-toolbar-search-field-border-radius, 46px);
         cursor: var(--cr-toolbar-search-field-cursor, text);
         max-width: var(--cr-toolbar-field-max-width, none);
         padding-inline-end: 0;
         width: var(--cr-toolbar-field-width, 680px);
       }
 
-      :host-context([enable-branding-update]):host(:not([narrow])) {
-        border-radius:
-            var(--cr-toolbar-search-field-border-radius, 46px);
-      }
-
-      @media (prefers-color-scheme: light) {
-        :host-context([enable-branding-update]):host(:not([narrow])) {
-          background:
-              var(--cr-toolbar-search-field-background,
-                  var(--google-grey-100));
-        }
-      }
-
       @media (prefers-color-scheme: dark) {
-        :host-context([enable-branding-update]):host(:not([narrow])) {
+        :host(:not([narrow])) {
           background:
-              var(--cr-toolbar-search-field-background,
-                  rgba(0, 0, 0, 0.22));
+              var(--cr-toolbar-search-field-background, rgba(0, 0, 0, 0.22));
         }
+      }
+
+      :host-context([chrome-refresh-2023]):host(:not([narrow])) {
+        background: none;
+        border-radius: 100px;
+        height: 36px;
+        overflow: hidden;
+        padding: 0 6px;
+        position: relative;
+      }
+
+      #background,
+      #stateBackground {
+        display: none;
+      }
+
+      :host-context([chrome-refresh-2023]):host(:not([narrow])) #background {
+        background: var(--cr-toolbar-search-field-background,
+            var(--color-toolbar-search-field-background,
+            var(--cr-fallback-color-surface)));
+        border: 2px solid transparent;
+        border-radius: inherit;
+        display: block;
+        inset: 0;
+        pointer-events: none;
+        position: absolute;
+        z-index: -1;
+      }
+
+      :host-context([chrome-refresh-2023].focus-outline-visible):host(
+            [search-focused_]:not([narrow])) {
+        outline: 2px solid var(--cr-focus-outline-color);
+      }
+
+      :host-context([chrome-refresh-2023].focus-outline-visible):host(
+            [search-focused_]:not([narrow])) #background {
+        background-clip: padding-box;
+      }
+
+      :host-context([chrome-refresh-2023]) #stateBackground {
+        display: block;
+        inset: 0;
+        pointer-events: none;
+        position: absolute;
+      }
+
+      :host-context([chrome-refresh-2023]):host(:hover) #stateBackground {
+        background: var(--color-toolbar-search-field-background-hover,
+            var(--cr-hover-background-color));
       }
 
       :host(:not([narrow]):not([showing-search])) #icon {
         opacity: var(--cr-toolbar-search-field-icon-opacity, .7);
       }
 
-      :host(:not([narrow])) #prompt {
-        opacity: var(--cr-toolbar-search-field-prompt-opacity, .7);
+      :host-context([chrome-refresh-2023]):host(
+            :not([narrow]):not([showing-search])) #icon {
+        opacity: var(--cr-toolbar-search-field-icon-opacity, 1);
       }
 
-      @media (prefers-color-scheme: light) {
-        :host-context([enable-branding-update]):host(:not([narrow])) #prompt {
-          opacity: 1;
-        }
+      :host(:not([narrow])) #prompt {
+        opacity: var(--cr-toolbar-search-field-prompt-opacity, 1);
       }
 
       :host([narrow]) #prompt {
@@ -220,7 +281,20 @@
         margin-inline-start:
             var(--cr-toolbar-search-icon-margin-inline-start, 18px);
       }
+
+      paper-ripple {
+        display: none;
+      }
+
+      :host-context([chrome-refresh-2023]):host paper-ripple {
+        color: var(--color-toolbar-search-field-background-pressed,
+            var(--cr-active-background-color));
+        display: block;
+        --paper-ripple-opacity: 1;
+      }
     </style>
+    <div id="background"></div>
+    <div id="stateBackground"></div>
     <template is="dom-if" id="spinnerTemplate">
       <paper-spinner-lite active="[[isSpinnerShown_]]">
       </paper-spinner-lite>
@@ -228,7 +302,7 @@
     <cr-icon-button id="icon" iron-icon="cr:search" title="[[label]]" dir="ltr"
         tabindex$="[[computeIconTabIndex_(narrow, hasSearchText)]]"
         aria-hidden$="[[computeIconAriaHidden_(narrow, hasSearchText)]]"
-        on-click="onSearchIconClicked_">
+        on-click="onSearchIconClicked_" disabled="[[disabled]]">
     </cr-icon-button>
     <div id="searchTerm">
       <label id="prompt" for="searchInput" aria-hidden="true">[[label]]</label>
@@ -243,9 +317,11 @@
           on-focus="onInputFocus_"
           on-blur="onInputBlur_"
           autofocus$="[[autofocus]]"
-          spellcheck="false">
+          spellcheck="false"
+          disabled="[[disabled]]">
     </div>
     <template is="dom-if" if="[[hasSearchText]]">
       <cr-icon-button id="clearSearch" iron-icon="cr:cancel"
-          title="[[clearLabel]]" on-click="clearSearch_"></cr-icon-button>
+          title="[[clearLabel]]" on-click="clearSearch_"
+          disabled="[[disabled]]"></cr-icon-button>
     </template>

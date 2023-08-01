@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,12 @@
 
 #include <memory>
 
-#include "base/bind.h"
 #include "base/check_op.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/run_loop.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "build/build_config.h"
 #include "mojo/core/embedder/embedder.h"
@@ -19,6 +20,7 @@
 #include "mojo/public/c/system/data_pipe.h"
 #include "mojo/public/c/system/functions.h"
 #include "mojo/public/c/system/message_pipe.h"
+#include "mojo/public/cpp/system/data_pipe.h"
 #include "mojo/public/cpp/system/message_pipe.h"
 #include "mojo/public/cpp/system/simple_watcher.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -192,7 +194,7 @@ TEST_F(DataPipeTest, Basic) {
   int32_t elements[10] = {};
   uint32_t num_bytes = 0;
 
-  num_bytes = static_cast<uint32_t>(base::size(elements) * sizeof(elements[0]));
+  num_bytes = static_cast<uint32_t>(std::size(elements) * sizeof(elements[0]));
 
   elements[0] = 123;
   elements[1] = 456;
@@ -235,7 +237,7 @@ TEST_F(DataPipeTest, CreateAndMaybeTransfer) {
        100,                              // |element_num_bytes|.
        0}                                // |capacity_num_bytes|.
   };
-  for (size_t i = 0; i < base::size(test_options); i++) {
+  for (size_t i = 0; i < std::size(test_options); i++) {
     MojoHandle producer_handle, consumer_handle;
     MojoCreateDataPipeOptions* options = i ? &test_options[i] : nullptr;
     ASSERT_EQ(MOJO_RESULT_OK,
@@ -260,7 +262,7 @@ TEST_F(DataPipeTest, SimpleReadWrite) {
   uint32_t num_bytes = 0;
 
   // Try reading; nothing there yet.
-  num_bytes = static_cast<uint32_t>(base::size(elements) * sizeof(elements[0]));
+  num_bytes = static_cast<uint32_t>(std::size(elements) * sizeof(elements[0]));
   ASSERT_EQ(MOJO_RESULT_SHOULD_WAIT, ReadData(elements, &num_bytes));
 
   // Query; nothing there yet.
@@ -541,7 +543,7 @@ TEST_F(DataPipeTest, BasicConsumerWaiting) {
   hss = MojoHandleSignalsState();
   ASSERT_EQ(MOJO_RESULT_OK,
             WaitForSignals(consumer_, MOJO_HANDLE_SIGNAL_READABLE, &hss));
-  EXPECT_EQ(MOJO_HANDLE_SIGNAL_READABLE, hss.satisfied_signals);
+  EXPECT_TRUE(hss.satisfied_signals & MOJO_HANDLE_SIGNAL_READABLE);
   EXPECT_EQ(MOJO_HANDLE_SIGNAL_READABLE | MOJO_HANDLE_SIGNAL_PEER_CLOSED |
                 MOJO_HANDLE_SIGNAL_NEW_DATA_READABLE |
                 MOJO_HANDLE_SIGNAL_PEER_REMOTE,
@@ -559,7 +561,7 @@ TEST_F(DataPipeTest, BasicConsumerWaiting) {
   hss = MojoHandleSignalsState();
   ASSERT_EQ(MOJO_RESULT_OK,
             WaitForSignals(consumer_, MOJO_HANDLE_SIGNAL_READABLE, &hss));
-  EXPECT_EQ(MOJO_HANDLE_SIGNAL_READABLE, hss.satisfied_signals);
+  EXPECT_TRUE(hss.satisfied_signals & MOJO_HANDLE_SIGNAL_READABLE);
   EXPECT_EQ(MOJO_HANDLE_SIGNAL_READABLE | MOJO_HANDLE_SIGNAL_PEER_CLOSED |
                 MOJO_HANDLE_SIGNAL_NEW_DATA_READABLE |
                 MOJO_HANDLE_SIGNAL_PEER_REMOTE,
@@ -736,7 +738,7 @@ TEST_F(DataPipeTest, ConsumerWaitingTwoPhase) {
   hss = MojoHandleSignalsState();
   ASSERT_EQ(MOJO_RESULT_OK,
             WaitForSignals(consumer_, MOJO_HANDLE_SIGNAL_READABLE, &hss));
-  EXPECT_EQ(MOJO_HANDLE_SIGNAL_READABLE, hss.satisfied_signals);
+  EXPECT_TRUE(hss.satisfied_signals & MOJO_HANDLE_SIGNAL_READABLE);
   EXPECT_EQ(MOJO_HANDLE_SIGNAL_READABLE | MOJO_HANDLE_SIGNAL_PEER_CLOSED |
                 MOJO_HANDLE_SIGNAL_NEW_DATA_READABLE |
                 MOJO_HANDLE_SIGNAL_PEER_REMOTE,
@@ -788,14 +790,7 @@ TEST_F(DataPipeTest, BasicTwoPhaseWaiting) {
   EXPECT_TRUE(write_ptr);
   EXPECT_GE(num_bytes, static_cast<uint32_t>(1u * sizeof(int32_t)));
 
-  // At this point, it shouldn't be writable.
-  hss = GetSignalsState(producer_);
-  ASSERT_EQ(0u, hss.satisfied_signals);
-  ASSERT_EQ(MOJO_HANDLE_SIGNAL_WRITABLE | MOJO_HANDLE_SIGNAL_PEER_CLOSED |
-                MOJO_HANDLE_SIGNAL_PEER_REMOTE,
-            hss.satisfiable_signals);
-
-  // It shouldn't be readable yet either (we'll wait later).
+  // It shouldn't be readable yet (we'll wait later).
   hss = GetSignalsState(consumer_);
   ASSERT_EQ(0u, hss.satisfied_signals);
   EXPECT_EQ(MOJO_HANDLE_SIGNAL_READABLE | MOJO_HANDLE_SIGNAL_PEER_CLOSED |
@@ -860,20 +855,12 @@ TEST_F(DataPipeTest, BasicTwoPhaseWaiting) {
                 MOJO_HANDLE_SIGNAL_PEER_REMOTE,
             hss.satisfiable_signals);
 
-  // But not readable.
-  hss = GetSignalsState(consumer_);
-  ASSERT_EQ(0u, hss.satisfied_signals);
-  EXPECT_EQ(MOJO_HANDLE_SIGNAL_READABLE | MOJO_HANDLE_SIGNAL_PEER_CLOSED |
-                MOJO_HANDLE_SIGNAL_NEW_DATA_READABLE |
-                MOJO_HANDLE_SIGNAL_PEER_REMOTE,
-            hss.satisfiable_signals);
-
   // End the two-phase read without reading anything.
   ASSERT_EQ(MOJO_RESULT_OK, EndReadData(0u));
 
-  // It should be readable again.
+  // It should still be readable.
   hss = GetSignalsState(consumer_);
-  ASSERT_EQ(MOJO_HANDLE_SIGNAL_READABLE, hss.satisfied_signals);
+  ASSERT_TRUE(hss.satisfied_signals & MOJO_HANDLE_SIGNAL_READABLE);
   EXPECT_EQ(MOJO_HANDLE_SIGNAL_READABLE | MOJO_HANDLE_SIGNAL_PEER_CLOSED |
                 MOJO_HANDLE_SIGNAL_NEW_DATA_READABLE |
                 MOJO_HANDLE_SIGNAL_PEER_REMOTE,
@@ -898,7 +885,7 @@ TEST_F(DataPipeTest, AllOrNone) {
   // Try writing more than the total capacity of the pipe.
   uint32_t num_bytes = 20u * sizeof(int32_t);
   int32_t buffer[100];
-  Seq(0, base::size(buffer), buffer);
+  Seq(0, std::size(buffer), buffer);
   ASSERT_EQ(MOJO_RESULT_OUT_OF_RANGE, WriteData(buffer, &num_bytes, true));
 
   // Should still be empty.
@@ -908,7 +895,7 @@ TEST_F(DataPipeTest, AllOrNone) {
 
   // Write some data.
   num_bytes = 5u * sizeof(int32_t);
-  Seq(100, base::size(buffer), buffer);
+  Seq(100, std::size(buffer), buffer);
   ASSERT_EQ(MOJO_RESULT_OK, WriteData(buffer, &num_bytes, true));
   ASSERT_EQ(5u * sizeof(int32_t), num_bytes);
 
@@ -934,7 +921,7 @@ TEST_F(DataPipeTest, AllOrNone) {
   // Try writing more than the available capacity of the pipe, but less than the
   // total capacity.
   num_bytes = 6u * sizeof(int32_t);
-  Seq(200, base::size(buffer), buffer);
+  Seq(200, std::size(buffer), buffer);
   ASSERT_EQ(MOJO_RESULT_OUT_OF_RANGE, WriteData(buffer, &num_bytes, true));
 
   // Try reading too much.
@@ -951,13 +938,13 @@ TEST_F(DataPipeTest, AllOrNone) {
 
   // Just a little.
   num_bytes = 2u * sizeof(int32_t);
-  Seq(300, base::size(buffer), buffer);
+  Seq(300, std::size(buffer), buffer);
   ASSERT_EQ(MOJO_RESULT_OK, WriteData(buffer, &num_bytes, true));
   ASSERT_EQ(2u * sizeof(int32_t), num_bytes);
 
   // Just right.
   num_bytes = 3u * sizeof(int32_t);
-  Seq(400, base::size(buffer), buffer);
+  Seq(400, std::size(buffer), buffer);
   ASSERT_EQ(MOJO_RESULT_OK, WriteData(buffer, &num_bytes, true));
   ASSERT_EQ(3u * sizeof(int32_t), num_bytes);
 
@@ -1010,10 +997,10 @@ TEST_F(DataPipeTest, AllOrNone) {
   hss = MojoHandleSignalsState();
   ASSERT_EQ(MOJO_RESULT_OK,
             WaitForSignals(consumer_, MOJO_HANDLE_SIGNAL_PEER_CLOSED, &hss));
-  EXPECT_EQ(MOJO_HANDLE_SIGNAL_READABLE | MOJO_HANDLE_SIGNAL_PEER_CLOSED,
-            hss.satisfied_signals);
-  EXPECT_EQ(MOJO_HANDLE_SIGNAL_READABLE | MOJO_HANDLE_SIGNAL_PEER_CLOSED,
-            hss.satisfiable_signals);
+  EXPECT_TRUE(hss.satisfied_signals & MOJO_HANDLE_SIGNAL_READABLE);
+  EXPECT_TRUE(hss.satisfied_signals & MOJO_HANDLE_SIGNAL_PEER_CLOSED);
+  EXPECT_TRUE(hss.satisfiable_signals & MOJO_HANDLE_SIGNAL_READABLE);
+  EXPECT_TRUE(hss.satisfiable_signals & MOJO_HANDLE_SIGNAL_PEER_CLOSED);
 
   // Try reading too much; "failed precondition" since the producer is closed.
   num_bytes = 4u * sizeof(int32_t);
@@ -1052,8 +1039,14 @@ TEST_F(DataPipeTest, AllOrNone) {
 // internal circular buffer. (Note that the two-phase write and read need not do
 // this.)
 TEST_F(DataPipeTest, WrapAround) {
+  if (IsMojoIpczEnabled()) {
+    GTEST_SKIP() << "This test covers implementation details that are only "
+                 << "relevant with MojoIpcz disabled; namely that a data pipe "
+                 << "is backed by a circular ring buffer.";
+  }
+
   unsigned char test_data[1000];
-  for (size_t i = 0; i < base::size(test_data); i++)
+  for (size_t i = 0; i < std::size(test_data); i++)
     test_data[i] = static_cast<unsigned char>(i);
 
   const MojoCreateDataPipeOptions options = {
@@ -1130,7 +1123,7 @@ TEST_F(DataPipeTest, WrapAround) {
 
   // Read as much as possible. We should read 100 bytes.
   num_bytes =
-      static_cast<uint32_t>(base::size(read_buffer) * sizeof(read_buffer[0]));
+      static_cast<uint32_t>(std::size(read_buffer) * sizeof(read_buffer[0]));
   memset(read_buffer, 0, num_bytes);
   ASSERT_EQ(MOJO_RESULT_OK, ReadData(read_buffer, &num_bytes));
   ASSERT_EQ(100u, num_bytes);
@@ -1177,14 +1170,14 @@ TEST_F(DataPipeTest, WriteCloseProducerRead) {
 
     base::PlatformThread::Sleep(EpsilonDeadline());
   }
-  ASSERT_EQ(2u * kTestDataSize, num_bytes);
+  ASSERT_GE(num_bytes, kTestDataSize);
 
   // Start two-phase read.
   const void* read_buffer_ptr = nullptr;
   num_bytes = 0u;
   ASSERT_EQ(MOJO_RESULT_OK, BeginReadData(&read_buffer_ptr, &num_bytes));
   EXPECT_TRUE(read_buffer_ptr);
-  ASSERT_EQ(2u * kTestDataSize, num_bytes);
+  ASSERT_GE(num_bytes, kTestDataSize);
 
   // Close the producer.
   CloseProducer();
@@ -1411,7 +1404,7 @@ TEST_F(DataPipeTest, TwoPhaseReadMemoryStable) {
   hss = MojoHandleSignalsState();
   ASSERT_EQ(MOJO_RESULT_OK,
             WaitForSignals(consumer_, MOJO_HANDLE_SIGNAL_PEER_CLOSED, &hss));
-  EXPECT_EQ(MOJO_HANDLE_SIGNAL_PEER_CLOSED, hss.satisfied_signals);
+  EXPECT_TRUE(hss.satisfied_signals & MOJO_HANDLE_SIGNAL_PEER_CLOSED);
   EXPECT_EQ(MOJO_HANDLE_SIGNAL_READABLE | MOJO_HANDLE_SIGNAL_PEER_CLOSED |
                 MOJO_HANDLE_SIGNAL_NEW_DATA_READABLE,
             hss.satisfiable_signals);
@@ -1752,6 +1745,12 @@ bool ReadAllData(MojoHandle consumer,
 }
 
 TEST_F(DataPipeTest, CreateOversized) {
+  if (IsMojoIpczEnabled()) {
+    GTEST_SKIP() << "Data pipes do not allocate dedicated capacity when "
+                 << "MojoIpcz is enabled, so capacity limits are not enforced "
+                 << "and therefore cannot be tested.";
+  }
+
   const MojoCreateDataPipeOptions options = {
       kSizeOfOptions,                   // |struct_size|.
       MOJO_CREATE_DATA_PIPE_FLAG_NONE,  // |flags|.
@@ -1762,7 +1761,102 @@ TEST_F(DataPipeTest, CreateOversized) {
   ASSERT_EQ(MOJO_RESULT_RESOURCE_EXHAUSTED, Create(&options));
 }
 
-#if !BUILDFLAG(IS_IOS)
+#if BUILDFLAG(USE_BLINK)
+
+constexpr size_t kNoSpuriousEvents_NumIterations = 1000;
+
+TEST_F(DataPipeTest, NoSpuriousEvents) {
+  // Regression test for https://crbug.com/1409259. Verifies that data pipe read
+  // events are never spurious.
+  RunTestClient("NoSpuriousEventsHost", [&](MojoHandle host) {
+    RunTestClient("NoSpuriousEventsClient", [&](MojoHandle client) {
+      MojoHandle host_to_client;
+      MojoHandle client_to_host;
+      MojoCreateMessagePipe(nullptr, &host_to_client, &client_to_host);
+      WriteMessageWithHandles(host, "x", &host_to_client, 1);
+      WriteMessageWithHandles(client, "x", &client_to_host, 1);
+      EXPECT_EQ("done", ReadMessage(client));
+      WriteMessage(client, "bye");
+    });
+    EXPECT_EQ("done", ReadMessage(host));
+    WriteMessage(host, "bye");
+  });
+}
+
+DEFINE_TEST_CLIENT_TEST_WITH_PIPE(NoSpuriousEventsHost, DataPipeTest, parent) {
+  const char kData[1024] = {'x'};
+
+  MojoHandle client;
+  EXPECT_EQ("x", ReadMessageWithHandles(parent, &client, 1));
+
+  for (size_t j = 0; j < kNoSpuriousEvents_NumIterations; ++j) {
+    ScopedDataPipeProducerHandle producer;
+    ScopedDataPipeConsumerHandle consumer;
+    CHECK_EQ(MOJO_RESULT_OK, mojo::CreateDataPipe(2048, producer, consumer));
+
+    MojoHandle ch = consumer.release().value();
+    WriteMessageWithHandles(client, "hi", &ch, 1);
+
+    for (size_t i = 0; i < 9; ++i) {
+      WaitForSignals(producer.get().value(), MOJO_HANDLE_SIGNAL_WRITABLE);
+      uint32_t size = 512;
+      producer->WriteData(kData, &size, MOJO_WRITE_DATA_FLAG_NONE);
+    }
+  }
+
+  WriteMessage(parent, "done");
+  EXPECT_EQ("bye", ReadMessage(parent));
+  MojoClose(client);
+  MojoClose(parent);
+}
+
+DEFINE_TEST_CLIENT_TEST_WITH_PIPE(NoSpuriousEventsClient,
+                                  DataPipeTest,
+                                  parent) {
+  base::test::TaskEnvironment task_environment;
+
+  MojoHandle host;
+  EXPECT_EQ("x", ReadMessageWithHandles(parent, &host, 1));
+
+  size_t num_spurious_events = 0;
+  for (size_t j = 0; j < kNoSpuriousEvents_NumIterations; ++j) {
+    MojoHandle ch;
+    ASSERT_EQ("hi", ReadMessageWithHandles(host, &ch, 1));
+    ScopedDataPipeConsumerHandle consumer(DataPipeConsumerHandle{ch});
+
+    SimpleWatcher watcher(FROM_HERE, SimpleWatcher::ArmingPolicy::MANUAL);
+    base::RunLoop loop;
+    watcher.Watch(consumer.get(), MOJO_HANDLE_SIGNAL_READABLE,
+                  MOJO_TRIGGER_CONDITION_SIGNALS_SATISFIED,
+                  base::BindLambdaForTesting(
+                      [&](MojoResult result, const HandleSignalsState& state) {
+                        if (result == MOJO_RESULT_OK) {
+                          if (!state.readable()) {
+                            ++num_spurious_events;
+                          }
+
+                          // Drain everything.
+                          const void* buffer;
+                          uint32_t num_bytes;
+                          consumer->BeginReadData(&buffer, &num_bytes, 0);
+                          consumer->EndReadData(num_bytes);
+                          watcher.ArmOrNotify();
+                        } else {
+                          CHECK(state.never_readable());
+                          loop.Quit();
+                        }
+                      }));
+    watcher.ArmOrNotify();
+    loop.Run();
+  }
+
+  EXPECT_EQ(0u, num_spurious_events);
+
+  WriteMessage(parent, "done");
+  EXPECT_EQ("bye", ReadMessage(parent));
+  MojoClose(host);
+  MojoClose(parent);
+}
 
 TEST_F(DataPipeTest, Multiprocess) {
   const uint32_t kTestDataSize =
@@ -1881,6 +1975,7 @@ DEFINE_TEST_CLIENT_TEST_WITH_PIPE(MultiprocessClient, DataPipeTest, client_mp) {
 
   // Wait to receive a "quit" message before exiting.
   EXPECT_EQ("quit", ReadMessage(client_mp));
+  EXPECT_EQ(MOJO_RESULT_OK, MojoClose(client_mp));
 }
 
 DEFINE_TEST_CLIENT_TEST_WITH_PIPE(WriteAndCloseProducer, DataPipeTest, h) {
@@ -1898,6 +1993,7 @@ DEFINE_TEST_CLIENT_TEST_WITH_PIPE(WriteAndCloseProducer, DataPipeTest, h) {
 
   // Wait for a quit message.
   EXPECT_EQ("quit", ReadMessage(h));
+  EXPECT_EQ(MOJO_RESULT_OK, MojoClose(h));
 }
 
 DEFINE_TEST_CLIENT_TEST_WITH_PIPE(ReadAndCloseConsumer, DataPipeTest, h) {
@@ -1920,6 +2016,7 @@ DEFINE_TEST_CLIENT_TEST_WITH_PIPE(ReadAndCloseConsumer, DataPipeTest, h) {
 
   // Wait for a quit message.
   EXPECT_EQ("quit", ReadMessage(h));
+  EXPECT_EQ(MOJO_RESULT_OK, MojoClose(h));
 }
 
 TEST_F(DataPipeTest, SendConsumerAndCloseProducer) {
@@ -1963,6 +2060,7 @@ DEFINE_TEST_CLIENT_TEST_WITH_PIPE(CreateAndWrite, DataPipeTest, h) {
 
   // Wait for a quit message.
   EXPECT_EQ("quit", ReadMessage(h));
+  EXPECT_EQ(MOJO_RESULT_OK, MojoClose(h));
 }
 
 TEST_F(DataPipeTest, CreateInChild) {
@@ -2020,12 +2118,12 @@ DEFINE_TEST_CLIENT_TEST_WITH_PIPE(DataPipeStatusChangeInTransitClient,
             loop->Quit();
         },
         &run_loop, &count);
-    SimpleWatcher producer_watcher(FROM_HERE,
-                                   SimpleWatcher::ArmingPolicy::AUTOMATIC,
-                                   base::SequencedTaskRunnerHandle::Get());
-    SimpleWatcher consumer_watcher(FROM_HERE,
-                                   SimpleWatcher::ArmingPolicy::AUTOMATIC,
-                                   base::SequencedTaskRunnerHandle::Get());
+    SimpleWatcher producer_watcher(
+        FROM_HERE, SimpleWatcher::ArmingPolicy::AUTOMATIC,
+        base::SequencedTaskRunner::GetCurrentDefault());
+    SimpleWatcher consumer_watcher(
+        FROM_HERE, SimpleWatcher::ArmingPolicy::AUTOMATIC,
+        base::SequencedTaskRunner::GetCurrentDefault());
     producer_watcher.Watch(Handle(producers[1]), MOJO_HANDLE_SIGNAL_PEER_CLOSED,
                            callback);
     consumer_watcher.Watch(Handle(consumers[1]), MOJO_HANDLE_SIGNAL_PEER_CLOSED,
@@ -2052,6 +2150,7 @@ DEFINE_TEST_CLIENT_TEST_WITH_PIPE(DataPipeStatusChangeInTransitClient,
 
   for (size_t i = 0; i < 6; ++i)
     CloseHandle(handles[i]);
+  EXPECT_EQ(MOJO_RESULT_OK, MojoClose(parent));
 }
 
 TEST_F(DataPipeTest, StatusChangeInTransit) {
@@ -2090,9 +2189,16 @@ DEFINE_TEST_CLIENT_TEST_WITH_PIPE(CreateOversizedChild, DataPipeTest, h) {
 
   // Wait for a quit message.
   EXPECT_EQ("quit", ReadMessage(h));
+  EXPECT_EQ(MOJO_RESULT_OK, MojoClose(h));
 }
 
 TEST_F(DataPipeTest, CreateOversizedInChild) {
+  if (IsMojoIpczEnabled()) {
+    GTEST_SKIP() << "Data pipes do not allocate dedicated capacity when "
+                 << "MojoIpcz is enabled, so capacity limits are not enforced "
+                 << "and therefore cannot be tested.";
+  }
+
   RunTestClient("CreateOversizedChild", [&](MojoHandle child) {
     // Wait for the child to finish the test.
     std::string expected_message = ReadMessage(child);
@@ -2102,7 +2208,7 @@ TEST_F(DataPipeTest, CreateOversizedInChild) {
   });
 }
 
-#endif  // !BUILDFLAG(IS_IOS)
+#endif  // BUILDFLAG(USE_BLINK)
 
 }  // namespace
 }  // namespace core

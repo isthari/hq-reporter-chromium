@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,10 @@
 
 #include <memory>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
+#include "base/observer_list.h"
 #include "components/browsing_data/content/local_shared_objects_container.h"
 #include "components/content_settings/browser/page_specific_content_settings.h"
 #include "components/content_settings/browser/ui/cookie_controls_view.h"
@@ -41,21 +42,26 @@ CookieControlsController::~CookieControlsController() = default;
 
 void CookieControlsController::OnUiClosing() {
   auto* web_contents = GetWebContents();
-  if (should_reload_ && web_contents && !web_contents->IsBeingDestroyed())
+  if (should_reload_ && web_contents && !web_contents->IsBeingDestroyed()) {
     web_contents->GetController().Reload(content::ReloadType::NORMAL, true);
+  }
   should_reload_ = false;
 }
 
 void CookieControlsController::Update(content::WebContents* web_contents) {
   DCHECK(web_contents);
-  if (!tab_observer_ || GetWebContents() != web_contents)
+  if (!tab_observer_ || GetWebContents() != web_contents) {
     tab_observer_ = std::make_unique<TabObserver>(this, web_contents);
+  }
   auto status = GetStatus(web_contents);
   int allowed_cookies = GetAllowedCookieCount();
-  int blocked_count = GetBlockedCookieCount();
-  for (auto& observer : observers_)
+  int blocked_cookies = GetBlockedCookieCount();
+  int bounce_count = GetStatefulBounceCount();
+  for (auto& observer : observers_) {
     observer.OnStatusChanged(status.first, status.second, allowed_cookies,
-                             blocked_count);
+                             blocked_cookies);
+    observer.OnStatefulBounceCountChanged(bounce_count);
+  }
 }
 
 std::pair<CookieControlsStatus, CookieControlsEnforcement>
@@ -111,15 +117,16 @@ void CookieControlsController::OnCookieBlockingEnabledForSite(
 }
 
 bool CookieControlsController::FirstPartyCookiesBlocked() {
+  // No overrides are given since existing ones only pertain to 3P checks.
   const GURL& url = GetWebContents()->GetLastCommittedURL();
   return !cookie_settings_->IsFullCookieAccessAllowed(
-      url, net::SiteForCookies::FromUrl(url), url::Origin::Create(url));
+      url, net::SiteForCookies::FromUrl(url), url::Origin::Create(url),
+      net::CookieSettingOverrides());
 }
 
 int CookieControlsController::GetAllowedCookieCount() {
-  auto* pscs =
-      content_settings::PageSpecificContentSettings::GetForCurrentDocument(
-          tab_observer_->web_contents()->GetMainFrame());
+  auto* pscs = content_settings::PageSpecificContentSettings::GetForPage(
+      tab_observer_->web_contents()->GetPrimaryPage());
   if (pscs) {
     return pscs->allowed_local_shared_objects().GetObjectCount();
   } else {
@@ -127,11 +134,20 @@ int CookieControlsController::GetAllowedCookieCount() {
   }
 }
 int CookieControlsController::GetBlockedCookieCount() {
-  auto* pscs =
-      content_settings::PageSpecificContentSettings::GetForCurrentDocument(
-          tab_observer_->web_contents()->GetMainFrame());
+  auto* pscs = content_settings::PageSpecificContentSettings::GetForPage(
+      tab_observer_->web_contents()->GetPrimaryPage());
   if (pscs) {
     return pscs->blocked_local_shared_objects().GetObjectCount();
+  } else {
+    return 0;
+  }
+}
+
+int CookieControlsController::GetStatefulBounceCount() {
+  auto* pscs = content_settings::PageSpecificContentSettings::GetForPage(
+      tab_observer_->web_contents()->GetPrimaryPage());
+  if (pscs) {
+    return pscs->stateful_bounce_count();
   } else {
     return 0;
   }
@@ -140,24 +156,30 @@ int CookieControlsController::GetBlockedCookieCount() {
 void CookieControlsController::PresentBlockedCookieCounter() {
   int allowed_cookies = GetAllowedCookieCount();
   int blocked_cookies = GetBlockedCookieCount();
-  for (auto& observer : observers_)
+  int bounce_count = GetStatefulBounceCount();
+  for (auto& observer : observers_) {
     observer.OnCookiesCountChanged(allowed_cookies, blocked_cookies);
+    observer.OnStatefulBounceCountChanged(bounce_count);
+  }
 }
 
 void CookieControlsController::OnThirdPartyCookieBlockingChanged(
     bool block_third_party_cookies) {
-  if (GetWebContents())
+  if (GetWebContents()) {
     Update(GetWebContents());
+  }
 }
 
 void CookieControlsController::OnCookieSettingChanged() {
-  if (GetWebContents())
+  if (GetWebContents()) {
     Update(GetWebContents());
+  }
 }
 
 content::WebContents* CookieControlsController::GetWebContents() {
-  if (!tab_observer_)
+  if (!tab_observer_) {
     return nullptr;
+  }
   return tab_observer_->web_contents();
 }
 
@@ -176,7 +198,12 @@ CookieControlsController::TabObserver::TabObserver(
           web_contents),
       cookie_controls_(cookie_controls) {}
 
-void CookieControlsController::TabObserver::OnSiteDataAccessed() {
+void CookieControlsController::TabObserver::OnSiteDataAccessed(
+    const AccessDetails& access_details) {
+  cookie_controls_->PresentBlockedCookieCounter();
+}
+
+void CookieControlsController::TabObserver::OnStatefulBounceDetected() {
   cookie_controls_->PresentBlockedCookieCounter();
 }
 

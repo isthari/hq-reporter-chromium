@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -64,5 +64,9 @@ const char kInstallReplacementAndroidAppNotFromWebstoreError[] =
 const char kInstallReplacementAndroidAppCannotInstallApp[] =
     "Could not install Android App.";
 const char kParentPermissionFailedError[] = "Parent Permission Request Failed.";
+const char kChromeAppsDeprecated[] =
+    "Chrome app * is deprecated on Window, Mac, and Linux. "
+    "See https://support.google.com/chrome/?p=chrome_app_deprecation for more "
+    "info";
 
 }  // namespace extension_management_api_constants

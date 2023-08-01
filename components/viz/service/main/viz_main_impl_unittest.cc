@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,9 @@
 #include "base/memory/raw_ptr.h"
 #include "base/power_monitor/power_monitor.h"
 #include "base/power_monitor/power_monitor_source.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/task_environment.h"
+#include "components/viz/service/performance_hint/hint_session.h"
 #include "gpu/config/gpu_info.h"
 #include "gpu/ipc/service/gpu_init.h"
 #include "services/metrics/public/cpp/mojo_ukm_recorder.h"
@@ -37,9 +39,8 @@ class MockDelegate : public VizMainImpl::Delegate {
 // that the dependency-injected UKM recorder actually gets used.
 class MockUkmRecorder : public ukm::MojoUkmRecorder {
  public:
-  MockUkmRecorder()
-      : ukm::MojoUkmRecorder(
-            mojo::PendingRemote<ukm::mojom::UkmRecorderInterface>()) {}
+  MockUkmRecorder(ukm::mojom::UkmRecorderFactory& factory)
+      : MojoUkmRecorder(factory) {}
 
   MOCK_METHOD1(AddEntry, void(ukm::mojom::UkmEntryPtr));
 };
@@ -50,16 +51,14 @@ class MockVizCompositorThreadRunner : public VizCompositorThreadRunner {
       base::SingleThreadTaskRunner* task_runner)
       : VizCompositorThreadRunner(), task_runner_(task_runner) {}
 
-  base::PlatformThreadId thread_id() override {
-    return base::PlatformThreadId();
-  }
   base::SingleThreadTaskRunner* task_runner() override { return task_runner_; }
-  MOCK_METHOD1(CreateFrameSinkManager, void(mojom::FrameSinkManagerParamsPtr));
-  MOCK_METHOD4(CreateFrameSinkManager,
-               void(mojom::FrameSinkManagerParamsPtr,
-                    gpu::CommandBufferTaskExecutor*,
-                    GpuServiceImpl*,
-                    HintSessionFactory*));
+  bool CreateHintSessionFactory(
+      base::flat_set<base::PlatformThreadId> thread_ids,
+      base::RepeatingClosure* wake_up_closure) override {
+    return false;
+  }
+  MOCK_METHOD2(CreateFrameSinkManager,
+               void(mojom::FrameSinkManagerParamsPtr, GpuServiceImpl*));
 
  private:
   const raw_ptr<base::SingleThreadTaskRunner> task_runner_;
@@ -85,12 +84,16 @@ class MockPowerMonitorSource : public base::PowerMonitorSource {
 TEST(VizMainImplTest, OopVizDependencyInjection) {
   VizMainImpl::ExternalDependencies external_deps;
   scoped_refptr<base::SingleThreadTaskRunner> task_runner =
-      base::ThreadTaskRunnerHandle::Get();
+      base::SingleThreadTaskRunner::GetCurrentDefault();
 
   // |VizMainImpl| is supposed to use the |UkmRecorder| injected through
   // |ExternalDependencies|.
+
+  mojo::Remote<ukm::mojom::UkmRecorderFactory> factory;
+  std::ignore = factory.BindNewPipeAndPassReceiver();
   std::unique_ptr<MockUkmRecorder> mock_ukm_recorder =
-      std::make_unique<MockUkmRecorder>();
+      std::make_unique<MockUkmRecorder>(*factory);
+
   EXPECT_CALL(*mock_ukm_recorder, AddEntry);
   external_deps.ukm_recorder = std::move(mock_ukm_recorder);
 

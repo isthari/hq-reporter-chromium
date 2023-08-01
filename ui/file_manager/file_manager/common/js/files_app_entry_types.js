@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,6 +24,7 @@
 import {FakeEntry, FilesAppDirEntry, FilesAppEntry} from '../../externs/files_app_entry_interfaces.js';
 import {VolumeInfo} from '../../externs/volume_info.js';
 
+import {vmTypeToIconName} from './icon_util.js';
 import {VolumeManagerCommon} from './volume_manager_types.js';
 
 /**
@@ -160,6 +161,13 @@ export class EntryList {
     this.isFile = false;
     this.type_name = 'EntryList';
     this.fullPath = '/';
+
+    /**
+     * @public {boolean} EntryList can be a placeholder of a real volume (e.g.
+     * MyFiles or DriveFakeRootEntryList), it can be disabled if the
+     * corresponding volume type is disabled.
+     */
+    this.disabled = false;
   }
 
   /**
@@ -227,8 +235,8 @@ export class EntryList {
    */
   addEntry(entry) {
     this.children_.push(entry);
-    // Only VolumeEntry can have prefix set becuase it sets on VolumeInfo
-    // which's then used on LocationInfo/LocationLine.
+    // Only VolumeEntry can have prefix set because it sets on VolumeInfo,
+    // which is then used on LocationInfo/PathComponent.
     if (entry.type_name == 'VolumeEntry') {
       const volumeEntry = /** @type {VolumeEntry} */ (entry);
       volumeEntry.setPrefix(this);
@@ -249,12 +257,19 @@ export class EntryList {
   /**
    * @param {!VolumeInfo} volumeInfo that's desired to be removed.
    * This method is specific to VolumeEntry/EntryList instance.
+   * Note: we compare the volumeId instead of the whole volumeInfo reference
+   * because the same volume could be mounted multiple times and every time a
+   * new volumeInfo is created.
    * @return {number} index of entry on this EntryList or -1 if not found.
    */
   findIndexByVolumeInfo(volumeInfo) {
-    return this.children_.findIndex(childEntry => {
-      return /** @type {VolumeEntry} */ (childEntry).volumeInfo === volumeInfo;
-    });
+    return this.children_.findIndex(
+        childEntry =>
+            /** @type {VolumeEntry} */ (childEntry).volumeInfo ?
+            /** @type {VolumeEntry} */ (childEntry).volumeInfo.volumeId ===
+                volumeInfo.volumeId :
+            false,
+    );
   }
 
   /**
@@ -276,19 +291,23 @@ export class EntryList {
   }
 
   /**
-   * Removes the first entry that matches the rootType.
+   * Removes all entries that match the rootType.
    * @param {!VolumeManagerCommon.RootType} rootType to be removed.
    * This method is specific to VolumeEntry/EntryList instance.
-   * @return {boolean} if entry was removed.
    */
-  removeByRootType(rootType) {
-    const childIndex = this.children_.findIndex(
-        childEntry => childEntry.rootType === rootType);
-    if (childIndex !== -1) {
-      this.children_.splice(childIndex, 1);
-      return true;
-    }
-    return false;
+  removeAllByRootType(rootType) {
+    this.children_ =
+        this.children_.filter(entry => entry.rootType !== rootType);
+  }
+
+  /**
+   * Removes all entries that match the volumeType.
+   * @param {!VolumeManagerCommon.VolumeType} volumeType to be removed.
+   * This method is specific to VolumeEntry/EntryList instance.
+   */
+  removeAllByVolumeType(volumeType) {
+    this.children_ = this.children_.filter(
+        entry => /** @type {VolumeEntry} */ (entry).volumeType !== volumeType);
   }
 
   /**
@@ -310,6 +329,23 @@ export class EntryList {
   /** @override */
   getNativeEntry() {
     return null;
+  }
+
+  /**
+   * EntryList can be a placeholder for the real volume (e.g. MyFiles or
+   * DriveFakeRootEntryList), if so this field will be the volume type of the
+   * volume it represents.
+   * @return {VolumeManagerCommon.VolumeType|null}
+   */
+  get volumeType() {
+    switch (this.rootType) {
+      case VolumeManagerCommon.RootType.MY_FILES:
+        return VolumeManagerCommon.VolumeType.DOWNLOADS;
+      case VolumeManagerCommon.RootType.DRIVE_FAKE_ROOT:
+        return VolumeManagerCommon.VolumeType.DRIVE;
+      default:
+        return null;
+    }
   }
 }
 
@@ -350,8 +386,12 @@ export class VolumeEntry {
     }
     this.type_name = 'VolumeEntry';
 
-    // TODO(lucmult): consider deriving this from volumeInfo.
+    // TODO(b/271485133): consider deriving this from volumeInfo. Setting
+    // rootType here breaks some integration tests, e.g.
+    // saveAsDlpRestrictedAndroid.
     this.rootType = null;
+
+    this.disabled_ = false;
   }
 
   /**
@@ -360,6 +400,11 @@ export class VolumeEntry {
    */
   get volumeInfo() {
     return this.volumeInfo_;
+  }
+
+  /** @return {!VolumeManagerCommon.VolumeType} */
+  get volumeType() {
+    return this.volumeInfo_.volumeType;
   }
 
   /**
@@ -396,6 +441,23 @@ export class VolumeEntry {
   get isFile() {
     // Defaults to false if root entry isn't resolved yet.
     return this.rootEntry_ ? this.rootEntry_.isFile : false;
+  }
+
+  /**
+   * @return {boolean} if this entry is disabled. This method is only valid for
+   * VolumeEntry instances.
+   */
+  get disabled() {
+    return this.disabled_;
+  }
+
+  /**
+   * Sets the disabled property. This method is only valid for
+   * VolumeEntry instances.
+   * @param {boolean} disabled
+   */
+  set disabled(disabled) {
+    this.disabled_ = disabled;
   }
 
   /**
@@ -450,6 +512,14 @@ export class VolumeEntry {
    * @return {string}
    */
   get iconName() {
+    if (this.volumeInfo_.volumeType ==
+        VolumeManagerCommon.VolumeType.GUEST_OS) {
+      return vmTypeToIconName(this.volumeInfo_.vmType);
+    }
+    if (this.volumeInfo_.volumeType ==
+        VolumeManagerCommon.VolumeType.DOWNLOADS) {
+      return /** @type {string} */ (VolumeManagerCommon.VolumeType.MY_FILES);
+    }
     return /** @type {string} */ (this.volumeInfo_.volumeType);
   }
 
@@ -516,8 +586,8 @@ export class VolumeEntry {
    */
   addEntry(entry) {
     this.children_.push(entry);
-    // Only VolumeEntry can have prefix set becuase it sets on VolumeInfo
-    // which's then used on LocationInfo/LocationLine.
+    // Only VolumeEntry can have prefix set because it sets on VolumeInfo,
+    // which is then used on LocationInfo/PathComponent.
     if (entry.type_name == 'VolumeEntry') {
       const volumeEntry = /** @type {VolumeEntry} */ (entry);
       volumeEntry.setPrefix(this);
@@ -527,12 +597,19 @@ export class VolumeEntry {
   /**
    * @param {!VolumeInfo} volumeInfo that's desired to be removed.
    * This method is specific to VolumeEntry/EntryList instance.
+   * Note: we compare the volumeId instead of the whole volumeInfo reference
+   * because the same volume could be mounted multiple times and every time a
+   * new volumeInfo is created.
    * @return {number} index of entry within VolumeEntry or -1 if not found.
    */
   findIndexByVolumeInfo(volumeInfo) {
     return this.children_.findIndex(
         childEntry =>
-            /** @type {VolumeEntry} */ (childEntry).volumeInfo === volumeInfo);
+            /** @type {VolumeEntry} */ (childEntry).volumeInfo ?
+            /** @type {VolumeEntry} */ (childEntry).volumeInfo.volumeId ===
+                volumeInfo.volumeId :
+            false,
+    );
   }
 
   /**
@@ -554,19 +631,23 @@ export class VolumeEntry {
   }
 
   /**
-   * Removes the first entry that matches the rootType.
+   * Removes all entries that match the rootType.
    * @param {!VolumeManagerCommon.RootType} rootType to be removed.
    * This method is specific to VolumeEntry/EntryList instance.
-   * @return {boolean} if entry was removed.
    */
-  removeByRootType(rootType) {
-    const childIndex = this.children_.findIndex(
-        childEntry => childEntry.rootType === rootType);
-    if (childIndex !== -1) {
-      this.children_.splice(childIndex, 1);
-      return true;
-    }
-    return false;
+  removeAllByRootType(rootType) {
+    this.children_ =
+        this.children_.filter(entry => entry.rootType !== rootType);
+  }
+
+  /**
+   * Removes all entries that match the volumeType.
+   * @param {!VolumeManagerCommon.VolumeType} volumeType to be removed.
+   * This method is specific to VolumeEntry/EntryList instance.
+   */
+  removeAllByVolumeType(volumeType) {
+    this.children_ = this.children_.filter(
+        entry => /** @type {VolumeEntry} */ (entry).volumeType !== volumeType);
   }
 
   /**
@@ -598,10 +679,10 @@ export class FakeEntryImpl {
    * @param {!VolumeManagerCommon.RootType} rootType Root type of this entry.
    * @param {chrome.fileManagerPrivate.SourceRestriction=} opt_sourceRestriction
    *    used on Recents to filter the source of recent files/directories.
-   * @param {chrome.fileManagerPrivate.RecentFileType=} opt_recentFileType
+   * @param {chrome.fileManagerPrivate.FileCategory=} opt_fileCategory
    *    used on Recents to filter recent files by their file types.
    */
-  constructor(label, rootType, opt_sourceRestriction, opt_recentFileType) {
+  constructor(label, rootType, opt_sourceRestriction, opt_fileCategory) {
     /**
      * @public {string} label: Label to be used when displaying to user, it
      *      should be already translated.
@@ -621,6 +702,12 @@ export class FakeEntryImpl {
     this.isFile = false;
 
     /**
+     * @public {boolean} false FakeEntry can be disabled if it represents the
+     * placeholder of the real volume.
+     */
+    this.disabled = false;
+
+    /**
      * @public {chrome.fileManagerPrivate.SourceRestriction|undefined} It's used
      * to communicate restrictions about sources to
      * chrome.fileManagerPrivate.getRecentFiles API.
@@ -628,11 +715,11 @@ export class FakeEntryImpl {
     this.sourceRestriction = opt_sourceRestriction;
 
     /**
-     * @public {chrome.fileManagerPrivate.RecentFileType|undefined} It's used to
+     * @public {chrome.fileManagerPrivate.FileCategory|undefined} It's used to
      * communicate file-type filter to chrome.fileManagerPrivate.getRecentFiles
      * API.
      */
-    this.recentFileType = opt_recentFileType;
+    this.fileCategory = opt_fileCategory;
 
     /**
      * @public {string} the class name for this class. It's workaround for the
@@ -657,8 +744,8 @@ export class FakeEntryImpl {
   /** @override */
   toURL() {
     let url = 'fake-entry://' + this.rootType;
-    if (this.recentFileType) {
-      url += '/' + this.recentFileType;
+    if (this.fileCategory) {
+      url += '/' + this.fileCategory;
     }
     return url;
   }
@@ -677,6 +764,12 @@ export class FakeEntryImpl {
    * @return {string}
    */
   get iconName() {
+    // When Drive volume isn't available yet, the FakeEntry should show the
+    // "drive" icon.
+    if (this.rootType === VolumeManagerCommon.RootType.DRIVE_FAKE_ROOT) {
+      return /** @type {string}  */ (VolumeManagerCommon.RootType.DRIVE);
+    }
+
     return /** @type{string} */ (this.rootType);
   }
 
@@ -702,5 +795,74 @@ export class FakeEntryImpl {
    */
   createReader() {
     return new StaticReader([]);
+  }
+
+  /**
+   * FakeEntry can be a placeholder for the real volume, if so this field will
+   * be the volume type of the volume it represents.
+   * @return {VolumeManagerCommon.VolumeType|null}
+   */
+  get volumeType() {
+    // Recent rootType has no corresponding volume type, and it will throw error
+    // in the below getVolumeTypeFromRootType() call, we need to return null
+    // here.
+    if (this.rootType === VolumeManagerCommon.RootType.RECENT) {
+      return null;
+    }
+    return VolumeManagerCommon.getVolumeTypeFromRootType(this.rootType);
+  }
+}
+
+/**
+ * GuestOsPlaceholder is used for placeholder entries in the UI, representing
+ * Guest OSs (e.g. Crostini) that could be mounted but aren't yet.
+ *
+ * @implements FakeEntry
+ */
+export class GuestOsPlaceholder extends FakeEntryImpl {
+  /**
+   * @param {string} label Translated text to be displayed to user.
+   * @param {number} guest_id Id of the guest
+   * @param {!chrome.fileManagerPrivate.VmType} vm_type Type of the underlying
+   *     VM
+   */
+  constructor(label, guest_id, vm_type) {
+    super(label, VolumeManagerCommon.RootType.GUEST_OS, undefined, undefined);
+
+    /**
+     * @public {number} The id of this guest
+     */
+    this.guest_id = guest_id;
+
+    /**
+     * @public {string} the class name for this class. It's workaround for the
+     * fact that an instance created on foreground page and sent to background
+     * page can't be checked with "instanceof".
+     */
+    this.type_name = 'GuestOsPlaceholder';
+
+    this.vm_type = vm_type;
+  }
+
+  /**
+   * @override
+   * String used to determine the icon.
+   * @return {string}
+   */
+  get iconName() {
+    return vmTypeToIconName(this.vm_type);
+  }
+
+  /** @override */
+  toURL() {
+    return `fake-entry://guest-os/${this.guest_id}`;
+  }
+
+  /** @override */
+  get volumeType() {
+    if (this.vm_type === chrome.fileManagerPrivate.VmType.ARCVM) {
+      return VolumeManagerCommon.VolumeType.ANDROID_FILES;
+    }
+    return VolumeManagerCommon.VolumeType.GUEST_OS;
   }
 }

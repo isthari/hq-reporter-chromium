@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,10 @@ import static org.chromium.android_webview.test.AwActivityTestRule.WAIT_TIMEOUT_
 import android.os.Handler;
 import android.os.Message;
 import android.os.SystemClock;
-import android.support.test.InstrumentationRegistry;
 import android.view.KeyEvent;
 import android.webkit.WebView.HitTestResult;
 
+import androidx.test.InstrumentationRegistry;
 import androidx.test.filters.LargeTest;
 import androidx.test.filters.SmallTest;
 

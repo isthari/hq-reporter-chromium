@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -60,7 +60,6 @@ struct GPU_EXPORT ContextCreationAttribs {
   bool fail_if_major_perf_caveat = false;
   bool lose_context_when_out_of_memory = false;
   bool should_use_native_gmb_for_backbuffer = false;
-  bool own_offscreen_surface = false;
   bool single_buffer = false;
   bool enable_gles2_interface = true;
   bool enable_grcontext = false;

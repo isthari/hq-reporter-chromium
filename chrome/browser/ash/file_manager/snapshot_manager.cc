@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,9 @@
 
 #include <utility>
 
-#include "base/bind.h"
 #include "base/containers/circular_deque.h"
 #include "base/files/file.h"
+#include "base/functional/bind.h"
 #include "base/memory/ref_counted.h"
 #include "base/system/sys_info.h"
 #include "base/task/thread_pool.h"
@@ -19,6 +19,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "google_apis/common/task_util.h"
 #include "storage/browser/blob/shareable_file_reference.h"
+#include "storage/browser/file_system/file_system_backend.h"
 #include "storage/browser/file_system/file_system_context.h"
 #include "third_party/cros_system_api/constants/cryptohome.h"
 
@@ -32,8 +33,9 @@ int64_t ComputeSpaceNeedToBeFreedAfterGetMetadataAsync(
     const base::FilePath& path,
     int64_t snapshot_size) {
   int64_t free_size = base::SysInfo::AmountOfFreeDiskSpace(path);
-  if (free_size < 0)
+  if (free_size < 0) {
     return -1;
+  }
 
   // We need to keep cryptohome::kMinFreeSpaceInBytes free space even after
   // |snapshot_size| is occupied.

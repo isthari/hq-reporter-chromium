@@ -1,23 +1,23 @@
-// Copyright (c) 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "gpu/ipc/service/gpu_watchdog_thread.h"
+
+#include <memory>
+#include <string>
+
 #include "base/test/task_environment.h"
 
 #include "base/power_monitor/power_monitor.h"
 #include "base/power_monitor/power_monitor_source.h"
 #include "base/system/sys_info.h"
 #include "base/task/current_thread.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/power_monitor_test.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
-
-#if BUILDFLAG(IS_WIN)
-#include "base/win/windows_version.h"
-#endif
 
 #if BUILDFLAG(IS_MAC)
 #include "base/mac/mac_util.h"
@@ -40,12 +40,19 @@ constexpr auto kExtraGPUJobTimeForTesting = base::Milliseconds(500);
 [[maybe_unused]] constexpr auto kExtraGPUJobTimeForTestingSlow =
     base::Milliseconds(1000);
 
+// For Fuchsia in which GpuWatchdogTest.GpuInitializationAndRunningTasks test
+// is flaky.
+[[maybe_unused]] constexpr auto kGpuWatchdogTimeoutForTestingSlowest =
+    base::Milliseconds(1000);
+[[maybe_unused]] constexpr auto kExtraGPUJobTimeForTestingSlowest =
+    base::Milliseconds(4000);
+
 // On Windows, the gpu watchdog check if the main thread has used the full
 // thread time. We want to detect the case in which the main thread is swapped
 // out by the OS scheduler. The task on windows is simiulated by reading
 // TimeTicks instead of Sleep().
 void SimpleTask(base::TimeDelta duration, base::TimeDelta extra_time) {
-#if BUILDFLAG(IS_WIN)
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
   auto start_timetick = base::TimeTicks::Now();
   do {
   } while ((base::TimeTicks::Now() - start_timetick) < duration);
@@ -103,24 +110,43 @@ class GpuWatchdogPowerTest : public GpuWatchdogTest {
 };
 
 void GpuWatchdogTest::SetUp() {
-  ASSERT_TRUE(base::ThreadTaskRunnerHandle::IsSet());
+  ASSERT_TRUE(base::SingleThreadTaskRunner::HasCurrentDefault());
   ASSERT_TRUE(base::CurrentThread::IsSet());
 
-#if BUILDFLAG(IS_WIN)
-  // Win7
-  if (base::win::GetVersion() < base::win::Version::WIN10) {
-    timeout_ = kGpuWatchdogTimeoutForTestingSlow;
-    extra_gpu_job_time_ = kExtraGPUJobTimeForTestingSlow;
+  enum TimeOutType {
+    kNormal,
+    kSlow,
+    kSlowest,
+  };
+
+  TimeOutType timeout_type = kNormal;
+
+#if BUILDFLAG(IS_MAC)
+  // Use slow timeout for Mac versions < 11.00 and for MacBookPro model <
+  // MacBookPro14,1
+  int os_version = base::mac::internal::MacOSVersion();
+
+  if (os_version <= 1100) {
+    // Check MacOS version.
+    timeout_type = kSlow;
+  } else {
+    // Check Mac machine model version.
+    std::string model_str = base::SysInfo::HardwareModelName();
+    size_t found_position = model_str.find("MacBookPro");
+    constexpr size_t model_version_pos = 10;
+
+    // A MacBookPro is found.
+    if (found_position == 0 && model_str.size() > model_version_pos) {
+      // model_ver_str = "MacBookProXX,X", model_ver_str = "XX,X"
+      std::string model_ver_str = model_str.substr(model_version_pos);
+      int major_model_ver = std::atoi(model_ver_str.c_str());
+      // For model version < 14,1
+      if (major_model_ver < 14) {
+        timeout_type = kSlow;
+      }
+    }
   }
 
-  full_thread_time_on_windows_ = timeout_ * kMaxCountOfMoreGpuThreadTimeAllowed;
-#elif BUILDFLAG(IS_MAC)
-  int os_version = base::mac::internal::MacOSVersion();
-  // Use slow timeout for all Mac versions for now.
-  if (os_version <= 1300) {
-    timeout_ = kGpuWatchdogTimeoutForTestingSlow;
-    extra_gpu_job_time_ = kExtraGPUJobTimeForTestingSlow;
-  }
 #elif BUILDFLAG(IS_ANDROID)
   int32_t major_version = 0;
   int32_t minor_version = 0;
@@ -130,9 +156,23 @@ void GpuWatchdogTest::SetUp() {
 
   // For Android version < Android Pie (Version 9)
   if (major_version < 9) {
+    timeout_type = kSlow;
+  }
+
+#elif BUILDFLAG(IS_FUCHSIA)
+  timeout_type = kSlowest;
+#endif
+
+  if (timeout_type == kSlow) {
     timeout_ = kGpuWatchdogTimeoutForTestingSlow;
     extra_gpu_job_time_ = kExtraGPUJobTimeForTestingSlow;
+  } else if (timeout_type == kSlowest) {
+    timeout_ = kGpuWatchdogTimeoutForTestingSlowest;
+    extra_gpu_job_time_ = kExtraGPUJobTimeForTestingSlowest;
   }
+
+#if BUILDFLAG(IS_WIN)
+  full_thread_time_on_windows_ = timeout_ * kMaxCountOfMoreGpuThreadTimeAllowed;
 #endif
 
   watchdog_thread_ = gpu::GpuWatchdogThread::Create(
@@ -221,6 +261,26 @@ TEST_F(GpuWatchdogTest, GpuInitializationHang) {
   // Gpu hangs. OnInitComplete() is not called
   bool result = watchdog_thread_->IsGpuHangDetectedForTesting();
   EXPECT_TRUE(result);
+  // retry on failure.
+}
+
+// GPU Hang In Initialization.
+TEST_F(GpuWatchdogTest, GpuInitializationHangWithReportOnly) {
+  auto allowed_time =
+      timeout_ * (kInitFactor + 1) + full_thread_time_on_windows_;
+
+  watchdog_thread_->EnableReportOnlyMode();
+
+  // GPU init takes longer than timeout.
+  SimpleTask(allowed_time, /*extra_time=*/extra_gpu_job_time_);
+
+  // Gpu hangs. OnInitComplete() is not called
+  bool result = watchdog_thread_->IsGpuHangDetectedWithoutKillForTesting();
+  bool non_result = watchdog_thread_->IsGpuHangDetectedForTesting();
+  EXPECT_TRUE(result);
+  EXPECT_FALSE(non_result);
+
+  watchdog_thread_->DisableReportOnlyMode();
   // retry on failure.
 }
 

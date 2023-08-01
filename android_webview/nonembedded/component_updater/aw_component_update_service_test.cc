@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,11 +13,11 @@
 #include "android_webview/common/aw_paths.h"
 #include "android_webview/nonembedded/component_updater/aw_component_updater_configurator.h"
 #include "base/android/path_utils.h"
-#include "base/callback.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/json/json_reader.h"
 #include "base/memory/raw_ptr.h"
 #include "base/test/android/url_utils.h"
@@ -67,13 +67,13 @@ void CreateTestFiles(const base::FilePath& install_dir) {
 void AssertOnDemandRequest(bool on_demand, std::string post_data) {
   const auto root = base::JSONReader::Read(post_data);
   ASSERT_TRUE(root);
-  const auto* request = root->FindKey("request");
+  const auto* request = root->GetDict().FindDict("request");
   ASSERT_TRUE(request);
-  const auto& app = request->FindKey("app")->GetList()[0];
+  const auto& app = (*request->FindList("app"))[0].GetDict();
   if (on_demand) {
-    EXPECT_EQ("ondemand", app.FindKey("installsource")->GetString());
+    EXPECT_EQ("ondemand", *app.FindString("installsource"));
   } else {
-    EXPECT_EQ(nullptr, app.FindKey("installsource"));
+    EXPECT_EQ(nullptr, app.FindString("installsource"));
   }
 }
 
@@ -266,7 +266,7 @@ class MockInstallerPolicy : public component_updater::ComponentInstallerPolicy {
   bool RequiresNetworkEncryption() const override { return false; }
 
   update_client::CrxInstaller::Result OnCustomInstall(
-      const base::Value& manifest,
+      const base::Value::Dict& manifest,
       const base::FilePath& install_dir) override {
     return update_client::CrxInstaller::Result(0);
   }
@@ -275,13 +275,13 @@ class MockInstallerPolicy : public component_updater::ComponentInstallerPolicy {
 
   void ComponentReady(const base::Version& version,
                       const base::FilePath& install_dir,
-                      base::Value manifest) override {
+                      base::Value::Dict manifest) override {
     version_ = version;
     install_dir_ = install_dir;
     manifest_ = std::move(manifest);
   }
 
-  bool VerifyInstallation(const base::Value& manifest,
+  bool VerifyInstallation(const base::Value::Dict& manifest,
                           const base::FilePath& install_dir) const override {
     return true;
   }
@@ -301,12 +301,12 @@ class MockInstallerPolicy : public component_updater::ComponentInstallerPolicy {
   }
 
   bool IsComponentReadyInvoked() { return !!manifest_; }
-  base::Value& GetManifest() { return *manifest_; }
+  base::Value::Dict& GetManifest() { return *manifest_; }
   base::FilePath GetInstallDir() const { return install_dir_; }
   base::Version GetVersion() const { return version_; }
 
  private:
-  absl::optional<base::Value> manifest_;
+  absl::optional<base::Value::Dict> manifest_;
   base::FilePath install_dir_;
   base::Version version_;
 };
@@ -425,7 +425,7 @@ TEST_F(AwComponentUpdateServiceTest, TestFreshDownloadingFakeApk) {
   // Assert that the manifest is valid by asserting a field in it other than
   // version.
   std::string* minimum_chrome_version =
-      service.GetMockPolicy()->GetManifest().FindStringKey(
+      service.GetMockPolicy()->GetManifest().FindString(
           "minimum_chrome_version");
   ASSERT_TRUE(minimum_chrome_version);
   EXPECT_EQ(*minimum_chrome_version, "50");

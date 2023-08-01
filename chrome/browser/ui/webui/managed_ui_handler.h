@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include <string>
 
 #include "base/memory/raw_ptr.h"
+#include "base/values.h"
 #include "components/policy/core/common/policy_service.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "content/public/browser/web_ui_message_handler.h"
@@ -55,15 +56,15 @@ class ManagedUIHandler : public content::WebUIMessageHandler,
   void OnJavascriptDisallowed() override;
 
   // Handles the "observeManagedUI" message. No arguments.
-  void HandleObserveManagedUI(const base::ListValue* args);
+  void HandleObserveManagedUI(const base::Value::List& args);
 
   // Add/remove observers on the PolicyService.
   void AddObservers();
   void RemoveObservers();
 
   // Generates a dictionary with "isManaged" and "managedByOrg" i18n keys based
-  // on |managed_|. Called initialize and on each change for notifications.
-  std::unique_ptr<base::DictionaryValue> GetDataSourceUpdate() const;
+  // on `managed_`. Called initialize and on each change for notifications.
+  base::Value::Dict GetDataSourceUpdate() const;
 
   // Fire a webui listener notification if dark mode actually changed.
   void NotifyIfChanged();

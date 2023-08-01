@@ -1,17 +1,15 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <memory>
 
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
 #include "base/json/json_file_value_serializer.h"
 #include "chrome/common/extensions/manifest_tests/chrome_manifest_test.h"
 #include "extensions/common/error_utils.h"
 #include "extensions/common/features/simple_feature.h"
 #include "extensions/common/manifest_constants.h"
-#include "extensions/common/manifest_handlers/app_isolation_info.h"
 #include "extensions/common/manifest_handlers/csp_info.h"
 #include "extensions/common/manifest_handlers/incognito_info.h"
 #include "extensions/common/switches.h"
@@ -28,7 +26,10 @@ class PlatformAppsManifestTest : public ChromeManifestTest {
 TEST_F(PlatformAppsManifestTest, PlatformApps) {
   scoped_refptr<Extension> extension =
       LoadAndExpectSuccess("init_valid_platform_app.json");
-  EXPECT_TRUE(AppIsolationInfo::HasIsolatedStorage(extension.get()));
+  // Ensure this is treated as platform app, which causes it to have isolated
+  // storage in the browser process. See also
+  // ExtensionUtilUnittest.HasIsolatedStorage.
+  EXPECT_TRUE(extension->is_platform_app());
   EXPECT_FALSE(IncognitoInfo::IsSplitMode(extension.get()));
 
   extension =
@@ -46,7 +47,7 @@ TEST_F(PlatformAppsManifestTest, PlatformApps) {
                    errors::kInvalidManifestVersionUnsupported, "either 2 or 3",
                    "apps")),
   };
-  RunTestcases(error_testcases, base::size(error_testcases), EXPECT_TYPE_ERROR);
+  RunTestcases(error_testcases, std::size(error_testcases), EXPECT_TYPE_ERROR);
 
   Testcase warning_testcases[] = {
       Testcase(
@@ -66,7 +67,7 @@ TEST_F(PlatformAppsManifestTest, PlatformApps) {
                "apps, "
                "but this is a packaged app."),
   };
-  RunTestcases(warning_testcases, base::size(warning_testcases),
+  RunTestcases(warning_testcases, std::size(warning_testcases),
                EXPECT_TYPE_WARNING);
 }
 
@@ -83,7 +84,7 @@ TEST_F(PlatformAppsManifestTest, PlatformAppContentSecurityPolicy) {
         "'app.content_security_policy' is not allowed for specified extension "
             "ID.")
   };
-  RunTestcases(warning_testcases, base::size(warning_testcases),
+  RunTestcases(warning_testcases, std::size(warning_testcases),
                EXPECT_TYPE_WARNING);
 
   // Allowlisted ones can (this is the ID corresponding to the base 64 encoded
@@ -110,9 +111,9 @@ TEST_F(PlatformAppsManifestTest, PlatformAppContentSecurityPolicy) {
 TEST_F(PlatformAppsManifestTest, CertainApisRequirePlatformApps) {
   // Put APIs here that should be restricted to platform apps, but that haven't
   // yet graduated from experimental.
-  const char* const kPlatformAppExperimentalApis[] = {
-    "dns",
-    "serial",
+  static constexpr const char* kPlatformAppExperimentalApis[] = {
+      "dns",
+      "serial",
   };
   // TODO(miket): When the first platform-app API leaves experimental, write
   // similar code that tests without the experimental flag.
@@ -121,23 +122,23 @@ TEST_F(PlatformAppsManifestTest, CertainApisRequirePlatformApps) {
   // testing. The requirements are that (1) it be a valid platform app, and (2)
   // it contain no permissions dictionary.
   std::string error;
-  base::Value platform_app_manifest =
+  absl::optional<base::Value::Dict> platform_app_manifest =
       LoadManifest("init_valid_platform_app.json", &error);
+  ASSERT_TRUE(platform_app_manifest);
 
-  std::vector<std::unique_ptr<ManifestData>> manifests;
+  std::vector<ManifestData> manifests;
   // Create each manifest.
   for (const char* api_name : kPlatformAppExperimentalApis) {
-    base::Value permissions(base::Value::Type::LIST);
-    permissions.Append(base::Value("experimental"));
-    permissions.Append(base::Value(api_name));
-    platform_app_manifest.SetKey("permissions", std::move(permissions));
-    manifests.push_back(
-        std::make_unique<ManifestData>(platform_app_manifest.Clone(), ""));
+    base::Value::List permissions;
+    permissions.Append("experimental");
+    permissions.Append(api_name);
+    platform_app_manifest->Set("permissions", std::move(permissions));
+    manifests.emplace_back(platform_app_manifest->Clone());
   }
   // First try to load without any flags. This should warn for every API.
-  for (const std::unique_ptr<ManifestData>& manifest : manifests) {
+  for (const auto& manifest : manifests) {
     LoadAndExpectWarning(
-        *manifest,
+        manifest,
         "'experimental' requires the 'experimental-extension-apis' "
         "command line switch to be enabled.");
   }
@@ -145,8 +146,9 @@ TEST_F(PlatformAppsManifestTest, CertainApisRequirePlatformApps) {
   // Now try again with the experimental flag set.
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kEnableExperimentalExtensionApis);
-  for (const std::unique_ptr<ManifestData>& manifest : manifests)
-    LoadAndExpectSuccess(*manifest);
+  for (const auto& manifest : manifests) {
+    LoadAndExpectSuccess(manifest);
+  }
 }
 
 }  // namespace extensions

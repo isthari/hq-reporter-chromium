@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,11 @@
 
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/callback_helpers.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
@@ -21,8 +20,8 @@
 #include "base/strings/string_tokenizer.h"
 #include "base/strings/string_util.h"
 #include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/scoped_thread_priority.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "google_apis/gcm/base/encryptor.h"
 #include "google_apis/gcm/base/gcm_constants.h"
@@ -131,7 +130,7 @@ std::string MakeRegistrationKey(const std::string& app_id) {
 }
 
 std::string ParseRegistrationKey(const std::string& key) {
-  return key.substr(base::size(kRegistrationKeyStart) - 1);
+  return key.substr(std::size(kRegistrationKeyStart) - 1);
 }
 
 std::string MakeIncomingKey(const std::string& persistent_id) {
@@ -151,7 +150,7 @@ std::string MakeOutgoingKey(const std::string& persistent_id) {
 }
 
 std::string ParseOutgoingKey(const std::string& key) {
-  return key.substr(base::size(kOutgoingMsgKeyStart) - 1);
+  return key.substr(std::size(kOutgoingMsgKeyStart) - 1);
 }
 
 std::string MakeGServiceSettingKey(const std::string& setting_name) {
@@ -159,7 +158,7 @@ std::string MakeGServiceSettingKey(const std::string& setting_name) {
 }
 
 std::string ParseGServiceSettingKey(const std::string& key) {
-  return key.substr(base::size(kGServiceSettingKeyStart) - 1);
+  return key.substr(std::size(kGServiceSettingKeyStart) - 1);
 }
 
 std::string MakeAccountKey(const CoreAccountId& account_id) {
@@ -167,8 +166,7 @@ std::string MakeAccountKey(const CoreAccountId& account_id) {
 }
 
 CoreAccountId ParseAccountKey(const std::string& key) {
-  return CoreAccountId::FromString(
-      key.substr(base::size(kAccountKeyStart) - 1));
+  return CoreAccountId::FromString(key.substr(std::size(kAccountKeyStart) - 1));
 }
 
 std::string MakeHeartbeatKey(const std::string& scope) {
@@ -176,7 +174,7 @@ std::string MakeHeartbeatKey(const std::string& scope) {
 }
 
 std::string ParseHeartbeatKey(const std::string& key) {
-  return key.substr(base::size(kHeartbeatKeyStart) - 1);
+  return key.substr(std::size(kHeartbeatKeyStart) - 1);
 }
 
 std::string MakeInstanceIDKey(const std::string& app_id) {
@@ -184,7 +182,7 @@ std::string MakeInstanceIDKey(const std::string& app_id) {
 }
 
 std::string ParseInstanceIDKey(const std::string& key) {
-  return key.substr(base::size(kInstanceIDKeyStart) - 1);
+  return key.substr(std::size(kInstanceIDKeyStart) - 1);
 }
 
 // Note: leveldb::Slice keeps a pointer to the data in |s|, which must therefore
@@ -386,18 +384,6 @@ void GCMStoreImpl::Backend::Load(StoreOpenMode open_mode,
       UMA_HISTOGRAM_COUNTS_1M("GCM.StoreSizeKB",
                               static_cast<int>(file_size / 1024));
     }
-
-    UMA_HISTOGRAM_COUNTS_1M("GCM.RestoredRegistrations",
-                            gcm_registration_count);
-    UMA_HISTOGRAM_COUNTS_1M("GCM.RestoredOutgoingMessages",
-                            result->outgoing_messages.size());
-    UMA_HISTOGRAM_COUNTS_1M("GCM.RestoredIncomingMessages",
-                            result->incoming_messages.size());
-
-    UMA_HISTOGRAM_COUNTS_1M("InstanceID.RestoredTokenCount",
-                            instance_id_token_count);
-    UMA_HISTOGRAM_COUNTS_1M("InstanceID.RestoredIDCount",
-                            result->instance_id_data.size());
   }
 
   DVLOG(1) << "Succeeded in loading "
@@ -1012,7 +998,7 @@ bool GCMStoreImpl::Backend::LoadIncomingMessages(
       std::string persistent_id = data.substr(0, found);
       int64_t expiration_time = 0LL;
       if (!base::StringToInt64(
-              data.substr(found + base::size(kIncomingMsgSeparator) - 1),
+              data.substr(found + std::size(kIncomingMsgSeparator) - 1),
               &expiration_time)) {
         LOG(ERROR)
             << "Failed to parse expiration time from the incoming message "
@@ -1162,7 +1148,6 @@ bool GCMStoreImpl::Backend::LoadAccountMappingInfo(
   for (const auto& account_mapping : loaded_account_mappings) {
     bool remove = remove_account_mappings_with_email_key_ &&
                   account_mapping.account_id.IsEmail();
-    base::UmaHistogramBoolean("GCM.RemoveAccountMappingWhenLoading", remove);
     if (remove) {
       RemoveAccountMapping(account_mapping.account_id, base::DoNothing());
     } else {
@@ -1247,7 +1232,7 @@ GCMStoreImpl::GCMStoreImpl(
     std::unique_ptr<Encryptor> encryptor)
     : backend_(new Backend(path,
                            remove_account_mappings_with_email_key,
-                           base::ThreadTaskRunnerHandle::Get(),
+                           base::SingleThreadTaskRunner::GetCurrentDefault(),
                            std::move(encryptor))),
       blocking_task_runner_(blocking_task_runner) {}
 
@@ -1461,7 +1446,6 @@ void GCMStoreImpl::LoadContinuation(LoadCallback callback,
     std::move(callback).Run(std::move(result));
     return;
   }
-  int num_throttled_apps = 0;
   for (OutgoingMessageMap::const_iterator
            iter = result->outgoing_messages.begin();
        iter != result->outgoing_messages.end(); ++iter) {
@@ -1472,10 +1456,7 @@ void GCMStoreImpl::LoadContinuation(LoadCallback callback,
       app_message_counts_[data_message->category()] = 1;
     else
       app_message_counts_[data_message->category()]++;
-    if (app_message_counts_[data_message->category()] == kMessagesPerAppLimit)
-      num_throttled_apps++;
   }
-  UMA_HISTOGRAM_COUNTS_1M("GCM.NumThrottledApps", num_throttled_apps);
   std::move(callback).Run(std::move(result));
 }
 

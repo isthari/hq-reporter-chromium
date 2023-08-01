@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 #include "ash/wm/window_util.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/transient_window_client.h"
-#include "ui/aura/window.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_f.h"
@@ -27,7 +26,7 @@ gfx::Rect GetClientAreaBoundsInScreen(aura::Window* window) {
   const int inset = window->GetProperty(aura::client::kTopViewInset);
   if (inset > 0) {
     gfx::Rect bounds = window->GetBoundsInScreen();
-    bounds.Inset(0, inset, 0, 0);
+    bounds.Inset(gfx::Insets::TLBR(inset, 0, 0, 0));
     return bounds;
   }
   // The source window may not have a widget in unit tests.
@@ -42,15 +41,12 @@ gfx::Rect GetClientAreaBoundsInScreen(aura::Window* window) {
 
 }  // namespace
 
-WindowPreviewView::WindowPreviewView(aura::Window* window,
-                                     bool trilinear_filtering_on_init)
-    : window_(window),
-      trilinear_filtering_on_init_(trilinear_filtering_on_init) {
+WindowPreviewView::WindowPreviewView(aura::Window* window) : window_(window) {
   DCHECK(window);
   aura::client::GetTransientWindowClient()->AddObserver(this);
 
-  for (auto* window : GetTransientTreeIterator(window_))
-    AddWindow(window);
+  for (auto* transient_window : GetTransientTreeIterator(window_))
+    AddWindow(transient_window);
 }
 
 WindowPreviewView::~WindowPreviewView() {
@@ -159,12 +155,11 @@ void WindowPreviewView::AddWindow(aura::Window* window) {
   if (!window->HasObserver(this))
     window->AddObserver(this);
 
-  auto* mirror_view =
-      window_util::IsArcPipWindow(window)
-          ? new WindowMirrorViewPip(window, trilinear_filtering_on_init_)
-          : new WindowMirrorView(window, trilinear_filtering_on_init_);
-  mirror_views_[window] = mirror_view;
-  AddChildView(mirror_view);
+  auto mirror_view = window_util::IsArcPipWindow(window)
+                         ? std::make_unique<WindowMirrorViewPip>(window)
+                         : std::make_unique<WindowMirrorView>(window);
+  mirror_views_[window] = mirror_view.get();
+  AddChildView(std::move(mirror_view));
 }
 
 void WindowPreviewView::RemoveWindow(aura::Window* window) {
@@ -181,11 +176,10 @@ void WindowPreviewView::RemoveWindow(aura::Window* window) {
     return;
 
   auto* view = it->second;
-  RemoveChildView(view);
+  RemoveChildViewT(view);
   it->first->RemoveObserver(this);
 
   mirror_views_.erase(it);
-  delete view;
 }
 
 gfx::RectF WindowPreviewView::GetUnionRect() const {

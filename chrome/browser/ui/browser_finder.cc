@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include <stdint.h>
 
-#include <algorithm>
-
+#include "base/containers/contains.h"
+#include "base/ranges/algorithm.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/profiles/profile.h"
@@ -18,6 +18,7 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "components/tab_groups/tab_group_id.h"
 #include "content/public/browser/navigation_controller.h"
+#include "ui/base/interaction/element_identifier.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
 
@@ -32,6 +33,12 @@ using content::WebContents;
 
 namespace {
 
+bool IsBrowserClosing(Browser* browser) {
+  const BrowserList::BrowserSet& closing_browsers =
+      BrowserList::GetInstance()->currently_closing_browsers();
+  return base::Contains(closing_browsers, browser);
+}
+
 // Type used to indicate to match anything.
 const uint32_t kMatchAny = 0;
 
@@ -43,6 +50,7 @@ const uint32_t kMatchDisplayId = 1 << 3;
 #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_CHROMEOS)
 const uint32_t kMatchCurrentWorkspace = 1 << 4;
 #endif
+const uint32_t kMatchNotClosing = 1 << 5;
 
 // Returns true if the specified |browser| matches the specified arguments.
 // |match_types| is a bitmask dictating what parameters to match:
@@ -52,6 +60,7 @@ const uint32_t kMatchCurrentWorkspace = 1 << 4;
 // . If it contains kMatchCanSupportWindowFeature
 //   |CanSupportWindowFeature(window_feature)| must return true.
 // . If it contains kMatchNormal, the browser must be a normal tabbed browser.
+// . If it contains kMatchNotClosing, the browser must not be a closing browser.
 bool BrowserMatches(Browser* browser,
                     Profile* profile,
                     Browser::WindowFeature window_feature,
@@ -115,6 +124,10 @@ bool BrowserMatches(Browser* browser,
                .id() == display_id;
   }
 
+  if ((match_types & kMatchNotClosing) && IsBrowserClosing(browser)) {
+    return false;
+  }
+
   return true;
 }
 
@@ -132,7 +145,7 @@ Browser* FindBrowserMatching(const T& begin,
     if (BrowserMatches(*i, profile, window_feature, match_types, display_id))
       return *i;
   }
-  return NULL;
+  return nullptr;
 }
 
 Browser* FindBrowserWithTabbedOrAnyType(
@@ -140,10 +153,11 @@ Browser* FindBrowserWithTabbedOrAnyType(
     bool match_tabbed,
     bool match_original_profiles,
     bool match_current_workspace,
+    bool match_not_closing,
     int64_t display_id = display::kInvalidDisplayId) {
   BrowserList* browser_list_impl = BrowserList::GetInstance();
   if (!browser_list_impl)
-    return NULL;
+    return nullptr;
   uint32_t match_types = kMatchAny;
   if (match_tabbed)
     match_types |= kMatchNormal;
@@ -155,6 +169,10 @@ Browser* FindBrowserWithTabbedOrAnyType(
   if (match_current_workspace)
     match_types |= kMatchCurrentWorkspace;
 #endif
+  if (match_not_closing) {
+    match_types |= kMatchNotClosing;
+  }
+
   Browser* browser = FindBrowserMatching(
       browser_list_impl->begin_browsers_ordered_by_activation(),
       browser_list_impl->end_browsers_ordered_by_activation(), profile,
@@ -188,20 +206,45 @@ namespace chrome {
 
 Browser* FindTabbedBrowser(Profile* profile,
                            bool match_original_profiles,
-                           int64_t display_id) {
-  return FindBrowserWithTabbedOrAnyType(profile, true, match_original_profiles,
-                                        /*match_current_workspace=*/true,
-                                        display_id);
+                           int64_t display_id,
+                           bool ignore_closing_browsers) {
+  return FindBrowserWithTabbedOrAnyType(
+      profile, true, match_original_profiles,
+      /*match_current_workspace=*/true,
+      /*match_not_closing=*/ignore_closing_browsers, display_id);
 }
 
 Browser* FindAnyBrowser(Profile* profile, bool match_original_profiles) {
   return FindBrowserWithTabbedOrAnyType(profile, false, match_original_profiles,
-                                        /*match_current_workspace=*/false);
+                                        /*match_current_workspace=*/false,
+                                        /*match_not_closing=*/false);
 }
 
 Browser* FindBrowserWithProfile(Profile* profile) {
   return FindBrowserWithTabbedOrAnyType(profile, false, false,
-                                        /*match_current_workspace=*/false);
+                                        /*match_current_workspace=*/false,
+                                        /*match_not_closing=*/false);
+}
+
+std::vector<Browser*> FindAllTabbedBrowsersWithProfile(Profile* profile) {
+  std::vector<Browser*> browsers;
+  for (auto* browser : *BrowserList::GetInstance()) {
+    if (BrowserMatches(browser, profile, Browser::FEATURE_NONE, kMatchNormal,
+                       display::kInvalidDisplayId))
+      browsers.emplace_back(browser);
+  }
+  return browsers;
+}
+
+std::vector<Browser*> FindAllBrowsersWithProfile(Profile* profile) {
+  std::vector<Browser*> browsers;
+  for (auto* browser : *BrowserList::GetInstance()) {
+    if (BrowserMatches(browser, profile, Browser::FEATURE_NONE, kMatchAny,
+                       display::kInvalidDisplayId)) {
+      browsers.emplace_back(browser);
+    }
+  }
+  return browsers;
 }
 
 Browser* FindBrowserWithID(SessionID desired_id) {
@@ -209,17 +252,17 @@ Browser* FindBrowserWithID(SessionID desired_id) {
     if (browser->session_id() == desired_id)
       return browser;
   }
-  return NULL;
+  return nullptr;
 }
 
 Browser* FindBrowserWithWindow(gfx::NativeWindow window) {
   if (!window)
-    return NULL;
+    return nullptr;
   for (auto* browser : *BrowserList::GetInstance()) {
     if (browser->window() && browser->window()->GetNativeWindow() == window)
       return browser;
   }
-  return NULL;
+  return nullptr;
 }
 
 Browser* FindBrowserWithActiveWindow() {
@@ -230,7 +273,7 @@ Browser* FindBrowserWithActiveWindow() {
 Browser* FindBrowserWithWebContents(const WebContents* web_contents) {
   DCHECK(web_contents);
   auto& all_tabs = AllTabContentses();
-  auto it = std::find(all_tabs.begin(), all_tabs.end(), web_contents);
+  auto it = base::ranges::find(all_tabs, web_contents);
 
   return (it == all_tabs.end()) ? nullptr : it.browser();
 }
@@ -239,7 +282,17 @@ Browser* FindBrowserWithGroup(tab_groups::TabGroupId group, Profile* profile) {
   for (auto* browser : *BrowserList::GetInstance()) {
     if ((!profile || browser->profile() == profile) &&
         browser->tab_strip_model() &&
+        browser->tab_strip_model()->group_model() &&
         browser->tab_strip_model()->group_model()->ContainsTabGroup(group)) {
+      return browser;
+    }
+  }
+  return nullptr;
+}
+
+Browser* FindBrowserWithUiElementContext(ui::ElementContext context) {
+  for (auto* browser : *BrowserList::GetInstance()) {
+    if (browser->window()->GetElementContext() == context) {
       return browser;
     }
   }
@@ -259,7 +312,7 @@ Browser* FindLastActive() {
   BrowserList* browser_list_impl = BrowserList::GetInstance();
   if (browser_list_impl)
     return browser_list_impl->GetLastActive();
-  return NULL;
+  return nullptr;
 }
 
 size_t GetTotalBrowserCount() {

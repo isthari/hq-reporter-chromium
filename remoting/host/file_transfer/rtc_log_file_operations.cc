@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,13 +6,13 @@
 
 #include <algorithm>
 
-#include "base/bind.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/notreached.h"
 #include "base/strings/stringprintf.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
 #include "remoting/protocol/connection_to_client.h"
 #include "remoting/protocol/file_transfer_helpers.h"
@@ -91,7 +91,7 @@ RtcLogFileReader::~RtcLogFileReader() = default;
 
 void RtcLogFileReader::Open(OpenCallback callback) {
   state_ = FileOperations::kBusy;
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(&RtcLogFileReader::DoOpen, weak_factory_.GetWeakPtr(),
                      std::move(callback)));
@@ -99,7 +99,7 @@ void RtcLogFileReader::Open(OpenCallback callback) {
 
 void RtcLogFileReader::ReadChunk(std::size_t size, ReadCallback callback) {
   state_ = FileOperations::kBusy;
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(&RtcLogFileReader::DoReadChunk, weak_factory_.GetWeakPtr(),
                      size, std::move(callback)));
@@ -195,7 +195,7 @@ int RtcLogFileReader::ReadPartially(int maximum_to_read,
 }
 
 void RtcLogFileWriter::Open(const base::FilePath& filename, Callback callback) {
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(
           std::move(callback),

@@ -1,4 +1,4 @@
-// Copyright 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 #include <cmath>
 #include <string>
 
-#include "base/bind.h"
 #include "base/check_op.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/trace_event/trace_event.h"
@@ -29,9 +29,7 @@ DelayBasedTimeSource::DelayBasedTimeSource(
       last_tick_time_(base::TimeTicks() - interval_),
       task_runner_(task_runner),
       tick_closure_(base::BindRepeating(&DelayBasedTimeSource::OnTimerTick,
-                                        base::Unretained(this))) {
-  timer_.SetTaskRunner(task_runner_.get());
-}
+                                        base::Unretained(this))) {}
 
 DelayBasedTimeSource::~DelayBasedTimeSource() = default;
 
@@ -44,6 +42,7 @@ void DelayBasedTimeSource::SetActive(bool active) {
   active_ = active;
 
   if (active_) {
+    timer_.SetTaskRunner(task_runner_.get());
     PostNextTickTask(Now());
   } else {
     timer_.Stop();
@@ -158,7 +157,7 @@ void DelayBasedTimeSource::PostNextTickTask(base::TimeTicks now) {
     DCHECK_GT(next_tick_time_, now);
   }
   timer_.Start(FROM_HERE, next_tick_time_, tick_closure_,
-               base::ExactDeadline(true));
+               base::subtle::DelayPolicy::kPrecise);
 }
 
 std::string DelayBasedTimeSource::TypeString() const {

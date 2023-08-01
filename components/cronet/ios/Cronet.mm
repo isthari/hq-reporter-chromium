@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,12 @@
 #include <memory>
 #include <vector>
 
+#include "base/apple/bundle_locations.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
-#include "base/mac/bundle_locations.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/synchronization/lock.h"
+#import "base/task/single_thread_task_runner.h"
 #include "components/cronet/cronet_global_state.h"
 #include "components/cronet/ios/accept_languages_table.h"
 #include "components/cronet/ios/cronet_environment.h"
@@ -85,6 +86,8 @@ class TestCertVerifier : public net::CertVerifier {
     return net::OK;
   }
   void SetConfig(const Config& config) override {}
+  void AddObserver(Observer* observer) override {}
+  void RemoveObserver(Observer* observer) override {}
 };
 
 // net::HTTPProtocolHandlerDelegate for Cronet.

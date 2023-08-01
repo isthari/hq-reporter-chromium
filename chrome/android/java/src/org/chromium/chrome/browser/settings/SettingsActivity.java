@@ -1,16 +1,21 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.settings;
 
 import android.annotation.SuppressLint;
+import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.res.Configuration;
+import android.content.res.TypedArray;
 import android.graphics.Color;
+import android.graphics.drawable.Drawable;
 import android.os.Build;
+import android.os.Build.VERSION;
 import android.os.Bundle;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -23,33 +28,38 @@ import androidx.appcompat.widget.Toolbar;
 import androidx.fragment.app.Fragment;
 import androidx.preference.Preference;
 import androidx.preference.PreferenceFragmentCompat;
-import androidx.vectordrawable.graphics.drawable.VectorDrawableCompat;
+import androidx.recyclerview.widget.RecyclerView;
 
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.IntentUtils;
+import org.chromium.base.supplier.OneshotSupplierImpl;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ApplicationLifetime;
 import org.chromium.chrome.browser.ChromeBaseAppCompatActivity;
+import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.LaunchIntentDispatcher;
+import org.chromium.chrome.browser.accessibility.settings.ChromeAccessibilitySettingsDelegate;
+import org.chromium.chrome.browser.back_press.BackPressHelper;
+import org.chromium.chrome.browser.back_press.BackPressManager;
+import org.chromium.chrome.browser.back_press.SecondaryActivityBackPressUma.SecondaryActivity;
 import org.chromium.chrome.browser.browsing_data.ClearBrowsingDataFragmentBasic;
 import org.chromium.chrome.browser.feedback.FragmentHelpAndFeedbackLauncher;
 import org.chromium.chrome.browser.feedback.HelpAndFeedbackLauncherImpl;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.history.HistoryActivity;
 import org.chromium.chrome.browser.image_descriptions.ImageDescriptionsController;
 import org.chromium.chrome.browser.image_descriptions.ImageDescriptionsSettings;
 import org.chromium.chrome.browser.init.ChromeBrowserInitializer;
 import org.chromium.chrome.browser.language.settings.LanguageSettings;
 import org.chromium.chrome.browser.locale.LocaleManager;
+import org.chromium.chrome.browser.page_info.SiteSettingsHelper;
 import org.chromium.chrome.browser.password_check.PasswordCheckComponentUiFactory;
-import org.chromium.chrome.browser.password_check.PasswordCheckEditFragmentView;
-import org.chromium.chrome.browser.password_check.PasswordCheckFactory;
 import org.chromium.chrome.browser.password_check.PasswordCheckFragmentView;
 import org.chromium.chrome.browser.password_entry_edit.CredentialEditUiFactory;
 import org.chromium.chrome.browser.password_entry_edit.CredentialEntryFragmentViewBase;
-import org.chromium.chrome.browser.privacy.settings.PrivacySettings;
-import org.chromium.chrome.browser.privacy_sandbox.AdPersonalizationFragment;
-import org.chromium.chrome.browser.privacy_sandbox.AdPersonalizationRemovedFragment;
-import org.chromium.chrome.browser.privacy_sandbox.FlocSettingsFragment;
-import org.chromium.chrome.browser.privacy_sandbox.PrivacySandboxSettingsFragment;
+import org.chromium.chrome.browser.privacy_guide.PrivacyGuideFragment;
+import org.chromium.chrome.browser.privacy_sandbox.AdMeasurementFragment;
+import org.chromium.chrome.browser.privacy_sandbox.PrivacySandboxSettingsBaseFragment;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.profiles.ProfileManagerUtils;
 import org.chromium.chrome.browser.safety_check.SafetyCheckCoordinator;
@@ -60,16 +70,26 @@ import org.chromium.chrome.browser.signin.SyncConsentActivityLauncherImpl;
 import org.chromium.chrome.browser.site_settings.ChromeSiteSettingsDelegate;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager.SnackbarManageable;
+import org.chromium.components.browser_ui.accessibility.AccessibilitySettings;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetControllerFactory;
+import org.chromium.components.browser_ui.modaldialog.AppModalPresenter;
+import org.chromium.components.browser_ui.settings.CustomDividerFragment;
 import org.chromium.components.browser_ui.settings.FragmentSettingsLauncher;
+import org.chromium.components.browser_ui.settings.PaddedDividerItemDecoration;
 import org.chromium.components.browser_ui.settings.SettingsLauncher;
+import org.chromium.components.browser_ui.site_settings.SiteSettingsCategory;
 import org.chromium.components.browser_ui.site_settings.SiteSettingsPreferenceFragment;
+import org.chromium.components.browser_ui.util.TraceEventVectorDrawableCompat;
 import org.chromium.components.browser_ui.widget.displaystyle.UiConfig;
 import org.chromium.components.browser_ui.widget.displaystyle.ViewResizer;
+import org.chromium.components.browser_ui.widget.gesture.BackPressHandler;
 import org.chromium.components.browser_ui.widget.scrim.ScrimCoordinator;
 import org.chromium.ui.KeyboardVisibilityDelegate;
 import org.chromium.ui.UiUtils;
+import org.chromium.ui.base.DeviceFormFactor;
+import org.chromium.ui.modaldialog.ModalDialogManager;
+import org.chromium.ui.modaldialog.ModalDialogManager.ModalDialogType;
 
 /**
  * The Chrome settings activity.
@@ -81,19 +101,8 @@ import org.chromium.ui.UiUtils;
  */
 public class SettingsActivity extends ChromeBaseAppCompatActivity
         implements PreferenceFragmentCompat.OnPreferenceStartFragmentCallback, SnackbarManageable {
-    /**
-     * Preference fragments may implement this interface to intercept "Back" button taps in this
-     * activity.
-     */
-    public interface OnBackPressedListener {
-        /**
-         * Called when the user taps "Back".
-         * @return Whether "Back" button was handled by the fragment. If this method returns false,
-         *         the activity should handle the event itself.
-         */
-        boolean onBackPressed();
-    }
-    static final String EXTRA_SHOW_FRAGMENT = "show_fragment";
+    @VisibleForTesting(otherwise = VisibleForTesting.PACKAGE_PRIVATE)
+    public static final String EXTRA_SHOW_FRAGMENT = "show_fragment";
     static final String EXTRA_SHOW_FRAGMENT_ARGUMENTS = "show_fragment_args";
 
     /** The current instance of SettingsActivity in the resumed state, if any. */
@@ -113,8 +122,13 @@ public class SettingsActivity extends ChromeBaseAppCompatActivity
 
     private BottomSheetController mBottomSheetController;
 
+    private OneshotSupplierImpl<BottomSheetController> mBottomSheetControllerSupplier =
+            new OneshotSupplierImpl<>();
+
     @Nullable
     private UiConfig mUiConfig;
+
+    private Profile mProfile;
 
     @SuppressLint("InlinedApi")
     @Override
@@ -127,6 +141,7 @@ public class SettingsActivity extends ChromeBaseAppCompatActivity
         // killed, or for tests. This should happen before super.onCreate() because it might
         // recreate a fragment, and a fragment might depend on the native library.
         ChromeBrowserInitializer.getInstance().handleSynchronousStartup();
+        mProfile = Profile.getLastUsedRegularProfile();
 
         super.onCreate(savedInstanceState);
 
@@ -147,11 +162,23 @@ public class SettingsActivity extends ChromeBaseAppCompatActivity
             if (initialFragment == null) initialFragment = MainSettings.class.getName();
 
             Fragment fragment = Fragment.instantiate(this, initialFragment, initialArguments);
-            getSupportFragmentManager().beginTransaction().replace(R.id.content, fragment).commit();
+            getSupportFragmentManager()
+                    .beginTransaction()
+                    .replace(R.id.content, fragment)
+                    // Set width constraints after commit is done, since recycler view is not
+                    // accessible before transaction completes.
+                    .runOnCommit(this::configureWideDisplayStyle)
+                    .commit();
+        } else {
+            // Still commit the wide screen configuration without replacing the fragment content.
+            // Using FragmentTransaction so that the config is set after view is created, and before
+            // fragment is shown.
+            getSupportFragmentManager()
+                    .beginTransaction()
+                    .runOnCommit(this::configureWideDisplayStyle)
+                    .commit();
         }
 
-        // Set width constraints
-        configureWideDisplayStyle();
         setStatusBarColor();
         initBottomSheet();
     }
@@ -171,11 +198,53 @@ public class SettingsActivity extends ChromeBaseAppCompatActivity
      */
     private void configureWideDisplayStyle() {
         if (mUiConfig == null) {
+            View content = findViewById(R.id.content);
+            RecyclerView recyclerView = findViewById(R.id.recycler_view);
+            // For settings with a recycler view, add paddings to the side so the content is
+            // scrollable; otherwise, add the padding to the content.
+            View paddedView = recyclerView == null ? content : recyclerView;
+            mUiConfig = new UiConfig(paddedView);
+
             int minWidePaddingPixels =
                     getResources().getDimensionPixelSize(R.dimen.settings_wide_display_min_padding);
-            View view = findViewById(R.id.content);
-            mUiConfig = new UiConfig(view);
-            ViewResizer.createAndAttach(view, mUiConfig, 0, minWidePaddingPixels);
+            ViewResizer.createAndAttach(paddedView, mUiConfig, 0, minWidePaddingPixels);
+
+            // Configure divider style if the fragment has a recycler view.
+            if (recyclerView != null && getMainFragment() instanceof PreferenceFragmentCompat) {
+                // Remove the default divider that PreferenceFragmentCompat initialized. This is a
+                // workaround as outer class has no access to the private DividerDecoration in
+                // PreferenceFragmentCompat. See https://crbug.com/1293429.
+                ((PreferenceFragmentCompat) getMainFragment()).setDivider(null);
+
+                CustomDividerFragment customDividerFragment =
+                        getMainFragment() instanceof CustomDividerFragment
+                        ? (CustomDividerFragment) getMainFragment()
+                        : null;
+                // Early return for Fragment implements CustomDividerFragment and explicitly don't
+                // want a divider.
+                if (customDividerFragment != null && !customDividerFragment.hasDivider()) {
+                    return;
+                }
+
+                // Configure the customized divider for the rest of the Fragments.
+                Drawable dividerDrawable = getDividerDrawable();
+                if (dividerDrawable == null) return;
+                PaddedDividerItemDecoration mDividerDecoration =
+                        new PaddedDividerItemDecoration(dividerDrawable);
+                mDividerDecoration.setPaddingStart(() -> {
+                    int dividerStartPadding = customDividerFragment != null
+                            ? customDividerFragment.getDividerStartPadding()
+                            : 0;
+                    return recyclerView.getPaddingStart() + dividerStartPadding;
+                });
+                mDividerDecoration.setPaddingEnd(() -> {
+                    int dividerEndPadding = customDividerFragment != null
+                            ? customDividerFragment.getDividerEndPadding()
+                            : 0;
+                    return recyclerView.getPaddingEnd() + dividerEndPadding;
+                });
+                recyclerView.addItemDecoration(mDividerDecoration);
+            }
         } else {
             mUiConfig.updateDisplayStyle();
         }
@@ -184,8 +253,8 @@ public class SettingsActivity extends ChromeBaseAppCompatActivity
     /** Set up the bottom sheet for this activity. */
     private void initBottomSheet() {
         ViewGroup sheetContainer = findViewById(R.id.sheet_container);
-        mScrim = new ScrimCoordinator(this,
-                new ScrimCoordinator.SystemUiScrimDelegate() {
+        mScrim =
+                new ScrimCoordinator(this, new ScrimCoordinator.SystemUiScrimDelegate() {
                     @Override
                     public void setStatusBarScrimFraction(float scrimFraction) {
                         // TODO: Implement if status bar needs to change color with the scrim.
@@ -195,15 +264,15 @@ public class SettingsActivity extends ChromeBaseAppCompatActivity
                     public void setNavigationBarScrimFraction(float scrimFraction) {
                         // TODO: Implement if navigation bar needs to change color with the scrim.
                     }
-                },
-                (ViewGroup) sheetContainer.getParent(),
-                ApiCompatibilityUtils.getColor(getResources(), R.color.default_scrim_color));
+                }, (ViewGroup) sheetContainer.getParent(), getColor(R.color.default_scrim_color));
 
         // clang-format off
         mBottomSheetController = BottomSheetControllerFactory.createBottomSheetController(
                 () -> mScrim, (sheet) -> {}, getWindow(),
                 KeyboardVisibilityDelegate.getInstance(), () -> sheetContainer);
         // clang-format on
+
+        mBottomSheetControllerSupplier.set(mBottomSheetController);
     }
 
     // OnPreferenceStartFragmentCallback:
@@ -243,12 +312,11 @@ public class SettingsActivity extends ChromeBaseAppCompatActivity
                                                           .getSiteSettingsDelegate());
             delegate.setSnackbarManager(mSnackbarManager);
         }
-        if (fragment instanceof AdPersonalizationFragment) {
-            ((AdPersonalizationFragment) fragment).setSnackbarManager(getSnackbarManager());
+        if (fragment instanceof PrivacySandboxSettingsBaseFragment) {
+            ((PrivacySandboxSettingsBaseFragment) fragment)
+                    .setSnackbarManager(getSnackbarManager());
         }
-        if (fragment instanceof AdPersonalizationRemovedFragment) {
-            ((AdPersonalizationRemovedFragment) fragment).setSnackbarManager(getSnackbarManager());
-        }
+        initBackPressHandler();
     }
 
     @Override
@@ -297,13 +365,12 @@ public class SettingsActivity extends ChromeBaseAppCompatActivity
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
-        super.onCreateOptionsMenu(menu);
         // By default, every screen in Settings shows a "Help & feedback" menu item.
         MenuItem help = menu.add(
                 Menu.NONE, R.id.menu_id_general_help, Menu.CATEGORY_SECONDARY, R.string.menu_help);
-        help.setIcon(VectorDrawableCompat.create(
+        help.setIcon(TraceEventVectorDrawableCompat.create(
                 getResources(), R.drawable.ic_help_and_feedback, getTheme()));
-        return true;
+        return super.onCreateOptionsMenu(menu);
     }
 
     @Override
@@ -326,34 +393,41 @@ public class SettingsActivity extends ChromeBaseAppCompatActivity
             finish();
             return true;
         } else if (item.getItemId() == R.id.menu_id_general_help) {
-            HelpAndFeedbackLauncherImpl.getInstance().show(this,
-                    getString(R.string.help_context_settings), Profile.getLastUsedRegularProfile(),
-                    null);
+            HelpAndFeedbackLauncherImpl.getForProfile(mProfile).show(
+                    this, getString(R.string.help_context_settings), null);
             return true;
         }
         return super.onOptionsItemSelected(item);
     }
 
-    @Override
-    public void onBackPressed() {
+    private void initBackPressHandler() {
         Fragment activeFragment = getMainFragment();
-        if (!(activeFragment instanceof OnBackPressedListener)) {
-            super.onBackPressed();
-            return;
-        }
-        OnBackPressedListener listener = (OnBackPressedListener) activeFragment;
-        if (!listener.onBackPressed()) {
-            // Fragment hasn't handled this event, fall back to AppCompatActivity handling.
-            super.onBackPressed();
+        if (BackPressManager.isSecondaryActivityEnabled()) {
+            if (activeFragment instanceof BackPressHandler) {
+                BackPressHelper.create(activeFragment.getViewLifecycleOwner(),
+                        getOnBackPressedDispatcher(), (BackPressHandler) activeFragment,
+                        SecondaryActivity.SETTINGS);
+            }
+        } else if (activeFragment instanceof BackPressHelper.ObsoleteBackPressedHandler) {
+            BackPressHelper.create(activeFragment.getViewLifecycleOwner(),
+                    getOnBackPressedDispatcher(),
+                    (BackPressHelper.ObsoleteBackPressedHandler) activeFragment,
+                    SecondaryActivity.SETTINGS);
         }
     }
 
     @Override
     public void onAttachFragment(Fragment fragment) {
+        if (fragment instanceof ProfileDependentSetting) {
+            ((ProfileDependentSetting) fragment).setProfile(mProfile);
+        }
+        if (fragment instanceof MainSettings) {
+            ((MainSettings) fragment)
+                    .setModalDialogManagerSupplier(getModalDialogManagerSupplier());
+        }
         if (fragment instanceof SiteSettingsPreferenceFragment) {
             ((SiteSettingsPreferenceFragment) fragment)
-                    .setSiteSettingsDelegate(new ChromeSiteSettingsDelegate(
-                            this, Profile.getLastUsedRegularProfile()));
+                    .setSiteSettingsDelegate(new ChromeSiteSettingsDelegate(this, mProfile));
         }
         if (fragment instanceof FragmentSettingsLauncher) {
             FragmentSettingsLauncher fragmentSettingsLauncher = (FragmentSettingsLauncher) fragment;
@@ -363,26 +437,22 @@ public class SettingsActivity extends ChromeBaseAppCompatActivity
             FragmentHelpAndFeedbackLauncher fragmentHelpAndFeedbackLauncher =
                     (FragmentHelpAndFeedbackLauncher) fragment;
             fragmentHelpAndFeedbackLauncher.setHelpAndFeedbackLauncher(
-                    HelpAndFeedbackLauncherImpl.getInstance());
+                    HelpAndFeedbackLauncherImpl.getForProfile(mProfile));
         }
         if (fragment instanceof SafetyCheckSettingsFragment) {
             SafetyCheckCoordinator.create((SafetyCheckSettingsFragment) fragment,
-                    new SafetyCheckUpdatesDelegateImpl(this), mSettingsLauncher,
-                    SyncConsentActivityLauncherImpl.get());
+                    new SafetyCheckUpdatesDelegateImpl(), mSettingsLauncher,
+                    SyncConsentActivityLauncherImpl.get(), getModalDialogManagerSupplier());
         }
         if (fragment instanceof PasswordCheckFragmentView) {
             PasswordCheckComponentUiFactory.create((PasswordCheckFragmentView) fragment,
-                    HelpAndFeedbackLauncherImpl.getInstance(), mSettingsLauncher,
+                    HelpAndFeedbackLauncherImpl.getForProfile(mProfile), mSettingsLauncher,
                     LaunchIntentDispatcher::createCustomTabActivityIntent,
                     IntentUtils::addTrustedIntentExtras);
-        } else if (fragment instanceof PasswordCheckEditFragmentView) {
-            PasswordCheckEditFragmentView editFragment = (PasswordCheckEditFragmentView) fragment;
-            editFragment.setCheckProvider(
-                    () -> PasswordCheckFactory.getOrCreate(mSettingsLauncher));
         }
         if (fragment instanceof CredentialEntryFragmentViewBase) {
             CredentialEditUiFactory.create((CredentialEntryFragmentViewBase) fragment,
-                    HelpAndFeedbackLauncherImpl.getInstance());
+                    HelpAndFeedbackLauncherImpl.getForProfile(mProfile));
         }
         if (fragment instanceof SearchEngineSettings) {
             SearchEngineSettings settings = (SearchEngineSettings) fragment;
@@ -391,27 +461,41 @@ public class SettingsActivity extends ChromeBaseAppCompatActivity
             settings.setSettingsLauncher(mSettingsLauncher);
         }
         if (fragment instanceof ImageDescriptionsSettings) {
-            Profile profile = Profile.getLastUsedRegularProfile();
             ImageDescriptionsSettings imageFragment = (ImageDescriptionsSettings) fragment;
             Bundle extras = imageFragment.getArguments();
             if (extras != null) {
                 extras.putBoolean(ImageDescriptionsSettings.IMAGE_DESCRIPTIONS,
                         ImageDescriptionsController.getInstance().imageDescriptionsEnabled(
-                                profile));
+                                mProfile));
                 extras.putBoolean(ImageDescriptionsSettings.IMAGE_DESCRIPTIONS_DATA_POLICY,
-                        ImageDescriptionsController.getInstance().onlyOnWifiEnabled(profile));
+                        ImageDescriptionsController.getInstance().onlyOnWifiEnabled(mProfile));
             }
             imageFragment.setDelegate(ImageDescriptionsController.getInstance().getDelegate());
         }
-        if (fragment instanceof PrivacySandboxSettingsFragment) {
-            ((PrivacySandboxSettingsFragment) fragment)
-                    .setCustomTabIntentHelper(
-                            LaunchIntentDispatcher::createCustomTabActivityIntent);
+        if (fragment instanceof PrivacySandboxSettingsBaseFragment) {
+            PrivacySandboxSettingsBaseFragment sandboxFragment =
+                    (PrivacySandboxSettingsBaseFragment) fragment;
+            sandboxFragment.setCustomTabIntentHelper(
+                    LaunchIntentDispatcher::createCustomTabActivityIntent);
+            sandboxFragment.setCookieSettingsIntentHelper((Context context) -> {
+                assert ChromeFeatureList.isEnabled(ChromeFeatureList.PRIVACY_SANDBOX_SETTINGS_4)
+                    : "PrivacySandboxSettings4 is disabled";
+                SiteSettingsHelper.showCategorySettings(
+                        context, mProfile, SiteSettingsCategory.Type.THIRD_PARTY_COOKIES);
+            });
         }
-        if (fragment instanceof FlocSettingsFragment) {
-            ((FlocSettingsFragment) fragment)
-                    .setCustomTabIntentHelper(
-                            LaunchIntentDispatcher::createCustomTabActivityIntent);
+        if (fragment instanceof AdMeasurementFragment) {
+            // Unlike HistoryManagerUtils, which opens History in a tab on Tablets, this always
+            // opens history in a new activity on top of the SettingsActivity.
+            Runnable openHistoryRunnable = () -> {
+                // TODO(crbug.com/1286276): Opening History overrides the last active tab. Fix it.
+                Activity activity = fragment.getActivity();
+                Intent intent = new Intent();
+                intent.setClass(activity, HistoryActivity.class);
+                intent.putExtra(IntentHandler.EXTRA_INCOGNITO_MODE, false);
+                activity.startActivity(intent);
+            };
+            ((AdMeasurementFragment) fragment).setSetHistoryHelper(openHistoryRunnable);
         }
         if (fragment instanceof LanguageSettings) {
             ((LanguageSettings) fragment).setRestartAction(() -> {
@@ -423,9 +507,16 @@ public class SettingsActivity extends ChromeBaseAppCompatActivity
                     .setCustomTabIntentHelper(
                             LaunchIntentDispatcher::createCustomTabActivityIntent);
         }
-        if (fragment instanceof PrivacySettings) {
-            ((PrivacySettings) fragment).setBottomSheetController(mBottomSheetController);
-            ((PrivacySettings) fragment).setDialogContainer(findViewById(R.id.dialog_container));
+        if (fragment instanceof PrivacyGuideFragment) {
+            PrivacyGuideFragment pgFragment = (PrivacyGuideFragment) fragment;
+            pgFragment.setBottomSheetControllerSupplier(mBottomSheetControllerSupplier);
+            pgFragment.setCustomTabIntentHelper(
+                    LaunchIntentDispatcher::createCustomTabActivityIntent);
+            pgFragment.setSettingsLauncher(mSettingsLauncher);
+        }
+        if (fragment instanceof AccessibilitySettings) {
+            ((AccessibilitySettings) fragment)
+                    .setDelegate(new ChromeAccessibilitySettingsDelegate(mProfile));
         }
     }
 
@@ -456,12 +547,15 @@ public class SettingsActivity extends ChromeBaseAppCompatActivity
      */
     private void setStatusBarColor() {
         // On P+, the status bar color is set via the XML theme.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) return;
+        if ((!DeviceFormFactor.isNonMultiDisplayContextOnTablet(this)
+                    && VERSION.SDK_INT >= Build.VERSION_CODES.P)
+                || (DeviceFormFactor.isNonMultiDisplayContextOnTablet(this)
+                        && !ChromeFeatureList.sTabStripRedesign.isEnabled()
+                        && VERSION.SDK_INT >= Build.VERSION_CODES.P)) {
+            return;
+        }
 
         if (UiUtils.isSystemUiThemingDisabled()) return;
-
-        // Dark status icons only supported on M+.
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
 
         // Use transparent color, so the AppBarLayout can color the status bar on scroll.
         ApiCompatibilityUtils.setStatusBarColor(getWindow(), Color.TRANSPARENT);
@@ -469,5 +563,21 @@ public class SettingsActivity extends ChromeBaseAppCompatActivity
         // Set status bar icon color according to background color.
         ApiCompatibilityUtils.setStatusBarIconColor(getWindow().getDecorView().getRootView(),
                 getResources().getBoolean(R.bool.window_light_status_bar));
+    }
+
+    @Override
+    protected ModalDialogManager createModalDialogManager() {
+        return new ModalDialogManager(new AppModalPresenter(this), ModalDialogType.APP);
+    }
+
+    // Get the divider drawable from AndroidX Pref attribute to keep things consistent.
+    private Drawable getDividerDrawable() {
+        TypedArray ta = obtainStyledAttributes(null, R.styleable.PreferenceFragmentCompat,
+                R.attr.preferenceFragmentCompatStyle, 0);
+        final Drawable divider =
+                ta.getDrawable(R.styleable.PreferenceFragmentCompat_android_divider);
+        ta.recycle();
+
+        return divider;
     }
 }

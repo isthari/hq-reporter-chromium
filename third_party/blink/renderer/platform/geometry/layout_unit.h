@@ -35,6 +35,7 @@
 #include <iosfwd>
 #include <limits>
 
+#include "base/check_op.h"
 #include "base/compiler_specific.h"
 #include "base/dcheck_is_on.h"
 #include "base/logging.h"
@@ -44,6 +45,7 @@
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
+#include "third_party/blink/renderer/platform/wtf/vector_traits.h"
 
 namespace blink {
 
@@ -89,13 +91,22 @@ ALWAYS_INLINE int GetMinSaturatedSetResultForTesting() {
 class PLATFORM_EXPORT LayoutUnit;
 constexpr bool operator<(const LayoutUnit&, const LayoutUnit&);
 
+// LayoutUnit is a fixed-point math class, storing multiples of 1/64 of a pixel.
+// See: https://trac.webkit.org/wiki/LayoutUnit
 class LayoutUnit {
   DISALLOW_NEW();
 
  public:
   constexpr LayoutUnit() : value_(0) {}
+  // Creates a LayoutUnit with the specified integer value.
+  // If the specified value is smaller than LayoutUnit::Min(), the new
+  // LayoutUnit is equivalent to LayoutUnit::Min().
+  // If the specified value is greater than the maximum integer value which
+  // LayoutUnit can represent, the new LayoutUnit is equivalent to
+  // LayoutUnit(kIntMaxForLayoutUnit) in 32-bit Arm, or is equivalent to
+  // LayoutUnit::Max() otherwise.
   template <typename IntegerType>
-  constexpr explicit LayoutUnit(IntegerType value) {
+  constexpr explicit LayoutUnit(IntegerType value) : value_(0) {
     if (std::is_signed<IntegerType>::value)
       SaturatedSet(static_cast<int>(value));
     else
@@ -103,6 +114,8 @@ class LayoutUnit {
   }
   constexpr explicit LayoutUnit(uint64_t value)
       : value_(base::saturated_cast<int>(value * kFixedPointDenominator)) {}
+  // A |value| is clamped by Min() and Max().
+  // A NaN |value| produces LayoutUnit(0).
   constexpr explicit LayoutUnit(float value)
       : value_(base::saturated_cast<int>(value * kFixedPointDenominator)) {}
   constexpr explicit LayoutUnit(double value)
@@ -361,16 +374,16 @@ class LayoutUnit {
     value_ = result;
   }
 #else  // end of 32-bit ARM GCC
-  constexpr ALWAYS_INLINE void SaturatedSet(int value) {
+  ALWAYS_INLINE constexpr void SaturatedSet(int value) {
     SaturatedSetNonAsm(value);
   }
 
-  constexpr ALWAYS_INLINE void SaturatedSet(unsigned value) {
+  ALWAYS_INLINE constexpr void SaturatedSet(unsigned value) {
     SaturatedSetNonAsm(value);
   }
 #endif
 
-  constexpr ALWAYS_INLINE void SaturatedSetNonAsm(int value) {
+  ALWAYS_INLINE constexpr void SaturatedSetNonAsm(int value) {
     if (value > kIntMaxForLayoutUnit)
       value_ = std::numeric_limits<int>::max();
     else if (value < kIntMinForLayoutUnit)
@@ -379,7 +392,7 @@ class LayoutUnit {
       value_ = static_cast<unsigned>(value) << kLayoutUnitFractionalBits;
   }
 
-  constexpr ALWAYS_INLINE void SaturatedSetNonAsm(unsigned value) {
+  ALWAYS_INLINE constexpr void SaturatedSetNonAsm(unsigned value) {
     if (value >= static_cast<unsigned>(kIntMaxForLayoutUnit))
       value_ = std::numeric_limits<int>::max();
     else
@@ -818,5 +831,7 @@ PLATFORM_EXPORT WTF::TextStream& operator<<(WTF::TextStream&,
                                             const LayoutUnit&);
 
 }  // namespace blink
+
+WTF_ALLOW_MOVE_INIT_AND_COMPARE_WITH_MEM_FUNCTIONS(blink::LayoutUnit)
 
 #endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_GEOMETRY_LAYOUT_UNIT_H_

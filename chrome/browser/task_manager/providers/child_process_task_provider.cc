@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <memory>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/process/process.h"
 #include "chrome/browser/task_manager/providers/child_process_task.h"
 #include "content/public/browser/browser_child_process_host_iterator.h"
@@ -56,8 +56,6 @@ void ChildProcessTaskProvider::StartUpdating() {
   DCHECK(tasks_by_child_id_.empty());
 
   // First, get the pre-existing child processes data.
-  std::unique_ptr<std::vector<ChildProcessData>> child_processes(
-      new std::vector<ChildProcessData>());
   for (BrowserChildProcessHostIterator itr; !itr.Done(); ++itr) {
     const ChildProcessData& process_data = itr.GetData();
 
@@ -65,11 +63,8 @@ void ChildProcessTaskProvider::StartUpdating() {
     if (!process_data.GetProcess().IsValid())
       continue;
 
-    child_processes->push_back(process_data.Duplicate());
-  }
-
-  for (const auto& process_data : *child_processes)
     CreateTask(process_data);
+  }
 
   // Now start observing.
   BrowserChildProcessObserver::Add(this);

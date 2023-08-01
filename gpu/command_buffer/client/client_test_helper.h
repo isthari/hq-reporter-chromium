@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -69,6 +69,7 @@ class MockClientCommandBuffer : public CommandBuffer,
   scoped_refptr<gpu::Buffer> CreateTransferBuffer(
       uint32_t size,
       int32_t* id,
+      uint32_t alignment = 0,
       TransferBufferAllocationOption option =
           TransferBufferAllocationOption::kLoseContextOnOOM) override;
 
@@ -84,6 +85,8 @@ class MockClientCommandBuffer : public CommandBuffer,
   int32_t GetServicePutOffset() { return put_offset_; }
 
   void SetTokenForSetGetBuffer(int32_t token) { token_ = token; }
+
+  void ForceLostContext(error::ContextLostReason reason) override;
 
  private:
   int32_t put_offset_ = 0;
@@ -156,7 +159,9 @@ class FakeDecoderClient : public DecoderClient {
  public:
   ~FakeDecoderClient() override;
   void OnConsoleMessage(int32_t id, const std::string& message) override;
-  void CacheShader(const std::string& key, const std::string& shader) override;
+  void CacheBlob(gpu::GpuDiskCacheType type,
+                 const std::string& key,
+                 const std::string& shader) override;
   void OnFenceSyncRelease(uint64_t release) override;
   void OnDescheduleUntilFinished() override;
   void OnRescheduleAfterFinished() override;

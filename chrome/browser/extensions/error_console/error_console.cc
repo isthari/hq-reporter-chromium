@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,10 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/lazy_instance.h"
+#include "base/observer_list.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/extensions/error_console/error_console_factory.h"
 #include "chrome/common/pref_names.h"
@@ -23,6 +24,7 @@
 #include "extensions/common/feature_switch.h"
 #include "extensions/common/features/feature_channel.h"
 #include "extensions/common/logging_constants.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace extensions {
 
@@ -94,7 +96,7 @@ void ErrorConsole::SetReportingForExtension(const std::string& extension_id,
     mask &= ~(1 << type);
 
   prefs_->UpdateExtensionPref(extension_id, kStoreExtensionErrorsPref,
-                              std::make_unique<base::Value>(mask));
+                              base::Value(mask));
 }
 
 void ErrorConsole::SetReportingAllForExtension(
@@ -106,7 +108,7 @@ void ErrorConsole::SetReportingAllForExtension(
   int mask = enabled ? (1 << ExtensionError::NUM_ERROR_TYPES) - 1 : 0;
 
   prefs_->UpdateExtensionPref(extension_id, kStoreExtensionErrorsPref,
-                              std::make_unique<base::Value>(mask));
+                              base::Value(mask));
 }
 
 bool ErrorConsole::IsReportingEnabledForExtension(
@@ -124,7 +126,8 @@ void ErrorConsole::UseDefaultReportingForExtension(
   if (!enabled_ || !crx_file::id_util::IdIsValid(extension_id))
     return;
 
-  prefs_->UpdateExtensionPref(extension_id, kStoreExtensionErrorsPref, nullptr);
+  prefs_->UpdateExtensionPref(extension_id, kStoreExtensionErrorsPref,
+                              absl::nullopt);
 }
 
 void ErrorConsole::ReportError(std::unique_ptr<ExtensionError> error) {

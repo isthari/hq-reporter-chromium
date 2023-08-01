@@ -1,24 +1,27 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 #ifndef CHROME_BROWSER_CART_CART_SERVICE_H_
 #define CHROME_BROWSER_CART_CART_SERVICE_H_
 
-#include "base/callback_helpers.h"
+#include "base/containers/flat_map.h"
+#include "base/functional/callback_helpers.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
 #include "base/values.h"
 #include "chrome/browser/cart/cart_db.h"
-#include "chrome/browser/cart/cart_db_content.pb.h"
 #include "chrome/browser/cart/cart_discount_link_fetcher.h"
 #include "chrome/browser/cart/cart_metrics_tracker.h"
 #include "chrome/browser/cart/cart_service_factory.h"
+#include "chrome/browser/cart/chrome_cart.mojom.h"
 #include "chrome/browser/cart/discount_url_loader.h"
 #include "chrome/browser/cart/fetch_discount_worker.h"
 #include "chrome/browser/commerce/coupons/coupon_service.h"
 #include "chrome/browser/profiles/profile.h"
+#include "components/commerce/core/discount_consent_handler.h"
+#include "components/commerce/core/proto/cart_db_content.pb.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/history_service_observer.h"
 #include "components/keyed_service/core/keyed_service.h"
@@ -26,28 +29,35 @@
 #include "components/prefs/pref_registry_simple.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
+#include "chrome/browser/ui/browser.h"
+
 class DiscountURLLoader;
 class FetchDiscountWorker;
+
+namespace commerce {
+class ShoppingService;
+}
 
 // Service to maintain and read/write data for chrome cart module.
 // TODO(crbug.com/1253633) Make this BrowserContext-based and get rid of Profile
 // usage so that we can modularize this.
 class CartService : public history::HistoryServiceObserver,
-                    public KeyedService {
+                    public KeyedService,
+                    public commerce::DiscountConsentHandler {
  public:
   // The maximum number of times that cart welcome surface shows.
   static constexpr int kWelcomSurfaceShowLimit = 3;
+  // The number of days since creation for a cart to be considered expired.
+  static constexpr int kCartExpirationTimeInDays = 14;
 
+  // Use |CartServiceFactory::GetForProfile(...)| to get an instance of this
+  // service.
+  explicit CartService(Profile* profile);
   CartService(const CartService&) = delete;
   CartService& operator=(const CartService&) = delete;
   ~CartService() override;
 
   static void RegisterProfilePrefs(PrefRegistrySimple* registry);
-  // Appends utm_source to the end of |base_url|. It will append only for
-  // partner merchants and the RBD fast path flag is on, will append
-  // "chrome_cart_no_rbd" when is_discount_enabled is false, and
-  // "chrome_cart_rbd" when is_discount_enabled is true.
-  static GURL AppendUTM(const GURL& base_url, bool is_discount_enabled);
   // Gets called when cart module is temporarily hidden.
   void Hide();
   // Gets called when restoring the temporarily hidden cart module.
@@ -59,9 +69,9 @@ class CartService : public history::HistoryServiceObserver,
   // Load the cart for a domain.
   void LoadCart(const std::string& domain, CartDB::LoadCallback callback);
   // Load all active carts in this service.
-  void LoadAllActiveCarts(CartDB::LoadCallback callback);
+  virtual void LoadAllActiveCarts(CartDB::LoadCallback callback);
   // Add a cart to the cart service.
-  void AddCart(const std::string& domain,
+  void AddCart(const GURL& navigation_url,
                const absl::optional<GURL>& cart_url,
                const cart_db::ChromeCartContentProto& proto);
   // Delete the cart from the same domain as |url| in the cart service. When not
@@ -90,13 +100,12 @@ class CartService : public history::HistoryServiceObserver,
   // Returns whether to show the welcome surface in module. It is related to how
   // many times the welcome surface has shown.
   bool ShouldShowWelcomeSurface();
-  // Gets called when user has acknowledged the discount consent in cart module.
-  // shouldEnable indicates whether user has chosen to opt-in or opt-out the
-  // feature.
-  void AcknowledgeDiscountConsent(bool should_enable);
   // Decides whether to show the consent card in module for rule-based discount,
   // and returns it in the callback.
   void ShouldShowDiscountConsent(base::OnceCallback<void(bool)> callback);
+  // Decides whether to show the discount toggle in the customize_modules
+  // setting page.
+  bool ShouldShowDiscountToggle();
   // Returns whether the rule-based discount feature in cart module is enabled,
   // and user has chosen to opt-in the feature.
   bool IsCartDiscountEnabled();
@@ -126,9 +135,43 @@ class CartService : public history::HistoryServiceObserver,
   // KeyedService:
   void Shutdown() override;
 
+  // commerce::DiscountConsentHandler:
+  // Gets called when user has acknowledged the discount consent in cart module.
+  // `shouldEnable` indicates whether user has chosen to opt-in or opt-out the
+  // feature.
+  void AcknowledgeDiscountConsent(bool should_enable) override;
+  // Gets called when user has dismissed the discount consent in cart module.
+  void DismissedDiscountConsent() override;
+  // Gets called when user has click the 'Continue' button in the discount
+  // consent.
+  void InterestedInDiscountConsent() override;
+
+  // This is used when the NativeDialog variation is active. It gets called
+  // when user has clicked the 'Continue' button in the discount consent.
+  void ShowNativeConsentDialog(
+      Browser* browser,
+      base::OnceCallback<void(chrome_cart::mojom::ConsentStatus)>
+          consent_status_callback);
+  // Appends UTM tags to the end of |base_url|. It will always append
+  // "utm_source=chrome" and "utm_medium=app". It will also append
+  // "utm_campaign" which can be one of the below three values:
+  // * "utm_campaign=chrome-cart" for non-partner merchant carts.
+  // * "utm_campaign=chrome-cart-discount-on" for partner merchant carts with
+  //   discount enabled.
+  // * "utm_campaign=chrome-cart-discount-off" for partner merchant carts with
+  //   discount disabled.
+  const GURL AppendUTM(const GURL& base_url);
+  // Checks if there is an active abandoned cart for the domain of |url|, and
+  // returns the result in the callback.
+  virtual void HasActiveCartForURL(const GURL& url,
+                                   base::OnceCallback<void(bool)> callback);
+  // Checks if the cart feature is enabled based on user's setting.
+  virtual bool IsCartEnabled();
+
  private:
   friend class CartServiceFactory;
   friend class CartServiceTest;
+  friend class CartServiceDiscountConsentV2Test;
   friend class CartServiceDiscountTest;
   friend class CartServiceBrowserDiscountTest;
   friend class CartServiceDiscountFetchTest;
@@ -137,9 +180,6 @@ class CartService : public history::HistoryServiceObserver,
   FRIEND_TEST_ALL_PREFIXES(CartHandlerNtpModuleFakeDataTest,
                            TestEnableFakeData);
 
-  // Use |CartServiceFactory::GetForProfile(...)| to get an instance of this
-  // service.
-  explicit CartService(Profile* profile);
   // Callback when a database operation (e.g. insert or delete) is finished.
   void OnOperationFinished(bool success);
   // Callback when a database operation (e.g. insert or delete) is finished.
@@ -168,7 +208,7 @@ class CartService : public history::HistoryServiceObserver,
                             bool success,
                             std::vector<CartDB::KeyAndValue> proto_pairs);
   // A callback to handle adding a cart.
-  void OnAddCart(const std::string& domain,
+  void OnAddCart(const GURL& navigation_url,
                  const absl::optional<GURL>& cart_url,
                  cart_db::ChromeCartContentProto proto,
                  bool success,
@@ -210,13 +250,22 @@ class CartService : public history::HistoryServiceObserver,
   void OnCartFeaturesChanged(const std::string& pref_name);
   // Get if cart and discount feature are both enabled.
   bool IsCartAndDiscountEnabled();
+  // Get calls when Cart module loads.
+  void RecordDiscountConsentStatusAtLoad(bool should_show_consent);
+  // Checks if a cart has expired.
+  bool IsCartExpired(const cart_db::ChromeCartContentProto& proto);
+  void HasActiveCartForURLCallback(
+      base::OnceCallback<void(bool)> callback,
+      bool success,
+      std::vector<CartDB::KeyAndValue> proto_pairs);
+  void MaybeCommitDeletion(GURL url);
 
   raw_ptr<Profile> profile_;
   std::unique_ptr<CartDB> cart_db_;
   base::ScopedObservation<history::HistoryService, HistoryServiceObserver>
       history_service_observation_{this};
-  absl::optional<base::Value> domain_name_mapping_;
-  absl::optional<base::Value> domain_cart_url_mapping_;
+  base::Value::Dict domain_name_mapping_;
+  base::Value::Dict domain_cart_url_mapping_;
   std::unique_ptr<FetchDiscountWorker> fetch_discount_worker_;
   std::unique_ptr<FetchDiscountWorker> fetch_discount_worker_for_testing_;
   std::unique_ptr<CartDiscountLinkFetcher> discount_link_fetcher_;
@@ -226,6 +275,9 @@ class CartService : public history::HistoryServiceObserver,
   std::unique_ptr<DiscountURLLoader> discount_url_loader_;
   raw_ptr<CouponService> coupon_service_;
   PrefChangeRegistrar pref_change_registrar_;
+  raw_ptr<commerce::ShoppingService, DanglingUntriaged> shopping_service_;
+  base::flat_map<std::string, cart_db::ChromeCartContentProto>
+      pending_deletion_map_;
   base::WeakPtrFactory<CartService> weak_ptr_factory_{this};
 };
 

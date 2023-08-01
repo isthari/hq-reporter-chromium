@@ -1,21 +1,22 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.content.browser.input;
 
 import android.graphics.Matrix;
+import android.os.Build;
 import android.view.View;
 import android.view.inputmethod.CursorAnchorInfo;
+import android.view.inputmethod.EditorBoundsInfo;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.content_public.browser.InputMethodManagerWrapper;
 
 import java.util.Arrays;
-
-import javax.annotation.Nonnull;
 
 /**
  * A state machine interface which receives Chromium internal events to determines when to call
@@ -46,10 +47,10 @@ final class CursorAnchorInfoController {
     private boolean mHasPendingImmediateRequest;
     private boolean mMonitorModeEnabled;
 
-    // Parmeter for CursorAnchorInfo, updated by setCompositionCharacterBounds.
+    // Parameter for CursorAnchorInfo, updated by setCompositionCharacterBounds.
     @Nullable
     private float[] mCompositionCharacterBounds;
-    // Paremeters for CursorAnchorInfo, updated by onUpdateFrameInfo.
+    // Parameters for CursorAnchorInfo, updated by onUpdateFrameInfo.
     private boolean mHasCoordinateInfo;
     private float mScale;
     private float mTranslationX;
@@ -60,14 +61,18 @@ final class CursorAnchorInfoController {
     private float mInsertionMarkerTop;
     private float mInsertionMarkerBottom;
 
+    // Data updated on stylus writing.
+    @Nullable
+    private EditorBoundsInfo mEditorBoundsInfo;
+
     @Nullable
     private CursorAnchorInfo mLastCursorAnchorInfo;
 
-    @Nonnull
+    @NonNull
     private final Matrix mMatrix = new Matrix();
-    @Nonnull
+    @NonNull
     private final int[] mViewOrigin = new int[2];
-    @Nonnull
+    @NonNull
     private final CursorAnchorInfo.Builder mCursorAnchorInfoBuilder =
             new CursorAnchorInfo.Builder();
 
@@ -75,7 +80,7 @@ final class CursorAnchorInfoController {
     private InputMethodManagerWrapper mInputMethodManagerWrapper;
     @Nullable
     private final ComposingTextDelegate mComposingTextDelegate;
-    @Nonnull
+    @NonNull
     private final ViewDelegate mViewDelegate;
 
     private CursorAnchorInfoController(InputMethodManagerWrapper inputMethodManagerWrapper,
@@ -137,6 +142,22 @@ final class CursorAnchorInfoController {
     }
 
     /**
+     * Sends one CursorAnchorInfo object with the EditorBoundsInfo field set. All subsequent
+     * CursorAnchorInfo updates will not have this field set unless they are sent through this
+     * method.
+     * @param editorBoundsInfo The EditorBoundsInfo sent with the CursorAnchorInfo. This is not
+     *         cached.
+     * @param view The attached view.
+     */
+    public void updateWithEditorBoundsInfo(EditorBoundsInfo editorBoundsInfo, View view) {
+        if (!mIsEditable) return;
+        mLastCursorAnchorInfo = null;
+        mEditorBoundsInfo = editorBoundsInfo;
+        updateCursorAnchorInfo(view);
+        mEditorBoundsInfo = null;
+    }
+
+    /**
      * Sets coordinates system parameters and selection marker information.
      * @param scale device scale factor.
      * @param contentOffsetYPix Y offset below the browser controls.
@@ -149,7 +170,7 @@ final class CursorAnchorInfoController {
      */
     public void onUpdateFrameInfo(float scale, float contentOffsetYPix, boolean hasInsertionMarker,
             boolean isInsertionMarkerVisible, float insertionMarkerHorizontal,
-            float insertionMarkerTop, float insertionMarkerBottom, @Nonnull View view) {
+            float insertionMarkerTop, float insertionMarkerBottom, @NonNull View view) {
         if (!mIsEditable) return;
 
         // Reuse {@param #mViewOrigin} to avoid object creation, as this method is supposed to be
@@ -254,6 +275,9 @@ final class CursorAnchorInfoController {
             mMatrix.setScale(mScale, mScale);
             mMatrix.postTranslate(mTranslationX, mTranslationY);
             mCursorAnchorInfoBuilder.setMatrix(mMatrix);
+            if (mEditorBoundsInfo != null && Build.VERSION.SDK_INT > Build.VERSION_CODES.TIRAMISU) {
+                mCursorAnchorInfoBuilder.setEditorBoundsInfo(mEditorBoundsInfo);
+            }
             if (mHasInsertionMarker) {
                 mCursorAnchorInfoBuilder.setInsertionMarkerLocation(
                         mInsertionMarkerHorizontal,

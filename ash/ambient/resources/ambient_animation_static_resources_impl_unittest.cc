@@ -1,11 +1,14 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/ambient/resources/ambient_animation_static_resources.h"
 
-#include "ash/public/cpp/ambient/ambient_animation_theme.h"
+#include "ash/ambient/ambient_ui_settings.h"
+#include "ash/ambient/resources/ambient_animation_resource_constants.h"
+#include "ash/constants/ambient_theme.h"
 #include "base/json/json_reader.h"
+#include "cc/paint/skottie_wrapper.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gfx/image/image_skia.h"
@@ -24,38 +27,35 @@ using ::testing::NotNull;
 
 TEST(AmbientAnimationStaticResourcesTest, LoadsLottieData) {
   auto resources = AmbientAnimationStaticResources::Create(
-      AmbientAnimationTheme::kFeelTheBreeze);
-  ASSERT_THAT(resources, NotNull());
-  ASSERT_THAT(resources->GetLottieData(), Not(IsEmpty()));
-  EXPECT_TRUE(base::JSONReader::Read(resources->GetLottieData()));
+      AmbientUiSettings(AmbientTheme::kFeelTheBreeze), /*serializable=*/false);
+  ASSERT_THAT(resources->GetSkottieWrapper(), NotNull());
+  EXPECT_TRUE(resources->GetSkottieWrapper()->is_valid());
 }
 
 TEST(AmbientAnimationStaticResourcesTest, LoadsStaticAssets) {
   auto resources = AmbientAnimationStaticResources::Create(
-      AmbientAnimationTheme::kFeelTheBreeze);
+      AmbientUiSettings(AmbientTheme::kFeelTheBreeze), /*serializable=*/false);
   ASSERT_THAT(resources, NotNull());
-  gfx::ImageSkia clips_bottom_original =
-      resources->GetStaticImageAsset("clips_bottom.png");
-  ASSERT_FALSE(clips_bottom_original.isNull());
-  gfx::ImageSkia clips_bottom_reloaded =
-      resources->GetStaticImageAsset("clips_bottom.png");
-  ASSERT_FALSE(clips_bottom_reloaded.isNull());
-  EXPECT_TRUE(
-      clips_bottom_reloaded.BackedBySameObjectAs(clips_bottom_original));
-
-  gfx::ImageSkia clips_top = resources->GetStaticImageAsset("clips_top.png");
-  EXPECT_FALSE(clips_top.isNull());
+  for (base::StringPiece asset_id :
+       ambient::resources::kAllFeelTheBreezeStaticAssets) {
+    gfx::ImageSkia image_original = resources->GetStaticImageAsset(asset_id);
+    ASSERT_FALSE(image_original.isNull());
+    gfx::ImageSkia image_reloaded = resources->GetStaticImageAsset(asset_id);
+    ASSERT_FALSE(image_reloaded.isNull());
+    EXPECT_TRUE(image_reloaded.BackedBySameObjectAs(image_original));
+  }
 }
 
 TEST(AmbientAnimationStaticResourcesTest, FailsForSlideshowTheme) {
   EXPECT_THAT(AmbientAnimationStaticResources::Create(
-                  AmbientAnimationTheme::kSlideshow),
+                  AmbientUiSettings(AmbientTheme::kSlideshow),
+                  /*serializable=*/false),
               IsNull());
 }
 
 TEST(AmbientAnimationStaticResourcesTest, FailsForUnknownAssetId) {
   auto resources = AmbientAnimationStaticResources::Create(
-      AmbientAnimationTheme::kFeelTheBreeze);
+      AmbientUiSettings(AmbientTheme::kFeelTheBreeze), /*serializable=*/false);
   ASSERT_THAT(resources, NotNull());
   gfx::ImageSkia image = resources->GetStaticImageAsset("unknown_asset_id");
   EXPECT_TRUE(image.isNull());

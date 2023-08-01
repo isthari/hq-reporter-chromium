@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,12 +16,14 @@
 #include "chrome/browser/task_manager/providers/web_contents/devtools_tag.h"
 #include "chrome/browser/task_manager/providers/web_contents/extension_tag.h"
 #include "chrome/browser/task_manager/providers/web_contents/guest_tag.h"
+#include "chrome/browser/task_manager/providers/web_contents/no_state_prefetch_tag.h"
 #include "chrome/browser/task_manager/providers/web_contents/portal_tag.h"
-#include "chrome/browser/task_manager/providers/web_contents/prerender_tag.h"
 #include "chrome/browser/task_manager/providers/web_contents/printing_tag.h"
 #include "chrome/browser/task_manager/providers/web_contents/tab_contents_tag.h"
 #include "chrome/browser/task_manager/providers/web_contents/tool_tag.h"
+#include "chrome/browser/task_manager/providers/web_contents/web_app_tag.h"
 #include "chrome/browser/task_manager/providers/web_contents/web_contents_tags_manager.h"
+#include "chrome/browser/web_applications/web_app_id.h"
 #endif  // !BUILDFLAG(IS_ANDROID)
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
@@ -101,7 +103,7 @@ void WebContentsTags::CreateForNoStatePrefetchContents(
 #if !BUILDFLAG(IS_ANDROID)
   if (!WebContentsTag::FromWebContents(web_contents)) {
     TagWebContents(web_contents,
-                   base::WrapUnique(new PrerenderTag(web_contents)),
+                   base::WrapUnique(new NoStatePrefetchTag(web_contents)),
                    WebContentsTag::kTagKey);
   }
 #endif  // !BUILDFLAG(IS_ANDROID)
@@ -159,6 +161,20 @@ void WebContentsTags::CreateForExtension(
 }
 #endif  // BUILDFLAG(ENABLE_EXTENSIONS)
 
+#if !BUILDFLAG(IS_ANDROID)
+// static
+void WebContentsTags::CreateForWebApp(content::WebContents* web_contents,
+                                      const web_app::AppId& app_id,
+                                      const bool is_isolated_web_app) {
+  if (!WebContentsTag::FromWebContents(web_contents)) {
+    TagWebContents(web_contents,
+                   base::WrapUnique(new WebAppTag(web_contents, app_id,
+                                                  is_isolated_web_app)),
+                   WebContentsTag::kTagKey);
+  }
+}
+#endif  // !BUILDFLAG(IS_ANDROID)
+
 // static
 void WebContentsTags::CreateForPortal(content::WebContents* web_contents) {
 #if !BUILDFLAG(IS_ANDROID)
@@ -195,4 +211,3 @@ void WebContentsTags::ClearTag(content::WebContents* web_contents) {
 }
 
 }  // namespace task_manager
-

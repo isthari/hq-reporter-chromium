@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,10 @@
 #define CHROME_BROWSER_ASH_WEB_APPLICATIONS_PROJECTOR_APP_UNTRUSTED_PROJECTOR_UI_CONFIG_H_
 
 #include "ash/webui/projector_app/untrusted_projector_ui.h"
-#include "ui/webui/webui_config.h"
+#include "content/public/browser/webui_config.h"
 
 namespace content {
+class BrowserContext;
 class WebUIDataSource;
 class WebUIController;
 class WebUI;
@@ -30,7 +31,7 @@ class ChromeUntrustedProjectorUIDelegate
 };
 
 // A webui config for the chrome-untrusted:// part of Projector.
-class UntrustedProjectorUIConfig : public ui::WebUIConfig {
+class UntrustedProjectorUIConfig : public content::WebUIConfig {
  public:
   UntrustedProjectorUIConfig();
   UntrustedProjectorUIConfig(const UntrustedProjectorUIConfig& other) = delete;
@@ -38,11 +39,12 @@ class UntrustedProjectorUIConfig : public ui::WebUIConfig {
       delete;
   ~UntrustedProjectorUIConfig() override;
 
-  // ui::WebUIConfig:
+  // content::WebUIConfig:
   bool IsWebUIEnabled(content::BrowserContext* browser_context) override;
 
   std::unique_ptr<content::WebUIController> CreateWebUIController(
-      content::WebUI* web_ui) override;
+      content::WebUI* web_ui,
+      const GURL& url) override;
 };
 
 #endif  // CHROME_BROWSER_ASH_WEB_APPLICATIONS_PROJECTOR_APP_UNTRUSTED_PROJECTOR_UI_CONFIG_H_

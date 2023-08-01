@@ -1,12 +1,13 @@
-// Copyright (c) 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "device/gamepad/gamepad_device_mac.h"
 
+#include <CoreFoundation/CoreFoundation.h>
 #import <Foundation/Foundation.h>
 
-#include "base/cxx17_backports.h"
+#include "base/apple/bridging.h"
 #include "base/mac/foundation_util.h"
 #include "base/mac/scoped_cftyperef.h"
 #include "base/strings/sys_string_conversions.h"
@@ -16,6 +17,10 @@
 #include "device/gamepad/hid_haptic_gamepad.h"
 #include "device/gamepad/hid_writer_mac.h"
 #include "device/gamepad/xbox_hid_controller.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 namespace device {
 
@@ -55,7 +60,7 @@ struct SpecialUsages {
     {kConsumerUsagePage, kBackUsageNumber},
     {kConsumerUsagePage, kRecordUsageNumber},
 };
-const size_t kSpecialUsagesLen = base::size(kSpecialUsages);
+const size_t kSpecialUsagesLen = std::size(kSpecialUsages);
 
 float NormalizeAxis(CFIndex value, CFIndex min, CFIndex max) {
   return (2.f * (value - min) / static_cast<float>(max - min)) - 1.f;
@@ -178,9 +183,8 @@ bool GamepadDeviceMac::AddButtonsAndAxes(Gamepad* gamepad) {
 }
 
 bool GamepadDeviceMac::AddButtons(Gamepad* gamepad) {
-  base::ScopedCFTypeRef<CFArrayRef> elements_cf(IOHIDDeviceCopyMatchingElements(
-      device_ref_, nullptr, kIOHIDOptionsTypeNone));
-  NSArray* elements = base::mac::CFToNSCast(elements_cf);
+  base::ScopedCFTypeRef<CFArrayRef> elements(IOHIDDeviceCopyMatchingElements(
+      device_ref_, /*matching=*/nullptr, kIOHIDOptionsTypeNone));
   DCHECK(elements);
   DCHECK(gamepad);
   memset(gamepad->buttons, 0, sizeof(gamepad->buttons));
@@ -190,8 +194,10 @@ bool GamepadDeviceMac::AddButtons(Gamepad* gamepad) {
   std::vector<IOHIDElementRef> special_element(kSpecialUsagesLen, nullptr);
   size_t button_count = 0;
   size_t unmapped_button_count = 0;
-  for (id elem in elements) {
-    IOHIDElementRef element = reinterpret_cast<IOHIDElementRef>(elem);
+
+  for (CFIndex i = 0; i < CFArrayGetCount(elements); ++i) {
+    IOHIDElementRef element =
+        (IOHIDElementRef)CFArrayGetValueAtIndex(elements, i);
     if (!CheckCollection(element))
       continue;
 
@@ -257,9 +263,8 @@ bool GamepadDeviceMac::AddButtons(Gamepad* gamepad) {
 }
 
 bool GamepadDeviceMac::AddAxes(Gamepad* gamepad) {
-  base::ScopedCFTypeRef<CFArrayRef> elements_cf(IOHIDDeviceCopyMatchingElements(
+  base::ScopedCFTypeRef<CFArrayRef> elements(IOHIDDeviceCopyMatchingElements(
       device_ref_, nullptr, kIOHIDOptionsTypeNone));
-  NSArray* elements = base::mac::CFToNSCast(elements_cf);
   DCHECK(elements);
   DCHECK(gamepad);
   memset(gamepad->axes, 0, sizeof(gamepad->axes));
@@ -276,8 +281,9 @@ bool GamepadDeviceMac::AddAxes(Gamepad* gamepad) {
   size_t axis_count = 0;
   size_t unmapped_axis_count = 0;
 
-  for (id elem in elements) {
-    IOHIDElementRef element = reinterpret_cast<IOHIDElementRef>(elem);
+  for (CFIndex i = 0; i < CFArrayGetCount(elements); ++i) {
+    IOHIDElementRef element =
+        (IOHIDElementRef)CFArrayGetValueAtIndex(elements, i);
     if (!CheckCollection(element))
       continue;
 
@@ -304,8 +310,9 @@ bool GamepadDeviceMac::AddAxes(Gamepad* gamepad) {
   if (unmapped_axis_count > 0) {
     // Insert unmapped axes at unused axis indices.
     size_t axis_index = 0;
-    for (id elem in elements) {
-      IOHIDElementRef element = reinterpret_cast<IOHIDElementRef>(elem);
+    for (CFIndex i = 0; i < CFArrayGetCount(elements); ++i) {
+      IOHIDElementRef element =
+          (IOHIDElementRef)CFArrayGetValueAtIndex(elements, i);
       if (!CheckCollection(element))
         continue;
 
@@ -430,20 +437,19 @@ bool GamepadDeviceMac::SupportsVibration() {
   return dualshock4_ || xbox_hid_ || hid_haptics_ || ff_device_ref_;
 }
 
-void GamepadDeviceMac::SetVibration(double strong_magnitude,
-                                    double weak_magnitude) {
+void GamepadDeviceMac::SetVibration(mojom::GamepadEffectParametersPtr params) {
   if (dualshock4_) {
-    dualshock4_->SetVibration(strong_magnitude, weak_magnitude);
+    dualshock4_->SetVibration(std::move(params));
     return;
   }
 
   if (xbox_hid_) {
-    xbox_hid_->SetVibration(strong_magnitude, weak_magnitude);
+    xbox_hid_->SetVibration(std::move(params));
     return;
   }
 
   if (hid_haptics_) {
-    hid_haptics_->SetVibration(strong_magnitude, weak_magnitude);
+    hid_haptics_->SetVibration(std::move(params));
     return;
   }
 
@@ -454,9 +460,9 @@ void GamepadDeviceMac::SetVibration(double strong_magnitude,
     DCHECK(ff_custom_force->rglForceData);
 
     ff_custom_force->rglForceData[0] =
-        static_cast<LONG>(strong_magnitude * kRumbleMagnitudeMax);
+        static_cast<LONG>(params->strong_magnitude * kRumbleMagnitudeMax);
     ff_custom_force->rglForceData[1] =
-        static_cast<LONG>(weak_magnitude * kRumbleMagnitudeMax);
+        static_cast<LONG>(params->weak_magnitude * kRumbleMagnitudeMax);
 
     // Download the effect to the device and start the effect.
     HRESULT res = FFEffectSetParameters(

@@ -1,10 +1,12 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_ASH_BOREALIS_BOREALIS_SERVICE_FAKE_H_
 #define CHROME_BROWSER_ASH_BOREALIS_BOREALIS_SERVICE_FAKE_H_
 
+#include "base/memory/raw_ptr.h"
+#include "chrome/browser/ash/borealis/borealis_install_url_handler.h"
 #include "chrome/browser/ash/borealis/borealis_service.h"
 
 namespace content {
@@ -29,9 +31,9 @@ class BorealisServiceFake : public BorealisService {
   BorealisDiskManagerDispatcher& DiskManagerDispatcher() override;
   BorealisFeatures& Features() override;
   BorealisInstaller& Installer() override;
+  BorealisInstallUrlHandler& InstallUrlHandler() override;
   BorealisLaunchOptions& LaunchOptions() override;
   BorealisShutdownMonitor& ShutdownMonitor() override;
-  BorealisWaylandInterface& WaylandInterface() override;
   BorealisWindowManager& WindowManager() override;
 
   void SetAppLauncherForTesting(BorealisAppLauncher* app_launcher);
@@ -41,23 +43,25 @@ class BorealisServiceFake : public BorealisService {
       BorealisDiskManagerDispatcher* borealis_disk_manager_dispatcher);
   void SetFeaturesForTesting(BorealisFeatures* features);
   void SetInstallerForTesting(BorealisInstaller* installer);
+  void SetInstallUrlHandlerForTesting(
+      BorealisInstallUrlHandler* install_url_handler);
   void SetLaunchOptionsForTesting(BorealisLaunchOptions* launch_options);
   void SetShutdownMonitorForTesting(BorealisShutdownMonitor* shutdown_monitor);
-  void SetWaylandInterfaceForTesting(
-      BorealisWaylandInterface* wayland_interface);
   void SetWindowManagerForTesting(BorealisWindowManager* window_manager);
 
  private:
-  BorealisAppLauncher* app_launcher_ = nullptr;
-  BorealisAppUninstaller* app_uninstaller_ = nullptr;
-  BorealisContextManager* context_manager_ = nullptr;
-  BorealisDiskManagerDispatcher* borealis_disk_manager_dispatcher_ = nullptr;
-  BorealisFeatures* features_ = nullptr;
-  BorealisInstaller* installer_ = nullptr;
-  BorealisLaunchOptions* launch_options_ = nullptr;
-  BorealisShutdownMonitor* shutdown_monitor_ = nullptr;
-  BorealisWaylandInterface* wayland_interface_ = nullptr;
-  BorealisWindowManager* window_manager_ = nullptr;
+  raw_ptr<BorealisAppLauncher, ExperimentalAsh> app_launcher_ = nullptr;
+  raw_ptr<BorealisAppUninstaller, ExperimentalAsh> app_uninstaller_ = nullptr;
+  raw_ptr<BorealisContextManager, ExperimentalAsh> context_manager_ = nullptr;
+  raw_ptr<BorealisDiskManagerDispatcher, ExperimentalAsh>
+      borealis_disk_manager_dispatcher_ = nullptr;
+  raw_ptr<BorealisFeatures, ExperimentalAsh> features_ = nullptr;
+  raw_ptr<BorealisInstaller, ExperimentalAsh> installer_ = nullptr;
+  raw_ptr<BorealisInstallUrlHandler, ExperimentalAsh> install_url_handler_ =
+      nullptr;
+  raw_ptr<BorealisLaunchOptions, ExperimentalAsh> launch_options_ = nullptr;
+  raw_ptr<BorealisShutdownMonitor, ExperimentalAsh> shutdown_monitor_ = nullptr;
+  raw_ptr<BorealisWindowManager, ExperimentalAsh> window_manager_ = nullptr;
 };
 
 }  // namespace borealis

@@ -1,16 +1,17 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
-import 'chrome://resources/cr_elements/cr_checkbox/cr_checkbox.m.js';
-import 'chrome://resources/cr_elements/cr_radio_button/cr_radio_button.m.js';
-import 'chrome://resources/cr_elements/cr_radio_group/cr_radio_group.m.js';
-import 'chrome://resources/cr_elements/shared_style_css.m.js';
+import 'chrome://resources/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/cr_elements/cr_checkbox/cr_checkbox.js';
+import 'chrome://resources/cr_elements/cr_radio_button/cr_radio_button.js';
+import 'chrome://resources/cr_elements/cr_radio_group/cr_radio_group.js';
+import 'chrome://resources/cr_elements/cr_shared_style.css.js';
 
-import {I18nBehavior} from 'chrome://resources/js/i18n_behavior.m.js';
-import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {I18nBehavior} from 'chrome://resources/ash/common/i18n_behavior.js';
+import {Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
+import {getTemplate} from './network_logs_ui.html.js';
 import {NetworkUIBrowserProxy, NetworkUIBrowserProxyImpl} from './network_ui_browser_proxy.js';
 
 /**
@@ -21,7 +22,7 @@ import {NetworkUIBrowserProxy, NetworkUIBrowserProxyImpl} from './network_ui_bro
 Polymer({
   is: 'network-logs-ui',
 
-  _template: html`{__html_template__}`,
+  _template: getTemplate(),
 
   behaviors: [I18nBehavior],
 
@@ -78,7 +79,7 @@ Polymer({
     shillDebugging_: {
       type: String,
       value: 'unknown',
-    }
+    },
   },
 
   observers: ['onShillDebuggingChanged_(shillDebugging_)'],
@@ -97,8 +98,9 @@ Polymer({
   /* @private */
   onShillDebuggingChanged_() {
     const shillDebugging = this.shillDebugging_;
-    if (!shillDebugging || shillDebugging == 'unknown')
+    if (!shillDebugging || shillDebugging == 'unknown') {
       return;
+    }
     this.browserProxy_.setShillDebugging(shillDebugging).then((response) => {
       /*const result =*/ response.shift();
       const isError = response.shift();

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test_utils.h"
+#include "content/public/test/fenced_frame_test_util.h"
 #include "content/shell/browser/shell.h"
 #include "content/test/render_document_feature.h"
 #include "content/test/render_widget_host_visibility_observer.h"
@@ -29,6 +30,13 @@ class SadFrameShownObserver {
   explicit SadFrameShownObserver(FrameTreeNode* ftn) {
     RenderFrameProxyHost* proxy_to_parent =
         ftn->render_manager()->GetProxyToParent();
+    proxy_to_parent->cross_process_frame_connector()
+        ->set_child_frame_crash_shown_closure_for_testing(
+            run_loop_.QuitClosure());
+  }
+
+  explicit SadFrameShownObserver(RenderFrameHostImpl* rfhi) {
+    RenderFrameProxyHost* proxy_to_parent = rfhi->GetProxyToOuterDelegate();
     proxy_to_parent->cross_process_frame_connector()
         ->set_child_frame_crash_shown_closure_for_testing(
             run_loop_.QuitClosure());
@@ -59,18 +67,11 @@ class SitePerProcessBrowserTestWithoutSadFrameTabReload
   base::test::ScopedFeatureList feature_list_;
 };
 
-// This test is flaky on Win7 and Android.
+// This test is flaky on all platforms.
 // TODO(crbug.com/1179074): Deflake it and enable this test back.
-#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_ANDROID)
-#define MAYBE_ChildFrameCrashMetrics_KilledWhileHiddenThenShown \
-  DISABLED_ChildFrameCrashMetrics_KilledWhileHiddenThenShown
-#else
-#define MAYBE_ChildFrameCrashMetrics_KilledWhileHiddenThenShown \
-  ChildFrameCrashMetrics_KilledWhileHiddenThenShown
-#endif
 IN_PROC_BROWSER_TEST_P(
     SitePerProcessBrowserTestWithoutSadFrameTabReload,
-    MAYBE_ChildFrameCrashMetrics_KilledWhileHiddenThenShown) {
+    DISABLED_ChildFrameCrashMetrics_KilledWhileHiddenThenShown) {
   // Set-up a frame tree that helps verify what the metrics tracks:
   // 1) frames (12 frames are affected if B process gets killed) or
   // 2) widgets (10 b widgets and 1 c widget are affected if B is killed) or
@@ -240,7 +241,29 @@ class SitePerProcessBrowserTestWithSadFrameTabReload
     EXPECT_FALSE(ftn->current_frame_host()->IsRenderFrameLive());
   }
 
+  void CrashRendererProcess(RenderFrameHostImpl* rfhi) {
+    RenderProcessHost* process = rfhi->GetProcess();
+    RenderProcessHostWatcher crash_observer(
+        process, RenderProcessHostWatcher::WATCH_FOR_PROCESS_EXIT);
+    process->Shutdown(0);
+    crash_observer.Wait();
+    EXPECT_FALSE(rfhi->IsRenderFrameLive());
+  }
+
+  WebContentsImpl* web_contents() {
+    return static_cast<WebContentsImpl*>(shell()->web_contents());
+  }
+
+  RenderFrameHostImpl* primary_main_frame_host() {
+    return web_contents()->GetPrimaryMainFrame();
+  }
+
+  content::test::FencedFrameTestHelper& fenced_frame_test_helper() {
+    return fenced_frame_helper_;
+  }
+
  private:
+  content::test::FencedFrameTestHelper fenced_frame_helper_;
   base::test::ScopedFeatureList feature_list_;
 };
 
@@ -333,7 +356,7 @@ IN_PROC_BROWSER_TEST_P(SitePerProcessBrowserTestWithSadFrameTabReload,
                                   1);
 
     // Ensure no new metrics are logged after the reload completes.
-    manager.WaitForNavigationFinished();
+    ASSERT_TRUE(manager.WaitForNavigationFinished());
     EXPECT_TRUE(manager.was_successful());
     EXPECT_FALSE(controller.NeedsReload());
     EXPECT_EQ(1, controller.GetEntryCount());
@@ -387,7 +410,87 @@ IN_PROC_BROWSER_TEST_P(SitePerProcessBrowserTestWithSadFrameTabReload,
                                   1);
 
     // Ensure no new metrics are logged after the navigation completes.
-    manager.WaitForNavigationFinished();
+    ASSERT_TRUE(manager.WaitForNavigationFinished());
+    EXPECT_TRUE(manager.was_successful());
+    histograms.ExpectUniqueSample("Stability.ChildFrameCrash.Visibility",
+                                  CrashVisibility::kShownWhileAncestorIsLoading,
+                                  1);
+  }
+}
+
+// Verify that a sad frame shown when its parent frame is loading is logged
+// with appropriate metrics, namely as kShownWhileAncestorIsLoading rather than
+// kShownAfterCrashing. See https://crbug.com/1132938.
+IN_PROC_BROWSER_TEST_P(
+    SitePerProcessBrowserTestWithSadFrameTabReload,
+    // TODO(crbug.com/1325478): Re-enable this test
+    DISABLED_CrashedFencedframeVisibilityMetricsDuringParentLoad) {
+  GURL primary_url(embedded_test_server()->GetURL("a.com", "/title1.html"));
+  GURL child_url(
+      embedded_test_server()->GetURL("b.com", "/fenced_frames/title1.html"));
+  GURL grandchild_url(
+      embedded_test_server()->GetURL("c.com", "/fenced_frames/title1.html"));
+
+  EXPECT_TRUE(NavigateToURL(shell(), primary_url));
+  RenderFrameHostImplWrapper primary_rfh(primary_main_frame_host());
+  RenderFrameHostImplWrapper child_rfh(
+      fenced_frame_test_helper().CreateFencedFrame(primary_rfh.get(),
+                                                   child_url));
+  // Note that height and width follows the layout function in
+  // content/test/data/cross_site_iframe_factory.html.
+  EXPECT_TRUE(ExecJs(primary_rfh.get(), R"(
+       var ff = document.querySelector('fencedframe');
+       // layoutX = gridSizeX * largestChildX + extraXPerLevel
+       ff.width = 1 * (110 + 30) + 50;
+       // layoutY = gridSizeY * largestChildY + extraYPerLevel
+       ff.height = 1 * (110 + 30) + 50
+       )"));
+  RenderFrameHostImplWrapper grandchild_rfh(
+      fenced_frame_test_helper().CreateFencedFrame(child_rfh.get(),
+                                                   grandchild_url));
+  // Note that height and width follows the layout function in
+  // content/test/data/cross_site_iframe_factory.html.
+  EXPECT_TRUE(ExecJs(child_rfh.get(), R"(
+       var ff = document.querySelector('fencedframe');
+       ff.width = 110;
+       ff.height = 110;
+       )"));
+
+  // Hide the grandchild frame.
+  RenderWidgetHostVisibilityObserver hide_observer(
+      grandchild_rfh->GetRenderWidgetHost(), false /* became_visible */);
+  EXPECT_TRUE(
+      ExecJs(child_rfh.get(),
+             "document.querySelector('fencedframe').style.display = 'none'"));
+  hide_observer.WaitUntilSatisfied();
+
+  // Kill the grandchild process.
+  CrashRendererProcess(grandchild_rfh.get());
+
+  // Start a navigation in the child frame, but don't commit.
+  GURL url_d(
+      embedded_test_server()->GetURL("d.com", "/fenced_frames/title1.html"));
+  TestNavigationManager manager(web_contents(), url_d);
+  EXPECT_TRUE(ExecJs(child_rfh.get(), JsReplace("location.href = $1", url_d)));
+  EXPECT_TRUE(manager.WaitForRequestStart());
+
+  // Make the grandchild fencedframe with the sad frame visible again.
+  // This should get logged as kShownWhileAncestorIsLoading, because its parent
+  // is currently loading.
+  {
+    base::HistogramTester histograms;
+    SadFrameShownObserver sad_frame_observer(grandchild_rfh.get());
+    EXPECT_TRUE(ExecJs(
+        child_rfh.get(),
+        "document.querySelector('fencedframe').style.display = 'block'"));
+    sad_frame_observer.Wait();
+
+    histograms.ExpectUniqueSample("Stability.ChildFrameCrash.Visibility",
+                                  CrashVisibility::kShownWhileAncestorIsLoading,
+                                  1);
+
+    // Ensure no new metrics are logged after the navigation completes.
+    ASSERT_TRUE(manager.WaitForNavigationFinished());
     EXPECT_TRUE(manager.was_successful());
     histograms.ExpectUniqueSample("Stability.ChildFrameCrash.Visibility",
                                   CrashVisibility::kShownWhileAncestorIsLoading,
@@ -400,7 +503,8 @@ IN_PROC_BROWSER_TEST_P(SitePerProcessBrowserTestWithSadFrameTabReload,
 // shown. Similar to the test above, except that the crashed subframe is
 // scrolled out of view.
 IN_PROC_BROWSER_TEST_P(SitePerProcessBrowserTestWithSadFrameTabReload,
-                       ReloadHiddenTabWithCrashedSubframeOutOfView) {
+                       // TODO(crbug.com/1370766): Re-enable this test
+                       DISABLED_ReloadHiddenTabWithCrashedSubframeOutOfView) {
   // Set WebContents to VISIBLE to avoid hitting the |!did_first_set_visible_|
   // case when we hide it later.
   web_contents()->UpdateWebContentsVisibility(Visibility::VISIBLE);
@@ -409,8 +513,7 @@ IN_PROC_BROWSER_TEST_P(SitePerProcessBrowserTestWithSadFrameTabReload,
   GURL out_of_view_url(
       embedded_test_server()->GetURL("a.com", "/iframe_out_of_view.html"));
   EXPECT_TRUE(NavigateToURL(shell(), out_of_view_url));
-  EXPECT_EQ("LOADED", EvalJs(shell(), "notifyWhenLoaded();",
-                             EXECUTE_SCRIPT_USE_MANUAL_REPLY));
+  EXPECT_EQ("LOADED", EvalJs(shell(), "notifyWhenLoaded();"));
   NavigateIframeToURL(web_contents(), "test_iframe",
                       embedded_test_server()->GetURL("b.com", "/title1.html"));
 
@@ -528,7 +631,8 @@ IN_PROC_BROWSER_TEST_P(SitePerProcessBrowserTestWithSadFrameTabReload,
 }
 
 IN_PROC_BROWSER_TEST_P(SitePerProcessBrowserTest,
-                       ChildFrameCrashMetrics_KilledWhileVisible) {
+                       // TODO(crbug.com/1370766): Re-enable this test
+                       DISABLED_ChildFrameCrashMetrics_KilledWhileVisible) {
   // Set-up a frame tree that helps verify what the metrics tracks:
   // 1) frames (12 frames are affected if B process gets killed) or
   // 2) crashes (simply 1 crash if B process gets killed)?

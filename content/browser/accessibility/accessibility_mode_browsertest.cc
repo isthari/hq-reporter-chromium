@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,7 +36,8 @@ class AccessibilityModeTest : public ContentBrowserTest {
  protected:
   const BrowserAccessibility* FindNode(ax::mojom::Role role,
                                        const std::string& name) {
-    const BrowserAccessibility* root = GetManager()->GetRoot();
+    const BrowserAccessibility* root =
+        GetManager()->GetBrowserAccessibilityRoot();
     CHECK(root);
     return FindNodeInSubtree(*root, role, name);
   }
@@ -67,33 +68,51 @@ class AccessibilityModeTest : public ContentBrowserTest {
 
 IN_PROC_BROWSER_TEST_F(AccessibilityModeTest, AccessibilityModeOff) {
   EXPECT_TRUE(NavigateToURL(shell(), GURL(kMinimalPageDataURL)));
-  EXPECT_TRUE(web_contents()->GetAccessibilityMode().is_mode_off());
-  EXPECT_EQ(nullptr, GetManager());
+  auto accessibility_mode = web_contents()->GetAccessibilityMode();
+  bool hasNativeAPIs = accessibility_mode.has_mode(ui::AXMode::kNativeAPIs);
+  // Strip off kNativeAPIs, which may be set in some situations.
+  accessibility_mode.set_mode(ui::AXMode::kNativeAPIs, false);
+  EXPECT_TRUE(accessibility_mode.is_mode_off());
+  if (!hasNativeAPIs) {
+    EXPECT_EQ(nullptr, GetManager());
+  }
 }
 
 IN_PROC_BROWSER_TEST_F(AccessibilityModeTest, AccessibilityModeComplete) {
   EXPECT_TRUE(NavigateToURL(shell(), GURL(kMinimalPageDataURL)));
-  ASSERT_TRUE(web_contents()->GetAccessibilityMode().is_mode_off());
+  auto accessibility_mode = web_contents()->GetAccessibilityMode();
+  // Strip off kNativeAPIs, which may be set in some situations.
+  accessibility_mode.set_mode(ui::AXMode::kNativeAPIs, false);
+  ASSERT_TRUE(accessibility_mode.is_mode_off());
 
   AccessibilityNotificationWaiter waiter(shell()->web_contents());
   web_contents()->AddAccessibilityMode(ui::kAXModeComplete);
   EXPECT_TRUE(web_contents()->GetAccessibilityMode() == ui::kAXModeComplete);
-  waiter.WaitForNotification();
+  ASSERT_TRUE(waiter.WaitForNotification());
   EXPECT_NE(nullptr, GetManager());
 }
 
 IN_PROC_BROWSER_TEST_F(AccessibilityModeTest,
                        AccessibilityModeWebContentsOnly) {
   EXPECT_TRUE(NavigateToURL(shell(), GURL(kMinimalPageDataURL)));
-  ASSERT_TRUE(web_contents()->GetAccessibilityMode().is_mode_off());
+  auto accessibility_mode = web_contents()->GetAccessibilityMode();
+  // Strip off kNativeAPIs, which may be set in some situations.
+  accessibility_mode.set_mode(ui::AXMode::kNativeAPIs, false);
+  ASSERT_TRUE(accessibility_mode.is_mode_off());
 
   AccessibilityNotificationWaiter waiter(shell()->web_contents());
   web_contents()->AddAccessibilityMode(ui::kAXModeWebContentsOnly);
-  EXPECT_TRUE(web_contents()->GetAccessibilityMode() ==
-              ui::kAXModeWebContentsOnly);
-  waiter.WaitForNotification();
-  // No BrowserAccessibilityManager expected for this mode.
-  EXPECT_EQ(nullptr, GetManager());
+
+  accessibility_mode = web_contents()->GetAccessibilityMode();
+  bool hasNativeAPIs = accessibility_mode.has_mode(ui::AXMode::kNativeAPIs);
+  // Strip off kNativeAPIs, which may be set in some situations.
+  accessibility_mode.set_mode(ui::AXMode::kNativeAPIs, false);
+  EXPECT_TRUE(accessibility_mode == ui::kAXModeWebContentsOnly);
+  ASSERT_TRUE(waiter.WaitForNotification());
+  // No BrowserAccessibilityManager if kNativeAPIs isn't set.
+  if (!hasNativeAPIs) {
+    EXPECT_EQ(nullptr, GetManager());
+  }
 }
 
 IN_PROC_BROWSER_TEST_F(AccessibilityModeTest, AddingModes) {
@@ -101,15 +120,17 @@ IN_PROC_BROWSER_TEST_F(AccessibilityModeTest, AddingModes) {
 
   AccessibilityNotificationWaiter waiter(shell()->web_contents());
   web_contents()->AddAccessibilityMode(ui::kAXModeWebContentsOnly);
-  EXPECT_TRUE(web_contents()->GetAccessibilityMode() ==
-              ui::kAXModeWebContentsOnly);
-  waiter.WaitForNotification();
+  auto accessibility_mode = web_contents()->GetAccessibilityMode();
+  // Strip off kNativeAPIs, which may be set in some situations.
+  accessibility_mode.set_mode(ui::AXMode::kNativeAPIs, false);
+  EXPECT_TRUE(accessibility_mode == ui::kAXModeWebContentsOnly);
+  ASSERT_TRUE(waiter.WaitForNotification());
   EXPECT_EQ(nullptr, GetManager());
 
   AccessibilityNotificationWaiter waiter2(shell()->web_contents());
   web_contents()->AddAccessibilityMode(ui::kAXModeComplete);
   EXPECT_TRUE(web_contents()->GetAccessibilityMode() == ui::kAXModeComplete);
-  waiter2.WaitForNotification();
+  ASSERT_TRUE(waiter2.WaitForNotification());
   EXPECT_NE(nullptr, GetManager());
 }
 
@@ -125,7 +146,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityModeTest,
                                          ax::mojom::Event::kLoadComplete);
   GURL url("data:text/html,<p>Para</p>");
   EXPECT_TRUE(NavigateToURL(shell(), url));
-  waiter.WaitForNotification();
+  ASSERT_TRUE(waiter.WaitForNotification());
 
   const BrowserAccessibility* text =
       FindNode(ax::mojom::Role::kStaticText, "Para");
@@ -150,7 +171,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityModeTest,
       ax::mojom::Event::kLoadComplete);
   GURL url("data:text/html,<p>Para</p>");
   EXPECT_TRUE(NavigateToURL(shell(), url));
-  waiter.WaitForNotification();
+  ASSERT_TRUE(waiter.WaitForNotification());
 
   const BrowserAccessibility* text =
       FindNode(ax::mojom::Role::kStaticText, "Para");
@@ -168,7 +189,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityModeTest, AddScreenReaderModeFlag) {
       ax::mojom::Event::kLoadComplete);
   GURL url("data:text/html,<input aria-label=Foo placeholder=Bar>");
   EXPECT_TRUE(NavigateToURL(shell(), url));
-  waiter.WaitForNotification();
+  ASSERT_TRUE(waiter.WaitForNotification());
 
   const BrowserAccessibility* textbox =
       FindNode(ax::mojom::Role::kTextField, "Foo");
@@ -181,7 +202,7 @@ IN_PROC_BROWSER_TEST_F(AccessibilityModeTest, AddScreenReaderModeFlag) {
                                           ax::mojom::Event::kLoadComplete);
   content::testing::ScopedContentAXModeSetter ax_mode_setter(
       ui::AXMode::kScreenReader);
-  waiter2.WaitForNotification();
+  ASSERT_TRUE(waiter2.WaitForNotification());
 
   const BrowserAccessibility* textbox2 =
       FindNode(ax::mojom::Role::kTextField, "Foo");
@@ -194,21 +215,29 @@ IN_PROC_BROWSER_TEST_F(AccessibilityModeTest, AddScreenReaderModeFlag) {
 IN_PROC_BROWSER_TEST_F(AccessibilityModeTest,
                        ReEnablingAccessibilityDoesNotTimeout) {
   EXPECT_TRUE(NavigateToURL(shell(), GURL(kMinimalPageDataURL)));
-  ASSERT_TRUE(web_contents()->GetAccessibilityMode().is_mode_off());
+  auto accessibility_mode = web_contents()->GetAccessibilityMode();
+  // Strip off kNativeAPIs, which may be set in some situations.
+  accessibility_mode.set_mode(ui::AXMode::kNativeAPIs, false);
+  ASSERT_TRUE(accessibility_mode.is_mode_off());
 
   AccessibilityNotificationWaiter waiter(shell()->web_contents());
   web_contents()->AddAccessibilityMode(ui::kAXModeWebContentsOnly);
-  EXPECT_TRUE(web_contents()->GetAccessibilityMode() ==
-              ui::kAXModeWebContentsOnly);
-  waiter.WaitForNotification();
+  accessibility_mode = web_contents()->GetAccessibilityMode();
+  bool hasNativeAPIs = accessibility_mode.has_mode(ui::AXMode::kNativeAPIs);
+  // Strip off kNativeAPIs, which may be set in some situations.
+  accessibility_mode.set_mode(ui::AXMode::kNativeAPIs, false);
+  EXPECT_TRUE(accessibility_mode == ui::kAXModeWebContentsOnly);
+  ASSERT_TRUE(waiter.WaitForNotification());
   EXPECT_EQ(nullptr, GetManager());
 
   AccessibilityNotificationWaiter waiter2(shell()->web_contents());
   web_contents()->SetAccessibilityMode(ui::AXMode());
   web_contents()->AddAccessibilityMode(ui::kAXModeComplete);
   EXPECT_TRUE(web_contents()->GetAccessibilityMode() == ui::kAXModeComplete);
-  waiter2.WaitForNotification();
-  EXPECT_NE(nullptr, GetManager());
+  ASSERT_TRUE(waiter2.WaitForNotification());
+  if (!hasNativeAPIs) {
+    EXPECT_NE(nullptr, GetManager());
+  }
 }
 
 }  // namespace content

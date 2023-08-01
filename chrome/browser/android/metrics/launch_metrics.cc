@@ -1,8 +1,9 @@
-// Copyright (c) 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/android/jni_string.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/time/time.h"
 #include "chrome/android/chrome_jni_headers/LaunchMetrics_jni.h"
@@ -51,15 +52,6 @@ static void JNI_LaunchMetrics_RecordLaunch(
       (histogram_source == webapps::ShortcutInfo::SOURCE_APP_BANNER ||
        histogram_source ==
            webapps::ShortcutInfo::SOURCE_ADD_TO_HOMESCREEN_PWA)) {
-    // What a user has installed on the Home screen can become disconnected from
-    // what Chrome believes is on the Home screen if the user clears their data.
-    // Use the launch as a signal that the shortcut still exists.
-    webapps::AppBannerSettingsHelper::RecordBannerEvent(
-        web_contents, url, url.spec(),
-        webapps::AppBannerSettingsHelper::
-            APP_BANNER_EVENT_DID_ADD_TO_HOMESCREEN,
-        base::Time::Now());
-
     // Tell the Site Engagement Service about this launch as sites recently
     // launched from a shortcut receive a boost to their engagement.
     site_engagement::SiteEngagementService* service =
@@ -68,22 +60,26 @@ static void JNI_LaunchMetrics_RecordLaunch(
     service->SetLastShortcutLaunchTime(web_contents, url);
   }
 
-  UMA_HISTOGRAM_ENUMERATION(
+  base::UmaHistogramEnumeration(
       "Launch.HomeScreenSource",
       static_cast<webapps::ShortcutInfo::Source>(histogram_source),
       webapps::ShortcutInfo::SOURCE_COUNT);
 
   if (!is_shortcut) {
-    UMA_HISTOGRAM_ENUMERATION(
+    base::UmaHistogramEnumeration(
         "Launch.WebAppDisplayMode",
+        static_cast<blink::mojom::DisplayMode>(display_mode));
+  } else {
+    base::UmaHistogramEnumeration(
+        "Launch.Window.CreateShortcutApp.WebAppDisplayMode",
         static_cast<blink::mojom::DisplayMode>(display_mode));
   }
 
   HomeScreenLaunchType action = is_shortcut ? HomeScreenLaunchType::SHORTCUT
                                             : HomeScreenLaunchType::STANDALONE;
 
-  UMA_HISTOGRAM_ENUMERATION("Launch.HomeScreen", action,
-                            HomeScreenLaunchType::COUNT);
+  base::UmaHistogramEnumeration("Launch.HomeScreen", action,
+                                HomeScreenLaunchType::COUNT);
 }
 
 static void JNI_LaunchMetrics_RecordHomePageLaunchMetrics(

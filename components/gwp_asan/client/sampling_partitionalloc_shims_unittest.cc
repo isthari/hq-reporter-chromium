@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,7 @@
 
 #include "base/allocator/partition_allocator/partition_alloc.h"
 #include "base/allocator/partition_allocator/partition_root.h"
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/memory/page_size.h"
 #include "base/strings/string_number_conversions.h"
@@ -23,6 +23,7 @@
 #include "components/crash/core/common/crash_key.h"
 #include "components/gwp_asan/client/guarded_page_allocator.h"
 #include "components/gwp_asan/common/crash_key_name.h"
+#include "components/gwp_asan/common/lightweight_detector.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/multiprocess_func_list.h"
 
@@ -51,13 +52,8 @@ constexpr size_t kLoopIterations = kSamplingFrequency * 4;
 constexpr int kSuccess = 0;
 constexpr int kFailure = 1;
 
-constexpr base::PartitionOptions kAllocatorOptions = {
-    base::PartitionOptions::AlignedAlloc::kDisallowed,
-    base::PartitionOptions::ThreadCache::kDisabled,
-    base::PartitionOptions::Quarantine::kDisallowed,
-    base::PartitionOptions::Cookie::kAllowed,
-    base::PartitionOptions::BackupRefPtr::kDisabled,
-    base::PartitionOptions::UseConfigurablePool::kNo,
+constexpr partition_alloc::PartitionOptions kAllocatorOptions = {
+    .cookie = partition_alloc::PartitionOptions::Cookie::kAllowed,
 };
 
 static void HandleOOM(size_t unused_size) {
@@ -68,10 +64,11 @@ class SamplingPartitionAllocShimsTest : public base::MultiProcessTest {
  public:
   static void multiprocessTestSetup() {
     crash_reporter::InitializeCrashKeys();
-    base::PartitionAllocGlobalInit(HandleOOM);
+    partition_alloc::PartitionAllocGlobalInit(HandleOOM);
     InstallPartitionAllocHooks(
         AllocatorState::kMaxMetadata, AllocatorState::kMaxMetadata,
-        AllocatorState::kMaxSlots, kSamplingFrequency, base::DoNothing());
+        AllocatorState::kMaxRequestedSlots, kSamplingFrequency,
+        base::DoNothing(), LightweightDetector::State::kDisabled, 0);
   }
 
  protected:
@@ -87,7 +84,7 @@ class SamplingPartitionAllocShimsTest : public base::MultiProcessTest {
 MULTIPROCESS_TEST_MAIN_WITH_SETUP(
     BasicFunctionality,
     SamplingPartitionAllocShimsTest::multiprocessTestSetup) {
-  base::PartitionAllocator allocator;
+  partition_alloc::PartitionAllocator allocator;
   allocator.init(kAllocatorOptions);
   for (size_t i = 0; i < kLoopIterations; i++) {
     void* ptr = allocator.root()->Alloc(1, kFakeType);
@@ -107,7 +104,7 @@ TEST_F(SamplingPartitionAllocShimsTest, BasicFunctionality) {
 MULTIPROCESS_TEST_MAIN_WITH_SETUP(
     Realloc,
     SamplingPartitionAllocShimsTest::multiprocessTestSetup) {
-  base::PartitionAllocator allocator;
+  partition_alloc::PartitionAllocator allocator;
   allocator.init(kAllocatorOptions);
 
   void* alloc = GetPartitionAllocGpaForTesting().Allocate(base::GetPageSize());
@@ -136,11 +133,12 @@ TEST_F(SamplingPartitionAllocShimsTest, Realloc) {
 MULTIPROCESS_TEST_MAIN_WITH_SETUP(
     DifferentTypesDontOverlap,
     SamplingPartitionAllocShimsTest::multiprocessTestSetup) {
-  base::PartitionAllocator allocator;
+  partition_alloc::PartitionAllocator allocator;
   allocator.init(kAllocatorOptions);
 
   std::set<void*> type1, type2;
-  for (size_t i = 0; i < kLoopIterations * AllocatorState::kMaxSlots; i++) {
+  for (size_t i = 0; i < kLoopIterations * AllocatorState::kMaxRequestedSlots;
+       i++) {
     void* ptr1 = allocator.root()->Alloc(1, kFakeType);
     void* ptr2 = allocator.root()->Alloc(1, kFakeType2);
 

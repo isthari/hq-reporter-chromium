@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,8 @@
 
 #include <utility>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#import "base/task/sequenced_task_runner.h"
 #include "ios/web/common/user_agent.h"
 #include "ios/web/public/init/ios_global_state.h"
 #include "ios/web/public/init/ios_global_state_configuration.h"

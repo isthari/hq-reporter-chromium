@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,10 @@
 
 #include <utility>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "build/build_config.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
-#include "components/sync/driver/sync_service.h"
+#include "components/sync/service/sync_service.h"
 
 namespace password_manager {
 
@@ -23,12 +24,14 @@ PasswordAccountStorageSettingsWatcher::PasswordAccountStorageSettingsWatcher(
   // account used by Sync changes.
   if (sync_service_)
     sync_service_->AddObserver(this);
+#if !BUILDFLAG(IS_IOS) && !BUILDFLAG(IS_ANDROID)
   // The opt-in state is stored in a pref, so changes to the pref might indicate
   // a change to the opt-in state.
   pref_change_registrar_.Init(pref_service);
   pref_change_registrar_.Add(
       password_manager::prefs::kAccountStoragePerAccountSettings,
       change_callback_);
+#endif  // !BUILDFLAG(IS_IOS) && !BUILDFLAG(IS_ANDROID)
 }
 
 PasswordAccountStorageSettingsWatcher::

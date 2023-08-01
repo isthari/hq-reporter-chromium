@@ -1,11 +1,14 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/eol_notification.h"
 
+#include "ash/constants/ash_features.h"
 #include "base/memory/ptr_util.h"
+#include "base/memory/raw_ptr.h"
 #include "base/test/simple_test_clock.h"
+#include "base/time/time.h"
 #include "chrome/browser/notifications/notification_display_service_tester.h"
 #include "chrome/browser/notifications/notification_handler.h"
 #include "chrome/browser/notifications/system_notification_helper.h"
@@ -15,9 +18,8 @@
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
-#include "chromeos/dbus/concierge/concierge_client.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/update_engine/fake_update_engine_client.h"
+#include "chromeos/ash/components/dbus/concierge/concierge_client.h"
+#include "chromeos/ash/components/dbus/update_engine/fake_update_engine_client.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/chromeos/devicetype_utils.h"
@@ -31,10 +33,7 @@ class EolNotificationTest : public BrowserWithTestWindowTest {
   ~EolNotificationTest() override = default;
 
   void SetUp() override {
-    fake_update_engine_client_ = new FakeUpdateEngineClient();
-    DBusThreadManager::Initialize();
-    DBusThreadManager::GetSetterForTesting()->SetUpdateEngineClient(
-        base::WrapUnique<UpdateEngineClient>(fake_update_engine_client_));
+    fake_update_engine_client_ = UpdateEngineClient::InitializeFakeForTest();
     ConciergeClient::InitializeFake(/*fake_cicerone_client=*/nullptr);
     BrowserWithTestWindowTest::SetUp();
 
@@ -60,7 +59,7 @@ class EolNotificationTest : public BrowserWithTestWindowTest {
     tester_.reset();
     BrowserWithTestWindowTest::TearDown();
     ConciergeClient::Shutdown();
-    DBusThreadManager::Shutdown();
+    UpdateEngineClient::Shutdown();
   }
 
   void DismissNotification() {
@@ -81,7 +80,7 @@ class EolNotificationTest : public BrowserWithTestWindowTest {
   }
 
  protected:
-  FakeUpdateEngineClient* fake_update_engine_client_;
+  raw_ptr<FakeUpdateEngineClient, ExperimentalAsh> fake_update_engine_client_;
   std::unique_ptr<NotificationDisplayServiceTester> tester_;
   std::unique_ptr<EolNotification> eol_notification_;
   std::unique_ptr<base::SimpleTestClock> clock_;
@@ -292,6 +291,101 @@ TEST_F(EolNotificationTest, TestBackwardsCompatibilityFinalUpdateAlreadyShown) {
   CheckEolInfo();
   auto notification = tester_->GetNotification("chrome://product_eol");
   ASSERT_FALSE(notification);
+}
+
+class EolIncentiveNotificationTest : public EolNotificationTest {
+ public:
+  void SetUp() override {
+    EolNotificationTest::SetUp();
+
+    // Set the profile creation date to be at least 6 months before the current
+    // time set in these unittests, to correctly show the incentive.
+    base::Time creation_time;
+    ASSERT_TRUE(base::Time::FromUTCString("1 February 2023", &creation_time));
+    profile()->SetCreationTimeForTesting(creation_time);
+
+    scoped_feature_list_.InitAndEnableFeature(ash::features::kEolIncentive);
+  }
+
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+TEST_F(EolIncentiveNotificationTest, TestIncentiveFarBeforeEolDate) {
+  SetCurrentTimeToUtc("1 January 2023");
+  SetEolDateUtc("1 December 2023");
+
+  CheckEolInfo();
+  auto notification = tester_->GetNotification("chrome://product_eol");
+  ASSERT_FALSE(notification);
+}
+
+TEST_F(EolIncentiveNotificationTest, TestIncentiveBeforeEolDate) {
+  SetCurrentTimeToUtc("1 November 2023");
+  SetEolDateUtc("1 December 2023");
+
+  CheckEolInfo();
+  auto notification = tester_->GetNotification("chrome://product_eol");
+  ASSERT_TRUE(notification);
+
+  DismissNotification();
+  ASSERT_TRUE(profile()->GetPrefs()->GetBoolean(
+      prefs::kEolApproachingIncentiveNotificationDismissed));
+}
+
+TEST_F(EolIncentiveNotificationTest, TestIncentiveOnEolDate) {
+  SetCurrentTimeToUtc("1 December 2023");
+  SetEolDateUtc("1 December 2023");
+
+  CheckEolInfo();
+  auto notification = tester_->GetNotification("chrome://product_eol");
+  ASSERT_TRUE(notification);
+
+  DismissNotification();
+  ASSERT_TRUE(profile()->GetPrefs()->GetBoolean(
+      prefs::kEolPassedFinalIncentiveDismissed));
+}
+
+TEST_F(EolIncentiveNotificationTest, TestIncentiveAfterEolDate) {
+  SetCurrentTimeToUtc("3 December 2023");
+  SetEolDateUtc("1 December 2023");
+
+  CheckEolInfo();
+  auto notification = tester_->GetNotification("chrome://product_eol");
+  ASSERT_TRUE(notification);
+
+  DismissNotification();
+  ASSERT_TRUE(profile()->GetPrefs()->GetBoolean(
+      prefs::kEolPassedFinalIncentiveDismissed));
+}
+
+TEST_F(EolIncentiveNotificationTest, TestIncentiveFarAfterEolDate) {
+  SetCurrentTimeToUtc("20 December 2023");
+  SetEolDateUtc("1 December 2023");
+
+  profile()->GetPrefs()->SetBoolean(prefs::kEolPassedFinalIncentiveDismissed,
+                                    true);
+
+  CheckEolInfo();
+  auto notification = tester_->GetNotification("chrome://product_eol");
+  // Check that no notification is shown far ater EOL date if the final
+  // incentive was dismissed.
+  ASSERT_FALSE(notification);
+}
+
+TEST_F(EolIncentiveNotificationTest,
+       TestIncentiveFarAfterEolDateIncentiveNotShown) {
+  SetCurrentTimeToUtc("20 December 2023");
+  SetEolDateUtc("1 December 2023");
+
+  CheckEolInfo();
+  auto notification = tester_->GetNotification("chrome://product_eol");
+  // Check that a notification is shown far after EOL date if the final
+  // incentive was not dismissed.
+  ASSERT_TRUE(notification);
+
+  DismissNotification();
+  ASSERT_TRUE(
+      profile()->GetPrefs()->GetBoolean(prefs::kEolNotificationDismissed));
 }
 
 }  // namespace ash

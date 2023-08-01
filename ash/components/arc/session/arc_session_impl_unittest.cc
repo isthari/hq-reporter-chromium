@@ -1,6 +1,8 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+#include "ash/components/arc/session/arc_session_impl.h"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -11,21 +13,21 @@
 
 #include "ash/components/arc/arc_features.h"
 #include "ash/components/arc/session/arc_client_adapter.h"
-#include "ash/components/arc/session/arc_session_impl.h"
 #include "ash/components/arc/session/arc_start_params.h"
 #include "ash/components/arc/session/arc_upgrade_params.h"
 #include "ash/components/arc/test/arc_util_test_support.h"
 #include "ash/components/arc/test/fake_arc_bridge_host.h"
 #include "ash/constants/ash_switches.h"
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
+#include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
-#include "base/threading/thread_task_runner_handle.h"
-#include "chromeos/system/scheduler_configuration_manager_base.h"
+#include "chromeos/ash/components/system/scheduler_configuration_manager_base.h"
 #include "components/version_info/channel.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -65,7 +67,7 @@ class FakeArcClientAdapter : public ArcClientAdapter {
   void StartMiniArc(StartParams params,
                     chromeos::VoidDBusMethodCallback callback) override {
     last_start_params_ = std::move(params);
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&FakeArcClientAdapter::OnMiniArcStarted,
                                   base::Unretained(this), std::move(callback),
                                   arc_available_));
@@ -74,14 +76,14 @@ class FakeArcClientAdapter : public ArcClientAdapter {
   void UpgradeArc(UpgradeParams params,
                   chromeos::VoidDBusMethodCallback callback) override {
     last_upgrade_params_ = std::move(params);
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&FakeArcClientAdapter::OnArcUpgraded,
                                   base::Unretained(this), std::move(callback),
                                   !force_upgrade_failure_));
   }
 
   void StopArcInstance(bool on_shutdown, bool should_backup_log) override {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(&FakeArcClientAdapter::NotifyArcInstanceStopped,
                        base::Unretained(this), false /* is_system_shutdown */));
@@ -92,8 +94,8 @@ class FakeArcClientAdapter : public ArcClientAdapter {
                    const std::string& serial_number) override {}
 
   void SetDemoModeDelegate(DemoModeDelegate* delegate) override {}
-  void TrimVmMemory(TrimVmMemoryCallback callback) override {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+  void TrimVmMemory(TrimVmMemoryCallback callback, int page_limit) override {
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback), true, std::string()));
   }
 
@@ -120,8 +122,9 @@ class FakeArcClientAdapter : public ArcClientAdapter {
 
   void OnArcUpgraded(chromeos::VoidDBusMethodCallback callback, bool result) {
     std::move(callback).Run(result);
-    if (!result)
+    if (!result) {
       NotifyArcInstanceStopped(false /* is_system_shutdown */);
+    }
   }
 
   bool arc_available_ = true;
@@ -157,7 +160,7 @@ class FakeDelegate : public ArcSessionImpl::Delegate {
   // ArcSessionImpl::Delegate overrides:
   void CreateSocket(CreateSocketCallback callback) override {
     // Open /dev/null as a dummy FD.
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(std::move(callback),
                                   base::ScopedFD(open("/dev/null",
                                                       O_RDONLY | O_CLOEXEC))));
@@ -192,7 +195,7 @@ class FakeDelegate : public ArcSessionImpl::Delegate {
 
  private:
   void PostCallback(ConnectMojoCallback callback) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(
             std::move(callback),
@@ -237,13 +240,15 @@ class TestArcSessionObserver : public ArcSession::Observer {
                         bool upgrade_requested) override {
     on_session_stopped_args_.emplace(
         OnSessionStoppedArgs{reason, was_running, upgrade_requested});
-    if (run_loop_)
+    if (run_loop_) {
       run_loop_->Quit();
+    }
   }
 
  private:
-  ArcSession* const arc_session_;            // Not owned.
-  base::RunLoop* const run_loop_ = nullptr;  // Not owned.
+  const raw_ptr<ArcSession, ExperimentalAsh> arc_session_;  // Not owned.
+  const raw_ptr<base::RunLoop, ExperimentalAsh> run_loop_ =
+      nullptr;  // Not owned.
   absl::optional<OnSessionStoppedArgs> on_session_stopped_args_;
 };
 
@@ -258,7 +263,7 @@ struct ArcSessionDeleter {
 };
 
 class FakeSchedulerConfigurationManager
-    : public chromeos::SchedulerConfigurationManagerBase {
+    : public ash::SchedulerConfigurationManagerBase {
  public:
   FakeSchedulerConfigurationManager() = default;
 
@@ -353,8 +358,9 @@ class ArcSessionImplTest : public testing::Test {
   std::unique_ptr<ArcSessionImpl, ArcSessionDeleter> CreateArcSessionInternal(
       std::unique_ptr<ArcSessionImpl::Delegate> delegate,
       float default_device_scale_factor) {
-    if (!delegate)
+    if (!delegate) {
       delegate = std::make_unique<FakeDelegate>();
+    }
     auto arc_session =
         std::unique_ptr<ArcSessionImpl, ArcSessionDeleter>(new ArcSessionImpl(
             std::move(delegate), &fake_schedule_configuration_manager_,
@@ -729,8 +735,9 @@ TEST_P(ArcSessionImplPackagesCacheModeTest, PackagesCacheModes) {
   }
 
   arc_session->StartMiniInstance();
-  if (state.full_container)
+  if (state.full_container) {
     arc_session->RequestUpgrade(DefaultUpgradeParams());
+  }
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(
       state.expected_packages_cache_mode,
@@ -899,6 +906,40 @@ TEST_F(ArcSessionImplTest, DisableUreadahead) {
   base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(
       GetClient(arc_session.get())->last_start_params().disable_ureadahead);
+}
+
+// Test that validates ureadahead generation flag is not set by default.
+TEST_F(ArcSessionImplTest, HostUreadaheadGenerationDefault) {
+  auto arc_session = CreateArcSession();
+  arc_session->StartMiniInstance();
+  base::RunLoop().RunUntilIdle();
+  EXPECT_FALSE(GetClient(arc_session.get())
+                   ->last_start_params()
+                   .host_ureadahead_generation);
+}
+// Test that validates host ureadahead generation flag is set.
+TEST_F(ArcSessionImplTest, HostUreadaheadGenerationSet) {
+  base::CommandLine* const command_line =
+      base::CommandLine::ForCurrentProcess();
+  command_line->AppendSwitch(ash::switches::kArcHostUreadaheadGeneration);
+  auto arc_session = CreateArcSession();
+  arc_session->StartMiniInstance();
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(GetClient(arc_session.get())
+                  ->last_start_params()
+                  .host_ureadahead_generation);
+  // Host ureadahead generation implies disabling ureadahead.
+  EXPECT_TRUE(
+      GetClient(arc_session.get())->last_start_params().disable_ureadahead);
+}
+
+// Test that validates TTS caching is enabled by default.
+TEST_F(ArcSessionImplTest, TTSCachingByDefault) {
+  auto arc_session = CreateArcSession();
+  arc_session->StartMiniInstance();
+  base::RunLoop().RunUntilIdle();
+  EXPECT_TRUE(
+      GetClient(arc_session.get())->last_start_params().enable_tts_caching);
 }
 
 // Test "<<" operator for ArcSessionImpl::State type.

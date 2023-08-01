@@ -1,8 +1,7 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "components/viz/test/test_gpu_service_holder.h"
 #include "gpu/GLES2/gl2extchromium.h"
@@ -56,11 +55,9 @@ class SharedImageGLBackingProduceDawnTest : public WebGPUTest {
     attributes.bind_generates_resource = false;
 
     gl_context_ = std::make_unique<GLInProcessContext>();
-    ContextResult result = gl_context_->Initialize(
-        GetGpuServiceHolder()->task_executor(), nullptr, true,
-        gpu::kNullSurfaceHandle, attributes, option.shared_memory_limits,
-        nullptr, nullptr, nullptr, nullptr,
-        base::ThreadTaskRunnerHandle::Get());
+    ContextResult result =
+        gl_context_->Initialize(GetGpuServiceHolder()->task_executor(),
+                                attributes, option.shared_memory_limits);
     ASSERT_EQ(result, ContextResult::kSuccess);
     mock_buffer_map_callback =
         std::make_unique<testing::StrictMock<MockBufferMapCallback>>();
@@ -107,9 +104,9 @@ TEST_F(SharedImageGLBackingProduceDawnTest, Basic) {
   // Create the shared image
   SharedImageInterface* sii = gl_context_->GetSharedImageInterface();
   Mailbox gl_mailbox = sii->CreateSharedImage(
-      viz::ResourceFormat::RGBA_8888, {1, 1}, gfx::ColorSpace::CreateSRGB(),
+      viz::SinglePlaneFormat::kRGBA_8888, {1, 1}, gfx::ColorSpace::CreateSRGB(),
       kTopLeft_GrSurfaceOrigin, kPremul_SkAlphaType, SHARED_IMAGE_USAGE_GLES2,
-      kNullSurfaceHandle);
+      "TestLabel", kNullSurfaceHandle);
   SyncToken mailbox_produced_token = sii->GenVerifiedSyncToken();
   gl()->WaitSyncTokenCHROMIUM(mailbox_produced_token.GetConstData());
   GLuint texture =
@@ -142,10 +139,10 @@ TEST_F(SharedImageGLBackingProduceDawnTest, Basic) {
     gpu::webgpu::ReservedTexture reservation =
         webgpu()->ReserveTexture(device.Get());
 
-    webgpu()->AssociateMailbox(
-        reservation.deviceId, reservation.deviceGeneration, reservation.id,
-        reservation.generation, WGPUTextureUsage_CopySrc,
-        webgpu::WEBGPU_MAILBOX_NONE, reinterpret_cast<GLbyte*>(&gl_mailbox));
+    webgpu()->AssociateMailbox(reservation.deviceId,
+                               reservation.deviceGeneration, reservation.id,
+                               reservation.generation, WGPUTextureUsage_CopySrc,
+                               webgpu::WEBGPU_MAILBOX_NONE, gl_mailbox);
     wgpu::Texture wgpu_texture = wgpu::Texture::Acquire(reservation.texture);
 
     // Copy the texture in a mappable buffer.

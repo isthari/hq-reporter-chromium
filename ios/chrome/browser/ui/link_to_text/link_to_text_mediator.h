@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,20 +10,25 @@
 #import "ios/chrome/browser/ui/link_to_text/link_to_text_delegate.h"
 
 @protocol ActivityServiceCommands;
-@protocol LinkToTextConsumer;
+@protocol EditMenuAlertDelegate;
 class WebStateList;
 
 // Mediator that mediates between the browser container views and the
 // link_to_text tab helpers.
 @interface LinkToTextMediator : NSObject <LinkToTextDelegate>
 
-// Initializer for a mediator. |webStateList| is the WebStateList for the
+// Initializer for a mediator. `webStateList` is the WebStateList for the
 // Browser whose content is shown within the BrowserContainerConsumer. It must
-// be non-null. |consumer| is the consumer of link-to-text updates.
+// be non-null. `consumer` is the consumer of link-to-text updates.
 - (instancetype)initWithWebStateList:(WebStateList*)webStateList
-                            consumer:(id<LinkToTextConsumer>)consumer
     NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
+
+// The delegate to present error message alerts.
+@property(nonatomic, weak) id<EditMenuAlertDelegate> alertDelegate;
+
+// The handler for activity services commands.
+@property(nonatomic, weak) id<ActivityServiceCommands> activityServiceHandler;
 
 @end
 

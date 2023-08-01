@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,8 +22,7 @@ password_manager::PasswordForm PasswordFormFromCredential(
 // blocked by the user, with an empty origin or Android forms.
 - (instancetype)initWithPasswordForm:
                     (const password_manager::PasswordForm&)passwordForm
-                             favicon:(NSString*)favicon
-                validationIdentifier:(NSString*)validationIdentifier;
+                             favicon:(NSString*)favicon;
 
 @end
 

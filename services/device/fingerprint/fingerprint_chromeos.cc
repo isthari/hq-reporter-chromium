@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,21 +6,22 @@
 
 #include <string.h>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
-#include "chromeos/dbus/biod/biod_client.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
+#include "chromeos/ash/components/dbus/biod/biod_client.h"
 #include "dbus/object_path.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/self_owned_receiver.h"
 #include "services/device/fingerprint/fingerprint.h"
 #include "services/device/public/mojom/fingerprint.mojom.h"
+#include "third_party/abseil-cpp/absl/utility/utility.h"
 
 namespace device {
 
 namespace {
 
-chromeos::BiodClient* GetBiodClient() {
-  return chromeos::BiodClient::Get();
+ash::BiodClient* GetBiodClient() {
+  return ash::BiodClient::Get();
 }
 
 // Helper functions to convert between dbus and mojo types. The dbus type comes
@@ -86,6 +87,16 @@ device::mojom::FingerprintError ToMojom(biod::FingerprintError type) {
   }
   NOTREACHED();
   return device::mojom::FingerprintError::UNKNOWN;
+}
+
+device::mojom::BiometricsManagerStatus ToMojom(
+    biod::BiometricsManagerStatus status) {
+  switch (status) {
+    case biod::BiometricsManagerStatus::INITIALIZED:
+      return device::mojom::BiometricsManagerStatus::INITIALIZED;
+  }
+  NOTREACHED();
+  return device::mojom::BiometricsManagerStatus::UNKNOWN;
 }
 
 }  // namespace
@@ -242,6 +253,14 @@ void FingerprintChromeOS::BiodServiceRestarted() {
     observer->OnRestarted();
 }
 
+void FingerprintChromeOS::BiodServiceStatusChanged(
+    biod::BiometricsManagerStatus status) {
+  opened_session_ = FingerprintSession::NONE;
+  for (auto& observer : observers_) {
+    observer->OnStatusChanged(ToMojom(status));
+  }
+}
+
 void FingerprintChromeOS::BiodEnrollScanDoneReceived(
     biod::ScanResult scan_result,
     bool enroll_session_complete,
@@ -257,7 +276,7 @@ void FingerprintChromeOS::BiodEnrollScanDoneReceived(
 
 void FingerprintChromeOS::BiodAuthScanDoneReceived(
     const biod::FingerprintMessage& msg,
-    const chromeos::AuthScanMatches& matches) {
+    const ash::AuthScanMatches& matches) {
   // Convert ObjectPath to string, since mojom doesn't know definition of
   // dbus ObjectPath.
   std::vector<std::pair<std::string, std::vector<std::string>>> entries;
@@ -289,7 +308,7 @@ void FingerprintChromeOS::BiodAuthScanDoneReceived(
 
   for (auto& observer : observers_) {
     observer->OnAuthScanDone(
-        {base::in_place, converted_msg},
+        {absl::in_place, converted_msg},
         // TODO(patrykd): Construct the map at the beginning of this function.
         base::flat_map<std::string, std::vector<std::string>>(entries));
   }
@@ -328,9 +347,11 @@ void FingerprintChromeOS::OnStartAuthSession(
 
 void FingerprintChromeOS::OnGetRecordsForUser(
     GetRecordsForUserCallback callback,
-    const std::vector<dbus::ObjectPath>& records) {
-  if (records.size() == 0) {
-    std::move(callback).Run({base::flat_map<std::string, std::string>()});
+    const std::vector<dbus::ObjectPath>& records,
+    bool success) {
+  if (records.size() == 0 || success == false) {
+    std::move(callback).Run({base::flat_map<std::string, std::string>()},
+                            success);
     StartNextRequest();
     return;
   }
@@ -353,7 +374,7 @@ void FingerprintChromeOS::OnGetLabelFromRecordPath(
   records_path_to_label_[record_path.value()] = label;
   if (records_path_to_label_.size() == num_records) {
     DCHECK(on_get_records_);
-    std::move(on_get_records_).Run(records_path_to_label_);
+    std::move(on_get_records_).Run(records_path_to_label_, true);
     StartNextRequest();
   }
 }

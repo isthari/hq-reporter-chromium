@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,8 @@
 
 #include <ostream>
 #include <string>
+
+#include "base/command_line.h"
 
 namespace updater {
 
@@ -32,11 +34,22 @@ inline std::ostream& operator<<(std::ostream& os, UpdaterScope scope) {
   return os << UpdaterScopeToString(scope).c_str();
 }
 
+// Returns `true` if the tag has a "needsadmin=prefers" argument.
+bool IsPrefersForCommandLine(const base::CommandLine& command_line);
+
+// Returns the scope of the updater, which is either per-system or per-user.
+// The updater scope is determined from the `command_line` argument.
+UpdaterScope GetUpdaterScopeForCommandLine(
+    const base::CommandLine& command_line);
+
 // Returns the scope of the updater, which is either per-system or per-user.
 // The updater scope is determined from command line arguments of the process,
 // the presence and content of the --tag argument, and the integrity level
 // of the process, where applicable.
 UpdaterScope GetUpdaterScope();
+
+bool IsSystemInstall();
+bool IsSystemInstall(UpdaterScope scope);
 
 }  // namespace updater
 

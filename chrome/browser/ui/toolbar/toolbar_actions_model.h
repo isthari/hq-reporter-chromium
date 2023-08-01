@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,12 +16,11 @@
 #include "chrome/browser/extensions/extension_management.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/prefs/pref_change_registrar.h"
-#include "content/public/browser/notification_observer.h"
-#include "content/public/browser/notification_registrar.h"
 #include "extensions/browser/extension_action.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_registry_observer.h"
+#include "extensions/browser/permissions_manager.h"
 #include "extensions/common/extension.h"
 
 class Browser;
@@ -44,7 +43,7 @@ class ExtensionMessageBubbleController;
 class ToolbarActionsModel : public extensions::ExtensionActionAPI::Observer,
                             public extensions::ExtensionRegistryObserver,
                             public extensions::ExtensionManagement::Observer,
-                            public content::NotificationObserver,
+                            public extensions::PermissionsManager::Observer,
                             public KeyedService {
  public:
   using ActionId = std::string;
@@ -115,6 +114,10 @@ class ToolbarActionsModel : public extensions::ExtensionActionAPI::Observer,
   // Returns the extension name corresponding to the `action_id`.
   const std::u16string GetExtensionName(const ActionId& action_id) const;
 
+  // Returns true if `url` is restricted for all extensions with actions in the
+  // toolbar.ß
+  bool IsRestrictedUrl(const GURL& url) const;
+
   // Returns true if the action is pinned to the toolbar.
   bool IsActionPinned(const ActionId& action_id) const;
 
@@ -152,10 +155,14 @@ class ToolbarActionsModel : public extensions::ExtensionActionAPI::Observer,
   // extensions::ExtensionManagement::Observer:
   void OnExtensionManagementSettingsChanged() override;
 
-  // content::NotificationObserver:
-  void Observe(int notification_type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) override;
+  // extensions::PermissionsManager::Observer:
+  void OnExtensionPermissionsUpdated(
+      const extensions::Extension& extension,
+      const extensions::PermissionSet& permissions,
+      extensions::PermissionsManager::UpdateReason reason) override;
+
+  // KeyedService:
+  void Shutdown() override;
 
   // To be called after the extension service is ready; gets loaded extensions
   // from the ExtensionRegistry, their saved order from the pref service, and
@@ -242,8 +249,9 @@ class ToolbarActionsModel : public extensions::ExtensionActionAPI::Observer,
                           extensions::ExtensionManagement::Observer>
       extension_management_observation_{this};
 
-  // Registrar for receiving permission-related notifications.
-  content::NotificationRegistrar notification_registrar_;
+  base::ScopedObservation<extensions::PermissionsManager,
+                          extensions::PermissionsManager::Observer>
+      permissions_manager_observation_{this};
 
   base::WeakPtrFactory<ToolbarActionsModel> weak_ptr_factory_{this};
 };

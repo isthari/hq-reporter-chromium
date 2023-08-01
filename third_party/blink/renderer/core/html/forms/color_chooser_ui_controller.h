@@ -33,6 +33,7 @@
 #include "third_party/blink/renderer/core/html/forms/color_chooser.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_receiver.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_wrapper_mode.h"
 #include "third_party/blink/renderer/platform/text/platform_locale.h"
 
@@ -63,16 +64,16 @@ class CORE_EXPORT ColorChooserUIController
   void DidChooseColor(uint32_t color) final;
 
  protected:
-#if BUILDFLAG(IS_ANDROID)
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_MAC)
   void OpenColorChooser();
-#endif
-  mojo::Remote<mojom::blink::ColorChooser> chooser_;
+#endif  // BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_MAC)
+  HeapMojoRemote<mojom::blink::ColorChooser> chooser_;
   Member<blink::ColorChooserClient> client_;
 
   Member<LocalFrame> frame_;
 
  private:
-  mojo::Remote<mojom::blink::ColorChooserFactory> color_chooser_factory_;
+  HeapMojoRemote<mojom::blink::ColorChooserFactory> color_chooser_factory_;
   HeapMojoReceiver<mojom::blink::ColorChooserClient, ColorChooserUIController>
       receiver_;
 };

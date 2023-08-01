@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -65,6 +65,9 @@ struct StructTraits<ax::mojom::AXActionDataDataView, ui::AXActionData> {
     return a.scroll_behavior;
   }
 
+  // Returns false if `data` could not be read into `out`, which may occur if
+  // `data` was created using newer versions of enums than `out` supports,
+  // or if some other value cannot be read.
   static bool Read(ax::mojom::AXActionDataDataView data, ui::AXActionData* out);
 };
 

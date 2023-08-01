@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,8 +34,9 @@ bool IsSameSchema(Schema a, Schema b) {
     return false;
   if (a.type() == base::Value::Type::LIST)
     return IsSameSchema(a.GetItems(), b.GetItems());
-  if (a.type() != base::Value::Type::DICTIONARY)
+  if (a.type() != base::Value::Type::DICT) {
     return true;
+  }
   Schema::Iterator a_it = a.GetPropertiesIterator();
   Schema::Iterator b_it = b.GetPropertiesIterator();
   while (!a_it.IsAtEnd()) {
@@ -59,7 +60,7 @@ bool IsSameSchema(Schema a, Schema b) {
 TEST(GeneratePolicySource, ChromeSchemaData) {
   Schema schema = Schema::Wrap(GetChromeSchemaData());
   ASSERT_TRUE(schema.valid());
-  EXPECT_EQ(base::Value::Type::DICTIONARY, schema.type());
+  EXPECT_EQ(base::Value::Type::DICT, schema.type());
 
   Schema subschema = schema.GetAdditionalProperties();
   EXPECT_FALSE(subschema.valid());
@@ -96,7 +97,7 @@ TEST(GeneratePolicySource, ChromeSchemaData) {
 
   subschema = schema.GetProperty(key::kProxySettings);
   ASSERT_TRUE(subschema.valid());
-  EXPECT_EQ(base::Value::Type::DICTIONARY, subschema.type());
+  EXPECT_EQ(base::Value::Type::DICT, subschema.type());
   EXPECT_FALSE(subschema.GetAdditionalProperties().valid());
   EXPECT_FALSE(subschema.GetProperty("no such proxy key exists").valid());
   ASSERT_TRUE(subschema.GetProperty(key::kProxyMode).valid());
@@ -135,7 +136,7 @@ TEST(GeneratePolicySource, ChromeSchemaData) {
 #if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
   subschema = schema.GetProperty(key::kExtensionSettings);
   ASSERT_TRUE(subschema.valid());
-  ASSERT_EQ(base::Value::Type::DICTIONARY, subschema.type());
+  ASSERT_EQ(base::Value::Type::DICT, subschema.type());
   EXPECT_FALSE(subschema.GetAdditionalProperties().valid());
   EXPECT_FALSE(subschema.GetProperty("no such extension id exists").valid());
   EXPECT_TRUE(subschema.GetPatternProperties("*").empty());
@@ -151,14 +152,14 @@ TEST(GeneratePolicySource, ChromeSchemaData) {
   ASSERT_EQ(1u, schema_list.size());
   subschema = schema_list[0];
   ASSERT_TRUE(subschema.valid());
-  ASSERT_EQ(base::Value::Type::DICTIONARY, subschema.type());
+  ASSERT_EQ(base::Value::Type::DICT, subschema.type());
   subschema = subschema.GetProperty("installation_mode");
   ASSERT_TRUE(subschema.valid());
   ASSERT_EQ(base::Value::Type::STRING, subschema.type());
 
   subschema = schema.GetProperty(key::kExtensionSettings).GetProperty("*");
   ASSERT_TRUE(subschema.valid());
-  ASSERT_EQ(base::Value::Type::DICTIONARY, subschema.type());
+  ASSERT_EQ(base::Value::Type::DICT, subschema.type());
   subschema = subschema.GetProperty("installation_mode");
   ASSERT_TRUE(subschema.valid());
   ASSERT_EQ(base::Value::Type::STRING, subschema.type());
@@ -229,20 +230,20 @@ TEST(GeneratePolicySource, SetEnterpriseDefaults) {
   // If policy not configured yet, set the enterprise default.
   SetEnterpriseUsersDefaults(&policy_map);
 
-  const base::Value* multiprof_behavior =
-      policy_map.GetValue(key::kChromeOsMultiProfileUserBehavior);
+  const base::Value* multiprof_behavior = policy_map.GetValue(
+      key::kChromeOsMultiProfileUserBehavior, base::Value::Type::STRING);
   base::Value expected("primary-only");
-  EXPECT_TRUE(expected.Equals(multiprof_behavior));
+  EXPECT_EQ(expected, *multiprof_behavior);
 
   // If policy already configured, it's not changed to enterprise defaults.
   policy_map.Set(key::kChromeOsMultiProfileUserBehavior, POLICY_LEVEL_MANDATORY,
                  POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
                  base::Value("test_value"), nullptr);
   SetEnterpriseUsersDefaults(&policy_map);
-  multiprof_behavior =
-      policy_map.GetValue(key::kChromeOsMultiProfileUserBehavior);
+  multiprof_behavior = policy_map.GetValue(
+      key::kChromeOsMultiProfileUserBehavior, base::Value::Type::STRING);
   expected = base::Value("test_value");
-  EXPECT_TRUE(expected.Equals(multiprof_behavior));
+  EXPECT_EQ(expected, *multiprof_behavior);
 }
 
 TEST(GeneratePolicySource, SetEnterpriseSystemWideDefaults) {
@@ -251,12 +252,12 @@ TEST(GeneratePolicySource, SetEnterpriseSystemWideDefaults) {
   // If policy not configured yet, set the enterprise system-wide default.
   SetEnterpriseUsersSystemWideDefaults(&policy_map);
 
-  const base::Value* pin_unlock_autosubmit_enabled =
-      policy_map.GetValue(key::kPinUnlockAutosubmitEnabled);
+  const base::Value* pin_unlock_autosubmit_enabled = policy_map.GetValue(
+      key::kPinUnlockAutosubmitEnabled, base::Value::Type::BOOLEAN);
   ASSERT_TRUE(pin_unlock_autosubmit_enabled);
   EXPECT_FALSE(pin_unlock_autosubmit_enabled->GetBool());
-  const base::Value* allow_dinosaur_easter_egg =
-      policy_map.GetValue(key::kAllowDinosaurEasterEgg);
+  const base::Value* allow_dinosaur_easter_egg = policy_map.GetValue(
+      key::kAllowDinosaurEasterEgg, base::Value::Type::BOOLEAN);
   EXPECT_EQ(nullptr, allow_dinosaur_easter_egg);
 
   // If policy already configured, it's not changed to enterprise defaults.
@@ -264,11 +265,12 @@ TEST(GeneratePolicySource, SetEnterpriseSystemWideDefaults) {
                  POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD, base::Value(true),
                  nullptr);
   SetEnterpriseUsersSystemWideDefaults(&policy_map);
-  pin_unlock_autosubmit_enabled =
-      policy_map.GetValue(key::kPinUnlockAutosubmitEnabled);
+  pin_unlock_autosubmit_enabled = policy_map.GetValue(
+      key::kPinUnlockAutosubmitEnabled, base::Value::Type::BOOLEAN);
   ASSERT_TRUE(pin_unlock_autosubmit_enabled);
   EXPECT_TRUE(pin_unlock_autosubmit_enabled->GetBool());
-  allow_dinosaur_easter_egg = policy_map.GetValue(key::kAllowDinosaurEasterEgg);
+  allow_dinosaur_easter_egg = policy_map.GetValue(key::kAllowDinosaurEasterEgg,
+                                                  base::Value::Type::BOOLEAN);
   EXPECT_EQ(nullptr, allow_dinosaur_easter_egg);
 }
 
@@ -278,12 +280,12 @@ TEST(GeneratePolicySource, SetEnterpriseProfileDefaults) {
   // If policy not configured yet, set the enterprise profile default.
   SetEnterpriseUsersProfileDefaults(&policy_map);
 
-  const base::Value* allow_dinosaur_easter_egg =
-      policy_map.GetValue(key::kAllowDinosaurEasterEgg);
+  const base::Value* allow_dinosaur_easter_egg = policy_map.GetValue(
+      key::kAllowDinosaurEasterEgg, base::Value::Type::BOOLEAN);
   ASSERT_TRUE(allow_dinosaur_easter_egg);
   EXPECT_FALSE(allow_dinosaur_easter_egg->GetBool());
-  const base::Value* pin_unlock_autosubmit_enabled =
-      policy_map.GetValue(key::kPinUnlockAutosubmitEnabled);
+  const base::Value* pin_unlock_autosubmit_enabled = policy_map.GetValue(
+      key::kPinUnlockAutosubmitEnabled, base::Value::Type::BOOLEAN);
   EXPECT_EQ(nullptr, pin_unlock_autosubmit_enabled);
 
   // If policy already configured, it's not changed to enterprise defaults.
@@ -291,11 +293,12 @@ TEST(GeneratePolicySource, SetEnterpriseProfileDefaults) {
                  POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD, base::Value(true),
                  nullptr);
   SetEnterpriseUsersProfileDefaults(&policy_map);
-  allow_dinosaur_easter_egg = policy_map.GetValue(key::kAllowDinosaurEasterEgg);
+  allow_dinosaur_easter_egg = policy_map.GetValue(key::kAllowDinosaurEasterEgg,
+                                                  base::Value::Type::BOOLEAN);
   ASSERT_TRUE(allow_dinosaur_easter_egg);
   EXPECT_TRUE(allow_dinosaur_easter_egg->GetBool());
-  pin_unlock_autosubmit_enabled =
-      policy_map.GetValue(key::kPinUnlockAutosubmitEnabled);
+  pin_unlock_autosubmit_enabled = policy_map.GetValue(
+      key::kPinUnlockAutosubmitEnabled, base::Value::Type::BOOLEAN);
   EXPECT_EQ(nullptr, pin_unlock_autosubmit_enabled);
 }
 #endif

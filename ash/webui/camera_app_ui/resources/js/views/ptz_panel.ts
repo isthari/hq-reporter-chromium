@@ -1,11 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {assertInstanceof} from '../assert.js';
-import {AsyncJobQueue} from '../async_job_queue.js';
+import {assert, assertExists, assertInstanceof} from '../assert.js';
+import {ClearableAsyncJobQueue} from '../async_job_queue.js';
 import * as dom from '../dom.js';
-import * as focusRing from '../focus_ring.js';
+import {SvgWrapper} from '../lit/svg_wrapper.js';
 import * as metrics from '../metrics.js';
 import * as nav from '../nav.js';
 import * as state from '../state.js';
@@ -32,10 +32,15 @@ const digitalZoomCameras = new Set([
 
 /**
  * Detects hold gesture on UI and triggers corresponding handler.
- * @param params For the first press, triggers |handlePress| handler once. When
- * holding UI for more than |pressTimeout| ms, triggers |handleHold| handler
- * every |holdInterval| ms. Triggers |handleRelease| once the user releases the
- * button.
+ *
+ * @param params Gesture parameters.
+ * @param params.button Target button for the gesture.
+ * @param params.handlePress Triggered once for the first press.
+ * @param params.handleHold Triggered every |holdInterval| ms when holding UI
+ *     for more than |pressTimeout| ms.
+ * @param params.handleRelease Triggered once the user releases the button.
+ * @param params.pressTimeout Timeout in ms before triggering |handleHold|.
+ * @param params.holdInterval Trigger interval for the |handleHold|.
  */
 function detectHoldGesture({
   button,
@@ -54,26 +59,39 @@ function detectHoldGesture({
 }) {
   let interval: DelayInterval|null = null;
 
-  const press = () => {
+  function press() {
     if (interval !== null) {
       interval.stop();
     }
     handlePress();
-    interval = new DelayInterval(handleHold, pressTimeout, holdInterval);
-  };
+    interval = new DelayInterval(() => {
+      if (button.disabled) {
+        // Releasing the hold if the button is disabled, since disabled button
+        // might not get onkeyup event.
+        release();
+        return;
+      }
+      handleHold();
+    }, pressTimeout, holdInterval);
+  }
 
-  const release = () => {
+  function release() {
     if (interval !== null) {
       interval.stop();
       interval = null;
     }
     handleRelease();
-  };
+  }
 
   button.onpointerdown = press;
   button.onpointerleave = release;
   button.onpointerup = release;
-  button.onkeydown = ({key}) => {
+  button.onkeydown = ({key, repeat}) => {
+    if (repeat) {
+      // Ignoring repeating keydown event since we have our own DelayInterval
+      // implementation.
+      return;
+    }
     if (key === 'Enter' || key === ' ') {
       press();
     }
@@ -97,30 +115,39 @@ export class PTZPanel extends View {
   private track: MediaStreamTrack|null = null;
 
   private resetPTZ: (() => Promise<void>)|null = null;
+
   private readonly panel = dom.get('#ptz-panel', HTMLDivElement);
+
   private readonly resetAll = dom.get('#ptz-reset-all', HTMLButtonElement);
+
   private readonly panLeft = dom.get('#pan-left', HTMLButtonElement);
+
   private readonly panRight = dom.get('#pan-right', HTMLButtonElement);
+
   private readonly tiltUp = dom.get('#tilt-up', HTMLButtonElement);
+
   private readonly tiltDown = dom.get('#tilt-down', HTMLButtonElement);
+
   private readonly zoomIn = dom.get('#zoom-in', HTMLButtonElement);
+
   private readonly zoomOut = dom.get('#zoom-out', HTMLButtonElement);
+
   private mirrorObserver: ((mirror: boolean) => void)|null = null;
 
   /**
    * Queues asynchronous pan change jobs in sequence.
    */
-  private panQueues = new AsyncJobQueue();
+  private panQueues = new ClearableAsyncJobQueue();
 
   /**
    * Queues asynchronous tilt change jobs in sequence.
    */
-  private tiltQueues = new AsyncJobQueue();
+  private tiltQueues = new ClearableAsyncJobQueue();
 
   /**
    * Queues asynchronous zoom change jobs in sequence.
    */
-  private zoomQueues = new AsyncJobQueue();
+  private zoomQueues = new ClearableAsyncJobQueue();
 
   /**
    * Whether the camera associated with current track is a digital zoom
@@ -133,29 +160,6 @@ export class PTZPanel extends View {
         ViewName.PTZ_PANEL,
         {dismissByEsc: true, dismissByBackgroundClick: true});
 
-    for (const el
-             of [this.panLeft, this.panRight, this.tiltUp, this.tiltDown,
-                 this.zoomIn, this.zoomOut]) {
-      el.addEventListener(focusRing.FOCUS_RING_UI_RECT_EVENT_NAME, (evt) => {
-        if (!(state.get(state.State.HAS_PAN_SUPPORT) &&
-              state.get(state.State.HAS_TILT_SUPPORT) &&
-              state.get(state.State.HAS_ZOOM_SUPPORT))) {
-          return;
-        }
-        const style = getComputedStyle(el, '::before');
-        const getStyleValue = (attr) => {
-          const px = style.getPropertyValue(attr);
-          return Number(px.replace(/^([\d.]+)px$/, '$1'));
-        };
-        const pRect = el.getBoundingClientRect();
-        focusRing.setUIRect(new DOMRectReadOnly(
-            /* x */ pRect.left + getStyleValue('left'),
-            /* y */ pRect.top + getStyleValue('top'), getStyleValue('width'),
-            getStyleValue('height')));
-        evt.preventDefault();
-      });
-    }
-
     state.addObserver(state.State.STREAMING, (streaming) => {
       if (!streaming && state.get(this.name)) {
         nav.close(this.name);
@@ -166,19 +170,8 @@ export class PTZPanel extends View {
              of [this.panRight, this.panLeft, this.tiltUp, this.tiltDown]) {
       btn.addEventListener(tooltip.TOOLTIP_POSITION_EVENT_NAME, (e) => {
         const target = assertInstanceof(e.target, HTMLElement);
-        const pRect = target.offsetParent.getBoundingClientRect();
-        const style = getComputedStyle(target, '::before');
-        const getStyleValue = (attr) => {
-          const px = style.getPropertyValue(attr);
-          return Number(px.replace(/^([\d.]+)px$/, '$1'));
-        };
-        const offsetX = getStyleValue('left');
-        const offsetY = getStyleValue('top');
-        const width = getStyleValue('width');
-        const height = getStyleValue('height');
-        tooltip.position(new DOMRectReadOnly(
-            /* x */ pRect.left + offsetX, /* y */ pRect.top + offsetY, width,
-            height));
+        const icon = dom.getFrom(target, 'svg-wrapper', SvgWrapper);
+        tooltip.position(icon.getBoundingClientRect());
         e.preventDefault();
       });
     }
@@ -202,22 +195,29 @@ export class PTZPanel extends View {
 
   /**
    * Binds buttons with the attribute name to be controlled.
+   *
    * @param attr One of pan, tilt, zoom attribute name to be bound.
    * @param incBtn Button for increasing the value.
    * @param decBtn Button for decreasing the value.
    */
   private bind(
-      attr: string, incBtn: HTMLButtonElement,
-      decBtn: HTMLButtonElement): AsyncJobQueue {
-    const {min, max, step} = this.track.getCapabilities()[attr];
-    const getCurrent = () => this.track.getSettings()[attr];
+      attr: 'pan'|'tilt'|'zoom', incBtn: HTMLButtonElement,
+      decBtn: HTMLButtonElement): ClearableAsyncJobQueue {
+    const track = this.track;
+    assert(track !== null);
+    const {min, max, step} = track.getCapabilities()[attr];
+    function getCurrent() {
+      assert(track !== null);
+      return assertExists(track.getSettings()[attr]);
+    }
     this.checkDisabled();
 
-    const queue = new AsyncJobQueue();
+    const queue = new ClearableAsyncJobQueue();
 
     /**
      * Returns a function triggering |attr| change of preview moving toward
      * +1/-1 direction with |deltaInPercent|.
+     *
      * @param deltaInPercent Change rate in percent with respect to min/max
      *     range.
      * @param direction Change in +1 or -1 direction.
@@ -228,9 +228,9 @@ export class PTZPanel extends View {
               Math.max(
                   Math.round((max - min) / step * deltaInPercent / 100), 1) *
               step * direction;
-          return () => {
-            queue.push(async () => {
-              if (!this.track.enabled) {
+          return async () => {
+            await queue.push(async () => {
+              if (!track.enabled) {
                 return;
               }
               const current = getCurrent();
@@ -241,7 +241,7 @@ export class PTZPanel extends View {
               if (current === next) {
                 return;
               }
-              await this.track.applyConstraints({advanced: [{[attr]: next}]});
+              await track.applyConstraints({advanced: [{[attr]: next}]});
               this.checkDisabled();
             });
           };
@@ -272,14 +272,17 @@ export class PTZPanel extends View {
   }
 
   private canPan(): boolean {
+    assert(this.track !== null);
     return this.track.getCapabilities().pan !== undefined;
   }
 
   private canTilt(): boolean {
+    assert(this.track !== null);
     return this.track.getCapabilities().tilt !== undefined;
   }
 
   private canZoom(): boolean {
+    assert(this.track !== null);
     return this.track.getCapabilities().zoom !== undefined;
   }
 
@@ -289,12 +292,15 @@ export class PTZPanel extends View {
     }
     const capabilities = this.track.getCapabilities();
     const settings = this.track.getSettings();
-    const updateDisable = (incBtn, decBtn, attr) => {
+    function updateDisable(
+        incBtn: HTMLButtonElement, decBtn: HTMLButtonElement,
+        attr: 'pan'|'tilt'|'zoom') {
       const current = settings[attr];
       const {min, max, step} = capabilities[attr];
+      assert(current !== undefined);
       decBtn.disabled = current - step < min;
       incBtn.disabled = current + step > max;
-    };
+    }
     if (capabilities.zoom !== undefined) {
       updateDisable(this.zoomIn, this.zoomOut, 'zoom');
     }
@@ -321,7 +327,7 @@ export class PTZPanel extends View {
     }
   }
 
-  entering(options: EnterOptions): void {
+  override entering(options: EnterOptions): void {
     const {stream, vidPid, resetPTZ} =
         assertInstanceof(options, PTZPanelOptions);
     const {bottom, right} =
@@ -366,12 +372,13 @@ export class PTZPanel extends View {
         this.tiltQueues.clear(),
         this.zoomQueues.clear(),
       ]);
+      assert(this.resetPTZ !== null);
       await this.resetPTZ();
       this.checkDisabled();
     };
   }
 
-  leaving(): boolean {
+  override leaving(): boolean {
     this.removeMirrorObserver();
     return true;
   }

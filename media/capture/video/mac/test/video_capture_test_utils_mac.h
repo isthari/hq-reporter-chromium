@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,10 @@
 #define MEDIA_CAPTURE_VIDEO_MAC_TEST_VIDEO_CAPTURE_TEST_UTILS_MAC_H_
 
 #import <Foundation/Foundation.h>
+
 #include <memory>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "media/capture/video/mac/video_capture_device_factory_mac.h"
 
 namespace media {

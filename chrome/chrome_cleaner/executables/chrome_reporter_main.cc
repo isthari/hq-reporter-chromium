@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,11 +11,11 @@
 #include <utility>
 
 #include "base/at_exit.h"
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/dcheck_is_on.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_refptr.h"
@@ -25,7 +25,6 @@
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_executor.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/win/registry.h"
 #include "base/win/scoped_com_initializer.h"
 #include "base/win/scoped_handle.h"
@@ -257,8 +256,7 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, wchar_t*, int) {
     interface_log_file = command_line->GetSwitchValueNative(
         chrome_cleaner::kLogInterfaceCallsToSwitch);
     base::FilePath passed_name(interface_log_file);
-    std::vector<std::wstring> components;
-    passed_name.GetComponents(&components);
+    std::vector<std::wstring> components = passed_name.GetComponents();
     if (components.size() != 1) {
       LOG(ERROR) << "Invalid file name passed for logging!";
       return FinalizeWithResultCode(chrome_cleaner::RESULT_CODE_FAILED,
@@ -268,7 +266,7 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, wchar_t*, int) {
 
   auto sandbox_connection_error_callback =
       base::BindRepeating(CallTerminateOnSandboxConnectionError,
-                          base::SequencedTaskRunnerHandle::Get(),
+                          base::SequencedTaskRunner::GetCurrentDefault(),
                           registry_logger_weak_factory.GetWeakPtr());
 
   std::unique_ptr<chrome_cleaner::InterfaceLogService> interface_log_service =
@@ -306,7 +304,8 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, wchar_t*, int) {
   std::unique_ptr<chrome_cleaner::ScannerController> scanner_controller =
       std::make_unique<chrome_cleaner::ScannerControllerImpl>(
           shutdown_sequence.engine_client.get(), &registry_logger,
-          base::SequencedTaskRunnerHandle::Get(), shortcut_parser.get());
+          base::SequencedTaskRunner::GetCurrentDefault(),
+          shortcut_parser.get());
 
   if (command_line->HasSwitch(chrome_cleaner::kCrashSwitch)) {
     int* crash_me = nullptr;

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,7 +45,7 @@ class FeatureListCreator {
   void PerformPreMainMessageLoopStartup();
 
   // Calls through to the VariationService.
-  void OnBrowserFragmentStarted();
+  void OnBrowserCreated();
 
   variations::VariationsService* variations_service() const {
     return variations_service_.get();
@@ -64,8 +64,8 @@ class FeatureListCreator {
 
   WebLayerFieldTrials weblayer_field_trials_;
 
-  // Set to true the first time OnBrowserFragmentStarted() is called.
-  bool has_browser_fragment_started_ = false;
+  // Set to true the first time OnBrowserCreated() is called.
+  bool has_browser_created_ = false;
 };
 
 }  // namespace weblayer

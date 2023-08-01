@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "cc/paint/filter_operations.h"
 #include "components/viz/common/quads/aggregated_render_pass.h"
 #include "components/viz/common/quads/compositor_render_pass.h"
+#include "components/viz/common/quads/solid_color_draw_quad.h"
 #include "third_party/skia/include/core/SkColor.h"
 
 namespace gfx {
@@ -28,7 +29,6 @@ class ClientResourceProvider;
 class ContextProvider;
 class DisplayResourceProvider;
 class CompositorRenderPass;
-class SolidColorDrawQuad;
 }  // namespace viz
 
 namespace cc {
@@ -68,16 +68,24 @@ viz::AggregatedRenderPass* AddRenderPassWithDamage(
 
 // Adds a solid quad to a given render pass.
 template <typename RenderPassType>
-inline viz::SolidColorDrawQuad* AddQuad(RenderPassType* pass,
-                                        const gfx::Rect& rect,
-                                        SkColor color) {
+inline viz::SolidColorDrawQuad* AddTransparentQuad(RenderPassType* pass,
+                                                   const gfx::Rect& rect,
+                                                   SkColor4f color,
+                                                   float opacity) {
   viz::SharedQuadState* shared_state = pass->CreateAndAppendSharedQuadState();
   shared_state->SetAll(gfx::Transform(), rect, rect, gfx::MaskFilterInfo(),
-                       absl::nullopt, false, 1, SkBlendMode::kSrcOver, 0);
+                       absl::nullopt, false, opacity, SkBlendMode::kSrcOver, 0);
   auto* quad =
       pass->template CreateAndAppendDrawQuad<viz::SolidColorDrawQuad>();
   quad->SetNew(shared_state, rect, rect, color, false);
   return quad;
+}
+
+template <typename RenderPassType>
+inline viz::SolidColorDrawQuad* AddQuad(RenderPassType* pass,
+                                        const gfx::Rect& rect,
+                                        SkColor4f color) {
+  return AddTransparentQuad(pass, rect, color, 1.0);
 }
 
 // Adds a solid quad to a given render pass and sets is_clipped=true.

@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include "base/command_line.h"
 #include "base/format_macros.h"
 #include "base/strings/stringprintf.h"
+#include "base/time/time.h"
 #include "ui/aura/window.h"
 #include "ui/display/manager/display_manager.h"
 #include "ui/display/test/display_manager_test_api.h"
@@ -42,12 +43,12 @@ class TouchHudTestBase : public AshTestBase {
     external_display_id_ = 10;
     mirrored_display_id_ = 11;
 
-    internal_display_info_ =
-        CreateDisplayInfo(internal_display_id_, gfx::Rect(0, 0, 600, 500));
-    external_display_info_ =
-        CreateDisplayInfo(external_display_id_, gfx::Rect(1, 1, 200, 100));
-    mirrored_display_info_ =
-        CreateDisplayInfo(mirrored_display_id_, gfx::Rect(0, 0, 200, 100));
+    internal_display_info_ = display::CreateDisplayInfo(
+        internal_display_id_, gfx::Rect(0, 0, 600, 500));
+    external_display_info_ = display::CreateDisplayInfo(
+        external_display_id_, gfx::Rect(1, 1, 200, 100));
+    mirrored_display_info_ = display::CreateDisplayInfo(
+        mirrored_display_id_, gfx::Rect(0, 0, 200, 100));
   }
 
   display::Display GetPrimaryDisplay() {
@@ -171,14 +172,6 @@ class TouchHudTestBase : public AshTestBase {
   RootWindowController* GetSecondaryRootController() {
     aura::Window* root = GetSecondaryRootWindow();
     return RootWindowController::ForWindow(root);
-  }
-
-  display::ManagedDisplayInfo CreateDisplayInfo(int64_t id,
-                                                const gfx::Rect& bounds) {
-    display::ManagedDisplayInfo info(id, base::StringPrintf("x-%" PRId64, id),
-                                     false);
-    info.SetBounds(bounds);
-    return info;
   }
 
   aura::Window* GetRootWindowForTouchHud(TouchObserverHud* hud) {

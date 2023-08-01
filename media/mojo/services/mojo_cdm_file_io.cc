@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,10 @@
 
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/task/post_task.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/metrics/histogram_macros.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/trace_event/trace_event.h"
 #include "mojo/public/cpp/bindings/callback_helpers.h"
 
@@ -91,6 +92,8 @@ void MojoCdmFileIO::OnFileOpened(
     mojo::PendingAssociatedRemote<mojom::CdmFile> cdm_file) {
   DVLOG(3) << __func__ << " file: " << file_name_ << ", status: " << status;
 
+  UMA_HISTOGRAM_ENUMERATION("Media.EME.CdmFileIO::OpenFile", status);
+
   // This logs the end of the async Open() request, and separately logs
   // how long the client takes in OnOpenComplete().
   TRACE_EVENT_ASYNC_END1("media", "MojoCdmFileIO::Open", this, "status",
@@ -117,7 +120,7 @@ void MojoCdmFileIO::OnFileOpened(
       return;
   }
 
-  NOTREACHED();
+  NOTREACHED_NORETURN();
 }
 
 void MojoCdmFileIO::Read() {
@@ -246,7 +249,7 @@ void MojoCdmFileIO::Close() {
 void MojoCdmFileIO::OnError(ErrorType error) {
   DVLOG(3) << __func__ << " file: " << file_name_ << ", error: " << (int)error;
 
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&MojoCdmFileIO::NotifyClientOfError,
                                 weak_factory_.GetWeakPtr(), error));
 }

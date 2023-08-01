@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,10 +13,10 @@
 #include <set>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/check_op.h"
 #include "base/containers/flat_map.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_functions.h"
@@ -31,25 +31,28 @@
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
-#include "components/os_crypt/os_crypt.h"
-#include "components/password_manager/core/browser/android_affiliation/affiliation_utils.h"
+#include "components/os_crypt/sync/os_crypt.h"
+#include "components/password_manager/core/browser/affiliation/affiliation_utils.h"
 #include "components/password_manager/core/browser/insecure_credentials_table.h"
 #include "components/password_manager/core/browser/password_bubble_experiment.h"
 #include "components/password_manager/core/browser/password_form.h"
 #include "components/password_manager/core/browser/password_manager_client.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
 #include "components/password_manager/core/browser/password_manager_util.h"
+#include "components/password_manager/core/browser/password_notes_table.h"
 #include "components/password_manager/core/browser/password_store_change.h"
 #include "components/password_manager/core/browser/psl_matching_helper.h"
 #include "components/password_manager/core/browser/sql_table_builder.h"
 #include "components/password_manager/core/common/password_manager_features.h"
+#include "components/sync/base/features.h"
+#include "components/sync/base/model_type.h"
+#include "components/sync/model/metadata_batch.h"
 #include "components/sync/protocol/entity_metadata.pb.h"
 #include "components/sync/protocol/model_type_state.pb.h"
-#include "google_apis/gaia/gaia_auth_util.h"
-#include "google_apis/gaia/gaia_urls.h"
 #include "sql/database.h"
 #include "sql/statement.h"
 #include "sql/transaction.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/re2/src/re2/re2.h"
 #include "url/origin.h"
 #include "url/url_constants.h"
@@ -59,22 +62,24 @@ using autofill::GaiaIdHash;
 namespace password_manager {
 
 // The current version number of the login database schema.
-constexpr int kCurrentVersionNumber = 32;
+constexpr int kCurrentVersionNumber = 35;
 // The oldest version of the schema such that a legacy Chrome client using that
 // version can still read/write the current database.
-constexpr int kCompatibleVersionNumber = 31;
+constexpr int kCompatibleVersionNumber = 33;
 
-base::Pickle SerializeValueElementPairs(const ValueElementVector& vec) {
+base::Pickle SerializeAlternativeElementVector(
+    const AlternativeElementVector& vector) {
   base::Pickle p;
-  for (const auto& pair : vec) {
-    p.WriteString16(pair.first);
-    p.WriteString16(pair.second);
+  for (const auto& element : vector) {
+    p.WriteString16(element.value);
+    p.WriteString16(element.name);
   }
   return p;
 }
 
-ValueElementVector DeserializeValueElementPairs(const base::Pickle& p) {
-  ValueElementVector ret;
+AlternativeElementVector DeserializeAlternativeElementVector(
+    const base::Pickle& p) {
+  AlternativeElementVector ret;
   std::u16string value;
   std::u16string field_name;
 
@@ -82,15 +87,22 @@ ValueElementVector DeserializeValueElementPairs(const base::Pickle& p) {
   while (iterator.ReadString16(&value)) {
     bool name_success = iterator.ReadString16(&field_name);
     DCHECK(name_success);
-    ret.push_back(ValueElementPair(value, field_name));
+    // TODO(crbug.com/1260336): migrate field identifier from name to
+    // field_signature + field_rank. Field names are not unique and have
+    // collisions on some forms. We don't store field_renderer_id in the
+    // storage as it has no guarantees to be stable across page reloads.
+    ret.emplace_back(AlternativeElement::Value(value),
+                     autofill::FieldRendererId(),
+                     AlternativeElement::Name(field_name));
   }
   return ret;
 }
 
 base::Pickle SerializeGaiaIdHashVector(const std::vector<GaiaIdHash>& hashes) {
   base::Pickle p;
-  for (const auto& hash : hashes)
+  for (const auto& hash : hashes) {
     p.WriteString(hash.ToBinary());
+  }
   return p;
 }
 
@@ -99,8 +111,9 @@ std::vector<GaiaIdHash> DeserializeGaiaIdHashVector(const base::Pickle& p) {
   std::string hash;
 
   base::PickleIterator iterator(p);
-  while (iterator.ReadString(&hash))
+  while (iterator.ReadString(&hash)) {
     hashes.push_back(GaiaIdHash::FromBinary(hash));
+  }
   return hashes;
 }
 
@@ -171,17 +184,31 @@ enum DatabaseInitError {
   INIT_COMPROMISED_CREDENTIALS_ERROR = 9,
   INIT_FIELD_INFO_ERROR = 10,
   FOREIGN_KEY_ERROR = 11,
+  INIT_PASSWORD_NOTES_ERROR = 12,
 
   DATABASE_INIT_ERROR_COUNT,
 };
 
-// Struct to hold table builder for "logins", "insecure_credentials",
-// "sync_entities_metadata", and "sync_model_metadata" tables.
+// Represents the encryption issues of the login database. Entries should
+// not be renumbered and numeric values should never be reused. Always keep this
+// enum in sync with the corresponding LoginDatabaseEncryptionStatus in
+// enums.xml.
+enum class LoginDatabaseEncryptionStatus {
+  kNoIssues = 0,
+  kInvalidEntriesInDatabase = 1,
+  kEncryptionUnavailable = 2,
+  kMaxValue = kEncryptionUnavailable,
+};
+
+// Struct to hold table builder for different tables in the LoginDatabase.
 struct SQLTableBuilders {
-  SQLTableBuilder* logins;
-  SQLTableBuilder* insecure_credentials;
-  SQLTableBuilder* sync_entities_metadata;
-  SQLTableBuilder* sync_model_metadata;
+  raw_ptr<SQLTableBuilder> logins;
+  raw_ptr<SQLTableBuilder> insecure_credentials;
+  raw_ptr<SQLTableBuilder> password_notes;
+  raw_ptr<SQLTableBuilder> passwords_sync_entities_metadata;
+  raw_ptr<SQLTableBuilder> passwords_sync_model_metadata;
+  raw_ptr<SQLTableBuilder> incoming_sharing_invitation_sync_entities_metadata;
+  raw_ptr<SQLTableBuilder> incoming_sharing_invitation_sync_model_metadata;
 };
 
 base::span<const uint8_t> PickleToSpan(const base::Pickle& pickle) {
@@ -202,11 +229,11 @@ void BindAddStatement(const PasswordForm& form, sql::Statement* s) {
   s->BindBlob(COLUMN_PASSWORD_VALUE, form.encrypted_password);
   s->BindString16(COLUMN_SUBMIT_ELEMENT, form.submit_element);
   s->BindString(COLUMN_SIGNON_REALM, form.signon_realm);
-  s->BindInt64(COLUMN_DATE_CREATED, form.date_created.ToInternalValue());
+  s->BindTime(COLUMN_DATE_CREATED, form.date_created);
   s->BindInt(COLUMN_BLOCKLISTED_BY_USER, form.blocked_by_user);
   s->BindInt(COLUMN_SCHEME, static_cast<int>(form.scheme));
   s->BindInt(COLUMN_PASSWORD_TYPE, static_cast<int>(form.type));
-  s->BindInt(COLUMN_TIMES_USED, form.times_used);
+  s->BindInt(COLUMN_TIMES_USED, form.times_used_in_html_form);
   base::Pickle form_data_pickle;
   autofill::SerializeFormData(form.form_data, &form_data_pickle);
   s->BindBlob(COLUMN_FORM_DATA, PickleToSpan(form_data_pickle));
@@ -221,25 +248,23 @@ void BindAddStatement(const PasswordForm& form, sql::Statement* s) {
   s->BindInt(COLUMN_GENERATION_UPLOAD_STATUS,
              static_cast<int>(form.generation_upload_status));
   base::Pickle usernames_pickle =
-      SerializeValueElementPairs(form.all_possible_usernames);
+      SerializeAlternativeElementVector(form.all_alternative_usernames);
   s->BindBlob(COLUMN_POSSIBLE_USERNAME_PAIRS, PickleToSpan(usernames_pickle));
-  s->BindInt64(COLUMN_DATE_LAST_USED,
-               form.date_last_used.ToDeltaSinceWindowsEpoch().InMicroseconds());
+  s->BindTime(COLUMN_DATE_LAST_USED, form.date_last_used);
   base::Pickle moving_blocked_for_pickle =
       SerializeGaiaIdHashVector(form.moving_blocked_for_list);
   s->BindBlob(COLUMN_MOVING_BLOCKED_FOR,
               PickleToSpan(moving_blocked_for_pickle));
-  s->BindInt64(
-      COLUMN_DATE_PASSWORD_MODIFIED,
-      form.date_password_modified.ToDeltaSinceWindowsEpoch().InMicroseconds());
+  s->BindTime(COLUMN_DATE_PASSWORD_MODIFIED, form.date_password_modified);
 }
 
 // Output parameter is the first one because of binding order.
 void AddCallback(int* output_err, int err, sql::Statement* /*stmt*/) {
   DCHECK(output_err);
   *output_err = err;
-  if (err == 19 /*SQLITE_CONSTRAINT*/)
+  if (err == 19 /*SQLITE_CONSTRAINT*/) {
     DLOG(WARNING) << "LoginDatabase::AddLogin updated an existing form";
+  }
 }
 
 class ScopedDbErrorHandler {
@@ -274,16 +299,48 @@ bool DoesMatchConstraints(const PasswordForm& form) {
 }
 
 void LogDatabaseInitError(DatabaseInitError error) {
-  UMA_HISTOGRAM_ENUMERATION("PasswordManager.LoginDatabaseInit", error,
+  UMA_HISTOGRAM_ENUMERATION("PasswordManager.LoginDatabaseInit2", error,
                             DATABASE_INIT_ERROR_COUNT);
 }
 
-bool ClearAllSyncMetadata(sql::Database* db) {
-  sql::Statement s1(
-      db->GetCachedStatement(SQL_FROM_HERE, "DELETE FROM sync_model_metadata"));
+constexpr char kPasswordsSyncModelMetadataTableName[] = "sync_model_metadata";
+constexpr char kPasswordsSyncEntitiesMetadataTableName[] =
+    "sync_entities_metadata";
+
+constexpr char kIncomingSharingInvitationSyncModelMetadataTableName[] =
+    "incoming_sharing_invitation_sync_model_metadata";
+constexpr char kIncomingSharingInvitationSyncEntitiesMetadataTableName[] =
+    "incoming_sharing_invitation_sync_entities_metadata";
+
+const char* SyncModelMetadataTableName(syncer::ModelType model_type) {
+  CHECK(model_type == syncer::PASSWORDS ||
+        model_type == syncer::INCOMING_PASSWORD_SHARING_INVITATION);
+  return model_type == syncer::PASSWORDS
+             ? kPasswordsSyncModelMetadataTableName
+             : kIncomingSharingInvitationSyncModelMetadataTableName;
+}
+
+const char* SyncEntitiesMetadataTableName(syncer::ModelType model_type) {
+  CHECK(model_type == syncer::PASSWORDS ||
+        model_type == syncer::INCOMING_PASSWORD_SHARING_INVITATION);
+  return model_type == syncer::PASSWORDS
+             ? kPasswordsSyncEntitiesMetadataTableName
+             : kIncomingSharingInvitationSyncEntitiesMetadataTableName;
+}
+
+bool ClearAllSyncMetadata(sql::Database* db, syncer::ModelType model_type) {
+  CHECK(model_type == syncer::PASSWORDS ||
+        model_type == syncer::INCOMING_PASSWORD_SHARING_INVITATION);
+  sql::Statement s1(db->GetCachedStatement(
+      SQL_FROM_HERE, base::StringPrintf("DELETE FROM %s",
+                                        SyncModelMetadataTableName(model_type))
+                         .c_str()));
 
   sql::Statement s2(db->GetCachedStatement(
-      SQL_FROM_HERE, "DELETE FROM sync_entities_metadata"));
+      SQL_FROM_HERE,
+      base::StringPrintf("DELETE FROM %s",
+                         SyncEntitiesMetadataTableName(model_type))
+          .c_str()));
 
   return s1.Run() && s2.Run();
 }
@@ -299,13 +356,27 @@ void SealVersion(SQLTableBuilders builders, unsigned expected_version) {
       builders.insecure_credentials->SealVersion();
   DCHECK_EQ(expected_version, insecure_credentials_version);
 
-  unsigned sync_entities_metadata_version =
-      builders.sync_entities_metadata->SealVersion();
-  DCHECK_EQ(expected_version, sync_entities_metadata_version);
+  unsigned notes_version = builders.password_notes->SealVersion();
+  DCHECK_EQ(expected_version, notes_version);
 
-  unsigned sync_model_metadata_version =
-      builders.sync_model_metadata->SealVersion();
-  DCHECK_EQ(expected_version, sync_model_metadata_version);
+  unsigned passwords_sync_entities_metadata_version =
+      builders.passwords_sync_entities_metadata->SealVersion();
+  DCHECK_EQ(expected_version, passwords_sync_entities_metadata_version);
+
+  unsigned passwords_sync_model_metadata_version =
+      builders.passwords_sync_model_metadata->SealVersion();
+  DCHECK_EQ(expected_version, passwords_sync_model_metadata_version);
+
+  unsigned incoming_sharing_invitation_sync_entities_metadata_version =
+      builders.incoming_sharing_invitation_sync_entities_metadata
+          ->SealVersion();
+  CHECK_EQ(expected_version,
+           incoming_sharing_invitation_sync_entities_metadata_version);
+
+  unsigned incoming_sharing_invitation_sync_model_metadata_version =
+      builders.incoming_sharing_invitation_sync_model_metadata->SealVersion();
+  CHECK_EQ(expected_version,
+           incoming_sharing_invitation_sync_model_metadata_version);
 }
 
 // Teaches |builders| about the different DB schemes in different versions.
@@ -399,10 +470,12 @@ void InitializeBuilders(SQLTableBuilders builders) {
   SealVersion(builders, /*expected_version=*/20u);
 
   // Version 21.
-  builders.sync_entities_metadata->AddPrimaryKeyColumn("storage_key");
-  builders.sync_entities_metadata->AddColumn("metadata", "VARCHAR NOT NULL");
-  builders.sync_model_metadata->AddPrimaryKeyColumn("id");
-  builders.sync_model_metadata->AddColumn("model_metadata", "VARCHAR NOT NULL");
+  builders.passwords_sync_entities_metadata->AddPrimaryKeyColumn("storage_key");
+  builders.passwords_sync_entities_metadata->AddColumn("metadata",
+                                                       "VARCHAR NOT NULL");
+  builders.passwords_sync_model_metadata->AddPrimaryKeyColumn("id");
+  builders.passwords_sync_model_metadata->AddColumn("model_metadata",
+                                                    "VARCHAR NOT NULL");
   SealVersion(builders, /*expected_version=*/21u);
 
   // Version 22. Changes in Sync metadata encryption.
@@ -439,8 +512,8 @@ void InitializeBuilders(SQLTableBuilders builders) {
   // Version 29.
   // Migrate the compromised credentials from "compromised_credentials" to the
   // new table "insecure credentials" with a foreign key to the logins table.
-  builders.insecure_credentials->AddColumnToUniqueKey("parent_id", "INTEGER",
-                                                      "logins");
+  builders.insecure_credentials->AddColumnToUniqueKey(
+      "parent_id", "INTEGER", "logins", "foreign_key_index");
   builders.insecure_credentials->AddColumnToUniqueKey("insecurity_type",
                                                       "INTEGER NOT NULL");
   builders.insecure_credentials->AddColumn("create_time", "INTEGER NOT NULL");
@@ -460,6 +533,33 @@ void InitializeBuilders(SQLTableBuilders builders) {
   // Version 32. Set timestamps of uninitialized timestamps in
   // 'insecure_credentials' table.
   SealVersion(builders, /*expected_version=*/32u);
+
+  // Version 33. Introduce password notes table.
+  builders.password_notes->AddPrimaryKeyColumn("id");
+  builders.password_notes->AddColumnToUniqueKey(
+      "parent_id", "INTEGER NOT NULL", "logins", "foreign_key_index_notes");
+  builders.password_notes->AddColumnToUniqueKey("key", "VARCHAR NOT NULL");
+  builders.password_notes->AddColumn("value", "BLOB");
+  builders.password_notes->AddColumn("date_created", "INTEGER NOT NULL");
+  builders.password_notes->AddColumn("confidential", "INTEGER");
+  SealVersion(builders, /*expected_version=*/33u);
+
+  // Version 34. Add `trigger_notification_from_backend` column to the
+  // `insecure_credentials_table`.
+  builders.insecure_credentials->AddColumn("trigger_notification_from_backend",
+                                           "INTEGER NOT NULL DEFAULT 0");
+  SealVersion(builders, /*expected_version=*/34u);
+
+  // Version 35.
+  builders.incoming_sharing_invitation_sync_entities_metadata
+      ->AddPrimaryKeyColumn("storage_key");
+  builders.incoming_sharing_invitation_sync_entities_metadata->AddColumn(
+      "metadata", "VARCHAR NOT NULL");
+  builders.incoming_sharing_invitation_sync_model_metadata->AddPrimaryKeyColumn(
+      "id");
+  builders.incoming_sharing_invitation_sync_model_metadata->AddColumn(
+      "model_metadata", "VARCHAR NOT NULL");
+  SealVersion(builders, /*expected_version=*/35u);
 
   DCHECK_EQ(static_cast<size_t>(COLUMN_NUM), builders.logins->NumberOfColumns())
       << "Adjust LoginDatabaseTableColumns if you change column definitions "
@@ -517,13 +617,30 @@ bool InsecureCredentialsPostMigrationStepCallback(
     sql::Database* db,
     unsigned new_version) {
   if (new_version == 29) {
-    if (!insecure_credentials_builder->CreateTable(db)) {
+    std::string create_table_statement =
+        "CREATE TABLE insecure_credentials ("
+        "parent_id INTEGER REFERENCES logins ON UPDATE CASCADE ON DELETE "
+        "CASCADE DEFERRABLE INITIALLY DEFERRED, "
+        "insecurity_type INTEGER NOT NULL, "
+        "create_time INTEGER NOT NULL, "
+        "is_muted INTEGER NOT NULL DEFAULT 0, "
+        "UNIQUE (parent_id, insecurity_type))";
+    std::string create_index_statement =
+        "CREATE INDEX foreign_key_index ON insecure_credentials "
+        "(parent_id)";
+    sql::Transaction creation_transaction(db);
+    bool table_creation_success = creation_transaction.Begin() &&
+                                  db->Execute(create_table_statement.c_str()) &&
+                                  db->Execute(create_index_statement.c_str()) &&
+                                  creation_transaction.Commit();
+    if (!table_creation_success) {
       LOG(ERROR) << "Failed to create the 'insecure_credentials' table";
       LogDatabaseInitError(INIT_COMPROMISED_CREDENTIALS_ERROR);
       return false;
     }
-    if (!db->DoesTableExist("compromised_credentials"))
+    if (!db->DoesTableExist("compromised_credentials")) {
       return true;
+    }
     // The 'compromised_credentials' table must be migrated to
     // 'insecure_credentials'.
     constexpr char select_compromised[] =
@@ -547,6 +664,36 @@ bool InsecureCredentialsPostMigrationStepCallback(
   return true;
 }
 
+bool PasswordNotesPostMigrationStepCallback(
+    SQLTableBuilder* password_notes_builder,
+    sql::Database* db,
+    unsigned new_version) {
+  if (new_version == 33) {
+    std::string create_table_statement =
+        "CREATE TABLE password_notes ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "parent_id INTEGER NOT NULL REFERENCES logins ON UPDATE CASCADE ON "
+        "DELETE CASCADE DEFERRABLE INITIALLY DEFERRED, "
+        "key VARCHAR NOT NULL, "
+        "value BLOB, "
+        "date_created INTEGER NOT NULL, "
+        "confidential INTEGER, "
+        "UNIQUE (parent_id, key))";
+    std::string create_index_statement =
+        "CREATE INDEX foreign_key_index_notes ON password_notes (parent_id)";
+    sql::Transaction transaction(db);
+    bool table_creation_success =
+        transaction.Begin() && db->Execute(create_table_statement.c_str()) &&
+        db->Execute(create_index_statement.c_str()) && transaction.Commit();
+    if (!table_creation_success) {
+      LOG(ERROR) << "Failed to create the 'password_notes' table";
+      LogDatabaseInitError(INIT_PASSWORD_NOTES_ERROR);
+      return false;
+    }
+  }
+  return true;
+}
+
 // Call this after having called InitializeBuilders(), to migrate the database
 // from the current version to kCurrentVersionNumber.
 bool MigrateDatabase(unsigned current_version,
@@ -554,19 +701,41 @@ bool MigrateDatabase(unsigned current_version,
                      sql::Database* db) {
   if (!builders.logins->MigrateFrom(
           current_version, db,
-          base::BindRepeating(&LoginsTablePostMigrationStepCallback)))
+          base::BindRepeating(&LoginsTablePostMigrationStepCallback))) {
     return false;
+  }
   if (!builders.insecure_credentials->MigrateFrom(
           current_version, db,
           base::BindRepeating(&InsecureCredentialsPostMigrationStepCallback,
-                              builders.insecure_credentials)))
+                              builders.insecure_credentials))) {
     return false;
+  }
+  if (!builders.password_notes->MigrateFrom(
+          current_version, db,
+          base::BindRepeating(&PasswordNotesPostMigrationStepCallback,
+                              builders.password_notes))) {
+    return false;
+  }
 
-  if (!builders.sync_entities_metadata->MigrateFrom(current_version, db))
+  if (!builders.passwords_sync_entities_metadata->MigrateFrom(current_version,
+                                                              db)) {
     return false;
+  }
 
-  if (!builders.sync_model_metadata->MigrateFrom(current_version, db))
+  if (!builders.passwords_sync_model_metadata->MigrateFrom(current_version,
+                                                           db)) {
     return false;
+  }
+
+  if (!builders.incoming_sharing_invitation_sync_entities_metadata->MigrateFrom(
+          current_version, db)) {
+    return false;
+  }
+
+  if (!builders.incoming_sharing_invitation_sync_model_metadata->MigrateFrom(
+          current_version, db)) {
+    return false;
+  }
 
   // Data changes, not covered by the schema migration above.
   if (current_version <= 8) {
@@ -575,23 +744,27 @@ bool MigrateDatabase(unsigned current_version,
         "UPDATE logins SET date_created = (date_created * ?) + ?"));
     fix_time_format.BindInt64(0, base::Time::kMicrosecondsPerSecond);
     fix_time_format.BindInt64(1, base::Time::kTimeTToMicrosecondsOffset);
-    if (!fix_time_format.Run())
+    if (!fix_time_format.Run()) {
       return false;
+    }
   }
 
   if (current_version <= 16) {
     sql::Statement reset_zero_click;
     reset_zero_click.Assign(
         db->GetUniqueStatement("UPDATE logins SET skip_zero_click = 1"));
-    if (!reset_zero_click.Run())
+    if (!reset_zero_click.Run()) {
       return false;
+    }
   }
 
-  // Sync Metadata tables have been introduced in version 21. It is enough to
-  // drop all data because Sync would populate the tables properly at startup.
+  // Passwords Sync Metadata tables have been introduced in version 21. It is
+  // enough to drop all data because Sync would populate the tables properly at
+  // startup.
   if (current_version >= 21 && current_version < 26) {
-    if (!ClearAllSyncMetadata(db))
+    if (!ClearAllSyncMetadata(db, syncer::PASSWORDS)) {
       return false;
+    }
   }
 
   // Set the default value for 'date_password_modified'.
@@ -599,8 +772,9 @@ bool MigrateDatabase(unsigned current_version,
     sql::Statement set_date_password_modified;
     set_date_password_modified.Assign(db->GetUniqueStatement(
         "UPDATE logins SET date_password_modified = date_created"));
-    if (!set_date_password_modified.Run())
+    if (!set_date_password_modified.Run()) {
       return false;
+    }
   }
 
   // Set the create_time value when uninitialized for 'insecure_credentials'.
@@ -609,12 +783,11 @@ bool MigrateDatabase(unsigned current_version,
     set_timestamp.Assign(
         db->GetUniqueStatement("UPDATE insecure_credentials SET create_time = "
                                "? WHERE create_time = 0"));
-    set_timestamp.BindInt64(
-        0, base::Time::Now().ToDeltaSinceWindowsEpoch().InMicroseconds());
-    if (!set_timestamp.Run())
+    set_timestamp.BindTime(0, base::Time::Now());
+    if (!set_timestamp.Run()) {
       return false;
+    }
   }
-
   return true;
 }
 
@@ -623,10 +796,12 @@ bool MigrateDatabase(unsigned current_version,
 bool FixVersionIfNeeded(sql::Database* db, int* current_version) {
   if (*current_version == 1) {
     int extra_columns = 0;
-    if (db->DoesColumnExist("logins", "password_type"))
+    if (db->DoesColumnExist("logins", "password_type")) {
       ++extra_columns;
-    if (db->DoesColumnExist("logins", "possible_usernames"))
+    }
+    if (db->DoesColumnExist("logins", "possible_usernames")) {
       ++extra_columns;
+    }
     if (extra_columns == 2) {
       *current_version = 2;
     } else if (extra_columns == 1) {
@@ -636,19 +811,22 @@ bool FixVersionIfNeeded(sql::Database* db, int* current_version) {
     }
   }
   if (*current_version == 2) {
-    if (db->DoesColumnExist("logins", "times_used"))
+    if (db->DoesColumnExist("logins", "times_used")) {
       *current_version = 3;
+    }
   }
   if (*current_version == 3) {
-    if (db->DoesColumnExist("logins", "form_data"))
+    if (db->DoesColumnExist("logins", "form_data")) {
       *current_version = 4;
+    }
   }
   // "date_last_used" columns has been introduced in version 25. if it exists,
   // the version should be at least 25. This has been added to address this bug
   // (crbug.com/1020320).
   if (*current_version < 25) {
-    if (db->DoesColumnExist("logins", "date_last_used"))
+    if (db->DoesColumnExist("logins", "date_last_used")) {
       *current_version = 25;
+    }
   }
   return true;
 }
@@ -751,11 +929,23 @@ bool LoginDatabase::Init() {
   SQLTableBuilder logins_builder("logins");
   SQLTableBuilder insecure_credentials_builder(
       InsecureCredentialsTable::kTableName);
-  SQLTableBuilder sync_entities_metadata_builder("sync_entities_metadata");
-  SQLTableBuilder sync_model_metadata_builder("sync_model_metadata");
-  SQLTableBuilders builders = {&logins_builder, &insecure_credentials_builder,
-                               &sync_entities_metadata_builder,
-                               &sync_model_metadata_builder};
+  SQLTableBuilder password_notes_builder(PasswordNotesTable::kTableName);
+  SQLTableBuilder passwords_sync_entities_metadata_builder(
+      kPasswordsSyncEntitiesMetadataTableName);
+  SQLTableBuilder passwords_sync_model_metadata_builder(
+      kPasswordsSyncModelMetadataTableName);
+  SQLTableBuilder incoming_sharing_invitation_sync_entities_metadata_builder(
+      kIncomingSharingInvitationSyncEntitiesMetadataTableName);
+  SQLTableBuilder incoming_sharing_invitation_sync_model_metadata_builder(
+      kIncomingSharingInvitationSyncModelMetadataTableName);
+  SQLTableBuilders builders = {
+      &logins_builder,
+      &insecure_credentials_builder,
+      &password_notes_builder,
+      &passwords_sync_entities_metadata_builder,
+      &passwords_sync_model_metadata_builder,
+      &incoming_sharing_invitation_sync_entities_metadata_builder,
+      &incoming_sharing_invitation_sync_model_metadata_builder};
   InitializeBuilders(builders);
   InitializeStatementStrings(logins_builder);
 
@@ -766,14 +956,14 @@ bool LoginDatabase::Init() {
     return false;
   }
 
-  if (!sync_entities_metadata_builder.CreateTable(&db_)) {
+  if (!passwords_sync_entities_metadata_builder.CreateTable(&db_)) {
     LOG(ERROR) << "Failed to create the 'sync_entities_metadata' table";
     transaction.Rollback();
     db_.Close();
     return false;
   }
 
-  if (!sync_model_metadata_builder.CreateTable(&db_)) {
+  if (!passwords_sync_model_metadata_builder.CreateTable(&db_)) {
     LOG(ERROR) << "Failed to create the 'sync_model_metadata' table";
     transaction.Rollback();
     db_.Close();
@@ -782,8 +972,26 @@ bool LoginDatabase::Init() {
 
   stats_table_.Init(&db_);
   insecure_credentials_table_.Init(&db_);
+  password_notes_table_.Init(&db_);
   field_info_table_.Init(&db_);
 
+  if (!incoming_sharing_invitation_sync_entities_metadata_builder.CreateTable(
+          &db_)) {
+    LOG(ERROR) << "Failed to create the "
+                  "'incoming_sharing_invitation_sync_entities_metadata' table";
+    transaction.Rollback();
+    db_.Close();
+    return false;
+  }
+
+  if (!incoming_sharing_invitation_sync_model_metadata_builder.CreateTable(
+          &db_)) {
+    LOG(ERROR) << "Failed to create the "
+                  "'incoming_sharing_invitation_sync_model_metadata' table";
+    transaction.Rollback();
+    db_.Close();
+    return false;
+  }
   int current_version = meta_table_.GetVersionNumber();
   bool migration_success = FixVersionIfNeeded(&db_, &current_version);
 
@@ -805,18 +1013,32 @@ bool LoginDatabase::Init() {
     db_.Close();
     return false;
   }
+  // Enforce that 'password_notes' is created only after the 'logins' table was
+  // created and migrated to the latest version. This guarantees the existence
+  // of the `id` column in the `logins` table which was introduced only in
+  // version 20 and is referenced by 'password_notes' table. The table will be
+  // created here for a new profile. For an old profile it's created in
+  // MigrateDatabase above.
+  if (migration_success && !password_notes_builder.CreateTable(&db_)) {
+    LOG(ERROR) << "Failed to create the 'password_notes' table";
+    LogDatabaseInitError(INIT_PASSWORD_NOTES_ERROR);
+    transaction.Rollback();
+    db_.Close();
+    return false;
+  }
+
   if (migration_success && current_version <= 15) {
     migration_success = stats_table_.MigrateToVersion(16);
   }
-  if (migration_success) {
+  if (migration_success && current_version < kCurrentVersionNumber) {
     // |migration_success| could be true when no logins have been actually
     // migrated. We should protect against downgrading the database version in
     // such case. Update the database version only if a migration took place.
-    if (current_version < kCurrentVersionNumber) {
-      meta_table_.SetCompatibleVersionNumber(kCompatibleVersionNumber);
-      meta_table_.SetVersionNumber(kCurrentVersionNumber);
-    }
-  } else {
+    migration_success =
+        meta_table_.SetCompatibleVersionNumber(kCompatibleVersionNumber) &&
+        meta_table_.SetVersionNumber(kCurrentVersionNumber);
+  }
+  if (!migration_success) {
     LogDatabaseInitError(MIGRATION_ERROR);
     LOG(ERROR) << "Unable to migrate database from "
                << meta_table_.GetVersionNumber() << " to "
@@ -868,7 +1090,7 @@ bool LoginDatabase::Init() {
 void LoginDatabase::ReportBubbleSuppressionMetrics() {
 #if !BUILDFLAG(IS_IOS) && !BUILDFLAG(IS_ANDROID)
   base::UmaHistogramCustomCounts(
-      "PasswordManager.BubbleSuppression.AccountsInStatisticsTable",
+      "PasswordManager.BubbleSuppression.AccountsInStatisticsTable2",
       stats_table_.GetNumAccounts(), 0, 1000, 100);
 #endif  // !BUILDFLAG(IS_IOS) && !BUILDFLAG(IS_ANDROID)
 }
@@ -886,13 +1108,25 @@ void LoginDatabase::ReportInaccessiblePasswordsMetrics() {
       ++failed_encryption;
     }
   }
-  // Note: For historic reasons, the profile store does not use a suffix, only
-  // the account store does.
+
   base::StringPiece suffix_for_store =
-      is_account_store_.value() ? ".AccountStore" : "";
+      is_account_store_.value() ? ".AccountStore" : ".ProfileStore";
   base::UmaHistogramCounts100(base::StrCat({kPasswordManager, suffix_for_store,
-                                            ".InaccessiblePasswords"}),
+                                            ".InaccessiblePasswords3"}),
                               failed_encryption);
+
+  LoginDatabaseEncryptionStatus encryption_status =
+      LoginDatabaseEncryptionStatus::kNoIssues;
+  if (!OSCrypt::IsEncryptionAvailable()) {
+    encryption_status = LoginDatabaseEncryptionStatus::kEncryptionUnavailable;
+  } else if (failed_encryption > 0) {
+    encryption_status =
+        LoginDatabaseEncryptionStatus::kInvalidEntriesInDatabase;
+  }
+  base::UmaHistogramEnumeration(
+      base::StrCat({kPasswordManager, suffix_for_store,
+                    ".LoginDatabaseEncryptionStatus"}),
+      encryption_status);
 }
 
 void LoginDatabase::ReportMetrics() {
@@ -901,23 +1135,23 @@ void LoginDatabase::ReportMetrics() {
   ReportInaccessiblePasswordsMetrics();
 
   // BubbleSuppression fields aren't used in the account store.
-  if (is_account_store_.value())
+  if (is_account_store_.value()) {
     return;
+  }
   ReportBubbleSuppressionMetrics();
 }
 
 PasswordStoreChangeList LoginDatabase::AddLogin(const PasswordForm& form,
-                                                AddLoginError* error) {
+                                                AddCredentialError* error) {
   TRACE_EVENT0("passwords", "LoginDatabase::AddLogin");
   if (error) {
-    *error = AddLoginError::kNone;
+    *error = AddCredentialError::kNone;
   }
-  PasswordStoreChangeList list;
   if (!DoesMatchConstraints(form)) {
     if (error) {
-      *error = AddLoginError::kConstraintViolation;
+      *error = AddCredentialError::kConstraintViolation;
     }
-    return list;
+    return PasswordStoreChangeList();
   }
   // [iOS] Passwords created in Credential Provider Extension (CPE) are already
   // encrypted in the keychain and there is no need to do the process again.
@@ -931,9 +1165,9 @@ PasswordStoreChangeList LoginDatabase::AddLogin(const PasswordForm& form,
     if (DecryptedString(form.encrypted_password, &decrypted_password) !=
         ENCRYPTION_RESULT_SUCCESS) {
       if (error) {
-        *error = AddLoginError::kEncryptionServiceFailure;
+        *error = AddCredentialError::kEncryptionServiceFailure;
       }
-      return list;
+      return PasswordStoreChangeList();
     }
     form_with_encrypted_password.password_value = decrypted_password;
   } else {
@@ -941,13 +1175,14 @@ PasswordStoreChangeList LoginDatabase::AddLogin(const PasswordForm& form,
     if (EncryptedString(form.password_value, &encrypted_password) !=
         ENCRYPTION_RESULT_SUCCESS) {
       if (error) {
-        *error = AddLoginError::kEncryptionServiceFailure;
+        *error = AddCredentialError::kEncryptionServiceFailure;
       }
-      return list;
+      return PasswordStoreChangeList();
     }
     form_with_encrypted_password.encrypted_password = encrypted_password;
   }
 
+  PasswordStoreChangeList list;
   DCHECK(!add_statement_.empty());
   sql::Statement s(
       db_.GetCachedStatement(SQL_FROM_HERE, add_statement_.c_str()));
@@ -958,12 +1193,14 @@ PasswordStoreChangeList LoginDatabase::AddLogin(const PasswordForm& form,
     // If success, the row never existed so password was not changed.
     FillFormInStore(&form_with_encrypted_password);
     FormPrimaryKey primary_key = FormPrimaryKey(db_.GetLastInsertRowId());
+    form_with_encrypted_password.primary_key = primary_key;
     if (!form_with_encrypted_password.password_issues.empty()) {
       UpdateInsecureCredentials(primary_key,
                                 form_with_encrypted_password.password_issues);
     }
+    UpdatePasswordNotes(primary_key, form_with_encrypted_password.notes);
     list.emplace_back(PasswordStoreChange::ADD,
-                      std::move(form_with_encrypted_password), primary_key,
+                      std::move(form_with_encrypted_password),
                       /*password_changed=*/false);
     return list;
   }
@@ -980,41 +1217,44 @@ PasswordStoreChangeList LoginDatabase::AddLogin(const PasswordForm& form,
   if (s.Run()) {
     PasswordForm removed_form = form;
     FillFormInStore(&removed_form);
-    list.emplace_back(PasswordStoreChange::REMOVE, removed_form,
-                      FormPrimaryKey(old_primary_key_password.primary_key));
+    removed_form.primary_key =
+        FormPrimaryKey(old_primary_key_password.primary_key);
+    list.emplace_back(PasswordStoreChange::REMOVE, removed_form);
     FillFormInStore(&form_with_encrypted_password);
 
     FormPrimaryKey primary_key = FormPrimaryKey(db_.GetLastInsertRowId());
+    form_with_encrypted_password.primary_key = primary_key;
     InsecureCredentialsChanged insecure_changed(false);
     if (!form_with_encrypted_password.password_issues.empty()) {
       insecure_changed = UpdateInsecureCredentials(
           primary_key, form_with_encrypted_password.password_issues);
     }
+    UpdatePasswordNotes(primary_key, form_with_encrypted_password.notes);
     list.emplace_back(PasswordStoreChange::ADD,
-                      std::move(form_with_encrypted_password),
-                      FormPrimaryKey(db_.GetLastInsertRowId()),
-                      password_changed, insecure_changed);
+                      std::move(form_with_encrypted_password), password_changed,
+                      insecure_changed);
   } else if (error) {
     if (db_error_handler.get_error_code() == 19 /*SQLITE_CONSTRAINT*/) {
-      *error = AddLoginError::kConstraintViolation;
+      *error = AddCredentialError::kConstraintViolation;
     } else {
-      *error = AddLoginError::kDbError;
+      *error = AddCredentialError::kDbError;
     }
   }
   return list;
 }
 
-PasswordStoreChangeList LoginDatabase::UpdateLogin(const PasswordForm& form,
-                                                   UpdateLoginError* error) {
+PasswordStoreChangeList LoginDatabase::UpdateLogin(
+    const PasswordForm& form,
+    UpdateCredentialError* error) {
   TRACE_EVENT0("passwords", "LoginDatabase::UpdateLogin");
   if (error) {
-    *error = UpdateLoginError::kNone;
+    *error = UpdateCredentialError::kNone;
   }
   std::string encrypted_password;
   if (EncryptedString(form.password_value, &encrypted_password) !=
       ENCRYPTION_RESULT_SUCCESS) {
     if (error) {
-      *error = UpdateLoginError::kEncryptionServiceFailure;
+      *error = UpdateCredentialError::kEncryptionServiceFailure;
     }
     return PasswordStoreChangeList();
   }
@@ -1033,11 +1273,11 @@ PasswordStoreChangeList LoginDatabase::UpdateLogin(const PasswordForm& form,
   s.BindString(next_param++, form.action.spec());
   s.BindBlob(next_param++, encrypted_password);
   s.BindString16(next_param++, form.submit_element);
-  s.BindInt64(next_param++, form.date_created.ToInternalValue());
+  s.BindTime(next_param++, form.date_created);
   s.BindInt(next_param++, form.blocked_by_user);
   s.BindInt(next_param++, static_cast<int>(form.scheme));
   s.BindInt(next_param++, static_cast<int>(form.type));
-  s.BindInt(next_param++, form.times_used);
+  s.BindInt(next_param++, form.times_used_in_html_form);
   base::Pickle form_data_pickle;
   autofill::SerializeFormData(form.form_data, &form_data_pickle);
   s.BindBlob(next_param++, PickleToSpan(form_data_pickle));
@@ -1050,16 +1290,13 @@ PasswordStoreChangeList LoginDatabase::UpdateLogin(const PasswordForm& form,
   s.BindInt(next_param++, form.skip_zero_click);
   s.BindInt(next_param++, static_cast<int>(form.generation_upload_status));
   base::Pickle username_pickle =
-      SerializeValueElementPairs(form.all_possible_usernames);
+      SerializeAlternativeElementVector(form.all_alternative_usernames);
   s.BindBlob(next_param++, PickleToSpan(username_pickle));
-  s.BindInt64(next_param++,
-              form.date_last_used.ToDeltaSinceWindowsEpoch().InMicroseconds());
+  s.BindTime(next_param++, form.date_last_used);
   base::Pickle moving_blocked_for_pickle =
       SerializeGaiaIdHashVector(form.moving_blocked_for_list);
   s.BindBlob(next_param++, PickleToSpan(moving_blocked_for_pickle));
-  s.BindInt64(
-      next_param++,
-      form.date_password_modified.ToDeltaSinceWindowsEpoch().InMicroseconds());
+  s.BindTime(next_param++, form.date_password_modified);
   // NOTE: Add new fields here unless the field is a part of the unique key.
   // If so, add new field below.
 
@@ -1074,16 +1311,17 @@ PasswordStoreChangeList LoginDatabase::UpdateLogin(const PasswordForm& form,
 
   if (!s.Run()) {
     if (error) {
-      *error = UpdateLoginError::kDbError;
+      *error = UpdateCredentialError::kDbError;
     }
     return PasswordStoreChangeList();
   }
 
   // If no rows changed due to this command, it means that there was no row to
-  // update, so there is no point trying to update insecure credentials data.
+  // update, so there is no point trying to update insecure credentials data or
+  // the notes table.
   if (db_.GetLastChangeCount() == 0) {
     if (error) {
-      *error = UpdateLoginError::kNoUpdatedRecords;
+      *error = UpdateCredentialError::kNoUpdatedRecords;
     }
     return PasswordStoreChangeList();
   }
@@ -1105,13 +1343,16 @@ PasswordStoreChangeList LoginDatabase::UpdateLogin(const PasswordForm& form,
   InsecureCredentialsChanged insecure_changed = UpdateInsecureCredentials(
       FormPrimaryKey(old_primary_key_password.primary_key),
       form_with_encrypted_password.password_issues);
+  UpdatePasswordNotes(FormPrimaryKey(old_primary_key_password.primary_key),
+                      form.notes);
 
   PasswordStoreChangeList list;
   FillFormInStore(&form_with_encrypted_password);
+  form_with_encrypted_password.primary_key =
+      FormPrimaryKey(old_primary_key_password.primary_key);
   list.emplace_back(PasswordStoreChange::UPDATE,
-                    std::move(form_with_encrypted_password),
-                    FormPrimaryKey(old_primary_key_password.primary_key),
-                    password_changed, insecure_changed);
+                    std::move(form_with_encrypted_password), password_changed,
+                    insecure_changed);
 
   return list;
 }
@@ -1144,8 +1385,9 @@ bool LoginDatabase::RemoveLogin(const PasswordForm& form,
   if (changes) {
     PasswordForm removed_form = form;
     FillFormInStore(&removed_form);
+    removed_form.primary_key =
+        FormPrimaryKey(old_primary_key_password.primary_key);
     changes->emplace_back(PasswordStoreChange::REMOVE, removed_form,
-                          FormPrimaryKey(old_primary_key_password.primary_key),
                           /*password_changed=*/true);
   }
   return true;
@@ -1163,11 +1405,10 @@ bool LoginDatabase::RemoveLoginByPrimaryKey(FormPrimaryKey primary_key,
     if (!s1.Step()) {
       return false;
     }
-    int db_primary_key = -1;
     EncryptionResult result = InitPasswordFormFromStatement(
-        s1, /*decrypt_and_fill_password_value=*/false, &db_primary_key, &form);
+        s1, /*decrypt_and_fill_password_value=*/false, &form);
     DCHECK_EQ(result, ENCRYPTION_RESULT_SUCCESS);
-    DCHECK_EQ(db_primary_key, primary_key.value());
+    DCHECK_EQ(form.primary_key.value(), primary_key);
   }
 
 #if BUILDFLAG(IS_IOS)
@@ -1183,7 +1424,6 @@ bool LoginDatabase::RemoveLoginByPrimaryKey(FormPrimaryKey primary_key,
   if (changes) {
     FillFormInStore(&form);
     changes->emplace_back(PasswordStoreChange::REMOVE, std::move(form),
-                          primary_key,
                           /*password_changed=*/true);
   }
   return true;
@@ -1197,15 +1437,15 @@ bool LoginDatabase::RemoveLoginsCreatedBetween(
   if (changes) {
     changes->clear();
   }
-  PrimaryKeyToFormMap key_to_form_map;
+  std::vector<std::unique_ptr<PasswordForm>> forms;
   ScopedTransaction transaction(this);
-  if (!GetLoginsCreatedBetween(delete_begin, delete_end, &key_to_form_map)) {
+  if (!GetLoginsCreatedBetween(delete_begin, delete_end, &forms)) {
     return false;
   }
 
 #if BUILDFLAG(IS_IOS)
-  for (const auto& pair : key_to_form_map) {
-    DeleteEncryptedPasswordById(pair.first.value());
+  for (const auto& form : forms) {
+    DeleteEncryptedPasswordById(form->primary_key.value().value());
   }
 #endif
 
@@ -1213,33 +1453,31 @@ bool LoginDatabase::RemoveLoginsCreatedBetween(
       db_.GetCachedStatement(SQL_FROM_HERE,
                              "DELETE FROM logins WHERE "
                              "date_created >= ? AND date_created < ?"));
-  s.BindInt64(0, delete_begin.ToInternalValue());
-  s.BindInt64(1, delete_end.is_null() ? std::numeric_limits<int64_t>::max()
-                                      : delete_end.ToInternalValue());
+  s.BindTime(0, delete_begin);
+  s.BindTime(1, delete_end.is_null() ? base::Time::Max() : delete_end);
 
   if (!s.Run()) {
     return false;
   }
   if (changes) {
-    for (const auto& pair : key_to_form_map) {
-      changes->emplace_back(PasswordStoreChange::REMOVE,
-                            /*form=*/std::move(*pair.second),
-                            FormPrimaryKey(pair.first),
+    for (auto& form : forms) {
+      changes->emplace_back(PasswordStoreChange::REMOVE, *form,
                             /*password_changed=*/true);
     }
   }
   return true;
 }
 
-bool LoginDatabase::GetAutoSignInLogins(PrimaryKeyToFormMap* key_to_form_map) {
+bool LoginDatabase::GetAutoSignInLogins(
+    std::vector<std::unique_ptr<PasswordForm>>* forms) {
   TRACE_EVENT0("passwords", "LoginDatabase::GetAutoSignInLogins");
-  DCHECK(key_to_form_map);
+  DCHECK(forms);
   DCHECK(!autosignin_statement_.empty());
-  key_to_form_map->clear();
+  forms->clear();
 
   sql::Statement s(
       db_.GetCachedStatement(SQL_FROM_HERE, autosignin_statement_.c_str()));
-  FormRetrievalResult result = StatementToForms(&s, nullptr, key_to_form_map);
+  FormRetrievalResult result = StatementToForms(&s, nullptr, forms);
   return (result == FormRetrievalResult::kSuccess ||
           result ==
               FormRetrievalResult::kEncryptionServiceFailureWithPartialData);
@@ -1257,7 +1495,6 @@ bool LoginDatabase::DisableAutoSignInForOrigin(const GURL& origin) {
 LoginDatabase::EncryptionResult LoginDatabase::InitPasswordFormFromStatement(
     sql::Statement& s,
     bool decrypt_and_fill_password_value,
-    int* primary_key,
     PasswordForm* form) const {
   std::string encrypted_password;
   s.ColumnBlobAsString(COLUMN_PASSWORD_VALUE, &encrypted_password);
@@ -1272,7 +1509,7 @@ LoginDatabase::EncryptionResult LoginDatabase::InitPasswordFormFromStatement(
     }
   }
 
-  *primary_key = s.ColumnInt(COLUMN_ID);
+  form->primary_key = FormPrimaryKey(s.ColumnInt(COLUMN_ID));
   std::string tmp = s.ColumnString(COLUMN_ORIGIN_URL);
   form->url = GURL(tmp);
   tmp = s.ColumnString(COLUMN_ACTION_URL);
@@ -1285,8 +1522,7 @@ LoginDatabase::EncryptionResult LoginDatabase::InitPasswordFormFromStatement(
   form->submit_element = s.ColumnString16(COLUMN_SUBMIT_ELEMENT);
   tmp = s.ColumnString(COLUMN_SIGNON_REALM);
   form->signon_realm = tmp;
-  form->date_created =
-      base::Time::FromInternalValue(s.ColumnInt64(COLUMN_DATE_CREATED));
+  form->date_created = s.ColumnTime(COLUMN_DATE_CREATED);
   form->blocked_by_user = (s.ColumnInt(COLUMN_BLOCKLISTED_BY_USER) > 0);
   // TODO(crbug.com/1151214): Add metrics to capture how often these values fall
   // out of the valid enum range.
@@ -1297,9 +1533,10 @@ LoginDatabase::EncryptionResult LoginDatabase::InitPasswordFormFromStatement(
       s.ColumnBlob(COLUMN_POSSIBLE_USERNAME_PAIRS);
   if (!possible_username_pairs_blob.empty()) {
     base::Pickle pickle = PickleFromSpan(possible_username_pairs_blob);
-    form->all_possible_usernames = DeserializeValueElementPairs(pickle);
+    form->all_alternative_usernames =
+        DeserializeAlternativeElementVector(pickle);
   }
-  form->times_used = s.ColumnInt(COLUMN_TIMES_USED);
+  form->times_used_in_html_form = s.ColumnInt(COLUMN_TIMES_USED);
   base::span<const uint8_t> form_data_blob = s.ColumnBlob(COLUMN_FORM_DATA);
   if (!form_data_blob.empty()) {
     base::Pickle form_data_pickle = PickleFromSpan(form_data_blob);
@@ -1319,17 +1556,16 @@ LoginDatabase::EncryptionResult LoginDatabase::InitPasswordFormFromStatement(
   form->generation_upload_status =
       static_cast<PasswordForm::GenerationUploadStatus>(
           s.ColumnInt(COLUMN_GENERATION_UPLOAD_STATUS));
-  form->date_last_used = base::Time::FromDeltaSinceWindowsEpoch(
-      base::Microseconds(s.ColumnInt64(COLUMN_DATE_LAST_USED)));
+  form->date_last_used = s.ColumnTime(COLUMN_DATE_LAST_USED);
   base::span<const uint8_t> moving_blocked_for_blob =
       s.ColumnBlob(COLUMN_MOVING_BLOCKED_FOR);
   if (!moving_blocked_for_blob.empty()) {
     base::Pickle pickle = PickleFromSpan(moving_blocked_for_blob);
     form->moving_blocked_for_list = DeserializeGaiaIdHashVector(pickle);
   }
-  form->date_password_modified = base::Time::FromDeltaSinceWindowsEpoch(
-      base::Microseconds(s.ColumnInt64(COLUMN_DATE_PASSWORD_MODIFIED)));
-  PopulateFormWithPasswordIssues(FormPrimaryKey(*primary_key), form);
+  form->date_password_modified = s.ColumnTime(COLUMN_DATE_PASSWORD_MODIFIED);
+  PopulateFormWithPasswordIssues(form);
+  PopulateFormWithNotes(form);
 
   return ENCRYPTION_RESULT_SUCCESS;
 }
@@ -1349,12 +1585,13 @@ bool LoginDatabase::GetLogins(
   DCHECK(!get_statement_federated_.empty());
   DCHECK(!get_statement_psl_federated_.empty());
   const std::string* sql_query = &get_statement_;
-  if (should_PSL_matching_apply && should_federated_apply)
+  if (should_PSL_matching_apply && should_federated_apply) {
     sql_query = &get_statement_psl_federated_;
-  else if (should_PSL_matching_apply)
+  } else if (should_PSL_matching_apply) {
     sql_query = &get_statement_psl_;
-  else if (should_federated_apply)
+  } else if (should_federated_apply) {
     sql_query = &get_statement_federated_;
+  }
 
   // TODO(nyquist) Consider usage of GetCachedStatement when
   // http://crbug.com/248608 is fixed.
@@ -1377,17 +1614,13 @@ bool LoginDatabase::GetLogins(
     s.BindString(placeholder++,
                  GetExpressionForFederatedMatching(form.url) + "%");
   }
-
-  PrimaryKeyToFormMap key_to_form_map;
   FormRetrievalResult result = StatementToForms(
       &s, should_PSL_matching_apply || should_federated_apply ? &form : nullptr,
-      &key_to_form_map);
+      forms);
   if (result != FormRetrievalResult::kSuccess &&
       result != FormRetrievalResult::kEncryptionServiceFailureWithPartialData) {
+    forms->clear();
     return false;
-  }
-  for (auto& pair : key_to_form_map) {
-    forms->push_back(std::move(pair.second));
   }
   return true;
 }
@@ -1395,45 +1628,43 @@ bool LoginDatabase::GetLogins(
 bool LoginDatabase::GetLoginsCreatedBetween(
     const base::Time begin,
     const base::Time end,
-    PrimaryKeyToFormMap* key_to_form_map) {
+    std::vector<std::unique_ptr<PasswordForm>>* forms) {
   TRACE_EVENT0("passwords", "LoginDatabase::GetLoginsCreatedBetween");
-  DCHECK(key_to_form_map);
+  DCHECK(forms);
   DCHECK(!created_statement_.empty());
   sql::Statement s(
       db_.GetCachedStatement(SQL_FROM_HERE, created_statement_.c_str()));
-  s.BindInt64(0, begin.ToInternalValue());
-  s.BindInt64(1, end.is_null() ? std::numeric_limits<int64_t>::max()
-                               : end.ToInternalValue());
+  s.BindTime(0, begin);
+  s.BindTime(1, end.is_null() ? base::Time::Max() : end);
 
-  return StatementToForms(&s, nullptr, key_to_form_map) ==
-         FormRetrievalResult::kSuccess;
+  return StatementToForms(&s, nullptr, forms) == FormRetrievalResult::kSuccess;
 }
 
 FormRetrievalResult LoginDatabase::GetAllLogins(
-    PrimaryKeyToFormMap* key_to_form_map) {
+    std::vector<std::unique_ptr<PasswordForm>>* forms) {
   TRACE_EVENT0("passwords", "LoginDatabase::GetAllLogins");
-  DCHECK(key_to_form_map);
-  key_to_form_map->clear();
+  DCHECK(forms);
+  forms->clear();
 
   sql::Statement s(
       db_.GetCachedStatement(SQL_FROM_HERE, "SELECT * FROM logins"));
 
-  return StatementToForms(&s, nullptr, key_to_form_map);
+  return StatementToForms(&s, nullptr, forms);
 }
 
 FormRetrievalResult LoginDatabase::GetLoginsBySignonRealmAndUsername(
     const std::string& signon_realm,
     const std::u16string& username,
-    PrimaryKeyToFormMap& key_to_form_map) {
+    std::vector<std::unique_ptr<PasswordForm>>* forms) {
   TRACE_EVENT0("passwords", "LoginDatabase::GetLoginsBySignonRealmAndUsername");
-  key_to_form_map.clear();
+  forms->clear();
 
   sql::Statement s(
       db_.GetCachedStatement(SQL_FROM_HERE, get_statement_username_.c_str()));
   s.BindString(0, signon_realm);
   s.BindString16(1, username);
 
-  return StatementToForms(&s, nullptr, &key_to_form_map);
+  return StatementToForms(&s, nullptr, forms);
 }
 
 bool LoginDatabase::GetAutofillableLogins(
@@ -1459,16 +1690,13 @@ bool LoginDatabase::GetAllLoginsWithBlocklistSetting(
       db_.GetCachedStatement(SQL_FROM_HERE, blocklisted_statement_.c_str()));
   s.BindInt(0, blocklisted ? 1 : 0);
 
-  PrimaryKeyToFormMap key_to_form_map;
-
-  FormRetrievalResult result = StatementToForms(&s, nullptr, &key_to_form_map);
+  FormRetrievalResult result = StatementToForms(&s, nullptr, forms);
   if (result != FormRetrievalResult::kSuccess &&
-      result != FormRetrievalResult::kEncryptionServiceFailureWithPartialData)
+      result != FormRetrievalResult::kEncryptionServiceFailureWithPartialData) {
+    forms->clear();
     return false;
-
-  for (auto& pair : key_to_form_map) {
-    forms->push_back(std::move(pair.second));
   }
+
   return true;
 }
 
@@ -1509,8 +1737,9 @@ DatabaseCleanupResult LoginDatabase::DeleteUndecryptableLogins() {
     s.ColumnBlobAsString(COLUMN_PASSWORD_VALUE, &encrypted_password);
     std::u16string decrypted_password;
     if (DecryptedString(encrypted_password, &decrypted_password) ==
-        ENCRYPTION_RESULT_SUCCESS)
+        ENCRYPTION_RESULT_SUCCESS) {
       continue;
+    }
 
     // If it was not possible to decrypt the password, remove it from the
     // database.
@@ -1531,155 +1760,10 @@ DatabaseCleanupResult LoginDatabase::DeleteUndecryptableLogins() {
   } else {
     metrics_util::LogDeleteUndecryptableLoginsReturnValue(
         metrics_util::DeleteCorruptedPasswordsResult::kSuccessPasswordsDeleted);
-    UMA_HISTOGRAM_COUNTS_100("PasswordManager.CleanedUpPasswords",
-                             forms_to_be_deleted.size());
   }
 #endif
 
   return DatabaseCleanupResult::kSuccess;
-}
-
-std::unique_ptr<syncer::MetadataBatch> LoginDatabase::GetAllSyncMetadata() {
-  TRACE_EVENT0("passwords", "LoginDatabase::GetAllSyncMetadata");
-  std::unique_ptr<syncer::MetadataBatch> metadata_batch =
-      GetAllSyncEntityMetadata();
-  if (metadata_batch == nullptr) {
-    return nullptr;
-  }
-
-  std::unique_ptr<sync_pb::ModelTypeState> model_type_state =
-      GetModelTypeState();
-  if (model_type_state == nullptr) {
-    return nullptr;
-  }
-
-  metadata_batch->SetModelTypeState(*model_type_state);
-  return metadata_batch;
-}
-
-void LoginDatabase::DeleteAllSyncMetadata() {
-  TRACE_EVENT0("passwords", "LoginDatabase::DeleteAllSyncMetadata");
-  bool had_unsynced_deletions = HasUnsyncedDeletions();
-  ClearAllSyncMetadata(&db_);
-  if (had_unsynced_deletions && deletions_have_synced_callback_) {
-    // Note: At this point we can't be fully sure whether the deletions actually
-    // reached the server yet. We might have sent a commit, but haven't received
-    // the commit confirmation. Let's be conservative and assume they haven't
-    // been successfully deleted.
-    deletions_have_synced_callback_.Run(/*success=*/false);
-  }
-}
-
-bool LoginDatabase::UpdateSyncMetadata(
-    syncer::ModelType model_type,
-    const std::string& storage_key,
-    const sync_pb::EntityMetadata& metadata) {
-  TRACE_EVENT0("passwords", "LoginDatabase::UpdateSyncMetadata");
-  DCHECK_EQ(model_type, syncer::PASSWORDS);
-
-  int storage_key_int = 0;
-  if (!base::StringToInt(storage_key, &storage_key_int)) {
-    DLOG(ERROR) << "Invalid storage key. Failed to convert the storage key to "
-                   "an integer.";
-    return false;
-  }
-
-  std::string encrypted_metadata;
-  if (!OSCrypt::EncryptString(metadata.SerializeAsString(),
-                              &encrypted_metadata)) {
-    DLOG(ERROR) << "Cannot encrypt the sync metadata";
-    return false;
-  }
-
-  sql::Statement s(
-      db_.GetCachedStatement(SQL_FROM_HERE,
-                             "INSERT OR REPLACE INTO sync_entities_metadata "
-                             "(storage_key, metadata) VALUES(?, ?)"));
-
-  s.BindInt(0, storage_key_int);
-  s.BindString(1, encrypted_metadata);
-
-  bool had_unsynced_deletions = HasUnsyncedDeletions();
-  bool result = s.Run();
-  if (result && had_unsynced_deletions && !HasUnsyncedDeletions() &&
-      deletions_have_synced_callback_) {
-    deletions_have_synced_callback_.Run(/*success=*/true);
-  }
-  return result;
-}
-
-bool LoginDatabase::ClearSyncMetadata(syncer::ModelType model_type,
-                                      const std::string& storage_key) {
-  TRACE_EVENT0("passwords", "LoginDatabase::ClearSyncMetadata");
-  DCHECK_EQ(model_type, syncer::PASSWORDS);
-
-  int storage_key_int = 0;
-  if (!base::StringToInt(storage_key, &storage_key_int)) {
-    DLOG(ERROR) << "Invalid storage key. Failed to convert the storage key to "
-                   "an integer.";
-    return false;
-  }
-
-  sql::Statement s(
-      db_.GetCachedStatement(SQL_FROM_HERE,
-                             "DELETE FROM sync_entities_metadata WHERE "
-                             "storage_key=?"));
-  s.BindInt(0, storage_key_int);
-
-  bool had_unsynced_deletions = HasUnsyncedDeletions();
-  bool result = s.Run();
-  if (result && had_unsynced_deletions && !HasUnsyncedDeletions() &&
-      deletions_have_synced_callback_) {
-    deletions_have_synced_callback_.Run(/*success=*/true);
-  }
-  return result;
-}
-
-bool LoginDatabase::UpdateModelTypeState(
-    syncer::ModelType model_type,
-    const sync_pb::ModelTypeState& model_type_state) {
-  TRACE_EVENT0("passwords", "LoginDatabase::UpdateModelTypeState");
-  DCHECK_EQ(model_type, syncer::PASSWORDS);
-
-  // Make sure only one row is left by storing it in the entry with id=1
-  // every time.
-  sql::Statement s(db_.GetCachedStatement(
-      SQL_FROM_HERE,
-      "INSERT OR REPLACE INTO sync_model_metadata (id, model_metadata) "
-      "VALUES(1, ?)"));
-  s.BindString(0, model_type_state.SerializeAsString());
-
-  return s.Run();
-}
-
-bool LoginDatabase::ClearModelTypeState(syncer::ModelType model_type) {
-  TRACE_EVENT0("passwords", "LoginDatabase::ClearModelTypeState");
-  DCHECK_EQ(model_type, syncer::PASSWORDS);
-
-  sql::Statement s(db_.GetCachedStatement(
-      SQL_FROM_HERE, "DELETE FROM sync_model_metadata WHERE id=1"));
-
-  return s.Run();
-}
-
-void LoginDatabase::SetDeletionsHaveSyncedCallback(
-    base::RepeatingCallback<void(bool)> callback) {
-  deletions_have_synced_callback_ = std::move(callback);
-}
-
-bool LoginDatabase::HasUnsyncedDeletions() {
-  TRACE_EVENT0("passwords", "LoginDatabase::HasUnsyncedDeletions");
-
-  std::unique_ptr<syncer::MetadataBatch> batch = GetAllSyncEntityMetadata();
-  if (!batch)
-    return false;
-  for (const auto& metadata_entry : batch->GetAllMetadata()) {
-    // Note: No need for an explicit "is unsynced" check: Once the deletion is
-    // committed, the metadata entry is removed.
-    if (metadata_entry.second->is_deleted())
-      return true;
-  }
-  return false;
 }
 
 bool LoginDatabase::BeginTransaction() {
@@ -1697,37 +1781,24 @@ bool LoginDatabase::CommitTransaction() {
   return db_.CommitTransaction();
 }
 
-LoginDatabase::PrimaryKeyAndPassword LoginDatabase::GetPrimaryKeyAndPassword(
-    const PasswordForm& form) const {
-  DCHECK(!id_and_password_statement_.empty());
-  sql::Statement s(db_.GetCachedStatement(SQL_FROM_HERE,
-                                          id_and_password_statement_.c_str()));
-
-  s.BindString(0, form.url.spec());
-  s.BindString16(1, form.username_element);
-  s.BindString16(2, form.username_value);
-  s.BindString16(3, form.password_element);
-  s.BindString(4, form.signon_realm);
-
-  if (s.Step()) {
-    PrimaryKeyAndPassword result = {s.ColumnInt(0)};
-    s.ColumnBlobAsString(1, &result.encrypted_password);
-    if (DecryptedString(result.encrypted_password,
-                        &result.decrypted_password) !=
-        ENCRYPTION_RESULT_SUCCESS) {
-      result.decrypted_password.clear();
-    }
-    return result;
-  }
-  return {-1, std::string(), std::u16string()};
+LoginDatabase::SyncMetadataStore::SyncMetadataStore(sql::Database* db)
+    : db_(db) {
+  CHECK(db);
 }
 
+LoginDatabase::SyncMetadataStore::~SyncMetadataStore() = default;
+
 std::unique_ptr<syncer::MetadataBatch>
-LoginDatabase::GetAllSyncEntityMetadata() {
+LoginDatabase::SyncMetadataStore::GetAllSyncEntityMetadata(
+    syncer::ModelType model_type) {
+  CHECK(model_type == syncer::PASSWORDS ||
+        model_type == syncer::INCOMING_PASSWORD_SHARING_INVITATION);
   auto metadata_batch = std::make_unique<syncer::MetadataBatch>();
-  sql::Statement s(db_.GetCachedStatement(SQL_FROM_HERE,
-                                          "SELECT storage_key, metadata FROM "
-                                          "sync_entities_metadata"));
+  sql::Statement s(db_->GetCachedStatement(
+      SQL_FROM_HERE,
+      base::StringPrintf("SELECT storage_key, metadata FROM %s",
+                         SyncEntitiesMetadataTableName(model_type))
+          .c_str()));
 
   while (s.Step()) {
     int storage_key_int = s.ColumnInt(0);
@@ -1756,17 +1827,24 @@ LoginDatabase::GetAllSyncEntityMetadata() {
   return metadata_batch;
 }
 
-std::unique_ptr<sync_pb::ModelTypeState> LoginDatabase::GetModelTypeState() {
+std::unique_ptr<sync_pb::ModelTypeState>
+LoginDatabase::SyncMetadataStore::GetModelTypeState(
+    syncer::ModelType model_type) {
+  CHECK(model_type == syncer::PASSWORDS ||
+        model_type == syncer::INCOMING_PASSWORD_SHARING_INVITATION);
   auto state = std::make_unique<sync_pb::ModelTypeState>();
-  sql::Statement s(db_.GetCachedStatement(
+  sql::Statement s(db_->GetCachedStatement(
       SQL_FROM_HERE,
-      "SELECT model_metadata FROM sync_model_metadata WHERE id=1"));
+      base::StringPrintf("SELECT model_metadata FROM %s WHERE id=1",
+                         SyncModelMetadataTableName(model_type))
+          .c_str()));
 
   if (!s.Step()) {
-    if (s.Succeeded())
+    if (s.Succeeded()) {
       return state;
-    else
+    } else {
       return nullptr;
+    }
   }
 
   std::string serialized_state = s.ColumnString(0);
@@ -1776,20 +1854,222 @@ std::unique_ptr<sync_pb::ModelTypeState> LoginDatabase::GetModelTypeState() {
   return nullptr;
 }
 
+std::unique_ptr<syncer::MetadataBatch>
+LoginDatabase::SyncMetadataStore::GetAllSyncMetadata(
+    syncer::ModelType model_type) {
+  TRACE_EVENT0("passwords", "SyncMetadataStore::GetAllSyncMetadata");
+  CHECK(model_type == syncer::PASSWORDS ||
+        model_type == syncer::INCOMING_PASSWORD_SHARING_INVITATION);
+  std::unique_ptr<syncer::MetadataBatch> metadata_batch =
+      GetAllSyncEntityMetadata(model_type);
+  if (metadata_batch == nullptr) {
+    return nullptr;
+  }
+
+  std::unique_ptr<sync_pb::ModelTypeState> model_type_state =
+      GetModelTypeState(model_type);
+  if (model_type_state == nullptr) {
+    return nullptr;
+  }
+
+  metadata_batch->SetModelTypeState(*model_type_state);
+  return metadata_batch;
+}
+
+void LoginDatabase::SyncMetadataStore::DeleteAllSyncMetadata(
+    syncer::ModelType model_type) {
+  TRACE_EVENT0("passwords", "SyncMetadataStore::DeleteAllSyncMetadata");
+  CHECK(model_type == syncer::PASSWORDS ||
+        model_type == syncer::INCOMING_PASSWORD_SHARING_INVITATION);
+  if (model_type != syncer::PASSWORDS) {
+    ClearAllSyncMetadata(db_, model_type);
+    return;
+  }
+  CHECK_EQ(model_type, syncer::PASSWORDS);
+  bool had_unsynced_password_deletions = HasUnsyncedPasswordDeletions();
+  ClearAllSyncMetadata(db_, syncer::PASSWORDS);
+  if (had_unsynced_password_deletions &&
+      password_deletions_have_synced_callback_) {
+    // Note: At this point we can't be fully sure whether the deletions actually
+    // reached the server yet. We might have sent a commit, but haven't received
+    // the commit confirmation. Let's be conservative and assume they haven't
+    // been successfully deleted.
+    password_deletions_have_synced_callback_.Run(/*success=*/false);
+  }
+}
+
+bool LoginDatabase::SyncMetadataStore::UpdateEntityMetadata(
+    syncer::ModelType model_type,
+    const std::string& storage_key,
+    const sync_pb::EntityMetadata& metadata) {
+  TRACE_EVENT0("passwords", "SyncMetadataStore::UpdateSyncMetadata");
+  CHECK(model_type == syncer::PASSWORDS ||
+        model_type == syncer::INCOMING_PASSWORD_SHARING_INVITATION);
+
+  int storage_key_int = 0;
+  if (!base::StringToInt(storage_key, &storage_key_int)) {
+    DLOG(ERROR) << "Invalid storage key. Failed to convert the storage key to "
+                   "an integer.";
+    return false;
+  }
+
+  std::string encrypted_metadata;
+  if (!OSCrypt::EncryptString(metadata.SerializeAsString(),
+                              &encrypted_metadata)) {
+    DLOG(ERROR) << "Cannot encrypt the sync metadata";
+    return false;
+  }
+
+  sql::Statement s(db_->GetCachedStatement(
+      SQL_FROM_HERE,
+      base::StringPrintf(
+          "INSERT OR REPLACE INTO %s (storage_key, metadata) VALUES(?, ?)",
+          SyncEntitiesMetadataTableName(model_type))
+          .c_str()));
+
+  s.BindInt(0, storage_key_int);
+  s.BindString(1, encrypted_metadata);
+  if (model_type != syncer::PASSWORDS) {
+    return s.Run();
+  }
+  CHECK_EQ(model_type, syncer::PASSWORDS);
+  bool had_unsynced_deletions = HasUnsyncedPasswordDeletions();
+  bool result = s.Run();
+  if (result && had_unsynced_deletions && !HasUnsyncedPasswordDeletions() &&
+      password_deletions_have_synced_callback_) {
+    password_deletions_have_synced_callback_.Run(/*success=*/true);
+  }
+  return result;
+}
+
+bool LoginDatabase::SyncMetadataStore::ClearEntityMetadata(
+    syncer::ModelType model_type,
+    const std::string& storage_key) {
+  TRACE_EVENT0("passwords", "SyncMetadataStore::ClearSyncMetadata");
+  CHECK(model_type == syncer::PASSWORDS ||
+        model_type == syncer::INCOMING_PASSWORD_SHARING_INVITATION);
+
+  int storage_key_int = 0;
+  if (!base::StringToInt(storage_key, &storage_key_int)) {
+    DLOG(ERROR) << "Invalid storage key. Failed to convert the storage key to "
+                   "an integer.";
+    return false;
+  }
+
+  sql::Statement s(db_->GetCachedStatement(
+      SQL_FROM_HERE,
+      base::StringPrintf("DELETE FROM %s WHERE storage_key=?",
+                         SyncEntitiesMetadataTableName(model_type))
+          .c_str()));
+  s.BindInt(0, storage_key_int);
+  if (model_type != syncer::PASSWORDS) {
+    return s.Run();
+  }
+  CHECK_EQ(model_type, syncer::PASSWORDS);
+  bool had_unsynced_deletions = HasUnsyncedPasswordDeletions();
+  bool result = s.Run();
+  if (result && had_unsynced_deletions && !HasUnsyncedPasswordDeletions() &&
+      password_deletions_have_synced_callback_) {
+    password_deletions_have_synced_callback_.Run(/*success=*/true);
+  }
+  return result;
+}
+
+bool LoginDatabase::SyncMetadataStore::UpdateModelTypeState(
+    syncer::ModelType model_type,
+    const sync_pb::ModelTypeState& model_type_state) {
+  TRACE_EVENT0("passwords", "SyncMetadataStore::UpdateModelTypeState");
+  CHECK(model_type == syncer::PASSWORDS ||
+        model_type == syncer::INCOMING_PASSWORD_SHARING_INVITATION);
+
+  // Make sure only one row is left by storing it in the entry with id=1
+  // every time.
+  sql::Statement s(db_->GetCachedStatement(
+      SQL_FROM_HERE,
+      base::StringPrintf("INSERT OR REPLACE INTO %s (id, model_metadata) "
+                         "VALUES(1, ?)",
+                         SyncModelMetadataTableName(model_type))
+          .c_str()));
+  s.BindString(0, model_type_state.SerializeAsString());
+
+  return s.Run();
+}
+
+bool LoginDatabase::SyncMetadataStore::ClearModelTypeState(
+    syncer::ModelType model_type) {
+  TRACE_EVENT0("passwords", "SyncMetadataStore::ClearModelTypeState");
+  CHECK(model_type == syncer::PASSWORDS ||
+        model_type == syncer::INCOMING_PASSWORD_SHARING_INVITATION);
+
+  sql::Statement s(db_->GetCachedStatement(
+      SQL_FROM_HERE, base::StringPrintf("DELETE FROM %s WHERE id=1",
+                                        SyncModelMetadataTableName(model_type))
+                         .c_str()));
+
+  return s.Run();
+}
+
+void LoginDatabase::SyncMetadataStore::SetPasswordDeletionsHaveSyncedCallback(
+    base::RepeatingCallback<void(bool)> callback) {
+  password_deletions_have_synced_callback_ = std::move(callback);
+}
+
+bool LoginDatabase::SyncMetadataStore::HasUnsyncedPasswordDeletions() {
+  TRACE_EVENT0("passwords", "SyncMetadataStore::HasUnsyncedDeletions");
+
+  std::unique_ptr<syncer::MetadataBatch> batch =
+      GetAllSyncEntityMetadata(syncer::PASSWORDS);
+  if (!batch) {
+    return false;
+  }
+  for (const auto& metadata_entry : batch->GetAllMetadata()) {
+    // Note: No need for an explicit "is unsynced" check: Once the deletion is
+    // committed, the metadata entry is removed.
+    if (metadata_entry.second->is_deleted()) {
+      return true;
+    }
+  }
+  return false;
+}
+
+LoginDatabase::PrimaryKeyAndPassword LoginDatabase::GetPrimaryKeyAndPassword(
+    const PasswordForm& form) const {
+  DCHECK(!id_and_password_statement_.empty());
+  sql::Statement s(db_.GetCachedStatement(SQL_FROM_HERE,
+                                          id_and_password_statement_.c_str()));
+
+  s.BindString(0, form.url.spec());
+  s.BindString16(1, form.username_element);
+  s.BindString16(2, form.username_value);
+  s.BindString16(3, form.password_element);
+  s.BindString(4, form.signon_realm);
+
+  if (s.Step()) {
+    PrimaryKeyAndPassword result = {s.ColumnInt(0)};
+    s.ColumnBlobAsString(1, &result.encrypted_password);
+    if (DecryptedString(result.encrypted_password,
+                        &result.decrypted_password) !=
+        ENCRYPTION_RESULT_SUCCESS) {
+      result.decrypted_password.clear();
+    }
+    return result;
+  }
+  return {-1, std::string(), std::u16string()};
+}
+
 FormRetrievalResult LoginDatabase::StatementToForms(
     sql::Statement* statement,
     const PasswordFormDigest* matched_form,
-    PrimaryKeyToFormMap* key_to_form_map) {
-  key_to_form_map->clear();
+    std::vector<std::unique_ptr<PasswordForm>>* forms) {
+  DCHECK(forms);
+  forms->clear();
   bool has_service_failure = false;
   while (statement->Step()) {
     auto new_form = std::make_unique<PasswordForm>();
     FillFormInStore(new_form.get());
 
-    int primary_key = -1;
     EncryptionResult result = InitPasswordFormFromStatement(
-        *statement, /*decrypt_and_fill_password_value=*/true, &primary_key,
-        new_form.get());
+        *statement, /*decrypt_and_fill_password_value=*/true, new_form.get());
     if (result == ENCRYPTION_RESULT_SERVICE_FAILURE) {
       has_service_failure = true;
       continue;
@@ -1813,14 +2093,14 @@ FormRetrievalResult LoginDatabase::StatementToForms(
       }
     }
 
-    key_to_form_map->emplace(primary_key, std::move(new_form));
+    forms->emplace_back(std::move(new_form));
   }
 
   if (!statement->Succeeded()) {
     return FormRetrievalResult::kDbError;
   }
   if (has_service_failure &&
-      (key_to_form_map->empty() || !ShouldReturnPartialPasswords())) {
+      (forms->empty() || !ShouldReturnPartialPasswords())) {
     return FormRetrievalResult::kEncryptionServiceFailure;
   }
   if (has_service_failure) {
@@ -1834,8 +2114,9 @@ void LoginDatabase::InitializeStatementStrings(const SQLTableBuilder& builder) {
   // LoginDatabase::DeleteAndRecreateDatabaseFile ends up being called. In those
   // case do not recompute the SQL statements, because they would end up the
   // same.
-  if (!add_statement_.empty())
+  if (!add_statement_.empty()) {
     return;
+  }
 
   // Initialize the cached strings.
   std::string all_column_names = builder.ListAllColumnNames();
@@ -1902,14 +2183,15 @@ void LoginDatabase::FillFormInStore(PasswordForm* form) const {
                                       : PasswordForm::Store::kProfileStore;
 }
 
-void LoginDatabase::PopulateFormWithPasswordIssues(FormPrimaryKey primary_key,
-                                                   PasswordForm* form) const {
+void LoginDatabase::PopulateFormWithPasswordIssues(PasswordForm* form) const {
+  DCHECK(form->primary_key.has_value());
   std::vector<InsecureCredential> insecure_credentials =
-      insecure_credentials_table_.GetRows(primary_key);
+      insecure_credentials_table_.GetRows(form->primary_key.value());
   base::flat_map<InsecureType, InsecurityMetadata> issues;
   for (const auto& insecure_credential : insecure_credentials) {
     issues[insecure_credential.insecure_type] = InsecurityMetadata(
-        insecure_credential.create_time, insecure_credential.is_muted);
+        insecure_credential.create_time, insecure_credential.is_muted,
+        insecure_credential.trigger_notification_from_backend);
   }
   form->password_issues = std::move(issues);
 }
@@ -1935,6 +2217,28 @@ InsecureCredentialsChanged LoginDatabase::UpdateInsecureCredentials(
     }
   }
   return InsecureCredentialsChanged(changed);
+}
+
+void LoginDatabase::PopulateFormWithNotes(PasswordForm* form) const {
+  DCHECK(form->primary_key.has_value());
+  if (!base::FeatureList::IsEnabled(syncer::kPasswordNotesWithBackup)) {
+    return;
+  }
+  form->notes =
+      password_notes_table_.GetPasswordNotes(form->primary_key.value());
+}
+
+void LoginDatabase::UpdatePasswordNotes(
+    FormPrimaryKey primary_key,
+    const std::vector<PasswordNote>& notes) {
+  if (!base::FeatureList::IsEnabled(syncer::kPasswordNotesWithBackup)) {
+    return;
+  }
+
+  password_notes_table_.RemovePasswordNotes(primary_key);
+  for (const PasswordNote& note : notes) {
+    password_notes_table_.InsertOrReplace(primary_key, note);
+  }
 }
 
 }  // namespace password_manager

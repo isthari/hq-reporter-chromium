@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -131,7 +131,8 @@ void PartialMagnifierController::OnLocatedEvent(
     SetActive(true);
   }
 
-  if (event->type() == ui::ET_TOUCH_RELEASED)
+  if (event->type() == ui::ET_TOUCH_RELEASED ||
+      event->type() == ui::ET_TOUCH_CANCELLED)
     SetActive(false);
 
   if (!is_active_)

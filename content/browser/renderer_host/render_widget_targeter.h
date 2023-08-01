@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,15 +42,13 @@ struct CONTENT_EXPORT RenderWidgetTargetResult {
                            bool latched_target);
   ~RenderWidgetTargetResult();
 
-  raw_ptr<RenderWidgetHostViewBase> view = nullptr;
+  raw_ptr<RenderWidgetHostViewBase, DanglingUntriaged> view = nullptr;
   bool should_query_view = false;
   absl::optional<gfx::PointF> target_location = absl::nullopt;
   // When |latched_target| is false, we explicitly hit-tested events instead of
   // using a known target.
   bool latched_target = false;
 };
-
-class TracingUmaTracker;
 
 class RenderWidgetTargeter {
  public:
@@ -203,17 +201,13 @@ class RenderWidgetTargeter {
   void FoundFrameSinkId(base::WeakPtr<RenderWidgetHostViewBase> target,
                         uint32_t request_id,
                         const gfx::PointF& target_location,
-                        TracingUmaTracker tracker,
                         const viz::FrameSinkId& frame_sink_id,
                         const gfx::PointF& transformed_location);
 
   // |target_location|, if
-  // set, is the location in |target|'s coordinate space. If |latched_target| is
-  // false, we explicitly did hit-testing for this event, instead of using a
-  // known target.
+  // set, is the location in |target|'s coordinate space.
   void FoundTarget(RenderWidgetHostViewBase* target,
                    const absl::optional<gfx::PointF>& target_location,
-                   bool latched_target,
                    TargetingRequest* request);
 
   // Callback when the hit testing timer fires, to resume event processing
@@ -241,10 +235,6 @@ class RenderWidgetTargeter {
 
   std::unordered_set<RenderWidgetHostViewBase*> unresponsive_views_;
 
-  // This value keeps track of the number of clients we have asked in order to
-  // do async hit-testing.
-  uint32_t async_depth_ = 0;
-
   // Target to send events to if autoscroll is in progress
   RenderWidgetTargetResult middle_click_result_;
 
@@ -259,7 +249,7 @@ class RenderWidgetTargeter {
 
   uint64_t trace_id_;
 
-  const raw_ptr<Delegate> delegate_;
+  const raw_ptr<Delegate, DanglingUntriaged> delegate_;
   base::WeakPtrFactory<RenderWidgetTargeter> weak_ptr_factory_{this};
 };
 

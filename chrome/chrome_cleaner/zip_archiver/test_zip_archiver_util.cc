@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <limits>
 #include <vector>
 
+#include "base/time/time.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/zlib/contrib/minizip/unzip.h"
 
@@ -80,9 +81,7 @@ void ZipArchiverTestFile::Initialize() {
   ASSERT_TRUE(
       base::CreateTemporaryFileInDir(temp_dir_.GetPath(), &src_file_path_));
 
-  ASSERT_EQ(static_cast<size_t>(base::WriteFile(src_file_path_, kTestContent,
-                                                strlen(kTestContent))),
-            strlen(kTestContent));
+  ASSERT_TRUE(base::WriteFile(src_file_path_, kTestContent));
   // Set a fixed timestamp, so the modified time will be identical in every
   // test.
   base::Time file_time;

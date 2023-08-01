@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <vector>
 
+#include "base/memory/raw_ptr_exclusion.h"
 #include "third_party/openxr/src/include/openxr/openxr.h"
 #include "ui/gfx/geometry/rect.h"
 
@@ -106,7 +107,9 @@ class OpenXrLayers {
   // support a single projection layer. XrCompositionLayerBaseHeader* is needed
   // because xrEndFrame expects an array containing pointers of all the layers.
   XrCompositionLayerProjection primary_projection_layer_;
-  XrCompositionLayerBaseHeader* primary_composition_layer_ =
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION XrCompositionLayerBaseHeader* primary_composition_layer_ =
       reinterpret_cast<XrCompositionLayerBaseHeader*>(
           &primary_projection_layer_);
 

@@ -1,11 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.multiwindow;
 
 import android.annotation.SuppressLint;
-import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.ActivityManager;
 import android.content.Context;
@@ -13,7 +12,6 @@ import android.content.Intent;
 import android.content.res.Configuration;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.DisplayManager.DisplayListener;
-import android.os.Build;
 import android.view.Display;
 
 import androidx.annotation.Nullable;
@@ -37,6 +35,7 @@ import org.chromium.chrome.browser.lifecycle.PauseResumeWithNativeObserver;
 import org.chromium.chrome.browser.lifecycle.RecreateObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
+import org.chromium.chrome.browser.tabmodel.TabModelSelectorTabModelObserver;
 import org.chromium.chrome.browser.util.AndroidTaskUtils;
 import org.chromium.components.browser_ui.widget.MenuOrKeyboardActionController;
 import org.chromium.ui.display.DisplayAndroidManager;
@@ -50,7 +49,6 @@ import java.util.List;
  * {@link #isStartedUpCorrectly(int)} to validate that the owning Activity should be allowed to
  * finish starting up.
  */
-@TargetApi(Build.VERSION_CODES.N)
 public class MultiInstanceManager
         implements PauseResumeWithNativeObserver, RecreateObserver, ConfigurationChangedObserver,
                    NativeInitObserver, MultiWindowModeStateDispatcher.MultiWindowModeObserver,
@@ -82,6 +80,8 @@ public class MultiInstanceManager
     private final ActivityLifecycleDispatcher mActivityLifecycleDispatcher;
     private final MenuOrKeyboardActionController mMenuOrKeyboardActionController;
 
+    protected TabModelSelectorTabModelObserver mTabModelObserver;
+
     private int mActivityTaskId;
     private boolean mNativeInitialized;
     private DisplayManager.DisplayListener mDisplayListener;
@@ -89,6 +89,7 @@ public class MultiInstanceManager
     private boolean mIsRecreating;
     private int mDisplayId;
     private static List<Integer> sTestDisplayIds;
+    private boolean mDestroyed;
 
     /**
      * Create a new {@link MultiInstanceManager}.
@@ -110,9 +111,7 @@ public class MultiInstanceManager
             ActivityLifecycleDispatcher activityLifecycleDispatcher,
             ObservableSupplier<ModalDialogManager> modalDialogManagerSupplier,
             MenuOrKeyboardActionController menuOrKeyboardActionController) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
-            return null;
-        } else if (MultiWindowUtils.isMultiInstanceApi31Enabled()) {
+        if (MultiWindowUtils.isMultiInstanceApi31Enabled()) {
             return new MultiInstanceManagerApi31(activity, tabModelOrchestratorSupplier,
                     multiWindowModeStateDispatcher, activityLifecycleDispatcher,
                     modalDialogManagerSupplier, menuOrKeyboardActionController);
@@ -143,8 +142,12 @@ public class MultiInstanceManager
 
     @Override
     public void onDestroy() {
+        mDestroyed = true;
         mMultiWindowModeStateDispatcher.removeObserver(this);
         mMenuOrKeyboardActionController.unregisterMenuOrKeyboardActionHandler(this);
+        mActivityLifecycleDispatcher.unregister(this);
+        removeOtherCTAStateObserver();
+
         DisplayManager displayManager =
                 (DisplayManager) mActivity.getSystemService(Context.DISPLAY_SERVICE);
         if (displayManager != null && mDisplayListener != null) {
@@ -319,15 +322,16 @@ public class MultiInstanceManager
                 if (otherResumedCTA == null) {
                     maybeMergeTabs();
                 } else {
+                    // Remove the other CTA state observer if one already exists to protect
+                    // against multiple #onMultiWindowModeChanged calls.
+                    // See https://crbug.com/1385987.
+                    removeOtherCTAStateObserver();
                     // Wait for the other ChromeTabbedActivity to pause before trying to merge
                     // tabs.
-                    mOtherCTAStateObserver = new ApplicationStatus.ActivityStateListener() {
-                        @Override
-                        public void onActivityStateChange(Activity activity, int newState) {
-                            if (newState == ActivityState.PAUSED) {
-                                removeOtherCTAStateObserver();
-                                maybeMergeTabs();
-                            }
+                    mOtherCTAStateObserver = (activity, newState) -> {
+                        if (newState == ActivityState.PAUSED) {
+                            removeOtherCTAStateObserver();
+                            maybeMergeTabs();
                         }
                     };
                     ApplicationStatus.registerStateListenerForActivity(
@@ -441,7 +445,8 @@ public class MultiInstanceManager
      */
     @VisibleForTesting
     public void maybeMergeTabs() {
-        if (!isTabModelMergingEnabled()) return;
+        assert !mDestroyed;
+        if (!isTabModelMergingEnabled() || mDestroyed) return;
 
         killOtherTask();
         RecordUserAction.record("Android.MergeState.Live");
@@ -521,13 +526,15 @@ public class MultiInstanceManager
     public void initialize(int instanceId, int taskId) {}
 
     /**
+     * Perform initialization tasks for the manager after the tab state is initialized.
+     */
+    public void onTabStateInitialized() {}
+
+    /**
      * @return True if tab model merging for Android N+ is enabled.
      */
     public boolean isTabModelMergingEnabled() {
-        if (CommandLine.getInstance().hasSwitch(ChromeSwitches.DISABLE_TAB_MERGING_FOR_TESTING)) {
-            return false;
-        }
-        return Build.VERSION.SDK_INT > Build.VERSION_CODES.M;
+        return !CommandLine.getInstance().hasSwitch(ChromeSwitches.DISABLE_TAB_MERGING_FOR_TESTING);
     }
 
     @VisibleForTesting
@@ -543,5 +550,15 @@ public class MultiInstanceManager
     @VisibleForTesting
     public static void setTestDisplayIds(List<Integer> testDisplayIds) {
         sTestDisplayIds = testDisplayIds;
+    }
+
+    @VisibleForTesting(otherwise = VisibleForTesting.PACKAGE_PRIVATE)
+    public TabModelSelectorTabModelObserver getTabModelObserverForTesting() {
+        return mTabModelObserver;
+    }
+
+    @VisibleForTesting(otherwise = VisibleForTesting.PACKAGE_PRIVATE)
+    public void setTabModelObserverForTesting(TabModelSelectorTabModelObserver tabModelObserver) {
+        mTabModelObserver = tabModelObserver;
     }
 }

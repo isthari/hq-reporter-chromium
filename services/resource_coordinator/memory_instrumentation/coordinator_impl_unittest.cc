@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,10 @@
 
 #include <memory>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/gmock_callback_support.h"
 #include "base/test/task_environment.h"
 #include "base/test/test_future.h"
@@ -77,7 +78,7 @@ class CoordinatorImplTest : public testing::Test {
     TracingObserverProto::RegisterForTesting();
     coordinator_ = std::make_unique<NiceMock<FakeCoordinatorImpl>>();
     tracing::PerfettoTracedProcess::GetTaskRunner()->ResetTaskRunnerForTesting(
-        base::ThreadTaskRunnerHandle::Get());
+        base::SingleThreadTaskRunner::GetCurrentDefault());
   }
 
   void TearDown() override {
@@ -789,7 +790,6 @@ TEST_F(CoordinatorImplTest, VmRegionsForHeapProfiler) {
 // shouldn't add anything into the trace
 TEST_F(CoordinatorImplTest, DumpsArentAddedToTraceUnlessRequested) {
   CoordinatorImpl* coordinator = CoordinatorImpl::GetInstance();
-  ASSERT_TRUE(coordinator->use_proto_writer_);
   tracing::DataSourceTester data_source_tester(
       reinterpret_cast<TracingObserverProto*>(
           coordinator->tracing_observer_.get()));
@@ -841,7 +841,6 @@ TEST_F(CoordinatorImplTest, DumpsArentAddedToTraceUnlessRequested) {
 #endif
 TEST_F(CoordinatorImplTest, MAYBE_DumpsAreAddedToTraceWhenRequested) {
   CoordinatorImpl* coordinator = CoordinatorImpl::GetInstance();
-  ASSERT_TRUE(coordinator->use_proto_writer_);
   tracing::DataSourceTester data_source_tester(
       reinterpret_cast<TracingObserverProto*>(
           coordinator->tracing_observer_.get()));

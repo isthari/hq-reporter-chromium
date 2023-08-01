@@ -1,11 +1,14 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef NET_COOKIES_COOKIE_INCLUSION_STATUS_H_
 #define NET_COOKIES_COOKIE_INCLUSION_STATUS_H_
 
+#include <stdint.h>
+
 #include <bitset>
+#include <cstdint>
 #include <ostream>
 #include <string>
 #include <vector>
@@ -21,6 +24,7 @@ namespace net {
 // exclusion, where cookie inclusion is represented by the absence of any
 // exclusion reasons. Also marks whether a cookie should be warned about, e.g.
 // for deprecation or intervention reasons.
+// TODO(crbug.com/1310444): Improve serialization validation comments.
 class NET_EXPORT CookieInclusionStatus {
  public:
   // Types of reasons why a cookie might be excluded.
@@ -93,14 +97,30 @@ class NET_EXPORT CookieInclusionStatus {
     // whole cookie to be rejected. There will be a corresponding WarningReason
     // to notify users that an attribute value was ignored in that case.
     EXCLUDE_ATTRIBUTE_VALUE_EXCEEDS_MAX_SIZE = 20,
+    // Cookie was set with a Domain attribute containing non ASCII characters.
+    EXCLUDE_DOMAIN_NON_ASCII = 21,
+    // Special case for when a cookie is blocked by third-party cookie blocking
+    // but the two sites are in the same First-Party Set.
+    EXCLUDE_THIRD_PARTY_BLOCKED_WITHIN_FIRST_PARTY_SET = 22,
+    // Cookie's source_port did not match the port of the request.
+    EXCLUDE_PORT_MISMATCH = 23,
+    // Cookie's source_scheme did not match the scheme of the request.
+    EXCLUDE_SCHEME_MISMATCH = 24,
 
     // This should be kept last.
     NUM_EXCLUSION_REASONS
   };
 
-  // Reason to warn about a cookie. Any information contained in WarningReason
-  // of an included cookie may be passed to an untrusted renderer.
-  // If you add one, please update GetDebugString().
+  // Mojom and some tests assume that all the exclusion reasons will fit within
+  // a uint32_t. Once that's not longer true those assumptions need to be
+  // updated (along with this assert).
+  static_assert(ExclusionReason::NUM_EXCLUSION_REASONS <= 32,
+                "Expanding ExclusionReasons past 32 reasons requires updating "
+                "usage assumptions.");
+
+  // Reason to warn about a cookie. Any information contained in
+  // WarningReason of an included cookie may be passed to an untrusted
+  // renderer. If you add one, please update GetDebugString().
   enum WarningReason {
     // Of the following 3 SameSite warnings, there will be, at most, a single
     // active one.
@@ -163,7 +183,8 @@ class NET_EXPORT CookieInclusionStatus {
     // Advisory warning attached when a Secure cookie is accessed from (sent to,
     // or set by) a non-cryptographic URL. This can happen if the URL is
     // potentially trustworthy (e.g. a localhost URL, or another URL that
-    // the CookieAccessDelegate is configured to allow).
+    // the CookieAccessDelegate is configured to allow). This also applies to
+    // cookies with secure source schemes when scheme binding is enabled.
     // TODO(chlily): Add metrics for how often and where this occurs.
     WARN_SECURE_ACCESS_GRANTED_NON_CRYPTOGRAPHIC = 8,
 
@@ -185,26 +206,6 @@ class NET_EXPORT CookieInclusionStatus {
     // contexts, for cookies that are 'SameParty; SameSite=Lax'.)
     WARN_SAMEPARTY_INCLUSION_OVERRULED_SAMESITE = 11,
 
-    // This cookie was SameSite=None and was included, but would have been
-    // excluded if it had been SameParty and the SameParty context had been
-    // computed using *either* top & current or the whole ancestor tree.
-    WARN_SAMESITE_NONE_REQUIRED = 12,
-    // This cookie was SameSite=None, was included, would have been included if
-    // it had been SameParty and the SameParty context type had been computed
-    // with only the top frame & resource URL, but would have been excluded if
-    // the SameParty context type had been computed using all ancestor frames.
-    WARN_SAMESITE_NONE_INCLUDED_BY_SAMEPARTY_TOP_RESOURCE = 13,
-    // This cookie was SameSite=None, was included, and would have been included
-    // if it had been SameParty and the SameParty context type had been computed
-    // using all ancestor frames.
-    WARN_SAMESITE_NONE_INCLUDED_BY_SAMEPARTY_ANCESTORS = 14,
-    // This cookie was SameSite=None, was included, and would have been included
-    // if it had been SameSite=Lax.
-    WARN_SAMESITE_NONE_INCLUDED_BY_SAMESITE_LAX = 15,
-    // This cookie was SameSite=None, was included, and would have been included
-    // if it had been SameSite=Strict.
-    WARN_SAMESITE_NONE_INCLUDED_BY_SAMESITE_STRICT = 16,
-
     // The cookie would have been included prior to the spec change considering
     // redirects in the SameSite context calculation
     // (https://github.com/httpwg/http-extensions/pull/1348)
@@ -215,44 +216,63 @@ class NET_EXPORT CookieInclusionStatus {
     // was actually used for the inclusion decision). This is not applied if
     // the context was downgraded but the cookie would have been
     // included/excluded in both cases.
-    WARN_CROSS_SITE_REDIRECT_DOWNGRADE_CHANGES_INCLUSION = 17,
+    WARN_CROSS_SITE_REDIRECT_DOWNGRADE_CHANGES_INCLUSION = 12,
 
     // The cookie exceeded the attribute size limit. RFC6265bis indicates that
     // large attributes should be ignored instead of causing the whole cookie
     // to be rejected. This is applied by the code that parses cookie lines and
     // notifies the user that an attribute value was ignored.
-    WARN_ATTRIBUTE_VALUE_EXCEEDS_MAX_SIZE = 18,
+    WARN_ATTRIBUTE_VALUE_EXCEEDS_MAX_SIZE = 13,
+
+    // The cookie was set with a Domain attribute containing non ASCII
+    // characters.
+    WARN_DOMAIN_NON_ASCII = 14,
+    // The cookie's source_port did not match the port of the request.
+    WARN_PORT_MISMATCH = 15,
+    // The cookie's source_scheme did not match the scheme of the request.
+    WARN_SCHEME_MISMATCH = 16,
+    // The cookie's creation url is non-cryptographic but it specified the
+    // "Secure" attribute. A trustworthy url may be setting this cookie, but we
+    // can't confirm/deny that at the time of creation.
+    WARN_TENTATIVELY_ALLOWING_SECURE_SOURCE_SCHEME = 17,
 
     // This should be kept last.
     NUM_WARNING_REASONS
   };
 
+  // Mojom and some tests assume that all the warning reasons will fit within
+  // a uint32_t. Once that's not longer true those assumptions need to be
+  // updated (along with this assert).
+  static_assert(WarningReason::NUM_WARNING_REASONS <= 32,
+                "Expanding WarningReasons past 32 reasons requires updating "
+                "usage assumptions.");
+
   // These enums encode the context downgrade warnings + the secureness of the
   // url sending/setting the cookie. They're used for metrics only. The format
-  // is {context}_{schemeful_context}_{samesite_value}_{securness}.
-  // NO_DOWNGRADE_{securness} indicates that a cookie didn't have a breaking
+  // is k{context}{schemeful_context}{samesite_value}{securness}.
+  // kNoDowngrade{securness} indicates that a cookie didn't have a breaking
   // context downgrade and was A) included B) excluded only due to insufficient
   // same-site context. I.e. the cookie wasn't excluded due to other reasons
   // such as third-party cookie blocking. Keep this in line with
   // SameSiteCookieContextBreakingDowngradeWithSecureness in enums.xml.
-  enum ContextDowngradeMetricValues {
-    NO_DOWNGRADE_INSECURE = 0,
-    NO_DOWNGRADE_SECURE = 1,
+  enum class ContextDowngradeMetricValues {
+    kNoDowngradeInsecure = 0,
+    kNoDowngradeSecure = 1,
 
-    STRICT_LAX_STRICT_INSECURE = 2,
-    STRICT_CROSS_STRICT_INSECURE = 3,
-    STRICT_CROSS_LAX_INSECURE = 4,
-    LAX_CROSS_STRICT_INSECURE = 5,
-    LAX_CROSS_LAX_INSECURE = 6,
+    kStrictLaxStrictInsecure = 2,
+    kStrictCrossStrictInsecure = 3,
+    kStrictCrossLaxInsecure = 4,
+    kLaxCrossStrictInsecure = 5,
+    kLaxCrossLaxInsecure = 6,
 
-    STRICT_LAX_STRICT_SECURE = 7,
-    STRICT_CROSS_STRICT_SECURE = 8,
-    STRICT_CROSS_LAX_SECURE = 9,
-    LAX_CROSS_STRICT_SECURE = 10,
-    LAX_CROSS_LAX_SECURE = 11,
+    kStrictLaxStrictSecure = 7,
+    kStrictCrossStrictSecure = 8,
+    kStrictCrossLaxSecure = 9,
+    kLaxCrossStrictSecure = 10,
+    kLaxCrossLaxSecure = 11,
 
     // Keep last.
-    kMaxValue = LAX_CROSS_LAX_SECURE
+    kMaxValue = kLaxCrossLaxSecure
   };
 
   using ExclusionReasonBitset =
@@ -317,7 +337,7 @@ class NET_EXPORT CookieInclusionStatus {
   // SameSiteCookieContext::|schemeful_context| downgrade that will prevent its
   // access schemefully. If the function returns true and |reason| is valid then
   // |reason| will contain which warning was found.
-  bool HasDowngradeWarning(
+  bool HasSchemefulDowngradeWarning(
       CookieInclusionStatus::WarningReason* reason = nullptr) const;
 
   // Add an warning reason.
@@ -354,6 +374,8 @@ class NET_EXPORT CookieInclusionStatus {
       std::vector<WarningReason> reasons) const;
 
   // Validates mojo data, since mojo does not support bitsets.
+  // TODO(crbug.com/1310444): Improve serialization validation comments
+  // and check for mutually exclusive values.
   static bool ValidateExclusionAndWarningFromWire(uint32_t exclusion_reasons,
                                                   uint32_t warning_reasons);
 
@@ -361,6 +383,14 @@ class NET_EXPORT CookieInclusionStatus {
   static CookieInclusionStatus MakeFromReasonsForTesting(
       std::vector<ExclusionReason> reasons,
       std::vector<WarningReason> warnings = std::vector<WarningReason>());
+
+  // Returns true if the cookie was excluded because of user preferences.
+  // HasOnlyExclusionReason(EXCLUDE_USER_PREFERENCES) will not return true for
+  // third-party cookies blocked in sites in the same First-Party Set (note:
+  // this is not the same as the cookie being blocked in a same-party context,
+  // which takes the entire ancestor chain into account). See
+  // https://crbug.com/1366868.
+  bool ExcludedByUserPreferences() const;
 
  private:
   // Returns the `exclusion_reasons_` with the given `reasons` unset.

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,16 +18,18 @@ void NGFragmentPainter::PaintOutline(const PaintInfo& paint_info,
                                      const ComputedStyle& style_to_use) {
   const NGPhysicalBoxFragment& fragment = PhysicalFragment();
   DCHECK(NGOutlineUtils::HasPaintedOutline(style_to_use, fragment.GetNode()));
-  Vector<PhysicalRect> outline_rects;
+  VectorOutlineRectCollector collector;
+  LayoutObject::OutlineInfo info;
   fragment.AddSelfOutlineRects(
       paint_offset, style_to_use.OutlineRectsShouldIncludeBlockVisualOverflow(),
-      &outline_rects);
+      collector, &info);
 
-  if (outline_rects.IsEmpty())
+  VectorOf<PhysicalRect> outline_rects = collector.TakeRects();
+  if (outline_rects.empty())
     return;
 
   OutlinePainter::PaintOutlineRects(paint_info, GetDisplayItemClient(),
-                                    outline_rects, style_to_use,
+                                    outline_rects, info, style_to_use,
                                     fragment.GetLayoutObject()->GetDocument());
 }
 
@@ -35,11 +37,10 @@ void NGFragmentPainter::AddURLRectIfNeeded(const PaintInfo& paint_info,
                                            const PhysicalOffset& paint_offset) {
   DCHECK(paint_info.ShouldAddUrlMetadata());
 
-  // TODO(layout-dev): Should use break token when NG has its own tree building.
   const NGPhysicalBoxFragment& fragment = PhysicalFragment();
-  if (fragment.GetLayoutObject()->IsElementContinuation() ||
-      fragment.Style().Visibility() != EVisibility::kVisible)
+  if (fragment.Style().Visibility() != EVisibility::kVisible) {
     return;
+  }
 
   Node* node = fragment.GetNode();
   if (!node || !node->IsLink())
@@ -50,7 +51,7 @@ void NGFragmentPainter::AddURLRectIfNeeded(const PaintInfo& paint_info,
     return;
 
   auto outline_rects = fragment.GetLayoutObject()->OutlineRects(
-      paint_offset, NGOutlineType::kIncludeBlockVisualOverflow);
+      nullptr, paint_offset, NGOutlineType::kIncludeBlockVisualOverflow);
   gfx::Rect rect = ToPixelSnappedRect(UnionRect(outline_rects));
   if (rect.IsEmpty())
     return;

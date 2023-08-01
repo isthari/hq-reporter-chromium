@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,7 @@ package org.chromium.chrome.browser.incognito;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import android.support.test.InstrumentationRegistry;
-
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.LargeTest;
 
 import org.hamcrest.Matchers;
@@ -31,6 +30,7 @@ import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.incognito.IncognitoDataTestUtils.ActivityType;
 import org.chromium.chrome.browser.incognito.IncognitoDataTestUtils.TestParams;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tab.TabUtils.LoadIfNeededCaller;
 import org.chromium.chrome.test.ChromeJUnit4RunnerDelegate;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
@@ -72,7 +72,8 @@ public class IncognitoStorageLeakageTest {
 
     @Before
     public void setUp() throws TimeoutException {
-        mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
+        mTestServer = EmbeddedTestServer.createAndStartServer(
+                ApplicationProvider.getApplicationContext());
         mSiteDataTestPage = mTestServer.getURL(SITE_DATA_HTML_PATH);
 
         // Ensuring native is initialized before we access the CCT_INCOGNITO feature flag.
@@ -102,12 +103,12 @@ public class IncognitoStorageLeakageTest {
 
         // Sets the session storage in tab1
         assertEquals("true",
-                JavaScriptUtils.runJavascriptWithAsyncResult(
+                JavaScriptUtils.executeJavaScriptAndWaitForResult(
                         tab1.getWebContents(), "setSessionStorage()"));
 
         // Checks the sessions storage is set in tab1
         assertEquals("true",
-                JavaScriptUtils.runJavascriptWithAsyncResult(
+                JavaScriptUtils.executeJavaScriptAndWaitForResult(
                         tab1.getWebContents(), "hasSessionStorage()"));
 
         Tab tab2 = activity2.launchUrl(
@@ -118,7 +119,7 @@ public class IncognitoStorageLeakageTest {
         // Checks the session storage in tab2. Session storage set in tab1 should not be accessible.
         // The session storage is per tab basis.
         assertEquals("false",
-                JavaScriptUtils.runJavascriptWithAsyncResult(
+                JavaScriptUtils.executeJavaScriptAndWaitForResult(
                         tab2.getWebContents(), "hasSessionStorage()"));
     }
 
@@ -150,25 +151,27 @@ public class IncognitoStorageLeakageTest {
             // Due to which tab1 could potentially be marked as frozen and invoking
             // getWebContents on it may return null. Please see the javadoc for
             // TabImpl#getWebContents.
-            TestThreadUtils.runOnUiThreadBlocking(() -> tab1.loadIfNeeded());
+            TestThreadUtils.runOnUiThreadBlocking(
+                    () -> tab1.loadIfNeeded(LoadIfNeededCaller.OTHER));
             CriteriaHelper.pollUiThread(
                     () -> Criteria.checkThat(tab1.getWebContents(), Matchers.notNullValue()));
             // Set the storage in tab1
             assertEquals("true",
                     JavaScriptUtils.runJavascriptWithAsyncResult(
-                            tab1.getWebContents(), "set" + type + "()"));
+                            tab1.getWebContents(), "set" + type + "Async()"));
             // Checks the storage is set in tab1
             assertEquals("true",
                     JavaScriptUtils.runJavascriptWithAsyncResult(
-                            tab1.getWebContents(), "has" + type + "()"));
+                            tab1.getWebContents(), "has" + type + "Async()"));
 
-            TestThreadUtils.runOnUiThreadBlocking(() -> tab2.loadIfNeeded());
+            TestThreadUtils.runOnUiThreadBlocking(
+                    () -> tab2.loadIfNeeded(LoadIfNeededCaller.OTHER));
             CriteriaHelper.pollUiThread(
                     () -> Criteria.checkThat(tab2.getWebContents(), Matchers.notNullValue()));
             // Access the storage from tab2
             assertEquals(expected,
                     JavaScriptUtils.runJavascriptWithAsyncResult(
-                            tab2.getWebContents(), "has" + type + "()"));
+                            tab2.getWebContents(), "has" + type + "Async()"));
         }
     }
 }

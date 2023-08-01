@@ -1,20 +1,20 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/web_applications/test/fake_os_integration_manager.h"
 
 #include "base/containers/contains.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/test/bind.h"
+#include "chrome/browser/web_applications/os_integration/os_integration_manager.h"
+#include "chrome/browser/web_applications/os_integration/url_handler_manager.h"
+#include "chrome/browser/web_applications/os_integration/web_app_file_handler_manager.h"
+#include "chrome/browser/web_applications/os_integration/web_app_protocol_handler_manager.h"
+#include "chrome/browser/web_applications/os_integration/web_app_shortcut_manager.h"
 #include "chrome/browser/web_applications/test/fake_url_handler_manager.h"
 #include "chrome/browser/web_applications/test/fake_web_app_file_handler_manager.h"
-#include "chrome/browser/web_applications/test/fake_web_app_protocol_handler_manager.h"
-#include "chrome/browser/web_applications/url_handler_manager.h"
 #include "chrome/browser/web_applications/web_app_constants.h"
-#include "chrome/browser/web_applications/web_app_file_handler_manager.h"
-#include "chrome/browser/web_applications/web_app_protocol_handler_manager.h"
-#include "chrome/browser/web_applications/web_app_shortcut_manager.h"
-#include "chrome/browser/web_applications/web_app_ui_manager.h"
 
 namespace web_app {
 
@@ -32,13 +32,9 @@ FakeOsIntegrationManager::FakeOsIntegrationManager(
   if (!this->shortcut_manager()) {
     set_shortcut_manager(std::make_unique<TestShortcutManager>(profile));
   }
-  if (!this->file_handler_manager()) {
+  if (!has_file_handler_manager()) {
     set_file_handler_manager(
         std::make_unique<FakeWebAppFileHandlerManager>(profile));
-  }
-  if (!this->protocol_handler_manager()) {
-    set_protocol_handler_manager(
-        std::make_unique<FakeWebAppProtocolHandlerManager>(profile));
   }
   if (!this->url_handler_manager()) {
     set_url_handler_manager(std::make_unique<FakeUrlHandlerManager>(profile));
@@ -49,7 +45,7 @@ FakeOsIntegrationManager::~FakeOsIntegrationManager() = default;
 
 void FakeOsIntegrationManager::SetNextCreateShortcutsResult(const AppId& app_id,
                                                             bool success) {
-  DCHECK(!base::Contains(next_create_shortcut_results_, app_id));
+  CHECK(!base::Contains(next_create_shortcut_results_, app_id));
   next_create_shortcut_results_[app_id] = success;
 }
 
@@ -91,17 +87,19 @@ void FakeOsIntegrationManager::InstallOsHooks(
     ++num_register_url_handlers_calls_;
   }
 
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE,
-      base::BindOnce(std::move(callback), std::move(os_hooks_errors)));
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback), os_hooks_errors));
 }
 
 void FakeOsIntegrationManager::UninstallOsHooks(
     const AppId& app_id,
     const OsHooksOptions& os_hooks,
     UninstallOsHooksCallback callback) {
+  if (os_hooks[OsHookType::kRunOnOsLogin]) {
+    ++num_unregister_run_on_os_login_calls_;
+  }
   OsHooksErrors os_hooks_errors;
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(std::move(callback), os_hooks_errors));
 }
 
@@ -123,8 +121,27 @@ void FakeOsIntegrationManager::UpdateOsHooks(
     ++num_update_file_handlers_calls_;
 
   OsHooksErrors os_hooks_errors;
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(std::move(callback), os_hooks_errors));
+}
+
+void FakeOsIntegrationManager::Synchronize(
+    const AppId& app_id,
+    base::OnceClosure callback,
+    absl::optional<SynchronizeOsOptions> options) {
+  // Holding a scoped_supress ensures that execution is skipped during the
+  // entire Synchronization flow. See
+  // OsIntegrationManager::StartSubManagerExecutionIfRequired() for more
+  // information.
+  auto scoped_supress =
+      std::make_unique<OsIntegrationManager::ScopedSuppressForTesting>();
+  auto scoped_supress_callback = base::BindOnce(
+      [&](std::unique_ptr<OsIntegrationManager::ScopedSuppressForTesting>
+              scoped_supress) {},
+      std::move(scoped_supress));
+  OsIntegrationManager::Synchronize(
+      app_id, std::move(callback).Then(std::move(scoped_supress_callback)),
+      options);
 }
 
 void FakeOsIntegrationManager::SetFileHandlerManager(
@@ -132,14 +149,14 @@ void FakeOsIntegrationManager::SetFileHandlerManager(
   set_file_handler_manager(std::move(file_handler_manager));
 }
 
-void FakeOsIntegrationManager::SetProtocolHandlerManager(
-    std::unique_ptr<WebAppProtocolHandlerManager> protocol_handler_manager) {
-  set_protocol_handler_manager(std::move(protocol_handler_manager));
-}
-
 void FakeOsIntegrationManager::SetUrlHandlerManager(
     std::unique_ptr<UrlHandlerManager> url_handler_manager) {
   set_url_handler_manager(std::move(url_handler_manager));
+}
+
+void FakeOsIntegrationManager::SetShortcutManager(
+    std::unique_ptr<WebAppShortcutManager> shortcut_manager) {
+  set_shortcut_manager(std::move(shortcut_manager));
 }
 
 FakeOsIntegrationManager*

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,14 +6,14 @@
 #include <stdint.h>
 
 #include "crypto/sha2.h"
-#include "net/cert/internal/crl.h"
+#include "net/cert/pki/crl.h"
 #include "net/der/input.h"
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   const net::der::Input input_der(data, size);
 
   const std::string data_hash =
-      crypto::SHA256HashString(input_der.AsStringPiece());
+      crypto::SHA256HashString(input_der.AsStringView());
   const net::CrlVersion crl_version =
       (data_hash[0] % 2) ? net::CrlVersion::V2 : net::CrlVersion::V1;
   const size_t serial_len = data_hash[1] % (data_hash.size() - 2);

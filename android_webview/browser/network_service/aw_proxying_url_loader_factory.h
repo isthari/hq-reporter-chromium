@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include "services/network/public/mojom/url_loader_factory.mojom.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "url/origin.h"
 
 namespace net {
 struct MutableNetworkTrafficAnnotationTag;
@@ -25,6 +26,8 @@ struct ResourceRequest;
 }
 
 namespace android_webview {
+
+class AwContentsOriginMatcher;
 
 // URL Loader Factory for Android WebView. This is the entry point for handling
 // Android WebView callbacks (i.e. error, interception and other callbacks) and
@@ -68,7 +71,8 @@ class AwProxyingURLLoaderFactory : public network::mojom::URLLoaderFactory {
       mojo::PendingRemote<network::mojom::URLLoaderFactory>
           target_factory_remote,
       bool intercept_only,
-      absl::optional<SecurityOptions> security_options);
+      absl::optional<SecurityOptions> security_options,
+      scoped_refptr<AwContentsOriginMatcher> xrw_allowlist_matcher);
 
   AwProxyingURLLoaderFactory(const AwProxyingURLLoaderFactory&) = delete;
   AwProxyingURLLoaderFactory& operator=(const AwProxyingURLLoaderFactory&) =
@@ -82,7 +86,8 @@ class AwProxyingURLLoaderFactory : public network::mojom::URLLoaderFactory {
       mojo::PendingReceiver<network::mojom::URLLoaderFactory> loader,
       mojo::PendingRemote<network::mojom::URLLoaderFactory>
           target_factory_remote,
-      absl::optional<SecurityOptions> security_options);
+      absl::optional<SecurityOptions> security_options,
+      scoped_refptr<AwContentsOriginMatcher> xrw_allowlist_matcher);
 
   void CreateLoaderAndStart(
       mojo::PendingReceiver<network::mojom::URLLoader> loader,
@@ -110,6 +115,8 @@ class AwProxyingURLLoaderFactory : public network::mojom::URLLoaderFactory {
   bool intercept_only_;
 
   absl::optional<SecurityOptions> security_options_;
+
+  scoped_refptr<AwContentsOriginMatcher> xrw_allowlist_matcher_;
 
   base::WeakPtrFactory<AwProxyingURLLoaderFactory> weak_factory_{this};
 };

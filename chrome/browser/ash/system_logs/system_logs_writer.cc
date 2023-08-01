@@ -1,9 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/system_logs/system_logs_writer.h"
 
+#include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
@@ -31,7 +32,7 @@ absl::optional<base::FilePath> WriteCompressedFile(
   }
   base::FilePath temp_file_path(
       temp_dir.GetPath().Append(dest_file_path.BaseName()));
-  if (!base::WriteFile(temp_file_path, contents.c_str(), contents.size())) {
+  if (!base::WriteFile(temp_file_path, contents)) {
     LOG(ERROR) << "Unable to write file: " << temp_file_path.value();
     return absl::nullopt;
   }

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
+#include "content/public/test/test_navigation_observer.h"
 #include "extensions/browser/extension_host.h"
 #include "extensions/browser/process_manager.h"
 #include "extensions/browser/process_map.h"
@@ -122,15 +123,7 @@ class CrossOriginIsolationTest : public ExtensionBrowserTest {
   }
 
   bool IsCrossOriginIsolated(content::RenderFrameHost* host) {
-    bool result = false;
-    if (!content::ExecuteScriptAndExtractBool(
-            host, "window.domAutomationController.send(crossOriginIsolated)",
-            &result)) {
-      ADD_FAILURE() << "Script execution failed";
-      return false;
-    }
-
-    return result;
+    return content::EvalJs(host, "crossOriginIsolated").ExtractBool();
   }
 
   content::RenderFrameHost* GetBackgroundRenderFrameHost(
@@ -197,24 +190,21 @@ IN_PROC_BROWSER_TEST_F(CrossOriginIsolationTest,
     constexpr char kScript[] = R"(
       (() => {
         let img = document.createElement('img');
-        img.addEventListener('load', () => {
-          window.domAutomationController.send('Success');
+        return new Promise(resolve => {
+          img.addEventListener('load', () => {
+            resolve('Success');
+          });
+          img.addEventListener('error', (e) => {
+            resolve('Load failed');
+          });
+          img.src = $1;
+          document.body.appendChild(img);
         });
-        img.addEventListener('error', (e) => {
-          window.domAutomationController.send('Load failed');
-        });
-        img.src = $1;
-        document.body.appendChild(img);
       })();
     )";
 
-    std::string result;
-    if (!content::ExecuteScriptAndExtractString(
-            rfh, content::JsReplace(kScript, image_url), &result)) {
-      return "Execution failed";
-    }
-
-    return result;
+    return content::EvalJs(rfh, content::JsReplace(kScript, image_url))
+        .ExtractString();
   };
 
   GURL image_url_with_host_permissions =
@@ -288,8 +278,8 @@ IN_PROC_BROWSER_TEST_F(CrossOriginIsolationTest, WebAccessibleFrame) {
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), extension_test_url));
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
-  EXPECT_TRUE(IsCrossOriginIsolated(web_contents->GetMainFrame()));
-  EXPECT_EQ(web_contents->GetMainFrame()->GetProcess(),
+  EXPECT_TRUE(IsCrossOriginIsolated(web_contents->GetPrimaryMainFrame()));
+  EXPECT_EQ(web_contents->GetPrimaryMainFrame()->GetProcess(),
             coi_background_rfh->GetProcess());
 
   // Load test.html as a web accessible resource inside a web frame.
@@ -299,7 +289,7 @@ IN_PROC_BROWSER_TEST_F(CrossOriginIsolationTest, WebAccessibleFrame) {
       content::NavigateIframeToURL(web_contents, "test", extension_test_url));
 
   content::RenderFrameHost* extension_iframe =
-      content::ChildFrameAt(web_contents->GetMainFrame(), 0);
+      content::ChildFrameAt(web_contents->GetPrimaryMainFrame(), 0);
   ASSERT_TRUE(extension_iframe);
   EXPECT_EQ(extension_test_url, extension_iframe->GetLastCommittedURL());
 
@@ -309,7 +299,7 @@ IN_PROC_BROWSER_TEST_F(CrossOriginIsolationTest, WebAccessibleFrame) {
   EXPECT_FALSE(IsCrossOriginIsolated(extension_iframe));
   EXPECT_NE(extension_iframe->GetProcess(), coi_background_rfh->GetProcess());
   EXPECT_NE(extension_iframe->GetProcess(),
-            web_contents->GetMainFrame()->GetProcess());
+            web_contents->GetPrimaryMainFrame()->GetProcess());
 
   // Check ProcessManager APIs to ensure they work correctly for the case where
   // an extension has multiple processes for the same profile.
@@ -354,15 +344,10 @@ IN_PROC_BROWSER_TEST_F(CrossOriginIsolationTest, WebAccessibleFrame) {
       const char* kScript = R"(
         fetch('%s')
           .then(response => response.text())
-          .then(text => window.domAutomationController.send(text))
-          .catch(err => window.domAutomationController.send(
-            "Fetch error: " + err));
+          .catch(err => "Fetch error: " + err);
       )";
       std::string script = base::StringPrintf(kScript, url.spec().c_str());
-      std::string result;
-      if (!content::ExecuteScriptAndExtractString(host, script, &result))
-        return std::string("Error executing script");
-      return result;
+      return content::EvalJs(host, script).ExtractString();
     };
     // Sanity check that fetching a url the extension doesn't have access to,
     // leads to a fetch error.
@@ -380,15 +365,14 @@ IN_PROC_BROWSER_TEST_F(CrossOriginIsolationTest, WebAccessibleFrame) {
   // and non-cross-origin-isolated extension contexts are considered "blessed".
   {
     auto verify_is_blessed_context = [](content::RenderFrameHost* host) {
-      std::string result;
       const char* kScript = R"(
-        chrome.browserAction.getTitle({}, title => {
-          window.domAutomationController.send(title);
+        new Promise(resolve => {
+          chrome.browserAction.getTitle({}, title => {
+            resolve(title);
+          });
         });
       )";
-      ASSERT_TRUE(
-          content::ExecuteScriptAndExtractString(host, kScript, &result));
-      EXPECT_EQ("foo", result);
+      EXPECT_EQ("foo", content::EvalJs(host, kScript));
     };
 
     {
@@ -413,8 +397,7 @@ IN_PROC_BROWSER_TEST_F(CrossOriginIsolationTest, ServiceWorker) {
     chrome.test.sendMessage(readyMessage, () => {});
   )";
 
-  ExtensionTestMessageListener ready_listener("notCrossOriginIsolated",
-                                              false /* will_reply */);
+  ExtensionTestMessageListener ready_listener("notCrossOriginIsolated");
   TestExtensionDir coi_test_dir;
   const Extension* coi_extension =
       LoadExtension(coi_test_dir, {.coep_value = "require-corp",
@@ -483,7 +466,7 @@ IN_PROC_BROWSER_TEST_F(CrossOriginIsolationTest,
   ASSERT_TRUE(
       content::NavigateIframeToURL(web_contents, "test", extension_test_url));
   content::RenderFrameHost* extension_iframe =
-      content::ChildFrameAt(web_contents->GetMainFrame(), 0);
+      content::ChildFrameAt(web_contents->GetPrimaryMainFrame(), 0);
   ASSERT_TRUE(extension_iframe);
 
   content::RenderFrameHost* extension_tab =
@@ -500,16 +483,12 @@ IN_PROC_BROWSER_TEST_F(CrossOriginIsolationTest,
       constexpr char kScript[] = R"(
         const expectBackgroundPage = %s;
         const hasBackgroundPage = !!chrome.extension.getBackgroundPage();
-        window.domAutomationController.send(
-            hasBackgroundPage === expectBackgroundPage);
+        hasBackgroundPage === expectBackgroundPage;
       )";
-      bool result = false;
-      ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-          host,
-          base::StringPrintf(kScript,
-                             expect_background_page ? "true" : "false"),
-          &result));
-      EXPECT_TRUE(result);
+      EXPECT_EQ(true, content::EvalJs(host, base::StringPrintf(
+                                                kScript, expect_background_page
+                                                             ? "true"
+                                                             : "false")));
     };
 
     test_get_background_page(coi_background_rfh, true);
@@ -529,12 +508,10 @@ IN_PROC_BROWSER_TEST_F(CrossOriginIsolationTest,
       constexpr char kScript[] = R"(
         const numTabsExpected = %d;
         const tabs = chrome.extension.getViews({type: 'tab'});
-        window.domAutomationController.send(tabs.length === numTabsExpected);
+        tabs.length === numTabsExpected;
       )";
-      bool result = false;
-      ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-          host, base::StringPrintf(kScript, num_tabs_expected), &result));
-      EXPECT_TRUE(result);
+      EXPECT_EQ(true, content::EvalJs(host, base::StringPrintf(
+                                                kScript, num_tabs_expected)));
     };
 
     verify_get_tabs(coi_background_rfh, 1);
@@ -592,7 +569,7 @@ IN_PROC_BROWSER_TEST_F(CrossOriginIsolationTest, ExtensionMessaging_Frames) {
   ASSERT_TRUE(
       content::NavigateIframeToURL(web_contents, "test", extension_test_url));
   content::RenderFrameHost* extension_iframe =
-      content::ChildFrameAt(web_contents->GetMainFrame(), 0);
+      content::ChildFrameAt(web_contents->GetPrimaryMainFrame(), 0);
   ASSERT_TRUE(extension_iframe);
 
   content::RenderFrameHost* extension_tab =
@@ -619,7 +596,7 @@ IN_PROC_BROWSER_TEST_F(CrossOriginIsolationTest, ExtensionMessaging_Frames) {
     )";
 
     ResultCatcher catcher;
-    ASSERT_TRUE(content::ExecuteScript(
+    ASSERT_TRUE(content::ExecJs(
         source, content::JsReplace(kScript, expected_response)));
     EXPECT_TRUE(catcher.GetNextResult()) << catcher.message();
   };
@@ -674,7 +651,8 @@ IN_PROC_BROWSER_TEST_F(CrossOriginIsolationTest,
     });
   )";
 
-  ExtensionTestMessageListener ready_listener("ready", true /* will_reply */);
+  ExtensionTestMessageListener ready_listener("ready",
+                                              ReplyBehavior::kWillReply);
   TestExtensionDir coi_test_dir;
   const Extension* coi_extension =
       LoadExtension(coi_test_dir, {.coep_value = "require-corp",
@@ -707,8 +685,112 @@ IN_PROC_BROWSER_TEST_F(CrossOriginIsolationTest,
       });
     )";
     ResultCatcher catcher;
-    ASSERT_TRUE(content::ExecuteScript(extension_tab, kScript));
+    ASSERT_TRUE(content::ExecJs(extension_tab, kScript));
     EXPECT_TRUE(catcher.GetNextResult()) << catcher.message();
+  }
+}
+
+// Verify extension resource access if it's in an iframe. Regression test for
+// crbug.com/1343610.
+IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, ExtensionResourceInIframe) {
+  EXPECT_TRUE(embedded_test_server()->Start());
+
+  // Load an extension which has one resource that is web accessible and one
+  // that is not.
+  TestExtensionDir extension_dir;
+  static constexpr char kManifestStub[] = R"({
+    "name": "Test",
+    "version": "0.1",
+    "manifest_version": 3,
+    "web_accessible_resources": [
+      {
+        "resources": [ "web_accessible_resource.html" ],
+        "matches": [ "<all_urls>" ]
+      }
+    ]
+  })";
+  extension_dir.WriteManifest(kManifestStub);
+  extension_dir.WriteFile(FILE_PATH_LITERAL("web_accessible_resource.html"),
+                          "");
+  extension_dir.WriteFile(FILE_PATH_LITERAL("extension_resource.html"), "");
+  const Extension* extension = LoadExtension(extension_dir.UnpackedPath());
+  EXPECT_TRUE(extension);
+
+  // Allow navigation from a web frame to a web accessible resource.
+  {
+    // Navigate the main frame with a renderer initiated navigation to a blank
+    // web page. This should succeed.
+    const GURL gurl = embedded_test_server()->GetURL("/iframe_blank.html");
+    EXPECT_TRUE(ui_test_utils::NavigateToURL(browser(), gurl));
+    content::WebContents* web_contents =
+        browser()->tab_strip_model()->GetActiveWebContents();
+    content::RenderFrameHost* main_frame = web_contents->GetPrimaryMainFrame();
+    content::RenderFrameHost* iframe = content::ChildFrameAt(main_frame, 0);
+    EXPECT_TRUE(iframe);
+
+    // Navigate the iframe with a renderer initiated navigation to a web
+    // accessible resource. This should succeed.
+    GURL target = extension->GetResourceURL("web_accessible_resource.html");
+    content::TestNavigationObserver nav_observer(web_contents);
+    EXPECT_TRUE(content::NavigateIframeToURL(web_contents, "test", target));
+    nav_observer.Wait();
+    EXPECT_TRUE(nav_observer.last_navigation_succeeded());
+    EXPECT_EQ(net::OK, nav_observer.last_net_error_code());
+    iframe = content::ChildFrameAt(web_contents->GetPrimaryMainFrame(), 0);
+    EXPECT_EQ(target, iframe->GetLastCommittedURL());
+  }
+
+  // Prevent navigation from a web frame to a non-web accessible resource.
+  {
+    // Navigate the main frame with a renderer initiated navigation to a blank
+    // web page. This should succeed.
+    const GURL gurl = embedded_test_server()->GetURL("/iframe_blank.html");
+    EXPECT_TRUE(ui_test_utils::NavigateToURL(browser(), gurl));
+    content::WebContents* web_contents =
+        browser()->tab_strip_model()->GetActiveWebContents();
+    content::RenderFrameHost* main_frame = web_contents->GetPrimaryMainFrame();
+    content::RenderFrameHost* iframe = content::ChildFrameAt(main_frame, 0);
+    EXPECT_TRUE(iframe);
+    GURL target = extension->GetResourceURL("extension_resource.html");
+
+    // Navigate the iframe with a renderer initiated navigation to an extension
+    // resource that isn't a web accessible resource. This should be blocked.
+    content::TestNavigationObserver nav_observer(web_contents);
+    EXPECT_TRUE(content::NavigateIframeToURL(web_contents, "test", target));
+    nav_observer.Wait();
+    EXPECT_FALSE(nav_observer.last_navigation_succeeded());
+    EXPECT_EQ(net::ERR_BLOCKED_BY_CLIENT, nav_observer.last_net_error_code());
+    EXPECT_EQ(GURL("chrome-extension://invalid/"),
+              iframe->GetLastCommittedURL());
+
+    // Navigate the iframe with a browser initiated navigation to an extension
+    // resource. This should be blocked because the origin is not opaque, as
+    // it's embedded in a web context.
+    content::TestNavigationObserver reload_observer(web_contents);
+    EXPECT_TRUE(iframe->Reload());
+    reload_observer.Wait();
+    EXPECT_EQ(net::ERR_BLOCKED_BY_CLIENT,
+              reload_observer.last_net_error_code());
+    iframe = content::ChildFrameAt(web_contents->GetPrimaryMainFrame(), 0);
+    EXPECT_FALSE(reload_observer.last_navigation_succeeded());
+    EXPECT_EQ(GURL("chrome-extension://invalid/"),
+              iframe->GetLastCommittedURL());
+
+    // Verify iframe browser initiated navigation (to test real UI behavior).
+    iframe = content::ChildFrameAt(web_contents->GetPrimaryMainFrame(), 0);
+    content::TestNavigationObserver browser_initiated_observer(target);
+    NavigateParams params(browser(), target, ui::PAGE_TRANSITION_RELOAD);
+    params.frame_tree_node_id = iframe->GetFrameTreeNodeId();
+    params.is_renderer_initiated = false;
+    params.initiator_origin = embedded_test_server()->GetOrigin();
+    browser_initiated_observer.WatchExistingWebContents();
+    ui_test_utils::NavigateToURL(&params);
+    browser_initiated_observer.Wait();
+    EXPECT_EQ(net::ERR_BLOCKED_BY_CLIENT,
+              browser_initiated_observer.last_net_error_code());
+    EXPECT_FALSE(browser_initiated_observer.last_navigation_succeeded());
+    iframe = content::ChildFrameAt(web_contents->GetPrimaryMainFrame(), 0);
+    EXPECT_EQ(target, iframe->GetLastCommittedURL());
   }
 }
 

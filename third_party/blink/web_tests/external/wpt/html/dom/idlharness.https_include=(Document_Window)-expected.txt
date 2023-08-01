@@ -1,11 +1,13 @@
 This is a testharness.js-based test.
-Found 984 tests; 980 PASS, 4 FAIL, 0 TIMEOUT, 0 NOTRUN.
+Found 1025 tests; 1018 PASS, 7 FAIL, 0 TIMEOUT, 0 NOTRUN.
 PASS idl_test setup
 PASS idl_test validation
 PASS Partial interface Document: original interface defined
 PASS Partial interface Document: member names are unique
 PASS Partial interface mixin DocumentOrShadowRoot: original interface mixin defined
 PASS Partial interface mixin DocumentOrShadowRoot: member names are unique
+PASS Partial interface Navigator: original interface defined
+PASS Partial interface Navigator: member names are unique
 PASS Partial interface mixin NavigatorID: original interface mixin defined
 PASS Partial interface mixin NavigatorID: member names are unique
 PASS Partial interface HTMLAnchorElement: original interface defined
@@ -54,8 +56,6 @@ PASS Partial interface HTMLOListElement: original interface defined
 PASS Partial interface HTMLOListElement: member names are unique
 PASS Partial interface HTMLParagraphElement: original interface defined
 PASS Partial interface HTMLParagraphElement: member names are unique
-PASS Partial interface HTMLParamElement: original interface defined
-PASS Partial interface HTMLParamElement: member names are unique
 PASS Partial interface HTMLPreElement: original interface defined
 PASS Partial interface HTMLPreElement: member names are unique
 PASS Partial interface HTMLStyleElement: original interface defined
@@ -83,9 +83,7 @@ PASS Partial interface MouseEvent: member names are unique
 PASS Partial interface UIEvent[2]: member names are unique
 PASS Partial dictionary UIEventInit: member names are unique
 PASS Document includes GlobalEventHandlers: member names are unique
-PASS Document includes DocumentAndElementEventHandlers: member names are unique
 PASS HTMLElement includes GlobalEventHandlers: member names are unique
-PASS HTMLElement includes DocumentAndElementEventHandlers: member names are unique
 PASS HTMLElement includes ElementContentEditable: member names are unique
 PASS HTMLElement includes HTMLOrSVGElement: member names are unique
 PASS HTMLLinkElement includes LinkStyle: member names are unique
@@ -93,6 +91,8 @@ PASS HTMLStyleElement includes LinkStyle: member names are unique
 PASS HTMLBodyElement includes WindowEventHandlers: member names are unique
 PASS HTMLAnchorElement includes HTMLHyperlinkElementUtils: member names are unique
 PASS HTMLAreaElement includes HTMLHyperlinkElementUtils: member names are unique
+PASS HTMLInputElement includes PopoverInvokerElement: member names are unique
+PASS HTMLButtonElement includes PopoverInvokerElement: member names are unique
 PASS CanvasRenderingContext2D includes CanvasState: member names are unique
 PASS CanvasRenderingContext2D includes CanvasTransform: member names are unique
 PASS CanvasRenderingContext2D includes CanvasCompositing: member names are unique
@@ -150,7 +150,6 @@ PASS Window includes WindowLocalStorage: member names are unique
 PASS HTMLFrameSetElement includes WindowEventHandlers: member names are unique
 PASS Element includes ARIAMixin: member names are unique
 PASS SVGElement includes GlobalEventHandlers: member names are unique
-PASS SVGElement includes DocumentAndElementEventHandlers: member names are unique
 PASS SVGElement includes SVGElementInstance: member names are unique
 PASS SVGElement includes HTMLOrSVGElement: member names are unique
 PASS SVGGraphicsElement includes SVGTests: member names are unique
@@ -220,6 +219,9 @@ PASS Window interface: operation releaseEvents()
 PASS Window interface: attribute external
 PASS Window interface: attribute onabort
 PASS Window interface: attribute onauxclick
+PASS Window interface: attribute onbeforeinput
+PASS Window interface: attribute onbeforematch
+PASS Window interface: attribute onbeforetoggle
 PASS Window interface: attribute onblur
 PASS Window interface: attribute oncancel
 PASS Window interface: attribute oncanplay
@@ -230,7 +232,9 @@ PASS Window interface: attribute onclose
 PASS Window interface: attribute oncontextlost
 PASS Window interface: attribute oncontextmenu
 PASS Window interface: attribute oncontextrestored
+FAIL Window interface: attribute oncopy assert_own_property: The global object must have a property "oncopy" expected property "oncopy" missing
 PASS Window interface: attribute oncuechange
+FAIL Window interface: attribute oncut assert_own_property: The global object must have a property "oncut" expected property "oncut" missing
 PASS Window interface: attribute ondblclick
 PASS Window interface: attribute ondrag
 PASS Window interface: attribute ondragend
@@ -261,6 +265,7 @@ PASS Window interface: attribute onmousemove
 PASS Window interface: attribute onmouseout
 PASS Window interface: attribute onmouseover
 PASS Window interface: attribute onmouseup
+FAIL Window interface: attribute onpaste assert_own_property: The global object must have a property "onpaste" expected property "onpaste" missing
 PASS Window interface: attribute onpause
 PASS Window interface: attribute onplay
 PASS Window interface: attribute onplaying
@@ -269,6 +274,7 @@ PASS Window interface: attribute onratechange
 PASS Window interface: attribute onreset
 PASS Window interface: attribute onresize
 PASS Window interface: attribute onscroll
+PASS Window interface: attribute onscrollend
 PASS Window interface: attribute onsecuritypolicyviolation
 PASS Window interface: attribute onseeked
 PASS Window interface: attribute onseeking
@@ -315,7 +321,7 @@ PASS Window interface: operation clearInterval(optional long)
 PASS Window interface: operation queueMicrotask(VoidFunction)
 PASS Window interface: operation createImageBitmap(ImageBitmapSource, optional ImageBitmapOptions)
 PASS Window interface: operation createImageBitmap(ImageBitmapSource, long, long, long, long, optional ImageBitmapOptions)
-FAIL Window interface: operation structuredClone(any, optional StructuredSerializeOptions) assert_own_property: global object missing non-static operation expected property "structuredClone" missing
+PASS Window interface: operation structuredClone(any, optional StructuredSerializeOptions)
 PASS Window interface: operation requestAnimationFrame(FrameRequestCallback)
 PASS Window interface: operation cancelAnimationFrame(unsigned long)
 PASS Window interface: attribute sessionStorage
@@ -375,6 +381,9 @@ PASS Window interface: window must inherit property "releaseEvents()" with the p
 PASS Window interface: window must inherit property "external" with the proper type
 PASS Window interface: window must inherit property "onabort" with the proper type
 PASS Window interface: window must inherit property "onauxclick" with the proper type
+PASS Window interface: window must inherit property "onbeforeinput" with the proper type
+PASS Window interface: window must inherit property "onbeforematch" with the proper type
+PASS Window interface: window must inherit property "onbeforetoggle" with the proper type
 PASS Window interface: window must inherit property "onblur" with the proper type
 PASS Window interface: window must inherit property "oncancel" with the proper type
 PASS Window interface: window must inherit property "oncanplay" with the proper type
@@ -385,7 +394,9 @@ PASS Window interface: window must inherit property "onclose" with the proper ty
 PASS Window interface: window must inherit property "oncontextlost" with the proper type
 PASS Window interface: window must inherit property "oncontextmenu" with the proper type
 PASS Window interface: window must inherit property "oncontextrestored" with the proper type
+FAIL Window interface: window must inherit property "oncopy" with the proper type assert_own_property: expected property "oncopy" missing
 PASS Window interface: window must inherit property "oncuechange" with the proper type
+FAIL Window interface: window must inherit property "oncut" with the proper type assert_own_property: expected property "oncut" missing
 PASS Window interface: window must inherit property "ondblclick" with the proper type
 PASS Window interface: window must inherit property "ondrag" with the proper type
 PASS Window interface: window must inherit property "ondragend" with the proper type
@@ -416,6 +427,7 @@ PASS Window interface: window must inherit property "onmousemove" with the prope
 PASS Window interface: window must inherit property "onmouseout" with the proper type
 PASS Window interface: window must inherit property "onmouseover" with the proper type
 PASS Window interface: window must inherit property "onmouseup" with the proper type
+FAIL Window interface: window must inherit property "onpaste" with the proper type assert_own_property: expected property "onpaste" missing
 PASS Window interface: window must inherit property "onpause" with the proper type
 PASS Window interface: window must inherit property "onplay" with the proper type
 PASS Window interface: window must inherit property "onplaying" with the proper type
@@ -424,6 +436,7 @@ PASS Window interface: window must inherit property "onratechange" with the prop
 PASS Window interface: window must inherit property "onreset" with the proper type
 PASS Window interface: window must inherit property "onresize" with the proper type
 PASS Window interface: window must inherit property "onscroll" with the proper type
+PASS Window interface: window must inherit property "onscrollend" with the proper type
 PASS Window interface: window must inherit property "onsecuritypolicyviolation" with the proper type
 PASS Window interface: window must inherit property "onseeked" with the proper type
 PASS Window interface: window must inherit property "onseeking" with the proper type
@@ -480,8 +493,8 @@ PASS Window interface: window must inherit property "createImageBitmap(ImageBitm
 PASS Window interface: calling createImageBitmap(ImageBitmapSource, optional ImageBitmapOptions) on window with too few arguments must throw TypeError
 PASS Window interface: window must inherit property "createImageBitmap(ImageBitmapSource, long, long, long, long, optional ImageBitmapOptions)" with the proper type
 PASS Window interface: calling createImageBitmap(ImageBitmapSource, long, long, long, long, optional ImageBitmapOptions) on window with too few arguments must throw TypeError
-FAIL Window interface: window must inherit property "structuredClone(any, optional StructuredSerializeOptions)" with the proper type assert_own_property: expected property "structuredClone" missing
-FAIL Window interface: calling structuredClone(any, optional StructuredSerializeOptions) on window with too few arguments must throw TypeError assert_own_property: expected property "structuredClone" missing
+PASS Window interface: window must inherit property "structuredClone(any, optional StructuredSerializeOptions)" with the proper type
+PASS Window interface: calling structuredClone(any, optional StructuredSerializeOptions) on window with too few arguments must throw TypeError
 PASS Window interface: window must inherit property "requestAnimationFrame(FrameRequestCallback)" with the proper type
 PASS Window interface: calling requestAnimationFrame(FrameRequestCallback) on window with too few arguments must throw TypeError
 PASS Window interface: window must inherit property "cancelAnimationFrame(unsigned long)" with the proper type
@@ -519,7 +532,10 @@ PASS Document interface: operation queryCommandIndeterm(DOMString)
 PASS Document interface: operation queryCommandState(DOMString)
 PASS Document interface: operation queryCommandSupported(DOMString)
 PASS Document interface: operation queryCommandValue(DOMString)
+PASS Document interface: attribute hidden
+PASS Document interface: attribute visibilityState
 PASS Document interface: attribute onreadystatechange
+PASS Document interface: attribute onvisibilitychange
 PASS Document interface: attribute fgColor
 PASS Document interface: attribute linkColor
 PASS Document interface: attribute vlinkColor
@@ -533,6 +549,9 @@ PASS Document interface: operation releaseEvents()
 PASS Document interface: attribute all
 PASS Document interface: attribute onabort
 PASS Document interface: attribute onauxclick
+PASS Document interface: attribute onbeforeinput
+PASS Document interface: attribute onbeforematch
+PASS Document interface: attribute onbeforetoggle
 PASS Document interface: attribute onblur
 PASS Document interface: attribute oncancel
 PASS Document interface: attribute oncanplay
@@ -543,7 +562,9 @@ PASS Document interface: attribute onclose
 PASS Document interface: attribute oncontextlost
 PASS Document interface: attribute oncontextmenu
 PASS Document interface: attribute oncontextrestored
+PASS Document interface: attribute oncopy
 PASS Document interface: attribute oncuechange
+PASS Document interface: attribute oncut
 PASS Document interface: attribute ondblclick
 PASS Document interface: attribute ondrag
 PASS Document interface: attribute ondragend
@@ -574,6 +595,7 @@ PASS Document interface: attribute onmousemove
 PASS Document interface: attribute onmouseout
 PASS Document interface: attribute onmouseover
 PASS Document interface: attribute onmouseup
+PASS Document interface: attribute onpaste
 PASS Document interface: attribute onpause
 PASS Document interface: attribute onplay
 PASS Document interface: attribute onplaying
@@ -582,6 +604,7 @@ PASS Document interface: attribute onratechange
 PASS Document interface: attribute onreset
 PASS Document interface: attribute onresize
 PASS Document interface: attribute onscroll
+PASS Document interface: attribute onscrollend
 PASS Document interface: attribute onsecuritypolicyviolation
 PASS Document interface: attribute onseeked
 PASS Document interface: attribute onseeking
@@ -599,9 +622,6 @@ PASS Document interface: attribute onwebkitanimationiteration
 PASS Document interface: attribute onwebkitanimationstart
 PASS Document interface: attribute onwebkittransitionend
 PASS Document interface: attribute onwheel
-PASS Document interface: attribute oncopy
-PASS Document interface: attribute oncut
-PASS Document interface: attribute onpaste
 PASS Document interface: attribute activeElement
 PASS Document interface: iframe.contentDocument must have own property "location"
 PASS Document interface: iframe.contentDocument must inherit property "domain" with the proper type
@@ -646,7 +666,10 @@ PASS Document interface: iframe.contentDocument must inherit property "queryComm
 PASS Document interface: calling queryCommandSupported(DOMString) on iframe.contentDocument with too few arguments must throw TypeError
 PASS Document interface: iframe.contentDocument must inherit property "queryCommandValue(DOMString)" with the proper type
 PASS Document interface: calling queryCommandValue(DOMString) on iframe.contentDocument with too few arguments must throw TypeError
+PASS Document interface: iframe.contentDocument must inherit property "hidden" with the proper type
+PASS Document interface: iframe.contentDocument must inherit property "visibilityState" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "onreadystatechange" with the proper type
+PASS Document interface: iframe.contentDocument must inherit property "onvisibilitychange" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "fgColor" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "linkColor" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "vlinkColor" with the proper type
@@ -660,6 +683,9 @@ PASS Document interface: iframe.contentDocument must inherit property "releaseEv
 PASS Document interface: iframe.contentDocument must inherit property "all" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "onabort" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "onauxclick" with the proper type
+PASS Document interface: iframe.contentDocument must inherit property "onbeforeinput" with the proper type
+PASS Document interface: iframe.contentDocument must inherit property "onbeforematch" with the proper type
+PASS Document interface: iframe.contentDocument must inherit property "onbeforetoggle" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "onblur" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "oncancel" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "oncanplay" with the proper type
@@ -670,7 +696,9 @@ PASS Document interface: iframe.contentDocument must inherit property "onclose" 
 PASS Document interface: iframe.contentDocument must inherit property "oncontextlost" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "oncontextmenu" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "oncontextrestored" with the proper type
+PASS Document interface: iframe.contentDocument must inherit property "oncopy" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "oncuechange" with the proper type
+PASS Document interface: iframe.contentDocument must inherit property "oncut" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "ondblclick" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "ondrag" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "ondragend" with the proper type
@@ -701,6 +729,7 @@ PASS Document interface: iframe.contentDocument must inherit property "onmousemo
 PASS Document interface: iframe.contentDocument must inherit property "onmouseout" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "onmouseover" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "onmouseup" with the proper type
+PASS Document interface: iframe.contentDocument must inherit property "onpaste" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "onpause" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "onplay" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "onplaying" with the proper type
@@ -709,6 +738,7 @@ PASS Document interface: iframe.contentDocument must inherit property "onratecha
 PASS Document interface: iframe.contentDocument must inherit property "onreset" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "onresize" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "onscroll" with the proper type
+PASS Document interface: iframe.contentDocument must inherit property "onscrollend" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "onsecuritypolicyviolation" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "onseeked" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "onseeking" with the proper type
@@ -726,9 +756,6 @@ PASS Document interface: iframe.contentDocument must inherit property "onwebkita
 PASS Document interface: iframe.contentDocument must inherit property "onwebkitanimationstart" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "onwebkittransitionend" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "onwheel" with the proper type
-PASS Document interface: iframe.contentDocument must inherit property "oncopy" with the proper type
-PASS Document interface: iframe.contentDocument must inherit property "oncut" with the proper type
-PASS Document interface: iframe.contentDocument must inherit property "onpaste" with the proper type
 PASS Document interface: iframe.contentDocument must inherit property "activeElement" with the proper type
 PASS Document interface: new Document() must have own property "location"
 PASS Document interface: new Document() must inherit property "domain" with the proper type
@@ -773,7 +800,10 @@ PASS Document interface: new Document() must inherit property "queryCommandSuppo
 PASS Document interface: calling queryCommandSupported(DOMString) on new Document() with too few arguments must throw TypeError
 PASS Document interface: new Document() must inherit property "queryCommandValue(DOMString)" with the proper type
 PASS Document interface: calling queryCommandValue(DOMString) on new Document() with too few arguments must throw TypeError
+PASS Document interface: new Document() must inherit property "hidden" with the proper type
+PASS Document interface: new Document() must inherit property "visibilityState" with the proper type
 PASS Document interface: new Document() must inherit property "onreadystatechange" with the proper type
+PASS Document interface: new Document() must inherit property "onvisibilitychange" with the proper type
 PASS Document interface: new Document() must inherit property "fgColor" with the proper type
 PASS Document interface: new Document() must inherit property "linkColor" with the proper type
 PASS Document interface: new Document() must inherit property "vlinkColor" with the proper type
@@ -787,6 +817,9 @@ PASS Document interface: new Document() must inherit property "releaseEvents()" 
 PASS Document interface: new Document() must inherit property "all" with the proper type
 PASS Document interface: new Document() must inherit property "onabort" with the proper type
 PASS Document interface: new Document() must inherit property "onauxclick" with the proper type
+PASS Document interface: new Document() must inherit property "onbeforeinput" with the proper type
+PASS Document interface: new Document() must inherit property "onbeforematch" with the proper type
+PASS Document interface: new Document() must inherit property "onbeforetoggle" with the proper type
 PASS Document interface: new Document() must inherit property "onblur" with the proper type
 PASS Document interface: new Document() must inherit property "oncancel" with the proper type
 PASS Document interface: new Document() must inherit property "oncanplay" with the proper type
@@ -797,7 +830,9 @@ PASS Document interface: new Document() must inherit property "onclose" with the
 PASS Document interface: new Document() must inherit property "oncontextlost" with the proper type
 PASS Document interface: new Document() must inherit property "oncontextmenu" with the proper type
 PASS Document interface: new Document() must inherit property "oncontextrestored" with the proper type
+PASS Document interface: new Document() must inherit property "oncopy" with the proper type
 PASS Document interface: new Document() must inherit property "oncuechange" with the proper type
+PASS Document interface: new Document() must inherit property "oncut" with the proper type
 PASS Document interface: new Document() must inherit property "ondblclick" with the proper type
 PASS Document interface: new Document() must inherit property "ondrag" with the proper type
 PASS Document interface: new Document() must inherit property "ondragend" with the proper type
@@ -828,6 +863,7 @@ PASS Document interface: new Document() must inherit property "onmousemove" with
 PASS Document interface: new Document() must inherit property "onmouseout" with the proper type
 PASS Document interface: new Document() must inherit property "onmouseover" with the proper type
 PASS Document interface: new Document() must inherit property "onmouseup" with the proper type
+PASS Document interface: new Document() must inherit property "onpaste" with the proper type
 PASS Document interface: new Document() must inherit property "onpause" with the proper type
 PASS Document interface: new Document() must inherit property "onplay" with the proper type
 PASS Document interface: new Document() must inherit property "onplaying" with the proper type
@@ -836,6 +872,7 @@ PASS Document interface: new Document() must inherit property "onratechange" wit
 PASS Document interface: new Document() must inherit property "onreset" with the proper type
 PASS Document interface: new Document() must inherit property "onresize" with the proper type
 PASS Document interface: new Document() must inherit property "onscroll" with the proper type
+PASS Document interface: new Document() must inherit property "onscrollend" with the proper type
 PASS Document interface: new Document() must inherit property "onsecuritypolicyviolation" with the proper type
 PASS Document interface: new Document() must inherit property "onseeked" with the proper type
 PASS Document interface: new Document() must inherit property "onseeking" with the proper type
@@ -853,9 +890,6 @@ PASS Document interface: new Document() must inherit property "onwebkitanimation
 PASS Document interface: new Document() must inherit property "onwebkitanimationstart" with the proper type
 PASS Document interface: new Document() must inherit property "onwebkittransitionend" with the proper type
 PASS Document interface: new Document() must inherit property "onwheel" with the proper type
-PASS Document interface: new Document() must inherit property "oncopy" with the proper type
-PASS Document interface: new Document() must inherit property "oncut" with the proper type
-PASS Document interface: new Document() must inherit property "onpaste" with the proper type
 PASS Document interface: new Document() must inherit property "activeElement" with the proper type
 PASS Document interface: documentWithHandlers must have own property "location"
 PASS Document interface: documentWithHandlers must inherit property "domain" with the proper type
@@ -900,7 +934,10 @@ PASS Document interface: documentWithHandlers must inherit property "queryComman
 PASS Document interface: calling queryCommandSupported(DOMString) on documentWithHandlers with too few arguments must throw TypeError
 PASS Document interface: documentWithHandlers must inherit property "queryCommandValue(DOMString)" with the proper type
 PASS Document interface: calling queryCommandValue(DOMString) on documentWithHandlers with too few arguments must throw TypeError
+PASS Document interface: documentWithHandlers must inherit property "hidden" with the proper type
+PASS Document interface: documentWithHandlers must inherit property "visibilityState" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "onreadystatechange" with the proper type
+PASS Document interface: documentWithHandlers must inherit property "onvisibilitychange" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "fgColor" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "linkColor" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "vlinkColor" with the proper type
@@ -914,6 +951,9 @@ PASS Document interface: documentWithHandlers must inherit property "releaseEven
 PASS Document interface: documentWithHandlers must inherit property "all" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "onabort" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "onauxclick" with the proper type
+PASS Document interface: documentWithHandlers must inherit property "onbeforeinput" with the proper type
+PASS Document interface: documentWithHandlers must inherit property "onbeforematch" with the proper type
+PASS Document interface: documentWithHandlers must inherit property "onbeforetoggle" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "onblur" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "oncancel" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "oncanplay" with the proper type
@@ -924,7 +964,9 @@ PASS Document interface: documentWithHandlers must inherit property "onclose" wi
 PASS Document interface: documentWithHandlers must inherit property "oncontextlost" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "oncontextmenu" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "oncontextrestored" with the proper type
+PASS Document interface: documentWithHandlers must inherit property "oncopy" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "oncuechange" with the proper type
+PASS Document interface: documentWithHandlers must inherit property "oncut" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "ondblclick" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "ondrag" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "ondragend" with the proper type
@@ -955,6 +997,7 @@ PASS Document interface: documentWithHandlers must inherit property "onmousemove
 PASS Document interface: documentWithHandlers must inherit property "onmouseout" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "onmouseover" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "onmouseup" with the proper type
+PASS Document interface: documentWithHandlers must inherit property "onpaste" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "onpause" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "onplay" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "onplaying" with the proper type
@@ -963,6 +1006,7 @@ PASS Document interface: documentWithHandlers must inherit property "onratechang
 PASS Document interface: documentWithHandlers must inherit property "onreset" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "onresize" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "onscroll" with the proper type
+PASS Document interface: documentWithHandlers must inherit property "onscrollend" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "onsecuritypolicyviolation" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "onseeked" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "onseeking" with the proper type
@@ -980,9 +1024,6 @@ PASS Document interface: documentWithHandlers must inherit property "onwebkitani
 PASS Document interface: documentWithHandlers must inherit property "onwebkitanimationstart" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "onwebkittransitionend" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "onwheel" with the proper type
-PASS Document interface: documentWithHandlers must inherit property "oncopy" with the proper type
-PASS Document interface: documentWithHandlers must inherit property "oncut" with the proper type
-PASS Document interface: documentWithHandlers must inherit property "onpaste" with the proper type
 PASS Document interface: documentWithHandlers must inherit property "activeElement" with the proper type
 Harness: the test ran to completion.
 

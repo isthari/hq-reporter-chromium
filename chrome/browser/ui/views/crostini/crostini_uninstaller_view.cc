@@ -1,16 +1,15 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/crostini/crostini_uninstaller_view.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ash/crostini/crostini_features.h"
 #include "chrome/browser/ash/crostini/crostini_manager.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/grit/generated_resources.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -29,15 +28,10 @@ namespace {
 CrostiniUninstallerView* g_crostini_uninstaller_view = nullptr;
 
 constexpr char kCrostiniUninstallResultHistogram[] = "Crostini.UninstallResult";
-constexpr char kCrostiniUninstallSourceHistogram[] = "Crostini.UninstallSource";
 
 }  // namespace
 
-void crostini::ShowCrostiniUninstallerView(
-    Profile* profile,
-    crostini::CrostiniUISurface ui_surface) {
-  base::UmaHistogramEnumeration(kCrostiniUninstallSourceHistogram, ui_surface,
-                                crostini::CrostiniUISurface::kCount);
+void crostini::ShowCrostiniUninstallerView(Profile* profile) {
   return CrostiniUninstallerView::Show(profile);
 }
 
@@ -67,7 +61,7 @@ bool CrostiniUninstallerView::Accept() {
                      weak_ptr_factory_.GetWeakPtr()));
 
   progress_bar_ = new views::ProgressBar();
-  AddChildView(progress_bar_);
+  AddChildView(progress_bar_.get());
   // Setting value to -1 makes the progress bar play the
   // "indeterminate animation".
   progress_bar_->SetValue(-1);
@@ -108,9 +102,7 @@ CrostiniUninstallerView::CrostiniUninstallerView(Profile* profile)
   message_label_ = new views::Label(message);
   message_label_->SetMultiLine(true);
   message_label_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-  AddChildView(message_label_);
-
-  chrome::RecordDialogCreation(chrome::DialogIdentifier::CROSTINI_UNINSTALLER);
+  AddChildView(message_label_.get());
 }
 
 CrostiniUninstallerView::~CrostiniUninstallerView() {

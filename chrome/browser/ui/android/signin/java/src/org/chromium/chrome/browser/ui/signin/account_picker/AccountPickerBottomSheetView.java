@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,8 +18,10 @@ import androidx.annotation.StringRes;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.chrome.browser.signin.services.DisplayableProfileData;
 import org.chromium.chrome.browser.ui.signin.R;
+import org.chromium.chrome.browser.ui.signin.SigninUtils;
 import org.chromium.chrome.browser.ui.signin.account_picker.AccountPickerBottomSheetProperties.ViewState;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetContent;
 import org.chromium.ui.widget.ButtonCompat;
@@ -42,6 +44,15 @@ class AccountPickerBottomSheetView implements BottomSheetContent {
          * @return true if the listener handles the back press, false if not.
          */
         boolean onBackPressed();
+
+        /**
+         * @return A supplier that determines if back press will be handled by the sheet content.
+         */
+        default ObservableSupplierImpl<Boolean> getBackPressStateChangedSupplier() {
+            ObservableSupplierImpl<Boolean> supplier = new ObservableSupplierImpl<>();
+            supplier.set(false);
+            return supplier;
+        }
     }
 
     /**
@@ -150,20 +161,24 @@ class AccountPickerBottomSheetView implements BottomSheetContent {
         ExistingAccountRowViewBinder.bindAccountView(accountProfileData, mSelectedAccountView);
 
         ButtonCompat continueButton = view.findViewById(R.id.account_picker_continue_as_button);
-        String continueAsButtonText = mActivity.getString(R.string.signin_promo_continue_as,
-                accountProfileData.getGivenNameOrFullNameOrEmail());
-        continueButton.setText(continueAsButtonText);
+        continueButton.setText(
+                SigninUtils.getContinueAsButtonText(view.getContext(), accountProfileData));
     }
 
     /**
-     * Adjusts the strings in the header and dismiss button for the send-tab-to-self entry point.
+     * Sets the title, subtitle, and dismiss button text.
      */
-    void setSendTabToSelfHeaderAndDismissButtonText() {
-        setSendTabToSelfHeaderText(ViewState.COLLAPSED_ACCOUNT_LIST);
-        setSendTabToSelfHeaderText(ViewState.EXPANDED_ACCOUNT_LIST);
-        setSendTabToSelfHeaderText(ViewState.NO_ACCOUNTS);
-
-        mDismissButton.setText(R.string.cancel);
+    void setBottomSheetStrings(
+            @StringRes int title, @StringRes int subtitle, @StringRes int cancelButton) {
+        final int[] viewStates = {ViewState.COLLAPSED_ACCOUNT_LIST, ViewState.EXPANDED_ACCOUNT_LIST,
+                ViewState.NO_ACCOUNTS};
+        for (int viewState : viewStates) {
+            final View view = mViewFlipper.getChildAt(viewState);
+            ((TextView) view.findViewById(R.id.account_picker_header_title)).setText(title);
+            ((TextViewWithLeading) view.findViewById(R.id.account_picker_header_subtitle))
+                    .setText(subtitle);
+        }
+        mDismissButton.setText(cancelButton);
     }
 
     @Override
@@ -211,6 +226,16 @@ class AccountPickerBottomSheetView implements BottomSheetContent {
     }
 
     @Override
+    public ObservableSupplierImpl<Boolean> getBackPressStateChangedSupplier() {
+        return mBackPressListener.getBackPressStateChangedSupplier();
+    }
+
+    @Override
+    public void onBackPressed() {
+        mBackPressListener.onBackPressed();
+    }
+
+    @Override
     public int getSheetContentDescriptionStringId() {
         return R.string.signin_account_picker_bottom_sheet_subtitle;
     }
@@ -228,14 +253,6 @@ class AccountPickerBottomSheetView implements BottomSheetContent {
     @Override
     public int getSheetClosedAccessibilityStringId() {
         return R.string.account_picker_bottom_sheet_accessibility_closed;
-    }
-
-    private void setSendTabToSelfHeaderText(@ViewState int viewState) {
-        final View view = mViewFlipper.getChildAt(viewState);
-        ((TextView) view.findViewById(R.id.account_picker_header_title))
-                .setText(R.string.signin_account_picker_bottom_sheet_title_for_send_tab_to_self);
-        ((TextViewWithLeading) view.findViewById(R.id.account_picker_header_subtitle))
-                .setText(R.string.signin_account_picker_bottom_sheet_subtitle_for_send_tab_to_self);
     }
 
     private static void setUpContinueButton(View view, @StringRes int buttonId) {

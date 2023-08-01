@@ -1,34 +1,38 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import <UIKit/UIKit.h>
 #import <XCTest/XCTest.h>
 
-#include "components/strings/grit/components_strings.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/strings/grit/components_strings.h"
+#import "components/url_formatter/elide_url.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_earl_grey.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_earl_grey_ui.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_ui_constants.h"
-#include "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/test/earl_grey/chrome_actions.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/web_http_server_chrome_test_case.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
-#include "ui/base/l10n/l10n_util.h"
+#import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
-using chrome_test_util::BookmarksSaveEditFolderButton;
 using chrome_test_util::BookmarksDeleteSwipeButton;
 using chrome_test_util::BookmarksNavigationBarBackButton;
+using chrome_test_util::BookmarksSaveEditFolderButton;
 using chrome_test_util::ButtonWithAccessibilityLabelId;
 using chrome_test_util::CancelButton;
 using chrome_test_util::ContextBarCenterButtonWithLabel;
 using chrome_test_util::ContextBarLeadingButtonWithLabel;
 using chrome_test_util::ContextBarTrailingButtonWithLabel;
 using chrome_test_util::SearchIconButton;
+using chrome_test_util::SwipeToShowDeleteButton;
 using chrome_test_util::TappableBookmarkNodeWithLabel;
 
 // Bookmark search integration tests for Chrome.
@@ -60,8 +64,8 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 
   // Verify the search bar is shown.
   [[EarlGrey selectElementWithMatcher:SearchIconButton()]
-      assertWithMatcher:grey_allOf(grey_sufficientlyVisible(),
-                                   grey_userInteractionEnabled(), nil)];
+      assertWithMatcher:grey_allOf(grey_userInteractionEnabled(),
+                                   grey_sufficientlyVisible(), nil)];
 }
 
 // Tests that the search bar is shown on mobile list.
@@ -72,8 +76,8 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 
   // Verify the search bar is shown.
   [[EarlGrey selectElementWithMatcher:SearchIconButton()]
-      assertWithMatcher:grey_allOf(grey_sufficientlyVisible(),
-                                   grey_userInteractionEnabled(), nil)];
+      assertWithMatcher:grey_allOf(grey_userInteractionEnabled(),
+                                   grey_sufficientlyVisible(), nil)];
 }
 
 // Tests the search.
@@ -172,7 +176,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 
   // Verify that scrim is visible.
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
-                                          kBookmarkHomeSearchScrimIdentifier)]
+                                          kBookmarksHomeSearchScrimIdentifier)]
       assertWithMatcher:grey_notNil()];
 
   // Searching.
@@ -181,7 +185,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 
   // Verify that scrim is not visible.
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
-                                          kBookmarkHomeSearchScrimIdentifier)]
+                                          kBookmarksHomeSearchScrimIdentifier)]
       assertWithMatcher:grey_nil()];
 
   // Go back to original folder content.
@@ -190,7 +194,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 
   // Verify that scrim is visible again.
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
-                                          kBookmarkHomeSearchScrimIdentifier)]
+                                          kBookmarksHomeSearchScrimIdentifier)]
       assertWithMatcher:grey_notNil()];
 
   // Cancel.
@@ -198,7 +202,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 
   // Verify that scrim is not visible.
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
-                                          kBookmarkHomeSearchScrimIdentifier)]
+                                          kBookmarksHomeSearchScrimIdentifier)]
       assertWithMatcher:grey_nil()];
 }
 
@@ -214,12 +218,12 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 
   // Tap on scrim.
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
-                                          kBookmarkHomeSearchScrimIdentifier)]
+                                          kBookmarksHomeSearchScrimIdentifier)]
       performAction:grey_tap()];
 
   // Verify that scrim is not visible.
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
-                                          kBookmarkHomeSearchScrimIdentifier)]
+                                          kBookmarksHomeSearchScrimIdentifier)]
       assertWithMatcher:grey_nil()];
 
   // Verifiy we went back to original folder content.
@@ -256,7 +260,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 
   // Verify that scrim is not visible.
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
-                                          kBookmarkHomeSearchScrimIdentifier)]
+                                          kBookmarksHomeSearchScrimIdentifier)]
       assertWithMatcher:grey_nil()];
 
   // Verifiy we went back to original folder content.
@@ -319,7 +323,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 
   // Verify we have no navigation bar.
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
-                                          kBookmarkHomeUIToolbarIdentifier)]
+                                          kBookmarksHomeUIToolbarIdentifier)]
       assertWithMatcher:grey_nil()];
 
   // Search.
@@ -328,7 +332,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 
   // Verify we now have a navigation bar.
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
-                                          kBookmarkHomeUIToolbarIdentifier)]
+                                          kBookmarksHomeUIToolbarIdentifier)]
       assertWithMatcher:grey_notNil()];
 }
 
@@ -419,15 +423,6 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 
 // Tests that you can swipe URL items in search mode.
 - (void)testSearchUrlCanBeSwipedToDelete {
-  // TODO(crbug.com/851227): On non Compact Width, the bookmark cell is being
-  // deleted by grey_swipeFastInDirection.
-  // grey_swipeFastInDirectionWithStartPoint doesn't work either and it might
-  // fail on devices. Disabling this test under these conditions on the
-  // meantime.
-  if (![ChromeEarlGrey isCompactWidth]) {
-    EARL_GREY_TEST_SKIPPED(@"Test disabled on iPad on iOS11.");
-  }
-
   [BookmarkEarlGrey setupStandardBookmarks];
   [BookmarkEarlGreyUI openBookmarks];
   [BookmarkEarlGreyUI openMobileBookmarks];
@@ -438,7 +433,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 
   [[EarlGrey
       selectElementWithMatcher:TappableBookmarkNodeWithLabel(@"First URL")]
-      performAction:grey_swipeFastInDirection(kGREYDirectionLeft)];
+      performAction:SwipeToShowDeleteButton()];
 
   // Verify we have a delete button.
   [[EarlGrey selectElementWithMatcher:BookmarksDeleteSwipeButton()]
@@ -447,15 +442,6 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 
 // Tests that you can swipe folders in search mode.
 - (void)testSearchFolderCanBeSwipedToDelete {
-  // TODO(crbug.com/851227): On non Compact Width, the bookmark cell is being
-  // deleted by grey_swipeFastInDirection.
-  // grey_swipeFastInDirectionWithStartPoint doesn't work either and it might
-  // fail on devices. Disabling this test under these conditions on the
-  // meantime.
-  if (![ChromeEarlGrey isCompactWidth]) {
-    EARL_GREY_TEST_SKIPPED(@"Test disabled on iPad on iOS11.");
-  }
-
   [BookmarkEarlGrey setupStandardBookmarks];
   [BookmarkEarlGreyUI openBookmarks];
   [BookmarkEarlGreyUI openMobileBookmarks];
@@ -466,7 +452,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 
   [[EarlGrey
       selectElementWithMatcher:TappableBookmarkNodeWithLabel(@"Folder 1")]
-      performAction:grey_swipeFastInDirection(kGREYDirectionLeft)];
+      performAction:SwipeToShowDeleteButton()];
 
   // Verify we have a delete button.
   [[EarlGrey selectElementWithMatcher:BookmarksDeleteSwipeButton()]
@@ -486,7 +472,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
   // Change to edit mode
   [[EarlGrey
       selectElementWithMatcher:grey_accessibilityID(
-                                   kBookmarkHomeTrailingButtonIdentifier)]
+                                   kBookmarksHomeTrailingButtonIdentifier)]
       performAction:grey_tap()];
 
   // Verify search bar is disabled.
@@ -513,7 +499,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 
   // Verify we now have a navigation bar.
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
-                                          kBookmarkHomeUIToolbarIdentifier)]
+                                          kBookmarksHomeUIToolbarIdentifier)]
       assertWithMatcher:grey_notNil()];
 
   [[EarlGrey selectElementWithMatcher:ContextBarLeadingButtonWithLabel(
@@ -537,12 +523,20 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
   // Change to edit mode
   [[EarlGrey
       selectElementWithMatcher:grey_accessibilityID(
-                                   kBookmarkHomeTrailingButtonIdentifier)]
+                                   kBookmarksHomeTrailingButtonIdentifier)]
       performAction:grey_tap()];
 
   // Select URL.
+  NSString* label = [NSString
+      stringWithFormat:
+          @"First URL, %@",
+          base::SysUTF16ToNSString(
+              url_formatter::
+                  FormatUrlForDisplayOmitSchemePathTrivialSubdomainsAndMobilePrefix(
+                      GetFirstUrl()))];
   [[EarlGrey
-      selectElementWithMatcher:grey_accessibilityLabel(@"First URL, 127.0.0.1")]
+      selectElementWithMatcher:grey_allOf(grey_accessibilityLabel(label),
+                                          grey_sufficientlyVisible(), nil)]
       performAction:grey_tap()];
 
   // Invoke Edit through context menu.
@@ -580,15 +574,27 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
   // Change to edit mode
   [[EarlGrey
       selectElementWithMatcher:grey_accessibilityID(
-                                   kBookmarkHomeTrailingButtonIdentifier)]
+                                   kBookmarksHomeTrailingButtonIdentifier)]
       performAction:grey_tap()];
 
   // Select URLs.
-  [[EarlGrey
-      selectElementWithMatcher:grey_accessibilityLabel(@"First URL, 127.0.0.1")]
+  NSString* label = [NSString
+      stringWithFormat:
+          @"First URL, %@",
+          base::SysUTF16ToNSString(
+              url_formatter::
+                  FormatUrlForDisplayOmitSchemePathTrivialSubdomainsAndMobilePrefix(
+                      GetFirstUrl()))];
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityLabel(label)]
       performAction:grey_tap()];
-  [[EarlGrey selectElementWithMatcher:grey_accessibilityLabel(
-                                          @"Second URL, 127.0.0.1")]
+  label = [NSString
+      stringWithFormat:
+          @"Second URL, %@",
+          base::SysUTF16ToNSString(
+              url_formatter::
+                  FormatUrlForDisplayOmitSchemePathTrivialSubdomainsAndMobilePrefix(
+                      GetSecondUrl()))];
+  [[EarlGrey selectElementWithMatcher:grey_accessibilityLabel(label)]
       performAction:grey_tap()];
 
   // Delete.
@@ -627,7 +633,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
   // Change to edit mode, using context menu.
   [[EarlGrey
       selectElementWithMatcher:grey_accessibilityID(
-                                   kBookmarkHomeTrailingButtonIdentifier)]
+                                   kBookmarksHomeTrailingButtonIdentifier)]
       performAction:grey_tap()];
 
   // Select URL and folder.
@@ -697,12 +703,20 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
   // Change to edit mode
   [[EarlGrey
       selectElementWithMatcher:grey_accessibilityID(
-                                   kBookmarkHomeTrailingButtonIdentifier)]
+                                   kBookmarksHomeTrailingButtonIdentifier)]
       performAction:grey_tap()];
 
   // Select URL.
+  NSString* label = [NSString
+      stringWithFormat:
+          @"First URL, %@",
+          base::SysUTF16ToNSString(
+              url_formatter::
+                  FormatUrlForDisplayOmitSchemePathTrivialSubdomainsAndMobilePrefix(
+                      GetFirstUrl()))];
   [[EarlGrey
-      selectElementWithMatcher:grey_accessibilityLabel(@"First URL, 127.0.0.1")]
+      selectElementWithMatcher:grey_allOf(grey_accessibilityLabel(label),
+                                          grey_sufficientlyVisible(), nil)]
       performAction:grey_tap()];
 
   // Invoke Edit through context menu.
@@ -731,7 +745,7 @@ using chrome_test_util::TappableBookmarkNodeWithLabel;
 
   // Verify we have no navigation bar.
   [[EarlGrey selectElementWithMatcher:grey_accessibilityID(
-                                          kBookmarkHomeUIToolbarIdentifier)]
+                                          kBookmarksHomeUIToolbarIdentifier)]
       assertWithMatcher:grey_nil()];
 }
 

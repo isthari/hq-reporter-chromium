@@ -26,6 +26,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_SCROLL_SCROLLBAR_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_SCROLL_SCROLLBAR_H_
 
+#include "third_party/blink/public/common/input/web_input_event.h"
 #include "third_party/blink/public/mojom/frame/color_scheme.mojom-blink-forward.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/scroll/scroll_types.h"
@@ -35,6 +36,7 @@
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/timer.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
+#include "ui/events/types/scroll_types.h"
 
 namespace gfx {
 class Rect;
@@ -48,6 +50,7 @@ class ScrollableArea;
 class ScrollbarTheme;
 class WebGestureEvent;
 class WebMouseEvent;
+class WebPointerEvent;
 
 class CORE_EXPORT Scrollbar : public GarbageCollected<Scrollbar>,
                               public DisplayItemClient {
@@ -138,6 +141,8 @@ class CORE_EXPORT Scrollbar : public GarbageCollected<Scrollbar>,
   // state for this scrollbar.
   bool GestureEvent(const WebGestureEvent&, bool* should_update_capture);
 
+  bool HandlePointerEvent(const WebPointerEvent&);
+
   // These methods are used for platform scrollbars to give :hover feedback.
   // They will not get called when the mouse went down in a scrollbar, since it
   // is assumed the scrollbar will start
@@ -170,6 +175,12 @@ class CORE_EXPORT Scrollbar : public GarbageCollected<Scrollbar>,
   void ClearTrackNeedsRepaint() { track_needs_repaint_ = false; }
   bool ThumbNeedsRepaint() const { return thumb_needs_repaint_; }
   void ClearThumbNeedsRepaint() { thumb_needs_repaint_ = false; }
+
+  // Returns true if either the track or the thumb needs repaint, or the thumb
+  // moved (which doesn't need to repaint the track or the thumb in some
+  // scrollbar themes).
+  bool NeedsUpdateDisplay() const { return needs_update_display_; }
+  void ClearNeedsUpdateDisplay() { needs_update_display_ = false; }
 
   // DisplayItemClient.
   String DebugName() const final {
@@ -220,9 +231,9 @@ class CORE_EXPORT Scrollbar : public GarbageCollected<Scrollbar>,
   void InjectGestureScrollUpdateForThumbMove(float single_axis_target_offset);
   void InjectScrollGesture(WebInputEvent::Type type,
                            ScrollOffset delta,
-                           ScrollGranularity granularity);
+                           ui::ScrollGranularity granularity);
   ScrollDirectionPhysical PressedPartScrollDirectionPhysical();
-  ScrollGranularity PressedPartScrollGranularity();
+  ui::ScrollGranularity PressedPartScrollGranularity();
 
   Member<ScrollableArea> scrollable_area_;
   ScrollbarOrientation orientation_;
@@ -252,8 +263,10 @@ class CORE_EXPORT Scrollbar : public GarbageCollected<Scrollbar>,
   bool ThumbWillBeUnderMouse() const;
   bool DeltaWillScroll(ScrollOffset delta) const;
 
-  bool track_needs_repaint_;
-  bool thumb_needs_repaint_;
+  bool track_needs_repaint_ = true;
+  bool thumb_needs_repaint_ = true;
+  bool needs_update_display_ = true;
+
   bool injected_gesture_scroll_begin_;
 
   // This is set based on the event modifiers. In scenarios like scrolling or

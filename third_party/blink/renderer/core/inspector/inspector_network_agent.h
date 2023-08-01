@@ -40,6 +40,7 @@
 #include "third_party/blink/renderer/core/inspector/inspector_page_agent.h"
 #include "third_party/blink/renderer/core/inspector/protocol/network.h"
 #include "third_party/blink/renderer/platform/blob/blob_data.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_load_priority.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loader_options.h"
@@ -262,10 +263,12 @@ class CORE_EXPORT InspectorNetworkAgent final
   bool FetchResourceContent(Document*,
                             const KURL&,
                             String* content,
-                            bool* base64_encoded);
+                            bool* base64_encoded,
+                            bool* loadingFailed);
   String NavigationInitiatorInfo(LocalFrame*);
 
  private:
+  String RequestId(DocumentLoader*, uint64_t identifier);
   void Enable();
   void WillSendRequestInternal(DocumentLoader*,
                                const KURL& fetch_context_url,

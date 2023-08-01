@@ -1,10 +1,17 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "net/base/isolation_info.h"
 
+#include <iostream>
+#include "base/strings/strcat.h"
+#include "base/test/gtest_util.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/unguessable_token.h"
+#include "isolation_info.h"
+#include "net/base/features.h"
+#include "net/base/network_anonymization_key.h"
 #include "net/base/network_isolation_key.h"
 #include "net/base/schemeful_site.h"
 #include "net/cookies/site_for_cookies.h"
@@ -18,21 +25,23 @@ namespace net {
 
 namespace {
 
-void DuplicateAndCompare(const IsolationInfo& isolation_info) {
-  absl::optional<IsolationInfo> duplicate_isolation_info =
-      IsolationInfo::CreateIfConsistent(
-          isolation_info.request_type(), isolation_info.top_frame_origin(),
-          isolation_info.frame_origin(), isolation_info.site_for_cookies(),
-          isolation_info.party_context(),
-          isolation_info.nonce().has_value() ? &isolation_info.nonce().value()
-                                             : nullptr);
-
-  ASSERT_TRUE(duplicate_isolation_info);
-  EXPECT_TRUE(isolation_info.IsEqualForTesting(*duplicate_isolation_info));
-}
-
-class IsolationInfoTest : public testing::Test {
+class IsolationInfoTest
+    : public testing::Test,
+      public testing::WithParamInterface<NetworkIsolationKey::Mode> {
  public:
+  void SetUp() override {
+    switch (GetParam()) {
+      case NetworkIsolationKey::Mode::kFrameSiteEnabled:
+        scoped_feature_list_.InitAndDisableFeature(
+            net::features::kEnableCrossSiteFlagNetworkIsolationKey);
+        break;
+      case NetworkIsolationKey::Mode::kCrossSiteFlagEnabled:
+        scoped_feature_list_.InitAndEnableFeature(
+            net::features::kEnableCrossSiteFlagNetworkIsolationKey);
+        break;
+    }
+  }
+
   const url::Origin kOrigin1 = url::Origin::Create(GURL("https://a.foo.test"));
   const url::Origin kSite1 = url::Origin::Create(GURL("https://foo.test"));
   const url::Origin kOrigin2 = url::Origin::Create(GURL("https://b.bar.test"));
@@ -56,20 +65,126 @@ class IsolationInfoTest : public testing::Test {
 
   const base::UnguessableToken kNonce1 = base::UnguessableToken::Create();
   const base::UnguessableToken kNonce2 = base::UnguessableToken::Create();
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
-TEST_F(IsolationInfoTest, RequestTypeMainFrame) {
+INSTANTIATE_TEST_SUITE_P(
+    Tests,
+    IsolationInfoTest,
+    testing::ValuesIn({NetworkIsolationKey::Mode::kFrameSiteEnabled,
+                       NetworkIsolationKey::Mode::kCrossSiteFlagEnabled}),
+    [](const testing::TestParamInfo<NetworkIsolationKey::Mode>& info) {
+      return info.param == NetworkIsolationKey::Mode::kFrameSiteEnabled
+                 ? "FrameSiteEnabled"
+                 : "CrossSiteFlagEnabled";
+    });
+
+void DuplicateAndCompare(const IsolationInfo& isolation_info) {
+  absl::optional<IsolationInfo> duplicate_isolation_info =
+      IsolationInfo::CreateIfConsistent(
+          isolation_info.request_type(), isolation_info.top_frame_origin(),
+          isolation_info.frame_origin(), isolation_info.site_for_cookies(),
+          isolation_info.party_context(), isolation_info.nonce());
+
+  ASSERT_TRUE(duplicate_isolation_info);
+  EXPECT_TRUE(isolation_info.IsEqualForTesting(*duplicate_isolation_info));
+}
+
+TEST_P(IsolationInfoTest, DebugString) {
+  IsolationInfo isolation_info = IsolationInfo::Create(
+      IsolationInfo::RequestType::kMainFrame, kOrigin1, kOrigin2,
+      SiteForCookies::FromOrigin(kOrigin1), kPartyContextEmpty, kNonce1);
+  std::vector<std::string> parts;
+  parts.push_back(
+      "request_type: kMainFrame; top_frame_origin: https://a.foo.test; ");
+  parts.push_back("frame_origin: https://b.bar.test; ");
+  parts.push_back("network_anonymization_key: ");
+  parts.push_back(isolation_info.network_anonymization_key().ToDebugString());
+  parts.push_back("; network_isolation_key: ");
+  parts.push_back(isolation_info.network_isolation_key().ToDebugString());
+  parts.push_back("; party_context: {}; nonce: ");
+  parts.push_back(isolation_info.nonce().value().ToString());
+  parts.push_back(
+      "; site_for_cookies: SiteForCookies: {site=https://foo.test; "
+      "schemefully_same=true}");
+  EXPECT_EQ(isolation_info.DebugString(), base::StrCat(parts));
+}
+
+TEST_P(IsolationInfoTest, CreateNetworkAnonymizationKeyForIsolationInfo) {
+  IsolationInfo isolation_info = IsolationInfo::Create(
+      IsolationInfo::RequestType::kMainFrame, kOrigin1, kOrigin2,
+      SiteForCookies::FromOrigin(kOrigin1), kPartyContextEmpty, kNonce1);
+  NetworkAnonymizationKey nak =
+      isolation_info.CreateNetworkAnonymizationKeyForIsolationInfo(
+          kOrigin1, kOrigin2, kNonce1);
+
+  IsolationInfo same_site_isolation_info = IsolationInfo::Create(
+      IsolationInfo::RequestType::kMainFrame, kOrigin1, kOrigin1,
+      SiteForCookies::FromOrigin(kOrigin1), kPartyContextEmpty, kNonce1);
+
+  // Top frame should be populated regardless of scheme.
+  EXPECT_EQ(nak.GetTopFrameSite(), SchemefulSite(kOrigin1));
+  EXPECT_EQ(isolation_info.top_frame_origin(), kOrigin1);
+  EXPECT_EQ(isolation_info.network_anonymization_key().GetTopFrameSite(),
+            SchemefulSite(kOrigin1));
+
+  // Nonce should be empty regardless of scheme
+  EXPECT_EQ(nak.GetNonce().value(), kNonce1);
+  EXPECT_EQ(isolation_info.network_anonymization_key().GetNonce().value(),
+            kNonce1);
+  EXPECT_EQ(isolation_info.nonce().value(), kNonce1);
+
+  // Triple-keyed IsolationInfo + double-keyed + cross site bit
+  // NetworkAnonymizationKey case.
+  EXPECT_EQ(isolation_info.frame_origin(), kOrigin2);
+  EXPECT_TRUE(isolation_info.network_anonymization_key().IsCrossSite());
+  EXPECT_TRUE(
+      same_site_isolation_info.network_anonymization_key().IsSameSite());
+}
+
+// A 2.5-keyed NAK created with two identical opaque origins should be
+// same-site.
+TEST_P(IsolationInfoTest, CreateNetworkAnonymizationKeyForIsolationInfoOpaque) {
+  url::Origin opaque;
+  IsolationInfo isolation_info = IsolationInfo::Create(
+      IsolationInfo::RequestType::kMainFrame, opaque, opaque,
+      SiteForCookies::FromOrigin(opaque), kPartyContextEmpty, kNonce1);
+  NetworkAnonymizationKey nak =
+      isolation_info.CreateNetworkAnonymizationKeyForIsolationInfo(
+          opaque, opaque, kNonce1);
+
+  EXPECT_TRUE(nak.IsSameSite());
+
+  url::Origin opaque2;
+  nak = isolation_info.CreateNetworkAnonymizationKeyForIsolationInfo(
+      opaque, opaque2, kNonce1);
+
+  EXPECT_TRUE(nak.IsCrossSite());
+}
+
+TEST_P(IsolationInfoTest, RequestTypeMainFrame) {
   IsolationInfo isolation_info = IsolationInfo::Create(
       IsolationInfo::RequestType::kMainFrame, kOrigin1, kOrigin1,
       SiteForCookies::FromOrigin(kOrigin1), kPartyContextEmpty);
   EXPECT_EQ(IsolationInfo::RequestType::kMainFrame,
             isolation_info.request_type());
   EXPECT_EQ(kOrigin1, isolation_info.top_frame_origin());
+
   EXPECT_EQ(kOrigin1, isolation_info.frame_origin());
+  switch (NetworkIsolationKey::GetMode()) {
+    case NetworkIsolationKey::Mode::kFrameSiteEnabled:
+      EXPECT_EQ("https://foo.test https://foo.test",
+                isolation_info.network_isolation_key().ToCacheKeyString());
+      break;
+    case NetworkIsolationKey::Mode::kCrossSiteFlagEnabled:
+      EXPECT_EQ("https://foo.test _0",
+                isolation_info.network_isolation_key().ToCacheKeyString());
+      break;
+  }
   EXPECT_TRUE(isolation_info.network_isolation_key().IsFullyPopulated());
   EXPECT_FALSE(isolation_info.network_isolation_key().IsTransient());
-  EXPECT_EQ("https://foo.test https://foo.test",
-            isolation_info.network_isolation_key().ToString());
   EXPECT_TRUE(
       isolation_info.site_for_cookies().IsFirstParty(kOrigin1.GetURL()));
   EXPECT_EQ(kPartyContextEmpty, isolation_info.party_context());
@@ -86,15 +201,26 @@ TEST_F(IsolationInfoTest, RequestTypeMainFrame) {
   EXPECT_TRUE(
       redirected_isolation_info.network_isolation_key().IsFullyPopulated());
   EXPECT_FALSE(redirected_isolation_info.network_isolation_key().IsTransient());
-  EXPECT_EQ("https://baz.test https://baz.test",
-            redirected_isolation_info.network_isolation_key().ToString());
+  switch (NetworkIsolationKey::GetMode()) {
+    case NetworkIsolationKey::Mode::kFrameSiteEnabled:
+      EXPECT_EQ(
+          "https://baz.test https://baz.test",
+          redirected_isolation_info.network_isolation_key().ToCacheKeyString());
+      break;
+    case NetworkIsolationKey::Mode::kCrossSiteFlagEnabled:
+      EXPECT_EQ(
+          "https://baz.test _0",
+          redirected_isolation_info.network_isolation_key().ToCacheKeyString());
+      break;
+  }
+
   EXPECT_TRUE(redirected_isolation_info.site_for_cookies().IsFirstParty(
       kOrigin3.GetURL()));
   EXPECT_EQ(kPartyContextEmpty, redirected_isolation_info.party_context());
   EXPECT_FALSE(redirected_isolation_info.nonce().has_value());
 }
 
-TEST_F(IsolationInfoTest, RequestTypeSubFrame) {
+TEST_P(IsolationInfoTest, RequestTypeSubFrame) {
   IsolationInfo isolation_info = IsolationInfo::Create(
       IsolationInfo::RequestType::kSubFrame, kOrigin1, kOrigin2,
       SiteForCookies::FromOrigin(kOrigin1), kPartyContext1);
@@ -102,10 +228,18 @@ TEST_F(IsolationInfoTest, RequestTypeSubFrame) {
             isolation_info.request_type());
   EXPECT_EQ(kOrigin1, isolation_info.top_frame_origin());
   EXPECT_EQ(kOrigin2, isolation_info.frame_origin());
+  switch (NetworkIsolationKey::GetMode()) {
+    case NetworkIsolationKey::Mode::kFrameSiteEnabled:
+      EXPECT_EQ("https://foo.test https://bar.test",
+                isolation_info.network_isolation_key().ToCacheKeyString());
+      break;
+    case NetworkIsolationKey::Mode::kCrossSiteFlagEnabled:
+      EXPECT_EQ("https://foo.test _1",
+                isolation_info.network_isolation_key().ToCacheKeyString());
+      break;
+  }
   EXPECT_TRUE(isolation_info.network_isolation_key().IsFullyPopulated());
   EXPECT_FALSE(isolation_info.network_isolation_key().IsTransient());
-  EXPECT_EQ("https://foo.test https://bar.test",
-            isolation_info.network_isolation_key().ToString());
   EXPECT_TRUE(
       isolation_info.site_for_cookies().IsFirstParty(kOrigin1.GetURL()));
   EXPECT_EQ(kPartyContext1, isolation_info.party_context());
@@ -118,29 +252,42 @@ TEST_F(IsolationInfoTest, RequestTypeSubFrame) {
   EXPECT_EQ(IsolationInfo::RequestType::kSubFrame,
             redirected_isolation_info.request_type());
   EXPECT_EQ(kOrigin1, redirected_isolation_info.top_frame_origin());
+
   EXPECT_EQ(kOrigin3, redirected_isolation_info.frame_origin());
+  switch (NetworkIsolationKey::GetMode()) {
+    case NetworkIsolationKey::Mode::kFrameSiteEnabled:
+      EXPECT_EQ(
+          "https://foo.test https://baz.test",
+          redirected_isolation_info.network_isolation_key().ToCacheKeyString());
+      break;
+    case NetworkIsolationKey::Mode::kCrossSiteFlagEnabled:
+      EXPECT_EQ(
+          "https://foo.test _1",
+          redirected_isolation_info.network_isolation_key().ToCacheKeyString());
+      break;
+  }
+
   EXPECT_TRUE(
       redirected_isolation_info.network_isolation_key().IsFullyPopulated());
   EXPECT_FALSE(redirected_isolation_info.network_isolation_key().IsTransient());
-  EXPECT_EQ("https://foo.test https://baz.test",
-            redirected_isolation_info.network_isolation_key().ToString());
   EXPECT_TRUE(redirected_isolation_info.site_for_cookies().IsFirstParty(
       kOrigin1.GetURL()));
   EXPECT_EQ(kPartyContext1, isolation_info.party_context());
   EXPECT_FALSE(redirected_isolation_info.nonce().has_value());
 }
 
-TEST_F(IsolationInfoTest, RequestTypeMainFrameWithNonce) {
+TEST_P(IsolationInfoTest, RequestTypeMainFrameWithNonce) {
   IsolationInfo isolation_info = IsolationInfo::Create(
       IsolationInfo::RequestType::kMainFrame, kOrigin1, kOrigin1,
-      SiteForCookies::FromOrigin(kOrigin1), kPartyContextEmpty, &kNonce1);
+      SiteForCookies::FromOrigin(kOrigin1), kPartyContextEmpty, kNonce1);
   EXPECT_EQ(IsolationInfo::RequestType::kMainFrame,
             isolation_info.request_type());
   EXPECT_EQ(kOrigin1, isolation_info.top_frame_origin());
   EXPECT_EQ(kOrigin1, isolation_info.frame_origin());
   EXPECT_TRUE(isolation_info.network_isolation_key().IsFullyPopulated());
   EXPECT_TRUE(isolation_info.network_isolation_key().IsTransient());
-  EXPECT_EQ("", isolation_info.network_isolation_key().ToString());
+  EXPECT_EQ(absl::nullopt,
+            isolation_info.network_isolation_key().ToCacheKeyString());
   EXPECT_TRUE(
       isolation_info.site_for_cookies().IsFirstParty(kOrigin1.GetURL()));
   EXPECT_EQ(kPartyContextEmpty, isolation_info.party_context());
@@ -157,24 +304,27 @@ TEST_F(IsolationInfoTest, RequestTypeMainFrameWithNonce) {
   EXPECT_TRUE(
       redirected_isolation_info.network_isolation_key().IsFullyPopulated());
   EXPECT_TRUE(redirected_isolation_info.network_isolation_key().IsTransient());
-  EXPECT_EQ("", redirected_isolation_info.network_isolation_key().ToString());
+  EXPECT_EQ(
+      absl::nullopt,
+      redirected_isolation_info.network_isolation_key().ToCacheKeyString());
   EXPECT_TRUE(redirected_isolation_info.site_for_cookies().IsFirstParty(
       kOrigin3.GetURL()));
   EXPECT_EQ(kPartyContextEmpty, redirected_isolation_info.party_context());
   EXPECT_EQ(kNonce1, redirected_isolation_info.nonce().value());
 }
 
-TEST_F(IsolationInfoTest, RequestTypeSubFrameWithNonce) {
+TEST_P(IsolationInfoTest, RequestTypeSubFrameWithNonce) {
   IsolationInfo isolation_info = IsolationInfo::Create(
       IsolationInfo::RequestType::kSubFrame, kOrigin1, kOrigin2,
-      SiteForCookies::FromOrigin(kOrigin1), kPartyContext1, &kNonce1);
+      SiteForCookies::FromOrigin(kOrigin1), kPartyContext1, kNonce1);
   EXPECT_EQ(IsolationInfo::RequestType::kSubFrame,
             isolation_info.request_type());
   EXPECT_EQ(kOrigin1, isolation_info.top_frame_origin());
   EXPECT_EQ(kOrigin2, isolation_info.frame_origin());
   EXPECT_TRUE(isolation_info.network_isolation_key().IsFullyPopulated());
   EXPECT_TRUE(isolation_info.network_isolation_key().IsTransient());
-  EXPECT_EQ("", isolation_info.network_isolation_key().ToString());
+  EXPECT_EQ(absl::nullopt,
+            isolation_info.network_isolation_key().ToCacheKeyString());
   EXPECT_TRUE(
       isolation_info.site_for_cookies().IsFirstParty(kOrigin1.GetURL()));
   EXPECT_EQ(kPartyContext1, isolation_info.party_context());
@@ -191,14 +341,16 @@ TEST_F(IsolationInfoTest, RequestTypeSubFrameWithNonce) {
   EXPECT_TRUE(
       redirected_isolation_info.network_isolation_key().IsFullyPopulated());
   EXPECT_TRUE(redirected_isolation_info.network_isolation_key().IsTransient());
-  EXPECT_EQ("", redirected_isolation_info.network_isolation_key().ToString());
+  EXPECT_EQ(
+      absl::nullopt,
+      redirected_isolation_info.network_isolation_key().ToCacheKeyString());
   EXPECT_TRUE(redirected_isolation_info.site_for_cookies().IsFirstParty(
       kOrigin1.GetURL()));
   EXPECT_EQ(kPartyContext1, redirected_isolation_info.party_context());
   EXPECT_EQ(kNonce1, redirected_isolation_info.nonce().value());
 }
 
-TEST_F(IsolationInfoTest, RequestTypeOther) {
+TEST_P(IsolationInfoTest, RequestTypeOther) {
   IsolationInfo isolation_info;
   EXPECT_EQ(IsolationInfo::RequestType::kOther, isolation_info.request_type());
   EXPECT_FALSE(isolation_info.top_frame_origin());
@@ -215,17 +367,25 @@ TEST_F(IsolationInfoTest, RequestTypeOther) {
   EXPECT_TRUE(isolation_info.IsEqualForTesting(redirected_isolation_info));
 }
 
-TEST_F(IsolationInfoTest, RequestTypeOtherWithSiteForCookies) {
+TEST_P(IsolationInfoTest, RequestTypeOtherWithSiteForCookies) {
   IsolationInfo isolation_info = IsolationInfo::Create(
       IsolationInfo::RequestType::kOther, kOrigin1, kOrigin1,
       SiteForCookies::FromOrigin(kOrigin1), kPartyContextEmpty);
   EXPECT_EQ(IsolationInfo::RequestType::kOther, isolation_info.request_type());
   EXPECT_EQ(kOrigin1, isolation_info.top_frame_origin());
   EXPECT_EQ(kOrigin1, isolation_info.frame_origin());
+  switch (NetworkIsolationKey::GetMode()) {
+    case NetworkIsolationKey::Mode::kFrameSiteEnabled:
+      EXPECT_EQ("https://foo.test https://foo.test",
+                isolation_info.network_isolation_key().ToCacheKeyString());
+      break;
+    case NetworkIsolationKey::Mode::kCrossSiteFlagEnabled:
+      EXPECT_EQ("https://foo.test _0",
+                isolation_info.network_isolation_key().ToCacheKeyString());
+      break;
+  }
   EXPECT_TRUE(isolation_info.network_isolation_key().IsFullyPopulated());
   EXPECT_FALSE(isolation_info.network_isolation_key().IsTransient());
-  EXPECT_EQ("https://foo.test https://foo.test",
-            isolation_info.network_isolation_key().ToString());
   EXPECT_TRUE(
       isolation_info.site_for_cookies().IsFirstParty(kOrigin1.GetURL()));
   EXPECT_EQ(kPartyContextEmpty, isolation_info.party_context());
@@ -240,17 +400,26 @@ TEST_F(IsolationInfoTest, RequestTypeOtherWithSiteForCookies) {
 
 // Test case of a subresource for cross-site subframe (which has an empty
 // site-for-cookies).
-TEST_F(IsolationInfoTest, RequestTypeOtherWithEmptySiteForCookies) {
+TEST_P(IsolationInfoTest, RequestTypeOtherWithEmptySiteForCookies) {
   IsolationInfo isolation_info =
       IsolationInfo::Create(IsolationInfo::RequestType::kOther, kOrigin1,
                             kOrigin2, SiteForCookies(), kPartyContext2);
   EXPECT_EQ(IsolationInfo::RequestType::kOther, isolation_info.request_type());
   EXPECT_EQ(kOrigin1, isolation_info.top_frame_origin());
   EXPECT_EQ(kOrigin2, isolation_info.frame_origin());
+  switch (NetworkIsolationKey::GetMode()) {
+    case NetworkIsolationKey::Mode::kFrameSiteEnabled:
+      EXPECT_EQ("https://foo.test https://bar.test",
+                isolation_info.network_isolation_key().ToCacheKeyString());
+      break;
+    case NetworkIsolationKey::Mode::kCrossSiteFlagEnabled:
+      EXPECT_EQ("https://foo.test _1",
+                isolation_info.network_isolation_key().ToCacheKeyString());
+      break;
+  }
+
   EXPECT_TRUE(isolation_info.network_isolation_key().IsFullyPopulated());
   EXPECT_FALSE(isolation_info.network_isolation_key().IsTransient());
-  EXPECT_EQ("https://foo.test https://bar.test",
-            isolation_info.network_isolation_key().ToString());
   EXPECT_TRUE(isolation_info.site_for_cookies().IsNull());
   EXPECT_EQ(kPartyContext2, isolation_info.party_context());
   EXPECT_FALSE(isolation_info.nonce());
@@ -262,7 +431,7 @@ TEST_F(IsolationInfoTest, RequestTypeOtherWithEmptySiteForCookies) {
   EXPECT_TRUE(isolation_info.IsEqualForTesting(redirected_isolation_info));
 }
 
-TEST_F(IsolationInfoTest, CreateTransient) {
+TEST_P(IsolationInfoTest, CreateTransient) {
   IsolationInfo isolation_info = IsolationInfo::CreateTransient();
   EXPECT_EQ(IsolationInfo::RequestType::kOther, isolation_info.request_type());
   EXPECT_TRUE(isolation_info.top_frame_origin()->opaque());
@@ -280,16 +449,25 @@ TEST_F(IsolationInfoTest, CreateTransient) {
   EXPECT_TRUE(isolation_info.IsEqualForTesting(redirected_isolation_info));
 }
 
-TEST_F(IsolationInfoTest, CreateForInternalRequest) {
+TEST_P(IsolationInfoTest, CreateForInternalRequest) {
   IsolationInfo isolation_info =
       IsolationInfo::CreateForInternalRequest(kOrigin1);
   EXPECT_EQ(IsolationInfo::RequestType::kOther, isolation_info.request_type());
   EXPECT_EQ(kOrigin1, isolation_info.top_frame_origin());
   EXPECT_EQ(kOrigin1, isolation_info.frame_origin());
+  switch (NetworkIsolationKey::GetMode()) {
+    case NetworkIsolationKey::Mode::kFrameSiteEnabled:
+      EXPECT_EQ("https://foo.test https://foo.test",
+                isolation_info.network_isolation_key().ToCacheKeyString());
+      break;
+    case NetworkIsolationKey::Mode::kCrossSiteFlagEnabled:
+      EXPECT_EQ("https://foo.test _0",
+                isolation_info.network_isolation_key().ToCacheKeyString());
+      break;
+  }
+
   EXPECT_TRUE(isolation_info.network_isolation_key().IsFullyPopulated());
   EXPECT_FALSE(isolation_info.network_isolation_key().IsTransient());
-  EXPECT_EQ("https://foo.test https://foo.test",
-            isolation_info.network_isolation_key().ToString());
   EXPECT_TRUE(
       isolation_info.site_for_cookies().IsFirstParty(kOrigin1.GetURL()));
   EXPECT_EQ(kPartyContextEmpty, isolation_info.party_context());
@@ -302,91 +480,11 @@ TEST_F(IsolationInfoTest, CreateForInternalRequest) {
   EXPECT_TRUE(isolation_info.IsEqualForTesting(redirected_isolation_info));
 }
 
-TEST_F(IsolationInfoTest, CreatePartialUpdateTopFrame) {
-  const NetworkIsolationKey kNIK{SchemefulSite(kOrigin1),
-                                 SchemefulSite(kOrigin1)};
-  IsolationInfo isolation_info = IsolationInfo::CreatePartial(
-      IsolationInfo::RequestType::kMainFrame, kNIK);
-  EXPECT_EQ(IsolationInfo::RequestType::kMainFrame,
-            isolation_info.request_type());
-  EXPECT_EQ(kSite1, isolation_info.top_frame_origin());
-  EXPECT_EQ(kSite1, isolation_info.frame_origin());
-  EXPECT_EQ(kNIK, isolation_info.network_isolation_key());
-  EXPECT_TRUE(isolation_info.site_for_cookies().IsNull());
-  EXPECT_FALSE(isolation_info.party_context());
-  EXPECT_FALSE(isolation_info.nonce());
-
-  DuplicateAndCompare(isolation_info);
-}
-
-TEST_F(IsolationInfoTest, CreatePartialUpdateFrameOnly) {
-  const NetworkIsolationKey kNIK{SchemefulSite(kOrigin1),
-                                 SchemefulSite(kOrigin2)};
-  IsolationInfo isolation_info =
-      IsolationInfo::CreatePartial(IsolationInfo::RequestType::kSubFrame, kNIK);
-  EXPECT_EQ(IsolationInfo::RequestType::kSubFrame,
-            isolation_info.request_type());
-  EXPECT_EQ(kSite1, isolation_info.top_frame_origin());
-  EXPECT_EQ(kSite2, isolation_info.frame_origin());
-  EXPECT_EQ(kNIK, isolation_info.network_isolation_key());
-  EXPECT_TRUE(isolation_info.site_for_cookies().IsNull());
-  EXPECT_FALSE(isolation_info.party_context());
-  EXPECT_FALSE(isolation_info.nonce());
-
-  DuplicateAndCompare(isolation_info);
-}
-
-TEST_F(IsolationInfoTest, CreatePartialUpdateNothing) {
-  const NetworkIsolationKey kNIK{SchemefulSite(kOrigin1),
-                                 SchemefulSite(kOrigin2)};
-  IsolationInfo isolation_info =
-      IsolationInfo::CreatePartial(IsolationInfo::RequestType::kOther, kNIK);
-  EXPECT_EQ(IsolationInfo::RequestType::kOther, isolation_info.request_type());
-  EXPECT_EQ(kSite1, isolation_info.top_frame_origin());
-  EXPECT_EQ(kSite2, isolation_info.frame_origin());
-  EXPECT_EQ(kNIK, isolation_info.network_isolation_key());
-  EXPECT_TRUE(isolation_info.site_for_cookies().IsNull());
-  EXPECT_FALSE(isolation_info.party_context());
-  EXPECT_FALSE(isolation_info.nonce());
-
-  DuplicateAndCompare(isolation_info);
-}
-
-TEST_F(IsolationInfoTest, CreatePartialTransient) {
-  const NetworkIsolationKey kNIK = NetworkIsolationKey::CreateTransient();
-  IsolationInfo isolation_info =
-      IsolationInfo::CreatePartial(IsolationInfo::RequestType::kOther, kNIK);
-  EXPECT_EQ(IsolationInfo::RequestType::kOther, isolation_info.request_type());
-  EXPECT_EQ(kNIK.GetTopFrameSite(),
-            SchemefulSite(*isolation_info.top_frame_origin()));
-  EXPECT_EQ(kNIK.GetFrameSite(), SchemefulSite(*isolation_info.frame_origin()));
-  EXPECT_EQ(kNIK, isolation_info.network_isolation_key());
-  EXPECT_TRUE(isolation_info.site_for_cookies().IsNull());
-  EXPECT_FALSE(isolation_info.party_context());
-  EXPECT_FALSE(isolation_info.nonce());
-
-  DuplicateAndCompare(isolation_info);
-}
-
-TEST_F(IsolationInfoTest, CreatePartialEmpty) {
-  IsolationInfo isolation_info = IsolationInfo::CreatePartial(
-      IsolationInfo::RequestType::kOther, NetworkIsolationKey());
-  EXPECT_EQ(IsolationInfo::RequestType::kOther, isolation_info.request_type());
-  EXPECT_FALSE(isolation_info.top_frame_origin());
-  EXPECT_FALSE(isolation_info.frame_origin());
-  EXPECT_EQ(NetworkIsolationKey(), isolation_info.network_isolation_key());
-  EXPECT_TRUE(isolation_info.site_for_cookies().IsNull());
-  EXPECT_FALSE(isolation_info.party_context());
-  EXPECT_FALSE(isolation_info.nonce());
-
-  DuplicateAndCompare(isolation_info);
-}
-
 // Test that in the UpdateNothing case, the SiteForCookies does not have to
 // match the frame origin, unlike in the HTTP/HTTPS case.
-TEST_F(IsolationInfoTest, CustomSchemeRequestTypeOther) {
-  // Have to register the scheme, or url::Origin::Create() will return an opaque
-  // origin.
+TEST_P(IsolationInfoTest, CustomSchemeRequestTypeOther) {
+  // Have to register the scheme, or url::Origin::Create() will return an
+  // opaque origin.
   url::ScopedSchemeRegistryForTests scoped_registry;
   url::AddStandardScheme("foo", url::SCHEME_WITH_HOST);
 
@@ -399,10 +497,19 @@ TEST_F(IsolationInfoTest, CustomSchemeRequestTypeOther) {
   EXPECT_EQ(IsolationInfo::RequestType::kOther, isolation_info.request_type());
   EXPECT_EQ(kCustomOrigin, isolation_info.top_frame_origin());
   EXPECT_EQ(kOrigin1, isolation_info.frame_origin());
+  switch (NetworkIsolationKey::GetMode()) {
+    case NetworkIsolationKey::Mode::kFrameSiteEnabled:
+      EXPECT_EQ("foo://a.foo.com https://foo.test",
+                isolation_info.network_isolation_key().ToCacheKeyString());
+      break;
+    case NetworkIsolationKey::Mode::kCrossSiteFlagEnabled:
+      EXPECT_EQ("foo://a.foo.com _1",
+                isolation_info.network_isolation_key().ToCacheKeyString());
+      break;
+  }
+
   EXPECT_TRUE(isolation_info.network_isolation_key().IsFullyPopulated());
   EXPECT_FALSE(isolation_info.network_isolation_key().IsTransient());
-  EXPECT_EQ("foo://a.foo.com https://foo.test",
-            isolation_info.network_isolation_key().ToString());
   EXPECT_TRUE(isolation_info.site_for_cookies().IsFirstParty(kCustomOriginUrl));
   EXPECT_EQ(kPartyContext1, isolation_info.party_context());
   EXPECT_FALSE(isolation_info.nonce());
@@ -416,7 +523,7 @@ TEST_F(IsolationInfoTest, CustomSchemeRequestTypeOther) {
 
 // Success cases are covered by other tests, so only need a separate test to
 // cover the failure cases.
-TEST_F(IsolationInfoTest, CreateIfConsistentFails) {
+TEST_P(IsolationInfoTest, CreateIfConsistentFails) {
   // Main frames with inconsistent SiteForCookies.
   EXPECT_FALSE(IsolationInfo::CreateIfConsistent(
       IsolationInfo::RequestType::kMainFrame, kOrigin1, kOrigin1,
@@ -433,9 +540,6 @@ TEST_F(IsolationInfoTest, CreateIfConsistentFails) {
   // Sub resources with inconsistent SiteForCookies.
   EXPECT_FALSE(IsolationInfo::CreateIfConsistent(
       IsolationInfo::RequestType::kOther, kOrigin1, kOrigin2,
-      SiteForCookies::FromOrigin(kOrigin1)));
-  EXPECT_FALSE(IsolationInfo::CreateIfConsistent(
-      IsolationInfo::RequestType::kOther, kOrigin1, kOrigin2,
       SiteForCookies::FromOrigin(kOrigin2)));
 
   // Correctly have empty/non-empty origins:
@@ -448,20 +552,22 @@ TEST_F(IsolationInfoTest, CreateIfConsistentFails) {
       IsolationInfo::RequestType::kOther, absl::nullopt, kOrigin1,
       SiteForCookies()));
   EXPECT_FALSE(IsolationInfo::CreateIfConsistent(
-      IsolationInfo::RequestType::kOther, kOrigin1, absl::nullopt,
-      SiteForCookies()));
-  EXPECT_FALSE(IsolationInfo::CreateIfConsistent(
-      IsolationInfo::RequestType::kMainFrame, absl::nullopt, kOrigin1,
-      SiteForCookies::FromOrigin(kOrigin1)));
-  EXPECT_FALSE(IsolationInfo::CreateIfConsistent(
-      IsolationInfo::RequestType::kMainFrame, kOrigin1, absl::nullopt,
-      SiteForCookies::FromOrigin(kOrigin1)));
-  EXPECT_FALSE(IsolationInfo::CreateIfConsistent(
       IsolationInfo::RequestType::kSubFrame, absl::nullopt, kOrigin2,
+      SiteForCookies()));
+
+  // Empty frame origins are incorrect.
+  EXPECT_FALSE(IsolationInfo::CreateIfConsistent(
+      IsolationInfo::RequestType::kOther, kOrigin1, absl::nullopt,
       SiteForCookies()));
   EXPECT_FALSE(IsolationInfo::CreateIfConsistent(
       IsolationInfo::RequestType::kSubFrame, kOrigin1, absl::nullopt,
       SiteForCookies()));
+  EXPECT_FALSE(IsolationInfo::CreateIfConsistent(
+      IsolationInfo::RequestType::kMainFrame, kOrigin1, absl::nullopt,
+      SiteForCookies::FromOrigin(kOrigin1)));
+  EXPECT_FALSE(IsolationInfo::CreateIfConsistent(
+      IsolationInfo::RequestType::kOther, kOrigin1, kOrigin2,
+      SiteForCookies::FromOrigin(kOrigin1)));
 
   // No origins with non-null SiteForCookies.
   EXPECT_FALSE(IsolationInfo::CreateIfConsistent(
@@ -476,10 +582,10 @@ TEST_F(IsolationInfoTest, CreateIfConsistentFails) {
   // No origins with non-null nonce.
   EXPECT_FALSE(IsolationInfo::CreateIfConsistent(
       IsolationInfo::RequestType::kOther, absl::nullopt, absl::nullopt,
-      SiteForCookies(), absl::nullopt /* party_context */, &kNonce1));
+      SiteForCookies(), absl::nullopt /* party_context */, kNonce1));
 }
 
-TEST_F(IsolationInfoTest, CreateForRedirectPartyContext) {
+TEST_P(IsolationInfoTest, CreateForRedirectPartyContext) {
   // RequestTypeMainFrame, PartyContext is empty
   {
     IsolationInfo isolation_info = IsolationInfo::Create(
@@ -518,7 +624,7 @@ TEST_F(IsolationInfoTest, CreateForRedirectPartyContext) {
   }
 }
 
-TEST_F(IsolationInfoTest, Serialization) {
+TEST_P(IsolationInfoTest, Serialization) {
   EXPECT_FALSE(IsolationInfo::Deserialize(""));
   EXPECT_FALSE(IsolationInfo::Deserialize("garbage"));
 
@@ -561,15 +667,38 @@ TEST_F(IsolationInfoTest, Serialization) {
       // With nonce (i.e transient).
       IsolationInfo::Create(IsolationInfo::RequestType::kSubFrame, kOrigin1,
                             kOrigin2, SiteForCookies::FromOrigin(kOrigin1),
-                            kPartyContext1, &kNonce1),
-      // With an opaque origin (i.e transient)
-      IsolationInfo::Create(IsolationInfo::RequestType::kSubFrame, kOrigin1,
-                            url::Origin(), SiteForCookies::FromOrigin(kOrigin1),
-                            absl::nullopt),
-
+                            kPartyContext1, kNonce1),
   };
   for (const auto& info : kNegativeTestCases) {
     EXPECT_TRUE(info.Serialize().empty());
+  }
+  const IsolationInfo kNegativeWhenTripleKeyEnabledTestCases[] = {
+      // With an opaque frame origin. When the NIK is triple-keyed, the opaque
+      // frame site will cause it to be considered transient and fail to
+      // serialize. When triple-keying is disabled, a boolean is used in place
+      // of the frame site, so the NIK won't be considered transient anymore.
+      // This will cause the IsolationInfo to be serialized, except that it
+      // doesn't serialize opaque origins with the nonce, so upon
+      // deserialization the recreated IsolationInfo will have a frame site
+      // with a different nonce (i.e. a different opaque origin).
+      IsolationInfo::Create(IsolationInfo::RequestType::kSubFrame, kOrigin1,
+                            url::Origin(), SiteForCookies::FromOrigin(kOrigin1),
+                            absl::nullopt),
+  };
+  for (const auto& info : kNegativeWhenTripleKeyEnabledTestCases) {
+    switch (NetworkIsolationKey::GetMode()) {
+      case NetworkIsolationKey::Mode::kFrameSiteEnabled:
+        EXPECT_TRUE(info.Serialize().empty());
+        break;
+      case NetworkIsolationKey::Mode::kCrossSiteFlagEnabled:
+        auto rt = IsolationInfo::Deserialize(info.Serialize());
+        ASSERT_TRUE(rt);
+        // See comment above for why this check fails.
+        EXPECT_FALSE(rt->IsEqualForTesting(info));
+        EXPECT_TRUE(rt->frame_origin()->opaque());
+        EXPECT_NE(rt->frame_origin(), info.frame_origin());
+        break;
+    }
   }
 }
 

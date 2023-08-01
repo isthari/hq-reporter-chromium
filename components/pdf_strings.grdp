@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <grit-part>
-  <if expr="enable_plugins">
+  <if expr="enable_pdf">
     <message name="IDS_PDF_DOWNLOAD_ORIGINAL" desc="The label for the menu option to download the original, unedited PDF document (without user's changes).">
       Without your changes
     </message>
@@ -113,11 +113,20 @@
       Yes
     </message>
 
-    <message name="IDS_PDF_TOOLTIP_ROTATE_CW" desc="Button tooltip for the button which rotates a PDF document clockwise">
-      Rotate clockwise
-    </message>
     <message name="IDS_PDF_TOOLTIP_ROTATE_CCW" desc="Button tooltip for the button which rotates a PDF document counterclockwise">
       Rotate counterclockwise
+    </message>
+    <message name="IDS_PDF_ROTATION_STATE_LABEL_0" desc="Label spoken by screen readers after rotating the PDF document, but is not visually rendered. Describes how many degrees the PDF document is rotated clockwise">
+      0 degrees
+    </message>
+    <message name="IDS_PDF_ROTATION_STATE_LABEL_90" desc="Label spoken by screen readers after rotating the PDF document, but is not visually rendered. Describes how many degrees the PDF document is rotated clockwise">
+      90 degrees
+    </message>
+    <message name="IDS_PDF_ROTATION_STATE_LABEL_180" desc="Label spoken by screen readers after rotating the PDF document, but is not visually rendered. Describes how many degrees the PDF document is rotated clockwise">
+      180 degrees
+    </message>
+    <message name="IDS_PDF_ROTATION_STATE_LABEL_270" desc="Label spoken by screen readers after rotating the PDF document, but is not visually rendered. Describes how many degrees the PDF document is rotated clockwise">
+      270 degrees
     </message>
     <message name="IDS_PDF_TOOLTIP_DOWNLOAD" desc="Button tooltip for the button to download a PDF document">
       Download
@@ -168,7 +177,7 @@
     <message name="IDS_PDF_THUMBNAIL_PAGE_ARIA_LABEL" desc="aria-label describing a thumbnail by its corresponding PDF page number">
       Thumbnail for page <ph name="THUMBNAIL_PAGE"><ex>1</ex>$1</ph>
     </message>
-    <if expr="chromeos">
+    <if expr="chromeos_ash">
       <message name="IDS_PDF_ANNOTATION_ANNOTATE" desc="Button tooltip for entering the 'Annotation mode' which allows writing, drawing and highlighting of the PDF document">
         Annotate
       </message>
@@ -332,6 +341,24 @@
     </message>
     <message name="IDS_AX_ROLE_DESCRIPTION_PDF_POPUP_NOTE" desc="Accessibility role description for popup note annotation associated with a PDF highlight">
       Note
+    </message>
+  </if>
+  <if expr="enable_screen_ai_service">
+    <!-- TODO(crbug.com/1393069): Remove translateable tags when strings are approved. -->
+    <message name="IDS_PDF_OCR_FEATURE_ALERT" is_accessibility_with_no_ui="true" translateable="false" desc="Notification of the PDF OCR feature when the user encounters an inaccessible PDF.">
+      Press search plus m and convert image to text in the context menu
+    </message>
+    <message name="IDS_PDF_OCR_IN_PROGRESS" is_accessibility_with_no_ui="true" translateable="false" desc="Notification to inform the user that OCR is in progress.">
+      Image is being analyzed
+    </message>
+    <message name="IDS_PDF_OCR_COMPLETED" is_accessibility_with_no_ui="true" translateable="false" desc="Notification to inform the user that OCR is completed.">
+      Image converted to text
+    </message>
+    <message name="IDS_PDF_OCR_RESULT_BEGIN" is_accessibility_with_no_ui="true" translateable="false" desc="Notification to inform the user of the beginning of OCR results.">
+      Start of extracted text
+    </message>
+    <message name="IDS_PDF_OCR_RESULT_END" is_accessibility_with_no_ui="true" translateable="false" desc="Notification to inform the user of the end of OCR results.">
+      End of extracted text
     </message>
   </if>
 </grit-part>

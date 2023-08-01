@@ -1,16 +1,11 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/follow/follow_java_script_feature.h"
 
-#if !defined(__has_feature) || !__has_feature(objc_arc)
-#error "This file requires ARC support."
-#endif
-
-#include "base/strings/sys_string_conversions.h"
-#import "ios/web/public/js_messaging/web_frame_util.h"
-#include "ios/web/public/web_state.h"
+#import "ios/web/public/js_messaging/web_frames_manager.h"
+#import "ios/web/public/web_state.h"
 #import "net/base/mac/url_conversions.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -18,7 +13,7 @@
 #endif
 
 namespace {
-const char kRSSLinkScript[] = "rss_link_js";
+const char kRSSLinkScript[] = "rss_link";
 const char kGetRSSLinkFunction[] = "rssLink.getRSSLinks";
 // The timeout for any JavaScript call in this file.
 const double kJavaScriptExecutionTimeoutInMs = 500.0;
@@ -33,7 +28,7 @@ FollowJavaScriptFeature* FollowJavaScriptFeature::GetInstance() {
 
 FollowJavaScriptFeature::FollowJavaScriptFeature()
     : JavaScriptFeature(
-          ContentWorld::kAnyContentWorld,
+          web::ContentWorld::kIsolatedWorld,
           {FeatureScript::CreateWithFilename(
               kRSSLinkScript,
               FeatureScript::InjectionTime::kDocumentStart,
@@ -43,42 +38,44 @@ FollowJavaScriptFeature::FollowJavaScriptFeature()
 
 FollowJavaScriptFeature::~FollowJavaScriptFeature() = default;
 
-void FollowJavaScriptFeature::GetFollowSiteInfo(
-    web::WebState* web_state,
-    base::OnceCallback<void(FollowSiteInfo*)> callback) {
-  if (!web::GetMainFrame(web_state)) {
+void FollowJavaScriptFeature::GetWebPageURLs(web::WebState* web_state,
+                                             ResultCallback callback) {
+  web::WebFrame* main_frame = GetWebFramesManager(web_state)->GetMainWebFrame();
+  if (!main_frame) {
     std::move(callback).Run(nil);
     return;
   }
   CallJavaScriptFunction(
-      web::GetMainFrame(web_state), kGetRSSLinkFunction, /* parameters= */ {},
+      main_frame, kGetRSSLinkFunction,
+      /* parameters= */ {},
       base::BindOnce(&FollowJavaScriptFeature::HandleResponse,
                      weak_ptr_factory_.GetWeakPtr(),
                      web_state->GetLastCommittedURL(), std::move(callback)),
       base::Milliseconds(kJavaScriptExecutionTimeoutInMs));
 }
 
-void FollowJavaScriptFeature::HandleResponse(
-    const GURL& url,
-    base::OnceCallback<void(FollowSiteInfo*)> callback,
-    const base::Value* response) {
-  if (!response)
-    return;
+void FollowJavaScriptFeature::HandleResponse(const GURL& url,
+                                             ResultCallback callback,
+                                             const base::Value* response) {
+  NSMutableArray<NSURL*>* rss_urls = nil;
+  if (response && response->is_list()) {
+    for (const auto& link : response->GetList()) {
+      if (link.is_string()) {
+        NSURL* nsurl = net::NSURLWithGURL(GURL(link.GetString()));
+        if (nsurl) {
+          if (!rss_urls) {
+            rss_urls = [[NSMutableArray alloc] init];
+          }
 
-  if (!response->is_list())
-    return;
-
-  NSMutableArray* rss_links = [[NSMutableArray alloc] init];
-  for (const auto& link : response->GetList()) {
-    if (link.is_string()) {
-      [rss_links addObject:[NSURL URLWithString:base::SysUTF8ToNSString(
-                                                    *link.GetIfString())]];
+          [rss_urls addObject:nsurl];
+        }
+      }
     }
   }
 
-  FollowSiteInfo* site_info =
-      [[FollowSiteInfo alloc] initWithPageURL:net::NSURLWithGURL(url)
-                                     RSSLinks:rss_links];
+  WebPageURLs* web_page_urls =
+      [[WebPageURLs alloc] initWithURL:net::NSURLWithGURL(url)
+                               RSSURLs:rss_urls];
 
-  std::move(callback).Run(site_info);
+  std::move(callback).Run(web_page_urls);
 }

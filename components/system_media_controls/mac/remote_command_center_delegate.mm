@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,15 @@
 #include "components/system_media_controls/mac/remote_command_center_delegate_cocoa.h"
 #include "components/system_media_controls/system_media_controls_observer.h"
 
-namespace system_media_controls {
-namespace internal {
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
+
+namespace system_media_controls::internal {
 
 RemoteCommandCenterDelegate::RemoteCommandCenterDelegate() {
-  remote_command_center_delegate_cocoa_.reset(
-      [[RemoteCommandCenterDelegateCocoa alloc] initWithDelegate:this]);
+  remote_command_center_delegate_cocoa_ =
+      [[RemoteCommandCenterDelegateCocoa alloc] initWithDelegate:this];
 }
 
 RemoteCommandCenterDelegate::~RemoteCommandCenterDelegate() {
@@ -127,5 +130,4 @@ bool RemoteCommandCenterDelegate::ShouldSetCommandEnabled(Command command,
   return true;
 }
 
-}  // namespace internal
-}  // namespace system_media_controls
+}  // namespace system_media_controls::internal

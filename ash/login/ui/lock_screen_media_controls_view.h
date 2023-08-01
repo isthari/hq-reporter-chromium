@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include "ash/ash_export.h"
 #include "base/containers/flat_set.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/power_monitor/power_observer.h"
 #include "base/timer/timer.h"
@@ -113,7 +114,6 @@ class ASH_EXPORT LockScreenMediaControlsView
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   void OnMouseEntered(const ui::MouseEvent& event) override;
   void OnMouseExited(const ui::MouseEvent& event) override;
-  void OnThemeChanged() override;
 
   // media_session::mojom::MediaControllerObserver:
   void MediaSessionInfoChanged(
@@ -205,8 +205,6 @@ class ASH_EXPORT LockScreenMediaControlsView
   // Animates |contents_view_| to its original position.
   void RunResetControlsAnimation();
 
-  void UpdateColors();
-
   // Used to control the active session.
   mojo::Remote<media_session::mojom::MediaController> media_controller_remote_;
 
@@ -238,15 +236,11 @@ class ASH_EXPORT LockScreenMediaControlsView
   std::unique_ptr<base::OneShotTimer> hide_artwork_timer_ =
       std::make_unique<base::OneShotTimer>();
 
-  // Caches the text to be read by screen readers describing the media controls
-  // view.
-  std::u16string accessible_name_;
-
   // Set of enabled actions.
   base::flat_set<media_session::mojom::MediaSessionAction> enabled_actions_;
 
   // Contains the visible and draggable UI of the media controls.
-  views::View* contents_view_ = nullptr;
+  raw_ptr<views::View, ExperimentalAsh> contents_view_ = nullptr;
 
   // The reason we hid the media controls.
   absl::optional<HideReason> hide_reason_;
@@ -255,13 +249,14 @@ class ASH_EXPORT LockScreenMediaControlsView
   absl::optional<Shown> shown_;
 
   // Container views attached to |contents_view_|.
-  MediaControlsHeaderView* header_row_ = nullptr;
-  views::ImageView* session_artwork_ = nullptr;
-  views::Label* title_label_ = nullptr;
-  views::Label* artist_label_ = nullptr;
-  NonAccessibleView* button_row_ = nullptr;
-  MediaActionButton* play_pause_button_ = nullptr;
-  media_message_center::MediaControlsProgressView* progress_ = nullptr;
+  raw_ptr<MediaControlsHeaderView, ExperimentalAsh> header_row_ = nullptr;
+  raw_ptr<views::ImageView, ExperimentalAsh> session_artwork_ = nullptr;
+  raw_ptr<views::Label, ExperimentalAsh> title_label_ = nullptr;
+  raw_ptr<views::Label, ExperimentalAsh> artist_label_ = nullptr;
+  raw_ptr<NonAccessibleView, ExperimentalAsh> button_row_ = nullptr;
+  raw_ptr<MediaActionButton, ExperimentalAsh> play_pause_button_ = nullptr;
+  raw_ptr<media_message_center::MediaControlsProgressView, ExperimentalAsh>
+      progress_ = nullptr;
 
   std::vector<views::Button*> media_action_buttons_;
 

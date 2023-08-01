@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,17 +8,39 @@
 #include "base/containers/contains.h"
 #include "base/metrics/histogram_macros.h"
 #include "components/bookmarks/browser/bookmark_model.h"
+#include "components/bookmarks/browser/bookmark_utils.h"
 #include "components/prefs/pref_service.h"
-#include "ios/chrome/browser/bookmarks/bookmark_model_factory.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/pref_names.h"
+#include "ios/chrome/browser/bookmarks/local_or_syncable_bookmark_model_factory.h"
+#include "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#include "ios/chrome/browser/shared/model/prefs/pref_names.h"
 
 using bookmarks::BookmarkModel;
 using bookmarks::BookmarkNode;
 
+namespace {
+
+// Returns the bookmark model designed by `type`.
+bookmarks::BookmarkModel* GetBookmarkModelForType(
+    bookmarks::StorageType type,
+    bookmarks::BookmarkModel* profile_bookmark_model,
+    bookmarks::BookmarkModel* account_bookmark_model) {
+  switch (type) {
+    case bookmarks::StorageType::kAccount:
+      return account_bookmark_model;
+    case bookmarks::StorageType::kLocalOrSyncable:
+      return profile_bookmark_model;
+  }
+  NOTREACHED_NORETURN();
+}
+
+}  // namespace
+
+const int64_t kLastUsedBookmarkFolderNone = -1;
+
 bool RemoveAllUserBookmarksIOS(ChromeBrowserState* browser_state) {
   BookmarkModel* bookmark_model =
-      ios::BookmarkModelFactory::GetForBrowserState(browser_state);
+      ios::LocalOrSyncableBookmarkModelFactory::GetForBrowserState(
+          browser_state);
 
   if (!bookmark_model->loaded())
     return false;
@@ -32,8 +54,7 @@ bool RemoveAllUserBookmarksIOS(ChromeBrowserState* browser_state) {
       return false;
   }
 
-  // The default save folder is reset to the generic one.
-  browser_state->GetPrefs()->SetInt64(prefs::kIosBookmarkFolderDefault, -1);
+  ResetLastUsedBookmarkFolder(browser_state->GetPrefs());
   return true;
 }
 
@@ -46,37 +67,59 @@ std::vector<const BookmarkNode*> PrimaryPermanentNodes(BookmarkModel* model) {
   return nodes;
 }
 
-std::vector<const BookmarkNode*> RootLevelFolders(BookmarkModel* model) {
-  std::vector<const BookmarkNode*> root_level_folders;
-
-  // Find the direct folder children of the primary permanent nodes.
-  std::vector<const BookmarkNode*> primary_permanent_nodes =
-      PrimaryPermanentNodes(model);
-  for (const BookmarkNode* parent : primary_permanent_nodes) {
-    for (const auto& child : parent->children()) {
-      if (child->is_folder() && child->IsVisible())
-        root_level_folders.push_back(child.get());
-    }
-  }
-  return root_level_folders;
-}
-
 bool IsPrimaryPermanentNode(const BookmarkNode* node, BookmarkModel* model) {
   std::vector<const BookmarkNode*> primary_nodes(PrimaryPermanentNodes(model));
   return base::Contains(primary_nodes, node);
 }
 
-const BookmarkNode* RootLevelFolderForNode(const BookmarkNode* node,
-                                           BookmarkModel* model) {
-  // This helper function doesn't work for managed bookmarks. This checks that
-  // |node| is editable by the user, which currently covers all the other
-  // bookmarks except the managed bookmarks.
-  DCHECK(model->client()->CanBeEditedByUser(node));
+bool IsLastUsedBookmarkFolderSet(PrefService* prefs) {
+  return prefs->GetInt64(prefs::kIosBookmarkLastUsedFolderReceivingBookmarks) ==
+         kLastUsedBookmarkFolderNone;
+}
 
-  const std::vector<const BookmarkNode*> root_folders(RootLevelFolders(model));
-  const BookmarkNode* top = node;
-  while (top && !base::Contains(root_folders, top)) {
-    top = top->parent();
+void ResetLastUsedBookmarkFolder(PrefService* prefs) {
+  prefs->ClearPref(prefs::kIosBookmarkLastUsedFolderReceivingBookmarks);
+  prefs->ClearPref(prefs::kIosBookmarkLastUsedStorageReceivingBookmarks);
+}
+
+void SetLastUsedBookmarkFolder(PrefService* prefs,
+                               const bookmarks::BookmarkNode* folder,
+                               bookmarks::StorageType type) {
+  DCHECK(folder);
+  DCHECK(folder->is_folder()) << "node type: " << folder->type()
+                              << ", storage type: " << static_cast<int>(type);
+  prefs->SetInt64(prefs::kIosBookmarkLastUsedFolderReceivingBookmarks,
+                  folder->id());
+  prefs->SetInteger(prefs::kIosBookmarkLastUsedStorageReceivingBookmarks,
+                    static_cast<int>(type));
+}
+
+const bookmarks::BookmarkNode* GetDefaultBookmarkFolder(
+    PrefService* prefs,
+    bool is_account_bookmark_model_available,
+    bookmarks::BookmarkModel* profile_bookmark_model,
+    bookmarks::BookmarkModel* account_bookmark_model) {
+  int64_t node_id =
+      prefs->GetInt64(prefs::kIosBookmarkLastUsedFolderReceivingBookmarks);
+
+  if (node_id != kLastUsedBookmarkFolderNone) {
+    bookmarks::StorageType type =
+        static_cast<bookmarks::StorageType>(prefs->GetInteger(
+            prefs::kIosBookmarkLastUsedStorageReceivingBookmarks));
+    bookmarks::BookmarkModel* bookmark_model = GetBookmarkModelForType(
+        type, profile_bookmark_model, account_bookmark_model);
+    const BookmarkNode* result =
+        bookmarks::GetBookmarkNodeByID(bookmark_model, node_id);
+    if (result && result->is_folder()) {
+      return result;
+    }
   }
-  return top;
+
+  // Either preferences is not set, or refers to a non-existing folder.
+  bookmarks::StorageType type = (is_account_bookmark_model_available)
+                                    ? bookmarks::StorageType::kAccount
+                                    : bookmarks::StorageType::kLocalOrSyncable;
+  bookmarks::BookmarkModel* bookmark_model = GetBookmarkModelForType(
+      type, profile_bookmark_model, account_bookmark_model);
+  return bookmark_model->mobile_node();
 }

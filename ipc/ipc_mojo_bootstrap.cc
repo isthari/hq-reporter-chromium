@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,22 +13,22 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/check_op.h"
+#include "base/containers/circular_deque.h"
 #include "base/containers/contains.h"
-#include "base/containers/queue.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/no_destructor.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/stringprintf.h"
 #include "base/synchronization/lock.h"
+#include "base/synchronization/waitable_event.h"
 #include "base/task/common/task_annotator.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_checker.h"
-#include "base/threading/thread_local.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/memory_allocator_dump.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "base/trace_event/memory_dump_provider.h"
@@ -48,6 +48,8 @@
 #include "mojo/public/cpp/bindings/pipe_control_message_proxy.h"
 #include "mojo/public/cpp/bindings/sequence_local_sync_event_watcher.h"
 #include "mojo/public/cpp/bindings/tracing_helpers.h"
+#include "third_party/abseil-cpp/absl/base/attributes.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace IPC {
 
@@ -55,14 +57,7 @@ namespace {
 
 class ChannelAssociatedGroupController;
 
-base::ThreadLocalBoolean& GetOffSequenceBindingAllowedFlag() {
-  static base::NoDestructor<base::ThreadLocalBoolean> flag;
-  return *flag;
-}
-
-bool CanBindOffSequence() {
-  return GetOffSequenceBindingAllowedFlag().Get();
-}
+ABSL_CONST_INIT thread_local bool off_sequence_binding_allowed = false;
 
 // Used to track some internal Channel state in pursuit of message leaks.
 //
@@ -137,11 +132,9 @@ class ChannelAssociatedGroupController
   ChannelAssociatedGroupController(
       bool set_interface_id_namespace_bit,
       const scoped_refptr<base::SingleThreadTaskRunner>& ipc_task_runner,
-      const scoped_refptr<base::SingleThreadTaskRunner>& proxy_task_runner,
-      const scoped_refptr<mojo::internal::MessageQuotaChecker>& quota_checker)
+      const scoped_refptr<base::SingleThreadTaskRunner>& proxy_task_runner)
       : task_runner_(ipc_task_runner),
         proxy_task_runner_(proxy_task_runner),
-        quota_checker_(quota_checker),
         set_interface_id_namespace_bit_(set_interface_id_namespace_bit),
         dispatcher_(this),
         control_message_handler_(this),
@@ -199,8 +192,6 @@ class ChannelAssociatedGroupController
       base::AutoLock lock(outgoing_messages_lock_);
       std::swap(outgoing_messages, outgoing_messages_);
     }
-    if (quota_checker_ && outgoing_messages.size())
-      quota_checker_->AfterMessagesDequeued(outgoing_messages.size());
 
     for (auto& message : outgoing_messages)
       SendMessage(&message);
@@ -217,8 +208,6 @@ class ChannelAssociatedGroupController
         base::BindOnce(&ChannelAssociatedGroupController::OnPipeError,
                        base::Unretained(this)));
     connector_->set_enforce_errors_from_incoming_receiver(false);
-    if (quota_checker_)
-      connector_->SetMessageQuotaChecker(quota_checker_);
 
     // Don't let the Connector do any sort of queuing on our behalf. Individual
     // messages bound for the IPC::ChannelProxy thread (i.e. that vast majority
@@ -269,9 +258,6 @@ class ChannelAssociatedGroupController
     connector_.reset();
 
     base::AutoLock lock(outgoing_messages_lock_);
-    if (quota_checker_ && outgoing_messages_.size())
-      quota_checker_->AfterMessagesDequeued(outgoing_messages_.size());
-
     outgoing_messages_.clear();
   }
 
@@ -466,6 +452,11 @@ class ChannelAssociatedGroupController
       return *this;
     }
 
+    bool HasRequestId(uint64_t request_id) {
+      return !value_.IsNull() && value_.version() >= 1 &&
+             value_.header_v1()->request_id == request_id;
+    }
+
     mojo::Message& value() { return value_; }
 
    private:
@@ -543,8 +534,9 @@ class ChannelAssociatedGroupController
       task_runner_ = std::move(runner);
       client_ = client;
 
-      if (CanBindOffSequence())
+      if (off_sequence_binding_allowed) {
         was_bound_off_sequence_ = true;
+      }
     }
 
     void DetachClient() {
@@ -557,10 +549,15 @@ class ChannelAssociatedGroupController
       sync_watcher_.reset();
     }
 
-    uint32_t EnqueueSyncMessage(MessageWrapper message) {
+    absl::optional<uint32_t> EnqueueSyncMessage(MessageWrapper message) {
       controller_->lock_.AssertAcquired();
+      if (exclusive_wait_ && exclusive_wait_->TryFulfillingWith(message)) {
+        exclusive_wait_ = nullptr;
+        return absl::nullopt;
+      }
+
       uint32_t id = GenerateSyncMessageId();
-      sync_messages_.emplace(id, std::move(message));
+      sync_messages_.emplace_back(id, std::move(message));
       SignalSyncMessageEvent();
       return id;
     }
@@ -577,7 +574,7 @@ class ChannelAssociatedGroupController
       if (sync_messages_.empty() || sync_messages_.front().first != id)
         return MessageWrapper();
       MessageWrapper message = std::move(sync_messages_.front().second);
-      sync_messages_.pop();
+      sync_messages_.pop_front();
       return message;
     }
 
@@ -607,10 +604,38 @@ class ChannelAssociatedGroupController
       return sync_watcher_->SyncWatch(&should_stop);
     }
 
+    MessageWrapper WaitForIncomingSyncReply(uint64_t request_id) {
+      absl::optional<ExclusiveSyncWait> wait;
+      {
+        base::AutoLock lock(controller_->lock_);
+        for (auto& [id, message] : sync_messages_) {
+          if (message.HasRequestId(request_id)) {
+            return std::move(message);
+          }
+        }
+
+        DCHECK(!exclusive_wait_);
+        wait.emplace(request_id);
+        exclusive_wait_ = &wait.value();
+      }
+
+      wait->event.Wait();
+      return std::move(wait->message);
+    }
+
     bool SyncWatchExclusive(uint64_t request_id) override {
-      // We don't support exclusive waits on Channel-associated interfaces.
-      NOTREACHED();
-      return false;
+      MessageWrapper message = WaitForIncomingSyncReply(request_id);
+      if (message.value().IsNull() || !client_) {
+        return false;
+      }
+
+      if (!client_->HandleIncomingMessage(&message.value())) {
+        base::AutoLock locker(controller_->lock_);
+        controller_->RaiseError();
+        return false;
+      }
+
+      return true;
     }
 
     void RegisterExternalSyncWaiter(uint64_t request_id) override {}
@@ -624,20 +649,26 @@ class ChannelAssociatedGroupController
       DCHECK(closed_);
       DCHECK(peer_closed_);
       DCHECK(!sync_watcher_);
+      if (exclusive_wait_) {
+        exclusive_wait_->event.Signal();
+      }
     }
 
     void OnSyncMessageEventReady() {
       DCHECK(task_runner_->RunsTasksInCurrentSequence());
 
-      scoped_refptr<Endpoint> keepalive(this);
+      // SUBTLE: The order of these scoped_refptrs matters.
+      // `controller_keepalive` MUST outlive `keepalive` because the Endpoint
+      // holds raw pointer to the AssociatedGroupController.
       scoped_refptr<AssociatedGroupController> controller_keepalive(
           controller_.get());
+      scoped_refptr<Endpoint> keepalive(this);
       base::AutoLock locker(controller_->lock_);
       bool more_to_process = false;
       if (!sync_messages_.empty()) {
         MessageWrapper message_wrapper =
             std::move(sync_messages_.front().second);
-        sync_messages_.pop();
+        sync_messages_.pop_front();
 
         bool dispatch_succeeded;
         mojo::InterfaceEndpointClient* client = client_;
@@ -685,6 +716,28 @@ class ChannelAssociatedGroupController
       return id;
     }
 
+    // Tracks the state of a pending sync wait which excludes all other incoming
+    // IPC on the waiting thread.
+    struct ExclusiveSyncWait {
+      explicit ExclusiveSyncWait(uint64_t request_id)
+          : request_id(request_id) {}
+      ~ExclusiveSyncWait() = default;
+
+      bool TryFulfillingWith(MessageWrapper& wrapper) {
+        if (!wrapper.HasRequestId(request_id)) {
+          return false;
+        }
+
+        message = std::move(wrapper);
+        event.Signal();
+        return true;
+      }
+
+      uint64_t request_id;
+      base::WaitableEvent event;
+      MessageWrapper message;
+    };
+
     const raw_ptr<ChannelAssociatedGroupController> controller_;
     const mojo::InterfaceId id_;
 
@@ -696,7 +749,8 @@ class ChannelAssociatedGroupController
     raw_ptr<mojo::InterfaceEndpointClient> client_ = nullptr;
     scoped_refptr<base::SequencedTaskRunner> task_runner_;
     std::unique_ptr<mojo::SequenceLocalSyncEventWatcher> sync_watcher_;
-    base::queue<std::pair<uint32_t, MessageWrapper>> sync_messages_;
+    base::circular_deque<std::pair<uint32_t, MessageWrapper>> sync_messages_;
+    raw_ptr<ExclusiveSyncWait> exclusive_wait_ = nullptr;
     uint32_t next_sync_message_id_ = 0;
   };
 
@@ -751,8 +805,6 @@ class ChannelAssociatedGroupController
       if (!connector_ || paused_) {
         if (!shut_down_) {
           base::AutoLock lock(outgoing_messages_lock_);
-          if (quota_checker_)
-            quota_checker_->BeforeMessagesEnqueued(1);
           outgoing_messages_.emplace_back(std::move(*message));
         }
         return true;
@@ -820,12 +872,16 @@ class ChannelAssociatedGroupController
           FROM_HERE,
           base::BindOnce(&ChannelAssociatedGroupController::
                              NotifyEndpointOfErrorOnEndpointThread,
-                         this, endpoint->id(), base::Unretained(endpoint)));
+                         this, endpoint->id(),
+                         // This is safe as `endpoint` is verified to be in
+                         // `endpoints_` (a map with ownership) before use.
+                         base::UnsafeDangling(endpoint)));
     }
   }
 
+  // `endpoint` might be a dangling ptr and must be checked before dereference.
   void NotifyEndpointOfErrorOnEndpointThread(mojo::InterfaceId id,
-                                             Endpoint* endpoint) {
+                                             MayBeDangling<Endpoint> endpoint) {
     base::AutoLock locker(lock_);
     auto iter = endpoints_.find(id);
     if (iter == endpoints_.end() || iter->second.get() != endpoint)
@@ -929,12 +985,15 @@ class ChannelAssociatedGroupController
         // sync message queue. If the endpoint was blocking, it will dequeue the
         // message and dispatch it. Otherwise the posted |AcceptSyncMessage()|
         // call will dequeue the message and dispatch it.
-        uint32_t message_id =
+        absl::optional<uint32_t> message_id =
             endpoint->EnqueueSyncMessage(std::move(message_wrapper));
-        task_runner->PostTask(
-            FROM_HERE,
-            base::BindOnce(&ChannelAssociatedGroupController::AcceptSyncMessage,
-                           this, id, message_id));
+        if (message_id) {
+          task_runner->PostTask(
+              FROM_HERE,
+              base::BindOnce(
+                  &ChannelAssociatedGroupController::AcceptSyncMessage, this,
+                  id, *message_id));
+        }
         return true;
       }
 
@@ -985,8 +1044,10 @@ class ChannelAssociatedGroupController
       return;
     }
 
+    // TODO(altimin): This event is temporarily kept as a debug fallback. Remove
+    // it once the new implementation proves to be stable.
     TRACE_EVENT(
-        TRACE_CATEGORY_OR_DISABLED_BY_DEFAULT_MOJOM("mojom"),
+        TRACE_DISABLED_BY_DEFAULT("mojom"),
         // Using client->interface_name() is safe here because this is a static
         // string defined for each mojo interface.
         perfetto::StaticString(client->interface_name()),
@@ -1084,7 +1145,6 @@ class ChannelAssociatedGroupController
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 
   const scoped_refptr<base::SingleThreadTaskRunner> proxy_task_runner_;
-  const scoped_refptr<mojo::internal::MessageQuotaChecker> quota_checker_;
   const bool set_interface_id_namespace_bit_;
   bool paused_ = false;
   std::unique_ptr<mojo::Connector> connector_;
@@ -1199,26 +1259,21 @@ class MojoBootstrapImpl : public MojoBootstrap {
 
 ScopedAllowOffSequenceChannelAssociatedBindings::
     ScopedAllowOffSequenceChannelAssociatedBindings()
-    : outer_flag_(GetOffSequenceBindingAllowedFlag().Get()) {
-  GetOffSequenceBindingAllowedFlag().Set(true);
-}
+    : resetter_(&off_sequence_binding_allowed, true) {}
 
 ScopedAllowOffSequenceChannelAssociatedBindings::
-    ~ScopedAllowOffSequenceChannelAssociatedBindings() {
-  GetOffSequenceBindingAllowedFlag().Set(outer_flag_);
-}
+    ~ScopedAllowOffSequenceChannelAssociatedBindings() = default;
 
 // static
 std::unique_ptr<MojoBootstrap> MojoBootstrap::Create(
     mojo::ScopedMessagePipeHandle handle,
     Channel::Mode mode,
     const scoped_refptr<base::SingleThreadTaskRunner>& ipc_task_runner,
-    const scoped_refptr<base::SingleThreadTaskRunner>& proxy_task_runner,
-    const scoped_refptr<mojo::internal::MessageQuotaChecker>& quota_checker) {
+    const scoped_refptr<base::SingleThreadTaskRunner>& proxy_task_runner) {
   return std::make_unique<MojoBootstrapImpl>(
-      std::move(handle), base::MakeRefCounted<ChannelAssociatedGroupController>(
-                             mode == Channel::MODE_SERVER, ipc_task_runner,
-                             proxy_task_runner, quota_checker));
+      std::move(handle),
+      base::MakeRefCounted<ChannelAssociatedGroupController>(
+          mode == Channel::MODE_SERVER, ipc_task_runner, proxy_task_runner));
 }
 
 }  // namespace IPC

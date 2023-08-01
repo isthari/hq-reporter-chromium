@@ -1,4 +1,4 @@
-# Copyright 2015 The Chromium Authors. All rights reserved.
+# Copyright 2015 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -38,6 +38,49 @@ action("embed_js_in_cpp") {
   args += rebase_path(js_files, root_build_dir)
 }
 
+action("embed_mobile_devices_in_cpp") {
+  script = "embed_mobile_devices_in_cpp.py"
+
+  ts_files = [ "//third_party/devtools-frontend/src/front_end/models/emulation/EmulatedDevices.ts" ]
+  inputs = [
+    "//chrome/VERSION",
+    "cpp_source.py",
+  ]
+  inputs += ts_files
+
+  outputs = [
+    "$target_gen_dir/chrome/mobile_device_list.cc",
+    "$target_gen_dir/chrome/mobile_device_list.h",
+  ]
+  args = [
+    "--directory",
+    rebase_path("$target_gen_dir/chrome", root_build_dir),
+  ]
+  args += rebase_path(ts_files, root_build_dir)
+}
+
+action("embed_bidimapper_in_cpp") {
+  script = "embed_bidimapper_in_cpp.py"
+
+  input_dir =
+      get_label_info("//third_party/bidimapper:bidimapper", "target_gen_dir")
+  js_files = [ "$input_dir/mapper.js" ]
+
+  inputs = [ "cpp_source.py" ] + js_files
+
+  outputs = [
+    "$target_gen_dir/bidimapper/bidimapper.cc",
+    "$target_gen_dir/bidimapper/bidimapper.h",
+  ]
+  args = [
+    "--directory",
+    rebase_path("$target_gen_dir/bidimapper", root_build_dir),
+  ]
+  args += rebase_path(js_files, root_build_dir)
+
+  deps = [ "//third_party/bidimapper:bidimapper" ]
+}
+
 action("embed_user_data_dir_in_cpp") {
   script = "embed_user_data_dir_in_cpp.py"
 
@@ -65,6 +108,8 @@ source_set("automation_client_lib") {
     "chrome/adb.h",
     "chrome/adb_impl.cc",
     "chrome/adb_impl.h",
+    "chrome/bidi_tracker.cc",
+    "chrome/bidi_tracker.h",
     "chrome/browser_info.cc",
     "chrome/browser_info.h",
     "chrome/cast_tracker.cc",
@@ -80,6 +125,8 @@ source_set("automation_client_lib") {
     "chrome/chrome_impl.h",
     "chrome/chrome_remote_impl.cc",
     "chrome/chrome_remote_impl.h",
+    "chrome/client_hints.cc",
+    "chrome/client_hints.h",
     "chrome/console_logger.cc",
     "chrome/console_logger.h",
     "chrome/device_manager.cc",
@@ -96,10 +143,10 @@ source_set("automation_client_lib") {
     "chrome/devtools_event_listener.h",
     "chrome/devtools_http_client.cc",
     "chrome/devtools_http_client.h",
-    "chrome/dom_tracker.cc",
-    "chrome/dom_tracker.h",
     "chrome/download_directory_override_manager.cc",
     "chrome/download_directory_override_manager.h",
+    "chrome/fedcm_tracker.cc",
+    "chrome/fedcm_tracker.h",
     "chrome/frame_tracker.cc",
     "chrome/frame_tracker.h",
     "chrome/geolocation_override_manager.cc",
@@ -113,8 +160,6 @@ source_set("automation_client_lib") {
     "chrome/log.h",
     "chrome/mobile_device.cc",
     "chrome/mobile_device.h",
-    "chrome/mobile_device_list.cc",
-    "chrome/mobile_device_list.h",
     "chrome/mobile_emulation_override_manager.cc",
     "chrome/mobile_emulation_override_manager.h",
     "chrome/navigation_tracker.cc",
@@ -129,6 +174,8 @@ source_set("automation_client_lib") {
     "chrome/non_blocking_navigation_tracker.h",
     "chrome/page_load_strategy.cc",
     "chrome/page_load_strategy.h",
+    "chrome/page_tracker.cc",
+    "chrome/page_tracker.h",
     "chrome/scoped_temp_dir_with_retry.cc",
     "chrome/scoped_temp_dir_with_retry.h",
     "chrome/status.cc",
@@ -176,10 +223,14 @@ source_set("automation_client_lib") {
 
   # Also compile the generated files.
   sources += get_target_outputs(":embed_js_in_cpp")
+  sources += get_target_outputs(":embed_mobile_devices_in_cpp")
+  sources += get_target_outputs(":embed_bidimapper_in_cpp")
   sources += get_target_outputs(":embed_user_data_dir_in_cpp")
 
   deps = [
+    ":embed_bidimapper_in_cpp",
     ":embed_js_in_cpp",
+    ":embed_mobile_devices_in_cpp",
     ":embed_user_data_dir_in_cpp",
     "//base",
     "//base/third_party/dynamic_annotations",
@@ -205,8 +256,6 @@ source_set("automation_client_lib") {
 source_set("lib") {
   testonly = true
   sources = [
-    "//third_party/webdriver/atoms.cc",
-    "//third_party/webdriver/atoms.h",
     "alert_commands.cc",
     "alert_commands.h",
     "basic_types.cc",
@@ -228,6 +277,8 @@ source_set("lib") {
     "element_commands.h",
     "element_util.cc",
     "element_util.h",
+    "fedcm_commands.cc",
+    "fedcm_commands.h",
     "key_converter.cc",
     "key_converter.h",
     "keycode_text_conversion.h",
@@ -280,6 +331,7 @@ source_set("lib") {
     "//services/network:network_service",
     "//services/network/public/cpp",
     "//services/network/public/mojom",
+    "//third_party/selenium-atoms:atoms",
     "//third_party/zlib",
     "//third_party/zlib/google:zip",
     "//ui/base",
@@ -315,45 +367,57 @@ source_set("lib") {
 }
 
 if (is_linux) {
-  chromedriver_output = "chromedriver.unstripped"
-} else {
-  chromedriver_output = "chromedriver"
-}
-
-executable("$chromedriver_output") {
-  testonly = true
-  sources = [ "server/chromedriver_server.cc" ]
-
-  deps = [
-    ":automation_client_lib",
-    ":lib",
-    "//build:chromeos_buildflags",
-    "//build/win:default_exe_manifest",
-    "//mojo/core/embedder",
-    "//net/server:http_server",
-    "//net/traffic_annotation:test_support",
-    "//services/network/public/mojom",
-  ]
-
-  if (is_mac && is_component_ffmpeg) {
-    ldflags = [ "-Wl,-rpath,@executable_path/." ]
-  }
-}
-
-if (is_linux) {
-  strip_binary("chromedriver") {
+  # Linux
+  executable("chromedriver_server.unstripped") {
     testonly = true
-    binary_input = "$root_out_dir/$chromedriver_output"
+    sources = [ "server/chromedriver_server.cc" ]
+    output_name = "chromedriver.unstripped"
+
+    deps = [
+      ":automation_client_lib",
+      ":lib",
+      "//mojo/core/embedder",
+      "//net/server:http_server",
+      "//net/traffic_annotation:test_support",
+      "//services/network/public/mojom",
+    ]
+  }
+
+  strip_binary("chromedriver_server") {
+    testonly = true
+    binary_input = "$root_out_dir/chromedriver.unstripped"
     symbol_output = "$root_out_dir/chromedriver.debug"
     stripped_binary_output = "$root_out_dir/chromedriver"
-    deps = [ ":$chromedriver_output" ]
+    deps = [ ":chromedriver_server.unstripped" ]
+  }
+} else {
+  # Non-Linux
+  executable("chromedriver_server") {
+    testonly = true
+    sources = [ "server/chromedriver_server.cc" ]
+    output_name = "chromedriver"
+
+    deps = [
+      ":automation_client_lib",
+      ":lib",
+      "//build:chromeos_buildflags",
+      "//build/win:default_exe_manifest",
+      "//mojo/core/embedder",
+      "//net/server:http_server",
+      "//net/traffic_annotation:test_support",
+      "//services/network/public/mojom",
+    ]
+
+    if (is_mac && is_component_ffmpeg) {
+      ldflags = [ "-Wl,-rpath,@executable_path/." ]
+    }
   }
 }
 
 python_library("chromedriver_py_tests") {
   testonly = true
   deps = [
-    ":chromedriver",
+    ":chromedriver_server",
     "//chrome:chrome",
   ]
 
@@ -365,7 +429,7 @@ python_library("chromedriver_py_tests") {
   ]
 
   data_deps = [
-    "//chrome/test/chromedriver",
+    "//chrome/test/chromedriver:chromedriver_server",
     "//testing:test_scripts_shared",
   ]
   if (is_component_build && is_mac) {
@@ -380,7 +444,7 @@ python_library("chromedriver_py_tests") {
 
 python_library("chromedriver_replay_unittests") {
   testonly = true
-  deps = [ ":chromedriver" ]
+  deps = [ ":chromedriver_server" ]
 
   data_deps = [ "//testing:test_scripts_shared" ]
 
@@ -390,6 +454,7 @@ python_library("chromedriver_replay_unittests") {
 test("chromedriver_unittests") {
   sources = [
     "capabilities_unittest.cc",
+    "chrome/bidi_tracker_unittest.cc",
     "chrome/browser_info_unittest.cc",
     "chrome/cast_tracker_unittest.cc",
     "chrome/chrome_finder_unittest.cc",
@@ -398,12 +463,13 @@ test("chromedriver_unittests") {
     "chrome/devtools_client_impl_unittest.cc",
     "chrome/devtools_endpoint_unittest.cc",
     "chrome/devtools_http_client_unittest.cc",
-    "chrome/dom_tracker_unittest.cc",
     "chrome/download_directory_override_manager_unittest.cc",
+    "chrome/fedcm_tracker_unittest.cc",
     "chrome/frame_tracker_unittest.cc",
     "chrome/geolocation_override_manager_unittest.cc",
     "chrome/heap_snapshot_taker_unittest.cc",
     "chrome/javascript_dialog_manager_unittest.cc",
+    "chrome/mobile_device_unittest.cc",
     "chrome/mobile_emulation_override_manager_unittest.cc",
     "chrome/navigation_tracker_unittest.cc",
     "chrome/network_conditions_override_manager_unittest.cc",
@@ -421,6 +487,7 @@ test("chromedriver_unittests") {
     "command_listener_proxy_unittest.cc",
     "commands_unittest.cc",
     "element_commands_unittest.cc",
+    "fedcm_commands_unittest.cc",
     "key_converter_unittest.cc",
     "keycode_text_conversion_unittest.cc",
     "log_replay/devtools_log_reader_unittest.cc",
@@ -460,10 +527,42 @@ test("chromedriver_unittests") {
     "//services/network/public/mojom",
     "//testing/gmock",
     "//testing/gtest",
+    "//third_party/selenium-atoms:atoms",
     "//ui/base",
     "//ui/events:test_support",
     "//ui/gfx",
     "//ui/gfx/geometry",
     "//url",
+  ]
+}
+
+# Generate LICENSE file by recursively joining all dependent licenses.
+action("generate_chromedriver_license") {
+  testonly = true
+  _license_path = "$root_out_dir/LICENSE.chromedriver"
+  _extra_third_party_dirs = [
+    "third_party/selenium-atoms/sizzle",
+    "third_party/selenium-atoms/wgxpath",
+    "third_party/selenium-atoms/closure-lib",
+  ]
+  script = "//tools/licenses/licenses.py"
+  outputs = [ _license_path ]
+  args = [
+    "license_file",
+    rebase_path(_license_path, root_build_dir),
+    "--gn-target",
+    "//chrome/test/chromedriver:chromedriver_server",
+    "--gn-out-dir",
+    ".",
+  ]
+  args += [ "--extra-third-party-dirs=$_extra_third_party_dirs" ]
+  deps = [ ":chromedriver_server" ]
+}
+
+group("chromedriver") {
+  testonly = true
+  deps = [
+    ":chromedriver_server",
+    ":generate_chromedriver_license",
   ]
 }

@@ -1,22 +1,26 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/webui/print_management/print_management_ui.h"
 
-#include "ash/grit/ash_print_management_resources.h"
-#include "ash/grit/ash_print_management_resources_map.h"
-#include "ash/webui/print_management/mojom/printing_manager.mojom.h"
+#include <memory>
+
+#include "ash/constants/ash_features.h"
+#include "ash/webui/grit/ash_print_management_resources.h"
+#include "ash/webui/grit/ash_print_management_resources_map.h"
 #include "ash/webui/print_management/url_constants.h"
-#include "base/memory/ptr_util.h"
+#include "base/feature_list.h"
+#include "chromeos/components/print_management/mojom/printing_manager.mojom.h"
 #include "chromeos/strings/grit/chromeos_strings.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
+#include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "services/network/public/mojom/content_security_policy.mojom.h"
 #include "ui/base/webui/web_ui_util.h"
-#include "ui/resources/grit/webui_generated_resources.h"
 #include "ui/resources/grit/webui_resources.h"
+#include "ui/webui/color_change_listener/color_change_handler.h"
 
 namespace ash {
 namespace printing {
@@ -30,10 +34,15 @@ void SetUpWebUIDataSource(content::WebUIDataSource* source,
     source->AddResourcePath(resource.path, resource.id);
   }
   source->SetDefaultResource(default_resource);
-  source->AddResourcePath("test_loader.html", IDR_WEBUI_HTML_TEST_LOADER_HTML);
+  source->AddResourcePath("test_loader.html", IDR_WEBUI_TEST_LOADER_HTML);
   source->AddResourcePath("test_loader.js", IDR_WEBUI_JS_TEST_LOADER_JS);
   source->AddResourcePath("test_loader_util.js",
                           IDR_WEBUI_JS_TEST_LOADER_UTIL_JS);
+  source->AddBoolean("isJellyEnabledForPrintManagement",
+                     ash::features::IsJellyEnabledForPrintManagement());
+  source->AddBoolean("isSetupAssistanceEnabled",
+                     base::FeatureList::IsEnabled(
+                         ash::features::kPrintManagementSetupAssistance));
 }
 
 void AddPrintManagementStrings(content::WebUIDataSource* html_source) {
@@ -78,6 +87,8 @@ void AddPrintManagementStrings(content::WebUIDataSource* html_source) {
       {"stopped", IDS_PRINT_MANAGEMENT_STOPPED_ERROR_STATUS},
       {"clientUnauthorized",
        IDS_PRINT_MANAGEMENT_CLIENT_UNAUTHORIZED_ERROR_STATUS},
+      {"expiredCertificate",
+       IDS_PRINT_MANAGEMENT_EXPIRED_CERTIFICATE_ERROR_STATUS},
       {"filterFailed", IDS_PRINT_MANAGEMENT_FILTERED_FAILED_ERROR_STATUS},
       {"unknownPrinterError", IDS_PRINT_MANAGEMENT_UNKNOWN_ERROR_STATUS},
       {"paperJamStopped", IDS_PRINT_MANAGEMENT_PAPER_JAM_STOPPED_ERROR_STATUS},
@@ -100,7 +111,13 @@ void AddPrintManagementStrings(content::WebUIDataSource* html_source) {
        IDS_PRINT_MANAGEMENT_CANCEL_PRINT_JOB_BUTTON_LABEL},
       {"cancelledPrintJob",
        IDS_PRINT_MANAGEMENT_CANCELED_PRINT_JOB_ARIA_ANNOUNCEMENT},
-      {"collapsedPrintingText", IDS_PRINT_MANAGEMENT_COLLAPSE_PRINTING_STATUS}};
+      {"collapsedPrintingText", IDS_PRINT_MANAGEMENT_COLLAPSE_PRINTING_STATUS},
+      {"emptyStateNoJobsMessage",
+       IDS_PRINT_MANAGEMENT_EMPTY_STATE_NO_JOBS_MESSAGE},
+      {"emptyStatePrinterSettingsMessage",
+       IDS_PRINT_MANAGEMENT_EMPTY_STATE_PRINTER_SETTINGS_MESSAGE},
+      {"managePrintersButtonLabel",
+       IDS_PRINT_MANAGEMENT_EMPTY_STATE_MANAGE_PRINTERS_LABEL}};
 
   html_source->AddLocalizedStrings(kLocalizedStrings);
   html_source->UseStringsJs();
@@ -112,32 +129,41 @@ PrintManagementUI::PrintManagementUI(
     BindPrintingMetadataProviderCallback callback)
     : ui::MojoWebUIController(web_ui),
       bind_pending_receiver_callback_(std::move(callback)) {
-  auto html_source = base::WrapUnique(
-      content::WebUIDataSource::Create(kChromeUIPrintManagementHost));
+  content::WebUIDataSource* html_source =
+      content::WebUIDataSource::CreateAndAdd(
+          web_ui->GetWebContents()->GetBrowserContext(),
+          kChromeUIPrintManagementHost);
   html_source->OverrideContentSecurityPolicy(
       network::mojom::CSPDirectiveName::ScriptSrc,
-      "script-src chrome://resources chrome://test 'self';");
+      "script-src chrome://resources chrome://test chrome://webui-test "
+      "'self';");
   html_source->DisableTrustedTypesCSP();
 
   const auto resources = base::make_span(kAshPrintManagementResources,
                                          kAshPrintManagementResourcesSize);
-  SetUpWebUIDataSource(html_source.get(), resources,
-                       IDR_PRINT_MANAGEMENT_INDEX_HTML);
+  SetUpWebUIDataSource(html_source, resources,
+                       IDR_ASH_PRINT_MANAGEMENT_INDEX_HTML);
 
-  html_source->AddResourcePath("printing_manager.mojom-lite.js",
-                               IDR_PRINTING_MANAGER_MOJO_LITE_JS);
+  html_source->AddResourcePath(
+      "printing_manager.mojom-webui.js",
+      IDR_ASH_PRINT_MANAGEMENT_PRINTING_MANAGER_MOJOM_WEBUI_JS);
 
-  AddPrintManagementStrings(html_source.get());
-
-  content::WebUIDataSource::Add(web_ui->GetWebContents()->GetBrowserContext(),
-                                html_source.release());
+  AddPrintManagementStrings(html_source);
 }
 
 PrintManagementUI::~PrintManagementUI() = default;
 
 void PrintManagementUI::BindInterface(
-    mojo::PendingReceiver<mojom::PrintingMetadataProvider> receiver) {
+    mojo::PendingReceiver<
+        chromeos::printing::printing_manager::mojom::PrintingMetadataProvider>
+        receiver) {
   bind_pending_receiver_callback_.Run(std::move(receiver));
+}
+
+void PrintManagementUI::BindInterface(
+    mojo::PendingReceiver<color_change_listener::mojom::PageHandler> receiver) {
+  color_provider_handler_ = std::make_unique<ui::ColorChangeHandler>(
+      web_ui()->GetWebContents(), std::move(receiver));
 }
 
 WEB_UI_CONTROLLER_TYPE_IMPL(PrintManagementUI)

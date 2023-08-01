@@ -1,11 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef NET_DNS_PUBLIC_HOST_RESOLVER_SOURCE_H_
 #define NET_DNS_PUBLIC_HOST_RESOLVER_SOURCE_H_
 
-#include "base/cxx17_backports.h"
+#include <iterator>
 
 namespace net {
 
@@ -29,7 +29,9 @@ enum class HostResolverSource {
   // No external sources will be used. Results will only come from fast local
   // sources that are available no matter the source setting, e.g. cache, hosts
   // file, IP literal resolution, etc. Resolves with this setting are guaranteed
-  // to finish synchronously.
+  // to finish synchronously. Resolves with this settings will return
+  // ERR_NAME_NOT_RESOLVED if an asynchronous IPv6 reachability probe needs to
+  // be done.
   LOCAL_ONLY,
 
   MAX = LOCAL_ONLY
@@ -41,7 +43,7 @@ const HostResolverSource kHostResolverSources[] = {
     HostResolverSource::LOCAL_ONLY};
 
 static_assert(
-    base::size(kHostResolverSources) ==
+    std::size(kHostResolverSources) ==
         static_cast<unsigned>(HostResolverSource::MAX) + 1,
     "All HostResolverSource values should be in kHostResolverSources.");
 

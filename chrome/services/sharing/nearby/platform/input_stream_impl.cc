@@ -1,12 +1,12 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/services/sharing/nearby/platform/input_stream_impl.h"
 
 #include "base/metrics/histogram_functions.h"
+#include "base/task/sequenced_task_runner.h"
 
-namespace location {
 namespace nearby {
 namespace chrome {
 
@@ -19,7 +19,8 @@ void LogReadResult(connections::mojom::Medium medium, bool success) {
           "Nearby.Connections.Bluetooth.Socket.Read.Result", success);
       break;
     case connections::mojom::Medium::kWifiLan:
-      // TODO(https://crbug.com/1261238): Record metric.
+      base::UmaHistogramBoolean("Nearby.Connections.WifiLan.Socket.Read.Result",
+                                success);
       break;
     case connections::mojom::Medium::kUnknown:
     case connections::mojom::Medium::kMdns:
@@ -30,6 +31,7 @@ void LogReadResult(connections::mojom::Medium medium, bool success) {
     case connections::mojom::Medium::kWifiDirect:
     case connections::mojom::Medium::kWebRtc:
     case connections::mojom::Medium::kBleL2Cap:
+    case connections::mojom::Medium::kUsb:
       break;
   }
 }
@@ -183,4 +185,3 @@ void InputStreamImpl::DoClose(base::WaitableEvent* task_run_waitable_event) {
 
 }  // namespace chrome
 }  // namespace nearby
-}  // namespace location

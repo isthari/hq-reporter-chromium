@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,16 +7,16 @@
 
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/ash/borealis/borealis_disk_manager.h"
-#include "chromeos/dbus/services/cros_dbus_service.h"
+#include "chromeos/ash/components/dbus/services/cros_dbus_service.h"
 #include "dbus/exported_object.h"
 
-using ExpectedGetDiskInfoResponse = borealis::Expected<
-    borealis::BorealisDiskManager::GetDiskInfoResponse,
-    borealis::Described<borealis::BorealisGetDiskInfoResult>>;
+using ExpectedGetDiskInfoResponse =
+    base::expected<borealis::BorealisDiskManager::GetDiskInfoResponse,
+                   borealis::Described<borealis::BorealisGetDiskInfoResult>>;
 
 using ExpectedRequestDeltaResponse =
-    borealis::Expected<uint64_t,
-                       borealis::Described<borealis::BorealisResizeDiskResult>>;
+    base::expected<uint64_t,
+                   borealis::Described<borealis::BorealisResizeDiskResult>>;
 
 namespace dbus {
 class MethodCall;
@@ -69,10 +69,5 @@ class VmDiskManagementServiceProvider
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove when ChromeOS code migration is done.
-namespace chromeos {
-using ::ash::VmDiskManagementServiceProvider;
-}  // namespace chromeos
 
 #endif  // CHROME_BROWSER_ASH_DBUS_VM_VM_DISK_MANAGEMENT_SERVICE_PROVIDER_H_

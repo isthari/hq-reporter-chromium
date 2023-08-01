@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,14 +7,11 @@
 #include <memory>
 
 #include "base/feature_list.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/profiles/incognito_helpers.h"
+#include "chrome/browser/language/url_language_histogram_factory.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/profiles/profile_manager.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/language/content/browser/geo_language_model.h"
 #include "components/language/content/browser/geo_language_provider.h"
@@ -23,7 +20,8 @@
 #include "components/language/core/browser/locale_util.h"
 #include "components/language/core/browser/pref_names.h"
 #include "components/language/core/browser/ulp_metrics_logger.h"
-#include "components/language/core/common/language_experiments.h"
+#include "components/language/core/browser/url_language_histogram.h"
+#include "components/language/core/common/language_util.h"
 #include "components/language/core/language_model/fluent_language_model.h"
 #include "components/language/core/language_model/ulp_language_model.h"
 #include "components/pref_registry/pref_registry_syncable.h"
@@ -33,28 +31,32 @@
 #if BUILDFLAG(IS_ANDROID)
 #include "base/android/jni_string.h"
 #include "base/android/scoped_java_ref.h"
-#include "chrome/browser/language/android/jni_headers/LanguageBridge_jni.h"
+#include "chrome/browser/language/android/language_bridge.h"
+
+using language::ULPMetricsLogger;
 #endif
 
 namespace {
 
 #if BUILDFLAG(IS_ANDROID)
 // Records per-initialization ULP-related metrics.
-void RecordULPInitMetrics(Profile* profile,
-                          const std::vector<std::string>& ulp_languages) {
+void RecordULPInitMetrics(
+    PrefService* pref_service,
+    const language::UrlLanguageHistogram& page_language_histogram,
+    const std::vector<std::string>& ulp_languages) {
   language::ULPMetricsLogger logger;
 
   logger.RecordInitiationLanguageCount(ulp_languages.size());
 
-  PrefService* pref_service = profile->GetPrefs();
   const std::string app_locale = g_browser_process->GetApplicationLocale();
   logger.RecordInitiationUILanguageInULP(
-      logger.DetermineLanguageStatus(app_locale, ulp_languages));
+      ULPMetricsLogger::DetermineLanguageStatus(app_locale, ulp_languages));
 
   const std::string target_language =
       translate::TranslatePrefs(pref_service).GetRecentTargetLanguage();
   logger.RecordInitiationTranslateTargetInULP(
-      logger.DetermineLanguageStatus(target_language, ulp_languages));
+      ULPMetricsLogger::DetermineLanguageStatus(target_language,
+                                                ulp_languages));
 
   std::vector<std::string> accept_languages;
   language::LanguagePrefs(pref_service)
@@ -63,39 +65,44 @@ void RecordULPInitMetrics(Profile* profile,
   language::ULPLanguageStatus accept_language_status =
       language::ULPLanguageStatus::kLanguageEmpty;
   if (accept_languages.size() > 0) {
-    accept_language_status =
-        logger.DetermineLanguageStatus(accept_languages[0], ulp_languages);
+    accept_language_status = ULPMetricsLogger::DetermineLanguageStatus(
+        accept_languages[0], ulp_languages);
   }
   logger.RecordInitiationTopAcceptLanguageInULP(accept_language_status);
 
   logger.RecordInitiationAcceptLanguagesULPOverlap(
-      logger.ULPLanguagesInAcceptLanguagesRatio(accept_languages,
-                                                ulp_languages));
-}
+      ULPMetricsLogger::LanguagesOverlapRatio(accept_languages, ulp_languages));
 
-std::vector<std::string> JavaLanguageBridgeGetULPLanguagesWrapper(
-    std::string account_name) {
-  JNIEnv* env = base::android::AttachCurrentThread();
-  base::android::ScopedJavaLocalRef<jstring> account_name_java =
-      base::android::ConvertUTF8ToJavaString(env, account_name);
-  base::android::ScopedJavaLocalRef<jobjectArray> languages_java =
-      Java_LanguageBridge_getULPLanguages(env, account_name_java);
+  std::vector<std::string> never_languages_not_in_ulp =
+      ULPMetricsLogger::RemoveULPLanguages(
+          translate::TranslatePrefs(pref_service).GetNeverTranslateLanguages(),
+          ulp_languages);
+  logger.RecordInitiationNeverLanguagesMissingFromULP(
+      never_languages_not_in_ulp);
+  logger.RecordInitiationNeverLanguagesMissingFromULPCount(
+      never_languages_not_in_ulp.size());
 
-  const int num_langs = (*env).GetArrayLength(languages_java.obj());
-  std::vector<std::string> languages;
-  for (int i = 0; i < num_langs; i++) {
-    jstring language_name_java =
-        (jstring)(*env).GetObjectArrayElement(languages_java.obj(), i);
-    languages.emplace_back(
-        base::android::ConvertJavaStringToUTF8(env, language_name_java));
+  std::vector<std::string> page_languages;
+  for (const language::UrlLanguageHistogram::LanguageInfo& language_info :
+       page_language_histogram.GetTopLanguages()) {
+    page_languages.emplace_back(language_info.language_code);
   }
-
-  return languages;
+  logger.RecordInitiationAcceptLanguagesPageLanguageOverlap(
+      ULPMetricsLogger::LanguagesOverlapRatio(page_languages, ulp_languages));
+  std::vector<std::string> page_languages_not_in_ulp =
+      ULPMetricsLogger::RemoveULPLanguages(page_languages, ulp_languages);
+  logger.RecordInitiationPageLanguagesMissingFromULP(page_languages_not_in_ulp);
+  logger.RecordInitiationPageLanguagesMissingFromULPCount(
+      page_languages_not_in_ulp.size());
 }
 
 void CreateAndAddULPLanguageModel(Profile* profile,
                                   std::vector<std::string> languages) {
-  RecordULPInitMetrics(profile, languages);
+  PrefService* pref_service = profile->GetPrefs();
+  language::UrlLanguageHistogram* page_languages =
+      UrlLanguageHistogramFactory::GetForBrowserContext(profile);
+  RecordULPInitMetrics(pref_service, *page_languages, languages);
+  language::LanguagePrefs(pref_service).SetULPLanguages(languages);
 
   std::unique_ptr<language::ULPLanguageModel> ulp_model =
       std::make_unique<language::ULPLanguageModel>();
@@ -132,16 +139,14 @@ void PrepareLanguageModels(Profile* const profile,
     manager->SetPrimaryModel(language::LanguageModelManager::ModelType::FLUENT);
   }
 
-    // On Android, additionally create a ULPLanguageModel and populate it with
-    // ULP data.
+  // On Android, additionally create a ULPLanguageModel and populate it with
+  // ULP data.
 #if BUILDFLAG(IS_ANDROID)
-  if (base::FeatureList::IsEnabled(language::kUseULPLanguagesInChrome)) {
-    base::ThreadPool::PostTaskAndReplyWithResult(
-        FROM_HERE, {base::MayBlock()},
-        base::BindOnce(&JavaLanguageBridgeGetULPLanguagesWrapper,
-                       profile->GetProfileUserName()),
-        base::BindOnce(&CreateAndAddULPLanguageModel, profile));
-  }
+  base::ThreadPool::PostTaskAndReplyWithResult(
+      FROM_HERE, {base::MayBlock()},
+      base::BindOnce(&language::LanguageBridge::GetULPLanguagesFromDevice,
+                     profile->GetProfileUserName()),
+      base::BindOnce(&CreateAndAddULPLanguageModel, profile));
 #endif
 }
 
@@ -161,9 +166,15 @@ LanguageModelManagerFactory::GetForBrowserContext(
 }
 
 LanguageModelManagerFactory::LanguageModelManagerFactory()
-    : BrowserContextKeyedServiceFactory(
+    : ProfileKeyedServiceFactory(
           "LanguageModelManager",
-          BrowserContextDependencyManager::GetInstance()) {}
+          // Use the original profile's language model even in Incognito mode.
+          ProfileSelections::Builder()
+              .WithRegular(ProfileSelection::kRedirectedToOriginal)
+              // TODO(crbug.com/1418376): Check if this service is needed in
+              // Guest mode.
+              .WithGuest(ProfileSelection::kRedirectedToOriginal)
+              .Build()) {}
 
 LanguageModelManagerFactory::~LanguageModelManagerFactory() {}
 
@@ -174,10 +185,4 @@ KeyedService* LanguageModelManagerFactory::BuildServiceInstanceFor(
       profile->GetPrefs(), g_browser_process->GetApplicationLocale());
   PrepareLanguageModels(profile, manager);
   return manager;
-}
-
-content::BrowserContext* LanguageModelManagerFactory::GetBrowserContextToUse(
-    content::BrowserContext* context) const {
-  // Use the original profile's language model even in Incognito mode.
-  return chrome::GetBrowserContextRedirectedInIncognito(context);
 }

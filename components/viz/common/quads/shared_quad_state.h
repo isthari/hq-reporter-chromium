@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,11 +13,9 @@
 #include "ui/gfx/geometry/rrect_f.h"
 #include "ui/gfx/geometry/transform.h"
 
-namespace base {
-namespace trace_event {
+namespace base::trace_event {
 class TracedValue;
-}
-}  // namespace base
+}  // namespace base::trace_event
 
 namespace viz {
 
@@ -31,8 +29,16 @@ class VIZ_COMMON_EXPORT SharedQuadState {
  public:
   SharedQuadState();
   SharedQuadState(const SharedQuadState& other);
+  SharedQuadState& operator=(const SharedQuadState& other);
   ~SharedQuadState();
 
+  // No comparison for |overlay_damage_index| and |is_fast_rounded_corner|.
+  bool Equals(const SharedQuadState& other) const;
+
+  void SetAll(const SharedQuadState& other);
+
+  // TODO(kylechar): Remove default value for `layer_id` after updating all
+  // callers.
   void SetAll(const gfx::Transform& transform,
               const gfx::Rect& layer_rect,
               const gfx::Rect& visible_layer_rect,
@@ -41,7 +47,8 @@ class VIZ_COMMON_EXPORT SharedQuadState {
               bool contents_opaque,
               float opacity_f,
               SkBlendMode blend,
-              int sorting_context);
+              int sorting_context,
+              uint32_t layer_id = 0);
   void AsValueInto(base::trace_event::TracedValue* dict) const;
 
   // Transforms quad rects into the target content space.
@@ -55,15 +62,23 @@ class VIZ_COMMON_EXPORT SharedQuadState {
   // of the quad rects.
   gfx::Rect visible_quad_layer_rect;
   // This mask filter's coordinates is in the target content space. It defines
-  // the corner radius to clip the quads with.
+  // the corner radius to clip the quads with, and the gradient mask applied to
+  // the clip rect given by the Rect part of |roudned_corner_bounds|.
   gfx::MaskFilterInfo mask_filter_info;
   // This rect lives in the target content space.
   absl::optional<gfx::Rect> clip_rect;
   // Indicates whether the content in |quad_layer_rect| are fully opaque.
   bool are_contents_opaque = true;
-  float opacity = 1.f;
+  float opacity = 1.0f;
   SkBlendMode blend_mode = SkBlendMode::kSrcOver;
   int sorting_context_id = 0;
+  // Optionally set by the client with a stable ID for the layer that produced
+  // the DrawQuad(s). This is used to help identify that DrawQuad(s) in one
+  // frame came from the same layer as DrawQuads() from a previous frame, even
+  // if they changed position or other attributes.
+  uint32_t layer_id = 0;
+  // Used by SurfaceAggregator to namespace layer_ids from different clients.
+  uint32_t layer_namespace_id = 0;
   // Used by SurfaceAggregator to decide whether to merge quads for a surface
   // into their target render pass. It is a performance optimization by avoiding
   // render passes as much as possible.
@@ -73,8 +88,6 @@ class VIZ_COMMON_EXPORT SharedQuadState {
   // This index points to the damage rect in the surface damage rect list where
   // the overlay quad belongs to. SetAll() doesn't update this data.
   absl::optional<size_t> overlay_damage_index;
-  // The amount to skew quads in this layer. For experimental de-jelly effect.
-  float de_jelly_delta_y = 0.0f;
 };
 
 }  // namespace viz

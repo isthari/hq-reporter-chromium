@@ -1,4 +1,4 @@
-// Copyright (c) 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,10 @@
 #include <string>
 #include <utility>
 
-#include "base/callback.h"
 #include "base/command_line.h"
 #include "base/debug/debugger.h"
+#include "base/functional/callback.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "content/public/common/content_constants.h"
 #include "content/public/common/content_switches.h"
@@ -34,12 +35,6 @@
 #include "third_party/blink/public/web/web_testing_support.h"
 #include "ui/gfx/icc_profile.h"
 #include "v8/include/v8.h"
-
-#if BUILDFLAG(IS_WIN)
-#include "third_party/blink/public/web/win/web_font_rendering.h"
-#include "third_party/skia/include/core/SkFontMgr.h"
-#include "third_party/skia/include/ports/SkTypeface_win.h"
-#endif
 
 #if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_MAC)
 #include "skia/ext/test_fonts.h"
@@ -70,12 +65,13 @@ blink::WebFrameWidget* CreateWebTestWebFrameWidget(
     bool hidden,
     bool never_composited,
     bool is_for_child_local_root,
-    bool is_for_nested_main_frame) {
+    bool is_for_nested_main_frame,
+    bool is_for_scalable_page) {
   return blink::FrameWidgetTestHelper::CreateTestWebFrameWidget(
       std::move(pass_key), std::move(frame_widget_host),
       std::move(frame_widget), std::move(widget_host), std::move(widget),
       std::move(task_runner), frame_sink_id, hidden, never_composited,
-      is_for_child_local_root, is_for_nested_main_frame,
+      is_for_child_local_root, is_for_nested_main_frame, is_for_scalable_page,
       WebTestRenderThreadObserver::GetInstance()->test_runner());
 }
 
@@ -106,19 +102,7 @@ void WebTestContentRendererClient::RenderThreadStarted() {
   // On these platforms, fonts are set up in the renderer process. Other
   // platforms set up fonts as part of WebTestBrowserMainRunner in the
   // browser process, via WebTestBrowserPlatformInitialize().
-  skia::ConfigureTestFont();
-#elif BUILDFLAG(IS_WIN)
-  // DirectWrite only has access to %WINDIR%\Fonts by default. For developer
-  // side-loading, support kRegisterFontFiles to allow access to additional
-  // fonts. The browser process sets these files and punches a hole in the
-  // sandbox for the renderer to load them here.
-  {
-    sk_sp<SkFontMgr> fontmgr = SkFontMgr_New_DirectWrite();
-    for (const auto& file : switches::GetSideloadFontFiles()) {
-      sk_sp<SkTypeface> typeface = fontmgr->makeFromFile(file.c_str());
-      blink::WebFontRendering::AddSideloadedFontForTesting(std::move(typeface));
-    }
-  }
+  skia::InitializeSkFontMgrForTest();
 #endif
 }
 

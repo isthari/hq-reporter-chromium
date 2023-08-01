@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -73,7 +73,9 @@ class TCPClientSocketTest : public testing::Test {
 
     std::unique_ptr<TCPServerSocket> server_socket =
         std::make_unique<TCPServerSocket>(nullptr, NetLogSource());
-    ASSERT_THAT(server_socket->Listen(IPEndPoint(local_address, 0), 1), IsOk());
+    ASSERT_THAT(server_socket->Listen(IPEndPoint(local_address, 0), 1,
+                                      /*ipv6_only=*/absl::nullopt),
+                IsOk());
     IPEndPoint server_address;
     ASSERT_THAT(server_socket->GetLocalAddress(&server_address), IsOk());
 
@@ -115,7 +117,9 @@ TEST_F(TCPClientSocketTest, BindLoopbackToLoopback) {
   IPAddress lo_address = IPAddress::IPv4Localhost();
 
   TCPServerSocket server(nullptr, NetLogSource());
-  ASSERT_THAT(server.Listen(IPEndPoint(lo_address, 0), 1), IsOk());
+  ASSERT_THAT(server.Listen(IPEndPoint(lo_address, 0), 1,
+                            /*ipv6_only=*/absl::nullopt),
+              IsOk());
   IPEndPoint server_address;
   ASSERT_THAT(server.GetLocalAddress(&server_address), IsOk());
 
@@ -168,7 +172,8 @@ TEST_F(TCPClientSocketTest, BindLoopbackToExternal) {
 TEST_F(TCPClientSocketTest, BindLoopbackToIPv6) {
   TCPServerSocket server(nullptr, NetLogSource());
   int listen_result =
-      server.Listen(IPEndPoint(IPAddress::IPv6Localhost(), 0), 1);
+      server.Listen(IPEndPoint(IPAddress::IPv6Localhost(), 0), 1,
+                    /*ipv6_only=*/absl::nullopt);
   if (listen_result != OK) {
     LOG(ERROR) << "Failed to listen on ::1 - probably because IPv6 is disabled."
                   " Skipping the test";
@@ -191,7 +196,9 @@ TEST_F(TCPClientSocketTest, BindLoopbackToIPv6) {
 TEST_F(TCPClientSocketTest, WasEverUsed) {
   IPAddress lo_address = IPAddress::IPv4Localhost();
   TCPServerSocket server(nullptr, NetLogSource());
-  ASSERT_THAT(server.Listen(IPEndPoint(lo_address, 0), 1), IsOk());
+  ASSERT_THAT(
+      server.Listen(IPEndPoint(lo_address, 0), 1, /*ipv6_only=*/absl::nullopt),
+      IsOk());
   IPEndPoint server_address;
   ASSERT_THAT(server.GetLocalAddress(&server_address), IsOk());
 
@@ -239,7 +246,9 @@ TEST_F(TCPClientSocketTest, WasEverUsed) {
 TEST_F(TCPClientSocketTest, DnsAliasesPersistForReuse) {
   IPAddress lo_address = IPAddress::IPv4Localhost();
   TCPServerSocket server(nullptr, NetLogSource());
-  ASSERT_THAT(server.Listen(IPEndPoint(lo_address, 0), 1), IsOk());
+  ASSERT_THAT(
+      server.Listen(IPEndPoint(lo_address, 0), 1, /*ipv6_only=*/absl::nullopt),
+      IsOk());
   IPEndPoint server_address;
   ASSERT_THAT(server.GetLocalAddress(&server_address), IsOk());
 
@@ -295,7 +304,7 @@ TEST_F(TCPClientSocketTest, DnsAliasesPersistForReuse) {
 
 class TestSocketPerformanceWatcher : public SocketPerformanceWatcher {
  public:
-  TestSocketPerformanceWatcher() : connection_changed_count_(0u) {}
+  TestSocketPerformanceWatcher() = default;
 
   TestSocketPerformanceWatcher(const TestSocketPerformanceWatcher&) = delete;
   TestSocketPerformanceWatcher& operator=(const TestSocketPerformanceWatcher&) =
@@ -312,7 +321,7 @@ class TestSocketPerformanceWatcher : public SocketPerformanceWatcher {
   size_t connection_changed_count() const { return connection_changed_count_; }
 
  private:
-  size_t connection_changed_count_;
+  size_t connection_changed_count_ = 0u;
 };
 
 // TestSocketPerformanceWatcher requires kernel support for tcp_info struct, and
@@ -330,8 +339,7 @@ TEST_F(TCPClientSocketTest, MAYBE_TestSocketPerformanceWatcher) {
   for (size_t i = 0; i < kNumIPs; ++i)
     ip_list.push_back(IPAddress(72, 14, 213, i));
 
-  std::unique_ptr<TestSocketPerformanceWatcher> watcher(
-      new TestSocketPerformanceWatcher());
+  auto watcher = std::make_unique<TestSocketPerformanceWatcher>();
   TestSocketPerformanceWatcher* watcher_ptr = watcher.get();
 
   std::vector<std::string> aliases({"example.com"});
@@ -500,7 +508,9 @@ TEST_F(TCPClientSocketTest, SuspendBeforeConnect) {
   IPAddress lo_address = IPAddress::IPv4Localhost();
 
   TCPServerSocket server(nullptr, NetLogSource());
-  ASSERT_THAT(server.Listen(IPEndPoint(lo_address, 0), 1), IsOk());
+  ASSERT_THAT(
+      server.Listen(IPEndPoint(lo_address, 0), 1, /*ipv6_only=*/absl::nullopt),
+      IsOk());
   IPEndPoint server_address;
   ASSERT_THAT(server.GetLocalAddress(&server_address), IsOk());
 
@@ -538,7 +548,9 @@ TEST_F(TCPClientSocketTest, SuspendDuringConnect) {
   IPAddress lo_address = IPAddress::IPv4Localhost();
 
   TCPServerSocket server(nullptr, NetLogSource());
-  ASSERT_THAT(server.Listen(IPEndPoint(lo_address, 0), 1), IsOk());
+  ASSERT_THAT(
+      server.Listen(IPEndPoint(lo_address, 0), 1, /*ipv6_only=*/absl::nullopt),
+      IsOk());
   IPEndPoint server_address;
   ASSERT_THAT(server.GetLocalAddress(&server_address), IsOk());
 
@@ -563,7 +575,9 @@ TEST_F(TCPClientSocketTest, SuspendDuringConnectMultipleAddresses) {
   IPAddress lo_address = IPAddress::IPv4Localhost();
 
   TCPServerSocket server(nullptr, NetLogSource());
-  ASSERT_THAT(server.Listen(IPEndPoint(IPAddress(0, 0, 0, 0), 0), 1), IsOk());
+  ASSERT_THAT(server.Listen(IPEndPoint(IPAddress(0, 0, 0, 0), 0), 1,
+                            /*ipv6_only=*/absl::nullopt),
+              IsOk());
   IPEndPoint server_address;
   ASSERT_THAT(server.GetLocalAddress(&server_address), IsOk());
 

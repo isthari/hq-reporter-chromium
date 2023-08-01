@@ -28,6 +28,7 @@
 
 #include "third_party/blink/renderer/bindings/core/v8/iterable.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/css_font_selector.h"
 #include "third_party/blink/renderer/core/css/font_face.h"
 #include "third_party/blink/renderer/core/css/font_face_set.h"
@@ -110,22 +111,6 @@ class CORE_EXPORT FontFaceSetDocument final : public FontFaceSet,
     Status status_;
   };
   FontLoadHistogram font_load_histogram_;
-
-  class FontDisplayAutoAlignHistogram {
-    DISALLOW_NEW();
-
-   public:
-    void SetHasFontDisplayAuto() { has_font_display_auto_ = true; }
-    void CountAffected() { ++affected_count_; }
-
-    void Record();
-
-   private:
-    unsigned affected_count_ = 0;
-    bool has_font_display_auto_ = false;
-    bool reported_ = false;
-  };
-  FontDisplayAutoAlignHistogram font_display_auto_align_histogram_;
 
   HeapTaskRunnerTimer<FontFaceSetDocument> lcp_limit_timer_;
 

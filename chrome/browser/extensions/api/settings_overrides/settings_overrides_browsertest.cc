@@ -1,10 +1,10 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <memory>
 
-#include "base/cxx17_backports.h"
+#include "base/command_line.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -97,7 +97,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, OverrideStartupPagesSettings) {
   ASSERT_TRUE(prefs);
   const GURL urls[] = {GURL("http://foo"), GURL("http://bar")};
   SessionStartupPref startup_pref(SessionStartupPref::LAST);
-  startup_pref.urls.assign(urls, urls + base::size(urls));
+  startup_pref.urls.assign(urls, urls + std::size(urls));
   SessionStartupPref::SetStartupPref(prefs, startup_pref);
 
   const extensions::Extension* extension = LoadExtension(
@@ -110,8 +110,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, OverrideStartupPagesSettings) {
   UnloadExtension(extension->id());
   startup_pref = SessionStartupPref::GetStartupPref(prefs);
   EXPECT_EQ(SessionStartupPref::LAST, startup_pref.type);
-  EXPECT_EQ(std::vector<GURL>(urls, urls + base::size(urls)),
-            startup_pref.urls);
+  EXPECT_EQ(std::vector<GURL>(urls, urls + std::size(urls)), startup_pref.urls);
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, OverrideDSE) {

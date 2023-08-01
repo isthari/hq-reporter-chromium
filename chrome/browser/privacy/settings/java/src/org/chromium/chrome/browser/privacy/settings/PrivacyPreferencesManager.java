@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,23 @@ import org.chromium.components.minidump_uploader.util.CrashReportingPermissionMa
  * Manages preferences related to privacy, metrics reporting, prerendering, and network prediction.
  */
 public interface PrivacyPreferencesManager extends CrashReportingPermissionManager {
+    /**
+     * Observer for changes in privacy preferences.
+     */
+    interface Observer {
+        void onIsUsageAndCrashReportingPermittedChanged(boolean permitted);
+    }
+
+    /**
+     * Adds an {@link Observer}.
+     */
+    void addObserver(Observer observer);
+
+    /**
+     * Removes an {@link Observer}.
+     */
+    void removeObserver(Observer observer);
+
     /**
      * Sets the usage and crash reporting preference ON or OFF.
      *
@@ -45,6 +62,9 @@ public interface PrivacyPreferencesManager extends CrashReportingPermissionManag
      */
     @Override
     boolean isNetworkAvailableForCrashUploads();
+
+    @Override
+    boolean isUsageAndCrashReportingPermittedByPolicy();
 
     /**
      * Checks whether uploading of usage metrics and crash dumps is currently permitted, based on
@@ -82,9 +102,4 @@ public interface PrivacyPreferencesManager extends CrashReportingPermissionManag
      * Sets whether the usage and crash reporting pref should be enabled.
      */
     void setMetricsReportingEnabled(boolean enabled);
-
-    /**
-     * @return Whether the usage and crash reporting pref is disabled by policy.
-     */
-    boolean isMetricsReportingDisabledByPolicy();
 }

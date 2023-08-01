@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "ash/webui/help_app_ui/help_app_ui.h"
 #include "ash/webui/help_app_ui/help_app_ui_delegate.h"
 #include "base/feature_list.h"
+#include "url/gurl.h"
 
 namespace ash {
 
@@ -19,8 +20,6 @@ HelpAppPageHandler::HelpAppPageHandler(
     : receiver_(this, std::move(receiver)),
       help_app_ui_(help_app_ui),
       is_lss_enabled_(
-          base::FeatureList::IsEnabled(
-              features::kHelpAppSearchServiceIntegration) &&
           base::FeatureList::IsEnabled(features::kEnableLocalSearchService)),
       is_launcher_search_enabled_(
           base::FeatureList::IsEnabled(features::kHelpAppLauncherSearch) &&
@@ -53,6 +52,19 @@ void HelpAppPageHandler::MaybeShowDiscoverNotification() {
 
 void HelpAppPageHandler::MaybeShowReleaseNotesNotification() {
   help_app_ui_->delegate()->MaybeShowReleaseNotesNotification();
+}
+
+void HelpAppPageHandler::GetDeviceInfo(GetDeviceInfoCallback callback) {
+  help_app_ui_->delegate()->GetDeviceInfo(std::move(callback));
+}
+
+void HelpAppPageHandler::OpenUrlInBrowserAndTriggerInstallDialog(
+    const GURL& url) {
+  auto error_message =
+      help_app_ui_->delegate()->OpenUrlInBrowserAndTriggerInstallDialog(url);
+  if (error_message.has_value()) {
+    receiver_.ReportBadMessage(error_message.value());
+  }
 }
 
 }  // namespace ash

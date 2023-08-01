@@ -1,15 +1,14 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "ash/accessibility/accessibility_controller_impl.h"
 #include "ash/accessibility/sticky_keys/sticky_keys_controller.h"
 #include "ash/app_list/app_list_controller_impl.h"
-#include "ash/app_list/app_list_presenter_impl.h"
-#include "ash/app_list/views/app_list_view.h"
 #include "ash/constants/ash_features.h"
 #include "ash/constants/ash_pref_names.h"
 #include "ash/display/screen_orientation_controller.h"
@@ -17,13 +16,14 @@
 #include "ash/keyboard/ui/keyboard_ui_controller.h"
 #include "ash/keyboard/ui/test/keyboard_test_util.h"
 #include "ash/multi_user/multi_user_window_manager_impl.h"
-#include "ash/public/cpp/app_list/app_list_types.h"
 #include "ash/public/cpp/ash_prefs.h"
+#include "ash/public/cpp/debug_utils.h"
 #include "ash/public/cpp/event_rewriter_controller.h"
 #include "ash/public/cpp/multi_user_window_manager.h"
 #include "ash/public/cpp/multi_user_window_manager_delegate.h"
 #include "ash/public/cpp/shelf_model.h"
 #include "ash/public/cpp/shelf_types.h"
+#include "ash/public/cpp/system/toast_data.h"
 #include "ash/public/cpp/test/test_shelf_item_delegate.h"
 #include "ash/screen_util.h"
 #include "ash/session/session_controller_impl.h"
@@ -38,25 +38,34 @@
 #include "ash/shell.h"
 #include "ash/style/ash_color_provider.h"
 #include "ash/style/close_button.h"
+#include "ash/style/color_util.h"
 #include "ash/test/ash_test_base.h"
+#include "ash/test/ash_test_helper.h"
+#include "ash/test/test_widget_builder.h"
+#include "ash/wm/desks/cros_next_default_desk_button.h"
+#include "ash/wm/desks/cros_next_desk_button_base.h"
+#include "ash/wm/desks/cros_next_desk_icon_button.h"
 #include "ash/wm/desks/desk.h"
+#include "ash/wm/desks/desk_action_context_menu.h"
+#include "ash/wm/desks/desk_action_view.h"
 #include "ash/wm/desks/desk_animation_base.h"
+#include "ash/wm/desks/desk_bar_controller.h"
+#include "ash/wm/desks/desk_bar_view_base.h"
 #include "ash/wm/desks/desk_mini_view.h"
 #include "ash/wm/desks/desk_name_view.h"
 #include "ash/wm/desks/desk_preview_view.h"
-#include "ash/wm/desks/desks_bar_view.h"
+#include "ash/wm/desks/desk_textfield.h"
 #include "ash/wm/desks/desks_controller.h"
 #include "ash/wm/desks/desks_restore_util.h"
 #include "ash/wm/desks/desks_test_api.h"
 #include "ash/wm/desks/desks_test_util.h"
 #include "ash/wm/desks/desks_util.h"
 #include "ash/wm/desks/expanded_desks_bar_button.h"
-#include "ash/wm/desks/persistent_desks_bar_button.h"
-#include "ash/wm/desks/persistent_desks_bar_context_menu.h"
-#include "ash/wm/desks/persistent_desks_bar_controller.h"
-#include "ash/wm/desks/persistent_desks_bar_view.h"
+#include "ash/wm/desks/legacy_desk_bar_view.h"
 #include "ash/wm/desks/root_window_desk_switch_animator_test_api.h"
 #include "ash/wm/desks/scroll_arrow_button.h"
+#include "ash/wm/desks/templates/saved_desk_test_helper.h"
+#include "ash/wm/desks/templates/saved_desk_test_util.h"
 #include "ash/wm/desks/zero_state_button.h"
 #include "ash/wm/mru_window_tracker.h"
 #include "ash/wm/overview/overview_controller.h"
@@ -78,13 +87,22 @@
 #include "ash/wm/workspace_controller.h"
 #include "base/containers/contains.h"
 #include "base/containers/cxx20_erase.h"
+#include "base/functional/callback_forward.h"
+#include "base/i18n/rtl.h"
+#include "base/memory/raw_ptr.h"
+#include "base/notreached.h"
+#include "base/ranges/algorithm.h"
+#include "base/run_loop.h"
+#include "base/scoped_observation.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/simple_test_clock.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
+#include "chromeos/constants/chromeos_features.h"
 #include "chromeos/ui/frame/desks/move_to_desks_menu_delegate.h"
 #include "chromeos/ui/frame/desks/move_to_desks_menu_model.h"
 #include "chromeos/ui/wm/desks/chromeos_desks_histogram_enums.h"
@@ -92,33 +110,38 @@
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/session_manager/session_manager_types.h"
+#include "ui/accessibility/ax_action_data.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/window_parenting_client.h"
 #include "ui/aura/test/test_window_delegate.h"
 #include "ui/aura/window.h"
+#include "ui/aura/window_observer.h"
 #include "ui/base/clipboard/clipboard_buffer.h"
 #include "ui/base/clipboard/scoped_clipboard_writer.h"
 #include "ui/base/ime/ash/fake_ime_keyboard.h"
 #include "ui/base/ui_base_types.h"
-#include "ui/chromeos/events/event_rewriter_chromeos.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
 #include "ui/compositor_extra/shadow.h"
 #include "ui/display/display.h"
+#include "ui/display/display_switches.h"
 #include "ui/display/screen.h"
 #include "ui/display/test/display_manager_test_api.h"
+#include "ui/events/ash/event_rewriter_ash.h"
 #include "ui/events/devices/device_data_manager.h"
 #include "ui/events/devices/device_data_manager_test_api.h"
 #include "ui/events/devices/input_device.h"
 #include "ui/events/event_constants.h"
-#include "ui/events/gesture_detection/gesture_configuration.h"
+#include "ui/events/keycodes/keyboard_codes_posix.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/point_conversions.h"
 #include "ui/gfx/geometry/point_f.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/transform.h"
 #include "ui/views/background.h"
 #include "ui/views/controls/button/button.h"
+#include "ui/views/controls/button/label_button.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "ui/views/window/client_view.h"
@@ -129,6 +152,8 @@
 namespace ash {
 
 namespace {
+
+using ::testing::ValuesIn;
 
 void NewDesk() {
   // Create a desk through keyboard. Do not use |kButton| to avoid empty name.
@@ -163,15 +188,6 @@ bool DoesActiveDeskContainWindow(aura::Window* window) {
                         window);
 }
 
-OverviewGrid* GetOverviewGridForRoot(aura::Window* root) {
-  DCHECK(root->IsRootWindow());
-
-  auto* overview_controller = Shell::Get()->overview_controller();
-  DCHECK(overview_controller->InOverviewSession());
-
-  return overview_controller->overview_session()->GetGridWithRootWindow(root);
-}
-
 void CloseDeskFromMiniView(const DeskMiniView* desk_mini_view,
                            ui::test::EventGenerator* event_generator) {
   DCHECK(desk_mini_view);
@@ -180,10 +196,12 @@ void CloseDeskFromMiniView(const DeskMiniView* desk_mini_view,
   const gfx::Point mini_view_center =
       desk_mini_view->GetBoundsInScreen().CenterPoint();
   event_generator->MoveMouseTo(mini_view_center);
-  EXPECT_TRUE(desk_mini_view->close_desk_button()->GetVisible());
+  const CloseButton* close_button =
+      GetCloseDeskButtonForMiniView(desk_mini_view);
+  EXPECT_TRUE(close_button->GetVisible());
+
   // Move to the center of the close button and click.
-  event_generator->MoveMouseTo(
-      desk_mini_view->close_desk_button()->GetBoundsInScreen().CenterPoint());
+  event_generator->MoveMouseTo(close_button->GetBoundsInScreen().CenterPoint());
   event_generator->ClickLeftButton();
 }
 
@@ -196,34 +214,19 @@ void ClickOnView(const views::View* view,
   event_generator->ClickLeftButton();
 }
 
-void WaitForMilliseconds(int milliseconds) {
-  base::RunLoop run_loop;
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE, run_loop.QuitClosure(), base::Milliseconds(milliseconds));
-  run_loop.Run();
+void DoubleClickOnView(const views::View* view,
+                       ui::test::EventGenerator* event_generator) {
+  DCHECK(view);
+
+  const gfx::Point view_center = view->GetBoundsInScreen().CenterPoint();
+  event_generator->MoveMouseTo(view_center);
+  event_generator->DoubleClickLeftButton();
 }
 
-void LongGestureTap(const gfx::Point& screen_location,
-                    ui::test::EventGenerator* event_generator,
-                    bool release_touch = true) {
-  // Temporarily reconfigure gestures so that the long tap takes 2 milliseconds.
-  ui::GestureConfiguration* gesture_config =
-      ui::GestureConfiguration::GetInstance();
-  const int old_long_press_time_in_ms = gesture_config->long_press_time_in_ms();
-  const int old_show_press_delay_in_ms =
-      gesture_config->show_press_delay_in_ms();
-  gesture_config->set_long_press_time_in_ms(1);
-  gesture_config->set_show_press_delay_in_ms(1);
-
-  event_generator->set_current_screen_location(screen_location);
-  event_generator->PressTouch();
-  WaitForMilliseconds(2);
-
-  gesture_config->set_long_press_time_in_ms(old_long_press_time_in_ms);
-  gesture_config->set_show_press_delay_in_ms(old_show_press_delay_in_ms);
-
-  if (release_touch)
-    event_generator->ReleaseTouch();
+void SendAccessibleActionToView(views::View* view, ax::mojom::Action action) {
+  ui::AXActionData action_data;
+  action_data.action = action;
+  view->HandleAccessibleAction(action_data);
 }
 
 void GestureTapOnView(const views::View* view,
@@ -238,19 +241,6 @@ BackdropController* GetDeskBackdropController(const Desk* desk,
   WorkspaceLayoutManager* layout_manager =
       workspace_controller->layout_manager();
   return layout_manager->backdrop_controller();
-}
-
-// Returns true if |win1| is stacked (not directly) below |win2|.
-bool IsStackedBelow(aura::Window* win1, aura::Window* win2) {
-  DCHECK_NE(win1, win2);
-  DCHECK_EQ(win1->parent(), win2->parent());
-
-  const auto& children = win1->parent()->children();
-  auto win1_iter = std::find(children.begin(), children.end(), win1);
-  auto win2_iter = std::find(children.begin(), children.end(), win2);
-  DCHECK(win1_iter != children.end());
-  DCHECK(win2_iter != children.end());
-  return win1_iter < win2_iter;
 }
 
 // Simulate pressing on a desk preview.
@@ -294,19 +284,21 @@ class TestObserver : public DesksController::Observer {
 
   // DesksController::Observer:
   void OnDeskAdded(const Desk* desk) override {
-    desks_.emplace_back(desk);
+    const size_t new_desk_index = DesksController::Get()->GetDeskIndex(desk);
+    if (new_desk_index > desks_.size())
+      desks_.emplace_back(desk);
+    else
+      desks_.insert(desks_.begin() + new_desk_index, desk);
     EXPECT_TRUE(DesksController::Get()->AreDesksBeingModified());
   }
   void OnDeskRemoved(const Desk* desk) override {
     base::Erase(desks_, desk);
     EXPECT_TRUE(DesksController::Get()->AreDesksBeingModified());
   }
-  void OnDeskReordered(int old_index, int new_index) override {}
   void OnDeskActivationChanged(const Desk* activated,
                                const Desk* deactivated) override {
     EXPECT_TRUE(DesksController::Get()->AreDesksBeingModified());
   }
-  void OnDeskSwitchAnimationLaunching() override {}
   void OnDeskSwitchAnimationFinished() override {
     EXPECT_FALSE(DesksController::Get()->AreDesksBeingModified());
   }
@@ -341,10 +333,62 @@ class TestDeskObserver : public Desk::Observer {
   int notify_counts_ = 0;
 };
 
-// Defines a test fixture to test Virtual Desks behavior, parameterized to run
-// some window drag tests with both touch gestures and with mouse events.
+class FullScreenStateObserver : public ShellObserver {
+ public:
+  FullScreenStateObserver() { Shell::Get()->AddShellObserver(this); }
+
+  FullScreenStateObserver(const FullScreenStateObserver&) = delete;
+  FullScreenStateObserver& operator=(const FullScreenStateObserver&) = delete;
+
+  ~FullScreenStateObserver() override {
+    Shell::Get()->RemoveShellObserver(this);
+  }
+
+  // ShellObserver:
+  void OnFullscreenStateChanged(bool is_fullscreen,
+                                aura::Window* container) override {
+    is_fullscreen_ = is_fullscreen;
+  }
+
+  bool is_fullscreen() const { return is_fullscreen_; }
+
+ private:
+  bool is_fullscreen_ = false;
+};
+
+// A widget delegate that refuses to close.
+class StuckWidgetDelegate : public views::WidgetDelegate {
+ public:
+  StuckWidgetDelegate() {
+    SetCanMaximize(true);
+    SetCanMinimize(true);
+    SetCanResize(true);
+    SetOwnedByWidget(true);
+  }
+  StuckWidgetDelegate(const StuckWidgetDelegate& other) = delete;
+  StuckWidgetDelegate& operator=(const StuckWidgetDelegate& other) = delete;
+  ~StuckWidgetDelegate() override = default;
+
+  // Overridden from WidgetDelegate:
+  std::unique_ptr<views::NonClientFrameView> CreateNonClientFrameView(
+      views::Widget* widget) override {
+    return Shell::Get()->CreateDefaultNonClientFrameView(widget);
+  }
+
+  bool OnCloseRequested(views::Widget::ClosedReason close_reason) override {
+    return false;
+  }
+};
+
+struct DesksTestParams {
+  bool use_touch_gestures = false;
+  bool use_16_desks = false;
+  bool enable_jellyroll = false;
+};
+
+// Defines a parameterized test fixture to test Virtual Desks behavior.
 class DesksTest : public AshTestBase,
-                  public ::testing::WithParamInterface<bool> {
+                  public ::testing::WithParamInterface<DesksTestParams> {
  public:
   DesksTest() = default;
   explicit DesksTest(base::test::TaskEnvironment::TimeSource time)
@@ -356,16 +400,226 @@ class DesksTest : public AshTestBase,
   ~DesksTest() override = default;
 
   void SetUp() override {
+    // This allows us to snap to the bottom in portrait mode.
+    base::CommandLine::ForCurrentProcess()->AppendSwitch(
+        ::switches::kUseFirstDisplayAsInternal);
+
+    std::vector<base::test::FeatureRef> enabled_features;
+    std::vector<base::test::FeatureRef> disabled_features;
+
+    enabled_features.push_back(features::kDeskButton);
+
+    if (GetParam().use_16_desks) {
+      enabled_features.push_back(features::kFeatureManagement16Desks);
+    } else {
+      disabled_features.push_back(features::kFeatureManagement16Desks);
+    }
+
+    if (GetParam().enable_jellyroll) {
+      enabled_features.push_back(chromeos::features::kJellyroll);
+    } else {
+      disabled_features.push_back(chromeos::features::kJellyroll);
+    }
+    scoped_feature_list_.InitWithFeatures(enabled_features, disabled_features);
+
     AshTestBase::SetUp();
     SetVirtualKeyboardEnabled(true);
+
+    // Wait for the desk model to have completed its initialization. Not doing
+    // this would lead to flaky tests.
+    ash_test_helper()->saved_desk_test_helper()->WaitForDeskModels();
+  }
+
+  void TearDown() override {
+    AshTestBase::TearDown();
+    scoped_feature_list_.Reset();
+  }
+
+  const views::LabelButton* GetDefaultDeskButton(
+      const LegacyDeskBarView* bar_view) {
+    if (GetParam().enable_jellyroll) {
+      return bar_view->default_desk_button();
+    }
+
+    return bar_view->zero_state_default_desk_button();
+  }
+
+  const views::LabelButton* GetZeroStateNewDeskButton(
+      const LegacyDeskBarView* bar_view) {
+    if (GetParam().enable_jellyroll) {
+      return bar_view->new_desk_button();
+    }
+
+    return bar_view->zero_state_new_desk_button();
+  }
+
+  const views::View* GetExpandedStateNewDeskButton(
+      const LegacyDeskBarView* bar_view) {
+    if (GetParam().enable_jellyroll) {
+      return bar_view->new_desk_button();
+    }
+
+    return bar_view->expanded_state_new_desk_button();
+  }
+
+  const views::LabelButton* GetExpandedStateInnerNewDeskButton(
+      const DeskBarViewBase* bar_view) {
+    if (GetParam().enable_jellyroll) {
+      return bar_view->new_desk_button();
+    }
+
+    return bar_view->expanded_state_new_desk_button()->GetInnerButton();
+  }
+
+  void VerifyZeroStateNewDeskButtonVisibility(const LegacyDeskBarView* bar_view,
+                                              bool expected_visibility) {
+    // If `Jellyroll` is enabled, new desk button is always visible no matter
+    // what's the current desks bar's state. Thus check the button's state
+    // instead of the visibility.
+    if (GetParam().enable_jellyroll) {
+      const auto state = bar_view->new_desk_button()->state();
+      EXPECT_TRUE(expected_visibility
+                      ? state == CrOSNextDeskIconButton::State::kZero
+                      : state != CrOSNextDeskIconButton::State::kZero);
+      return;
+    }
+
+    EXPECT_EQ(expected_visibility,
+              bar_view->zero_state_new_desk_button()->GetVisible());
+  }
+
+  void VerifyExpandedStateNewDeskButtonVisibility(
+      const LegacyDeskBarView* bar_view,
+      bool expected_visibility) {
+    // If `Jellyroll` is enabled, new desk button is always visible no matter
+    // what's the current desks bar's state. Thus verify the button's state
+    // instead of the visibility.
+    if (GetParam().enable_jellyroll) {
+      const auto state = bar_view->new_desk_button()->state();
+      EXPECT_TRUE(expected_visibility
+                      ? state == CrOSNextDeskIconButton::State::kExpanded
+                      : state != CrOSNextDeskIconButton::State::kExpanded);
+      return;
+    }
+
+    EXPECT_EQ(expected_visibility,
+              bar_view->expanded_state_new_desk_button()->GetVisible());
   }
 
   void SendKey(ui::KeyboardCode key_code, int flags = ui::EF_NONE) {
     PressAndReleaseKey(key_code, flags);
   }
+
+  SkColor GetNewDeskButtonBackgroundColor(const LegacyDeskBarView* bar_view) {
+    return GetParam().enable_jellyroll
+               ? bar_view->new_desk_button()->background()->get_color()
+               : bar_view->expanded_state_new_desk_button()
+                     ->GetInnerButton()
+                     ->GetBackgroundColorForTest();
+  }
+
+  desks_storage::DeskModel* desk_model() {
+    return ash_test_helper()->saved_desk_test_helper()->desk_model();
+  }
+
+  void DeleteAllSavedDesks() {
+    base::RunLoop loop;
+    desk_model()->DeleteAllEntries(base::BindLambdaForTesting(
+        [&](desks_storage::DeskModel::DeleteEntryStatus status) {
+          loop.Quit();
+        }));
+    loop.Run();
+  }
+
+  void ClickOrPressOnPoint(gfx::Point p) {
+    auto* event_generator = GetEventGenerator();
+    if (GetParam().use_touch_gestures) {
+      event_generator->set_current_screen_location(p);
+      event_generator->PressTouch();
+      event_generator->ReleaseTouch();
+    } else {
+      event_generator->MoveMouseTo(p);
+      event_generator->ClickLeftButton();
+    }
+  }
+
+  void ClickOrPressOnView(const views::View* view) {
+    const gfx::Point view_center = view->GetBoundsInScreen().CenterPoint();
+    ClickOrPressOnPoint(view_center);
+  }
+
+  void OpenDeskBar(DeskBarViewBase::Type type) {
+    switch (type) {
+      case DeskBarViewBase::Type::kOverview:
+        EnterOverview();
+        break;
+      case DeskBarViewBase::Type::kDeskButton: {
+        auto* root = Shell::Get()->GetPrimaryRootWindow();
+        auto* desk_bar_controller =
+            DesksController::Get()->desk_bar_controller();
+        desk_bar_controller->CreateDeskBar(root);
+        desk_bar_controller->ShowDeskBar(root);
+        break;
+      }
+    }
+  }
+
+  void CloseDeskBar(DeskBarViewBase::Type type) {
+    switch (type) {
+      case DeskBarViewBase::Type::kOverview:
+        ExitOverview();
+        break;
+      case DeskBarViewBase::Type::kDeskButton:
+        DesksController::Get()->desk_bar_controller()->DestroyAllDeskBars();
+        break;
+    }
+  }
+
+  DeskBarViewBase* GetDeskBarView(DeskBarViewBase::Type type) {
+    auto* root = Shell::Get()->GetPrimaryRootWindow();
+    DeskBarViewBase* desk_bar_view = nullptr;
+    switch (type) {
+      case DeskBarViewBase::Type::kOverview:
+        desk_bar_view = GetOverviewGridForRoot(root)->desks_bar_view();
+        break;
+      case DeskBarViewBase::Type::kDeskButton:
+        desk_bar_view =
+            DesksController::Get()->desk_bar_controller()->GetDeskBarView(root);
+        break;
+    }
+    return desk_bar_view;
+  }
+
+  void EnterLibrary(DeskBarViewBase::Type type) {
+    auto* desk_bar_view = GetDeskBarView(type);
+    ASSERT_TRUE(desk_bar_view);
+
+    // Clicking the library button on the desk button desk bar.
+    if (GetParam().enable_jellyroll) {
+      auto* library_button = desk_bar_view->library_button();
+      ClickOrPressOnView(library_button);
+    } else {
+      auto* library_button = desk_bar_view->expanded_state_library_button();
+      ClickOrPressOnView(library_button);
+    }
+
+    // It should enter overview mode and the saved desk library should be
+    // visible. Desk button desk bar should be gone, and the overview desk bar
+    // should show up.
+    auto* overview_controller = Shell::Get()->overview_controller();
+    ASSERT_TRUE(overview_controller->InOverviewSession());
+    auto* overview_session = overview_controller->overview_session();
+    EXPECT_TRUE(overview_session &&
+                overview_session->IsShowingSavedDeskLibrary());
+    EXPECT_FALSE(GetDeskBarView(DeskBarViewBase::Type::kDeskButton));
+    EXPECT_TRUE(GetDeskBarView(DeskBarViewBase::Type::kOverview));
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
-TEST_F(DesksTest, DesksCreationAndRemoval) {
+TEST_P(DesksTest, DesksCreationAndRemoval) {
   TestObserver observer;
   auto* controller = DesksController::Get();
   controller->AddObserver(&observer);
@@ -381,8 +635,8 @@ TEST_F(DesksTest, DesksCreationAndRemoval) {
 
   // Expect we've reached the max number of desks, and we've been notified only
   // with the newly created desks.
-  EXPECT_EQ(desks_util::kMaxNumberOfDesks, controller->desks().size());
-  EXPECT_EQ(desks_util::kMaxNumberOfDesks - 1, observer.desks().size());
+  EXPECT_EQ(desks_util::GetMaxNumberOfDesks(), controller->desks().size());
+  EXPECT_EQ(desks_util::GetMaxNumberOfDesks() - 1, observer.desks().size());
   EXPECT_TRUE(controller->CanRemoveDesks());
 
   // Remove all desks until no longer possible, and expect that there's always
@@ -404,7 +658,7 @@ TEST_F(DesksTest, DesksCreationAndRemoval) {
 // moved to an adjacent desk, and its order in the MRU tracker is updated. But
 // the MRU tracker was not tracking it to begin with, so this case has to be
 // handled.
-TEST_F(DesksTest, DeskRemovalWithPausedMruTracker) {
+TEST_P(DesksTest, DeskRemovalWithPausedMruTracker) {
   NewDesk();
   auto* controller = DesksController::Get();
   EXPECT_EQ(2u, controller->desks().size());
@@ -426,7 +680,7 @@ TEST_F(DesksTest, DeskRemovalWithPausedMruTracker) {
 }
 
 // Verifies that desk's name change notifies |DesksController::Observer|.
-TEST_F(DesksTest, OnDeskNameChanged) {
+TEST_P(DesksTest, OnDeskNameChanged) {
   TestObserver observer;
   auto* controller = DesksController::Get();
   controller->AddObserver(&observer);
@@ -443,7 +697,37 @@ TEST_F(DesksTest, OnDeskNameChanged) {
   controller->RemoveObserver(&observer);
 }
 
-TEST_F(DesksTest, DesksBarViewDeskCreation) {
+TEST_P(DesksTest, DesksTextfieldAddTooltipText) {
+  NewDesk();
+
+  auto* controller = DesksController::Get();
+
+  // Set the first desk with a name which is short enough to be fit in the desk
+  // name view.
+  controller->desks()[0]->SetName(u"test1", /*set_by_user=*/true);
+
+  // Set the second desk with a name which is long enough to be truncated in the
+  // desk name view.
+  std::u16string desk_name2(
+      u"test2 a very long desk name to test tooltip text");
+  controller->desks()[1]->SetName(desk_name2, /*set_by_user=*/true);
+
+  // Start overview.
+  auto* overview_controller = Shell::Get()->overview_controller();
+  EnterOverview();
+  EXPECT_TRUE(overview_controller->InOverviewSession());
+
+  // Expect there to be no tooltip when the desk name is short enough.
+  auto* desks_bar_view =
+      GetOverviewGridForRoot(Shell::GetPrimaryRootWindow())->desks_bar_view();
+  auto* desk_name_view1 = desks_bar_view->mini_views()[0]->desk_name_view();
+  EXPECT_TRUE(desk_name_view1->GetTooltipText(gfx::Point()).empty());
+
+  auto* desk_name_view2 = desks_bar_view->mini_views()[1]->desk_name_view();
+  EXPECT_EQ(desk_name2, desk_name_view2->GetTooltipText(gfx::Point()));
+}
+
+TEST_P(DesksTest, DesksBarViewDeskCreation) {
   auto* controller = DesksController::Get();
 
   auto* overview_controller = Shell::Get()->overview_controller();
@@ -460,42 +744,44 @@ TEST_F(DesksTest, DesksBarViewDeskCreation) {
   EXPECT_TRUE(desks_bar_view->mini_views().empty());
 
   auto* event_generator = GetEventGenerator();
-  ClickOnView(desks_bar_view->zero_state_default_desk_button(),
-              event_generator);
+  ClickOnView(GetDefaultDeskButton(desks_bar_view), event_generator);
   EXPECT_FALSE(desks_bar_view->IsZeroState());
 
-  auto* new_desk_button =
-      desks_bar_view->expanded_state_new_desk_button()->inner_button();
+  auto* new_desk_button = GetExpandedStateInnerNewDeskButton(desks_bar_view);
   EXPECT_TRUE(new_desk_button->GetEnabled());
+
+  auto* scroll_right_button = DesksTestApi::GetDeskBarRightScrollButton(
+      DeskBarViewBase::Type::kOverview);
+
   // Click many times on the expanded new desk button and expect only the max
   // number of desks will be created, and the button is no longer enabled.
-  for (size_t i = 0; i < desks_util::kMaxNumberOfDesks + 2; ++i)
+  for (size_t i = 0; i < desks_util::GetMaxNumberOfDesks() + 2; ++i) {
     ClickOnView(new_desk_button, event_generator);
+    ClickOnView(scroll_right_button, event_generator);
+  }
 
   EXPECT_TRUE(overview_grid->IsDesksBarViewActive());
-  EXPECT_EQ(desks_util::kMaxNumberOfDesks, controller->desks().size());
+  EXPECT_EQ(desks_util::GetMaxNumberOfDesks(), controller->desks().size());
   EXPECT_EQ(controller->desks().size(), desks_bar_view->mini_views().size());
   EXPECT_FALSE(controller->CanCreateDesks());
   EXPECT_TRUE(controller->CanRemoveDesks());
   EXPECT_FALSE(new_desk_button->GetEnabled());
   EXPECT_EQ(views::Button::STATE_DISABLED, new_desk_button->GetState());
 
-  // Hover over one of the mini_views, and expect that the close button
+  // Hover over one of the mini_views, and expect that the desk action interface
   // becomes visible.
-  const auto* mini_view = desks_bar_view->mini_views().front();
-  EXPECT_FALSE(mini_view->close_desk_button()->GetVisible());
+  const auto* mini_view = desks_bar_view->mini_views().back();
+  EXPECT_FALSE(GetDeskActionVisibilityForMiniView(mini_view));
   const gfx::Point mini_view_center =
       mini_view->GetBoundsInScreen().CenterPoint();
   event_generator->MoveMouseTo(mini_view_center);
-  EXPECT_TRUE(mini_view->close_desk_button()->GetVisible());
+  EXPECT_TRUE(GetDeskActionVisibilityForMiniView(mini_view));
 
   // Use the close button to close the desk.
-  event_generator->MoveMouseTo(
-      mini_view->close_desk_button()->GetBoundsInScreen().CenterPoint());
-  event_generator->ClickLeftButton();
+  CloseDeskFromMiniView(mini_view, event_generator);
 
   // The new desk button is now enabled again.
-  EXPECT_EQ(desks_util::kMaxNumberOfDesks - 1, controller->desks().size());
+  EXPECT_EQ(desks_util::GetMaxNumberOfDesks() - 1, controller->desks().size());
   EXPECT_EQ(controller->desks().size(), desks_bar_view->mini_views().size());
   EXPECT_TRUE(controller->CanCreateDesks());
   EXPECT_TRUE(new_desk_button->GetEnabled());
@@ -518,12 +804,10 @@ TEST_F(DesksTest, DesksBarViewDeskCreation) {
 
   DCHECK(desks_bar_view);
   EXPECT_EQ(controller->desks().size(), desks_bar_view->mini_views().size());
-  EXPECT_TRUE(desks_bar_view->expanded_state_new_desk_button()
-                  ->inner_button()
-                  ->GetEnabled());
+  EXPECT_TRUE(GetExpandedStateNewDeskButton(desks_bar_view)->GetEnabled());
 }
 
-TEST_F(DesksTest, RemoveDeskWithEmptyName) {
+TEST_P(DesksTest, RemoveDeskWithEmptyName) {
   auto* controller = DesksController::Get();
 
   EnterOverview();
@@ -547,7 +831,7 @@ TEST_F(DesksTest, RemoveDeskWithEmptyName) {
 
 // Tests that removing a non-active desk updates the window workspaces for
 // desks restore correctly.
-TEST_F(DesksTest, RemovingNonActiveDeskUpdatesWindowWorkspaces) {
+TEST_P(DesksTest, RemovingNonActiveDeskUpdatesWindowWorkspaces) {
   auto* controller = DesksController::Get();
 
   // Create two new desks.
@@ -581,7 +865,7 @@ TEST_F(DesksTest, RemovingNonActiveDeskUpdatesWindowWorkspaces) {
 
 // Tests that removing an active desk updates the window workspaces for desks
 // restore correctly.
-TEST_F(DesksTest, RemovingActiveDeskUpdatesWindowWorkspaces) {
+TEST_P(DesksTest, RemovingActiveDeskUpdatesWindowWorkspaces) {
   auto* controller = DesksController::Get();
 
   // Create three new desks.
@@ -621,7 +905,7 @@ TEST_F(DesksTest, RemovingActiveDeskUpdatesWindowWorkspaces) {
 
 // Test that gesture taps do not reset the button state to normal when the
 // button is disabled. https://crbug.com/1084241.
-TEST_F(DesksTest, GestureTapOnNewDeskButton) {
+TEST_P(DesksTest, GestureTapOnNewDeskButton) {
   EnterOverview();
   EXPECT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
 
@@ -631,22 +915,25 @@ TEST_F(DesksTest, GestureTapOnNewDeskButton) {
   const auto* desks_bar_view = overview_grid->desks_bar_view();
   auto* event_generator = GetEventGenerator();
   DCHECK(desks_bar_view);
-  ClickOnView(desks_bar_view->zero_state_default_desk_button(),
-              event_generator);
-  auto* new_desk_button =
-      desks_bar_view->expanded_state_new_desk_button()->inner_button();
+  ClickOnView(GetDefaultDeskButton(desks_bar_view), event_generator);
+  auto* new_desk_button = GetExpandedStateInnerNewDeskButton(desks_bar_view);
   EXPECT_TRUE(new_desk_button->GetEnabled());
+
+  auto* scroll_right_button = DesksTestApi::GetDeskBarRightScrollButton(
+      DeskBarViewBase::Type::kOverview);
 
   // Gesture tap multiple times on the new desk button until it's disabled,
   // and verify the button state.
-  for (size_t i = 0; i < desks_util::kMaxNumberOfDesks + 2; ++i)
+  for (size_t i = 0; i < desks_util::GetMaxNumberOfDesks() + 2; ++i) {
     GestureTapOnView(new_desk_button, event_generator);
+    GestureTapOnView(scroll_right_button, event_generator);
+  }
 
   EXPECT_FALSE(new_desk_button->GetEnabled());
   EXPECT_EQ(views::Button::STATE_DISABLED, new_desk_button->GetState());
 }
 
-TEST_F(DesksTest, DeskActivation) {
+TEST_P(DesksTest, DeskActivation) {
   auto* controller = DesksController::Get();
   ASSERT_EQ(1u, controller->desks().size());
   const Desk* desk_1 = controller->desks()[0].get();
@@ -706,7 +993,7 @@ TEST_F(DesksTest, DeskActivation) {
   EXPECT_FALSE(desk_4->GetDeskContainerForRoot(root)->IsVisible());
 }
 
-TEST_F(DesksTest, TestWindowPositioningPaused) {
+TEST_P(DesksTest, TestWindowPositioningPaused) {
   auto* controller = DesksController::Get();
   NewDesk();
 
@@ -740,7 +1027,7 @@ TEST_F(DesksTest, TestWindowPositioningPaused) {
 
 // This test makes sure we have coverage for that desk switch animation when run
 // with multiple displays.
-TEST_F(DesksTest, DeskActivationDualDisplay) {
+TEST_P(DesksTest, DeskActivationDualDisplay) {
   UpdateDisplay("700x600,400x500");
 
   auto* controller = DesksController::Get();
@@ -778,7 +1065,7 @@ TEST_F(DesksTest, DeskActivationDualDisplay) {
   EXPECT_FALSE(desk_4->GetDeskContainerForRoot(roots[1])->IsVisible());
 }
 
-TEST_F(DesksTest, TransientWindows) {
+TEST_P(DesksTest, TransientWindows) {
   auto* controller = DesksController::Get();
   ASSERT_EQ(1u, controller->desks().size());
   const Desk* desk_1 = controller->desks()[0].get();
@@ -832,7 +1119,7 @@ TEST_F(DesksTest, TransientWindows) {
   EXPECT_EQ(win2.get(), desk_2_container->children()[2]);
 }
 
-TEST_F(DesksTest, WindowStackingAfterWindowMoveToAnotherDesk) {
+TEST_P(DesksTest, WindowStackingAfterWindowMoveToAnotherDesk) {
   auto* controller = DesksController::Get();
   auto win0 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
 
@@ -870,12 +1157,12 @@ TEST_F(DesksTest, WindowStackingAfterWindowMoveToAnotherDesk) {
                            /*unminimize=*/true);
   desk_2->MoveWindowToDesk(win3.get(), desk_1, win1->GetRootWindow(),
                            /*unminimize=*/true);
-  EXPECT_TRUE(IsStackedBelow(win1.get(), win2.get()));
-  EXPECT_TRUE(IsStackedBelow(win2.get(), win0.get()));
-  EXPECT_TRUE(IsStackedBelow(win0.get(), win3.get()));
+  EXPECT_TRUE(window_util::IsStackedBelow(win1.get(), win2.get()));
+  EXPECT_TRUE(window_util::IsStackedBelow(win2.get(), win0.get()));
+  EXPECT_TRUE(window_util::IsStackedBelow(win0.get(), win3.get()));
 }
 
-TEST_F(DesksTest, TransientModalChildren) {
+TEST_P(DesksTest, TransientModalChildren) {
   auto* controller = DesksController::Get();
   NewDesk();
   NewDesk();
@@ -927,7 +1214,7 @@ TEST_F(DesksTest, TransientModalChildren) {
   EXPECT_EQ(win1.get(), ::wm::GetModalTransient(win0.get()));
 }
 
-TEST_F(DesksTest, WindowActivation) {
+TEST_P(DesksTest, WindowActivation) {
   // Create three windows.
   auto win0 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
   auto win1 = CreateAppWindow(gfx::Rect(50, 50, 200, 200));
@@ -1020,8 +1307,10 @@ TEST_F(DesksTest, WindowActivation) {
   EXPECT_TRUE(wm::CanActivateWindow(win4.get()));
 }
 
-TEST_F(DesksTest, ActivateDeskFromOverview) {
+TEST_P(DesksTest, ActivateDeskFromOverview) {
   auto* controller = DesksController::Get();
+  auto* overview_controller = Shell::Get()->overview_controller();
+  auto* event_generator = GetEventGenerator();
 
   // Create three desks other than the default initial desk.
   NewDesk();
@@ -1035,65 +1324,90 @@ TEST_F(DesksTest, ActivateDeskFromOverview) {
   wm::ActivateWindow(win1.get());
   EXPECT_EQ(win1.get(), window_util::GetActiveWindow());
 
-  // Enter overview mode, and expect the desk bar is shown with exactly four
-  // desks mini views, and there are exactly two windows in the overview mode
-  // grid.
-  auto* overview_controller = Shell::Get()->overview_controller();
-  EnterOverview();
-  EXPECT_TRUE(overview_controller->InOverviewSession());
-  const auto* overview_grid =
-      GetOverviewGridForRoot(Shell::GetPrimaryRootWindow());
-  const auto* desks_bar_view = overview_grid->desks_bar_view();
-  ASSERT_TRUE(desks_bar_view);
-  ASSERT_EQ(4u, desks_bar_view->mini_views().size());
-  EXPECT_EQ(2u, overview_grid->window_list().size());
+  // Test that left-click on desk mini view activates the specified desk.
+  {
+    // Enter overview mode, and expect the desk bar is shown with exactly four
+    // desks mini views, and there are exactly two windows in the overview mode
+    // grid.
+    EnterOverview();
+    EXPECT_TRUE(overview_controller->InOverviewSession());
+    const auto* overview_grid =
+        GetOverviewGridForRoot(Shell::GetPrimaryRootWindow());
+    const auto* desks_bar_view = overview_grid->desks_bar_view();
+    ASSERT_TRUE(desks_bar_view);
+    ASSERT_EQ(4u, desks_bar_view->mini_views().size());
+    EXPECT_EQ(2u, overview_grid->window_list().size());
 
-  // Activate desk_4 (last one on the right) by clicking on its mini view.
-  const Desk* desk_4 = controller->desks()[3].get();
-  EXPECT_FALSE(desk_4->is_active());
-  auto* mini_view = desks_bar_view->mini_views().back();
-  EXPECT_EQ(desk_4, mini_view->desk());
-  EXPECT_FALSE(mini_view->close_desk_button()->GetVisible());
-  const gfx::Point mini_view_center =
-      mini_view->GetBoundsInScreen().CenterPoint();
-  auto* event_generator = GetEventGenerator();
-  event_generator->MoveMouseTo(mini_view_center);
-  DeskSwitchAnimationWaiter waiter;
-  event_generator->ClickLeftButton();
-  waiter.Wait();
+    // Activate desk_4 (last one on the right) by clicking on its mini view.
+    const Desk* desk_4 = controller->desks()[3].get();
+    EXPECT_EQ(0, controller->GetActiveDeskIndex());
+    auto* mini_view = desks_bar_view->mini_views().back();
+    EXPECT_EQ(desk_4, mini_view->desk());
+    EXPECT_FALSE(GetDeskActionVisibilityForMiniView(mini_view));
+    DeskSwitchAnimationWaiter waiter;
+    ClickOnView(mini_view, event_generator);
+    waiter.Wait();
 
-  // Expect that desk_4 is now active, and overview mode exited.
-  EXPECT_TRUE(desk_4->is_active());
-  EXPECT_FALSE(overview_controller->InOverviewSession());
-  // Exiting overview mode should not restore focus to a window on a
-  // now-inactive desk. Run a loop since the overview session is destroyed async
-  // and until that happens, focus will be on the dummy
-  // "OverviewModeFocusedWidget".
-  base::RunLoop().RunUntilIdle();
-  EXPECT_EQ(nullptr, window_util::GetActiveWindow());
+    // Expect that desk_4 is now active, and overview mode exited.
+    EXPECT_EQ(3, controller->GetActiveDeskIndex());
+    EXPECT_FALSE(overview_controller->InOverviewSession());
+    // Exiting overview mode should not restore focus to a window on a
+    // now-inactive desk. Run a loop since the overview session is destroyed
+    // async and until that happens, focus will be on the dummy
+    // "OverviewModeFocusedWidget".
+    base::RunLoop().RunUntilIdle();
+    EXPECT_EQ(nullptr, window_util::GetActiveWindow());
 
-  // Create one window in desk_4 and enter overview mode. Expect the grid is
-  // showing exactly one window.
-  auto win2 = CreateAppWindow(gfx::Rect(50, 50, 200, 200));
-  wm::ActivateWindow(win2.get());
-  EnterOverview();
-  EXPECT_TRUE(overview_controller->InOverviewSession());
-  overview_grid = GetOverviewGridForRoot(Shell::GetPrimaryRootWindow());
-  EXPECT_EQ(1u, overview_grid->window_list().size());
+    // Create one window in desk_4 and enter overview mode. Expect the grid is
+    // showing exactly one window.
+    auto win2 = CreateAppWindow(gfx::Rect(50, 50, 200, 200));
+    wm::ActivateWindow(win2.get());
+    EnterOverview();
+    EXPECT_TRUE(overview_controller->InOverviewSession());
+    overview_grid = GetOverviewGridForRoot(Shell::GetPrimaryRootWindow());
+    EXPECT_EQ(1u, overview_grid->window_list().size());
 
-  // When exiting overview mode without changing desks, the focus should be
-  // restored to the same window.
-  ExitOverview();
-  EXPECT_FALSE(overview_controller->InOverviewSession());
-  // Run a loop since the overview session is destroyed async and until that
-  // happens, focus will be on the dummy "OverviewModeFocusedWidget".
-  base::RunLoop().RunUntilIdle();
-  EXPECT_EQ(win2.get(), window_util::GetActiveWindow());
+    // When exiting overview mode without changing desks, the focus should be
+    // restored to the same window.
+    ExitOverview();
+    EXPECT_FALSE(overview_controller->InOverviewSession());
+    // Run a loop since the overview session is destroyed async and until that
+    // happens, focus will be on the dummy "OverviewModeFocusedWidget".
+    base::RunLoop().RunUntilIdle();
+    EXPECT_EQ(win2.get(), window_util::GetActiveWindow());
+  }
+
+  // Test double click on desk mini view does not crash.
+  {
+    EnterOverview();
+    const auto* overview_grid =
+        GetOverviewGridForRoot(Shell::GetPrimaryRootWindow());
+    DeskSwitchAnimationWaiter waiter;
+    DoubleClickOnView(overview_grid->desks_bar_view()->mini_views().front(),
+                      event_generator);
+    waiter.Wait();
+    EXPECT_EQ(0, controller->GetActiveDeskIndex());
+    EXPECT_FALSE(overview_controller->InOverviewSession());
+  }
+
+  // Test that using ChromeVox on a desk mini view does not crash.
+  {
+    EnterOverview();
+    const auto* overview_grid =
+        GetOverviewGridForRoot(Shell::GetPrimaryRootWindow());
+    DeskSwitchAnimationWaiter waiter;
+    SendAccessibleActionToView(
+        overview_grid->desks_bar_view()->mini_views()[1]->desk_preview(),
+        ax::mojom::Action::kDoDefault);
+    waiter.Wait();
+    EXPECT_EQ(1, controller->GetActiveDeskIndex());
+    EXPECT_FALSE(overview_controller->InOverviewSession());
+  }
 }
 
 // This test makes sure we have coverage for that desk switch animation when run
 // with multiple displays while overview mode is active.
-TEST_F(DesksTest, ActivateDeskFromOverviewDualDisplay) {
+TEST_P(DesksTest, ActivateDeskFromOverviewDualDisplay) {
   UpdateDisplay("700x600,400x500");
 
   auto* controller = DesksController::Get();
@@ -1134,7 +1448,7 @@ TEST_F(DesksTest, ActivateDeskFromOverviewDualDisplay) {
   EXPECT_FALSE(overview_controller->InOverviewSession());
 }
 
-TEST_F(DesksTest, RemoveInactiveDeskFromOverview) {
+TEST_P(DesksTest, RemoveInactiveDeskFromOverview) {
   auto* controller = DesksController::Get();
 
   // Create three desks other than the default initial desk.
@@ -1235,7 +1549,7 @@ TEST_F(DesksTest, RemoveInactiveDeskFromOverview) {
                 ->children());
 }
 
-TEST_F(DesksTest, RemoveActiveDeskFromOverview) {
+TEST_P(DesksTest, RemoveActiveDeskFromOverview) {
   auto* controller = DesksController::Get();
 
   // Create one desk other than the default initial desk.
@@ -1300,7 +1614,11 @@ TEST_F(DesksTest, RemoveActiveDeskFromOverview) {
   // the overview grid. Desks bar should go back to zero state since there is a
   // single desk after removing.
   ASSERT_EQ(1u, controller->desks().size());
-  ASSERT_EQ(0u, desks_bar_view->mini_views().size());
+  if (GetParam().enable_jellyroll) {
+    ASSERT_EQ(1u, desks_bar_view->mini_views().size());
+  } else {
+    ASSERT_EQ(0u, desks_bar_view->mini_views().size());
+  }
   EXPECT_TRUE(desk_1->is_active());
   EXPECT_TRUE(overview_controller->InOverviewSession());
   EXPECT_EQ(4u, overview_grid->window_list().size());
@@ -1334,7 +1652,50 @@ TEST_F(DesksTest, RemoveActiveDeskFromOverview) {
   desk_1->RemoveObserver(&desk_1_observer);
 }
 
-TEST_F(DesksTest, ActivateActiveDeskFromOverview) {
+// Test that there is no crash when closing active desk with a all desk window
+// right after creating a desk with empty name.
+// Regression test for b/266147233.
+TEST_P(DesksTest,
+       RemoveActiveDeskWithAllDeskWindowFromOverviewWithNewDeskOfEmptyName) {
+  auto* controller = DesksController::Get();
+
+  NewDesk();
+  auto win1 = CreateAppWindow();
+  views::Widget::GetWidgetForNativeWindow(win1.get())
+      ->SetVisibleOnAllWorkspaces(true);
+  ASSERT_TRUE(desks_util::IsWindowVisibleOnAllWorkspaces(win1.get()));
+
+  EnterOverview();
+  auto* event_generator = GetEventGenerator();
+  ClickOnView(GetExpandedStateNewDeskButton(GetPrimaryRootDesksBarView()),
+              event_generator);
+  ASSERT_EQ(3u, controller->desks().size());
+  Desk* desk_1 = controller->desks()[0].get();
+  Desk* desk_2 = controller->desks()[1].get();
+  Desk* desk_3 = controller->desks()[2].get();
+  ASSERT_TRUE(desk_1->is_active());
+
+  controller->RemoveDesk(desk_1, DesksCreationRemovalSource::kButton,
+                         DeskCloseType::kCloseAllWindowsAndWait);
+  ASSERT_EQ(desk_2, controller->GetTargetActiveDesk());
+  EXPECT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
+
+  controller->RemoveDesk(desk_2, DesksCreationRemovalSource::kButton,
+                         DeskCloseType::kCloseAllWindowsAndWait);
+  ASSERT_EQ(desk_3, controller->GetTargetActiveDesk());
+  EXPECT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
+  if (GetParam().enable_jellyroll) {
+    // When the feature Jellyroll is enabled, the desk bar doesn't switch to
+    // zero state.
+    EXPECT_EQ(1u, GetPrimaryRootDesksBarView()->mini_views().size());
+  } else {
+    // When the feature Jellyroll is not enabled, the desk bar will switch to
+    // zero state.
+    EXPECT_TRUE(GetPrimaryRootDesksBarView()->mini_views().empty());
+  }
+}
+
+TEST_P(DesksTest, ActivateActiveDeskFromOverview) {
   auto* controller = DesksController::Get();
 
   // Create one more desk other than the default initial desk, so the desks bar
@@ -1358,7 +1719,7 @@ TEST_F(DesksTest, ActivateActiveDeskFromOverview) {
   EXPECT_EQ(desk_1, controller->active_desk());
 }
 
-TEST_F(DesksTest, MinimizedWindow) {
+TEST_P(DesksTest, MinimizedWindow) {
   auto* controller = DesksController::Get();
   NewDesk();
   ASSERT_EQ(2u, controller->desks().size());
@@ -1396,7 +1757,7 @@ TEST_F(DesksTest, MinimizedWindow) {
 
 // Tests that the app list stays open when switching desks. Regression test for
 // http://crbug.com/1138982.
-TEST_F(DesksTest, AppListStaysOpenInClamshell) {
+TEST_P(DesksTest, AppListStaysOpenInClamshell) {
   auto* controller = DesksController::Get();
   NewDesk();
   ASSERT_EQ(2u, controller->desks().size());
@@ -1408,7 +1769,7 @@ TEST_F(DesksTest, AppListStaysOpenInClamshell) {
 
   // Open the app list.
   auto* app_list_controller = Shell::Get()->app_list_controller();
-  app_list_controller->ShowAppList();
+  app_list_controller->ShowAppList(AppListShowSource::kSearchKey);
   ASSERT_TRUE(app_list_controller->IsVisible());
 
   // Switch back to desk 1. Test that the app list is still open.
@@ -1418,7 +1779,7 @@ TEST_F(DesksTest, AppListStaysOpenInClamshell) {
 
 // Tests that the app list correctly loses focus in tablet mode when switching
 // desks. Regression test for https://crbug.com/1206030.
-TEST_F(DesksTest, AppListActivationInTablet) {
+TEST_P(DesksTest, AppListActivationInTablet) {
   auto* controller = DesksController::Get();
   NewDesk();
   ASSERT_EQ(2u, controller->desks().size());
@@ -1480,8 +1841,7 @@ TEST_P(DesksTest, DragWindowToDesk) {
   auto* event_generator = GetEventGenerator();
   DragItemToPoint(overview_item,
                   desk_1_mini_view->GetBoundsInScreen().CenterPoint(),
-                  event_generator,
-                  /*by_touch_gestures=*/GetParam());
+                  event_generator, GetParam().use_touch_gestures);
   EXPECT_TRUE(overview_controller->InOverviewSession());
   EXPECT_EQ(2u, overview_grid->size());
   EXPECT_EQ(target_bounds_before_drag, overview_item->target_bounds());
@@ -1493,8 +1853,7 @@ TEST_P(DesksTest, DragWindowToDesk) {
   EXPECT_EQ(desk_2, desk_2_mini_view->desk());
   DragItemToPoint(overview_item,
                   desk_2_mini_view->GetBoundsInScreen().CenterPoint(),
-                  event_generator,
-                  /*by_touch_gestures=*/GetParam());
+                  event_generator, GetParam().use_touch_gestures);
   EXPECT_TRUE(overview_controller->InOverviewSession());
   EXPECT_EQ(1u, overview_grid->size());
   EXPECT_FALSE(DoesActiveDeskContainWindow(win1.get()));
@@ -1513,7 +1872,7 @@ TEST_P(DesksTest, DragWindowToDesk) {
   ASSERT_TRUE(overview_item);
   const auto window_center =
       gfx::ToFlooredPoint(overview_item->target_bounds().CenterPoint());
-  if (GetParam() /* uses gestures */) {
+  if (GetParam().use_touch_gestures) {
     event_generator->GestureTapAt(window_center);
   } else {
     event_generator->MoveMouseTo(window_center);
@@ -1525,6 +1884,36 @@ TEST_P(DesksTest, DragWindowToDesk) {
   // After the window is dropped onto another desk, its shadow should be
   // restored properly.
   EXPECT_TRUE(shadow->layer()->GetTargetVisibility());
+}
+
+// Tests that theme change during drag to close does not trigger any crashes.
+// Regression test for b/270171802.
+TEST_P(DesksTest, DragWindowToCloseWithThemeChange) {
+  // Create two windows.
+  auto win1 = CreateAppWindow();
+  auto win2 = CreateAppWindow();
+
+  // Enter overview.
+  EnterOverview();
+  auto* overview_item = Shell::Get()
+                            ->overview_controller()
+                            ->overview_session()
+                            ->GetOverviewItemForWindow(win1.get());
+  ASSERT_TRUE(overview_item);
+
+  // Drag `win1` to close and simulate multiple theme changes at the same time.
+  // There should not be any crashes.
+  auto* event_generator = GetEventGenerator();
+  event_generator->set_current_screen_location(
+      gfx::ToRoundedPoint(overview_item->target_bounds().CenterPoint()));
+  event_generator->PressTouch();
+  overview_item->item_widget()->ThemeChanged();
+  event_generator->MoveTouchBy(0, -50);
+  overview_item->item_widget()->ThemeChanged();
+  event_generator->MoveTouchBy(0, -200);
+  overview_item->item_widget()->ThemeChanged();
+  event_generator->ReleaseTouch();
+  overview_item->item_widget()->ThemeChanged();
 }
 
 TEST_P(DesksTest, DragMinimizedWindowToDesk) {
@@ -1561,8 +1950,7 @@ TEST_P(DesksTest, DragMinimizedWindowToDesk) {
   EXPECT_EQ(desk_2, desk_2_mini_view->desk());
   DragItemToPoint(overview_item,
                   desk_2_mini_view->GetBoundsInScreen().CenterPoint(),
-                  GetEventGenerator(),
-                  /*by_touch_gestures=*/GetParam());
+                  GetEventGenerator(), GetParam().use_touch_gestures);
   EXPECT_TRUE(overview_controller->InOverviewSession());
   EXPECT_TRUE(overview_grid->empty());
   EXPECT_TRUE(base::Contains(desk_2->windows(), window.get()));
@@ -1592,8 +1980,7 @@ TEST_P(DesksTest, DragAllOverviewWindowsToOtherDesksNotEndOverview) {
                       ->mini_views()[1]
                       ->GetBoundsInScreen()
                       .CenterPoint(),
-                  GetEventGenerator(),
-                  /*by_touch_gestures=*/GetParam());
+                  GetEventGenerator(), GetParam().use_touch_gestures);
   EXPECT_FALSE(DoesActiveDeskContainWindow(win.get()));
   ASSERT_TRUE(overview_controller->InOverviewSession());
   EXPECT_TRUE(overview_session->IsEmpty());
@@ -1628,15 +2015,346 @@ TEST_P(DesksTest, DragWindowToNonMiniViewPoints) {
   // nothing should happen.
   DragItemToPoint(overview_item,
                   window->GetRootWindow()->GetBoundsInScreen().bottom_center(),
-                  GetEventGenerator(),
-                  /*by_touch_gestures=*/GetParam());
+                  GetEventGenerator(), GetParam().use_touch_gestures);
   EXPECT_TRUE(overview_controller->InOverviewSession());
   EXPECT_EQ(1u, overview_grid->size());
   EXPECT_EQ(target_bounds_before_drag, overview_item->target_bounds());
   EXPECT_TRUE(DoesActiveDeskContainWindow(window.get()));
 }
 
-TEST_F(DesksTest, MruWindowTracker) {
+// Tests that dragging and dropping window to new desk while desks bar view is
+// at zero state.
+TEST_P(DesksTest, DragWindowAtZeroState) {
+  auto* controller = DesksController::Get();
+  auto win1 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
+
+  ASSERT_EQ(1u, controller->desks().size());
+  auto* overview_controller = Shell::Get()->overview_controller();
+  EnterOverview();
+
+  ASSERT_TRUE(overview_controller->InOverviewSession());
+  auto* overview_grid = GetOverviewGridForRoot(Shell::GetPrimaryRootWindow());
+  const auto* desks_bar_view = overview_grid->desks_bar_view();
+  ASSERT_TRUE(desks_bar_view);
+
+  // Since we only have one desk, there should be 0 desk mini view and the zero
+  // state default desk button and new desk button should be visible.
+  ASSERT_EQ(0u, desks_bar_view->mini_views().size());
+  auto* zero_state_default_desk_button = GetDefaultDeskButton(desks_bar_view);
+  auto* zero_state_new_desk_button = GetZeroStateNewDeskButton(desks_bar_view);
+  EXPECT_TRUE(zero_state_default_desk_button->GetVisible());
+  VerifyZeroStateNewDeskButtonVisibility(desks_bar_view, true);
+  VerifyExpandedStateNewDeskButtonVisibility(desks_bar_view, false);
+
+  auto* overview_item1 = overview_grid->GetOverviewItemContaining(win1.get());
+  auto* event_generator = GetEventGenerator();
+
+  // Start dragging `overview_item1` without dropping it. Make sure the square
+  // length between `overview_item1` and `zero_state_new_desk_button` is longer
+  // than `kExpandDesksBarThreshold`. Verify that the desks bar is still at zero
+  // state in this use case.
+  DragItemToPoint(
+      overview_item1,
+      gfx::ToRoundedPoint(overview_item1->target_bounds().CenterPoint() +
+                          gfx::Vector2d(100, -100)),
+      event_generator,
+      /*by_touch_gestures=*/false, /*drop=*/false);
+  if (GetParam().enable_jellyroll) {
+    // When feature `Jellyroll` is enabled, desks bar will expand immediately at
+    // the beginning of the drag.
+    EXPECT_FALSE(zero_state_default_desk_button->GetVisible());
+    VerifyZeroStateNewDeskButtonVisibility(desks_bar_view, false);
+    VerifyExpandedStateNewDeskButtonVisibility(desks_bar_view, true);
+  } else {
+    EXPECT_TRUE(zero_state_default_desk_button->GetVisible());
+    VerifyZeroStateNewDeskButtonVisibility(desks_bar_view, true);
+    VerifyExpandedStateNewDeskButtonVisibility(desks_bar_view, false);
+  }
+
+  const gfx::Point new_desk_button_center_point =
+      zero_state_new_desk_button->GetBoundsInScreen().CenterPoint();
+  if (GetParam().enable_jellyroll) {
+    // The new desk button will be scaled up as a drop target for
+    // `overview_item1` when `overview_item1` it's being hovered on top it over
+    // 500 milliseconds.
+    // Drag `overview_item1` to hover on the new desk button, and wait for 200
+    // milliseconds, verify that new desk button is still at the expanded state
+    // and the new desk label is not shown.
+    const CrOSNextDeskIconButton* new_desk_button =
+        desks_bar_view->new_desk_button();
+    const gfx::Point new_desk_button_bottom_left =
+        zero_state_new_desk_button->GetBoundsInScreen().bottom_left();
+    DragItemToPoint(overview_item1,
+                    new_desk_button_bottom_left + gfx::Vector2d(10, -10),
+                    event_generator, /*by_touch_gestures=*/false,
+                    /*drop=*/false);
+    WaitForMilliseconds(200);
+    EXPECT_EQ(CrOSNextDeskIconButton::State::kExpanded,
+              new_desk_button->state());
+    EXPECT_FALSE(desks_bar_view->new_desk_button_label()->GetVisible());
+    // Now fire the timer directly to skip the wait time. Verify that the new
+    // desk button is scaled up and at the active state and the new desk label
+    // is shown now.
+    overview_controller->overview_session()
+        ->window_drag_controller()
+        ->new_desk_button_scale_up_timer_for_test()
+        ->FireNow();
+    EXPECT_EQ(CrOSNextDeskIconButton::State::kActive, new_desk_button->state());
+    EXPECT_TRUE(desks_bar_view->new_desk_button_label()->GetVisible());
+
+    // Keep dragging `overview_item1` to the center of the new desk button to
+    // make it a drop target.
+    DragItemToPoint(overview_item1,
+                    new_desk_button_center_point + gfx::Vector2d(10, 10),
+                    event_generator, /*by_touch_gestures=*/false,
+                    /*drop=*/false);
+
+  } else {
+    // Now keep dragging `overview_item1` and make it close enough to the center
+    // point of `zero_state_new_desk_button`. Verify that desks bar is
+    // transformed to the expanded state in this use case.
+    DragItemToPoint(overview_item1,
+                    new_desk_button_center_point + gfx::Vector2d(10, 10),
+                    event_generator, /*by_touch_gestures=*/false,
+                    /*drop=*/false);
+    EXPECT_FALSE(zero_state_default_desk_button->GetVisible());
+    VerifyZeroStateNewDeskButtonVisibility(desks_bar_view, false);
+    VerifyExpandedStateNewDeskButtonVisibility(desks_bar_view, true);
+  }
+
+  // Now drop |overview_item1|, a new desk which contains |win1| will be
+  // created.
+  event_generator->ReleaseLeftButton();
+  EXPECT_TRUE(overview_controller->InOverviewSession());
+  EXPECT_EQ(2u, desks_bar_view->mini_views().size());
+  EXPECT_EQ(2u, controller->desks().size());
+  EXPECT_TRUE(base::Contains(controller->desks()[1]->windows(), win1.get()));
+  // The active desk should still be the first desk, even though a new desk
+  // is created.
+  EXPECT_EQ(DesksController::Get()->active_desk(),
+            controller->desks()[0].get());
+  // |overview_grid| should have size equals to 0 now, since |overview_item1|
+  // havs been moved to a new desk.
+  EXPECT_EQ(0u, overview_grid->size());
+}
+
+// Tests that dragging a window at zero state but without dropping it on the new
+// desk button, the window being dragged will fall back to the existing desk and
+// no new desk should be created.
+TEST_P(DesksTest, DragWindowAtZeroStateWithoutDroppingItOnTheNewDesk) {
+  auto* controller = DesksController::Get();
+  auto win1 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
+
+  ASSERT_EQ(1u, controller->desks().size());
+  auto* overview_controller = Shell::Get()->overview_controller();
+  EnterOverview();
+
+  ASSERT_TRUE(overview_controller->InOverviewSession());
+  auto* overview_grid = GetOverviewGridForRoot(Shell::GetPrimaryRootWindow());
+  const auto* desks_bar_view = overview_grid->desks_bar_view();
+  ASSERT_TRUE(desks_bar_view);
+
+  // Make sure the desks bar is at zero state in the beginning.
+  auto* zero_state_default_desk_button = GetDefaultDeskButton(desks_bar_view);
+  auto* zero_state_new_desk_button = GetZeroStateNewDeskButton(desks_bar_view);
+  auto* expanded_state_new_desk_button =
+      GetExpandedStateNewDeskButton(desks_bar_view);
+  EXPECT_TRUE(zero_state_default_desk_button->GetVisible());
+  VerifyZeroStateNewDeskButtonVisibility(desks_bar_view, true);
+  VerifyExpandedStateNewDeskButtonVisibility(desks_bar_view, false);
+
+  auto* overview_item1 = overview_grid->GetOverviewItemContaining(win1.get());
+  auto* event_generator = GetEventGenerator();
+
+  if (GetParam().enable_jellyroll) {
+    const CrOSNextDeskIconButton* new_desk_button =
+        desks_bar_view->new_desk_button();
+    // Start dragging `overview_item1`, verify desks bar expands immediately and
+    // the new desk button is transformed to the expanded state;
+    DragItemToPoint(
+        overview_item1,
+        gfx::ToRoundedPoint(overview_item1->target_bounds().CenterPoint() +
+                            gfx::Vector2d(100, -100)),
+        event_generator,
+        /*by_touch_gestures=*/false, /*drop=*/false);
+    EXPECT_FALSE(desks_bar_view->IsZeroState());
+    EXPECT_EQ(CrOSNextDeskIconButton::State::kExpanded,
+              new_desk_button->state());
+    EXPECT_FALSE(desks_bar_view->new_desk_button_label()->GetVisible());
+
+    // Keep dragging `overview_item1` to hover on the new desk button,
+    // immediately fire the time to skip to wait time. Verify that new desk
+    // button is transformed to the active state and the new desk label is shown
+    // now.
+    const gfx::Point new_desk_button_center_point =
+        zero_state_new_desk_button->GetBoundsInScreen().CenterPoint();
+    DragItemToPoint(overview_item1,
+                    gfx::Point(new_desk_button_center_point.x() + 10,
+                               new_desk_button_center_point.y() + 10),
+                    event_generator, /*by_touch_gestures=*/false,
+                    /*drop=*/false);
+    overview_controller->overview_session()
+        ->window_drag_controller()
+        ->new_desk_button_scale_up_timer_for_test()
+        ->FireNow();
+    EXPECT_EQ(CrOSNextDeskIconButton::State::kActive, new_desk_button->state());
+    EXPECT_TRUE(desks_bar_view->new_desk_button_label()->GetVisible());
+  } else {
+    // Drag `overview_item1` and make it close enough to the center point of
+    // `zero_state_new_desk_button`. Verify that desks bar is transformed to the
+    // expanded state in this use case.
+    const gfx::Point new_desk_button_center_point =
+        zero_state_new_desk_button->GetBoundsInScreen().CenterPoint();
+    DragItemToPoint(overview_item1,
+                    gfx::Point(new_desk_button_center_point.x() + 10,
+                               new_desk_button_center_point.y() + 10),
+                    event_generator, /*by_touch_gestures=*/false,
+                    /*drop=*/false);
+    EXPECT_FALSE(zero_state_default_desk_button->GetVisible());
+    VerifyZeroStateNewDeskButtonVisibility(desks_bar_view, false);
+    VerifyExpandedStateNewDeskButtonVisibility(desks_bar_view, true);
+  }
+
+  // Now keep dragging `overview_item1` and make it not able to be dropped on
+  // the new desk, then drop it. Check that `overview_item1` is dropped back to
+  // the existing desk, there's no new desk created, and desks bar is
+  // transformed back to the zero state.
+  const gfx::Point expanded_new_desk_button_center_point =
+      expanded_state_new_desk_button->GetBoundsInScreen().CenterPoint();
+  DragItemToPoint(overview_item1,
+                  gfx::Point(expanded_new_desk_button_center_point.x() + 200,
+                             expanded_new_desk_button_center_point.y() + 200),
+                  event_generator, /*by_touch_gestures=*/false, /*drop=*/true);
+  if (GetParam().enable_jellyroll) {
+    // If the Jellyroll is enabled, the desks bar never goes back to the zero
+    // state from the expanded state even these's only one desk. Veriry that the
+    // new desk label is invisible now.
+    EXPECT_FALSE(desks_bar_view->IsZeroState());
+    EXPECT_FALSE(desks_bar_view->new_desk_button_label()->GetVisible());
+  } else {
+    EXPECT_TRUE(desks_bar_view->IsZeroState());
+  }
+  EXPECT_EQ(1u, controller->desks().size());
+  EXPECT_TRUE(base::Contains(controller->desks()[0]->windows(), win1.get()));
+}
+
+// Tests that dragging and dropping window to new desk while desks bar view is
+// at expanded state.
+TEST_P(DesksTest, DragWindowAtExpandedState) {
+  auto* controller = DesksController::Get();
+  auto win1 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
+  NewDesk();
+
+  ASSERT_EQ(2u, controller->desks().size());
+  auto* overview_controller = Shell::Get()->overview_controller();
+  EnterOverview();
+
+  ASSERT_TRUE(overview_controller->InOverviewSession());
+  const auto* desks_bar_view =
+      GetOverviewGridForRoot(Shell::GetPrimaryRootWindow())->desks_bar_view();
+  ASSERT_TRUE(desks_bar_view);
+
+  ASSERT_EQ(2u, desks_bar_view->mini_views().size());
+  auto* expanded_state_new_desk_button =
+      GetExpandedStateNewDeskButton(desks_bar_view);
+  VerifyExpandedStateNewDeskButtonVisibility(desks_bar_view, true);
+
+  if (GetParam().enable_jellyroll) {
+    auto* event_generator = GetEventGenerator();
+    // Drag `overview_item1` on that new desk button, and fire the timer
+    // immediately and then drops it. A new desk which contains `win1` will be
+    // created.
+    DragItemToPoint(
+        overview_controller->overview_session()->GetOverviewItemForWindow(
+            win1.get()),
+        expanded_state_new_desk_button->GetBoundsInScreen().CenterPoint(),
+        GetEventGenerator(), /*by_touch_gestures=*/false,
+        /*drop=*/false);
+    overview_controller->overview_session()
+        ->window_drag_controller()
+        ->new_desk_button_scale_up_timer_for_test()
+        ->FireNow();
+    event_generator->ReleaseLeftButton();
+  } else {
+    // Drag and drop `overview_item1` on `expanded_state_new_desk_button`. A new
+    // desk which contains `win1` will be created.
+    DragItemToPoint(
+        overview_controller->overview_session()->GetOverviewItemForWindow(
+            win1.get()),
+        expanded_state_new_desk_button->GetBoundsInScreen().CenterPoint(),
+        GetEventGenerator());
+  }
+
+  EXPECT_TRUE(overview_controller->InOverviewSession());
+  EXPECT_EQ(3u, desks_bar_view->mini_views().size());
+  EXPECT_EQ(3u, controller->desks().size());
+  EXPECT_TRUE(base::Contains(controller->desks()[2]->windows(), win1.get()));
+}
+
+// Tests that dragging and dropping a window on the new desk button does not
+// create a new desk if we are already at the maximum number of desks.
+TEST_P(DesksTest, DragWindowAtMaximumDesksState) {
+  // Set a display mode that forces vertical layout of split view drag
+  // indicators. This is so that we are able to drop an overview item on the
+  // "new desk" button even if it's right up to the edge.
+  UpdateDisplay("800x801");
+
+  auto* controller = DesksController::Get();
+  auto win1 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
+  while (controller->desks().size() < desks_util::GetMaxNumberOfDesks()) {
+    NewDesk();
+  }
+
+  ASSERT_EQ(desks_util::GetMaxNumberOfDesks(), controller->desks().size());
+  auto* overview_controller = Shell::Get()->overview_controller();
+  EnterOverview();
+
+  ASSERT_TRUE(overview_controller->InOverviewSession());
+  const auto* desks_bar_view =
+      GetOverviewGridForRoot(Shell::GetPrimaryRootWindow())->desks_bar_view();
+  ASSERT_TRUE(desks_bar_view);
+
+  auto* event_generator = GetEventGenerator();
+  auto* scroll_right_button = DesksTestApi::GetDeskBarRightScrollButton(
+      DeskBarViewBase::Type::kOverview);
+  for (int i = 0; i != 3; ++i) {
+    ClickOnView(scroll_right_button, event_generator);
+  }
+
+  // Drag and drop the overview to the new desk button. Since we already have
+  // maximum number of desks, this won't create a new desk, and the dragged
+  // window will fall back to the desk where it's from. Dragging here is not
+  // done using `DragItemToPoint`. This is because once a drag has been
+  // initiated, the split view drag indicators will show and shift the position
+  // of the desks bar, which includes the new desk button. In other words, we
+  // have to initiate the drag before we can know where to drop.
+  const gfx::Point overview_item_center =
+      gfx::ToRoundedPoint(overview_controller->overview_session()
+                              ->GetOverviewItemForWindow(win1.get())
+                              ->target_bounds()
+                              .CenterPoint());
+
+  // Pick up the item and move it a little bit to initiate a drag.
+  event_generator->set_current_screen_location(overview_item_center);
+  event_generator->PressLeftButton();
+  event_generator->MoveMouseBy(20, 0);
+
+  // Move the item to the new desk button and drop it.
+  event_generator->MoveMouseTo(GetExpandedStateNewDeskButton(desks_bar_view)
+                                   ->GetBoundsInScreen()
+                                   .CenterPoint());
+  event_generator->ReleaseLeftButton();
+
+  // We should still be in overview mode. We should still have the max number of
+  // desks. And `win1` should still belong to the first desk.
+  ASSERT_TRUE(overview_controller->InOverviewSession());
+  EXPECT_EQ(desks_util::GetMaxNumberOfDesks(),
+            desks_bar_view->mini_views().size());
+  EXPECT_EQ(desks_util::GetMaxNumberOfDesks(), controller->desks().size());
+  EXPECT_TRUE(base::Contains(controller->desks()[0]->windows(), win1.get()));
+}
+
+TEST_P(DesksTest, MruWindowTracker) {
   // Create two desks with two windows in each.
   auto win0 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
   auto win1 = CreateAppWindow(gfx::Rect(50, 50, 200, 200));
@@ -1681,7 +2399,7 @@ TEST_F(DesksTest, MruWindowTracker) {
   EXPECT_EQ(win0.get(), window_list[3]);
 }
 
-TEST_F(DesksTest, NextActivatable) {
+TEST_P(DesksTest, NextActivatable) {
   // Create two desks with two windows in each.
   auto win0 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
   auto win1 = CreateAppWindow(gfx::Rect(50, 50, 200, 200));
@@ -1712,7 +2430,7 @@ TEST_F(DesksTest, NextActivatable) {
   EXPECT_EQ(nullptr, window_util::GetActiveWindow());
 }
 
-TEST_F(DesksTest, NoMiniViewsUpdateOnOverviewEnter) {
+TEST_P(DesksTest, NoMiniViewsUpdateOnOverviewEnter) {
   auto* controller = DesksController::Get();
   NewDesk();
   ASSERT_EQ(2u, controller->desks().size());
@@ -1745,7 +2463,7 @@ TEST_F(DesksTest, NoMiniViewsUpdateOnOverviewEnter) {
 }
 
 // Tests that the consecutive daily visits metric is properly recorded.
-TEST_F(DesksTest, ConsecutiveDailyVisitsMetric) {
+TEST_P(DesksTest, ConsecutiveDailyVisitsMetric) {
   constexpr char kConsecutiveDailyVisitsHistogram[] =
       "Ash.Desks.ConsecutiveDailyVisits";
   auto* desks_controller = DesksController::Get();
@@ -1814,7 +2532,7 @@ TEST_F(DesksTest, ConsecutiveDailyVisitsMetric) {
 }
 
 // Tests that the new desk button's state and color are as expected.
-TEST_F(DesksTest, NewDeskButtonStateAndColor) {
+TEST_P(DesksTest, NewDeskButtonStateAndColor) {
   auto* controller = DesksController::Get();
   NewDesk();
   ASSERT_EQ(2u, controller->desks().size());
@@ -1825,22 +2543,27 @@ TEST_F(DesksTest, NewDeskButtonStateAndColor) {
   const auto* desks_bar_view = overview_grid->desks_bar_view();
   ASSERT_TRUE(desks_bar_view);
   const auto* new_desk_button =
-      desks_bar_view->expanded_state_new_desk_button()->inner_button();
+      GetExpandedStateInnerNewDeskButton(desks_bar_view);
+  auto* scroll_right_button = DesksTestApi::GetDeskBarRightScrollButton(
+      DeskBarViewBase::Type::kOverview);
 
   // Tests that with one or two desks, the new desk button has an enabled state
   // and color.
-  const SkColor background_color =
-      AshColorProvider::Get()->GetControlsLayerColor(
-          AshColorProvider::ControlsLayerType::kControlBackgroundColorInactive);
+  auto* color_provider = new_desk_button->GetColorProvider();
+  SkColor background_color =
+      chromeos::features::IsJellyrollEnabled()
+          ? color_provider->GetColor(cros_tokens::kCrosSysPrimary)
+          : color_provider->GetColor(kColorAshControlBackgroundColorInactive);
+
   const SkColor disabled_background_color =
-      AshColorProvider::GetDisabledColor(background_color);
+      ColorUtil::GetDisabledColor(background_color);
   EXPECT_TRUE(new_desk_button->GetEnabled());
-  EXPECT_EQ(background_color, DesksTestApi::GetNewDeskButtonBackgroundColor());
+  EXPECT_EQ(background_color, GetNewDeskButtonBackgroundColor(desks_bar_view));
 
   auto* event_generator = GetEventGenerator();
   ClickOnView(new_desk_button, event_generator);
   EXPECT_TRUE(new_desk_button->GetEnabled());
-  EXPECT_EQ(background_color, DesksTestApi::GetNewDeskButtonBackgroundColor());
+  EXPECT_EQ(background_color, GetNewDeskButtonBackgroundColor(desks_bar_view));
 
   // Tests that adding desks until we reach the desks limit should change the
   // state and color of the new desk button.
@@ -1849,10 +2572,125 @@ TEST_F(DesksTest, NewDeskButtonStateAndColor) {
     ClickOnView(new_desk_button, event_generator);
     EXPECT_EQ(prev_size + 1, controller->desks().size());
     prev_size = controller->desks().size();
+    ClickOnView(scroll_right_button, event_generator);
   }
   EXPECT_FALSE(new_desk_button->GetEnabled());
   EXPECT_EQ(disabled_background_color,
-            DesksTestApi::GetNewDeskButtonBackgroundColor());
+            GetNewDeskButtonBackgroundColor(desks_bar_view));
+}
+
+// Tests that the fullscreen state in shell is updated when switching between
+// desks that have active windows in different fullscreen states.
+TEST_P(DesksTest, FullscreenStateUpdatedAcrossDesks) {
+  FullScreenStateObserver full_screen_state_observer;
+  auto* controller = DesksController::Get();
+  WMEvent event_toggle_fullscreen(WM_EVENT_TOGGLE_FULLSCREEN);
+
+  // Create one new desks.
+  NewDesk();
+  EXPECT_EQ(2u, controller->desks().size());
+
+  // Create one window in each desk.
+  std::vector<std::unique_ptr<aura::Window>> windows;
+  for (int i = 0; i < 2; i++) {
+    windows.push_back(CreateAppWindow());
+    controller->SendToDeskAtIndex(windows[i].get(), i);
+    EXPECT_EQ(i, windows[i]->GetProperty(aura::client::kWindowWorkspaceKey));
+  }
+
+  WindowState* win0_state = WindowState::Get(windows[0].get());
+  WindowState* win1_state = WindowState::Get(windows[1].get());
+
+  EXPECT_FALSE(full_screen_state_observer.is_fullscreen());
+
+  // Set window on desk 0 to fullscreen.
+  win0_state->OnWMEvent(&event_toggle_fullscreen);
+  EXPECT_EQ(windows[0].get(), window_util::GetActiveWindow());
+  EXPECT_TRUE(win0_state->IsFullscreen());
+  EXPECT_TRUE(full_screen_state_observer.is_fullscreen());
+
+  // Switch to desk 1 and expect the fullscreen state to change.
+  ActivateDesk(controller->desks()[1].get());
+
+  EXPECT_EQ(windows[1].get(), window_util::GetActiveWindow());
+  EXPECT_FALSE(win1_state->IsFullscreen());
+  EXPECT_FALSE(full_screen_state_observer.is_fullscreen());
+
+  // Cycle back to desk 0 and expect the fullscreen state to change back.
+  ActivateDesk(controller->desks()[0].get());
+
+  EXPECT_EQ(windows[0].get(), window_util::GetActiveWindow());
+  EXPECT_TRUE(win0_state->IsFullscreen());
+  EXPECT_TRUE(full_screen_state_observer.is_fullscreen());
+}
+
+// Tests the Ash.Desks.AnimationLatency.DeskActivation histogram.
+TEST_P(DesksTest, AnimationLatencyDeskActivation) {
+  NewDesk();
+  auto* controller = DesksController::Get();
+  ASSERT_EQ(2u, controller->desks().size());
+
+  base::HistogramTester histogram_tester;
+  ActivateDesk(controller->desks()[1].get());
+  histogram_tester.ExpectTotalCount("Ash.Desks.AnimationLatency.DeskActivation",
+                                    1);
+}
+
+// Tests the Ash.Desks.AnimationLatency.DeskRemoval histogram.
+TEST_P(DesksTest, AnimationLatencyDeskRemoval) {
+  NewDesk();
+  auto* controller = DesksController::Get();
+  ASSERT_EQ(2u, controller->desks().size());
+
+  base::HistogramTester histogram_tester;
+  RemoveDesk(controller->desks()[0].get());
+  histogram_tester.ExpectTotalCount("Ash.Desks.AnimationLatency.DeskRemoval",
+                                    1);
+}
+
+// Tests that the MRU window in a desk is focused when that desk is activated.
+TEST_P(DesksTest, MruFocusedOnDeskSwitchDualDisplay) {
+  UpdateDisplay("700x600,400x500");
+  auto* controller = DesksController::Get();
+  auto roots = Shell::GetAllRootWindows();
+
+  // Create two desks, each with 2 windows
+  auto win1 = CreateAppWindow(gfx::Rect(50, 50, 200, 200));
+  auto win2 = CreateAppWindow(gfx::Rect(750, 50, 200, 200));
+
+  // Ensure there is one window on each display.
+  ASSERT_EQ(win1->GetRootWindow(), roots[0]);
+  ASSERT_EQ(win2->GetRootWindow(), roots[1]);
+
+  // Focus window 2
+  win2->Focus();
+
+  // Create and switch to the second desk.
+  NewDesk();
+  const Desk* desk_1 = controller->desks()[0].get();
+  const Desk* desk_2 = controller->desks()[1].get();
+  ActivateDesk(desk_2);
+  auto win3 = CreateAppWindow(gfx::Rect(50, 50, 200, 200));
+  auto win4 = CreateAppWindow(gfx::Rect(750, 50, 200, 200));
+  ASSERT_EQ(win3->GetRootWindow(), roots[0]);
+  ASSERT_EQ(win4->GetRootWindow(), roots[1]);
+
+  // Focus window 3
+  win3->Focus();
+
+  // Switch back to desk 1 and ensure window 2 regains focus.
+  ActivateDesk(desk_1);
+  ASSERT_TRUE(win2->HasFocus());
+  ASSERT_FALSE(win1->HasFocus());
+  ASSERT_FALSE(win3->HasFocus());
+  ASSERT_FALSE(win4->HasFocus());
+
+  // Switch back to desk 2 and ensure window 3 regains focus.
+  ActivateDesk(desk_2);
+  ASSERT_TRUE(win3->HasFocus());
+  ASSERT_FALSE(win1->HasFocus());
+  ASSERT_FALSE(win2->HasFocus());
+  ASSERT_FALSE(win4->HasFocus());
 }
 
 class DesksWithMultiDisplayOverview : public AshTestBase {
@@ -1971,6 +2809,86 @@ TEST_F(DesksWithMultiDisplayOverview, DropOnOtherDeskInOtherDisplay) {
   EXPECT_TRUE(base::Contains(desk_2->windows(), win.get()));
 }
 
+// DesksBarVisibilityObserver waits for the Desks Bar on the observed root
+// window to become visible.
+class DesksBarVisibilityObserver : public aura::WindowObserver {
+ public:
+  explicit DesksBarVisibilityObserver(aura::Window* root_window)
+      : root_window_(root_window) {
+    root_window_->AddObserver(this);
+  }
+  DesksBarVisibilityObserver(const DesksBarVisibilityObserver&) = delete;
+  DesksBarVisibilityObserver& operator=(const DesksBarVisibilityObserver&) =
+      delete;
+  ~DesksBarVisibilityObserver() override {
+    DCHECK(root_window_);
+    root_window_->RemoveObserver(this);
+  }
+
+  void Wait() { run_loop_.Run(); }
+
+  void OnWindowVisibilityChanged(aura::Window* window, bool visible) override {
+    if (visible && window->GetId() == kShellWindowId_DesksBarWindow)
+      run_loop_.Quit();
+  }
+
+ private:
+  base::RunLoop run_loop_;
+  raw_ptr<aura::Window> root_window_;
+};
+
+// Tests that closing a desk while in overview before the overview starting
+// animation finishes on a second display does not cause a crash. Regression
+// test for https://crbug.com/1346154.
+TEST_F(DesksWithMultiDisplayOverview, CloseDeskBeforeAnimationFinishes) {
+  // We need a non-zero duration to ensure we can close the desk before the
+  // animation completes.
+  ui::ScopedAnimationDurationScaleMode animation_scale(
+      ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+
+  // Create a maximized window on Desk 1. This means that when entering
+  // overview, we skip the wallpaper animation for Desk 1, so that the
+  // desks_bar_view for RootWindow-0 will initialize before RootWindow-1.
+  auto win0 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
+  const WMEvent toggle_maximize_event(WM_EVENT_TOGGLE_MAXIMIZE);
+  WindowState::Get(win0.get())->OnWMEvent(&toggle_maximize_event);
+  ASSERT_TRUE(WindowState::Get(win0.get())->IsMaximized());
+
+  EnterOverview();
+  auto* overview_controller = Shell::Get()->overview_controller();
+  ASSERT_TRUE(overview_controller->InOverviewSession());
+
+  // Check that the desk bar on our first root window has finished initializing,
+  // while the second desk bar hasn't been initialized yet since the enter
+  // animation hasn't finished for the second root window.
+  auto root_windows = Shell::GetAllRootWindows();
+  ASSERT_EQ(2u, root_windows.size());
+  const auto* desks_bar_view_1 =
+      GetOverviewGridForRoot(root_windows[0])->desks_bar_view();
+  ASSERT_EQ(2u, desks_bar_view_1->mini_views().size());
+  ASSERT_EQ(nullptr, GetOverviewGridForRoot(root_windows[1])->desks_bar_view());
+
+  // Close the first desk. Previously, this would result in a crash since the
+  // desk is deleted before `desks_bar_view_2` is initialized, resulting in the
+  // `desk_1_mini_view` not being created for `desks_bar_view_2`. When
+  // `OnDeskRemoved` is then called for the second desk bar, we now return early
+  // if that miniview can't be found.
+  // To prevent flakiness in this test, we wait until `desks_bar_view_2` is
+  // initialized and shown before we check the state.
+  DesksBarVisibilityObserver desks_bar_2_observer(root_windows[1]);
+  auto* desk_1_mini_view = desks_bar_view_1->mini_views()[0];
+  CloseDeskFromMiniView(desk_1_mini_view, GetEventGenerator());
+  desks_bar_2_observer.Wait();
+
+  // Verify that we are still in overview mode and that both desks bars are in
+  // the zero state.
+  ASSERT_TRUE(overview_controller->InOverviewSession());
+  ASSERT_TRUE(desks_bar_view_1->IsZeroState());
+  const auto* desks_bar_view_2 =
+      GetOverviewGridForRoot(root_windows[1])->desks_bar_view();
+  ASSERT_TRUE(desks_bar_view_2->IsZeroState());
+}
+
 namespace {
 
 PrefService* GetPrimaryUserPrefService() {
@@ -1981,13 +2899,26 @@ PrefService* GetPrimaryUserPrefService() {
 // given list of |desks_names|.
 void VerifyDesksRestoreData(PrefService* user_prefs,
                             const std::vector<std::string>& desks_names) {
-  const base::Value* desks_restore_names =
+  const base::Value::List& desks_restore_names =
       user_prefs->GetList(prefs::kDesksNamesList);
-  ASSERT_EQ(desks_names.size(), desks_restore_names->GetList().size());
+  ASSERT_EQ(desks_names.size(), desks_restore_names.size());
 
   size_t index = 0;
-  for (const auto& value : desks_restore_names->GetList())
+  for (const auto& value : desks_restore_names)
     EXPECT_EQ(desks_names[index++], value.GetString());
+}
+
+// Returns the GUIDs in the given `user_prefs`.
+std::vector<base::Uuid> GetDeskRestoreGuids(PrefService* user_prefs) {
+  const base::Value::List& desks_restore_guids =
+      user_prefs->GetList(prefs::kDesksGuidsList);
+
+  std::vector<base::Uuid> guids;
+  for (const base::Value& value : desks_restore_guids) {
+    const base::Uuid guid = base::Uuid::ParseLowercase(value.GetString());
+    guids.emplace_back(guid);
+  }
+  return guids;
 }
 
 }  // namespace
@@ -2001,7 +2932,7 @@ class DesksEditableNamesTest : public DesksTest {
 
   DesksController* controller() { return controller_; }
   OverviewGrid* overview_grid() { return overview_grid_; }
-  const DesksBarView* desks_bar_view() { return desks_bar_view_; }
+  const LegacyDeskBarView* desks_bar_view() { return desks_bar_view_; }
 
   // DesksTest:
   void SetUp() override {
@@ -2029,12 +2960,12 @@ class DesksEditableNamesTest : public DesksTest {
   }
 
  private:
-  DesksController* controller_ = nullptr;
-  OverviewGrid* overview_grid_ = nullptr;
-  const DesksBarView* desks_bar_view_ = nullptr;
+  raw_ptr<DesksController, ExperimentalAsh> controller_ = nullptr;
+  raw_ptr<OverviewGrid, ExperimentalAsh> overview_grid_ = nullptr;
+  raw_ptr<const LegacyDeskBarView, ExperimentalAsh> desks_bar_view_ = nullptr;
 };
 
-TEST_F(DesksEditableNamesTest, DefaultNameChangeAborted) {
+TEST_P(DesksEditableNamesTest, DefaultNameChangeAborted) {
   ASSERT_EQ(2u, controller()->desks().size());
   ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
 
@@ -2058,7 +2989,7 @@ TEST_F(DesksEditableNamesTest, DefaultNameChangeAborted) {
                          {std::string(), std::string()});
 }
 
-TEST_F(DesksEditableNamesTest, NamesSetByUsersAreNotOverwritten) {
+TEST_P(DesksEditableNamesTest, NamesSetByUsersAreNotOverwritten) {
   ASSERT_EQ(2u, controller()->desks().size());
   ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
 
@@ -2122,7 +3053,7 @@ TEST_F(DesksEditableNamesTest, NamesSetByUsersAreNotOverwritten) {
   EXPECT_EQ(u"Desk 2", desk_3->name());
 }
 
-TEST_F(DesksEditableNamesTest, DontAllowEmptyNames) {
+TEST_P(DesksEditableNamesTest, DontAllowEmptyNames) {
   ASSERT_EQ(2u, controller()->desks().size());
   ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
 
@@ -2142,7 +3073,7 @@ TEST_F(DesksEditableNamesTest, DontAllowEmptyNames) {
                          {std::string(), std::string()});
 }
 
-TEST_F(DesksEditableNamesTest, RevertDeskNameOnEscape) {
+TEST_P(DesksEditableNamesTest, RevertDeskNameOnEscape) {
   ASSERT_EQ(2u, controller()->desks().size());
   ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
 
@@ -2160,7 +3091,7 @@ TEST_F(DesksEditableNamesTest, RevertDeskNameOnEscape) {
   EXPECT_EQ(u"Desk 1", desk_1->name());
 }
 
-TEST_F(DesksEditableNamesTest, SelectAllOnFocus) {
+TEST_P(DesksEditableNamesTest, SelectAllOnFocus) {
   ASSERT_EQ(2u, controller()->desks().size());
   ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
   ClickOnDeskNameViewAtIndex(0);
@@ -2172,7 +3103,7 @@ TEST_F(DesksEditableNamesTest, SelectAllOnFocus) {
   EXPECT_EQ(desk_1->name(), desk_name_view->GetSelectedText());
 }
 
-TEST_F(DesksEditableNamesTest, EventsThatCommitChanges) {
+TEST_P(DesksEditableNamesTest, EventsThatCommitChanges) {
   ASSERT_EQ(2u, controller()->desks().size());
   ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
   ClickOnDeskNameViewAtIndex(0);
@@ -2180,8 +3111,7 @@ TEST_F(DesksEditableNamesTest, EventsThatCommitChanges) {
   EXPECT_TRUE(desk_name_view->HasFocus());
 
   // Creating a new desk commits the changes.
-  auto* new_desk_button =
-      desks_bar_view()->expanded_state_new_desk_button()->inner_button();
+  auto* new_desk_button = GetExpandedStateNewDeskButton(desks_bar_view());
   auto* event_generator = GetEventGenerator();
   ClickOnView(new_desk_button, event_generator);
   ASSERT_EQ(3u, controller()->desks().size());
@@ -2203,7 +3133,7 @@ TEST_F(DesksEditableNamesTest, EventsThatCommitChanges) {
   ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
 }
 
-TEST_F(DesksEditableNamesTest, MaxLength) {
+TEST_P(DesksEditableNamesTest, MaxLength) {
   ASSERT_EQ(2u, controller()->desks().size());
   ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
 
@@ -2213,21 +3143,22 @@ TEST_F(DesksEditableNamesTest, MaxLength) {
   SendKey(ui::VKEY_BACK);
 
   // Simulate user is typing text beyond the max length.
-  std::u16string expected_desk_name(DesksTextfield::kMaxLength, L'a');
-  for (size_t i = 0; i < DesksTextfield::kMaxLength + 10; ++i)
+  std::u16string expected_desk_name(DeskTextfield::kMaxLength, L'a');
+  for (size_t i = 0; i < DeskTextfield::kMaxLength + 10; ++i) {
     SendKey(ui::VKEY_A);
+  }
   SendKey(ui::VKEY_RETURN);
 
   // Desk name has been trimmed.
   auto* desk_1 = controller()->desks()[0].get();
-  EXPECT_EQ(DesksTextfield::kMaxLength, desk_1->name().size());
+  EXPECT_EQ(DeskTextfield::kMaxLength, desk_1->name().size());
   EXPECT_EQ(expected_desk_name, desk_1->name());
   EXPECT_TRUE(desk_1->is_name_set_by_user());
 
   // Test that pasting a large amount of text is trimmed at the max length.
-  std::u16string clipboard_text(DesksTextfield::kMaxLength + 10, L'b');
-  expected_desk_name = std::u16string(DesksTextfield::kMaxLength, L'b');
-  EXPECT_GT(clipboard_text.size(), DesksTextfield::kMaxLength);
+  std::u16string clipboard_text(DeskTextfield::kMaxLength + 10, L'b');
+  expected_desk_name = std::u16string(DeskTextfield::kMaxLength, L'b');
+  EXPECT_GT(clipboard_text.size(), DeskTextfield::kMaxLength);
   ui::ScopedClipboardWriter(ui::ClipboardBuffer::kCopyPaste)
       .WriteText(clipboard_text);
 
@@ -2239,7 +3170,7 @@ TEST_F(DesksEditableNamesTest, MaxLength) {
   // Paste text.
   SendKey(ui::VKEY_V, ui::EF_CONTROL_DOWN);
   SendKey(ui::VKEY_RETURN);
-  EXPECT_EQ(DesksTextfield::kMaxLength, desk_1->name().size());
+  EXPECT_EQ(DeskTextfield::kMaxLength, desk_1->name().size());
   EXPECT_EQ(expected_desk_name, desk_1->name());
 }
 
@@ -2256,10 +3187,11 @@ class TabletModeDesksTest : public DesksTest {
   void SetUp() override {
     DesksTest::SetUp();
 
-    // Enter tablet mode. Avoid TabletModeController::OnGetSwitchStates() from
-    // disabling tablet mode.
-    base::RunLoop().RunUntilIdle();
-    TabletModeControllerTestApi().EnterTabletMode();
+    // Enter tablet mode after detaching all mouse devices, as this is needed
+    // when running these tests on an actual workstation.
+    TabletModeControllerTestApi tablet_mode_test_api;
+    tablet_mode_test_api.DetachAllMice();
+    tablet_mode_test_api.EnterTabletMode();
   }
 
   SplitViewController* split_view_controller() {
@@ -2267,7 +3199,78 @@ class TabletModeDesksTest : public DesksTest {
   }
 };
 
-TEST_F(TabletModeDesksTest, Backdrops) {
+// Triggers a callback when the visibility of an observed window changes for the
+// first time since creation of this observer.
+class WindowVisibilityObserver : public aura::WindowObserver {
+ public:
+  WindowVisibilityObserver(aura::Window* window, base::OnceClosure callback)
+      : on_visibility_changed_callback_(std::move(callback)) {
+    DCHECK(on_visibility_changed_callback_);
+    observer_.Observe(window);
+  }
+  WindowVisibilityObserver(const WindowVisibilityObserver&) = delete;
+  WindowVisibilityObserver& operator=(const WindowVisibilityObserver&) = delete;
+  ~WindowVisibilityObserver() override = default;
+
+  // aura::WindowObserver:
+  void OnWindowVisibilityChanged(aura::Window* window, bool visible) override {
+    if (observer_.IsObservingSource(window) && on_visibility_changed_callback_)
+      std::move(on_visibility_changed_callback_).Run();
+  }
+
+  void OnWindowDestroying(aura::Window* window) override {
+    DCHECK(observer_.IsObservingSource(window));
+    observer_.Reset();
+  }
+
+ private:
+  base::ScopedObservation<aura::Window, aura::WindowObserver> observer_{this};
+
+  base::OnceClosure on_visibility_changed_callback_;
+};
+
+// Regression test for https://crbug.com/1368587.
+TEST_P(TabletModeDesksTest, CantDestroyBackdropWhileHiding) {
+  auto* controller = DesksController::Get();
+  ASSERT_EQ(1u, controller->desks().size());
+  const Desk* desk_1 = controller->desks()[0].get();
+
+  auto window = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
+  wm::ActivateWindow(window.get());
+  EXPECT_EQ(window.get(), window_util::GetActiveWindow());
+
+  // Verify that there is a visible backdrop for the app window on the current
+  // desk.
+  auto* desk_1_backdrop_controller =
+      GetDeskBackdropController(desk_1, Shell::GetPrimaryRootWindow());
+  auto* backdrop_window = desk_1_backdrop_controller->backdrop_window();
+  ASSERT_TRUE(backdrop_window);
+  EXPECT_TRUE(backdrop_window->IsVisible());
+
+  // Intercept the visibility change notification of the backdrop (which will
+  // happen when we enter overview below), and hide the app window. This
+  // triggers an update of the backdrop while still in the process of hiding
+  // it. Now that the single app window available is hidden, the backdrop
+  // controller will try to destroy the backdrop. This should be prevented as
+  // we don't allow `BackdropController::Hide()` to be called recursively.
+  auto* app_window = window.get();
+  WindowVisibilityObserver observer{
+      backdrop_window,
+      base::BindLambdaForTesting([app_window, backdrop_window]() {
+        app_window->Hide();
+        EXPECT_FALSE(backdrop_window->IsVisible());
+      })};
+
+  // Enter overview and expect that the backdrop is still present for desk_1 but
+  // hidden.
+  auto* overview_controller = Shell::Get()->overview_controller();
+  EnterOverview();
+  EXPECT_TRUE(overview_controller->InOverviewSession());
+  ASSERT_TRUE(desk_1_backdrop_controller->backdrop_window());
+  EXPECT_FALSE(desk_1_backdrop_controller->backdrop_window()->IsVisible());
+}
+
+TEST_P(TabletModeDesksTest, Backdrops) {
   auto* controller = DesksController::Get();
   NewDesk();
   ASSERT_EQ(2u, controller->desks().size());
@@ -2340,7 +3343,7 @@ TEST_F(TabletModeDesksTest, Backdrops) {
   EXPECT_FALSE(desk_2_backdrop_controller->backdrop_window());
 }
 
-TEST_F(TabletModeDesksTest,
+TEST_P(TabletModeDesksTest,
        BackdropStackingAndMiniviewsUpdatesWithOverviewDragDrop) {
   auto* controller = DesksController::Get();
   NewDesk();
@@ -2364,8 +3367,8 @@ TEST_F(TabletModeDesksTest,
   EXPECT_FALSE(desk_2_backdrop_controller->backdrop_window());
   EXPECT_EQ(window.get(), desk_1_backdrop_controller->window_having_backdrop());
   EXPECT_FALSE(desk_2_backdrop_controller->window_having_backdrop());
-  EXPECT_TRUE(IsStackedBelow(desk_1_backdrop_controller->backdrop_window(),
-                             window.get()));
+  EXPECT_TRUE(window_util::IsStackedBelow(
+      desk_1_backdrop_controller->backdrop_window(), window.get()));
 
   // Prepare to drag and drop |window| on desk_2's mini view.
   auto* overview_grid = GetOverviewGridForRoot(Shell::GetPrimaryRootWindow());
@@ -2400,8 +3403,8 @@ TEST_F(TabletModeDesksTest,
   ASSERT_TRUE(desk_2_backdrop_controller->backdrop_window());
   EXPECT_FALSE(desk_1_backdrop_controller->window_having_backdrop());
   EXPECT_EQ(window.get(), desk_2_backdrop_controller->window_having_backdrop());
-  EXPECT_TRUE(IsStackedBelow(desk_2_backdrop_controller->backdrop_window(),
-                             window.get()));
+  EXPECT_TRUE(window_util::IsStackedBelow(
+      desk_2_backdrop_controller->backdrop_window(), window.get()));
 
   // The mini views should only be updated once for both desks.
   EXPECT_EQ(1, observer1.notify_counts());
@@ -2410,7 +3413,7 @@ TEST_F(TabletModeDesksTest,
   desk_2->RemoveObserver(&observer2);
 }
 
-TEST_F(TabletModeDesksTest, NoDesksBarInTabletModeWithOneDesk) {
+TEST_P(TabletModeDesksTest, NoDesksBarInTabletModeWithOneDesk) {
   // Initially there's only one desk.
   auto* controller = DesksController::Get();
   ASSERT_EQ(1u, controller->desks().size());
@@ -2448,7 +3451,7 @@ TEST_F(TabletModeDesksTest, NoDesksBarInTabletModeWithOneDesk) {
   ASSERT_EQ(2u, desks_bar_view->mini_views().size());
 }
 
-TEST_F(TabletModeDesksTest, DesksCreationRemovalCycle) {
+TEST_P(TabletModeDesksTest, DesksCreationRemovalCycle) {
   auto window = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
   wm::ActivateWindow(window.get());
   EXPECT_EQ(window.get(), window_util::GetActiveWindow());
@@ -2457,7 +3460,7 @@ TEST_F(TabletModeDesksTest, DesksCreationRemovalCycle) {
   // containers are reused for new desks, their backdrop state are always
   // correct, and there are no crashes as desks are removed.
   auto* desks_controller = DesksController::Get();
-  for (size_t i = 0; i < 2 * desks_util::kMaxNumberOfDesks; ++i) {
+  for (size_t i = 0; i < 2 * desks_util::GetMaxNumberOfDesks(); ++i) {
     NewDesk();
     ASSERT_EQ(2u, desks_controller->desks().size());
     const Desk* desk_1 = desks_controller->desks()[0].get();
@@ -2486,7 +3489,7 @@ TEST_F(TabletModeDesksTest, DesksCreationRemovalCycle) {
   }
 }
 
-TEST_F(TabletModeDesksTest, RestoreSplitViewOnDeskSwitch) {
+TEST_P(TabletModeDesksTest, RestoreSplitViewOnDeskSwitch) {
   // Create two desks with two snapped windows in each.
   auto* desks_controller = DesksController::Get();
   NewDesk();
@@ -2496,16 +3499,18 @@ TEST_F(TabletModeDesksTest, RestoreSplitViewOnDeskSwitch) {
 
   auto win1 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
   auto win2 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
-  split_view_controller()->SnapWindow(win1.get(), SplitViewController::LEFT);
-  split_view_controller()->SnapWindow(win2.get(), SplitViewController::RIGHT);
-  EXPECT_EQ(win1.get(), split_view_controller()->left_window());
-  EXPECT_EQ(win2.get(), split_view_controller()->right_window());
+  split_view_controller()->SnapWindow(
+      win1.get(), SplitViewController::SnapPosition::kPrimary);
+  split_view_controller()->SnapWindow(
+      win2.get(), SplitViewController::SnapPosition::kSecondary);
+  EXPECT_EQ(win1.get(), split_view_controller()->primary_window());
+  EXPECT_EQ(win2.get(), split_view_controller()->secondary_window());
 
   // Desk 2 has no windows, so the SplitViewController should be tracking no
   // windows.
   ActivateDesk(desk_2);
-  EXPECT_EQ(nullptr, split_view_controller()->left_window());
-  EXPECT_EQ(nullptr, split_view_controller()->right_window());
+  EXPECT_EQ(nullptr, split_view_controller()->primary_window());
+  EXPECT_EQ(nullptr, split_view_controller()->secondary_window());
   // However, the snapped windows on desk 1 should retain their snapped state.
   EXPECT_TRUE(WindowState::Get(win1.get())->IsSnapped());
   EXPECT_TRUE(WindowState::Get(win2.get())->IsSnapped());
@@ -2513,29 +3518,33 @@ TEST_F(TabletModeDesksTest, RestoreSplitViewOnDeskSwitch) {
   // Snap two other windows in desk 2.
   auto win3 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
   auto win4 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
-  split_view_controller()->SnapWindow(win3.get(), SplitViewController::LEFT);
-  split_view_controller()->SnapWindow(win4.get(), SplitViewController::RIGHT);
-  EXPECT_EQ(win3.get(), split_view_controller()->left_window());
-  EXPECT_EQ(win4.get(), split_view_controller()->right_window());
+  split_view_controller()->SnapWindow(
+      win3.get(), SplitViewController::SnapPosition::kPrimary);
+  split_view_controller()->SnapWindow(
+      win4.get(), SplitViewController::SnapPosition::kSecondary);
+  EXPECT_EQ(win3.get(), split_view_controller()->primary_window());
+  EXPECT_EQ(win4.get(), split_view_controller()->secondary_window());
 
   // Switch back to desk 1, and expect the snapped windows are restored.
   ActivateDesk(desk_1);
-  EXPECT_EQ(win1.get(), split_view_controller()->left_window());
-  EXPECT_EQ(win2.get(), split_view_controller()->right_window());
+  EXPECT_EQ(win1.get(), split_view_controller()->primary_window());
+  EXPECT_EQ(win2.get(), split_view_controller()->secondary_window());
   EXPECT_TRUE(WindowState::Get(win3.get())->IsSnapped());
   EXPECT_TRUE(WindowState::Get(win4.get())->IsSnapped());
 }
 
-TEST_F(TabletModeDesksTest, SnappedStateRetainedOnSwitchingDesksFromOverview) {
+TEST_P(TabletModeDesksTest, SnappedStateRetainedOnSwitchingDesksFromOverview) {
   auto* desks_controller = DesksController::Get();
   NewDesk();
   ASSERT_EQ(2u, desks_controller->desks().size());
   auto win1 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
   auto win2 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
-  split_view_controller()->SnapWindow(win1.get(), SplitViewController::LEFT);
-  split_view_controller()->SnapWindow(win2.get(), SplitViewController::RIGHT);
-  EXPECT_EQ(win1.get(), split_view_controller()->left_window());
-  EXPECT_EQ(win2.get(), split_view_controller()->right_window());
+  split_view_controller()->SnapWindow(
+      win1.get(), SplitViewController::SnapPosition::kPrimary);
+  split_view_controller()->SnapWindow(
+      win2.get(), SplitViewController::SnapPosition::kSecondary);
+  EXPECT_EQ(win1.get(), split_view_controller()->primary_window());
+  EXPECT_EQ(win2.get(), split_view_controller()->secondary_window());
 
   // Enter overview and switch to desk_2 using its mini_view. Overview should
   // end, but TabletModeWindowManager should not maximize the snapped windows
@@ -2562,10 +3571,12 @@ TEST_F(TabletModeDesksTest, SnappedStateRetainedOnSwitchingDesksFromOverview) {
   // destination desks.
   auto win3 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
   auto win4 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
-  split_view_controller()->SnapWindow(win3.get(), SplitViewController::LEFT);
-  split_view_controller()->SnapWindow(win4.get(), SplitViewController::RIGHT);
-  EXPECT_EQ(win3.get(), split_view_controller()->left_window());
-  EXPECT_EQ(win4.get(), split_view_controller()->right_window());
+  split_view_controller()->SnapWindow(
+      win3.get(), SplitViewController::SnapPosition::kPrimary);
+  split_view_controller()->SnapWindow(
+      win4.get(), SplitViewController::SnapPosition::kSecondary);
+  EXPECT_EQ(win3.get(), split_view_controller()->primary_window());
+  EXPECT_EQ(win4.get(), split_view_controller()->secondary_window());
   EnterOverview();
   EXPECT_TRUE(overview_controller->InOverviewSession());
   overview_grid = GetOverviewGridForRoot(Shell::GetPrimaryRootWindow());
@@ -2585,7 +3596,7 @@ TEST_F(TabletModeDesksTest, SnappedStateRetainedOnSwitchingDesksFromOverview) {
   EXPECT_FALSE(overview_controller->InOverviewSession());
 }
 
-TEST_F(
+TEST_P(
     TabletModeDesksTest,
     SnappedStateRetainedOnSwitchingDesksWithOverviewFullOfUnsnappableWindows) {
   auto* desks_controller = DesksController::Get();
@@ -2607,8 +3618,9 @@ TEST_F(
       &win3_delegate, /*id=*/-1, gfx::Rect(big)));
   OverviewController* overview_controller = Shell::Get()->overview_controller();
   EXPECT_TRUE(EnterOverview());
-  split_view_controller()->SnapWindow(win1.get(), SplitViewController::LEFT);
-  EXPECT_EQ(win1.get(), split_view_controller()->left_window());
+  split_view_controller()->SnapWindow(
+      win1.get(), SplitViewController::SnapPosition::kPrimary);
+  EXPECT_EQ(win1.get(), split_view_controller()->primary_window());
   EXPECT_FALSE(split_view_controller()->CanSnapWindow(win2.get()));
   EXPECT_FALSE(split_view_controller()->CanSnapWindow(win3.get()));
 
@@ -2644,13 +3656,13 @@ TEST_F(
     waiter.Wait();
   }
   EXPECT_TRUE(WindowState::Get(win1.get())->IsSnapped());
-  EXPECT_EQ(SplitViewController::State::kLeftSnapped,
+  EXPECT_EQ(SplitViewController::State::kPrimarySnapped,
             split_view_controller()->state());
-  EXPECT_EQ(win1.get(), split_view_controller()->left_window());
+  EXPECT_EQ(win1.get(), split_view_controller()->primary_window());
   EXPECT_TRUE(overview_controller->InOverviewSession());
 }
 
-TEST_F(TabletModeDesksTest, OverviewStateOnSwitchToDeskWithSplitView) {
+TEST_P(TabletModeDesksTest, OverviewStateOnSwitchToDeskWithSplitView) {
   // Setup two desks, one (desk_1) with two snapped windows, and the other
   // (desk_2) with only one snapped window.
   auto* desks_controller = DesksController::Get();
@@ -2660,18 +3672,21 @@ TEST_F(TabletModeDesksTest, OverviewStateOnSwitchToDeskWithSplitView) {
   Desk* desk_2 = desks_controller->desks()[1].get();
   auto win1 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
   auto win2 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
-  split_view_controller()->SnapWindow(win1.get(), SplitViewController::LEFT);
-  split_view_controller()->SnapWindow(win2.get(), SplitViewController::RIGHT);
-  EXPECT_EQ(win1.get(), split_view_controller()->left_window());
-  EXPECT_EQ(win2.get(), split_view_controller()->right_window());
+  split_view_controller()->SnapWindow(
+      win1.get(), SplitViewController::SnapPosition::kPrimary);
+  split_view_controller()->SnapWindow(
+      win2.get(), SplitViewController::SnapPosition::kSecondary);
+  EXPECT_EQ(win1.get(), split_view_controller()->primary_window());
+  EXPECT_EQ(win2.get(), split_view_controller()->secondary_window());
   auto* overview_controller = Shell::Get()->overview_controller();
   EXPECT_FALSE(overview_controller->InOverviewSession());
   ActivateDesk(desk_2);
   EXPECT_FALSE(overview_controller->InOverviewSession());
   auto win3 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
-  split_view_controller()->SnapWindow(win3.get(), SplitViewController::LEFT);
-  EXPECT_EQ(win3.get(), split_view_controller()->left_window());
-  EXPECT_EQ(nullptr, split_view_controller()->right_window());
+  split_view_controller()->SnapWindow(
+      win3.get(), SplitViewController::SnapPosition::kPrimary);
+  EXPECT_EQ(win3.get(), split_view_controller()->primary_window());
+  EXPECT_EQ(nullptr, split_view_controller()->secondary_window());
 
   // Switching to the desk that has only one snapped window to be restored in
   // SplitView should enter overview mode, whereas switching to one that has two
@@ -2684,55 +3699,76 @@ TEST_F(TabletModeDesksTest, OverviewStateOnSwitchToDeskWithSplitView) {
   EXPECT_FALSE(overview_controller->InOverviewSession());
 }
 
-TEST_F(TabletModeDesksTest, RemovingDesksWithSplitView) {
+TEST_P(TabletModeDesksTest, RemovingDesksWithSplitView) {
   auto* desks_controller = DesksController::Get();
   NewDesk();
   ASSERT_EQ(2u, desks_controller->desks().size());
   Desk* desk_2 = desks_controller->desks()[1].get();
   auto win1 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
-  split_view_controller()->SnapWindow(win1.get(), SplitViewController::LEFT);
-  EXPECT_EQ(win1.get(), split_view_controller()->left_window());
-  EXPECT_EQ(nullptr, split_view_controller()->right_window());
+  split_view_controller()->SnapWindow(
+      win1.get(), SplitViewController::SnapPosition::kPrimary);
+  EXPECT_EQ(win1.get(), split_view_controller()->primary_window());
+  EXPECT_EQ(nullptr, split_view_controller()->secondary_window());
   ActivateDesk(desk_2);
   auto win2 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
-  split_view_controller()->SnapWindow(win2.get(), SplitViewController::RIGHT);
-  EXPECT_EQ(nullptr, split_view_controller()->left_window());
-  EXPECT_EQ(win2.get(), split_view_controller()->right_window());
+  split_view_controller()->SnapWindow(
+      win2.get(), SplitViewController::SnapPosition::kSecondary);
+  EXPECT_EQ(nullptr, split_view_controller()->primary_window());
+  EXPECT_EQ(win2.get(), split_view_controller()->secondary_window());
 
   // Removing desk_2 will cause both snapped windows to merge in SplitView.
   RemoveDesk(desk_2);
-  EXPECT_EQ(win1.get(), split_view_controller()->left_window());
-  EXPECT_EQ(win2.get(), split_view_controller()->right_window());
+  EXPECT_EQ(win1.get(), split_view_controller()->primary_window());
+  EXPECT_EQ(win2.get(), split_view_controller()->secondary_window());
   EXPECT_EQ(SplitViewController::State::kBothSnapped,
             split_view_controller()->state());
 }
 
-TEST_F(TabletModeDesksTest, RemoveDeskWithMaximizedWindowAndMergeWithSnapped) {
+TEST_P(TabletModeDesksTest, RemoveDeskWithMaximizedWindowAndMergeWithSnapped) {
   auto* desks_controller = DesksController::Get();
   NewDesk();
   ASSERT_EQ(2u, desks_controller->desks().size());
   Desk* desk_2 = desks_controller->desks()[1].get();
   auto win1 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
-  split_view_controller()->SnapWindow(win1.get(), SplitViewController::LEFT);
-  EXPECT_EQ(win1.get(), split_view_controller()->left_window());
-  EXPECT_EQ(nullptr, split_view_controller()->right_window());
+  split_view_controller()->SnapWindow(
+      win1.get(), SplitViewController::SnapPosition::kPrimary);
+  EXPECT_EQ(win1.get(), split_view_controller()->primary_window());
+  EXPECT_EQ(nullptr, split_view_controller()->secondary_window());
   ActivateDesk(desk_2);
   auto win2 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
-  EXPECT_EQ(nullptr, split_view_controller()->left_window());
-  EXPECT_EQ(nullptr, split_view_controller()->right_window());
+  EXPECT_EQ(nullptr, split_view_controller()->primary_window());
+  EXPECT_EQ(nullptr, split_view_controller()->secondary_window());
   EXPECT_TRUE(WindowState::Get(win2.get())->IsMaximized());
 
   // Removing desk_2 will cause us to enter overview mode without any crashes.
   // SplitView will remain left snapped.
   RemoveDesk(desk_2);
   EXPECT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
-  EXPECT_EQ(win1.get(), split_view_controller()->left_window());
-  EXPECT_EQ(nullptr, split_view_controller()->right_window());
-  EXPECT_EQ(SplitViewController::State::kLeftSnapped,
+  EXPECT_EQ(win1.get(), split_view_controller()->primary_window());
+  EXPECT_EQ(nullptr, split_view_controller()->secondary_window());
+  EXPECT_EQ(SplitViewController::State::kPrimarySnapped,
             split_view_controller()->state());
 }
 
-TEST_F(TabletModeDesksTest, BackdropsStacking) {
+// Tests that closing the active desk while in overview does not quit overview.
+// Regression test for https://crbug.com/1309175.
+TEST_P(TabletModeDesksTest, RemovingActiveDeskDoesNotExitOverview) {
+  auto* desks_controller = DesksController::Get();
+  NewDesk();
+  ASSERT_EQ(2u, desks_controller->desks().size());
+  Desk* desk_2 = desks_controller->desks()[1].get();
+  ActivateDesk(desk_2);
+
+  auto* overview_controller = Shell::Get()->overview_controller();
+  EnterOverview();
+  ASSERT_TRUE(overview_controller->InOverviewSession());
+
+  // Remove `desk_2`, which is the active test. We should stay in overview.
+  RemoveDesk(desk_2);
+  EXPECT_TRUE(overview_controller->InOverviewSession());
+}
+
+TEST_P(TabletModeDesksTest, BackdropsStacking) {
   auto* desks_controller = DesksController::Get();
   NewDesk();
   ASSERT_EQ(2u, desks_controller->desks().size());
@@ -2741,8 +3777,10 @@ TEST_F(TabletModeDesksTest, BackdropsStacking) {
 
   auto win1 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
   auto win2 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
-  split_view_controller()->SnapWindow(win1.get(), SplitViewController::LEFT);
-  split_view_controller()->SnapWindow(win2.get(), SplitViewController::RIGHT);
+  split_view_controller()->SnapWindow(
+      win1.get(), SplitViewController::SnapPosition::kPrimary);
+  split_view_controller()->SnapWindow(
+      win2.get(), SplitViewController::SnapPosition::kSecondary);
   auto* desk_1_backdrop_controller =
       GetDeskBackdropController(desk_1, Shell::GetPrimaryRootWindow());
   auto* desk_2_backdrop_controller =
@@ -2752,31 +3790,33 @@ TEST_F(TabletModeDesksTest, BackdropsStacking) {
 
   // The backdrop window should be stacked below both snapped windows.
   auto* desk_1_backdrop = desk_1_backdrop_controller->backdrop_window();
-  EXPECT_TRUE(IsStackedBelow(desk_1_backdrop, win1.get()));
-  EXPECT_TRUE(IsStackedBelow(desk_1_backdrop, win2.get()));
+  EXPECT_TRUE(window_util::IsStackedBelow(desk_1_backdrop, win1.get()));
+  EXPECT_TRUE(window_util::IsStackedBelow(desk_1_backdrop, win2.get()));
 
   // Switching to another desk doesn't change the backdrop state of the inactive
   // desk.
   ActivateDesk(desk_2);
   ASSERT_TRUE(desk_1_backdrop_controller->backdrop_window());
   EXPECT_FALSE(desk_2_backdrop_controller->backdrop_window());
-  EXPECT_TRUE(IsStackedBelow(desk_1_backdrop, win1.get()));
-  EXPECT_TRUE(IsStackedBelow(desk_1_backdrop, win2.get()));
+  EXPECT_TRUE(window_util::IsStackedBelow(desk_1_backdrop, win1.get()));
+  EXPECT_TRUE(window_util::IsStackedBelow(desk_1_backdrop, win2.get()));
 
   // Snapping new windows in desk_2 should update the backdrop state of desk_2,
   // but should not affect desk_1.
   auto win3 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
   auto win4 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
-  split_view_controller()->SnapWindow(win3.get(), SplitViewController::LEFT);
-  split_view_controller()->SnapWindow(win4.get(), SplitViewController::RIGHT);
+  split_view_controller()->SnapWindow(
+      win3.get(), SplitViewController::SnapPosition::kPrimary);
+  split_view_controller()->SnapWindow(
+      win4.get(), SplitViewController::SnapPosition::kSecondary);
   ASSERT_TRUE(desk_1_backdrop_controller->backdrop_window());
   ASSERT_TRUE(desk_2_backdrop_controller->backdrop_window());
   auto* desk_2_backdrop = desk_2_backdrop_controller->backdrop_window();
-  EXPECT_TRUE(IsStackedBelow(desk_2_backdrop, win3.get()));
-  EXPECT_TRUE(IsStackedBelow(desk_2_backdrop, win4.get()));
+  EXPECT_TRUE(window_util::IsStackedBelow(desk_2_backdrop, win3.get()));
+  EXPECT_TRUE(window_util::IsStackedBelow(desk_2_backdrop, win4.get()));
 }
 
-TEST_F(TabletModeDesksTest, HotSeatStateAfterMovingAWindowToAnotherDesk) {
+TEST_P(TabletModeDesksTest, HotSeatStateAfterMovingAWindowToAnotherDesk) {
   // Create 2 desks, and 2 windows, one of them is minimized and the other is
   // normal. Test that dragging and dropping them to another desk does not hide
   // the hotseat. https://crbug.com/1063536.
@@ -2801,14 +3841,14 @@ TEST_F(TabletModeDesksTest, HotSeatStateAfterMovingAWindowToAnotherDesk) {
   EXPECT_EQ(HotseatState::kExtended, hotseat_widget->state());
 
   const struct {
-    aura::Window* window;
+    raw_ptr<aura::Window, ExperimentalAsh> window;
     const char* trace_message;
   } kTestTable[] = {{win0.get(), "Minimized window"},
                     {win1.get(), "Normal window"}};
 
   for (const auto& test_case : kTestTable) {
     SCOPED_TRACE(test_case.trace_message);
-    auto* win = test_case.window;
+    auto* win = test_case.window.get();
     auto* overview_item = overview_session->GetOverviewItemForWindow(win);
     ASSERT_TRUE(overview_item);
 
@@ -2838,7 +3878,7 @@ TEST_F(TabletModeDesksTest, HotSeatStateAfterMovingAWindowToAnotherDesk) {
   }
 }
 
-TEST_F(TabletModeDesksTest, RestoringUnsnappableWindowsInSplitView) {
+TEST_P(TabletModeDesksTest, RestoringUnsnappableWindowsInSplitView) {
   UpdateDisplay("600x400");
   display::test::DisplayManagerTestApi(display_manager())
       .SetFirstDisplayAsInternalDisplay();
@@ -2862,8 +3902,9 @@ TEST_F(TabletModeDesksTest, RestoringUnsnappableWindowsInSplitView) {
   EXPECT_TRUE(split_view_controller()->CanSnapWindow(window.get()));
 
   // Snap the window in this orientation.
-  split_view_controller()->SnapWindow(window.get(), SplitViewController::LEFT);
-  EXPECT_EQ(window.get(), split_view_controller()->left_window());
+  split_view_controller()->SnapWindow(
+      window.get(), SplitViewController::SnapPosition::kPrimary);
+  EXPECT_EQ(window.get(), split_view_controller()->primary_window());
   EXPECT_TRUE(split_view_controller()->InSplitViewMode());
 
   // Create a second desk, switch to it, and change back the orientation to
@@ -2889,7 +3930,7 @@ TEST_F(TabletModeDesksTest, RestoringUnsnappableWindowsInSplitView) {
   EXPECT_TRUE(WindowState::Get(window.get())->IsMaximized());
 }
 
-TEST_F(DesksTest, MiniViewsTouchGestures) {
+TEST_P(DesksTest, MiniViewsTouchGestures) {
   auto* controller = DesksController::Get();
   NewDesk();
   NewDesk();
@@ -2906,37 +3947,55 @@ TEST_F(DesksTest, MiniViewsTouchGestures) {
   auto* desk_2_mini_view = desks_bar_view->mini_views()[1];
   auto* desk_3_mini_view = desks_bar_view->mini_views()[2];
 
-  // Long gesture tapping on one mini_view shows its close button, and hides
-  // those of other mini_views.
+  // Long gesture tapping on one desk preview shows its desk action interface,
+  // and hides those of other mini views.
   auto* event_generator = GetEventGenerator();
-  LongGestureTap(desk_1_mini_view->GetBoundsInScreen().CenterPoint(),
-                 event_generator);
-  EXPECT_TRUE(desk_1_mini_view->close_desk_button()->GetVisible());
-  EXPECT_FALSE(desk_2_mini_view->close_desk_button()->GetVisible());
-  EXPECT_FALSE(desk_3_mini_view->close_desk_button()->GetVisible());
-  LongGestureTap(desk_2_mini_view->GetBoundsInScreen().CenterPoint(),
-                 event_generator);
-  EXPECT_FALSE(desk_1_mini_view->close_desk_button()->GetVisible());
-  EXPECT_TRUE(desk_2_mini_view->close_desk_button()->GetVisible());
-  EXPECT_FALSE(desk_3_mini_view->close_desk_button()->GetVisible());
+  const gfx::Point desk_1_preview_center =
+      desk_1_mini_view->desk_preview()->GetBoundsInScreen().CenterPoint();
+  const gfx::Point desk_2_preview_center =
+      desk_2_mini_view->desk_preview()->GetBoundsInScreen().CenterPoint();
 
-  // Tapping on the visible close button, closes the desk rather than switches
-  // to that desk.
-  GestureTapOnView(desk_2_mini_view->close_desk_button(), event_generator);
+  LongGestureTap(desk_1_preview_center, event_generator);
+
+  // The context menu appears on the first long press and after the user taps
+  // away the buttons will show. So we need to tap away and wait for the context
+  // menu to disappear before checking whether the desk action interfaces are
+  // visible.
+  event_generator->GestureTapDownAndUp(desk_1_preview_center);
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_TRUE(GetDeskActionVisibilityForMiniView(desk_1_mini_view));
+  EXPECT_FALSE(GetDeskActionVisibilityForMiniView(desk_2_mini_view));
+  EXPECT_FALSE(GetDeskActionVisibilityForMiniView(desk_3_mini_view));
+
+  LongGestureTap(desk_2_preview_center, event_generator);
+
+  event_generator->GestureTapDownAndUp(desk_2_preview_center);
+  base::RunLoop().RunUntilIdle();
+
+  EXPECT_FALSE(GetDeskActionVisibilityForMiniView(desk_1_mini_view));
+  EXPECT_TRUE(GetDeskActionVisibilityForMiniView(desk_2_mini_view));
+  EXPECT_FALSE(GetDeskActionVisibilityForMiniView(desk_3_mini_view));
+
+  // Tapping on the visible close button closes the desk rather than
+  // switches to that desk.
+  GestureTapOnView(GetCloseDeskButtonForMiniView(desk_2_mini_view),
+                   event_generator);
   ASSERT_EQ(2u, controller->desks().size());
   ASSERT_EQ(2u, desks_bar_view->mini_views().size());
   EXPECT_TRUE(overview_controller->InOverviewSession());
 
-  // Tapping on the invisible close button should not result in closing that
-  // desk; rather activating that desk.
-  EXPECT_FALSE(desk_1_mini_view->close_desk_button()->GetVisible());
-  GestureTapOnView(desk_1_mini_view->close_desk_button(), event_generator);
+  // Tapping on the invisible close button should not result in closing
+  // that desk; rather activating that desk.
+  EXPECT_FALSE(GetDeskActionVisibilityForMiniView(desk_1_mini_view));
+  GestureTapOnView(GetCloseDeskButtonForMiniView(desk_1_mini_view),
+                   event_generator);
   ASSERT_EQ(2u, controller->desks().size());
   EXPECT_FALSE(overview_controller->InOverviewSession());
   EXPECT_TRUE(controller->desks()[0]->is_active());
 }
 
-TEST_F(DesksTest, AutohiddenShelfAnimatesAfterDeskSwitch) {
+TEST_P(DesksTest, AutohiddenShelfAnimatesAfterDeskSwitch) {
   Shelf* shelf = GetPrimaryShelf();
   ShelfWidget* shelf_widget = shelf->shelf_widget();
   const gfx::Rect shown_shelf_bounds = shelf_widget->GetWindowBoundsInScreen();
@@ -2967,9 +4026,9 @@ TEST_F(DesksTest, AutohiddenShelfAnimatesAfterDeskSwitch) {
 
   // Since the layer transform animation is just starting, the transformed
   // bounds should still be hidden. If this fails, the change was not animated.
-  gfx::RectF transformed_bounds(shelf_widget->GetWindowBoundsInScreen());
-  shelf_widget->GetLayer()->transform().TransformRect(&transformed_bounds);
-  EXPECT_EQ(gfx::ToEnclosedRect(transformed_bounds), hidden_shelf_bounds);
+  gfx::Rect transformed_bounds = shelf_widget->GetLayer()->transform().MapRect(
+      shelf_widget->GetWindowBoundsInScreen());
+  EXPECT_EQ(transformed_bounds, hidden_shelf_bounds);
   EXPECT_EQ(shelf_widget->GetWindowBoundsInScreen(), shown_shelf_bounds);
 
   // Let's wait until the shelf animates to a fully shown state.
@@ -2979,7 +4038,7 @@ TEST_F(DesksTest, AutohiddenShelfAnimatesAfterDeskSwitch) {
   EXPECT_EQ(SHELF_AUTO_HIDE_SHOWN, shelf->GetAutoHideState());
 }
 
-TEST_F(DesksTest, SwitchToDeskWithSnappedActiveWindow) {
+TEST_P(DesksTest, SwitchToDeskWithSnappedActiveWindow) {
   auto* desks_controller = DesksController::Get();
   auto* overview_controller = Shell::Get()->overview_controller();
 
@@ -2993,7 +4052,7 @@ TEST_F(DesksTest, SwitchToDeskWithSnappedActiveWindow) {
   auto win0 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
   auto win1 = CreateAppWindow(gfx::Rect(50, 50, 200, 200));
   WindowState* win0_state = WindowState::Get(win0.get());
-  WMEvent snap_to_left(WM_EVENT_CYCLE_SNAP_PRIMARY);
+  WindowSnapWMEvent snap_to_left(WM_EVENT_CYCLE_SNAP_PRIMARY);
   win0_state->OnWMEvent(&snap_to_left);
   EXPECT_EQ(chromeos::WindowStateType::kPrimarySnapped,
             win0_state->GetStateType());
@@ -3012,7 +4071,7 @@ TEST_F(DesksTest, SwitchToDeskWithSnappedActiveWindow) {
   EXPECT_FALSE(overview_controller->InOverviewSession());
 }
 
-TEST_F(DesksTest, SuccessfulDragToDeskRemovesSplitViewIndicators) {
+TEST_P(DesksTest, SuccessfulDragToDeskRemovesSplitViewIndicators) {
   auto* controller = DesksController::Get();
   NewDesk();
   ASSERT_EQ(2u, controller->desks().size());
@@ -3062,7 +4121,7 @@ TEST_F(DesksTest, SuccessfulDragToDeskRemovesSplitViewIndicators) {
                 ->current_window_dragging_state());
 }
 
-TEST_F(DesksTest, DragAllOverviewWindowsToOtherDesksNotEndClamshellSplitView) {
+TEST_P(DesksTest, DragAllOverviewWindowsToOtherDesksNotEndClamshellSplitView) {
   // Two virtual desks.
   NewDesk();
   ASSERT_EQ(2u, DesksController::Get()->desks().size());
@@ -3097,7 +4156,7 @@ TEST_F(DesksTest, DragAllOverviewWindowsToOtherDesksNotEndClamshellSplitView) {
   EXPECT_TRUE(split_view_controller->InSplitViewMode());
 }
 
-TEST_F(DesksTest, DeskTraversalNonTouchpadMetrics) {
+TEST_P(DesksTest, DeskTraversalNonTouchpadMetrics) {
   NewDesk();
   NewDesk();
   NewDesk();
@@ -3128,7 +4187,7 @@ TEST_F(DesksTest, DeskTraversalNonTouchpadMetrics) {
 
 // Tests that clipping is unchanged when removing a desk in overview. Regression
 // test for https://crbug.com/1166300.
-TEST_F(DesksTest, RemoveDeskPreservesOverviewClipping) {
+TEST_P(DesksTest, RemoveDeskPreservesOverviewClipping) {
   // Three virtual desks.
   NewDesk();
   NewDesk();
@@ -3155,6 +4214,273 @@ TEST_F(DesksTest, RemoveDeskPreservesOverviewClipping) {
 
   // Tests that the clip is the same after the desk removal.
   EXPECT_EQ(expected_clip, win0->layer()->GetTargetClipRect());
+}
+
+struct PerDeskZOrderTestCase {
+  std::string test_name;
+
+  // Numerical identifiers of windows on desk 1 and 2. Windows will be stacked
+  // in the order they appear, with .back() at top.
+  std::vector<int> desk_1_windows;
+  std::vector<int> desk_2_windows;
+
+  // Numerical identifiers of all-desk windows. Entries must match windows in
+  // desk_1_windows.
+  std::set<int> adw_windows;
+
+  // Windows to activate in order.
+  std::vector<int> activate_windows;
+
+  // Once windows have been created and (some) promoted to all-desk, we start
+  // the test by switching to desk 2. This is the list of windows that we expect
+  // to find on desk 1/2.
+  std::vector<int> expected_desk_1_windows_before;
+  std::vector<int> expected_desk_2_windows_before;
+
+  // We can then move some set of windows from desk 2 to desk 1. This must be a
+  // subset of `desk_2_windows` and cannot contain entries from `adw_windows`
+  // (since those not logically part of a specific desk). Prior to moving, the
+  // window will be activated (to simulate the user interacting with it), and
+  // this will push it to the front of the MRU list.
+  std::vector<int> move_windows;
+
+  // Windows to close while on the second desk. Can include any windows.
+  std::vector<int> close_windows;
+
+  // We then switch back to desk 1 and expect to find windows in this order.
+  std::vector<int> expected_desk_1_windows_after;
+  std::vector<int> expected_desk_2_windows_after;
+};
+
+TEST_P(DesksTest, PerDeskZOrder) {
+  const PerDeskZOrderTestCase tests[] = {
+      {.test_name = "Single adw window 1",
+       .desk_1_windows = {1},
+       .desk_2_windows = {},
+       .adw_windows = {1},
+       .expected_desk_1_windows_before = {1},
+       .expected_desk_2_windows_before = {1},
+       .move_windows = {},
+       .close_windows = {},
+       .expected_desk_1_windows_after = {1},
+       .expected_desk_2_windows_after = {1}},
+      {.test_name = "Single adw window 2",
+       .desk_1_windows = {1, 2, 3},
+       .desk_2_windows = {5, 4},
+       .adw_windows = {1},
+       .expected_desk_1_windows_before = {1, 2, 3},
+       .expected_desk_2_windows_before = {5, 4, 1},
+       .move_windows = {},
+       .close_windows = {},
+       .expected_desk_1_windows_after = {1, 2, 3},
+       .expected_desk_2_windows_after = {5, 4, 1}},
+      {.test_name = "Single adw window 3",
+       .desk_1_windows = {1, 2, 3},
+       .desk_2_windows = {5, 4},
+       .adw_windows = {1},
+       .expected_desk_1_windows_before = {1, 2, 3},
+       .expected_desk_2_windows_before = {5, 4, 1},
+       .move_windows = {5},
+       .close_windows = {},
+       .expected_desk_1_windows_after = {1, 2, 3, 5},
+       .expected_desk_2_windows_after = {4, 1}},
+      {.test_name = "Single adw window 4",
+       .desk_1_windows = {1, 2, 3},
+       .desk_2_windows = {5, 4},
+       .adw_windows = {2},
+       .expected_desk_1_windows_before = {1, 2, 3},
+       .expected_desk_2_windows_before = {5, 4, 2},
+       .move_windows = {5},
+       .close_windows = {1},
+       .expected_desk_1_windows_after = {2, 3, 5},
+       .expected_desk_2_windows_after = {4, 2}},
+      {.test_name = "Single adw window 5",
+       .desk_1_windows = {1, 2, 3, 4, 5},
+       .desk_2_windows = {6},
+       .adw_windows = {3},
+       .expected_desk_1_windows_before = {1, 2, 3, 4, 5},
+       .expected_desk_2_windows_before = {6, 3},
+       .move_windows = {6},
+       .close_windows = {1, 2},
+       .expected_desk_1_windows_after = {3, 4, 5, 6},
+       .expected_desk_2_windows_after = {3}},
+      {.test_name = "Multiple adw windows 1",
+       .desk_1_windows = {1, 2, 3, 4, 5},
+       .desk_2_windows = {6, 7},
+       .adw_windows = {2, 4},
+       .expected_desk_1_windows_before = {1, 2, 3, 4, 5},
+       .expected_desk_2_windows_before = {6, 7, 2, 4},
+       .move_windows = {},
+       .close_windows = {},
+       .expected_desk_1_windows_after = {1, 2, 3, 4, 5},
+       .expected_desk_2_windows_after = {6, 7, 2, 4}},
+      {.test_name = "Multiple adw windows 2",
+       .desk_1_windows = {1, 2, 3, 4, 5},
+       .desk_2_windows = {6, 7},
+       .adw_windows = {1, 3, 5},
+       .expected_desk_1_windows_before = {1, 2, 3, 4, 5},
+       .expected_desk_2_windows_before = {6, 7, 1, 3, 5},
+       .move_windows = {},
+       .close_windows = {},
+       .expected_desk_1_windows_after = {1, 2, 3, 4, 5},
+       .expected_desk_2_windows_after = {6, 7, 1, 3, 5}},
+      {.test_name = "Multiple adw windows 3",
+       .desk_1_windows = {1, 2},
+       .desk_2_windows = {},
+       .adw_windows = {1, 2},
+       .expected_desk_1_windows_before = {1, 2},
+       .expected_desk_2_windows_before = {1, 2},
+       .move_windows = {},
+       .close_windows = {},
+       .expected_desk_1_windows_after = {1, 2},
+       .expected_desk_2_windows_after = {1, 2}},
+      {.test_name = "Multiple adw windows 4",
+       .desk_1_windows = {1, 2, 3, 4},
+       .desk_2_windows = {},
+       .adw_windows = {1, 4},
+       .activate_windows = {4, 3, 2, 1},
+       .expected_desk_1_windows_before = {4, 3, 2, 1},
+       .expected_desk_2_windows_before = {1, 4},
+       .move_windows = {},
+       .close_windows = {},
+       .expected_desk_1_windows_after = {4, 3, 2, 1},
+       .expected_desk_2_windows_after = {1, 4}},
+      {.test_name = "Multiple adw windows 5",
+       .desk_1_windows = {1, 2, 3, 4},
+       .desk_2_windows = {5},
+       .adw_windows = {1, 3},
+       .activate_windows = {1, 2, 3, 4},
+       .expected_desk_1_windows_before = {1, 2, 3, 4},
+       .expected_desk_2_windows_before = {5, 1, 3},
+       .move_windows = {},
+       .close_windows = {},
+       .expected_desk_1_windows_after = {1, 2, 3, 4},
+       .expected_desk_2_windows_after = {5, 1, 3}},
+  };
+
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitWithFeatureState(features::kEnablePerDeskZOrder,
+                                           true);
+
+  NewDesk();
+  auto* controller = DesksController::Get();
+  auto* desk_1 = controller->desks()[0].get();
+  auto* desk_2 = controller->desks()[1].get();
+
+  for (const auto& test : tests) {
+    SCOPED_TRACE(test.test_name);
+
+    std::map<int, std::unique_ptr<aura::Window>> id_to_window;
+    std::map<aura::Window*, int> window_to_id;
+
+    for (auto* window_ids : {&test.desk_1_windows, &test.desk_2_windows}) {
+      for (int id : *window_ids) {
+        auto window = CreateAppWindow(gfx::Rect(0 + id, 0 + id, 100, 100));
+        window_to_id[window.get()] = id;
+        id_to_window[id] = std::move(window);
+      }
+
+      if (!desk_2->is_active())
+        ActivateDesk(desk_2);
+    }
+    ActivateDesk(desk_1);
+
+    // Mark windows as awd.
+    for (int id : test.adw_windows) {
+      views::Widget::GetWidgetForNativeWindow(id_to_window.at(id).get())
+          ->SetVisibleOnAllWorkspaces(true);
+    }
+
+    for (int id : test.activate_windows) {
+      wm::ActivateWindow(id_to_window.at(id).get());
+    }
+
+    aura::Window* root = window_to_id.begin()->first->GetRootWindow();
+
+    // Verifies that the desk preview is consistent with the expected per-desk
+    // Z-order. Since the layers are mirrored instead of the same instances, we
+    // verify by layer bounds here.
+    auto verify_desk_preview_mirrored_layer_tree =
+        [&](Desk* desk, const std::vector<int>& expected_windows,
+            const std::string& debug_info) {
+          SCOPED_TRACE("Verify " + base::UTF16ToUTF8(desk->name()) + " " +
+                       debug_info);
+          ToggleOverview();
+
+          // Retrieves the mirrored layers `mirrored_layers` of application
+          // windows for `desk`. The root of `layer_tree_owner` is a layer that
+          // has only one child, and the only child acts as the parent of all
+          // the mirrored layers of application windows.
+          const ui::LayerTreeOwner* layer_tree_owner =
+              DesksTestApi::GetMirroredContentsLayerTreeForRootAndDesk(root,
+                                                                       desk);
+          const std::vector<ui::Layer*> mirrored_layers =
+              layer_tree_owner->root()->children().front()->children();
+
+          // Tests that `mirrored_layers` and `expected_windows` are sync'ed.
+          ASSERT_EQ(expected_windows.size(), mirrored_layers.size());
+          for (size_t i = 0; i < expected_windows.size(); i++) {
+            EXPECT_EQ(id_to_window[expected_windows[i]]->layer()->bounds(),
+                      mirrored_layers[i]->bounds());
+          }
+
+          ToggleOverview();
+        };
+
+    // Verifies that windows on the given desk are found in the expected
+    // order. Any windows that have not been created by the test will be
+    // ignored.
+    auto verify_windows = [&](Desk* desk,
+                              const std::vector<int>& expected_windows,
+                              const std::string& debug_info) {
+      SCOPED_TRACE("Verify " + base::UTF16ToUTF8(desk->name()) + " " +
+                   debug_info);
+      aura::Window* container = desk->GetDeskContainerForRoot(root);
+
+      // Collect any test windows present on the desk.
+      std::vector<int> actual_windows;
+      for (aura::Window* child : container->children()) {
+        auto it = window_to_id.find(child);
+        if (it != window_to_id.end())
+          actual_windows.push_back(it->second);
+      }
+
+      ASSERT_EQ(expected_windows.size(), actual_windows.size());
+      EXPECT_EQ(expected_windows, actual_windows);
+    };
+
+    // Now we are ready to actually execute the test.
+    ActivateDesk(desk_2);
+    verify_windows(desk_2, test.expected_desk_2_windows_before, "before");
+    verify_desk_preview_mirrored_layer_tree(
+        desk_1, test.expected_desk_1_windows_before, "before");
+    verify_desk_preview_mirrored_layer_tree(
+        desk_2, test.expected_desk_2_windows_before, "before");
+
+    // Move specified windows to desk 1.
+    for (int id : test.move_windows) {
+      const auto& window = id_to_window.at(id);
+      wm::ActivateWindow(window.get());
+      ASSERT_TRUE(controller->MoveWindowFromActiveDeskTo(
+          window.get(), desk_1, window.get()->GetRootWindow(),
+          DesksMoveWindowFromActiveDeskSource::kShortcut));
+    }
+
+    // Close specified windows.
+    for (int id : test.close_windows) {
+      auto it = id_to_window.find(id);
+      ASSERT_NE(it, id_to_window.end()) << "Test setup error";
+      window_to_id.erase(it->second.get());
+      id_to_window.erase(it);
+    }
+
+    ActivateDesk(desk_1);
+    verify_windows(desk_1, test.expected_desk_1_windows_after, "after");
+    verify_desk_preview_mirrored_layer_tree(
+        desk_1, test.expected_desk_1_windows_after, "after");
+    verify_desk_preview_mirrored_layer_tree(
+        desk_2, test.expected_desk_2_windows_after, "after");
+  }
 }
 
 namespace {
@@ -3244,11 +4570,11 @@ class DesksMultiUserTest : public NoSessionAshTestBase,
   void InitPrefsWithDesksRestoreData(PrefService* prefs,
                                      std::vector<std::string> desk_names) {
     DCHECK(prefs);
-    ListPrefUpdate update(prefs, prefs::kDesksNamesList);
-    base::Value* pref_data = update.Get();
-    ASSERT_TRUE(pref_data->GetList().empty());
+    ScopedListPrefUpdate update(prefs, prefs::kDesksNamesList);
+    base::Value::List& pref_data = update.Get();
+    ASSERT_TRUE(pref_data.empty());
     for (auto desk_name : desk_names)
-      pref_data->Append(desk_name);
+      pref_data.Append(desk_name);
   }
 
   void SimulateUserLogin(const AccountId& account_id) {
@@ -3264,8 +4590,8 @@ class DesksMultiUserTest : public NoSessionAshTestBase,
  private:
   std::unique_ptr<MultiUserWindowManager> multi_user_window_manager_;
 
-  TestingPrefServiceSimple* user_1_prefs_ = nullptr;
-  TestingPrefServiceSimple* user_2_prefs_ = nullptr;
+  raw_ptr<TestingPrefServiceSimple, ExperimentalAsh> user_1_prefs_ = nullptr;
+  raw_ptr<TestingPrefServiceSimple, ExperimentalAsh> user_2_prefs_ = nullptr;
 };
 
 TEST_F(DesksMultiUserTest, SwitchUsersBackAndForth) {
@@ -3620,7 +4946,7 @@ TEST_F(DesksRestoreMultiUserTest,
 
 // Simulates the same behavior of event rewriting that key presses go through.
 class DesksAcceleratorsTest : public DesksTest,
-                              public ui::EventRewriterChromeOS::Delegate {
+                              public ui::EventRewriterAsh::Delegate {
  public:
   DesksAcceleratorsTest() = default;
 
@@ -3634,29 +4960,38 @@ class DesksAcceleratorsTest : public DesksTest,
     DesksTest::SetUp();
 
     auto* event_rewriter_controller = EventRewriterController::Get();
-    auto event_rewriter = std::make_unique<ui::EventRewriterChromeOS>(
-        this, Shell::Get()->sticky_keys_controller(), false,
-        &fake_ime_keyboard_);
+    auto event_rewriter = std::make_unique<ui::EventRewriterAsh>(
+        this, Shell::Get()->keyboard_capability(),
+        Shell::Get()->sticky_keys_controller(), false, &fake_ime_keyboard_);
     event_rewriter_controller->AddEventRewriter(std::move(event_rewriter));
   }
 
-  // ui::EventRewriterChromeOS::Delegate:
+  // ui::EventRewriterAsh::Delegate:
   bool RewriteModifierKeys() override { return true; }
-  bool GetKeyboardRemappedPrefValue(const std::string& pref_name,
-                                    int* result) const override {
-    return false;
+  void SuppressModifierKeyRewrites(bool should_supress) override {}
+  bool RewriteMetaTopRowKeyComboEvents(int device_id) const override {
+    return true;
   }
-  bool TopRowKeysAreFunctionKeys() const override { return false; }
+  void SuppressMetaTopRowKeyComboRewrites(bool should_suppress) override {}
+  absl::optional<ui::mojom::ModifierKey> GetKeyboardRemappedModifierValue(
+      int device_id,
+      ui::mojom::ModifierKey modifier_key,
+      const std::string& pref_name) const override {
+    return absl::nullopt;
+  }
+  bool TopRowKeysAreFunctionKeys(int device_id) const override { return false; }
   bool IsExtensionCommandRegistered(ui::KeyboardCode key_code,
                                     int flags) const override {
     return false;
   }
   bool IsSearchKeyAcceleratorReserved() const override { return true; }
   bool NotifyDeprecatedRightClickRewrite() override { return false; }
-  bool NotifyDeprecatedFKeyRewrite() override { return false; }
   bool NotifyDeprecatedSixPackKeyRewrite(ui::KeyboardCode key_code) override {
     return false;
   }
+  void RecordEventRemappedToRightClick(bool alt_based_right_click) override {}
+  void RecordSixPackEventRewrite(ui::KeyboardCode key_code,
+                                 bool alt_based) override {}
 
   void SendAccelerator(ui::KeyboardCode key_code, int flags) {
     ui::test::EventGenerator* generator = GetEventGenerator();
@@ -3675,12 +5010,12 @@ class DesksAcceleratorsTest : public DesksTest,
 
 namespace {
 
-TEST_F(DesksAcceleratorsTest, NewDesk) {
+TEST_P(DesksAcceleratorsTest, NewDesk) {
   auto* controller = DesksController::Get();
   // It's possible to add up to kMaxNumberOfDesks desks using the
   // shortcut.
   const int flags = ui::EF_COMMAND_DOWN | ui::EF_SHIFT_DOWN;
-  for (size_t num_desks = 1; num_desks < desks_util::kMaxNumberOfDesks;
+  for (size_t num_desks = 1; num_desks < desks_util::GetMaxNumberOfDesks();
        ++num_desks) {
     DeskSwitchAnimationWaiter waiter;
     SendAccelerator(ui::VKEY_OEM_PLUS, flags);
@@ -3691,12 +5026,12 @@ TEST_F(DesksAcceleratorsTest, NewDesk) {
   }
 
   // When we reach the limit, the shortcut does nothing.
-  EXPECT_EQ(desks_util::kMaxNumberOfDesks, controller->desks().size());
+  EXPECT_EQ(desks_util::GetMaxNumberOfDesks(), controller->desks().size());
   SendAccelerator(ui::VKEY_OEM_PLUS, flags);
-  EXPECT_EQ(desks_util::kMaxNumberOfDesks, controller->desks().size());
+  EXPECT_EQ(desks_util::GetMaxNumberOfDesks(), controller->desks().size());
 }
 
-TEST_F(DesksAcceleratorsTest, CannotRemoveLastDesk) {
+TEST_P(DesksAcceleratorsTest, CannotRemoveLastDesk) {
   auto* controller = DesksController::Get();
   // Removing the last desk is not possible.
   ASSERT_EQ(1u, controller->desks().size());
@@ -3705,7 +5040,7 @@ TEST_F(DesksAcceleratorsTest, CannotRemoveLastDesk) {
   ASSERT_EQ(1u, controller->desks().size());
 }
 
-TEST_F(DesksAcceleratorsTest, RemoveDesk) {
+TEST_P(DesksAcceleratorsTest, RemoveDesk) {
   auto* controller = DesksController::Get();
   // Create a few desks and remove them outside and inside overview using the
   // shortcut.
@@ -3733,7 +5068,7 @@ TEST_F(DesksAcceleratorsTest, RemoveDesk) {
   EXPECT_TRUE(overview_controller->InOverviewSession());
 }
 
-TEST_F(DesksAcceleratorsTest, RemoveRightmostDesk) {
+TEST_P(DesksAcceleratorsTest, RemoveRightmostDesk) {
   auto* controller = DesksController::Get();
   // Create a few desks and remove them outside and inside overview using the
   // shortcut.
@@ -3762,7 +5097,7 @@ TEST_F(DesksAcceleratorsTest, RemoveRightmostDesk) {
   EXPECT_TRUE(desk_1->is_active());
 }
 
-TEST_F(DesksAcceleratorsTest, LeftRightDeskActivation) {
+TEST_P(DesksAcceleratorsTest, LeftRightDeskActivation) {
   auto* controller = DesksController::Get();
   NewDesk();
   ASSERT_EQ(2u, controller->desks().size());
@@ -3795,7 +5130,7 @@ TEST_F(DesksAcceleratorsTest, LeftRightDeskActivation) {
   }
 }
 
-TEST_F(DesksAcceleratorsTest, MoveWindowLeftRightDesk) {
+TEST_P(DesksAcceleratorsTest, MoveWindowLeftRightDesk) {
   auto* controller = DesksController::Get();
   NewDesk();
   ASSERT_EQ(2u, controller->desks().size());
@@ -3838,7 +5173,7 @@ TEST_F(DesksAcceleratorsTest, MoveWindowLeftRightDesk) {
   EXPECT_TRUE(base::Contains(desk_1->windows(), window.get()));
 }
 
-TEST_F(DesksAcceleratorsTest, MoveWindowLeftRightDeskOverview) {
+TEST_P(DesksAcceleratorsTest, MoveWindowLeftRightDeskOverview) {
   auto* controller = DesksController::Get();
   NewDesk();
   ASSERT_EQ(2u, controller->desks().size());
@@ -3887,7 +5222,7 @@ TEST_F(DesksAcceleratorsTest, MoveWindowLeftRightDeskOverview) {
   EXPECT_FALSE(overview_session->GetHighlightedWindow());
 }
 
-TEST_F(DesksAcceleratorsTest, CannotMoveAlwaysOnTopWindows) {
+TEST_P(DesksAcceleratorsTest, CannotMoveAlwaysOnTopWindows) {
   auto* controller = DesksController::Get();
   NewDesk();
   ASSERT_EQ(2u, controller->desks().size());
@@ -3918,7 +5253,7 @@ TEST_F(DesksAcceleratorsTest, CannotMoveAlwaysOnTopWindows) {
 
 // Tests that hitting an acclerator to switch desks does not cause a crash if we
 // are already at an edge desk. Regression test for https://crbug.com/1159068.
-TEST_F(DesksAcceleratorsTest, HitAcceleratorWhenAlreadyAtEdge) {
+TEST_P(DesksAcceleratorsTest, HitAcceleratorWhenAlreadyAtEdge) {
   NewDesk();
 
   // Enable animations so that we can make sure that they occur.
@@ -3947,7 +5282,7 @@ TEST_F(DesksAcceleratorsTest, HitAcceleratorWhenAlreadyAtEdge) {
 
 // Tests that the assign to all desks shortcut works as expected and that its
 // metrics are recorded properly.
-TEST_F(DesksAcceleratorsTest, AssignToAllDesksShortcut) {
+TEST_P(DesksAcceleratorsTest, AssignToAllDesksShortcut) {
   base::HistogramTester histogram_tester;
 
   // Create two new desks.
@@ -3986,7 +5321,7 @@ TEST_F(DesksAcceleratorsTest, AssignToAllDesksShortcut) {
 }
 
 // Tests that the indexed-desk activation keyboard shortcut works properly.
-TEST_F(DesksAcceleratorsTest, IndexedDeskActivationShortcut) {
+TEST_P(DesksAcceleratorsTest, IndexedDeskActivationShortcut) {
   const int flags = ui::EF_COMMAND_DOWN | ui::EF_SHIFT_DOWN;
   constexpr char kDesksSwitchHistogramName[] = "Ash.Desks.DesksSwitch";
   base::HistogramTester histogram_tester;
@@ -4095,8 +5430,7 @@ class PerDeskShelfTest : public AshTestBase,
   // given |window| is equal to the given |expected_visibility|.
   void VerifyViewVisibility(aura::Window* window,
                             bool expected_visibility) const {
-    const int index = GetShelfItemIndexForWindow(window);
-    EXPECT_GE(index, 0);
+    const size_t index = GetShelfItemIndexForWindow(window);
     auto* shelf_view = GetShelfView();
     auto* view_model = shelf_view->view_model();
 
@@ -4285,8 +5619,7 @@ TEST_P(PerDeskShelfTest, ShelfViewTransformUpdatedForScrollWhenSwitchingDesks) {
 
 // Tests desks name nudges, i.e. when a user creates a new desk, focus + clear
 // the new desk's renaming textfield.
-TEST_F(DesksTest, NameNudges) {
-  // Make sure the display is large enough to hold the max number of desks.
+TEST_P(DesksTest, NameNudges) {
   UpdateDisplay("1200x800");
   auto* controller = DesksController::Get();
 
@@ -4301,19 +5634,22 @@ TEST_F(DesksTest, NameNudges) {
   ASSERT_TRUE(desks_bar_view->IsZeroState());
 
   auto* event_generator = GetEventGenerator();
-  ClickOnView(desks_bar_view->zero_state_default_desk_button(),
-              event_generator);
+  ClickOnView(GetDefaultDeskButton(desks_bar_view), event_generator);
   EXPECT_EQ(1u, desks_bar_view->mini_views().size());
 
-  auto* new_desk_button =
-      desks_bar_view->expanded_state_new_desk_button()->inner_button();
+  auto* new_desk_button = GetExpandedStateNewDeskButton(desks_bar_view);
   EXPECT_TRUE(new_desk_button->GetEnabled());
+
+  // As desks are added, we will scroll the desks bar to keep the "new desk"
+  // button in view.
+  auto* scroll_right_button = DesksTestApi::GetDeskBarRightScrollButton(
+      DeskBarViewBase::Type::kOverview);
 
   // Click on the new desk button until the max number of desks is created. Each
   // time a new desk is created the new desk's name view should have focus, be
   // empty and have its accessible name set to the default desk name. Also, the
   // previous desk should be left with a default name.
-  for (size_t i = 1; i < desks_util::kMaxNumberOfDesks; ++i) {
+  for (size_t i = 1; i < desks_util::GetMaxNumberOfDesks(); ++i) {
     ClickOnView(new_desk_button, event_generator);
     auto* desk_name_view = desks_bar_view->mini_views()[i]->desk_name_view();
     EXPECT_TRUE(desk_name_view->HasFocus());
@@ -4322,14 +5658,15 @@ TEST_F(DesksTest, NameNudges) {
               desk_name_view->GetAccessibleName());
     EXPECT_EQ(DesksController::GetDeskDefaultName(i - 1),
               controller->desks()[i - 1]->name());
+    ClickOnView(scroll_right_button, event_generator);
   }
 }
 
 // Tests that name nudges works with multiple displays. When a user
 // clicks/touches the new desk button, the newly created DeskNameView that
-// resides on the same DesksBarView as the clicked button should be focused.
-// See crbug.com/1206013.
-TEST_F(DesksTest, NameNudgesMultiDisplay) {
+// resides on the same LegacyDeskBarView as the clicked button should be
+// focused. See crbug.com/1206013.
+TEST_P(DesksTest, NameNudgesMultiDisplay) {
   UpdateDisplay("800x700,800x700");
 
   // Start overview.
@@ -4348,7 +5685,7 @@ TEST_F(DesksTest, NameNudgesMultiDisplay) {
 
   // Click on the zero state default desk button for the second root window.
   auto* zero_state_default_desk_button_2 =
-      desks_bar_view_2->zero_state_default_desk_button();
+      GetDefaultDeskButton(desks_bar_view_2);
   EXPECT_TRUE(zero_state_default_desk_button_2->GetEnabled());
   auto* event_generator = GetEventGenerator();
   ClickOnView(zero_state_default_desk_button_2, event_generator);
@@ -4371,7 +5708,7 @@ TEST_F(DesksTest, NameNudgesMultiDisplay) {
   ASSERT_TRUE(desks_bar_view_2->IsZeroState());
 
   // Click on the new desk button on the first root window.
-  auto* new_desk_button_1 = desks_bar_view_1->zero_state_new_desk_button();
+  auto* new_desk_button_1 = GetZeroStateNewDeskButton(desks_bar_view_1);
   EXPECT_TRUE(new_desk_button_1->GetEnabled());
   ClickOnView(new_desk_button_1, event_generator);
 
@@ -4387,7 +5724,7 @@ TEST_F(DesksTest, NameNudgesMultiDisplay) {
   EXPECT_EQ(std::u16string(), desk_name_view_2->GetText());
 
   // Tap on the new desk button on the second root window.
-  auto* new_desk_button_2 = desks_bar_view_2->expanded_state_new_desk_button();
+  auto* new_desk_button_2 = GetExpandedStateNewDeskButton(desks_bar_view_2);
   EXPECT_TRUE(new_desk_button_2->GetEnabled());
   GestureTapOnView(new_desk_button_2, event_generator);
 
@@ -4406,7 +5743,7 @@ TEST_F(DesksTest, NameNudgesMultiDisplay) {
 // Tests that when a user has a `DeskNameView` focused and clicks within the
 // overview grid, the `DeskNameView` loses focus and the overview grid is not
 // closed.
-TEST_F(DesksTest, ClickingOverviewGridUnfocusesDeskNameView) {
+TEST_P(DesksTest, ClickingOverviewGridUnfocusesDeskNameView) {
   // Create a second desk so we don't start in zero state.
   NewDesk();
 
@@ -4426,13 +5763,14 @@ TEST_F(DesksTest, ClickingOverviewGridUnfocusesDeskNameView) {
   // Click the center of the overview grid. This should not close overview mode
   // and should remove focus from the focused `desk_name_view`.
   auto* event_generator = GetEventGenerator();
-  event_generator->MoveMouseTo(overview_grid->bounds().CenterPoint());
+  event_generator->MoveMouseTo(
+      overview_grid->bounds_for_testing().CenterPoint());
   event_generator->ClickLeftButton();
   EXPECT_FALSE(desk_name_view->HasFocus());
   EXPECT_TRUE(overview_controller->InOverviewSession());
 }
 
-TEST_F(DesksTest, ScrollableDesks) {
+TEST_P(DesksTest, ScrollableDesks) {
   UpdateDisplay("201x400");
   EnterOverview();
   EXPECT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
@@ -4442,20 +5780,18 @@ TEST_F(DesksTest, ScrollableDesks) {
       GetOverviewGridForRoot(root_window)->desks_bar_view();
   ASSERT_TRUE(desks_bar_view->IsZeroState());
   auto* event_generator = GetEventGenerator();
-  ClickOnView(desks_bar_view->zero_state_default_desk_button(),
-              event_generator);
+  ClickOnView(GetDefaultDeskButton(desks_bar_view), event_generator);
   EXPECT_EQ(1u, desks_bar_view->mini_views().size());
 
-  auto* new_desk_button =
-      desks_bar_view->expanded_state_new_desk_button()->inner_button();
+  auto* new_desk_button = GetExpandedStateNewDeskButton(desks_bar_view);
 
   // Set the scroll delta large enough to make sure the desks bar can be
   // scrolled to the end each time.
-  const int x_scroll_delta = 200;
+  const int x_scroll_delta = 500;
   gfx::Rect display_bounds =
       screen_util::GetDisplayWorkAreaBoundsInScreenForActiveDeskContainer(
           root_window);
-  for (size_t i = 1; i < desks_util::kMaxNumberOfDesks; i++) {
+  for (size_t i = 1; i < desks_util::GetMaxNumberOfDesks(); i++) {
     gfx::Rect new_desk_button_bounds = new_desk_button->GetBoundsInScreen();
     EXPECT_TRUE(display_bounds.Contains(new_desk_button_bounds));
     ClickOnView(new_desk_button, event_generator);
@@ -4465,7 +5801,7 @@ TEST_F(DesksTest, ScrollableDesks) {
   }
 
   auto* controller = DesksController::Get();
-  EXPECT_EQ(desks_util::kMaxNumberOfDesks, controller->desks().size());
+  EXPECT_EQ(desks_util::GetMaxNumberOfDesks(), controller->desks().size());
   EXPECT_FALSE(controller->CanCreateDesks());
 
   EXPECT_TRUE(display_bounds.Contains(new_desk_button->GetBoundsInScreen()));
@@ -4480,20 +5816,20 @@ TEST_F(DesksTest, ScrollableDesks) {
 
 // Tests the visibility of the scroll buttons and behavior while clicking the
 // corresponding scroll button.
-TEST_F(DesksTest, ScrollButtonsVisibility) {
+TEST_P(DesksTest, ScrollButtonsVisibility) {
   UpdateDisplay("501x600");
-  for (size_t i = 1; i < desks_util::kMaxNumberOfDesks; i++)
+  for (size_t i = 1; i < desks_util::GetMaxNumberOfDesks(); i++)
     NewDesk();
 
   EXPECT_EQ(DesksController::Get()->desks().size(),
-            desks_util::kMaxNumberOfDesks);
+            desks_util::GetMaxNumberOfDesks());
   auto window = CreateAppWindow(gfx::Rect(0, 0, 100, 100));
   TabletModeControllerTestApi().EnterTabletMode();
   // Snap the window to left and then right side of the display should enter
   // overview mode.
   auto* root_window = Shell::GetPrimaryRootWindow();
   SplitViewController::Get(root_window)
-      ->SnapWindow(window.get(), SplitViewController::LEFT);
+      ->SnapWindow(window.get(), SplitViewController::SnapPosition::kPrimary);
   EXPECT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
   auto* desks_bar = GetOverviewGridForRoot(root_window)->desks_bar_view();
   auto* event_generator = GetEventGenerator();
@@ -4501,39 +5837,61 @@ TEST_F(DesksTest, ScrollButtonsVisibility) {
 
   // Set the scroll delta large enough to make sure the desks bar can be
   // scrolled to the end each time.
-  const int x_scroll_delta = 500;
+  const int x_scroll_delta = 1000;
   // Left scroll button should be hidden and right scroll button should be
   // visible while at the start position.
   event_generator->MoveMouseWheel(x_scroll_delta, 0);
-  EXPECT_FALSE(DesksTestApi::GetDesksBarLeftScrollButton()->GetVisible());
-  EXPECT_TRUE(DesksTestApi::GetDesksBarRightScrollButton()->GetVisible());
+  EXPECT_FALSE(
+      DesksTestApi::GetDeskBarLeftScrollButton(DeskBarViewBase::Type::kOverview)
+          ->GetVisible());
+  EXPECT_TRUE(DesksTestApi::GetDeskBarRightScrollButton(
+                  DeskBarViewBase::Type::kOverview)
+                  ->GetVisible());
 
-  // Click the right scroll button should scroll to the next page. And left and
-  // right scroll buttons should both be visible while at the middle position.
-  ClickOnView(DesksTestApi::GetDesksBarRightScrollButton(), event_generator);
-  EXPECT_TRUE(DesksTestApi::GetDesksBarLeftScrollButton()->GetVisible());
-  EXPECT_TRUE(DesksTestApi::GetDesksBarRightScrollButton()->GetVisible());
+  // Click the right scroll button until it reaches to the right most of the
+  // scroll view. Then verify the left scroll button is visible.
+  if (DesksTestApi::GetDeskBarRightScrollButton(
+          DeskBarViewBase::Type::kOverview)
+          ->GetVisible()) {
+    ClickOnView(DesksTestApi::GetDeskBarRightScrollButton(
+                    DeskBarViewBase::Type::kOverview),
+                event_generator);
+  }
+  EXPECT_TRUE(
+      DesksTestApi::GetDeskBarLeftScrollButton(DeskBarViewBase::Type::kOverview)
+          ->GetVisible());
 
-  // Click the left scroll button should scroll to the previous page. In this
-  // case, it will scroll back to the start position and left scroll button
-  // should be hidden and right scroll button should be visible.
-  ClickOnView(DesksTestApi::GetDesksBarLeftScrollButton(), event_generator);
-  EXPECT_FALSE(DesksTestApi::GetDesksBarLeftScrollButton()->GetVisible());
-  EXPECT_TRUE(DesksTestApi::GetDesksBarRightScrollButton()->GetVisible());
+  // Click the left scroll button until it reaches to the right most of the
+  // scroll view. In this case, it will scroll back to the start position and
+  // left scroll button should be hidden and right scroll button should be
+  // visible.
+  if (DesksTestApi::GetDeskBarLeftScrollButton(DeskBarViewBase::Type::kOverview)
+          ->GetVisible()) {
+    ClickOnView(DesksTestApi::GetDeskBarLeftScrollButton(
+                    DeskBarViewBase::Type::kOverview),
+                event_generator);
+  }
+  EXPECT_TRUE(DesksTestApi::GetDeskBarRightScrollButton(
+                  DeskBarViewBase::Type::kOverview)
+                  ->GetVisible());
 
   // Left scroll button should be visible and right scroll button should be
   // hidden while at the end position.
   event_generator->MoveMouseTo(desks_bar->GetBoundsInScreen().CenterPoint());
   event_generator->MoveMouseWheel(-x_scroll_delta, 0);
-  EXPECT_TRUE(DesksTestApi::GetDesksBarLeftScrollButton()->GetVisible());
-  EXPECT_FALSE(DesksTestApi::GetDesksBarRightScrollButton()->GetVisible());
+  EXPECT_TRUE(
+      DesksTestApi::GetDeskBarLeftScrollButton(DeskBarViewBase::Type::kOverview)
+          ->GetVisible());
+  EXPECT_FALSE(DesksTestApi::GetDeskBarRightScrollButton(
+                   DeskBarViewBase::Type::kOverview)
+                   ->GetVisible());
 }
 
-TEST_F(DesksTest, GradientsVisibility) {
+TEST_P(DesksTest, GradientsVisibility) {
   // Set a flat display size to make sure there are multiple pages in the desks
   // bar with maximum number of desks.
   UpdateDisplay("800x150");
-  const size_t max_desks_size = desks_util::kMaxNumberOfDesks;
+  const size_t max_desks_size = desks_util::GetMaxNumberOfDesks();
   for (size_t i = 1; i < max_desks_size; i++)
     NewDesk();
 
@@ -4541,16 +5899,21 @@ TEST_F(DesksTest, GradientsVisibility) {
   auto* desks_bar =
       GetOverviewGridForRoot(Shell::GetPrimaryRootWindow())->desks_bar_view();
 
-  auto* left_button = DesksTestApi::GetDesksBarLeftScrollButton();
-  auto* right_button = DesksTestApi::GetDesksBarRightScrollButton();
+  auto* left_button = DesksTestApi::GetDeskBarLeftScrollButton(
+      DeskBarViewBase::Type::kOverview);
+  auto* right_button = DesksTestApi::GetDeskBarRightScrollButton(
+      DeskBarViewBase::Type::kOverview);
 
   // Only right graident is visible while at the first page.
-  auto* scroll_view = DesksTestApi::GetDesksBarScrollView();
+  auto* scroll_view =
+      DesksTestApi::GetDeskBarScrollView(DeskBarViewBase::Type::kOverview);
   EXPECT_EQ(0, scroll_view->GetVisibleRect().x());
   EXPECT_FALSE(left_button->GetVisible());
-  EXPECT_FALSE(DesksTestApi::IsDesksBarLeftGradientVisible());
+  EXPECT_FALSE(DesksTestApi::IsDeskBarLeftGradientVisible(
+      DeskBarViewBase::Type::kOverview));
   EXPECT_TRUE(right_button->GetVisible());
-  EXPECT_TRUE(DesksTestApi::IsDesksBarRightGradientVisible());
+  EXPECT_TRUE(DesksTestApi::IsDeskBarRightGradientVisible(
+      DeskBarViewBase::Type::kOverview));
 
   // Both left and right gradients should be visible while during scroll.
   const gfx::Point center_point = desks_bar->bounds().CenterPoint();
@@ -4564,9 +5927,11 @@ TEST_F(DesksTest, GradientsVisibility) {
   scroll_view->OnGestureEvent(&scroll_update);
   EXPECT_TRUE(scroll_view->is_scrolling());
   EXPECT_TRUE(left_button->GetVisible());
-  EXPECT_TRUE(DesksTestApi::IsDesksBarLeftGradientVisible());
+  EXPECT_TRUE(DesksTestApi::IsDeskBarLeftGradientVisible(
+      DeskBarViewBase::Type::kOverview));
   EXPECT_TRUE(right_button->GetVisible());
-  EXPECT_TRUE(DesksTestApi::IsDesksBarRightGradientVisible());
+  EXPECT_TRUE(DesksTestApi::IsDeskBarRightGradientVisible(
+      DeskBarViewBase::Type::kOverview));
 
   // The gradient should be hidden if the corresponding scroll button is
   // invisible even though it is during scroll.
@@ -4577,9 +5942,11 @@ TEST_F(DesksTest, GradientsVisibility) {
   scroll_view->OnGestureEvent(&second_scroll_update);
   EXPECT_TRUE(scroll_view->is_scrolling());
   EXPECT_FALSE(left_button->GetVisible());
-  EXPECT_FALSE(DesksTestApi::IsDesksBarLeftGradientVisible());
+  EXPECT_FALSE(DesksTestApi::IsDeskBarLeftGradientVisible(
+      DeskBarViewBase::Type::kOverview));
   EXPECT_TRUE(right_button->GetVisible());
-  EXPECT_TRUE(DesksTestApi::IsDesksBarRightGradientVisible());
+  EXPECT_TRUE(DesksTestApi::IsDeskBarRightGradientVisible(
+      DeskBarViewBase::Type::kOverview));
 
   ui::GestureEvent scroll_end(
       center_point.x(), center_point.y(), ui::EF_NONE, base::TimeTicks::Now(),
@@ -4587,18 +5954,22 @@ TEST_F(DesksTest, GradientsVisibility) {
   scroll_view->OnGestureEvent(&scroll_end);
   EXPECT_FALSE(scroll_view->is_scrolling());
   EXPECT_FALSE(left_button->GetVisible());
-  EXPECT_FALSE(DesksTestApi::IsDesksBarLeftGradientVisible());
+  EXPECT_FALSE(DesksTestApi::IsDeskBarLeftGradientVisible(
+      DeskBarViewBase::Type::kOverview));
   EXPECT_TRUE(right_button->GetVisible());
-  EXPECT_TRUE(DesksTestApi::IsDesksBarRightGradientVisible());
+  EXPECT_TRUE(DesksTestApi::IsDeskBarRightGradientVisible(
+      DeskBarViewBase::Type::kOverview));
 
   // Only right gradient should be shown at the middle page when it is not
   // during scroll even though the left scroll button is visible.
   auto* event_generator = GetEventGenerator();
   ClickOnView(right_button, event_generator);
   EXPECT_TRUE(left_button->GetVisible());
-  EXPECT_FALSE(DesksTestApi::IsDesksBarLeftGradientVisible());
+  EXPECT_FALSE(DesksTestApi::IsDeskBarLeftGradientVisible(
+      DeskBarViewBase::Type::kOverview));
   EXPECT_TRUE(right_button->GetVisible());
-  EXPECT_TRUE(DesksTestApi::IsDesksBarRightGradientVisible());
+  EXPECT_TRUE(DesksTestApi::IsDeskBarRightGradientVisible(
+      DeskBarViewBase::Type::kOverview));
 
   // Only the left gradient should be shown at the last page.
   while (right_button->GetVisible())
@@ -4607,16 +5978,18 @@ TEST_F(DesksTest, GradientsVisibility) {
   EXPECT_EQ(scroll_view->contents()->bounds().width() - scroll_view->width(),
             scroll_view->GetVisibleRect().x());
   EXPECT_TRUE(left_button->GetVisible());
-  EXPECT_TRUE(DesksTestApi::IsDesksBarLeftGradientVisible());
+  EXPECT_TRUE(DesksTestApi::IsDeskBarLeftGradientVisible(
+      DeskBarViewBase::Type::kOverview));
   EXPECT_FALSE(right_button->GetVisible());
-  EXPECT_FALSE(DesksTestApi::IsDesksBarRightGradientVisible());
+  EXPECT_FALSE(DesksTestApi::IsDeskBarRightGradientVisible(
+      DeskBarViewBase::Type::kOverview));
 }
 
 // Tests the behavior when long press on the scroll buttons.
-TEST_F(DesksTest, ContinueScrollBar) {
+TEST_P(DesksTest, ContinueScrollBar) {
   // Make a flat long window to generate multiple pages on desks bar.
   UpdateDisplay("800x150");
-  const size_t max_desks_size = desks_util::kMaxNumberOfDesks;
+  const size_t max_desks_size = desks_util::GetMaxNumberOfDesks();
   for (size_t i = 1; i < max_desks_size; i++)
     NewDesk();
 
@@ -4627,7 +6000,8 @@ TEST_F(DesksTest, ContinueScrollBar) {
   auto* desks_bar =
       GetOverviewGridForRoot(Shell::GetPrimaryRootWindow())->desks_bar_view();
 
-  views::ScrollView* scroll_view = DesksTestApi::GetDesksBarScrollView();
+  views::ScrollView* scroll_view =
+      DesksTestApi::GetDeskBarScrollView(DeskBarViewBase::Type::kOverview);
   const int page_size = scroll_view->width();
   const auto mini_views = desks_bar->mini_views();
   const int mini_view_width = mini_views[0]->bounds().width();
@@ -4638,13 +6012,16 @@ TEST_F(DesksTest, ContinueScrollBar) {
     desks_in_one_page++;
 
   int current_index = 0;
-  ScrollArrowButton* left_button = DesksTestApi::GetDesksBarLeftScrollButton();
-  ScrollArrowButton* right_button =
-      DesksTestApi::GetDesksBarRightScrollButton();
+  ScrollArrowButton* left_button = DesksTestApi::GetDeskBarLeftScrollButton(
+      DeskBarViewBase::Type::kOverview);
+  ScrollArrowButton* right_button = DesksTestApi::GetDeskBarRightScrollButton(
+      DeskBarViewBase::Type::kOverview);
 
   // At first, left scroll button is hidden and right scroll button is visible.
   EXPECT_FALSE(left_button->GetVisible());
   EXPECT_TRUE(right_button->GetVisible());
+
+  const int focus_ring_width_and_padding = 4;
 
   // Press on the right scroll button by mouse should scroll to the next page.
   // And the final scroll position should be adjusted to make sure the desk
@@ -4653,7 +6030,7 @@ TEST_F(DesksTest, ContinueScrollBar) {
   event_generator->MoveMouseTo(right_button->GetBoundsInScreen().CenterPoint());
   event_generator->PressLeftButton();
   current_index += desks_in_one_page;
-  EXPECT_EQ(scroll_view->GetVisibleRect().x(),
+  EXPECT_EQ(scroll_view->GetVisibleRect().x() + focus_ring_width_and_padding,
             mini_views[current_index]->bounds().x());
 
   // Both scroll buttons should be visible.
@@ -4663,11 +6040,25 @@ TEST_F(DesksTest, ContinueScrollBar) {
   // Wait for 1s, there will be another scroll.
   WaitForMilliseconds(1000);
   current_index += desks_in_one_page;
-  EXPECT_EQ(scroll_view->GetVisibleRect().x(),
-            mini_views[current_index]->bounds().x());
 
-  // Wait for 1s, it will scroll to the maximum offset. Scroll ends.
-  WaitForMilliseconds(1000);
+  // When `Jellyroll` is enabled and the maximum number of desks is 8, the new
+  // desk button is smaller, two scrolls will reach the end of the desks bar
+  // view, thus we verify the right of the visible scroll view.
+  if (chromeos::features::IsJellyrollEnabled() &&
+      !features::Is16DesksEnabled()) {
+    EXPECT_EQ(
+        scroll_view->GetVisibleRect().right() - focus_ring_width_and_padding,
+        GetExpandedStateNewDeskButton(desks_bar)->bounds().right());
+  } else {
+    EXPECT_EQ(scroll_view->GetVisibleRect().x() + focus_ring_width_and_padding,
+              mini_views[current_index]->bounds().x());
+  }
+
+  // Release and click a few times to make sure we end up at the maximum offset.
+  event_generator->ReleaseLeftButton();
+  for (int i = 0; i != 3; ++i)
+    event_generator->ClickLeftButton();
+
   EXPECT_EQ(scroll_view->GetVisibleRect().x(),
             scroll_view->contents()->width() - page_size);
 
@@ -4676,21 +6067,31 @@ TEST_F(DesksTest, ContinueScrollBar) {
   EXPECT_TRUE(left_button->GetVisible());
   EXPECT_FALSE(right_button->GetVisible());
 
-  event_generator->ReleaseLeftButton();
+  // Since we're scrolled all the way to the right and the new desk button is
+  // visible, this is the index of the leftmost visible mini view.
+  current_index = max_desks_size - 1;
 
   // Press on left scroll button by gesture should scroll to the previous page.
   // And the final scroll position should also be adjusted while scrolling to
   // previous page to make sure the desk preview will not be cropped.
   event_generator->MoveTouch(left_button->GetBoundsInScreen().CenterPoint());
   event_generator->PressTouch();
-  current_index -= desks_in_one_page;
-  EXPECT_EQ(scroll_view->GetVisibleRect().x(),
+  // When the feature flag `Jellyroll` is enabled, the new desk button and the
+  // library button become smaller, thus when scroll to the left from the right
+  // mode, the index of desk mini view on the left is smaller than it when
+  // `Jellyroll` is not enabled.
+  if (chromeos::features::IsJellyrollEnabled()) {
+    current_index -= (desks_in_one_page + 1);
+  } else {
+    current_index -= desks_in_one_page;
+  }
+  EXPECT_EQ(scroll_view->GetVisibleRect().x() + focus_ring_width_and_padding,
             mini_views[current_index]->bounds().x());
 
   // Wait for 1s, there is another scroll.
   WaitForMilliseconds(1000);
   current_index -= desks_in_one_page;
-  EXPECT_EQ(scroll_view->GetVisibleRect().x(),
+  EXPECT_EQ(scroll_view->GetVisibleRect().x() + focus_ring_width_and_padding,
             mini_views[current_index]->bounds().x());
 
   event_generator->ReleaseTouch();
@@ -4698,50 +6099,95 @@ TEST_F(DesksTest, ContinueScrollBar) {
 
 // Tests that change the focused mini view should scroll the desks bar and put
 // the focused mini view inside the visible bounds.
-TEST_F(DesksTest, FocusedMiniViewIsVisible) {
+TEST_P(DesksTest, FocusedMiniViewIsVisible) {
   UpdateDisplay("501x600");
-  for (size_t i = 1; i < desks_util::kMaxNumberOfDesks; i++)
+  for (size_t i = 1; i < desks_util::GetMaxNumberOfDesks(); i++)
     NewDesk();
 
   EXPECT_EQ(DesksController::Get()->desks().size(),
-            desks_util::kMaxNumberOfDesks);
+            desks_util::GetMaxNumberOfDesks());
   auto window = CreateAppWindow(gfx::Rect(0, 0, 100, 100));
   TabletModeControllerTestApi().EnterTabletMode();
   // Snap the window to left and then right side of the display should enter
   // overview mode.
   auto* root_window = Shell::GetPrimaryRootWindow();
   SplitViewController::Get(root_window)
-      ->SnapWindow(window.get(), SplitViewController::LEFT);
+      ->SnapWindow(window.get(), SplitViewController::SnapPosition::kPrimary);
   EXPECT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
   auto* desks_bar = GetOverviewGridForRoot(root_window)->desks_bar_view();
   auto mini_views = desks_bar->mini_views();
-  ASSERT_EQ(mini_views.size(), desks_util::kMaxNumberOfDesks);
+  ASSERT_EQ(mini_views.size(), desks_util::GetMaxNumberOfDesks());
   // Traverse all the desks mini views from left to right.
-  for (size_t i = 0; i < desks_util::kMaxNumberOfDesks; i++) {
-    // Move the focus to mini view.
+  for (size_t i = 0; i < desks_util::GetMaxNumberOfDesks(); i++) {
+    // Move the focus to the mini view's associated preview view.
     SendKey(ui::VKEY_TAB);
     EXPECT_TRUE(
-        DesksTestApi::GetDesksBarScrollView()->GetVisibleRect().Contains(
-            mini_views[i]->bounds()));
+        DesksTestApi::GetDeskBarScrollView(DeskBarViewBase::Type::kOverview)
+            ->GetVisibleRect()
+            .Contains(mini_views[i]->bounds()));
     // Move the focus to the mini view's associated name view.
     SendKey(ui::VKEY_TAB);
   }
 
   // Traverse from all the desk mini views from right to left.
-  for (size_t i = desks_util::kMaxNumberOfDesks - 1; i > 0; i--) {
-    // Move the focus from desk name view to the associated mini view.
+  for (size_t i = desks_util::GetMaxNumberOfDesks() - 1; i > 0; i--) {
+    // Move the focus from desk name view to the associated preview view.
     SendKey(ui::VKEY_LEFT);
     // Move the focus to previous mini view's name view.
     SendKey(ui::VKEY_LEFT);
     EXPECT_TRUE(
-        DesksTestApi::GetDesksBarScrollView()->GetVisibleRect().Contains(
-            mini_views[i - 1]->bounds()));
+        DesksTestApi::GetDeskBarScrollView(DeskBarViewBase::Type::kOverview)
+            ->GetVisibleRect()
+            .Contains(mini_views[i - 1]->bounds()));
   }
+}
+
+// Tests that active desk mini view is visible when entering overview especially
+// with 16 desks.
+TEST_P(DesksTest, ActiveDeskMiniViewIsVisible) {
+  for (size_t i = 1; i < desks_util::GetMaxNumberOfDesks(); i++) {
+    // Create a new desk and go to that desk.
+    NewDesk();
+    ActivateDesk(DesksController::Get()->desks().back().get());
+
+    // Enter overview and check the active mini view is fully visible.
+    EnterOverview();
+    auto* desks_bar =
+        GetOverviewGridForRoot(Shell::GetPrimaryRootWindow())->desks_bar_view();
+    for (auto* mini_view : desks_bar->mini_views()) {
+      if (mini_view->desk()->is_active()) {
+        EXPECT_EQ(mini_view->size(), mini_view->GetVisibleBounds().size());
+      }
+    }
+
+    ExitOverview();
+  }
+}
+
+// Tests that change the highlighted new desk button is fully visible.
+TEST_P(DesksTest, HighlightedButtonIsVisible) {
+  // Create `GetMaxNumberOfDesks() - 1` desks so that the new desk button is
+  // still enabled.
+  for (size_t i = 1; i < desks_util::GetMaxNumberOfDesks() - 1; i++) {
+    NewDesk();
+  }
+
+  EnterOverview();
+
+  auto* desk_bar =
+      GetOverviewGridForRoot(Shell::GetPrimaryRootWindow())->desks_bar_view();
+  auto* new_desk_button = GetExpandedStateInnerNewDeskButton(desk_bar);
+  SendKey(ui::VKEY_TAB, ui::EF_SHIFT_DOWN);
+  EXPECT_TRUE(new_desk_button->GetVisible());
+  EXPECT_EQ(new_desk_button->size(),
+            new_desk_button->GetVisibleBounds().size());
+
+  ExitOverview();
 }
 
 // Tests that the bounds of a window that is visible on all desks is shared
 // across desks.
-TEST_F(DesksTest, VisibleOnAllDesksGlobalBounds) {
+TEST_P(DesksTest, VisibleOnAllDesksGlobalBounds) {
   auto* controller = DesksController::Get();
   NewDesk();
   const Desk* desk_1 = controller->desks()[0].get();
@@ -4781,7 +6227,7 @@ TEST_F(DesksTest, VisibleOnAllDesksGlobalBounds) {
 
 // Tests that the z-ordering of windows that are visible on all desks respects
 // its global MRU ordering.
-TEST_F(DesksTest, VisibleOnAllDesksGlobalZOrder) {
+TEST_P(DesksTest, VisibleOnAllDesksGlobalZOrder) {
   auto* controller = DesksController::Get();
   NewDesk();
   const Desk* desk_1 = controller->desks()[0].get();
@@ -4794,14 +6240,14 @@ TEST_F(DesksTest, VisibleOnAllDesksGlobalZOrder) {
   auto* widget0 = views::Widget::GetWidgetForNativeWindow(win0.get());
   auto* widget1 = views::Widget::GetWidgetForNativeWindow(win1.get());
   auto* widget2 = views::Widget::GetWidgetForNativeWindow(win2.get());
-  ASSERT_TRUE(IsStackedBelow(win0.get(), win1.get()));
-  ASSERT_TRUE(IsStackedBelow(win1.get(), win2.get()));
+  ASSERT_TRUE(window_util::IsStackedBelow(win0.get(), win1.get()));
+  ASSERT_TRUE(window_util::IsStackedBelow(win1.get(), win2.get()));
 
   // Assign |win1| to all desks. It shouldn't change stacking order.
   widget1->SetVisibleOnAllWorkspaces(true);
   ASSERT_TRUE(desks_util::IsWindowVisibleOnAllWorkspaces(win1.get()));
-  EXPECT_TRUE(IsStackedBelow(win0.get(), win1.get()));
-  EXPECT_TRUE(IsStackedBelow(win1.get(), win2.get()));
+  EXPECT_TRUE(window_util::IsStackedBelow(win0.get(), win1.get()));
+  EXPECT_TRUE(window_util::IsStackedBelow(win1.get(), win2.get()));
   EXPECT_EQ(1u, controller->visible_on_all_desks_windows().size());
 
   // Move to desk 2. The only window on the new desk should be |win1|.
@@ -4815,8 +6261,8 @@ TEST_F(DesksTest, VisibleOnAllDesksGlobalZOrder) {
   ActivateDesk(desk_1);
   auto desk_1_children = desk_1->GetDeskContainerForRoot(root)->children();
   EXPECT_EQ(3u, desk_1_children.size());
-  EXPECT_TRUE(IsStackedBelow(win0.get(), win2.get()));
-  EXPECT_TRUE(IsStackedBelow(win2.get(), win1.get()));
+  EXPECT_TRUE(window_util::IsStackedBelow(win0.get(), win2.get()));
+  EXPECT_TRUE(window_util::IsStackedBelow(win2.get(), win1.get()));
 
   // Assign all the other windows and rearrange the order by activating the
   // windows.
@@ -4827,8 +6273,8 @@ TEST_F(DesksTest, VisibleOnAllDesksGlobalZOrder) {
   wm::ActivateWindow(win2.get());
   wm::ActivateWindow(win1.get());
   wm::ActivateWindow(win0.get());
-  EXPECT_TRUE(IsStackedBelow(win2.get(), win1.get()));
-  EXPECT_TRUE(IsStackedBelow(win1.get(), win0.get()));
+  EXPECT_TRUE(window_util::IsStackedBelow(win2.get(), win1.get()));
+  EXPECT_TRUE(window_util::IsStackedBelow(win1.get(), win0.get()));
   EXPECT_EQ(3u, controller->visible_on_all_desks_windows().size());
 
   // Move to desk 2. All the windows should move to the new desk and maintain
@@ -4836,13 +6282,13 @@ TEST_F(DesksTest, VisibleOnAllDesksGlobalZOrder) {
   ActivateDesk(desk_2);
   desk_2_children = desk_2->GetDeskContainerForRoot(root)->children();
   EXPECT_EQ(3u, desk_2_children.size());
-  EXPECT_TRUE(IsStackedBelow(win2.get(), win1.get()));
-  EXPECT_TRUE(IsStackedBelow(win1.get(), win0.get()));
+  EXPECT_TRUE(window_util::IsStackedBelow(win2.get(), win1.get()));
+  EXPECT_TRUE(window_util::IsStackedBelow(win1.get(), win0.get()));
 }
 
 // Tests the behavior of windows that are visible on all desks when the active
 // desk is removed.
-TEST_F(DesksTest, VisibleOnAllDesksActiveDeskRemoval) {
+TEST_P(DesksTest, VisibleOnAllDesksActiveDeskRemoval) {
   auto* controller = DesksController::Get();
   NewDesk();
   const Desk* desk_1 = controller->desks()[0].get();
@@ -4865,12 +6311,12 @@ TEST_F(DesksTest, VisibleOnAllDesksActiveDeskRemoval) {
   RemoveDesk(desk_1);
   auto desk_2_children = desk_2->GetDeskContainerForRoot(root)->children();
   EXPECT_EQ(2u, desk_2_children.size());
-  EXPECT_TRUE(IsStackedBelow(win0.get(), win1.get()));
+  EXPECT_TRUE(window_util::IsStackedBelow(win0.get(), win1.get()));
   EXPECT_EQ(2u, controller->visible_on_all_desks_windows().size());
 }
 
 // Tests the behavior of a minimized window that is visible on all desks.
-TEST_F(DesksTest, VisibleOnAllDesksMinimizedWindow) {
+TEST_P(DesksTest, VisibleOnAllDesksMinimizedWindow) {
   auto* controller = DesksController::Get();
   NewDesk();
   const Desk* desk_2 = controller->desks()[1].get();
@@ -4898,7 +6344,7 @@ TEST_F(DesksTest, VisibleOnAllDesksMinimizedWindow) {
 
 // Tests the behavior of a window that is visible on all desks when a user tries
 // to move it to another desk using drag and drop (overview mode).
-TEST_F(DesksTest, VisibleOnAllDesksMoveWindowToDeskViaDragAndDrop) {
+TEST_P(DesksTest, VisibleOnAllDesksMoveWindowToDeskViaDragAndDrop) {
   auto* controller = DesksController::Get();
   auto* root = Shell::GetPrimaryRootWindow();
   NewDesk();
@@ -4924,7 +6370,7 @@ TEST_F(DesksTest, VisibleOnAllDesksMoveWindowToDeskViaDragAndDrop) {
 
 // Tests the behavior of a window that is visible on all desks when a user tries
 // to move it to another desk using keyboard shortcuts.
-TEST_F(DesksTest, VisibleOnAllDesksMoveWindowToDeskViaShortcuts) {
+TEST_P(DesksTest, VisibleOnAllDesksMoveWindowToDeskViaShortcuts) {
   auto* controller = DesksController::Get();
   auto* root = Shell::GetPrimaryRootWindow();
   NewDesk();
@@ -4950,7 +6396,7 @@ TEST_F(DesksTest, VisibleOnAllDesksMoveWindowToDeskViaShortcuts) {
 
 // Tests the behavior of a window that is visible on all desks when a user tries
 // to move it using the context menu.
-TEST_F(DesksTest, VisibleOnAllDesksMoveWindowToDeskViaContextMenu) {
+TEST_P(DesksTest, VisibleOnAllDesksMoveWindowToDeskViaContextMenu) {
   auto* controller = DesksController::Get();
   NewDesk();
   const Desk* desk_2 = controller->desks()[1].get();
@@ -4973,7 +6419,7 @@ TEST_F(DesksTest, VisibleOnAllDesksMoveWindowToDeskViaContextMenu) {
 
 // Tests that when a window that is visible on all desks is destroyed it is
 // removed from DesksController.visible_on_all_desks_windows_.
-TEST_F(DesksTest, VisibleOnAllDesksWindowDestruction) {
+TEST_P(DesksTest, VisibleOnAllDesksWindowDestruction) {
   auto* controller = DesksController::Get();
   NewDesk();
   const Desk* desk_1 = controller->desks()[0].get();
@@ -4995,7 +6441,24 @@ TEST_F(DesksTest, VisibleOnAllDesksWindowDestruction) {
   EXPECT_EQ(0u, desk_1->GetDeskContainerForRoot(root)->children().size());
 }
 
-TEST_F(DesksTest, EnterOverviewWithCorrectDesksBarState) {
+// Tests that the desk bar exit animation would not cause any crash or UAF.
+// Please refer to b/274497402.
+TEST_P(DesksTest, DesksBarExitAnimation) {
+  // Create another desk so that the desk bar is not zero state.
+  NewDesk();
+
+  // Set to non-zero animation.
+  ui::ScopedAnimationDurationScaleMode animation(
+      ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+
+  // Enter then exit overview. When shutting down overview grid, the desk bar
+  // slide animation will take over the ownership of the desk bar widget. This
+  // is to ensure no crash or UAF after the ownership change.
+  EnterOverview();
+  ExitOverview();
+}
+
+TEST_P(DesksTest, EnterOverviewWithCorrectDesksBarState) {
   auto* controller = DesksController::Get();
   ASSERT_EQ(1u, controller->desks().size());
   EnterOverview();
@@ -5009,8 +6472,7 @@ TEST_F(DesksTest, EnterOverviewWithCorrectDesksBarState) {
   EXPECT_TRUE(desks_bar_view->mini_views().empty());
 
   // Click new desk button in the zero state bar to create a new desk.
-  ClickOnView(desks_bar_view->zero_state_new_desk_button(),
-              GetEventGenerator());
+  ClickOnView(GetZeroStateNewDeskButton(desks_bar_view), GetEventGenerator());
   ExitOverview();
 
   // Desks bar should not stay in zero state if there are more than one desks.
@@ -5022,7 +6484,7 @@ TEST_F(DesksTest, EnterOverviewWithCorrectDesksBarState) {
 }
 
 // Tests the behavior of desks bar zero state.
-TEST_F(DesksTest, DesksBarZeroState) {
+TEST_P(DesksTest, DesksBarZeroState) {
   EnterOverview();
 
   auto* root_window = Shell::GetPrimaryRootWindow();
@@ -5031,10 +6493,8 @@ TEST_F(DesksTest, DesksBarZeroState) {
   ASSERT_TRUE(desks_bar_view->mini_views().empty());
 
   auto* event_generator = GetEventGenerator();
-  auto* zero_state_default_desk_button =
-      desks_bar_view->zero_state_default_desk_button();
-  auto* zero_state_new_desk_button =
-      desks_bar_view->zero_state_new_desk_button();
+  auto* zero_state_default_desk_button = GetDefaultDeskButton(desks_bar_view);
+  auto* zero_state_new_desk_button = GetZeroStateNewDeskButton(desks_bar_view);
   ClickOnView(zero_state_default_desk_button, event_generator);
   // Click the zero state default desk button should switch to expanded desks
   // bar and focus on the default desk's name view. The two buttons in zero
@@ -5043,16 +6503,15 @@ TEST_F(DesksTest, DesksBarZeroState) {
   EXPECT_EQ(1u, desks_bar_view->mini_views().size());
   EXPECT_TRUE(desks_bar_view->mini_views()[0]->desk_name_view()->HasFocus());
   EXPECT_FALSE(zero_state_default_desk_button->GetVisible());
-  EXPECT_FALSE(zero_state_new_desk_button->GetVisible());
+  VerifyZeroStateNewDeskButtonVisibility(desks_bar_view, false);
 
   ExitOverview();
   EnterOverview();
   desks_bar_view = GetOverviewGridForRoot(root_window)->desks_bar_view();
   ASSERT_TRUE(desks_bar_view->IsZeroState());
 
-  zero_state_default_desk_button =
-      desks_bar_view->zero_state_default_desk_button();
-  zero_state_new_desk_button = desks_bar_view->zero_state_new_desk_button();
+  zero_state_default_desk_button = GetDefaultDeskButton(desks_bar_view);
+  zero_state_new_desk_button = GetZeroStateNewDeskButton(desks_bar_view);
   ClickOnView(zero_state_new_desk_button, event_generator);
   // Click the zero state new desk button should switch to expand desks bar,
   // create a new desk and focus on the new created desk's name view. The two
@@ -5061,15 +6520,75 @@ TEST_F(DesksTest, DesksBarZeroState) {
   EXPECT_EQ(2u, desks_bar_view->mini_views().size());
   EXPECT_TRUE(desks_bar_view->mini_views()[1]->desk_name_view()->HasFocus());
   EXPECT_FALSE(zero_state_default_desk_button->GetVisible());
-  EXPECT_FALSE(zero_state_new_desk_button->GetVisible());
+  VerifyZeroStateNewDeskButtonVisibility(desks_bar_view, false);
 
-  // Should switch to zero state if there is only one desk after removing.
   CloseDeskFromMiniView(desks_bar_view->mini_views()[0], event_generator);
-  EXPECT_TRUE(zero_state_default_desk_button->GetVisible());
-  EXPECT_TRUE(zero_state_new_desk_button->GetVisible());
+  if (GetParam().enable_jellyroll) {
+    // Desks bar doesn't switch to zero state even if there is only one desk
+    // after removing when feature Jellyroll is enabled.
+    EXPECT_FALSE(desks_bar_view->IsZeroState());
+    EXPECT_FALSE(zero_state_default_desk_button->GetVisible());
+    VerifyZeroStateNewDeskButtonVisibility(desks_bar_view, false);
+  } else {
+    // Should switch to zero state if there is only one desk after removing.
+    EXPECT_TRUE(zero_state_default_desk_button->GetVisible());
+    VerifyZeroStateNewDeskButtonVisibility(desks_bar_view, true);
+  }
 }
 
-TEST_F(DesksTest, NewDeskButton) {
+// Tests that buttons in the desk bar are shown and hidden correctly when
+// transitioning into zero state to ensure ChromeVox navigation works properly.
+// Regression test for https://crbug.com/1351501.
+TEST_P(DesksTest, DesksBarButtonVisibility) {
+  auto* controller = DesksController::Get();
+
+  // Create a new desk so when we enter overview mode the desks bar is in the
+  // expanded state.
+  NewDesk();
+  ASSERT_EQ(2u, controller->desks().size());
+
+  // Enter overview mode and check that the desks bar is in the expanded state.
+  auto* overview_controller = Shell::Get()->overview_controller();
+  EnterOverview();
+  EXPECT_TRUE(overview_controller->InOverviewSession());
+  const auto* desks_bar_view =
+      GetOverviewGridForRoot(Shell::GetPrimaryRootWindow())->desks_bar_view();
+  ASSERT_TRUE(desks_bar_view);
+  ASSERT_FALSE(desks_bar_view->IsZeroState());
+
+  // Verify that the expanded state button is visible, while the zero state
+  // buttons are not visible.
+  auto* zero_state_default_desk_button = GetDefaultDeskButton(desks_bar_view);
+  VerifyExpandedStateNewDeskButtonVisibility(desks_bar_view, true);
+  VerifyZeroStateNewDeskButtonVisibility(desks_bar_view, false);
+  EXPECT_FALSE(zero_state_default_desk_button->GetVisible());
+
+  // Close a desk and check that the desks bar switches into zero state.
+  auto* mini_view = desks_bar_view->mini_views().front();
+  CloseDeskFromMiniView(mini_view, GetEventGenerator());
+  ASSERT_EQ(1u, controller->desks().size());
+  if (GetParam().enable_jellyroll) {
+    ASSERT_FALSE(desks_bar_view->IsZeroState());
+    EXPECT_EQ(1u, desks_bar_view->mini_views().size());
+
+    // When feature Jellyroll is enabled, desks bar doesn't go back to zero
+    // state. Verify that the expanded state button is visible, while the
+    // zero state buttons are not visible.
+    VerifyExpandedStateNewDeskButtonVisibility(desks_bar_view, true);
+    VerifyZeroStateNewDeskButtonVisibility(desks_bar_view, false);
+    EXPECT_FALSE(zero_state_default_desk_button->GetVisible());
+  } else {
+    ASSERT_TRUE(desks_bar_view->IsZeroState());
+    // Verify that the expanded state button is not visible, while the zero
+    // state
+    // buttons are visible.
+    VerifyExpandedStateNewDeskButtonVisibility(desks_bar_view, false);
+    VerifyZeroStateNewDeskButtonVisibility(desks_bar_view, true);
+    EXPECT_TRUE(zero_state_default_desk_button->GetVisible());
+  }
+}
+
+TEST_P(DesksTest, NewDeskButton) {
   auto* controller = DesksController::Get();
   EnterOverview();
 
@@ -5079,27 +6598,45 @@ TEST_F(DesksTest, NewDeskButton) {
   // Click the default desk button in the zero state bar to switch to expanded
   // desks bar.
   auto* event_generator = GetEventGenerator();
-  ClickOnView(desks_bar_view->zero_state_default_desk_button(),
-              event_generator);
-  auto* new_desk_button =
-      desks_bar_view->expanded_state_new_desk_button()->inner_button();
+  ClickOnView(GetDefaultDeskButton(desks_bar_view), event_generator);
+  auto* new_desk_button = GetExpandedStateInnerNewDeskButton(desks_bar_view);
   EXPECT_TRUE(new_desk_button->GetVisible());
   EXPECT_TRUE(new_desk_button->GetEnabled());
 
-  for (size_t i = 1; i < desks_util::kMaxNumberOfDesks; i++)
+  auto* scroll_right_button = DesksTestApi::GetDeskBarRightScrollButton(
+      DeskBarViewBase::Type::kOverview);
+
+  for (size_t i = 1; i < desks_util::GetMaxNumberOfDesks(); i++) {
     ClickOnView(new_desk_button, event_generator);
+
+    // When a new desk is created, ensure its desk mini view fully visible.
+    auto* mini_view = desks_bar_view->mini_views().back();
+    EXPECT_EQ(mini_view->size(), mini_view->GetVisibleBounds().size());
+
+    // TODO(b/277081702): When desk order is adjusted for RTL, remove the check
+    // below to always make new desk button visible.
+    if (!base::i18n::IsRTL()) {
+      EXPECT_EQ(new_desk_button->size(),
+                new_desk_button->GetVisibleBounds().size());
+    }
+
+    ClickOnView(scroll_right_button, event_generator);
+  }
+
   // The new desk button should become disabled after maximum number of desks
   // have been created.
   EXPECT_FALSE(controller->CanCreateDesks());
   EXPECT_FALSE(new_desk_button->GetEnabled());
 
+  ASSERT_EQ(controller->desks().size(), desks_util::GetMaxNumberOfDesks());
+
   // The new desk button should become enabled again after removing a desk.
-  CloseDeskFromMiniView(desks_bar_view->mini_views()[0], event_generator);
+  CloseDeskFromMiniView(desks_bar_view->mini_views().back(), event_generator);
   EXPECT_TRUE(controller->CanCreateDesks());
   EXPECT_TRUE(new_desk_button->GetEnabled());
 }
 
-TEST_F(DesksTest, ZeroStateDeskButtonText) {
+TEST_P(DesksTest, ZeroStateDeskButtonText) {
   UpdateDisplay("1600x1200");
   EnterOverview();
 
@@ -5108,12 +6645,10 @@ TEST_F(DesksTest, ZeroStateDeskButtonText) {
   ASSERT_TRUE(desks_bar_view->IsZeroState());
   // Show the default name "Desk 1" while initializing the desks bar at the
   // first time.
-  EXPECT_EQ(u"Desk 1",
-            desks_bar_view->zero_state_default_desk_button()->GetText());
+  EXPECT_EQ(u"Desk 1", GetDefaultDeskButton(desks_bar_view)->GetText());
 
   auto* event_generator = GetEventGenerator();
-  ClickOnView(desks_bar_view->zero_state_default_desk_button(),
-              event_generator);
+  ClickOnView(GetDefaultDeskButton(desks_bar_view), event_generator);
   EXPECT_TRUE(desks_bar_view->mini_views()[0]->desk_name_view()->HasFocus());
 
   // Change the desk name to "test".
@@ -5128,11 +6663,10 @@ TEST_F(DesksTest, ZeroStateDeskButtonText) {
   desks_bar_view = GetOverviewGridForRoot(root_window)->desks_bar_view();
   EXPECT_TRUE(desks_bar_view->IsZeroState());
   // Should show the desk's current name "test" instead of the default name.
-  EXPECT_EQ(u"test",
-            desks_bar_view->zero_state_default_desk_button()->GetText());
+  EXPECT_EQ(u"test", GetDefaultDeskButton(desks_bar_view)->GetText());
 
   // Create 'Desk 2'.
-  ClickOnView(desks_bar_view->zero_state_new_desk_button(), event_generator);
+  ClickOnView(GetZeroStateNewDeskButton(desks_bar_view), event_generator);
   EXPECT_FALSE(desks_bar_view->IsZeroState());
   SendKey(ui::VKEY_RETURN);
   EXPECT_EQ(u"Desk 2", DesksController::Get()->desks()[1].get()->name());
@@ -5140,24 +6674,29 @@ TEST_F(DesksTest, ZeroStateDeskButtonText) {
   // Close desk 'test' should return to zero state and the zero state default
   // desk button should show current desk's name, which is 'Desk 1'.
   CloseDeskFromMiniView(desks_bar_view->mini_views()[0], event_generator);
+
+  if (GetParam().enable_jellyroll) {
+    // Once we leave zero state, we can't go back without exiting overview.
+    ExitOverview();
+    EnterOverview();
+    desks_bar_view = GetOverviewGridForRoot(root_window)->desks_bar_view();
+  }
   EXPECT_TRUE(desks_bar_view->IsZeroState());
-  EXPECT_EQ(u"Desk 1",
-            desks_bar_view->zero_state_default_desk_button()->GetText());
+  EXPECT_EQ(u"Desk 1", GetDefaultDeskButton(desks_bar_view)->GetText());
 
   // Set a super long desk name.
-  ClickOnView(desks_bar_view->zero_state_default_desk_button(),
-              event_generator);
-  for (size_t i = 0; i < DesksTextfield::kMaxLength + 5; i++)
+  ClickOnView(GetDefaultDeskButton(desks_bar_view), event_generator);
+  for (size_t i = 0; i < DeskTextfield::kMaxLength + 5; i++) {
     SendKey(ui::VKEY_A);
+  }
   SendKey(ui::VKEY_RETURN);
   ExitOverview();
   EnterOverview();
 
   desks_bar_view = GetOverviewGridForRoot(root_window)->desks_bar_view();
-  auto* zero_state_default_desk_button =
-      desks_bar_view->zero_state_default_desk_button();
+  auto* zero_state_default_desk_button = GetDefaultDeskButton(desks_bar_view);
   std::u16string desk_button_text = zero_state_default_desk_button->GetText();
-  std::u16string expected_desk_name(DesksTextfield::kMaxLength, L'a');
+  std::u16string expected_desk_name(DeskTextfield::kMaxLength, L'a');
   // Zero state desk button should show the elided name as the DeskNameView.
   EXPECT_EQ(expected_desk_name,
             DesksController::Get()->desks()[0].get()->name());
@@ -5168,7 +6707,7 @@ TEST_F(DesksTest, ZeroStateDeskButtonText) {
                               base::CompareCase::SENSITIVE));
 }
 
-TEST_F(DesksTest, ReorderDesksByMouse) {
+TEST_P(DesksTest, ReorderDesksByMouse) {
   auto* desks_controller = DesksController::Get();
 
   EnterOverview();
@@ -5238,7 +6777,7 @@ TEST_F(DesksTest, ReorderDesksByMouse) {
   event_generator->ReleaseLeftButton();
 }
 
-TEST_F(DesksTest, ReorderDesksByGesture) {
+TEST_P(DesksTest, ReorderDesksByGesture) {
   auto* desks_controller = DesksController::Get();
 
   EnterOverview();
@@ -5279,6 +6818,13 @@ TEST_F(DesksTest, ReorderDesksByGesture) {
 
   event_generator->ReleaseTouch();
 
+  // The context menu appears on a long press on the desk preview. In order to
+  // drag the desk again, we first need to get rid of the context menu by
+  // tapping and waiting for the menu to disappear.
+  event_generator->GestureTapDownAndUp(
+      mini_view_1->desk_preview()->GetBoundsInScreen().CenterPoint());
+  base::RunLoop().RunUntilIdle();
+
   // Reorder the second desk
   LongTapOnDeskPreview(mini_view_1, event_generator);
   EXPECT_TRUE(desks_bar_view->IsDraggingDesk());
@@ -5286,6 +6832,11 @@ TEST_F(DesksTest, ReorderDesksByGesture) {
   // Swap the positions of the second desk and the third desk.
   gfx::Point desk_center_2 =
       mini_view_2->GetPreviewBoundsInScreen().CenterPoint();
+
+  // We need to drag the mouse a bit after long-tapping the desk preview to
+  // start the closing of the context menu before rearranging the desk.
+  event_generator->MoveTouchBy(10, 0);
+
   event_generator->MoveTouch(desk_center_2);
 
   // Now, the desks order should be [0, 2, 1]:
@@ -5308,7 +6859,7 @@ TEST_F(DesksTest, ReorderDesksByGesture) {
   event_generator->ReleaseTouch();
 }
 
-TEST_F(DesksTest, ReorderDesksByKeyboard) {
+TEST_P(DesksTest, ReorderDesksByKeyboard) {
   auto* desks_controller = DesksController::Get();
 
   auto* overview_controller = Shell::Get()->overview_controller();
@@ -5348,7 +6899,7 @@ TEST_F(DesksTest, ReorderDesksByKeyboard) {
   // Highlight the second desk.
   overview_controller->overview_session()
       ->highlight_controller()
-      ->MoveHighlightToView(mini_view_1);
+      ->MoveHighlightToView(mini_view_1->desk_preview());
 
   // Swap the positions of the second desk and the third desk by pressing Ctrl +
   // ->.
@@ -5390,7 +6941,7 @@ TEST_F(DesksTest, ReorderDesksByKeyboard) {
 }
 
 // Test reordering desks in RTL mode.
-TEST_F(DesksTest, ReorderDesksInRTLMode) {
+TEST_P(DesksTest, ReorderDesksInRTLMode) {
   // Turn on RTL mode.
   const bool default_rtl = base::i18n::IsRTL();
   base::i18n::SetRTLForTesting(true);
@@ -5452,6 +7003,11 @@ TEST_F(DesksTest, ReorderDesksInRTLMode) {
 
   gfx::Point desk_center_0 =
       mini_view_0->GetPreviewBoundsInScreen().CenterPoint();
+
+  // We need to drag the mouse a bit after long-tapping the desk preview to
+  // start the closing of the context menu before rearranging the desk.
+  event_generator->MoveTouchBy(-10, 0);
+
   event_generator->MoveTouch(desk_center_0);
 
   // Now, the desks order should be [1, 0, 2]:
@@ -5465,10 +7021,10 @@ TEST_F(DesksTest, ReorderDesksInRTLMode) {
   // Highlight the |desk_0|.
   overview_controller->overview_session()
       ->highlight_controller()
-      ->MoveHighlightToView(mini_view_0);
+      ->MoveHighlightToView(mini_view_0->desk_preview());
 
-  // Swap the positions of the |desk_0| and the |desk_2| by pressing Ctrl + <-.
-  event_generator->PressKey(ui::VKEY_LEFT, ui::EF_CONTROL_DOWN);
+  // Swap the positions of the |desk_0| and the |desk_2| by pressing Ctrl + ->.
+  event_generator->PressKey(ui::VKEY_RIGHT, ui::EF_CONTROL_DOWN);
 
   // Now, the desks order should be [1, 2, 0]:
   EXPECT_EQ(0, desks_controller->GetDeskIndex(desk_1));
@@ -5480,13 +7036,14 @@ TEST_F(DesksTest, ReorderDesksInRTLMode) {
   base::i18n::SetRTLForTesting(default_rtl);
 }
 
-// Tests the behavior when drag a desk on the scroll button.
-TEST_F(DesksTest, ScrollBarByDraggedDesk) {
+// Tests the behavior when dragging a desk on the scroll button.
+TEST_P(DesksTest, ScrollBarByDraggedDesk) {
   // Make a flat long window to generate multiple pages on desks bar.
   UpdateDisplay("800x150");
-  const size_t max_desks_size = desks_util::kMaxNumberOfDesks;
-  for (size_t i = 1; i < max_desks_size; i++)
+  const size_t max_desks_size = desks_util::GetMaxNumberOfDesks();
+  for (size_t i = 1; i < max_desks_size; i++) {
     NewDesk();
+  }
 
   auto* desks_controller = DesksController::Get();
   EXPECT_EQ(desks_controller->desks().size(), max_desks_size);
@@ -5495,7 +7052,8 @@ TEST_F(DesksTest, ScrollBarByDraggedDesk) {
   auto* desks_bar =
       GetOverviewGridForRoot(Shell::GetPrimaryRootWindow())->desks_bar_view();
 
-  views::ScrollView* scroll_view = DesksTestApi::GetDesksBarScrollView();
+  views::ScrollView* scroll_view =
+      DesksTestApi::GetDeskBarScrollView(DeskBarViewBase::Type::kOverview);
   const int page_size = scroll_view->width();
   auto mini_views = desks_bar->mini_views();
   const int mini_view_width = mini_views[0]->bounds().width();
@@ -5506,9 +7064,10 @@ TEST_F(DesksTest, ScrollBarByDraggedDesk) {
     desks_in_one_page++;
 
   int current_index = 0;
-  ScrollArrowButton* left_button = DesksTestApi::GetDesksBarLeftScrollButton();
-  ScrollArrowButton* right_button =
-      DesksTestApi::GetDesksBarRightScrollButton();
+  ScrollArrowButton* left_button = DesksTestApi::GetDeskBarLeftScrollButton(
+      DeskBarViewBase::Type::kOverview);
+  ScrollArrowButton* right_button = DesksTestApi::GetDeskBarRightScrollButton(
+      DeskBarViewBase::Type::kOverview);
 
   // At first, left scroll button is hidden and right scroll button is visible.
   EXPECT_FALSE(left_button->GetVisible());
@@ -5521,11 +7080,13 @@ TEST_F(DesksTest, ScrollBarByDraggedDesk) {
   DeskMiniView* mini_view_0 = mini_views[0];
   Desk* desk_0 = mini_view_0->desk();
 
+  const int focus_ring_width_and_padding = 4;
+
   StartDragDeskPreview(mini_view_0, event_generator);
   EXPECT_TRUE(desks_bar->IsDraggingDesk());
   event_generator->MoveMouseTo(right_button->GetBoundsInScreen().CenterPoint());
   current_index += desks_in_one_page;
-  EXPECT_EQ(scroll_view->GetVisibleRect().x(),
+  EXPECT_EQ(scroll_view->GetVisibleRect().x() + focus_ring_width_and_padding,
             mini_views[current_index]->bounds().x());
 
   // Both scroll buttons should be visible.
@@ -5535,14 +7096,26 @@ TEST_F(DesksTest, ScrollBarByDraggedDesk) {
   // Wait for 1s, there will be another scroll.
   WaitForMilliseconds(1000);
   current_index += desks_in_one_page;
-  EXPECT_EQ(scroll_view->GetVisibleRect().x(),
-            mini_views[current_index]->bounds().x());
+
+  // When `Jellyroll` is enabled and the maximum number of desks is 8, the new
+  // desk button is smaller, two scrolls will reach the end of the desks bar
+  // view, thus we verify the right of the visible scroll view.
+  if (chromeos::features::IsJellyrollEnabled() &&
+      !features::Is16DesksEnabled()) {
+    EXPECT_EQ(
+        scroll_view->GetVisibleRect().right() - focus_ring_width_and_padding,
+        GetExpandedStateNewDeskButton(desks_bar)->bounds().right());
+  } else {
+    EXPECT_EQ(scroll_view->GetVisibleRect().x() + focus_ring_width_and_padding,
+              mini_views[current_index]->bounds().x());
+  }
 
   // While scrolling, the desk cannot be reordered.
   EXPECT_EQ(0, desks_controller->GetDeskIndex(desk_0));
 
-  // Wait for 1s, it will scroll to the maximum offset. Scroll ends.
-  WaitForMilliseconds(1000);
+  // Wait longer, it will scroll to the maximum offset. When 16 desks are
+  // enabled, we need to allow more time for scrolling.
+  WaitForMilliseconds(GetParam().use_16_desks ? 4000 : 1000);
   EXPECT_EQ(scroll_view->GetVisibleRect().x(),
             scroll_view->contents()->width() - page_size);
 
@@ -5560,20 +7133,30 @@ TEST_F(DesksTest, ScrollBarByDraggedDesk) {
   EXPECT_EQ(max_index, desks_controller->GetDeskIndex(desk_0));
   event_generator->ReleaseLeftButton();
 
+  current_index = max_desks_size - 1;
+
   // Dragging the desk to left scroll button should scroll to the previous page.
   // And the final scroll position should also be adjusted while scrolling to
   // the previous page to make sure the desk preview will not be cropped.
   mini_views = desks_bar->mini_views();
   StartDragDeskPreview(mini_views[max_desks_size - 1], event_generator);
   event_generator->MoveMouseTo(left_button->GetBoundsInScreen().CenterPoint());
-  current_index -= desks_in_one_page;
-  EXPECT_EQ(scroll_view->GetVisibleRect().x(),
+  // When the feature flag `Jellyroll` is enabled, the new desk button and the
+  // library button become smaller, thus when scroll to the left from the right
+  // most, the index of desk mini view on the left is smaller than it when
+  // `Jellyroll` is not enabled.
+  if (chromeos::features::IsJellyrollEnabled()) {
+    current_index -= (desks_in_one_page + 1);
+  } else {
+    current_index -= desks_in_one_page;
+  }
+  EXPECT_EQ(scroll_view->GetVisibleRect().x() + focus_ring_width_and_padding,
             mini_views[current_index]->bounds().x());
 
   // Wait for 1s, there is another scroll.
   WaitForMilliseconds(1000);
   current_index -= desks_in_one_page;
-  EXPECT_EQ(scroll_view->GetVisibleRect().x(),
+  EXPECT_EQ(scroll_view->GetVisibleRect().x() + focus_ring_width_and_padding,
             mini_views[current_index]->bounds().x());
 
   // The desk is still not reordered while scrolling backward.
@@ -5581,6 +7164,11 @@ TEST_F(DesksTest, ScrollBarByDraggedDesk) {
 
   // Drop the desk. Desks bar will scroll to show the desk's target position.
   event_generator->ReleaseLeftButton();
+  // Wait 100 milliseconds for the animation of the scrollable bar to end.
+  // Otherwise, the test could be flaky, i.e, the visible bounds of the scroll
+  // bar is not updated yet if we get its bounds immediately after the desk is
+  // dropped.
+  WaitForMilliseconds(100);
   gfx::Rect bounds_0 = mini_view_0->bounds();
   gfx::Rect bounds_visible = scroll_view->GetVisibleRect();
   EXPECT_LE(bounds_visible.x(), bounds_0.x());
@@ -5590,7 +7178,7 @@ TEST_F(DesksTest, ScrollBarByDraggedDesk) {
 // Tests that while reordering desks by drag & drop, when a desk is snapping
 // back, click its target location won't cause any crashes.
 // Regression test of https://crbug.com/1171880.
-TEST_F(DesksTest, ClickTargetLocationOfDroppedDesk) {
+TEST_P(DesksTest, ClickTargetLocationOfDroppedDesk) {
   EnterOverview();
   ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
 
@@ -5623,7 +7211,7 @@ TEST_F(DesksTest, ClickTargetLocationOfDroppedDesk) {
 
 // Tests that while reordering desks by drag & drop, when a desk is snapping
 // back, dragging a desk preview on the shelf will start a new drag.
-TEST_F(DesksTest, DragNewDeskWhileSnappingBack) {
+TEST_P(DesksTest, DragNewDeskWhileSnappingBack) {
   EnterOverview();
   ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
 
@@ -5641,7 +7229,8 @@ TEST_F(DesksTest, DragNewDeskWhileSnappingBack) {
 
   // Drag the second desk away from the desk bar.
   StartDragDeskPreview(mini_view_2, event_generator);
-  EXPECT_EQ(DesksTestApi::GetDesksBarDragView(), mini_view_2);
+  EXPECT_EQ(DesksTestApi::GetDeskBarDragView(DeskBarViewBase::Type::kOverview),
+            mini_view_2);
 
   event_generator->MoveMouseBy(0, desks_bar_view->height());
 
@@ -5650,16 +7239,18 @@ TEST_F(DesksTest, DragNewDeskWhileSnappingBack) {
 
   // Drop the desk and drag first desk.
   event_generator->ReleaseLeftButton();
-  EXPECT_EQ(DesksTestApi::GetDesksBarDragView(), mini_view_2);
+  EXPECT_EQ(DesksTestApi::GetDeskBarDragView(DeskBarViewBase::Type::kOverview),
+            mini_view_2);
   StartDragDeskPreview(mini_view_1, event_generator);
-  EXPECT_EQ(DesksTestApi::GetDesksBarDragView(), mini_view_1);
+  EXPECT_EQ(DesksTestApi::GetDeskBarDragView(DeskBarViewBase::Type::kOverview),
+            mini_view_1);
 }
 
 // Tests that dragging desk is ended in two cases: (1) removing a dragged desk.
 // (2) removing a desk makes the dragged desk the only one left. Then, releasing
 // mouse or exiting overview will not have UAF issues
 // (https://crbug.com/1222120).
-TEST_F(DesksTest, RemoveDeskWhileDragging) {
+TEST_P(DesksTest, RemoveDeskWhileDragging) {
   EnterOverview();
   EXPECT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
 
@@ -5696,17 +7287,23 @@ TEST_F(DesksTest, RemoveDeskWhileDragging) {
   StartDragDeskPreview(mini_view_1, event_generator);
   EXPECT_TRUE(desks_bar_view->IsDraggingDesk());
 
-  // Removing the third desk will end dragging (the dragged desk is the only one
-  // left).
   RemoveDesk(mini_view_2->desk());
-  EXPECT_FALSE(desks_bar_view->IsDraggingDesk());
+  if (GetParam().enable_jellyroll) {
+    // When the feature Jellyroll is enabled, removing the third desk won't end
+    // dragging, since the desks bar doesn't switch to zero state.
+    EXPECT_TRUE(desks_bar_view->IsDraggingDesk());
+  } else {
+    // Removing the third desk will end dragging (the dragged desk is the only
+    // one left), desks bar will switch to the zero state.
+    EXPECT_FALSE(desks_bar_view->IsDraggingDesk());
+  }
 
   // Exiting overview will not have any issue.
   ExitOverview();
 }
 
 // Regression test for the asan failure at https://crbug.com/1274641.
-TEST_F(DesksTest, DragMiniViewWhileRemoving) {
+TEST_P(DesksTest, DragMiniViewWhileRemoving) {
   NewDesk();
   NewDesk();
 
@@ -5743,7 +7340,7 @@ TEST_F(DesksTest, DragMiniViewWhileRemoving) {
 
 // Tests that the right desk containers are visible when switching between desks
 // really fast. Regression test for https://crbug.com/1194757.
-TEST_F(DesksTest, FastDeskSwitches) {
+TEST_P(DesksTest, FastDeskSwitches) {
   // Add 3 more desks and add a couple windows on each one.
   CreateTestWindow();
   CreateTestWindow();
@@ -5785,7 +7382,7 @@ TEST_F(DesksTest, FastDeskSwitches) {
   // visible, but they should all be opaque.
   std::vector<aura::Window*> desk_containers =
       desks_util::GetDesksContainers(Shell::GetPrimaryRootWindow());
-  ASSERT_EQ(8u, desk_containers.size());
+  ASSERT_EQ(desks_util::GetMaxNumberOfDesks(), desk_containers.size());
   EXPECT_TRUE(desk_containers[0]->IsVisible());
   EXPECT_EQ(1.f, desk_containers[0]->layer()->opacity());
 
@@ -5798,7 +7395,7 @@ TEST_F(DesksTest, FastDeskSwitches) {
 
 // Tests that when the user is in tablet mode, the virtual keyboard is opened
 // during name nudges.
-TEST_F(DesksTest, NameNudgesTabletMode) {
+TEST_P(DesksTest, NameNudgesTabletMode) {
   TabletModeControllerTestApi().EnterTabletMode();
 
   // Tablet mode requires at least two desks so create one.
@@ -5811,7 +7408,7 @@ TEST_F(DesksTest, NameNudgesTabletMode) {
 
   // Setup an internal keyboard and an external keyboard.
   ui::DeviceDataManagerTestApi().SetKeyboardDevices(
-      std::vector<ui::InputDevice>{
+      std::vector<ui::KeyboardDevice>{
           {1, ui::INPUT_DEVICE_INTERNAL, "internal keyboard"},
           {2, ui::INPUT_DEVICE_USB, "external keyboard"}});
   auto* device_data_manager = ui::DeviceDataManager::GetInstance();
@@ -5824,7 +7421,7 @@ TEST_F(DesksTest, NameNudgesTabletMode) {
   auto* event_generator = GetEventGenerator();
   const auto* desks_bar_view =
       GetOverviewGridForRoot(Shell::GetPrimaryRootWindow())->desks_bar_view();
-  GestureTapOnView(desks_bar_view->expanded_state_new_desk_button(),
+  GestureTapOnView(GetExpandedStateNewDeskButton(desks_bar_view),
                    event_generator);
   EXPECT_FALSE(keyboard::KeyboardUIController::Get()->IsKeyboardVisible());
   EXPECT_EQ(3u, desks_bar_view->mini_views().size());
@@ -5834,7 +7431,7 @@ TEST_F(DesksTest, NameNudgesTabletMode) {
 
   // Reset the devices and make it so there's only an internal keyboard.
   ui::DeviceDataManagerTestApi().SetKeyboardDevices(
-      std::vector<ui::InputDevice>{
+      std::vector<ui::KeyboardDevice>{
           {1, ui::INPUT_DEVICE_INTERNAL, "internal keyboard"},
       });
   keyboard_devices = device_data_manager->GetKeyboardDevices();
@@ -5843,7 +7440,7 @@ TEST_F(DesksTest, NameNudgesTabletMode) {
   // Tap the new desk button again. There should be a new DeskNameView that is
   // created and the virtual keyboard should be shown.
   ui::DeviceDataManagerTestApi().SetKeyboardDevices({});
-  GestureTapOnView(desks_bar_view->expanded_state_new_desk_button(),
+  GestureTapOnView(GetExpandedStateNewDeskButton(desks_bar_view),
                    event_generator);
   ASSERT_TRUE(keyboard::WaitUntilShown());
   EXPECT_TRUE(keyboard::KeyboardUIController::Get()->IsKeyboardVisible());
@@ -5853,65 +7450,80 @@ TEST_F(DesksTest, NameNudgesTabletMode) {
   EXPECT_EQ(std::u16string(), desk_name_view->GetText());
 }
 
-// Tests the time period to set perf `kUserHasUsedDesksRecently`.
-TEST_F(DesksTest, PrimaryUserHasUsedDesksRecently) {
-  base::SimpleTestClock test_clock;
-  base::Time time;
-  auto* desks_controller = DesksController::Get();
-  // `kUserHasUsedDesksRecently` should not be set before 07/27/2021.
-  ASSERT_TRUE(base::Time::FromString("Mon, 26 Jul 2021 23:59:59", &time));
-  test_clock.SetNow(time);
-  desks_restore_util::OverrideClockForTesting(&test_clock);
+// Tests that metrics are being recorded when a desk is renamed, when new desks
+// are added, and when a desk is being removed.
+TEST_P(DesksTest, TestCustomDeskNameMetricsRecording) {
+  // Actions that should cause the histogram to update.
+  enum class UpdateSource {
+    kDeskRenamed,
+    kDeskAdded,
+    kDeskRemoved,
+  };
+
+  struct {
+    const std::string scope_trace;
+    const UpdateSource update_source;
+    const int expected_number_of_custom_desks;
+    const int expected_percentage_of_custom_desks;
+    const int expected_custom_name_change_true_hits;
+    const int expected_custom_name_change_false_hits;
+  } kTestCases[] = {
+      {"Rename a desk", UpdateSource::kDeskRenamed, 1, 50, 1, 1},
+      {"Add a desk", UpdateSource::kDeskAdded, 1, 33, 1, 2},
+      {"Remove a desk", UpdateSource::kDeskRemoved, 1, 50, 1, 2},
+  };
+
+  base::HistogramTester histogram_tester;
+
+  // Create a new desk. At this point we should have had one update for the new
+  // desk addition because adding a new desk requires confirming the new desk's
+  // name.
   NewDesk();
-  RemoveDesk(desks_controller->desks().back().get());
-  EXPECT_FALSE(desks_restore_util::HasPrimaryUserUsedDesksRecently());
+  int number_of_updates = 1;
+  histogram_tester.ExpectTotalCount(kNumberOfCustomNamesHistogramName,
+                                    number_of_updates);
+  histogram_tester.ExpectTotalCount(kPercentageOfCustomNamesHistogramName,
+                                    number_of_updates);
+  histogram_tester.ExpectTotalCount(kCustomNameCreatedHistogramName,
+                                    number_of_updates);
+  const auto& desks = DesksController::Get()->desks();
 
-  // `kUserHasUsedDesksRecently` should not be set in 09/07/2021 and after.
-  ASSERT_TRUE(base::Time::FromString("Tue, 7 Sep 2021 00:00:01", &time));
-  test_clock.SetNow(time);
+  for (const auto& test_case : kTestCases) {
+    SCOPED_TRACE(test_case.scope_trace);
 
-  NewDesk();
-  RemoveDesk(desks_controller->desks().back().get());
-  EXPECT_FALSE(desks_restore_util::HasPrimaryUserUsedDesksRecently());
+    switch (test_case.update_source) {
+      case UpdateSource::kDeskRenamed:
+        desks[0]->SetName(u"Hello", /*set_by_user=*/true);
+        break;
+      case UpdateSource::kDeskAdded:
+        NewDesk();
+        break;
+      case UpdateSource::kDeskRemoved:
+        RemoveDesk(desks.back().get());
+        break;
+    }
 
-  // `kUserHasUsedDesksRecently` should be set during [07/27/2021, 09/07/2021).
-  ASSERT_TRUE(base::Time::FromString("Tue, 27 Jul 2021 00:00:01", &time));
-  test_clock.SetNow(time);
+    ++number_of_updates;
+    histogram_tester.ExpectTotalCount(kNumberOfCustomNamesHistogramName,
+                                      number_of_updates);
+    histogram_tester.ExpectTotalCount(kPercentageOfCustomNamesHistogramName,
+                                      number_of_updates);
 
-  NewDesk();
-  RemoveDesk(desks_controller->desks().back().get());
-  EXPECT_TRUE(desks_restore_util::HasPrimaryUserUsedDesksRecently());
-
-  // `kUserHasUsedDesksRecently` should be kept as true after setting.
-  test_clock.Advance(base::Days(50));
-  EXPECT_TRUE(desks_restore_util::HasPrimaryUserUsedDesksRecently());
-  desks_restore_util::OverrideClockForTesting(nullptr);
-}
-
-// Tests the visibility of the vertical dots button inside desks bar.
-TEST_F(DesksTest, VerticalDotsButtonVisibility) {
-  // Enable the bento bar feature through FeatureList instead of command line.
-  base::test::ScopedFeatureList scoped_feature_list;
-  auto feature_list = std::make_unique<base::FeatureList>();
-  feature_list->RegisterFieldTrialOverride(
-      features::kBentoBar.name, base::FeatureList::OVERRIDE_ENABLE_FEATURE,
-      base::FieldTrialList::CreateFieldTrial("FooTrial", "Group1"));
-  scoped_feature_list.InitWithFeatureList(std::move(feature_list));
-  ASSERT_FALSE(desks_restore_util::HasPrimaryUserUsedDesksRecently());
-  EXPECT_TRUE(features::IsBentoBarEnabled());
-
-  // Vertical dots button should not be shown even though bento bar is enabled
-  // but HasPrimaryUserUsedDesksRecently is false.
-  NewDesk();
-  EnterOverview();
-  EXPECT_FALSE(DesksTestApi::HasVerticalDotsButton());
-
-  // Vertical dots button should be shown if bento bar is enabled and
-  // HasPrimaryUserUsedDesksRecently is true.
-  ExitOverview();
-  desks_restore_util::SetPrimaryUserHasUsedDesksRecentlyForTesting(true);
-  EnterOverview();
-  EXPECT_TRUE(DesksTestApi::HasVerticalDotsButton());
+    // There should be at least one recording of the expected custom desk count
+    // and percentage.
+    EXPECT_NE(0, histogram_tester.GetBucketCount(
+                     kNumberOfCustomNamesHistogramName,
+                     test_case.expected_number_of_custom_desks));
+    EXPECT_NE(0, histogram_tester.GetBucketCount(
+                     kPercentageOfCustomNamesHistogramName,
+                     test_case.expected_percentage_of_custom_desks));
+    EXPECT_EQ(
+        test_case.expected_custom_name_change_true_hits,
+        histogram_tester.GetBucketCount(kCustomNameCreatedHistogramName, true));
+    EXPECT_EQ(test_case.expected_custom_name_change_false_hits,
+              histogram_tester.GetBucketCount(kCustomNameCreatedHistogramName,
+                                              false));
+  }
 }
 
 // A test class that uses a mock time test environment.
@@ -5933,7 +7545,7 @@ class DesksMockTimeTest : public DesksTest {
 };
 
 // Tests that the weekly active desks metric is properly recorded.
-TEST_F(DesksMockTimeTest, WeeklyActiveDesks) {
+TEST_P(DesksMockTimeTest, WeeklyActiveDesks) {
   constexpr char kWeeklyActiveDesksHistogram[] = "Ash.Desks.WeeklyActiveDesks";
   base::HistogramTester histogram_tester;
 
@@ -6025,851 +7637,1538 @@ TEST_F(DesksMockTimeTest, WeeklyActiveDesks) {
                                      number_of_one_bucket_entries + 1);
 }
 
-class PersistentDesksBarTest : public DesksTest {
+// A class that maintains a window created inside of a test. If the window is
+// destroyed from outside of the class, it releases the window's unique pointer
+// to prevent use-after-free issues.
+class WindowHolder : public aura::WindowObserver {
  public:
-  void SetUp() override {
-    scoped_feature_list_.InitAndEnableFeature(features::kBentoBar);
-    DesksTest::SetUp();
-
-    desks_restore_util::SetPrimaryUserHasUsedDesksRecentlyForTesting(true);
-    ASSERT_TRUE(desks_restore_util::HasPrimaryUserUsedDesksRecently());
-  }
-  PersistentDesksBarTest() = default;
-  PersistentDesksBarTest(const PersistentDesksBarTest&) = delete;
-  PersistentDesksBarTest& operator=(const PersistentDesksBarTest&) = delete;
-  ~PersistentDesksBarTest() override = default;
-
-  const views::Widget* GetBarWidget() const {
-    return Shell::Get()
-        ->persistent_desks_bar_controller()
-        ->persistent_desks_bar_widget();
+  explicit WindowHolder(std::unique_ptr<aura::Window> window)
+      : window_(std::move(window)) {
+    DCHECK(window_);
+    window_->AddObserver(this);
   }
 
-  bool IsWidgetVisible() const {
-    auto* bar_widget = GetBarWidget();
-    DCHECK(bar_widget);
-    return bar_widget->GetLayer()->GetTargetVisibility();
+  WindowHolder(const WindowHolder&) = delete;
+  WindowHolder& operator=(const WindowHolder&) = delete;
+
+  ~WindowHolder() override {
+    if (window_)
+      window_->RemoveObserver(this);
+    // `window_` is destroyed automatically here through the unique pointer.
+  }
+
+  aura::Window* window() { return window_.get(); }
+
+  bool is_valid() const { return !!window_; }
+
+  // aura::WindowObserver:
+  void OnWindowDestroying(aura::Window* window) override {
+    // The window was destroyed from outside of this WindowHolder (such as
+    // through the `Desk::CloseAllAppWindows` function). In this case, we do not
+    // want the unique pointer `window_` to try to destroy the already-destroyed
+    // window, so we need to remove this observer and release the unique
+    // pointer.
+    DCHECK_EQ(window, window_.get());
+    window_->RemoveObserver(this);
+    window_.release();
   }
 
  private:
-  base::test::ScopedFeatureList scoped_feature_list_;
+  std::unique_ptr<aura::Window> window_;
 };
 
-// Tests that the bar will only be created and shown when there are more than
-// one desk.
-TEST_F(PersistentDesksBarTest, MoreThanOneDesk) {
-  auto* shell = Shell::Get();
-  ASSERT_FALSE(shell->tablet_mode_controller()->InTabletMode());
-  auto* desks_controller = DesksController::Get();
-  ASSERT_EQ(1u, desks_controller->desks().size());
-  auto* bar_controller = shell->persistent_desks_bar_controller();
-  ASSERT_TRUE(bar_controller);
-
-  // The bar should not be created if there is only one desk.
-  EXPECT_FALSE(GetBarWidget());
-
-  // Create a new desk should cause the bar to be created and shown.
-  NewDesk();
-  EXPECT_EQ(2u, desks_controller->desks().size());
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_TRUE(IsWidgetVisible());
-
-  // The bar should be destroyed after removed a desk and then there is only one
-  // desk left.
-  RemoveDesk(desks_controller->desks()[1].get());
-  EXPECT_EQ(1u, desks_controller->desks().size());
-  EXPECT_FALSE(GetBarWidget());
-}
-
-// Tests that the bar will only be created and shown in clamshell mode.
-TEST_F(PersistentDesksBarTest, ClamshellOnly) {
-  auto* shell = Shell::Get();
-  TabletModeControllerTestApi().EnterTabletMode();
-  ASSERT_TRUE(shell->tablet_mode_controller()->InTabletMode());
-  auto* desks_controller = DesksController::Get();
-  ASSERT_EQ(1u, desks_controller->desks().size());
-  auto* bar_controller = shell->persistent_desks_bar_controller();
-  ASSERT_TRUE(bar_controller);
-
-  // Create or remove a desk in tablet mode should not create the bar or cause
-  // any crash.
-  EXPECT_FALSE(GetBarWidget());
-  NewDesk();
-  EXPECT_EQ(2u, desks_controller->desks().size());
-  EXPECT_FALSE(GetBarWidget());
-  RemoveDesk(desks_controller->desks()[0].get());
-  EXPECT_FALSE(GetBarWidget());
-  NewDesk();
-
-  // Leaving tablet mode to clamshell mode with more than one desk should create
-  // and show the bar.
-  TabletModeControllerTestApi().LeaveTabletMode();
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_TRUE(IsWidgetVisible());
-
-  // The bar should be destroyed if tablet mode is entered.
-  TabletModeControllerTestApi().EnterTabletMode();
-  EXPECT_TRUE(shell->tablet_mode_controller()->InTabletMode());
-  EXPECT_FALSE(GetBarWidget());
-}
-
-// Tests the bar's visibility while entering or leaving overview mode.
-TEST_F(PersistentDesksBarTest, OverviewMode) {
-  auto* desks_controller = DesksController::Get();
-  ASSERT_EQ(1u, desks_controller->desks().size());
-
-  NewDesk();
-  EXPECT_TRUE(GetBarWidget());
-  // Create a window thus `UpdateBarOnWindowStateChanges()` will be called while
-  // entering overview mode. Bento bar should not be created and the desks bar
-  // should be at the top of the display in this case.
-  std::unique_ptr<aura::Window> window =
-      CreateTestWindow(gfx::Rect(0, 0, 300, 300));
-  WindowState* window_state = WindowState::Get(window.get());
-  window_state->Minimize();
-
-  // Entering overview mode should destroy the bar. Exiting overview mode with
-  // more than one desk should create the bar and show it.
-  EnterOverview();
-  EXPECT_EQ(GetOverviewGridForRoot(Shell::GetPrimaryRootWindow())
-                ->desks_bar_view()
-                ->GetBoundsInScreen()
-                .origin(),
-            gfx::Point(0, 0));
-  EXPECT_FALSE(GetBarWidget());
-  EXPECT_EQ(2u, desks_controller->desks().size());
-  ExitOverview();
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_TRUE(IsWidgetVisible());
-
-  // Exiting overview mode with only one desk should not create the bar.
-  EnterOverview();
-  EXPECT_FALSE(GetBarWidget());
-  RemoveDesk(desks_controller->desks()[1].get());
-  EXPECT_EQ(1u, desks_controller->desks().size());
-  ExitOverview();
-  EXPECT_FALSE(GetBarWidget());
-
-  // Each desk button in the bar should show the corresponding desk's name.
-  EnterOverview();
-  NewDesk();
-  EXPECT_EQ(2u, desks_controller->desks().size());
-  desks_controller->desks()[1].get()->SetName(u"test", /*set_by_user=*/true);
-  ExitOverview();
-  auto desk_buttons = DesksTestApi::GetPersistentDesksBarDeskButtons();
-  for (size_t i = 0; i < desk_buttons.size(); i++)
-    EXPECT_EQ(desk_buttons[i]->GetText(), desks_controller->desks()[i]->name());
-
-  // The desk buttons should have the same order as the desks after reordering.
-  auto* event_generator = GetEventGenerator();
-  EnterOverview();
-  EXPECT_EQ(u"test", desks_controller->desks()[1]->name());
-  const auto* desks_bar_view =
-      GetOverviewGridForRoot(Shell::GetPrimaryRootWindow())->desks_bar_view();
-  StartDragDeskPreview(desks_bar_view->mini_views()[1], event_generator);
-  event_generator->MoveMouseTo(desks_bar_view->mini_views()[0]
-                                   ->GetPreviewBoundsInScreen()
-                                   .CenterPoint());
-  event_generator->ReleaseLeftButton();
-  EXPECT_EQ(u"test", desks_controller->desks()[0]->name());
-  ExitOverview();
-  desk_buttons = DesksTestApi::GetPersistentDesksBarDeskButtons();
-  for (size_t i = 0; i < desk_buttons.size(); i++)
-    EXPECT_EQ(desk_buttons[i]->GetText(), desks_controller->desks()[i]->name());
-}
-
-// Tests the desk activation changes after clicking the desk button in the bar.
-TEST_F(PersistentDesksBarTest, DeskActivation) {
-  NewDesk();
-  auto* desks_controller = DesksController::Get();
-  EXPECT_EQ(2u, desks_controller->desks().size());
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_EQ(desks_controller->desks()[0].get(),
-            desks_controller->active_desk());
-
-  // Should activate `Desk 2` after clicking the corresponding desk button.
-  DeskSwitchAnimationWaiter waiter;
-  ClickOnView(DesksTestApi::GetPersistentDesksBarDeskButtons()[1],
-              GetEventGenerator());
-  waiter.Wait();
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_EQ(desks_controller->desks()[1].get(),
-            desks_controller->active_desk());
-}
-
-TEST_F(PersistentDesksBarTest, LeavingOrEnteringTabletModeWithOverviewModeOn) {
-  NewDesk();
-  EXPECT_EQ(2u, DesksController::Get()->desks().size());
-  EXPECT_TRUE(GetBarWidget());
-
-  // The bar should not be created after entering or leaving tablet mode with
-  // overview mode on.
-  auto* overview_controller = Shell::Get()->overview_controller();
-  EnterOverview();
-  TabletModeControllerTestApi().EnterTabletMode();
-  EXPECT_TRUE(overview_controller->InOverviewSession());
-  EXPECT_FALSE(GetBarWidget());
-  TabletModeControllerTestApi().LeaveTabletMode();
-  EXPECT_TRUE(overview_controller->InOverviewSession());
-  EXPECT_FALSE(GetBarWidget());
-}
-
-// Tests that the bar can be shown or hidden correctly through the context menu
-// of the bar.
-TEST_F(PersistentDesksBarTest, ShowOrHideBarThroughContextMenu) {
-  NewDesk();
-  EXPECT_EQ(2u, DesksController::Get()->desks().size());
-  EXPECT_TRUE(GetBarWidget());
-
-  // The bar should be destroyed after it is set to hide.
-  PersistentDesksBarContextMenu* context_menu =
-      DesksTestApi::GetPersistentDesksBarContextMenu();
-  context_menu->ExecuteCommand(
-      static_cast<int>(
-          PersistentDesksBarContextMenu::CommandId::kShowOrHideBar),
-      /*event_flags=*/0);
-  EXPECT_FALSE(GetBarWidget());
-
-  // With the bar being set to hide, it should not be created after exiting
-  // overview mode with more than one desk.
-  EnterOverview();
-  ExitOverview();
-  EXPECT_FALSE(GetBarWidget());
-
-  // With the bar being set to show, it should be created after exiting overview
-  // mode with more than one desk.
-  EnterOverview();
-  context_menu = DesksTestApi::GetDesksBarContextMenu();
-  context_menu->ExecuteCommand(
-      static_cast<int>(
-          PersistentDesksBarContextMenu::CommandId::kShowOrHideBar),
-      /*event_flags=*/0);
-  ExitOverview();
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_TRUE(IsWidgetVisible());
-}
-
-// Tests that the bar will only be created and shown when the shelf is
-// bottom-aligned.
-TEST_F(PersistentDesksBarTest, BentoBarWithShelfAlignment) {
-  Shelf* shelf = Shelf::ForWindow(Shell::GetPrimaryRootWindow());
-
-  // Create a new desk should cause the bar to be created and shown.
-  NewDesk();
-  EXPECT_EQ(2u, DesksController::Get()->desks().size());
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_TRUE(IsWidgetVisible());
-
-  // The bar should be created when the shelf is bottom aligned.
-  EXPECT_TRUE(shelf->alignment() == ShelfAlignment::kBottom);
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_TRUE(IsWidgetVisible());
-
-  // The bar should be destroyed when the shelf is left aligned.
-  shelf->SetAlignment(ShelfAlignment::kLeft);
-  EXPECT_TRUE(shelf->alignment() == ShelfAlignment::kLeft);
-  EXPECT_FALSE(GetBarWidget());
-
-  // The bar should be destroyed when the shelf is right aligned.
-  shelf->SetAlignment(ShelfAlignment::kRight);
-  EXPECT_TRUE(shelf->alignment() == ShelfAlignment::kRight);
-  EXPECT_FALSE(GetBarWidget());
-
-  // The bar should be re-created when the shelf is bottom aligned.
-  shelf->SetAlignment(ShelfAlignment::kBottom);
-  EXPECT_TRUE(shelf->alignment() == ShelfAlignment::kBottom);
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_TRUE(IsWidgetVisible());
-}
-
-// Tests that the bar will only be created when the app list is not in
-// fullscreen mode. This test can be deleted when ProductivityLauncher is the
-// default.
-TEST_F(PersistentDesksBarTest, AppListFullscreen) {
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndDisableFeature(features::kProductivityLauncher);
-
-  AppListControllerImpl* app_list_controller =
-      Shell::Get()->app_list_controller();
-  AppListView* app_list_view =
-      app_list_controller->fullscreen_presenter()->GetView();
-
-  // The bar should be created when the app list view remains null.
-  NewDesk();
-  EXPECT_EQ(2u, DesksController::Get()->desks().size());
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_TRUE(IsWidgetVisible());
-
-  // The bar should be created when the app list view is created and
-  // showing in kPeeking mode.
-  app_list_controller->ShowAppList();
-  app_list_view = app_list_controller->fullscreen_presenter()->GetView();
-  ASSERT_TRUE(app_list_view);
-  EXPECT_TRUE(app_list_view->app_list_state() == AppListViewState::kPeeking);
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_TRUE(IsWidgetVisible());
-
-  // The bar should be created when the app list is in kHalf mode.
-  app_list_view->SetState(AppListViewState::kHalf);
-  EXPECT_TRUE(app_list_view->app_list_state() == AppListViewState::kHalf);
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_TRUE(IsWidgetVisible());
-
-  // The bar should be destroyed when the app list is in kFullscreenSearch mode.
-  app_list_view->SetState(AppListViewState::kFullscreenSearch);
-  EXPECT_TRUE(app_list_view->app_list_state() ==
-              AppListViewState::kFullscreenSearch);
-  EXPECT_FALSE(GetBarWidget());
-
-  // The bar should be destroyed when the app list is in kFullscreenAllApps
-  // mode.
-  app_list_view->SetState(AppListViewState::kFullscreenAllApps);
-  EXPECT_TRUE(app_list_view->app_list_state() ==
-              AppListViewState::kFullscreenAllApps);
-  EXPECT_FALSE(GetBarWidget());
-
-  // The bar should be created when the app list is dismissed.
-  app_list_controller->DismissAppList();
-  EXPECT_TRUE(app_list_view->app_list_state() == AppListViewState::kClosed);
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_TRUE(IsWidgetVisible());
-}
-
-// Tests that the bar is not affected by ProductivityLauncher.
-TEST_F(PersistentDesksBarTest, ProductivityLauncher) {
-  base::test::ScopedFeatureList feature_list;
-  feature_list.InitAndEnableFeature(features::kProductivityLauncher);
-
-  AppListControllerImpl* app_list_controller =
-      Shell::Get()->app_list_controller();
-
-  // The bar should be created when the app list is closed.
-  NewDesk();
-  EXPECT_EQ(2u, DesksController::Get()->desks().size());
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_TRUE(IsWidgetVisible());
-
-  // The bar should still exist when the app list is opened.
-  app_list_controller->ShowAppList();
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_TRUE(IsWidgetVisible());
-
-  // The bar should still exist when the app list is closed again.
-  app_list_controller->DismissAppList();
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_TRUE(IsWidgetVisible());
-}
-
-// Tests that the bar will not be created if Docked Magnifier is on.
-TEST_F(PersistentDesksBarTest, NoPersistentDesksBarWithDockedMagnifierOn) {
-  AccessibilityControllerImpl* accessibility_controller =
-      Shell::Get()->accessibility_controller();
-
-  // Create a new desk should cause the bar to be created and shown.
-  NewDesk();
-  EXPECT_EQ(2u, DesksController::Get()->desks().size());
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_TRUE(IsWidgetVisible());
-
-  // Use the bounds at this point as reference for comparison later.
-  gfx::Rect bounds = GetBarWidget()->GetWindowBoundsInScreen();
-
-  // The bar should be destroyed when the Docked Magnifier is on.
-  accessibility_controller->docked_magnifier().SetEnabled(true);
-  EXPECT_TRUE(accessibility_controller->docked_magnifier().enabled());
-  EXPECT_FALSE(GetBarWidget());
-
-  // The bar should be created when the Docked Magnifier is off.
-  accessibility_controller->docked_magnifier().SetEnabled(false);
-  EXPECT_FALSE(accessibility_controller->docked_magnifier().enabled());
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_TRUE(IsWidgetVisible());
-
-  // The bounds should be the same with its original value.
-  EXPECT_EQ(bounds, GetBarWidget()->GetWindowBoundsInScreen());
-}
-
-// Tests that the bar will not be created if ChromeVox is on.
-TEST_F(PersistentDesksBarTest, NoPersistentDesksBarWithChromeVoxOn) {
-  AccessibilityControllerImpl* accessibility_controller =
-      Shell::Get()->accessibility_controller();
-
-  // Create a new desk should cause the bar to be created and shown.
-  NewDesk();
-  EXPECT_EQ(2u, DesksController::Get()->desks().size());
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_TRUE(IsWidgetVisible());
-
-  // Use the bounds at this point as reference for comparison later.
-  gfx::Rect bounds = GetBarWidget()->GetWindowBoundsInScreen();
-
-  // The bar should be destroyed when Chromevox is on.
-  accessibility_controller->spoken_feedback().SetEnabled(true);
-  EXPECT_TRUE(accessibility_controller->spoken_feedback().enabled());
-  EXPECT_FALSE(GetBarWidget());
-
-  // The bar should be created when Chromevox is off.
-  accessibility_controller->spoken_feedback().SetEnabled(false);
-  EXPECT_FALSE(accessibility_controller->spoken_feedback().enabled());
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_TRUE(IsWidgetVisible());
-
-  // The bounds should be the same with its original value.
-  EXPECT_EQ(bounds, GetBarWidget()->GetWindowBoundsInScreen());
-}
-
-// Tests that the bar will not be created if any window is fullscreened.
-TEST_F(PersistentDesksBarTest, NoPersistentDesksBarWithFullscreenedWindow) {
-  // Create a secondary display.
-  UpdateDisplay("400x300,500x400");
-  WMEvent event_toggle_fullscreen(WM_EVENT_TOGGLE_FULLSCREEN);
-  WMEvent event_fullscreen(WM_EVENT_FULLSCREEN);
-  std::unique_ptr<aura::Window> window1 =
-      CreateTestWindow(gfx::Rect(0, 0, 300, 300));
-  std::unique_ptr<aura::Window> window2 =
-      CreateTestWindow(gfx::Rect(0, 0, 300, 300));
-  WindowState* window_state1 = WindowState::Get(window1.get());
-  WindowState* window_state2 = WindowState::Get(window2.get());
-  NewDesk();
-  gfx::Rect bounds = GetBarWidget()->GetWindowBoundsInScreen();
-
-  // window1 and window2 should fall into the primary display.
-  EXPECT_EQ(window1->GetRootWindow(), Shell::GetPrimaryRootWindow());
-  EXPECT_EQ(window2->GetRootWindow(), Shell::GetPrimaryRootWindow());
-
-  // The bar should be destroyed after `window1` entering fullscreen mode and be
-  // recreated after 'window1' exiting fullscreen mode.
-  window_state1->OnWMEvent(&event_toggle_fullscreen);
-  EXPECT_TRUE(window_state1->IsFullscreen());
-  EXPECT_FALSE(GetBarWidget());
-  window_state1->OnWMEvent(&event_toggle_fullscreen);
-  EXPECT_FALSE(window_state1->IsFullscreen());
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_TRUE(IsWidgetVisible());
-  EXPECT_EQ(bounds, GetBarWidget()->GetWindowBoundsInScreen());
-
-  // The bar should not be created until both `window1` and `window2` exiting
-  // fullscreen mode.
-  window_state1->OnWMEvent(&event_toggle_fullscreen);
-  window_state2->OnWMEvent(&event_toggle_fullscreen);
-  EXPECT_FALSE(GetBarWidget());
-  window_state1->OnWMEvent(&event_toggle_fullscreen);
-  EXPECT_FALSE(GetBarWidget());
-  window_state2->OnWMEvent(&event_toggle_fullscreen);
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_TRUE(IsWidgetVisible());
-  EXPECT_EQ(bounds, GetBarWidget()->GetWindowBoundsInScreen());
-
-  // Fullscreen window within the secondary display should not impact
-  // the persistent desks bar.
-  std::unique_ptr<aura::Window> window3 = CreateTestWindow();
-  window3->SetBoundsInScreen(gfx::Rect(600, 0, 125, 100),
-                             GetSecondaryDisplay());
-  WindowState* window_state3 = WindowState::Get(window3.get());
-  EXPECT_EQ(window3->GetRootWindow(), Shell::Get()->GetAllRootWindows()[1]);
-  window_state3->OnWMEvent(&event_toggle_fullscreen);
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_TRUE(IsWidgetVisible());
-  EXPECT_EQ(bounds, GetBarWidget()->GetWindowBoundsInScreen());
-
-  // The bar should be created after `window1` being minimized.
-  window_state1->Minimize();
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_TRUE(IsWidgetVisible());
-  EXPECT_EQ(bounds, GetBarWidget()->GetWindowBoundsInScreen());
-  window_state1->OnWMEvent(&event_fullscreen);
-  EXPECT_FALSE(GetBarWidget());
-  window_state1->OnWMEvent(&event_toggle_fullscreen);
-
-  // The bar should not be created until both `window1` and `window2` being
-  // closed.
-  window_state1->OnWMEvent(&event_toggle_fullscreen);
-  window_state2->OnWMEvent(&event_toggle_fullscreen);
-  window1.reset();
-  EXPECT_FALSE(GetBarWidget());
-  window2.reset();
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_TRUE(IsWidgetVisible());
-  EXPECT_EQ(bounds, GetBarWidget()->GetWindowBoundsInScreen());
-}
-
-// Tests that the bar should not be created in non-active user session.
-TEST_F(PersistentDesksBarTest, NoPersistentDesksBarInNonActiveUserSession) {
-  AccessibilityControllerImpl* accessibility_controller =
-      Shell::Get()->accessibility_controller();
-  TestSessionControllerClient* client = GetSessionControllerClient();
-
-  // The bar should be created with two desks.
-  NewDesk();
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_TRUE(IsWidgetVisible());
-
-  // The bar should not be created in LOCKED user session when docked magnifier
-  // is enabled/disabled.
-  client->SetSessionState(session_manager::SessionState::LOCKED);
-  EXPECT_FALSE(GetBarWidget());
-  accessibility_controller->docked_magnifier().SetEnabled(true);
-  EXPECT_FALSE(GetBarWidget());
-  accessibility_controller->docked_magnifier().SetEnabled(false);
-  EXPECT_FALSE(GetBarWidget());
-
-  // The bar should be created when the user session is active.
-  client->SetSessionState(session_manager::SessionState::ACTIVE);
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_TRUE(IsWidgetVisible());
-}
-
-TEST_F(PersistentDesksBarTest, DisplayMetricsChanged) {
-  UpdateDisplay("800x600,400x500");
-  NewDesk();
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_EQ(GetBarWidget()->GetWindowBoundsInScreen().width(),
-            GetPrimaryDisplay().bounds().width());
-
-  // The bar should be recreated in the new primary display and with the same
-  // width as it.
-  const display::Display old_primary_display = GetPrimaryDisplay();
-  SwapPrimaryDisplay();
-  const display::Display new_primary_display = GetPrimaryDisplay();
-  ASSERT_NE(old_primary_display.id(), new_primary_display.id());
-  ASSERT_NE(old_primary_display.bounds().width(),
-            new_primary_display.bounds().width());
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_EQ(GetBarWidget()->GetWindowBoundsInScreen().width(),
-            new_primary_display.bounds().width());
-
-  // The bar should be recreated on display rotation to adapt the new display
-  // bounds.
-  SwapPrimaryDisplay();
-  const int display_width_before_rotate = GetPrimaryDisplay().bounds().width();
-  EXPECT_EQ(display_width_before_rotate,
-            GetBarWidget()->GetWindowBoundsInScreen().width());
-  display::test::DisplayManagerTestApi(display_manager())
-      .SetFirstDisplayAsInternalDisplay();
-  ScreenOrientationControllerTestApi test_api(
-      Shell::Get()->screen_orientation_controller());
-  test_api.SetDisplayRotation(display::Display::ROTATE_90,
-                              display::Display::RotationSource::ACTIVE);
-  EXPECT_EQ(test_api.GetCurrentOrientation(),
-            chromeos::OrientationType::kPortraitSecondary);
-  const int display_width_after_rotate = GetPrimaryDisplay().bounds().width();
-  ASSERT_NE(display_width_before_rotate, display_width_after_rotate);
-  EXPECT_EQ(display_width_after_rotate,
-            GetBarWidget()->GetWindowBoundsInScreen().width());
-
-  // Scale up the display, the bar should have the same width as the display
-  // after scale up.
-  const int display_width_before_scale_up = display_width_after_rotate;
-  SendKey(ui::VKEY_OEM_MINUS, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN);
-  const int display_width_after_scale_up = GetPrimaryDisplay().bounds().width();
-  EXPECT_LE(display_width_before_scale_up, display_width_after_scale_up);
-  EXPECT_EQ(display_width_after_scale_up,
-            GetBarWidget()->GetWindowBoundsInScreen().width());
-}
-
-// Tests bento bar's state on the pref `kBentoBarEnabled` changes. And its value
-// should be independent among users.
-TEST_F(PersistentDesksBarTest, UpdateBarStateOnPrefChanges) {
-  const char kUser1[] = "user1@test.com";
-  const char kUser2[] = "user2@test.com";
-  const AccountId kUserAccount1 = AccountId::FromUserEmail(kUser1);
-  const AccountId kUserAccount2 = AccountId::FromUserEmail(kUser2);
-
-  TestSessionControllerClient* session_controller =
-      GetSessionControllerClient();
-  // Setup 2 users.
-  session_controller->AddUserSession(kUser1, user_manager::USER_TYPE_REGULAR,
-                                     /*provide_pref_service=*/false);
-  session_controller->AddUserSession(kUser2, user_manager::USER_TYPE_REGULAR,
-                                     /*provide_pref_service=*/false);
-
-  auto user_1_prefs = std::make_unique<TestingPrefServiceSimple>();
-  RegisterUserProfilePrefs(user_1_prefs->registry(), /*for_test=*/true);
-  auto user_2_prefs = std::make_unique<TestingPrefServiceSimple>();
-  RegisterUserProfilePrefs(user_2_prefs->registry(), /*for_test=*/true);
-  session_controller->SetUserPrefService(kUserAccount1,
-                                         std::move(user_1_prefs));
-  session_controller->SetUserPrefService(kUserAccount2,
-                                         std::move(user_2_prefs));
-
-  session_controller->SwitchActiveUser(kUserAccount1);
-  session_controller->SetSessionState(session_manager::SessionState::ACTIVE);
-  auto* bar_controller = Shell::Get()->persistent_desks_bar_controller();
-  // Toggling to hide the bar for user1.
-  NewDesk();
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_TRUE(bar_controller->IsEnabled());
-  bar_controller->ToggleEnabledState();
-  EXPECT_FALSE(GetBarWidget());
-  EXPECT_FALSE(bar_controller->IsEnabled());
-
-  // Toggling to hide the bar for user1 should not affect user2. The bar should
-  // still visible for user2.
-  session_controller->SwitchActiveUser(kUserAccount2);
-  EXPECT_TRUE(GetBarWidget());
-  EXPECT_TRUE(bar_controller->IsEnabled());
-
-  // Switching back to user1. The bar should still be hidden.
-  session_controller->SwitchActiveUser(kUserAccount1);
-  EXPECT_FALSE(GetBarWidget());
-  EXPECT_FALSE(bar_controller->IsEnabled());
-}
-
-// Tests desks bar's position in overview and app window's position in
-// split view.
-TEST_F(PersistentDesksBarTest, SnappingWindowsInOverview) {
-  UpdateDisplay("800x600");
-  NewDesk();
-  std::unique_ptr<aura::Window> window1 =
-      CreateTestWindow(gfx::Rect(0, 0, 300, 300));
-  std::unique_ptr<aura::Window> window2 =
-      CreateTestWindow(gfx::Rect(0, 0, 300, 300));
-  EnterOverview();
-
-  OverviewController* overview_controller = Shell::Get()->overview_controller();
-  OverviewSession* overview_session = overview_controller->overview_session();
-  OverviewGrid* overview_grid =
-      overview_session->GetGridWithRootWindow(Shell::GetPrimaryRootWindow());
-  OverviewItem* overview_item_1 =
-      overview_session->GetOverviewItemForWindow(window1.get());
-  OverviewItem* overview_item_2 =
-      overview_session->GetOverviewItemForWindow(window2.get());
-
-  // Test the desks bar is at the top of the display while trying to snap a
-  // window in overview mode.
-  ui::test::EventGenerator* event_generator = GetEventGenerator();
-  DragItemToPoint(overview_item_1, gfx::Point(0, 300), event_generator);
-  EXPECT_TRUE(overview_controller->InOverviewSession());
-  EXPECT_EQ(overview_grid->desks_widget()->GetNativeWindow()->bounds().y(), 0);
-
-  // Test windows are at the correct position after snapping.
-  DragItemToPoint(overview_item_2, gfx::Point(800, 300), event_generator);
-  EXPECT_FALSE(overview_controller->InOverviewSession());
-  const int bar_height = PersistentDesksBarController::kBarHeight;
-  EXPECT_EQ(window1->GetBoundsInScreen().y(), bar_height);
-  EXPECT_EQ(window2->GetBoundsInScreen().y(), bar_height);
-}
-
-// Test fixture for feature flag |kDragWindowToNewDesk|.
-class DragWindowToNewDeskTest : public DesksTest {
+class DesksCloseAllTest : public DesksTest {
  public:
-  DragWindowToNewDeskTest() = default;
+  DesksCloseAllTest() = default;
+  DesksCloseAllTest(const DesksCloseAllTest&) = delete;
+  DesksCloseAllTest& operator=(const DesksCloseAllTest&) = delete;
+  ~DesksCloseAllTest() override = default;
 
-  DragWindowToNewDeskTest(const DragWindowToNewDeskTest&) = delete;
-  DragWindowToNewDeskTest& operator=(const DragWindowToNewDeskTest&) = delete;
+  // Clicks on the close-all button for the desk at index `index`.
+  void ClickOnCloseAllButtonForDesk(size_t index) {
+    ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
+    const auto* desks_bar_view = GetPrimaryRootDesksBarView();
+    ASSERT_LT(index, desks_bar_view->mini_views().size());
 
-  ~DragWindowToNewDeskTest() override = default;
-
-  // DesksTest:
-  void SetUp() override {
-    scoped_feature_list_.InitAndEnableFeature(features::kDragWindowToNewDesk);
-    DesksTest::SetUp();
+    auto* event_generator = GetEventGenerator();
+    ClickOnView(desks_bar_view->mini_views()[index]
+                    ->desk_action_view()
+                    ->close_all_button(),
+                event_generator);
   }
 
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
+  // Executes the close-all context menu command for the desk at index `index`.
+  void ExecuteContextMenuCloseAllForDesk(size_t index) {
+    ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
+    const auto* desks_bar_view = GetPrimaryRootDesksBarView();
+    ASSERT_LT(index, desks_bar_view->mini_views().size());
+
+    // Run the context menu command for closing a desk with all of its windows.
+    auto* menu_controller = DesksTestApi::GetContextMenuForDesk(
+        DeskBarViewBase::Type::kOverview, index);
+    menu_controller->ExecuteCommand(
+        static_cast<int>(DeskActionContextMenu::CommandId::kCloseAll),
+        /*event_flags=*/0);
+  }
+
+  // Opens the context menu for the mini view at `index`.
+  void OpenContextMenuForMiniView(int index) {
+    ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
+    const DeskPreviewView* desk_preview_view =
+        GetPrimaryRootDesksBarView()->mini_views()[index]->desk_preview();
+    const gfx::Point desk_preview_view_center =
+        desk_preview_view->GetBoundsInScreen().CenterPoint();
+    auto* event_generator = GetEventGenerator();
+    event_generator->MoveMouseTo(desk_preview_view_center);
+    event_generator->ClickRightButton();
+    ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
+  }
+
+  void ClickOnUndoDeskRemovalButton() {
+    views::LabelButton* dismiss_button =
+        DesksTestApi::GetCloseAllUndoToastDismissButton();
+    const gfx::Point button_center =
+        dismiss_button->GetBoundsInScreen().CenterPoint();
+    auto* event_generator = GetEventGenerator();
+    event_generator->MoveMouseTo(button_center);
+    event_generator->ClickLeftButton();
+  }
 };
 
-// Tests that dragging and dropping window to new desk while desks bar view is
-// at zero state.
-TEST_F(DragWindowToNewDeskTest, DragWindowAtZeroState) {
+// Runs through test cases for closing active and inactive desks with windows in
+// overview.
+TEST_P(DesksCloseAllTest, CloseDesksWithWindowsInOverview) {
+  // Possible sources for "close all" actions. `kCloseAllButton` means that we
+  // will be trying to close the desk through the designated button on the
+  // desk's `DeskActionView`, while `kContextMenu` means we will be trying to
+  // close the desk by executing the desk's "close all" context menu option. As
+  // we add more ways to perform a "close all" action (such as through an
+  // accelerator) we can add more cases to this enum.
+  enum class CloseAllSource {
+    kCloseAllButton,
+    kContextMenu,
+  };
+
+  struct {
+    const std::string scope_trace;
+    const CloseAllSource source;
+  } kTestCases[] = {
+      {"Remove desks using close all button", CloseAllSource::kCloseAllButton},
+      {"Remove desks using close all context menu option",
+       CloseAllSource::kContextMenu},
+  };
+
   auto* controller = DesksController::Get();
-  auto win1 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
 
-  ASSERT_EQ(1u, controller->desks().size());
-  auto* overview_controller = Shell::Get()->overview_controller();
-  EnterOverview();
+  for (const auto& test_case : kTestCases) {
+    SCOPED_TRACE(test_case.scope_trace);
 
-  ASSERT_TRUE(overview_controller->InOverviewSession());
-  auto* overview_grid = GetOverviewGridForRoot(Shell::GetPrimaryRootWindow());
-  const auto* desks_bar_view = overview_grid->desks_bar_view();
-  ASSERT_TRUE(desks_bar_view);
-
-  // Since we only have one desk, there should be 0 desk mini view and the zero
-  // state default desk button and new desk button should be visible.
-  ASSERT_EQ(0u, desks_bar_view->mini_views().size());
-  auto* zero_state_default_desk_button =
-      desks_bar_view->zero_state_default_desk_button();
-  auto* zero_state_new_desk_button =
-      desks_bar_view->zero_state_new_desk_button();
-  EXPECT_TRUE(zero_state_default_desk_button->GetVisible());
-  EXPECT_TRUE(zero_state_new_desk_button->GetVisible());
-  EXPECT_FALSE(desks_bar_view->expanded_state_new_desk_button()->GetVisible());
-
-  auto* overview_item1 = overview_grid->GetOverviewItemContaining(win1.get());
-  auto* event_generator = GetEventGenerator();
-
-  // Start dragging `overview_item1` without dropping it. Make sure the square
-  // length between `overview_item1` and `zero_state_new_desk_button` is longer
-  // than `kExpandDesksBarThreshold`. Verify that the desks bar is still at zero
-  // state in this use case.
-  DragItemToPoint(
-      overview_item1,
-      gfx::ToRoundedPoint(overview_item1->target_bounds().CenterPoint() +
-                          gfx::Vector2d(100, -100)),
-      event_generator,
-      /*by_touch_gestures=*/false, /*drop=*/false);
-  EXPECT_TRUE(zero_state_default_desk_button->GetVisible());
-  EXPECT_TRUE(zero_state_new_desk_button->GetVisible());
-  EXPECT_FALSE(desks_bar_view->expanded_state_new_desk_button()->GetVisible());
-
-  // Now keep dragging `overview_item1` and make it close enough to the center
-  // point of `zero_state_new_desk_button`. Verify that desks bar is transformed
-  // to the expanded state in this use case.
-  const gfx::Point new_desk_button_center_point =
-      zero_state_new_desk_button->GetBoundsInScreen().CenterPoint();
-  DragItemToPoint(overview_item1,
-                  gfx::Point(new_desk_button_center_point.x() + 10,
-                             new_desk_button_center_point.y() + 10),
-                  event_generator, /*by_touch_gestures=*/false, /*drop=*/false);
-  EXPECT_FALSE(zero_state_default_desk_button->GetVisible());
-  EXPECT_FALSE(zero_state_new_desk_button->GetVisible());
-  EXPECT_TRUE(desks_bar_view->expanded_state_new_desk_button()->GetVisible());
-
-  // Now drop |overview_item1|, a new desk which contains |win1| will be
-  // created.
-  event_generator->ReleaseLeftButton();
-  EXPECT_TRUE(overview_controller->InOverviewSession());
-  EXPECT_EQ(2u, desks_bar_view->mini_views().size());
-  EXPECT_EQ(2u, controller->desks().size());
-  EXPECT_TRUE(base::Contains(controller->desks()[1]->windows(), win1.get()));
-  // The active desk should still be the first desk, even though a new desk
-  // is created.
-  EXPECT_EQ(DesksController::Get()->active_desk(),
-            controller->desks()[0].get());
-  // |overview_grid| should have size equals to 0 now, since |overview_item1|
-  // havs been moved to a new desk.
-  EXPECT_EQ(0u, overview_grid->size());
-}
-
-// Tests that dragging a window at zero state, when the window being dragged is
-// close enough to the new desk button, desks bar should be transformed to
-// expanded state. In the end, if the window is not dropped on the new desk,
-// desk bar will be transformed back to zero state once the drag is completed.
-TEST_F(DragWindowToNewDeskTest,
-       DragWindowAtZeroStateWithoutDroppingItOnTheNewDesk) {
-  auto* controller = DesksController::Get();
-  auto win1 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
-
-  ASSERT_EQ(1u, controller->desks().size());
-  auto* overview_controller = Shell::Get()->overview_controller();
-  EnterOverview();
-
-  ASSERT_TRUE(overview_controller->InOverviewSession());
-  auto* overview_grid = GetOverviewGridForRoot(Shell::GetPrimaryRootWindow());
-  const auto* desks_bar_view = overview_grid->desks_bar_view();
-  ASSERT_TRUE(desks_bar_view);
-
-  // Make sure the desks bar is at zero state in the beginning.
-  auto* zero_state_default_desk_button =
-      desks_bar_view->zero_state_default_desk_button();
-  auto* zero_state_new_desk_button =
-      desks_bar_view->zero_state_new_desk_button();
-  auto* expanded_state_new_desk_button =
-      desks_bar_view->expanded_state_new_desk_button();
-  EXPECT_TRUE(zero_state_default_desk_button->GetVisible());
-  EXPECT_TRUE(zero_state_new_desk_button->GetVisible());
-  EXPECT_FALSE(expanded_state_new_desk_button->GetVisible());
-
-  auto* overview_item1 = overview_grid->GetOverviewItemContaining(win1.get());
-  auto* event_generator = GetEventGenerator();
-
-  // Drag `overview_item1` and make it close enough to the center point of
-  // `zero_state_new_desk_button`. Verify that desks bar is transformed to the
-  // expanded state in this use case.
-  const gfx::Point new_desk_button_center_point =
-      zero_state_new_desk_button->GetBoundsInScreen().CenterPoint();
-  DragItemToPoint(overview_item1,
-                  gfx::Point(new_desk_button_center_point.x() + 10,
-                             new_desk_button_center_point.y() + 10),
-                  event_generator, /*by_touch_gestures=*/false, /*drop=*/false);
-  EXPECT_FALSE(zero_state_default_desk_button->GetVisible());
-  EXPECT_FALSE(zero_state_new_desk_button->GetVisible());
-  EXPECT_TRUE(expanded_state_new_desk_button->GetVisible());
-
-  // Now keep dragging `overview_item1` and make it not able to be dropped on
-  // the new desk, then drop it. Check that `overview_item1` is dropped back to
-  // the existing desk, there's no new desk created, and desks bar is
-  // transformed back to the zero state.
-  const gfx::Point expanded_new_desk_button_center_point =
-      expanded_state_new_desk_button->GetBoundsInScreen().CenterPoint();
-  DragItemToPoint(overview_item1,
-                  gfx::Point(expanded_new_desk_button_center_point.x() + 200,
-                             expanded_new_desk_button_center_point.y() + 200),
-                  event_generator, /*by_touch_gestures=*/false, /*drop=*/true);
-  EXPECT_TRUE(desks_bar_view->IsZeroState());
-  EXPECT_EQ(1u, controller->desks().size());
-  EXPECT_TRUE(base::Contains(controller->desks()[0]->windows(), win1.get()));
-}
-
-// Tests that dragging and dropping window to new desk while desks bar view is
-// at expanded state.
-TEST_F(DragWindowToNewDeskTest, DragWindowAtExpandedState) {
-  auto* controller = DesksController::Get();
-  auto win1 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
-  NewDesk();
-
-  ASSERT_EQ(2u, controller->desks().size());
-  auto* overview_controller = Shell::Get()->overview_controller();
-  EnterOverview();
-
-  ASSERT_TRUE(overview_controller->InOverviewSession());
-  const auto* desks_bar_view =
-      GetOverviewGridForRoot(Shell::GetPrimaryRootWindow())->desks_bar_view();
-  ASSERT_TRUE(desks_bar_view);
-
-  ASSERT_EQ(2u, desks_bar_view->mini_views().size());
-  auto* expanded_state_new_desk_button =
-      desks_bar_view->expanded_state_new_desk_button();
-  EXPECT_TRUE(expanded_state_new_desk_button->GetVisible());
-
-  // Drag and drop |overview_item1| on |expanded_state_new_desk_button|. A new
-  // desk which contains |win1| will be created.
-  DragItemToPoint(
-      overview_controller->overview_session()->GetOverviewItemForWindow(
-          win1.get()),
-      expanded_state_new_desk_button->GetBoundsInScreen().CenterPoint(),
-      GetEventGenerator());
-
-  EXPECT_TRUE(overview_controller->InOverviewSession());
-  EXPECT_EQ(3u, desks_bar_view->mini_views().size());
-  EXPECT_EQ(3u, controller->desks().size());
-  EXPECT_TRUE(base::Contains(controller->desks()[2]->windows(), win1.get()));
-}
-
-// Tests that dragging and dropping window to new desk while the number of desks
-// has already reached to the maximum number 8.
-TEST_F(DragWindowToNewDeskTest, DragWindowAtMaximumDesksState) {
-  auto* controller = DesksController::Get();
-  auto win1 = CreateAppWindow(gfx::Rect(0, 0, 250, 100));
-  while (controller->desks().size() < desks_util::kMaxNumberOfDesks)
+    // Create three desks so that we can close one inactive desk and one active
+    // desk.
     NewDesk();
+    NewDesk();
+    ASSERT_EQ(3u, controller->desks().size());
+    Desk* desk_1 = controller->desks()[0].get();
+    Desk* desk_2 = controller->desks()[1].get();
+    Desk* desk_3 = controller->desks()[2].get();
+    ASSERT_TRUE(desk_1->is_active());
 
-  ASSERT_EQ(desks_util::kMaxNumberOfDesks, controller->desks().size());
-  auto* overview_controller = Shell::Get()->overview_controller();
+    // Create two `WindowHolder`s and assign one window to each desk.
+    WindowHolder win1(CreateAppWindow());
+    WindowHolder win2(CreateAppWindow());
+    controller->SendToDeskAtIndex(win1.window(), 0);
+    controller->SendToDeskAtIndex(win2.window(), 1);
+    ASSERT_EQ(1u, desk_1->windows().size());
+    ASSERT_EQ(1u, desk_2->windows().size());
+
+    EnterOverview();
+    ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
+
+    // Execute and evaluate a test case for an inactive desk and an active desk.
+    // We do it in this order so that we do not switch the active desk.
+    if (test_case.source == CloseAllSource::kCloseAllButton) {
+      ClickOnCloseAllButtonForDesk(1);
+      WaitForMilliseconds(
+          ToastData::kDefaultToastDuration.InMilliseconds() +
+          DesksController::kCloseAllWindowCloseTimeout.InMilliseconds());
+      EXPECT_FALSE(DesksTestApi::DesksControllerHasDesk(desk_2));
+      EXPECT_TRUE(win1.is_valid());
+      // `win2` is closed along with `desk_2` and should become invalid.
+      EXPECT_FALSE(win2.is_valid());
+
+      ClickOnCloseAllButtonForDesk(0);
+      WaitForMilliseconds(
+          ToastData::kDefaultToastDuration.InMilliseconds() +
+          DesksController::kCloseAllWindowCloseTimeout.InMilliseconds());
+      EXPECT_FALSE(DesksTestApi::DesksControllerHasDesk(desk_1));
+      // `win1` is closed along with `desk_1` and should become invalid.
+      EXPECT_FALSE(win1.is_valid());
+    } else if (test_case.source == CloseAllSource::kContextMenu) {
+      ExecuteContextMenuCloseAllForDesk(1);
+      WaitForMilliseconds(
+          ToastData::kDefaultToastDuration.InMilliseconds() +
+          DesksController::kCloseAllWindowCloseTimeout.InMilliseconds());
+      EXPECT_FALSE(DesksTestApi::DesksControllerHasDesk(desk_2));
+      // `win1` and `win2` should both be valid at this point because `desk_2`
+      // is being preserved.
+      EXPECT_TRUE(win1.is_valid());
+      // `win2` is closed along with `desk_2` and should become invalid.
+      EXPECT_FALSE(win2.is_valid());
+
+      ExecuteContextMenuCloseAllForDesk(0);
+      WaitForMilliseconds(
+          ToastData::kDefaultToastDuration.InMilliseconds() +
+          DesksController::kCloseAllWindowCloseTimeout.InMilliseconds());
+      EXPECT_FALSE(DesksTestApi::DesksControllerHasDesk(desk_1));
+      // `win1` is closed along with `desk_1` and should become invalid.
+      EXPECT_FALSE(win1.is_valid());
+    }
+
+    // Desk activation should have changed to `desk_3` and we should still be in
+    // overview.
+    EXPECT_TRUE(desk_3->is_active());
+    EXPECT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
+
+    // We should have one desk remaining, which means that `desks_bar_view` will
+    // be in zero state, meaning that it will have no `DeskMiniView`s.
+    EXPECT_TRUE(GetPrimaryRootDesksBarView()->mini_views().empty());
+  }
+}
+
+// Test that a stored desk is cleared when we add a desk.
+TEST_P(DesksCloseAllTest, ClearStoredDeskWhenDeskAdded) {
+  // Create two desks with one app window each.
+  WindowHolder win1(CreateAppWindow());
+  WindowHolder win2(CreateAppWindow());
+  NewDesk();
+  auto* controller = DesksController::Get();
+  controller->SendToDeskAtIndex(win1.window(), 0);
+  controller->SendToDeskAtIndex(win2.window(), 1);
+  Desk* desk_1 = controller->desks()[0].get();
+  Desk* desk_2 = controller->desks()[1].get();
+  ASSERT_EQ(1u, desk_1->windows().size());
+  ASSERT_EQ(1u, desk_2->windows().size());
+  ASSERT_TRUE(desk_1->is_active());
+
+  EnterOverview();
+  ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
+
+  // Remove `desk_2` to store it in the `controller`.
+  RemoveDesk(desk_2, DeskCloseType::kCloseAllWindowsAndWait);
+  ASSERT_TRUE(desk_2->is_desk_being_removed());
+  ASSERT_EQ(1u, controller->desks().size());
+  ASSERT_TRUE(DesksTestApi::DesksControllerCanUndoDeskRemoval());
+
+  // Creating a new desk should clear the stored desk.
+  NewDesk();
+  EXPECT_EQ(2u, controller->desks().size());
+  EXPECT_FALSE(DesksTestApi::DesksControllerCanUndoDeskRemoval());
+}
+
+// Test that a stored desk is cleared when closing another desk. If the second
+// desk is being removed by a close-all-and-wait operation, then the second desk
+// should replace the first desk in storage. If the second desk is being removed
+// by a combine desks operation or an immediate close-all operation, then the
+// stored desk should be cleared.
+TEST_P(DesksCloseAllTest, ClearStoredDeskWhenClosingAnotherDesk) {
+  // These test cases are differentiated on whether they use the
+  // close-all-and-wait operation to remove the second desk (where
+  // `desk_close_type` is `DeskCloseType::kCloseAllWindowsAndWait`), if they
+  // use the combine desks operation to remove the second desk (where
+  // `desk_close_type` is `DeskCloseType::kCombineDesks), or if they use the
+  // immediate close-all operation to remove the second desk (where
+  // `desk_close_type` is `DeskCloseType::kCloseAllWindows`).
+  struct {
+    const std::string scope_trace;
+    const DeskCloseType desk_close_type;
+  } kTestCases[] = {
+      {"Remove second desk with close-all-and-wait",
+       DeskCloseType::kCloseAllWindowsAndWait},
+      {"Remove second desk with combine desks", DeskCloseType::kCombineDesks},
+      {"Remove second desk with close-all", DeskCloseType::kCloseAllWindows},
+  };
+
+  for (const auto& test_case : kTestCases) {
+    base::HistogramTester histogram_tester;
+    SCOPED_TRACE(test_case.scope_trace);
+    // Create two desks with one app window each.
+    WindowHolder win1(CreateAppWindow());
+    WindowHolder win2(CreateAppWindow());
+
+    // Create one additional desk (so that we can remove the first two).
+    NewDesk();
+    NewDesk();
+    auto* controller = DesksController::Get();
+    controller->SendToDeskAtIndex(win1.window(), 0);
+    controller->SendToDeskAtIndex(win2.window(), 1);
+    Desk* desk_1 = controller->desks()[0].get();
+    Desk* desk_2 = controller->desks()[1].get();
+    Desk* desk_3 = controller->desks()[2].get();
+    ASSERT_EQ(1u, desk_1->windows().size());
+    ASSERT_EQ(1u, desk_2->windows().size());
+    ASSERT_EQ(0u, desk_3->windows().size());
+    ASSERT_TRUE(desk_1->is_active());
+
+    EnterOverview();
+    ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
+
+    // Remove `desk_1` by a close-all-and-wait operation to store it in the
+    // `controller`.
+    RemoveDesk(desk_1, DeskCloseType::kCloseAllWindowsAndWait);
+    ASSERT_TRUE(desk_1->is_desk_being_removed());
+    ASSERT_EQ(2u, controller->desks().size());
+    ASSERT_TRUE(desk_2->is_active());
+    ASSERT_TRUE(DesksTestApi::DesksControllerCanUndoDeskRemoval());
+
+    RemoveDesk(desk_2, test_case.desk_close_type);
+    EXPECT_EQ(1u, controller->desks().size());
+    EXPECT_NE(desk_1, controller->desks()[0].get());
+    EXPECT_NE(desk_2, controller->desks()[0].get());
+
+    switch (test_case.desk_close_type) {
+      case DeskCloseType::kCloseAllWindowsAndWait:
+        // If we are waiting after using close-all to remove the second desk,
+        // then desk_2 should still be preserved, and will maintain
+        // `desk_2->is_desk_being_removed()` to be true.
+        EXPECT_TRUE(desk_2->is_desk_being_removed());
+        EXPECT_TRUE(DesksTestApi::DesksControllerCanUndoDeskRemoval());
+        break;
+      case DeskCloseType::kCombineDesks:
+      case DeskCloseType::kCloseAllWindows:
+        // `kCombineDesks` and `kCloseAllWindows` should both clear the removed
+        // desk immediately.
+        EXPECT_FALSE(DesksTestApi::DesksControllerCanUndoDeskRemoval());
+        break;
+    }
+  }
+}
+
+// Tests that a desk that is closed with all of its windows is restored to its
+// original position and its original active state when the undo callback is
+// run. Also tests that a desk is destroyed when we allow for the undo toast to
+// expire.
+TEST_P(DesksCloseAllTest, RestoreOrDestroyDeskWithToast) {
+  // These test cases are differentiated by whether they run the undo toast's
+  // callback to restore the desk (when `restore_desk` is true) or if they let
+  // the undo toast expire and destroy the removed desk (when `restore_desk` is
+  // false).
+  struct {
+    const std::string scope_trace;
+    const bool restore_desk;
+  } kTestCases[] = {
+      {"Restore removed desk by undo", true},
+      {"Allow undo toast to expire", false},
+  };
+
+  WindowHolder window(CreateAppWindow());
+  NewDesk();
+  auto* controller = DesksController::Get();
+  ASSERT_EQ(2u, controller->desks().size());
+  controller->SendToDeskAtIndex(window.window(), 0);
+  Desk* desk_1 = controller->desks()[0].get();
+  Desk* desk_2 = controller->desks()[1].get();
+  ASSERT_EQ(1u, desk_1->windows().size());
+  ASSERT_EQ(0u, desk_2->windows().size());
+  ASSERT_TRUE(desk_1->is_active());
+
+  EnterOverview();
+  ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
+
+  for (const auto& test_case : kTestCases) {
+    SCOPED_TRACE(test_case.scope_trace);
+    RemoveDesk(desk_1, DeskCloseType::kCloseAllWindowsAndWait);
+    ASSERT_TRUE(desk_1->is_desk_being_removed());
+    ASSERT_EQ(1u, controller->desks().size());
+    ASSERT_TRUE(desk_2->is_active());
+    ASSERT_TRUE(DesksTestApi::DesksControllerCanUndoDeskRemoval());
+    ASSERT_TRUE(window.is_valid());
+
+    if (test_case.restore_desk) {
+      // When `desk_1` is restored it should be back in its original position
+      // and should be active again.
+      ClickOnUndoDeskRemovalButton();
+      EXPECT_FALSE(desk_1->is_desk_being_removed());
+      EXPECT_EQ(2u, controller->desks().size());
+      EXPECT_TRUE(desk_1->is_active());
+      EXPECT_EQ(desk_1, controller->desks()[0].get());
+      EXPECT_FALSE(DesksTestApi::DesksControllerCanUndoDeskRemoval());
+      EXPECT_TRUE(window.is_valid());
+    } else {
+      // Because undo toasts persist on hover, we need to move the cursor
+      // outside of the undo toast to start the countdown for its expiration.
+      GetEventGenerator()->MoveMouseTo(gfx::Point(0, 0));
+
+      // When we wait for the undo toast to expire, `desk_1` should be
+      // destroyed.
+      WaitForMilliseconds(
+          ToastData::kDefaultToastDuration.InMilliseconds() +
+          DesksController::kCloseAllWindowCloseTimeout.InMilliseconds());
+      EXPECT_EQ(1u, controller->desks().size());
+      EXPECT_FALSE(DesksTestApi::DesksControllerCanUndoDeskRemoval());
+      EXPECT_FALSE(window.is_valid());
+    }
+  }
+}
+
+// Checks that the combine desks button and context menu option are not visible
+// when there are no windows on a desk, and that they are visible on desks with
+// windows.
+TEST_P(DesksCloseAllTest, HideCombineDesksOptionWhenNoWindowsOnDesk) {
+  // Create a new desk with no windows to have an expanded desks bar view with
+  // mini views.
+  NewDesk();
+  EnterOverview();
+  ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
+
+  // We need to hover over the desk preview to properly check the combine desks
+  // button's visibility.
+  DeskMiniView* mini_view = GetPrimaryRootDesksBarView()->mini_views()[0];
+  const CloseButton* combine_desks_button =
+      mini_view->desk_action_view()->combine_desks_button();
+  gfx::Point desk_preview_view_center =
+      mini_view->desk_preview()->GetBoundsInScreen().CenterPoint();
+  auto* event_generator = GetEventGenerator();
+  event_generator->MoveMouseTo(desk_preview_view_center);
+  EXPECT_FALSE(combine_desks_button->GetVisible());
+
+  // We need to open the context menu to trigger state change for the combine
+  // desks option in the context menu.
+  OpenContextMenuForMiniView(0);
+  EXPECT_FALSE(
+      DesksTestApi::GetContextMenuModelForDesk(DeskBarViewBase::Type::kOverview,
+                                               0)
+          .IsVisibleAt(DeskActionContextMenu::CommandId::kCombineDesks));
+  event_generator->ClickLeftButton();
+
+  // Add a window and check to see if that makes the context option visible for
+  // the desk's action view.
+  auto window = CreateAppWindow();
+  DesksController::Get()->SendToDeskAtIndex(window.get(), 0);
+  EnterOverview();
+  ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
+  mini_view = GetPrimaryRootDesksBarView()->mini_views()[0];
+
+  // Closing and reopening overview will invalidate the
+  // `combine_desks_button` object, so we need to get another one.
+  combine_desks_button = mini_view->desk_action_view()->combine_desks_button();
+  desk_preview_view_center =
+      mini_view->desk_preview()->GetBoundsInScreen().CenterPoint();
+  event_generator->MoveMouseTo(desk_preview_view_center);
+  EXPECT_TRUE(combine_desks_button->GetVisible());
+  OpenContextMenuForMiniView(0);
+  EXPECT_TRUE(
+      DesksTestApi::GetContextMenuModelForDesk(DeskBarViewBase::Type::kOverview,
+                                               0)
+          .IsVisibleAt(DeskActionContextMenu::CommandId::kCombineDesks));
+}
+
+// Tests that the shortcut to close all (Ctrl + Shift + W) on a desk mini view
+// works as expected.
+TEST_P(DesksCloseAllTest, ShortcutCloseAll) {
+  WindowHolder window1(CreateAppWindow());
+  WindowHolder window2(CreateAppWindow());
+  NewDesk();
+  auto* controller = DesksController::Get();
+  ASSERT_EQ(2u, controller->desks().size());
+  Desk* desk_1 = controller->desks()[0].get();
+  ASSERT_TRUE(desk_1->is_active());
+  ASSERT_TRUE(base::Contains(desk_1->windows(), window1.window()));
+  ASSERT_TRUE(base::Contains(desk_1->windows(), window2.window()));
+
+  EnterOverview();
+  auto* overview_session =
+      Shell::Get()->overview_controller()->overview_session();
+  ASSERT_TRUE(overview_session);
+
+  auto* desks_bar =
+      GetOverviewGridForRoot(Shell::GetPrimaryRootWindow())->desks_bar_view();
+  auto* mini_view = desks_bar->mini_views()[0];
+
+  SendKey(ui::VKEY_TAB);
+  SendKey(ui::VKEY_TAB);
+  SendKey(ui::VKEY_TAB);
+  ASSERT_EQ(mini_view->desk_preview(),
+            overview_session->highlight_controller()->highlighted_view());
+
+  // Tests that after hitting Ctrl + Shift + W, the desk is destroyed along with
+  // all it's app windows.
+  SendKey(ui::VKEY_W, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN);
+  WaitForMilliseconds(
+      ToastData::kDefaultToastDuration.InMilliseconds() +
+      DesksController::kCloseAllWindowCloseTimeout.InMilliseconds());
+  EXPECT_EQ(1u, controller->desks().size());
+  EXPECT_FALSE(window1.is_valid());
+  EXPECT_FALSE(window2.is_valid());
+}
+
+TEST_P(DesksCloseAllTest, ShortcutUndoCloseAll) {
+  WindowHolder window1(CreateAppWindow());
+  WindowHolder window2(CreateAppWindow());
+  NewDesk();
+  auto* controller = DesksController::Get();
+  ASSERT_EQ(2u, controller->desks().size());
+  Desk* desk_1 = controller->desks()[0].get();
+  ASSERT_TRUE(desk_1->is_active());
+  ASSERT_TRUE(base::Contains(desk_1->windows(), window1.window()));
+  ASSERT_TRUE(base::Contains(desk_1->windows(), window2.window()));
+
+  EnterOverview();
+  auto* overview_session =
+      Shell::Get()->overview_controller()->overview_session();
+  ASSERT_TRUE(overview_session);
+
+  // Closes the active desk.
+  ClickOnCloseAllButtonForDesk(0);
+  ASSERT_TRUE(DesksTestApi::DesksControllerCanUndoDeskRemoval());
+  ASSERT_EQ(1u, controller->desks().size());
+
+  // Tests that after hitting Ctrl + Z, the desk deleting is undone.
+  SendKey(ui::VKEY_Z, ui::EF_CONTROL_DOWN);
+  EXPECT_EQ(2u, controller->desks().size());
+  EXPECT_TRUE(window1.is_valid());
+  EXPECT_TRUE(window2.is_valid());
+}
+
+// Tests CloseAll on active desk will close app windows on it.
+TEST_P(DesksCloseAllTest, CloseActiveDeskCloseWindows) {
+  WindowHolder window1(CreateAppWindow());
+  WindowHolder window2(CreateAppWindow());
+
+  NewDesk();
+
+  auto* controller = DesksController::Get();
+  ASSERT_EQ(2u, controller->desks().size());
+  Desk* desk_1 = controller->desks()[0].get();
+  ASSERT_TRUE(desk_1->is_active());
+  ASSERT_TRUE(base::Contains(desk_1->windows(), window1.window()));
+  ASSERT_TRUE(base::Contains(desk_1->windows(), window2.window()));
+
+  // Closes the active desk.
+  RemoveDesk(desk_1, DeskCloseType::kCloseAllWindowsAndWait);
+
+  // Waits for the toast to disappear.
+  WaitForMilliseconds(
+      ToastData::kDefaultToastDuration.InMilliseconds() +
+      DesksController::kCloseAllWindowCloseTimeout.InMilliseconds());
+  EXPECT_EQ(1u, controller->desks().size());
+  EXPECT_FALSE(window1.is_valid());
+  EXPECT_FALSE(window2.is_valid());
+}
+
+// Tests CloseAll will forcefully close window that is not closed in time.
+TEST_P(DesksCloseAllTest, ForceCloseWindows) {
+  WindowHolder window1(CreateAppWindow());
+
+  WindowHolder window2(CreateAppWindow(gfx::Rect(), AppType::SYSTEM_APP,
+                                       ShellWindowId::kShellWindowId_Invalid,
+                                       new StuckWidgetDelegate()));
+
+  NewDesk();
+  auto* controller = DesksController::Get();
+  ASSERT_EQ(2u, controller->desks().size());
+  Desk* desk_1 = controller->desks()[0].get();
+  ASSERT_TRUE(desk_1->is_active());
+  ASSERT_TRUE(base::Contains(desk_1->windows(), window1.window()));
+  ASSERT_TRUE(base::Contains(desk_1->windows(), window2.window()));
+
+  RemoveDesk(desk_1, DeskCloseType::kCloseAllWindowsAndWait);
+
+  // not long enough for slow window (window2) close hoos to finish.
+  WaitForMilliseconds(
+      ToastData::kDefaultToastDuration.InMilliseconds() +
+      DesksController::kCloseAllWindowCloseTimeout.InMilliseconds() / 2);
+  EXPECT_EQ(1u, controller->desks().size());
+  EXPECT_FALSE(window1.is_valid());
+  EXPECT_TRUE(window2.is_valid());
+
+  // Waits for long enough for `DesksController` to forcefully close the window.
+  WaitForMilliseconds(
+      DesksController::kCloseAllWindowCloseTimeout.InMilliseconds());
+  EXPECT_FALSE(window2.is_valid());
+}
+
+// Checks that the desk preview highlight overlay is visible on a desk preview
+// view only when its corresponding desk mini view's `DeskActionContextMenu` is
+// active.
+TEST_P(DesksCloseAllTest, DeskPreviewHighlightShowsWhenContextMenuIsOpen) {
+  // We need to make the display this large so that the preview view is
+  // right-clickable.
+  UpdateDisplay("1366x768");
+  NewDesk();
+
+  EnterOverview();
+  ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
+
+  // The highlight overlay should start out invisible.
+  views::View* highlight_overlay =
+      DesksTestApi::GetHighlightOverlayForDeskPreview(
+          DeskBarViewBase::Type::kOverview, 0);
+  ASSERT_FALSE(highlight_overlay->GetVisible());
+
+  // Open the context menu for the first desk and check that highlight overlay
+  // is now visible.
+  DeskPreviewView* desk_preview_view =
+      GetPrimaryRootDesksBarView()->mini_views()[0]->desk_preview();
+  gfx::Point desk_preview_view_center =
+      desk_preview_view->GetBoundsInScreen().CenterPoint();
+  auto* event_generator = GetEventGenerator();
+  event_generator->MoveMouseTo(desk_preview_view_center);
+  event_generator->ClickRightButton();
+  ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
+  ASSERT_TRUE(highlight_overlay->GetVisible());
+
+  // Close the context menu and check that the highlight overlay is no longer
+  // visible.
+  event_generator->ClickLeftButton();
+
+  // We need to wait for the `DeskActionContextMenu` to close, because
+  // `SimpleMenuModel::MenuWillClose()` runs post tasks asynchronously.
+  base::RunLoop().RunUntilIdle();
+  EXPECT_FALSE(highlight_overlay->GetVisible());
+}
+
+// Checks that the combine desks tooltip's validity is maintained whenever the
+// user adds a desk, closes a desk, moves a desk, or changes the name of a desk.
+TEST_P(DesksCloseAllTest, CombineDesksTooltipIsUpdatedOnUserActions) {
+  // Possible sources for tooltip updates.
+  enum class UpdateSource {
+    kAddDesk,
+    kCloseDesk,
+    kMoveActiveDesk,
+    kMoveNonActiveDesk,
+    kChangeActiveDeskName,
+    kChangeNonActiveDeskName,
+  };
+
+  struct {
+    const std::string scope_trace;
+    const UpdateSource source;
+
+    // The desk name that we expect `desk_1` in the test case to point to as the
+    // target for its combine desks operation after the test is performed.
+    const std::u16string expected_target_1;
+
+    // The desk name that we expect `desk_2` in the test case to point to as the
+    // target for its combine desks operation after the test is performed.
+    const std::u16string expected_target_2;
+  } kTestCases[] = {
+      {"Adding desk", UpdateSource::kAddDesk, u"Desk 2", u"Desk 1"},
+      {"Closing desk", UpdateSource::kCloseDesk, u"Desk 2", u"Desk 1"},
+      {"Moving active desk", UpdateSource::kMoveActiveDesk, u"Desk 1",
+       u"Desk 2"},
+      {"Moving non-active desk", UpdateSource::kMoveNonActiveDesk, u"Desk 2",
+       u"Desk 1"},
+      {"Changing active desk name", UpdateSource::kChangeActiveDeskName,
+       u"Desk 2", u"goo"},
+      {"Changing non-active desk name", UpdateSource::kChangeNonActiveDeskName,
+       u"gle", u"goo"},
+  };
+
+  // We need to make the display this large so that the mini views are
+  // draggable.
+  UpdateDisplay("1366x768");
+  auto* controller = DesksController::Get();
+
+  // Create two initial desks with one window each.
+  NewDesk();
+  ASSERT_EQ(2u, controller->desks().size());
+  Desk* desk_1 = controller->desks()[0].get();
+  Desk* desk_2 = controller->desks()[1].get();
+
+  WindowHolder win1(CreateAppWindow());
+  WindowHolder win2(CreateAppWindow());
+  controller->SendToDeskAtIndex(win1.window(), 0);
+  controller->SendToDeskAtIndex(win2.window(), 1);
+  ASSERT_EQ(1u, desk_1->windows().size());
+  ASSERT_EQ(1u, desk_2->windows().size());
+
+  EnterOverview();
+  ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
+
+  const LegacyDeskBarView* desks_bar_view = GetPrimaryRootDesksBarView();
+
+  // Cache the mini views and their name views and combine desks buttons.
+  DeskMiniView* mini_view_1 = desks_bar_view->mini_views()[0];
+  DeskMiniView* mini_view_2 = desks_bar_view->mini_views()[1];
+  DeskNameView* desk_name_view_1 = mini_view_1->desk_name_view();
+  DeskNameView* desk_name_view_2 = mini_view_2->desk_name_view();
+  const CloseButton* combine_desks_button_1 =
+      mini_view_1->desk_action_view()->combine_desks_button();
+  const CloseButton* combine_desks_button_2 =
+      mini_view_2->desk_action_view()->combine_desks_button();
+
+  const std::u16string tooltip_prefix = u"Combine with ";
+  auto* event_generator = GetEventGenerator();
+  for (const auto& test_case : kTestCases) {
+    SCOPED_TRACE(test_case.scope_trace);
+
+    ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
+    ASSERT_EQ(tooltip_prefix + controller->GetCombineDesksTargetName(desk_1),
+              combine_desks_button_1->GetTooltipText());
+    ASSERT_EQ(tooltip_prefix + controller->GetCombineDesksTargetName(desk_2),
+              combine_desks_button_2->GetTooltipText());
+
+    switch (test_case.source) {
+      case UpdateSource::kAddDesk:
+        NewDesk();
+        break;
+      case UpdateSource::kCloseDesk:
+        ASSERT_EQ(3u, controller->desks().size());
+        RemoveDesk(controller->desks()[2].get());
+        break;
+      case UpdateSource::kMoveActiveDesk:
+        ASSERT_TRUE(controller->desks()[0]->is_active());
+        StartDragDeskPreview(mini_view_1, event_generator);
+        ASSERT_TRUE(desks_bar_view->IsDraggingDesk());
+        event_generator->MoveMouseTo(
+            mini_view_2->GetPreviewBoundsInScreen().CenterPoint());
+        event_generator->ReleaseLeftButton();
+        break;
+      case UpdateSource::kMoveNonActiveDesk:
+        ASSERT_FALSE(controller->desks()[0]->is_active());
+        StartDragDeskPreview(mini_view_2, event_generator);
+        EXPECT_TRUE(desks_bar_view->IsDraggingDesk());
+        event_generator->MoveMouseTo(
+            mini_view_1->GetPreviewBoundsInScreen().CenterPoint());
+        event_generator->ReleaseLeftButton();
+        break;
+      case UpdateSource::kChangeActiveDeskName:
+        ASSERT_TRUE(controller->desks()[0]->is_active());
+        event_generator->MoveMouseTo(
+            desk_name_view_1->GetBoundsInScreen().CenterPoint());
+        event_generator->ClickLeftButton();
+        SendKey(ui::VKEY_G);
+        SendKey(ui::VKEY_O);
+        SendKey(ui::VKEY_O);
+        SendKey(ui::VKEY_RETURN);
+        break;
+      case UpdateSource::kChangeNonActiveDeskName:
+        ASSERT_EQ(u"goo", mini_view_1->desk()->name());
+        ASSERT_FALSE(controller->desks()[1]->is_active());
+        event_generator->MoveMouseTo(
+            desk_name_view_2->GetBoundsInScreen().CenterPoint());
+        event_generator->ClickLeftButton();
+        SendKey(ui::VKEY_G);
+        SendKey(ui::VKEY_L);
+        SendKey(ui::VKEY_E);
+        SendKey(ui::VKEY_RETURN);
+        break;
+    }
+
+    EXPECT_EQ(tooltip_prefix + test_case.expected_target_1,
+              combine_desks_button_1->GetTooltipText());
+    EXPECT_EQ(tooltip_prefix + test_case.expected_target_2,
+              combine_desks_button_2->GetTooltipText());
+  }
+}
+// Test metrics are being recorded in close all case.
+TEST_P(DesksCloseAllTest, TestMetricsRecordingWhenCloseAllWindows) {
+  struct {
+    const std::string scope_trace;
+    const bool restore_desk;
+  } kTestCases[] = {
+      {"Restore removed desk by undo", true},
+      {"Allow undo toast to expire", false},
+  };
+  base::HistogramTester histogram_tester;
+
+  // Set up a new desk with two windows
+  WindowHolder window(CreateAppWindow());
+  WindowHolder window1(CreateAppWindow());
+  NewDesk();
+  auto* controller = DesksController::Get();
+  controller->SendToDeskAtIndex(window.window(), 0);
+  controller->SendToDeskAtIndex(window1.window(), 0);
   EnterOverview();
 
-  ASSERT_TRUE(overview_controller->InOverviewSession());
+  int remove_desk_type_count = 0;
+  int undo_toast_expired_count = 0;
+  for (const auto& test_case : kTestCases) {
+    SCOPED_TRACE(test_case.scope_trace);
+    auto* menu_controller = DesksTestApi::GetContextMenuForDesk(
+        DeskBarViewBase::Type::kOverview, 0);
+    menu_controller->ExecuteCommand(
+        static_cast<int>(DeskActionContextMenu::CommandId::kCloseAll),
+        /*event_flags=*/0);
+    // Record RemoveDeskType: closeAll, combine and closeAllAndWait
+    histogram_tester.ExpectBucketCount("Ash.Desks.RemoveDeskType",
+                                       DeskCloseType::kCloseAllWindowsAndWait,
+                                       ++remove_desk_type_count);
+
+    if (test_case.restore_desk) {
+      // When `desk_1` is restored it should be back in its original position
+      // and should be active again.
+      views::LabelButton* dismiss_button =
+          DesksTestApi::GetCloseAllUndoToastDismissButton();
+      const gfx::Point button_center =
+          dismiss_button->GetBoundsInScreen().CenterPoint();
+      auto* event_generator = GetEventGenerator();
+      event_generator->MoveMouseTo(button_center);
+      event_generator->ClickLeftButton();
+      // Record click undo button in toast after remove all
+      histogram_tester.ExpectTotalCount("Ash.Desks.CloseAllUndo", 1);
+      // Record undo toast expired
+      histogram_tester.ExpectTotalCount("Ash.Desks.CloseAllTotal",
+                                        ++undo_toast_expired_count);
+      // Record number of windows being closed.
+      histogram_tester.ExpectTotalCount("Ash.Desks.NumberOfWindowsClosed2", 0);
+      // Record number of windows being closed per source.
+      histogram_tester.ExpectTotalCount(
+          "Ash.Desks.NumberOfWindowsClosed2.Button", 0);
+
+    } else {
+      // Because undo toasts persist on hover, we need to move the cursor
+      // outside of the undo toast to start the countdown for its expiration.
+      GetEventGenerator()->MoveMouseTo(gfx::Point(0, 0));
+
+      // When we wait for the undo toast to expire, `desk_1` should be
+      // destroyed. Wait a bit longer than the toast expire duration to avoid
+      // flakiness.
+      WaitForMilliseconds(ToastData::kDefaultToastDuration.InMilliseconds() +
+                          base::Seconds(1).InMilliseconds());
+      // Record undo toast expired.
+      histogram_tester.ExpectTotalCount("Ash.Desks.CloseAllTotal",
+                                        ++undo_toast_expired_count);
+      // Record number of windows being closed.
+      histogram_tester.ExpectUniqueSample("Ash.Desks.NumberOfWindowsClosed2", 2,
+                                          1);
+      // Record number of windows being closed per source.
+      histogram_tester.ExpectUniqueSample(
+          "Ash.Desks.NumberOfWindowsClosed2.Button", 2, 1);
+    }
+  }
+}
+
+// Checks that a `DeskActionContextMenu` opens when the user long-presses a
+// desk's mini view.
+TEST_P(DesksCloseAllTest, ContextMenuOpensOnLongPress) {
+  NewDesk();
+  EnterOverview();
+  ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
+
+  // Long press on the first desk preview view.
+  const DeskPreviewView* desk_preview_view =
+      GetPrimaryRootDesksBarView()->mini_views()[0]->desk_preview();
+  const gfx::Point desk_preview_view_center =
+      desk_preview_view->GetBoundsInScreen().CenterPoint();
+  auto* event_generator = GetEventGenerator();
+  LongGestureTap(desk_preview_view_center, event_generator);
+
+  EXPECT_TRUE(DesksTestApi::IsContextMenuRunningForDesk(
+      DeskBarViewBase::Type::kOverview, 0));
+}
+
+// Tests that desks can be closed in quick succession while still saving the
+// removed desk.
+TEST_P(DesksCloseAllTest, CanCloseMultipleDesksInSuccessionAndUndo) {
+  NewDesk();
+  NewDesk();
+  auto* controller = DesksController::Get();
+  ASSERT_EQ(3u, controller->desks().size());
+
+  EnterOverview();
+  ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
+
+  ClickOnCloseAllButtonForDesk(0);
+  ASSERT_TRUE(DesksTestApi::DesksControllerCanUndoDeskRemoval());
+  ClickOnCloseAllButtonForDesk(0);
+  ASSERT_TRUE(DesksTestApi::DesksControllerCanUndoDeskRemoval());
+  ClickOnUndoDeskRemovalButton();
+  EXPECT_EQ(2u, controller->desks().size());
+}
+
+// Tests that an active desk's windows are restored with an identity transform
+// when it's removal is undone outside of overview mode.
+TEST_P(DesksCloseAllTest,
+       ActiveDeskWindowsAreRestoredProperlyOutsideOfOverview) {
+  WindowHolder window(CreateAppWindow());
+  NewDesk();
+  auto* controller = DesksController::Get();
+  ASSERT_EQ(2u, controller->desks().size());
+  controller->SendToDeskAtIndex(window.window(), 0);
+  Desk* desk_1 = controller->desks()[0].get();
+  Desk* desk_2 = controller->desks()[1].get();
+  ASSERT_EQ(1u, desk_1->windows().size());
+  ASSERT_EQ(0u, desk_2->windows().size());
+  ASSERT_TRUE(desk_1->is_active());
+
+  EnterOverview();
+  ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
+  EXPECT_FALSE(window.window()->transform().IsIdentity());
+
+  ClickOnCloseAllButtonForDesk(0);
+  ExitOverview();
+  ASSERT_FALSE(Shell::Get()->overview_controller()->InOverviewSession());
+
+  // Overview is destroyed asynchronously so we have to wait for it to finish.
+  base::RunLoop().RunUntilIdle();
+
+  // Clicking the undo button outside of overview triggers a desk switch
+  // animation, so we have to wait for that.
+  DeskSwitchAnimationWaiter waiter;
+  ClickOnUndoDeskRemovalButton();
+  waiter.Wait();
+  EXPECT_TRUE(window.is_valid());
+
+  // At this point, the transformation applied to the window by overview mode
+  // should have been removed by the desk removal operation.
+  EXPECT_TRUE(window.window()->transform().IsIdentity());
+}
+
+// Tests that we can undo close-all solely via keyboard navigation (tabbing to
+// the undo toast and pressing enter).
+TEST_P(DesksCloseAllTest, CanUndoDeskClosureThroughKeyboardNavigation) {
+  NewDesk();
+  Shell::Get()->accessibility_controller()->spoken_feedback().SetEnabled(true);
+  EnterOverview();
+  ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
+
+  // Tab to the first mini view and perform close-all on it.
+  SendKey(ui::VKEY_TAB);
+  ASSERT_EQ(GetPrimaryRootDesksBarView()->mini_views()[0]->desk_preview(),
+            Shell::Get()
+                ->overview_controller()
+                ->overview_session()
+                ->highlight_controller()
+                ->highlighted_view());
+  SendKey(ui::VKEY_W, ui::EF_CONTROL_DOWN | ui::EF_SHIFT_DOWN);
+  ASSERT_EQ(1u, DesksController::Get()->desks().size());
+
+  // Tab to the undo toast.
+  SendKey(ui::VKEY_TAB);
+  SendKey(ui::VKEY_TAB);
+  SendKey(ui::VKEY_TAB);
+
+  // If the highlight controller returns a nullptr after tabbing, then the undo
+  // toast's button should be highlighted.
+  ASSERT_EQ(nullptr, Shell::Get()
+                         ->overview_controller()
+                         ->overview_session()
+                         ->highlight_controller()
+                         ->highlighted_view());
+
+  // Pressing enter should restore the desk.
+  SendKey(ui::VKEY_RETURN);
+  EXPECT_EQ(2u, DesksController::Get()->desks().size());
+}
+
+// Tests that we can create the maximum number of desks, remove one, and add one
+// before the toast asking if the user would like to undo goes away.
+TEST_P(DesksCloseAllTest, CanAddLastDeskWhileUndoToastIsBeingDisplayed) {
+  auto* controller = DesksController::Get();
+  while (controller->desks().size() < desks_util::GetMaxNumberOfDesks())
+    NewDesk();
+  ASSERT_EQ(desks_util::GetMaxNumberOfDesks(), controller->desks().size());
+
+  // Create a window to ensure that closing windows after removing the last desk
+  // still occurs correctly.
+  WindowHolder window(CreateAppWindow());
+  const int last_desk_index = desks_util::GetMaxNumberOfDesks() - 1;
+  controller->SendToDeskAtIndex(window.window(), last_desk_index);
+
+  EnterOverview();
+  ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
+
+  // Remove the last desk with close-all. This should show the undo toast.
+  RemoveDesk(controller->desks()[last_desk_index].get(),
+             DeskCloseType::kCloseAllWindowsAndWait);
+  ASSERT_EQ(desks_util::GetMaxNumberOfDesks() - 1, controller->desks().size());
+  ASSERT_TRUE(DesksTestApi::DesksControllerCanUndoDeskRemoval());
+
+  // The new desk button should be enabled at this point.
+  auto* new_desk_button =
+      GetExpandedStateNewDeskButton(GetPrimaryRootDesksBarView());
+  ASSERT_TRUE(new_desk_button->GetEnabled());
+
+  // Scroll all the way to the right to ensure that the new button is visible.
+  auto* event_generator = GetEventGenerator();
+  auto* scroll_right_button = DesksTestApi::GetDeskBarRightScrollButton(
+      DeskBarViewBase::Type::kOverview);
+  for (int i = 0; i != 3; ++i)
+    ClickOnView(scroll_right_button, event_generator);
+
+  // If we click on the `new_desk_button`, we should create a new desk and
+  // destroy the previously removed desk and the window inside of it.
+  ClickOnView(new_desk_button, event_generator);
+  EXPECT_EQ(desks_util::GetMaxNumberOfDesks(), controller->desks().size());
+  EXPECT_FALSE(DesksTestApi::DesksControllerCanUndoDeskRemoval());
+
+  // Ensure that the window is still closed properly.
+  WaitForMilliseconds(
+      DesksController::kCloseAllWindowCloseTimeout.InMilliseconds());
+  EXPECT_FALSE(window.is_valid());
+}
+
+// Tests that windows in CloseAll will not be unparented while they are closing
+// asynchronously.
+TEST_P(DesksCloseAllTest, ClosingWindowsHaveParent) {
+  WindowHolder window(CreateAppWindow(gfx::Rect(), AppType::SYSTEM_APP,
+                                      ShellWindowId::kShellWindowId_Invalid,
+                                      new StuckWidgetDelegate()));
+
+  NewDesk();
+  auto* controller = DesksController::Get();
+  ASSERT_EQ(2u, controller->desks().size());
+  Desk* desk_1 = controller->desks()[0].get();
+  ASSERT_TRUE(desk_1->is_active());
+  EXPECT_TRUE(base::Contains(desk_1->windows(), window.window()));
+
+  RemoveDesk(desk_1, DeskCloseType::kCloseAllWindowsAndWait);
+
+  // Window will still be open because it has not yet been force-closed.
+  WaitForMilliseconds(
+      ToastData::kDefaultToastDuration.InMilliseconds() +
+      DesksController::kCloseAllWindowCloseTimeout.InMilliseconds() / 2);
+  ASSERT_EQ(1u, controller->desks().size());
+  ASSERT_TRUE(window.is_valid());
+
+  // Closing windows should be reparented to the
+  // `kShellWindowId_UnparentedContainer` window.
+  EXPECT_TRUE(window.window()->GetRootWindow());
+  EXPECT_EQ(kShellWindowId_UnparentedContainer,
+            window.window()->parent()->GetId());
+}
+
+TEST_P(DesksCloseAllTest, TestRecordingNumerOfClosedWindowsMetrics) {
+  struct {
+    const std::string scope_trace;
+    const DeskCloseType desk_close_type;
+  } kTestCases[] = {
+      {"Remove second desk with combine desks", DeskCloseType::kCombineDesks},
+      {"Remove second desk with close-all-and-wait",
+       DeskCloseType::kCloseAllWindowsAndWait},
+      {"Remove second desk with close-all", DeskCloseType::kCloseAllWindows},
+  };
+
+  for (const auto& test_case : kTestCases) {
+    base::HistogramTester histogram_tester;
+
+    SCOPED_TRACE(test_case.scope_trace);
+    WindowHolder win1(CreateAppWindow());
+
+    NewDesk();
+    auto* controller = DesksController::Get();
+    controller->SendToDeskAtIndex(win1.window(), 1);
+    Desk* desk = controller->desks()[1].get();
+
+    EnterOverview();
+
+    RemoveDesk(desk, test_case.desk_close_type);
+
+    switch (test_case.desk_close_type) {
+      case DeskCloseType::kCombineDesks:
+        histogram_tester.ExpectTotalCount("Ash.Desks.NumberOfWindowsClosed2",
+                                          0);
+        histogram_tester.ExpectTotalCount(
+            "Ash.Desks.NumberOfWindowsClosed2.Button", 0);
+        break;
+      // Wait and toast expired.
+      case DeskCloseType::kCloseAllWindowsAndWait:
+        // Because undo toasts persist on hover, we need to move the cursor
+        // outside of the undo toast to start the countdown for its expiration.
+        GetEventGenerator()->MoveMouseTo(gfx::Point(0, 0));
+        WaitForMilliseconds(ToastData::kDefaultToastDuration.InMilliseconds() +
+                            base::Seconds(1).InMilliseconds());
+        histogram_tester.ExpectTotalCount("Ash.Desks.NumberOfWindowsClosed2",
+                                          1);
+        histogram_tester.ExpectUniqueSample(
+            "Ash.Desks.NumberOfWindowsClosed2.Button", 1, 1);
+        break;
+
+      case DeskCloseType::kCloseAllWindows:
+        // `kCombineDesks` and `kCloseAllWindows` should both clear the removed
+        // desk immediately.
+        histogram_tester.ExpectTotalCount("Ash.Desks.NumberOfWindowsClosed2",
+                                          1);
+        histogram_tester.ExpectUniqueSample(
+            "Ash.Desks.NumberOfWindowsClosed2.Button", 1, 1);
+        break;
+    }
+  }
+}
+
+// Tests that when a desk is created its GUID is saved in the desks restore
+// data, and when a desk is removed its GUID is removed.
+TEST_P(DesksTest, DeskGuidsSaved) {
+  // We don't need to save the desk GUID for restore if there is only one desk.
+  NewDesk();
+  auto* controller = DesksController::Get();
+  base::Uuid desk1_guid = controller->desks()[0].get()->uuid();
+  base::Uuid desk2_guid = controller->desks()[1].get()->uuid();
+  EXPECT_THAT(GetDeskRestoreGuids(GetPrimaryUserPrefService()),
+              testing::ElementsAre(desk1_guid, desk2_guid));
+
+  // Add a third desk, close the second desk, and check the GUIDs.
+  NewDesk();
+  base::Uuid desk3_guid = controller->desks()[2].get()->uuid();
+  EnterOverview();
+  CloseDeskFromMiniView(GetOverviewGridForRoot(Shell::GetPrimaryRootWindow())
+                            ->desks_bar_view()
+                            ->mini_views()[1],
+                        GetEventGenerator());
+  EXPECT_THAT(GetDeskRestoreGuids(GetPrimaryUserPrefService()),
+              testing::ElementsAre(desk1_guid, desk3_guid));
+}
+
+// Tests that when desks are reordered their GUIDs are reordered in the desk
+// restore data correspondingly.
+TEST_P(DesksTest, DeskGuidsReorder) {
+  NewDesk();
+  NewDesk();
+  auto* controller = DesksController::Get();
+  base::Uuid desk1_guid = controller->desks()[0].get()->uuid();
+  base::Uuid desk2_guid = controller->desks()[1].get()->uuid();
+  base::Uuid desk3_guid = controller->desks()[2].get()->uuid();
+  EXPECT_THAT(GetDeskRestoreGuids(GetPrimaryUserPrefService()),
+              testing::ElementsAre(desk1_guid, desk2_guid, desk3_guid));
+
+  // Swap the 2nd and 3rd desks with the mouse.
+  EnterOverview();
   const auto* desks_bar_view =
       GetOverviewGridForRoot(Shell::GetPrimaryRootWindow())->desks_bar_view();
-  ASSERT_TRUE(desks_bar_view);
+  std::vector<DeskMiniView*> mini_views = desks_bar_view->mini_views();
+  auto* event_generator = GetEventGenerator();
 
-  // Drag and drop |overview_item1| to |expanded_state_new_desk_button|. Since
-  // we already have maximum number of desks, this won't create a new desk, and
-  // the dragged window will fall back to the desk where it's from.
-  DragItemToPoint(
-      overview_controller->overview_session()->GetOverviewItemForWindow(
-          win1.get()),
-      desks_bar_view->expanded_state_new_desk_button()
-          ->GetBoundsInScreen()
-          .CenterPoint(),
-      GetEventGenerator());
+  StartDragDeskPreview(mini_views[1], event_generator);
+  gfx::Point desk_center_2 =
+      mini_views[2]->GetPreviewBoundsInScreen().CenterPoint();
+  event_generator->MoveMouseTo(desk_center_2);
+  event_generator->ReleaseLeftButton();
 
-  // We should still have the max number of desks. And |win1| should still
-  // belong to the first desk.
-  EXPECT_EQ(desks_util::kMaxNumberOfDesks, desks_bar_view->mini_views().size());
-  EXPECT_EQ(desks_util::kMaxNumberOfDesks, controller->desks().size());
-  EXPECT_TRUE(base::Contains(controller->desks()[0]->windows(), win1.get()));
+  EXPECT_THAT(GetDeskRestoreGuids(GetPrimaryUserPrefService()),
+              testing::ElementsAre(desk1_guid, desk3_guid, desk2_guid));
+}
+
+// Tests that windows are closed when the user interacts with the shelf.
+TEST_P(DesksCloseAllTest, InteractingWithShelfClosesToast) {
+  auto* shelf_model = ShelfModel::Get();
+  NewDesk();
+
+  // Create a window and a shelf item for the window.
+  WindowHolder window(CreateAppWindow());
+  const ash::ShelfID shelf_id("cool_app");
+  window.window()->SetProperty(ash::kShelfIDKey, shelf_id.Serialize());
+  window.window()->SetProperty(ash::kAppIDKey, shelf_id.app_id);
+  window.window()->SetProperty<int>(ash::kShelfItemTypeKey,
+                                    ShelfItemType::TYPE_PINNED_APP);
+  ShelfItem item;
+  item.status = ShelfItemStatus::STATUS_RUNNING;
+  item.type = ShelfItemType::TYPE_PINNED_APP;
+  item.id = shelf_id;
+  shelf_model->Add(item, std::make_unique<TestShelfItemDelegate>(item.id));
+
+  // Enter overview and close the desk.
+  EnterOverview();
+  ASSERT_TRUE(Shell::Get()->overview_controller()->InOverviewSession());
+  ClickOnCloseAllButtonForDesk(0);
+
+  // Get the view for the shelf item.
+  int item_index = shelf_model->ItemIndexByID(shelf_id);
+  auto* view_model = GetPrimaryShelf()->GetShelfViewForTesting()->view_model();
+  views::View* item_view = view_model->view_at(item_index);
+
+  // Try opening the context menu for the shelf item with a right click.
+  gfx::Point item_view_center = item_view->GetBoundsInScreen().CenterPoint();
+  auto* event_generator = GetEventGenerator();
+  event_generator->MoveMouseTo(item_view_center);
+  event_generator->ClickRightButton();
+
+  // The right click should destroy the desk and the window.
+  EXPECT_FALSE(DesksTestApi::DesksControllerCanUndoDeskRemoval());
+
+  // The window will destroy asynchronously.
+  base::RunLoop().RunUntilIdle();
+  EXPECT_FALSE(window.is_valid());
+}
+
+using DeskButtonTest = DesksTest;
+
+// Tests that `DeskTextfield` can be used outside overview.
+TEST_P(DeskButtonTest, DeskTextfieldOutsideOverview) {
+  auto widget =
+      TestWidgetBuilder()
+          .SetDelegate(nullptr)
+          .SetBounds(gfx::Rect(0, 0, 300, 300))
+          .SetParent(Shell::GetPrimaryRootWindow())
+          .SetShow(true)
+          .SetWidgetType(views::Widget::InitParams::TYPE_WINDOW_FRAMELESS)
+          .BuildOwnsNativeWidget();
+  auto* desk_text_view = widget->SetContentsView(
+      std::make_unique<DeskTextfield>(SystemTextfield::Type::kSmall));
+
+  // There is no crash for committing name changes for `DeskTextfield` outside
+  // overview.
+  desk_text_view->CommitChanges(widget.get());
+}
+
+struct DeskButtonDeskBarTestCase {
+  std::string test_name;
+
+  // IDs of all desks.
+  std::vector<int> desks;
+
+  // ID of active desk.
+  int active_desk;
+
+  // Shelf alignment.
+  ShelfAlignment shelf_alignment;
+
+  // Indicates if there are any saved desks.
+  bool has_saved_desks;
+
+  // The expected bar widget bounds.
+  gfx::Rect bar_widget_bounds_expected;
+
+  // The expected bar view bounds.
+  gfx::Rect bar_view_bounds_expected;
+};
+
+// Tests that desk button desk bar can show outside of overview with expected
+// bounds for different shelf alignments.
+TEST_P(DeskButtonTest, DeskBarBasic) {
+  UpdateDisplay("800x600");
+
+  const DeskButtonDeskBarTestCase tests[] = {
+      {.test_name = "single desk + bottom shelf + saved desks",
+       .desks = {0},
+       .active_desk = 0,
+       .shelf_alignment = ShelfAlignment::kBottom,
+       .has_saved_desks = true,
+       .bar_widget_bounds_expected = {0, 446, 800, 98},
+       .bar_view_bounds_expected = {0, 0, 800, 98}},
+      {.test_name = "single desk + bottom shelf",
+       .desks = {0},
+       .active_desk = 0,
+       .shelf_alignment = ShelfAlignment::kBottom,
+       .has_saved_desks = false,
+       .bar_widget_bounds_expected = {0, 446, 800, 98},
+       .bar_view_bounds_expected = {0, 0, 800, 98}},
+      {.test_name = "single desk + left shelf + saved desks",
+       .desks = {0},
+       .active_desk = 0,
+       .shelf_alignment = ShelfAlignment::kLeft,
+       .has_saved_desks = true,
+       .bar_widget_bounds_expected = {56, 248, 744, 98},
+       .bar_view_bounds_expected = {0, 0, 744, 98}},
+      {.test_name = "single desk + right shelf + saved desks",
+       .desks = {0},
+       .active_desk = 0,
+       .shelf_alignment = ShelfAlignment::kRight,
+       .has_saved_desks = true,
+       .bar_widget_bounds_expected = {0, 248, 744, 98},
+       .bar_view_bounds_expected = {0, 0, 744, 98}},
+      {.test_name = "multiple desks + bottom shelf + saved desks",
+       .desks = {0, 1, 2},
+       .active_desk = 0,
+       .shelf_alignment = ShelfAlignment::kBottom,
+       .has_saved_desks = true,
+       .bar_widget_bounds_expected = {0, 446, 800, 98},
+       .bar_view_bounds_expected = {0, 0, 800, 98}},
+  };
+
+  auto* desks_controller = DesksController::Get();
+  Shelf* shelf = GetPrimaryShelf();
+
+  for (const auto& test : tests) {
+    SCOPED_TRACE(test.test_name);
+
+    // Set up desks.
+    while (desks_controller->desks().size() < test.desks.size()) {
+      NewDesk();
+    }
+    if (!desks_controller->desks()[test.active_desk]->is_active()) {
+      ActivateDesk(desks_controller->desks()[test.active_desk].get());
+    }
+
+    // Set up shelf.
+    shelf->SetAlignment(test.shelf_alignment);
+
+    // Set up saved desk.
+    if (test.has_saved_desks) {
+      AddSavedDeskEntry(desk_model(), base::Uuid::GenerateRandomV4(),
+                        "saved_desk_1", base::Time::Now(),
+                        DeskTemplateType::kSaveAndRecall);
+    }
+
+    // Create the desk bar then verify the bar and its child UI have expected
+    // appearance.
+    OpenDeskBar(DeskBarViewBase::Type::kDeskButton);
+    auto* desk_bar_view = GetDeskBarView(DeskBarViewBase::Type::kDeskButton);
+    auto* desk_bar_widget = desk_bar_view->GetWidget();
+    EXPECT_THAT(desk_bar_widget->GetWindowBoundsInScreen(),
+                test.bar_widget_bounds_expected);
+    EXPECT_TRUE(desk_bar_view && desk_bar_view->GetVisible() &&
+                !desk_bar_view->IsZeroState());
+    EXPECT_THAT(desk_bar_view->bounds(), test.bar_view_bounds_expected);
+    if (GetParam().enable_jellyroll) {
+      auto* new_desk_button = desk_bar_view->new_desk_button();
+      EXPECT_THAT(new_desk_button->state(),
+                  CrOSNextDeskIconButton::State::kExpanded);
+      EXPECT_TRUE(new_desk_button->GetVisible());
+      EXPECT_THAT(new_desk_button->GetEnabled(),
+                  desks_controller->CanCreateDesks());
+      auto* library_button = desk_bar_view->library_button();
+      EXPECT_THAT(library_button->state(),
+                  CrOSNextDeskIconButton::State::kExpanded);
+      EXPECT_THAT(library_button->GetVisible(), test.has_saved_desks);
+      EXPECT_TRUE(library_button->GetEnabled());
+
+      CloseDeskBar(DeskBarViewBase::Type::kDeskButton);
+    }
+
+    // Reset to clean state, i.e. only 1 desk and no saved desks.
+    while (desks_controller->CanRemoveDesks()) {
+      RemoveDesk(desks_controller->desks().back().get());
+    }
+    DeleteAllSavedDesks();
+  }
+}
+
+// Tests that desk button desk bar shows the scroll arrow buttons when overflow
+// happens.
+TEST_P(DeskButtonTest, DeskBarScrollLayout) {
+  UpdateDisplay("600x400");
+
+  auto* desks_controller = DesksController::Get();
+  while (desks_controller->CanCreateDesks()) {
+    NewDesk();
+  }
+
+  OpenDeskBar(DeskBarViewBase::Type::kDeskButton);
+
+  auto* left_scroll_button = DesksTestApi::GetDeskBarLeftScrollButton(
+      DeskBarViewBase::Type::kDeskButton);
+  auto* right_scroll_button = DesksTestApi::GetDeskBarRightScrollButton(
+      DeskBarViewBase::Type::kDeskButton);
+  EXPECT_FALSE(left_scroll_button->GetVisible());
+  EXPECT_TRUE(right_scroll_button->GetVisible());
+
+  while (right_scroll_button->GetVisible()) {
+    ClickOrPressOnView(right_scroll_button);
+    EXPECT_TRUE(left_scroll_button->GetVisible());
+  }
+
+  while (left_scroll_button->GetVisible()) {
+    ClickOrPressOnView(left_scroll_button);
+    EXPECT_TRUE(right_scroll_button->GetVisible());
+  }
+
+  CloseDeskBar(DeskBarViewBase::Type::kDeskButton);
+}
+
+TEST_P(DeskButtonTest, DeskBarHoverBasic) {
+  auto window_1 = CreateAppWindow(gfx::Rect(0, 0, 100, 100));
+  auto window_2 = CreateAppWindow(gfx::Rect(0, 0, 100, 100));
+
+  NewDesk();
+
+  auto* desks_controller = DesksController::Get();
+  desks_controller->SendToDeskAtIndex(window_1.get(), 0);
+  desks_controller->SendToDeskAtIndex(window_2.get(), 1);
+
+  OpenDeskBar(DeskBarViewBase::Type::kDeskButton);
+
+  for (int i = 0; i < desks_controller->GetNumberOfDesks(); i++) {
+    auto* event_generator = GetEventGenerator();
+    auto* mini_view = desks_controller->desk_bar_controller()
+                          ->GetDeskBarView(Shell::GetPrimaryRootWindow())
+                          ->mini_views()[i];
+    event_generator->MoveMouseTo(
+        mini_view->desk_preview()->GetBoundsInScreen().CenterPoint());
+    EXPECT_TRUE(
+        mini_view->desk_action_view()->combine_desks_button()->GetVisible());
+    EXPECT_TRUE(
+        mini_view->desk_action_view()->close_all_button()->GetVisible());
+  }
+
+  CloseDeskBar(DeskBarViewBase::Type::kDeskButton);
+}
+
+// Tests that clicking on new desk button does the expected thing.
+TEST_P(DeskButtonTest, DeskBarNewDeskButton) {
+  OpenDeskBar(DeskBarViewBase::Type::kDeskButton);
+
+  auto* desks_controller = DesksController::Get();
+  auto* desk_bar_view = GetDeskBarView(DeskBarViewBase::Type::kDeskButton);
+  auto* new_desk_button = GetExpandedStateInnerNewDeskButton(desk_bar_view);
+
+  auto verify_disabled_new_desk_button = [&]() {
+    EXPECT_THAT(desks_controller->GetNumberOfDesks(),
+                desks_util::GetMaxNumberOfDesks());
+    EXPECT_FALSE(desks_controller->CanCreateDesks());
+    EXPECT_FALSE(new_desk_button->GetEnabled());
+    EXPECT_THAT(new_desk_button->GetState(), views::Button::STATE_DISABLED);
+    EXPECT_EQ(desks_controller->desks().size(),
+              desk_bar_view->mini_views().size());
+  };
+  auto verify_enabled_new_desk_button = [&]() {
+    EXPECT_LE(desks_controller->GetNumberOfDesks(),
+              (int)desks_util::GetMaxNumberOfDesks());
+    EXPECT_TRUE(desks_controller->CanCreateDesks());
+    EXPECT_TRUE(new_desk_button->GetEnabled());
+    EXPECT_NE(new_desk_button->GetState(), views::Button::STATE_DISABLED);
+    EXPECT_EQ(desks_controller->desks().size(),
+              desk_bar_view->mini_views().size());
+  };
+
+  // Create max number of desks.
+  for (int i = 2; i <= (int)desks_util::GetMaxNumberOfDesks(); i++) {
+    verify_enabled_new_desk_button();
+    ClickOrPressOnView(new_desk_button);
+    EXPECT_TRUE(desks_controller->CanRemoveDesks());
+    EXPECT_THAT(desks_controller->GetNumberOfDesks(), i);
+  }
+
+  // The new desk button should be disabled.
+  verify_disabled_new_desk_button();
+
+  // Clicking on the new desk button again does nothing now.
+  ClickOrPressOnView(new_desk_button);
+  verify_disabled_new_desk_button();
+
+  CloseDeskBar(DeskBarViewBase::Type::kDeskButton);
+}
+
+// Tests that we can go to saved desk library directly via desk button desk bar.
+TEST_P(DeskButtonTest, DeskBarLibraryButton) {
+  ui::ScopedAnimationDurationScaleMode animation_scale(
+      ui::ScopedAnimationDurationScaleMode::NON_ZERO_DURATION);
+
+  // Add a saved desk, so that the library button can show up.
+  AddSavedDeskEntry(desk_model(), base::Uuid::GenerateRandomV4(),
+                    "saved_desk_1", base::Time::Now(),
+                    DeskTemplateType::kSaveAndRecall);
+
+  auto test_library_button = [&](const std::string& trace_message) {
+    SCOPED_TRACE(trace_message);
+    OpenDeskBar(DeskBarViewBase::Type::kDeskButton);
+    EnterLibrary(DeskBarViewBase::Type::kDeskButton);
+    CloseDeskBar(DeskBarViewBase::Type::kDeskButton);
+  };
+
+  test_library_button("no app window");
+
+  auto window = CreateAppWindow(gfx::Rect(0, 0, 100, 100));
+  test_library_button("one app window");
+}
+
+// Tests that the desk button desk bar support dragging to reorder desks.
+TEST_P(DeskButtonTest, DeskBarReorderDesk) {
+  OpenDeskBar(DeskBarViewBase::Type::kDeskButton);
+
+  auto* desks_controller = DesksController::Get();
+  auto* desk_bar_view = GetDeskBarView(DeskBarViewBase::Type::kDeskButton);
+  auto* event_generator = GetEventGenerator();
+
+  // Create two more desks.
+  std::vector<std::string> desk_names = {"1", "2", "3"};
+  for (auto i = 0; auto desk_name : desk_names) {
+    if (desks_controller->GetNumberOfDesks() - 1 < i) {
+      NewDesk();
+    }
+    desks_controller->desks()[i]->SetName(base::UTF8ToUTF16(desk_name),
+                                          /*set_by_user=*/true);
+    EXPECT_EQ(desks_controller->desks().size(),
+              desk_bar_view->mini_views().size());
+    i++;
+  }
+  desks_restore_util::UpdatePrimaryUserDeskNamesPrefs();
+
+  auto verify_desks = [&]() {
+    for (int i = 0; i < desks_controller->GetNumberOfDesks(); i++) {
+      EXPECT_THAT(desks_controller->desks()[i]->name(),
+                  base::UTF8ToUTF16(desk_names[i]));
+    }
+    auto* prefs =
+        Shell::Get()->session_controller()->GetPrimaryUserPrefService();
+    VerifyDesksRestoreData(prefs, desk_names);
+  };
+
+  auto drag_desk = [&](int from, int to) {
+    SCOPED_TRACE("Swap desk " + base::NumberToString(from) + " with desk " +
+                 base::NumberToString(to));
+
+    // Drag the desk from `from` to `to`.
+    StartDragDeskPreview(desk_bar_view->mini_views()[from], event_generator);
+    EXPECT_TRUE(desk_bar_view->IsDraggingDesk());
+    event_generator->MoveMouseTo(desk_bar_view->mini_views()[to]
+                                     ->GetPreviewBoundsInScreen()
+                                     .CenterPoint());
+    event_generator->ReleaseLeftButton();
+    EXPECT_FALSE(desk_bar_view->IsDraggingDesk());
+
+    // Update `desk_names` with the expected order.
+    std::string dragged_desk = desk_names[from];
+    if (from <= to) {
+      for (int i = from + 1; i <= to; i++) {
+        desk_names[i - 1] = desk_names[i];
+      }
+    } else {
+      for (int i = from - 1; i >= to; i--) {
+        desk_names[i + 1] = desk_names[i];
+      }
+    }
+    desk_names[to] = dragged_desk;
+
+    // Verify desks are with expected order.
+    verify_desks();
+  };
+
+  verify_desks();
+  drag_desk(/*from=*/0, /*to=*/1);
+  drag_desk(/*from=*/1, /*to=*/2);
+  drag_desk(/*from=*/0, /*to=*/1);
+  drag_desk(/*from=*/2, /*to=*/0);
+
+  CloseDeskBar(DeskBarViewBase::Type::kDeskButton);
+}
+
+TEST_P(DeskButtonTest, DeskBarActivateDesk) {
+  auto* desks_controller = DesksController::Get();
+
+  NewDesk();
+  EXPECT_THAT(desks_controller->GetActiveDeskIndex(), 0);
+
+  OpenDeskBar(DeskBarViewBase::Type::kDeskButton);
+
+  // Clicking on active desk would *not* switch desk but just hide the bar.
+  ClickOrPressOnView(
+      GetDeskBarView(DeskBarViewBase::Type::kDeskButton)->mini_views()[0]);
+  EXPECT_THAT(desks_controller->GetActiveDeskIndex(), 0);
+  EXPECT_FALSE(GetDeskBarView(DeskBarViewBase::Type::kDeskButton));
+
+  // Clicking on non-active desk would switch desk and hide the bar.
+  OpenDeskBar(DeskBarViewBase::Type::kDeskButton);
+  DeskSwitchAnimationWaiter waiter;
+  ClickOrPressOnView(
+      GetDeskBarView(DeskBarViewBase::Type::kDeskButton)->mini_views()[1]);
+  waiter.Wait();
+  EXPECT_THAT(desks_controller->GetActiveDeskIndex(), 1);
+  EXPECT_FALSE(GetDeskBarView(DeskBarViewBase::Type::kDeskButton));
+}
+
+TEST_P(DeskButtonTest, DeskBarCombineOrCloseDesk) {
+  // Setup 3 desks, e.g. "Desk 1", "Desk 2", and "Desk 3". Only "Desk 3" has a
+  // window.
+  NewDesk();
+  NewDesk();
+  auto window = CreateAppWindow(gfx::Rect(0, 0, 100, 100));
+  auto* desks_controller = DesksController::Get();
+  desks_controller->SendToDeskAtIndex(window.get(), 2);
+
+  OpenDeskBar(DeskBarViewBase::Type::kDeskButton);
+
+  for (int desk_index = desks_controller->GetNumberOfDesks() - 1;
+       desk_index > 0; desk_index--) {
+    CloseDeskFromMiniView(GetDeskBarView(DeskBarViewBase::Type::kDeskButton)
+                              ->mini_views()[desk_index],
+                          GetEventGenerator());
+    EXPECT_THAT(
+        GetDeskBarView(DeskBarViewBase::Type::kDeskButton)->mini_views().size(),
+        desk_index);
+  }
+
+  CloseDeskBar(DeskBarViewBase::Type::kDeskButton);
 }
 
 // TODO(afakhry): Add more tests:
@@ -6877,8 +9176,51 @@ TEST_F(DragWindowToNewDeskTest, DragWindowAtMaximumDesksState) {
 // - Reusing containers when desks are removed and created.
 
 // Instantiate the parametrized tests.
-INSTANTIATE_TEST_SUITE_P(All, DesksTest, ::testing::Bool());
+
+// This is used for tests that test all combinations of 8/16 desks, enabled /
+// disabled feature flag `Jellyroll` as well as clicks/touch.
+constexpr DesksTestParams kAllCombinations[] = {
+    {.use_touch_gestures = false,
+     .use_16_desks = false,
+     .enable_jellyroll = false},
+    {.use_touch_gestures = false,
+     .use_16_desks = false,
+     .enable_jellyroll = true},
+    {.use_touch_gestures = false,
+     .use_16_desks = true,
+     .enable_jellyroll = false},
+    {.use_touch_gestures = false,
+     .use_16_desks = true,
+     .enable_jellyroll = true},
+    {.use_touch_gestures = true,
+     .use_16_desks = false,
+     .enable_jellyroll = false},
+    {.use_touch_gestures = true,
+     .use_16_desks = false,
+     .enable_jellyroll = true},
+    {.use_touch_gestures = true,
+     .use_16_desks = true,
+     .enable_jellyroll = false},
+    {.use_touch_gestures = true,
+     .use_16_desks = true,
+     .enable_jellyroll = true},
+};
+
+// This is used for tests that only want to test 8/16 desks.
+constexpr DesksTestParams kDeskCountOnly[] = {
+    {.use_16_desks = false},
+    {.use_16_desks = true},
+};
+
+INSTANTIATE_TEST_SUITE_P(All, DesksTest, ValuesIn(kAllCombinations));
+
+INSTANTIATE_TEST_SUITE_P(All, DesksEditableNamesTest, ValuesIn(kDeskCountOnly));
+INSTANTIATE_TEST_SUITE_P(All, TabletModeDesksTest, ValuesIn(kDeskCountOnly));
+INSTANTIATE_TEST_SUITE_P(All, DesksAcceleratorsTest, ValuesIn(kDeskCountOnly));
+INSTANTIATE_TEST_SUITE_P(All, DesksMockTimeTest, ValuesIn(kDeskCountOnly));
+INSTANTIATE_TEST_SUITE_P(All, DesksCloseAllTest, ValuesIn(kDeskCountOnly));
 INSTANTIATE_TEST_SUITE_P(All, PerDeskShelfTest, ::testing::Bool());
+INSTANTIATE_TEST_SUITE_P(All, DeskButtonTest, ValuesIn(kAllCombinations));
 
 }  // namespace
 

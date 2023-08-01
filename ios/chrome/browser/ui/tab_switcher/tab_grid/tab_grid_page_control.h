@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,18 +10,22 @@
 
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/tab_grid_paging.h"
 
+// Custom control events for the actions on the TabGridPageControl.
+extern UIControlEvents TabGridPageChangeByTapEvent;
+extern UIControlEvents TabGridPageChangeByDragEvent;
+
 // A three-sectioned control for selecting a page in the tab grid.
 // A "slider" is positioned over the section for the selected page.
 // This is a fixed-size control; it's an error to set  or change its size.
 // The sections are arranged in leading-to-trailing order:
 //   incognito tabs, regular tabs, remote tabs.
 //
-// Dragging the slider will change the value of the control's |sliderPosition|
+// Dragging the slider will change the value of the control's `sliderPosition`
 // property, and will trigger any UIControlEventValueChanged actions. Once a
 // drag is completed, the UIControlEventTouchUpInside actions are triggered.
 //
 // Tapping on sections of the slider will change the value of the control's
-// |selectedPage| property and will trigger any UIControlEventTouchUpInside
+// `selectedPage` property and will trigger any UIControlEventTouchUpInside
 // actions.
 @interface TabGridPageControl : UIControl
 
@@ -36,14 +40,21 @@
 // trailing side of the control. Setting this property will update the position
 // of the slider without animation. Setting a value below 0.0 or above 1.0 will
 // set 0.0 or 1.0 instead.
-// Setting this property may change the |selectedPage| property of the reciever,
+// Setting this property may change the `selectedPage` property of the reciever,
 // but will not cause any UIControl actions to be sent.
 @property(nonatomic, assign) CGFloat sliderPosition;
 
-// The numbers that the control should display in the appropriate sections.
+// The number of regular tabs that the control should display in the appropriate
+// sections.
 // Numbers less than 1 are not displayed.
 // Numbers greated than 99 are displayed as ':-)'.
 @property(nonatomic, assign) NSUInteger regularTabCount;
+
+// The number of pinned tabs that the control should display in the appropriate
+// sections.
+// Numbers less than 1 are not displayed.
+// Numbers greated than 99 are displayed as ':-)'.
+@property(nonatomic, assign) NSUInteger pinnedTabCount;
 
 // Create and return a new instance of this control. This is the preferred way
 // to create instances of this class.
@@ -55,9 +66,13 @@
 - (instancetype)initWithFrame:(CGRect)frame NS_UNAVAILABLE;
 - (instancetype)initWithCoder:(NSCoder*)aDecoder NS_UNAVAILABLE;
 
-// Set |selectedPage| as the selected page. If |animated| is YES, the
+// Set `selectedPage` as the selected page. If `animated` is YES, the
 // position change of the slider will be animated.
 - (void)setSelectedPage:(TabGridPage)selectedPage animated:(BOOL)animated;
+
+// Updates the appearance of the control, based on whether the content below it
+// is `scrolledToEdge` or not.
+- (void)setScrollViewScrolledToEdge:(BOOL)scrolledToEdge;
 
 @end
 

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@ import android.content.Context;
 
 import androidx.annotation.NonNull;
 
+import org.chromium.chrome.R;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabCreationState;
 import org.chromium.chrome.browser.tab.TabLaunchType;
@@ -19,7 +20,6 @@ import org.chromium.chrome.browser.tasks.tab_groups.EmptyTabGroupModelFilterObse
 import org.chromium.chrome.browser.tasks.tab_groups.TabGroupModelFilter;
 import org.chromium.chrome.browser.ui.messages.snackbar.Snackbar;
 import org.chromium.chrome.browser.ui.messages.snackbar.SnackbarManager;
-import org.chromium.chrome.tab_ui.R;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -27,7 +27,7 @@ import java.util.Locale;
 
 /**
  * A controller that listens to
- * {@link TabGroupModelFilter.Observer#didCreateGroup(List, List, boolean)} and shows a
+ * {@link TabGroupModelFilter.Observer#didCreateGroup(List, List, List)} and shows a
  * undo snackbar.
  */
 public class UndoGroupSnackbarController implements SnackbarManager.SnackbarController {
@@ -63,14 +63,14 @@ public class UndoGroupSnackbarController implements SnackbarManager.SnackbarCont
         mTabGroupModelFilterObserver = new EmptyTabGroupModelFilterObserver() {
             @Override
             public void didCreateGroup(
-                    List<Tab> tabs, List<Integer> tabOriginalIndex, boolean isSameGroup) {
+                    List<Tab> tabs, List<Integer> tabOriginalIndex, List<Integer> originalRootId) {
                 assert tabs.size() == tabOriginalIndex.size();
 
                 List<TabUndoInfo> tabUndoInfo = new ArrayList<>();
                 for (int i = 0; i < tabs.size(); i++) {
                     Tab tab = tabs.get(i);
                     int index = tabOriginalIndex.get(i);
-                    int groupId = isSameGroup ? tabs.get(0).getId() : tab.getId();
+                    int groupId = originalRootId.get(i);
 
                     tabUndoInfo.add(new TabUndoInfo(tab, index, groupId));
                 }
@@ -97,18 +97,18 @@ public class UndoGroupSnackbarController implements SnackbarManager.SnackbarCont
         mTabModelSelectorTabModelObserver =
                 new TabModelSelectorTabModelObserver(mTabModelSelector) {
                     @Override
-                    public void didAddTab(
-                            Tab tab, @TabLaunchType int type, @TabCreationState int creationState) {
+                    public void didAddTab(Tab tab, @TabLaunchType int type,
+                            @TabCreationState int creationState, boolean markedForSelection) {
                         mSnackbarManager.dismissSnackbars(UndoGroupSnackbarController.this);
                     }
 
                     @Override
-                    public void willCloseTab(Tab tab, boolean animate) {
+                    public void willCloseTab(Tab tab, boolean animate, boolean didCloseAlone) {
                         mSnackbarManager.dismissSnackbars(UndoGroupSnackbarController.this);
                     }
 
                     @Override
-                    public void didCloseTab(int tabId, boolean incognito) {
+                    public void onFinishingTabClosure(Tab tab) {
                         mSnackbarManager.dismissSnackbars(UndoGroupSnackbarController.this);
                     }
                 };
@@ -132,7 +132,13 @@ public class UndoGroupSnackbarController implements SnackbarManager.SnackbarCont
     }
 
     private void showUndoGroupSnackbar(List<TabUndoInfo> tabUndoInfo) {
-        String content = String.format(Locale.getDefault(), "%d", tabUndoInfo.size());
+        int mergedGroupSize = mTabModelSelector.getTabModelFilterProvider()
+                                      .getCurrentTabModelFilter()
+                                      .getRelatedTabIds(tabUndoInfo.get(0).tab.getId())
+                                      .size();
+        assert mergedGroupSize > 1;
+
+        String content = String.format(Locale.getDefault(), "%d", mergedGroupSize);
         mSnackbarManager.showSnackbar(
                 Snackbar.make(content, this, Snackbar.TYPE_ACTION,
                                 Snackbar.UMA_TAB_GROUP_MANUAL_CREATION_UNDO)

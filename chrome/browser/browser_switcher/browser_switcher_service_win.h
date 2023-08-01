@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include <string>
 
 #include "base/files/file_path.h"
+#include "base/task/sequenced_task_runner.h"
 #include "chrome/browser/browser_switcher/browser_switcher_service.h"
 
 namespace browser_switcher {
@@ -70,6 +71,7 @@ class BrowserSwitcherServiceWin : public BrowserSwitcherService {
   // extension, or from a previous Chrome version. Called during initialization.
   void DeleteSitelistCacheFile();
 
+  void PrefsFileDeleted(bool success);
   void CacheFileUpdated();
   void SitelistCacheFileUpdated();
 

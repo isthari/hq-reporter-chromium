@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -61,36 +61,22 @@ ChromeMediaRouterFactory::~ChromeMediaRouterFactory() = default;
 
 content::BrowserContext* ChromeMediaRouterFactory::GetBrowserContextToUse(
     content::BrowserContext* context) const {
-  return chrome::GetBrowserContextRedirectedInIncognito(context);
+  return base::FeatureList::IsEnabled(kMediaRouterOTRInstance)
+             ? context
+             : chrome::GetBrowserContextRedirectedInIncognito(context);
 }
 
 KeyedService* ChromeMediaRouterFactory::BuildServiceInstanceFor(
     BrowserContext* context) const {
-  if (!MediaRouterEnabled(context)) {
-    NOTREACHED();
-    return nullptr;
-  }
+  CHECK(MediaRouterEnabled(context));
   MediaRouterBase* media_router = nullptr;
 #if BUILDFLAG(IS_ANDROID)
   media_router = new MediaRouterAndroid();
 #else
   media_router = new MediaRouterDesktop(context);
-#endif
+#endif  // BUILDFLAG(IS_ANDROID)
   media_router->Initialize();
   return media_router;
-}
-
-void ChromeMediaRouterFactory::BrowserContextShutdown(
-    content::BrowserContext* context) {
-  // Notify the MediaRouter (which uses the normal/base proflie) of incognito
-  // profile shutdown.
-  if (context->IsOffTheRecord()) {
-    MediaRouter* router =
-        static_cast<MediaRouter*>(GetServiceForBrowserContext(context, false));
-    if (router)
-      router->OnIncognitoProfileShutdown();
-  }
-  BrowserContextKeyedServiceFactory::BrowserContextShutdown(context);
 }
 
 }  // namespace media_router

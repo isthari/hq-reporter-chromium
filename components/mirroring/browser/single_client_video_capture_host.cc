@@ -1,11 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/mirroring/browser/single_client_video_capture_host.h"
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/memory/weak_ptr.h"
 #include "base/token.h"
 #include "content/public/browser/web_contents_media_capture_id.h"
@@ -179,9 +179,24 @@ void SingleClientVideoCaptureHost::GetDeviceFormatsInUse(
   std::move(callback).Run(media::VideoCaptureFormats());
 }
 
+void SingleClientVideoCaptureHost::OnCaptureConfigurationChanged() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  // Ignore this call.
+}
+
 void SingleClientVideoCaptureHost::OnFrameDropped(
     const base::UnguessableToken& device_id,
     media::VideoCaptureFrameDropReason reason) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  // Ignore this call.
+}
+
+void SingleClientVideoCaptureHost::OnNewCropVersion(uint32_t crop_version) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  // Ignore this call.
+}
+
+void SingleClientVideoCaptureHost::OnFrameWithEmptyRegionCapture() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   // Ignore this call.
 }
@@ -303,7 +318,7 @@ void SingleClientVideoCaptureHost::OnDeviceLaunchAborted() {
 
 void SingleClientVideoCaptureHost::OnFinishedConsumingBuffer(
     int buffer_context_id,
-    const media::VideoCaptureFeedback& feedback) {
+    media::VideoCaptureFeedback feedback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(observer_);
   const auto buffer_context_iter = buffer_context_map_.find(buffer_context_id);
@@ -315,8 +330,8 @@ void SingleClientVideoCaptureHost::OnFinishedConsumingBuffer(
   VideoFrameConsumerFeedbackObserver* feedback_observer =
       launched_device_.get();
   if (feedback_observer && !feedback.Empty()) {
-    feedback_observer->OnUtilizationReport(buffer_context_iter->second.first,
-                                           feedback);
+    feedback.frame_id = buffer_context_iter->second.first;
+    feedback_observer->OnUtilizationReport(feedback);
   }
   buffer_context_map_.erase(buffer_context_iter);
   const auto retired_iter = retired_buffers_.find(buffer_context_id);

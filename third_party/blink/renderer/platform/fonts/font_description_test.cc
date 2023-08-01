@@ -25,14 +25,15 @@
 
 #include "third_party/blink/renderer/platform/fonts/font_description.h"
 
-#include "base/cxx17_backports.h"
-#include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/renderer/platform/testing/font_test_base.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 
 namespace blink {
 
-TEST(FontDescriptionTest, TestHashCollision) {
+class FontDescriptionTest : public FontTestBase {};
+
+TEST_F(FontDescriptionTest, TestHashCollision) {
   FontSelectionValue weights[] = {
       FontSelectionValue(100), FontSelectionValue(200),
       FontSelectionValue(300), FontSelectionValue(400),
@@ -50,11 +51,11 @@ TEST(FontDescriptionTest, TestHashCollision) {
 
   FontDescription source;
   WTF::Vector<unsigned> hashes;
-  for (size_t i = 0; i < base::size(weights); i++) {
+  for (size_t i = 0; i < std::size(weights); i++) {
     source.SetWeight(weights[i]);
-    for (size_t j = 0; j < base::size(stretches); j++) {
+    for (size_t j = 0; j < std::size(stretches); j++) {
       source.SetStretch(stretches[j]);
-      for (size_t k = 0; k < base::size(slopes); k++) {
+      for (size_t k = 0; k < std::size(slopes); k++) {
         source.SetStyle(slopes[k]);
         unsigned hash = source.StyleHashWithoutFamilyList();
         ASSERT_FALSE(hashes.Contains(hash));
@@ -64,7 +65,7 @@ TEST(FontDescriptionTest, TestHashCollision) {
   }
 }
 
-TEST(FontDescriptionTest, VariationSettingsIdentical) {
+TEST_F(FontDescriptionTest, VariationSettingsIdentical) {
   FontDescription a;
   FontDescription b(a);
 
@@ -84,13 +85,13 @@ TEST(FontDescriptionTest, VariationSettingsIdentical) {
   ASSERT_EQ(a, b);
 
   FontFaceCreationParams test_creation_params;
-  FontCacheKey cache_key_a = a.CacheKey(test_creation_params, false);
-  FontCacheKey cache_key_b = b.CacheKey(test_creation_params, false);
+  FontCacheKey cache_key_a = a.CacheKey(test_creation_params, false, false);
+  FontCacheKey cache_key_b = b.CacheKey(test_creation_params, false, false);
 
   ASSERT_EQ(cache_key_a, cache_key_b);
 }
 
-TEST(FontDescriptionTest, VariationSettingsDifferent) {
+TEST_F(FontDescriptionTest, VariationSettingsDifferent) {
   FontDescription a;
   FontDescription b(a);
 
@@ -111,8 +112,8 @@ TEST(FontDescriptionTest, VariationSettingsDifferent) {
 
   FontFaceCreationParams test_creation_params;
 
-  FontCacheKey cache_key_a = a.CacheKey(test_creation_params, false);
-  FontCacheKey cache_key_b = b.CacheKey(test_creation_params, false);
+  FontCacheKey cache_key_a = a.CacheKey(test_creation_params, false, false);
+  FontCacheKey cache_key_b = b.CacheKey(test_creation_params, false, false);
 
   ASSERT_NE(cache_key_a, cache_key_b);
 
@@ -130,13 +131,15 @@ TEST(FontDescriptionTest, VariationSettingsDifferent) {
 
   ASSERT_NE(a, b);
 
-  FontCacheKey second_cache_key_a = a.CacheKey(test_creation_params, false);
-  FontCacheKey second_cache_key_b = b.CacheKey(test_creation_params, false);
+  FontCacheKey second_cache_key_a =
+      a.CacheKey(test_creation_params, false, false);
+  FontCacheKey second_cache_key_b =
+      b.CacheKey(test_creation_params, false, false);
 
   ASSERT_NE(second_cache_key_a, second_cache_key_b);
 }
 
-TEST(FontDescriptionTest, PaletteDifferent) {
+TEST_F(FontDescriptionTest, PaletteDifferent) {
   FontDescription a;
   FontDescription b(a);
 
@@ -155,13 +158,39 @@ TEST(FontDescriptionTest, PaletteDifferent) {
 
   FontFaceCreationParams test_creation_params;
 
-  FontCacheKey cache_key_a = a.CacheKey(test_creation_params, false);
-  FontCacheKey cache_key_b = b.CacheKey(test_creation_params, false);
+  FontCacheKey cache_key_a = a.CacheKey(test_creation_params, false, false);
+  FontCacheKey cache_key_b = b.CacheKey(test_creation_params, false, false);
 
   ASSERT_NE(cache_key_a, cache_key_b);
 }
 
-TEST(FontDescriptionTest, ToString) {
+TEST_F(FontDescriptionTest, VariantAlternatesDifferent) {
+  FontDescription a;
+  FontDescription b(a);
+
+  scoped_refptr<FontVariantAlternates> variants_a =
+      FontVariantAlternates::Create();
+  variants_a->SetHistoricalForms();
+
+  scoped_refptr<FontVariantAlternates> variants_b =
+      FontVariantAlternates::Create();
+  variants_b->SetStyleset({"foo", "bar"});
+
+  ASSERT_NE(*variants_a, *variants_b);
+  ASSERT_EQ(*variants_a, *variants_a);
+  a.SetFontVariantAlternates(variants_a);
+  b.SetFontVariantAlternates(variants_b);
+
+  ASSERT_NE(a, b);
+
+  FontFaceCreationParams test_creation_params;
+  FontCacheKey key_a = a.CacheKey(test_creation_params, false, false);
+  FontCacheKey key_b = b.CacheKey(test_creation_params, false, false);
+
+  ASSERT_NE(key_a, key_b);
+}
+
+TEST_F(FontDescriptionTest, ToString) {
   FontDescription description;
 
   FontFamily family;
@@ -187,7 +216,7 @@ TEST(FontDescriptionTest, ToString) {
   description.SetSpecifiedSize(1.1f);
   description.SetComputedSize(2.2f);
   description.SetAdjustedSize(3.3f);
-  description.SetSizeAdjust(4.4f);
+  description.SetSizeAdjust(FontSizeAdjust(4.4f));
   description.SetLetterSpacing(5.5f);
   description.SetWordSpacing(6.6f);
 
@@ -216,12 +245,13 @@ TEST(FontDescriptionTest, ToString) {
       "numeric_spacing=NormalSpacing, numeric_fraction=Normal, ordinal=Off, "
       "slashed_zero=Off], variant_east_asian=[form=Normal, width=Normal, "
       "ruby=false], font_optical_sizing=Auto, font_synthesis_weight=Auto, "
-      "font_synthesis_style=Auto",
+      "font_synthesis_style=Auto, font_synthesis_small_caps=Auto, "
+      "font_variant_position=Normal",
       description.ToString());
 }
 
 // Verifies the correctness of the default hash trait of FontDescription.
-TEST(FontDescriptionTest, DefaultHashTrait) {
+TEST_F(FontDescriptionTest, DefaultHashTrait) {
   HashMap<FontDescription, int> map;
 
   FontDescription description1;
@@ -277,7 +307,7 @@ TEST(FontDescriptionTest, DefaultHashTrait) {
 }
 
 // https://crbug.com/1081017
-TEST(FontDescriptionTest, NegativeZeroEmFontSize) {
+TEST_F(FontDescriptionTest, NegativeZeroEmFontSize) {
   // 'font-size: -0.0em' sets the following
   FontDescription description1;
   description1.SetSpecifiedSize(-0.0);

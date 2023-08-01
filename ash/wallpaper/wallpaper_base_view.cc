@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,11 @@
 #include "ash/public/cpp/wallpaper/wallpaper_types.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
-#include "ash/style/ash_color_provider.h"
+#include "ash/style/ash_color_id.h"
 #include "ash/wallpaper/wallpaper_controller_impl.h"
 #include "base/numerics/safe_conversions.h"
+#include "cc/paint/paint_flags.h"
+#include "chromeos/constants/chromeos_features.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/canvas.h"
 
@@ -19,11 +21,22 @@ namespace {
 
 // Gets the shield color based on the state. This is used for the login, lock,
 // overview and tablet mode.
-SkColor GetWallpaperShieldColor() {
-  return AshColorProvider::Get()->GetShieldLayerColor(
-      Shell::Get()->session_controller()->IsUserSessionBlocked()
-          ? AshColorProvider::ShieldLayerType::kShield80
-          : AshColorProvider::ShieldLayerType::kShield40);
+SkColor GetWallpaperShieldColor(const views::Widget* widget) {
+  ui::ColorId color;
+
+  auto* controller = Shell::Get()->wallpaper_controller();
+  if (controller->IsOobeWallpaper()) {
+    color = chromeos::features::IsJellyrollEnabled()
+                ? cros_tokens::kCrosSysScrim2
+                : static_cast<ui::ColorId>(kColorAshShieldAndBase60);
+  } else {
+    color = Shell::Get()->session_controller()->IsUserSessionBlocked()
+                ? kColorAshShieldAndBase80
+                : kColorAshShieldAndBase40;
+  }
+
+  DCHECK(widget);
+  return widget->GetColorProvider()->GetColor(color);
 }
 
 }  // namespace
@@ -102,7 +115,12 @@ void WallpaperBaseView::OnPaint(gfx::Canvas* canvas) {
   }
 
   if (controller->ShouldApplyShield())
-    canvas->FillRect(GetLocalBounds(), GetWallpaperShieldColor());
+    canvas->FillRect(GetLocalBounds(), GetWallpaperShieldColor(GetWidget()));
+}
+
+void WallpaperBaseView::OnThemeChanged() {
+  views::View::OnThemeChanged();
+  SchedulePaint();
 }
 
 void WallpaperBaseView::DrawWallpaper(const gfx::ImageSkia& wallpaper,

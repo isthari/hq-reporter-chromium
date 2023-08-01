@@ -1,10 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/system_logs/crosapi_system_log_source.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "chrome/browser/ash/crosapi/fake_browser_manager.h"
 #include "content/public/test/browser_task_environment.h"
@@ -23,7 +23,7 @@ class CrosapiSystemLogSourceTest : public ::testing::Test {
 
   void SetUp() override {
     // Set Lacros in running state by default.
-    browser_manager_->set_is_running(true);
+    browser_manager_->StartRunning();
   }
 
  protected:
@@ -32,13 +32,13 @@ class CrosapiSystemLogSourceTest : public ::testing::Test {
                           base::Unretained(this));
   }
 
-  void SetupBrowserManagerResponse(base::Value response) {
+  void SetupBrowserManagerResponse(base::Value::Dict response) {
     browser_manager_->SetGetFeedbackDataResponse(std::move(response));
   }
 
   void SignalMojoDisconnected() { browser_manager_->SignalMojoDisconnected(); }
 
-  void SetLacrosNotRunning() { browser_manager_->set_is_running(false); }
+  void SetLacrosNotRunning() { browser_manager_->StopRunning(); }
 
   void SetWaitForMojoDisconnect() {
     browser_manager_->set_wait_for_mojo_disconnect(true);
@@ -69,8 +69,8 @@ class CrosapiSystemLogSourceTest : public ::testing::Test {
 TEST_F(CrosapiSystemLogSourceTest, OnFeedbackData) {
   // Set up FakeBrowserManager to send log data with 1 log entry for
   // the log source.
-  base::Value system_log_entries(base::Value::Type::DICTIONARY);
-  system_log_entries.SetStringKey("testing log key", "testing log content");
+  base::Value::Dict system_log_entries;
+  system_log_entries.Set("testing log key", "testing log content");
   SetupBrowserManagerResponse(std::move(system_log_entries));
 
   // Fetch log data and wait until fetch_callback() is called.

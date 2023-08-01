@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,11 @@
 #include <stddef.h>
 
 #include <memory>
-#include <set>
 
 #include "base/callback_list.h"
 #include "components/sync/model/syncable_service.h"
 #include "components/sync_sessions/local_session_event_router.h"
-#include "ios/chrome/browser/web_state_list/web_state_list_observer.h"
+#include "ios/chrome/browser/shared/model/web_state_list/web_state_list_observer.h"
 #include "ios/web/public/web_state_observer.h"
 
 class ChromeBrowserState;
@@ -29,6 +28,7 @@ class IOSChromeLocalSessionEventRouter
     : public sync_sessions::LocalSessionEventRouter {
  public:
   IOSChromeLocalSessionEventRouter(
+      // TODO(crbug.com/1450909): Pass a BrowserList directly instead.
       ChromeBrowserState* browser_state,
       sync_sessions::SyncSessionsClient* sessions_client_,
       const syncer::SyncableService::StartSyncFlare& flare);
@@ -84,10 +84,6 @@ class IOSChromeLocalSessionEventRouter
     IOSChromeLocalSessionEventRouter* router_;
   };
 
-  // Observation registrars for each browser state; each one owns an instance
-  // of IOSChromeLocalSessionEventRouter::Observer.
-  std::set<std::unique_ptr<AllWebStateListObservationRegistrar>> registrars_;
-
   // Called before the Batch operation starts for a web state list.
   void OnSessionEventStarting();
 
@@ -97,14 +93,18 @@ class IOSChromeLocalSessionEventRouter
   // Called when a tab is parented.
   void OnTabParented(web::WebState* web_state);
 
-  // Called on observation of a change in |web_state|.
+  // Called on observation of a change in `web_state`.
   void OnWebStateChange(web::WebState* web_state);
 
-  sync_sessions::LocalSessionEventHandler* handler_;
+  // Observation registrar for the associated browser list; owns an instance
+  // of IOSChromeLocalSessionEventRouter::Observer.
+  std::unique_ptr<AllWebStateListObservationRegistrar> const registrar_;
+
+  sync_sessions::LocalSessionEventHandler* handler_ = nullptr;
   sync_sessions::SyncSessionsClient* const sessions_client_;
   syncer::SyncableService::StartSyncFlare flare_;
 
-  base::CallbackListSubscription tab_parented_subscription_;
+  base::CallbackListSubscription const tab_parented_subscription_;
 
   // Track the number of WebStateList we are observing that are in a batch
   // operation.

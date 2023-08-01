@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include "ash/quick_pair/common/logging.h"
 #include "ash/quick_pair/fast_pair_handshake/fast_pair_data_encryptor.h"
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "device/bluetooth/bluetooth_adapter.h"
 #include "device/bluetooth/bluetooth_device.h"
 
@@ -75,15 +75,28 @@ void FakeFastPairGattServiceClient::WritePasskeyAsync(
 void FakeFastPairGattServiceClient::WriteAccountKey(
     std::array<uint8_t, 16> account_key,
     FastPairDataEncryptor* fast_pair_data_encryptor,
-    base::OnceCallback<
-        void(absl::optional<device::BluetoothGattService::GattErrorCode>)>
+    base::OnceCallback<void(absl::optional<ash::quick_pair::AccountKeyFailure>)>
         write_account_key_callback) {
   write_account_key_callback_ = std::move(write_account_key_callback);
 }
 
 void FakeFastPairGattServiceClient::RunWriteAccountKeyCallback(
-    absl::optional<device::BluetoothGattService::GattErrorCode> error) {
-  std::move(write_account_key_callback_).Run(error);
+    absl::optional<AccountKeyFailure> failure) {
+  std::move(write_account_key_callback_).Run(failure);
+}
+
+void FakeFastPairGattServiceClient::WritePersonalizedName(
+    const std::string& name,
+    const std::string& provider_address,
+    FastPairDataEncryptor* fast_pair_data_encryptor,
+    base::OnceCallback<void(absl::optional<PairFailure>)>
+        write_additional_data_callback) {
+  write_personalized_name_callback_ = std::move(write_additional_data_callback);
+}
+
+void FakeFastPairGattServiceClient::RunWritePersonalizedNameCallback(
+    absl::optional<PairFailure> failure) {
+  std::move(write_personalized_name_callback_).Run(failure);
 }
 
 }  // namespace quick_pair

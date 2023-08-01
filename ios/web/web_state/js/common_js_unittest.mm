@@ -1,14 +1,14 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <stddef.h>
 #import <Foundation/Foundation.h>
+#import <stddef.h>
 
-#include "base/cxx17_backports.h"
-#include "base/strings/sys_string_conversions.h"
-#import "ios/web/public/test/web_test_with_web_state.h"
-#include "testing/gtest/include/gtest/gtest.h"
+#import "base/strings/sys_string_conversions.h"
+#import "ios/web/public/test/javascript_test.h"
+#import "ios/web/public/test/js_test_util.h"
+#import "testing/gtest/include/gtest/gtest.h"
 #import "testing/gtest_mac.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -38,7 +38,18 @@ struct TestScriptAndExpectedValue {
 namespace web {
 
 // Test fixture to test common.js.
-typedef web::WebTestWithWebState CommonJsTest;
+class CommonJsTest : public web::JavascriptTest {
+ protected:
+  CommonJsTest() {}
+  ~CommonJsTest() override {}
+
+  void SetUp() override {
+    web::JavascriptTest::SetUp();
+
+    AddGCrWebScript();
+    AddCommonScript();
+  }
+};
 
 // Tests __gCrWeb.common.isTextField JavaScript API.
 TEST_F(CommonJsTest, IsTestField) {
@@ -86,12 +97,14 @@ TEST_F(CommonJsTest, IsTestField) {
       {"state", 0, false},
       {"cars", 0, false},
       {"submit", 0, false}};
-  for (size_t i = 0; i < base::size(testElements); ++i) {
+  for (size_t i = 0; i < std::size(testElements); ++i) {
     TextFieldTestElement element = testElements[i];
-    id result = ExecuteJavaScript([NSString
-        stringWithFormat:@"__gCrWeb.common.isTextField("
-                          "window.document.getElementsByName('%s')[%d])",
-                         element.element_name, element.element_index]);
+    id result = web::test::ExecuteJavaScript(
+        web_view(),
+        [NSString
+            stringWithFormat:@"__gCrWeb.common.isTextField("
+                              "window.document.getElementsByName('%s')[%d])",
+                             element.element_name, element.element_index]);
     EXPECT_NSEQ(element.expected_is_text_field ? @YES : @NO, result)
         << element.element_name << " with index " << element.element_index
         << " isTextField(): " << element.expected_is_text_field;
@@ -130,12 +143,12 @@ TEST_F(CommonJsTest, Stringify) {
       {@"__gCrWeb.stringify(undefined)", @"undefined"},
   };
 
-  for (size_t i = 0; i < base::size(test_data); i++) {
+  for (size_t i = 0; i < std::size(test_data); i++) {
     TestScriptAndExpectedValue& data = test_data[i];
     // Load a sample HTML page. As a side-effect, loading HTML via
-    // |webController_| will also inject web_bundle.js.
+    // `webController_` will also inject web_bundle.js.
     LoadHtml(@"<p>");
-    id result = ExecuteJavaScript(data.test_script);
+    id result = web::test::ExecuteJavaScript(web_view(), data.test_script);
     EXPECT_NSEQ(data.expected_value, result)
         << " in test " << i << ": "
         << base::SysNSStringToUTF8(data.test_script);
@@ -161,38 +174,16 @@ TEST_F(CommonJsTest, RemoveQueryAndReferenceFromURL) {
       {@"data:abc", @"data:abc"},
       {@"javascript:login()", @"javascript:login()"},
   };
-  for (size_t i = 0; i < base::size(test_data); i++) {
+  for (size_t i = 0; i < std::size(test_data); i++) {
     LoadHtml(@"<p>");
     TestData& data = test_data[i];
-    id result = ExecuteJavaScript(
+    id result = web::test::ExecuteJavaScript(
+        web_view(),
         [NSString stringWithFormat:
                       @"__gCrWeb.common.removeQueryAndReferenceFromURL('%@')",
                       data.input_url]);
     EXPECT_NSEQ(data.expected_output, result)
         << " in test " << i << ": " << base::SysNSStringToUTF8(data.input_url);
-  }
-}
-
-TEST_F(CommonJsTest, IsSameOrigin) {
-  TestScriptAndExpectedValue test_data[] = {
-      {@"'', ''", @NO},
-      {@"'http://abc.com', ''", @NO},
-      {@"'', 'http://abc.com'", @NO},
-      {@"'http://abc.com', 'http://abc.com'", @YES},
-      {@"'http://abc.com',  'https://abc.com'", @NO},
-      {@"'http://abc.com', 'http://abc.com:123'", @NO},
-      {@"'http://abc.com', 'http://def.com'", @NO},
-      {@"'http://abc.com/def', 'http://abc.com/xyz'", @YES}};
-
-  for (size_t i = 0; i < base::size(test_data); i++) {
-    TestScriptAndExpectedValue& data = test_data[i];
-    LoadHtml(@"<p>");
-    id result = ExecuteJavaScript(
-        [NSString stringWithFormat:@"__gCrWeb.common.isSameOrigin(%@)",
-                                   data.test_script]);
-    EXPECT_NSEQ(data.expected_value, result)
-        << " in test " << i << ": "
-        << base::SysNSStringToUTF8(data.test_script);
   }
 }
 

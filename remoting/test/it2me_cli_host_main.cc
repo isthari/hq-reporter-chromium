@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include "base/task/single_thread_task_executor.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "build/build_config.h"
-#include "mojo/core/embedder/embedder.h"
+#include "remoting/base/mojo_util.h"
 #include "remoting/host/resources.h"
 #include "remoting/test/it2me_cli_host.h"
 
@@ -35,7 +35,7 @@ int main(int argc, char const* argv[]) {
   remoting::It2MeCliHost cli_host;
 
   base::ThreadPoolInstance::CreateAndStartWithDefaultParams("It2MeCliHost");
-  mojo::core::Init();
+  remoting::InitializeMojo();
   remoting::LoadResources("");
 
   cli_host.Start();

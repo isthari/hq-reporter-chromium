@@ -1,14 +1,16 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/wm/wm_event.h"
 
+#include "ash/wm/window_positioning_utils.h"
+
 namespace ash {
 
 WMEvent::WMEvent(WMEventType type) : type_(type) {
-  DCHECK(IsWorkspaceEvent() || IsCompoundEvent() || IsBoundsEvent() ||
-         IsTransitionEvent());
+  CHECK(IsWorkspaceEvent() || IsCompoundEvent() || IsBoundsEvent() ||
+        IsTransitionEvent());
 }
 
 WMEvent::~WMEvent() = default;
@@ -69,7 +71,6 @@ bool WMEvent::IsTransitionEvent() const {
     case WM_EVENT_NORMAL:
     case WM_EVENT_MAXIMIZE:
     case WM_EVENT_MINIMIZE:
-    case WM_EVENT_TOGGLE_FLOATING:
     case WM_EVENT_FULLSCREEN:
     case WM_EVENT_SNAP_PRIMARY:
     case WM_EVENT_SNAP_SECONDARY:
@@ -78,11 +79,29 @@ bool WMEvent::IsTransitionEvent() const {
     case WM_EVENT_PIN:
     case WM_EVENT_TRUSTED_PIN:
     case WM_EVENT_PIP:
+    case WM_EVENT_FLOAT:
       return true;
     default:
       break;
   }
   return false;
+}
+
+bool WMEvent::IsSnapEvent() const {
+  switch (type_) {
+    case WM_EVENT_SNAP_PRIMARY:
+    case WM_EVENT_SNAP_SECONDARY:
+    case WM_EVENT_CYCLE_SNAP_PRIMARY:
+    case WM_EVENT_CYCLE_SNAP_SECONDARY:
+      return true;
+    default:
+      break;
+  }
+  return false;
+}
+
+const WindowSnapWMEvent* WMEvent::AsSnapEvent() const {
+  return nullptr;
 }
 
 const DisplayMetricsChangedWMEvent* WMEvent::AsDisplayMetricsChangedWMEvent()
@@ -107,6 +126,36 @@ SetBoundsWMEvent::SetBoundsWMEvent(const gfx::Rect& requested_bounds,
       animate_(false) {}
 
 SetBoundsWMEvent::~SetBoundsWMEvent() = default;
+
+WindowSnapWMEvent::WindowSnapWMEvent(WMEventType type) : WMEvent(type) {
+  CHECK(IsSnapEvent());
+}
+
+WindowSnapWMEvent::WindowSnapWMEvent(WMEventType type, float snap_ratio)
+    : WMEvent(type), snap_ratio_(snap_ratio) {
+  CHECK(IsSnapEvent());
+}
+
+WindowSnapWMEvent::WindowSnapWMEvent(WMEventType type,
+                                     WindowSnapActionSource snap_action_source)
+    : WMEvent(type), snap_action_source_(snap_action_source) {
+  CHECK(IsSnapEvent());
+}
+
+WindowSnapWMEvent::WindowSnapWMEvent(WMEventType type,
+                                     float snap_ratio,
+                                     WindowSnapActionSource snap_action_source)
+    : WMEvent(type),
+      snap_ratio_(snap_ratio),
+      snap_action_source_(snap_action_source) {
+  CHECK(IsSnapEvent());
+}
+
+WindowSnapWMEvent::~WindowSnapWMEvent() = default;
+
+const WindowSnapWMEvent* WindowSnapWMEvent::AsSnapEvent() const {
+  return this;
+}
 
 DisplayMetricsChangedWMEvent::DisplayMetricsChangedWMEvent(int changed_metrics)
     : WMEvent(WM_EVENT_DISPLAY_BOUNDS_CHANGED),

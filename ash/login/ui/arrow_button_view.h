@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,8 @@
 #include <memory>
 
 #include "ash/login/ui/login_button.h"
+#include "base/memory/raw_ptr.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/gfx/animation/animation_delegate.h"
 #include "ui/views/controls/image_view.h"
@@ -46,6 +48,10 @@ class ArrowButtonView : public LoginButton {
   // the animation is looped.
   void EnableLoadingAnimation(bool enabled);
 
+  void SetBackgroundColorId(ui::ColorId color_id) {
+    background_color_id_ = color_id;
+  }
+
  private:
   // Helper class that translates events from the loading animation events into
   // scheduling painting.
@@ -61,11 +67,12 @@ class ArrowButtonView : public LoginButton {
     void AnimationProgressed(const gfx::Animation* animation) override;
 
    private:
-    ArrowButtonView* const owner_;
+    const raw_ptr<ArrowButtonView, ExperimentalAsh> owner_;
   };
 
   LoadingAnimationDelegate loading_animation_delegate_{this};
   std::unique_ptr<gfx::MultiAnimation> loading_animation_;
+  absl::optional<ui::ColorId> background_color_id_;
 };
 
 }  // namespace ash

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,15 @@
 #include <memory>
 #include <string>
 
+#include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
+#include "build/chromeos_buildflags.h"
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "components/variations/cros/featured.pb.h"
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 class PrefRegistrySimple;
 class PrefService;
@@ -35,7 +42,14 @@ class VariationsSeedStore;
 // Overall, the only {platform, channel} combinations that spike above 3
 // consecutive crashes are ones with very few users, plus Canary. It's probably
 // not realistic to avoid false positives for these less-stable configurations.
-constexpr int kCrashStreakThreshold = 3;
+constexpr int kCrashStreakSafeSeedThreshold = 3;
+constexpr int kCrashStreakNullSeedThreshold = 6;
+
+enum class SeedType {
+  kRegularSeed,
+  kSafeSeed,
+  kNullSeed,
+};
 
 // The primary class that encapsulates state for managing the safe seed.
 class SafeSeedManager {
@@ -52,9 +66,11 @@ class SafeSeedManager {
   // Registers safe mode prefs in Local State.
   static void RegisterPrefs(PrefRegistrySimple* registry);
 
-  // Returns true iff the client should use the safe seed for variations state.
+  // Returns the type of seed the client should use.  Uses Regular seed by
+  // default, but will use Safe seed, and Null seed after continual crashes or
+  // network fetch failures.
   // Virtual for testing.
-  virtual bool ShouldRunInSafeMode() const;
+  virtual SeedType GetSeedType() const;
 
   // Stores the combined server and client state that control the active
   // variations state. May be called at most once per Chrome app launch. As an
@@ -77,6 +93,8 @@ class SafeSeedManager {
   void RecordSuccessfulFetch(VariationsSeedStore* seed_store);
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(SafeSeedManagerTest, GetSafeSeedStateForPlatform);
+
   // The combined server and client state needed to save an active seed as a
   // safe seed. Not set when running in safe mode.
   struct ActiveSeedState {
@@ -112,6 +130,28 @@ class SafeSeedManager {
   // The pref service used to persist the variations seed. Weak reference; must
   // outlive |this| instance.
   raw_ptr<PrefService> local_state_;
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  // Gets the combined server and client state used for early boot variations
+  // platform disaster recovery.
+  featured::SeedDetails GetSafeSeedStateForPlatform();
+
+  // Retries sending the safe seed to platform. Does not retry after two failed
+  // attempts.
+  void MaybeRetrySendSafeSeed(const featured::SeedDetails& safe_seed,
+                              bool success);
+
+  // Sends the safe seed to the platform.
+  void SendSafeSeedToPlatform(const featured::SeedDetails& safe_seed);
+
+  // A counter that keeps track of how many times the current safe seed is sent
+  // to platform.
+  size_t send_seed_to_platform_attempts_ = 0;
+
+  // Note: This should remain the last member so it'll be destroyed and
+  // invalidate its weak pointers before any other members are destroyed.
+  base::WeakPtrFactory<SafeSeedManager> weak_ptr_factory_{this};
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 };
 
 }  // namespace variations

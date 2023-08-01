@@ -1,10 +1,11 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef COMPONENTS_PAGE_LOAD_METRICS_BROWSER_OBSERVERS_CORE_UMA_PAGE_LOAD_METRICS_OBSERVER_H_
 #define COMPONENTS_PAGE_LOAD_METRICS_BROWSER_OBSERVERS_CORE_UMA_PAGE_LOAD_METRICS_OBSERVER_H_
 
+#include "base/time/time.h"
 #include "components/page_load_metrics/browser/observers/click_input_tracker.h"
 #include "components/page_load_metrics/browser/page_load_metrics_observer.h"
 #include "content/public/browser/navigation_handle_timing.h"
@@ -16,53 +17,33 @@ namespace internal {
 // specified by the ".Background" suffix. For these events, we put them into the
 // background histogram if the web contents was ever in the background from
 // navigation start to the event in question.
+extern const char kHistogramNumInteractions[];
 extern const char
     kHistogramAverageUserInteractionLatencyOverBudgetMaxEventDuration[];
-extern const char
-    kHistogramSlowUserInteractionLatencyOverBudgetHighPercentileMaxEventDuration
-        [];
 extern const char
     kHistogramSlowUserInteractionLatencyOverBudgetHighPercentile2MaxEventDuration
         [];
 extern const char
+    kHistogramUserInteractionLatencyHighPercentile2MaxEventDuration[];
+extern const char
     kHistogramSumOfUserInteractionLatencyOverBudgetMaxEventDuration[];
 extern const char kHistogramWorstUserInteractionLatencyMaxEventDuration[];
-extern const char
-    kHistogramWorstUserInteractionLatencyOverBudgetMaxEventDuration[];
-extern const char
-    kHistogramAverageUserInteractionLatencyOverBudgetTotalEventDuration[];
-extern const char
-    kHistogramSlowUserInteractionLatencyOverBudgetHighPercentileTotalEventDuration
-        [];
-extern const char
-    kHistogramSlowUserInteractionLatencyOverBudgetHighPercentile2TotalEventDuration
-        [];
-extern const char
-    kHistogramSumOfUserInteractionLatencyOverBudgetTotalEventDuration[];
-extern const char kHistogramWorstUserInteractionLatencyTotalEventDuration[];
-extern const char
-    kHistogramWorstUserInteractionLatencyOverBudgetTotalEventDuration[];
 extern const char kHistogramFirstInputDelay[];
 extern const char kHistogramFirstInputTimestamp[];
 extern const char kHistogramFirstInputDelay4[];
 extern const char kHistogramFirstInputTimestamp4[];
-extern const char kHistogramLongestInputDelay[];
-extern const char kHistogramLongestInputTimestamp[];
 extern const char kHistogramFirstPaint[];
 extern const char kHistogramFirstImagePaint[];
 extern const char kHistogramDomContentLoaded[];
 extern const char kHistogramLoad[];
 extern const char kHistogramFirstContentfulPaint[];
-extern const char kHistogramFirstMeaningfulPaint[];
 extern const char kHistogramLargestContentfulPaint[];
 extern const char kHistogramLargestContentfulPaintContentType[];
 extern const char kHistogramLargestContentfulPaintMainFrame[];
 extern const char kHistogramLargestContentfulPaintMainFrameContentType[];
 extern const char kHistogramLargestContentfulPaintCrossSiteSubFrame[];
-extern const char kHistogramParseDuration[];
 extern const char kHistogramParseBlockedOnScriptLoad[];
 extern const char kHistogramParseBlockedOnScriptExecution[];
-extern const char kHistogramParseStartToFirstMeaningfulPaint[];
 
 extern const char kBackgroundHistogramFirstImagePaint[];
 extern const char kBackgroundHistogramDomContentLoaded[];
@@ -82,8 +63,6 @@ extern const char kHistogramUserGestureNavigationToForwardBack[];
 extern const char kHistogramPageTimingForegroundDuration[];
 extern const char kHistogramPageTimingForegroundDurationNoCommit[];
 
-extern const char kHistogramFirstMeaningfulPaintStatus[];
-
 extern const char kHistogramCachedResourceLoadTimePrefix[];
 extern const char kHistogramCommitSentToFirstSubresourceLoadStart[];
 extern const char kHistogramNavigationToFirstSubresourceLoadStart[];
@@ -92,38 +71,14 @@ extern const char kHistogramTotalSubresourceLoadTimeAtFirstContentfulPaint[];
 extern const char kHistogramFirstEligibleToPaint[];
 extern const char kHistogramFirstEligibleToPaintToFirstPaint[];
 
-extern const char kHistogramFirstNonScrollInputAfterFirstPaint[];
-extern const char kHistogramFirstScrollInputAfterFirstPaint[];
-
-extern const char kHistogramPageLoadTotalBytes[];
-extern const char kHistogramPageLoadNetworkBytes[];
-extern const char kHistogramPageLoadCacheBytes[];
-extern const char kHistogramPageLoadNetworkBytesIncludingHeaders[];
-extern const char kHistogramPageLoadUnfinishedBytes[];
-
 extern const char kHistogramPageLoadCpuTotalUsage[];
 extern const char kHistogramPageLoadCpuTotalUsageForegrounded[];
-
-extern const char kHistogramLoadTypeTotalBytesForwardBack[];
-extern const char kHistogramLoadTypeNetworkBytesForwardBack[];
-extern const char kHistogramLoadTypeCacheBytesForwardBack[];
-
-extern const char kHistogramLoadTypeTotalBytesReload[];
-extern const char kHistogramLoadTypeNetworkBytesReload[];
-extern const char kHistogramLoadTypeCacheBytesReload[];
-
-extern const char kHistogramLoadTypeTotalBytesNewNavigation[];
-extern const char kHistogramLoadTypeNetworkBytesNewNavigation[];
-extern const char kHistogramLoadTypeCacheBytesNewNavigation[];
 
 extern const char kHistogramInputToNavigation[];
 extern const char kBackgroundHistogramInputToNavigation[];
 extern const char kHistogramInputToNavigationLinkClick[];
 extern const char kHistogramInputToNavigationOmnibox[];
-extern const char kHistogramInputToFirstPaint[];
-extern const char kBackgroundHistogramInputToFirstPaint[];
 extern const char kHistogramInputToFirstContentfulPaint[];
-extern const char kBackgroundHistogramInputToFirstContentfulPaint[];
 extern const char kHistogramBackForwardCacheEvent[];
 
 // Navigation metrics from the navigation start.
@@ -158,16 +113,6 @@ extern const char
 extern const char kHistogramMemoryMainframe[];
 extern const char kHistogramMemorySubframeAggregate[];
 extern const char kHistogramMemoryTotal[];
-extern const char kHistogramMemoryUpdateReceived[];
-
-enum FirstMeaningfulPaintStatus {
-  FIRST_MEANINGFUL_PAINT_RECORDED,
-  FIRST_MEANINGFUL_PAINT_BACKGROUNDED,
-  FIRST_MEANINGFUL_PAINT_DID_NOT_REACH_NETWORK_STABLE,
-  FIRST_MEANINGFUL_PAINT_USER_INTERACTION_BEFORE_FMP,
-  FIRST_MEANINGFUL_PAINT_DID_NOT_REACH_FIRST_CONTENTFUL_PAINT,
-  FIRST_MEANINGFUL_PAINT_LAST_ENTRY
-};
 
 // Please keep in sync with PageLoadBackForwardCacheEvent in
 // tools/metrics/histograms/enums.xml. These values should not be renumbered.
@@ -194,10 +139,15 @@ class UmaPageLoadMetricsObserver
   ~UmaPageLoadMetricsObserver() override;
 
   // page_load_metrics::PageLoadMetricsObserver:
+  const char* GetObserverName() const override;
+  ObservePolicy OnFencedFramesStart(
+      content::NavigationHandle* navigation_handle,
+      const GURL& currently_committed_url) override;
+  ObservePolicy OnPrerenderStart(content::NavigationHandle* navigation_handle,
+                                 const GURL& currently_committed_url) override;
   ObservePolicy OnRedirect(
       content::NavigationHandle* navigation_handle) override;
-  ObservePolicy OnCommit(content::NavigationHandle* navigation_handle,
-                         ukm::SourceId source_id) override;
+  ObservePolicy OnCommit(content::NavigationHandle* navigation_handle) override;
   void OnDomContentLoadedEventStart(
       const page_load_metrics::mojom::PageLoadTiming& timing) override;
   void OnLoadEventStart(
@@ -207,8 +157,6 @@ class UmaPageLoadMetricsObserver
   void OnFirstImagePaintInPage(
       const page_load_metrics::mojom::PageLoadTiming& timing) override;
   void OnFirstContentfulPaintInPage(
-      const page_load_metrics::mojom::PageLoadTiming& timing) override;
-  void OnFirstMeaningfulPaintInMainFrameDocument(
       const page_load_metrics::mojom::PageLoadTiming& timing) override;
   void OnFirstInputInPage(
       const page_load_metrics::mojom::PageLoadTiming& timing) override;
@@ -286,16 +234,6 @@ class UmaPageLoadMetricsObserver
   // The CPU usage attributed to this page.
   base::TimeDelta total_cpu_usage_;
   base::TimeDelta foreground_cpu_usage_;
-
-  // Size of the redirect chain, which excludes the first URL.
-  int redirect_chain_size_;
-
-  // True if we've received a non-scroll input (touch tap or mouse up)
-  // after first paint has happened.
-  bool received_non_scroll_input_after_first_paint_ = false;
-
-  // True if we've received a scroll input after first paint has happened.
-  bool received_scroll_input_after_first_paint_ = false;
 
   base::TimeTicks first_paint_;
 

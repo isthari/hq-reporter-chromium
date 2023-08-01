@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,9 @@
 #include <memory>
 #include <string>
 
-#include "base/callback.h"
 #include "base/feature_list.h"
 #include "base/files/file_path.h"
+#include "base/functional/callback.h"
 #include "base/memory/ref_counted.h"
 #include "base/supports_user_data.h"
 #include "base/task/sequenced_task_runner.h"
@@ -28,6 +28,8 @@ class ProtoDatabaseProvider;
 
 namespace feature_engagement {
 
+class Configuration;
+
 // A handle for the display lock. While this is unreleased, no in-product help
 // can be displayed.
 class DisplayLockHandle {
@@ -42,6 +44,34 @@ class DisplayLockHandle {
 
  private:
   ReleaseCallback release_callback_;
+};
+
+// A class that can export events from another tracking system to the Tracker so
+// they can be migrated.
+class TrackerEventExporter {
+ public:
+  // Struct to hold data about one event to migrate. |day| should be the number
+  // of days since the UNIX epoch.
+  struct EventData {
+   public:
+    std::string event_name;
+    uint32_t day;
+
+    EventData(std::string event_name, uint32_t day)
+        : event_name(event_name), day(day) {}
+  };
+
+  virtual ~TrackerEventExporter() = default;
+
+  // The tracker will call this once its own initialization has mostly completed
+  // to ask for any new events to add.
+  using ExportEventsCallback =
+      base::OnceCallback<void(const std::vector<EventData> events)>;
+
+  // Asks the class to load any events to export and provide them back to the
+  // tracker via |callback|. |callback| must be called on the same thread that
+  // this method was invoked on.
+  virtual void ExportEvents(ExportEventsCallback callback) = 0;
 };
 
 // The Tracker provides a backend for displaying feature
@@ -112,7 +142,8 @@ class Tracker : public KeyedService, public base::SupportsUserData {
   static Tracker* Create(
       const base::FilePath& storage_dir,
       const scoped_refptr<base::SequencedTaskRunner>& background_task_runner,
-      leveldb_proto::ProtoDatabaseProvider* db_provider);
+      leveldb_proto::ProtoDatabaseProvider* db_provider,
+      base::WeakPtr<TrackerEventExporter> event_exporter);
 
   Tracker(const Tracker&) = delete;
   Tracker& operator=(const Tracker&) = delete;
@@ -227,6 +258,9 @@ class Tracker : public KeyedService, public base::SupportsUserData {
   // will still be invoked with the result. The callback is guaranteed to be
   // invoked exactly one time.
   virtual void AddOnInitializedCallback(OnInitializedCallback callback) = 0;
+
+  // Returns the configuration associated with the tracker for testing purposes.
+  virtual const Configuration* GetConfigurationForTesting() const = 0;
 
  protected:
   Tracker() = default;

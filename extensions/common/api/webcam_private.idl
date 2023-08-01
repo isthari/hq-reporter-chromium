@@ -1,8 +1,9 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // Webcam Private API.
+[modernised_enums]
 namespace webcamPrivate {
   enum PanDirection { stop, right, left };
   enum TiltDirection { stop, up, down };

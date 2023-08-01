@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -22,17 +22,21 @@
 #define BASE_STRINGS_STRING_PIECE_H_
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include <algorithm>
 #include <iosfwd>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <type_traits>
 
 #include "base/base_export.h"
+#include "base/check.h"
 #include "base/check_op.h"
-#include "base/strings/char_traits.h"
-#include "base/strings/string_piece_forward.h"
+#include "base/compiler_specific.h"
+#include "base/cxx20_is_constant_evaluated.h"
+#include "base/strings/string_piece_forward.h"  // IWYU pragma: export
 #include "build/build_config.h"
 
 namespace base {
@@ -96,7 +100,7 @@ BASE_EXPORT size_t find_last_not_of(WStringPiece self,
 // Mirrors the C++17 version of std::basic_string_view<> as closely as possible,
 // except where noted below.
 template <typename CharT, typename Traits>
-class BasicStringPiece {
+class GSL_POINTER BasicStringPiece {
  public:
   using traits_type = Traits;
   using value_type = CharT;
@@ -115,12 +119,17 @@ class BasicStringPiece {
   constexpr BasicStringPiece(const BasicStringPiece& other) noexcept = default;
   constexpr BasicStringPiece& operator=(const BasicStringPiece& view) noexcept =
       default;
-  constexpr BasicStringPiece(const CharT* s, size_type count)
-      : ptr_(s), length_(count) {}
-  // Note: This doesn't just use traits_type::length(), since that
-  // isn't constexpr until C++17.
+  constexpr BasicStringPiece(const CharT* s, size_t count)
+      : ptr_(s), length_(count) {
+    // Intentional STL deviation: Check the string length fits in
+    // `difference_type`. No valid buffer can exceed this type, otherwise
+    // pointer arithmetic would not be defined. This helps avoid bugs where
+    // `count` was computed from an underflow or negative sentinel value.
+    CHECK(length_ <= size_t{PTRDIFF_MAX});
+  }
+  // NOLINTNEXTLINE(google-explicit-constructor)
   constexpr BasicStringPiece(const CharT* s)
-      : ptr_(s), length_(s ? CharTraits<CharT>::length(s) : 0) {
+      : ptr_(s), length_(s ? traits_type::length(s) : 0) {
     // Intentional STL deviation: Null-check instead of UB.
     CHECK(s);
   }
@@ -130,6 +139,7 @@ class BasicStringPiece {
   // `BasicStringPiece(nullptr_t) = delete`, but unfortunately the terse form is
   // not supported by the PNaCl toolchain.
   template <class T, class = std::enable_if_t<std::is_null_pointer<T>::value>>
+  // NOLINTNEXTLINE(google-explicit-constructor)
   BasicStringPiece(T) {
     static_assert(sizeof(T) == 0,  // Always false.
                   "StringPiece does not support construction from nullptr, use "
@@ -140,10 +150,23 @@ class BasicStringPiece {
   // (an object convertible to) a std::basic_string_view, as well as an explicit
   // cast operator to a std::basic_string_view, but (obviously) not from/to a
   // BasicStringPiece.
+  // NOLINTNEXTLINE(google-explicit-constructor)
   BasicStringPiece(const std::basic_string<CharT>& str)
       : ptr_(str.data()), length_(str.size()) {}
   explicit operator std::basic_string<CharT>() const {
     return std::basic_string<CharT>(data(), size());
+  }
+
+  // Provide implicit conversions from/to the STL version, for interoperability
+  // with non-Chromium code.
+  // TODO(crbug.com/691162): These will be moot when BasicStringPiece is
+  // replaced with std::basic_string_view.
+  // NOLINTNEXTLINE(google-explicit-constructor)
+  constexpr BasicStringPiece(std::basic_string_view<CharT> str)
+      : ptr_(str.data()), length_(str.size()) {}
+  // NOLINTNEXTLINE(google-explicit-constructor)
+  constexpr operator std::basic_string_view<CharT>() const {
+    return std::basic_string_view<CharT>(data(), size());
   }
 
   constexpr const_iterator begin() const noexcept { return ptr_; }
@@ -228,7 +251,7 @@ class BasicStringPiece {
 
   constexpr int compare(BasicStringPiece v) const noexcept {
     const size_type rlen = std::min(size(), v.size());
-    const int result = CharTraits<CharT>::compare(data(), v.data(), rlen);
+    const int result = traits_type::compare(data(), v.data(), rlen);
     if (result != 0)
       return result;
     if (size() == v.size())
@@ -281,7 +304,7 @@ class BasicStringPiece {
       return npos;
 
     const const_pointer result =
-        base::CharTraits<CharT>::find(data() + pos, size() - pos, ch);
+        traits_type::find(data() + pos, size() - pos, ch);
     return result ? static_cast<size_type>(result - data()) : npos;
   }
   constexpr size_type find(const CharT* s,
@@ -605,13 +628,15 @@ BASE_EXPORT std::ostream& operator<<(std::ostream& o, WStringPiece piece);
 // Stand-ins for the STL's std::hash<> specializations.
 template <typename StringPieceType>
 struct StringPieceHashImpl {
+  using is_transparent = void;  // to allow for heterogenous lookup
+
   // This is a custom hash function. We don't use the ones already defined for
   // string and std::u16string directly because it would require the string
   // constructors to be called, which we don't want.
-  std::size_t operator()(StringPieceType sp) const {
-    std::size_t result = 0;
+  size_t operator()(StringPieceType sp) const {
+    size_t result = 0;
     for (auto c : sp)
-      result = (result * 131) + c;
+      result = (result * 131) + static_cast<size_t>(c);
     return result;
   }
 };

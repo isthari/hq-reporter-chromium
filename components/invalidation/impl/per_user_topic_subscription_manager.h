@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "base/observer_list.h"
 #include "base/sequence_checker.h"
 #include "base/timer/timer.h"
+#include "base/values.h"
 #include "components/invalidation/impl/channels_states.h"
 #include "components/invalidation/impl/per_user_topic_subscription_request.h"
 #include "components/invalidation/public/identity_provider.h"
@@ -48,8 +49,7 @@ class INVALIDATION_EXPORT PerUserTopicSubscriptionManager {
       IdentityProvider* identity_provider,
       PrefService* pref_service,
       network::mojom::URLLoaderFactory* url_loader_factory,
-      const std::string& project_id,
-      bool migrate_prefs);
+      const std::string& project_id);
   PerUserTopicSubscriptionManager(
       const PerUserTopicSubscriptionManager& other) = delete;
   PerUserTopicSubscriptionManager& operator=(
@@ -61,8 +61,7 @@ class INVALIDATION_EXPORT PerUserTopicSubscriptionManager {
       IdentityProvider* identity_provider,
       PrefService* pref_service,
       network::mojom::URLLoaderFactory* url_loader_factory,
-      const std::string& project_id,
-      bool migrate_prefs);
+      const std::string& project_id);
 
   // RegisterProfilePrefs and RegisterPrefs register the same prefs, because on
   // device level (sign in screen, device local account) we spin up separate
@@ -92,7 +91,7 @@ class INVALIDATION_EXPORT PerUserTopicSubscriptionManager {
   void AddObserver(Observer* observer);
   void RemoveObserver(Observer* observer);
 
-  base::DictionaryValue CollectDebugData() const;
+  base::Value::Dict CollectDebugData() const;
 
   virtual absl::optional<Topic> LookupSubscribedPublicTopicByPrivateTopic(
       const std::string& private_topic) const;
@@ -143,8 +142,6 @@ class INVALIDATION_EXPORT PerUserTopicSubscriptionManager {
   const raw_ptr<network::mojom::URLLoaderFactory> url_loader_factory_;
 
   const std::string project_id_;
-
-  const bool migrate_prefs_;
 
   // Subscription or unsubscription requests that are either scheduled or
   // started, but not finished yet.

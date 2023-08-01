@@ -1,11 +1,11 @@
 include_rules = [
-  "+ash/components/account_manager",
+  "+chromeos/ash/components/account_manager",
   "+components/account_manager_core",
   "+components/content_settings",
   "+components/google/core",
   "+components/image_fetcher/core",
   "+components/keyed_service/core",
-  "+components/os_crypt",
+  "+components/os_crypt/sync",
   "+components/prefs",
   "+components/sync_preferences",
   # Subdirectories of //components/signin must explicitly allow deps on each

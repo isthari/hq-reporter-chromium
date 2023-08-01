@@ -1,9 +1,6 @@
 {
     "0": {
         "benchmarks": {
-            "jetstream": {
-                "abridged": false
-            },
             "jetstream2": {
                 "abridged": false
             }
@@ -11,21 +8,34 @@
     },
     "1": {
         "benchmarks": {
-            "kraken": {
-                "abridged": false
-            },
             "octane": {
                 "abridged": false
             }
         }
     },
+    "2": {
+        "benchmarks": {
+            "speedometer2": {
+                "abridged": false
+            }
+        }
+    },
+    "3": {
+        "benchmarks": {}
+    },
+    "4": {
+        "benchmarks": {}
+    },
     "extra_infos": {
-        "num_stories": 4,
-        "predicted_min_shard_time": 20,
-        "predicted_min_shard_index": 0,
-        "predicted_max_shard_time": 20,
+        "num_stories": 3,
+        "predicted_min_shard_time": 0,
+        "predicted_min_shard_index": 3,
+        "predicted_max_shard_time": 91.0,
         "predicted_max_shard_index": 0,
-        "shard #0": 20,
-        "shard #1": 20
+        "shard #0": 91.0,
+        "shard #1": 38.0,
+        "shard #2": 46.0,
+        "shard #3": 0,
+        "shard #4": 0
     }
 }

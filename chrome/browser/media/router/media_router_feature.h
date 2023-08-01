@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,7 @@
 #define CHROME_BROWSER_MEDIA_ROUTER_MEDIA_ROUTER_FEATURE_H_
 
 #include "base/feature_list.h"
-#include "base/time/time.h"
 #include "build/build_config.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class PrefRegistrySimple;
 class PrefService;
@@ -26,40 +24,50 @@ bool MediaRouterEnabled(content::BrowserContext* context);
 // process.
 void ClearMediaRouterStoredPrefsForTesting();
 
-#if !BUILDFLAG(IS_ANDROID)
+// If enabled, separate Media Router instances will be created for normal and
+// off-the-record profiles.
+BASE_DECLARE_FEATURE(kMediaRouterOTRInstance);
+
+#if BUILDFLAG(IS_ANDROID)
+// If enabled, the sink discovery on Caf MRP is run asynchronously when the main
+// thread is idle.
+BASE_DECLARE_FEATURE(kCafMRPDeferredDiscovery);
+
+// If enabled, and the HTMLMediaElement source changes (e.g. started observing
+// new source, and stopped observing the first one), the new source is cast
+// instead.
+BASE_DECLARE_FEATURE(kCastAnotherContentWhileCasting);
+#else
 
 // Enables the media router. Can be disabled in tests unrelated to
 // Media Router where it interferes. Can also be useful to disable for local
 // development on Mac because DIAL local discovery opens a local port
 // and triggers a permission prompt.
-extern const base::Feature kMediaRouter;
+BASE_DECLARE_FEATURE(kMediaRouter);
 
 // If enabled, allows Media Router to connect to Cast devices on all IP
 // addresses, not just RFC1918/RFC4193 private addresses. Workaround for
 // https://crbug.com/813974.
-extern const base::Feature kCastAllowAllIPsFeature;
+BASE_DECLARE_FEATURE(kCastAllowAllIPsFeature);
 
 // Determine whether global media controls are used to start and stop casting.
-extern const base::Feature kGlobalMediaControlsCastStartStop;
+BASE_DECLARE_FEATURE(kGlobalMediaControlsCastStartStop);
 
 // If enabled, allows all websites to request to start mirroring via
 // Presentation API. If disabled, only the allowlisted sites can do so.
-extern const base::Feature kAllowAllSitesToInitiateMirroring;
+BASE_DECLARE_FEATURE(kAllowAllSitesToInitiateMirroring);
 
-// If enabled, HTTP requests for DIAL can only be made to URLs that contain the
-// target device IP address.
-// TODO(crbug.com/1270509): Remove this base::Feature once fully launched.
-extern const base::Feature kDialEnforceUrlIPAddress;
+// If enabled, the Cast Media Route Provider starts a session without
+// terminating any existing session on the same sink.
+BASE_DECLARE_FEATURE(kStartCastSessionWithoutTerminating);
 
-namespace prefs {
-// Pref name for the enterprise policy for allowing Cast devices on all IPs.
-constexpr char kMediaRouterCastAllowAllIPs[] =
-    "media_router.cast_allow_all_ips";
-// Pref name for the per-profile randomly generated token to include with the
-// hash when externalizing MediaSink IDs.
-constexpr char kMediaRouterReceiverIdHashToken[] =
-    "media_router.receiver_id_hash_token";
-}  // namespace prefs
+// If enabled, sinks that do not support presentation or remote playback, will
+// fall back to audio tab mirroring when casting from the Global Media Controls.
+BASE_DECLARE_FEATURE(kFallbackToAudioTabMirroring);
+
+// If enabled, a separate 'stop' button is shown for connected sinks in the Cast
+// dialog instead of the entire sink button being a stop button.
+BASE_DECLARE_FEATURE(kCastDialogStopButton);
 
 // Registers |kMediaRouterCastAllowAllIPs| with local state pref |registry|.
 void RegisterLocalStatePrefs(PrefRegistrySimple* registry);
@@ -83,7 +91,6 @@ bool DialMediaRouteProviderEnabled();
 // Returns true if global media controls are used to start and stop casting and
 // Media Router is enabled for |context|.
 bool GlobalMediaControlsCastStartStopEnabled(content::BrowserContext* context);
-
 #endif  // !BUILDFLAG(IS_ANDROID)
 
 }  // namespace media_router

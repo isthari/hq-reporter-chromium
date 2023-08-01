@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -139,11 +139,13 @@ class NGInlineItemsBuilderTemplate {
 
   OffsetMappingBuilder& GetOffsetMappingBuilder() { return mapping_builder_; }
 
+  void SetHasInititialLetterBox();
   void SetIsSymbolMarker();
 
   bool ShouldAbort() const { return false; }
 
   // Functions change |LayoutObject| states.
+  bool ShouldUpdateLayoutObject() const;
   void ClearInlineFragment(LayoutObject*);
   void ClearNeedsLayout(LayoutObject*);
   void UpdateShouldCreateBoxFragment(LayoutInline*);
@@ -176,9 +178,9 @@ class NGInlineItemsBuilderTemplate {
   struct BoxInfo {
     DISALLOW_NEW();
 
+    const ComputedStyle& style;
     unsigned item_index;
     bool should_create_box_fragment;
-    bool may_have_margin_;
     FontHeight text_metrics;
 
     BoxInfo(unsigned item_index, const NGInlineItem& item);
@@ -193,9 +195,12 @@ class NGInlineItemsBuilderTemplate {
 
   const bool is_text_combine_;
   bool has_bidi_controls_ = false;
+  bool has_initial_letter_box_ = false;
   bool has_ruby_ = false;
   bool is_block_level_ = true;
   bool has_unicode_bidi_plain_text_ = false;
+  bool is_bisect_line_break_disabled_ = false;
+  bool is_score_line_break_disabled_ = false;
 
   // Append a character.
   // Currently this function is for adding control characters such as
@@ -254,6 +259,10 @@ CORE_EXPORT bool
 NGInlineItemsBuilderTemplate<NGOffsetMappingBuilder>::AppendTextReusing(
     const NGInlineNodeData&,
     LayoutText*);
+
+template <>
+CORE_EXPORT bool NGInlineItemsBuilderTemplate<
+    NGOffsetMappingBuilder>::ShouldUpdateLayoutObject() const;
 
 template <>
 CORE_EXPORT void

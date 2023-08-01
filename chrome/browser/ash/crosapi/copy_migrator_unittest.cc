@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -47,9 +47,9 @@ class CopyMigratorTest : public ::testing::Test {
     ASSERT_TRUE(user_data_dir_.CreateUniqueTempDir());
     from_dir_ = user_data_dir_.GetPath().Append("user");
 
-    ASSERT_TRUE(base::WriteFile(user_data_dir_.GetPath().Append(
-                                    kFirstRun) /* .../'First Run' */,
-                                "", 0) == 0);
+    ASSERT_TRUE(base::WriteFile(
+        user_data_dir_.GetPath().Append(kFirstRun) /* .../'First Run' */,
+        base::StringPiece()));
     ASSERT_TRUE(base::CreateDirectory(
         from_dir_.Append(kDownloads) /* .../user/Downloads/ */));
     ASSERT_TRUE(base::CreateDirectory(from_dir_.Append(
@@ -59,30 +59,28 @@ class CopyMigratorTest : public ::testing::Test {
             .Append(
                 kDownloads) /* .../user/Affiliation Database/Downloads/ */));
     ASSERT_TRUE(base::WriteFile(from_dir_.Append(kCache) /* .../user/Cache/ */,
-                                kDataContent, kFileSize));
+                                kDataContent));
     ASSERT_TRUE(base::WriteFile(
         from_dir_.Append(kFullRestoreData) /* .../user/FullRestoreData/ */,
-        kDataContent, kFileSize));
+        kDataContent));
     ASSERT_TRUE(
         base::WriteFile(from_dir_.Append(kDownloads)
                             .Append(kDataFile) /* .../user/Downloads/data */,
-                        kDataContent, kFileSize));
-    ASSERT_TRUE(
-        base::WriteFile(from_dir_.Append(kCookies) /* .../user/Cookies */,
-                        kDataContent, kFileSize));
-    ASSERT_TRUE(
-        base::WriteFile(from_dir_.Append(kBookmarks) /* .../user/Bookmarks */,
-                        kDataContent, kFileSize));
+                        kDataContent));
+    ASSERT_TRUE(base::WriteFile(
+        from_dir_.Append(kCookies) /* .../user/Cookies */, kDataContent));
+    ASSERT_TRUE(base::WriteFile(
+        from_dir_.Append(kBookmarks) /* .../user/Bookmarks */, kDataContent));
     ASSERT_TRUE(base::WriteFile(
         from_dir_.Append(kAffiliationDatabase)
             .Append(kDataFile) /* .../user/Affiliation Database/data */,
-        kDataContent, kFileSize));
+        kDataContent));
     ASSERT_TRUE(base::WriteFile(
         from_dir_.Append(kAffiliationDatabase)
             .Append(kDownloads)
             .Append(
                 kDataFile) /* .../user/Affiliation Database/Downloads/data */,
-        kDataContent, kFileSize));
+        kDataContent));
   }
 
   void TearDown() override { EXPECT_TRUE(user_data_dir_.Delete()); }
@@ -101,7 +99,7 @@ TEST_F(CopyMigratorTest, SetupTmpDir) {
           from_dir_, browser_data_migrator_util::ItemType::kLacros);
   browser_data_migrator_util::TargetItems need_copy_items =
       browser_data_migrator_util::GetTargetItems(
-          from_dir_, browser_data_migrator_util::ItemType::kNeedCopy);
+          from_dir_, browser_data_migrator_util::ItemType::kNeedCopyForCopy);
   FakeMigrationProgressTracker progress_tracker;
   EXPECT_TRUE(CopyMigrator::SetupTmpDir(lacros_items, need_copy_items, tmp_dir,
                                         cancel_flag.get(), &progress_tracker));
@@ -141,7 +139,7 @@ TEST_F(CopyMigratorTest, CancelSetupTmpDir) {
           from_dir_, browser_data_migrator_util::ItemType::kLacros);
   browser_data_migrator_util::TargetItems need_copy_items =
       browser_data_migrator_util::GetTargetItems(
-          from_dir_, browser_data_migrator_util::ItemType::kNeedCopy);
+          from_dir_, browser_data_migrator_util::ItemType::kNeedCopyForCopy);
 
   // Set cancel_flag to cancel migrationl.
   cancel_flag->Set();
@@ -219,6 +217,21 @@ TEST_F(CopyMigratorTest, MigrateInternal) {
                                      CopyMigrator::FinalStatus::kSuccess, 1);
   histogram_tester.ExpectBucketCount(kCopiedDataSize,
                                      kFileSize * 4 / (1024 * 1024), 1);
+}
+
+TEST_F(CopyMigratorTest, MigrateInternalOutOfDisk) {
+  // Emulate the situation of out-of-disk.
+  browser_data_migrator_util::ScopedExtraBytesRequiredToBeFreedForTesting
+      scoped_extra_bytes(100);
+
+  // Run the migration.
+  auto result = CopyMigrator::MigrateInternal(
+      from_dir_, std::make_unique<FakeMigrationProgressTracker>(),
+      base::MakeRefCounted<browser_data_migrator_util::CancelFlag>());
+
+  EXPECT_EQ(BrowserDataMigrator::ResultKind::kFailed,
+            result.data_migration_result.kind);
+  EXPECT_EQ(100u, result.data_migration_result.required_size);
 }
 
 }  // namespace ash

@@ -1,21 +1,24 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/core/paint/text_painter.h"
 
 #include <memory>
+
+#include "cc/paint/paint_op.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/core/css/css_primitive_value.h"
 #include "third_party/blink/renderer/core/css/css_property_names.h"
 #include "third_party/blink/renderer/core/css_value_keywords.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
-#include "third_party/blink/renderer/core/layout/api/line_layout_text.h"
 #include "third_party/blink/renderer/core/paint/paint_info.h"
 #include "third_party/blink/renderer/core/style/shadow_data.h"
 #include "third_party/blink/renderer/core/style/shadow_list.h"
 #include "third_party/blink/renderer/core/testing/core_unit_test_helper.h"
+#include "third_party/blink/renderer/platform/graphics/paint/drawing_display_item.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_controller.h"
+#include "third_party/skia/include/core/SkTextBlob.h"
 
 namespace blink {
 namespace {
@@ -28,7 +31,7 @@ class TextPainterTest : public RenderingTest {
         context_(*paint_controller_) {}
 
  protected:
-  LineLayoutText GetLineLayoutText() { return LineLayoutText(layout_text_); }
+  const LayoutText& GetLayoutText() { return *layout_text_; }
 
   PaintInfo CreatePaintInfoForBackground() {
     return PaintInfo(context_, CullRect(),
@@ -63,7 +66,7 @@ TEST_F(TextPainterTest, TextPaintingStyle_Simple) {
   UpdateAllLifecyclePhasesForTest();
 
   TextPaintStyle text_style = TextPainter::TextPaintingStyle(
-      GetLineLayoutText().GetDocument(), GetLineLayoutText().StyleRef(),
+      GetLayoutText().GetDocument(), GetLayoutText().StyleRef(),
       CreatePaintInfoForBackground());
   EXPECT_EQ(Color(0, 0, 255), text_style.fill_color);
   EXPECT_EQ(Color(0, 0, 255), text_style.stroke_color);
@@ -87,7 +90,7 @@ TEST_F(TextPainterTest, TextPaintingStyle_AllProperties) {
   UpdateAllLifecyclePhasesForTest();
 
   TextPaintStyle text_style = TextPainter::TextPaintingStyle(
-      GetLineLayoutText().GetDocument(), GetLineLayoutText().StyleRef(),
+      GetLayoutText().GetDocument(), GetLayoutText().StyleRef(),
       CreatePaintInfoForBackground());
   EXPECT_EQ(Color(255, 0, 0), text_style.fill_color);
   EXPECT_EQ(Color(0, 255, 0), text_style.stroke_color);
@@ -117,7 +120,7 @@ TEST_F(TextPainterTest, TextPaintingStyle_UsesTextAsClip) {
   UpdateAllLifecyclePhasesForTest();
 
   TextPaintStyle text_style = TextPainter::TextPaintingStyle(
-      GetLineLayoutText().GetDocument(), GetLineLayoutText().StyleRef(),
+      GetLayoutText().GetDocument(), GetLayoutText().StyleRef(),
       CreatePaintInfoForTextClip());
   EXPECT_EQ(Color::kBlack, text_style.fill_color);
   EXPECT_EQ(Color::kBlack, text_style.stroke_color);
@@ -145,7 +148,7 @@ TEST_F(TextPainterTest,
   UpdateLayoutText();
 
   TextPaintStyle text_style = TextPainter::TextPaintingStyle(
-      GetLineLayoutText().GetDocument(), GetLineLayoutText().StyleRef(),
+      GetLayoutText().GetDocument(), GetLayoutText().StyleRef(),
       CreatePaintInfoForBackground());
   EXPECT_EQ(Color(255, 0, 0), text_style.fill_color);
   EXPECT_EQ(Color(0, 255, 0), text_style.stroke_color);
@@ -170,11 +173,73 @@ TEST_F(TextPainterTest, TextPaintingStyle_ForceBackgroundToWhite_Darkened) {
   UpdateLayoutText();
 
   TextPaintStyle text_style = TextPainter::TextPaintingStyle(
-      GetLineLayoutText().GetDocument(), GetLineLayoutText().StyleRef(),
+      GetLayoutText().GetDocument(), GetLayoutText().StyleRef(),
       CreatePaintInfoForBackground());
   EXPECT_EQ(Color(255, 220, 220).Dark(), text_style.fill_color);
   EXPECT_EQ(Color(220, 255, 220).Dark(), text_style.stroke_color);
   EXPECT_EQ(Color(220, 220, 255).Dark(), text_style.emphasis_mark_color);
+}
+
+TEST_F(TextPainterTest, CachedTextBlob) {
+  auto& paint_controller = GetDocument().View()->GetPaintControllerForTesting();
+  auto* item =
+      DynamicTo<DrawingDisplayItem>(paint_controller.GetDisplayItemList()[1]);
+  ASSERT_TRUE(item);
+  auto* op = static_cast<const cc::DrawTextBlobOp*>(
+      &item->GetPaintRecord().GetFirstOp());
+  ASSERT_EQ(cc::PaintOpType::DrawTextBlob, op->GetType());
+  cc::PaintFlags flags = op->flags;
+  sk_sp<SkTextBlob> blob = op->blob;
+
+  // Should reuse text blob on color change.
+  GetDocument().body()->SetInlineStyleProperty(CSSPropertyID::kColor, "red");
+  UpdateAllLifecyclePhasesForTest();
+  item =
+      DynamicTo<DrawingDisplayItem>(paint_controller.GetDisplayItemList()[1]);
+  ASSERT_TRUE(item);
+  op = static_cast<const cc::DrawTextBlobOp*>(
+      &item->GetPaintRecord().GetFirstOp());
+  ASSERT_EQ(cc::PaintOpType::DrawTextBlob, op->GetType());
+  EXPECT_FALSE(flags.EqualsForTesting(op->flags));
+  flags = op->flags;
+  EXPECT_EQ(blob, op->blob);
+
+  // Should not reuse text blob on font-size change.
+  GetDocument().body()->SetInlineStyleProperty(CSSPropertyID::kFontSize,
+                                               "30px");
+  UpdateAllLifecyclePhasesForTest();
+  item =
+      DynamicTo<DrawingDisplayItem>(paint_controller.GetDisplayItemList()[1]);
+  ASSERT_TRUE(item);
+  op = static_cast<const cc::DrawTextBlobOp*>(
+      &item->GetPaintRecord().GetFirstOp());
+  ASSERT_EQ(cc::PaintOpType::DrawTextBlob, op->GetType());
+  EXPECT_TRUE(flags.EqualsForTesting(op->flags));
+  EXPECT_NE(blob, op->blob);
+  blob = op->blob;
+
+  // Should not reuse text blob on text content change.
+  GetDocument().body()->firstChild()->setTextContent("Hello, Hello");
+  UpdateAllLifecyclePhasesForTest();
+  item =
+      DynamicTo<DrawingDisplayItem>(paint_controller.GetDisplayItemList()[1]);
+  ASSERT_TRUE(item);
+  op = static_cast<const cc::DrawTextBlobOp*>(
+      &item->GetPaintRecord().GetFirstOp());
+  ASSERT_EQ(cc::PaintOpType::DrawTextBlob, op->GetType());
+  EXPECT_TRUE(flags.EqualsForTesting(op->flags));
+  EXPECT_NE(blob, op->blob);
+
+  // In dark mode, the text should be drawn with dark mode flags.
+  GetDocument().GetSettings()->SetForceDarkModeEnabled(true);
+  UpdateAllLifecyclePhasesForTest();
+  item =
+      DynamicTo<DrawingDisplayItem>(paint_controller.GetDisplayItemList()[1]);
+  ASSERT_TRUE(item);
+  op = static_cast<const cc::DrawTextBlobOp*>(
+      &item->GetPaintRecord().GetFirstOp());
+  ASSERT_EQ(cc::PaintOpType::DrawTextBlob, op->GetType());
+  EXPECT_FALSE(flags.EqualsForTesting(op->flags));
 }
 
 }  // namespace

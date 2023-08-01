@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,12 +9,17 @@
 
 namespace blink {
 
+class Platform;
+
 class BlinkInitializer : public ModulesInitializer {
  public:
   void RegisterInterfaces(mojo::BinderMap&) override;
   void OnClearWindowObjectInMainWorld(Document&,
                                       const Settings&) const override;
   void InitLocalFrame(LocalFrame&) const override;
+
+  void InitServiceWorkerGlobalScope(ServiceWorkerGlobalScope&) const override;
+  void RegisterMemoryWatchers(Platform*);
 };
 
 }  // namespace blink

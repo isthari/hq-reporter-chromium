@@ -1,18 +1,22 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_ASH_LOGIN_REPORTING_LOGIN_LOGOUT_REPORTER_H_
 #define CHROME_BROWSER_ASH_LOGIN_REPORTING_LOGIN_LOGOUT_REPORTER_H_
 
-#include "ash/components/login/auth/auth_status_consumer.h"
-#include "base/containers/queue.h"
+#include <memory>
+
+#include "base/memory/raw_ptr.h"
 #include "base/scoped_observation.h"
+#include "base/time/clock.h"
+#include "base/time/default_clock.h"
 #include "chrome/browser/ash/policy/status_collector/managed_session_service.h"
 #include "chrome/browser/policy/messaging_layer/proto/synced/login_logout_event.pb.h"
 #include "chrome/browser/profiles/profile.h"
-#include "components/policy/core/common/cloud/dm_token.h"
-#include "components/reporting/client/report_queue_provider.h"
+#include "chromeos/ash/components/login/auth/auth_status_consumer.h"
+
+class PrefRegistrySimple;
 
 namespace reporting {
 
@@ -21,6 +25,9 @@ class UserEventReporterHelper;
 }  // namespace reporting
 
 namespace ash {
+
+class AuthFailure;
+
 namespace reporting {
 
 class LoginLogoutReporter : public policy::ManagedSessionService::Observer {
@@ -31,8 +38,6 @@ class LoginLogoutReporter : public policy::ManagedSessionService::Observer {
 
     Delegate(const Delegate& other) = delete;
     Delegate& operator=(const Delegate& other) = delete;
-    Delegate(const Delegate&& other) = delete;
-    Delegate& operator=(const Delegate&& other) = delete;
 
     virtual ~Delegate() = default;
 
@@ -43,8 +48,6 @@ class LoginLogoutReporter : public policy::ManagedSessionService::Observer {
 
   LoginLogoutReporter(const LoginLogoutReporter& other) = delete;
   LoginLogoutReporter& operator=(const LoginLogoutReporter& other) = delete;
-  LoginLogoutReporter(const LoginLogoutReporter&& other) = delete;
-  LoginLogoutReporter& operator=(const LoginLogoutReporter&& other) = delete;
 
   ~LoginLogoutReporter() override;
 
@@ -53,7 +56,11 @@ class LoginLogoutReporter : public policy::ManagedSessionService::Observer {
 
   static std::unique_ptr<LoginLogoutReporter> CreateForTest(
       std::unique_ptr<::reporting::UserEventReporterHelper> reporter_helper,
-      std::unique_ptr<Delegate> delegate);
+      std::unique_ptr<Delegate> delegate,
+      policy::ManagedSessionService* managed_session_service,
+      base::Clock* clock = base::DefaultClock::GetInstance());
+
+  static void RegisterPrefs(PrefRegistrySimple* registry);
 
   // Report user device failed login attempt.
   void OnLoginFailure(const AuthFailure& error) override;
@@ -64,13 +71,18 @@ class LoginLogoutReporter : public policy::ManagedSessionService::Observer {
   // Report user device logout.
   void OnSessionTerminationStarted(const user_manager::User* user) override;
 
+  void OnKioskLoginFailure() override;
+
  private:
   LoginLogoutReporter(
       std::unique_ptr<::reporting::UserEventReporterHelper> reporter_helper,
       std::unique_ptr<Delegate> delegate,
-      policy::ManagedSessionService* managed_session_service);
+      policy::ManagedSessionService* managed_session_service,
+      base::Clock* clock = base::DefaultClock::GetInstance());
 
   void MaybeReportEvent(LoginLogoutRecord record, const AccountId& account_id);
+
+  void MaybeReportKioskLoginFailure();
 
   std::unique_ptr<::reporting::UserEventReporterHelper> reporter_helper_;
 
@@ -79,6 +91,11 @@ class LoginLogoutReporter : public policy::ManagedSessionService::Observer {
   base::ScopedObservation<policy::ManagedSessionService,
                           policy::ManagedSessionService::Observer>
       managed_session_observation_{this};
+
+  const raw_ptr<base::Clock, ExperimentalAsh> clock_;
+
+  // To be able to access |kEnableKioskAndGuestLoginLogoutReporting| in tests.
+  friend class LoginLogoutTestHelper;
 };
 
 }  // namespace reporting

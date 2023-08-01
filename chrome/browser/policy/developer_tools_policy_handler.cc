@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,10 @@
 
 #include "base/strings/string_number_conversions.h"
 #include "base/values.h"
+#include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
+#include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/pref_names.h"
 #include "components/policy/core/browser/policy_error_map.h"
 #include "components/policy/core/common/policy_map.h"
@@ -15,6 +19,13 @@
 #include "components/prefs/pref_value_map.h"
 #include "components/strings/grit/components_strings.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+
+#include "ash/constants/ash_switches.h"
+#include "base/command_line.h"
+
+#endif
 
 namespace policy {
 
@@ -56,8 +67,8 @@ PolicyCheckResult CheckDeveloperToolsDisabled(
 // does not have a valid value, returns |nullopt|.
 absl::optional<Availability> GetValueFromDeveloperToolsDisabledPolicy(
     const PolicyMap& policies) {
-  const base::Value* developer_tools_disabled =
-      policies.GetValue(key::kDeveloperToolsDisabled);
+  const base::Value* developer_tools_disabled = policies.GetValue(
+      key::kDeveloperToolsDisabled, base::Value::Type::BOOLEAN);
 
   if (CheckDeveloperToolsDisabled(developer_tools_disabled,
                                   nullptr /*error*/) !=
@@ -108,8 +119,10 @@ PolicyCheckResult CheckDeveloperToolsAvailability(
 // not have a valid value, returns |nullopt|.
 absl::optional<Availability> GetValueFromDeveloperToolsAvailabilityPolicy(
     const PolicyMap& policies) {
+  // It is safe to use `GetValueUnsafe()` because type checking is performed
+  // before the value is used.
   const base::Value* developer_tools_availability =
-      policies.GetValue(key::kDeveloperToolsAvailability);
+      policies.GetValueUnsafe(key::kDeveloperToolsAvailability);
 
   if (CheckDeveloperToolsAvailability(developer_tools_availability,
                                       nullptr /*error*/) !=
@@ -137,6 +150,49 @@ absl::optional<Availability> GetValueFromBothPolicies(
   return GetValueFromDeveloperToolsDisabledPolicy(policies);
 }
 
+// Returns the current policy-set developer tools availability according to
+// the values in |pref_service|. If no policy mandating developer tools
+// availability is set, the default will be
+// |Availability::kDisallowedForForceInstalledExtensions|.
+Availability GetDevToolsAvailability(const PrefService* pref_sevice) {
+  int value = pref_sevice->GetInteger(prefs::kDevToolsAvailability);
+  if (!IsValidDeveloperToolsAvailabilityValue(value)) {
+    // This should never happen, because the |kDevToolsAvailability| pref is
+    // only set by DeveloperToolsPolicyHandler which validates the value range.
+    // If it is not set, it will have its default value which is also valid, see
+    // |RegisterProfilePrefs|.
+    NOTREACHED();
+    return Availability::kAllowed;
+  }
+
+  return static_cast<Availability>(value);
+}
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+
+// Returns true if developer tools availability is set by an active policy in
+// |pref_service|.
+bool IsDevToolsAvailabilitySetByPolicy(const PrefService* pref_service) {
+  return pref_service->IsManagedPreference(prefs::kDevToolsAvailability);
+}
+
+// Returns the most restrictive availability within [|availability_1|,
+// |availability_2|].
+Availability GetMostRestrictiveAvailability(Availability availability_1,
+                                            Availability availability_2) {
+  if (availability_1 == Availability::kDisallowed ||
+      availability_2 == Availability::kDisallowed) {
+    return Availability::kDisallowed;
+  }
+  if (availability_1 == Availability::kDisallowedForForceInstalledExtensions ||
+      availability_2 == Availability::kDisallowedForForceInstalledExtensions) {
+    return Availability::kDisallowedForForceInstalledExtensions;
+  }
+  return Availability::kAllowed;
+}
+
+#endif
+
 }  // namespace
 
 DeveloperToolsPolicyHandler::DeveloperToolsPolicyHandler() {}
@@ -146,15 +202,19 @@ DeveloperToolsPolicyHandler::~DeveloperToolsPolicyHandler() {}
 bool DeveloperToolsPolicyHandler::CheckPolicySettings(
     const policy::PolicyMap& policies,
     policy::PolicyErrorMap* errors) {
+  // It is safe to use `GetValueUnsafe()` because type checking is performed
+  // before the value is used.
   // Deprecated boolean policy DeveloperToolsDisabled.
   const base::Value* developer_tools_disabled =
-      policies.GetValue(key::kDeveloperToolsDisabled);
+      policies.GetValueUnsafe(key::kDeveloperToolsDisabled);
   PolicyCheckResult developer_tools_disabled_result =
       CheckDeveloperToolsDisabled(developer_tools_disabled, errors);
 
-  // Enumerated policy DeveloperToolsAvailability
+  // It is safe to use `GetValueUnsafe()` because type checking is performed
+  // before the value is used.
+  // Enumerated policy DeveloperToolsAvailability.
   const base::Value* developer_tools_availability =
-      policies.GetValue(key::kDeveloperToolsAvailability);
+      policies.GetValueUnsafe(key::kDeveloperToolsAvailability);
   PolicyCheckResult developer_tools_availability_result =
       CheckDeveloperToolsAvailability(developer_tools_availability, errors);
 
@@ -200,43 +260,26 @@ void DeveloperToolsPolicyHandler::RegisterProfilePrefs(
       static_cast<int>(Availability::kDisallowedForForceInstalledExtensions));
 }
 
-// static
-DeveloperToolsPolicyHandler::Availability
-DeveloperToolsPolicyHandler::GetDevToolsAvailability(
-    const PrefService* pref_sevice) {
-  int value = pref_sevice->GetInteger(prefs::kDevToolsAvailability);
-  if (!IsValidDeveloperToolsAvailabilityValue(value)) {
-    // This should never happen, because the |kDevToolsAvailability| pref is
-    // only set by DeveloperToolsPolicyHandler which validates the value range.
-    // If it is not set, it will have its default value which is also valid, see
-    // |RegisterProfilePrefs|.
-    NOTREACHED();
+policy::DeveloperToolsPolicyHandler::Availability
+DeveloperToolsPolicyHandler::GetEffectiveAvailability(Profile* profile) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  if (command_line->HasSwitch(ash::switches::kForceDevToolsAvailable)) {
     return Availability::kAllowed;
   }
+#endif
 
-  return static_cast<Availability>(value);
-}
-
-// static
-bool DeveloperToolsPolicyHandler::IsDevToolsAvailabilitySetByPolicy(
-    const PrefService* pref_service) {
-  return pref_service->IsManagedPreference(prefs::kDevToolsAvailability);
-}
-
-// static
-DeveloperToolsPolicyHandler::Availability
-DeveloperToolsPolicyHandler::GetMostRestrictiveAvailability(
-    Availability availability_1,
-    Availability availability_2) {
-  if (availability_1 == Availability::kDisallowed ||
-      availability_2 == Availability::kDisallowed) {
-    return Availability::kDisallowed;
+  Availability availability = GetDevToolsAvailability(profile->GetPrefs());
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  // Do not create DevTools if it's disabled for primary profile.
+  Profile* primary_profile = ProfileManager::GetPrimaryUserProfile();
+  if (primary_profile &&
+      IsDevToolsAvailabilitySetByPolicy(primary_profile->GetPrefs())) {
+    availability = GetMostRestrictiveAvailability(
+        availability, GetDevToolsAvailability(primary_profile->GetPrefs()));
   }
-  if (availability_1 == Availability::kDisallowedForForceInstalledExtensions ||
-      availability_2 == Availability::kDisallowedForForceInstalledExtensions) {
-    return Availability::kDisallowedForForceInstalledExtensions;
-  }
-  return Availability::kAllowed;
+#endif
+  return availability;
 }
 
 }  // namespace policy

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,9 +13,11 @@
 #include "ash/login/ui/pin_request_widget.h"
 #include "ash/login/ui/views_utils.h"
 #include "ash/public/cpp/child_accounts/parent_access_controller.h"
-#include "base/bind.h"
 #include "base/dcheck_is_on.h"
+#include "base/functional/bind.h"
+#include "base/memory/raw_ptr.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "base/time/time.h"
 #include "components/account_id/account_id.h"
 #include "components/session_manager/session_manager_types.h"
 #include "ui/events/base_event_utils.h"
@@ -162,7 +164,8 @@ class ParentAccessControllerImplTest : public LoginTestBase {
 
   base::HistogramTester histogram_tester_;
 
-  PinRequestView* view_ = nullptr;  // Owned by test widget view hierarchy.
+  raw_ptr<PinRequestView, ExperimentalAsh> view_ =
+      nullptr;  // Owned by test widget view hierarchy.
 };
 
 // Tests parent access dialog showing/hiding and focus behavior for parent

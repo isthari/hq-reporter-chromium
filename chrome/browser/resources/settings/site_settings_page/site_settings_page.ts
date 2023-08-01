@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,29 +8,32 @@
  * security site settings.
  */
 
-import 'chrome://resources/cr_elements/cr_expand_button/cr_expand_button.m.js';
+import 'chrome://resources/cr_elements/cr_expand_button/cr_expand_button.js';
 import 'chrome://resources/cr_elements/cr_link_row/cr_link_row.js';
-import 'chrome://resources/cr_elements/shared_style_css.m.js';
+import 'chrome://resources/cr_elements/cr_shared_style.css.js';
 import 'chrome://resources/polymer/v3_0/iron-collapse/iron-collapse.js';
-import '../settings_shared_css.js';
+import '../settings_shared.css.js';
 import './recent_site_permissions.js';
+import './unused_site_permissions.js';
 
-import {assert} from 'chrome://resources/js/assert.m.js';
-import {focusWithoutInk} from 'chrome://resources/js/cr/ui/focus_without_ink.m.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {WebUiListenerMixin} from 'chrome://resources/cr_elements/web_ui_listener_mixin.js';
+import {assert} from 'chrome://resources/js/assert_ts.js';
+import {focusWithoutInk} from 'chrome://resources/js/focus_without_ink.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
+import {FocusConfig} from '../focus_config.js';
 import {loadTimeData} from '../i18n_setup.js';
 import {routes} from '../route.js';
 import {Router} from '../router.js';
+import {SafetyHubBrowserProxy, SafetyHubBrowserProxyImpl, UnusedSitePermissions} from '../safety_hub/safety_hub_browser_proxy.js';
 import {ContentSettingsTypes} from '../site_settings/constants.js';
 
 import {CategoryListItem} from './site_settings_list.js';
+import {getTemplate} from './site_settings_page.html.js';
 
 const Id = ContentSettingsTypes;
 
 let categoryItemMap: Map<ContentSettingsTypes, CategoryListItem>|null = null;
-
-type FocusConfig = Map<string, (string|(() => void))>;
 
 function getCategoryItemMap(): Map<ContentSettingsTypes, CategoryListItem> {
   if (categoryItemMap !== null) {
@@ -48,6 +51,15 @@ function getCategoryItemMap(): Map<ContentSettingsTypes, CategoryListItem> {
       disabledLabel: 'siteSettingsAdsBlocked',
       shouldShow: () =>
           loadTimeData.getBoolean('enableSafeBrowsingSubresourceFilter'),
+    },
+    {
+      route: routes.SITE_SETTINGS_AUTO_VERIFY,
+      id: Id.ANTI_ABUSE,
+      label: 'siteSettingsAntiAbuse',
+      icon: 'settings20:account-attention',
+      enabledLabel: 'siteSettingsAntiAbuseEnabledSubLabel',
+      disabledLabel: 'siteSettingsAntiAbuseDisabledSubLabel',
+      shouldShow: () => loadTimeData.getBoolean('privateStateTokensEnabled'),
     },
     {
       route: routes.SITE_SETTINGS_AR,
@@ -113,7 +125,9 @@ function getCategoryItemMap(): Map<ContentSettingsTypes, CategoryListItem> {
     {
       route: routes.COOKIES,
       id: Id.COOKIES,
-      label: 'siteSettingsCookies',
+      label: loadTimeData.getBoolean('isPrivacySandboxSettings4') ?
+          'thirdPartyCookiesLinkRowLabel' :
+          'siteSettingsCookies',
       icon: 'settings:cookie',
       enabledLabel: 'siteSettingsCookiesAllowed',
       disabledLabel: 'siteSettingsBlocked',
@@ -183,6 +197,16 @@ function getCategoryItemMap(): Map<ContentSettingsTypes, CategoryListItem> {
       disabledLabel: 'siteSettingsInsecureContentBlock',
     },
     {
+      route: routes.SITE_SETTINGS_FEDERATED_IDENTITY_API,
+      id: Id.FEDERATED_IDENTITY_API,
+      label: 'siteSettingsFederatedIdentityApi',
+      icon: 'settings:federated-identity-api',
+      enabledLabel: 'siteSettingsFederatedIdentityApiAllowed',
+      disabledLabel: 'siteSettingsFederatedIdentityApiBlocked',
+      shouldShow: () =>
+          loadTimeData.getBoolean('enableFederatedIdentityApiContentSetting'),
+    },
+    {
       route: routes.SITE_SETTINGS_FILE_SYSTEM_WRITE,
       id: Id.FILE_SYSTEM_WRITE,
       label: 'siteSettingsFileSystemWrite',
@@ -191,10 +215,10 @@ function getCategoryItemMap(): Map<ContentSettingsTypes, CategoryListItem> {
       disabledLabel: 'siteSettingsFileSystemWriteBlocked',
     },
     {
-      route: routes.SITE_SETTINGS_FONT_ACCESS,
-      id: Id.FONT_ACCESS,
+      route: routes.SITE_SETTINGS_LOCAL_FONTS,
+      id: Id.LOCAL_FONTS,
       label: 'fonts',
-      icon: 'settings:font-access',
+      icon: 'settings:local-fonts',
       enabledLabel: 'siteSettingsFontsAllowed',
       disabledLabel: 'siteSettingsFontsBlocked',
     },
@@ -266,6 +290,13 @@ function getCategoryItemMap(): Map<ContentSettingsTypes, CategoryListItem> {
       disabledLabel: 'siteSettingsSerialPortsBlocked',
     },
     {
+      route: routes.SITE_SETTINGS_SITE_DATA,
+      id: Id.SITE_DATA,
+      label: 'siteDataPageTitle',
+      icon: 'settings:database',
+      shouldShow: () => loadTimeData.getBoolean('isPrivacySandboxSettings4'),
+    },
+    {
       route: routes.SITE_SETTINGS_SOUND,
       id: Id.SOUND,
       label: 'siteSettingsSound',
@@ -290,12 +321,12 @@ function getCategoryItemMap(): Map<ContentSettingsTypes, CategoryListItem> {
       disabledLabel: 'siteSettingsVrBlocked',
     },
     {
-      route: routes.SITE_SETTINGS_WINDOW_PLACEMENT,
-      id: Id.WINDOW_PLACEMENT,
-      label: 'siteSettingsWindowPlacement',
-      icon: 'settings:window-placement',
-      enabledLabel: 'siteSettingsWindowPlacementAsk',
-      disabledLabel: 'siteSettingsWindowPlacementBlocked',
+      route: routes.SITE_SETTINGS_WINDOW_MANAGEMENT,
+      id: Id.WINDOW_MANAGEMENT,
+      label: 'siteSettingsWindowManagement',
+      icon: 'settings:window-management',
+      enabledLabel: 'siteSettingsWindowManagementAsk',
+      disabledLabel: 'siteSettingsWindowManagementBlocked',
     },
     {
       route: routes.SITE_SETTINGS_ZOOM_LEVELS,
@@ -309,8 +340,8 @@ function getCategoryItemMap(): Map<ContentSettingsTypes, CategoryListItem> {
   return categoryItemMap;
 }
 
-function buildItemListFromIds(orderedIdList: Array<ContentSettingsTypes>):
-    Array<CategoryListItem> {
+function buildItemListFromIds(orderedIdList: ContentSettingsTypes[]):
+    CategoryListItem[] {
   const map = getCategoryItemMap();
   const orderedList = [];
   for (const id of orderedIdList) {
@@ -322,13 +353,22 @@ function buildItemListFromIds(orderedIdList: Array<ContentSettingsTypes>):
   return orderedList;
 }
 
-export class SettingsSiteSettingsPageElement extends PolymerElement {
+export interface SettingsSiteSettingsPageElement {
+  $: {
+    advancedContentList: HTMLElement,
+  };
+}
+
+const SettingsSiteSettingsPageElementBase = WebUiListenerMixin(PolymerElement);
+
+export class SettingsSiteSettingsPageElement extends
+    SettingsSiteSettingsPageElementBase {
   static get is() {
     return 'settings-site-settings-page';
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
@@ -368,8 +408,8 @@ export class SettingsSiteSettingsPageElement extends PolymerElement {
               Id.AR,
               Id.VR,
               Id.IDLE_DETECTION,
-              Id.WINDOW_PLACEMENT,
-              Id.FONT_ACCESS,
+              Id.WINDOW_MANAGEMENT,
+              Id.LOCAL_FONTS,
             ]),
             contentBasic: buildItemListFromIds([
               Id.COOKIES,
@@ -384,9 +424,12 @@ export class SettingsSiteSettingsPageElement extends PolymerElement {
               Id.PDF_DOCUMENTS,
               Id.PROTECTED_CONTENT,
               Id.MIXEDSCRIPT,
+              Id.FEDERATED_IDENTITY_API,
+              Id.ANTI_ABUSE,
+              Id.SITE_DATA,
             ]),
           };
-        }
+        },
       },
 
       focusConfig: {
@@ -397,7 +440,35 @@ export class SettingsSiteSettingsPageElement extends PolymerElement {
       permissionsExpanded_: Boolean,
       contentExpanded_: Boolean,
       noRecentSitePermissions_: Boolean,
+
+      showUnusedSitePermissions_: {
+        type: Boolean,
+        value: false,
+      },
+
+      unusedSitePermissionsEnabled_: {
+        type: Boolean,
+        value() {
+          return loadTimeData.getBoolean(
+              'safetyCheckUnusedSitePermissionsEnabled');
+        },
+      },
     };
+  }
+
+  override connectedCallback() {
+    super.connectedCallback();
+
+    this.addWebUiListener(
+        'unused-permission-review-list-maybe-changed',
+        (sites: UnusedSitePermissions[]) =>
+            this.onUnusedSitePermissionListChanged_(sites));
+
+    this.siteSettingsPermissionsBrowserProxy_
+        .getRevokedUnusedSitePermissionsList()
+        .then(
+            (sites: UnusedSitePermissions[]) =>
+                this.onUnusedSitePermissionListChanged_(sites));
   }
 
   prefs: Object;
@@ -405,13 +476,17 @@ export class SettingsSiteSettingsPageElement extends PolymerElement {
   private permissionsExpanded_: boolean;
   private contentExpanded_: boolean;
   private noRecentSitePermissions_: boolean;
+  private showUnusedSitePermissions_: boolean;
+  private unusedSitePermissionsEnabled_: boolean;
+  private siteSettingsPermissionsBrowserProxy_: SafetyHubBrowserProxy =
+      SafetyHubBrowserProxyImpl.getInstance();
 
   private lists_: {
-    all: Array<CategoryListItem>,
-    permissionsBasic: Array<CategoryListItem>,
-    permissionsAdvanced: Array<CategoryListItem>,
-    contentBasic: Array<CategoryListItem>,
-    contentAdvanced: Array<CategoryListItem>,
+    all: CategoryListItem[],
+    permissionsBasic: CategoryListItem[],
+    permissionsAdvanced: CategoryListItem[],
+    contentBasic: CategoryListItem[],
+    contentAdvanced: CategoryListItem[],
   };
 
   private focusConfigChanged_(_newConfig: FocusConfig, oldConfig: FocusConfig) {
@@ -419,12 +494,27 @@ export class SettingsSiteSettingsPageElement extends PolymerElement {
     // only fire once.
     assert(!oldConfig);
     this.focusConfig.set(routes.SITE_SETTINGS_ALL.path, () => {
-      focusWithoutInk(assert(this.shadowRoot!.querySelector('#allSites')!));
+      const allSites = this.shadowRoot!.querySelector<HTMLElement>('#allSites');
+      assert(!!allSites);
+      focusWithoutInk(allSites);
     });
   }
 
   private onSiteSettingsAllClick_() {
     Router.getInstance().navigateTo(routes.SITE_SETTINGS_ALL);
+  }
+
+  private onUnusedSitePermissionListChanged_(permissions:
+                                                 UnusedSitePermissions[]) {
+    // The unused site permissions review is shown when there are items to
+    // review (provided the feature is enabled). Once visible it remains that
+    // way to show completion info, even if the list is emptied.
+    if (this.showUnusedSitePermissions_) {
+      return;
+    }
+
+    this.showUnusedSitePermissions_ =
+        this.unusedSitePermissionsEnabled_ && permissions.length > 0;
   }
 
   /** @return Class for the all site settings link */

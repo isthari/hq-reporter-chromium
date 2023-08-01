@@ -7,14 +7,12 @@
 <translation id="1178581264944972037">暂停</translation>
 <translation id="1306460908038601864">已关闭</translation>
 <translation id="1311894908970423688">值必须为 <ph name="VALUE_DATE_OR_TIME" />。</translation>
-<translation id="145015347812617860">有<ph name="COUNT" />个书签</translation>
 <translation id="1480676835519562650">可选择多项，已选择 <ph name="SELECTED" /> 项（共 <ph name="COUNT" /> 项）。</translation>
 <translation id="1588438908519853928">正常</translation>
 <translation id="1591562245178063882">本月</translation>
 <translation id="1637811476055996098">选择文件</translation>
 <translation id="1681022320378710418">当前时间</translation>
 <translation id="1727839386348365796">颜色提取器</translation>
-<translation id="1727886345390570319">隐藏字幕菜单</translation>
 <translation id="1729654308190250600">请输入有效的电子邮件地址。</translation>
 <translation id="1758486001363313524">其他...</translation>
 <translation id="1787192514241997742">总时间：<ph name="REMAINING_TIME" /></translation>
@@ -31,7 +29,6 @@
 <translation id="2246498165605549352">本地文件</translation>
 <translation id="2247351761944213033"><ph name="YEAR" /> 年第 <ph name="WEEKNUMBER" /> 周</translation>
 <translation id="2277199496770840904">字幕轨 <ph name="NUMBER" /></translation>
-<translation id="2307576640803031502">列表中的第 <ph name="INDEX" /> 项，共有 <ph name="COUNT" /> 项</translation>
 <translation id="2393030564806080191">十六进制颜色值</translation>
 <translation id="2398813069815436052">对话框已打开。</translation>
 <translation id="245932805758469625">视频剩余时间（以秒为单位）</translation>
@@ -63,7 +60,6 @@
 <translation id="4103419683916926126">毫秒</translation>
 <translation id="4201051445878709314">显示上一个月</translation>
 <translation id="4360991593054037559">请输入有效值。两个最接近的有效值分别为<ph name="VALID_VALUE_LOW" />和<ph name="VALID_VALUE_HIGHER" />。</translation>
-<translation id="4371899966896349864">隐藏播放速度菜单</translation>
 <translation id="4522570452068850558">详情</translation>
 <translation id="4664250907885839816">“<ph name="ATSIGN" />”后面的内容不应包含符号“<ph name="INVALIDCHARACTER" />”。</translation>
 <translation id="4718048029184481307">以“画中画”模式播放</translation>
@@ -83,7 +79,9 @@
 <translation id="5117590920725113268">显示下一个月</translation>
 <translation id="5164977714490026579">值必须大于或等于 <ph name="MINIMUM" />。</translation>
 <translation id="5196716972587102051">2</translation>
+<translation id="5199514351668672591">返回到选项</translation>
 <translation id="520299402983819650"><ph name="QUANTITY" /> PB</translation>
+<translation id="5272594226096532950">未选中。群组中的第 <ph name="INDEX" /> 个选项，共 <ph name="COUNT" /> 个</translation>
 <translation id="5307600278924710095">请在“<ph name="ATSIGN" />”前面输入内容。“<ph name="INVALIDADDRESS" />”不完整。</translation>
 <translation id="5334352251556557839">无法播放媒体。</translation>
 <translation id="537648784377940524">最早日期 (<ph name="MIN_DATE_OR_TIME" />) 必须早于最晚日期 (<ph name="MAX_DATE_OR_TIME" />)。</translation>
@@ -92,7 +90,7 @@
 <translation id="5466621249238537318">请选择一个或多个文件。</translation>
 <translation id="5468998798572797635">退出全屏模式</translation>
 <translation id="5516235301412634559">0.75</translation>
-<translation id="5537725057119320332">投射</translation>
+<translation id="5537725057119320332">投放</translation>
 <translation id="5546461542133609677">取消静音</translation>
 <translation id="5630795885300617244">在左侧或右侧点按两次即可跳过 10 秒</translation>
 <translation id="5677946354068040947">更多选项</translation>
@@ -101,8 +99,8 @@
 <translation id="5787939484346677755">已展开，有可用的自动补全选项。</translation>
 <translation id="5860033963881614850">关闭</translation>
 <translation id="588258955323874662">全屏</translation>
-<translation id="5888666972993069672">现正投射至“<ph name="DEVICE_FRIENDLY_NAME" />”</translation>
-<translation id="5916664084637901428">启用</translation>
+<translation id="5888666972993069672">现正投放至“<ph name="DEVICE_FRIENDLY_NAME" />”</translation>
+<translation id="5916664084637901428">已启用</translation>
 <translation id="5939518447894949180">重置</translation>
 <translation id="5966707198760109579">周</translation>
 <translation id="5985507339671257014">0.5</translation>
@@ -123,6 +121,7 @@
 <translation id="668171684555832681">其他...</translation>
 <translation id="6709093583001123835">值必须为 <ph name="VALUE" />。</translation>
 <translation id="6709570249143506788">播放质量不佳</translation>
+<translation id="6719914554879143100">已选中。群组中的第 <ph name="INDEX" /> 个选项，共 <ph name="COUNT" /> 个</translation>
 <translation id="6790428901817661496">播放</translation>
 <translation id="6820355525329141109">无法加载插件。</translation>
 <translation id="6831465880655513317">色井带有二维滑块，用于选择饱和度和亮度</translation>
@@ -166,7 +165,7 @@
 <translation id="8637593834423658414">1.75</translation>
 <translation id="8668988909814782445">自动换行</translation>
 <translation id="8750798805984357768">请从这些选项中选择一个。</translation>
-<translation id="8845239796550121995">现在正投射到您的电视上</translation>
+<translation id="8845239796550121995">现在正投放到您的电视上</translation>
 <translation id="8875657656876809964">视频播放出错</translation>
 <translation id="8889402386540077796">色调</translation>
 <translation id="8901569739625249689"><ph name="QUANTITY" /> KB</translation>

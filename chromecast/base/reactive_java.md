@@ -126,7 +126,7 @@ class MyClass {
     private final Controller<B> mb = new Controller<>();
 
     {
-        mA.and(mB).subscribe(Observers.both(C::new));
+        mA.and(mB).subscribe(Both.adapt(C::new));
     }
 
     public void setA(A a) {
@@ -210,9 +210,9 @@ have occurred first (since you cannot `close()` an object that hasn't been
 constructed). The implications of these properties will be explored further in
 later sections.
 
-### Registering scopes with Observables
+### Registering subscriptions with Observables
 
-To register scopes to track the state of an `Observable`, we call `subscribe()`
+To subscribe an `Observer` to an `Observable`, we call `subscribe()`
 on the `Observable`. The `subscribe()` method takes a single argument, an
 `Observer`, which has an `open()` method that returns a `Scope`. The
 `Observer`'s `open()` method is called when the `Observable` activates,
@@ -272,7 +272,7 @@ with:
 ```java
 void logStateTransitionsWithData(Observable<String> observable) {
     observable.subscribe((String s) -> {
-        Log.d(TAG, "activated with data: " + s);
+        Log.d(TAG, "activated with data: %s", s);
         return () -> Log.d(TAG, "deactivated");
     });
 }
@@ -392,6 +392,25 @@ Example:
     onOrOff.set(Unit.unit()); // Does nothing because it's already on.
     onOrOff.reset(); // Turns off.
     onOrOff.reset(); // Does nothing because it's already off.
+}
+```
+
+It's common for observers and APIs that refer to `Observable`s with no data to
+use `Observable<?>` in their interface. This is an easy way to make an
+`Observable`'s data "opaque" to observers, even when the data are not `Unit`.
+
+```java
+{
+    Controller<Foo> foos = new Controller<>();
+    // Subscribers to opaqueFoos will get notified of state changes, but will
+    // not be able to access the data through the Foo interface.
+    Observable<?> opaqueFoos = foos;
+    // The observer can use methods like toString() that exist on all Objects,
+    // but cannot use Foo's API.
+    subscribe(opaqueFoos, x -> {
+        Log.d(TAG, "got Foo: %s", x.toString());
+        return () -> Log.d(TAG, "lost Foo: %s", x.toString());
+    });
 }
 ```
 
@@ -525,7 +544,7 @@ Calling `stateA.andThen(stateB)` returns an `Observable` representing the
 on the transition between `(just A)` and `(A and then B)`, and will not activate
 on the transition between `(just B)` and `(B and then A)`.
 
-### Observers as Scopes
+### Subscriptions as Scopes
 
 Sometimes you might want to only `subscribe()` to an `Observable` for a limited
 time, for instance, until some other `Observable` is activated. So how do you
@@ -658,13 +677,22 @@ dealing with `Both` objects becomes cumbersome. It is generally recommended to
 prefer the `and()` operator if all else is equal, because it's easier to add
 more operators to the pipeline later on if needed.
 
+An alternative to using `and()` in situations that call for `map()` and
+`filter()` on the result is to use `flatMap()`-currying:
+
+```java
+  stateA.flatMap(a -> stateB.flatMap(b -> Observable.just(new C(a, b))))
+      .filter(c -> isValid(c))
+      .subscribe(d -> ...);
+```
+
 ### Increase readability for Observers with wrapper methods
 
 The `Observers` class contains several helper methods to increase the
 fluency and readability of common cases that `Observer` objects might be
 used for.
 
-#### Use onEnter() and onExit() to observe only one kind of transition
+#### Use onOpen() and onClose() to observe only one kind of transition
 
 Every `Observer` returns a `Scope`, but sometimes clients do not care about
 when the state deactivates, only when it activates. It's possible to create a
@@ -682,21 +710,21 @@ when the state deactivates, only when it activates. It's possible to create a
 The `return () -> {};` statement in the lambda corresponds to having no
 side-effects to handle the destructor, but this is not very readable.
 
-To make intentions clearer, the `onEnter()` method can wrap any `Consumer` of
+To make intentions clearer, the `onOpen()` method can wrap any `Consumer` of
 the activation data's type:
 
 ```java
 {
     // Without data.
-    observable.subscribe(Observers.onEnter(x -> Log.d(TAG, "activated")));
+    observable.subscribe(Observer.onOpen(x -> Log.d(TAG, "activated")));
     // With data.
-    observable.subscribe(Observers.onEnter((String data) -> {
+    observable.subscribe(Observer.onOpen((String data) -> {
         Log.d(TAG, "activated: data=" + data);
     }));
 }
 ```
 
-Likewise, `onExit()` is used the same way to transform any `Consumer` of the
+Likewise, `onClose()` is used the same way to transform any `Consumer` of the
 activation data's type into a `Observer` that only has side effects when the
 `Observable` is deactivated.
 
@@ -720,11 +748,11 @@ recall that the `Observer` passed to `subscribe()` must look like this:
 arguments and returns a `Scope` into a `Observer<Both>`, which deconstructs
 the `Both` object for you and passes the constituent parts into the function.
 
-Using `Observers.both()`, we can rewrite the above like this:
+Using `Both.adapt()`, we can rewrite the above like this:
 
 ```java
 {
-    observableA.and(observableB).subscribe(Observers.both((A a, B b) -> {
+    observableA.and(observableB).subscribe(Both.adapt((A a, B b) -> {
         Log.d(TAG, "on enter: a = " + a + "; b = " + b);
         return () -> Log.d(TAG, "on exit: a = " + a + "; b = " + b);
     }));
@@ -917,7 +945,7 @@ Consider this code:
 ```
 
 Will the callback registered in the `subscribe()` call get fired? It turns out
-that it will not, since `c` is deactivated when `subscribe()` is made. But if
+that it will not, since `c` is deactivated when `subscribe()` is called. But if
 the `subscribe()` call is made before the `set()` call, then the callback is
 fired.
 
@@ -968,6 +996,11 @@ being notified, the `set()` or `reset()` call gets queued and handled only after
 all observers have been notified. This allows a deterministic and unastonishing
 order of execution for the above example: the log will show "enter", followed
 immediately by "exit".
+
+We call this property *re-entrancy safety*. `Controller`s are *re-entrant-safe*.
+What this guarantees is that all observers are notified of all changes, and any
+observer that imposes its own change (including indirect changes) will not have
+that change take effect until all observers are notified of the current change.
 
 Note that if you `set()` a controller with a value that is never `null` inside
 an activation handler, **you will get an infinite loop**.
@@ -1072,6 +1105,33 @@ should close all existing `Scopes` emitted from an `Observer` when that
 
 Once a `ReactiveRecorder` unsubscribes, it will not get any new events from the
 `Observable` it was recording.
+
+### Debugging
+
+Sometimes, particularly in long chains of `and()` or `andThen()` or `map()` or
+`filter()`, you might get confused about the ultimate state of the system in
+some circumstances. When confused about these complex `Observable`s, it's often
+helpful to use the `debug()` operator:
+
+```java
+    // Before
+    foos.andThen(bars).subscribe(...);
+    // After
+    foos.debug(msg -> Log.d(TAG, "foos: %s", msg))
+            .andThen(bars.debug(msg -> Log.d(TAG, "bars: %s", msg)))
+            .debug(msg -> Log.d(TAG, "foosAndThenBars: %s", msg))
+            .subscribe(...);
+```
+
+The `debug()` operator doesn't by itself log anything; you need to give it a
+`Consumer<String>` that logs the debug messages it generates. This makes the
+file/line number information in the log is more helpful, as it indicates which
+file you're debugging, rather than the body of the `debug()` operator itself.
+
+The messages in question will show when `Observer`s subscribe and unsubscribe,
+and whenever data are added or removed from the `Observable`. The `debug()`
+operator will call the `toString()` method on all data to format messages about
+state transitions.
 
 ## When to use Observables
 

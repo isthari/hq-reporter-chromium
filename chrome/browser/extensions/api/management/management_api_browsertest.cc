@@ -1,7 +1,8 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/auto_reset.h"
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/scoped_refptr.h"
@@ -12,12 +13,12 @@
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
-#include "chrome/browser/extensions/extension_function_test_utils.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/install_verifier.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/browser/web_applications/extension_status_utils.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/test/browser_test.h"
@@ -25,6 +26,7 @@
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/api/management/management_api.h"
 #include "extensions/browser/api/management/management_api_constants.h"
+#include "extensions/browser/api_test_utils.h"
 #include "extensions/browser/extension_dialog_auto_confirm.h"
 #include "extensions/browser/extension_host.h"
 #include "extensions/browser/extension_host_test_helper.h"
@@ -32,16 +34,33 @@
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/notification_types.h"
 #include "extensions/common/extension_builder.h"
+#include "extensions/common/extension_id.h"
 #include "extensions/test/extension_test_message_listener.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/ash/login/demo_mode/demo_session.h"
+#include "chrome/browser/ash/login/demo_mode/demo_setup_test_utils.h"
 #endif
 
 namespace keys = extension_management_api_constants;
-namespace test_utils = extension_function_test_utils;
 
 namespace extensions {
+namespace {
+
+#if !BUILDFLAG(IS_CHROMEOS_LACROS)
+bool ExpectChromeAppsDefaultEnabled() {
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \
+    BUILDFLAG(IS_FUCHSIA)
+  return false;
+#else
+  return true;
+#endif
+}
+#endif
+
+}  // namespace
+
+namespace test_utils = api_test_utils;
 
 class ExtensionManagementApiBrowserTest : public ExtensionBrowserTest {
  public:
@@ -73,15 +92,21 @@ using ContextType = ExtensionBrowserTest::ContextType;
 
 class ExtensionManagementApiTestWithBackgroundType
     : public ExtensionManagementApiBrowserTest,
-      public testing::WithParamInterface<ContextType> {
+      public ::testing::WithParamInterface<ContextType> {
  public:
   ExtensionManagementApiTestWithBackgroundType()
-      : ExtensionManagementApiBrowserTest(GetParam()) {}
+      : ExtensionManagementApiBrowserTest(GetParam()),
+        enable_chrome_apps_(
+            &extensions::testing::g_enable_chrome_apps_for_testing,
+            true) {}
   ~ExtensionManagementApiTestWithBackgroundType() override = default;
   ExtensionManagementApiTestWithBackgroundType(
       const ExtensionManagementApiTestWithBackgroundType&) = delete;
   ExtensionManagementApiTestWithBackgroundType& operator=(
       const ExtensionManagementApiTestWithBackgroundType&) = delete;
+
+ private:
+  base::AutoReset<bool> enable_chrome_apps_;
 };
 
 INSTANTIATE_TEST_SUITE_P(PersistentBackground,
@@ -96,12 +121,12 @@ INSTANTIATE_TEST_SUITE_P(ServiceWorker,
 // are not allowed to call the install function.
 IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTestWithBackgroundType,
                        InstallEvent) {
-  ExtensionTestMessageListener listener1("ready", false);
+  ExtensionTestMessageListener listener1("ready");
   ASSERT_TRUE(
       LoadExtension(test_data_dir_.AppendASCII("management/install_event")));
   ASSERT_TRUE(listener1.WaitUntilSatisfied());
 
-  ExtensionTestMessageListener listener2("got_event", false);
+  ExtensionTestMessageListener listener2("got_event");
   ASSERT_TRUE(LoadExtension(
       test_data_dir_.AppendASCII("api_test/management/enabled_extension"),
       {.context_type = ContextType::kFromManifest}));
@@ -111,10 +136,11 @@ IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTestWithBackgroundType,
 #if !BUILDFLAG(IS_CHROMEOS_LACROS)
 // TODO(crbug.com/1288199): Run these tests on Chrome OS with both Ash and
 // Lacros processes active.
+
 IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTestWithBackgroundType,
                        LaunchApp) {
-  ExtensionTestMessageListener listener1("app_launched", false);
-  ExtensionTestMessageListener listener2("got_expected_error", false);
+  ExtensionTestMessageListener listener1("app_launched");
+  ExtensionTestMessageListener listener2("got_expected_error");
   ASSERT_TRUE(
       LoadExtension(test_data_dir_.AppendASCII("management/simple_extension"),
                     {.context_type = ContextType::kFromManifest}));
@@ -126,7 +152,29 @@ IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTestWithBackgroundType,
   ASSERT_TRUE(listener1.WaitUntilSatisfied());
   ASSERT_TRUE(listener2.WaitUntilSatisfied());
 }
-#endif
+
+IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTestWithBackgroundType,
+                       NoLaunchAppDeprecated) {
+  extensions::testing::g_enable_chrome_apps_for_testing = false;
+  const Extension* packaged_app =
+      LoadExtension(test_data_dir_.AppendASCII("management/packaged_app"),
+                    {.context_type = ContextType::kFromManifest});
+  ASSERT_TRUE(packaged_app);
+  EXPECT_TRUE(packaged_app->is_app());
+
+  ExtensionTestMessageListener error("got_chrome_apps_error");
+  ExtensionTestMessageListener launched("app_launched");
+  ASSERT_TRUE(
+      LoadExtension(test_data_dir_.AppendASCII("management/launch_app")));
+  if (ExpectChromeAppsDefaultEnabled()) {
+    EXPECT_TRUE(launched.WaitUntilSatisfied());
+    EXPECT_FALSE(error.was_satisfied());
+  } else {
+    EXPECT_TRUE(error.WaitUntilSatisfied());
+    EXPECT_FALSE(launched.was_satisfied());
+  }
+}
+#endif  // !BUILDFLAG(IS_CHROMEOS_LACROS)
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 
@@ -138,7 +186,7 @@ IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTestWithBackgroundType,
   // Should see 0 apps launched from the API in the histogram at first.
   histogram_tester.ExpectTotalCount("DemoMode.AppLaunchSource", 0);
 
-  ExtensionTestMessageListener app_launched_listener("app_launched", false);
+  ExtensionTestMessageListener app_launched_listener("app_launched");
   ASSERT_TRUE(
       LoadExtension(test_data_dir_.AppendASCII("management/packaged_app"),
                     {.context_type = ContextType::kFromManifest}));
@@ -152,15 +200,14 @@ IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTestWithBackgroundType,
 
 IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTestWithBackgroundType,
                        DemoModeAppLaunchSourceReported) {
-  ash::DemoSession::SetDemoConfigForTesting(
-      ash::DemoSession::DemoModeConfig::kOnline);
+  ash::test::LockDemoDeviceInstallAttributes();
   EXPECT_TRUE(ash::DemoSession::IsDeviceInDemoMode());
 
   base::HistogramTester histogram_tester;
   // Should see 0 apps launched from the Launcher in the histogram at first.
   histogram_tester.ExpectTotalCount("DemoMode.AppLaunchSource", 0);
 
-  ExtensionTestMessageListener app_launched_listener("app_launched", false);
+  ExtensionTestMessageListener app_launched_listener("app_launched");
   ASSERT_TRUE(
       LoadExtension(test_data_dir_.AppendASCII("management/packaged_app"),
                     {.context_type = ContextType::kFromManifest}));
@@ -173,15 +220,14 @@ IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTestWithBackgroundType,
       "DemoMode.AppLaunchSource",
       ash::DemoSession::AppLaunchSource::kExtensionApi, 1);
 }
-
-#endif
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if !BUILDFLAG(IS_CHROMEOS_LACROS)
 // TODO(crbug.com/1288199): Run these tests on Chrome OS with both Ash and
 // Lacros processes active.
 IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTestWithBackgroundType,
                        LaunchAppFromBackground) {
-  ExtensionTestMessageListener listener1("success", false);
+  ExtensionTestMessageListener listener1("success");
   ASSERT_TRUE(
       LoadExtension(test_data_dir_.AppendASCII("management/packaged_app"),
                     {.context_type = ContextType::kFromManifest}));
@@ -189,40 +235,75 @@ IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTestWithBackgroundType,
       test_data_dir_.AppendASCII("management/launch_app_from_background")));
   ASSERT_TRUE(listener1.WaitUntilSatisfied());
 }
-#endif
+
+IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTestWithBackgroundType,
+                       NoLaunchAppFromBackgroundDeprecated) {
+  extensions::testing::g_enable_chrome_apps_for_testing = false;
+  const Extension* packaged_app =
+      LoadExtension(test_data_dir_.AppendASCII("management/packaged_app"),
+                    {.context_type = ContextType::kFromManifest});
+  ASSERT_TRUE(packaged_app);
+  EXPECT_TRUE(packaged_app->is_app());
+
+  // Also verify launching from background does not work. This helper is not an
+  // app.
+  ExtensionTestMessageListener error("got_chrome_apps_error");
+  ExtensionTestMessageListener launched_failure("not_launched");
+  ExtensionTestMessageListener success("success");
+  ASSERT_TRUE(LoadExtension(
+      test_data_dir_.AppendASCII("management/launch_app_from_background")));
+  if (ExpectChromeAppsDefaultEnabled()) {
+    EXPECT_TRUE(success.WaitUntilSatisfied());
+    EXPECT_FALSE(error.was_satisfied());
+    EXPECT_FALSE(launched_failure.was_satisfied());
+  } else {
+    EXPECT_TRUE(error.WaitUntilSatisfied());
+    EXPECT_TRUE(launched_failure.WaitUntilSatisfied());
+    EXPECT_FALSE(success.was_satisfied());
+  }
+}
+
+#endif  // !BUILDFLAG(IS_CHROMEOS_LACROS)
 
 IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTestWithBackgroundType,
                        SelfUninstall) {
   // Wait for the helper script to finish before loading the primary
   // extension. This ensures that the onUninstall event listener is
   // added before we proceed to the uninstall step.
-  ExtensionTestMessageListener listener1("ready", false);
+  ExtensionTestMessageListener listener1("ready");
   ASSERT_TRUE(LoadExtension(
       test_data_dir_.AppendASCII("management/self_uninstall_helper")));
   ASSERT_TRUE(listener1.WaitUntilSatisfied());
-  ExtensionTestMessageListener listener2("success", false);
+  ExtensionTestMessageListener listener2("success");
   ASSERT_TRUE(
       LoadExtension(test_data_dir_.AppendASCII("management/self_uninstall")));
   ASSERT_TRUE(listener2.WaitUntilSatisfied());
 }
 
+#if BUILDFLAG(IS_MAC)
+// Flaky on Mac: https://crbug.com/1132581
+#define MAYBE_SelfUninstallNoPermissions DISABLED_SelfUninstallNoPermissions
+#else
+#define MAYBE_SelfUninstallNoPermissions SelfUninstallNoPermissions
+#endif
+
 IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTestWithBackgroundType,
-                       SelfUninstallNoPermissions) {
+                       MAYBE_SelfUninstallNoPermissions) {
   // Wait for the helper script to finish before loading the primary
   // extension. This ensures that the onUninstall event listener is
   // added before we proceed to the uninstall step.
-  ExtensionTestMessageListener listener1("ready", false);
+  ExtensionTestMessageListener listener1("ready");
   ASSERT_TRUE(LoadExtension(
       test_data_dir_.AppendASCII("management/self_uninstall_helper")));
   ASSERT_TRUE(listener1.WaitUntilSatisfied());
-  ExtensionTestMessageListener listener2("success", false);
+  ExtensionTestMessageListener listener2("success");
   ASSERT_TRUE(LoadExtension(
       test_data_dir_.AppendASCII("management/self_uninstall_noperm")));
   ASSERT_TRUE(listener2.WaitUntilSatisfied());
 }
 
 IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTestWithBackgroundType, Get) {
-  ExtensionTestMessageListener listener("success", false);
+  ExtensionTestMessageListener listener("success");
   ASSERT_TRUE(
       LoadExtension(test_data_dir_.AppendASCII("management/simple_extension"),
                     {.context_type = ContextType::kFromManifest}));
@@ -232,7 +313,7 @@ IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTestWithBackgroundType, Get) {
 
 IN_PROC_BROWSER_TEST_P(ExtensionManagementApiTestWithBackgroundType,
                        GetSelfNoPermissions) {
-  ExtensionTestMessageListener listener1("success", false);
+  ExtensionTestMessageListener listener1("success");
   ASSERT_TRUE(LoadExtension(test_data_dir_.AppendASCII("management/get_self")));
   ASSERT_TRUE(listener1.WaitUntilSatisfied());
 }
@@ -251,7 +332,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiBrowserTest,
   ManagementCreateAppShortcutFunction::SetAutoConfirmForTest(true);
   test_utils::RunFunctionAndReturnSingleResult(
       create_shortcut_function.get(),
-      base::StringPrintf("[\"%s\"]", app_id.c_str()), browser());
+      base::StringPrintf("[\"%s\"]", app_id.c_str()), browser()->profile());
 
   create_shortcut_function = new ManagementCreateAppShortcutFunction();
   create_shortcut_function->set_user_gesture(true);
@@ -259,7 +340,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiBrowserTest,
   EXPECT_TRUE(base::MatchPattern(
       test_utils::RunFunctionAndReturnError(
           create_shortcut_function.get(),
-          base::StringPrintf("[\"%s\"]", app_id.c_str()), browser()),
+          base::StringPrintf("[\"%s\"]", app_id.c_str()), browser()->profile()),
       keys::kCreateShortcutCanceledError));
 }
 
@@ -267,7 +348,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiBrowserTest,
                        GetAllIncludesTerminated) {
   // Load an extension with a background page, so that we know it has a process
   // running.
-  ExtensionTestMessageListener listener("ready", false);
+  ExtensionTestMessageListener listener("ready");
   const Extension* extension = LoadExtension(
       test_data_dir_.AppendASCII("management/install_event"));
   ASSERT_TRUE(extension);
@@ -276,9 +357,9 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiBrowserTest,
   // The management API should list this extension.
   scoped_refptr<ManagementGetAllFunction> function =
       base::MakeRefCounted<ManagementGetAllFunction>();
-  std::unique_ptr<base::Value> result(
+  absl::optional<base::Value> result =
       test_utils::RunFunctionAndReturnSingleResult(function.get(), "[]",
-                                                   browser()));
+                                                   browser()->profile());
   ASSERT_TRUE(result->is_list());
   EXPECT_EQ(1U, result->GetList().size());
 
@@ -287,7 +368,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiBrowserTest,
 
   function = base::MakeRefCounted<ManagementGetAllFunction>();
   result = test_utils::RunFunctionAndReturnSingleResult(function.get(), "[]",
-                                                        browser());
+                                                        browser()->profile());
   ASSERT_TRUE(result->is_list());
   EXPECT_EQ(1U, result->GetList().size());
 }
@@ -334,11 +415,13 @@ class ExtensionManagementApiEscalationTest :
     const char* const enabled_string = enabled ? "true" : "false";
     if (user_gesture)
       function->set_user_gesture(true);
-    function->SetRenderFrameHost(browser()->tab_strip_model()->
-        GetActiveWebContents()->GetMainFrame());
+    function->SetRenderFrameHost(browser()
+                                     ->tab_strip_model()
+                                     ->GetActiveWebContents()
+                                     ->GetPrimaryMainFrame());
     bool response = test_utils::RunFunction(
         function.get(), base::StringPrintf("[\"%s\", %s]", kId, enabled_string),
-        browser(), api_test_utils::NONE);
+        browser()->profile(), api_test_utils::FunctionMode::kNone);
     if (expected_error.empty()) {
       EXPECT_EQ(true, response);
     } else {
@@ -359,9 +442,10 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiEscalationTest,
                        DisabledReason) {
   scoped_refptr<ManagementGetFunction> function =
       new ManagementGetFunction();
-  base::Value::DictStorage dict =
-      test_utils::ToDictionary(test_utils::RunFunctionAndReturnSingleResult(
-          function.get(), base::StringPrintf("[\"%s\"]", kId), browser()));
+  base::Value::Dict dict =
+      test_utils::ToDict(test_utils::RunFunctionAndReturnSingleResult(
+          function.get(), base::StringPrintf("[\"%s\"]", kId),
+          browser()->profile()));
   std::string reason =
       api_test_utils::GetString(dict, keys::kDisabledReasonKey);
   EXPECT_TRUE(base::IsStringASCII(reason));

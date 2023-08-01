@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/component_export.h"
+#include "base/memory/raw_ptr.h"
 #include "ui/views/controls/styled_label.h"
 #include "ui/views/view.h"
 
@@ -39,8 +40,10 @@ class COMPONENT_EXPORT(ASSISTANT_UI) AssistantQueryView : public views::View {
   void SetText(const std::string& high_confidence_text,
                const std::string& low_confidence_text = std::string());
 
-  views::Label* high_confidence_label_;  // Owned by view hierarchy.
-  views::Label* low_confidence_label_;   // Owned by view hierarchy.
+  raw_ptr<views::Label, ExperimentalAsh>
+      high_confidence_label_;  // Owned by view hierarchy.
+  raw_ptr<views::Label, ExperimentalAsh>
+      low_confidence_label_;  // Owned by view hierarchy.
 };
 
 }  // namespace ash

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,10 +24,8 @@ namespace chrome {
 
 namespace {
 
-// This class simply forwards the authentication from the LoginView (on
-// the UI thread) to the net::URLRequest (on the I/O thread).
-// This class uses ref counting to ensure that it lives until all InvokeLaters
-// have been called.
+// This class prompts the user for credentials and returns the result to
+// `auth_required_callback`.
 class LoginHandlerViews : public LoginHandler {
  public:
   LoginHandlerViews(const net::AuthChallengeInfo& auth_info,
@@ -37,7 +35,6 @@ class LoginHandlerViews : public LoginHandler {
                      web_contents,
                      std::move(auth_required_callback)),
         popunder_preventer_(std::make_unique<PopunderPreventer>(web_contents)) {
-    RecordDialogCreation(DialogIdentifier::LOGIN_HANDLER);
   }
 
   LoginHandlerViews(const LoginHandlerViews&) = delete;

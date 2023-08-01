@@ -1,11 +1,11 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "device/bluetooth/chromeos/bluetooth_utils.h"
 
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/functional/callback_helpers.h"
 #include "base/run_loop.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/task_environment.h"
@@ -16,6 +16,10 @@
 #include "device/bluetooth/test/mock_bluetooth_device.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/constants/ash_features.h"
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
 #include "chromeos/lacros/lacros_test_helper.h"
@@ -30,6 +34,14 @@ constexpr char kTestBluetoothDeviceAddress[] = "01:02:03:04:05:06";
 constexpr char kHIDServiceUUID[] = "1812";
 constexpr char kSecurityKeyServiceUUID[] = "FFFD";
 constexpr char kUnexpectedServiceUUID[] = "1234";
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+// Note: The first 3 hex bytes represent the OUI portion of the address, which
+// indicates the device vendor. In this case, "64:16:7F:**:**:**" represents a
+// device manufactured by Poly.
+constexpr char kFakePolyDeviceAddress[] = "64:16:7F:12:34:56";
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
 const size_t kMaxDevicesForFilter = 5;
 
 }  // namespace
@@ -62,6 +74,19 @@ class BluetoothUtilsTest : public testing::Test {
     adapter_->AddMockDevice(std::move(mock_bluetooth_device));
     return mock_bluetooth_device_ptr;
   }
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  void AddMockPolyDeviceToAdapter() {
+    MockBluetoothDevice* mock_bluetooth_device =
+        AddMockBluetoothDeviceToAdapter(BLUETOOTH_TRANSPORT_CLASSIC);
+    ON_CALL(*mock_bluetooth_device, GetName)
+        .WillByDefault(testing::Return(absl::nullopt));
+    ON_CALL(*mock_bluetooth_device, GetDeviceType)
+        .WillByDefault(testing::Return(BluetoothDeviceType::UNKNOWN));
+    ON_CALL(*mock_bluetooth_device, GetAddress)
+        .WillByDefault(testing::Return(kFakePolyDeviceAddress));
+  }
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   MockBluetoothAdapter* adapter() { return adapter_.get(); }
 
@@ -107,6 +132,22 @@ TEST_F(BluetoothUtilsTest,
       kMaxDevicesForFilter /* num_expected_remaining_devices */);
 }
 
+#if BUILDFLAG(IS_CHROMEOS)
+TEST_F(BluetoothUtilsTest,
+       TestFilterBluetoothDeviceList_FilterKnown_AlwaysKeepBondedDevices) {
+  auto* mock_bluetooth_device =
+      AddMockBluetoothDeviceToAdapter(BLUETOOTH_TRANSPORT_INVALID);
+  EXPECT_CALL(*mock_bluetooth_device, IsPaired)
+      .WillRepeatedly(testing::Return(true));
+  VerifyFilterBluetoothDeviceList(BluetoothFilterType::KNOWN,
+                                  0u /* num_expected_remaining_devices */);
+
+  EXPECT_CALL(*mock_bluetooth_device, IsBonded)
+      .WillRepeatedly(testing::Return(true));
+  VerifyFilterBluetoothDeviceList(BluetoothFilterType::KNOWN,
+                                  1u /* num_expected_remaining_devices */);
+}
+#else
 TEST_F(BluetoothUtilsTest,
        TestFilterBluetoothDeviceList_FilterKnown_AlwaysKeepPairedDevices) {
   auto* mock_bluetooth_device =
@@ -117,6 +158,7 @@ TEST_F(BluetoothUtilsTest,
   VerifyFilterBluetoothDeviceList(BluetoothFilterType::KNOWN,
                                   1u /* num_expected_remaining_devices */);
 }
+#endif
 
 TEST_F(BluetoothUtilsTest,
        TestFilterBluetoothDeviceList_FilterKnown_FilterPairedPhone) {
@@ -146,6 +188,16 @@ TEST_F(BluetoothUtilsTest,
   VerifyFilterBluetoothDeviceList(BluetoothFilterType::KNOWN,
                                   1u /* num_expected_remaining_devices */);
 }
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+// Regression test for b/228118615.
+TEST_F(BluetoothUtilsTest, ShowPolyDevice_PolyFlagEnabled) {
+  // Poly devices should not be filtered out, regardless of device type.
+  AddMockPolyDeviceToAdapter();
+  VerifyFilterBluetoothDeviceList(BluetoothFilterType::KNOWN,
+                                  1u /* num_expected_remaining_devices */);
+}
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 TEST_F(
     BluetoothUtilsTest,
@@ -255,6 +307,70 @@ TEST_F(BluetoothUtilsTest, TestUiSurfaceDisplayedMetric) {
   histogram_tester.ExpectBucketCount(
       "Bluetooth.ChromeOS.UiSurfaceDisplayed",
       BluetoothUiSurface::kSettingsDeviceDetailSubpage, 1);
+}
+
+TEST_F(BluetoothUtilsTest, TestPairMetric) {
+  size_t total_count = 0;
+  auto assert_histograms = [&](device::ConnectionFailureReason failure_reason) {
+    histogram_tester.ExpectBucketCount("Bluetooth.ChromeOS.Pairing.Result", 0,
+                                       total_count);
+    histogram_tester.ExpectBucketCount(
+        "Bluetooth.ChromeOS.Pairing.Result.Classic", 0, total_count);
+    histogram_tester.ExpectBucketCount(
+        "Bluetooth.ChromeOS.Pairing.Duration.Failure", 2000, total_count);
+    histogram_tester.ExpectBucketCount(
+        "Bluetooth.ChromeOS.Pairing.Duration.Failure.Classic", 2000,
+        total_count);
+    histogram_tester.ExpectBucketCount(
+        "Bluetooth.ChromeOS.Pairing.Result.FailureReason", failure_reason, 1);
+    histogram_tester.ExpectBucketCount(
+        "Bluetooth.ChromeOS.Pairing.Result.FailureReason.Classic",
+        failure_reason, 1);
+  };
+
+  auto assert_filtered_failure_histograms =
+      [&](device::ConnectionFailureReason error, size_t expected_count) {
+        histogram_tester.ExpectBucketCount(
+            "Bluetooth.ChromeOS.Pairing.Result.FilteredFailureReason", error,
+            expected_count);
+        histogram_tester.ExpectBucketCount(
+            "Bluetooth.ChromeOS.Pairing.Result.FilteredFailureReason.Classic",
+            error, expected_count);
+      };
+
+  RecordPairingResult(device::ConnectionFailureReason::kAuthFailed,
+                      device::BluetoothTransport::BLUETOOTH_TRANSPORT_CLASSIC,
+                      base::Seconds(2));
+  total_count++;
+  assert_histograms(device::ConnectionFailureReason::kAuthFailed);
+  assert_filtered_failure_histograms(
+      device::ConnectionFailureReason::kAuthFailed, /*expected_count=*/1);
+
+  RecordPairingResult(device::ConnectionFailureReason::kAuthCanceled,
+                      device::BluetoothTransport::BLUETOOTH_TRANSPORT_CLASSIC,
+                      base::Seconds(2));
+  total_count++;
+  assert_histograms(device::ConnectionFailureReason::kAuthCanceled);
+  assert_filtered_failure_histograms(
+      device::ConnectionFailureReason::kAuthCanceled,
+      /*expected_count=*/0);
+
+  RecordPairingResult(device::ConnectionFailureReason::kAuthRejected,
+                      device::BluetoothTransport::BLUETOOTH_TRANSPORT_CLASSIC,
+                      base::Seconds(2));
+  total_count++;
+  assert_histograms(device::ConnectionFailureReason::kAuthRejected);
+  assert_filtered_failure_histograms(
+      device::ConnectionFailureReason::kAuthRejected,
+      /*expected_count=*/0);
+
+  RecordPairingResult(device::ConnectionFailureReason::kInprogress,
+                      device::BluetoothTransport::BLUETOOTH_TRANSPORT_CLASSIC,
+                      base::Seconds(2));
+  total_count++;
+  assert_histograms(device::ConnectionFailureReason::kInprogress);
+  assert_filtered_failure_histograms(
+      device::ConnectionFailureReason::kInprogress, /*expected_count=*/1);
 }
 
 TEST_F(BluetoothUtilsTest, TestUserAttemptedReconnectionMetric) {

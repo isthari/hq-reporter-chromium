@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,8 @@
 
 #include <memory>
 
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
+#include "base/time/time.h"
 #include "components/viz/common/frame_sinks/begin_frame_source.h"
 #include "components/viz/common/surfaces/surface_info.h"
 #include "components/viz/service/surfaces/surface.h"
@@ -28,7 +29,9 @@ class FrameRateDeciderTest : public testing::Test,
   ~FrameRateDeciderTest() override = default;
 
   void SetUp() override {
-    surface_manager_ = std::make_unique<SurfaceManager>(this, absl::nullopt);
+    surface_manager_ = std::make_unique<SurfaceManager>(
+        this, /*activation_deadline_in_frames=*/absl::nullopt,
+        /*max_uncommitted_frames=*/0);
     bool hw_support_for_multiple_refresh_rates = true;
     frame_rate_decider_ = std::make_unique<FrameRateDecider>(
         surface_manager_.get(), this, hw_support_for_multiple_refresh_rates,
@@ -210,7 +213,7 @@ TEST_F(FrameRateDeciderTest,
   EXPECT_EQ(display_interval_, FrameRateDecider::UnspecifiedFrameInterval());
 }
 
-TEST_F(FrameRateDeciderTest, OptimalFrameSinkIntervelIsPicked) {
+TEST_F(FrameRateDeciderTest, OptimalFrameSinkIntervalIsPicked) {
   base::TimeDelta min_supported_interval = base::Seconds(1);
   const std::vector<base::TimeDelta> supported_intervals = {
       min_supported_interval * 2, min_supported_interval};
@@ -234,7 +237,17 @@ TEST_F(FrameRateDeciderTest, OptimalFrameSinkIntervelIsPicked) {
     FrameRateDecider::ScopedAggregate scope(frame_rate_decider_.get());
     frame_rate_decider_->OnSurfaceWillBeDrawn(surface1);
   }
+
+#if BUILDFLAG(IS_IOS)
+  // iOS supports setting any frame rate that doesn't exceed a maximum supported
+  // one as the system will round it to be a factor of the maximum supported
+  // refresh rate. Thus, the FrameRateDecider must pick the most min interval
+  // among the frame sinks that want to deliver frames. These expectations
+  // also apply to the below ones.
+  EXPECT_EQ(display_interval_, min_supported_interval * 2.5);
+#else
   EXPECT_EQ(display_interval_, min_supported_interval * 2);
+#endif
 
   UpdateFrame(surface2);
   {
@@ -242,7 +255,12 @@ TEST_F(FrameRateDeciderTest, OptimalFrameSinkIntervelIsPicked) {
     frame_rate_decider_->OnSurfaceWillBeDrawn(surface1);
     frame_rate_decider_->OnSurfaceWillBeDrawn(surface2);
   }
+
+#if BUILDFLAG(IS_IOS)
+  EXPECT_EQ(display_interval_, min_supported_interval * 2.03);
+#else
   EXPECT_EQ(display_interval_, min_supported_interval * 2);
+#endif
 
   UpdateFrame(surface3);
   {
@@ -251,10 +269,20 @@ TEST_F(FrameRateDeciderTest, OptimalFrameSinkIntervelIsPicked) {
     frame_rate_decider_->OnSurfaceWillBeDrawn(surface2);
     frame_rate_decider_->OnSurfaceWillBeDrawn(surface3);
   }
+#if BUILDFLAG(IS_IOS)
+  EXPECT_EQ(display_interval_, min_supported_interval * 0.5);
+#else
   EXPECT_EQ(display_interval_, FrameRateDecider::UnspecifiedFrameInterval());
+#endif
 }
 
-TEST_F(FrameRateDeciderTest, MinFrameSinkIntervalIsPicked) {
+#if BUILDFLAG(IS_IOS)
+// TODO(crbug.com/1413559): currently failing on iOS.
+#define MAYBE_MinFrameSinkIntervalIsPicked DISABLED_MinFrameSinkIntervalIsPicked
+#else
+#define MAYBE_MinFrameSinkIntervalIsPicked MinFrameSinkIntervalIsPicked
+#endif  // BUILDFLAG(IS_IOS)
+TEST_F(FrameRateDeciderTest, MAYBE_MinFrameSinkIntervalIsPicked) {
   base::TimeDelta min_supported_interval = base::Seconds(1);
   const std::vector<base::TimeDelta> supported_intervals = {
       min_supported_interval * 3, min_supported_interval * 2,

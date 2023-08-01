@@ -1,4 +1,4 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,9 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
-#include "base/guid.h"
+#include "base/functional/callback.h"
 #include "base/token.h"
+#include "base/uuid.h"
 #include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/navigation_handle.h"
@@ -55,12 +55,12 @@ class CONTENT_EXPORT CropIdWebContentsHelper final
   bool IsAssociatedWithCropId(const base::Token& crop_id) const;
 
  protected:
-  // TODO(crbug.com/1247761): Remove this local copy of GUIDToToken().
+  // TODO(crbug.com/1264849): Remove this local copy of GUIDToToken().
   // It is copy of a function that is not currently visible from the browser
   // process. It should be made visible to the browser process and reused
   // rather than redefined. It is defined as protected so that unit tests
   // can use it, too.
-  static base::Token GUIDToToken(const base::GUID& guid);
+  static base::Token GUIDToToken(const base::Uuid& guid);
 
  private:
   friend class WebContentsUserData<CropIdWebContentsHelper>;
@@ -69,11 +69,11 @@ class CONTENT_EXPORT CropIdWebContentsHelper final
   // WebContentsObserver implementation.
   // Cross-document navigation of the top-level document discards all crop-IDs
   // associated with the top-level WebContents.
-  // TODO(crbug.com/1247761): Record per RFH and treat its navigation.
+  // TODO(crbug.com/1264849): Record per RFH and treat its navigation.
   void ReadyToCommitNavigation(NavigationHandle* navigation_handle) final;
 
   // Forgets all associations of crop-IDs to this WebContents.
-  // TODO(crbug.com/1247761): Clear per-RFH or throughout.
+  // TODO(crbug.com/1264849): Clear per-RFH or throughout.
   void ClearCropIds();
 
   // Records which crop-IDs are associated with this WebContents.

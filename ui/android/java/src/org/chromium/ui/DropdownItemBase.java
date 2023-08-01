@@ -1,10 +1,10 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.ui;
 
-import android.graphics.Bitmap;
+import android.graphics.drawable.Drawable;
 
 import androidx.annotation.Nullable;
 
@@ -20,7 +20,17 @@ public class DropdownItemBase implements DropdownItem {
     }
 
     @Override
+    public String getSecondaryLabel() {
+        return null;
+    }
+
+    @Override
     public String getSublabel() {
+        return null;
+    }
+
+    @Override
+    public String getSecondarySublabel() {
         return null;
     }
 
@@ -60,6 +70,16 @@ public class DropdownItemBase implements DropdownItem {
     }
 
     @Override
+    public int getLabelFontSizeResId() {
+        return R.dimen.text_size_large;
+    }
+
+    @Override
+    public int getSublabelFontColorResId() {
+        return R.color.default_text_color_secondary_list_baseline;
+    }
+
+    @Override
     public int getSublabelFontSizeResId() {
         return R.dimen.text_size_small;
     }
@@ -86,7 +106,7 @@ public class DropdownItemBase implements DropdownItem {
 
     @Override
     @Nullable
-    public Bitmap getCustomIcon() {
+    public Drawable getIconDrawable() {
         return null;
     }
 }

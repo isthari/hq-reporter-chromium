@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,7 +30,7 @@ BackForwardCacheCommitDeferringCondition::MaybeCreate(
 BackForwardCacheCommitDeferringCondition::
     BackForwardCacheCommitDeferringCondition(
         NavigationRequest& navigation_request)
-    : navigation_request_(navigation_request) {}
+    : CommitDeferringCondition(navigation_request) {}
 
 BackForwardCacheCommitDeferringCondition::
     ~BackForwardCacheCommitDeferringCondition() = default;
@@ -38,21 +38,29 @@ BackForwardCacheCommitDeferringCondition::
 CommitDeferringCondition::Result
 BackForwardCacheCommitDeferringCondition::WillCommitNavigation(
     base::OnceClosure resume) {
-  DCHECK(navigation_request_.IsServedFromBackForwardCache());
+  DCHECK(GetNavigationHandle().IsServedFromBackForwardCache());
 
-  BackForwardCacheImpl& bfcache = navigation_request_.frame_tree_node()
-                                      ->navigator()
-                                      .controller()
-                                      .GetBackForwardCache();
+  BackForwardCacheImpl& bfcache =
+      NavigationRequest::From(&GetNavigationHandle())
+          ->frame_tree_node()
+          ->navigator()
+          .controller()
+          .GetBackForwardCache();
 
   // If an entry doesn't exist (it was evicted?) there's no need to defer the
   // commit as we'll end up performing a new navigation.
-  BackForwardCacheImpl::Entry* bfcache_entry =
-      bfcache.GetEntry(navigation_request_.nav_entry_id());
-  if (!bfcache_entry)
+  auto bfcache_entry = bfcache.GetOrEvictEntry(
+      NavigationRequest::From(&GetNavigationHandle())->nav_entry_id());
+  // TODO(crbug.com/1430653): Check the
+  // `BackForwardCacheImpl::GetEntryFailureCase` in the return value and cancel
+  // the NavigationRequest to avoid use-after-free if we know that it will be
+  // restarted.
+  if (!bfcache_entry.has_value()) {
     return Result::kProceed;
+  }
 
-  bfcache.WillCommitNavigationToCachedEntry(*bfcache_entry, std::move(resume));
+  bfcache.WillCommitNavigationToCachedEntry(*(bfcache_entry.value()),
+                                            std::move(resume));
   return Result::kDefer;
 }
 

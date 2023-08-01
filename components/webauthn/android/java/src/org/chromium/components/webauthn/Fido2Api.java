@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,8 +21,10 @@ import org.chromium.blink.mojom.AttestationConveyancePreference;
 import org.chromium.blink.mojom.AuthenticatorAttachment;
 import org.chromium.blink.mojom.AuthenticatorTransport;
 import org.chromium.blink.mojom.CommonCredentialInfo;
+import org.chromium.blink.mojom.DevicePublicKeyResponse;
 import org.chromium.blink.mojom.GetAssertionAuthenticatorResponse;
 import org.chromium.blink.mojom.MakeCredentialAuthenticatorResponse;
+import org.chromium.blink.mojom.PrfValues;
 import org.chromium.blink.mojom.PublicKeyCredentialCreationOptions;
 import org.chromium.blink.mojom.PublicKeyCredentialDescriptor;
 import org.chromium.blink.mojom.PublicKeyCredentialParameters;
@@ -101,6 +103,26 @@ public final class Fido2Api {
     // Parcel.
     private static final int OBJECT_MAGIC = 20293;
 
+    // VAL_PARCELABLE is the tag value for a Parcelable, as used by `Parcel.writeValue`.
+    private static final int VAL_PARCELABLE = 4;
+
+    // parcelUsesLengthPrefixes will be true if `Parcel.writeValue` uses length
+    // prefixes. This was added in Android 13 and there's one case where an
+    // array is sent directly as a Parcel, rather than as a SafeParcel. We
+    // sadly need to care about this because the Parcel class supplied by the
+    // system doesn't provide any way of reading arrays that isn't coupled to
+    // ClassLoader-based assumptions.
+    private static final boolean sParcelUsesLengthPrefixes = doesParcelUseLengthPrefix();
+
+    private static boolean doesParcelUseLengthPrefix() {
+        // See comment for `sParcelUsesLengthPrefixes`.
+        Parcel parcel = Parcel.obtain();
+        parcel.writeValue(new ArrayList());
+        final boolean ret = parcel.dataPosition() == 12;
+        parcel.recycle();
+        return ret;
+    }
+
     /**
      * Serialize a browser's makeCredential request to a {@link Parcel}.
      *
@@ -144,7 +166,7 @@ public final class Fido2Api {
      * @throws NoSuchAlgorithmException when options requests an impossible-to-satisfy public-key
      *         algorithm.
      */
-    public static void appendMakeCredentialOptionsToParcel(
+    private static void appendMakeCredentialOptionsToParcel(
             PublicKeyCredentialCreationOptions options, Parcel parcel)
             throws NoSuchAlgorithmException {
         final int a = writeHeader(OBJECT_MAGIC, parcel);
@@ -162,11 +184,6 @@ public final class Fido2Api {
         parcel.writeString(options.relyingParty.name);
         writeLength(z, parcel);
 
-        z = writeHeader(4, parcel);
-        String rpIcon = options.relyingParty.icon != null ? options.relyingParty.icon.url : null;
-        parcel.writeString(rpIcon);
-        writeLength(z, parcel);
-
         writeLength(c, parcel);
         writeLength(b, parcel);
 
@@ -181,11 +198,6 @@ public final class Fido2Api {
 
         z = writeHeader(3, parcel);
         parcel.writeString(options.user.name);
-        writeLength(z, parcel);
-
-        z = writeHeader(4, parcel);
-        String userIcon = options.user.icon != null ? options.user.icon.url : null;
-        parcel.writeString(userIcon);
         writeLength(z, parcel);
 
         z = writeHeader(5, parcel);
@@ -294,6 +306,64 @@ public final class Fido2Api {
         parcel.writeString(attestationPreferenceToString(options.attestation));
         writeLength(b, parcel);
 
+        // 12: extensions
+        if (options.devicePublicKey != null || options.isPaymentCredentialCreation
+                || options.prfEnable) {
+            b = writeHeader(12, parcel);
+            appendMakeCredentialExtensionsToParcel(options, parcel);
+            writeLength(b, parcel);
+        }
+
+        writeLength(a, parcel);
+    }
+
+    /**
+     * Serialize known extensions for an app's makeCredential request to a {@link Parcel}.
+     *
+     * @param options the options passed from the renderer.
+     * @param parcel the {@link Parcel} to append the output to.
+     */
+    private static void appendMakeCredentialExtensionsToParcel(
+            PublicKeyCredentialCreationOptions options, Parcel parcel) {
+        final int a = writeHeader(OBJECT_MAGIC, parcel);
+
+        // 8: devicePubKey
+        if (options.devicePublicKey != null) {
+            final int b = writeHeader(8, parcel);
+            final int c = writeHeader(OBJECT_MAGIC, parcel);
+            final int d = writeHeader(1, parcel);
+            parcel.writeInt(1);
+            writeLength(d, parcel);
+            writeLength(c, parcel);
+            writeLength(b, parcel);
+        }
+
+        // 10: GoogleThirdPartyPayment
+        //
+        // This only has effect if set to 'true' (i.e., omitting it and setting it to false are
+        // equivalent), so we only include the 'true' case.
+        if (options.isPaymentCredentialCreation) {
+            final int b = writeHeader(10, parcel);
+            final int c = writeHeader(OBJECT_MAGIC, parcel);
+            final int d = writeHeader(1, parcel);
+            parcel.writeInt(1);
+            writeLength(d, parcel);
+            writeLength(c, parcel);
+            writeLength(b, parcel);
+        }
+
+        // 11: PRF
+        if (options.prfEnable) {
+            final int b = writeHeader(11, parcel);
+            final int c = writeHeader(OBJECT_MAGIC, parcel);
+            final int d = writeHeader(1, parcel);
+            // length of PRF inputs. None for makeCredential.
+            parcel.writeInt(0);
+            writeLength(d, parcel);
+            writeLength(c, parcel);
+            writeLength(b, parcel);
+        }
+
         writeLength(a, parcel);
     }
 
@@ -307,12 +377,12 @@ public final class Fido2Api {
      */
     public static void appendBrowserGetAssertionOptionsToParcel(
             PublicKeyCredentialRequestOptions options, Uri origin, byte[] clientDataHash,
-            Parcel parcel) {
+            byte[] tunnelId, Parcel parcel) {
         final int a = writeHeader(OBJECT_MAGIC, parcel);
 
         // 2: PublicKeyCredentialRequestOptions
         int z = writeHeader(2, parcel);
-        appendGetAssertionOptionsToParcel(options, parcel);
+        appendGetAssertionOptionsToParcel(options, tunnelId, parcel);
         writeLength(z, parcel);
 
         // 3: origin
@@ -337,7 +407,7 @@ public final class Fido2Api {
      * @param parcel the {@link Parcel} to append the output to.
      */
     public static void appendGetAssertionOptionsToParcel(
-            PublicKeyCredentialRequestOptions options, Parcel parcel) {
+            PublicKeyCredentialRequestOptions options, byte[] tunnelId, Parcel parcel) {
         final int a = writeHeader(OBJECT_MAGIC, parcel);
 
         // 2: challenge
@@ -371,14 +441,14 @@ public final class Fido2Api {
 
         // 9: extensions
         z = writeHeader(9, parcel);
-        appendGetAssertionExtensionsToParcel(options, parcel);
+        appendGetAssertionExtensionsToParcel(options, tunnelId, parcel);
         writeLength(z, parcel);
 
         writeLength(a, parcel);
     }
 
     private static void appendGetAssertionExtensionsToParcel(
-            PublicKeyCredentialRequestOptions options, Parcel parcel) {
+            PublicKeyCredentialRequestOptions options, byte[] tunnelId, Parcel parcel) {
         final int a = writeHeader(OBJECT_MAGIC, parcel);
 
         // 2: appId
@@ -398,6 +468,50 @@ public final class Fido2Api {
             final int c = writeHeader(OBJECT_MAGIC, parcel);
             final int d = writeHeader(1, parcel);
             parcel.writeInt(1);
+            writeLength(d, parcel);
+            writeLength(c, parcel);
+            writeLength(b, parcel);
+        }
+
+        // 8: device public key
+        if (options.devicePublicKey != null) {
+            final int b = writeHeader(8, parcel);
+            final int c = writeHeader(OBJECT_MAGIC, parcel);
+            final int d = writeHeader(1, parcel);
+            parcel.writeInt(1);
+            writeLength(d, parcel);
+            writeLength(c, parcel);
+            writeLength(b, parcel);
+        }
+
+        // 11: PRF
+        if (options.prf) {
+            final int b = writeHeader(11, parcel);
+            final int c = writeHeader(OBJECT_MAGIC, parcel);
+            final int d = writeHeader(1, parcel);
+            parcel.writeInt(2 * options.prfInputs.length);
+            for (PrfValues input : options.prfInputs) {
+                parcel.writeByteArray(input.id);
+                if (input.second == null) {
+                    parcel.writeByteArray(input.first);
+                } else {
+                    byte[] values = new byte[input.first.length + input.second.length];
+                    System.arraycopy(input.first, 0, values, 0, input.first.length);
+                    System.arraycopy(
+                            input.second, 0, values, input.first.length, input.second.length);
+                    parcel.writeByteArray(values);
+                }
+            }
+            writeLength(d, parcel);
+            writeLength(c, parcel);
+            writeLength(b, parcel);
+        }
+
+        if (tunnelId != null) {
+            final int b = writeHeader(9, parcel);
+            final int c = writeHeader(OBJECT_MAGIC, parcel);
+            final int d = writeHeader(1, parcel);
+            parcel.writeString(Base64.encodeToString(tunnelId, Base64.NO_WRAP));
             writeLength(d, parcel);
             writeLength(c, parcel);
             writeLength(b, parcel);
@@ -495,6 +609,19 @@ public final class Fido2Api {
         }
     }
 
+    private static int stringToAttachment(String v) {
+        // This is the closest one can get to a static assert that no new enumeration values have
+        // been added.
+        assert AuthenticatorAttachment.MAX_VALUE == AuthenticatorAttachment.CROSS_PLATFORM;
+
+        if (v.equals("platform")) {
+            return AuthenticatorAttachment.PLATFORM;
+        } else if (v.equals("cross-platform")) {
+            return AuthenticatorAttachment.CROSS_PLATFORM;
+        }
+        return AuthenticatorAttachment.MIN_VALUE - 1;
+    }
+
     private static String credentialTypeToString(int credType) {
         // This is the closest one can get to a static assert that no new enumeration values have
         // been added.
@@ -522,6 +649,8 @@ public final class Fido2Api {
                 return "ble";
             case AuthenticatorTransport.INTERNAL:
                 return "internal";
+            case AuthenticatorTransport.HYBRID:
+                return "cable";
         }
     }
 
@@ -597,10 +726,12 @@ public final class Fido2Api {
      * Read a FIDO API response from a {@link PendingIntent} result.
      *
      * @param data the Intent, as passed to {@link Activity.onActivityResult}.
+     * @param attestationAcceptable if expecting a makeCredential response, this controls whether
+     *         attestation of the primary credential will be included.
      * @return see {@link parseResponse}.
      * @throws IllegalArgumentException if there was a parse error.
      */
-    public static @Nullable Object parseIntentResponse(Intent data)
+    public static @Nullable Object parseIntentResponse(Intent data, boolean attestationAcceptable)
             throws IllegalArgumentException {
         byte[] responseBytes = data.getByteArrayExtra(CREDENTIAL_EXTRA);
         if (responseBytes == null) {
@@ -608,7 +739,7 @@ public final class Fido2Api {
             throw new IllegalArgumentException();
         }
 
-        final Object response = parseResponse(responseBytes);
+        final Object response = parseResponse(responseBytes, attestationAcceptable);
         if (response == null) {
             Log.e(TAG, "Failed to parse FIDO2 API response");
             throw new IllegalArgumentException();
@@ -621,12 +752,15 @@ public final class Fido2Api {
      * Read a FIDO API response from a bytestring.
      *
      * @param responseBytes an encoded PublicKeyCredential object.
+     * @param attestationAcceptable if expecting a makeCredential response, this controls whether
+     *         attestation of the primary credential will be included.
      * @return One of the following: 1) a Pair&lt;Integer, String&gt;, if the response is an error.
      *         (The first value is the error code, the second is an optional error message.) 2) a
      *         MakeCredentialAuthenticatorResponse. 3) a GetAssertionAuthenticatorResponse.
      * @throws IllegalArgumentException if there was a parse error.
      */
-    public static Object parseResponse(byte[] responseBytes) throws IllegalArgumentException {
+    public static Object parseResponse(byte[] responseBytes, boolean attestationAcceptable)
+            throws IllegalArgumentException {
         Parcel parcel = Parcel.obtain();
         parcel.unmarshall(responseBytes, 0, responseBytes.length);
         parcel.setDataPosition(0);
@@ -637,15 +771,23 @@ public final class Fido2Api {
         }
         final int endPosition = addLengthToParcelPosition(header.second, parcel);
 
+        MakeCredentialAuthenticatorResponse creationResponse = null;
         GetAssertionAuthenticatorResponse assertionResponse = null;
         Extensions extensions = null;
+        int attachment = AuthenticatorAttachment.MIN_VALUE - 1;
 
         while (parcel.dataPosition() < endPosition) {
             header = readHeader(parcel);
             switch (header.first) {
                 case 4:
                     // Attestation response
-                    return parseAttestationResponse(parcel);
+                    creationResponse = parseAttestationResponse(parcel, attestationAcceptable);
+                    if (creationResponse == null) {
+                        throw new IllegalArgumentException();
+                    }
+                    // The response may need to have attachment information included, which is in
+                    // another field.
+                    break;
 
                 case 5:
                     // Sign response
@@ -669,10 +811,38 @@ public final class Fido2Api {
                     }
                     break;
 
+                case 8:
+                    // authenticatorAttachment
+                    attachment = stringToAttachment(parcel.readString());
+                    break;
+
                 default:
                     // unknown tag. Skip over it.
                     parcel.setDataPosition(addLengthToParcelPosition(header.second, parcel));
             }
+        }
+
+        if (creationResponse != null) {
+            if (attachment >= AuthenticatorAttachment.MIN_VALUE) {
+                creationResponse.authenticatorAttachment = attachment;
+            }
+            if (extensions != null) {
+                if (extensions.devicePublicKey != null) {
+                    creationResponse.devicePublicKey = extensions.devicePublicKey;
+                    creationResponse.devicePublicKey.authenticatorOutput =
+                            Fido2ApiJni.get().getDevicePublicKeyFromAuthenticatorData(
+                                    creationResponse.info.authenticatorData);
+                }
+                if (extensions.hasCredProps) {
+                    creationResponse.hasCredPropsRk = true;
+                    creationResponse.credPropsRk = extensions.didCreateDiscoverableCredential;
+                }
+                if (extensions.prf != null) {
+                    creationResponse.echoPrf = true;
+                    creationResponse.prf = extensions.prf.first;
+                }
+            }
+            return creationResponse;
         }
 
         if (assertionResponse != null) {
@@ -683,14 +853,37 @@ public final class Fido2Api {
                         extensions.userVerificationMethods.toArray(
                                 assertionResponse.userVerificationMethods);
             }
+            if (extensions != null && extensions.devicePublicKey != null) {
+                assertionResponse.devicePublicKey = extensions.devicePublicKey;
+                assertionResponse.devicePublicKey.authenticatorOutput =
+                        Fido2ApiJni.get().getDevicePublicKeyFromAuthenticatorData(
+                                assertionResponse.info.authenticatorData);
+            }
+            if (extensions != null && extensions.prf != null) {
+                assertionResponse.echoPrf = true;
+                assertionResponse.prfResults = new PrfValues();
+                if (extensions.prf.second.length == 32) {
+                    assertionResponse.prfResults.first = extensions.prf.second;
+                } else {
+                    assertionResponse.prfResults.first = new byte[32];
+                    assertionResponse.prfResults.second = new byte[32];
+                    System.arraycopy(
+                            extensions.prf.second, 0, assertionResponse.prfResults.first, 0, 32);
+                    System.arraycopy(
+                            extensions.prf.second, 32, assertionResponse.prfResults.second, 0, 32);
+                }
+            }
+            if (attachment >= AuthenticatorAttachment.MIN_VALUE) {
+                assertionResponse.authenticatorAttachment = attachment;
+            }
             return assertionResponse;
         }
 
         throw new IllegalArgumentException();
     }
 
-    private static MakeCredentialAuthenticatorResponse parseAttestationResponse(Parcel parcel)
-            throws IllegalArgumentException {
+    private static MakeCredentialAuthenticatorResponse parseAttestationResponse(
+            Parcel parcel, boolean attestationAcceptable) throws IllegalArgumentException {
         Pair<Integer, Integer> header = readHeader(parcel);
         if (header.first != OBJECT_MAGIC) {
             throw new IllegalArgumentException();
@@ -700,6 +893,7 @@ public final class Fido2Api {
         byte[] keyHandle = null;
         byte[] clientDataJson = null;
         byte[] attestationObject = null;
+        int[] transports = new int[] {};
 
         while (parcel.dataPosition() < endPosition) {
             header = readHeader(parcel);
@@ -716,6 +910,10 @@ public final class Fido2Api {
                     attestationObject = parcel.createByteArray();
                     break;
 
+                case 5:
+                    transports = parseTransports(parcel);
+                    break;
+
                 default:
                     // unknown tag. Skip over it.
                     parcel.setDataPosition(addLengthToParcelPosition(header.second, parcel));
@@ -729,9 +927,9 @@ public final class Fido2Api {
         MakeCredentialAuthenticatorResponse ret = new MakeCredentialAuthenticatorResponse();
         CommonCredentialInfo info = new CommonCredentialInfo();
 
-        ret.attestationObject = attestationObject;
         AttestationObjectParts parts = new AttestationObjectParts();
-        if (!Fido2ApiJni.get().parseAttestationObject(attestationObject, parts)) {
+        if (!Fido2ApiJni.get().parseAttestationObject(
+                    attestationObject, attestationAcceptable, parts)) {
             // A failure to parse the attestation object is fatal to the request
             // on desktop and so the same behavior is used here.
             throw new IllegalArgumentException();
@@ -739,15 +937,43 @@ public final class Fido2Api {
         ret.publicKeyAlgo = parts.coseAlgorithm;
         info.authenticatorData = parts.authenticatorData;
         ret.publicKeyDer = parts.spki;
-
-        // An empty transports array indicates that we don't have any
-        // information about the available transports.
-        ret.transports = new int[] {};
+        ret.attestationObject = parts.attestationObject;
+        ret.transports = transports;
 
         info.id = encodeId(keyHandle);
         info.rawId = keyHandle;
         info.clientDataJson = clientDataJson;
         ret.info = info;
+        return ret;
+    }
+
+    private static int[] parseTransports(Parcel parcel) throws IllegalArgumentException {
+        int numValues = parcel.readInt();
+        int[] pending = new int[numValues];
+        int j = 0;
+
+        for (int i = 0; i < numValues; i++) {
+            String transport = parcel.readString();
+
+            if (transport.equals("usb")) {
+                pending[j++] = AuthenticatorTransport.USB;
+            } else if (transport.equals("nfc")) {
+                pending[j++] = AuthenticatorTransport.NFC;
+            } else if (transport.equals("ble")) {
+                pending[j++] = AuthenticatorTransport.BLE;
+            } else if (transport.equals("cable") || transport.equals("hybrid")) {
+                pending[j++] = AuthenticatorTransport.HYBRID;
+            } else if (transport.equals("internal")) {
+                pending[j++] = AuthenticatorTransport.INTERNAL;
+            }
+        }
+
+        if (j == numValues) {
+            return pending;
+        }
+
+        int[] ret = new int[j];
+        System.arraycopy(pending, 0, ret, 0, j);
         return ret;
     }
 
@@ -848,7 +1074,15 @@ public final class Fido2Api {
         return new Pair<>(code, message);
     }
 
-    private static class Extensions { public ArrayList<UvmEntry> userVerificationMethods; }
+    private static class Extensions {
+        public ArrayList<UvmEntry> userVerificationMethods;
+        public DevicePublicKeyResponse devicePublicKey;
+        public boolean hasCredProps;
+        public boolean didCreateDiscoverableCredential;
+        // prf contains an "enabled" flag and a bytestring that contains either
+        // one or two 32-byte strings.
+        public Pair<Boolean, byte[]> prf;
+    }
 
     private static Extensions parseExtensionResponse(Parcel parcel)
             throws IllegalArgumentException {
@@ -868,6 +1102,19 @@ public final class Fido2Api {
                     if (ret.userVerificationMethods == null) {
                         throw new IllegalArgumentException();
                     }
+                    break;
+
+                case 2:
+                    ret.devicePublicKey = parseDevicePublicKeyResponse(parcel);
+                    break;
+
+                case 3:
+                    ret.hasCredProps = true;
+                    ret.didCreateDiscoverableCredential = parseCredPropsResponse(parcel);
+                    break;
+
+                case 4:
+                    ret.prf = parsePrfResponse(parcel);
                     break;
 
                 default:
@@ -946,6 +1193,95 @@ public final class Fido2Api {
         return ret;
     }
 
+    private static DevicePublicKeyResponse parseDevicePublicKeyResponse(Parcel parcel)
+            throws IllegalArgumentException {
+        Pair<Integer, Integer> header = readHeader(parcel);
+        if (header.first != OBJECT_MAGIC) {
+            throw new IllegalArgumentException();
+        }
+        final int endPosition = addLengthToParcelPosition(header.second, parcel);
+
+        DevicePublicKeyResponse ret = new DevicePublicKeyResponse();
+
+        while (parcel.dataPosition() < endPosition) {
+            header = readHeader(parcel);
+            switch (header.first) {
+                case 1:
+                    ret.signature = parcel.createByteArray();
+                    break;
+
+                default:
+                    // unknown tag. Skip over it.
+                    parcel.setDataPosition(addLengthToParcelPosition(header.second, parcel));
+            }
+        }
+
+        if (ret.signature == null) {
+            throw new IllegalArgumentException();
+        }
+
+        return ret;
+    }
+
+    private static boolean parseCredPropsResponse(Parcel parcel) throws IllegalArgumentException {
+        Pair<Integer, Integer> header = readHeader(parcel);
+        if (header.first != OBJECT_MAGIC) {
+            throw new IllegalArgumentException();
+        }
+        final int endPosition = addLengthToParcelPosition(header.second, parcel);
+
+        boolean ret = false;
+
+        while (parcel.dataPosition() < endPosition) {
+            header = readHeader(parcel);
+            switch (header.first) {
+                case 1:
+                    ret = parcel.readInt() != 0;
+                    break;
+
+                default:
+                    // unknown tag. Skip over it.
+                    parcel.setDataPosition(addLengthToParcelPosition(header.second, parcel));
+            }
+        }
+
+        return ret;
+    }
+
+    private static Pair<Boolean, byte[]> parsePrfResponse(Parcel parcel)
+            throws IllegalArgumentException {
+        Pair<Integer, Integer> header = readHeader(parcel);
+        if (header.first != OBJECT_MAGIC) {
+            throw new IllegalArgumentException();
+        }
+        final int endPosition = addLengthToParcelPosition(header.second, parcel);
+
+        boolean enabled = false;
+        byte[] outputs = null;
+
+        while (parcel.dataPosition() < endPosition) {
+            header = readHeader(parcel);
+            switch (header.first) {
+                case 1:
+                    enabled = parcel.readInt() != 0;
+                    break;
+
+                case 2:
+                    outputs = parcel.createByteArray();
+                    if (outputs.length != 32 && outputs.length != 64) {
+                        throw new IllegalArgumentException("bad PRF output length");
+                    }
+                    break;
+
+                default:
+                    // unknown tag. Skip over it.
+                    parcel.setDataPosition(addLengthToParcelPosition(header.second, parcel));
+            }
+        }
+
+        return Pair.create(enabled, outputs);
+    }
+
     /**
      * Return a position that is `length` bytes after the current {@link Parcel} position.
      * <p>
@@ -987,28 +1323,113 @@ public final class Fido2Api {
                         TimeUnit.MICROSECONDS.toSeconds(timeout.microseconds)));
     }
 
-    // AttestationObjectParts is used to group together the return values of
-    // |parseAttestationObject|, below.
+    /** AttestationObjectParts groups together the return values of |parseAttestationObject|. */
     public static final class AttestationObjectParts {
         @CalledByNative("AttestationObjectParts")
-        void setAll(byte[] authenticatorData, byte[] spki, int coseAlgorithm) {
+        void setAll(byte[] authenticatorData, byte[] spki, int coseAlgorithm,
+                byte[] attestationObject) {
             this.authenticatorData = authenticatorData;
             this.spki = spki;
             this.coseAlgorithm = coseAlgorithm;
+            this.attestationObject = attestationObject;
         }
 
         public byte[] authenticatorData;
         public byte[] spki;
         public int coseAlgorithm;
+        public byte[] attestationObject;
+    }
+
+    /**
+     * Parse a {@link WebAuthnCredentialDetails} list from a parcel.
+     *
+     * @param parcel the {@link parcel} with current position set to the beginning of the list.
+     * @return The list of {@link WebAuthnCredentialDetails} if successfully parsed.
+     * @throws IllegalArgumentException if a parsing error is encountered.
+     */
+    public static ArrayList<WebAuthnCredentialDetails> parseCredentialList(Parcel parcel)
+            throws IllegalArgumentException {
+        int numCredentials = parcel.readInt();
+        ArrayList<WebAuthnCredentialDetails> credentials = new ArrayList<>();
+        for (int i = 0; i < numCredentials; i++) {
+            WebAuthnCredentialDetails details = new WebAuthnCredentialDetails();
+
+            // The array is as written by `Parcel.writeArray`. Each element of the array is prefixed
+            // by the class name of that element. The class names will be
+            // "com.google.android.gms.fido.fido2.api.common.DiscoverableCredentialInfo" but that
+            // isn't checked here to avoid depending on the name of the class.
+            if (parcel.readInt() != VAL_PARCELABLE) {
+                throw new IllegalArgumentException();
+            }
+            if (sParcelUsesLengthPrefixes) {
+                parcel.readInt(); // discard length prefix.
+            }
+            parcel.readString(); // ignore class name
+            Pair<Integer, Integer> header = readHeader(parcel);
+            if (header.first != OBJECT_MAGIC) {
+                throw new IllegalArgumentException();
+            }
+            final int endPosition = addLengthToParcelPosition(header.second, parcel);
+
+            // The original version of this API returned only discoverable credentials, not usable
+            // for Secure Payment Confirmation. If the tags are missing, this is the default.
+            details.mIsDiscoverable = true;
+            details.mIsPayment = false;
+
+            while (parcel.dataPosition() < endPosition) {
+                header = readHeader(parcel);
+                switch (header.first) {
+                    case 1:
+                        details.mUserName = parcel.readString();
+                        break;
+                    case 2:
+                        details.mUserDisplayName = parcel.readString();
+                        break;
+                    case 3:
+                        details.mUserId = parcel.createByteArray();
+                        break;
+                    case 4:
+                        details.mCredentialId = parcel.createByteArray();
+                        break;
+                    case 5:
+                        details.mIsDiscoverable = parcel.readInt() != 0;
+                        break;
+                    case 6:
+                        details.mIsPayment = parcel.readInt() != 0;
+                        break;
+                    default:
+                        // unknown tag. Skip over it.
+                        parcel.setDataPosition(addLengthToParcelPosition(header.second, parcel));
+                }
+            }
+            if (details.mCredentialId == null) {
+                throw new IllegalArgumentException();
+            }
+            if (details.mIsDiscoverable
+                    && (details.mUserName == null || details.mUserDisplayName == null
+                            || details.mUserId == null)) {
+                throw new IllegalArgumentException();
+            }
+            credentials.add(details);
+        }
+        return credentials;
     }
 
     @NativeMethods
     interface Natives {
         // parseAttestationObject parses a CTAP2 attestation[1] and extracts the
-        // parts that the browser provides via Javascript API [2].
+        // parts that the browser provides via Javascript API [2]. If
+        // `attestationAcceptable` is false then the returned attestation
+        // object will have attestation stripped.
         //
         // [1] https://www.w3.org/TR/webauthn/#attestation-object
         // [2] https://w3c.github.io/webauthn/#sctn-public-key-easy
-        boolean parseAttestationObject(byte[] attestationObject, AttestationObjectParts result);
+        boolean parseAttestationObject(byte[] attestationObject, boolean attestationAcceptable,
+                AttestationObjectParts result);
+
+        // getDevicePublicKeyFromAuthenticatorData extracts the DPK
+        // authenticator output because this is returned in the client's DPK
+        // extension output.
+        byte[] getDevicePublicKeyFromAuthenticatorData(byte[] authenticatorData);
     }
 }

@@ -1,16 +1,20 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/wm/window_cycle/window_cycle_item_view.h"
 
+#include <algorithm>
+
 #include "ash/shell.h"
 #include "ash/wm/window_cycle/window_cycle_controller.h"
+#include "ash/wm/window_mini_view_header_view.h"
 #include "ash/wm/window_preview_view.h"
+#include "ui/accessibility/ax_action_data.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/aura/window.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/geometry/rect_f.h"
-#include "ui/views/accessibility/accessibility_paint_checks.h"
 #include "ui/views/view.h"
 
 namespace ash {
@@ -29,17 +33,12 @@ WindowCycleItemView::WindowCycleItemView(aura::Window* window)
     : WindowMiniView(window) {
   SetFocusBehavior(FocusBehavior::ALWAYS);
   SetNotifyEnterExitOnChild(true);
-
-  // TODO(crbug.com/1218186): Remove this, this is in place temporarily to be
-  // able to submit accessibility checks, but this focusable View needs to
-  // add a name so that the screen reader knows what to announce.
-  SetProperty(views::kSkipAccessibilityPaintChecks, true);
 }
 
 void WindowCycleItemView::ShowPreview() {
   DCHECK(!preview_view());
 
-  UpdateIconView();
+  header_view()->UpdateIconView(source_window());
   SetShowPreview(/*show=*/true);
   UpdatePreviewRoundedCorners(/*show=*/true);
 }
@@ -77,7 +76,7 @@ gfx::Size WindowCycleItemView::GetPreviewViewSize() const {
         kMaxPreviewWidthDp / static_cast<float>(preview_pref_size.width()),
         kFixedPreviewHeightDp / static_cast<float>(preview_pref_size.height()));
     preview_pref_size =
-        gfx::ScaleToFlooredSize(preview_pref_size, scale, scale);
+        gfx::ScaleToRoundedSize(preview_pref_size, scale, scale);
   }
 
   return preview_pref_size;
@@ -110,12 +109,27 @@ gfx::Size WindowCycleItemView::CalculatePreferredSize() const {
 
   // Previews should never be narrower than half or wider than double their
   // fixed height.
-  preview_size.set_width(base::clamp(preview_size.width(), kMinPreviewWidthDp,
-                                     kMaxPreviewWidthDp));
+  preview_size.set_width(
+      std::clamp(preview_size.width(), kMinPreviewWidthDp, kMaxPreviewWidthDp));
 
   const int margin = GetInsets().width();
   preview_size.Enlarge(margin, margin + WindowMiniView::kHeaderHeightDp);
   return preview_size;
+}
+
+bool WindowCycleItemView::HandleAccessibleAction(
+    const ui::AXActionData& action_data) {
+  // Since this class destroys itself on mouse press, and
+  // View::HandleAccessibleAction calls OnEvent twice (first with a mouse press
+  // event, then with a mouse release event), override the base impl from
+  // triggering that behavior which leads to a UAF.
+  if (action_data.action == ax::mojom::Action::kDoDefault) {
+    Shell::Get()->window_cycle_controller()->SetFocusedWindow(source_window());
+    Shell::Get()->window_cycle_controller()->CompleteCycling();
+    return true;
+  }
+
+  return View::HandleAccessibleAction(action_data);
 }
 
 BEGIN_METADATA(WindowCycleItemView, WindowMiniView)

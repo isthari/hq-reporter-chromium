@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -58,6 +58,7 @@ class DesktopBrowserFrameAura : public views::DesktopNativeWidgetAura,
   bool HandleKeyboardEvent(
       const content::NativeWebKeyboardEvent& event) override;
   bool ShouldRestorePreviousBrowserWidgetState() const override;
+  bool ShouldUseInitialVisibleOnAllWorkspaces() const override;
 
  private:
   // The BrowserView is our ClientView. This is a pointer to it.
@@ -65,7 +66,8 @@ class DesktopBrowserFrameAura : public views::DesktopNativeWidgetAura,
   raw_ptr<BrowserFrame> browser_frame_;
 
   // Owned by the RootWindow.
-  raw_ptr<BrowserDesktopWindowTreeHost> browser_desktop_window_tree_host_;
+  raw_ptr<BrowserDesktopWindowTreeHost, DanglingUntriaged>
+      browser_desktop_window_tree_host_;
 
   std::unique_ptr<wm::VisibilityController> visibility_controller_;
 };

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,10 @@
 
 #include "build/build_config.h"
 #include "components/omnibox/browser/omnibox_popup_selection.h"
+
+namespace ui {
+struct AXNodeData;
+}
 
 class OmniboxPopupView {
  public:
@@ -47,6 +51,16 @@ class OmniboxPopupView {
   // action (e.g. releasing mouse capture).  Note that this can be called when
   // no drag is in progress.
   virtual void OnDragCanceled() = 0;
+
+  // Popup equivalent of GetAccessibleNodeData, used only by a unit test.
+  virtual void GetPopupAccessibleNodeData(ui::AXNodeData* node_data) = 0;
+
+  // Called by owning view to get accessibility data.
+  virtual void AddPopupAccessibleNodeData(ui::AXNodeData* node_data) = 0;
+
+  // Returns result view button text. This is currently only needed by a single
+  // unit test and it would be better to eliminate it than to increase usage.
+  virtual std::u16string GetAccessibleButtonTextForResult(size_t line) = 0;
 };
 
 #endif  // COMPONENTS_OMNIBOX_BROWSER_OMNIBOX_POPUP_VIEW_H_

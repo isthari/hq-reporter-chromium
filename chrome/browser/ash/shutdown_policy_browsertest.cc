@@ -1,25 +1,26 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <memory>
 #include <string>
 
+#include "ash/constants/ash_features.h"
 #include "ash/constants/ash_switches.h"
 #include "ash/login_status.h"
 #include "ash/public/cpp/ash_view_ids.h"
 #include "ash/public/cpp/login_screen_test_api.h"
 #include "ash/public/cpp/system_tray_test_api.h"
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/ash/login/lock/screen_locker.h"
 #include "chrome/browser/ash/login/lock/screen_locker_tester.h"
 #include "chrome/browser/ash/login/test/login_or_lock_screen_visible_waiter.h"
+#include "chrome/browser/ash/login/test/oobe_screen_waiter.h"
 #include "chrome/browser/ash/login/ui/login_display_host.h"
 #include "chrome/browser/ash/login/ui/webui_login_view.h"
 #include "chrome/browser/ash/policy/core/device_policy_builder.h"
@@ -27,8 +28,9 @@
 #include "chrome/browser/ash/settings/device_settings_service.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
-#include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
-#include "chromeos/dbus/session_manager/fake_session_manager_client.h"
+#include "chrome/browser/ui/webui/ash/login/gaia_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/oobe_ui.h"
+#include "chromeos/ash/components/dbus/session_manager/fake_session_manager_client.h"
 #include "components/policy/proto/chrome_device_policy.pb.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
@@ -54,17 +56,17 @@ void WaitForShutdownButtonVisibility(bool visible) {
 
 }  // namespace
 
-class ShutdownPolicyBaseTest
-    : public policy::DevicePolicyCrosBrowserTest,
-      public DeviceSettingsService::Observer {
+class ShutdownPolicyBaseTest : public policy::DevicePolicyCrosBrowserTest,
+                               public DeviceSettingsService::Observer {
  protected:
   ShutdownPolicyBaseTest() {}
   ~ShutdownPolicyBaseTest() override {}
 
   // DeviceSettingsService::Observer:
   void DeviceSettingsUpdated() override {
-    if (run_loop_)
+    if (run_loop_) {
       run_loop_->Quit();
+    }
   }
 
   // policy::DevicePolicyCrosBrowserTest:
@@ -98,8 +100,9 @@ class ShutdownPolicyBaseTest
     ASSERT_TRUE(oobe_ui);
     base::RunLoop run_loop;
     const bool oobe_ui_ready = oobe_ui->IsJSReady(run_loop.QuitClosure());
-    if (!oobe_ui_ready)
+    if (!oobe_ui_ready) {
       run_loop.Run();
+    }
   }
 
   bool result_;
@@ -107,8 +110,7 @@ class ShutdownPolicyBaseTest
   std::unique_ptr<SystemTrayTestApi> tray_test_api_;
 };
 
-class ShutdownPolicyInSessionTest
-    : public ShutdownPolicyBaseTest {
+class ShutdownPolicyInSessionTest : public ShutdownPolicyBaseTest {
  public:
   ShutdownPolicyInSessionTest(const ShutdownPolicyInSessionTest&) = delete;
   ShutdownPolicyInSessionTest& operator=(const ShutdownPolicyInSessionTest&) =
@@ -126,16 +128,21 @@ class ShutdownPolicyInSessionTest
 
   // Returns true if the shutdown button's tooltip matches |tooltip|.
   bool HasShutdownButtonTooltip(const std::string& tooltip) {
-    std::u16string actual_tooltip =
-        tray_test_api_->GetBubbleViewTooltip(VIEW_ID_POWER_BUTTON);
+    std::u16string actual_tooltip = tray_test_api_->GetShutdownButtonTooltip();
     return base::UTF8ToUTF16(tooltip) == actual_tooltip;
   }
 };
 
-// Tests that by default the shutdown button tooltip is "Shut down".
+// Tests that by default the shutdown button tooltip is "Shut down" in the old
+// view or "Power menu" in the revamped view.
 IN_PROC_BROWSER_TEST_F(ShutdownPolicyInSessionTest, TestBasic) {
   OpenSystemTrayMenu();
-  EXPECT_TRUE(HasShutdownButtonTooltip("Shut down"));
+  if (base::FeatureList::IsEnabled(ash::features::kQsRevamp)) {
+    EXPECT_TRUE(HasShutdownButtonTooltip("Power menu"));
+  } else {
+    EXPECT_TRUE(HasShutdownButtonTooltip("Shut down"));
+  }
+
   CloseSystemTrayMenu();
 }
 
@@ -241,12 +248,16 @@ class ShutdownPolicyLoginTest : public ShutdownPolicyBaseTest {
 
     // Wait for the login UI to be ready.
     WaitUntilOobeUIIsReady(host->GetOobeUI());
+
+    // Wait for GAIA screen, as it is the first screen and Shutdown button
+    // visibility depends on if it is first sign-in step or not.
+    OobeScreenWaiter(GaiaView::kScreenId).Wait();
   }
 
   void TearDownOnMainThread() override {
     // If the login display is still showing, exit gracefully.
     if (LoginDisplayHost::default_host()) {
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE, base::BindOnce(&chrome::AttemptExit));
       RunUntilBrowserProcessQuits();
     }

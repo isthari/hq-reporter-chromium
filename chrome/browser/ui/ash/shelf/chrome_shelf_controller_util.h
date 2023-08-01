@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,9 @@
 #include <string>
 
 #include "ash/public/cpp/shelf_types.h"
-#include "chrome/browser/ui/app_list/app_list_controller_delegate.h"
-#include "components/services/app_service/public/mojom/types.mojom.h"
+#include "chrome/browser/ash/app_list/app_list_controller_delegate.h"
+#include "components/services/app_service/public/cpp/app_launch_util.h"
+#include "components/services/app_service/public/cpp/app_types.h"
 
 class Browser;
 
@@ -31,6 +32,12 @@ AppListControllerDelegate::Pinnable GetPinnableForAppID(
     const std::string& app_id,
     Profile* profile);
 
+// Whether the pin state of the app with `app_id` is editable according to its
+// `app_type`.
+bool IsAppPinEditable(apps::AppType app_type,
+                      const std::string& app_id,
+                      Profile* profile);
+
 // Returns true when the given |browser| is listed in the browser application
 // list.
 bool IsBrowserRepresentedInBrowserList(Browser* browser,
@@ -51,7 +58,7 @@ void UnpinAppWithIDFromShelf(const std::string& app_id);
 // Returns whether the app with `app_id` has been pinned to the shelf.
 bool IsAppWithIDPinnedToShelf(const std::string& app_id);
 
-apps::mojom::LaunchSource ShelfLaunchSourceToAppsLaunchSource(
+apps::LaunchSource ShelfLaunchSourceToAppsLaunchSource(
     ash::ShelfLaunchSource source);
 
 // Checks if |BrowserAppShelfController| and |BrowserAppShelfItemController| can

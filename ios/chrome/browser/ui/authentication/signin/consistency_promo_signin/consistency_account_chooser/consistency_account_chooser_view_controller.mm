@@ -1,14 +1,14 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/authentication/signin/consistency_promo_signin/consistency_account_chooser/consistency_account_chooser_view_controller.h"
 
 #import "base/check.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
+#import "ios/chrome/browser/shared/ui/table_view/table_view_utils.h"
 #import "ios/chrome/browser/ui/authentication/signin/consistency_promo_signin/consistency_account_chooser/consistency_account_chooser_table_view_controller.h"
 #import "ios/chrome/browser/ui/authentication/signin/consistency_promo_signin/consistency_layout_delegate.h"
-#import "ios/chrome/browser/ui/table_view/table_view_utils.h"
-#import "ios/chrome/browser/ui/ui_feature_flags.h"
 #import "ios/chrome/grit/ios_strings.h"
 #import "ui/base/l10n/l10n_util.h"
 
@@ -99,7 +99,7 @@ constexpr CGFloat kContentMargin = 16.;
   CGFloat screenHeight =
       self.navigationController.view.window.bounds.size.height;
   CGFloat rowHeight = self.tableViewController.tableView.contentSize.height;
-  // If |screenHeight| is undefined during a transition, use |rowHeight|.
+  // If `screenHeight` is undefined during a transition, use `rowHeight`.
   CGFloat height =
       screenHeight == 0 ? rowHeight : MIN(screenHeight / 2, rowHeight);
   CGFloat safeAreaInsetsHeight = 0;

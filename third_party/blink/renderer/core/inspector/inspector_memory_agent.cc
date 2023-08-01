@@ -34,6 +34,7 @@
 
 #include "base/debug/stack_trace.h"
 #include "base/profiler/module_cache.h"
+#include "base/sampling_heap_profiler/poisson_allocation_sampler.h"
 #include "base/sampling_heap_profiler/sampling_heap_profiler.h"
 #include "build/build_config.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -48,26 +49,25 @@ namespace blink {
 
 constexpr int kDefaultNativeMemorySamplingInterval = 128 * 1024;
 
-using protocol::Response;
-
 InspectorMemoryAgent::InspectorMemoryAgent(InspectedFrames* inspected_frames)
     : frames_(inspected_frames),
       sampling_profile_interval_(&agent_state_, /*default_value=*/0) {}
 
 InspectorMemoryAgent::~InspectorMemoryAgent() = default;
 
-Response InspectorMemoryAgent::getDOMCounters(int* documents,
-                                              int* nodes,
-                                              int* js_event_listeners) {
+protocol::Response InspectorMemoryAgent::getDOMCounters(
+    int* documents,
+    int* nodes,
+    int* js_event_listeners) {
   *documents =
       InstanceCounters::CounterValue(InstanceCounters::kDocumentCounter);
   *nodes = InstanceCounters::CounterValue(InstanceCounters::kNodeCounter);
   *js_event_listeners =
       InstanceCounters::CounterValue(InstanceCounters::kJSEventListenerCounter);
-  return Response::Success();
+  return protocol::Response::Success();
 }
 
-Response InspectorMemoryAgent::forciblyPurgeJavaScriptMemory() {
+protocol::Response InspectorMemoryAgent::forciblyPurgeJavaScriptMemory() {
   for (const auto& page : Page::OrdinaryPages()) {
     for (Frame* frame = page->MainFrame(); frame;
          frame = frame->Tree().TraverseNext()) {
@@ -79,7 +79,7 @@ Response InspectorMemoryAgent::forciblyPurgeJavaScriptMemory() {
   }
   V8PerIsolateData::MainThreadIsolate()->MemoryPressureNotification(
       v8::MemoryPressureLevel::kCritical);
-  return Response::Success();
+  return protocol::Response::Success();
 }
 
 void InspectorMemoryAgent::Trace(Visitor* visitor) const {
@@ -93,39 +93,42 @@ void InspectorMemoryAgent::Restore() {
                 protocol::Maybe<bool>());
 }
 
-Response InspectorMemoryAgent::startSampling(
+protocol::Response InspectorMemoryAgent::startSampling(
     protocol::Maybe<int> in_sampling_interval,
     protocol::Maybe<bool> in_suppressRandomness) {
   int interval =
       in_sampling_interval.fromMaybe(kDefaultNativeMemorySamplingInterval);
   if (interval <= 0)
-    return Response::ServerError("Invalid sampling rate.");
+    return protocol::Response::ServerError("Invalid sampling rate.");
   base::SamplingHeapProfiler::Get()->SetSamplingInterval(interval);
   sampling_profile_interval_.Set(interval);
-  if (in_suppressRandomness.fromMaybe(false))
-    base::PoissonAllocationSampler::Get()->SuppressRandomnessForTest(true);
+  if (in_suppressRandomness.fromMaybe(false)) {
+    randomness_suppressor_ = std::make_unique<
+        base::PoissonAllocationSampler::ScopedSuppressRandomnessForTesting>();
+  }
   profile_id_ = base::SamplingHeapProfiler::Get()->Start();
-  return Response::Success();
+  return protocol::Response::Success();
 }
 
-Response InspectorMemoryAgent::stopSampling() {
+protocol::Response InspectorMemoryAgent::stopSampling() {
   if (sampling_profile_interval_.Get() == 0)
-    return Response::ServerError("Sampling profiler is not started.");
+    return protocol::Response::ServerError("Sampling profiler is not started.");
   base::SamplingHeapProfiler::Get()->Stop();
   sampling_profile_interval_.Clear();
-  return Response::Success();
+  randomness_suppressor_.reset();
+  return protocol::Response::Success();
 }
 
-Response InspectorMemoryAgent::getAllTimeSamplingProfile(
+protocol::Response InspectorMemoryAgent::getAllTimeSamplingProfile(
     std::unique_ptr<protocol::Memory::SamplingProfile>* out_profile) {
   *out_profile = GetSamplingProfileById(0);
-  return Response::Success();
+  return protocol::Response::Success();
 }
 
-Response InspectorMemoryAgent::getSamplingProfile(
+protocol::Response InspectorMemoryAgent::getSamplingProfile(
     std::unique_ptr<protocol::Memory::SamplingProfile>* out_profile) {
   *out_profile = GetSamplingProfileById(profile_id_);
-  return Response::Success();
+  return protocol::Response::Success();
 }
 
 std::unique_ptr<protocol::Memory::SamplingProfile>

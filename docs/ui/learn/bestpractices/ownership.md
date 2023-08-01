@@ -226,7 +226,7 @@ void TimeView::TimeView(ClockLayout clock_layout,
         std::make_unique<HorizontalLabelView>());
   vertical_label_ =
      AddChildView(
-        std::make_unique<VerticalLabelView());
+        std::make_unique<VerticalLabelView>());
   ...
 }
 
@@ -300,8 +300,8 @@ class CastDialogNoSinksView ... {
 CastDialogNoSinksView::CastDialogNoSinksView(
     Profile* profile) : profile_(profile) {
   ...
-  base::PostDelayedTask(
-      FROM_HERE, {content::BrowserThread::UI},
+  content::GetUIThreadTaskRunner({})->PostDelayedTask(
+      FROM_HERE,
       base::BindOnce(
           &CastDialogNoSinksView::ShowHelpIconView,
           weak_factory_.GetWeakPtr()),

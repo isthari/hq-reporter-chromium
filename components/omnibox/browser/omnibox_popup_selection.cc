@@ -1,8 +1,9 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/omnibox/browser/omnibox_popup_selection.h"
+#include "components/omnibox/browser/actions/omnibox_action.h"
 
 #include <algorithm>
 
@@ -11,7 +12,7 @@
 const size_t OmniboxPopupSelection::kNoMatch = static_cast<size_t>(-1);
 
 bool OmniboxPopupSelection::operator==(const OmniboxPopupSelection& b) const {
-  return line == b.line && state == b.state;
+  return line == b.line && state == b.state && action_index == b.action_index;
 }
 
 bool OmniboxPopupSelection::operator!=(const OmniboxPopupSelection& b) const {
@@ -19,9 +20,12 @@ bool OmniboxPopupSelection::operator!=(const OmniboxPopupSelection& b) const {
 }
 
 bool OmniboxPopupSelection::operator<(const OmniboxPopupSelection& b) const {
-  if (line == b.line)
+  if (line == b.line) {
+    if (state == b.state) {
+      return action_index < b.action_index;
+    }
     return state < b.state;
-
+  }
   return line < b.line;
 }
 
@@ -45,31 +49,49 @@ bool OmniboxPopupSelection::IsControlPresentOnMatch(
   // user is trying to focus the header itself (which is still shown).
   if (state != FOCUSED_BUTTON_HEADER && match.suggestion_group_id.has_value() &&
       pref_service &&
-      result.IsSuggestionGroupIdHidden(pref_service,
-                                       match.suggestion_group_id.value())) {
+      result.IsSuggestionGroupHidden(pref_service,
+                                     match.suggestion_group_id.value())) {
     return false;
   }
 
   switch (state) {
     case FOCUSED_BUTTON_HEADER: {
-      // For the first match, if it a suggestion_group_id, then it has a header.
-      if (line == 0)
-        return match.suggestion_group_id.has_value();
+      // Trivial case where there's no header at all.
+      if (!match.suggestion_group_id.has_value()) {
+        return false;
+      }
+      // Empty string headers are not rendered and should not be traversed.
+      if (result.GetHeaderForSuggestionGroup(match.suggestion_group_id.value())
+              .empty()) {
+        return false;
+      }
 
-      // Otherwise, we only show headers that are distinct from the previous
+      // Now we know there's an existing header. First line header is always
+      // distinct from the previous match (because there is no previous match).
+      if (line == 0) {
+        return true;
+      }
+
+      // Otherwise, we verify that this header is distinct from the previous
       // match's header.
       const auto& previous_match = result.match_at(line - 1);
-      return match.suggestion_group_id.has_value() &&
-             match.suggestion_group_id != previous_match.suggestion_group_id;
+      return match.suggestion_group_id != previous_match.suggestion_group_id;
     }
     case NORMAL:
       return true;
     case KEYWORD_MODE:
       return match.associated_keyword != nullptr;
-    case FOCUSED_BUTTON_TAB_SWITCH:
-      return match.has_tab_match.value_or(false);
-    case FOCUSED_BUTTON_ACTION:
-      return match.action != nullptr;
+    case FOCUSED_BUTTON_ACTION: {
+      // Actions buttons should not be shown in keyword mode.
+      if (OmniboxFieldTrial::IsSiteSearchStarterPackEnabled() &&
+          match.from_keyword) {
+        return false;
+      }
+      if (action_index >= match.actions.size()) {
+        return false;
+      }
+      return true;
+    }
     case FOCUSED_BUTTON_REMOVE_SUGGESTION:
       return match.SupportsDeletion();
     default:
@@ -153,7 +175,7 @@ OmniboxPopupSelection::GetAllAvailableSelectionsSorted(
     PrefService* pref_service,
     Direction direction,
     Step step) {
-  // First enumerate all the accessible states based on |direction| and |step|,
+  // First enumerate all the accessible states based on `direction` and `step`,
   // as well as enabled feature flags. This doesn't mean each match will have
   // all of these states - just that it's possible to get there, if available.
   std::vector<LineState> all_states;
@@ -162,12 +184,12 @@ OmniboxPopupSelection::GetAllAvailableSelectionsSorted(
     all_states.push_back(NORMAL);
   } else {
     // Arrow keys should never reach the header controls.
-    if (step == kStateOrLine)
+    if (step == kStateOrLine) {
       all_states.push_back(FOCUSED_BUTTON_HEADER);
+    }
 
     all_states.push_back(NORMAL);
     all_states.push_back(KEYWORD_MODE);
-    all_states.push_back(FOCUSED_BUTTON_TAB_SWITCH);
 #if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_IOS)
     all_states.push_back(FOCUSED_BUTTON_ACTION);
 #endif
@@ -179,17 +201,32 @@ OmniboxPopupSelection::GetAllAvailableSelectionsSorted(
   // Now, for each accessible line, add all the available line states to a list.
   std::vector<OmniboxPopupSelection> available_selections;
   {
-    auto add_available_line_states_for_line = [&](size_t line) {
-      for (LineState state : all_states) {
-        OmniboxPopupSelection selection(line, state);
-        if (selection.IsControlPresentOnMatch(result, pref_service)) {
-          available_selections.push_back(selection);
+    auto add_available_line_states_for_line = [&](size_t line_number) {
+      for (LineState line_state : all_states) {
+        if (line_state == FOCUSED_BUTTON_ACTION) {
+          constexpr size_t kMaxActionCount = 8;
+          for (size_t i = 0; i < kMaxActionCount; i++) {
+            OmniboxPopupSelection selection(line_number, line_state, i);
+            if (selection.IsControlPresentOnMatch(result, pref_service)) {
+              available_selections.push_back(selection);
+            } else {
+              // Break early when there are no more actions. Note, this
+              // implies that a match takeover action should be last
+              // to allow other actions on the match to be included.
+              break;
+            }
+          }
+        } else {
+          OmniboxPopupSelection selection(line_number, line_state);
+          if (selection.IsControlPresentOnMatch(result, pref_service)) {
+            available_selections.push_back(selection);
+          }
         }
       }
     };
 
-    for (size_t line = 0; line < result.size(); ++line) {
-      add_available_line_states_for_line(line);
+    for (size_t line_number = 0; line_number < result.size(); ++line_number) {
+      add_available_line_states_for_line(line_number);
     }
   }
   DCHECK(

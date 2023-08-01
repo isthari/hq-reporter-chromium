@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,15 @@
 
 #include "base/containers/flat_map.h"
 #include "base/containers/flat_set.h"
+#include "base/memory/raw_ptr.h"
 #include "chrome/browser/ash/printing/printer_configurer.h"
 
 namespace chromeos {
-
 class Printer;
+}
+
+namespace ash {
+
 class TestCupsPrintersManager;
 
 // Test PrinterConfigurer which allows printers to be marked as configured for
@@ -28,7 +32,7 @@ class TestPrinterConfigurer : public PrinterConfigurer {
   ~TestPrinterConfigurer() override;
 
   // PrinterConfigurer:
-  void SetUpPrinter(const Printer& printer,
+  void SetUpPrinter(const chromeos::Printer& printer,
                     PrinterSetupCallback callback) override;
 
   // Returns true if the printer with given |printer_id| was set up or
@@ -41,11 +45,11 @@ class TestPrinterConfigurer : public PrinterConfigurer {
                                 PrinterSetupResult result);
 
  private:
-  TestCupsPrintersManager* manager_ = nullptr;
+  raw_ptr<TestCupsPrintersManager, ExperimentalAsh> manager_ = nullptr;
   base::flat_set<std::string> configured_printers_;
   base::flat_map<std::string, PrinterSetupResult> assigned_results_;
 };
 
-}  // namespace chromeos
+}  // namespace ash
 
 #endif  // CHROME_BROWSER_ASH_PRINTING_TEST_PRINTER_CONFIGURER_H_

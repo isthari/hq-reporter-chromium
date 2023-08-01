@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "components/global_media_controls/public/views/media_item_ui_device_selector.h"
 #include "components/global_media_controls/public/views/media_item_ui_footer.h"
 #include "components/media_message_center/media_notification_container.h"
+#include "components/media_message_center/media_notification_view_ash_impl.h"
 #include "components/media_message_center/media_notification_view_impl.h"
 #include "media/base/media_switches.h"
 #include "ui/base/metadata/metadata_header_macros.h"
@@ -47,13 +48,23 @@ class COMPONENT_EXPORT(GLOBAL_MEDIA_CONTROLS) MediaItemUIView
  public:
   METADATA_HEADER(MediaItemUIView);
 
+  // MediaItemUIView is used in multiple places so some optional parameters may
+  // not be set:
+  // - Chrome OS media UI will set notification_theme for color theme.
+  // - Chrome OS Zenith 2.0 media UI will set media_color_theme for color theme
+  // and media_display_page for display page source.
+  // - Chrome browser media UI will set none of them.
   MediaItemUIView(
       const std::string& id,
       base::WeakPtr<media_message_center::MediaNotificationItem> item,
       std::unique_ptr<MediaItemUIFooter> footer_view,
       std::unique_ptr<MediaItemUIDeviceSelector> device_selector_view,
-      absl::optional<media_message_center::NotificationTheme> theme =
-          absl::nullopt);
+      absl::optional<media_message_center::NotificationTheme>
+          notification_theme = absl::nullopt,
+      absl::optional<media_message_center::MediaColorTheme> media_color_theme =
+          absl::nullopt,
+      absl::optional<media_message_center::MediaDisplayPage>
+          media_display_page = absl::nullopt);
   MediaItemUIView(const MediaItemUIView&) = delete;
   MediaItemUIView& operator=(const MediaItemUIView&) = delete;
   ~MediaItemUIView() override;
@@ -63,6 +74,9 @@ class COMPONENT_EXPORT(GLOBAL_MEDIA_CONTROLS) MediaItemUIView
   void RemovedFromWidget() override;
   void OnMouseEntered(const ui::MouseEvent& event) override;
   void OnMouseExited(const ui::MouseEvent& event) override;
+
+  // views::View:
+  void OnGestureEvent(ui::GestureEvent* event) override;
 
   // views::FocusChangeListener:
   void OnWillChangeFocus(views::View* focused_before,
@@ -80,13 +94,15 @@ class COMPONENT_EXPORT(GLOBAL_MEDIA_CONTROLS) MediaItemUIView
       const base::flat_set<media_session::mojom::MediaSessionAction>& actions)
       override;
   void OnMediaArtworkChanged(const gfx::ImageSkia& image) override;
-  void OnColorsChanged(SkColor foreground, SkColor background) override;
+  void OnColorsChanged(SkColor foreground,
+                       SkColor foreground_disabled,
+                       SkColor background) override;
   void OnHeaderClicked() override;
 
   // views::SlideOutControllerDelegate:
   ui::Layer* GetSlideOutLayer() override;
   void OnSlideStarted() override {}
-  void OnSlideChanged(bool in_progress) override {}
+  void OnSlideChanged(bool in_progress) override;
   void OnSlideOut() override;
 
   // global_media_controls::MediaItemUI:
@@ -99,6 +115,14 @@ class COMPONENT_EXPORT(GLOBAL_MEDIA_CONTROLS) MediaItemUIView
 
   const std::u16string& GetTitle() const;
 
+  // Set the scroll view that is currently holding this item.
+  void SetScrollView(views::ScrollView* scroll_view);
+
+  // Remove and add new views.
+  void UpdateDeviceSelector(
+      std::unique_ptr<MediaItemUIDeviceSelector> device_selector_view);
+  void UpdateFooterView(std::unique_ptr<MediaItemUIFooter> footer_view);
+
   views::ImageButton* GetDismissButtonForTesting();
 
   media_message_center::MediaNotificationViewImpl* view_for_testing() {
@@ -107,6 +131,10 @@ class COMPONENT_EXPORT(GLOBAL_MEDIA_CONTROLS) MediaItemUIView
   }
   MediaItemUIDeviceSelector* device_selector_view_for_testing() {
     return device_selector_view_;
+  }
+  MediaItemUIFooter* footer_view_for_testing() { return footer_view_; }
+  views::SlideOutController* slide_out_controller_for_testing() {
+    return slide_out_controller_.get();
   }
 
   bool is_playing_for_testing() { return is_playing_; }
@@ -130,6 +158,9 @@ class COMPONENT_EXPORT(GLOBAL_MEDIA_CONTROLS) MediaItemUIView
 
   std::u16string title_;
 
+  // The scroll view that is currently holding this item.
+  raw_ptr<views::ScrollView> scroll_view_ = nullptr;
+
   // Always "visible" so that it reserves space in the header so that the
   // dismiss button can appear without forcing things to shift.
   raw_ptr<views::View> dismiss_button_placeholder_ = nullptr;
@@ -142,12 +173,12 @@ class COMPONENT_EXPORT(GLOBAL_MEDIA_CONTROLS) MediaItemUIView
   raw_ptr<DismissButton> dismiss_button_ = nullptr;
   raw_ptr<media_message_center::MediaNotificationView> view_ = nullptr;
 
-  const raw_ptr<MediaItemUIFooter> footer_view_;
-
+  raw_ptr<MediaItemUIFooter> footer_view_ = nullptr;
   raw_ptr<MediaItemUIDeviceSelector> device_selector_view_ = nullptr;
 
-  SkColor foreground_color_;
-  SkColor background_color_;
+  SkColor foreground_color_ = kDefaultForegroundColor;
+  SkColor foreground_disabled_color_ = kDefaultForegroundColor;
+  SkColor background_color_ = kDefaultBackgroundColor;
 
   bool has_artwork_ = false;
   bool has_many_actions_ = false;
@@ -156,12 +187,15 @@ class COMPONENT_EXPORT(GLOBAL_MEDIA_CONTROLS) MediaItemUIView
 
   bool is_expanded_ = false;
 
+  bool is_sliding_ = false;
+
   base::ObserverList<global_media_controls::MediaItemUIObserver> observers_;
 
   // Handles gesture events for swiping to dismiss notifications.
   std::unique_ptr<views::SlideOutController> slide_out_controller_;
 
-  const bool is_cros_;
+  // Sets to true when the notification theme is provided on Chrome OS.
+  const bool has_notification_theme_;
 };
 
 }  // namespace global_media_controls

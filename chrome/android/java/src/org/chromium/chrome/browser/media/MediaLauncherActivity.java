@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,7 +31,7 @@ public class MediaLauncherActivity extends Activity {
 
     // UMA histogram values for media types the user can open.
     // Keep in sync with MediaLauncherActivityMediaType enum in enums.xml.
-    @IntDef({MediaType.AUDIO, MediaType.IMAGE, MediaType.VIDEO})
+    @IntDef({MediaType.AUDIO, MediaType.IMAGE, MediaType.VIDEO, MediaType.UNKNOWN})
     @Retention(RetentionPolicy.SOURCE)
     @interface MediaType {
         int AUDIO = 0;

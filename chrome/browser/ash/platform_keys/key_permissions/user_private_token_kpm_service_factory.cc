@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,8 @@
 #include "chrome/browser/ash/platform_keys/key_permissions/key_permissions_manager_impl.h"
 #include "chrome/browser/ash/platform_keys/platform_keys_service.h"
 #include "chrome/browser/ash/platform_keys/platform_keys_service_factory.h"
-#include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 
 namespace ash {
@@ -64,9 +62,11 @@ UserPrivateTokenKeyPermissionsManagerServiceFactory::GetInstance() {
 
 UserPrivateTokenKeyPermissionsManagerServiceFactory::
     UserPrivateTokenKeyPermissionsManagerServiceFactory()
-    : BrowserContextKeyedServiceFactory(
-          "UserPrivateTokenKeyPermissionsManagerService",
-          BrowserContextDependencyManager::GetInstance()) {
+    : ProfileKeyedServiceFactory("UserPrivateTokenKeyPermissionsManagerService",
+                                 ProfileSelections::Builder()
+                                     .WithGuest(ProfileSelection::kOriginalOnly)
+                                     .WithAshInternals(ProfileSelection::kNone)
+                                     .Build()) {
   DependsOn(PlatformKeysServiceFactory::GetInstance());
 }
 
@@ -76,13 +76,8 @@ UserPrivateTokenKeyPermissionsManagerServiceFactory::
 KeyedService*
 UserPrivateTokenKeyPermissionsManagerServiceFactory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {
-  Profile* profile = Profile::FromBrowserContext(context);
-
-  if (!ProfileHelper::IsRegularProfile(profile)) {
-    return nullptr;
-  }
-
-  return new UserPrivateTokenKeyPermissionsManagerService(profile);
+  return new UserPrivateTokenKeyPermissionsManagerService(
+      Profile::FromBrowserContext(context));
 }
 
 bool UserPrivateTokenKeyPermissionsManagerServiceFactory::

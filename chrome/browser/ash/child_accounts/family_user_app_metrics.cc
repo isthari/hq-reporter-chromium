@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "base/time/time.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_factory.h"
+#include "chrome/browser/apps/app_service/metrics/app_platform_metrics_utils.h"
 #include "chrome/browser/profiles/profile.h"
 #include "components/services/app_service/public/cpp/instance_registry.h"
 #include "components/user_manager/user_manager.h"
@@ -55,42 +56,50 @@ constexpr char kStandaloneBrowserAppsCountHistogramName[] = "FamilyUser.LacrosAp
 constexpr char kRemoteAppsCountHistogramName[] = "FamilyUser.RemoteAppsCount2";
 constexpr char kBorealisAppsCountHistogramName[] =
     "FamilyUser.BorealisAppsCount2";
+constexpr char kBruschettaAppsCountHistogramName[] =
+    "FamilyUser.BruschettaAppsCount2";
 constexpr char kSystemWebAppsCountHistogramName[] =
     "FamilyUser.SystemWebAppsCount2";
-constexpr char kStandaloneBrowserExtensionCountHistogramName[] =
+constexpr char kStandaloneBrowserChromeAppCountHistogramName[] =
     "FamilyUser.LacrosChromeAppsCount2";
 
-const char* GetAppsCountHistogramName(apps::mojom::AppType app_type) {
+// TODO(agawronska): Add metrics for extensions, possibly differentiating Ash
+// from Lacros (AKA StandaloneBrowser).
+
+const char* GetAppsCountHistogramName(apps::AppType app_type) {
   switch (app_type) {
-    case apps::mojom::AppType::kUnknown:
+    case apps::AppType::kUnknown:
     // Extensions are recorded separately, and AppService only has some
     // extensions with file browser handlers.
-    case apps::mojom::AppType::kExtension:
+    case apps::AppType::kExtension:
+    case apps::AppType::kStandaloneBrowserExtension:
       return kUnknownAppsCountHistogramName;
-    case apps::mojom::AppType::kArc:
+    case apps::AppType::kArc:
       return kArcAppsCountHistogramName;
-    case apps::mojom::AppType::kBuiltIn:
+    case apps::AppType::kBuiltIn:
       return kBuiltInAppsCountHistogramName;
-    case apps::mojom::AppType::kCrostini:
+    case apps::AppType::kCrostini:
       return kCrostiniAppsCountHistogramName;
-    case apps::mojom::AppType::kChromeApp:
+    case apps::AppType::kChromeApp:
       return kExtensionAppsCountHistogramName;
-    case apps::mojom::AppType::kWeb:
+    case apps::AppType::kWeb:
       return kWebAppsCountHistogramName;
-    case apps::mojom::AppType::kMacOs:
+    case apps::AppType::kMacOs:
       return kMacOsAppsCountHistogramName;
-    case apps::mojom::AppType::kPluginVm:
+    case apps::AppType::kPluginVm:
       return kPluginVmAppsCountHistogramName;
-    case apps::mojom::AppType::kStandaloneBrowser:
+    case apps::AppType::kStandaloneBrowser:
       return kStandaloneBrowserAppsCountHistogramName;
-    case apps::mojom::AppType::kRemote:
+    case apps::AppType::kRemote:
       return kRemoteAppsCountHistogramName;
-    case apps::mojom::AppType::kBorealis:
+    case apps::AppType::kBorealis:
       return kBorealisAppsCountHistogramName;
-    case apps::mojom::AppType::kSystemWeb:
+    case apps::AppType::kBruschetta:
+      return kBruschettaAppsCountHistogramName;
+    case apps::AppType::kSystemWeb:
       return kSystemWebAppsCountHistogramName;
-    case apps::mojom::AppType::kStandaloneBrowserChromeApp:
-      return kStandaloneBrowserExtensionCountHistogramName;
+    case apps::AppType::kStandaloneBrowserChromeApp:
+      return kStandaloneBrowserChromeAppCountHistogramName;
   }
 }
 
@@ -132,12 +141,12 @@ FamilyUserAppMetrics::GetEnabledExtensionsCountHistogramNameForTest() {
 
 // static
 const char* FamilyUserAppMetrics::GetAppsCountHistogramNameForTest(
-    apps::mojom::AppType app_type) {
+    apps::AppType app_type) {
   return GetAppsCountHistogramName(app_type);
 }
 
 void FamilyUserAppMetrics::Init() {
-  for (const auto app_type : app_registry_->GetInitializedAppTypes()) {
+  for (const auto app_type : app_registry_->InitializedAppTypes()) {
     OnAppTypeInitialized(app_type);
   }
 }
@@ -157,11 +166,11 @@ void FamilyUserAppMetrics::OnNewDay() {
     RecordRecentlyUsedAppsCount(app_type);
 }
 
-void FamilyUserAppMetrics::OnAppTypeInitialized(apps::mojom::AppType app_type) {
+void FamilyUserAppMetrics::OnAppTypeInitialized(apps::AppType app_type) {
   DCHECK(!base::Contains(ready_app_types_, app_type));
   // Skip the extension app type, because extensions are recorded separately,
   // and AppService only has some extensions with file browser handlers.
-  if (app_type == apps::mojom::AppType::kExtension)
+  if (app_type == apps::AppType::kExtension)
     return;
 
   ready_app_types_.insert(app_type);
@@ -177,15 +186,15 @@ void FamilyUserAppMetrics::OnAppRegistryCacheWillBeDestroyed(
 
 void FamilyUserAppMetrics::OnAppUpdate(const apps::AppUpdate& update) {}
 
-bool FamilyUserAppMetrics::IsAppTypeReady(apps::mojom::AppType app_type) const {
+bool FamilyUserAppMetrics::IsAppTypeReady(apps::AppType app_type) const {
   return base::Contains(ready_app_types_, app_type);
 }
 
 void FamilyUserAppMetrics::RecordInstalledExtensionsCount() {
   int extensions_count = 0;
-  std::unique_ptr<extensions::ExtensionSet> all_installed_extensions =
+  const extensions::ExtensionSet all_installed_extensions =
       extension_registry_->GenerateInstalledExtensionsSet();
-  for (const auto& extension : *all_installed_extensions) {
+  for (const auto& extension : all_installed_extensions) {
     if (extensions::Manifest::IsComponentLocation(extension->location()))
       continue;
     if (extension->is_extension() || extension->is_theme())
@@ -213,8 +222,7 @@ void FamilyUserAppMetrics::RecordEnabledExtensionsCount() {
                                extensions_count);
 }
 
-void FamilyUserAppMetrics::RecordRecentlyUsedAppsCount(
-    apps::mojom::AppType app_type) {
+void FamilyUserAppMetrics::RecordRecentlyUsedAppsCount(apps::AppType app_type) {
   int app_count = 0;
   base::Time now = base::Time::Now();
   // The below will execute synchronously.

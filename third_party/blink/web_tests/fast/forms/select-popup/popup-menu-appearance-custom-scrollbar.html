@@ -1,10 +1,9 @@
 <!DOCTYPE html>
-<html>
-<head>
-<script>
-  window.enablePixelTesting = true;
-</script>
+<script src="../../../resources/testdriver.js"></script>
+<script src="../../../resources/testdriver-vendor.js"></script>
+<script src="../../resources/ahem.js"></script>
 <script src="../resources/picker-common.js"></script>
+
 <style>
   select:focus {
     outline-width: 0;
@@ -52,15 +51,15 @@
     border-color: transparent;
     border-right-color: black;
     border-top-color: black;
+    border-bottom-color: black;
     background-clip: padding-box;
     background-color: gray;
     border-radius: 0 20px 0 10px;
     box-shadow: -1px 0 4px 1px inset white;
   }
 </style>
-</head>
-<body>
-<select id='menu'>
+
+<select>
   <option>This is an option</option>
   <option>This is an option</option>
   <option>This is an option</option>
@@ -89,8 +88,7 @@
   <option>This is an option</option>
   <option>This is an option</option>
 </select>
+
 <script>
-   openPickerAppearanceOnly(document.getElementById('menu'), () => testRunner.notifyDone());
+  window.onload = openPickerAppearanceOnly(document.querySelector('select'));
 </script>
-</body>
-</html>

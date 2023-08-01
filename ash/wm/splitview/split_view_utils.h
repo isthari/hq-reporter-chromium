@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,12 @@
 
 #include "ash/ash_export.h"
 #include "ash/wm/splitview/split_view_controller.h"
+#include "base/memory/raw_ptr.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/aura/window_observer.h"
 #include "ui/compositor/layer_animation_observer.h"
 #include "ui/gfx/geometry/transform.h"
+#include "ui/views/widget/widget.h"
 
 namespace aura {
 class Window;
@@ -99,7 +101,7 @@ class ASH_EXPORT WindowTransformAnimationObserver
   void OnWindowDestroying(aura::Window* window) override;
 
  private:
-  aura::Window* const window_;
+  const raw_ptr<aura::Window, ExperimentalAsh> window_;
 
   WindowTransformAnimationObserver(const WindowTransformAnimationObserver&) =
       delete;
@@ -140,7 +142,7 @@ void ShowAppCannotSnapToast();
 // ignoring any properties of the window itself. The |root_window| is of the
 // current screen. |initial_location_in_screen| is the location at drag start if
 // the drag began in |root_window|, and is empty otherwise. To be snappable
-// (meaning the return value is not |SplitViewController::NONE|),
+// (meaning the return value is not |SplitViewController::SnapPosition::kNone|),
 // |location_in_screen| must be either inside |snap_distance_from_edge| or
 // dragged toward the edge for at least |minimum_drag_distance| distance until
 // it's dragged into a suitable edge of the work area of |root_window| (i.e.,
@@ -169,6 +171,16 @@ ASH_EXPORT SplitViewController::SnapPosition GetSnapPosition(
     int minimum_drag_distance,
     int horizontal_edge_inset,
     int vertical_edge_inset);
+
+// Returns true if the snap group is enabled in clamshell mode. The
+// `split_view_divider_` will show to indicate that the two windows are in a
+// snap-group state.
+bool IsSnapGroupEnabledInClamshellMode();
+
+// Returns the widget init params needed to create the widget.
+views::Widget::InitParams CreateWidgetInitParams(
+    aura::Window* parent_window,
+    const std::string& widget_name);
 
 }  // namespace ash
 

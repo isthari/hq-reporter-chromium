@@ -1,20 +1,20 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/settings/import_data_table_view_controller.h"
 
-#include "base/check.h"
+#import "base/check.h"
 #import "base/mac/foundation_util.h"
-#include "base/strings/sys_string_conversions.h"
+#import "base/strings/sys_string_conversions.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
+#import "ios/chrome/browser/shared/ui/table_view/cells/table_view_text_item.h"
+#import "ios/chrome/browser/shared/ui/table_view/table_view_model.h"
+#import "ios/chrome/browser/shared/ui/table_view/table_view_utils.h"
 #import "ios/chrome/browser/ui/settings/cells/settings_image_detail_text_item.h"
-#import "ios/chrome/browser/ui/table_view/cells/table_view_text_item.h"
-#import "ios/chrome/browser/ui/table_view/table_view_model.h"
-#import "ios/chrome/browser/ui/table_view/table_view_utils.h"
-#include "ios/chrome/browser/ui/ui_feature_flags.h"
-#include "ios/chrome/grit/ios_chromium_strings.h"
-#include "ios/chrome/grit/ios_strings.h"
-#include "ui/base/l10n/l10n_util_mac.h"
+#import "ios/chrome/grit/ios_chromium_strings.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "ui/base/l10n/l10n_util_mac.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -47,7 +47,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
   NSString* _fromEmail;
   NSString* _toEmail;
 
-  // Set to |SHOULD_CLEAR_DATA_USER_CHOICE| to indicate the user did not make
+  // Set to `SHOULD_CLEAR_DATA_USER_CHOICE` to indicate the user did not make
   // any choice to import or clear the data.
   ShouldClearData _shouldClearData;
 
@@ -69,8 +69,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
     _fromEmail = [fromEmail copy];
     _toEmail = [toEmail copy];
     _shouldClearData = SHOULD_CLEAR_DATA_USER_CHOICE;
-    self.title =
-        l10n_util::GetNSString(IDS_IOS_OPTIONS_IMPORT_DATA_TITLE_SIGNIN);
+    self.title = l10n_util::GetNSString(IDS_IOS_OPTIONS_IMPORT_DATA_TITLE);
     [self setShouldHideDoneButton:YES];
   }
   return self;
@@ -154,7 +153,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
 - (BOOL)tableView:(UITableView*)tableView
     shouldHighlightRowAtIndexPath:(NSIndexPath*)indexPath {
   NSInteger sectionIdentifier =
-      [self.tableViewModel sectionIdentifierForSection:indexPath.section];
+      [self.tableViewModel sectionIdentifierForSectionIndex:indexPath.section];
   if (sectionIdentifier != SectionIdentifierOptions)
     return NO;
   return YES;
@@ -164,7 +163,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
     didSelectRowAtIndexPath:(NSIndexPath*)indexPath {
   [super tableView:tableView didSelectRowAtIndexPath:indexPath];
   NSInteger sectionIdentifier =
-      [self.tableViewModel sectionIdentifierForSection:indexPath.section];
+      [self.tableViewModel sectionIdentifierForSectionIndex:indexPath.section];
 
   if (sectionIdentifier == SectionIdentifierOptions) {
     // Store the user choice.
@@ -180,7 +179,7 @@ typedef NS_ENUM(NSInteger, ItemType) {
 
 #pragma mark - Private
 
-// Updates the UI based on the value of |_shouldClearData|.
+// Updates the UI based on the value of `_shouldClearData`.
 - (void)updateUI {
   switch (_shouldClearData) {
     case SHOULD_CLEAR_DATA_USER_CHOICE:

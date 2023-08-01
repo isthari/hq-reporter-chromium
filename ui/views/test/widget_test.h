@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,16 +14,21 @@
 #include "base/scoped_observation.h"
 #include "base/test/bind.h"
 #include "build/build_config.h"
+#include "build/chromecast_buildflags.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/views/test/views_test_base.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "ui/views/widget/widget_observer.h"
 
+#if (BUILDFLAG(IS_LINUX) && !BUILDFLAG(IS_CASTOS)) || \
+    BUILDFLAG(IS_CHROMEOS_LACROS)
+
+#include "ui/display/screen.h"
+#endif
+
 namespace ui {
-namespace internal {
-class InputMethodDelegate;
-}
 class EventSink;
+class ImeKeyEventDispatcher;
 }  // namespace ui
 
 namespace views {
@@ -49,6 +54,11 @@ namespace test {
 // randomly choose a child to return, so make sure your predicate matches
 // *only* the view you want!
 using ViewPredicate = base::RepeatingCallback<bool(const View*)>;
+View* AnyViewMatchingPredicate(View* root, const ViewPredicate& predicate);
+template <typename Pred>
+View* AnyViewMatchingPredicate(View* root, Pred predicate) {
+  return AnyViewMatchingPredicate(root, base::BindLambdaForTesting(predicate));
+}
 View* AnyViewMatchingPredicate(Widget* widget, const ViewPredicate& predicate);
 template <typename Pred>
 View* AnyViewMatchingPredicate(Widget* widget, Pred predicate) {
@@ -70,22 +80,30 @@ class WidgetTest : public ViewsTestBase {
   ~WidgetTest() override;
 
   // Create Widgets with |native_widget| in InitParams set to an instance of
-  // platform specific widget type that has stubbled capture calls.
+  // platform specific widget type that has stubbled capture calls. This will
+  // create a non-desktop widget.
   Widget* CreateTopLevelPlatformWidget();
   Widget* CreateTopLevelFramelessPlatformWidget();
   Widget* CreateChildPlatformWidget(gfx::NativeView parent_native_view);
 
+#if BUILDFLAG(ENABLE_DESKTOP_AURA)
+  // Create Widgets with |native_widget| in InitParams set to an instance of
+  // platform specific widget type that has stubbled capture calls. This will
+  // create a desktop widget.
+  Widget* CreateTopLevelPlatformDesktopWidget();
+#endif
+
   // Create Widgets initialized without a |native_widget| set in InitParams.
   // Depending on the test environment, ViewsDelegate::OnBeforeWidgetInit() may
-  // still provide one.
+  // provide a desktop or non-desktop NativeWidget.
   Widget* CreateTopLevelNativeWidget();
   Widget* CreateChildNativeWidgetWithParent(Widget* parent);
 
-  View* GetMousePressedHandler(internal::RootView* root_view);
+  View* GetMousePressedHandler(views::internal::RootView* root_view);
 
-  View* GetMouseMoveHandler(internal::RootView* root_view);
+  View* GetMouseMoveHandler(views::internal::RootView* root_view);
 
-  View* GetGestureHandler(internal::RootView* root_view);
+  View* GetGestureHandler(views::internal::RootView* root_view);
 
   // Simulate an activation of the native window held by |widget|, as if it was
   // clicked by the user. This is a synchronous method for use in
@@ -98,6 +116,8 @@ class WidgetTest : public ViewsTestBase {
 
   // Return true if |above| is higher than |below| in the native window Z-order.
   // Both windows must be visible.
+  // WARNING: this does not work for Aura desktop widgets (crbug.com/1333445)
+  // and is not reliable on MacOS 10.13 and earlier.
   static bool IsWindowStackedAbove(Widget* above, Widget* below);
 
   // Query the native window system for the minimum size configured for user
@@ -109,8 +129,8 @@ class WidgetTest : public ViewsTestBase {
   // sink.
   static ui::EventSink* GetEventSink(Widget* widget);
 
-  // Get the InputMethodDelegate, for setting on a Mock InputMethod in tests.
-  static ui::internal::InputMethodDelegate* GetInputMethodDelegateForWidget(
+  // Get the ImeKeyEventDispatcher, for setting on a Mock InputMethod in tests.
+  static ui::ImeKeyEventDispatcher* GetImeKeyEventDispatcherForWidget(
       Widget* widget);
 
   // Return true if |window| is transparent according to the native platform.
@@ -156,6 +176,12 @@ class DesktopWidgetTestInteractive : public DesktopWidgetTest {
 
   // DesktopWidgetTest
   void SetUp() override;
+
+#if (BUILDFLAG(IS_LINUX) && !BUILDFLAG(IS_CASTOS)) || \
+    BUILDFLAG(IS_CHROMEOS_LACROS)
+  void TearDown() override;
+  std::unique_ptr<display::Screen> screen_;
+#endif
 };
 
 // A helper WidgetDelegate for tests that require hooks into WidgetDelegate
@@ -251,9 +277,11 @@ class WidgetActivationWaiter : public WidgetObserver {
   // views::WidgetObserver override:
   void OnWidgetActivationChanged(Widget* widget, bool active) override;
 
-  base::RunLoop run_loop_;
-  bool observed_;
+  bool observed_ = false;
   bool active_;
+
+  base::RunLoop run_loop_;
+  base::ScopedObservation<Widget, WidgetObserver> widget_observation_{this};
 };
 
 // Use in tests to wait for a widget to be destroyed.
@@ -274,8 +302,8 @@ class WidgetDestroyedWaiter : public WidgetObserver {
   // views::WidgetObserver
   void OnWidgetDestroyed(Widget* widget) override;
 
-  raw_ptr<Widget> widget_;
   base::RunLoop run_loop_;
+  base::ScopedObservation<Widget, WidgetObserver> widget_observation_{this};
 };
 
 // Helper class to wait for a Widget to become visible. This will add a failure
@@ -296,7 +324,7 @@ class WidgetVisibleWaiter : public WidgetObserver {
   void OnWidgetVisibilityChanged(Widget* widget, bool visible) override;
   void OnWidgetDestroying(Widget* widget) override;
 
-  const raw_ptr<Widget> widget_;
+  const raw_ptr<Widget, DanglingUntriaged> widget_;
   base::RunLoop run_loop_;
   base::ScopedObservation<Widget, WidgetObserver> widget_observation_{this};
 };

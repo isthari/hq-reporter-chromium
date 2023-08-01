@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,8 @@
 
 #include "base/at_exit.h"
 #include "base/feature_list.h"
-#include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "net/proxy_resolution/configured_proxy_resolution_service.h"
@@ -63,7 +64,7 @@ void PostTaskToInitThread(const base::Location& posted_from,
 
 std::unique_ptr<net::ProxyConfigService> CreateProxyConfigService(
     const scoped_refptr<base::SequencedTaskRunner>& io_task_runner) {
-  return net::ConfiguredProxyResolutionService::CreateSystemProxyConfigService(
+  return net::ProxyConfigService::CreateSystemProxyConfigService(
       io_task_runner);
 }
 

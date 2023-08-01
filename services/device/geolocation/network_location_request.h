@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,9 @@
 #include <memory>
 #include <string>
 
-#include "base/callback.h"
-#include "base/memory/ref_counted.h"
+#include "base/functional/callback.h"
+#include "base/memory/scoped_refptr.h"
+#include "base/time/time.h"
 #include "services/device/geolocation/wifi_data_provider.h"
 #include "services/device/public/mojom/geoposition.mojom.h"
 #include "url/gurl.h"
@@ -33,7 +34,7 @@ class NetworkLocationRequest {
   // whether there was a server error or not. It is true when there was a
   // server or network error - either no response or a 500 error code.
   using LocationResponseCallback =
-      base::RepeatingCallback<void(const mojom::Geoposition& /* position */,
+      base::RepeatingCallback<void(mojom::GeopositionResultPtr /* result */,
                                    bool /* server_error */,
                                    const WifiData& /* wifi_data */)>;
 

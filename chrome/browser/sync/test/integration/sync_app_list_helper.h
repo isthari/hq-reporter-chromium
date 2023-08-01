@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 
 #include <string>
 
+#include "base/memory/raw_ptr.h"
 #include "base/memory/singleton.h"
 #include "components/sync/model/string_ordinal.h"
 
@@ -63,8 +64,8 @@ class SyncAppListHelper {
                  ChromeAppListItem* item,
                  const std::string& label);
 
-  SyncTest* test_;
-  bool setup_completed_;
+  raw_ptr<SyncTest, ExperimentalAsh> test_ = nullptr;
+  bool setup_completed_ = false;
 };
 
 #endif  // CHROME_BROWSER_SYNC_TEST_INTEGRATION_SYNC_APP_LIST_HELPER_H_

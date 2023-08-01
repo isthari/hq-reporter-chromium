@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,7 +33,7 @@ Window::Window(CreateOptions* create_options)
                             std::make_unique<ChromeWebContentsHandler>())) {
   dialog_widget_ = new views::Widget;
   views::Widget::InitParams params(views::Widget::InitParams::TYPE_WINDOW);
-  params.delegate = dialog_view_;
+  params.delegate = dialog_view_.get();
   ash_util::SetupWidgetInitParamsForContainer(
       &params, kShellWindowId_LockScreenContainer);
   dialog_widget_->Init(std::move(params));

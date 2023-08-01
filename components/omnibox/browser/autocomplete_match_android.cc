@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,9 @@
 #include "base/android/jni_android.h"
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "components/omnibox/browser/actions/omnibox_action.h"
+#include "components/omnibox/browser/actions/omnibox_action_factory_android.h"
 #include "components/omnibox/browser/clipboard_provider.h"
 #include "components/omnibox/browser/jni_headers/AutocompleteMatch_jni.h"
 #include "components/omnibox/browser/search_suggestion_parser.h"
@@ -38,9 +40,9 @@ ScopedJavaLocalRef<jobject> AutocompleteMatch::GetOrCreateJavaObject(
 
   std::vector<int> contents_class_offsets;
   std::vector<int> contents_class_styles;
-  for (auto contents_class : contents_class) {
-    contents_class_offsets.push_back(contents_class.offset);
-    contents_class_styles.push_back(contents_class.style);
+  for (auto contents_class_item : contents_class) {
+    contents_class_offsets.push_back(contents_class_item.offset);
+    contents_class_styles.push_back(contents_class_item.style);
   }
 
   std::vector<int> description_class_offsets;
@@ -75,20 +77,28 @@ ScopedJavaLocalRef<jobject> AutocompleteMatch::GetOrCreateJavaObject(
   ScopedJavaLocalRef<jobject> j_query_tiles =
       query_tiles::TileConversionBridge::CreateJavaTiles(env, query_tiles);
 
-  std::vector<std::u16string> navsuggest_titles;
-  navsuggest_titles.reserve(navsuggest_tiles.size());
-  std::vector<base::android::ScopedJavaLocalRef<jobject>> navsuggest_urls;
-  navsuggest_urls.reserve(navsuggest_tiles.size());
-  for (const auto& tile : navsuggest_tiles) {
-    navsuggest_titles.push_back(tile.title);
-    navsuggest_urls.push_back(url::GURLAndroid::FromNativeGURL(env, tile.url));
+  std::vector<std::u16string> suggest_titles;
+  suggest_titles.reserve(suggest_tiles.size());
+  std::vector<base::android::ScopedJavaLocalRef<jobject>> suggest_urls;
+  suggest_urls.reserve(suggest_tiles.size());
+  // Note: vector<bool> is a specialized version of vector that behaves
+  // differently, storing values as individual bits. This makes it impossible
+  // for us to use it to represent tile.is_search on the Java side.
+  std::vector<int> suggest_types;
+  suggest_types.reserve(suggest_tiles.size());
+  for (const auto& tile : suggest_tiles) {
+    suggest_titles.push_back(tile.title);
+    suggest_urls.push_back(url::GURLAndroid::FromNativeGURL(env, tile.url));
+    suggest_types.push_back(tile.is_search);
   }
 
   std::vector<int> temp_subtypes(subtypes.begin(), subtypes.end());
 
-  ScopedJavaLocalRef<jobject> j_action_obj;
-  if (action) {
-    j_action_obj = action->GetJavaObject();
+  base::android::ScopedJavaLocalRef<jobjectArray> actions_list;
+  if (actions.empty() && takeover_action) {
+    actions_list = ToJavaOmniboxActionsList(env, {takeover_action});
+  } else {
+    actions_list = ToJavaOmniboxActionsList(env, actions);
   }
 
   java_match_ = std::make_unique<ScopedJavaGlobalRef<jobject>>(
@@ -105,14 +115,12 @@ ScopedJavaLocalRef<jobject> AutocompleteMatch::GetOrCreateJavaObject(
           url::GURLAndroid::FromNativeGURL(env, destination_url),
           url::GURLAndroid::FromNativeGURL(env, image_url),
           j_image_dominant_color, SupportsDeletion(), j_post_content_type,
-          j_post_content,
-          suggestion_group_id.value_or(
-              SearchSuggestionParser::kNoSuggestionGroupId),
+          j_post_content, suggestion_group_id.value_or(omnibox::GROUP_INVALID),
           j_query_tiles, ToJavaByteArray(env, clipboard_image_data),
           has_tab_match.value_or(false),
-          ToJavaArrayOfStrings(env, navsuggest_titles),
-          url::GURLAndroid::ToJavaArrayOfGURLs(env, navsuggest_urls),
-          j_action_obj));
+          ToJavaArrayOfStrings(env, suggest_titles),
+          url::GURLAndroid::ToJavaArrayOfGURLs(env, suggest_urls),
+          ToJavaIntArray(env, suggest_types), actions_list));
 
   return ScopedJavaLocalRef<jobject>(*java_match_);
 }

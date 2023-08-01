@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,10 +22,10 @@ ScrollOffsetAnimationsImpl::ScrollOffsetAnimationsImpl(
     AnimationHost* animation_host)
     : animation_host_(animation_host),
       scroll_offset_timeline_(
-          AnimationTimeline::Create(AnimationIdProvider::NextTimelineId())),
+          AnimationTimeline::Create(AnimationIdProvider::NextTimelineId(),
+                                    /* is_impl_only */ true)),
       scroll_offset_animation_(
           Animation::Create(AnimationIdProvider::NextAnimationId())) {
-  scroll_offset_timeline_->set_is_impl_only(true);
   scroll_offset_animation_->set_animation_delegate(this);
 
   animation_host_->AddAnimationTimeline(scroll_offset_timeline_.get());
@@ -195,6 +195,11 @@ void ScrollOffsetAnimationsImpl::ScrollAnimationAbort(bool needs_completion) {
       TargetProperty::SCROLL_OFFSET, needs_completion);
   TRACE_EVENT_INSTANT1("cc", "ScrollAnimationAbort", TRACE_EVENT_SCOPE_THREAD,
                        "needs_completion", needs_completion);
+}
+
+void ScrollOffsetAnimationsImpl::AnimatingElementRemovedByCommit() {
+  scroll_offset_animation_->GetKeyframeModel(TargetProperty::SCROLL_OFFSET)
+      ->set_affects_pending_elements(false);
 }
 
 void ScrollOffsetAnimationsImpl::NotifyAnimationFinished(

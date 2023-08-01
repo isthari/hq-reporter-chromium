@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,27 +29,35 @@ GeolocationPermissionContextDelegateAndroid::
     ~GeolocationPermissionContextDelegateAndroid() = default;
 
 bool GeolocationPermissionContextDelegateAndroid::DecidePermission(
-    content::WebContents* web_contents,
     const permissions::PermissionRequestID& id,
     const GURL& requesting_origin,
     bool user_gesture,
     permissions::BrowserPermissionCallback* callback,
     permissions::GeolocationPermissionContext* context) {
+  content::RenderFrameHost* rfh =
+      content::RenderFrameHost::FromID(id.global_render_frame_host_id());
+  DCHECK(rfh);
+
+  content::WebContents* web_contents =
+      content::WebContents::FromRenderFrameHost(rfh);
+  DCHECK(web_contents);
+
   if (web_contents->GetDelegate() &&
       web_contents->GetDelegate()->GetInstalledWebappGeolocationContext()) {
-    InstalledWebappBridge::PermissionResponseCallback permission_callback =
+    InstalledWebappBridge::PermissionCallback permission_callback =
         base::BindOnce(
             &permissions::GeolocationPermissionContext::NotifyPermissionSet,
             context->GetWeakPtr(), id, requesting_origin,
             permissions::PermissionUtil::GetLastCommittedOriginAsURL(
-                web_contents),
+                rfh->GetMainFrame()),
             std::move(*callback), false /* persist */);
-    InstalledWebappBridge::DecidePermission(requesting_origin,
-                                            std::move(permission_callback));
+    InstalledWebappBridge::DecidePermission(
+        ContentSettingsType::GEOLOCATION, requesting_origin,
+        web_contents->GetLastCommittedURL(), std::move(permission_callback));
     return true;
   }
   return GeolocationPermissionContextDelegate::DecidePermission(
-      web_contents, id, requesting_origin, user_gesture, callback, context);
+      id, requesting_origin, user_gesture, callback, context);
 }
 
 bool GeolocationPermissionContextDelegateAndroid::IsInteractable(

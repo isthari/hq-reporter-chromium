@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "ui/accessibility/ax_event_generator.h"
 #include "ui/accessibility/ax_mode.h"
 #include "ui/accessibility/ax_node_data.h"
+#include "ui/accessibility/ax_node_id_forward.h"
 #include "ui/accessibility/ax_tree.h"
 
 namespace base {
@@ -21,7 +22,8 @@ class RunLoop;
 
 namespace content {
 
-class BrowserAccessibilityDelegate;
+class BrowserAccessibilityManager;
+class RenderFrameHost;
 class RenderFrameHostImpl;
 class WebContents;
 
@@ -49,11 +51,14 @@ class AccessibilityNotificationWaiter : public WebContentsObserver {
 
   // Blocks until the specific accessibility notification registered in
   // AccessibilityNotificationWaiter is received. Ignores notifications for
-  // "about:blank".
-  void WaitForNotification();
+  // "about:blank". Returns true if an event was received, false if waiting
+  // ended for some other reason.
+  [[nodiscard]] bool WaitForNotification();
 
   // Blocks until the notification is received, or the given timeout passes.
-  void WaitForNotificationWithTimeout(base::TimeDelta timeout);
+  // Returns true if an event was received, false if waiting ended for some
+  // other reason.
+  [[nodiscard]] bool WaitForNotificationWithTimeout(base::TimeDelta timeout);
 
   // After WaitForNotification has returned, this will retrieve
   // the tree of accessibility nodes received from the renderer process.
@@ -63,10 +68,12 @@ class AccessibilityNotificationWaiter : public WebContentsObserver {
   // node that was the target of the event.
   int event_target_id() const { return event_target_id_; }
 
+  bool notification_received() const { return notification_received_; }
+
   // After WaitForNotification returns, use this to retrieve the
-  // RenderFrameHostImpl that was the target of the event.
-  RenderFrameHostImpl* event_render_frame_host() const {
-    return event_render_frame_host_;
+  // `BrowserAccessibilityManager` that was the target of the event.
+  BrowserAccessibilityManager* event_browser_accessibility_manager() const {
+    return event_browser_accessibility_manager_;
   }
 
   // WebContentsObserver override:
@@ -103,9 +110,9 @@ class AccessibilityNotificationWaiter : public WebContentsObserver {
                             int event_target_id);
 
   // Callback from BrowserAccessibilityManager for all generated events.
-  void OnGeneratedEvent(BrowserAccessibilityDelegate* delegate,
+  void OnGeneratedEvent(RenderFrameHostImpl* render_frame_host,
                         ui::AXEventGenerator::Event event,
-                        int event_target_id);
+                        ui::AXNodeID event_target_id);
 
   // Callback from BrowserAccessibilityManager when locations / bounding
   // boxes change.
@@ -126,7 +133,9 @@ class AccessibilityNotificationWaiter : public WebContentsObserver {
   std::unique_ptr<base::RunLoop> loop_runner_;
   base::RepeatingClosure loop_runner_quit_closure_;
   int event_target_id_ = 0;
-  raw_ptr<RenderFrameHostImpl> event_render_frame_host_ = nullptr;
+  raw_ptr<BrowserAccessibilityManager, DanglingUntriaged>
+      event_browser_accessibility_manager_ = nullptr;
+  bool notification_received_ = false;
 
   base::WeakPtrFactory<AccessibilityNotificationWaiter> weak_factory_{this};
 };

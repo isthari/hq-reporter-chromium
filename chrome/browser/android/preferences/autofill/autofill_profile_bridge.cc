@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,12 @@
 #include "base/android/jni_android.h"
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
-#include "base/bind.h"
+#include "base/android/scoped_java_ref.h"
+#include "base/functional/bind.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/android/chrome_jni_headers/AutofillProfileBridge_jni.h"
 #include "chrome/browser/browser_process.h"
+#include "components/autofill/core/browser/autofill_address_util.h"
 #include "components/autofill/core/browser/geo/autofill_country.h"
 #include "content/public/browser/web_contents.h"
 #include "third_party/libaddressinput/src/cpp/include/libaddressinput/address_field.h"
@@ -94,6 +96,7 @@ JNI_AutofillProfileBridge_GetAddressUiComponents(
     JNIEnv* env,
     const JavaParamRef<jstring>& j_country_code,
     const JavaParamRef<jstring>& j_language_code,
+    jint j_validation_type,
     const JavaParamRef<jobject>& j_id_list,
     const JavaParamRef<jobject>& j_name_list,
     const JavaParamRef<jobject>& j_required_list,
@@ -115,16 +118,32 @@ JNI_AutofillProfileBridge_GetAddressUiComponents(
   }
 
   std::string country_code = ConvertJavaStringToUTF8(env, j_country_code);
-  std::vector<AddressUiComponent> ui_components = BuildComponents(
-      country_code, localization, language_code, &best_language_tag);
+  AutofillCountry country(country_code);
+  std::vector<ExtendedAddressUiComponent> ui_components =
+      ConvertAddressUiComponents(
+          BuildComponents(country_code, localization, language_code,
+                          &best_language_tag),
+          country);
+  ExtendAddressComponents(ui_components, country, localization,
+                          /*include_literals=*/false);
 
+  AddressValidationType validation_type =
+      static_cast<AddressValidationType>(j_validation_type);
   for (const auto& ui_component : ui_components) {
+    component_ids.push_back(ui_component.field);
     component_labels.push_back(ui_component.name);
-    component_required.push_back(
-        IsFieldRequired(ui_component.field, country_code));
     component_length.push_back(ui_component.length_hint ==
                                AddressUiComponent::HINT_LONG);
-    component_ids.push_back(ui_component.field);
+
+    switch (validation_type) {
+      case AddressValidationType::kPaymentRequest:
+        component_required.push_back(
+            IsFieldRequired(ui_component.field, country_code));
+        break;
+      case AddressValidationType::kAccount:
+        component_required.push_back(
+            country.IsAddressFieldRequired(ui_component.field));
+    }
   }
 
   Java_AutofillProfileBridge_intArrayToList(

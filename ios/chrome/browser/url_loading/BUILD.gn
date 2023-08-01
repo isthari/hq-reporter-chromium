@@ -1,4 +1,4 @@
-# Copyright 2018 The Chromium Authors. All rights reserved.
+# Copyright 2018 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -29,22 +29,23 @@ source_set("url_loading") {
     "//components/sessions",
     "//ios/chrome/app:mode",
     "//ios/chrome/app/application_delegate:tab_opening",
-    "//ios/chrome/browser",
-    "//ios/chrome/browser/browser_state",
     "//ios/chrome/browser/crash_report:crash_report_internal",
     "//ios/chrome/browser/feature_engagement",
-    "//ios/chrome/browser/main:public",
+    "//ios/chrome/browser/ntp:util",
     "//ios/chrome/browser/policy:policy_util",
     "//ios/chrome/browser/prerender",
     "//ios/chrome/browser/sessions",
+    "//ios/chrome/browser/shared/coordinator/scene:scene_state_browser_agent",
+    "//ios/chrome/browser/shared/coordinator/scene:scene_state_header",
+    "//ios/chrome/browser/shared/model/browser",
+    "//ios/chrome/browser/shared/model/browser_state",
+    "//ios/chrome/browser/shared/model/url:constants",
+    "//ios/chrome/browser/shared/model/web_state_list",
+    "//ios/chrome/browser/shared/public/commands",
+    "//ios/chrome/browser/shared/public/features",
     "//ios/chrome/browser/snapshots",
-    "//ios/chrome/browser/ui:feature_flags",
-    "//ios/chrome/browser/ui/commands",
     "//ios/chrome/browser/ui/incognito_reauth:incognito_reauth_scene_agent",
-    "//ios/chrome/browser/ui/main:scene_state_header",
-    "//ios/chrome/browser/ui/ntp:util",
     "//ios/chrome/browser/web",
-    "//ios/chrome/browser/web_state_list",
     "//ios/chrome/browser/web_state_list:agents",
     "//ios/components/webui:url_constants",
     "//ios/web/public",
@@ -57,9 +58,21 @@ source_set("url_loading_params_header") {
   configs += [ "//build/config/compiler:enable_arc" ]
   sources = [ "url_loading_params.h" ]
   deps = [
-    "//ios/chrome/browser/ui/commands",
+    "//ios/chrome/browser/shared/public/commands",
     "//ios/web/public",
     "//ui/base",
+  ]
+}
+
+source_set("new_tab_animation_tab_helper") {
+  configs += [ "//build/config/compiler:enable_arc" ]
+  sources = [
+    "new_tab_animation_tab_helper.h",
+    "new_tab_animation_tab_helper.mm",
+  ]
+  deps = [
+    "//base",
+    "//ios/web/public",
   ]
 }
 
@@ -84,18 +97,18 @@ source_set("unit_tests") {
     ":url_loading",
     "//base",
     "//base/test:test_support",
-    "//ios/chrome/browser",
-    "//ios/chrome/browser/browser_state",
-    "//ios/chrome/browser/browser_state:test_support",
-    "//ios/chrome/browser/main:test_support",
     "//ios/chrome/browser/ntp",
     "//ios/chrome/browser/search_engines",
-    "//ios/chrome/browser/ui/main:scene_state_header",
+    "//ios/chrome/browser/shared/coordinator/scene:scene_state_browser_agent",
+    "//ios/chrome/browser/shared/coordinator/scene:scene_state_header",
+    "//ios/chrome/browser/shared/model/browser/test:test_support",
+    "//ios/chrome/browser/shared/model/browser_state",
+    "//ios/chrome/browser/shared/model/browser_state:test_support",
+    "//ios/chrome/browser/shared/model/web_state_list",
+    "//ios/chrome/browser/shared/model/web_state_list/test:test_support",
     "//ios/chrome/browser/web",
     "//ios/chrome/browser/web:web_internal",
-    "//ios/chrome/browser/web_state_list",
     "//ios/chrome/browser/web_state_list:agents",
-    "//ios/chrome/browser/web_state_list:test_support",
     "//ios/chrome/browser/web_state_list/web_usage_enabler",
     "//ios/chrome/test:test_support",
     "//ios/testing:ocmock_support",

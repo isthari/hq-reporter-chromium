@@ -1,17 +1,17 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.components.browser_ui.notifications.channels;
 
-import android.annotation.TargetApi;
 import android.app.NotificationChannel;
 import android.app.NotificationChannelGroup;
 import android.app.NotificationManager;
 import android.content.res.Resources;
 import android.os.Build;
 
-import org.chromium.base.CollectionUtil;
+import androidx.annotation.RequiresApi;
+
 import org.chromium.components.browser_ui.notifications.NotificationManagerProxy;
 
 import java.util.Collection;
@@ -23,7 +23,7 @@ import java.util.Set;
 /**
  * Initializes our notification channels.
  */
-@TargetApi(Build.VERSION_CODES.O)
+@RequiresApi(Build.VERSION_CODES.O)
 public class ChannelsInitializer {
     private final NotificationManagerProxy mNotificationManager;
     private ChannelDefinitions mChannelDefinitions;
@@ -159,9 +159,12 @@ public class ChannelsInitializer {
         }
 
         // Channel groups must be created before the channels.
-        CollectionUtil.forEach(
-                channelGroups.values(), mNotificationManager::createNotificationChannelGroup);
-        CollectionUtil.forEach(channels.values(), mNotificationManager::createNotificationChannel);
+        for (var channelGroup : channelGroups.values()) {
+            mNotificationManager.createNotificationChannelGroup(channelGroup);
+        }
+        for (var channel : channels.values()) {
+            mNotificationManager.createNotificationChannel(channel);
+        }
     }
 
     /**

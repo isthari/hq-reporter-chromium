@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <utility>
 
-#include "base/cxx17_backports.h"
 #include "base/memory/singleton.h"
 #include "components/strings/grit/components_strings.h"
 #include "third_party/icu/source/common/unicode/locid.h"
@@ -88,7 +87,7 @@ const StaticCountryAddressImportRequirementsData
         {"CN", ADDRESS_REQUIRES_LINE1_CITY_STATE_ZIP},
         {"CO", ADDRESS_REQUIRES_LINE1_CITY_STATE_ZIP},
         {"CR", ADDRESS_REQUIRES_LINE1_CITY_STATE_ZIP},
-        {"CS", ADDRESS_REQUIRES_LINE1},
+        {"CU", ADDRESS_REQUIRES_LINE1_CITY},
         {"CV", ADDRESS_REQUIRES_LINE1_CITY_STATE_ZIP},
         {"CW", ADDRESS_REQUIRES_LINE1_CITY},
         {"CX", ADDRESS_REQUIRES_LINE1_CITY_STATE_ZIP},
@@ -233,6 +232,7 @@ const StaticCountryAddressImportRequirementsData
         {"SA", ADDRESS_REQUIRES_LINE1_CITY_ZIP},
         {"SB", ADDRESS_REQUIRES_LINE1_CITY},
         {"SC", ADDRESS_REQUIRES_LINE1_CITY_STATE},
+        {"SD", ADDRESS_REQUIRES_LINE1_CITY},
         {"SE", ADDRESS_REQUIRES_LINE1_CITY_ZIP},
         {"SG", ADDRESS_REQUIRES_LINE1_ZIP},
         {"SH", ADDRESS_REQUIRES_LINE1_CITY_ZIP},
@@ -248,6 +248,7 @@ const StaticCountryAddressImportRequirementsData
         {"ST", ADDRESS_REQUIRES_LINE1_CITY},
         {"SV", ADDRESS_REQUIRES_LINE1_CITY_STATE},
         {"SX", ADDRESS_REQUIRES_LINE1_CITY},
+        {"SY", ADDRESS_REQUIRES_LINE1_CITY},
         {"SZ", ADDRESS_REQUIRES_LINE1_CITY_ZIP},
         {"TA", ADDRESS_REQUIRES_LINE1_CITY},
         {"TC", ADDRESS_REQUIRES_LINE1_CITY_ZIP},
@@ -293,7 +294,7 @@ const StaticCountryAddressImportRequirementsData
 // based on |kCountryAddressImportRequirementsData|.
 std::vector<std::string> GetCountryCodes() {
   std::vector<std::string> country_codes;
-  country_codes.reserve(base::size(kCountryAddressImportRequirementsData));
+  country_codes.reserve(std::size(kCountryAddressImportRequirementsData));
   for (const auto& static_data : kCountryAddressImportRequirementsData) {
     country_codes.push_back(static_data.country_code);
   }

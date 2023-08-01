@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -106,26 +106,6 @@ TEST(ArcInputMethodState, AllowDisallowInputMethods) {
   delegate.allowed = false;
   EXPECT_EQ(1u, state.GetAvailableInputMethods().size());
   EXPECT_EQ("ime_a", state.GetAvailableInputMethods()[0].id());
-}
-
-TEST(ArcInputMethodState, Histogram) {
-  base::HistogramTester histogram_tester;
-  constexpr char kHistogramName[] = "Arc.ImeCount";
-
-  FakeDelegate delegate;
-
-  ArcInputMethodState state(&delegate);
-  std::vector<mojom::ImeInfoPtr> imes;
-  imes.push_back(GenerateImeInfo("ime_a", true, true));
-  imes.push_back(GenerateImeInfo("ime_b", true, false));
-  state.InitializeWithImeInfo("ime_id", imes);
-
-  histogram_tester.ExpectTotalCount(kHistogramName, 1);
-  histogram_tester.ExpectUniqueSample(kHistogramName, imes.size(), 1);
-
-  imes.clear();
-  state.InitializeWithImeInfo("ime_id", imes);
-  histogram_tester.ExpectTotalCount(kHistogramName, 2);
 }
 
 }  // namespace arc

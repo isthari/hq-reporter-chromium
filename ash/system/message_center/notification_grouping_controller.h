@@ -1,10 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef ASH_SYSTEM_MESSAGE_CENTER_NOTIFICATION_GROUPING_CONTROLLER_H_
 #define ASH_SYSTEM_MESSAGE_CENTER_NOTIFICATION_GROUPING_CONTROLLER_H_
 
+#include "base/memory/raw_ptr.h"
 #include "base/scoped_observation.h"
 #include "ui/message_center/message_center.h"
 #include "ui/message_center/message_center_observer.h"
@@ -19,6 +20,7 @@ namespace {
 class GroupedNotificationList;
 }  // namespace
 
+class NotificationCenterTray;
 class UnifiedSystemTray;
 
 // A controller class to manage adding, removing and updating group
@@ -26,7 +28,8 @@ class UnifiedSystemTray;
 class NotificationGroupingController
     : public message_center::MessageCenterObserver {
  public:
-  explicit NotificationGroupingController(UnifiedSystemTray* tray);
+  NotificationGroupingController(UnifiedSystemTray* system_tray,
+                                 NotificationCenterTray* notification_tray);
   NotificationGroupingController(const NotificationGroupingController& other) =
       delete;
   NotificationGroupingController& operator=(
@@ -40,6 +43,19 @@ class NotificationGroupingController
       const message_center::DisplaySource source) override;
   void OnNotificationRemoved(const std::string& notification_id,
                              bool by_user) override;
+  void OnNotificationUpdated(const std::string& notification_id) override;
+
+  // This is a callback which will be triggered after the "convert from single
+  // notification to group notification" animation is completed. This handles
+  // setting up the parent notification and add the child notification to its
+  // group.
+  void ConvertFromSingleToGroupNotificationAfterAnimation(
+      const std::string& notification_id,
+      std::string& parent_id,
+      message_center::Notification* parent_notification);
+
+  message_center::NotificationViewController*
+  GetActiveNotificationViewController();
 
  protected:
   // Adds grouped child notifications that belong to a parent message
@@ -56,14 +72,10 @@ class NotificationGroupingController
   // a grouped notification. Does this by creating a copy of the
   // parent notification and switching the notification_ids of the
   // current message view associated with the parent notification.
-  void SetupParentNotification(std::string* parent_id);
-
-  // Clears all group data for `group_parent_id` and converts
-  // the existing message view for `group_parent_id` to a single
-  // ungrouped notification view representing `new_single_notification_id`.
-  void SetupSingleNotificationFromGroupedNotification(
-      const std::string& group_parent_id,
-      const std::string& new_single_notification_id);
+  // Returns the new parent_id for the newly created  copy.
+  const std::string& SetupParentNotification(
+      message_center::Notification* parent_notification,
+      const std::string& parent_id);
 
   // Creates a copy notification that will act as a parent notification
   // for its group.
@@ -75,18 +87,34 @@ class NotificationGroupingController
   // view if if the view currently exists.
   void RemoveGroupedChild(const std::string& notification_id);
 
-  message_center::NotificationViewController*
-  GetActiveNotificationViewController();
+  // Adds notification associated with `notification_id` to its corresponding
+  // group with `parent_id`.
+  void AddNotificationToGroup(const std::string& notification_id,
+                              const std::string& parent_id);
+
+  // Update the pinned state for the parent notification. It should be pinned if
+  // at least one of its child is pinned.
+  void UpdateParentNotificationPinnedState(const std::string& parent_id);
 
   // Whether a grouped parent notification is being added to MessageCenter. Used
   // to prevent an infinite loop.
   bool adding_parent_grouped_notification_ = false;
 
-  UnifiedSystemTray* const tray_;
+  // Owner of this class.
+  const raw_ptr<UnifiedSystemTray, ExperimentalAsh> system_tray_;
+
+  // Raw ptr to the `NotificationCenterTray` adjacent to `system_tray_`, has the
+  // same owner as `system_tray_`.
+  // TODO(b/251687017): Make this the owner of this class.
+  const raw_ptr<NotificationCenterTray, DanglingUntriaged | ExperimentalAsh>
+      notification_tray_;
 
   // A data structure that holds all grouped notifications along with their
-  // associations with their parent notifications.
-  std::unique_ptr<GroupedNotificationList> grouped_notification_list_;
+  // associations with their parent notifications. This pointer is assigned to a
+  // static global instance that is shared across all instances of
+  // `NotificationGroupingController`.
+  const raw_ptr<GroupedNotificationList, ExperimentalAsh>
+      grouped_notification_list_;
 
   base::ScopedObservation<message_center::MessageCenter, MessageCenterObserver>
       observer_{this};

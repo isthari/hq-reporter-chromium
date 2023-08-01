@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,18 +9,19 @@
 #include <utility>
 
 #include "base/base_switches.h"
-#include "base/bind.h"
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
 #include "base/feature_list.h"
 #include "base/files/scoped_file.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/i18n/rtl.h"
 #include "base/logging.h"
 #include "base/message_loop/message_pump_type.h"
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/unguessable_token.h"
 #include "build/build_config.h"
 #include "chromecast/base/cast_constants.h"
@@ -38,7 +39,6 @@
 #include "chromecast/browser/cast_navigation_ui_data.h"
 #include "chromecast/browser/cast_network_contexts.h"
 #include "chromecast/browser/cast_overlay_manifests.h"
-#include "chromecast/browser/cast_quota_permission_context.h"
 #include "chromecast/browser/cast_session_id_map.h"
 #include "chromecast/browser/cast_web_contents.h"
 #include "chromecast/browser/cast_web_preferences.h"
@@ -111,6 +111,7 @@
 #endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
 
 #if BUILDFLAG(IS_ANDROID)
+#include "base/android/build_info.h"
 #include "chromecast/media/audio/cast_audio_manager_android.h"  // nogncheck
 #include "components/cdm/browser/cdm_message_filter_android.h"
 #include "components/crash/core/app/crashpad.h"
@@ -123,22 +124,6 @@
 #if defined(USE_ALSA)
 #include "chromecast/media/audio/cast_audio_manager_alsa.h"  // nogncheck
 #endif  // defined(USE_ALSA)
-
-#if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
-#include "chromecast/browser/cast_extension_message_filter.h"      // nogncheck
-#include "chromecast/browser/cast_extension_url_loader_factory.h"  // nogncheck
-#include "extensions/browser/extension_message_filter.h"           // nogncheck
-#include "extensions/browser/extension_protocols.h"                // nogncheck
-#include "extensions/browser/extension_registry.h"                 // nogncheck
-#include "extensions/browser/guest_view/extensions_guest_view_message_filter.h"  // nogncheck
-#include "extensions/browser/guest_view/web_view/web_view_guest.h"  // nogncheck
-#include "extensions/browser/process_map.h"                         // nogncheck
-#include "extensions/common/constants.h"                            // nogncheck
-#endif
-
-#if (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)) && defined(USE_OZONE)
-#include "chromecast/browser/webview/webview_controller.h"
-#endif  // (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)) && defined(USE_OZONE)
 
 #if BUILDFLAG(ENABLE_CAST_RENDERER)
 #include "base/task/sequenced_task_runner.h"
@@ -166,25 +151,33 @@ CastContentBrowserClient::CastContentBrowserClient(
       cast_network_contexts_(
           std::make_unique<CastNetworkContexts>(GetCorsExemptHeadersList())),
       cast_feature_list_creator_(cast_feature_list_creator) {
-  cast_feature_list_creator_->SetExtraEnableFeatures({
-    ::media::kInternalMediaSession, features::kNetworkServiceInProcess,
+  std::vector<const base::Feature*> extra_enable_features = {
+    &::media::kInternalMediaSession,
+    &features::kNetworkServiceInProcess,
 #if BUILDFLAG(IS_ANDROID) && BUILDFLAG(ENABLE_VIDEO_CAPTURE_SERVICE)
-        features::kMojoVideoCapture,
+    &features::kMojoVideoCapture,
 #endif
 #if BUILDFLAG(USE_V4L2_CODEC)
-        // Enable accelerated video decode if v4l2 codec is supported.
-        ::media::kVaapiVideoDecodeLinux,
+    // Enable accelerated video decode if v4l2 codec is supported.
+    &::media::kVaapiVideoDecodeLinux,
 #endif  // BUILDFLAG(USE_V4L2_CODEC)
-  });
+  };
+
+  std::vector<const base::Feature*> extra_disable_features;
 
 #if BUILDFLAG(IS_ANDROID)
-  cast_feature_list_creator_->SetExtraDisableFeatures({
-      ::media::kAudioFocusLossSuspendMediaSession,
-      ::media::kRequestSystemAudioFocus,
-      // Disable AAudio improve AV sync performance.
-      ::features::kUseAAudioDriver,
-  });
+  if (base::android::BuildInfo::GetInstance()->is_tv()) {
+    // Use the software decoder provided by MediaCodec instead of the built in
+    // software decoder. This can improve av sync quality.
+    extra_enable_features.push_back(&::media::kAllowMediaCodecSoftwareDecoder);
+    // Disable AAudio on ATV for a better av sync quality, before we root cause
+    // the issue.
+    extra_disable_features.push_back(&::features::kUseAAudioDriver);
+  }
 #endif
+
+  cast_feature_list_creator_->SetExtraEnableFeatures(extra_enable_features);
+  cast_feature_list_creator_->SetExtraDisableFeatures(extra_disable_features);
 }
 
 CastContentBrowserClient::~CastContentBrowserClient() {
@@ -206,8 +199,7 @@ std::unique_ptr<CastService> CastContentBrowserClient::CreateCastService(
     media::VideoPlaneController* video_plane_controller,
     CastWindowManager* window_manager,
     CastWebService* web_service,
-    DisplaySettingsManager* display_settings_manager,
-    AccessibilityServiceImpl* accessibility_service) {
+    DisplaySettingsManager* display_settings_manager) {
   return std::make_unique<CastServiceSimple>(web_service);
 }
 
@@ -227,14 +219,15 @@ CastContentBrowserClient::GetMediaTaskRunner() {
     base::Thread::Options options;
     // We need the media thread to be IO-capable to use the mixer service.
     options.message_pump_type = base::MessagePumpType::IO;
-    options.priority = base::ThreadPriority::REALTIME_AUDIO;
+    options.thread_type = base::ThreadType::kRealtimeAudio;
     CHECK(media_thread_->StartWithOptions(std::move(options)));
     // Start the media_resource_tracker as soon as the media thread is created.
     // There are services that run on the media thread that depend on it,
     // and we want to initialize it with the correct task runner before any
     // tasks that might use it are posted to the media thread.
     media_resource_tracker_ = new media::MediaResourceTracker(
-        base::ThreadTaskRunnerHandle::Get(), media_thread_->task_runner());
+        base::SingleThreadTaskRunner::GetCurrentDefault(),
+        media_thread_->task_runner());
   }
   return media_thread_->task_runner();
 }
@@ -358,10 +351,10 @@ std::vector<std::string> CastContentBrowserClient::GetStartupServices() {
 
 std::unique_ptr<content::BrowserMainParts>
 CastContentBrowserClient::CreateBrowserMainParts(
-    content::MainFunctionParams parameters) {
+    bool /* is_integration_test */) {
   DCHECK(!cast_browser_main_parts_);
 
-  auto main_parts = CastBrowserMainParts::Create(std::move(parameters), this);
+  auto main_parts = CastBrowserMainParts::Create(this);
 
   cast_browser_main_parts_ = main_parts.get();
   CastBrowserProcess::GetInstance()->SetCastContentBrowserClient(this);
@@ -382,18 +375,6 @@ void CastContentBrowserClient::RenderProcessWillLaunch(
   // support.
   host->AddFilter(new cdm::CdmMessageFilterAndroid(true, true));
 #endif  // BUILDFLAG(IS_ANDROID)
-
-#if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
-  int render_process_id = host->GetID();
-  content::BrowserContext* browser_context =
-      cast_browser_main_parts_->browser_context();
-  host->AddFilter(new extensions::ExtensionMessageFilter(render_process_id,
-                                                         browser_context));
-  host->AddFilter(new extensions::ExtensionsGuestViewMessageFilter(
-      render_process_id, browser_context));
-  host->AddFilter(
-      new CastExtensionMessageFilter(render_process_id, browser_context));
-#endif
 }
 
 bool CastContentBrowserClient::IsHandledURL(const GURL& url) {
@@ -407,7 +388,7 @@ bool CastContentBrowserClient::IsHandledURL(const GURL& url) {
   };
 
   const std::string& scheme = url.scheme();
-  for (size_t i = 0; i < base::size(kProtocolList); ++i) {
+  for (size_t i = 0; i < std::size(kProtocolList); ++i) {
     if (scheme == kProtocolList[i])
       return true;
   }
@@ -421,21 +402,7 @@ bool CastContentBrowserClient::IsHandledURL(const GURL& url) {
 }
 
 void CastContentBrowserClient::SiteInstanceGotProcess(
-    content::SiteInstance* site_instance) {
-#if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
-  // If this isn't an extension renderer there's nothing to do.
-  extensions::ExtensionRegistry* registry =
-      extensions::ExtensionRegistry::Get(site_instance->GetBrowserContext());
-  const extensions::Extension* extension =
-      registry->enabled_extensions().GetExtensionOrAppByURL(
-          site_instance->GetSiteURL());
-  if (!extension)
-    return;
-  extensions::ProcessMap::Get(cast_browser_main_parts_->browser_context())
-      ->Insert(extension->id(), site_instance->GetProcess()->GetID(),
-               site_instance->GetId());
-#endif
-}
+    content::SiteInstance* site_instance) {}
 
 void CastContentBrowserClient::AppendExtraCommandLineSwitches(
     base::CommandLine* command_line,
@@ -471,7 +438,7 @@ void CastContentBrowserClient::AppendExtraCommandLineSwitches(
         switches::kForceMediaResolutionWidth,
         network::switches::kUnsafelyTreatInsecureOriginAsSecure};
     command_line->CopySwitchesFrom(*browser_command_line, kForwardSwitches,
-                                   base::size(kForwardSwitches));
+                                   std::size(kForwardSwitches));
   } else if (process_type == switches::kUtilityProcess) {
     if (browser_command_line->HasSwitch(switches::kAudioOutputChannels)) {
       command_line->AppendSwitchASCII(switches::kAudioOutputChannels,
@@ -493,7 +460,7 @@ void CastContentBrowserClient::AppendExtraCommandLineSwitches(
         switches::kVSyncInterval,
     };
     command_line->CopySwitchesFrom(*browser_command_line, kForwardSwitches,
-                                   base::size(kForwardSwitches));
+                                   std::size(kForwardSwitches));
 
     auto display = display::Screen::GetScreen()->GetPrimaryDisplay();
     gfx::Size res = display.GetSizeInPixel();
@@ -583,17 +550,12 @@ std::string CastContentBrowserClient::GetApplicationLocale() {
   return locale.empty() ? "en-US" : locale;
 }
 
-scoped_refptr<content::QuotaPermissionContext>
-CastContentBrowserClient::CreateQuotaPermissionContext() {
-  return new CastQuotaPermissionContext();
-}
-
 void CastContentBrowserClient::AllowCertificateError(
     content::WebContents* web_contents,
     int cert_error,
     const net::SSLInfo& ssl_info,
     const GURL& request_url,
-    bool is_main_frame_request,
+    bool is_primary_main_frame_request,
     bool strict_enforcement,
     base::OnceCallback<void(content::CertificateRequestResultType)> callback) {
   // Allow developers to override certificate errors.
@@ -635,9 +597,9 @@ base::OnceClosure CastContentBrowserClient::SelectClientCertificate(
       base::BindOnce(
           &CastContentBrowserClient::SelectClientCertificateOnIOThread,
           base::Unretained(this), requesting_url, session_id,
-          web_contents->GetMainFrame()->GetProcess()->GetID(),
-          web_contents->GetMainFrame()->GetRoutingID(),
-          base::SequencedTaskRunnerHandle::Get(),
+          web_contents->GetPrimaryMainFrame()->GetProcess()->GetID(),
+          web_contents->GetPrimaryMainFrame()->GetRoutingID(),
+          base::SequencedTaskRunner::GetCurrentDefault(),
           base::BindOnce(
               &content::ClientCertificateDelegate::ContinueWithCertificate,
               base::Owned(delegate.release()))));
@@ -853,21 +815,6 @@ std::vector<std::unique_ptr<content::NavigationThrottle>>
 CastContentBrowserClient::CreateThrottlesForNavigation(
     content::NavigationHandle* handle) {
   std::vector<std::unique_ptr<content::NavigationThrottle>> throttles;
-#if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
-  // If this isn't an extension renderer there's nothing to do.
-  content::SiteInstance* site_instance = handle->GetStartingSiteInstance();
-  if (site_instance) {
-    extensions::ExtensionRegistry* registry =
-        extensions::ExtensionRegistry::Get(site_instance->GetBrowserContext());
-    const extensions::Extension* extension =
-        registry->enabled_extensions().GetExtensionOrAppByURL(
-            site_instance->GetSiteURL());
-    if (extension) {
-      throttles.push_back(std::make_unique<DefaultNavigationThrottle>(
-          handle, content::NavigationThrottle::CANCEL_AND_IGNORE));
-    }
-  }
-#endif
 
   if (chromecast::IsFeatureEnabled(kEnableGeneralAudienceBrowsing)) {
     throttles.push_back(
@@ -875,33 +822,13 @@ CastContentBrowserClient::CreateThrottlesForNavigation(
             handle, general_audience_browsing_service_.get()));
   }
 
-#if (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)) && defined(USE_OZONE)
-  auto webview_throttle = WebviewController::MaybeGetNavigationThrottle(handle);
-  if (webview_throttle) {
-    throttles.push_back(std::move(webview_throttle));
-  }
-#endif  // (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)) && defined(USE_OZONE)
-
   return throttles;
 }
 
 void CastContentBrowserClient::RegisterNonNetworkNavigationURLLoaderFactories(
     int frame_tree_node_id,
     ukm::SourceIdObj ukm_source_id,
-    NonNetworkURLLoaderFactoryMap* factories) {
-#if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
-  content::WebContents* web_contents =
-      content::WebContents::FromFrameTreeNodeId(frame_tree_node_id);
-  auto* browser_context = web_contents->GetBrowserContext();
-  auto extension_factory =
-      extensions::CreateExtensionNavigationURLLoaderFactory(
-          browser_context, ukm_source_id,
-          !!extensions::WebViewGuest::FromWebContents(web_contents));
-  factories->emplace(extensions::kExtensionScheme,
-                     CastExtensionURLLoaderFactory::Create(
-                         browser_context, std::move(extension_factory)));
-#endif
-}
+    NonNetworkURLLoaderFactoryMap* factories) {}
 
 void CastContentBrowserClient::RegisterNonNetworkSubresourceURLLoaderFactories(
     int render_process_id,
@@ -914,15 +841,6 @@ void CastContentBrowserClient::RegisterNonNetworkSubresourceURLLoaderFactories(
   }
   content::RenderFrameHost* frame_host =
       content::RenderFrameHost::FromID(render_process_id, render_frame_id);
-
-#if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
-  auto* browser_context = frame_host->GetProcess()->GetBrowserContext();
-  auto extension_factory = extensions::CreateExtensionURLLoaderFactory(
-      render_process_id, render_frame_id);
-  factories->emplace(extensions::kExtensionScheme,
-                     CastExtensionURLLoaderFactory::Create(
-                         browser_context, std::move(extension_factory)));
-#endif
 
   factories->emplace(
       kChromeResourceScheme,
@@ -952,28 +870,18 @@ void CastContentBrowserClient::ConfigureNetworkContextParams(
 bool CastContentBrowserClient::DoesSiteRequireDedicatedProcess(
     content::BrowserContext* browser_context,
     const GURL& effective_site_url) {
-  // Always isolate extensions. This prevents site isolation from messing up
-  // URLs.
-#if BUILDFLAG(ENABLE_CHROMECAST_EXTENSIONS)
-  return effective_site_url.SchemeIs(extensions::kExtensionScheme);
-#else
   return false;
-#endif
 }
 
 bool CastContentBrowserClient::IsWebUIAllowedToMakeNetworkRequests(
     const url::Origin& origin) {
-#if BUILDFLAG(ENABLE_CHROMECAST_WEBUI)
-  return cast_browser_main_parts_->web_service()->IsCastWebUIOrigin(origin);
-#else
   return false;
-#endif  // BUILDFLAG(ENABLE_CHROMECAST_WEBUI)
 }
 
-bool CastContentBrowserClient::ShouldAllowInsecurePrivateNetworkRequests(
+bool CastContentBrowserClient::ShouldAllowInsecureLocalNetworkRequests(
     content::BrowserContext* browser_context,
     const url::Origin& origin) {
-  // Some Cast apps hosted over HTTP needs to access the private network so that
+  // Some Cast apps hosted over HTTP needs to access the local network so that
   // media can be streamed from a local media server.
   return true;
 }

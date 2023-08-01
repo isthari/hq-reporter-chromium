@@ -1,6 +1,8 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import {getTrustedScriptURL} from 'chrome://resources/js/static_types.js';
 
 let lazyLoadPromise: Promise<void>|null = null;
 
@@ -9,7 +11,7 @@ export function ensureLazyLoaded(): Promise<void> {
   if (lazyLoadPromise === null) {
     const script = document.createElement('script');
     script.type = 'module';
-    script.src = './lazy_load.js';
+    script.src = getTrustedScriptURL`./lazy_load.js`;
     document.body.appendChild(script);
 
     lazyLoadPromise =
@@ -24,14 +26,14 @@ export function ensureLazyLoaded(): Promise<void> {
               'certificate-manager',
               // </if>
               'settings-a11y-page', 'settings-downloads-page',
-              // <if expr="not chromeos">
+              // <if expr="not chromeos_ash">
               'settings-languages-page',
               // </if>
               'settings-reset-page',
-              // <if expr="not chromeos and not lacros">
+              // <if expr="not chromeos_ash">
               'settings-system-page',
               // </if>
-              // <if expr="not chromeos and not is_macosx">
+              // <if expr="not chromeos_ash and not is_macosx">
               'settings-edit-dictionary-page',
               // </if>
             ].map(name => customElements.whenDefined(name)))

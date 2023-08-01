@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include <memory>
 
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
@@ -97,10 +98,12 @@ class MojoCertVerifier::MojoReconnector
 
 MojoCertVerifier::MojoCertVerifier(
     mojo::PendingRemote<mojom::CertVerifierService> mojo_cert_verifier,
+    mojo::PendingReceiver<mojom::CertVerifierServiceClient> client_receiver,
     mojo::PendingRemote<network::mojom::URLLoaderFactory> url_loader_factory,
     base::RepeatingCallback<void(
         mojo::PendingReceiver<network::mojom::URLLoaderFactory>)> reconnector)
-    : mojo_cert_verifier_(std::move(mojo_cert_verifier)) {
+    : mojo_cert_verifier_(std::move(mojo_cert_verifier)),
+      client_receiver_(this, std::move(client_receiver)) {
   mojo::PendingRemote<mojom::URLLoaderFactoryConnector> reconnector_remote;
 
   reconnector_ = std::make_unique<MojoReconnector>(
@@ -135,6 +138,20 @@ int MojoCertVerifier::Verify(
 
 void MojoCertVerifier::SetConfig(const net::CertVerifier::Config& config) {
   mojo_cert_verifier_->SetConfig(config);
+}
+
+void MojoCertVerifier::AddObserver(Observer* observer) {
+  observers_.AddObserver(observer);
+}
+
+void MojoCertVerifier::RemoveObserver(Observer* observer) {
+  observers_.RemoveObserver(observer);
+}
+
+void MojoCertVerifier::OnCertVerifierChanged() {
+  for (Observer& observer : observers_) {
+    observer.OnCertVerifierChanged();
+  }
 }
 
 void MojoCertVerifier::FlushForTesting() {

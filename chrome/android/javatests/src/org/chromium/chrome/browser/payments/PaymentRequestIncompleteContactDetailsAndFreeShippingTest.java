@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,23 +7,20 @@ package org.chromium.chrome.browser.payments;
 import androidx.test.filters.MediumTest;
 
 import org.junit.Assert;
-import org.junit.ClassRule;
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.FlakyTest;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.autofill.AutofillTestHelper;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.AutofillProfile;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.payments.PaymentRequestTestRule.AppPresence;
 import org.chromium.chrome.browser.payments.PaymentRequestTestRule.FactorySpeed;
-import org.chromium.chrome.browser.payments.PaymentRequestTestRule.MainActivityStartCallback;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
-import org.chromium.ui.test.util.DisableAnimationsTestRule;
+import org.chromium.chrome.test.R;
 
 import java.util.concurrent.TimeoutException;
 
@@ -34,25 +31,28 @@ import java.util.concurrent.TimeoutException;
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
-public class PaymentRequestIncompleteContactDetailsAndFreeShippingTest
-        implements MainActivityStartCallback {
-    // Disable animations to reduce flakiness.
-    @ClassRule
-    public static DisableAnimationsTestRule sNoAnimationsRule = new DisableAnimationsTestRule();
-
+public class PaymentRequestIncompleteContactDetailsAndFreeShippingTest {
     @Rule
     public PaymentRequestTestRule mPaymentRequestTestRule = new PaymentRequestTestRule(
-            "payment_request_contact_details_and_free_shipping_test.html", this);
+            "payment_request_contact_details_and_free_shipping_test.html");
 
-    @Override
-    public void onMainActivityStarted() throws TimeoutException {
+    @Before
+    public void setUp() throws TimeoutException {
         AutofillTestHelper helper = new AutofillTestHelper();
         // The user has a shipping address with a valid email address on disk. However the phone
         // number is invalid.
-        helper.setProfile(
-                new AutofillProfile("", "https://example.com", true, "" /* honorific prefix */,
-                        "Jon Doe", "Google", "340 Main St", "CA", "Los Angeles", "", "90291", "",
-                        "US", "" /* invalid phone number */, "jon.doe@google.com", "en-US"));
+        helper.setProfile(AutofillProfile.builder()
+                                  .setFullName("Jon Doe")
+                                  .setCompanyName("Google")
+                                  .setStreetAddress("340 Main St")
+                                  .setRegion("CA")
+                                  .setLocality("Los Angeles")
+                                  .setPostalCode("90291")
+                                  .setCountryCode("US")
+                                  .setPhoneNumber("" /* invalid phone number */)
+                                  .setEmailAddress("jon.doe@google.com")
+                                  .setLanguageCode("en-US")
+                                  .build());
 
         mPaymentRequestTestRule.addPaymentAppFactory(
                 AppPresence.HAVE_APPS, FactorySpeed.FAST_FACTORY);
@@ -61,10 +61,9 @@ public class PaymentRequestIncompleteContactDetailsAndFreeShippingTest
     /** Update the shipping address with valid data and see that the contacts section is updated. */
     @Test
     @MediumTest
-    @FlakyTest(message = "crbug.com/1182234")
     @Feature({"Payments"})
     public void testEditIncompleteShippingAndPay() throws TimeoutException {
-        mPaymentRequestTestRule.triggerUIAndWait(mPaymentRequestTestRule.getReadyForInput());
+        mPaymentRequestTestRule.triggerUIAndWait("buy", mPaymentRequestTestRule.getReadyForInput());
         mPaymentRequestTestRule.clickInShippingAddressAndWait(
                 R.id.payments_section, mPaymentRequestTestRule.getReadyForInput());
 
@@ -99,10 +98,9 @@ public class PaymentRequestIncompleteContactDetailsAndFreeShippingTest
     /** Add a shipping address with valid data and see that the contacts section is updated. */
     @Test
     @MediumTest
-    @FlakyTest(message = "crbug.com/1182234")
     @Feature({"Payments"})
     public void testEditIncompleteShippingAndContactAndPay() throws TimeoutException {
-        mPaymentRequestTestRule.triggerUIAndWait(mPaymentRequestTestRule.getReadyForInput());
+        mPaymentRequestTestRule.triggerUIAndWait("buy", mPaymentRequestTestRule.getReadyForInput());
         mPaymentRequestTestRule.clickInShippingAddressAndWait(
                 R.id.payments_section, mPaymentRequestTestRule.getReadyForInput());
 

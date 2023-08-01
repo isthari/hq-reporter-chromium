@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,13 @@
 #define CHROME_BROWSER_ASH_PRINTING_CUPS_PROXY_SERVICE_MANAGER_H_
 
 #include "base/memory/weak_ptr.h"
+#include "chrome/browser/browser_process.h"
+#include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/profiles/profile_manager_observer.h"
 #include "chrome/services/cups_proxy/cups_proxy_service.h"
-#include "chrome/services/cups_proxy/public/mojom/proxy.mojom-forward.h"
 #include "components/keyed_service/core/keyed_service.h"
-#include "mojo/public/cpp/bindings/remote.h"
 
-namespace chromeos {
+namespace ash {
 
 // This KeyedService is responsible for helping manage the
 // lifetime of the CupsProxyService. This manager is started with the Profile
@@ -21,7 +22,8 @@ namespace chromeos {
 //
 // Note: This manager is not fault-tolerant, i.e. should the service/daemon
 // fail, we do not try to restart.
-class CupsProxyServiceManager : public KeyedService {
+class CupsProxyServiceManager : public KeyedService,
+                                public ProfileManagerObserver {
  public:
   CupsProxyServiceManager();
 
@@ -30,12 +32,27 @@ class CupsProxyServiceManager : public KeyedService {
 
   ~CupsProxyServiceManager() override;
 
+  // ProfileManagerObserver overrides:
+  void OnProfileAdded(Profile* profile) override;
+  void OnProfileManagerDestroying() override;
+
  private:
   void OnDaemonAvailable(bool daemon_available);
+
+  // Spawns CupsProxyService iff the primary profile is available and the
+  // CupsProxyDaemon is available.
+  void MaybeSpawnCupsProxyService();
+
+  // Whether or not the CupsProxyDaemon is available.
+  bool daemon_available_ = false;
+  // Whether or not the primary profile is available.
+  bool primary_profile_available_ = false;
+
+  ProfileManager* profile_manager_ = nullptr;
 
   base::WeakPtrFactory<CupsProxyServiceManager> weak_factory_{this};
 };
 
-}  // namespace chromeos
+}  // namespace ash
 
 #endif  // CHROME_BROWSER_ASH_PRINTING_CUPS_PROXY_SERVICE_MANAGER_H_

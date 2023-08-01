@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,42 +10,45 @@ import android.content.Intent;
 import android.content.res.Configuration;
 import android.graphics.Rect;
 import android.os.Build;
+import android.os.Build.VERSION;
+import android.os.Build.VERSION_CODES;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Process;
 import android.os.SystemClock;
-import android.provider.Settings;
-import android.provider.Settings.SettingNotFoundException;
 import android.view.Display;
 import android.view.Menu;
 import android.view.View;
-import android.view.ViewTreeObserver;
-import android.view.ViewTreeObserver.OnPreDrawListener;
 import android.view.WindowManager;
 
 import androidx.annotation.CallSuper;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
-import org.chromium.base.ApiCompatibilityUtils;
+import org.chromium.base.IntentUtils;
 import org.chromium.base.StrictModeContext;
 import org.chromium.base.SysUtils;
 import org.chromium.base.TraceEvent;
+import org.chromium.base.compat.ApiHelperForR;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.library_loader.LoaderErrors;
 import org.chromium.base.library_loader.ProcessInitException;
+import org.chromium.build.BuildConfig;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeBaseAppCompatActivity;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.LaunchIntentDispatcher;
 import org.chromium.chrome.browser.WarmupManager;
 import org.chromium.chrome.browser.firstrun.FirstRunFlowSequencer;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.lifecycle.ActivityLifecycleDispatcher;
+import org.chromium.chrome.browser.metrics.SimpleStartupForegroundSessionDetector;
 import org.chromium.chrome.browser.multiwindow.MultiWindowModeStateDispatcher;
 import org.chromium.chrome.browser.multiwindow.MultiWindowModeStateDispatcherImpl;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tasks.tab_management.TabUiFeatureUtilities;
 import org.chromium.chrome.features.start_surface.StartSurfaceConfiguration;
+import org.chromium.components.browser_ui.util.FirstDrawDetector;
 import org.chromium.ui.base.ActivityIntentRequestTrackerDelegate;
 import org.chromium.ui.base.ActivityWindowAndroid;
 import org.chromium.ui.base.DeviceFormFactor;
@@ -53,8 +56,6 @@ import org.chromium.ui.base.IntentRequestTracker;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.display.DisplayAndroid;
 import org.chromium.ui.display.DisplayUtil;
-
-import java.lang.reflect.Field;
 
 /**
  * An activity that talks with application and activity level delegates for async initialization.
@@ -64,6 +65,7 @@ public abstract class AsyncInitializationActivity
     @VisibleForTesting
     public static final String FIRST_DRAW_COMPLETED_TIME_MS_UMA = "FirstDrawCompletedTime";
     private static final String TAG = "AsyncInitActivity";
+    static Boolean sOverrideNativeLibraryCannotBeLoadedForTesting;
     protected final Handler mHandler;
 
     private final NativeInitializationController mNativeInitializationController =
@@ -168,8 +170,7 @@ public abstract class AsyncInitializationActivity
 
     @Override
     public final void setContentViewAndLoadLibrary(Runnable onInflationCompleteCallback) {
-        boolean enableInstantStart =
-                TabUiFeatureUtilities.supportInstantStart(isTablet(), this) && !mHadWarmStart;
+        boolean enableInstantStart = isInstantStartEnabled() && !mHadWarmStart;
         mOnInflationCompleteCallback = onInflationCompleteCallback;
         if (enableInstantStart) {
             triggerLayoutInflation();
@@ -190,7 +191,6 @@ public abstract class AsyncInitializationActivity
         if (!enableInstantStart) {
             triggerLayoutInflation();
         }
-        if (mLaunchBehindWorkaround != null) mLaunchBehindWorkaround.onSetContentView();
     }
 
     /** Controls the parameter of {@link NativeInitializationController#startBackgroundTasks}.*/
@@ -229,7 +229,7 @@ public abstract class AsyncInitializationActivity
             mFirstDrawComplete = true;
             StartSurfaceConfiguration.recordHistogram(FIRST_DRAW_COMPLETED_TIME_MS_UMA,
                     SystemClock.elapsedRealtime() - getOnCreateTimestampMs(),
-                    TabUiFeatureUtilities.supportInstantStart(isTablet(), this));
+                    isInstantStartEnabled());
             if (!mStartupDelayed) {
                 onFirstDrawComplete();
             }
@@ -353,9 +353,16 @@ public abstract class AsyncInitializationActivity
             return false;
         }
 
+        if (nativeLibraryCannotBeLoaded()) {
+            // For intents into Chrome, ensure that the right library can be loaded.
+            Intent newIntent = new Intent(this, LaunchFailedActivity.class);
+            IntentUtils.safeStartActivity(this, newIntent);
+            abortLaunch(LaunchIntentDispatcher.Action.FINISH_ACTIVITY);
+            return false;
+        }
+
         if (requiresFirstRunToBeCompleted(intent)
-                && FirstRunFlowSequencer.launch(this, intent, false /* requiresBroadcast */,
-                        shouldPreferLightweightFre(intent))) {
+                && FirstRunFlowSequencer.launch(this, intent, shouldPreferLightweightFre(intent))) {
             abortLaunch(LaunchIntentDispatcher.Action.FINISH_ACTIVITY);
             return false;
         }
@@ -371,8 +378,17 @@ public abstract class AsyncInitializationActivity
         mIntentRequestTracker.restoreInstanceState(getSavedInstanceState());
 
         mStartupDelayed = shouldDelayBrowserStartup();
+
         ChromeBrowserInitializer.getInstance().handlePreNativeStartupAndLoadLibraries(this);
         return true;
+    }
+
+    private static boolean nativeLibraryCannotBeLoaded() {
+        if (sOverrideNativeLibraryCannotBeLoadedForTesting != null) {
+            return sOverrideNativeLibraryCannotBeLoadedForTesting;
+        }
+
+        return Process.is64Bit() && !ChromeBrowserInitializer.canBeLoadedIn64Bit();
     }
 
     /**
@@ -397,19 +413,7 @@ public abstract class AsyncInitializationActivity
             return;
         } else {
             assert dispatchAction == LaunchIntentDispatcher.Action.FINISH_ACTIVITY_REMOVE_TASK;
-            ApiCompatibilityUtils.finishAndRemoveTask(this);
-
-            if (Build.VERSION.SDK_INT == Build.VERSION_CODES.LOLLIPOP
-                    || Build.VERSION.SDK_INT == Build.VERSION_CODES.LOLLIPOP_MR1) {
-                // On L ApiCompatibilityUtils.finishAndRemoveTask() sometimes fails, which causes
-                // NPE in onStart() later, see crbug.com/781396. We can't let this activity to
-                // start, and we don't want to crash either. So try finishing one more time and
-                // suicide if that fails.
-                if (!isFinishing()) {
-                    finish();
-                    if (!isFinishing()) Process.killProcess(Process.myPid());
-                }
-            }
+            finishAndRemoveTask();
         }
         overridePendingTransition(0, R.anim.no_anim);
     }
@@ -526,16 +530,16 @@ public abstract class AsyncInitializationActivity
         mIsWarmOnResume = !mFirstResumePending || hadWarmStart();
         mFirstResumePending = false;
 
+        SimpleStartupForegroundSessionDetector.onTransitionToForeground();
         mNativeInitializationController.onResume();
-        if (mLaunchBehindWorkaround != null) mLaunchBehindWorkaround.onResume();
     }
 
     @CallSuper
     @Override
     public void onPause() {
+        SimpleStartupForegroundSessionDetector.discardSession();
         mNativeInitializationController.onPause();
         super.onPause();
-        if (mLaunchBehindWorkaround != null) mLaunchBehindWorkaround.onPause();
     }
 
     @CallSuper
@@ -630,7 +634,12 @@ public abstract class AsyncInitializationActivity
         if (mWindowAndroid != null) mWindowAndroid.onContextMenuClosed();
     }
 
-    private void onFirstDrawComplete() {
+    /**
+     * Called when the content view gets drawn for the first time. See {@link FirstDrawDetector} for
+     * details on the exact signals used to call this.
+     */
+    @CallSuper
+    protected void onFirstDrawComplete() {
         assert mFirstDrawComplete;
         assert !mStartupDelayed;
         TraceEvent.instant("onFirstDrawComplete");
@@ -725,6 +734,13 @@ public abstract class AsyncInitializationActivity
     }
 
     /**
+     * Returns whether the instant start is enabled.
+     */
+    protected boolean isInstantStartEnabled() {
+        return TabUiFeatureUtilities.supportInstantStart(isTablet(), this);
+    }
+
+    /**
      * Get current smallest screen width in dp. This method uses {@link WindowManager} on
      * Android R and above; otherwise, {@link DisplayUtil#getSmallestWidth(DisplayAndroid)}.
      *
@@ -733,19 +749,25 @@ public abstract class AsyncInitializationActivity
      */
     protected int getCurrentSmallestScreenWidth(Context context) {
         DisplayAndroid display = DisplayAndroid.getNonMultiDisplay(context);
+        // Android T does not receive updated width upon foldable unfold from window context.
+        // Continue to rely on context on this case.
+        Context windowManagerContext = (ChromeFeatureList.sFoldableJankFix.isEnabled()
+                                               && VERSION.SDK_INT >= VERSION_CODES.R
+                                               && VERSION.SDK_INT < VERSION_CODES.TIRAMISU)
+                ? (display.getWindowContext() != null ? display.getWindowContext() : context)
+                : context;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             // Context#getSystemService(Context.WINDOW_SERVICE) is preferred over
             // Activity#getWindowManager, because during #attachBaseContext, #getWindowManager
             // is not ready yet and always returns null. See crbug.com/1252150.
             WindowManager manager =
-                    (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
+                    (WindowManager) windowManagerContext.getSystemService(Context.WINDOW_SERVICE);
             assert manager != null;
-            Rect bounds = manager.getMaximumWindowMetrics().getBounds();
+            Rect bounds = ApiHelperForR.getMaximumWindowMetricsBounds(manager);
             return DisplayUtil.pxToDp(
                     display, Math.min(bounds.right - bounds.left, bounds.bottom - bounds.top));
-        } else {
-            return DisplayUtil.pxToDp(display, DisplayUtil.getSmallestWidth(display));
         }
+        return DisplayUtil.pxToDp(display, DisplayUtil.getSmallestWidth(display));
     }
 
     /**
@@ -803,33 +825,6 @@ public abstract class AsyncInitializationActivity
     }
 
     /**
-     * Removes the window background.
-     */
-    protected void removeWindowBackground() {
-        boolean removeWindowBackground = true;
-        try {
-            Field field = Settings.Secure.class.getField(
-                    "ACCESSIBILITY_DISPLAY_MAGNIFICATION_ENABLED");
-            field.setAccessible(true);
-
-            if (field.getType() == String.class) {
-                String accessibilityMagnificationSetting = (String) field.get(null);
-                // When Accessibility magnification is turned on, setting a null window
-                // background causes the overlaid android views to stretch when panning.
-                // (crbug/332994)
-                if (Settings.Secure.getInt(
-                        getContentResolver(), accessibilityMagnificationSetting) == 1) {
-                    removeWindowBackground = false;
-                }
-            }
-        } catch (SettingNotFoundException | NoSuchFieldException | IllegalAccessException
-                | IllegalArgumentException ignore) {
-            // Window background is removed if an exception occurs.
-        }
-        if (removeWindowBackground) getWindow().setBackgroundDrawable(null);
-    }
-
-    /**
      * Extending classes should implement this, inflate the layout, set the content view and then
      * call {@link #onInitialLayoutInflationComplete}.
      */
@@ -868,74 +863,18 @@ public abstract class AsyncInitializationActivity
         return mMultiWindowModeStateDispatcher;
     }
 
-    /**
-     * Lollipop (pre-MR1) makeTaskLaunchBehind() workaround.
-     *
-     * Our activity's surface is destroyed at the end of the new activity animation
-     * when ActivityOptions.makeTaskLaunchBehind() is used, which causes a crash.
-     * Making everything invisible when paused prevents the crash, since view changes
-     * will not trigger draws to the missing surface. However, we need to wait until
-     * after the first draw to make everything invisible, as the activity launch
-     * animation needs a full frame (or it will delay the animation excessively).
-     */
-    private final LaunchBehindWorkaround mLaunchBehindWorkaround =
-            (Build.VERSION.SDK_INT == Build.VERSION_CODES.LOLLIPOP)
-                    ? new LaunchBehindWorkaround()
-                    : null;
-
-    private class LaunchBehindWorkaround {
-        private boolean mPaused;
-
-        private View getDecorView() {
-            return getWindow().getDecorView();
-        }
-
-        private ViewTreeObserver getViewTreeObserver() {
-            return getDecorView().getViewTreeObserver();
-        }
-
-        private void onPause() {
-            mPaused = true;
-        }
-
-        public void onResume() {
-            mPaused = false;
-            getDecorView().setVisibility(View.VISIBLE);
-        }
-
-        public void onSetContentView() {
-            getViewTreeObserver().addOnPreDrawListener(mPreDrawListener);
-        }
-
-        // Note, we probably want onDrawListener here, but it isn't being called
-        // when I add this to the decorView. However, it should be the same for
-        // this purpose as long as no other pre-draw listener returns false.
-        private final OnPreDrawListener mPreDrawListener = new OnPreDrawListener() {
-            @Override
-            public boolean onPreDraw() {
-                mHandler.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (mPaused) {
-                            getDecorView().setVisibility(View.GONE);
-                        }
-                        getViewTreeObserver().removeOnPreDrawListener(mPreDrawListener);
-                    }
-                });
-                return true;
-            }
-        };
-    }
-
     @Override
     public boolean moveTaskToBack(boolean nonRoot) {
-        // On Android L moving the task to the background flakily stops the
-        // Activity from being finished, breaking tests. Trying to bring the
-        // task back to the foreground after also happens to be flaky, so just
-        // allow tests to prevent actually moving to the background.
+        // On Android (at least until N) moving the task to the background flakily stops the
+        // Activity from being finished, breaking tests. Trying to bring the task back to the
+        // foreground after also happens to be flaky, so just allow tests to prevent actually moving
+        // to the background.
         if (sInterceptMoveTaskToBackForTesting) {
             sBackInterceptedForTesting = true;
             return false;
+        } else if (BuildConfig.IS_FOR_TEST) {
+            assert false : "moveTaskToBack must be intercepted or it will create flaky tests. "
+                           + "See #interceptMoveTaskToBackForTesting";
         }
         return super.moveTaskToBack(nonRoot);
     }

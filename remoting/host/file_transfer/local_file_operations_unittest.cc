@@ -1,13 +1,13 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "remoting/host/file_transfer/local_file_operations.h"
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/containers/queue.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/path_service.h"
 #include "base/test/scoped_path_override.h"
 #include "base/test/task_environment.h"
@@ -234,10 +234,7 @@ TEST_F(LocalFileOperationsTest, OpensReader) {
   base::FilePath path = TestDir().Append(kTestFilename);
   std::vector<std::uint8_t> contents =
       ByteArrayFrom(kTestDataOne, kTestDataTwo, kTestDataThree);
-  ASSERT_EQ(
-      static_cast<int>(contents.size()),
-      base::WriteFile(path, reinterpret_cast<const char*>(contents.data()),
-                      contents.size()));
+  ASSERT_TRUE(base::WriteFile(path, contents));
 
   std::unique_ptr<FileOperations::Reader> reader =
       file_operations_->CreateReader();
@@ -262,10 +259,7 @@ TEST_F(LocalFileOperationsTest, ReadsThreeChunks) {
   base::FilePath path = TestDir().Append(kTestFilename);
   std::vector<std::uint8_t> contents =
       ByteArrayFrom(kTestDataOne, kTestDataTwo, kTestDataThree);
-  ASSERT_EQ(
-      static_cast<int>(contents.size()),
-      base::WriteFile(path, reinterpret_cast<const char*>(contents.data()),
-                      contents.size()));
+  ASSERT_TRUE(base::WriteFile(path, contents));
 
   std::unique_ptr<FileOperations::Reader> reader =
       file_operations_->CreateReader();
@@ -299,10 +293,7 @@ TEST_F(LocalFileOperationsTest, ReaderHandlesEof) {
   base::FilePath path = TestDir().Append(kTestFilename);
   std::vector<std::uint8_t> contents =
       ByteArrayFrom(kTestDataOne, kTestDataTwo, kTestDataThree);
-  ASSERT_EQ(
-      static_cast<int>(contents.size()),
-      base::WriteFile(path, reinterpret_cast<const char*>(contents.data()),
-                      contents.size()));
+  ASSERT_TRUE(base::WriteFile(path, contents));
 
   std::unique_ptr<FileOperations::Reader> reader =
       file_operations_->CreateReader();

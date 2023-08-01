@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,29 @@
 #include <string>
 #include <vector>
 
+#include "base/debug/debugging_buildflags.h"
 #include "base/files/file_path.h"
 #include "base/strings/strcat.h"
+#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+#if BUILDFLAG(IS_WIN)
+#include <windows.h>
+
+#include <shellapi.h>
+
+#include "base/win/scoped_localalloc.h"
+#endif  // BUILDFLAG(IS_WIN)
+
+#if BUILDFLAG(ENABLE_COMMANDLINE_SEQUENCE_CHECKS)
+#include "base/run_loop.h"
+#include "base/task/thread_pool.h"
+#include "base/test/bind.h"
+#include "base/test/task_environment.h"
+#endif  // BUILDFLAG(ENABLE_COMMANDLINE_SEQUENCE_CHECKS)
 
 namespace base {
 
@@ -48,7 +65,7 @@ TEST(CommandLineTest, CommandLineConstructor) {
       FILE_PATH_LITERAL("--not-a-switch"),
       FILE_PATH_LITERAL("\"in the time of submarines...\""),
       FILE_PATH_LITERAL("unquoted arg-with-space")};
-  CommandLine cl(size(argv), argv);
+  CommandLine cl(std::size(argv), argv);
 
   EXPECT_FALSE(cl.GetCommandLineString().empty());
   EXPECT_FALSE(cl.HasSwitch("cruller"));
@@ -293,7 +310,7 @@ TEST(CommandLineTest, AppendSwitchesDashDash) {
  const CommandLine::CharType* raw_argv[] = { FILE_PATH_LITERAL("prog"),
                                              FILE_PATH_LITERAL("--"),
                                              FILE_PATH_LITERAL("--arg1") };
- CommandLine cl(size(raw_argv), raw_argv);
+ CommandLine cl(std::size(raw_argv), raw_argv);
 
  cl.AppendSwitch("switch1");
  cl.AppendSwitchASCII("switch2", "foo");
@@ -312,6 +329,63 @@ TEST(CommandLineTest, AppendSwitchesDashDash) {
 }
 
 #if BUILDFLAG(IS_WIN)
+TEST(CommandLineTest, QuoteForCommandLineToArgvW) {
+ const struct {
+   const wchar_t* input_arg;
+   const wchar_t* expected_output_arg;
+ } test_cases[] = {
+     {L"", L""},
+     {L"abc = xyz", LR"("abc = xyz")"},
+     {LR"(C:\AppData\Local\setup.exe)", LR"("C:\AppData\Local\setup.exe")"},
+     {LR"(C:\Program Files\setup.exe)", LR"("C:\Program Files\setup.exe")"},
+     {LR"("C:\Program Files\setup.exe")",
+      LR"("\"C:\Program Files\setup.exe\"")"},
+ };
+
+ for (const auto& test_case : test_cases) {
+   EXPECT_EQ(CommandLine::QuoteForCommandLineToArgvW(test_case.input_arg),
+             test_case.expected_output_arg);
+ }
+}
+
+TEST(CommandLineTest, QuoteForCommandLineToArgvW_After_CommandLineToArgvW) {
+ const struct {
+   std::vector<std::wstring> input_args;
+   const wchar_t* expected_output;
+ } test_cases[] = {
+     {{L"abc=1"}, L"abc=1"},
+     {{L"abc=1", L"xyz=2"}, L"abc=1 xyz=2"},
+     {{L"abc=1", L"xyz=2", L"q"}, L"abc=1 xyz=2 q"},
+     {{L" abc=1  ", L"  xyz=2", L"q "}, L"abc=1 xyz=2 q"},
+     {{LR"("abc = 1")"}, LR"("abc = 1")"},
+     {{LR"(abc" = "1)", L"xyz=2"}, LR"("abc = 1" xyz=2)"},
+     {{LR"(abc" = "1)"}, LR"("abc = 1")"},
+     {{LR"(\\)", LR"(\\\")"}, LR"("\\\\" "\\\"")"},
+ };
+
+ for (const auto& test_case : test_cases) {
+   std::wstring input_command_line =
+       base::StrCat({LR"(c:\test\process.exe )",
+                     base::JoinString(test_case.input_args, L" ")});
+   int num_args = 0;
+   base::win::ScopedLocalAllocTyped<wchar_t*> argv(
+       ::CommandLineToArgvW(&input_command_line[0], &num_args));
+   ASSERT_EQ(num_args - 1U, test_case.input_args.size());
+
+   std::wstring recreated_command_line;
+   for (int i = 1; i < num_args; ++i) {
+     recreated_command_line.append(
+         CommandLine::QuoteForCommandLineToArgvW(argv.get()[i]));
+
+     if (i + 1 < num_args) {
+       recreated_command_line.push_back(L' ');
+     }
+   }
+
+   EXPECT_EQ(recreated_command_line, test_case.expected_output);
+ }
+}
+
 TEST(CommandLineTest, GetCommandLineStringForShell) {
   CommandLine cl = CommandLine::FromString(
       FILE_PATH_LITERAL("program --switch /switch2 --"));
@@ -328,6 +402,30 @@ TEST(CommandLineTest, GetCommandLineStringWithUnsafeInsertSequences) {
   EXPECT_EQ(FILE_PATH_LITERAL("program --switch=%1 --%2 %3"),
             cl.GetCommandLineStringWithUnsafeInsertSequences());
 }
+
+TEST(CommandLineTest, HasSingleArgument) {
+  CommandLine cl(FilePath(FILE_PATH_LITERAL("Program")));
+  cl.AppendSwitchASCII("switch2", "foo");
+  EXPECT_FALSE(cl.HasSingleArgumentSwitch());
+  CommandLine cl_for_shell(
+      CommandLine::FromString(cl.GetCommandLineStringForShell()));
+  EXPECT_TRUE(cl_for_shell.HasSingleArgumentSwitch());
+}
+
+// Test that creating a new command line from the string version of a single
+// argument command line maintains the single argument switch, and the
+// argument.
+TEST(CommandLineTest, MaintainSingleArgument) {
+  // Putting a space in the file name will force escaping of the argument.
+  static const CommandLine::StringType kCommandLine =
+      FILE_PATH_LITERAL("program --switch --single-argument foo bar.html");
+  CommandLine cl = CommandLine::FromString(kCommandLine);
+  CommandLine cl_for_shell = CommandLine::FromString(cl.GetCommandLineString());
+  EXPECT_TRUE(cl_for_shell.HasSingleArgumentSwitch());
+  // Verify that we command line survives the round trip with an escaped arg.
+  EXPECT_EQ(kCommandLine, cl_for_shell.GetCommandLineString());
+}
+
 #endif  // BUILDFLAG(IS_WIN)
 
 // Tests that when AppendArguments is called that the program is set correctly
@@ -564,7 +662,7 @@ TEST(CommandLineTest, MultipleSameSwitch) {
       FILE_PATH_LITERAL("-baz"),
       FILE_PATH_LITERAL("--foo=two")  // --foo second time
   };
-  CommandLine cl(size(argv), argv);
+  CommandLine cl(std::size(argv), argv);
 
   EXPECT_TRUE(cl.HasSwitch("foo"));
   EXPECT_TRUE(cl.HasSwitch("baz"));
@@ -614,7 +712,7 @@ TEST(CommandLineTest, MultipleFilterFileSwitch) {
   CommandLine::SetDuplicateSwitchHandler(
       std::make_unique<MergeDuplicateFoosSemicolon>());
 
-  CommandLine cl(size(argv), argv);
+  CommandLine cl(std::size(argv), argv);
 
   EXPECT_TRUE(cl.HasSwitch("mergeable-foo"));
   EXPECT_TRUE(cl.HasSwitch("baz"));
@@ -644,5 +742,24 @@ TEST(CommandLineTest, ParseAsSingleArgument) {
   EXPECT_TRUE(cl_without_arg.GetArgs().empty());
 }
 #endif  // BUILDFLAG(IS_WIN)
+
+#if BUILDFLAG(ENABLE_COMMANDLINE_SEQUENCE_CHECKS)
+TEST(CommandLineDeathTest, ThreadChecks) {
+  test::TaskEnvironment task_environment;
+  RunLoop run_loop;
+  EXPECT_DEATH_IF_SUPPORTED(
+      {
+        ThreadPool::PostTask(FROM_HERE, BindLambdaForTesting([&run_loop]() {
+                               auto* command_line =
+                                   CommandLine::ForCurrentProcess();
+                               command_line->AppendSwitch("test");
+                               run_loop.Quit();
+                             }));
+
+        run_loop.Run();
+      },
+      "");
+}
+#endif  // BUILDFLAG(ENABLE_COMMANDLINE_SEQUENCE_CHECKS)
 
 } // namespace base

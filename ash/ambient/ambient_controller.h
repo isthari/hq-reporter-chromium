@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,18 +6,26 @@
 #define ASH_AMBIENT_AMBIENT_CONTROLLER_H_
 
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "ash/ambient/ambient_access_token_controller.h"
+#include "ash/ambient/ambient_photo_cache.h"
 #include "ash/ambient/ambient_photo_controller.h"
+#include "ash/ambient/ambient_ui_launcher.h"
 #include "ash/ambient/ambient_view_delegate_impl.h"
+#include "ash/ambient/ambient_weather_controller.h"
 #include "ash/ambient/model/ambient_backend_model.h"
+#include "ash/ambient/model/ambient_backend_model_observer.h"
 #include "ash/ambient/ui/ambient_view_delegate.h"
 #include "ash/ash_export.h"
 #include "ash/assistant/model/assistant_interaction_model_observer.h"
+#include "ash/constants/ambient_theme.h"
 #include "ash/public/cpp/ambient/ambient_ui_model.h"
+#include "ash/public/cpp/screen_backlight_observer.h"
 #include "ash/public/cpp/session/session_observer.h"
 #include "ash/session/session_controller_impl.h"
+#include "ash/system/power/backlights_forced_off_setter.h"
 #include "ash/system/power/power_status.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/weak_ptr.h"
@@ -28,6 +36,7 @@
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_service.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
+#include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "services/device/public/mojom/fingerprint.mojom.h"
 #include "services/device/public/mojom/wake_lock.mojom.h"
@@ -35,28 +44,35 @@
 #include "ui/base/user_activity/user_activity_observer.h"
 #include "ui/events/event_handler.h"
 #include "ui/views/widget/widget.h"
-#include "ui/views/widget/widget_observer.h"
 
 class PrefRegistrySimple;
 
 namespace ash {
 
-class AmbientAnimationStaticResources;
+// Delay for dismissing screensaver preview on mouse move.
+constexpr base::TimeDelta kDismissPreviewOnMouseMoveDelay = base::Seconds(3);
+
+class AmbientAnimationFrameRateController;
+class AmbientAnimationProgressTracker;
 class AmbientBackendController;
 class AmbientContainerView;
 class AmbientPhotoController;
+class AmbientSessionMetricsRecorder;
+class AmbientUiSettings;
 
 // Class to handle all ambient mode functionalities.
 class ASH_EXPORT AmbientController
     : public AmbientUiModelObserver,
       public AmbientBackendModelObserver,
+      public ScreenBacklightObserver,
       public SessionObserver,
       public PowerStatus::Observer,
       public chromeos::PowerManagerClient::Observer,
       public device::mojom::FingerprintObserver,
       public ui::UserActivityObserver,
       public ui::EventHandler,
-      public AssistantInteractionModelObserver {
+      public AssistantInteractionModelObserver,
+      public AmbientUiLauncher::Observer {
  public:
   static void RegisterProfilePrefs(PrefRegistrySimple* registry);
 
@@ -71,9 +87,13 @@ class ASH_EXPORT AmbientController
   // AmbientUiModelObserver:
   void OnAmbientUiVisibilityChanged(AmbientUiVisibility visibility) override;
 
+  // Screen backlights off observer:
+  void OnBacklightsForcedOffChanged(bool backlights_forced_off) override;
+
   // SessionObserver:
   void OnLockStateChanged(bool locked) override;
   void OnActiveUserPrefServiceChanged(PrefService* pref_service) override;
+  void OnSigninScreenPrefServiceInitialized(PrefService* pref_service) override;
 
   // PowerStatus::Observer:
   void OnPowerStatusChanged() override;
@@ -91,6 +111,7 @@ class ASH_EXPORT AmbientController
       override;
   void OnSessionFailed() override {}
   void OnRestarted() override {}
+  void OnStatusChanged(device::mojom::BiometricsManagerStatus state) override {}
   void OnEnrollScanDone(device::mojom::ScanResult scan_result,
                         bool enroll_session_complete,
                         int percent_complete) override {}
@@ -100,21 +121,51 @@ class ASH_EXPORT AmbientController
 
   // ui::EventHandler:
   void OnKeyEvent(ui::KeyEvent* event) override;
+  void OnMouseEvent(ui::MouseEvent* event) override;
+  void OnTouchEvent(ui::TouchEvent* event) override;
 
   // AssistantInteractionModelObserver:
   void OnInteractionStateChanged(InteractionState interaction_state) override;
 
-  void ShowUi();
-  // Ui will be enabled but not shown immediately. If there is no user activity
-  // Ui will be shown after a short delay.
-  void ShowHiddenUi();
-  void CloseUi();
+  // AmbientUiLauncher::Observer:
+  void OnReadyStateChanged(bool is_ready) override;
 
-  void ToggleInSessionUi();
+  // Invoked by the `LockScreen` to notify ambient mode that either the login or
+  // lock screen has been created.
+  void OnLoginOrLockScreenCreated();
 
-  // Returns true if ambient mode containers are visible or are being
+  // Set the ui state to begin showing ambient mode. After calling this
+  // function, there will be a delay while content downloads or reads from disk
+  // until ambient mode widget is actually constructed.
+  void SetUiVisibilityShown();
+
+  // Set the ui state to begin showing preview ambient mode. After calling this
+  // function, there will be a delay while content downloads or reads from disk
+  // until ambient mode widget is actually constructed.
+  void SetUiVisibilityPreview();
+
+  // Ui will be enabled but media will not load and UI will not be shown
+  // immediately. Typically used by lock screen. If there is no user activity Ui
+  // will be transitioned to shown state after a short delay.
+  void SetUiVisibilityHidden();
+
+  void SetUiVisibilityClosed(bool immediately = false);
+
+  // |minutes| is the number of minutes to run screen saver before putting the
+  // device into sleep. |minutes| with a value 0 means forever.
+  void SetScreenSaverDuration(int minutes);
+
+  void StartTimerToReleaseWakeLock();
+
+  // Returns true if current state should be visible in UI. When this becomes
+  // true, there is a delay while media loads before `IsAmbientRunning` will
+  // also return true.
+  bool ShouldShowAmbientUi() const;
+
+  // Returns true if ambient is actually started and visible. Implies
+  // `ShouldShowAmbientUi`. Media has already loaded and widget is
   // constructed.
-  bool IsShown() const;
+  bool IsShowing() const;
 
   void RequestAccessToken(
       AmbientAccessTokenController::AccessTokenCallback callback,
@@ -124,26 +175,49 @@ class ASH_EXPORT AmbientController
   std::unique_ptr<views::Widget> CreateWidget(aura::Window* container);
 
   AmbientBackendModel* GetAmbientBackendModel();
+  AmbientWeatherModel* GetAmbientWeatherModel();
 
   AmbientBackendController* ambient_backend_controller() {
     return ambient_backend_controller_.get();
   }
 
-  AmbientPhotoController* ambient_photo_controller() {
-    return ambient_photo_controller_.get();
+  AmbientUiLauncher* ambient_ui_launcher() {
+    return ambient_ui_launcher_.get();
+  }
+
+  AmbientWeatherController* ambient_weather_controller() {
+    return ambient_weather_controller_.get();
   }
 
   AmbientUiModel* ambient_ui_model() { return &ambient_ui_model_; }
 
   AmbientViewDelegate* ambient_view_delegate() { return &delegate_; }
 
+  AmbientPhotoCache* ambient_photo_cache() { return photo_cache_.get(); }
+
+  void set_backend_controller_for_testing(
+      std::unique_ptr<AmbientBackendController> backend_controller) {
+    ambient_backend_controller_ = std::move(backend_controller);
+  }
+
  private:
+  // Enum to indicate which state the lock screen is in. This is used
+  // by `OnLoginLockScreenStateChanged` method as a parameter to pass
+  // the correct information to the method.
+  enum LockScreenState { kLogin, kLocked, kUnlocked };
   friend class AmbientAshTestBase;
   friend class AmbientControllerTest;
-  FRIEND_TEST_ALL_PREFIXES(AmbientControllerTestForAnyTheme,
+  FRIEND_TEST_ALL_PREFIXES(AmbientControllerTest,
                            BindsObserversWhenAmbientEnabled);
-  FRIEND_TEST_ALL_PREFIXES(AmbientControllerTestForAnyTheme,
-                           BindsObserversWhenAmbientOn);
+  FRIEND_TEST_ALL_PREFIXES(AmbientControllerTest, BindsObserversWhenAmbientOn);
+
+  AmbientPhotoController* ambient_photo_controller() {
+    return ambient_photo_controller_.get();
+  }
+
+  AmbientPhotoCache* get_backup_photo_cache_for_testing() {
+    return backup_photo_cache_.get();
+  }
 
   // Hide or close Ambient mode UI.
   void DismissUI();
@@ -157,15 +231,14 @@ class ASH_EXPORT AmbientController
   void CreateAndShowWidgets();
 
   void StartRefreshingImages();
-  void StopRefreshingImages();
-  AmbientPhotoConfig CreatePhotoConfigForCurrentTheme();
+  void StopScreensaver();
+  void MaybeStartScreenSaver();
+  void MaybeDismissUIOnMouseMove();
+  AmbientUiSettings GetCurrentUiSettings() const;
 
   // Invoked when the auto-show timer in |InactivityMonitor| gets fired after
   // device being inactive for a specific amount of time.
   void OnAutoShowTimeOut();
-
-  void set_backend_controller_for_testing(
-      std::unique_ptr<AmbientBackendController> photo_client);
 
   // Creates (if not created) and acquires |wake_lock_|. Unbalanced call
   // without subsequently |ReleaseWakeLock| will have no effect.
@@ -176,11 +249,48 @@ class ASH_EXPORT AmbientController
 
   void CloseAllWidgets(bool immediately);
 
+  // Start receiving mouse/key/touch events from `ash::Shell`.
+  void SetUpPreTargetHandler();
+
+  // Stop receiving mouse/key/touch events from `ash::Shell`.
+  void ClearPreTargetHandler();
+
+  // Removes any and all ambient mode ui model related settings pref observers
+  void RemoveAmbientModeSettingsPrefObservers();
+
+  // Adds/Removes pref observers
+  void AddManagedScreensaverPolicyPrefObservers();
+  void AddConsumerPrefObservers();
+
   // Invoked when the Ambient mode prefs state changes.
   void OnEnabledPrefChanged();
   void OnLockScreenInactivityTimeoutPrefChanged();
   void OnLockScreenBackgroundTimeoutPrefChanged();
   void OnPhotoRefreshIntervalPrefChanged();
+  void OnAmbientUiSettingsChanged();
+  void OnAnimationPlaybackSpeedChanged();
+
+  // Resets the resources allocated by the ambient controller.
+  void ResetAmbientControllerResources();
+
+  // Invoked when preferences change via policy updates.
+  void OnManagedScreensaverLockScreenIdleTimeoutPrefChanged();
+  void OnManagedScreensaverPhotoRefreshIntervalPrefChanged();
+
+  void CreateUiLauncher();
+  void DestroyUiLauncher();
+  bool IsUiLauncherActive() const;
+  void OnUiLauncherInitialized(bool success);
+
+  void OnLoginLockStateChanged(LockScreenState state);
+
+  LockScreenState GetLockScreenState();
+
+  // Returns the active pref change registrar. Note: The registar for user
+  // profile `pref_change_registrar_` will always be the active pref change
+  // registrar when the user is logged in, when the user is not logged in
+  // this will return the `sign_in_pref_change_registrar_`.
+  PrefChangeRegistrar* GetActivePrefChangeRegistrar();
 
   AmbientAccessTokenController* access_token_controller_for_testing() {
     return &access_token_controller_;
@@ -191,10 +301,19 @@ class ASH_EXPORT AmbientController
 
   AmbientAccessTokenController access_token_controller_;
   std::unique_ptr<AmbientBackendController> ambient_backend_controller_;
+  std::unique_ptr<AmbientPhotoCache> photo_cache_;
+  std::unique_ptr<AmbientPhotoCache> backup_photo_cache_;
   std::unique_ptr<AmbientPhotoController> ambient_photo_controller_;
+  std::unique_ptr<AmbientWeatherController> ambient_weather_controller_;
+  std::unique_ptr<AmbientAnimationProgressTracker>
+      ambient_animation_progress_tracker_;
+  std::unique_ptr<AmbientAnimationFrameRateController> frame_rate_controller_;
 
   // Monitors the device inactivity and controls the auto-show of ambient.
   base::OneShotTimer inactivity_timer_;
+
+  // Monitors the running time since screen saver starts.
+  base::OneShotTimer screensaver_running_timer_;
 
   // Lazily initialized on the first call of |AcquireWakeLock|.
   mojo::Remote<device::mojom::WakeLock> wake_lock_;
@@ -213,11 +332,18 @@ class ASH_EXPORT AmbientController
   base::ScopedObservation<ui::UserActivityDetector, ui::UserActivityObserver>
       user_activity_observer_{this};
 
+  base::ScopedObservation<BacklightsForcedOffSetter, ScreenBacklightObserver>
+      backlights_forced_off_observation_{this};
+  std::unique_ptr<AmbientWeatherController::ScopedRefresher> weather_refresher_;
+
   // Observes user profile prefs for ambient.
   std::unique_ptr<PrefChangeRegistrar> pref_change_registrar_;
 
-  // Used to record Ambient mode engagement metrics.
-  absl::optional<base::Time> start_time_ = absl::nullopt;
+  // Observes sign-in profile prefs for ambient mode device policy changes.
+  std::unique_ptr<PrefChangeRegistrar> sign_in_pref_change_registrar_;
+
+  // Records the time when preview widgets are created.
+  base::Time preview_widget_created_at_;
 
   base::OneShotTimer delayed_lock_timer_;
 
@@ -234,13 +360,24 @@ class ASH_EXPORT AmbientController
   // called. Used to prevent Ambient mode starting after screen is off.
   bool is_screen_off_ = false;
 
-  // Transient location to hold an animation's static resources while the
-  // model is being buffered with an initial set of topics. Once the animation
-  // is ready to be rendered, this gets transferred to an AmbientAnimationView.
-  //
-  // Null if the slideshow theme is active.
-  std::unique_ptr<AmbientAnimationStaticResources>
-      pending_animation_static_resources_;
+  bool close_widgets_immediately_ = false;
+
+  // ui::ET_MOUSE_MOVE is fired before many mouse events. An event is an actual
+  // mouse move event only if the last event was ui::ET_MOUSE_MOVE too. Used
+  // to keep track of the last event and identify a true mouse move event.
+  // TODO(safarli): Remove this workaround when b/266234711 is fixed.
+  bool last_mouse_event_was_move_ = false;
+
+  // Flag used to handle calls to OnEnabledPrefChanged initializing
+  // the controller.
+  bool is_initialized_ = false;
+
+  // Flag used to monitor if receiving events, such as mouse/key/touch, from
+  // `ash::Shell`.
+  bool is_receiving_pretarget_events_ = false;
+
+  std::unique_ptr<AmbientSessionMetricsRecorder> session_metrics_recorder_;
+  std::unique_ptr<AmbientUiLauncher> ambient_ui_launcher_;
 
   base::WeakPtrFactory<AmbientController> weak_ptr_factory_{this};
 };

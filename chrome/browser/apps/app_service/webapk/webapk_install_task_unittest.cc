@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,14 +11,16 @@
 #include "ash/components/arc/session/arc_service_manager.h"
 #include "ash/components/arc/test/fake_webapk_instance.h"
 #include "ash/constants/ash_features.h"
-#include "base/bind.h"
+#include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "base/test/test_future.h"
 #include "chrome/browser/apps/app_service/app_service_test.h"
 #include "chrome/browser/apps/app_service/webapk/webapk_metrics.h"
 #include "chrome/browser/apps/app_service/webapk/webapk_prefs.h"
 #include "chrome/browser/apps/app_service/webapk/webapk_test_server.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_test.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_test.h"
 #include "chrome/browser/web_applications/test/fake_web_app_provider.h"
 #include "chrome/browser/web_applications/test/web_app_install_test_utils.h"
 #include "chrome/browser/web_applications/web_app_install_info.h"
@@ -109,8 +111,6 @@ class WebApkInstallTaskTest : public testing::Test {
     testing::Test::SetUp();
     app_service_test_.SetUp(&profile_);
 
-    auto* const provider = web_app::FakeWebAppProvider::Get(&profile_);
-    provider->SkipAwaitingExtensionSystem();
     web_app::test::AwaitStartWebAppProviderAndSubsystems(profile());
 
     // Disable WebApkManager by policy. This allows us to unit test
@@ -125,8 +125,6 @@ class WebApkInstallTaskTest : public testing::Test {
     fake_webapk_instance_ = std::make_unique<arc::FakeWebApkInstance>();
     arc_bridge_service->webapk()->SetInstance(fake_webapk_instance_.get());
 
-    app_service_test_.FlushMojoCalls();
-
     net::test_server::RegisterDefaultHandlers(&test_server_);
     webapk_test_server_ = std::make_unique<apps::WebApkTestServer>();
     ASSERT_TRUE(webapk_test_server_->SetUpAndStartServer(&test_server_));
@@ -140,14 +138,11 @@ class WebApkInstallTaskTest : public testing::Test {
   void TearDown() override { arc_test_.TearDown(); }
 
   bool InstallWebApk(std::string app_id) {
-    bool install_success;
     apps::WebApkInstallTask install_task(profile(), app_id);
     base::RunLoop run_loop;
-    install_task.Start(base::BindLambdaForTesting([&](bool success) {
-      install_success = success;
-      run_loop.Quit();
-    }));
-    run_loop.Run();
+    base::test::TestFuture<bool> future;
+    install_task.Start(future.GetCallback());
+    bool install_success = future.Get();
     return install_success;
   }
 
@@ -210,10 +205,10 @@ TEST_F(WebApkInstallTaskTest, SuccessfulInstall) {
   EXPECT_EQ(manifest.start_url(), kTestAppUrl);
   EXPECT_EQ(manifest.icons(0).src(), kTestAppIcon);
 
-  ASSERT_EQ(fake_webapk_instance()->handled_packages().size(), 1);
+  ASSERT_EQ(fake_webapk_instance()->handled_packages().size(), 1u);
   ASSERT_EQ(fake_webapk_instance()->handled_packages().count(
                 "org.chromium.webapk.some_package"),
-            1);
+            1u);
 
   ASSERT_THAT(apps::webapk_prefs::GetWebApkAppIds(profile()),
               testing::ElementsAre(app_id));
@@ -221,10 +216,6 @@ TEST_F(WebApkInstallTaskTest, SuccessfulInstall) {
             "org.chromium.webapk.some_package");
   histograms.ExpectBucketCount(apps::kWebApkInstallResultHistogram,
                                apps::WebApkInstallStatus::kSuccess, 1);
-  histograms.ExpectBucketCount(apps::kWebApkArcInstallResultHistogram,
-                               arc::mojom::WebApkInstallResult::kSuccess, 1);
-  histograms.ExpectBucketCount(apps::kWebApkMinterErrorCodeHistogram,
-                               net::HTTP_OK, 1);
 }
 
 TEST_F(WebApkInstallTaskTest, ShareTarget) {
@@ -273,7 +264,7 @@ TEST_F(WebApkInstallTaskTest, NoIconInManifest) {
   base::HistogramTester histograms;
 
   ASSERT_FALSE(InstallWebApk(app_id));
-  ASSERT_EQ(apps::webapk_prefs::GetWebApkAppIds(profile()).size(), 0);
+  ASSERT_EQ(apps::webapk_prefs::GetWebApkAppIds(profile()).size(), 0u);
   histograms.ExpectBucketCount(apps::kWebApkInstallResultHistogram,
                                apps::WebApkInstallStatus::kAppInvalid, 1);
 }
@@ -287,12 +278,10 @@ TEST_F(WebApkInstallTaskTest, FailedServerCall) {
 
   ASSERT_FALSE(InstallWebApk(app_id));
 
-  ASSERT_EQ(fake_webapk_instance()->handled_packages().size(), 0);
-  ASSERT_EQ(apps::webapk_prefs::GetWebApkAppIds(profile()).size(), 0);
+  ASSERT_EQ(fake_webapk_instance()->handled_packages().size(), 0u);
+  ASSERT_EQ(apps::webapk_prefs::GetWebApkAppIds(profile()).size(), 0u);
   histograms.ExpectBucketCount(apps::kWebApkInstallResultHistogram,
                                apps::WebApkInstallStatus::kNetworkError, 1);
-  histograms.ExpectBucketCount(apps::kWebApkMinterErrorCodeHistogram,
-                               net::HTTP_BAD_REQUEST, 1);
 }
 
 TEST_F(WebApkInstallTaskTest, FailedArcInstall) {
@@ -307,13 +296,10 @@ TEST_F(WebApkInstallTaskTest, FailedArcInstall) {
   ASSERT_FALSE(InstallWebApk(app_id));
   ASSERT_EQ(fake_webapk_instance()->handled_packages().count(
                 "org.chromium.webapk.some_package"),
-            1);
-  ASSERT_EQ(apps::webapk_prefs::GetWebApkAppIds(profile()).size(), 0);
+            1u);
+  ASSERT_EQ(apps::webapk_prefs::GetWebApkAppIds(profile()).size(), 0u);
   histograms.ExpectBucketCount(apps::kWebApkInstallResultHistogram,
                                apps::WebApkInstallStatus::kGooglePlayError, 1);
-  histograms.ExpectBucketCount(
-      apps::kWebApkArcInstallResultHistogram,
-      arc::mojom::WebApkInstallResult::kErrorResolveNetworkError, 1);
 }
 
 TEST_F(WebApkInstallTaskTest, MinterTimeout) {
@@ -323,15 +309,11 @@ TEST_F(WebApkInstallTaskTest, MinterTimeout) {
       switches::kWebApkServerUrl, test_server()->GetURL("/slow?1000").spec());
   base::HistogramTester histograms;
 
-  bool install_success;
   apps::WebApkInstallTask install_task(profile(), app_id);
   install_task.SetTimeoutForTesting(base::Milliseconds(100));
-  base::RunLoop run_loop;
-  install_task.Start(base::BindLambdaForTesting([&](bool success) {
-    install_success = success;
-    run_loop.Quit();
-  }));
-  run_loop.Run();
+  base::test::TestFuture<bool> future;
+  install_task.Start(future.GetCallback());
+  bool install_success = future.Get();
 
   ASSERT_FALSE(install_success);
   histograms.ExpectBucketCount(apps::kWebApkInstallResultHistogram,
@@ -438,6 +420,7 @@ TEST_F(WebApkInstallTaskTest, SuccessfulUpdateIconHash) {
   ASSERT_THAT(
       last_webapk_request()->update_reasons(),
       ::testing::ElementsAre(webapk::WebApk::PRIMARY_ICON_HASH_DIFFERS));
+  ASSERT_TRUE(last_webapk_request()->app_identity_update_supported());
 
   // Check we still only have 1 version of |app_id| installed.
   ASSERT_THAT(apps::webapk_prefs::GetWebApkAppIds(profile()),
@@ -515,8 +498,6 @@ TEST_F(WebApkInstallTaskTest, SuccessfulUpdateMultipleChanges) {
               testing::IsEmpty());
   histograms.ExpectBucketCount(apps::kWebApkUpdateResultHistogram,
                                apps::WebApkInstallStatus::kSuccess, 1);
-  histograms.ExpectBucketCount(apps::kWebApkArcUpdateResultHistogram,
-                               arc::mojom::WebApkInstallResult::kSuccess, 1);
 }
 
 TEST_F(WebApkInstallTaskTest, AbandonedUpdateNoChanges) {

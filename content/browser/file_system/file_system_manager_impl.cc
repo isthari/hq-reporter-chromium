@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,16 +6,16 @@
 
 #include <utility>
 
-#include "base/bind.h"
 #include "base/check_op.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
-#include "base/metrics/user_metrics.h"
 #include "base/notreached.h"
 #include "base/strings/string_util.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/threading/thread.h"
 #include "base/time/time.h"
+#include "base/uuid.h"
 #include "build/build_config.h"
 #include "components/services/filesystem/public/mojom/types.mojom.h"
 #include "content/browser/bad_message.h"
@@ -26,19 +26,27 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/content_features.h"
 #include "ipc/ipc_platform_file.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
 #include "net/base/mime_util.h"
 #include "storage/browser/blob/blob_data_builder.h"
+#include "storage/browser/blob/blob_impl.h"
 #include "storage/browser/blob/blob_storage_context.h"
 #include "storage/browser/blob/shareable_file_reference.h"
+#include "storage/browser/file_system/copy_or_move_hook_delegate.h"
 #include "storage/browser/file_system/file_observers.h"
 #include "storage/browser/file_system/file_permission_policy.h"
+#include "storage/browser/file_system/file_system_backend.h"
 #include "storage/browser/file_system/file_system_context.h"
+#include "storage/browser/file_system/file_system_file_util.h"
+#include "storage/browser/file_system/file_system_url.h"
 #include "storage/browser/file_system/isolated_context.h"
 #include "storage/common/file_system/file_system_info.h"
 #include "storage/common/file_system/file_system_types.h"
 #include "storage/common/file_system/file_system_util.h"
 #include "third_party/blink/public/common/storage_key/storage_key.h"
+#include "third_party/blink/public/mojom/blob/blob.mojom.h"
+#include "third_party/blink/public/mojom/blob/serialized_blob.mojom.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -98,13 +106,13 @@ blink::mojom::FileSystemType ToMojoFileSystemType(
     case storage::FileSystemType::kFileSystemTypeSyncableForInternalSync:
     case storage::FileSystemType::kFileSystemTypeLocalForPlatformApp:
     case storage::FileSystemType::kFileSystemTypeForTransientFile:
-    case storage::FileSystemType::kFileSystemTypePluginPrivate:
     case storage::FileSystemType::kFileSystemTypeProvided:
     case storage::FileSystemType::kFileSystemTypeDeviceMediaAsFileStorage:
     case storage::FileSystemType::kFileSystemTypeArcContent:
     case storage::FileSystemType::kFileSystemTypeArcDocumentsProvider:
     case storage::FileSystemType::kFileSystemTypeDriveFs:
     case storage::FileSystemType::kFileSystemTypeSmbFs:
+    case storage::FileSystemType::kFileSystemTypeFuseBox:
     case storage::FileSystemType::kFileSystemInternalTypeEnumEnd:
       NOTREACHED();
       return blink::mojom::FileSystemType::kTemporary;
@@ -236,18 +244,13 @@ void FileSystemManagerImpl::ContinueOpen(
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   if (!security_check_success) {
-    NOTREACHED();
     std::move(bad_message_callback).Run("FSMI_OPEN_INVALID_ORIGIN");
     return;
   }
 
-  if (file_system_type == blink::mojom::FileSystemType::kTemporary) {
-    RecordAction(base::UserMetricsAction("OpenFileSystemTemporary"));
-  } else if (file_system_type == blink::mojom::FileSystemType::kPersistent) {
-    RecordAction(base::UserMetricsAction("OpenFileSystemPersistent"));
-  }
   context_->OpenFileSystem(
-      storage_key, ToStorageFileSystemType(file_system_type),
+      storage_key, /*bucket=*/absl::nullopt,
+      ToStorageFileSystemType(file_system_type),
       storage::OPEN_FILE_SYSTEM_CREATE_IF_NONEXISTENT,
       base::BindOnce(&FileSystemManagerImpl::DidOpenFileSystem, GetWeakPtr(),
                      std::move(callback)));
@@ -338,7 +341,7 @@ void FileSystemManagerImpl::ContinueMove(const storage::FileSystemURL& src_url,
   fs_op_runner->Move(src_url, dest_url,
                      storage::FileSystemOperation::CopyOrMoveOptionSet(),
                      FileSystemOperation::ERROR_BEHAVIOR_ABORT,
-                     storage::FileSystemOperation::CopyOrMoveProgressCallback(),
+                     std::make_unique<storage::CopyOrMoveHookDelegate>(),
                      base::BindOnce(&FileSystemManagerImpl::DidFinish,
                                     GetWeakPtr(), std::move(callback)));
 }
@@ -391,7 +394,7 @@ void FileSystemManagerImpl::ContinueCopy(const storage::FileSystemURL& src_url,
   fs_op_runner->Copy(src_url, dest_url,
                      storage::FileSystemOperation::CopyOrMoveOptionSet(),
                      FileSystemOperation::ERROR_BEHAVIOR_ABORT,
-                     storage::FileSystemOperation::CopyOrMoveProgressCallback(),
+                     std::make_unique<storage::CopyOrMoveHookDelegate>(),
                      base::BindOnce(&FileSystemManagerImpl::DidFinish,
                                     GetWeakPtr(), std::move(callback)));
 }
@@ -845,8 +848,6 @@ void FileSystemManagerImpl::ContinueTruncate(
     return;
   }
 
-  // TODO(https://crbug.com/1221308): function will use StorageKey for the
-  // receiver frame/worker in future CL
   OperationID op_id =
       fs_op_runner->Truncate(url, length,
                              base::BindOnce(&FileSystemManagerImpl::DidFinish,
@@ -907,10 +908,9 @@ void FileSystemManagerImpl::CreateSnapshotFile(
     const GURL& file_path,
     CreateSnapshotFileCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  // TODO(https://crbug.com/1221308): function will use StorageKey for the
-  // receiver frame/worker in future CL
-  FileSystemURL url(context_->CrackURL(
-      file_path, blink::StorageKey(url::Origin::Create(file_path))));
+
+  FileSystemURL url(
+      context_->CrackURL(file_path, receivers_.current_context()));
 
   // Make sure if this file can be read by the renderer as this is
   // called when the renderer is about to create a new File object
@@ -976,6 +976,59 @@ void FileSystemManagerImpl::GetPlatformPath(const GURL& path,
       base::BindOnce(&FileSystemManagerImpl::GetPlatformPathOnFileThread, path,
                      process_id_, context_, GetWeakPtr(),
                      receivers_.current_context(), std::move(callback)));
+}
+
+void FileSystemManagerImpl::RegisterBlob(
+    const std::string& content_type,
+    const GURL& url,
+    uint64_t length,
+    absl::optional<base::Time> expected_modification_time,
+    RegisterBlobCallback callback) {
+  storage::FileSystemURL crack_url =
+      context_->CrackURL(url, receivers_.current_context());
+
+  content::GetUIThreadTaskRunner({})->PostTaskAndReplyWithResult(
+      FROM_HERE,
+      // security_policy_ is a singleton so refcounting is unnecessary
+      base::BindOnce(&ChildProcessSecurityPolicyImpl::CanReadFileSystemFile,
+                     base::Unretained(security_policy_), process_id_,
+                     crack_url),
+      base::BindOnce(&FileSystemManagerImpl::ContinueRegisterBlob,
+                     weak_factory_.GetWeakPtr(), content_type, url, length,
+                     expected_modification_time, std::move(callback),
+                     crack_url));
+}
+
+void FileSystemManagerImpl::ContinueRegisterBlob(
+    const std::string& content_type,
+    const GURL& url,
+    uint64_t length,
+    absl::optional<base::Time> expected_modification_time,
+    RegisterBlobCallback callback,
+    storage::FileSystemURL crack_url,
+    bool security_check_success) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  std::string uuid = base::Uuid::GenerateRandomV4().AsLowercaseString();
+  mojo::PendingRemote<blink::mojom::Blob> blob_remote;
+  mojo::PendingReceiver<blink::mojom::Blob> blob_receiver =
+      blob_remote.InitWithNewPipeAndPassReceiver();
+
+  if (crack_url.is_valid() &&
+      context_->GetFileSystemBackend(crack_url.type()) &&
+      security_check_success) {
+    blob_storage_context_->CreateFileSystemBlob(
+        context_, std::move(blob_receiver), crack_url, uuid, content_type,
+        length, expected_modification_time.value_or(base::Time()));
+  } else {
+    std::unique_ptr<storage::BlobDataHandle> handle =
+        blob_storage_context_->context()->AddBrokenBlob(
+            uuid, content_type, "",
+            storage::BlobStatus::ERR_REFERENCED_FILE_UNAVAILABLE);
+    storage::BlobImpl::Create(std::move(handle), std::move(blob_receiver));
+  }
+
+  std::move(callback).Run(blink::mojom::SerializedBlob::New(
+      uuid, content_type, length, std::move(blob_remote)));
 }
 
 void FileSystemManagerImpl::Cancel(
@@ -1097,12 +1150,12 @@ void FileSystemManagerImpl::DidWriteSync(WriteSyncCallbackEntry* entry,
 
 void FileSystemManagerImpl::DidOpenFileSystem(
     OpenCallback callback,
-    const GURL& root,
+    const FileSystemURL& root,
     const std::string& filesystem_name,
     base::File::Error result) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   DCHECK(root.is_valid() || result != base::File::FILE_OK);
-  std::move(callback).Run(filesystem_name, root, result);
+  std::move(callback).Run(filesystem_name, root.ToGURL(), result);
   // For OpenFileSystem we do not create a new operation, so no unregister here.
 }
 
@@ -1139,12 +1192,29 @@ void FileSystemManagerImpl::DidCreateSnapshot(
     return;
   }
 
+  // Post a task to use ChildProcessSecurityPolicy to check and grant file read
+  // permission on the UI thread, since access to these functions on the IO
+  // thread should be avoided.
   content::GetUIThreadTaskRunner({})->PostTaskAndReplyWithResult(
       FROM_HERE,
-      // security_policy_ is a singleton so refcounting is unnecessary
-      base::BindOnce(&ChildProcessSecurityPolicyImpl::CanReadFile,
-                     base::Unretained(security_policy_), process_id_,
-                     platform_path),
+      base::BindOnce(
+          [](ChildProcessSecurityPolicyImpl* security_policy, int process_id,
+             const base::FilePath& platform_path) {
+            bool can_read_file =
+                security_policy->CanReadFile(process_id, platform_path);
+            if (!can_read_file) {
+              // Give per-file read permission to the snapshot file if it hasn't
+              // it yet. In order for the renderer to be able to read the file
+              // via File object, it must be granted per-file read permission
+              // for the file's platform path. By now, it has already been
+              // verified that the renderer has sufficient permissions to read
+              // the file, so giving per-file permission here must be safe.
+              security_policy->GrantReadFile(process_id, platform_path);
+            }
+            return can_read_file;
+          },
+          // security_policy_ is a singleton so refcounting is unnecessary.
+          base::Unretained(security_policy_), process_id_, platform_path),
       base::BindOnce(&FileSystemManagerImpl::ContinueDidCreateSnapshot,
                      weak_factory_.GetWeakPtr(), std::move(callback), url,
                      result, info, platform_path));
@@ -1161,14 +1231,6 @@ void FileSystemManagerImpl::ContinueDidCreateSnapshot(
       storage::ShareableFileReference::Get(platform_path);
 
   if (!security_check_success) {
-    // Give per-file read permission to the snapshot file if it hasn't it yet.
-    // In order for the renderer to be able to read the file via File object,
-    // it must be granted per-file read permission for the file's platform
-    // path. By now, it has already been verified that the renderer has
-    // sufficient permissions to read the file, so giving per-file permission
-    // here must be safe.
-    security_policy_->GrantReadFile(process_id_, platform_path);
-
     // Revoke all permissions for the file when the last ref of the file
     // is dropped.
     if (!file_ref.get()) {
@@ -1239,12 +1301,6 @@ absl::optional<base::File::Error> FileSystemManagerImpl::ValidateFileSystemURL(
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (!FileSystemURLIsValid(context_.get(), url))
     return base::File::FILE_ERROR_INVALID_URL;
-
-  // Deny access to files in PluginPrivate FileSystem from JavaScript.
-  // TODO(nhiroki): Move this filter somewhere else since this is not for
-  // validation.
-  if (url.type() == storage::kFileSystemTypePluginPrivate)
-    return base::File::FILE_ERROR_SECURITY;
 
   return absl::nullopt;
 }

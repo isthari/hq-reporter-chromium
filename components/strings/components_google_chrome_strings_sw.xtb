@@ -9,7 +9,6 @@
 <translation id="3444832043240812445">Ukurasa huu unaonyesha tu maelezo yako ya uharibifu wa hivi karibuni ukiwezesha <ph name="BEGIN_LINK" />kuripoti uharibifu<ph name="END_LINK" />.</translation>
 <translation id="3875312571075912821">Ruhusu Chrome ifikie mtandao katika mipangilio ya kinga mtandao au
           kingavirusi yako.</translation>
-<translation id="4010643444566880169">Mfumo wa Uendeshaji wa Chrome haujakamilisha kuweka mipangilio yake ya awali.</translation>
 <translation id="5005121315113832363">Ukurasa huu umezuiwa na Chrome</translation>
 <translation id="6011049234605203654">Nenda kwenye
           menyu ya Chrome &gt;
@@ -39,4 +38,6 @@
 <translation id="7230956101631259640">Unaangalia ukurasa salama wa Chrome</translation>
 <translation id="8187289872471304532">Nenda kwenye
           Programu &gt; Mapendeleo ya Mfumo &gt; Mtandao &gt; Uboreshaji &gt; Proksi na uondoe tiki kwenye proksi zozote ambazo zimechaguliwa.</translation>
+<translation id="8232971017369963250">Chrome inawezeshwa na mradi wa programu huria wa <ph name="BEGIN_LINK_CHROMIUM" />Chromium<ph name="END_LINK_CHROMIUM" />.</translation>
+<translation id="8279509328145658601">Chrome inawezeshwa pia na <ph name="BEGIN_LINK_OSS" />programu nyingine huria<ph name="END_LINK_OSS" />.</translation>
 </translationbundle>

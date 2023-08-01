@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -1423,16 +1423,16 @@ class OcclusionTrackerTestDontOccludePixelsNeededForBackdropFilter
       gfx::Rect expected_occlusion = occlusion_rect;
       switch (i) {
         case LEFT:
-          expected_occlusion.Inset(0, 0, 30, 0);
+          expected_occlusion.Inset(gfx::Insets::TLBR(0, 0, 0, 30));
           break;
         case RIGHT:
-          expected_occlusion.Inset(30, 0, 0, 0);
+          expected_occlusion.Inset(gfx::Insets::TLBR(0, 30, 0, 0));
           break;
         case TOP:
-          expected_occlusion.Inset(0, 0, 0, 30);
+          expected_occlusion.Inset(gfx::Insets::TLBR(0, 0, 30, 0));
           break;
         case BOTTOM:
-          expected_occlusion.Inset(0, 30, 0, 0);
+          expected_occlusion.Inset(gfx::Insets::TLBR(30, 0, 0, 0));
           break;
       }
 
@@ -1459,8 +1459,8 @@ class OcclusionTrackerTestPixelsNeededForDropShadowBackdropFilter
     scale_by_half.Scale(0.5, 0.5);
 
     FilterOperations filters;
-    filters.Append(FilterOperation::CreateDropShadowFilter(gfx::Point(10, 10),
-                                                           5, SK_ColorBLACK));
+    filters.Append(FilterOperation::CreateDropShadowFilter(
+        gfx::Point(10, 10), 5, SkColors::kBlack));
 
     enum Direction {
       LEFT,

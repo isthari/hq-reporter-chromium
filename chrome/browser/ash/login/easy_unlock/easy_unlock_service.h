@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,51 +9,54 @@
 #include <set>
 #include <string>
 
-#include "ash/components/proximity_auth/smart_lock_metrics_recorder.h"
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "chrome/browser/ash/login/easy_unlock/chrome_proximity_auth_client.h"
 #include "chrome/browser/ash/login/easy_unlock/easy_unlock_auth_attempt.h"
 #include "chrome/browser/ash/login/easy_unlock/easy_unlock_metrics.h"
-#include "chrome/browser/ash/login/easy_unlock/easy_unlock_types.h"
-#include "chrome/browser/ash/login/easy_unlock/smartlock_feature_usage_metrics.h"
-#include "chrome/browser/ash/login/easy_unlock/smartlock_state_handler.h"
-#include "chromeos/components/multidevice/remote_device_ref.h"
-// TODO(https://crbug.com/1164001): move to forward declaration
-#include "ash/services/secure_channel/public/cpp/client/secure_channel_client.h"
+#include "chromeos/ash/components/multidevice/remote_device_ref.h"
+#include "chromeos/ash/components/proximity_auth/screenlock_bridge.h"
+#include "chromeos/ash/components/proximity_auth/smart_lock_metrics_recorder.h"
+#include "chromeos/ash/services/device_sync/public/cpp/device_sync_client.h"
+#include "chromeos/ash/services/multidevice_setup/public/cpp/multidevice_setup_client.h"
 #include "components/keyed_service/core/keyed_service.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class AccountId;
-
-namespace base {
-class ListValue;
-}  // namespace base
+class Profile;
 
 namespace user_manager {
 class User;
-}
+}  // namespace user_manager
 
 namespace user_prefs {
 class PrefRegistrySyncable;
-}
+}  // namespace user_prefs
 
 namespace proximity_auth {
-class ProximityAuthPrefManager;
+class ProximityAuthProfilePrefManager;
 class ProximityAuthSystem;
 }  // namespace proximity_auth
 
-class Profile;
-class PrefRegistrySimple;
-
 namespace ash {
 
+class EasyUnlockNotificationController;
+class SmartLockFeatureUsageMetrics;
 enum class SmartLockState;
 
-class EasyUnlockService : public KeyedService {
- public:
-  enum Type { TYPE_REGULAR, TYPE_SIGNIN };
+namespace secure_channel {
+class SecureChannelClient;
+}  // namespace secure_channel
 
+class EasyUnlockService
+    : public KeyedService,
+      public proximity_auth::ScreenlockBridge::Observer,
+      public device_sync::DeviceSyncClient::Observer,
+      public multidevice_setup::MultiDeviceSetupClient::Observer {
+ public:
   // Gets EasyUnlockService instance.
   static EasyUnlockService* Get(Profile* profile);
 
@@ -61,50 +64,62 @@ class EasyUnlockService : public KeyedService {
   // logged in and their profile is initialized.
   static EasyUnlockService* GetForUser(const user_manager::User& user);
 
-  EasyUnlockService(const EasyUnlockService&) = delete;
-  EasyUnlockService& operator=(const EasyUnlockService&) = delete;
-
   // Registers Easy Unlock profile preferences.
   static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
 
-  // Registers Easy Unlock local state entries.
-  static void RegisterPrefs(PrefRegistrySimple* registry);
+  EasyUnlockService(
+      Profile* profile,
+      secure_channel::SecureChannelClient* secure_channel_client,
+      device_sync::DeviceSyncClient* device_sync_client,
+      multidevice_setup::MultiDeviceSetupClient* multidevice_setup_client);
 
-  // Removes the hardlock state for the given user.
-  static void ResetLocalStateForUser(const AccountId& account_id);
+  // Constructor for tests.
+  EasyUnlockService(
+      Profile* profile,
+      secure_channel::SecureChannelClient* secure_channel_client,
+      std::unique_ptr<EasyUnlockNotificationController> notification_controller,
+      device_sync::DeviceSyncClient* device_sync_client,
+      multidevice_setup::MultiDeviceSetupClient* multidevice_setup_client);
 
-  // Returns the ProximityAuthPrefManager, responsible for managing all
-  // EasyUnlock preferences.
-  virtual proximity_auth::ProximityAuthPrefManager*
-  GetProximityAuthPrefManager();
+  EasyUnlockService(const EasyUnlockService&) = delete;
+  EasyUnlockService& operator=(const EasyUnlockService&) = delete;
+  ~EasyUnlockService() override;
 
-  // Returns the EasyUnlockService type.
-  virtual Type GetType() const = 0;
+  // Starts an auth attempt for the user associated with the service. Returns
+  // true if no other attempt is in progress and the attempt request can be
+  // processed.
+  bool AttemptAuth(const AccountId& account_id);
+
+  // Finalizes the previously started auth attempt for easy unlock.
+  void FinalizeUnlock(bool success);
 
   // Returns the user currently associated with the service.
-  virtual AccountId GetAccountId() const = 0;
+  AccountId GetAccountId() const;
 
-  // Retrieve the stored remote devices list:
-  //   * If in regular context, device list is retrieved from prefs.
-  //   * If in sign-in context, device list is retrieved from TPM.
-  virtual const base::ListValue* GetRemoteDevices() const = 0;
+  // To be called when EasyUnlockService is "warming up", for example, on screen
+  // lock, after suspend, when the login screen is starting up, etc. During a
+  // period like this, not all sub-systems are fully initialized, particularly
+  // UnlockManager and the Bluetooth stack, so to avoid UI jank, callers can use
+  // this method to fill in the UI with an approximation of what the UI will
+  // look like in <1 second. The resulting initial state will be one of two
+  // possibilities:
+  //   * SmartLockState::kConnectingToPhone: if the feature is allowed, enabled,
+  //     and has kicked off a scan/connection.
+  //   * SmartLockState::kDisabled: if any values above can't be confirmed.
+  SmartLockState GetInitialSmartLockState() const;
 
-  // Gets the challenge bytes for the user currently associated with the
-  // service.
-  virtual std::string GetChallenge() const = 0;
+  // The last value emitted to the SmartLock.GetRemoteStatus.Unlock(.Failure)
+  // metrics. Helps to understand whether/why not Smart Lock was an available
+  // choice for unlock. Returns the empty string if the ProximityAuthSystem or
+  // the UnlockManager is uninitialized.
+  std::string GetLastRemoteStatusUnlockForLogging();
 
-  // Retrieved wrapped secret that should be used to unlock cryptohome for the
-  // user currently associated with the service. If the service does not support
-  // signin (i.e. service for a regular profile) or there is no secret available
-  // for the user, returns an empty string.
-  virtual std::string GetWrappedSecret() const = 0;
+  // Retrieves the remote device list stored for the account in
+  // |proximity_auth_system_|.
+  const multidevice::RemoteDeviceRefList GetRemoteDevicesForTesting() const;
 
-  // Records metrics for Easy sign-in outcome for the given user.
-  virtual void RecordEasySignInOutcome(const AccountId& account_id,
-                                       bool success) const = 0;
-
-  // Records metrics for password based flow for the given user.
-  virtual void RecordPasswordLoginEvent(const AccountId& account_id) const = 0;
+  // Handles Easy Unlock auth failure for the user.
+  void HandleAuthFailure(const AccountId& account_id);
 
   // Sets the service up and schedules service initialization.
   void Initialize();
@@ -114,120 +129,82 @@ class EasyUnlockService : public KeyedService {
   // permitted if the flag is enabled. Virtual to allow override for testing.
   virtual bool IsAllowed() const;
 
-  // Whether Smart Lock is eligible for this user.
-  virtual bool IsEligible() const = 0;
-
   // Whether Easy Unlock is currently enabled for this user. Virtual to allow
   // override for testing.
   virtual bool IsEnabled() const;
-
-  // Returns true if ChromeOS login is enabled by the user.
-  virtual bool IsChromeOSLoginEnabled() const;
-
-  // Sets the hardlock state for the associated user.
-  void SetHardlockState(SmartLockStateHandler::HardlockState state);
-
-  // Returns the hardlock state for the associated user.
-  SmartLockStateHandler::HardlockState GetHardlockState() const;
-
-  // Gets the persisted hardlock state. Return true if there is persisted
-  // hardlock state and the value would be set to `state`. Otherwise,
-  // returns false and `state` is unchanged.
-  bool GetPersistedHardlockState(
-      SmartLockStateHandler::HardlockState* state) const;
-
-  // Updates the user pod on the signin/lock screen for the user associated with
-  // the service to reflect the provided Smart Lock state.
-  void UpdateSmartLockState(SmartLockState state);
-
-  // Starts an auth attempt for the user associated with the service. The
-  // attempt type (unlock vs. signin) will depend on the service type. Returns
-  // true if no other attempt is in progress and the attempt request can be
-  // processed.
-  bool AttemptAuth(const AccountId& account_id);
-
-  // Finalizes the previously started auth attempt for easy unlock. If called on
-  // signin profile service, it will cancel the current auth attempt if one
-  // exists.
-  void FinalizeUnlock(bool success);
-
-  // Finalizes previously started auth attempt for easy signin. If called on
-  // regular profile service, it will cancel the current auth attempt if one
-  // exists.
-  void FinalizeSignin(const std::string& secret);
-
-  // Handles Easy Unlock auth failure for the user.
-  void HandleAuthFailure(const AccountId& account_id);
-
-  // Checks the consistency between pairing data and cryptohome keys. Set
-  // hardlock state if the two do not match.
-  void CheckCryptohomeKeysAndMaybeHardlock();
 
   ChromeProximityAuthClient* proximity_auth_client() {
     return &proximity_auth_client_;
   }
 
-  // The last value emitted to the SmartLock.GetRemoteStatus.Unlock(.Failure)
-  // metrics. Helps to understand whether/why not Smart Lock was an available
-  // choice for unlock. Returns the empty string if the ProximityAuthSystem or
-  // the UnlockManager is uninitialized.
-  std::string GetLastRemoteStatusUnlockForLogging();
+  // Updates the user pod on the lock screen for the user associated with
+  // the service to reflect the provided Smart Lock state.
+  void UpdateSmartLockState(SmartLockState state);
 
- protected:
-  EasyUnlockService(Profile* profile,
-                    secure_channel::SecureChannelClient* secure_channel_client);
-  ~EasyUnlockService() override;
+ private:
+  friend class EasyUnlockServiceTest;
 
-  // Does a service type specific initialization.
-  virtual void InitializeInternal() = 0;
+  // KeyedService:
+  void Shutdown() override;
 
-  // Does a service type specific shutdown. Called from `Shutdown`.
-  virtual void ShutdownInternal() = 0;
+  // proximity_auth::ScreenlockBridge::Observer:
+  void OnScreenDidLock(proximity_auth::ScreenlockBridge::LockHandler::ScreenType
+                           screen_type) override;
+  void OnScreenDidUnlock(
+      proximity_auth::ScreenlockBridge::LockHandler::ScreenType screen_type)
+      override;
+  void OnFocusedUserChanged(const AccountId& account_id) override;
 
-  // Service type specific tests for whether the service is allowed. Returns
-  // false if service is not allowed. If true is returned, the service may still
-  // not be allowed if common tests fail (e.g. if Bluetooth is not available).
-  virtual bool IsAllowedInternal() const = 0;
+  // device_sync::DeviceSyncClient::Observer:
+  void OnReady() override;
+  void OnEnrollmentFinished() override;
+  void OnNewDevicesSynced() override;
 
-  // Called when the local device resumes after a suspend.
-  virtual void OnSuspendDoneInternal() = 0;
+  // multidevice_setup::MultiDeviceSetupClient::Observer:
+  void OnFeatureStatesChanged(
+      const multidevice_setup::MultiDeviceSetupClient::FeatureStatesMap&
+          feature_states_map) override;
+
+  // Returns the authentication event for a recent password unlock,
+  // according to the current state of the service.
+  EasyUnlockAuthEvent GetPasswordAuthEvent() const;
+
+  // Returns the authentication event for a recent password unlock,
+  // according to the current state of the service.
+  SmartLockMetricsRecorder::SmartLockAuthEventPasswordState
+  GetSmartUnlockPasswordAuthEvent() const;
+
+  multidevice::RemoteDeviceRefList GetUnlockKeys();
+
+  // Determines whether failure to unlock with phone should be handled as an
+  // authentication failure.
+  bool IsSmartLockStateValidOnRemoteAuthFailure() const;
+
+  // Loads the RemoteDevice instances that will be supplied to
+  // ProximityAuthSystem.
+  void LoadRemoteDevices();
+
+  void NotifySmartLockAuthResult(bool success);
+
+  // Called when the system resumes from a suspended state.
+  void OnSuspendDone();
 
   // Called when the user enters password before easy unlock succeeds or fails
   // definitively.
-  virtual void OnUserEnteredPassword();
+  void OnUserEnteredPassword();
 
-  // KeyedService override:
-  void Shutdown() override;
+  // Updates the service to state for handling system suspend.
+  void PrepareForSuspend();
 
   // Exposes the profile to which the service is attached to subclasses.
   Profile* profile() const { return profile_; }
 
-  // Checks whether Easy unlock should be running and updates app state.
-  void UpdateAppState();
+  void RecordAuthResult(
+      absl::optional<SmartLockMetricsRecorder::SmartLockAuthResultFailureReason>
+          failure_reason);
 
   // Resets the Smart Lock state set by this service.
   void ResetSmartLockState();
-
-  // Updates `smartlock_state_handler_`'s hardlocked state.
-  void SetSmartLockHardlockedState(SmartLockStateHandler::HardlockState state);
-
-  const SmartLockStateHandler* smartlock_state_handler() const {
-    return smartlock_state_handler_.get();
-  }
-
-  // Saves hardlock state for the given user. Update UI if the currently
-  // associated user is the same.
-  void SetHardlockStateForUser(const AccountId& account_id,
-                               SmartLockStateHandler::HardlockState state);
-
-  // Returns the authentication event for a recent password sign-in or unlock,
-  // according to the current state of the service.
-  EasyUnlockAuthEvent GetPasswordAuthEvent() const;
-
-  // Returns the authentication event for a recent password sign-in or unlock,
-  // according to the current state of the service.
-  SmartLockMetricsRecorder::SmartLockAuthEventPasswordState
-  GetSmartUnlockPasswordAuthEvent() const;
 
   // Called by subclasses when remote devices allowed to unlock the screen
   // are loaded for `account_id`.
@@ -236,63 +213,48 @@ class EasyUnlockService : public KeyedService {
       const multidevice::RemoteDeviceRefList& remote_devices,
       absl::optional<multidevice::RemoteDeviceRef> local_device);
 
-  // Called by subclasses when ready to begin recording SmartLock feature usage
-  // within Standard Feature Usage Logging (SFUL) framework.
-  void StartFeatureUsageMetrics();
-
-  // Called by subclasses when ready to stop recording SmartLock feature usage
-  // within SFUL framework.
-  void StopFeatureUsageMetrics();
-
-  bool will_authenticate_using_easy_unlock() const {
-    return will_authenticate_using_easy_unlock_;
-  }
-
   void set_will_authenticate_using_easy_unlock(
       bool will_authenticate_using_easy_unlock) {
     will_authenticate_using_easy_unlock_ = will_authenticate_using_easy_unlock;
   }
 
- private:
+  void ShowChromebookAddedNotification();
+
+  // Fill in the UI with the state returned by GetInitialSmartLockState().
+  void ShowInitialSmartLockState();
+
+  void ShowNotificationIfNewDevicePresent(
+      const std::set<std::string>& public_keys_before_sync,
+      const std::set<std::string>& public_keys_after_sync);
+
+  // Called when ready to begin recording Smart Lock feature usage
+  // within Standard Feature Usage Logging (SFUL) framework.
+  void StartFeatureUsageMetrics();
+
+  // Called when ready to stop recording Smart Lock feature usage
+  // within SFUL framework.
+  void StopFeatureUsageMetrics();
+
+  // Checks whether Easy unlock should be running and updates app state.
+  void UpdateAppState();
+
+  void UseLoadedRemoteDevices(
+      const multidevice::RemoteDeviceRefList& remote_devices);
+
+  bool will_authenticate_using_easy_unlock() const {
+    return will_authenticate_using_easy_unlock_;
+  }
+
   // True if the user just authenticated using Easy Unlock. Reset once
-  // the screen signs in/unlocks. Used to distinguish Easy Unlock-powered
-  // signins/unlocks from password-based unlocks for metrics.
+  // the screen unlocks. Used to distinguish Easy Unlock-powered
+  // unlocks from password-based unlocks for metrics.
   bool will_authenticate_using_easy_unlock_ = false;
 
-  // Gets `smartlock_state_handler_`. Returns NULL if Easy Unlock is not
-  // allowed. Otherwise, if `smartlock_state_handler_` is not set, an instance
-  // is created. Do not cache the returned value, as it may go away if Easy
-  // Unlock gets disabled.
-  SmartLockStateHandler* GetSmartLockStateHandler();
-
-  // Callback for get key operation from CheckCryptohomeKeysAndMaybeHardlock.
-  void OnCryptohomeKeysFetchedForChecking(
-      const AccountId& account_id,
-      const std::set<std::string> paired_devices,
-      bool success,
-      const EasyUnlockDeviceKeyDataList& key_data_list);
-
-  // Updates the service to state for handling system suspend.
-  void PrepareForSuspend();
-
-  // Called when the system resumes from a suspended state.
-  void OnSuspendDone();
-
-  void EnsureTpmKeyPresentIfNeeded();
-
-  // Determines whether failure to unlock with phone should be handled as an
-  // authentication failure.
-  bool IsSmartLockStateValidOnRemoteAuthFailure() const;
-
-  void NotifySmartLockAuthResult(bool success);
-
-  Profile* const profile_;
-  secure_channel::SecureChannelClient* secure_channel_client_;
+  const raw_ptr<Profile, ExperimentalAsh> profile_;
+  raw_ptr<secure_channel::SecureChannelClient, ExperimentalAsh>
+      secure_channel_client_;
 
   ChromeProximityAuthClient proximity_auth_client_;
-
-  // Created lazily in `GetSmartLockStateHandler`.
-  std::unique_ptr<SmartLockStateHandler> smartlock_state_handler_;
 
   absl::optional<SmartLockState> smart_lock_state_;
 
@@ -300,14 +262,10 @@ class EasyUnlockService : public KeyedService {
   // progress.
   std::unique_ptr<EasyUnlockAuthAttempt> auth_attempt_;
 
-  // Handles connecting, authenticating, and updating the UI on the lock/sign-in
+  // Handles connecting, authenticating, and updating the UI on the lock
   // screen. After a `RemoteDeviceRef` instance is provided, this object will
   // handle the rest.
   std::unique_ptr<proximity_auth::ProximityAuthSystem> proximity_auth_system_;
-
-  // Tracks Smart Lock feature usage for the Standard Feature Usage Logging
-  // (SFUL) framework.
-  std::unique_ptr<SmartLockFeatureUsageMetrics> feature_usage_metrics_;
 
   // Monitors suspend and wake state of ChromeOS.
   class PowerMonitor;
@@ -316,17 +274,51 @@ class EasyUnlockService : public KeyedService {
   // Whether the service has been shut down.
   bool shut_down_;
 
-  bool tpm_key_checked_;
+  // The timestamp for the most recent time when the lock screen was shown. The
+  // lock screen is typically shown when the user awakens their computer from
+  // sleep -- e.g. by opening the lid -- but can also be shown if the screen is
+  // locked but the computer does not go to sleep.
+  base::TimeTicks lock_screen_last_shown_timestamp_;
+
+  // Manager responsible for handling the prefs used by proximity_auth classes.
+  std::unique_ptr<proximity_auth::ProximityAuthProfilePrefManager>
+      pref_manager_;
+
+  // If a new RemoteDevice was synced while the screen is locked, we defer
+  // loading the RemoteDevice until the screen is unlocked. For security,
+  // this deferment prevents the lock screen from being changed by a network
+  // event.
+  bool deferring_device_load_ = false;
+
+  // Responsible for showing all the notifications used for EasyUnlock.
+  std::unique_ptr<EasyUnlockNotificationController> notification_controller_;
+
+  // Used to fetch local device and remote device data.
+  raw_ptr<device_sync::DeviceSyncClient, DanglingUntriaged | ExperimentalAsh>
+      device_sync_client_;
+
+  // Used to determine the FeatureState of Smart Lock.
+  raw_ptr<multidevice_setup::MultiDeviceSetupClient,
+          DanglingUntriaged | ExperimentalAsh>
+      multidevice_setup_client_;
+
+  // Tracks Smart Lock feature usage for the Standard Feature Usage Logging
+  // (SFUL) framework.
+  std::unique_ptr<SmartLockFeatureUsageMetrics> feature_usage_metrics_;
+
+  // Stores the unlock keys for EasyUnlock before the current device sync, so we
+  // can compare it to the unlock keys after syncing.
+  std::vector<cryptauth::ExternalDeviceInfo> unlock_keys_before_sync_;
+  multidevice::RemoteDeviceRefList remote_device_unlock_keys_before_sync_;
+
+  // True if the pairing changed notification was shown, so that the next time
+  // the Chromebook is unlocked, we can show the subsequent 'pairing applied'
+  // notification.
+  bool shown_pairing_changed_notification_ = false;
 
   base::WeakPtrFactory<EasyUnlockService> weak_ptr_factory_{this};
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
-// source migration is finished.
-namespace chromeos {
-using ::ash::EasyUnlockService;
-}
 
 #endif  // CHROME_BROWSER_ASH_LOGIN_EASY_UNLOCK_EASY_UNLOCK_SERVICE_H_

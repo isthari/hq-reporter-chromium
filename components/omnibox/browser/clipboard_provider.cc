@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,9 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/containers/cxx20_erase.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/field_trial_params.h"
@@ -19,32 +19,37 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "build/build_config.h"
 #include "components/omnibox/browser/autocomplete_input.h"
 #include "components/omnibox/browser/autocomplete_match.h"
 #include "components/omnibox/browser/autocomplete_provider_client.h"
 #include "components/omnibox/browser/autocomplete_provider_listener.h"
+#include "components/omnibox/browser/omnibox_field_trial.h"
+#include "components/omnibox/browser/page_classification_functions.h"
 #include "components/omnibox/browser/verbatim_match.h"
 #include "components/omnibox/common/omnibox_features.h"
 #include "components/open_from_clipboard/clipboard_recent_content.h"
-#include "components/search_engines/omnibox_focus_type.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/url_formatter/url_formatter.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/metrics_proto/omnibox_focus_type.pb.h"
+#include "third_party/omnibox_proto/groups.pb.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/image/image_util.h"
 
 namespace {
+constexpr bool is_android = !!BUILDFLAG(IS_ANDROID);
 
 const size_t kMaxClipboardSuggestionShownNumTimesSimpleSize = 20;
 
-// Clipboard suggestions should be placed above search and url suggestions
-// (including MostVisited tiles), but below query tiles.
-const int kClipboardMatchRelevanceScore = 1501;
+// Clipboard suggestion is placed either in a dedicated
+// SECTION_MOBILE_CLIPBOARD, or SECTION_PERSONALIZED_ZERO_SUGGEST.
+// The score for the former is irrelevant, but for the latter we need to be
+// confident the suggestion shows up on top.
+const int kClipboardMatchRelevanceScore = 1600;
 
 bool IsMatchDeletionEnabled() {
   return base::FeatureList::IsEnabled(
@@ -118,22 +123,17 @@ void RecordDeletingClipboardSuggestionMetrics(
                                  clipboard_contents_age);
   }
 }
-
 }  // namespace
 
 ClipboardProvider::ClipboardProvider(AutocompleteProviderClient* client,
                                      AutocompleteProviderListener* listener,
-                                     HistoryURLProvider* history_url_provider,
                                      ClipboardRecentContent* clipboard_content)
     : AutocompleteProvider(AutocompleteProvider::TYPE_CLIPBOARD),
       client_(client),
-      listener_(listener),
       clipboard_content_(clipboard_content),
-      history_url_provider_(history_url_provider),
-      current_url_suggested_times_(0),
-      field_trial_triggered_(false),
-      field_trial_triggered_in_session_(false) {
+      current_url_suggested_times_(0) {
   DCHECK(clipboard_content_);
+  AddListener(listener);
 }
 
 ClipboardProvider::~ClipboardProvider() {}
@@ -141,14 +141,13 @@ ClipboardProvider::~ClipboardProvider() {}
 void ClipboardProvider::Start(const AutocompleteInput& input,
                               bool minimal_changes) {
   matches_.clear();
-  field_trial_triggered_ = false;
 
   // If the user started typing, do not offer clipboard based match.
-  if (input.focus_type() == OmniboxFocusType::DEFAULT)
+  if (input.focus_type() == metrics::OmniboxFocusType::INTERACTION_DEFAULT)
     return;
 
   // Image matched was kicked off asynchronously, so proceed when that ends.
-  if (CreateImageMatch(input))
+  if (!input.omit_asynchronous_matches() && CreateImageMatch(input))
     return;
 
   bool read_clipboard_content = false;
@@ -175,19 +174,23 @@ void ClipboardProvider::Start(const AutocompleteInput& input,
     return;
   }
 
+  done_ = true;
+
   // On iOS 14, accessing the clipboard contents shows a notification to the
   // user. To avoid this, all the methods above will not check the contents and
   // will return false/absl::nullopt. Instead, check the existence of content
   // without accessing the actual content and create blank matches.
-  done_ = false;
-  // Image matched was kicked off asynchronously, so proceed when that ends.
-  CheckClipboardContent(input);
+  if (!input.omit_asynchronous_matches()) {
+    // Image matched was kicked off asynchronously, so proceed when that ends.
+    CheckClipboardContent(input);
+  }
 }
 
 void ClipboardProvider::Stop(bool clear_cached_results,
                              bool due_to_user_inactivity) {
-  callback_weak_ptr_factory_.InvalidateWeakPtrs();
   AutocompleteProvider::Stop(clear_cached_results, due_to_user_inactivity);
+
+  callback_weak_ptr_factory_.InvalidateWeakPtrs();
 }
 
 void ClipboardProvider::DeleteMatch(const AutocompleteMatch& match) {
@@ -214,29 +217,11 @@ void ClipboardProvider::AddProviderInfo(ProvidersInfo* provider_info) const {
   new_entry.set_provider(AsOmniboxEventProviderType());
   new_entry.set_provider_done(done_);
   new_entry.set_times_returned_results_in_session(current_url_suggested_times_);
-
-  if (field_trial_triggered_ || field_trial_triggered_in_session_) {
-    std::vector<uint32_t> field_trial_hashes;
-    OmniboxFieldTrial::GetActiveSuggestFieldTrialHashes(&field_trial_hashes);
-    for (uint32_t trial : field_trial_hashes) {
-      if (field_trial_triggered_) {
-        new_entry.mutable_field_trial_triggered()->Add(trial);
-      }
-      if (field_trial_triggered_in_session_) {
-        new_entry.mutable_field_trial_triggered_in_session()->Add(trial);
-      }
-    }
-  }
-}
-
-void ClipboardProvider::ResetSession() {
-  field_trial_triggered_ = false;
-  field_trial_triggered_in_session_ = false;
 }
 
 void ClipboardProvider::AddCreatedMatchWithTracking(
     const AutocompleteInput& input,
-    const AutocompleteMatch& match,
+    AutocompleteMatch match,
     const base::TimeDelta clipboard_contents_age) {
   // Record the number of times the currently-offered URL has been suggested.
   // This only works over this run of Chrome; if the URL was in the clipboard
@@ -248,21 +233,21 @@ void ClipboardProvider::AddCreatedMatchWithTracking(
     current_url_suggested_times_ = 1;
   }
 
-  // If the omnibox is not empty, add a default match.
-  // This match will be opened when the user presses "Enter".
-  if (!input.text().empty()) {
-    const std::u16string description =
-        (base::FeatureList::IsEnabled(omnibox::kDisplayTitleForCurrentUrl))
-            ? input.current_title()
-            : std::u16string();
-    AutocompleteMatch verbatim_match = VerbatimMatchForURL(
-        this, client_, input, input.current_url(), description, -1);
-    matches_.push_back(verbatim_match);
-  }
-
   RecordCreatingClipboardSuggestionMetrics(current_url_suggested_times_,
                                            matches_.empty(), match.type,
                                            clipboard_contents_age);
+
+  if (is_android &&
+      OmniboxFieldTrial::kOmniboxModernizeVisualUpdateMergeClipboardOnNTP
+          .Get() &&
+      omnibox::IsNTPPage(input.current_page_classification())) {
+    // Assign the Clipboard to the PZPS group on NTP pages to improve the use
+    // of the suggest space.
+    match.suggestion_group_id = omnibox::GROUP_PERSONALIZED_ZERO_SUGGEST;
+  } else {
+    // Leave the clipboard in its dedicated section otherwise.
+    match.suggestion_group_id = omnibox::GROUP_MOBILE_CLIPBOARD;
+  }
 
   matches_.push_back(match);
 }
@@ -298,6 +283,8 @@ void ClipboardProvider::CheckClipboardContent(const AutocompleteInput& input) {
     desired_types.insert(ClipboardContentType::Image);
   }
 
+  done_ = false;
+
   // We want to get the age here because the contents of the clipboard could
   // change after this point. We want the age of the contents we actually use,
   // not the age of whatever's on the clipboard when the histogram is created
@@ -320,20 +307,21 @@ void ClipboardProvider::OnReceiveClipboardContent(
     // the image may take some time, so just be wary whenever that step happens
     // (e.g OmniboxView::OpenMatch).
     AutocompleteMatch match = NewBlankImageMatch();
-    field_trial_triggered_ = true;
-    field_trial_triggered_in_session_ = true;
-    AddCreatedMatchWithTracking(input, match, clipboard_contents_age);
-    listener_->OnProviderUpdate(true);
+    AddCreatedMatchWithTracking(input, std::move(match),
+                                clipboard_contents_age);
+    NotifyListeners(true);
   } else if (matched_types.find(ClipboardContentType::URL) !=
              matched_types.end()) {
     AutocompleteMatch match = NewBlankURLMatch();
-    AddCreatedMatchWithTracking(input, match, clipboard_contents_age);
-    listener_->OnProviderUpdate(true);
+    AddCreatedMatchWithTracking(input, std::move(match),
+                                clipboard_contents_age);
+    NotifyListeners(true);
   } else if (matched_types.find(ClipboardContentType::Text) !=
              matched_types.end()) {
     AutocompleteMatch match = NewBlankTextMatch();
-    AddCreatedMatchWithTracking(input, match, clipboard_contents_age);
-    listener_->OnProviderUpdate(true);
+    AddCreatedMatchWithTracking(input, std::move(match),
+                                clipboard_contents_age);
+    NotifyListeners(true);
   }
   done_ = true;
 }
@@ -437,8 +425,9 @@ void ClipboardProvider::AddImageMatchCallback(
   if (!match) {
     return;
   }
-  AddCreatedMatchWithTracking(input, match.value(), clipboard_contents_age);
-  listener_->OnProviderUpdate(true);
+  AddCreatedMatchWithTracking(input, std::move(match).value(),
+                              clipboard_contents_age);
+  NotifyListeners(true);
   done_ = true;
 }
 
@@ -649,8 +638,9 @@ void ClipboardProvider::UpdateClipboardURLContent(const GURL& url,
   // Because the user did not type a related input to get this clipboard
   // suggestion, preserve the subdomain so the user has extra context.
   auto format_types = AutocompleteMatch::GetFormatTypes(false, true);
-  match->contents.assign(url_formatter::FormatUrl(
-      url, format_types, net::UnescapeRule::SPACES, nullptr, nullptr, nullptr));
+  match->contents.assign(url_formatter::FormatUrl(url, format_types,
+                                                  base::UnescapeRule::SPACES,
+                                                  nullptr, nullptr, nullptr));
   if (!match->contents.empty())
     match->contents_class.push_back({0, ACMatchClassification::URL});
   match->fill_into_edit =

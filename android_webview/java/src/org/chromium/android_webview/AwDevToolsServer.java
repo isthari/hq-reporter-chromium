@@ -1,15 +1,17 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.android_webview;
 
+import org.chromium.android_webview.common.Lifetime;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
 
 /**
  * Controller for Remote Web Debugging (Developer Tools).
  */
+@Lifetime.Singleton
 @JNINamespace("android_webview")
 public class AwDevToolsServer {
 

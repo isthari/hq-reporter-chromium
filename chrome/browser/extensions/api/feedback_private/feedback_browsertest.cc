@@ -1,8 +1,8 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "build/chromeos_buildflags.h"
@@ -33,16 +33,10 @@
 
 using extensions::api::feedback_private::FeedbackFlow;
 
-namespace {
-
-void StopMessageLoopCallback() {
-  base::RunLoop::QuitCurrentWhenIdleDeprecated();
-}
-
-}  // namespace
-
 namespace extensions {
 
+// TODO(http://b/230376167): Remove or migrate the tests to work with WebUI
+// Feedback.
 class FeedbackTest : public ExtensionBrowserTest {
  public:
   void SetUp() override {
@@ -55,62 +49,27 @@ class FeedbackTest : public ExtensionBrowserTest {
   }
 
  protected:
-  bool IsFeedbackAppAvailable() {
-    return extensions::EventRouter::Get(browser()->profile())
-        ->ExtensionHasEventListener(
-            extension_misc::kFeedbackExtensionId,
-            extensions::api::feedback_private::OnFeedbackRequested::kEventName);
-  }
+  bool IsFeedbackAppAvailable() { return false; }
 
   void StartFeedbackUI(FeedbackFlow flow,
                        const std::string& extra_diagnostics,
                        bool from_assistant = false,
                        bool include_bluetooth_logs = false,
-                       bool show_questionnaire = false) {
-    base::OnceClosure callback = base::BindOnce(&StopMessageLoopCallback);
-    extensions::FeedbackPrivateGetStringsFunction::set_test_callback(&callback);
-    InvokeFeedbackUI(flow, extra_diagnostics, from_assistant,
-                     include_bluetooth_logs, show_questionnaire);
-    content::RunMessageLoop();
-    extensions::FeedbackPrivateGetStringsFunction::set_test_callback(nullptr);
-  }
+                       bool show_questionnaire = false) {}
 
-  void VerifyFeedbackAppLaunch() {
-    AppWindow* window =
-        PlatformAppBrowserTest::GetFirstAppWindowForBrowser(browser());
-    ASSERT_TRUE(window);
-    const Extension* feedback_app = window->GetExtension();
-    ASSERT_TRUE(feedback_app);
-    EXPECT_EQ(feedback_app->id(),
-              std::string(extension_misc::kFeedbackExtensionId));
-  }
-
- private:
-  void InvokeFeedbackUI(FeedbackFlow flow,
-                        const std::string& extra_diagnostics,
-                        bool from_assistant,
-                        bool include_bluetooth_logs,
-                        bool show_questionnaire) {
-    extensions::FeedbackPrivateAPI* api =
-        extensions::FeedbackPrivateAPI::GetFactoryInstance()->Get(
-            browser()->profile());
-    api->RequestFeedbackForFlow(
-        "Test description", "Test placeholder", "Test tag", extra_diagnostics,
-        GURL("http://www.test.com"), flow, from_assistant,
-        include_bluetooth_logs, show_questionnaire);
-  }
+  void VerifyFeedbackAppLaunch() {}
 };
 
 class TestFeedbackUploaderDelegate
     : public feedback::FeedbackUploaderChrome::Delegate {
  public:
-  explicit TestFeedbackUploaderDelegate(base::RunLoop* quit_on_dispatch)
-      : quit_on_dispatch_(quit_on_dispatch) {}
+  explicit TestFeedbackUploaderDelegate(base::OnceClosure quit_callback)
+      : quit_callback_(std::move(quit_callback)) {}
 
-  void OnStartDispatchingReport() override { quit_on_dispatch_->Quit(); }
+  void OnStartDispatchingReport() override { std::move(quit_callback_).Run(); }
 
  private:
-  raw_ptr<base::RunLoop> quit_on_dispatch_;
+  base::OnceClosure quit_callback_;
 };
 
 // TODO(crbug.com/1241504): disable tests.
@@ -118,7 +77,7 @@ IN_PROC_BROWSER_TEST_F(FeedbackTest, DISABLED_ShowFeedback) {
   WaitForExtensionViewsToLoad();
 
   ASSERT_TRUE(IsFeedbackAppAvailable());
-  StartFeedbackUI(FeedbackFlow::FEEDBACK_FLOW_REGULAR, std::string());
+  StartFeedbackUI(FeedbackFlow::kRegular, std::string());
   VerifyFeedbackAppLaunch();
 }
 
@@ -127,7 +86,7 @@ IN_PROC_BROWSER_TEST_F(FeedbackTest, DISABLED_ShowLoginFeedback) {
   WaitForExtensionViewsToLoad();
 
   ASSERT_TRUE(IsFeedbackAppAvailable());
-  StartFeedbackUI(FeedbackFlow::FEEDBACK_FLOW_LOGIN, std::string());
+  StartFeedbackUI(FeedbackFlow::kLogin, std::string());
   VerifyFeedbackAppLaunch();
 
   AppWindow* const window =
@@ -135,14 +94,11 @@ IN_PROC_BROWSER_TEST_F(FeedbackTest, DISABLED_ShowLoginFeedback) {
   ASSERT_TRUE(window);
   content::WebContents* const content = window->web_contents();
 
-  bool bool_result = false;
-  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      content,
-      "domAutomationController.send("
-        "$('page-url').hidden && $('attach-file-container').hidden && "
-        "$('attach-file-note').hidden);",
-      &bool_result));
-  EXPECT_TRUE(bool_result);
+  EXPECT_EQ(true,
+            content::EvalJs(
+                content,
+                "$('page-url').hidden && $('attach-file-container').hidden && "
+                "$('attach-file-note').hidden;"));
 }
 
 // Tests that there's an option in the email drop down box with a value ''.
@@ -151,7 +107,7 @@ IN_PROC_BROWSER_TEST_F(FeedbackTest, DISABLED_AnonymousUser) {
   WaitForExtensionViewsToLoad();
 
   ASSERT_TRUE(IsFeedbackAppAvailable());
-  StartFeedbackUI(FeedbackFlow::FEEDBACK_FLOW_REGULAR, std::string());
+  StartFeedbackUI(FeedbackFlow::kRegular, std::string());
   VerifyFeedbackAppLaunch();
 
   AppWindow* const window =
@@ -159,21 +115,16 @@ IN_PROC_BROWSER_TEST_F(FeedbackTest, DISABLED_AnonymousUser) {
   ASSERT_TRUE(window);
   content::WebContents* const content = window->web_contents();
 
-  bool bool_result = false;
-  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      content,
-      "domAutomationController.send("
-      "  ((function() {"
-      "      var options = $('user-email-drop-down').options;"
-      "      for (var option in options) {"
-      "        if (options[option].value == '')"
-      "          return true;"
-      "      }"
-      "      return false;"
-      "    })()));",
-      &bool_result));
-
-  EXPECT_TRUE(bool_result);
+  EXPECT_EQ(true, content::EvalJs(
+                      content,
+                      "((function() {"
+                      "    var options = $('user-email-drop-down').options;"
+                      "    for (var option in options) {"
+                      "      if (options[option].value == '')"
+                      "        return true;"
+                      "    }"
+                      "    return false;"
+                      "  })());"));
 }
 
 // Ensures that when extra diagnostics are provided with feedback, they are
@@ -183,7 +134,7 @@ IN_PROC_BROWSER_TEST_F(FeedbackTest, DISABLED_ExtraDiagnostics) {
   WaitForExtensionViewsToLoad();
 
   ASSERT_TRUE(IsFeedbackAppAvailable());
-  StartFeedbackUI(FeedbackFlow::FEEDBACK_FLOW_REGULAR, "Some diagnostics");
+  StartFeedbackUI(FeedbackFlow::kRegular, "Some diagnostics");
   VerifyFeedbackAppLaunch();
 
   AppWindow* const window =
@@ -191,23 +142,18 @@ IN_PROC_BROWSER_TEST_F(FeedbackTest, DISABLED_ExtraDiagnostics) {
   ASSERT_TRUE(window);
   content::WebContents* const content = window->web_contents();
 
-  bool bool_result = false;
-  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      content,
-      "domAutomationController.send("
-      "  ((function() {"
-      "      var sysInfo = feedbackInfo.systemInformation;"
-      "      for (var info in sysInfo) {"
-      "        if (sysInfo[info].key == 'EXTRA_DIAGNOSTICS' &&"
-      "            sysInfo[info].value == 'Some diagnostics') {"
-      "          return true;"
-      "        }"
-      "      }"
-      "      return false;"
-      "    })()));",
-      &bool_result));
-
-  EXPECT_TRUE(bool_result);
+  EXPECT_EQ(true, content::EvalJs(
+                      content,
+                      "((function() {"
+                      "    var sysInfo = feedbackInfo.systemInformation;"
+                      "    for (var info in sysInfo) {"
+                      "      if (sysInfo[info].key == 'EXTRA_DIAGNOSTICS' &&"
+                      "          sysInfo[info].value == 'Some diagnostics') {"
+                      "        return true;"
+                      "      }"
+                      "    }"
+                      "    return false;"
+                      "  })());"));
 }
 
 // Ensures that when triggered from Assistant with Google account, Assistant
@@ -217,7 +163,7 @@ IN_PROC_BROWSER_TEST_F(FeedbackTest, DISABLED_ShowFeedbackFromAssistant) {
   WaitForExtensionViewsToLoad();
 
   ASSERT_TRUE(IsFeedbackAppAvailable());
-  StartFeedbackUI(FeedbackFlow::FEEDBACK_FLOW_GOOGLEINTERNAL, std::string(),
+  StartFeedbackUI(FeedbackFlow::kGoogleInternal, std::string(),
                   /*from_assistant*/ true);
   VerifyFeedbackAppLaunch();
 
@@ -226,30 +172,27 @@ IN_PROC_BROWSER_TEST_F(FeedbackTest, DISABLED_ShowFeedbackFromAssistant) {
   ASSERT_TRUE(window);
   content::WebContents* const content = window->web_contents();
 
-  bool bool_result = false;
-  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      content,
-      "domAutomationController.send("
-      "  ((function() {"
-      "      if ($('assistant-checkbox-container') != null &&"
-      "          $('assistant-checkbox-container').hidden == true) {"
-      "        return false;"
-      "      }"
-      "      return true;"
-      "    })()));",
-      &bool_result));
-  EXPECT_TRUE(bool_result);
+  EXPECT_EQ(true,
+            content::EvalJs(
+                content,
+                "((function() {"
+                "    if ($('assistant-checkbox-container') != null &&"
+                "        $('assistant-checkbox-container').hidden == true) {"
+                "      return false;"
+                "    }"
+                "    return true;"
+                "  })());"));
 }
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 // Ensures that when triggered from a Google account and a Bluetooth related
 // string is entered into the description, that we provide the option for
 // uploading Bluetooth logs as well.
-IN_PROC_BROWSER_TEST_F(FeedbackTest, ProvideBluetoothLogs) {
+IN_PROC_BROWSER_TEST_F(FeedbackTest, DISABLED_ProvideBluetoothLogs) {
   WaitForExtensionViewsToLoad();
 
   ASSERT_TRUE(IsFeedbackAppAvailable());
-  StartFeedbackUI(FeedbackFlow::FEEDBACK_FLOW_GOOGLEINTERNAL, std::string(),
+  StartFeedbackUI(FeedbackFlow::kGoogleInternal, std::string(),
                   /*from_assistant*/ false, /*include_bluetooth_logs*/ true);
   VerifyFeedbackAppLaunch();
 
@@ -260,45 +203,39 @@ IN_PROC_BROWSER_TEST_F(FeedbackTest, ProvideBluetoothLogs) {
 
   // It shouldn't be visible until we put the Bluetooth text into the
   // description.
-  bool bool_result = false;
-  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      content,
-      "domAutomationController.send("
-      "  ((function() {"
-      "      if ($('bluetooth-checkbox-container') != null &&"
-      "          $('bluetooth-checkbox-container').hidden == true) {"
-      "        return true;"
-      "      }"
-      "      return false;"
-      "    })()));",
-      &bool_result));
-  EXPECT_TRUE(bool_result);
-  bool_result = false;
-  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      content,
-      "domAutomationController.send("
-      "  ((function() {"
-      "      var elem = document.getElementById('description-text');"
-      "      elem.value = 'bluetooth';"
-      "      elem.dispatchEvent(new Event('input', {}));"
-      "      if ($('bluetooth-checkbox-container') != null &&"
-      "          $('bluetooth-checkbox-container').hidden == false) {"
-      "        return true;"
-      "      }"
-      "      return false;"
-      "    })()));",
-      &bool_result));
-  EXPECT_TRUE(bool_result);
+  EXPECT_EQ(true,
+            content::EvalJs(
+                content,
+                "((function() {"
+                "    if ($('bluetooth-checkbox-container') != null &&"
+                "        $('bluetooth-checkbox-container').hidden == true) {"
+                "      return true;"
+                "    }"
+                "    return false;"
+                "  })());"));
+  EXPECT_EQ(true,
+            content::EvalJs(
+                content,
+                "((function() {"
+                "    var elem = document.getElementById('description-text');"
+                "    elem.value = 'bluetooth';"
+                "    elem.dispatchEvent(new Event('input', {}));"
+                "    if ($('bluetooth-checkbox-container') != null &&"
+                "        $('bluetooth-checkbox-container').hidden == false) {"
+                "      return true;"
+                "    }"
+                "    return false;"
+                "  })());"));
 }
 
 // Ensures that when triggered from a Google account and a Bluetooth related
 // string is entered into the description, that we append Bluetooth-related
 // questions to the issue description.
-IN_PROC_BROWSER_TEST_F(FeedbackTest, AppendQuestionnaire) {
+IN_PROC_BROWSER_TEST_F(FeedbackTest, DISABLED_AppendQuestionnaire) {
   WaitForExtensionViewsToLoad();
 
   ASSERT_TRUE(IsFeedbackAppAvailable());
-  StartFeedbackUI(FeedbackFlow::FEEDBACK_FLOW_GOOGLEINTERNAL, std::string(),
+  StartFeedbackUI(FeedbackFlow::kGoogleInternal, std::string(),
                   /*from_assistant*/ false, /*include_bluetooth_logs*/ true,
                   /*show_questionnaire*/ true);
   VerifyFeedbackAppLaunch();
@@ -310,53 +247,45 @@ IN_PROC_BROWSER_TEST_F(FeedbackTest, AppendQuestionnaire) {
 
   // Questionnaire shouldn't be visible until we put the Bluetooth text into the
   // description.
-  bool bool_result = false;
-  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      content,
-      "domAutomationController.send("
-      "  ((function() {"
-      "      return !$('description-text').value.includes('please answer');"
-      "    })()));",
-      &bool_result));
-  EXPECT_TRUE(bool_result);
+  EXPECT_EQ(
+      true,
+      content::EvalJs(
+          content,
+          "((function() {"
+          "    return !$('description-text').value.includes('please answer');"
+          "  })());"));
 
   // Bluetooth questions should appear.
-  bool_result = false;
-  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      content,
-      "domAutomationController.send("
-      "  ((function() {"
-      "      var elem = document.getElementById('description-text');"
-      "      elem.value = 'bluetooth';"
-      "      elem.dispatchEvent(new Event('input', {}));"
-      "      return elem.value.includes('please answer')"
-      "          && elem.value.includes('[Bluetooth]')"
-      "          && !elem.value.includes('[WiFi]');"
-      "    })()));",
-      &bool_result));
-  EXPECT_TRUE(bool_result);
+  EXPECT_EQ(true,
+            content::EvalJs(
+                content,
+                "((function() {"
+                "    var elem = document.getElementById('description-text');"
+                "    elem.value = 'bluetooth';"
+                "    elem.dispatchEvent(new Event('input', {}));"
+                "    return elem.value.includes('please answer')"
+                "        && elem.value.includes('[Bluetooth]')"
+                "        && !elem.value.includes('[WiFi]');"
+                "  })());"));
 
   // WiFi questions should appear.
-  bool_result = false;
-  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      content,
-      "domAutomationController.send("
-      "  ((function() {"
-      "      var elem = document.getElementById('description-text');"
-      "      elem.value = 'wifi issue';"
-      "      elem.dispatchEvent(new Event('input', {}));"
-      "      return elem.value.includes('[WiFi]');"
-      "    })()));",
-      &bool_result));
-  EXPECT_TRUE(bool_result);
+  EXPECT_EQ(true,
+            content::EvalJs(
+                content,
+                "((function() {"
+                "    var elem = document.getElementById('description-text');"
+                "    elem.value = 'wifi issue';"
+                "    elem.dispatchEvent(new Event('input', {}));"
+                "    return elem.value.includes('[WiFi]');"
+                "  })());"));
 }
 
 // Questionnaires should not be displayed if it's not a Googler session.
-IN_PROC_BROWSER_TEST_F(FeedbackTest, AppendQuestionnaireNotGoogler) {
+IN_PROC_BROWSER_TEST_F(FeedbackTest, DISABLED_AppendQuestionnaireNotGoogler) {
   WaitForExtensionViewsToLoad();
 
   ASSERT_TRUE(IsFeedbackAppAvailable());
-  StartFeedbackUI(FeedbackFlow::FEEDBACK_FLOW_REGULAR, std::string(),
+  StartFeedbackUI(FeedbackFlow::kRegular, std::string(),
                   /*from_assistant*/ false, /*include_bluetooth_logs*/ false,
                   /*show_questionnaire*/ false);
   VerifyFeedbackAppLaunch();
@@ -367,29 +296,24 @@ IN_PROC_BROWSER_TEST_F(FeedbackTest, AppendQuestionnaireNotGoogler) {
   content::WebContents* const content = window->web_contents();
 
   // Questionnaire shouldn't be visible in the beginning.
-  bool bool_result = false;
-  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      content,
-      "domAutomationController.send("
-      "  ((function() {"
-      "      return !$('description-text').value.includes('[Bluetooth]');"
-      "    })()));",
-      &bool_result));
-  EXPECT_TRUE(bool_result);
+  EXPECT_EQ(
+      true,
+      content::EvalJs(
+          content,
+          "((function() {"
+          "    return !$('description-text').value.includes('[Bluetooth]');"
+          "  })()));"));
 
   // Questionnaire should not appear even with a Bluetooth keyword.
-  bool_result = false;
-  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      content,
-      "domAutomationController.send("
-      "  ((function() {"
-      "      var elem = document.getElementById('description-text');"
-      "      elem.value = 'bluetooth';"
-      "      elem.dispatchEvent(new Event('input', {}));"
-      "      return !elem.value.includes('please answer');"
-      "    })()));",
-      &bool_result));
-  EXPECT_TRUE(bool_result);
+  EXPECT_EQ(true,
+            content::EvalJs(
+                content,
+                "((function() {"
+                "    var elem = document.getElementById('description-text');"
+                "    elem.value = 'bluetooth';"
+                "    elem.dispatchEvent(new Event('input', {}));"
+                "    return !elem.value.includes('please answer');"
+                "  })());"));
 }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
@@ -438,7 +362,7 @@ IN_PROC_BROWSER_TEST_F(FeedbackTest, DISABLED_SubmissionTest) {
   WaitForExtensionViewsToLoad();
 
   ASSERT_TRUE(IsFeedbackAppAvailable());
-  StartFeedbackUI(FeedbackFlow::FEEDBACK_FLOW_GOOGLEINTERNAL, std::string());
+  StartFeedbackUI(FeedbackFlow::kGoogleInternal, std::string());
   VerifyFeedbackAppLaunch();
 
   AppWindow* const window =
@@ -450,25 +374,22 @@ IN_PROC_BROWSER_TEST_F(FeedbackTest, DISABLED_SubmissionTest) {
   // normally would have been uploaded. We have it setup to then quit the
   // RunLoop which will then allow us to terminate.
   base::RunLoop run_loop;
-  TestFeedbackUploaderDelegate delegate(&run_loop);
+  TestFeedbackUploaderDelegate delegate(run_loop.QuitClosure());
   feedback::FeedbackUploaderFactoryChrome::GetInstance()
       ->GetForBrowserContext(browser()->profile())
       ->set_feedback_uploader_delegate(&delegate);
 
   // Click the send button.
-  bool bool_result = false;
-  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      content,
-      "domAutomationController.send("
-      "  ((function() {"
-      "      if ($('send-report-button') != null) {"
-      "        document.getElementById('send-report-button').click();"
-      "        return true;"
-      "      }"
-      "      return false;"
-      "    })()));",
-      &bool_result));
-  EXPECT_TRUE(bool_result);
+  EXPECT_EQ(true,
+            content::EvalJs(
+                content,
+                "((function() {"
+                "    if ($('send-report-button') != null) {"
+                "      document.getElementById('send-report-button').click();"
+                "      return true;"
+                "    }"
+                "    return false;"
+                "  })());"));
 
   // This will DCHECK if the JS private API call doesn't return a value, which
   // is the main case we are concerned about.

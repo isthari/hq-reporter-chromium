@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "cc/base/region.h"
 #include "cc/base/tiling_data.h"
 #include "cc/cc_export.h"
@@ -250,7 +251,9 @@ class CC_EXPORT PictureLayerTiling {
     bool AtEnd() const;
 
    private:
-    PictureLayerTiling* tiling_;
+    // This field is not a raw_ptr<> because it was filtered by the rewriter
+    // for: #union
+    RAW_PTR_EXCLUSION PictureLayerTiling* tiling_;
     PictureLayerTiling::TileMap::iterator iter_;
   };
 
@@ -288,7 +291,7 @@ class CC_EXPORT PictureLayerTiling {
 
     // `tiling_` is not a raw_ptr<...> for performance reasons (based on
     // analysis of sampling profiler data and tab_search:top100:2020).
-    const PictureLayerTiling* tiling_ = nullptr;
+    RAW_PTR_EXCLUSION const PictureLayerTiling* tiling_ = nullptr;
 
     gfx::Size coverage_rect_max_bounds_;
     gfx::Rect coverage_rect_;
@@ -296,7 +299,7 @@ class CC_EXPORT PictureLayerTiling {
 
     // `current_tile_` is not a raw_ptr<...> for performance reasons (based on
     // analysis of sampling profiler data and tab_search:top100:2020).
-    Tile* current_tile_ = nullptr;
+    RAW_PTR_EXCLUSION Tile* current_tile_ = nullptr;
 
     gfx::Rect current_geometry_rect_;
     int tile_i_ = 0;
@@ -328,12 +331,12 @@ class CC_EXPORT PictureLayerTiling {
 
  protected:
   friend class CoverageIterator;
-  friend class OccludedTileIterator;
   friend class PrioritizedTile;
   friend class TileIterator;
   friend class TilingSetRasterQueueAll;
   friend class TilingSetRasterQueueRequired;
   friend class TilingSetEvictionQueue;
+  friend class TilesWithResourceIterator;
 
   // PENDING VISIBLE RECT refers to the visible rect that will become current
   // upon activation (ie, the pending tree's visible rect). Tiles in this

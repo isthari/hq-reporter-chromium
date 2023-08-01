@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "base/compiler_specific.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "ui/views/test/widget_test.h"
 
@@ -175,7 +176,7 @@ class PaginationModelTest : public views::test::WidgetTest {
   void WaitForRevertAnimation() {
     while (pagination()->IsRevertingCurrentTransition()) {
       base::RunLoop run_loop;
-      base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
           FROM_HERE, run_loop.QuitClosure(), base::Milliseconds(100));
       run_loop.Run();
     }
@@ -515,6 +516,24 @@ TEST_F(PaginationModelTest, NoTransitionEndForRevertingAnimation) {
   pagination()->SelectPageRelative(1, /*animate=*/true);
   WaitForPagingAnimation();
   WaitForRevertAnimation();
+  EXPECT_EQ(1, observer_.transition_start_call_count());
+  EXPECT_EQ(1, observer_.transition_end_call_count());
+}
+
+// Tests that a canceled scroll will call both TransitionStart and
+// TransitionEnd.
+TEST_F(PaginationModelTest, CancelAnimationHasOneTransitionEnd) {
+  const int kStartPage = 2;
+
+  // Scroll to the next page (negative delta) and cancel it.
+  SetStartPageAndExpects(kStartPage, 0, 1, 0);
+  pagination()->StartScroll();
+  pagination()->UpdateScroll(-0.1);
+  EXPECT_EQ(kStartPage + 1, pagination()->transition().target_page);
+  pagination()->EndScroll(true);  // Cancel transition
+  WaitForPagingAnimation();
+  EXPECT_EQ(0, observer_.selection_count());
+
   EXPECT_EQ(1, observer_.transition_start_call_count());
   EXPECT_EQ(1, observer_.transition_end_call_count());
 }

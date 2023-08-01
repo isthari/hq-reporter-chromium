@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,11 +16,11 @@
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/test/test_window_builder.h"
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/aura/window.h"
-#include "ui/base/ime/dummy_text_input_client.h"
+#include "ui/base/ime/fake_text_input_client.h"
 #include "ui/compositor/compositor_switches.h"
 #include "ui/compositor/layer.h"
 #include "ui/events/base_event_utils.h"
@@ -33,9 +33,9 @@ namespace ash {
 
 namespace {
 
-class MockTextInputClient : public ui::DummyTextInputClient {
+class MockTextInputClient : public ui::FakeTextInputClient {
  public:
-  MockTextInputClient() : ui::DummyTextInputClient(ui::TEXT_INPUT_TYPE_TEXT) {}
+  MockTextInputClient() : ui::FakeTextInputClient(ui::TEXT_INPUT_TYPE_TEXT) {}
 
   MockTextInputClient(const MockTextInputClient&) = delete;
   MockTextInputClient& operator=(const MockTextInputClient&) = delete;

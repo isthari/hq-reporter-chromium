@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "chrome/browser/ui/media_router/media_cast_mode.h"
 #include "chrome/browser/ui/media_router/ui_media_sink.h"
 #include "chrome/browser/ui/views/media_router/cast_dialog_sink_button.h"
+#include "chrome/browser/ui/views/media_router/cast_dialog_sink_view.h"
 #include "components/media_router/browser/media_router_metrics.h"
 #include "components/media_router/common/media_sink.h"
 
@@ -27,7 +28,7 @@ class CastDialogMetrics {
   // this value as the baseline for how long the dialog took to paint, load
   // sinks, etc.
   CastDialogMetrics(const base::Time& initialization_time,
-                    MediaRouterDialogOpenOrigin activation_location,
+                    MediaRouterDialogActivationLocation activation_location,
                     Profile* profile);
 
   CastDialogMetrics(const CastDialogMetrics&) = delete;
@@ -44,13 +45,11 @@ class CastDialogMetrics {
 
   // Records the index of the selected sink in the sink list. Also records how
   // long it took to start casting if no other action (aside from selecting a
-  // sink) was taken prior to that. |has_cast_and_dial| is whether or not both
-  // DIAL and Cast active sinks were available when casting started.
+  // sink) was taken prior to that.
   void OnStartCasting(const base::Time& start_time,
                       int selected_sink_index,
                       MediaCastMode cast_mode,
-                      SinkIconType icon_type,
-                      bool has_cast_and_dial);
+                      SinkIconType icon_type);
 
   void OnStopCasting(bool is_local_route);
 
@@ -63,6 +62,8 @@ class CastDialogMetrics {
   // Records the number of sinks, which may be 0.
   void OnRecordSinkCount(
       const std::vector<CastDialogSinkButton*>& sink_buttons);
+  void OnRecordSinkCount(
+      const std::vector<raw_ptr<CastDialogSinkView>>& sink_views);
 
  private:
   // Records the first user action if it hasn't already been recorded.
@@ -79,7 +80,7 @@ class CastDialogMetrics {
   // The time when a non-empty list of sinks was loaded.
   base::Time sinks_load_time_;
 
-  MediaRouterDialogOpenOrigin const activation_location_;
+  MediaRouterDialogActivationLocation const activation_location_;
 
   bool const is_icon_pinned_;
 

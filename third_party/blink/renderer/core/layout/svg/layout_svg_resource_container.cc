@@ -180,7 +180,7 @@ void LayoutSVGResourceContainer::MarkAllClientsForInvalidation(
   if (is_invalidating_)
     return;
   LocalSVGResource* resource = ResourceForContainer(*this);
-  if (!resource)
+  if (!resource || resource->Target() != GetElement())
     return;
   // Remove modes for which invalidations have already been
   // performed. If no modes remain we are done.
@@ -198,40 +198,60 @@ void LayoutSVGResourceContainer::MarkAllClientsForInvalidation(
 }
 
 void LayoutSVGResourceContainer::InvalidateCacheAndMarkForLayout(
-    LayoutInvalidationReasonForTracing reason,
-    SubtreeLayoutScope* layout_scope) {
+    LayoutInvalidationReasonForTracing reason) {
   NOT_DESTROYED();
-  SetNeedsLayoutAndFullPaintInvalidation(reason, kMarkContainerChain,
-                                         layout_scope);
+  SetNeedsLayoutAndFullPaintInvalidation(reason, kMarkContainerChain);
 
   if (EverHadLayout())
     RemoveAllClientsFromCache();
 }
 
-void LayoutSVGResourceContainer::InvalidateCacheAndMarkForLayout(
-    SubtreeLayoutScope* layout_scope) {
+void LayoutSVGResourceContainer::InvalidateCacheAndMarkForLayout() {
   NOT_DESTROYED();
   InvalidateCacheAndMarkForLayout(
-      layout_invalidation_reason::kSvgResourceInvalidated, layout_scope);
+      layout_invalidation_reason::kSvgResourceInvalidated);
 }
 
 static inline void RemoveFromCacheAndInvalidateDependencies(
     LayoutObject& object,
     bool needs_layout) {
-  auto* element = DynamicTo<SVGElement>(object.GetNode());
-  if (!element)
-    return;
-
   // TODO(fs): Do we still need this? (If bounds are invalidated on a leaf
   // LayoutObject, we will propagate that during the required layout and
   // invalidate effects of self and any ancestors at that time.)
-  SVGResourceInvalidator(object).InvalidateEffects();
+  if (object.IsSVG())
+    SVGResourceInvalidator(object).InvalidateEffects();
 
+  LayoutSVGResourceContainer::InvalidateDependentElements(object, needs_layout);
+}
+
+void LayoutSVGResourceContainer::InvalidateDependentElements(
+    LayoutObject& object,
+    bool needs_layout) {
+  auto* element = DynamicTo<SVGElement>(object.GetNode());
+  if (!element)
+    return;
   element->NotifyIncomingReferences([needs_layout](SVGElement& element) {
     DCHECK(element.GetLayoutObject());
     LayoutSVGResourceContainer::MarkForLayoutAndParentResourceInvalidation(
         *element.GetLayoutObject(), needs_layout);
   });
+}
+
+void LayoutSVGResourceContainer::InvalidateAncestorChainResources(
+    LayoutObject& object,
+    bool needs_layout) {
+  LayoutObject* current = object.Parent();
+  while (current) {
+    RemoveFromCacheAndInvalidateDependencies(*current, needs_layout);
+
+    if (current->IsSVGResourceContainer()) {
+      // This will process the rest of the ancestors.
+      To<LayoutSVGResourceContainer>(current)->RemoveAllClientsFromCache();
+      break;
+    }
+
+    current = current->Parent();
+  }
 }
 
 void LayoutSVGResourceContainer::MarkForLayoutAndParentResourceInvalidation(
@@ -245,20 +265,7 @@ void LayoutSVGResourceContainer::MarkForLayoutAndParentResourceInvalidation(
   }
 
   RemoveFromCacheAndInvalidateDependencies(object, needs_layout);
-
-  // Invalidate resources in ancestor chain, if needed.
-  LayoutObject* current = object.Parent();
-  while (current) {
-    RemoveFromCacheAndInvalidateDependencies(*current, needs_layout);
-
-    if (current->IsSVGResourceContainer()) {
-      // This will process the rest of the ancestors.
-      To<LayoutSVGResourceContainer>(current)->RemoveAllClientsFromCache();
-      break;
-    }
-
-    current = current->Parent();
-  }
+  InvalidateAncestorChainResources(object, needs_layout);
 }
 
 static inline bool IsLayoutObjectOfResourceContainer(
@@ -277,7 +284,7 @@ void LayoutSVGResourceContainer::StyleChanged(LayoutObject& object,
   // If this LayoutObject is the child of a resource container and
   // it requires repainting because of changes to CSS properties
   // such as 'visibility', upgrade to invalidate layout.
-  bool needs_layout = diff.NeedsPaintInvalidation() &&
+  bool needs_layout = diff.NeedsNormalPaintInvalidation() &&
                       IsLayoutObjectOfResourceContainer(object);
   MarkForLayoutAndParentResourceInvalidation(object, needs_layout);
 }

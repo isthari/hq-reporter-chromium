@@ -1,14 +1,14 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/enterprise/remote_commands/rotate_attestation_credential_job.h"
 
-#include "base/bind.h"
 #include "base/check.h"
+#include "base/functional/bind.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/values.h"
 #include "chrome/browser/enterprise/connectors/device_trust/key_management/browser/commands/key_rotation_command.h"
 
@@ -33,20 +33,21 @@ std::string ResultToString(KeyRotationResult result) {
   }
 }
 
+std::string CreatePayload(KeyRotationResult result) {
+  base::Value::Dict root_dict;
+  root_dict.Set(kResultFieldName, ResultToString(result));
+
+  std::string payload;
+  base::JSONWriter::Write(root_dict, &payload);
+  return payload;
+}
+
+bool IsSuccess(KeyRotationResult result) {
+  return result == enterprise_connectors::DeviceTrustKeyManager::
+                       KeyRotationResult::SUCCESS;
+}
+
 }  // namespace
-
-RotateAttestationCredentialJob::ResultPayload::ResultPayload(
-    KeyRotationResult result)
-    : result_(result) {
-  base::DictionaryValue root_dict;
-  root_dict.SetString(kResultFieldName, ResultToString(result_));
-  base::JSONWriter::Write(root_dict, &payload_);
-}
-
-std::unique_ptr<std::string>
-RotateAttestationCredentialJob::ResultPayload::Serialize() {
-  return std::make_unique<std::string>(payload_);
-}
 
 RotateAttestationCredentialJob::RotateAttestationCredentialJob(
     DeviceTrustKeyManager* key_manager)
@@ -71,7 +72,7 @@ bool RotateAttestationCredentialJob::ParseCommandPayload(
   if (!root->is_dict())
     return false;
 
-  std::string* nonce_ptr = root->FindStringKey(kNoncePathField);
+  std::string* nonce_ptr = root->GetDict().FindString(kNoncePathField);
 
   if (nonce_ptr && !nonce_ptr->empty()) {
     nonce_ = *nonce_ptr;
@@ -81,29 +82,24 @@ bool RotateAttestationCredentialJob::ParseCommandPayload(
 }
 
 void RotateAttestationCredentialJob::RunImpl(
-    CallbackWithResult succeeded_callback,
-    CallbackWithResult failed_callback) {
+    CallbackWithResult result_callback) {
   DCHECK(nonce_.has_value());
 
   key_manager_->RotateKey(
       nonce_.value(),
       base::BindOnce(&RotateAttestationCredentialJob::OnKeyRotated,
-                     weak_factory_.GetWeakPtr(), std::move(succeeded_callback),
-                     std::move(failed_callback)));
+                     weak_factory_.GetWeakPtr(), std::move(result_callback)));
 }
 
 void RotateAttestationCredentialJob::OnKeyRotated(
-    CallbackWithResult succeeded_callback,
-    CallbackWithResult failed_callback,
+    CallbackWithResult result_callback,
     KeyRotationResult rotation_result) {
-  auto payload =
-      std::make_unique<RotateAttestationCredentialJob::ResultPayload>(
-          rotation_result);
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE,
-      base::BindOnce(std::move(payload->IsSuccess() ? succeeded_callback
-                                                    : failed_callback),
-                     std::move(payload)));
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(result_callback),
+                                std::move(IsSuccess(rotation_result))
+                                    ? policy::ResultType::kSuccess
+                                    : policy::ResultType::kFailure,
+                                CreatePayload(rotation_result)));
 }
 
 }  // namespace enterprise_commands

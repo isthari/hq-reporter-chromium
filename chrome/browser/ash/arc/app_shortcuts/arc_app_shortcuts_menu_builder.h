@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,8 @@
 #include <memory>
 #include <string>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
 #include "base/time/time.h"
 #include "chrome/browser/apps/app_service/app_shortcut_item.h"
 
@@ -55,7 +56,7 @@ class ArcAppShortcutsMenuBuilder {
       GetMenuModelCallback callback,
       std::unique_ptr<apps::AppShortcutItems> app_shortcut_items);
 
-  Profile* const profile_;
+  const raw_ptr<Profile, ExperimentalAsh> profile_;
   const std::string app_id_;
   const int64_t display_id_;
   const int command_id_first_;

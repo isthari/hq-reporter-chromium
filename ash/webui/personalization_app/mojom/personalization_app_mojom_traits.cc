@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+#include "ash/constants/ambient_theme.h"
+#include "ash/public/cpp/ambient/common/ambient_settings.h"
 #include "ash/public/cpp/default_user_image.h"
 #include "ash/public/cpp/personalization_app/user_display_info.h"
 #include "ash/public/cpp/wallpaper/wallpaper_types.h"
@@ -28,6 +30,12 @@ namespace mojo {
 using MojomWallpaperLayout = ash::personalization_app::mojom::WallpaperLayout;
 using MojomWallpaperType = ash::personalization_app::mojom::WallpaperType;
 using MojomOnlineImageType = ash::personalization_app::mojom::OnlineImageType;
+using MojomAnimationTheme = ash::personalization_app::mojom::AnimationTheme;
+using MojomTopicSource = ash::personalization_app::mojom::TopicSource;
+using MojomTemperatureUnit = ash::personalization_app::mojom::TemperatureUnit;
+using MojomAmbientUiVisibility =
+    ash::personalization_app::mojom::AmbientUiVisibility;
+using MojomColorScheme = ash::personalization_app::mojom::ColorScheme;
 
 MojomWallpaperLayout
 EnumTraits<MojomWallpaperLayout, ash::WallpaperLayout>::ToMojom(
@@ -87,6 +95,12 @@ MojomWallpaperType EnumTraits<MojomWallpaperType, ash::WallpaperType>::ToMojom(
       return MojomWallpaperType::kDevice;
     case ash::WallpaperType::kOneShot:
       return MojomWallpaperType::kOneShot;
+    case ash::WallpaperType::kDailyGooglePhotos:
+      return MojomWallpaperType::kDailyGooglePhotos;
+    case ash::WallpaperType::kOnceGooglePhotos:
+      return MojomWallpaperType::kOnceGooglePhotos;
+    case ash::WallpaperType::kOobe:
+      return MojomWallpaperType::kOobe;
     case ash::WallpaperType::kCount:
       NOTREACHED();
       return MojomWallpaperType::kDefault;
@@ -121,6 +135,15 @@ bool EnumTraits<MojomWallpaperType, ash::WallpaperType>::FromMojom(
     case MojomWallpaperType::kOneShot:
       *output = ash::WallpaperType::kOneShot;
       return true;
+    case MojomWallpaperType::kDailyGooglePhotos:
+      *output = ash::WallpaperType::kDailyGooglePhotos;
+      return true;
+    case MojomWallpaperType::kOnceGooglePhotos:
+      *output = ash::WallpaperType::kOnceGooglePhotos;
+      return true;
+    case MojomWallpaperType::kOobe:
+      *output = ash::WallpaperType::kOobe;
+      return true;
   }
   NOTREACHED();
   return false;
@@ -136,6 +159,12 @@ EnumTraits<MojomOnlineImageType, ::backdrop::Image::ImageType>::ToMojom(
       return MojomOnlineImageType::kLight;
     case ::backdrop::Image::IMAGE_TYPE_DARK_MODE:
       return MojomOnlineImageType::kDark;
+    case ::backdrop::Image::IMAGE_TYPE_MORNING_MODE:
+      return MojomOnlineImageType::kMorning;
+    case ::backdrop::Image::IMAGE_TYPE_LATE_AFTERNOON_MODE:
+      return MojomOnlineImageType::kLateAfternoon;
+    case ::backdrop::Image::IMAGE_TYPE_PREVIEW_MODE:
+      return MojomOnlineImageType::kPreview;
   }
 }
 
@@ -151,6 +180,15 @@ bool EnumTraits<MojomOnlineImageType, ::backdrop::Image::ImageType>::FromMojom(
       return true;
     case MojomOnlineImageType::kDark:
       *output = ::backdrop::Image::IMAGE_TYPE_DARK_MODE;
+      return true;
+    case MojomOnlineImageType::kMorning:
+      *output = ::backdrop::Image::IMAGE_TYPE_MORNING_MODE;
+      return true;
+    case MojomOnlineImageType::kLateAfternoon:
+      *output = ::backdrop::Image::IMAGE_TYPE_LATE_AFTERNOON_MODE;
+      return true;
+    case MojomOnlineImageType::kPreview:
+      *output = ::backdrop::Image::IMAGE_TYPE_PREVIEW_MODE;
       return true;
   }
   NOTREACHED();
@@ -169,14 +207,25 @@ const std::string& StructTraits<
   return collection.collection_name();
 }
 
-absl::optional<GURL> StructTraits<
+const std::string& StructTraits<
     ash::personalization_app::mojom::WallpaperCollectionDataView,
-    backdrop::Collection>::preview(const backdrop::Collection& collection) {
-  return GURL(collection.preview(0).image_url());
+    backdrop::Collection>::description_content(const backdrop::Collection&
+                                                   collection) {
+  return collection.description_content();
+}
+
+std::vector<GURL> StructTraits<
+    ash::personalization_app::mojom::WallpaperCollectionDataView,
+    backdrop::Collection>::previews(const backdrop::Collection& collection) {
+  std::vector<GURL> previews;
+  for (const auto& image : collection.preview()) {
+    previews.push_back(GURL(image.image_url()));
+  }
+  return previews;
 }
 
 // Default to false as we don't ever need to convert back to
-// |backdrop::Collection|
+// `backdrop::Collection`
 bool StructTraits<ash::personalization_app::mojom::WallpaperCollectionDataView,
                   backdrop::Collection>::
     Read(ash::personalization_app::mojom::WallpaperCollectionDataView data,
@@ -223,7 +272,7 @@ StructTraits<ash::personalization_app::mojom::WallpaperImageDataView,
 }
 
 // Default to false as we don't ever need to convert back to
-// |backdrop::Image|
+// `Backdrop::Image`
 bool StructTraits<ash::personalization_app::mojom::WallpaperImageDataView,
                   backdrop::Image>::
     Read(ash::personalization_app::mojom::WallpaperImageDataView data,
@@ -262,6 +311,29 @@ bool StructTraits<ash::personalization_app::mojom::UserInfoDataView,
   return data.ReadEmail(&out->email) && data.ReadName(&out->name);
 }
 
+const std::u16string&
+StructTraits<ash::personalization_app::mojom::DeprecatedSourceInfoDataView,
+             ash::default_user_image::DeprecatedSourceInfo>::
+    author(const ash::default_user_image::DeprecatedSourceInfo&
+               deprecated_source_info) {
+  return deprecated_source_info.author;
+}
+
+const GURL&
+StructTraits<ash::personalization_app::mojom::DeprecatedSourceInfoDataView,
+             ash::default_user_image::DeprecatedSourceInfo>::
+    website(const ash::default_user_image::DeprecatedSourceInfo&
+                deprecated_source_info) {
+  return deprecated_source_info.website;
+}
+
+bool StructTraits<ash::personalization_app::mojom::DeprecatedSourceInfoDataView,
+                  ash::default_user_image::DeprecatedSourceInfo>::
+    Read(ash::personalization_app::mojom::DeprecatedSourceInfoDataView data,
+         ash::default_user_image::DeprecatedSourceInfo* out) {
+  return data.ReadAuthor(&out->author) && data.ReadWebsite(&out->website);
+}
+
 int StructTraits<ash::personalization_app::mojom::DefaultUserImageDataView,
                  ash::default_user_image::DefaultUserImage>::
     index(const ash::default_user_image::DefaultUserImage& default_user_image) {
@@ -282,13 +354,227 @@ StructTraits<ash::personalization_app::mojom::DefaultUserImageDataView,
   return default_user_image.url;
 }
 
+const absl::optional<ash::default_user_image::DeprecatedSourceInfo>&
+StructTraits<ash::personalization_app::mojom::DefaultUserImageDataView,
+             ash::default_user_image::DefaultUserImage>::
+    source_info(
+        const ash::default_user_image::DefaultUserImage& default_user_image) {
+  return default_user_image.source_info;
+}
+
 bool StructTraits<ash::personalization_app::mojom::DefaultUserImageDataView,
                   ash::default_user_image::DefaultUserImage>::
     Read(ash::personalization_app::mojom::DefaultUserImageDataView data,
          ash::default_user_image::DefaultUserImage* out) {
   out->index = data.index();
-
-  return data.ReadTitle(&out->title) && data.ReadUrl(&out->url);
+  return data.ReadTitle(&out->title) && data.ReadUrl(&out->url) &&
+         data.ReadSourceInfo(&out->source_info);
 }
 
+MojomAnimationTheme EnumTraits<MojomAnimationTheme, ash::AmbientTheme>::ToMojom(
+    ash::AmbientTheme input) {
+  switch (input) {
+    case ash::AmbientTheme::kSlideshow:
+      return MojomAnimationTheme::kSlideshow;
+    case ash::AmbientTheme::kFeelTheBreeze:
+      return MojomAnimationTheme::kFeelTheBreeze;
+    case ash::AmbientTheme::kFloatOnBy:
+      return MojomAnimationTheme::kFloatOnBy;
+    case ash::AmbientTheme::kVideo:
+      return MojomAnimationTheme::kVideo;
+  }
+}
+
+bool EnumTraits<MojomAnimationTheme, ash::AmbientTheme>::FromMojom(
+    MojomAnimationTheme input,
+    ash::AmbientTheme* output) {
+  switch (input) {
+    case MojomAnimationTheme::kSlideshow:
+      *output = ash::AmbientTheme::kSlideshow;
+      return true;
+    case MojomAnimationTheme::kFeelTheBreeze:
+      *output = ash::AmbientTheme::kFeelTheBreeze;
+      return true;
+    case MojomAnimationTheme::kFloatOnBy:
+      *output = ash::AmbientTheme::kFloatOnBy;
+      return true;
+    case MojomAnimationTheme::kVideo:
+      *output = ash::AmbientTheme::kVideo;
+      return true;
+  }
+  NOTREACHED();
+  return false;
+}
+
+// TODO (b/220933864): remove ash::AmbientModeTopicSource and
+// ash::AmbientModeTemperatureUnit enums.
+MojomTopicSource
+EnumTraits<MojomTopicSource, ash::AmbientModeTopicSource>::ToMojom(
+    ash::AmbientModeTopicSource input) {
+  switch (input) {
+    case ash::AmbientModeTopicSource::kGooglePhotos:
+      return MojomTopicSource::kGooglePhotos;
+    case ash::AmbientModeTopicSource::kArtGallery:
+      return MojomTopicSource::kArtGallery;
+    case ash::AmbientModeTopicSource::kVideo:
+      return MojomTopicSource::kVideo;
+  }
+}
+
+bool EnumTraits<MojomTopicSource, ash::AmbientModeTopicSource>::FromMojom(
+    MojomTopicSource input,
+    ash::AmbientModeTopicSource* output) {
+  switch (input) {
+    case MojomTopicSource::kGooglePhotos:
+      *output = ash::AmbientModeTopicSource::kGooglePhotos;
+      return true;
+    case MojomTopicSource::kArtGallery:
+      *output = ash::AmbientModeTopicSource::kArtGallery;
+      return true;
+    case MojomTopicSource::kVideo:
+      *output = ash::AmbientModeTopicSource::kVideo;
+      return true;
+  }
+  NOTREACHED();
+  return false;
+}
+
+MojomTemperatureUnit
+EnumTraits<MojomTemperatureUnit, ash::AmbientModeTemperatureUnit>::ToMojom(
+    ash::AmbientModeTemperatureUnit input) {
+  switch (input) {
+    case ash::AmbientModeTemperatureUnit::kFahrenheit:
+      return MojomTemperatureUnit::kFahrenheit;
+    case ash::AmbientModeTemperatureUnit::kCelsius:
+      return MojomTemperatureUnit::kCelsius;
+  }
+}
+
+bool EnumTraits<MojomTemperatureUnit, ash::AmbientModeTemperatureUnit>::
+    FromMojom(MojomTemperatureUnit input,
+              ash::AmbientModeTemperatureUnit* output) {
+  switch (input) {
+    case MojomTemperatureUnit::kFahrenheit:
+      *output = ash::AmbientModeTemperatureUnit::kFahrenheit;
+      return true;
+    case MojomTemperatureUnit::kCelsius:
+      *output = ash::AmbientModeTemperatureUnit::kCelsius;
+      return true;
+  }
+  NOTREACHED();
+  return false;
+}
+
+MojomAmbientUiVisibility
+EnumTraits<MojomAmbientUiVisibility, ash::AmbientUiVisibility>::ToMojom(
+    ash::AmbientUiVisibility input) {
+  switch (input) {
+    case ash::AmbientUiVisibility::kShouldShow:
+      return MojomAmbientUiVisibility::kShouldShow;
+    case ash::AmbientUiVisibility::kPreview:
+      return MojomAmbientUiVisibility::kPreview;
+    case ash::AmbientUiVisibility::kHidden:
+      return MojomAmbientUiVisibility::kHidden;
+    case ash::AmbientUiVisibility::kClosed:
+      return MojomAmbientUiVisibility::kClosed;
+  }
+}
+
+bool EnumTraits<MojomAmbientUiVisibility, ash::AmbientUiVisibility>::FromMojom(
+    MojomAmbientUiVisibility input,
+    ash::AmbientUiVisibility* output) {
+  switch (input) {
+    case MojomAmbientUiVisibility::kShouldShow:
+      *output = ash::AmbientUiVisibility::kShouldShow;
+      return true;
+    case MojomAmbientUiVisibility::kPreview:
+      *output = ash::AmbientUiVisibility::kPreview;
+      return true;
+    case MojomAmbientUiVisibility::kHidden:
+      *output = ash::AmbientUiVisibility::kHidden;
+      return true;
+    case MojomAmbientUiVisibility::kClosed:
+      *output = ash::AmbientUiVisibility::kClosed;
+      return true;
+  }
+  NOTREACHED();
+  return false;
+}
+
+MojomColorScheme EnumTraits<MojomColorScheme, ash::ColorScheme>::ToMojom(
+    ash::ColorScheme input) {
+  switch (input) {
+    case ash::ColorScheme::kTonalSpot:
+      return MojomColorScheme::kTonalSpot;
+    case ash::ColorScheme::kNeutral:
+      return MojomColorScheme::kNeutral;
+    case ash::ColorScheme::kExpressive:
+      return MojomColorScheme::kExpressive;
+    case ash::ColorScheme::kVibrant:
+      return MojomColorScheme::kVibrant;
+    case ash::ColorScheme::kStatic:
+      return MojomColorScheme::kStatic;
+  }
+}
+
+bool EnumTraits<MojomColorScheme, ash::ColorScheme>::FromMojom(
+    MojomColorScheme input,
+    ash::ColorScheme* output) {
+  switch (input) {
+    case MojomColorScheme::kTonalSpot:
+      *output = ash::ColorScheme::kTonalSpot;
+      return true;
+    case MojomColorScheme::kNeutral:
+      *output = ash::ColorScheme::kNeutral;
+      return true;
+    case MojomColorScheme::kExpressive:
+      *output = ash::ColorScheme::kExpressive;
+      return true;
+    case MojomColorScheme::kVibrant:
+      *output = ash::ColorScheme::kVibrant;
+      return true;
+    case MojomColorScheme::kStatic:
+      *output = ash::ColorScheme::kStatic;
+      return true;
+  }
+  NOTREACHED();
+  return false;
+}
+
+SkColor
+StructTraits<ash::personalization_app::mojom::SampleColorSchemeDataView,
+             ash::SampleColorScheme>::primary(const ash::SampleColorScheme&
+                                                  sample_color_scheme) {
+  return sample_color_scheme.primary;
+}
+
+SkColor
+StructTraits<ash::personalization_app::mojom::SampleColorSchemeDataView,
+             ash::SampleColorScheme>::secondary(const ash::SampleColorScheme&
+                                                    sample_color_scheme) {
+  return sample_color_scheme.secondary;
+}
+
+SkColor
+StructTraits<ash::personalization_app::mojom::SampleColorSchemeDataView,
+             ash::SampleColorScheme>::tertiary(const ash::SampleColorScheme&
+                                                   sample_color_scheme) {
+  return sample_color_scheme.tertiary;
+}
+
+ash::ColorScheme
+StructTraits<ash::personalization_app::mojom::SampleColorSchemeDataView,
+             ash::SampleColorScheme>::scheme(const ash::SampleColorScheme&
+                                                 sample_color_scheme) {
+  return sample_color_scheme.scheme;
+}
+
+bool StructTraits<ash::personalization_app::mojom::SampleColorSchemeDataView,
+                  ash::SampleColorScheme>::
+    Read(ash::personalization_app::mojom::SampleColorSchemeDataView data,
+         ash::SampleColorScheme* out) {
+  return data.ReadScheme(&out->scheme) && data.ReadPrimary(&out->primary) &&
+         data.ReadSecondary(&out->secondary) &&
+         data.ReadTertiary(&out->tertiary);
+}
 }  // namespace mojo

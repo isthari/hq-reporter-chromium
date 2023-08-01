@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -237,13 +237,14 @@ void ComponentUpdaterPolicyTest::VerifyExpectations(bool update_disabled) {
     const auto root = base::JSONReader::Read(request);
     ASSERT_TRUE(root);
     const auto* update_check =
-        root->FindKey("request")->FindKey("app")->GetList()[0].FindKey(
-            "updatecheck");
+        (*root->GetDict().FindDict("request")->FindList("app"))[0]
+            .GetDict()
+            .FindDict("updatecheck");
     ASSERT_TRUE(update_check);
     if (update_disabled) {
-      EXPECT_EQ(true, update_check->FindKey("updatedisabled")->GetBool());
+      EXPECT_EQ(true, update_check->Find("updatedisabled")->GetBool());
     } else {
-      EXPECT_FALSE(update_check->FindKey("updatedisabled"));
+      EXPECT_FALSE(update_check->Find("updatedisabled"));
     }
   } else {
     NOTREACHED();

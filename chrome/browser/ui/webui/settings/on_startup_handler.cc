@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,9 @@
 
 #include <string>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/check_op.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "chrome/browser/extensions/settings_api_helpers.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/settings/settings_utils.h"
@@ -39,11 +39,11 @@ void OnStartupHandler::OnJavascriptDisallowed() {
 }
 
 void OnStartupHandler::RegisterMessages() {
-  web_ui()->RegisterDeprecatedMessageCallback(
+  web_ui()->RegisterMessageCallback(
       "getNtpExtension",
       base::BindRepeating(&OnStartupHandler::HandleGetNtpExtension,
                           base::Unretained(this)));
-  web_ui()->RegisterDeprecatedMessageCallback(
+  web_ui()->RegisterMessageCallback(
       "validateStartupPage",
       base::BindRepeating(&OnStartupHandler::HandleValidateStartupPage,
                           base::Unretained(this)));
@@ -69,27 +69,27 @@ base::Value OnStartupHandler::GetNtpExtension() {
     return base::Value();
   }
 
-  base::Value dict(base::Value::Type::DICTIONARY);
-  dict.SetStringKey("id", ntp_extension->id());
-  dict.SetStringKey("name", ntp_extension->name());
-  dict.SetBoolKey("canBeDisabled",
-                  !extensions::ExtensionSystem::Get(profile_)
-                       ->management_policy()
-                       ->MustRemainEnabled(ntp_extension, nullptr));
-  return dict;
+  base::Value::Dict dict;
+  dict.Set("id", ntp_extension->id());
+  dict.Set("name", ntp_extension->name());
+  dict.Set("canBeDisabled", !extensions::ExtensionSystem::Get(profile_)
+                                 ->management_policy()
+                                 ->MustRemainEnabled(ntp_extension, nullptr));
+  return base::Value(std::move(dict));
 }
 
-void OnStartupHandler::HandleGetNtpExtension(const base::ListValue* args) {
-  const base::Value& callback_id = args->GetList()[0];
+void OnStartupHandler::HandleGetNtpExtension(const base::Value::List& args) {
+  const base::Value& callback_id = args[0];
   AllowJavascript();
 
   ResolveJavascriptCallback(callback_id, GetNtpExtension());
 }
 
-void OnStartupHandler::HandleValidateStartupPage(const base::ListValue* args) {
-  CHECK_EQ(args->GetList().size(), 2U);
-  const base::Value& callback_id = args->GetList()[0];
-  const std::string& url_string = args->GetList()[1].GetString();
+void OnStartupHandler::HandleValidateStartupPage(
+    const base::Value::List& args) {
+  CHECK_EQ(args.size(), 2U);
+  const base::Value& callback_id = args[0];
+  const std::string& url_string = args[1].GetString();
   AllowJavascript();
 
   bool valid = settings_utils::FixupAndValidateStartupPage(url_string, nullptr);

@@ -1,11 +1,11 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {ColorModeRestriction, Destination, DestinationConnectionStatus, DestinationOrigin, DestinationType, DuplexModeRestriction, Margins, PrintPreviewModelElement, Size} from 'chrome://print/print_preview.js';
-// <if expr="chromeos_ash or chromeos_lacros">
+import {ColorModeRestriction, Destination, DestinationOrigin, DuplexModeRestriction, Margins, PrintPreviewModelElement, Size} from 'chrome://print/print_preview.js';
+// <if expr="is_chromeos">
 import {PinModeRestriction} from 'chrome://print/print_preview.js';
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 // </if>
 
 import {assertEquals} from 'chrome://webui-test/chai_assert.js';
@@ -16,7 +16,7 @@ suite('ModelSettingsPolicyTest', function() {
   let model: PrintPreviewModelElement;
 
   function setupModel() {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     model = document.createElement('print-preview-model');
     document.body.appendChild(model);
 
@@ -35,9 +35,8 @@ suite('ModelSettingsPolicyTest', function() {
     model.margins = new Margins(72, 72, 72, 72);
 
     // Create a test destination.
-    model.destination = new Destination(
-        'FooDevice', DestinationType.LOCAL, DestinationOrigin.LOCAL, 'FooName',
-        DestinationConnectionStatus.ONLINE);
+    model.destination =
+        new Destination('FooDevice', DestinationOrigin.LOCAL, 'FooName');
     model.set(
         'destination.capabilities',
         getCddTemplate(model.destination.id).capabilities);
@@ -69,8 +68,8 @@ suite('ModelSettingsPolicyTest', function() {
        colorCap: {
          option: [
            {type: 'STANDARD_MONOCHROME', is_default: true},
-           {type: 'STANDARD_COLOR'}
-         ]
+           {type: 'STANDARD_COLOR'},
+         ],
        },
        colorPolicy: ColorModeRestriction.COLOR,
        // Default mismatches restriction and is ignored.
@@ -85,8 +84,8 @@ suite('ModelSettingsPolicyTest', function() {
        colorCap: {
          option: [
            {type: 'STANDARD_MONOCHROME', is_default: true},
-           {type: 'STANDARD_COLOR'}
-         ]
+           {type: 'STANDARD_COLOR'},
+         ],
        },
        colorDefault: ColorModeRestriction.COLOR,
        expectedValue: true,
@@ -100,8 +99,8 @@ suite('ModelSettingsPolicyTest', function() {
        colorCap: {
          option: [
            {type: 'STANDARD_MONOCHROME'},
-           {type: 'STANDARD_COLOR', is_default: true}
-         ]
+           {type: 'STANDARD_COLOR', is_default: true},
+         ],
        },
        colorDefault: ColorModeRestriction.MONOCHROME,
        expectedValue: false,
@@ -117,7 +116,7 @@ suite('ModelSettingsPolicyTest', function() {
         color: {
           allowedMode: subtestParams.colorPolicy,
           defaultMode: subtestParams.colorDefault,
-        }
+        },
       };
 
       model.set('destination.capabilities', capabilities);
@@ -164,9 +163,10 @@ suite('ModelSettingsPolicyTest', function() {
        // Policy overrides default.
        duplexCap: {
          option: [
-           {type: 'NO_DUPLEX', is_default: true}, {type: 'LONG_EDGE'},
-           {type: 'SHORT_EDGE'}
-         ]
+           {type: 'NO_DUPLEX', is_default: true},
+           {type: 'LONG_EDGE'},
+           {type: 'SHORT_EDGE'},
+         ],
        },
        duplexPolicy: DuplexModeRestriction.DUPLEX,
        // Default mismatches restriction and is ignored.
@@ -180,37 +180,72 @@ suite('ModelSettingsPolicyTest', function() {
        expectedShortEdgeEnforced: false,
      },
      {
-       // Policy sets duplex type, overriding default.
+       // Policies are unset.
+       duplexCap: {option: [{type: 'NO_DUPLEX', is_default: true}]},
+       duplexPolicy: DuplexModeRestriction.UNSET,
+       duplexDefault: DuplexModeRestriction.UNSET,
+       expectedValue: false,
+       expectedAvailable: false,
+       expectedManaged: false,
+       expectedEnforced: false,
+       expectedShortEdge: false,
+       expectedShortEdgeAvailable: false,
+       expectedShortEdgeEnforced: false,
+     },
+     // Couple of tests that verify the default and available duplex values set
+     // by policies.
+     // Default printing destination duplex mode should always be overwritten by
+     // the policy default.
+     {
        duplexCap: {
          option: [
-           {type: 'NO_DUPLEX'}, {type: 'LONG_EDGE', is_default: true},
-           {type: 'SHORT_EDGE'}
-         ]
+           {type: 'NO_DUPLEX', is_default: true},
+           {type: 'LONG_EDGE'},
+           {type: 'SHORT_EDGE'},
+         ],
        },
-       duplexPolicy: DuplexModeRestriction.SHORT_EDGE,
-       // Default mismatches restriction and is ignored.
-       duplexDefault: DuplexModeRestriction.LONG_EDGE,
+       duplexPolicy: DuplexModeRestriction.DUPLEX,
+       duplexDefault: DuplexModeRestriction.SHORT_EDGE,
        expectedValue: true,
        expectedAvailable: true,
        expectedManaged: true,
        expectedEnforced: true,
        expectedShortEdge: true,
        expectedShortEdgeAvailable: true,
-       expectedShortEdgeEnforced: true,
+       expectedShortEdgeEnforced: false,
      },
      {
-       // Default defined by policy but setting is modifiable.
        duplexCap: {
          option: [
-           {type: 'NO_DUPLEX', is_default: true}, {type: 'LONG_EDGE'},
-           {type: 'SHORT_EDGE'}
-         ]
+           {type: 'NO_DUPLEX'},
+           {type: 'LONG_EDGE'},
+           {type: 'SHORT_EDGE', is_default: true},
+         ],
        },
+       duplexPolicy: DuplexModeRestriction.UNSET,
        duplexDefault: DuplexModeRestriction.LONG_EDGE,
        expectedValue: true,
        expectedAvailable: true,
        expectedManaged: false,
        expectedEnforced: false,
+       expectedShortEdge: false,
+       expectedShortEdgeAvailable: true,
+       expectedShortEdgeEnforced: false,
+     },
+     {
+       duplexCap: {
+         option: [
+           {type: 'NO_DUPLEX'},
+           {type: 'LONG_EDGE', is_default: true},
+           {type: 'SHORT_EDGE'},
+         ],
+       },
+       duplexPolicy: DuplexModeRestriction.SIMPLEX,
+       duplexDefault: DuplexModeRestriction.SIMPLEX,
+       expectedValue: false,
+       expectedAvailable: true,
+       expectedManaged: true,
+       expectedEnforced: true,
        expectedShortEdge: false,
        expectedShortEdgeAvailable: true,
        expectedShortEdgeEnforced: false,
@@ -223,7 +258,7 @@ suite('ModelSettingsPolicyTest', function() {
         duplex: {
           allowedMode: subtestParams.duplexPolicy,
           defaultMode: subtestParams.duplexDefault,
-        }
+        },
       };
 
       model.set('destination.capabilities', capabilities);
@@ -249,7 +284,7 @@ suite('ModelSettingsPolicyTest', function() {
     });
   });
 
-  // <if expr="chromeos_ash or chromeos_lacros">
+  // <if expr="is_chromeos">
   test('pin managed', function() {
     [{
       // No policies, settings is modifiable.
@@ -329,7 +364,7 @@ suite('ModelSettingsPolicyTest', function() {
         pin: {
           allowedMode: subtestParams.pinPolicy,
           defaultMode: subtestParams.pinDefault,
-        }
+        },
       };
 
       model.set('destination.capabilities', capabilities);

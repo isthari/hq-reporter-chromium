@@ -29,9 +29,9 @@
 #include "third_party/blink/renderer/core/layout/layout_image_resource.h"
 
 #include "third_party/blink/public/resources/grit/blink_image_resources.h"
+#include "third_party/blink/renderer/core/css/style_engine.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/layout/layout_image.h"
-#include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/svg/graphics/svg_image_for_container.h"
 #include "third_party/blink/renderer/platform/graphics/placeholder_image.h"
 #include "ui/base/resource/resource_scale_factor.h"
@@ -83,6 +83,12 @@ void LayoutImageResource::SetImageResource(ImageResourceContent* new_image) {
     layout_object_->ImageChanged(
         cached_image_.Get(), ImageResourceObserver::CanDeferInvalidation::kNo);
   }
+}
+
+ResourcePriority LayoutImageResource::ComputeResourcePriority() const {
+  if (!layout_object_)
+    return ResourcePriority();
+  return layout_object_->ComputeResourcePriority();
 }
 
 void LayoutImageResource::ResetAnimation() {
@@ -137,14 +143,10 @@ gfx::SizeF LayoutImageResource::ImageSizeWithDefaultSize(
   return ImageSize(multiplier);
 }
 
-float LayoutImageResource::DeviceScaleFactor() const {
-  return DeviceScaleFactorDeprecated(layout_object_->GetFrame());
-}
-
-Image* LayoutImageResource::BrokenImage(float device_scale_factor) {
-  // TODO(schenney): Replace static resources with dynamically
+Image* LayoutImageResource::BrokenImage(double device_pixel_ratio) {
+  // TODO(rendering-core): Replace static resources with dynamically
   // generated ones, to support a wider range of device scale factors.
-  if (device_scale_factor >= 2) {
+  if (device_pixel_ratio >= 2) {
     DEFINE_STATIC_REF(
         Image, broken_image_hi_res,
         (Image::LoadPlatformResource(IDR_BROKENIMAGE, ui::k200Percent)));
@@ -156,9 +158,15 @@ Image* LayoutImageResource::BrokenImage(float device_scale_factor) {
   return broken_image_lo_res;
 }
 
+double LayoutImageResource::DevicePixelRatio() const {
+  if (!layout_object_)
+    return 1.0;
+  return layout_object_->GetDocument().DevicePixelRatio();
+}
+
 void LayoutImageResource::UseBrokenImage() {
   SetImageResource(
-      ImageResourceContent::CreateLoaded(BrokenImage(DeviceScaleFactor())));
+      ImageResourceContent::CreateLoaded(BrokenImage(DevicePixelRatio())));
 }
 
 scoped_refptr<Image> LayoutImageResource::GetImage(
@@ -172,7 +180,7 @@ scoped_refptr<Image> LayoutImageResource::GetImage(
     return Image::NullImage();
 
   if (cached_image_->ErrorOccurred())
-    return BrokenImage(DeviceScaleFactor());
+    return BrokenImage(DevicePixelRatio());
 
   if (!cached_image_->HasImage())
     return Image::NullImage();
@@ -192,9 +200,14 @@ scoped_refptr<Image> LayoutImageResource::GetImage(
     const AtomicString& url_string = element->ImageSourceURL();
     url = element->GetDocument().CompleteURL(url_string);
   }
-  return SVGImageForContainer::Create(
-      svg_image, container_size, layout_object_->StyleRef().EffectiveZoom(),
-      url);
+
+  const ComputedStyle& style = layout_object_->StyleRef();
+  auto preferred_color_scheme = layout_object_->GetDocument()
+                                    .GetStyleEngine()
+                                    .ResolveColorSchemeForEmbedding(&style);
+  return SVGImageForContainer::Create(svg_image, container_size,
+                                      style.EffectiveZoom(), url,
+                                      preferred_color_scheme);
 }
 
 bool LayoutImageResource::MaybeAnimated() const {

@@ -1,10 +1,11 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef UI_GL_GL_BINDINGS_H_
 #define UI_GL_GL_BINDINGS_H_
 
+#include "base/memory/raw_ptr.h"
 #include "build/build_config.h"
 
 // Includes the platform independent and platform dependent GL headers.
@@ -26,7 +27,6 @@
 #include <string>
 
 #include "base/logging.h"
-#include "base/threading/thread_local.h"
 #include "build/build_config.h"
 #include "ui/gfx/extension_set.h"
 #include "ui/gl/gl_export.h"
@@ -34,9 +34,9 @@
 // The standard OpenGL native extension headers are also included.
 #if BUILDFLAG(IS_WIN)
 #include <GL/wglext.h>
-#elif BUILDFLAG(IS_APPLE)
+#elif BUILDFLAG(IS_MAC)
 #include <OpenGL/OpenGL.h>
-#elif defined(USE_GLX)
+#elif BUILDFLAG(IS_LINUX)
 using Display = struct _XDisplay;
 using Bool = int;
 using Status = int;
@@ -45,18 +45,6 @@ using Colormap = XID;
 using Font = XID;
 using Pixmap = XID;
 using Window = XID;
-using GLXPixmap = XID;
-using GLXWindow = XID;
-using GLXDrawable = XID;
-using GLXPbuffer = XID;
-using GLXContextID = XID;
-using GLXContext = struct __GLXcontextRec*;
-using GLXFBConfig = struct __GLXFBConfigRec*;
-struct XVisualInfo;
-
-
-#include <GL/glxext.h>
-#include <GL/glxtokens.h>
 #endif
 
 // GLES2 defines not part of Desktop GL
@@ -103,6 +91,9 @@ struct XVisualInfo;
 #define GL_TEXTURE_USAGE_ANGLE                           0x93A2
 #define GL_FRAMEBUFFER_ATTACHMENT_ANGLE                  0x93A3
 
+// GL_ANGLE_renderability_validation
+#define GL_RENDERABILITY_VALIDATION_ANGLE 0x9EA0
+
 // GL_EXT_texture_storage
 #define GL_TEXTURE_IMMUTABLE_FORMAT_EXT                  0x912F
 #define GL_ALPHA8_EXT                                    0x803C
@@ -141,6 +132,26 @@ struct XVisualInfo;
 
 // GL_ANGLE_memory_size
 #define GL_MEMORY_SIZE_ANGLE 0x93AD
+
+// GL_ANGLE_rgbx_internal_format
+#define GL_RGBX8_ANGLE 0x96BA
+
+// GL_ANGLE_shader_pixel_local_storage
+#define GL_MAX_PIXEL_LOCAL_STORAGE_PLANES_ANGLE 0x96E0
+#define GL_MAX_COLOR_ATTACHMENTS_WITH_ACTIVE_PIXEL_LOCAL_STORAGE_ANGLE 0x96E1
+#define GL_MAX_COMBINED_DRAW_BUFFERS_AND_PIXEL_LOCAL_STORAGE_PLANES_ANGLE 0x96E2
+#define GL_PIXEL_LOCAL_STORAGE_ACTIVE_PLANES_ANGLE 0x96E3
+#define GL_LOAD_OP_ZERO_ANGLE 0x96E4
+#define GL_LOAD_OP_CLEAR_ANGLE 0x96E5
+#define GL_LOAD_OP_LOAD_ANGLE 0x96E6
+#define GL_STORE_OP_STORE_ANGLE 0x96E7
+#define GL_PIXEL_LOCAL_FORMAT_ANGLE 0x96E8
+#define GL_PIXEL_LOCAL_TEXTURE_NAME_ANGLE 0x96E9
+#define GL_PIXEL_LOCAL_TEXTURE_LEVEL_ANGLE 0x96EA
+#define GL_PIXEL_LOCAL_TEXTURE_LAYER_ANGLE 0x96EB
+#define GL_PIXEL_LOCAL_CLEAR_VALUE_FLOAT_ANGLE 0x96EC
+#define GL_PIXEL_LOCAL_CLEAR_VALUE_INT_ANGLE 0x96ED
+#define GL_PIXEL_LOCAL_CLEAR_VALUE_UNSIGNED_INT_ANGLE 0x96EE
 
 // GL_EXT_occlusion_query_boolean
 #define GL_ANY_SAMPLES_PASSED_EXT                        0x8C2F
@@ -183,23 +194,12 @@ struct XVisualInfo;
 // GL_CHROMIUM_ycbcr_p010_image
 #define GL_RGB_YCBCR_P010_CHROMIUM 0x78FD
 
-// GL_CHROMIUM_schedule_overlay_plane
-#define GL_OVERLAY_TRANSFORM_NONE_CHROMIUM               0x9245
-#define GL_OVERLAY_TRANSFORM_FLIP_HORIZONTAL_CHROMIUM    0x9246
-#define GL_OVERLAY_TRANSFORM_FLIP_VERTICAL_CHROMIUM      0x9247
-#define GL_OVERLAY_TRANSFORM_ROTATE_90_CHROMIUM          0x9248
-#define GL_OVERLAY_TRANSFORM_ROTATE_180_CHROMIUM         0x9249
-#define GL_OVERLAY_TRANSFORM_ROTATE_270_CHROMIUM         0x924A
-
 // GL_CHROMIUM_subscribe_uniforms
 #define GL_SUBSCRIBED_VALUES_BUFFER_CHROMIUM             0x924B
 #define GL_MOUSE_POSITION_CHROMIUM                       0x924C
 
 // GL_CHROMIUM_texture_filtering_hint
 #define GL_TEXTURE_FILTERING_HINT_CHROMIUM               0x8AF0
-
-// GL_CHROMIUM_texture_storage_image
-#define GL_SCANOUT_CHROMIUM 0x6000
 
 // GL_OES_texure_3D
 #define GL_SAMPLER_3D_OES                                0x8B5F
@@ -339,11 +339,6 @@ struct XVisualInfo;
 #define GL_SAMPLE_ALPHA_TO_ONE_EXT 0x809F
 #endif /* GL_EXT_multisample_compatibility */
 
-#ifndef GL_CHROMIUM_framebuffer_mixed_samples
-#define GL_CHROMIUM_framebuffer_mixed_samples 1
-#define GL_COVERAGE_MODULATION_CHROMIUM 0x9332
-#endif /* GL_CHROMIUM_framebuffer_mixed_samples */
-
 #ifndef GL_KHR_blend_equation_advanced
 #define GL_KHR_blend_equation_advanced 1
 #define GL_COLORBURN_KHR                  0x929A
@@ -466,7 +461,6 @@ struct XVisualInfo;
 #define GL_CHROMIUM_shared_image 1
 #define GL_SHARED_IMAGE_ACCESS_MODE_READ_CHROMIUM 0x8AF6
 #define GL_SHARED_IMAGE_ACCESS_MODE_READWRITE_CHROMIUM 0x8AF7
-#define GL_SHARED_IMAGE_ACCESS_MODE_OVERLAY_CHROMIUM 0x8AF8
 #endif /* GL_CHROMIUM_shared_image */
 
 #ifndef GL_NV_internalformat_sample_query
@@ -538,24 +532,18 @@ struct GL_EXPORT DriverGL {
 };
 
 struct GL_EXPORT CurrentGL {
-  GLApi* Api = nullptr;
-  DriverGL* Driver = nullptr;
-  const GLVersionInfo* Version = nullptr;
+  raw_ptr<GLApi, DanglingUntriaged> Api = nullptr;
+  raw_ptr<DriverGL, DanglingUntriaged> Driver = nullptr;
+  raw_ptr<const GLVersionInfo, DanglingUntriaged> Version = nullptr;
 };
 
 #if defined(USE_EGL)
 struct GL_EXPORT DriverEGL {
   void InitializeStaticBindings();
-  void InitializeClientExtensionBindings();
-  void InitializeExtensionBindings();
   void ClearBindings();
-  void UpdateConditionalExtensionBindings();
 
   ProcsEGL fn;
-  ExtensionsEGL ext;
-
-  static std::string GetPlatformExtensions();
-  static std::string GetClientExtensions();
+  ClientExtensionsEGL client_ext;
 };
 #endif
 
@@ -574,10 +562,10 @@ struct GL_EXPORT DriverGLX {
 #endif
 
 // This #define is here to support autogenerated code.
-#define g_current_gl_context g_current_gl_context_tls->Get()->Api
-#define g_current_gl_driver g_current_gl_context_tls->Get()->Driver
-#define g_current_gl_version g_current_gl_context_tls->Get()->Version
-GL_EXPORT extern base::ThreadLocalPointer<CurrentGL>* g_current_gl_context_tls;
+#define g_current_gl_context GetGlContextForCurrentThread()->Api.get()
+#define g_current_gl_driver GetGlContextForCurrentThread()->Driver
+#define g_current_gl_version GetGlContextForCurrentThread()->Version.get()
+GL_EXPORT CurrentGL*& GetGlContextForCurrentThread();
 
 #if defined(USE_EGL)
 GL_EXPORT extern EGLApi* g_current_egl_context;

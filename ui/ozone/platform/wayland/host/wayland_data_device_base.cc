@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/task/task_traits.h"
@@ -14,7 +14,6 @@
 #include "ui/ozone/platform/wayland/host/wayland_connection.h"
 #include "ui/ozone/platform/wayland/host/wayland_data_offer_base.h"
 #include "ui/ozone/platform/wayland/host/wayland_serial_tracker.h"
-#include "wayland-client-core.h"
 
 namespace ui {
 
@@ -73,7 +72,7 @@ void WaylandDataDeviceBase::RegisterDeferredReadCallback() {
 
   wl_callback_add_listener(deferred_read_callback_.get(), &kListener, this);
 
-  connection_->ScheduleFlush();
+  connection_->Flush();
 }
 
 void WaylandDataDeviceBase::RegisterDeferredReadClosure(
@@ -107,13 +106,6 @@ void WaylandDataDeviceBase::NotifySelectionOffer(
     WaylandDataOfferBase* offer) const {
   if (selection_offer_callback_)
     selection_offer_callback_.Run(offer);
-}
-
-absl::optional<wl::Serial> WaylandDataDeviceBase::GetSerialForSelection()
-    const {
-  return connection_->serial_tracker().GetSerial({wl::SerialType::kTouchPress,
-                                                  wl::SerialType::kMousePress,
-                                                  wl::SerialType::kKeyPress});
 }
 
 }  // namespace ui

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,6 +18,11 @@
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace password_manager {
+
+// Minimum number of characters in a password for finding it as password reuse.
+// It does not make sense to consider short strings for password reuse, since it
+// is quite likely that they are parts of common words.
+constexpr size_t kMinPasswordLengthToCheck = 8;
 
 class PasswordReuseDetectorConsumer;
 
@@ -122,9 +127,9 @@ class PasswordReuseDetector {
       const std::string& domain);
 
   // If saved-password reuse is found, fill in the MatchingReusedCredentials
-  // that match any reused password, and return the length of the
-  // longest password matched.  If no reuse is found, return 0.
-  size_t CheckSavedPasswordReuse(
+  // that match any reused password, and return the longest password matched. If
+  // no reuse is found, return an empty string.
+  std::u16string CheckSavedPasswordReuse(
       const std::u16string& input,
       const std::string& domain,
       std::vector<MatchingReusedCredential>* matching_reused_credentials_out);

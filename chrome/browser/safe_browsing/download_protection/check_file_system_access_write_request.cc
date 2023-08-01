@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <memory>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "chrome/browser/browser_process.h"
@@ -84,8 +84,10 @@ void CheckFileSystemAccessWriteRequest::NotifySendRequest(
       request->referrer_chain().size());
 }
 
-void CheckFileSystemAccessWriteRequest::SetDownloadPingToken(
-    const std::string& token) {
+void CheckFileSystemAccessWriteRequest::SetDownloadProtectionData(
+    const std::string& token,
+    const ClientDownloadResponse::Verdict& verdict,
+    const ClientDownloadResponse::TailoredVerdict& tailored_verdict) {
   // TODO(https://crbug.com/996797): Actually store token for
   // IncidentReportingService usage.
 }

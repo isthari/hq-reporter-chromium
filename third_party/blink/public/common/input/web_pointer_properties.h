@@ -1,4 +1,4 @@
-// Copyright (c) 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -108,6 +108,9 @@ class WebPointerProperties {
   // True if this event has raw movement value from OS.
   // TODO(crbug.com/982379): Figure out how to avoid using this boolean.
   bool is_raw_movement_event = false;
+
+  // Contains unique device id for pen on supported devices.
+  int32_t device_id = -1;
 
  protected:
   // Widget coordinate, which is relative to the bound of current RenderWidget

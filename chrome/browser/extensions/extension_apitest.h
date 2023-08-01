@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -133,20 +133,39 @@ class ExtensionApiTest : public ExtensionBrowserTest {
   // If it failed, what was the error message?
   std::string message_;
 
-  base::DictionaryValue* GetTestConfig() { return test_config_.get(); }
+  base::Value::Dict* GetTestConfig() { return test_config_.get(); }
+
+  // Creates a new secure test server that can be used in place of the default
+  // HTTP embedded_test_server defined in BrowserTestBase. The new test server
+  // can then be retrieved using the same embedded_test_server() method used
+  // to get the BrowserTestBase HTTP server.
+  void UseHttpsTestServer();
+
+  // This will return either the https test server or the
+  // default one specified in BrowserTestBase, depending on if an https test
+  // server was created by calling UseHttpsTestServer().
+  net::EmbeddedTestServer* embedded_test_server() {
+    return (https_test_server_) ? https_test_server_.get()
+                                : BrowserTestBase::embedded_test_server();
+  }
 
  private:
   void OpenURL(const GURL& url, bool open_in_incognito);
 
   // Hold details of the test, set in C++, which can be accessed by
   // javascript using chrome.test.getConfig().
-  std::unique_ptr<base::DictionaryValue> test_config_;
+  std::unique_ptr<base::Value::Dict> test_config_;
 
   // Hold the test WebSocket server.
   std::unique_ptr<net::SpawnedTestServer> websocket_server_;
 
   // Test data directory shared with //extensions.
   base::FilePath shared_test_data_dir_;
+
+  // Secure test server, isn't created by default. Needs to be
+  // created using UseHttpsTestServer() and then called with
+  // embedded_test_server().
+  std::unique_ptr<net::EmbeddedTestServer> https_test_server_;
 };
 
 }  // namespace extensions

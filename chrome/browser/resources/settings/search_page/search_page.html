@@ -2,7 +2,7 @@
   #search-wrapper {
     align-items: center;
     display: flex;
-    min-height: var(--settings-row-min-height);
+    min-height: var(--cr-section-min-height);
   }
 </style>
 <settings-animated-pages id="pages" section="search"
@@ -13,6 +13,7 @@
       <div id="searchExplanation" class="flex cr-padded-text">
         $i18n{searchExplanation}
         <a href="$i18n{searchExplanationLearnMoreURL}"
+            aria-label="$i18n{searchExplanationLearnMoreA11yLabel}"
             target="_blank">
           $i18n{learnMore}
         </a>
@@ -50,14 +51,14 @@
 
     <!-- Manage search engines -->
     <cr-link-row class="hr" id="enginesSubpageTrigger"
-        label="[[searchEnginesPageTitle_]]"
-        on-click="onManageSearchEnginesTap_"
+        label="$i18n{searchEnginesManageSiteSearch}"
+        on-click="onManageSearchEnginesClick_"
         role-description="$i18n{subpageArrowRoleDescription}"></cr-link-row>
   </div>
   <template is="dom-if" route-path="/searchEngines">
     <settings-subpage
         associated-control="[[$$('#enginesSubpageTrigger')]]"
-        page-title="[[searchEnginesPageTitle_]]"
+        page-title="$i18n{searchEnginesManageSiteSearch}"
         search-label="$i18n{searchEnginesSearch}"
         search-term="{{searchEnginesFilter_}}">
       <settings-search-engines-page prefs="{{prefs}}"

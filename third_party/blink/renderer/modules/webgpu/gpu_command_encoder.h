@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "third_party/blink/renderer/bindings/modules/v8/v8_typedefs.h"
 #include "third_party/blink/renderer/modules/webgpu/dawn_object.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+#include "third_party/blink/renderer/platform/bindings/no_alloc_direct_call_host.h"
 
 namespace blink {
 
@@ -22,7 +23,8 @@ class GPURenderPassDescriptor;
 class GPURenderPassEncoder;
 class GPUImageCopyTexture;
 
-class GPUCommandEncoder : public DawnObject<WGPUCommandEncoder> {
+class GPUCommandEncoder : public DawnObject<WGPUCommandEncoder>,
+                          public NoAllocDirectCallHost {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
@@ -40,7 +42,8 @@ class GPUCommandEncoder : public DawnObject<WGPUCommandEncoder> {
       const GPURenderPassDescriptor* descriptor,
       ExceptionState& exception_state);
   GPUComputePassEncoder* beginComputePass(
-      const GPUComputePassDescriptor* descriptor);
+      const GPUComputePassDescriptor* descriptor,
+      ExceptionState& exception_state);
   void copyBufferToBuffer(DawnObject<WGPUBuffer>* src,
                           uint64_t src_offset,
                           DawnObject<WGPUBuffer>* dst,
@@ -54,13 +57,16 @@ class GPUCommandEncoder : public DawnObject<WGPUCommandEncoder> {
   }
   void copyBufferToTexture(GPUImageCopyBuffer* source,
                            GPUImageCopyTexture* destination,
-                           const V8GPUExtent3D* copy_size);
+                           const V8GPUExtent3D* copy_size,
+                           ExceptionState& exception_state);
   void copyTextureToBuffer(GPUImageCopyTexture* source,
                            GPUImageCopyBuffer* destination,
-                           const V8GPUExtent3D* copy_size);
+                           const V8GPUExtent3D* copy_size,
+                           ExceptionState& exception_state);
   void copyTextureToTexture(GPUImageCopyTexture* source,
                             GPUImageCopyTexture* destination,
-                            const V8GPUExtent3D* copy_size);
+                            const V8GPUExtent3D* copy_size,
+                            ExceptionState& exception_state);
   void pushDebugGroup(String groupLabel) {
     std::string label = groupLabel.Utf8();
     GetProcs().commandEncoderPushDebugGroup(GetHandle(), label.c_str());
@@ -79,10 +85,9 @@ class GPUCommandEncoder : public DawnObject<WGPUCommandEncoder> {
         GetHandle(), querySet->GetHandle(), firstQuery, queryCount,
         destination->GetHandle(), destinationOffset);
   }
-  void writeTimestamp(DawnObject<WGPUQuerySet>* querySet, uint32_t queryIndex) {
-    GetProcs().commandEncoderWriteTimestamp(GetHandle(), querySet->GetHandle(),
-                                            queryIndex);
-  }
+  void writeTimestamp(DawnObject<WGPUQuerySet>* querySet,
+                      uint32_t queryIndex,
+                      ExceptionState& exception_state);
   void clearBuffer(DawnObject<WGPUBuffer>* buffer, uint64_t offset) {
     GetProcs().commandEncoderClearBuffer(GetHandle(), buffer->GetHandle(),
                                          offset, WGPU_WHOLE_SIZE);
@@ -94,6 +99,11 @@ class GPUCommandEncoder : public DawnObject<WGPUCommandEncoder> {
                                          offset, size);
   }
   GPUCommandBuffer* finish(const GPUCommandBufferDescriptor* descriptor);
+
+  void setLabelImpl(const String& value) override {
+    std::string utf8_label = value.Utf8();
+    GetProcs().commandEncoderSetLabel(GetHandle(), utf8_label.c_str());
+  }
 };
 
 }  // namespace blink

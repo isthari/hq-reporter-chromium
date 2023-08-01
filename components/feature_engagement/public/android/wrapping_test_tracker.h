@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include <string>
 
 #include "base/android/jni_android.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "components/feature_engagement/public/tracker.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
@@ -46,6 +46,7 @@ class WrappingTestTracker : public Tracker {
       const base::Feature& feature) override;
   bool IsInitialized() const override;
   void AddOnInitializedCallback(OnInitializedCallback callback) override;
+  const Configuration* GetConfigurationForTesting() const override;
 
  private:
   base::android::ScopedJavaGlobalRef<jobject> java_tracker_;

@@ -1,9 +1,11 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef UI_VIEWS_VIEW_OBSERVER_H_
 #define UI_VIEWS_VIEW_OBSERVER_H_
+
+#include <stdint.h>
 
 #include "ui/views/views_export.h"
 
@@ -43,6 +45,9 @@ class VIEWS_EXPORT ViewObserver {
   // migrate this method (and possibly others) into callbacks.
   virtual void OnViewLayerTransformed(View* observed_view) {}
 
+  // Called when `observed_view`'s layer clip rect changes.
+  virtual void OnViewLayerClipRectChanged(View* observed_view) {}
+
   // Called when View::ViewHierarchyChanged() is called.
   virtual void OnViewHierarchyChanged(
       View* observed_view,
@@ -70,6 +75,13 @@ class VIEWS_EXPORT ViewObserver {
 
   // Called immediately after |observed_view| has lost focus.
   virtual void OnViewBlurred(View* observed_view) {}
+
+  // Called immediately after the property associated with the specified
+  // |key| has been changed for the |observed_view|. The |old_value| must be
+  // cast to the appropriate type before use, see |ui::ClassPropertyCaster|.
+  virtual void OnViewPropertyChanged(View* observed_view,
+                                     const void* key,
+                                     int64_t old_value) {}
 
  protected:
   virtual ~ViewObserver() = default;

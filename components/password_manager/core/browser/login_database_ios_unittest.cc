@@ -1,17 +1,19 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/password_manager/core/browser/login_database.h"
 
+#include <CoreFoundation/CoreFoundation.h>
 #include <Security/Security.h>
 #include <stddef.h>
 
 #include <tuple>
 
-#include "base/cxx17_backports.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/mac/foundation_util.h"
 #include "base/mac/scoped_cftyperef.h"
+#include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/task_environment.h"
 #include "components/password_manager/core/browser/password_form.h"
@@ -56,7 +58,7 @@ void LoginDatabaseIOSTest::ClearKeychain() {
   const void* queryKeys[] = {kSecClass};
   const void* queryValues[] = {kSecClassGenericPassword};
   ScopedCFTypeRef<CFDictionaryRef> query(CFDictionaryCreate(
-      NULL, queryKeys, queryValues, base::size(queryKeys),
+      NULL, queryKeys, queryValues, std::size(queryKeys),
       &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks));
   OSStatus status = SecItemDelete(query);
   // iOS7 returns an error of |errSecItemNotFound| if you try to clear an empty
@@ -75,15 +77,14 @@ size_t LoginDatabaseIOSTest::GetKeychainSize() {
   CFDictionarySetValue(query, kSecAttrAccessible,
                        kSecAttrAccessibleWhenUnlocked);
 
-  CFTypeRef result;
-  OSStatus status = SecItemCopyMatching(query, &result);
-  if (status == errSecItemNotFound)
+  ScopedCFTypeRef<CFTypeRef> result;
+  OSStatus status = SecItemCopyMatching(query, result.InitializeInto());
+  if (status == errSecItemNotFound) {
     return 0;
-
+  }
   EXPECT_EQ(errSecSuccess, status);
-  size_t size = CFArrayGetCount((CFArrayRef)result);
-  CFRelease(result);
-  return size;
+
+  return CFArrayGetCount(base::mac::CFCast<CFArrayRef>(result));
 }
 
 TEST_F(LoginDatabaseIOSTest, KeychainStorage) {
@@ -94,7 +95,7 @@ TEST_F(LoginDatabaseIOSTest, KeychainStorage) {
       std::u16string(),
   };
 
-  for (unsigned int i = 0; i < base::size(test_passwords); i++) {
+  for (unsigned int i = 0; i < std::size(test_passwords); i++) {
     std::string encrypted;
     EXPECT_EQ(LoginDatabase::ENCRYPTION_RESULT_SUCCESS,
               login_db_->EncryptedString(test_passwords[i], &encrypted));
@@ -121,20 +122,15 @@ TEST_F(LoginDatabaseIOSTest, AddLogin) {
   ASSERT_FALSE(encrypted_password.empty());
   ASSERT_EQ(1U, GetKeychainSize());
 
-  CFStringRef cf_encrypted_password = CFStringCreateWithCString(
-      kCFAllocatorDefault, encrypted_password.c_str(), kCFStringEncodingUTF8);
-
   ScopedCFTypeRef<CFMutableDictionaryRef> query(
-      CFDictionaryCreateMutable(NULL, 4, &kCFTypeDictionaryKeyCallBacks,
+      CFDictionaryCreateMutable(nullptr, 4, &kCFTypeDictionaryKeyCallBacks,
                                 &kCFTypeDictionaryValueCallBacks));
   CFDictionarySetValue(query, kSecClass, kSecClassGenericPassword);
   CFDictionarySetValue(query, kSecReturnAttributes, kCFBooleanTrue);
-  CFDictionarySetValue(query, kSecAttrAccount, cf_encrypted_password);
+  CFDictionarySetValue(query, kSecAttrAccount,
+                       base::SysUTF8ToCFStringRef(encrypted_password));
 
-  CFTypeRef result;
-  EXPECT_EQ(errSecSuccess, SecItemCopyMatching(query, &result));
-  CFRelease(cf_encrypted_password);
-  CFRelease(result);
+  EXPECT_EQ(errSecSuccess, SecItemCopyMatching(query, nullptr));
 }
 
 TEST_F(LoginDatabaseIOSTest, UpdateLogin) {
@@ -199,7 +195,7 @@ TEST_F(LoginDatabaseIOSTest, RemoveLoginsCreatedBetween) {
   forms[2].date_created = base::Time::FromDoubleT(300);
   forms[2].password_value = u"pass2";
 
-  for (size_t i = 0; i < base::size(forms); i++) {
+  for (size_t i = 0; i < std::size(forms); i++) {
     std::ignore = login_db_->AddLogin(forms[i]);
   }
 

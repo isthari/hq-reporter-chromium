@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -66,6 +66,24 @@ enum LoadingBehaviorFlag {
   kLoadingBehaviorPreactFrameworkUsed = 1 << 18,
   // Indicates that the page uses the React JavaScript framework.
   kLoadingBehaviorReactFrameworkUsed = 1 << 19,
+  // Indicates that the page is controlled by a Service Worker, but
+  // the fetch handler is considered skippable.
+  kLoadingBehaviorServiceWorkerFetchHandlerSkippable = 1 << 20,
+  // Indicates that the main resource fetch for the page controlled by
+  // a service worker at the navigation time fallback to network.
+  kLoadingBehaviorServiceWorkerMainResourceFetchFallback = 1 << 21,
+  // Indicates that the page uses the Drupal CMS.
+  kLoadingBehaviorDrupalCMSUsed = 1 << 22,
+  // Indicates that the page uses the Joomla CMS.
+  kLoadingBehaviorJoomlaCMSUsed = 1 << 23,
+  // Indicates that the page uses the Shopify CMS.
+  kLoadingBehaviorShopifyCMSUsed = 1 << 24,
+  // Indicates that the page uses the Squarespace CMS.
+  kLoadingBehaviorSquarespaceCMSUsed = 1 << 25,
+  // Indicates that the page uses the Wix CMS.
+  kLoadingBehaviorWixCMSUsed = 1 << 26,
+  // Indicates that the page uses the WordPress CMS.
+  kLoadingBehaviorWordPressCMSUsed = 1 << 27,
 };
 
 }  // namespace blink

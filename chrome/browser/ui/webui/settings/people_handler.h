@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,8 +20,8 @@
 #include "components/prefs/pref_change_registrar.h"
 #include "components/signin/public/base/signin_buildflags.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
-#include "components/sync/driver/sync_service.h"
-#include "components/sync/driver/sync_service_observer.h"
+#include "components/sync/service/sync_service.h"
+#include "components/sync/service/sync_service_observer.h"
 #include "content/public/browser/web_contents_observer.h"
 
 class LoginUIService;
@@ -67,6 +67,7 @@ class PeopleHandler : public SettingsPageUIHandler,
 
  private:
   friend class PeopleHandlerTest;
+  friend class PeopleHandlerSignoutTest;
   FRIEND_TEST_ALL_PREFIXES(PeopleHandlerTest,
                            DisplayConfigureWithEngineDisabledAndCancel);
   FRIEND_TEST_ALL_PREFIXES(
@@ -120,6 +121,19 @@ class PeopleHandler : public SettingsPageUIHandler,
   FRIEND_TEST_ALL_PREFIXES(PeopleHandlerGuestModeTest, GetStoredAccountsList);
   FRIEND_TEST_ALL_PREFIXES(PeopleHandlerTest, TurnOffSync);
   FRIEND_TEST_ALL_PREFIXES(PeopleHandlerTest, GetStoredAccountsList);
+  FRIEND_TEST_ALL_PREFIXES(PeopleHandlerMainProfile, Signout);
+  FRIEND_TEST_ALL_PREFIXES(PeopleHandlerSecondaryProfile, SignoutWhenSyncing);
+  FRIEND_TEST_ALL_PREFIXES(PeopleHandlerMainProfile, GetStoredAccountsList);
+  FRIEND_TEST_ALL_PREFIXES(PeopleHandlerSecondaryProfile,
+                           GetStoredAccountsList);
+#if DCHECK_IS_ON()
+  FRIEND_TEST_ALL_PREFIXES(PeopleHandlerMainProfile, DeleteProfileCrashes);
+  FRIEND_TEST_ALL_PREFIXES(PeopleHandlerSignoutTest, RevokeSyncNotAllowed);
+  FRIEND_TEST_ALL_PREFIXES(PeopleHandlerSignoutTest, SignoutNotAllowedSyncOff);
+#endif
+  FRIEND_TEST_ALL_PREFIXES(PeopleHandlerSignoutTest, SignoutNotAllowedSyncOn);
+  FRIEND_TEST_ALL_PREFIXES(PeopleHandlerSignoutTest, SignoutWithSyncOff);
+  FRIEND_TEST_ALL_PREFIXES(PeopleHandlerSignoutTest, SignoutWithSyncOn);
 
   // SettingsPageUIHandler implementation.
   void RegisterMessages() override;
@@ -143,7 +157,7 @@ class PeopleHandler : public SettingsPageUIHandler,
 
   // Returns a newly created dictionary with a number of properties that
   // correspond to the status of sync.
-  base::Value GetSyncStatusDictionary() const;
+  base::Value::Dict GetSyncStatusDictionary() const;
 
   // Helper routine that gets the SyncService associated with the parent
   // profile.
@@ -153,28 +167,30 @@ class PeopleHandler : public SettingsPageUIHandler,
   LoginUIService* GetLoginUIService() const;
 
   // Callbacks from the page.
-  void HandleGetProfileInfo(base::Value::ConstListView args);
-  void OnDidClosePage(base::Value::ConstListView args);
-  void HandleSetDatatypes(base::Value::ConstListView args);
-  void HandleSetEncryptionPassphrase(base::Value::ConstListView args);
-  void HandleSetDecryptionPassphrase(base::Value::ConstListView args);
-  void HandleShowSyncSetupUI(base::Value::ConstListView args);
-  void HandleSyncPrefsDispatch(base::Value::ConstListView args);
-  void HandleTrustedVaultBannerStateDispatch(base::Value::ConstListView args);
+  void HandleGetProfileInfo(const base::Value::List& args);
+  void OnDidClosePage(const base::Value::List& args);
+  void HandleSetDatatypes(const base::Value::List& args);
+  void HandleSetEncryptionPassphrase(const base::Value::List& args);
+  void HandleSetDecryptionPassphrase(const base::Value::List& args);
+  void HandleShowSyncSetupUI(const base::Value::List& args);
+  void HandleSyncPrefsDispatch(const base::Value::List& args);
+  void HandleTrustedVaultBannerStateDispatch(const base::Value::List& args);
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  void HandleAttemptUserExit(base::Value::ConstListView args);
-  void HandleTurnOnSync(base::Value::ConstListView args);
-  void HandleTurnOffSync(base::Value::ConstListView args);
+  void HandleAttemptUserExit(const base::Value::List& args);
+  void HandleTurnOnSync(const base::Value::List& args);
+  void HandleTurnOffSync(const base::Value::List& args);
 #else
-  void HandleStartSignin(base::Value::ConstListView args);
+  void HandleStartSignin(const base::Value::List& args);
+#endif
+#if BUILDFLAG(ENABLE_DICE_SUPPORT) || BUILDFLAG(IS_CHROMEOS_LACROS)
+  void HandleSignout(const base::Value::List& args);
 #endif
 #if BUILDFLAG(ENABLE_DICE_SUPPORT)
-  void HandleSignout(base::Value::ConstListView args);
-  void HandlePauseSync(base::Value::ConstListView args);
+  void HandlePauseSync(const base::Value::List& args);
 #endif
-  void HandleStartKeyRetrieval(base::Value::ConstListView args);
-  void HandleGetSyncStatus(base::Value::ConstListView args);
+  void HandleStartKeyRetrieval(const base::Value::List& args);
+  void HandleGetSyncStatus(const base::Value::List& args);
 
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
   // Displays the GAIA login form.
@@ -186,9 +202,9 @@ class PeopleHandler : public SettingsPageUIHandler,
       signin_metrics::AccessPoint access_point);
 #endif
 
-  void HandleGetStoredAccounts(base::Value::ConstListView args);
-  void HandleStartSyncingWithEmail(base::Value::ConstListView args);
-  base::Value GetStoredAccountsList();
+  void HandleGetStoredAccounts(const base::Value::List& args);
+  void HandleStartSyncingWithEmail(const base::Value::List& args);
+  base::Value::List GetStoredAccountsList();
 
   // Pushes the updated sync prefs to JavaScript.
   void PushSyncPrefs();

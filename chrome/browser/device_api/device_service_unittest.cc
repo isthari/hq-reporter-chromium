@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/memory/raw_ptr.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/web_applications/policy/web_app_policy_constants.h"
 #include "chrome/common/chrome_features.h"
@@ -59,31 +60,29 @@ class DeviceAPIServiceTest : public ChromeRenderViewHostTestHarness {
   }
 
   void InstallTrustedApp() {
-    ListPrefUpdate update(profile()->GetPrefs(),
-                          prefs::kWebAppInstallForceList);
-    base::Value app_policy(base::Value::Type::DICTIONARY);
-    app_policy.SetStringKey(web_app::kUrlKey, kDefaultAppInstallUrl);
+    ScopedListPrefUpdate update(profile()->GetPrefs(),
+                                prefs::kWebAppInstallForceList);
+    base::Value::Dict app_policy;
+    app_policy.Set(web_app::kUrlKey, kDefaultAppInstallUrl);
     update->Append(std::move(app_policy));
   }
 
   void RemoveTrustedApp() {
-    ListPrefUpdate update(profile()->GetPrefs(),
-                          prefs::kWebAppInstallForceList);
-    update->ClearList();
+    profile()->GetPrefs()->SetList(prefs::kWebAppInstallForceList,
+                                   base::Value::List());
   }
 
   void SetAllowedOrigin() {
-    base::Value allowed_origins(base::Value::Type::LIST);
-    allowed_origins.Append(base::Value(kTrustedUrl));
-    allowed_origins.Append(base::Value(kKioskAppInstallUrl));
-    profile()->GetPrefs()->Set(prefs::kDeviceAttributesAllowedForOrigins,
-                               allowed_origins);
+    base::Value::List allowed_origins;
+    allowed_origins.Append(kTrustedUrl);
+    allowed_origins.Append(kKioskAppInstallUrl);
+    profile()->GetPrefs()->SetList(prefs::kDeviceAttributesAllowedForOrigins,
+                                   std::move(allowed_origins));
   }
 
   void RemoveAllowedOrigin() {
-    ListPrefUpdate update(profile()->GetPrefs(),
-                          prefs::kDeviceAttributesAllowedForOrigins);
-    update->ClearList();
+    profile()->GetPrefs()->SetList(prefs::kDeviceAttributesAllowedForOrigins,
+                                   base::Value::List());
   }
 
   void TryCreatingService(const GURL& url) {
@@ -140,7 +139,7 @@ class DeviceAPIServiceRegularUserTest : public DeviceAPIServiceTest {
  public:
   DeviceAPIServiceRegularUserTest()
       : fake_user_manager_(new user_manager::FakeUserManager()),
-        scoped_user_manager_(base::WrapUnique(fake_user_manager_)) {}
+        scoped_user_manager_(base::WrapUnique(fake_user_manager_.get())) {}
 
   void LoginRegularUser(bool is_affiliated) {
     const user_manager::User* user =
@@ -155,7 +154,7 @@ class DeviceAPIServiceRegularUserTest : public DeviceAPIServiceTest {
   }
 
  private:
-  user_manager::FakeUserManager* fake_user_manager_;
+  raw_ptr<user_manager::FakeUserManager, ExperimentalAsh> fake_user_manager_;
   user_manager::ScopedUserManager scoped_user_manager_;
 };
 
@@ -179,7 +178,7 @@ class DeviceAPIServiceWithKioskUserTest : public DeviceAPIServiceTest {
  public:
   DeviceAPIServiceWithKioskUserTest()
       : fake_user_manager_(new ash::FakeChromeUserManager()),
-        scoped_user_manager_(base::WrapUnique(fake_user_manager_)) {}
+        scoped_user_manager_(base::WrapUnique(fake_user_manager_.get())) {}
 
   void SetUp() override {
     DeviceAPIServiceTest::SetUp();
@@ -206,7 +205,7 @@ class DeviceAPIServiceWithKioskUserTest : public DeviceAPIServiceTest {
   ash::WebKioskAppManager* app_manager() const { return app_manager_.get(); }
 
  private:
-  ash::FakeChromeUserManager* fake_user_manager_;
+  raw_ptr<ash::FakeChromeUserManager, ExperimentalAsh> fake_user_manager_;
   user_manager::ScopedUserManager scoped_user_manager_;
   std::unique_ptr<ash::WebKioskAppManager> app_manager_;
   base::test::ScopedCommandLine command_line_;

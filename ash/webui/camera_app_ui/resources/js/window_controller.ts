@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,8 @@ import {
 import {wrapEndpoint} from './mojo/util.js';
 
 type WindowStateChangedEventListener = (states: WindowStateType[]) => void;
+
+type WindowFocusChangedEventListener = (isFocused: boolean) => void;
 
 /**
  * Controller to get/set/listener for window state.
@@ -29,7 +31,14 @@ export class WindowController {
   /**
    * Set of the listeners for window state changed events.
    */
-  private readonly listeners = new Set<WindowStateChangedEventListener>();
+  private readonly windowStateListeners =
+      new Set<WindowStateChangedEventListener>();
+
+  /**
+   * Set of the listeners for window focus changed events.
+   */
+  private readonly windowFocusListeners =
+      new Set<WindowFocusChangedEventListener>();
 
   /**
    * Binds the controller remote from Mojo interface.
@@ -39,10 +48,19 @@ export class WindowController {
 
     const windowMonitorCallbackRouter =
         wrapEndpoint(new WindowStateMonitorCallbackRouter());
-    windowMonitorCallbackRouter.onWindowStateChanged.addListener((states) => {
-      this.windowStates = states;
-      this.listeners.forEach((listener) => listener(states));
-    });
+    windowMonitorCallbackRouter.onWindowStateChanged.addListener(
+        (states: WindowStateType[]) => {
+          this.windowStates = states;
+          for (const listener of this.windowStateListeners) {
+            listener(states);
+          }
+        });
+    windowMonitorCallbackRouter.onWindowFocusChanged.addListener(
+        (isFocused: boolean) => {
+          for (const listener of this.windowFocusListeners) {
+            listener(isFocused);
+          }
+        });
     const {states} = await this.windowStateController.addMonitor(
         windowMonitorCallbackRouter.$.bindNewPipeAndPassRemote());
     this.windowStates = states;
@@ -109,10 +127,17 @@ export class WindowController {
   }
 
   /**
-   * Adds listener for the window state (including window size) changed events.
+   * Adds listener for the window state changed events.
    */
-  addListener(listener: WindowStateChangedEventListener): void {
-    this.listeners.add(listener);
+  addWindowStateListener(listener: WindowStateChangedEventListener): void {
+    this.windowStateListeners.add(listener);
+  }
+
+  /**
+   * Adds listener for the window focus changed events.
+   */
+  addWindowFocusListener(listener: WindowFocusChangedEventListener): void {
+    this.windowFocusListeners.add(listener);
   }
 }
 

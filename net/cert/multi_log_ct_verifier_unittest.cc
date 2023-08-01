@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -82,23 +82,24 @@ class MultiLogCTVerifierTest : public ::testing::Test {
       return false;
 
     const NetLogEntry& parsed = entries[1];
-    if (!parsed.params.is_dict())
+    if (parsed.params.empty()) {
+      return false;
+    }
+
+    const base::Value::List* scts = parsed.params.FindList("scts");
+    if (!scts || scts->size() != 1)
       return false;
 
-    const base::Value* scts = parsed.params.FindListPath("scts");
-    if (!scts || scts->GetList().size() != 1)
-      return false;
-
-    const base::Value& the_sct = scts->GetList()[0];
+    const base::Value& the_sct = (*scts)[0];
     if (!the_sct.is_dict())
       return false;
 
-    const std::string* origin = the_sct.FindStringPath("origin");
+    const std::string* origin = the_sct.GetDict().FindString("origin");
     if (!origin || *origin != "Embedded in certificate")
       return false;
 
     const std::string* verification_status =
-        the_sct.FindStringPath("verification_status");
+        the_sct.GetDict().FindString("verification_status");
     if (!verification_status || *verification_status != "Verified")
       return false;
 

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,26 @@
 
 #import <Foundation/Foundation.h>
 
-#import "ios/chrome/browser/ui/list_model/list_model.h"
+#import "ios/chrome/browser/shared/ui/list_model/list_model.h"
 
 // Accessibility identifier for the Data from Chrome Sync cell.
 extern NSString* const kDataFromChromeSyncAccessibilityIdentifier;
 
 // Accessibility identifier for Manage Sync table view.
 extern NSString* const kManageSyncTableViewAccessibilityIdentifier;
+
+// Accessibility identifiers for sync switch items.
+extern NSString* const kSyncEverythingItemAccessibilityIdentifier;
+extern NSString* const kSyncBookmarksIdentifier;
+extern NSString* const kSyncOmniboxHistoryIdentifier;
+extern NSString* const kSyncPasswordsIdentifier;
+extern NSString* const kSyncOpenTabsIdentifier;
+extern NSString* const kSyncAutofillIdentifier;
+extern NSString* const kSyncPreferencesIdentifier;
+extern NSString* const kSyncReadingListIdentifier;
+
+// Accessibility identifier for Encryption item.
+extern NSString* const kEncryptionAccessibilityIdentifier;
 
 // Sections used in Sync Settings page.
 typedef NS_ENUM(NSInteger, SyncSettingsSectionIdentifier) {

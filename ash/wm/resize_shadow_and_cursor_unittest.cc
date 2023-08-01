@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,9 @@
 #include "ash/wm/resize_shadow.h"
 #include "ash/wm/resize_shadow_controller.h"
 #include "ash/wm/window_state.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/memory/raw_ptr.h"
+#include "base/ranges/algorithm.h"
 #include "chromeos/ui/base/chromeos_ui_constants.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "ui/aura/window_event_dispatcher.h"
@@ -114,7 +116,7 @@ class ResizeShadowAndCursorTest : public AshTestBase {
       if (visible) {
         // Make sure the shadow layer is stacked directly beneath the window
         // layer.
-        EXPECT_EQ(*(std::find(layers.begin(), layers.end(), shadow_layer) + 1),
+        EXPECT_EQ(*(base::ranges::find(layers, shadow_layer) + 1),
                   window_->layer());
       }
     }
@@ -141,7 +143,7 @@ class ResizeShadowAndCursorTest : public AshTestBase {
   aura::Window* window() { return window_; }
 
  private:
-  aura::Window* window_;
+  raw_ptr<aura::Window, ExperimentalAsh> window_;
 };
 
 // Test whether the resize shadows are visible and the cursor type based on the
@@ -532,6 +534,25 @@ TEST_F(ResizeShadowAndCursorTest, OverviewModeChange) {
   VerifyResizeShadow(false);
   ExitOverview();
   VerifyResizeShadow(true);
+}
+
+// Tests that the code does not break when we unparent a window with a shadow
+// and then try to rearrange the hierarchy. (b/257306979)
+TEST_F(ResizeShadowAndCursorTest, ShadowCanExistInUnparentedWindow) {
+  ASSERT_FALSE(GetShadow());
+  window()->SetProperty(kResizeShadowTypeKey, ResizeShadowType::kLock);
+  auto* controller = Shell::Get()->resize_shadow_controller();
+  controller->ShowShadow(window());
+  ASSERT_TRUE(GetShadow());
+  window()->Show();
+  auto* parent = window()->parent();
+  parent->RemoveChild(window());
+
+  // Previously this would break the code because a hierarchy change on an
+  // unparented window with a shadow would try to use the window layer's null
+  // parent layer to reparent the shadow.
+  ASSERT_TRUE(parent);
+  parent->AddChild(window());
 }
 
 }  // namespace ash

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,6 +22,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisableIf;
@@ -33,7 +34,6 @@ import org.chromium.content.browser.input.ImeTestUtils;
 import org.chromium.content.browser.selection.SelectionPopupControllerImpl;
 import org.chromium.content_public.browser.SelectAroundCaretResult;
 import org.chromium.content_public.browser.SelectionClient;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.test.ContentJUnit4ClassRunner;
 import org.chromium.content_public.browser.test.util.DOMUtils;
@@ -89,8 +89,7 @@ public class ContentTextSelectionTest {
                 result = new SelectionClient.Result();
             }
 
-            PostTask.postTask(
-                    UiThreadTaskTraits.DEFAULT, () -> mResultCallback.onClassified(result));
+            PostTask.postTask(TaskTraits.UI_DEFAULT, () -> mResultCallback.onClassified(result));
             return true;
         }
 
@@ -306,6 +305,7 @@ public class ContentTextSelectionTest {
     @Test
     @SmallTest
     @Feature({"TextInput"})
+    @DisabledTest(message = "https://crbug.com/1360509")
     public void testPastePopupCanSelectAllNonEmptyInput() throws Throwable {
         // Clipboard has to be non-empty for this test to work on SDK < M.
         copyStringToClipboard("SampleTextToCopy");
@@ -342,7 +342,7 @@ public class ContentTextSelectionTest {
     @Test
     @SmallTest
     @Feature({"TextInput"})
-    @DisableIf.Build(sdk_is_less_than = Build.VERSION_CODES.O)
+    @DisabledTest(message = "crbug.com/1426223")
     public void testPastePopupPasteAsPlainTextHtmlTextRichEditor() throws Throwable {
         copyHtmlToClipboard("SampleTextToCopy", "<span style=\"color: red;\">HTML</span>");
         DOMUtils.longPressNode(mWebContents, "rich_div");
@@ -429,7 +429,7 @@ public class ContentTextSelectionTest {
     @Test
     @SmallTest
     @Feature({"TextInput"})
-    @DisabledTest(message = "https://crbug.com/592428")
+    @DisabledTest(message = "https://crbug.com/1315297")
     public void testPastePopupDismissedOnDestroy() throws Throwable {
         copyStringToClipboard("SampleTextToCopy");
         DOMUtils.longPressNode(mWebContents, "empty_input_text");
@@ -769,7 +769,7 @@ public class ContentTextSelectionTest {
     @Test
     @SmallTest
     @Feature({"TextInput"})
-    @DisabledTest(message = "crbug.com/592428")
+    @DisabledTest(message = "https://crbug.com/1315299")
     public void testSelectActionBarTextAreaPaste() throws Throwable {
         copyStringToClipboard("SampleTextToCopy");
         DOMUtils.longPressNode(mWebContents, "textarea");

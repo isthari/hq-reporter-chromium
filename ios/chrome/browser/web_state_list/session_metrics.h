@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,8 +14,7 @@ class ChromeBrowserState;
 // at the same time.
 enum class MetricsToRecordFlags : unsigned int {
   kNoMetrics = 0,
-  kClosedTabCount = 1 << 0,
-  kOpenedTabCount = 1 << 1,
+  // kClosedTabCount(1), kOpenedTabCount(2) no longer used.
   kActivatedTabCount = 1 << 2,
 };
 
@@ -43,7 +42,7 @@ class SessionMetrics : public base::SupportsUserData::Data {
   SessionMetrics(const SessionMetrics&) = delete;
   SessionMetrics& operator=(const SessionMetrics&) = delete;
 
-  // Record metrics counters specified by |metrics_to_record| which is a
+  // Record metrics counters specified by `metrics_to_record` which is a
   // bitwise "or" combination of MetricsToRecordFlags. All other metrics
   // are cleared.
   void RecordAndClearSessionMetrics(MetricsToRecordFlagSet flag_set);
@@ -51,8 +50,6 @@ class SessionMetrics : public base::SupportsUserData::Data {
 
   // Called when the corresponding event is triggered so that
   // the appropriate metric is incremented.
-  void OnWebStateInserted();
-  void OnWebStateDetached();
   void OnWebStateActivated();
 
  private:
@@ -60,8 +57,6 @@ class SessionMetrics : public base::SupportsUserData::Data {
   void ResetSessionMetrics();
 
   // Counters for metrics.
-  unsigned int inserted_web_state_counter_ = 0;
-  unsigned int detached_web_state_counter_ = 0;
   unsigned int activated_web_state_counter_ = 0;
 };
 

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,15 +42,16 @@ AtomicString FetchUtils::NormalizeMethod(const AtomicString& method) {
 
   // We place GET and POST first because they are more commonly used than
   // others.
-  const char* const kMethods[] = {
-      "GET", "POST", "DELETE", "HEAD", "OPTIONS", "PUT",
+  const AtomicString* kMethods[] = {
+      &http_names::kGET,  &http_names::kPOST,    &http_names::kDELETE,
+      &http_names::kHEAD, &http_names::kOPTIONS, &http_names::kPUT,
   };
 
   for (auto* const known : kMethods) {
-    if (EqualIgnoringASCIICase(method, known)) {
+    if (EqualIgnoringASCIICase(method, *known)) {
       // Don't bother allocating a new string if it's already all
       // uppercase.
-      return method == known ? method : known;
+      return method == *known ? method : *known;
     }
   }
   return method;

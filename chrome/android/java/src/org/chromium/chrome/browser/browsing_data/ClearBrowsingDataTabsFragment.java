@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,6 @@ import android.view.ViewGroup;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
 import androidx.fragment.app.FragmentManager;
-import androidx.vectordrawable.graphics.drawable.VectorDrawableCompat;
 import androidx.viewpager2.adapter.FragmentStateAdapter;
 import androidx.viewpager2.widget.ViewPager2;
 
@@ -25,17 +24,20 @@ import com.google.android.material.tabs.TabLayoutMediator;
 
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.feedback.HelpAndFeedbackLauncherImpl;
-import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.feedback.FragmentHelpAndFeedbackLauncher;
+import org.chromium.chrome.browser.feedback.HelpAndFeedbackLauncher;
 import org.chromium.chrome.browser.settings.SettingsActivity;
+import org.chromium.components.browser_ui.util.TraceEventVectorDrawableCompat;
 
 /**
  * Fragment with a {@link TabLayout} containing a basic and an advanced version of the CBD dialog.
  */
-public class ClearBrowsingDataTabsFragment extends Fragment {
+public class ClearBrowsingDataTabsFragment
+        extends Fragment implements FragmentHelpAndFeedbackLauncher {
     public static final int CBD_TAB_COUNT = 2;
 
     private ClearBrowsingDataFetcher mFetcher;
+    private HelpAndFeedbackLauncher mHelpAndFeedbackLauncher;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -160,7 +162,7 @@ public class ClearBrowsingDataTabsFragment extends Fragment {
         menu.clear();
         MenuItem help =
                 menu.add(Menu.NONE, R.id.menu_id_targeted_help, Menu.NONE, R.string.menu_help);
-        help.setIcon(VectorDrawableCompat.create(
+        help.setIcon(TraceEventVectorDrawableCompat.create(
                 getResources(), R.drawable.ic_help_and_feedback, getActivity().getTheme()));
         help.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
     }
@@ -168,11 +170,15 @@ public class ClearBrowsingDataTabsFragment extends Fragment {
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         if (item.getItemId() == R.id.menu_id_targeted_help) {
-            HelpAndFeedbackLauncherImpl.getInstance().show(getActivity(),
-                    getString(R.string.help_context_clear_browsing_data),
-                    Profile.getLastUsedRegularProfile(), null);
+            mHelpAndFeedbackLauncher.show(
+                    getActivity(), getString(R.string.help_context_clear_browsing_data), null);
             return true;
         }
         return false;
+    }
+
+    @Override
+    public void setHelpAndFeedbackLauncher(HelpAndFeedbackLauncher helpAndFeedbackLauncher) {
+        mHelpAndFeedbackLauncher = helpAndFeedbackLauncher;
     }
 }

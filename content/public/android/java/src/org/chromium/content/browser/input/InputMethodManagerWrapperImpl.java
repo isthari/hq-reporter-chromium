@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,14 +18,13 @@ import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.Log;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
+import org.chromium.content_public.browser.ContentFeatureList;
 import org.chromium.content_public.browser.InputMethodManagerWrapper;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.display.DisplayAndroid;
 
 import java.lang.ref.WeakReference;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 
 /**
  * Wrapper around Android's InputMethodManager
@@ -42,12 +41,16 @@ public class InputMethodManagerWrapperImpl implements InputMethodManagerWrapper 
 
     private Runnable mPendingRunnableOnInputConnection;
 
+    private boolean mOptimizeImmHideCalls;
+
     public InputMethodManagerWrapperImpl(
             Context context, WindowAndroid windowAndroid, Delegate delegate) {
         if (DEBUG_LOGS) Log.i(TAG, "Constructor");
         mContext = context;
         mWindowAndroid = windowAndroid;
         mDelegate = delegate;
+        mOptimizeImmHideCalls =
+                ContentFeatureList.isEnabled(ContentFeatureList.OPTIMIZE_IMM_HIDE_CALLS);
     }
 
     @Override
@@ -167,11 +170,11 @@ public class InputMethodManagerWrapperImpl implements InputMethodManagerWrapper 
             IBinder windowToken, int flags, ResultReceiver resultReceiver) {
         if (DEBUG_LOGS) Log.i(TAG, "hideSoftInputFromWindow");
         mPendingRunnableOnInputConnection = null;
+        InputMethodManager manager = getInputMethodManager();
+        if (manager == null || mOptimizeImmHideCalls && !manager.isAcceptingText()) return false;
         StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskWrites(); // crbug.com/616283
         try {
-            InputMethodManager manager = getInputMethodManager();
-            return manager != null
-                    && manager.hideSoftInputFromWindow(windowToken, flags, resultReceiver);
+            return manager.hideSoftInputFromWindow(windowToken, flags, resultReceiver);
         } finally {
             StrictMode.setThreadPolicy(oldPolicy);
         }
@@ -207,27 +210,10 @@ public class InputMethodManagerWrapperImpl implements InputMethodManagerWrapper 
     }
 
     @Override
-    public void notifyUserAction() {
-        // On N and above, this is not needed.
-        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.M) return;
-        if (DEBUG_LOGS) Log.i(TAG, "notifyUserAction");
-        InputMethodManager manager = getInputMethodManager();
-        if (manager == null) return;
-        try {
-            Method method = InputMethodManager.class.getMethod("notifyUserAction");
-            method.invoke(manager);
-        } catch (NoSuchMethodException | IllegalAccessException | IllegalArgumentException
-                | InvocationTargetException e) {
-            if (DEBUG_LOGS) Log.i(TAG, "notifyUserAction failed");
-            return;
-        }
-    }
-
-    @Override
     public void onInputConnectionCreated() {
         if (mPendingRunnableOnInputConnection == null) return;
         Runnable runnable = mPendingRunnableOnInputConnection;
         mPendingRunnableOnInputConnection = null;
-        PostTask.postTask(UiThreadTaskTraits.DEFAULT, runnable);
+        PostTask.postTask(TaskTraits.UI_DEFAULT, runnable);
     }
 }

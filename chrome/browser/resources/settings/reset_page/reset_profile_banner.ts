@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,16 +7,17 @@
  * 'settings-reset-profile-banner' is the banner shown for prompting the user to
  * clear profile settings.
  */
-import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
-import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.m.js';
+import 'chrome://resources/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
 
-import {CrDialogElement} from 'chrome://resources/cr_elements/cr_dialog/cr_dialog.m.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {CrDialogElement} from 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {routes} from '../route.js';
 import {Router} from '../router.js';
 
 import {ResetBrowserProxyImpl} from './reset_browser_proxy.js';
+import {getTemplate} from './reset_profile_banner.html.js';
 
 export interface SettingsResetProfileBannerElement {
   $: {
@@ -32,16 +33,16 @@ export class SettingsResetProfileBannerElement extends PolymerElement {
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
-  connectedCallback() {
+  override connectedCallback() {
     super.connectedCallback();
 
     this.$.dialog.showModal();
   }
 
-  private onOkTap_() {
+  private onOkClick_() {
     this.$.dialog.cancel();
   }
 
@@ -49,7 +50,7 @@ export class SettingsResetProfileBannerElement extends PolymerElement {
     ResetBrowserProxyImpl.getInstance().onHideResetProfileBanner();
   }
 
-  private onResetTap_() {
+  private onResetClick_() {
     this.$.dialog.close();
     Router.getInstance().navigateTo(routes.RESET_DIALOG);
   }

@@ -34,6 +34,7 @@
 #include "third_party/blink/public/mojom/permissions_policy/permissions_policy.mojom-blink.h"
 #include "third_party/blink/public/mojom/permissions_policy/policy_value.mojom-blink.h"
 #include "third_party/blink/public/mojom/security_context/insecure_request_policy.mojom-blink.h"
+#include "third_party/blink/public/mojom/use_counter/metrics/web_feature.mojom-shared.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/platform/weborigin/scheme_registry.h"
@@ -47,7 +48,7 @@ WTF::Vector<unsigned> SecurityContext::SerializeInsecureNavigationSet(
   // The set is serialized as a sorted array. Sorting it makes it easy to know
   // if two serialized sets are equal.
   WTF::Vector<unsigned> serialized;
-  serialized.ReserveCapacity(set.size());
+  serialized.reserve(set.size());
   for (unsigned host : set)
     serialized.emplace_back(host);
   std::sort(serialized.begin(), serialized.end());
@@ -91,11 +92,15 @@ void SecurityContext::SetSecurityOrigin(
         is_worker_transition_to_opaque);
   security_origin_ = std::move(security_origin);
 
-  if (!security_origin_->IsPotentiallyTrustworthy()) {
+  if (!security_origin_->IsPotentiallyTrustworthy() &&
+      !is_worker_loaded_from_data_url_) {
     secure_context_mode_ = SecureContextMode::kInsecureContext;
     secure_context_explanation_ = SecureContextModeExplanation::kInsecureScheme;
   } else if (SchemeRegistry::SchemeShouldBypassSecureContextCheck(
                  security_origin_->Protocol())) {
+    // data: URL has opaque origin so security_origin's protocol will be empty
+    // and should never be bypassed.
+    CHECK(!is_worker_loaded_from_data_url_);
     secure_context_mode_ = SecureContextMode::kSecureContext;
     secure_context_explanation_ = SecureContextModeExplanation::kSecure;
   } else if (execution_context_) {

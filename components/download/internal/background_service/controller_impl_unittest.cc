@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,14 +9,14 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/guid.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/string_util.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/test_mock_time_task_runner.h"
 #include "base/test/test_simple_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/uuid.h"
 #include "components/download/internal/background_service/client_set.h"
 #include "components/download/internal/background_service/config.h"
 #include "components/download/internal/background_service/entry.h"
@@ -51,6 +51,8 @@ namespace {
 
 const base::FilePath::CharType kDownloadDirPath[] =
     FILE_PATH_LITERAL("/test/downloads");
+constexpr char kKey[] = "k";
+constexpr char kValue[] = "v";
 
 bool GuidInEntryList(const std::vector<Entry>& entries,
                      const std::string& guid) {
@@ -93,7 +95,7 @@ void UploadClient::GetUploadData(const std::string& guid,
   scoped_refptr<network::ResourceRequestBody> post_body =
       new network::ResourceRequestBody();
   unsigned int delay = upload_response_delay_[guid];
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE, base::BindOnce(std::move(callback), post_body),
       base::Seconds(delay));
 }
@@ -127,7 +129,7 @@ class DownloadServiceControllerImplTest : public testing::Test {
  public:
   DownloadServiceControllerImplTest()
       : task_runner_(new base::TestMockTimeTaskRunner),
-        handle_(task_runner_),
+        current_default_handle_(task_runner_),
         controller_(nullptr),
         client_(nullptr),
         driver_(nullptr),
@@ -215,7 +217,7 @@ class DownloadServiceControllerImplTest : public testing::Test {
   DownloadParams MakeDownloadParams() {
     DownloadParams params;
     params.client = DownloadClient::TEST;
-    params.guid = base::GenerateGUID();
+    params.guid = base::Uuid::GenerateRandomV4().AsLowercaseString();
     params.callback = start_callback_;
     return params;
   }
@@ -224,7 +226,7 @@ class DownloadServiceControllerImplTest : public testing::Test {
                void(const std::string&, DownloadParams::StartResult));
 
   scoped_refptr<base::TestMockTimeTaskRunner> task_runner_;
-  base::ThreadTaskRunnerHandle handle_;
+  base::SingleThreadTaskRunner::CurrentDefaultHandle current_default_handle_;
 
   std::unique_ptr<ControllerImpl> controller_;
   raw_ptr<Configuration> config_;
@@ -407,7 +409,8 @@ TEST_F(DownloadServiceControllerImplTest, SuccessfulInitWithExistingDownload) {
   Entry entry1 = test::BuildBasicEntry();
   Entry entry2 = test::BuildBasicEntry();
   Entry entry3 =
-      test::BuildEntry(DownloadClient::INVALID, base::GenerateGUID());
+      test::BuildEntry(DownloadClient::INVALID,
+                       base::Uuid::GenerateRandomV4().AsLowercaseString());
 
   std::vector<Entry> entries = {entry1, entry2, entry3};
   std::vector<DownloadMetaData> expected_downloads = {
@@ -491,7 +494,8 @@ TEST_F(DownloadServiceControllerImplTest, GetOwnerOfDownload) {
 
   EXPECT_EQ(DownloadClient::TEST, controller_->GetOwnerOfDownload(entry.guid));
   EXPECT_EQ(DownloadClient::INVALID,
-            controller_->GetOwnerOfDownload(base::GenerateGUID()));
+            controller_->GetOwnerOfDownload(
+                base::Uuid::GenerateRandomV4().AsLowercaseString()));
 }
 
 TEST_F(DownloadServiceControllerImplTest, AddDownloadAccepted) {
@@ -793,16 +797,18 @@ TEST_F(DownloadServiceControllerImplTest, Cancel) {
 TEST_F(DownloadServiceControllerImplTest, OnDownloadFailed) {
   // Setup download service test data.
   Entry entry = test::BuildBasicEntry(Entry::State::ACTIVE);
+  entry.custom_data = {{kKey, kValue}};
   std::vector<Entry> entries = {entry};
 
   // Setup download driver test data.
   DriverEntry dentry = BuildDriverEntry(entry, DriverEntry::State::IN_PROGRESS);
   driver_->AddTestData(std::vector<DriverEntry>{dentry});
 
+  CompletionInfo completion_info;
   EXPECT_CALL(*client_, OnServiceInitialized(false, _)).Times(1);
   EXPECT_CALL(*client_,
               OnDownloadFailed(entry.guid, _, Client::FailureReason::NETWORK))
-      .Times(1);
+      .WillOnce(SaveArg<1>(&completion_info));
 
   device_status_listener_->SetDeviceStatus(
       DeviceStatus(BatteryStatus::CHARGING, NetworkStatus::UNMETERED));
@@ -815,6 +821,9 @@ TEST_F(DownloadServiceControllerImplTest, OnDownloadFailed) {
   EXPECT_EQ(nullptr, model_->Get(entry.guid));
 
   task_runner_->RunUntilIdle();
+
+  EXPECT_EQ(1u, completion_info.custom_data.size());
+  EXPECT_EQ(kValue, completion_info.custom_data[kKey]);
 }
 
 TEST_F(DownloadServiceControllerImplTest, OnDownloadFailedFromDriverCancel) {
@@ -978,6 +987,7 @@ TEST_F(DownloadServiceControllerImplTest, RetryOnFailure) {
 TEST_F(DownloadServiceControllerImplTest, OnDownloadSucceeded) {
   // Setup download service test data.
   Entry entry = test::BuildBasicEntry(Entry::State::ACTIVE);
+  entry.custom_data[kKey] = kValue;
   std::vector<Entry> entries = {entry};
 
   // Setup download driver test data.
@@ -988,9 +998,9 @@ TEST_F(DownloadServiceControllerImplTest, OnDownloadSucceeded) {
                                  dentry.bytes_downloaded, entry.url_chain,
                                  entry.response_headers);
   completion_info.hash256 = "01234567ABCDEF";
+  completion_info.custom_data[kKey] = kValue;
   EXPECT_CALL(*client_, OnServiceInitialized(false, _)).Times(1);
-  EXPECT_CALL(*client_, OnDownloadSucceeded(entry.guid, completion_info))
-      .Times(1);
+  EXPECT_CALL(*client_, OnDownloadSucceeded(entry.guid, completion_info));
 
   device_status_listener_->SetDeviceStatus(
       DeviceStatus(BatteryStatus::CHARGING, NetworkStatus::UNMETERED));
@@ -1664,7 +1674,7 @@ TEST_F(DownloadServiceControllerImplTest, ExistingExternalDownload) {
   DriverEntry dentry1 =
       BuildDriverEntry(entry2, DriverEntry::State::IN_PROGRESS);
   DriverEntry dentry2;
-  dentry2.guid = base::GenerateGUID();
+  dentry2.guid = base::Uuid::GenerateRandomV4().AsLowercaseString();
   dentry2.state = DriverEntry::State::IN_PROGRESS;
 
   std::vector<Entry> entries = {entry1, entry2, entry3};
@@ -1738,7 +1748,7 @@ TEST_F(DownloadServiceControllerImplTest, NewExternalDownload) {
   EXPECT_FALSE(driver_->Find(entry2.guid).value().paused);
 
   DriverEntry dentry2;
-  dentry2.guid = base::GenerateGUID();
+  dentry2.guid = base::Uuid::GenerateRandomV4().AsLowercaseString();
   dentry2.state = DriverEntry::State::IN_PROGRESS;
 
   // Simulate a newly created external download.

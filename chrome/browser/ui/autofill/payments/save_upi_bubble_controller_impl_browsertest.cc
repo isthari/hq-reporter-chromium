@@ -1,10 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/autofill/payments/save_upi_bubble_controller_impl.h"
 
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/test/test_browser_dialog.h"
@@ -29,14 +29,12 @@ class SaveUPIBubbleControllerImplTest : public DialogBrowserTest {
 
     // Do lazy initialization of SaveUPIBubbleControllerImpl.
     SaveUPIBubbleControllerImpl::CreateForWebContents(web_contents);
-    controller_ = SaveUPIBubbleControllerImpl::FromWebContents(web_contents);
-    DCHECK(controller_);
+    SaveUPIBubbleControllerImpl* controller =
+        SaveUPIBubbleControllerImpl::FromWebContents(web_contents);
+    DCHECK(controller);
 
-    controller_->OfferUpiIdLocalSave("user@indianbank", base::DoNothing());
+    controller->OfferUpiIdLocalSave("user@indianbank", base::DoNothing());
   }
-
- private:
-  raw_ptr<SaveUPIBubbleControllerImpl> controller_ = nullptr;
 };
 
 IN_PROC_BROWSER_TEST_F(SaveUPIBubbleControllerImplTest, InvokeUi) {

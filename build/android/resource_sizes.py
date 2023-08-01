@@ -1,5 +1,5 @@
 #!/usr/bin/env vpython3
-# Copyright (c) 2011 The Chromium Authors. All rights reserved.
+# Copyright 2011 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 More information at //docs/speed/binary_size/metrics.md.
 """
 
-from __future__ import print_function
 
 import argparse
 import collections
@@ -36,8 +35,9 @@ _AAPT_PATH = lazy.WeakConstant(lambda: build_tools.GetPath('aapt'))
 _ANDROID_UTILS_PATH = os.path.join(host_paths.DIR_SOURCE_ROOT, 'build',
                                    'android', 'gyp')
 _BUILD_UTILS_PATH = os.path.join(host_paths.DIR_SOURCE_ROOT, 'build', 'util')
-_READOBJ_PATH = os.path.join(constants.ANDROID_NDK_ROOT, 'toolchains', 'llvm',
-                             'prebuilt', 'linux-x86_64', 'bin', 'llvm-readobj')
+_READOBJ_PATH = os.path.join(host_paths.DIR_SOURCE_ROOT, 'third_party',
+                             'llvm-build', 'Release+Asserts', 'bin',
+                             'llvm-readobj')
 
 with host_paths.SysPath(host_paths.BUILD_COMMON_PATH):
   import perf_tests_results_helper  # pylint: disable=import-error
@@ -47,13 +47,10 @@ with host_paths.SysPath(host_paths.TRACING_PATH):
 
 with host_paths.SysPath(_ANDROID_UTILS_PATH, 0):
   from util import build_utils  # pylint: disable=import-error
-  from util import zipalign  # pylint: disable=import-error
 
 with host_paths.SysPath(_BUILD_UTILS_PATH, 0):
   from lib.results import result_sink  # pylint: disable=import-error
   from lib.results import result_types  # pylint: disable=import-error
-
-zipalign.ApplyZipFileZipAlignFix()
 
 # Captures an entire config from aapt output.
 _AAPT_CONFIG_PATTERN = r'config %s:(.*?)config [a-zA-Z-]+:'
@@ -213,18 +210,19 @@ def _ParseManifestAttributes(apk_path):
   output = cmd_helper.GetCmdOutput([
       _AAPT_PATH.read(), 'd', 'xmltree', apk_path, 'AndroidManifest.xml'])
 
-  def parse_attr(name):
+  def parse_attr(namespace, name):
     # android:extractNativeLibs(0x010104ea)=(type 0x12)0x0
     # android:extractNativeLibs(0x010104ea)=(type 0x12)0xffffffff
     # dist:onDemand=(type 0x12)0xffffffff
-    m = re.search(name + r'(?:\(.*?\))?=\(type .*?\)(\w+)', output)
+    m = re.search(
+        f'(?:{namespace}:)?{name}' + r'(?:\(.*?\))?=\(type .*?\)(\w+)', output)
     return m and int(m.group(1), 16)
 
-  skip_extract_lib = bool(parse_attr('android:extractNativeLibs'))
-  sdk_version = parse_attr('android:minSdkVersion')
-  is_feature_split = parse_attr('android:isFeatureSplit')
+  skip_extract_lib = bool(parse_attr('android', 'extractNativeLibs'))
+  sdk_version = parse_attr('android', 'minSdkVersion')
+  is_feature_split = parse_attr('android', 'isFeatureSplit')
   # Can use <dist:on-demand>, or <module dist:onDemand="true">.
-  on_demand = parse_attr('dist:onDemand') or 'dist:on-demand' in output
+  on_demand = parse_attr('dist', 'onDemand') or 'on-demand' in output
   on_demand = bool(on_demand and is_feature_split)
 
   return sdk_version, skip_extract_lib, on_demand

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,7 +19,6 @@
 #include "chrome/browser/ash/login/demo_mode/demo_session.h"
 #endif
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/pref_names.h"
 #include "components/language/core/browser/language_prefs.h"
 #include "components/language/core/browser/pref_names.h"
@@ -37,10 +36,10 @@
 #include "ui/views/controls/textfield/textfield.h"
 #endif
 
-#if defined(USE_AURA) && (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
+#if defined(USE_AURA) && BUILDFLAG(IS_LINUX)
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
-#include "ui/views/linux_ui/linux_ui.h"
+#include "ui/linux/linux_ui.h"
 #endif
 
 namespace {
@@ -83,13 +82,10 @@ void ParsePortRange(const std::string& range,
 
 // Extracts the string representation of URLs allowed for local IP exposure.
 std::vector<std::string> GetLocalIpsAllowedUrls(
-    const base::Value* allowed_urls) {
+    const base::Value::List& allowed_urls) {
   std::vector<std::string> ret;
-  if (allowed_urls) {
-    const auto& urls = allowed_urls->GetList();
-    for (const auto& url : urls)
-      ret.push_back(url.GetString());
-  }
+  for (const auto& url : allowed_urls)
+    ret.push_back(url.GetString());
   return ret;
 }
 
@@ -99,12 +95,6 @@ std::string GetLanguageListForProfile(Profile* profile,
     // In incognito mode return only the first language.
     return language::GetFirstLanguage(language_list);
   }
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  // On Chrome OS, if in demo mode, add the demo mode private language list.
-  if (ash::DemoSession::IsDeviceInDemoMode()) {
-    return language_list + "," + ash::DemoSession::GetAdditionalLanguageList();
-  }
-#endif
   return language_list;
 }
 
@@ -139,14 +129,14 @@ void UpdateFromSystemSettings(blink::RendererPreferences* prefs,
   ParsePortRange(webrtc_udp_port_range, &prefs->webrtc_udp_min_port,
                  &prefs->webrtc_udp_max_port);
 
-  const base::Value* allowed_urls =
+  const base::Value::List& allowed_urls =
       pref_service->GetList(prefs::kWebRtcLocalIpsAllowedUrls);
   prefs->webrtc_local_ips_allowed_urls = GetLocalIpsAllowedUrls(allowed_urls);
   prefs->webrtc_allow_legacy_tls_protocols =
       pref_service->GetBoolean(prefs::kWebRTCAllowLegacyTLSProtocols);
 #if defined(USE_AURA)
   prefs->focus_ring_color = SkColorSetRGB(0x4D, 0x90, 0xFE);
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS)
   // This color is 0x544d90fe modulated with 0xffffff.
   prefs->active_selection_bg_color = SkColorSetRGB(0xCB, 0xE4, 0xFA);
   prefs->active_selection_fg_color = SK_ColorBLACK;
@@ -159,23 +149,26 @@ void UpdateFromSystemSettings(blink::RendererPreferences* prefs,
   prefs->caret_blink_interval = views::Textfield::GetCaretBlinkInterval();
 #endif
 
-#if defined(USE_AURA) && (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS))
-  views::LinuxUI* linux_ui = views::LinuxUI::instance();
-  if (linux_ui) {
+#if defined(USE_AURA) && BUILDFLAG(IS_LINUX)
+  auto* linux_ui_theme = ui::LinuxUiTheme::GetForProfile(profile);
+  if (linux_ui_theme) {
     if (ThemeServiceFactory::GetForProfile(profile)->UsingSystemTheme()) {
-      prefs->focus_ring_color = linux_ui->GetFocusRingColor();
-      prefs->active_selection_bg_color = linux_ui->GetActiveSelectionBgColor();
-      prefs->active_selection_fg_color = linux_ui->GetActiveSelectionFgColor();
-      prefs->inactive_selection_bg_color =
-        linux_ui->GetInactiveSelectionBgColor();
-      prefs->inactive_selection_fg_color =
-        linux_ui->GetInactiveSelectionFgColor();
+      linux_ui_theme->GetFocusRingColor(&prefs->focus_ring_color);
+      linux_ui_theme->GetActiveSelectionBgColor(
+          &prefs->active_selection_bg_color);
+      linux_ui_theme->GetActiveSelectionFgColor(
+          &prefs->active_selection_fg_color);
+      linux_ui_theme->GetInactiveSelectionBgColor(
+          &prefs->inactive_selection_bg_color);
+      linux_ui_theme->GetInactiveSelectionFgColor(
+          &prefs->inactive_selection_fg_color);
     }
+  }
 
     // If we have a linux_ui object, set the caret blink interval regardless of
     // whether we're in native theme mode.
+  if (auto* linux_ui = ui::LinuxUi::instance())
     prefs->caret_blink_interval = linux_ui->GetCursorBlinkInterval();
-  }
 #endif
 
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || \

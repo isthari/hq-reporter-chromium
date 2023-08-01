@@ -1,10 +1,11 @@
-// Copyright (c) 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "android_webview/browser/aw_browser_process.h"
 
 #include "android_webview/browser/aw_browser_context.h"
+#include "android_webview/browser/aw_enterprise_authentication_app_link_manager.h"
 #include "android_webview/browser/component_updater/registration.h"
 #include "android_webview/browser/lifecycle/aw_contents_lifecycle_notifier.h"
 #include "android_webview/browser/metrics/visibility_metrics_logger.h"
@@ -14,9 +15,13 @@
 #include "base/android/jni_string.h"
 #include "base/base_paths_posix.h"
 #include "base/path_service.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "components/component_updater/android/component_loader_policy.h"
 #include "components/crash/core/common/crash_key.h"
+#include "components/embedder_support/origin_trials/origin_trials_settings_storage.h"
+#include "components/safe_browsing/core/common/features.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/process_visibility_util.h"
@@ -36,6 +41,10 @@ const char kAuthAndroidNegotiateAccountType[] =
 // This pref should match |prefs::kAuthServerAllowlist|.
 const char kAuthServerAllowlist[] = "auth.server_allowlist";
 
+// This pref contains a list of authentication urls, for which when webview is
+// navigated to any of these urls, browse intent will be sent.
+const char kEnterpriseAuthAppLinkPolicy[] = "enterprise_auth_app_link_policy";
+
 }  // namespace prefs
 
 namespace {
@@ -54,6 +63,12 @@ AwBrowserProcess::AwBrowserProcess(
   aw_contents_lifecycle_notifier_ =
       std::make_unique<AwContentsLifecycleNotifier>(base::BindRepeating(
           &AwBrowserProcess::OnLoseForeground, base::Unretained(this)));
+
+  app_link_manager_ =
+      std::make_unique<EnterpriseAuthenticationAppLinkManager>(local_state());
+
+  origin_trials_settings_storage_ =
+      std::make_unique<embedder_support::OriginTrialsSettingsStorage>();
 }
 
 AwBrowserProcess::~AwBrowserProcess() {
@@ -137,7 +152,10 @@ void AwBrowserProcess::CreateSafeBrowsingAllowlistManager() {
 
 safe_browsing::RemoteSafeBrowsingDatabaseManager*
 AwBrowserProcess::GetSafeBrowsingDBManager() {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(
+      base::FeatureList::IsEnabled(safe_browsing::kSafeBrowsingOnUIThread)
+          ? content::BrowserThread::UI
+          : content::BrowserThread::IO);
 
   if (!safe_browsing_db_manager_) {
     safe_browsing_db_manager_ =
@@ -147,8 +165,8 @@ AwBrowserProcess::GetSafeBrowsingDBManager() {
   if (!safe_browsing_db_manager_started_) {
     // V4ProtocolConfig is not used. Just create one with empty values..
     safe_browsing::V4ProtocolConfig config("", false, "", "");
-    safe_browsing_db_manager_->StartOnIOThread(
-        GetSafeBrowsingUIManager()->GetURLLoaderFactoryOnIOThread(), config);
+    safe_browsing_db_manager_->StartOnSBThread(
+        GetSafeBrowsingUIManager()->GetURLLoaderFactoryOnSBThread(), config);
     safe_browsing_db_manager_started_ = true;
   }
 
@@ -186,6 +204,11 @@ void AwBrowserProcess::RegisterNetworkContextLocalStatePrefs(
                                     std::string());
 }
 
+void AwBrowserProcess::RegisterEnterpriseAuthenticationAppLinkPolicyPref(
+    PrefRegistrySimple* pref_registry) {
+  pref_registry->RegisterListPref(prefs::kEnterpriseAuthAppLinkPolicy);
+}
+
 network::mojom::HttpAuthDynamicParamsPtr
 AwBrowserProcess::CreateHttpAuthDynamicParams() {
   network::mojom::HttpAuthDynamicParamsPtr auth_dynamic_params =
@@ -205,6 +228,16 @@ AwBrowserProcess::CreateHttpAuthDynamicParams() {
 void AwBrowserProcess::OnAuthPrefsChanged() {
   content::GetNetworkService()->ConfigureHttpAuthPrefs(
       CreateHttpAuthDynamicParams());
+}
+
+EnterpriseAuthenticationAppLinkManager*
+AwBrowserProcess::GetEnterpriseAuthenticationAppLinkManager() {
+  return app_link_manager_.get();
+}
+
+embedder_support::OriginTrialsSettingsStorage*
+AwBrowserProcess::GetOriginTrialsSettingsStorage() {
+  return origin_trials_settings_storage_.get();
 }
 
 // static

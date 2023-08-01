@@ -1,22 +1,32 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/test/chromedriver/chrome/chrome_impl.h"
 
 #include <stddef.h>
+
+#include <memory>
 #include <utility>
 
+#include "base/check.h"
+#include "base/functional/bind.h"
+#include "base/logging.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/threading/platform_thread.h"
 #include "base/time/time.h"
 #include "base/values.h"
+#include "chrome/test/chromedriver/chrome/chrome.h"
 #include "chrome/test/chromedriver/chrome/devtools_client.h"
+#include "chrome/test/chromedriver/chrome/devtools_client_impl.h"
 #include "chrome/test/chromedriver/chrome/devtools_event_listener.h"
 #include "chrome/test/chromedriver/chrome/devtools_http_client.h"
 #include "chrome/test/chromedriver/chrome/page_load_strategy.h"
+#include "chrome/test/chromedriver/chrome/page_tracker.h"
 #include "chrome/test/chromedriver/chrome/status.h"
 #include "chrome/test/chromedriver/chrome/web_view_impl.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
 namespace {
@@ -28,8 +38,7 @@ Status MakeFailedStatus(const std::string& desired_state,
 }
 }  // namespace
 
-ChromeImpl::~ChromeImpl() {
-}
+ChromeImpl::~ChromeImpl() = default;
 
 Status ChromeImpl::GetAsDesktop(ChromeDesktopImpl** desktop) {
   return Status(kUnknownError, "operation unsupported");
@@ -50,10 +59,12 @@ bool ChromeImpl::HasCrashedWebView() {
 Status ChromeImpl::GetWebViewIdForFirstTab(std::string* web_view_id,
                                            bool w3c_compliant) {
   WebViewsInfo views_info;
-  Status status = devtools_http_client_->GetWebViewsInfo(&views_info);
+  Status status = GetWebViewsInfo(&views_info);
   if (status.IsError())
     return status;
-  UpdateWebViews(views_info, w3c_compliant);
+  status = UpdateWebViews(views_info, w3c_compliant);
+  if (status.IsError())
+    return status;
   for (int i = views_info.GetSize() - 1; i >= 0; --i) {
     const WebViewInfo& view = views_info.Get(i);
     if (view.type == WebViewInfo::kPage) {
@@ -67,10 +78,12 @@ Status ChromeImpl::GetWebViewIdForFirstTab(std::string* web_view_id,
 Status ChromeImpl::GetWebViewIds(std::list<std::string>* web_view_ids,
                                  bool w3c_compliant) {
   WebViewsInfo views_info;
-  Status status = devtools_http_client_->GetWebViewsInfo(&views_info);
+  Status status = GetWebViewsInfo(&views_info);
   if (status.IsError())
     return status;
-  UpdateWebViews(views_info, w3c_compliant);
+  status = UpdateWebViews(views_info, w3c_compliant);
+  if (status.IsError())
+    return status;
   std::list<std::string> web_view_ids_tmp;
   for (const auto& view : web_views_)
     web_view_ids_tmp.push_back(view->GetId());
@@ -78,14 +91,14 @@ Status ChromeImpl::GetWebViewIds(std::list<std::string>* web_view_ids,
   return Status(kOk);
 }
 
-void ChromeImpl::UpdateWebViews(const WebViewsInfo& views_info,
-                                bool w3c_compliant) {
+Status ChromeImpl::UpdateWebViews(const WebViewsInfo& views_info,
+                                  bool w3c_compliant) {
   // Check if some web views are closed (or in the case of background pages,
   // become inactive).
   auto it = web_views_.begin();
   while (it != web_views_.end()) {
     const WebViewInfo* view = views_info.GetForId((*it)->GetId());
-    if (!view || view->IsInactiveBackgroundPage()) {
+    if (!view) {
       it = web_views_.erase(it);
     } else {
       ++it;
@@ -95,8 +108,7 @@ void ChromeImpl::UpdateWebViews(const WebViewsInfo& views_info,
   // Check for newly-opened web views.
   for (size_t i = 0; i < views_info.GetSize(); ++i) {
     const WebViewInfo& view = views_info.Get(i);
-    if (devtools_http_client_->IsBrowserWindow(view) &&
-        !view.IsInactiveBackgroundPage()) {
+    if (devtools_http_client_->IsBrowserWindow(view)) {
       bool found = false;
       for (const auto& web_view : web_views_) {
         if (web_view->GetId() == view.id) {
@@ -105,8 +117,12 @@ void ChromeImpl::UpdateWebViews(const WebViewsInfo& views_info,
         }
       }
       if (!found) {
-        std::unique_ptr<DevToolsClient> client(
-            devtools_http_client_->CreateClient(view.id));
+        std::unique_ptr<DevToolsClientImpl> client;
+        Status status = CreateClient(view.id, &client);
+        if (status.IsError()) {
+          return status;
+        }
+
         for (const auto& listener : devtools_event_listeners_)
           client->AddListener(listener.get());
         // OnConnected will fire when DevToolsClient connects later.
@@ -119,11 +135,19 @@ void ChromeImpl::UpdateWebViews(const WebViewsInfo& views_info,
           web_views_.push_back(std::make_unique<WebViewImpl>(
               view.id, w3c_compliant, nullptr,
               devtools_http_client_->browser_info(), std::move(client),
-              devtools_http_client_->device_metrics(), page_load_strategy_));
+              mobile_device_, page_load_strategy_));
+        }
+        DevToolsClientImpl* parent =
+            static_cast<DevToolsClientImpl*>(devtools_websocket_client_.get());
+        status = web_views_.back()->AttachTo(parent);
+        if (status.IsError()) {
+          return status;
         }
       }
     }
   }
+
+  return Status(kOk);
 }
 
 Status ChromeImpl::GetWebViewById(const std::string& id, WebView** web_view) {
@@ -139,26 +163,22 @@ Status ChromeImpl::GetWebViewById(const std::string& id, WebView** web_view) {
 Status ChromeImpl::NewWindow(const std::string& target_id,
                              WindowType type,
                              std::string* window_handle) {
-  Status status = devtools_websocket_client_->ConnectIfNecessary();
-  if (status.IsError())
-    return status;
-
   Window window;
-  status = GetWindow(target_id, &window);
+  Status status = GetWindow(target_id, &window);
   if (status.IsError())
     return Status(kNoSuchWindow);
 
-  base::DictionaryValue params;
-  params.SetStringKey("url", "about:blank");
-  params.SetBoolKey("newWindow", type == WindowType::kWindow);
-  params.SetBoolKey("background", true);
-  base::Value result;
+  base::Value::Dict params;
+  params.Set("url", "about:blank");
+  params.Set("newWindow", type == WindowType::kWindow);
+  params.Set("background", true);
+  base::Value::Dict result;
   status = devtools_websocket_client_->SendCommandAndGetResult(
       "Target.createTarget", params, &result);
   if (status.IsError())
     return status;
 
-  const std::string* target_id_str = result.FindStringKey("targetId");
+  const std::string* target_id_str = result.FindString("targetId");
   if (!target_id_str)
     return Status(kUnknownError, "no targetId from createTarget");
   *window_handle = *target_id_str;
@@ -166,20 +186,47 @@ Status ChromeImpl::NewWindow(const std::string& target_id,
   return Status(kOk);
 }
 
-Status ChromeImpl::GetWindow(const std::string& target_id, Window* window) {
-  Status status = devtools_websocket_client_->ConnectIfNecessary();
-  if (status.IsError())
-    return status;
+Status ChromeImpl::CreateClient(const std::string& id,
+                                std::unique_ptr<DevToolsClientImpl>* client) {
+  Status status{kOk};
+  std::string session_id;
+  {
+    base::Value::Dict params;
+    base::Value::Dict result;
+    params.Set("targetId", id);
+    params.Set("flatten", true);
+    status = devtools_websocket_client_->SendCommandAndGetResult(
+        "Target.attachToTarget", params, &result);
+    if (status.IsError()) {
+      return status;
+    }
 
-  base::DictionaryValue params;
-  params.SetStringKey("targetId", target_id);
-  base::Value result;
-  status = devtools_websocket_client_->SendCommandAndGetResult(
+    std::string* session_id_ptr = result.FindString("sessionId");
+
+    if (session_id_ptr == nullptr) {
+      return Status(kUnknownError,
+                    "No sessionId in the response to Target.attachToTarget");
+    }
+
+    session_id = *session_id_ptr;
+  }
+
+  *client = std::make_unique<DevToolsClientImpl>(id, session_id);
+  (*client)->SetMainPage(true);
+
+  return status;
+}
+
+Status ChromeImpl::GetWindow(const std::string& target_id, Window* window) {
+  base::Value::Dict params;
+  params.Set("targetId", target_id);
+  base::Value::Dict result;
+  Status status = devtools_websocket_client_->SendCommandAndGetResult(
       "Browser.getWindowForTarget", params, &result);
   if (status.IsError())
     return status;
 
-  return ParseWindow(result, window);
+  return ParseWindow(std::move(result), window);
 }
 
 Status ChromeImpl::GetWindowRect(const std::string& target_id,
@@ -205,8 +252,8 @@ Status ChromeImpl::MaximizeWindow(const std::string& target_id) {
   if (window.state == "maximized")
     return Status(kOk);
 
-  auto bounds = std::make_unique<base::DictionaryValue>();
-  bounds->SetStringKey("windowState", "maximized");
+  auto bounds = std::make_unique<base::Value::Dict>();
+  bounds->Set("windowState", "maximized");
   return SetWindowBounds(&window, target_id, std::move(bounds));
 }
 
@@ -219,8 +266,8 @@ Status ChromeImpl::MinimizeWindow(const std::string& target_id) {
   if (window.state == "minimized")
     return Status(kOk);
 
-  auto bounds = std::make_unique<base::DictionaryValue>();
-  bounds->SetStringKey("windowState", "minimized");
+  auto bounds = std::make_unique<base::Value::Dict>();
+  bounds->Set("windowState", "minimized");
   return SetWindowBounds(&window, target_id, std::move(bounds));
 }
 
@@ -233,67 +280,59 @@ Status ChromeImpl::FullScreenWindow(const std::string& target_id) {
   if (window.state == "fullscreen")
     return Status(kOk);
 
-  auto bounds = std::make_unique<base::DictionaryValue>();
-  bounds->SetStringKey("windowState", "fullscreen");
+  auto bounds = std::make_unique<base::Value::Dict>();
+  bounds->Set("windowState", "fullscreen");
   return SetWindowBounds(&window, target_id, std::move(bounds));
 }
 
 Status ChromeImpl::SetWindowRect(const std::string& target_id,
-                                        const base::DictionaryValue& params) {
+                                 const base::Value::Dict& params) {
   Window window;
   Status status = GetWindow(target_id, &window);
   if (status.IsError())
     return status;
 
-  auto bounds = std::make_unique<base::DictionaryValue>();
+  auto bounds = std::make_unique<base::Value::Dict>();
 
   // window position
-  absl::optional<int> x = params.FindIntKey("x");
-  absl::optional<int> y = params.FindIntKey("y");
+  absl::optional<int> x = params.FindInt("x");
+  absl::optional<int> y = params.FindInt("y");
   if (x.has_value() && y.has_value()) {
-    bounds->SetIntKey("left", *x);
-    bounds->SetIntKey("top", *y);
+    bounds->Set("left", *x);
+    bounds->Set("top", *y);
   }
   // window size
-  absl::optional<int> width = params.FindIntKey("width");
-  absl::optional<int> height = params.FindIntKey("height");
+  absl::optional<int> width = params.FindInt("width");
+  absl::optional<int> height = params.FindInt("height");
   if (width.has_value() && height.has_value()) {
-    bounds->SetIntKey("width", *width);
-    bounds->SetIntKey("height", *height);
+    bounds->Set("width", *width);
+    bounds->Set("height", *height);
   }
 
   return SetWindowBounds(&window, target_id, std::move(bounds));
 }
 
 Status ChromeImpl::GetWindowBounds(int window_id, Window* window) {
-  Status status = devtools_websocket_client_->ConnectIfNecessary();
-  if (status.IsError())
-    return status;
-
-  base::DictionaryValue params;
-  params.SetIntKey("windowId", window_id);
-  base::Value result;
-  status = devtools_websocket_client_->SendCommandAndGetResult(
+  base::Value::Dict params;
+  params.Set("windowId", window_id);
+  base::Value::Dict result;
+  Status status = devtools_websocket_client_->SendCommandAndGetResult(
       "Browser.getWindowBounds", params, &result);
   if (status.IsError())
     return status;
 
-  return ParseWindowBounds(result, window);
+  return ParseWindowBounds(std::move(result), window);
 }
 
-Status ChromeImpl::SetWindowBounds(
-    Window* window,
-    const std::string& target_id,
-    std::unique_ptr<base::DictionaryValue> bounds) {
-  Status status = devtools_websocket_client_->ConnectIfNecessary();
-  if (status.IsError())
-    return status;
-
-  base::DictionaryValue params;
-  params.SetIntKey("windowId", window->id);
+Status ChromeImpl::SetWindowBounds(Window* window,
+                                   const std::string& target_id,
+                                   std::unique_ptr<base::Value::Dict> bounds) {
+  Status status{kOk};
+  base::Value::Dict params;
+  params.Set("windowId", window->id);
   const std::string normal = "normal";
   if (window->state != normal) {
-    params.SetStringPath("bounds.windowState", normal);
+    params.SetByDottedPath("bounds.windowState", normal);
     status = devtools_websocket_client_->SendCommand("Browser.setWindowBounds",
                                                      params);
     // Return success in case of `Browser.setWindowBounds` not implemented like
@@ -313,7 +352,7 @@ Status ChromeImpl::SetWindowBounds(
       return MakeFailedStatus(normal, window->state);
   }
 
-  const std::string* desired_state = bounds->FindStringKey("windowState");
+  const std::string* desired_state = bounds->FindString("windowState");
 
   if (desired_state && *desired_state == "fullscreen" &&
       !GetBrowserInfo()->is_headless) {
@@ -326,11 +365,11 @@ Status ChromeImpl::SetWindowBounds(
     if (status.IsError())
       return status;
 
-    base::DictionaryValue fullscreen_params;
-    fullscreen_params.SetStringKey(
-        "expression", "document.documentElement.requestFullscreen()");
-    fullscreen_params.SetBoolKey("userGesture", true);
-    fullscreen_params.SetBoolKey("awaitPromise", true);
+    base::Value::Dict fullscreen_params;
+    fullscreen_params.Set("expression",
+                          "document.documentElement.requestFullscreen()");
+    fullscreen_params.Set("userGesture", true);
+    fullscreen_params.Set("awaitPromise", true);
     status = web_view->SendCommand("Runtime.evaluate", fullscreen_params);
     if (status.IsError())
       return status;
@@ -348,7 +387,7 @@ Status ChromeImpl::SetWindowBounds(
   // we sometimes see a devtools crash. Because the latter call will
   // set fullscreen, do not call setWindowBounds with a fullscreen request
   // unless running headless. see https://crbug.com/1049336
-  params.SetKey("bounds", bounds->Clone());
+  params.Set("bounds", bounds->Clone());
   status = devtools_websocket_client_->SendCommand("Browser.setWindowBounds",
                                                    params);
 
@@ -390,18 +429,17 @@ Status ChromeImpl::SetWindowBounds(
         &result);
     if (status.IsError())
       return Status(kUnknownError, "JavaScript code failed", status);
-    const base::Value* width =
-        result->FindKeyOfType("width", base::Value::Type::INTEGER);
-    const base::Value* height =
-        result->FindKeyOfType("height", base::Value::Type::INTEGER);
-    if (width == nullptr || height == nullptr)
+    const absl::optional<int> width = result->GetDict().FindInt("width");
+    const absl::optional<int> height = result->GetDict().FindInt("height");
+    if (!width || !height) {
       return Status(kUnknownError, "unexpected JavaScript result");
-    auto window_bounds = std::make_unique<base::DictionaryValue>();
-    window_bounds->SetIntKey("width", width->GetInt());
-    window_bounds->SetIntKey("height", height->GetInt());
-    window_bounds->SetIntKey("left", 0);
-    window_bounds->SetIntKey("top", 0);
-    params.SetKey("bounds", window_bounds->Clone());
+    }
+    auto window_bounds = std::make_unique<base::Value::Dict>();
+    window_bounds->Set("width", width.value());
+    window_bounds->Set("height", height.value());
+    window_bounds->Set("left", 0);
+    window_bounds->Set("top", 0);
+    params.Set("bounds", window_bounds->Clone());
     return devtools_websocket_client_->SendCommand("Browser.setWindowBounds",
                                                    params);
   }
@@ -410,7 +448,7 @@ Status ChromeImpl::SetWindowBounds(
   // Wait and retry for 1 second
   for (; retries < 10; ++retries) {
     // SetWindowBounds again for retry
-    params.SetKey("bounds", bounds->Clone());
+    params.Set("bounds", bounds->Clone());
     status = devtools_websocket_client_->SendCommand("Browser.setWindowBounds",
                                                      params);
 
@@ -426,8 +464,55 @@ Status ChromeImpl::SetWindowBounds(
   return MakeFailedStatus(*desired_state, window->state);
 }
 
-Status ChromeImpl::ParseWindow(const base::Value& params, Window* window) {
-  absl::optional<int> id = params.FindIntKey("windowId");
+Status ChromeImpl::GetWebViewsInfo(WebViewsInfo* views_info) {
+  DCHECK(views_info);
+  Status status{kOk};
+
+  base::Value::Dict params;
+  base::Value::Dict result;
+  status = devtools_websocket_client_->SendCommandAndGetResult(
+      "Target.getTargets", params, &result);
+  if (status.IsError()) {
+    return status;
+  }
+  base::Value* target_infos = result.Find("targetInfos");
+  if (!target_infos) {
+    return Status(
+        kUnknownError,
+        "result of call to Target.getTargets does not contain targetInfos");
+  }
+  if (!target_infos->is_list()) {
+    return Status(kUnknownError,
+                  "targetInfos in Target.getTargets response is not a list");
+  }
+  std::vector<WebViewInfo> temp_views_info;
+  for (const base::Value& info_value : target_infos->GetList()) {
+    if (!info_value.is_dict())
+      return Status(kUnknownError, "DevTools contains non-dictionary item");
+    const base::Value::Dict* info = info_value.GetIfDict();
+    DCHECK(info);
+    const std::string* id = info->FindString("targetId");
+    if (!id)
+      return Status(kUnknownError, "DevTools did not include id");
+    const std::string* type_as_string = info->FindString("type");
+    if (!type_as_string)
+      return Status(kUnknownError, "DevTools did not include type");
+    const std::string* url = info->FindString("url");
+    if (!url)
+      return Status(kUnknownError, "DevTools did not include url");
+    WebViewInfo::Type type;
+    Status parse_status = ParseType(*type_as_string, &type);
+    if (parse_status.IsError())
+      return parse_status;
+    temp_views_info.emplace_back(*id, std::string(), *url, type);
+  }
+  *views_info = WebViewsInfo(temp_views_info);
+  return status;
+}
+
+Status ChromeImpl::ParseWindow(const base::Value::Dict& params,
+                               Window* window) {
+  absl::optional<int> id = params.FindInt("windowId");
   if (!id)
     return Status(kUnknownError, "no window id in response");
   window->id = *id;
@@ -435,33 +520,34 @@ Status ChromeImpl::ParseWindow(const base::Value& params, Window* window) {
   return ParseWindowBounds(std::move(params), window);
 }
 
-Status ChromeImpl::ParseWindowBounds(const base::Value& params,
+Status ChromeImpl::ParseWindowBounds(const base::Value::Dict& params,
                                      Window* window) {
-  const base::Value* value = params.FindKey("bounds");
-  if (!value || !value->is_dict())
+  const base::Value::Dict* value = params.FindDict("bounds");
+  if (!value) {
     return Status(kUnknownError, "no window bounds in response");
+  }
 
-  const std::string* state = value->FindStringKey("windowState");
+  const std::string* state = value->FindString("windowState");
   if (!state)
     return Status(kUnknownError, "no window state in window bounds");
   window->state = *state;
 
-  absl::optional<int> left = value->FindIntKey("left");
+  absl::optional<int> left = value->FindInt("left");
   if (!left)
     return Status(kUnknownError, "no left offset in window bounds");
   window->left = *left;
 
-  absl::optional<int> top = value->FindIntKey("top");
+  absl::optional<int> top = value->FindInt("top");
   if (!top)
     return Status(kUnknownError, "no top offset in window bounds");
   window->top = *top;
 
-  absl::optional<int> width = value->FindIntKey("width");
+  absl::optional<int> width = value->FindInt("width");
   if (!width)
     return Status(kUnknownError, "no width in window bounds");
   window->width = *width;
 
-  absl::optional<int> height = value->FindIntKey("height");
+  absl::optional<int> height = value->FindInt("height");
   if (!height)
     return Status(kUnknownError, "no height in window bounds");
   window->height = *height;
@@ -469,16 +555,44 @@ Status ChromeImpl::ParseWindowBounds(const base::Value& params,
   return Status(kOk);
 }
 
-Status ChromeImpl::CloseWebView(const std::string& id) {
-  Status status = devtools_http_client_->CloseWebView(id);
+Status ChromeImpl::CloseTarget(const std::string& id) {
+  base::Value::Dict params;
+  params.Set("targetId", id);
+  Status status =
+      devtools_websocket_client_->SendCommand("Target.closeTarget", params);
+
   if (status.IsError())
     return status;
-  for (auto iter = web_views_.begin(); iter != web_views_.end(); ++iter) {
-    if ((*iter)->GetId() == id) {
-      web_views_.erase(iter);
-      break;
-    }
+
+  // Wait for the target window to be completely closed.
+  base::TimeTicks deadline = base::TimeTicks::Now() + base::Seconds(20);
+  while (base::TimeTicks::Now() < deadline) {
+    WebViewsInfo views_info;
+    status = GetWebViewsInfo(&views_info);
+    if (status.code() == kChromeNotReachable)
+      return Status(kOk);
+    if (status.code() == kDisconnected)  // The closed target has gone
+      return Status(kOk);
+    if (status.IsError())
+      return status;
+    if (!views_info.GetForId(id))
+      return Status(kOk);
+    base::PlatformThread::Sleep(base::Milliseconds(50));
   }
+  return Status(kUnknownError, "failed to close window in 20 seconds");
+}
+
+Status ChromeImpl::CloseWebView(const std::string& id) {
+  Status status = CloseTarget(id);
+  if (status.IsError()) {
+    return status;
+  }
+
+  auto it = base::ranges::find(web_views_, id, &WebViewImpl::GetId);
+  if (it != web_views_.end()) {
+    web_views_.erase(it);
+  }
+
   return Status(kOk);
 }
 
@@ -487,32 +601,28 @@ Status ChromeImpl::ActivateWebView(const std::string& id) {
   GetWebViewById(id, &webview);
   if (webview && webview->IsServiceWorker())
     return Status(kOk);
-  return devtools_http_client_->ActivateWebView(id);
+
+  base::Value::Dict params;
+  params.Set("targetId", id);
+  Status status =
+      devtools_websocket_client_->SendCommand("Target.activateTarget", params);
+  return status;
 }
 
 Status ChromeImpl::SetAcceptInsecureCerts() {
-  Status status = devtools_websocket_client_->ConnectIfNecessary();
-  if (status.IsError())
-    return status;
-
-  base::DictionaryValue params;
-  params.SetBoolKey("ignore", true);
+  base::Value::Dict params;
+  params.Set("ignore", true);
   return devtools_websocket_client_->SendCommand(
       "Security.setIgnoreCertificateErrors", params);
 }
 
 Status ChromeImpl::SetPermission(
-    std::unique_ptr<base::DictionaryValue> permission_descriptor,
+    std::unique_ptr<base::Value::Dict> permission_descriptor,
     PermissionState desired_state,
-    bool unused_one_realm,  // This is ignored. https://crbug.com/977612.
     WebView* current_view) {
-  Status status = devtools_websocket_client_->ConnectIfNecessary();
-  if (status.IsError())
-    return status;
-
   // Process URL.
   std::string current_url;
-  status = current_view->GetUrl(&current_url);
+  Status status = current_view->GetUrl(&current_url);
   if (status.IsError())
     current_url = "";
 
@@ -526,10 +636,10 @@ Status ChromeImpl::SetPermission(
   else
     return Status(kInvalidArgument, "unsupported PermissionState");
 
-  base::DictionaryValue args;
-  args.SetStringKey("origin", current_url);
-  args.SetKey("permission", std::move(*permission_descriptor));
-  args.SetStringKey("setting", permission_setting);
+  base::Value::Dict args;
+  args.Set("origin", current_url);
+  args.Set("permission", std::move(*permission_descriptor));
+  args.Set("setting", permission_setting);
   return devtools_websocket_client_->SendCommand("Browser.setPermission", args);
 }
 
@@ -553,13 +663,23 @@ Status ChromeImpl::Quit() {
   return status;
 }
 
+DevToolsClient* ChromeImpl::Client() const {
+  return devtools_websocket_client_.get();
+}
+
 ChromeImpl::ChromeImpl(std::unique_ptr<DevToolsHttpClient> http_client,
                        std::unique_ptr<DevToolsClient> websocket_client,
                        std::vector<std::unique_ptr<DevToolsEventListener>>
                            devtools_event_listeners,
+                       absl::optional<MobileDevice> mobile_device,
+                       SyncWebSocketFactory socket_factory,
                        std::string page_load_strategy)
-    : quit_(false),
+    : mobile_device_(std::move(mobile_device)),
+      socket_factory_(std::move(socket_factory)),
       devtools_http_client_(std::move(http_client)),
       devtools_websocket_client_(std::move(websocket_client)),
       devtools_event_listeners_(std::move(devtools_event_listeners)),
-      page_load_strategy_(page_load_strategy) {}
+      page_load_strategy_(page_load_strategy) {
+  page_tracker_ = std::make_unique<PageTracker>(
+      devtools_websocket_client_.get(), &web_views_);
+}

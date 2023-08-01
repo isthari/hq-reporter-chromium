@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 
 #include "ash/quick_pair/common/device.h"
 #include "ash/quick_pair/fast_pair_handshake/fast_pair_handshake_impl.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/singleton.h"
 #include "device/bluetooth/bluetooth_adapter.h"
 
@@ -42,7 +42,7 @@ FastPairHandshake* FastPairHandshakeLookup::Get(scoped_refptr<Device> device) {
 FastPairHandshake* FastPairHandshakeLookup::Get(const std::string& address) {
   for (const auto& pair : fast_pair_handshakes_) {
     if (pair.first->classic_address() == address ||
-        pair.first->ble_address == address) {
+        pair.first->ble_address() == address) {
       return pair.second.get();
     }
   }
@@ -52,6 +52,18 @@ FastPairHandshake* FastPairHandshakeLookup::Get(const std::string& address) {
 
 bool FastPairHandshakeLookup::Erase(scoped_refptr<Device> device) {
   return fast_pair_handshakes_.erase(device) == 1;
+}
+
+bool FastPairHandshakeLookup::Erase(const std::string& address) {
+  for (const auto& pair : fast_pair_handshakes_) {
+    if (pair.first->classic_address() == address ||
+        pair.first->ble_address() == address) {
+      fast_pair_handshakes_.erase(pair);
+      return true;
+    }
+  }
+
+  return false;
 }
 
 void FastPairHandshakeLookup::Clear() {

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,6 @@ import android.view.LayoutInflater;
 import androidx.annotation.VisibleForTesting;
 import androidx.core.view.ViewCompat;
 
-import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.compositor.layouts.content.InvalidationAwareThumbnailProvider;
 import org.chromium.chrome.browser.feedback.HelpAndFeedbackLauncherImpl;
@@ -20,7 +19,6 @@ import org.chromium.chrome.browser.ntp.IncognitoNewTabPageView.IncognitoNewTabPa
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.ui.native_page.BasicNativePage;
 import org.chromium.chrome.browser.ui.native_page.NativePageHost;
-import org.chromium.chrome.browser.vr.VrModuleProvider;
 import org.chromium.components.content_settings.CookieControlsEnforcement;
 import org.chromium.components.embedder_support.util.UrlConstants;
 
@@ -43,10 +41,10 @@ public class IncognitoNewTabPage
     private final int mIncognitoNTPBackgroundColor;
 
     private void showIncognitoLearnMore() {
-        HelpAndFeedbackLauncherImpl.getInstance().show(mActivity,
-                mActivity.getString(R.string.help_context_incognito_learn_more),
-                Profile.getLastUsedRegularProfile().getPrimaryOTRProfile(/*createIfNeeded=*/true),
-                null);
+        Profile profile =
+                Profile.getLastUsedRegularProfile().getPrimaryOTRProfile(/*createIfNeeded=*/true);
+        HelpAndFeedbackLauncherImpl.getForProfile(profile).show(
+                mActivity, mActivity.getString(R.string.help_context_incognito_learn_more), null);
     }
 
     /**
@@ -58,20 +56,11 @@ public class IncognitoNewTabPage
 
         mActivity = activity;
 
-        mIncognitoNTPBackgroundColor = ApiCompatibilityUtils.getColor(
-                host.getContext().getResources(), R.color.ntp_bg_incognito);
+        mIncognitoNTPBackgroundColor = host.getContext().getColor(R.color.ntp_bg_incognito);
 
         mIncognitoNewTabPageManager = new IncognitoNewTabPageManager() {
             @Override
             public void loadIncognitoLearnMore() {
-                // Incognito 'Learn More' either opens a new activity or a new non-incognito tab.
-                // Both is not supported in VR. Request to exit VR and if we succeed show the 'Learn
-                // More' page in 2D.
-                if (VrModuleProvider.getDelegate().isInVr()) {
-                    VrModuleProvider.getDelegate().requestToExitVrAndRunOnSuccess(
-                            IncognitoNewTabPage.this ::showIncognitoLearnMore);
-                    return;
-                }
                 showIncognitoLearnMore();
             }
 

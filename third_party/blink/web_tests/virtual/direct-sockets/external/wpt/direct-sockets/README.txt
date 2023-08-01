@@ -1,2 +1,2 @@
 # This suite runs external/wpt/direct-sockets/ with
-# --enable-features=DirectSockets.
+# --isolated-context-origins=https://web-platform.test

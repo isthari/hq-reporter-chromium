@@ -9,7 +9,7 @@
 ``` java
 package org.chromium.chrome.test.pagecontroller.tests.codelab;
 
-import android.support.test.filters.SmallTest;
+import androidx.test.filters.SmallTest;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -136,7 +136,7 @@ public class SettingsControllerForCodelab extends PageController {
 ``` java
 package org.chromium.chrome.test.pagecontroller.controllers.codelab;
 
-import android.support.test.uiautomator.UiObject2;
+import androidx.test.uiautomator.UiObject2;
 import android.util.Pair;
 
 import org.chromium.chrome.R;

@@ -1,4 +1,4 @@
-# Copyright 2019 The Chromium Authors. All rights reserved.
+# Copyright 2019 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -13,33 +13,25 @@ source_set("color_headers") {
     "color_id.h",
     "color_id_macros.inc",
     "color_id_map_macros.inc",
+    "color_metrics.h",
     "color_mixer.h",
     "color_provider.h",
     "color_provider_manager.h",
     "color_provider_utils.h",
-    "color_set.h",
+    "system_theme.h",
   ]
 
   public_deps = [
     ":mojom",
     "//base",
     "//skia",
+    "//ui/gfx:color_utils",
   ]
-}
-
-component("color_switches") {
-  sources = [
-    "color_switches.cc",
-    "color_switches.h",
-  ]
-
-  defines = [ "IS_COLOR_SWITCHES_IMPL" ]
-
-  public_deps = [ "//base" ]
 }
 
 component("color") {
   sources = [
+    "color_metrics.cc",
     "color_mixer.cc",
     "color_provider.cc",
     "color_provider_source.cc",
@@ -50,10 +42,13 @@ component("color") {
     "color_provider_utils.h",
     "color_recipe.cc",
     "color_recipe.h",
-    "color_set.cc",
     "color_transform.cc",
     "color_transform.h",
+    "temp_palette.cc",
+    "temp_palette.h",
   ]
+
+  configs += [ "//build/config/compiler:prevent_unsafe_narrowing" ]
 
   defines = [ "IS_COLOR_IMPL" ]
 
@@ -61,16 +56,18 @@ component("color") {
     ":color_headers",
     "//base",
     "//skia",
+    "//ui/base:features",
     "//ui/gfx:color_utils",
   ]
 
   if (is_mac) {
-    frameworks = [ "AppKit.framework" ]
     sources += [
       "mac/native_color_transform.mm",
       "mac/system_color_utils.h",
       "mac/system_color_utils.mm",
     ]
+    configs += [ "//build/config/compiler:enable_arc" ]
+    frameworks = [ "AppKit.framework" ]
   }
 }
 
@@ -134,8 +131,14 @@ component("mixers") {
     "color_provider_manager.h",
     "core_default_color_mixer.cc",
     "core_default_color_mixer.h",
+    "material_ui_color_mixer.cc",
+    "material_ui_color_mixer.h",
     "native_color_mixers.cc",
     "native_color_mixers.h",
+    "ref_color_mixer.cc",
+    "ref_color_mixer.h",
+    "sys_color_mixer.cc",
+    "sys_color_mixer.h",
     "ui_color_mixer.cc",
     "ui_color_mixer.h",
   ]
@@ -146,6 +149,9 @@ component("mixers") {
     ":color",
     ":color_headers",
     "//skia",
+    "//third_party/material_color_utilities",
+    "//ui/base:features",
+    "//ui/color/dynamic_color",
     "//ui/gfx:color_utils",
   ]
 
@@ -154,17 +160,14 @@ component("mixers") {
   if (is_chromeos) {
     sources += [ "chromeos/native_color_mixers_chromeos.cc" ]
   } else if (is_mac) {
+    sources += [ "mac/native_color_mixers_mac.mm" ]
+    configs += [ "//build/config/compiler:enable_arc" ]
     frameworks = [ "AppKit.framework" ]
-    sources += [
-      "mac/native_color_mixers_mac.mm",
-      "mac/scoped_current_nsappearance.h",
-      "mac/scoped_current_nsappearance.mm",
-    ]
   } else if (is_win) {
     sources += [ "win/native_color_mixers_win.cc" ]
     deps += [
       ":accent_color_observer",
-      ":color_switches",
+      "//ui/native_theme:features",
     ]
   }
 }

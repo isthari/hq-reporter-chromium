@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,11 +11,10 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/reading_list/reading_list_model_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
-#include "chrome/browser/ui/read_later/reading_list_model_factory.h"
 #include "components/reading_list/core/reading_list_model.h"
-#include "components/reading_list/features/reading_list_switches.h"
 #include "ui/native_theme/native_theme.h"
 
 namespace {
@@ -28,14 +27,6 @@ enum class DarkModeStatus {
   kDark = 2,
   kMaxValue = kDark,
 };
-
-bool AnyBrowserWindowHasName() {
-  for (auto* browser : *BrowserList::GetInstance()) {
-    if (!browser->user_title().empty())
-      return true;
-  }
-  return false;
-}
 
 }  // namespace
 
@@ -55,20 +46,16 @@ void DesktopPlatformFeaturesMetricsProvider::ProvideCurrentSessionData(
   UMA_HISTOGRAM_ENUMERATION("Browser.DarkModeStatus", status);
 
   // Record how many items are in the reading list.
-  if (reading_list::switches::IsReadingListEnabled()) {
-    std::vector<Profile*> profiles =
-        g_browser_process->profile_manager()->GetLoadedProfiles();
-    for (Profile* profile : profiles) {
-      ReadingListModel* model =
-          ReadingListModelFactory::GetForBrowserContext(profile);
-      if (model && model->loaded()) {
-        UMA_HISTOGRAM_COUNTS_1000("ReadingList.Unread.Count.OnUMAUpload",
-                                  model->unread_size());
-        UMA_HISTOGRAM_COUNTS_1000("ReadingList.Read.Count.OnUMAUpload",
-                                  model->size() - model->unread_size());
-      }
+  std::vector<Profile*> profiles =
+      g_browser_process->profile_manager()->GetLoadedProfiles();
+  for (Profile* profile : profiles) {
+    ReadingListModel* model =
+        ReadingListModelFactory::GetForBrowserContext(profile);
+    if (model && model->loaded()) {
+      UMA_HISTOGRAM_COUNTS_1000("ReadingList.Unread.Count.OnUMAUpload",
+                                model->unread_size());
+      UMA_HISTOGRAM_COUNTS_1000("ReadingList.Read.Count.OnUMAUpload",
+                                model->size() - model->unread_size());
     }
   }
-
-  UMA_HISTOGRAM_BOOLEAN("Browser.AnyWindowHasName", AnyBrowserWindowHasName());
 }

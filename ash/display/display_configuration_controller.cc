@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,9 +16,9 @@
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/wallpaper/wallpaper_controller_impl.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/system/sys_info.h"
 #include "base/time/time.h"
-#include "chromeos/system/devicemode.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/display/display_layout.h"
 #include "ui/display/manager/display_manager.h"
@@ -88,8 +88,9 @@ DisplayConfigurationController::DisplayConfigurationController(
     : display_manager_(display_manager),
       window_tree_host_manager_(window_tree_host_manager) {
   window_tree_host_manager_->AddObserver(this);
-  if (chromeos::IsRunningAsSystemCompositor())
+  if (base::SysInfo::IsRunningOnChromeOS()) {
     limiter_ = std::make_unique<DisplayChangeLimiter>();
+  }
   if (!g_disable_animator_for_test)
     display_animator_ = std::make_unique<DisplayAnimator>();
 }

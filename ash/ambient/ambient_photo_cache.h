@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@
 
 #include "ash/ash_export.h"
 #include "ash/public/cpp/ambient/proto/photo_cache_entry.pb.h"
-#include "base/callback_forward.h"
 #include "base/files/file_path.h"
+#include "base/functional/callback_forward.h"
 
 namespace gfx {
 class ImageSkia;
@@ -41,6 +41,11 @@ class ASH_EXPORT AmbientPhotoCache {
       AmbientClient& ambient_client,
       AmbientAccessTokenController& access_token_controller);
 
+  // Overrides the output of |Create()| for testing. This is global and can be
+  // reset back to a null callback to disable the override.
+  static void SetFactoryForTesting(
+      base::RepeatingCallback<std::unique_ptr<AmbientPhotoCache>()> factory_fn);
+
   virtual void DownloadPhoto(
       const std::string& url,
       base::OnceCallback<void(std::string&&)> callback) = 0;
@@ -58,14 +63,15 @@ class ASH_EXPORT AmbientPhotoCache {
   // Write photo cache to disk at |cache_index| and call |callback| when
   // complete.
   virtual void WritePhotoCache(int cache_index,
-                               const ambient::PhotoCacheEntry& cache_entry,
+                               const ::ambient::PhotoCacheEntry& cache_entry,
                                base::OnceClosure callback) = 0;
 
   // Read the photo cache at |cache_index| and call |callback| when complete.
   // If a particular cache fails to be read, |cache_entry| will be empty.
-  virtual void ReadPhotoCache(int cache_index,
-                              ambient::PhotoCacheEntry* cache_entry,
-                              base::OnceCallback<void()> callback) = 0;
+  virtual void ReadPhotoCache(
+      int cache_index,
+      base::OnceCallback<void(::ambient::PhotoCacheEntry cache_entry)>
+          callback) = 0;
 
   // Erase all stored files from disk.
   virtual void Clear() = 0;

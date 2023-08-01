@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,26 @@ JavascriptFrameworksUkmObserver::JavascriptFrameworksUkmObserver() = default;
 
 JavascriptFrameworksUkmObserver::~JavascriptFrameworksUkmObserver() = default;
 
+page_load_metrics::PageLoadMetricsObserver::ObservePolicy
+JavascriptFrameworksUkmObserver::OnFencedFramesStart(
+    content::NavigationHandle* navigation_handle,
+    const GURL& currently_committed_url) {
+  // OnLoadingBehaviorObserved events for detecting JavaScript frameworks are
+  // only kicked for outermost frames. See DetectJavascriptFrameworksOnLoad in
+  // third_party/blink/renderer/core/script/detect_javascript_frameworks.cc
+  return STOP_OBSERVING;
+}
+
+page_load_metrics::PageLoadMetricsObserver::ObservePolicy
+JavascriptFrameworksUkmObserver::OnPrerenderStart(
+    content::NavigationHandle* navigation_handle,
+    const GURL& currently_committed_url) {
+  // Metrics should be collected for Prerendered frames but only recorded after
+  // the page has been displayed.
+  is_in_prerendered_page_ = true;
+  return CONTINUE_OBSERVING;
+}
+
 void JavascriptFrameworksUkmObserver::OnLoadingBehaviorObserved(
     content::RenderFrameHost* rfh,
     int behavior_flag) {
@@ -25,12 +45,18 @@ void JavascriptFrameworksUkmObserver::OnLoadingBehaviorObserved(
 
 void JavascriptFrameworksUkmObserver::OnComplete(
     const page_load_metrics::mojom::PageLoadTiming&) {
+  if (is_in_prerendered_page_)
+    return;
+
   RecordJavascriptFrameworkPageLoad();
 }
 
 JavascriptFrameworksUkmObserver::ObservePolicy
 JavascriptFrameworksUkmObserver::FlushMetricsOnAppEnterBackground(
     const page_load_metrics::mojom::PageLoadTiming&) {
+  if (is_in_prerendered_page_)
+    return CONTINUE_OBSERVING;
+
   RecordJavascriptFrameworkPageLoad();
   return STOP_OBSERVING;
 }
@@ -38,44 +64,50 @@ JavascriptFrameworksUkmObserver::FlushMetricsOnAppEnterBackground(
 void JavascriptFrameworksUkmObserver::RecordJavascriptFrameworkPageLoad() {
   ukm::builders::JavascriptFrameworkPageLoad builder(
       GetDelegate().GetPageUkmSourceId());
+
+  using blink::LoadingBehaviorFlag;
+
+  auto is_detected = [&](LoadingBehaviorFlag flag) -> bool {
+    return (frameworks_detected_ & flag) != 0;
+  };
   builder
       .SetGatsbyPageLoad(
-          (frameworks_detected_ &
-           blink::LoadingBehaviorFlag::kLoadingBehaviorGatsbyFrameworkUsed) !=
-          0)
+          is_detected(LoadingBehaviorFlag::kLoadingBehaviorGatsbyFrameworkUsed))
       .SetNextJSPageLoad(
-          (frameworks_detected_ &
-           blink::LoadingBehaviorFlag::kLoadingBehaviorNextJSFrameworkUsed) !=
-          0)
+          is_detected(LoadingBehaviorFlag::kLoadingBehaviorNextJSFrameworkUsed))
       .SetNuxtJSPageLoad(
-          (frameworks_detected_ &
-           blink::LoadingBehaviorFlag::kLoadingBehaviorNuxtJSFrameworkUsed) !=
-          0)
+          is_detected(LoadingBehaviorFlag::kLoadingBehaviorNuxtJSFrameworkUsed))
       .SetSapperPageLoad(
-          (frameworks_detected_ &
-           blink::LoadingBehaviorFlag::kLoadingBehaviorSapperFrameworkUsed) !=
-          0)
-      .SetVuePressPageLoad(
-          (frameworks_detected_ &
-           blink::LoadingBehaviorFlag::kLoadingBehaviorVuePressFrameworkUsed) !=
-          0)
-      .SetAngularPageLoad(
-          (frameworks_detected_ &
-           blink::LoadingBehaviorFlag::kLoadingBehaviorAngularFrameworkUsed) !=
-          0)
+          is_detected(LoadingBehaviorFlag::kLoadingBehaviorSapperFrameworkUsed))
+      .SetVuePressPageLoad(is_detected(
+          LoadingBehaviorFlag::kLoadingBehaviorVuePressFrameworkUsed))
+      .SetAngularPageLoad(is_detected(
+          LoadingBehaviorFlag::kLoadingBehaviorAngularFrameworkUsed))
       .SetPreactPageLoad(
-          (frameworks_detected_ &
-           blink::LoadingBehaviorFlag::kLoadingBehaviorPreactFrameworkUsed) !=
-          0)
+          is_detected(LoadingBehaviorFlag::kLoadingBehaviorPreactFrameworkUsed))
       .SetReactPageLoad(
-          (frameworks_detected_ &
-           blink::LoadingBehaviorFlag::kLoadingBehaviorReactFrameworkUsed) != 0)
+          is_detected(LoadingBehaviorFlag::kLoadingBehaviorReactFrameworkUsed))
       .SetSveltePageLoad(
-          (frameworks_detected_ &
-           blink::LoadingBehaviorFlag::kLoadingBehaviorSvelteFrameworkUsed) !=
-          0)
+          is_detected(LoadingBehaviorFlag::kLoadingBehaviorSvelteFrameworkUsed))
       .SetVuePageLoad(
-          (frameworks_detected_ &
-           blink::LoadingBehaviorFlag::kLoadingBehaviorVueFrameworkUsed) != 0);
+          is_detected(LoadingBehaviorFlag::kLoadingBehaviorVueFrameworkUsed))
+      .SetDrupalPageLoad(
+          is_detected(LoadingBehaviorFlag::kLoadingBehaviorDrupalCMSUsed))
+      .SetJoomlaPageLoad(
+          is_detected(LoadingBehaviorFlag::kLoadingBehaviorJoomlaCMSUsed))
+      .SetShopifyPageLoad(
+          is_detected(LoadingBehaviorFlag::kLoadingBehaviorShopifyCMSUsed))
+      .SetSquarespacePageLoad(
+          is_detected(LoadingBehaviorFlag::kLoadingBehaviorSquarespaceCMSUsed))
+      .SetWixPageLoad(
+          is_detected(LoadingBehaviorFlag::kLoadingBehaviorWixCMSUsed))
+      .SetWordPressPageLoad(
+          is_detected(LoadingBehaviorFlag::kLoadingBehaviorWordPressCMSUsed));
   builder.Record(ukm::UkmRecorder::Get());
+}
+
+void JavascriptFrameworksUkmObserver::DidActivatePrerenderedPage(
+    content::NavigationHandle* navigation_handle) {
+  DCHECK(is_in_prerendered_page_);
+  is_in_prerendered_page_ = false;
 }

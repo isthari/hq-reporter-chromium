@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,14 +7,14 @@
 #include <memory>
 #include <utility>
 
-#include "base/callback.h"
-#include "base/callback_helpers.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/run_loop.h"
 #include "base/strings/strcat.h"
-#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/simple_test_clock.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/crash_upload_list/crash_upload_list.h"
 #include "chrome/browser/error_reporting/mock_chrome_js_error_report_processor.h"
 #include "chrome/common/chrome_paths.h"
@@ -140,7 +140,7 @@ TEST_F(ChromeJsErrorReportProcessorTest, Basic) {
           {"variations=",
            MockChromeJsErrorReportProcessor::kDefaultExperimentListString})));
 
-#if !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_CHROMEOS_LACROS)
+#if !BUILDFLAG(IS_CHROMEOS)
   // This is from MockChromeJsErrorReportProcessor::GetOsVersion()
   EXPECT_THAT(actual_report->query, HasSubstr("os_version=7.20.1"));
 #endif
@@ -208,7 +208,7 @@ void ChromeJsErrorReportProcessorTest::TestAllFields() {
           {"variations=",
            MockChromeJsErrorReportProcessor::kDefaultExperimentListString})));
 
-#if !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_CHROMEOS_LACROS)
+#if !BUILDFLAG(IS_CHROMEOS)
   // This is from MockChromeJsErrorReportProcessor::GetOsVersion()
   EXPECT_THAT(actual_report->query, HasSubstr("os_version=7.20.1"));
 #endif
@@ -226,7 +226,7 @@ TEST_F(ChromeJsErrorReportProcessorTest, AllFields) {
   TestAllFields();
 }
 
-#if !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_CHROMEOS_LACROS)
+#if !BUILDFLAG(IS_CHROMEOS)
 // On Chrome OS, consent checks are handled in the crash_reporter, not in the
 // browser.
 TEST_F(ChromeJsErrorReportProcessorTest, NoConsent) {
@@ -239,7 +239,7 @@ TEST_F(ChromeJsErrorReportProcessorTest, NoConsent) {
 
   EXPECT_FALSE(endpoint_->last_report());
 }
-#endif  // !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_CHROMEOS_LACROS)
+#endif  // !BUILDFLAG(IS_CHROMEOS)
 
 TEST_F(ChromeJsErrorReportProcessorTest, StackTraceWithErrorMessage) {
   auto report = MakeErrorReport("Hello World");
@@ -269,10 +269,10 @@ TEST_F(ChromeJsErrorReportProcessorTest, RedactMessage) {
   const absl::optional<MockCrashEndpoint::Report>& actual_report =
       endpoint_->last_report();
   ASSERT_TRUE(actual_report);
-  // Escaped version of "<email: 1> says hi to <email: 2>"
+  // Escaped version of "(email: 1) says hi to (email: 2)"
   EXPECT_THAT(actual_report->query,
-              HasSubstr("error_message=%3Cemail%3A%201%3E%20says%20hi%20to%20"
-                        "%3Cemail%3A%202%3E"));
+              HasSubstr("error_message=(email%3A%201)%20says%20hi%20to%20"
+                        "(email%3A%202)"));
   // Redacted messages still need to be removed from stack trace.
   EXPECT_EQ(actual_report->content, "bad_func(1, 2)\nonclick()\n");
 }
@@ -475,7 +475,7 @@ TEST_F(ChromeJsErrorReportProcessorTest, DifferentColumnNumbersAreDistinct) {
   EXPECT_EQ(endpoint_->report_count(), 3);
 }
 
-#if !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_CHROMEOS_LACROS)
+#if !BUILDFLAG(IS_CHROMEOS)
 static std::string UploadInfoStateToString(
     UploadList::UploadInfo::State state) {
   switch (state) {
@@ -494,23 +494,23 @@ static std::string UploadInfoStateToString(
 }
 
 static std::string UploadInfoVectorToString(
-    const std::vector<UploadList::UploadInfo>& uploads) {
+    const std::vector<const UploadList::UploadInfo*>& uploads) {
   std::string result = "[";
   bool first = true;
-  for (const UploadList::UploadInfo& upload : uploads) {
+  for (const UploadList::UploadInfo* upload : uploads) {
     if (first) {
       first = false;
     } else {
       result += ", ";
     }
     base::StrAppend(&result,
-                    {"{state ", UploadInfoStateToString(upload.state),
-                     ", upload_id ", upload.upload_id, ", upload_time ",
-                     base::NumberToString(upload.upload_time.ToTimeT()),
-                     ", local_id ", upload.local_id, ", capture_time ",
-                     base::NumberToString(upload.capture_time.ToTimeT()),
-                     ", source ", upload.source, ", file size ",
-                     base::UTF16ToUTF8(upload.file_size), "}"});
+                    {"{state ", UploadInfoStateToString(upload->state),
+                     ", upload_id ", upload->upload_id, ", upload_time ",
+                     base::NumberToString(upload->upload_time.ToTimeT()),
+                     ", local_id ", upload->local_id, ", capture_time ",
+                     base::NumberToString(upload->capture_time.ToTimeT()),
+                     ", source ", upload->source, ", file size ",
+                     base::UTF16ToUTF8(upload->file_size), "}"});
   }
   result += "]";
   return result;
@@ -530,27 +530,27 @@ TEST_F(ChromeJsErrorReportProcessorTest, UpdatesUploadsLog) {
   base::RunLoop run_loop;
   upload_list->Load(run_loop.QuitClosure());
   run_loop.Run();
-  std::vector<UploadList::UploadInfo> uploads;
-  upload_list->GetUploads(50, &uploads);
+  const std::vector<const UploadList::UploadInfo*> uploads =
+      upload_list->GetUploads(50);
   EXPECT_EQ(uploads.size(), 1U) << UploadInfoVectorToString(uploads);
 
   bool found = false;
-  for (const UploadList::UploadInfo& upload : uploads) {
-    if (upload.state == UploadList::UploadInfo::State::Uploaded &&
-        upload.upload_id == kCrashId) {
+  for (const UploadList::UploadInfo* upload : uploads) {
+    if (upload->state == UploadList::UploadInfo::State::Uploaded &&
+        upload->upload_id == kCrashId) {
       EXPECT_FALSE(found) << "Found twice";
       found = true;
-      EXPECT_EQ(upload.upload_time.ToTimeT(), kFakeNow);
+      EXPECT_EQ(upload->upload_time.ToTimeT(), kFakeNow);
     }
   }
   EXPECT_TRUE(found) << "Didn't find upload record in "
                      << UploadInfoVectorToString(uploads);
 }
-#endif  // !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_CHROMEOS_LACROS)
+#endif  // !BUILDFLAG(IS_CHROMEOS)
 
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS)
 TEST_F(ChromeJsErrorReportProcessorTest, WorksWithoutMemfdCreate) {
   processor_->set_force_non_memfd_for_test();
   TestAllFields();
 }
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#endif  // BUILDFLAG(IS_CHROMEOS)

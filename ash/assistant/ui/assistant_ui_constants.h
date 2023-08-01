@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,8 @@ class FontList;
 namespace ash {
 
 // Appearance.
+// TODO(b/233386078): Usage of kPreferredWidthDip is discouraged as it can
+// change
 constexpr int kPreferredWidthDip = 640;
 constexpr int kSpacingDip = 8;
 constexpr int kMarginDip = 8;
@@ -28,6 +30,11 @@ constexpr SkColor kTextColorSecondary = gfx::kGoogleGrey700;
 // TODO(dmblack): Move the other constants into ash::assistant::ui.
 namespace assistant {
 namespace ui {
+
+// Expected launcher margin is 24. But AppListBubbleAssistantPage is shifted by
+// 1px, i.e. has 1px margin. See b/233384263 for details.
+constexpr int kHorizontalMargin = 23;
+constexpr int kHorizontalPadding = 20;
 
 // Window property to instruct the event targeter for the Assistant window to
 // only allow mouse click events to reach the specified |window|. All other
@@ -41,14 +48,6 @@ const gfx::FontList& GetDefaultFontList();
 
 // The maximum number of user sessions in which to show Assistant onboarding.
 constexpr int kOnboardingMaxSessionsShown = 3;
-
-// Returns the horizontal margin in DIPs.
-COMPONENT_EXPORT(ASSISTANT_UI_CONSTANTS)
-int GetHorizontalMargin();
-
-// Returns the horizontal padding in DIPs.
-COMPONENT_EXPORT(ASSISTANT_UI_CONSTANTS)
-int GetHorizontalPadding();
 
 }  // namespace ui
 }  // namespace assistant

@@ -1,16 +1,18 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "content/browser/scheduler/responsiveness/watcher.h"
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/memory/raw_ptr.h"
 #include "base/pending_task.h"
 #include "base/run_loop.h"
 #include "base/synchronization/lock.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "content/browser/scheduler/responsiveness/calculator.h"
 #include "content/browser/scheduler/responsiveness/native_event_observer.h"
@@ -32,6 +34,8 @@ struct TaskTiming {
 
 class FakeCalculator : public Calculator {
  public:
+  using Calculator::Calculator;
+
   void TaskOrEventFinishedOnUIThread(
       base::TimeTicks queue_time,
       base::TimeTicks execution_start_time,
@@ -98,7 +102,7 @@ class FakeWatcher : public Watcher {
  public:
   std::unique_ptr<Calculator> CreateCalculator() override {
     std::unique_ptr<FakeCalculator> calculator =
-        std::make_unique<FakeCalculator>();
+        std::make_unique<FakeCalculator>(nullptr);
     calculator_ = calculator.get();
     return calculator;
   }
@@ -273,7 +277,7 @@ TEST_F(ResponsivenessWatcherTest, BlockedOrLowPriorityTask) {
 // Test that the queue duration of a delayed task is zero.
 TEST_F(ResponsivenessWatcherTest, DelayedTask) {
   base::PendingTask task(FROM_HERE, base::OnceClosure(),
-                         /*queue_time=*/base::TimeTicks(),
+                         /*queue_time=*/base::TimeTicks::Now(),
                          /*delayed_run_time=*/base::TimeTicks::Now());
   task_environment_.FastForwardBy(base::Seconds(1));
 

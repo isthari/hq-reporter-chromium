@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,11 +22,16 @@
 
 namespace {
 
+using StorageType =
+    content_settings::mojom::ContentSettingsManager::StorageType;
+
 class MockCookieControlsView : public content_settings::CookieControlsView {
  public:
-  MOCK_METHOD4(OnStatusChanged,
-               void(CookieControlsStatus, CookieControlsEnforcement, int, int));
-  MOCK_METHOD2(OnCookiesCountChanged, void(int, int));
+  MOCK_METHOD(void,
+              OnStatusChanged,
+              (CookieControlsStatus, CookieControlsEnforcement, int, int));
+  MOCK_METHOD(void, OnCookiesCountChanged, (int, int));
+  MOCK_METHOD(void, OnStatefulBounceCountChanged, (int));
 };
 
 }  // namespace
@@ -100,7 +105,7 @@ class CookieControlsTest : public ChromeRenderViewHostTestHarness {
   content_settings::PageSpecificContentSettings*
   page_specific_content_settings() {
     return content_settings::PageSpecificContentSettings::GetForFrame(
-        web_contents()->GetMainFrame());
+        web_contents()->GetPrimaryMainFrame());
   }
 
  private:
@@ -127,8 +132,9 @@ TEST_F(CookieControlsTest, SomeWebSite) {
 
   // Accessing cookies should be notified.
   EXPECT_CALL(*mock(), OnCookiesCountChanged(1, 0));
-  page_specific_content_settings()->OnWebDatabaseAccessed(
-      GURL("https://example.com"), /*blocked=*/false);
+  page_specific_content_settings()->OnStorageAccessed(
+      StorageType::DATABASE, GURL("https://example.com"),
+      /*blocked_by_policy=*/false);
   testing::Mock::VerifyAndClearExpectations(mock());
 
   // Manually trigger a full update to check that the cookie count changed.
@@ -140,8 +146,9 @@ TEST_F(CookieControlsTest, SomeWebSite) {
 
   // Blocking cookies should update the blocked cookie count.
   EXPECT_CALL(*mock(), OnCookiesCountChanged(1, 1));
-  page_specific_content_settings()->OnWebDatabaseAccessed(
-      GURL("https://thirdparty.com"), /*blocked=*/true);
+  page_specific_content_settings()->OnStorageAccessed(
+      StorageType::DATABASE, GURL("https://thirdparty.com"),
+      /*blocked_by_policy=*/true);
   testing::Mock::VerifyAndClearExpectations(mock());
 
   // Manually trigger a full update to check that the cookie count changed.

@@ -1,27 +1,29 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/memory/raw_ptr.h"
 #include "chrome/browser/ui/supervised_user/parent_permission_dialog.h"
 
 #include <memory>
 #include <vector>
 
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/metrics/user_action_tester.h"
-#include "chrome/browser/ash/login/test/fake_gaia_mixin.h"
+#include "base/test/scoped_feature_list.h"
+#include "chrome/browser/ash/login/test/device_state_mixin.h"
 #include "chrome/browser/ash/login/test/logged_in_user_mixin.h"
 #include "chrome/browser/extensions/chrome_test_extension_loader.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/supervised_user/supervised_user_extensions_delegate_impl.h"
 #include "chrome/browser/supervised_user/supervised_user_extensions_metrics_recorder.h"
-#include "chrome/browser/supervised_user/supervised_user_service.h"
 #include "chrome/browser/supervised_user/supervised_user_service_factory.h"
 #include "chrome/browser/supervised_user/supervised_user_test_util.h"
 #include "chrome/browser/ui/browser.h"
@@ -31,9 +33,12 @@
 #include "chrome/browser/ui/test/test_browser_dialog.h"
 #include "chrome/browser/ui/views/supervised_user/parent_permission_dialog_view.h"
 #include "chrome/common/chrome_paths.h"
+#include "chrome/test/base/fake_gaia_mixin.h"
 #include "chrome/test/base/mixin_based_in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/signin/public/identity_manager/identity_test_environment.h"
+#include "components/supervised_user/core/browser/supervised_user_service.h"
+#include "components/supervised_user/core/common/features.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/test_launcher.h"
 #include "content/public/test/test_utils.h"
@@ -41,6 +46,7 @@
 #include "extensions/browser/extension_dialog_auto_confirm.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_system.h"
+#include "extensions/browser/extension_util.h"
 #include "extensions/common/extension_builder.h"
 #include "extensions/test/result_catcher.h"
 #include "google_apis/gaia/fake_gaia.h"
@@ -56,10 +62,16 @@ class ParentPermissionDialogViewTest
   enum class NextDialogAction {
     kCancel,
     kAccept,
+    kClose,
   };
 
   ParentPermissionDialogViewTest()
-      : TestParentPermissionDialogViewObserver(this) {}
+      : TestParentPermissionDialogViewObserver(this) {
+    // This UI is only used in V1 extensions approvals flow, so to test it V2
+    // flow needs to be disabled.
+    feature_list_.InitAndDisableFeature(
+        supervised_user::kLocalExtensionApprovalsV2);
+  }
 
   ParentPermissionDialogViewTest(const ParentPermissionDialogViewTest&) =
       delete;
@@ -123,6 +135,9 @@ class ParentPermissionDialogViewTest
         case NextDialogAction::kAccept:
           view_->AcceptDialog();
           break;
+        case NextDialogAction::kClose:
+          view_->CloseDialog();
+          break;
       }
     }
   }
@@ -135,9 +150,8 @@ class ParentPermissionDialogViewTest
     // Set up the identity test environment, which provides fake
     // OAuth refresh tokens.
     identity_test_env_ = std::make_unique<signin::IdentityTestEnvironment>();
-    identity_test_env_->MakeAccountAvailable(
-        ash::FakeGaiaMixin::kFakeUserEmail);
-    identity_test_env_->SetPrimaryAccount(ash::FakeGaiaMixin::kFakeUserEmail,
+    identity_test_env_->MakeAccountAvailable(FakeGaiaMixin::kFakeUserEmail);
+    identity_test_env_->SetPrimaryAccount(FakeGaiaMixin::kFakeUserEmail,
                                           signin::ConsentLevel::kSync);
     identity_test_env_->SetRefreshTokenForPrimaryAccount();
     identity_test_env_->SetAutomaticIssueOfAccessTokens(true);
@@ -147,7 +161,12 @@ class ParentPermissionDialogViewTest
     MixinBasedInProcessBrowserTest::SetUpOnMainThread();
     logged_in_user_mixin_.LogInUser(/*issue_any_scope_token=*/true);
 
-    SetSupervisedUserExtensionsMayRequestPermissionsPref(true);
+    supervised_user_test_util::
+        SetSupervisedUserExtensionsMayRequestPermissionsPref(
+            browser()->profile(), true);
+    supervised_user_extensions_delegate_ =
+        std::make_unique<extensions::SupervisedUserExtensionsDelegateImpl>(
+            browser()->profile());
 
     if (browser()->profile()->IsChild())
       InitializeFamilyData();
@@ -157,6 +176,11 @@ class ParentPermissionDialogViewTest
     extension_service()->DisableExtension(
         test_extension_->id(),
         extensions::disable_reason::DISABLE_CUSTODIAN_APPROVAL_REQUIRED);
+  }
+
+  void TearDownOnMainThread() override {
+    supervised_user_extensions_delegate_.reset();
+    MixinBasedInProcessBrowserTest::TearDownOnMainThread();
   }
 
   void set_next_reauth_status(
@@ -226,16 +250,6 @@ class ParentPermissionDialogViewTest
   }
 
  protected:
-  SupervisedUserService* GetSupervisedUserService() {
-    return SupervisedUserServiceFactory::GetForProfile(browser()->profile());
-  }
-
-  void SetSupervisedUserExtensionsMayRequestPermissionsPref(bool enabled) {
-    GetSupervisedUserService()
-        ->SetSupervisedUserExtensionsMayRequestPermissionsPrefForTesting(
-            enabled);
-  }
-
   const extensions::Extension* test_extension() {
     return test_extension_.get();
   }
@@ -249,12 +263,23 @@ class ParentPermissionDialogViewTest
         ->extension_service();
   }
 
- private:
-  ParentPermissionDialogView* view_ = nullptr;
-  std::unique_ptr<ParentPermissionDialog> parent_permission_dialog_;
+  std::unique_ptr<extensions::SupervisedUserExtensionsDelegate>
+      supervised_user_extensions_delegate_;
 
+ private:
+  base::test::ScopedFeatureList feature_list_;
+
+  raw_ptr<ParentPermissionDialogView, ExperimentalAsh> view_ = nullptr;
+  std::unique_ptr<ParentPermissionDialog> parent_permission_dialog_;
   ParentPermissionDialog::Result result_;
 
+  // Emulate consumer ownership (create public owner key file, install
+  // attributes file, etc) so Chrome doesn't need to do it. The current setup is
+  // not sufficient to go through the ownership flow successfully and it's not
+  // essential to the logic under test.
+  ash::DeviceStateMixin device_state_{
+      &mixin_host_,
+      ash::DeviceStateMixin::State::OOBE_COMPLETED_CONSUMER_OWNED};
   ash::LoggedInUserMixin logged_in_user_mixin_{
       &mixin_host_,
       // Simulate Gellerization / Adding Supervision to load extensions.
@@ -309,6 +334,13 @@ IN_PROC_BROWSER_TEST_F(ParentPermissionDialogViewTest,
                        PermissionDialogCanceled) {
   set_next_dialog_action(
       ParentPermissionDialogViewTest::NextDialogAction::kCancel);
+  ShowPrompt();
+  CheckResult(ParentPermissionDialog::Result::kParentPermissionCanceled);
+}
+
+IN_PROC_BROWSER_TEST_F(ParentPermissionDialogViewTest, PermissionDialogClosed) {
+  set_next_dialog_action(
+      ParentPermissionDialogViewTest::NextDialogAction::kClose);
   ShowPrompt();
   CheckResult(ParentPermissionDialog::Result::kParentPermissionCanceled);
 }
@@ -518,7 +550,9 @@ IN_PROC_BROWSER_TEST_F(ExtensionEnableFlowTestSupervised,
 
   // Simulate the parent disabling the "Permissions for sites, apps and
   // extensions" toggle.
-  SetSupervisedUserExtensionsMayRequestPermissionsPref(false);
+  supervised_user_test_util::
+      SetSupervisedUserExtensionsMayRequestPermissionsPref(browser()->profile(),
+                                                           false);
 
   extensions::ScopedTestDialogAutoConfirm auto_confirm(
       extensions::ScopedTestDialogAutoConfirm::ACCEPT);
@@ -562,20 +596,21 @@ class ExtensionManagementApiTestSupervised
       // In addition to the two extensions from the PRE test, there's one more
       // test extension from the ParentPermissionDialogViewTest parent class.
       EXPECT_EQ(3u, extension_registry()->disabled_extensions().size());
+      scoped_refptr<const extensions::Extension> test_extension;
       for (const auto& e : extension_registry()->disabled_extensions()) {
         if (e->name() == "disabled_extension") {
           disabled_extension_id_ = e->id();
         } else if (e->name() == "Extension Management API Test") {
+          CHECK(test_extension_id_.empty());
           test_extension_id_ = e->id();
+          test_extension = e;
         }
       }
       EXPECT_FALSE(disabled_extension_id_.empty());
       EXPECT_FALSE(test_extension_id_.empty());
-
       // Approve the extension for running the test.
-      GetSupervisedUserService()->UpdateApprovedExtensionForTesting(
-          test_extension_id_,
-          SupervisedUserService::ApprovedExtensionChange::kAdd);
+      supervised_user_extensions_delegate_->AddExtensionApproval(
+          *test_extension);
     }
   }
 
@@ -717,7 +752,9 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementApiTestSupervised,
 
   // Simulate the parent disabling the "Permissions for sites, apps and
   // extensions" toggle.
-  SetSupervisedUserExtensionsMayRequestPermissionsPref(false);
+  supervised_user_test_util::
+      SetSupervisedUserExtensionsMayRequestPermissionsPref(browser()->profile(),
+                                                           false);
 
   extensions::ScopedTestDialogAutoConfirm auto_confirm(
       extensions::ScopedTestDialogAutoConfirm::ACCEPT);

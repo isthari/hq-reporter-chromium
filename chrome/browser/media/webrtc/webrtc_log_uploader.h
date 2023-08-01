@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,6 @@
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
-#include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
 #include "base/task/sequenced_task_runner.h"
 #include "chrome/browser/media/webrtc/webrtc_log_buffer.h"
@@ -55,8 +54,13 @@ class WebRtcLogUploader {
  public:
   typedef base::OnceCallback<void(bool, const std::string&)>
       GenericDoneCallback;
-  typedef base::OnceCallback<void(bool, const std::string&, const std::string&)>
+  typedef base::OnceCallback<void(bool is_upload_successful,
+                                  const std::string& report_id,
+                                  const std::string& error_message)>
       UploadDoneCallback;
+
+  static constexpr char kLogUploadDisabledMsg[] =
+      "WebRtc text log upload is disabled";
 
   // Used when uploading is done to perform post-upload actions. |paths| is
   // also used pre-upload.
@@ -90,16 +94,18 @@ class WebRtcLogUploader {
   // Call either this function or LoggingStoppedDoUpload().
   void LoggingStoppedDontUpload();
 
-  // Notifies that that logging has stopped and that the log should be uploaded.
-  // Decreases log count. May only be called if permission to log has been
+  // Notifies that that logging has stopped. Stores text logs in gz file.
+  // Logs are uploaded if allowed by policy. Decreases log count.
+  // May only be called if permission to log has been
   // granted by calling ApplyForStartLogging() and getting true in return. After
   // this function has been called, a new permission must be granted. Call
   // either this function or LoggingStoppedDontUpload().
   // |upload_done_data.local_log_id| is set and used internally and should be
   // left empty.
-  void LoggingStoppedDoUpload(std::unique_ptr<WebRtcLogBuffer> log_buffer,
-                              std::unique_ptr<WebRtcLogMetaDataMap> meta_data,
-                              UploadDoneData upload_done_data);
+  void OnLoggingStopped(std::unique_ptr<WebRtcLogBuffer> log_buffer,
+                        std::unique_ptr<WebRtcLogMetaDataMap> meta_data,
+                        UploadDoneData upload_done_data,
+                        bool is_text_log_upload_allowed);
 
   // Uploads a previously stored log (see LoggingStoppedDoStore()).
   void UploadStoredLog(UploadDoneData upload_data);
@@ -136,6 +142,8 @@ class WebRtcLogUploader {
       const {
     return background_task_runner_;
   }
+
+  void NotifyUploadDisabled(UploadDoneData upload_done_data);
 
  private:
   // Allow the test class to call AddLocallyStoredLogInfoToUploadListFile.

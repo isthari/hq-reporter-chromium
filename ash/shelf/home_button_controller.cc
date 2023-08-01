@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,8 @@
 #include "ash/shelf/shelf_button.h"
 #include "ash/shell.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
-#include "base/bind.h"
 #include "base/check_op.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
@@ -130,8 +130,7 @@ bool HomeButtonController::MaybeHandleGestureEvent(ui::GestureEvent* event) {
 
 bool HomeButtonController::IsAssistantAvailable() {
   AssistantStateBase* state = AssistantState::Get();
-  return state->allowed_state() ==
-             chromeos::assistant::AssistantAllowedState::ALLOWED &&
+  return state->allowed_state() == assistant::AssistantAllowedState::ALLOWED &&
          state->settings_enabled().value_or(false);
 }
 
@@ -156,7 +155,7 @@ void HomeButtonController::OnTabletModeStarted() {
 }
 
 void HomeButtonController::OnAssistantFeatureAllowedChanged(
-    chromeos::assistant::AssistantAllowedState state) {
+    assistant::AssistantAllowedState state) {
   button_->OnAssistantAvailabilityChanged();
 }
 
@@ -183,7 +182,6 @@ void HomeButtonController::OnAppListShown() {
     views::InkDrop::Get(button_)->AnimateToState(views::InkDropState::ACTIVATED,
                                                  nullptr);
   }
-  is_showing_app_list_ = true;
 }
 
 void HomeButtonController::OnAppListDismissed() {
@@ -195,14 +193,12 @@ void HomeButtonController::OnAppListDismissed() {
     ink_drop->SnapToActivated();
   views::InkDrop::Get(button_)->AnimateToState(views::InkDropState::DEACTIVATED,
                                                nullptr);
-
-  is_showing_app_list_ = false;
 }
 
 void HomeButtonController::InitializeAssistantOverlay() {
   DCHECK_EQ(nullptr, assistant_overlay_);
   assistant_overlay_ = new AssistantOverlay(button_);
-  button_->AddChildView(assistant_overlay_);
+  button_->AddChildView(assistant_overlay_.get());
   assistant_overlay_->SetVisible(false);
   assistant_animation_delay_timer_ = std::make_unique<base::OneShotTimer>();
 }

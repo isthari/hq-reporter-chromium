@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,8 +22,8 @@
 #include "base/process/process_handle.h"
 #include "base/strings/string_piece.h"
 #include "base/threading/thread_restrictions.h"
+#include "build/blink_buildflags.h"
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
 
 #if BUILDFLAG(IS_WIN)
 #include "base/win/windows_types.h"
@@ -36,11 +36,12 @@
 #include "base/posix/file_descriptor_shuffle.h"
 #endif
 
-#if BUILDFLAG(IS_MAC)
-#include "base/mac/mach_port_rendezvous.h"
-#endif
-
 namespace base {
+
+#if BUILDFLAG(IS_APPLE)
+class MachRendezvousPort;
+using MachPortsForRendezvous = std::map<uint32_t, MachRendezvousPort>;
+#endif
 
 #if BUILDFLAG(IS_WIN)
 typedef std::vector<HANDLE> HandlesToInheritVector;
@@ -94,7 +95,11 @@ struct BASE_EXPORT LaunchOptions {
 #if BUILDFLAG(IS_WIN)
   bool start_hidden = false;
 
-  // Process will be started using a shell helper so that it is elevated.
+  // Process will be started using ShellExecuteEx instead of CreateProcess so
+  // that it is elevated. LaunchProcess with this flag will have different
+  // behaviour due to ShellExecuteEx. Some common operations like OpenProcess
+  // will fail. Currently the only other supported LaunchOptions are
+  // |start_hidden| and |wait|.
   bool elevated = false;
 
   // Sets STARTF_FORCEOFFFEEDBACK so that the feedback cursor is forced off
@@ -210,7 +215,7 @@ struct BASE_EXPORT LaunchOptions {
   bool kill_on_parent_death = false;
 #endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
 
-#if BUILDFLAG(IS_MAC)
+#if BUILDFLAG(IS_MAC) || (BUILDFLAG(IS_IOS) && BUILDFLAG(USE_BLINK))
   // Mach ports that will be accessible to the child process. These are not
   // directly inherited across process creation, but they are stored by a Mach
   // IPC server that a child process can communicate with to retrieve them.
@@ -221,6 +226,12 @@ struct BASE_EXPORT LaunchOptions {
   // See base/mac/mach_port_rendezvous.h for details.
   MachPortsForRendezvous mach_ports_for_rendezvous;
 
+  // Apply a process scheduler policy to enable mitigations against CPU side-
+  // channel attacks.
+  bool enable_cpu_security_mitigations = false;
+#endif  // BUILDFLAG(IS_MAC) || (BUILDFLAG(IS_IOS) && BUILDFLAG(USE_BLINK))
+
+#if BUILDFLAG(IS_MAC)
   // When a child process is launched, the system tracks the parent process
   // with a concept of "responsibility". The responsible process will be
   // associated with any requests for private data stored on the system via
@@ -228,11 +239,7 @@ struct BASE_EXPORT LaunchOptions {
   // code, the responsibility for the child process should be disclaimed so
   // that any TCC requests are not associated with the parent.
   bool disclaim_responsibility = false;
-
-  // Apply a process scheduler policy to enable mitigations against CPU side-
-  // channel attacks.
-  bool enable_cpu_security_mitigations = false;
-#endif  // BUILDFLAG(IS_MAC)
+#endif  // BUILDFLAG(IS_MAC) || (BUILDFLAG(IS_IOS) && BUILDFLAG(USE_BLINK))
 
 #if BUILDFLAG(IS_FUCHSIA)
   // If valid, launches the application in that job object.
@@ -266,11 +273,14 @@ struct BASE_EXPORT LaunchOptions {
   // the child process. If |paths_to_clone| is empty then the process will
   // receive either a full copy of the parent's namespace, or an empty one,
   // depending on whether FDIO_SPAWN_CLONE_NAMESPACE is set.
+  // Process launch will fail if `paths_to_clone` and `paths_to_transfer`
+  // together contain conflicting paths (e.g. overlaps or duplicates).
   std::vector<FilePath> paths_to_clone;
 
   // Specifies handles which will be installed as files or directories in the
-  // child process' namespace. Paths installed by |paths_to_clone| will be
-  // overridden by these entries.
+  // child process' namespace.
+  // Process launch will fail if `paths_to_clone` and `paths_to_transfer`
+  // together contain conflicting paths (e.g. overlaps or duplicates).
   std::vector<PathToTransfer> paths_to_transfer;
 
   // Suffix that will be added to the process name. When specified process name
@@ -305,11 +315,11 @@ struct BASE_EXPORT LaunchOptions {
   bool new_process_group = false;
 #endif  // BUILDFLAG(IS_POSIX)
 
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS)
   // If non-negative, the specified file descriptor will be set as the launched
   // process' controlling terminal.
   int ctrl_terminal_fd = -1;
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 };
 
 // Launch a process via the command line |cmdline|.
@@ -332,7 +342,9 @@ BASE_EXPORT Process LaunchProcess(const CommandLine& cmdline,
 // Windows-specific LaunchProcess that takes the command line as a
 // string.  Useful for situations where you need to control the
 // command line arguments directly, but prefer the CommandLine version
-// if launching Chrome itself.
+// if launching Chrome itself. Also prefer the CommandLine version if
+// `options.elevated` is set because `cmdline` needs to be parsed for
+// ShellExecuteEx.
 //
 // The first command line argument should be the path to the process,
 // and don't forget to quote it.
@@ -341,14 +353,6 @@ BASE_EXPORT Process LaunchProcess(const CommandLine& cmdline,
 //  cmdline = "c:\windows\explorer.exe" -foo "c:\bar\"
 BASE_EXPORT Process LaunchProcess(const CommandLine::StringType& cmdline,
                                   const LaunchOptions& options);
-
-// Launches a process with elevated privileges.  This does not behave exactly
-// like LaunchProcess as it uses ShellExecuteEx instead of CreateProcess to
-// create the process.  This means the process will have elevated privileges
-// and thus some common operations like OpenProcess will fail. Currently the
-// only supported LaunchOptions are |start_hidden| and |wait|.
-BASE_EXPORT Process LaunchElevatedProcess(const CommandLine& cmdline,
-                                          const LaunchOptions& options);
 
 #elif BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
 // A POSIX-specific version of LaunchProcess that takes an argv array
@@ -437,7 +441,7 @@ BASE_EXPORT LaunchOptions LaunchOptionsForTest();
 //
 // It is unsafe to use any pthread APIs after ForkWithFlags().
 // However, performing an exec() will lift this restriction.
-BASE_EXPORT pid_t ForkWithFlags(unsigned long flags, pid_t* ptid, pid_t* ctid);
+BASE_EXPORT pid_t ForkWithFlags(int flags, pid_t* ptid, pid_t* ctid);
 #endif
 
 namespace internal {
@@ -446,8 +450,8 @@ namespace internal {
 // GetAppOutputInternal() to join a process. GetAppOutputInternal() can't itself
 // be a friend of ScopedAllowBaseSyncPrimitives because it is in the anonymous
 // namespace.
-class GetAppOutputScopedAllowBaseSyncPrimitives
-    : public base::ScopedAllowBaseSyncPrimitives {};
+class [[maybe_unused, nodiscard]] GetAppOutputScopedAllowBaseSyncPrimitives
+    : public base::ScopedAllowBaseSyncPrimitives{};
 
 }  // namespace internal
 

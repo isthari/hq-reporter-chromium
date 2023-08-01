@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,12 +14,12 @@
 #include "base/task/single_thread_task_executor.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "build/build_config.h"
-#include "mojo/core/embedder/embedder.h"
 #include "net/base/network_change_notifier.h"
 #include "remoting/base/auto_thread_task_runner.h"
 #include "remoting/base/breakpad.h"
 #include "remoting/base/host_settings.h"
 #include "remoting/base/logging.h"
+#include "remoting/base/mojo_util.h"
 #include "remoting/host/base/host_exit_codes.h"
 #include "remoting/host/base/switches.h"
 #include "remoting/host/chromoting_host_context.h"
@@ -31,12 +31,14 @@
 #include "remoting/host/usage_stats_consent.h"
 
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+#if defined(REMOTING_USE_X11)
 #include <gtk/gtk.h>
-
 #include "base/linux_util.h"
+#include "remoting/host/linux/wayland_utils.h"
 #include "ui/events/platform/x11/x11_event_source.h"
 #include "ui/gfx/x/xlib_support.h"
-#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+#endif  // defined(REMOTING_USE_X11)
+#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) &&
 
 #if BUILDFLAG(IS_APPLE)
 #include "base/mac/mac_util.h"
@@ -76,11 +78,14 @@ bool CurrentProcessHasUiAccess() {
 // Creates a It2MeNativeMessagingHost instance, attaches it to stdin/stdout and
 // runs the task executor until It2MeNativeMessagingHost signals shutdown.
 int It2MeNativeMessagingHostMain(int argc, char** argv) {
-#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
-  // Initialize Xlib for multi-threaded use, allowing non-Chromium code to
-  // use X11 safely (such as the WebRTC capturer, GTK ...)
-  x11::InitXlib();
-#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+#if (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)) && defined(REMOTING_USE_X11)
+  if (!IsRunningWayland()) {
+    // Initialize Xlib for multi-threaded use, allowing non-Chromium code to
+    // use X11 safely (such as the WebRTC capturer, GTK ...)
+    x11::InitXlib();
+  }
+#endif  // (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)) &&
+        // defined(REMOTING_USE_X11)
 
   // This object instance is required by Chrome code (such as
   // SingleThreadTaskExecutor).
@@ -115,13 +120,13 @@ int It2MeNativeMessagingHostMain(int argc, char** argv) {
   // Required to find the ICU data file, used by some file_util routines.
   base::i18n::InitializeICU();
 
-  mojo::core::Init();
+  InitializeMojo();
 
   base::ThreadPoolInstance::CreateAndStartWithDefaultParams("It2Me");
 
   remoting::LoadResources("");
 
-#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+#if (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)) && defined(REMOTING_USE_X11)
   // Required for any calls into GTK functions, such as the Disconnect and
   // Continue windows. Calling with nullptr arguments because we don't have
   // any command line arguments for gtk to consume.
@@ -134,7 +139,8 @@ int It2MeNativeMessagingHostMain(int argc, char** argv) {
   // Need to prime the host OS version value for linux to prevent IO on the
   // network thread. base::GetLinuxDistro() caches the result.
   base::GetLinuxDistro();
-#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+#endif  // (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)) &&
+        // defined(REMOTING_USE_X11)
 
   base::File read_file;
   base::File write_file;
@@ -254,16 +260,21 @@ int It2MeNativeMessagingHostMain(int argc, char** argv) {
       PolicyWatcher::CreateWithTaskRunner(context->file_task_runner(),
                                           context->management_service());
 
-#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
-  // Create an X11EventSource on all UI threads, so the global X11 connection
-  // (x11::Connection::Get()) can dispatch X events.
-  auto event_source =
-      std::make_unique<ui::X11EventSource>(x11::Connection::Get());
-  auto input_task_runner = context->input_task_runner();
-  input_task_runner->PostTask(FROM_HERE, base::BindOnce([]() {
-                                new ui::X11EventSource(x11::Connection::Get());
-                              }));
-#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+#if (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)) && defined(REMOTING_USE_X11)
+  scoped_refptr<AutoThreadTaskRunner> input_task_runner;
+  if (!IsRunningWayland()) {
+    // Create an X11EventSource on all UI threads, so the global X11 connection
+    // (x11::Connection::Get()) can dispatch X events.
+    auto event_source =
+        std::make_unique<ui::X11EventSource>(x11::Connection::Get());
+    input_task_runner = context->input_task_runner();
+    input_task_runner->PostTask(
+        FROM_HERE, base::BindOnce([]() {
+          new ui::X11EventSource(x11::Connection::Get());
+        }));
+  }
+#endif  // (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)) &&
+        // defined(REMOTING_USE_X11)
 
   std::unique_ptr<extensions::NativeMessageHost> host(
       new It2MeNativeMessagingHost(is_process_elevated_,
@@ -276,11 +287,14 @@ int It2MeNativeMessagingHostMain(int argc, char** argv) {
   // Run the loop until channel is alive.
   run_loop.Run();
 
-#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
-  input_task_runner->PostTask(FROM_HERE, base::BindOnce([]() {
-                                delete ui::X11EventSource::GetInstance();
-                              }));
-#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+#if (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)) && defined(REMOTING_USE_X11)
+  if (!IsRunningWayland()) {
+    input_task_runner->PostTask(FROM_HERE, base::BindOnce([]() {
+                                  delete ui::X11EventSource::GetInstance();
+                                }));
+  }
+#endif  // (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)) &&
+        // defined(REMOTING_USE_X11)
 
   // Block until tasks blocking shutdown have completed their execution.
   base::ThreadPoolInstance::Get()->Shutdown();

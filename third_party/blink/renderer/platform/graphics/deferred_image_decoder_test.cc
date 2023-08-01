@@ -28,9 +28,9 @@
 #include <memory>
 #include "base/location.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/platform/graphics/image_decoding_store.h"
 #include "third_party/blink/renderer/platform/graphics/image_frame_generator.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_canvas.h"
@@ -38,8 +38,9 @@
 #include "third_party/blink/renderer/platform/graphics/paint/paint_record.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_recorder.h"
 #include "third_party/blink/renderer/platform/graphics/test/mock_image_decoder.h"
+#include "third_party/blink/renderer/platform/scheduler/public/non_main_thread.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
-#include "third_party/blink/renderer/platform/scheduler/public/thread.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_skia.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/wtf/shared_buffer.h"
 #include "third_party/skia/include/core/SkImage.h"
@@ -164,12 +165,12 @@ TEST_F(DeferredImageDecoderTest, drawIntoPaintRecord) {
   EXPECT_EQ(1, image.height());
 
   PaintRecorder recorder;
-  cc::PaintCanvas* temp_canvas = recorder.beginRecording(100, 100);
+  cc::PaintCanvas* temp_canvas = recorder.beginRecording();
   temp_canvas->drawImage(image, 0, 0);
-  sk_sp<PaintRecord> record = recorder.finishRecordingAsPicture();
+  PaintRecord record = recorder.finishRecordingAsPicture();
   EXPECT_EQ(0, decode_request_count_);
 
-  canvas_->drawPicture(record);
+  canvas_->drawPicture(std::move(record));
   EXPECT_EQ(0, decode_request_count_);
   EXPECT_EQ(SkColorSetARGB(255, 255, 255, 255), bitmap_.getColor(0, 0));
 }
@@ -181,7 +182,7 @@ TEST_F(DeferredImageDecoderTest, drawIntoPaintRecordProgressive) {
   // Received only half the file.
   lazy_decoder_->SetData(partial_data, false /* all_data_received */);
   PaintRecorder recorder;
-  cc::PaintCanvas* temp_canvas = recorder.beginRecording(100, 100);
+  cc::PaintCanvas* temp_canvas = recorder.beginRecording();
   PaintImage image =
       CreatePaintImage(PaintImage::CompletionState::PARTIALLY_DONE);
   ASSERT_TRUE(image);
@@ -192,7 +193,7 @@ TEST_F(DeferredImageDecoderTest, drawIntoPaintRecordProgressive) {
   lazy_decoder_->SetData(data_, true /* all_data_received */);
   image = CreatePaintImage();
   ASSERT_TRUE(image);
-  temp_canvas = recorder.beginRecording(100, 100);
+  temp_canvas = recorder.beginRecording();
   temp_canvas->drawImage(image, 0, 0);
   canvas_->drawPicture(recorder.finishRecordingAsPicture());
   EXPECT_EQ(SkColorSetARGB(255, 255, 255, 255), bitmap_.getColor(0, 0));
@@ -244,8 +245,8 @@ TEST_F(DeferredImageDecoderTest, notAllDataReceivedPriorToDecode) {
       image.GetImageHeaderMetadata()->all_data_received_prior_to_decode);
 }
 
-static void RasterizeMain(cc::PaintCanvas* canvas, sk_sp<PaintRecord> record) {
-  canvas->drawPicture(record);
+static void RasterizeMain(cc::PaintCanvas* canvas, PaintRecord record) {
+  canvas->drawPicture(std::move(record));
 }
 
 // Flaky on Mac. crbug.com/792540.
@@ -262,15 +263,15 @@ TEST_F(DeferredImageDecoderTest, MAYBE_decodeOnOtherThread) {
   EXPECT_EQ(1, image.height());
 
   PaintRecorder recorder;
-  cc::PaintCanvas* temp_canvas = recorder.beginRecording(100, 100);
+  cc::PaintCanvas* temp_canvas = recorder.beginRecording();
   temp_canvas->drawImage(image, 0, 0);
-  sk_sp<PaintRecord> record = recorder.finishRecordingAsPicture();
+  PaintRecord record = recorder.finishRecordingAsPicture();
   EXPECT_EQ(0, decode_request_count_);
 
   // Create a thread to rasterize PaintRecord.
-  std::unique_ptr<Thread> thread = Platform::Current()->CreateThread(
-      ThreadCreationParams(ThreadType::kTestThread)
-          .SetThreadNameForTest("RasterThread"));
+  std::unique_ptr<NonMainThread> thread =
+      NonMainThread::CreateThread(ThreadCreationParams(ThreadType::kTestThread)
+                                      .SetThreadNameForTest("RasterThread"));
   PostCrossThreadTask(
       *thread->GetTaskRunner(), FROM_HERE,
       CrossThreadBindOnce(&RasterizeMain, CrossThreadUnretained(canvas_.get()),
@@ -310,7 +311,7 @@ TEST_F(DeferredImageDecoderTest, multiFrameImageLoading) {
   PaintImage image = CreatePaintImage();
   ASSERT_TRUE(image);
   EXPECT_FALSE(lazy_decoder_->FrameIsReceivedAtIndex(0));
-  // Anything <= 10ms is clamped to 100ms. See the implementaiton for details.
+  // Anything <= 10ms is clamped to 100ms. See the implementation for details.
   EXPECT_EQ(base::Milliseconds(100), lazy_decoder_->FrameDurationAtIndex(0));
 
   frame_count_ = 2;
@@ -352,11 +353,11 @@ TEST_F(DeferredImageDecoderTest, decodedSize) {
 
   // The following code should not fail any assert.
   PaintRecorder recorder;
-  cc::PaintCanvas* temp_canvas = recorder.beginRecording(100, 100);
+  cc::PaintCanvas* temp_canvas = recorder.beginRecording();
   temp_canvas->drawImage(image, 0, 0);
-  sk_sp<PaintRecord> record = recorder.finishRecordingAsPicture();
+  PaintRecord record = recorder.finishRecordingAsPicture();
   EXPECT_EQ(0, decode_request_count_);
-  canvas_->drawPicture(record);
+  canvas_->drawPicture(std::move(record));
   EXPECT_EQ(1, decode_request_count_);
 }
 

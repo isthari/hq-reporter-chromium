@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "chrome/browser/net/proxy_config_monitor.h"
 #include "chrome/browser/net/stub_resolver_config_reader.h"
 #include "chrome/browser/ssl/ssl_config_service_manager.h"
+#include "chrome/common/buildflags.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_member.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
@@ -111,7 +112,7 @@ class SystemNetworkContextManager {
   void DisableQuic();
 
   // Returns an mojo::PendingReceiver<SSLConfigClient> that can be passed as a
-  // NetorkContextParam.
+  // NetworkContextParam.
   mojo::PendingReceiver<network::mojom::SSLConfigClient>
   GetSSLConfigClientReceiver();
 
@@ -124,9 +125,7 @@ class SystemNetworkContextManager {
 
   // Configures default set of parameters for configuring the network context.
   void ConfigureDefaultNetworkContextParams(
-      network::mojom::NetworkContextParams* network_context_params,
-      cert_verifier::mojom::CertVerifierCreationParams*
-          cert_verifier_creation_params);
+      network::mojom::NetworkContextParams* network_context_params);
 
   // Performs the same function as ConfigureDefaultNetworkContextParams(), and
   // then returns a newly allocated network::mojom::NetworkContextParams with
@@ -141,7 +140,7 @@ class SystemNetworkContextManager {
   // or destroyed, and so that it's destroyed before Mojo is shut down.
   net_log::NetExportFileWriter* GetNetExportFileWriter();
 
-  // Returns whether the network sandbox is enabled. This depends on  policy but
+  // Returns whether the network sandbox is enabled. This depends on policy but
   // also feature status from sandbox. Called before there is an instance of
   // SystemNetworkContextManager.
   static bool IsNetworkSandboxEnabled();
@@ -174,12 +173,17 @@ class SystemNetworkContextManager {
     stub_resolver_config_reader_for_testing_ = reader;
   }
 
+#if BUILDFLAG(CHROME_ROOT_STORE_OPTIONAL)
+  static bool IsUsingChromeRootStore();
+#endif  // BUILDFLAG(CHROME_ROOT_STORE_OPTIONAL)
+
  private:
   FRIEND_TEST_ALL_PREFIXES(
       SystemNetworkContextServiceCertVerifierBuiltinPermissionsPolicyTest,
       Test);
 
   class URLLoaderFactoryForSystem;
+  class NetworkProcessLaunchWatcher;
 
   // Constructor. |pref_service| must out live this object.
   explicit SystemNetworkContextManager(PrefService* pref_service);
@@ -193,6 +197,21 @@ class SystemNetworkContextManager {
   // Send the current value of the net.explicitly_allowed_network_ports pref to
   // the network process.
   void UpdateExplicitlyAllowedNetworkPorts();
+
+#if BUILDFLAG(CHROME_ROOT_STORE_OPTIONAL)
+  static bool IsUsingChromeRootStoreImpl(PrefService* local_state);
+#endif  // BUILDFLAG(CHROME_ROOT_STORE_OPTIONAL)
+
+#if BUILDFLAG(CHROME_ROOT_STORE_POLICY_SUPPORTED)
+  void UpdateChromeRootStoreEnabled();
+#endif  // BUILDFLAG(CHROME_ROOT_STORE_POLICY_SUPPORTED)
+
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX) || \
+    BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID)
+  // Applies the current value of the kEnforceLocalAnchorConstraintsEnabled
+  // pref to the enforcement state.
+  void UpdateEnforceLocalAnchorConstraintsEnabled();
+#endif
 
   // The PrefService to retrieve all the pref values.
   raw_ptr<PrefService> local_state_;
@@ -226,6 +245,8 @@ class SystemNetworkContextManager {
 
   // Initialized on first access.
   std::unique_ptr<net_log::NetExportFileWriter> net_export_file_writer_;
+
+  std::unique_ptr<NetworkProcessLaunchWatcher> network_process_launch_watcher_;
 
   StubResolverConfigReader stub_resolver_config_reader_;
   static StubResolverConfigReader* stub_resolver_config_reader_for_testing_;

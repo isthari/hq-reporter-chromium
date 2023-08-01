@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,9 @@
 #include <string>
 #include <tuple>
 
+#include "base/metrics/field_trial_params.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
-#include "components/variations/variations_associated_data.h"
 #include "services/device/public/mojom/usb_device.mojom.h"
 
 namespace {
@@ -96,6 +96,7 @@ const UsbBlocklist::Entry kStaticEntries[] = {
     {0x10c4, 0x8acf, kMaxVersion},  // U2F Zero
     {0x18d1, 0x5026, kMaxVersion},  // Titan
     {0x1a44, 0x00bb, kMaxVersion},  // VASCO
+    {0x1d50, 0x60fc, kMaxVersion},  // OnlyKey
     {0x1e0d, 0xf1ae, kMaxVersion},  // Keydo AES
     {0x1e0d, 0xf1d0, kMaxVersion},  // Neowave Keydo
     {0x1ea8, 0xf025, kMaxVersion},  // Thetis
@@ -147,8 +148,8 @@ UsbBlocklist::UsbBlocklist() {
 }
 
 void UsbBlocklist::PopulateWithServerProvidedValues() {
-  std::string blocklist_string = variations::GetVariationParamValue(
-      "WebUSBBlocklist", "blocklist_additions");
+  std::string blocklist_string =
+      base::GetFieldTrialParamValue("WebUSBBlocklist", "blocklist_additions");
 
   for (const auto& entry :
        base::SplitStringPiece(blocklist_string, ",", base::TRIM_WHITESPACE,

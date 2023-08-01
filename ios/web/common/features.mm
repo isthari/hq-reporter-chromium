@@ -1,10 +1,10 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/web/common/features.h"
+#import "ios/web/common/features.h"
 
-#include "base/metrics/field_trial_params.h"
+#import "base/metrics/field_trial_params.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -13,83 +13,105 @@
 namespace web {
 namespace features {
 
-const base::Feature kCrashOnUnexpectedURLChange{
-    "CrashOnUnexpectedURLChange", base::FEATURE_ENABLED_BY_DEFAULT};
+BASE_FEATURE(kCrashOnUnexpectedURLChange,
+             "CrashOnUnexpectedURLChange",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-const base::Feature kHistoryClobberWorkaround{
-    "WKWebViewHistoryClobberWorkaround", base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kBlockUniversalLinksInOffTheRecordMode,
+             "BlockUniversalLinksInOffTheRecord",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-const base::Feature kBlockUniversalLinksInOffTheRecordMode{
-    "BlockUniversalLinksInOffTheRecord", base::FEATURE_ENABLED_BY_DEFAULT};
+BASE_FEATURE(kKeepsRenderProcessAlive,
+             "KeepsRenderProcessAlive",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-const base::Feature kKeepsRenderProcessAlive{"KeepsRenderProcessAlive",
-                                             base::FEATURE_ENABLED_BY_DEFAULT};
+BASE_FEATURE(kClearOldNavigationRecordsWorkaround,
+             "ClearOldNavigationRecordsWorkaround",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-const base::Feature kClearOldNavigationRecordsWorkaround{
-    "ClearOldNavigationRecordsWorkaround", base::FEATURE_ENABLED_BY_DEFAULT};
+BASE_FEATURE(kEnablePersistentDownloads,
+             "EnablePersistentDownloads",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
-const base::Feature kEnablePersistentDownloads{
-    "EnablePersistentDownloads", base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kRecordSnapshotSize,
+             "RecordSnapshotSize",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
-const base::Feature kPreserveScrollViewProperties{
-    "PreserveScrollViewProperties", base::FEATURE_ENABLED_BY_DEFAULT};
+BASE_FEATURE(kSetRequestAttribution,
+             "SetRequestAttribution",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-const base::Feature kRecordSnapshotSize{"RecordSnapshotSize",
-                                        base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kIOSSharedHighlightingColorChange,
+             "IOSSharedHighlightingColorChange",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-const base::Feature kSetRequestAttribution{"SetRequestAttribution",
-                                           base::FEATURE_ENABLED_BY_DEFAULT};
+BASE_FEATURE(kSynthesizedRestoreSession,
+             "SynthesizedRestoreSession",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-const base::Feature kWebViewNativeContextMenuPhase2{
-    "WebViewNativeContextMenuPhase2", base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kEnableFullscreenAPI,
+             "EnableFullscreenAPI",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
-const base::Feature kDefaultWebViewContextMenu{
-    "DefaultWebViewContextMenu", base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kUseLoadSimulatedRequestForOfflinePage,
+             "UseLoadSimulatedRequestForErrorPageNavigation",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
-const base::Feature kDisableNonHTMLScreenshotOnIOS15{
-    "DisableNonHTMLScreenshotOnIOS15", base::FEATURE_ENABLED_BY_DEFAULT};
+BASE_FEATURE(kEnableEmails,
+             "EnableEmailsExperience",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
-const base::Feature kIOSSharedHighlightingColorChange{
-    "IOSSharedHighlightingColorChange", base::FEATURE_ENABLED_BY_DEFAULT};
+BASE_FEATURE(kEnablePhoneNumbers,
+             "EnablePhoneNumbersExperience",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
-const base::Feature kCreatePendingItemForPostFormSubmission{
-    "CreatePendingItemForPostFormSubmission", base::FEATURE_ENABLED_BY_DEFAULT};
+BASE_FEATURE(kOneTapForMaps,
+             "EnableOneTapForMaps",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
-const base::Feature kEnableNewDownloadAPI{"EnableNewDownloadAPI",
-                                          base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kScrollViewProxyScrollEnabledWorkaround,
+             "ScrollViewProxyScrollEnabledWorkaround",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-const base::Feature kSynthesizedRestoreSession{
-    "SynthesizedRestoreSession", base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kPreventNavigationWithoutUserInteraction,
+             "PreventNavigationWithoutUserInteraction",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
-const base::Feature kEnableUnrealizedWebStates{
-    "EnableUnrealizedWebStates", base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kEnableWebInspector,
+             "EnableWebInspector",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-const base::Feature kMediaPermissionsControl{"MediaPermissionsControl",
-                                             base::FEATURE_DISABLED_BY_DEFAULT};
+BASE_FEATURE(kSmoothScrollingDefault,
+             "FullscreenSmoothScrollingDefault",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-bool UseWebViewNativeContextMenuWeb() {
-  return base::FeatureList::IsEnabled(kDefaultWebViewContextMenu);
-}
+BASE_FEATURE(kEnableSessionSerializationOptimizations,
+             "EnableSessionSerializationOptimizations",
+             base::FEATURE_DISABLED_BY_DEFAULT);
 
-bool ShouldTakeScreenshotOnNonHTMLContent() {
+bool IsLoadSimulatedRequestAPIEnabled() {
   if (@available(iOS 15, *)) {
-    return !base::FeatureList::IsEnabled(kDisableNonHTMLScreenshotOnIOS15);
-  }
-  return true;
-}
-
-bool IsNewDownloadAPIEnabled() {
-  if (@available(iOS 15, *)) {
-    return base::FeatureList::IsEnabled(kEnableNewDownloadAPI);
+    return base::FeatureList::IsEnabled(kUseLoadSimulatedRequestForOfflinePage);
   }
   return false;
 }
 
-bool IsMediaPermissionsControlEnabled() {
-  if (@available(iOS 15, *)) {
-    return base::FeatureList::IsEnabled(kMediaPermissionsControl);
+bool IsFullscreenAPIEnabled() {
+  if (@available(iOS 16.4, *)) {
+    return base::FeatureList::IsEnabled(kEnableFullscreenAPI);
   }
   return false;
+}
+
+bool IsWebInspectorSupportEnabled() {
+  if (@available(iOS 16.4, *)) {
+    return base::FeatureList::IsEnabled(kEnableWebInspector);
+  }
+  return false;
+}
+
+bool UseSessionSerializationOptimizations() {
+  return base::FeatureList::IsEnabled(kEnableSessionSerializationOptimizations);
 }
 
 }  // namespace features

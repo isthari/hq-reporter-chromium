@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,15 +8,14 @@
 
 #define TELEMETRY 1
 
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/environment.h"
+#include "base/functional/bind.h"
 #include "base/path_service.h"
 #include "base/process/kill.h"
 #include "base/process/launch.h"
 #include "base/process/process.h"
 #include "base/strings/string_number_conversions.h"
-#include "build/build_config.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/nacl/nacl_browsertest_util.h"
@@ -43,7 +42,8 @@ namespace {
 #  define MAYBE_SysconfNprocessorsOnln SysconfNprocessorsOnln
 #endif
 
-NACL_BROWSER_TEST_F(NaClBrowserTest, SimpleLoad, {
+// TODO(https://crbug.com/1059468): Flaky.
+NACL_BROWSER_TEST_F(NaClBrowserTest, DISABLED_SimpleLoad, {
   RunLoadTest(FILE_PATH_LITERAL("nacl_load_test.html"));
 })
 
@@ -52,60 +52,35 @@ NACL_BROWSER_TEST_F(NaClBrowserTest, ExitStatus0, {
       "pm_exit_status_test.html?trigger=exit0&expected_exit=0"));
 })
 
-// TODO(1059468): Flaky on Win7 (32).
-#if BUILDFLAG(IS_WIN) && defined(ARCH_CPU_32_BITS)
-#define MAYBE_ExitStatus254 DISABLED_ExitStatus254
-#else
-#define MAYBE_ExitStatus254 ExitStatus254
-#endif
-NACL_BROWSER_TEST_F(NaClBrowserTest, MAYBE_ExitStatus254, {
+// TODO(https://crbug.com/1059468): Flaky.
+NACL_BROWSER_TEST_F(NaClBrowserTest, DISABLED_ExitStatus254, {
   RunNaClIntegrationTest(FILE_PATH_LITERAL(
       "pm_exit_status_test.html?trigger=exit254&expected_exit=254"));
 })
 
-NACL_BROWSER_TEST_F(NaClBrowserTest, ExitStatusNeg2, {
+// TODO(https://crbug.com/1059468): Flaky.
+NACL_BROWSER_TEST_F(NaClBrowserTest, DISABLED_ExitStatusNeg2, {
   RunNaClIntegrationTest(FILE_PATH_LITERAL(
       "pm_exit_status_test.html?trigger=exitneg2&expected_exit=254"));
 })
 
-// TODO(1059468): Flaky on Win7 (32).
-#if defined(ADDRESS_SANITIZER) || \
-    (BUILDFLAG(IS_WIN) && defined(ARCH_CPU_32_BITS))
-#define Maybe_PPAPICore DISABLED_PPAPICore
-#else
-#define Maybe_PPAPICore PPAPICore
-#endif
-NACL_BROWSER_TEST_F(NaClBrowserTest, Maybe_PPAPICore, {
+// TODO(https://crbug.com/1059468): Flaky.
+NACL_BROWSER_TEST_F(NaClBrowserTest, DISABLED_PPAPICore, {
   RunNaClIntegrationTest(FILE_PATH_LITERAL("ppapi_ppb_core.html"));
 })
 
-// TODO(1059468): Flaky on Win7 (32).
-#if BUILDFLAG(IS_WIN) && defined(ARCH_CPU_32_BITS)
-#define MAYBE_PPAPIPPBInstance DISABLED_PPAPIPPBInstance
-#else
-#define MAYBE_PPAPIPPBInstance PPAPIPPBInstance
-#endif
-NACL_BROWSER_TEST_F(NaClBrowserTest, MAYBE_PPAPIPPBInstance, {
+// TODO(https://crbug.com/1059468): Flaky.
+NACL_BROWSER_TEST_F(NaClBrowserTest, DISABLED_PPAPIPPBInstance, {
   RunNaClIntegrationTest(FILE_PATH_LITERAL("ppapi_ppb_instance.html"));
 })
 
-// TODO(1059468): Flaky on Win7 (32).
-#if BUILDFLAG(IS_WIN) && defined(ARCH_CPU_32_BITS)
-#define MAYBE_PPAPIPPPInstance DISABLED_PPAPIPPPInstance
-#else
-#define MAYBE_PPAPIPPPInstance PPAPIPPPInstance
-#endif
-NACL_BROWSER_TEST_F(NaClBrowserTest, MAYBE_PPAPIPPPInstance, {
+// TODO(https://crbug.com/1059468): Flaky.
+NACL_BROWSER_TEST_F(NaClBrowserTest, DISABLED_PPAPIPPPInstance, {
   RunNaClIntegrationTest(FILE_PATH_LITERAL("ppapi_ppp_instance.html"));
 })
 
-// TODO(1059468): Flaky on Win7 (32).
-#if BUILDFLAG(IS_WIN) && defined(ARCH_CPU_32_BITS)
-#define MAYBE_ProgressEvents DISABLED_ProgressEvents
-#else
-#define MAYBE_ProgressEvents ProgressEvents
-#endif
-NACL_BROWSER_TEST_F(NaClBrowserTest, MAYBE_ProgressEvents, {
+// TODO(https://crbug.com/1059468): Flaky.
+NACL_BROWSER_TEST_F(NaClBrowserTest, DISABLED_ProgressEvents, {
   RunNaClIntegrationTest(FILE_PATH_LITERAL("ppapi_progress_events.html"));
 })
 
@@ -299,7 +274,7 @@ class NaClBrowserTestPnaclDebug : public NaClBrowserTestPnacl {
                        int debug_stub_port) {
     // We call a python script that speaks to the debug stub, and
     // lets the app continue, so that the load progress event completes.
-    base::CommandLine cmd(base::FilePath(FILE_PATH_LITERAL("python")));
+    base::CommandLine cmd(base::FilePath(FILE_PATH_LITERAL("python3")));
     base::FilePath script;
     base::PathService::Get(chrome::DIR_TEST_DATA, &script);
     script = script.AppendASCII("nacl/debug_stub_browser_tests.py");
@@ -362,13 +337,8 @@ IN_PROC_BROWSER_TEST_F(NaClBrowserTestPnaclDebug,
       "pnacl_debug_url.html?nmf_file=pnacl_no_debug.nmf"));
 }
 
-// TODO(1059468): Flaky on Win7 (32).
-#if BUILDFLAG(IS_WIN) && defined(ARCH_CPU_32_BITS)
-#define MAYBE_PnaclDebugURLFlagOff DISABLED_PnaclDebugURLFlagOff
-#else
-#define MAYBE_PnaclDebugURLFlagOff MAYBE_PNACL(PnaclDebugURLFlagOff)
-#endif
-IN_PROC_BROWSER_TEST_F(NaClBrowserTestPnacl, MAYBE_PnaclDebugURLFlagOff) {
+// TODO(https://crbug.com/1059468): Flaky.
+IN_PROC_BROWSER_TEST_F(NaClBrowserTestPnacl, DISABLED_PnaclDebugURLFlagOff) {
   RunLoadTest(FILE_PATH_LITERAL(
       "pnacl_debug_url.html?nmf_file=pnacl_has_debug_flag_off.nmf"));
 }
@@ -443,27 +413,19 @@ IN_PROC_BROWSER_TEST_F(NaClBrowserTestPnacl,
   RunLoadTest(FILE_PATH_LITERAL("pnacl_options.html?use_nmf=o_large"));
 }
 
-// TODO(1059468): Flaky on Win7 (32).
-#if BUILDFLAG(IS_WIN) && defined(ARCH_CPU_32_BITS)
-#define MAYBE_PnaclDyncodeSyscallDisabled DISABLED_PnaclDyncodeSyscallDisabled
-#else
-#define MAYBE_PnaclDyncodeSyscallDisabled \
-  MAYBE_PNACL(PnaclDyncodeSyscallDisabled)
-#endif
+// TODO(https://crbug.com/1059468): Flaky.
 IN_PROC_BROWSER_TEST_F(NaClBrowserTestPnacl,
-                       MAYBE_PnaclDyncodeSyscallDisabled) {
+                       DISABLED_PnaclDyncodeSyscallDisabled) {
   RunNaClIntegrationTest(FILE_PATH_LITERAL(
       "pnacl_dyncode_syscall_disabled.html"));
 }
 
-// TODO(1059468): Flaky on Win7 (32).
-#if !BUILDFLAG(IS_WIN) || !defined(ARCH_CPU_32_BITS)
+// TODO(https://crbug.com/1059468): Flaky.
 IN_PROC_BROWSER_TEST_F(NaClBrowserTestPnacl,
-                       MAYBE_PNACL(PnaclExceptionHandlingDisabled)) {
+                       DISABLED_PnaclExceptionHandlingDisabled) {
   RunNaClIntegrationTest(FILE_PATH_LITERAL(
       "pnacl_hw_eh_disabled.html"));
 }
-#endif
 
 // TODO(ncbray) support glibc and PNaCl
 // flaky: crbug.com/375894

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@ import org.chromium.base.ContextUtils;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.task.AsyncTask;
 import org.chromium.components.browser_ui.util.ConversionUtils;
+import org.chromium.components.content_settings.ContentSettingValues;
 import org.chromium.components.webapps.WebApkDistributor;
 
 import java.io.File;
@@ -95,8 +96,6 @@ public class WebApkUmaRecorder {
             "WebApk.Startup.Cold.ShellLaunchToSplashscreenVisible";
     private static final String HISTOGRAM_NEW_STYLE_LAUNCH_TO_SPLASHSCREEN_VISIBLE =
             "WebApk.Startup.Cold.NewStyle.ShellLaunchToSplashscreenVisible";
-    private static final String HISTOGRAM_LAUNCH_TO_SPLASHSCREEN_HIDDEN =
-            "WebApk.Startup.Cold.ShellLaunchToSplashscreenHidden";
 
     private static final int WEBAPK_OPEN_MAX = 3;
     public static final int WEBAPK_OPEN_LAUNCH_SUCCESS = 0;
@@ -143,19 +142,17 @@ public class WebApkUmaRecorder {
                 HISTOGRAM_NEW_STYLE_LAUNCH_TO_SPLASHSCREEN_VISIBLE, durationMs);
     }
 
-    /**
-     * Records duration between starting of the WebAPK shell until the splashscreen is hidden.
-     * @param durationMs duration in milliseconds
-     */
-    public static void recordShellApkLaunchToSplashHidden(long durationMs) {
-        RecordHistogram.recordMediumTimesHistogram(
-                HISTOGRAM_LAUNCH_TO_SPLASHSCREEN_HIDDEN, durationMs);
+    /** Records the notification permission status for a WebAPK. */
+    public static void recordNotificationPermissionStatus(@ContentSettingValues int settingValue) {
+        RecordHistogram.recordEnumeratedHistogram("WebApk.Notification.Permission.Status2",
+                settingValue, ContentSettingValues.NUM_SETTINGS);
     }
 
-    /** Records whether a WebAPK has permission to display notifications. */
-    public static void recordNotificationPermissionStatus(boolean permissionEnabled) {
-        RecordHistogram.recordBooleanHistogram(
-                "WebApk.Notification.Permission.Status", permissionEnabled);
+    /** Records the notification permission request result for a WebAPK. */
+    public static void recordNotificationPermissionRequestResult(
+            @ContentSettingValues int settingValue) {
+        RecordHistogram.recordEnumeratedHistogram("WebApk.Notification.PermissionRequestResult",
+                settingValue, ContentSettingValues.NUM_SETTINGS);
     }
 
     /**
@@ -172,7 +169,7 @@ public class WebApkUmaRecorder {
         // Don't use an enumerated histogram as there are > 30 potential error codes. In practice,
         // a given client will always get the same error code.
         RecordHistogram.recordSparseHistogram(
-                "WebApk.Install.GooglePlayErrorCode", Math.min(errorCode, 1000));
+                "WebApk.Install.GooglePlayErrorCode", Math.min(errorCode, 10000));
     }
 
     /**
@@ -188,7 +185,7 @@ public class WebApkUmaRecorder {
     public static void recordWebApkSessionDuration(
             @WebApkDistributor int distributor, long duration) {
         RecordHistogram.recordLongTimesHistogram(
-                "WebApk.Session.TotalDuration2." + getWebApkDistributorUmaSuffix(distributor),
+                "WebApk.Session.TotalDuration3." + getWebApkDistributorUmaSuffix(distributor),
                 duration);
     }
 
@@ -213,26 +210,12 @@ public class WebApkUmaRecorder {
 
     /** Records to UMA the count of old "WebAPK update request" files. */
     public static void recordNumberOfStaleWebApkUpdateRequestFiles(int count) {
-        RecordHistogram.recordCountHistogram("WebApk.Update.NumStaleUpdateRequestFiles", count);
-    }
-
-    /** Records whether Chrome could bind to the WebAPK service. */
-    public static void recordBindToWebApkServiceSucceeded(boolean bindSucceeded) {
-        RecordHistogram.recordBooleanHistogram("WebApk.WebApkService.BindSuccess", bindSucceeded);
+        RecordHistogram.recordCount1MHistogram("WebApk.Update.NumStaleUpdateRequestFiles", count);
     }
 
     /** Records the network error code caught when a WebAPK is launched. */
     public static void recordNetworkErrorWhenLaunch(int errorCode) {
         RecordHistogram.recordSparseHistogram("WebApk.Launch.NetworkError", -errorCode);
-    }
-
-    /**
-     * Records whether a WebAPK navigation is within the WebAPK's scope.
-     * @param isChildTab Whether {@link Tab#getParentId()} is non-empty.
-     * @param isNavigationInScope
-     */
-    public static void recordNavigation(boolean isNavigationInScope) {
-        RecordHistogram.recordBooleanHistogram("WebApk.Navigation.InScope", isNavigationInScope);
     }
 
     /** Records number of unique origins for WebAPKs in WebappRegistry */

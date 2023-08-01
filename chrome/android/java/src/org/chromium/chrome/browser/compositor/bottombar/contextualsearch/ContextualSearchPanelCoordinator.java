@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@ import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
 import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
 import androidx.core.content.res.ResourcesCompat;
 
 import org.chromium.base.supplier.Supplier;
@@ -88,7 +89,7 @@ public class ContextualSearchPanelCoordinator implements ContextualSearchPanelIn
 
     private void createWebContents() {
         final Profile profile = Profile.getLastUsedRegularProfile();
-        mWebContents = WebContentsFactory.createWebContents(profile, false);
+        mWebContents = WebContentsFactory.createWebContents(profile, false, false);
         mWebContentView = ContentView.createContentView(mContext, null, mWebContents);
         final ViewAndroidDelegate delegate =
                 ViewAndroidDelegate.createBasicDelegate(mWebContentView);
@@ -140,7 +141,7 @@ public class ContextualSearchPanelCoordinator implements ContextualSearchPanelIn
     }
 
     @Override
-    public void setIsPromoActive(boolean show, boolean isMandatory) {}
+    public void setIsPromoActive(boolean show) {}
 
     @Override
     public boolean wasPromoInteractive() {
@@ -154,20 +155,21 @@ public class ContextualSearchPanelCoordinator implements ContextualSearchPanelIn
     public void setSearchTerm(String searchTerm) {}
 
     @Override
+    public void setSearchTerm(String searchTerm, @Nullable String pronunciation) {}
+
+    @Override
     public void setDidSearchInvolvePromo() {}
 
+    @VisibleForTesting
     @Override
     public void onSearchTermResolved(String searchTerm, String thumbnailUrl, String quickActionUri,
-            int quickActionCategory, int cardTagEnum, @Nullable List<String> inBarRelatedSearches,
-            boolean showDefaultSearchInBar, @Nullable List<String> inContentRelatedSearches,
-            boolean showDefaultSearchInContent) {}
+            int quickActionCategory, int cardTagEnum, @Nullable List<String> inBarRelatedSearches) {
+    }
 
     @Override
-    public void onSearchTermResolved(String searchTerm, String thumbnailUrl, String quickActionUri,
-            int quickActionCategory, int cardTagEnum, @Nullable List<String> inBarRelatedSearches,
-            boolean showDefaultSearchInBar, int defaultQueryInBarTextMaxWidthPx,
-            @Nullable List<String> inContentRelatedSearches, boolean showDefaultSearchInContent,
-            int defaultQueryInContentTextMaxWidthPx) {}
+    public void onSearchTermResolved(String searchTerm, @Nullable String pronunciation,
+            String thumbnailUrl, String quickActionUri, int quickActionCategory, int cardTagEnum,
+            @Nullable List<String> inBarRelatedSearches) {}
 
     @Override
     public void setCaption(String caption) {}
@@ -185,9 +187,6 @@ public class ContextualSearchPanelCoordinator implements ContextualSearchPanelIn
 
     @Override
     public void onContextualSearchPrefChanged(boolean isEnabled) {}
-
-    @Override
-    public void onPanelNavigatedToPrefetchedSearch(boolean didResolve) {}
 
     @Override
     public void setWasSearchContentViewSeen() {}
@@ -215,9 +214,6 @@ public class ContextualSearchPanelCoordinator implements ContextualSearchPanelIn
     public Rect getPanelRect() {
         return null;
     }
-
-    @Override
-    public void setIsPanelHelpActive(boolean isActive) {}
 
     @Override
     public void clearRelatedSearches() {}
@@ -301,6 +297,9 @@ public class ContextualSearchPanelCoordinator implements ContextualSearchPanelIn
     }
 
     @Override
+    public void setCanHideAndroidBrowserControls(boolean canHideAndroidBrowserControls) {}
+
+    @Override
     public boolean isPanelOpened() {
         return mBottomSheetController.isSheetOpen();
     }
@@ -328,6 +327,12 @@ public class ContextualSearchPanelCoordinator implements ContextualSearchPanelIn
     @Override
     public @PanelState int getPanelState() {
         return PanelState.UNDEFINED;
+    }
+
+    @Override
+    @VisibleForTesting
+    public boolean getCanHideAndroidBrowserControls() {
+        return false;
     }
 
     // ---------------------------------------------------------------------------------------------

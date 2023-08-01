@@ -1,7 +1,0 @@
-include_rules = [
-  "+ash/constants",
-  "+crypto",
-  "+chromeos/services/device_sync",
-  "+third_party/securemessage",
-  "+third_party/ukey2",
-]

@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,12 +19,13 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/tick_clock.h"
+#include "base/time/time.h"
 #include "base/trace_event/memory_allocator_dump_guid.h"
 #include "base/trace_event/memory_dump_provider.h"
-#include "base/unguessable_token.h"
 #include "cc/cc_export.h"
 #include "components/viz/common/resources/resource_format.h"
 #include "components/viz/common/resources/resource_id.h"
+#include "components/viz/common/resources/resource_sizes.h"
 #include "components/viz/common/resources/shared_bitmap.h"
 #include "gpu/command_buffer/common/sync_token.h"
 #include "third_party/khronos/GLES2/gl2.h"
@@ -75,7 +76,7 @@ class CC_EXPORT ResourcePool : public base::trace_event::MemoryDumpProvider {
         int importance) const = 0;
 
     void InitOverlayCandidateAndTextureTarget(
-        const viz::ResourceFormat format,
+        const viz::SharedImageFormat format,
         const gpu::Capabilities& caps,
         bool use_gpu_memory_buffer_resources);
 
@@ -94,6 +95,9 @@ class CC_EXPORT ResourcePool : public base::trace_event::MemoryDumpProvider {
     // ResourcePool needs to wait on this token if it exists, before using a
     // resource handed out by the ResourcePool.
     gpu::SyncToken returned_sync_token;
+
+    // True if the backing is using raw draw.
+    bool is_using_raw_draw = false;
   };
 
   // A base class to hold ownership of software backed PoolResources. Allows the
@@ -144,7 +148,7 @@ class CC_EXPORT ResourcePool : public base::trace_event::MemoryDumpProvider {
     explicit operator bool() const { return !!resource_; }
 
     const gfx::Size& size() const { return resource_->size(); }
-    const viz::ResourceFormat& format() const { return resource_->format(); }
+    const viz::SharedImageFormat& format() const { return resource_->format(); }
     const gfx::ColorSpace& color_space() const {
       return resource_->color_space();
     }
@@ -176,6 +180,11 @@ class CC_EXPORT ResourcePool : public base::trace_event::MemoryDumpProvider {
       resource_->set_software_backing(std::move(software));
     }
 
+    size_t memory_usage() const {
+      DCHECK(resource_);
+      return resource_->memory_usage();
+    }
+
     // Production code should not be built around these ids, but tests use them
     // to check for identity.
     size_t unique_id_for_testing() const { return resource_->unique_id(); }
@@ -183,14 +192,16 @@ class CC_EXPORT ResourcePool : public base::trace_event::MemoryDumpProvider {
    private:
     friend ResourcePool;
     explicit InUsePoolResource(PoolResource* resource, bool is_gpu)
-        : is_gpu_(is_gpu), resource_(resource) {}
+        : is_gpu_(is_gpu), resource_(resource) {
+      DCHECK_EQ(resource->state(), PoolResource::kInUse);
+    }
     void SetWasFreedByResourcePool() { resource_ = nullptr; }
 
     bool is_gpu_ = false;
 
     // `resource_` is not a raw_ptr<...> for performance reasons (based on
     // analysis of sampling profiler data and tab_search:top100:2020).
-    PoolResource* resource_ = nullptr;
+    RAW_PTR_EXCLUSION PoolResource* resource_ = nullptr;
   };
 
   // When holding gpu resources, the |context_provider| should be non-null,
@@ -210,7 +221,7 @@ class CC_EXPORT ResourcePool : public base::trace_event::MemoryDumpProvider {
   // Tries to reuse a resource. If none are available, makes a new one.
   InUsePoolResource AcquireResource(
       const gfx::Size& size,
-      viz::ResourceFormat format,
+      viz::SharedImageFormat format,
       const gfx::ColorSpace& color_space,
       const std::string& debug_name = std::string());
 
@@ -243,7 +254,7 @@ class CC_EXPORT ResourcePool : public base::trace_event::MemoryDumpProvider {
 
   // Called when a resource's content has been fully replaced (and is completely
   // valid). Updates the resource's content ID to its new value.
-  void OnContentReplaced(const ResourcePool::InUsePoolResource& in_use_resource,
+  void OnContentReplaced(const InUsePoolResource& in_use_resource,
                          uint64_t content_id);
   void ReleaseResource(InUsePoolResource resource);
 
@@ -252,7 +263,9 @@ class CC_EXPORT ResourcePool : public base::trace_event::MemoryDumpProvider {
   void ReduceResourceUsage();
   bool ResourceUsageTooHigh();
 
-  size_t memory_usage_bytes() const { return in_use_memory_usage_bytes_; }
+  size_t memory_usage_bytes() const {
+    return total_memory_usage_bytes_ - unused_memory_usage_bytes_;
+  }
   size_t resource_count() const { return in_use_resources_.size(); }
 
   // Overridden from base::trace_event::MemoryDumpProvider:
@@ -283,15 +296,16 @@ class CC_EXPORT ResourcePool : public base::trace_event::MemoryDumpProvider {
   FRIEND_TEST_ALL_PREFIXES(ResourcePoolTest, ExactRequestsRespected);
   class PoolResource {
    public:
-    PoolResource(size_t unique_id,
+    PoolResource(ResourcePool* resource_pool,
+                 size_t unique_id,
                  const gfx::Size& size,
-                 viz::ResourceFormat format,
+                 viz::SharedImageFormat format,
                  const gfx::ColorSpace& color_space);
     ~PoolResource();
 
     size_t unique_id() const { return unique_id_; }
     const gfx::Size& size() const { return size_; }
-    const viz::ResourceFormat& format() const { return format_; }
+    const viz::SharedImageFormat& format() const { return format_; }
     const gfx::ColorSpace& color_space() const { return color_space_; }
 
     const viz::ResourceId& resource_id() const { return resource_id_; }
@@ -299,14 +313,22 @@ class CC_EXPORT ResourcePool : public base::trace_event::MemoryDumpProvider {
 
     GpuBacking* gpu_backing() const { return gpu_backing_.get(); }
     void set_gpu_backing(std::unique_ptr<GpuBacking> gpu) {
+      DCHECK(gpu);
+      DCHECK(!gpu_backing_);
+      DCHECK(!software_backing_);
       gpu_backing_ = std::move(gpu);
+      resource_pool_->OnBackingAllocated(this);
     }
 
     SoftwareBacking* software_backing() const {
       return software_backing_.get();
     }
     void set_software_backing(std::unique_ptr<SoftwareBacking> software) {
+      DCHECK(software);
+      DCHECK(!gpu_backing_);
+      DCHECK(!software_backing_);
       software_backing_ = std::move(software);
+      resource_pool_->OnBackingAllocated(this);
     }
 
     uint64_t content_id() const { return content_id_; }
@@ -326,15 +348,55 @@ class CC_EXPORT ResourcePool : public base::trace_event::MemoryDumpProvider {
     void OnMemoryDump(base::trace_event::ProcessMemoryDump* pmd,
                       int tracing_id,
                       const viz::ClientResourceProvider* resource_provider,
-                      bool is_free) const;
+                      bool is_free,
+                      bool is_busy) const;
 
     void set_debug_name(const std::string& name) { debug_name_ = name; }
     const std::string& debug_name() const { return debug_name_; }
 
+    ResourcePool* resource_pool() const { return resource_pool_; }
+
+    enum State {
+      // kUnused means the resource is free for reusing or releasing.
+      // A new created resource is in kUnused as well.
+      kUnused,
+
+      // kInUse means the resource is being used viz InUsePoolResource.
+      // The InUsePoolResource can be released by calling
+      // ResourcePool::ReleaseResource(), after that, the state will be changed
+      // to kBusy or kUnused depends on if the resource is exported.
+      kInUse,
+
+      // The resource has been expored (sent) to viz process for compositing.
+      // When the resource is returned from the viz, the state will be changed
+      // to kUnused.
+      kBusy,
+    };
+    State state() const { return state_; }
+    void set_state(State state) { state_ = state; }
+
+    size_t memory_usage() const {
+      if (!gpu_backing_ && !software_backing_)
+        return 0;
+
+      size_t memory_usage = format().EstimatedSizeInBytes(size());
+
+      // Early research found with raw draw, GPU memory usage is reduced to
+      // 50%, so we consider a raw draw backing uses 50% of a normal backing
+      // in average.
+      // TODO(crbug.com/1295443): use accurate size for raw draw backings.
+      if (gpu_backing_ && gpu_backing_->is_using_raw_draw) {
+        memory_usage = memory_usage / 2;
+      }
+
+      return memory_usage;
+    }
+
    private:
+    const raw_ptr<ResourcePool> resource_pool_;
     const size_t unique_id_;
     const gfx::Size size_;
-    const viz::ResourceFormat format_;
+    const viz::SharedImageFormat format_;
     const gfx::ColorSpace color_space_;
 
     uint64_t content_id_ = 0;
@@ -360,7 +422,13 @@ class CC_EXPORT ResourcePool : public base::trace_event::MemoryDumpProvider {
 
     // Used for debugging and tracing.
     std::string debug_name_;
+
+    // The current resource state. See enum State for detail.
+    State state_ = kUnused;
   };
+
+  // Called when backing is set for the PoolResource.
+  void OnBackingAllocated(PoolResource* resource);
 
   // Callback from the ResourceProvider to notify when an exported PoolResource
   // is not busy and may be reused.
@@ -370,12 +438,12 @@ class CC_EXPORT ResourcePool : public base::trace_event::MemoryDumpProvider {
 
   // Tries to reuse a resource. Returns |nullptr| if none are available.
   PoolResource* ReuseResource(const gfx::Size& size,
-                              viz::ResourceFormat format,
+                              viz::SharedImageFormat format,
                               const gfx::ColorSpace& color_space);
 
   // Creates a new resource without trying to reuse an old one.
   PoolResource* CreateResource(const gfx::Size& size,
-                               viz::ResourceFormat format,
+                               viz::SharedImageFormat format,
                                const gfx::ColorSpace& color_space);
 
   void DidFinishUsingResource(std::unique_ptr<PoolResource> resource);
@@ -403,7 +471,7 @@ class CC_EXPORT ResourcePool : public base::trace_event::MemoryDumpProvider {
   size_t next_resource_unique_id_ = 1;
   size_t max_memory_usage_bytes_ = 0;
   size_t max_resource_count_ = 0;
-  size_t in_use_memory_usage_bytes_ = 0;
+  size_t unused_memory_usage_bytes_ = 0;
   size_t total_memory_usage_bytes_ = 0;
   size_t total_resource_count_ = 0;
   bool evict_expired_resources_pending_ = false;

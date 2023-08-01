@@ -110,6 +110,16 @@ TEST(LayoutUnitTest, LayoutUnitFloat) {
   EXPECT_NEAR(LayoutUnit(345634.12335f).ToFloat(), 345634.12335f, kTolerance);
   EXPECT_NEAR(LayoutUnit(-345634.12335f).ToFloat(), -345634.12335f, kTolerance);
   EXPECT_NEAR(LayoutUnit(-345634).ToFloat(), -345634.0f, kTolerance);
+
+  using Limits = std::numeric_limits<float>;
+  // Larger than Max()
+  EXPECT_EQ(LayoutUnit::Max(), LayoutUnit(Limits::max()));
+  EXPECT_EQ(LayoutUnit::Max(), LayoutUnit(Limits::infinity()));
+  // Smaller than Min()
+  EXPECT_EQ(LayoutUnit::Min(), LayoutUnit(Limits::lowest()));
+  EXPECT_EQ(LayoutUnit::Min(), LayoutUnit(-Limits::infinity()));
+
+  EXPECT_EQ(LayoutUnit(), LayoutUnit::Clamp(Limits::quiet_NaN()));
 }
 
 TEST(LayoutUnitTest, LayoutUnitRounding) {
@@ -226,6 +236,15 @@ TEST(LayoutUnitTest, LayoutUnitMultiplication) {
             (overflow_int_size_t * LayoutUnit(4)).ToInt());
   EXPECT_EQ(kIntMaxForLayoutUnit,
             (LayoutUnit(4) * overflow_int_size_t).ToInt());
+
+  {
+    // Multiple by float 1.0 can produce a different value.
+    LayoutUnit source = LayoutUnit::FromRawValue(2147483009);
+    EXPECT_NE(source, LayoutUnit(source * 1.0f));
+    LayoutUnit updated = source;
+    updated *= 1.0f;
+    EXPECT_NE(source, updated);
+  }
 }
 
 TEST(LayoutUnitTest, LayoutUnitDivision) {

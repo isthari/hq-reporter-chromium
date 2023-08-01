@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,8 @@
 #include "base/command_line.h"
 #include "base/run_loop.h"
 #include "base/values.h"
-#include "chrome/browser/ash/login/test/embedded_policy_test_server_mixin.h"
 #include "chrome/browser/ash/policy/core/user_cloud_policy_manager_ash.h"
+#include "chrome/browser/ash/policy/test_support/embedded_policy_test_server_mixin.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/policy/chrome_browser_policy_connector.h"
 #include "chrome/browser/policy/profile_policy_connector.h"
@@ -61,10 +61,9 @@ void UserPolicyTestHelper::WaitForInitialPolicy(Profile* profile) {
       user_registration, std::string() /* client_id */,
       "oauth_token_unused" /* oauth_token */);
 
-  policy::ProfilePolicyConnector* const profile_connector =
+  ProfilePolicyConnector* const profile_connector =
       profile->GetProfilePolicyConnector();
-  policy::PolicyService* const policy_service =
-      profile_connector->policy_service();
+  PolicyService* const policy_service = profile_connector->policy_service();
 
   base::RunLoop run_loop;
   policy_service->RefreshPolicies(run_loop.QuitClosure());
@@ -79,10 +78,9 @@ void UserPolicyTestHelper::SetPolicyAndWait(
 }
 
 void UserPolicyTestHelper::RefreshPolicyAndWait(Profile* profile) {
-  policy::ProfilePolicyConnector* const profile_connector =
+  ProfilePolicyConnector* const profile_connector =
       profile->GetProfilePolicyConnector();
-  policy::PolicyService* const policy_service =
-      profile_connector->policy_service();
+  PolicyService* const policy_service = profile_connector->policy_service();
 
   base::RunLoop run_loop;
   policy_service->RefreshPolicies(run_loop.QuitClosure());

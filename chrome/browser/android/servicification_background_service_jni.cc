@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -100,6 +100,8 @@ JNI_ServicificationBackgroundService_TestPersistentHistogramsOnDiskSystemProfile
   }
 
   std::vector<variations::ActiveGroupId> field_trial_ids;
+  // The persistent histograms on disk do not include low anonymity trials (as
+  // we do not include those in metrics reports).
   variations::GetFieldTrialActiveGroupIds("", &field_trial_ids);
   int expected_size = static_cast<int>(field_trial_ids.size());
 

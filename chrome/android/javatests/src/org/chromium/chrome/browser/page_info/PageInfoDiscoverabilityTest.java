@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -140,6 +140,9 @@ public class PageInfoDiscoverabilityTest {
             parameters.add(new ParameterSet()
                                    .name("RequestType.kVrSession")
                                    .value(ContentSettingsType.VR, true));
+            parameters.add(new ParameterSet()
+                                   .name("RequestType.kTopLevelStorageAccess")
+                                   .value(ContentSettingsType.TOP_LEVEL_STORAGE_ACCESS, false));
 
             return parameters;
         }

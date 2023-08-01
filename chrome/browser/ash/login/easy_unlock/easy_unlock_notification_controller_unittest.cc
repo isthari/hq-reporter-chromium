@@ -1,12 +1,16 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/login/easy_unlock/easy_unlock_notification_controller.h"
 
+#include "ash/constants/ash_features.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/notifications/notification_display_service_tester.h"
+#include "chrome/common/pref_names.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
+#include "chromeos/ash/components/proximity_auth/proximity_auth_pref_names.h"
+#include "components/sync_preferences/testing_pref_service_syncable.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "ui/message_center/public/cpp/notification.h"
 #include "ui/message_center/public/cpp/notification_types.h"
@@ -30,7 +34,7 @@ class TestableNotificationController : public EasyUnlockNotificationController {
   ~TestableNotificationController() override {}
 
   // EasyUnlockNotificationController:
-  MOCK_METHOD0(LaunchEasyUnlockSettings, void());
+  MOCK_METHOD0(LaunchMultiDeviceSettings, void());
   MOCK_METHOD0(LockScreen, void());
 };
 
@@ -72,11 +76,11 @@ TEST_F(EasyUnlockNotificationControllerTest,
   EXPECT_EQ(message_center::SYSTEM_PRIORITY, notification->priority());
 
   // Clicking notification button should launch settings.
-  EXPECT_CALL(*notification_controller_, LaunchEasyUnlockSettings());
+  EXPECT_CALL(*notification_controller_, LaunchMultiDeviceSettings());
   notification->delegate()->Click(0, absl::nullopt);
 
   // Clicking the notification itself should also launch settings.
-  EXPECT_CALL(*notification_controller_, LaunchEasyUnlockSettings());
+  EXPECT_CALL(*notification_controller_, LaunchMultiDeviceSettings());
   notification->delegate()->Click(absl::nullopt, absl::nullopt);
 }
 
@@ -91,16 +95,16 @@ TEST_F(EasyUnlockNotificationControllerTest,
   ASSERT_EQ(2u, notification->buttons().size());
   EXPECT_EQ(message_center::SYSTEM_PRIORITY, notification->priority());
 
+  // Clicking the notification itself should do nothing.
+  notification->delegate()->Click(absl::nullopt, absl::nullopt);
+
   // Clicking 1st notification button should lock screen settings.
   EXPECT_CALL(*notification_controller_, LockScreen());
   notification->delegate()->Click(0, absl::nullopt);
 
   // Clicking 2nd notification button should launch settings.
-  EXPECT_CALL(*notification_controller_, LaunchEasyUnlockSettings());
+  EXPECT_CALL(*notification_controller_, LaunchMultiDeviceSettings());
   notification->delegate()->Click(1, absl::nullopt);
-
-  // Clicking the notification itself should do nothing.
-  notification->delegate()->Click(absl::nullopt, absl::nullopt);
 }
 
 TEST_F(EasyUnlockNotificationControllerTest,
@@ -119,11 +123,11 @@ TEST_F(EasyUnlockNotificationControllerTest,
   EXPECT_NE(std::string::npos, notification->message().find(kPhoneName16));
 
   // Clicking notification button should launch settings.
-  EXPECT_CALL(*notification_controller_, LaunchEasyUnlockSettings());
+  EXPECT_CALL(*notification_controller_, LaunchMultiDeviceSettings());
   notification->delegate()->Click(0, absl::nullopt);
 
   // Clicking the notification itself should also launch settings.
-  EXPECT_CALL(*notification_controller_, LaunchEasyUnlockSettings());
+  EXPECT_CALL(*notification_controller_, LaunchMultiDeviceSettings());
   notification->delegate()->Click(absl::nullopt, absl::nullopt);
 }
 

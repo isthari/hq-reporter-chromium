@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,6 @@
 #include "media/base/audio_decoder_config.h"
 #include "media/base/decoder_factory.h"
 #include "media/base/media_log.h"
-#include "media/base/status_codes.h"
 #include "media/mojo/buildflags.h"
 #include "media/mojo/clients/mojo_decoder_factory.h"
 #include "media/mojo/mojom/interface_factory.mojom.h"
@@ -28,6 +27,8 @@
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
 #include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 #include "third_party/blink/renderer/platform/scheduler/public/worker_pool.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_base.h"
+#include "third_party/blink/renderer/platform/wtf/cross_thread_copier_mojo.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 
@@ -125,8 +126,8 @@ class MediaAudioTaskWrapper {
 
     selector_->SelectDecoder(
         config, /*low_delay=*/false,
-        WTF::Bind(&MediaAudioTaskWrapper::OnDecoderSelected,
-                  weak_factory_.GetWeakPtr()));
+        WTF::BindOnce(&MediaAudioTaskWrapper::OnDecoderSelected,
+                      weak_factory_.GetWeakPtr()));
   }
 
   void Decode(scoped_refptr<media::DecoderBuffer> buffer, int cb_id) {
@@ -139,8 +140,8 @@ class MediaAudioTaskWrapper {
     }
 
     decoder_->Decode(std::move(buffer),
-                     WTF::Bind(&MediaAudioTaskWrapper::OnDecodeDone,
-                               weak_factory_.GetWeakPtr(), cb_id));
+                     WTF::BindOnce(&MediaAudioTaskWrapper::OnDecodeDone,
+                                   weak_factory_.GetWeakPtr(), cb_id));
   }
 
   void Reset(int cb_id) {
@@ -152,8 +153,8 @@ class MediaAudioTaskWrapper {
       return;
     }
 
-    decoder_->Reset(WTF::Bind(&MediaAudioTaskWrapper::OnReset,
-                              weak_factory_.GetWeakPtr(), cb_id));
+    decoder_->Reset(WTF::BindOnce(&MediaAudioTaskWrapper::OnReset,
+                                  weak_factory_.GetWeakPtr(), cb_id));
   }
 
  private:

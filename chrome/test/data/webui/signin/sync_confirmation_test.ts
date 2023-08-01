@@ -1,130 +1,135 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import 'chrome://sync-confirmation/sync_confirmation_app.js';
 
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+import {CrButtonElement} from 'chrome://resources/cr_elements/cr_button/cr_button.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 import {SyncConfirmationAppElement} from 'chrome://sync-confirmation/sync_confirmation_app.js';
 import {SyncConfirmationBrowserProxyImpl} from 'chrome://sync-confirmation/sync_confirmation_browser_proxy.js';
-import {assertEquals} from 'chrome://webui-test/chai_assert.js';
-import {assertFalse} from 'chrome://webui-test/chai_assert.js';
-import {assertTrue} from 'chrome://webui-test/chai_assert.js';
+import {assertArrayEquals, assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
 
 import {TestSyncConfirmationBrowserProxy} from './test_sync_confirmation_browser_proxy.js';
 
-[true, false].forEach(isNewDesignEnabled => {
-  const suiteDesignSuffix = isNewDesignEnabled ? 'NewDesign' : 'OldDesign';
+suite(`SigninSyncConfirmationTest`, function() {
+  let app: SyncConfirmationAppElement;
+  let browserProxy: TestSyncConfirmationBrowserProxy;
 
-  // Sync forced comes with different strings but these come from the UI class
-  // so loadTimeData.overrideValues() does not help here.s
-  const STANDARD_TITLE = 'Turn on sync?';
-  const STANDARD_CONSENT_DESCRIPTION_TEXT = [
-    STANDARD_TITLE,
-    'Sync your bookmarks, passwords, history, and more on all your devices',
-    'Google may use your history to personalize Search and other Google ' +
-        'services',
-  ];
-  const STANDARD_CONSENT_CONFIRMATION = 'Yes, I\'m in';
+  function testButtonClick(buttonSelector: string) {
+    const allButtons =
+        Array.from(app.shadowRoot!.querySelectorAll('cr-button')) as
+        CrButtonElement[];
+    const actionButton =
+        app.shadowRoot!.querySelector(buttonSelector) as CrButtonElement;
+    const spinner = app.shadowRoot!.querySelector('paper-spinner-lite');
 
-  [true, false].forEach(syncForcedEnabled => {
-    const suiteForcedSuffix = syncForcedEnabled ? 'SyncForced' : 'SyncOptional';
+    allButtons.forEach(button => assertFalse(button.disabled));
+    assertFalse(spinner!.active);
 
-    suite(
-        `SigninSyncConfirmationTest${suiteDesignSuffix}${suiteForcedSuffix}`,
-        function() {
-          let app: SyncConfirmationAppElement;
+    actionButton.click();
 
-          setup(async function() {
-            const browserProxy = new TestSyncConfirmationBrowserProxy();
-            SyncConfirmationBrowserProxyImpl.setInstance(browserProxy);
-            loadTimeData.overrideValues({
-              isNewDesign: isNewDesignEnabled,
-              syncForced: syncForcedEnabled
-            });
-            document.body.innerHTML = '';
-            app = document.createElement('sync-confirmation-app');
-            document.body.append(app);
-            // Check that the account image is requested when the app element is
-            // attached to the document.
-            await browserProxy.whenCalled('requestAccountInfo');
-          });
+    allButtons.forEach(button => assertTrue(button.disabled));
+    assertTrue(spinner!.active);
+  }
 
-          // Tests that no DCHECKS are thrown during initialization of the UI.
-          test('LoadPage', function() {
-            assertEquals(
-                STANDARD_TITLE,
-                app.shadowRoot!.querySelector('#syncConfirmationHeading')!
-                    .textContent!.trim());
-
-            const cancelButton =
-                app.shadowRoot!.querySelector(
-                    isNewDesignEnabled ? '#notNowButton' : '#cancelButton') as
-                HTMLElement;
-            if (syncForcedEnabled) {
-              assertTrue(cancelButton!.hidden);
-            } else {
-              assertFalse(cancelButton!.hidden);
-            }
-          });
-        });
+  setup(async function() {
+    browserProxy = new TestSyncConfirmationBrowserProxy();
+    SyncConfirmationBrowserProxyImpl.setInstance(browserProxy);
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
+    app = document.createElement('sync-confirmation-app');
+    document.body.append(app);
+    // Check that the account image is requested when the app element is
+    // attached to the document.
+    await browserProxy.whenCalled('requestAccountInfo');
   });
 
-  // This test suite verifies that the consent strings recorded in various
-  // scenarios are as expected. If the corresponding HTML file was updated
-  // without also updating the attributes referring to consent strings,
-  // this test will break.
-  suite(
-      `SigninSyncConfirmationConsentRecordingTest${suiteDesignSuffix}`,
-      function() {
-        let app: SyncConfirmationAppElement;
-        let browserProxy: TestSyncConfirmationBrowserProxy;
+  // Tests that no DCHECKS are thrown during initialization of the UI.
+  test('LoadPage', function() {
+    const cancelButton =
+        app.shadowRoot!.querySelector<HTMLElement>('#notNowButton');
+    assertFalse(cancelButton!.hidden);
+  });
 
-        setup(async function() {
-          // This test suite makes comparisons with strings in their default
-          // locale, which is en-US.
-          assertEquals(
-              'en-US', navigator.language,
-              'Cannot verify strings for the ' + navigator.language +
-                  'locale.');
+  // Tests clicking on confirm button.
+  test('ConfirmClicked', async function() {
+    testButtonClick('#confirmButton');
+    await browserProxy.whenCalled('confirm');
+  });
 
-          browserProxy = new TestSyncConfirmationBrowserProxy();
-          SyncConfirmationBrowserProxyImpl.setInstance(browserProxy);
-          loadTimeData.overrideValues({isNewDesign: isNewDesignEnabled});
+  // Tests clicking on cancel button.
+  test('CancelClicked', async function() {
+    testButtonClick('#notNowButton');
+    await browserProxy.whenCalled('undo');
+  });
 
-          document.body.innerHTML = '';
-          app = document.createElement('sync-confirmation-app');
-          document.body.append(app);
-          // Wait for the app element to get attached to the document (which is
-          // when the account image gets requested).
-          await browserProxy.whenCalled('requestAccountInfo');
-        });
+  // Tests clicking on settings button.
+  test('SettingsClicked', async function() {
+    testButtonClick('#settingsButton');
+    await browserProxy.whenCalled('goToSettings');
+  });
+});
 
-        // Tests that the expected strings are recorded when clicking the
-        // Confirm button.
-        test('recordConsentOnConfirm', async function() {
-          app.shadowRoot!.querySelector<HTMLElement>('#confirmButton')!.click();
-          const [description, confirmation] =
-              await browserProxy.whenCalled('confirm');
-          assertEquals(
-              JSON.stringify(STANDARD_CONSENT_DESCRIPTION_TEXT),
-              JSON.stringify(description));
-          assertEquals(STANDARD_CONSENT_CONFIRMATION, confirmation);
-        });
+// This test suite verifies that the consent strings recorded in various
+// scenarios are as expected. If the corresponding HTML file was updated
+// without also updating the attributes referring to consent strings,
+// this test will break.
+suite(`SigninSyncConfirmationConsentRecordingTest`, function() {
+  let app: SyncConfirmationAppElement;
+  let browserProxy: TestSyncConfirmationBrowserProxy;
 
-        // Tests that the expected strings are recorded when clicking the
-        // Confirm button.
-        test('recordConsentOnSettingsLink', async function() {
-          app.shadowRoot!.querySelector<HTMLElement>(
-                             '#settingsButton')!.click();
-          const [description, confirmation] =
-              await browserProxy.whenCalled('goToSettings');
-          assertEquals(
-              JSON.stringify(STANDARD_CONSENT_DESCRIPTION_TEXT),
-              JSON.stringify(description));
-          // 'Sync settings' is recorded for new design but this is passed from
-          // the UI class so overriding loadTimeData does not help here.
-          assertEquals('Settings', confirmation);
-        });
-      });
+  function getConsentDescriptionTexts(i18n: Function) {
+    const consentDescriptionTexts = [
+      i18n('syncConfirmationTitle'),
+      i18n('syncConfirmationSyncInfoTitle'),
+    ];
+
+    const syncBenefitsList =
+        JSON.parse(loadTimeData.getString('syncBenefitsList'));
+
+    for (let i = 0; i < syncBenefitsList.length; i++) {
+      consentDescriptionTexts.push(i18n(syncBenefitsList[i].title));
+    }
+    consentDescriptionTexts.push(i18n('syncConfirmationSyncInfoDesc'));
+
+    return consentDescriptionTexts;
+  }
+
+  setup(async function() {
+    browserProxy = new TestSyncConfirmationBrowserProxy();
+    SyncConfirmationBrowserProxyImpl.setInstance(browserProxy);
+
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
+    app = document.createElement('sync-confirmation-app');
+    document.body.append(app);
+    // Wait for the app element to get attached to the document (which is
+    // when the account image gets requested).
+    await browserProxy.whenCalled('requestAccountInfo');
+  });
+
+  // Tests that the expected strings are recorded when clicking the
+  // Confirm button.
+  test('recordConsentOnConfirm', async function() {
+    const i18n = app.i18n.bind(app);
+
+    app.shadowRoot!.querySelector<HTMLElement>('#confirmButton')!.click();
+    const [description, confirmation] =
+        await browserProxy.whenCalled('confirm');
+
+    assertEquals(i18n('syncConfirmationConfirmLabel'), confirmation);
+    assertArrayEquals(getConsentDescriptionTexts(i18n), description);
+  });
+
+  // Tests that the expected strings are recorded when clicking the
+  // Settings button.
+  test('recordConsentOnSettingsLink', async function() {
+    const i18n = app.i18n.bind(app);
+
+    app.shadowRoot!.querySelector<HTMLElement>('#settingsButton')!.click();
+    const [description, confirmation] =
+        await browserProxy.whenCalled('goToSettings');
+
+    assertEquals(i18n('syncConfirmationSettingsLabel'), confirmation);
+    assertArrayEquals(getConsentDescriptionTexts(i18n), description);
+  });
 });

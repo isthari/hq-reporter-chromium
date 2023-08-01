@@ -1,16 +1,16 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "media/cdm/cdm_adapter.h"
 
 #include <stdint.h>
+
 #include <memory>
 
-#include "base/bind.h"
 #include "base/check.h"
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
@@ -140,9 +140,9 @@ class CdmAdapterTestBase : public testing::Test,
   // or generates an error.
   void InitializeWithCdmConfigAndExpect(const CdmConfig& cdm_config,
                                         ExpectedResult expected_result) {
-    std::unique_ptr<CdmAllocator> allocator(new SimpleCdmAllocator());
-    std::unique_ptr<StrictMock<MockCdmAuxiliaryHelper>> cdm_helper(
-        new StrictMock<MockCdmAuxiliaryHelper>(std::move(allocator)));
+    auto allocator = std::make_unique<SimpleCdmAllocator>();
+    auto cdm_helper = std::make_unique<StrictMock<MockCdmAuxiliaryHelper>>(
+        std::move(allocator));
     cdm_helper_ = cdm_helper.get();
     CdmAdapter::Create(
         cdm_config, GetCreateCdmFunc(), std::move(cdm_helper),
@@ -291,11 +291,11 @@ class CdmAdapterTestWithClearKeyCdm : public CdmAdapterTestBase {
       EXPECT_CALL(*this, OnReject(_, _, IsNotEmpty()));
     }
 
-    std::unique_ptr<SimpleCdmPromise> promise(new CdmCallbackPromise<>(
+    auto promise = std::make_unique<CdmCallbackPromise<>>(
         base::BindOnce(&CdmAdapterTestWithClearKeyCdm::OnResolve,
                        base::Unretained(this)),
         base::BindOnce(&CdmAdapterTestWithClearKeyCdm::OnReject,
-                       base::Unretained(this))));
+                       base::Unretained(this)));
     return promise;
   }
 
@@ -310,12 +310,11 @@ class CdmAdapterTestWithClearKeyCdm : public CdmAdapterTestBase {
       EXPECT_CALL(*this, OnReject(_, _, IsNotEmpty()));
     }
 
-    std::unique_ptr<NewSessionCdmPromise> promise(
-        new CdmCallbackPromise<std::string>(
-            base::BindOnce(&CdmAdapterTestWithClearKeyCdm::OnResolveWithSession,
-                           base::Unretained(this)),
-            base::BindOnce(&CdmAdapterTestWithClearKeyCdm::OnReject,
-                           base::Unretained(this))));
+    auto promise = std::make_unique<CdmCallbackPromise<std::string>>(
+        base::BindOnce(&CdmAdapterTestWithClearKeyCdm::OnResolveWithSession,
+                       base::Unretained(this)),
+        base::BindOnce(&CdmAdapterTestWithClearKeyCdm::OnReject,
+                       base::Unretained(this)));
     return promise;
   }
 
@@ -391,7 +390,7 @@ TEST_P(CdmAdapterTestWithClearKeyCdm, BadLibraryPath) {
 TEST_P(CdmAdapterTestWithClearKeyCdm, CreateWebmSession) {
   InitializeAndExpect(SUCCESS);
 
-  std::vector<uint8_t> key_id(kKeyId, kKeyId + base::size(kKeyId));
+  std::vector<uint8_t> key_id(kKeyId, kKeyId + std::size(kKeyId));
   CreateSessionAndExpect(EmeInitDataType::WEBM, key_id, SUCCESS);
 }
 
@@ -400,7 +399,7 @@ TEST_P(CdmAdapterTestWithClearKeyCdm, CreateKeyIdsSession) {
 
   // Don't include the trailing /0 from the string in the data passed in.
   std::vector<uint8_t> key_id(kKeyIdAsJWK,
-                              kKeyIdAsJWK + base::size(kKeyIdAsJWK) - 1);
+                              kKeyIdAsJWK + std::size(kKeyIdAsJWK) - 1);
   CreateSessionAndExpect(EmeInitDataType::KEYIDS, key_id, SUCCESS);
 }
 
@@ -408,7 +407,7 @@ TEST_P(CdmAdapterTestWithClearKeyCdm, CreateCencSession) {
   InitializeAndExpect(SUCCESS);
 
   std::vector<uint8_t> key_id(kKeyIdAsPssh,
-                              kKeyIdAsPssh + base::size(kKeyIdAsPssh));
+                              kKeyIdAsPssh + std::size(kKeyIdAsPssh));
   CreateSessionAndExpect(EmeInitDataType::CENC, key_id, SUCCESS);
 }
 
@@ -416,7 +415,7 @@ TEST_P(CdmAdapterTestWithClearKeyCdm, CreateSessionWithBadData) {
   InitializeAndExpect(SUCCESS);
 
   // Use |kKeyId| but specify KEYIDS format.
-  std::vector<uint8_t> key_id(kKeyId, kKeyId + base::size(kKeyId));
+  std::vector<uint8_t> key_id(kKeyId, kKeyId + std::size(kKeyId));
   CreateSessionAndExpect(EmeInitDataType::KEYIDS, key_id, FAILURE);
 }
 
@@ -424,14 +423,14 @@ TEST_P(CdmAdapterTestWithClearKeyCdm, LoadSession) {
   InitializeAndExpect(SUCCESS);
 
   // LoadSession() is not supported by AesDecryptor.
-  std::vector<uint8_t> key_id(kKeyId, kKeyId + base::size(kKeyId));
+  std::vector<uint8_t> key_id(kKeyId, kKeyId + std::size(kKeyId));
   CreateSessionAndExpect(EmeInitDataType::KEYIDS, key_id, FAILURE);
 }
 
 TEST_P(CdmAdapterTestWithClearKeyCdm, UpdateSession) {
   InitializeAndExpect(SUCCESS);
 
-  std::vector<uint8_t> key_id(kKeyId, kKeyId + base::size(kKeyId));
+  std::vector<uint8_t> key_id(kKeyId, kKeyId + std::size(kKeyId));
   CreateSessionAndExpect(EmeInitDataType::WEBM, key_id, SUCCESS);
 
   UpdateSessionAndExpect(SessionId(), kKeyAsJWK, SUCCESS, true);
@@ -440,7 +439,7 @@ TEST_P(CdmAdapterTestWithClearKeyCdm, UpdateSession) {
 TEST_P(CdmAdapterTestWithClearKeyCdm, UpdateSessionWithBadData) {
   InitializeAndExpect(SUCCESS);
 
-  std::vector<uint8_t> key_id(kKeyId, kKeyId + base::size(kKeyId));
+  std::vector<uint8_t> key_id(kKeyId, kKeyId + std::size(kKeyId));
   CreateSessionAndExpect(EmeInitDataType::WEBM, key_id, SUCCESS);
 
   UpdateSessionAndExpect(SessionId(), "random data", FAILURE, true);

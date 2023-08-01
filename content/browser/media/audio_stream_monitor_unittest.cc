@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,14 +8,16 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/test/simple_test_tick_clock.h"
+#include "base/time/time.h"
 #include "build/chromeos_buildflags.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/invalidate_type.h"
 #include "content/public/browser/web_contents_delegate.h"
+#include "content/public/test/navigation_simulator.h"
 #include "content/public/test/test_renderer_host.h"
 #include "media/base/audio_power_monitor.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -382,7 +384,7 @@ TEST_F(AudioStreamMonitorTest, RenderProcessGone) {
 }
 
 TEST_F(AudioStreamMonitorTest, RenderFrameGone) {
-  RenderFrameHost* render_frame_host = web_contents()->GetMainFrame();
+  RenderFrameHost* render_frame_host = web_contents()->GetPrimaryMainFrame();
   int render_process_id = render_frame_host->GetProcess()->GetID();
   int render_frame_id = render_frame_host->GetRoutingID();
 
@@ -399,9 +401,13 @@ TEST_F(AudioStreamMonitorTest, RenderFrameGone) {
 TEST_F(AudioStreamMonitorTest, OneAudibleClient) {
   ExpectNotCurrentlyAudible();
 
+  auto* render_frame_host_impl =
+      static_cast<RenderFrameHostImpl*>(web_contents()->GetPrimaryMainFrame());
+  GlobalRenderFrameHostId host_id = render_frame_host_impl->GetGlobalId();
+
   ExpectRecentlyAudibleChangeNotification(true);
   ExpectCurrentlyAudibleChangeNotification(true);
-  auto registration = monitor_->RegisterAudibleClient();
+  auto registration = monitor_->RegisterAudibleClient(host_id);
   ExpectIsCurrentlyAudible();
 
   ExpectCurrentlyAudibleChangeNotification(false);
@@ -412,14 +418,56 @@ TEST_F(AudioStreamMonitorTest, OneAudibleClient) {
 TEST_F(AudioStreamMonitorTest, MultipleAudibleClients) {
   ExpectNotCurrentlyAudible();
 
+  auto* render_frame_host_impl =
+      static_cast<RenderFrameHostImpl*>(web_contents()->GetPrimaryMainFrame());
+  GlobalRenderFrameHostId host_id = render_frame_host_impl->GetGlobalId();
+
   // Add one client and the tab becomes audible.
   ExpectRecentlyAudibleChangeNotification(true);
   ExpectCurrentlyAudibleChangeNotification(true);
-  auto registration1 = monitor_->RegisterAudibleClient();
+  auto registration1 = monitor_->RegisterAudibleClient(host_id);
   ExpectIsCurrentlyAudible();
 
   // Add another client and the tab remains audible.
-  auto registration2 = monitor_->RegisterAudibleClient();
+  auto registration2 = monitor_->RegisterAudibleClient(host_id);
+  ExpectIsCurrentlyAudible();
+
+  // Removes one client and the tab remains audible.
+  registration1.reset();
+  ExpectIsCurrentlyAudible();
+
+  // Removes another client and the tab is not audible.
+  ExpectCurrentlyAudibleChangeNotification(false);
+  registration2.reset();
+  ExpectNotCurrentlyAudible();
+}
+
+TEST_F(AudioStreamMonitorTest, MultipleAudibleClientsMultipleRenderFrames) {
+  ExpectNotCurrentlyAudible();
+  // We need to navigate once before we can add child frames.
+  const char kDefaultTestUrl[] = "https://google.com/";
+  content::NavigationSimulator::NavigateAndCommitFromBrowser(
+      web_contents(), GURL(kDefaultTestUrl));
+
+  auto* render_frame_host_tester =
+      RenderFrameHostTester::For(web_contents()->GetPrimaryMainFrame());
+
+  auto* render_frame_host_impl_1 = static_cast<RenderFrameHostImpl*>(
+      render_frame_host_tester->AppendChild("child_1"));
+  auto* render_frame_host_impl_2 = static_cast<RenderFrameHostImpl*>(
+      render_frame_host_tester->AppendChild("child_2"));
+
+  GlobalRenderFrameHostId host_id1 = render_frame_host_impl_1->GetGlobalId();
+  GlobalRenderFrameHostId host_id2 = render_frame_host_impl_2->GetGlobalId();
+
+  // Add one client and the tab becomes audible.
+  ExpectRecentlyAudibleChangeNotification(true);
+  ExpectCurrentlyAudibleChangeNotification(true);
+  auto registration1 = monitor_->RegisterAudibleClient(host_id1);
+  ExpectIsCurrentlyAudible();
+
+  // Add another client and the tab remains audible.
+  auto registration2 = monitor_->RegisterAudibleClient(host_id2);
   ExpectIsCurrentlyAudible();
 
   // Removes one client and the tab remains audible.
@@ -436,10 +484,14 @@ TEST_F(AudioStreamMonitorTest, AudibleClientAndStream) {
   StartMonitoring(kRenderProcessId, kRenderFrameId, kStreamId);
   ExpectNotCurrentlyAudible();
 
+  auto* render_frame_host_impl =
+      static_cast<RenderFrameHostImpl*>(web_contents()->GetPrimaryMainFrame());
+  GlobalRenderFrameHostId host_id = render_frame_host_impl->GetGlobalId();
+
   // Add one client and the tab becomes audible.
   ExpectRecentlyAudibleChangeNotification(true);
   ExpectCurrentlyAudibleChangeNotification(true);
-  auto registration = monitor_->RegisterAudibleClient();
+  auto registration = monitor_->RegisterAudibleClient(host_id);
   ExpectIsCurrentlyAudible();
 
   // The stream becomes audible and the tab remains audible.

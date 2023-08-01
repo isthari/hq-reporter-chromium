@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,35 +10,15 @@
 
 namespace gfx {
 
+class OutsetsF;
+
 // A floating point version of gfx::Insets.
 class GEOMETRY_EXPORT InsetsF : public InsetsOutsetsFBase<InsetsF> {
  public:
   using InsetsOutsetsFBase::InsetsOutsetsFBase;
 
-  // Avoid this constructor in blink code because it's easy to make mistakes in
-  // the order of the parameters. Use the other constructors and set_*()
-  // methods instead.
-  constexpr InsetsF(float vertical, float horizontal)
-      : InsetsF(vertical, horizontal, vertical, horizontal) {}
-
-  // Avoid this constructor in blink code because it's easy to make mistakes in
-  // the order of the parameters. Use the other constructors and set_*()
-  // methods instead.
-  constexpr InsetsF(float top, float left, float bottom, float right) {
-    set_top(top);
-    set_left(left);
-    set_bottom(bottom);
-    set_right(right);
-  }
-
-  // Avoid this method in blink code because it's easy to make mistakes in the
-  // order of the parameters. Use the setter methods instead.
-  void Set(float top, float left, float bottom, float right) {
-    set_top(top);
-    set_left(left);
-    set_bottom(bottom);
-    set_right(right);
-  }
+  // Conversion from InsetsF to OutsetsF negates all components.
+  OutsetsF ToOutsets() const;
 };
 
 inline InsetsF ScaleInsets(InsetsF i, float x_scale, float y_scale) {

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include <memory>
 
-#include "base/bind.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/autocomplete/autocomplete_classifier_factory.h"
@@ -36,7 +36,7 @@
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "chrome/browser/ash/input_method/input_method_configuration.h"
-#include "chrome/browser/ash/input_method/mock_input_method_manager_impl.h"
+#include "ui/base/ime/ash/mock_input_method_manager_impl.h"
 #endif
 
 namespace {
@@ -86,8 +86,7 @@ void TestWithBrowserView::TearDown() {
   browser_view_->browser()->tab_strip_model()->CloseAllTabs();
   // Ensure the Browser is reset before BrowserWithTestWindowTest cleans up
   // the Profile.
-  browser_view_->GetWidget()->CloseNow();
-  browser_view_ = nullptr;
+  browser_view_.ExtractAsDangling()->GetWidget()->CloseNow();
   content::RunAllTasksUntilIdle();
   BrowserWithTestWindowTest::TearDown();
 #if BUILDFLAG(IS_CHROMEOS_ASH)

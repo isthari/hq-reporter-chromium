@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,11 +10,9 @@
 #include <string>
 #include <vector>
 
-#include "ash/components/login/auth/auth_status_consumer.h"
-#include "ash/components/login/auth/challenge_response_key.h"
-#include "ash/components/login/auth/user_context.h"
 #include "ash/public/cpp/login_types.h"
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/task/sequenced_task_runner_helpers.h"
@@ -23,7 +21,11 @@
 #include "chrome/browser/ash/login/challenge_response_auth_keys_loader.h"
 #include "chrome/browser/ash/login/help_app_launcher.h"
 #include "chrome/browser/ash/login/security_token_pin_dialog_host_login_impl.h"
-#include "chrome/browser/ash/login/ui/login_display.h"
+#include "chromeos/ash/components/login/auth/auth_status_consumer.h"
+#include "chromeos/ash/components/login/auth/public/authentication_error.h"
+#include "chromeos/ash/components/login/auth/public/challenge_response_key.h"
+#include "chromeos/ash/components/login/auth/public/user_context.h"
+#include "components/session_manager/session_manager_types.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "mojo/public/cpp/bindings/receiver.h"
@@ -91,7 +93,7 @@ class ScreenLocker
 
   // Called when an account password (not PIN/quick unlock) has been used to
   // unlock the device.
-  void OnPasswordAuthSuccess(const UserContext& user_context);
+  void OnPasswordAuthSuccess(std::unique_ptr<UserContext> user_context);
 
   // Disables authentication for the user with `account_id`. Notifies lock
   // screen UI. `auth_disabled_data` is used to display information in the UI.
@@ -104,7 +106,7 @@ class ScreenLocker
   void ReenableAuthForUser(const AccountId& account_id);
 
   // Authenticates the user with given `user_context`.
-  void Authenticate(const UserContext& user_context,
+  void Authenticate(std::unique_ptr<UserContext> user_context,
                     AuthenticateCallback callback);
 
   // Authenticates the user with given `account_id` using the challenge-response
@@ -157,12 +159,23 @@ class ScreenLocker
   // Hide the screen locker.
   static void Hide();
 
+  // If the unlock animation was aborted (for instance, as a result of
+  // pressing the power button during the unlock animatoin), we  reset
+  // the state of UI elements (such as LoginAuthUserView::FingerprintView)
+  // which might have been altered as a result of a successful authentication
+  // attempt.
+  void ResetToLockedState();
+
+  // If the unlock animation was not aborted, changes session state to
+  // active and schedules `ScreenLocker` deletion.
+  static void OnUnlockAnimationFinished(bool aborted);
+
   // we should probably not call it anymore
   void RefreshPinAndFingerprintTimeout();
 
   // Saves sync password hash and salt to user profile prefs based on
   // `user_context`.
-  void SaveSyncPasswordHash(const UserContext& user_context);
+  void SaveSyncPasswordHash(std::unique_ptr<UserContext> user_context);
 
   // Returns true if authentication is enabled on the lock screen for the given
   // user.
@@ -178,6 +191,7 @@ class ScreenLocker
 
   // device::mojom::FingerprintObserver:
   void OnRestarted() override;
+  void OnStatusChanged(device::mojom::BiometricsManagerStatus status) override;
   void OnEnrollScanDone(device::mojom::ScanResult scan_result,
                         bool is_complete,
                         int32_t percent_complete) override;
@@ -221,7 +235,7 @@ class ScreenLocker
 
   void OnFingerprintAuthFailure(const user_manager::User& user);
 
-  void MaybeStartFingerprintAuthSession(const user_manager::User* primary_user);
+  void StartFingerprintAuthSession(const user_manager::User* primary_user);
 
   // Called when the screen lock is ready.
   void ScreenLockReady();
@@ -247,11 +261,16 @@ class ScreenLocker
       const AccountId& account_id,
       std::vector<ChallengeResponseKey> challenge_response_keys);
 
-  void OnPinAttemptDone(const UserContext& user_context, bool success);
+  void OnPinAttemptDone(std::unique_ptr<UserContext>,
+                        absl::optional<AuthenticationError>);
+
+  // Called to select the appropriate Authenticator and perform unlock
+  // operation.
+  void AttemptUnlock(std::unique_ptr<UserContext> user_context);
 
   // Called to continue authentication against cryptohome after the pin login
   // check has completed.
-  void ContinueAuthenticate(const UserContext& user_context);
+  void ContinueAuthenticate(std::unique_ptr<UserContext> user_context);
 
   // Periodically called to see if PIN and fingerprint are still available for
   // use. PIN and fingerprint are disabled after a certain period of time (e.g.
@@ -263,8 +282,13 @@ class ScreenLocker
 
   void UpdateFingerprintStateForUser(const user_manager::User* user);
 
+  // Helper to transform internal enum UnlockType to
+  // session_manager::UnlockType, used by the reporting team to report
+  // lock/unlock events.
+  session_manager::UnlockType TransformUnlockType();
+
   // Delegate used to talk to the view.
-  Delegate* delegate_ = nullptr;
+  raw_ptr<Delegate, DanglingUntriaged | ExperimentalAsh> delegate_ = nullptr;
 
   // Users that can unlock the device.
   user_manager::UserList users_;
@@ -286,8 +310,8 @@ class ScreenLocker
   bool locked_ = false;
 
   // True if the unlock process has started, or false otherwise.  This changes
-  // from false to true, but will never change from true to false. Instead,
-  // ScreenLocker object gets deleted when unlocked.
+  // from false to true, but will only change from true to false when unlock is
+  // aborted. Otherwise, ScreenLocker object gets deleted when unlocked.
   bool unlock_started_ = false;
 
   // Reference to the single instance of the screen locker object.
@@ -301,7 +325,7 @@ class ScreenLocker
 
   // Delegate to forward all login status events to.
   // Tests can use this to receive login status events.
-  AuthStatusConsumer* auth_status_consumer_ = nullptr;
+  raw_ptr<AuthStatusConsumer, ExperimentalAsh> auth_status_consumer_ = nullptr;
 
   // Number of bad login attempts in a row.
   int incorrect_passwords_count_ = 0;
@@ -336,10 +360,5 @@ class ScreenLocker
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove when //c/b/ash/login moved to ash.
-namespace chromeos {
-using ::ash::ScreenLocker;
-}
 
 #endif  // CHROME_BROWSER_ASH_LOGIN_LOCK_SCREEN_LOCKER_H_

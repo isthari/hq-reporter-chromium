@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,6 +24,7 @@
 #include "extensions/common/permissions/api_permission.h"
 #include "extensions/common/permissions/permission_set.h"
 #include "extensions/common/permissions/permissions_data.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace apps {
 
@@ -63,17 +64,15 @@ void AddSavedFileEntry(ExtensionPrefs* prefs,
   ExtensionPrefs::ScopedDictionaryUpdate update(
       prefs, extension_id, kFileEntries);
   auto file_entries = update.Create();
-  DCHECK(!file_entries->GetDictionaryWithoutPathExpansion(file_entry.id, NULL));
+  DCHECK(
+      !file_entries->GetDictionaryWithoutPathExpansion(file_entry.id, nullptr));
 
-  std::unique_ptr<base::DictionaryValue> file_entry_dict =
-      std::make_unique<base::DictionaryValue>();
-  file_entry_dict->SetKey(kFileEntryPath,
-                          base::FilePathToValue(file_entry.path));
-  file_entry_dict->SetBoolean(kFileEntryIsDirectory, file_entry.is_directory);
-  file_entry_dict->SetInteger(kFileEntrySequenceNumber,
-                              file_entry.sequence_number);
-  file_entries->SetWithoutPathExpansion(file_entry.id,
-                                        std::move(file_entry_dict));
+  base::Value::Dict file_entry_dict;
+  file_entry_dict.Set(kFileEntryPath, base::FilePathToValue(file_entry.path));
+  file_entry_dict.Set(kFileEntryIsDirectory, file_entry.is_directory);
+  file_entry_dict.Set(kFileEntrySequenceNumber, file_entry.sequence_number);
+  file_entries->SetDictionaryWithoutPathExpansion(file_entry.id,
+                                                  std::move(file_entry_dict));
 }
 
 // Updates the sequence_number of a SavedFileEntry persisted in ExtensionPrefs.
@@ -105,7 +104,7 @@ void RemoveSavedFileEntry(ExtensionPrefs* prefs,
 // Clears all SavedFileEntry for the app from ExtensionPrefs.
 void ClearSavedFileEntries(ExtensionPrefs* prefs,
                            const std::string& extension_id) {
-  prefs->UpdateExtensionPref(extension_id, kFileEntries, nullptr);
+  prefs->UpdateExtensionPref(extension_id, kFileEntries, absl::nullopt);
 }
 
 // Returns all SavedFileEntries for the app.
@@ -113,31 +112,32 @@ std::vector<SavedFileEntry> GetSavedFileEntries(
     ExtensionPrefs* prefs,
     const std::string& extension_id) {
   std::vector<SavedFileEntry> result;
-  const base::DictionaryValue* file_entries = NULL;
-  if (!prefs->ReadPrefAsDictionary(extension_id, kFileEntries, &file_entries))
-    return result;
 
-  for (base::DictionaryValue::Iterator it(*file_entries); !it.IsAtEnd();
-       it.Advance()) {
-    const base::DictionaryValue* file_entry = NULL;
-    if (!it.value().GetAsDictionary(&file_entry))
+  const auto* dict = prefs->ReadPrefAsDict(extension_id, kFileEntries);
+  if (!dict) {
+    return result;
+  }
+
+  for (const auto item : *dict) {
+    const auto* file_entry = item.second.GetIfDict();
+    if (!file_entry)
       continue;
-    const base::Value* path_value;
-    if (!file_entry->Get(kFileEntryPath, &path_value))
+
+    const base::Value* path_value = file_entry->Find(kFileEntryPath);
+    if (!path_value)
       continue;
     absl::optional<base::FilePath> file_path =
         base::ValueToFilePath(*path_value);
     if (!file_path)
       continue;
     bool is_directory =
-        file_entry->FindBoolPath(kFileEntryIsDirectory).value_or(false);
-    int sequence_number = 0;
-    if (!file_entry->GetInteger(kFileEntrySequenceNumber, &sequence_number))
+        file_entry->FindBool(kFileEntryIsDirectory).value_or(false);
+    const absl::optional<int> sequence_number =
+        file_entry->FindInt(kFileEntrySequenceNumber);
+    if (!sequence_number || sequence_number.value() == 0)
       continue;
-    if (!sequence_number)
-      continue;
-    result.push_back(
-        SavedFileEntry(it.key(), *file_path, is_directory, sequence_number));
+    result.emplace_back(item.first, *file_path, is_directory,
+                        sequence_number.value());
   }
   return result;
 }

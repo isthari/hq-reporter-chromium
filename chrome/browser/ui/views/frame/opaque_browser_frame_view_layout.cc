@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,13 +11,10 @@
 #include "base/command_line.h"
 #include "base/containers/adapters.h"
 #include "base/containers/cxx20_erase.h"
-#include "base/cxx17_backports.h"
 #include "base/i18n/rtl.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/views/frame/caption_button_placeholder_container.h"
-#include "chrome/browser/ui/views/web_apps/frame_toolbar/web_app_frame_toolbar_view.h"
-#include "chrome/common/chrome_switches.h"
 #include "ui/compositor/layer.h"
 #include "ui/gfx/font.h"
 #include "ui/views/controls/button/image_button.h"
@@ -39,12 +36,6 @@ constexpr int kCaptionButtonHeight = 18;
 
 // The content edge images have a shadow built into them.
 const int OpaqueBrowserFrameViewLayout::kContentEdgeShadowThickness = 2;
-
-// The frame border is only visible in restored mode and is hardcoded to 4 px on
-// each side regardless of the system window border size.  This is overridable
-// by subclasses, so RestoredFrameBorderInsets() should be used instead of using
-// this constant directly.
-const int OpaqueBrowserFrameViewLayout::kFrameBorderThickness = 4;
 
 // The frame has a 2 px 3D edge along the top.  This is overridable by
 // subclasses, so RestoredFrameEdgeInsets() should be used instead of using this
@@ -105,10 +96,43 @@ gfx::Rect OpaqueBrowserFrameViewLayout::GetBoundsForTabStripRegion(
                    tabstrip_minimum_size.height());
 }
 
+gfx::Rect OpaqueBrowserFrameViewLayout::GetBoundsForWebAppFrameToolbar(
+    const gfx::Size& toolbar_preferred_size) const {
+  if (delegate_->IsFullscreen()) {
+    return gfx::Rect();
+  }
+
+  // Adding 2px of vertical padding puts at least 1 px of space on the top and
+  // bottom of the element.
+  constexpr int kVerticalPadding = 2;
+
+  const int x = available_space_leading_x_;
+  const int available_width = available_space_trailing_x_ - x;
+  return gfx::Rect(x, FrameEdgeInsets(false).top(),
+                   std::max(0, available_width),
+                   toolbar_preferred_size.height() + kVerticalPadding +
+                       kContentEdgeShadowThickness);
+}
+
+void OpaqueBrowserFrameViewLayout::LayoutWebAppWindowTitle(
+    const gfx::Rect& available_space,
+    views::Label& window_title_label) const {
+  gfx::Rect bounds = available_space;
+  bounds.Inset(gfx::Insets::TLBR(0, kIconTitleSpacing, 0, kCaptionSpacing));
+  window_title_label.SetSubpixelRenderingEnabled(false);
+  window_title_label.SetHorizontalAlignment(gfx::ALIGN_LEFT);
+  window_title_label.SetBoundsRect(bounds);
+}
+
 gfx::Size OpaqueBrowserFrameViewLayout::GetMinimumSize(
     const views::View* host) const {
   // Ensure that we can fit the main browser view.
   gfx::Size min_size = delegate_->GetBrowserViewMinimumSize();
+  if (delegate_->GetBorderlessModeEnabled()) {
+    // In borderless mode the window doesn't have the window controls or tab
+    // strip.
+    return min_size;
+  }
 
   // Ensure that we can, at minimum, hold our window controls and a tab strip.
   int top_width = minimum_size_for_buttons_;
@@ -144,7 +168,7 @@ gfx::Insets OpaqueBrowserFrameViewLayout::FrameBorderInsets(
 
 int OpaqueBrowserFrameViewLayout::FrameTopBorderThickness(bool restored) const {
   int thickness = FrameBorderInsets(restored).top();
-  if (restored || !delegate_->IsFrameCondensed())
+  if ((restored || !delegate_->IsFrameCondensed()) && thickness > 0)
     thickness += NonClientExtraTopThickness();
   return thickness;
 }
@@ -161,11 +185,10 @@ int OpaqueBrowserFrameViewLayout::NonClientTopHeight(bool restored) const {
   const int caption_button_height = DefaultCaptionButtonY(restored) +
                                     kCaptionButtonHeight +
                                     kCaptionButtonBottomPadding;
-  int web_app_button_height = 0;
-  if (web_app_frame_toolbar_) {
-    web_app_button_height =
-        FrameEdgeInsets(restored).top() +
-        web_app_frame_toolbar_->GetPreferredSize().height() + kVerticalPadding;
+
+  int web_app_button_height = delegate_->WebAppButtonHeight();
+  if (web_app_button_height > 0) {
+    web_app_button_height += FrameEdgeInsets(restored).top() + kVerticalPadding;
   }
   return std::max(std::max(icon_height, caption_button_height),
                   web_app_button_height) +
@@ -206,9 +229,11 @@ gfx::Rect OpaqueBrowserFrameViewLayout::CalculateClientAreaBounds(
     int width,
     int height) const {
   auto border_thickness = FrameBorderInsets(false);
-  int top_height = is_window_controls_overlay_enabled_
-                       ? border_thickness.top()
-                       : NonClientTopHeight(false);
+  int top_height =
+      (is_window_controls_overlay_enabled_ || is_borderless_mode_enabled_ ||
+       delegate_->WebAppButtonHeight() > 0)
+          ? border_thickness.top()
+          : NonClientTopHeight(false);
   return gfx::Rect(
       border_thickness.left(), top_height,
       std::max(0, width - border_thickness.width()),
@@ -271,6 +296,11 @@ void OpaqueBrowserFrameViewLayout::SetWindowControlsOverlayEnabled(
   }
 }
 
+void OpaqueBrowserFrameViewLayout::SetBorderlessModeEnabled(bool enabled,
+                                                            views::View* host) {
+  is_borderless_mode_enabled_ = enabled;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // OpaqueBrowserFrameViewLayout, protected:
 
@@ -287,8 +317,8 @@ gfx::Insets OpaqueBrowserFrameViewLayout::RestoredFrameBorderInsets() const {
 }
 
 gfx::Insets OpaqueBrowserFrameViewLayout::RestoredFrameEdgeInsets() const {
-  return gfx::Insets(kTopFrameEdgeThickness, kSideFrameEdgeThickness,
-                     kSideFrameEdgeThickness, kSideFrameEdgeThickness);
+  return gfx::Insets::TLBR(kTopFrameEdgeThickness, kSideFrameEdgeThickness,
+                           kSideFrameEdgeThickness, kSideFrameEdgeThickness);
 }
 
 int OpaqueBrowserFrameViewLayout::NonClientExtraTopThickness() const {
@@ -322,8 +352,8 @@ void OpaqueBrowserFrameViewLayout::LayoutWindowControls() {
     }
   }
 
-  for (const auto& button : buttons_not_shown)
-    HideButton(button);
+  for (const auto& button_id : buttons_not_shown)
+    HideButton(button_id);
 }
 
 void OpaqueBrowserFrameViewLayout::LayoutTitleBar() {
@@ -332,14 +362,7 @@ void OpaqueBrowserFrameViewLayout::LayoutTitleBar() {
   int size = delegate_->GetIconSize();
   bool should_show_icon = delegate_->ShouldShowWindowIcon() && window_icon_;
   bool should_show_title = delegate_->ShouldShowWindowTitle() && window_title_;
-  // TODO(crbug.com/1132767): fullscreen check is required only because we
-  // cannot allow toolbar to lay out in fullscreen mode without breaking some
-  // bubble anchoring because of how e.g. the zoom bubble anchors. If this
-  // issue is resolved, all of the references to |should_show_toolbar| can
-  // potentially be replaced with checks that |web_app_frame_toolbar_| is
-  // non-null.
-  bool should_show_toolbar =
-      !delegate_->IsFullscreen() && web_app_frame_toolbar_;
+  bool should_show_toolbar = delegate_->WebAppButtonHeight() > 0;
   absl::optional<int> icon_spacing;
 
   if (should_show_icon || should_show_title || should_show_toolbar) {
@@ -377,16 +400,6 @@ void OpaqueBrowserFrameViewLayout::LayoutTitleBar() {
     window_icon_bounds_ = gfx::Rect(available_space_leading_x_, y, size, size);
     available_space_leading_x_ += size;
     minimum_size_for_buttons_ += size;
-
-    if (should_show_toolbar) {
-      std::pair<int, int> remaining_bounds =
-          web_app_frame_toolbar_->LayoutInContainer(
-              available_space_leading_x_, available_space_trailing_x_,
-              unavailable_dip_at_top,
-              available_height - unavailable_dip_at_top);
-      available_space_leading_x_ = remaining_bounds.first;
-      available_space_trailing_x_ = remaining_bounds.second;
-    }
   }
 
   if (window_icon_) {
@@ -402,9 +415,7 @@ void OpaqueBrowserFrameViewLayout::LayoutTitleBar() {
 
       // If possible, make space between icon and title symmetrical with space
       // between icon and frame.
-      const int icon_title_spacing = (web_app_frame_toolbar_ && icon_spacing)
-                                         ? *icon_spacing
-                                         : kIconTitleSpacing;
+      const int icon_title_spacing = kIconTitleSpacing;
       const int text_width =
           std::max(0, available_space_trailing_x_ - kCaptionSpacing -
                           available_space_leading_x_ - icon_title_spacing);
@@ -434,22 +445,31 @@ void OpaqueBrowserFrameViewLayout::ConfigureButton(views::FrameButton button_id,
                                                    ButtonAlignment alignment) {
   switch (button_id) {
     case views::FrameButton::kMinimize: {
-      SetViewVisibility(minimize_button_, true);
-      SetBoundsForButton(button_id, minimize_button_, alignment);
+      if (delegate_->CanMinimize()) {
+        SetViewVisibility(minimize_button_, true);
+        SetBoundsForButton(button_id, minimize_button_, alignment);
+      } else {
+        HideButton(button_id);
+      }
       break;
     }
     case views::FrameButton::kMaximize: {
-      // When the window is restored, we show a maximized button; otherwise, we
-      // show a restore button.
-      bool is_restored = !delegate_->IsMaximized() && !delegate_->IsMinimized();
-      views::Button* invisible_button =
-          is_restored ? restore_button_ : maximize_button_;
-      SetViewVisibility(invisible_button, false);
+      if (delegate_->CanMaximize()) {
+        // When the window is restored, we show a maximized button; otherwise,
+        // we show a restore button.
+        bool is_restored =
+            !delegate_->IsMaximized() && !delegate_->IsMinimized();
+        views::Button* invisible_button =
+            is_restored ? restore_button_ : maximize_button_;
+        SetViewVisibility(invisible_button, false);
 
-      views::Button* visible_button =
-          is_restored ? maximize_button_ : restore_button_;
-      SetViewVisibility(visible_button, true);
-      SetBoundsForButton(button_id, visible_button, alignment);
+        views::Button* visible_button =
+            is_restored ? maximize_button_ : restore_button_;
+        SetViewVisibility(visible_button, true);
+        SetBoundsForButton(button_id, visible_button, alignment);
+      } else {
+        HideButton(button_id);
+      }
       break;
     }
     case views::FrameButton::kClose: {
@@ -498,7 +518,7 @@ void OpaqueBrowserFrameViewLayout::SetBoundsForButton(
     const int height =
         delegate_->GetTopAreaHeight() - FrameEdgeInsets(false).top();
     const int corner_radius =
-        base::clamp((height - kCaptionButtonCenterSize) / 2, 0,
+        std::clamp((height - kCaptionButtonCenterSize) / 2, 0,
                     views::kCaptionButtonInkDropDefaultCornerRadius);
     button_size = gfx::Size(views::kCaptionButtonWidth, height);
     button->SetPreferredSize(button_size);
@@ -603,13 +623,6 @@ void OpaqueBrowserFrameViewLayout::SetView(int id, views::View* view) {
       }
       window_title_ = static_cast<views::Label*>(view);
       break;
-    case VIEW_ID_WEB_APP_FRAME_TOOLBAR:
-      if (view) {
-        DCHECK_EQ(std::string(WebAppFrameToolbarView::kViewClassName),
-                  view->GetClassName());
-      }
-      web_app_frame_toolbar_ = static_cast<WebAppFrameToolbarView*>(view);
-      break;
   }
 
   if (view && views::IsViewClass<CaptionButtonPlaceholderContainer>(view)) {
@@ -634,36 +647,11 @@ OpaqueBrowserFrameViewLayout::GetTopAreaPadding() const {
 void OpaqueBrowserFrameViewLayout::LayoutTitleBarForWindowControlsOverlay(
     const views::View* host) {
   int height = NonClientTopHeight(false);
-  int container_x = 0;
-  int x = available_space_leading_x_;
-  int web_app_frame_toolbar_view_width = host->width() - x;
-
-  if (placed_trailing_button_) {
-    container_x = available_space_trailing_x_;
-    x = 0;
-
-    web_app_frame_toolbar_view_width = available_space_trailing_x_;
-
-    available_space_trailing_x_ -=
-        web_app_frame_toolbar_->GetPreferredSize().width();
-  }
-
+  int container_x = placed_trailing_button_ ? available_space_trailing_x_ : 0;
   auto insets = FrameBorderInsets(/*restored=*/false);
-
   caption_button_placeholder_container_->SetBounds(
       container_x, insets.top(), minimum_size_for_buttons_ - insets.width(),
       height - insets.top());
-
-  web_app_frame_toolbar_->LayoutForWindowControlsOverlay(
-      gfx::Rect(x, insets.top(), web_app_frame_toolbar_view_width,
-                height - insets.top()));
-
-  int bounding_rect_width =
-      web_app_frame_toolbar_->bounds().x() - available_space_leading_x_;
-  // Set y to 0 for the bounding_rect as this is web contents coordinates and
-  // so, FrameBorderThickness should not be included.
-  delegate_->UpdateWindowControlsOverlay(
-      host->GetMirroredRect(gfx::Rect(x, 0, bounding_rect_width, height)));
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -713,8 +701,7 @@ gfx::Size OpaqueBrowserFrameViewLayout::GetPreferredSize(
     const views::View* host) const {
   // This is never used; NonClientView::CalculatePreferredSize() will be called
   // instead.
-  NOTREACHED();
-  return gfx::Size();
+  NOTREACHED_NORETURN();
 }
 
 void OpaqueBrowserFrameViewLayout::ViewAdded(views::View* host,

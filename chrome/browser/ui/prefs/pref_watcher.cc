@@ -1,25 +1,27 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/prefs/pref_watcher.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/profiles/incognito_helpers.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/renderer_preferences_util.h"
 #include "chrome/browser/ui/prefs/prefs_tab_helper.h"
 #include "chrome/common/pref_names.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/language/core/browser/pref_names.h"
 #include "components/live_caption/pref_names.h"
 #include "third_party/blink/public/common/renderer_preferences/renderer_preferences.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/constants/ash_pref_names.h"
+#endif
+
+#if BUILDFLAG(IS_ANDROID)
+#include "components/browser_ui/accessibility/android/font_size_prefs_android.h"
 #endif
 
 namespace {
@@ -44,8 +46,8 @@ const char* const kWebPrefsToObserve[] = {
     prefs::kAccessibilityCaptionsTextShadow,
     prefs::kAccessibilityCaptionsBackgroundOpacity,
 #if BUILDFLAG(IS_ANDROID)
-    prefs::kWebKitFontScaleFactor,
-    prefs::kWebKitForceEnableZoom,
+    browser_ui::prefs::kWebKitFontScaleFactor,
+    browser_ui::prefs::kWebKitForceEnableZoom,
     prefs::kWebKitPasswordEchoEnabled,
 #endif
     prefs::kWebKitForceDarkModeEnabled,
@@ -64,7 +66,7 @@ const char* const kWebPrefsToObserve[] = {
 #endif
 };
 
-const int kWebPrefsToObserveLength = base::size(kWebPrefsToObserve);
+const int kWebPrefsToObserveLength = std::size(kWebPrefsToObserve);
 
 }  // namespace
 
@@ -163,20 +165,20 @@ PrefWatcherFactory* PrefWatcherFactory::GetInstance() {
 }
 
 PrefWatcherFactory::PrefWatcherFactory()
-    : BrowserContextKeyedServiceFactory(
+    : ProfileKeyedServiceFactory(
           "PrefWatcher",
-          BrowserContextDependencyManager::GetInstance()) {}
+          ProfileSelections::Builder()
+              .WithRegular(ProfileSelection::kOwnInstance)
+              // TODO(crbug.com/1418376): Check if this service is needed in
+              // Guest mode.
+              .WithGuest(ProfileSelection::kOwnInstance)
+              .Build()) {}
 
 PrefWatcherFactory::~PrefWatcherFactory() = default;
 
 KeyedService* PrefWatcherFactory::BuildServiceInstanceFor(
     content::BrowserContext* browser_context) const {
   return new PrefWatcher(Profile::FromBrowserContext(browser_context));
-}
-
-content::BrowserContext* PrefWatcherFactory::GetBrowserContextToUse(
-    content::BrowserContext* context) const {
-  return chrome::GetBrowserContextOwnInstanceInIncognito(context);
 }
 
 // static

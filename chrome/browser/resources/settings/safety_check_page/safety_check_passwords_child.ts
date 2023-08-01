@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,26 +7,28 @@
  * 'settings-safety-passwords-child' is the settings page containing the
  * safety check child showing the password status.
  */
-import {assertNotReached} from 'chrome://resources/js/assert.m.js';
-import {I18nMixin} from 'chrome://resources/js/i18n_mixin.js';
-import {WebUIListenerMixin} from 'chrome://resources/js/web_ui_listener_mixin.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
+import {WebUiListenerMixin} from 'chrome://resources/cr_elements/web_ui_listener_mixin.js';
+import {assertNotReached} from 'chrome://resources/js/assert_ts.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {PasswordCheckReferrer, PasswordManagerImpl} from '../autofill_page/password_manager_proxy.js';
+import {PasswordCheckReferrer, PasswordManagerImpl, PasswordManagerPage} from '../autofill_page/password_manager_proxy.js';
+import {loadTimeData} from '../i18n_setup.js';
 import {MetricsBrowserProxy, MetricsBrowserProxyImpl, SafetyCheckInteractions} from '../metrics_browser_proxy.js';
 import {routes} from '../route.js';
 import {Router} from '../router.js';
 
 import {SafetyCheckCallbackConstants, SafetyCheckPasswordsStatus} from './safety_check_browser_proxy.js';
 import {SafetyCheckIconStatus} from './safety_check_child.js';
+import {getTemplate} from './safety_check_passwords_child.html.js';
 
-type PasswordsChangedEvent = {
-  newState: SafetyCheckPasswordsStatus,
-  displayString: string,
-};
+interface PasswordsChangedEvent {
+  newState: SafetyCheckPasswordsStatus;
+  displayString: string;
+}
 
 const SettingsSafetyCheckPasswordsChildElementBase =
-    WebUIListenerMixin(I18nMixin(PolymerElement));
+    WebUiListenerMixin(I18nMixin(PolymerElement));
 
 export class SettingsSafetyCheckPasswordsChildElement extends
     SettingsSafetyCheckPasswordsChildElementBase {
@@ -35,7 +37,7 @@ export class SettingsSafetyCheckPasswordsChildElement extends
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
@@ -66,6 +68,13 @@ export class SettingsSafetyCheckPasswordsChildElement extends
           SafetyCheckPasswordsStatus.WEAK_PASSWORDS_EXIST,
         ]),
       },
+
+      enableNewPasswordManagerPage_: {
+        type: Boolean,
+        value() {
+          return loadTimeData.getBoolean('enableNewPasswordManagerPage');
+        },
+      },
     };
   }
 
@@ -74,12 +83,13 @@ export class SettingsSafetyCheckPasswordsChildElement extends
   private rowClickableStatuses: Set<SafetyCheckPasswordsStatus>;
   private metricsBrowserProxy_: MetricsBrowserProxy =
       MetricsBrowserProxyImpl.getInstance();
+  private enableNewPasswordManagerPage_: boolean;
 
-  connectedCallback() {
+  override connectedCallback() {
     super.connectedCallback();
 
     // Register for safety check status updates.
-    this.addWebUIListener(
+    this.addWebUiListener(
         SafetyCheckCallbackConstants.PASSWORDS_CHANGED,
         this.onSafetyCheckPasswordsChanged_.bind(this));
   }
@@ -107,7 +117,6 @@ export class SettingsSafetyCheckPasswordsChildElement extends
         return SafetyCheckIconStatus.INFO;
       default:
         assertNotReached();
-        return SafetyCheckIconStatus.INFO;
     }
   }
 
@@ -149,11 +158,16 @@ export class SettingsSafetyCheckPasswordsChildElement extends
   }
 
   private openPasswordCheckPage_() {
+    PasswordManagerImpl.getInstance().recordPasswordCheckReferrer(
+        PasswordCheckReferrer.SAFETY_CHECK);
+    if (this.enableNewPasswordManagerPage_) {
+      PasswordManagerImpl.getInstance().showPasswordManager(
+          PasswordManagerPage.CHECKUP);
+      return;
+    }
     Router.getInstance().navigateTo(
         routes.CHECK_PASSWORDS,
         /* dynamicParams= */ undefined, /* removeSearch= */ true);
-    PasswordManagerImpl.getInstance().recordPasswordCheckReferrer(
-        PasswordCheckReferrer.SAFETY_CHECK);
   }
 }
 

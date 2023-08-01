@@ -1,10 +1,10 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/web_view/shell/test/earl_grey/web_view_shell_matchers.h"
 
-#import <EarlGrey/EarlGrey.h>
+#import "ios/testing/earl_grey/earl_grey_test.h"
 
 #include "base/mac/foundation_util.h"
 #include "base/strings/sys_string_conversions.h"

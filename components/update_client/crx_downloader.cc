@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,13 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/check.h"
 #include "base/check_op.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #if BUILDFLAG(IS_WIN)
 #include "components/update_client/background_downloader_win.h"
@@ -32,7 +33,7 @@ CrxDownloader::DownloadMetrics::DownloadMetrics()
       download_time_ms(0) {}
 
 CrxDownloader::CrxDownloader(scoped_refptr<CrxDownloader> successor)
-    : main_task_runner_(base::ThreadTaskRunnerHandle::Get()),
+    : main_task_runner_(base::SequencedTaskRunner::GetCurrentDefault()),
       successor_(std::move(successor)) {}
 
 CrxDownloader::~CrxDownloader() = default;
@@ -106,8 +107,8 @@ void CrxDownloader::OnDownloadComplete(
     return;
   }
 
-  DCHECK_EQ(0, download_metrics.error);
-  DCHECK(is_handled);
+  CHECK_EQ(0, download_metrics.error);
+  CHECK(is_handled);
 
   base::ThreadPool::PostTaskAndReplyWithResult(
       FROM_HERE, kTaskTraits,
@@ -161,9 +162,9 @@ void CrxDownloader::HandleDownloadError(
     const Result& result,
     const DownloadMetrics& download_metrics) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK_NE(0, result.error);
-  DCHECK(result.response.empty());
-  DCHECK_NE(0, download_metrics.error);
+  CHECK_NE(0, result.error);
+  CHECK(result.response.empty());
+  CHECK_NE(0, download_metrics.error);
 
   download_metrics_.push_back(download_metrics);
 

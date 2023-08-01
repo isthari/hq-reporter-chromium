@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 
 #include "ash/test/ash_test_base.h"
 #include "ash/test/test_widget_builder.h"
+#include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/test/bind.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -56,7 +57,7 @@ class AppListBubbleEventFilterTest : public AshTestBase,
 
   std::unique_ptr<views::Widget> widget_;
   std::unique_ptr<views::Widget> view_holder_widget_;
-  views::View* view_ = nullptr;
+  raw_ptr<views::View, ExperimentalAsh> view_ = nullptr;
 };
 
 INSTANTIATE_TEST_SUITE_P(MouseOrTouch,

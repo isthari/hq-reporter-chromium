@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include <tuple>
 #include <vector>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/observer_list.h"
 #include "content/public/browser/service_worker_context.h"
 #include "third_party/blink/public/common/storage_key/storage_key.h"
@@ -52,6 +52,7 @@ class FakeServiceWorkerContext : public ServiceWorkerContext {
                                ResultCallback callback) override;
   ServiceWorkerExternalRequestResult StartingExternalRequest(
       int64_t service_worker_version_id,
+      content::ServiceWorkerExternalRequestTimeoutType timeout_type,
       const std::string& request_uuid) override;
   ServiceWorkerExternalRequestResult FinishedExternalRequest(
       int64_t service_worker_version_id,
@@ -62,7 +63,7 @@ class FakeServiceWorkerContext : public ServiceWorkerContext {
       int64_t service_worker_version_id,
       ServiceWorkerScriptExecutionCallback callback) override;
   bool MaybeHasRegistrationForStorageKey(const blink::StorageKey& key) override;
-  void GetAllOriginsInfo(GetUsageInfoCallback callback) override;
+  void GetAllStorageKeysInfo(GetUsageInfoCallback callback) override;
   void DeleteForStorageKey(const blink::StorageKey& key,
                            ResultCallback callback) override;
   void CheckHasServiceWorker(const GURL& url,
@@ -79,6 +80,9 @@ class FakeServiceWorkerContext : public ServiceWorkerContext {
       const blink::StorageKey& key,
       ServiceWorkerContext::StartWorkerCallback info_callback,
       ServiceWorkerContext::StatusCodeCallback failure_callback) override;
+  bool IsLiveRunningServiceWorker(int64_t service_worker_version_id) override;
+  service_manager::InterfaceProvider& GetRemoteInterfaces(
+      int64_t service_worker_version_id) override;
   void StartServiceWorkerAndDispatchMessage(
       const GURL& scope,
       const blink::StorageKey& key,

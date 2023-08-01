@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 #include <string>
 
 #include "base/component_export.h"
-#include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "mojo/public/cpp/bindings/lib/bindings_internal.h"
 
 static const int kMaxRecursionDepth = 200;
@@ -144,7 +144,7 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS_BASE) ValidationContext {
    private:
     // `ctx_` is not a raw_ptr<...> for performance reasons: On-stack pointee
     // (i.e. not covered by BackupRefPtr protection).
-    ValidationContext* ctx_;
+    RAW_PTR_EXCLUSION ValidationContext* ctx_;
   };
 
   // Returns true if the recursion depth limit has been reached.
@@ -161,7 +161,11 @@ class COMPONENT_EXPORT(MOJO_CPP_BINDINGS_BASE) ValidationContext {
     return end > begin && begin >= data_begin_ && end <= data_end_;
   }
 
-  const raw_ptr<Message> message_;
+  // Not a raw_ptr<...> for performance reasons: on-stack pointer + based on
+  // analysis of sampling profiler data (MultiplexRouter::ProcessIncomingMessage
+  // -> PipeControlMessageHandler::Accept -> PipeControlMessageHandler::Validate
+  // -> constructs ValidationContext).
+  RAW_PTR_EXCLUSION Message* const message_;
   const char* const description_;
   const ValidatorType validator_type_;
 

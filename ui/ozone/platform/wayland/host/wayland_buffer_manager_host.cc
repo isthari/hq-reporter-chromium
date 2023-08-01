@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/i18n/number_formatting.h"
 #include "base/strings/strcat.h"
 #include "base/strings/utf_string_conversions.h"
@@ -16,18 +16,16 @@
 #include "base/trace_event/trace_event.h"
 #include "ui/gfx/gpu_fence_handle.h"
 #include "ui/gfx/linux/drm_util_linux.h"
+#include "ui/ozone/platform/wayland/common/wayland_overlay_config.h"
 #include "ui/ozone/platform/wayland/host/surface_augmenter.h"
 #include "ui/ozone/platform/wayland/host/wayland_buffer_backing.h"
 #include "ui/ozone/platform/wayland/host/wayland_buffer_backing_dmabuf.h"
 #include "ui/ozone/platform/wayland/host/wayland_buffer_backing_shm.h"
 #include "ui/ozone/platform/wayland/host/wayland_buffer_backing_solid_color.h"
+#include "ui/ozone/platform/wayland/host/wayland_buffer_factory.h"
 #include "ui/ozone/platform/wayland/host/wayland_buffer_handle.h"
 #include "ui/ozone/platform/wayland/host/wayland_connection.h"
-#include "ui/ozone/platform/wayland/host/wayland_drm.h"
-#include "ui/ozone/platform/wayland/host/wayland_shm.h"
 #include "ui/ozone/platform/wayland/host/wayland_window.h"
-#include "ui/ozone/platform/wayland/host/wayland_zwp_linux_dmabuf.h"
-#include "ui/ozone/platform/wayland/mojom/wayland_overlay_config.mojom.h"
 
 namespace ui {
 
@@ -66,27 +64,26 @@ void WaylandBufferManagerHost::OnChannelDestroyed() {
   DCHECK(base::CurrentUIThread::IsSet());
 
   buffer_backings_.clear();
-  for (auto* window : connection_->wayland_window_manager()->GetAllWindows())
+  for (auto* window : connection_->window_manager()->GetAllWindows())
     window->OnChannelDestroyed();
 
   buffer_manager_gpu_associated_.reset();
   receiver_.reset();
 }
 
+void WaylandBufferManagerHost::OnCommitOverlayError(
+    const std::string& message) {
+  error_message_ = message;
+  TerminateGpuProcess();
+}
+
 wl::BufferFormatsWithModifiersMap
 WaylandBufferManagerHost::GetSupportedBufferFormats() const {
-#if defined(WAYLAND_GBM)
-  if (connection_->zwp_dmabuf())
-    return connection_->zwp_dmabuf()->supported_buffer_formats();
-  else if (connection_->drm())
-    return connection_->drm()->supported_buffer_formats();
-#endif
-  return {};
+  return connection_->buffer_factory()->GetSupportedBufferFormats();
 }
 
 bool WaylandBufferManagerHost::SupportsDmabuf() const {
-  return !!connection_->zwp_dmabuf() ||
-         (connection_->drm() && connection_->drm()->SupportsDrmPrime());
+  return connection_->buffer_factory()->SupportsDmabuf();
 }
 
 bool WaylandBufferManagerHost::SupportsAcquireFence() const {
@@ -101,9 +98,13 @@ bool WaylandBufferManagerHost::SupportsNonBackedSolidColorBuffers() const {
   return !!connection_->surface_augmenter();
 }
 
-bool WaylandBufferManagerHost::SupportsSubpixelAccuratePosition() const {
-  return connection_->surface_augmenter() &&
-         connection_->surface_augmenter()->SupportsSubpixelAccuratePosition();
+bool WaylandBufferManagerHost::SupportsOverlays() const {
+  return connection_->ShouldUseOverlayDelegation();
+}
+
+uint32_t WaylandBufferManagerHost::GetSurfaceAugmentorVersion() const {
+  auto* augmenter = connection_->surface_augmenter();
+  return augmenter ? augmenter->GetSurfaceAugmentorVersion() : 0u;
 }
 
 void WaylandBufferManagerHost::SetWaylandBufferManagerGpu(
@@ -189,7 +190,7 @@ void WaylandBufferManagerHost::CreateShmBasedBuffer(mojo::PlatformHandle shm_fd,
 }
 
 void WaylandBufferManagerHost::CreateSolidColorBuffer(const gfx::Size& size,
-                                                      SkColor color,
+                                                      const SkColor4f& color,
                                                       uint32_t buffer_id) {
   DCHECK(base::CurrentUIThread::IsSet());
   DCHECK(error_message_.empty());
@@ -254,9 +255,23 @@ WaylandBufferHandle* WaylandBufferManagerHost::GetBufferHandle(
   return it->second->GetBufferHandle(requestor);
 }
 
+uint32_t WaylandBufferManagerHost::GetBufferFormat(WaylandSurface* requestor,
+                                                   uint32_t buffer_id) {
+  DCHECK(base::CurrentUIThread::IsSet());
+  DCHECK(requestor);
+
+  auto it = buffer_backings_.find(buffer_id);
+  if (it == buffer_backings_.end())
+    return DRM_FORMAT_INVALID;
+
+  return it->second.get()->format();
+}
+
 void WaylandBufferManagerHost::CommitOverlays(
     gfx::AcceleratedWidget widget,
-    std::vector<ui::ozone::mojom::WaylandOverlayConfigPtr> overlays) {
+    uint32_t frame_id,
+    const gfx::FrameData& data,
+    std::vector<wl::WaylandOverlayConfig> overlays) {
   DCHECK(base::CurrentUIThread::IsSet());
 
   TRACE_EVENT0("wayland", "WaylandBufferManagerHost::CommitOverlays");
@@ -267,29 +282,17 @@ void WaylandBufferManagerHost::CommitOverlays(
     error_message_ = "Invalid widget.";
     TerminateGpuProcess();
   }
-  WaylandWindow* window =
-      connection_->wayland_window_manager()->GetWindow(widget);
+  WaylandWindow* window = connection_->window_manager()->GetWindow(widget);
   // In tab dragging, window may have been destroyed when buffers reach here. We
   // omit buffer commits and OnSubmission, because the corresponding buffer
   // queue in gpu process should be destroyed soon.
   if (!window)
     return;
 
-  for (auto& overlay : overlays) {
-    if (!ValidateOverlayData(*overlay)) {
-      TerminateGpuProcess();
-      return;
-    }
-  }
-
-  window->CommitOverlays(overlays);
+  window->CommitOverlays(frame_id, data.seq, overlays);
 }
 
-void WaylandBufferManagerHost::DestroyBuffer(
-    [[maybe_unused]] gfx::AcceleratedWidget widget,
-    uint32_t buffer_id) {
-  // TODO(fangzhoug): Remove |widget| from the argument list of the mojo
-  // interface.
+void WaylandBufferManagerHost::DestroyBuffer(uint32_t buffer_id) {
   DCHECK(base::CurrentUIThread::IsSet());
 
   TRACE_EVENT1("wayland", "WaylandBufferManagerHost::DestroyBuffer",
@@ -407,46 +410,27 @@ bool WaylandBufferManagerHost::ValidateBufferExistence(uint32_t buffer_id) {
   return error_message_.empty();
 }
 
-bool WaylandBufferManagerHost::ValidateOverlayData(
-    const ui::ozone::mojom::WaylandOverlayConfig& overlay_data) {
-  if (!ValidateBufferExistence(overlay_data.buffer_id))
-    return false;
-
-  std::string reason;
-  if (std::isnan(overlay_data.bounds_rect.x()) ||
-      std::isnan(overlay_data.bounds_rect.y()) ||
-      std::isnan(overlay_data.bounds_rect.width()) ||
-      std::isnan(overlay_data.bounds_rect.height()) ||
-      std::isinf(overlay_data.bounds_rect.x()) ||
-      std::isinf(overlay_data.bounds_rect.y()) ||
-      std::isinf(overlay_data.bounds_rect.width()) ||
-      std::isinf(overlay_data.bounds_rect.height())) {
-    error_message_ = "Overlay bounds_rect is invalid (NaN or infinity).";
-    return false;
-  }
-
-  return true;
-}
-
-void WaylandBufferManagerHost::OnSubmission(gfx::AcceleratedWidget widget,
-                                            uint32_t buffer_id,
-                                            const gfx::SwapResult& swap_result,
-                                            gfx::GpuFenceHandle release_fence) {
+void WaylandBufferManagerHost::OnSubmission(
+    gfx::AcceleratedWidget widget,
+    uint32_t frame_id,
+    const gfx::SwapResult& swap_result,
+    gfx::GpuFenceHandle release_fence,
+    const std::vector<wl::WaylandPresentationInfo>& presentation_infos) {
   DCHECK(base::CurrentUIThread::IsSet());
 
   DCHECK(buffer_manager_gpu_associated_);
-  buffer_manager_gpu_associated_->OnSubmission(widget, buffer_id, swap_result,
-                                               std::move(release_fence));
+  buffer_manager_gpu_associated_->OnSubmission(widget, frame_id, swap_result,
+                                               std::move(release_fence),
+                                               presentation_infos);
 }
 
 void WaylandBufferManagerHost::OnPresentation(
     gfx::AcceleratedWidget widget,
-    uint32_t buffer_id,
-    const gfx::PresentationFeedback& feedback) {
+    const std::vector<wl::WaylandPresentationInfo>& presentation_infos) {
   DCHECK(base::CurrentUIThread::IsSet());
 
   DCHECK(buffer_manager_gpu_associated_);
-  buffer_manager_gpu_associated_->OnPresentation(widget, buffer_id, feedback);
+  buffer_manager_gpu_associated_->OnPresentation(widget, presentation_infos);
 }
 
 void WaylandBufferManagerHost::TerminateGpuProcess() {

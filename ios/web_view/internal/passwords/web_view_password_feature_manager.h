@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,20 +28,13 @@ class WebViewPasswordFeatureManager
   ~WebViewPasswordFeatureManager() override = default;
 
   bool IsGenerationEnabled() const override;
-
   bool IsOptedInForAccountStorage() const override;
   bool ShouldShowAccountStorageOptIn() const override;
   bool ShouldShowAccountStorageReSignin(
       const GURL& current_page_url) const override;
-  void OptInToAccountStorage() override;
-  void OptOutOfAccountStorageAndClearSettings() override;
 
   bool ShouldShowAccountStorageBubbleUi() const override;
 
-  bool ShouldOfferOptInAndMoveToAccountStoreAfterSavingLocally() const override;
-
-  void SetDefaultPasswordStore(
-      const password_manager::PasswordForm::Store& store) override;
   password_manager::PasswordForm::Store GetDefaultPasswordStore()
       const override;
   bool IsDefaultPasswordStoreSet() const override;
@@ -49,8 +42,7 @@ class WebViewPasswordFeatureManager
   password_manager::metrics_util::PasswordAccountStorageUsageLevel
   ComputePasswordAccountStorageUsageLevel() const override;
 
-  void RecordMoveOfferedToNonOptedInUser() override;
-  int GetMoveOfferedToNonOptedInUserCount() const override;
+  bool IsBiometricAuthenticationBeforeFillingEnabled() const override;
 
  private:
   PrefService* const pref_service_;

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,6 @@
 #include "base/task/thread_pool.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
-#include "chrome/browser/ash/plugin_vm/plugin_vm_image_download_client.h"
 #include "chrome/browser/download/deferred_client_wrapper.h"
 #include "chrome/browser/download/download_manager_utils.h"
 #include "chrome/browser/download/simple_download_manager_coordinator_factory.h"
@@ -39,7 +38,6 @@
 #include "components/download/public/common/simple_download_manager_coordinator.h"
 #include "components/keyed_service/core/simple_dependency_manager.h"
 #include "components/leveldb_proto/public/proto_database_provider.h"
-#include "components/offline_pages/buildflags/buildflags.h"
 #include "components/optimization_guide/core/optimization_guide_features.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -52,8 +50,9 @@
 #include "chrome/browser/download/android/service/download_task_scheduler.h"
 #endif
 
-#if BUILDFLAG(ENABLE_OFFLINE_PAGES)
-#include "chrome/browser/offline_pages/prefetch/offline_prefetch_download_client.h"
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chrome/browser/ash/bruschetta/bruschetta_download_client.h"
+#include "chrome/browser/ash/plugin_vm/plugin_vm_image_download_client.h"
 #endif
 
 namespace {
@@ -67,6 +66,11 @@ std::unique_ptr<download::Client> CreateBackgroundFetchDownloadClient(
 std::unique_ptr<download::Client> CreatePluginVmImageDownloadClient(
     Profile* profile) {
   return std::make_unique<plugin_vm::PluginVmImageDownloadClient>(profile);
+}
+
+std::unique_ptr<download::Client> CreateBruschettaDownloadClient(
+    Profile* profile) {
+  return std::make_unique<bruschetta::BruschettaDownloadClient>(profile);
 }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
@@ -140,15 +144,6 @@ BackgroundDownloadServiceFactory::BuildServiceInstanceFor(
   auto clients = std::make_unique<download::DownloadClientMap>();
   ProfileKey* profile_key = ProfileKey::FromSimpleFactoryKey(key);
 
-#if BUILDFLAG(ENABLE_OFFLINE_PAGES)
-  // Offline prefetch doesn't support incognito.
-  if (!key->IsOffTheRecord()) {
-    clients->insert(std::make_pair(
-        download::DownloadClient::OFFLINE_PAGE_PREFETCH,
-        std::make_unique<offline_pages::OfflinePrefetchDownloadClient>(key)));
-  }
-#endif  // BUILDFLAG(ENABLE_OFFLINE_PAGES)
-
   clients->insert(std::make_pair(
       download::DownloadClient::BACKGROUND_FETCH,
       std::make_unique<download::DeferredClientWrapper>(
@@ -160,6 +155,11 @@ BackgroundDownloadServiceFactory::BuildServiceInstanceFor(
         download::DownloadClient::PLUGIN_VM_IMAGE,
         std::make_unique<download::DeferredClientWrapper>(
             base::BindOnce(&CreatePluginVmImageDownloadClient), key)));
+
+    clients->insert(std::make_pair(
+        download::DownloadClient::BRUSCHETTA,
+        std::make_unique<download::DeferredClientWrapper>(
+            base::BindOnce(&CreateBruschettaDownloadClient), key)));
   }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 

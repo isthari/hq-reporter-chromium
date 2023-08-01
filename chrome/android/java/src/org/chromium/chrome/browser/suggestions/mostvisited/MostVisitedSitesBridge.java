@@ -1,11 +1,10 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.suggestions.mostvisited;
 
 import org.chromium.base.annotations.CalledByNative;
-import org.chromium.base.annotations.JNIAdditionalImport;
 import org.chromium.base.annotations.NativeMethods;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.suggestions.SiteSuggestion;
@@ -18,7 +17,6 @@ import java.util.List;
 /**
  * Methods to bridge into native history to provide most recent urls, titles and thumbnails.
  */
-@JNIAdditionalImport(MostVisitedSites.class) // Needed for the Observer usage in the native calls.
 public class MostVisitedSitesBridge implements MostVisitedSites {
     /**
      * Maximum number of tiles that is explicitly supported. UMA relies on this value, so even if

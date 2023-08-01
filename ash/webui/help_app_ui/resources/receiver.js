@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,9 @@
  */
 import './sandboxed_load_time_data.js';
 
-import {MessagePipe} from './message_pipe.m.js';
+import {addColorChangeListener, removeColorChangeListener, startColorChangeUpdater} from '//resources/cr_components/color_change_listener/colors_css_updater.js';
+
+import {MessagePipe} from './message_pipe.js';
 import {Message} from './message_types.js';
 
 /** A pipe through which we can send messages to the parent frame. */
@@ -68,11 +70,33 @@ const DELEGATE = {
   async maybeShowReleaseNotesNotification() {
     await parentMessagePipe.sendMessage(
         Message.MAYBE_SHOW_RELEASE_NOTES_NOTIFICATION);
-  }
+  },
+  getDeviceInfo() {
+    return /** @type {!Promise<!helpApp.DeviceInfo>} */ (
+        parentMessagePipe.sendMessage(Message.GET_DEVICE_INFO));
+  },
+  /**
+   * @override
+   * @param {string} url
+   */
+  async openUrlInBrowserAndTriggerInstallDialog(url) {
+    await parentMessagePipe.sendMessage(
+        Message.OPEN_URL_IN_BROWSER_AND_TRIGGER_INSTALL_DIALOG, url);
+  },
 };
 
 window.customLaunchData = {
   delegate: DELEGATE,
 };
+
+window.addEventListener('DOMContentLoaded', () => {
+  // Start listening to color change events. These events get picked up by logic
+  // in ts_helpers.ts on the google3 side.
+  startColorChangeUpdater();
+});
+// Expose functions to bind to color change events to window so they can be
+// automatically picked up by installColors(). See ts_helpers.ts in google3.
+window['addColorChangeListener'] = addColorChangeListener;
+window['removeColorChangeListener'] = removeColorChangeListener;
 
 export const TEST_ONLY = {parentMessagePipe};

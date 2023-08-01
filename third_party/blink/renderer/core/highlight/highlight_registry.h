@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,13 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_HIGHLIGHT_HIGHLIGHT_REGISTRY_H_
 
 #include "third_party/blink/renderer/bindings/core/v8/maplike.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_sync_iterator_highlight_registry.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/highlight/highlight.h"
 #include "third_party/blink/renderer/core/highlight/highlight_registry_map_entry.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_vector.h"
+#include "third_party/blink/renderer/platform/supplementable.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string_hash.h"
 
@@ -22,10 +24,8 @@ namespace blink {
 // that the hash functions for HighlightRegistryMapEntry don't allow storing
 // more than one entry with the same key (highlight name).
 using HighlightRegistryMap =
-    HeapLinkedHashSet<Member<HighlightRegistryMapEntry>,
-                      HashTraits<Member<HighlightRegistryMapEntry>>>;
-using HighlightRegistryMapIterable =
-    Maplike<AtomicString, IDLString, Member<Highlight>, Highlight>;
+    HeapLinkedHashSet<Member<HighlightRegistryMapEntry>>;
+using HighlightRegistryMapIterable = Maplike<HighlightRegistry>;
 class LocalFrame;
 
 class CORE_EXPORT HighlightRegistry : public ScriptWrappable,
@@ -42,6 +42,7 @@ class CORE_EXPORT HighlightRegistry : public ScriptWrappable,
 
   void Trace(blink::Visitor*) const override;
 
+  void SetForTesting(AtomicString, Highlight*);
   HighlightRegistry* setForBinding(ScriptState*,
                                    AtomicString,
                                    Member<Highlight>,
@@ -70,10 +71,10 @@ class CORE_EXPORT HighlightRegistry : public ScriptWrappable,
    public:
     explicit IterationSource(const HighlightRegistry& highlight_registry);
 
-    bool Next(ScriptState*,
-              AtomicString&,
-              Member<Highlight>&,
-              ExceptionState&) override;
+    bool FetchNextItem(ScriptState* script_state,
+                       String& key,
+                       Highlight*& value,
+                       ExceptionState& exception_state) override;
 
     void Trace(blink::Visitor*) const override;
 
@@ -90,15 +91,14 @@ class CORE_EXPORT HighlightRegistry : public ScriptWrappable,
   bool force_markers_validation_ = true;
 
   HighlightRegistryMap::iterator GetMapIterator(const AtomicString& key) {
-    return highlights_.find(
-        MakeGarbageCollected<HighlightRegistryMapEntry>(key));
+    return highlights_.Find<HighlightRegistryMapEntryNameTranslator>(key);
   }
 
   bool GetMapEntry(ScriptState*,
-                   const AtomicString& key,
-                   Member<Highlight>& value,
+                   const String& key,
+                   Highlight*& value,
                    ExceptionState&) override {
-    auto iterator = GetMapIterator(key);
+    auto iterator = GetMapIterator(AtomicString(key));
     if (iterator == highlights_.end())
       return false;
 
@@ -106,7 +106,7 @@ class CORE_EXPORT HighlightRegistry : public ScriptWrappable,
     return true;
   }
 
-  HighlightRegistryMapIterable::IterationSource* StartIteration(
+  HighlightRegistryMapIterable::IterationSource* CreateIterationSource(
       ScriptState*,
       ExceptionState&) override;
 };

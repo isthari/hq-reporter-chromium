@@ -1,14 +1,14 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.gesturenav;
 
 import android.os.SystemClock;
-import android.support.test.InstrumentationRegistry;
 import android.view.MotionEvent;
 
 import androidx.test.filters.SmallTest;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.hamcrest.Matchers;
 import org.junit.After;
@@ -20,11 +20,15 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.ActivityState;
 import org.chromium.base.ApplicationStatus;
+import org.chromium.base.FeatureList;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Restriction;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
+import org.chromium.chrome.browser.layouts.LayoutManager;
 import org.chromium.chrome.browser.layouts.LayoutTestUtils;
 import org.chromium.chrome.browser.layouts.LayoutType;
 import org.chromium.chrome.browser.layouts.animation.CompositorAnimationHandler;
@@ -43,6 +47,7 @@ import org.chromium.net.test.EmbeddedTestServer;
 import org.chromium.ui.base.PageTransition;
 import org.chromium.ui.test.util.UiRestriction;
 
+import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
 /**
@@ -76,6 +81,7 @@ public class NavigationHandlerTest {
 
     @After
     public void tearDown() {
+        CompositorAnimationHandler.setTestingMode(false);
         if (mTestServer != null) mTestServer.stopAndDestroyServer();
     }
 
@@ -98,6 +104,7 @@ public class NavigationHandlerTest {
                                 Matchers.is(toUrl)));
         Assert.assertEquals(
                 "Didn't navigate back", toUrl, ChromeTabUtils.getUrlStringOnUiThread(currentTab()));
+        Assert.assertEquals("Detected a wrong direction.", mNavigationHandler.fromLeftSide(), edge);
     }
 
     @Test
@@ -109,10 +116,13 @@ public class NavigationHandlerTest {
                 "Navigation Layout should be detached after use");
         Assert.assertEquals("Current page should not change", UrlConstants.NTP_URL,
                 ChromeTabUtils.getUrlStringOnUiThread(currentTab()));
+        Assert.assertTrue(
+                "The gesture should start from the left side.", mNavigationHandler.fromLeftSide());
     }
 
     @Test
     @SmallTest
+    @DisabledTest(message = "https://crbug.com/1376200")
     public void testCloseChromeAtHistoryStackHead() {
         loadNewTabPage();
         mNavUtils.swipeFromLeftEdge();
@@ -163,6 +173,19 @@ public class NavigationHandlerTest {
     @Test
     @SmallTest
     public void testSwipeNavigateOnRenderedPage() {
+        FeatureList.setTestFeatures(Map.of(ChromeFeatureList.BACK_FORWARD_TRANSITIONS, false));
+        testSwipeNavigateOnRenderedPageInternal();
+    }
+
+    @Test
+    @SmallTest
+    @DisabledTest(message = "crbug.com/1426201")
+    public void testSwipeNavigateOnRenderedPage_withBackForwardTransition() {
+        FeatureList.setTestFeatures(Map.of(ChromeFeatureList.BACK_FORWARD_TRANSITIONS, true));
+        testSwipeNavigateOnRenderedPageInternal();
+    }
+
+    private void testSwipeNavigateOnRenderedPageInternal() {
         mTestServer = EmbeddedTestServer.createAndStartServer(
                 InstrumentationRegistry.getInstrumentation().getContext());
         mActivityTestRule.loadUrl(mTestServer.getURL(RENDERED_PAGE));
@@ -175,6 +198,19 @@ public class NavigationHandlerTest {
     @Test
     @SmallTest
     public void testLeftEdgeSwipeClosesTabLaunchedFromLink() {
+        FeatureList.setTestFeatures(Map.of(ChromeFeatureList.BACK_FORWARD_TRANSITIONS, false));
+        testLeftEdgeSwipeClosesTabLaunchedFromLinkInternal();
+    }
+
+    @Test
+    @SmallTest
+    @DisabledTest(message = "crbug.com/1426201")
+    public void testLeftEdgeSwipeClosesTabLaunchedFromLink_withBackForwardTransition() {
+        FeatureList.setTestFeatures(Map.of(ChromeFeatureList.BACK_FORWARD_TRANSITIONS, true));
+        testLeftEdgeSwipeClosesTabLaunchedFromLinkInternal();
+    }
+
+    private void testLeftEdgeSwipeClosesTabLaunchedFromLinkInternal() {
         Tab oldTab = currentTab();
         TabCreator tabCreator = TestThreadUtils.runOnUiThreadBlockingNoException(
                 () -> mActivityTestRule.getActivity().getTabCreator(false));
@@ -188,6 +224,8 @@ public class NavigationHandlerTest {
 
         // Assert that the new tab was closed and the old tab is the current tab again.
         CriteriaHelper.pollUiThread(() -> !newTab.isInitialized());
+        Assert.assertNull("Not supposed to trigger an animation when closing tab",
+                mNavigationHandler.getTabOnBackGestureHandlerForTesting());
         Assert.assertEquals(oldTab, currentTab());
         Assert.assertEquals("Chrome should remain in foreground", ActivityState.RESUMED,
                 ApplicationStatus.getStateForActivity(mActivityTestRule.getActivity()));
@@ -265,6 +303,7 @@ public class NavigationHandlerTest {
     @Test
     @SmallTest
     @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
+    @DisabledTest(message = "https://crbug.com/1435090")
     public void testSwipeAndHoldOnNtp_EnterTabSwitcher() throws TimeoutException {
         // Clicking tab switcher button while swiping and holding the gesture navigation
         // bubble should reset the state and dismiss the UI.
@@ -278,15 +317,10 @@ public class NavigationHandlerTest {
      * Enter or exit the tab switcher with animations and wait for the scene to change.
      * @param inSwitcher Whether to enter or exit the tab switcher.
      */
-    private void setTabSwitcherModeAndWait(boolean inSwitcher) throws TimeoutException {
-        TestThreadUtils.runOnUiThreadBlocking(() -> {
-            if (inSwitcher) {
-                mActivityTestRule.getActivity().getLayoutManager().showOverview(false);
-            } else {
-                mActivityTestRule.getActivity().getLayoutManager().hideOverview(false);
-            }
-        });
-        LayoutTestUtils.waitForLayout(mActivityTestRule.getActivity().getLayoutManager(),
-                inSwitcher ? LayoutType.TAB_SWITCHER : LayoutType.BROWSING);
+    private void setTabSwitcherModeAndWait(boolean inSwitcher) {
+        LayoutManager layoutManager = mActivityTestRule.getActivity().getLayoutManager();
+        @LayoutType
+        int layout = inSwitcher ? LayoutType.TAB_SWITCHER : LayoutType.BROWSING;
+        LayoutTestUtils.startShowingAndWaitForLayout(layoutManager, layout, false);
     }
 }

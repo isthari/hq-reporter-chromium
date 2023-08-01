@@ -1,4 +1,4 @@
-# Copyright 2017 The Chromium Authors. All rights reserved.
+# Copyright 2017 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -11,16 +11,16 @@ config("gcapi_config") {
   # on older macOS versions than chrome itself. To not making a dependency on
   # gcapi a problem for these installers, make it target a very old version
   # of macOS.
-  min_version = "10.8"
+  min_version = "10.12"
   cflags = [
     "-isysroot",
     rebase_path(sysroot, root_build_dir),
-    "-mmacosx-version-min=$min_version",
+    "-mmacos-version-min=$min_version",
   ]
   ldflags = [
     "-isysroot",
     rebase_path(sysroot, root_build_dir),
-    "-mmacosx-version-min=$min_version",
+    "-mmacos-version-min=$min_version",
   ]
 }
 
@@ -34,9 +34,10 @@ static_library("gcapi_lib") {
 
   frameworks = [ "Cocoa.framework" ]
 
-  # Don't use runtime_library, to be able to pick a custom mmacosx-version-min.
+  # Don't use runtime_library, to be able to pick a custom mmacos-version-min.
   configs -= [ "//build/config/compiler:runtime_library" ]
   configs += [ ":gcapi_config" ]
+  configs += [ "//build/config/compiler:enable_arc" ]
 
   # no_default_deps has no effect in static_libraries, so set it only below.
 }
@@ -46,9 +47,10 @@ executable("gcapi_example") {
 
   deps = [ ":gcapi_lib" ]
 
-  # Don't use runtime_library, to be able to pick a custom mmacosx-version-min.
+  # Don't use runtime_library, to be able to pick a custom mmacos-version-min.
   configs -= [ "//build/config/compiler:runtime_library" ]
   configs += [ ":gcapi_config" ]
+  configs += [ "//build/config/compiler:enable_arc" ]
 
   # Every executable by default links to a hermetic libc++, so that we can
   # guarantee the capability of the standard library. Neither gcapi_lib

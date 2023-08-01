@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@ import android.content.Intent;
 import android.view.ActionMode;
 import android.view.textclassifier.TextClassifier;
 
+import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.content.browser.selection.SelectionPopupControllerImpl;
 import org.chromium.ui.base.WindowAndroid;
 
@@ -34,6 +35,15 @@ public interface SelectionPopupController {
     }
 
     /**
+     * @param webContents {@link WebContents} object.
+     * @return {@link SelectionPopupController} object used for the given WebContents if created.
+     *         {@code null} if not available.
+     */
+    static SelectionPopupController fromWebContentsNoCreate(WebContents webContents) {
+        return SelectionPopupControllerImpl.fromWebContentsNoCreate(webContents);
+    }
+
+    /**
      * Makes {@link SelectionPopupcontroller} only use the WebContents context when inflating menus.
      */
     static void setMustUseWebContentsContext() {
@@ -48,10 +58,24 @@ public interface SelectionPopupController {
     }
 
     /**
+     * Set allow using magnifer built using surface control instead of the system-proivded one.
+     */
+    static void setAllowSurfaceControlMagnifier() {
+        SelectionPopupControllerImpl.setAllowSurfaceControlMagnifier();
+    }
+
+    /**
+     * Check if need to disable SurfaceControl during selection.
+     */
+    static boolean needsSurfaceViewDuringSelection() {
+        return !SelectionPopupControllerImpl.isMagnifierWithSurfaceControlSupported();
+    }
+
+    /**
      * Set {@link ActionMode.Callback} used by {@link SelectionPopupController}.
      * @param callback ActionMode.Callback instance.
      */
-    void setActionModeCallback(ActionMode.Callback callback);
+    void setActionModeCallback(ActionMode.Callback2 callback);
 
     /**
      * Set {@link ActionMode.Callback} used by {@link SelectionPopupController} when no text is
@@ -86,6 +110,12 @@ public interface SelectionPopupController {
     void destroySelectActionMode();
 
     boolean isSelectActionBarShowing();
+
+    /**
+     * @return An {@link ObservableSupplier<Boolean>} which holds true when a selection action bar
+     *         is showing; otherwise, it holds false.
+     */
+    ObservableSupplier<Boolean> isSelectActionBarShowingSupplier();
 
     /**
      * @return {@link ActionModeCallbackHelper} object.

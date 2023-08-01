@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
@@ -20,9 +20,9 @@
 #include "ui/display/screen.h"
 #include "ui/events/event_utils.h"
 #include "ui/events/test/event_generator.h"
-#include "ui/views/animation/ink_drop_host_view.h"
+#include "ui/views/animation/ink_drop_host.h"
 #include "ui/views/animation/ink_drop_impl.h"
-#include "ui/views/animation/test/ink_drop_host_view_test_api.h"
+#include "ui/views/animation/test/ink_drop_host_test_api.h"
 #include "ui/views/animation/test/test_ink_drop.h"
 #include "ui/views/animation/test/test_ink_drop_host.h"
 #include "ui/views/context_menu_controller.h"
@@ -745,9 +745,11 @@ class VisibilityTestButton : public TestButton {
       ADD_FAILURE();
   }
 
-  void AddLayerBeneathView(ui::Layer* layer) override { ADD_FAILURE(); }
+  void AddLayerToRegion(ui::Layer* layer, views::LayerRegion region) override {
+    ADD_FAILURE();
+  }
 
-  void RemoveLayerBeneathView(ui::Layer* layer) override { ADD_FAILURE(); }
+  void RemoveLayerFromRegions(ui::Layer* layer) override { ADD_FAILURE(); }
 };
 
 // Test that hiding or closing a Widget doesn't attempt to add a layer due to
@@ -857,7 +859,7 @@ TEST_F(ButtonTest, ChangingHighlightStateNotifiesCallback) {
   EXPECT_FALSE(button_observer()->highlighted_changed());
   EXPECT_FALSE(InkDrop::Get(button())->GetHighlighted());
 
-  button()->SetHighlighted(/*bubble_visible=*/true);
+  button()->SetHighlighted(/*highlighted=*/true);
   EXPECT_TRUE(button_observer()->highlighted_changed());
   EXPECT_TRUE(InkDrop::Get(button())->GetHighlighted());
 
@@ -865,7 +867,7 @@ TEST_F(ButtonTest, ChangingHighlightStateNotifiesCallback) {
   EXPECT_FALSE(button_observer()->highlighted_changed());
   EXPECT_TRUE(InkDrop::Get(button())->GetHighlighted());
 
-  button()->SetHighlighted(/*bubble_visible=*/false);
+  button()->SetHighlighted(/*highlighted=*/false);
   EXPECT_TRUE(button_observer()->highlighted_changed());
   EXPECT_FALSE(InkDrop::Get(button())->GetHighlighted());
 }
@@ -923,6 +925,84 @@ TEST_F(ButtonTest, SetTooltipTextNotifiesAccessibilityEvent) {
   const std::string& name =
       data.GetStringAttribute(ax::mojom::StringAttribute::kName);
   EXPECT_EQ(test_tooltip_text, base::ASCIIToUTF16(name));
+}
+
+TEST_F(ButtonTest, AccessibleRole) {
+  ui::AXNodeData data;
+  button()->GetAccessibleNodeData(&data);
+  EXPECT_EQ(data.role, ax::mojom::Role::kButton);
+  EXPECT_EQ(button()->GetAccessibleRole(), ax::mojom::Role::kButton);
+
+  button()->SetAccessibleRole(ax::mojom::Role::kCheckBox);
+
+  data = ui::AXNodeData();
+  button()->GetAccessibleNodeData(&data);
+  EXPECT_EQ(data.role, ax::mojom::Role::kCheckBox);
+  EXPECT_EQ(button()->GetAccessibleRole(), ax::mojom::Role::kCheckBox);
+}
+
+TEST_F(ButtonTest, AnchorHighlightSetsHiglight) {
+  TestInkDrop* ink_drop = CreateButtonWithInkDrop(false);
+
+  Button::ScopedAnchorHighlight highlight = button()->AddAnchorHighlight();
+  EXPECT_EQ(InkDropState::ACTIVATED, ink_drop->GetTargetInkDropState());
+}
+
+TEST_F(ButtonTest, AnchorHighlightDestructionClearsHighlight) {
+  TestInkDrop* ink_drop = CreateButtonWithInkDrop(false);
+
+  absl::optional<Button::ScopedAnchorHighlight> highlight =
+      button()->AddAnchorHighlight();
+  EXPECT_EQ(InkDropState::ACTIVATED, ink_drop->GetTargetInkDropState());
+
+  highlight.reset();
+  EXPECT_EQ(InkDropState::DEACTIVATED, ink_drop->GetTargetInkDropState());
+}
+
+TEST_F(ButtonTest, NestedAnchorHighlights) {
+  TestInkDrop* ink_drop = CreateButtonWithInkDrop(false);
+
+  absl::optional<Button::ScopedAnchorHighlight> highlight1 =
+      button()->AddAnchorHighlight();
+  absl::optional<Button::ScopedAnchorHighlight> highlight2 =
+      button()->AddAnchorHighlight();
+
+  EXPECT_EQ(InkDropState::ACTIVATED, ink_drop->GetTargetInkDropState());
+
+  highlight2.reset();
+  EXPECT_EQ(InkDropState::ACTIVATED, ink_drop->GetTargetInkDropState());
+
+  highlight1.reset();
+  EXPECT_EQ(InkDropState::DEACTIVATED, ink_drop->GetTargetInkDropState());
+}
+
+TEST_F(ButtonTest, OverlappingAnchorHighlights) {
+  TestInkDrop* ink_drop = CreateButtonWithInkDrop(false);
+
+  absl::optional<Button::ScopedAnchorHighlight> highlight1 =
+      button()->AddAnchorHighlight();
+  absl::optional<Button::ScopedAnchorHighlight> highlight2 =
+      button()->AddAnchorHighlight();
+
+  EXPECT_EQ(InkDropState::ACTIVATED, ink_drop->GetTargetInkDropState());
+
+  highlight1.reset();
+  EXPECT_EQ(InkDropState::ACTIVATED, ink_drop->GetTargetInkDropState());
+
+  highlight2.reset();
+  EXPECT_EQ(InkDropState::DEACTIVATED, ink_drop->GetTargetInkDropState());
+}
+
+TEST_F(ButtonTest, AnchorHighlightsCanOutliveButton) {
+  CreateButtonWithInkDrop(false);
+
+  absl::optional<Button::ScopedAnchorHighlight> highlight =
+      button()->AddAnchorHighlight();
+
+  // Creating a new button will destroy the old one
+  CreateButtonWithInkDrop(false);
+
+  highlight.reset();
 }
 
 }  // namespace views

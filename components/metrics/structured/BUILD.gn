@@ -1,4 +1,4 @@
-# Copyright 2019 The Chromium Authors. All rights reserved.
+# Copyright 2019 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -16,8 +16,18 @@ static_library("structured") {
     "key_data.h",
     "persistent_proto.cc",
     "persistent_proto.h",
+    "reporting/structured_metrics_reporting_service.cc",
+    "reporting/structured_metrics_reporting_service.h",
+    "structured_metrics_prefs.cc",
+    "structured_metrics_prefs.h",
     "structured_metrics_provider.cc",
     "structured_metrics_provider.h",
+    "structured_metrics_recorder.cc",
+    "structured_metrics_recorder.h",
+    "structured_metrics_scheduler.cc",
+    "structured_metrics_scheduler.h",
+    "structured_metrics_service.cc",
+    "structured_metrics_service.h",
   ]
 
   public_deps = [
@@ -29,6 +39,7 @@ static_library("structured") {
   deps = [
     ":storage",
     ":structured_events",
+    ":structured_metrics_validator",
     "//base",
     "//components/metrics",
     "//components/metrics/structured/mojom",
@@ -39,9 +50,12 @@ static_library("structured") {
 
 static_library("events") {
   sources = [
+    "delegating_events_processor.cc",
+    "delegating_events_processor.h",
     "enums.h",
     "event.cc",
     "event.h",
+    "events_processor_interface.h",
     "structured_metrics_client.cc",
     "structured_metrics_client.h",
   ]
@@ -70,19 +84,15 @@ proto_library("storage") {
 # Sources used by all static libraries in this BUILD file.
 source_set("common") {
   sources = [
-    "event_base.cc",
-    "event_base.h",
     "histogram_util.cc",
     "histogram_util.h",
     "recorder.cc",
     "recorder.h",
-    "structured_metrics_features.cc",
-    "structured_metrics_features.h",
   ]
 
   public_deps = [
     ":events",
-    "//base",
+    ":structured_metrics_features",
   ]
 
   deps = [
@@ -91,6 +101,15 @@ source_set("common") {
     "//components/prefs",
     "//third_party/metrics_proto",
   ]
+}
+
+static_library("structured_metrics_features") {
+  sources = [
+    "structured_metrics_features.cc",
+    "structured_metrics_features.h",
+  ]
+
+  public_deps = [ "//base" ]
 }
 
 action("gen_structured_events") {
@@ -102,7 +121,7 @@ action("gen_structured_events") {
     "//tools/metrics/structured/gen_events.py",
     "//tools/metrics/structured/model.py",
     "//tools/metrics/structured/model_util.py",
-    "//tools/metrics/structured/templates.py",
+    "//tools/metrics/structured/templates_events.py",
   ]
   sources = [ "//tools/metrics/structured/structured.xml" ]
 
@@ -121,44 +140,12 @@ action("gen_structured_events") {
   ]
 }
 
-# TODO(crbug.com/1249222): Rename this to gen_structured_events and
-# delete old target once migration is complete.
-action("gen_structured_mojo_events") {
-  script = "//tools/metrics/structured/gen_mojo_events.py"
-
-  # Re-generate the outputs if the codegen code changes:
-  inputs = [
-    "//tools/metrics/structured/codegen.py",
-    "//tools/metrics/structured/gen_mojo_events.py",
-    "//tools/metrics/structured/model.py",
-    "//tools/metrics/structured/model_util.py",
-    "//tools/metrics/structured/templates_mojo_events.py",
-  ]
-  sources = [ "//tools/metrics/structured/structured.xml" ]
-
-  outdir = "$target_gen_dir"
-
-  outputs = [
-    outdir + "/structured_mojo_events.cc",
-    outdir + "/structured_mojo_events.h",
-  ]
-
-  args = [
-    "--input",
-    rebase_path(sources[0], root_build_dir),
-    "--output",
-    rebase_path(outdir, root_build_dir),
-  ]
-}
-
 static_library("structured_events") {
-  sources = get_target_outputs(":gen_structured_events") +
-            get_target_outputs(":gen_structured_mojo_events")
+  sources = get_target_outputs(":gen_structured_events")
 
   deps = [
     ":common",
     ":gen_structured_events",
-    ":gen_structured_mojo_events",
     "//base",
   ]
 }
@@ -193,10 +180,10 @@ action("gen_structured_metrics_validator") {
 
 static_library("structured_metrics_validator") {
   sources = get_target_outputs(":gen_structured_metrics_validator") + [
-              "event_validator.h",
               "event_validator.cc",
-              "project_validator.h",
+              "event_validator.h",
               "project_validator.cc",
+              "project_validator.h",
             ]
 
   deps = [
@@ -234,15 +221,29 @@ static_library("neutrino_logging_util") {
   ]
 }
 
+static_library("test_support") {
+  testonly = true
+  sources = [
+    "test/test_structured_metrics_provider.cc",
+    "test/test_structured_metrics_provider.h",
+  ]
+  deps = [
+    ":structured",
+    "//base",
+    "//base/test:test_support",
+    "//components/metrics:metrics",
+  ]
+}
+
 source_set("unit_tests") {
   testonly = true
   sources = [
-    "event_base_unittest.cc",
     "external_metrics_unittest.cc",
     "key_data_unittest.cc",
     "persistent_proto_unittest.cc",
     "structured_metrics_provider_unittest.cc",
-    "structured_mojo_events_unittest.cc",
+    "structured_metrics_recorder_unittest.cc",
+    "structured_metrics_service_unittest.cc",
   ]
 
   deps = [
@@ -253,18 +254,22 @@ source_set("unit_tests") {
     ":structured_metrics_validator",
     "//base",
     "//base/test:test_support",
+    "//components/metrics",
+    "//components/metrics:test_support",
     "//components/prefs",
+    "//components/prefs:test_support",
     "//testing/gtest",
   ]
 }
 
-# Convenience testing target
-test("structured_metrics_unittests") {
-  deps = [
-    ":unit_tests",
-    "//base",
-    "//base/test:test_support",
-    "//components/metrics/structured/mojom:unit_tests",
-    "//components/test:run_all_unittests",
-  ]
+# Structured metrics is only used in ash and lacros.
+if (is_chromeos_ash || is_chromeos_lacros) {
+  # Convenience testing target
+  test("structured_metrics_unittests") {
+    deps = [
+      ":unit_tests",
+      "//components/metrics/structured/mojom:unit_tests",
+      "//components/test:run_all_unittests",
+    ]
+  }
 }

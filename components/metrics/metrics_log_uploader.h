@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 
 #include <string>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/strings/string_piece.h"
 
 namespace metrics {
@@ -18,19 +18,29 @@ class ReportingInfo;
 // of MetricsService.
 class MetricsLogUploader {
  public:
-  // Type for OnUploadComplete callbacks.  These callbacks will receive three
-  // parameters: A response code, a net error code, and a boolean specifying
-  // if the connection was secure (over HTTPS).
-  using UploadCallback = base::RepeatingCallback<void(int, int, bool)>;
+  // Type for OnUploadComplete callbacks. These callbacks will receive five
+  // parameters:
+  //   - a response code,
+  //   - a net error code,
+  //   - a boolean specifying if the connection was secure (over HTTPS),
+  //   - a boolean specifying if the log should be discarded regardless of
+  //     response/error code,
+  //   - a string specifying the reason why the log was forcibly discarded (or
+  //     empty string if not).
+  using UploadCallback =
+      base::RepeatingCallback<void(int, int, bool, bool, base::StringPiece)>;
 
   // Possible service types. This should correspond to a type from
   // DataUseUserData.
+  // TODO(crbug.com/1445151) Investigate cleaning up this enum if it isn't
+  // needed anymore.
   enum MetricServiceType {
     UMA,
     UKM,
+    STRUCTURED_METRICS,
   };
 
-  virtual ~MetricsLogUploader() {}
+  virtual ~MetricsLogUploader() = default;
 
   // Uploads a log with the specified |compressed_log_data|, a |log_hash| and
   // |log_signature| for data validation, and |reporting_info|. |log_hash| is

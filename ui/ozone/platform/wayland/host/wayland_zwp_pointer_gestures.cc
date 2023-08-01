@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <wayland-util.h>
 
 #include "base/logging.h"
+#include "build/chromeos_buildflags.h"
 #include "ui/gfx/geometry/vector2d_f.h"
 #include "ui/ozone/platform/wayland/common/wayland_util.h"
 #include "ui/ozone/platform/wayland/host/wayland_connection.h"
@@ -32,9 +33,10 @@ void WaylandZwpPointerGestures::Instantiate(WaylandConnection* connection,
                                             uint32_t name,
                                             const std::string& interface,
                                             uint32_t version) {
-  DCHECK_EQ(interface, kInterfaceName);
+  CHECK_EQ(interface, kInterfaceName) << "Expected \"" << kInterfaceName
+                                      << "\" but got \"" << interface << "\"";
 
-  if (connection->wayland_zwp_pointer_gestures_ ||
+  if (connection->zwp_pointer_gestures_ ||
       !wl::CanBind(interface, version, kMinVersion, kMinVersion)) {
     return;
   }
@@ -45,7 +47,7 @@ void WaylandZwpPointerGestures::Instantiate(WaylandConnection* connection,
     LOG(ERROR) << "Failed to bind wp_pointer_gestures_v1";
     return;
   }
-  connection->wayland_zwp_pointer_gestures_ =
+  connection->zwp_pointer_gestures_ =
       std::make_unique<WaylandZwpPointerGestures>(
           zwp_pointer_gestures_v1.release(), connection,
           connection->event_source());
@@ -109,6 +111,7 @@ void WaylandZwpPointerGestures::OnPinchUpdate(
     wl_fixed_t rotation) {
   auto* self = static_cast<WaylandZwpPointerGestures*>(data);
 
+#if !BUILDFLAG(IS_CHROMEOS_LACROS)
   // During the pinch zoom session, libinput sends the current scale relative to
   // the start of the session.  On the other hand, the compositor expects the
   // change of the scale relative to the previous update in form of a multiplier
@@ -117,6 +120,13 @@ void WaylandZwpPointerGestures::OnPinchUpdate(
   const auto new_scale = wl_fixed_to_double(scale);
   const auto scale_delta = new_scale / self->current_scale_;
   self->current_scale_ = new_scale;
+
+#else
+  // TODO(crbug.com/1298099): Remove this code when exo is fixed.
+  // Exo currently sends relative scale values so it should be passed along to
+  // Chrome without modification until exo can be fixed.
+  const auto scale_delta = wl_fixed_to_double(scale);
+#endif
 
   base::TimeTicks timestamp = base::TimeTicks() + base::Milliseconds(time);
 

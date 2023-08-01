@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,6 @@
 
 class BrowserView;
 class TabSearchBubbleHost;
-class WebAppFrameToolbarView;
 
 // Type used for functions whose return values depend on the active state of
 // the frame.
@@ -57,6 +56,19 @@ class BrowserNonClientFrameView : public views::NonClientFrameView,
   // TabStrip should be laid out.
   virtual gfx::Rect GetBoundsForTabStripRegion(
       const gfx::Size& tabstrip_minimum_size) const = 0;
+
+  // Retrieves the maximum bounds in non-client view coordinates for the
+  // WebAppFrameToolbarView that contains Web App controls.
+  virtual gfx::Rect GetBoundsForWebAppFrameToolbar(
+      const gfx::Size& toolbar_preferred_size) const = 0;
+
+  // Lays out the window title for a web app within the given available space.
+  // Unlike the above GetBounds methods this is not just a method to return the
+  // bounds the title should occupy, since different implementations might also
+  // want to change other attributes of the title, such as alignment.
+  virtual void LayoutWebAppWindowTitle(
+      const gfx::Rect& available_space,
+      views::Label& window_title_label) const = 0;
 
   // Returns the inset of the topmost view in the client view from the top of
   // the non-client view. The topmost view depends on the window type. The
@@ -105,14 +117,6 @@ class BrowserNonClientFrameView : public views::NonClientFrameView,
   // tabstrip background.
   virtual SkColor GetFrameColor(BrowserFrameActiveState active_state) const;
 
-  // Called by BrowserView to signal the frame color has changed and needs
-  // to be repainted.
-  virtual void UpdateFrameColor();
-
-  // Returns COLOR_TOOLBAR_TOP_SEPARATOR[,_INACTIVE] depending on the activation
-  // state of the window.
-  SkColor GetToolbarTopSeparatorColor() const;
-
   // For non-transparent windows, returns the background tab image resource ID
   // if the image has been customized, directly or indirectly, by the theme.
   absl::optional<int> GetCustomBackgroundId(
@@ -128,23 +132,38 @@ class BrowserNonClientFrameView : public views::NonClientFrameView,
   // or disabled.
   virtual void WindowControlsOverlayEnabledChanged() {}
 
-  // Set the visibility of the window controls overlay toggle button.
-  void SetWindowControlsOverlayToggleVisible(bool visible);
-
   // views::NonClientFrameView:
   using views::NonClientFrameView::ShouldPaintAsActive;
-  void Layout() override;
   void VisibilityChanged(views::View* starting_from, bool is_visible) override;
-  int NonClientHitTest(const gfx::Point& point) override;
-  void ResetWindowControls() override;
-
-  WebAppFrameToolbarView* web_app_frame_toolbar_for_testing() {
-    return web_app_frame_toolbar_;
-  }
 
   // Gets the TabSearchBubbleHost if present in the NonClientFrameView. Can
   // return null.
   virtual TabSearchBubbleHost* GetTabSearchBubbleHost();
+
+  // Returns the insets from the edge of the native window to the client view in
+  // DIPs. The value is left-to-right even on RTL locales. That is,
+  // insets.left() will be on the left in screen coordinates.
+  virtual gfx::Insets MirroredFrameBorderInsets() const;
+
+  // Returns the insets from the client view to the input region. The returned
+  // insets will be negative, such that view_rect.Inset(GetInputInsets()) will
+  // be the input region.
+  virtual gfx::Insets GetInputInsets() const;
+
+  // Gets the rounded-rect that will be used to clip the window frame when
+  // drawing. The region will be as if the window was restored, and will be in
+  // view coordinates.
+  virtual SkRRect GetRestoredClipRegion() const;
+
+  // Returns the height of the top frame.  This value will be 0 if the
+  // compositor doesn't support translucency, if the top frame is not
+  // translucent, or if the window is in full screen mode.
+  virtual int GetTranslucentTopAreaHeight() const;
+
+#if BUILDFLAG(IS_MAC)
+  // Used by TabContainerOverlayView to paint tab strip background.
+  virtual void PaintThemedFrame(gfx::Canvas* canvas) {}
+#endif
 
  protected:
   // Called when |frame_|'s "paint as active" state has changed.
@@ -161,9 +180,6 @@ class BrowserNonClientFrameView : public views::NonClientFrameView,
       BrowserFrameActiveState active_state =
           BrowserFrameActiveState::kUseCurrent) const;
 
-  // views::NonClientFrameView:
-  void ChildPreferredSizeChanged(views::View* child) override;
-
   // ProfileAttributesStorage::Observer:
   void OnProfileAdded(const base::FilePath& profile_path) override;
   void OnProfileWasRemoved(const base::FilePath& profile_path,
@@ -172,35 +188,20 @@ class BrowserNonClientFrameView : public views::NonClientFrameView,
   void OnProfileHighResAvatarLoaded(
       const base::FilePath& profile_path) override;
 
-  void set_web_app_frame_toolbar(
-      WebAppFrameToolbarView* web_app_frame_toolbar) {
-    web_app_frame_toolbar_ = web_app_frame_toolbar;
-  }
-  WebAppFrameToolbarView* web_app_frame_toolbar() {
-    return web_app_frame_toolbar_;
-  }
-  const WebAppFrameToolbarView* web_app_frame_toolbar() const {
-    return web_app_frame_toolbar_;
-  }
-
  private:
-  // views::NonClientFrameView:
 #if BUILDFLAG(IS_WIN)
-  int GetSystemMenuY() const override;
-#endif
+  // ui::EventHandler:
+  void OnGestureEvent(ui::GestureEvent* event) override;
 
-  // Get the |frame_| theme provider since it should be non-null even before
-  // we're added to the view hierarchy.
-  const ui::ThemeProvider* GetFrameThemeProvider() const;
+  // views::NonClientFrameView:
+  int GetSystemMenuY() const override;
+#endif  // BUILDFLAG(IS_WIN)
 
   // The frame that hosts this view.
-  const raw_ptr<BrowserFrame> frame_;
+  const raw_ptr<BrowserFrame, DanglingUntriaged> frame_;
 
   // The BrowserView hosted within this View.
-  const raw_ptr<BrowserView> browser_view_;
-
-  // Menu button and page status icons. Only used by web-app windows.
-  raw_ptr<WebAppFrameToolbarView> web_app_frame_toolbar_ = nullptr;
+  const raw_ptr<BrowserView, DanglingUntriaged> browser_view_;
 
   base::CallbackListSubscription paint_as_active_subscription_ =
       frame_->RegisterPaintAsActiveChangedCallback(

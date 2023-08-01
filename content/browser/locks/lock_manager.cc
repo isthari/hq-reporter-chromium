@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,20 +8,21 @@
 #include <list>
 #include <memory>
 #include <tuple>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/containers/contains.h"
-#include "base/guid.h"
+#include "base/containers/flat_map.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
+#include "base/uuid.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/common/content_client.h"
 #include "ipc/ipc_message.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
 #include "mojo/public/cpp/bindings/self_owned_associated_receiver.h"
+#include "third_party/abseil-cpp/absl/utility/utility.h"
 
 using blink::mojom::LockMode;
 
@@ -283,7 +284,7 @@ class LockManager::BucketState {
       for (const auto& lock : request_queue) {
         std::vector<blink::mojom::LockInfoPtr>& target =
             lock.is_granted() ? held : requests;
-        target.emplace_back(base::in_place, lock.name(), lock.mode(),
+        target.emplace_back(absl::in_place, lock.name(), lock.mode(),
                             lock.client_id());
       }
     }
@@ -298,11 +299,11 @@ class LockManager::BucketState {
   // requests against that resource. All the granted locks for a resource reside
   // at the front of the resource's
   // request queue.
-  std::unordered_map<std::string, std::list<Lock>> resource_names_to_requests_;
+  base::flat_map<std::string, std::list<Lock>> resource_names_to_requests_;
 
   // BucketState::lock_id_to_iterator_ maps a lock's id to the
   // iterator pointing to its location in its associated request queue.
-  std::unordered_map<int64_t, std::list<Lock>::iterator> lock_id_to_iterator_;
+  base::flat_map<int64_t, std::list<Lock>::iterator> lock_id_to_iterator_;
 
   // Any OriginState is owned by a LockManager so a raw pointer back to an
   // OriginState's owning LockManager is safe.
@@ -323,7 +324,8 @@ void LockManager::BindReceiver(
 
   // TODO(jsbell): This should reflect the 'environment id' from HTML,
   // and be the same opaque string seen in Service Worker client ids.
-  const std::string client_id = base::GenerateGUID();
+  const std::string client_id =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
 
   receivers_.Add(this, std::move(receiver), {client_id, bucket_id});
 }

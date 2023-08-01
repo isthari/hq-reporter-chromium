@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,12 @@
 
 #include <tuple>
 
-#include "ash/public/cpp/presentation_time_recorder.h"
-#include "ash/public/cpp/test/test_desks_templates_delegate.h"
+#include "ash/public/cpp/test/test_saved_desk_delegate.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shelf/shelf.h"
 #include "ash/shell.h"
 #include "ash/style/close_button.h"
+#include "ash/style/system_shadow.h"
 #include "ash/test_shell_delegate.h"
 #include "ash/wm/overview/overview_controller.h"
 #include "ash/wm/overview/overview_grid.h"
@@ -21,9 +21,12 @@
 #include "ash/wm/overview/overview_wallpaper_controller.h"
 #include "ash/wm/overview/scoped_overview_transform_window.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller_test_api.h"
+#include "ash/wm/window_mini_view_header_view.h"
 #include "ash/wm/window_preview_view.h"
+#include "components/app_constants/constants.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/compositor/layer.h"
+#include "ui/compositor/presentation_time_recorder.h"
 #include "ui/compositor/test/test_utils.h"
 #include "ui/gfx/geometry/transform_util.h"
 #include "ui/views/accessibility/view_accessibility.h"
@@ -79,29 +82,23 @@ SplitViewController* OverviewTestBase::GetSplitViewController() {
 }
 
 gfx::Rect OverviewTestBase::GetTransformedBounds(aura::Window* window) {
-  gfx::Rect bounds_in_screen = window->layer()->bounds();
-  wm::ConvertRectToScreen(window->parent(), &bounds_in_screen);
-  gfx::RectF bounds(bounds_in_screen);
-  gfx::Transform transform(gfx::TransformAboutPivot(
-      gfx::ToFlooredPoint(bounds.origin()), window->layer()->transform()));
-  transform.TransformRect(&bounds);
-  return ToStableSizeRoundedRect(bounds);
+  gfx::RectF bounds(window->layer()->bounds());
+  wm::TranslateRectToScreen(window->parent(), &bounds);
+  const gfx::Transform transform =
+      gfx::TransformAboutPivot(bounds.origin(), window->layer()->transform());
+  return ToStableSizeRoundedRect(transform.MapRect(bounds));
 }
 
 gfx::Rect OverviewTestBase::GetTransformedTargetBounds(aura::Window* window) {
-  gfx::Rect bounds_in_screen = window->layer()->GetTargetBounds();
-  wm::ConvertRectToScreen(window->parent(), &bounds_in_screen);
-  gfx::RectF bounds(bounds_in_screen);
-  gfx::Transform transform(
-      gfx::TransformAboutPivot(gfx::ToFlooredPoint(bounds.origin()),
-                               window->layer()->GetTargetTransform()));
-  transform.TransformRect(&bounds);
-  return ToStableSizeRoundedRect(bounds);
+  gfx::RectF bounds(window->layer()->GetTargetBounds());
+  wm::TranslateRectToScreen(window->parent(), &bounds);
+  const gfx::Transform transform = gfx::TransformAboutPivot(
+      bounds.origin(), window->layer()->GetTargetTransform());
+  return ToStableSizeRoundedRect(transform.MapRect(bounds));
 }
 
 gfx::Rect OverviewTestBase::GetTransformedBoundsInRootWindow(
     aura::Window* window) {
-  gfx::RectF bounds = gfx::RectF(gfx::SizeF(window->bounds().size()));
   aura::Window* root = window->GetRootWindow();
   CHECK(window->layer());
   CHECK(root->layer());
@@ -110,8 +107,7 @@ gfx::Rect OverviewTestBase::GetTransformedBoundsInRootWindow(
                                                      &transform)) {
     return gfx::Rect();
   }
-  transform.TransformRect(&bounds);
-  return gfx::ToEnclosingRect(bounds);
+  return transform.MapRect(gfx::Rect(window->bounds().size()));
 }
 
 OverviewItem* OverviewTestBase::GetDropTarget(int grid_index) {
@@ -123,7 +119,7 @@ CloseButton* OverviewTestBase::GetCloseButton(OverviewItem* item) {
 }
 
 views::Label* OverviewTestBase::GetLabelView(OverviewItem* item) {
-  return item->overview_item_view_->title_label();
+  return item->overview_item_view_->header_view()->title_label();
 }
 
 views::View* OverviewTestBase::GetBackdropView(OverviewItem* item) {
@@ -132,6 +128,23 @@ views::View* OverviewTestBase::GetBackdropView(OverviewItem* item) {
 
 WindowPreviewView* OverviewTestBase::GetPreviewView(OverviewItem* item) {
   return item->overview_item_view_->preview_view();
+}
+
+gfx::Rect OverviewTestBase::GetShadowBounds(OverviewItem* item) const {
+  SystemShadow* shadow = item->shadow_.get();
+  if (!shadow || !shadow->GetLayer()->visible()) {
+    return gfx::Rect();
+  }
+
+  return shadow->GetContentBounds();
+}
+
+views::Widget* OverviewTestBase::GetCannotSnapWidget(OverviewItem* item) {
+  return item->cannot_snap_widget_.get();
+}
+
+void OverviewTestBase::SetAnimatingToClose(OverviewItem* item, bool val) {
+  item->animating_to_close_ = val;
 }
 
 float OverviewTestBase::GetCloseButtonOpacity(OverviewItem* item) {
@@ -168,15 +181,6 @@ void OverviewTestBase::CheckWindowAndCloseButtonInScreen(
 void OverviewTestBase::SetUp() {
   AshTestBase::SetUp();
 
-  // Set the created model as the one shell will reference.
-  EXPECT_TRUE(desk_model_temp_dir_.CreateUniqueTempDir());
-  desk_model_ = std::make_unique<desks_storage::LocalDeskDataManager>(
-      desk_model_temp_dir_.GetPath());
-  desk_model_->EnsureCacheIsLoaded();
-  static_cast<TestDesksTemplatesDelegate*>(
-      Shell::Get()->desks_templates_delegate())
-      ->set_desk_model(desk_model_.get());
-
   aura::Env::GetInstance()->set_throttle_input_on_resize_for_testing(false);
   shelf_view_test_api_ = std::make_unique<ShelfViewTestAPI>(
       GetPrimaryShelf()->GetShelfViewForTesting());
@@ -184,12 +188,14 @@ void OverviewTestBase::SetUp() {
   ScopedOverviewTransformWindow::SetImmediateCloseForTests(
       /*immediate=*/true);
   OverviewWallpaperController::SetDisableChangeWallpaperForTest(true);
-  PresentationTimeRecorder::SetReportPresentationTimeImmediatelyForTest(true);
+  ui::PresentationTimeRecorder::SetReportPresentationTimeImmediatelyForTest(
+      true);
 }
 
 void OverviewTestBase::TearDown() {
   OverviewWallpaperController::SetDisableChangeWallpaperForTest(false);
-  PresentationTimeRecorder::SetReportPresentationTimeImmediatelyForTest(false);
+  ui::PresentationTimeRecorder::SetReportPresentationTimeImmediatelyForTest(
+      false);
   trace_names_.clear();
   AshTestBase::TearDown();
 }
@@ -207,8 +213,8 @@ void OverviewTestBase::CheckA11yOverrides(const std::string& trace,
   views::View* contents_view = widget->GetContentsView();
   views::ViewAccessibility& view_accessibility =
       contents_view->GetViewAccessibility();
-  EXPECT_EQ(expected_previous, view_accessibility.GetPreviousFocus());
-  EXPECT_EQ(expected_next, view_accessibility.GetNextFocus());
+  EXPECT_EQ(expected_previous, view_accessibility.GetPreviousWindowFocus());
+  EXPECT_EQ(expected_next, view_accessibility.GetNextWindowFocus());
 }
 
 void OverviewTestBase::CheckOverviewEnterExitHistogram(
@@ -217,13 +223,14 @@ void OverviewTestBase::CheckOverviewEnterExitHistogram(
     const std::vector<int>& exit_counts) {
   CheckForDuplicateTraceName(trace);
 
-  // Overview histograms recorded via ui::ThroughputTracker is reported
-  // on the next frame presented after animation stops. Wait for the next
-  // frame with a 100ms timeout for the report, regardless of whether there
-  // is a next frame.
-  std::ignore = ui::WaitForNextFrameToBePresented(
-      Shell::GetPrimaryRootWindow()->layer()->GetCompositor(),
-      base::Milliseconds(500));
+  // Force a frame then wait, ensuring there is one more frame presented after
+  // animation finishes to allow animation throughput data to be passed from
+  // cc to ui.
+  ui::Compositor* compositor =
+      Shell::GetPrimaryRootWindow()->layer()->GetCompositor();
+  compositor->ScheduleFullRedraw();
+  std::ignore =
+      ui::WaitForNextFrameToBePresented(compositor, base::Milliseconds(500));
 
   {
     SCOPED_TRACE(trace + ".Enter");

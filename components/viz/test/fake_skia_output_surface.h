@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define COMPONENTS_VIZ_TEST_FAKE_SKIA_OUTPUT_SURFACE_H_
 
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -19,17 +20,14 @@
 #include "components/viz/service/display/skia_output_surface.h"
 #include "components/viz/test/test_context_provider.h"
 #include "gpu/command_buffer/common/sync_token.h"
-#include "third_party/skia/include/core/SkDeferredDisplayList.h"
 
 namespace viz {
-
-class TextureDeleter;
 
 class FakeSkiaOutputSurface : public SkiaOutputSurface {
  public:
   static std::unique_ptr<FakeSkiaOutputSurface> Create3d() {
     auto provider = TestContextProvider::Create();
-    provider->BindToCurrentThread();
+    provider->BindToCurrentSequence();
     return base::WrapUnique(new FakeSkiaOutputSurface(std::move(provider)));
   }
 
@@ -47,22 +45,12 @@ class FakeSkiaOutputSurface : public SkiaOutputSurface {
   void BindToClient(OutputSurfaceClient* client) override;
   void EnsureBackbuffer() override;
   void DiscardBackbuffer() override;
-  void BindFramebuffer() override;
-  void Reshape(const gfx::Size& size,
-               float device_scale_factor,
-               const gfx::ColorSpace& color_space,
-               gfx::BufferFormat format,
-               bool use_stencil) override;
+  void Reshape(const ReshapeParams& params) override;
   void SwapBuffers(OutputSurfaceFrame frame) override;
   void ScheduleOutputSurfaceAsOverlay(
       OverlayProcessorInterface::OutputSurfaceOverlayPlane output_surface_plane)
       override;
-  uint32_t GetFramebufferCopyTextureFormat() override;
   bool IsDisplayedAsOverlayPlane() const override;
-  unsigned GetOverlayTextureId() const override;
-  bool HasExternalStencilTest() const override;
-  void ApplyExternalStencil() override;
-  unsigned UpdateGpuFence() override;
   void SetNeedsSwapSizeNotifications(
       bool needs_swap_size_notifications) override;
   void SetUpdateVSyncParametersCallback(
@@ -80,47 +68,53 @@ class FakeSkiaOutputSurface : public SkiaOutputSurface {
   void SwapBuffersSkipped(const gfx::Rect root_pass_damage_rect) override {}
   SkCanvas* BeginPaintRenderPass(const AggregatedRenderPassId& id,
                                  const gfx::Size& surface_size,
-                                 ResourceFormat format,
+                                 SharedImageFormat format,
                                  bool mipmap,
+                                 bool scanout_dcomp_surface,
                                  sk_sp<SkColorSpace> color_space,
+                                 bool is_overlay,
                                  const gpu::Mailbox& mailbox) override;
-  void EndPaint(base::OnceClosure on_finished) override;
-  void MakePromiseSkImage(ImageContext* image_context) override;
+  SkCanvas* RecordOverdrawForCurrentPaint() override;
+  void EndPaint(
+      base::OnceClosure on_finished,
+      base::OnceCallback<void(gfx::GpuFenceHandle)> return_release_fence_cb,
+      const gfx::Rect& update_rect,
+      bool is_overlay) override;
+  void MakePromiseSkImage(ImageContext* image_context,
+                          const gfx::ColorSpace& yuv_color_space) override;
   sk_sp<SkImage> MakePromiseSkImageFromRenderPass(
       const AggregatedRenderPassId& id,
       const gfx::Size& size,
-      ResourceFormat format,
+      SharedImageFormat format,
       bool mipmap,
       sk_sp<SkColorSpace> color_space,
       const gpu::Mailbox& mailbox) override;
   void RemoveRenderPassResource(
       std::vector<AggregatedRenderPassId> ids) override;
   void ScheduleOverlays(OverlayList overlays,
-                        std::vector<gpu::SyncToken> sync_tokens,
-                        base::OnceClosure on_finished) override {}
+                        std::vector<gpu::SyncToken> sync_tokens) override {}
 #if BUILDFLAG(IS_WIN)
   void SetEnableDCLayers(bool enable) override {}
 #endif
-  void CopyOutput(AggregatedRenderPassId id,
-                  const copy_output::RenderPassGeometry& geometry,
+  void CopyOutput(const copy_output::RenderPassGeometry& geometry,
                   const gfx::ColorSpace& color_space,
                   std::unique_ptr<CopyOutputRequest> request,
                   const gpu::Mailbox& mailbox) override;
   void AddContextLostObserver(ContextLostObserver* observer) override;
   void RemoveContextLostObserver(ContextLostObserver* observer) override;
-  gpu::SharedImageInterface* GetSharedImageInterface() override;
   gpu::SyncToken Flush() override;
-  void OnObservingBeginFrameSourceChanged(bool observing) override {}
-#if BUILDFLAG(IS_APPLE) || defined(USE_OZONE)
-  SkCanvas* BeginPaintRenderPassOverlay(
-      const gfx::Size& size,
-      ResourceFormat format,
-      bool mipmap,
-      sk_sp<SkColorSpace> color_space) override;
-  sk_sp<SkDeferredDisplayList> EndPaintRenderPassOverlay() override;
-#endif
-
+  bool EnsureMinNumberOfBuffers(int n) override;
   void PreserveChildSurfaceControls() override {}
+  gpu::Mailbox CreateSharedImage(SharedImageFormat format,
+                                 const gfx::Size& size,
+                                 const gfx::ColorSpace& color_space,
+                                 uint32_t usage,
+                                 base::StringPiece debug_label,
+                                 gpu::SurfaceHandle surface_handle) override;
+  gpu::Mailbox CreateSolidColorSharedImage(
+      const SkColor4f& color,
+      const gfx::ColorSpace& color_space) override;
+  void DestroySharedImage(const gpu::Mailbox& mailbox) override {}
 
   // ExternalUseClient implementation:
   gpu::SyncToken ReleaseImageContexts(
@@ -128,11 +122,13 @@ class FakeSkiaOutputSurface : public SkiaOutputSurface {
   std::unique_ptr<ImageContext> CreateImageContext(
       const gpu::MailboxHolder& holder,
       const gfx::Size& size,
-      ResourceFormat format,
+      SharedImageFormat format,
       bool concurrent_reads,
       const absl::optional<gpu::VulkanYCbCrInfo>& ycbcr_info,
       sk_sp<SkColorSpace> color_space,
       bool raw_draw_if_possible) override;
+
+  gpu::SharedImageInterface* GetSharedImageInterface();
 
   // If set true, callbacks triggering will be in a reverse order as SignalQuery
   // calls.
@@ -158,27 +154,38 @@ class FakeSkiaOutputSurface : public SkiaOutputSurface {
     return delegated_ink_renderer_receiver_arrived_;
   }
 
- private:
+ protected:
   explicit FakeSkiaOutputSurface(
       scoped_refptr<ContextProvider> context_provider);
 
+ private:
   ContextProvider* context_provider() { return context_provider_.get(); }
   GrDirectContext* gr_context() { return context_provider()->GrContext(); }
+
+  gpu::SyncToken GenerateSyncToken();
 
   bool GetGrBackendTexture(const ImageContext& image_context,
                            GrBackendTexture* backend_texture);
   void SwapBuffersAck();
 
+  // Provided as a release callback for CopyOutputRequest.
+  void DestroyCopyOutputTexture(const gpu::Mailbox& mailbox,
+                                const gpu::SyncToken& sync_token,
+                                bool is_lost);
+
   scoped_refptr<ContextProvider> context_provider_;
   raw_ptr<OutputSurfaceClient> client_ = nullptr;
 
-  std::unique_ptr<TextureDeleter> texture_deleter_;
+  uint64_t next_sync_fence_release_ = 1;
 
   // The current render pass id set by BeginPaintRenderPass.
   AggregatedRenderPassId current_render_pass_id_;
 
   // SkSurfaces for render passes, sk_surfaces_[0] is the root surface.
   base::flat_map<AggregatedRenderPassId, sk_sp<SkSurface>> sk_surfaces_;
+
+  // Map from mailboxes to render pass ids.
+  base::flat_map<gpu::Mailbox, AggregatedRenderPassId> mailbox_pass_ids_;
 
   // Most recent delegated ink metadata to have arrived via a SwapBuffers call.
   std::unique_ptr<gfx::DelegatedInkMetadata> last_delegated_ink_metadata_;

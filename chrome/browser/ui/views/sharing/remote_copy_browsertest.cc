@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,11 @@
 #include <string>
 #include <vector>
 
-#include "base/guid.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
+#include "base/uuid.h"
 #include "build/build_config.h"
 #include "chrome/browser/notifications/notification_display_service_tester.h"
 #include "chrome/browser/profiles/profile.h"
@@ -100,7 +100,8 @@ class RemoteCopyBrowserTest : public InProcessBrowserTest {
                                      absl::optional<std::string> text,
                                      absl::optional<GURL> image_url) {
     chrome_browser_sharing::SharingMessage sharing_message;
-    sharing_message.set_sender_guid(base::GenerateGUID());
+    sharing_message.set_sender_guid(
+        base::Uuid::GenerateRandomV4().AsLowercaseString());
     sharing_message.set_sender_device_name(device_name);
     if (text) {
       sharing_message.mutable_remote_copy_message()->set_text(text.value());
@@ -166,7 +167,7 @@ class RemoteCopyBrowserTest : public InProcessBrowserTest {
  protected:
   base::HistogramTester histograms_;
   std::unique_ptr<NotificationDisplayServiceTester> notification_tester_;
-  raw_ptr<SharingService> sharing_service_;
+  raw_ptr<SharingService, DanglingUntriaged> sharing_service_;
   std::unique_ptr<net::EmbeddedTestServer> server_;
 };
 

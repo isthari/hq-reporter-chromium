@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,10 @@
  * It is column model responsibility to resize other columns accordingly.
  */
 
-import {dispatchSimpleEvent, getPropertyDescriptor} from 'chrome://resources/js/cr.m.js';
-import {Splitter} from 'chrome://resources/js/cr/ui/splitter.js';
+import {dispatchSimpleEvent, getPropertyDescriptor} from 'chrome://resources/ash/common/cr_deprecated.js';
+
+import {util} from '../../../../common/js/util.js';
+import {Splitter} from '../splitter.js';
 
 import {Table} from './table.js';
 
@@ -50,7 +52,11 @@ export class TableSplitter extends Splitter {
     super.decorate();
 
     const icon = document.createElement('cr-icon-button');
-    icon.setAttribute('iron-icon', 'files32:small-dragger');
+    if (util.isJellyEnabled()) {
+      icon.setAttribute('iron-icon', 'files32:bar-dragger');
+    } else {
+      icon.setAttribute('iron-icon', 'files32:small-dragger');
+    }
     icon.setAttribute('tabindex', '-1');
     icon.setAttribute('aria-hidden', 'true');
     icon.classList.add('splitter-icon');
@@ -91,7 +97,7 @@ export class TableSplitter extends Splitter {
    */
   handleSplitterDragEnd() {
     this.ownerDocument.documentElement.classList.remove('col-resize');
-    dispatchSimpleEvent(this, 'column-resize-end', true);
+    dispatchSimpleEvent(this, 'column-resize-end', /*bubbles=*/ true);
     this.table_.columnModel.handleSplitterDragEnd();
   }
 }

@@ -32,11 +32,9 @@
 #include <utility>
 
 #include "base/location.h"
-#include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/platform/audio/audio_bus.h"
 #include "third_party/blink/renderer/platform/audio/vector_math.h"
 #include "third_party/blink/renderer/platform/scheduler/public/post_cross_thread_task.h"
-#include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 #include "third_party/blink/renderer/platform/wtf/cross_thread_functional.h"
 
 namespace blink {
@@ -141,7 +139,7 @@ ReverbConvolver::ReverbConvolver(AudioChannel* impulse_response,
   // FIXME: would be better to up the thread priority here.  It doesn't need to
   // be real-time, but higher than the default...
   if (use_background_threads && background_stages_.size() > 0) {
-    background_thread_ = Platform::Current()->CreateThread(
+    background_thread_ = NonMainThread::CreateThread(
         ThreadCreationParams(ThreadType::kReverbConvolutionBackgroundThread));
   }
 }
@@ -166,8 +164,8 @@ void ReverbConvolver::ProcessInBackground() {
     const int kSliceSize = kMinFFTSize / 2;
 
     // Accumulate contributions from each stage
-    for (wtf_size_t i = 0; i < background_stages_.size(); ++i) {
-      background_stages_[i]->ProcessInBackground(this, kSliceSize);
+    for (auto& background_stage : background_stages_) {
+      background_stage->ProcessInBackground(this, kSliceSize);
     }
   }
 }
@@ -189,8 +187,8 @@ void ReverbConvolver::Process(const AudioChannel* source_channel,
   input_buffer_.Write(source, frames_to_process);
 
   // Accumulate contributions from each stage
-  for (wtf_size_t i = 0; i < stages_.size(); ++i) {
-    stages_[i]->Process(source, frames_to_process);
+  for (auto& stage : stages_) {
+    stage->Process(source, frames_to_process);
   }
 
   // Finally read from accumulation buffer
@@ -207,12 +205,12 @@ void ReverbConvolver::Process(const AudioChannel* source_channel,
 }
 
 void ReverbConvolver::Reset() {
-  for (wtf_size_t i = 0; i < stages_.size(); ++i) {
-    stages_[i]->Reset();
+  for (auto& stage : stages_) {
+    stage->Reset();
   }
 
-  for (wtf_size_t i = 0; i < background_stages_.size(); ++i) {
-    background_stages_[i]->Reset();
+  for (auto& background_stage : background_stages_) {
+    background_stage->Reset();
   }
 
   accumulation_buffer_.Reset();

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,12 +12,21 @@ NS_ASSUME_NONNULL_BEGIN
 @class CWVAutofillController;
 @class CWVAutofillForm;
 @class CWVAutofillFormSuggestion;
+@class CWVAutofillProfile;
 @class CWVCreditCard;
-@class CWVCreditCardExpirationFixer;
-@class CWVCreditCardNameFixer;
 @class CWVCreditCardSaver;
 @class CWVCreditCardVerifier;
 @class CWVPassword;
+
+// User decision for saving / updating an autofill profile.
+typedef NS_ENUM(NSInteger, CWVAutofillProfileUserDecision) {
+  // The user accepted the change.
+  CWVAutofillProfileUserDecisionAccepted = 0,
+  // The user declined the change.
+  CWVAutofillProfileUserDecisionDeclined,
+  // The user ignored the prompt.
+  CWVAutofillProfileUserDecisionIgnored,
+};
 
 // User decision for saving / updating password.
 // Note: CWVPasswordUserDecisionNever is only used in saving scenarios.
@@ -36,8 +45,8 @@ typedef NS_OPTIONS(NSInteger, CWVPasswordLeakType) {
   CWVPasswordLeakTypeSaved = 1 << 0,
   // The leaked password is also used on other sites.
   CWVPasswordLeakTypeUsedOnOtherSites = 1 << 1,
-  // The user is syncing passwords with normal encryption.
-  CWVPasswordLeakTypeSyncingNormally = 1 << 2,
+  // The leaked password is synced to a remote store.
+  CWVPasswordLeakTypeSynced = 1 << 2,
 };
 
 // Protocol to receive callbacks related to autofill.
@@ -106,22 +115,6 @@ typedef NS_OPTIONS(NSInteger, CWVPasswordLeakType) {
 - (void)autofillController:(CWVAutofillController*)autofillController
     saveCreditCardWithSaver:(CWVCreditCardSaver*)saver;
 
-// Called if the card holder's name needs to be confirmed by the user before the
-// card can be saved. This can happen if a user doesn't have a GPay account or
-// attempted to save a credit card without providing a name for it.
-// |fixer| encapsulates information needed to assist with this fix attempt.
-// Life time of |fixer| should be managed by the delegate.
-- (void)autofillController:(CWVAutofillController*)autofillController
-    confirmCreditCardNameWithFixer:(CWVCreditCardNameFixer*)fixer;
-
-// Called if the card's expiration needs to be corrected before the the card can
-// be saved. This can happen if a user attempted to save a credit card with an
-// expired expiration date.
-// |fixer| encapsulates information needed to assist with this fix attempt.
-// Life time of |fixer| should be managed by the delegate.
-- (void)autofillController:(CWVAutofillController*)autofillController
-    confirmCreditCardExpirationWithFixer:(CWVCreditCardExpirationFixer*)fixer;
-
 // Called when the user needs to use |verifier| to verify a credit card.
 // Lifetime of |verifier| should be managed by the delegate.
 - (void)autofillController:(CWVAutofillController*)autofillController
@@ -171,6 +164,20 @@ typedef NS_OPTIONS(NSInteger, CWVPasswordLeakType) {
 - (void)autofillController:(CWVAutofillController*)autofillController
     suggestGeneratedPassword:(NSString*)generatedPassword
              decisionHandler:(void (^)(BOOL accept))decisionHandler;
+
+// Called when the user should be prompted to save or update a profile.
+// |newProfile| The new profile that is being considered.
+// |oldProfile| The old profile, that if non-nil, will be overwritten.
+// |decisionHandler| Must be called when the user makes a decision. If accepted,
+// any property changes to |newProfile| will also be committed. This allows the
+// user to make any edits if they wish.
+// If this method is not implemented, |newProfile| will be automatically saved.
+- (void)autofillController:(CWVAutofillController*)autofillController
+    confirmSaveForNewAutofillProfile:(CWVAutofillProfile*)newProfile
+                          oldProfile:(nullable CWVAutofillProfile*)oldProfile
+                     decisionHandler:
+                         (void (^)(CWVAutofillProfileUserDecision decision))
+                             decisionHandler;
 
 @end
 

@@ -1,20 +1,27 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CONTENT_PUBLIC_BROWSER_WEB_CONTENTS_VIEW_DELEGATE_H_
 #define CONTENT_PUBLIC_BROWSER_WEB_CONTENTS_VIEW_DELEGATE_H_
 
+#include "build/build_config.h"
+
 #if defined(__OBJC__)
+#if BUILDFLAG(IS_MAC)
 #import <Cocoa/Cocoa.h>
 #endif
+#endif
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "content/common/content_export.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/gfx/native_widget_types.h"
 
 #if defined(__OBJC__)
+#if BUILDFLAG(IS_MAC)
 @protocol RenderWidgetHostViewMacDelegate;
+#endif
 #endif
 
 namespace content {
@@ -28,18 +35,11 @@ struct DropData;
 // WebContentsView implementation.
 class CONTENT_EXPORT WebContentsViewDelegate {
  public:
-  enum class DropCompletionResult {
-    // The drag and drop operation can continue normally.
-    kContinue,
-
-    // The drag and drop should be aborted.  For example, the data in the
-    // drop does not comply with enterprise policies.
-    kAbort,
-  };
-
   // Callback used with OnPerformDrop() method that is called once
-  // OnPerformDrop() completes.
-  using DropCompletionCallback = base::OnceCallback<void(DropCompletionResult)>;
+  // OnPerformDrop() completes. Returns an updated DropData or nothing if the
+  // drop operation should be aborted.
+  using DropCompletionCallback =
+      base::OnceCallback<void(absl::optional<DropData>)>;
 
   virtual ~WebContentsViewDelegate();
 
@@ -57,6 +57,9 @@ class CONTENT_EXPORT WebContentsViewDelegate {
   // see https://crbug.com/1257907#c14).
   virtual void ShowContextMenu(RenderFrameHost& render_frame_host,
                                const ContextMenuParams& params);
+
+  // Dismiss the context menu if one exists.
+  virtual void DismissContextMenu();
 
   // Tests can use ExecuteCommandForTesting to simulate executing a context menu
   // item (after first opening the context menu using the ShowContextMenu
@@ -79,16 +82,17 @@ class CONTENT_EXPORT WebContentsViewDelegate {
   // Advance focus to the view that follows or precedes the WebContents.
   virtual bool TakeFocus(bool reverse);
 
-  // Returns a newly-created delegate for the RenderWidgetHostViewMac, to handle
-  // events on the responder chain.
+  // Returns a newly-created, autoreleased delegate for the
+  // RenderWidgetHostViewMac, to handle events on the responder chain.
 #if defined(__OBJC__)
-  virtual NSObject<RenderWidgetHostViewMacDelegate>*
-  CreateRenderWidgetHostViewDelegate(RenderWidgetHost* render_widget_host,
-                                     bool is_popup);
-#else
-  virtual void* CreateRenderWidgetHostViewDelegate(
+#if BUILDFLAG(IS_MAC)
+  virtual NSObject<RenderWidgetHostViewMacDelegate>* GetDelegateForHost(
       RenderWidgetHost* render_widget_host,
       bool is_popup);
+#endif
+#else
+  virtual void* GetDelegateForHost(RenderWidgetHost* render_widget_host,
+                                   bool is_popup);
 #endif
 
   // Performs the actions needed for a drop and then calls the completion

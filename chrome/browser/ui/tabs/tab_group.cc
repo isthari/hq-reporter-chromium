@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,16 +10,20 @@
 #include <utility>
 #include <vector>
 
-#include "base/check_op.h"
+#include "base/feature_list.h"
+#include "chrome/browser/favicon/favicon_utils.h"
 #include "chrome/browser/ui/tab_ui_helper.h"
 #include "chrome/browser/ui/tabs/tab_group_controller.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
+#include "chrome/browser/ui/ui_features.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/tab_groups/tab_group_id.h"
 #include "components/tab_groups/tab_group_visual_data.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/gfx/image/image.h"
 #include "ui/gfx/text_elider.h"
+#include "url/gurl.h"
 
 TabGroup::TabGroup(TabGroupController* controller,
                    const tab_groups::TabGroupId& id,
@@ -64,7 +68,6 @@ void TabGroup::AddTab() {
   if (tab_count_ == 0) {
     controller_->CreateTabGroup(id_);
     TabGroupChange::VisualsChange visuals;
-    visuals.old_visuals = nullptr;
     controller_->ChangeTabGroupVisuals(id_, visuals);
   }
   controller_->ChangeTabGroupContents(id_);
@@ -86,10 +89,6 @@ bool TabGroup::IsEmpty() const {
 
 bool TabGroup::IsCustomized() const {
   return is_customized_;
-}
-
-bool TabGroup::IsSaved() const {
-  return is_saved_;
 }
 
 absl::optional<int> TabGroup::GetFirstTab() const {
@@ -127,12 +126,4 @@ gfx::Range TabGroup::ListTabs() const {
   }
 
   return gfx::Range(first_tab, last_tab + 1);
-}
-
-void TabGroup::SaveGroup() {
-  is_saved_ = true;
-}
-
-void TabGroup::UnsaveGroup() {
-  is_saved_ = false;
 }

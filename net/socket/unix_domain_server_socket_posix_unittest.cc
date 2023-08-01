@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,14 @@
 #include <memory>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "base/test/task_environment.h"
 #include "build/build_config.h"
 #include "net/base/io_buffer.h"
+#include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
 #include "net/base/test_completion_callback.h"
 #include "net/socket/unix_domain_client_socket_posix.h"
@@ -135,7 +136,8 @@ TEST_F(UnixDomainServerSocketTest, UnimplementedMethodsFail) {
                                        kUseAbstractNamespace);
 
   IPEndPoint ep;
-  EXPECT_THAT(server_socket.Listen(ep, 0), IsError(ERR_NOT_IMPLEMENTED));
+  EXPECT_THAT(server_socket.Listen(ep, 0, /*ipv6_only=*/absl::nullopt),
+              IsError(ERR_NOT_IMPLEMENTED));
   EXPECT_EQ(ERR_NOT_IMPLEMENTED,
       server_socket.ListenWithAddressAndPort(kInvalidSocketPath,
                                              0,

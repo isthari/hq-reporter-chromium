@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,6 +23,10 @@ namespace test {
 class AuthenticatorRequestDialogViewTestApi;
 }
 
+namespace views {
+class MdTextButton;
+}
+
 class AuthenticatorRequestSheetView;
 
 // A tab-modal dialog shown while a Web Authentication API request is active.
@@ -32,8 +36,11 @@ class AuthenticatorRequestSheetView;
 // then guides them through the flow of setting up their security key using the
 // selecting transport protocol, and finally shows success/failure indications.
 //
+// The dialog view may be destroyed and recreated multiple times during the
+// lifetime of a single WebAuthn request.
+//
 // Note that as a DialogDelegateView, AuthenticatorRequestDialogView is
-// deleted when DeleteDelegate() is called.
+// eventually deleted when DeleteDelegate() is called.
 class AuthenticatorRequestDialogView
     : public views::DialogDelegateView,
       public AuthenticatorRequestDialogModel::Observer,
@@ -86,12 +93,11 @@ class AuthenticatorRequestDialogView
   friend class test::AuthenticatorRequestDialogViewTestApi;
   friend void ShowAuthenticatorRequestDialog(
       content::WebContents* web_contents,
-      std::unique_ptr<AuthenticatorRequestDialogModel> model);
+      AuthenticatorRequestDialogModel* model);
 
   // Show by calling ShowAuthenticatorRequestDialog().
-  AuthenticatorRequestDialogView(
-      content::WebContents* web_contents,
-      std::unique_ptr<AuthenticatorRequestDialogModel> model);
+  AuthenticatorRequestDialogView(content::WebContents* web_contents,
+                                 AuthenticatorRequestDialogModel* model);
 
   // Shows the dialog after creation or after being hidden.
   void Show();
@@ -101,10 +107,10 @@ class AuthenticatorRequestDialogView
 
   void OnDialogClosing();
 
-  std::unique_ptr<AuthenticatorRequestDialogModel> model_;
+  raw_ptr<AuthenticatorRequestDialogModel> model_;
 
-  raw_ptr<AuthenticatorRequestSheetView> sheet_ = nullptr;
-  raw_ptr<views::View> other_mechanisms_button_ = nullptr;
+  raw_ptr<AuthenticatorRequestSheetView, DanglingUntriaged> sheet_ = nullptr;
+  raw_ptr<views::MdTextButton> other_mechanisms_button_ = nullptr;
   raw_ptr<views::View> manage_devices_button_ = nullptr;
   std::unique_ptr<views::MenuRunner> other_mechanisms_menu_runner_;
   bool first_shown_ = false;

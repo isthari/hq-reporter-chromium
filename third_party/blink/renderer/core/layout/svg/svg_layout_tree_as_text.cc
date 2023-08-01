@@ -28,11 +28,11 @@
 
 #include "third_party/blink/renderer/core/layout/svg/svg_layout_tree_as_text.h"
 
-#include "third_party/blink/renderer/core/layout/api/line_layout_svg_inline_text.h"
+#include "third_party/blink/renderer/core/css/properties/longhands.h"
 #include "third_party/blink/renderer/core/layout/layout_tree_as_text.h"
-#include "third_party/blink/renderer/core/layout/line/inline_text_box.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_image.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_inline.h"
+#include "third_party/blink/renderer/core/layout/svg/layout_svg_inline_text.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_resource_clipper.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_resource_filter.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_resource_linear_gradient.h"
@@ -42,9 +42,6 @@
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_resource_radial_gradient.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_root.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_shape.h"
-#include "third_party/blink/renderer/core/layout/svg/layout_svg_text.h"
-#include "third_party/blink/renderer/core/layout/svg/line/svg_inline_text_box.h"
-#include "third_party/blink/renderer/core/layout/svg/line/svg_root_inline_box.h"
 #include "third_party/blink/renderer/core/layout/svg/svg_layout_support.h"
 #include "third_party/blink/renderer/core/layout/svg/svg_resources.h"
 #include "third_party/blink/renderer/core/paint/paint_layer.h"
@@ -181,7 +178,7 @@ static WTF::TextStream& operator<<(WTF::TextStream& ts,
   return ts;
 }
 
-// FIXME: Maybe this should be in GraphicsTypes.cpp
+// FIXME: Maybe this should be in platform/graphics/graphics_types.cc
 static WTF::TextStream& operator<<(WTF::TextStream& ts, LineCap style) {
   switch (style) {
     case kButtCap:
@@ -197,7 +194,7 @@ static WTF::TextStream& operator<<(WTF::TextStream& ts, LineCap style) {
   return ts;
 }
 
-// FIXME: Maybe this should be in GraphicsTypes.cpp
+// FIXME: Maybe this should be in platform/graphics/graphics_types.cc
 static WTF::TextStream& operator<<(WTF::TextStream& ts, LineJoin style) {
   switch (style) {
     case kMiterJoin:
@@ -245,7 +242,7 @@ static void WriteSVGPaintingResource(WTF::TextStream& ts,
 static bool WriteSVGPaint(WTF::TextStream& ts,
                           const LayoutObject& object,
                           const SVGPaint& paint,
-                          const CSSProperty& property,
+                          const Longhand& property,
                           const char* paint_name) {
   TextStreamSeparator s(" ");
   const ComputedStyle& style = object.StyleRef();
@@ -296,7 +293,7 @@ static void WriteStyle(WTF::TextStream& ts, const LayoutObject& object) {
       WriteIfNotDefault(ts, "line cap", style.CapStyle(), kButtCap);
       WriteIfNotDefault(ts, "line join", style.JoinStyle(), kMiterJoin);
       WriteIfNotDefault(ts, "dash offset", dash_offset, 0.0);
-      if (!dash_array.IsEmpty())
+      if (!dash_array.empty())
         WriteNameValuePair(ts, "dash array", dash_array);
 
       ts << "}]";
@@ -344,10 +341,10 @@ static WTF::TextStream& operator<<(WTF::TextStream& ts,
                        length_context.ValueForLength(style.Y(), style,
                                                      SVGLengthMode::kHeight));
     WriteNameValuePair(ts, "width",
-                       length_context.ValueForLength(style.Width(), style,
+                       length_context.ValueForLength(style.UsedWidth(), style,
                                                      SVGLengthMode::kWidth));
     WriteNameValuePair(ts, "height",
-                       length_context.ValueForLength(style.Height(), style,
+                       length_context.ValueForLength(style.UsedHeight(), style,
                                                      SVGLengthMode::kHeight));
   } else if (auto* element = DynamicTo<SVGLineElement>(*svg_element)) {
     WriteNameValuePair(ts, "x1",
@@ -401,100 +398,6 @@ static WTF::TextStream& operator<<(WTF::TextStream& ts,
   ts << " " << root.FrameRect();
   WriteStyle(ts, root);
   return ts;
-}
-
-static void WriteLayoutSVGTextBox(WTF::TextStream& ts,
-                                  const LayoutSVGText& text) {
-  auto* box = To<SVGRootInlineBox>(text.FirstRootBox());
-  if (!box)
-    return;
-
-  // FIXME: Remove this hack, once the new text layout engine is completly
-  // landed. We want to preserve the old web test results for now.
-  ts << " contains 1 chunk(s)";
-
-  if (text.Parent() && (text.Parent()->ResolveColor(GetCSSPropertyColor()) !=
-                        text.ResolveColor(GetCSSPropertyColor()))) {
-    WriteNameValuePair(
-        ts, "color",
-        text.ResolveColor(GetCSSPropertyColor()).NameForLayoutTreeAsText());
-  }
-}
-
-static inline void WriteSVGInlineTextBox(WTF::TextStream& ts,
-                                         SVGInlineTextBox* text_box,
-                                         int indent) {
-  Vector<SVGTextFragment>& fragments = text_box->TextFragments();
-  if (fragments.IsEmpty())
-    return;
-
-  LineLayoutSVGInlineText text_line_layout =
-      LineLayoutSVGInlineText(text_box->GetLineLayoutItem());
-
-  const ComputedStyle& style = text_line_layout.StyleRef();
-  String text = text_box->GetLineLayoutItem().GetText();
-
-  unsigned fragments_size = fragments.size();
-  for (unsigned i = 0; i < fragments_size; ++i) {
-    SVGTextFragment& fragment = fragments.at(i);
-    WriteIndent(ts, indent + 1);
-
-    unsigned start_offset = fragment.character_offset;
-    unsigned end_offset = fragment.character_offset + fragment.length;
-
-    // FIXME: Remove this hack, once the new text layout engine is completly
-    // landed. We want to preserve the old web test results for now.
-    ts << "chunk 1 ";
-    ETextAnchor anchor = style.TextAnchor();
-    bool is_vertical_text = !style.IsHorizontalWritingMode();
-    if (anchor == ETextAnchor::kMiddle) {
-      ts << "(middle anchor";
-      if (is_vertical_text)
-        ts << ", vertical";
-      ts << ") ";
-    } else if (anchor == ETextAnchor::kEnd) {
-      ts << "(end anchor";
-      if (is_vertical_text)
-        ts << ", vertical";
-      ts << ") ";
-    } else if (is_vertical_text) {
-      ts << "(vertical) ";
-    }
-    start_offset -= text_box->Start();
-    end_offset -= text_box->Start();
-    // </hack>
-
-    ts << "text run " << i + 1 << " at (" << fragment.x << "," << fragment.y
-       << ")";
-    ts << " startOffset " << start_offset << " endOffset " << end_offset;
-    if (is_vertical_text)
-      ts << " height " << fragment.height;
-    else
-      ts << " width " << fragment.width;
-
-    if (!text_box->IsLeftToRightDirection() || text_box->DirOverride()) {
-      ts << (text_box->IsLeftToRightDirection() ? " LTR" : " RTL");
-      if (text_box->DirOverride())
-        ts << " override";
-    }
-
-    ts << ": "
-       << QuoteAndEscapeNonPrintables(
-              text.Substring(fragment.character_offset, fragment.length))
-       << "\n";
-  }
-}
-
-static inline void WriteSVGInlineTextBoxes(WTF::TextStream& ts,
-                                           const LayoutText& text,
-                                           int indent) {
-  for (InlineTextBox* box : text.TextBoxes()) {
-    auto* svg_inline_text_box = DynamicTo<SVGInlineTextBox>(box);
-    if (!svg_inline_text_box)
-      continue;
-
-    WriteSVGInlineTextBox(ts, svg_inline_text_box, indent);
-  }
 }
 
 static void WriteStandardPrefix(WTF::TextStream& ts,
@@ -587,9 +490,8 @@ void WriteSVGResourceContainer(WTF::TextStream& ts,
     // SVGPatternElement for its patternUnits(), as it may link to other
     // patterns using xlink:href, we need to build the full inheritance chain,
     // aka. collectPatternProperties()
-    PatternAttributes attributes;
-    To<SVGPatternElement>(pattern->GetElement())
-        ->CollectPatternAttributes(attributes);
+    PatternAttributes attributes = To<SVGPatternElement>(*pattern->GetElement())
+                                       .CollectPatternAttributes();
 
     WriteNameValuePair(ts, "patternUnits", attributes.PatternUnits());
     WriteNameValuePair(ts, "patternContentUnits",
@@ -607,9 +509,9 @@ void WriteSVGResourceContainer(WTF::TextStream& ts,
     // SVGGradientElement for its gradientUnits(), as it may link to other
     // gradients using xlink:href, we need to build the full inheritance chain,
     // aka. collectGradientProperties()
-    LinearGradientAttributes attributes;
-    To<SVGLinearGradientElement>(gradient->GetElement())
-        ->CollectGradientAttributes(attributes);
+    LinearGradientAttributes attributes =
+        To<SVGLinearGradientElement>(*gradient->GetElement())
+            .CollectGradientAttributes();
     WriteCommonGradientProperties(ts, attributes);
 
     ts << " [start=" << gradient->StartPoint(attributes)
@@ -621,9 +523,9 @@ void WriteSVGResourceContainer(WTF::TextStream& ts,
     // SVGGradientElement for its gradientUnits(), as it may link to other
     // gradients using xlink:href, we need to build the full inheritance chain,
     // aka. collectGradientProperties()
-    RadialGradientAttributes attributes;
-    To<SVGRadialGradientElement>(gradient->GetElement())
-        ->CollectGradientAttributes(attributes);
+    RadialGradientAttributes attributes =
+        To<SVGRadialGradientElement>(*gradient->GetElement())
+            .CollectGradientAttributes();
     WriteCommonGradientProperties(ts, attributes);
 
     gfx::PointF focal_point = gradient->FocalPoint(attributes);
@@ -655,15 +557,6 @@ void Write(WTF::TextStream& ts, const LayoutSVGRoot& root, int indent) {
   WriteChildren(ts, root, indent);
 }
 
-void WriteSVGText(WTF::TextStream& ts, const LayoutSVGText& text, int indent) {
-  WriteStandardPrefix(ts, text, indent);
-  WritePositionAndStyle(ts, text);
-  WriteLayoutSVGTextBox(ts, text);
-  ts << "\n";
-  WriteResources(ts, text, indent);
-  WriteChildren(ts, text, indent);
-}
-
 void WriteSVGInline(WTF::TextStream& ts,
                     const LayoutSVGInline& text,
                     int indent) {
@@ -680,7 +573,6 @@ void WriteSVGInlineText(WTF::TextStream& ts,
   WriteStandardPrefix(ts, text, indent);
   WritePositionAndStyle(ts, text);
   ts << "\n";
-  WriteSVGInlineTextBoxes(ts, text, indent);
 }
 
 void WriteSVGImage(WTF::TextStream& ts,
@@ -766,7 +658,8 @@ void WriteResources(WTF::TextStream& ts,
     DCHECK(style.HasFilter());
     DCHECK_EQ(style.Filter().size(), 1u);
     const FilterOperation& filter_operation = *style.Filter().at(0);
-    DCHECK_EQ(filter_operation.GetType(), FilterOperation::kReference);
+    DCHECK_EQ(filter_operation.GetType(),
+              FilterOperation::OperationType::kReference);
     const auto& reference_filter_operation =
         To<ReferenceFilterOperation>(filter_operation);
     WriteSVGResourceReferencePrefix(ts, "filter", filter,

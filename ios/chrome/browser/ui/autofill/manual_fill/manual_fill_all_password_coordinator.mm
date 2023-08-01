@@ -1,24 +1,28 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/autofill/manual_fill/manual_fill_all_password_coordinator.h"
 
-#include "components/keyed_service/core/service_access_type.h"
-#include "components/password_manager/core/browser/password_store_interface.h"
+#import "base/ios/block_types.h"
+#import "components/keyed_service/core/service_access_type.h"
+#import "components/password_manager/core/browser/password_store_interface.h"
 #import "ios/chrome/browser/favicon/favicon_loader.h"
-#include "ios/chrome/browser/favicon/ios_chrome_favicon_loader_factory.h"
-#import "ios/chrome/browser/main/browser.h"
-#include "ios/chrome/browser/passwords/ios_chrome_password_store_factory.h"
-#include "ios/chrome/browser/sync/sync_setup_service_factory.h"
+#import "ios/chrome/browser/favicon/ios_chrome_favicon_loader_factory.h"
+#import "ios/chrome/browser/net/crurl.h"
+#import "ios/chrome/browser/passwords/ios_chrome_account_password_store_factory.h"
+#import "ios/chrome/browser/passwords/ios_chrome_password_store_factory.h"
+#import "ios/chrome/browser/shared/model/browser/browser.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/shared/public/commands/application_commands.h"
+#import "ios/chrome/browser/shared/public/commands/command_dispatcher.h"
+#import "ios/chrome/browser/shared/public/commands/open_new_tab_command.h"
+#import "ios/chrome/browser/shared/ui/table_view/table_view_navigation_controller.h"
+#import "ios/chrome/browser/sync/sync_setup_service_factory.h"
 #import "ios/chrome/browser/ui/autofill/manual_fill/manual_fill_injection_handler.h"
 #import "ios/chrome/browser/ui/autofill/manual_fill/manual_fill_password_mediator.h"
 #import "ios/chrome/browser/ui/autofill/manual_fill/password_list_navigator.h"
 #import "ios/chrome/browser/ui/autofill/manual_fill/password_view_controller.h"
-#import "ios/chrome/browser/ui/table_view/table_view_animator.h"
-#import "ios/chrome/browser/ui/table_view/table_view_navigation_controller.h"
-#include "ios/chrome/browser/ui/util/ui_util.h"
-#import "ios/chrome/browser/web_state_list/web_state_list.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -47,8 +51,11 @@
       initWithSearchController:searchController];
   self.passwordViewController.delegate = self;
 
-  auto passwordStore = IOSChromePasswordStoreFactory::GetForBrowserState(
+  auto profilePasswordStore = IOSChromePasswordStoreFactory::GetForBrowserState(
       self.browser->GetBrowserState(), ServiceAccessType::EXPLICIT_ACCESS);
+  auto accountPasswordStore =
+      IOSChromeAccountPasswordStoreFactory::GetForBrowserState(
+          self.browser->GetBrowserState(), ServiceAccessType::EXPLICIT_ACCESS);
   FaviconLoader* faviconLoader =
       IOSChromeFaviconLoaderFactory::GetForBrowserState(
           self.browser->GetBrowserState());
@@ -57,12 +64,13 @@
   SyncSetupService* syncService = SyncSetupServiceFactory::GetForBrowserState(
       self.browser->GetBrowserState());
   self.passwordMediator = [[ManualFillPasswordMediator alloc]
-       initWithPasswordStore:passwordStore
-               faviconLoader:faviconLoader
-                    webState:webState
-                 syncService:syncService
-                         URL:GURL::EmptyGURL()
-      invokedOnPasswordField:NO];
+      initWithProfilePasswordStore:profilePasswordStore
+              accountPasswordStore:accountPasswordStore
+                     faviconLoader:faviconLoader
+                          webState:webState
+                       syncService:syncService
+                               URL:GURL::EmptyGURL()
+            invokedOnPasswordField:NO];
   [self.passwordMediator fetchPasswords];
   self.passwordMediator.actionSectionEnabled = NO;
   self.passwordMediator.consumer = self.passwordViewController;
@@ -112,6 +120,16 @@
 - (void)passwordViewControllerDidTapDoneButton:
     (PasswordViewController*)passwordViewController {
   [self stop];  // The job is done.
+}
+
+- (void)didTapLinkURL:(CrURL*)URL {
+  [self stop];
+  // Dismiss `passwordViewController` and open header link in a new tab.
+  OpenNewTabCommand* command =
+      [OpenNewTabCommand commandWithURLFromChrome:URL.gurl];
+  id<ApplicationCommands> handler = HandlerForProtocol(
+      self.browser->GetCommandDispatcher(), ApplicationCommands);
+  [handler openURLInNewTab:command];
 }
 
 @end

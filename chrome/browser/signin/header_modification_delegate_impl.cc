@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,14 +13,15 @@
 #include "chrome/browser/signin/chrome_signin_helper.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/sync/sync_service_factory.h"
-#include "chrome/common/pref_names.h"
+#include "components/policy/core/common/policy_pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/public/base/signin_pref_names.h"
+#include "components/signin/public/base/signin_switches.h"
 #include "components/signin/public/identity_manager/account_info.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/signin/public/identity_manager/tribool.h"
 #include "components/sync/base/pref_names.h"
-#include "components/sync/driver/sync_service.h"
+#include "components/sync/service/sync_service.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/site_instance.h"
 
@@ -52,8 +53,15 @@ HeaderModificationDelegateImpl::~HeaderModificationDelegateImpl() = default;
 
 bool HeaderModificationDelegateImpl::ShouldInterceptNavigation(
     content::WebContents* contents) {
-  if (profile_->IsOffTheRecord())
+  if (profile_->IsOffTheRecord()) {
+#if BUILDFLAG(ENABLE_BOUND_SESSION_CREDENTIALS)
+    if (!switches::IsBoundSessionCredentialsEnabled()) {
+      return false;
+    }
+#else
     return false;
+#endif
+  }
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
   if (ShouldIgnoreGuestWebViewRequest(contents))
@@ -67,6 +75,17 @@ void HeaderModificationDelegateImpl::ProcessRequest(
     ChromeRequestAdapter* request_adapter,
     const GURL& redirect_url) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  if (profile_->IsOffTheRecord()) {
+    // We expect seeing traffic from OTR profiles only if the feature is
+    // enabled.
+#if BUILDFLAG(ENABLE_BOUND_SESSION_CREDENTIALS)
+    CHECK(switches::IsBoundSessionCredentialsEnabled());
+#else
+    CHECK(false);
+#endif
+    return;
+  }
+
   const PrefService* prefs = profile_->GetPrefs();
 #if BUILDFLAG(ENABLE_DICE_SUPPORT)
   syncer::SyncService* sync_service =
@@ -95,12 +114,12 @@ void HeaderModificationDelegateImpl::ProcessRequest(
       identity_manager->FindExtendedAccountInfo(account).is_child_account;
 
   int incognito_mode_availability =
-      prefs->GetInteger(prefs::kIncognitoModeAvailability);
+      prefs->GetInteger(policy::policy_prefs::kIncognitoModeAvailability);
 #if BUILDFLAG(IS_ANDROID)
   incognito_mode_availability =
       incognito_enabled_
           ? incognito_mode_availability
-          : static_cast<int>(IncognitoModePrefs::Availability::kDisabled);
+          : static_cast<int>(policy::IncognitoModeAvailability::kDisabled);
 #endif
 
   FixAccountConsistencyRequestHeader(
@@ -122,6 +141,17 @@ void HeaderModificationDelegateImpl::ProcessResponse(
     ResponseAdapter* response_adapter,
     const GURL& redirect_url) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  if (profile_->IsOffTheRecord()) {
+    // We expect seeing traffic from OTR profiles only if the feature is
+    // enabled.
+#if BUILDFLAG(ENABLE_BOUND_SESSION_CREDENTIALS)
+    CHECK(switches::IsBoundSessionCredentialsEnabled());
+#else
+    CHECK(false);
+#endif
+    return;
+  }
+
   ProcessAccountConsistencyResponseHeaders(response_adapter, redirect_url,
                                            profile_->IsOffTheRecord());
 }
@@ -134,7 +164,7 @@ bool HeaderModificationDelegateImpl::ShouldIgnoreGuestWebViewRequest(
     return true;
 
   if (extensions::WebViewRendererState::GetInstance()->IsGuest(
-          contents->GetMainFrame()->GetProcess()->GetID())) {
+          contents->GetPrimaryMainFrame()->GetProcess()->GetID())) {
     auto identity_api_config =
         extensions::WebAuthFlow::GetWebViewPartitionConfig(
             extensions::WebAuthFlow::GET_AUTH_TOKEN,

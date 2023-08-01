@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ref.h"
 #include "base/memory/ref_counted.h"
 #include "extensions/browser/api/declarative/declarative_rule.h"
 #include "extensions/browser/api/declarative_webrequest/request_stage.h"
@@ -78,7 +79,7 @@ class WebRequestAction : public base::RefCounted<WebRequestAction> {
   // whatever function is calling one of those methods.
   struct ApplyInfo {
     raw_ptr<PermissionHelper> permission_helper;
-    const WebRequestData& request_data;
+    const raw_ref<const WebRequestData> request_data;
     bool crosses_incognito;
     // Modified by each applied action:
     raw_ptr<std::list<extension_web_request_api_helpers::EventResponseDelta>>
@@ -129,7 +130,7 @@ class WebRequestAction : public base::RefCounted<WebRequestAction> {
   static scoped_refptr<const WebRequestAction> Create(
       content::BrowserContext* browser_context,
       const Extension* extension,
-      const base::Value& json_action,
+      const base::Value::Dict& json_action,
       std::string* error,
       bool* bad_message);
 

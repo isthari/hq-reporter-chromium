@@ -1,6 +1,12 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import {EventGenerator} from '../../../common/event_generator.js';
+import {KeyCode} from '../../../common/key_code.js';
+import {Context, ContextChecker} from '../context_checker.js';
+import {InputController} from '../input_controller.js';
+import {LocaleInfo} from '../locale_info.js';
 
 import {Macro, MacroError} from './macro.js';
 import {MacroName} from './macro_names.js';
@@ -15,9 +21,10 @@ export class RepeatableKeyPressMacro extends Macro {
    * @param {MacroName} macroName The name of the macro.
    * @param {string|number} repeat The number of times to repeat the key press.
    *     May be 3 or '3'.
+   * @param {!ContextChecker=} checker
    */
-  constructor(macroName, repeat) {
-    super(macroName);
+  constructor(macroName, repeat, checker) {
+    super(macroName, checker);
 
     /** @private {number} */
     this.repeat_ = parseInt(repeat, /*base=*/ 10);
@@ -25,21 +32,24 @@ export class RepeatableKeyPressMacro extends Macro {
 
   /** @override */
   checkContext() {
+    const checkContextResult = super.checkContext();
+    if (!checkContextResult.canTryAction) {
+      return checkContextResult;
+    }
+
     if (isNaN(this.repeat_)) {
       // This might occur if the numbers grammar did not recognize the
       // spoken number, so we could get a string like "three" instead of
       // the number 3.
       return this.createFailureCheckContextResult_(
-          MacroError.INVALID_USER_INTENT);
+          MacroError.INVALID_USER_INTENT, Context.INVALID_INPUT);
     }
-    // TODO(crbug.com/1264544): Actually check the context and make this
-    // abstract.
-    return this.createSuccessCheckContextResult_(
-        /*willImmediatelyDisambiguate=*/ false);
+
+    return this.createSuccessCheckContextResult_();
   }
 
   /** @override */
-  runMacro() {
+  run() {
     for (let i = 0; i < this.repeat_; i++) {
       this.doKeyPress();
     }
@@ -50,15 +60,16 @@ export class RepeatableKeyPressMacro extends Macro {
   doKeyPress() {}
 }
 
-/**
- * Macro to delete by character.
- */
+/** Macro to delete by character. */
 export class DeletePreviousCharacterMacro extends RepeatableKeyPressMacro {
   /**
+   * @param {!InputController} inputController
    * @param {number=} repeat The number of characters to delete.
    */
-  constructor(repeat = 1) {
-    super(MacroName.DELETE_PREV_CHAR, repeat);
+  constructor(inputController, repeat = 1) {
+    super(
+        MacroName.DELETE_PREV_CHAR, repeat,
+        new ContextChecker(inputController).add(Context.EMPTY_EDITABLE));
   }
 
   /** @override */
@@ -67,61 +78,54 @@ export class DeletePreviousCharacterMacro extends RepeatableKeyPressMacro {
   }
 }
 
-/**
- * Macro to navigate to the previous character.
- */
+/** Macro to navigate to the previous character. */
 export class NavPreviousCharMacro extends RepeatableKeyPressMacro {
   /**
-   * @param {boolean} isRTLLocale Whether the Dictation speech recognition
-   *     locale is right-to-left.
+   * @param {!InputController} inputController
    * @param {number=} repeat The number of characters to move.
    */
-  constructor(isRTLLocale, repeat = 1) {
-    super(MacroName.NAV_PREV_CHAR, repeat);
-
-    /** @private {boolean} */
-    this.isRTLLocale_ = isRTLLocale;
+  constructor(inputController, repeat = 1) {
+    super(
+        MacroName.NAV_PREV_CHAR, repeat,
+        new ContextChecker(inputController).add(Context.EMPTY_EDITABLE));
   }
 
   /** @override */
   doKeyPress() {
     EventGenerator.sendKeyPress(
-        this.isRTLLocale_ ? KeyCode.RIGHT : KeyCode.LEFT);
+        LocaleInfo.isRTLLocale() ? KeyCode.RIGHT : KeyCode.LEFT);
   }
 }
 
-/**
- * Macro to navigate to the next character.
- */
+/** Macro to navigate to the next character. */
 export class NavNextCharMacro extends RepeatableKeyPressMacro {
   /**
-   * @param {boolean} isRTLLocale Whether the Dictation speech recognition
-   *     locale is right-to-left.
+   * @param {!InputController} inputController
    * @param {number=} repeat The number of characters to move.
    */
-  constructor(isRTLLocale, repeat = 1) {
-    super(MacroName.NAV_NEXT_CHAR, repeat);
-
-    /** @private {boolean} */
-    this.isRTLLocale_ = isRTLLocale;
+  constructor(inputController, repeat = 1) {
+    super(
+        MacroName.NAV_NEXT_CHAR, repeat,
+        new ContextChecker(inputController).add(Context.EMPTY_EDITABLE));
   }
 
   /** @override */
   doKeyPress() {
     EventGenerator.sendKeyPress(
-        this.isRTLLocale_ ? KeyCode.LEFT : KeyCode.RIGHT);
+        LocaleInfo.isRTLLocale() ? KeyCode.LEFT : KeyCode.RIGHT);
   }
 }
 
-/**
- * Macro to navigate to the previous line.
- */
+/** Macro to navigate to the previous line. */
 export class NavPreviousLineMacro extends RepeatableKeyPressMacro {
   /**
+   * @param {!InputController} inputController
    * @param {number=} repeat The number of lines to move.
    */
-  constructor(repeat = 1) {
-    super(MacroName.NAV_PREV_LINE, repeat);
+  constructor(inputController, repeat = 1) {
+    super(
+        MacroName.NAV_PREV_LINE, repeat,
+        new ContextChecker(inputController).add(Context.EMPTY_EDITABLE));
   }
 
   /** @override */
@@ -130,15 +134,16 @@ export class NavPreviousLineMacro extends RepeatableKeyPressMacro {
   }
 }
 
-/**
- * Macro to navigate to the next line.
- */
+/** Macro to navigate to the next line. */
 export class NavNextLineMacro extends RepeatableKeyPressMacro {
   /**
+   * @param {!InputController} inputController
    * @param {number=} repeat The number of lines to move.
    */
-  constructor(repeat = 1) {
-    super(MacroName.NAV_NEXT_LINE, repeat);
+  constructor(inputController, repeat = 1) {
+    super(
+        MacroName.NAV_NEXT_LINE, repeat,
+        new ContextChecker(inputController).add(Context.EMPTY_EDITABLE));
   }
 
   /** @override */
@@ -147,12 +152,15 @@ export class NavNextLineMacro extends RepeatableKeyPressMacro {
   }
 }
 
-/**
- * Macro to copy selected text.
- */
+/** Macro to copy selected text. */
 export class CopySelectedTextMacro extends RepeatableKeyPressMacro {
-  constructor() {
-    super(MacroName.COPY_SELECTED_TEXT, /*repeat=*/ 1);
+  /** @param {!InputController} inputController */
+  constructor(inputController) {
+    super(
+        MacroName.COPY_SELECTED_TEXT, /*repeat=*/ 1,
+        new ContextChecker(inputController)
+            .add(Context.EMPTY_EDITABLE)
+            .add(Context.NO_SELECTION));
   }
 
   /** @override */
@@ -161,9 +169,7 @@ export class CopySelectedTextMacro extends RepeatableKeyPressMacro {
   }
 }
 
-/**
- * Macro to paste text.
- */
+/** Macro to paste text. */
 export class PasteTextMacro extends RepeatableKeyPressMacro {
   constructor() {
     super(MacroName.PASTE_TEXT, /*repeat=*/ 1);
@@ -175,12 +181,15 @@ export class PasteTextMacro extends RepeatableKeyPressMacro {
   }
 }
 
-/**
- * Macro to cut selected text.
- */
+/** Macro to cut selected text. */
 export class CutSelectedTextMacro extends RepeatableKeyPressMacro {
-  constructor() {
-    super(MacroName.CUT_SELECTED_TEXT, /*repeat=*/ 1);
+  /** @param {!InputController} inputController */
+  constructor(inputController) {
+    super(
+        MacroName.CUT_SELECTED_TEXT, /*repeat=*/ 1,
+        new ContextChecker(inputController)
+            .add(Context.EMPTY_EDITABLE)
+            .add(Context.NO_SELECTION));
   }
 
   /** @override */
@@ -189,9 +198,7 @@ export class CutSelectedTextMacro extends RepeatableKeyPressMacro {
   }
 }
 
-/**
- * Macro to undo a text editing action.
- */
+/** Macro to undo a text editing action. */
 export class UndoTextEditMacro extends RepeatableKeyPressMacro {
   constructor() {
     super(MacroName.UNDO_TEXT_EDIT, /*repeat=*/ 1);
@@ -203,9 +210,7 @@ export class UndoTextEditMacro extends RepeatableKeyPressMacro {
   }
 }
 
-/**
- * Macro to redo a text editing action.
- */
+/** Macro to redo a text editing action. */
 export class RedoActionMacro extends RepeatableKeyPressMacro {
   constructor() {
     super(MacroName.REDO_ACTION, /*repeat=*/ 1);
@@ -217,12 +222,13 @@ export class RedoActionMacro extends RepeatableKeyPressMacro {
   }
 }
 
-/**
- * Macro to select all text.
- */
+/** Macro to select all text. */
 export class SelectAllTextMacro extends RepeatableKeyPressMacro {
-  constructor() {
-    super(MacroName.SELECT_ALL_TEXT, /*repeat=*/ 1);
+  /** @param {!InputController} inputController */
+  constructor(inputController) {
+    super(
+        MacroName.SELECT_ALL_TEXT, /*repeat=*/ 1,
+        new ContextChecker(inputController).add(Context.EMPTY_EDITABLE));
   }
 
   /** @override */
@@ -231,23 +237,200 @@ export class SelectAllTextMacro extends RepeatableKeyPressMacro {
   }
 }
 
-/**
- * Macro to unselect text.
- */
+/** Macro to unselect text. */
 export class UnselectTextMacro extends RepeatableKeyPressMacro {
-  /**
-   * @param {boolean} isRTLLocale Whether the Dictation speech recognition
-   *     locale is right-to-left.
-   */
-  constructor(isRTLLocale) {
-    super(MacroName.UNSELECT_TEXT, /*repeat=*/ 1);
-    /** @private {boolean} */
-    this.isRTLLocale_ = isRTLLocale;
+  /** @param {!InputController} inputController */
+  constructor(inputController) {
+    super(
+        MacroName.UNSELECT_TEXT, /*repeat=*/ 1,
+        new ContextChecker(inputController)
+            .add(Context.EMPTY_EDITABLE)
+            .add(Context.NO_SELECTION));
   }
 
   /** @override */
   doKeyPress() {
     EventGenerator.sendKeyPress(
-        this.isRTLLocale_ ? KeyCode.LEFT : KeyCode.RIGHT);
+        LocaleInfo.isRTLLocale() ? KeyCode.LEFT : KeyCode.RIGHT);
+  }
+}
+
+/** Macro to delete the previous word. */
+export class DeletePrevWordMacro extends RepeatableKeyPressMacro {
+  /**
+   * @param {!InputController} inputController
+   * @param {number=} repeat The number of words to delete.
+   */
+  constructor(inputController, repeat = 1) {
+    super(
+        MacroName.DELETE_PREV_WORD, repeat,
+        new ContextChecker(inputController).add(Context.EMPTY_EDITABLE));
+  }
+
+  /** @override */
+  doKeyPress() {
+    EventGenerator.sendKeyPress(KeyCode.BACK, {ctrl: true});
+  }
+}
+
+/** Macro to navigate to the next word. */
+export class NavNextWordMacro extends RepeatableKeyPressMacro {
+  /**
+   * @param {!InputController} inputController
+   * @param {number=} repeat The number of words to move.
+   */
+  constructor(inputController, repeat = 1) {
+    super(
+        MacroName.NAV_NEXT_WORD, repeat,
+        new ContextChecker(inputController).add(Context.EMPTY_EDITABLE));
+  }
+
+  /** @override */
+  doKeyPress() {
+    EventGenerator.sendKeyPress(
+        LocaleInfo.isRTLLocale() ? KeyCode.LEFT : KeyCode.RIGHT, {ctrl: true});
+  }
+}
+
+/** Macro to navigate to the previous word. */
+export class NavPrevWordMacro extends RepeatableKeyPressMacro {
+  /**
+   * @param {!InputController} inputController
+   * @param {number=} repeat The number of words to move.
+   */
+  constructor(inputController, repeat = 1) {
+    super(
+        MacroName.NAV_PREV_WORD, repeat,
+        new ContextChecker(inputController).add(Context.EMPTY_EDITABLE));
+  }
+
+  /** @override */
+  doKeyPress() {
+    EventGenerator.sendKeyPress(
+        LocaleInfo.isRTLLocale() ? KeyCode.RIGHT : KeyCode.LEFT, {ctrl: true});
+  }
+}
+
+/** Macro to delete all text in input field. */
+export class DeleteAllText extends RepeatableKeyPressMacro {
+  /** @param {!InputController} inputController */
+  constructor(inputController) {
+    super(
+        MacroName.DELETE_ALL_TEXT, 1,
+        new ContextChecker(inputController).add(Context.EMPTY_EDITABLE));
+  }
+
+  /** @override */
+  doKeyPress() {
+    EventGenerator.sendKeyPress(KeyCode.A, {ctrl: true});
+    EventGenerator.sendKeyPress(KeyCode.BACK);
+  }
+}
+
+/** Macro to move the cursor to the start of the input field. */
+export class NavStartText extends RepeatableKeyPressMacro {
+  /** @param {!InputController} inputController */
+  constructor(inputController) {
+    super(
+        MacroName.NAV_START_TEXT, 1,
+        new ContextChecker(inputController).add(Context.EMPTY_EDITABLE));
+  }
+
+  /** @override */
+  doKeyPress() {
+    // TODO(b/259397131): Migrate this implementation to use
+    // chrome.automation.setDocumentSelection.
+    EventGenerator.sendKeyPress(
+        KeyCode.LEFT, {search: true, ctrl: true}, /*useRewriters=*/ true);
+  }
+}
+
+/** Macro to move the cursor to the end of the input field. */
+export class NavEndText extends RepeatableKeyPressMacro {
+  /** @param {!InputController} inputController */
+  constructor(inputController) {
+    super(
+        MacroName.NAV_END_TEXT, 1,
+        new ContextChecker(inputController).add(Context.EMPTY_EDITABLE));
+  }
+
+  /** @override */
+  doKeyPress() {
+    // TODO(b/259397131): Migrate this implementation to use
+    // chrome.automation.setDocumentSelection.
+    EventGenerator.sendKeyPress(
+        KeyCode.RIGHT, {search: true, ctrl: true}, /*useRewriters=*/ true);
+  }
+}
+
+/** Macro to select the previous word in the input field. */
+export class SelectPrevWord extends RepeatableKeyPressMacro {
+  /**
+   * @param {!InputController} inputController
+   * @param {number=} repeat The number of previous words to select.
+   */
+  constructor(inputController, repeat = 1) {
+    super(
+        MacroName.SELECT_PREV_WORD, repeat,
+        new ContextChecker(inputController).add(Context.EMPTY_EDITABLE));
+  }
+
+  /** @override */
+  doKeyPress() {
+    EventGenerator.sendKeyPress(KeyCode.LEFT, {ctrl: true, shift: true});
+  }
+}
+
+/** Macro to select the next word in the input field. */
+export class SelectNextWord extends RepeatableKeyPressMacro {
+  /**
+   * @param {!InputController} inputController
+   * @param {number=} repeat The number of next words to select.
+   */
+  constructor(inputController, repeat = 1) {
+    super(
+        MacroName.SELECT_NEXT_WORD, repeat,
+        new ContextChecker(inputController).add(Context.EMPTY_EDITABLE));
+  }
+
+  /** @override */
+  doKeyPress() {
+    EventGenerator.sendKeyPress(KeyCode.RIGHT, {ctrl: true, shift: true});
+  }
+}
+
+/** Macro to select the next character in the input field. */
+export class SelectNextChar extends RepeatableKeyPressMacro {
+  /**
+   * @param {!InputController} inputController
+   * @param {number=} repeat The number of next characters to select.
+   */
+  constructor(inputController, repeat = 1) {
+    super(
+        MacroName.SELECT_NEXT_CHAR, repeat,
+        new ContextChecker(inputController).add(Context.EMPTY_EDITABLE));
+  }
+
+  /** @override */
+  doKeyPress() {
+    EventGenerator.sendKeyPress(KeyCode.RIGHT, {shift: true});
+  }
+}
+
+/** Macro to select the previous character in the input field. */
+export class SelectPrevChar extends RepeatableKeyPressMacro {
+  /**
+   * @param {!InputController} inputController
+   * @param {number=} repeat The number of previous characters to select.
+   */
+  constructor(inputController, repeat = 1) {
+    super(
+        MacroName.SELECT_PREV_CHAR, repeat,
+        new ContextChecker(inputController).add(Context.EMPTY_EDITABLE));
+  }
+
+  /** @override */
+  doKeyPress() {
+    EventGenerator.sendKeyPress(KeyCode.LEFT, {shift: true});
   }
 }

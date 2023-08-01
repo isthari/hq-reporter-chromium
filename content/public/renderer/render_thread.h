@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,13 +9,13 @@
 #include <stdint.h>
 #include <memory>
 
-#include "base/callback.h"
-#include "base/metrics/user_metrics_action.h"
+#include "base/auto_reset.h"
+#include "base/functional/callback_forward.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/tracing/protos/chrome_track_event.pbzero.h"
 #include "content/common/content_export.h"
 #include "content/public/child/child_thread.h"
-#include "ipc/ipc_channel_proxy.h"
+#include "services/network/public/mojom/attribution.mojom-forward.h"
 #include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/perfetto/include/perfetto/tracing/traced_proto.h"
@@ -26,7 +26,6 @@ class WaitableEvent;
 }
 
 namespace blink {
-class WebResourceRequestSenderDelegate;
 struct UserAgentMetadata;
 
 namespace scheduler {
@@ -34,15 +33,16 @@ enum class WebRendererProcessType;
 }
 }  // namespace blink
 
+namespace perfetto::protos::pbzero {
+class RenderProcessHost;
+}
+
 namespace IPC {
+class Listener;
 class MessageFilter;
 class SyncChannel;
 class SyncMessageFilter;
 }  // namespace IPC
-
-namespace v8 {
-class Extension;
-}  // namespace v8
 
 namespace content {
 class RenderThreadObserver;
@@ -78,7 +78,8 @@ class CONTENT_EXPORT RenderThread : virtual public ChildThread {
   virtual bool GenerateFrameRoutingID(
       int32_t& routing_id,
       blink::LocalFrameToken& frame_token,
-      base::UnguessableToken& devtools_frame_token) = 0;
+      base::UnguessableToken& devtools_frame_token,
+      blink::DocumentToken& document_token) = 0;
 
   // These map to IPC::ChannelProxy methods.
   virtual void AddFilter(IPC::MessageFilter* filter) = 0;
@@ -87,15 +88,6 @@ class CONTENT_EXPORT RenderThread : virtual public ChildThread {
   // Add/remove observers for the process.
   virtual void AddObserver(RenderThreadObserver* observer) = 0;
   virtual void RemoveObserver(RenderThreadObserver* observer) = 0;
-
-  // Set the WebResourceRequestSender delegate object for this process.
-  // This does not take the ownership of the delegate. It is expected that the
-  // delegate is kept alive while a request may be dispatched.
-  virtual void SetResourceRequestSenderDelegate(
-      blink::WebResourceRequestSenderDelegate* delegate) = 0;
-
-  // Registers the given V8 extension with WebKit.
-  virtual void RegisterExtension(std::unique_ptr<v8::Extension> extension) = 0;
 
   // Post task to all worker threads. Returns number of workers.
   virtual int PostTaskToAllWebWorkers(base::RepeatingClosure closure) = 0;
@@ -112,16 +104,23 @@ class CONTENT_EXPORT RenderThread : virtual public ChildThread {
 
   // Returns the user-agent string.
   virtual blink::WebString GetUserAgent() = 0;
+  virtual blink::WebString GetFullUserAgent() = 0;
   virtual blink::WebString GetReducedUserAgent() = 0;
   virtual const blink::UserAgentMetadata& GetUserAgentMetadata() = 0;
-
-  // Returns whether or not the use-zoom-for-dsf flag is enabled.
-  virtual bool IsUseZoomForDSF() = 0;
 
   // Write a representation of the current Renderer process into a trace.
   virtual void WriteIntoTrace(
       perfetto::TracedProto<perfetto::protos::pbzero::RenderProcessHost>
           proto) = 0;
+
+  // Returns whether web or OS-level Attribution Reporting is supported.
+  // See
+  // https://github.com/WICG/attribution-reporting-api/blob/main/app_to_web.md.
+  virtual network::mojom::AttributionSupport
+  GetAttributionReportingSupport() = 0;
+
+ private:
+  const base::AutoReset<RenderThread*> resetter_;
 };
 
 }  // namespace content

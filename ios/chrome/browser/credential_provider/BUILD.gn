@@ -1,4 +1,4 @@
-# Copyright 2020 The Chromium Authors. All rights reserved.
+# Copyright 2020 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -43,14 +43,18 @@ if (ios_enable_credential_provider_extension) {
       "//components/password_manager/core/common:features",
       "//components/prefs:prefs",
       "//components/signin/public/identity_manager",
-      "//ios/chrome/browser/browser_state",
+      "//components/sync/base",
+      "//ios/chrome/browser/favicon",
       "//ios/chrome/browser/passwords",
+      "//ios/chrome/browser/shared/model/browser_state",
       "//ios/chrome/browser/signin",
+      "//ios/chrome/browser/signin:system_identity",
       "//ios/chrome/browser/sync",
       "//ios/chrome/common/app_group",
       "//ios/chrome/common/credential_provider",
       "//ios/chrome/common/credential_provider:ui",
-      "//ios/public/provider/chrome/browser/signin",
+      "//ios/chrome/common/ui/favicon:favicon",
+      "//ios/chrome/common/ui/favicon:favicon_constants",
       "//url",
     ]
     frameworks = [
@@ -66,24 +70,30 @@ if (ios_enable_credential_provider_extension) {
       "archivable_credential+password_form_unittest.mm",
       "credential_provider_migrator_unittest.mm",
       "credential_provider_service_unittest.mm",
+      "credential_provider_util_unittest.mm",
     ]
     deps = [
       ":credential_provider",
       "//base/test:test_support",
       "//components/autofill/core/common",
+      "//components/favicon/core",
       "//components/password_manager/core/browser:test_support",
       "//components/password_manager/core/common",
       "//components/prefs",
       "//components/prefs:test_support",
-      "//ios/chrome/browser/browser_state:test_support",
+      "//components/variations:test_support",
+      "//ios/chrome/browser/favicon",
+      "//ios/chrome/browser/history",
+      "//ios/chrome/browser/shared/model/application_context",
+      "//ios/chrome/browser/shared/model/browser_state:test_support",
       "//ios/chrome/browser/signin",
+      "//ios/chrome/browser/signin:fake_system_identity",
+      "//ios/chrome/browser/signin:fake_system_identity_manager",
       "//ios/chrome/browser/signin:test_support",
       "//ios/chrome/common/app_group",
       "//ios/chrome/common/credential_provider",
       "//ios/chrome/common/credential_provider:ui",
       "//ios/chrome/test:test_support",
-      "//ios/public/provider/chrome/browser/signin:fake_chrome_identity",
-      "//ios/public/provider/chrome/browser/signin:test_support",
       "//ios/web/public/test",
       "//testing/gtest",
       "//url",

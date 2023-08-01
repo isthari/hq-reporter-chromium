@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,14 +13,18 @@
 #include <string>
 #include <vector>
 
+#include <third_party/abseil-cpp/absl/types/optional.h>
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/time/time.h"
 #include "base/values.h"
 #include "chrome/test/chromedriver/chrome/device_metrics.h"
 #include "chrome/test/chromedriver/chrome/devtools_http_client.h"
 #include "chrome/test/chromedriver/chrome/log.h"
+#include "chrome/test/chromedriver/chrome/mobile_device.h"
 #include "chrome/test/chromedriver/net/net_util.h"
 #include "chrome/test/chromedriver/session.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
 class CommandLine;
@@ -38,6 +42,8 @@ class Switches {
   void SetSwitch(const std::string& name);
   void SetSwitch(const std::string& name, const std::string& value);
   void SetSwitch(const std::string& name, const base::FilePath& value);
+
+  void SetMultivaluedSwitch(const std::string& name, const std::string& value);
 
   // In case of same key, |switches| will override.
   void SetFromSwitches(const Switches& switches);
@@ -96,7 +102,7 @@ struct Capabilities {
 
   // Accepts all W3C defined capabilities
   // and all ChromeDriver-specific extensions.
-  Status Parse(const base::DictionaryValue& desired_caps,
+  Status Parse(const base::Value::Dict& desired_caps,
                bool w3c_compliant = true);
 
   //
@@ -153,8 +159,7 @@ struct Capabilities {
   // ChromeDriver dies.
   bool detach;
 
-  // Device metrics for use in Device Emulation.
-  std::unique_ptr<DeviceMetrics> device_metrics;
+  absl::optional<MobileDevice> mobile_device;
 
   // Set of switches which should be removed from default list when launching
   // Chrome.
@@ -165,7 +170,7 @@ struct Capabilities {
   // Time to wait for extension background page to appear. If 0, no waiting.
   base::TimeDelta extension_load_timeout;
 
-  std::unique_ptr<base::DictionaryValue> local_state;
+  std::unique_ptr<base::Value::Dict> local_state;
 
   std::string log_path;
 
@@ -180,7 +185,7 @@ struct Capabilities {
 
   base::Value devtools_events_logging_prefs;
 
-  std::unique_ptr<base::DictionaryValue> prefs;
+  std::unique_ptr<base::Value::Dict> prefs;
 
   Switches switches;
 
@@ -189,7 +194,7 @@ struct Capabilities {
   bool webSocketUrl = false;
 };
 
-bool GetChromeOptionsDictionary(const base::DictionaryValue& params,
-                                const base::DictionaryValue** out);
+bool GetChromeOptionsDictionary(const base::Value::Dict& params,
+                                const base::Value::Dict** out);
 
 #endif  // CHROME_TEST_CHROMEDRIVER_CAPABILITIES_H_

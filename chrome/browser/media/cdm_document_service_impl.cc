@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "content/public/browser/browser_context.h"
@@ -27,8 +27,8 @@
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "ash/components/settings/cros_settings_names.h"
 #include "chrome/browser/ash/settings/cros_settings.h"
+#include "chromeos/ash/components/settings/cros_settings_names.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
@@ -45,12 +45,14 @@
 
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/system/sys_info.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "base/win/security_util.h"
 #include "base/win/sid.h"
 #include "chrome/browser/media/cdm_pref_service_helper.h"
+#include "chrome/browser/media/media_foundation_service_monitor.h"
 #include "media/cdm/win/media_foundation_cdm.h"
 #include "sandbox/policy/win/lpac_capability.h"
 #endif  // BUILDFLAG(IS_WIN)
@@ -107,7 +109,7 @@ bool CreateCdmStorePathRootAndGrantAccessIfNeeded(
   auto sids = base::win::Sid::FromNamedCapabilityVector(
       {sandbox::policy::kMediaFoundationCdmData});
   return base::win::GrantAccessToPath(
-      cdm_store_path_root, *sids,
+      cdm_store_path_root, sids,
       FILE_GENERIC_READ | FILE_GENERIC_WRITE | GENERIC_EXECUTE | DELETE,
       CONTAINER_INHERIT_ACE | OBJECT_INHERIT_ACE);
 }
@@ -133,7 +135,7 @@ void CdmDocumentServiceImpl::Create(
     content::RenderFrameHost* render_frame_host,
     mojo::PendingReceiver<media::mojom::CdmDocumentService> receiver) {
   DVLOG(2) << __func__;
-  DCHECK(render_frame_host);
+  CHECK(render_frame_host);
 
   // PlatformVerificationFlow and the pref service requires to be run/accessed
   // on the UI thread.
@@ -141,14 +143,13 @@ void CdmDocumentServiceImpl::Create(
 
   // The object is bound to the lifetime of |render_frame_host| and the mojo
   // connection. See DocumentService for details.
-  new CdmDocumentServiceImpl(render_frame_host, std::move(receiver));
+  new CdmDocumentServiceImpl(*render_frame_host, std::move(receiver));
 }
 
 CdmDocumentServiceImpl::CdmDocumentServiceImpl(
-    content::RenderFrameHost* render_frame_host,
+    content::RenderFrameHost& render_frame_host,
     mojo::PendingReceiver<media::mojom::CdmDocumentService> receiver)
-    : DocumentService(render_frame_host, std::move(receiver)),
-      render_frame_host_(render_frame_host) {}
+    : DocumentService(render_frame_host, std::move(receiver)) {}
 
 CdmDocumentServiceImpl::~CdmDocumentServiceImpl() {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
@@ -166,7 +167,7 @@ void CdmDocumentServiceImpl::ChallengePlatform(
 
 #if BUILDFLAG(IS_CHROMEOS)
   bool success = platform_verification::PerformBrowserChecks(
-      render_frame_host()->GetMainFrame());
+      render_frame_host().GetMainFrame());
   if (!success) {
     std::move(callback).Run(false, std::string(), std::string(), std::string());
     return;
@@ -177,8 +178,8 @@ void CdmDocumentServiceImpl::ChallengePlatform(
   auto* lacros_service = chromeos::LacrosService::Get();
   if (lacros_service &&
       lacros_service->IsAvailable<crosapi::mojom::ContentProtection>() &&
-      lacros_service->GetInterfaceVersion(
-          crosapi::mojom::ContentProtection::Uuid_) >=
+      lacros_service
+              ->GetInterfaceVersion<crosapi::mojom::ContentProtection>() >=
           static_cast<int>(crosapi::mojom::ContentProtection::
                                kChallengePlatformMinVersion)) {
     lacros_service->GetRemote<crosapi::mojom::ContentProtection>()
@@ -196,7 +197,7 @@ void CdmDocumentServiceImpl::ChallengePlatform(
         base::MakeRefCounted<ash::attestation::PlatformVerificationFlow>();
 
   platform_verification_flow_->ChallengePlatformKey(
-      content::WebContents::FromRenderFrameHost(render_frame_host()),
+      content::WebContents::FromRenderFrameHost(&render_frame_host()),
       service_id, challenge,
       base::BindOnce(&CdmDocumentServiceImpl::OnPlatformChallenged,
                      weak_factory_.GetWeakPtr(), std::move(callback)));
@@ -261,7 +262,7 @@ void CdmDocumentServiceImpl::GetStorageId(uint32_t version,
   if (version == kCurrentStorageIdVersion ||
       version == kRequestLatestStorageIdVersion) {
     ComputeStorageId(
-        GetStorageIdSaltFromProfile(render_frame_host_), origin(),
+        GetStorageIdSaltFromProfile(&render_frame_host()), origin(),
         base::BindOnce(&CdmDocumentServiceImpl::OnStorageIdResponse,
                        weak_factory_.GetWeakPtr(), std::move(callback)));
     return;
@@ -290,7 +291,7 @@ void CdmDocumentServiceImpl::IsVerifiedAccessEnabled(
   // If we are in guest/incognito mode, then verified access is effectively
   // disabled.
   Profile* profile =
-      Profile::FromBrowserContext(render_frame_host_->GetBrowserContext());
+      Profile::FromBrowserContext(render_frame_host().GetBrowserContext());
   if (profile->IsOffTheRecord() || profile->IsGuestSession()) {
     std::move(callback).Run(false);
     return;
@@ -300,8 +301,8 @@ void CdmDocumentServiceImpl::IsVerifiedAccessEnabled(
   auto* lacros_service = chromeos::LacrosService::Get();
   if (lacros_service &&
       lacros_service->IsAvailable<crosapi::mojom::ContentProtection>() &&
-      lacros_service->GetInterfaceVersion(
-          crosapi::mojom::ContentProtection::Uuid_) >=
+      lacros_service
+              ->GetInterfaceVersion<crosapi::mojom::ContentProtection>() >=
           static_cast<int>(crosapi::mojom::ContentProtection::
                                kIsVerifiedAccessEnabledMinVersion)) {
     lacros_service->GetRemote<crosapi::mojom::ContentProtection>()
@@ -328,7 +329,7 @@ void CdmDocumentServiceImpl::GetMediaFoundationCdmData(
   }
 
   Profile* profile =
-      Profile::FromBrowserContext(render_frame_host()->GetBrowserContext());
+      Profile::FromBrowserContext(render_frame_host().GetBrowserContext());
 
   PrefService* user_prefs = profile->GetPrefs();
   std::unique_ptr<CdmPrefData> pref_data =
@@ -356,9 +357,60 @@ void CdmDocumentServiceImpl::SetCdmClientToken(
   }
 
   PrefService* user_prefs =
-      Profile::FromBrowserContext(render_frame_host()->GetBrowserContext())
+      Profile::FromBrowserContext(render_frame_host().GetBrowserContext())
           ->GetPrefs();
   CdmPrefServiceHelper::SetCdmClientToken(user_prefs, cdm_origin, client_token);
+}
+
+void CdmDocumentServiceImpl::OnCdmEvent(media::CdmEvent event,
+                                        uint32_t hresult) {
+  DVLOG(1) << __func__ << ": event=" << static_cast<int>(event);
+
+  auto* monitor = MediaFoundationServiceMonitor::GetInstance();
+
+  // Hardware context reset after power or display change is expected.
+  if (event == media::CdmEvent::kHardwareContextReset) {
+    bool has_change = monitor->HasRecentPowerOrDisplayChange();
+    base::UmaHistogramBoolean(
+        "Media.EME.MediaFoundationService.HardwareContextReset", has_change);
+    if (has_change) {
+      DVLOG(2) << __func__
+               << ": HardwareContextReset ignored after power/display change";
+      return;
+    }
+  }
+
+  // CdmDocumentServiceImpl is shared by all CDMs in the same RenderFrame.
+  //
+  // We choose to only handle each event type at most once because:
+  // 1. A site could create many CDM instances, e.g. to prefetch licenses. This
+  //    could cause multiple errors to be reported.
+  // 2. The media::Renderer could be destroyed and then recreated as part of the
+  //    suspend/resume process (e.g. paused for long time). This could cause
+  //    multiple significant playback or hardware context reset without playback
+  //    to be reported.
+  // In all cases, our data could be skewed if we don't throttle them.
+  //
+  // A different event will still be reported. For example, if an error happens
+  // after a significant playback both will be reported. This is fine since
+  // MediaFoundationServiceMonitor calculates a score.
+  if (auto [ignored, inserted] = reported_cdm_event_.insert(event); !inserted) {
+    DVLOG(2) << __func__ << ": Repeated CdmEvent ignored";
+    return;
+  }
+
+  switch (event) {
+    case media::CdmEvent::kSignificantPlayback:
+      monitor->OnSignificantPlayback();
+      break;
+    case media::CdmEvent::kPlaybackError:
+    case media::CdmEvent::kCdmError:
+      monitor->OnPlaybackOrCdmError(static_cast<HRESULT>(hresult));
+      break;
+    case media::CdmEvent::kHardwareContextReset:
+      monitor->OnUnexpectedHardwareContextReset();
+      break;
+  }
 }
 
 // This function goes over each folder located under the MediaFoundationCdm

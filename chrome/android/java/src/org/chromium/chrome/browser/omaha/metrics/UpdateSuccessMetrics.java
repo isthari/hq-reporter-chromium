@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -97,14 +97,6 @@ public class UpdateSuccessMetrics {
             boolean expired = timedelta > UpdateConfigs.getUpdateAttributionWindowMs();
             boolean success =
                     !TextUtils.equals(state.getVersion(), VersionConstants.PRODUCT_VERSION);
-
-            if (!state.getRecordedSession()) {
-                HistogramUtils.recordResultHistogram(AttributionType.SESSION, state, success);
-            }
-
-            if (success || expired) {
-                HistogramUtils.recordResultHistogram(AttributionType.TIME_WINDOW, state, success);
-            }
 
             if (success || expired) {
                 mProvider.clear();

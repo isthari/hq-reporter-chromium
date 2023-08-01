@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,9 +13,9 @@
 #include <utility>
 #include <vector>
 
-#include "base/callback.h"
 #include "base/cancelable_callback.h"
 #include "base/containers/linked_list.h"
+#include "base/functional/callback.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
 #include "ios/net/cookies/cookie_cache.h"
@@ -24,14 +24,13 @@
 #include "net/cookies/cookie_change_dispatcher.h"
 #include "net/cookies/cookie_monster.h"
 #include "net/cookies/cookie_store.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
 @class NSHTTPCookie;
 @class NSArray;
 
 namespace net {
-
-extern bool const kFirstPartySetsEnabled;
 
 class NetLog;
 
@@ -86,10 +85,13 @@ class CookieStoreIOS : public net::CookieStore,
   void SetMetricsEnabled();
 
   // Implementation of the net::CookieStore interface.
-  void SetCanonicalCookieAsync(std::unique_ptr<CanonicalCookie> cookie,
-                               const GURL& source_url,
-                               const net::CookieOptions& options,
-                               SetCookiesCallback callback) override;
+  void SetCanonicalCookieAsync(
+      std::unique_ptr<CanonicalCookie> cookie,
+      const GURL& source_url,
+      const net::CookieOptions& options,
+      SetCookiesCallback callback,
+      absl::optional<net::CookieAccessResult> cookie_access_result =
+          absl::nullopt) override;
   void GetCookieListWithOptionsAsync(
       const GURL& url,
       const net::CookieOptions& options,
@@ -124,8 +126,6 @@ class CookieStoreIOS : public net::CookieStore,
   SetCookiesCallback WrapSetCallback(SetCookiesCallback callback);
   DeleteCallback WrapDeleteCallback(DeleteCallback callback);
   base::OnceClosure WrapClosure(base::OnceClosure callback);
-
-  bool metrics_enabled() { return metrics_enabled_; }
 
   net::CookieMonster* cookie_monster() { return cookie_monster_.get(); }
 
@@ -211,7 +211,6 @@ class CookieStoreIOS : public net::CookieStore,
 
   std::unique_ptr<net::CookieMonster> cookie_monster_;
   std::unique_ptr<SystemCookieStore> system_store_;
-  bool metrics_enabled_;
   base::CancelableOnceClosure flush_closure_;
 
   // Cookie notification methods.

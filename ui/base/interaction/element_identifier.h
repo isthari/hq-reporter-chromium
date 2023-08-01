@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,8 @@
 #include <set>
 
 #include "base/component_export.h"
+#include "base/memory/raw_ptr_exclusion.h"
+#include "base/numerics/safe_conversions.h"
 #include "ui/base/class_property.h"
 
 // Overview:
@@ -24,7 +26,12 @@
 //
 //   DECLARE_ELEMENT_IDENTIFIER_VALUE(kMyIdentifierName);
 //
-// In the corresponding .cc file, make sure it is defined:
+// If the identifier should be exported, declare it with the following instead:
+//
+//   DECLARE_EXPORTED_ELEMENT_IDENTIFIER_VALUE(MY_EXPORT, kMyIdentifierName);
+//
+// Regardless of whether the declared identifier is exported or not, make sure
+// it is defined in the corresponding .cc file:
 //
 //   DEFINE_ELEMENT_IDENTIFIER_VALUE(kMyIdentifierName);
 //
@@ -100,8 +107,7 @@ struct ElementIdentifierImpl {
 class ElementTracker;
 
 // Holds a globally-unqiue, value-typed identifier from a set of identifiers
-// which can be declared in any static scope using
-// DECLARE_UNIQUE_ELEMENT_VALUE().
+// which can be declared in any static scope.
 //
 // This type is comparable and supports operator bool and negation, where
 // default-constructed instances have false value and all other values evaluate
@@ -172,7 +178,9 @@ class COMPONENT_EXPORT(UI_BASE) ElementIdentifier final {
   // The value of the identifier. Because all non-null values point to static
   // ElementIdentifierImpl objects this can be treated as a value from a set of
   // unique, opaque handles.
-  const internal::ElementIdentifierImpl* handle_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #union, #global-scope, #constexpr-ctor-field-initializer
+  RAW_PTR_EXCLUSION const internal::ElementIdentifierImpl* handle_ = nullptr;
 };
 
 // The context of an element is unique to the top-level, primary window that the
@@ -246,7 +254,7 @@ class ClassPropertyCaster<ui::ElementIdentifier> {
  public:
   static int64_t ToInt64(ui::ElementIdentifier x) { return x.GetRawValue(); }
   static ui::ElementIdentifier FromInt64(int64_t x) {
-    return ui::ElementIdentifier::FromRawValue(x);
+    return ui::ElementIdentifier::FromRawValue(base::checked_cast<intptr_t>(x));
   }
 };
 
@@ -255,9 +263,15 @@ class ClassPropertyCaster<ui::ElementIdentifier> {
 // Declaring identifiers outside a scope:
 
 // Use this code in the .h file to declare a new identifier.
-#define DECLARE_ELEMENT_IDENTIFIER_VALUE(IdentifierName)                     \
-  extern const ui::internal::ElementIdentifierImpl IdentifierName##Provider; \
-  constexpr ui::ElementIdentifier IdentifierName(&IdentifierName##Provider)
+#define DECLARE_ELEMENT_IDENTIFIER_VALUE(IdentifierName) \
+  DECLARE_EXPORTED_ELEMENT_IDENTIFIER_VALUE(, IdentifierName)
+
+// Use this code in the .h file to declare a new exported identifier.
+#define DECLARE_EXPORTED_ELEMENT_IDENTIFIER_VALUE(ExportName, IdentifierName) \
+  ExportName extern const ui::internal::ElementIdentifierImpl                 \
+      IdentifierName##Provider;                                               \
+  ExportName constexpr ui::ElementIdentifier IdentifierName(                  \
+      &IdentifierName##Provider)
 
 // Use this code in the .cc file to define a new identifier.
 #define DEFINE_ELEMENT_IDENTIFIER_VALUE(IdentifierName)                    \
@@ -287,8 +301,17 @@ class ClassPropertyCaster<ui::ElementIdentifier> {
 // text of the name generated is unique, though that makes the exact text
 // harder to predict.
 
-#define LOCAL_ELEMENT_IDENTIFIER_NAME(File, Line, Name) \
+// This helper macro is required because of how __LINE__ is handled when passed
+// between macros, you need an intermediate macro in order to stringify it.
+// DO NOT CALL DIRECTLY; used by DEFINE_LOCAL_ELEMENT_IDENTIFIER_VALUE().
+#define LOCAL_ELEMENT_IDENTIFIER_NAME_HELPER(File, Line, Name) \
   File "::" #Line "::" #Name
+
+// Intermediate macro required to stringify __LINE__; see
+// LOCAL_ELEMENT_IDENTIFIER_NAME_HELPER().
+// DO NOT CALL DIRECTLY; used by DEFINE_LOCAL_ELEMENT_IDENTIFIER_VALUE().
+#define LOCAL_ELEMENT_IDENTIFIER_NAME(File, Line, Name) \
+  LOCAL_ELEMENT_IDENTIFIER_NAME_HELPER(File, Line, Name)
 
 // Use this code to declare a local identifier in a function body.
 #define DEFINE_LOCAL_ELEMENT_IDENTIFIER_VALUE(IdentifierName)                 \

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,15 +7,13 @@
 
 #import <Foundation/Foundation.h>
 
-#import "ios/chrome/browser/ui/tab_switcher/tab_strip/tab_favicon_data_source.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_strip/tab_strip_consumer_delegate.h"
 
 @protocol TabStripConsumer;
 class WebStateList;
 
 // This mediator used to manage model interaction for its consumer.
-@interface TabStripMediator
-    : NSObject <TabFaviconDataSource, TabStripConsumerDelegate>
+@interface TabStripMediator : NSObject <TabStripConsumerDelegate>
 
 // The WebStateList that this mediator listens for any changes on the total
 // number of Webstates.

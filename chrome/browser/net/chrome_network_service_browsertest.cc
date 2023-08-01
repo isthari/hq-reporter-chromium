@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -59,9 +59,9 @@ void SetCookie(network::mojom::CookieManager* cookie_manager) {
   base::Time t = base::Time::Now();
   auto cookie = net::CanonicalCookie::CreateUnsafeCookieForTesting(
       kCookieName, kCookieValue, "www.test.com", "/", t, t + base::Days(1),
-      base::Time(), true /* secure */, false /* http-only*/,
+      base::Time(), base::Time(), /*secure=*/true, /*http-only=*/false,
       net::CookieSameSite::NO_RESTRICTION, net::COOKIE_PRIORITY_DEFAULT,
-      false /* same_party */);
+      /*same_party=*/false);
   base::RunLoop run_loop;
   cookie_manager->SetCanonicalCookie(
       *cookie, net::cookie_util::SimulatedCookieSource(*cookie, "https"),
@@ -104,7 +104,8 @@ class ChromeNetworkServiceBrowserTest
         network::mojom::NetworkContextParams::New();
     context_params->enable_encrypted_cookies = enable_encrypted_cookies;
     context_params->file_paths = network::mojom::NetworkContextFilePaths::New();
-    context_params->file_paths->data_path = browser()->profile()->GetPath();
+    context_params->file_paths->data_directory =
+        browser()->profile()->GetPath();
     context_params->file_paths->cookie_database_name =
         base::FilePath(FILE_PATH_LITERAL("cookies"));
     context_params->cert_verifier_params = content::GetCertVerifierParams(
@@ -172,6 +173,62 @@ INSTANTIATE_TEST_SUITE_P(OutOfProcess,
                          ChromeNetworkServiceBrowserTest,
                          ::testing::Values(false));
 
+#if BUILDFLAG(IS_WIN)
+class ChromeNetworkServiceBrowserCookieLockTest
+    : public InProcessBrowserTest,
+      public ::testing::WithParamInterface<bool> {
+ public:
+  void SetUp() override {
+    scoped_feature_list_.InitWithFeatureState(
+        features::kLockProfileCookieDatabase, ShouldBeLocked());
+
+    InProcessBrowserTest::SetUp();
+  }
+
+  void SetUpOnMainThread() override {
+    host_resolver()->AddRule("*", "127.0.0.1");
+    ASSERT_TRUE(embedded_test_server()->Start());
+  }
+
+ protected:
+  const bool& ShouldBeLocked() { return GetParam(); }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+// This test verifies that if the kLockProfileCookieDatabase feature is enabled,
+// then the cookie store cannot be opened once sqlite has an exclusive lock on
+// the file.
+IN_PROC_BROWSER_TEST_P(ChromeNetworkServiceBrowserCookieLockTest,
+                       CookiesAreLocked) {
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(), embedded_test_server()->GetURL("/title1.html")));
+  base::FilePath cookie_filename = browser()
+                                       ->profile()
+                                       ->GetPath()
+                                       .Append(chrome::kNetworkDataDirname)
+                                       .Append(chrome::kCookieFilename);
+  {
+    base::ScopedAllowBlockingForTesting allow_blocking;
+
+    ASSERT_TRUE(base::PathExists(cookie_filename));
+    base::File cookie_file(
+        cookie_filename,
+        base::File::Flags::FLAG_OPEN_ALWAYS | base::File::Flags::FLAG_READ);
+    EXPECT_EQ(ShouldBeLocked(), !cookie_file.IsValid());
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(All,
+                         ChromeNetworkServiceBrowserCookieLockTest,
+                         ::testing::Bool(),
+                         [](const auto& info) {
+                           return info.param ? "Locked" : "NotLocked";
+                         });
+
+#endif  // BUILDFLAG(IS_WIN)
+
 // See `NetworkServiceBrowserTest` for content's version of tests. This test
 // merely tests that chrome's feature is wired up correctly to the migration
 // code that exists in content.
@@ -180,7 +237,7 @@ class ChromeNetworkServiceMigrationBrowserTest : public InProcessBrowserTest {
   ChromeNetworkServiceMigrationBrowserTest() = default;
 
   void SetUp() override {
-    std::vector<base::Feature> disabled_features, enabled_features;
+    std::vector<base::test::FeatureRef> disabled_features, enabled_features;
 #if BUILDFLAG(IS_WIN)
     // On Windows, the Network Sandbox requires that data migration be enabled
     // to function correctly. Thus, in order to correctly test the case when

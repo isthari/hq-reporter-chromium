@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,13 +27,13 @@ namespace extensions {
 
 namespace {
 
-void CheckRule(const content_settings::Rule& rule,
+void CheckRule(std::unique_ptr<content_settings::Rule> rule,
                const ContentSettingsPattern& primary_pattern,
                const ContentSettingsPattern& secondary_pattern,
                ContentSetting setting) {
-  EXPECT_EQ(primary_pattern.ToString(), rule.primary_pattern.ToString());
-  EXPECT_EQ(secondary_pattern.ToString(), rule.secondary_pattern.ToString());
-  EXPECT_EQ(setting, content_settings::ValueToContentSetting(rule.value));
+  EXPECT_EQ(primary_pattern.ToString(), rule->primary_pattern.ToString());
+  EXPECT_EQ(secondary_pattern.ToString(), rule->secondary_pattern.ToString());
+  EXPECT_EQ(setting, content_settings::ValueToContentSetting(rule->value()));
 }
 
 // Helper class which returns monotonically-increasing base::Time objects.
@@ -69,11 +69,11 @@ ContentSetting GetContentSettingFromStore(
   return content_settings::ValueToContentSetting(setting);
 }
 
-std::vector<content_settings::Rule> GetSettingsForOneTypeFromStore(
-    const ContentSettingsStore* store,
-    ContentSettingsType content_type,
-    bool incognito) {
-  std::vector<content_settings::Rule> rules;
+std::vector<std::unique_ptr<content_settings::Rule>>
+GetSettingsForOneTypeFromStore(const ContentSettingsStore* store,
+                               ContentSettingsType content_type,
+                               bool incognito) {
+  std::vector<std::unique_ptr<content_settings::Rule>> rules;
   std::unique_ptr<content_settings::RuleIterator> rule_iterator(
       store->GetRuleIterator(content_type, incognito));
   if (rule_iterator) {
@@ -169,9 +169,11 @@ TEST_F(ContentSettingsStoreTest, RegisterUnregister) {
 
 TEST_F(ContentSettingsStoreTest, GetAllSettings) {
   const bool incognito = false;
-  std::vector<content_settings::Rule> rules = GetSettingsForOneTypeFromStore(
-      store(), ContentSettingsType::COOKIES, incognito);
+  std::vector<std::unique_ptr<content_settings::Rule>> rules =
+      GetSettingsForOneTypeFromStore(store(), ContentSettingsType::COOKIES,
+                                     incognito);
   ASSERT_EQ(0u, rules.size());
+  rules.clear();
 
   // Register first extension.
   std::string ext_id("my_extension");
@@ -185,7 +187,8 @@ TEST_F(ContentSettingsStoreTest, GetAllSettings) {
   rules = GetSettingsForOneTypeFromStore(store(), ContentSettingsType::COOKIES,
                                          incognito);
   ASSERT_EQ(1u, rules.size());
-  CheckRule(rules[0], pattern, pattern, CONTENT_SETTING_ALLOW);
+  CheckRule(std::move(rules[0]), pattern, pattern, CONTENT_SETTING_ALLOW);
+  rules.clear();
 
   // Register second extension.
   std::string ext_id_2("my_second_extension");
@@ -200,8 +203,9 @@ TEST_F(ContentSettingsStoreTest, GetAllSettings) {
                                          incognito);
   ASSERT_EQ(2u, rules.size());
   // Rules appear in the reverse installation order of the extensions.
-  CheckRule(rules[0], pattern_2, pattern_2, CONTENT_SETTING_BLOCK);
-  CheckRule(rules[1], pattern, pattern, CONTENT_SETTING_ALLOW);
+  CheckRule(std::move(rules[0]), pattern_2, pattern_2, CONTENT_SETTING_BLOCK);
+  CheckRule(std::move(rules[1]), pattern, pattern, CONTENT_SETTING_ALLOW);
+  rules.clear();
 
   // Disable first extension.
   store()->SetExtensionState(ext_id, false);
@@ -209,7 +213,8 @@ TEST_F(ContentSettingsStoreTest, GetAllSettings) {
   rules = GetSettingsForOneTypeFromStore(store(), ContentSettingsType::COOKIES,
                                          incognito);
   ASSERT_EQ(1u, rules.size());
-  CheckRule(rules[0], pattern_2, pattern_2, CONTENT_SETTING_BLOCK);
+  CheckRule(std::move(rules[0]), pattern_2, pattern_2, CONTENT_SETTING_BLOCK);
+  rules.clear();
 
   // Uninstall second extension.
   store()->UnregisterExtension(ext_id_2);
@@ -243,41 +248,35 @@ TEST_F(ContentSettingsStoreTest, SetFromList) {
   EXPECT_CALL(observer, OnContentSettingChanged(ext_id, false));
 
   // Build a preference list in JSON format.
-  std::vector<base::Value> pref_list;
+  base::Value::List pref_list;
   // {"primaryPattern": pattern, "secondaryPattern": pattern, "type": "cookies",
   //  "setting": "allow"}
-  base::Value dict_value(base::Value::Type::DICTIONARY);
-  dict_value.SetStringKey(ContentSettingsStore::kPrimaryPatternKey,
-                          pattern.ToString());
-  dict_value.SetStringKey(ContentSettingsStore::kSecondaryPatternKey,
-                          pattern.ToString());
-  dict_value.SetStringKey(ContentSettingsStore::kContentSettingsTypeKey,
-                          "cookies");
-  dict_value.SetStringKey(ContentSettingsStore::kContentSettingKey, "allow");
-  pref_list.push_back(std::move(dict_value));
+  base::Value::Dict dict_value;
+  dict_value.Set(ContentSettingsStore::kPrimaryPatternKey, pattern.ToString());
+  dict_value.Set(ContentSettingsStore::kSecondaryPatternKey,
+                 pattern.ToString());
+  dict_value.Set(ContentSettingsStore::kContentSettingsTypeKey, "cookies");
+  dict_value.Set(ContentSettingsStore::kContentSettingKey, "allow");
+  pref_list.Append(std::move(dict_value));
   // Test content settings types that have been removed. Should be ignored.
   // {"primaryPattern": pattern, "secondaryPattern": pattern,
   //  "type": "fullscreen", "setting": "allow"}
-  dict_value = base::Value(base::Value::Type::DICTIONARY);
-  dict_value.SetStringKey(ContentSettingsStore::kPrimaryPatternKey,
-                          pattern.ToString());
-  dict_value.SetStringKey(ContentSettingsStore::kSecondaryPatternKey,
-                          pattern.ToString());
-  dict_value.SetStringKey(ContentSettingsStore::kContentSettingsTypeKey,
-                          "fullscreen");
-  dict_value.SetStringKey(ContentSettingsStore::kContentSettingKey, "allow");
-  pref_list.push_back(std::move(dict_value));
+  dict_value = base::Value::Dict();
+  dict_value.Set(ContentSettingsStore::kPrimaryPatternKey, pattern.ToString());
+  dict_value.Set(ContentSettingsStore::kSecondaryPatternKey,
+                 pattern.ToString());
+  dict_value.Set(ContentSettingsStore::kContentSettingsTypeKey, "fullscreen");
+  dict_value.Set(ContentSettingsStore::kContentSettingKey, "allow");
+  pref_list.Append(std::move(dict_value));
   // {"primaryPattern": pattern, "secondaryPattern": pattern,
   //  "type": "mouselock", "setting": "allow"}
-  dict_value = base::Value(base::Value::Type::DICTIONARY);
-  dict_value.SetStringKey(ContentSettingsStore::kPrimaryPatternKey,
-                          pattern.ToString());
-  dict_value.SetStringKey(ContentSettingsStore::kSecondaryPatternKey,
-                          pattern.ToString());
-  dict_value.SetStringKey(ContentSettingsStore::kContentSettingsTypeKey,
-                          "mouselock");
-  dict_value.SetStringKey(ContentSettingsStore::kContentSettingKey, "allow");
-  pref_list.push_back(std::move(dict_value));
+  dict_value = base::Value::Dict();
+  dict_value.Set(ContentSettingsStore::kPrimaryPatternKey, pattern.ToString());
+  dict_value.Set(ContentSettingsStore::kSecondaryPatternKey,
+                 pattern.ToString());
+  dict_value.Set(ContentSettingsStore::kContentSettingsTypeKey, "mouselock");
+  dict_value.Set(ContentSettingsStore::kContentSettingKey, "allow");
+  pref_list.Append(std::move(dict_value));
 
   store()->SetExtensionContentSettingFromList(ext_id, pref_list,
                                               kExtensionPrefsScopeRegular);
@@ -312,26 +311,24 @@ TEST_F(ContentSettingsStoreTest, RemoveEmbedded) {
   EXPECT_CALL(observer, OnContentSettingChanged(ext_id, false)).Times(1);
 
   // Build a preference list in JSON format.
-  std::vector<base::Value> pref_list;
-  base::Value dict_value(base::Value::Type::DICTIONARY);
-  dict_value.SetStringKey(ContentSettingsStore::kPrimaryPatternKey,
-                          primary_pattern.ToString());
-  dict_value.SetStringKey(ContentSettingsStore::kSecondaryPatternKey,
-                          secondary_pattern.ToString());
-  dict_value.SetStringKey(ContentSettingsStore::kContentSettingsTypeKey,
-                          "cookies");
-  dict_value.SetStringKey(ContentSettingsStore::kContentSettingKey, "allow");
-  pref_list.push_back(std::move(dict_value));
+  base::Value::List pref_list;
+  base::Value::Dict dict_value;
+  dict_value.Set(ContentSettingsStore::kPrimaryPatternKey,
+                 primary_pattern.ToString());
+  dict_value.Set(ContentSettingsStore::kSecondaryPatternKey,
+                 secondary_pattern.ToString());
+  dict_value.Set(ContentSettingsStore::kContentSettingsTypeKey, "cookies");
+  dict_value.Set(ContentSettingsStore::kContentSettingKey, "allow");
+  pref_list.Append(std::move(dict_value));
 
-  dict_value = base::Value(base::Value::Type::DICTIONARY);
-  dict_value.SetStringKey(ContentSettingsStore::kPrimaryPatternKey,
-                          primary_pattern.ToString());
-  dict_value.SetStringKey(ContentSettingsStore::kSecondaryPatternKey,
-                          secondary_pattern.ToString());
-  dict_value.SetStringKey(ContentSettingsStore::kContentSettingsTypeKey,
-                          "geolocation");
-  dict_value.SetStringKey(ContentSettingsStore::kContentSettingKey, "allow");
-  pref_list.push_back(std::move(dict_value));
+  dict_value = base::Value::Dict();
+  dict_value.Set(ContentSettingsStore::kPrimaryPatternKey,
+                 primary_pattern.ToString());
+  dict_value.Set(ContentSettingsStore::kSecondaryPatternKey,
+                 secondary_pattern.ToString());
+  dict_value.Set(ContentSettingsStore::kContentSettingsTypeKey, "geolocation");
+  dict_value.Set(ContentSettingsStore::kContentSettingKey, "allow");
+  pref_list.Append(std::move(dict_value));
 
   store()->SetExtensionContentSettingFromList(ext_id, pref_list,
                                               kExtensionPrefsScopeRegular);
@@ -355,55 +352,50 @@ TEST_F(ContentSettingsStoreTest, SetExtensionContentSettingFromList) {
   std::string extension = "extension_id";
   RegisterExtension(extension);
 
-  base::Value valid_setting(base::Value::Type::DICTIONARY);
-  valid_setting.SetStringKey(ContentSettingsStore::kPrimaryPatternKey,
-                             "http://example1.com");
-  valid_setting.SetStringKey(ContentSettingsStore::kSecondaryPatternKey, "*");
-  valid_setting.SetStringKey(ContentSettingsStore::kContentSettingsTypeKey,
-                             "javascript");
-  valid_setting.SetStringKey(ContentSettingsStore::kContentSettingKey, "allow");
+  base::Value::Dict valid_setting;
+  valid_setting.Set(ContentSettingsStore::kPrimaryPatternKey,
+                    "http://example1.com");
+  valid_setting.Set(ContentSettingsStore::kSecondaryPatternKey, "*");
+  valid_setting.Set(ContentSettingsStore::kContentSettingsTypeKey,
+                    "javascript");
+  valid_setting.Set(ContentSettingsStore::kContentSettingKey, "allow");
 
   // Missing secondary key.
-  base::Value invalid_setting1(base::Value::Type::DICTIONARY);
-  invalid_setting1.SetStringKey(ContentSettingsStore::kPrimaryPatternKey,
-                                "http://example2.com");
-  invalid_setting1.SetStringKey(ContentSettingsStore::kContentSettingsTypeKey,
-                                "javascript");
-  invalid_setting1.SetStringKey(ContentSettingsStore::kContentSettingKey,
-                                "allow");
+  base::Value::Dict invalid_setting1;
+  invalid_setting1.Set(ContentSettingsStore::kPrimaryPatternKey,
+                       "http://example2.com");
+  invalid_setting1.Set(ContentSettingsStore::kContentSettingsTypeKey,
+                       "javascript");
+  invalid_setting1.Set(ContentSettingsStore::kContentSettingKey, "allow");
 
   // Invalid secondary pattern.
-  base::Value invalid_setting2(base::Value::Type::DICTIONARY);
-  invalid_setting2.SetStringKey(ContentSettingsStore::kPrimaryPatternKey,
-                                "http://example3.com");
-  invalid_setting2.SetStringKey(ContentSettingsStore::kSecondaryPatternKey,
-                                "[*.].");
-  invalid_setting2.SetStringKey(ContentSettingsStore::kContentSettingsTypeKey,
-                                "javascript");
-  invalid_setting2.SetStringKey(ContentSettingsStore::kContentSettingKey,
-                                "allow");
+  base::Value::Dict invalid_setting2;
+  invalid_setting2.Set(ContentSettingsStore::kPrimaryPatternKey,
+                       "http://example3.com");
+  invalid_setting2.Set(ContentSettingsStore::kSecondaryPatternKey, "[*.].");
+  invalid_setting2.Set(ContentSettingsStore::kContentSettingsTypeKey,
+                       "javascript");
+  invalid_setting2.Set(ContentSettingsStore::kContentSettingKey, "allow");
 
   // Invalid setting.
-  base::Value invalid_setting3(base::Value::Type::DICTIONARY);
-  invalid_setting3.SetStringKey(ContentSettingsStore::kPrimaryPatternKey,
-                                "http://example4.com");
-  invalid_setting3.SetStringKey(ContentSettingsStore::kSecondaryPatternKey,
-                                "*");
-  invalid_setting3.SetStringKey(ContentSettingsStore::kContentSettingsTypeKey,
-                                "javascript");
-  invalid_setting3.SetStringKey(ContentSettingsStore::kContentSettingKey,
-                                "notasetting");
+  base::Value::Dict invalid_setting3;
+  invalid_setting3.Set(ContentSettingsStore::kPrimaryPatternKey,
+                       "http://example4.com");
+  invalid_setting3.Set(ContentSettingsStore::kSecondaryPatternKey, "*");
+  invalid_setting3.Set(ContentSettingsStore::kContentSettingsTypeKey,
+                       "javascript");
+  invalid_setting3.Set(ContentSettingsStore::kContentSettingKey, "notasetting");
 
-  std::vector<base::Value> list;
-  list.push_back(valid_setting.Clone());
-  list.push_back(invalid_setting1.Clone());
-  list.push_back(invalid_setting2.Clone());
-  list.push_back(invalid_setting3.Clone());
+  base::Value::List list;
+  list.Append(valid_setting.Clone());
+  list.Append(invalid_setting1.Clone());
+  list.Append(invalid_setting2.Clone());
+  list.Append(invalid_setting3.Clone());
   store()->SetExtensionContentSettingFromList(
       extension, list, ExtensionPrefsScope::kExtensionPrefsScopeRegular);
 
-  std::vector<base::Value> expected;
-  expected.push_back(valid_setting.Clone());
+  base::Value::List expected;
+  expected.Append(valid_setting.Clone());
   EXPECT_EQ(expected,
             store()->GetSettingsForExtension(
                 extension, ExtensionPrefsScope::kExtensionPrefsScopeRegular));

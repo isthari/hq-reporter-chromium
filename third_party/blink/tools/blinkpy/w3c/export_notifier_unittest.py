@@ -1,4 +1,4 @@
-# Copyright 2019 The Chromium Authors. All rights reserved.
+# Copyright 2019 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -87,18 +87,18 @@ class ExportNotifierTest(LoggingTestCase):
         ]
         expected = {
             'wpt-chrome-dev-stability':
-            'https://github.com/web-platform-tests/wpt/pull/123/checks?check_run_id=1',
+            'https://github.com/web-platform-tests/wpt/runs/1',
             'wpt-firefox-nightly-stability':
-            'https://github.com/web-platform-tests/wpt/pull/123/checks?check_run_id=2',
+            'https://github.com/web-platform-tests/wpt/runs/2',
             'lint':
-            'https://github.com/web-platform-tests/wpt/pull/123/checks?check_run_id=3',
+            'https://github.com/web-platform-tests/wpt/runs/3',
             'infrastructure/ tests':
-            'https://github.com/web-platform-tests/wpt/pull/123/checks?check_run_id=4',
+            'https://github.com/web-platform-tests/wpt/runs/4',
         }
 
         self.assertEqual(
             self.notifier.get_relevant_failed_taskcluster_checks(
-                check_runs, 123), expected)
+                check_runs), expected)
 
     def test_get_relevant_failed_taskcluster_checks_empty(self):
         check_runs = [
@@ -116,7 +116,7 @@ class ExportNotifierTest(LoggingTestCase):
 
         self.assertEqual(
             self.notifier.get_relevant_failed_taskcluster_checks(
-                check_runs, 123), {})
+                check_runs), {})
 
     def test_has_latest_taskcluster_status_commented_false(self):
         pr_status_info = PRStatusInfo('bar', 123, 'SHA')
@@ -206,10 +206,11 @@ class ExportNotifierTest(LoggingTestCase):
         self.notifier.process_failing_prs(gerrit_dict)
 
         self.assertEqual(self.notifier.gerrit.cls_queried, ['abc'])
-        self.assertEqual(self.notifier.gerrit.request_posted,
-                         [('/a/changes/abc/revisions/current/review', {
-                             'message': expected
-                         })])
+        self.assertEqual(
+            self.notifier.gerrit.request_posted,
+            [('/a/changes/chromium%2Fsrc~main~abc/revisions/current/review', {
+                'message': expected
+            })])
 
     def test_process_failing_prs_has_commented(self):
         self.notifier.dry_run = False
@@ -276,10 +277,11 @@ class ExportNotifierTest(LoggingTestCase):
         self.notifier.process_failing_prs(gerrit_dict)
 
         self.assertEqual(self.notifier.gerrit.cls_queried, ['abc'])
-        self.assertEqual(self.notifier.gerrit.request_posted,
-                         [('/a/changes/abc/revisions/current/review', {
-                             'message': expected
-                         })])
+        self.assertEqual(
+            self.notifier.gerrit.request_posted,
+            [('/a/changes/chromium%2Fsrc~main~abc/revisions/current/review', {
+                'message': expected
+            })])
 
     def test_process_failing_prs_raise_gerrit_error(self):
         self.notifier.dry_run = False
@@ -320,7 +322,7 @@ class ExportNotifierTest(LoggingTestCase):
         ]
         checks_results = {
             'wpt-chrome-dev-stability':
-            'https://github.com/web-platform-tests/wpt/pull/1234/checks?check_run_id=123'
+            'https://github.com/web-platform-tests/wpt/runs/123'
         }
 
         self.notifier.dry_run = False
@@ -361,10 +363,11 @@ class ExportNotifierTest(LoggingTestCase):
             'get_branch_check_runs',
         ])
         self.assertEqual(self.notifier.gerrit.cls_queried, ['decafbad'])
-        self.assertEqual(self.notifier.gerrit.request_posted,
-                         [('/a/changes/decafbad/revisions/current/review', {
-                             'message': expected
-                         })])
+        self.assertEqual(self.notifier.gerrit.request_posted, [(
+            '/a/changes/chromium%2Fsrc~main~decafbad/revisions/current/review',
+            {
+                'message': expected
+            })])
 
     def generate_notifier_comment(self,
                                   pr_number,

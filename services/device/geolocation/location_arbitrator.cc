@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,10 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ptr_util.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "services/device/geolocation/network_location_provider.h"
 #include "services/device/geolocation/wifi_polling_policy.h"
@@ -36,10 +37,7 @@ LocationArbitrator::LocationArbitrator(
       main_task_runner_(main_task_runner),
       url_loader_factory_(url_loader_factory),
       api_key_(api_key),
-      position_provider_(nullptr),
-      is_permission_granted_(false),
-      position_cache_(std::move(position_cache)),
-      is_running_(false) {}
+      position_cache_(std::move(position_cache)) {}
 
 LocationArbitrator::~LocationArbitrator() {
   // Release the global wifi polling policy state.
@@ -70,9 +68,9 @@ void LocationArbitrator::DoStartProviders() {
   if (providers_.empty()) {
     // If no providers are available, we report an error to avoid
     // callers waiting indefinitely for a reply.
-    mojom::Geoposition position;
-    position.error_code = mojom::Geoposition::ErrorCode::POSITION_UNAVAILABLE;
-    arbitrator_update_callback_.Run(this, position);
+    arbitrator_update_callback_.Run(
+        this, mojom::GeopositionResult::NewError(mojom::GeopositionError::New(
+                  mojom::GeopositionErrorCode::kPositionUnavailable, "", "")));
     return;
   }
   for (const auto& provider : providers_) {
@@ -81,11 +79,11 @@ void LocationArbitrator::DoStartProviders() {
 }
 
 void LocationArbitrator::StopProvider() {
-  // Reset the reference location state (provider+position)
+  // Reset the reference location state (provider+result)
   // so that future starts use fresh locations from
   // the newly constructed providers.
   position_provider_ = nullptr;
-  position_ = mojom::Geoposition();
+  result_.reset();
 
   providers_.clear();
   is_running_ = false;
@@ -123,19 +121,22 @@ void LocationArbitrator::RegisterProviders() {
 
 void LocationArbitrator::OnLocationUpdate(
     const LocationProvider* provider,
-    const mojom::Geoposition& new_position) {
-  DCHECK(ValidateGeoposition(new_position) ||
-         new_position.error_code != mojom::Geoposition::ErrorCode::NONE);
-  if (!IsNewPositionBetter(position_, new_position,
-                           provider == position_provider_))
+    mojom::GeopositionResultPtr new_result) {
+  DCHECK(new_result);
+  DCHECK(new_result->is_error() ||
+         new_result->is_position() &&
+             ValidateGeoposition(*new_result->get_position()));
+  if (result_ && !IsNewPositionBetter(*result_, *new_result,
+                                      provider == position_provider_)) {
     return;
+  }
   position_provider_ = provider;
-  position_ = new_position;
-  arbitrator_update_callback_.Run(this, position_);
+  result_ = std::move(new_result);
+  arbitrator_update_callback_.Run(this, result_.Clone());
 }
 
-const mojom::Geoposition& LocationArbitrator::GetPosition() {
-  return position_;
+const mojom::GeopositionResult* LocationArbitrator::GetPosition() {
+  return result_.get();
 }
 
 void LocationArbitrator::SetUpdateCallback(
@@ -174,16 +175,18 @@ base::Time LocationArbitrator::GetTimeNow() const {
 }
 
 bool LocationArbitrator::IsNewPositionBetter(
-    const mojom::Geoposition& old_position,
-    const mojom::Geoposition& new_position,
+    const mojom::GeopositionResult& old_result,
+    const mojom::GeopositionResult& new_result,
     bool from_same_provider) const {
   // Updates location_info if it's better than what we currently have,
   // or if it's a newer update from the same provider.
-  if (!ValidateGeoposition(old_position)) {
+  if (old_result.is_error()) {
     // Older location wasn't locked.
     return true;
   }
-  if (ValidateGeoposition(new_position)) {
+  const mojom::Geoposition& old_position = *old_result.get_position();
+  if (new_result.is_position()) {
+    const mojom::Geoposition& new_position = *new_result.get_position();
     // New location is locked, let's check if it's any better.
     if (old_position.accuracy >= new_position.accuracy) {
       // Accuracy is better.

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,18 +14,19 @@
 #include "ash/public/cpp/holding_space/holding_space_model_observer.h"
 #include "ash/public/cpp/holding_space/holding_space_util.h"
 #include "ash/public/cpp/holding_space/mock_holding_space_model_observer.h"
-#include "base/callback_helpers.h"
 #include "base/files/file_path.h"
 #include "base/files/file_path_watcher.h"
 #include "base/files/file_util.h"
+#include "base/functional/callback_helpers.h"
+#include "base/memory/raw_ptr.h"
 #include "base/path_service.h"
+#include "base/ranges/algorithm.h"
 #include "base/run_loop.h"
 #include "base/scoped_observation.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/scoped_path_override.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/unguessable_token.h"
 #include "chrome/browser/ash/crosapi/crosapi_ash.h"
 #include "chrome/browser/ash/crosapi/crosapi_manager.h"
@@ -60,15 +61,6 @@ namespace {
 enum class FileSystemType { kDownloads, kDriveFs };
 
 // Helpers ---------------------------------------------------------------------
-
-// Returns the path of the downloads mount point for the given `profile`.
-base::FilePath GetDownloadsPath(Profile* profile) {
-  base::FilePath result;
-  EXPECT_TRUE(
-      storage::ExternalMountPoints::GetSystemInstance()->GetRegisteredPath(
-          file_manager::util::GetDownloadsMountPointName(profile), &result));
-  return result;
-}
 
 // Converts an `absolute_file_path` to its drive path.
 base::FilePath ConvertAbsoluteFilePathToDrivePath(
@@ -117,10 +109,9 @@ base::FilePath CreateTextFile(
 void WaitForItemAddition(
     base::RepeatingCallback<bool(const HoldingSpaceItem*)> predicate) {
   auto* model = ash::HoldingSpaceController::Get()->model();
-  if (std::any_of(model->items().begin(), model->items().end(),
-                  [&predicate](const auto& item) {
-                    return predicate.Run(item.get());
-                  })) {
+  if (base::ranges::any_of(model->items(), [&predicate](const auto& item) {
+        return predicate.Run(item.get());
+      })) {
     return;
   }
 
@@ -142,25 +133,15 @@ void WaitForItemAddition(
   run_loop.Run();
 }
 
-// Waits for a holding space item with the provided `item_id` to be added to the
-// holding space model. Returns immediately if the item already exists.
-void WaitForItemAddition(const std::string& item_id) {
-  WaitForItemAddition(
-      base::BindLambdaForTesting([&item_id](const HoldingSpaceItem* item) {
-        return item->id() == item_id;
-      }));
-}
-
 // Waits for a holding space item matching the provided `predicate` to be
 // removed from the holding space model. Returns immediately if the model does
 // not contain such an item.
 void WaitForItemRemoval(
     base::RepeatingCallback<bool(const HoldingSpaceItem*)> predicate) {
   auto* model = ash::HoldingSpaceController::Get()->model();
-  if (std::none_of(model->items().begin(), model->items().end(),
-                   [&predicate](const auto& item) {
-                     return predicate.Run(item.get());
-                   })) {
+  if (base::ranges::none_of(model->items(), [&predicate](const auto& item) {
+        return predicate.Run(item.get());
+      })) {
     return;
   }
 
@@ -200,8 +181,8 @@ void WaitForItemInitialization(
   WaitForItemAddition(predicate);
 
   auto* model = ash::HoldingSpaceController::Get()->model();
-  auto item_it = std::find_if(
-      model->items().begin(), model->items().end(),
+  auto item_it = base::ranges::find_if(
+      model->items(),
       [&predicate](const auto& item) { return predicate.Run(item.get()); });
 
   DCHECK(item_it != model->items().end());
@@ -391,7 +372,8 @@ class HoldingSpaceKeyedServiceBrowserTest : public InProcessBrowserTest {
   // Used to set up drive fs for for drive tests.
   base::ScopedTempDir test_cache_root_;
   std::unique_ptr<drive::FakeDriveFsHelper> fake_drivefs_helper_;
-  drive::DriveIntegrationService* drive_integration_service_ = nullptr;
+  raw_ptr<drive::DriveIntegrationService, ExperimentalAsh>
+      drive_integration_service_ = nullptr;
   drive::DriveIntegrationServiceFactory::FactoryCallback
       create_drive_integration_service_;
   std::unique_ptr<drive::DriveIntegrationServiceFactory::ScopedFactoryForTest>
@@ -593,7 +575,7 @@ IN_PROC_BROWSER_TEST_F(HoldingSpaceKeyedServiceBrowserTest,
       holding_space_util::ResolveFileSystemUrl(browser()->profile(), file_path);
   storage::FileSystemURL file_system_url =
       storage::ExternalMountPoints::GetSystemInstance()->CrackURL(
-          url, blink::StorageKey(url::Origin::Create(url)));
+          url, blink::StorageKey::CreateFirstParty(url::Origin::Create(url)));
   ASSERT_TRUE(file_system_url.is_valid());
   ASSERT_EQ(storage::kFileSystemTypeDriveFs, file_system_url.type());
 
@@ -798,29 +780,19 @@ class HoldingSpaceKeyedServiceLacrosBrowserTest
       public ::testing::WithParamInterface<
           std::tuple<FileSystemType,
                      /*from_incognito_profile=*/bool,
-                     /*in_progress_downloads_enabled=*/bool,
                      /*in_progress_downloads_eligible_client=*/bool>> {
  public:
   HoldingSpaceKeyedServiceLacrosBrowserTest()
       : HoldingSpaceKeyedServiceBrowserTest(std::get<0>(GetParam())) {
-    std::vector<base::Feature> enabled_features;
-    std::vector<base::Feature> disabled_features;
-
-    if (InProgressDownloadsEnabled()) {
-      enabled_features.push_back(
-          features::kHoldingSpaceInProgressDownloadsIntegration);
-    } else {
-      disabled_features.push_back(
-          features::kHoldingSpaceInProgressDownloadsIntegration);
-    }
+    std::vector<base::test::FeatureRef> enabled_features;
+    std::vector<base::test::FeatureRef> disabled_features;
 
     scoped_feature_list.InitWithFeatures(enabled_features, disabled_features);
   }
 
   bool FromIncognitoProfile() const { return std::get<1>(GetParam()); }
-  bool InProgressDownloadsEnabled() const { return std::get<2>(GetParam()); }
   bool InProgressDownloadsEligibleClient() const {
-    return std::get<3>(GetParam());
+    return std::get<2>(GetParam());
   }
 
   crosapi::DownloadControllerAsh* download_controller() {
@@ -839,7 +811,6 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(
         ::testing::Values(FileSystemType::kDownloads, FileSystemType::kDriveFs),
         /*from_incognito_profile=*/::testing::Bool(),
-        /*in_progress_downloads_enabled=*/::testing::Bool(),
         /*in_progress_downloads_eligible_client=*/::testing::Bool()));
 
 // Tests -----------------------------------------------------------------------
@@ -852,7 +823,7 @@ IN_PROC_BROWSER_TEST_P(HoldingSpaceKeyedServiceLacrosBrowserTest,
 
   // Create a `crosapi::mojom::DownloadItem`.
   auto download = crosapi::mojom::DownloadItem::New();
-  download->guid = base::GUID::GenerateRandomV4().AsLowercaseString();
+  download->guid = base::Uuid::GenerateRandomV4().AsLowercaseString();
   download->received_bytes = 0;
   download->has_received_bytes = true;
   download->total_bytes = -1;
@@ -860,12 +831,12 @@ IN_PROC_BROWSER_TEST_P(HoldingSpaceKeyedServiceLacrosBrowserTest,
   download->is_from_incognito_profile = FromIncognitoProfile();
 
   // Lacros clients which are eligible for in-progress downloads integration
-  // have `has_is_mixed_content` present. This field was the last field to be
+  // have `has_is_insecure` present. This field was the last field to be
   // implemented in Lacros. Its presence indicates that other required metadata
   // and APIs (e.g. pause, resume, cancel, etc.) are also implemented and is
   // therefore used to gate eligibility.
   if (InProgressDownloadsEligibleClient())
-    download->has_is_mixed_content = true;
+    download->has_is_insecure = true;
 
   // Notify observers of `download` creation.
   download->state = crosapi::mojom::DownloadState::kInProgress;
@@ -876,9 +847,9 @@ IN_PROC_BROWSER_TEST_P(HoldingSpaceKeyedServiceLacrosBrowserTest,
   download->target_file_path = CreateTextFile(GetTestMountPoint(), "file.txt");
   download_controller()->OnDownloadUpdated(download.Clone());
 
-  // In-progress downloads should only be added to holding space if the feature
-  // is enabled and the Lacros client owning the download is supported.
-  if (InProgressDownloadsEnabled() && InProgressDownloadsEligibleClient()) {
+  // In-progress downloads should only be added to holding space if the Lacros
+  // client owning the download is supported.
+  if (InProgressDownloadsEligibleClient()) {
     ASSERT_EQ(1u, model->items().size());
     const auto& download_item = model->items().front();
     EXPECT_EQ(download_item->type(), HoldingSpaceItem::Type::kLacrosDownload);

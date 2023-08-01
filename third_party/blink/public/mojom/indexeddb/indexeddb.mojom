@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,6 +32,10 @@ const int32 kIDBWrapThreshold = 65536;
 // in chunks of keys or values.  This constant is the max number of keys/values
 // returned per IDBDatabaseGetAllResultSink::Receive call.
 const int32 kIDBGetAllChunkSize = 1000;
+
+// The maximum input array length of BatchGetAll.
+// Use 10000 for now as a reasonable threshold.
+const uint32 kIDBBatchGetAllMaxInputSize = 10000;
 
 enum IDBCursorDirection {
   Next,
@@ -146,15 +150,6 @@ enum IDBTransactionMode {
   VersionChange,
 };
 
-enum IDBStatus {
-  OK,
-  NotFound,
-  Corruption,
-  NotSupported,
-  InvalidArgument,
-  IOError,
-};
-
 // These values need to match core/dom/exception_code.h
 enum IDBException {
   kNoError = 0,
@@ -241,9 +236,6 @@ struct IDBReturnValue {
 // replies associated with particular messages.
 interface IDBCallbacks {
   Error(IDBException code, mojo_base.mojom.String16 message);
-
-  // Factory::GetDatabaseInfo
-  SuccessNamesAndVersionsList(array<IDBNameAndVersion> value);
 
   // Factory::Open / DeleteDatabase
   Blocked(int64 existing_version);
@@ -349,6 +341,12 @@ interface IDBDatabaseGetAllResultSink {
   OnError(IDBError error);
 };
 
+// The result of BatchGetAll is a two dimensional array.
+union IDBDatabaseBatchGetAllResult {
+  IDBError error_result;
+  array<array<IDBReturnValue>> values;
+};
+
 struct IDBDatabaseOpenCursorValue {
   pending_associated_remote<IDBCursor> cursor;
   IDBKey key;
@@ -362,6 +360,9 @@ union IDBDatabaseOpenCursorResult {
   IDBDatabaseOpenCursorValue value;
 };
 
+// The interface used by the IndexedDB client (which lives in the renderer process)
+// to trigger some actions from the IndexedDB service (which currently lives in the
+// browser process, but will be potentially moved to a separate one in the future).
 interface IDBDatabase {
   RenameObjectStore(int64 transaction_id,
                     int64 object_store_id,
@@ -373,6 +374,14 @@ interface IDBDatabase {
                     IDBTransactionDurability durability);
   Close();
   VersionChangeIgnored();
+  // Batch several `GetAll`s together
+  // `max_count` is the maximum count of returned values of each key_range
+  BatchGetAll(int64 transaction_id,
+              int64 object_store_id,
+              int64 index_id,
+              array<IDBKeyRange> key_ranges,
+              uint32 max_count)
+    => (IDBDatabaseBatchGetAllResult result);
   Get(int64 transaction_id,
       int64 object_store_id,
       int64 index_id,
@@ -434,12 +443,16 @@ interface IDBDatabase {
               int64 index_id,
               mojo_base.mojom.String16 new_name);
   Abort(int64 transaction_id);
+  // Called when the document is moved into BFCache, the IndexedDB service
+  // receiving this should check if the client is blocking other clients
+  // or being blocked by other clients, and disallow the re-activation of
+  // the document if so.
+  DidBecomeInactive();
 };
 
 interface IDBFactory {
-  // Gets high level info about databases that exist in the frame's
-  // origin. Posts results to |pending_callbacks|.
-  GetDatabaseInfo(pending_associated_remote<IDBCallbacks> pending_callbacks);
+  // Gets high level info about databases that exist in the frame's origin.
+  GetDatabaseInfo() => (array<IDBNameAndVersion> names_and_versions, IDBError? error);
 
   // Opens a database |name| in the frame's origin at version |version|.
   // |version_change_transaction_receiver| will have version change
@@ -459,7 +472,4 @@ interface IDBFactory {
   // immediately.
   DeleteDatabase(pending_associated_remote<IDBCallbacks> pending_callbacks,
                  mojo_base.mojom.String16 name, bool force_close);
-
-  AbortTransactionsAndCompactDatabase() => (IDBStatus status);
-  AbortTransactionsForDatabase() => (IDBStatus status);
 };

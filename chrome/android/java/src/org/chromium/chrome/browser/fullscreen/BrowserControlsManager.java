@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,6 +24,7 @@ import org.chromium.base.ObserverList;
 import org.chromium.base.TraceEvent;
 import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.cc.input.BrowserControlsState;
 import org.chromium.chrome.browser.ActivityTabProvider;
 import org.chromium.chrome.browser.ActivityTabProvider.ActivityTabTabObserver;
@@ -38,13 +39,11 @@ import org.chromium.chrome.browser.tab.TabBrowserControlsConstraintsHelper;
 import org.chromium.chrome.browser.tab.TabBrowserControlsOffsetHelper;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorTabObserver;
-import org.chromium.chrome.browser.tabmodel.TabSwitchMetrics;
 import org.chromium.chrome.browser.toolbar.ControlContainer;
-import org.chromium.chrome.browser.vr.VrModuleProvider;
+import org.chromium.chrome.browser.toolbar.ToolbarFeatures;
 import org.chromium.components.browser_ui.util.BrowserControlsVisibilityDelegate;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
+import org.chromium.ui.base.ViewUtils;
 import org.chromium.ui.util.TokenHolder;
-import org.chromium.ui.vr.VrModeObserver;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -52,8 +51,7 @@ import java.lang.annotation.RetentionPolicy;
 /**
  * A class that manages browser control visibility and positioning.
  */
-public class BrowserControlsManager
-        implements ActivityStateListener, VrModeObserver, BrowserControlsSizer {
+public class BrowserControlsManager implements ActivityStateListener, BrowserControlsSizer {
     // The amount of time to delay the control show request after returning to a once visible
     // activity.  This delay is meant to allow Android to run its Activity focusing animation and
     // have the controls scroll back in smoothly once that has finished.
@@ -94,7 +92,6 @@ public class BrowserControlsManager
     private int mRendererTopControlsMinHeightOffset;
     private int mRendererBottomControlsMinHeightOffset;
     private float mControlOffsetRatio;
-    private boolean mOffsetsChanged;
     private ActivityTabTabObserver mActiveTabObserver;
 
     private final ObserverList<BrowserControlsStateProvider.Observer> mControlsObservers =
@@ -111,6 +108,7 @@ public class BrowserControlsManager
      * from animation start till the next offset update from compositor arrives.
      */
     private boolean mOffsetOverridden;
+    private boolean mContentViewScrolling;
 
     @IntDef({ControlsPosition.TOP, ControlsPosition.NONE})
     @Retention(RetentionPolicy.SOURCE)
@@ -128,18 +126,30 @@ public class BrowserControlsManager
             if (mControlContainer == null
                     || mControlContainer.getView().getVisibility() == visibility) {
                 return;
+            } else if (visibility == View.VISIBLE && mContentViewScrolling
+                    && ToolbarFeatures.shouldSuppressCaptures()) {
+                // Don't make the controls visible until scrolling has stopped to avoid
+                // doing it more often than we need to. onContentViewScrollingStateChanged will
+                // schedule us again when scrolling ceases.
+                return;
             }
+
             try (TraceEvent e = TraceEvent.scoped(
                          "BrowserControlsManager.onAndroidVisibilityChanged")) {
-                // requestLayout is required to trigger a new gatherTransparentRegion(), which
-                // only occurs together with a layout and let's SurfaceFlinger trim overlays.
-                // This may be almost equivalent to using View.GONE, but we still use View.INVISIBLE
-                // since drawing caches etc. won't be destroyed, and the layout may be less
-                // expensive.
                 mControlContainer.getView().setVisibility(visibility);
-                mControlContainer.getView().requestLayout();
-                for (BrowserControlsStateProvider.Observer observer : mControlsObservers) {
-                    observer.onAndroidVisibilityChanged(visibility);
+                for (BrowserControlsStateProvider.Observer obs : mControlsObservers) {
+                    obs.onAndroidControlsVisibilityChanged(visibility);
+                }
+                if (!ToolbarFeatures.shouldSuppressCaptures()) {
+                    // requestLayout is required to trigger a new gatherTransparentRegion(), which
+                    // only occurs together with a layout and let's SurfaceFlinger trim overlays.
+                    // This may be almost equivalent to using View.GONE, but we still use
+                    // View.INVISIBLE since drawing caches etc. won't be destroyed, and the layout
+                    // may be less expensive. The overlay trimming optimization only works
+                    // pre-Android N (see https://crbug.com/725453), so this call should be removed
+                    // entirely once it's confirmed to be safe.
+                    ViewUtils.requestLayout(mControlContainer.getView(),
+                            "BrowserControlsManager.mUpdateVisibilityRunnable Runnable");
                 }
             }
         }
@@ -173,8 +183,6 @@ public class BrowserControlsManager
         mBrowserVisibilityDelegate.addObserver((constraints) -> {
             if (constraints == BrowserControlsState.SHOWN) setPositionsForTabToNonFullscreen();
         });
-        VrModuleProvider.registerVrModeObserver(this);
-        if (isInVr()) onEnterVr();
     }
 
     /**
@@ -210,8 +218,10 @@ public class BrowserControlsManager
             }
 
             @Override
-            public void onCrash(Tab tab) {
-                if (tab == getTab() && SadTab.isShowing(tab)) showAndroidControls(false);
+            public void onContentChanged(Tab tab) {
+                if (tab.isShowingCustomView()) {
+                    showAndroidControls(false);
+                }
             }
 
             @Override
@@ -227,6 +237,17 @@ public class BrowserControlsManager
                     onOffsetsChanged(topControlsOffset, bottomControlsOffset, contentOffset,
                             topControlsMinHeightOffset, bottomControlsMinHeightOffset);
                 }
+            }
+
+            @Override
+            public void onContentViewScrollingStateChanged(boolean scrolling) {
+                if (!scrolling && ToolbarFeatures.shouldSuppressCaptures()
+                        && shouldShowAndroidControls()
+                        && mControlContainer.getView().getVisibility() != View.VISIBLE) {
+                    scheduleVisibilityUpdate();
+                }
+
+                mContentViewScrolling = scrolling;
             }
         };
         assert controlContainer != null || mControlsPosition == ControlsPosition.NONE;
@@ -290,7 +311,7 @@ public class BrowserControlsManager
     @Override
     public void onActivityStateChange(Activity activity, int newState) {
         if (newState == ActivityState.STARTED) {
-            PostTask.postDelayedTask(UiThreadTaskTraits.DEFAULT,
+            PostTask.postDelayedTask(TaskTraits.UI_DEFAULT,
                     mBrowserVisibilityDelegate::showControlsTransient,
                     ACTIVITY_RETURN_SHOW_REQUEST_DELAY_MS);
         } else if (newState == ActivityState.DESTROYED) {
@@ -434,6 +455,12 @@ public class BrowserControlsManager
     @Override
     public float getTopVisibleContentOffset() {
         return getTopControlsHeight() + getTopControlOffset();
+    }
+
+    @Override
+    public int getAndroidControlsVisibility() {
+        return mControlContainer == null ? View.INVISIBLE
+                                         : mControlContainer.getView().getVisibility();
     }
 
     @Override
@@ -612,7 +639,6 @@ public class BrowserControlsManager
             updateBrowserControlsOffsets(false, topControlsOffsetY, bottomControlsOffsetY,
                     contentOffsetY, topControlsMinHeightOffsetY, bottomControlsMinHeightOffsetY);
         }
-        TabSwitchMetrics.setActualTabSwitchLatencyMetricRequired();
     }
 
     @Override
@@ -654,22 +680,7 @@ public class BrowserControlsManager
     private void updateBrowserControlsOffsets(boolean toNonFullscreen, int topControlsOffset,
             int bottomControlsOffset, int topContentOffset, int topControlsMinHeightOffset,
             int bottomControlsMinHeightOffset) {
-        if (isInVr()) {
-            rawTopContentOffsetChangedForVr();
-            // The dip scale of java UI and WebContents are different while in VR, leading to a
-            // mismatch in size in pixels when converting from dips. Since we hide the controls in
-            // VR anyways, just set the offsets to what they're supposed to be with the controls
-            // hidden.
-            // TODO(mthiesse): Should we instead just set the top controls height to be 0 while in
-            // VR?
-            topControlsOffset = -getTopControlsHeight();
-            bottomControlsOffset = getBottomControlsHeight();
-            topContentOffset = 0;
-            topControlsMinHeightOffset = 0;
-            bottomControlsMinHeightOffset = 0;
-            setPositionsForTab(topControlsOffset, bottomControlsOffset, topContentOffset,
-                    topControlsMinHeightOffset, bottomControlsMinHeightOffset);
-        } else if (toNonFullscreen) {
+        if (toNonFullscreen) {
             setPositionsForTabToNonFullscreen();
         } else {
             setPositionsForTab(topControlsOffset, bottomControlsOffset, topContentOffset,
@@ -777,36 +788,6 @@ public class BrowserControlsManager
         return tab != null && tab.isUserInteractable() && !tab.isNativePage();
     }
 
-    // VR-related methods to make this class test-friendly. These are overridden in unit tests.
-
-    protected boolean isInVr() {
-        return VrModuleProvider.getDelegate().isInVr();
-    }
-
-    protected void rawTopContentOffsetChangedForVr() {
-        // TODO(https://crbug.com/1055619): VR wants to wait until the controls are fully hidden, as
-        // otherwise there may be a brief race where the omnibox is rendered over the webcontents.
-        // However, something seems to be happening in the case where the browser is launched on the
-        // NTP, such that the top content offset is never set to 0. If we can figure out what that
-        // is, we should be passing the TopContentOffset into this method again.
-        VrModuleProvider.getDelegate().rawTopContentOffsetChanged(0);
-    }
-
-    @Override
-    public void onEnterVr() {
-        restoreControlsPositions();
-    }
-
-    @Override
-    public void onExitVr() {
-        // Clear the VR-specific overrides for controls height.
-        restoreControlsPositions();
-
-        // Show the Controls explicitly because under some situations, like when we're showing a
-        // Native Page, the renderer won't send any new offsets.
-        showAndroidControls(false);
-    }
-
     /**
      * Destroys the BrowserControlsManager
      */
@@ -816,7 +797,6 @@ public class BrowserControlsManager
         if (mActiveTabObserver != null) mActiveTabObserver.destroy();
         mBrowserVisibilityDelegate.destroy();
         if (mTabControlsObserver != null) mTabControlsObserver.destroy();
-        VrModuleProvider.unregisterVrModeObserver(this);
     }
 
     @VisibleForTesting

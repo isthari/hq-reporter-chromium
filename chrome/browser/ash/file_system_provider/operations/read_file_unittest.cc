@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,10 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/containers/span.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
 #include "base/memory/ref_counted.h"
 #include "base/values.h"
 #include "chrome/browser/ash/file_system_provider/icon_set.h"
@@ -102,13 +102,10 @@ TEST_F(FileSystemProviderOperationsReadFileTest, Execute) {
   util::LoggingDispatchEventImpl dispatcher(true /* dispatch_reply */);
   CallbackLogger callback_logger;
 
-  ReadFile read_file(NULL, file_system_info_, kFileHandle, io_buffer_.get(),
-                     kOffset, kLength,
+  ReadFile read_file(&dispatcher, file_system_info_, kFileHandle,
+                     io_buffer_.get(), kOffset, kLength,
                      base::BindRepeating(&CallbackLogger::OnReadFile,
                                          base::Unretained(&callback_logger)));
-  read_file.SetDispatchEventImplForTesting(
-      base::BindRepeating(&util::LoggingDispatchEventImpl::OnDispatchEventImpl,
-                          base::Unretained(&dispatcher)));
 
   EXPECT_TRUE(read_file.Execute(kRequestId));
 
@@ -117,14 +114,15 @@ TEST_F(FileSystemProviderOperationsReadFileTest, Execute) {
   EXPECT_EQ(
       extensions::api::file_system_provider::OnReadFileRequested::kEventName,
       event->event_name);
-  base::ListValue* event_args = event->event_args.get();
-  ASSERT_EQ(1u, event_args->GetList().size());
+  const base::Value::List& event_args = event->event_args;
+  ASSERT_EQ(1u, event_args.size());
 
-  const base::Value* options_as_value = &event_args->GetList()[0];
+  const base::Value* options_as_value = &event_args[0];
   ASSERT_TRUE(options_as_value->is_dict());
 
   ReadFileRequestedOptions options;
-  ASSERT_TRUE(ReadFileRequestedOptions::Populate(*options_as_value, &options));
+  ASSERT_TRUE(
+      ReadFileRequestedOptions::Populate(options_as_value->GetDict(), options));
   EXPECT_EQ(kFileSystemId, options.file_system_id);
   EXPECT_EQ(kRequestId, options.request_id);
   EXPECT_EQ(kFileHandle, options.open_request_id);
@@ -136,13 +134,10 @@ TEST_F(FileSystemProviderOperationsReadFileTest, Execute_NoListener) {
   util::LoggingDispatchEventImpl dispatcher(false /* dispatch_reply */);
   CallbackLogger callback_logger;
 
-  ReadFile read_file(NULL, file_system_info_, kFileHandle, io_buffer_.get(),
-                     kOffset, kLength,
+  ReadFile read_file(&dispatcher, file_system_info_, kFileHandle,
+                     io_buffer_.get(), kOffset, kLength,
                      base::BindRepeating(&CallbackLogger::OnReadFile,
                                          base::Unretained(&callback_logger)));
-  read_file.SetDispatchEventImplForTesting(
-      base::BindRepeating(&util::LoggingDispatchEventImpl::OnDispatchEventImpl,
-                          base::Unretained(&dispatcher)));
 
   EXPECT_FALSE(read_file.Execute(kRequestId));
 }
@@ -154,13 +149,10 @@ TEST_F(FileSystemProviderOperationsReadFileTest, OnSuccess) {
   util::LoggingDispatchEventImpl dispatcher(true /* dispatch_reply */);
   CallbackLogger callback_logger;
 
-  ReadFile read_file(NULL, file_system_info_, kFileHandle, io_buffer_.get(),
-                     kOffset, kLength,
+  ReadFile read_file(&dispatcher, file_system_info_, kFileHandle,
+                     io_buffer_.get(), kOffset, kLength,
                      base::BindRepeating(&CallbackLogger::OnReadFile,
                                          base::Unretained(&callback_logger)));
-  read_file.SetDispatchEventImplForTesting(
-      base::BindRepeating(&util::LoggingDispatchEventImpl::OnDispatchEventImpl,
-                          base::Unretained(&dispatcher)));
 
   EXPECT_TRUE(read_file.Execute(kRequestId));
 
@@ -168,19 +160,17 @@ TEST_F(FileSystemProviderOperationsReadFileTest, OnSuccess) {
   const bool has_more = false;
   const int execution_time = 0;
 
-  std::vector<base::Value> values_as_list;
-  values_as_list.emplace_back(kFileSystemId);
-  values_as_list.emplace_back(kRequestId);
-  values_as_list.emplace_back(
-      base::Value(base::as_bytes(base::make_span(data))));
-  values_as_list.emplace_back(has_more);
-  values_as_list.emplace_back(execution_time);
+  base::Value::List list;
+  list.Append(kFileSystemId);
+  list.Append(kRequestId);
+  list.Append(base::Value(base::as_bytes(base::make_span(data))));
+  list.Append(has_more);
+  list.Append(execution_time);
 
-  std::unique_ptr<Params> params(Params::Create(std::move(values_as_list)));
-  ASSERT_TRUE(params.get());
-  std::unique_ptr<RequestValue> request_value(
-      RequestValue::CreateForReadFileSuccess(std::move(params)));
-  ASSERT_TRUE(request_value.get());
+  absl::optional<Params> params = Params::Create(std::move(list));
+  ASSERT_TRUE(params.has_value());
+  RequestValue request_value =
+      RequestValue::CreateForReadFileSuccess(std::move(*params));
 
   read_file.OnSuccess(kRequestId, std::move(request_value), has_more);
 
@@ -196,17 +186,14 @@ TEST_F(FileSystemProviderOperationsReadFileTest, OnError) {
   util::LoggingDispatchEventImpl dispatcher(true /* dispatch_reply */);
   CallbackLogger callback_logger;
 
-  ReadFile read_file(NULL, file_system_info_, kFileHandle, io_buffer_.get(),
-                     kOffset, kLength,
+  ReadFile read_file(&dispatcher, file_system_info_, kFileHandle,
+                     io_buffer_.get(), kOffset, kLength,
                      base::BindRepeating(&CallbackLogger::OnReadFile,
                                          base::Unretained(&callback_logger)));
-  read_file.SetDispatchEventImplForTesting(
-      base::BindRepeating(&util::LoggingDispatchEventImpl::OnDispatchEventImpl,
-                          base::Unretained(&dispatcher)));
 
   EXPECT_TRUE(read_file.Execute(kRequestId));
 
-  read_file.OnError(kRequestId, std::make_unique<RequestValue>(),
+  read_file.OnError(kRequestId, RequestValue(),
                     base::File::FILE_ERROR_TOO_MANY_OPENED);
 
   ASSERT_EQ(1u, callback_logger.events().size());

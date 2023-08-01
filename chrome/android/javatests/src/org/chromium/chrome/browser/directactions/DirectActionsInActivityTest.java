@@ -1,16 +1,14 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.directactions;
 
+import static androidx.test.espresso.matcher.ViewMatchers.assertThat;
+
 import static org.hamcrest.CoreMatchers.is;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
 
-import android.annotation.TargetApi;
-import android.os.Build;
 import android.os.Bundle;
 
 import androidx.test.filters.MediumTest;
@@ -25,8 +23,7 @@ import org.chromium.base.Callback;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.MetricsUtils.HistogramDelta;
-import org.chromium.base.test.util.MinAndroidSdkLevel;
+import org.chromium.base.test.util.HistogramWatcher;
 import org.chromium.base.test.util.UserActionTester;
 import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
@@ -41,8 +38,6 @@ import org.chromium.content_public.browser.test.util.TestThreadUtils;
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
-@MinAndroidSdkLevel(Build.VERSION_CODES.N)
-@TargetApi(24) // For java.util.function.Consumer.
 @Batch(Batch.PER_CLASS)
 public class DirectActionsInActivityTest {
     @Rule
@@ -115,22 +110,19 @@ public class DirectActionsInActivityTest {
                 Matchers.hasItem("test"));
         assertThat(mActionTester.getActions(), Matchers.hasItem("Android.DirectAction.List"));
 
-        HistogramDelta unknownAction = new HistogramDelta(
+        var histogramWatcher = HistogramWatcher.newSingleRecordWatcher(
                 "Android.DirectAction.Perform", DirectActionUsageHistogram.DirectActionId.UNKNOWN);
-        HistogramDelta otherAction = new HistogramDelta(
-                "Android.DirectAction.Perform", DirectActionUsageHistogram.DirectActionId.OTHER);
-
         DirectActionTestUtils.callOnPerformDirectActions(
                 getActivity(), "doesnotexist", (r) -> fail("Unexpected result: " + r));
-        assertEquals(1, unknownAction.getDelta());
-        assertEquals(0, otherAction.getDelta());
+        histogramWatcher.assertExpected();
 
+        histogramWatcher = HistogramWatcher.newSingleRecordWatcher(
+                "Android.DirectAction.Perform", DirectActionUsageHistogram.DirectActionId.OTHER);
         Bundle result = new Bundle();
         DirectActionTestUtils.callOnPerformDirectActions(
                 getActivity(), "test", (r) -> result.putAll((Bundle) r));
         assertThat(result.keySet(), Matchers.contains("ran_test"));
-        assertEquals(1, unknownAction.getDelta());
-        assertEquals(1, otherAction.getDelta());
+        histogramWatcher.assertExpected();
     }
 
     @Test

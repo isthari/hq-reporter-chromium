@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,9 +25,6 @@ NSString* AppGroupUserDefaultsCredentialProviderNewCredentials();
 // currently enabled.
 NSString* AppGroupUserDefaulsCredentialProviderSavingPasswordsEnabled();
 
-// An array of deprecated keys to be removed if present.
-NSArray<NSString*>* UnusedUserDefaultsCredentialProviderKeys();
-
 // Key for the app group user defaults indicating if the credentials have been
 // synced with iOS via AuthenticationServices.
 extern NSString* const
@@ -38,10 +35,6 @@ extern NSString* const
 // time sync have been completed. This value might change to force credentials
 // to be sync once Chrome is updated.
 extern NSString* const kUserDefaultsCredentialProviderFirstTimeSyncCompleted;
-
-// Key for the app group user defaults indicating if the user has enabled and
-// given consent for the credential provider extension.
-extern NSString* const kUserDefaultsCredentialProviderConsentVerified;
 
 // Values of the UMA IOS.CredentialExtension.PasswordCreated. Must be kept up to
 // date with IOSCredentialProviderPasswordCreated in enums.xml. These values are

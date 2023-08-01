@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,6 +29,8 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "base/win/registry.h"
 #include "base/win/scoped_devinfo.h"
@@ -148,8 +150,16 @@ absl::optional<uint32_t> GetProductID(const std::string& instance_id) {
 class SerialDeviceEnumeratorWin::UiThreadHelper
     : public DeviceMonitorWin::Observer {
  public:
-  UiThreadHelper() : task_runner_(base::SequencedTaskRunnerHandle::Get()) {
-    DETACH_FROM_SEQUENCE(sequence_checker_);
+  UiThreadHelper(base::WeakPtr<SerialDeviceEnumeratorWin> enumerator,
+                 scoped_refptr<base::SequencedTaskRunner> task_runner)
+      : enumerator_(std::move(enumerator)),
+        task_runner_(std::move(task_runner)) {
+    // Note that this uses GUID_DEVINTERFACE_COMPORT even though we use
+    // GUID_DEVINTERFACE_SERENUM_BUS_ENUMERATOR for enumeration because it
+    // doesn't seem to make a difference and ports which aren't enumerable by
+    // device interface don't generate WM_DEVICECHANGE events.
+    device_observation_.Observe(
+        DeviceMonitorWin::GetForDeviceInterface(GUID_DEVINTERFACE_COMPORT));
   }
 
   // Disallow copy and assignment.
@@ -158,17 +168,6 @@ class SerialDeviceEnumeratorWin::UiThreadHelper
 
   virtual ~UiThreadHelper() {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  }
-
-  void Initialize(base::WeakPtr<SerialDeviceEnumeratorWin> enumerator) {
-    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-    enumerator_ = std::move(enumerator);
-    // Note that this uses GUID_DEVINTERFACE_COMPORT even though we use
-    // GUID_DEVINTERFACE_SERENUM_BUS_ENUMERATOR for enumeration because it
-    // doesn't seem to make a difference and ports which aren't enumerable by
-    // device interface don't generate WM_DEVICECHANGE events.
-    device_observation_.Observe(
-        DeviceMonitorWin::GetForDeviceInterface(GUID_DEVINTERFACE_COMPORT));
   }
 
   void OnDeviceAdded(const GUID& class_guid,
@@ -200,14 +199,10 @@ class SerialDeviceEnumeratorWin::UiThreadHelper
 };
 
 SerialDeviceEnumeratorWin::SerialDeviceEnumeratorWin(
-    scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner)
-    : helper_(new UiThreadHelper(), base::OnTaskRunnerDeleter(ui_task_runner)) {
-  // Passing a raw pointer to |helper_| is safe here because this task will
-  // reach the UI thread before any task to delete |helper_|.
-  ui_task_runner->PostTask(FROM_HERE,
-                           base::BindOnce(&UiThreadHelper::Initialize,
-                                          base::Unretained(helper_.get()),
-                                          weak_factory_.GetWeakPtr()));
+    scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner) {
+  helper_ = base::SequenceBound<UiThreadHelper>(
+      std::move(ui_task_runner), weak_factory_.GetWeakPtr(),
+      base::SequencedTaskRunner::GetCurrentDefault());
 
   DoInitialEnumeration();
 }

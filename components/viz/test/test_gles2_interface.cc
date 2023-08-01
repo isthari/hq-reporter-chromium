@@ -1,11 +1,11 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/viz/test/test_gles2_interface.h"
 
-#include "base/bind.h"
 #include "base/containers/contains.h"
+#include "base/functional/bind.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
@@ -104,14 +104,6 @@ GLuint TestGLES2Interface::CreateProgram() {
 }
 
 void TestGLES2Interface::BindTexture(GLenum target, GLuint texture) {
-  if (times_bind_texture_succeeds_ >= 0) {
-    if (!times_bind_texture_succeeds_) {
-      LoseContextCHROMIUM(GL_GUILTY_CONTEXT_RESET_ARB,
-                          GL_INNOCENT_CONTEXT_RESET_ARB);
-    }
-    --times_bind_texture_succeeds_;
-  }
-
   if (!texture)
     return;
   DCHECK(base::Contains(textures_, texture));
@@ -275,27 +267,6 @@ void TestGLES2Interface::PixelStorei(GLenum pname, GLint param) {
   }
 }
 
-GLuint TestGLES2Interface::CreateImageCHROMIUM(ClientBuffer buffer,
-                                               GLsizei width,
-                                               GLsizei height,
-                                               GLenum internalformat) {
-  DCHECK(internalformat == GL_RGB || internalformat == GL_RGBA ||
-         (test_capabilities_.texture_format_bgra8888 &&
-          internalformat == GL_BGRA_EXT));
-  GLuint image_id = NextImageId();
-  images_.insert(image_id);
-  return image_id;
-}
-
-void TestGLES2Interface::DestroyImageCHROMIUM(GLuint image_id) {
-  RetireImageId(image_id);
-  if (!images_.count(image_id)) {
-    ADD_FAILURE() << "destroyImageCHROMIUM called on unknown image "
-                  << image_id;
-  }
-  images_.erase(image_id);
-}
-
 void* TestGLES2Interface::MapBufferCHROMIUM(GLuint target, GLenum access) {
   DCHECK_GT(bound_buffer_.count(target), 0u);
   DCHECK_GT(buffers_.count(bound_buffer_[target]), 0u);
@@ -405,7 +376,7 @@ void TestGLES2Interface::GetQueryObjectuivEXT(GLuint id,
 
 void TestGLES2Interface::ProduceTextureDirectCHROMIUM(GLuint texture,
                                                       GLbyte* mailbox) {
-  gpu::Mailbox gpu_mailbox = gpu::Mailbox::Generate();
+  gpu::Mailbox gpu_mailbox = gpu::Mailbox::GenerateLegacyMailboxForTesting();
   memcpy(mailbox, gpu_mailbox.name, sizeof(gpu_mailbox.name));
 }
 
@@ -452,57 +423,16 @@ GLenum TestGLES2Interface::GetGraphicsResetStatusKHR() {
   return GL_NO_ERROR;
 }
 
-void TestGLES2Interface::set_times_bind_texture_succeeds(int times) {
-  times_bind_texture_succeeds_ = times;
-}
-
-void TestGLES2Interface::set_have_extension_io_surface(bool have) {
-  test_capabilities_.iosurface = have;
-  test_capabilities_.texture_rectangle = have;
-}
-
 void TestGLES2Interface::set_have_extension_egl_image(bool have) {
   test_capabilities_.egl_image_external = have;
-}
-
-void TestGLES2Interface::set_have_post_sub_buffer(bool have) {
-  test_capabilities_.post_sub_buffer = have;
-}
-
-void TestGLES2Interface::set_have_swap_buffers_with_bounds(bool have) {
-  test_capabilities_.swap_buffers_with_bounds = have;
-}
-
-void TestGLES2Interface::set_have_commit_overlay_planes(bool have) {
-  test_capabilities_.commit_overlay_planes = have;
-}
-
-void TestGLES2Interface::set_have_discard_framebuffer(bool have) {
-  test_capabilities_.discard_framebuffer = have;
-}
-
-void TestGLES2Interface::set_support_compressed_texture_etc1(bool support) {
-  test_capabilities_.texture_format_etc1 = support;
 }
 
 void TestGLES2Interface::set_support_texture_format_bgra8888(bool support) {
   test_capabilities_.texture_format_bgra8888 = support;
 }
 
-void TestGLES2Interface::set_support_texture_storage(bool support) {
-  test_capabilities_.texture_storage = support;
-}
-
-void TestGLES2Interface::set_support_texture_usage(bool support) {
-  test_capabilities_.texture_usage = support;
-}
-
 void TestGLES2Interface::set_support_sync_query(bool support) {
   test_capabilities_.sync_query = support;
-}
-
-void TestGLES2Interface::set_support_texture_rectangle(bool support) {
-  test_capabilities_.texture_rectangle = support;
 }
 
 void TestGLES2Interface::set_support_texture_half_float_linear(bool support) {
@@ -529,8 +459,8 @@ void TestGLES2Interface::set_support_multisample_compatibility(bool support) {
   test_capabilities_.multisample_compatibility = support;
 }
 
-void TestGLES2Interface::set_support_texture_storage_image(bool support) {
-  test_capabilities_.texture_storage_image = support;
+void TestGLES2Interface::set_supports_scanout_shared_images(bool support) {
+  test_capabilities_.supports_scanout_shared_images = support;
 }
 
 void TestGLES2Interface::set_support_texture_npot(bool support) {
@@ -553,10 +483,14 @@ void TestGLES2Interface::set_supports_gpu_memory_buffer_format(
     gfx::BufferFormat format,
     bool support) {
   if (support) {
-    test_capabilities_.gpu_memory_buffer_formats.Add(format);
+    test_capabilities_.gpu_memory_buffer_formats.Put(format);
   } else {
     test_capabilities_.gpu_memory_buffer_formats.Remove(format);
   }
+}
+
+void TestGLES2Interface::set_supports_texture_rg(bool support) {
+  test_capabilities_.texture_rg = support;
 }
 
 size_t TestGLES2Interface::NumTextures() const {

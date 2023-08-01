@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,13 +9,14 @@
 #include "content/browser/bad_message.h"
 #include "content/browser/blob_storage/chrome_blob_storage_context.h"
 #include "content/browser/child_process_security_policy_impl.h"
+#include "content/browser/renderer_host/frame_tree_node.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/common/frame.mojom.h"
 #include "content/common/navigation_params_utils.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/child_process_host.h"
 #include "content/public/browser/render_process_host.h"
-#include "content/public/browser/site_instance.h"
-#include "content/public/common/child_process_host.h"
 #include "content/public/common/url_constants.h"
 #include "mojo/public/cpp/system/message_pipe.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -70,11 +71,10 @@ bool VerifyInitiatorOrigin(int process_id,
 
 }  // namespace
 
-bool VerifyDownloadUrlParams(SiteInstance* site_instance,
+bool VerifyDownloadUrlParams(RenderProcessHost* process,
                              const blink::mojom::DownloadURLParams& params) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  DCHECK(site_instance);
-  RenderProcessHost* process = site_instance->GetProcess();
+  CHECK(process);
   int process_id = process->GetID();
 
   // Verifies |params.blob_url_token| is appropriately set.
@@ -95,16 +95,17 @@ bool VerifyDownloadUrlParams(SiteInstance* site_instance,
   return true;
 }
 
-bool VerifyOpenURLParams(SiteInstance* site_instance,
+bool VerifyOpenURLParams(RenderFrameHostImpl* current_rfh,
+                         RenderProcessHost* process,
                          const blink::mojom::OpenURLParamsPtr& params,
                          GURL* out_validated_url,
                          scoped_refptr<network::SharedURLLoaderFactory>*
                              out_blob_url_loader_factory) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  DCHECK(site_instance);
+  DCHECK(current_rfh);
+  DCHECK(process);
   DCHECK(out_validated_url);
   DCHECK(out_blob_url_loader_factory);
-  RenderProcessHost* process = site_instance->GetProcess();
   int process_id = process->GetID();
 
   // Verify |params.url| and populate |out_validated_url|.
@@ -118,14 +119,12 @@ bool VerifyOpenURLParams(SiteInstance* site_instance,
   if (params->blob_url_token.is_valid()) {
     *out_blob_url_loader_factory =
         ChromeBlobStorageContext::URLLoaderFactoryForToken(
-            site_instance->GetBrowserContext()->GetStoragePartition(
-                site_instance),
-            std::move(params->blob_url_token));
+            process->GetStoragePartition(), std::move(params->blob_url_token));
   }
 
   // Verify |params.post_body|.
   auto* policy = ChildProcessSecurityPolicyImpl::GetInstance();
-  if (!policy->CanReadRequestBody(site_instance, params->post_body)) {
+  if (!policy->CanReadRequestBody(process, params->post_body)) {
     bad_message::ReceivedBadMessage(process,
                                     bad_message::ILLEGAL_UPLOAD_PARAMS);
     return false;
@@ -135,17 +134,43 @@ bool VerifyOpenURLParams(SiteInstance* site_instance,
   if (!VerifyInitiatorOrigin(process_id, params->initiator_origin))
     return false;
 
+  if (params->initiator_base_url) {
+    // `initiator_base_url` should only be defined for about:blank and
+    // about:srcdoc navigations, and should never be an empty GURL (if it is not
+    // nullopt).
+    if (params->initiator_base_url->is_empty() ||
+        !(out_validated_url->IsAboutBlank() ||
+          out_validated_url->IsAboutSrcdoc())) {
+      return false;
+    }
+  }
+
+  // Verify that the initiator frame can navigate `current_rfh`.
+  if (!VerifyNavigationInitiator(current_rfh, params->initiator_frame_token,
+                                 process_id)) {
+    return false;
+  }
+
+  if (params->is_container_initiated) {
+    if (!current_rfh->GetParent() ||
+        (current_rfh->GetParent()->GetFrameToken() !=
+         params->initiator_frame_token)) {
+      mojo::ReportBadMessage(
+          "container initiated navigation from non-parent process");
+      return false;
+    }
+  }
+
   // Verification succeeded.
   return true;
 }
 
 bool VerifyBeginNavigationCommonParams(
-    SiteInstance* site_instance,
+    const RenderFrameHostImpl& current_rfh,
     blink::mojom::CommonNavigationParams* common_params) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  DCHECK(site_instance);
   DCHECK(common_params);
-  RenderProcessHost* process = site_instance->GetProcess();
+  RenderProcessHost* process = current_rfh.GetProcess();
   int process_id = process->GetID();
 
   // Verify (and possibly rewrite) |url|.
@@ -157,7 +182,7 @@ bool VerifyBeginNavigationCommonParams(
 
   // Verify |post_data|.
   auto* policy = ChildProcessSecurityPolicyImpl::GetInstance();
-  if (!policy->CanReadRequestBody(site_instance, common_params->post_data)) {
+  if (!policy->CanReadRequestBody(process, common_params->post_data)) {
     bad_message::ReceivedBadMessage(process,
                                     bad_message::ILLEGAL_UPLOAD_PARAMS);
     return false;
@@ -197,6 +222,65 @@ bool VerifyBeginNavigationCommonParams(
     return false;
 
   // Verification succeeded.
+  return true;
+}
+
+bool VerifyNavigationInitiator(
+    RenderFrameHostImpl* current_rfh,
+    const absl::optional<blink::LocalFrameToken>& initiator_frame_token,
+    int initiator_process_id) {
+  // Verify that a frame inside a fenced frame cannot navigate its ancestors,
+  // unless the frame being navigated is the outermost main frame.
+  if (current_rfh->IsOutermostMainFrame())
+    return true;
+
+  if (!initiator_frame_token)
+    return true;
+
+  RenderFrameHostImpl* initiator_render_frame_host =
+      RenderFrameHostImpl::FromFrameToken(initiator_process_id,
+                                          initiator_frame_token.value());
+  if (!initiator_render_frame_host)
+    return true;
+
+  // Verify that a frame cannot navigate a frame with a different fenced frame
+  // nonce, unless the navigating frame is a fenced frame root and its owner
+  // frame has the same fenced frame nonce as the initiator frame (e.g. in a
+  // A(A1,A2(FF)) setup, A, A1, and A2 are all allowed to navigate FF).
+  absl::optional<base::UnguessableToken> initiator_fenced_frame_nonce =
+      initiator_render_frame_host->frame_tree_node()->GetFencedFrameNonce();
+  if (initiator_fenced_frame_nonce !=
+      current_rfh->frame_tree_node()->GetFencedFrameNonce()) {
+    if (!current_rfh->IsFencedFrameRoot() ||
+        current_rfh->frame_tree_node()
+                ->GetParentOrOuterDocument()
+                ->frame_tree_node()
+                ->GetFencedFrameNonce() != initiator_fenced_frame_nonce) {
+      mojo::ReportBadMessage(
+          "The fenced frame nonces of initiator and current frame don't match, "
+          "nor is the current frame a fenced frame root whose owner frame has "
+          "the same fenced frame nonce as the initiator frame.");
+      return false;
+    }
+  }
+
+  if (!initiator_render_frame_host->IsNestedWithinFencedFrame())
+    return true;
+
+  FrameTreeNode* node = initiator_render_frame_host->frame_tree_node();
+  if (node == current_rfh->frame_tree_node())
+    return true;
+
+  while (node) {
+    node = node->parent() ? node->parent()->frame_tree_node() : nullptr;
+
+    if (node == current_rfh->frame_tree_node()) {
+      mojo::ReportBadMessage(
+          "A frame in a fenced frame tree cannot navigate an ancestor frame.");
+      return false;
+    }
+  }
+
   return true;
 }
 

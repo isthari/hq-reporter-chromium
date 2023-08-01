@@ -31,7 +31,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_SHAPING_HARFBUZZ_SHAPER_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_SHAPING_HARFBUZZ_SHAPER_H_
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 
 #include "third_party/blink/renderer/platform/fonts/shaping/run_segmenter.h"
 #include "third_party/blink/renderer/platform/fonts/shaping/shape_result.h"
@@ -60,9 +60,9 @@ class PLATFORM_EXPORT HarfBuzzShaper final {
   // clusters are reported per Document / WorkerGlobalContext to
   // FontMatchingMetrics.
   explicit HarfBuzzShaper(
-      const String& text,
+      String text,
       EmojiMetricsCallback emoji_metrics_callback = EmojiMetricsCallback())
-      : text_(text),
+      : text_(std::move(text)),
         emoji_metrics_reporter_for_testing_(emoji_metrics_callback) {}
 
   // Shape a range, defined by the start and end parameters, of the string

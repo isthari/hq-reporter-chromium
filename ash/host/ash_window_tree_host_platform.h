@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "ash/host/ash_window_tree_host.h"
 #include "ash/host/transformer_helper.h"
 #include "base/gtest_prod_util.h"
+#include "base/memory/raw_ptr.h"
 #include "ui/aura/window_tree_host_platform.h"
 #include "ui/ozone/public/input_controller.h"
 
@@ -19,6 +20,8 @@ struct PlatformWindowInitProperties;
 }
 
 namespace ash {
+class AshWindowTreeHostDelegate;
+
 class ExtendedMouseWarpControllerTest;
 class AshWindowTreeHostPlatformTest;
 
@@ -26,8 +29,8 @@ class ASH_EXPORT AshWindowTreeHostPlatform
     : public AshWindowTreeHost,
       public aura::WindowTreeHostPlatform {
  public:
-  explicit AshWindowTreeHostPlatform(
-      ui::PlatformWindowInitProperties properties);
+  AshWindowTreeHostPlatform(ui::PlatformWindowInitProperties properties,
+                            AshWindowTreeHostDelegate* delegate);
 
   AshWindowTreeHostPlatform(const AshWindowTreeHostPlatform&) = delete;
   AshWindowTreeHostPlatform& operator=(const AshWindowTreeHostPlatform&) =
@@ -42,7 +45,9 @@ class ASH_EXPORT AshWindowTreeHostPlatform
   friend AshWindowTreeHostPlatformTest;
   FRIEND_TEST_ALL_PREFIXES(AshWindowTreeHostPlatformTest, UnadjustedMovement);
 
-  AshWindowTreeHostPlatform();
+  AshWindowTreeHostPlatform(std::unique_ptr<ui::PlatformWindow> window,
+                            AshWindowTreeHostDelegate* delegate,
+                            size_t compositor_memory_limit_mb = 0);
 
   // AshWindowTreeHost:
   void ConfineCursorToRootWindow() override;
@@ -53,21 +58,24 @@ class ASH_EXPORT AshWindowTreeHostPlatform
   gfx::Insets GetHostInsets() const override;
   aura::WindowTreeHost* AsWindowTreeHost() override;
   void PrepareForShutdown() override;
-  void SetCursorConfig(const display::Display& display,
-                       display::Display::Rotation rotation) override;
+  void UpdateCursorConfig() override;
   void ClearCursorConfig() override;
+  void UpdateRootWindowSize() override;
 
   // aura::WindowTreeHostPlatform:
   void SetRootTransform(const gfx::Transform& transform) override;
   gfx::Transform GetRootTransform() const override;
   gfx::Transform GetInverseRootTransform() const override;
-  gfx::Rect GetTransformedRootWindowBoundsInPixels(
+  gfx::Rect GetTransformedRootWindowBoundsFromPixelSize(
       const gfx::Size& host_size_in_pixels) const override;
   void OnCursorVisibilityChangedNative(bool show) override;
   void SetBoundsInPixels(const gfx::Rect& bounds) override;
   void DispatchEvent(ui::Event* event) override;
   std::unique_ptr<aura::ScopedEnableUnadjustedMouseEvents>
   RequestUnadjustedMovement() override;
+
+  raw_ptr<AshWindowTreeHostDelegate, ExperimentalAsh> delegate_ =
+      nullptr;  // Not owned.
 
  private:
   // All constructors call into this.
@@ -78,7 +86,7 @@ class ASH_EXPORT AshWindowTreeHostPlatform
 
   TransformerHelper transformer_helper_;
 
-  ui::InputController* input_controller_;
+  raw_ptr<ui::InputController, ExperimentalAsh> input_controller_ = nullptr;
 
   gfx::Rect last_cursor_confine_bounds_in_pixels_;
 };

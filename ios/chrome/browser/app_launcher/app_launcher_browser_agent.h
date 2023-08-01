@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 
 #import "ios/chrome/browser/app_launcher/app_launcher_tab_helper.h"
 #import "ios/chrome/browser/app_launcher/app_launcher_tab_helper_delegate.h"
-#import "ios/chrome/browser/main/browser_user_data.h"
+#import "ios/chrome/browser/shared/model/browser/browser_user_data.h"
 #import "ios/chrome/browser/tabs/tab_helper_delegate_installer.h"
 
 class OverlayRequestQueue;
@@ -20,13 +20,13 @@ class AppLauncherBrowserAgent
   ~AppLauncherBrowserAgent() override;
 
  private:
-  explicit AppLauncherBrowserAgent(Browser* browser);
   friend class BrowserUserData<AppLauncherBrowserAgent>;
+  explicit AppLauncherBrowserAgent(Browser* browser);
 
   // Helper object that handles delegated AppLauncherTabHelper functionality.
   class TabHelperDelegate : public AppLauncherTabHelperDelegate {
    public:
-    explicit TabHelperDelegate(WebStateList* web_state_list);
+    explicit TabHelperDelegate(Browser* browser);
     ~TabHelperDelegate() override;
 
    private:
@@ -39,13 +39,13 @@ class AppLauncherBrowserAgent
         base::OnceCallback<void(bool)> completion) override;
 
     // Returns the OverlayRequestQueue to use for app launch dialogs from
-    // |web_state|.  Returns the queue for |web_state|'s opener if |web_state|
+    // `web_state`.  Returns the queue for `web_state`'s opener if `web_state`
     // is expected to be closed before the app launcher dialog can be shown.
     OverlayRequestQueue* GetQueueForAppLaunchDialog(web::WebState* web_state);
 
-    // The Browser's WebStateList.  Used to fetch the appropriate request queue
-    // for app launcher dialogs.
-    WebStateList* web_state_list_ = nullptr;
+    // The Browser.  Used to fetch the appropriate request queue for app
+    // launcher dialogs.
+    Browser* browser_ = nullptr;
   };
 
   // Handler for app launches in the Browser.

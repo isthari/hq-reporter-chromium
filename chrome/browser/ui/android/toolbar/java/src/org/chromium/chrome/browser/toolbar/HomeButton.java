@@ -1,17 +1,14 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.toolbar;
 
+import static org.chromium.components.browser_ui.widget.listmenu.BasicListMenu.buildMenuListItem;
+
 import android.content.Context;
 import android.util.AttributeSet;
-import android.view.ContextMenu;
-import android.view.ContextMenu.ContextMenuInfo;
-import android.view.Menu;
-import android.view.MenuItem;
 import android.view.View;
-import android.view.View.OnCreateContextMenuListener;
 
 import androidx.annotation.VisibleForTesting;
 import androidx.core.content.ContextCompat;
@@ -20,14 +17,18 @@ import org.chromium.base.Callback;
 import org.chromium.base.TraceEvent;
 import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.base.supplier.Supplier;
-import org.chromium.ui.widget.ChromeImageButton;
+import org.chromium.components.browser_ui.widget.listmenu.BasicListMenu;
+import org.chromium.components.browser_ui.widget.listmenu.ListMenu;
+import org.chromium.components.browser_ui.widget.listmenu.ListMenuButton;
+import org.chromium.components.browser_ui.widget.listmenu.ListMenuButtonDelegate;
+import org.chromium.ui.modelutil.MVCListAdapter.ModelList;
+import org.chromium.ui.widget.RectProvider;
 
 /**
  * The home button.
  * TODO(crbug.com/1056422): Fix the visibility bug on NTP.
  */
-public class HomeButton extends ChromeImageButton
-        implements OnCreateContextMenuListener, MenuItem.OnMenuItemClickListener {
+public class HomeButton extends ListMenuButton {
     @VisibleForTesting
     public static final int ID_SETTINGS = 0;
 
@@ -36,7 +37,7 @@ public class HomeButton extends ChromeImageButton
 
     // Test related members
     private static boolean sSaveContextMenuForTests;
-    private ContextMenu mMenuForTests;
+    private ModelList mMenuForTests;
 
     public HomeButton(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -63,24 +64,6 @@ public class HomeButton extends ChromeImageButton
     }
 
     @Override
-    public void onCreateContextMenu(ContextMenu menu, View v, ContextMenuInfo menuInfo) {
-        menu.add(Menu.NONE, ID_SETTINGS, Menu.NONE, R.string.options_homepage_edit_title)
-                .setOnMenuItemClickListener(this);
-
-        if (sSaveContextMenuForTests) mMenuForTests = menu;
-    }
-
-    @Override
-    public boolean onMenuItemClick(MenuItem item) {
-        assert !mIsManagedByPolicySupplier.get();
-        assert item.getItemId() == ID_SETTINGS;
-        assert mOnMenuClickCallback != null;
-
-        mOnMenuClickCallback.onResult(getContext());
-        return true;
-    }
-
-    @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         try (TraceEvent e = TraceEvent.scoped("HomeButton.onMeasure")) {
             super.onMeasure(widthMeasureSpec, heightMeasureSpec);
@@ -96,11 +79,41 @@ public class HomeButton extends ChromeImageButton
 
     private void updateContextMenuListener() {
         if (!mIsManagedByPolicySupplier.get() && mOnMenuClickCallback != null) {
-            setOnCreateContextMenuListener(this);
+            setOnLongClickListener(view -> {
+                setDelegateForMenu(view);
+                ((ListMenuButton) view).showMenu();
+                return true;
+            });
         } else {
-            setOnCreateContextMenuListener(null);
             setLongClickable(false);
         }
+    }
+
+    private void setDelegateForMenu(View anchorView) {
+        RectProvider rectProvider = MenuBuilderHelper.getRectProvider(anchorView);
+        ModelList menuItems = buildMenuItems();
+        mMenuForTests = menuItems;
+        BasicListMenu listMenu = new BasicListMenu(
+                getContext(), menuItems, (model) -> mOnMenuClickCallback.onResult(getContext()));
+        ListMenuButtonDelegate delegate = new ListMenuButtonDelegate() {
+            @Override
+            public ListMenu getListMenu() {
+                return listMenu;
+            }
+
+            @Override
+            public RectProvider getRectProvider(View listMenuButton) {
+                return rectProvider;
+            }
+        };
+        setDelegate(delegate, false);
+    }
+
+    public ModelList buildMenuItems() {
+        ModelList itemList = new ModelList();
+        itemList.add(buildMenuListItem(
+                R.string.options_homepage_edit_title, ID_SETTINGS, R.drawable.ic_edit_24dp));
+        return itemList;
     }
 
     /**
@@ -115,7 +128,7 @@ public class HomeButton extends ChromeImageButton
      * @return Latest context menu created.
      */
     @VisibleForTesting
-    public ContextMenu getMenuForTests() {
+    public ModelList getMenuForTests() {
         return mMenuForTests;
     }
 }

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,8 +12,9 @@
 #include <string>
 #include <vector>
 
-#include "base/bind.h"
+#include "base/auto_reset.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_piece.h"
 #include "build/chromeos_buildflags.h"
@@ -25,6 +26,7 @@
 #include "chrome/browser/media_galleries/fileapi/media_file_system_backend.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/profiles/profile_selections.h"
 #include "chrome/browser/renderer_host/chrome_extension_message_filter.h"
 #include "chrome/browser/sync_file_system/local/sync_file_system_backend.h"
 #include "chrome/common/chrome_constants.h"
@@ -33,7 +35,7 @@
 #include "chrome/common/url_constants.h"
 #include "components/dom_distiller/core/url_constants.h"
 #include "components/download/public/common/quarantine_connection.h"
-#include "components/guest_view/browser/guest_view_message_filter.h"
+#include "components/guest_view/common/guest_view.mojom.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/browser_url_handler.h"
@@ -57,28 +59,32 @@
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_service_worker_message_filter.h"
 #include "extensions/browser/extension_system.h"
-#include "extensions/browser/guest_view/extensions_guest_view_message_filter.h"
+#include "extensions/browser/guest_view/extensions_guest_view.h"
+#include "extensions/browser/guest_view/web_view/web_view_guest.h"
 #include "extensions/browser/guest_view/web_view/web_view_renderer_state.h"
-#include "extensions/browser/info_map.h"
 #include "extensions/browser/process_map.h"
+#include "extensions/browser/renderer_startup_helper.h"
+#include "extensions/browser/service_worker/service_worker_host.h"
+#include "extensions/browser/service_worker_task_queue.h"
 #include "extensions/browser/url_loader_factory_manager.h"
 #include "extensions/browser/url_request_util.h"
 #include "extensions/browser/view_type_utils.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension_urls.h"
 #include "extensions/common/manifest_constants.h"
-#include "extensions/common/manifest_handlers/app_isolation_info.h"
 #include "extensions/common/manifest_handlers/background_info.h"
 #include "extensions/common/manifest_handlers/web_accessible_resources_info.h"
+#include "extensions/common/mojom/event_router.mojom.h"
+#include "extensions/common/mojom/guest_view.mojom.h"
+#include "extensions/common/mojom/renderer_host.mojom.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "extensions/common/switches.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_registry.h"
 #include "url/origin.h"
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "extensions/browser/api/vpn_provider/vpn_service.h"
-#include "extensions/browser/api/vpn_provider/vpn_service_factory.h"
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
+#include "chrome/browser/chromeos/extensions/vpn_provider/vpn_service_factory.h"
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 using blink::web_pref::WebPreferences;
 using content::BrowserContext;
@@ -92,14 +98,16 @@ namespace extensions {
 
 namespace {
 
+// If non-null, a scope of a service worker to always allow to be unregistered.
+const GURL* g_allow_service_worker_unregistration_scope = nullptr;
+
 // Used by the GetPrivilegeRequiredByUrl() and GetProcessPrivilege() functions
-// below.  Extension, and isolated apps require different privileges to be
+// below.  Extensions and hosted apps require different privileges to be
 // granted to their RenderProcessHosts.  This classification allows us to make
 // sure URLs are served by hosts with the right set of privileges.
 enum RenderProcessHostPrivilege {
   PRIV_NORMAL,
   PRIV_HOSTED,
-  PRIV_ISOLATED,
   PRIV_EXTENSION,
 };
 
@@ -120,8 +128,6 @@ RenderProcessHostPrivilege GetPrivilegeRequiredByUrl(
 
   const Extension* extension =
       registry->enabled_extensions().GetByID(url.host());
-  if (extension && AppIsolationInfo::HasIsolatedStorage(extension))
-    return PRIV_ISOLATED;
   if (extension && extension->is_hosted_app())
     return PRIV_HOSTED;
   return PRIV_EXTENSION;
@@ -139,8 +145,6 @@ RenderProcessHostPrivilege GetProcessPrivilege(
   for (const std::string& extension_id : extension_ids) {
     const Extension* extension =
         registry->enabled_extensions().GetByID(extension_id);
-    if (extension && AppIsolationInfo::HasIsolatedStorage(extension))
-      return PRIV_ISOLATED;
     if (extension && extension->is_hosted_app())
       return PRIV_HOSTED;
   }
@@ -211,6 +215,8 @@ size_t GetExtensionBackgroundProcessCount() {
       g_browser_process->profile_manager()->GetLoadedProfiles();
   for (Profile* profile : profiles) {
     ProcessManager* epm = ProcessManager::Get(profile);
+    if (!epm)
+      continue;
     for (ExtensionHost* host : epm->background_hosts())
       process_ids.insert(host->render_process_host()->GetID());
   }
@@ -220,12 +226,10 @@ size_t GetExtensionBackgroundProcessCount() {
 }  // namespace
 
 ChromeContentBrowserClientExtensionsPart::
-    ChromeContentBrowserClientExtensionsPart() {
-}
+    ChromeContentBrowserClientExtensionsPart() = default;
 
 ChromeContentBrowserClientExtensionsPart::
-    ~ChromeContentBrowserClientExtensionsPart() {
-}
+    ~ChromeContentBrowserClientExtensionsPart() = default;
 
 // static
 GURL ChromeContentBrowserClientExtensionsPart::GetEffectiveURL(
@@ -273,21 +277,26 @@ bool ChromeContentBrowserClientExtensionsPart::
     ShouldCompareEffectiveURLsForSiteInstanceSelection(
         content::BrowserContext* browser_context,
         content::SiteInstance* candidate_site_instance,
-        bool is_main_frame,
+        bool is_outermost_main_frame,
         const GURL& candidate_url,
         const GURL& destination_url) {
-  // Don't compare effective URLs for any subframe navigations, since we don't
-  // want to create OOPIFs based on that mechanism (e.g., for hosted apps). For
-  // main frames, don't compare effective URLs when transitioning from app to
-  // non-app URLs if there exists another app WebContents that might script
-  // this one.  These navigations should stay in the app process to not break
-  // scripting when a hosted app opens a same-site popup. See
-  // https://crbug.com/718516 and https://crbug.com/828720 and
+  // Don't compare effective URLs for navigations involving embedded frames,
+  // since we don't want to create OOPIFs based on that mechanism (e.g., for
+  // hosted apps). For outermost main frames, don't compare effective URLs when
+  // transitioning from app to non-app URLs if there exists another app
+  // WebContents that might script this one.  These navigations should stay in
+  // the app process to not break scripting when a hosted app opens a same-site
+  // popup. See https://crbug.com/718516 and https://crbug.com/828720 and
   // https://crbug.com/859062.
-  if (!is_main_frame)
+  if (!is_outermost_main_frame)
     return false;
   size_t candidate_active_contents_count =
       candidate_site_instance->GetRelatedActiveContentsCount();
+
+  // Intentionally only checks for hosted app effective URLs and not NTP-based
+  // effective URLs (which ChromeContentBrowserClient::GetEffectiveURL would
+  // include as well). This avoids keeping same-site popups in the NTP's
+  // process, per https://crbug.com/859062.
   bool src_has_effective_url = HasEffectiveUrl(browser_context, candidate_url);
   bool dest_has_effective_url =
       HasEffectiveUrl(browser_context, destination_url);
@@ -348,7 +357,8 @@ bool ChromeContentBrowserClientExtensionsPart::DoesSiteRequireDedicatedProcess(
 
 // static
 bool ChromeContentBrowserClientExtensionsPart::CanCommitURL(
-    content::RenderProcessHost* process_host, const GURL& url) {
+    content::RenderProcessHost* process_host,
+    const GURL& url) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   // Enforce that extension URLs commit in the correct extension process where
@@ -459,14 +469,14 @@ ChromeContentBrowserClientExtensionsPart::GetProcessCountToIgnoreForLimit() {
 
 // static
 bool ChromeContentBrowserClientExtensionsPart::
-    ShouldSubframesTryToReuseExistingProcess(
-        content::RenderFrameHost* main_frame) {
-  DCHECK(!main_frame->GetParent());
+    ShouldEmbeddedFramesTryToReuseExistingProcess(
+        content::RenderFrameHost* outermost_main_frame) {
+  DCHECK(!outermost_main_frame->GetParentOrOuterDocument());
 
-  // Most out-of-process iframes aggressively look for a random same-site
-  // process to reuse if possible, to keep the process count low. Skip this for
-  // web iframes inside extensions (not including hosted apps), since the
-  // workload here tends to be different and we want to avoid slowing down
+  // Most out-of-process embedded frames aggressively look for a random
+  // same-site process to reuse if possible, to keep the process count low. Skip
+  // this for web frames inside extensions (not including hosted apps), since
+  // the workload here tends to be different and we want to avoid slowing down
   // normal web pages with misbehaving extension-related content.
   //
   // Note that this does not prevent process sharing with tabs when over the
@@ -477,9 +487,11 @@ bool ChromeContentBrowserClientExtensionsPart::
   // extension in Chrome's task manager for blame purposes. See
   // https://crbug.com/899418.
   const Extension* extension =
-      ExtensionRegistry::Get(main_frame->GetSiteInstance()->GetBrowserContext())
+      ExtensionRegistry::Get(
+          outermost_main_frame->GetSiteInstance()->GetBrowserContext())
           ->enabled_extensions()
-          .GetExtensionOrAppByURL(main_frame->GetSiteInstance()->GetSiteURL());
+          .GetExtensionOrAppByURL(
+              outermost_main_frame->GetSiteInstance()->GetSiteURL());
   return !extension || !extension->is_extension();
 }
 
@@ -498,7 +510,9 @@ bool ChromeContentBrowserClientExtensionsPart::
 
   // We must use a new BrowsingInstance (forcing a process swap and disabling
   // scripting by existing tabs) if one of the URLs corresponds to the Chrome
-  // Web Store hosted app, and the other does not.
+  // Web Store and the other does not. For the old Web Store this is done by
+  // checking for the Web Store hosted app and for the new Web Store we just
+  // check against the expected URL.
   //
   // We don't force a BrowsingInstance swap in other cases (i.e., when opening
   // a popup from one extension to a different extension, or to a non-extension
@@ -509,30 +523,44 @@ bool ChromeContentBrowserClientExtensionsPart::
   // (by the content/ part of ShouldSwapBrowsingInstancesForNavigation); this
   // check is just doing the same for top-level frames.  See
   // https://crbug.com/590068.
+
+  // First we check for navigations which are transitioning to/from the URL
+  // associated with the new Webstore.
+  bool current_url_matches_new_webstore =
+      url::Origin::Create(current_effective_url)
+          .IsSameOriginWith(extension_urls::GetNewWebstoreLaunchURL());
+  bool dest_url_matches_new_webstore =
+      url::Origin::Create(destination_effective_url)
+          .IsSameOriginWith(extension_urls::GetNewWebstoreLaunchURL());
+  if (current_url_matches_new_webstore != dest_url_matches_new_webstore)
+    return true;
+
+  // Next we do a process check, looking to see if the Web Store hosted app ID
+  // is associated with the URLs.
   const Extension* current_extension =
       registry->enabled_extensions().GetExtensionOrAppByURL(
           current_effective_url);
-  bool is_current_url_for_web_store =
+  bool is_current_url_for_webstore_app =
       current_extension && current_extension->id() == kWebStoreAppId;
 
   const Extension* dest_extension =
       registry->enabled_extensions().GetExtensionOrAppByURL(
           destination_effective_url);
-  bool is_dest_url_for_web_store =
+  bool is_dest_url_for_webstore_app =
       dest_extension && dest_extension->id() == kWebStoreAppId;
 
-  // First do a process check.  We should force a BrowsingInstance swap if we
-  // are going to Chrome Web Store, but the current process doesn't know about
-  // CWS, even if current_extension somehow corresponds to CWS.
+  // We should force a BrowsingInstance swap if we are going to Chrome Web
+  // Store, but the current process doesn't know about CWS, even if
+  // current_extension somehow corresponds to CWS.
   ProcessMap* process_map = ProcessMap::Get(site_instance->GetBrowserContext());
-  if (is_dest_url_for_web_store && site_instance->HasProcess() &&
+  if (is_dest_url_for_webstore_app && site_instance->HasProcess() &&
       !process_map->Contains(dest_extension->id(),
                              site_instance->GetProcess()->GetID()))
     return true;
 
   // Otherwise, swap BrowsingInstances when transitioning to/from Chrome Web
   // Store.
-  return is_current_url_for_web_store != is_dest_url_for_web_store;
+  return is_current_url_for_webstore_app != is_dest_url_for_webstore_app;
 }
 
 // static
@@ -551,6 +579,53 @@ bool ChromeContentBrowserClientExtensionsPart::AllowServiceWorker(
   return ::extensions::AllowServiceWorker(scope, script_url, extension);
 }
 
+bool ChromeContentBrowserClientExtensionsPart::
+    MayDeleteServiceWorkerRegistration(
+        const GURL& scope,
+        content::BrowserContext* browser_context) {
+  // We only care about extension urls.
+  if (!scope.SchemeIs(kExtensionScheme)) {
+    return true;
+  }
+
+  // Check if we're allowed to unregister this worker for testing purposes.
+  if (g_allow_service_worker_unregistration_scope &&
+      *g_allow_service_worker_unregistration_scope == scope) {
+    return true;
+  }
+
+  const Extension* extension = ExtensionRegistry::Get(browser_context)
+                                   ->enabled_extensions()
+                                   .GetExtensionOrAppByURL(scope);
+  if (!extension) {
+    return true;
+  }
+
+  // We only consider service workers that are root-scoped and for service
+  // worker-based extensions.
+  if (scope != extension->url() ||
+      !BackgroundInfo::IsServiceWorkerBased(extension)) {
+    return true;
+  }
+
+  base::Version registered_version =
+      ServiceWorkerTaskQueue::Get(browser_context)
+          ->RetrieveRegisteredServiceWorkerVersion(extension->id());
+  // The service worker was never fully registered; this can happen in the case
+  // of e.g. throwing errors in response to installation events (where the
+  // worker is registered, but then immediately unregistered).
+  if (!registered_version.IsValid()) {
+    return true;
+  }
+
+  // Don't allow the unregistration of a valid, enabled service worker-based
+  // extension's background service worker. Doing so would put the extension in
+  // a broken state. The service worker registration is instead tied to the
+  // extension's enablement; it is unregistered when the extension is disabled
+  // or uninstalled.
+  return registered_version != extension->version();
+}
+
 // static
 std::vector<url::Origin> ChromeContentBrowserClientExtensionsPart::
     GetOriginsRequiringDedicatedProcess() {
@@ -559,6 +634,8 @@ std::vector<url::Origin> ChromeContentBrowserClientExtensionsPart::
   // Require a dedicated process for the webstore origin.  See
   // https://crbug.com/939108.
   list.push_back(url::Origin::Create(extension_urls::GetWebstoreLaunchURL()));
+  list.push_back(
+      url::Origin::Create(extension_urls::GetNewWebstoreLaunchURL()));
 
   return list;
 }
@@ -567,8 +644,8 @@ std::vector<url::Origin> ChromeContentBrowserClientExtensionsPart::
 std::unique_ptr<content::VpnServiceProxy>
 ChromeContentBrowserClientExtensionsPart::GetVpnServiceProxy(
     content::BrowserContext* browser_context) {
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  chromeos::VpnService* vpn_service =
+#if BUILDFLAG(IS_CHROMEOS)
+  chromeos::VpnServiceInterface* vpn_service =
       chromeos::VpnServiceFactory::GetForBrowserContext(browser_context);
   if (!vpn_service)
     return nullptr;
@@ -602,6 +679,20 @@ bool ChromeContentBrowserClientExtensionsPart::IsBuiltinComponent(
       ->Exists(extension_id);
 }
 
+// static
+bool ChromeContentBrowserClientExtensionsPart::AreExtensionsDisabledForProfile(
+    content::BrowserContext* browser_context) {
+  return AreKeyedServicesDisabledForProfileByDefault(
+      Profile::FromBrowserContext(browser_context));
+}
+
+// static
+base::AutoReset<const GURL*> ChromeContentBrowserClientExtensionsPart::
+    AllowServiceWorkerUnregistrationForScopeForTesting(const GURL* scope) {
+  return base::AutoReset<const GURL*>(
+      &g_allow_service_worker_unregistration_scope, scope);
+}
+
 void ChromeContentBrowserClientExtensionsPart::RenderProcessWillLaunch(
     content::RenderProcessHost* host) {
   int id = host->GetID();
@@ -609,7 +700,6 @@ void ChromeContentBrowserClientExtensionsPart::RenderProcessWillLaunch(
 
   host->AddFilter(new ChromeExtensionMessageFilter(profile));
   host->AddFilter(new ExtensionMessageFilter(id, profile));
-  host->AddFilter(new ExtensionsGuestViewMessageFilter(id, profile));
   host->AddFilter(new ExtensionServiceWorkerMessageFilter(
       id, profile, host->GetStoragePartition()->GetServiceWorkerContext()));
   host->AddFilter(new MessagingAPIMessageFilter(id, profile));
@@ -630,27 +720,20 @@ void ChromeContentBrowserClientExtensionsPart::SiteInstanceGotProcess(
   if (!extension)
     return;
 
+  // Don't consider guests that load extension URLs as extension processes.
+  // This is possible when an embedder app navigates <webview> to a
+  // webview-accessible app resource; the resulting <webview> process shouldn't
+  // receive extension process privileges.
+  if (site_instance->IsGuest())
+    return;
+
+  // Note that this may be called more than once for multiple instances
+  // of the same extension, such as when the same hosted app is opened in
+  // unrelated tabs. This call will ignore duplicate insertions, which is fine,
+  // since we only need to track if the extension is in the process, rather
+  // than how many instances it has in that process.
   ProcessMap::Get(context)->Insert(extension->id(),
-                                   site_instance->GetProcess()->GetID(),
-                                   site_instance->GetId());
-}
-
-void ChromeContentBrowserClientExtensionsPart::SiteInstanceDeleting(
-    SiteInstance* site_instance) {
-  BrowserContext* context = site_instance->GetBrowserContext();
-  ExtensionRegistry* registry = ExtensionRegistry::Get(context);
-  if (!registry)
-    return;
-
-  const Extension* extension =
-      registry->enabled_extensions().GetExtensionOrAppByURL(
-          site_instance->GetSiteURL());
-  if (!extension)
-    return;
-
-  ProcessMap::Get(context)->Remove(extension->id(),
-                                   site_instance->GetProcess()->GetID(),
-                                   site_instance->GetId());
+                                   site_instance->GetProcess()->GetID());
 }
 
 bool ChromeContentBrowserClientExtensionsPart::
@@ -665,13 +748,26 @@ bool ChromeContentBrowserClientExtensionsPart::
   // of the process.
   //
   // Ensure that we are only granting extension preferences to URLs with
-  // the correct scheme. Without this check, chrome-guest:// schemes used by
-  // webview tags as well as hosts that happen to match the id of an
-  // installed extension would get the wrong preferences.
+  // the correct scheme. Without this check, hosts that happen to match the id
+  // of an installed extension would get the wrong preferences.
+  // TODO(crbug.com/1435121): Once the `web_prefs` have been set based on
+  // `extension` below, they are not unset when navigating a tab from an
+  // extension page to a regular web page. We should clear extension settings in
+  // this case.
   const GURL& site_url =
-      web_contents->GetMainFrame()->GetSiteInstance()->GetSiteURL();
+      web_contents->GetPrimaryMainFrame()->GetSiteInstance()->GetSiteURL();
   if (!site_url.SchemeIs(kExtensionScheme))
     return false;
+
+  // If a webview navigates to a webview accessible resource, extension
+  // preferences should not be applied to the webview.
+  // TODO(crbug.com/1435121): Once it is possible to clear extension settings
+  // after a navigation, we can remove this case so that extension settings can
+  // apply to webview accessible resources without impacting web pages
+  // subsequently loaded in the webview.
+  if (WebViewGuest::FromWebContents(web_contents)) {
+    return false;
+  }
 
   const Extension* extension =
       registry->enabled_extensions().GetByID(site_url.host());
@@ -735,8 +831,17 @@ void ChromeContentBrowserClientExtensionsPart::ExposeInterfacesToRenderer(
     service_manager::BinderRegistry* registry,
     blink::AssociatedInterfaceRegistry* associated_registry,
     content::RenderProcessHost* host) {
-  associated_registry->AddInterface(
+  associated_registry->AddInterface<mojom::EventRouter>(
       base::BindRepeating(&EventRouter::BindForRenderer, host->GetID()));
+  associated_registry->AddInterface<guest_view::mojom::GuestViewHost>(
+      base::BindRepeating(&ExtensionsGuestView::CreateForComponents,
+                          host->GetID()));
+  associated_registry->AddInterface<mojom::GuestView>(base::BindRepeating(
+      &ExtensionsGuestView::CreateForExtensions, host->GetID()));
+  associated_registry->AddInterface<mojom::RendererHost>(base::BindRepeating(
+      &RendererStartupHelper::BindForRenderer, host->GetID()));
+  associated_registry->AddInterface<mojom::ServiceWorkerHost>(
+      base::BindRepeating(&ServiceWorkerHost::BindReceiver, host->GetID()));
 }
 
 }  // namespace extensions

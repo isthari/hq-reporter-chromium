@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include "components/page_info/core/proto/about_this_site_metadata.pb.h"
 #include "components/page_info/page_info_ui.h"
 #include "device/vr/buildflags/buildflags.h"
+#include "ui/base/interaction/element_identifier.h"
 #include "ui/views/view.h"
 
 namespace views {
@@ -24,7 +25,7 @@ class LabelButton;
 
 class ChromePageInfoUiDelegate;
 class ChosenObjectView;
-class PageInfoHoverButton;
+class RichHoverButton;
 class PageInfoNavigationHandler;
 class PageInfoSecurityContentView;
 class PermissionToggleRowView;
@@ -41,9 +42,9 @@ class PageInfoMainView : public views::View,
                          public PermissionToggleRowViewObserver,
                          public ChosenObjectViewObserver {
  public:
-  // The width of the column size for permissions and chosen object icons.
-  static constexpr int kIconColumnWidth = 16;
-
+  DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kCookieButtonElementId);
+  DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kMainLayoutElementId);
+  DECLARE_CLASS_ELEMENT_IDENTIFIER_VALUE(kPermissionsElementId);
   // Container view that fills the bubble width for button rows. Supports
   // updating the layout.
   class ContainerView : public views::View {
@@ -62,7 +63,6 @@ class PageInfoMainView : public views::View,
   ~PageInfoMainView() override;
 
   // PageInfoUI implementations.
-  void EnsureCookieInfo() override;
   void SetCookieInfo(const CookieInfoList& cookie_info_list) override;
   void SetPermissionInfo(const PermissionInfoList& permission_info_list,
                          ChosenObjectInfoList chosen_object_info_list) override;
@@ -79,6 +79,10 @@ class PageInfoMainView : public views::View,
   // ChosenObjectViewObserver:
   void OnChosenObjectDeleted(const PageInfoUI::ChosenObjectInfo& info) override;
 
+  int GetVisiblePermissionsCountForTesting() const {
+    return toggle_rows_.size();
+  }
+
  protected:
   // TODO(olesiamarukhno): Was used for tests, will update it after redesigning
   // moves forward.
@@ -87,6 +91,10 @@ class PageInfoMainView : public views::View,
  private:
   friend class PageInfoBubbleViewDialogBrowserTest;
   friend class test::PageInfoBubbleViewTestApi;
+
+  // Ensures the cookie information UI is present, with placeholder information
+  // if necessary.
+  void EnsureCookieInfo();
 
   // Creates a view with vertical box layout that will used a container for
   // other views.
@@ -118,9 +126,9 @@ class PageInfoMainView : public views::View,
   // subpage and a separator.
   [[nodiscard]] std::unique_ptr<views::View> CreateAdPersonalizationSection();
 
-  raw_ptr<PageInfo> presenter_;
+  raw_ptr<PageInfo, DanglingUntriaged> presenter_;
 
-  raw_ptr<ChromePageInfoUiDelegate> ui_delegate_;
+  raw_ptr<ChromePageInfoUiDelegate, DanglingUntriaged> ui_delegate_;
 
   raw_ptr<PageInfoNavigationHandler> navigation_handler_;
 
@@ -128,13 +136,13 @@ class PageInfoMainView : public views::View,
   std::u16string details_text_ = std::u16string();
 
   // The button that opens the "Connection" subpage.
-  raw_ptr<PageInfoHoverButton> connection_button_ = nullptr;
+  raw_ptr<RichHoverButton, DanglingUntriaged> connection_button_ = nullptr;
 
   // The view that contains the certificate, cookie, and permissions sections.
   raw_ptr<views::View> site_settings_view_ = nullptr;
 
   // The button that opens the "Cookies" dialog.
-  raw_ptr<PageInfoHoverButton> cookie_button_ = nullptr;
+  raw_ptr<RichHoverButton> cookie_button_ = nullptr;
 
   // The button that opens up "Site Settings".
   raw_ptr<views::View> site_settings_link_ = nullptr;
@@ -148,7 +156,8 @@ class PageInfoMainView : public views::View,
   raw_ptr<views::View> about_this_site_section_ = nullptr;
 
   // The view that contains `SecurityInformationView` and a certificate button.
-  raw_ptr<PageInfoSecurityContentView> security_content_view_ = nullptr;
+  raw_ptr<PageInfoSecurityContentView, DanglingUntriaged>
+      security_content_view_ = nullptr;
 
   // The section that contains 'Ad personalization' button that opens a
   // subpage.

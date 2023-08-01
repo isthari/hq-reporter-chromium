@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,9 @@
 #include <libevdev/libevdev.h>
 #include <linux/input.h>
 
-#include "base/cxx17_backports.h"
 #include "base/logging.h"
 #include "base/strings/stringprintf.h"
+#include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "ui/events/base_event_utils.h"
 #include "ui/events/event.h"
@@ -142,7 +142,6 @@ void GestureInterpreterLibevdevCros::OnLibEvdevCrosOpen(
     Evdev* evdev,
     EventStateRec* evstate) {
   DCHECK(evdev->info.is_monotonic) << "libevdev must use monotonic timestamps";
-  VLOG(9) << "HACK DO NOT REMOVE OR LINK WILL FAIL" << (void*)gestures_log;
 
   // Set device pointer and initialize properties.
   evdev_ = evdev;
@@ -553,13 +552,18 @@ void GestureInterpreterLibevdevCros::DispatchMouseButton(unsigned int button,
       PointerDetails(EventPointerType::kMouse), StimeToTimeTicks(time)));
 }
 
+void GestureInterpreterLibevdevCros::SetReceivedValidKeyboardInputCallback(
+    base::RepeatingCallback<void(uint64_t)> callback) {
+  received_keyboard_input_ = std::move(callback);
+}
+
 void GestureInterpreterLibevdevCros::DispatchChangedKeys(
     unsigned long* new_key_state,
     stime_t timestamp) {
   unsigned long key_state_diff[EVDEV_BITS_TO_LONGS(KEY_CNT)];
 
   // Find changed keys.
-  for (unsigned long i = 0; i < base::size(key_state_diff); ++i)
+  for (unsigned long i = 0; i < std::size(key_state_diff); ++i)
     key_state_diff[i] = new_key_state[i] ^ prev_key_state_[i];
 
   // Dispatch events for changed keys.
@@ -574,6 +578,14 @@ void GestureInterpreterLibevdevCros::DispatchChangedKeys(
       // Ignore digi buttons (e.g. BTN_TOOL_FINGER).
       if (key >= BTN_DIGI && key < BTN_WHEEL)
         continue;
+
+      // Checks for a key press that could only have occurred from a
+      // non-imposter keyboard. Disables Imposter flag and triggers a callback
+      // which will update the dispatched list of keyboards with this new
+      // information.
+      if (received_keyboard_input_) {
+        received_keyboard_input_.Run(key);
+      }
 
       // Dispatch key press or release to keyboard.
       dispatcher_->DispatchKeyEvent(KeyEventParams(

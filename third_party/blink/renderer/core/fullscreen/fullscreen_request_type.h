@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,7 +25,7 @@ enum class FullscreenRequestType {
   // No bits set, equivalent to unprefixed with no other properties
   kNull = 0,
 
-  // True for Element.requestFullscreen(), false for
+  // False for Element.requestFullscreen(), true for
   // Element.webkitRequestFullscreen()/webkitRequestFullScreen() and
   // HTMLVideoElement.webkitEnterFullscreen()/webkitEnterFullScreen()
   kPrefixed = 1,
@@ -38,7 +38,11 @@ enum class FullscreenRequestType {
   // transparent background.
   kForXrOverlay = 4,
 
-  // Explicit name for "no options" for backwards compatibility and convenience
+  // For WebXR Immersive AR sessions with access to the camera, in this mode,
+  // the status bar should stay visible.
+  kForXrArWithCamera = 8,
+
+  // Convenience value for "no flags".
   kUnprefixed = kNull,
 };
 

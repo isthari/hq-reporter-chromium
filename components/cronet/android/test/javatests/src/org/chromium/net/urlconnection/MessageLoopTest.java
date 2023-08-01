@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,15 +8,14 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import android.support.test.runner.AndroidJUnit4;
-
+import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.filters.SmallTest;
 
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.Batch;
 import org.chromium.net.CronetTestRule;
 
 import java.io.IOException;
@@ -30,6 +29,7 @@ import java.util.concurrent.ThreadFactory;
 /**
  * Tests the MessageLoop implementation.
  */
+@Batch(Batch.UNIT_TESTS)
 @RunWith(AndroidJUnit4.class)
 public class MessageLoopTest {
     @Rule
@@ -49,7 +49,6 @@ public class MessageLoopTest {
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     public void testInterrupt() throws Exception {
         final MessageLoop loop = new MessageLoop();
         assertFalse(loop.isRunning());
@@ -90,7 +89,6 @@ public class MessageLoopTest {
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     public void testTaskFailed() throws Exception {
         final MessageLoop loop = new MessageLoop();
         assertFalse(loop.isRunning());
@@ -139,7 +137,6 @@ public class MessageLoopTest {
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     public void testLoopWithTimeout() throws Exception {
         final MessageLoop loop = new MessageLoop();
         assertFalse(loop.isRunning());

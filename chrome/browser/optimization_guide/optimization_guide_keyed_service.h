@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,15 +9,18 @@
 #include <vector>
 
 #include "base/memory/raw_ptr.h"
+#include "base/scoped_observation.h"
 #include "build/build_config.h"
+#include "chrome/browser/profiles/profile_observer.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/optimization_guide/content/browser/optimization_guide_decider.h"
+#include "components/optimization_guide/core/new_optimization_guide_decider.h"
 #include "components/optimization_guide/core/optimization_guide_model_provider.h"
 #include "components/optimization_guide/proto/hints.pb.h"
 #include "components/optimization_guide/proto/models.pb.h"
 
 #if BUILDFLAG(IS_ANDROID)
-#include "chrome/browser/android/bookmarks/bookmark_bridge.h"
+#include "chrome/browser/bookmarks/android/bookmark_bridge.h"
 #endif
 
 namespace content {
@@ -25,23 +28,29 @@ class BrowserContext;
 class NavigationHandle;
 }  // namespace content
 
+namespace download {
+class BackgroundDownloadService;
+}  // namespace download
+
 namespace optimization_guide {
 namespace android {
-class AndroidPushNotificationManagerJavaTest;
 class OptimizationGuideBridge;
 }  // namespace android
 class ChromeHintsManager;
+class ModelInfo;
 class OptimizationGuideStore;
 class PredictionManager;
 class PredictionManagerBrowserTestBase;
 class PredictionModelDownloadClient;
+class PredictionModelStoreBrowserTestBase;
 class PushNotificationManager;
-class ModelInfo;
 class TabUrlProvider;
 class TopHostProvider;
 }  // namespace optimization_guide
 
+class ChromeBrowserMainExtraPartsOptimizationGuide;
 class GURL;
+class OptimizationGuideLogger;
 class OptimizationGuideNavigationData;
 class Profile;
 
@@ -54,8 +63,10 @@ class Profile;
 // and no information will be retrieved.
 class OptimizationGuideKeyedService
     : public KeyedService,
+      public optimization_guide::NewOptimizationGuideDecider,
       public optimization_guide::OptimizationGuideDecider,
-      public optimization_guide::OptimizationGuideModelProvider {
+      public optimization_guide::OptimizationGuideModelProvider,
+      public ProfileObserver {
  public:
   explicit OptimizationGuideKeyedService(
       content::BrowserContext* browser_context);
@@ -65,6 +76,15 @@ class OptimizationGuideKeyedService
       const OptimizationGuideKeyedService&) = delete;
 
   ~OptimizationGuideKeyedService() override;
+
+  // optimization_guide::NewOptimizationGuideDecider implementation:
+  // WARNING: This API is not quite ready for general use. Use
+  // CanApplyOptimizationAsync or CanApplyOptimization using NavigationHandle
+  // instead.
+  void CanApplyOptimization(
+      const GURL& url,
+      optimization_guide::proto::OptimizationType optimization_type,
+      optimization_guide::OptimizationGuideDecisionCallback callback) override;
 
   // optimization_guide::OptimizationGuideDecider implementation:
   void RegisterOptimizationTypes(
@@ -109,22 +129,21 @@ class OptimizationGuideKeyedService
   static std::unique_ptr<optimization_guide::PushNotificationManager>
   MaybeCreatePushNotificationManager(Profile* profile);
 
- private:
-  // BookmarkBridge is a friend class since it is a consumer of the
-  // CanApplyOptimizationOnDemand API.
-#if BUILDFLAG(IS_ANDROID)
-  friend class BookmarkBridge;
-#endif
+  OptimizationGuideLogger* GetOptimizationGuideLogger() {
+    return optimization_guide_logger_.get();
+  }
 
+ private:
+  friend class ChromeBrowserMainExtraPartsOptimizationGuide;
   friend class ChromeBrowsingDataRemoverDelegate;
   friend class HintsFetcherBrowserTest;
+  friend class OptimizationGuideInternalsUI;
   friend class OptimizationGuideKeyedServiceBrowserTest;
   friend class OptimizationGuideMessageHandler;
   friend class OptimizationGuideWebContentsObserver;
-  friend class optimization_guide::PredictionModelDownloadClient;
   friend class optimization_guide::PredictionManagerBrowserTestBase;
-  friend class optimization_guide::android::
-      AndroidPushNotificationManagerJavaTest;
+  friend class optimization_guide::PredictionModelDownloadClient;
+  friend class optimization_guide::PredictionModelStoreBrowserTestBase;
   friend class optimization_guide::android::OptimizationGuideBridge;
 
   // Initializes |this|.
@@ -156,6 +175,9 @@ class OptimizationGuideKeyedService
   // KeyedService implementation:
   void Shutdown() override;
 
+  // ProfileObserver implementation:
+  void OnProfileInitializationComplete(Profile* profile) override;
+
   // optimization_guide::OptimizationGuideDecider implementation:
   void CanApplyOptimizationOnDemand(
       const std::vector<GURL>& urls,
@@ -165,14 +187,24 @@ class OptimizationGuideKeyedService
       optimization_guide::OnDemandOptimizationGuideDecisionRepeatingCallback
           callback) override;
 
+  download::BackgroundDownloadService* BackgroundDownloadServiceProvider();
+
+  bool ComponentUpdatesEnabledProvider() const;
+
   raw_ptr<content::BrowserContext> browser_context_;
 
   // The store of hints.
   std::unique_ptr<optimization_guide::OptimizationGuideStore> hint_store_;
 
+  // The logger that plumbs the debug logs to the optimization guide
+  // internals page. Must outlive `prediction_manager_` and `hints_manager_`.
+  std::unique_ptr<OptimizationGuideLogger> optimization_guide_logger_;
+
   // Manages the storing, loading, and fetching of hints.
   std::unique_ptr<optimization_guide::ChromeHintsManager> hints_manager_;
 
+  // TODO(crbug/1358568): Remove this old model store once the new model store
+  // is launched.
   // The store of optimization target prediction models and features.
   std::unique_ptr<optimization_guide::OptimizationGuideStore>
       prediction_model_and_features_store_;
@@ -189,6 +221,9 @@ class OptimizationGuideKeyedService
   // The tab URL provider to use for fetching information for the user's active
   // tabs. Will be null if the user is off the record.
   std::unique_ptr<optimization_guide::TabUrlProvider> tab_url_provider_;
+
+  // Used to observe profile initialization event.
+  base::ScopedObservation<Profile, ProfileObserver> profile_observation_{this};
 };
 
 #endif  // CHROME_BROWSER_OPTIMIZATION_GUIDE_OPTIMIZATION_GUIDE_KEYED_SERVICE_H_

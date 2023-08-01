@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@ package org.chromium.components.webrtc;
 
 import android.app.PendingIntent;
 import android.content.Context;
-import android.os.Build;
 
 import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
@@ -54,21 +53,14 @@ public class MediaCaptureNotificationUtil {
         if (stopIntent != null) {
             builder.setPriorityBeforeO(NotificationCompat.PRIORITY_HIGH);
             builder.setVibrate(new long[0]);
-            builder.addAction(R.drawable.ic_stop_white_36dp,
+            builder.addAction(R.drawable.ic_stop_white_24dp,
                     appContext.getString(R.string.accessibility_stop), stopIntent);
         } else {
             assert mediaType != MediaType.SCREEN_CAPTURE : "SCREEN_CAPTURE requires a stop action";
         }
 
-        String titleText = getNotificationTitleText(mediaType);
-        // App name is automatically added to the title from Android N, but needs to be added
-        // explicitly for prior versions.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N || appName == null) {
-            builder.setContentTitle(titleText);
-        } else {
-            builder.setContentTitle(appContext.getString(
-                    R.string.media_capture_notification_app_name_separator, appName, titleText));
-        }
+        // App name is automatically added to the title from Android N.
+        builder.setContentTitle(getNotificationTitleText(mediaType));
 
         String contentText = null;
         if (url == null) {

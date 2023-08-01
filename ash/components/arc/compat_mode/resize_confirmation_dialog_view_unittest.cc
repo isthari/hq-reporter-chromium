@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,8 @@
 #include <memory>
 
 #include "ash/components/arc/compat_mode/test/compat_mode_test_base.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/memory/raw_ptr.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/views/controls/button/checkbox.h"
 #include "ui/views/controls/button/md_text_button.h"
@@ -67,7 +68,7 @@ class ResizeConfirmationDialogViewTest : public CompatModeTestBase {
   // A LayoutProvider must exist in scope in order to set up views.
   views::LayoutProvider layout_provider;
 
-  ResizeConfirmationDialogView* dialog_view_;
+  raw_ptr<ResizeConfirmationDialogView, ExperimentalAsh> dialog_view_;
   std::unique_ptr<views::Widget> widget_;
 };
 

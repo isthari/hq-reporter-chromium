@@ -1,18 +1,18 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/extensions/data_deleter.h"
 
 #include "base/barrier_closure.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_refptr.h"
-#include "base/task/post_task.h"
 #include "base/task/task_runner.h"
 #include "chrome/browser/extensions/chrome_extension_cookies.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_special_storage_policy.h"
+#include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_io_data.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
@@ -27,7 +27,6 @@
 #include "extensions/browser/extension_util.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
-#include "extensions/common/manifest_handlers/app_isolation_info.h"
 
 using base::WeakPtr;
 using content::BrowserContext;
@@ -107,7 +106,7 @@ void DataDeleter::StartDeleting(Profile* profile,
   GURL launch_web_url_origin;
   StoragePartition* partition = nullptr;
 
-  if (AppIsolationInfo::HasIsolatedStorage(extension)) {
+  if (extensions::util::HasIsolatedStorage(*extension, profile)) {
     has_isolated_storage = true;
     ++num_tasks;
   } else {
@@ -140,9 +139,10 @@ void DataDeleter::StartDeleting(Profile* profile,
   if (has_isolated_storage) {
     profile->AsyncObliterateStoragePartition(
         util::GetPartitionDomainForExtension(extension),
-        base::BindOnce(
-            &OnNeedsToGarbageCollectIsolatedStorage,
-            ExtensionSystem::Get(profile)->extension_service()->AsWeakPtr()),
+        base::BindOnce(&OnNeedsToGarbageCollectIsolatedStorage,
+                       ExtensionSystem::Get(profile)
+                           ->extension_service()
+                           ->AsExtensionServiceWeakPtr()),
         subtask_done_callback);
   }
   if (delete_extension_origin) {

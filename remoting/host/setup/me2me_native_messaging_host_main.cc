@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,12 +21,11 @@
 #include "base/threading/thread.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
-#include "mojo/core/embedder/embedder.h"
-#include "net/url_request/url_fetcher.h"
 #include "remoting/base/auto_thread_task_runner.h"
 #include "remoting/base/breakpad.h"
 #include "remoting/base/gaia_oauth_client.h"
 #include "remoting/base/logging.h"
+#include "remoting/base/mojo_util.h"
 #include "remoting/base/url_request_context_getter.h"
 #include "remoting/host/base/host_exit_codes.h"
 #include "remoting/host/base/switches.h"
@@ -98,7 +97,7 @@ int Me2MeNativeMessagingHostMain(int argc, char** argv) {
 
   base::ThreadPoolInstance::CreateAndStartWithDefaultParams("Me2Me");
 
-  mojo::core::Init();
+  InitializeMojo();
 
   // An IO thread is needed for the pairing registry and URL context getter.
   base::Thread io_thread("io_thread");
@@ -160,10 +159,10 @@ int Me2MeNativeMessagingHostMain(int argc, char** argv) {
 
     // presubmit: allow wstring
     std::wstring input_pipe_name =
-      command_line->GetSwitchValueNative(kInputSwitchName);
+        command_line->GetSwitchValueNative(kInputSwitchName);
     // presubmit: allow wstring
     std::wstring output_pipe_name =
-      command_line->GetSwitchValueNative(kOutputSwitchName);
+        command_line->GetSwitchValueNative(kOutputSwitchName);
 
     // A NULL SECURITY_ATTRIBUTES signifies that the handle can't be inherited.
     read_file =
@@ -174,9 +173,9 @@ int Me2MeNativeMessagingHostMain(int argc, char** argv) {
       return kInitializationFailed;
     }
 
-    write_file = base::File(CreateFile(
-        output_pipe_name.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
-        FILE_ATTRIBUTE_NORMAL, nullptr));
+    write_file = base::File(CreateFile(output_pipe_name.c_str(), GENERIC_WRITE,
+                                       0, nullptr, OPEN_EXISTING,
+                                       FILE_ATTRIBUTE_NORMAL, nullptr));
     if (!write_file.IsValid()) {
       PLOG(ERROR) << "CreateFile failed on '" << output_pipe_name << "'";
       return kInitializationFailed;
@@ -216,15 +215,13 @@ int Me2MeNativeMessagingHostMain(int argc, char** argv) {
   std::unique_ptr<OAuthClient> oauth_client(
       new GaiaOAuthClient(url_loader_factory_owner.GetURLLoaderFactory()));
 
-  net::URLFetcher::SetIgnoreCertificateRequests(true);
-
   // Create the pairing registry.
   scoped_refptr<PairingRegistry> pairing_registry;
 
 #if BUILDFLAG(IS_WIN)
   base::win::RegKey root;
-  LONG result = root.Open(HKEY_LOCAL_MACHINE, kPairingRegistryKeyName,
-                          KEY_READ);
+  LONG result =
+      root.Open(HKEY_LOCAL_MACHINE, kPairingRegistryKeyName, KEY_READ);
   if (result != ERROR_SUCCESS) {
     SetLastError(result);
     PLOG(ERROR) << "Failed to open HKLM\\" << kPairingRegistryKeyName;
@@ -236,8 +233,8 @@ int Me2MeNativeMessagingHostMain(int argc, char** argv) {
                              needs_elevation ? KEY_READ : KEY_READ | KEY_WRITE);
   if (result != ERROR_SUCCESS) {
     SetLastError(result);
-    PLOG(ERROR) << "Failed to open HKLM\\" << kPairingRegistryKeyName
-                << "\\" << kPairingRegistryClientsKeyName;
+    PLOG(ERROR) << "Failed to open HKLM\\" << kPairingRegistryKeyName << "\\"
+                << kPairingRegistryClientsKeyName;
     return kInitializationFailed;
   }
 
@@ -257,14 +254,14 @@ int Me2MeNativeMessagingHostMain(int argc, char** argv) {
   // Initialize the pairing registry delegate and set the root keys.
   std::unique_ptr<PairingRegistryDelegateWin> delegate(
       new PairingRegistryDelegateWin());
-  if (!delegate->SetRootKeys(privileged.Take(), unprivileged.Take()))
+  if (!delegate->SetRootKeys(privileged.Take(), unprivileged.Take())) {
     return kInitializationFailed;
+  }
 
   pairing_registry =
       new PairingRegistry(io_thread.task_runner(), std::move(delegate));
 #else   // BUILDFLAG(IS_WIN)
-  pairing_registry =
-      CreatePairingRegistry(io_thread.task_runner());
+  pairing_registry = CreatePairingRegistry(io_thread.task_runner());
 #endif  // !BUILDFLAG(IS_WIN)
 
   std::unique_ptr<NativeMessagingPipe> native_messaging_pipe(

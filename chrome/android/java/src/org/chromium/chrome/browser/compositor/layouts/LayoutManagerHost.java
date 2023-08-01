@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -70,12 +70,6 @@ public interface LayoutManagerHost {
      * @param outRect The RectF object to write the result to.
      */
     void getViewportFullControls(RectF outRect);
-
-    /**
-     * @return The height of the screen minus the height of the top and bottom browser controls
-     *         when not hidden.
-     */
-    float getHeightMinusBrowserControls();
 
     /**
      * @return The height of the top browser controls in pixels.

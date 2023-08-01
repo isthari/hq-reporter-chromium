@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,25 +6,28 @@
 
 #include <stddef.h>
 #import <UIKit/UIKit.h>
+
 #include <cmath>
 #include <limits>
 
 #include "base/logging.h"
-#include "base/mac/scoped_cftyperef.h"
 #include "base/mac/scoped_nsobject.h"
+#include "ui/base/resource/resource_scale_factor.h"
 #include "ui/gfx/geometry/size.h"
+#include "ui/gfx/image/image_internal.h"
 #include "ui/gfx/image/image_png_rep.h"
 #include "ui/gfx/image/image_skia.h"
+#include "ui/gfx/image/image_skia_rep.h"
 #include "ui/gfx/image/image_skia_util_ios.h"
 
-namespace gfx {
-namespace internal {
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 namespace {
 
 // Returns a 16x16 red UIImage to visually show when a UIImage cannot be
 // created from PNG data. Logs error as well.
-// Caller takes ownership of returned UIImage.
 UIImage* CreateErrorUIImage(float scale) {
   LOG(ERROR) << "Unable to decode PNG into UIImage.";
   base::ScopedCFTypeRef<CGColorSpaceRef> color_space(
@@ -35,14 +38,16 @@ UIImage* CreateErrorUIImage(float scale) {
       16,       // height
       8,        // bitsPerComponent
       0,        // CG will calculate by default.
-      color_space, kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Host));
+      color_space,
+      kCGImageAlphaPremultipliedFirst |
+          static_cast<CGImageAlphaInfo>(kCGBitmapByteOrder32Host)));
   CGContextSetRGBFillColor(context, 1.0, 0.0, 0.0, 1.0);
   CGContextFillRect(context, CGRectMake(0.0, 0.0, 16, 16));
   base::ScopedCFTypeRef<CGImageRef> cg_image(
       CGBitmapContextCreateImage(context));
-  return [[UIImage imageWithCGImage:cg_image.get()
-                              scale:scale
-                        orientation:UIImageOrientationUp] retain];
+  return [UIImage imageWithCGImage:cg_image.get()
+                             scale:scale
+                       orientation:UIImageOrientationUp];
 }
 
 // Converts from ImagePNGRep to UIImage.
@@ -57,22 +62,65 @@ UIImage* CreateUIImageFromImagePNGRep(const gfx::ImagePNGRep& image_png_rep) {
 
 }  // namespace
 
+namespace gfx {
+
+namespace internal {
+
+class ImageRepCocoaTouch final : public ImageRep {
+ public:
+  explicit ImageRepCocoaTouch(UIImage* image)
+      : ImageRep(Image::kImageRepCocoaTouch), image_(image) {
+    CHECK(image_);
+  }
+
+  ImageRepCocoaTouch(const ImageRepCocoaTouch&) = delete;
+  ImageRepCocoaTouch& operator=(const ImageRepCocoaTouch&) = delete;
+
+  ~ImageRepCocoaTouch() override = default;
+
+  int Width() const override { return Size().width(); }
+
+  int Height() const override { return Size().height(); }
+
+  gfx::Size Size() const override {
+    int width = static_cast<int>(image_.size.width);
+    int height = static_cast<int>(image_.size.height);
+    return gfx::Size(width, height);
+  }
+
+  UIImage* image() const { return image_; }
+
+ private:
+  UIImage* __strong image_;
+};
+
+const ImageRepCocoaTouch* ImageRep::AsImageRepCocoaTouch() const {
+  CHECK_EQ(type_, Image::kImageRepCocoaTouch);
+  return reinterpret_cast<const ImageRepCocoaTouch*>(this);
+}
+ImageRepCocoaTouch* ImageRep::AsImageRepCocoaTouch() {
+  return const_cast<ImageRepCocoaTouch*>(
+      static_cast<const ImageRep*>(this)->AsImageRepCocoaTouch());
+}
+
 scoped_refptr<base::RefCountedMemory> Get1xPNGBytesFromUIImage(
     UIImage* uiimage) {
+  DCHECK(uiimage);
   NSData* data = UIImagePNGRepresentation(uiimage);
 
-  if ([data length] == 0)
+  if (data.length == 0) {
     return nullptr;
+  }
 
   scoped_refptr<base::RefCountedBytes> png_bytes(
       new base::RefCountedBytes());
-  png_bytes->data().resize([data length]);
-  [data getBytes:&png_bytes->data().at(0) length:[data length]];
+  png_bytes->data().resize(data.length);
+  [data getBytes:&png_bytes->data().at(0) length:data.length];
   return png_bytes;
 }
 
 UIImage* UIImageFromPNG(const std::vector<gfx::ImagePNGRep>& image_png_reps) {
-  float ideal_scale = ImageSkia::GetMaxSupportedScale();
+  const float ideal_scale = ui::GetScaleForMaxSupportedResourceScaleFactor();
 
   if (image_png_reps.empty())
     return CreateErrorUIImage(ideal_scale);
@@ -81,16 +129,15 @@ UIImage* UIImageFromPNG(const std::vector<gfx::ImagePNGRep>& image_png_reps) {
   float smallest_diff = std::numeric_limits<float>::max();
   size_t closest_index = 0u;
   for (size_t i = 0; i < image_png_reps.size(); ++i) {
-    float scale = image_png_reps[i].scale;
-    float diff = std::abs(ideal_scale - scale);
+    const float scale = image_png_reps[i].scale;
+    const float diff = std::abs(ideal_scale - scale);
     if (diff < smallest_diff) {
       smallest_diff = diff;
       closest_index = i;
     }
   }
 
-  return
-      [CreateUIImageFromImagePNGRep(image_png_reps[closest_index]) autorelease];
+  return CreateUIImageFromImagePNGRep(image_png_reps[closest_index]);
 }
 
 scoped_refptr<base::RefCountedMemory> Get1xPNGBytesFromImageSkia(
@@ -113,22 +160,31 @@ ImageSkia ImageSkiaFromPNG(
   // iOS does not expose libpng, so conversion from PNG to ImageSkia must go
   // through UIImage.
   ImageSkia image_skia;
-  for (size_t i = 0; i < image_png_reps.size(); ++i) {
-    base::scoped_nsobject<UIImage> uiimage(
-        CreateUIImageFromImagePNGRep(image_png_reps[i]));
-    gfx::ImageSkiaRep image_skia_rep = ImageSkiaRepOfScaleFromUIImage(
-        uiimage, image_png_reps[i].scale);
+  for (const auto& image_png_rep : image_png_reps) {
+    UIImage* uiimage = CreateUIImageFromImagePNGRep(image_png_rep);
+    gfx::ImageSkiaRep image_skia_rep =
+        ImageSkiaRepOfScaleFromUIImage(uiimage, image_png_rep.scale);
     if (!image_skia_rep.is_null())
       image_skia.AddRepresentation(image_skia_rep);
   }
   return image_skia;
 }
 
-gfx::Size UIImageSize(UIImage* image) {
-  int width = static_cast<int>(image.size.width);
-  int height = static_cast<int>(image.size.height);
-  return gfx::Size(width, height);
+UIImage* UIImageOfImageRepCocoaTouch(const ImageRepCocoaTouch* image_rep) {
+  return image_rep->image();
 }
 
-} // namespace internal
-} // namespace gfx
+std::unique_ptr<ImageRep> MakeImageRepCocoaTouch(UIImage* image) {
+  return std::make_unique<internal::ImageRepCocoaTouch>(image);
+}
+
+}  // namespace internal
+
+Image::Image(UIImage* image) {
+  if (image) {
+    storage_ = new internal::ImageStorage(Image::kImageRepCocoaTouch);
+    AddRepresentation(std::make_unique<internal::ImageRepCocoaTouch>(image));
+  }
+}
+
+}  // namespace gfx

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,9 @@
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "extensions/browser/api/networking_private/networking_private_chromeos.h"
-#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#elif BUILDFLAG(IS_CHROMEOS_LACROS)
+#include "extensions/browser/api/networking_private/networking_private_lacros.h"
+#elif BUILDFLAG(IS_LINUX)
 #include "extensions/browser/api/networking_private/networking_private_linux.h"
 #elif BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
 #include "components/wifi/wifi_service.h"
@@ -23,9 +25,11 @@ namespace extensions {
 
 using content::BrowserContext;
 
-NetworkingPrivateDelegateFactory::UIDelegateFactory::UIDelegateFactory() {}
+NetworkingPrivateDelegateFactory::UIDelegateFactory::UIDelegateFactory() =
+    default;
 
-NetworkingPrivateDelegateFactory::UIDelegateFactory::~UIDelegateFactory() {}
+NetworkingPrivateDelegateFactory::UIDelegateFactory::~UIDelegateFactory() =
+    default;
 
 // static
 NetworkingPrivateDelegate*
@@ -44,11 +48,9 @@ NetworkingPrivateDelegateFactory::GetInstance() {
 NetworkingPrivateDelegateFactory::NetworkingPrivateDelegateFactory()
     : BrowserContextKeyedServiceFactory(
           "NetworkingPrivateDelegate",
-          BrowserContextDependencyManager::GetInstance()) {
-}
+          BrowserContextDependencyManager::GetInstance()) {}
 
-NetworkingPrivateDelegateFactory::~NetworkingPrivateDelegateFactory() {
-}
+NetworkingPrivateDelegateFactory::~NetworkingPrivateDelegateFactory() = default;
 
 void NetworkingPrivateDelegateFactory::SetUIDelegateFactory(
     std::unique_ptr<UIDelegateFactory> factory) {
@@ -62,7 +64,9 @@ KeyedService* NetworkingPrivateDelegateFactory::BuildServiceInstanceFor(
   NetworkingPrivateDelegate* delegate;
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   delegate = new NetworkingPrivateChromeOS(browser_context);
-#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#elif BUILDFLAG(IS_CHROMEOS_LACROS)
+  delegate = new NetworkingPrivateLacros(browser_context);
+#elif BUILDFLAG(IS_LINUX)
   delegate = new NetworkingPrivateLinux();
 #elif BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC)
   std::unique_ptr<wifi::WiFiService> wifi_service(wifi::WiFiService::Create());
@@ -72,8 +76,9 @@ KeyedService* NetworkingPrivateDelegateFactory::BuildServiceInstanceFor(
   delegate = nullptr;
 #endif
 
-  if (ui_factory_)
+  if (ui_factory_) {
     delegate->set_ui_delegate(ui_factory_->CreateDelegate());
+  }
 
   return delegate;
 }

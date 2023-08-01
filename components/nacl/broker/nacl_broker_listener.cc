@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,15 +7,15 @@
 #include <utility>
 
 #include "base/base_switches.h"
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/path_service.h"
 #include "base/process/launch.h"
 #include "base/process/process.h"
 #include "base/process/process_handle.h"
 #include "base/rand_util.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/win/win_util.h"
 #include "components/nacl/common/nacl_cmd_line.h"
 #include "components/nacl/common/nacl_debug_exception_handler_win.h"
@@ -29,6 +29,7 @@
 #include "mojo/public/cpp/system/invitation.h"
 #include "mojo/public/cpp/system/message_pipe.h"
 #include "sandbox/policy/mojom/sandbox.mojom.h"
+#include "sandbox/policy/win/sandbox_win.h"
 #include "sandbox/win/src/sandbox_policy.h"
 
 #include <windows.h>
@@ -46,16 +47,21 @@ NaClBrokerListener::NaClBrokerListener() = default;
 NaClBrokerListener::~NaClBrokerListener() = default;
 
 void NaClBrokerListener::Listen() {
-  NaClService service(base::ThreadTaskRunnerHandle::Get());
-  channel_ =
-      IPC::Channel::CreateClient(service.TakeChannelPipe().release(), this,
-                                 base::ThreadTaskRunnerHandle::Get());
+  NaClService service(base::SingleThreadTaskRunner::GetCurrentDefault());
+  channel_ = IPC::Channel::CreateClient(
+      service.TakeChannelPipe().release(), this,
+      base::SingleThreadTaskRunner::GetCurrentDefault());
   CHECK(channel_->Connect());
   run_loop_.Run();
 }
 
 sandbox::mojom::Sandbox NaClBrokerListener::GetSandboxType() {
   return sandbox::mojom::Sandbox::kPpapi;
+}
+
+std::string NaClBrokerListener::GetSandboxTag() {
+  return sandbox::policy::SandboxWin::GetSandboxTagForDelegate(
+      "nacl-broker-listener", GetSandboxType());
 }
 
 void NaClBrokerListener::OnChannelConnected(int32_t peer_pid) {
@@ -143,7 +149,7 @@ void NaClBrokerListener::OnLaunchDebugExceptionHandler(
     const std::string& startup_info) {
   NaClStartDebugExceptionHandlerThread(
       base::Process(process_handle), startup_info,
-      base::ThreadTaskRunnerHandle::Get(),
+      base::SingleThreadTaskRunner::GetCurrentDefault(),
       base::BindRepeating(SendReply, channel_.get(), pid));
 }
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,7 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/user_metrics.h"
 
-namespace ash {
-namespace phone_hub_metrics {
+namespace ash::phone_hub_metrics {
 
 namespace {
 
@@ -70,14 +69,6 @@ void LogScreenOnBubbleClose(Screen screen) {
 void LogScreenOnSettingsButtonClicked(Screen screen) {
   base::UmaHistogramEnumeration("PhoneHub.ScreenOnSettingsButtonClicked",
                                 screen);
-}
-
-void LogNotificationOptInEvent(InterstitialScreenEvent event) {
-  base::UmaHistogramEnumeration("PhoneHub.NotificationOptInEvents", event);
-}
-
-void LogCameraRollOptInEvent(InterstitialScreenEvent event) {
-  base::UmaHistogramEnumeration("PhoneHub.CameraRoll.OptInEvents", event);
 }
 
 void LogTabContinuationChipClicked(int tab_index) {
@@ -208,5 +199,51 @@ void LogCameraRollContextMenuDownload(int index,
   }
 }
 
-}  // namespace phone_hub_metrics
-}  // namespace ash
+void LogCameraRollContentPresent() {
+  base::UmaHistogramBoolean("PhoneHub.CameraRoll.Content.Present", true);
+}
+
+void LogMoreAppsButtonAnimationOnShow(
+    MoreAppsButtonLoadingState loading_state) {
+  base::UmaHistogramEnumeration("PhoneHub.MoreAppsButton.LoadingState",
+                                loading_state);
+}
+
+void LogMoreAppsButtonFullAppsLatency(const base::TimeDelta latency) {
+  base::UmaHistogramTimes("PhoneHub.LauncherButton.Loading.Latency", latency);
+}
+
+void LogRecentAppsStateOnBubbleOpened(RecentAppsUiState ui_state) {
+  switch (ui_state) {
+    case RecentAppsUiState::HIDDEN:
+      [[fallthrough]];
+    case RecentAppsUiState::PLACEHOLDER_VIEW:
+      break;
+    case RecentAppsUiState::LOADING:
+      base::UmaHistogramEnumeration("PhoneHub.RecentApps.State.OnBubbleOpened",
+                                    RecentAppsViewUiState::kLoading);
+      break;
+    case RecentAppsUiState::CONNECTION_FAILED:
+      base::UmaHistogramEnumeration("PhoneHub.RecentApps.State.OnBubbleOpened",
+                                    RecentAppsViewUiState::kError);
+      break;
+    case RecentAppsUiState::ITEMS_VISIBLE:
+      base::UmaHistogramEnumeration("PhoneHub.RecentApps.State.OnBubbleOpened",
+                                    RecentAppsViewUiState::kApps);
+      break;
+    default:
+      break;
+  }
+}
+
+void LogRecentAppsTransitionToFailedLatency(const base::TimeDelta latency) {
+  base::UmaHistogramTimes("PhoneHub.RecentApps.TransitionToFailed.Latency",
+                          latency);
+}
+
+void LogRecentAppsTransitionToSuccessLatency(const base::TimeDelta latency) {
+  base::UmaHistogramTimes("PhoneHub.RecentApps.TransitionToSuccess.Latency",
+                          latency);
+}
+
+}  // namespace ash::phone_hub_metrics

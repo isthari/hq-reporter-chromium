@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -41,6 +41,10 @@ class TabSearchButton : public NewTabButton {
  protected:
   // NewTabButton:
   void PaintIcon(gfx::Canvas* canvas) override;
+  int GetCornerRadius() const override;
+  SkPath GetBorderPath(const gfx::Point& origin,
+                       float scale,
+                       bool extend_to_top) const override;
 
  private:
   std::unique_ptr<TabSearchBubbleHost> tab_search_bubble_host_;

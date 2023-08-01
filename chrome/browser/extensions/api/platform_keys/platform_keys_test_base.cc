@@ -1,12 +1,16 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/extensions/api/platform_keys/platform_keys_test_base.h"
 
-#include "base/bind.h"
+#include <array>
+#include <string>
+
+#include "base/functional/bind.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
+#include "base/strings/string_piece.h"
 #include "chrome/browser/ash/platform_keys/platform_keys_service_factory.h"
 #include "chrome/browser/ash/policy/affiliation/affiliation_test_helper.h"
 #include "chrome/browser/extensions/mixin_based_extension_apitest.h"
@@ -14,7 +18,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/test/base/ui_test_utils.h"
-#include "chromeos/dbus/session_manager/fake_session_manager_client.h"
+#include "chromeos/ash/components/dbus/session_manager/fake_session_manager_client.h"
 #include "components/policy/core/browser/browser_policy_connector.h"
 #include "components/policy/core/common/cloud/test/policy_builder.h"
 #include "components/policy/policy_constants.h"
@@ -33,8 +37,8 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-const char kAffiliationID[] = "some-affiliation-id";
-const char kTestUserinfoToken[] = "fake-userinfo-token";
+constexpr char kAffiliationID[] = "some-affiliation-id";
+constexpr char kTestUserinfoToken[] = "fake-userinfo-token";
 
 PlatformKeysTestBase::PlatformKeysTestBase(
     SystemTokenStatus system_token_status,
@@ -50,6 +54,7 @@ PlatformKeysTestBase::PlatformKeysTestBase(
   set_chromeos_user_ = false;
   // We log in without running browser.
   set_exit_when_last_browser_closes(false);
+  cryptohome_mixin_.MarkUserAsExisting(account_id_);
 }
 
 PlatformKeysTestBase::~PlatformKeysTestBase() {}
@@ -99,17 +104,16 @@ void PlatformKeysTestBase::SetUpCommandLine(base::CommandLine* command_line) {
 void PlatformKeysTestBase::SetUpInProcessBrowserTestFixture() {
   extensions::MixinBasedExtensionApiTest::SetUpInProcessBrowserTestFixture();
 
-  chromeos::SessionManagerClient::InitializeFakeInMemory();
+  ash::SessionManagerClient::InitializeFakeInMemory();
 
   policy::AffiliationTestHelper affiliation_helper =
       policy::AffiliationTestHelper::CreateForCloud(
-          chromeos::FakeSessionManagerClient::Get());
+          ash::FakeSessionManagerClient::Get());
 
   if (enrollment_status() == EnrollmentStatus::ENROLLED) {
-    std::set<std::string> device_affiliation_ids;
-    device_affiliation_ids.insert(kAffiliationID);
     ASSERT_NO_FATAL_FAILURE(affiliation_helper.SetDeviceAffiliationIDs(
-        &device_policy_test_helper_, device_affiliation_ids));
+        &device_policy_test_helper_,
+        std::array{base::StringPiece(kAffiliationID)}));
     device_policy_test_helper_.InstallOwnerKey();
     install_attributes_.Get()->SetCloudManaged(
         policy::PolicyBuilder::kFakeDomain,
@@ -117,11 +121,10 @@ void PlatformKeysTestBase::SetUpInProcessBrowserTestFixture() {
   }
 
   if (user_status() == UserStatus::MANAGED_AFFILIATED_DOMAIN) {
-    std::set<std::string> user_affiliation_ids;
-    user_affiliation_ids.insert(kAffiliationID);
     policy::UserPolicyBuilder user_policy;
     ASSERT_NO_FATAL_FAILURE(affiliation_helper.SetUserAffiliationIDs(
-        &user_policy, account_id_, user_affiliation_ids));
+        &user_policy, account_id_,
+        std::array{base::StringPiece(kAffiliationID)}));
   }
 
   mock_policy_provider_.SetDefaultReturns(

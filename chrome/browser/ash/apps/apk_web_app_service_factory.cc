@@ -1,17 +1,15 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/apps/apk_web_app_service_factory.h"
 
+#include "chrome/browser/ash/app_list/arc/arc_app_list_prefs_factory.h"
 #include "chrome/browser/ash/apps/apk_web_app_service.h"
 #include "chrome/browser/ash/arc/arc_util.h"
-#include "chrome/browser/profiles/incognito_helpers.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_list_prefs_factory.h"
 #include "chrome/browser/web_applications/web_app_provider_factory.h"
 #include "chrome/browser/web_applications/web_app_utils.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 
 namespace ash {
 
@@ -31,9 +29,14 @@ ApkWebAppServiceFactory* ApkWebAppServiceFactory::GetInstance() {
 }
 
 ApkWebAppServiceFactory::ApkWebAppServiceFactory()
-    : BrowserContextKeyedServiceFactory(
+    : ProfileKeyedServiceFactory(
           "ApkWebAppService",
-          BrowserContextDependencyManager::GetInstance()) {
+          ProfileSelections::Builder()
+              .WithRegular(ProfileSelection::kRedirectedToOriginal)
+              // TODO(crbug.com/1418376): Check if this service is needed in
+              // Guest mode.
+              .WithGuest(ProfileSelection::kRedirectedToOriginal)
+              .Build()) {
   DependsOn(ArcAppListPrefsFactory::GetInstance());
   DependsOn(web_app::WebAppProviderFactory::GetInstance());
 }
@@ -46,13 +49,7 @@ KeyedService* ApkWebAppServiceFactory::BuildServiceInstanceFor(
   if (!arc::IsArcAllowedForProfile(profile))
     return nullptr;
 
-  return new ApkWebAppService(profile);
-}
-
-content::BrowserContext* ApkWebAppServiceFactory::GetBrowserContextToUse(
-    content::BrowserContext* context) const {
-  // Mirrors ArcAppListPrefs.
-  return chrome::GetBrowserContextRedirectedInIncognito(context);
+  return new ApkWebAppService(profile, /*test_delegate=*/nullptr);
 }
 
 }  // namespace ash

@@ -1,16 +1,18 @@
-// Copyright (c) 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "gpu/ipc/client/command_buffer_proxy_impl.h"
 
+#include <limits>
 #include <utility>
 #include <vector>
 
+#include "base/memory/raw_ref.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/run_loop.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/task_environment.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "gpu/command_buffer/client/gpu_control_client.h"
 #include "gpu/command_buffer/common/context_creation_attribs.h"
 #include "gpu/ipc/client/gpu_channel_host.h"
@@ -47,12 +49,12 @@ class TestGpuChannelHost : public GpuChannelHost {
                            mojo::MessagePipeHandle(mojo::kInvalidHandleValue))),
         gpu_channel_(gpu_channel) {}
 
-  mojom::GpuChannel& GetGpuChannel() override { return gpu_channel_; }
+  mojom::GpuChannel& GetGpuChannel() override { return *gpu_channel_; }
 
  protected:
   ~TestGpuChannelHost() override = default;
 
-  mojom::GpuChannel& gpu_channel_;
+  const raw_ref<mojom::GpuChannel> gpu_channel_;
 };
 
 class MockGpuControlClient : public GpuControlClient {
@@ -63,11 +65,7 @@ class MockGpuControlClient : public GpuControlClient {
   MOCK_METHOD0(OnGpuControlLostContext, void());
   MOCK_METHOD0(OnGpuControlLostContextMaybeReentrant, void());
   MOCK_METHOD2(OnGpuControlErrorMessage, void(const char*, int32_t));
-  MOCK_METHOD2(OnGpuControlSwapBuffersCompleted,
-               void(const SwapBuffersCompleteParams&, gfx::GpuFenceHandle));
   MOCK_METHOD1(OnGpuSwitched, void(gl::GpuPreference));
-  MOCK_METHOD2(OnSwapBufferPresented,
-               void(uint64_t, const gfx::PresentationFeedback&));
   MOCK_METHOD1(OnGpuControlReturnData, void(base::span<const uint8_t>));
 };
 
@@ -86,7 +84,7 @@ class CommandBufferProxyImplTest : public testing::Test {
       MockCommandBuffer* mock_command_buffer = nullptr) {
     auto proxy = std::make_unique<CommandBufferProxyImpl>(
         channel_, nullptr /* gpu_memory_buffer_manager */, 0 /* stream_id */,
-        base::ThreadTaskRunnerHandle::Get());
+        base::SingleThreadTaskRunner::GetCurrentDefault());
 
     // The Initialize() call below synchronously requests a new CommandBuffer
     // using the channel's GpuControl interface.  Simulate success, since we're
@@ -293,7 +291,7 @@ TEST_F(CommandBufferProxyImplTest, CreateTransferBufferOOM) {
 
   int32_t id = -1;
   scoped_refptr<gpu::Buffer> transfer_buffer_oom = proxy->CreateTransferBuffer(
-      std::numeric_limits<uint32_t>::max(), &id,
+      std::numeric_limits<uint32_t>::max(), &id, 0,
       TransferBufferAllocationOption::kReturnNullOnOOM);
   if (transfer_buffer_oom) {
     // In this test, there's no guarantee allocating UINT32_MAX will definitely
@@ -318,7 +316,7 @@ TEST_F(CommandBufferProxyImplTest, CreateTransferBufferOOM) {
       .RetiresOnSaturation();
 
   transfer_buffer_oom = proxy->CreateTransferBuffer(
-      std::numeric_limits<uint32_t>::max(), &id,
+      std::numeric_limits<uint32_t>::max(), &id, 0,
       TransferBufferAllocationOption::kLoseContextOnOOM);
 
   EXPECT_CALL(mock_gpu_channel_, DestroyCommandBuffer(_))

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -48,7 +48,8 @@ struct ArrayTraits<WTF::Vector<U, InlineCapacity>> {
   static bool Resize(WTF::Vector<U, InlineCapacity>& input, size_t size) {
     if (!base::IsValueInRangeForNumericType<wtf_size_t>(size))
       return false;
-    input.resize(static_cast<wtf_size_t>(size));
+    WTF::Vector<U, InlineCapacity> temp(static_cast<wtf_size_t>(size));
+    input.swap(temp);
     return true;
   }
 };

@@ -1,16 +1,16 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/smb_client/discovery/netbios_host_locator.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "base/test/test_mock_time_task_runner.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/ash/smb_client/discovery/fake_netbios_client.h"
 #include "chrome/browser/ash/smb_client/smb_constants.h"
-#include "chromeos/dbus/smbprovider/fake_smb_provider_client.h"
+#include "chromeos/ash/components/dbus/smbprovider/fake_smb_provider_client.h"
 #include "net/base/ip_endpoint.h"
 #include "testing/gtest/include/gtest/gtest.h"
 

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,22 +12,23 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
-#include "chrome/browser/extensions/site_permissions_helper.h"
-#include "chrome/browser/ui/toolbar/toolbar_actions_bar_bubble_delegate.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "extensions/browser/blocked_action_type.h"
 #include "extensions/browser/extension_action.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_registry_observer.h"
+#include "extensions/common/extension_id.h"
 #include "extensions/common/mojom/frame.mojom.h"
 #include "extensions/common/mojom/injection_type.mojom-shared.h"
 #include "extensions/common/mojom/run_location.mojom-shared.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "extensions/common/user_script.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace content {
 class BrowserContext;
@@ -59,20 +60,32 @@ class ExtensionActionRunner : public content::WebContentsObserver,
   static ExtensionActionRunner* GetForWebContents(
       content::WebContents* web_contents);
 
-  // Executes the action for the given |extension| and returns any further
-  // action (like showing a popup) that should be taken. If
-  // |grant_tab_permissions| is true, this will also grant activeTab to the
-  // extension (so this should only be done if this is through a direct user
-  // action).
+  // Runs the given extension action. This may trigger a number of different
+  // behaviors, depending on the extension and state, including:
+  // - Running blocked actions (if the extension had withheld permissions)
+  // - Firing the action.onClicked event for the extension
+  // - Determining that a UI action should be taken, indicated by the return
+  //   result.
+  // If `grant_tab_permissions` is true and the action is appropriate, this will
+  // grant tab permissions for the extension to the active tab. This may not
+  // happen in all cases (such as when showing a side panel).
   ExtensionAction::ShowAction RunAction(const Extension* extension,
                                         bool grant_tab_permissions);
 
-  // Notifies the ExtensionActionRunner that the page access for |extension| has
-  // changed.
-  void HandlePageAccessModified(
-      const Extension* extension,
-      SitePermissionsHelper::SiteAccess current_access,
-      SitePermissionsHelper::SiteAccess new_access);
+  // Runs any actions that were blocked for the given `extension`. As a
+  // requirement, this will grant activeTab permission to the extension.
+  void RunBlockedActions(const Extension* extension);
+
+  // Grants activeTab to `extensions` (this should only be done if this is
+  // through a direct user action). The permission will be applied immediately.
+  // If any extension needs a page refresh to run, this will show a dialog as
+  // well.
+  void GrantTabPermissions(const std::vector<const Extension*>& extensions);
+
+  // The same as ShowReloadPageBubble, but for only one extension and the
+  // callback will reload the page.
+  void ShowReloadPageBubbleWithReloadPageCallback(
+      const ExtensionId& extension_id);
 
   // Notifies the ExtensionActionRunner that an extension has been granted
   // active tab permissions. This will run any pending injections for that
@@ -84,7 +97,7 @@ class ExtensionActionRunner : public content::WebContentsObserver,
 
   // Returns a bitmask of BlockedActionType for the actions that have been
   // blocked for the given extension.
-  int GetBlockedActions(const Extension* extension);
+  int GetBlockedActions(const ExtensionId& extension_id) const;
 
   // Returns true if the given |extension| has any blocked actions.
   bool WantsToRun(const Extension* extension);
@@ -95,10 +108,10 @@ class ExtensionActionRunner : public content::WebContentsObserver,
 
   int num_page_requests() const { return num_page_requests_; }
 
-  void set_default_bubble_close_action_for_testing(
-      std::unique_ptr<ToolbarActionsBarBubbleDelegate::CloseAction> action) {
-    default_bubble_close_action_for_testing_ = std::move(action);
+  void accept_bubble_for_testing(bool accept_bubble) {
+    accept_bubble_for_testing_ = accept_bubble;
   }
+
   void set_observer_for_testing(TestObserver* observer) {
     test_observer_ = observer;
   }
@@ -174,39 +187,17 @@ class ExtensionActionRunner : public content::WebContentsObserver,
   // Log metrics.
   void LogUMA() const;
 
-  // Shows the bubble to prompt the user to refresh the page to run the blocked
-  // actions for the given |extension|. |callback| is invoked when the bubble is
-  // closed.
-  void ShowBlockedActionBubble(
-      const Extension* extension,
-      base::OnceCallback<void(ToolbarActionsBarBubbleDelegate::CloseAction)>
-          callback);
-
-  // Called when the blocked actions bubble invoked to run the extension action
+  // TODO(crbug.com/1400812): Move this method and
+  // `ShowReloadPageBubbleWithReloadPageCallback` out of EAR and/or combine with
+  // `ShowReloadPageDialog`.
+  // Shows the bubble to prompt the user to refresh the page to run or not the
+  // action for the given `extension_ids`. `callback` is invoked when the bubble
   // is closed.
-  void OnBlockedActionBubbleForRunActionClosed(
-      const std::string& extension_id,
-      ToolbarActionsBarBubbleDelegate::CloseAction action);
+  void ShowReloadPageBubble(const std::vector<ExtensionId>& extension_ids,
+                            base::OnceClosure callback);
 
-  // Called when the blocked actions bubble invoked for the page access grant is
-  // closed.
-  void OnBlockedActionBubbleForPageAccessGrantClosed(
-      const std::string& extension_id,
-      const GURL& page_url,
-      SitePermissionsHelper::SiteAccess current_access,
-      SitePermissionsHelper::SiteAccess new_access,
-      ToolbarActionsBarBubbleDelegate::CloseAction action);
-
-  // Handles permission changes necessary for page access modification of the
-  // |extension|.
-  void UpdatePageAccessSettings(
-      const Extension* extension,
-      SitePermissionsHelper::SiteAccess current_access,
-      SitePermissionsHelper::SiteAccess new_access);
-
-  // Runs any actions that were blocked for the given |extension|. As a
-  // requirement, this will grant activeTab permission to the extension.
-  void RunBlockedActions(const Extension* extension);
+  // Reloads the current page.
+  void OnReloadPageBubbleAccepted();
 
   // content::WebContentsObserver implementation.
   void DidFinishNavigation(
@@ -252,9 +243,9 @@ class ExtensionActionRunner : public content::WebContentsObserver,
   // actions.
   bool ignore_active_tab_granted_;
 
-  // If non-null, the bubble action to simulate for testing.
-  std::unique_ptr<ToolbarActionsBarBubbleDelegate::CloseAction>
-      default_bubble_close_action_for_testing_;
+  // If true, immediately accept the blocked action dialog by running the
+  // callback.
+  absl::optional<bool> accept_bubble_for_testing_;
 
   raw_ptr<TestObserver> test_observer_;
 

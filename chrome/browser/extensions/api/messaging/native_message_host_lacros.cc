@@ -1,18 +1,18 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-
-#include "extensions/browser/api/messaging/native_message_host.h"
 
 #include <memory>
 #include <string>
 
-#include "base/cxx17_backports.h"
+#include "chrome/browser/chromeos/drivefs/drivefs_native_message_host_origins.h"
 #include "chrome/browser/extensions/api/messaging/native_message_built_in_host.h"
 #include "chrome/browser/extensions/api/messaging/native_message_echo_host.h"
+#include "chrome/browser/lacros/drivefs_native_message_host_lacros.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
+#include "extensions/browser/api/messaging/native_message_host.h"
 #include "remoting/host/it2me/it2me_native_messaging_host_allowed_origins.h"
 #include "remoting/host/it2me/it2me_native_messaging_host_lacros.h"
 
@@ -33,8 +33,12 @@ const NativeMessageBuiltInHost kBuiltInHosts[] = {
      NativeMessageEchoHost::kOriginCount, &NativeMessageEchoHost::Create},
     {remoting::kIt2MeNativeMessageHostName, remoting::kIt2MeOrigins,
      remoting::kIt2MeOriginsSize, &CreateIt2MeHost},
+    {drive::kDriveFsNativeMessageHostName,
+     drive::kDriveFsNativeMessageHostOrigins.data(),
+     drive::kDriveFsNativeMessageHostOrigins.size(),
+     &drive::CreateDriveFsNativeMessageHostLacros},
 };
 
-const size_t kBuiltInHostsCount = base::size(kBuiltInHosts);
+const size_t kBuiltInHostsCount = std::size(kBuiltInHosts);
 
 }  // namespace extensions

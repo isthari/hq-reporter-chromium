@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -111,11 +111,21 @@ void RemoveBrowsingDataForProfile(const base::FilePath& profile_path);
 // Returns whether a public session is being run currently.
 bool IsPublicSession();
 
-// Returns whether public session restrictions are enabled.
-bool ArePublicSessionRestrictionsEnabled();
+// Returns true if the current session is a Demo session.
+bool IsDemoSession();
 
-// Returns whether a kiosk app is being run currently.
-bool IsKioskApp();
+// Returns true if the current session is a Chrome App Kiosk session.
+bool IsChromeAppKioskSession();
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+// Returns true if the current session is a Web Kiosk session.
+bool IsWebKioskSession();
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+// Returns whether it's a regular session (with gaia account)
+bool SessionHasGaiaAccount();
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
 
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
 // Returns the default name for a new enterprise profile.

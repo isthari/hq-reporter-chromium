@@ -1,45 +1,56 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/ui/omnibox/chrome_omnibox_client_ios.h"
+#import "ios/chrome/browser/ui/omnibox/chrome_omnibox_client_ios.h"
 
-#include "base/strings/string_util.h"
-#include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
-#include "base/task/thread_pool.h"
-#include "components/favicon/ios/web_favicon_driver.h"
-#include "components/omnibox/browser/autocomplete_match.h"
-#include "components/omnibox/browser/autocomplete_result.h"
-#include "components/omnibox/browser/omnibox_edit_controller.h"
-#include "components/omnibox/browser/omnibox_log.h"
-#include "components/search_engines/template_url_service.h"
-#include "ios/chrome/browser/autocomplete/autocomplete_classifier_factory.h"
-#include "ios/chrome/browser/autocomplete/autocomplete_provider_client_impl.h"
-#include "ios/chrome/browser/bookmarks/bookmark_model_factory.h"
-#include "ios/chrome/browser/bookmarks/bookmarks_utils.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/chrome_url_constants.h"
-#include "ios/chrome/browser/prerender/prerender_service.h"
-#include "ios/chrome/browser/prerender/prerender_service_factory.h"
-#include "ios/chrome/browser/search_engines/template_url_service_factory.h"
-#include "ios/chrome/browser/sessions/ios_chrome_session_tab_helper.h"
-#include "ios/chrome/browser/ui/omnibox/web_omnibox_edit_controller.h"
-#include "ios/chrome/common/intents/SearchInChromeIntent.h"
-#include "ios/chrome/grit/ios_strings.h"
+#import "base/feature_list.h"
+#import "base/metrics/user_metrics.h"
+#import "base/strings/string_util.h"
+#import "base/strings/utf_string_conversions.h"
+#import "base/task/thread_pool.h"
+#import "components/favicon/ios/web_favicon_driver.h"
+#import "components/feature_engagement/public/event_constants.h"
+#import "components/feature_engagement/public/tracker.h"
+#import "components/omnibox/browser/autocomplete_match.h"
+#import "components/omnibox/browser/autocomplete_result.h"
+#import "components/omnibox/browser/omnibox_edit_model_delegate.h"
+#import "components/omnibox/browser/omnibox_log.h"
+#import "components/omnibox/common/omnibox_features.h"
+#import "components/search_engines/template_url_service.h"
+#import "ios/chrome/browser/autocomplete/autocomplete_classifier_factory.h"
+#import "ios/chrome/browser/autocomplete/autocomplete_provider_client_impl.h"
+#import "ios/chrome/browser/bookmarks/bookmarks_utils.h"
+#import "ios/chrome/browser/bookmarks/local_or_syncable_bookmark_model_factory.h"
+#import "ios/chrome/browser/default_browser/utils.h"
+#import "ios/chrome/browser/https_upgrades/https_upgrade_service_factory.h"
+#import "ios/chrome/browser/prerender/prerender_service.h"
+#import "ios/chrome/browser/prerender/prerender_service_factory.h"
+#import "ios/chrome/browser/search_engines/template_url_service_factory.h"
+#import "ios/chrome/browser/sessions/ios_chrome_session_tab_helper.h"
+#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/url/chrome_url_constants.h"
+#import "ios/chrome/browser/ui/omnibox/web_omnibox_edit_model_delegate.h"
+#import "ios/chrome/common/intents/SearchInChromeIntent.h"
+#import "ios/chrome/grit/ios_strings.h"
 #import "ios/web/public/navigation/navigation_manager.h"
 #import "ios/web/public/web_state.h"
-#include "ui/base/l10n/l10n_util.h"
-#include "url/gurl.h"
+#import "ui/base/l10n/l10n_util.h"
+#import "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
 ChromeOmniboxClientIOS::ChromeOmniboxClientIOS(
-    WebOmniboxEditController* controller,
-    ChromeBrowserState* browser_state)
-    : controller_(controller), browser_state_(browser_state) {}
+    WebOmniboxEditModelDelegate* edit_model_delegate,
+    ChromeBrowserState* browser_state,
+    feature_engagement::Tracker* tracker)
+    : edit_model_delegate_(edit_model_delegate),
+      browser_state_(browser_state),
+      engagement_tracker_(tracker) {
+  CHECK(engagement_tracker_);
+}
 
 ChromeOmniboxClientIOS::~ChromeOmniboxClientIOS() {}
 
@@ -49,16 +60,17 @@ ChromeOmniboxClientIOS::CreateAutocompleteProviderClient() {
 }
 
 bool ChromeOmniboxClientIOS::CurrentPageExists() const {
-  return (controller_->GetWebState() != nullptr);
+  return (edit_model_delegate_->GetWebState() != nullptr);
 }
 
 const GURL& ChromeOmniboxClientIOS::GetURL() const {
-  return CurrentPageExists() ? controller_->GetWebState()->GetVisibleURL()
-                             : GURL::EmptyGURL();
+  return CurrentPageExists()
+             ? edit_model_delegate_->GetWebState()->GetVisibleURL()
+             : GURL::EmptyGURL();
 }
 
 bool ChromeOmniboxClientIOS::IsLoading() const {
-  return controller_->GetWebState()->IsLoading();
+  return edit_model_delegate_->GetWebState()->IsLoading();
 }
 
 bool ChromeOmniboxClientIOS::IsPasteAndGoEnabled() const {
@@ -70,13 +82,20 @@ bool ChromeOmniboxClientIOS::IsDefaultSearchProviderEnabled() const {
   return true;
 }
 
-const SessionID& ChromeOmniboxClientIOS::GetSessionID() const {
-  return IOSChromeSessionTabHelper::FromWebState(controller_->GetWebState())
+SessionID ChromeOmniboxClientIOS::GetSessionID() const {
+  return IOSChromeSessionTabHelper::FromWebState(
+             edit_model_delegate_->GetWebState())
       ->session_id();
 }
 
 bookmarks::BookmarkModel* ChromeOmniboxClientIOS::GetBookmarkModel() {
-  return ios::BookmarkModelFactory::GetForBrowserState(browser_state_);
+  return ios::LocalOrSyncableBookmarkModelFactory::GetForBrowserState(
+      browser_state_);
+}
+
+AutocompleteControllerEmitter*
+ChromeOmniboxClientIOS::GetAutocompleteControllerEmitter() {
+  return nullptr;
 }
 
 TemplateURLService* ChromeOmniboxClientIOS::GetTemplateURLService() {
@@ -93,12 +112,17 @@ AutocompleteClassifier* ChromeOmniboxClientIOS::GetAutocompleteClassifier() {
 }
 
 bool ChromeOmniboxClientIOS::ShouldDefaultTypedNavigationsToHttps() const {
-  // Defaulting omnibox navigations to HTTPS not yet supported on iOS.
-  return false;
+  return base::FeatureList::IsEnabled(omnibox::kDefaultTypedNavigationsToHttps);
 }
 
 int ChromeOmniboxClientIOS::GetHttpsPortForTesting() const {
-  return 0;
+  return HttpsUpgradeServiceFactory::GetForBrowserState(browser_state_)
+      ->GetHttpsPortForTesting();
+}
+
+bool ChromeOmniboxClientIOS::IsUsingFakeHttpsForHttpsUpgradeTesting() const {
+  return HttpsUpgradeServiceFactory::GetForBrowserState(browser_state_)
+      ->IsUsingFakeHttpsForTesting();
 }
 
 gfx::Image ChromeOmniboxClientIOS::GetIconIfExtensionMatch(
@@ -133,6 +157,19 @@ void ChromeOmniboxClientIOS::OnFocusChanged(OmniboxFocusState state,
   }
 }
 
+void ChromeOmniboxClientIOS::OnUserPastedInOmniboxResultingInValidURL() {
+  base::RecordAction(
+      base::UserMetricsAction("Mobile.Omnibox.iOS.PastedValidURL"));
+
+  if (!browser_state_->IsOffTheRecord() &&
+      HasRecentValidURLPastesAndRecordsCurrentPaste()) {
+    engagement_tracker_->NotifyEvent(
+        feature_engagement::events::kBlueDotPromoCriterionMet);
+    engagement_tracker_->NotifyEvent(
+        feature_engagement::events::kDefaultBrowserVideoPromoConditionsMet);
+  }
+}
+
 void ChromeOmniboxClientIOS::OnResultChanged(
     const AutocompleteResult& result,
     bool default_match_changed,
@@ -162,7 +199,8 @@ void ChromeOmniboxClientIOS::OnResultChanged(
     ui::PageTransition transition = ui::PageTransitionFromInt(
         match.transition | ui::PAGE_TRANSITION_FROM_ADDRESS_BAR);
     service->StartPrerender(match.destination_url, web::Referrer(), transition,
-                            controller_->GetWebState(), is_inline_autocomplete);
+                            edit_model_delegate_->GetWebState(),
+                            is_inline_autocomplete);
   } else {
     service->CancelPrerender();
   }
@@ -194,20 +232,24 @@ void ChromeOmniboxClientIOS::OnURLOpenedFromOmnibox(OmniboxLog* log) {
           [interaction donateInteractionWithCompletion:nil];
         }));
   }
+
+  engagement_tracker_->NotifyEvent(
+      feature_engagement::events::kOpenUrlFromOmnibox);
 }
 
 void ChromeOmniboxClientIOS::DiscardNonCommittedNavigations() {
-  controller_->GetWebState()
+  edit_model_delegate_->GetWebState()
       ->GetNavigationManager()
       ->DiscardNonCommittedItems();
 }
 
 const std::u16string& ChromeOmniboxClientIOS::GetTitle() const {
-  return CurrentPageExists() ? controller_->GetWebState()->GetTitle()
+  return CurrentPageExists() ? edit_model_delegate_->GetWebState()->GetTitle()
                              : base::EmptyString16();
 }
 
 gfx::Image ChromeOmniboxClientIOS::GetFavicon() const {
-  return favicon::WebFaviconDriver::FromWebState(controller_->GetWebState())
+  return favicon::WebFaviconDriver::FromWebState(
+             edit_model_delegate_->GetWebState())
       ->GetFavicon();
 }

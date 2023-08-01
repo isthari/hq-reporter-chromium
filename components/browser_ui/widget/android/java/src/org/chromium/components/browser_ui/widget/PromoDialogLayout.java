@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,8 +15,8 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import androidx.core.view.ViewCompat;
-import androidx.vectordrawable.graphics.drawable.VectorDrawableCompat;
 
+import org.chromium.components.browser_ui.util.TraceEventVectorDrawableCompat;
 import org.chromium.components.browser_ui.widget.PromoDialog.DialogParams;
 
 /**
@@ -88,7 +88,7 @@ public final class PromoDialogLayout extends BoundedLinearLayout {
         if (mParams.drawableInstance != null) {
             mIllustrationView.setImageDrawable(mParams.drawableInstance);
         } else if (mParams.vectorDrawableResource != 0) {
-            mIllustrationView.setImageDrawable(VectorDrawableCompat.create(
+            mIllustrationView.setImageDrawable(TraceEventVectorDrawableCompat.create(
                     getResources(), mParams.vectorDrawableResource, getContext().getTheme()));
         } else if (mParams.drawableResource != 0) {
             mIllustrationView.setImageResource(mParams.drawableResource);

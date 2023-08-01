@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "ash/ambient/model/ambient_backend_model_observer.h"
 #include "ash/ambient/ui/ambient_background_image_view.h"
 #include "ash/ash_export.h"
+#include "base/memory/raw_ptr.h"
 #include "base/scoped_observation.h"
 #include "base/timer/timer.h"
 #include "ui/compositor/layer_animation_observer.h"
@@ -24,7 +25,8 @@ class ImageSkia;
 namespace ash {
 
 class AmbientBackgroundImageView;
-class AmbientViewDelegate;
+class AmbientViewDelegateImpl;
+class JitterCalculator;
 struct PhotoWithDetails;
 
 // View to display photos in ambient mode.
@@ -34,7 +36,9 @@ class ASH_EXPORT PhotoView : public views::View,
  public:
   METADATA_HEADER(PhotoView);
 
-  explicit PhotoView(AmbientViewDelegate* delegate);
+  explicit PhotoView(AmbientViewDelegateImpl* delegate,
+                     bool peripheral_ui_visible = true);
+
   PhotoView(const PhotoView&) = delete;
   PhotoView& operator=(PhotoView&) = delete;
   ~PhotoView() override;
@@ -44,6 +48,8 @@ class ASH_EXPORT PhotoView : public views::View,
 
   // ui::ImplicitAnimationObserver:
   void OnImplicitAnimationsCompleted() override;
+
+  JitterCalculator* GetJitterCalculatorForTesting();
 
  private:
   friend class AmbientAshTestBase;
@@ -60,9 +66,12 @@ class ASH_EXPORT PhotoView : public views::View,
 
   gfx::ImageSkia GetVisibleImageForTesting();
 
+  // Flag to set the peripheral ui visibility, true by default.
+  const bool peripheral_ui_visible_ = true;
+
   // Note that we should be careful when using |delegate_|, as there is no
   // strong guarantee on the life cycle.
-  AmbientViewDelegate* const delegate_ = nullptr;
+  const raw_ptr<AmbientViewDelegateImpl, ExperimentalAsh> delegate_ = nullptr;
 
   // Image containers used for animation. Owned by view hierarchy.
   std::array<AmbientBackgroundImageView*, 2> image_views_{nullptr, nullptr};

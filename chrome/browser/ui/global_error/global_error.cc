@@ -1,21 +1,12 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/global_error/global_error.h"
 
-#include "base/logging.h"
-#include "build/build_config.h"
-#include "chrome/browser/ui/global_error/global_error_bubble_view_base.h"
-#include "chrome/grit/theme_resources.h"
-#include "ui/base/resource/resource_bundle.h"
-#include "ui/base/ui_base_types.h"
-
-#if !BUILDFLAG(IS_ANDROID)
 #include "chrome/app/vector_icons/vector_icons.h"
-#include "ui/gfx/color_palette.h"
-#include "ui/gfx/paint_vector_icon.h"
-#endif
+#include "chrome/browser/ui/global_error/global_error_bubble_view_base.h"
+#include "ui/base/ui_base_types.h"
 
 // GlobalError ---------------------------------------------------------------
 
@@ -26,14 +17,8 @@ GlobalError::~GlobalError() {}
 GlobalError::Severity GlobalError::GetSeverity() { return SEVERITY_MEDIUM; }
 
 ui::ImageModel GlobalError::MenuItemIcon() {
-#if BUILDFLAG(IS_ANDROID)
-  return ui::ImageModel(
-      ui::ResourceBundle::GetSharedInstance().GetNativeImageNamed(
-          IDR_INPUT_ALERT_MENU));
-#else
   return ui::ImageModel::FromVectorIcon(kBrowserToolsErrorIcon,
-                                        gfx::kGoogleYellow700);
-#endif
+                                        ui::kColorAlertMediumSeverityIcon);
 }
 
 // GlobalErrorWithStandardBubble ---------------------------------------------

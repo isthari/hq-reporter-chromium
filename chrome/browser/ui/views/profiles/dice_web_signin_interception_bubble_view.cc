@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,15 +6,17 @@
 
 #include <memory>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/check.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_functions.h"
+#include "chrome/browser/profiles/keep_alive/profile_keep_alive_types.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/signin/dice_web_signin_interceptor_delegate.h"
 #include "chrome/browser/ui/ui_features.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
@@ -33,10 +35,17 @@
 #include "ui/views/widget/widget.h"
 
 namespace {
-constexpr int kInterceptionBubbleWithoutGuestHeight = 326;
-constexpr int kInterceptionBubbleGuestFooterHeight = 36;
-constexpr int kInterceptionBubbleExtraTextHeight = 30;
+// This is not the real height of the bubble, it is used only to initialize the
+// view and the real height is sent by DiceWebSigninInterceptHandler and set on
+// SetHeightAndShowWidget().
+constexpr int kInterceptionBubbleBaseHeight = 500;
 constexpr int kInterceptionBubbleWidth = 290;
+
+views::View* GetBubbleAnchorView(const Browser& browser) {
+  return BrowserView::GetBrowserViewForBrowser(&browser)
+      ->toolbar_button_provider()
+      ->GetAvatarToolbarButton();
+}
 
 }  // namespace
 
@@ -54,23 +63,21 @@ DiceWebSigninInterceptionBubbleView::~DiceWebSigninInterceptionBubbleView() {
 }
 
 // static
-std::unique_ptr<ScopedDiceWebSigninInterceptionBubbleHandle>
+std::unique_ptr<ScopedWebSigninInterceptionBubbleHandle>
 DiceWebSigninInterceptionBubbleView::CreateBubble(
-    Profile* profile,
+    Browser* browser,
     views::View* anchor_view,
-    const DiceWebSigninInterceptor::Delegate::BubbleParameters&
-        bubble_parameters,
+    const WebSigninInterceptor::Delegate::BubbleParameters& bubble_parameters,
     base::OnceCallback<void(SigninInterceptionResult)> callback) {
   auto interception_bubble =
       base::WrapUnique(new DiceWebSigninInterceptionBubbleView(
-          profile, anchor_view, bubble_parameters, std::move(callback)));
-  std::unique_ptr<ScopedDiceWebSigninInterceptionBubbleHandle> handle =
+          browser, anchor_view, bubble_parameters, std::move(callback)));
+  std::unique_ptr<ScopedWebSigninInterceptionBubbleHandle> handle =
       interception_bubble->GetHandle();
-  // The widget is owned by the views system.
-  views::Widget* widget = views::BubbleDialogDelegateView::CreateBubble(
-      std::move(interception_bubble));
-  // TODO(droger): Delay showing the bubble until the web view is loaded.
-  widget->Show();
+  // The widget is owned by the views system and shown after the view is loaded
+  // and the final height of the bubble is sent from
+  // DiceWebSigninInterceptHandler.
+  views::BubbleDialogDelegateView::CreateBubble(std::move(interception_bubble));
   return handle;
 }
 
@@ -93,21 +100,22 @@ DiceWebSigninInterceptionBubbleView::ScopedHandle::ScopedHandle(
 
 // static
 void DiceWebSigninInterceptionBubbleView::RecordInterceptionResult(
-    const DiceWebSigninInterceptor::Delegate::BubbleParameters&
-        bubble_parameters,
+    const WebSigninInterceptor::Delegate::BubbleParameters& bubble_parameters,
     Profile* profile,
     SigninInterceptionResult result) {
   std::string histogram_base_name = "Signin.InterceptResult";
   switch (bubble_parameters.interception_type) {
-    case DiceWebSigninInterceptor::SigninInterceptionType::kEnterprise:
-    case DiceWebSigninInterceptor::SigninInterceptionType::kEnterpriseForced:
+    case WebSigninInterceptor::SigninInterceptionType::kEnterprise:
+    case WebSigninInterceptor::SigninInterceptionType::
+        kEnterpriseAcceptManagement:
+    case WebSigninInterceptor::SigninInterceptionType::kEnterpriseForced:
       histogram_base_name.append(".Enterprise");
       break;
-    case DiceWebSigninInterceptor::SigninInterceptionType::kMultiUser:
+    case WebSigninInterceptor::SigninInterceptionType::kMultiUser:
       histogram_base_name.append(".MultiUser");
       break;
-    case DiceWebSigninInterceptor::SigninInterceptionType::kProfileSwitch:
-    case DiceWebSigninInterceptor::SigninInterceptionType::kProfileSwitchForced:
+    case WebSigninInterceptor::SigninInterceptionType::kProfileSwitch:
+    case WebSigninInterceptor::SigninInterceptionType::kProfileSwitchForced:
       histogram_base_name.append(".Switch");
       break;
   }
@@ -124,7 +132,7 @@ void DiceWebSigninInterceptionBubbleView::RecordInterceptionResult(
   base::UmaHistogramEnumeration(histogram_base_name + sync_suffix, result);
   // For Enterprise, slice per enterprise status for each account.
   if (bubble_parameters.interception_type ==
-      DiceWebSigninInterceptor::SigninInterceptionType::kEnterprise) {
+      WebSigninInterceptor::SigninInterceptionType::kEnterprise) {
     if (bubble_parameters.intercepted_account.IsManaged()) {
       std::string histogram_name = histogram_base_name + ".NewIsEnterprise";
       base::UmaHistogramEnumeration(histogram_name, result);
@@ -140,35 +148,46 @@ bool DiceWebSigninInterceptionBubbleView::GetAccepted() const {
   return accepted_;
 }
 
+void DiceWebSigninInterceptionBubbleView::AddNewContents(
+    content::WebContents* source,
+    std::unique_ptr<content::WebContents> new_contents,
+    const GURL& target_url,
+    WindowOpenDisposition disposition,
+    const blink::mojom::WindowFeatures& window_features,
+    bool user_gesture,
+    bool* was_blocked) {
+  // Allows the Signin Interception bubble to open links in a new tab.
+  if (browser_) {
+    chrome::AddWebContents(browser_.get(), source, std::move(new_contents),
+                           target_url, disposition, window_features);
+  }
+}
+
 DiceWebSigninInterceptionBubbleView::DiceWebSigninInterceptionBubbleView(
-    Profile* profile,
+    Browser* browser,
     views::View* anchor_view,
-    const DiceWebSigninInterceptor::Delegate::BubbleParameters&
-        bubble_parameters,
+    const WebSigninInterceptor::Delegate::BubbleParameters& bubble_parameters,
     base::OnceCallback<void(SigninInterceptionResult)> callback)
     : views::BubbleDialogDelegateView(anchor_view,
                                       views::BubbleBorder::TOP_RIGHT),
-      profile_(profile),
+      profile_keep_alive_(
+          browser->profile(),
+          ProfileKeepAliveOrigin::kDiceWebSigninInterceptionBubble),
+      browser_(browser->AsWeakPtr()),
+      profile_(browser->profile()),
       bubble_parameters_(bubble_parameters),
       callback_(std::move(callback)) {
-  DCHECK(profile_);
+  DCHECK(browser_);
   DCHECK(callback_);
   set_close_on_deactivate(false);
 
   // Create the web view in the native bubble.
   std::unique_ptr<views::WebView> web_view =
-      std::make_unique<views::WebView>(profile);
+      std::make_unique<views::WebView>(browser->profile());
   web_view->LoadInitialURL(GURL(chrome::kChromeUIDiceWebSigninInterceptURL));
-  int height = kInterceptionBubbleWithoutGuestHeight;
-  if (bubble_parameters.show_guest_option)
-    height += kInterceptionBubbleGuestFooterHeight;
-  if (bubble_parameters.interception_type ==
-      DiceWebSigninInterceptor::SigninInterceptionType::kMultiUser) {
-    // The kMultiUser bubble has a longer text, increase the height a bit.
-    // TODO: Dynamically compute the right size based on the text length.
-    height += kInterceptionBubbleExtraTextHeight;
-  }
-  web_view->SetPreferredSize(gfx::Size(kInterceptionBubbleWidth, height));
+  web_view->GetWebContents()->SetDelegate(this);
+  web_view->SetPreferredSize(
+      gfx::Size(kInterceptionBubbleWidth, kInterceptionBubbleBaseHeight));
   DiceWebSigninInterceptUI* web_ui = web_view->GetWebContents()
                                          ->GetWebUI()
                                          ->GetController()
@@ -178,8 +197,12 @@ DiceWebSigninInterceptionBubbleView::DiceWebSigninInterceptionBubbleView(
   // Unretained is fine because this outlives the inner web UI.
   web_ui->Initialize(
       bubble_parameters,
+      base::BindOnce(
+          &DiceWebSigninInterceptionBubbleView::SetHeightAndShowWidget,
+          base::Unretained(this)),
       base::BindOnce(&DiceWebSigninInterceptionBubbleView::OnWebUIUserChoice,
                      base::Unretained(this)));
+  web_view_ = web_view.get();
   AddChildView(std::move(web_view));
 
   set_margins(gfx::Insets());
@@ -187,8 +210,14 @@ DiceWebSigninInterceptionBubbleView::DiceWebSigninInterceptionBubbleView(
   SetLayoutManager(std::make_unique<views::FillLayout>());
 }
 
-std::unique_ptr<ScopedDiceWebSigninInterceptionBubbleHandle>
-DiceWebSigninInterceptionBubbleView::GetHandle() const {
+void DiceWebSigninInterceptionBubbleView::SetHeightAndShowWidget(int height) {
+  web_view_->SetPreferredSize(gfx::Size(kInterceptionBubbleWidth, height));
+  GetWidget()->SetSize(GetWidget()->non_client_view()->GetPreferredSize());
+  GetWidget()->Show();
+}
+
+std::unique_ptr<ScopedWebSigninInterceptionBubbleHandle>
+DiceWebSigninInterceptionBubbleView::GetHandle() {
   return std::make_unique<ScopedHandle>(weak_factory_.GetWeakPtr());
 }
 
@@ -219,22 +248,32 @@ void DiceWebSigninInterceptionBubbleView::OnWebUIUserChoice(
   }
 }
 
+content::WebContents*
+DiceWebSigninInterceptionBubbleView::GetBubbleWebContentsForTesting() {
+  return web_view_->GetWebContents();
+}
+
 // DiceWebSigninInterceptorDelegate --------------------------------------------
 
-std::unique_ptr<ScopedDiceWebSigninInterceptionBubbleHandle>
+// static
+bool DiceWebSigninInterceptorDelegate::IsSigninInterceptionSupportedInternal(
+    const Browser& browser) {
+  // Some browsers, such as web apps, don't have an avatar toolbar button to
+  // anchor the bubble.
+  return GetBubbleAnchorView(browser) != nullptr;
+}
+
+std::unique_ptr<ScopedWebSigninInterceptionBubbleHandle>
 DiceWebSigninInterceptorDelegate::ShowSigninInterceptionBubbleInternal(
     Browser* browser,
-    const DiceWebSigninInterceptor::Delegate::BubbleParameters&
-        bubble_parameters,
+    const WebSigninInterceptor::Delegate::BubbleParameters& bubble_parameters,
     base::OnceCallback<void(SigninInterceptionResult)> callback) {
   DCHECK(browser);
 
-  views::View* anchor_view = BrowserView::GetBrowserViewForBrowser(browser)
-                                 ->toolbar_button_provider()
-                                 ->GetAvatarToolbarButton();
+  views::View* anchor_view = GetBubbleAnchorView(*browser);
   DCHECK(anchor_view);
   return DiceWebSigninInterceptionBubbleView::CreateBubble(
-      browser->profile(), anchor_view, bubble_parameters, std::move(callback));
+      browser, anchor_view, bubble_parameters, std::move(callback));
 }
 
 BEGIN_METADATA(DiceWebSigninInterceptionBubbleView,

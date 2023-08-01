@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,29 +33,29 @@ class InvalidationsMessageHandler
 
   // Implementation of InvalidationLoggerObserver.
   void OnRegistrationChange(
-      const std::multiset<std::string>& registered_handlers) override;
+      const std::set<std::string>& registered_handlers) override;
   void OnStateChange(const invalidation::InvalidatorState& new_state,
                      const base::Time& last_change_timestamp) override;
   void OnUpdatedTopics(
       const std::string& handler_name,
       const invalidation::TopicCountMap& topics_counts) override;
-  void OnDebugMessage(const base::DictionaryValue& details) override;
+  void OnDebugMessage(const base::Value::Dict& details) override;
   void OnInvalidation(
       const invalidation::TopicInvalidationMap& new_invalidations) override;
-  void OnDetailedStatus(const base::DictionaryValue& network_details) override;
+  void OnDetailedStatus(base::Value::Dict network_details) override;
 
   // Implementation of WebUIMessageHandler.
   void RegisterMessages() override;
   void OnJavascriptDisallowed() override;
 
   // Triggers the logger to send the current state and objects ids.
-  void UpdateContent(const base::ListValue* args);
+  void UpdateContent(const base::Value::List& args);
 
   // Called by the javascript whenever the page is ready to receive messages.
-  void UIReady(const base::ListValue* args);
+  void UIReady(const base::Value::List& args);
 
   // Calls the InvalidationService for any internal details.
-  void HandleRequestDetailedStatus(const base::ListValue* args);
+  void HandleRequestDetailedStatus(const base::Value::List& args);
 
  private:
   // The pointer to the internal InvalidatorService InvalidationLogger.

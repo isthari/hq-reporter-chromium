@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,13 @@
 
 #include "ash/components/arc/arc_browser_context_keyed_service_factory_base.h"
 #include "ash/components/arc/session/arc_bridge_service.h"
-#include "base/bind.h"
 #include "base/files/scoped_file.h"
+#include "base/functional/bind.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/singleton.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string_number_conversions.h"
-#include "chromeos/dbus/arc/arc_camera_client.h"
+#include "chromeos/ash/components/dbus/arc/arc_camera_client.h"
 #include "crypto/random.h"
 #include "media/capture/video/chromeos/camera_hal_dispatcher_impl.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -90,7 +91,7 @@ class ArcCameraBridge::PendingStartCameraServiceResult {
     owner_->pending_start_camera_service_results_.erase(this);
   }
 
-  ArcCameraBridge* const owner_;
+  const raw_ptr<ArcCameraBridge, ExperimentalAsh> owner_;
   mojo::Remote<mojom::CameraService> service_;
   ArcCameraBridge::StartCameraServiceCallback callback_;
   base::WeakPtrFactory<PendingStartCameraServiceResult> weak_ptr_factory_{this};
@@ -141,7 +142,7 @@ void ArcCameraBridge::StartCameraService(StartCameraServiceCallback callback) {
   base::ScopedFD fd =
       channel.TakeRemoteEndpoint().TakePlatformHandle().TakeFD();
 
-  chromeos::ArcCameraClient::Get()->StartService(
+  ash::ArcCameraClient::Get()->StartService(
       fd.get(), token, base::BindOnce([](bool success) {}));
 }
 
@@ -159,6 +160,11 @@ void ArcCameraBridge::RegisterCameraHalClient(
   dispatcher->RegisterClientWithToken(
       std::move(client), type, dispatcher->GetTokenForTrustedClient(type),
       std::move(callback));
+}
+
+// static
+void ArcCameraBridge::EnsureFactoryBuilt() {
+  ArcCameraBridgeFactory::GetInstance();
 }
 
 }  // namespace arc

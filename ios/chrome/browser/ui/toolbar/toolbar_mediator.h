@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@ class WebState;
 class OverlayPresenter;
 class TemplateURLService;
 @protocol ToolbarConsumer;
+class WebNavigationBrowserAgent;
 class WebStateList;
 
 // A mediator object that provides the relevant properties of a web state
@@ -45,7 +46,10 @@ class WebStateList;
 // Action factory.
 @property(nonatomic, strong) BrowserActionFactory* actionFactory;
 
-// Updates the consumer to conforms to |webState|.
+// Helper for Web navigation.
+@property(nonatomic, assign) WebNavigationBrowserAgent* navigationBrowserAgent;
+
+// Updates the consumer to conforms to `webState`.
 - (void)updateConsumerForWebState:(web::WebState*)webState;
 
 // Stops observing all objects.

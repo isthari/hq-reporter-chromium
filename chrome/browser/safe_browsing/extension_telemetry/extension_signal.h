@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,13 @@ namespace safe_browsing {
 // numeric values should never be reused.
 enum class ExtensionSignalType {
   kTabsExecuteScript = 0,
-  kMaxValue = kTabsExecuteScript,
+  kRemoteHostContacted = 1,
+  kCookiesGetAll = 2,
+  kPasswordReuse = 3,
+  kPotentialPasswordTheft = 4,
+  kCookiesGet = 5,
+  kDeclarativeNetRequest = 6,
+  kMaxValue = kDeclarativeNetRequest,
 };
 
 // An abstract signal. Subclasses provide type-specific functionality to
@@ -26,7 +32,7 @@ class ExtensionSignal {
   // Returns the type of the signal.
   virtual ExtensionSignalType GetType() const = 0;
 
-  const extensions::ExtensionId& extension_id() { return extension_id_; }
+  const extensions::ExtensionId& extension_id() const { return extension_id_; }
 
  protected:
   explicit ExtensionSignal(const extensions::ExtensionId& extension_id)

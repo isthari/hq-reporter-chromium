@@ -25,6 +25,7 @@
 
 #include "services/network/public/cpp/web_sandbox_flags.h"
 #include "services/network/public/mojom/web_sandbox_flags.mojom-blink.h"
+#include "third_party/blink/public/mojom/frame/frame.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/binding_security.h"
 #include "third_party/blink/renderer/bindings/core/v8/js_event_handler_for_content_attribute.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_controller.h"
@@ -56,41 +57,19 @@ HTMLFrameElementBase::HTMLFrameElementBase(const QualifiedName& tag_name,
       margin_width_(-1),
       margin_height_(-1) {}
 
-bool HTMLFrameElementBase::IsURLAllowed() const {
-  if (url_.IsEmpty())
-    return true;
-
-  const KURL& complete_url = GetDocument().CompleteURL(url_);
-
-  if (ContentFrame() && complete_url.ProtocolIsJavaScript()) {
-    // Check if the caller can execute script in the context of the content
-    // frame. NB: This check can be invoked without any JS on the stack for some
-    // parser operations. In such case, we use the origin of the frame element's
-    // containing document as the caller context.
-    v8::Isolate* isolate = GetExecutionContext()->GetIsolate();
-    LocalDOMWindow* accessing_window = isolate->InContext()
-                                           ? CurrentDOMWindow(isolate)
-                                           : GetDocument().domWindow();
-    if (!BindingSecurity::ShouldAllowAccessToFrame(
-            accessing_window, ContentFrame(),
-            BindingSecurity::ErrorReportOption::kReport))
-      return false;
-  }
-  return true;
-}
-
 void HTMLFrameElementBase::OpenURL(bool replace_current_item) {
-  if (!IsURLAllowed())
-    return;
-
-  if (url_.IsEmpty())
-    url_ = AtomicString(BlankURL().GetString());
-
   LocalFrame* parent_frame = GetDocument().GetFrame();
-  if (!parent_frame)
+  if (!parent_frame) {
     return;
+  }
 
+  if (url_.empty())
+    url_ = AtomicString(BlankURL().GetString());
   KURL url = GetDocument().CompleteURL(url_);
+  if (ContentFrame() && !parent_frame->CanNavigate(*ContentFrame(), url)) {
+    return;
+  }
+
   // There is no (easy) way to tell if |url_| is relative at this point. That
   // is determined in the KURL constructor. If we fail to create an absolute
   // URL at this point, *and* the base URL is a data URL, assume |url_| was

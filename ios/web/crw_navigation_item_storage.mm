@@ -1,11 +1,11 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/web/public/session/crw_navigation_item_storage.h"
 
-#include "base/metrics/histogram_functions.h"
-#include "base/strings/sys_string_conversions.h"
+#import "base/metrics/histogram_functions.h"
+#import "base/strings/sys_string_conversions.h"
 #import "ios/web/navigation/nscoder_util.h"
 #import "ios/web/public/web_client.h"
 #import "net/base/mac/url_conversions.h"
@@ -24,10 +24,7 @@ NSString* const kNavigationItemStorageReferrerURLDeprecatedKey = @"referrer";
 NSString* const kNavigationItemStorageReferrerPolicyKey = @"referrerPolicy";
 NSString* const kNavigationItemStorageTimestampKey = @"timestamp";
 NSString* const kNavigationItemStorageTitleKey = @"title";
-NSString* const kNavigationItemStoragePageDisplayStateKey = @"state";
 NSString* const kNavigationItemStorageHTTPRequestHeadersKey = @"httpHeaders";
-NSString* const kNavigationItemStorageSkipRepostFormConfirmationKey =
-    @"skipResubmitDataConfirmation";
 NSString* const kNavigationItemStorageUserAgentTypeKey = @"userAgentType";
 
 const char kNavigationItemSerializedSizeHistogram[] =
@@ -40,8 +37,6 @@ const char kNavigationItemSerializedReferrerURLSizeHistogram[] =
     "Session.WebStates.NavigationItem.SerializedReferrerURLSize";
 const char kNavigationItemSerializedTitleSizeHistogram[] =
     "Session.WebStates.NavigationItem.SerializedTitleSize";
-const char kNavigationItemSerializedDisplayStateSizeHistogram[] =
-    "Session.WebStates.NavigationItem.SerializedDisplayStateSize";
 const char kNavigationItemSerializedRequestHeadersSizeHistogram[] =
     "Session.WebStates.NavigationItem.SerializedRequestHeadersSize";
 
@@ -63,10 +58,6 @@ const char kNavigationItemSerializedRequestHeadersSizeHistogram[] =
   [description appendFormat:@"referrer : %s, ", _referrer.url.spec().c_str()];
   [description appendFormat:@"timestamp : %f, ", _timestamp.ToCFAbsoluteTime()];
   [description appendFormat:@"title : %@, ", base::SysUTF16ToNSString(_title)];
-  [description
-      appendFormat:@"displayState : %@", _displayState.GetDescription()];
-  [description appendFormat:@"skipRepostConfirmation : %@, ",
-                            @(_shouldSkipRepostFormConfirmation)];
   [description
       appendFormat:@"userAgentType : %s, ",
                    web::GetUserAgentTypeDescription(_userAgentType).c_str()];
@@ -134,12 +125,6 @@ const char kNavigationItemSerializedRequestHeadersSizeHistogram[] =
     // Use a transition type of reload so that we don't incorrectly increase
     // the typed count.  This is what desktop chrome does.
     _title = base::SysNSStringToUTF16(title);
-    NSDictionary* serializedDisplayState = [aDecoder
-        decodeObjectForKey:web::kNavigationItemStoragePageDisplayStateKey];
-    _displayState = web::PageDisplayState(serializedDisplayState);
-    _shouldSkipRepostFormConfirmation =
-        [aDecoder decodeBoolForKey:
-                      web::kNavigationItemStorageSkipRepostFormConfirmationKey];
     _HTTPRequestHeaders = [aDecoder
         decodeObjectForKey:web::kNavigationItemStorageHTTPRequestHeadersKey];
   }
@@ -147,8 +132,8 @@ const char kNavigationItemSerializedRequestHeadersSizeHistogram[] =
 }
 
 - (void)encodeWithCoder:(NSCoder*)aCoder {
-  // Desktop Chrome doesn't persist |url_| or |originalUrl_|, only
-  // |virtualUrl_|. Chrome on iOS is persisting |url_|.
+  // Desktop Chrome doesn't persist `url_` or `originalUrl_`, only
+  // `virtualUrl_`. Chrome on iOS is persisting `url_`.
   int serializedSizeInBytes = 0;
   int serializedVirtualURLSizeInBytes = 0;
   if (_virtualURL != _URL) {
@@ -193,22 +178,6 @@ const char kNavigationItemSerializedRequestHeadersSizeHistogram[] =
   serializedSizeInBytes += serializedTitleSizeInBytes;
   base::UmaHistogramMemoryKB(web::kNavigationItemSerializedTitleSizeHistogram,
                              serializedTitleSizeInBytes / 1024);
-
-  NSDictionary* displayState = _displayState.GetSerialization();
-  [aCoder encodeObject:displayState
-                forKey:web::kNavigationItemStoragePageDisplayStateKey];
-  int serializedDisplayStateSizeInBytes =
-      [[NSKeyedArchiver archivedDataWithRootObject:displayState
-                             requiringSecureCoding:NO
-                                             error:nullptr] length];
-  serializedSizeInBytes += serializedDisplayStateSizeInBytes;
-  base::UmaHistogramMemoryKB(
-      web::kNavigationItemSerializedDisplayStateSizeHistogram,
-      serializedDisplayStateSizeInBytes / 1024);
-
-  [aCoder encodeBool:_shouldSkipRepostFormConfirmation
-              forKey:web::kNavigationItemStorageSkipRepostFormConfirmationKey];
-  // Size of BOOL is negligible, do not log or count towards session size.
 
   std::string userAgent = web::GetUserAgentTypeDescription(_userAgentType);
   web::nscoder_util::EncodeString(

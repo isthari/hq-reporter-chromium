@@ -1,11 +1,14 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {TestRunner} from 'test_runner';
+import {SourcesTestRunner} from 'sources_test_runner';
+import {BindingsTestRunner} from 'bindings_test_runner';
+
 (async function() {
   TestRunner.addResult(`Verify that navigator is rendered properly when targets are suspended and resumed.\n`);
-  await TestRunner.loadLegacyModule('sources'); await TestRunner.loadTestModule('sources_test_runner');
-  await TestRunner.loadTestModule('bindings_test_runner');
+  await TestRunner.loadLegacyModule('sources');
 
   var sourcesNavigator = new Sources.NetworkNavigatorView();
   sourcesNavigator.show(UI.inspectorView.element);
@@ -14,9 +17,13 @@
   SourcesTestRunner.dumpNavigatorView(sourcesNavigator, false);
 
   TestRunner.markStep('attachFramesAndWaitForSourceMaps');
+  await BindingsTestRunner.attachFrame('frame1', './resources/sourcemap-frame.html', '_test_create-iframe1.js'),
   await Promise.all([
-    BindingsTestRunner.attachFrame('frame1', './resources/sourcemap-frame.html', '_test_create-iframe1.js'),
-    BindingsTestRunner.attachFrame('frame2', './resources/sourcemap-frame.html', '_test_create-iframe2.js'),
+    BindingsTestRunner.waitForSourceMap('sourcemap-script.js.map'),
+    BindingsTestRunner.waitForSourceMap('sourcemap-style.css.map'),
+  ]);
+  await BindingsTestRunner.attachFrame('frame2', './resources/sourcemap-frame.html', '_test_create-iframe2.js'),
+  await Promise.all([
     BindingsTestRunner.waitForSourceMap('sourcemap-script.js.map'),
     BindingsTestRunner.waitForSourceMap('sourcemap-style.css.map'),
   ]);
@@ -33,8 +40,9 @@
 
   TestRunner.markStep('Resuming targets.');
   await Promise.all([
-    SDK.targetManager.resumeAllTargets(), BindingsTestRunner.waitForSourceMap('sourcemap-script.js.map'),
-    BindingsTestRunner.waitForSourceMap('sourcemap-style.css.map')
+    SDK.targetManager.resumeAllTargets(),
+    BindingsTestRunner.waitForSourceMap('sourcemap-script.js.map'),
+    BindingsTestRunner.waitForSourceMap('sourcemap-style.css.map'),
   ]);
 
   SourcesTestRunner.dumpNavigatorView(sourcesNavigator, false);

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,11 +18,9 @@ namespace viz {
 
 const absl::optional<gfx::Rect>& GetOptionalDamageRectFromQuad(
     const DrawQuad* quad) {
-  if (quad->material == DrawQuad::Material::kTextureContent) {
-    auto* texture_quad = TextureDrawQuad::MaterialCast(quad);
+  if (auto* texture_quad = quad->DynamicCast<TextureDrawQuad>()) {
     return texture_quad->damage_rect;
-  } else if (quad->material == DrawQuad::Material::kYuvVideoContent) {
-    auto* yuv_video_quad = YUVVideoDrawQuad::MaterialCast(quad);
+  } else if (auto* yuv_video_quad = quad->DynamicCast<YUVVideoDrawQuad>()) {
     return yuv_video_quad->damage_rect;
   } else {
     static absl::optional<gfx::Rect> no_damage;
@@ -55,21 +53,47 @@ ResolvedPassData::ResolvedPassData(ResolvedPassData&& other) = default;
 ResolvedPassData& ResolvedPassData::operator=(ResolvedPassData&& other) =
     default;
 
-ResolvedFrameData::ResolvedFrameData(const SurfaceId& surface_id,
-                                     Surface* surface)
-    : surface_id_(surface_id), surface_(surface) {}
+ResolvedFrameData::ResolvedFrameData(DisplayResourceProvider* resource_provider,
+                                     Surface* surface,
+                                     uint64_t previous_frame_index)
+    : resource_provider_(resource_provider),
+      surface_id_(surface->surface_id()),
+      surface_(surface),
+      previous_frame_index_(previous_frame_index) {
+  DCHECK(resource_provider_);
+  DCHECK(surface_);
 
-ResolvedFrameData::~ResolvedFrameData() = default;
+  RegisterWithResourceProvider();
+}
 
-ResourceIdSet ResolvedFrameData::UpdateForActiveFrame(
-    const std::unordered_map<ResourceId, ResourceId, ResourceIdHasher>&
-        child_to_parent_map,
+ResolvedFrameData::~ResolvedFrameData() {
+  // Release resources used by this ResolvedFrameData.
+  resource_provider_->DestroyChild(child_resource_id_);
+}
+
+void ResolvedFrameData::SetFullDamageForNextAggregation() {
+  previous_frame_index_ = kInvalidFrameIndex;
+}
+
+uint32_t ResolvedFrameData::GetClientNamespaceId() const {
+  return static_cast<uint32_t>(child_resource_id_);
+}
+
+void ResolvedFrameData::ForceReleaseResource() {
+  // Resources for future frames are stored under a new child id going forward.
+  resource_provider_->DestroyChild(child_resource_id_);
+  RegisterWithResourceProvider();
+}
+
+void ResolvedFrameData::UpdateForActiveFrame(
     AggregatedRenderPassId::Generator& render_pass_id_generator) {
   auto& compositor_frame = surface_->GetActiveOrInterpolatedFrame();
   auto& resource_list = compositor_frame.resource_list;
   auto& render_passes = compositor_frame.render_pass_list;
   size_t num_render_pass = render_passes.size();
   DCHECK(!render_passes.empty());
+
+  resource_provider_->ReceiveFromChild(child_resource_id_, resource_list);
 
   // Figure out which resources are actually used in the render pass.
   // Note that we first gather them in a vector, since ResourceIdSet (which we
@@ -84,7 +108,8 @@ ResourceIdSet ResolvedFrameData::UpdateForActiveFrame(
   render_pass_id_map_.reserve(num_render_pass);
   resolved_passes_.reserve(num_render_pass);
 
-  root_damage_rect_ = render_passes.back()->damage_rect;
+  auto& child_to_parent_map =
+      resource_provider_->GetChildToParentMap(child_resource_id_);
 
   // Reset and compute new render pass / quad data for this frame. This stores
   // remapped display resource ids.
@@ -102,17 +127,14 @@ ResourceIdSet ResolvedFrameData::UpdateForActiveFrame(
     fixed.remapped_id = remapped_id;
     fixed.is_root = i == num_render_pass - 1;
 
-    bool add_quad_damage_to_root_damage_rect =
-        fixed.is_root && render_pass->has_per_quad_damage;
-
     // Loop through the quads, remapping resource ids and storing them.
     auto& draw_quads = fixed.draw_quads;
     draw_quads.reserve(render_pass->quad_list.size());
     for (auto* quad : render_pass->quad_list) {
-      if (add_quad_damage_to_root_damage_rect) {
+      if (render_pass->has_per_quad_damage) {
         auto optional_damage = GetOptionalDamageRectFromQuad(quad);
         if (optional_damage.has_value()) {
-          root_damage_rect_.Union(optional_damage.value());
+          fixed.prewalk_quads.push_back(quad);
         }
       }
 
@@ -121,12 +143,14 @@ ResourceIdSet ResolvedFrameData::UpdateForActiveFrame(
         // that exists and is drawn before the current render pass.
         auto quad_render_pass_id =
             CompositorRenderPassDrawQuad::MaterialCast(quad)->render_pass_id;
-        if (!base::Contains(render_pass_id_map_, quad_render_pass_id)) {
+        auto iter = render_pass_id_map_.find(quad_render_pass_id);
+        if (iter == render_pass_id_map_.end()) {
           DLOG(ERROR) << "CompositorRenderPassDrawQuad with invalid id";
           SetInvalid();
-          return {};
+          return;
         }
 
+        ++iter->second->fixed_.embed_count;
         fixed.prewalk_quads.push_back(quad);
       } else if (quad->material == DrawQuad::Material::kSurfaceContent) {
         fixed.prewalk_quads.push_back(quad);
@@ -140,10 +164,13 @@ ResourceIdSet ResolvedFrameData::UpdateForActiveFrame(
         if (iter == child_to_parent_map.end()) {
           DLOG(ERROR) << "Invalid resource for " << surface_id();
           SetInvalid();
-          return {};
+          return;
         }
 
         referenced_resources.push_back(resource_id);
+
+        // Update `ResolvedQuadData::remapped_resources` to have the remapped
+        // display resource_id.
         resource_id = iter->second;
       }
     }
@@ -156,7 +183,7 @@ ResourceIdSet ResolvedFrameData::UpdateForActiveFrame(
              .second) {
       DLOG(ERROR) << "Duplicate render pass ids";
       SetInvalid();
-      return {};
+      return;
     }
   }
 
@@ -169,7 +196,12 @@ ResourceIdSet ResolvedFrameData::UpdateForActiveFrame(
   });
 
   valid_ = true;
-  return ResourceIdSet(std::move(referenced_resources));
+
+  // Declare the used resources to the provider. This will cause all resources
+  // that were received but not used in the render passes to be unreferenced in
+  // the surface, and returned to the child in the resource provider.
+  resource_provider_->DeclareUsedResourcesFromChild(
+      child_resource_id_, ResourceIdSet(std::move(referenced_resources)));
 }
 
 void ResolvedFrameData::SetInvalid() {
@@ -179,17 +211,21 @@ void ResolvedFrameData::SetInvalid() {
   valid_ = false;
 }
 
-bool ResolvedFrameData::MarkAsUsed() {
-  // Returns true the first time this is called after reset.
-  return !std::exchange(used_, true);
+void ResolvedFrameData::MarkAsUsedInAggregation() {
+  used_in_aggregation_ = true;
 }
 
-bool ResolvedFrameData::CheckIfUsedAndReset() {
+bool ResolvedFrameData::WasUsedInAggregation() const {
+  return used_in_aggregation_;
+}
+
+void ResolvedFrameData::ResetAfterAggregation() {
   // Reset aggregation scoped data.
   for (auto& resolved_pass : resolved_passes_)
     resolved_pass.aggregation().Reset();
 
-  return std::exchange(used_, false);
+  previous_frame_index_ = frame_index_;
+  used_in_aggregation_ = false;
 }
 
 bool ResolvedFrameData::WillDraw() const {
@@ -222,19 +258,42 @@ const ResolvedPassData& ResolvedFrameData::GetRootRenderPassData() const {
   return resolved_passes_.back();
 }
 
-const gfx::Rect& ResolvedFrameData::GetDamageRect(
-    bool include_per_quad_damage) const {
+FrameDamageType ResolvedFrameData::GetFrameDamageType() const {
   DCHECK(valid_);
+  DCHECK(used_in_aggregation_);
 
-  if (include_per_quad_damage)
-    return root_damage_rect_;
+  if (previous_frame_index_ == frame_index_) {
+    // This is the same frame as the one used last aggregation.
+    return FrameDamageType::kNone;
+  } else if (previous_frame_index_ > kInvalidFrameIndex &&
+             frame_index_ == previous_frame_index_ + 1) {
+    // This is the next frame after the one used last aggregation.
+    return FrameDamageType::kFrame;
+  }
 
-  return resolved_passes_.back().render_pass().damage_rect;
+  return FrameDamageType::kFull;
+}
+
+gfx::Rect ResolvedFrameData::GetSurfaceDamage() const {
+  switch (GetFrameDamageType()) {
+    case FrameDamageType::kFull:
+      return GetOutputRect();
+    case FrameDamageType::kFrame:
+      return resolved_passes_.back().render_pass().damage_rect;
+    case FrameDamageType::kNone:
+      return gfx::Rect();
+  }
 }
 
 const gfx::Rect& ResolvedFrameData::GetOutputRect() const {
   DCHECK(valid_);
   return resolved_passes_.back().render_pass().output_rect;
+}
+
+void ResolvedFrameData::RegisterWithResourceProvider() {
+  child_resource_id_ = resource_provider_->CreateChild(
+      base::BindRepeating(&SurfaceClient::UnrefResources, surface_->client()),
+      surface_id_);
 }
 
 }  // namespace viz

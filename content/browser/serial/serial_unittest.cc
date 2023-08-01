@@ -1,23 +1,28 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/barrier_closure.h"
 #include "base/command_line.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/run_loop.h"
 #include "base/test/gmock_callback_support.h"
 #include "base/test/test_future.h"
 #include "content/browser/serial/serial_test_utils.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/test/navigation_simulator.h"
 #include "content/test/test_render_view_host.h"
 #include "content/test/test_web_contents.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "mojo/public/cpp/test_support/fake_message_dispatch_context.h"
+#include "mojo/public/cpp/test_support/test_utils.h"
 #include "services/device/public/cpp/test/fake_serial_port_client.h"
 #include "services/device/public/cpp/test/fake_serial_port_manager.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "url/origin.h"
 
 namespace content {
 
@@ -88,7 +93,9 @@ class SerialTest : public RenderViewHostImplTestHarness {
   SerialTestContentBrowserClient test_client_;
   raw_ptr<ContentBrowserClient> original_client_ = nullptr;
   device::FakeSerialPortManager port_manager_;
-  SerialDelegate::Observer* observer_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION SerialDelegate::Observer* observer_ = nullptr;
 };
 
 }  // namespace
@@ -97,15 +104,18 @@ TEST_F(SerialTest, OpenAndClosePort) {
   NavigateAndCommit(GURL(kTestUrl));
 
   mojo::Remote<blink::mojom::SerialService> service;
-  contents()->GetMainFrame()->BindSerialService(
+  contents()->GetPrimaryMainFrame()->BindSerialService(
       service.BindNewPipeAndPassReceiver());
 
   auto token = base::UnguessableToken::Create();
   auto port_info = device::mojom::SerialPortInfo::New();
   port_info->token = token;
-  port_manager()->AddPort(std::move(port_info));
+  port_manager()->AddPort(port_info->Clone());
 
   EXPECT_FALSE(contents()->IsConnectedToSerialPort());
+
+  EXPECT_CALL(delegate(), GetPortInfo(_, _)).WillOnce(Return(port_info.get()));
+  EXPECT_CALL(delegate(), HasPortPermission(_, _)).WillOnce(Return(true));
 
   TestFuture<mojo::PendingRemote<device::mojom::SerialPort>> future;
   service->OpenPort(token, device::mojom::SerialConnectionOptions::New(),
@@ -120,20 +130,52 @@ TEST_F(SerialTest, OpenAndClosePort) {
   EXPECT_FALSE(contents()->IsConnectedToSerialPort());
 }
 
-TEST_F(SerialTest, OpenFailure) {
+TEST_F(SerialTest, OpenWithoutPermission) {
   NavigateAndCommit(GURL(kTestUrl));
 
   mojo::Remote<blink::mojom::SerialService> service;
-  contents()->GetMainFrame()->BindSerialService(
+  contents()->GetPrimaryMainFrame()->BindSerialService(
       service.BindNewPipeAndPassReceiver());
 
   auto token = base::UnguessableToken::Create();
   auto port_info = device::mojom::SerialPortInfo::New();
   port_info->token = token;
-  port_manager()->AddPort(std::move(port_info));
+  port_manager()->AddPort(port_info->Clone());
+
+  EXPECT_FALSE(contents()->IsConnectedToSerialPort());
+
+  EXPECT_CALL(delegate(), GetPortInfo(_, _)).WillOnce(Return(port_info.get()));
+  EXPECT_CALL(delegate(), HasPortPermission(_, _)).WillOnce(Return(false));
+
+  TestFuture<mojo::PendingRemote<device::mojom::SerialPort>> future;
+  service->OpenPort(token, device::mojom::SerialConnectionOptions::New(),
+                    device::FakeSerialPortClient::Create(),
+                    future.GetCallback());
+  auto port = future.Take();
+  EXPECT_FALSE(port.is_valid());
+
+  // Allow extra time for the watcher connection failure to propagate.
+  base::RunLoop().RunUntilIdle();
+  EXPECT_FALSE(contents()->IsConnectedToSerialPort());
+}
+
+TEST_F(SerialTest, OpenFailure) {
+  NavigateAndCommit(GURL(kTestUrl));
+
+  mojo::Remote<blink::mojom::SerialService> service;
+  contents()->GetPrimaryMainFrame()->BindSerialService(
+      service.BindNewPipeAndPassReceiver());
+
+  auto token = base::UnguessableToken::Create();
+  auto port_info = device::mojom::SerialPortInfo::New();
+  port_info->token = token;
+  port_manager()->AddPort(port_info->Clone());
   port_manager()->set_simulate_open_failure(true);
 
   EXPECT_FALSE(contents()->IsConnectedToSerialPort());
+
+  EXPECT_CALL(delegate(), GetPortInfo(_, _)).WillOnce(Return(port_info.get()));
+  EXPECT_CALL(delegate(), HasPortPermission(_, _)).WillOnce(Return(true));
 
   TestFuture<mojo::PendingRemote<device::mojom::SerialPort>> future;
   service->OpenPort(token, device::mojom::SerialConnectionOptions::New(),
@@ -151,15 +193,18 @@ TEST_F(SerialTest, OpenAndNavigateCrossOrigin) {
   NavigateAndCommit(GURL(kTestUrl));
 
   mojo::Remote<blink::mojom::SerialService> service;
-  contents()->GetMainFrame()->BindSerialService(
+  contents()->GetPrimaryMainFrame()->BindSerialService(
       service.BindNewPipeAndPassReceiver());
 
   auto token = base::UnguessableToken::Create();
   auto port_info = device::mojom::SerialPortInfo::New();
   port_info->token = token;
-  port_manager()->AddPort(std::move(port_info));
+  port_manager()->AddPort(port_info->Clone());
 
   EXPECT_FALSE(contents()->IsConnectedToSerialPort());
+
+  EXPECT_CALL(delegate(), GetPortInfo(_, _)).WillOnce(Return(port_info.get()));
+  EXPECT_CALL(delegate(), HasPortPermission(_, _)).WillOnce(Return(true));
 
   TestFuture<mojo::PendingRemote<device::mojom::SerialPort>> future;
   service->OpenPort(token, device::mojom::SerialConnectionOptions::New(),
@@ -177,8 +222,10 @@ TEST_F(SerialTest, OpenAndNavigateCrossOrigin) {
 }
 
 TEST_F(SerialTest, AddAndRemovePorts) {
+  NavigateAndCommit(GURL(kTestUrl));
+
   mojo::Remote<blink::mojom::SerialService> service;
-  contents()->GetMainFrame()->BindSerialService(
+  contents()->GetPrimaryMainFrame()->BindSerialService(
       service.BindNewPipeAndPassReceiver());
 
   MockSerialServiceClient client;
@@ -233,15 +280,18 @@ TEST_F(SerialTest, OpenAndClosePortManagerConnection) {
   NavigateAndCommit(GURL(kTestUrl));
 
   mojo::Remote<blink::mojom::SerialService> service;
-  contents()->GetMainFrame()->BindSerialService(
+  contents()->GetPrimaryMainFrame()->BindSerialService(
       service.BindNewPipeAndPassReceiver());
 
   auto token = base::UnguessableToken::Create();
   auto port_info = device::mojom::SerialPortInfo::New();
   port_info->token = token;
-  port_manager()->AddPort(std::move(port_info));
+  port_manager()->AddPort(port_info->Clone());
 
   EXPECT_FALSE(contents()->IsConnectedToSerialPort());
+
+  EXPECT_CALL(delegate(), GetPortInfo(_, _)).WillOnce(Return(port_info.get()));
+  EXPECT_CALL(delegate(), HasPortPermission(_, _)).WillOnce(Return(true));
 
   TestFuture<mojo::PendingRemote<device::mojom::SerialPort>> future;
   service->OpenPort(token, device::mojom::SerialConnectionOptions::New(),
@@ -253,12 +303,209 @@ TEST_F(SerialTest, OpenAndClosePortManagerConnection) {
 
   ASSERT_TRUE(observer());
   observer()->OnPortManagerConnectionError();
-  base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(contents()->IsConnectedToSerialPort());
   port.FlushForTesting();
   EXPECT_FALSE(port.is_connected());
   service.FlushForTesting();
   EXPECT_FALSE(service.is_connected());
+}
+
+TEST_F(SerialTest, OpenAndRevokePermission) {
+  NavigateAndCommit(GURL(kTestUrl));
+
+  mojo::Remote<blink::mojom::SerialService> service;
+  contents()->GetPrimaryMainFrame()->BindSerialService(
+      service.BindNewPipeAndPassReceiver());
+
+  auto token = base::UnguessableToken::Create();
+  auto port_info = device::mojom::SerialPortInfo::New();
+  port_info->token = token;
+  port_manager()->AddPort(port_info->Clone());
+
+  EXPECT_FALSE(contents()->IsConnectedToSerialPort());
+
+  EXPECT_CALL(delegate(), GetPortInfo(_, _)).WillOnce(Return(port_info.get()));
+  EXPECT_CALL(delegate(), HasPortPermission(_, _)).WillOnce(Return(true));
+
+  TestFuture<mojo::PendingRemote<device::mojom::SerialPort>> future;
+  service->OpenPort(token, device::mojom::SerialConnectionOptions::New(),
+                    device::FakeSerialPortClient::Create(),
+                    future.GetCallback());
+  mojo::Remote<device::mojom::SerialPort> port(future.Take());
+  EXPECT_TRUE(port.is_connected());
+  EXPECT_TRUE(contents()->IsConnectedToSerialPort());
+
+  EXPECT_CALL(delegate(), GetPortInfo(_, _)).WillOnce(Return(port_info.get()));
+  EXPECT_CALL(delegate(), HasPortPermission(_, _)).WillOnce(Return(false));
+
+  ASSERT_TRUE(observer());
+  url::Origin origin = url::Origin::Create(GURL(kTestUrl));
+  observer()->OnPermissionRevoked(origin);
+  EXPECT_FALSE(contents()->IsConnectedToSerialPort());
+  port.FlushForTesting();
+  EXPECT_FALSE(port.is_connected());
+  service.FlushForTesting();
+  EXPECT_TRUE(service.is_connected());
+}
+
+TEST_F(SerialTest, OpenAndRevokePermissionOnDifferentOrigin) {
+  NavigateAndCommit(GURL(kTestUrl));
+
+  mojo::Remote<blink::mojom::SerialService> service;
+  contents()->GetPrimaryMainFrame()->BindSerialService(
+      service.BindNewPipeAndPassReceiver());
+
+  auto token = base::UnguessableToken::Create();
+  auto port_info = device::mojom::SerialPortInfo::New();
+  port_info->token = token;
+  port_manager()->AddPort(port_info->Clone());
+
+  EXPECT_FALSE(contents()->IsConnectedToSerialPort());
+
+  EXPECT_CALL(delegate(), GetPortInfo(_, _)).WillOnce(Return(port_info.get()));
+  EXPECT_CALL(delegate(), HasPortPermission(_, _)).WillOnce(Return(true));
+
+  TestFuture<mojo::PendingRemote<device::mojom::SerialPort>> future;
+  service->OpenPort(token, device::mojom::SerialConnectionOptions::New(),
+                    device::FakeSerialPortClient::Create(),
+                    future.GetCallback());
+  mojo::Remote<device::mojom::SerialPort> port(future.Take());
+  EXPECT_TRUE(port.is_connected());
+  EXPECT_TRUE(contents()->IsConnectedToSerialPort());
+
+  ASSERT_TRUE(observer());
+  url::Origin different_origin =
+      url::Origin::Create(GURL("http://different-origin.com"));
+  observer()->OnPermissionRevoked(different_origin);
+  EXPECT_TRUE(contents()->IsConnectedToSerialPort());
+  port.FlushForTesting();
+  EXPECT_TRUE(port.is_connected());
+  service.FlushForTesting();
+  EXPECT_TRUE(service.is_connected());
+}
+
+TEST_F(SerialTest, OpenTwoPortsAndRevokePermission) {
+  NavigateAndCommit(GURL(kTestUrl));
+
+  mojo::Remote<blink::mojom::SerialService> service;
+  contents()->GetPrimaryMainFrame()->BindSerialService(
+      service.BindNewPipeAndPassReceiver());
+
+  auto token1 = base::UnguessableToken::Create();
+  auto port_info1 = device::mojom::SerialPortInfo::New();
+  port_info1->token = token1;
+  port_manager()->AddPort(port_info1->Clone());
+
+  auto token2 = base::UnguessableToken::Create();
+  auto port_info2 = device::mojom::SerialPortInfo::New();
+  port_info2->token = token2;
+  port_manager()->AddPort(port_info2->Clone());
+
+  EXPECT_FALSE(contents()->IsConnectedToSerialPort());
+
+  EXPECT_CALL(delegate(), GetPortInfo(_, _)).WillOnce(Return(port_info1.get()));
+  EXPECT_CALL(delegate(), HasPortPermission(_, _)).WillOnce(Return(true));
+
+  TestFuture<mojo::PendingRemote<device::mojom::SerialPort>> future1;
+  service->OpenPort(token1, device::mojom::SerialConnectionOptions::New(),
+                    device::FakeSerialPortClient::Create(),
+                    future1.GetCallback());
+  mojo::Remote<device::mojom::SerialPort> port1(future1.Take());
+  EXPECT_TRUE(port1.is_connected());
+  EXPECT_TRUE(contents()->IsConnectedToSerialPort());
+
+  EXPECT_CALL(delegate(), GetPortInfo(_, _)).WillOnce(Return(port_info2.get()));
+  EXPECT_CALL(delegate(), HasPortPermission(_, _)).WillOnce(Return(true));
+
+  TestFuture<mojo::PendingRemote<device::mojom::SerialPort>> future2;
+  service->OpenPort(token2, device::mojom::SerialConnectionOptions::New(),
+                    device::FakeSerialPortClient::Create(),
+                    future2.GetCallback());
+  mojo::Remote<device::mojom::SerialPort> port2(future2.Take());
+  EXPECT_TRUE(port2.is_connected());
+  EXPECT_TRUE(contents()->IsConnectedToSerialPort());
+
+  EXPECT_CALL(delegate(), GetPortInfo(_, token1))
+      .WillOnce(Return(port_info1.get()));
+  EXPECT_CALL(delegate(), GetPortInfo(_, token2))
+      .WillOnce(Return(port_info2.get()));
+  EXPECT_CALL(delegate(), HasPortPermission(_, _))
+      .Times(2)
+      .WillRepeatedly(testing::Invoke([&](auto rfh, auto port_info) {
+        if (port_info.token == port_info1->token) {
+          return false;
+        } else {
+          return true;
+        }
+      }));
+
+  ASSERT_TRUE(observer());
+  url::Origin origin = url::Origin::Create(GURL(kTestUrl));
+  observer()->OnPermissionRevoked(origin);
+  EXPECT_TRUE(contents()->IsConnectedToSerialPort());
+  port1.FlushForTesting();
+  EXPECT_FALSE(port1.is_connected());
+  port2.FlushForTesting();
+  EXPECT_TRUE(port2.is_connected());
+  service.FlushForTesting();
+  EXPECT_TRUE(service.is_connected());
+}
+
+TEST_F(SerialTest, RejectOpaqueOrigin) {
+  // Create a fake dispatch context to trigger a bad message in.
+  mojo::FakeMessageDispatchContext fake_dispatch_context;
+  mojo::test::BadMessageObserver bad_message_observer;
+
+  auto response_headers =
+      base::MakeRefCounted<net::HttpResponseHeaders>(std::string());
+  response_headers->SetHeader("Content-Security-Policy",
+                              "sandbox allow-scripts");
+  auto navigation_simulator = NavigationSimulator::CreateRendererInitiated(
+      GURL("https://opaque.com"), main_test_rfh());
+  navigation_simulator->SetResponseHeaders(response_headers);
+  navigation_simulator->Start();
+  navigation_simulator->Commit();
+
+  mojo::Remote<blink::mojom::SerialService> service;
+  main_test_rfh()->BindSerialService(service.BindNewPipeAndPassReceiver());
+  EXPECT_EQ(bad_message_observer.WaitForBadMessage(),
+            "Web Serial is not allowed when the top-level document has an "
+            "opaque origin.");
+}
+
+TEST_F(SerialTest, RejectOpaqueOriginEmbeddedFrame) {
+  // Create a fake dispatch context to trigger a bad message in.
+  mojo::FakeMessageDispatchContext fake_dispatch_context;
+  mojo::test::BadMessageObserver bad_message_observer;
+
+  auto response_headers =
+      base::MakeRefCounted<net::HttpResponseHeaders>(std::string());
+  response_headers->SetHeader("Content-Security-Policy",
+                              "sandbox allow-scripts");
+  auto navigation_simulator = NavigationSimulator::CreateRendererInitiated(
+      GURL("https://opaque.com"), main_test_rfh());
+  navigation_simulator->SetResponseHeaders(response_headers);
+  navigation_simulator->Start();
+  navigation_simulator->Commit();
+
+  const GURL kEmbeddedUrl("https://opaque.com");
+  RenderFrameHost* embedded_rfh =
+      RenderFrameHostTester::For(main_test_rfh())
+          ->AppendChildWithPolicy(
+              "embedded_frame",
+              {{blink::mojom::PermissionsPolicyFeature::kSerial,
+                /*allowed_origins=*/{},
+                /*self_if_matches=*/url::Origin::Create(kEmbeddedUrl),
+                /*matches_all_origins=*/false, /*matches_opaque_src=*/true}});
+  embedded_rfh = NavigationSimulator::NavigateAndCommitFromDocument(
+      kEmbeddedUrl, embedded_rfh);
+
+  mojo::Remote<blink::mojom::SerialService> service;
+  static_cast<TestRenderFrameHost*>(embedded_rfh)
+      ->BindSerialService(service.BindNewPipeAndPassReceiver());
+  EXPECT_EQ(bad_message_observer.WaitForBadMessage(),
+            "Web Serial is not allowed when the top-level document has an "
+            "opaque origin.");
 }
 
 }  // namespace content

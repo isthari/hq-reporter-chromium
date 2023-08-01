@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "media/base/video_codecs.h"
 #include "media/base/video_decoder_config.h"
 #include "media/base/win/mf_helpers.h"
+#include "media/filters/win/media_foundation_utils.h"
 #include "media/media_buildflags.h"
 
 namespace media {
@@ -23,40 +24,9 @@ using Microsoft::WRL::MakeAndInitialize;
 
 namespace {
 
-// This is supported by Media Foundation.
-DEFINE_MEDIATYPE_GUID(MFVideoFormat_THEORA, FCC('theo'))
-
-GUID VideoCodecToMFSubtype(VideoCodec codec, VideoCodecProfile profile) {
-  switch (codec) {
-    case VideoCodec::kH264:
-      return MFVideoFormat_H264;
-    case VideoCodec::kVC1:
-      return MFVideoFormat_WVC1;
-    case VideoCodec::kMPEG2:
-      return MFVideoFormat_MPEG2;
-    case VideoCodec::kMPEG4:
-      return MFVideoFormat_MP4V;
-    case VideoCodec::kTheora:
-      return MFVideoFormat_THEORA;
-    case VideoCodec::kVP8:
-      return MFVideoFormat_VP80;
-    case VideoCodec::kVP9:
-      return MFVideoFormat_VP90;
-    case VideoCodec::kHEVC:
-      return MFVideoFormat_HEVC;
-    case VideoCodec::kDolbyVision:
-      if (profile == VideoCodecProfile::DOLBYVISION_PROFILE0 ||
-          profile == VideoCodecProfile::DOLBYVISION_PROFILE9) {
-        return MFVideoFormat_H264;
-      } else {
-        return MFVideoFormat_HEVC;
-      }
-    case VideoCodec::kAV1:
-      return MFVideoFormat_AV1;
-    default:
-      return GUID_NULL;
-  }
-}
+// MF_MT_MIN_MASTERING_LUMINANCE values are in 1/10000th of a nit (0.0001 nit).
+// https://docs.microsoft.com/en-us/windows/win32/api/dxgi1_5/ns-dxgi1_5-dxgi_hdr_metadata_hdr10
+constexpr int kMasteringDispLuminanceScale = 10000;
 
 MFVideoRotationFormat VideoRotationToMF(VideoRotation rotation) {
   DVLOG(2) << __func__ << ": rotation=" << rotation;
@@ -160,6 +130,22 @@ MFVideoTransferFunction VideoTransferFunctionToMF(
   return MFVideoTransFunc_Unknown;
 }
 
+MT_CUSTOM_VIDEO_PRIMARIES CustomVideoPrimaryToMF(
+    const gfx::HdrMetadataSmpteSt2086& smpte_st_2086) {
+  // MT_CUSTOM_VIDEO_PRIMARIES stores value in float no scaling factor needed
+  // https://docs.microsoft.com/en-us/windows/win32/api/mfapi/ns-mfapi-mt_custom_video_primaries
+  MT_CUSTOM_VIDEO_PRIMARIES primaries = {0};
+  primaries.fRx = smpte_st_2086.primaries.fRX;
+  primaries.fRy = smpte_st_2086.primaries.fRY;
+  primaries.fGx = smpte_st_2086.primaries.fGX;
+  primaries.fGy = smpte_st_2086.primaries.fGY;
+  primaries.fBx = smpte_st_2086.primaries.fBX;
+  primaries.fBy = smpte_st_2086.primaries.fBY;
+  primaries.fWx = smpte_st_2086.primaries.fWX;
+  primaries.fWy = smpte_st_2086.primaries.fWY;
+  return primaries;
+}
+
 #if BUILDFLAG(ENABLE_PLATFORM_DOLBY_VISION)
 // To MediaFoundation, DolbyVision renderer profile strings are always 7
 // characters. For HEVC based profiles, it's in the format "dvhe.xx". For AVC
@@ -261,6 +247,32 @@ HRESULT GetVideoType(const VideoDecoderConfig& config,
   RETURN_IF_FAILED(
       media_type->SetUINT32(MF_MT_VIDEO_PRIMARIES, mf_video_primary));
 
+  UINT32 video_nominal_range =
+      config.color_space_info().range == gfx::ColorSpace::RangeID::FULL
+          ? MFNominalRange_0_255
+          : MFNominalRange_16_235;
+  RETURN_IF_FAILED(
+      media_type->SetUINT32(MF_MT_VIDEO_NOMINAL_RANGE, video_nominal_range));
+
+  {
+    const auto hdr_metadata = gfx::HDRMetadata::PopulateUnspecifiedWithDefaults(
+        config.hdr_metadata());
+    UINT32 max_display_mastering_luminance =
+        hdr_metadata.smpte_st_2086.luminance_max;
+    RETURN_IF_FAILED(media_type->SetUINT32(MF_MT_MAX_MASTERING_LUMINANCE,
+                                           max_display_mastering_luminance));
+
+    UINT32 min_display_mastering_luminance =
+        hdr_metadata.smpte_st_2086.luminance_min * kMasteringDispLuminanceScale;
+    RETURN_IF_FAILED(media_type->SetUINT32(MF_MT_MIN_MASTERING_LUMINANCE,
+                                           min_display_mastering_luminance));
+
+    MT_CUSTOM_VIDEO_PRIMARIES primaries =
+        CustomVideoPrimaryToMF(hdr_metadata.smpte_st_2086);
+    RETURN_IF_FAILED(media_type->SetBlob(MF_MT_CUSTOM_VIDEO_PRIMARIES,
+                                         reinterpret_cast<UINT8*>(&primaries),
+                                         sizeof(MT_CUSTOM_VIDEO_PRIMARIES)));
+  }
   base::UmaHistogramEnumeration(
       "Media.MediaFoundation.VideoColorSpace.TransferID",
       config.color_space_info().transfer);

@@ -1,17 +1,18 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "remoting/host/setup/daemon_controller_delegate_linux.h"
 
 #include <unistd.h>
+#include <utility>
 
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/environment.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
@@ -21,7 +22,6 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "remoting/base/file_path_util_linux.h"
@@ -139,28 +139,27 @@ DaemonController::State DaemonControllerDelegateLinux::GetState() {
     return DaemonController::STATE_NOT_IMPLEMENTED;
   } else {
     LOG(ERROR) << "Unknown status string returned from  \""
-               << command_line.GetCommandLineString()
-               << "\": " << status;
+               << command_line.GetCommandLineString() << "\": " << status;
     return DaemonController::STATE_UNKNOWN;
   }
 }
 
-std::unique_ptr<base::DictionaryValue>
-DaemonControllerDelegateLinux::GetConfig() {
-  absl::optional<base::Value> host_config(
+absl::optional<base::Value::Dict> DaemonControllerDelegateLinux::GetConfig() {
+  absl::optional<base::Value::Dict> host_config(
       HostConfigFromJsonFile(GetConfigPath()));
-  if (!host_config.has_value())
-    return nullptr;
-
-  std::unique_ptr<base::DictionaryValue> result(new base::DictionaryValue);
-  std::string* value = host_config->FindStringKey(kHostIdConfigPath);
-  if (value) {
-    result->SetString(kHostIdConfigPath, *value);
+  if (!host_config.has_value()) {
+    return absl::nullopt;
   }
 
-  value = host_config->FindStringKey(kXmppLoginConfigPath);
+  base::Value::Dict result;
+  std::string* value = host_config->FindString(kHostIdConfigPath);
   if (value) {
-    result->SetString(kXmppLoginConfigPath, *value);
+    result.Set(kHostIdConfigPath, *value);
+  }
+
+  value = host_config->FindString(kXmppLoginConfigPath);
+  if (value) {
+    result.Set(kXmppLoginConfigPath, *value);
   }
 
   return result;
@@ -173,7 +172,7 @@ void DaemonControllerDelegateLinux::CheckPermission(
 }
 
 void DaemonControllerDelegateLinux::SetConfigAndStart(
-    std::unique_ptr<base::DictionaryValue> config,
+    base::Value::Dict config,
     bool consent,
     DaemonController::CompletionCallback done) {
   // Ensure the configuration directory exists.
@@ -189,7 +188,7 @@ void DaemonControllerDelegateLinux::SetConfigAndStart(
   }
 
   // Write config.
-  if (!HostConfigToJsonFile(*config, GetConfigPath())) {
+  if (!HostConfigToJsonFile(std::move(config), GetConfigPath())) {
     LOG(ERROR) << "Failed to update config file.";
     std::move(done).Run(DaemonController::RESULT_FAILED);
     return;
@@ -215,9 +214,9 @@ void DaemonControllerDelegateLinux::SetConfigAndStart(
 }
 
 void DaemonControllerDelegateLinux::UpdateConfig(
-    std::unique_ptr<base::DictionaryValue> config,
+    base::Value::Dict config,
     DaemonController::CompletionCallback done) {
-  absl::optional<base::Value> new_config(
+  absl::optional<base::Value::Dict> new_config(
       HostConfigFromJsonFile(GetConfigPath()));
   if (!new_config.has_value()) {
     LOG(ERROR) << "Failed to read existing config file.";
@@ -225,9 +224,9 @@ void DaemonControllerDelegateLinux::UpdateConfig(
     return;
   }
 
-  new_config->MergeDictionary(config.get());
+  new_config->Merge(std::move(config));
 
-  if (!HostConfigToJsonFile(new_config.value(), GetConfigPath())) {
+  if (!HostConfigToJsonFile(std::move(*new_config), GetConfigPath())) {
     LOG(ERROR) << "Failed to update config file.";
     std::move(done).Run(DaemonController::RESULT_FAILED);
     return;
@@ -236,8 +235,9 @@ void DaemonControllerDelegateLinux::UpdateConfig(
   std::vector<std::string> args = {"--reload",
                                    "--config=" + GetConfigPath().value()};
   DaemonController::AsyncResult result = DaemonController::RESULT_FAILED;
-  if (RunHostScript(args))
+  if (RunHostScript(args)) {
     result = DaemonController::RESULT_OK;
+  }
 
   std::move(done).Run(result);
 }
@@ -247,8 +247,9 @@ void DaemonControllerDelegateLinux::Stop(
   std::vector<std::string> args = {"--stop",
                                    "--config=" + GetConfigPath().value()};
   DaemonController::AsyncResult result = DaemonController::RESULT_FAILED;
-  if (RunHostScript(args))
+  if (RunHostScript(args)) {
     result = DaemonController::RESULT_OK;
+  }
 
   std::move(done).Run(result);
 }

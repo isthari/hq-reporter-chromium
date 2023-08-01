@@ -1,18 +1,18 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser;
 
 import android.app.Application;
-import android.content.Intent;
 import android.content.res.Configuration;
-import android.os.Bundle;
 
 import androidx.annotation.Nullable;
 
-import org.chromium.base.ApplicationStatus;
 import org.chromium.base.library_loader.LibraryLoader;
+import org.chromium.build.BuildConfig;
+import org.chromium.chrome.browser.accessibility.hierarchysnapshotter.HierarchySnapshotter;
+import org.chromium.chrome.browser.app.notifications.ContextualNotificationPermissionRequesterImpl;
 import org.chromium.chrome.browser.background_task_scheduler.ChromeBackgroundTaskFactory;
 import org.chromium.chrome.browser.base.SplitCompatApplication;
 import org.chromium.chrome.browser.crash.ChromePureJavaExceptionReporter;
@@ -21,13 +21,10 @@ import org.chromium.chrome.browser.dependency_injection.ChromeAppComponent;
 import org.chromium.chrome.browser.dependency_injection.ChromeAppModule;
 import org.chromium.chrome.browser.dependency_injection.DaggerChromeAppComponent;
 import org.chromium.chrome.browser.dependency_injection.ModuleFactoryOverrides;
-import org.chromium.chrome.browser.flags.CachedFeatureFlags;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.fonts.FontPreloader;
 import org.chromium.chrome.browser.night_mode.SystemNightModeMonitor;
 import org.chromium.chrome.browser.profiles.ProfileResolver;
-import org.chromium.chrome.browser.vr.OnExitVrRequestListener;
-import org.chromium.chrome.browser.vr.VrModuleProvider;
 import org.chromium.components.browser_ui.util.GlobalDiscardableReferencePool;
 import org.chromium.components.embedder_support.browser_context.PartitionResolverSupplier;
 import org.chromium.components.module_installer.util.ModuleUtil;
@@ -57,13 +54,13 @@ public class ChromeApplicationImpl extends SplitCompatApplication.Impl {
         if (SplitCompatApplication.isBrowserProcess()) {
             FontPreloader.getInstance().load(getApplication());
 
-            if (CachedFeatureFlags.isEnabled(ChromeFeatureList.EARLY_LIBRARY_LOAD)) {
+            // Only load the native library early for bundle builds since some tests use the
+            // "--disable-native-initialization" switch, and the CommandLine is not initialized at
+            // this point to check.
+            if (ChromeFeatureList.sEarlyLibraryLoad.isEnabled() && ProductConfig.IS_BUNDLE) {
                 // Kick off library loading in a separate thread so it's ready when we need it.
-                new Thread(() -> LibraryLoader.getInstance().ensureMainDexInitialized()).start();
+                new Thread(() -> LibraryLoader.getInstance().ensureInitialized()).start();
             }
-
-            ApplicationStatus.registerStateListenerForAllActivities(
-                    ChromePowerModeVoter.getInstance());
 
             // Initializes the support for dynamic feature modules (browser only).
             ModuleUtil.initApplication();
@@ -75,9 +72,15 @@ public class ChromeApplicationImpl extends SplitCompatApplication.Impl {
 
             // Set Chrome factory for mapping BackgroundTask classes to TaskIds.
             ChromeBackgroundTaskFactory.setAsDefault();
+            ContextualNotificationPermissionRequesterImpl.initialize();
             PartitionResolverSupplier.setInstance(new ProfileResolver());
 
             AppHooks.get().getChimeDelegate().initialize();
+
+            // Initialize the AccessibilityHierarchySnapshotter. Do not include in release builds.
+            if (!BuildConfig.IS_CHROME_BRANDED) {
+                HierarchySnapshotter.initialize();
+            }
         }
     }
 
@@ -89,28 +92,6 @@ public class ChromeApplicationImpl extends SplitCompatApplication.Impl {
             GlobalDiscardableReferencePool.getReferencePool().drain();
         }
         CustomTabsConnection.onTrimMemory(level);
-    }
-
-    @Override
-    public void startActivity(Intent intent, Bundle options) {
-        if (VrModuleProvider.getDelegate().canLaunch2DIntents()
-                || VrModuleProvider.getIntentDelegate().isVrIntent(intent)) {
-            super.startActivity(intent, options);
-            return;
-        }
-
-        VrModuleProvider.getDelegate().requestToExitVr(new OnExitVrRequestListener() {
-            @Override
-            public void onSucceeded() {
-                if (!VrModuleProvider.getDelegate().canLaunch2DIntents()) {
-                    throw new IllegalStateException("Still in VR after having exited VR.");
-                }
-                startActivity(intent, options);
-            }
-
-            @Override
-            public void onDenied() {}
-        });
     }
 
     @Override

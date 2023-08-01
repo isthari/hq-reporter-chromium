@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,13 +16,10 @@ import android.os.Bundle;
 import android.text.TextUtils;
 import android.util.Log;
 
-import org.chromium.base.annotations.MainDex;
-
 /**
  * PartnerBrowserCustomizationsProvider example for testing.
  * Note: if you move or rename this class, make sure you have also updated AndroidManifest.xml.
  */
-@MainDex
 public class TestPartnerBrowserCustomizationsProvider extends ContentProvider {
     protected String mTag = TestPartnerBrowserCustomizationsProvider.class.getSimpleName();
 

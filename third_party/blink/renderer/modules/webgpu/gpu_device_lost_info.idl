@@ -1,10 +1,11 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // https://gpuweb.github.io/gpuweb/
 
 enum GPUDeviceLostReason {
+  "unknown",
   "destroyed"
 };
 
@@ -12,7 +13,7 @@ enum GPUDeviceLostReason {
     Exposed(Window WebGPU, DedicatedWorker WebGPU),
     SecureContext
 ] interface GPUDeviceLostInfo {
+    [CallWith=ScriptState] readonly attribute GPUDeviceLostReason reason;
     readonly attribute DOMString message;
-    readonly attribute GPUDeviceLostReason? reason;
 };
 

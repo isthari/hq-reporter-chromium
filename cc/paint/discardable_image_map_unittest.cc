@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include <limits>
 #include <memory>
 
+#include "base/check.h"
 #include "base/memory/ref_counted.h"
 #include "base/test/gtest_util.h"
 #include "base/values.h"
@@ -23,15 +24,27 @@
 #include "cc/test/fake_content_layer_client.h"
 #include "cc/test/fake_recording_source.h"
 #include "cc/test/lottie_test_data.h"
+#include "cc/test/paint_image_matchers.h"
 #include "cc/test/skia_common.h"
 #include "cc/test/test_paint_worklet_input.h"
 #include "skia/buildflags.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/skia/include/core/SkBitmap.h"
+#include "third_party/skia/include/core/SkBlendMode.h"
 #include "third_party/skia/include/core/SkCanvas.h"
+#include "third_party/skia/include/core/SkClipOp.h"
+#include "third_party/skia/include/core/SkColor.h"
+#include "third_party/skia/include/core/SkColorSpace.h"
 #include "third_party/skia/include/core/SkGraphics.h"
+#include "third_party/skia/include/core/SkImage.h"
 #include "third_party/skia/include/core/SkImageGenerator.h"
+#include "third_party/skia/include/core/SkImageInfo.h"
+#include "third_party/skia/include/core/SkMatrix.h"
+#include "third_party/skia/include/core/SkRect.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
+#include "third_party/skia/include/core/SkSize.h"
+#include "third_party/skia/include/core/SkTileMode.h"
 #include "ui/gfx/color_space.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/skia_conversions.h"
@@ -56,11 +69,11 @@ struct PositionScaleDrawImage {
   SkSize scale;
 };
 
-sk_sp<PaintOpBuffer> CreateRecording(const PaintImage& discardable_image,
-                                     const gfx::Rect& visible_rect) {
-  auto buffer = sk_make_sp<PaintOpBuffer>();
-  buffer->push<DrawImageOp>(discardable_image, 0.f, 0.f);
-  return buffer;
+PaintRecord CreateRecording(const PaintImage& discardable_image,
+                            const gfx::Rect& visible_rect) {
+  PaintOpBuffer buffer;
+  buffer.push<DrawImageOp>(discardable_image, 0.f, 0.f);
+  return buffer.ReleaseAsRecord();
 }
 
 }  // namespace
@@ -73,29 +86,31 @@ class DiscardableImageMapTest : public testing::Test {
     std::vector<const DrawImage*> draw_image_ptrs;
     // Choose a not-SRGB-and-not-invalid target color space to verify that it
     // is passed correctly to the resulting DrawImages.
-    gfx::ColorSpace target_color_space = gfx::ColorSpace::CreateXYZD50();
+    const TargetColorParams target_color_params(
+        gfx::ColorSpace::CreateXYZD50());
     image_map.GetDiscardableImagesInRect(rect, &draw_image_ptrs);
     std::vector<DrawImage> draw_images;
     for (const auto* image : draw_image_ptrs)
       draw_images.push_back(DrawImage(
-          *image, 1.f, PaintImage::kDefaultFrameIndex, target_color_space));
-
+          *image, 1.f, PaintImage::kDefaultFrameIndex, target_color_params));
+    DCHECK_CALLED_ON_VALID_SEQUENCE(image_map.images_rtree_sequence_checker_);
     std::vector<PositionScaleDrawImage> position_draw_images;
-    std::vector<DrawImage> results;
-    image_map.images_rtree_.Search(rect, &results);
-    for (DrawImage& image : results) {
-      auto image_id = image.paint_image().stable_id();
+    std::vector<const DrawImage*> results;
+    image_map.images_rtree_->Search(rect, &results);
+    for (const DrawImage* image : results) {
+      auto image_id = image->paint_image().stable_id();
       position_draw_images.push_back(PositionScaleDrawImage(
-          image.paint_image(),
+          image->paint_image(),
           ImageRectsToRegion(image_map.GetRectsForImage(image_id)).bounds(),
-          image.scale()));
+          image->scale()));
     }
 
     EXPECT_EQ(draw_images.size(), position_draw_images.size());
     for (size_t i = 0; i < draw_images.size(); ++i) {
-      EXPECT_TRUE(draw_images[i].paint_image() ==
-                  position_draw_images[i].image);
-      EXPECT_EQ(draw_images[i].target_color_space(), target_color_space);
+      EXPECT_TRUE(draw_images[i].paint_image().IsSameForTesting(
+          position_draw_images[i].image));
+      EXPECT_EQ(draw_images[i].target_color_space(),
+                target_color_params.color_space);
     }
     return position_draw_images;
   }
@@ -107,7 +122,7 @@ class DiscardableImageMapTest : public testing::Test {
     std::vector<gfx::Rect> result;
     for (auto& image : images) {
       result.push_back(image.image_rect);
-      result.back().Inset(1, 1, 1, 1);
+      result.back().Inset(1);
     }
     return result;
   }
@@ -152,7 +167,7 @@ TEST_F(DiscardableImageMapTest, GetDiscardableImagesInRectTest) {
       std::vector<gfx::Rect> inset_rects = InsetImageRects(images);
       if ((x + y) & 1) {
         EXPECT_EQ(1u, images.size()) << x << " " << y;
-        EXPECT_TRUE(images[0].image == discardable_image[y][x])
+        EXPECT_TRUE(images[0].image.IsSameForTesting(discardable_image[y][x]))
             << x << " " << y;
         EXPECT_EQ(gfx::Rect(x * 512 + 6, y * 512 + 6, 500, 500),
                   inset_rects[0]);
@@ -168,16 +183,16 @@ TEST_F(DiscardableImageMapTest, GetDiscardableImagesInRectTest) {
   std::vector<gfx::Rect> inset_rects = InsetImageRects(images);
   EXPECT_EQ(4u, images.size());
 
-  EXPECT_TRUE(images[0].image == discardable_image[1][2]);
+  EXPECT_TRUE(images[0].image.IsSameForTesting(discardable_image[1][2]));
   EXPECT_EQ(gfx::Rect(2 * 512 + 6, 512 + 6, 500, 500), inset_rects[0]);
 
-  EXPECT_TRUE(images[1].image == discardable_image[2][1]);
+  EXPECT_TRUE(images[1].image.IsSameForTesting(discardable_image[2][1]));
   EXPECT_EQ(gfx::Rect(512 + 6, 2 * 512 + 6, 500, 500), inset_rects[1]);
 
-  EXPECT_TRUE(images[2].image == discardable_image[2][3]);
+  EXPECT_TRUE(images[2].image.IsSameForTesting(discardable_image[2][3]));
   EXPECT_EQ(gfx::Rect(3 * 512 + 6, 2 * 512 + 6, 500, 500), inset_rects[2]);
 
-  EXPECT_TRUE(images[3].image == discardable_image[3][2]);
+  EXPECT_TRUE(images[3].image.IsSameForTesting(discardable_image[3][2]));
   EXPECT_EQ(gfx::Rect(2 * 512 + 6, 3 * 512 + 6, 500, 500), inset_rects[3]);
 }
 
@@ -223,7 +238,7 @@ TEST_F(DiscardableImageMapTest, GetDiscardableImagesInRectNonZeroLayer) {
       std::vector<gfx::Rect> inset_rects = InsetImageRects(images);
       if ((x + y) & 1) {
         EXPECT_EQ(1u, images.size()) << x << " " << y;
-        EXPECT_TRUE(images[0].image == discardable_image[y][x])
+        EXPECT_TRUE(images[0].image.IsSameForTesting(discardable_image[y][x]))
             << x << " " << y;
         EXPECT_EQ(gfx::Rect(1024 + x * 512 + 6, y * 512 + 6, 500, 500),
                   inset_rects[0]);
@@ -239,17 +254,17 @@ TEST_F(DiscardableImageMapTest, GetDiscardableImagesInRectNonZeroLayer) {
     std::vector<gfx::Rect> inset_rects = InsetImageRects(images);
     EXPECT_EQ(4u, images.size());
 
-    EXPECT_TRUE(images[0].image == discardable_image[1][2]);
+    EXPECT_TRUE(images[0].image.IsSameForTesting(discardable_image[1][2]));
     EXPECT_EQ(gfx::Rect(1024 + 2 * 512 + 6, 512 + 6, 500, 500), inset_rects[0]);
 
-    EXPECT_TRUE(images[1].image == discardable_image[2][1]);
+    EXPECT_TRUE(images[1].image.IsSameForTesting(discardable_image[2][1]));
     EXPECT_EQ(gfx::Rect(1024 + 512 + 6, 2 * 512 + 6, 500, 500), inset_rects[1]);
 
-    EXPECT_TRUE(images[2].image == discardable_image[2][3]);
+    EXPECT_TRUE(images[2].image.IsSameForTesting(discardable_image[2][3]));
     EXPECT_EQ(gfx::Rect(1024 + 3 * 512 + 6, 2 * 512 + 6, 500, 500),
               inset_rects[2]);
 
-    EXPECT_TRUE(images[3].image == discardable_image[3][2]);
+    EXPECT_TRUE(images[3].image.IsSameForTesting(discardable_image[3][2]));
     EXPECT_EQ(gfx::Rect(1024 + 2 * 512 + 6, 3 * 512 + 6, 500, 500),
               inset_rects[3]);
   }
@@ -322,7 +337,7 @@ TEST_F(DiscardableImageMapTest, GetDiscardableImagesInRectOnePixelQuery) {
       std::vector<gfx::Rect> inset_rects = InsetImageRects(images);
       if ((x + y) & 1) {
         EXPECT_EQ(1u, images.size()) << x << " " << y;
-        EXPECT_TRUE(images[0].image == discardable_image[y][x])
+        EXPECT_TRUE(images[0].image.IsSameForTesting(discardable_image[y][x]))
             << x << " " << y;
         EXPECT_EQ(gfx::Rect(x * 512 + 6, y * 512 + 6, 500, 500),
                   inset_rects[0]);
@@ -352,7 +367,7 @@ TEST_F(DiscardableImageMapTest, GetDiscardableImagesInRectMassiveImage) {
       GetDiscardableImagesInRect(image_map, gfx::Rect(0, 0, 1, 1));
   std::vector<gfx::Rect> inset_rects = InsetImageRects(images);
   EXPECT_EQ(1u, images.size());
-  EXPECT_TRUE(images[0].image == discardable_image);
+  EXPECT_TRUE(images[0].image.IsSameForTesting(discardable_image));
   EXPECT_EQ(gfx::Rect(0, 0, 2048, 2048), inset_rects[0]);
 }
 
@@ -362,13 +377,12 @@ TEST_F(DiscardableImageMapTest, PaintDestroyedWhileImageIsDrawn) {
   content_layer_client.set_bounds(visible_rect.size());
 
   PaintImage discardable_image = CreateDiscardablePaintImage(gfx::Size(10, 10));
-  sk_sp<PaintRecord> record = CreateRecording(discardable_image, visible_rect);
+  PaintRecord record = CreateRecording(discardable_image, visible_rect);
 
   scoped_refptr<DisplayItemList> display_list = new DisplayItemList;
   PaintFlags paint;
   display_list->StartPaint();
-  SkRect visible_sk_rect(gfx::RectToSkRect(visible_rect));
-  display_list->push<SaveLayerOp>(&visible_sk_rect, &paint);
+  display_list->push<SaveLayerOp>(gfx::RectToSkRect(visible_rect), paint);
   display_list->push<DrawRecordOp>(std::move(record));
   display_list->push<RestoreOp>();
   display_list->EndPaintOfUnpaired(visible_rect);
@@ -379,7 +393,7 @@ TEST_F(DiscardableImageMapTest, PaintDestroyedWhileImageIsDrawn) {
   std::vector<PositionScaleDrawImage> images =
       GetDiscardableImagesInRect(image_map, gfx::Rect(0, 0, 1, 1));
   EXPECT_EQ(1u, images.size());
-  EXPECT_TRUE(images[0].image == discardable_image);
+  EXPECT_TRUE(images[0].image.IsSameForTesting(discardable_image));
 }
 
 // Check if SkNoDrawCanvas does not crash for large layers.
@@ -423,7 +437,7 @@ TEST_F(DiscardableImageMapTest, RestoreSavedTransformedLayers) {
       CreateDiscardablePaintImage(gfx::Size(25, 25));
   display_list->push<TranslateOp>(25.0f, 25.0f);
   display_list->push<DrawImageOp>(discardable_image1, 0.f, 0.f);
-  display_list->push<SaveLayerOp>(nullptr, &paint);
+  display_list->push<SaveLayerOp>(paint);
   display_list->push<TranslateOp>(100.0f, 100.0f);
   display_list->push<DrawImageOp>(discardable_image2, 0.f, 0.f);
   display_list->push<RestoreOp>();
@@ -448,12 +462,12 @@ TEST_F(DiscardableImageMapTest, NullPaintOnSaveLayer) {
   content_layer_client.set_bounds(visible_rect.size());
 
   PaintImage discardable_image = CreateDiscardablePaintImage(gfx::Size(10, 10));
-  sk_sp<PaintRecord> record = CreateRecording(discardable_image, visible_rect);
+  PaintRecord record = CreateRecording(discardable_image, visible_rect);
 
   scoped_refptr<DisplayItemList> display_list = new DisplayItemList;
   display_list->StartPaint();
-  SkRect visible_sk_rect(gfx::RectToSkRect(visible_rect));
-  display_list->push<SaveLayerOp>(&visible_sk_rect, nullptr);
+  display_list->push<SaveLayerOp>(gfx::RectToSkRect(visible_rect),
+                                  PaintFlags());
   display_list->push<DrawRecordOp>(std::move(record));
   display_list->push<RestoreOp>();
   display_list->EndPaintOfUnpaired(visible_rect);
@@ -464,7 +478,7 @@ TEST_F(DiscardableImageMapTest, NullPaintOnSaveLayer) {
   std::vector<PositionScaleDrawImage> images =
       GetDiscardableImagesInRect(image_map, gfx::Rect(0, 0, 1, 1));
   EXPECT_EQ(1u, images.size());
-  EXPECT_TRUE(images[0].image == discardable_image);
+  EXPECT_TRUE(images[0].image.IsSameForTesting(discardable_image));
 }
 
 TEST_F(DiscardableImageMapTest, GetDiscardableImagesInRectMaxImage) {
@@ -488,7 +502,7 @@ TEST_F(DiscardableImageMapTest, GetDiscardableImagesInRectMaxImage) {
       GetDiscardableImagesInRect(image_map, gfx::Rect(42, 42, 1, 1));
   std::vector<gfx::Rect> inset_rects = InsetImageRects(images);
   EXPECT_EQ(1u, images.size());
-  EXPECT_TRUE(images[0].image == discardable_image);
+  EXPECT_TRUE(images[0].image.IsSameForTesting(discardable_image));
   EXPECT_EQ(gfx::Rect(42, 42, 2006, 2006), inset_rects[0]);
 }
 
@@ -643,7 +657,8 @@ TEST_F(DiscardableImageMapTest, GetDiscardableImagesInShader) {
           gfx::Rect(x * 512, y * 512, 500, 500), &draw_images);
       if ((x + y) & 1) {
         EXPECT_EQ(1u, draw_images.size()) << x << " " << y;
-        EXPECT_TRUE(draw_images[0]->paint_image() == discardable_image[y][x])
+        EXPECT_TRUE(draw_images[0]->paint_image().IsSameForTesting(
+            discardable_image[y][x]))
             << x << " " << y;
         EXPECT_EQ(std::max(x * 0.5f, kMinScale),
                   draw_images[0]->scale().fWidth);
@@ -660,10 +675,14 @@ TEST_F(DiscardableImageMapTest, GetDiscardableImagesInShader) {
   image_map.GetDiscardableImagesInRect(gfx::Rect(512, 512, 2048, 2048),
                                        &draw_images);
   EXPECT_EQ(4u, draw_images.size());
-  EXPECT_TRUE(draw_images[0]->paint_image() == discardable_image[1][2]);
-  EXPECT_TRUE(draw_images[1]->paint_image() == discardable_image[2][1]);
-  EXPECT_TRUE(draw_images[2]->paint_image() == discardable_image[2][3]);
-  EXPECT_TRUE(draw_images[3]->paint_image() == discardable_image[3][2]);
+  EXPECT_TRUE(
+      draw_images[0]->paint_image().IsSameForTesting(discardable_image[1][2]));
+  EXPECT_TRUE(
+      draw_images[1]->paint_image().IsSameForTesting(discardable_image[2][1]));
+  EXPECT_TRUE(
+      draw_images[2]->paint_image().IsSameForTesting(discardable_image[2][3]));
+  EXPECT_TRUE(
+      draw_images[3]->paint_image().IsSameForTesting(discardable_image[3][2]));
 }
 
 TEST_F(DiscardableImageMapTest, ClipsImageRects) {
@@ -671,7 +690,7 @@ TEST_F(DiscardableImageMapTest, ClipsImageRects) {
 
   PaintImage discardable_image =
       CreateDiscardablePaintImage(gfx::Size(500, 500));
-  sk_sp<PaintRecord> record = CreateRecording(discardable_image, visible_rect);
+  PaintRecord record = CreateRecording(discardable_image, visible_rect);
 
   scoped_refptr<DisplayItemList> display_list = new DisplayItemList;
 
@@ -689,47 +708,41 @@ TEST_F(DiscardableImageMapTest, ClipsImageRects) {
       GetDiscardableImagesInRect(image_map, visible_rect);
   std::vector<gfx::Rect> inset_rects = InsetImageRects(images);
   EXPECT_EQ(1u, images.size());
-  EXPECT_TRUE(images[0].image == discardable_image);
+  EXPECT_TRUE(images[0].image.IsSameForTesting(discardable_image));
   EXPECT_EQ(gfx::Rect(250, 250), inset_rects[0]);
 }
 
 TEST_F(DiscardableImageMapTest, GathersDiscardableImagesFromNestedOps) {
   // This |discardable_image| is in a PaintOpBuffer that gets added to
   // the root buffer.
-  auto internal_record = sk_make_sp<PaintOpBuffer>();
+  PaintOpBuffer internal_buffer;
   PaintImage discardable_image =
       CreateDiscardablePaintImage(gfx::Size(100, 100));
-  internal_record->push<DrawImageOp>(discardable_image, 0.f, 0.f);
+  internal_buffer.push<DrawImageOp>(discardable_image, 0.f, 0.f);
 
   // This |discardable_image2| is in a DisplayItemList that gets added
   // to the root buffer.
   PaintImage discardable_image2 =
       CreateDiscardablePaintImage(gfx::Size(100, 100));
 
-  scoped_refptr<DisplayItemList> display_list =
-      new DisplayItemList(DisplayItemList::kToBeReleasedAsPaintOpBuffer);
-  display_list->StartPaint();
-  display_list->push<DrawImageOp>(discardable_image2, 100.f, 100.f);
-  display_list->EndPaintOfUnpaired(gfx::Rect(100, 100, 100, 100));
-  display_list->Finalize();
-
-  sk_sp<PaintRecord> record2 = display_list->ReleaseAsRecord();
+  PaintOpBuffer buffer2;
+  buffer2.push<DrawImageOp>(discardable_image2, 100.f, 100.f);
 
   PaintOpBuffer root_buffer;
-  root_buffer.push<DrawRecordOp>(internal_record);
-  root_buffer.push<DrawRecordOp>(record2);
+  root_buffer.push<DrawRecordOp>(internal_buffer.ReleaseAsRecord());
+  root_buffer.push<DrawRecordOp>(buffer2.ReleaseAsRecord());
   DiscardableImageMap image_map;
-  image_map.Generate(&root_buffer, gfx::Rect(200, 200));
+  image_map.Generate(root_buffer, gfx::Rect(200, 200));
 
   std::vector<const DrawImage*> images;
   image_map.GetDiscardableImagesInRect(gfx::Rect(0, 0, 5, 95), &images);
   EXPECT_EQ(1u, images.size());
-  EXPECT_TRUE(discardable_image == images[0]->paint_image());
+  EXPECT_TRUE(discardable_image.IsSameForTesting(images[0]->paint_image()));
 
   images.clear();
   image_map.GetDiscardableImagesInRect(gfx::Rect(105, 105, 5, 95), &images);
   EXPECT_EQ(1u, images.size());
-  EXPECT_TRUE(discardable_image2 == images[0]->paint_image());
+  EXPECT_TRUE(discardable_image2.IsSameForTesting(images[0]->paint_image()));
 }
 
 TEST_F(DiscardableImageMapTest, GathersAnimatedImages) {
@@ -773,11 +786,12 @@ TEST_F(DiscardableImageMapTest, GathersAnimatedImages) {
   display_list->discardable_image_map().GetDiscardableImagesInRect(visible_rect,
                                                                    &images);
   ASSERT_EQ(images.size(), 3u);
-  EXPECT_EQ(images[0]->paint_image(), static_image);
+  EXPECT_TRUE(images[0]->paint_image().IsSameForTesting(static_image));
   EXPECT_DCHECK_DEATH(images[0]->frame_index());
-  EXPECT_EQ(images[1]->paint_image(), animated_loop_none);
+  EXPECT_TRUE(images[1]->paint_image().IsSameForTesting(animated_loop_none));
   EXPECT_DCHECK_DEATH(images[1]->frame_index());
-  EXPECT_EQ(images[2]->paint_image(), animation_loop_infinite);
+  EXPECT_TRUE(
+      images[2]->paint_image().IsSameForTesting(animation_loop_infinite));
   EXPECT_DCHECK_DEATH(images[2]->frame_index());
 }
 
@@ -809,22 +823,22 @@ TEST_F(DiscardableImageMapTest, GathersPaintWorklets) {
   std::vector<PositionScaleDrawImage> images = GetDiscardableImagesInRect(
       display_list->discardable_image_map(), visible_rect);
   ASSERT_EQ(images.size(), 1u);
-  EXPECT_EQ(images[0].image, static_image);
+  EXPECT_TRUE(images[0].image.IsSameForTesting(static_image));
 }
 
 TEST_F(DiscardableImageMapTest, CapturesImagesInPaintRecordShaders) {
   // Create the record to use in the shader.
-  auto shader_record = sk_make_sp<PaintOpBuffer>();
-  shader_record->push<ScaleOp>(2.0f, 2.0f);
+  PaintOpBuffer shader_buffer;
+  shader_buffer.push<ScaleOp>(2.0f, 2.0f);
 
   PaintImage static_image = CreateDiscardablePaintImage(gfx::Size(100, 100));
-  shader_record->push<DrawImageOp>(static_image, 0.f, 0.f);
+  shader_buffer.push<DrawImageOp>(static_image, 0.f, 0.f);
 
   std::vector<FrameMetadata> frames = {
       FrameMetadata(true, base::Milliseconds(1)),
       FrameMetadata(true, base::Milliseconds(1))};
   PaintImage animated_image = CreateAnimatedImage(gfx::Size(100, 100), frames);
-  shader_record->push<DrawImageOp>(animated_image, 0.f, 0.f);
+  shader_buffer.push<DrawImageOp>(animated_image, 0.f, 0.f);
 
   gfx::Rect visible_rect(500, 500);
   scoped_refptr<DisplayItemList> display_list = new DisplayItemList();
@@ -832,8 +846,9 @@ TEST_F(DiscardableImageMapTest, CapturesImagesInPaintRecordShaders) {
   display_list->push<ScaleOp>(2.0f, 2.0f);
   PaintFlags flags;
   SkRect tile = SkRect::MakeWH(100, 100);
-  flags.setShader(PaintShader::MakePaintRecord(
-      shader_record, tile, SkTileMode::kClamp, SkTileMode::kClamp, nullptr));
+  flags.setShader(PaintShader::MakePaintRecord(shader_buffer.ReleaseAsRecord(),
+                                               tile, SkTileMode::kClamp,
+                                               SkTileMode::kClamp, nullptr));
   display_list->push<DrawRectOp>(SkRect::MakeWH(200, 200), flags);
   display_list->EndPaintOfUnpaired(visible_rect);
   display_list->Finalize();
@@ -851,7 +866,7 @@ TEST_F(DiscardableImageMapTest, CapturesImagesInPaintRecordShaders) {
       GetDiscardableImagesInRect(image_map, visible_rect);
   std::vector<gfx::Rect> inset_rects = InsetImageRects(draw_images);
   ASSERT_EQ(draw_images.size(), 1u);
-  EXPECT_EQ(draw_images[0].image, animated_image);
+  EXPECT_TRUE(draw_images[0].image.IsSameForTesting(animated_image));
   // The position of the image is the position of the DrawRectOp that uses the
   // shader.
   EXPECT_EQ(gfx::Rect(400, 400), inset_rects[0]);
@@ -862,23 +877,23 @@ TEST_F(DiscardableImageMapTest, CapturesImagesInPaintRecordShaders) {
 
 TEST_F(DiscardableImageMapTest, CapturesImagesInPaintFilters) {
   // Create the record to use in the filter.
-  auto filter_record = sk_make_sp<PaintOpBuffer>();
+  PaintOpBuffer filter_buffer;
 
   PaintImage static_image = CreateDiscardablePaintImage(gfx::Size(100, 100));
-  filter_record->push<DrawImageOp>(static_image, 0.f, 0.f);
+  filter_buffer.push<DrawImageOp>(static_image, 0.f, 0.f);
 
   std::vector<FrameMetadata> frames = {
       FrameMetadata(true, base::Milliseconds(1)),
       FrameMetadata(true, base::Milliseconds(1))};
   PaintImage animated_image = CreateAnimatedImage(gfx::Size(100, 100), frames);
-  filter_record->push<DrawImageOp>(animated_image, 0.f, 0.f);
+  filter_buffer.push<DrawImageOp>(animated_image, 0.f, 0.f);
 
   gfx::Rect visible_rect(500, 500);
   scoped_refptr<DisplayItemList> display_list = new DisplayItemList();
   display_list->StartPaint();
   PaintFlags flags;
   flags.setImageFilter(sk_make_sp<RecordPaintFilter>(
-      filter_record, SkRect::MakeWH(150.f, 150.f)));
+      filter_buffer.ReleaseAsRecord(), SkRect::MakeWH(150.f, 150.f)));
   display_list->push<DrawRectOp>(SkRect::MakeWH(200, 200), flags);
   display_list->EndPaintOfUnpaired(visible_rect);
   display_list->Finalize();
@@ -896,7 +911,7 @@ TEST_F(DiscardableImageMapTest, CapturesImagesInPaintFilters) {
       GetDiscardableImagesInRect(image_map, visible_rect);
   std::vector<gfx::Rect> inset_rects = InsetImageRects(draw_images);
   ASSERT_EQ(draw_images.size(), 1u);
-  EXPECT_EQ(draw_images[0].image, animated_image);
+  EXPECT_TRUE(draw_images[0].image.IsSameForTesting(animated_image));
   // The position of the image is the position of the DrawRectOp that uses the
   // filter. Since the bounds of the filter does not depend on the source/input,
   // the resulting bounds is that of the RecordPaintFilter.
@@ -914,8 +929,8 @@ TEST_F(DiscardableImageMapTest, CapturesImagesInSaveLayers) {
   gfx::Rect visible_rect(500, 500);
   scoped_refptr<DisplayItemList> display_list = new DisplayItemList();
   display_list->StartPaint();
-  display_list->push<SaveLayerOp>(nullptr, &flags);
-  display_list->push<DrawColorOp>(SK_ColorBLUE, SkBlendMode::kSrc);
+  display_list->push<SaveLayerOp>(flags);
+  display_list->push<DrawColorOp>(SkColors::kBlue, SkBlendMode::kSrc);
   display_list->EndPaintOfUnpaired(visible_rect);
   display_list->Finalize();
 
@@ -925,7 +940,7 @@ TEST_F(DiscardableImageMapTest, CapturesImagesInSaveLayers) {
       GetDiscardableImagesInRect(image_map, visible_rect);
   std::vector<gfx::Rect> inset_rects = InsetImageRects(draw_images);
   ASSERT_EQ(draw_images.size(), 1u);
-  EXPECT_EQ(draw_images[0].image, image);
+  EXPECT_TRUE(draw_images[0].image.IsSameForTesting(image));
   EXPECT_EQ(gfx::Rect(500, 500), inset_rects[0]);
   EXPECT_EQ(SkSize::Make(1.f, 1.f), draw_images[0].scale);
 }
@@ -933,23 +948,24 @@ TEST_F(DiscardableImageMapTest, CapturesImagesInSaveLayers) {
 TEST_F(DiscardableImageMapTest, EmbeddedShaderWithAnimatedImages) {
   // Create the record with animated image to use in the shader.
   SkRect tile = SkRect::MakeWH(100, 100);
-  auto shader_record = sk_make_sp<PaintOpBuffer>();
+  PaintOpBuffer shader_buffer;
   std::vector<FrameMetadata> frames = {
       FrameMetadata(true, base::Milliseconds(1)),
       FrameMetadata(true, base::Milliseconds(1))};
   PaintImage animated_image = CreateAnimatedImage(gfx::Size(100, 100), frames);
-  shader_record->push<DrawImageOp>(animated_image, 0.f, 0.f);
+  shader_buffer.push<DrawImageOp>(animated_image, 0.f, 0.f);
   auto shader_with_image = PaintShader::MakePaintRecord(
-      shader_record, tile, SkTileMode::kClamp, SkTileMode::kClamp, nullptr);
+      shader_buffer.ReleaseAsRecord(), tile, SkTileMode::kClamp,
+      SkTileMode::kClamp, nullptr);
 
   // Create a second shader which uses the shader above.
-  auto second_shader_record = sk_make_sp<PaintOpBuffer>();
+  PaintOpBuffer second_shader_buffer;
   PaintFlags flags;
   flags.setShader(shader_with_image);
-  second_shader_record->push<DrawRectOp>(SkRect::MakeWH(200, 200), flags);
+  second_shader_buffer.push<DrawRectOp>(SkRect::MakeWH(200, 200), flags);
   auto shader_with_shader_with_image = PaintShader::MakePaintRecord(
-      second_shader_record, tile, SkTileMode::kClamp, SkTileMode::kClamp,
-      nullptr);
+      second_shader_buffer.ReleaseAsRecord(), tile, SkTileMode::kClamp,
+      SkTileMode::kClamp, nullptr);
 
   gfx::Rect visible_rect(500, 500);
   scoped_refptr<DisplayItemList> display_list = new DisplayItemList();
@@ -1098,7 +1114,7 @@ TEST_F(DiscardableImageMapTest, TracksImageRegions) {
                                   gfx::Rect(400, 400, 100, 100)};
   Region expected_region;
   for (auto& rect : rects) {
-    rect.Inset(-1, -1);
+    rect.Inset(-1);
     expected_region.Union(rect);
   }
 
@@ -1115,12 +1131,13 @@ TEST_F(DiscardableImageMapTest, HighBitDepth) {
                                 nullptr /* color_space */);
   bitmap.allocPixels(info);
   bitmap.eraseColor(SK_AlphaTRANSPARENT);
-  PaintImage discardable_image = PaintImageBuilder::WithDefault()
-                                     .set_id(PaintImage::GetNextId())
-                                     .set_is_high_bit_depth(true)
-                                     .set_image(SkImage::MakeFromBitmap(bitmap),
-                                                PaintImage::GetNextContentId())
-                                     .TakePaintImage();
+  PaintImage discardable_image =
+      PaintImageBuilder::WithDefault()
+          .set_id(PaintImage::GetNextId())
+          .set_is_high_bit_depth(true)
+          .set_image(SkImages::RasterFromBitmap(bitmap),
+                     PaintImage::GetNextContentId())
+          .TakePaintImage();
 
   FakeContentLayerClient content_layer_client;
   content_layer_client.set_bounds(visible_rect.size());
@@ -1187,7 +1204,7 @@ TEST_F(DiscardableImageMapTest,
   content_layer_client.add_draw_skottie(FakeContentLayerClient::SkottieData(
       CreateSkottie(gfx::Size(2048, 2048), /*duration_secs=*/1.f),
       /*dst=*/gfx::Rect(2048, 2048), /*t=*/0.1f, SkottieFrameDataMap(),
-      SkottieColorMap()));
+      SkottieColorMap(), SkottieTextPropertyValueMap()));
 
   scoped_refptr<DisplayItemList> display_list =
       content_layer_client.PaintContentsToDisplayList();
@@ -1217,7 +1234,7 @@ TEST_F(DiscardableImageMapTest, GetDiscardableImagesInRectSkottieWithImages) {
   content_layer_client.add_draw_skottie(FakeContentLayerClient::SkottieData(
       CreateSkottieFromString(kLottieDataWith2Assets),
       /*dst=*/gfx::Rect(1024, 0, 1024, 2048),
-      /*t=*/0.1f, images_in, SkottieColorMap()));
+      /*t=*/0.1f, images_in, SkottieColorMap(), SkottieTextPropertyValueMap()));
 
   scoped_refptr<DisplayItemList> display_list =
       content_layer_client.PaintContentsToDisplayList();
@@ -1230,10 +1247,10 @@ TEST_F(DiscardableImageMapTest, GetDiscardableImagesInRectSkottieWithImages) {
   std::vector<PositionScaleDrawImage> images_out =
       GetDiscardableImagesInRect(image_map, gfx::Rect(1024, 0, 1024, 2048));
   ASSERT_THAT(images_out, SizeIs(2));
-  EXPECT_THAT(images_out,
-              Contains(Field(&PositionScaleDrawImage::image, Eq(image_0))));
-  EXPECT_THAT(images_out,
-              Contains(Field(&PositionScaleDrawImage::image, Eq(image_1))));
+  EXPECT_THAT(images_out, Contains(Field(&PositionScaleDrawImage::image,
+                                         ImageIsSame(image_0))));
+  EXPECT_THAT(images_out, Contains(Field(&PositionScaleDrawImage::image,
+                                         ImageIsSame(image_1))));
 }
 
 TEST_F(DiscardableImageMapTest,
@@ -1257,7 +1274,7 @@ TEST_F(DiscardableImageMapTest,
   content_layer_client.add_draw_skottie(FakeContentLayerClient::SkottieData(
       CreateSkottieFromString(kLottieDataWith2Assets),
       /*dst=*/visible_rect,
-      /*t=*/0.1f, images_in, SkottieColorMap()));
+      /*t=*/0.1f, images_in, SkottieColorMap(), SkottieTextPropertyValueMap()));
 
   scoped_refptr<DisplayItemList> display_list =
       content_layer_client.PaintContentsToDisplayList();

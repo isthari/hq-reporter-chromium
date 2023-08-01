@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,8 @@
 
 #include "base/trace_event/memory_usage_estimator.h"
 #include "components/sync/model/processor_entity.h"
+#include "components/sync/protocol/entity_metadata.pb.h"
+#include "components/sync/protocol/model_type_state_helper.h"
 #include "components/sync/protocol/proto_memory_estimations.h"
 
 namespace syncer {
@@ -17,7 +19,8 @@ ProcessorEntityTracker::ProcessorEntityTracker(
     std::map<std::string, std::unique_ptr<sync_pb::EntityMetadata>>
         metadata_map)
     : model_type_state_(model_type_state) {
-  DCHECK(model_type_state.initial_sync_done());
+  DCHECK(
+      IsInitialSyncAtLeastPartiallyDone(model_type_state.initial_sync_state()));
   for (auto& [storage_key, metadata] : metadata_map) {
     std::unique_ptr<ProcessorEntity> entity =
         ProcessorEntity::CreateFromMetadata(storage_key, std::move(*metadata));
@@ -61,24 +64,44 @@ size_t ProcessorEntityTracker::CountNonTombstoneEntries() const {
   return count;
 }
 
-ProcessorEntity* ProcessorEntityTracker::Add(const std::string& storage_key,
-                                             const EntityData& data) {
+ProcessorEntity* ProcessorEntityTracker::AddUnsyncedLocal(
+    const std::string& storage_key,
+    std::unique_ptr<EntityData> data,
+    sync_pb::EntitySpecifics trimmed_specifics) {
+  DCHECK(data);
+  DCHECK(!data->client_tag_hash.value().empty());
+  DCHECK(!GetEntityForTagHash(data->client_tag_hash));
+  DCHECK(!data->is_deleted());
+  DCHECK(!storage_key.empty());
+
+  ProcessorEntity* entity =
+      AddInternal(storage_key, *data, kUncommittedVersion);
+  entity->RecordLocalUpdate(std::move(data), std::move(trimmed_specifics));
+  return entity;
+}
+
+ProcessorEntity* ProcessorEntityTracker::AddRemote(
+    const std::string& storage_key,
+    const UpdateResponseData& update_data,
+    sync_pb::EntitySpecifics trimmed_specifics) {
+  const EntityData& data = update_data.entity;
   DCHECK(!data.client_tag_hash.value().empty());
   DCHECK(!GetEntityForTagHash(data.client_tag_hash));
-  DCHECK(storage_key.empty() || storage_key_to_tag_hash_.find(storage_key) ==
-                                    storage_key_to_tag_hash_.end());
-  std::unique_ptr<ProcessorEntity> entity = ProcessorEntity::CreateNew(
-      storage_key, data.client_tag_hash, data.id, data.creation_time);
-  ProcessorEntity* entity_ptr = entity.get();
-  entities_[data.client_tag_hash] = std::move(entity);
-  if (!storage_key.empty())
-    storage_key_to_tag_hash_[storage_key] = data.client_tag_hash;
-  return entity_ptr;
+  DCHECK(!data.is_deleted());
+  DCHECK(storage_key_to_tag_hash_.find(storage_key) ==
+         storage_key_to_tag_hash_.end());
+  DCHECK(update_data.response_version != kUncommittedVersion);
+
+  ProcessorEntity* entity =
+      AddInternal(storage_key, data, update_data.response_version);
+  entity->RecordAcceptedRemoteUpdate(update_data, std::move(trimmed_specifics));
+  return entity;
 }
 
 void ProcessorEntityTracker::RemoveEntityForClientTagHash(
     const ClientTagHash& client_tag_hash) {
-  DCHECK(model_type_state_.initial_sync_done());
+  DCHECK(IsInitialSyncAtLeastPartiallyDone(
+      model_type_state_.initial_sync_state()));
   DCHECK(!client_tag_hash.value().empty());
   const ProcessorEntity* entity = GetEntityForTagHash(client_tag_hash);
   if (entity == nullptr || entity->storage_key().empty()) {
@@ -92,7 +115,8 @@ void ProcessorEntityTracker::RemoveEntityForClientTagHash(
 
 void ProcessorEntityTracker::RemoveEntityForStorageKey(
     const std::string& storage_key) {
-  DCHECK(model_type_state_.initial_sync_done());
+  DCHECK(IsInitialSyncAtLeastPartiallyDone(
+      model_type_state_.initial_sync_state()));
   // Look-up the client tag hash.
   auto iter = storage_key_to_tag_hash_.find(storage_key);
   if (iter == storage_key_to_tag_hash_.end()) {
@@ -226,6 +250,25 @@ void ProcessorEntityTracker::UpdateOrOverrideStorageKey(
   DCHECK(storage_key_to_tag_hash_.find(storage_key) ==
          storage_key_to_tag_hash_.end());
   storage_key_to_tag_hash_[storage_key] = client_tag_hash;
+}
+
+ProcessorEntity* ProcessorEntityTracker::AddInternal(
+    const std::string& storage_key,
+    const EntityData& data,
+    int64_t server_version) {
+  DCHECK(!data.client_tag_hash.value().empty());
+  DCHECK(!GetEntityForTagHash(data.client_tag_hash));
+  DCHECK(storage_key.empty() || storage_key_to_tag_hash_.find(storage_key) ==
+                                    storage_key_to_tag_hash_.end());
+
+  std::unique_ptr<ProcessorEntity> entity = ProcessorEntity::CreateNew(
+      storage_key, data.client_tag_hash, data.id, data.creation_time);
+  ProcessorEntity* entity_ptr = entity.get();
+  entities_[data.client_tag_hash] = std::move(entity);
+  if (!storage_key.empty()) {
+    storage_key_to_tag_hash_[storage_key] = data.client_tag_hash;
+  }
+  return entity_ptr;
 }
 
 }  // namespace syncer

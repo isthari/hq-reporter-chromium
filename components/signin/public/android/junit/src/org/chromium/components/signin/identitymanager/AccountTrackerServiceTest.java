@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,10 +11,10 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.notNull;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 import android.accounts.Account;
 
@@ -32,6 +32,7 @@ import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
 import org.mockito.quality.Strictness;
 import org.robolectric.annotation.Config;
+import org.robolectric.annotation.LooperMode;
 
 import org.chromium.base.Promise;
 import org.chromium.base.task.test.CustomShadowAsyncTask;
@@ -51,6 +52,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 @RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE, shadows = {CustomShadowAsyncTask.class})
+@LooperMode(LooperMode.Mode.LEGACY)
 public class AccountTrackerServiceTest {
     private static final long ACCOUNT_TRACKER_SERVICE_NATIVE = 10001L;
     private static final String ACCOUNT_EMAIL = "test@gmail.com";
@@ -61,6 +63,7 @@ public class AccountTrackerServiceTest {
     @Rule
     public final JniMocker mocker = new JniMocker();
 
+    // TODO(https://crbug.com/1336704): Use mock instead of spy.
     @Spy
     private final FakeAccountManagerFacade mFakeAccountManagerFacade =
             new FakeAccountManagerFacade();
@@ -75,15 +78,13 @@ public class AccountTrackerServiceTest {
     private AccountTrackerService.Observer mObserverMock;
 
     @Captor
-    private ArgumentCaptor<String[]> mGaiaIdsCaptor;
+    private ArgumentCaptor<CoreAccountInfo[]> mCoreAccountInfosArrayCaptor;
 
     @Captor
-    private ArgumentCaptor<String[]> mEmailsCaptor;
-
-    @Captor
-    private ArgumentCaptor<List<CoreAccountInfo>> mAccountInfosCaptor;
+    private ArgumentCaptor<List<CoreAccountInfo>> mCoreAccountInfosListCaptor;
 
     private AccountTrackerService mService;
+    private CoreAccountInfo mCoreAccountInfo;
 
     @Before
     public void setUp() {
@@ -91,6 +92,8 @@ public class AccountTrackerServiceTest {
         mocker.mock(AccountTrackerServiceJni.TEST_HOOKS, mNativeMock);
         mFakeAccountManagerFacade.addAccount(AccountUtils.createAccountFromName(ACCOUNT_EMAIL));
         mService = new AccountTrackerService(ACCOUNT_TRACKER_SERVICE_NATIVE);
+        mCoreAccountInfo = CoreAccountInfo.createFromEmailAndGaiaId(
+                ACCOUNT_EMAIL, mFakeAccountManagerFacade.getAccountGaiaId(ACCOUNT_EMAIL));
     }
 
     @After
@@ -100,21 +103,21 @@ public class AccountTrackerServiceTest {
 
     @Test
     public void testSeedAccountsIfNeededBeforeAccountsAreSeeded() {
+        doReturn(true).when(mNativeMock).isGaiaIdInAMFEnabled();
         mService.seedAccountsIfNeeded(mRunnableMock);
 
         verify(mFakeAccountManagerFacade).addObserver(notNull());
         verify(mNativeMock)
-                .seedAccountsInfo(eq(ACCOUNT_TRACKER_SERVICE_NATIVE), mGaiaIdsCaptor.capture(),
-                        mEmailsCaptor.capture());
+                .seedAccountsInfo(
+                        eq(ACCOUNT_TRACKER_SERVICE_NATIVE), mCoreAccountInfosArrayCaptor.capture());
         Assert.assertArrayEquals(
-                new String[] {mFakeAccountManagerFacade.getAccountGaiaId(ACCOUNT_EMAIL)},
-                mGaiaIdsCaptor.getValue());
-        Assert.assertArrayEquals(new String[] {ACCOUNT_EMAIL}, mEmailsCaptor.getValue());
+                new CoreAccountInfo[] {mCoreAccountInfo}, mCoreAccountInfosArrayCaptor.getValue());
         verify(mRunnableMock).run();
     }
 
     @Test
     public void testSeedAccountsIfNeededWhenSeedingIsInProgress() {
+        doReturn(false).when(mNativeMock).isGaiaIdInAMFEnabled();
         final AtomicBoolean isInvoked = new AtomicBoolean(false);
         doAnswer(invocation -> {
             if (!isInvoked.getAndSet(true)) {
@@ -124,22 +127,21 @@ public class AccountTrackerServiceTest {
         })
                 .when(mFakeAccountManagerFacade)
                 .getAccountGaiaId(anyString());
-        verify(mNativeMock, never()).seedAccountsInfo(anyLong(), any(), any());
+        verify(mNativeMock, never()).seedAccountsInfo(anyLong(), any());
 
         mService.seedAccountsIfNeeded(() -> {});
 
         verify(mNativeMock)
-                .seedAccountsInfo(eq(ACCOUNT_TRACKER_SERVICE_NATIVE), mGaiaIdsCaptor.capture(),
-                        mEmailsCaptor.capture());
+                .seedAccountsInfo(
+                        eq(ACCOUNT_TRACKER_SERVICE_NATIVE), mCoreAccountInfosArrayCaptor.capture());
         Assert.assertArrayEquals(
-                new String[] {mFakeAccountManagerFacade.getAccountGaiaId(ACCOUNT_EMAIL)},
-                mGaiaIdsCaptor.getValue());
-        Assert.assertArrayEquals(new String[] {ACCOUNT_EMAIL}, mEmailsCaptor.getValue());
+                new CoreAccountInfo[] {mCoreAccountInfo}, mCoreAccountInfosArrayCaptor.getValue());
         verify(mRunnableMock).run();
     }
 
     @Test
     public void testSeedAccountsIfNeededAfterAccountsAreSeeded() {
+        doReturn(true).when(mNativeMock).isGaiaIdInAMFEnabled();
         mService.seedAccountsIfNeeded(() -> {});
 
         mService.seedAccountsIfNeeded(mRunnableMock);
@@ -147,34 +149,32 @@ public class AccountTrackerServiceTest {
         verify(mFakeAccountManagerFacade).addObserver(notNull());
         // Accounts should be seeded only once
         verify(mNativeMock)
-                .seedAccountsInfo(eq(ACCOUNT_TRACKER_SERVICE_NATIVE), mGaiaIdsCaptor.capture(),
-                        mEmailsCaptor.capture());
+                .seedAccountsInfo(
+                        eq(ACCOUNT_TRACKER_SERVICE_NATIVE), mCoreAccountInfosArrayCaptor.capture());
         Assert.assertArrayEquals(
-                new String[] {mFakeAccountManagerFacade.getAccountGaiaId(ACCOUNT_EMAIL)},
-                mGaiaIdsCaptor.getValue());
-        Assert.assertArrayEquals(new String[] {ACCOUNT_EMAIL}, mEmailsCaptor.getValue());
+                new CoreAccountInfo[] {mCoreAccountInfo}, mCoreAccountInfosArrayCaptor.getValue());
         verify(mRunnableMock).run();
     }
 
     @Test
     public void testAddingNewAccountTriggersSeedingAccounts() {
+        doReturn(true).when(mNativeMock).isGaiaIdInAMFEnabled();
         mService.seedAccountsIfNeeded(() -> {});
         mService.addObserver(mObserverMock);
         final Account newAccount = AccountUtils.createAccountFromName("test2@gmail.com");
-        verify(mNativeMock).seedAccountsInfo(eq(ACCOUNT_TRACKER_SERVICE_NATIVE), any(), any());
+        verify(mNativeMock).seedAccountsInfo(eq(ACCOUNT_TRACKER_SERVICE_NATIVE), any());
 
         mFakeAccountManagerFacade.addAccount(newAccount);
 
-        verify(mNativeMock, times(2))
-                .seedAccountsInfo(eq(ACCOUNT_TRACKER_SERVICE_NATIVE), any(), any());
+        verify(mNativeMock, times(2)).seedAccountsInfo(eq(ACCOUNT_TRACKER_SERVICE_NATIVE), any());
         // Verify the observer is invoked with correct arguments
-        verify(mObserverMock).onAccountsSeeded(mAccountInfosCaptor.capture(), eq(true));
+        verify(mObserverMock).onAccountsSeeded(mCoreAccountInfosListCaptor.capture(), eq(true));
         final CoreAccountInfo coreAccountInfo = CoreAccountInfo.createFromEmailAndGaiaId(
                 ACCOUNT_EMAIL, mFakeAccountManagerFacade.getAccountGaiaId(ACCOUNT_EMAIL));
         final CoreAccountInfo newCoreAccountInfo = CoreAccountInfo.createFromEmailAndGaiaId(
                 newAccount.name, mFakeAccountManagerFacade.getAccountGaiaId(newAccount.name));
         Assert.assertArrayEquals(new CoreAccountInfo[] {coreAccountInfo, newCoreAccountInfo},
-                mAccountInfosCaptor.getValue().toArray(new CoreAccountInfo[0]));
+                mCoreAccountInfosListCaptor.getValue().toArray(new CoreAccountInfo[0]));
     }
 
     /**
@@ -182,6 +182,7 @@ public class AccountTrackerServiceTest {
      */
     @Test
     public void testAddingAccountTriggersSeedingWhenAnotherSeedingIsInProgress() {
+        doReturn(false).when(mNativeMock).isGaiaIdInAMFEnabled();
         final Account newAccount = AccountUtils.createAccountFromName("test2@gmail.com");
         final AtomicBoolean isNewAccountAdded = new AtomicBoolean(false);
         doAnswer(invocation -> {
@@ -195,34 +196,35 @@ public class AccountTrackerServiceTest {
         })
                 .when(mFakeAccountManagerFacade)
                 .getAccountGaiaId(anyString());
-        verify(mNativeMock, never()).seedAccountsInfo(anyLong(), any(), any());
+        verify(mNativeMock, never()).seedAccountsInfo(anyLong(), any());
 
         mService.seedAccountsIfNeeded(() -> {});
 
         verify(mNativeMock, times(2))
-                .seedAccountsInfo(eq(ACCOUNT_TRACKER_SERVICE_NATIVE), mGaiaIdsCaptor.capture(),
-                        mEmailsCaptor.capture());
+                .seedAccountsInfo(
+                        eq(ACCOUNT_TRACKER_SERVICE_NATIVE), mCoreAccountInfosArrayCaptor.capture());
         Assert.assertArrayEquals(
                 "seedAccountsInfo() should be invoked with the old account alone in the"
                         + " first call.",
-                new String[] {toGaiaId(ACCOUNT_EMAIL)}, mGaiaIdsCaptor.getAllValues().get(0));
-        Assert.assertArrayEquals(new String[] {ACCOUNT_EMAIL}, mEmailsCaptor.getAllValues().get(0));
+                new CoreAccountInfo[] {mCoreAccountInfo},
+                mCoreAccountInfosArrayCaptor.getAllValues().get(0));
 
+        CoreAccountInfo newCoreAccountInfo = CoreAccountInfo.createFromEmailAndGaiaId(
+                newAccount.name, toGaiaId(newAccount.name));
         Assert.assertArrayEquals(
                 "seedAccountsInfo() should be invoked with the old account and the new account"
                         + " together in the second call.",
-                new String[] {toGaiaId(ACCOUNT_EMAIL), toGaiaId(newAccount.name)},
-                mGaiaIdsCaptor.getAllValues().get(1));
-        Assert.assertArrayEquals(
-                new String[] {ACCOUNT_EMAIL, newAccount.name}, mEmailsCaptor.getAllValues().get(1));
+                new CoreAccountInfo[] {mCoreAccountInfo, newCoreAccountInfo},
+                mCoreAccountInfosArrayCaptor.getAllValues().get(1));
     }
 
     @Test
     public void testSeedAccountsWhenGaiaIdIsNull() {
+        doReturn(false).when(mNativeMock).isGaiaIdInAMFEnabled();
         // When gaia ID is null, seedAccounts() will be called recursively in the
         // current code, the test sets a limit number for this invocation artificially
         // by mocking AccountManagerFacade#getAccounts().
-        when(mFakeAccountManagerFacade.getAccountGaiaId(anyString())).thenReturn(null);
+        doReturn(null).when(mFakeAccountManagerFacade).getAccountGaiaId(anyString());
         final int expectedNumberOfInvocations = 3;
         final AtomicInteger invocationCount = new AtomicInteger(0);
         // This will cause mock counts for getAccounts() method to be 1 greater than
@@ -240,26 +242,28 @@ public class AccountTrackerServiceTest {
         verify(mFakeAccountManagerFacade).addObserver(notNull());
         // The fact that returned gaia ID is null will trigger the seeding again.
         verify(mFakeAccountManagerFacade, times(expectedNumberOfInvocations + 1)).getAccounts();
-        verify(mNativeMock, never()).seedAccountsInfo(anyLong(), any(), any());
+        verify(mNativeMock, never()).seedAccountsInfo(anyLong(), any());
         verify(mRunnableMock, never()).run();
     }
 
     @Test
     public void testSeedAccountsWithObserverAttached() {
+        doReturn(true).when(mNativeMock).isGaiaIdInAMFEnabled();
         mService.addObserver(mObserverMock);
         verify(mObserverMock, never()).onAccountsSeeded(any(), anyBoolean());
 
         mService.seedAccountsIfNeeded(() -> {});
 
-        verify(mObserverMock).onAccountsSeeded(mAccountInfosCaptor.capture(), eq(false));
+        verify(mObserverMock).onAccountsSeeded(mCoreAccountInfosListCaptor.capture(), eq(false));
         final CoreAccountInfo account = CoreAccountInfo.createFromEmailAndGaiaId(
                 ACCOUNT_EMAIL, mFakeAccountManagerFacade.getAccountGaiaId(ACCOUNT_EMAIL));
         Assert.assertArrayEquals(new CoreAccountInfo[] {account},
-                mAccountInfosCaptor.getValue().toArray(new CoreAccountInfo[0]));
+                mCoreAccountInfosListCaptor.getValue().toArray(new CoreAccountInfo[0]));
     }
 
     @Test
     public void testSeedAccountsWithObserverRemoved() {
+        doReturn(true).when(mNativeMock).isGaiaIdInAMFEnabled();
         mService.addObserver(mObserverMock);
         mService.removeObserver(mObserverMock);
 

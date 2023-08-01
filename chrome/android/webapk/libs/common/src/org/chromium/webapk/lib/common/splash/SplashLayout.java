@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -47,13 +47,8 @@ public class SplashLayout {
     /**
      * @see android.content.res.Resources#getColor(int id).
      */
-    @SuppressWarnings("deprecation")
     public static int getColorCompatibility(Resources res, int id) throws NotFoundException {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            return res.getColor(id, null);
-        } else {
-            return res.getColor(id);
-        }
+        return res.getColor(id, null);
     }
 
     /** Builds splash screen and attaches it to the parent view. */

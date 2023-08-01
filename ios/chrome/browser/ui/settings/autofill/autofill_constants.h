@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,9 +16,12 @@ extern NSString* const kAutofillAddressManagedViewId;
 extern NSString* const kAutofillCreditCardTableViewId;
 extern NSString* const kAutofillCreditCardSwitchViewId;
 extern NSString* const kAutofillCreditCardManagedViewId;
-extern NSString* const kSettingsAddPaymentMethodButtonId;
 
 // Accessibility identifier for the edit card table view.
 extern NSString* const kAutofillCreditCardEditTableViewId;
+
+// Accessibility identifier for the country selection view.
+extern NSString* const kAutofillCountrySelectionTableViewId;
+extern NSString* const kAutofillCountrySelectionSearchScrimId;
 
 #endif  // IOS_CHROME_BROWSER_UI_SETTINGS_AUTOFILL_AUTOFILL_CONSTANTS_H_

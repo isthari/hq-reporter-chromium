@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #import "base/metrics/user_metrics.h"
 #import "components/signin/public/identity_manager/identity_manager.h"
 #import "components/signin/public/identity_manager/primary_account_mutator.h"
-#import "components/sync/driver/sync_service.h"
+#import "components/sync/service/sync_service.h"
 #import "components/unified_consent/unified_consent_metrics.h"
 #import "ios/chrome/browser/signin/authentication_service.h"
 #import "ios/chrome/browser/ui/authentication/signin/advanced_settings_signin/advanced_settings_signin_navigation_controller.h"
@@ -82,9 +82,9 @@ using unified_consent::metrics::RecordSyncSetupDataTypesHistrogam;
 - (void)revertToSigninState:(IdentitySigninState)originalState {
   switch (originalState) {
     case IdentitySigninStateSignedOut: {
-      self.authenticationService->SignOut(signin_metrics::ABORT_SIGNIN,
-                                          /*force_clear_browsing_data=*/false,
-                                          nil);
+      self.authenticationService->SignOut(
+          signin_metrics::ProfileSignout::kAbortSignin,
+          /*force_clear_browsing_data=*/false, nil);
       break;
     }
     case IdentitySigninStateSignedInWithSyncDisabled: {

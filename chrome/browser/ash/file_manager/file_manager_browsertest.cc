@@ -1,26 +1,63 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <stddef.h>
+#include <memory>
 
-#include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/keyboard/keyboard_switches.h"
-#include "base/strings/utf_string_conversions.h"
+#include "base/files/file_path.h"
+#include "base/functional/bind.h"
+#include "base/gtest_prod_util.h"
+#include "base/immediate_crash.h"
+#include "base/memory/raw_ptr.h"
+#include "base/run_loop.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/threading/thread_restrictions.h"
+#include "base/values.h"
+#include "chrome/browser/ash/file_manager/copy_or_move_io_task_policy_impl.h"
 #include "chrome/browser/ash/file_manager/file_manager_browsertest_base.h"
+#include "chrome/browser/ash/file_manager/path_util.h"
+#include "chrome/browser/ash/login/test/device_state_mixin.h"
+#include "chrome/browser/ash/login/test/logged_in_user_mixin.h"
+#include "chrome/browser/ash/policy/dlp/dlp_files_controller_ash.h"
+#include "chrome/browser/ash/settings/scoped_testing_cros_settings.h"
+#include "chrome/browser/ash/settings/stub_cros_settings_provider.h"
+#include "chrome/browser/chromeos/policy/dlp/dlp_rules_manager.h"
+#include "chrome/browser/chromeos/policy/dlp/dlp_rules_manager_factory.h"
+#include "chrome/browser/chromeos/policy/dlp/mock_dlp_rules_manager.h"
+#include "chrome/browser/enterprise/connectors/analysis/fake_content_analysis_delegate.h"
+#include "chrome/browser/enterprise/connectors/analysis/fake_files_request_handler.h"
+#include "chrome/browser/enterprise/connectors/analysis/mock_file_transfer_analysis_delegate.h"
+#include "chrome/browser/enterprise/connectors/reporting/realtime_reporting_client_factory.h"
+#include "chrome/browser/extensions/api/safe_browsing_private/safe_browsing_private_event_router.h"
+#include "chrome/browser/extensions/api/safe_browsing_private/safe_browsing_private_event_router_factory.h"
+#include "chrome/browser/policy/dm_token_utils.h"
+#include "chrome/browser/safe_browsing/cloud_content_scanning/deep_scanning_test_utils.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
+#include "chrome/test/base/fake_gaia_mixin.h"
+#include "chromeos/ash/components/settings/cros_settings_names.h"
+#include "chromeos/dbus/dlp/dlp_client.h"
+#include "chromeos/dbus/dlp/dlp_service.pb.h"
+#include "components/account_id/account_id.h"
+#include "components/policy/core/common/cloud/mock_cloud_policy_client.h"
 #include "components/prefs/pref_service.h"
 #include "components/session_manager/core/session_manager.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
+#include "components/signin/public/identity_manager/identity_test_environment.h"
 #include "components/signin/public/identity_manager/identity_test_utils.h"
 #include "components/user_manager/user_manager.h"
 #include "components/user_manager/user_manager_base.h"
 #include "content/public/test/browser_test.h"
+#include "testing/gmock/include/gmock/gmock.h"
 
 namespace file_manager {
+namespace {
+constexpr char kOwnerEmail[] = "owner@example.com";
+}
 
 // FilesAppBrowserTest parameters.
 struct TestCase {
@@ -75,13 +112,13 @@ struct TestCase {
     return *this;
   }
 
-  TestCase& FilesSwa() {
-    options.files_swa = true;
+  TestCase& FilesExperimental() {
+    options.files_experimental = true;
     return *this;
   }
 
-  TestCase& MediaSwa() {
-    options.media_swa = true;
+  TestCase& EnableConflictDialog() {
+    options.enable_conflict_dialog = true;
     return *this;
   }
 
@@ -116,48 +153,193 @@ struct TestCase {
     return *this;
   }
 
-  TestCase& EnableDriveDssPin() {
-    options.drive_dss_pin = true;
+  TestCase& EnableDlp() {
+    options.enable_dlp_files_restriction = true;
     return *this;
   }
 
-  TestCase& EnableTrash() {
-    options.enable_trash = true;
+  TestCase& EnableDriveTrash() {
+    options.enable_drive_trash = true;
+    return *this;
+  }
+
+  TestCase& EnableUploadOfficeToCloud() {
+    options.enable_upload_office_to_cloud = true;
+    return *this;
+  }
+
+  TestCase& EnableArcVm() {
+    options.enable_arc_vm = true;
+    return *this;
+  }
+
+  TestCase& EnableMirrorSync() {
+    options.enable_mirrorsync = true;
+    return *this;
+  }
+
+  TestCase& EnableInlineSyncStatus() {
+    options.enable_inline_sync_status = true;
+    return *this;
+  }
+
+  TestCase& EnableInlineSyncStatusProgressEvents() {
+    options.enable_inline_sync_status = true;
+    options.enable_inline_sync_status_progress_events = true;
+    return *this;
+  }
+
+  TestCase& EnableFileTransferConnector() {
+    options.enable_file_transfer_connector = true;
+    return *this;
+  }
+
+  TestCase& FileTransferConnectorReportOnlyMode() {
+    options.file_transfer_connector_report_only = true;
+    return *this;
+  }
+
+  TestCase& EnableSearchV2() {
+    options.enable_search_v2 = true;
+    return *this;
+  }
+
+  TestCase& EnableOsFeedback() {
+    options.enable_os_feedback = true;
+    return *this;
+  }
+
+  TestCase& EnableGoogleOneOfferFilesBanner() {
+    options.enable_google_one_offer_files_banner = true;
+    return *this;
+  }
+
+  TestCase& FeatureIds(const std::vector<std::string>& ids) {
+    options.feature_ids = ids;
+    return *this;
+  }
+
+  TestCase& EnableBulkPinning() {
+    options.enable_drive_bulk_pinning = true;
+    return *this;
+  }
+
+  TestCase& EnableDriveShortcuts() {
+    options.enable_drive_shortcuts = true;
+    return *this;
+  }
+
+  TestCase& SetDeviceMode(DeviceMode device_mode) {
+    options.device_mode = device_mode;
+    return *this;
+  }
+
+  TestCase& SetTestAccountType(TestAccountType test_account_type) {
+    options.test_account_type = test_account_type;
     return *this;
   }
 
   std::string GetFullName() const {
     std::string full_name = name;
 
-    if (options.guest_mode == IN_GUEST_MODE)
+    if (options.guest_mode == IN_GUEST_MODE) {
       full_name += "_GuestMode";
+    }
 
-    if (options.guest_mode == IN_INCOGNITO)
+    if (options.guest_mode == IN_INCOGNITO) {
       full_name += "_Incognito";
+    }
 
-    if (options.tablet_mode)
+    if (options.tablet_mode) {
       full_name += "_TabletMode";
+    }
 
-    if (options.files_swa)
-      full_name += "_FilesSwa";
+    if (options.files_experimental) {
+      full_name += "_FilesExperimental";
+    }
 
-    if (!options.native_smb)
+    if (options.enable_conflict_dialog) {
+      full_name += "_ConflictDialog";
+    }
+
+    if (!options.native_smb) {
       full_name += "_DisableNativeSmb";
+    }
 
-    if (options.generic_documents_provider)
+    if (options.generic_documents_provider) {
       full_name += "_GenericDocumentsProvider";
+    }
 
-    if (options.photos_documents_provider)
+    if (options.photos_documents_provider) {
       full_name += "_PhotosDocumentsProvider";
+    }
 
-    if (options.drive_dss_pin)
-      full_name += "_DriveDssPin";
-
-    if (options.single_partition_format)
+    if (options.single_partition_format) {
       full_name += "_SinglePartitionFormat";
+    }
 
-    if (options.enable_trash)
-      full_name += "_Trash";
+    if (options.enable_drive_trash) {
+      full_name += "_DriveTrash";
+    }
+
+    if (options.enable_mirrorsync) {
+      full_name += "_MirrorSync";
+    }
+
+    if (options.enable_inline_sync_status) {
+      full_name += "_InlineSyncStatus";
+    }
+
+    if (options.file_transfer_connector_report_only) {
+      full_name += "_ReportOnly";
+    }
+
+    if (options.enable_search_v2) {
+      full_name += "_SearchV2";
+    }
+
+    if (options.enable_os_feedback) {
+      full_name += "_OsFeedback";
+    }
+
+    if (options.enable_google_one_offer_files_banner) {
+      full_name += "_GoogleOneOfferFilesBanner";
+    }
+
+    if (options.enable_drive_bulk_pinning) {
+      full_name += "_DriveBulkPinning";
+    }
+
+    if (options.enable_drive_shortcuts) {
+      full_name += "_DriveShortcuts";
+    }
+
+    switch (options.device_mode) {
+      case kDeviceModeNotSet:
+        break;
+      case kConsumerOwned:
+        full_name += "_DeviceModeConsumerOwned";
+        break;
+      case kEnrolled:
+        full_name += "_DeviceModeEnrolled";
+    }
+
+    switch (options.test_account_type) {
+      case kTestAccountTypeNotSet:
+        break;
+      case kEnterprise:
+        full_name += "_AccountTypeEnterprise";
+        break;
+      case kChild:
+        full_name += "_AccountTypeChild";
+        break;
+      case kNonManaged:
+        full_name += "_AccountTypeNonManaged";
+        break;
+      case kNonManagedNonOwner:
+        full_name += "_AccountTypeNonManagedNonOwner";
+        break;
+    }
 
     return full_name;
   }
@@ -207,6 +389,83 @@ IN_PROC_BROWSER_TEST_P(FilesAppBrowserTest, Test) {
   StartTest();
 }
 
+// `FilesAppBrowserTest` with `LoggedInUserMixin` and `DeviceStateMixin`. This
+// test provides additional two options from `FilesAppBrowserTest`. Both options
+// must be explicitly set for this test.
+//
+// - test_account_type: Account type used for a test.
+// - device_mode: Status of a device, e.g. a device is enrolled.
+class LoggedInUserFilesAppBrowserTest : public FilesAppBrowserTest {
+ public:
+  LoggedInUserFilesAppBrowserTest() {
+    // ChromeOS user will be set by `LoggedInUserMixin`.
+    set_chromeos_user_ = false;
+
+    device_state_mixin_ = std::make_unique<ash::DeviceStateMixin>(
+        &mixin_host_, DeviceStateFor(GetOptions().device_mode));
+
+    logged_in_user_mixin_ = std::make_unique<ash::LoggedInUserMixin>(
+        &mixin_host_, LogInTypeFor(GetOptions().test_account_type),
+        embedded_test_server(), this, /*should_launch_browser=*/false,
+        AccountIdFor(GetOptions().test_account_type));
+
+    // Set up owner email of a device. We set up owner email only if a device is
+    // kConsumerOwned. If a device is enrolled, an account cannot be an owner of
+    // a device.
+    if (GetOptions().device_mode == kConsumerOwned) {
+      std::string owner_email;
+
+      switch (GetOptions().test_account_type) {
+        case kTestAccountTypeNotSet:
+        case kEnterprise:
+        case kChild:
+        case kNonManaged:
+          owner_email = logged_in_user_mixin_->GetAccountId().GetUserEmail();
+          break;
+        case kNonManagedNonOwner:
+          owner_email = kOwnerEmail;
+          break;
+      }
+
+      scoped_testing_cros_settings_.device_settings()->Set(
+          ash::kDeviceOwner, base::Value(owner_email));
+    }
+  }
+
+  void SetUpOnMainThread() override {
+    logged_in_user_mixin_->LogInUser();
+    FilesAppBrowserTest::SetUpOnMainThread();
+  }
+
+  AccountId GetAccountId() override {
+    return logged_in_user_mixin_->GetAccountId();
+  }
+
+ private:
+  ash::DeviceStateMixin::State DeviceStateFor(DeviceMode device_mode) {
+    switch (device_mode) {
+      case kDeviceModeNotSet:
+        CHECK(false) << "device_mode option must be set for "
+                        "LoggedInUserFilesAppBrowserTest";
+        // TODO(crbug.com/1061742): `base::ImmediateCrash` is necessary.
+        base::ImmediateCrash();
+      case kConsumerOwned:
+        return ash::DeviceStateMixin::State::OOBE_COMPLETED_CONSUMER_OWNED;
+      case kEnrolled:
+        return ash::DeviceStateMixin::State::OOBE_COMPLETED_CLOUD_ENROLLED;
+    }
+  }
+
+  std::unique_ptr<ash::LoggedInUserMixin> logged_in_user_mixin_;
+  std::unique_ptr<ash::DeviceStateMixin> device_state_mixin_;
+
+  ash::ScopedTestingCrosSettings scoped_testing_cros_settings_;
+};
+
+IN_PROC_BROWSER_TEST_P(LoggedInUserFilesAppBrowserTest, Test) {
+  StartTest();
+}
+
 // A version of the FilesAppBrowserTest that supports spanning browser restart
 // to allow testing prefs and other things.
 class ExtendedFilesAppBrowserTest : public FilesAppBrowserTest {
@@ -227,6 +486,593 @@ IN_PROC_BROWSER_TEST_P(ExtendedFilesAppBrowserTest, Test) {
   StartTest();
 }
 
+// DLP source URLs
+constexpr char kBlockedSourceUrl[] = "https://blocked.com";
+constexpr char kWarnSourceUrl[] = "https://warned.com";
+constexpr char kNotSetSourceUrl[] = "https://not-set.com";
+constexpr char kNotBlockedSourceUrl[] = "https://allowed.com";
+
+// A version of FilesAppBrowserTest that supports DLP files restrictions.
+class DlpFilesAppBrowserTest : public FilesAppBrowserTest {
+ public:
+  DlpFilesAppBrowserTest(const DlpFilesAppBrowserTest&) = delete;
+  DlpFilesAppBrowserTest& operator=(const DlpFilesAppBrowserTest&) = delete;
+
+ protected:
+  DlpFilesAppBrowserTest() = default;
+  ~DlpFilesAppBrowserTest() override = default;
+
+  void SetUpOnMainThread() override {
+    FilesAppBrowserTest::SetUpOnMainThread();
+    policy::DlpRulesManagerFactory::GetInstance()->SetTestingFactory(
+        profile(),
+        base::BindRepeating(&DlpFilesAppBrowserTest::SetDlpRulesManager,
+                            base::Unretained(this)));
+  }
+
+  bool HandleDlpCommands(const std::string& name,
+                         const base::Value::Dict& value,
+                         std::string* output) override {
+    if (name == "setGetFilesSourcesMock") {
+      base::FilePath result =
+          file_manager::util::GetDownloadsFolderForProfile(profile());
+      const base::Value::List* file_names = value.FindList("fileNames");
+      auto* source_urls = value.FindList("sourceUrls");
+      EXPECT_TRUE(file_names);
+      EXPECT_TRUE(source_urls);
+      EXPECT_EQ(file_names->size(), source_urls->size());
+
+      ::dlp::GetFilesSourcesResponse response;
+      for (unsigned long i = 0; i < file_names->size(); i++) {
+        auto* metadata = response.add_files_metadata();
+        auto inode = GetInodeValue(result.Append((*file_names)[i].GetString()));
+        EXPECT_TRUE(inode.has_value());
+        metadata->set_inode(inode.value());
+        metadata->set_source_url((*source_urls)[i].GetString());
+      }
+
+      chromeos::DlpClient::Get()->GetTestInterface()->SetGetFilesSourceMock(
+          base::BindRepeating(&DlpFilesAppBrowserTest::GetFilesSourcesMock,
+                              base::Unretained(this), response));
+      return true;
+    }
+    if (name == "setBlockedFilesTransfer") {
+      base::FilePath result =
+          file_manager::util::GetDownloadsFolderForProfile(profile());
+      auto* file_names = value.FindList("fileNames");
+      EXPECT_TRUE(file_names);
+      ::dlp::CheckFilesTransferResponse check_files_transfer_response;
+      for (const auto& file_name : *file_names) {
+        check_files_transfer_response.add_files_paths(
+            result.Append(file_name.GetString()).value());
+      }
+      chromeos::DlpClient::Get()->GetTestInterface()->SetIsAlive(true);
+      chromeos::DlpClient::Get()
+          ->GetTestInterface()
+          ->SetCheckFilesTransferResponse(check_files_transfer_response);
+      return true;
+    }
+    if (name == "setIsRestrictedDestinationRestriction") {
+      EXPECT_CALL(
+          *mock_rules_manager_,
+          IsRestrictedDestination(GURL(kBlockedSourceUrl), testing::_,
+                                  policy::DlpRulesManager::Restriction::kFiles,
+                                  testing::_, testing::_, testing::_))
+          .WillRepeatedly(
+              testing::Return(policy::DlpRulesManager::Level::kBlock));
+      EXPECT_CALL(
+          *mock_rules_manager_,
+          IsRestrictedDestination(GURL(kNotBlockedSourceUrl), testing::_,
+                                  policy::DlpRulesManager::Restriction::kFiles,
+                                  testing::_, testing::_, testing::_))
+          .WillRepeatedly(
+              ::testing::Return(policy::DlpRulesManager::Level::kAllow));
+      return true;
+    }
+    if (name == "setBlockedComponent") {
+      auto* component_str = value.FindString("component");
+      EXPECT_TRUE(component_str);
+      auto component = MapToPolicyComponent(*component_str);
+      EXPECT_NE(data_controls::Component::kUnknownComponent, component);
+      policy::DlpRulesManager::AggregatedComponents components;
+      components[policy::DlpRulesManager::Level::kBlock].insert(component);
+      EXPECT_CALL(*mock_rules_manager_, GetAggregatedComponents)
+          .WillOnce(testing::Return(components));
+      return true;
+    }
+    if (name == "setIsRestrictedByAnyRuleRestrictions") {
+      EXPECT_CALL(
+          *mock_rules_manager_,
+          IsRestrictedByAnyRule(GURL(kNotBlockedSourceUrl),
+                                policy::DlpRulesManager::Restriction::kFiles,
+                                testing::_, testing::_))
+          .WillRepeatedly(
+              testing::Return(policy::DlpRulesManager::Level::kAllow));
+
+      EXPECT_CALL(
+          *mock_rules_manager_,
+          IsRestrictedByAnyRule(GURL(kBlockedSourceUrl),
+                                policy::DlpRulesManager::Restriction::kFiles,
+                                testing::_, testing::_))
+          .WillRepeatedly(
+              testing::Return(policy::DlpRulesManager::Level::kBlock));
+
+      EXPECT_CALL(
+          *mock_rules_manager_,
+          IsRestrictedByAnyRule(GURL(kNotSetSourceUrl),
+                                policy::DlpRulesManager::Restriction::kFiles,
+                                testing::_, testing::_))
+          .WillRepeatedly(
+              testing::Return(policy::DlpRulesManager::Level::kNotSet));
+
+      EXPECT_CALL(
+          *mock_rules_manager_,
+          IsRestrictedByAnyRule(GURL(kWarnSourceUrl),
+                                policy::DlpRulesManager::Restriction::kFiles,
+                                testing::_, testing::_))
+          .WillRepeatedly(
+              testing::Return(policy::DlpRulesManager::Level::kWarn));
+      return true;
+    }
+    if (name == "setIsRestrictedByAnyRuleBlocked") {
+      EXPECT_CALL(*mock_rules_manager_, IsRestrictedByAnyRule)
+          .WillRepeatedly(
+              ::testing::Return(policy::DlpRulesManager::Level::kBlock));
+      return true;
+    }
+    return false;
+  }
+
+  // MockDlpRulesManager is owned by KeyedService and is guaranteed to outlive
+  // this class.
+  raw_ptr<policy::MockDlpRulesManager, ExperimentalAsh> mock_rules_manager_ =
+      nullptr;
+
+ private:
+  std::unique_ptr<KeyedService> SetDlpRulesManager(
+      content::BrowserContext* context) {
+    auto dlp_rules_manager =
+        std::make_unique<testing::NiceMock<policy::MockDlpRulesManager>>();
+    mock_rules_manager_ = dlp_rules_manager.get();
+    ON_CALL(*mock_rules_manager_, IsFilesPolicyEnabled)
+        .WillByDefault(testing::Return(true));
+
+    files_controller_ =
+        std::make_unique<policy::DlpFilesControllerAsh>(*mock_rules_manager_);
+    ON_CALL(*mock_rules_manager_, GetDlpFilesController)
+        .WillByDefault(testing::Return(files_controller_.get()));
+
+    return dlp_rules_manager;
+  }
+
+  // Maps |component| to data_controls::Component.
+  data_controls::Component MapToPolicyComponent(const std::string& component) {
+    if (component == "arc") {
+      return data_controls::Component::kArc;
+    }
+    if (component == "crostini") {
+      return data_controls::Component::kCrostini;
+    }
+    if (component == "pluginVm") {
+      return data_controls::Component::kPluginVm;
+    }
+    if (component == "usb") {
+      return data_controls::Component::kUsb;
+    }
+    if (component == "drive") {
+      return data_controls::Component::kDrive;
+    }
+    return data_controls::Component::kUnknownComponent;
+  }
+
+  // Returns the inode value for |path|, if found.
+  absl::optional<ino64_t> GetInodeValue(const base::FilePath& path) {
+    struct stat file_stats;
+    if (stat(path.value().c_str(), &file_stats) != 0) {
+      return absl::nullopt;
+    }
+    return file_stats.st_ino;
+  }
+
+  // Invokes `callback` with the previously constructed `response`. Note that
+  // the result doesn't depend on the value of `request`.
+  void GetFilesSourcesMock(
+      const dlp::GetFilesSourcesResponse response,
+      const dlp::GetFilesSourcesRequest request,
+      chromeos::DlpClient::GetFilesSourcesCallback callback) {
+    std::move(callback).Run(response);
+  }
+
+  std::unique_ptr<policy::DlpFilesControllerAsh> files_controller_;
+};
+
+IN_PROC_BROWSER_TEST_P(DlpFilesAppBrowserTest, Test) {
+  ASSERT_TRUE(policy::DlpRulesManagerFactory::GetForPrimaryProfile());
+  ON_CALL(*mock_rules_manager_, IsRestricted)
+      .WillByDefault(::testing::Return(policy::DlpRulesManager::Level::kAllow));
+  ON_CALL(*mock_rules_manager_, GetReportingManager)
+      .WillByDefault(::testing::Return(nullptr));
+
+  StartTest();
+}
+
+constexpr char kFileTransferConnectorSettingsForDlp[] = R"(
+{
+  "service_provider": "google",
+  "enable": [
+    {
+      "source_destination_list": [
+        {
+          "sources": [{
+            "file_system_type": "%s"
+          }],
+          "destinations": [{
+            "file_system_type": "%s"
+          }]
+        }
+      ],
+      "tags": ["dlp"]
+    }
+  ],
+  "block_until_verdict": %s
+})";
+
+base::TimeDelta kResponseDelay = base::Seconds(0);
+
+const std::set<std::string>* JpgMimeTypes() {
+  static std::set<std::string> set = {"image/jpeg"};
+  return &set;
+}
+
+// A version of FilesAppBrowserTest that supports the file transfer enterprise
+// connector.
+class FileTransferConnectorFilesAppBrowserTest : public FilesAppBrowserTest {
+ public:
+  FileTransferConnectorFilesAppBrowserTest(
+      const FileTransferConnectorFilesAppBrowserTest&) = delete;
+  FileTransferConnectorFilesAppBrowserTest& operator=(
+      const FileTransferConnectorFilesAppBrowserTest&) = delete;
+
+ protected:
+  FileTransferConnectorFilesAppBrowserTest() = default;
+  ~FileTransferConnectorFilesAppBrowserTest() override = default;
+
+  void SetUpOnMainThread() override {
+    FilesAppBrowserTest::SetUpOnMainThread();
+
+    // Set a device management token. It is required to enable scanning.
+    // Without it, FileTransferAnalysisDelegate::IsEnabled() always
+    // returns absl::nullopt.
+    SetDMTokenForTesting(policy::DMToken::CreateValidToken("dm_token"));
+
+    // Enable reporting.
+    safe_browsing::SetOnSecurityEventReporting(profile()->GetPrefs(),
+                                               /*enabled*/ true,
+                                               /*enabled_event_names*/ {},
+                                               /*enabled_opt_in_events*/ {},
+                                               /*machine_scope*/ false);
+    // Add mock to check reports.
+    cloud_policy_client_ = std::make_unique<policy::MockCloudPolicyClient>();
+    cloud_policy_client_->SetDMToken("dm_token");
+    enterprise_connectors::RealtimeReportingClientFactory::GetForProfile(
+        profile())
+        ->SetBrowserCloudPolicyClientForTesting(cloud_policy_client_.get());
+    // Add IdentityTestEnvironment to verify user name.
+    identity_test_environment_ =
+        std::make_unique<signin::IdentityTestEnvironment>();
+    identity_test_environment_->MakePrimaryAccountAvailable(
+        kUserName, signin::ConsentLevel::kSync);
+    extensions::SafeBrowsingPrivateEventRouterFactory::GetForProfile(profile())
+        ->SetIdentityManagerForTesting(
+            identity_test_environment_->identity_manager());
+  }
+
+  std::string GetScanIDForFileName(std::string file_name) {
+    return std::string(kScanId) + file_name;
+  }
+
+  bool IsReportOnlyMode() {
+    return GetOptions().file_transfer_connector_report_only;
+  }
+
+  void ScanningHasCompletedCallback() {
+    DCHECK(run_loop_)
+        << "run loop not configured, missing call to `setupScanningRunLoop`";
+    ++finished_file_transfer_analysis_delegates_;
+    DCHECK_LE(finished_file_transfer_analysis_delegates_,
+              expected_number_of_file_transfer_analysis_delegates_);
+
+    if (finished_file_transfer_analysis_delegates_ ==
+        expected_number_of_file_transfer_analysis_delegates_) {
+      // If all FileTransferAnalysisDelegates finished, scanning has been
+      // completed.
+      run_loop_->QuitClosure().Run();
+    }
+  }
+
+  // Setup the expectations of the mock.
+  // This function uses the stored expectations from the
+  // `scanning_expectations_` map.
+  void SetupMock(
+      enterprise_connectors::MockFileTransferAnalysisDelegate* delegate) {
+    // Expect one call to UploadData.
+    EXPECT_CALL(*delegate, UploadData(::testing::_))
+        .WillOnce(testing::Invoke([this, delegate](base::OnceClosure callback) {
+          // When scanning is started, start the normal scan.
+          // We modify the callback such that in addition to the normal callback
+          // we also call `ScanningHasCompletedCallback()` to notify the test
+          // that scanning has completed.
+          delegate->FileTransferAnalysisDelegate::UploadData(base::BindOnce(
+              [](base::OnceClosure callback,
+                 base::OnceClosure scanning_has_completed_callback) {
+                // Call the callback
+                std::move(callback).Run();
+                // Notify that scanning of this delegate has completed.
+                std::move(scanning_has_completed_callback).Run();
+              },
+              std::move(callback),
+              base::BindOnce(&FileTransferConnectorFilesAppBrowserTest::
+                                 ScanningHasCompletedCallback,
+                             base::Unretained(this))));
+        }));
+
+    // Call GetAnalysisResultAfterScan from the base class.
+    EXPECT_CALL(*delegate, GetAnalysisResultAfterScan(::testing::_))
+        .WillRepeatedly(testing::Invoke([delegate](storage::FileSystemURL url) {
+          return delegate
+              ->FileTransferAnalysisDelegate::GetAnalysisResultAfterScan(url);
+        }));
+  }
+
+  bool HandleEnterpriseConnectorCommands(const std::string& name,
+                                         const base::Value::Dict& value,
+                                         std::string* output) override {
+    if (name == "setupFileTransferPolicy") {
+      // Set the analysis connector (enterprise_connectors) for FILE_TRANSFER.
+      // It is also required for FileTransferAnalysisDelegate::IsEnabled() to
+      // return a meaningful result.
+      const std::string* source = value.FindString("source");
+      CHECK(source);
+      const std::string* destination = value.FindString("destination");
+      CHECK(destination);
+      LOG(INFO) << "Setting file transfer policy for transfers from " << *source
+                << " to " << *destination;
+      safe_browsing::SetAnalysisConnector(
+          profile()->GetPrefs(), enterprise_connectors::FILE_TRANSFER,
+          base::StringPrintf(kFileTransferConnectorSettingsForDlp,
+                             source->c_str(), destination->c_str(),
+                             IsReportOnlyMode() ? "0" : "1"));
+
+      // Create a FakeFilesRequestHandler that intercepts uploads and fakes
+      // responses.
+      enterprise_connectors::FilesRequestHandler::SetFactoryForTesting(
+          base::BindRepeating(
+              &enterprise_connectors::FakeFilesRequestHandler::Create,
+              base::BindRepeating(&FileTransferConnectorFilesAppBrowserTest::
+                                      FakeFileUploadCallback,
+                                  base::Unretained(this), *source,
+                                  *destination)));
+
+      // Setup FileTransferAnalysisDelegate mock.
+      enterprise_connectors::FileTransferAnalysisDelegate::SetFactorForTesting(
+          base::BindRepeating(
+              [](base::RepeatingCallback<void(
+                     enterprise_connectors::MockFileTransferAnalysisDelegate*)>
+                     mock_setup_callback,
+                 safe_browsing::DeepScanAccessPoint access_point,
+                 storage::FileSystemURL source_url,
+                 storage::FileSystemURL destination_url, Profile* profile,
+                 storage::FileSystemContext* file_system_context,
+                 enterprise_connectors::AnalysisSettings settings)
+                  -> std::unique_ptr<
+                      enterprise_connectors::FileTransferAnalysisDelegate> {
+                auto delegate = std::make_unique<::testing::StrictMock<
+                    enterprise_connectors::MockFileTransferAnalysisDelegate>>(
+                    access_point, source_url, destination_url, profile,
+                    file_system_context, std::move(settings));
+
+                mock_setup_callback.Run(delegate.get());
+
+                return delegate;
+              },
+              base::BindRepeating(
+                  &FileTransferConnectorFilesAppBrowserTest::SetupMock,
+                  base::Unretained(this))));
+
+      return true;
+    }
+    if (name == "issueFileTransferResponses") {
+      // Issue all saved responses and issue all future responses directly.
+      IssueResponses();
+      return true;
+    }
+    if (name == "isReportOnlyFileTransferConnector") {
+      *output = IsReportOnlyMode() ? "true" : "false";
+      return true;
+    }
+    if (name == "setupScanningRunLoop") {
+      // Set the number of expected `FileTransferAnalysisDelegate`s. This is
+      // done to correctly notify when scanning has completed.
+      auto maybe_int = value.FindInt("number_of_expected_delegates");
+      DCHECK(maybe_int.has_value());
+      expected_number_of_file_transfer_analysis_delegates_ = maybe_int.value();
+      DCHECK(!run_loop_);
+      run_loop_ = std::make_unique<base::RunLoop>();
+      return true;
+    }
+    if (name == "waitForFileTransferScanningToComplete") {
+      DCHECK(run_loop_);
+      // Wait until the scanning is complete.
+      run_loop_->Run();
+      return true;
+    }
+    if (name == "expectFileTransferReports") {
+      // Setup expectations for the deep scan reports.
+
+      const std::string* source_volume_name = value.FindString("source_volume");
+      CHECK(source_volume_name);
+      const std::string* destination_volume_name =
+          value.FindString("destination_volume");
+      CHECK(destination_volume_name);
+      const base::Value::List* entry_paths = value.FindList("entry_paths");
+      CHECK(entry_paths);
+
+      std::vector<std::string> file_names;
+      std::vector<std::string> shas;
+      std::vector<enterprise_connectors::ContentAnalysisResponse::Result>
+          expected_dlp_verdicts;
+      std::vector<std::string> expected_results;
+      std::vector<std::string> expected_scan_ids;
+
+      for (const auto& path : *entry_paths) {
+        const std::string* path_str = path.GetIfString();
+        CHECK(path_str);
+        auto file_name = base::FilePath(*path_str).BaseName().AsUTF8Unsafe();
+        if (!base::Contains(file_name, "blocked")) {
+          // If a file name does not contain blocked, expect no report.
+          continue;
+        }
+
+        file_names.push_back(file_name);
+        // sha256sum chrome/test/data/chromeos/file_manager/small.jpg |  tr
+        // '[:lower:]' '[:upper:]'
+        shas.push_back(
+            "28F5754447BBA26238B93B820DFFCB6743876F8A82077BA1ABB0F4B2529AE5BE");
+
+        // Get the expected verdict from the ConnectorStatusCallback.
+        expected_dlp_verdicts.push_back(
+            ConnectorStatusCallback(base::FilePath(*path_str)).results()[0]);
+
+        // For report-only mode, the transfer is always allowed. It's blocked,
+        // otherwise.
+        expected_results.push_back(safe_browsing::EventResultToString(
+            IsReportOnlyMode() ? safe_browsing::EventResult::ALLOWED
+                               : safe_browsing::EventResult::BLOCKED));
+        expected_scan_ids.push_back(GetScanIDForFileName(file_name));
+      }
+
+      validator_ = std::make_unique<safe_browsing::EventReportValidator>(
+          cloud_policy_client());
+      validator_->ExpectSensitiveDataEvents(
+          /*url*/ "",
+          /*source*/ *source_volume_name,
+          /*destination*/ *destination_volume_name,
+          /*filenames*/ file_names,
+          /*sha*/
+          shas,
+          /*trigger*/
+          extensions::SafeBrowsingPrivateEventRouter::kTriggerFileTransfer,
+          /*dlp_verdict*/ expected_dlp_verdicts,
+          /*mimetype*/ JpgMimeTypes(),
+          /*size*/ 886,
+          /*result*/
+          expected_results,
+          /*username*/ kUserName,
+          /*profile_identifier*/ profile()->GetPath().AsUTF8Unsafe(),
+          /*scan_ids*/ expected_scan_ids);
+
+      return true;
+    }
+
+    return false;
+  }
+
+  // Upload callback to issue responses.
+  void FakeFileUploadCallback(
+      const std::string& expected_source,
+      const std::string& expected_destination,
+      safe_browsing::BinaryUploadService::Result result,
+      const base::FilePath& path,
+      std::unique_ptr<safe_browsing::BinaryUploadService::Request> request,
+      enterprise_connectors::FakeFilesRequestHandler::FakeFileRequestCallback
+          callback) {
+    DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+    EXPECT_FALSE(path.empty());
+    EXPECT_EQ(request->device_token(), "dm_token");
+
+    // Verify source and destination of the request.
+    EXPECT_EQ(request->content_analysis_request().request_data().source(),
+              expected_source);
+    EXPECT_EQ(request->content_analysis_request().request_data().destination(),
+              expected_destination);
+
+    // Simulate a response.
+    base::OnceClosure response =
+        base::BindOnce(std::move(callback), path,
+                       safe_browsing::BinaryUploadService::Result::SUCCESS,
+                       ConnectorStatusCallback(path));
+    if (save_response_for_later_) {
+      // We save the responses for later such that we can check the scanning
+      // label.
+      // `await sendTestMessage({name: 'issueFileTransferResponses'})` is
+      // required from the test to issue the requests.
+      saved_responses_.push_back(std::move(response));
+    } else {
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+          FROM_HERE, std::move(response), kResponseDelay);
+    }
+  }
+
+  // Issues the saved responses and sets `save_response_for_later_` to `false`.
+  // After this method is called, no more responses will be saved. Instead, the
+  // responses will be issued directly.
+  void IssueResponses() {
+    DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+    save_response_for_later_ = false;
+    for (auto&& response : saved_responses_) {
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+          FROM_HERE, std::move(response), kResponseDelay);
+    }
+    saved_responses_.clear();
+  }
+
+  enterprise_connectors::ContentAnalysisResponse ConnectorStatusCallback(
+      const base::FilePath& path) {
+    enterprise_connectors::ContentAnalysisResponse response;
+    // We return a block verdict if the basename contains "blocked".
+    if (base::Contains(path.BaseName().value(), "blocked")) {
+      response = enterprise_connectors::FakeContentAnalysisDelegate::
+          FakeContentAnalysisDelegate::DlpResponse(
+              enterprise_connectors::ContentAnalysisResponse::Result::SUCCESS,
+              "rule", enterprise_connectors::TriggeredRule::BLOCK);
+    } else {
+      response = enterprise_connectors::FakeContentAnalysisDelegate::
+          SuccessfulResponse({"dlp"});
+    }
+    response.set_request_token(
+        GetScanIDForFileName(path.BaseName().AsUTF8Unsafe()));
+    return response;
+  }
+
+  policy::MockCloudPolicyClient* cloud_policy_client() {
+    return cloud_policy_client_.get();
+  }
+
+  // Used to test reporting.
+  std::unique_ptr<policy::MockCloudPolicyClient> cloud_policy_client_;
+  std::unique_ptr<signin::IdentityTestEnvironment> identity_test_environment_;
+  std::unique_ptr<safe_browsing::EventReportValidator> validator_;
+  static constexpr char kUserName[] = "test@chromium.org";
+  static constexpr char kScanId[] = "scan id";
+
+  // The saved scanning responses.
+  std::vector<base::OnceClosure> saved_responses_;
+  // Determines whether a current scanning response should be saved for later or
+  // issued directly.
+  bool save_response_for_later_ = true;
+
+  size_t finished_file_transfer_analysis_delegates_ = 0;
+  size_t expected_number_of_file_transfer_analysis_delegates_ = 0;
+
+  std::unique_ptr<base::RunLoop> run_loop_;
+};
+
+// TODO(crbug.com/1425820): Re-enable this test
+IN_PROC_BROWSER_TEST_P(FileTransferConnectorFilesAppBrowserTest,
+                       DISABLED_Test) {
+  StartTest();
+}
+
 // INSTANTIATE_TEST_SUITE_P expands to code that stringizes the arguments. Thus
 // macro parameters such as |prefix| and |test_class| won't be expanded by the
 // macro pre-processor. To work around this, indirect INSTANTIATE_TEST_SUITE_P,
@@ -243,528 +1089,358 @@ WRAPPED_INSTANTIATE_TEST_SUITE_P(
     FileDisplay, /* file_display.js */
     FilesAppBrowserTest,
     ::testing::Values(
-        TestCase("fileDisplayDownloads"),
-        TestCase("fileDisplayDownloads").FilesSwa(),
-        TestCase("fileDisplayDownloads").InGuestMode(),
-        TestCase("fileDisplayDownloads").InGuestMode().FilesSwa(),
-        TestCase("fileDisplayDownloads").TabletMode(),
-        TestCase("fileDisplayDownloads").TabletMode().FilesSwa(),
+        TestCase("fileDisplayDownloads")
+            .FeatureIds({"screenplay-ade01078-3b79-41d2-953e-e22a544a28b3"}),
+        TestCase("fileDisplayDownloads")
+            .InGuestMode()
+            .FeatureIds({"screenplay-ade01078-3b79-41d2-953e-e22a544a28b3"}),
+        TestCase("fileDisplayDownloads")
+            .TabletMode()
+            .FeatureIds({"screenplay-ade01078-3b79-41d2-953e-e22a544a28b3"}),
         TestCase("fileDisplayLaunchOnDrive").DontObserveFileTasks(),
-        TestCase("fileDisplayLaunchOnDrive").DontObserveFileTasks().FilesSwa(),
         TestCase("fileDisplayLaunchOnLocalFolder").DontObserveFileTasks(),
-        TestCase("fileDisplayLaunchOnLocalFolder")
-            .DontObserveFileTasks()
-            .FilesSwa(),
         TestCase("fileDisplayLaunchOnLocalFile").DontObserveFileTasks(),
-        TestCase("fileDisplayLaunchOnLocalFile")
-            .DontObserveFileTasks()
-            .FilesSwa(),
-        TestCase("fileDisplayDrive").TabletMode(),
-        TestCase("fileDisplayDrive").TabletMode().FilesSwa(),
-        TestCase("fileDisplayDrive"),
-        TestCase("fileDisplayDrive").FilesSwa(),
+        TestCase("fileDisplayDrive")
+            .TabletMode()
+            .FeatureIds({"screenplay-ade01078-3b79-41d2-953e-e22a544a28b3"}),
+        TestCase("fileDisplayDrive")
+            .FeatureIds({"screenplay-ade01078-3b79-41d2-953e-e22a544a28b3"}),
         TestCase("fileDisplayDriveOffline").Offline(),
-        TestCase("fileDisplayDriveOffline").Offline().FilesSwa(),
         TestCase("fileDisplayDriveOnline"),
-        TestCase("fileDisplayDriveOnline").FilesSwa(),
         TestCase("fileDisplayDriveOnlineNewWindow").DontObserveFileTasks(),
-        TestCase("fileDisplayDriveOnlineNewWindow")
-            .DontObserveFileTasks()
-            .FilesSwa(),
         TestCase("fileDisplayComputers"),
-        TestCase("fileDisplayComputers").FilesSwa(),
-        TestCase("fileDisplayMtp"),
-        TestCase("fileDisplayMtp").FilesSwa(),
-        TestCase("fileDisplayUsb"),
-        TestCase("fileDisplayUsb").FilesSwa(),
+        TestCase("fileDisplayMtp")
+            .FeatureIds({"screenplay-e920978b-0184-4665-98a3-acc46dc48ce9",
+                         "screenplay-ade01078-3b79-41d2-953e-e22a544a28b3"}),
+        TestCase("fileDisplayUsb")
+            .FeatureIds({"screenplay-ade01078-3b79-41d2-953e-e22a544a28b3"}),
         TestCase("fileDisplayUsbPartition"),
-        TestCase("fileDisplayUsbPartition").FilesSwa(),
         TestCase("fileDisplayUsbPartition").EnableSinglePartitionFormat(),
-        TestCase("fileDisplayUsbPartition")
-            .EnableSinglePartitionFormat()
-            .FilesSwa(),
         TestCase("fileDisplayUsbPartitionSort"),
-        TestCase("fileDisplayUsbPartitionSort").FilesSwa(),
         TestCase("fileDisplayPartitionFileTable"),
-        TestCase("fileDisplayPartitionFileTable").FilesSwa(),
         TestCase("fileSearch"),
-        TestCase("fileSearch").FilesSwa(),
         TestCase("fileDisplayWithoutDownloadsVolume").DontMountVolumes(),
-        TestCase("fileDisplayWithoutDownloadsVolume")
-            .DontMountVolumes()
-            .FilesSwa(),
         TestCase("fileDisplayWithoutVolumes").DontMountVolumes(),
-        TestCase("fileDisplayWithoutVolumes").DontMountVolumes().FilesSwa(),
         TestCase("fileDisplayWithoutVolumesThenMountDownloads")
             .DontMountVolumes(),
-        TestCase("fileDisplayWithoutVolumesThenMountDownloads")
-            .DontMountVolumes()
-            .FilesSwa(),
         TestCase("fileDisplayWithoutVolumesThenMountDrive").DontMountVolumes(),
-        TestCase("fileDisplayWithoutVolumesThenMountDrive")
-            .DontMountVolumes()
-            .FilesSwa(),
         TestCase("fileDisplayWithoutDrive").DontMountVolumes(),
-        TestCase("fileDisplayWithoutDrive").DontMountVolumes().FilesSwa(),
         // Test is failing (crbug.com/1097013)
         // TestCase("fileDisplayWithoutDriveThenDisable").DontMountVolumes(),
-        // TestCase("fileDisplayWithoutDriveThenDisable")
-        //     .DontMountVolumes()
-        //     .FilesSwa(),
         TestCase("fileDisplayWithHiddenVolume"),
-        TestCase("fileDisplayWithHiddenVolume").FilesSwa(),
         TestCase("fileDisplayMountWithFakeItemSelected"),
-        TestCase("fileDisplayMountWithFakeItemSelected").FilesSwa(),
         TestCase("fileDisplayUnmountDriveWithSharedWithMeSelected"),
-        TestCase("fileDisplayUnmountDriveWithSharedWithMeSelected").FilesSwa(),
         TestCase("fileDisplayUnmountRemovableRoot"),
-        TestCase("fileDisplayUnmountRemovableRoot").FilesSwa(),
         TestCase("fileDisplayUnmountFirstPartition"),
-        TestCase("fileDisplayUnmountFirstPartition").FilesSwa(),
         TestCase("fileDisplayUnmountLastPartition"),
-        TestCase("fileDisplayUnmountLastPartition").FilesSwa(),
         TestCase("fileSearchCaseInsensitive"),
-        TestCase("fileSearchCaseInsensitive").FilesSwa(),
         TestCase("fileSearchNotFound"),
-        TestCase("fileSearchNotFound").FilesSwa(),
         TestCase("fileDisplayDownloadsWithBlockedFileTaskRunner"),
-        TestCase("fileDisplayDownloadsWithBlockedFileTaskRunner").FilesSwa(),
         TestCase("fileDisplayCheckSelectWithFakeItemSelected"),
-        TestCase("fileDisplayCheckSelectWithFakeItemSelected").FilesSwa(),
         TestCase("fileDisplayCheckReadOnlyIconOnFakeDirectory"),
-        TestCase("fileDisplayCheckReadOnlyIconOnFakeDirectory").FilesSwa(),
         TestCase("fileDisplayCheckNoReadOnlyIconOnDownloads"),
-        TestCase("fileDisplayCheckNoReadOnlyIconOnDownloads").FilesSwa(),
         TestCase("fileDisplayCheckNoReadOnlyIconOnLinuxFiles"),
-        TestCase("fileDisplayCheckNoReadOnlyIconOnLinuxFiles").FilesSwa(),
-        TestCase("fileDisplayStartupError")));
+        TestCase("fileDisplayCheckNoReadOnlyIconOnGuestOs")));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     OpenVideoMediaApp, /* open_video_media_app.js */
     FilesAppBrowserTest,
-    ::testing::Values(TestCase("videoOpenDownloads").MediaSwa().InGuestMode(),
-                      TestCase("videoOpenDownloads").MediaSwa(),
-                      TestCase("videoOpenDrive").MediaSwa()));
+    ::testing::Values(TestCase("videoOpenDownloads").InGuestMode(),
+                      TestCase("videoOpenDownloads"),
+                      TestCase("videoOpenDrive")));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
-    OpenAudioFiles, /* open_audio_files.js */
+    OpenAudioMediaApp, /* open_audio_media_app.js */
     FilesAppBrowserTest,
-    ::testing::Values(TestCase("audioOpenCloseDownloads"),
-                      TestCase("audioOpenCloseDownloads").InGuestMode(),
-                      TestCase("audioOpenCloseDrive"),
-                      TestCase("audioOpenDownloads").InGuestMode(),
+    ::testing::Values(TestCase("audioOpenDownloads").InGuestMode(),
                       TestCase("audioOpenDownloads"),
-                      TestCase("audioOpenDrive"),
-                      TestCase("audioAutoAdvanceDrive"),
-                      TestCase("audioRepeatAllModeMultipleFileDrive"),
-                      TestCase("audioNoRepeatModeSingleFileDrive"),
-                      TestCase("audioRepeatOneModeSingleFileDrive"),
-                      TestCase("audioRepeatAllModeSingleFileDrive"),
-                      TestCase("audioNoRepeatModeMultipleFileDrive"),
-                      TestCase("audioRepeatOneModeMultipleFileDrive")));
+                      TestCase("audioOpenDrive")));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     OpenImageMediaApp, /* open_image_media_app.js */
     FilesAppBrowserTest,
-    ::testing::Values(
-        TestCase("imageOpenMediaAppDownloads").MediaSwa().InGuestMode(),
-        TestCase("imageOpenMediaAppDownloads").MediaSwa(),
-        TestCase("imageOpenMediaAppDrive").MediaSwa()));
+    ::testing::Values(TestCase("imageOpenMediaAppDownloads").InGuestMode(),
+                      TestCase("imageOpenMediaAppDownloads"),
+                      TestCase("imageOpenMediaAppDrive")));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     OpenSniffedFiles, /* open_sniffed_files.js */
     FilesAppBrowserTest,
     ::testing::Values(TestCase("pdfOpenDownloads"),
-                      TestCase("pdfOpenDownloads").FilesSwa(),
                       TestCase("pdfOpenDrive"),
-                      TestCase("pdfOpenDrive").FilesSwa(),
                       TestCase("textOpenDownloads"),
-                      TestCase("textOpenDownloads").FilesSwa(),
-                      TestCase("textOpenDrive"),
-                      TestCase("textOpenDrive").FilesSwa()));
+                      TestCase("textOpenDrive")));
+
+WRAPPED_INSTANTIATE_TEST_SUITE_P(
+    OpenHostedFiles, /* open_hosted_files.js */
+    FilesAppBrowserTest,
+    ::testing::Values(TestCase("hostedOpenDrive"),
+                      TestCase("encryptedHostedOpenDrive")));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     ZipFiles, /* zip_files.js */
     FilesAppBrowserTest,
     ::testing::Values(
         TestCase("zipFileOpenDownloads"),
-        TestCase("zipFileOpenDownloads").FilesSwa(),
         TestCase("zipFileOpenDownloads").InGuestMode(),
-        TestCase("zipFileOpenDownloads").InGuestMode().FilesSwa(),
         TestCase("zipFileOpenDrive"),
-        TestCase("zipFileOpenDrive").FilesSwa(),
         TestCase("zipFileOpenUsb"),
-        TestCase("zipFileOpenUsb").FilesSwa(),
         TestCase("zipNotifyFileTasks"),
-        TestCase("zipNotifyFileTasks").FilesSwa(),
         TestCase("zipCreateFileDownloads"),
-        TestCase("zipCreateFileDownloads").FilesSwa(),
         TestCase("zipCreateFileDownloads").InGuestMode(),
-        TestCase("zipCreateFileDownloads").InGuestMode().FilesSwa(),
         TestCase("zipCreateFileDrive"),
-        TestCase("zipCreateFileDrive").FilesSwa(),
+        TestCase("zipCreateFileDriveOffice"),
         TestCase("zipCreateFileUsb"),
-        TestCase("zipCreateFileUsb").FilesSwa()));
+        TestCase("zipExtractA11y")
+            .FeatureIds({"screenplay-af443ca0-6d9f-4cb3-af8f-0939c37833db"}),
+        TestCase("zipExtractCheckContent"),
+        TestCase("zipExtractCheckDuplicates"),
+        TestCase("zipExtractCheckEncodings"),
+        TestCase("zipExtractNotEnoughSpace"),
+        TestCase("zipExtractFromReadOnly"),
+        TestCase("zipExtractShowPanel"),
+        TestCase("zipExtractShowMultiPanel"),
+        TestCase("zipExtractSelectionMenus")));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     CreateNewFolder, /* create_new_folder.js */
     FilesAppBrowserTest,
     ::testing::Values(
-        TestCase("selectCreateFolderDownloads"),
-        TestCase("selectCreateFolderDownloads").FilesSwa(),
-        TestCase("selectCreateFolderDownloads").InGuestMode(),
-        TestCase("selectCreateFolderDownloads").InGuestMode().FilesSwa(),
-        TestCase("createFolderDownloads"),
-        TestCase("createFolderDownloads").FilesSwa(),
-        TestCase("createFolderDownloads").InGuestMode(),
-        TestCase("createFolderDownloads").InGuestMode().FilesSwa(),
-        TestCase("createFolderNestedDownloads"),
-        TestCase("createFolderNestedDownloads").FilesSwa(),
-        TestCase("createFolderDrive"),
-        TestCase("createFolderDrive").FilesSwa()));
+        TestCase("selectCreateFolderDownloads")
+            .FeatureIds({"screenplay-d9f79e27-bec2-4d15-9ba3-ae2bcd1e4bb5"}),
+        TestCase("selectCreateFolderDownloads")
+            .InGuestMode()
+            .FeatureIds({"screenplay-d9f79e27-bec2-4d15-9ba3-ae2bcd1e4bb5"}),
+        TestCase("createFolderDownloads")
+            .FeatureIds({"screenplay-d9f79e27-bec2-4d15-9ba3-ae2bcd1e4bb5",
+                         "screenplay-11d2d28c-28bf-430c-8dd1-c747c6c2f228"}),
+        TestCase("createFolderDownloads")
+            .InGuestMode()
+            .FeatureIds({"screenplay-d9f79e27-bec2-4d15-9ba3-ae2bcd1e4bb5",
+                         "screenplay-11d2d28c-28bf-430c-8dd1-c747c6c2f228"}),
+        TestCase("createFolderNestedDownloads")
+            .FeatureIds({"screenplay-d9f79e27-bec2-4d15-9ba3-ae2bcd1e4bb5",
+                         "screenplay-11d2d28c-28bf-430c-8dd1-c747c6c2f228"}),
+        TestCase("createFolderDrive")
+            .FeatureIds({"screenplay-d9f79e27-bec2-4d15-9ba3-ae2bcd1e4bb5",
+                         "screenplay-11d2d28c-28bf-430c-8dd1-c747c6c2f228"})));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     KeyboardOperations, /* keyboard_operations.js */
     FilesAppBrowserTest,
-    ::testing::Values(
-        TestCase("keyboardDeleteDownloads").InGuestMode(),
-        TestCase("keyboardDeleteDownloads").InGuestMode().FilesSwa(),
-        TestCase("keyboardDeleteDownloads"),
-        TestCase("keyboardDeleteDownloads").FilesSwa(),
-        TestCase("keyboardDeleteDownloads").EnableTrash(),
-        TestCase("keyboardDeleteDownloads").EnableTrash().FilesSwa(),
-        TestCase("keyboardDeleteDrive"),
-        TestCase("keyboardDeleteDrive").FilesSwa(),
-        TestCase("keyboardDeleteDrive").EnableTrash(),
-        TestCase("keyboardDeleteDrive").EnableTrash().FilesSwa(),
-        TestCase("keyboardDeleteFolderDownloads").InGuestMode(),
-        TestCase("keyboardDeleteFolderDownloads").InGuestMode().FilesSwa(),
-        TestCase("keyboardDeleteFolderDownloads"),
-        TestCase("keyboardDeleteFolderDownloads").FilesSwa(),
-        TestCase("keyboardDeleteFolderDownloads").EnableTrash(),
-        TestCase("keyboardDeleteFolderDownloads").EnableTrash().FilesSwa(),
-        TestCase("keyboardDeleteFolderDrive"),
-        TestCase("keyboardDeleteFolderDrive").FilesSwa(),
-        TestCase("keyboardCopyDownloads").InGuestMode(),
-        TestCase("keyboardCopyDownloads").InGuestMode().FilesSwa(),
-        TestCase("keyboardCopyDownloads"),
-        TestCase("keyboardCopyDownloads").FilesSwa(),
-        TestCase("keyboardCopyDownloads").EnableTrash(),
-        TestCase("keyboardCopyDownloads").EnableTrash().FilesSwa(),
-        TestCase("keyboardCopyDrive"),
-        TestCase("keyboardCopyDrive").FilesSwa(),
+    ::testing::Values(TestCase("keyboardDeleteDownloads").InGuestMode(),
+                      TestCase("keyboardDeleteDownloads"),
+                      TestCase("keyboardDeleteDrive"),
+                      TestCase("keyboardDeleteFolderDownloads").InGuestMode(),
+                      TestCase("keyboardDeleteFolderDownloads"),
+                      TestCase("keyboardDeleteFolderDrive"),
+                      TestCase("keyboardCopyDownloads").InGuestMode(),
+                      TestCase("keyboardCopyDownloads"),
+                      TestCase("keyboardCopyDownloads").EnableConflictDialog(),
+                      TestCase("keyboardCopyDrive"),
+                      TestCase("keyboardCopyDrive").EnableConflictDialog(),
 // TODO(crbug.com/1236842): Remove flakiness and enable this test.
 #if !defined(ADDRESS_SANITIZER) && defined(NDEBUG)
-        TestCase("keyboardFocusOutlineVisible"),
-        TestCase("keyboardFocusOutlineVisible").EnableTrash(),
-        TestCase("keyboardFocusOutlineVisibleMouse"),
-        TestCase("keyboardFocusOutlineVisibleMouse").EnableTrash(),
+                      TestCase("keyboardFocusOutlineVisible"),
+                      TestCase("keyboardFocusOutlineVisibleMouse"),
 #endif
-        TestCase("keyboardSelectDriveDirectoryTree"),
-        TestCase("keyboardDisableCopyWhenDialogDisplayed"),
-        TestCase("keyboardOpenNewWindow"),
-        TestCase("keyboardOpenNewWindow").InGuestMode(),
-        TestCase("keyboardOpenNewWindow").FilesSwa(),
-        TestCase("renameFileDownloads").InGuestMode(),
-        TestCase("renameFileDownloads"),
-        TestCase("renameFileDrive"),
-        TestCase("renameNewFolderDownloads").InGuestMode(),
-        TestCase("renameNewFolderDownloads"),
-        TestCase("renameRemovableWithKeyboardOnFileList")));
+                      TestCase("keyboardSelectDriveDirectoryTree"),
+                      TestCase("keyboardDisableCopyWhenDialogDisplayed"),
+                      TestCase("keyboardOpenNewWindow"),
+                      TestCase("keyboardOpenNewWindow").InGuestMode(),
+                      TestCase("noPointerActiveOnTouch"),
+                      TestCase("pointerActiveRemovedByTouch"),
+                      TestCase("renameFileDownloads"),
+                      TestCase("renameFileDownloads").InGuestMode(),
+                      TestCase("renameFileDrive"),
+                      TestCase("renameNewFolderDownloads"),
+                      TestCase("renameNewFolderDownloads").InGuestMode(),
+                      TestCase("renameRemovableWithKeyboardOnFileList")));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     ContextMenu, /* context_menu.js for file list */
     FilesAppBrowserTest,
     ::testing::Values(
         TestCase("checkDeleteEnabledForReadWriteFile"),
-        TestCase("checkDeleteEnabledForReadWriteFile").FilesSwa(),
         TestCase("checkDeleteDisabledForReadOnlyDocument"),
-        TestCase("checkDeleteDisabledForReadOnlyDocument").FilesSwa(),
         TestCase("checkDeleteDisabledForReadOnlyFile"),
-        TestCase("checkDeleteDisabledForReadOnlyFile").FilesSwa(),
         TestCase("checkDeleteDisabledForReadOnlyFolder"),
-        TestCase("checkDeleteDisabledForReadOnlyFolder").FilesSwa(),
         TestCase("checkRenameEnabledForReadWriteFile"),
-        TestCase("checkRenameEnabledForReadWriteFile").FilesSwa(),
         TestCase("checkRenameDisabledForReadOnlyDocument"),
-        TestCase("checkRenameDisabledForReadOnlyDocument").FilesSwa(),
         TestCase("checkRenameDisabledForReadOnlyFile"),
-        TestCase("checkRenameDisabledForReadOnlyFile").FilesSwa(),
         TestCase("checkRenameDisabledForReadOnlyFolder"),
-        TestCase("checkRenameDisabledForReadOnlyFolder").FilesSwa(),
         TestCase("checkContextMenuForRenameInput"),
-        TestCase("checkContextMenuForRenameInput").FilesSwa(),
         TestCase("checkShareEnabledForReadWriteFile"),
-        TestCase("checkShareEnabledForReadWriteFile").FilesSwa(),
         TestCase("checkShareEnabledForReadOnlyDocument"),
-        TestCase("checkShareEnabledForReadOnlyDocument").FilesSwa(),
         TestCase("checkShareDisabledForStrictReadOnlyDocument"),
-        TestCase("checkShareDisabledForStrictReadOnlyDocument").FilesSwa(),
         TestCase("checkShareEnabledForReadOnlyFile"),
-        TestCase("checkShareEnabledForReadOnlyFile").FilesSwa(),
         TestCase("checkShareEnabledForReadOnlyFolder"),
-        TestCase("checkShareEnabledForReadOnlyFolder").FilesSwa(),
         TestCase("checkCopyEnabledForReadWriteFile"),
-        TestCase("checkCopyEnabledForReadWriteFile").FilesSwa(),
         TestCase("checkCopyEnabledForReadOnlyDocument"),
-        TestCase("checkCopyEnabledForReadOnlyDocument").FilesSwa(),
         TestCase("checkCopyDisabledForStrictReadOnlyDocument"),
-        TestCase("checkCopyDisabledForStrictReadOnlyDocument").FilesSwa(),
         TestCase("checkCopyEnabledForReadOnlyFile"),
-        TestCase("checkCopyEnabledForReadOnlyFile").FilesSwa(),
         TestCase("checkCopyEnabledForReadOnlyFolder"),
-        TestCase("checkCopyEnabledForReadOnlyFolder").FilesSwa(),
         TestCase("checkCutEnabledForReadWriteFile"),
-        TestCase("checkCutEnabledForReadWriteFile").FilesSwa(),
         TestCase("checkCutDisabledForReadOnlyDocument"),
-        TestCase("checkCutDisabledForReadOnlyDocument").FilesSwa(),
         TestCase("checkCutDisabledForReadOnlyFile"),
-        TestCase("checkCutDisabledForReadOnlyFile").FilesSwa(),
+        TestCase("checkDlpRestrictionDetailsDisabledForNonDlpFiles"),
         TestCase("checkCutDisabledForReadOnlyFolder"),
-        TestCase("checkCutDisabledForReadOnlyFolder").FilesSwa(),
         TestCase("checkPasteIntoFolderEnabledForReadWriteFolder"),
-        TestCase("checkPasteIntoFolderEnabledForReadWriteFolder").FilesSwa(),
         TestCase("checkPasteIntoFolderDisabledForReadOnlyFolder"),
-        TestCase("checkPasteIntoFolderDisabledForReadOnlyFolder").FilesSwa(),
-        TestCase("checkInstallWithLinuxDisabledForDebianFile"),
         // TODO(b/189173190): Enable
-        // TestCase("checkInstallWithLinuxDisabledForDebianFile").FilesSwa(),
+        // TestCase("checkInstallWithLinuxDisabledForDebianFile"),
         TestCase("checkInstallWithLinuxEnabledForDebianFile"),
-        TestCase("checkInstallWithLinuxEnabledForDebianFile").FilesSwa(),
         TestCase("checkImportCrostiniImageEnabled"),
-        TestCase("checkImportCrostiniImageEnabled").FilesSwa(),
-        TestCase("checkImportCrostiniImageDisabled"),
         // TODO(b/189173190): Enable
-        // TestCase("checkImportCrostiniImageDisabled").FilesSwa(),
+        // TestCase("checkImportCrostiniImageDisabled"),
         TestCase("checkNewFolderEnabledInsideReadWriteFolder"),
-        TestCase("checkNewFolderEnabledInsideReadWriteFolder").FilesSwa(),
         TestCase("checkNewFolderDisabledInsideReadOnlyFolder"),
-        TestCase("checkNewFolderDisabledInsideReadOnlyFolder").FilesSwa(),
         TestCase("checkPasteEnabledInsideReadWriteFolder"),
-        TestCase("checkPasteEnabledInsideReadWriteFolder").FilesSwa(),
         TestCase("checkPasteDisabledInsideReadOnlyFolder"),
-        TestCase("checkPasteDisabledInsideReadOnlyFolder").FilesSwa(),
         TestCase("checkDownloadsContextMenu"),
-        TestCase("checkDownloadsContextMenu").FilesSwa(),
         TestCase("checkPlayFilesContextMenu"),
-        TestCase("checkPlayFilesContextMenu").FilesSwa(),
         TestCase("checkLinuxFilesContextMenu"),
-        TestCase("checkLinuxFilesContextMenu").FilesSwa(),
         TestCase("checkDeleteDisabledInDocProvider")
             .EnableGenericDocumentsProvider(),
-        TestCase("checkDeleteDisabledInDocProvider")
-            .EnableGenericDocumentsProvider()
-            .FilesSwa(),
         TestCase("checkDeleteEnabledInDocProvider")
             .EnableGenericDocumentsProvider(),
-        TestCase("checkDeleteEnabledInDocProvider")
-            .EnableGenericDocumentsProvider()
-            .FilesSwa(),
         TestCase("checkRenameDisabledInDocProvider")
             .EnableGenericDocumentsProvider(),
-        TestCase("checkRenameDisabledInDocProvider")
-            .EnableGenericDocumentsProvider()
-            .FilesSwa(),
         TestCase("checkRenameEnabledInDocProvider")
             .EnableGenericDocumentsProvider(),
-        TestCase("checkRenameEnabledInDocProvider")
-            .EnableGenericDocumentsProvider()
-            .FilesSwa(),
         TestCase("checkContextMenuFocus"),
-        TestCase("checkContextMenuFocus").FilesSwa(),
         TestCase("checkContextMenusForInputElements"),
-        TestCase("checkContextMenusForInputElements").FilesSwa(),
-        TestCase("checkDeleteDisabledInRecents"),
-        TestCase("checkDeleteDisabledInRecents").FilesSwa(),
+        TestCase("checkDeleteEnabledInRecents"),
         TestCase("checkGoToFileLocationEnabledInRecents"),
-        TestCase("checkGoToFileLocationEnabledInRecents").FilesSwa(),
         TestCase("checkGoToFileLocationDisabledInMultipleSelection"),
-        TestCase("checkGoToFileLocationDisabledInMultipleSelection")
-            .FilesSwa()));
+        TestCase("checkDefaultTask"),
+        TestCase("checkPolicyAssignedDefaultHasManagedIcon")));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     Toolbar, /* toolbar.js */
     FilesAppBrowserTest,
-    ::testing::Values(TestCase("toolbarDeleteWithMenuItemNoEntrySelected"),
-                      TestCase("toolbarDeleteButtonOpensDeleteConfirmDialog"),
-                      TestCase("toolbarDeleteButtonKeepFocus"),
-                      TestCase("toolbarDeleteEntry").InGuestMode(),
-                      TestCase("toolbarDeleteEntry").InGuestMode().FilesSwa(),
-                      TestCase("toolbarDeleteEntry"),
-                      TestCase("toolbarDeleteEntry").FilesSwa(),
-                      TestCase("toolbarDeleteEntry").EnableTrash(),
-                      TestCase("toolbarDeleteEntry").EnableTrash().FilesSwa(),
-                      TestCase("toolbarRefreshButtonWithSelection")
-                          .EnableGenericDocumentsProvider(),
-                      TestCase("toolbarAltACommand"),
-                      TestCase("toolbarRefreshButtonHiddenInRecents"),
-                      TestCase("toolbarMultiMenuFollowsButton"),
-                      TestCase("toolbarSharesheetButtonWithSelection"),
-                      TestCase("toolbarSharesheetContextMenuWithSelection"),
-                      TestCase("toolbarSharesheetNoEntrySelected")));
+    ::testing::Values(
+        TestCase("toolbarAltACommand"),
+        TestCase("toolbarDeleteWithMenuItemNoEntrySelected"),
+        TestCase("toolbarDeleteButtonOpensDeleteConfirmDialog"),
+        TestCase("toolbarDeleteButtonKeepFocus"),
+        TestCase("toolbarDeleteEntry"),
+        TestCase("toolbarDeleteEntry").InGuestMode(),
+        TestCase("toolbarMultiMenuFollowsButton"),
+        TestCase("toolbarRefreshButtonHiddenInRecents"),
+        TestCase("toolbarRefreshButtonHiddenForWatchableVolume"),
+        TestCase("toolbarRefreshButtonShownForNonWatchableVolume")
+            .EnableGenericDocumentsProvider(),
+        TestCase("toolbarRefreshButtonWithSelection")
+            .EnableGenericDocumentsProvider(),
+        TestCase("toolbarSharesheetButtonWithSelection")
+            .FeatureIds({"screenplay-195b5b1d-2f7f-45ae-be5c-18b9c5d17674",
+                         "screenplay-54b29b90-e689-4745-af0d-f8d336be2d13"}),
+        TestCase("toolbarSharesheetContextMenuWithSelection"),
+        TestCase("toolbarSharesheetNoEntrySelected"),
+        TestCase("toolbarCloudIconShouldNotShowWhenBulkPinningDisabled"),
+        TestCase("toolbarCloudIconShouldNotShowIfPreferenceDisabledAndNoUIState"
+                 "Available")
+            .EnableBulkPinning(),
+        TestCase("toolbarCloudIconShouldShowForInProgress").EnableBulkPinning(),
+        TestCase("toolbarCloudIconShowsWhenNotEnoughDiskSpaceIsReturned")
+            .EnableBulkPinning(),
+        TestCase("toolbarCloudIconShouldNotShowWhenCannotGetFreeSpace")
+            .EnableBulkPinning(),
+        TestCase("toolbarCloudIconWhenPressedShouldOpenCloudPanel")
+            .EnableBulkPinning(),
+        TestCase("toolbarCloudIconShouldNotShowWhenPrefDisabled")
+            .EnableBulkPinning(),
+        TestCase("toolbarCloudIconShouldShowOnStartupEvenIfSyncing")
+            .EnableBulkPinning(),
+        TestCase("toolbarCloudIconShouldShowWhenPausedState")
+            .EnableBulkPinning()));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     QuickView, /* quick_view.js */
     FilesAppBrowserTest,
     ::testing::Values(
         TestCase("openQuickView"),
-        TestCase("openQuickView").FilesSwa(),
         TestCase("openQuickViewDialog"),
-        TestCase("openQuickViewDialog").FilesSwa(),
         TestCase("openQuickViewAndEscape"),
-        TestCase("openQuickViewAndEscape").FilesSwa(),
         TestCase("openQuickView").InGuestMode(),
-        TestCase("openQuickView").InGuestMode().FilesSwa(),
         TestCase("openQuickView").TabletMode(),
-        TestCase("openQuickView").TabletMode().FilesSwa(),
         TestCase("openQuickViewViaContextMenuSingleSelection"),
-        TestCase("openQuickViewViaContextMenuSingleSelection").FilesSwa(),
         TestCase("openQuickViewViaContextMenuCheckSelections"),
-        TestCase("openQuickViewViaContextMenuCheckSelections").FilesSwa(),
         TestCase("openQuickViewAudio"),
-        TestCase("openQuickViewAudio").FilesSwa(),
         TestCase("openQuickViewAudioOnDrive"),
-        TestCase("openQuickViewAudioOnDrive").FilesSwa(),
         TestCase("openQuickViewAudioWithImageMetadata"),
-        TestCase("openQuickViewAudioWithImageMetadata").FilesSwa(),
         TestCase("openQuickViewImageJpg"),
-        TestCase("openQuickViewImageJpg").FilesSwa(),
         TestCase("openQuickViewImageJpeg"),
-        TestCase("openQuickViewImageJpeg").FilesSwa(),
         TestCase("openQuickViewImageJpeg").InGuestMode(),
-        TestCase("openQuickViewImageJpeg").InGuestMode().FilesSwa(),
         TestCase("openQuickViewImageExif"),
-        TestCase("openQuickViewImageExif").FilesSwa(),
         TestCase("openQuickViewImageRaw"),
-        TestCase("openQuickViewImageRaw").FilesSwa(),
         TestCase("openQuickViewImageRawWithOrientation"),
-        TestCase("openQuickViewImageRawWithOrientation").FilesSwa(),
         TestCase("openQuickViewImageWebp"),
-        TestCase("openQuickViewImageWebp").FilesSwa(),
         TestCase("openQuickViewBrokenImage"),
-        TestCase("openQuickViewBrokenImage").FilesSwa(),
         TestCase("openQuickViewImageClick"),
-        TestCase("openQuickViewImageClick").FilesSwa(),
         TestCase("openQuickViewVideo"),
-        TestCase("openQuickViewVideo").FilesSwa(),
         TestCase("openQuickViewVideoOnDrive"),
-        TestCase("openQuickViewVideoOnDrive").FilesSwa(),
-#if !defined(ADDRESS_SANITIZER) || !defined(NDEBUG)
-        // TODO(http://crbug.com/1291090): Flaky on ASan non-DEBUG.
         TestCase("openQuickViewPdf"),
-#endif
-        TestCase("openQuickViewPdf").FilesSwa(),
-#if !defined(ADDRESS_SANITIZER) || !defined(NDEBUG)
-        // TODO(http://crbug.com/1291090): Flaky on ASan non-DEBUG.
         TestCase("openQuickViewPdfPopup"),
-#endif
-        TestCase("openQuickViewPdfPopup").FilesSwa(),
-        TestCase("openQuickViewPdfPreviewsDisabled"),
 #if !defined(ADDRESS_SANITIZER) || !defined(NDEBUG)
         // TODO(http://crbug.com/1291090): Flaky on ASan non-DEBUG.
-        TestCase("openQuickViewPdfPreviewsDisabled").FilesSwa(),
+        TestCase("openQuickViewPdfPreviewsDisabled"),
 #endif
         TestCase("openQuickViewKeyboardUpDownChangesView"),
-        TestCase("openQuickViewKeyboardUpDownChangesView").FilesSwa(),
         TestCase("openQuickViewKeyboardLeftRightChangesView"),
-        TestCase("openQuickViewKeyboardLeftRightChangesView").FilesSwa(),
         TestCase("openQuickViewSniffedText"),
-        TestCase("openQuickViewSniffedText").FilesSwa(),
         TestCase("openQuickViewTextFileWithUnknownMimeType"),
-        TestCase("openQuickViewTextFileWithUnknownMimeType").FilesSwa(),
         TestCase("openQuickViewUtf8Text"),
-        TestCase("openQuickViewUtf8Text").FilesSwa(),
         TestCase("openQuickViewScrollText"),
-        TestCase("openQuickViewScrollText").FilesSwa(),
         TestCase("openQuickViewScrollHtml"),
-        TestCase("openQuickViewScrollHtml").FilesSwa(),
         TestCase("openQuickViewMhtml"),
-        TestCase("openQuickViewMhtml").FilesSwa(),
         TestCase("openQuickViewBackgroundColorHtml"),
-        TestCase("openQuickViewBackgroundColorHtml").FilesSwa(),
         TestCase("openQuickViewDrive"),
-        TestCase("openQuickViewDrive").FilesSwa(),
         TestCase("openQuickViewSmbfs"),
-        TestCase("openQuickViewSmbfs").FilesSwa(),
         TestCase("openQuickViewAndroid"),
-        TestCase("openQuickViewAndroid").FilesSwa(),
+        TestCase("openQuickViewAndroidGuestOs").EnableArcVm(),
         TestCase("openQuickViewDocumentsProvider")
             .EnableGenericDocumentsProvider(),
-        TestCase("openQuickViewDocumentsProvider")
-            .EnableGenericDocumentsProvider()
-            .FilesSwa(),
         TestCase("openQuickViewCrostini"),
-        TestCase("openQuickViewCrostini").FilesSwa(),
+        TestCase("openQuickViewGuestOs"),
+        TestCase("openQuickViewLastModifiedMetaData")
+            .EnableGenericDocumentsProvider(),
         TestCase("openQuickViewUsb"),
-        TestCase("openQuickViewUsb").FilesSwa(),
         TestCase("openQuickViewRemovablePartitions"),
-        TestCase("openQuickViewRemovablePartitions").FilesSwa(),
+        TestCase("openQuickViewTrash")
+            .FeatureIds({"screenplay-42720cab-fbc3-4ca2-bcc9-35d74c084bdc"}),
         TestCase("openQuickViewMtp"),
-        TestCase("openQuickViewMtp").FilesSwa(),
-        TestCase("openQuickViewTabIndexImage").MediaSwa(),
-        TestCase("openQuickViewTabIndexImage").MediaSwa().FilesSwa(),
+        TestCase("openQuickViewTabIndexImage"),
         TestCase("openQuickViewTabIndexText"),
-        TestCase("openQuickViewTabIndexText").FilesSwa(),
         TestCase("openQuickViewTabIndexHtml"),
-        TestCase("openQuickViewTabIndexHtml").FilesSwa(),
         TestCase("openQuickViewTabIndexAudio"),
-        TestCase("openQuickViewTabIndexAudio").FilesSwa(),
-        TestCase("openQuickViewTabIndexVideo").MediaSwa(),
-        TestCase("openQuickViewTabIndexVideo").MediaSwa().FilesSwa(),
-        TestCase("openQuickViewTabIndexDeleteDialog"),
-        TestCase("openQuickViewTabIndexDeleteDialog").FilesSwa(),
-        TestCase("openQuickViewTabIndexDeleteDialog").EnableTrash(),
-        TestCase("openQuickViewTabIndexDeleteDialog").EnableTrash().FilesSwa(),
+        TestCase("openQuickViewTabIndexVideo"),
+        TestCase("openQuickViewTabIndexDeleteDialog")
+            .FeatureIds({"screenplay-42720cab-fbc3-4ca2-bcc9-35d74c084bdc"}),
         TestCase("openQuickViewToggleInfoButtonKeyboard"),
-        TestCase("openQuickViewToggleInfoButtonKeyboard").FilesSwa(),
         TestCase("openQuickViewToggleInfoButtonClick"),
-        TestCase("openQuickViewToggleInfoButtonClick").FilesSwa(),
         TestCase("openQuickViewWithMultipleFiles"),
-        TestCase("openQuickViewWithMultipleFiles").FilesSwa(),
         TestCase("openQuickViewWithMultipleFilesText"),
-        TestCase("openQuickViewWithMultipleFilesText").FilesSwa(),
         TestCase("openQuickViewWithMultipleFilesPdf"),
-        TestCase("openQuickViewWithMultipleFilesPdf").FilesSwa(),
         TestCase("openQuickViewWithMultipleFilesKeyboardUpDown"),
-        TestCase("openQuickViewWithMultipleFilesKeyboardUpDown").FilesSwa(),
         TestCase("openQuickViewWithMultipleFilesKeyboardLeftRight"),
-        TestCase("openQuickViewWithMultipleFilesKeyboardLeftRight").FilesSwa(),
         TestCase("openQuickViewFromDirectoryTree"),
-        TestCase("openQuickViewFromDirectoryTree").FilesSwa(),
-        TestCase("openQuickViewAndDeleteSingleSelection"),
-        TestCase("openQuickViewAndDeleteSingleSelection").FilesSwa(),
-        TestCase("openQuickViewAndDeleteSingleSelection").EnableTrash(),
         TestCase("openQuickViewAndDeleteSingleSelection")
-            .EnableTrash()
-            .FilesSwa(),
-        TestCase("openQuickViewAndDeleteCheckSelection"),
-        TestCase("openQuickViewAndDeleteCheckSelection").FilesSwa(),
-        TestCase("openQuickViewAndDeleteCheckSelection").EnableTrash(),
+            .FeatureIds({"screenplay-42720cab-fbc3-4ca2-bcc9-35d74c084bdc"}),
         TestCase("openQuickViewAndDeleteCheckSelection")
-            .EnableTrash()
-            .FilesSwa(),
-        TestCase("openQuickViewDeleteEntireCheckSelection"),
-        TestCase("openQuickViewDeleteEntireCheckSelection").FilesSwa(),
-        TestCase("openQuickViewDeleteEntireCheckSelection").EnableTrash(),
+            .FeatureIds({"screenplay-42720cab-fbc3-4ca2-bcc9-35d74c084bdc"}),
         TestCase("openQuickViewDeleteEntireCheckSelection")
-            .EnableTrash()
-            .FilesSwa(),
-        TestCase("openQuickViewClickDeleteButton"),
-        TestCase("openQuickViewClickDeleteButton").FilesSwa(),
-        TestCase("openQuickViewClickDeleteButton").EnableTrash(),
-        TestCase("openQuickViewClickDeleteButton").EnableTrash().FilesSwa(),
+            .FeatureIds({"screenplay-42720cab-fbc3-4ca2-bcc9-35d74c084bdc"}),
+        TestCase("openQuickViewClickDeleteButton")
+            .FeatureIds({"screenplay-42720cab-fbc3-4ca2-bcc9-35d74c084bdc"}),
         TestCase("openQuickViewDeleteButtonNotShown"),
-        TestCase("openQuickViewDeleteButtonNotShown").FilesSwa(),
         TestCase("openQuickViewUmaViaContextMenu"),
-        TestCase("openQuickViewUmaViaContextMenu").FilesSwa(),
         TestCase("openQuickViewUmaForCheckSelectViaContextMenu"),
-        TestCase("openQuickViewUmaForCheckSelectViaContextMenu").FilesSwa(),
         TestCase("openQuickViewUmaViaSelectionMenu"),
-        TestCase("openQuickViewUmaViaSelectionMenu").FilesSwa(),
         TestCase("openQuickViewUmaViaSelectionMenuKeyboard"),
-        TestCase("openQuickViewUmaViaSelectionMenuKeyboard").FilesSwa(),
-        TestCase("closeQuickView"),
-        TestCase("closeQuickView").FilesSwa()));
+        TestCase("openQuickViewEncryptedFile"),
+        TestCase("closeQuickView")));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     DirectoryTree, /* directory_tree.js */
@@ -772,7 +1448,8 @@ WRAPPED_INSTANTIATE_TEST_SUITE_P(
     ::testing::Values(
         TestCase("directoryTreeActiveDirectory"),
         TestCase("directoryTreeSelectedDirectory"),
-        TestCase("directoryTreeRecentsSubtypeScroll"),
+        // TODO(b/189173190): Enable
+        // TestCase("directoryTreeRecentsSubtypeScroll"),
         TestCase("directoryTreeHorizontalScroll"),
         TestCase("directoryTreeExpandHorizontalScroll"),
         TestCase("directoryTreeExpandHorizontalScrollRTL"),
@@ -780,140 +1457,78 @@ WRAPPED_INSTANTIATE_TEST_SUITE_P(
         TestCase("directoryTreeExpandFolder"),
         TestCase(
             "directoryTreeExpandFolderWithHiddenFileAndShowHiddenFilesOff"),
-        TestCase(
-            "directoryTreeExpandFolderWithHiddenFileAndShowHiddenFilesOn")));
+        TestCase("directoryTreeExpandFolderWithHiddenFileAndShowHiddenFilesOn"),
+        TestCase("directoryTreeExpandFolderOnNonDelayExpansionVolume"),
+        TestCase("directoryTreeExpandFolderOnDelayExpansionVolume")));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     DirectoryTreeContextMenu, /* directory_tree_context_menu.js */
     FilesAppBrowserTest,
     ::testing::Values(
         TestCase("dirCopyWithContextMenu").InGuestMode(),
-        TestCase("dirCopyWithContextMenu").InGuestMode().FilesSwa(),
         TestCase("dirCopyWithContextMenu"),
-        TestCase("dirCopyWithContextMenu").FilesSwa(),
         TestCase("dirCopyWithKeyboard").InGuestMode(),
-        TestCase("dirCopyWithKeyboard").InGuestMode().FilesSwa(),
         TestCase("dirCopyWithKeyboard"),
-        TestCase("dirCopyWithKeyboard").FilesSwa(),
         TestCase("dirCopyWithoutChangingCurrent"),
-        TestCase("dirCopyWithoutChangingCurrent").FilesSwa(),
-        TestCase("dirCutWithContextMenu"),
         // TODO(b/189173190): Enable
-        // TestCase("dirCutWithContextMenu").FilesSwa(),
-        TestCase("dirCutWithContextMenu").InGuestMode(),
+        // TestCase("dirCutWithContextMenu"),
         // TODO(b/189173190): Enable
-        // TestCase("dirCutWithContextMenu").InGuestMode().FilesSwa(),
-        TestCase("dirCutWithKeyboard"),
+        // TestCase("dirCutWithContextMenu").InGuestMode(),
         // TODO(b/189173190): Enable
-        // TestCase("dirCutWithKeyboard").FilesSwa(),
-        TestCase("dirCutWithKeyboard").InGuestMode(),
+        // TestCase("dirCutWithKeyboard"),
         // TODO(b/189173190): Enable
-        // TestCase("dirCutWithKeyboard").InGuestMode().FilesSwa(),
+        // TestCase("dirCutWithKeyboard").InGuestMode(),
         TestCase("dirPasteWithContextMenu"),
-        TestCase("dirPasteWithContextMenu").FilesSwa(),
         TestCase("dirPasteWithContextMenu").InGuestMode(),
-        TestCase("dirPasteWithContextMenu").InGuestMode().FilesSwa(),
         TestCase("dirPasteWithoutChangingCurrent"),
         // TODO(b/189173190): Enable
-        // TestCase("dirPasteWithoutChangingCurrent").FilesSwa(),
+        // TestCase("dirPasteWithoutChangingCurrent"),
         TestCase("dirRenameWithContextMenu"),
-        TestCase("dirRenameWithContextMenu").FilesSwa(),
         TestCase("dirRenameWithContextMenu").InGuestMode(),
-        TestCase("dirRenameWithContextMenu").InGuestMode().FilesSwa(),
         TestCase("dirRenameUpdateChildrenBreadcrumbs"),
-        TestCase("dirRenameUpdateChildrenBreadcrumbs").FilesSwa(),
         TestCase("dirRenameWithKeyboard"),
-        TestCase("dirRenameWithKeyboard").FilesSwa(),
         TestCase("dirRenameWithKeyboard").InGuestMode(),
-        TestCase("dirRenameWithKeyboard").InGuestMode().FilesSwa(),
         TestCase("dirRenameWithoutChangingCurrent"),
-        TestCase("dirRenameWithoutChangingCurrent").FilesSwa(),
         TestCase("dirRenameToEmptyString"),
-        TestCase("dirRenameToEmptyString").FilesSwa(),
         TestCase("dirRenameToEmptyString").InGuestMode(),
-        TestCase("dirRenameToEmptyString").InGuestMode().FilesSwa(),
         TestCase("dirRenameToExisting"),
-        TestCase("dirRenameToExisting").FilesSwa(),
 #if !defined(ADDRESS_SANITIZER) || !defined(NDEBUG)
         // TODO(http://crbug.com/1230054): Flaky on ASan non-DEBUG.
         TestCase("dirRenameToExisting").InGuestMode(),
-        TestCase("dirRenameToExisting").InGuestMode().FilesSwa(),
 #endif
         TestCase("dirRenameRemovableWithKeyboard"),
-        TestCase("dirRenameRemovableWithKeyboard").FilesSwa(),
         TestCase("dirRenameRemovableWithKeyboard").InGuestMode(),
-        TestCase("dirRenameRemovableWithKeyboard").InGuestMode().FilesSwa(),
         TestCase("dirRenameRemovableWithContentMenu"),
-        TestCase("dirRenameRemovableWithContentMenu").FilesSwa(),
         TestCase("dirRenameRemovableWithContentMenu").InGuestMode(),
-        TestCase("dirRenameRemovableWithContentMenu").InGuestMode().FilesSwa(),
         TestCase("dirContextMenuForRenameInput"),
-        TestCase("dirContextMenuForRenameInput").FilesSwa(),
         TestCase("dirCreateWithContextMenu"),
-        TestCase("dirCreateWithContextMenu").FilesSwa(),
         TestCase("dirCreateWithKeyboard"),
-        TestCase("dirCreateWithKeyboard").FilesSwa(),
         TestCase("dirCreateWithoutChangingCurrent"),
-        TestCase("dirCreateWithoutChangingCurrent").FilesSwa(),
         TestCase("dirCreateMultipleFolders"),
-        TestCase("dirCreateMultipleFolders").FilesSwa(),
         TestCase("dirContextMenuZip"),
-        TestCase("dirContextMenuZip").FilesSwa(),
         TestCase("dirContextMenuZipEject"),
-        TestCase("dirContextMenuZipEject").FilesSwa(),
         TestCase("dirContextMenuRecent"),
-        TestCase("dirContextMenuRecent").FilesSwa(),
         TestCase("dirContextMenuMyFiles"),
-        TestCase("dirContextMenuMyFiles").FilesSwa(),
-        TestCase("dirContextMenuMyFiles").EnableTrash(),
-        TestCase("dirContextMenuMyFiles").EnableTrash().FilesSwa(),
         TestCase("dirContextMenuMyFilesWithPaste"),
-        TestCase("dirContextMenuMyFilesWithPaste").FilesSwa(),
-        TestCase("dirContextMenuMyFilesWithPaste").EnableTrash(),
-        TestCase("dirContextMenuMyFilesWithPaste").EnableTrash().FilesSwa(),
         TestCase("dirContextMenuCrostini"),
-        TestCase("dirContextMenuCrostini").FilesSwa(),
-        TestCase("dirContextMenuCrostini").EnableTrash(),
-        TestCase("dirContextMenuCrostini").EnableTrash().FilesSwa(),
         TestCase("dirContextMenuPlayFiles"),
-        TestCase("dirContextMenuPlayFiles").FilesSwa(),
         TestCase("dirContextMenuUsbs"),
-        TestCase("dirContextMenuUsbs").FilesSwa(),
         TestCase("dirContextMenuUsbs").EnableSinglePartitionFormat(),
-        TestCase("dirContextMenuUsbs").EnableSinglePartitionFormat().FilesSwa(),
         TestCase("dirContextMenuFsp"),
-        TestCase("dirContextMenuFsp").FilesSwa(),
         TestCase("dirContextMenuDocumentsProvider")
             .EnableGenericDocumentsProvider(),
-        TestCase("dirContextMenuDocumentsProvider")
-            .EnableGenericDocumentsProvider()
-            .FilesSwa(),
         TestCase("dirContextMenuUsbDcim"),
-        TestCase("dirContextMenuUsbDcim").FilesSwa(),
         TestCase("dirContextMenuUsbDcim").EnableSinglePartitionFormat(),
-        TestCase("dirContextMenuUsbDcim")
-            .EnableSinglePartitionFormat()
-            .FilesSwa(),
         TestCase("dirContextMenuMtp"),
-        TestCase("dirContextMenuMtp").FilesSwa(),
-        TestCase("dirContextMenuMediaView").EnableArc(),
-        TestCase("dirContextMenuMediaView").EnableArc().FilesSwa(),
         TestCase("dirContextMenuMyDrive"),
-        TestCase("dirContextMenuMyDrive").FilesSwa(),
         TestCase("dirContextMenuSharedDrive"),
-        TestCase("dirContextMenuSharedDrive").FilesSwa(),
         TestCase("dirContextMenuSharedWithMe"),
-        TestCase("dirContextMenuSharedWithMe").FilesSwa(),
         TestCase("dirContextMenuOffline"),
-        TestCase("dirContextMenuOffline").FilesSwa(),
         TestCase("dirContextMenuComputers"),
-        TestCase("dirContextMenuComputers").FilesSwa(),
-        TestCase("dirContextMenuTrash").EnableTrash(),
-        TestCase("dirContextMenuTrash").EnableTrash().FilesSwa(),
+        TestCase("dirContextMenuTrash"),
         TestCase("dirContextMenuShortcut"),
-        TestCase("dirContextMenuShortcut").FilesSwa(),
         TestCase("dirContextMenuFocus"),
-        TestCase("dirContextMenuFocus").FilesSwa()));
+        TestCase("dirContextMenuKeyboardNavigation")));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     DriveSpecific, /* drive_specific.js */
@@ -924,133 +1539,235 @@ WRAPPED_INSTANTIATE_TEST_SUITE_P(
         TestCase("driveAutoCompleteQuery"),
         TestCase("drivePinMultiple"),
         TestCase("drivePinHosted"),
-        TestCase("drivePinFileMobileNetwork"),
+        // TODO(b/189173190): Enable
+        // TestCase("drivePinFileMobileNetwork"),
         TestCase("drivePinToggleUpdatesInFakeEntries"),
+        TestCase("drivePinToggleIsDisabledAndHiddenWhenBulkPinningEnabled")
+            .EnableBulkPinning(),
         TestCase("driveClickFirstSearchResult"),
-        TestCase("drivePressEnterToSearch"),
+        TestCase("drivePressEnterToSearch").FilesExperimental(),
         TestCase("drivePressClearSearch"),
-        TestCase("drivePressClearSearch").FilesSwa(),
+        TestCase("driveSearchAlwaysDisplaysMyDrive"),
+        TestCase("driveSearchAlwaysDisplaysMyDrive").FilesExperimental(),
         TestCase("drivePressCtrlAFromSearch"),
-        TestCase("driveBackupPhotos"),
-        TestCase("driveBackupPhotos").EnableSinglePartitionFormat(),
         TestCase("driveAvailableOfflineGearMenu"),
         TestCase("driveAvailableOfflineDirectoryGearMenu"),
         TestCase("driveAvailableOfflineActionBar"),
         TestCase("driveLinkToDirectory"),
-        TestCase("driveLinkOpenFileThroughLinkedDirectory").MediaSwa(),
-        TestCase("driveLinkOpenFileThroughTransitiveLink").MediaSwa(),
+        TestCase("driveLinkToDirectory").EnableDriveShortcuts(),
+        TestCase("driveLinkOpenFileThroughLinkedDirectory"),
+        TestCase("driveLinkOpenFileThroughTransitiveLink"),
         TestCase("driveWelcomeBanner"),
-        TestCase("driveOfflineInfoBanner").EnableDriveDssPin(),
-        TestCase("driveOfflineInfoBannerWithoutFlag"),
-        TestCase("driveEnableDocsOfflineDialog"),
-        TestCase("driveEnableDocsOfflineDialogWithoutWindow"),
-        TestCase("driveEnableDocsOfflineDialogMultipleWindows"),
-        TestCase("driveEnableDocsOfflineDialogDisappearsOnUnmount")));
+        TestCase("driveOfflineInfoBanner"),
+        TestCase("driveEncryptionBadge"),
+        TestCase("driveDeleteDialogDoesntMentionPermanentDelete"),
+        TestCase("driveInlineSyncStatusSingleFile").EnableInlineSyncStatus(),
+        TestCase("driveInlineSyncStatusParentFolder").EnableInlineSyncStatus(),
+        TestCase("driveFolderShouldShowOfflineTickWhenBulkPinningEnabled")
+            .EnableBulkPinning(),
+        TestCase("driveFoldersRetainPinnedPropertyWhenBulkPinningEnabled")
+            .EnableBulkPinning(),
+        TestCase("drivePinToggleIsEnabledInSharedWithMeWhenBulkPinningEnabled")
+            .EnableBulkPinning(),
+        TestCase("driveCantPinItemsShouldHaveClassNameAndGetUpdatedWhenCanPin")
+            .EnableBulkPinning()
+        // TODO(b/189173190): Enable
+        // TestCase("driveEnableDocsOfflineDialog"),
+        // TODO(b/189173190): Enable
+        // TestCase("driveEnableDocsOfflineDialogWithoutWindow"),
+        // TODO(b/189173190): Enable
+        // TestCase("driveEnableDocsOfflineDialogMultipleWindows"),
+        // TODO(b/189173190): Enable
+        // TestCase("driveEnableDocsOfflineDialogDisappearsOnUnmount")
+        ));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     HoldingSpace, /* holding_space.js */
     FilesAppBrowserTest,
     ::testing::Values(
         TestCase("holdingSpaceWelcomeBanner"),
-        TestCase("holdingSpaceWelcomeBanner").FilesSwa(),
         TestCase("holdingSpaceWelcomeBannerWillShowForModalDialogs")
             .WithBrowser(),
-        TestCase("holdingSpaceWelcomeBannerWillShowForModalDialogs")
-            .WithBrowser()
-            .FilesSwa(),
-        TestCase("holdingSpaceWelcomeBannerOnTabletModeChanged"),
-        TestCase("holdingSpaceWelcomeBannerOnTabletModeChanged").FilesSwa()));
+        TestCase("holdingSpaceWelcomeBannerOnTabletModeChanged")));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     Transfer, /* transfer.js */
     FilesAppBrowserTest,
     ::testing::Values(
-        TestCase("transferFromDriveToDownloads"),
-        TestCase("transferFromDriveToDownloads").FilesSwa(),
-        TestCase("transferFromDownloadsToMyFiles"),
-        TestCase("transferFromDownloadsToMyFiles").FilesSwa(),
-        TestCase("transferFromDownloadsToMyFilesMove"),
-        TestCase("transferFromDownloadsToMyFilesMove").FilesSwa(),
-        TestCase("transferFromDownloadsToDrive"),
-        TestCase("transferFromDownloadsToDrive").FilesSwa(),
-        TestCase("transferFromSharedWithMeToDownloads"),
-        TestCase("transferFromSharedWithMeToDownloads").FilesSwa(),
-        TestCase("transferFromSharedWithMeToDrive"),
-        TestCase("transferFromSharedWithMeToDrive").FilesSwa(),
-        TestCase("transferFromDownloadsToSharedFolder"),
-        TestCase("transferFromDownloadsToSharedFolder").FilesSwa(),
-        TestCase("transferFromDownloadsToSharedFolderMove"),
-        TestCase("transferFromDownloadsToSharedFolderMove").FilesSwa(),
-        TestCase("transferFromSharedFolderToDownloads"),
-        TestCase("transferFromSharedFolderToDownloads").FilesSwa(),
-        TestCase("transferFromOfflineToDownloads"),
-        TestCase("transferFromOfflineToDownloads").FilesSwa(),
-        TestCase("transferFromOfflineToDrive"),
-        TestCase("transferFromOfflineToDrive").FilesSwa(),
-        TestCase("transferFromTeamDriveToDrive"),
-        TestCase("transferFromTeamDriveToDrive").FilesSwa(),
-        TestCase("transferFromDriveToTeamDrive"),
-        TestCase("transferFromDriveToTeamDrive").FilesSwa(),
-        TestCase("transferFromTeamDriveToDownloads"),
-        TestCase("transferFromTeamDriveToDownloads").FilesSwa(),
-        TestCase("transferHostedFileFromTeamDriveToDownloads"),
-        TestCase("transferHostedFileFromTeamDriveToDownloads").FilesSwa(),
-        TestCase("transferFromDownloadsToTeamDrive"),
-        TestCase("transferFromDownloadsToTeamDrive").FilesSwa(),
-        TestCase("transferBetweenTeamDrives"),
-        TestCase("transferBetweenTeamDrives").FilesSwa(),
-        TestCase("transferDragDropActiveLeave"),
-        TestCase("transferDragDropActiveLeave").FilesSwa(),
-        TestCase("transferDragDropActiveDrop"),
-        TestCase("transferDragDropActiveDrop").FilesSwa(),
-        TestCase("transferDragDropTreeItemAccepts"),
-        TestCase("transferDragDropTreeItemAccepts").FilesSwa(),
+        TestCase("transferFromDriveToDownloads")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        TestCase("transferOfficeFileFromDriveToDownloads")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        TestCase("transferFromDownloadsToMyFiles")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        TestCase("transferFromDownloadsToMyFilesMove")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        TestCase("transferFromDownloadsToDrive")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        TestCase("transferFromSharedWithMeToDownloads")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        TestCase("transferFromSharedWithMeToDrive")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        TestCase("transferFromDownloadsToSharedFolder")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        TestCase("transferFromDownloadsToSharedFolderMove")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        TestCase("transferFromSharedFolderToDownloads")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        TestCase("transferFromOfflineToDownloads")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        TestCase("transferFromOfflineToDrive")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        TestCase("transferFromTeamDriveToDrive")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        TestCase("transferFromDriveToTeamDrive")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        TestCase("transferFromTeamDriveToDownloads")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        TestCase("transferHostedFileFromTeamDriveToDownloads")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        TestCase("transferFromDownloadsToTeamDrive")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        TestCase("transferBetweenTeamDrives")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        TestCase("transferDragDropActiveLeave")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        TestCase("transferDragDropActiveDrop")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
 // TODO(crbug.com/1236842): Remove flakiness and enable this test.
 #if !defined(ADDRESS_SANITIZER) && defined(NDEBUG)
-        TestCase("transferDragDropTreeItemDenies"),
-        TestCase("transferDragDropTreeItemDenies").FilesSwa(),
+        TestCase("transferDragDropTreeItemDenies")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
 #endif
-        TestCase("transferDragAndHoverTreeItemEntryList"),
-        TestCase("transferDragAndHoverTreeItemEntryList").FilesSwa(),
+        TestCase("transferDragAndHoverTreeItemEntryList")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
 // TODO(crbug.com/1236842): Remove flakiness and enable this test.
 #if !defined(ADDRESS_SANITIZER) && defined(NDEBUG)
-        TestCase("transferDragAndHoverTreeItemFakeEntry"),
-        TestCase("transferDragAndHoverTreeItemFakeEntry").FilesSwa(),
         TestCase("transferDragAndHoverTreeItemFakeEntry")
-            .EnableSinglePartitionFormat(),
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
         TestCase("transferDragAndHoverTreeItemFakeEntry")
             .EnableSinglePartitionFormat()
-            .FilesSwa(),
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
 #endif
-        TestCase("transferDragFileListItemSelects"),
-        TestCase("transferDragFileListItemSelects").FilesSwa(),
-        TestCase("transferDragAndDrop"),
-        TestCase("transferDragAndDrop").FilesSwa(),
-        TestCase("transferDragAndHover"),
-        TestCase("transferDragAndHover").FilesSwa(),
-        TestCase("transferDropBrowserFile"),
-        TestCase("transferDropBrowserFile").FilesSwa(),
-        TestCase("transferFromDownloadsToDownloads"),
-        TestCase("transferFromDownloadsToDownloads").FilesSwa(),
-        TestCase("transferDeletedFile"),
-        TestCase("transferDeletedFile").FilesSwa(),
-        TestCase("transferDeletedFile").EnableTrash(),
-        TestCase("transferDeletedFile").FilesSwa().EnableTrash(),
-        TestCase("transferInfoIsRemembered"),
-        // TestCase("transferInfoIsRemembered").FilesSwa(),
-        TestCase("transferToUsbHasDestinationText"),
+        TestCase("transferDragFileListItemSelects")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        TestCase("transferDragAndDrop")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        TestCase("transferDragAndDropFolder")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        TestCase("transferDragAndHover")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        TestCase("transferDropBrowserFile")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        TestCase("transferFromDownloadsToDownloads")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        TestCase("transferDeletedFile")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        // TODO(b/189173190): Enable
+        // TestCase("transferInfoIsRemembered"),
         // TODO(lucmult): Re-enable this once SWA uses the feedback panel.
-        // TestCase("transferToUsbHasDestinationText").FilesSwa(),
-        TestCase("transferDismissedErrorIsRemembered"),
+        // TestCase("transferToUsbHasDestinationText"),
         // TODO(lucmult): Re-enable this once SWA uses the feedback panel.
-        // TestCase("transferDismissedErrorIsRemembered").FilesSwa(),
-        TestCase("transferNotSupportedOperationHasNoRemainingTimeText"),
+        // TestCase("transferDismissedErrorIsRemembered"),
         TestCase("transferNotSupportedOperationHasNoRemainingTimeText")
-            .FilesSwa(),
-        TestCase("transferUpdateSamePanelItem"),
-        TestCase("transferUpdateSamePanelItem").FilesSwa(),
-        TestCase("transferShowPendingMessageForZeroRemainingTime").FilesSwa(),
-        TestCase("transferShowPendingMessageForZeroRemainingTime")));
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        TestCase("transferUpdateSamePanelItem")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"}),
+        TestCase("transferShowPreparingMessageForZeroRemainingTime")
+            .FeatureIds({"screenplay-9e3628b5-86db-481f-8623-f13eac08d61a"})));
+
+WRAPPED_INSTANTIATE_TEST_SUITE_P(
+    DLP, /* dlp.js */
+    DlpFilesAppBrowserTest,
+    ::testing::Values(
+        TestCase("transferShowDlpToast").EnableDlp(),
+        TestCase("dlpShowManagedIcon").EnableDlp(),
+        TestCase("dlpContextMenuRestrictionDetails").EnableDlp(),
+        TestCase("saveAsDlpRestrictedAndroid").EnableArcVm().EnableDlp(),
+        TestCase("saveAsDlpRestrictedCrostini").EnableDlp(),
+        TestCase("saveAsDlpRestrictedVm").EnableDlp(),
+        TestCase("saveAsDlpRestrictedUsb").EnableDlp(),
+        TestCase("saveAsDlpRestrictedDrive").EnableDlp(),
+        TestCase("saveAsNonDlpRestricted").EnableDlp(),
+        TestCase("saveAsDlpRestrictedRedirectsToMyFiles").EnableDlp(),
+        TestCase("openDlpRestrictedFile").EnableDlp(),
+        TestCase("openFolderDlpRestricted").EnableDlp(),
+        TestCase("fileTasksDlpRestricted").EnableDlp()));
+
+WRAPPED_INSTANTIATE_TEST_SUITE_P(
+    DriveSpecific, /* drive_specific.js */
+    LoggedInUserFilesAppBrowserTest,
+    ::testing::Values(
+        // Google One offer banner checks device state. Device state is NOT set
+        // to `policy::DeviceMode::DEVICE_MODE_CONSUMER` in
+        // `FilesAppBrowserTest`.
+        TestCase("driveGoogleOneOfferBannerEnabled")
+            .SetDeviceMode(DeviceMode::kConsumerOwned)
+            .SetTestAccountType(TestAccountType::kNonManaged)
+            .EnableGoogleOneOfferFilesBanner(),
+        // Google One offer banner is disabled by default.
+        TestCase("driveGoogleOneOfferBannerDisabled")
+            .SetDeviceMode(DeviceMode::kConsumerOwned)
+            .SetTestAccountType(TestAccountType::kNonManaged),
+        TestCase("driveGoogleOneOfferBannerDismiss")
+            .SetDeviceMode(DeviceMode::kConsumerOwned)
+            .SetTestAccountType(TestAccountType::kNonManaged)
+            .EnableGoogleOneOfferFilesBanner(),
+        TestCase("driveGoogleOneOfferBannerDisabled")
+            .EnableGoogleOneOfferFilesBanner()
+            .SetDeviceMode(DeviceMode::kConsumerOwned)
+            .SetTestAccountType(TestAccountType::kEnterprise),
+        TestCase("driveGoogleOneOfferBannerDisabled")
+            .EnableGoogleOneOfferFilesBanner()
+            .SetDeviceMode(DeviceMode::kConsumerOwned)
+            .SetTestAccountType(TestAccountType::kChild),
+        // Google One offer is for a device. The banner will not
+        // be shown for an enrolled device.
+        TestCase("driveGoogleOneOfferBannerDisabled")
+            .EnableGoogleOneOfferFilesBanner()
+            .SetDeviceMode(DeviceMode::kEnrolled)
+            .SetTestAccountType(TestAccountType::kNonManaged),
+        // We do not show a banner if a profile is not an owner profile.
+        TestCase("driveGoogleOneOfferBannerDisabled")
+            .EnableGoogleOneOfferFilesBanner()
+            .SetDeviceMode(kConsumerOwned)
+            .SetTestAccountType(kNonManagedNonOwner)));
+
+#define FILE_TRANSFER_TEST_CASE(name) \
+  TestCase(name).EnableFileTransferConnector()
+
+WRAPPED_INSTANTIATE_TEST_SUITE_P(
+    FileTransferConnector, /* file_transfer_connector.js */
+    FileTransferConnectorFilesAppBrowserTest,
+    ::testing::Values(
+        FILE_TRANSFER_TEST_CASE(
+            "transferConnectorFromAndroidFilesToDownloadsDeep"),
+        FILE_TRANSFER_TEST_CASE(
+            "transferConnectorFromAndroidFilesToDownloadsFlat"),
+        FILE_TRANSFER_TEST_CASE("transferConnectorFromCrostiniToDownloadsDeep"),
+        FILE_TRANSFER_TEST_CASE("transferConnectorFromCrostiniToDownloadsFlat"),
+        FILE_TRANSFER_TEST_CASE("transferConnectorFromDriveToDownloadsDeep"),
+        FILE_TRANSFER_TEST_CASE("transferConnectorFromDriveToDownloadsDeep")
+            .FileTransferConnectorReportOnlyMode(),
+        FILE_TRANSFER_TEST_CASE("transferConnectorFromDriveToDownloadsFlat"),
+        FILE_TRANSFER_TEST_CASE("transferConnectorFromDriveToDownloadsFlat")
+            .FileTransferConnectorReportOnlyMode(),
+        FILE_TRANSFER_TEST_CASE(
+            "transferConnectorFromDriveToDownloadsMoveDeep"),
+        FILE_TRANSFER_TEST_CASE("transferConnectorFromDriveToDownloadsMoveDeep")
+            .FileTransferConnectorReportOnlyMode(),
+        FILE_TRANSFER_TEST_CASE(
+            "transferConnectorFromDriveToDownloadsMoveFlat"),
+        FILE_TRANSFER_TEST_CASE("transferConnectorFromDriveToDownloadsMoveFlat")
+            .FileTransferConnectorReportOnlyMode(),
+        FILE_TRANSFER_TEST_CASE("transferConnectorFromMtpToDownloadsDeep"),
+        FILE_TRANSFER_TEST_CASE("transferConnectorFromMtpToDownloadsFlat"),
+        FILE_TRANSFER_TEST_CASE("transferConnectorFromSmbfsToDownloadsDeep"),
+        FILE_TRANSFER_TEST_CASE("transferConnectorFromSmbfsToDownloadsFlat"),
+        FILE_TRANSFER_TEST_CASE("transferConnectorFromUsbToDownloadsDeep"),
+        FILE_TRANSFER_TEST_CASE("transferConnectorFromUsbToDownloadsFlat")));
+
+#undef FILE_TRANSFER_TEST_CASE
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     RestorePrefs, /* restore_prefs.js */
@@ -1061,29 +1778,30 @@ WRAPPED_INSTANTIATE_TEST_SUITE_P(
                       TestCase("restoreCurrentView")));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
-    RestoreGeometry, /* restore_geometry.js */
-    FilesAppBrowserTest,
-    ::testing::Values(TestCase("restoreGeometry"),
-                      TestCase("restoreGeometry").InGuestMode(),
-                      TestCase("restoreGeometryMaximized")));
-
-WRAPPED_INSTANTIATE_TEST_SUITE_P(
     ShareAndManageDialog, /* share_and_manage_dialog.js */
     FilesAppBrowserTest,
-    ::testing::Values(TestCase("shareFileDrive"),
-                      TestCase("shareDirectoryDrive"),
-                      TestCase("shareHostedFileDrive"),
-                      TestCase("manageHostedFileDrive"),
-                      TestCase("manageFileDrive"),
-                      TestCase("manageDirectoryDrive"),
-                      TestCase("shareFileTeamDrive"),
-                      TestCase("shareDirectoryTeamDrive"),
-                      TestCase("shareHostedFileTeamDrive"),
-                      TestCase("shareTeamDrive"),
-                      TestCase("manageHostedFileTeamDrive"),
-                      TestCase("manageFileTeamDrive"),
-                      TestCase("manageDirectoryTeamDrive"),
-                      TestCase("manageTeamDrive")));
+    ::testing::Values(
+        TestCase("shareFileDrive"),
+        TestCase("shareDirectoryDrive"),
+        TestCase("shareHostedFileDrive"),
+        TestCase("manageHostedFileDrive")
+            .FeatureIds({"screenplay-c8094019-e19b-4a03-8085-83bc29f1dad6"}),
+        TestCase("manageFileDrive")
+            .FeatureIds({"screenplay-c8094019-e19b-4a03-8085-83bc29f1dad6"}),
+        TestCase("manageDirectoryDrive")
+            .FeatureIds({"screenplay-c8094019-e19b-4a03-8085-83bc29f1dad6"}),
+        TestCase("shareFileTeamDrive"),
+        TestCase("shareDirectoryTeamDrive"),
+        TestCase("shareHostedFileTeamDrive"),
+        TestCase("shareTeamDrive"),
+        TestCase("manageHostedFileTeamDrive")
+            .FeatureIds({"screenplay-c8094019-e19b-4a03-8085-83bc29f1dad6"}),
+        TestCase("manageFileTeamDrive")
+            .FeatureIds({"screenplay-c8094019-e19b-4a03-8085-83bc29f1dad6"}),
+        TestCase("manageDirectoryTeamDrive")
+            .FeatureIds({"screenplay-c8094019-e19b-4a03-8085-83bc29f1dad6"}),
+        TestCase("manageTeamDrive")
+            .FeatureIds({"screenplay-c8094019-e19b-4a03-8085-83bc29f1dad6"})));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     Traverse, /* traverse.js */
@@ -1106,13 +1824,17 @@ WRAPPED_INSTANTIATE_TEST_SUITE_P(
                       TestCase("changeDefaultDialogScrollList"),
                       TestCase("genericTaskIsNotExecuted"),
                       TestCase("genericTaskAndNonGenericTask"),
+                      TestCase("executeViaDblClick"),
                       TestCase("noActionBarOpenForDirectories")));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     FolderShortcuts, /* folder_shortcuts.js */
     FilesAppBrowserTest,
-    ::testing::Values(TestCase("traverseFolderShortcuts"),
-                      TestCase("addRemoveFolderShortcuts")));
+    ::testing::Values(
+        TestCase("traverseFolderShortcuts")
+            .FeatureIds({"screenplay-42c556fb-303c-45b2-910b-3ecc5ec71b92"}),
+        TestCase("addRemoveFolderShortcuts")
+            .FeatureIds({"screenplay-1ae94bd0-60a7-4bb9-925d-78312d7c045d"})));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     SortColumns, /* sort_columns.js */
@@ -1129,8 +1851,11 @@ WRAPPED_INSTANTIATE_TEST_SUITE_P(
         TestCase("tabindexFocusDownloads"),
         TestCase("tabindexFocusDownloads").InGuestMode(),
         TestCase("tabindexFocusDirectorySelected"),
-        TestCase("tabindexOpenDialogDownloads").WithBrowser(),
-        TestCase("tabindexOpenDialogDownloads").WithBrowser().InGuestMode()
+        TestCase("tabindexOpenDialogDownloads").WithBrowser()
+        // TODO(b/189173190): Enable
+        // TestCase("tabindexOpenDialogDownloads").WithBrowser(),
+        // TODO(b/189173190): Enable
+        // TestCase("tabindexOpenDialogDownloads").WithBrowser().InGuestMode(),
         // TODO(crbug.com/1236842): Remove flakiness and enable this test.
         //      ,
         //      TestCase("tabindexSaveFileDialogDrive").WithBrowser(),
@@ -1143,207 +1868,177 @@ WRAPPED_INSTANTIATE_TEST_SUITE_P(
     FilesAppBrowserTest,
     ::testing::Values(
         TestCase("openFileDialogUnload").WithBrowser(),
-        TestCase("openFileDialogUnload").WithBrowser().FilesSwa(),
-        TestCase("openFileDialogDownloads").WithBrowser(),
-        TestCase("openFileDialogDownloads").WithBrowser().FilesSwa(),
-        TestCase("openFileDialogDownloads").WithBrowser().InGuestMode(),
+        TestCase("openFileDialogDownloads")
+            .WithBrowser()
+            .FeatureIds({"screenplay-a63f2d5c-2cf8-4b5d-97fa-cd1f34004556"}),
         TestCase("openFileDialogDownloads")
             .WithBrowser()
             .InGuestMode()
-            .FilesSwa(),
-        TestCase("openFileDialogDownloads").WithBrowser().InIncognito(),
-        // TODO(b/194255793): Fix this.
-        // TestCase("openFileDialogDownloads").WithBrowser().InIncognito().FilesSwa(),
+            .FeatureIds({"screenplay-a63f2d5c-2cf8-4b5d-97fa-cd1f34004556"}),
+        // TestCase("openFileDialogDownloads").WithBrowser().InIncognito(),
+        // TestCase("openFileDialogDownloads")
+        //     .WithBrowser()
+        //     .InIncognito()
         TestCase("openFileDialogPanelsDisabled").WithBrowser(),
-        TestCase("openFileDialogPanelsDisabled").WithBrowser().FilesSwa(),
-        TestCase("openFileDialogAriaMultipleSelect").WithBrowser(),
-        TestCase("openFileDialogAriaMultipleSelect").WithBrowser().FilesSwa(),
-        TestCase("saveFileDialogAriaSingleSelect").WithBrowser(),
-        TestCase("saveFileDialogAriaSingleSelect").WithBrowser().FilesSwa(),
-        TestCase("saveFileDialogDownloads").WithBrowser(),
-        TestCase("saveFileDialogDownloads").WithBrowser().FilesSwa(),
-        TestCase("saveFileDialogDownloads").WithBrowser().InGuestMode(),
+        TestCase("openFileDialogAriaMultipleSelect")
+            .WithBrowser()
+            .FeatureIds({"screenplay-af443ca0-6d9f-4cb3-af8f-0939c37833db"}),
+        TestCase("saveFileDialogAriaSingleSelect")
+            .WithBrowser()
+            .FeatureIds({"screenplay-af443ca0-6d9f-4cb3-af8f-0939c37833db"}),
+        TestCase("saveFileDialogDownloads")
+            .WithBrowser()
+            .FeatureIds({"screenplay-17a056b4-ed53-415f-a186-99204a7c2a21"}),
         TestCase("saveFileDialogDownloads")
             .WithBrowser()
             .InGuestMode()
-            .FilesSwa(),
-        TestCase("saveFileDialogDownloads").WithBrowser().InIncognito(),
+            .FeatureIds({"screenplay-17a056b4-ed53-415f-a186-99204a7c2a21"}),
         // TODO(b/194255793): Fix this.
         // TestCase("saveFileDialogDownloads")
         //     .WithBrowser()
         //     .InIncognito()
-        //     .FilesSwa(),
         // TODO(crbug.com/1236842): Remove flakiness and enable this test.
         // TestCase("saveFileDialogDownloadsNewFolderButton").WithBrowser(),
-        // TestCase("saveFileDialogDownloadsNewFolderButton")
-        //     .WithBrowser()
-        //     .FilesSwa(),
+        TestCase("saveFileDialogDownloadsNewFolderButton").WithBrowser(),
         TestCase("saveFileDialogPanelsDisabled").WithBrowser(),
-        TestCase("saveFileDialogPanelsDisabled").WithBrowser().FilesSwa(),
         TestCase("openFileDialogCancelDownloads").WithBrowser(),
-        TestCase("openFileDialogCancelDownloads").WithBrowser().FilesSwa(),
         TestCase("openFileDialogEscapeDownloads").WithBrowser(),
-        TestCase("openFileDialogEscapeDownloads").WithBrowser().FilesSwa(),
-        TestCase("openFileDialogDrive").WithBrowser(),
-        TestCase("openFileDialogDrive").WithBrowser().FilesSwa(),
-        TestCase("openFileDialogDrive").WithBrowser().InIncognito(),
+        TestCase("openFileDialogDrive")
+            .WithBrowser()
+            .FeatureIds({"screenplay-a63f2d5c-2cf8-4b5d-97fa-cd1f34004556"}),
         // TODO(b/194255793): Fix this.
-        // TestCase("openFileDialogDrive").WithBrowser().InIncognito().FilesSwa(),
-        TestCase("saveFileDialogDrive").WithBrowser(),
-        TestCase("saveFileDialogDrive").WithBrowser().FilesSwa(),
-        TestCase("saveFileDialogDrive").WithBrowser().InIncognito(),
+        // TestCase("openFileDialogDrive").WithBrowser().InIncognito(),
+        TestCase("saveFileDialogDrive")
+            .WithBrowser()
+            .FeatureIds({"screenplay-17a056b4-ed53-415f-a186-99204a7c2a21"}),
         // TODO(b/194255793): Fix this.
-        // TestCase("saveFileDialogDrive").WithBrowser().InIncognito().FilesSwa(),
-        TestCase("openFileDialogDriveFromBrowser").WithBrowser(),
+        // TestCase("saveFileDialogDrive").WithBrowser().InIncognito(),
         // TODO(b/194255793): Fix this.
-        // TestCase("openFileDialogDriveFromBrowser").WithBrowser().FilesSwa(),
-        TestCase("openFileDialogDriveHostedDoc").WithBrowser(),
+        // TestCase("openFileDialogDriveFromBrowser").WithBrowser(),
         // TODO(b/194255793): Fix this.
-        // TestCase("openFileDialogDriveHostedDoc").WithBrowser().FilesSwa(),
+        // TestCase("openFileDialogDriveHostedDoc").WithBrowser(),
         TestCase("openFileDialogDriveHostedNeedsFile").WithBrowser(),
-        TestCase("openFileDialogDriveHostedNeedsFile").WithBrowser().FilesSwa(),
         TestCase("saveFileDialogDriveHostedNeedsFile").WithBrowser(),
-        TestCase("saveFileDialogDriveHostedNeedsFile").WithBrowser().FilesSwa(),
+        TestCase("openFileDialogDriveCSEGrey").WithBrowser(),
+        TestCase("openFileDialogDriveCSENeedsFile").WithBrowser(),
+        TestCase("openFileDialogDriveOfficeFile").WithBrowser(),
+        TestCase("openMultiFileDialogDriveOfficeFile")
+            .WithBrowser()
+            .FeatureIds({"screenplay-3337ab4d-3c77-4908-a9ec-e43d2f52cd1f"}),
         TestCase("openFileDialogCancelDrive").WithBrowser(),
-        TestCase("openFileDialogCancelDrive").WithBrowser().FilesSwa(),
         TestCase("openFileDialogEscapeDrive").WithBrowser(),
-        TestCase("openFileDialogEscapeDrive").WithBrowser().FilesSwa(),
         TestCase("openFileDialogDriveOffline").WithBrowser().Offline(),
-        TestCase("openFileDialogDriveOffline")
-            .WithBrowser()
-            .Offline()
-            .FilesSwa(),
         TestCase("saveFileDialogDriveOffline").WithBrowser().Offline(),
-        TestCase("saveFileDialogDriveOffline")
-            .WithBrowser()
-            .Offline()
-            .FilesSwa(),
         TestCase("openFileDialogDriveOfflinePinned").WithBrowser().Offline(),
-        TestCase("openFileDialogDriveOfflinePinned")
-            .WithBrowser()
-            .Offline()
-            .FilesSwa(),
         TestCase("saveFileDialogDriveOfflinePinned").WithBrowser().Offline(),
-        TestCase("saveFileDialogDriveOfflinePinned")
+        TestCase("openFileDialogDefaultFilter")
             .WithBrowser()
-            .Offline()
-            .FilesSwa(),
-        TestCase("openFileDialogDefaultFilter").WithBrowser(),
-        TestCase("openFileDialogDefaultFilter").WithBrowser().FilesSwa(),
+            .FeatureIds({"screenplay-29790711-ea7b-4ad2-9596-83b98edbca8d"}),
         TestCase("saveFileDialogDefaultFilter").WithBrowser(),
-        TestCase("saveFileDialogDefaultFilter").WithBrowser().FilesSwa(),
         TestCase("saveFileDialogDefaultFilterKeyNavigation").WithBrowser(),
-        TestCase("saveFileDialogDefaultFilterKeyNavigation")
-            .WithBrowser()
-            .FilesSwa(),
         TestCase("saveFileDialogSingleFilterNoAcceptAll").WithBrowser(),
-        TestCase("saveFileDialogSingleFilterNoAcceptAll")
-            .WithBrowser()
-            .FilesSwa(),
         TestCase("saveFileDialogExtensionNotAddedWithNoFilter").WithBrowser(),
-        TestCase("saveFileDialogExtensionNotAddedWithNoFilter")
-            .WithBrowser()
-            .FilesSwa(),
         TestCase("saveFileDialogExtensionAddedWithJpegFilter").WithBrowser(),
-        TestCase("saveFileDialogExtensionAddedWithJpegFilter")
-            .WithBrowser()
-            .FilesSwa(),
         TestCase("saveFileDialogExtensionNotAddedWhenProvided").WithBrowser(),
-        TestCase("saveFileDialogExtensionNotAddedWhenProvided")
-            .WithBrowser()
-            .FilesSwa(),
         TestCase("openFileDialogFileListShowContextMenu").WithBrowser(),
-        TestCase("openFileDialogFileListShowContextMenu")
-            .WithBrowser()
-            .FilesSwa(),
-        // TODO(crbug.com/1249726): Remove flakiness and enable this test.
-        // TestCase("openFileDialogSelectAllDisabled").WithBrowser(),
-        TestCase("openFileDialogSelectAllDisabled").WithBrowser().FilesSwa(),
-        TestCase("openMultiFileDialogSelectAllEnabled").WithBrowser(),
+        TestCase("openFileDialogSelectAllDisabled").WithBrowser(),
         TestCase("openMultiFileDialogSelectAllEnabled")
             .WithBrowser()
-            .FilesSwa()));
+            .FeatureIds({"screenplay-3337ab4d-3c77-4908-a9ec-e43d2f52cd1f"}),
+        TestCase("saveFileDialogGuestOs").WithBrowser(),
+        TestCase("saveFileDialogGuestOs").WithBrowser().InIncognito(),
+        TestCase("openFileDialogGuestOs").WithBrowser(),
+        TestCase("openFileDialogGuestOs").WithBrowser().InIncognito()));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     CopyBetweenWindows, /* copy_between_windows.js */
     FilesAppBrowserTest,
     ::testing::Values(TestCase("copyBetweenWindowsLocalToDrive"),
                       TestCase("copyBetweenWindowsLocalToUsb"),
-                      TestCase("copyBetweenWindowsUsbToDrive"),
+                      // TODO(b/189173190): Enable
+                      // TestCase("copyBetweenWindowsUsbToDrive"),
                       TestCase("copyBetweenWindowsDriveToLocal"),
-                      TestCase("copyBetweenWindowsDriveToUsb"),
+                      // TODO(b/189173190): Enable
+                      // TestCase("copyBetweenWindowsDriveToUsb"),
                       TestCase("copyBetweenWindowsUsbToLocal")));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     GridView, /* grid_view.js */
     FilesAppBrowserTest,
-    ::testing::Values(TestCase("showGridViewDownloads").InGuestMode(),
-                      TestCase("showGridViewDownloads"),
-                      TestCase("showGridViewDrive"),
-                      TestCase("showGridViewButtonSwitches"),
-                      TestCase("showGridViewButtonSwitches").FilesSwa(),
-                      TestCase("showGridViewKeyboardSelectionA11y"),
-                      TestCase("showGridViewTitles"),
-                      TestCase("showGridViewTitles").FilesSwa(),
-                      TestCase("showGridViewMouseSelectionA11y"),
-                      TestCase("showGridViewDocumentsProvider")
-                          .EnableGenericDocumentsProvider(),
-                      TestCase("showGridViewDocumentsProvider")
-                          .EnableGenericDocumentsProvider()
-                          .FilesSwa()));
+    ::testing::Values(
+        TestCase("showGridViewDownloads").InGuestMode(),
+        TestCase("showGridViewDownloads"),
+        TestCase("showGridViewButtonSwitches"),
+        TestCase("showGridViewKeyboardSelectionA11y")
+            .FeatureIds({"screenplay-af443ca0-6d9f-4cb3-af8f-0939c37833db"}),
+        TestCase("showGridViewTitles"),
+        TestCase("showGridViewMouseSelectionA11y")
+            .FeatureIds({"screenplay-af443ca0-6d9f-4cb3-af8f-0939c37833db"}),
+        TestCase("showGridViewDocumentsProvider")
+            .EnableGenericDocumentsProvider(),
+        TestCase("showGridViewEncryptedFile")));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     Providers, /* providers.js */
     ExtendedFilesAppBrowserTest,
-    ::testing::Values(
-        TestCase("requestMount"),
-        TestCase("requestMount").DisableNativeSmb(),
-        TestCase("requestMountMultipleMounts"),
-        TestCase("requestMountMultipleMounts").DisableNativeSmb(),
-        TestCase("requestMountSourceDevice"),
-        TestCase("requestMountSourceDevice").DisableNativeSmb(),
-        TestCase("requestMountSourceFile"),
-        TestCase("requestMountSourceFile").DisableNativeSmb(),
-        TestCase("providerEject"),
-        TestCase("providerEject").DisableNativeSmb(),
-        TestCase("deduplicatedUmaMetricForFileSystemProviders"),
-        TestCase("deduplicatedUmaMetricForFileSystemProviders").FilesSwa()));
+    ::testing::Values(TestCase("requestMount"),
+                      TestCase("requestMount").DisableNativeSmb(),
+                      TestCase("requestMountMultipleMounts"),
+                      TestCase("requestMountMultipleMounts").DisableNativeSmb(),
+                      TestCase("requestMountSourceDevice"),
+                      TestCase("requestMountSourceDevice").DisableNativeSmb(),
+                      TestCase("requestMountSourceFile"),
+                      TestCase("requestMountSourceFile").DisableNativeSmb(),
+                      TestCase("providerEject"),
+                      TestCase("providerEject").DisableNativeSmb()));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     GearMenu, /* gear_menu.js */
     FilesAppBrowserTest,
     ::testing::Values(
-        TestCase("showHiddenFilesDownloads"),
-        TestCase("showHiddenFilesDownloads").InGuestMode(),
-        TestCase("showHiddenFilesDrive"),
+        TestCase("showHiddenFilesDownloads")
+            .FeatureIds({"screenplay-616ee826-9b5f-4f5f-a516-f4a0d1123c8c"}),
+        TestCase("showHiddenFilesDownloads")
+            .InGuestMode()
+            .FeatureIds({"screenplay-616ee826-9b5f-4f5f-a516-f4a0d1123c8c"}),
+        TestCase("showHiddenFilesDrive")
+            .FeatureIds({"screenplay-616ee826-9b5f-4f5f-a516-f4a0d1123c8c"}),
         TestCase("showPasteIntoCurrentFolder"),
-        TestCase("showSelectAllInCurrentFolder"),
         TestCase("showToggleHiddenAndroidFoldersGearMenuItemsInMyFiles"),
-        TestCase("enableToggleHiddenAndroidFoldersShowsHiddenFiles"),
+        TestCase("showSelectAllInCurrentFolder"),
+        TestCase("enableToggleHiddenAndroidFoldersShowsHiddenFiles")
+            .FeatureIds({"screenplay-09c32d6b-36d3-494b-bb83-e19655880471"}),
         TestCase("hideCurrentDirectoryByTogglingHiddenAndroidFolders"),
         TestCase("newFolderInDownloads"),
-        TestCase("showSendFeedbackAction"),
+        TestCase("showFilesSettingsButton"),
+        TestCase("showSendFeedbackAction")
+            .FeatureIds({"screenplay-3bd7bbba-a25a-4386-93cf-933266df22a7"}),
+        TestCase("showSendFeedbackAction")
+            .EnableOsFeedback()
+            .FeatureIds({"screenplay-3bd7bbba-a25a-4386-93cf-933266df22a7"}),
         TestCase("enableDisableStorageSettingsLink"),
-        TestCase("showAvailableStorageMyFiles"),
-        // Disabled until Drive quota can be properly displayed.
-        // crbug.com/1177203
-        // TestCase("showAvailableStorageDrive"),
-        TestCase("showAvailableStorageSmbfs"),
-        TestCase("showAvailableStorageDocProvider")
-            .EnableGenericDocumentsProvider(),
+        TestCase("showAvailableStorageMyFiles")
+            .FeatureIds({"screenplay-56f7e10e-b7ba-4425-b397-14ce54d670dc"}),
+        TestCase("showAvailableStorageDrive")
+            .FeatureIds({"screenplay-56f7e10e-b7ba-4425-b397-14ce54d670dc"}),
+        TestCase("showAvailableStorageSmbfs")
+            .FeatureIds({"screenplay-56f7e10e-b7ba-4425-b397-14ce54d670dc"}),
         TestCase("showAvailableStorageDocProvider")
             .EnableGenericDocumentsProvider()
-            .FilesSwa(),
+            .FeatureIds({"screenplay-56f7e10e-b7ba-4425-b397-14ce54d670dc"}),
         TestCase("openHelpPageFromDownloadsVolume"),
-        TestCase("openHelpPageFromDownloadsVolume").FilesSwa(),
         TestCase("openHelpPageFromDriveVolume"),
-        TestCase("openHelpPageFromDriveVolume").FilesSwa()));
+        TestCase("showManageMirrorSyncShowsOnlyInLocalRoot"),
+        TestCase("showManageMirrorSyncShowsOnlyInLocalRoot")
+            .EnableMirrorSync()));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     FilesTooltip, /* files_tooltip.js */
     FilesAppBrowserTest,
     ::testing::Values(TestCase("filesTooltipFocus"),
+                      TestCase("filesTooltipLabelChange"),
                       TestCase("filesTooltipMouseOver"),
+                      TestCase("filesTooltipMouseOverStaysOpen"),
                       TestCase("filesTooltipClickHides"),
                       TestCase("filesTooltipHidesOnWindowResize"),
                       TestCase("filesCardTooltipClickHides"),
@@ -1352,42 +2047,53 @@ WRAPPED_INSTANTIATE_TEST_SUITE_P(
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     FileList, /* file_list.js */
     FilesAppBrowserTest,
-    ::testing::Values(TestCase("fileListAriaAttributes"),
-                      TestCase("fileListFocusFirstItem"),
-                      TestCase("fileListSelectLastFocusedItem"),
-                      TestCase("fileListKeyboardSelectionA11y"),
-                      TestCase("fileListMouseSelectionA11y"),
-                      TestCase("fileListDeleteMultipleFiles"),
-                      TestCase("fileListDeleteMultipleFiles").EnableTrash(),
-                      TestCase("fileListRenameSelectedItem"),
-                      TestCase("fileListRenameFromSelectAll")));
+    ::testing::Values(
+        TestCase("fileListAriaAttributes")
+            .FeatureIds({"screenplay-af443ca0-6d9f-4cb3-af8f-0939c37833db"}),
+        TestCase("fileListFocusFirstItem"),
+        TestCase("fileListSelectLastFocusedItem"),
+        TestCase("fileListSortWithKeyboard"),
+        TestCase("fileListKeyboardSelectionA11y")
+            .FeatureIds({"screenplay-af443ca0-6d9f-4cb3-af8f-0939c37833db"}),
+        TestCase("fileListMouseSelectionA11y")
+            .FeatureIds({"screenplay-af443ca0-6d9f-4cb3-af8f-0939c37833db"}),
+        TestCase("fileListDeleteMultipleFiles"),
+        TestCase("fileListRenameSelectedItem"),
+        TestCase("fileListRenameFromSelectAll")));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     Crostini, /* crostini.js */
     FilesAppBrowserTest,
-    ::testing::Values(TestCase("mountCrostini"),
-                      TestCase("enableDisableCrostini"),
-                      TestCase("sharePathWithCrostini"),
-                      TestCase("pluginVmDirectoryNotSharedErrorDialog"),
-                      TestCase("pluginVmFileOnExternalDriveErrorDialog"),
-                      TestCase("pluginVmFileDropFailErrorDialog")));
+    ::testing::Values(
+        TestCase("mountCrostini"),
+        TestCase("enableDisableCrostini"),
+        TestCase("sharePathWithCrostini")
+            .FeatureIds({"screenplay-122c00f8-9842-4666-8ca0-b6bf47454551"}),
+        TestCase("pluginVmDirectoryNotSharedErrorDialog"),
+        TestCase("pluginVmFileOnExternalDriveErrorDialog"),
+        TestCase("pluginVmFileDropFailErrorDialog")));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     MyFiles, /* my_files.js */
     FilesAppBrowserTest,
     ::testing::Values(
-        TestCase("directoryTreeRefresh"),
+        TestCase("directoryTreeRefresh")
+            .FeatureIds({"screenplay-02521fe6-a9c5-4cd1-ac9b-cc46df33c1a0"}),
         TestCase("showMyFiles"),
-        TestCase("showMyFiles").EnableTrash(),
         TestCase("myFilesDisplaysAndOpensEntries"),
+        TestCase("myFilesDisplaysAndOpensEntries").FilesExperimental(),
         TestCase("myFilesFolderRename"),
-        TestCase("myFilesUpdatesWhenAndroidVolumeMounts").DontMountVolumes(),
         TestCase("myFilesUpdatesWhenAndroidVolumeMounts")
             .DontMountVolumes()
-            .FilesSwa(),
+            .FeatureIds({"screenplay-e920978b-0184-4665-98a3-acc46dc48ce9"}),
         TestCase("myFilesUpdatesChildren"),
         TestCase("myFilesAutoExpandOnce"),
         TestCase("myFilesToolbarDelete")));
+
+WRAPPED_INSTANTIATE_TEST_SUITE_P(
+    Navigation, /* navigation.js */
+    FilesAppBrowserTest,
+    ::testing::Values(TestCase("navigateToParent")));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     InstallLinuxPackageDialog, /* install_linux_package_dialog.js */
@@ -1397,28 +2103,53 @@ WRAPPED_INSTANTIATE_TEST_SUITE_P(
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     Recents, /* recents.js */
     FilesAppBrowserTest,
-    ::testing::Values(TestCase("recentsDownloads"),
-                      TestCase("recentsDrive"),
-                      TestCase("recentsCrostiniNotMounted"),
-                      TestCase("recentsCrostiniMounted"),
-                      TestCase("recentsDownloadsAndDrive"),
-                      TestCase("recentsDownloadsAndDriveWithOverlap"),
-                      TestCase("recentsNested"),
-                      TestCase("recentAudioDownloads"),
-                      TestCase("recentAudioDownloadsAndDrive"),
-                      TestCase("recentImagesDownloads"),
-                      TestCase("recentImagesDownloadsAndDrive"),
-                      TestCase("recentVideosDownloads"),
-                      TestCase("recentVideosDownloadsAndDrive")));
+    ::testing::Values(
+        TestCase("recentsA11yMessages")
+            .FeatureIds({"screenplay-af443ca0-6d9f-4cb3-af8f-0939c37833db"}),
+        TestCase("recentsAllowCutForDownloads"),
+        TestCase("recentsAllowCutForDrive"),
+        TestCase("recentsAllowCutForPlayFiles").EnableArc(),
+        TestCase("recentsAllowDeletion").EnableArc(),
+        TestCase("recentsAllowMultipleFilesDeletion").EnableArc(),
+        TestCase("recentsAllowRename")
+            .EnableArc()
+            .FeatureIds({"screenplay-788b6d1f-0752-41e9-826e-bba324a19ef9"}),
+        TestCase("recentsEmptyFolderMessage"),
+        TestCase("recentsEmptyFolderMessageAfterDeletion"),
+        TestCase("recentsDownloads"),
+        TestCase("recentsDrive"),
+        TestCase("recentsCrostiniNotMounted"),
+        TestCase("recentsCrostiniMounted"),
+        TestCase("recentsDownloadsAndDrive"),
+        TestCase("recentsDownloadsAndDriveAndPlayFiles").EnableArc(),
+        TestCase("recentsDownloadsAndDriveWithOverlap"),
+        TestCase("recentsFilterResetToAll"),
+        TestCase("recentsNested"),
+        TestCase("recentsNoRenameForPlayFiles").EnableArc(),
+        TestCase("recentsPlayFiles").EnableArc(),
+        TestCase("recentsReadOnlyHidden"),
+        TestCase("recentsRespectSearchWhenSwitchingFilter"),
+        TestCase("recentsRespondToTimezoneChangeForGridView"),
+        TestCase("recentsRespondToTimezoneChangeForListView"),
+        TestCase("recentsTimePeriodHeadings"),
+        TestCase("recentAudioDownloads"),
+        TestCase("recentAudioDownloadsAndDrive"),
+        TestCase("recentAudioDownloadsAndDriveAndPlayFiles").EnableArc(),
+        TestCase("recentDocumentsDownloads"),
+        TestCase("recentDocumentsDownloadsAndDrive"),
+        TestCase("recentDocumentsDownloadsAndDriveAndPlayFiles").EnableArc(),
+        TestCase("recentImagesDownloads"),
+        TestCase("recentImagesDownloadsAndDrive"),
+        TestCase("recentImagesDownloadsAndDriveAndPlayFiles").EnableArc(),
+        TestCase("recentVideosDownloads"),
+        TestCase("recentVideosDownloadsAndDrive"),
+        TestCase("recentVideosDownloadsAndDriveAndPlayFiles").EnableArc()));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     Metadata, /* metadata.js */
     FilesAppBrowserTest,
     ::testing::Values(
         TestCase("metadataDocumentsProvider").EnableGenericDocumentsProvider(),
-        TestCase("metadataDocumentsProvider")
-            .EnableGenericDocumentsProvider()
-            .FilesSwa(),
         TestCase("metadataDownloads"),
         TestCase("metadataDrive"),
         TestCase("metadataTeamDrives"),
@@ -1427,32 +2158,60 @@ WRAPPED_INSTANTIATE_TEST_SUITE_P(
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     Search, /* search.js */
     FilesAppBrowserTest,
-    ::testing::Values(TestCase("searchDownloadsWithResults"),
-                      TestCase("searchDownloadsWithNoResults"),
-                      TestCase("searchDownloadsClearSearchKeyDown"),
-                      TestCase("searchDownloadsClearSearchKeyDown").FilesSwa(),
-                      TestCase("searchDownloadsClearSearch"),
-                      TestCase("searchDownloadsClearSearch").FilesSwa(),
-                      TestCase("searchHidingViaTab"),
-                      TestCase("searchHidingTextEntryField"),
-                      TestCase("searchButtonToggles"),
-                      TestCase("searchQueryLaunchParam")));
+    ::testing::Values(
+        TestCase("searchDownloadsWithResults"),
+        TestCase("searchDownloadsWithResults").EnableSearchV2(),
+        TestCase("searchDownloadsWithNoResults"),
+        TestCase("searchDownloadsWithNoResults").EnableSearchV2(),
+        TestCase("searchDownloadsClearSearchKeyDown"),
+        TestCase("searchDownloadsClearSearchKeyDown").EnableSearchV2(),
+        TestCase("searchDownloadsClearSearch"),
+        TestCase("searchDownloadsClearSearch").EnableSearchV2(),
+        TestCase("searchHidingViaTab"),
+        TestCase("searchHidingViaTab").EnableSearchV2(),
+        TestCase("searchHidingTextEntryField"),
+        TestCase("searchHidingTextEntryField").EnableSearchV2(),
+        TestCase("searchButtonToggles"),
+        TestCase("searchButtonToggles").EnableSearchV2(),
+        TestCase("searchWithLocationOptions").EnableSearchV2(),
+        TestCase("searchLocalWithTypeOptions").EnableSearchV2(),
+        TestCase("searchDriveWithTypeOptions").EnableSearchV2(),
+        TestCase("searchWithRecencyOptions").EnableSearchV2(),
+        TestCase("searchDriveWithRecencyOptions").EnableSearchV2(),
+        TestCase("searchRemovableDevice").EnableSearchV2(),
+        TestCase("searchPartitionedRemovableDevice").EnableSearchV2(),
+        TestCase("resetSearchOptionsOnFolderChange").EnableSearchV2(),
+        TestCase("showSearchResultMessageWhenSearching").EnableSearchV2(),
+        TestCase("showsEducationNudge").EnableSearchV2(),
+        TestCase("searchFromMyFiles").EnableSearchV2(),
+        TestCase("selectionPath").EnableSearchV2(),
+        TestCase("searchHierarchy").EnableSearchV2(),
+        TestCase("hideSearchInTrash").EnableSearchV2(),
+        TestCase("searchTrashedFiles").EnableSearchV2(),
+        TestCase("matchDriveFilesByName").EnableSearchV2(),
+        TestCase("searchSharedWithMe").EnableSearchV2()
+        // TODO(b/189173190): Enable
+        // TestCase("searchQueryLaunchParam")
+        ));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     Metrics, /* metrics.js */
     FilesAppBrowserTest,
     ::testing::Values(TestCase("metricsRecordEnum"),
-                      TestCase("metricsRecordEnum").FilesSwa(),
-                      TestCase("metricsOpenSwa").FilesSwa()));
+// TODO(https://crbug.com/1303472): Fix flakes and re-enable.
+#if !BUILDFLAG(IS_CHROMEOS)
+                      TestCase("metricsRecordDirectoryListLoad"),
+                      TestCase("metricsRecordUpdateAvailableApps"),
+#endif
+                      TestCase("metricsOpenSwa")));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     Breadcrumbs, /* breadcrumbs.js */
     FilesAppBrowserTest,
     ::testing::Values(TestCase("breadcrumbsNavigate"),
                       TestCase("breadcrumbsDownloadsTranslation"),
-                      TestCase("breadcrumbsDownloadsTranslation").FilesSwa(),
                       TestCase("breadcrumbsRenderShortPath"),
-                      TestCase("breadcrumbsEliderButtonHidden"),
+                      TestCase("breadcrumbsEliderButtonNotExist"),
                       TestCase("breadcrumbsRenderLongPath"),
                       TestCase("breadcrumbsMainButtonClick"),
                       TestCase("breadcrumbsMainButtonEnterKey"),
@@ -1461,8 +2220,8 @@ WRAPPED_INSTANTIATE_TEST_SUITE_P(
                       TestCase("breadcrumbsEliderMenuClickOutside"),
                       TestCase("breadcrumbsEliderMenuItemClick"),
                       TestCase("breadcrumbsEliderMenuItemTabLeft"),
-                      TestCase("breadcrumbsEliderMenuItemTabRight"),
-                      TestCase("breadcrumbsDontExceedAvailableViewport")));
+                      TestCase("breadcrumbNavigateBackToSharedWithMe"),
+                      TestCase("breadcrumbsEliderMenuItemTabRight")));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     FormatDialog, /* format_dialog.js */
@@ -1486,19 +2245,81 @@ WRAPPED_INSTANTIATE_TEST_SUITE_P(
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     Trash, /* trash.js */
     FilesAppBrowserTest,
-    ::testing::Values(TestCase("trashMoveToTrash").EnableTrash(),
-                      TestCase("trashPermanentlyDelete").EnableTrash(),
-                      TestCase("trashRestoreFromToast").EnableTrash(),
-                      TestCase("trashRestoreFromTrash").EnableTrash(),
-                      TestCase("trashRestoreFromTrashShortcut").EnableTrash(),
-                      TestCase("trashEmptyTrash").EnableTrash(),
-                      TestCase("trashEmptyTrashShortcut").EnableTrash(),
-                      TestCase("trashDeleteFromTrash").EnableTrash()));
+    ::testing::Values(
+        TestCase("trashMoveToTrash")
+            .FeatureIds({"screenplay-a06f961a-17f5-4fbd-8285-49abb000dee1"}),
+        TestCase("trashPermanentlyDelete"),
+        TestCase("trashRestoreFromToast"),
+        TestCase("trashRestoreFromTrash"),
+        TestCase("trashRestoreFromTrashShortcut"),
+        TestCase("trashEmptyTrash")
+            .FeatureIds({"screenplay-38573550-c60a-4009-ba92-c0af1420fde6"}),
+        TestCase("trashEmptyTrashShortcut")
+            .FeatureIds({"screenplay-38573550-c60a-4009-ba92-c0af1420fde6"}),
+        TestCase("trashDeleteFromTrash")
+            .FeatureIds({"screenplay-38573550-c60a-4009-ba92-c0af1420fde6"}),
+        TestCase("trashDeleteFromTrashOriginallyFromMyFiles")
+            .FeatureIds({"screenplay-38573550-c60a-4009-ba92-c0af1420fde6"}),
+        TestCase("trashDeleteFromTrashOriginallyFromDrive")
+            .FeatureIds({"screenplay-38573550-c60a-4009-ba92-c0af1420fde6"})
+            .EnableDriveTrash(),
+        TestCase("trashNoTasksInTrashRoot"),
+        TestCase("trashDoubleClickOnFileInTrashRootShowsDialog"),
+        TestCase("trashDragDropRootAcceptsEntries"),
+        TestCase("trashDragDropFromDisallowedRootsFails"),
+        TestCase("trashDragDropNonModifiableEntriesCantBeTrashed"),
+        TestCase("trashDragDropRootPerformsTrashAction"),
+        TestCase("trashTraversingFolderShowsDisallowedDialog"),
+        TestCase("trashDontShowTrashRootOnSelectFileDialog"),
+        TestCase("trashDontShowTrashRootWhenOpeningAsAndroidFilePicker"),
+        TestCase("trashEnsureOldEntriesArePeriodicallyRemoved"),
+        TestCase("trashDragDropOutOfTrashPerformsRestoration"),
+        TestCase("trashRestorationDialogInProgressDoesntShowUndo"),
+        TestCase("trashTogglingTrashEnabledNavigatesAwayFromTrashRoot"),
+        TestCase("trashTogglingTrashEnabledPrefUpdatesDirectoryTree"),
+        TestCase("trashCantRestoreWhenParentDoesntExist"),
+        TestCase(
+            "trashPressingEnterOnFileInTrashRootShowsDialogWithRestoreButton"),
+        TestCase("trashInfeasibleActionsForFileDisabledAndHiddenInTrashRoot"),
+        TestCase("trashInfeasibleActionsForFolderDisabledAndHiddenInTrashRoot"),
+        TestCase("trashExtractAllForZipHiddenAndDisabledInTrashRoot"),
+        TestCase("trashAllActionsDisabledForBlankSpaceInTrashRoot"),
+        TestCase("trashNudgeShownOnFirstTrashOperation"),
+        TestCase("trashStaleTrashInfoFilesAreRemovedAfterOneHour")));
 
 WRAPPED_INSTANTIATE_TEST_SUITE_P(
     AndroidPhotos, /* android_photos.js */
     FilesAppBrowserTest,
     ::testing::Values(
         TestCase("androidPhotosBanner").EnablePhotosDocumentsProvider()));
+
+WRAPPED_INSTANTIATE_TEST_SUITE_P(
+    Office, /* office.js */
+    FilesAppBrowserTest,
+    ::testing::Values(
+        TestCase("openOfficeWordFile").EnableUploadOfficeToCloud(),
+        TestCase("openOfficeWordFromMyFiles").EnableUploadOfficeToCloud(),
+        TestCase("uploadToDriveRequiresUploadOfficeToCloudEnabled"),
+        TestCase("openMultipleOfficeWordFromDrive").EnableUploadOfficeToCloud(),
+        TestCase("openOfficeWordFromDrive").EnableUploadOfficeToCloud(),
+        TestCase("openOfficeExcelFromDrive").EnableUploadOfficeToCloud(),
+        TestCase("openOfficePowerPointFromDrive").EnableUploadOfficeToCloud(),
+        TestCase("openOfficeWordFromDriveNotSynced")
+            .EnableUploadOfficeToCloud(),
+        TestCase("openOfficeWordFromMyFilesOffline")
+            .EnableUploadOfficeToCloud()
+            .Offline(),
+        TestCase("openOfficeWordFromDriveOffline")
+            .EnableUploadOfficeToCloud()
+            .Offline(),
+        TestCase("officeShowNudgeGoogleDrive")));
+
+WRAPPED_INSTANTIATE_TEST_SUITE_P(
+    GuestOs, /* guest_os.js */
+    FilesAppBrowserTest,
+    ::testing::Values(TestCase("fakesListed"),
+                      TestCase("listUpdatedWhenGuestsChanged"),
+                      TestCase("mountGuestSuccess"),
+                      TestCase("mountAndroidVolumeSuccess").EnableArcVm()));
 
 }  // namespace file_manager

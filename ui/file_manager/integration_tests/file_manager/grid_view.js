@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,9 +29,7 @@ async function showGridView(rootPath, expectedSet) {
   await remoteCall.disableBannersForTesting(appId);
 
   // Click the grid view button.
-  await remoteCall.waitForElement(appId, '#view-button');
-  await remoteCall.callRemoteTestUtil(
-      'fakeEvent', appId, ['#view-button', 'click']);
+  await remoteCall.waitAndClickElement(appId, '#view-button');
 
   // Compare the grid labels of the entries.
   await repeatUntil(async () => {
@@ -176,4 +174,21 @@ testcase.showGridViewDocumentsProvider = async () => {
     }
     return true;
   });
+};
+
+/**
+ * Tests that an encrypted file will have a corresponding icon.
+ */
+testcase.showGridViewEncryptedFile = async () => {
+  const appId =
+      await setupAndWaitUntilReady(RootPath.DRIVE, [], [ENTRIES.testCSEFile]);
+
+  // Click the grid view button.
+  await remoteCall.waitAndClickElement(appId, '#view-button');
+
+  const icon = await remoteCall.waitForElementStyles(
+      appId, '.thumbnail-grid .no-thumbnail', ['-webkit-mask-image']);
+  chrome.test.assertTrue(
+      icon.styles['-webkit-mask-image'].includes('encrypted.svg'),
+      'Icon does not seem to be the encrypted one');
 };

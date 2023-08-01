@@ -1,14 +1,15 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/login/saml/in_session_password_change_manager.h"
 
-#include "ash/components/login/auth/saml_password_attributes.h"
 #include "ash/public/cpp/session/session_activation_observer.h"
 #include "ash/public/cpp/session/session_controller.h"
+#include "base/memory/raw_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/task_environment.h"
+#include "build/build_config.h"
 #include "chrome/browser/ash/login/login_pref_names.h"
 #include "chrome/browser/ash/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/browser_process.h"
@@ -18,6 +19,8 @@
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
+#include "chromeos/ash/components/dbus/userdataauth/userdataauth_client.h"
+#include "chromeos/ash/components/login/auth/public/saml_password_attributes.h"
 #include "components/user_manager/scoped_user_manager.h"
 #include "components/user_manager/user_names.h"
 #include "content/public/test/browser_task_environment.h"
@@ -33,7 +36,7 @@ constexpr base::TimeDelta kOneHour = base::Hours(1);
 constexpr base::TimeDelta kOneDay = base::Days(1);
 constexpr base::TimeDelta kAdvanceWarningTime = base::Days(14);
 constexpr base::TimeDelta kOneYear = base::Days(365);
-constexpr base::TimeDelta kTenYears = base::Days(10 * 365);
+constexpr base::TimeDelta kThreeYears = base::Days(3 * 365);
 
 inline std::u16string utf16(const char* ascii) {
   return base::ASCIIToUTF16(ascii);
@@ -43,6 +46,12 @@ inline std::u16string utf16(const char* ascii) {
 
 class InSessionPasswordChangeManagerTest : public testing::Test {
  public:
+  InSessionPasswordChangeManagerTest() { UserDataAuthClient::InitializeFake(); }
+
+  ~InSessionPasswordChangeManagerTest() override {
+    UserDataAuthClient::Shutdown();
+  }
+
   void SetUp() override {
     ASSERT_TRUE(profile_manager_.SetUp());
     profile_ = profile_manager_.CreateTestingProfile("test");
@@ -96,7 +105,7 @@ class InSessionPasswordChangeManagerTest : public testing::Test {
       base::test::TaskEnvironment::MainThreadType::UI,
       base::test::TaskEnvironment::TimeSource::MOCK_TIME};
   TestingProfileManager profile_manager_{TestingBrowserProcess::GetGlobal()};
-  TestingProfile* profile_;
+  raw_ptr<TestingProfile, ExperimentalAsh> profile_;
 
   std::unique_ptr<user_manager::ScopedUserManager> scoped_user_manager_;
   std::unique_ptr<NotificationDisplayServiceTester> display_service_tester_;
@@ -117,8 +126,8 @@ TEST_F(InSessionPasswordChangeManagerTest, MaybeShow_WillNotExpire) {
   manager_->MaybeShowExpiryNotification();
 
   EXPECT_FALSE(Notification().has_value());
-  // No notification shown now and nothing shown in the next 10 years.
-  test_environment_.FastForwardBy(kTenYears);
+  // No notification shown now and nothing shown in the next 3 years.
+  test_environment_.FastForwardBy(kThreeYears);
   EXPECT_FALSE(Notification().has_value());
 }
 
@@ -162,7 +171,7 @@ TEST_F(InSessionPasswordChangeManagerTest, MaybeShow_DeleteExpirationTime) {
 
   // Since expiration time is now removed, it is not shown later either.
   SamlPasswordAttributes::DeleteFromPrefs(profile_->GetPrefs());
-  test_environment_.FastForwardBy(kTenYears);
+  test_environment_.FastForwardBy(kThreeYears);
   EXPECT_FALSE(Notification().has_value());
 }
 
@@ -179,7 +188,7 @@ TEST_F(InSessionPasswordChangeManagerTest, MaybeShow_PasswordChanged) {
   manager_->DismissExpiryNotification();
 
   // From now on, notification will not be reshown.
-  test_environment_.FastForwardBy(kTenYears);
+  test_environment_.FastForwardBy(kThreeYears);
   EXPECT_FALSE(Notification().has_value());
 }
 
@@ -253,7 +262,7 @@ TEST_F(InSessionPasswordChangeManagerTest, TimePasses_NotificationDismissed) {
   ExpectNotificationAndDismiss();
 
   // This continues each day even once the password has long expired.
-  test_environment_.FastForwardBy(kTenYears);
+  test_environment_.FastForwardBy(kThreeYears);
   ExpectNotificationAndDismiss();
   test_environment_.FastForwardBy(kOneDay);
   ExpectNotificationAndDismiss();

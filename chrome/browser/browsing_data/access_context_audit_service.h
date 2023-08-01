@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
+#include "base/observer_list.h"
 #include "base/scoped_observation.h"
 #include "base/task/updateable_sequenced_task_runner.h"
 #include "chrome/browser/browsing_data/access_context_audit_database.h"
@@ -20,7 +21,6 @@
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "net/cookies/cookie_change_dispatcher.h"
 #include "services/network/public/mojom/cookie_manager.mojom.h"
-#include "services/network/public/mojom/network_service.mojom.h"
 
 typedef base::OnceCallback<void(
     std::vector<AccessContextAuditDatabase::AccessRecord>)>
@@ -118,9 +118,9 @@ class AccessContextAuditService
   void Shutdown() override;
 
   // StoragePartition::DataRemovalObserver:
-  void OnOriginDataCleared(
+  void OnStorageKeyDataCleared(
       uint32_t remove_mask,
-      base::RepeatingCallback<bool(const url::Origin&)> origin_matcher,
+      content::StoragePartition::StorageKeyMatcherFunction storage_key_matcher,
       const base::Time begin,
       const base::Time end) override;
 

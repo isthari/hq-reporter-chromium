@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,13 +10,14 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
 #include "base/callback_list.h"
+#include "base/functional/callback.h"
 #include "base/time/time.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "components/keyed_service/core/keyed_service.h"
-#include "components/media_router/browser/route_message_observer.h"
+#include "components/media_router/browser/mirroring_media_controller_host.h"
+#include "components/media_router/browser/presentation_connection_message_observer.h"
 #include "components/media_router/common/media_route.h"
 #include "components/media_router/common/media_route_provider_helper.h"
 #include "components/media_router/common/media_sink.h"
@@ -29,6 +30,7 @@
 
 #if !BUILDFLAG(IS_ANDROID)
 #include "components/media_router/browser/logger_impl.h"
+#include "components/media_router/browser/media_router_debugger.h"
 #include "components/media_router/common/mojom/media_controller.mojom.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
@@ -71,6 +73,9 @@ using MediaRouteResponseCallback =
 class MediaRouter : public KeyedService {
  public:
   ~MediaRouter() override = default;
+
+  // Must be called before invoking any other method.
+  virtual void Initialize() = 0;
 
   // Creates a media route from |source_id| to |sink_id|.
   // |origin| is the origin of requestor's page.
@@ -129,10 +134,6 @@ class MediaRouter : public KeyedService {
       const MediaRoute::Id& route_id,
       std::unique_ptr<std::vector<uint8_t>> data) = 0;
 
-  // Returns the IssueManager owned by the MediaRouter. Guaranteed to be
-  // non-null.
-  virtual IssueManager* GetIssueManager() = 0;
-
   // Notifies the Media Router that the user has taken an action involving the
   // Media Router. This can be used to perform any initialization that is not
   // approriate to be done at construction.
@@ -147,10 +148,6 @@ class MediaRouter : public KeyedService {
       const MediaRoute::Id& route_id,
       const content::PresentationConnectionStateChangedCallback& callback) = 0;
 
-  // Called when the incognito profile for this instance is being shut down.
-  // This will terminate all incognito media routes.
-  virtual void OnIncognitoProfileShutdown() = 0;
-
   // Returns the media routes that currently exist. To get notified whenever
   // there is a change to the media routes, subclass MediaRoutesObserver.
   virtual std::vector<MediaRoute> GetCurrentRoutes() const = 0;
@@ -162,6 +159,15 @@ class MediaRouter : public KeyedService {
       const MediaRoute::Id& route_id) = 0;
 
 #if !BUILDFLAG(IS_ANDROID)
+  // Returns a pointer to a controller host that sends media commands related to
+  // mirroring within a route.
+  virtual MirroringMediaControllerHost* GetMirroringMediaControllerHost(
+      const MediaRoute::Id& route_id) = 0;
+
+  // Returns the IssueManager owned by the MediaRouter. Guaranteed to be
+  // non-null.
+  virtual IssueManager* GetIssueManager() = 0;
+
   // Binds |controller| for sending media commands to a route. The controller
   // will notify |observer| whenever there is a change to the status of the
   // media. It may invalidate bindings from previous calls to this method.
@@ -170,17 +176,14 @@ class MediaRouter : public KeyedService {
       mojo::PendingReceiver<mojom::MediaController> controller,
       mojo::PendingRemote<mojom::MediaStatusObserver> observer) = 0;
 
-  // Returns a pointer to LoggerImpl that can be used to add logging messages.
-  virtual LoggerImpl* GetLogger() = 0;
-
   // Returns logs collected from Media Router components.
+  // Used by chrome://media-router-internals.
   virtual base::Value GetLogs() const = 0;
-#endif  // !BUILDFLAG(IS_ANDROID)
 
   // Returns media router state as a JSON string represented by base::Value.
   // Includes known sinks and sink compatibility with media sources.
   // Used by chrome://media-router-internals.
-  virtual base::Value GetState() const = 0;
+  virtual base::Value::Dict GetState() const = 0;
 
   // Returns the media route provider state for |provider_id| via |callback|.
   // Includes details about routes/sessions owned by the MRP.
@@ -189,12 +192,21 @@ class MediaRouter : public KeyedService {
       mojom::MediaRouteProviderId provider_id,
       mojom::MediaRouteProvider::GetStateCallback callback) const = 0;
 
+  // Returns a pointer to LoggerImpl that can be used to add logging messages.
+  virtual LoggerImpl* GetLogger() = 0;
+
+  // Returns the instance of the debugger for this MediaRouter instance.
+  virtual MediaRouterDebugger& GetDebugger() = 0;
+
+#endif  // !BUILDFLAG(IS_ANDROID)
+
  private:
+  // TODO(https://crbug.com/1198580): remove message observer classes and API.
   friend class IssuesObserver;
   friend class MediaSinksObserver;
   friend class MediaRoutesObserver;
   friend class PresentationConnectionStateObserver;
-  friend class RouteMessageObserver;
+  friend class PresentationConnectionMessageObserver;
 
   // The following functions are called by friend Observer classes above.
 
@@ -233,12 +245,13 @@ class MediaRouter : public KeyedService {
   // route. Note that MediaRouter does not own |observer|. |observer| should be
   // unregistered before it is destroyed. Registering the same observer more
   // than once will result in undefined behavior.
-  virtual void RegisterRouteMessageObserver(RouteMessageObserver* observer) = 0;
+  virtual void RegisterPresentationConnectionMessageObserver(
+      PresentationConnectionMessageObserver* observer) = 0;
 
   // Unregisters a previously registered RouteMessagesObserver. |observer| will
   // stop receiving further updates.
-  virtual void UnregisterRouteMessageObserver(
-      RouteMessageObserver* observer) = 0;
+  virtual void UnregisterPresentationConnectionMessageObserver(
+      PresentationConnectionMessageObserver* observer) = 0;
 };
 
 }  // namespace media_router

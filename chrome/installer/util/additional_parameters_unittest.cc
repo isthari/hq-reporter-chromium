@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -270,7 +270,15 @@ TEST_F(AdditionalParametersTest, SetChannel) {
         EXPECT_THAT(ap.value(),
                     ::testing::StartsWith(std::wstring(channel.prefix)));
         if (expectation.has_arch)
-          EXPECT_THAT(ap.value(), ::testing::HasSubstr(L"-arch_x"));
+#if defined(ARCH_CPU_X86_64)
+          EXPECT_THAT(ap.value(), ::testing::HasSubstr(L"-arch_x64"));
+#elif defined(ARCH_CPU_X86)
+          EXPECT_THAT(ap.value(), ::testing::HasSubstr(L"-arch_x86"));
+#elif defined(ARCH_CPU_ARM64)
+          EXPECT_THAT(ap.value(), ::testing::HasSubstr(L"-arch_arm64"));
+#else
+#error unsupported processor architecture.
+#endif
       }
     }
   }

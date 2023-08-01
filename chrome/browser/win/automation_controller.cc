@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,12 +10,11 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/sequence_checker.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/win/atl.h"
 #include "base/win/scoped_variant.h"
@@ -198,7 +197,7 @@ void AutomationController::Context::EventHandler::Initialize(
   ref_counted_delegate_ = std::move(ref_counted_delegate);
 }
 
-COM_DECLSPEC_NOTHROW STDMETHODIMP
+STDMETHODIMP
 AutomationController::Context::EventHandler::HandleAutomationEvent(
     IUIAutomationElement* sender,
     EVENTID event_id) {
@@ -222,7 +221,7 @@ AutomationController::Context::EventHandler::HandleAutomationEvent(
   return S_OK;
 }
 
-COM_DECLSPEC_NOTHROW STDMETHODIMP
+STDMETHODIMP
 AutomationController::Context::EventHandler::HandleFocusChangedEvent(
     IUIAutomationElement* sender) {
   DVLOG(1)

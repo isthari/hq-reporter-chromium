@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "base/memory/singleton.h"
 #include "ui/display/display.h"
 #include "ui/display/screen.h"
+#include "ui/display/util/display_util.h"
 
 namespace arc {
 
@@ -93,7 +94,7 @@ void ArcRotationLockBridge::SendRotationLockState() {
     return;
 
   display::Display current_display;
-  if (display::Display::HasInternalDisplay()) {
+  if (display::HasInternalDisplay()) {
     bool found = display::Screen::GetScreen()->GetDisplayWithDisplayId(
         display::Display::InternalDisplayId(), &current_display);
     DCHECK(found);
@@ -108,6 +109,11 @@ void ArcRotationLockBridge::SendRotationLockState() {
   rotation_lock_instance->OnRotationLockStateChanged(
       accelerometer_active,
       static_cast<arc::mojom::Rotation>(current_display.rotation()));
+}
+
+// static
+void ArcRotationLockBridge::EnsureFactoryBuilt() {
+  ArcRotationLockBridgeFactory::GetInstance();
 }
 
 }  // namespace arc

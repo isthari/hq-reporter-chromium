@@ -1,6 +1,8 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import {TestRunner} from 'test_runner';
 
 function dumpBackgroundServiceGrid() {
   TestRunner.addResult('Grid Entries:');
@@ -37,8 +39,6 @@ function setOriginCheckbox(value) {
 }
 
 (async function() {
-  Root.Runtime.experiments.setEnabled('backgroundServices', true);
-
   TestRunner.addResult(`Tests that the grid shows information as expected.\n`);
   await TestRunner.loadLegacyModule('resources');
   await TestRunner.showPanel('resources');
@@ -60,6 +60,7 @@ function setOriginCheckbox(value) {
       eventName: 'Event1',
       instanceId: 'Instance1',
       eventMetadata: [],
+      storageKey: 'testKey',
     },
   });
   dumpBackgroundServiceGrid();
@@ -74,6 +75,7 @@ function setOriginCheckbox(value) {
       eventName: 'Event1',
       instanceId: 'Instance2',
       eventMetadata: [],
+      storageKey: 'testKey',
     },
   });
   dumpBackgroundServiceGrid();
@@ -88,6 +90,7 @@ function setOriginCheckbox(value) {
       eventName: 'Event2',
       instanceId: 'Instance1',
       eventMetadata: [],
+      storageKey: 'testKey',
     },
   });
   dumpBackgroundServiceGrid();

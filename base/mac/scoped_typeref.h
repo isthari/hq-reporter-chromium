@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -50,7 +50,7 @@ struct ScopedTypeRefTraits;
 template<typename T, typename Traits = ScopedTypeRefTraits<T>>
 class ScopedTypeRef {
  public:
-  using element_type = T;
+  using element_type = __unsafe_unretained T;
 
   explicit constexpr ScopedTypeRef(
       element_type object = Traits::InvalidValue(),
@@ -110,13 +110,21 @@ class ScopedTypeRef {
     object_ = object;
   }
 
-  bool operator==(const element_type& that) const { return object_ == that; }
+  bool operator==(const ScopedTypeRef& that) const {
+    return object_ == that.object_;
+  }
 
-  bool operator!=(const element_type& that) const { return object_ != that; }
+  bool operator!=(const ScopedTypeRef& that) const {
+    return object_ != that.object_;
+  }
 
-  operator element_type() const { return object_; }
+  operator element_type() const __attribute__((ns_returns_not_retained)) {
+    return object_;
+  }
 
-  element_type get() const { return object_; }
+  element_type get() const __attribute__((ns_returns_not_retained)) {
+    return object_;
+  }
 
   void swap(ScopedTypeRef& that) {
     element_type temp = that.object_;

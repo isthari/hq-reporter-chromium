@@ -36,10 +36,9 @@ per-file chrome_content_browser_client_unittest.cc=*
 
 per-file chrome_browser_field_trials*=file://components/variations/OWNERS
 
-per-file chrome_device_client*=reillyg@chromium.org
-per-file chrome_device_client*=rockot@google.com
-
 per-file chrome_navigation_browsertest.cc=file://content/OWNERS
+
+per-file chrome_origin_trials_browsertest.cc=file://third_party/blink/common/origin_trials/OWNERS
 
 per-file chrome_security_exploit_browsertest.cc=file://content/OWNERS
 
@@ -85,9 +84,7 @@ per-file chrome_content_browser_client_binder_policies.*=set noparent
 per-file chrome_content_browser_client_binder_policies.*=file://ipc/SECURITY_OWNERS
 
 # BackForwardCache
-per-file chrome_back_forward_cache_browsertest.cc=arthursonzogni@chromium.org
-per-file chrome_back_forward_cache_browsertest.cc=altimin@chromium.org
-per-file chrome_back_forward_cache_browsertest.cc=rakina@chromium.org
+per-file chrome_back_forward_cache_browsertest.cc=file://content/browser/BACK_FORWARD_CACHE_OWNERS
 per-file chrome_back_forward_cache_browsertest.cc=file://content/OWNERS
 
 # Web Platform security metrics tests:

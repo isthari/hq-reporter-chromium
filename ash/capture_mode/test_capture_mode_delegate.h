@@ -1,17 +1,18 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef ASH_CAPTURE_MODE_TEST_CAPTURE_MODE_DELEGATE_H_
 #define ASH_CAPTURE_MODE_TEST_CAPTURE_MODE_DELEGATE_H_
 
+#include <limits>
 #include <memory>
 
 #include "ash/public/cpp/capture_mode/capture_mode_delegate.h"
-#include "base/callback.h"
-#include "base/callback_forward.h"
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_forward.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/image/image_skia.h"
@@ -48,6 +49,15 @@ class TestCaptureModeDelegate : public CaptureModeDelegate {
   void set_should_save_after_dlp_check(bool value) {
     should_save_after_dlp_check_ = value;
   }
+  void set_is_camera_disabled_by_policy(bool value) {
+    is_camera_disabled_by_policy_ = value;
+  }
+  void set_is_audio_capture_disabled_by_policy(bool value) {
+    is_audio_capture_disabled_by_policy_ = value;
+  }
+  void set_fake_drive_fs_free_bytes(int64_t bytes) {
+    fake_drive_fs_free_bytes_ = bytes;
+  }
 
   // Resets |is_allowed_by_policy_| and |is_allowed_by_dlp_| back to true.
   void ResetAllowancesToDefault();
@@ -68,6 +78,13 @@ class TestCaptureModeDelegate : public CaptureModeDelegate {
   // Requests a video frame from the video capturer and waits for it to be
   // delivered to the service.
   void RequestAndWaitForVideoFrame();
+
+  // Returns true if there is an ongoing recording and the recording service is
+  // currently recording audio.
+  bool IsDoingAudioRecording() const;
+
+  // Returns the number of audio capturers owned by the recording service.
+  int GetNumberOfAudioCapturers() const;
 
   // CaptureModeDelegate:
   base::FilePath GetUserDefaultDownloadsFolder() const override;
@@ -97,23 +114,31 @@ class TestCaptureModeDelegate : public CaptureModeDelegate {
   void OnServiceRemoteReset() override;
   bool GetDriveFsMountPointPath(base::FilePath* result) const override;
   base::FilePath GetAndroidFilesPath() const override;
+  base::FilePath GetLinuxFilesPath() const override;
   std::unique_ptr<RecordingOverlayView> CreateRecordingOverlayView()
       const override;
   void ConnectToVideoSourceProvider(
       mojo::PendingReceiver<video_capture::mojom::VideoSourceProvider> receiver)
       override;
+  void GetDriveFsFreeSpaceBytes(OnGotDriveFsFreeSpace callback) override;
+  bool IsCameraDisabledByPolicy() const override;
+  bool IsAudioCaptureDisabledByPolicy() const override;
 
  private:
   std::unique_ptr<recording::RecordingServiceTestApi> recording_service_;
   std::unique_ptr<FakeVideoSourceProvider> video_source_provider_;
-  base::FilePath fake_downloads_dir_;
+  base::ScopedTempDir fake_downloads_dir_;
   base::OnceClosure on_session_state_changed_callback_;
   base::OnceClosure on_recording_started_callback_;
   bool is_allowed_by_dlp_ = true;
   bool is_allowed_by_policy_ = true;
   bool should_save_after_dlp_check_ = true;
+  bool is_camera_disabled_by_policy_ = false;
+  bool is_audio_capture_disabled_by_policy_ = false;
   base::ScopedTempDir fake_drive_fs_mount_path_;
   base::ScopedTempDir fake_android_files_path_;
+  base::ScopedTempDir fake_linux_files_path_;
+  int64_t fake_drive_fs_free_bytes_ = std::numeric_limits<int64_t>::max();
 };
 
 }  // namespace ash

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,10 @@
 #include "components/safe_browsing/buildflags.h"
 #include "components/safe_browsing/content/common/proto/download_file_types.pb.h"
 
+namespace content {
+class WebContents;
+}  // namespace content
+
 // Implementation of DownloadUIModel that wrappers around a |DownloadItem*|. As
 // such, the caller is expected to ensure that the |download| passed into the
 // constructor outlives this |DownloadItemModel|. In addition, multiple
@@ -24,10 +28,18 @@ class DownloadItemModel : public DownloadUIModel,
                           public download::DownloadItem::Observer {
  public:
   static DownloadUIModelPtr Wrap(download::DownloadItem* download);
+  static DownloadUIModelPtr Wrap(
+      download::DownloadItem* download,
+      std::unique_ptr<DownloadUIModel::StatusTextBuilderBase>
+          status_text_builder);
 
   // Constructs a DownloadItemModel. The caller must ensure that |download|
   // outlives this object.
   explicit DownloadItemModel(download::DownloadItem* download);
+
+  DownloadItemModel(download::DownloadItem* download,
+                    std::unique_ptr<DownloadUIModel::StatusTextBuilderBase>
+                        status_text_builder);
 
   DownloadItemModel(const DownloadItemModel&) = delete;
   DownloadItemModel& operator=(const DownloadItemModel&) = delete;
@@ -44,9 +56,7 @@ class DownloadItemModel : public DownloadUIModel,
   bool IsDangerous() const override;
   bool MightBeMalicious() const override;
   bool IsMalicious() const override;
-  bool IsMixedContent() const override;
-  bool ShouldShowIncognitoWarning() const override;
-  bool ShouldAllowDownloadFeedback() const override;
+  bool IsInsecure() const override;
   bool ShouldRemoveFromShelfWhenComplete() const override;
   bool ShouldShowDownloadStartedAnimation() const override;
   bool ShouldShowInShelf() const override;
@@ -54,19 +64,23 @@ class DownloadItemModel : public DownloadUIModel,
   bool ShouldNotifyUI() const override;
   bool WasUINotified() const override;
   void SetWasUINotified(bool should_notify) override;
-  bool ShouldPreferOpeningInBrowser() const override;
+  bool WasActionedOn() const override;
+  void SetActionedOn(bool actioned_on) override;
+  bool WasUIWarningShown() const override;
+  void SetWasUIWarningShown(bool should_notify) override;
+  absl::optional<base::Time> GetEphemeralWarningUiShownTime() const override;
+  void SetEphemeralWarningUiShownTime(absl::optional<base::Time> time) override;
+  bool ShouldPreferOpeningInBrowser() override;
   void SetShouldPreferOpeningInBrowser(bool preference) override;
   safe_browsing::DownloadFileType::DangerLevel GetDangerLevel() const override;
   void SetDangerLevel(
       safe_browsing::DownloadFileType::DangerLevel danger_level) override;
-  download::DownloadItem::MixedContentStatus GetMixedContentStatus()
+  download::DownloadItem::InsecureDownloadStatus GetInsecureDownloadStatus()
       const override;
   void OpenUsingPlatformHandler() override;
   bool IsBeingRevived() const override;
   void SetIsBeingRevived(bool is_being_revived) override;
-  download::DownloadItem* download() override;
-  std::u16string GetWebDriveName() const override;
-  std::u16string GetWebDriveMessage(bool verbose) const override;
+  const download::DownloadItem* GetDownloadItem() const override;
   base::FilePath GetFileNameToReportUser() const override;
   base::FilePath GetTargetFilePath() const override;
   void OpenDownload() override;
@@ -76,6 +90,8 @@ class DownloadItemModel : public DownloadUIModel,
   bool GetOpenWhenComplete() const override;
   bool IsOpenWhenCompleteByPolicy() const override;
   bool TimeRemaining(base::TimeDelta* remaining) const override;
+  base::Time GetStartTime() const override;
+  base::Time GetEndTime() const override;
   bool GetOpened() const override;
   void SetOpened(bool opened) override;
   bool IsDone() const override;
@@ -99,13 +115,21 @@ class DownloadItemModel : public DownloadUIModel,
                         DownloadCommands::Command command) const override;
   void ExecuteCommand(DownloadCommands* download_commands,
                       DownloadCommands::Command command) override;
+  BubbleUIInfo GetBubbleUIInfoForTailoredWarning() const override;
+  bool ShouldShowTailoredWarning() const override;
+  bool ShouldShowInBubble() const override;
+  bool IsEphemeralWarning() const override;
 #endif
 
 #if BUILDFLAG(FULL_SAFE_BROWSING)
   void CompleteSafeBrowsingScan() override;
+  void ReviewScanningVerdict(content::WebContents* web_contents) override;
 #endif
 
   bool ShouldShowDropdown() const override;
+  void DetermineAndSetShouldPreferOpeningInBrowser(
+      const base::FilePath& target_path,
+      bool is_filetype_handled_safely) override;
 
   // download::DownloadItem::Observer implementation.
   void OnDownloadUpdated(download::DownloadItem* download) override;

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -54,7 +54,7 @@ public class MenuButtonTest {
     public void setUp() {
         MockitoAnnotations.initMocks(this);
         mActivity = Robolectric.buildActivity(Activity.class).setup().get();
-        mActivity.setTheme(org.chromium.chrome.R.style.Theme_MaterialComponents);
+        mActivity.setTheme(R.style.Theme_MaterialComponents);
         mMenuButton = (MenuButton) ((ViewGroup) LayoutInflater.from(mActivity).inflate(
                                             R.layout.menu_button, new LinearLayout(mActivity)))
                               .getChildAt(0);

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 
 @class DownloadManagerStateView;
 @class DownloadManagerViewController;
+@class LayoutGuideCenter;
 @class RadialProgressView;
 
 @protocol DownloadManagerViewControllerDelegate<NSObject>
@@ -41,8 +42,8 @@
 
 @property(nonatomic, weak) id<DownloadManagerViewControllerDelegate> delegate;
 
-// Controls the height of the bottom margin.
-@property(nonatomic) NSLayoutDimension* bottomMarginHeightAnchor;
+// The layout guide center to use to retrieve the bottom margin.
+@property(nonatomic, strong) LayoutGuideCenter* layoutGuideCenter;
 
 @end
 
@@ -51,9 +52,6 @@
 
 // Button to dismiss the download toolbar.
 @property(nonatomic, readonly) UIButton* closeButton;
-
-// Icon that represents the current download status.
-@property(nonatomic, readonly) DownloadManagerStateView* stateIcon;
 
 // Label that describes the current download status.
 @property(nonatomic, readonly) UILabel* statusLabel;
@@ -77,6 +75,11 @@
 // View that represents download progress.
 @property(nonatomic, readonly) RadialProgressView* progressView;
 
+@end
+
+// Method exposed for testing only.
+@interface DownloadManagerViewController (Testing)
+- (DownloadManagerStateView*)stateSymbol;
 @end
 
 #endif  // IOS_CHROME_BROWSER_UI_DOWNLOAD_DOWNLOAD_MANAGER_VIEW_CONTROLLER_H_

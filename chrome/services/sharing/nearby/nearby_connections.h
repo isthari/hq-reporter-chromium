@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,33 +8,31 @@
 #include <stdint.h>
 #include <memory>
 
-#include "ash/services/nearby/public/mojom/firewall_hole.mojom.h"
-#include "ash/services/nearby/public/mojom/nearby_connections.mojom.h"
-#include "ash/services/nearby/public/mojom/tcp_socket_factory.mojom.h"
-#include "ash/services/nearby/public/mojom/webrtc_signaling_messenger.mojom.h"
-#include "base/callback_forward.h"
 #include "base/containers/flat_map.h"
 #include "base/files/file.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/synchronization/lock.h"
-#include "base/task/post_task.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/thread_annotations.h"
 #include "chrome/services/sharing/nearby/nearby_connections_stream_buffer_manager.h"
+#include "chrome/services/sharing/nearby/nearby_shared_remotes.h"
+#include "chromeos/ash/services/nearby/public/mojom/firewall_hole.mojom.h"
+#include "chromeos/ash/services/nearby/public/mojom/nearby_connections.mojom.h"
+#include "chromeos/ash/services/nearby/public/mojom/sharing.mojom.h"
+#include "chromeos/ash/services/nearby/public/mojom/tcp_socket_factory.mojom.h"
+#include "chromeos/ash/services/nearby/public/mojom/webrtc_signaling_messenger.mojom.h"
 #include "chromeos/services/network_config/public/mojom/cros_network_config.mojom.h"
 #include "device/bluetooth/public/mojom/adapter.mojom.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
-#include "mojo/public/cpp/bindings/shared_remote.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
-#include "third_party/nearby/src/cpp/core/internal/service_controller_router.h"
+#include "third_party/nearby/src/connections/implementation/service_controller_router.h"
 
-namespace location {
-namespace nearby {
-namespace connections {
+namespace nearby::connections {
 
 class Core;
 
@@ -53,8 +51,7 @@ class NearbyConnections : public mojom::NearbyConnections {
   // destroy this instance.
   NearbyConnections(
       mojo::PendingReceiver<mojom::NearbyConnections> nearby_connections,
-      mojom::NearbyConnectionsDependenciesPtr dependencies,
-      scoped_refptr<base::SequencedTaskRunner> io_task_runner,
+      nearby::api::LogMessage::Severity min_log_severity,
       base::OnceClosure on_disconnect);
 
   NearbyConnections(const NearbyConnections&) = delete;
@@ -63,46 +60,6 @@ class NearbyConnections : public mojom::NearbyConnections {
 
   // Should only be used by objects within lifetime of NearbyConnections.
   static NearbyConnections& GetInstance();
-
-  // May return an unbound Remote if Nearby Connections was not provided an
-  // Adapter (likely because this device does not support Bluetooth).
-  const mojo::SharedRemote<bluetooth::mojom::Adapter>& bluetooth_adapter()
-      const {
-    return bluetooth_adapter_;
-  }
-
-  const mojo::SharedRemote<network::mojom::P2PSocketManager>& socket_manager()
-      const {
-    return socket_manager_;
-  }
-  const mojo::SharedRemote<
-      location::nearby::connections::mojom::MdnsResponderFactory>&
-  mdns_responder_factory() const {
-    return mdns_responder_factory_;
-  }
-  const mojo::SharedRemote<sharing::mojom::IceConfigFetcher>&
-  ice_config_fetcher() const {
-    return ice_config_fetcher_;
-  }
-  const mojo::SharedRemote<sharing::mojom::WebRtcSignalingMessenger>&
-  webrtc_signaling_messenger() const {
-    return webrtc_signaling_messenger_;
-  }
-
-  const mojo::SharedRemote<chromeos::network_config::mojom::CrosNetworkConfig>&
-  cros_network_config() const {
-    return cros_network_config_;
-  }
-
-  const mojo::SharedRemote<sharing::mojom::FirewallHoleFactory>&
-  firewall_hole_factory() const {
-    return firewall_hole_factory_;
-  }
-
-  const mojo::SharedRemote<sharing::mojom::TcpSocketFactory>&
-  tcp_socket_factory() const {
-    return tcp_socket_factory_;
-  }
 
   // mojom::NearbyConnections:
   void StartAdvertising(
@@ -175,45 +132,9 @@ class NearbyConnections : public mojom::NearbyConnections {
       std::unique_ptr<ServiceControllerRouter> service_controller_router);
 
  private:
-  // These values are used for metrics. Entries should not be renumbered and
-  // numeric values should never be reused. If entries are added, kMaxValue
-  // should be updated.
-  enum class MojoDependencyName {
-    kNearbyConnections = 0,
-    kBluetoothAdapter = 1,
-    kSocketManager = 2,
-    kMdnsResponder = 3,
-    kIceConfigFetcher = 4,
-    kWebRtcSignalingMessenger = 5,
-    kCrosNetworkConfig = 6,
-    kFirewallHoleFactory = 7,
-    kTcpSocketFactory = 8,
-    kMaxValue = kTcpSocketFactory
-  };
-
   Core* GetCore(const std::string& service_id);
 
-  std::string GetMojoDependencyName(MojoDependencyName dependency_name);
-
-  void OnDisconnect(MojoDependencyName dependency_name);
-
   mojo::Receiver<mojom::NearbyConnections> nearby_connections_;
-  base::OnceClosure on_disconnect_;
-
-  // Medium dependencies. SharedRemote is used to ensure all calls are posted
-  // to sequence binding the Remote.
-  mojo::SharedRemote<bluetooth::mojom::Adapter> bluetooth_adapter_;
-  mojo::SharedRemote<network::mojom::P2PSocketManager> socket_manager_;
-  mojo::SharedRemote<location::nearby::connections::mojom::MdnsResponderFactory>
-      mdns_responder_factory_;
-  mojo::SharedRemote<sharing::mojom::IceConfigFetcher> ice_config_fetcher_;
-  mojo::SharedRemote<sharing::mojom::WebRtcSignalingMessenger>
-      webrtc_signaling_messenger_;
-  mojo::SharedRemote<chromeos::network_config::mojom::CrosNetworkConfig>
-      cros_network_config_;
-  mojo::SharedRemote<sharing::mojom::FirewallHoleFactory>
-      firewall_hole_factory_;
-  mojo::SharedRemote<sharing::mojom::TcpSocketFactory> tcp_socket_factory_;
 
   std::unique_ptr<ServiceControllerRouter> service_controller_router_;
 
@@ -243,8 +164,6 @@ class NearbyConnections : public mojom::NearbyConnections {
   base::WeakPtrFactory<NearbyConnections> weak_ptr_factory_{this};
 };
 
-}  // namespace connections
-}  // namespace nearby
-}  // namespace location
+}  // namespace nearby::connections
 
 #endif  // CHROME_SERVICES_SHARING_NEARBY_NEARBY_CONNECTIONS_H_

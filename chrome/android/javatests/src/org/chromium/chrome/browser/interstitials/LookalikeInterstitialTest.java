@@ -1,11 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.interstitials;
 
-import android.support.test.InstrumentationRegistry;
-
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.MediumTest;
 
 import org.junit.After;
@@ -53,7 +52,8 @@ public class LookalikeInterstitialTest {
     @Before
     public void setUp() {
         mActivityTestRule.startMainActivityFromLauncher();
-        mServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
+        mServer = EmbeddedTestServer.createAndStartServer(
+                ApplicationProvider.getApplicationContext());
     }
 
     @After

@@ -1,34 +1,48 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/policy/remote_commands/device_command_start_crd_session_job.h"
 
+#include <iomanip>
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/check_deref.h"
+#include "base/feature_list.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
-#include "base/metrics/histogram_macros.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/memory/raw_ref.h"
+#include "base/memory/weak_ptr.h"
+#include "base/metrics/histogram_functions.h"
+#include "base/notreached.h"
+#include "base/strings/string_piece.h"
+#include "base/task/single_thread_task_runner.h"
+#include "base/time/time.h"
 #include "base/values.h"
-#include "chrome/browser/ash/app_mode/arc/arc_kiosk_app_manager.h"
-#include "chrome/browser/ash/app_mode/kiosk_app_manager.h"
-#include "chrome/browser/ash/app_mode/web_app/web_kiosk_app_manager.h"
+#include "build/build_config.h"
 #include "chrome/browser/ash/policy/remote_commands/crd_logging.h"
+#include "chrome/browser/ash/policy/remote_commands/crd_remote_command_utils.h"
+#include "chrome/browser/ash/policy/remote_commands/crd_uma_logger.h"
 #include "chrome/browser/device_identity/device_oauth2_token_service.h"
 #include "chrome/browser/device_identity/device_oauth2_token_service_factory.h"
+#include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/common/pref_names.h"
 #include "components/policy/proto/device_management_backend.pb.h"
-#include "components/user_manager/user_manager.h"
+#include "components/prefs/pref_service.h"
 #include "google_apis/gaia/gaia_constants.h"
 #include "google_apis/gaia/oauth2_access_token_manager.h"
+#include "remoting/host/chromeos/features.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
-#include "ui/base/user_activity/user_activity_detector.h"
 
 namespace policy {
 
 namespace {
+
+using SessionParameters =
+    DeviceCommandStartCrdSessionJob::Delegate::SessionParameters;
 
 // OAuth2 Token scopes
 constexpr char kCloudDevicesOAuth2Scope[] =
@@ -49,6 +63,12 @@ const char kIdlenessCutoffFieldName[] = "idlenessCutoffSec";
 // while a user is currently using the device.
 const char kAckedUserPresenceFieldName[] = "ackedUserPresence";
 
+// The type of CRD session that the admin wants to start.
+const char kCrdSessionTypeFieldName[] = "crdSessionType";
+
+// The admin's email address.
+const char kAdminEmailFieldName[] = "adminEmail";
+
 // Result payload fields:
 
 // Integer value containing DeviceCommandStartCrdSessionJob::ResultCode
@@ -64,19 +84,86 @@ const char kResultMessageFieldName[] = "message";
 // FAILURE_NOT_IDLE result code.
 const char kResultLastActivityFieldName[] = "lastActivitySec";
 
-ash::KioskAppManagerBase* GetKioskAppManagerIfKioskAppIsRunning(
-    const user_manager::UserManager* user_manager) {
-  if (user_manager->IsLoggedInAsKioskApp())
-    return ash::KioskAppManager::Get();
-  if (user_manager->IsLoggedInAsArcKioskApp())
-    return chromeos::ArcKioskAppManager::Get();
-  if (user_manager->IsLoggedInAsWebKioskApp())
-    return ash::WebKioskAppManager::Get();
+absl::optional<std::string> FindString(const base::Value::Dict& dict,
+                                       base::StringPiece key) {
+  if (!dict.contains(key)) {
+    return absl::nullopt;
+  }
+  return *dict.FindString(key);
+}
 
-  return nullptr;
+void SendResultCodeToUma(CrdSessionType crd_session_type,
+                         UserSessionType user_session_type,
+                         ResultCode result_code) {
+  base::UmaHistogramEnumeration("Enterprise.DeviceRemoteCommand.Crd.Result",
+                                result_code);
+
+  CrdUmaLogger(crd_session_type, user_session_type)
+      .LogSessionLaunchResult(result_code);
+}
+
+void SendSessionTypeToUma(
+    DeviceCommandStartCrdSessionJob::UmaSessionType session_type) {
+  base::UmaHistogramEnumeration(
+      "Enterprise.DeviceRemoteCommand.Crd.SessionType", session_type);
+}
+
+std::string CreateSuccessPayload(const std::string& access_code) {
+  return base::WriteJson(base::Value::Dict()
+                             .Set(kResultCodeFieldName,
+                                  static_cast<int>(ResultCode::SUCCESS))
+                             .Set(kResultAccessCodeFieldName, access_code))
+      .value();
+}
+
+std::string CreateNonIdlePayload(const base::TimeDelta& time_delta) {
+  return base::WriteJson(
+             base::Value::Dict()
+                 .Set(kResultCodeFieldName,
+                      static_cast<int>(ResultCode::FAILURE_NOT_IDLE))
+                 .Set(kResultLastActivityFieldName,
+                      static_cast<int>(time_delta.InSeconds())))
+      .value();
+}
+
+std::string CreateErrorPayload(ResultCode result_code,
+                               const std::string& error_message) {
+  DCHECK(result_code != ResultCode::SUCCESS);
+  DCHECK(result_code != ResultCode::FAILURE_NOT_IDLE);
+
+  auto payload = base::Value::Dict()  //
+                     .Set(kResultCodeFieldName, static_cast<int>(result_code));
+  if (!error_message.empty()) {
+    payload.Set(kResultMessageFieldName, error_message);
+  }
+  return base::WriteJson(payload).value();
+}
+
+DeviceOAuth2TokenService& GetOAuthService() {
+  return CHECK_DEREF(DeviceOAuth2TokenServiceFactory::Get());
+}
+
+CrdSessionType ToCrdSessionTypeOrDefault(absl::optional<int> int_value,
+                                         CrdSessionType default_value) {
+  if (!int_value.has_value() ||
+      !enterprise_management::CrdSessionType_IsValid(int_value.value())) {
+    return default_value;
+  }
+  return static_cast<CrdSessionType>(int_value.value());
+}
+
+void OnCrdSessionFinished(CrdSessionType crd_session_type,
+                          UserSessionType user_session_type,
+                          base::TimeDelta session_duration) {
+  CrdUmaLogger(crd_session_type, user_session_type)
+      .LogSessionDuration(session_duration);
 }
 
 }  // namespace
+
+////////////////////////////////////////////////////////////////////////////////
+// OAuthTokenFetcher
+////////////////////////////////////////////////////////////////////////////////
 
 // Helper class that asynchronously fetches the OAuth token, and passes it to
 // the given callback.
@@ -107,10 +194,8 @@ class DeviceCommandStartCrdSessionJob::OAuthTokenFetcher
     OAuth2AccessTokenManager::ScopeSet scopes{
         GaiaConstants::kGoogleUserInfoEmail, kCloudDevicesOAuth2Scope,
         kChromotingRemoteSupportOAuth2Scope, kTachyonOAuth2Scope};
-    oauth_request_ = oauth_service_.StartAccessTokenRequest(scopes, this);
+    oauth_request_ = oauth_service_->StartAccessTokenRequest(scopes, this);
   }
-
-  bool is_running() const { return oauth_request_ != nullptr; }
 
  private:
   // OAuth2AccessTokenManager::Consumer implementation:
@@ -127,11 +212,10 @@ class DeviceCommandStartCrdSessionJob::OAuthTokenFetcher
     CRD_DVLOG(1) << "Failed to get OAuth access token: " << error.ToString();
     oauth_request_.reset();
     std::move(error_callback_)
-        .Run(DeviceCommandStartCrdSessionJob::FAILURE_NO_OAUTH_TOKEN,
-             error.ToString());
+        .Run(ResultCode::FAILURE_NO_OAUTH_TOKEN, error.ToString());
   }
 
-  DeviceOAuth2TokenService& oauth_service_;
+  const raw_ref<DeviceOAuth2TokenService, ExperimentalAsh> oauth_service_;
   absl::optional<std::string> oauth_token_for_test_;
   DeviceCommandStartCrdSessionJob::OAuthTokenCallback success_callback_;
   DeviceCommandStartCrdSessionJob::ErrorCallback error_callback_;
@@ -140,79 +224,22 @@ class DeviceCommandStartCrdSessionJob::OAuthTokenFetcher
   std::unique_ptr<OAuth2AccessTokenManager::Request> oauth_request_;
 };
 
-class DeviceCommandStartCrdSessionJob::ResultPayload
-    : public RemoteCommandJob::ResultPayload {
- public:
-  ResultPayload(ResultCode result_code,
-                const absl::optional<std::string>& access_code,
-                const absl::optional<base::TimeDelta>& time_delta,
-                const absl::optional<std::string>& error_message);
-  ~ResultPayload() override = default;
+////////////////////////////////////////////////////////////////////////////////
+// DeviceCommandStartCrdSessionJob::Delegate::SessionParameters
+////////////////////////////////////////////////////////////////////////////////
 
-  static std::unique_ptr<ResultPayload> CreateSuccessPayload(
-      const std::string& access_code);
-  static std::unique_ptr<ResultPayload> CreateNonIdlePayload(
-      const base::TimeDelta& time_delta);
-  static std::unique_ptr<ResultPayload> CreateErrorPayload(
-      ResultCode result_code,
-      const std::string& error_message);
+SessionParameters::SessionParameters() = default;
+SessionParameters::~SessionParameters() = default;
 
-  // RemoteCommandJob::ResultPayload:
-  std::unique_ptr<std::string> Serialize() override;
+SessionParameters::SessionParameters(const SessionParameters&) = default;
+SessionParameters& SessionParameters::operator=(const SessionParameters&) =
+    default;
+SessionParameters::SessionParameters(SessionParameters&&) = default;
+SessionParameters& SessionParameters::operator=(SessionParameters&&) = default;
 
- private:
-  std::string payload_;
-};
-
-DeviceCommandStartCrdSessionJob::ResultPayload::ResultPayload(
-    ResultCode result_code,
-    const absl::optional<std::string>& access_code,
-    const absl::optional<base::TimeDelta>& time_delta,
-    const absl::optional<std::string>& error_message) {
-  base::Value value(base::Value::Type::DICTIONARY);
-  value.SetIntKey(kResultCodeFieldName, result_code);
-  if (error_message && !error_message.value().empty())
-    value.SetStringKey(kResultMessageFieldName, error_message.value());
-  if (access_code)
-    value.SetStringKey(kResultAccessCodeFieldName, access_code.value());
-  if (time_delta) {
-    value.SetIntKey(kResultLastActivityFieldName,
-                    static_cast<int>(time_delta.value().InSeconds()));
-  }
-  base::JSONWriter::Write(value, &payload_);
-}
-
-std::unique_ptr<DeviceCommandStartCrdSessionJob::ResultPayload>
-DeviceCommandStartCrdSessionJob::ResultPayload::CreateSuccessPayload(
-    const std::string& access_code) {
-  return std::make_unique<ResultPayload>(ResultCode::SUCCESS, access_code,
-                                         /*time_delta=*/absl::nullopt,
-                                         /*error_message=*/absl::nullopt);
-}
-
-std::unique_ptr<DeviceCommandStartCrdSessionJob::ResultPayload>
-DeviceCommandStartCrdSessionJob::ResultPayload::CreateNonIdlePayload(
-    const base::TimeDelta& time_delta) {
-  return std::make_unique<ResultPayload>(
-      ResultCode::FAILURE_NOT_IDLE, /*access_code=*/absl::nullopt, time_delta,
-      /*error_message/*/ absl::nullopt);
-}
-
-std::unique_ptr<DeviceCommandStartCrdSessionJob::ResultPayload>
-DeviceCommandStartCrdSessionJob::ResultPayload::CreateErrorPayload(
-    ResultCode result_code,
-    const std::string& error_message) {
-  DCHECK(result_code != ResultCode::SUCCESS);
-  DCHECK(result_code != ResultCode::FAILURE_NOT_IDLE);
-  return std::make_unique<ResultPayload>(
-      result_code, /*access_code=*/absl::nullopt,
-      /*time_delta=*/absl::nullopt, error_message);
-}
-
-std::unique_ptr<std::string>
-DeviceCommandStartCrdSessionJob::ResultPayload::Serialize() {
-  return std::make_unique<std::string>(payload_);
-}
+////////////////////////////////////////////////////////////////////////////////
+// DeviceCommandStartCrdSessionJob
+////////////////////////////////////////////////////////////////////////////////
 
 DeviceCommandStartCrdSessionJob::DeviceCommandStartCrdSessionJob(
     Delegate* crd_host_delegate)
@@ -224,7 +251,7 @@ DeviceCommandStartCrdSessionJob::~DeviceCommandStartCrdSessionJob() = default;
 
 enterprise_management::RemoteCommand_Type
 DeviceCommandStartCrdSessionJob::GetType() const {
-  return enterprise_management::RemoteCommand_Type_DEVICE_START_CRD_SESSION;
+  return enterprise_management::RemoteCommand::DEVICE_START_CRD_SESSION;
 }
 
 void DeviceCommandStartCrdSessionJob::SetOAuthTokenForTest(
@@ -235,125 +262,44 @@ void DeviceCommandStartCrdSessionJob::SetOAuthTokenForTest(
 bool DeviceCommandStartCrdSessionJob::ParseCommandPayload(
     const std::string& command_payload) {
   absl::optional<base::Value> root(base::JSONReader::Read(command_payload));
-  if (!root)
+  if (!root || !root->is_dict()) {
+    LOG(WARNING) << "Rejecting remote command with invalid payload: "
+                 << std::quoted(command_payload);
     return false;
-  if (!root->is_dict())
-    return false;
+  }
+  CRD_DVLOG(1) << "Received remote command with payload "
+               << std::quoted(command_payload);
+
+  const base::Value::Dict& root_dict = root->GetDict();
 
   idleness_cutoff_ =
-      base::Seconds(root->FindIntKey(kIdlenessCutoffFieldName).value_or(0));
+      base::Seconds(root_dict.FindInt(kIdlenessCutoffFieldName).value_or(0));
 
   acked_user_presence_ =
-      root->FindBoolKey(kAckedUserPresenceFieldName).value_or(false);
+      root_dict.FindBool(kAckedUserPresenceFieldName).value_or(false);
+
+  CrdSessionType crd_session_type =
+      ToCrdSessionTypeOrDefault(root_dict.FindInt(kCrdSessionTypeFieldName),
+                                CrdSessionType::REMOTE_SUPPORT_SESSION);
+
+  admin_email_ = FindString(root_dict, kAdminEmailFieldName);
+
+  curtain_local_user_session_ =
+      (crd_session_type == CrdSessionType::REMOTE_ACCESS_SESSION);
+
+  if (curtain_local_user_session_ &&
+      !base::FeatureList::IsEnabled(
+          remoting::features::kEnableCrdAdminRemoteAccess)) {
+    LOG(WARNING) << "Rejecting CRD session type as CRD remote access feature "
+                    "is not enabled";
+    return false;
+  }
 
   return true;
 }
 
-bool DeviceCommandStartCrdSessionJob::AreServicesReady() const {
-  return user_manager::UserManager::IsInitialized() &&
-         ui::UserActivityDetector::Get() != nullptr &&
-         oauth_service() != nullptr;
-}
-
-bool DeviceCommandStartCrdSessionJob::UserTypeSupportsCrd() const {
-  const UserType current_user_type = GetUserType();
-
-  CRD_DVLOG(2) << "User is of type " << UserTypeToString(current_user_type);
-
-  switch (current_user_type) {
-    case UserType::kAffiliatedUser:
-    case UserType::kAutoLaunchedKiosk:
-    case UserType::kManagedGuestSession:
-      return true;
-    case UserType::kNoUser:
-    case UserType::kNonAutoLaunchedKiosk:
-    case UserType::kOther:
-      return false;
-  }
-  NOTREACHED();
-  return false;
-}
-
-DeviceCommandStartCrdSessionJob::UserType
-DeviceCommandStartCrdSessionJob::GetUserType() const {
-  const auto* user_manager = user_manager::UserManager::Get();
-
-  if (!user_manager->IsUserLoggedIn())
-    return UserType::kNoUser;
-
-  if (user_manager->IsLoggedInAsAnyKioskApp()) {
-    if (IsRunningAutoLaunchedKiosk())
-      return UserType::kAutoLaunchedKiosk;
-    else
-      return UserType::kNonAutoLaunchedKiosk;
-  }
-
-  if (user_manager->IsLoggedInAsPublicAccount())
-    return UserType::kManagedGuestSession;
-
-  if (user_manager->GetActiveUser()->IsAffiliated())
-    return UserType::kAffiliatedUser;
-
-  return UserType::kOther;
-}
-
-bool DeviceCommandStartCrdSessionJob::IsRunningAutoLaunchedKiosk() const {
-  const auto* user_manager = user_manager::UserManager::Get();
-  const auto* kiosk_app_manager =
-      GetKioskAppManagerIfKioskAppIsRunning(user_manager);
-
-  if (!kiosk_app_manager)
-    return false;
-  return kiosk_app_manager->current_app_was_auto_launched_with_zero_delay();
-}
-
-bool DeviceCommandStartCrdSessionJob::IsDeviceIdle() const {
-  return GetDeviceIdlenessPeriod() >= idleness_cutoff_;
-}
-
-base::TimeDelta DeviceCommandStartCrdSessionJob::GetDeviceIdlenessPeriod()
-    const {
-  return base::TimeTicks::Now() -
-         ui::UserActivityDetector::Get()->last_activity_time();
-}
-
-void DeviceCommandStartCrdSessionJob::FetchOAuthTokenASync(
-    OAuthTokenCallback on_success,
-    ErrorCallback on_error) {
-  DCHECK(!oauth_token_fetcher_ || !oauth_token_fetcher_->is_running());
-  DCHECK(oauth_service());
-
-  oauth_token_fetcher_ = std::make_unique<OAuthTokenFetcher>(
-      *oauth_service(), std::move(oauth_token_for_test_), std::move(on_success),
-      std::move(on_error));
-  oauth_token_fetcher_->Start();
-}
-
-void DeviceCommandStartCrdSessionJob::FinishWithError(
-    const ResultCode result_code,
-    const std::string& message) {
-  CRD_LOG(INFO) << "Not starting CRD session because of error (code "
-                << result_code << ", message '" << message << "')";
-  DCHECK(result_code != ResultCode::SUCCESS);
-  if (!failed_callback_)
-    return;  // Task was terminated.
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE,
-      base::BindOnce(std::move(failed_callback_),
-                     ResultPayload::CreateErrorPayload(result_code, message)));
-}
-
-void DeviceCommandStartCrdSessionJob::FinishWithNotIdleError() {
-  CRD_LOG(INFO) << "Not starting CRD session because device is not idle";
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::BindOnce(std::move(failed_callback_),
-                                ResultPayload::CreateNonIdlePayload(
-                                    GetDeviceIdlenessPeriod())));
-}
-
 void DeviceCommandStartCrdSessionJob::RunImpl(
-    CallbackWithResult succeeded_callback,
-    CallbackWithResult failed_callback) {
+    CallbackWithResult result_callback) {
   CRD_LOG(INFO) << "Running start CRD session command";
 
   if (delegate_->HasActiveSession()) {
@@ -361,20 +307,14 @@ void DeviceCommandStartCrdSessionJob::RunImpl(
     terminate_session_attempted_ = true;
 
     CRD_DVLOG(1) << "Terminating active session";
-    delegate_->TerminateSession(base::BindOnce(
-        &DeviceCommandStartCrdSessionJob::RunImpl, weak_factory_.GetWeakPtr(),
-        std::move(succeeded_callback), std::move(failed_callback)));
+    delegate_->TerminateSession(
+        base::BindOnce(&DeviceCommandStartCrdSessionJob::RunImpl,
+                       weak_factory_.GetWeakPtr(), std::move(result_callback)));
     return;
   }
   terminate_session_attempted_ = false;
 
-  failed_callback_ = std::move(failed_callback);
-  succeeded_callback_ = std::move(succeeded_callback);
-
-  if (!AreServicesReady()) {
-    FinishWithError(ResultCode::FAILURE_SERVICES_NOT_READY, "");
-    return;
-  }
+  result_callback_ = std::move(result_callback);
 
   if (!UserTypeSupportsCrd()) {
     FinishWithError(ResultCode::FAILURE_UNSUPPORTED_USER_TYPE, "");
@@ -386,45 +326,167 @@ void DeviceCommandStartCrdSessionJob::RunImpl(
     return;
   }
 
-  FetchOAuthTokenASync(
-      /*on_success=*/base::BindOnce(
-          &DeviceCommandStartCrdSessionJob::OnOAuthTokenReceived,
-          weak_factory_.GetWeakPtr()),
-      /*on_error=*/base::BindOnce(
-          &DeviceCommandStartCrdSessionJob::FinishWithError,
-          weak_factory_.GetWeakPtr()));
+  // First perform managed network check,
+  CheckManagedNetworkASync(
+      // Then fetch the OAuth token
+      base::BindOnce(
+          &DeviceCommandStartCrdSessionJob::FetchOAuthTokenASync,
+          weak_factory_.GetWeakPtr(),
+          // And finally start the CRD host.
+          base::BindOnce(
+              &DeviceCommandStartCrdSessionJob::StartCrdHostAndGetCode,
+              weak_factory_.GetWeakPtr())));
 }
 
-void DeviceCommandStartCrdSessionJob::OnOAuthTokenReceived(
+void DeviceCommandStartCrdSessionJob::CheckManagedNetworkASync(
+    base::OnceClosure on_success) {
+  if (!curtain_local_user_session_) {
+    // No need to check for managed networks if we are not going to curtain
+    // off the local session.
+    std::move(on_success).Run();
+    return;
+  }
+
+  CalculateIsInManagedEnvironmentAsync(base::BindOnce(
+      [](base::OnceClosure on_success, ErrorCallback on_error,
+         bool is_in_managed_environment) {
+        if (is_in_managed_environment) {
+          std::move(on_success).Run();
+        } else {
+          std::move(on_error).Run(ResultCode::FAILURE_UNMANAGED_ENVIRONMENT,
+                                  /*error_messages=*/"");
+        }
+      },
+      std::move(on_success), GetErrorCallback()));
+}
+
+void DeviceCommandStartCrdSessionJob::FetchOAuthTokenASync(
+    OAuthTokenCallback on_success) {
+  DCHECK_EQ(oauth_token_fetcher_, nullptr);
+
+  oauth_token_fetcher_ = std::make_unique<OAuthTokenFetcher>(
+      GetOAuthService(), std::move(oauth_token_for_test_),
+      std::move(on_success), GetErrorCallback());
+  oauth_token_fetcher_->Start();
+}
+
+void DeviceCommandStartCrdSessionJob::StartCrdHostAndGetCode(
     const std::string& token) {
   CRD_DVLOG(1) << "Received OAuth token, now retrieving CRD access code";
-  Delegate::SessionParameters parameters{
-      /*oauth_token=*/token,
-      /*user_name=*/GetRobotAccountUserName(),
-      /*terminate_upon_input=*/ShouldTerminateUponInput(),
-      /*show_confirmation_dialog=*/ShouldShowConfirmationDialog()};
+  SessionParameters parameters;
+  parameters.oauth_token = token;
+  parameters.user_name = GetRobotAccountUserName();
+  parameters.terminate_upon_input = ShouldTerminateUponInput();
+  parameters.show_confirmation_dialog = ShouldShowConfirmationDialog();
+  parameters.curtain_local_user_session = curtain_local_user_session_;
+  parameters.admin_email = admin_email_;
+  parameters.allow_troubleshooting_tools = ShouldAllowTroubleshootingTools();
+
   delegate_->StartCrdHostAndGetCode(
       parameters,
-      base::BindOnce(&DeviceCommandStartCrdSessionJob::OnAccessCodeReceived,
+      base::BindOnce(&DeviceCommandStartCrdSessionJob::FinishWithSuccess,
                      weak_factory_.GetWeakPtr()),
       base::BindOnce(&DeviceCommandStartCrdSessionJob::FinishWithError,
-                     weak_factory_.GetWeakPtr()));
+                     weak_factory_.GetWeakPtr()),
+      base::BindOnce(&OnCrdSessionFinished, GetCrdSessionType(),
+                     GetCurrentUserSessionType()));
 }
 
-void DeviceCommandStartCrdSessionJob::OnAccessCodeReceived(
+void DeviceCommandStartCrdSessionJob::FinishWithSuccess(
     const std::string& access_code) {
-  if (!succeeded_callback_)
-    return;  // Task was terminated.
-
   CRD_LOG(INFO) << "Successfully received CRD access code";
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  if (!result_callback_) {
+    return;  // Task was terminated.
+  }
+
+  SendResultCodeToUma(GetCrdSessionType(), GetCurrentUserSessionType(),
+                      ResultCode::SUCCESS);
+  SendSessionTypeToUma(GetUmaSessionType());
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
-      base::BindOnce(std::move(succeeded_callback_),
-                     ResultPayload::CreateSuccessPayload(access_code)));
+      base::BindOnce(std::move(result_callback_), ResultType::kSuccess,
+                     CreateSuccessPayload(access_code)));
+}
+
+void DeviceCommandStartCrdSessionJob::FinishWithError(
+    const ResultCode result_code,
+    const std::string& message) {
+  DCHECK(result_code != ResultCode::SUCCESS);
+  CRD_LOG(INFO) << "Not starting CRD session because of error (code "
+                << static_cast<int>(result_code) << ", message '" << message
+                << "')";
+  if (!result_callback_) {
+    return;  // Task was terminated.
+  }
+
+  SendResultCodeToUma(GetCrdSessionType(), GetCurrentUserSessionType(),
+                      result_code);
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE,
+      base::BindOnce(std::move(result_callback_), ResultType::kFailure,
+                     CreateErrorPayload(result_code, message)));
+}
+
+void DeviceCommandStartCrdSessionJob::FinishWithNotIdleError() {
+  CRD_LOG(INFO) << "Not starting CRD session because device is not idle";
+  if (!result_callback_) {
+    return;  // Task was terminated.
+  }
+
+  SendResultCodeToUma(GetCrdSessionType(), GetCurrentUserSessionType(),
+                      ResultCode::FAILURE_NOT_IDLE);
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE,
+      base::BindOnce(std::move(result_callback_), ResultType::kFailure,
+                     CreateNonIdlePayload(GetDeviceIdleTime())));
+}
+
+bool DeviceCommandStartCrdSessionJob::UserTypeSupportsCrd() const {
+  CRD_DVLOG(2) << "User is of type "
+               << UserSessionTypeToString(GetCurrentUserSessionType());
+
+  if (curtain_local_user_session_) {
+    return UserSessionSupportsRemoteAccess(GetCurrentUserSessionType());
+  } else {
+    return UserSessionSupportsRemoteSupport(GetCurrentUserSessionType());
+  }
+}
+
+CrdSessionType DeviceCommandStartCrdSessionJob::GetCrdSessionType() const {
+  if (curtain_local_user_session_) {
+    return CrdSessionType::REMOTE_ACCESS_SESSION;
+  }
+  return CrdSessionType::REMOTE_SUPPORT_SESSION;
+}
+
+DeviceCommandStartCrdSessionJob::UmaSessionType
+DeviceCommandStartCrdSessionJob::GetUmaSessionType() const {
+  switch (GetCurrentUserSessionType()) {
+    case UserSessionType::AUTO_LAUNCHED_KIOSK_SESSION:
+      return UmaSessionType::kAutoLaunchedKiosk;
+    case UserSessionType::AFFILIATED_USER_SESSION:
+      return UmaSessionType::kAffiliatedUser;
+    case UserSessionType::MANAGED_GUEST_SESSION:
+      return UmaSessionType::kManagedGuestSession;
+    case UserSessionType::MANUALLY_LAUNCHED_KIOSK_SESSION:
+      return UmaSessionType::kManuallyLaunchedKiosk;
+    case UserSessionType::NO_SESSION:
+      // TODO(b/236689277): Introduce UmaSessionType::kNoLocalUser.
+      return UmaSessionType::kMaxValue;
+    case UserSessionType::UNAFFILIATED_USER_SESSION:
+    case UserSessionType::GUEST_SESSION:
+    case UserSessionType::USER_SESSION_TYPE_UNKNOWN:
+      NOTREACHED();
+      return UmaSessionType::kMaxValue;
+  }
+}
+
+bool DeviceCommandStartCrdSessionJob::IsDeviceIdle() const {
+  return GetDeviceIdleTime() >= idleness_cutoff_;
 }
 
 std::string DeviceCommandStartCrdSessionJob::GetRobotAccountUserName() const {
-  CoreAccountId account_id = oauth_service()->GetRobotAccountId();
+  CoreAccountId account_id = GetOAuthService().GetRobotAccountId();
 
   // TODO(msarda): This conversion will not be correct once account id is
   // migrated to be the Gaia ID on ChromeOS. Fix it.
@@ -432,24 +494,32 @@ std::string DeviceCommandStartCrdSessionJob::GetRobotAccountUserName() const {
 }
 
 bool DeviceCommandStartCrdSessionJob::ShouldShowConfirmationDialog() const {
-  switch (GetUserType()) {
-    case UserType::kAffiliatedUser:
-    case UserType::kManagedGuestSession:
-      return true;
-    case UserType::kAutoLaunchedKiosk:
-    case UserType::kNoUser:
-    case UserType::kNonAutoLaunchedKiosk:
-    case UserType::kOther:
+  switch (GetCurrentUserSessionType()) {
+    case UserSessionType::AUTO_LAUNCHED_KIOSK_SESSION:
+    case UserSessionType::MANUALLY_LAUNCHED_KIOSK_SESSION:
+    case UserSessionType::NO_SESSION:
       return false;
+
+    case UserSessionType::AFFILIATED_USER_SESSION:
+    case UserSessionType::MANAGED_GUEST_SESSION:
+    case UserSessionType::UNAFFILIATED_USER_SESSION:
+    case UserSessionType::GUEST_SESSION:
+      return true;
+
+    case UserSessionType::USER_SESSION_TYPE_UNKNOWN:
+      NOTREACHED();
+      return true;
   }
-  NOTREACHED();
-  return false;
 }
 
 bool DeviceCommandStartCrdSessionJob::ShouldTerminateUponInput() const {
-  switch (GetUserType()) {
-    case UserType::kAffiliatedUser:
-    case UserType::kManagedGuestSession:
+  if (curtain_local_user_session_) {
+    return false;
+  }
+
+  switch (GetCurrentUserSessionType()) {
+    case UserSessionType::AFFILIATED_USER_SESSION:
+    case UserSessionType::MANAGED_GUEST_SESSION:
       // We never terminate upon input for the user-session scenarios, because:
       //   1. There is no risk of the admin spying on the users, as they need to
       //       explicitly accept the connection request.
@@ -458,65 +528,44 @@ bool DeviceCommandStartCrdSessionJob::ShouldTerminateUponInput() const {
       //      as pressing the button to accept the connection request counts as
       //      user input.
       return false;
-    case UserType::kAutoLaunchedKiosk:
+
+    case UserSessionType::AUTO_LAUNCHED_KIOSK_SESSION:
+    case UserSessionType::MANUALLY_LAUNCHED_KIOSK_SESSION:
       return !acked_user_presence_;
-    case UserType::kNoUser:
-    case UserType::kNonAutoLaunchedKiosk:
-    case UserType::kOther:
-      // This method will only be called for user types for which we support
-      // CRD sessions.
-      NOTREACHED();
-      return false;
-  }
-  NOTREACHED();
-  return false;
-}
 
-bool DeviceCommandStartCrdSessionJob::ShouldUseEnterpriseUserDialog() const {
-  switch (GetUserType()) {
-    case UserType::kAffiliatedUser:
-    case UserType::kManagedGuestSession:
+    case UserSessionType::NO_SESSION:
+    case UserSessionType::UNAFFILIATED_USER_SESSION:
+    case UserSessionType::GUEST_SESSION:
       return true;
-    case UserType::kAutoLaunchedKiosk:
-    case UserType::kNoUser:
-    case UserType::kNonAutoLaunchedKiosk:
-    case UserType::kOther:
-      return false;
+
+    case UserSessionType::USER_SESSION_TYPE_UNKNOWN:
+      NOTREACHED();
+      return true;
   }
-  NOTREACHED();
-  return false;
 }
 
-DeviceOAuth2TokenService* DeviceCommandStartCrdSessionJob::oauth_service()
-    const {
-  return DeviceOAuth2TokenServiceFactory::Get();
+bool DeviceCommandStartCrdSessionJob::ShouldAllowTroubleshootingTools() const {
+  if (GetCurrentUserSessionType() !=
+          UserSessionType::AUTO_LAUNCHED_KIOSK_SESSION &&
+      GetCurrentUserSessionType() !=
+          UserSessionType::MANUALLY_LAUNCHED_KIOSK_SESSION) {
+    return false;
+  }
+  auto* prefs = ProfileManager::GetActiveUserProfile()->GetPrefs();
+  CHECK(prefs);
+  return prefs->GetBoolean(prefs::kKioskTroubleshootingToolsEnabled);
+}
+
+DeviceCommandStartCrdSessionJob::ErrorCallback
+DeviceCommandStartCrdSessionJob::GetErrorCallback() {
+  return base::BindOnce(&DeviceCommandStartCrdSessionJob::FinishWithError,
+                        weak_factory_.GetWeakPtr());
 }
 
 void DeviceCommandStartCrdSessionJob::TerminateImpl() {
-  succeeded_callback_.Reset();
-  failed_callback_.Reset();
+  result_callback_.Reset();
   weak_factory_.InvalidateWeakPtrs();
   delegate_->TerminateSession(base::OnceClosure());
-}
-
-const char* DeviceCommandStartCrdSessionJob::UserTypeToString(
-    UserType value) const {
-  switch (value) {
-    case UserType::kAutoLaunchedKiosk:
-      return "kAutoLaunchedKiosk";
-    case UserType::kNonAutoLaunchedKiosk:
-      return "kNonAutoLaunchedKiosk";
-    case UserType::kNoUser:
-      return "kNoUser";
-    case UserType::kAffiliatedUser:
-      return "kAffiliatedUser";
-    case UserType::kManagedGuestSession:
-      return "kManagedGuestSession";
-    case UserType::kOther:
-      return "kOther";
-  }
-  NOTREACHED();
-  return "<invalid user type>";
 }
 
 }  // namespace policy

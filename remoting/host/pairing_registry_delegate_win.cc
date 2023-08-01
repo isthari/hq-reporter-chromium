@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "base/win/registry.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 #include <windows.h>
 
@@ -40,15 +41,15 @@ bool DuplicateKeyHandle(HKEY source, base::win::RegKey* dest) {
 
 // Reads value |value_name| from |key| as a JSON string and returns it as
 // |base::Value|.
-std::unique_ptr<base::DictionaryValue> ReadValue(const base::win::RegKey& key,
-                                                 const wchar_t* value_name) {
+absl::optional<base::Value::Dict> ReadValue(const base::win::RegKey& key,
+                                            const wchar_t* value_name) {
   // presubmit: allow wstring
   std::wstring value_json;
   LONG result = key.ReadValue(value_name, &value_json);
   if (result != ERROR_SUCCESS) {
     SetLastError(result);
     PLOG(ERROR) << "Cannot read value '" << value_name << "'";
-    return nullptr;
+    return absl::nullopt;
   }
 
   // Parse the value.
@@ -61,25 +62,25 @@ std::unique_ptr<base::DictionaryValue> ReadValue(const base::win::RegKey& key,
   if (!value) {
     LOG(ERROR) << "Failed to parse '" << value_name << "': " << error_message
                << " (" << error_code << ").";
-    return nullptr;
+    return absl::nullopt;
   }
 
   if (!value->is_dict()) {
     LOG(ERROR) << "Failed to parse '" << value_name << "': not a dictionary.";
-    return nullptr;
+    return absl::nullopt;
   }
 
-  return base::DictionaryValue::From(std::move(value));
+  return std::move(*value).TakeDict();
 }
 
 // Serializes |value| into a JSON string and writes it as value |value_name|
 // under |key|.
 bool WriteValue(base::win::RegKey& key,
                 const wchar_t* value_name,
-                std::unique_ptr<base::DictionaryValue> value) {
+                const base::Value::Dict& value) {
   std::string value_json_utf8;
   JSONStringValueSerializer serializer(&value_json_utf8);
-  if (!serializer.Serialize(*value)) {
+  if (!serializer.Serialize(value)) {
     LOG(ERROR) << "Failed to serialize '" << value_name << "'";
     return false;
   }
@@ -100,11 +101,9 @@ bool WriteValue(base::win::RegKey& key,
 
 using protocol::PairingRegistry;
 
-PairingRegistryDelegateWin::PairingRegistryDelegateWin() {
-}
+PairingRegistryDelegateWin::PairingRegistryDelegateWin() {}
 
-PairingRegistryDelegateWin::~PairingRegistryDelegateWin() {
-}
+PairingRegistryDelegateWin::~PairingRegistryDelegateWin() {}
 
 bool PairingRegistryDelegateWin::SetRootKeys(HKEY privileged,
                                              HKEY unprivileged) {
@@ -112,19 +111,21 @@ bool PairingRegistryDelegateWin::SetRootKeys(HKEY privileged,
   DCHECK(!unprivileged_.Valid());
   DCHECK(unprivileged);
 
-  if (!DuplicateKeyHandle(unprivileged, &unprivileged_))
+  if (!DuplicateKeyHandle(unprivileged, &unprivileged_)) {
     return false;
+  }
 
   if (privileged) {
-    if (!DuplicateKeyHandle(privileged, &privileged_))
+    if (!DuplicateKeyHandle(privileged, &privileged_)) {
       return false;
+    }
   }
 
   return true;
 }
 
-std::unique_ptr<base::ListValue> PairingRegistryDelegateWin::LoadAll() {
-  std::unique_ptr<base::ListValue> pairings(new base::ListValue());
+base::Value::List PairingRegistryDelegateWin::LoadAll() {
+  base::Value::List pairings;
 
   // Enumerate and parse all values under the unprivileged key.
   DWORD count = unprivileged_.GetValueCount();
@@ -139,8 +140,9 @@ std::unique_ptr<base::ListValue> PairingRegistryDelegateWin::LoadAll() {
     }
 
     PairingRegistry::Pairing pairing = Load(base::WideToUTF8(value_name));
-    if (pairing.is_valid())
-      pairings->Append(pairing.ToValue());
+    if (pairing.is_valid()) {
+      pairings.Append(pairing.ToValue());
+    }
   }
 
   return pairings;
@@ -160,8 +162,9 @@ bool PairingRegistryDelegateWin::DeleteAll() {
     // presubmit: allow wstring
     std::wstring value_name;
     LONG result = unprivileged_.GetValueNameAt(0, &value_name);
-    if (result == ERROR_SUCCESS)
+    if (result == ERROR_SUCCESS) {
       result = unprivileged_.DeleteValue(value_name.c_str());
+    }
 
     success = success && (result == ERROR_SUCCESS);
     count = unprivileged_.GetValueCount();
@@ -172,8 +175,9 @@ bool PairingRegistryDelegateWin::DeleteAll() {
     // presubmit: allow wstring
     std::wstring value_name;
     LONG result = privileged_.GetValueNameAt(0, &value_name);
-    if (result == ERROR_SUCCESS)
+    if (result == ERROR_SUCCESS) {
       result = privileged_.DeleteValue(value_name.c_str());
+    }
 
     success = success && (result == ERROR_SUCCESS);
     count = privileged_.GetValueCount();
@@ -188,20 +192,22 @@ PairingRegistry::Pairing PairingRegistryDelegateWin::Load(
   std::wstring value_name = base::UTF8ToWide(client_id);
 
   // Read unprivileged fields first.
-  std::unique_ptr<base::DictionaryValue> pairing =
+  absl::optional<base::Value::Dict> pairing =
       ReadValue(unprivileged_, value_name.c_str());
-  if (!pairing)
+  if (!pairing) {
     return PairingRegistry::Pairing();
+  }
 
   // Read the shared secret.
   if (privileged_.Valid()) {
-    std::unique_ptr<base::DictionaryValue> secret =
+    absl::optional<base::Value::Dict> secret =
         ReadValue(privileged_, value_name.c_str());
-    if (!secret)
+    if (!secret) {
       return PairingRegistry::Pairing();
+    }
 
     // Merge the two dictionaries.
-    pairing->MergeDictionary(secret.get());
+    pairing->Merge(std::move(*secret));
   }
 
   return PairingRegistry::Pairing::CreateFromValue(*pairing);
@@ -210,21 +216,19 @@ PairingRegistry::Pairing PairingRegistryDelegateWin::Load(
 bool PairingRegistryDelegateWin::Save(const PairingRegistry::Pairing& pairing) {
   if (!privileged_.Valid()) {
     LOG(ERROR) << "Cannot save pairing entry '" << pairing.client_id()
-                << "': the pairing registry privileged key is invalid.";
+               << "': the pairing registry privileged key is invalid.";
     return false;
   }
 
   // Convert pairing to JSON.
-  std::unique_ptr<base::DictionaryValue> pairing_json = pairing.ToValue();
+  base::Value::Dict pairing_json = pairing.ToValue();
 
   // Extract the shared secret to a separate dictionary.
   absl::optional<base::Value> secret_key =
-      pairing_json->ExtractKey(PairingRegistry::kSharedSecretKey);
+      pairing_json.Extract(PairingRegistry::kSharedSecretKey);
   CHECK(secret_key.has_value());
-  std::unique_ptr<base::DictionaryValue> secret_json(
-      new base::DictionaryValue());
-  secret_json->SetKey(PairingRegistry::kSharedSecretKey,
-                      std::move(*secret_key));
+  base::Value::Dict secret_json;
+  secret_json.Set(PairingRegistry::kSharedSecretKey, std::move(*secret_key));
 
   // presubmit: allow wstring
   std::wstring value_name = base::UTF8ToWide(pairing.client_id());
@@ -241,15 +245,14 @@ bool PairingRegistryDelegateWin::Save(const PairingRegistry::Pairing& pairing) {
 bool PairingRegistryDelegateWin::Delete(const std::string& client_id) {
   if (!privileged_.Valid()) {
     LOG(ERROR) << "Cannot delete pairing entry '" << client_id
-                << "': the delegate is read-only.";
+               << "': the delegate is read-only.";
     return false;
   }
 
   // presubmit: allow wstring
   std::wstring value_name = base::UTF8ToWide(client_id);
   LONG result = privileged_.DeleteValue(value_name.c_str());
-  if (result != ERROR_SUCCESS &&
-      result != ERROR_FILE_NOT_FOUND &&
+  if (result != ERROR_SUCCESS && result != ERROR_FILE_NOT_FOUND &&
       result != ERROR_PATH_NOT_FOUND) {
     SetLastError(result);
     PLOG(ERROR) << "Cannot delete pairing entry '" << client_id << "'";
@@ -257,8 +260,7 @@ bool PairingRegistryDelegateWin::Delete(const std::string& client_id) {
   }
 
   result = unprivileged_.DeleteValue(value_name.c_str());
-  if (result != ERROR_SUCCESS &&
-      result != ERROR_FILE_NOT_FOUND &&
+  if (result != ERROR_SUCCESS && result != ERROR_FILE_NOT_FOUND &&
       result != ERROR_PATH_NOT_FOUND) {
     SetLastError(result);
     PLOG(ERROR) << "Cannot delete pairing entry '" << client_id << "'";

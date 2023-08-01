@@ -1,18 +1,20 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/web/session_state/web_session_state_cache_factory.h"
 
-#include "base/bind.h"
-#include "base/logging.h"
-#include "base/memory/ptr_util.h"
-#include "base/no_destructor.h"
-#include "components/keyed_service/core/keyed_service.h"
-#include "components/keyed_service/ios/browser_state_dependency_manager.h"
-#include "ios/chrome/browser/browser_state/browser_state_otr_helper.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#import "ios/chrome/browser/main/all_web_state_list_observation_registrar.h"
+#import "base/functional/bind.h"
+#import "base/logging.h"
+#import "base/memory/ptr_util.h"
+#import "base/no_destructor.h"
+#import "components/keyed_service/core/keyed_service.h"
+#import "components/keyed_service/ios/browser_state_dependency_manager.h"
+#import "ios/chrome/browser/shared/model/browser/all_web_state_list_observation_registrar.h"
+#import "ios/chrome/browser/shared/model/browser/browser_list_factory.h"
+#import "ios/chrome/browser/shared/model/browser_state/browser_state_otr_helper.h"
+#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/web/features.h"
 #import "ios/chrome/browser/web/session_state/web_session_state_cache.h"
 #import "ios/chrome/browser/web/session_state/web_session_state_cache_web_state_list_observer.h"
 
@@ -26,6 +28,7 @@ namespace {
 class WebSessionStateCacheWrapper : public KeyedService {
  public:
   explicit WebSessionStateCacheWrapper(
+      // TODO(crbug.com/1450912): Pass a BrowserList directly instead.
       ChromeBrowserState* browser_state,
       WebSessionStateCache* web_session_state_cache);
 
@@ -53,8 +56,9 @@ WebSessionStateCacheWrapper::WebSessionStateCacheWrapper(
     : web_session_state_cache_(web_session_state_cache) {
   DCHECK(web_session_state_cache);
   registrar_ = std::make_unique<AllWebStateListObservationRegistrar>(
-      browser_state, std::make_unique<WebSessionStateCacheWebStateListObserver>(
-                         web_session_state_cache));
+      BrowserListFactory::GetForBrowserState(browser_state),
+      std::make_unique<WebSessionStateCacheWebStateListObserver>(
+          web_session_state_cache));
 }
 
 WebSessionStateCacheWrapper::~WebSessionStateCacheWrapper() {
@@ -80,6 +84,7 @@ std::unique_ptr<KeyedService> BuildWebSessionStateCacheWrapper(
 // static
 WebSessionStateCache* WebSessionStateCacheFactory::GetForBrowserState(
     ChromeBrowserState* browser_state) {
+  CHECK(web::UseNativeSessionRestorationCache());
   WebSessionStateCacheWrapper* wrapper =
       static_cast<WebSessionStateCacheWrapper*>(
           GetInstance()->GetServiceForBrowserState(browser_state, true));

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,9 @@
 #include <string>
 #include <vector>
 
+#include "base/memory/raw_ref.h"
 #include "base/time/default_clock.h"
+#include "base/time/time.h"
 #include "base/unguessable_token.h"
 #include "chrome/browser/apps/app_service/app_service_proxy_forward.h"
 #include "chrome/browser/ash/policy/status_collector/activity_storage.h"
@@ -96,7 +98,7 @@ class AppInfoGenerator : public apps::InstanceRegistry::Observer,
     ~AppInfoProvider();
 
     ActivityStorage activity_storage;
-    apps::AppServiceProxy& app_service_proxy;
+    const raw_ref<apps::AppServiceProxy, ExperimentalAsh> app_service_proxy;
   };
 
   const enterprise_management::AppInfo ConvertToAppInfo(
@@ -119,13 +121,15 @@ class AppInfoGenerator : public apps::InstanceRegistry::Observer,
 
   bool should_report_ = false;
 
+  bool device_locked_ = false;
+
   std::map<std::string, std::unique_ptr<AppInstances>> app_instances_by_id_;
 
   // The timeout in the past to store activity.
   // This is kept in case status uploads fail for a number of days.
   base::TimeDelta max_stored_past_activity_interval_;
 
-  const base::Clock& clock_;
+  const raw_ref<const base::Clock, ExperimentalAsh> clock_;
 
   base::ScopedObservation<ManagedSessionService,
                           ManagedSessionService::Observer>

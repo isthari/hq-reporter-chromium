@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "ash/system/unified/unified_system_tray_bubble.h"
 #include "ash/system/unified/unified_system_tray_controller.h"
 #include "ash/test/ash_test_base.h"
+#include "base/memory/raw_ptr.h"
 #include "components/media_message_center/media_notification_view_impl.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
@@ -28,9 +29,10 @@ class MockMediaNotificationProvider : public MediaNotificationProvider {
       : old_provider_(MediaNotificationProvider::Get()) {
     MediaNotificationProvider::Set(this);
 
-    ON_CALL(*this, GetMediaNotificationListView(_)).WillByDefault([](auto) {
-      return std::make_unique<views::View>();
-    });
+    ON_CALL(*this, GetMediaNotificationListView(_, _, _))
+        .WillByDefault([](auto, auto, const auto&) {
+          return std::make_unique<views::View>();
+        });
   }
 
   ~MockMediaNotificationProvider() override {
@@ -38,11 +40,13 @@ class MockMediaNotificationProvider : public MediaNotificationProvider {
   }
 
   // MediaNotificationProvider implementations.
-  MOCK_METHOD1(GetMediaNotificationListView, std::unique_ptr<views::View>(int));
-  MOCK_METHOD0(OnBubbleClosing, void());
-  std::unique_ptr<views::View> GetActiveMediaNotificationView() override {
-    return std::make_unique<views::View>();
-  }
+  MOCK_METHOD((std::unique_ptr<views::View>),
+              GetMediaNotificationListView,
+              (int, bool, const std::string&));
+  MOCK_METHOD(void, OnBubbleClosing, ());
+  MOCK_METHOD(global_media_controls::MediaItemManager*,
+              GetMediaItemManager,
+              ());
   void AddObserver(MediaNotificationProviderObserver* observer) override {}
   void RemoveObserver(MediaNotificationProviderObserver* observer) override {}
   bool HasActiveNotifications() override { return true; }
@@ -51,7 +55,7 @@ class MockMediaNotificationProvider : public MediaNotificationProvider {
       const media_message_center::NotificationTheme& color_theme) override {}
 
  private:
-  MediaNotificationProvider* const old_provider_;
+  const raw_ptr<MediaNotificationProvider, ExperimentalAsh> old_provider_;
 };
 
 }  // namespace
@@ -92,7 +96,7 @@ class UnifiedMediaControlsDetailedViewControllerTest : public AshTestBase {
     return StatusAreaWidgetTestHelper::GetStatusAreaWidget()
         ->unified_system_tray()
         ->bubble()
-        ->controller_for_test();
+        ->unified_system_tray_controller();
   }
 
   MockMediaNotificationProvider* provider() { return provider_.get(); }
@@ -109,7 +113,8 @@ TEST_F(UnifiedMediaControlsDetailedViewControllerTest,
 
   // We should get a MediaNotificationProvider::GetMediaNotificationListView
   // call when creating the detailed view.
-  EXPECT_CALL(*provider(), GetMediaNotificationListView);
+  EXPECT_CALL(*provider(),
+              GetMediaNotificationListView(_, /*should_clip_height=*/false, _));
   system_tray_controller()->OnMediaControlsViewClicked();
   EXPECT_NE(system_tray_controller()->detailed_view_controller(), nullptr);
 

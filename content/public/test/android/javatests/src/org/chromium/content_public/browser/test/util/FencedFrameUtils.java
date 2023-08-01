@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,13 @@ package org.chromium.content_public.browser.test.util;
 import org.junit.Assert;
 
 import org.chromium.base.annotations.JNINamespace;
+import org.chromium.base.annotations.NativeMethods;
 import org.chromium.base.test.util.CallbackHelper;
-import org.chromium.content_public.browser.NavigationHandle;
 import org.chromium.content_public.browser.RenderFrameHost;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContentsObserver;
 import org.chromium.content_public.browser.test.RenderFrameHostTestExt;
+import org.chromium.url.GURL;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -29,13 +30,13 @@ public class FencedFrameUtils {
 
     private static int getCount(final RenderFrameHost frame) {
         return TestThreadUtils.runOnUiThreadBlockingNoException(
-                () -> { return nativeGetCount(frame); });
+                () -> { return FencedFrameUtilsJni.get().getCount(frame); });
     }
 
-    private static RenderFrameHost getLastFencedFrame(
+    public static RenderFrameHost getLastFencedFrame(
             final RenderFrameHost frame, final String url) {
         return TestThreadUtils.runOnUiThreadBlockingNoException(
-                () -> { return nativeGetLastFencedFrame(frame, url); });
+                () -> { return FencedFrameUtilsJni.get().getLastFencedFrame(frame, url); });
     }
 
     public static RenderFrameHost createFencedFrame(final WebContents webContents,
@@ -48,7 +49,7 @@ public class FencedFrameUtils {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             new WebContentsObserver(webContents) {
                 @Override
-                public void didFinishNavigation(NavigationHandle navigation) {
+                public void didStopLoading(GURL url, boolean isKnownValid) {
                     latch.countDown();
                     webContents.removeObserver(this);
                 }
@@ -56,7 +57,7 @@ public class FencedFrameUtils {
 
             String script = "((async() => {"
                     + " const fenced_frame = document.createElement('fencedframe');"
-                    + " fenced_frame.src = '" + url + "';"
+                    + " fenced_frame.config = new FencedFrameConfig('" + url + "');"
                     + " document.body.appendChild(fenced_frame);"
                     + "})());";
             frameExt.executeJavaScript(script, (String r) -> {});
@@ -74,7 +75,9 @@ public class FencedFrameUtils {
         return fencedFrame;
     }
 
-    private static native int nativeGetCount(RenderFrameHost frame);
-    private static native RenderFrameHost nativeGetLastFencedFrame(
-            RenderFrameHost frame, String url);
+    @NativeMethods
+    interface Natives {
+        int getCount(RenderFrameHost frame);
+        RenderFrameHost getLastFencedFrame(RenderFrameHost frame, String url);
+    }
 }

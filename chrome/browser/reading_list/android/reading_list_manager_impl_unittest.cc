@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,18 +8,20 @@
 #include <string>
 #include <utility>
 
-#include "base/guid.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/simple_test_clock.h"
+#include "base/uuid.h"
 #include "chrome/browser/reading_list/android/reading_list_manager.h"
 #include "components/bookmarks/browser/bookmark_node.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
+#include "components/reading_list/core/fake_reading_list_model_storage.h"
 #include "components/reading_list/core/reading_list_model_impl.h"
+#include "components/sync/base/storage_type.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using BookmarkNode = bookmarks::BookmarkNode;
-using ReadingListEntries = ReadingListModelImpl::ReadingListEntries;
 
 namespace {
 
@@ -51,12 +53,25 @@ class ReadingListManagerImplTest : public testing::Test {
 
   void SetUp() override {
     clock_.SetNow(base::Time::Now());
+    EXPECT_TRUE(ResetStorage()->TriggerLoadCompletion());
+    EXPECT_TRUE(manager()->IsLoaded());
+  }
+
+  base::WeakPtr<FakeReadingListModelStorage> ResetStorage() {
+    manager_.reset();
+    reading_list_model_.reset();
+
+    auto storage = std::make_unique<FakeReadingListModelStorage>();
+    base::WeakPtr<FakeReadingListModelStorage> storage_ptr =
+        storage->AsWeakPtr();
+
     reading_list_model_ = std::make_unique<ReadingListModelImpl>(
-        /*storage_layer=*/nullptr, /*pref_service=*/nullptr, &clock_);
+        std::move(storage), syncer::StorageType::kUnspecified, &clock_);
     manager_ =
         std::make_unique<ReadingListManagerImpl>(reading_list_model_.get());
     manager_->AddObserver(observer());
-    EXPECT_TRUE(manager()->IsLoaded());
+
+    return storage_ptr;
   }
 
   void TearDown() override { manager_->RemoveObserver(observer()); }
@@ -101,11 +116,16 @@ TEST_F(ReadingListManagerImplTest, RootWithEmptyReadingList) {
 
 // Verifies load data into reading list model will update |manager_| as well.
 TEST_F(ReadingListManagerImplTest, Load) {
-  // Load data into reading list model.
-  auto entries = std::make_unique<ReadingListEntries>();
+  base::WeakPtr<FakeReadingListModelStorage> fake_storage = ResetStorage();
+  ASSERT_FALSE(manager()->IsLoaded());
+
+  // Mimic the completion of storage loading with one initial entry.
+  std::vector<scoped_refptr<ReadingListEntry>> entries;
   GURL url(kURL);
-  entries->emplace(url, ReadingListEntry(url, kTitle, clock()->Now()));
-  reading_list_model()->StoreLoaded(std::move(entries));
+  entries.push_back(
+      base::MakeRefCounted<ReadingListEntry>(url, kTitle, clock()->Now()));
+  ASSERT_TRUE(fake_storage->TriggerLoadCompletion(std::move(entries)));
+  EXPECT_TRUE(manager()->IsLoaded());
 
   const auto* node = manager()->Get(url);
   EXPECT_TRUE(node);
@@ -165,7 +185,7 @@ TEST_F(ReadingListManagerImplTest, GetNodeByIDIsReadingListBookmark) {
 
   // Node with the same URL but not in the tree.
   auto node_same_url =
-      std::make_unique<BookmarkNode>(0, base::GUID::GenerateRandomV4(), url);
+      std::make_unique<BookmarkNode>(0, base::Uuid::GenerateRandomV4(), url);
   EXPECT_FALSE(manager()->IsReadingListBookmark(node_same_url.get()));
 }
 
@@ -236,7 +256,7 @@ TEST_F(ReadingListManagerImplTest, AddInvalidTitle) {
   // Use an invalid UTF8 string.
   std::u16string dummy;
   EXPECT_FALSE(
-      base::UTF8ToUTF16(kInvalidUTF8, base::size(kInvalidUTF8), &dummy));
+      base::UTF8ToUTF16(kInvalidUTF8, std::size(kInvalidUTF8), &dummy));
   const auto* new_node = Add(url, std::string(kInvalidUTF8));
   EXPECT_EQ(nullptr, new_node)
       << "Should return nullptr when failed to parse the title.";
@@ -285,7 +305,7 @@ TEST_F(ReadingListManagerImplTest, ReadStatus) {
 
   // Node not in the reading list should return false.
   auto other_node =
-      std::make_unique<BookmarkNode>(0, base::GUID::GenerateRandomV4(), url);
+      std::make_unique<BookmarkNode>(0, base::Uuid::GenerateRandomV4(), url);
   EXPECT_FALSE(manager()->GetReadStatus(node));
 
   // Root node should return false.
@@ -297,7 +317,9 @@ TEST_F(ReadingListManagerImplTest, ReadStatus) {
 TEST_F(ReadingListManagerImplTest, ReadingListDidAddEntry) {
   GURL url(kURL);
   EXPECT_CALL(*observer(), ReadingListChanged()).RetiresOnSaturation();
-  reading_list_model()->AddEntry(url, kTitle, reading_list::ADDED_VIA_SYNC);
+  reading_list_model()->AddOrReplaceEntry(
+      url, kTitle, reading_list::ADDED_VIA_SYNC,
+      /*estimated_read_time=*/base::TimeDelta());
 
   const auto* node = manager()->Get(url);
   EXPECT_TRUE(node);

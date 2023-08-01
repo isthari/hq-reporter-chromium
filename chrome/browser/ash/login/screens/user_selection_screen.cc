@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,18 +10,15 @@
 #include <utility>
 
 #include "ash/components/arc/arc_util.h"
-#include "ash/components/cryptohome/cryptohome_parameters.h"
-#include "ash/components/proximity_auth/screenlock_bridge.h"
-#include "ash/components/proximity_auth/smart_lock_metrics_recorder.h"
-#include "ash/components/settings/cros_settings_names.h"
 #include "ash/constants/ash_features.h"
 #include "ash/constants/ash_pref_names.h"
 #include "ash/constants/ash_switches.h"
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
@@ -34,6 +31,7 @@
 #include "chrome/browser/ash/login/quick_unlock/fingerprint_utils.h"
 #include "chrome/browser/ash/login/quick_unlock/quick_unlock_factory.h"
 #include "chrome/browser/ash/login/quick_unlock/quick_unlock_storage.h"
+#include "chrome/browser/ash/login/quick_unlock/quick_unlock_utils.h"
 #include "chrome/browser/ash/login/reauth_stats.h"
 #include "chrome/browser/ash/login/ui/login_display_host.h"
 #include "chrome/browser/ash/login/ui/views/user_board_view.h"
@@ -46,15 +44,19 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/ui/ash/login_screen_client_impl.h"
-#include "chrome/browser/ui/webui/chromeos/login/l10n_util.h"
+#include "chrome/browser/ui/webui/ash/login/l10n_util.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/ash/components/cryptohome/cryptohome_parameters.h"
+#include "chromeos/ash/components/dbus/dbus_thread_manager.h"
+#include "chromeos/ash/components/dbus/userdataauth/userdataauth_client.h"
+#include "chromeos/ash/components/proximity_auth/screenlock_bridge.h"
+#include "chromeos/ash/components/settings/cros_settings_names.h"
 #include "chromeos/dbus/tpm_manager/tpm_manager.pb.h"
 #include "chromeos/dbus/tpm_manager/tpm_manager_client.h"
-#include "chromeos/dbus/userdataauth/userdataauth_client.h"
 #include "components/account_id/account_id.h"
 #include "components/prefs/pref_service.h"
+#include "components/signin/public/identity_manager/account_managed_status_finder.h"
 #include "components/user_manager/known_user.h"
 #include "components/user_manager/user_manager.h"
 #include "components/user_manager/user_type.h"
@@ -68,7 +70,12 @@
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/chromeos/resources/grit/ui_chromeos_resources.h"
 
+// Enable VLOG level 1.
+#undef ENABLED_VLOG_LEVEL
+#define ENABLED_VLOG_LEVEL 1
+
 namespace ash {
+
 namespace {
 
 const char kWakeLockReason[] = "TPMLockedIssue";
@@ -98,7 +105,7 @@ bool GetDeviceManager(std::string* out_manager) {
 // `out_selected_locale`: Output value of the initially selected locale.
 // `out_multiple_locales`: Output value indicates whether we have multiple
 // recommended locales.
-std::unique_ptr<base::ListValue> GetPublicSessionLocales(
+base::Value::List GetPublicSessionLocales(
     const std::vector<std::string>* public_session_recommended_locales,
     std::string* out_selected_locale,
     bool* out_multiple_locales) {
@@ -109,14 +116,14 @@ std::unique_ptr<base::ListValue> GetPublicSessionLocales(
 
   // Construct the list of available locales. This list consists of the
   // recommended locales, followed by all others.
-  std::unique_ptr<base::ListValue> available_locales =
+  auto available_locales =
       GetUILanguageList(&recommended_locales, std::string(),
                         input_method::InputMethodManager::Get());
 
   // Select the the first recommended locale that is actually available or the
   // current UI locale if none of them are available.
   *out_selected_locale =
-      FindMostRelevantLocale(recommended_locales, *available_locales.get(),
+      FindMostRelevantLocale(recommended_locales, available_locales,
                              g_browser_process->GetApplicationLocale());
 
   *out_multiple_locales = recommended_locales.size() >= 2;
@@ -139,7 +146,8 @@ bool IsUserAllowedForARC(const AccountId& account_id) {
 AccountId GetOwnerAccountId() {
   std::string owner_email;
   CrosSettings::Get()->GetString(kDeviceOwner, &owner_email);
-  const AccountId owner = user_manager::known_user::GetAccountId(
+  user_manager::KnownUser known_user(g_browser_process->local_state());
+  const AccountId owner = known_user.GetAccountId(
       owner_email, std::string() /* id */, AccountType::UNKNOWN);
   return owner;
 }
@@ -217,8 +225,9 @@ class UserSelectionScreen::DircryptoMigrationChecker {
     // If the user may be enterprise-managed, don't display the banner, because
     // migration may be blocked by user policy (and user policy is not available
     // at this time yet).
-    if (!policy::BrowserPolicyConnector::IsNonEnterpriseUser(
-            account_id.GetUserEmail())) {
+    if (signin::AccountManagedStatusFinder::IsEnterpriseUserBasedOnEmail(
+            account_id.GetUserEmail()) ==
+        signin::AccountManagedStatusFinder::EmailEnterpriseStatus::kUnknown) {
       UpdateUI(account_id, false);
       return;
     }
@@ -289,7 +298,7 @@ class UserSelectionScreen::DircryptoMigrationChecker {
         needs_migration);
   }
 
-  UserSelectionScreen* const owner_;
+  const raw_ptr<UserSelectionScreen, ExperimentalAsh> owner_;
   AccountId focused_user_ = EmptyAccountId();
 
   // Cached result of NeedsDircryptoMigration cryptohome check. Key is the
@@ -389,7 +398,7 @@ class UserSelectionScreen::TpmLockedChecker {
     wake_lock_->RequestWakeLock();
   }
 
-  UserSelectionScreen* const owner_;
+  const raw_ptr<UserSelectionScreen, ExperimentalAsh> owner_;
 
   base::TimeTicks check_finised_;
   base::TimeDelta dictionary_attack_lockout_time_remaining_;
@@ -461,7 +470,7 @@ bool UserSelectionScreen::ShouldForceOnlineSignIn(
   // this might be a leftover from an old version.
   if (has_gaia_account &&
       token_status == user_manager::User::OAUTH2_TOKEN_STATUS_INVALID)
-    RecordReauthReason(user->GetAccountId(), ReauthReason::OTHER);
+    RecordReauthReason(user->GetAccountId(), ReauthReason::kOther);
 
   // We need to force an online signin if the user is marked as requiring it or
   // if there's an invalid OAUTH token that needs to be refreshed.
@@ -478,13 +487,14 @@ bool UserSelectionScreen::ShouldForceOnlineSignIn(
     return true;
   }
 
+  user_manager::KnownUser known_user(g_browser_process->local_state());
   const absl::optional<base::TimeDelta> offline_signin_time_limit =
-      user_manager::known_user::GetOfflineSigninLimit(user->GetAccountId());
+      known_user.GetOfflineSigninLimit(user->GetAccountId());
   if (!offline_signin_time_limit)
     return false;
 
   const base::Time last_gaia_signin_time =
-      user_manager::known_user::GetLastOnlineSignin(user->GetAccountId());
+      known_user.GetLastOnlineSignin(user->GetAccountId());
   if (last_gaia_signin_time == base::Time())
     return false;
   const base::Time now = base::DefaultClock::GetInstance()->Now();
@@ -514,14 +524,11 @@ UserAvatar UserSelectionScreen::BuildAshUserAvatarForUser(
         resource_id, rb.GetMaxResourceScaleFactor());
     avatar.bytes.assign(avatar_data.begin(), avatar_data.end());
   };
+
   if (user.has_image_bytes()) {
     avatar.bytes.assign(
         user.image_bytes()->front(),
         user.image_bytes()->front() + user.image_bytes()->size());
-  } else if (user.HasDefaultImage()) {
-    int resource_id =
-        default_user_image::GetDefaultImageResourceId(user.image_index());
-    load_image_from_resource(resource_id);
   } else if (user.image_is_stub()) {
     load_image_from_resource(IDR_LOGIN_DEFAULT_USER);
   }
@@ -687,7 +694,7 @@ void UserSelectionScreen::OnUserStatusChecked(
     const AccountId& account_id,
     TokenHandleUtil::TokenHandleStatus status) {
   if (status == TokenHandleUtil::INVALID) {
-    RecordReauthReason(account_id, ReauthReason::INVALID_TOKEN_HANDLE);
+    RecordReauthReason(account_id, ReauthReason::kInvalidTokenHandle);
     SetAuthType(account_id, proximity_auth::mojom::AuthType::ONLINE_SIGN_IN,
                 std::u16string());
   }
@@ -739,14 +746,14 @@ void UserSelectionScreen::ShowBannerMessage(const std::u16string& message,
 void UserSelectionScreen::ShowUserPodCustomIcon(
     const AccountId& account_id,
     const proximity_auth::ScreenlockBridge::UserPodCustomIconInfo& icon_info) {
-  if (base::FeatureList::IsEnabled(ash::features::kSmartLockUIRevamp))
+  if (base::FeatureList::IsEnabled(features::kSmartLockUIRevamp))
     return;
 
   view_->ShowUserPodCustomIcon(account_id, icon_info);
 }
 
 void UserSelectionScreen::HideUserPodCustomIcon(const AccountId& account_id) {
-  if (base::FeatureList::IsEnabled(ash::features::kSmartLockUIRevamp))
+  if (base::FeatureList::IsEnabled(features::kSmartLockUIRevamp))
     return;
 
   view_->HideUserPodCustomIcon(account_id);
@@ -754,14 +761,14 @@ void UserSelectionScreen::HideUserPodCustomIcon(const AccountId& account_id) {
 
 void UserSelectionScreen::SetSmartLockState(const AccountId& account_id,
                                             SmartLockState state) {
-  if (base::FeatureList::IsEnabled(ash::features::kSmartLockUIRevamp)) {
+  if (base::FeatureList::IsEnabled(features::kSmartLockUIRevamp)) {
     view_->SetSmartLockState(account_id, state);
   }
 }
 
 void UserSelectionScreen::NotifySmartLockAuthResult(const AccountId& account_id,
                                                     bool success) {
-  if (base::FeatureList::IsEnabled(ash::features::kSmartLockUIRevamp)) {
+  if (base::FeatureList::IsEnabled(features::kSmartLockUIRevamp)) {
     view_->NotifySmartLockAuthResult(account_id, success);
   }
 }
@@ -779,30 +786,6 @@ void UserSelectionScreen::Unlock(const AccountId& account_id) {
   ScreenLocker::Hide();
 }
 
-void UserSelectionScreen::AttemptEasySignin(const AccountId& account_id,
-                                            const std::string& secret,
-                                            const std::string& key_label) {
-  DCHECK_EQ(GetScreenType(), SIGNIN_SCREEN);
-
-  const user_manager::User* const user =
-      user_manager::UserManager::Get()->FindUser(account_id);
-  DCHECK(user);
-  UserContext user_context(*user);
-  user_context.SetAuthFlow(UserContext::AUTH_FLOW_EASY_UNLOCK);
-  user_context.SetKey(Key(secret));
-  user_context.GetKey()->SetLabel(key_label);
-
-  // LoginDisplayHost does not exist in views-based lock screen.
-  if (LoginDisplayHost::default_host()) {
-    LoginDisplayHost::default_host()->GetLoginDisplay()->delegate()->Login(
-        user_context, SigninSpecifics());
-  } else {
-    SmartLockMetricsRecorder::RecordAuthResultSignInFailure(
-        SmartLockMetricsRecorder::SmartLockAuthResultFailureReason::
-            kLoginDisplayHostDoesNotExist);
-  }
-}
-
 void UserSelectionScreen::OnSessionStateChanged() {
   if (!pending_focused_account_id_.has_value())
     return;
@@ -815,7 +798,7 @@ void UserSelectionScreen::OnSessionStateChanged() {
 
 void UserSelectionScreen::OnInvalidSyncToken(const AccountId& account_id) {
   RecordReauthReason(account_id,
-                     ReauthReason::SAML_PASSWORD_SYNC_TOKEN_VALIDATION_FAILED);
+                     ReauthReason::kSamlPasswordSyncTokenValidationFailed);
   SetAuthType(account_id, proximity_auth::mojom::AuthType::ONLINE_SIGN_IN,
               std::u16string());
 }
@@ -823,16 +806,6 @@ void UserSelectionScreen::OnInvalidSyncToken(const AccountId& account_id) {
 void UserSelectionScreen::OnOnlineSigninEnforced(const AccountId& account_id) {
   SetAuthType(account_id, proximity_auth::mojom::AuthType::ONLINE_SIGN_IN,
               std::u16string());
-}
-
-void UserSelectionScreen::HardLockPod(const AccountId& account_id) {
-  view_->SetAuthType(account_id,
-                     proximity_auth::mojom::AuthType::OFFLINE_PASSWORD,
-                     std::u16string());
-  EasyUnlockService* service = GetEasyUnlockServiceForUser(account_id);
-  if (!service)
-    return;
-  service->SetHardlockState(SmartLockStateHandler::USER_HARDLOCK);
 }
 
 void UserSelectionScreen::AttemptEasyUnlock(const AccountId& account_id) {
@@ -883,8 +856,15 @@ UserSelectionScreen::UpdateAndReturnUserListForAsh() {
     user_info.is_signed_in = user->is_logged_in();
     user_info.is_device_owner = is_owner;
     user_info.can_remove = CanRemoveUser(user);
-    user_info.fingerprint_state =
-        quick_unlock::GetFingerprintStateForUser(user);
+    user_info.fingerprint_state = quick_unlock::GetFingerprintStateForUser(
+        user, quick_unlock::Purpose::kUnlock);
+
+    auto* easy_unlock_service = GetEasyUnlockServiceForUser(account_id);
+    if (easy_unlock_service) {
+      user_info.smart_lock_state =
+          easy_unlock_service->GetInitialSmartLockState();
+    }
+
     user_info.show_pin_pad_for_password = false;
     if (known_user.GetIsEnterpriseManaged(user->GetAccountId()) &&
         user->GetType() != user_manager::USER_TYPE_PUBLIC_ACCOUNT) {
@@ -930,10 +910,9 @@ UserSelectionScreen::UpdateAndReturnUserListForAsh() {
               : &public_session_recommended_locales_[account_id];
       std::string selected_locale;
       bool has_multiple_locales;
-      std::unique_ptr<base::ListValue> available_locales =
+      auto available_locales =
           GetPublicSessionLocales(public_session_recommended_locales,
                                   &selected_locale, &has_multiple_locales);
-      DCHECK(available_locales);
       user_info.public_account_info->available_locales =
           lock_screen_utils::FromListValueToLocaleItem(
               std::move(available_locales));
@@ -980,8 +959,13 @@ EasyUnlockService* UserSelectionScreen::GetEasyUnlockServiceForUser(
   ProfileHelper* profile_helper = ProfileHelper::Get();
   Profile* profile = profile_helper->GetProfileByUser(unlock_user);
 
-  // The user profile should exist if and only if this is the lock screen.
-  DCHECK_EQ(!!profile, GetScreenType() == LOCK_SCREEN);
+  // If the active screen is the lock screen, a Profile must exist that is
+  // associated with |unlock_user|. This does not apply vice-versa: there are
+  // some valid scenarios where |profile| exists but the active screen is not
+  // the lock screen.
+  if (GetScreenType() == LOCK_SCREEN) {
+    DCHECK(profile);
+  }
 
   if (!profile)
     profile = profile_helper->GetSigninProfile();

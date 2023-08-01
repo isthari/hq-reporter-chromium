@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,21 +8,6 @@
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace mojo {
-
-// Make sure values in arc::mojom::VideoEncodeAccelerator::Error and
-// media::VideoEncodeAccelerator::Error match.
-#define CHECK_ERROR_ENUM(value)                                            \
-  static_assert(                                                           \
-      static_cast<int>(arc::mojom::VideoEncodeAccelerator_Error::value) == \
-          media::VideoEncodeAccelerator::Error::value,                     \
-      "enum ##value mismatch")
-
-CHECK_ERROR_ENUM(kIllegalStateError);
-CHECK_ERROR_ENUM(kInvalidArgumentError);
-CHECK_ERROR_ENUM(kPlatformFailureError);
-CHECK_ERROR_ENUM(kErrorMax);
-
-#undef CHECK_ERROR_ENUM
 
 // static
 arc::mojom::VideoFrameStorageType
@@ -46,23 +31,6 @@ bool EnumTraits<arc::mojom::VideoFrameStorageType,
           media::VideoEncodeAccelerator::Config::StorageType::kGpuMemoryBuffer;
       return true;
   }
-  return false;
-}
-
-// static
-arc::mojom::VideoEncodeAccelerator_Error
-EnumTraits<arc::mojom::VideoEncodeAccelerator_Error,
-           media::VideoEncodeAccelerator::Error>::
-    ToMojom(media::VideoEncodeAccelerator::Error input) {
-  return static_cast<arc::mojom::VideoEncodeAccelerator_Error>(input);
-}
-
-// static
-bool EnumTraits<arc::mojom::VideoEncodeAccelerator_Error,
-                media::VideoEncodeAccelerator::Error>::
-    FromMojom(arc::mojom::VideoEncodeAccelerator_Error input,
-              media::VideoEncodeAccelerator::Error* output) {
-  NOTIMPLEMENTED();
   return false;
 }
 
@@ -96,6 +64,10 @@ UnionTraits<arc::mojom::BitrateDataView, media::Bitrate>::GetTag(
       return arc::mojom::BitrateDataView::Tag::kConstant;
     case media::Bitrate::Mode::kVariable:
       return arc::mojom::BitrateDataView::Tag::kVariable;
+    case media::Bitrate::Mode::kExternal:
+      // Ash encoder doesn't need to support external rate control.
+      NOTREACHED();
+      return arc::mojom::BitrateDataView::Tag::kConstant;
   }
   NOTREACHED();
   return arc::mojom::BitrateDataView::Tag::kConstant;
@@ -106,7 +78,7 @@ arc::mojom::ConstantBitrate
 UnionTraits<arc::mojom::BitrateDataView, media::Bitrate>::constant(
     const media::Bitrate& input) {
   arc::mojom::ConstantBitrate constant_bitrate;
-  constant_bitrate.target = input.target();
+  constant_bitrate.target = input.target_bps();
   return constant_bitrate;
 }
 
@@ -115,8 +87,8 @@ arc::mojom::VariableBitrate
 UnionTraits<arc::mojom::BitrateDataView, media::Bitrate>::variable(
     const media::Bitrate& input) {
   arc::mojom::VariableBitrate variable_bitrate;
-  variable_bitrate.target = input.target();
-  variable_bitrate.peak = input.peak();
+  variable_bitrate.target = input.target_bps();
+  variable_bitrate.peak = input.peak_bps();
   return variable_bitrate;
 }
 
@@ -180,9 +152,9 @@ bool StructTraits<arc::mojom::VideoEncodeAcceleratorConfigDataView,
     return false;
   if (bitrate.has_value()) {
     DCHECK((bitrate->mode() == media::Bitrate::Mode::kVariable) ||
-           (bitrate->peak() == 0u));
+           (bitrate->peak_bps() == 0u));
     DCHECK((bitrate->mode() == media::Bitrate::Mode::kConstant) ||
-           (bitrate->peak() >= bitrate->target()));
+           (bitrate->peak_bps() >= bitrate->target_bps()));
   } else {
     bitrate =
         media::Bitrate::ConstantBitrate(input.initial_bitrate_deprecated());

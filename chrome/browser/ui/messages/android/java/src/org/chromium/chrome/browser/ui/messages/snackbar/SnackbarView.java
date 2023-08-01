@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -120,8 +120,9 @@ public class SnackbarView {
     }
 
     public void dismiss() {
-        // Disable action button during animation.
-        mActionButtonView.setEnabled(false);
+        // Prevent clicks during dismissal animations. Intentionally not using setEnabled(false) to
+        // avoid unnecessary text color changes in this transitory state.
+        mActionButtonView.setOnClickListener(null);
         AnimatorSet animatorSet = new AnimatorSet();
         animatorSet.setDuration(mAnimationDuration);
         animatorSet.addListener(new AnimatorListenerAdapter() {
@@ -189,7 +190,7 @@ public class SnackbarView {
     void overrideParent(ViewGroup overridingParent) {
         mRootContentView.removeOnLayoutChangeListener(mLayoutListener);
         mParent = overridingParent == null ? mOriginalParent : overridingParent;
-        if (isShowing()) {
+        if (mContainerView.getParent() != null) {
             ((ViewGroup) mContainerView.getParent()).removeView(mContainerView);
         }
         addToParent();
@@ -254,8 +255,7 @@ public class SnackbarView {
         // Themes are used first.
         if (snackbar.getTheme() == Snackbar.Theme.GOOGLE) {
             // TODO(crbug.com/1260203): Revisit once we know whether to make this dynamic.
-            return ApiCompatibilityUtils.getColor(
-                    view.getResources(), R.color.default_control_color_active_baseline);
+            return view.getContext().getColor(R.color.default_control_color_active_baseline);
         }
 
         assert snackbar.getTheme() == Snackbar.Theme.BASIC;

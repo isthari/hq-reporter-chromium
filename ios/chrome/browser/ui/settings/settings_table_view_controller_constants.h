@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 
 #import <Foundation/Foundation.h>
 
-#import "ios/chrome/browser/ui/list_model/list_model.h"
+#import "ios/chrome/browser/shared/ui/list_model/list_model.h"
 
 // Sections used in Settings page.
 typedef NS_ENUM(NSInteger, SettingsSectionIdentifier) {
@@ -34,6 +34,8 @@ typedef NS_ENUM(NSInteger, SettingsItemType) {
   SettingsItemTypeAutofillCreditCard,
   SettingsItemTypeAutofillProfile,
   SettingsItemTypeVoiceSearch,
+  SettingsItemTypeBottomOmnibox,
+  SettingsItemTypeNotifications,
   SettingsItemTypePrivacy,
   SettingsItemTypeLanguageSettings,
   SettingsItemTypeContentSettings,
@@ -47,6 +49,7 @@ typedef NS_ENUM(NSInteger, SettingsItemType) {
   SettingsItemTypeSafetyCheck,
   SettingsItemTypeDefaultBrowser,
   SettingsItemTypeSigninDisabled,
+  SettingsItemTypeTabs,
 };
 
 // The accessibility identifier of the settings TableView.
@@ -73,6 +76,9 @@ extern NSString* const kSettingsManagedSearchEngineCellId;
 
 // The accessibility identifier of the Voice Search cell.
 extern NSString* const kSettingsVoiceSearchCellId;
+
+// The accessibility identifier of the Bottom Omnibox cell.
+extern NSString* const kSettingsBottomOmniboxCellId;
 
 // The accessibility identifier of the Sync and Google services cell.
 extern NSString* const kSettingsGoogleSyncAndServicesCellId;
@@ -139,5 +145,32 @@ extern NSString* const kSettingsHandoffCellId;
 
 // The accessibility identifier of the Cookies cell.
 extern NSString* const kSettingsCookiesCellId;
+
+// The accessibility identifier of the Default Site Mode cell.
+extern NSString* const kSettingsDefaultSiteModeCellId;
+
+// The accessibility identifier of the Web Inspector cell.
+extern NSString* const kSettingsWebInspectorCellId;
+
+// The accessibility identifier of the default browser settings TableView.
+extern NSString* const kDefaultBrowserSettingsTableViewId;
+
+extern NSString* const kSettingsHttpsOnlyModeCellId;
+
+// The accessibility identifier of the Incognito interstitial setting.
+extern NSString* const kSettingsIncognitoInterstitialId;
+
+// The accessibility identifier of the Incognito interstitial setting
+// when the setting is disabled because of Enterprise policy.
+extern NSString* const kSettingsIncognitoInterstitialDisabledId;
+
+// The accessibility identifier of the Notifications setting.
+extern NSString* const kSettingsNotificationsId;
+
+// The accessibility identifier of the tabs cell.
+extern NSString* const kSettingsTabsCellId;
+
+// The accessibility identifier of the move inactive tabs settings cell.
+extern NSString* const kSettingsMoveInactiveTabsCellId;
 
 #endif  // IOS_CHROME_BROWSER_UI_SETTINGS_SETTINGS_TABLE_VIEW_CONTROLLER_CONSTANTS_H_

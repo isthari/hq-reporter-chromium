@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@
 #include <string>
 #include <vector>
 
-#include "base/callback_forward.h"
 #include "base/cancelable_callback.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/time/time.h"
@@ -65,7 +65,7 @@ class LocationArbitrator : public LocationProvider {
       const LocationProviderUpdateCallback& callback) override;
   void StartProvider(bool enable_high_accuracy) override;
   void StopProvider() override;
-  const mojom::Geoposition& GetPosition() override;
+  const mojom::GeopositionResult* GetPosition() override;
   void OnPermissionGranted() override;
 
  protected:
@@ -87,41 +87,38 @@ class LocationArbitrator : public LocationProvider {
 
   // Tells all registered providers to start.
   // If |providers_| is empty, immediately provides
-  // Geoposition::ERROR_CODE_POSITION_UNAVAILABLE to the client via
+  // GeopositionErrorCode::kPositionUnavailable to the client via
   // |arbitrator_update_callback_|.
   void DoStartProviders();
 
   // Gets called when a provider has a new position.
   void OnLocationUpdate(const LocationProvider* provider,
-                        const mojom::Geoposition& new_position);
+                        mojom::GeopositionResultPtr new_result);
 
-  // Returns true if |new_position| is an improvement over |old_position|.
+  // Returns true if |new_result| is an improvement over |old_result|.
   // Set |from_same_provider| to true if both the positions came from the same
   // provider.
-  bool IsNewPositionBetter(const mojom::Geoposition& old_position,
-                           const mojom::Geoposition& new_position,
+  bool IsNewPositionBetter(const mojom::GeopositionResult& old_result,
+                           const mojom::GeopositionResult& new_result,
                            bool from_same_provider) const;
 
   const CustomLocationProviderCallback custom_location_provider_getter_;
-  const raw_ptr<GeolocationManager> geolocation_manager_;
+  const raw_ptr<GeolocationManager, DanglingUntriaged> geolocation_manager_;
   scoped_refptr<base::SingleThreadTaskRunner> main_task_runner_;
   const scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
   const std::string api_key_;
 
-  LocationProvider::LocationProviderUpdateCallback arbitrator_update_callback_;
-
-  std::vector<std::unique_ptr<LocationProvider>> providers_;
   bool enable_high_accuracy_;
-  // The provider which supplied the current |position_|
-  raw_ptr<const LocationProvider> position_provider_;
-  bool is_permission_granted_;
-  // The current best estimate of our position.
-  mojom::Geoposition position_;
-
-  std::unique_ptr<PositionCache> position_cache_;
-
-  // Tracks whether providers should be running.
-  bool is_running_;
+  bool is_permission_granted_ = false;
+  bool is_running_ = false;  // Tracks whether providers should be running.
+  LocationProvider::LocationProviderUpdateCallback arbitrator_update_callback_;
+  std::unique_ptr<PositionCache> position_cache_;  // must outlive `providers_`
+  std::vector<std::unique_ptr<LocationProvider>> providers_;
+  // The provider which supplied the current |result_|
+  raw_ptr<const LocationProvider> position_provider_ = nullptr;
+  // The current best estimate of our position, or `nullptr` if no estimate has
+  // been received.
+  mojom::GeopositionResultPtr result_;
 };
 
 // Factory functions for the various types of location provider to abstract

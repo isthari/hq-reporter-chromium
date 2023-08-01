@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@ import androidx.annotation.VisibleForTesting;
 import org.chromium.base.BundleUtils;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.Log;
-import org.chromium.base.ThreadUtils;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
 import org.chromium.base.metrics.RecordHistogram;
@@ -23,9 +22,7 @@ import org.chromium.chrome.browser.xsurface.ImageFetchClient;
 import org.chromium.chrome.browser.xsurface.LoggingParameters;
 import org.chromium.chrome.browser.xsurface.PersistentKeyValueCache;
 import org.chromium.chrome.browser.xsurface.ProcessScopeDependencyProvider;
-import org.chromium.chrome.browser.xsurface.ProcessScopeDependencyProvider.VisibilityLogType;
 import org.chromium.components.version_info.VersionConstants;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 
 /**
  * Provides logging and context for all surfaces.
@@ -41,6 +38,8 @@ public class FeedProcessScopeDependencyProvider implements ProcessScopeDependenc
     private PrivacyPreferencesManager mPrivacyPreferencesManager;
     private String mApiKey;
 
+    private static boolean sEnableAppFlowDebugging;
+
     public FeedProcessScopeDependencyProvider(
             String apiKey, PrivacyPreferencesManager privacyPreferencesManager) {
         mContext = createFeedContext(ContextUtils.getApplicationContext());
@@ -48,7 +47,7 @@ public class FeedProcessScopeDependencyProvider implements ProcessScopeDependenc
         mPersistentKeyValueCache = new FeedPersistentKeyValueCache();
         mPrivacyPreferencesManager = privacyPreferencesManager;
         mApiKey = apiKey;
-        if (BundleUtils.isIsolatedSplitInstalled(mContext, FEED_SPLIT_NAME)) {
+        if (BundleUtils.isIsolatedSplitInstalled(FEED_SPLIT_NAME)) {
             mLibraryResolver = (libName) -> {
                 return BundleUtils.getNativeLibraryPath(libName, FEED_SPLIT_NAME);
             };
@@ -82,10 +81,11 @@ public class FeedProcessScopeDependencyProvider implements ProcessScopeDependenc
 
     @Override
     public void postTask(int taskType, Runnable task, long delayMs) {
-        TaskTraits traits;
+        @TaskTraits
+        int traits;
         switch (taskType) {
             case ProcessScopeDependencyProvider.TASK_TYPE_UI_THREAD:
-                traits = UiThreadTaskTraits.DEFAULT;
+                traits = TaskTraits.UI_DEFAULT;
                 break;
             case ProcessScopeDependencyProvider.TASK_TYPE_BACKGROUND_MAY_BLOCK:
                 traits = TaskTraits.BEST_EFFORT_MAY_BLOCK;
@@ -150,11 +150,38 @@ public class FeedProcessScopeDependencyProvider implements ProcessScopeDependenc
 
     @Override
     public int[] getExperimentIds() {
-        // TODO(iwells): figure out why this is being called from another thread right after FRE
-        if (!ThreadUtils.runningOnUiThread()) {
-            return new int[0];
-        }
         return FeedProcessScopeDependencyProviderJni.get().getExperimentIds();
+    }
+
+    @Override
+    public ProcessScopeDependencyProvider.FeatureStateProvider getFeatureStateProvider() {
+        return new ProcessScopeDependencyProvider.FeatureStateProvider() {
+            @Override
+            public boolean isFeatureActive(String featureName) {
+                return ChromeFeatureList.isEnabled(featureName);
+            }
+
+            @Override
+            public boolean getBooleanParameterValue(
+                    String featureName, String paramName, boolean defaultValue) {
+                return ChromeFeatureList.getFieldTrialParamByFeatureAsBoolean(
+                        featureName, paramName, defaultValue);
+            }
+
+            @Override
+            public int getIntegerParameterValue(
+                    String featureName, String paramName, int defaultValue) {
+                return ChromeFeatureList.getFieldTrialParamByFeatureAsInt(
+                        featureName, paramName, defaultValue);
+            }
+
+            @Override
+            public double getDoubleParameterValue(
+                    String featureName, String paramName, double defaultValue) {
+                return ChromeFeatureList.getFieldTrialParamByFeatureAsDouble(
+                        featureName, paramName, defaultValue);
+            }
+        };
     }
 
     /**
@@ -191,6 +218,16 @@ public class FeedProcessScopeDependencyProvider implements ProcessScopeDependenc
     public void reportVisibilityLoggingEnabled(boolean enabled) {
         RecordHistogram.recordBooleanHistogram(
                 "ContentSuggestions.Feed.VisibilityLoggingEnabled", enabled);
+    }
+
+    @Override
+    public boolean enableAppFlowDebugging() {
+        return sEnableAppFlowDebugging;
+    }
+
+    @VisibleForTesting
+    public static void setEnableAppFlowDebugging(boolean enable) {
+        sEnableAppFlowDebugging = enable;
     }
 
     @VisibleForTesting

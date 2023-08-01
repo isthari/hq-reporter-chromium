@@ -1,29 +1,20 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.vr;
 
 import static org.chromium.chrome.browser.vr.XrTestFramework.PAGE_LOAD_TIMEOUT_S;
-import static org.chromium.chrome.browser.vr.XrTestFramework.POLL_CHECK_INTERVAL_LONG_MS;
 import static org.chromium.chrome.browser.vr.XrTestFramework.POLL_CHECK_INTERVAL_SHORT_MS;
 import static org.chromium.chrome.browser.vr.XrTestFramework.POLL_TIMEOUT_LONG_MS;
 import static org.chromium.chrome.browser.vr.XrTestFramework.POLL_TIMEOUT_SHORT_MS;
 import static org.chromium.chrome.test.util.ChromeRestriction.RESTRICTION_TYPE_DEVICE_DAYDREAM;
-import static org.chromium.chrome.test.util.ChromeRestriction.RESTRICTION_TYPE_SVR;
-import static org.chromium.chrome.test.util.ChromeRestriction.RESTRICTION_TYPE_VIEWER_DAYDREAM_OR_STANDALONE;
 import static org.chromium.chrome.test.util.ChromeRestriction.RESTRICTION_TYPE_VR_DON_ENABLED;
 
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.graphics.Color;
-import android.os.Build;
-import android.support.test.InstrumentationRegistry;
-import android.support.test.uiautomator.UiDevice;
-
 import androidx.test.filters.MediumTest;
+import androidx.test.platform.app.InstrumentationRegistry;
+import androidx.test.uiautomator.UiDevice;
 
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -37,19 +28,15 @@ import org.chromium.base.test.params.ParameterizedRunner;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisabledTest;
-import org.chromium.base.test.util.FlakyTest;
 import org.chromium.base.test.util.Restriction;
-import org.chromium.base.test.util.UrlUtils;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.vr.rules.XrActivityRestriction;
-import org.chromium.chrome.browser.vr.util.NativeUiUtils;
 import org.chromium.chrome.browser.vr.util.PermissionUtils;
 import org.chromium.chrome.browser.vr.util.VrTestRuleUtils;
 import org.chromium.chrome.browser.vr.util.VrTransitionUtils;
 import org.chromium.chrome.test.ChromeActivityTestRule;
 import org.chromium.chrome.test.ChromeJUnit4RunnerDelegate;
 
-import java.io.File;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -84,55 +71,6 @@ public class WebXrVrTransitionTest {
     }
 
     /**
-     * Tests that a successful request for an immersive session actually enters VR.
-     */
-    @Test
-    @MediumTest
-            @CommandLineFlags.Add({"enable-features=WebXR"})
-            @XrActivityRestriction({XrActivityRestriction.SupportedActivity.ALL})
-            public void testRequestSessionEntersVr() {
-        testPresentationEntryImpl("generic_webxr_page", mWebXrVrTestFramework);
-    }
-
-    private void testPresentationEntryImpl(String url, WebXrVrTestFramework framework) {
-        framework.loadFileAndAwaitInitialization(url, PAGE_LOAD_TIMEOUT_S);
-        framework.enterSessionWithUserGestureOrFail();
-        Assert.assertTrue("Browser did not enter VR", VrShellDelegate.isInVr());
-
-        // Verify that we're actually rendering WebXR/VR content and that it's blue (the canvas
-        // is set to blue while presenting). This could be a proper RenderTest, but it's less
-        // overhead to just directly check a pixel.
-        // TODO(https://crbug.com/947252): Run this part unconditionally once the cause of the
-        // flakiness on older devices is fixed.
-        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.M) {
-            CriteriaHelper.pollInstrumentationThread(
-                    ()
-                            -> {
-                        // Creating temporary directories doesn't seem to work, so use a fixed
-                        // location that we know we can write to.
-                        File dumpDirectory = new File(UrlUtils.getIsolatedTestFilePath(
-                                "chrome/test/data/vr/framebuffer_dumps"));
-                        if (!dumpDirectory.exists() && !dumpDirectory.isDirectory()) {
-                            Assert.assertTrue("Failed to make framebuffer dump directory",
-                                    dumpDirectory.mkdirs());
-                        }
-                        File baseImagePath = new File(dumpDirectory, "dump");
-                        NativeUiUtils.dumpNextFramesFrameBuffers(baseImagePath.getPath());
-                        String filepath = baseImagePath.getPath()
-                                + NativeUiUtils.FRAME_BUFFER_SUFFIX_WEB_XR_CONTENT + ".png";
-                        BitmapFactory.Options options = new BitmapFactory.Options();
-                        options.inPreferredConfig = Bitmap.Config.ARGB_8888;
-                        Bitmap bitmap = BitmapFactory.decodeFile(filepath, options);
-                        return bitmap != null && Color.BLUE == bitmap.getPixel(0, 0);
-                    },
-                    "Immersive session started, but browser not visibly in VR",
-                    POLL_TIMEOUT_LONG_MS, POLL_CHECK_INTERVAL_LONG_MS);
-        }
-
-        framework.assertNoJavaScriptErrors();
-    }
-
-    /**
      * Tests that WebXR is not exposed if the flag is not on and the page does
      * not have an origin trial token.
      */
@@ -153,29 +91,6 @@ public class WebXrVrTransitionTest {
     }
 
     /**
-     * Tests that the immersive session promise doesn't resolve if the DON flow is
-     * not completed.
-     */
-    @Test
-    @MediumTest
-    @Restriction({RESTRICTION_TYPE_DEVICE_DAYDREAM, RESTRICTION_TYPE_VR_DON_ENABLED})
-    @CommandLineFlags.Add({"enable-features=WebXR"})
-    @XrActivityRestriction({XrActivityRestriction.SupportedActivity.ALL})
-    @DisabledTest(message = "https://crbug.com/1236093")
-    public void testPresentationPromiseUnresolvedDuringDon_WebXr() {
-        presentationPromiseUnresolvedDuringDonImpl(
-
-                "webxr_test_presentation_promise_unresolved_during_don", mWebXrVrTestFramework);
-    }
-
-    private void presentationPromiseUnresolvedDuringDonImpl(
-            String url, WebXrVrTestFramework framework) {
-        framework.loadFileAndAwaitInitialization(url, PAGE_LOAD_TIMEOUT_S);
-        framework.enterSessionWithUserGestureAndWait();
-        framework.endTest();
-    }
-
-    /**
      * Tests that the immersive session promise is rejected if the DON flow is canceled.
      */
     @Test
@@ -183,7 +98,6 @@ public class WebXrVrTransitionTest {
     @Restriction({RESTRICTION_TYPE_DEVICE_DAYDREAM, RESTRICTION_TYPE_VR_DON_ENABLED})
     @CommandLineFlags.Add({"enable-features=WebXR"})
     @XrActivityRestriction({XrActivityRestriction.SupportedActivity.ALL})
-    @DisabledTest(message = "https://crbug.com/1246405")
     public void testPresentationPromiseRejectedIfDonCanceled_WebXr() {
         presentationPromiseRejectedIfDonCanceledImpl(
 
@@ -214,8 +128,8 @@ public class WebXrVrTransitionTest {
     @Test
     @MediumTest
     @CommandLineFlags.Add({"enable-features=WebXR"})
-    @Restriction(RESTRICTION_TYPE_SVR)
-    @FlakyTest(message = "crbug.com/1229236")
+    @XrActivityRestriction({XrActivityRestriction.SupportedActivity.ALL})
+    @DisabledTest(message = "crbug.com/1229236")
     public void testControlsVisibleAfterExitingVr_WebXr() throws InterruptedException {
         controlsVisibleAfterExitingVrImpl("generic_webxr_page", mWebXrVrTestFramework);
     }
@@ -246,10 +160,9 @@ public class WebXrVrTransitionTest {
      */
     @Test
     @MediumTest
-            @CommandLineFlags.Add({"enable-features=WebXR"})
-            @XrActivityRestriction({XrActivityRestriction.SupportedActivity.ALL})
-            public void testWindowRafStopsFiringWhilePresenting_WebXr()
-            throws InterruptedException {
+    @CommandLineFlags.Add({"enable-features=WebXR"})
+    @XrActivityRestriction({XrActivityRestriction.SupportedActivity.ALL})
+    public void testWindowRafStopsFiringWhilePresenting_WebXr() throws InterruptedException {
         windowRafStopsFiringWhilePresentingImpl(
 
                 "webxr_test_window_raf_stops_firing_during_immersive_session",
@@ -273,25 +186,6 @@ public class WebXrVrTransitionTest {
     }
 
     /**
-     * Tests renderer crashes while in WebXR presentation stay in VR.
-     */
-    @Test
-    @MediumTest
-    @Restriction(RESTRICTION_TYPE_VIEWER_DAYDREAM_OR_STANDALONE)
-            @CommandLineFlags.Add({"enable-features=WebXR"})
-            public void testRendererKilledInWebXrStaysInVr() throws IllegalArgumentException {
-        rendererKilledInVrStaysInVrImpl("generic_webxr_page", mWebXrVrTestFramework);
-    }
-
-    private void rendererKilledInVrStaysInVrImpl(String url, WebXrVrTestFramework framework) {
-        framework.loadFileAndAwaitInitialization(url, PAGE_LOAD_TIMEOUT_S);
-        framework.enterSessionWithUserGestureOrFail();
-        framework.simulateRendererKilled();
-        Assert.assertTrue("Browser did not enter VR", VrShellDelegate.isInVr());
-        framework.assertNoJavaScriptErrors();
-    }
-
-    /**
      * Tests that window.rAF continues to fire when we have a non-immersive session.
      */
     @Test
@@ -311,9 +205,10 @@ public class WebXrVrTransitionTest {
      */
     @Test
     @MediumTest
-            @CommandLineFlags.Add({"enable-features=WebXR"})
-            @XrActivityRestriction({XrActivityRestriction.SupportedActivity.ALL})
-            public void testNonImmersiveStopsDuringImmersive() {
+    @CommandLineFlags.Add({"enable-features=WebXR"})
+    @XrActivityRestriction({XrActivityRestriction.SupportedActivity.ALL})
+    @DisabledTest(message = "https://crbug.com/1229236")
+    public void testNonImmersiveStopsDuringImmersive() {
         mWebXrVrTestFramework.loadFileAndAwaitInitialization(
                 "test_non_immersive_stops_during_immersive", PAGE_LOAD_TIMEOUT_S);
         mWebXrVrTestFramework.executeStepAndWait("stepBeforeImmersive()");
@@ -322,23 +217,6 @@ public class WebXrVrTransitionTest {
         VrTransitionUtils.forceExitVr();
         mWebXrVrTestFramework.executeStepAndWait("stepAfterImmersive()");
         mWebXrVrTestFramework.endTest();
-    }
-
-    /**
-     * Tests that the "Press app button to exit" toast appears when entering an immersive WebXR for
-     * VR session with Daydream View paired.
-     */
-    @Test
-    @MediumTest
-    @Restriction(RESTRICTION_TYPE_VIEWER_DAYDREAM_OR_STANDALONE)
-            @CommandLineFlags.Add({"enable-features=WebXR"})
-            @XrActivityRestriction({XrActivityRestriction.SupportedActivity.CTA})
-            public void testAppButtonExitToast() {
-        mWebXrVrTestFramework.loadFileAndAwaitInitialization(
-                "generic_webxr_page", PAGE_LOAD_TIMEOUT_S);
-        mWebXrVrTestFramework.enterSessionWithUserGestureOrFail();
-        NativeUiUtils.performActionAndWaitForVisibilityStatus(
-                UserFriendlyElementName.APP_BUTTON_EXIT_TOAST, true /* visible*/, () -> {});
     }
 
     /**

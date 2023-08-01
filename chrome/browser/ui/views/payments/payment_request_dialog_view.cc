@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,16 +6,14 @@
 
 #include <utility>
 
-#include "base/bind.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/views/payments/contact_info_editor_view_controller.h"
-#include "chrome/browser/ui/views/payments/credit_card_editor_view_controller.h"
-#include "chrome/browser/ui/views/payments/cvc_unmask_view_controller.h"
 #include "chrome/browser/ui/views/payments/error_message_view_controller.h"
 #include "chrome/browser/ui/views/payments/order_summary_view_controller.h"
 #include "chrome/browser/ui/views/payments/payment_handler_web_flow_view_controller.h"
@@ -26,7 +24,6 @@
 #include "chrome/browser/ui/views/payments/shipping_address_editor_view_controller.h"
 #include "chrome/browser/ui/views/payments/shipping_option_view_controller.h"
 #include "components/autofill/core/browser/data_model/autofill_profile.h"
-#include "components/autofill/core/browser/data_model/credit_card.h"
 #include "components/constrained_window/constrained_window_views.h"
 #include "components/payments/content/payment_request.h"
 #include "components/payments/core/features.h"
@@ -39,6 +36,7 @@
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/color/color_id.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/background.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/layout/box_layout.h"
@@ -95,6 +93,9 @@ void PaymentRequestDialogView::OnDialogClosed() {
   RemoveChildViewT(view_stack_.get());
   controller_map_.clear();
   request_->OnUserCancelled();
+
+  if (observer_for_testing_)
+    observer_for_testing_->OnDialogClosed();
 }
 
 bool PaymentRequestDialogView::ShouldShowCloseButton() const {
@@ -136,6 +137,8 @@ void PaymentRequestDialogView::ShowErrorMessage() {
 void PaymentRequestDialogView::ShowProcessingSpinner() {
   throbber_->Start();
   throbber_overlay_->SetVisible(true);
+  throbber_overlay_->GetViewAccessibility().OverrideIsIgnored(false);
+  throbber_overlay_->GetViewAccessibility().OverrideIsLeaf(false);
   if (observer_for_testing_)
     observer_for_testing_->OnProcessingSpinnerShown();
 }
@@ -216,6 +219,11 @@ void PaymentRequestDialogView::RetryDialog() {
 
 void PaymentRequestDialogView::ConfirmPaymentForTesting() {
   Pay();
+}
+
+bool PaymentRequestDialogView::ClickOptOutForTesting() {
+  NOTIMPLEMENTED();
+  return false;
 }
 
 void PaymentRequestDialogView::OnStartUpdating(
@@ -363,46 +371,6 @@ void PaymentRequestDialogView::ShowShippingOptionSheet() {
     observer_for_testing_->OnShippingOptionSectionOpened();
 }
 
-void PaymentRequestDialogView::ShowCvcUnmaskPrompt(
-    const autofill::CreditCard& credit_card,
-    base::WeakPtr<autofill::payments::FullCardRequest::ResultDelegate>
-        result_delegate,
-    content::RenderFrameHost* render_frame_host) {
-  if (!request_->spec())
-    return;
-
-  view_stack_->Push(CreateViewAndInstallController(
-                        std::make_unique<CvcUnmaskViewController>(
-                            request_->spec(), request_->state(),
-                            weak_ptr_factory_.GetWeakPtr(), credit_card,
-                            result_delegate, render_frame_host),
-                        &controller_map_),
-                    /* animate = */ true);
-  if (observer_for_testing_)
-    observer_for_testing_->OnCvcPromptShown();
-}
-
-void PaymentRequestDialogView::ShowCreditCardEditor(
-    BackNavigationType back_navigation_type,
-    base::OnceClosure on_edited,
-    base::OnceCallback<void(const autofill::CreditCard&)> on_added,
-    autofill::CreditCard* credit_card) {
-  if (!request_->spec())
-    return;
-
-  view_stack_->Push(
-      CreateViewAndInstallController(
-          std::make_unique<CreditCardEditorViewController>(
-              request_->spec(), request_->state(),
-              weak_ptr_factory_.GetWeakPtr(), back_navigation_type,
-              std::move(on_edited), std::move(on_added), credit_card,
-              request_->IsOffTheRecord()),
-          &controller_map_),
-      /* animate = */ true);
-  if (observer_for_testing_)
-    observer_for_testing_->OnCreditCardEditorOpened();
-}
-
 void PaymentRequestDialogView::ShowShippingAddressEditor(
     BackNavigationType back_navigation_type,
     base::OnceClosure on_edited,
@@ -452,7 +420,14 @@ void PaymentRequestDialogView::EditorViewUpdated() {
 
 void PaymentRequestDialogView::HideProcessingSpinner() {
   throbber_->Stop();
+  // TODO(crbug.com/1418659): Instead of setting the throbber to invisible, can
+  // we destroy and remove it from the view when it's not being used?
   throbber_overlay_->SetVisible(false);
+  // Screen readers do not ignore invisible elements, so force the screen
+  // reader to skip the invisible throbber by making it an ignored leaf node in
+  // the accessibility tree.
+  throbber_overlay_->GetViewAccessibility().OverrideIsIgnored(true);
+  throbber_overlay_->GetViewAccessibility().OverrideIsLeaf(true);
   if (observer_for_testing_)
     observer_for_testing_->OnProcessingSpinnerHidden();
 }
@@ -508,8 +483,6 @@ PaymentRequestDialogView::PaymentRequestDialogView(
   }
 
   ShowInitialPaymentSheet();
-
-  chrome::RecordDialogCreation(chrome::DialogIdentifier::PAYMENT_REQUEST);
 }
 
 PaymentRequestDialogView::~PaymentRequestDialogView() = default;
@@ -547,8 +520,8 @@ void PaymentRequestDialogView::SetupSpinnerOverlay() {
   throbber_overlay_->SetVisible(false);
   // The throbber overlay has to have a solid white background to hide whatever
   // would be under it.
-  throbber_overlay_->SetBackground(views::CreateThemedSolidBackground(
-      throbber_overlay_, ui::kColorDialogBackground));
+  throbber_overlay_->SetBackground(
+      views::CreateThemedSolidBackground(ui::kColorDialogBackground));
 
   views::BoxLayout* layout =
       throbber_overlay_->SetLayoutManager(std::make_unique<views::BoxLayout>(
@@ -588,6 +561,11 @@ int PaymentRequestDialogView::GetActualDialogWidth() const {
           ? kPreferredPaymentHandlerDialogWidth
           : kDialogMinWidth);
   return actual_width;
+}
+
+void PaymentRequestDialogView::OnPaymentHandlerTitleSet() {
+  if (observer_for_testing_)
+    observer_for_testing_->OnPaymentHandlerTitleSet();
 }
 
 void PaymentRequestDialogView::ViewHierarchyChanged(

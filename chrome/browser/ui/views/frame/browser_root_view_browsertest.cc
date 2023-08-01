@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "ui/base/dragdrop/drop_target_event.h"
 #include "ui/base/dragdrop/mojom/drag_drop_types.mojom.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
+#include "ui/compositor/layer_tree_owner.h"
 
 class BrowserRootViewBrowserTest : public InProcessBrowserTest {
  public:
@@ -40,10 +41,19 @@ IN_PROC_BROWSER_TEST_F(BrowserRootViewBrowserTest, ClearDropInfo) {
   data.SetURL(GURL("http://www.chromium.org/"), std::u16string());
   ui::DropTargetEvent event(data, gfx::PointF(), gfx::PointF(),
                             ui::DragDropTypes::DRAG_COPY);
+  auto* tab_strip_model = browser()->tab_strip_model();
+
+  EXPECT_EQ(tab_strip_model->count(), 1);
 
   BrowserRootView* root_view = browser_root_view();
   root_view->OnDragUpdated(event);
-  root_view->OnPerformDrop(event);
+  auto drop_cb = root_view->GetDropCallback(event);
+  ui::mojom::DragOperation output_drag_op = ui::mojom::DragOperation::kNone;
+  std::move(drop_cb).Run(event, output_drag_op,
+                         /*drag_image_layer_owner=*/nullptr);
+
+  EXPECT_EQ(output_drag_op, ui::mojom::DragOperation::kCopy);
+  EXPECT_EQ(tab_strip_model->count(), 2);
   EXPECT_FALSE(root_view->drop_info_);
 }
 
@@ -62,7 +72,10 @@ IN_PROC_BROWSER_TEST_F(BrowserRootViewBrowserTest, MAYBE_PlainString) {
 
   BrowserRootView* root_view = browser_root_view();
   EXPECT_NE(ui::DragDropTypes::DRAG_NONE, root_view->OnDragUpdated(event));
-  EXPECT_NE(ui::mojom::DragOperation::kNone, root_view->OnPerformDrop(event));
+  auto cb = root_view->GetDropCallback(event);
+  ui::mojom::DragOperation output_drag_op = ui::mojom::DragOperation::kNone;
+  std::move(cb).Run(event, output_drag_op, /*drag_image_layer_owner=*/nullptr);
+  EXPECT_NE(ui::mojom::DragOperation::kNone, output_drag_op);
 }
 
 // Clear drop target when the widget is being destroyed.
@@ -78,27 +91,6 @@ IN_PROC_BROWSER_TEST_F(BrowserRootViewBrowserTest, ClearDropTarget) {
   // Calling this will cause segmentation fault if |root_view| doesn't clear
   // the target.
   CloseBrowserSynchronously(browser());
-}
-
-// Drop is performed when drop callback is run.
-IN_PROC_BROWSER_TEST_F(BrowserRootViewBrowserTest, RunDropCallback) {
-  ui::OSExchangeData data;
-  data.SetURL(GURL("http://www.chromium.org/"), std::u16string());
-  ui::DropTargetEvent event(data, gfx::PointF(), gfx::PointF(),
-                            ui::DragDropTypes::DRAG_COPY);
-
-  auto* tab_strip_model = browser()->tab_strip_model();
-
-  EXPECT_EQ(tab_strip_model->count(), 1);
-
-  BrowserRootView* root_view = browser_root_view();
-  root_view->OnDragUpdated(event);
-  ui::mojom::DragOperation output_drag_op = ui::mojom::DragOperation::kNone;
-  auto cb = root_view->GetDropCallback(event);
-  std::move(cb).Run(event, output_drag_op);
-
-  EXPECT_EQ(output_drag_op, ui::mojom::DragOperation::kCopy);
-  EXPECT_EQ(tab_strip_model->count(), 2);
 }
 
 IN_PROC_BROWSER_TEST_F(BrowserRootViewBrowserTest, OnDragEnteredNoTabs) {

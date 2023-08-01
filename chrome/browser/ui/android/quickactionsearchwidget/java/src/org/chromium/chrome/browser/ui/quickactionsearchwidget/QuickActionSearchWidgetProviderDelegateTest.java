@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,14 +14,15 @@ import android.content.Intent;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.net.Uri;
-import android.support.test.InstrumentationRegistry;
 import android.util.Size;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.RemoteViews;
 
 import androidx.annotation.LayoutRes;
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.SmallTest;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -39,7 +40,6 @@ import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.chrome.browser.IntentHandler;
 import org.chromium.chrome.browser.browserservices.intents.WebappConstants;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.searchwidget.SearchActivity;
 import org.chromium.chrome.browser.ui.quickactionsearchwidget.QuickActionSearchWidgetProviderDelegate.WidgetButtonSettings;
@@ -47,7 +47,6 @@ import org.chromium.chrome.browser.ui.quickactionsearchwidget.QuickActionSearchW
 import org.chromium.chrome.browser.ui.searchactivityutils.SearchActivityPreferencesManager.SearchActivityPreferences;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.util.ChromeApplicationTestUtils;
-import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.components.embedder_support.util.UrlConstants;
 
 import java.util.Locale;
@@ -57,7 +56,6 @@ import java.util.Locale;
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add(ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE)
-@Features.EnableFeatures({ChromeFeatureList.QUICK_ACTION_SEARCH_WIDGET})
 public class QuickActionSearchWidgetProviderDelegateTest {
     @Rule
     public BaseActivityTestRule<Activity> mActivityTestRule =
@@ -79,7 +77,7 @@ public class QuickActionSearchWidgetProviderDelegateTest {
     @Before
     public void setUp() {
         MockitoAnnotations.initMocks(this);
-        ChromeApplicationTestUtils.setUp(InstrumentationRegistry.getTargetContext());
+        ChromeApplicationTestUtils.setUp(ApplicationProvider.getApplicationContext());
         mContext = InstrumentationRegistry.getInstrumentation()
                            .getTargetContext()
                            .getApplicationContext();
@@ -113,7 +111,7 @@ public class QuickActionSearchWidgetProviderDelegateTest {
 
     @After
     public void tearDown() {
-        ChromeApplicationTestUtils.tearDown(InstrumentationRegistry.getTargetContext());
+        ChromeApplicationTestUtils.tearDown(ApplicationProvider.getApplicationContext());
     }
 
     @Test
@@ -182,27 +180,20 @@ public class QuickActionSearchWidgetProviderDelegateTest {
         float density = res.getDisplayMetrics().density;
 
         mWidgetView = mDelegate
-                              .createSearchWidgetRemoteViews(mContext, prefs,
-                                      // Simulate optimally sized rectangular screen:
-                                      // Portrait mode dimensions:
-                                      mDefaultWidgetWidthDp, mMediumWidgetMinHeightDp,
-                                      // Landscape mode dimensions:
-                                      mDefaultWidgetWidthDp, mMediumWidgetMinHeightDp)
+                              .createSearchWidgetRemoteViews(mContext, prefs, mDefaultWidgetWidthDp,
+                                      mMediumWidgetMinHeightDp)
                               .apply(mContext, null);
-        mDinoWidgetView =
-                mDelegate
-                        .createDinoWidgetRemoteViews(mContext, prefs, mDinoWidgetEdgeSizeDp,
-                                mDinoWidgetEdgeSizeDp, mDinoWidgetEdgeSizeDp, mDinoWidgetEdgeSizeDp)
-                        .apply(mContext, null);
+        mDinoWidgetView = mDelegate
+                                  .createDinoWidgetRemoteViews(mContext, prefs,
+                                          mDinoWidgetEdgeSizeDp, mDinoWidgetEdgeSizeDp)
+                                  .apply(mContext, null);
     }
 
     /**
      * Test copy of {@link QuickActionSearchWidgetProvider#createDinoIntent}.
      */
     private static Intent createDinoIntent(final Context context) {
-        String chromeDinoUrl = UrlConstants.CHROME_DINO_URL + "/";
-
-        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(chromeDinoUrl));
+        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(UrlConstants.CHROME_DINO_URL));
         intent.setComponent(new ComponentName(context, ChromeLauncherActivity.class));
         intent.putExtra(WebappConstants.REUSE_URL_MATCHING_TAB_ELSE_NEW_TAB, true);
         intent.putExtra(IntentHandler.EXTRA_INVOKED_FROM_APP_WIDGET, true);

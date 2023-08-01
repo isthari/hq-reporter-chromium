@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -39,7 +39,7 @@ struct AppState {
 
   syncer::StringOrdinal app_launch_ordinal;
   syncer::StringOrdinal page_ordinal;
-  extensions::LaunchType launch_type;
+  extensions::LaunchType launch_type = extensions::LAUNCH_TYPE_INVALID;
   GURL launch_web_url;
   std::string description;
   std::string name;
@@ -47,9 +47,9 @@ struct AppState {
 
 using AppStateMap = std::map<std::string, AppState>;
 
-AppState::AppState() : launch_type(extensions::LAUNCH_TYPE_INVALID) {}
+AppState::AppState() = default;
 
-AppState::~AppState() {}
+AppState::~AppState() = default;
 
 bool AppState::IsValid() const {
   return page_ordinal.IsValid() && app_launch_ordinal.IsValid();
@@ -90,10 +90,10 @@ void LoadApp(content::BrowserContext* context,
 AppStateMap GetAppStates(Profile* profile) {
   AppStateMap app_state_map;
 
-  std::unique_ptr<const extensions::ExtensionSet> extensions(
+  const extensions::ExtensionSet extensions =
       extensions::ExtensionRegistry::Get(profile)
-          ->GenerateInstalledExtensionsSet());
-  for (scoped_refptr<const extensions::Extension> extension : *extensions) {
+          ->GenerateInstalledExtensionsSet();
+  for (const auto& extension : extensions) {
     if (extension->is_app() &&
         extensions::util::ShouldSync(extension.get(), profile)) {
       const std::string& id = extension->id();
@@ -125,8 +125,9 @@ SyncAppHelper* SyncAppHelper::GetInstance() {
 }
 
 void SyncAppHelper::SetupIfNecessary(SyncTest* test) {
-  if (setup_completed_)
+  if (setup_completed_) {
     return;
+  }
 
   for (int i = 0; i < test->num_clients(); ++i) {
     extensions::ExtensionSystem::Get(test->GetProfile(i))
@@ -142,8 +143,9 @@ void SyncAppHelper::SetupIfNecessary(SyncTest* test) {
 
 bool SyncAppHelper::AppStatesMatch(Profile* profile1, Profile* profile2) {
   if (!SyncExtensionHelper::GetInstance()->ExtensionStatesMatch(profile1,
-                                                                profile2))
+                                                                profile2)) {
     return false;
+  }
 
   const AppStateMap& state_map1 = GetAppStates(profile1);
   const AppStateMap& state_map2 = GetAppStates(profile2);
@@ -221,4 +223,4 @@ void SyncAppHelper::FixNTPOrdinalCollisions(Profile* profile) {
 
 SyncAppHelper::SyncAppHelper() : setup_completed_(false) {}
 
-SyncAppHelper::~SyncAppHelper() {}
+SyncAppHelper::~SyncAppHelper() = default;

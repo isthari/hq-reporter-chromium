@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,12 +12,11 @@
 #include <vector>
 
 #include "base/memory/raw_ptr.h"
-#include "base/memory/ref_counted.h"
 #include "base/memory/singleton.h"
 #include "base/observer_list.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/forced_extensions/install_stage_tracker.h"
-#include "components/keyed_service/content/browser_context_keyed_service_factory.h"
+#include "chrome/browser/profiles/profile_keyed_service_factory.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "extensions/browser/management_policy.h"
@@ -42,6 +41,7 @@ struct GlobalSettings;
 }  // namespace internal
 
 class APIPermissionSet;
+class CWSInfoServiceInterface;
 class Extension;
 class PermissionSet;
 
@@ -121,10 +121,10 @@ class ExtensionManagement : public KeyedService {
 
   // Returns the force install list, in format specified by
   // ExternalPolicyLoader::AddExtension().
-  std::unique_ptr<base::DictionaryValue> GetForceInstallList() const;
+  base::Value::Dict GetForceInstallList() const;
 
   // Like GetForceInstallList(), but returns recommended install list instead.
-  std::unique_ptr<base::DictionaryValue> GetRecommendedInstallList() const;
+  base::Value::Dict GetRecommendedInstallList() const;
 
   // Returns |true| if there is at least one extension with
   // |INSTALLATION_ALLOWED| as installation mode. This excludes force installed
@@ -158,6 +158,13 @@ class ExtensionManagement : public KeyedService {
   // id |extension_id| is allowed to be installed.
   bool IsAllowedManifestType(Manifest::Type manifest_type,
                              const std::string& extension_id) const;
+
+  bool IsAllowedManifestVersion(int manifest_version,
+                                const std::string& extension_id,
+                                Manifest::Type manifest_type);
+  bool IsAllowedManifestVersion(const Extension* extension);
+
+  bool IsAllowedByUnpublishedAvailabilityPolicy(const Extension* extension);
 
   // Returns the list of blocked API permissions for |extension|.
   APIPermissionSet GetBlockedAPIPermissions(const Extension* extension);
@@ -226,9 +233,6 @@ class ExtensionManagement : public KeyedService {
   // aren't deferred).
   ExtensionIdSet GetForcePinnedList() const;
 
-  // Returns whether the profile associated with this instance is supervised.
-  bool is_child() const { return is_child_; }
-
  private:
   using SettingsIdMap =
       std::unordered_map<ExtensionId,
@@ -242,11 +246,11 @@ class ExtensionManagement : public KeyedService {
   // refresh the settings.
   void Refresh();
 
-  // Tries to parse the individual setting in |settings_by_id_| for
-  // |extension_id|. Returns true if it succeeds, otherwise returns false and
-  // removes the entry from |settings_by_id_|.
+  // Tries to parse the individual setting in `settings_by_id_` for
+  // `extension_id`. Returns true if it succeeds, otherwise returns false and
+  // removes the entry from `settings_by_id_`.
   bool ParseById(const std::string& extension_id,
-                 const base::DictionaryValue* subdict);
+                 const base::Value::Dict& subdict);
 
   // Returns the individual settings for |extension_id| if it exists, otherwise
   // returns nullptr. This method will also lazy load the settings if they're
@@ -257,13 +261,23 @@ class ExtensionManagement : public KeyedService {
   // Loads the deferred settings information for |extension_id|.
   void LoadDeferredExtensionSetting(const std::string& extension_id);
 
-  // Load preference with name |pref_name| and expected type |expected_type|.
+  // Loads preference with name |pref_name| and expected type |expected_type|.
   // If |force_managed| is true, only loading from the managed preference store
   // is allowed. Returns NULL if the preference is not present, not allowed to
   // be loaded from or has the wrong type.
   const base::Value* LoadPreference(const char* pref_name,
                                     bool force_managed,
                                     base::Value::Type expected_type) const;
+
+  // Loads the dictionary preference with name `pref_name` - see
+  // `LoadPreference` for more details.
+  const base::Value::Dict* LoadDictPreference(const char* pref_name,
+                                              bool force_managed) const;
+
+  // Loads the list preference with name `pref_name` - see `LoadPreference` for
+  // more details.
+  const base::Value::List* LoadListPreference(const char* pref_name,
+                                              bool force_managed) const;
 
   void OnExtensionPrefChanged();
   void NotifyExtensionManagementPrefChanged();
@@ -278,11 +292,11 @@ class ExtensionManagement : public KeyedService {
 
   // Helper to return an extension install list, in format specified by
   // ExternalPolicyLoader::AddExtension().
-  std::unique_ptr<base::DictionaryValue> GetInstallListByMode(
+  base::Value::Dict GetInstallListByMode(
       InstallationMode installation_mode) const;
 
-  // Helper to update |extension_dict| for forced installs.
-  void UpdateForcedExtensions(const base::DictionaryValue* extension_dict);
+  // Helper to update `extension_dict` for forced installs.
+  void UpdateForcedExtensions(const base::Value::Dict* extension_dict);
 
   // Helper function to access |settings_by_id_| with |id| as key.
   // Adds a new IndividualSettings entry to |settings_by_id_| if none exists for
@@ -322,14 +336,18 @@ class ExtensionManagement : public KeyedService {
   const raw_ptr<Profile> profile_ = nullptr;
   raw_ptr<PrefService> pref_service_ = nullptr;
   bool is_signin_profile_ = false;
-  bool is_child_ = false;
 
   base::ObserverList<Observer, true>::Unchecked observer_list_;
   PrefChangeRegistrar pref_change_registrar_;
   std::vector<std::unique_ptr<ManagementPolicy::Provider>> providers_;
+
+  // Unowned pointer to the CWSInfoService keyed-service instance for this
+  // profile. The service provides information about CWS publish status for
+  // extensions.
+  raw_ptr<CWSInfoServiceInterface> cws_info_service_ = nullptr;
 };
 
-class ExtensionManagementFactory : public BrowserContextKeyedServiceFactory {
+class ExtensionManagementFactory : public ProfileKeyedServiceFactory {
  public:
   ExtensionManagementFactory(const ExtensionManagementFactory&) = delete;
   ExtensionManagementFactory& operator=(const ExtensionManagementFactory&) =
@@ -347,8 +365,6 @@ class ExtensionManagementFactory : public BrowserContextKeyedServiceFactory {
 
   // BrowserContextKeyedServiceExtensionManagementFactory:
   KeyedService* BuildServiceInstanceFor(
-      content::BrowserContext* context) const override;
-  content::BrowserContext* GetBrowserContextToUse(
       content::BrowserContext* context) const override;
   void RegisterProfilePrefs(
       user_prefs::PrefRegistrySyncable* registry) override;

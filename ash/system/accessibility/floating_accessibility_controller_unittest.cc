@@ -1,22 +1,28 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/system/accessibility/floating_accessibility_controller.h"
 
 #include "ash/accelerators/accelerator_controller_impl.h"
+#include "ash/accessibility/a11y_feature_type.h"
 #include "ash/accessibility/accessibility_controller_impl.h"
 #include "ash/accessibility/autoclick/autoclick_controller.h"
+#include "ash/ime/ime_controller_impl.h"
+#include "ash/public/cpp/ime_info.h"
 #include "ash/public/cpp/session/session_types.h"
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
+#include "ash/system/accessibility/accessibility_detailed_view.h"
 #include "ash/system/accessibility/autoclick_menu_bubble_controller.h"
 #include "ash/system/accessibility/autoclick_menu_view.h"
-#include "ash/system/accessibility/tray_accessibility.h"
+#include "ash/system/ime_menu/ime_menu_tray.h"
 #include "ash/test/ash_test_base.h"
 #include "base/barrier_closure.h"
-#include "base/callback_helpers.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/strings/stringprintf.h"
+#include "base/test/scoped_feature_list.h"
 
 namespace ash {
 
@@ -27,6 +33,7 @@ namespace {
 // but is still smaller than half the screen size, so that we can check the
 // general corner in which the menu is displayed.
 const int kMenuViewBoundsBuffer = 100;
+const char ImeEnglishId[] = "ime:english";
 
 ui::GestureEvent CreateTapEvent() {
   return ui::GestureEvent(0, 0, 0, base::TimeTicks(),
@@ -36,8 +43,19 @@ ui::GestureEvent CreateTapEvent() {
 }  // namespace
 class FloatingAccessibilityControllerTest : public AshTestBase {
  public:
+  void SetUp() override {
+    AshTestBase::SetUp();
+    // Ensure 2 Ime's are available so we show the ime switch button.
+    SetTwoAvailableImes();
+  }
+
   AccessibilityControllerImpl* accessibility_controller() {
     return Shell::Get()->accessibility_controller();
+  }
+
+  void TearDown() override {
+    AshTestBase::TearDown();
+    features_.Reset();
   }
 
   FloatingAccessibilityController* controller() {
@@ -47,11 +65,11 @@ class FloatingAccessibilityControllerTest : public AshTestBase {
   FloatingMenuPosition menu_position() { return controller()->position_; }
 
   FloatingAccessibilityView* menu_view() {
-    return controller() ? controller()->menu_view_ : nullptr;
+    return controller() ? controller()->menu_view_.get() : nullptr;
   }
 
   views::Widget* widget() {
-    return controller() ? controller()->bubble_widget_ : nullptr;
+    return controller() ? controller()->bubble_widget_.get() : nullptr;
   }
 
   AutoclickMenuView* autoclick_menu_view() {
@@ -59,11 +77,20 @@ class FloatingAccessibilityControllerTest : public AshTestBase {
         Shell::Get()
             ->autoclick_controller()
             ->GetMenuBubbleControllerForTesting();
-    return controller ? controller->menu_view_ : nullptr;
+    return controller ? controller->menu_view_.get() : nullptr;
   }
 
   bool detailed_view_shown() {
     return controller() && controller()->detailed_menu_controller_.get();
+  }
+
+  void WaitUntilAccessibilityTrayClosed() {
+    // Waiting until accessibility tray is closed
+    // after being notified from the observer.
+    base::RunLoop run_loop;
+    while (detailed_view_shown()) {
+      run_loop.RunUntilIdle();
+    }
   }
 
   views::View* GetMenuButton(FloatingAccessibilityView::ButtonId button_id) {
@@ -72,6 +99,29 @@ class FloatingAccessibilityControllerTest : public AshTestBase {
       return nullptr;
     return view->GetViewByID(static_cast<int>(button_id));
   }
+
+  bool IsButtonVisible(FloatingAccessibilityView::ButtonId button_id) {
+    views::View* button = GetMenuButton(button_id);
+    return button != nullptr;
+  }
+
+  ImeMenuTray* GetImeTray() {
+    ImeMenuTray* result =
+        menu_view() ? menu_view()->ime_button_.get() : nullptr;
+    EXPECT_NE(result, nullptr) << "Ime tray is not currently visible";
+    return result;
+  }
+
+  TrayBackgroundView* GetVirtualKeyboardTray() {
+    TrayBackgroundView* result =
+        menu_view() ? menu_view()->virtual_keyboard_button_.get() : nullptr;
+    EXPECT_NE(result, nullptr)
+        << "Virtual keyboard tray is not currently visible";
+    return result;
+  }
+
+  // Returns true if the IME menu bubble has been shown.
+  bool IsImeTrayShown() { return GetImeTray()->GetBubbleView() != nullptr; }
 
   void SetUpKioskSession() {
     SessionInfo info;
@@ -110,7 +160,99 @@ class FloatingAccessibilityControllerTest : public AshTestBase {
   void SetOnLayoutCallback(base::RepeatingClosure closure) {
     controller()->on_layout_change_ = std::move(closure);
   }
+
+  void SetCurrentAndAvailableImes(const std::string& current_ime_id,
+                                  const std::vector<ImeInfo>& available_imes) {
+    Shell::Get()->ime_controller()->RefreshIme(current_ime_id, available_imes,
+                                               std::vector<ImeMenuItem>());
+  }
+
+  void ClickOnAccessibilityTrayButton() {
+    views::View* button =
+        GetMenuButton(FloatingAccessibilityView::ButtonId::kSettingsList);
+    ui::GestureEvent event = CreateTapEvent();
+    button->OnGestureEvent(&event);
+  }
+
+  void EnableAndClickOnVirtualKeyboardTrayButton() {
+    accessibility_controller()->virtual_keyboard().SetEnabled(true);
+    GestureTapOn(
+        GetMenuButton(FloatingAccessibilityView::ButtonId::kVirtualKeyboard));
+  }
+
+  // Setup one language
+  void SetSingleAvailableIme() {
+    ImeInfo ime_english;
+    ime_english.id = ImeEnglishId;
+    ime_english.name = u"English";
+    ime_english.short_name = u"US";
+
+    SetCurrentAndAvailableImes(ImeEnglishId, /*available_imes=*/{ime_english});
+  }
+
+  // Should have at least two languages to show the button
+  void SetTwoAvailableImes() {
+    ImeInfo ime_english;
+    ime_english.id = ImeEnglishId;
+    ime_english.name = u"English";
+    ime_english.short_name = u"US";
+
+    ImeInfo ime_pinyin;
+    ime_pinyin.id = "ime:pinyin";
+    ime_pinyin.name = u"Pinyin";
+    ime_pinyin.short_name = u"拼";
+
+    SetCurrentAndAvailableImes(ImeEnglishId,
+                               /*available_imes=*/{ime_english, ime_pinyin});
+  }
+
+ protected:
+  base::test::ScopedFeatureList features_;
 };
+
+TEST_F(FloatingAccessibilityControllerTest, ImeButtonNotShowWhenDisabled) {
+  SetUpVisibleMenu();
+
+  EXPECT_FALSE(IsButtonVisible(FloatingAccessibilityView::ButtonId::kIme));
+}
+
+TEST_F(FloatingAccessibilityControllerTest, ImeButtonShownWhenEnabled) {
+  features_.InitAndEnableFeature(features::kKioskEnableImeButton);
+
+  SetUpVisibleMenu();
+
+  EXPECT_TRUE(IsButtonVisible(FloatingAccessibilityView::ButtonId::kIme));
+}
+
+TEST_F(FloatingAccessibilityControllerTest, ImeButtonHiddenWhenSingleLanguage) {
+  features_.InitAndEnableFeature(features::kKioskEnableImeButton);
+
+  SetSingleAvailableIme();
+  SetUpVisibleMenu();
+
+  EXPECT_FALSE(IsButtonVisible(FloatingAccessibilityView::ButtonId::kIme));
+}
+
+TEST_F(FloatingAccessibilityControllerTest, KioskImeTrayVisibility) {
+  features_.InitAndEnableFeature(features::kKioskEnableImeButton);
+
+  SetUpVisibleMenu();
+
+  // Tray bubble is visible when  a user taps on the IME icon.
+  GetImeTray()->PerformAction(CreateTapEvent());
+  EXPECT_TRUE(IsImeTrayShown());
+
+  // Tray bubble is invisible when the user clicks on the IME icon again.
+  GetImeTray()->PerformAction(CreateTapEvent());
+  EXPECT_FALSE(IsImeTrayShown());
+}
+
+TEST_F(FloatingAccessibilityControllerTest, KioskImeTrayBottomButtons) {
+  features_.InitAndEnableFeature(features::kKioskEnableImeButton);
+
+  SetUpVisibleMenu();
+  EXPECT_FALSE(GetImeTray()->ShouldShowBottomButtons());
+}
 
 TEST_F(FloatingAccessibilityControllerTest, MenuIsNotShownWhenNotEnabled) {
   accessibility_controller()->ShowFloatingMenuIfEnabled();
@@ -148,6 +290,21 @@ TEST_F(FloatingAccessibilityControllerTest, ShowingMenuAfterPrefUpdate) {
   // should show/hide on enabled state change.
   accessibility_controller()->floating_menu().SetEnabled(true);
   EXPECT_FALSE(controller() == nullptr);
+}
+
+TEST_F(FloatingAccessibilityControllerTest,
+       AccessibilityTrayClosedWhenVirtualKeyboardTrayIsShown) {
+  SetUpVisibleMenu();
+
+  ClickOnAccessibilityTrayButton();
+  EXPECT_TRUE(detailed_view_shown());
+
+  EnableAndClickOnVirtualKeyboardTrayButton();
+  EXPECT_TRUE(GetVirtualKeyboardTray()->is_active());
+
+  WaitUntilAccessibilityTrayClosed();
+
+  EXPECT_FALSE(detailed_view_shown());
 }
 
 TEST_F(FloatingAccessibilityControllerTest, CanChangePosition) {
@@ -349,8 +506,10 @@ TEST_F(FloatingAccessibilityControllerTest, CollisionWithAutoclicksMenu) {
       SCOPED_TRACE(
           base::StringPrintf("Testing position #[%d]", test.expected_position));
       // Tap the position button.
-      ui::GestureEvent event = CreateTapEvent();
-      button->OnGestureEvent(&event);
+      {
+        ui::GestureEvent event = CreateTapEvent();
+        button->OnGestureEvent(&event);
+      }
 
       // Pref change happened.
       EXPECT_EQ(test.expected_position, menu_position());
@@ -379,13 +538,13 @@ TEST_F(FloatingAccessibilityControllerTest, ActiveFeaturesButtons) {
 
   struct FeatureWithButton {
     FloatingAccessibilityView::ButtonId button_id;
-    AccessibilityControllerImpl::FeatureType feature_type;
+    A11yFeatureType feature_type;
   } kFeatureButtons[] = {{FloatingAccessibilityView::ButtonId::kDictation,
-                          AccessibilityControllerImpl::kDictation},
+                          A11yFeatureType::kDictation},
                          {FloatingAccessibilityView::ButtonId::kSelectToSpeak,
-                          AccessibilityControllerImpl::kSelectToSpeak},
+                          A11yFeatureType::kSelectToSpeak},
                          {FloatingAccessibilityView::ButtonId::kVirtualKeyboard,
-                          AccessibilityControllerImpl::kVirtualKeyboard}};
+                          A11yFeatureType::kVirtualKeyboard}};
 
   gfx::Rect original_bounds = GetMenuViewBounds();
 
@@ -427,7 +586,7 @@ TEST_F(FloatingAccessibilityControllerTest, ActiveFeaturesButtons) {
 
   {
     base::RunLoop loop_enable;
-    SetOnLayoutCallback(base::BarrierClosure(base::size(kFeatureButtons),
+    SetOnLayoutCallback(base::BarrierClosure(std::size(kFeatureButtons),
                                              loop_enable.QuitClosure()));
     // Enable all features.
     for (FeatureWithButton feature : kFeatureButtons)
@@ -441,7 +600,7 @@ TEST_F(FloatingAccessibilityControllerTest, ActiveFeaturesButtons) {
   EXPECT_TRUE(window_bounds.Contains(GetMenuViewBounds()));
   {
     base::RunLoop loop_disable;
-    SetOnLayoutCallback(base::BarrierClosure(base::size(kFeatureButtons),
+    SetOnLayoutCallback(base::BarrierClosure(std::size(kFeatureButtons),
                                              loop_disable.QuitClosure()));
     // Enable all features.
     // Dicable all features.
@@ -461,7 +620,7 @@ TEST_F(FloatingAccessibilityControllerTest, AccelatorFocusMenu) {
   views::FocusManager* focus_manager = widget()->GetFocusManager();
 
   Shell::Get()->accelerator_controller()->PerformActionIfEnabled(
-      AcceleratorAction::FOCUS_SHELF, {});
+      AcceleratorAction::kFocusShelf, {});
   // If nothing else is enabled, it should focus on the detailed view button.
   EXPECT_EQ(focus_manager->GetFocusedView(),
             GetMenuButton(FloatingAccessibilityView::ButtonId::kSettingsList));
@@ -472,7 +631,7 @@ TEST_F(FloatingAccessibilityControllerTest, AccelatorFocusMenu) {
             GetMenuButton(FloatingAccessibilityView::ButtonId::kSettingsList));
 
   Shell::Get()->accelerator_controller()->PerformActionIfEnabled(
-      AcceleratorAction::FOCUS_SHELF, {});
+      AcceleratorAction::kFocusShelf, {});
   // It should get back to the settings list button.
   EXPECT_EQ(focus_manager->GetFocusedView(),
             GetMenuButton(FloatingAccessibilityView::ButtonId::kSettingsList));
@@ -484,7 +643,7 @@ TEST_F(FloatingAccessibilityControllerTest, AccelatorFocusMenu) {
   // We should be focused on the first button in the menu.
   // Order: select to speak, virtual keyboard, settings menu, position.
   Shell::Get()->accelerator_controller()->PerformActionIfEnabled(
-      AcceleratorAction::FOCUS_SHELF, {});
+      AcceleratorAction::kFocusShelf, {});
   EXPECT_EQ(focus_manager->GetFocusedView(),
             GetMenuButton(FloatingAccessibilityView::ButtonId::kSelectToSpeak));
 }

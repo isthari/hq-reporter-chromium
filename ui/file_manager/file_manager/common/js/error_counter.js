@@ -1,10 +1,8 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import {GlitchType, reportGlitch} from './glitch.js';
-
-(function() {
 
 /**
  * This variable is checked in several integration and unit tests, to make sure
@@ -12,6 +10,31 @@ import {GlitchType, reportGlitch} from './glitch.js';
  * @type {number}
  */
 window.JSErrorCount = 0;
+
+/**
+ * Creates a list of arguments extended with stack information.
+ * @param {string} prefix The prefix indicating type of error situation.
+ * @param {...*} args The remaining, if any, arguments of the call.
+ * @return {string} A string representing args and stack traces.
+ */
+function createLoggableArgs(prefix, ...args) {
+  const argsStack = args && args[0] && args[0].stack;
+  if (args.length) {
+    const args0 = args[0];
+    args[0] = `[${prefix}]: ` +
+        (args0 instanceof PromiseRejectionEvent ? args0.reason : args0);
+  } else {
+    args.push(prefix);
+  }
+  const currentStack = new Error('current stack').stack.split('\n');
+  // Remove stack trace that is specific to this function.
+  currentStack.splice(1, 1);
+  args.push(currentStack.join('\n'));
+  if (argsStack) {
+    args.push('Original stack:\n' + argsStack);
+  }
+  return args.join('\n');
+}
 
 /**
  * Count uncaught exceptions.
@@ -25,8 +48,9 @@ window.onerror = (message, url) => {
  * Count uncaught errors in promises.
  */
 window.addEventListener('unhandledrejection', (event) => {
+  window.JSErrorCount++;
   reportGlitch(GlitchType.UNHANDLED_REJECTION);
-  console.error(event.reason);
+  console.warn(createLoggableArgs('unhandled-rejection', event));
 });
 
 /**
@@ -38,19 +62,7 @@ console.error = (() => {
   const orig = console.error;
   return (...args) => {
     window.JSErrorCount++;
-    const currentStack = new Error('current stack').stack;
-    const originalStack = args && args[0] && args[0].stack;
-    const prefix = '[unhandled-error]: ';
-    if (args.length) {
-      args[0] = prefix + args[0];
-    } else {
-      args.push(prefix);
-    }
-    args.push([currentStack]);
-    if (originalStack) {
-      args.push('Original stack:\n' + originalStack);
-    }
-    return orig.apply(this, [args.join('\n')]);
+    return orig.apply(this, [createLoggableArgs('unhandled-error', ...args)]);
   };
 })();
 
@@ -71,34 +83,4 @@ console.assert = (() => {
     }
     return orig.apply(this, [condition].concat(args.join('\n')));
   };
-})();
-
-/**
- * Wraps the function to use it as a callback, adding:
- *  - Stack trace of wrapping time, which better reveals the call site.
- *  - Bind this object
- *
- * @param {Object=} thisObject Object to be used as this.
- * @param {...*} bindArgs Arguments to be bound with the wrapped function.
- * @return {function(...)} Wrapped function.
- */
-Function.prototype.wrap = function(thisObject, ...bindArgs) {
-  const func = this;
-  const bindStack = (new Error('Stack trace before async call')).stack;
-  if (thisObject === undefined) {
-    thisObject = null;
-  }
-  return function wrappedCallback(...args) {
-    try {
-      const finalArgs = bindArgs.concat(args);
-      return func.apply(thisObject, finalArgs);
-    } catch (e) {
-      // Log current exception and the stack for the binding time.
-      console.error(
-          e.stack || e,
-          'Exception happened in callback which was bound at:', bindStack);
-      throw e;
-    }
-  };
-};
 })();

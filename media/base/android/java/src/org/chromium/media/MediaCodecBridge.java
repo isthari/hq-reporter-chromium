@@ -1,11 +1,10 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.media;
 
 import android.annotation.SuppressLint;
-import android.annotation.TargetApi;
 import android.media.AudioFormat;
 import android.media.MediaCodec;
 import android.media.MediaCodec.CryptoInfo;
@@ -21,7 +20,6 @@ import android.view.Surface;
 import org.chromium.base.Log;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
-import org.chromium.base.annotations.MainDex;
 import org.chromium.base.annotations.NativeMethods;
 
 import java.nio.ByteBuffer;
@@ -32,7 +30,6 @@ import java.util.Queue;
  * A MediaCodec wrapper for adapting the API and catching exceptions.
  */
 @JNINamespace("media")
-@MainDex
 class MediaCodecBridge {
     private static final String TAG = "MediaCodecBridge";
 
@@ -192,12 +189,14 @@ class MediaCodecBridge {
 
         @CalledByNative("MediaFormatWrapper")
         private int stride() {
+            // Missing stride means a 16x16 resolution alignment is required. See configureVideo().
             if (!mFormat.containsKey(MediaFormat.KEY_STRIDE)) return width();
             return mFormat.getInteger(MediaFormat.KEY_STRIDE);
         }
 
         @CalledByNative("MediaFormatWrapper")
         private int yPlaneHeight() {
+            // Missing stride means a 16x16 resolution alignment is required. See configureVideo().
             if (!mFormat.containsKey(MediaFormat.KEY_SLICE_HEIGHT)) return height();
             return mFormat.getInteger(MediaFormat.KEY_SLICE_HEIGHT);
         }
@@ -224,7 +223,6 @@ class MediaCodecBridge {
     // Warning: This class may execute on an arbitrary thread for the lifetime
     // of the MediaCodec. The MediaCodecBridge methods it calls are synchronized
     // to avoid race conditions.
-    @TargetApi(Build.VERSION_CODES.M)
     class MediaCodecCallback extends MediaCodec.Callback {
         private MediaCodecBridge mMediaCodecBridge;
         MediaCodecCallback(MediaCodecBridge bridge) {
@@ -268,11 +266,6 @@ class MediaCodecBridge {
         prepareAsyncApiForRestart();
     }
 
-    // There's a Lollipop version of the setCallback() API, so we could enable
-    // it there, but since it's likely to be more stable in later SDK versions
-    // and our tests require their own Handler to pump the callbacks, we limit
-    // support to Marshmallow only.
-    @TargetApi(Build.VERSION_CODES.M)
     private void enableAsyncApi() {
         mPendingError = false;
         mPendingFormat = new LinkedList<MediaFormatWrapper>();
@@ -700,14 +693,50 @@ class MediaCodecBridge {
         return mMediaCodec.dequeueOutputBuffer(info, timeoutUs);
     }
 
-    // TODO(sanfin): Move this out of MediaCodecBridge.
+    private static int alignDown(int size, int alignment) {
+        return size & ~(alignment - 1);
+    }
+
     boolean configureVideo(MediaFormat format, Surface surface, MediaCrypto crypto, int flags) {
         try {
             mMediaCodec.configure(format, surface, crypto, flags);
-            if (format.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE)) {
-                mMaxInputSize = format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE);
-                return true;
+
+            // This is always provided by MediaFormatBuilder.
+            mMaxInputSize = format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE);
+
+            if (flags != MediaCodec.CONFIGURE_FLAG_ENCODE) return true;
+
+            // Non 16x16 aligned resolutions don't work well with the MediaCodec encoder
+            // unfortunately, see https://crbug.com/1084702 for details. It seems they
+            // only work when the stride and slice height information are provided.
+            MediaFormat inputFormat = mMediaCodec.getInputFormat();
+            boolean requireAlignedResolution = !inputFormat.containsKey(MediaFormat.KEY_STRIDE)
+                    || !inputFormat.containsKey(MediaFormat.KEY_SLICE_HEIGHT);
+
+            if (!requireAlignedResolution) return true;
+
+            int currentWidth = inputFormat.getInteger(MediaFormat.KEY_WIDTH);
+            int alignedWidth = alignDown(currentWidth, 16);
+
+            int currentHeight = inputFormat.getInteger(MediaFormat.KEY_HEIGHT);
+            int alignedHeight = alignDown(currentHeight, 16);
+
+            if (alignedHeight == 0 || alignedWidth == 0) {
+                Log.e(TAG,
+                        "MediaCodec requires 16x16 alignment, which is not possible for: "
+                                + currentWidth + "x" + currentHeight);
+                return false;
             }
+
+            if (alignedWidth == currentWidth && alignedHeight == currentHeight) return true;
+
+            // We must reconfigure the MediaCodec now since setParameters() doesn't work
+            // consistently across devices and versions of Android.
+            mMediaCodec.reset();
+            format.setInteger(MediaFormat.KEY_WIDTH, alignedWidth);
+            format.setInteger(MediaFormat.KEY_HEIGHT, alignedHeight);
+            mMediaCodec.configure(format, surface, crypto, flags);
+            return true;
         } catch (IllegalArgumentException e) {
             Log.e(TAG, "Cannot configure the video codec, wrong format or surface", e);
         } catch (IllegalStateException e) {
@@ -720,7 +749,6 @@ class MediaCodecBridge {
         return false;
     }
 
-    @TargetApi(Build.VERSION_CODES.M)
     @CalledByNative
     private boolean setSurface(Surface surface) {
         try {
@@ -761,11 +789,7 @@ class MediaCodecBridge {
             case 6:
                 return AudioFormat.CHANNEL_OUT_5POINT1;
             case 8:
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    return AudioFormat.CHANNEL_OUT_7POINT1_SURROUND;
-                } else {
-                    return AudioFormat.CHANNEL_OUT_7POINT1;
-                }
+                return AudioFormat.CHANNEL_OUT_7POINT1_SURROUND;
             default:
                 return AudioFormat.CHANNEL_OUT_DEFAULT;
         }

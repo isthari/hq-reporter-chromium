@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/enterprise/connectors/device_trust/attestation/common/attestation_service.h"
 
@@ -31,8 +32,9 @@ class AshAttestationService : public AttestationService {
 
   // AttestationService:
   void BuildChallengeResponseForVAChallenge(
-      const std::string& challenge,
-      std::unique_ptr<attestation::DeviceTrustSignals> signals,
+      const std::string& serialized_signed_challenge,
+      base::Value::Dict signals,
+      const std::set<DTCPolicyLevel>& levels,
       AttestationCallback callback) override;
 
  private:
@@ -46,7 +48,7 @@ class AshAttestationService : public AttestationService {
       AttestationCallback callback,
       const ash::attestation::TpmChallengeKeyResult& result);
 
-  Profile* const profile_;
+  const raw_ptr<Profile, ExperimentalAsh> profile_;
 
   base::WeakPtrFactory<AshAttestationService> weak_factory_{this};
 };

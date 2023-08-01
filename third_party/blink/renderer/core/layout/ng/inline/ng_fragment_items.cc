@@ -1,9 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_fragment_items.h"
 
+#include "base/ranges/algorithm.h"
 #include "third_party/blink/renderer/core/layout/layout_block.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_fragment_items_builder.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_cursor.h"
@@ -41,26 +42,19 @@ void CheckIsLast(const NGFragmentItem& item) {
 
 NGFragmentItems::NGFragmentItems(NGFragmentItemsBuilder* builder)
     : text_content_(std::move(builder->text_content_)),
-      first_line_text_content_(std::move(builder->first_line_text_content_)),
-      size_(builder->items_.size()),
-      size_of_earlier_fragments_(0) {
-  NGFragmentItemsBuilder::ItemWithOffsetList& source_items = builder->items_;
-  for (wtf_size_t i = 0; i < size_; ++i) {
-    // Call the move constructor to move without |AddRef|. Items in
-    // |NGFragmentItemsBuilder| are not used after |this| was constructed.
-    new (&items_[i]) NGFragmentItem(std::move(source_items[i].item));
-  }
+      first_line_text_content_(std::move(builder->first_line_text_content_)) {
+  items_.ReserveInitialCapacity(builder->items_.size());
+  std::transform(builder->items_.begin(), builder->items_.end(),
+                 std::back_inserter(items_),
+                 [](auto& item) { return std::move(item.item); });
 }
 
 NGFragmentItems::NGFragmentItems(const NGFragmentItems& other)
     : text_content_(other.text_content_),
       first_line_text_content_(other.first_line_text_content_),
-      size_(other.size_),
-      size_of_earlier_fragments_(other.size_of_earlier_fragments_) {
-  for (wtf_size_t i = 0; i < size_; ++i) {
-    const auto& other_item = other.items_[i];
-    new (&items_[i]) NGFragmentItem(other_item);
-
+      size_of_earlier_fragments_(other.size_of_earlier_fragments_),
+      items_(other.items_) {
+  for (const auto& other_item : other.items_) {
     // The |other| object is likely going to be freed after this copy. Detach
     // any |AbstractInlineTextBox|, as they store a pointer to an individual
     // |NGFragmentItem|.
@@ -70,26 +64,13 @@ NGFragmentItems::NGFragmentItems(const NGFragmentItems& other)
   }
 }
 
-NGFragmentItems::~NGFragmentItems() {
-  for (unsigned i = 0; i < size_; ++i)
-    items_[i].~NGFragmentItem();
-}
-
 bool NGFragmentItems::IsSubSpan(const Span& span) const {
   return span.empty() ||
          (span.data() >= ItemsData() && &span.back() < ItemsData() + Size());
 }
 
 void NGFragmentItems::FinalizeAfterLayout(
-    const Vector<scoped_refptr<const NGLayoutResult>, 1>& results) {
-#if DCHECK_IS_ON()
-  if (!RuntimeEnabledFeatures::LayoutNGBlockFragmentationEnabled()) {
-    for (const auto& result : results) {
-      CheckNoItemsAreAssociated(
-          To<NGPhysicalBoxFragment>(result->PhysicalFragment()));
-    }
-  }
-#endif
+    const HeapVector<Member<const NGLayoutResult>, 1>& results) {
   struct LastItem {
     const NGFragmentItem* item;
     wtf_size_t fragment_id;
@@ -144,10 +125,6 @@ void NGFragmentItems::FinalizeAfterLayout(
       const bool is_first = last_item_result.is_new_entry;
       if (is_first) {
         item.SetFragmentId(0);
-#if DCHECK_IS_ON()
-        if (!RuntimeEnabledFeatures::LayoutNGBlockFragmentationEnabled())
-          DCHECK_EQ(layout_object->FirstInlineFragmentItemIndex(), 0u);
-#endif
         layout_object->SetFirstInlineFragmentItemIndex(item_index);
         continue;
       }
@@ -434,11 +411,10 @@ void NGFragmentItems::DirtyFirstItem(const LayoutBlockFlow& container) {
 // static
 void NGFragmentItems::DirtyLinesFromNeedsLayout(
     const LayoutBlockFlow& container) {
-  DCHECK(std::any_of(container.PhysicalFragments().begin(),
-                     container.PhysicalFragments().end(),
-                     [](const NGPhysicalBoxFragment& fragment) {
-                       return fragment.HasItems();
-                     }));
+  DCHECK(base::ranges::any_of(container.PhysicalFragments(),
+                              [](const NGPhysicalBoxFragment& fragment) {
+                                return fragment.HasItems();
+                              }));
 
   // Mark dirty for the first top-level child that has |NeedsLayout|.
   //
@@ -459,6 +435,22 @@ void NGFragmentItems::DirtyLinesFromNeedsLayout(
       return;
     }
   }
+}
+
+// static
+bool NGFragmentItems::ReplaceBoxFragment(
+    const NGPhysicalBoxFragment& old_fragment,
+    const NGPhysicalBoxFragment& new_fragment,
+    const NGPhysicalBoxFragment& containing_fragment) {
+  for (NGInlineCursor cursor(containing_fragment); cursor;
+       cursor.MoveToNext()) {
+    const NGFragmentItem* item = cursor.Current().Item();
+    if (item->BoxFragment() != &old_fragment)
+      continue;
+    item->GetMutableForCloning().ReplaceBoxFragment(new_fragment);
+    return true;
+  }
+  return false;
 }
 
 // static
@@ -489,5 +481,9 @@ void NGFragmentItems::CheckAllItemsAreValid() const {
     DCHECK(!item.IsLayoutObjectDestroyedOrMoved());
 }
 #endif
+
+void NGFragmentItems::Trace(Visitor* visitor) const {
+  visitor->Trace(items_);
+}
 
 }  // namespace blink

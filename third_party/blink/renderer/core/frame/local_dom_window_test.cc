@@ -36,11 +36,13 @@
 #include "third_party/blink/public/common/loader/referrer_utils.h"
 #include "third_party/blink/public/mojom/devtools/console_message.mojom-blink-forward.h"
 #include "third_party/blink/renderer/bindings/core/v8/isolated_world_csp.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/core/execution_context/agent.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/inspector/console_message.h"
 #include "third_party/blink/renderer/core/inspector/console_message_storage.h"
+#include "third_party/blink/renderer/core/testing/mock_policy_container_host.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
@@ -63,7 +65,11 @@ class LocalDOMWindowTest : public PageTestBase {
       WebSandboxFlags sandbox_flags = WebSandboxFlags::kAll) {
     auto params = WebNavigationParams::CreateWithHTMLStringForTesting(
         /*html=*/"", url);
-    params->sandbox_flags = sandbox_flags;
+    MockPolicyContainerHost mock_policy_container_host;
+    params->policy_container = std::make_unique<blink::WebPolicyContainer>(
+        blink::WebPolicyContainerPolicies(),
+        mock_policy_container_host.BindNewEndpointAndPassDedicatedRemote());
+    params->policy_container->policies.sandbox_flags = sandbox_flags;
     GetFrame().Loader().CommitNavigation(std::move(params),
                                          /*extra_data=*/nullptr);
     test::RunPendingTasks();
@@ -230,13 +236,18 @@ TEST_F(LocalDOMWindowTest, EnforceSandboxFlags) {
   }
 }
 
-TEST_F(LocalDOMWindowTest, ReducedUserAgent) {
+TEST_F(LocalDOMWindowTest, UserAgent) {
   EXPECT_EQ(GetFrame().DomWindow()->UserAgent(),
             GetFrame().Loader().UserAgent());
   {
     ScopedUserAgentReductionForTest s1(true);
     EXPECT_EQ(GetFrame().DomWindow()->UserAgent(),
               GetFrame().Loader().ReducedUserAgent());
+  }
+  {
+    ScopedSendFullUserAgentAfterReductionForTest s1(true);
+    EXPECT_EQ(GetFrame().DomWindow()->UserAgent(),
+              GetFrame().Loader().FullUserAgent());
   }
 }
 
@@ -309,7 +320,7 @@ TEST_F(PageTestBase, CSPForWorld) {
 }
 
 TEST_F(LocalDOMWindowTest, ConsoleMessageCategory) {
-  auto unknown_location = SourceLocation::Capture(String(), 0, 0);
+  auto unknown_location = CaptureSourceLocation(String(), 0, 0);
   auto* console_message = MakeGarbageCollected<ConsoleMessage>(
       mojom::blink::ConsoleMessageSource::kJavaScript,
       mojom::blink::ConsoleMessageLevel::kError, "Kaboom!",
@@ -323,6 +334,22 @@ TEST_F(LocalDOMWindowTest, ConsoleMessageCategory) {
     EXPECT_EQ(mojom::blink::ConsoleMessageCategory::Cors,
               *message_storage->at(i)->Category());
   }
+}
+TEST_F(LocalDOMWindowTest, NavigationId) {
+  String navigation_id1 = GetFrame().DomWindow()->GetNavigationId();
+  GetFrame().DomWindow()->GenerateNewNavigationId();
+  String navigation_id2 = GetFrame().DomWindow()->GetNavigationId();
+  GetFrame().DomWindow()->GenerateNewNavigationId();
+  String navigation_id3 = GetFrame().DomWindow()->GetNavigationId();
+  EXPECT_NE(navigation_id1, navigation_id2);
+  EXPECT_NE(navigation_id1, navigation_id3);
+  EXPECT_NE(navigation_id2, navigation_id3);
+}
+
+TEST_F(LocalDOMWindowTest, HasStorageAccess) {
+  EXPECT_FALSE(GetFrame().DomWindow()->HasStorageAccess());
+  GetFrame().DomWindow()->SetHasStorageAccess();
+  EXPECT_TRUE(GetFrame().DomWindow()->HasStorageAccess());
 }
 
 }  // namespace blink

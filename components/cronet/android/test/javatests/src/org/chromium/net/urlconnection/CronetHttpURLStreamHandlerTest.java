@@ -1,18 +1,18 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.net.urlconnection;
 
-import static org.junit.Assert.assertEquals;
+import static com.google.common.truth.Truth.assertThat;
+
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import static org.chromium.net.CronetTestRule.getContext;
 
-import android.support.test.runner.AndroidJUnit4;
-
+import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.filters.SmallTest;
 
 import org.junit.After;
@@ -21,7 +21,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.Batch;
 import org.chromium.net.CronetTestRule;
 import org.chromium.net.CronetTestRule.CronetTestFramework;
 import org.chromium.net.NativeTestServer;
@@ -34,6 +34,7 @@ import java.net.URL;
 /**
  * Tests for CronetHttpURLStreamHandler class.
  */
+@Batch(Batch.UNIT_TESTS)
 @RunWith(AndroidJUnit4.class)
 public class CronetHttpURLStreamHandlerTest {
     @Rule
@@ -49,27 +50,25 @@ public class CronetHttpURLStreamHandlerTest {
 
     @After
     public void tearDown() throws Exception {
+        mTestFramework.shutdownEngine();
         NativeTestServer.shutdownNativeTestServer();
     }
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     public void testOpenConnectionHttp() throws Exception {
         URL url = new URL(NativeTestServer.getEchoMethodURL());
         CronetHttpURLStreamHandler streamHandler =
                 new CronetHttpURLStreamHandler(mTestFramework.mCronetEngine);
-        HttpURLConnection connection =
-                (HttpURLConnection) streamHandler.openConnection(url);
-        assertEquals(200, connection.getResponseCode());
-        assertEquals("OK", connection.getResponseMessage());
-        assertEquals("GET", TestUtil.getResponseAsString(connection));
+        HttpURLConnection connection = (HttpURLConnection) streamHandler.openConnection(url);
+        assertThat(connection.getResponseCode()).isEqualTo(200);
+        assertThat(connection.getResponseMessage()).isEqualTo("OK");
+        assertThat(TestUtil.getResponseAsString(connection)).isEqualTo("GET");
         connection.disconnect();
     }
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     public void testOpenConnectionHttps() throws Exception {
         URL url = new URL("https://example.com");
         CronetHttpURLStreamHandler streamHandler =
@@ -81,7 +80,6 @@ public class CronetHttpURLStreamHandlerTest {
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     public void testOpenConnectionProtocolNotSupported() throws Exception {
         URL url = new URL("ftp://example.com");
         CronetHttpURLStreamHandler streamHandler =
@@ -90,13 +88,12 @@ public class CronetHttpURLStreamHandlerTest {
             streamHandler.openConnection(url);
             fail();
         } catch (UnsupportedOperationException e) {
-            assertEquals("Unexpected protocol:ftp", e.getMessage());
+            assertThat(e).hasMessageThat().isEqualTo("Unexpected protocol:ftp");
         }
     }
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     public void testOpenConnectionWithProxy() throws Exception {
         URL url = new URL(NativeTestServer.getEchoMethodURL());
         CronetHttpURLStreamHandler streamHandler =

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,15 @@
 
 #include <string>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
+#include "base/memory/raw_ptr.h"
+#include "chrome/test/base/devtools_agent_coverage_observer.h"
 #include "chrome/test/base/javascript_browser_test.h"
 
 // A super class that handles javascript-based tests against an extension.
 //
 // See an example usage at
-// chrome/browser/resources/chromeos/accessibility/chromevox/background/background_test.extjs
+// chrome/browser/resources/chromeos/accessibility/chromevox/background/background_test.js
 class ExtensionJSBrowserTest : public JavaScriptBrowserTest {
  public:
   ExtensionJSBrowserTest();
@@ -22,6 +24,8 @@ class ExtensionJSBrowserTest : public JavaScriptBrowserTest {
   ~ExtensionJSBrowserTest() override;
 
  protected:
+  void SetUpOnMainThread() override;
+
   // Waits for an extension to load; returns immediately if already loaded.
   void WaitForExtension(const char* extension_id, base::OnceClosure load_cb);
 
@@ -36,8 +40,12 @@ class ExtensionJSBrowserTest : public JavaScriptBrowserTest {
   std::string extension_id_;
   // The browser context associated with the ExtensionHost loaded from
   // WaitForExtension().
-  content::BrowserContext* extension_host_browser_context_ = nullptr;
+  raw_ptr<content::BrowserContext, ExperimentalAsh>
+      extension_host_browser_context_ = nullptr;
   bool libs_loaded_ = false;
+
+  // Handles collection of code coverage.
+  std::unique_ptr<DevToolsAgentCoverageObserver> coverage_handler_;
 };
 
 #endif  // CHROME_TEST_BASE_EXTENSION_JS_BROWSER_TEST_H_

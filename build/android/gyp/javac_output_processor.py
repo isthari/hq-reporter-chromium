@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 #
-# Copyright 2021 The Chromium Authors. All rights reserved.
+# Copyright 2021 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 """Contains helper class for processing javac output."""
 
+import dataclasses
 import os
 import pathlib
 import re
 import sys
+import traceback
+from typing import List
 
 from util import build_utils
 
@@ -23,9 +26,48 @@ sys.path.insert(
 import lookup_dep
 
 
+def ReplaceGmsPackageIfNeeded(target_name: str) -> str:
+  if target_name.startswith(
+      ('//third_party/android_deps:google_play_services_',
+       '//clank/third_party/google3:google_play_services_')):
+    return f'$google_play_services_package:{target_name.split(":")[1]}'
+  return target_name
+
+
+def _DisambiguateDeps(class_entries: List[lookup_dep.ClassEntry]):
+  def filter_if_not_empty(entries, filter_func):
+    filtered_entries = [e for e in entries if filter_func(e)]
+    return filtered_entries or entries
+
+  # When some deps are preferred, ignore all other potential deps.
+  class_entries = filter_if_not_empty(class_entries, lambda e: e.preferred_dep)
+
+  # E.g. javax_annotation_jsr250_api_java.
+  class_entries = filter_if_not_empty(class_entries,
+                                      lambda e: 'jsr' in e.target)
+
+  # Avoid suggesting subtargets when regular targets exist.
+  class_entries = filter_if_not_empty(class_entries,
+                                      lambda e: '__' not in e.target)
+
+  # Swap out GMS package names if needed.
+  class_entries = [
+      dataclasses.replace(e, target=ReplaceGmsPackageIfNeeded(e.target))
+      for e in class_entries
+  ]
+
+  # Convert to dict and then use list to get the keys back to remove dups and
+  # keep order the same as before.
+  class_entries = list({e: True for e in class_entries})
+
+  return class_entries
+
+
 class JavacOutputProcessor:
   def __init__(self, target_name):
-    self._target_name = target_name
+    self._target_name = self._RemoveSuffixesIfPresent(
+        ["__compile_java", "__errorprone", "__header"], target_name)
+    self._suggested_deps = set()
 
     # Example: ../../ui/android/java/src/org/chromium/ui/base/Clipboard.java:45:
     fileline_prefix = (
@@ -37,25 +79,15 @@ class JavacOutputProcessor:
                                 r'(?P<full_message> (?P<message>.*))$')
     self._marker_re = re.compile(r'\s*(?P<marker>\^)\s*$')
 
-    # Matches output modification performed by _ElaborateLineForUnknownSymbol()
-    # so that it can be colorized.
-    # Example: org.chromium.base.Log found in dep //base:base_java.
-    self._please_add_dep_re = re.compile(
-        r'(?P<full_message>Please add //[\w/:]+ dep to //[\w/:]+.*)$')
-
-    # First element in pair is bool which indicates whether the missing
-    # class/package is part of the error message.
     self._symbol_not_found_re_list = [
         # Example:
         # error: package org.chromium.components.url_formatter does not exist
-        (True,
-         re.compile(fileline_prefix +
-                    r'( error: package [\w.]+ does not exist)$')),
+        re.compile(fileline_prefix +
+                   r'( error: package [\w.]+ does not exist)$'),
         # Example: error: cannot find symbol
-        (False, re.compile(fileline_prefix + r'( error: cannot find symbol)$')),
+        re.compile(fileline_prefix + r'( error: cannot find symbol)$'),
         # Example: error: symbol not found org.chromium.url.GURL
-        (True,
-         re.compile(fileline_prefix + r'( error: symbol not found [\w.]+)$')),
+        re.compile(fileline_prefix + r'( error: symbol not found [\w.]+)$'),
     ]
 
     # Example: import org.chromium.url.GURL;
@@ -80,7 +112,19 @@ class JavacOutputProcessor:
       - Suggests GN dep to add for 'unresolved symbol in Java import' errors.
       """
     lines = self._ElaborateLinesForUnknownSymbol(iter(lines))
-    return (self._ApplyColors(l) for l in lines)
+    for line in lines:
+      yield self._ApplyColors(line)
+    if self._suggested_deps:
+
+      def yellow(text):
+        return colorama.Fore.YELLOW + text + colorama.Fore.RESET
+
+      # Show them in quotes so they can be copy/pasted into BUILD.gn files.
+      yield yellow('Hint:') + ' One or more errors due to missing GN deps.'
+      yield (yellow('Hint:') + ' Try adding the following to ' +
+             yellow(self._target_name))
+      for dep in sorted(self._suggested_deps):
+        yield '    "{}",'.format(dep)
 
   def _ElaborateLinesForUnknownSymbol(self, lines):
     """ Elaborates passed-in javac output for unresolved symbols.
@@ -99,11 +143,16 @@ class JavacOutputProcessor:
     previous_line = next(lines, None)
     line = next(lines, None)
     while previous_line != None:
-      elaborated_lines = self._ElaborateLineForUnknownSymbol(
-          previous_line, line)
-      for elaborated_line in elaborated_lines:
-        yield elaborated_line
+      try:
+        self._LookForUnknownSymbol(previous_line, line)
+      except Exception:
+        elaborated_lines = ['Error in _LookForUnknownSymbol ---']
+        elaborated_lines += traceback.format_exc().splitlines()
+        elaborated_lines += ['--- end _LookForUnknownSymbol error']
+        for elaborated_line in elaborated_lines:
+          yield elaborated_line
 
+      yield previous_line
       previous_line = line
       line = next(lines, None)
 
@@ -113,74 +162,43 @@ class JavacOutputProcessor:
       line = self._Colorize(line, self._warning_re, self._warning_color)
     elif self._error_re.match(line):
       line = self._Colorize(line, self._error_re, self._error_color)
-    elif self._please_add_dep_re.match(line):
-      line = self._Colorize(line, self._please_add_dep_re, self._error_color)
     elif self._marker_re.match(line):
       line = self._Colorize(line, self._marker_re, self._marker_color)
     return line
 
-  def _ElaborateLineForUnknownSymbol(self, line, next_line):
+  def _LookForUnknownSymbol(self, line, next_line):
     if not next_line:
-      return [line]
+      return
 
     import_re_match = self._import_re.match(next_line)
     if not import_re_match:
-      return [line]
+      return
 
-    symbol_missing = False
-    has_missing_symbol_in_error_msg = False
-    for symbol_in_error_msg, regex in self._symbol_not_found_re_list:
+    for regex in self._symbol_not_found_re_list:
       if regex.match(line):
-        symbol_missing = True
-        has_missing_symbol_in_error_msg = symbol_in_error_msg
         break
+    else:
+      return
 
-    if not symbol_missing:
-      return [line]
+    if self._class_lookup_index is None:
+      self._class_lookup_index = lookup_dep.ClassLookupIndex(
+          pathlib.Path(os.getcwd()),
+          should_build=False,
+      )
 
     class_to_lookup = import_re_match.group('imported_class')
-    if self._class_lookup_index == None:
-      self._class_lookup_index = lookup_dep.ClassLookupIndex(pathlib.Path(
-          os.getcwd()),
-                                                             should_build=False)
     suggested_deps = self._class_lookup_index.match(class_to_lookup)
 
-    if len(suggested_deps) != 1:
-      suggested_deps = self._FindFactoryDep(suggested_deps)
-      if len(suggested_deps) != 1:
-        return [line]
+    if not suggested_deps:
+      return
 
-    suggested_target = suggested_deps[0].target
+    suggested_deps = _DisambiguateDeps(suggested_deps)
+    suggested_deps_str = ', '.join(s.target for s in suggested_deps)
 
-    target_name = self._RemoveSuffixesIfPresent(
-        ["__compile_java", "__errorprone", "__header"], self._target_name)
-    if not has_missing_symbol_in_error_msg:
-      line = "{} {}".format(line, class_to_lookup)
+    if len(suggested_deps) > 1:
+      suggested_deps_str = 'one of: ' + suggested_deps_str
 
-    return [
-        line,
-        "Please add {} dep to {}. ".format(suggested_target, target_name) +
-        "File a crbug if this suggestion is incorrect.",
-    ]
-
-  @staticmethod
-  def _FindFactoryDep(class_entries):
-    """Find the android_library_factory() GN target."""
-    if len(class_entries) != 2:
-      return []
-
-    # android_library_factory() targets set low_classpath_priority=true.
-    # This logic is correct if GN targets other than android_library_factory()
-    # set low_classpath_priority=true. low_classpath_priority=true indicates
-    # that the target is depended on (and overridden) by other targets which
-    # contain the same class. We want to recommend the leaf target.
-    if class_entries[0].low_classpath_priority == class_entries[
-        1].low_classpath_priority:
-      return []
-
-    if class_entries[0].low_classpath_priority:
-      return [class_entries[0]]
-    return [class_entries[1]]
+    self._suggested_deps.add(suggested_deps_str)
 
   @staticmethod
   def _RemoveSuffixesIfPresent(suffixes, text):

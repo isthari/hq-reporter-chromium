@@ -1,14 +1,16 @@
+# mypy: allow-untyped-defs
+
 import argparse
 import os
 import platform
 import sys
-from distutils.spawn import find_executable
-from typing import ClassVar, Type
+from shutil import which
+from typing import ClassVar, Tuple, Type
 
 wpt_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
 sys.path.insert(0, os.path.abspath(os.path.join(wpt_root, "tools")))
 
-from . import browser, install, testfiles, virtualenv
+from . import browser, install, testfiles
 from ..serve import serve
 
 logger = None
@@ -24,7 +26,7 @@ class WptrunnerHelpAction(argparse.Action):
                  dest=argparse.SUPPRESS,
                  default=argparse.SUPPRESS,
                  help=None):
-        super(WptrunnerHelpAction, self).__init__(
+        super().__init__(
             option_strings=option_strings,
             dest=dest,
             default=default,
@@ -90,7 +92,7 @@ def args_general(kwargs):
         if kwargs["host_cert_path"] is None:
             kwargs["host_cert_path"] = os.path.join(cert_root, "web-platform.test.pem")
     elif kwargs["ssl_type"] == "openssl":
-        if not find_executable(kwargs["openssl_binary"]):
+        if not which(kwargs["openssl_binary"]):
             if os.uname()[0] == "Windows":
                 raise WptrunError("""OpenSSL binary not found. If you need HTTPS tests, install OpenSSL from
 
@@ -106,7 +108,9 @@ otherwise install OpenSSL and ensure that it's on your $PATH.""")
 
 
 def check_environ(product):
-    if product not in ("android_weblayer", "android_webview", "chrome", "chrome_android", "firefox", "firefox_android", "servo"):
+    if product not in ("android_weblayer", "android_webview", "chrome",
+                       "chrome_android", "chrome_ios", "content_shell",
+                       "firefox", "firefox_android", "servo", "wktr"):
         config_builder = serve.build_config(os.path.join(wpt_root, "config.json"))
         # Override the ports to avoid looking for free ports
         config_builder.ssl = {"type": "none"}
@@ -131,7 +135,7 @@ def check_environ(product):
         else:
             wpt_path = os.path.join(wpt_root, "wpt")
 
-        with open(hosts_path, "r") as f:
+        with open(hosts_path) as f:
             for line in f:
                 line = line.split("#", 1)[0].strip()
                 parts = line.split()
@@ -153,9 +157,9 @@ in PowerShell with Administrator privileges.""" % (wpt_path, hosts_path)
                 raise WptrunError(message)
 
 
-class BrowserSetup(object):
-    name = None  # type: ClassVar[str]
-    browser_cls = None  # type: ClassVar[Type[browser.Browser]]
+class BrowserSetup:
+    name: ClassVar[str]
+    browser_cls: ClassVar[Type[browser.Browser]]
 
     def __init__(self, venv, prompt=True):
         self.browser = self.browser_cls(logger)
@@ -176,10 +180,10 @@ class BrowserSetup(object):
         if self.prompt_install(self.name):
             return self.browser.install(self.venv.path, channel)
 
-    def install_requirements(self):
-        if not self.venv.skip_virtualenv_setup:
-            self.venv.install_requirements(os.path.join(
-                wpt_root, "tools", "wptrunner", self.browser.requirements))
+    def requirements(self):
+        if self.browser.requirements:
+            return [os.path.join(wpt_root, "tools", "wptrunner", self.browser.requirements)]
+        return []
 
     def setup(self, kwargs):
         self.setup_kwargs(kwargs)
@@ -260,6 +264,9 @@ Consider installing certutil via your OS package manager or directly.""")
             kwargs["headless"] = True
             logger.info("Running in headless mode, pass --no-headless to disable")
 
+        if kwargs["browser_channel"] == "nightly" and kwargs["enable_webtransport_h3"] is None:
+            kwargs["enable_webtransport_h3"] = True
+
         # Turn off Firefox WebRTC ICE logging on WPT (turned on by mozrunner)
         safe_unsetenv('R_LOG_LEVEL')
         safe_unsetenv('R_LOG_DESTINATION')
@@ -327,8 +334,8 @@ class FirefoxAndroid(BrowserSetup):
 
 class Chrome(BrowserSetup):
     name = "chrome"
-    browser_cls = browser.Chrome
-    experimental_channels = ("dev", "canary", "nightly")
+    browser_cls: ClassVar[Type[browser.ChromeChromiumBase]] = browser.Chrome
+    experimental_channels: ClassVar[Tuple[str, ...]] = ("dev", "canary", "nightly")
 
     def setup_kwargs(self, kwargs):
         browser_channel = kwargs["browser_channel"]
@@ -337,29 +344,26 @@ class Chrome(BrowserSetup):
             if binary:
                 kwargs["binary"] = binary
             else:
-                raise WptrunError("Unable to locate Chrome binary")
+                raise WptrunError(f"Unable to locate {self.name.capitalize()} binary")
 
         if kwargs["mojojs_path"]:
             kwargs["enable_mojojs"] = True
             logger.info("--mojojs-path is provided, enabling MojoJS")
-        # TODO(Hexcles): Enable this everywhere when Chrome 86 becomes stable.
-        elif browser_channel in self.experimental_channels:
-            try:
-                path = self.browser.install_mojojs(
-                    dest=self.venv.path,
-                    channel=browser_channel,
-                    browser_binary=kwargs["binary"],
-                )
+        else:
+            path = self.browser.install_mojojs(dest=self.venv.path,
+                                               browser_binary=kwargs["binary"])
+            if path:
                 kwargs["mojojs_path"] = path
                 kwargs["enable_mojojs"] = True
-                logger.info("MojoJS enabled automatically (mojojs_path: %s)" % path)
-            except Exception as e:
-                logger.error("Cannot enable MojoJS: %s" % e)
+                logger.info(f"MojoJS enabled automatically (mojojs_path: {path})")
+            else:
+                kwargs["enable_mojojs"] = False
+                logger.info("MojoJS is disabled for this run.")
 
         if kwargs["webdriver_binary"] is None:
             webdriver_binary = None
             if not kwargs["install_webdriver"]:
-                webdriver_binary = self.browser.find_webdriver()
+                webdriver_binary = self.browser.find_webdriver(self.venv.bin_path)
                 if webdriver_binary and not self.browser.webdriver_supports_browser(
                         webdriver_binary, kwargs["binary"], browser_channel):
                     webdriver_binary = None
@@ -381,26 +385,61 @@ class Chrome(BrowserSetup):
             else:
                 raise WptrunError("Unable to locate or install matching ChromeDriver binary")
         if browser_channel in self.experimental_channels:
-            logger.info(
-                "Automatically turning on experimental features for Chrome Dev/Canary or Chromium trunk")
-            kwargs["binary_args"].append("--enable-experimental-web-platform-features")
             # HACK(Hexcles): work around https://github.com/web-platform-tests/wpt/issues/16448
             kwargs["webdriver_args"].append("--disable-build-check")
-            # To start the WebTransport over HTTP/3 test server.
-            kwargs["enable_webtransport_h3"] = True
+            if kwargs["enable_experimental"] is None:
+                logger.info(
+                    "Automatically turning on experimental features for Chrome Dev/Canary or Chromium trunk")
+                kwargs["enable_experimental"] = True
+            if kwargs["enable_webtransport_h3"] is None:
+                # To start the WebTransport over HTTP/3 test server.
+                kwargs["enable_webtransport_h3"] = True
         if os.getenv("TASKCLUSTER_ROOT_URL"):
             # We are on Taskcluster, where our Docker container does not have
             # enough capabilities to run Chrome with sandboxing. (gh-20133)
             kwargs["binary_args"].append("--no-sandbox")
 
 
-class ChromeAndroid(BrowserSetup):
-    name = "chrome_android"
-    browser_cls = browser.ChromeAndroid
+class ContentShell(BrowserSetup):
+    name = "content_shell"
+    browser_cls = browser.ContentShell
+    experimental_channels = ("dev", "canary", "nightly")
+
+    def setup_kwargs(self, kwargs):
+        browser_channel = kwargs["browser_channel"]
+        if kwargs["binary"] is None:
+            binary = self.browser.find_binary(venv_path=self.venv.path, channel=browser_channel)
+            if binary:
+                kwargs["binary"] = binary
+            else:
+                raise WptrunError(f"Unable to locate {self.name.capitalize()} binary")
+
+        if kwargs["mojojs_path"]:
+            kwargs["enable_mojojs"] = True
+            logger.info("--mojojs-path is provided, enabling MojoJS")
+        elif kwargs["enable_mojojs"]:
+            logger.warning(f"Cannot install MojoJS for {self.name}, "
+                           "which does not return version information. "
+                           "Provide '--mojojs-path' explicitly instead.")
+            logger.warning("MojoJS is disabled for this run.")
+
+        kwargs["enable_webtransport_h3"] = True
+
+
+class Chromium(Chrome):
+    name = "chromium"
+    browser_cls: ClassVar[Type[browser.ChromeChromiumBase]] = browser.Chromium
+    experimental_channels = ("nightly",)
+
+
+class ChromeAndroidBase(BrowserSetup):
+    experimental_channels = ("dev", "canary")
 
     def setup_kwargs(self, kwargs):
         if kwargs.get("device_serial"):
             self.browser.device_serial = kwargs["device_serial"]
+        if kwargs.get("adb_binary"):
+            self.browser.adb_binary = kwargs["adb_binary"]
         browser_channel = kwargs["browser_channel"]
         if kwargs["package_name"] is None:
             kwargs["package_name"] = self.browser.find_binary(
@@ -427,11 +466,20 @@ class ChromeAndroid(BrowserSetup):
                 kwargs["webdriver_binary"] = webdriver_binary
             else:
                 raise WptrunError("Unable to locate or install chromedriver binary")
-        if browser_channel in ("dev", "canary"):
-            logger.info("Automatically turning on experimental features for Chrome Dev/Canary")
-            kwargs["binary_args"].append("--enable-experimental-web-platform-features")
+
+
+class ChromeAndroid(ChromeAndroidBase):
+    name = "chrome_android"
+    browser_cls = browser.ChromeAndroid
+
+    def setup_kwargs(self, kwargs):
+        super().setup_kwargs(kwargs)
+        if kwargs["browser_channel"] in self.experimental_channels:
             # HACK(Hexcles): work around https://github.com/web-platform-tests/wpt/issues/16448
             kwargs["webdriver_args"].append("--disable-build-check")
+            if kwargs["enable_experimental"] is None:
+                logger.info("Automatically turning on experimental features for Chrome Dev/Canary")
+                kwargs["enable_experimental"] = True
 
 
 class ChromeiOS(BrowserSetup):
@@ -443,67 +491,20 @@ class ChromeiOS(BrowserSetup):
             raise WptrunError("Unable to locate or install chromedriver binary")
 
 
-class AndroidWeblayer(BrowserSetup):
+class AndroidWeblayer(ChromeAndroidBase):
     name = "android_weblayer"
     browser_cls = browser.AndroidWeblayer
-    experimental_channels = ("dev", "canary")
 
     def setup_kwargs(self, kwargs):
-        if kwargs.get("device_serial"):
-            self.browser.device_serial = kwargs["device_serial"]
-        browser_channel = kwargs["browser_channel"]
-        if kwargs["webdriver_binary"] is None:
-            webdriver_binary = None
-            if not kwargs["install_webdriver"]:
-                webdriver_binary = self.browser.find_webdriver()
-
-            if webdriver_binary is None:
-                install = self.prompt_install("chromedriver")
-
-                if install:
-                    logger.info("Downloading chromedriver")
-                    webdriver_binary = self.browser.install_webdriver(
-                        dest=self.venv.bin_path,
-                        channel=browser_channel)
-            else:
-                logger.info("Using webdriver binary %s" % webdriver_binary)
-
-            if webdriver_binary:
-                kwargs["webdriver_binary"] = webdriver_binary
-            else:
-                raise WptrunError("Unable to locate or install chromedriver binary")
-        if browser_channel in self.experimental_channels:
+        super().setup_kwargs(kwargs)
+        if kwargs["browser_channel"] in self.experimental_channels and kwargs["enable_experimental"] is None:
             logger.info("Automatically turning on experimental features for WebLayer Dev/Canary")
-            kwargs["binary_args"].append("--enable-experimental-web-platform-features")
+            kwargs["enable_experimental"] = True
 
 
-class AndroidWebview(BrowserSetup):
+class AndroidWebview(ChromeAndroidBase):
     name = "android_webview"
     browser_cls = browser.AndroidWebview
-
-    def setup_kwargs(self, kwargs):
-        if kwargs.get("device_serial"):
-            self.browser.device_serial = kwargs["device_serial"]
-        if kwargs["webdriver_binary"] is None:
-            webdriver_binary = None
-            if not kwargs["install_webdriver"]:
-                webdriver_binary = self.browser.find_webdriver()
-
-            if webdriver_binary is None:
-                install = self.prompt_install("chromedriver")
-
-                if install:
-                    logger.info("Downloading chromedriver")
-                    webdriver_binary = self.browser.install_webdriver(
-                        dest=self.venv.bin_path,
-                        channel=kwargs["browser_channel"])
-            else:
-                logger.info("Using webdriver binary %s" % webdriver_binary)
-
-            if webdriver_binary:
-                kwargs["webdriver_binary"] = webdriver_binary
-            else:
-                raise WptrunError("Unable to locate or install chromedriver binary")
 
 
 class Opera(BrowserSetup):
@@ -570,9 +571,9 @@ class EdgeChromium(BrowserSetup):
                 kwargs["webdriver_binary"] = webdriver_binary
             else:
                 raise WptrunError("Unable to locate or install msedgedriver binary")
-        if browser_channel in ("dev", "canary"):
+        if browser_channel in ("dev", "canary") and kwargs["enable_experimental"] is None:
             logger.info("Automatically turning on experimental features for Edge Dev/Canary")
-            kwargs["binary_args"].append("--enable-experimental-web-platform-features")
+            kwargs["enable_experimental"] = True
 
 
 class Edge(BrowserSetup):
@@ -687,6 +688,23 @@ class WebKit(BrowserSetup):
         pass
 
 
+class WebKitTestRunner(BrowserSetup):
+    name = "wktr"
+    browser_cls = browser.WebKitTestRunner
+
+    def install(self, channel=None):
+        if self.prompt_install(self.name):
+            return self.browser.install(self.venv.path, channel=channel)
+
+    def setup_kwargs(self, kwargs):
+        if kwargs["binary"] is None:
+            binary = self.browser.find_binary(self.venv.path, channel=kwargs["browser_channel"])
+
+            if binary is None:
+                raise WptrunError("Unable to find binary in PATH")
+            kwargs["binary"] = binary
+
+
 class WebKitGTKMiniBrowser(BrowserSetup):
     name = "webkitgtk_minibrowser"
     browser_cls = browser.WebKitGTKMiniBrowser
@@ -744,6 +762,8 @@ product_setup = {
     "chrome": Chrome,
     "chrome_android": ChromeAndroid,
     "chrome_ios": ChromeiOS,
+    "chromium": Chromium,
+    "content_shell": ContentShell,
     "edgechromium": EdgeChromium,
     "edge": Edge,
     "edge_webdriver": EdgeWebDriver,
@@ -754,6 +774,7 @@ product_setup = {
     "sauce": Sauce,
     "opera": Opera,
     "webkit": WebKit,
+    "wktr": WebKitTestRunner,
     "webkitgtk_minibrowser": WebKitGTKMiniBrowser,
     "epiphany": Epiphany,
 }
@@ -791,7 +812,10 @@ def setup_wptrunner(venv, **kwargs):
         raise WptrunError("Unsupported product %s" % kwargs["product"])
 
     setup_cls = product_setup[kwargs["product"]](venv, kwargs["prompt"])
-    setup_cls.install_requirements()
+    if not venv.skip_virtualenv_setup:
+        requirements = [os.path.join(wpt_root, "tools", "wptrunner", "requirements.txt")]
+        requirements.extend(setup_cls.requirements())
+        venv.install_requirements(*requirements)
 
     affected_revish = kwargs.get("affected")
     if affected_revish is not None:
@@ -841,11 +865,6 @@ def setup_wptrunner(venv, **kwargs):
 
     wptcommandline.check_args(wptrunner_kwargs)
 
-    wptrunner_path = os.path.join(wpt_root, "tools", "wptrunner")
-
-    if not venv.skip_virtualenv_setup:
-        venv.install_requirements(os.path.join(wptrunner_path, "requirements.txt"))
-
     # Only update browser_version if it was not given as a command line
     # argument, so that it can be overridden on the command line.
     if not wptrunner_kwargs["browser_version"]:
@@ -870,27 +889,3 @@ def run(venv, **kwargs):
 def run_single(venv, **kwargs):
     from wptrunner import wptrunner
     return wptrunner.start(**kwargs)
-
-
-def main():
-    try:
-        parser = create_parser()
-        args = parser.parse_args()
-
-        venv = virtualenv.Virtualenv(os.path.join(wpt_root, "_venv_%s") % platform.uname()[0])
-        venv.start()
-        venv.install_requirements(os.path.join(wpt_root, "tools", "wptrunner", "requirements.txt"))
-        venv.install("requests")
-
-        return run(venv, vars(args))
-    except WptrunError as e:
-        exit(e)
-
-
-if __name__ == "__main__":
-    import pdb
-    from tools import localpaths  # noqa: F401
-    try:
-        main()  # type: ignore
-    except Exception:
-        pdb.post_mortem()

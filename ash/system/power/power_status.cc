@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -247,17 +247,17 @@ void PowerStatus::CalculateBatteryImageInfo(BatteryImageInfo* info) const {
 
   if (!IsUsbChargerConnected() && !IsBatteryPresent()) {
     info->icon_badge = &kUnifiedMenuBatteryXIcon;
-    info->badge_outline = &kUnifiedMenuBatteryXOutlineIcon;
+    info->badge_outline = &kUnifiedMenuBatteryXOutlineMaskIcon;
     info->charge_percent = 0;
     return;
   }
 
   if (IsUsbChargerConnected()) {
     info->icon_badge = &kUnifiedMenuBatteryUnreliableIcon;
-    info->badge_outline = &kUnifiedMenuBatteryUnreliableOutlineIcon;
+    info->badge_outline = &kUnifiedMenuBatteryUnreliableOutlineMaskIcon;
   } else if (IsLinePowerConnected()) {
     info->icon_badge = &kUnifiedMenuBatteryBoltIcon;
-    info->badge_outline = &kUnifiedMenuBatteryBoltOutlineIcon;
+    info->badge_outline = &kUnifiedMenuBatteryBoltOutlineMaskIcon;
   } else {
     info->icon_badge = nullptr;
     info->badge_outline = nullptr;
@@ -270,16 +270,18 @@ void PowerStatus::CalculateBatteryImageInfo(BatteryImageInfo* info) const {
   if (GetBatteryPercent() < kCriticalBatteryChargePercentage &&
       !info->icon_badge) {
     info->icon_badge = &kUnifiedMenuBatteryAlertIcon;
-    info->badge_outline = &kUnifiedMenuBatteryAlertOutlineIcon;
+    info->badge_outline = &kUnifiedMenuBatteryAlertOutlineMaskIcon;
   }
 }
 
 // static
-gfx::ImageSkia PowerStatus::GetBatteryImage(const BatteryImageInfo& info,
-                                            int height,
-                                            SkColor bg_color,
-                                            SkColor fg_color) {
-  auto* source = new BatteryImageSource(info, height, bg_color, fg_color);
+gfx::ImageSkia PowerStatus::GetBatteryImage(
+    const BatteryImageInfo& info,
+    int height,
+    SkColor fg_color,
+    absl::optional<SkColor> badge_color) {
+  auto* source =
+      new BatteryImageSource(info, height, fg_color, std::move(badge_color));
   return gfx::ImageSkia(base::WrapUnique(source), source->size());
 }
 
@@ -380,9 +382,15 @@ double PowerStatus::GetPreferredMinimumPower() const {
   return proto_.preferred_minimum_external_power();
 }
 
+bool PowerStatus::IsBatterySaverActive() const {
+  return battery_saver_active_;
+}
+
 PowerStatus::PowerStatus() {
   chromeos::PowerManagerClient::Get()->AddObserver(this);
   chromeos::PowerManagerClient::Get()->RequestStatusUpdate();
+  chromeos::PowerManagerClient::Get()->GetBatterySaverModeState(base::BindOnce(
+      &PowerStatus::OnGotBatterySaverState, weak_ptr_factory_.GetWeakPtr()));
 }
 
 PowerStatus::~PowerStatus() {
@@ -392,13 +400,42 @@ PowerStatus::~PowerStatus() {
 void PowerStatus::SetProtoForTesting(
     const power_manager::PowerSupplyProperties& proto) {
   proto_ = proto;
+  proto_initialized_ = true;
+}
+
+void PowerStatus::SetBatterySaverStateForTesting(bool active) {
+  battery_saver_active_ = active;
 }
 
 void PowerStatus::PowerChanged(
     const power_manager::PowerSupplyProperties& proto) {
   proto_ = proto;
+  proto_initialized_ = true;
   for (auto& observer : observers_)
     observer.OnPowerStatusChanged();
+}
+
+void PowerStatus::BatterySaverModeStateChanged(
+    const power_manager::BatterySaverModeState& state) {
+  const bool prev_active = battery_saver_active_;
+  battery_saver_active_ = state.enabled();
+  if (prev_active == battery_saver_active_) {
+    return;
+  }
+  if (!proto_initialized_) {
+    // Don't update clients
+    return;
+  }
+  for (auto& observer : observers_) {
+    observer.OnPowerStatusChanged();
+  }
+}
+
+void PowerStatus::OnGotBatterySaverState(
+    absl::optional<power_manager::BatterySaverModeState> state) {
+  if (state) {
+    BatterySaverModeStateChanged(*state);
+  }
 }
 
 }  // namespace ash

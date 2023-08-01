@@ -1,14 +1,17 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.content_public.browser;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
+import org.chromium.base.UserDataHost;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
+import org.chromium.base.supplier.Supplier;
 import org.chromium.content_public.browser.navigation_controller.LoadURLType;
 import org.chromium.content_public.browser.navigation_controller.UserAgentOverrideOption;
 import org.chromium.content_public.common.Referrer;
@@ -17,6 +20,7 @@ import org.chromium.ui.base.PageTransition;
 import org.chromium.url.GURL;
 import org.chromium.url.Origin;
 
+import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 
@@ -34,6 +38,8 @@ public class LoadUrlParams {
     private int mTransitionType;
     private Referrer mReferrer;
     private Map<String, String> mExtraHeaders;
+    @Nullable
+    private UserDataHost mNavigationHandleUserDataHost;
     private String mVerbatimHeaders;
     private int mUaOverrideOption;
     private ResourceRequestBody mPostData;
@@ -47,11 +53,9 @@ public class LoadUrlParams {
     private long mInputStartTimestamp;
     private boolean mHasUserGesture;
     private boolean mShouldClearHistoryList;
-    private String mAttributionSourcePackageName;
-    private String mAttributionSourceEventId;
-    private String mAttributionDestination;
-    private String mAttributionReportTo;
-    private long mAttributionExpiry;
+    @Nullable
+    private Impression mImpression;
+    private Supplier<Long> mNavigationUIDataSupplier;
 
     /**
      * Creates an instance with default page transition type.
@@ -95,6 +99,40 @@ public class LoadUrlParams {
         mBaseUrlForDataUrl = null;
         mVirtualUrlForDataUrl = null;
         mDataUrlAsString = null;
+    }
+
+    /**
+     * Creates a new LoadUrlParams that is a copy of {@code other}.
+     * The user data host is intentionally not copied.
+     */
+    public static LoadUrlParams copy(@NonNull LoadUrlParams other) {
+        LoadUrlParams copy = new LoadUrlParams(other.mUrl);
+        copy.mInitiatorOrigin = other.mInitiatorOrigin;
+        copy.mLoadUrlType = other.mLoadUrlType;
+        copy.mTransitionType = other.mTransitionType;
+        copy.mReferrer = other.mReferrer;
+        if (other.mExtraHeaders != null) {
+            copy.mExtraHeaders = new HashMap<>(other.mExtraHeaders);
+        }
+        // mNavigationHandleUserDataHost is intentionally not copied.  We don't want any user data
+        // from one navigation to potentially affect a different navigation, and UserHandleData
+        // does not support deep copy.
+
+        copy.mVerbatimHeaders = other.mVerbatimHeaders;
+        copy.mUaOverrideOption = other.mUaOverrideOption;
+        copy.mPostData = other.mPostData;
+        copy.mBaseUrlForDataUrl = other.mBaseUrlForDataUrl;
+        copy.mVirtualUrlForDataUrl = other.mVirtualUrlForDataUrl;
+        copy.mDataUrlAsString = other.mDataUrlAsString;
+        copy.mCanLoadLocalResources = other.mCanLoadLocalResources;
+        copy.mIsRendererInitiated = other.mIsRendererInitiated;
+        copy.mShouldReplaceCurrentEntry = other.mShouldReplaceCurrentEntry;
+        copy.mIntentReceivedTimestamp = other.mIntentReceivedTimestamp;
+        copy.mInputStartTimestamp = other.mInputStartTimestamp;
+        copy.mHasUserGesture = other.mHasUserGesture;
+        copy.mShouldClearHistoryList = other.mShouldClearHistoryList;
+        copy.mImpression = other.mImpression;
+        return copy;
     }
 
     /**
@@ -299,6 +337,27 @@ public class LoadUrlParams {
         return mExtraHeaders;
     }
 
+    /**
+     * Returns the user data to be added to the navigation handle. Returns an empty but valid
+     * instance if there is no data.
+     */
+    public UserDataHost getNavigationHandleUserData() {
+        if (mNavigationHandleUserDataHost == null) {
+            mNavigationHandleUserDataHost = new UserDataHost();
+        }
+        return mNavigationHandleUserDataHost;
+    }
+
+    /**
+     * Returns the user data to be added to the navigation handle. Clears out the existing user data
+     * host on each call.  May return null if there is no data. This is not part of the content API.
+     */
+    @Nullable
+    public UserDataHost takeNavigationHandleUserData() {
+        UserDataHost returnValue = mNavigationHandleUserDataHost;
+        mNavigationHandleUserDataHost = null;
+        return returnValue;
+    }
     /**
      * Return the extra headers as a single String separated by "\n", or null if no extra header is
      * set. This form is suitable for passing to native
@@ -546,6 +605,23 @@ public class LoadUrlParams {
         return mShouldClearHistoryList;
     }
 
+    /**
+     * Set the attribution impression associated with the load.
+     *
+     * @param impression Attribution impression associated with the load.
+     */
+    public void setImpression(Impression impression) {
+        mImpression = impression;
+    }
+
+    /**
+     * @return The attribution impression associated with the load.
+     */
+    @Nullable
+    public Impression getImpression() {
+        return mImpression;
+    }
+
     public boolean isBaseUrlDataScheme() {
         // If there's no base url set, but this is a data load then
         // treat the scheme as data:.
@@ -555,65 +631,14 @@ public class LoadUrlParams {
         return LoadUrlParamsJni.get().isDataScheme(mBaseUrlForDataUrl);
     }
 
-    /**
-     * Sets the Attribution Parameters for this load, used to construct a blink::Impression.
-     *
-     * @param sourcePackageName The Package Name of the app that triggered this navigation.
-     * @param sourceEventId A uint64_t encoded as a string identifying the attribution source.
-     * @param destination The origin on which this navigation is intended to finish.
-     * @param reportTo An optional origin to send any attribution report to.
-     * @param expiryMs An optional offset in milliseconds from the current time, after which the
-     *          attribution expires. 0 represents an unset expiry time.
-     *
-     * For more information see https://wicg.github.io/conversion-measurement-api/
-     */
-    public void setAttributionParameters(String sourcePackageName, String sourceEventId,
-            String destination, String reportTo, long expiryMs) {
-        mAttributionSourcePackageName = sourcePackageName;
-        mAttributionSourceEventId = sourceEventId;
-        mAttributionDestination = destination;
-        mAttributionReportTo = reportTo;
-        mAttributionExpiry = expiryMs;
+    /** Set the {@link NavigationUIData}. */
+    public void setNavigationUIDataSupplier(Supplier<Long> navigationUIDataSupplier) {
+        mNavigationUIDataSupplier = navigationUIDataSupplier;
     }
 
-    /**
-     * {@see #setAttributionParameters}
-     * @return the PackageName for the source of this navigation with Attribution, if any.
-     */
-    public String getAttributionSourcePackageName() {
-        return mAttributionSourcePackageName;
-    }
-
-    /**
-     * {@see #setAttributionParameters}
-     * @return the Attribution SourceEventId for this navigation, if any.
-     */
-    public String getAttributionSourceEventId() {
-        return mAttributionSourceEventId;
-    }
-
-    /**
-     * {@see #setAttributionParameters}
-     * @return the Attribution Destination for this navigation, if any.
-     */
-    public String getAttributionDestination() {
-        return mAttributionDestination;
-    }
-
-    /**
-     * {@see #setAttributionParameters}
-     * @return the Attribution ReportTo for this navigation, if any.
-     */
-    public String getAttributionReportTo() {
-        return mAttributionReportTo;
-    }
-
-    /**
-     * {@see #setAttributionParameters}
-     * @return the Attribution Expiry for this navigation, if any.
-     */
-    public long getAttributionExpiry() {
-        return mAttributionExpiry;
+    /** Returns the supplier for {@link NavigationUIData} or null. */
+    public Supplier<Long> getNavigationUIDataSupplier() {
+        return mNavigationUIDataSupplier;
     }
 
     @NativeMethods

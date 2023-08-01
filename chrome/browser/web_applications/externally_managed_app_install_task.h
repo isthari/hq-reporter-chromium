@@ -1,23 +1,22 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_WEB_APPLICATIONS_EXTERNALLY_MANAGED_APP_INSTALL_TASK_H_
 #define CHROME_BROWSER_WEB_APPLICATIONS_EXTERNALLY_MANAGED_APP_INSTALL_TASK_H_
 
-#include "base/callback.h"
-#include "base/callback_helpers.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/web_applications/external_install_options.h"
 #include "chrome/browser/web_applications/externally_installed_web_app_prefs.h"
 #include "chrome/browser/web_applications/externally_managed_app_manager.h"
-#include "chrome/browser/web_applications/os_integration_manager.h"
+#include "chrome/browser/web_applications/os_integration/os_integration_manager.h"
 #include "chrome/browser/web_applications/web_app_id.h"
 #include "chrome/browser/web_applications/web_app_install_info.h"
 #include "chrome/browser/web_applications/web_app_install_utils.h"
-#include "chrome/browser/web_applications/web_app_registrar.h"
-#include "chrome/browser/web_applications/web_app_url_loader.h"
+#include "chrome/browser/web_applications/web_contents/web_app_url_loader.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 class Profile;
@@ -26,14 +25,18 @@ namespace content {
 class WebContents;
 }
 
+namespace webapps {
+enum class InstallResultCode;
+enum class UninstallResultCode;
+}
+
 namespace web_app {
 
 class WebAppUrlLoader;
-class OsIntegrationManager;
 class WebAppInstallFinalizer;
-class WebAppInstallManager;
+class WebAppCommandScheduler;
 class WebAppUiManager;
-enum class InstallResultCode;
+class WebAppDataRetriever;
 
 // Class to install WebApp from a WebContents. A queue of such tasks is owned by
 // ExternallyManagedAppManager. Can only be called from the UI thread.
@@ -48,11 +51,9 @@ class ExternallyManagedAppInstallTask {
   explicit ExternallyManagedAppInstallTask(
       Profile* profile,
       WebAppUrlLoader* url_loader,
-      WebAppRegistrar* registrar,
-      OsIntegrationManager* os_integration_manager,
       WebAppUiManager* ui_manager,
       WebAppInstallFinalizer* install_finalizer,
-      WebAppInstallManager* install_manager,
+      WebAppCommandScheduler* command_scheduler,
       ExternalInstallOptions install_options);
 
   ExternallyManagedAppInstallTask(const ExternallyManagedAppInstallTask&) =
@@ -70,6 +71,11 @@ class ExternallyManagedAppInstallTask {
 
   const ExternalInstallOptions& install_options() { return install_options_; }
 
+  using DataRetrieverFactory =
+      base::RepeatingCallback<std::unique_ptr<WebAppDataRetriever>()>;
+  void SetDataRetrieverFactoryForTesting(
+      DataRetrieverFactory data_retriever_factory);
+
  private:
   // Install directly from a fully specified WebAppInstallInfo struct. Used
   // by system apps.
@@ -84,50 +90,44 @@ class ExternallyManagedAppInstallTask {
 
   // result_callback could be called synchronously or asynchronously.
   void InstallPlaceholder(content::WebContents* web_contents,
-                          ResultCallback result_callback);
-
-  void OnCustomIconFetched(ResultCallback callback,
-                           int id,
-                           int http_status_code,
-                           const GURL& image_url,
-                           const std::vector<SkBitmap>& bitmaps,
-                           const std::vector<gfx::Size>& sizes);
-
-  void FinalizePlaceholderInstall(
-      ResultCallback callback,
-      absl::optional<std::reference_wrapper<const std::vector<SkBitmap>>>
-          bitmaps);
+                          ResultCallback result_callback,
+                          absl::optional<AppId> app_id);
 
   void UninstallPlaceholderApp(content::WebContents* web_contents,
-                               ResultCallback result_callback);
+                               ResultCallback result_callback,
+                               absl::optional<AppId> app_id);
   void OnPlaceholderUninstalled(content::WebContents* web_contents,
                                 ResultCallback result_callback,
-                                bool uninstalled);
+                                webapps::UninstallResultCode code);
   void ContinueWebAppInstall(content::WebContents* web_contents,
                              ResultCallback result_callback);
-  void OnWebAppInstalled(bool is_placeholder,
-                         bool offline_install,
-                         ResultCallback result_callback,
-                         const AppId& app_id,
-                         InstallResultCode code);
+  void OnWebAppInstalledAndReplaced(bool is_placeholder,
+                                    bool offline_install,
+                                    ResultCallback result_callback,
+                                    const AppId& app_id,
+                                    webapps::InstallResultCode code,
+                                    bool did_uninstall_and_replace);
+
+  void OnUninstallAndReplaced(bool uninstall_and_replace_triggered);
   void TryAppInfoFactoryOnFailure(
       ResultCallback result_callback,
       ExternallyManagedAppManager::InstallResult result);
-  void OnOsHooksCreated(const AppId& app_id,
-                        base::ScopedClosureRunner scoped_closure,
-                        const OsHooksErrors os_hooks_errors);
+
+  void GetPlaceholderAppId(
+      const GURL& install_url,
+      WebAppManagement::Type source_type,
+      base::OnceCallback<void(absl::optional<AppId>)> callback);
 
   const raw_ptr<Profile> profile_;
-  const raw_ptr<WebAppUrlLoader> url_loader_;
-  const raw_ptr<WebAppRegistrar> registrar_;
-  const raw_ptr<OsIntegrationManager> os_integration_manager_;
-  const raw_ptr<WebAppInstallFinalizer> install_finalizer_;
-  const raw_ptr<WebAppInstallManager> install_manager_;
+  const raw_ptr<WebAppUrlLoader, DanglingUntriaged> url_loader_;
   const raw_ptr<WebAppUiManager> ui_manager_;
+  const raw_ptr<WebAppInstallFinalizer> install_finalizer_;
+  const raw_ptr<WebAppCommandScheduler> command_scheduler_;
 
   ExternallyInstalledWebAppPrefs externally_installed_app_prefs_;
 
   const ExternalInstallOptions install_options_;
+  DataRetrieverFactory data_retriever_factory_;
 
   base::WeakPtrFactory<ExternallyManagedAppInstallTask> weak_ptr_factory_{this};
 };

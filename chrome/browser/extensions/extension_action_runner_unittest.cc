@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <map>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/active_tab_permission_granter.h"
@@ -22,6 +22,7 @@
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/test/browser_test_utils.h"
 #include "content/public/test/navigation_simulator.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension.h"
@@ -31,7 +32,6 @@
 #include "extensions/common/mojom/injection_type.mojom-shared.h"
 #include "extensions/common/mojom/run_location.mojom-shared.h"
 #include "extensions/common/user_script.h"
-#include "extensions/common/value_builder.h"
 
 namespace extensions {
 
@@ -66,7 +66,7 @@ class ExtensionActionRunnerUnitTest : public ChromeRenderViewHostTestHarness {
   // a script.
   bool RequiresUserConsent(const Extension* extension) const;
 
-  // Request an injection for the given |extension|.
+  // Request an injection for the given `extension` at idle.
   void RequestInjection(const Extension* extension);
   void RequestInjection(const Extension* extension,
                         mojom::RunLocation run_location);
@@ -102,15 +102,13 @@ const Extension* ExtensionActionRunnerUnitTest::AddExtension() {
   const std::string kId = crx_file::id_util::GenerateId("all_hosts_extension");
   extension_ =
       ExtensionBuilder()
-          .SetManifest(
-              DictionaryBuilder()
-                  .Set("name", "all_hosts_extension")
-                  .Set("description", "an extension")
-                  .Set("manifest_version", 2)
-                  .Set("version", "1.0.0")
-                  .Set("permissions",
-                       ListBuilder().Append(kAllHostsPermission).Build())
-                  .Build())
+          .SetManifest(base::Value::Dict()
+                           .Set("name", "all_hosts_extension")
+                           .Set("description", "an extension")
+                           .Set("manifest_version", 2)
+                           .Set("version", "1.0.0")
+                           .Set("permissions", base::Value::List().Append(
+                                                   kAllHostsPermission)))
           .SetLocation(mojom::ManifestLocation::kInternal)
           .SetID(kId)
           .Build();
@@ -185,6 +183,32 @@ void ExtensionActionRunnerUnitTest::SetUp() {
   DCHECK(tab_helper);
   extension_action_runner_ = tab_helper->extension_action_runner();
   DCHECK(extension_action_runner_);
+}
+
+// TODO(crbug.com/1400812): Split the test by need for refresh or not to confirm
+// the blocked actions are running as expected.
+// Tests that when an extension is granted permissions (independent of page
+// reload) the extension is allowed to run.
+TEST_F(ExtensionActionRunnerUnitTest, GrantTabPermissions) {
+  ActiveTabPermissionGranter* active_tab_permission_granter =
+      TabHelper::FromWebContents(web_contents())
+          ->active_tab_permission_granter();
+  ASSERT_TRUE(active_tab_permission_granter);
+
+  const Extension* extension = AddExtension();
+  EXPECT_EQ(0u, GetExecutionCountForExtension(extension->id()));
+  NavigateAndCommit(GURL("https://www.google.com"));
+  RequestInjection(extension);
+  EXPECT_TRUE(RequiresUserConsent(extension));
+  EXPECT_TRUE(runner()->WantsToRun(extension));
+
+  runner()->GrantTabPermissions({extension});
+  EXPECT_TRUE(content::WaitForLoadStop(web_contents()));
+  task_environment()->RunUntilIdle();
+
+  EXPECT_EQ(1u, GetExecutionCountForExtension(extension->id()));
+  EXPECT_FALSE(RequiresUserConsent(extension));
+  EXPECT_FALSE(runner()->WantsToRun(extension));
 }
 
 // Test that extensions with all_hosts require permission to execute, and, once
@@ -433,20 +457,20 @@ TEST_F(ExtensionActionRunnerUnitTest, TestDifferentScriptRunLocations) {
 
   NavigateAndCommit(GURL("https://www.foo.com"));
 
-  EXPECT_EQ(BLOCKED_ACTION_NONE, runner()->GetBlockedActions(extension));
+  EXPECT_EQ(BLOCKED_ACTION_NONE, runner()->GetBlockedActions(extension->id()));
 
   RequestInjection(extension, mojom::RunLocation::kDocumentEnd);
   EXPECT_EQ(BLOCKED_ACTION_SCRIPT_OTHER,
-            runner()->GetBlockedActions(extension));
+            runner()->GetBlockedActions(extension->id()));
   RequestInjection(extension, mojom::RunLocation::kDocumentIdle);
   EXPECT_EQ(BLOCKED_ACTION_SCRIPT_OTHER,
-            runner()->GetBlockedActions(extension));
+            runner()->GetBlockedActions(extension->id()));
   RequestInjection(extension, mojom::RunLocation::kDocumentStart);
   EXPECT_EQ(BLOCKED_ACTION_SCRIPT_AT_START | BLOCKED_ACTION_SCRIPT_OTHER,
-            runner()->GetBlockedActions(extension));
+            runner()->GetBlockedActions(extension->id()));
 
   runner()->RunForTesting(extension);
-  EXPECT_EQ(BLOCKED_ACTION_NONE, runner()->GetBlockedActions(extension));
+  EXPECT_EQ(BLOCKED_ACTION_NONE, runner()->GetBlockedActions(extension->id()));
 }
 
 TEST_F(ExtensionActionRunnerUnitTest, TestWebRequestBlocked) {
@@ -455,20 +479,21 @@ TEST_F(ExtensionActionRunnerUnitTest, TestWebRequestBlocked) {
 
   NavigateAndCommit(GURL("https://www.foo.com"));
 
-  EXPECT_EQ(BLOCKED_ACTION_NONE, runner()->GetBlockedActions(extension));
+  EXPECT_EQ(BLOCKED_ACTION_NONE, runner()->GetBlockedActions(extension->id()));
   EXPECT_FALSE(runner()->WantsToRun(extension));
 
   runner()->OnWebRequestBlocked(extension);
-  EXPECT_EQ(BLOCKED_ACTION_WEB_REQUEST, runner()->GetBlockedActions(extension));
+  EXPECT_EQ(BLOCKED_ACTION_WEB_REQUEST,
+            runner()->GetBlockedActions(extension->id()));
   EXPECT_TRUE(runner()->WantsToRun(extension));
 
   RequestInjection(extension);
   EXPECT_EQ(BLOCKED_ACTION_WEB_REQUEST | BLOCKED_ACTION_SCRIPT_OTHER,
-            runner()->GetBlockedActions(extension));
+            runner()->GetBlockedActions(extension->id()));
   EXPECT_TRUE(runner()->WantsToRun(extension));
 
   NavigateAndCommit(GURL("https://www.bar.com"));
-  EXPECT_EQ(BLOCKED_ACTION_NONE, runner()->GetBlockedActions(extension));
+  EXPECT_EQ(BLOCKED_ACTION_NONE, runner()->GetBlockedActions(extension->id()));
   EXPECT_FALSE(runner()->WantsToRun(extension));
 }
 

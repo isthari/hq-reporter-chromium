@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,8 +22,12 @@
 #include "content/public/browser/child_process_security_policy.h"
 #include "content/public/common/origin_util.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
+#include "net/base/schemeful_site.h"
+#include "net/cookies/cookie_setting_override.h"
+#include "net/cookies/site_for_cookies.h"
 #include "third_party/blink/public/mojom/permissions_policy/permissions_policy_feature.mojom-shared.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
 using bookmarks::BookmarkModel;
 
@@ -35,7 +39,6 @@ DurableStoragePermissionContext::DurableStoragePermissionContext(
 }
 
 void DurableStoragePermissionContext::DecidePermission(
-    content::WebContents* web_contents,
     const permissions::PermissionRequestID& id,
     const GURL& requesting_origin,
     const GURL& embedding_origin,
@@ -56,7 +59,8 @@ void DurableStoragePermissionContext::DecidePermission(
   if (requesting_origin != embedding_origin) {
     NotifyPermissionSet(id, requesting_origin, embedding_origin,
                         std::move(callback), /*persist=*/false,
-                        CONTENT_SETTING_DEFAULT, /*is_one_time=*/false);
+                        CONTENT_SETTING_DEFAULT, /*is_one_time=*/false,
+                        /*is_final_decision=*/true);
     return;
   }
 
@@ -67,11 +71,14 @@ void DurableStoragePermissionContext::DecidePermission(
   // Don't grant durable for session-only storage, since it won't be persisted
   // anyway. Don't grant durable if we can't write cookies.
   if (cookie_settings->IsCookieSessionOnly(requesting_origin) ||
-      !cookie_settings->IsFullCookieAccessAllowed(requesting_origin,
-                                                  requesting_origin)) {
+      !cookie_settings->IsFullCookieAccessAllowed(
+          requesting_origin, net::SiteForCookies::FromUrl(requesting_origin),
+          url::Origin::Create(requesting_origin),
+          net::CookieSettingOverrides())) {
     NotifyPermissionSet(id, requesting_origin, embedding_origin,
                         std::move(callback), /*persist=*/false,
-                        CONTENT_SETTING_DEFAULT, /*is_one_time=*/false);
+                        CONTENT_SETTING_DEFAULT, /*is_one_time=*/false,
+                        /*is_final_decision=*/true);
     return;
   }
 
@@ -88,7 +95,8 @@ void DurableStoragePermissionContext::DecidePermission(
   if (base::Contains(installed_registerable_domains, registerable_domain)) {
     NotifyPermissionSet(id, requesting_origin, embedding_origin,
                         std::move(callback), /*persist=*/true,
-                        CONTENT_SETTING_ALLOW, /*is_one_time=*/false);
+                        CONTENT_SETTING_ALLOW, /*is_one_time=*/false,
+                        /*is_final_decision=*/true);
     return;
   }
 
@@ -103,14 +111,16 @@ void DurableStoragePermissionContext::DecidePermission(
     if (important_site.registerable_domain == registerable_domain) {
       NotifyPermissionSet(id, requesting_origin, embedding_origin,
                           std::move(callback), /*persist=*/true,
-                          CONTENT_SETTING_ALLOW, /*is_one_time=*/false);
+                          CONTENT_SETTING_ALLOW, /*is_one_time=*/false,
+                          /*is_final_decision=*/true);
       return;
     }
   }
 
   NotifyPermissionSet(id, requesting_origin, embedding_origin,
                       std::move(callback), /*persist=*/false,
-                      CONTENT_SETTING_DEFAULT, /*is_one_time=*/false);
+                      CONTENT_SETTING_DEFAULT, /*is_one_time=*/false,
+                      /*is_final_decision=*/true);
 }
 
 void DurableStoragePermissionContext::UpdateContentSetting(
@@ -129,8 +139,4 @@ void DurableStoragePermissionContext::UpdateContentSetting(
       ->SetContentSettingDefaultScope(requesting_origin, GURL(),
                                       ContentSettingsType::DURABLE_STORAGE,
                                       content_setting);
-}
-
-bool DurableStoragePermissionContext::IsRestrictedToSecureOrigins() const {
-  return true;
 }

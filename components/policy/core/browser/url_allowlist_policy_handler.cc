@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,6 +20,19 @@
 #include "components/strings/grit/components_strings.h"
 #include "components/url_matcher/url_util.h"
 
+namespace {
+
+// Checks if the host contains an * (asterik) that would have no effect on the
+// domain or subdomain. It is a common mistake that admins allow sites with * as
+// a wildcard in the hostname although it has no effect on the domain and
+// subdomains. Two example for such a common mistake are: 1- *.android.com 2-
+// developer.*.com which allow neither android.com nor developer.android.com
+bool ValidateHost(const std::string& host) {
+  return host == "*" || host.find('*') == std::string::npos;
+}
+
+}  // namespace
+
 namespace policy {
 
 URLAllowlistPolicyHandler::URLAllowlistPolicyHandler(const char* policy_name)
@@ -29,14 +42,14 @@ URLAllowlistPolicyHandler::~URLAllowlistPolicyHandler() = default;
 
 bool URLAllowlistPolicyHandler::CheckPolicySettings(const PolicyMap& policies,
                                                     PolicyErrorMap* errors) {
-  const base::Value* url_allowlist = policies.GetValue(policy_name());
-  if (!url_allowlist)
+  if (!policies.IsPolicySet(policy_name()))
     return true;
 
-  if (!url_allowlist->is_list()) {
+  const base::Value* url_allowlist =
+      policies.GetValue(policy_name(), base::Value::Type::LIST);
+  if (!url_allowlist) {
     errors->AddError(policy_name(), IDS_POLICY_TYPE_ERROR,
                      base::Value::GetTypeName(base::Value::Type::LIST));
-
     return true;
   }
 
@@ -77,27 +90,29 @@ bool URLAllowlistPolicyHandler::CheckPolicySettings(const PolicyMap& policies,
 
 void URLAllowlistPolicyHandler::ApplyPolicySettings(const PolicyMap& policies,
                                                     PrefValueMap* prefs) {
-  const base::Value* url_allowlist = policies.GetValue(policy_name());
-  if (!url_allowlist || !url_allowlist->is_list()) {
+  const base::Value* url_allowlist =
+      policies.GetValue(policy_name(), base::Value::Type::LIST);
+  if (!url_allowlist) {
     return;
   }
 
-  std::vector<base::Value> filtered_url_allowlist;
+  base::Value::List filtered_url_allowlist;
   for (const auto& entry : url_allowlist->GetList()) {
     if (entry.is_string())
-      filtered_url_allowlist.push_back(entry.Clone());
+      filtered_url_allowlist.Append(entry.Clone());
   }
 
   prefs->SetValue(policy_prefs::kUrlAllowlist,
                   base::Value(std::move(filtered_url_allowlist)));
 }
 
-bool URLAllowlistPolicyHandler::ValidatePolicy(const std::string& policy) {
+bool URLAllowlistPolicyHandler::ValidatePolicy(const std::string& url_pattern) {
   url_matcher::util::FilterComponents components;
   return url_matcher::util::FilterToComponents(
-      policy, &components.scheme, &components.host,
-      &components.match_subdomains, &components.port, &components.path,
-      &components.query);
+             url_pattern, &components.scheme, &components.host,
+             &components.match_subdomains, &components.port, &components.path,
+             &components.query) &&
+         ValidateHost(components.host);
 }
 
 }  // namespace policy

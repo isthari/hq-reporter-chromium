@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,8 @@ package org.chromium.chrome.browser.contextualsearch;
 
 import static org.mockito.Mockito.when;
 
-import android.support.test.InstrumentationRegistry;
-
 import androidx.test.filters.SmallTest;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -23,7 +22,6 @@ import org.mockito.MockitoAnnotations;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.preferences.Pref;
 import org.chromium.chrome.browser.profiles.Profile;
@@ -32,10 +30,9 @@ import org.chromium.chrome.browser.signin.services.UnifiedConsentServiceBridge;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.batch.BlankCTATabInitialStateRule;
-import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.components.prefs.PrefService;
 import org.chromium.components.search_engines.TemplateUrl;
+import org.chromium.components.search_engines.TemplateUrlService;
 import org.chromium.components.user_prefs.UserPrefs;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.url.GURL;
@@ -161,51 +158,26 @@ public class ContextualSearchPolicyTest {
     @Feature({"ContextualSearch"})
     public void testDoSendBasePageUrlWhenNonGoogleSearchEngine() {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
+            TemplateUrlService templateUrlService =
+                    TemplateUrlServiceFactory.getForProfile(Profile.getLastUsedRegularProfile());
             TemplateUrl defaultSearchEngine =
-                    TemplateUrlServiceFactory.get().getDefaultSearchEngineTemplateUrl();
+                    templateUrlService.getDefaultSearchEngineTemplateUrl();
             setupAllConditionsToSendUrl();
-            TemplateUrlServiceFactory.get().setSearchEngine("yahoo.com");
+            templateUrlService.setSearchEngine("yahoo.com");
             Assert.assertFalse(mPolicy.doSendBasePageUrl());
             // Set default search engine back to default to prevent cross-talk from
             // this test which sets it to Yahoo
-            TemplateUrlServiceFactory.get().setSearchEngine(defaultSearchEngine.getShortName());
+            templateUrlService.setSearchEngine(defaultSearchEngine.getShortName());
         });
     }
 
     @Test
     @SmallTest
     @Feature({"ContextualSearch"})
-    @DisableFeatures(ChromeFeatureList.CONTEXTUAL_SEARCH_NEW_SETTINGS)
-    public void testIsUserUndecided_NoMultilevelSettingsUI_Disable() {
+    public void testIsUserUndecided_Disable() {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             Assert.assertTrue(mPolicy.isUserUndecided());
-            ContextualSearchPolicy.setContextualSearchPromoCardSelection(false);
-            Assert.assertFalse(mPolicy.isUserUndecided());
-            Assert.assertTrue(ContextualSearchPolicy.isContextualSearchDisabled());
-        });
-    }
-
-    @Test
-    @SmallTest
-    @Feature({"ContextualSearch"})
-    @DisableFeatures(ChromeFeatureList.CONTEXTUAL_SEARCH_NEW_SETTINGS)
-    public void testIsUserUndecided_NoMultilevelSettingsUI_Enable() {
-        TestThreadUtils.runOnUiThreadBlocking(() -> {
-            Assert.assertTrue(mPolicy.isUserUndecided());
-            ContextualSearchPolicy.setContextualSearchPromoCardSelection(true);
-            Assert.assertFalse(mPolicy.isUserUndecided());
-            Assert.assertTrue(ContextualSearchPolicy.isContextualSearchEnabled());
-        });
-    }
-
-    @Test
-    @SmallTest
-    @Feature({"ContextualSearch"})
-    @EnableFeatures(ChromeFeatureList.CONTEXTUAL_SEARCH_NEW_SETTINGS)
-    public void testIsUserUndecided_MultilevelSettingsUI_Disable() {
-        TestThreadUtils.runOnUiThreadBlocking(() -> {
-            Assert.assertTrue(mPolicy.isUserUndecided());
-            ContextualSearchPolicy.setContextualSearchPromoCardSelection(false);
+            ContextualSearchPolicy.setContextualSearchFullyOptedIn(false);
             Assert.assertFalse(mPolicy.isUserUndecided());
             Assert.assertTrue(ContextualSearchPolicy.isContextualSearchUninitialized());
         });
@@ -214,11 +186,10 @@ public class ContextualSearchPolicyTest {
     @Test
     @SmallTest
     @Feature({"ContextualSearch"})
-    @EnableFeatures(ChromeFeatureList.CONTEXTUAL_SEARCH_NEW_SETTINGS)
-    public void testIsUserUndecided_MultilevelSettingsUI_Enable() {
+    public void testIsUserUndecided_Enable() {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             Assert.assertTrue(mPolicy.isUserUndecided());
-            ContextualSearchPolicy.setContextualSearchPromoCardSelection(true);
+            ContextualSearchPolicy.setContextualSearchFullyOptedIn(true);
             Assert.assertFalse(mPolicy.isUserUndecided());
             Assert.assertTrue(ContextualSearchPolicy.isContextualSearchEnabled());
         });
@@ -227,7 +198,6 @@ public class ContextualSearchPolicyTest {
     @Test
     @SmallTest
     @Feature({"ContextualSearch"})
-    @EnableFeatures(ChromeFeatureList.CONTEXTUAL_SEARCH_NEW_SETTINGS)
     public void testIsPromoAvailable() {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             Assert.assertTrue(mPolicy.isPromoAvailable());
@@ -249,18 +219,17 @@ public class ContextualSearchPolicyTest {
     @Test
     @SmallTest
     @Feature({"ContextualSearch"})
-    @DisableFeatures(ChromeFeatureList.CONTEXTUAL_SEARCH_NEW_SETTINGS)
-    public void testIsContextualSearchFullyOptedIn_NoMultilevelSettingsUI() {
+    public void testIsContextualSearchFullyOptedIn() {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             // Default is not fully opted in.
             Assert.assertFalse(ContextualSearchPolicy.isContextualSearchPrefFullyOptedIn());
 
             // Choose not to opt in.
-            ContextualSearchPolicy.setContextualSearchPromoCardSelection(false);
+            ContextualSearchPolicy.setContextualSearchFullyOptedIn(false);
             Assert.assertFalse(ContextualSearchPolicy.isContextualSearchPrefFullyOptedIn());
 
             // Choose to opt in.
-            ContextualSearchPolicy.setContextualSearchPromoCardSelection(true);
+            ContextualSearchPolicy.setContextualSearchFullyOptedIn(true);
             Assert.assertTrue(ContextualSearchPolicy.isContextualSearchPrefFullyOptedIn());
         });
     }
@@ -268,26 +237,6 @@ public class ContextualSearchPolicyTest {
     @Test
     @SmallTest
     @Feature({"ContextualSearch"})
-    @EnableFeatures(ChromeFeatureList.CONTEXTUAL_SEARCH_NEW_SETTINGS)
-    public void testIsContextualSearchFullyOptedIn_MultilevelSettingsUI() {
-        TestThreadUtils.runOnUiThreadBlocking(() -> {
-            // Default is not fully opted in.
-            Assert.assertFalse(ContextualSearchPolicy.isContextualSearchPrefFullyOptedIn());
-
-            // Choose not to opt in.
-            ContextualSearchPolicy.setContextualSearchPromoCardSelection(false);
-            Assert.assertFalse(ContextualSearchPolicy.isContextualSearchPrefFullyOptedIn());
-
-            // Choose to opt in.
-            ContextualSearchPolicy.setContextualSearchPromoCardSelection(true);
-            Assert.assertTrue(ContextualSearchPolicy.isContextualSearchPrefFullyOptedIn());
-        });
-    }
-
-    @Test
-    @SmallTest
-    @Feature({"ContextualSearch"})
-    @EnableFeatures(ChromeFeatureList.CONTEXTUAL_SEARCH_NEW_SETTINGS)
     public void testSetContextualSearchFullyOptedIn() {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             // Default is not fully opted in.
@@ -313,12 +262,11 @@ public class ContextualSearchPolicyTest {
     @Test
     @SmallTest
     @Feature({"ContextualSearch"})
-    @EnableFeatures(ChromeFeatureList.CONTEXTUAL_SEARCH_NEW_SETTINGS)
     public void testShouldPreviousGestureResolve() {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             Assert.assertFalse(mPolicy.shouldPreviousGestureResolve());
 
-            ContextualSearchPolicy.setContextualSearchPromoCardSelection(true);
+            ContextualSearchPolicy.setContextualSearchFullyOptedIn(true);
             Assert.assertTrue(mPolicy.shouldPreviousGestureResolve());
 
             ContextualSearchPolicy.setContextualSearchFullyOptedIn(false);
@@ -329,12 +277,11 @@ public class ContextualSearchPolicyTest {
     @Test
     @SmallTest
     @Feature({"ContextualSearch"})
-    @EnableFeatures(ChromeFeatureList.CONTEXTUAL_SEARCH_NEW_SETTINGS)
     public void testIsContextualSearchFullyEnabled() {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
             Assert.assertFalse(mPolicy.isContextualSearchFullyEnabled());
 
-            ContextualSearchPolicy.setContextualSearchPromoCardSelection(true);
+            ContextualSearchPolicy.setContextualSearchFullyOptedIn(true);
             Assert.assertTrue(mPolicy.isContextualSearchFullyEnabled());
 
             ContextualSearchPolicy.setContextualSearchFullyOptedIn(false);

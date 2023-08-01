@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,7 +24,7 @@ suite('ExtensionsActivityLogStreamItemTest', function() {
 
   // Initialize an activity log stream item before each test.
   setup(function() {
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
     testStreamItem = {
       name: 'testAPI.testMethod',
       timestamp: 1550101623113,
@@ -32,7 +32,7 @@ suite('ExtensionsActivityLogStreamItemTest', function() {
       pageUrl: '',
       argUrl: '',
       args: JSON.stringify([]),
-      expanded: false
+      expanded: false,
     };
 
     activityLogStreamItem = document.createElement('activity-log-stream-item');
@@ -66,7 +66,7 @@ suite('ExtensionsActivityLogStreamItemTest', function() {
           argUrl: '',
           args: JSON.stringify([null]),
           webRequestInfo: 'web request info',
-          expanded: false
+          expanded: false,
         };
 
         activityLogStreamItem.set('data', testStreamItem);
@@ -100,7 +100,7 @@ suite('ExtensionsActivityLogStreamItemTest', function() {
         ["${placeholder}"],
         {"url":"${escapedPlaceholder}"}
       ]`,
-      expanded: false
+      expanded: false,
     };
 
     activityLogStreamItem.set('data', testStreamItem);

@@ -1,4 +1,4 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,13 +13,14 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "build/build_config.h"
+#include "components/safe_browsing/content/common/visual_utils.h"
 #include "components/safe_browsing/content/renderer/phishing_classifier/features.h"
 #include "components/safe_browsing/core/common/proto/client_model.pb.h"
 #include "components/safe_browsing/core/common/proto/csd.pb.h"
-#include "components/safe_browsing/core/common/visual_utils.h"
 #include "content/public/renderer/render_thread.h"
 #include "crypto/sha2.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -27,56 +28,6 @@
 namespace safe_browsing {
 
 namespace {
-bool VerifyCSDFlatBufferIndicesAndFields(const flat::ClientSideModel* model) {
-  const flatbuffers::Vector<flatbuffers::Offset<flat::Hash>>* hashes =
-      model->hashes();
-  if (!hashes)
-    return false;
-
-  const flatbuffers::Vector<
-      flatbuffers::Offset<safe_browsing::flat::ClientSideModel_::Rule>>* rules =
-      model->rule();
-  if (!rules)
-    return false;
-  for (const flat::ClientSideModel_::Rule* rule : *model->rule()) {
-    if (!rule || !rule->feature())
-      return false;
-    for (int32_t feature : *rule->feature()) {
-      if (feature < 0 || feature >= static_cast<int32_t>(hashes->size())) {
-        return false;
-      }
-    }
-  }
-
-  const flatbuffers::Vector<int32_t>* page_terms = model->page_term();
-  if (!page_terms)
-    return false;
-  for (int32_t page_term_idx : *page_terms) {
-    if (page_term_idx < 0 ||
-        page_term_idx >= static_cast<int32_t>(hashes->size())) {
-      return false;
-    }
-  }
-
-  const flatbuffers::Vector<uint32_t>* page_words = model->page_word();
-  if (!page_words)
-    return false;
-
-  const flat::TfLiteModelMetadata* metadata = model->tflite_metadata();
-  if (!metadata)
-    return false;
-  const flatbuffers::Vector<
-      flatbuffers::Offset<flat::TfLiteModelMetadata_::Threshold>>* thresholds =
-      metadata->thresholds();
-  if (!thresholds)
-    return false;
-  for (const flat::TfLiteModelMetadata_::Threshold* threshold : *thresholds) {
-    if (!threshold || !threshold->label())
-      return false;
-  }
-
-  return true;
-}
 
 std::string HashToString(const flat::Hash* hash) {
   return std::string(reinterpret_cast<const char*>(hash->data()->Data()),
@@ -94,7 +45,7 @@ FlatBufferModelScorer::FlatBufferModelScorer() = default;
 FlatBufferModelScorer::~FlatBufferModelScorer() = default;
 
 /* static */
-FlatBufferModelScorer* FlatBufferModelScorer::Create(
+std::unique_ptr<FlatBufferModelScorer> FlatBufferModelScorer::Create(
     base::ReadOnlySharedMemoryRegion region,
     base::File visual_tflite_model) {
   std::unique_ptr<FlatBufferModelScorer> scorer(new FlatBufferModelScorer());
@@ -118,24 +69,20 @@ FlatBufferModelScorer* FlatBufferModelScorer::Create(
   }
   scorer->flatbuffer_model_ = flat::GetClientSideModel(mapping.memory());
 
-  if (!VerifyCSDFlatBufferIndicesAndFields(scorer->flatbuffer_model_)) {
-    RecordScorerCreationStatus(SCORER_FAIL_FLATBUFFER_BAD_INDICES_OR_FIELDS);
-    return nullptr;
-  }
-
   // Only do this part if the visual model file exists
   if (visual_tflite_model.IsValid()) {
-    scorer->visual_tflite_model_ = std::make_unique<base::MemoryMappedFile>();
-    if (!scorer->visual_tflite_model_->Initialize(
+    if (!scorer->visual_tflite_model_.Initialize(
             std::move(visual_tflite_model))) {
       RecordScorerCreationStatus(SCORER_FAIL_MAP_VISUAL_TFLITE_MODEL);
       return nullptr;
     } else {
       for (const flat::TfLiteModelMetadata_::Threshold* flat_threshold :
            *(scorer->flatbuffer_model_->tflite_metadata()->thresholds())) {
+        // While the threshold comparison is done on the browser side, threshold
+        // fields are added so that the verdict score results size check with
+        // threshold size can be done
         TfLiteModelMetadata::Threshold* threshold = scorer->thresholds_.Add();
         threshold->set_label(flat_threshold->label()->str());
-        threshold->set_threshold(flat_threshold->threshold());
       }
     }
   }
@@ -143,7 +90,7 @@ FlatBufferModelScorer* FlatBufferModelScorer::Create(
   RecordScorerCreationStatus(SCORER_SUCCESS);
   scorer->flatbuffer_mapping_ = std::move(mapping);
 
-  return scorer.release();
+  return scorer;
 }
 
 double FlatBufferModelScorer::ComputeRuleScore(
@@ -176,32 +123,23 @@ double FlatBufferModelScorer::ComputeScore(const FeatureMap& features) const {
   return LogOdds2Prob(logodds);
 }
 
-// Only DOM model implemented for FlatBuffer.
-void FlatBufferModelScorer::GetMatchingVisualTargets(
-    const SkBitmap& bitmap,
-    std::unique_ptr<ClientPhishingRequest> request,
-    base::OnceCallback<void(std::unique_ptr<ClientPhishingRequest>)> callback)
-    const {
-  NOTIMPLEMENTED();
-}
-
-#if BUILDFLAG(BUILD_WITH_TFLITE_LIB) && !BUILDFLAG(IS_CHROMEOS) && \
-    !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(BUILD_WITH_TFLITE_LIB)
 void FlatBufferModelScorer::ApplyVisualTfLiteModel(
     const SkBitmap& bitmap,
-    base::OnceCallback<void(std::vector<double>)> callback) {
+    base::OnceCallback<void(std::vector<double>)> callback) const {
   DCHECK(content::RenderThread::IsMainThread());
-  if (visual_tflite_model_ && visual_tflite_model_->IsValid()) {
+  if (visual_tflite_model_.IsValid()) {
     base::Time start_post_task_time = base::Time::Now();
-    base::ThreadPool::PostTaskAndReplyWithResult(
-        FROM_HERE,
-        {base::TaskPriority::BEST_EFFORT, base::WithBaseSyncPrimitives()},
+    base::ThreadPool::PostTask(
+        FROM_HERE, {base::TaskPriority::BEST_EFFORT},
         base::BindOnce(&ApplyVisualTfLiteModelHelper, bitmap,
                        flatbuffer_model_->tflite_metadata()->input_width(),
                        flatbuffer_model_->tflite_metadata()->input_height(),
-                       std::move(visual_tflite_model_)),
-        base::BindOnce(&FlatBufferModelScorer::OnVisualTfLiteModelComplete,
-                       weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
+                       std::string(reinterpret_cast<const char*>(
+                                       visual_tflite_model_.data()),
+                                   visual_tflite_model_.length()),
+                       base::SequencedTaskRunner::GetCurrentDefault(),
+                       std::move(callback)));
     base::UmaHistogramTimes(
         "SBClientPhishing.TfLiteModelLoadTime.FlatbufferScorer",
         base::Time::Now() - start_post_task_time);
@@ -213,6 +151,10 @@ void FlatBufferModelScorer::ApplyVisualTfLiteModel(
 
 int FlatBufferModelScorer::model_version() const {
   return flatbuffer_model_->version();
+}
+
+int FlatBufferModelScorer::dom_model_version() const {
+  return flatbuffer_model_->dom_model_version();
 }
 
 bool FlatBufferModelScorer::has_page_term(const std::string& str) const {

@@ -1,66 +1,59 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/web_view/internal/web_view_web_client.h"
 
-#include <dispatch/dispatch.h>
+#import <dispatch/dispatch.h>
 
-#include "base/bind.h"
-#include "base/check.h"
-#include "base/mac/bundle_locations.h"
-#include "base/strings/sys_string_conversions.h"
-#include "base/task/post_task.h"
-#include "components/autofill/ios/browser/autofill_java_script_feature.h"
+#import "base/apple/bundle_locations.h"
+#import "base/check.h"
+#import "base/functional/bind.h"
+#import "base/ios/ns_error_util.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/autofill/ios/browser/autofill_java_script_feature.h"
 #import "components/autofill/ios/browser/suggestion_controller_java_script_feature.h"
 #import "components/autofill/ios/form_util/form_handlers_java_script_feature.h"
+#import "components/language/ios/browser/language_detection_java_script_feature.h"
 #import "components/password_manager/ios/password_manager_java_script_feature.h"
-#include "components/ssl_errors/error_info.h"
-#include "components/strings/grit/components_strings.h"
-#include "ios/components/webui/web_ui_url_constants.h"
-#include "ios/web/common/user_agent.h"
-#include "ios/web/public/security/ssl_status.h"
-#include "ios/web/public/thread/web_task_traits.h"
-#include "ios/web/public/thread/web_thread.h"
+#import "components/security_interstitials/core/unsafe_resource.h"
+#import "components/ssl_errors/error_info.h"
+#import "components/strings/grit/components_strings.h"
+#import "components/translate/ios/browser/translate_java_script_feature.h"
+#import "ios/components/security_interstitials/https_only_mode/feature.h"
+#import "ios/components/security_interstitials/ios_security_interstitial_java_script_feature.h"
+#import "ios/components/security_interstitials/lookalikes/lookalike_url_container.h"
+#import "ios/components/security_interstitials/lookalikes/lookalike_url_error.h"
+#import "ios/components/security_interstitials/safe_browsing/safe_browsing_error.h"
+#import "ios/components/security_interstitials/safe_browsing/safe_browsing_unsafe_resource_container.h"
+#import "ios/components/webui/web_ui_url_constants.h"
+#import "ios/web/common/user_agent.h"
+#import "ios/web/public/navigation/navigation_manager.h"
+#import "ios/web/public/security/ssl_status.h"
+#import "ios/web/public/thread/web_task_traits.h"
+#import "ios/web/public/thread/web_thread.h"
+#import "ios/web_view/internal/cwv_lookalike_url_handler_internal.h"
 #import "ios/web_view/internal/cwv_ssl_error_handler_internal.h"
 #import "ios/web_view/internal/cwv_ssl_status_internal.h"
 #import "ios/web_view/internal/cwv_ssl_util.h"
 #import "ios/web_view/internal/cwv_web_view_internal.h"
-#include "ios/web_view/internal/web_view_browser_state.h"
+#import "ios/web_view/internal/safe_browsing/cwv_unsafe_url_handler_internal.h"
+#import "ios/web_view/internal/web_view_browser_state.h"
 #import "ios/web_view/internal/web_view_early_page_script_provider.h"
+#import "ios/web_view/internal/web_view_message_handler_java_script_feature.h"
 #import "ios/web_view/internal/web_view_web_main_parts.h"
 #import "ios/web_view/public/cwv_navigation_delegate.h"
 #import "ios/web_view/public/cwv_web_view.h"
 #import "net/base/mac/url_conversions.h"
-#include "net/cert/cert_status_flags.h"
-#include "ui/base/l10n/l10n_util.h"
-#include "ui/base/resource/resource_bundle.h"
+#import "net/cert/cert_status_flags.h"
+#import "ui/base/l10n/l10n_util.h"
+#import "ui/base/resource/resource_bundle.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
 namespace ios_web_view {
-namespace {
-// Returns an autoreleased string containing the JavaScript loaded from a
-// bundled resource file with the given name (excluding extension).
-NSString* GetPageScript(NSString* script_file_name) {
-  DCHECK(script_file_name);
-  NSString* path =
-      [base::mac::FrameworkBundle() pathForResource:script_file_name
-                                             ofType:@"js"];
-  DCHECK(path) << "Script file not found: "
-               << base::SysNSStringToUTF8(script_file_name) << ".js";
-  NSError* error = nil;
-  NSString* content = [NSString stringWithContentsOfFile:path
-                                                encoding:NSUTF8StringEncoding
-                                                   error:&error];
-  DCHECK(!error) << "Error fetching script: "
-                 << base::SysNSStringToUTF8(error.description);
-  DCHECK(content);
-  return content;
-}
-}  // namespace
 
 WebViewWebClient::WebViewWebClient() = default;
 
@@ -103,23 +96,23 @@ base::RefCountedMemory* WebViewWebClient::GetDataResourceBytes(
 
 std::vector<web::JavaScriptFeature*> WebViewWebClient::GetJavaScriptFeatures(
     web::BrowserState* browser_state) const {
-  return {autofill::AutofillJavaScriptFeature::GetInstance(),
-          autofill::FormHandlersJavaScriptFeature::GetInstance(),
-          autofill::SuggestionControllerJavaScriptFeature::GetInstance(),
-          password_manager::PasswordManagerJavaScriptFeature::GetInstance()};
+  return {
+      autofill::AutofillJavaScriptFeature::GetInstance(),
+      autofill::FormHandlersJavaScriptFeature::GetInstance(),
+      autofill::SuggestionControllerJavaScriptFeature::GetInstance(),
+      language::LanguageDetectionJavaScriptFeature::GetInstance(),
+      password_manager::PasswordManagerJavaScriptFeature::GetInstance(),
+      security_interstitials::IOSSecurityInterstitialJavaScriptFeature::
+          GetInstance(),
+      translate::TranslateJavaScriptFeature::GetInstance(),
+      WebViewMessageHandlerJavaScriptFeature::FromBrowserState(browser_state)};
 }
 
 NSString* WebViewWebClient::GetDocumentStartScriptForMainFrame(
     web::BrowserState* browser_state) const {
-  NSMutableArray* scripts = [NSMutableArray array];
-
   WebViewEarlyPageScriptProvider& provider =
       WebViewEarlyPageScriptProvider::FromBrowserState(browser_state);
-  [scripts addObject:provider.GetScript()];
-
-  [scripts addObject:GetPageScript(@"web_view_main_frame")];
-
-  return [scripts componentsJoinedByString:@";"];
+  return provider.GetScript();
 }
 
 std::u16string WebViewWebClient::GetPluginNotSupportedText() const {
@@ -137,11 +130,46 @@ void WebViewWebClient::PrepareErrorPage(
     base::OnceCallback<void(NSString*)> callback) {
   DCHECK(error);
 
-  // TODO(crbug.com/1191799): Add support for handling legacy TLS.
   CWVWebView* web_view = [CWVWebView webViewForWebState:web_state];
-  if (info.has_value() &&
-      [web_view.navigationDelegate
-          respondsToSelector:@selector(webView:handleSSLErrorWithHandler:)]) {
+  id<CWVNavigationDelegate> navigation_delegate = web_view.navigationDelegate;
+
+  // |final_underlying_error| should be checked first for any specific error
+  // cases such as lookalikes and safebrowsing errors. |info| is only non-empty
+  // if this is a SSL related error.
+  NSError* final_underlying_error =
+      base::ios::GetFinalUnderlyingErrorFromError(error);
+  if ([final_underlying_error.domain isEqual:kSafeBrowsingErrorDomain] &&
+      [navigation_delegate
+          respondsToSelector:@selector(webView:handleUnsafeURLWithHandler:)]) {
+    DCHECK_EQ(kUnsafeResourceErrorCode, final_underlying_error.code);
+    SafeBrowsingUnsafeResourceContainer* container =
+        SafeBrowsingUnsafeResourceContainer::FromWebState(web_state);
+    const security_interstitials::UnsafeResource* resource =
+        container->GetMainFrameUnsafeResource()
+            ?: container->GetSubFrameUnsafeResource(
+                   web_state->GetNavigationManager()->GetLastCommittedItem());
+    CWVUnsafeURLHandler* handler =
+        [[CWVUnsafeURLHandler alloc] initWithWebState:web_state
+                                       unsafeResource:*resource
+                                         htmlCallback:std::move(callback)];
+    [navigation_delegate webView:web_view handleUnsafeURLWithHandler:handler];
+  } else if ([final_underlying_error.domain isEqual:kLookalikeUrlErrorDomain] &&
+             [navigation_delegate respondsToSelector:@selector
+                                  (webView:handleLookalikeURLWithHandler:)]) {
+    DCHECK_EQ(kLookalikeUrlErrorCode, final_underlying_error.code);
+    LookalikeUrlContainer* container =
+        LookalikeUrlContainer::FromWebState(web_state);
+    std::unique_ptr<LookalikeUrlContainer::LookalikeUrlInfo> lookalike_info =
+        container->ReleaseLookalikeUrlInfo();
+    CWVLookalikeURLHandler* handler = [[CWVLookalikeURLHandler alloc]
+        initWithWebState:web_state
+        lookalikeURLInfo:std::move(lookalike_info)
+            htmlCallback:std::move(callback)];
+    [navigation_delegate webView:web_view
+        handleLookalikeURLWithHandler:handler];
+  } else if (info.has_value() &&
+             [navigation_delegate respondsToSelector:@selector
+                                  (webView:handleSSLErrorWithHandler:)]) {
     __block base::OnceCallback<void(NSString*)> error_html_callback =
         std::move(callback);
     CWVSSLErrorHandler* handler =
@@ -152,8 +180,7 @@ void WebViewWebClient::PrepareErrorPage(
                                errorPageHTMLCallback:^(NSString* HTML) {
                                  std::move(error_html_callback).Run(HTML);
                                }];
-    [web_view.navigationDelegate webView:web_view
-               handleSSLErrorWithHandler:handler];
+    [navigation_delegate webView:web_view handleSSLErrorWithHandler:handler];
   } else {
     std::move(callback).Run(error.localizedDescription);
   }
@@ -161,6 +188,12 @@ void WebViewWebClient::PrepareErrorPage(
 
 bool WebViewWebClient::EnableLongPressUIContextMenu() const {
   return CWVWebView.chromeContextMenuEnabled;
+}
+
+bool WebViewWebClient::IsMixedContentAutoupgradeEnabled(
+    web::BrowserState* browser_state) const {
+  return base::FeatureList::IsEnabled(
+      security_interstitials::features::kMixedContentAutoupgrade);
 }
 
 }  // namespace ios_web_view

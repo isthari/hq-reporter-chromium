@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define COMPONENTS_SAFE_BROWSING_CONTENT_BROWSER_TRIGGERS_MOCK_TRIGGER_MANAGER_H_
 
 #include "components/safe_browsing/content/browser/triggers/trigger_manager.h"
+#include "components/safe_browsing/content/browser/web_contents_key.h"
 #include "components/safe_browsing/core/browser/referrer_chain_provider.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -21,33 +22,29 @@ class MockTriggerManager : public TriggerManager {
 
   ~MockTriggerManager() override;
 
-  MOCK_METHOD8(
+  MOCK_METHOD7(
       StartCollectingThreatDetails,
       bool(TriggerType trigger_type,
            content::WebContents* web_contents,
            const security_interstitials::UnsafeResource& resource,
            scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
            history::HistoryService* history_service,
-           base::RepeatingCallback<ChromeUserPopulation()>
-               get_user_population_callback,
            ReferrerChainProvider* referrer_chain_provider,
            const SBErrorOptions& error_display_options));
-  MOCK_METHOD9(
+  MOCK_METHOD8(
       StartCollectingThreatDetailsWithReason,
       bool(TriggerType trigger_type,
            content::WebContents* web_contents,
            const security_interstitials::UnsafeResource& resource,
            scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
            history::HistoryService* history_service,
-           base::RepeatingCallback<ChromeUserPopulation()>
-               get_user_population_callback,
            ReferrerChainProvider* referrer_chain_provider,
            const SBErrorOptions& error_display_options,
            TriggerManagerReason* out_reason));
 
   MOCK_METHOD6(FinishCollectingThreatDetails,
                bool(TriggerType trigger_type,
-                    content::WebContents* web_contents,
+                    WebContentsKey web_contents_key,
                     const base::TimeDelta& delay,
                     bool did_proceed,
                     int num_visits,

@@ -1,10 +1,10 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {assert} from 'chrome://resources/js/assert.m.js';
-import {dispatchSimpleEvent} from 'chrome://resources/js/cr.m.js';
-import {NativeEventTarget as EventTarget} from 'chrome://resources/js/cr/event_target.m.js';
+import {assert} from 'chrome://resources/ash/common/assert.js';
+import {dispatchSimpleEvent} from 'chrome://resources/ash/common/cr_deprecated.js';
+import {NativeEventTarget as EventTarget} from 'chrome://resources/ash/common/event_target.js';
 
 import {metrics} from '../../common/js/metrics.js';
 import {str, strf, util} from '../../common/js/util.js';
@@ -12,6 +12,7 @@ import {VolumeManagerCommon} from '../../common/js/volume_manager_types.js';
 import {DriveSyncHandler} from '../../externs/background/drive_sync_handler.js';
 import {VolumeManager} from '../../externs/volume_manager.js';
 
+import {constants} from './constants.js';
 import {FolderShortcutsDataModel} from './folder_shortcuts_data_model.js';
 import {MetadataModel} from './metadata/metadata_model.js';
 import {ActionModelUI} from './ui/action_model_ui.js';
@@ -99,19 +100,19 @@ class DriveShareAction {
   execute() {
     // Open the Sharing dialog in a new window.
     chrome.fileManagerPrivate.getEntryProperties(
-        [this.entry_], ['shareUrl'], results => {
+        [util.unwrapEntry(this.entry_)], ['shareUrl'], results => {
           if (chrome.runtime.lastError) {
             console.error(chrome.runtime.lastError.message);
             return;
           }
           if (results.length != 1) {
-            console.error(
+            console.warn(
                 'getEntryProperties for shareUrl should return 1 entry ' +
                 '(returned ' + results.length + ')');
             return;
           }
           if (results[0].shareUrl === undefined) {
-            console.error('getEntryProperties shareUrl is undefined');
+            console.warn('getEntryProperties shareUrl is undefined');
             return;
           }
           util.visitURL(assert(results[0].shareUrl));
@@ -296,7 +297,7 @@ class DriveToggleOfflineAction {
         this.ui_.alertDialog.show(
             strf('OFFLINE_FAILURE_MESSAGE', unescape(currentEntry.name)), null,
             null, null);
-      }
+      },
     };
     steps.start();
 
@@ -529,19 +530,19 @@ class DriveManageAction {
    */
   execute() {
     chrome.fileManagerPrivate.getEntryProperties(
-        [this.entry_], ['alternateUrl'], results => {
+        [util.unwrapEntry(this.entry_)], ['alternateUrl'], results => {
           if (chrome.runtime.lastError) {
             console.error(chrome.runtime.lastError.message);
             return;
           }
           if (results.length != 1) {
-            console.error(
+            console.warn(
                 'getEntryProperties for alternateUrl should return 1 entry ' +
                 '(returned ' + results.length + ')');
             return;
           }
           if (results[0].alternateUrl === undefined) {
-            console.error('getEntryProperties alternateUrl is undefined');
+            console.warn('getEntryProperties alternateUrl is undefined');
             return;
           }
           util.visitURL(assert(results[0].alternateUrl));
@@ -613,7 +614,7 @@ class CustomAction {
    */
   execute() {
     chrome.fileManagerPrivate.executeCustomAction(
-        this.entries_, this.id_, () => {
+        this.entries_.map(e => util.unwrapEntry(e)), this.id_, () => {
           if (chrome.runtime.lastError) {
             console.error(
                 'Failed to execute a custom action because of: ' +
@@ -807,13 +808,26 @@ export class ActionsModel extends EventTarget {
             // For FSP, fetch custom actions via an API.
             case VolumeManagerCommon.VolumeType.PROVIDED:
               chrome.fileManagerPrivate.getCustomActions(
-                  this.entries_, customActions => {
+                  this.entries_.map(e => util.unwrapEntry(e)),
+                  customActions => {
                     if (chrome.runtime.lastError) {
                       console.error(
                           'Failed to fetch custom actions because of: ' +
                           chrome.runtime.lastError.message);
                     } else {
                       customActions.forEach(action => {
+                        // Skip fake actions that should not be displayed to the
+                        // user, for example actions that just expose OneDrive
+                        // URLs.
+                        // TODO(b/237216270): Restrict to the ODFS extension ID.
+                        if (action.id ===
+                            constants.FSP_ACTION_HIDDEN_ONEDRIVE_URL) {
+                          return;
+                        }
+                        if (action.id ===
+                            constants.FSP_ACTION_HIDDEN_ONEDRIVE_USER_EMAIL) {
+                          return;
+                        }
                         actions[action.id] = new CustomAction(
                             this.entries_, action.id, action.title || null,
                             this.invalidate_.bind(this));
@@ -894,7 +908,7 @@ export class ActionsModel extends EventTarget {
 ActionsModel.CommonActionId = {
   SHARE: 'SHARE',
   SAVE_FOR_OFFLINE: 'SAVE_FOR_OFFLINE',
-  OFFLINE_NOT_NECESSARY: 'OFFLINE_NOT_NECESSARY'
+  OFFLINE_NOT_NECESSARY: 'OFFLINE_NOT_NECESSARY',
 };
 
 /**
@@ -903,5 +917,5 @@ ActionsModel.CommonActionId = {
 ActionsModel.InternalActionId = {
   CREATE_FOLDER_SHORTCUT: 'pin-folder',
   REMOVE_FOLDER_SHORTCUT: 'unpin-folder',
-  MANAGE_IN_DRIVE: 'manage-in-drive'
+  MANAGE_IN_DRIVE: 'manage-in-drive',
 };

@@ -1,10 +1,14 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 /**
  * @fileoverview Helpers for APIs used within Files app.
  */
+
+import {FilesAppEntry} from '../../externs/files_app_entry_interfaces.js';
+
+import {util} from './util.js';
 
 /**
  * Calls the `fn` function which should expect the callback as last argument.
@@ -48,7 +52,8 @@ export async function openWindow(params) {
  */
 export async function resolveIsolatedEntries(isolatedEntries) {
   return promisify(
-      chrome.fileManagerPrivate.resolveIsolatedEntries, isolatedEntries);
+      chrome.fileManagerPrivate.resolveIsolatedEntries,
+      isolatedEntries.map(e => util.unwrapEntry(e)));
 }
 
 /**
@@ -65,7 +70,8 @@ export async function getPreferences() {
  */
 export async function validatePathNameLength(parentEntry, name) {
   return promisify(
-      chrome.fileManagerPrivate.validatePathNameLength, parentEntry, name);
+      chrome.fileManagerPrivate.validatePathNameLength,
+      util.unwrapEntry(parentEntry), name);
 }
 
 /**
@@ -79,12 +85,106 @@ export async function getSizeStats(volumeId) {
 }
 
 /**
+ * Wrap the chrome.fileManagerPrivate.getDriveQuotaMetadata function in an
+ * async/await compatible style.
+ * @param {!Entry|FilesAppEntry} entry
+ * @returns {!Promise<(
+ * !chrome.fileManagerPrivate.DriveQuotaMetadata|undefined)>}
+ */
+export async function getDriveQuotaMetadata(entry) {
+  return promisify(
+      chrome.fileManagerPrivate.getDriveQuotaMetadata, util.unwrapEntry(entry));
+}
+
+/**
  * Retrieves the current holding space state, for example the list of items the
  * holding space currently contains.
  *  @returns {!Promise<(!chrome.fileManagerPrivate.HoldingSpaceState|undefined)>}
  */
 export async function getHoldingSpaceState() {
   return promisify(chrome.fileManagerPrivate.getHoldingSpaceState);
+}
+
+/**
+ * Wrap the chrome.fileManagerPrivate.getDisallowedTransfers function in an
+ * async/await compatible style.
+ * @param {!Array<!Entry>} entries entries to be transferred
+ * @param {!DirectoryEntry} destinationEntry destination entry
+ * @param {boolean} isMove true if the operation is move. false if copy.
+ * @return {!Promise<!Array<!Entry>>} disallowed transfers
+ */
+export async function getDisallowedTransfers(
+    entries, destinationEntry, isMove) {
+  return promisify(
+      chrome.fileManagerPrivate.getDisallowedTransfers,
+      entries.map(e => util.unwrapEntry(e)), util.unwrapEntry(destinationEntry),
+      isMove);
+}
+
+/**
+ * Wrap the chrome.fileManagerPrivate.getDlpMetadata function in an async/await
+ * compatible style.
+ * @param {!Array<!Entry>} entries entries to be checked
+ * @return {!Promise<!Array<!chrome.fileManagerPrivate.DlpMetadata>>} list of
+ *     DlpMetadata
+ */
+export async function getDlpMetadata(entries) {
+  return promisify(
+      chrome.fileManagerPrivate.getDlpMetadata,
+      entries.map(e => util.unwrapEntry(e)));
+}
+
+/**
+ * Retrieves the list of components to which the transfer of an Entry is blocked
+ * by Data Leak Prevention (DLP) policy.
+ * @param {string} sourceUrl Source URL of the Entry that should be checked.
+ * @return {!Promise<!Array<chrome.fileManagerPrivate.VolumeType>>}
+ * callback Callback with the list of components (subset of VolumeType) to which
+ * transferring an Entry is blocked by DLP.
+ */
+export async function getDlpBlockedComponents(sourceUrl) {
+  return promisify(
+      chrome.fileManagerPrivate.getDlpBlockedComponents, sourceUrl);
+}
+
+/**
+ * Retrieves Data Leak Prevention (DLP) restriction details.
+ * @param {string} sourceUrl Source URL of the file for which to retrieve the
+ *     details.
+ * @return {!Promise<!Array<!chrome.fileManagerPrivate.DlpRestrictionDetails>>}
+ *     list of DlpRestrictionDetails containing summarized restriction
+ * information about the file.
+ */
+export async function getDlpRestrictionDetails(sourceUrl) {
+  return promisify(
+      chrome.fileManagerPrivate.getDlpRestrictionDetails, sourceUrl);
+}
+
+/**
+ * Retrieves the caller that created the dialog (Save As/File Picker).
+ * @return {!Promise<!chrome.fileManagerPrivate.DialogCallerInformation>}
+ * callback Callback with either a URL or component (subset of VolumeType) of
+ * the caller.
+ */
+export async function getDialogCaller() {
+  return promisify(chrome.fileManagerPrivate.getDialogCaller);
+}
+
+/**
+ * Lists Guest OSs which support having their files mounted.
+ * @return {!Promise<!Array<!chrome.fileManagerPrivate.MountableGuest>>}
+ */
+export async function listMountableGuests() {
+  return promisify(chrome.fileManagerPrivate.listMountableGuests);
+}
+
+/**
+ * Lists Guest OSs which support having their files mounted.
+ * @param {number} id Id of the guest to mount.
+ * @return {!Promise<void>}
+ */
+export async function mountGuest(id) {
+  return promisify(chrome.fileManagerPrivate.mountGuest, id);
 }
 
 /*
@@ -150,14 +250,108 @@ export async function getEntry(directory, filename, isFile, options) {
 }
 
 /**
- * Returns the color to be used by frames of each foreground window.
- * @returns {Promise<!string>}
+ * Starts an IOTask of `type` and returns a taskId that can be used to cancel
+ * or identify the ongoing IO operation.
+ * @param {!chrome.fileManagerPrivate.IOTaskType} type
+ * @param {!Array<!Entry|!FilesAppEntry>} entries
+ * @param {!chrome.fileManagerPrivate.IOTaskParams} params
+ * @returns {!Promise<!number>}
  */
-export async function getFrameColor() {
-  try {
-    return await promisify(chrome.fileManagerPrivate.getFrameColor);
-  } catch (e) {
-    console.error('Failed to get frame color.', e);
-    return '#ffffff';
+export async function startIOTask(type, entries, params) {
+  if (params.destinationFolder) {
+    params.destinationFolder = /** @type {!DirectoryEntry} */ (
+        util.unwrapEntry(params.destinationFolder));
   }
+  return promisify(
+      chrome.fileManagerPrivate.startIOTask, type,
+      entries.map(e => util.unwrapEntry(e)), params);
+}
+
+/**
+ * Parses .trashinfo files to retrieve the restore path and deletion date.
+ * @param {!Array<!Entry>} entries
+ * @returns {!Promise<!Array<!chrome.fileManagerPrivate.ParsedTrashInfoFile>>}
+ */
+export async function parseTrashInfoFiles(entries) {
+  return promisify(
+      chrome.fileManagerPrivate.parseTrashInfoFiles,
+      entries.map(e => util.unwrapEntry(e)));
+}
+
+/**
+ * @param {!Entry} entry
+ * @return {!Promise<string|undefined>}
+ */
+export async function getMimeType(entry) {
+  return promisify(
+      chrome.fileManagerPrivate.getMimeType, util.unwrapEntry(entry));
+}
+
+/**
+ * @param {!Array<!Entry|!FilesAppEntry>} entries
+ * @param {!Array<string>} dlpSourceUrls
+ * @return {!Promise<chrome.fileManagerPrivate.ResultingTasks>}
+ */
+export async function getFileTasks(entries, dlpSourceUrls) {
+  return promisify(
+      chrome.fileManagerPrivate.getFileTasks,
+      entries.map(e => util.unwrapEntry(e)), dlpSourceUrls);
+}
+
+/**
+ * @param {!chrome.fileManagerPrivate.FileTaskDescriptor} taskDescriptor
+ * @param {!Array<!Entry|!FilesAppEntry>} entries
+ * @return {!Promise<chrome.fileManagerPrivate.TaskResult>}
+ */
+export async function executeTask(taskDescriptor, entries) {
+  return promisify(
+      chrome.fileManagerPrivate.executeTask, taskDescriptor,
+      entries.map(e => util.unwrapEntry(e)));
+}
+
+/**
+ * Returns unique parent directories of provided entries. Note: this assumes
+ * all provided entries are from the same filesystem.
+ * @param {!Array<!Entry>} entries
+ * @return {!Promise<!Array<!DirectoryEntry>>}
+ */
+export async function getUniqueParents(entries) {
+  if (entries.length === 0) {
+    return [];
+  }
+  const root = entries[0].filesystem.root;
+
+  const uniquePaths = entries.reduce((paths, entry) => {
+    const parts = entry.fullPath.split('/').slice(0, -1);
+
+    while (parts.length > 1) {
+      const path = parts.join('/');
+      if (paths.has(path)) {
+        return paths;
+      }
+      paths.add(path);
+      parts.pop();
+    }
+
+    return paths;
+  }, new Set());
+
+  return Promise.all([...uniquePaths].map(path => getDirectory(root, path)));
+}
+
+/**
+ * Gets the current bulk pin progress status.
+ * @returns {!Promise<!chrome.fileManagerPrivate.BulkPinProgress>}
+ */
+export async function getBulkPinProgress() {
+  return promisify(chrome.fileManagerPrivate.getBulkPinProgress);
+}
+
+/**
+ * Starts calculating the required space to pin all the users items on their My
+ * drive.
+ * @returns {!Promise<void>}
+ */
+export async function calculateBulkPinRequiredSpace() {
+  return promisify(chrome.fileManagerPrivate.calculateBulkPinRequiredSpace);
 }

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@ import android.util.Pair;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
-import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.RelativeLayout;
 import android.widget.TextView;
 
 import androidx.annotation.Nullable;
@@ -22,17 +22,19 @@ import org.chromium.ui.widget.ButtonCompat;
 import org.chromium.ui.widget.TextViewWithClickableSpans;
 
 /** View that wraps signin first run welcome screen and caches references to UI elements. **/
-public class SigninFirstRunView extends LinearLayout {
-    private ViewGroup mContent;
+public class SigninFirstRunView extends RelativeLayout {
     private TextView mTitle;
     private TextView mSubtitle;
     private View mBrowserManagedHeader;
-    private ProgressBar mProgressSpinner;
+    private TextView mPrivacyDisclaimer;
+    private ProgressBar mInitialLoadProgressSpinner;
     private ViewGroup mSelectedAccount;
     private ImageView mExpandIcon;
     private ButtonCompat mContinueButton;
     private ButtonCompat mDismissButton;
     private TextViewWithClickableSpans mFooter;
+    private ProgressBar mSigninProgressSpinner;
+    private TextView mSigninProgressText;
 
     public SigninFirstRunView(Context context, @Nullable AttributeSet attrs) {
         super(context, attrs);
@@ -42,32 +44,35 @@ public class SigninFirstRunView extends LinearLayout {
     protected void onFinishInflate() {
         super.onFinishInflate();
 
-        mContent = findViewById(R.id.signin_fre_content);
         mTitle = findViewById(R.id.title);
         mSubtitle = findViewById(R.id.subtitle);
-        mBrowserManagedHeader = findViewById(R.id.fre_browser_managed_by_organization);
-        mProgressSpinner = findViewById(R.id.signin_fre_progress_spinner);
+        mBrowserManagedHeader = findViewById(R.id.fre_browser_managed_by);
+        mInitialLoadProgressSpinner =
+                findViewById(R.id.fre_native_and_policy_load_progress_spinner);
         mSelectedAccount = findViewById(R.id.signin_fre_selected_account);
         mExpandIcon = findViewById(R.id.signin_fre_selected_account_expand_icon);
         mContinueButton = findViewById(R.id.signin_fre_continue_button);
         mDismissButton = findViewById(R.id.signin_fre_dismiss_button);
         mFooter = findViewById(R.id.signin_fre_footer);
+        mSigninProgressSpinner = findViewById(R.id.fre_signin_progress_spinner);
+        mSigninProgressText = findViewById(R.id.fre_signin_progress_text);
+        mPrivacyDisclaimer = (TextView) findViewById(R.id.privacy_disclaimer);
 
         if (FREMobileIdentityConsistencyFieldTrial.shouldHideTitleUntilPoliciesAreLoaded()) {
-            mTitle.setVisibility(GONE);
+            mTitle.setVisibility(INVISIBLE);
         }
-    }
-
-    ViewGroup getContentView() {
-        return mContent;
     }
 
     View getBrowserManagedHeaderView() {
         return mBrowserManagedHeader;
     }
 
-    ProgressBar getProgressSpinnerView() {
-        return mProgressSpinner;
+    TextView getPrivacyDisclaimer() {
+        return mPrivacyDisclaimer;
+    }
+
+    ProgressBar getInitialLoadProgressSpinnerView() {
+        return mInitialLoadProgressSpinner;
     }
 
     ViewGroup getSelectedAccountView() {
@@ -90,10 +95,23 @@ public class SigninFirstRunView extends LinearLayout {
         return mFooter;
     }
 
+    ProgressBar getSigninProgressSpinner() {
+        return mSigninProgressSpinner;
+    }
+
+    TextView getSigninProgressText() {
+        return mSigninProgressText;
+    }
+
     /** Updates the title and the subtitle for UI variations on native and policy load. **/
-    void onNativeAndPoliciesLoaded() {
-        Pair<Integer, Integer> titleAndSubtitleId =
-                FREMobileIdentityConsistencyFieldTrial.getVariationTitleAndSubtitle();
+    void applyVariationsExperiment(boolean useExperimentalStrings) {
+        Pair<Integer, Integer> titleAndSubtitleId;
+        if (useExperimentalStrings) {
+            titleAndSubtitleId =
+                    FREMobileIdentityConsistencyFieldTrial.getVariationTitleAndSubtitle();
+        } else {
+            titleAndSubtitleId = new Pair(R.string.fre_welcome, 0);
+        }
         mTitle.setText(titleAndSubtitleId.first);
         mTitle.setVisibility(VISIBLE);
         if (titleAndSubtitleId.second != 0) {

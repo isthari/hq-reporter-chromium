@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
@@ -119,6 +119,11 @@ ModelTypeSet ModelTypeRegistry::GetInitialSyncEndedTypes() const {
 }
 
 const UpdateHandler* ModelTypeRegistry::GetUpdateHandler(ModelType type) const {
+  auto it = update_handler_map_.find(type);
+  return it == update_handler_map_.end() ? nullptr : it->second;
+}
+
+UpdateHandler* ModelTypeRegistry::GetMutableUpdateHandler(ModelType type) {
   auto it = update_handler_map_.find(type);
   return it == update_handler_map_.end() ? nullptr : it->second;
 }

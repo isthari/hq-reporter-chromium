@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -44,6 +44,7 @@ import org.chromium.android_webview.AwHttpAuthHandler;
 import org.chromium.android_webview.AwRenderProcessGoneDetail;
 import org.chromium.android_webview.JsPromptResultReceiver;
 import org.chromium.android_webview.JsResultReceiver;
+import org.chromium.android_webview.R;
 import org.chromium.android_webview.permission.AwPermissionRequest;
 import org.chromium.android_webview.permission.Resource;
 import org.chromium.base.Callback;
@@ -52,8 +53,8 @@ import org.chromium.base.Log;
 import org.chromium.base.TraceEvent;
 import org.chromium.base.metrics.ScopedSysTraceEvent;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.components.embedder_support.util.WebResourceResponseInfo;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 
 import java.lang.ref.WeakReference;
 import java.security.Principal;
@@ -439,7 +440,7 @@ class WebViewContentsClientAdapter extends SharedWebViewContentsClientAdapter {
             // no further updates after onPageStarted, we'll fail the test by timing
             // out waiting for a Picture.
             if (mPictureListener != null) {
-                PostTask.postDelayedTask(UiThreadTaskTraits.DEFAULT, () -> {
+                PostTask.postDelayedTask(TaskTraits.UI_DEFAULT, () -> {
                     if (mPictureListener != null) {
                         if (TRACE) Log.i(TAG, "onNewPicture - from onPageFinished workaround.");
                         mPictureListener.onNewPicture(
@@ -511,7 +512,9 @@ class WebViewContentsClientAdapter extends SharedWebViewContentsClientAdapter {
                                             "onGeolocationPermissionsShowPrompt",
                                             String.class,
                                             GeolocationPermissions.Callback.class)) {
-                // This is only required for pre-M versions of android.
+                // The default WebChromeClient.onGeolocationPermissionsShowPrompt() implementation
+                // is a NOOP (does not invoke the callback). Explicitly invoke the callback in
+                // chromium code to deny the permission.
                 callback.invoke(origin, false, false);
                 return;
             }
@@ -1008,8 +1011,7 @@ class WebViewContentsClientAdapter extends SharedWebViewContentsClientAdapter {
                 // The ic_play_circle_outline_black_48dp icon is transparent so we need to draw it
                 // on a gray background.
                 Bitmap poster = BitmapFactory.decodeResource(
-                        mContext.getResources(),
-                        org.chromium.android_webview.R.drawable.ic_play_circle_outline_black_48dp);
+                        mContext.getResources(), R.drawable.ic_play_circle_outline_black_48dp);
                 result = Bitmap.createBitmap(
                         poster.getWidth(), poster.getHeight(), poster.getConfig());
                 result.eraseColor(Color.GRAY);
@@ -1079,7 +1081,7 @@ class WebViewContentsClientAdapter extends SharedWebViewContentsClientAdapter {
                     result |= Resource.AUDIO_CAPTURE;
                 } else if (resource.equals(PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID)) {
                     result |= Resource.PROTECTED_MEDIA_ID;
-                } else if (resource.equals(AwPermissionRequest.RESOURCE_MIDI_SYSEX)) {
+                } else if (resource.equals(PermissionRequest.RESOURCE_MIDI_SYSEX)) {
                     result |= Resource.MIDI_SYSEX;
                 }
             }
@@ -1098,7 +1100,7 @@ class WebViewContentsClientAdapter extends SharedWebViewContentsClientAdapter {
                 result.add(PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID);
             }
             if ((resources & Resource.MIDI_SYSEX) != 0) {
-                result.add(AwPermissionRequest.RESOURCE_MIDI_SYSEX);
+                result.add(PermissionRequest.RESOURCE_MIDI_SYSEX);
             }
             String[] resource_array = new String[result.size()];
             return result.toArray(resource_array);

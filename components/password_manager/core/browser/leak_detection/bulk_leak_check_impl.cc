@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 #include <utility>
 
 #include "base/check.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "components/password_manager/core/browser/leak_detection/encryption_utils.h"
 #include "components/password_manager/core/browser/leak_detection/leak_detection_delegate_interface.h"
@@ -22,16 +22,12 @@
 namespace password_manager {
 namespace {
 
-std::unique_ptr<BulkLeakCheckImpl::CredentialHolder> RemoveFromQueue(
-    BulkLeakCheckImpl::CredentialHolder* weak_holder,
-    base::circular_deque<std::unique_ptr<BulkLeakCheckImpl::CredentialHolder>>*
-        queue) {
-  auto it = std::find_if(queue->begin(), queue->end(),
-                         [weak_holder](const auto& element) {
-                           return element.get() == weak_holder;
-                         });
+using HolderPtr = std::unique_ptr<BulkLeakCheckImpl::CredentialHolder>;
+HolderPtr RemoveFromQueue(BulkLeakCheckImpl::CredentialHolder* weak_holder,
+                          base::circular_deque<HolderPtr>* queue) {
+  auto it = base::ranges::find(*queue, weak_holder, &HolderPtr::get);
   CHECK(it != queue->end());
-  std::unique_ptr<BulkLeakCheckImpl::CredentialHolder> holder = std::move(*it);
+  HolderPtr holder = std::move(*it);
   queue->erase(it);
   return holder;
 }
@@ -90,6 +86,7 @@ BulkLeakCheckImpl::BulkLeakCheckImpl(
 BulkLeakCheckImpl::~BulkLeakCheckImpl() = default;
 
 void BulkLeakCheckImpl::CheckCredentials(
+    LeakDetectionInitiator initiator,
     std::vector<LeakCheckCredential> credentials) {
   for (auto& c : credentials) {
     waiting_encryption_.push_back(
@@ -97,7 +94,7 @@ void BulkLeakCheckImpl::CheckCredentials(
     const LeakCheckCredential& credential =
         waiting_encryption_.back()->credential;
     PrepareSingleLeakRequestData(
-        task_tracker_, *payload_task_runner_, encryption_key_,
+        task_tracker_, *payload_task_runner_, initiator, encryption_key_,
         base::UTF16ToUTF8(credential.username()),
         base::UTF16ToUTF8(credential.password()),
         base::BindOnce(&BulkLeakCheckImpl::OnPayloadReady,

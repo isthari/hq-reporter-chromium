@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,9 +11,12 @@
 #include "base/memory/raw_ptr.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "chrome/browser/performance_manager/test_support/test_user_performance_tuning_manager_environment.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/test/base/test_browser_window.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/variations/scoped_variations_ids_provider.h"
+#include "components/variations/variations_client.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_renderer_host.h"
 #include "services/network/test/test_url_loader_factory.h"
@@ -25,8 +28,9 @@
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/test/ash_test_helper.h"
 #include "ash/test/ash_test_views_delegate.h"
+#include "chrome/browser/ash/app_mode/kiosk_app_manager.h"
 #include "chrome/browser/ash/settings/scoped_cros_settings_test_helper.h"
-#include "chromeos/tpm/stub_install_attributes.h"
+#include "chromeos/ash/components/install_attributes/stub_install_attributes.h"
 #else
 #include "ui/views/test/scoped_views_test_helper.h"
 #endif
@@ -61,10 +65,11 @@ class TestingProfileManager;
 
 // Base class for browser based unit tests. BrowserWithTestWindowTest creates a
 // Browser with a TestingProfile and TestBrowserWindow. To add a tab use
-// AddTab. For example, the following adds a tab and navigates to
-// two URLs that target the TestWebContents:
+// AddTab. For example, the following adds a tab and navigates to two URLs:
 //
 //   // Add a new tab and navigate it. This will be at index 0.
+//   // WARNING: this creates a real WebContents. If you want to add a test
+//   // WebContents create it directly and insert it into the TabStripModel.
 //   AddTab(browser(), GURL("http://foo/1"));
 //   WebContents* contents = browser()->tab_strip_model()->GetWebContentsAt(0);
 //
@@ -156,6 +161,8 @@ class BrowserWithTestWindowTest : public testing::Test {
 
   // Adds a tab to |browser| with the given URL and commits the load.
   // This is a convenience function. The new tab will be added at index 0.
+  // WARNING: this creates a real WebContents. If you want to add a test
+  // WebContents create it directly and insert it into the TabStripModel.
   void AddTab(Browser* browser, const GURL& url);
 
   // Commits the pending load on the given controller. It will keep the
@@ -207,7 +214,7 @@ class BrowserWithTestWindowTest : public testing::Test {
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   ash::ScopedCrosSettingsTestHelper* GetCrosSettingsHelper();
-  chromeos::StubInstallAttributes* GetInstallAttributes();
+  ash::StubInstallAttributes* GetInstallAttributes();
 #endif
 
  private:
@@ -230,6 +237,7 @@ class BrowserWithTestWindowTest : public testing::Test {
   ash::ScopedCrosSettingsTestHelper cros_settings_test_helper_;
   std::unique_ptr<user_manager::ScopedUserManager> scoped_user_manager_;
   std::unique_ptr<crosapi::CrosapiManager> manager_;
+  std::unique_ptr<ash::KioskAppManager> kiosk_app_manager_;
 #endif
 
   raw_ptr<TestingProfile> profile_ = nullptr;
@@ -268,6 +276,15 @@ class BrowserWithTestWindowTest : public testing::Test {
 
   // Whether the browser is part of a hosted app.
   const bool hosted_app_;
+
+  // Initialize the variations provider.
+  variations::ScopedVariationsIdsProvider scoped_variations_ids_provider_{
+      variations::VariationsIdsProvider::Mode::kUseSignedInState};
+
+  // Some of the UI elements in top chrome need to observe the
+  // UserPerformanceTuningManager, so create and install a fake.
+  performance_manager::user_tuning::TestUserPerformanceTuningManagerEnvironment
+      user_performance_tuning_manager_environment_;
 };
 
 #endif  // CHROME_TEST_BASE_BROWSER_WITH_TEST_WINDOW_TEST_H_

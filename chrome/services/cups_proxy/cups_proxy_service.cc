@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,25 +8,23 @@
 #include <utility>
 #include <vector>
 
-#include "base/no_destructor.h"
 #include "chrome/services/cups_proxy/cups_proxy_service_delegate.h"
 #include "chrome/services/cups_proxy/proxy_manager.h"
-#include "chromeos/dbus/cups_proxy/cups_proxy_client.h"
+#include "chromeos/ash/components/dbus/cups_proxy/cups_proxy_client.h"
 #include "mojo/public/cpp/platform/platform_channel.h"
 #include "mojo/public/cpp/system/invitation.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 
 namespace cups_proxy {
 
+namespace {
+
+CupsProxyService* g_instance = nullptr;
+
+}  // namespace
+
 CupsProxyService::CupsProxyService() = default;
 CupsProxyService::~CupsProxyService() = default;
-
-// static
-void CupsProxyService::Spawn(
-    std::unique_ptr<CupsProxyServiceDelegate> delegate) {
-  static base::NoDestructor<CupsProxyService> service;
-  service->BindToCupsProxyDaemon(std::move(delegate));
-}
 
 void CupsProxyService::BindToCupsProxyDaemon(
     std::unique_ptr<CupsProxyServiceDelegate> delegate) {
@@ -54,7 +52,7 @@ void CupsProxyService::BindToCupsProxyDaemon(
 
   // Send the file descriptor for the other end of |platform_channel| to the
   // CupsProxyDaemon over D-Bus.
-  chromeos::CupsProxyClient::Get()->BootstrapMojoConnection(
+  ash::CupsProxyClient::Get()->BootstrapMojoConnection(
       platform_channel.TakeRemoteEndpoint().TakePlatformHandle().TakeFD(),
       base::BindOnce(&CupsProxyService::OnBindToCupsProxyDaemon,
                      weak_factory_.GetWeakPtr()));
@@ -69,6 +67,26 @@ void CupsProxyService::OnBindToCupsProxyDaemon(bool success) {
   }
 
   DVLOG(1) << "CupsProxyService: bootstrap success!";
+}
+
+// static
+void CupsProxyService::Spawn(
+    std::unique_ptr<CupsProxyServiceDelegate> delegate) {
+  DCHECK(!g_instance);
+  g_instance = new CupsProxyService();
+  g_instance->BindToCupsProxyDaemon(std::move(delegate));
+}
+
+// static
+CupsProxyService* CupsProxyService::GetInstance() {
+  return g_instance;
+}
+
+// static
+void CupsProxyService::Shutdown() {
+  DCHECK(g_instance);
+  delete g_instance;
+  g_instance = nullptr;
 }
 
 }  // namespace cups_proxy

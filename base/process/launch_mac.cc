@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,12 +9,12 @@
 #include <os/availability.h>
 #include <spawn.h>
 #include <string.h>
-#include <sys/syscall.h>
 #include <sys/wait.h>
 
 #include "base/command_line.h"
 #include "base/files/scoped_file.h"
 #include "base/logging.h"
+#include "base/mac/mach_port_rendezvous.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/process/environment_internal.h"
 #include "base/threading/scoped_blocking_call.h"
@@ -85,9 +85,11 @@ class PosixSpawnFileActions {
     DPSXCHECK(posix_spawn_file_actions_addinherit_np(&file_actions_, filedes));
   }
 
+#if BUILDFLAG(IS_MAC)
   void Chdir(const char* path) API_AVAILABLE(macos(10.15)) {
     DPSXCHECK(posix_spawn_file_actions_addchdir_np(&file_actions_, path));
   }
+#endif
 
   const posix_spawn_file_actions_t* get() const { return &file_actions_; }
 
@@ -96,21 +98,13 @@ class PosixSpawnFileActions {
 };
 
 int ChangeCurrentThreadDirectory(const char* path) {
-  if (__builtin_available(macOS 10.12, *)) {
-    return pthread_chdir_np(path);
-  } else {
-    return syscall(SYS___pthread_chdir, path);
-  }
+  return pthread_chdir_np(path);
 }
 
 // The recommended way to unset a per-thread cwd is to set a new value to an
 // invalid file descriptor, per libpthread-218.1.3/private/private.h.
 int ResetCurrentThreadDirectory() {
-  if (__builtin_available(macOS 10.12, *)) {
-    return pthread_fchdir_np(-1);
-  } else {
-    return syscall(SYS___pthread_fchdir, -1);
-  }
+  return pthread_fchdir_np(-1);
 }
 
 struct GetAppOutputOptions {
@@ -162,7 +156,7 @@ bool GetAppOutputInternal(const std::vector<std::string>& argv,
     read_this_pass = HANDLE_EINTR(
         read(read_fd.get(), &(*output)[total_bytes_read], kBufferSize));
     if (read_this_pass >= 0) {
-      total_bytes_read += read_this_pass;
+      total_bytes_read += static_cast<size_t>(read_this_pass);
       output->resize(total_bytes_read);
     }
   } while (read_this_pass > 0);
@@ -230,11 +224,13 @@ Process LaunchProcess(const std::vector<std::string>& argv,
     file_actions.Inherit(STDERR_FILENO);
   }
 
+#if BUILDFLAG(IS_MAC)
   if (options.disclaim_responsibility) {
     if (__builtin_available(macOS 10.14, *)) {
       DPSXCHECK(responsibility_spawnattrs_setdisclaim(attr.get(), 1));
     }
   }
+#endif
 
   std::vector<char*> argv_cstr;
   argv_cstr.reserve(argv.size() + 1);
@@ -264,9 +260,12 @@ Process LaunchProcess(const std::vector<std::string>& argv,
 
   if (!options.current_directory.empty()) {
     const char* chdir_str = options.current_directory.value().c_str();
+#if BUILDFLAG(IS_MAC)
     if (__builtin_available(macOS 10.15, *)) {
       file_actions.Chdir(chdir_str);
-    } else {
+    } else
+#endif
+    {
       // If the chdir posix_spawn_file_actions extension is not available,
       // change the thread-specific working directory. The new process will
       // inherit it during posix_spawnp().

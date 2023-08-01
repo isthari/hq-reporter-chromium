@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,17 +27,17 @@ class TestPermissionsClient : public PermissionsClient {
       content::BrowserContext* browser_context) override;
   bool IsSubresourceFilterActivated(content::BrowserContext* browser_context,
                                     const GURL& url) override;
+  OriginKeyedPermissionActionService* GetOriginKeyedPermissionActionService(
+      content::BrowserContext* browser_context) override;
   PermissionActionsHistory* GetPermissionActionsHistory(
       content::BrowserContext* browser_context) override;
   PermissionDecisionAutoBlocker* GetPermissionDecisionAutoBlocker(
-      content::BrowserContext* browser_context) override;
-  PermissionManager* GetPermissionManager(
       content::BrowserContext* browser_context) override;
   ObjectPermissionContextBase* GetChooserContext(
       content::BrowserContext* browser_context,
       ContentSettingsType type) override;
   void GetUkmSourceId(content::BrowserContext* browser_context,
-                      const content::WebContents* web_contents,
+                      content::WebContents* web_contents,
                       const GURL& requesting_origin,
                       GetUkmSourceIdCallback callback) override;
 
@@ -49,6 +49,7 @@ class TestPermissionsClient : public PermissionsClient {
   scoped_refptr<HostContentSettingsMap> settings_map_;
   PermissionDecisionAutoBlocker autoblocker_;
   PermissionActionsHistory permission_actions_history_;
+  OriginKeyedPermissionActionService origin_keyed_permission_action_service_;
 };
 
 }  // namespace permissions

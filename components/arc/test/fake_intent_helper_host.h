@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include "ash/components/arc/mojom/intent_helper.mojom.h"
 #include "ash/components/arc/session/connection_holder.h"
+#include "base/memory/raw_ptr.h"
 
 namespace arc {
 
@@ -49,18 +50,24 @@ class FakeIntentHelperHost : public mojom::IntentHelperHost {
   void IsChromeAppEnabled(arc::mojom::ChromeApp app,
                           IsChromeAppEnabledCallback callback) override;
   void OnSupportedLinksChanged(
-      std::vector<arc::mojom::SupportedLinksPtr> added_packages,
-      std::vector<arc::mojom::SupportedLinksPtr> removed_packages,
+      std::vector<arc::mojom::SupportedLinksPackagePtr> added_packages,
+      std::vector<arc::mojom::SupportedLinksPackagePtr> removed_packages,
       arc::mojom::SupportedLinkChangeSource source) override;
-  void OnDownloadAdded(const std::string& relative_path,
-                       const std::string& owner_package_name) override;
+  void OnDownloadAddedDeprecated(
+      const std::string& relative_path,
+      const std::string& owner_package_name) override;
   void OnOpenAppWithIntent(const GURL& start_url,
                            arc::mojom::LaunchIntentPtr intent) override;
+  void OnOpenGlobalActions() override;
+  void OnCloseSystemDialogs() override;
+  void OnAndroidSettingChange(arc::mojom::AndroidSetting setting,
+                              bool is_enabled) override;
 
  private:
   // The connection holder must outlive |this| object.
-  ConnectionHolder<arc::mojom::IntentHelperInstance,
-                   arc::mojom::IntentHelperHost>* const
+  const raw_ptr<ConnectionHolder<arc::mojom::IntentHelperInstance,
+                                 arc::mojom::IntentHelperHost>,
+                ExperimentalAsh>
       intent_helper_connection_holder_;
 };
 

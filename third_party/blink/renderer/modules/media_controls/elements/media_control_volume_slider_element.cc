@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -84,10 +84,10 @@ MediaControlVolumeSliderElement::MediaControlVolumeSliderElement(
     : MediaControlSliderElement(media_controls),
       wheel_event_listener_(
           MakeGarbageCollected<WheelEventListener>(this, container)) {
-  setAttribute(html_names::kMaxAttr, "1");
-  setAttribute(html_names::kAriaValuemaxAttr, "100");
-  setAttribute(html_names::kAriaValueminAttr, "0");
-  setAttribute(html_names::kAriaLabelAttr, "volume");
+  setAttribute(html_names::kMaxAttr, AtomicString("1"));
+  setAttribute(html_names::kAriaValuemaxAttr, AtomicString("100"));
+  setAttribute(html_names::kAriaValueminAttr, AtomicString("0"));
+  setAttribute(html_names::kAriaLabelAttr, AtomicString("volume"));
   SetShadowPseudoId(AtomicString("-webkit-media-controls-volume-slider"));
   SetVolumeInternal(MediaElement().volume());
 
@@ -95,21 +95,21 @@ MediaControlVolumeSliderElement::MediaControlVolumeSliderElement(
 }
 
 void MediaControlVolumeSliderElement::SetVolume(double volume) {
-  if (value().ToDouble() == volume)
+  if (Value().ToDouble() == volume)
     return;
 
-  setValue(String::Number(volume));
+  SetValue(String::Number(volume));
   SetVolumeInternal(volume);
 }
 
 void MediaControlVolumeSliderElement::OpenSlider() {
   wheel_event_listener_->StartListening();
-  classList().Remove(kClosedCSSClass);
+  classList().Remove(AtomicString(kClosedCSSClass));
 }
 
 void MediaControlVolumeSliderElement::CloseSlider() {
   wheel_event_listener_->StopListening();
-  classList().Add(kClosedCSSClass);
+  classList().Add(AtomicString(kClosedCSSClass));
 }
 
 bool MediaControlVolumeSliderElement::WillRespondToMouseMoveEvents() const {
@@ -157,7 +157,7 @@ void MediaControlVolumeSliderElement::DefaultEventHandler(Event& event) {
   }
 
   if (event.type() == event_type_names::kInput)
-    UnmuteAndSetVolume(value().ToDouble());
+    UnmuteAndSetVolume(Value().ToDouble());
 
   if (event.type() == event_type_names::kFocus)
     GetMediaControls().OpenVolumeSliderIfNecessary();
@@ -181,7 +181,7 @@ bool MediaControlVolumeSliderElement::KeepEventInNode(
 }
 
 void MediaControlVolumeSliderElement::OnWheelEvent(WheelEvent* wheel_event) {
-  double current_volume = value().ToDouble();
+  double current_volume = Value().ToDouble();
   double new_volume = (wheel_event->wheelDelta() > 0)
                           ? current_volume + kScrollVolumeDelta
                           : current_volume - kScrollVolumeDelta;

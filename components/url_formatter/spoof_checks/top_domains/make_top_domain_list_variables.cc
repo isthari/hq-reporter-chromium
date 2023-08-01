@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,6 +21,7 @@
 
 #include <cctype>
 #include <iostream>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -214,8 +215,7 @@ constexpr size_t kNumTopKeywords = )"
   std::string output = output_stream.str();
 
   base::FilePath output_path = base::FilePath::FromUTF8Unsafe(argv[3]);
-  if (base::WriteFile(output_path, output.c_str(),
-                      static_cast<uint32_t>(output.size())) <= 0) {
+  if (!base::WriteFile(output_path, output)) {
     LOG(ERROR) << "Failed to write output: " << output_path;
     return 1;
   }

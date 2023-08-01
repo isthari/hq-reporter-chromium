@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,29 +18,44 @@ static const unsigned kMaxIssueCount = 1000;
 PAGE_USER_DATA_KEY_IMPL(DevToolsIssueStorage);
 
 DevToolsIssueStorage::DevToolsIssueStorage(Page& page)
-    : PageUserData<DevToolsIssueStorage>(page) {}
-DevToolsIssueStorage::~DevToolsIssueStorage() = default;
+    : PageUserData<DevToolsIssueStorage>(page) {
+  // DevToolsIssueStorage is only created for outermost pages.
+  DCHECK(!page.GetMainDocument().GetParentOrOuterDocument());
+}
+
+DevToolsIssueStorage::~DevToolsIssueStorage() {
+  // TOOD(1351587): remove explicit destructor once the bug is fixed.
+  // This is so that crash key is scoped to issue destruction.
+  SCOPED_CRASH_KEY_NUMBER("devtools", "audit_issue_count",
+                          base::bits::Log2Floor(total_added_issues_));
+  issues_.clear();
+}
 
 void DevToolsIssueStorage::AddInspectorIssue(
     RenderFrameHost* rfh,
     std::unique_ptr<protocol::Audits::InspectorIssue> issue) {
+  CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+
   DCHECK_LE(issues_.size(), kMaxIssueCount);
   if (issues_.size() == kMaxIssueCount) {
     issues_.pop_front();
   }
+  total_added_issues_++;
   issues_.emplace_back(rfh->GetGlobalId(), std::move(issue));
 }
 
 std::vector<const protocol::Audits::InspectorIssue*>
 DevToolsIssueStorage::FindIssuesForAgentOf(
     RenderFrameHost* render_frame_host) const {
+  CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+
   RenderFrameHostImpl* render_frame_host_impl =
       static_cast<RenderFrameHostImpl*>(render_frame_host);
   RenderFrameHostImpl* main_rfh =
       static_cast<RenderFrameHostImpl*>(&page().GetMainDocument());
   DevToolsAgentHostImpl* agent_host =
       RenderFrameDevToolsAgentHost::GetFor(render_frame_host_impl);
-  DCHECK_EQ(&render_frame_host->GetPage(), &page());
+  DCHECK_EQ(&render_frame_host->GetOutermostMainFrame()->GetPage(), &page());
   DCHECK(RenderFrameDevToolsAgentHost::ShouldCreateDevToolsForHost(
       render_frame_host_impl));
   DCHECK(agent_host);

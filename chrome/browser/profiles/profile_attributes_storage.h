@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,8 +12,9 @@
 #include <unordered_map>
 #include <vector>
 
-#include "base/callback_forward.h"
+#include "base/containers/flat_set.h"
 #include "base/files/file_path.h"
+#include "base/functional/callback_forward.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
@@ -56,6 +57,11 @@ class ProfileAttributesStorage
   // Register cache related preferences in Local State.
   static void RegisterPrefs(PrefRegistrySimple* registry);
 
+  // Return the keys for all the profiles; exposed as a static method so that
+  // it can be called very early in Chrome initialization.
+  static base::flat_set<std::string> GetAllProfilesKeys(
+      PrefService* local_prefs);
+
   // Adds a new profile with `params` to the attributes storage.
   // `params.profile_path` must be a valid path within the user data directory
   // that hasn't been registered with this `ProfileAttributesStorage` before.
@@ -79,7 +85,7 @@ class ProfileAttributesStorage
 
   // Returns all non-Guest profile attributes sorted by local profile name.
   std::vector<ProfileAttributesEntry*>
-  GetAllProfilesAttributesSortedByLocalProfilName() const;
+  GetAllProfilesAttributesSortedByLocalProfileName() const;
 
   // Returns a ProfileAttributesEntry with the data for the profile at |path|
   // if the operation is successful. Returns |nullptr| otherwise.
@@ -174,6 +180,10 @@ class ProfileAttributesStorage
   void NotifyProfileHostedDomainChanged(
       const base::FilePath& profile_path) const;
   void NotifyProfileUserManagementAcceptanceChanged(
+      const base::FilePath& profile_path) const;
+  void NotifyProfileManagementEnrollmentTokenChanged(
+      const base::FilePath& profile_path) const;
+  void NotifyProfileManagementIdChanged(
       const base::FilePath& profile_path) const;
 
   // Returns a pref dictionary key of a profile at `profile_path`.

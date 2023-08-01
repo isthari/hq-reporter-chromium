@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -68,8 +68,8 @@ TEST_F(GcpUserPoliciesBaseTest, DetectMissingAndStalePolicies) {
   ASSERT_TRUE(UserPoliciesManager::Get()->IsUserPolicyStaleOrMissing(sid));
 
   UserPolicies policies;
-  base::Value expected_response_value(base::Value::Type::DICTIONARY);
-  expected_response_value.SetKey("policies", policies.ToValue());
+  base::Value::Dict expected_response_value =
+      base::Value::Dict().Set("policies", policies.ToValue());
   std::string expected_response;
   base::JSONWriter::Write(expected_response_value, &expected_response);
 
@@ -147,7 +147,8 @@ void GcpUserPoliciesFetchAndReadTest::SetRegistryValues(bool dm_enrollment,
 
 TEST_P(GcpUserPoliciesFetchAndReadTest, ValueConversion) {
   base::Value policies_value = policies_.ToValue();
-  UserPolicies policies_from_value = UserPolicies::FromValue(policies_value);
+  UserPolicies policies_from_value =
+      UserPolicies::FromValue(policies_value.GetDict());
 
   ASSERT_EQ(policies_, policies_from_value);
 }
@@ -158,9 +159,8 @@ TEST_P(GcpUserPoliciesFetchAndReadTest, CloudPoliciesWin) {
                     !policies_.enable_multi_user_login,
                     policies_.validity_period_days + 100);
 
-  base::Value policies_value = policies_.ToValue();
-  base::Value expected_response_value(base::Value::Type::DICTIONARY);
-  expected_response_value.SetKey("policies", std::move(policies_value));
+  base::Value::Dict expected_response_value =
+      base::Value::Dict().Set("policies", policies_.ToValue());
   std::string expected_response;
   base::JSONWriter::Write(expected_response_value, &expected_response);
 
@@ -193,13 +193,11 @@ TEST_P(GcpUserPoliciesFetchAndReadTest, RegistryValuesWin) {
                     policies_.validity_period_days);
 
   // Only set values for cloud policies for those not already set in registry.
-  base::Value policies_value(base::Value::Type::DICTIONARY);
-  policies_value.SetBoolKey("enableGcpwAutoUpdate",
-                            policies_.enable_gcpw_auto_update);
-  policies_value.SetStringKey("gcpwPinnedVersion",
-                              policies_.gcpw_pinned_version.ToString());
-  base::Value expected_response_value(base::Value::Type::DICTIONARY);
-  expected_response_value.SetKey("policies", std::move(policies_value));
+  base::Value::Dict expected_response_value = base::Value::Dict().Set(
+      "policies",
+      base::Value::Dict()
+          .Set("enableGcpwAutoUpdate", policies_.enable_gcpw_auto_update)
+          .Set("gcpwPinnedVersion", policies_.gcpw_pinned_version.ToString()));
   std::string expected_response;
   base::JSONWriter::Write(expected_response_value, &expected_response);
 
@@ -276,9 +274,8 @@ TEST_P(GcpUserPoliciesExtensionTest, WithUserDeviceContext) {
 
   UserPolicies policies;
   policies.gcpw_pinned_version = GcpwVersion("1.2.3.4");
-  base::Value policies_value = policies.ToValue();
-  base::Value expected_response_value(base::Value::Type::DICTIONARY);
-  expected_response_value.SetKey("policies", std::move(policies_value));
+  base::Value::Dict expected_response_value =
+      base::Value::Dict().Set("policies", policies.ToValue());
   std::string expected_response;
   base::JSONWriter::Write(expected_response_value, &expected_response);
 

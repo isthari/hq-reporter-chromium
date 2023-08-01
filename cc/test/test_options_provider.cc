@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,13 @@
 
 #include <limits>
 #include <vector>
+
+#include "cc/paint/paint_op_writer.h"
+#include "third_party/skia/include/core/SkBitmap.h"
+#include "third_party/skia/include/core/SkColorSpace.h"
+#include "third_party/skia/include/core/SkImageInfo.h"
+#include "third_party/skia/include/core/SkRefCnt.h"
+#include "third_party/skia/include/core/SkSize.h"
 
 namespace cc {
 
@@ -72,6 +79,10 @@ TestOptionsProvider::TestOptionsProvider()
 
 TestOptionsProvider::~TestOptionsProvider() = default;
 
+sk_sp<SkColorSpace> TestOptionsProvider::color_space() {
+  return color_space_;
+}
+
 void TestOptionsProvider::PushFonts() {
   std::vector<uint8_t> font_data;
   strike_server_.writeStrikeData(&font_data);
@@ -100,16 +111,17 @@ ImageProvider::ScopedResult TestOptionsProvider::GetRasterContent(
       SkBitmap::kZeroPixels_AllocFlag);
 
   // Create a transfer cache entry for this image.
-  auto color_space = SkColorSpace::MakeSRGB();
-  ClientImageTransferCacheEntry cache_entry(&bitmap.pixmap(), color_space.get(),
-                                            false /* needs_mips */);
-  std::vector<uint8_t> data;
-  data.resize(cache_entry.SerializedSize());
-  if (!cache_entry.Serialize(base::span<uint8_t>(data.data(), data.size()))) {
+  TargetColorParams target_color_params;
+  ClientImageTransferCacheEntry cache_entry(
+      ClientImageTransferCacheEntry::Image(&bitmap.pixmap()),
+      false /* needs_mips */, target_color_params);
+  const uint32_t data_size = cache_entry.SerializedSize();
+  auto data = PaintOpWriter::AllocateAlignedBuffer<uint8_t>(data_size);
+  if (!cache_entry.Serialize(base::span<uint8_t>(data.get(), data_size))) {
     return ScopedResult();
   }
 
-  CreateEntryDirect(entry_key, base::span<uint8_t>(data.data(), data.size()));
+  CreateEntryDirect(entry_key, base::span<uint8_t>(data.get(), data_size));
 
   return ScopedResult(DecodedDrawImage(
       image_id, nullptr, SkSize::MakeEmpty(), draw_image.scale(),

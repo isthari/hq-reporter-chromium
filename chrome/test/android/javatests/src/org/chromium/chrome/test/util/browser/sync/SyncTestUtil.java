@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,19 +35,19 @@ public final class SyncTestUtil {
     private SyncTestUtil() {}
 
     /**
-     * Returns whether sync is requested.
-     */
-    public static boolean isSyncRequested() {
-        return TestThreadUtils.runOnUiThreadBlockingNoException(
-                () -> SyncService.get().isSyncRequested());
-    }
-
-    /**
      * Returns whether sync-the-feature can start.
      */
     public static boolean canSyncFeatureStart() {
         return TestThreadUtils.runOnUiThreadBlockingNoException(
                 () -> SyncService.get().canSyncFeatureStart());
+    }
+
+    /**
+     * Returns whether sync-the-feature is enabled.
+     */
+    public static boolean isSyncFeatureEnabled() {
+        return TestThreadUtils.runOnUiThreadBlockingNoException(
+                () -> SyncService.get().isSyncFeatureEnabled());
     }
 
     /**
@@ -59,12 +59,34 @@ public final class SyncTestUtil {
     }
 
     /**
+     * Waits for sync-the-feature to become enabled.
+     * WARNING: This is does not wait for the feature to be active, see the distinction in
+     * components/sync/service/sync_service.h. If the FakeServer isn't running - e.g. because of
+     * SyncTestRule - this is all you can hope for. For tests that don't rely on sync data this
+     * might just be enough.
+     */
+    public static void waitForSyncFeatureEnabled() {
+        CriteriaHelper.pollUiThread(()
+                                            -> SyncService.get().isSyncFeatureEnabled(),
+                "Timed out waiting for sync to become enabled.", TIMEOUT_MS, INTERVAL_MS);
+    }
+
+    /**
      * Waits for sync-the-feature to become active.
      */
     public static void waitForSyncFeatureActive() {
         CriteriaHelper.pollUiThread(()
                                             -> SyncService.get().isSyncFeatureActive(),
                 "Timed out waiting for sync to become active.", TIMEOUT_MS, INTERVAL_MS);
+    }
+
+    /**
+     * Waits for canSyncFeatureStart() to return true.
+     */
+    public static void waitForCanSyncFeatureStart() {
+        CriteriaHelper.pollUiThread(()
+                                            -> SyncService.get().canSyncFeatureStart(),
+                "Timed out waiting for sync being able to start.", TIMEOUT_MS, INTERVAL_MS);
     }
 
     /**

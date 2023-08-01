@@ -1,4 +1,4 @@
-# Copyright 2020 The Chromium Authors. All rights reserved.
+# Copyright 2020 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 from __future__ import absolute_import
@@ -11,6 +11,11 @@ import six
 
 import requests  # pylint: disable=import-error
 from lib.results import result_types
+
+HTML_SUMMARY_MAX = 4096
+
+_HTML_SUMMARY_ARTIFACT = '<text-artifact artifact-id="HTML Summary" />'
+_TEST_LOG_ARTIFACT = '<text-artifact artifact-id="Test Log" />'
 
 # Maps result_types to the luci test-result.proto.
 # https://godoc.org/go.chromium.org/luci/resultdb/proto/v1#TestStatus
@@ -53,11 +58,23 @@ class ResultSinkClient(object):
     self.test_results_url = base_url + '/ReportTestResults'
     self.report_artifacts_url = base_url + '/ReportInvocationLevelArtifacts'
 
-    self.headers = {
+    headers = {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
         'Authorization': 'ResultSink %s' % context['auth_token'],
     }
+    self.session = requests.Session()
+    self.session.headers.update(headers)
+
+  def __enter__(self):
+    return self
+
+  def __exit__(self, exc_type, exc_value, traceback):
+    self.close()
+
+  def close(self):
+    """Closes the session backing the sink."""
+    self.session.close()
 
   def Post(self,
            test_id,
@@ -65,6 +82,7 @@ class ResultSinkClient(object):
            duration,
            test_log,
            test_file,
+           variant=None,
            artifacts=None,
            failure_reason=None,
            html_artifact=None):
@@ -79,6 +97,9 @@ class ResultSinkClient(object):
       duration: An int representing time in ms.
       test_log: A string representing the test's output.
       test_file: A string representing the file location of the test.
+      variant: An optional dict of variant key value pairs as the
+          additional variant sent from test runners, which can override
+          or add to the variants passed to `rdb stream` command.
       artifacts: An optional dict of artifacts to attach to the test.
       failure_reason: An optional string with the reason why the test failed.
           Should be None if the test did not fail.
@@ -116,13 +137,28 @@ class ResultSinkClient(object):
         }
     }
 
+    if variant:
+      tr['variant'] = {'def': variant}
+
     artifacts = artifacts or {}
     tr['summaryHtml'] = html_artifact if html_artifact else ''
+
+    # If over max supported length of html summary, replace with artifact
+    # upload.
+    if (test_log
+        and len(tr['summaryHtml']) + len(_TEST_LOG_ARTIFACT) > HTML_SUMMARY_MAX
+        or len(tr['summaryHtml']) > HTML_SUMMARY_MAX):
+      b64_summary = six.ensure_str(
+          base64.b64encode(six.ensure_binary(tr['summaryHtml'])))
+      artifacts.update({'HTML Summary': {'contents': b64_summary}})
+      tr['summaryHtml'] = _HTML_SUMMARY_ARTIFACT
+
     if test_log:
       # Upload the original log without any modifications.
       b64_log = six.ensure_str(base64.b64encode(six.ensure_binary(test_log)))
       artifacts.update({'Test Log': {'contents': b64_log}})
-      tr['summaryHtml'] += '<text-artifact artifact-id="Test Log" />'
+      tr['summaryHtml'] += _TEST_LOG_ARTIFACT
+
     if artifacts:
       tr['artifacts'] = artifacts
     if failure_reason:
@@ -142,9 +178,8 @@ class ResultSinkClient(object):
           'repo': 'https://chromium.googlesource.com/chromium/src',
       }
 
-    res = requests.post(url=self.test_results_url,
-                        headers=self.headers,
-                        data=json.dumps({'testResults': [tr]}))
+    res = self.session.post(url=self.test_results_url,
+                            data=json.dumps({'testResults': [tr]}))
     res.raise_for_status()
 
   def ReportInvocationLevelArtifacts(self, artifacts):
@@ -157,9 +192,7 @@ class ResultSinkClient(object):
       artifacts: A dict of artifacts to attach to the invocation.
     """
     req = {'artifacts': artifacts}
-    res = requests.post(url=self.report_artifacts_url,
-                        headers=self.headers,
-                        data=json.dumps(req))
+    res = self.session.post(url=self.report_artifacts_url, data=json.dumps(req))
     res.raise_for_status()
 
 

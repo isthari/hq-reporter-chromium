@@ -1,9 +1,11 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_APPS_APP_SHIM_APP_SHIM_MANAGER_MAC_H_
 #define CHROME_BROWSER_APPS_APP_SHIM_APP_SHIM_MANAGER_MAC_H_
+
+#include <Security/Security.h>
 
 #include <map>
 #include <memory>
@@ -12,12 +14,17 @@
 #include <vector>
 
 #include "apps/app_lifetime_monitor.h"
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
+#include "base/mac/scoped_cftyperef.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/apps/app_shim/app_shim_host_bootstrap_mac.h"
 #include "chrome/browser/apps/app_shim/app_shim_host_mac.h"
+#include "chrome/browser/badging/badge_manager.h"
 #include "chrome/browser/profiles/avatar_menu_observer.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager_observer.h"
+#include "chrome/browser/profiles/profile_observer.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list_observer.h"
 #include "chrome/browser/web_applications/web_app_id.h"
@@ -35,6 +42,11 @@ class BrowserContext;
 
 namespace apps {
 
+// The passed in `callback` will be called when all launches for the next app
+// shim launch have completed (all profiles the app will launch in, as well
+// as possibly multiple windows within profiles).
+void SetMacShimStartupDoneCallbackForTesting(base::OnceClosure callback);
+
 // This app shim handler that handles events for app shims that correspond to an
 // extension.
 class AppShimManager : public AppShimHostBootstrap::Client,
@@ -42,7 +54,8 @@ class AppShimManager : public AppShimHostBootstrap::Client,
                        public AppLifetimeMonitor::Observer,
                        public BrowserListObserver,
                        public AvatarMenuObserver,
-                       public ProfileManagerObserver {
+                       public ProfileManagerObserver,
+                       public ProfileObserver {
  public:
   class Delegate {
    public:
@@ -88,13 +101,14 @@ class AppShimManager : public AppShimHostBootstrap::Client,
     // Launch the app in Chrome. This will (often) create a new window. It is
     // guaranteed that |app_id| is installed for |profile| when this method
     // is called.
-    virtual void LaunchApp(Profile* profile,
-                           const web_app::AppId& app_id,
-                           const std::vector<base::FilePath>& files,
-                           const std::vector<GURL>& urls,
-                           const GURL& override_url,
-                           chrome::mojom::AppShimLoginItemRestoreState
-                               login_item_restore_state) = 0;
+    virtual void LaunchApp(
+        Profile* profile,
+        const web_app::AppId& app_id,
+        const std::vector<base::FilePath>& files,
+        const std::vector<GURL>& urls,
+        const GURL& override_url,
+        chrome::mojom::AppShimLoginItemRestoreState login_item_restore_state,
+        base::OnceClosure launch_finished_callback) = 0;
 
     // Launch the shim process for an app. It is guaranteed that |app_id| is
     // installed for |profile| when this method is called.
@@ -137,6 +151,11 @@ class AppShimManager : public AppShimHostBootstrap::Client,
   // finishes launching.
   AppShimHost* GetHostForRemoteCocoaBrowser(Browser* browser);
 
+  // Returns true if the specified `browser` should be using RemoteCocoa. This
+  // is equivalent to `GetHostForRemoteCocoaBrowser` return a non-null value,
+  // except that this method does not cause an AppShimHost to be created.
+  bool BrowserUsesRemoteCocoa(Browser* browser);
+
   // Return true if any non-bookmark app windows open.
   bool HasNonBookmarkAppWindowsOpen();
 
@@ -144,6 +163,11 @@ class AppShimManager : public AppShimHostBootstrap::Client,
   // if the user clicks cancel during a protocol launch.
   void OnAppLaunchCancelled(content::BrowserContext* context,
                             const std::string& app_id);
+
+  void UpdateAppBadge(
+      Profile* profile,
+      const web_app::AppId& app_id,
+      const absl::optional<badging::BadgeManager::BadgeValue>& badge);
 
   // AppShimHostBootstrap::Client:
   void OnShimProcessConnected(
@@ -166,6 +190,7 @@ class AppShimManager : public AppShimHostBootstrap::Client,
                         const std::vector<GURL>& urls) override;
   void OnShimOpenAppWithOverrideUrl(AppShimHost* host,
                                     const GURL& override_url) override;
+  void OnShimWillTerminate(AppShimHost* host) override;
   // AppLifetimeMonitor::Observer overrides:
   void OnAppStart(content::BrowserContext* context,
                   const std::string& app_id) override;
@@ -180,13 +205,32 @@ class AppShimManager : public AppShimHostBootstrap::Client,
   void OnProfileAdded(Profile* profile) override;
   void OnProfileMarkedForPermanentDeletion(Profile* profile) override;
 
-  // BrowserListObserver overrides;
+  // BrowserListObserver overrides:
   void OnBrowserAdded(Browser* browser) override;
   void OnBrowserRemoved(Browser* browser) override;
   void OnBrowserSetLastActive(Browser* browser) override;
 
+  // ProfileObserver overrides:
+  void OnProfileWillBeDestroyed(Profile* profile) override;
+
   // AvatarMenuObserver:
   void OnAvatarMenuChanged(AvatarMenu* menu) override;
+
+  static base::ScopedCFTypeRef<SecRequirementRef>
+      BuildAppShimRequirementFromFrameworkRequirementString(CFStringRef);
+
+  class AppShimObserver {
+   public:
+    virtual void OnShimProcessConnected(base::ProcessId pid) = 0;
+    virtual void OnShimProcessConnectedAndAllLaunchesDone(
+        base::ProcessId pid,
+        chrome::mojom::AppShimLaunchResult result) = 0;
+    virtual void OnShimReopen(base::ProcessId pid) = 0;
+    virtual void OnShimOpenedURLs(base::ProcessId pid) = 0;
+  };
+  void SetAppShimObserverForTesting(AppShimObserver* observer) {
+    app_shim_observer_ = observer;
+  }
 
  protected:
   typedef std::set<Browser*> BrowserSet;
@@ -295,15 +339,18 @@ class AppShimManager : public AppShimHostBootstrap::Client,
   bool LoadAndLaunchApp_TryExistingProfileStates(
       const base::FilePath& profile_path,
       const LoadAndLaunchAppParams& params,
+      const std::map<base::FilePath, int>& profiles_with_handlers,
       LoadAndLaunchAppCallback* launch_callback);
   void LoadAndLaunchApp_OnProfilesAndAppReady(
       const std::vector<base::FilePath>& profile_paths_to_launch,
+      bool first_profile_is_from_bootstrap,
       const LoadAndLaunchAppParams& params,
       LoadAndLaunchAppCallback launch_callback);
   void LoadAndLaunchApp_LaunchIfAppropriate(
       Profile* profile,
       ProfileState* profile_state,
-      const LoadAndLaunchAppParams& params);
+      const LoadAndLaunchAppParams& params,
+      base::OnceClosure launch_finished_callback);
 
   // The final step of both paths for OnShimProcessConnected. This will connect
   // |bootstrap| to |profile_state|'s AppShimHost, if possible. The value of
@@ -337,21 +384,34 @@ class AppShimManager : public AppShimHostBootstrap::Client,
   // Update the application dock menu for the specified host.
   void UpdateApplicationDockMenu(Profile* profile, ProfileState* profile_state);
 
-  std::unique_ptr<Delegate> delegate_;
+  // Updates the badge for the specified host.
+  void UpdateApplicationBadge(ProfileState* profile_state);
 
   // Retrieve the ProfileState for a given (Profile, AppId) pair. If one
   // does not exist, create one.
   ProfileState* GetOrCreateProfileState(Profile* profile,
                                         const web_app::AppId& app_id);
 
+  // Returns a mapping of profile paths to how many of the files and urls passed
+  // in in `params` each profile can handle.
+  static std::map<base::FilePath, int> GetProfilesWithMatchingHandlers(
+      const LoadAndLaunchAppParams& params);
+
+  std::unique_ptr<Delegate> delegate_;
+
   // Weak, reset during OnBeginTearDown.
-  ProfileManager* profile_manager_ = nullptr;
+  raw_ptr<ProfileManager> profile_manager_ = nullptr;
 
   // Map from extension id to the state for that app.
   std::map<std::string, std::unique_ptr<AppState>> apps_;
 
   // The avatar menu instance used by all app shims.
   std::unique_ptr<AvatarMenu> avatar_menu_;
+
+  raw_ptr<AppShimObserver> app_shim_observer_ = nullptr;
+
+  base::ScopedMultiSourceObservation<Profile, ProfileObserver>
+      profile_observation_{this};
 
   base::WeakPtrFactory<AppShimManager> weak_factory_;
 };

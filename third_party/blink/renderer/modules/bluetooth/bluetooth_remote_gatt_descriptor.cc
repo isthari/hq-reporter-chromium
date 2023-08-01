@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -52,7 +52,7 @@ void BluetoothRemoteGATTDescriptor::ReadValueCallback(
 ScriptPromise BluetoothRemoteGATTDescriptor::readValue(
     ScriptState* script_state,
     ExceptionState& exception_state) {
-  if (!GetGatt()->connected()) {
+  if (!GetGatt()->connected() || !GetBluetooth()->IsServiceBound()) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kNetworkError,
         BluetoothError::CreateNotConnectedExceptionMessage(
@@ -66,13 +66,14 @@ ScriptPromise BluetoothRemoteGATTDescriptor::readValue(
     return ScriptPromise();
   }
 
-  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(
+      script_state, exception_state.GetContext());
   ScriptPromise promise = resolver->Promise();
   GetGatt()->AddToActiveAlgorithms(resolver);
-  GetService()->RemoteDescriptorReadValue(
+  GetBluetooth()->Service()->RemoteDescriptorReadValue(
       descriptor_->instance_id,
-      WTF::Bind(&BluetoothRemoteGATTDescriptor::ReadValueCallback,
-                WrapPersistent(this), WrapPersistent(resolver)));
+      WTF::BindOnce(&BluetoothRemoteGATTDescriptor::ReadValueCallback,
+                    WrapPersistent(this), WrapPersistent(resolver)));
 
   return promise;
 }
@@ -105,7 +106,7 @@ ScriptPromise BluetoothRemoteGATTDescriptor::writeValue(
     ScriptState* script_state,
     const DOMArrayPiece& value,
     ExceptionState& exception_state) {
-  if (!GetGatt()->connected()) {
+  if (!GetGatt()->connected() || !GetBluetooth()->IsServiceBound()) {
     exception_state.ThrowDOMException(
         DOMExceptionCode::kNetworkError,
         BluetoothError::CreateNotConnectedExceptionMessage(
@@ -143,13 +144,15 @@ ScriptPromise BluetoothRemoteGATTDescriptor::writeValue(
   value_vector.Append(value.Bytes(),
                       static_cast<wtf_size_t>(value.ByteLength()));
 
-  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(script_state);
+  auto* resolver = MakeGarbageCollected<ScriptPromiseResolver>(
+      script_state, exception_state.GetContext());
   ScriptPromise promise = resolver->Promise();
   GetGatt()->AddToActiveAlgorithms(resolver);
-  GetService()->RemoteDescriptorWriteValue(
+  GetBluetooth()->Service()->RemoteDescriptorWriteValue(
       descriptor_->instance_id, value_vector,
-      WTF::Bind(&BluetoothRemoteGATTDescriptor::WriteValueCallback,
-                WrapPersistent(this), WrapPersistent(resolver), value_vector));
+      WTF::BindOnce(&BluetoothRemoteGATTDescriptor::WriteValueCallback,
+                    WrapPersistent(this), WrapPersistent(resolver),
+                    value_vector));
 
   return promise;
 }

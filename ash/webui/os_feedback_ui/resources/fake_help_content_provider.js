@@ -1,10 +1,11 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import {FakeMethodResolver} from 'chrome://resources/ash/common/fake_method_resolver.js';
+import {mojoString16ToString} from 'chrome://resources/ash/common/mojo_utils.js';
 
-import {HelpContentList, HelpContentProviderInterface} from './feedback_types.js';
+import {HelpContentProviderInterface, SearchRequest, SearchResponse} from './feedback_types.js';
 
 /**
  * @fileoverview
@@ -18,22 +19,34 @@ export class FakeHelpContentProvider {
 
     // Setup method resolvers.
     this.methods_.register('getHelpContents');
+
+    /**
+     * Record the last query passed to getHelpContents to help verify the method
+     * has been called.
+     * @private {string}
+     */
+    this.lastQuery_ = '';
+  }
+
+  /** @return {string} */
+  get lastQuery() {
+    return this.lastQuery_;
   }
 
   /**
-   * @param {string} query
-   * @param {number} maxResults
-   * @return {!Promise<!HelpContentList>}
+   * @param {!SearchRequest} request
+   * @return {!Promise<{response: !SearchResponse}>}
    */
-  getHelpContents(query, maxResults) {
+  getHelpContents(request) {
+    this.lastQuery_ = mojoString16ToString(request.query);
     return this.methods_.resolveMethod('getHelpContents');
   }
 
   /**
    * Sets the value that will be returned when calling getHelpContents().
-   * @param {!HelpContentList} helpContents
+   * @param {!SearchResponse} response
    */
-  setFakeHelpContents(helpContents) {
-    this.methods_.setResult('getHelpContents', helpContents);
+  setFakeSearchResponse(response) {
+    this.methods_.setResult('getHelpContents', {response: response});
   }
 }

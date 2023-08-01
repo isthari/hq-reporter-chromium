@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,9 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_ANIMATION_STRING_KEYFRAME_H_
 
 #include "third_party/blink/renderer/core/animation/keyframe.h"
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/css/css_property_value_set.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/wtf/hash_map.h"
 
@@ -26,8 +28,9 @@ class StyleSheetContents;
 //
 class CORE_EXPORT StringKeyframe : public Keyframe {
  public:
-  StringKeyframe()
-      : presentation_attribute_map_(
+  explicit StringKeyframe(const TreeScope* tree_scope = nullptr)
+      : tree_scope_(tree_scope),
+        presentation_attribute_map_(
             MakeGarbageCollected<MutableCSSPropertyValueSet>(
                 kHTMLStandardMode)) {}
   StringKeyframe(const StringKeyframe& copy_from);
@@ -63,7 +66,9 @@ class CORE_EXPORT StringKeyframe : public Keyframe {
           property.GetCSSProperty().PropertyID());
     }
     CHECK_GE(index, 0);
-    return css_property_map_->PropertyAt(static_cast<unsigned>(index)).Value();
+    return css_property_map_->PropertyAt(static_cast<unsigned>(index))
+        .Value()
+        .EnsureScopedValue(tree_scope_);
   }
 
   const CSSValue& PresentationAttributeValue(
@@ -72,7 +77,9 @@ class CORE_EXPORT StringKeyframe : public Keyframe {
         presentation_attribute_map_->FindPropertyIndex(property.PropertyID());
     CHECK_GE(index, 0);
     return presentation_attribute_map_->PropertyAt(static_cast<unsigned>(index))
-        .Value();
+        .Value()
+        .EnsureScopedValue(tree_scope_);
+    ;
   }
 
   String SvgPropertyValue(const QualifiedName& attribute_name) const {
@@ -232,13 +239,18 @@ class CORE_EXPORT StringKeyframe : public Keyframe {
 
   bool IsStringKeyframe() const override { return true; }
 
+  // The tree scope for all the tree-scoped names and references in the
+  // keyframe. Nullptr if there's no such tree scope (e.g., the keyframe is
+  // created via JavaScript or defined by UA style sheet).
+  WeakMember<const TreeScope> tree_scope_;
+
   // Mapping of unresolved properties to a their resolvers. A resolver knows
   // how to expand shorthands to their corresponding longhand property names,
   // convert logical to physical property names and compare precedence for
   // resolving longhand name collisions.  The resolver also knows how to
   // create serialized text for a shorthand, which is required for getKeyframes
   // calls.
-  // See: https://drafts.csswg.org/web-animations/#keyframes-section
+  // See: https://w3.org/TR/web-animations-1/#keyframes-section
   HeapHashMap<PropertyHandle, Member<PropertyResolver>> input_properties_;
 
   // The resolved properties are computed from unresolved ones applying these

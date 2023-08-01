@@ -1,9 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef MOJO_PUBLIC_CPP_BINDINGS_ARRAY_TRAITS_WEB_VECTOR_H_
 #define MOJO_PUBLIC_CPP_BINDINGS_ARRAY_TRAITS_WEB_VECTOR_H_
+
+#include <algorithm>
 
 #include "mojo/public/cpp/bindings/array_traits.h"
 #include "third_party/blink/public/platform/web_vector.h"
@@ -43,10 +45,9 @@ struct ArrayTraits<blink::WebVector<U>> {
   }
 
   static bool Resize(blink::WebVector<U>& input, size_t size) {
-    // WebVector DCHECKs if the new size is larger than capacity().  Call
-    // reserve() first to be safe.
-    input.reserve(size);
-    input.resize(size);
+    blink::WebVector<U> temp(size);
+    using std::swap;
+    swap(input, temp);
     return true;
   }
 };

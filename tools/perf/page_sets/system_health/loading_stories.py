@@ -1,4 +1,4 @@
-# Copyright 2016 The Chromium Authors. All rights reserved.
+# Copyright 2016 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -13,6 +13,7 @@ from page_sets.login_helpers import google_login
 from page_sets.helpers import override_online
 
 from telemetry.util import js_template
+from telemetry.util import wpr_modes
 
 
 class _LoadingStory(system_health_story.SystemHealthStory):
@@ -461,13 +462,6 @@ class LoadDocsStory2019(_LoadingStory):
       'https://docs.google.com/document/d/1GvzDP-tTLmJ0myRhUAfTYWs3ZUFilUICg8psNHyccwQ/edit?usp=sharing')
   TAGS = [story_tags.YEAR_2019]
 
-  # TODO(crbug.com/1256844): Disable the ForceSynchronousHTMLParsing and
-  # LoaderDataPipeTuning experiments, because they cause failures and
-  # flakiness for this story as-recorded in 2019.
-  EXTRA_BROWSER_ARGUMENTS = [
-      '--disable-features=ForceSynchronousHTMLParsing,LoaderDataPipeTuning'
-  ]
-
 
 class _LoadGmailBaseStory(_LoadingStory):
   NAME = 'load:tools:gmail'
@@ -495,27 +489,24 @@ class LoadGmailStory2019(_LoadingStory):
   URL = 'http://mail.google.com/'
   TAGS = [story_tags.HEALTH_CHECK, story_tags.YEAR_2019]
   SKIP_LOGIN = False
-
-  # TODO(crbug.com/1256844): Disable the ForceSynchronousHTMLParsing and
-  # LoaderDataPipeTuning experiments, because they cause failures and
-  # flakiness for this story as-recorded in 2019.
-  EXTRA_BROWSER_ARGUMENTS = [
-      '--disable-features=ForceSynchronousHTMLParsing,LoaderDataPipeTuning'
-  ]
+  EXTRA_BROWSER_ARGUMENTS = ['--allow-browser-signin=false']
 
   def _Login(self, action_runner):
-    google_login.NewLoginGoogleAccount(action_runner, 'googletest')
+    if self.wpr_mode in [wpr_modes.WPR_OFF, wpr_modes.WPR_RECORD]:
+      google_login.LoginWithLoginUrl(action_runner, self.URL)
+    else:
+      google_login.NewLoginGoogleAccount(action_runner, 'googletest')
 
-    # Navigating to http://mail.google.com immediately leads to an infinite
-    # redirection loop due to a bug in WPR (see
-    # https://bugs.chromium.org/p/chromium/issues/detail?id=1036791). We
-    # therefore first navigate to a dummy sub-URL to set up the session and
-    # hit the resulting redirection loop. Afterwards, we can safely navigate
-    # to http://mail.google.com.
-    action_runner.tab.WaitForDocumentReadyStateToBeComplete()
-    action_runner.Navigate(
-        'https://mail.google.com/mail/mu/mp/872/trigger_redirection_loop')
-    action_runner.tab.WaitForDocumentReadyStateToBeComplete()
+      # Navigating to http://mail.google.com immediately leads to an infinite
+      # redirection loop due to a bug in WPR (see
+      # https://bugs.chromium.org/p/chromium/issues/detail?id=1036791). We
+      # therefore first navigate to a dummy sub-URL to set up the session and
+      # hit the resulting redirection loop. Afterwards, we can safely navigate
+      # to http://mail.google.com.
+      action_runner.tab.WaitForDocumentReadyStateToBeComplete()
+      action_runner.Navigate(
+          'https://mail.google.com/mail/mu/mp/872/trigger_redirection_loop')
+      action_runner.tab.WaitForDocumentReadyStateToBeComplete()
 
 
 class LoadChatStory2020(_LoadingStory):
@@ -525,16 +516,14 @@ class LoadChatStory2020(_LoadingStory):
   TAGS = [story_tags.YEAR_2020]
   SUPPORTED_PLATFORMS = platforms.DESKTOP_ONLY
   SKIP_LOGIN = False
-
-  # TODO(crbug.com/1256844): Disable the ForceSynchronousHTMLParsing and
-  # LoaderDataPipeTuning experiments, because they cause failures and
-  # flakiness for this story as-recorded in 2020.
-  EXTRA_BROWSER_ARGUMENTS = [
-      '--disable-features=ForceSynchronousHTMLParsing,LoaderDataPipeTuning'
-  ]
+  EXTRA_BROWSER_ARGUMENTS = ['--allow-browser-signin=false']
 
   def _Login(self, action_runner):
-    google_login.NewLoginGoogleAccount(action_runner, 'chatfeature')
+    if self.wpr_mode in [wpr_modes.WPR_OFF, wpr_modes.WPR_RECORD]:
+      google_login.LoginWithLoginUrl(action_runner, self.URL)
+    else:
+      google_login.NewLoginGoogleAccount(action_runner, 'chatfeature')
+
     action_runner.tab.WaitForDocumentReadyStateToBeComplete()
 
 
@@ -571,9 +560,13 @@ class LoadDriveStory2019(_LoadingStory):
   NAME = 'load:tools:drive:2019'
   URL = 'https://drive.google.com/drive/my-drive'
   TAGS = [story_tags.JAVASCRIPT_HEAVY, story_tags.YEAR_2019]
+  EXTRA_BROWSER_ARGUMENTS = ['--allow-browser-signin=false']
 
   def _Login(self, action_runner):
-    google_login.NewLoginGoogleAccount(action_runner, 'googletest')
+    if self.wpr_mode in [wpr_modes.WPR_OFF, wpr_modes.WPR_RECORD]:
+      google_login.LoginWithLoginUrl(action_runner, self.URL)
+    else:
+      google_login.NewLoginGoogleAccount(action_runner, 'googletest')
 
 
 ################################################################################

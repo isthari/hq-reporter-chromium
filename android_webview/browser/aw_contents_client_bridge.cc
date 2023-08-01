@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -178,14 +178,11 @@ void AwContentsClientBridge::SelectClientCertificate(
   std::vector<std::string> key_types;
   for (size_t i = 0; i < cert_request_info->cert_key_types.size(); ++i) {
     switch (cert_request_info->cert_key_types[i]) {
-      case net::CLIENT_CERT_RSA_SIGN:
+      case net::SSLClientCertType::kRsaSign:
         key_types.push_back("RSA");
         break;
-      case net::CLIENT_CERT_ECDSA_SIGN:
+      case net::SSLClientCertType::kEcdsaSign:
         key_types.push_back("ECDSA");
-        break;
-      default:
-        // Ignore unknown types.
         break;
     }
   }
@@ -349,11 +346,12 @@ void AwContentsClientBridge::RunBeforeUnloadDialog(
                                                    callback_id);
 }
 
-bool AwContentsClientBridge::ShouldOverrideUrlLoading(const std::u16string& url,
-                                                      bool has_user_gesture,
-                                                      bool is_redirect,
-                                                      bool is_main_frame,
-                                                      bool* ignore_navigation) {
+bool AwContentsClientBridge::ShouldOverrideUrlLoading(
+    const std::u16string& url,
+    bool has_user_gesture,
+    bool is_redirect,
+    bool is_outermost_main_frame,
+    bool* ignore_navigation) {
   *ignore_navigation = false;
   JNIEnv* env = AttachCurrentThread();
   ScopedJavaLocalRef<jobject> obj = java_ref_.get(env);
@@ -363,7 +361,7 @@ bool AwContentsClientBridge::ShouldOverrideUrlLoading(const std::u16string& url,
   devtools_instrumentation::ScopedEmbedderCallbackTask(
       "shouldOverrideUrlLoading");
   *ignore_navigation = Java_AwContentsClientBridge_shouldOverrideUrlLoading(
-      env, obj, jurl, has_user_gesture, is_redirect, is_main_frame);
+      env, obj, jurl, has_user_gesture, is_redirect, is_outermost_main_frame);
   if (HasException(env)) {
     // Tell the chromium message loop to not perform any tasks after the current
     // one - we want to make sure we return to Java cleanly without first making
@@ -374,6 +372,15 @@ bool AwContentsClientBridge::ShouldOverrideUrlLoading(const std::u16string& url,
     return false;
   }
   return true;
+}
+
+bool AwContentsClientBridge::SendBrowseIntent(const std::u16string& url) {
+  JNIEnv* env = AttachCurrentThread();
+  ScopedJavaLocalRef<jobject> obj = java_ref_.get(env);
+  if (!obj)
+    return false;
+  ScopedJavaLocalRef<jstring> jurl = ConvertUTF16ToJavaString(env, url);
+  return Java_AwContentsClientBridge_sendBrowseIntent(env, obj, jurl);
 }
 
 void AwContentsClientBridge::NewDownload(const GURL& url,
@@ -439,7 +446,7 @@ void AwContentsClientBridge::OnReceivedError(
   AwWebResourceRequest::AwJavaWebResourceRequest java_web_resource_request;
   AwWebResourceRequest::ConvertToJava(env, request, &java_web_resource_request);
   Java_AwContentsClientBridge_onReceivedError(
-      env, obj, java_web_resource_request.jurl, request.is_main_frame,
+      env, obj, java_web_resource_request.jurl, request.is_outermost_main_frame,
       request.has_user_gesture, *request.is_renderer_initiated,
       java_web_resource_request.jmethod,
       java_web_resource_request.jheader_names,
@@ -463,7 +470,7 @@ void AwContentsClientBridge::OnSafeBrowsingHit(
   AwWebResourceRequest::AwJavaWebResourceRequest java_web_resource_request;
   AwWebResourceRequest::ConvertToJava(env, request, &java_web_resource_request);
   Java_AwContentsClientBridge_onSafeBrowsingHit(
-      env, obj, java_web_resource_request.jurl, request.is_main_frame,
+      env, obj, java_web_resource_request.jurl, request.is_outermost_main_frame,
       request.has_user_gesture, java_web_resource_request.jmethod,
       java_web_resource_request.jheader_names,
       java_web_resource_request.jheader_values, static_cast<int>(threat_type),
@@ -494,7 +501,7 @@ void AwContentsClientBridge::OnReceivedHttpError(
       ToJavaArrayOfStrings(env, http_error_info->response_header_values);
 
   Java_AwContentsClientBridge_onReceivedHttpError(
-      env, obj, java_web_resource_request.jurl, request.is_main_frame,
+      env, obj, java_web_resource_request.jurl, request.is_outermost_main_frame,
       request.has_user_gesture, java_web_resource_request.jmethod,
       java_web_resource_request.jheader_names,
       java_web_resource_request.jheader_values, jstring_mime_type,

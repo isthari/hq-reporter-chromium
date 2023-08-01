@@ -1,4 +1,4 @@
-// Copyright 2020 The Crashpad Authors. All rights reserved.
+// Copyright 2020 The Crashpad Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -55,13 +55,16 @@
 // Triggers an EXC_BAD_ACCESS exception and crash.
 - (void)crashBadAccess;
 
-// Triggers a crash with a call to kill(SIGABRT).
+// Triggers a crash with a call to kill(SIGABRT). This crash runs with
+// ReplaceAllocatorsWithHandlerForbidden.
 - (void)crashKillAbort;
 
-// Trigger a crash with a __builtin_trap.
+// Trigger a crash with a __builtin_trap. This crash runs with
+// ReplaceAllocatorsWithHandlerForbidden.
 - (void)crashTrap;
 
-// Trigger a crash with an abort().
+// Trigger a crash with an abort(). This crash runs with
+// ReplaceAllocatorsWithHandlerForbidden.
 - (void)crashAbort;
 
 // Trigger a crash with an uncaught exception.
@@ -69,6 +72,12 @@
 
 // Trigger a crash with an uncaught NSException.
 - (void)crashNSException;
+
+// Trigger a crash throwing something that isn't an NSException (an NSString).
+- (void)crashNotAnNSException;
+
+// Trigger a crash with an uncaught and unhandled NSException.
+- (void)crashUnhandledNSException;
 
 // Trigger an unrecognized selector after delay.
 - (void)crashUnrecognizedSelectorAfterDelay;
@@ -90,6 +99,27 @@
 
 // Trigger a crash after writing various annotations.
 - (void)crashWithAnnotations;
+
+// Triggers a DumpWithoutCrash |dump_count| times in each of |threads| threads.
+- (void)generateDumpWithoutCrash:(int)dump_count threads:(int)threads;
+
+// Triggers a simulataneous Mach exception and signal in different threads.
+- (void)crashConcurrentSignalAndMach;
+
+// Triggers simultaneous caught NSExceptions
+- (void)catchConcurrentNSException;
+
+// Triggers a SIGABRT signal while handling an NSException to test reentrant
+// exceptions.
+- (void)crashInHandlerReentrant;
+
+// Runs with ReplaceAllocatorsWithHandlerForbidden and allocates memory, testing
+// that the handler forbidden allocator works.
+- (void)allocateWithForbiddenAllocators;
+
+// Return the contents of the RawLog output from the previous run of the host
+// application.
+- (NSString*)rawLogContents;
 
 @end
 

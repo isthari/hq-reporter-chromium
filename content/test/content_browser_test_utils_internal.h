@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,17 +16,18 @@
 
 #include "base/files/file_path.h"
 #include "base/memory/raw_ptr.h"
-#include "base/memory/weak_ptr.h"
 #include "base/run_loop.h"
 #include "build/build_config.h"
 #include "content/browser/bad_message.h"
 #include "content/browser/renderer_host/back_forward_cache_metrics.h"
-#include "content/public/browser/devtools_agent_host.h"
+#include "content/browser/renderer_host/navigation_type.h"
+#include "content/browser/renderer_host/render_frame_host_impl.h"
 #include "content/public/browser/javascript_dialog_manager.h"
-#include "content/public/browser/navigation_type.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/test/browser_test_utils.h"
+#include "content/public/test/content_browser_test_content_browser_client.h"
+#include "content/public/test/test_navigation_observer.h"
 #include "content/public/test/test_utils.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -176,9 +177,14 @@ Shell* OpenPopup(const ToRenderFrameHost& opener,
 class FileChooserDelegate : public WebContentsDelegate {
  public:
   // Constructs a WebContentsDelegate that mocks a file dialog.
-  // The mocked file dialog will always reply that the user selected |file|.
-  // |callback| is invoked when RunFileChooser() is called.
+  // The mocked file dialog will always reply that the user selected |file| or
+  // |files|. |callback| is invoked when RunFileChooser() is called.
   FileChooserDelegate(const base::FilePath& file, base::OnceClosure callback);
+  // |base_dir| must be set to the folder being uploaded in |kUploadFolder|
+  // mode, and must be empty in all other modes.
+  FileChooserDelegate(std::vector<base::FilePath> files,
+                      const base::FilePath& base_dir,
+                      base::OnceClosure callback);
   ~FileChooserDelegate() override;
 
   // Implementation of WebContentsDelegate::RunFileChooser.
@@ -190,7 +196,8 @@ class FileChooserDelegate : public WebContentsDelegate {
   const blink::mojom::FileChooserParams& params() const { return *params_; }
 
  private:
-  base::FilePath file_;
+  std::vector<base::FilePath> files_;
+  const base::FilePath base_dir_;
   base::OnceClosure callback_;
   blink::mojom::FileChooserParamsPtr params_;
 };
@@ -434,34 +441,15 @@ class BeforeUnloadBlockingDelegate : public JavaScriptDialogManager,
   std::unique_ptr<base::RunLoop> run_loop_ = std::make_unique<base::RunLoop>();
 };
 
-// A helper class to get DevTools inspector log messages (e.g. network errors).
-class DevToolsInspectorLogWatcher : public DevToolsAgentHostClient {
- public:
-  explicit DevToolsInspectorLogWatcher(WebContents* web_contents);
-  ~DevToolsInspectorLogWatcher() override;
-
-  void FlushAndStopWatching();
-  std::string last_message() { return last_message_; }
-
-  // DevToolsAgentHostClient:
-  void DispatchProtocolMessage(DevToolsAgentHost* host,
-                               base::span<const uint8_t> message) override;
-  void AgentHostClosed(DevToolsAgentHost* host) override;
-
- private:
-  scoped_refptr<DevToolsAgentHost> host_;
-  base::RunLoop run_loop_enable_log_;
-  base::RunLoop run_loop_disable_log_;
-  std::string last_message_;
-};
-
 // Captures various properties of the NavigationHandle on DidFinishNavigation.
-// By default, captures the next navigation and waits until the navigation
-// completely loads. Can be configured to not wait for load to finish, and also
-// to capture properties for multiple navigations, as we save the values in
-// arrays.
+// By default, captures the next navigation (either for a specific frame or
+// any frame in the WebContents) and waits until the navigation completely
+// loads. Can be configured to not wait for load to finish, and also to capture
+// properties for multiple navigations, as we save the values in arrays.
 class FrameNavigateParamsCapturer : public WebContentsObserver {
  public:
+  // Observes navigation for any node in `contents`.
+  explicit FrameNavigateParamsCapturer(WebContents* contents);
   // Observes navigation for the specified |node|.
   explicit FrameNavigateParamsCapturer(FrameTreeNode* node);
   ~FrameNavigateParamsCapturer() override;
@@ -536,8 +524,10 @@ class FrameNavigateParamsCapturer : public WebContentsObserver {
 
   void DidStopLoading() override;
 
-  // The id of the FrameTreeNode whose navigations to observe.
-  int frame_tree_node_id_;
+  // The id of the FrameTreeNode whose navigations to observe. If this is not
+  // set, then this FrameNavigateParamsCapturer observes all navigations that
+  // happen in the observed WebContents.
+  absl::optional<int> frame_tree_node_id_;
 
   // How many navigations remain to capture.
   int navigations_remaining_ = 1;
@@ -598,7 +588,7 @@ class RenderFrameHostCreatedObserver : public WebContentsObserver {
   base::RunLoop run_loop_;
 
   // The last RenderFrameHost created.
-  raw_ptr<RenderFrameHost> last_rfh_ = nullptr;
+  raw_ptr<RenderFrameHost, DanglingUntriaged> last_rfh_ = nullptr;
 
   // The callback to call when a RenderFrameCreated call is observed.
   OnRenderFrameHostCreatedCallback on_rfh_created_;
@@ -675,6 +665,96 @@ class InactiveRenderFrameHostDeletionObserver : public WebContentsObserver {
 
   std::unique_ptr<base::RunLoop> loop_;
   std::set<RenderFrameHost*> inactive_rfhs_;
+};
+
+class TestNavigationObserverInternal : public TestNavigationObserver {
+ public:
+  using TestNavigationObserver::TestNavigationObserver;
+  ~TestNavigationObserverInternal() override = default;
+
+  // TestNavigationObserver:
+  void OnDidFinishNavigation(NavigationHandle* navigation_handle) override;
+  // Return the NavigationType of the last navigation.
+  NavigationType last_navigation_type() const { return last_navigation_type_; }
+
+ private:
+  NavigationType last_navigation_type_ = NAVIGATION_TYPE_UNKNOWN;
+};
+
+// Return the descendant of `rfh` found by selecting children according to
+// `descendant_indices`. E.g. `DescendantRenderFrameHostImplAt(rfh, {0, 1}) will
+// return the child at index 1 of the child at index 0 of `rfh`.
+RenderFrameHostImpl* DescendantRenderFrameHostImplAt(
+    const ToRenderFrameHost& adapter,
+    std::vector<size_t> descendant_indices);
+
+class EffectiveURLContentBrowserTestContentBrowserClient
+    : public ContentBrowserTestContentBrowserClient {
+ public:
+  explicit EffectiveURLContentBrowserTestContentBrowserClient(
+      bool requires_dedicated_process);
+  EffectiveURLContentBrowserTestContentBrowserClient(
+      const GURL& url_to_modify,
+      const GURL& url_to_return,
+      bool requires_dedicated_process);
+  ~EffectiveURLContentBrowserTestContentBrowserClient() override;
+
+  // Adds effective URL translation from |url_to_modify| to |url_to_return|.
+  void AddTranslation(const GURL& url_to_modify, const GURL& url_to_return);
+
+ private:
+  GURL GetEffectiveURL(BrowserContext* browser_context,
+                       const GURL& url) override;
+  bool DoesSiteRequireDedicatedProcess(BrowserContext* browser_context,
+                                       const GURL& effective_site_url) override;
+
+  EffectiveURLContentBrowserClientHelper helper_;
+};
+
+// Class that requests that all pages belonging to the provided site get loaded
+// in a non-default StoragePartition.
+class CustomStoragePartitionBrowserClient
+    : public ContentBrowserTestContentBrowserClient {
+ public:
+  explicit CustomStoragePartitionBrowserClient(const GURL& site_to_isolate);
+
+  StoragePartitionConfig GetStoragePartitionConfigForSite(
+      BrowserContext* browser_context,
+      const GURL& site) override;
+
+ private:
+  GURL site_to_isolate_;
+};
+
+// Helper that waits for a request from the specified `RenderFrameHost` to send
+// `CommitNavigation()` to the browser.
+class CommitNavigationPauser
+    : public RenderFrameHostImpl::CommitCallbackInterceptor {
+ public:
+  explicit CommitNavigationPauser(RenderFrameHostImpl* rfh);
+  ~CommitNavigationPauser() override;
+
+  void WaitForCommitAndPause();
+
+  // Once a `CommitNavigation()` call has been paused, these two methods may be
+  // used to resume or discard the commit as appropriate.
+  void ResumePausedCommit();
+  void DiscardPausedCommit();
+
+ private:
+  // CommitCallbackInterceptor overrides:
+  bool WillProcessDidCommitNavigation(
+      NavigationRequest* request,
+      mojom::DidCommitProvisionalLoadParamsPtr* params,
+      mojom::DidCommitProvisionalLoadInterfaceParamsPtr* interface_params)
+      override;
+
+  base::RunLoop loop_;
+
+  // The parameters to resume a previously paused `CommitNavigation()`.
+  base::WeakPtr<NavigationRequest> paused_request_;
+  mojom::DidCommitProvisionalLoadParamsPtr paused_params_;
+  mojom::DidCommitProvisionalLoadInterfaceParamsPtr paused_interface_params_;
 };
 
 }  // namespace content

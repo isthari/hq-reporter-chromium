@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "ash/ash_export.h"
 #include "ash/public/cpp/privacy_screen_dlp_helper.h"
 #include "ash/public/cpp/session/session_observer.h"
+#include "base/memory/raw_ptr.h"
 #include "base/observer_list.h"
 #include "ui/display/manager/display_configurator.h"
 
@@ -102,7 +103,7 @@ class ASH_EXPORT PrivacyScreenController
 
   // The pref service of the currently active user. Can be null in
   // ash_unittests.
-  PrefService* active_user_pref_service_ = nullptr;
+  raw_ptr<PrefService, ExperimentalAsh> active_user_pref_service_ = nullptr;
 
   // Set to true when entering the login screen. This should happen once per
   // Chrome restart.

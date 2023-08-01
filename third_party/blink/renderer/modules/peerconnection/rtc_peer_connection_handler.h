@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,9 @@
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/task/single_thread_task_runner.h"
+#include "base/time/time.h"
 #include "third_party/blink/public/mojom/peerconnection/peer_connection_tracker.mojom-blink.h"
+#include "third_party/blink/renderer/bindings/modules/v8/v8_goog_media_constraints.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/modules/peerconnection/media_stream_track_metrics.h"
 #include "third_party/blink/renderer/modules/peerconnection/rtc_rtp_receiver_impl.h"
@@ -151,23 +153,11 @@ class MODULES_EXPORT LocalRTCStatsRequest : public rtc::RefCountInterface {
 // the main render thread.
 class MODULES_EXPORT RTCPeerConnectionHandler {
  public:
-  enum class IceConnectionStateVersion {
-    // Only applicable in Unified Plan when the JavaScript-exposed
-    // iceConnectionState is calculated in blink. In this case, kLegacy is used
-    // to report the webrtc::PeerConnectionInterface implementation which is not
-    // visible in JavaScript, but still useful to track for debugging purposes.
-    kLegacy,
-    // The JavaScript-visible iceConnectionState. In Plan B, this is the same as
-    // the webrtc::PeerConnectionInterface implementation.
-    kDefault,
-  };
-
   RTCPeerConnectionHandler(
       RTCPeerConnectionHandlerClient* client,
       blink::PeerConnectionDependencyFactory* dependency_factory,
       scoped_refptr<base::SingleThreadTaskRunner> task_runner,
-      bool force_encoded_audio_insertable_streams,
-      bool force_encoded_video_insertable_streams);
+      bool encoded_insertable_streams);
 
   RTCPeerConnectionHandler(const RTCPeerConnectionHandler&) = delete;
   RTCPeerConnectionHandler& operator=(const RTCPeerConnectionHandler&) = delete;
@@ -178,15 +168,14 @@ class MODULES_EXPORT RTCPeerConnectionHandler {
   bool InitializeForTest(
       const webrtc::PeerConnectionInterface::RTCConfiguration&
           server_configuration,
-      const MediaConstraints& options,
       PeerConnectionTracker* peer_connection_tracker,
       ExceptionState& exception_state);
 
-  // RTCPeerConnectionHandlerPlatform implementation
   virtual bool Initialize(
+      ExecutionContext* context,
       const webrtc::PeerConnectionInterface::RTCConfiguration&
           server_configuration,
-      const MediaConstraints& options,
+      GoogMediaConstraints* media_constraints,
       WebLocalFrame* web_frame,
       ExceptionState& exception_state);
 
@@ -195,13 +184,8 @@ class MODULES_EXPORT RTCPeerConnectionHandler {
 
   virtual Vector<std::unique_ptr<RTCRtpTransceiverPlatform>> CreateOffer(
       RTCSessionDescriptionRequest* request,
-      const MediaConstraints& options);
-  virtual Vector<std::unique_ptr<RTCRtpTransceiverPlatform>> CreateOffer(
-      RTCSessionDescriptionRequest* request,
       RTCOfferOptionsPlatform* options);
 
-  virtual void CreateAnswer(blink::RTCSessionDescriptionRequest* request,
-                            const MediaConstraints& options);
   virtual void CreateAnswer(blink::RTCSessionDescriptionRequest* request,
                             blink::RTCAnswerOptionsPlatform* options);
 
@@ -224,7 +208,8 @@ class MODULES_EXPORT RTCPeerConnectionHandler {
   virtual void GetStats(RTCStatsRequest* request);
   virtual void GetStats(
       RTCStatsReportCallback callback,
-      const Vector<webrtc::NonStandardGroupId>& exposed_group_ids);
+      const Vector<webrtc::NonStandardGroupId>& exposed_group_ids,
+      bool is_track_stats_deprecation_trial_enabled);
   virtual webrtc::RTCErrorOr<std::unique_ptr<RTCRtpTransceiverPlatform>>
   AddTransceiverWithTrack(MediaStreamComponent* component,
                           const webrtc::RtpTransceiverInit& init);
@@ -237,7 +222,7 @@ class MODULES_EXPORT RTCPeerConnectionHandler {
   virtual webrtc::RTCErrorOr<std::unique_ptr<RTCRtpTransceiverPlatform>>
   RemoveTrack(blink::RTCRtpSenderPlatform* web_sender);
 
-  virtual scoped_refptr<webrtc::DataChannelInterface> CreateDataChannel(
+  virtual rtc::scoped_refptr<webrtc::DataChannelInterface> CreateDataChannel(
       const String& label,
       const webrtc::DataChannelInit& init);
   virtual webrtc::PeerConnectionInterface* NativePeerConnection();
@@ -249,7 +234,6 @@ class MODULES_EXPORT RTCPeerConnectionHandler {
       const char* trace_event_name);
 
   virtual void TrackIceConnectionStateChange(
-      RTCPeerConnectionHandler::IceConnectionStateVersion version,
       webrtc::PeerConnectionInterface::IceConnectionState state);
 
   // Delegate functions to allow for mocking of WebKit interfaces.
@@ -259,10 +243,13 @@ class MODULES_EXPORT RTCPeerConnectionHandler {
   // Asynchronously calls native_peer_connection_->getStats on the signaling
   // thread.
   void GetStandardStatsForTracker(
-      scoped_refptr<webrtc::RTCStatsCollectorCallback> observer);
-  void GetStats(webrtc::StatsObserver* observer,
+      rtc::scoped_refptr<webrtc::RTCStatsCollectorCallback> observer);
+  void GetStats(rtc::scoped_refptr<webrtc::StatsObserver> observer,
                 webrtc::PeerConnectionInterface::StatsOutputLevel level,
                 rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> selector);
+
+  // Allows webrtc-internals to request a brief dump of the current state.
+  void EmitCurrentStateForTracker();
 
   // Tells the |client_| to close RTCPeerConnection.
   // Make it virtual for testing purpose.
@@ -285,13 +272,7 @@ class MODULES_EXPORT RTCPeerConnectionHandler {
   // Virtual for testing purposes.
   virtual scoped_refptr<base::SingleThreadTaskRunner> signaling_thread() const;
 
-  bool force_encoded_audio_insertable_streams() {
-    return force_encoded_audio_insertable_streams_;
-  }
-
-  bool force_encoded_video_insertable_streams() {
-    return force_encoded_video_insertable_streams_;
-  }
+  bool encoded_insertable_streams() { return encoded_insertable_streams_; }
 
  protected:
   // Constructor to be used for constructing mocks only.
@@ -329,16 +310,13 @@ class MODULES_EXPORT RTCPeerConnectionHandler {
   void OnIceGatheringChange(
       webrtc::PeerConnectionInterface::IceGatheringState new_state);
   void OnNegotiationNeededEvent(uint32_t event_id);
-  void OnReceiversModifiedPlanB(
-      webrtc::PeerConnectionInterface::SignalingState signaling_state,
-      Vector<blink::RtpReceiverState> receiver_state,
-      Vector<uintptr_t> receiver_id);
   void OnModifySctpTransport(blink::WebRTCSctpTransportSnapshot state);
   void OnModifyTransceivers(
       webrtc::PeerConnectionInterface::SignalingState signaling_state,
       std::vector<blink::RtpTransceiverState> transceiver_states,
-      bool is_remote_description);
-  void OnDataChannel(scoped_refptr<webrtc::DataChannelInterface> channel);
+      bool is_remote_description,
+      bool is_rollback);
+  void OnDataChannel(rtc::scoped_refptr<webrtc::DataChannelInterface> channel);
   void OnIceCandidate(const String& sdp,
                       const String& sdp_mid,
                       int sdp_mline_index,
@@ -406,29 +384,23 @@ class MODULES_EXPORT RTCPeerConnectionHandler {
       blink::TransceiverStateSurfacer* transceiver_state_surfacer,
       webrtc::RTCErrorOr<rtc::scoped_refptr<webrtc::RtpSenderInterface>>*
           error_or_sender);
-  bool RemoveTrackPlanB(blink::RTCRtpSenderPlatform* web_sender);
-  webrtc::RTCErrorOr<std::unique_ptr<RTCRtpTransceiverPlatform>>
-  RemoveTrackUnifiedPlan(blink::RTCRtpSenderPlatform* web_sender);
   // Helper function to remove a track on the signaling thread.
   // Updates the entire transceiver state.
   // The result will be absl::nullopt if the operation is cancelled,
   // and no change to the state will be made.
-  void RemoveTrackUnifiedPlanOnSignalingThread(
+  void RemoveTrackOnSignalingThread(
       webrtc::RtpSenderInterface* sender,
       blink::TransceiverStateSurfacer* transceiver_state_surfacer,
       absl::optional<webrtc::RTCError>* result);
-  Vector<std::unique_ptr<RTCRtpTransceiverPlatform>> CreateOfferInternal(
-      blink::RTCSessionDescriptionRequest* request,
-      webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options);
   void CreateOfferOnSignalingThread(
       webrtc::CreateSessionDescriptionObserver* observer,
       webrtc::PeerConnectionInterface::RTCOfferAnswerOptions offer_options,
       blink::TransceiverStateSurfacer* transceiver_state_surfacer);
-  std::vector<std::unique_ptr<blink::RTCRtpSenderImpl>>::iterator FindSender(
+  Vector<std::unique_ptr<blink::RTCRtpSenderImpl>>::iterator FindSender(
       uintptr_t id);
-  std::vector<std::unique_ptr<blink::RTCRtpReceiverImpl>>::iterator
-  FindReceiver(uintptr_t id);
-  std::vector<std::unique_ptr<blink::RTCRtpTransceiverImpl>>::iterator
+  Vector<std::unique_ptr<blink::RTCRtpReceiverImpl>>::iterator FindReceiver(
+      uintptr_t id);
+  Vector<std::unique_ptr<blink::RTCRtpTransceiverImpl>>::iterator
   FindTransceiver(uintptr_t id);
   // For full transceiver implementations, returns the index of
   // |rtp_transceivers_| that correspond to |platform_transceiver|.
@@ -437,7 +409,7 @@ class MODULES_EXPORT RTCPeerConnectionHandler {
   // For receiver-only transceiver implementations, returns the index of
   // |rtp_receivers_| that correspond to |platform_transceiver.Receiver()|.
   // NOTREACHED()-crashes if no correspondent is found.
-  size_t GetTransceiverIndex(
+  wtf_size_t GetTransceiverIndex(
       const RTCRtpTransceiverPlatform& platform_transceiver);
   std::unique_ptr<blink::RTCRtpTransceiverImpl> CreateOrUpdateTransceiver(
       blink::RtpTransceiverState transceiver_state,
@@ -469,6 +441,9 @@ class MODULES_EXPORT RTCPeerConnectionHandler {
   // Will be reset to nullptr when the handler is `CloseAndUnregister()`-ed, so
   // it doesn't prevent the factory from being garbage-collected.
   Persistent<PeerConnectionDependencyFactory> dependency_factory_;
+  // Reference that outlives `dependency_factory_`, used to free WebRTC
+  // references on the signaling thread during GC.
+  scoped_refptr<base::SingleThreadTaskRunner> signaling_thread_;
 
   blink::WebLocalFrame* frame_ = nullptr;
 
@@ -480,16 +455,12 @@ class MODULES_EXPORT RTCPeerConnectionHandler {
   // needs to reference it, and automatically disposed when there are no longer
   // any components referencing it.
   scoped_refptr<blink::WebRtcMediaStreamTrackAdapterMap> track_adapter_map_;
-  // In Plan B, senders and receivers are added or removed independently of one
-  // another. In Unified Plan, senders and receivers are created in pairs as
-  // transceivers. Transceivers may become inactive, but are never removed.
-  // TODO(hbos): Implement transceiver behaviors. https://crbug.com/777617
   // Blink layer correspondents of |webrtc::RtpSenderInterface|.
-  std::vector<std::unique_ptr<blink::RTCRtpSenderImpl>> rtp_senders_;
+  Vector<std::unique_ptr<blink::RTCRtpSenderImpl>> rtp_senders_;
   // Blink layer correspondents of |webrtc::RtpReceiverInterface|.
-  std::vector<std::unique_ptr<blink::RTCRtpReceiverImpl>> rtp_receivers_;
+  Vector<std::unique_ptr<blink::RTCRtpReceiverImpl>> rtp_receivers_;
   // Blink layer correspondents of |webrtc::RtpTransceiverInterface|.
-  std::vector<std::unique_ptr<blink::RTCRtpTransceiverImpl>> rtp_transceivers_;
+  Vector<std::unique_ptr<blink::RTCRtpTransceiverImpl>> rtp_transceivers_;
   // A snapshot of transceiver ids taken before the last transition, used to
   // detect any removals during rollback.
   Vector<uintptr_t> previous_transceiver_ids_;
@@ -498,26 +469,18 @@ class MODULES_EXPORT RTCPeerConnectionHandler {
 
   MediaStreamTrackMetrics track_metrics_;
 
-  // Counter for a UMA stat reported at destruction time.
-  int num_data_channels_created_ = 0;
-
-  // Counter for number of IPv4 and IPv6 local candidates.
-  int num_local_candidates_ipv4_ = 0;
-  int num_local_candidates_ipv6_ = 0;
-
   // To make sure the observers are released after native_peer_connection_,
   // they have to come first.
   CrossThreadPersistent<Observer> peer_connection_observer_;
 
   // |native_peer_connection_| is the libjingle native PeerConnection object.
-  scoped_refptr<webrtc::PeerConnectionInterface> native_peer_connection_;
+  rtc::scoped_refptr<webrtc::PeerConnectionInterface> native_peer_connection_;
 
   // The last applied configuration. Used so that the constraints
   // used when constructing the PeerConnection carry over when
   // SetConfiguration is called.
   webrtc::PeerConnectionInterface::RTCConfiguration configuration_;
-  bool force_encoded_audio_insertable_streams_ = false;
-  bool force_encoded_video_insertable_streams_ = false;
+  bool encoded_insertable_streams_ = false;
 
   // Resources for Adaptation.
   // The Thermal Resource is lazily instantiated on platforms where thermal
@@ -539,8 +502,6 @@ class MODULES_EXPORT RTCPeerConnectionHandler {
   // unit tests) are ignored.
   std::unique_ptr<FirstSessionDescription> first_local_description_;
   std::unique_ptr<FirstSessionDescription> first_remote_description_;
-
-  base::TimeTicks ice_connection_checking_start_;
 
   // Track which ICE Connection state that this PeerConnection has gone through.
   bool ice_state_seen_[webrtc::PeerConnectionInterface::kIceConnectionMax] = {};

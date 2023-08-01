@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,11 @@
 
 #include "ash/ash_export.h"
 #include "ash/public/cpp/shelf_types.h"
+#include "ash/public/cpp/tablet_mode_observer.h"
 #include "ash/shelf/shelf_observer.h"
 #include "ash/shell_observer.h"
+#include "base/functional/callback_forward.h"
+#include "base/memory/raw_ptr.h"
 #include "ui/compositor/throughput_tracker.h"
 #include "ui/display/display_observer.h"
 #include "ui/gfx/geometry/rect.h"
@@ -32,6 +35,7 @@ class Shelf;
 class ASH_EXPORT AshMessagePopupCollection
     : public message_center::MessagePopupCollection,
       public ShelfObserver,
+      public TabletModeObserver,
       public display::DisplayObserver,
       public views::WidgetObserver,
       public message_center::MessageView::Observer {
@@ -52,12 +56,12 @@ class ASH_EXPORT AshMessagePopupCollection
   // Start observing the system.
   void StartObserving(display::Screen* screen, const display::Display& display);
 
-  // Sets the current height of the system tray bubble (or legacy notification
-  // bubble) so that notification toasts can avoid it.
-  void SetTrayBubbleHeight(int height);
+  // Sets an offset from the baseline so that notification popups can shift up
+  // without overlapping with slider bubbles.
+  void SetBaselineOffset(int baseline_offset);
 
   // message_center::MessagePopupCollection:
-  int GetToastOriginX(const gfx::Rect& toast_bounds) const override;
+  int GetPopupOriginX(const gfx::Rect& popup_bounds) const override;
   int GetBaseline() const override;
   gfx::Rect GetWorkArea() const override;
   bool IsTopDown() const override;
@@ -76,8 +80,17 @@ class ASH_EXPORT AshMessagePopupCollection
   message_center::MessagePopupView* CreatePopup(
       const message_center::Notification& notification) override;
 
-  // Returns the current tray bubble height or 0 if there is no bubble.
-  int tray_bubble_height_for_test() const { return tray_bubble_height_; }
+  // TabletModeObserver:
+  void OnTabletModeStarted() override;
+  void OnTabletModeEnded() override;
+
+  // Sets `animation_idle_closure_`.
+  void SetAnimationIdleClosureForTest(base::OnceClosure closure);
+
+  // Returns the current baseline offset.
+  int baseline_offset_for_test() const { return baseline_offset_; }
+
+  int popups_animating_for_test() const { return popups_animating_; }
 
  private:
   friend class AshMessagePopupCollectionTest;
@@ -113,10 +126,10 @@ class ASH_EXPORT AshMessagePopupCollection
 
   absl::optional<display::ScopedDisplayObserver> display_observer_;
 
-  display::Screen* screen_;
+  raw_ptr<display::Screen, ExperimentalAsh> screen_;
   gfx::Rect work_area_;
-  Shelf* shelf_;
-  int tray_bubble_height_;
+  raw_ptr<Shelf, ExperimentalAsh> shelf_;
+  int baseline_offset_ = 0;
 
   std::set<views::Widget*> tracked_widgets_;
 
@@ -129,9 +142,13 @@ class ASH_EXPORT AshMessagePopupCollection
   // stop the throughput tracker only when all of these animations are finished.
   int popups_animating_ = 0;
 
+  // A closure called when all item animations complete. Used for tests only.
+  base::OnceClosure animation_idle_closure_;
+
   // Keeps track the last pop up added, used by throughout tracker. We only
   // record smoothness when this variable is in scope.
-  message_center::MessagePopupView* last_pop_up_added_ = nullptr;
+  raw_ptr<message_center::MessagePopupView, ExperimentalAsh>
+      last_pop_up_added_ = nullptr;
 };
 
 }  // namespace ash

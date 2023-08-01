@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define ASH_WM_WINDOW_MINI_VIEW_H_
 
 #include "ash/ash_export.h"
+#include "base/memory/raw_ptr.h"
 #include "base/scoped_observation.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_observer.h"
@@ -13,14 +14,12 @@
 #include "ui/views/controls/button/button.h"
 
 namespace views {
-class ImageView;
-class Label;
 class View;
 }  // namespace views
 
 namespace ash {
+class WindowMiniViewHeaderView;
 class WindowPreviewView;
-class WmHighlightItemBorder;
 
 // WindowMiniView is a view which contains a header and optionally a mirror of
 // the given window. Displaying the mirror is chosen by the subclass by calling
@@ -38,8 +37,21 @@ class ASH_EXPORT WindowMiniView : public views::View,
   // The size in dp of the window icon shown on the alt-tab/overview window next
   // to the title.
   static constexpr gfx::Size kIconSize = gfx::Size(24, 24);
-  // Padding between header items.
-  static constexpr int kHeaderPaddingDp = 12;
+
+  // The corner radius for WindowMiniView. Please notice, instead of setting the
+  // corner radius directly on the window mini view, setting the corner radius
+  // on its children (header view, preview header). The reasons are:
+  // 1. The WindowMiniView might have a non-empty border.
+  // 2. The focus ring which is a child view of the WindowMiniView couldn't be
+  // drawn correctly if its parent's layer is clipped.
+  static constexpr int kWindowMiniViewCornerRadius = 16;
+
+  aura::Window* source_window() { return source_window_; }
+  const aura::Window* source_window() const { return source_window_; }
+  WindowMiniViewHeaderView* header_view() { return header_view_; }
+  views::View* backdrop_view() { return backdrop_view_; }
+  WindowPreviewView* preview_view() { return preview_view_; }
+  const WindowPreviewView* preview_view() const { return preview_view_; }
 
   // Sets the visibility of |backdrop_view_|. Creates it if it is null.
   void SetBackdropVisibility(bool visible);
@@ -51,20 +63,10 @@ class ASH_EXPORT WindowMiniView : public views::View,
   void UpdatePreviewRoundedCorners(bool show);
 
   // Shows or hides a focus ring around this view.
-  void UpdateBorderState(bool show);
-
-  views::View* header_view() { return header_view_; }
-  views::Label* title_label() const { return title_label_; }
-  views::ImageView* icon_view() { return icon_view_; }
-  views::View* backdrop_view() { return backdrop_view_; }
-  WindowPreviewView* preview_view() const { return preview_view_; }
+  void UpdateFocusState(bool focus);
 
  protected:
   explicit WindowMiniView(aura::Window* source_window);
-
-  // Updates the icon view by creating it if necessary, and grabbing the correct
-  // image from |source_window_|.
-  void UpdateIconView();
 
   // Returns the bounds where the backdrop and preview should go.
   gfx::Rect GetContentAreaBounds() const;
@@ -77,7 +79,6 @@ class ASH_EXPORT WindowMiniView : public views::View,
   // views::View:
   void Layout() override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
-  void OnThemeChanged() override;
 
   // aura::WindowObserver:
   void OnWindowPropertyChanged(aura::Window* window,
@@ -86,28 +87,23 @@ class ASH_EXPORT WindowMiniView : public views::View,
   void OnWindowDestroying(aura::Window* window) override;
   void OnWindowTitleChanged(aura::Window* window) override;
 
-  aura::Window* source_window() const { return source_window_; }
-
  private:
   // The window this class is meant to be a header for. This class also may
   // optionally show a mirrored view of this window.
-  aura::Window* source_window_;
+  raw_ptr<aura::Window, ExperimentalAsh> source_window_;
 
-  // Views for the icon and title.
-  views::View* header_view_ = nullptr;
-  views::Label* title_label_ = nullptr;
-  views::ImageView* icon_view_ = nullptr;
-
-  // Owned by |content_view_| via `View::border_`. This is just a convenient
-  // pointer to it.
-  WmHighlightItemBorder* border_ptr_;
+  // A view that represents the header of `this`.
+  raw_ptr<WindowMiniViewHeaderView, ExperimentalAsh> header_view_ = nullptr;
 
   // A view that covers the area except the header. It is null when the window
   // associated is not pillar or letter boxed.
-  views::View* backdrop_view_ = nullptr;
+  raw_ptr<views::View, ExperimentalAsh> backdrop_view_ = nullptr;
 
   // Optionally shows a preview of |window_|.
-  WindowPreviewView* preview_view_ = nullptr;
+  raw_ptr<WindowPreviewView, ExperimentalAsh> preview_view_ = nullptr;
+
+  // True if the window mini view is focused when using keyboard navigation.
+  bool is_focused_ = false;
 
   base::ScopedObservation<aura::Window, aura::WindowObserver>
       window_observation_{this};

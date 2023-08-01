@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 #include "ui/gfx/geometry/size.h"
 
 #if BUILDFLAG(IS_WIN)
-#include "base/win/windows_version.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/ui_features.h"
 #endif  // BUILDFLAG(IS_WIN)
@@ -35,9 +34,7 @@ gfx::Size WindowFrameUtil::GetWindows10GlassCaptionButtonAreaSize() {
 bool WindowFrameUtil::IsWin10TabSearchCaptionButtonEnabled(
     const Browser* browser) {
 #if BUILDFLAG(IS_WIN)
-  return browser->is_type_normal() &&
-         base::win::GetVersion() >= base::win::Version::WIN10 &&
-         base::FeatureList::IsEnabled(features::kWin10TabSearchCaptionButton);
+  return browser->is_type_normal();
 #else
   return false;
 #endif  // BUILDFLAG(IS_WIN)

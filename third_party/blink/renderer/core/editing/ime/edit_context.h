@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,14 +9,17 @@
 #include "third_party/blink/public/platform/web_text_input_type.h"
 #include "third_party/blink/public/web/web_input_method_controller.h"
 #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_edit_context_input_panel_policy.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/dom/element_rare_data_field.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "ui/base/ime/ime_text_span.h"
+#include "ui/gfx/geometry/rect.h"
 
 namespace blink {
 
-enum class EditContextInputPanelPolicy { kAuto, kManual };
+using EditContextInputPanelPolicy = V8EditContextInputPanelPolicy::Enum;
 
 class DOMRect;
 class EditContext;
@@ -24,6 +27,8 @@ class EditContextInit;
 class Element;
 class ExceptionState;
 class InputMethodController;
+class V8EditContextEnterKeyHint;
+class V8EditContextInputMode;
 
 // The goal of the EditContext is to expose the lower-level APIs provided by
 // modern operating systems to facilitate various input modalities to unlock
@@ -33,7 +38,8 @@ class InputMethodController;
 class CORE_EXPORT EditContext final : public EventTargetWithInlineData,
                                       public ActiveScriptWrappable<EditContext>,
                                       public ExecutionContextClient,
-                                      public WebInputMethodController {
+                                      public WebInputMethodController,
+                                      public ElementRareDataField {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
@@ -113,13 +119,13 @@ class CORE_EXPORT EditContext final : public EventTargetWithInlineData,
   const HeapVector<Member<DOMRect>> characterBounds();
 
   // Returns the InputMode of the EditContext.
-  String inputMode() const;
+  V8EditContextInputMode inputMode() const;
 
   // Returns the EnterKeyHint of the EditContext.
-  String enterKeyHint() const;
+  V8EditContextEnterKeyHint enterKeyHint() const;
 
   // Returns the InputPanelPolicy of the EditContext.
-  String inputPanelPolicy() const;
+  V8EditContextInputPanelPolicy inputPanelPolicy() const;
 
   // Sets the text of the EditContext which is used to display suggestions.
   void setText(const String& text);
@@ -134,15 +140,15 @@ class CORE_EXPORT EditContext final : public EventTargetWithInlineData,
   // Sets an input mode defined in EditContextInputMode.
   // This relates to the inputMode attribute defined for input element:
   // https://html.spec.whatwg.org/multipage/interaction.html#input-modalities:-the-inputmode-attribute.
-  void setInputMode(const String& input_mode);
+  void setInputMode(const V8EditContextInputMode& input_mode);
 
   // Sets a specific action related to Enter key defined in
   // https://html.spec.whatwg.org/multipage/interaction.html#input-modalities:-the-enterkeyhint-attribute.
-  void setEnterKeyHint(const String& enter_key_hint);
+  void setEnterKeyHint(const V8EditContextEnterKeyHint& enter_key_hint);
 
   // Sets a policy that determines whether the VK should be raised or dismissed.
   // Auto raises the VK automatically, Manual suppresses it.
-  void setInputPanelPolicy(const String& input_policy);
+  void setInputPanelPolicy(const V8EditContextInputPanelPolicy& input_policy);
 
   // Internal APIs (called from Blink).
 
@@ -171,7 +177,7 @@ class CORE_EXPORT EditContext final : public EventTargetWithInlineData,
   int ComputeWebTextInputNextPreviousFlags() override { return 0; }
   WebTextInputType TextInputType() override;
   int TextInputFlags() const;
-  WebRange CompositionRange() override;
+  WebRange CompositionRange() const override;
   bool GetCompositionCharacterBounds(WebVector<gfx::Rect>& bounds) override;
   WebRange GetSelectionOffsets() const override;
 
@@ -220,6 +226,14 @@ class CORE_EXPORT EditContext final : public EventTargetWithInlineData,
   // Extends the current selection range and removes the
   // characters from the buffer.
   void ExtendSelectionAndDelete(int before, int after);
+
+  // Sets rect_in_viewport to the surrounding rect, in CSS pixels,
+  // for the character range specified by `location` and `length`.
+  // Returns true on success, false on failure (in which case
+  // rect_in_viewport) is not changed.
+  bool FirstRectForCharacterRange(uint32_t location,
+                                  uint32_t length,
+                                  gfx::Rect& rect_in_viewport);
 
   void AttachElement(Element* element_to_attach);
   void DetachElement(Element* element_to_detach);
@@ -280,6 +294,8 @@ class CORE_EXPORT EditContext final : public EventTargetWithInlineData,
   // requested bounding boxes when receiving this event.
   void DispatchCharacterBoundsUpdateEvent(uint32_t range_start,
                                           uint32_t range_end);
+
+  bool HasValidCompositionBounds() const;
 
   // EditContext member variables.
   String text_;

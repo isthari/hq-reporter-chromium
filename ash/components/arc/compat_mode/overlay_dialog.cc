@@ -1,16 +1,19 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/components/arc/compat_mode/overlay_dialog.h"
 
 #include "ash/components/arc/compat_mode/style/arc_color_provider.h"
-#include "base/bind.h"
+#include "ash/style/ash_color_id.h"
+#include "base/functional/bind.h"
 #include "components/exo/shell_surface_base.h"
 #include "components/exo/shell_surface_util.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/color/color_id.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/background.h"
+#include "ui/views/view.h"
 
 namespace arc {
 
@@ -48,12 +51,18 @@ void OverlayDialog::AddedToWidget() {
   view_ax.OverrideIsIgnored(true);
 }
 
+void OverlayDialog::OnThemeChanged() {
+  views::View::OnThemeChanged();
+  SetBackground(
+      views::CreateThemedSolidBackground(ash::kColorAshShieldAndBase60));
+}
+
 OverlayDialog::OverlayDialog(base::OnceClosure on_destroying,
                              std::unique_ptr<views::View> dialog_view)
     : has_dialog_view_(dialog_view),
       scoped_callback_(std::move(on_destroying)) {
   if (dialog_view) {
-    SetInteriorMargin(gfx::Insets(0, 32));
+    SetInteriorMargin(gfx::Insets::VH(0, 32));
     SetMainAxisAlignment(views::LayoutAlignment::kCenter);
     SetCrossAxisAlignment(views::LayoutAlignment::kCenter);
 
@@ -63,8 +72,6 @@ OverlayDialog::OverlayDialog(base::OnceClosure on_destroying,
 
     AddChildView(std::move(dialog_view));
   }
-  const SkColor kScrimColor = GetShieldLayerColor(ShieldLayerType::kShield60);
-  SetBackground(views::CreateSolidBackground(kScrimColor));
 }
 
 BEGIN_METADATA(OverlayDialog, views::FlexLayoutView)

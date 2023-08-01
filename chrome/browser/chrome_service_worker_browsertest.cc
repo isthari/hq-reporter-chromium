@@ -1,20 +1,22 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // This file tests that Service Workers (a Content feature) work in the Chromium
 // embedder.
 
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
+#include "base/json/json_reader.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/scoped_observation.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_restrictions.h"
@@ -35,7 +37,9 @@
 #include "components/content_settings/core/common/pref_names.h"
 #include "components/favicon/content/content_favicon_driver.h"
 #include "components/favicon/core/favicon_driver_observer.h"
+#include "components/metrics/content/subprocess_metrics_provider.h"
 #include "components/nacl/common/buildflags.h"
+#include "components/ukm/test_ukm_recorder.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
@@ -46,13 +50,20 @@
 #include "content/public/browser/url_data_source.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui_controller.h"
+#include "content/public/browser/webui_config.h"
+#include "content/public/browser/webui_config_map.h"
+#include "content/public/common/content_features.h"
+#include "content/public/common/url_constants.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
+#include "content/public/test/test_frame_navigation_observer.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
 #include "ppapi/shared_impl/ppapi_switches.h"
+#include "services/metrics/public/cpp/ukm_builders.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/messaging/string_message_codec.h"
 #include "third_party/blink/public/common/storage_key/storage_key.h"
 #include "third_party/blink/public/mojom/manifest/manifest.mojom.h"
@@ -116,9 +127,8 @@ class ChromeServiceWorkerTest : public InProcessBrowserTest {
   void WriteFile(const base::FilePath::StringType& filename,
                  base::StringPiece contents) {
     base::ScopedAllowBlockingForTesting allow_blocking;
-    EXPECT_EQ(base::checked_cast<int>(contents.size()),
-              base::WriteFile(service_worker_dir_.GetPath().Append(filename),
-                              contents.data(), contents.size()));
+    EXPECT_TRUE(base::WriteFile(service_worker_dir_.GetPath().Append(filename),
+                                contents));
   }
 
   void NavigateToPageAndWaitForReadyTitle(const std::string path) {
@@ -156,7 +166,7 @@ class ChromeServiceWorkerTest : public InProcessBrowserTest {
     NavigateToPageAndWaitForReadyTitle("/test.html");
 
     GetServiceWorkerContext()->StopAllServiceWorkersForStorageKey(
-        blink::StorageKey(
+        blink::StorageKey::CreateFirstParty(
             url::Origin::Create(embedded_test_server()->base_url())));
     HostContentSettingsMapFactory::GetForProfile(browser()->profile())
         ->SetDefaultContentSetting(ContentSettingsType::JAVASCRIPT,
@@ -170,8 +180,10 @@ class ChromeServiceWorkerTest : public InProcessBrowserTest {
 
     EXPECT_EQ(expected_title, title_watcher.WaitAndGetTitle());
 
-    content::RenderFrameHost* main_frame =
-        browser()->tab_strip_model()->GetActiveWebContents()->GetMainFrame();
+    content::RenderFrameHost* main_frame = browser()
+                                               ->tab_strip_model()
+                                               ->GetActiveWebContents()
+                                               ->GetPrimaryMainFrame();
     EXPECT_TRUE(
         content_settings::PageSpecificContentSettings::GetForFrame(main_frame)
             ->IsContentBlocked(ContentSettingsType::JAVASCRIPT));
@@ -179,7 +191,6 @@ class ChromeServiceWorkerTest : public InProcessBrowserTest {
 
   void TestStartServiceWorkerAndDispatchMessage(const char* test_script) {
     base::RunLoop run_loop;
-    blink::TransferableMessage msg;
     const std::u16string message_data = u"testMessage";
 
     WriteFile(FILE_PATH_LITERAL("sw.js"), "self.onfetch = function(e) {};");
@@ -187,12 +198,14 @@ class ChromeServiceWorkerTest : public InProcessBrowserTest {
 
     InitializeServer();
     NavigateToPageAndWaitForReadyTitle("/test.html");
-    msg.owned_encoded_message = blink::EncodeStringMessage(message_data);
-    msg.encoded_message = msg.owned_encoded_message;
+    blink::TransferableMessage msg =
+        blink::EncodeWebMessagePayload(message_data);
+    msg.sender_agent_cluster_id = base::UnguessableToken::Create();
 
     GURL url = embedded_test_server()->GetURL("/scope/");
     GetServiceWorkerContext()->StartServiceWorkerAndDispatchMessage(
-        url, blink::StorageKey(url::Origin::Create(url)), std::move(msg),
+        url, blink::StorageKey::CreateFirstParty(url::Origin::Create(url)),
+        std::move(msg),
         base::BindRepeating(&ExpectResultAndRun<bool>, true,
                             run_loop.QuitClosure()));
     run_loop.Run();
@@ -214,7 +227,8 @@ IN_PROC_BROWSER_TEST_F(ChromeServiceWorkerTest,
   blink::mojom::ServiceWorkerRegistrationOptions options(
       embedded_test_server()->GetURL("/"), blink::mojom::ScriptType::kClassic,
       blink::mojom::ServiceWorkerUpdateViaCache::kImports);
-  blink::StorageKey key(url::Origin::Create(options.scope));
+  const blink::StorageKey key =
+      blink::StorageKey::CreateFirstParty(url::Origin::Create(options.scope));
   GetServiceWorkerContext()->RegisterServiceWorker(
       embedded_test_server()->GetURL("/service_worker.js"), key, options,
       base::BindOnce(&ExpectResultAndRun<blink::ServiceWorkerStatusCode>,
@@ -243,7 +257,8 @@ IN_PROC_BROWSER_TEST_F(ChromeServiceWorkerTest,
   blink::mojom::ServiceWorkerRegistrationOptions options(
       embedded_test_server()->GetURL("/"), blink::mojom::ScriptType::kClassic,
       blink::mojom::ServiceWorkerUpdateViaCache::kImports);
-  blink::StorageKey key(url::Origin::Create(options.scope));
+  const blink::StorageKey key =
+      blink::StorageKey::CreateFirstParty(url::Origin::Create(options.scope));
   GetServiceWorkerContext()->RegisterServiceWorker(
       embedded_test_server()->GetURL("/service_worker.js"), key, options,
       base::BindOnce(&ExpectResultAndRun<blink::ServiceWorkerStatusCode>,
@@ -272,7 +287,8 @@ IN_PROC_BROWSER_TEST_F(ChromeServiceWorkerTest,
   blink::mojom::ServiceWorkerRegistrationOptions options(
       embedded_test_server()->GetURL("/"), blink::mojom::ScriptType::kClassic,
       blink::mojom::ServiceWorkerUpdateViaCache::kImports);
-  blink::StorageKey key(url::Origin::Create(options.scope));
+  const blink::StorageKey key =
+      blink::StorageKey::CreateFirstParty(url::Origin::Create(options.scope));
   GetServiceWorkerContext()->RegisterServiceWorker(
       embedded_test_server()->GetURL("/service_worker.js"), key, options,
       base::BindOnce(&ExpectResultAndRun<blink::ServiceWorkerStatusCode>,
@@ -306,6 +322,204 @@ IN_PROC_BROWSER_TEST_F(ChromeServiceWorkerTest,
       kInstallAndWaitForActivatedPageWithModuleScript);
 }
 
+// TODO(crbug.com/1395715): The test is flaky. Re-enable it.
+#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_LINUX) || \
+    BUILDFLAG(IS_CHROMEOS_LACROS)
+#define MAYBE_SubresourceCountUKM DISABLED_SubresourceCountUKM
+#else
+#define MAYBE_SubresourceCountUKM SubresourceCountUKM
+#endif
+IN_PROC_BROWSER_TEST_F(ChromeServiceWorkerTest, MAYBE_SubresourceCountUKM) {
+  base::RunLoop ukm_loop;
+  ukm::TestAutoSetUkmRecorder test_recorder;
+  test_recorder.SetOnAddEntryCallback(
+      ukm::builders::ServiceWorker_OnLoad::kEntryName,
+      // In the following test, there are two kinds of sub resources loaded;
+      // one is handled with "respondWith", and the other is not.
+      // `ukm_loop.Quit()` is called when both of them are recorded in UKM.
+      base::BindLambdaForTesting([&]() {
+        auto entries = test_recorder.GetEntriesByName(
+            ukm::builders::ServiceWorker_OnLoad::kEntryName);
+        CHECK(!entries.empty());
+        const int64_t* v = ukm::TestAutoSetUkmRecorder::GetEntryMetric(
+            entries[0],
+            ukm::builders::ServiceWorker_OnLoad::kTotalSubResourceLoadName);
+        CHECK(v);
+        if (*v == 2) {
+          ukm_loop.Quit();
+        }
+      }));
+
+  WriteFile(FILE_PATH_LITERAL("fallback.css"), "");
+  WriteFile(FILE_PATH_LITERAL("nofallback.css"), "");
+  WriteFile(FILE_PATH_LITERAL("subresources.html"),
+            "<link href='./fallback.css' rel='stylesheet'>"
+            "<link href='./nofallback.css' rel='stylesheet'>");
+  WriteFile(FILE_PATH_LITERAL("sw.js"),
+            "this.onactivate = function(event) {"
+            "  event.waitUntil(self.clients.claim());"
+            "};"
+            "this.onfetch = function(event) {"
+            // We will fallback fallback.css.
+            "  if (event.request.url.endsWith('/fallback.css')) {"
+            "    return;"
+            "  }"
+            "  event.respondWith(fetch(event.request));"
+            "};");
+  WriteFile(FILE_PATH_LITERAL("test.html"),
+            "<script>"
+            "navigator.serviceWorker.register('./sw.js', {scope: './'})"
+            "  .then(function(reg) {"
+            "      reg.addEventListener('updatefound', function() {"
+            "          var worker = reg.installing;"
+            "          worker.addEventListener('statechange', function() {"
+            "              if (worker.state == 'activated')"
+            "                document.title = 'READY';"
+            "            });"
+            "        });"
+            "    });"
+            "</script>");
+
+  InitializeServer();
+
+  {
+    // The message "READY" will be sent when the service worker is activated.
+    const std::u16string expected_title = u"READY";
+    content::TitleWatcher title_watcher(
+        browser()->tab_strip_model()->GetActiveWebContents(), expected_title);
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(
+        browser(), embedded_test_server()->GetURL("/test.html")));
+    EXPECT_EQ(expected_title, title_watcher.WaitAndGetTitle());
+  }
+
+  {
+    // Navigate to the service worker controlled page.
+    content::TestFrameNavigationObserver observer(
+        browser()->tab_strip_model()->GetActiveWebContents());
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(
+        browser(), embedded_test_server()->GetURL("/subresources.html")));
+    observer.WaitForCommit();
+  }
+
+  {
+    // Navigate away to record metrics.
+    content::TestFrameNavigationObserver observer(
+        browser()->tab_strip_model()->GetActiveWebContents());
+    ASSERT_TRUE(
+        ui_test_utils::NavigateToURL(browser(), GURL(url::kAboutBlankURL)));
+    observer.WaitForCommit();
+  }
+
+  // Wait until the UKM record has enough entries.
+  ukm_loop.Run();
+
+  auto entries = test_recorder.GetEntriesByName(
+      ukm::builders::ServiceWorker_OnLoad::kEntryName);
+  ASSERT_EQ(entries.size(), 1u);
+  test_recorder.ExpectEntryMetric(
+      entries[0],
+      ukm::builders::ServiceWorker_OnLoad::kMainAndSubResourceLoadLocationName,
+      6 /* = kMainResourceNotFallbackAndSubResourceMixed */);
+  test_recorder.ExpectEntryMetric(
+      entries[0],
+      ukm::builders::ServiceWorker_OnLoad::kTotalSubResourceLoadName, 2);
+  test_recorder.ExpectEntryMetric(
+      entries[0],
+      ukm::builders::ServiceWorker_OnLoad::kTotalSubResourceFallbackName, 1);
+  test_recorder.ExpectEntryMetric(
+      entries[0],
+      ukm::builders::ServiceWorker_OnLoad::kSubResourceFallbackRatioName, 50);
+  test_recorder.ExpectEntryMetric(
+      entries[0], ukm::builders::ServiceWorker_OnLoad::kAudioFallbackName, 0);
+  test_recorder.ExpectEntryMetric(
+      entries[0], ukm::builders::ServiceWorker_OnLoad::kAudioHandledName, 0);
+  test_recorder.ExpectEntryMetric(
+      entries[0],
+      ukm::builders::ServiceWorker_OnLoad::kCSSStyleSheetFallbackName, 1);
+  test_recorder.ExpectEntryMetric(
+      entries[0],
+      ukm::builders::ServiceWorker_OnLoad::kCSSStyleSheetHandledName, 1);
+  test_recorder.ExpectEntryMetric(
+      entries[0], ukm::builders::ServiceWorker_OnLoad::kFontFallbackName, 0);
+  test_recorder.ExpectEntryMetric(
+      entries[0], ukm::builders::ServiceWorker_OnLoad::kFontHandledName, 0);
+  test_recorder.ExpectEntryMetric(
+      entries[0], ukm::builders::ServiceWorker_OnLoad::kImageFallbackName, 0);
+  test_recorder.ExpectEntryMetric(
+      entries[0], ukm::builders::ServiceWorker_OnLoad::kImageHandledName, 0);
+}
+
+// TODO(crbug.com/1395715): The test is flaky. Re-enable it.
+#if BUILDFLAG(IS_FUCHSIA)
+#define MAYBE_SubresourceCountUMA DISABLED_SubresourceCountUMA
+#else
+#define MAYBE_SubresourceCountUMA SubresourceCountUMA
+#endif
+IN_PROC_BROWSER_TEST_F(ChromeServiceWorkerTest, MAYBE_SubresourceCountUMA) {
+  base::HistogramTester histogram_tester;
+
+  WriteFile(FILE_PATH_LITERAL("fallback.css"), "");
+  WriteFile(FILE_PATH_LITERAL("nofallback.css"), "");
+  WriteFile(FILE_PATH_LITERAL("subresources.html"),
+            "<link href='./fallback.css' rel='stylesheet'>"
+            "<link href='./nofallback.css' rel='stylesheet'>");
+  WriteFile(FILE_PATH_LITERAL("sw.js"),
+            "this.onactivate = function(event) {"
+            "  event.waitUntil(self.clients.claim());"
+            "};"
+            "this.onfetch = function(event) {"
+            // We will fallback fallback.css.
+            "  if (event.request.url.endsWith('/fallback.css')) {"
+            "    return;"
+            "  }"
+            "  event.respondWith(fetch(event.request));"
+            "};");
+  WriteFile(FILE_PATH_LITERAL("test.html"),
+            "<script>"
+            "navigator.serviceWorker.register('./sw.js', {scope: './'})"
+            "  .then(function(reg) {"
+            "      reg.addEventListener('updatefound', function() {"
+            "          var worker = reg.installing;"
+            "          worker.addEventListener('statechange', function() {"
+            "              if (worker.state == 'activated')"
+            "                document.title = 'READY';"
+            "            });"
+            "        });"
+            "    });"
+            "</script>");
+
+  InitializeServer();
+
+  {
+    // The message "READY" will be sent when the service worker is activated.
+    const std::u16string expected_title = u"READY";
+    content::TitleWatcher title_watcher(
+        browser()->tab_strip_model()->GetActiveWebContents(), expected_title);
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(
+        browser(), embedded_test_server()->GetURL("/test.html")));
+    EXPECT_EQ(expected_title, title_watcher.WaitAndGetTitle());
+  }
+
+  // Navigate to the service worker controlled page.
+  ASSERT_TRUE(ui_test_utils::NavigateToURL(
+      browser(), embedded_test_server()->GetURL("/subresources.html")));
+
+  // Navigate away to record metrics.
+  ASSERT_TRUE(
+      ui_test_utils::NavigateToURL(browser(), GURL(url::kAboutBlankURL)));
+
+  // Sync the histogram data between the renderer and browser processes.
+  metrics::SubprocessMetricsProvider::MergeHistogramDeltasForTesting();
+  histogram_tester.ExpectTotalCount("ServiceWorker.Subresource.Handled.Type2",
+                                    1);
+  histogram_tester.ExpectUniqueSample("ServiceWorker.Subresource.Handled.Type2",
+                                      2 /* kCSSStyleSheet */, 1);
+  histogram_tester.ExpectTotalCount(
+      "ServiceWorker.Subresource.Fallbacked.Type2", 1);
+  histogram_tester.ExpectUniqueSample(
+      "ServiceWorker.Subresource.Fallbacked.Type2", 2 /* kCSSStyleSheet */, 1);
+}
+
 class ChromeServiceWorkerFetchTest : public ChromeServiceWorkerTest {
  public:
   ChromeServiceWorkerFetchTest(const ChromeServiceWorkerFetchTest&) = delete;
@@ -320,15 +534,11 @@ class ChromeServiceWorkerFetchTest : public ChromeServiceWorkerTest {
     WriteServiceWorkerFetchTestFiles();
     embedded_test_server()->ServeFilesFromDirectory(
         service_worker_dir_.GetPath());
+    base::FilePath test_data_dir;
+    ASSERT_TRUE(base::PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir));
+    embedded_test_server()->ServeFilesFromDirectory(test_data_dir);
     ASSERT_TRUE(embedded_test_server()->Start());
     InitializeServiceWorkerFetchTestPage();
-  }
-
-  std::string ExecuteScriptAndExtractString(const std::string& js) {
-    std::string result;
-    EXPECT_TRUE(content::ExecuteScriptAndExtractString(
-        browser()->tab_strip_model()->GetActiveWebContents(), js, &result));
-    return result;
   }
 
   std::string RequestString(const std::string& url,
@@ -374,36 +584,39 @@ class ChromeServiceWorkerFetchTest : public ChromeServiceWorkerTest {
         "          return fetch(event.request);"
         "        }));"
         "};");
-    WriteFile(FILE_PATH_LITERAL("test.html"),
-              "<script>"
-              "navigator.serviceWorker.register('./sw.js', {scope: './'})"
-              "  .then(function(reg) {"
-              "      reg.addEventListener('updatefound', function() {"
-              "          var worker = reg.installing;"
-              "          worker.addEventListener('statechange', function() {"
-              "              if (worker.state == 'activated')"
-              "                document.title = 'READY';"
-              "            });"
-              "        });"
-              "    });"
-              "var reportOnFetch = true;"
-              "var issuedRequests = [];"
-              "function reportRequests() {"
-              "  var str = '';"
-              "  issuedRequests.forEach(function(data) {"
-              "      str += data + '\\n';"
-              "    });"
-              "  window.domAutomationController.send(str);"
-              "}"
-              "navigator.serviceWorker.addEventListener("
-              "    'message',"
-              "    function(event) {"
-              "      issuedRequests.push(event.data);"
-              "      if (reportOnFetch) {"
-              "        reportRequests();"
-              "      }"
-              "    }, false);"
-              "</script>");
+    WriteFile(FILE_PATH_LITERAL("test.html"), R"(
+              <script src='/result_queue.js'></script>
+              <script>
+              navigator.serviceWorker.register('./sw.js', {scope: './'})
+                .then(function(reg) {
+                    reg.addEventListener('updatefound', function() {
+                        var worker = reg.installing;
+                        worker.addEventListener('statechange', function() {
+                            if (worker.state == 'activated')
+                              document.title = 'READY';
+                          });
+                      });
+                  });
+              var reportOnFetch = true;
+              var issuedRequests = [];
+              var reports = new ResultQueue();
+              function reportRequests() {
+                var str = '';
+                issuedRequests.forEach(function(data) {
+                  str += data + '\n';
+                });
+                reports.push(str);
+              }
+              navigator.serviceWorker.addEventListener(
+                  'message',
+                  function(event) {
+                    issuedRequests.push(event.data);
+                    if (reportOnFetch) {
+                      reportRequests();
+                    }
+                  }, false);
+              </script>
+              )");
   }
 
   void InitializeServiceWorkerFetchTestPage() {
@@ -501,7 +714,9 @@ class ChromeServiceWorkerLinkFetchTest : public ChromeServiceWorkerFetchTest {
                            url.c_str()));
     ExecuteJavaScriptForTests(js);
     waiter.Wait();
-    return ExecuteScriptAndExtractString("reportRequests();");
+    return EvalJs(browser()->tab_strip_model()->GetActiveWebContents(),
+                  "reportRequests(); reports.pop();")
+        .ExtractString();
   }
 
   void CopyTestFile(const std::string& src, const std::string& dst) {
@@ -518,7 +733,7 @@ class ChromeServiceWorkerLinkFetchTest : public ChromeServiceWorkerFetchTest {
     browser()
         ->tab_strip_model()
         ->GetActiveWebContents()
-        ->GetMainFrame()
+        ->GetPrimaryMainFrame()
         ->ExecuteJavaScriptForTests(
             base::ASCIIToUTF16(js),
             base::BindOnce(
@@ -538,9 +753,11 @@ class ChromeServiceWorkerLinkFetchTest : public ChromeServiceWorkerFetchTest {
         .GetManifest(
             base::BindOnce(&ManifestCallbackAndRun, run_loop.QuitClosure()));
     run_loop.Run();
-    return ExecuteScriptAndExtractString(
-        "if (issuedRequests.length != 0) reportRequests();"
-        "else reportOnFetch = true;");
+    return EvalJs(browser()->tab_strip_model()->GetActiveWebContents(),
+                  "if (issuedRequests.length != 0) reportRequests();"
+                  "else reportOnFetch = true;"
+                  "reports.pop();")
+        .ExtractString();
   }
 
   static void ManifestCallbackAndRun(base::OnceClosure continuation,
@@ -640,14 +857,26 @@ class ChromeServiceWorkerFetchPPAPITest : public ChromeServiceWorkerFetchTest {
   }
 
   std::string ExecutePNACLUrlLoaderTest(const std::string& mode) {
-    std::string result(ExecuteScriptAndExtractString(
+    content::DOMMessageQueue message_queue;
+    EXPECT_TRUE(content::ExecJs(
+        browser()->tab_strip_model()->GetActiveWebContents(),
         base::StringPrintf("reportOnFetch = false;"
                            "var iframe = document.createElement('iframe');"
                            "iframe.src='%s#%s';"
                            "document.body.appendChild(iframe);",
                            test_page_url_.c_str(), mode.c_str())));
-    EXPECT_EQ(base::StringPrintf("OnOpen%s", mode.c_str()), result);
-    return ExecuteScriptAndExtractString("reportRequests();");
+
+    std::string json;
+    EXPECT_TRUE(message_queue.WaitForMessage(&json));
+
+    base::Value result =
+        base::JSONReader::Read(json, base::JSON_ALLOW_TRAILING_COMMAS).value();
+
+    EXPECT_TRUE(result.is_string());
+    EXPECT_EQ(base::StringPrintf("OnOpen%s", mode.c_str()), result.GetString());
+    return EvalJs(browser()->tab_strip_model()->GetActiveWebContents(),
+                  "reportRequests();")
+        .ExtractString();
   }
 
  private:
@@ -678,7 +907,7 @@ class ChromeServiceWorkerNavigationHintTest : public ChromeServiceWorkerTest {
     base::RunLoop run_loop;
     GURL url = embedded_test_server()->GetURL(scope);
     GetServiceWorkerContext()->StartServiceWorkerForNavigationHint(
-        url, blink::StorageKey(url::Origin::Create(url)),
+        url, blink::StorageKey::CreateFirstParty(url::Origin::Create(url)),
         base::BindOnce(&ExpectResultAndRun<
                            content::StartServiceWorkerForNavigationHintResult>,
                        expected_result, run_loop.QuitClosure()));
@@ -704,7 +933,7 @@ class ChromeServiceWorkerNavigationHintTest : public ChromeServiceWorkerTest {
     InitializeServer();
     NavigateToPageAndWaitForReadyTitle("/test.html");
     GetServiceWorkerContext()->StopAllServiceWorkersForStorageKey(
-        blink::StorageKey(
+        blink::StorageKey::CreateFirstParty(
             url::Origin::Create(embedded_test_server()->base_url())));
     RunNavigationHintTest(
         "/scope/", content::StartServiceWorkerForNavigationHintResult::STARTED,
@@ -728,7 +957,7 @@ class ChromeServiceWorkerNavigationHintTest : public ChromeServiceWorkerTest {
     InitializeServer();
     NavigateToPageAndWaitForReadyTitle("/test.html");
     GetServiceWorkerContext()->StopAllServiceWorkersForStorageKey(
-        blink::StorageKey(
+        blink::StorageKey::CreateFirstParty(
             url::Origin::Create(embedded_test_server()->base_url())));
     RunNavigationHintTest(
         "/scope/",
@@ -778,7 +1007,8 @@ IN_PROC_BROWSER_TEST_F(ChromeServiceWorkerNavigationHintTest,
       embedded_test_server()->GetURL("/scope/"),
       blink::mojom::ScriptType::kClassic,
       blink::mojom::ServiceWorkerUpdateViaCache::kImports);
-  blink::StorageKey key(url::Origin::Create(options.scope));
+  const blink::StorageKey key =
+      blink::StorageKey::CreateFirstParty(url::Origin::Create(options.scope));
   GetServiceWorkerContext()->RegisterServiceWorker(
       embedded_test_server()->GetURL("/sw.js"), key, options,
       base::BindOnce(&ExpectResultAndRun<blink::ServiceWorkerStatusCode>,
@@ -800,11 +1030,11 @@ IN_PROC_BROWSER_TEST_F(ChromeServiceWorkerNavigationHintTest,
   TestNoFetchHandler(kInstallAndWaitForActivatedPageWithModuleScript);
 }
 
-// Copied from devtools_browsertest.cc.
+// URLDataSource that serves an empty page for all URLs except source/sw.js
+// for which it serves valid service worker code.
 class StaticURLDataSource : public content::URLDataSource {
  public:
-  StaticURLDataSource(const std::string& source, const std::string& content)
-      : source_(source), content_(content) {}
+  explicit StaticURLDataSource(const std::string& source) : source_(source) {}
 
   StaticURLDataSource(const StaticURLDataSource&) = delete;
   StaticURLDataSource& operator=(const StaticURLDataSource&) = delete;
@@ -816,90 +1046,303 @@ class StaticURLDataSource : public content::URLDataSource {
   void StartDataRequest(const GURL& url,
                         const content::WebContents::Getter& wc_getter,
                         GotDataCallback callback) override {
-    std::string data(content_);
-    std::move(callback).Run(base::RefCountedString::TakeString(&data));
+    // If it's the service worker url, serve a valid Service Worker.
+    if (url.ExtractFileName() == "sw.js") {
+      // Use a working script instead of an empty one, otherwise the worker
+      // would fail to be registered.
+      std::string data = R"(
+        self.oninstall = function(e) {
+          e.waitUntil(new Promise(r => { /* never resolve */ }));
+        };
+        self.onfetch = function(e) {};
+       )";
+      std::move(callback).Run(
+          base::MakeRefCounted<base::RefCountedString>(std::move(data)));
+      return;
+    }
+
+    // Otherwise, serve an empty page.
+    std::move(callback).Run(
+        base::MakeRefCounted<base::RefCountedString>(std::string()));
   }
-  std::string GetMimeType(const std::string& path) override {
-    return "application/javascript";
+  std::string GetMimeType(const GURL& url) override {
+    if (url.ExtractFileName() == "sw.js")
+      return "application/javascript";
+    return "text/html";
   }
   bool ShouldAddContentSecurityPolicy() override { return false; }
 
  private:
   const std::string source_;
-  const std::string content_;
 };
 
-// Copied from devtools_browsertest.cc.
-class MockWebUIProvider
-    : public TestChromeWebUIControllerFactory::WebUIProvider {
+class StaticWebUIController : public content::WebUIController {
  public:
-  MockWebUIProvider(const std::string& source, const std::string& content)
-      : source_(source), content_(content) {}
+  StaticWebUIController(content::WebUI* web_ui, const std::string& key)
+      : WebUIController(web_ui) {
+    content::URLDataSource::Add(Profile::FromWebUI(web_ui),
+                                std::make_unique<StaticURLDataSource>(key));
+  }
+  ~StaticWebUIController() override = default;
+};
 
-  MockWebUIProvider(const MockWebUIProvider&) = delete;
-  MockWebUIProvider& operator=(const MockWebUIProvider&) = delete;
+class TestWebUIConfig : public content::WebUIConfig {
+ public:
+  explicit TestWebUIConfig(base::StringPiece scheme, base::StringPiece host)
+      : content::WebUIConfig(scheme, host) {
+    data_source_key_ = this->host();
+    if (this->scheme() == "chrome-untrusted") {
+      data_source_key_ = this->scheme() + "://" + this->host() + "/";
+    }
+  }
 
-  ~MockWebUIProvider() override = default;
+  ~TestWebUIConfig() override = default;
 
-  std::unique_ptr<content::WebUIController> NewWebUI(content::WebUI* web_ui,
-                                                     const GURL& url) override {
+  std::unique_ptr<content::WebUIController> CreateWebUIController(
+      content::WebUI* web_ui,
+      const GURL& url) override {
+    return std::make_unique<StaticWebUIController>(web_ui, data_source_key_);
+  }
+
+  void RegisterURLDataSource(
+      content::BrowserContext* browser_context) override {
     content::URLDataSource::Add(
-        Profile::FromWebUI(web_ui),
-        std::make_unique<StaticURLDataSource>(source_, content_));
-    return std::make_unique<content::WebUIController>(web_ui);
+        browser_context,
+        std::make_unique<StaticURLDataSource>(data_source_key_));
   }
 
  private:
-  const std::string source_;
-  const std::string content_;
+  std::string data_source_key_;
 };
 
+class ChromeWebUIServiceWorkerTest : public ChromeServiceWorkerTest {
+ protected:
+  // Creates a WebUI at `base_url` and registers a service worker for
+  // it. Returns the result of registering the Service Worker.
+  blink::ServiceWorkerStatusCode CreateWebUIAndRegisterServiceWorker(
+      const GURL& base_url) {
+    auto webui_config =
+        std::make_unique<TestWebUIConfig>(base_url.scheme(), base_url.host());
+    if (base_url.SchemeIs(content::kChromeUIScheme)) {
+      content::WebUIConfigMap::GetInstance().AddWebUIConfig(
+          std::move(webui_config));
+    } else {
+      content::WebUIConfigMap::GetInstance().AddUntrustedWebUIConfig(
+          std::move(webui_config));
+    }
+
+    // Try to register the service worker.
+    const GURL service_worker_url = base_url.Resolve("sw.js");
+    base::RunLoop run_loop;
+    absl::optional<blink::ServiceWorkerStatusCode> result;
+    blink::mojom::ServiceWorkerRegistrationOptions options(
+        base_url, blink::mojom::ScriptType::kClassic,
+        blink::mojom::ServiceWorkerUpdateViaCache::kNone);
+    const blink::StorageKey key = blink::StorageKey::CreateFirstParty(
+        url::Origin::Create(service_worker_url));
+    GetServiceWorkerContext()->RegisterServiceWorker(
+        service_worker_url, key, options,
+        base::BindLambdaForTesting([&](blink::ServiceWorkerStatusCode r) {
+          result = r;
+          run_loop.Quit();
+        }));
+
+    run_loop.Run();
+    return result.value();
+  }
+
+  // Creates a WebUI at `base_url` and tries to register a service worker
+  // for it in JavaScript. Returns "ServiceWorkerRegistered" if it succeeds,
+  // otherwise it returns the error string.
+  content::EvalJsResult CreateWebUIAndRegisterServiceWorkerInJavaScript(
+      const GURL& base_url) {
+    auto webui_config =
+        std::make_unique<TestWebUIConfig>(base_url.scheme(), base_url.host());
+    if (base_url.SchemeIs(content::kChromeUIScheme)) {
+      content::WebUIConfigMap::GetInstance().AddWebUIConfig(
+          std::move(webui_config));
+    } else {
+      content::WebUIConfigMap::GetInstance().AddUntrustedWebUIConfig(
+          std::move(webui_config));
+    }
+
+    CHECK(ui_test_utils::NavigateToURL(browser(), base_url));
+
+    const GURL service_worker_url = base_url.Resolve("sw.js");
+    const std::string register_script = base::StringPrintf(
+        R"(
+     (async () => {
+       const init = {};
+       init['scope'] = '%s';
+       try {
+         await navigator.serviceWorker.register('%s', init);
+         await navigator.serviceWorker.ready;
+         return "ServiceWorkerRegistered";
+       } catch (e) {
+         return e.message;
+       }
+     })()
+    )",
+        base_url.spec().c_str(), service_worker_url.spec().c_str());
+    return EvalJs(browser()->tab_strip_model()->GetActiveWebContents(),
+                  register_script);
+  }
+};
+
+// Tests that registering a service worker in JavaScript with a chrome:// URL
+// fails.
+IN_PROC_BROWSER_TEST_F(ChromeWebUIServiceWorkerTest,
+                       DisallowChromeSchemeInJavaScript) {
+  const GURL base_url("chrome://dummyurl");
+  auto result = CreateWebUIAndRegisterServiceWorkerInJavaScript(base_url);
+  EXPECT_EQ(
+      "Failed to register a ServiceWorker: The URL protocol of the "
+      "current origin ('chrome://dummyurl') is not supported.",
+      result);
+}
+
 // Tests that registering a service worker with a chrome:// URL fails.
-IN_PROC_BROWSER_TEST_F(ChromeServiceWorkerTest, DisallowChromeScheme) {
-  const GURL kScript("chrome://dummyurl/sw.js");
-  const GURL kScope("chrome://dummyurl");
+IN_PROC_BROWSER_TEST_F(ChromeWebUIServiceWorkerTest, DisallowChromeScheme) {
+  const GURL base_url("chrome://dummyurl");
 
-  // Make chrome://dummyurl/sw.js serve a service worker script.
-  TestChromeWebUIControllerFactory test_factory;
-  MockWebUIProvider mock_provider("serviceworker", "// empty service worker");
-  test_factory.AddFactoryOverride(kScript.host(), &mock_provider);
-  content::WebUIControllerFactory::RegisterFactory(&test_factory);
+  // Registration should fail without the flag being set. See the tests
+  // below, which set kEnableServiceWorkersForChromeScheme.
+  auto result = CreateWebUIAndRegisterServiceWorker(base_url);
+  EXPECT_EQ(result, blink::ServiceWorkerStatusCode::kErrorNetwork);
+}
 
-  // Try to register the service worker.
-  base::RunLoop run_loop;
-  blink::ServiceWorkerStatusCode result = blink::ServiceWorkerStatusCode::kOk;
-  blink::mojom::ServiceWorkerRegistrationOptions options(
-      kScope, blink::mojom::ScriptType::kClassic,
-      blink::mojom::ServiceWorkerUpdateViaCache::kImports);
-  blink::StorageKey key(url::Origin::Create(options.scope));
-  GetServiceWorkerContext()->RegisterServiceWorker(
-      kScript, key, options,
-      base::BindOnce(
-          [](base::OnceClosure quit_closure,
-             blink::ServiceWorkerStatusCode* out_result,
-             blink::ServiceWorkerStatusCode result) {
-            *out_result = result;
-            std::move(quit_closure).Run();
-          },
-          run_loop.QuitClosure(), &result));
-  run_loop.Run();
+// Tests that registering a service worker in JavaScript with a
+// chrome-untrusted:// URL fails.
+IN_PROC_BROWSER_TEST_F(ChromeWebUIServiceWorkerTest,
+                       DisallowChromeUntrustedSchemeInJavaScript) {
+  const GURL base_url("chrome-untrusted://dummyurl");
+  auto result = CreateWebUIAndRegisterServiceWorkerInJavaScript(base_url);
+  // Even when we add chrome-untrusted:// to the list of Service Worker schemes
+  // we should fail to register it because the flag is not enabled.
+  EXPECT_EQ(
+      "Failed to register a ServiceWorker: The URL protocol of the "
+      "current origin ('chrome-untrusted://dummyurl') is not supported.",
+      result);
+}
 
-  // Registration should fail. This is the desired behavior. At the time of this
-  // writing, there are a few reasons the registration fails:
-  // * OriginCanAccessServiceWorkers() returns false for the "chrome" scheme.
-  // * Even if that returned true, the URL loader factory bundle used to make
-  //   the resource request in ServiceWorkerNewScriptLoader doesn't support
-  //   the "chrome" scheme. This is because:
-  //     * The call to RegisterNonNetworkSubresourceURLLoaderFactories() from
-  //       CreateFactoryBundle() in embedded_worker_instance.cc doesn't register
-  //       the "chrome" scheme, because there is no frame/web_contents.
-  //     * Even if that registered a factory, CreateFactoryBundle() would
-  //       skip it because GetServiceWorkerSchemes() doesn't include "chrome".
-  //
-  // It's difficult to change all these, so the test author hasn't actually
-  // changed Chrome in a way that makes this test fail, to prove that the test
-  // would be effective at catching a regression.
-  EXPECT_EQ(result, blink::ServiceWorkerStatusCode::kErrorInvalidArguments);
+// Tests that registering a service worker with a chrome-untrusted:// URL fails
+// if the flag is not enabled.
+IN_PROC_BROWSER_TEST_F(ChromeWebUIServiceWorkerTest,
+                       DisllowChromeUntrustedScheme) {
+  const GURL base_url("chrome-untrusted://dummyurl");
+
+  // Similar to the chrome:// test above, but this fails with a kErrorNetwork
+  // error. This is because chrome-untrusted:// is registered as a Service
+  // Worker scheme but the loader factories are only added when the
+  // kEnableServiceWorkersForChromeUntrusted feature is enabled.
+  auto result = CreateWebUIAndRegisterServiceWorker(base_url);
+  EXPECT_EQ(result, blink::ServiceWorkerStatusCode::kErrorNetwork);
+}
+
+class ChromeWebUIServiceWorkerFlagTest : public ChromeWebUIServiceWorkerTest {
+ public:
+  ChromeWebUIServiceWorkerFlagTest()
+      : features_(features::kEnableServiceWorkersForChromeScheme) {}
+
+ private:
+  base::test::ScopedFeatureList features_;
+};
+
+// Tests that registering a service worker in JavaScript with a
+// chrome:// URL fails even if the flag is enabled.
+IN_PROC_BROWSER_TEST_F(ChromeWebUIServiceWorkerFlagTest,
+                       DisallowChromeSchemeInJavaScript) {
+  const GURL base_url("chrome://dummyurl");
+  auto result = CreateWebUIAndRegisterServiceWorkerInJavaScript(base_url);
+  EXPECT_EQ(
+      "Failed to register a ServiceWorker: The document is in an invalid "
+      "state.",
+      result);
+}
+
+// Tests that registering a service worker with a chrome-untrusted:// URL fails
+// even if the flag is enabled.
+IN_PROC_BROWSER_TEST_F(ChromeWebUIServiceWorkerFlagTest,
+                       DisallowChromeUntrustedScheme) {
+  const GURL base_url("chrome-untrusted://dummyurl");
+  auto result = CreateWebUIAndRegisterServiceWorker(base_url);
+  EXPECT_EQ(result, blink::ServiceWorkerStatusCode::kErrorNetwork);
+}
+
+// Tests that registering a service worker with a chrome:// URL works
+// if the flag is enabled.
+IN_PROC_BROWSER_TEST_F(ChromeWebUIServiceWorkerFlagTest, AllowChromeScheme) {
+  const GURL base_url("chrome://dummyurl");
+  auto result = CreateWebUIAndRegisterServiceWorker(base_url);
+  EXPECT_EQ(result, blink::ServiceWorkerStatusCode::kOk);
+}
+
+// Tests that registering a service worker in JavaScript with a
+// chrome-untrusted:// URL fails.
+IN_PROC_BROWSER_TEST_F(ChromeWebUIServiceWorkerFlagTest,
+                       DisallowChromeUntrustedSchemeInJavaScript) {
+  const GURL base_url("chrome-untrusted://dummyurl");
+  auto result = CreateWebUIAndRegisterServiceWorkerInJavaScript(base_url);
+  // We expect all WebUI Service Worker registrations to happen from C++
+  // so this should fail even when the flag is enabled.
+  EXPECT_EQ(
+      "Failed to register a ServiceWorker: The URL protocol of the current "
+      "origin ('chrome-untrusted://dummyurl') is not supported.",
+      result);
+}
+
+class ChromeWebUIServiceWorkerUntrustedFlagTest
+    : public ChromeWebUIServiceWorkerTest {
+ public:
+  ChromeWebUIServiceWorkerUntrustedFlagTest()
+      : features_(features::kEnableServiceWorkersForChromeUntrusted) {}
+
+ private:
+  base::test::ScopedFeatureList features_;
+};
+
+// Tests that registering a service worker in JavaScript with a chrome:// URL
+// fails even if the untrusted flag is enabled.
+IN_PROC_BROWSER_TEST_F(ChromeWebUIServiceWorkerUntrustedFlagTest,
+                       DisallowChromeSchemeInJavaScript) {
+  const GURL base_url("chrome://dummyurl");
+  auto result = CreateWebUIAndRegisterServiceWorkerInJavaScript(base_url);
+  EXPECT_EQ(
+      "Failed to register a ServiceWorker: The URL protocol of the current "
+      "origin ('chrome://dummyurl') is not supported.",
+      result);
+}
+
+// Tests that registering a service worker with a chrome:// URL fails even
+// if the untrusted flag is enabled.
+IN_PROC_BROWSER_TEST_F(ChromeWebUIServiceWorkerUntrustedFlagTest,
+                       DisallowChromeScheme) {
+  const GURL base_url("chrome://dummyurl");
+  auto result = CreateWebUIAndRegisterServiceWorker(base_url);
+  EXPECT_EQ(result, blink::ServiceWorkerStatusCode::kErrorNetwork);
+}
+
+// Tests that registering a service worker with a chrome-untrusted:// URL works
+// if the flag is enabled.
+IN_PROC_BROWSER_TEST_F(ChromeWebUIServiceWorkerUntrustedFlagTest,
+                       AllowChromeUntrustedScheme) {
+  const GURL base_url("chrome-untrusted://dummyurl");
+  auto result = CreateWebUIAndRegisterServiceWorker(base_url);
+  EXPECT_EQ(result, blink::ServiceWorkerStatusCode::kOk);
+}
+
+// Tests that registering a service worker in JavaScript with a
+// chrome-untrusted:// URL fails.
+IN_PROC_BROWSER_TEST_F(ChromeWebUIServiceWorkerUntrustedFlagTest,
+                       DisallowChromeUntrustedSchemeInJavaScript) {
+  const GURL base_url("chrome-untrusted://dummyurl");
+  auto result = CreateWebUIAndRegisterServiceWorkerInJavaScript(base_url);
+  // We expect all WebUI Service Worker registrations to happen from C++
+  // so this should fail even when the flag is enabled.
+  EXPECT_EQ(
+      "Failed to register a ServiceWorker: The document is in an "
+      "invalid state.",
+      result);
 }
 
 enum class ServicifiedFeatures { kNone, kServiceWorker, kNetwork };

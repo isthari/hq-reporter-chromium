@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,10 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
 #include "base/component_export.h"
 #include "base/files/file.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ref_counted_delete_on_sequence.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
@@ -22,14 +23,13 @@
 #include "base/threading/sequence_bound.h"
 #include "base/types/pass_key.h"
 #include "build/build_config.h"
+#include "components/file_access/scoped_file_access_delegate.h"
 #include "components/services/storage/public/cpp/quota_error_or.h"
 #include "components/services/storage/public/mojom/quota_client.mojom.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "storage/browser/file_system/file_system_request_info.h"
 #include "storage/browser/file_system/file_system_url.h"
 #include "storage/browser/file_system/open_file_system_mode.h"
-#include "storage/browser/file_system/plugin_private_file_system_backend.h"
-#include "storage/browser/file_system/sandbox_file_system_backend_delegate.h"
 #include "storage/browser/file_system/task_runner_bound_observer_list.h"
 #include "storage/common/file_system/file_system_types.h"
 #include "third_party/blink/public/mojom/quota/quota_types.mojom-shared.h"
@@ -46,9 +46,9 @@ namespace blink {
 class StorageKey;
 }  // namespace blink
 
-namespace leveleb {
+namespace leveldb {
 class Env;
-}  // namespace leveleb
+}  // namespace leveldb
 
 namespace storage {
 
@@ -71,7 +71,9 @@ class QuotaClientCallbackWrapper;
 class QuotaManagerProxy;
 class QuotaReservation;
 class SandboxFileSystemBackend;
+class SandboxFileSystemBackendDelegate;
 class SpecialStoragePolicy;
+class WatcherManager;
 
 struct BucketInfo;
 struct FileSystemInfo;
@@ -162,8 +164,8 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemContext
       const blink::StorageKey& storage_key,
       FileSystemType type);
 
-  QuotaManagerProxy* quota_manager_proxy() const {
-    return quota_manager_proxy_.get();
+  const scoped_refptr<QuotaManagerProxy>& quota_manager_proxy() const {
+    return quota_manager_proxy_;
   }
 
   // Discards inflight operations in the operation runner.
@@ -214,7 +216,7 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemContext
 
   // Used for OpenFileSystem.
   using OpenFileSystemCallback =
-      base::OnceCallback<void(const GURL& root,
+      base::OnceCallback<void(const FileSystemURL& root_url,
                               const std::string& name,
                               base::File::Error result)>;
 
@@ -230,7 +232,7 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemContext
                               const base::FilePath& file_path,
                               ResolvedEntryType type)>;
 
-  // Used for DeleteFileSystem and OpenPluginPrivateFileSystem.
+  // Used for DeleteFileSystem.
   using StatusCallback = base::OnceCallback<void(base::File::Error result)>;
 
   // Opens the filesystem for the given `storage_key` and `type`, and dispatches
@@ -238,7 +240,10 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemContext
   // If `create` is true this may actually set up a filesystem instance
   // (e.g. by creating the root directory or initializing the database
   // entry etc).
+  // Provide a non-null BucketLocator to override the default storage bucket
+  // for the root URL (which will be propagated to child URLs).
   void OpenFileSystem(const blink::StorageKey& storage_key,
+                      const absl::optional<storage::BucketLocator>& bucket,
                       FileSystemType type,
                       OpenFileSystemMode mode,
                       OpenFileSystemCallback callback);
@@ -278,7 +283,9 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemContext
       const FileSystemURL& url,
       int64_t offset,
       int64_t max_bytes_to_read,
-      const base::Time& expected_modification_time);
+      const base::Time& expected_modification_time,
+      file_access::ScopedFileAccessDelegate::RequestFilesAccessIOCallback
+          file_access = base::NullCallback());
 
   // Creates new FileStreamWriter instance to write into a file pointed by
   // `url` from `offset`.
@@ -331,20 +338,17 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemContext
   // (E.g. this returns false if the context is created for incognito mode)
   bool CanServeURLRequest(const FileSystemURL& url) const;
 
-  // This must be used to open 'plugin private' filesystem.
-  // See "plugin_private_file_system_backend.h" for more details.
-  //
-  // TODO(https://crbug.com/1231162): determine whether EME/CDM/plugin private
-  // file system will be partitioned; if so, replace the url::Origin parameter
-  // with blink::StorageKey
-  void OpenPluginPrivateFileSystem(const url::Origin& origin,
-                                   FileSystemType type,
-                                   const std::string& filesystem_id,
-                                   const std::string& plugin_id,
-                                   OpenFileSystemMode mode,
-                                   StatusCallback callback);
-
   bool is_incognito() { return is_incognito_; }
+
+  void ResolveURLOnOpenFileSystemForTesting(
+      const blink::StorageKey& storage_key,
+      const absl::optional<storage::BucketLocator>& bucket,
+      FileSystemType type,
+      OpenFileSystemMode mode,
+      OpenFileSystemCallback callback) {
+    ResolveURLOnOpenFileSystem(storage_key, bucket, type, mode,
+                               std::move(callback));
+  }
 
  private:
   // For CreateFileSystemOperation.
@@ -352,9 +356,6 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemContext
 
   // For sandbox_backend().
   friend class SandboxFileSystemTestHelper;
-
-  // For plugin_private_backend().
-  friend class PluginPrivateFileSystemBackendTest;
 
   // Deleters.
   friend class base::DeleteHelper<FileSystemContext>;
@@ -410,19 +411,22 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemContext
   // ResolveURLOnOpenFileSystem is called, either by OnGetOrCreateBucket
   // on successful bucket creation, or (tests onlyh) by OpenFileSystem
   // directly in the absence of a quota manager.
-  void ResolveURLOnOpenFileSystem(const blink::StorageKey& storage_key,
-                                  FileSystemType type,
-                                  OpenFileSystemMode mode,
-                                  OpenFileSystemCallback callback);
+  // `bucket` will be populated if the non-default storage bucket was used.
+  void ResolveURLOnOpenFileSystem(
+      const blink::StorageKey& storage_key,
+      const absl::optional<storage::BucketLocator>& bucket,
+      FileSystemType type,
+      OpenFileSystemMode mode,
+      OpenFileSystemCallback callback);
+  void DidResolveURLOnOpenFileSystem(const FileSystemURL& filesystem_root_url,
+                                     OpenFileSystemCallback callback,
+                                     const GURL& filesystem_root,
+                                     const std::string& filesystem_name,
+                                     base::File::Error error);
 
   // Returns a FileSystemBackend, used only by test code.
   SandboxFileSystemBackend* sandbox_backend() const {
     return sandbox_backend_.get();
-  }
-
-  // Used only by test code.
-  PluginPrivateFileSystemBackend* plugin_private_backend() const {
-    return plugin_private_backend_.get();
   }
 
   // Override the default leveldb Env with `env_override_` if set.
@@ -442,7 +446,6 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemContext
   std::unique_ptr<IsolatedFileSystemBackend> isolated_backend_;
 
   // Additional file system backends.
-  const std::unique_ptr<PluginPrivateFileSystemBackend> plugin_private_backend_;
   const std::vector<std::unique_ptr<FileSystemBackend>> additional_backends_;
 
   std::vector<URLRequestAutoMountHandler> auto_mount_handlers_;

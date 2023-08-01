@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,10 +14,8 @@ import androidx.core.util.Pair;
 import org.chromium.base.Callback;
 import org.chromium.base.CollectionUtil;
 import org.chromium.base.DiscardableReferencePool;
-import org.chromium.chrome.browser.download.DownloadLaterMetrics;
-import org.chromium.chrome.browser.download.DownloadLaterMetrics.DownloadLaterUiEvent;
-import org.chromium.chrome.browser.download.dialogs.DownloadLaterDialogHelper;
-import org.chromium.chrome.browser.download.dialogs.DownloadLaterDialogHelper.Source;
+import org.chromium.base.supplier.ObservableSupplier;
+import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.chrome.browser.download.home.DownloadManagerUiConfig;
 import org.chromium.chrome.browser.download.home.FaviconProvider;
 import org.chromium.chrome.browser.download.home.JustNowProvider;
@@ -36,13 +34,12 @@ import org.chromium.chrome.browser.download.home.list.DateOrderedListCoordinator
 import org.chromium.chrome.browser.download.home.list.DateOrderedListCoordinator.DeleteController;
 import org.chromium.chrome.browser.download.home.list.mutator.DateOrderedListMutator;
 import org.chromium.chrome.browser.download.home.list.mutator.ListMutationController;
-import org.chromium.chrome.browser.download.home.metrics.OfflineItemStartupLogger;
 import org.chromium.chrome.browser.download.home.metrics.UmaUtils;
-import org.chromium.chrome.browser.download.home.metrics.UmaUtils.ViewAction;
 import org.chromium.chrome.browser.profiles.OTRProfileID;
 import org.chromium.chrome.browser.thumbnail.generator.ThumbnailProvider;
 import org.chromium.chrome.browser.thumbnail.generator.ThumbnailProvider.ThumbnailRequest;
 import org.chromium.chrome.browser.thumbnail.generator.ThumbnailProviderImpl;
+import org.chromium.components.browser_ui.widget.gesture.BackPressHandler;
 import org.chromium.components.browser_ui.widget.selectable_list.SelectionDelegate;
 import org.chromium.components.offline_items_collection.LaunchLocation;
 import org.chromium.components.offline_items_collection.OfflineContentProvider;
@@ -61,7 +58,7 @@ import java.util.List;
  * A Mediator responsible for converting an OfflineContentProvider to a list of items in downloads
  * home.  This includes support for filtering, deleting, etc..
  */
-class DateOrderedListMediator {
+class DateOrderedListMediator implements BackPressHandler {
     /** Helper interface for handling share requests by the UI. */
     @FunctionalInterface
     public interface ShareController {
@@ -113,13 +110,15 @@ class DateOrderedListMediator {
     private final MediatorSelectionObserver mSelectionObserver;
     private final SelectionDelegate<ListItem> mSelectionDelegate;
     private final DownloadManagerUiConfig mUiConfig;
-    private final DownloadLaterDialogHelper mDownloadLaterDialogHelper;
 
     private final OffTheRecordOfflineItemFilter mOffTheRecordFilter;
     private final InvalidStateOfflineItemFilter mInvalidStateFilter;
     private final DeleteUndoOfflineItemFilter mDeleteUndoFilter;
     private final TypeOfflineItemFilter mTypeFilter;
     private final SearchOfflineItemFilter mSearchFilter;
+
+    private final ObservableSupplierImpl<Boolean> mBackPressStateSupplier =
+            new ObservableSupplierImpl<>();
 
     /**
      * A selection observer that correctly updates the selection state for each item in the list.
@@ -143,8 +142,9 @@ class DateOrderedListMediator {
                 mModel.update(i, item);
             }
             mModel.dispatchLastEvent();
-            mModel.getProperties().set(
-                    ListProperties.SELECTION_MODE_ACTIVE, mSelectionDelegate.isSelectionEnabled());
+            boolean selectionEnabled = mSelectionDelegate.isSelectionEnabled();
+            mModel.getProperties().set(ListProperties.SELECTION_MODE_ACTIVE, selectionEnabled);
+            mBackPressStateSupplier.set(selectionEnabled);
         }
     }
 
@@ -167,9 +167,8 @@ class DateOrderedListMediator {
     public DateOrderedListMediator(OfflineContentProvider provider, FaviconProvider faviconProvider,
             ShareController shareController, DeleteController deleteController,
             RenameController renameController, SelectionDelegate<ListItem> selectionDelegate,
-            DownloadLaterDialogHelper downloadLaterDialogHelper, DownloadManagerUiConfig config,
-            DateOrderedListObserver dateOrderedListObserver, ListItemModel model,
-            DiscardableReferencePool discardableReferencePool) {
+            DownloadManagerUiConfig config, DateOrderedListObserver dateOrderedListObserver,
+            ListItemModel model, DiscardableReferencePool discardableReferencePool) {
         // Build a chain from the data source to the model.  The chain will look like:
         // [OfflineContentProvider] ->
         //     [OfflineItemSource] ->
@@ -190,7 +189,6 @@ class DateOrderedListMediator {
         mDeleteController = deleteController;
         mRenameController = renameController;
         mSelectionDelegate = selectionDelegate;
-        mDownloadLaterDialogHelper = downloadLaterDialogHelper;
         mUiConfig = config;
 
         mSource = new OfflineItemSource(mProvider);
@@ -205,8 +203,6 @@ class DateOrderedListMediator {
         mListMutator = new DateOrderedListMutator(mTypeFilter, mModel, justNowProvider);
         mListMutationController =
                 new ListMutationController(mUiConfig, justNowProvider, mListMutator, mModel);
-
-        new OfflineItemStartupLogger(config, mInvalidStateFilter);
 
         mSearchFilter.addObserver(new EmptyStateObserver(mSearchFilter, dateOrderedListObserver));
         mThumbnailProvider = new ThumbnailProviderImpl(discardableReferencePool,
@@ -225,18 +221,18 @@ class DateOrderedListMediator {
         mModel.getProperties().set(ListProperties.PROVIDER_FAVICON, this::getFavicon);
         mModel.getProperties().set(ListProperties.CALLBACK_SELECTION, this::onSelection);
         mModel.getProperties().set(ListProperties.CALLBACK_RENAME, this::onRenameItem);
-        mModel.getProperties().set(ListProperties.CALLBACK_CHANGE, this::onChangeItem);
         mModel.getProperties().set(
                 ListProperties.CALLBACK_PAGINATION_CLICK, mListMutationController::loadMorePages);
         mModel.getProperties().set(ListProperties.CALLBACK_GROUP_PAGINATION_CLICK,
                 mListMutationController::loadMoreItemsOnCard);
+
+        mBackPressStateSupplier.set(mSelectionDelegate.isSelectionEnabled());
     }
 
     /** Tears down this mediator. */
     public void destroy() {
         mSource.destroy();
         mThumbnailProvider.destroy();
-        mDownloadLaterDialogHelper.destroy();
     }
 
     /**
@@ -282,8 +278,20 @@ class DateOrderedListMediator {
         return itemCount;
     }
 
+    @Override
+    public int handleBackPress() {
+        var ret = onBackPressed();
+        assert ret;
+        return ret ? BackPressResult.SUCCESS : BackPressResult.FAILURE;
+    }
+
+    @Override
+    public ObservableSupplier<Boolean> getHandleBackPressChangedSupplier() {
+        return mBackPressStateSupplier;
+    }
+
     /** Called to handle a back press event. */
-    public boolean handleBackPressed() {
+    public boolean onBackPressed() {
         if (mSelectionDelegate.isSelectionEnabled()) {
             mSelectionDelegate.clearSelection();
             return true;
@@ -312,53 +320,35 @@ class DateOrderedListMediator {
     }
 
     private void onOpenItem(OfflineItem item) {
-        UmaUtils.recordItemAction(ViewAction.OPEN);
         OpenParams openParams = new OpenParams(LaunchLocation.DOWNLOAD_HOME);
         openParams.openInIncognito = OTRProfileID.isOffTheRecord(mUiConfig.otrProfileID);
         mProvider.openItem(openParams, item.id);
     }
 
     private void onPauseItem(OfflineItem item) {
-        UmaUtils.recordItemAction(ViewAction.PAUSE);
         mProvider.pauseDownload(item.id);
     }
 
     private void onResumeItem(OfflineItem item) {
-        UmaUtils.recordItemAction(ViewAction.RESUME);
         mProvider.resumeDownload(item.id, true /* hasUserGesture */);
     }
 
     private void onCancelItem(OfflineItem item) {
-        UmaUtils.recordItemAction(ViewAction.CANCEL);
         mProvider.cancelDownload(item.id);
     }
 
     private void onDeleteItem(OfflineItem item) {
-        UmaUtils.recordItemAction(ViewAction.MENU_DELETE);
         deleteItemsInternal(Collections.singletonList(item));
     }
 
     private void onShareItem(OfflineItem item) {
-        UmaUtils.recordItemAction(ViewAction.MENU_SHARE);
         shareItemsInternal(CollectionUtil.newHashSet(item));
     }
 
     private void onRenameItem(OfflineItem item) {
-        UmaUtils.recordItemAction(ViewAction.MENU_RENAME);
         mRenameController.rename(item.title, (newName, renameCallback) -> {
             mProvider.renameItem(item.id, newName, renameCallback);
         });
-    }
-
-    private void onChangeItem(OfflineItem item) {
-        UmaUtils.recordItemAction(ViewAction.MENU_CHANGE);
-        DownloadLaterMetrics.recordDownloadLaterUiEvent(
-                DownloadLaterUiEvent.DOWNLOAD_HOME_CHANGE_SCHEDULE_CLICKED);
-        mDownloadLaterDialogHelper.showChangeScheduleDialog(
-                item.schedule, Source.DOWNLOAD_HOME, (newSchedule) -> {
-                    if (newSchedule == null) return;
-                    mProvider.changeSchedule(item.id, newSchedule);
-                });
     }
 
     /**

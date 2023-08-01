@@ -1,4 +1,4 @@
-// Copyright (c) 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "base/command_line.h"
 #include "base/containers/contains.h"
 #include "base/metrics/field_trial.h"
+#include "base/metrics/field_trial_params.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "components/network_session_configurator/common/network_features.h"
@@ -20,9 +21,9 @@
 #include "net/base/host_port_pair.h"
 #include "net/http/http_network_session.h"
 #include "net/http/http_stream_factory.h"
-#include "net/third_party/quiche/src/quic/core/crypto/crypto_protocol.h"
-#include "net/third_party/quiche/src/quic/core/quic_packets.h"
-#include "net/third_party/quiche/src/spdy/core/spdy_protocol.h"
+#include "net/third_party/quiche/src/quiche/quic/core/crypto/crypto_protocol.h"
+#include "net/third_party/quiche/src/quiche/quic/core/quic_packets.h"
+#include "net/third_party/quiche/src/quiche/spdy/core/spdy_protocol.h"
 #include "net/url_request/url_request_context_builder.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -92,18 +93,22 @@ TEST_F(NetworkSessionConfiguratorTest, Defaults) {
   EXPECT_FALSE(quic_params_.migrate_sessions_early_v2);
   EXPECT_FALSE(quic_params_.retry_on_alternate_network_before_handshake);
   EXPECT_FALSE(quic_params_.migrate_idle_sessions);
-  EXPECT_FALSE(quic_params_.go_away_on_path_degrading);
   EXPECT_TRUE(quic_params_.initial_rtt_for_handshake.is_zero());
   EXPECT_FALSE(quic_params_.allow_server_migration);
   EXPECT_TRUE(params_.quic_host_allowlist.empty());
   EXPECT_TRUE(quic_params_.retransmittable_on_wire_timeout.is_zero());
   EXPECT_FALSE(quic_params_.disable_tls_zero_rtt);
+  EXPECT_TRUE(quic_params_.allow_port_migration);
 
   EXPECT_EQ(net::DefaultSupportedQuicVersions(),
             quic_params_.supported_versions);
   EXPECT_FALSE(params_.enable_quic_proxies_for_https_urls);
   EXPECT_EQ("Chrome/52.0.2709.0 Linux x86_64", quic_params_.user_agent_id);
   EXPECT_EQ(0u, quic_params_.origins_to_force_quic_on.size());
+  EXPECT_FALSE(
+      quic_params_.initial_delay_for_broken_alternative_service.has_value());
+  EXPECT_FALSE(quic_params_.exponential_backoff_on_initial_delay.has_value());
+  EXPECT_FALSE(quic_params_.delay_main_job_with_available_spdy_session);
 }
 
 TEST_F(NetworkSessionConfiguratorTest, Http2FieldTrialGroupNameDoesNotMatter) {
@@ -117,8 +122,7 @@ TEST_F(NetworkSessionConfiguratorTest, Http2FieldTrialGroupNameDoesNotMatter) {
 TEST_F(NetworkSessionConfiguratorTest, Http2FieldTrialDisable) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["http2_enabled"] = "false";
-  variations::AssociateVariationParams("HTTP2", "Experiment",
-                                       field_trial_params);
+  base::AssociateFieldTrialParams("HTTP2", "Experiment", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("HTTP2", "Experiment");
 
   ParseFieldTrials();
@@ -129,7 +133,7 @@ TEST_F(NetworkSessionConfiguratorTest, Http2FieldTrialDisable) {
 TEST_F(NetworkSessionConfiguratorTest, DisableQuicFromFieldTrialGroup) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["enable_quic"] = "false";
-  variations::AssociateVariationParams("QUIC", "Disabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Disabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Disabled");
 
   ParseFieldTrials();
@@ -140,7 +144,7 @@ TEST_F(NetworkSessionConfiguratorTest, DisableQuicFromFieldTrialGroup) {
 TEST_F(NetworkSessionConfiguratorTest, EnableQuicFromParams) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["enable_quic"] = "true";
-  variations::AssociateVariationParams("QUIC", "UseQuic", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "UseQuic", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "UseQuic");
 
   ParseFieldTrials();
@@ -149,14 +153,14 @@ TEST_F(NetworkSessionConfiguratorTest, EnableQuicFromParams) {
 }
 
 TEST_F(NetworkSessionConfiguratorTest, ValidQuicParams) {
-  quic::ParsedQuicVersion version = quic::ParsedQuicVersion::Draft29();
+  quic::ParsedQuicVersion version = quic::AllSupportedVersions().front();
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["enable_quic"] = "true";
   field_trial_params["channel"] = "T";
   field_trial_params["epoch"] = "90001234";  // Epoch in the far future.
-  field_trial_params["quic_version"] = quic::AlpnForVersion(version);
-  variations::AssociateVariationParams("QUIC", "ValidQuicParams",
-                                       field_trial_params);
+  field_trial_params["quic_version"] = quic::ParsedQuicVersionToString(version);
+  base::AssociateFieldTrialParams("QUIC", "ValidQuicParams",
+                                  field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "ValidQuicParams");
 
   ParseFieldTrials();
@@ -169,13 +173,13 @@ TEST_F(NetworkSessionConfiguratorTest, ValidQuicParams) {
 }
 
 TEST_F(NetworkSessionConfiguratorTest, InvalidQuicParams) {
-  quic::ParsedQuicVersion version = quic::ParsedQuicVersion::Draft29();
+  quic::ParsedQuicVersion version = quic::AllSupportedVersions().front();
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["enable_quic"] = "true";
   // These params are missing channel and epoch.
-  field_trial_params["quic_version"] = quic::AlpnForVersion(version);
-  variations::AssociateVariationParams("QUIC", "InvalidQuicParams",
-                                       field_trial_params);
+  field_trial_params["quic_version"] = quic::ParsedQuicVersionToString(version);
+  base::AssociateFieldTrialParams("QUIC", "InvalidQuicParams",
+                                  field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "InvalidQuicParams");
 
   ParseFieldTrials();
@@ -200,7 +204,7 @@ TEST_F(NetworkSessionConfiguratorTest, EnableQuicForDataReductionProxy) {
 TEST_F(NetworkSessionConfiguratorTest, EnableQuicProxiesForHttpsUrls) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["enable_quic_proxies_for_https_urls"] = "true";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
 
   ParseFieldTrials();
@@ -211,7 +215,7 @@ TEST_F(NetworkSessionConfiguratorTest, EnableQuicProxiesForHttpsUrls) {
 TEST_F(NetworkSessionConfiguratorTest, DisableRetryWithoutAltSvcOnQuicErrors) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["retry_without_alt_svc_on_quic_errors"] = "false";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
 
   ParseFieldTrials();
@@ -223,7 +227,7 @@ TEST_F(NetworkSessionConfiguratorTest,
        QuicCloseSessionsOnIpChangeFromFieldTrialParams) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["close_sessions_on_ip_change"] = "true";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
 
   ParseFieldTrials();
@@ -235,7 +239,7 @@ TEST_F(NetworkSessionConfiguratorTest,
        QuicGoAwaySessionsOnIpChangeFromFieldTrialParams) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["goaway_sessions_on_ip_change"] = "true";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
 
   ParseFieldTrials();
@@ -247,7 +251,7 @@ TEST_F(NetworkSessionConfiguratorTest,
        QuicRetransmittableOnWireTimeoutMillisecondsFieldTrialParams) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["retransmittable_on_wire_timeout_milliseconds"] = "1000";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
 
   ParseFieldTrials();
@@ -257,10 +261,74 @@ TEST_F(NetworkSessionConfiguratorTest,
 }
 
 TEST_F(NetworkSessionConfiguratorTest,
+       InitialDelayForBrokenAlternativeServiceSeconds) {
+  std::map<std::string, std::string> field_trial_params;
+  field_trial_params["initial_delay_for_broken_alternative_service_seconds"] =
+      "5";
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
+  base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
+
+  ParseFieldTrials();
+
+  ASSERT_TRUE(
+      quic_params_.initial_delay_for_broken_alternative_service.has_value());
+  EXPECT_EQ(base::Seconds(5),
+            quic_params_.initial_delay_for_broken_alternative_service.value());
+}
+
+TEST_F(NetworkSessionConfiguratorTest, ExponentialBackOffOnInitialDelay) {
+  std::map<std::string, std::string> field_trial_params;
+  field_trial_params["exponential_backoff_on_initial_delay"] = "true";
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
+  base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
+
+  ParseFieldTrials();
+
+  ASSERT_TRUE(quic_params_.exponential_backoff_on_initial_delay.has_value());
+  EXPECT_TRUE(quic_params_.exponential_backoff_on_initial_delay.value());
+}
+
+TEST_F(NetworkSessionConfiguratorTest,
+       DisableExponentialBackOffOnInitialDelay) {
+  std::map<std::string, std::string> field_trial_params;
+  field_trial_params["exponential_backoff_on_initial_delay"] = "false";
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
+  base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
+
+  ParseFieldTrials();
+
+  ASSERT_TRUE(quic_params_.exponential_backoff_on_initial_delay.has_value());
+  EXPECT_FALSE(quic_params_.exponential_backoff_on_initial_delay.value());
+}
+
+TEST_F(NetworkSessionConfiguratorTest, DelayMainJobWithAvailableSpdySession) {
+  std::map<std::string, std::string> field_trial_params;
+  field_trial_params["delay_main_job_with_available_spdy_session"] = "true";
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
+  base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
+
+  ParseFieldTrials();
+
+  EXPECT_TRUE(quic_params_.delay_main_job_with_available_spdy_session);
+}
+
+TEST_F(NetworkSessionConfiguratorTest,
+       NotDelayMainJobWithAvailableSpdySession) {
+  std::map<std::string, std::string> field_trial_params;
+  field_trial_params["delay_main_job_with_available_spdy_session"] = "false";
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
+  base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
+
+  ParseFieldTrials();
+
+  EXPECT_FALSE(quic_params_.delay_main_job_with_available_spdy_session);
+}
+
+TEST_F(NetworkSessionConfiguratorTest,
        QuicIdleConnectionTimeoutSecondsFieldTrialParams) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["idle_connection_timeout_seconds"] = "300";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
 
   ParseFieldTrials();
@@ -272,7 +340,7 @@ TEST_F(NetworkSessionConfiguratorTest,
        NegativeQuicReducedPingTimeoutSecondsFieldTrialParams) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["reduced_ping_timeout_seconds"] = "-5";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
   ParseFieldTrials();
   EXPECT_EQ(base::Seconds(quic::kPingTimeoutSecs),
@@ -283,7 +351,7 @@ TEST_F(NetworkSessionConfiguratorTest,
        LargeQuicReducedPingTimeoutSecondsFieldTrialParams) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["reduced_ping_timeout_seconds"] = "50";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
   ParseFieldTrials();
   EXPECT_EQ(base::Seconds(quic::kPingTimeoutSecs),
@@ -294,7 +362,7 @@ TEST_F(NetworkSessionConfiguratorTest,
        QuicReducedPingTimeoutSecondsFieldTrialParams) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["reduced_ping_timeout_seconds"] = "10";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
   ParseFieldTrials();
   EXPECT_EQ(base::Seconds(10), quic_params_.reduced_ping_timeout);
@@ -304,7 +372,7 @@ TEST_F(NetworkSessionConfiguratorTest,
        QuicMaxTimeBeforeCryptoHandshakeSeconds) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["max_time_before_crypto_handshake_seconds"] = "7";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
   ParseFieldTrials();
   EXPECT_EQ(base::Seconds(7), quic_params_.max_time_before_crypto_handshake);
@@ -314,7 +382,7 @@ TEST_F(NetworkSessionConfiguratorTest,
        NegativeQuicMaxTimeBeforeCryptoHandshakeSeconds) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["max_time_before_crypto_handshake_seconds"] = "-1";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
   ParseFieldTrials();
   EXPECT_EQ(base::Seconds(quic::kMaxTimeForCryptoHandshakeSecs),
@@ -325,7 +393,7 @@ TEST_F(NetworkSessionConfiguratorTest,
        QuicMaxIdleTimeBeforeCryptoHandshakeSeconds) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["max_idle_time_before_crypto_handshake_seconds"] = "11";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
   ParseFieldTrials();
   EXPECT_EQ(base::Seconds(11),
@@ -336,7 +404,7 @@ TEST_F(NetworkSessionConfiguratorTest,
        NegativeQuicMaxIdleTimeBeforeCryptoHandshakeSeconds) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["max_idle_time_before_crypto_handshake_seconds"] = "-1";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
   ParseFieldTrials();
   EXPECT_EQ(base::Seconds(quic::kInitialIdleTimeoutSecs),
@@ -346,7 +414,7 @@ TEST_F(NetworkSessionConfiguratorTest,
 TEST_F(NetworkSessionConfiguratorTest, EnableServerPushCancellation) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["enable_server_push_cancellation"] = "true";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
 
   ParseFieldTrials();
@@ -357,7 +425,7 @@ TEST_F(NetworkSessionConfiguratorTest, EnableServerPushCancellation) {
 TEST_F(NetworkSessionConfiguratorTest, QuicEstimateInitialRtt) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["estimate_initial_rtt"] = "true";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
 
   ParseFieldTrials();
@@ -369,7 +437,7 @@ TEST_F(NetworkSessionConfiguratorTest,
        QuicMigrateSessionsOnNetworkChangeV2FromFieldTrialParams) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["migrate_sessions_on_network_change_v2"] = "true";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
 
   ParseFieldTrials();
@@ -381,7 +449,7 @@ TEST_F(NetworkSessionConfiguratorTest,
        QuicMigrateSessionsEarlyV2FromFieldTrialParams) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["migrate_sessions_early_v2"] = "true";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
 
   ParseFieldTrials();
@@ -393,7 +461,7 @@ TEST_F(NetworkSessionConfiguratorTest,
        QuicRetryOnAlternateNetworkBeforeHandshakeFromFieldTrialParams) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["retry_on_alternate_network_before_handshake"] = "true";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
 
   ParseFieldTrials();
@@ -402,23 +470,11 @@ TEST_F(NetworkSessionConfiguratorTest,
 }
 
 TEST_F(NetworkSessionConfiguratorTest,
-       QuicGoawayOnPathDegradingFromFieldTrialParams) {
-  std::map<std::string, std::string> field_trial_params;
-  field_trial_params["go_away_on_path_degrading"] = "true";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
-  base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
-
-  ParseFieldTrials();
-
-  EXPECT_TRUE(quic_params_.go_away_on_path_degrading);
-}
-
-TEST_F(NetworkSessionConfiguratorTest,
        QuicIdleSessionMigrationPeriodFromFieldTrialParams) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["migrate_idle_sessions"] = "true";
   field_trial_params["idle_session_migration_period_seconds"] = "15";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
 
   ParseFieldTrials();
@@ -431,7 +487,7 @@ TEST_F(NetworkSessionConfiguratorTest,
        QuicMaxTimeOnNonDefaultNetworkFromFieldTrialParams) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["max_time_on_non_default_network_seconds"] = "10";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
 
   ParseFieldTrials();
@@ -445,7 +501,7 @@ TEST_F(
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["max_migrations_to_non_default_network_on_write_error"] =
       "3";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
 
   ParseFieldTrials();
@@ -460,7 +516,7 @@ TEST_F(
   std::map<std::string, std::string> field_trial_params;
   field_trial_params
       ["max_migrations_to_non_default_network_on_path_degrading"] = "4";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
 
   ParseFieldTrials();
@@ -470,22 +526,22 @@ TEST_F(
 }
 
 TEST_F(NetworkSessionConfiguratorTest,
-       QuicAllowPortMigrationFromFieldTrialParams) {
+       DisableQuicAllowPortMigrationFromFieldTrialParams) {
   std::map<std::string, std::string> field_trial_params;
-  field_trial_params["allow_port_migration"] = "true";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  field_trial_params["allow_port_migration"] = "false";
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
 
   ParseFieldTrials();
 
-  EXPECT_TRUE(quic_params_.allow_port_migration);
+  EXPECT_FALSE(quic_params_.allow_port_migration);
 }
 
 TEST_F(NetworkSessionConfiguratorTest,
        QuicDisableTlsZeroRttFromFieldTrialParams) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["disable_tls_zero_rtt"] = "true";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
 
   ParseFieldTrials();
@@ -497,7 +553,7 @@ TEST_F(NetworkSessionConfiguratorTest,
        QuicDisableGQuicZeroRttFromFieldTrialParams) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["disable_gquic_zero_rtt"] = "true";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
 
   ParseFieldTrials();
@@ -508,7 +564,7 @@ TEST_F(NetworkSessionConfiguratorTest,
 TEST_F(NetworkSessionConfiguratorTest, PacketLengthFromFieldTrialParams) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["max_packet_length"] = "1450";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
 
   ParseFieldTrials();
@@ -516,53 +572,16 @@ TEST_F(NetworkSessionConfiguratorTest, PacketLengthFromFieldTrialParams) {
   EXPECT_EQ(1450u, quic_params_.max_packet_length);
 }
 
-TEST_F(NetworkSessionConfiguratorTest, QuicVersionFromFieldTrialParams) {
-  // Note that this test covers the legacy field param mechanism which relies on
-  // QuicVersionToString. We should now be using ALPNs instead.
-  quic::ParsedQuicVersion version =
-      quic::AllSupportedVersionsWithQuicCrypto().front();
-
-  std::map<std::string, std::string> field_trial_params;
-  field_trial_params["quic_version"] =
-      quic::QuicVersionToString(version.transport_version);
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
-  base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
-
-  ParseFieldTrials();
-
-  quic::ParsedQuicVersionVector supported_versions = {version};
-  EXPECT_EQ(supported_versions, quic_params_.supported_versions);
-}
-
 TEST_F(NetworkSessionConfiguratorTest, QuicVersionFromFieldTrialParamsAlpn) {
-  quic::ParsedQuicVersion version = quic::AllSupportedVersions().front();
+  quic::ParsedQuicVersion version = net::DefaultSupportedQuicVersions().front();
   std::map<std::string, std::string> field_trial_params;
-  field_trial_params["quic_version"] = quic::AlpnForVersion(version);
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  field_trial_params["quic_version"] = quic::ParsedQuicVersionToString(version);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
 
   ParseFieldTrials();
 
   quic::ParsedQuicVersionVector supported_versions = {version};
-  EXPECT_EQ(supported_versions, quic_params_.supported_versions);
-}
-
-TEST_F(NetworkSessionConfiguratorTest,
-       MultipleQuicVersionFromFieldTrialParamsAlpn) {
-  ASSERT_LE(2u, quic::AllSupportedVersions().size());
-  quic::ParsedQuicVersion version1 = quic::AllSupportedVersions()[0];
-  quic::ParsedQuicVersion version2 = quic::AllSupportedVersions()[1];
-  std::string quic_versions =
-      quic::AlpnForVersion(version1) + "," + quic::AlpnForVersion(version2);
-
-  std::map<std::string, std::string> field_trial_params;
-  field_trial_params["quic_version"] = quic_versions;
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
-  base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
-
-  ParseFieldTrials();
-
-  quic::ParsedQuicVersionVector supported_versions = {version1, version2};
   EXPECT_EQ(supported_versions, quic_params_.supported_versions);
 }
 
@@ -570,7 +589,7 @@ TEST_F(NetworkSessionConfiguratorTest,
        QuicConnectionOptionsFromFieldTrialParams) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["connection_options"] = "TIME,TBBR,REJ";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
 
   ParseFieldTrials();
@@ -586,7 +605,7 @@ TEST_F(NetworkSessionConfiguratorTest,
        QuicClientConnectionOptionsFromFieldTrialParams) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["client_connection_options"] = "TBBR,1RTT";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
 
   ParseFieldTrials();
@@ -600,7 +619,7 @@ TEST_F(NetworkSessionConfiguratorTest,
 TEST_F(NetworkSessionConfiguratorTest, QuicHostAllowlist) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["host_whitelist"] = "www.example.org, www.example.com";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
 
   ParseFieldTrials();
@@ -613,7 +632,7 @@ TEST_F(NetworkSessionConfiguratorTest, QuicHostAllowlist) {
 TEST_F(NetworkSessionConfiguratorTest, QuicHostAllowlistEmpty) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["host_whitelist"] = "";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
 
   ParseFieldTrials();
@@ -628,7 +647,7 @@ TEST_F(NetworkSessionConfiguratorTest, QuicFlags) {
   field_trial_params["set_quic_flags"] =
       "FLAGS_quic_reloadable_flag_quic_testonly_default_false=true,"
       "FLAGS_quic_restart_flag_quic_testonly_default_true=false";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
 
   ParseFieldTrials();
@@ -640,7 +659,7 @@ TEST_F(NetworkSessionConfiguratorTest, QuicFlags) {
 TEST_F(NetworkSessionConfiguratorTest, Http2SettingsFromFieldTrialParams) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["http2_settings"] = "7:1234,25:5678";
-  variations::AssociateVariationParams("HTTP2", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("HTTP2", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("HTTP2", "Enabled");
 
   ParseFieldTrials();
@@ -808,17 +827,6 @@ TEST_F(NetworkSessionConfiguratorTest, SimpleCacheTrialDisable) {
 #endif
 }
 
-TEST_F(NetworkSessionConfiguratorTest, QuicHeadersIncludeH2StreamDependency) {
-  std::map<std::string, std::string> field_trial_params;
-  field_trial_params["headers_include_h2_stream_dependency"] = "true";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
-  base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
-
-  ParseFieldTrials();
-
-  EXPECT_TRUE(quic_params_.headers_include_h2_stream_dependency);
-}
-
 TEST_F(NetworkSessionConfiguratorTest, Http2GreaseSettingsFromCommandLine) {
   base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
   command_line.AppendSwitch(switches::kEnableHttp2GreaseSettings);
@@ -831,7 +839,7 @@ TEST_F(NetworkSessionConfiguratorTest, Http2GreaseSettingsFromCommandLine) {
 TEST_F(NetworkSessionConfiguratorTest, Http2GreaseSettingsFromFieldTrial) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["http2_grease_settings"] = "true";
-  variations::AssociateVariationParams("HTTP2", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("HTTP2", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("HTTP2", "Enabled");
 
   ParseFieldTrials();
@@ -846,7 +854,7 @@ TEST_F(NetworkSessionConfiguratorTest,
 
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["http2_grease_settings"] = "true";
-  variations::AssociateVariationParams("HTTP2", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("HTTP2", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("HTTP2", "Enabled");
 
   ParseCommandLineAndFieldTrials(command_line);
@@ -868,7 +876,7 @@ TEST_F(NetworkSessionConfiguratorTest, Http2GreaseFrameTypeFromCommandLine) {
 TEST_F(NetworkSessionConfiguratorTest, Http2GreaseFrameTypeFromFieldTrial) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["http2_grease_frame_type"] = "true";
-  variations::AssociateVariationParams("HTTP2", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("HTTP2", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("HTTP2", "Enabled");
 
   ParseFieldTrials();
@@ -882,7 +890,7 @@ TEST_F(NetworkSessionConfiguratorTest,
        Http2EndStreamWithDataFrameFromFieldTrial) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["http2_end_stream_with_data_frame"] = "true";
-  variations::AssociateVariationParams("HTTP2", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("HTTP2", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("HTTP2", "Enabled");
 
   ParseFieldTrials();
@@ -894,7 +902,7 @@ TEST_F(NetworkSessionConfiguratorTest,
        QuicInitialRttForHandshakeFromFieldTrailParams) {
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["initial_rtt_for_handshake_milliseconds"] = "500";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
 
   ParseFieldTrials();
@@ -937,7 +945,7 @@ TEST_P(NetworkSessionConfiguratorWithQuicVersionTest, QuicVersionAlpn) {
   base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
   command_line.AppendSwitch(switches::kEnableQuic);
   command_line.AppendSwitchASCII(switches::kQuicVersion,
-                                 quic::AlpnForVersion(version_));
+                                 quic::ParsedQuicVersionToString(version_));
   ParseCommandLineAndFieldTrials(command_line);
   quic::ParsedQuicVersionVector expected_versions = {version_};
   EXPECT_EQ(expected_versions, quic_params_.supported_versions);
@@ -951,8 +959,7 @@ TEST_P(NetworkSessionConfiguratorWithQuicVersionTest,
     return;
   }
   quic::ParsedQuicVersionVector obsolete_versions = net::ObsoleteQuicVersions();
-  if (std::find(obsolete_versions.begin(), obsolete_versions.end(), version_) !=
-      obsolete_versions.end()) {
+  if (base::Contains(obsolete_versions, version_)) {
     // Do not test obsolete versions here as those are covered by the
     // ObsoleteQuicVersion tests.
     return;
@@ -962,7 +969,7 @@ TEST_P(NetworkSessionConfiguratorWithQuicVersionTest,
       quic::QuicVersionToString(version_.transport_version);
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["quic_version"] = quic_versions;
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
   ParseFieldTrials();
   quic::ParsedQuicVersionVector expected_versions = {version_};
@@ -972,17 +979,16 @@ TEST_P(NetworkSessionConfiguratorWithQuicVersionTest,
 TEST_P(NetworkSessionConfiguratorWithQuicVersionTest,
        SameQuicVersionsFromFieldTrialParamsAlpn) {
   quic::ParsedQuicVersionVector obsolete_versions = net::ObsoleteQuicVersions();
-  if (std::find(obsolete_versions.begin(), obsolete_versions.end(), version_) !=
-      obsolete_versions.end()) {
+  if (base::Contains(obsolete_versions, version_)) {
     // Do not test obsolete versions here as those are covered by the
     // ObsoleteQuicVersion tests.
     return;
   }
-  std::string quic_versions =
-      quic::AlpnForVersion(version_) + "," + quic::AlpnForVersion(version_);
+  std::string quic_versions = quic::ParsedQuicVersionToString(version_) + "," +
+                              quic::ParsedQuicVersionToString(version_);
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["quic_version"] = quic_versions;
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
   ParseFieldTrials();
   quic::ParsedQuicVersionVector expected_versions = {version_};
@@ -992,15 +998,14 @@ TEST_P(NetworkSessionConfiguratorWithQuicVersionTest,
 TEST_P(NetworkSessionConfiguratorWithQuicVersionTest, ObsoleteQuicVersion) {
   // Test that a single obsolete version causes us to use default versions.
   quic::ParsedQuicVersionVector obsolete_versions = net::ObsoleteQuicVersions();
-  if (std::find(obsolete_versions.begin(), obsolete_versions.end(), version_) ==
-      obsolete_versions.end()) {
+  if (!base::Contains(obsolete_versions, version_)) {
     // Only test obsolete versions here.
     return;
   }
-  std::string quic_versions = quic::AlpnForVersion(version_);
+  std::string quic_versions = quic::ParsedQuicVersionToString(version_);
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["quic_version"] = quic_versions;
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
   ParseFieldTrials();
   EXPECT_EQ(net::DefaultSupportedQuicVersions(),
@@ -1008,67 +1013,23 @@ TEST_P(NetworkSessionConfiguratorWithQuicVersionTest, ObsoleteQuicVersion) {
 }
 
 TEST_P(NetworkSessionConfiguratorWithQuicVersionTest,
-       ObsoleteQuicVersionAllowed) {
-  // Test that a single obsolete version is used when explicitly allowed.
-  quic::ParsedQuicVersionVector obsolete_versions = net::ObsoleteQuicVersions();
-  if (std::find(obsolete_versions.begin(), obsolete_versions.end(), version_) ==
-      obsolete_versions.end()) {
-    // Only test obsolete versions here.
-    return;
-  }
-  std::string quic_versions = quic::AlpnForVersion(version_);
-  std::map<std::string, std::string> field_trial_params;
-  field_trial_params["quic_version"] = quic_versions;
-  field_trial_params["obsolete_versions_allowed"] = "true";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
-  base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
-  ParseFieldTrials();
-  quic::ParsedQuicVersionVector expected_versions = {version_};
-  EXPECT_EQ(expected_versions, quic_params_.supported_versions);
-}
-
-TEST_P(NetworkSessionConfiguratorWithQuicVersionTest,
        ObsoleteQuicVersionWithGoodVersion) {
   // Test that when using one obsolete version and a supported version, the
   // supported version is used.
   quic::ParsedQuicVersionVector obsolete_versions = net::ObsoleteQuicVersions();
-  if (std::find(obsolete_versions.begin(), obsolete_versions.end(), version_) ==
-      obsolete_versions.end()) {
+  if (!base::Contains(obsolete_versions, version_)) {
     // Only test obsolete versions here.
     return;
   }
   quic::ParsedQuicVersion good_version = quic::AllSupportedVersions().front();
-  std::string quic_versions =
-      quic::AlpnForVersion(version_) + "," + quic::AlpnForVersion(good_version);
+  std::string quic_versions = quic::ParsedQuicVersionToString(version_) + "," +
+                              quic::ParsedQuicVersionToString(good_version);
   std::map<std::string, std::string> field_trial_params;
   field_trial_params["quic_version"] = quic_versions;
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
+  base::AssociateFieldTrialParams("QUIC", "Enabled", field_trial_params);
   base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
   ParseFieldTrials();
   quic::ParsedQuicVersionVector expected_versions = {good_version};
-  EXPECT_EQ(expected_versions, quic_params_.supported_versions);
-}
-
-TEST_P(NetworkSessionConfiguratorWithQuicVersionTest,
-       ObsoleteQuicVersionAllowedWithGoodVersion) {
-  // Test that when using one obsolete version and a non-obsolete version, and
-  // obsolete versions are allowed, then both are used.
-  quic::ParsedQuicVersionVector obsolete_versions = net::ObsoleteQuicVersions();
-  if (std::find(obsolete_versions.begin(), obsolete_versions.end(), version_) ==
-      obsolete_versions.end()) {
-    // Only test obsolete versions here.
-    return;
-  }
-  quic::ParsedQuicVersion good_version = quic::AllSupportedVersions().front();
-  std::string quic_versions =
-      quic::AlpnForVersion(version_) + "," + quic::AlpnForVersion(good_version);
-  std::map<std::string, std::string> field_trial_params;
-  field_trial_params["quic_version"] = quic_versions;
-  field_trial_params["obsolete_versions_allowed"] = "true";
-  variations::AssociateVariationParams("QUIC", "Enabled", field_trial_params);
-  base::FieldTrialList::CreateFieldTrial("QUIC", "Enabled");
-  ParseFieldTrials();
-  quic::ParsedQuicVersionVector expected_versions = {version_, good_version};
   EXPECT_EQ(expected_versions, quic_params_.supported_versions);
 }
 

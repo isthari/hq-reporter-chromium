@@ -1,7 +1,9 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/test/metrics/histogram_tester.h"
+#include "chrome/browser/password_manager/chrome_password_manager_client.h"
 #include "chrome/browser/password_manager/passwords_navigation_observer.h"
 #include "chrome/test/base/android/android_browser_test.h"
 #include "chrome/test/base/chrome_test_utils.h"
@@ -12,30 +14,26 @@
 #include "content/public/test/browser_test.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
+#include "testing/gtest/include/gtest/gtest-param-test.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
 
 autofill::PasswordFormFillData GetTestFillData() {
   autofill::PasswordFormFillData fill_data;
-  autofill::FormFieldData username_field;
-  username_field.name = u"username_field";
-  fill_data.username_field = username_field;
-  autofill::FormFieldData password_field;
-  password_field.name = u"password_field";
-  password_field.form_control_type = "password";
-  fill_data.password_field = password_field;
   // Renderer IDs should match real elements' IDs. They cannot be retrieved in a
   // content::BrowserTestBase, so they are guessed based on the fact the
   // username and password fields are the first two elements on the page.
-  fill_data.username_field.unique_renderer_id = autofill::FieldRendererId(1);
-  fill_data.password_field.unique_renderer_id = autofill::FieldRendererId(2);
+  fill_data.username_element_renderer_id = autofill::FieldRendererId(1);
+  fill_data.password_element_renderer_id = autofill::FieldRendererId(2);
   return fill_data;
 }
 
 }  // namespace
 
-class PasswordManagerAndroidBrowserTest : public AndroidBrowserTest {
+class PasswordManagerAndroidBrowserTest
+    : public AndroidBrowserTest,
+      public testing::WithParamInterface<bool> {
  public:
   PasswordManagerAndroidBrowserTest()
       : https_server_(net::EmbeddedTestServer::TYPE_HTTPS) {}
@@ -61,21 +59,26 @@ class PasswordManagerAndroidBrowserTest : public AndroidBrowserTest {
     PasswordsNavigationObserver observer(GetActiveWebContents());
     EXPECT_TRUE(content::NavigateToURL(GetActiveWebContents(),
                                        https_server_.GetURL(file_path)));
-    observer.Wait();
+    ASSERT_TRUE(observer.Wait());
   }
 
  private:
   net::EmbeddedTestServer https_server_;
 };
 
-IN_PROC_BROWSER_TEST_F(PasswordManagerAndroidBrowserTest, TriggerSubmission) {
-  NavigateToFile("/password/simple_password.html");
+IN_PROC_BROWSER_TEST_P(PasswordManagerAndroidBrowserTest,
+                       TriggerFormSubmission) {
+  base::HistogramTester uma_recorder;
+  bool has_form_tag = GetParam();
+  NavigateToFile(has_form_tag ? "/password/simple_password.html"
+                              : "/password/no_form_element.html");
 
   password_manager::ContentPasswordManagerDriverFactory* driver_factory =
       password_manager::ContentPasswordManagerDriverFactory::FromWebContents(
           GetActiveWebContents());
   password_manager::ContentPasswordManagerDriver* driver =
-      driver_factory->GetDriverForFrame(GetActiveWebContents()->GetMainFrame());
+      driver_factory->GetDriverForFrame(
+          GetActiveWebContents()->GetPrimaryMainFrame());
 
   PasswordsNavigationObserver observer(GetActiveWebContents());
   observer.SetPathToWaitFor("/password/done.html");
@@ -86,17 +89,26 @@ IN_PROC_BROWSER_TEST_F(PasswordManagerAndroidBrowserTest, TriggerSubmission) {
   // To make the test closer to TouchToFill, use |FillSuggestion| to fill a
   // credential later.
   fill_data.wait_for_username = true;
-  driver->FillPasswordForm(fill_data);
+  driver->SetPasswordFillData(fill_data);
 
   // A user taps the username field.
-  ASSERT_TRUE(content::ExecuteScript(
-      GetActiveWebContents(),
-      "document.getElementById('username_field').focus();"));
+  ASSERT_TRUE(
+      content::ExecJs(GetActiveWebContents(),
+                      "document.getElementById('username_field').focus();"));
 
   // A user accepts a credential in TouchToFill. That fills in the credential
   // and submits it.
+  ChromePasswordManagerClient::FromWebContents(GetActiveWebContents())
+      ->StartSubmissionTrackingAfterTouchToFill(u"username");
   driver->FillSuggestion(u"username", u"password");
   driver->TriggerFormSubmission();
 
-  observer.Wait();
+  ASSERT_TRUE(observer.Wait());
+
+  uma_recorder.ExpectTotalCount(
+      "PasswordManager.TouchToFill.TimeToSuccessfulLogin", 1);
 }
+
+INSTANTIATE_TEST_SUITE_P(VariateFormElementPresence,
+                         PasswordManagerAndroidBrowserTest,
+                         testing::Bool());

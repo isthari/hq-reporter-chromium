@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,7 +22,8 @@
 #include "ash/public/cpp/assistant/assistant_state.h"
 #include "ash/public/cpp/assistant/controller/assistant_suggestions_controller.h"
 #include "ash/public/cpp/assistant/controller/assistant_ui_controller.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_functions.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/compositor/callback_layer_animation_observer.h"
@@ -46,11 +47,7 @@ constexpr base::TimeDelta kChipFadeOutDuration = base::Milliseconds(200);
 constexpr char kAssistantSuggestionChipHistogram[] =
     "Ash.Assistant.AnimationSmoothness.SuggestionChip";
 
-// Returns the preferred height in DIPs. Not named GetPreferredHeight() so it
-// looks less like a views::View method.
-int GetPreferredHeightDip() {
-  return features::IsProductivityLauncherEnabled() ? 64 : 48;
-}
+constexpr int kPreferredHeightDip = 64;
 
 }  // namespace
 
@@ -100,7 +97,8 @@ class SuggestionChipAnimator : public ElementAnimator {
         0.f, kChipFadeOutDuration, gfx::Tween::Type::FAST_OUT_SLOW_IN));
   }
 
-  const SuggestionContainerView* const parent_;  // |parent_| owns |this|.
+  const raw_ptr<const SuggestionContainerView, ExperimentalAsh>
+      parent_;  // |parent_| owns |this|.
 };
 
 // SuggestionContainerView -----------------------------------------------------
@@ -128,7 +126,7 @@ gfx::Size SuggestionContainerView::CalculatePreferredSize() const {
 }
 
 int SuggestionContainerView::GetHeightForWidth(int width) const {
-  return GetPreferredHeightDip();
+  return kPreferredHeightDip;
 }
 
 void SuggestionContainerView::OnContentsPreferredSizeChanged(
@@ -137,7 +135,7 @@ void SuggestionContainerView::OnContentsPreferredSizeChanged(
   // showing conversation starters we will be center aligned.
   const int width =
       std::max(content_view->GetPreferredSize().width(), this->width());
-  content_view->SetSize(gfx::Size(width, GetPreferredHeightDip()));
+  content_view->SetSize(gfx::Size(width, kPreferredHeightDip));
 }
 
 void SuggestionContainerView::OnAssistantControllerDestroying() {
@@ -160,7 +158,7 @@ void SuggestionContainerView::InitLayout() {
   layout_manager_ =
       content_view()->SetLayoutManager(std::make_unique<views::BoxLayout>(
           views::BoxLayout::Orientation::kHorizontal,
-          gfx::Insets(0, assistant::ui::GetHorizontalPadding()),
+          gfx::Insets::VH(0, assistant::ui::kHorizontalPadding),
           /*between_child_spacing=*/kSpacingDip));
 
   layout_manager_->set_cross_axis_alignment(
@@ -247,6 +245,12 @@ void SuggestionContainerView::OnUiVisibilityChanged(
   // we need to center align our content.
   layout_manager_->set_main_axis_alignment(
       views::BoxLayout::MainAxisAlignment::kCenter);
+}
+
+void SuggestionContainerView::InitializeUIForBubbleView() {
+  OnConversationStartersChanged(AssistantSuggestionsController::Get()
+                                    ->GetModel()
+                                    ->GetConversationStarters());
 }
 
 void SuggestionContainerView::OnButtonPressed(SuggestionChipView* chip_view) {

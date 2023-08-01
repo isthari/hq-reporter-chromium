@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,7 +26,7 @@ public interface SceneChangeObserver {
      * Called when the active {@link Layout} changes.
      * @param layout The new active {@link Layout}.
      *
-     * DEPRECATED, please use {@link LayoutStateObserver#onStartedShowing(int, boolean)} instead.
+     * DEPRECATED, please use {@link LayoutStateObserver#onStartedShowing(int)} instead.
      */
     void onSceneChange(Layout layout);
 }

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,20 +9,24 @@
 #include "base/strings/sys_string_conversions.h"
 #include "services/shape_detection/detection_utils_mac.h"
 
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
+
 namespace shape_detection {
 
 BarcodeDetectionImplMac::BarcodeDetectionImplMac() {
   NSDictionary* const options = @{CIDetectorAccuracy : CIDetectorAccuracyHigh};
-  detector_.reset([[CIDetector detectorOfType:CIDetectorTypeQRCode
-                                      context:nil
-                                      options:options] retain]);
+  detector_ = [CIDetector detectorOfType:CIDetectorTypeQRCode
+                                 context:nil
+                                 options:options];
 }
 
-BarcodeDetectionImplMac::~BarcodeDetectionImplMac() {}
+BarcodeDetectionImplMac::~BarcodeDetectionImplMac() = default;
 
 void BarcodeDetectionImplMac::Detect(const SkBitmap& bitmap,
                                      DetectCallback callback) {
-  base::scoped_nsobject<CIImage> ci_image = CreateCIImageFromSkBitmap(bitmap);
+  CIImage* ci_image = CIImageFromSkBitmap(bitmap);
   if (!ci_image) {
     std::move(callback).Run({});
     return;

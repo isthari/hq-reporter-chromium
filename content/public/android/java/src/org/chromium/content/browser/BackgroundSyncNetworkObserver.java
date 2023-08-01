@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -143,6 +143,9 @@ public class BackgroundSyncNetworkObserver implements NetworkChangeNotifierAutoD
     }
 
     @Override
+    public void onConnectionCostChanged(int newConnectionCost) {}
+
+    @Override
     public void onConnectionSubtypeChanged(int newConnectionSubtype) {}
 
     @Override
@@ -153,7 +156,7 @@ public class BackgroundSyncNetworkObserver implements NetworkChangeNotifierAutoD
         // If we're in doze mode (N+ devices), onConnectionTypeChanged may not
         // be called, but this function should. So update the connection type
         // if necessary.
-        broadcastNetworkChangeIfNecessary(mNotifier.getCurrentNetworkState().getConnectionType());
+        broadcastNetworkChangeIfNecessary(connectionType);
     }
 
     @Override

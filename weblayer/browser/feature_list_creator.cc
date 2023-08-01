@@ -1,15 +1,17 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "weblayer/browser/feature_list_creator.h"
 
 #include "base/base_switches.h"
+#include "base/command_line.h"
 #include "build/build_config.h"
 #include "components/metrics/metrics_state_manager.h"
 #include "components/prefs/pref_service.h"
 #include "components/variations/service/variations_service.h"
 #include "components/variations/variations_crash_keys.h"
+#include "components/variations/variations_switches.h"
 #include "content/public/browser/network_service_instance.h"
 #include "content/public/common/content_switch_dependent_feature_overrides.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
@@ -55,6 +57,37 @@ void FeatureListCreator::SetSystemNetworkContextManager(
   system_network_context_manager_ = system_network_context_manager;
 }
 
+void FeatureListCreator::CreateFeatureListAndFieldTrials() {
+#if BUILDFLAG(IS_ANDROID)
+  WebLayerMetricsServiceClient::GetInstance()->Initialize(local_state_);
+#endif
+  SetUpFieldTrials();
+}
+
+void FeatureListCreator::PerformPreMainMessageLoopStartup() {
+#if BUILDFLAG(IS_ANDROID)
+  // It is expected this is called after SetUpFieldTrials().
+  DCHECK(variations_service_);
+  variations_service_->PerformPreMainMessageLoopStartup();
+#endif
+}
+
+void FeatureListCreator::OnBrowserCreated() {
+  if (has_browser_created_) {
+    return;
+  }
+
+  has_browser_created_ = true;
+  // It is expected this is called after SetUpFieldTrials().
+  DCHECK(variations_service_);
+
+  // This function is called any time a Browser is started.
+  // OnAppEnterForeground() really need only be called once, and because our
+  // notion of a browser doesn't really map to the Application as a whole,
+  // call this function once.
+  variations_service_->OnAppEnterForeground();
+}
+
 void FeatureListCreator::SetUpFieldTrials() {
 #if BUILDFLAG(IS_ANDROID)
   // The FieldTrialList should have been instantiated in
@@ -75,45 +108,18 @@ void FeatureListCreator::SetUpFieldTrials() {
   std::vector<std::string> variation_ids;
   auto feature_list = std::make_unique<base::FeatureList>();
 
+  const base::CommandLine* command_line =
+      base::CommandLine::ForCurrentProcess();
   variations_service_->SetUpFieldTrials(
       variation_ids,
-      content::GetSwitchDependentFeatureOverrides(
-          *base::CommandLine::ForCurrentProcess()),
+      command_line->GetSwitchValueASCII(
+          variations::switches::kForceVariationIds),
+      content::GetSwitchDependentFeatureOverrides(*command_line),
       std::move(feature_list), &weblayer_field_trials_);
   variations::InitCrashKeys();
 #else
   // TODO(weblayer-dev): Support variations on desktop.
 #endif
-}
-
-void FeatureListCreator::CreateFeatureListAndFieldTrials() {
-#if BUILDFLAG(IS_ANDROID)
-  WebLayerMetricsServiceClient::GetInstance()->Initialize(local_state_);
-#endif
-  SetUpFieldTrials();
-}
-
-void FeatureListCreator::PerformPreMainMessageLoopStartup() {
-#if BUILDFLAG(IS_ANDROID)
-  // It is expected this is called after SetUpFieldTrials().
-  DCHECK(variations_service_);
-  variations_service_->PerformPreMainMessageLoopStartup();
-#endif
-}
-
-void FeatureListCreator::OnBrowserFragmentStarted() {
-  if (has_browser_fragment_started_)
-    return;
-
-  has_browser_fragment_started_ = true;
-  // It is expected this is called after SetUpFieldTrials().
-  DCHECK(variations_service_);
-
-  // This function is called any time a BrowserFragment is started.
-  // OnAppEnterForeground() really need only be called once, and because our
-  // notion of a fragment doesn't really map to the Application as a whole,
-  // call this function once.
-  variations_service_->OnAppEnterForeground();
 }
 
 }  // namespace weblayer

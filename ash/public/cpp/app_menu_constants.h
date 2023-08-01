@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,20 +12,25 @@ namespace ash {
 // enum with the intention that it will be logged, add checks to ensure
 // stability of the enum and update the ChromeOSUICommands enum listing in
 // tools/metrics/histograms/enums.xml.
-// TODO(newcomer): Deprecate duplicate CommandIds after the Touchable App
-// Context Menu launch. Delay deprecating these because it will disrupt
-// histograms. https://crbug.com/854433
 enum CommandId {
   // Used by ShelfContextMenu.
-  MENU_OPEN_NEW = 0,
+  // Superseded by LAUNCH_NEW.
+  DEPRECATED_MENU_OPEN_NEW = 0,
   MENU_CLOSE = 1,
-  MENU_PIN = 2,
-  LAUNCH_TYPE_PINNED_TAB = 3,
-  LAUNCH_TYPE_REGULAR_TAB = 4,
-  LAUNCH_TYPE_FULLSCREEN = 5,
-  LAUNCH_TYPE_WINDOW = 6,
-  MENU_NEW_WINDOW = 7,
-  MENU_NEW_INCOGNITO_WINDOW = 8,
+  // Superseded by TOGGLE_PIN.
+  DEPRECATED_MENU_PIN = 2,
+  // Superseded by USE_LAUNCH_TYPE_PINNED.
+  DEPRECATED_LAUNCH_TYPE_PINNED_TAB = 3,
+  // Superseded by USE_LAUNCH_TYPE_REGULAR.
+  DEPRECATED_LAUNCH_TYPE_REGULAR_TAB = 4,
+  // Superseded by USE_LAUNCH_TYPE_FULLSCREEN.
+  DEPRECATED_LAUNCH_TYPE_FULLSCREEN = 5,
+  // Superseded by USE_LAUNCH_TYPE_WINDOW.
+  DEPRECATED_LAUNCH_TYPE_WINDOW = 6,
+  // Superseded by APP_CONTEXT_MENU_NEW_WINDOW.
+  DEPRECATED_MENU_NEW_WINDOW = 7,
+  // Superseded by APP_CONTEXT_MENU_NEW_INCOGNITO_WINDOW.
+  DEPRECATED_MENU_NEW_INCOGNITO_WINDOW = 8,
 
   // Used by AppMenuModelAdapter.
   NOTIFICATION_CONTAINER = 9,
@@ -39,7 +44,8 @@ enum CommandId {
   SWAP_WITH_PREVIOUS = 13,
 
   // Used by ShelfContextMenu.
-  LAUNCH_TYPE_TABBED_WINDOW = 20,
+  // Superseded by USE_LAUNCH_TYPE_TABBED_WINDOW.
+  DEPRECATED_LAUNCH_TYPE_TABBED_WINDOW = 20,
 
   // Used by AppContextMenu and/or ShelfContextMenu.
   LAUNCH_NEW = 100,
@@ -53,13 +59,16 @@ enum CommandId {
   INSTALL = 108,
   SETTINGS = 109,
   USE_LAUNCH_TYPE_COMMAND_START = 200,
-  USE_LAUNCH_TYPE_PINNED = USE_LAUNCH_TYPE_COMMAND_START,
+  // No longer supported launch type for hosted apps.
+  DEPRECATED_USE_LAUNCH_TYPE_PINNED = USE_LAUNCH_TYPE_COMMAND_START,
   USE_LAUNCH_TYPE_REGULAR = 201,
-  USE_LAUNCH_TYPE_FULLSCREEN = 202,
+  // No longer supported launch type for hosted apps.
+  DEPRECATED_USE_LAUNCH_TYPE_FULLSCREEN = 202,
   USE_LAUNCH_TYPE_WINDOW = 203,
   USE_LAUNCH_TYPE_TABBED_WINDOW = 204,
   USE_LAUNCH_TYPE_COMMAND_END,
-  // The reorder submenu options used by AppServiceContextMenu.
+  // The reorder options used by AppsGridContextMenu, ShelfContextMenuModel and
+  // AppServiceContextMenu.
   REORDER_SUBMENU = 300,
   REORDER_BY_NAME_ALPHABETICAL = 301,
   REORDER_BY_NAME_REVERSE_ALPHABETICAL = 302,

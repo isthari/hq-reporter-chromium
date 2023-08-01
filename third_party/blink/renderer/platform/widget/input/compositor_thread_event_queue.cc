@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -197,6 +197,11 @@ std::unique_ptr<EventWithCallback> CompositorThreadEventQueue::Pop() {
         "coalesced_count", result->coalesced_count());
   }
   return result;
+}
+
+WebInputEvent::Type CompositorThreadEventQueue::PeekType() const {
+  return empty() ? WebInputEvent::Type::kUndefined
+                 : queue_.front()->event().GetType();
 }
 
 }  // namespace blink

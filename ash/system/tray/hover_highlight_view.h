@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,16 +7,18 @@
 
 #include <memory>
 
-#include "ash/system/accessibility/tray_accessibility.h"
 #include "ash/system/tray/actionable_view.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/memory/raw_ptr.h"
+#include "ui/base/models/image_model.h"
 #include "ui/gfx/font.h"
 #include "ui/gfx/text_constants.h"
 
 namespace views {
 class Border;
+class ImageView;
 class Label;
-}
+}  // namespace views
 
 namespace ash {
 class TriView;
@@ -25,7 +27,7 @@ class ViewClickListener;
 // A view that changes background color on hover, and triggers a callback in the
 // associated ViewClickListener on click. The view can also be forced to
 // maintain a fixed height.
-class HoverHighlightView : public ActionableView {
+class ASH_EXPORT HoverHighlightView : public ActionableView {
  public:
   enum class AccessibilityState {
     // The default accessibility view.
@@ -47,7 +49,12 @@ class HoverHighlightView : public ActionableView {
   // Convenience function for populating the view with an icon and a label. This
   // also sets the accessible name. Primarily used for scrollable rows in
   // detailed views.
+  // New callers should use the function below which takes an ImageModel.
+  // TODO(b/259490845): Change callers to pass an ImageModel and eliminate this.
   void AddIconAndLabel(const gfx::ImageSkia& image, const std::u16string& text);
+
+  // The same as the above function with `ImageModel` parameter instead.
+  void AddIconAndLabel(const ui::ImageModel& image, const std::u16string& text);
 
   // Convenience function for populating the view with an arbitrary view and a
   // label. This also sets the accessible name.
@@ -63,11 +70,15 @@ class HoverHighlightView : public ActionableView {
 
   // Adds an optional right icon to an already populated view. |icon_size| is
   // the size of the icon in DP.
-  void AddRightIcon(const gfx::ImageSkia& image, int icon_size);
+  void AddRightIcon(const ui::ImageModel& image, int icon_size);
 
   // Adds an optional right view to an already populated view.
   void AddRightView(views::View* view,
                     std::unique_ptr<views::Border> border = nullptr);
+
+  // Adds an additional right view next to the `right_view_`.
+  // TODO (b/266761290): Remove this method when it's not needed.
+  void AddAdditionalRightView(views::View* view);
 
   // Hides or shows the right view for an already populated view.
   void SetRightViewVisible(bool visible);
@@ -90,11 +101,13 @@ class HoverHighlightView : public ActionableView {
 
   bool is_populated() const { return is_populated_; }
 
+  views::ImageView* icon() { return icon_; }
   views::Label* text_label() { return text_label_; }
   views::Label* sub_text_label() { return sub_text_label_; }
   views::View* left_view() { return left_view_; }
   views::View* right_view() { return right_view_; }
   views::View* sub_row() { return sub_row_; }
+  TriView* tri_view() { return tri_view_; }
 
  protected:
   // Override from Button to also set the tooltip for all child elements.
@@ -103,8 +116,6 @@ class HoverHighlightView : public ActionableView {
   // views::View:
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
   const char* GetClassName() const override;
-
-  TriView* tri_view() { return tri_view_; }
 
  private:
   friend class TrayAccessibilityTest;
@@ -127,13 +138,14 @@ class HoverHighlightView : public ActionableView {
   // be called before re-populating the view.
   bool is_populated_ = false;
 
-  ViewClickListener* const listener_ = nullptr;
-  views::Label* text_label_ = nullptr;
-  views::Label* sub_text_label_ = nullptr;
-  views::View* left_view_ = nullptr;
-  views::View* right_view_ = nullptr;
-  views::View* sub_row_ = nullptr;
-  TriView* tri_view_ = nullptr;
+  const raw_ptr<ViewClickListener, ExperimentalAsh> listener_ = nullptr;
+  raw_ptr<views::ImageView, ExperimentalAsh> icon_ = nullptr;
+  raw_ptr<views::Label, ExperimentalAsh> text_label_ = nullptr;
+  raw_ptr<views::Label, ExperimentalAsh> sub_text_label_ = nullptr;
+  raw_ptr<views::View, ExperimentalAsh> left_view_ = nullptr;
+  raw_ptr<views::View, ExperimentalAsh> right_view_ = nullptr;
+  raw_ptr<views::View, ExperimentalAsh> sub_row_ = nullptr;
+  raw_ptr<TriView, ExperimentalAsh> tri_view_ = nullptr;
   bool expandable_ = false;
   AccessibilityState accessibility_state_ = AccessibilityState::DEFAULT;
   base::CallbackListSubscription enabled_changed_subscription_ =

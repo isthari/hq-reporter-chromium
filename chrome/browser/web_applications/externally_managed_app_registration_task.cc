@@ -1,13 +1,13 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/web_applications/externally_managed_app_registration_task.h"
 
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/web_applications/externally_managed_app_manager.h"
-#include "chrome/browser/web_applications/web_app_url_loader.h"
+#include "chrome/browser/web_applications/web_contents/web_app_url_loader.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/service_worker_context.h"
 #include "content/public/browser/storage_partition.h"
@@ -19,8 +19,8 @@
 namespace web_app {
 
 ExternallyManagedAppRegistrationTaskBase::
-    ExternallyManagedAppRegistrationTaskBase(const GURL& install_url)
-    : install_url_(install_url) {}
+    ExternallyManagedAppRegistrationTaskBase(GURL install_url)
+    : install_url_(std::move(install_url)) {}
 
 ExternallyManagedAppRegistrationTaskBase::
     ~ExternallyManagedAppRegistrationTaskBase() = default;
@@ -28,14 +28,16 @@ ExternallyManagedAppRegistrationTaskBase::
 int ExternallyManagedAppRegistrationTask::registration_timeout_in_seconds_ = 40;
 
 ExternallyManagedAppRegistrationTask::ExternallyManagedAppRegistrationTask(
-    const GURL& install_url,
+    GURL install_url,
     WebAppUrlLoader* url_loader,
     content::WebContents* web_contents,
     RegistrationCallback callback)
-    : ExternallyManagedAppRegistrationTaskBase(install_url),
+    : ExternallyManagedAppRegistrationTaskBase(std::move(install_url)),
       url_loader_(url_loader),
       web_contents_(web_contents),
-      callback_(std::move(callback)) {
+      callback_(std::move(callback)) {}
+
+void ExternallyManagedAppRegistrationTask::Start() {
   content::StoragePartition* storage_partition =
       web_contents_->GetBrowserContext()->GetStoragePartition(
           web_contents_->GetSiteInstance());
@@ -50,12 +52,7 @@ ExternallyManagedAppRegistrationTask::ExternallyManagedAppRegistrationTask(
           &ExternallyManagedAppRegistrationTask::OnRegistrationTimeout,
           weak_ptr_factory_.GetWeakPtr()));
 
-  // Check to see if there is already a service worker for the install url.
-  service_worker_context_->CheckHasServiceWorker(
-      install_url, blink::StorageKey(url::Origin::Create(install_url)),
-      base::BindOnce(
-          &ExternallyManagedAppRegistrationTask::OnDidCheckHasServiceWorker,
-          weak_ptr_factory_.GetWeakPtr()));
+  CheckHasServiceWorker();
 }
 
 ExternallyManagedAppRegistrationTask::~ExternallyManagedAppRegistrationTask() {
@@ -81,6 +78,15 @@ void ExternallyManagedAppRegistrationTask::OnDestruct(
 void ExternallyManagedAppRegistrationTask::SetTimeoutForTesting(
     int registration_timeout_in_seconds) {
   registration_timeout_in_seconds_ = registration_timeout_in_seconds;
+}
+
+void ExternallyManagedAppRegistrationTask::CheckHasServiceWorker() {
+  service_worker_context_->CheckHasServiceWorker(
+      install_url(),
+      blink::StorageKey::CreateFirstParty(url::Origin::Create(install_url())),
+      base::BindOnce(
+          &ExternallyManagedAppRegistrationTask::OnDidCheckHasServiceWorker,
+          weak_ptr_factory_.GetWeakPtr()));
 }
 
 void ExternallyManagedAppRegistrationTask::OnDidCheckHasServiceWorker(

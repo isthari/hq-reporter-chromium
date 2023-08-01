@@ -1,73 +1,80 @@
-<style include="signin-dialog-shared">
+<style include="signin-shared tangible-sync-style-shared">
   :host {
-    --avatar-size: 100px;
     --banner-height: 244px;
-    --banner-size: auto;
     --footer-margin: 40px;
-    --content-container-margin-bottom: calc(48px + var(--footer-margin));
-    --content-container-margin-top: 104px;
+    --text-container-margin-inline: auto;
+    --text-container-margin-bottom: calc(48px + var(--footer-margin));
+    --text-container-margin-top: 104px;
     --info-box-margin-inline: auto;
     --info-box-margin-top: 32px;
-    --info-box-width: 514px;
-    --text-font-size: 1.16em;
+    --info-box-width: 530px;
     color: var(--cr-primary-text-color);
     display: block;
   }
 
   :host([is-modal-dialog_]) {
-    --avatar-size: 76px;
     --banner-height: 128px;
-    --banner-size: 90% 90%;
-    --content-container-margin-bottom: 0;
-    --content-container-margin-top: 96px;
-    --info-box-margin-inline: 32px;
+    --footer-margin: 16px;
+    --text-container-margin-inline: 32px;
+    --text-container-margin-bottom: 0;
+    --text-container-margin-top: 72px;
+    --info-box-margin-inline: 0;
     --info-box-margin-top: 28px;
     --info-box-width: auto;
-    --footer-margin: 16px;
-    min-height: 468px;
+    display: flex;
+    flex-direction: column;
+    min-height: 512px;
     position: relative;
     width: 512px;
   }
 
-  .secondary {
-    color: var(--cr-secondary-text-color);
+  .main-container:not(.dialog) {
+    height: calc(100vh -
+        (2*var(--action-container-padding) + var(--cr-button-height)));
+    width: 100vw;
   }
 
   .action-container {
+    align-items: flex-end;
     bottom: 0;
     box-sizing: border-box;
     position: absolute;
     width: 100%;
   }
 
-  #headerContainer {
-    background-color: var(--header-background-color);
-    height: var(--banner-height);
+  .action-container.dialog {
+    margin-top: auto;
+  }
+
+  .tangible-sync-style:not(.dialog) #content-container {
+    left: 50%;
+    position: relative;
+    top: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  #header-container {
     position: relative;
     width: 100%;
   }
 
-  #banner {
-    background-image: url(images/enterprise_profile_welcome_illustration.svg);
-    background-position: center;
-    background-repeat: no-repeat;
-    background-size: var(--banner-size);
-    height: 100%;
-    position: absolute;
-    top: 0;
-    width: 100%;
-    z-index: 0;
+  .dialog #header-container {
+    height: var(--banner-height);
   }
 
-  #avatarContainer {
-    bottom: calc(var(--avatar-size)/-2);
-    height: var(--avatar-size);
+  #avatar-container {
+    height: var(--tangible-sync-style-avatar-size);
     left: 0;
     margin: auto;
-    position: absolute;
+    position: relative;
     right: 0;
-    width: var(--avatar-size);
+    width: var(--tangible-sync-style-avatar-size);
     z-index: 1;
+  }
+
+  .dialog #avatar-container {
+    bottom: calc(var(--tangible-sync-style-avatar-size)/-2);
+    position: absolute;
   }
 
   #avatar {
@@ -78,39 +85,22 @@
   }
 
   .work-badge {
-    --badge-width: 30px;
-    --badge-offset: -6px;
-    border: 3px solid white;
-    border-radius: 50%;
-    bottom: var(--badge-offset);
-    height: var(--badge-width);
-    inset-inline-end: var(--badge-offset);
+    bottom: 0;
     position: absolute;
-    width: var(--badge-width);
   }
 
-  .work-badge > iron-icon {
-    --work-icon-size: 20px;
-    background-color: var(--md-background-color);
-    border-radius: 50%;
-    box-shadow: 0 0 2px rgba(60, 64, 67, 0.12), 0 0 6px rgba(60, 64, 67, 0.15);
-    color: var(--signin-work-badge-foreground-color);
-    height: var(--work-icon-size);
-    padding: calc((var(--badge-width) - var(--work-icon-size)) / 2);
-    width: var(--work-icon-size);
-  }
-
-  #contentContainer {
-    margin-bottom: var(--content-container-margin-bottom);
-    margin-inline: auto;
-    margin-top: var(--content-container-margin-top);
+  #text-container {
     text-align: center;
   }
 
-  #contentContainer h2 {
-    font-size: 1.85em;
-    font-weight: normal;
-    margin-bottom: 8px;
+  .dialog #text-container {
+    margin-bottom: var(--text-container-margin-bottom);
+    margin-inline: var(--text-container-margin-inline);
+    margin-top: var(--text-container-margin-top);
+  }
+
+  .subtitle {
+    margin-top: 0;
   }
 
   .info-box {
@@ -122,7 +112,7 @@
     flex-direction: row;
     margin-inline: var(--info-box-margin-inline);
     margin-top: var(--info-box-margin-top);
-    padding-block: 12px;
+    padding: 12px 0;
     padding-inline-end: 18px;
     width: var(--info-box-width);
   }
@@ -145,18 +135,45 @@
 
   .icon-container iron-icon {
     --icon-size: 16px;
-    height: var(--icon-size);
+    --iron-icon-height: var(--icon-size);
+    --iron-icon-width: var(--icon-size);
     padding: calc((var(--icon-container-size) - var(--icon-size)) / 2);
-    width: var(--icon-size);
   }
 
-  #buttonsContainer cr-button {
-    font-size: var(--text-font-size);
-    min-width: 111px;
+  .action-container {
+    flex-wrap: wrap-reverse;
+    max-width: 100%;
+    right: 0;
   }
 
-  #buttonsContainer #cancelButton {
+  .action-container #cancelButton {
     font-weight: normal;
+  }
+
+  #linkData {
+    margin: 16px 32px;
+  }
+
+  .tangible-sync-style-left-banner {
+    content: url(images/left-banner.svg);
+  }
+
+  .tangible-sync-style-right-banner {
+    content: url(images/right-banner.svg);
+  }
+
+  .dialog .tangible-sync-style-left-banner,
+  .dialog .tangible-sync-style-right-banner {
+    display: none;
+  }
+
+  .tangible-sync-style-dialog-illustration {
+    content: url(images/dialog_illustration.svg);
+    top: 100px;
+  }
+
+  .tangible-sync-style:not(.dialog) .tangible-sync-style-dialog-illustration {
+    display: none;
   }
 
   @media (prefers-color-scheme: dark) {
@@ -165,8 +182,8 @@
     }
 
     .work-badge > iron-icon {
-      box-shadow: 0 0 2px rgba(60, 64, 67, 0.12), 0 0 6px
-        rgba(60, 64, 67, 0.15);
+      box-shadow: 0 0 2px rgba(60, 64, 67, 0.12),
+         0 0 6px rgba(60, 64, 67, 0.15);
     }
 
     .info-box {
@@ -177,45 +194,72 @@
     .icon-container {
       background-color: var(--google-grey-700);
     }
+
+    .tangible-sync-style-right-banner {
+      content: url(images/right-banner-dark.svg);
+    }
+
+    .tangible-sync-style-left-banner {
+      content: url(images/left-banner-dark.svg);
+    }
+
+    .tangible-sync-style-dialog-illustration {
+      content: url(images/dialog_illustration_dark.svg);
+    }
   }
 </style>
 
-<div id="headerContainer">
-  <div id="banner"></div>
-  <div id="avatarContainer">
-    <img id="avatar" alt="" src="[[pictureUrl_]]">
-    <div class="work-badge" hidden="[[!showEnterpriseBadge_]]">
-      <iron-icon class="icon" icon="cr:domain"></iron-icon>
+<div class$="main-container tangible-sync-style
+    [[getMaybeDialogClass_(isModalDialog_)]]">
+  <img class="tangible-sync-style-left-banner" alt="">
+  <img class="tangible-sync-style-right-banner" alt="">
+  <img class="tangible-sync-style-dialog-illustration" alt="">
+  <div id="content-container">
+    <div id="header-container">
+      <div id="avatar-container">
+        <img id="avatar" alt="" src="[[pictureUrl_]]">
+        <div class="work-badge" hidden="[[!showEnterpriseBadge_]]">
+          <iron-icon class="icon" icon="cr:domain"></iron-icon>
+        </div>
+      </div>
     </div>
+    <div id="text-container">
+      <template is="dom-if" if="[[title_]]">
+        <h2 class="title">
+          [[title_]]
+        </h2>
+      </template>
+      <template is="dom-if" if="[[subtitle_]]">
+        <p class="subtitle">
+          [[subtitle_]]
+        </p>
+      </template>
+      <template is="dom-if" if="[[enterpriseInfo_]]">
+        <div class="info-box">
+          <div class="icon-container">
+            <iron-icon icon="cr:domain"></iron-icon>
+          </div>
+          <p id="enterpriseInfo">
+            [[enterpriseInfo_]]
+          </p>
+        </div>
+      </template>
+    </div>
+    <template is="dom-if" if="[[showLinkDataCheckbox_]]">
+      <cr-checkbox id="linkData" checked="{{linkData_}}">
+        <div>$i18n{linkDataText}</div>
+      </cr-checkbox>
+    </template>
   </div>
 </div>
-
-<div id="contentContainer">
-  <h2>
-    $i18n{enterpriseProfileWelcomeTitle}
-  </h2>
-  <template is="dom-if" if="[[enterpriseTitle_]]">
-    <p id="enterpriseTitle" class="secondary">
-      [[enterpriseTitle_]]
-    </p>
-  </template>
-  <template is="dom-if" if="[[enterpriseInfo_]]">
-    <div class="info-box">
-      <div class="icon-container">
-        <iron-icon icon="cr:domain"></iron-icon>
-      </div>
-      <p id="enterpriseInfo" >
-        [[enterpriseInfo_]]
-      </p>
-    </div>
-  </template>
-</div>
-<div id="buttonsContainer" class="action-container">
+<div class$="action-container tangible-sync-style
+    [[getMaybeDialogClass_(isModalDialog_)]]">
   <cr-button id="proceedButton" class="action-button" on-click="onProceed_"
       autofocus$="[[isModalDialog_]]" disabled="[[disableProceedButton_]]">
     [[proceedLabel_]]
   </cr-button>
-  <cr-button id="cancelButton" on-click="onCancel_">
+  <cr-button id="cancelButton" on-click="onCancel_"
+      hidden="[[!showCancelButton_]]">
     $i18n{cancelLabel}
   </cr-button>
 </div>

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,10 @@
 
 #include <cmath>
 
-#include "base/auto_reset.h"
 #include "base/memory/raw_ptr.h"
+#include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/gesture_detection/gesture_configuration.h"
 #include "ui/events/gesture_detection/gesture_event_data.h"
@@ -76,6 +77,14 @@ gfx::RectF ClampBoundingBox(const gfx::RectF& bounds,
       center.x() - width / 2.f, center.y() - height / 2.f, width, height);
 }
 
+float EffectiveSlopDistance(const MotionEvent& event,
+                            const GestureProvider::Config& config) {
+  return (base::FeatureList::IsEnabled(features::kStylusSpecificTapSlop) &&
+          event.GetToolType() == MotionEvent::ToolType::STYLUS)
+             ? config.gesture_detector_config.stylus_slop
+             : config.gesture_detector_config.touch_slop;
+}
+
 }  // namespace
 
 // GestureProviderClient:
@@ -112,8 +121,7 @@ class GestureProvider::GestureListenerImpl : public ScaleGestureListener,
         gesture_provider_(gesture_provider),
         gesture_detector_(config.gesture_detector_config, this, this),
         scale_gesture_detector_(config.scale_gesture_detector_config, this),
-        snap_scroll_controller_(config.gesture_detector_config.touch_slop,
-                                gfx::SizeF(config.display.size())),
+        snap_scroll_controller_(gfx::SizeF(config.display.size())),
         ignore_multitouch_zoom_events_(false),
         ignore_single_tap_(false),
         pinch_event_sent_(false),
@@ -126,9 +134,11 @@ class GestureProvider::GestureListenerImpl : public ScaleGestureListener,
 
   void OnTouchEvent(const MotionEvent& event) {
     const bool in_scale_gesture = IsScaleGestureDetectionInProgress();
-    snap_scroll_controller_.SetSnapScrollMode(event, in_scale_gesture);
-    if (in_scale_gesture)
+    snap_scroll_controller_.SetSnapScrollMode(
+        event, in_scale_gesture, EffectiveSlopDistance(event, config_));
+    if (in_scale_gesture) {
       SetIgnoreSingleTap(true);
+    }
 
     const MotionEvent::Action action = event.GetAction();
     if (action == MotionEvent::Action::DOWN) {
@@ -141,7 +151,7 @@ class GestureProvider::GestureListenerImpl : public ScaleGestureListener,
       scroll_event_sent_ = false;
       pinch_event_sent_ = false;
       show_press_event_sent_ = false;
-      gesture_detector_.set_longpress_enabled(true);
+      gesture_detector_.set_press_and_hold_enabled(true);
       tap_down_point_ = gfx::PointF(event.GetX(), event.GetY());
       max_diameter_before_show_press_ = event.GetTouchMajor();
     }
@@ -363,9 +373,11 @@ class GestureProvider::GestureListenerImpl : public ScaleGestureListener,
   }
 
   // GestureListener implementation.
-  bool OnDown(const MotionEvent& e) override {
+  bool OnDown(const MotionEvent& e, int tap_down_count) override {
+    DCHECK_GE(tap_down_count, 0);
     GestureEventDetails tap_details(ET_GESTURE_TAP_DOWN);
     tap_details.set_device_type(GestureDeviceType::DEVICE_TOUCHSCREEN);
+    tap_details.set_tap_down_count(tap_down_count);
     tap_details.set_primary_unique_touch_event_id(
         current_down_action_unique_touch_event_id_);
     Send(CreateGesture(tap_details, e));
@@ -391,7 +403,8 @@ class GestureProvider::GestureListenerImpl : public ScaleGestureListener,
       distance_y = delta.y();
     }
 
-    snap_scroll_controller_.UpdateSnapScrollMode(distance_x, distance_y);
+    snap_scroll_controller_.UpdateSnapScrollMode(
+        distance_x, distance_y, EffectiveSlopDistance(e2, config_));
     if (snap_scroll_controller_.IsSnappingScrolls()) {
       if (snap_scroll_controller_.IsSnapHorizontal())
         distance_y = 0;
@@ -580,7 +593,7 @@ class GestureProvider::GestureListenerImpl : public ScaleGestureListener,
   bool OnDoubleTapEvent(const MotionEvent& e) override {
     switch (e.GetAction()) {
       case MotionEvent::Action::DOWN:
-        gesture_detector_.set_longpress_enabled(false);
+        gesture_detector_.set_press_and_hold_enabled(false);
         break;
 
       case MotionEvent::Action::UP:
@@ -594,6 +607,15 @@ class GestureProvider::GestureListenerImpl : public ScaleGestureListener,
         break;
     }
     return false;
+  }
+
+  void OnShortPress(const MotionEvent& e) override {
+    DCHECK(!IsDoubleTapInProgress());
+    GestureEventDetails short_press_details(ET_GESTURE_SHORT_PRESS);
+    short_press_details.set_device_type(GestureDeviceType::DEVICE_TOUCHSCREEN);
+    short_press_details.set_primary_unique_touch_event_id(
+        current_down_action_unique_touch_event_id_);
+    Send(CreateGesture(short_press_details, e));
   }
 
   void OnLongPress(const MotionEvent& e) override {
@@ -790,7 +812,7 @@ class GestureProvider::GestureListenerImpl : public ScaleGestureListener,
       float dy = source_pointer_down_event->GetY(source_index) - ev2.GetY(i);
       delta += SubtractSlopRegion(dx, dy);
     }
-    delta.Scale(1.0 / ev2.GetPointerCount());
+    delta.InvScale(ev2.GetPointerCount());
     return delta;
   }
 

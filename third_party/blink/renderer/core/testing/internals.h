@@ -30,10 +30,9 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/core/css/css_computed_style_declaration.h"
-#include "third_party/blink/renderer/core/page/scrolling/scrolling_coordinator.h"
 #include "third_party/blink/renderer/core/testing/color_scheme_helper.h"
+#include "third_party/blink/renderer/core/testing/internals_ukm_recorder.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
-#include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
@@ -61,12 +60,14 @@ class HTMLIFrameElement;
 class HTMLInputElement;
 class HTMLMediaElement;
 class HTMLSelectElement;
+class HTMLSelectMenuElement;
 class HTMLVideoElement;
 class HitTestLayerRectList;
 class HitTestLocation;
 class HitTestResult;
 class InternalRuntimeFlags;
 class InternalSettings;
+class InternalsUkmRecorder;
 class LocalDOMWindow;
 class LocalFrame;
 class Location;
@@ -78,6 +79,7 @@ class Range;
 class ReadableStream;
 class RecordTest;
 class ScriptPromiseResolver;
+class ScriptState;
 class ScrollState;
 class SequenceTest;
 class ShadowRoot;
@@ -102,7 +104,7 @@ class Internals final : public ScriptWrappable {
 
   String elementLayoutTreeAsText(Element*, ExceptionState&);
 
-  GCObservation* observeGC(ScriptValue);
+  GCObservation* observeGC(ScriptValue, ExceptionState&);
 
   bool isPreloaded(const String& url);
   bool isPreloadedBy(const String& url, Document*);
@@ -116,7 +118,7 @@ class Internals final : public ScriptWrappable {
 
   bool doesWindowHaveUrlFragment(DOMWindow*);
 
-  CSSStyleDeclaration* computedStyleIncludingVisitedInfo(Node*) const;
+  CSSStyleDeclaration* computedStyleIncludingVisitedInfo(Element*) const;
 
   void setBrowserControlsState(float top_height,
                                float bottom_height,
@@ -156,6 +158,7 @@ class Internals final : public ScriptWrappable {
   Node* previousInFlatTree(Node*, ExceptionState&);
 
   unsigned updateStyleAndReturnAffectedElementCount(ExceptionState&) const;
+  unsigned styleForElementCount(ExceptionState&) const;
   unsigned needsLayoutCount(ExceptionState&) const;
   unsigned layoutCountForTesting(ExceptionState&) const;
   unsigned hitTestCount(Document*, ExceptionState&) const;
@@ -185,6 +188,7 @@ class Internals final : public ScriptWrappable {
   DOMRectReadOnly* boundingBox(Element*);
 
   void setMarker(Document*, const Range*, const String&, ExceptionState&);
+  void removeMarker(Document*, const Range*, const String&, ExceptionState&);
   unsigned markerCountForNode(Text*, const String&, ExceptionState&);
   unsigned activeMarkerCountForNode(Text*);
   Range* markerRangeForNode(Text*,
@@ -241,7 +245,6 @@ class Internals final : public ScriptWrappable {
   String suggestedValue(Element*, ExceptionState&);
   void setSuggestedValue(Element*, const String&, ExceptionState&);
   void setAutofilledValue(Element*, const String&, ExceptionState&);
-  void setEditingValue(Element* input_element, const String&, ExceptionState&);
   void setAutofilled(Element*, bool enabled, ExceptionState&);
   void setSelectionRangeForNumberType(Element* input_element,
                                       uint32_t start,
@@ -279,12 +282,21 @@ class Internals final : public ScriptWrappable {
                                                int height,
                                                Document*,
                                                ExceptionState&);
+  Node* touchNodeAdjustedToBestStylusWritableNode(int x,
+                                                  int y,
+                                                  int width,
+                                                  int height,
+                                                  Document*,
+                                                  ExceptionState&);
 
   int lastSpellCheckRequestSequence(Document*, ExceptionState&);
   int lastSpellCheckProcessedSequence(Document*, ExceptionState&);
+  int spellCheckedTextLength(Document*, ExceptionState&);
   void cancelCurrentSpellCheckRequest(Document*, ExceptionState&);
   String idleTimeSpellCheckerState(Document*, ExceptionState&);
   void runIdleTimeSpellChecker(Document*, ExceptionState&);
+
+  bool hasLastEditCommand(Document*, ExceptionState&);
 
   Vector<AtomicString> userPreferredLanguages() const;
   void setUserPreferredLanguages(const Vector<String>&);
@@ -314,7 +326,8 @@ class Internals final : public ScriptWrappable {
 
   // This is used to test rect based hit testing like what's done on touch
   // screens.
-  StaticNodeList* nodesFromRect(Document*,
+  StaticNodeList* nodesFromRect(ScriptState* script_state,
+                                Document*,
                                 int x,
                                 int y,
                                 int width,
@@ -337,11 +350,6 @@ class Internals final : public ScriptWrappable {
   InternalSettings* settings() const;
   InternalRuntimeFlags* runtimeFlags() const;
   unsigned workerThreadCount() const;
-
-  String resolveModuleSpecifier(const String& specifier,
-                                const String& base_url_string,
-                                Document*,
-                                ExceptionState&);
 
   String getParsedImportMap(Document*, ExceptionState&);
 
@@ -458,6 +466,8 @@ class Internals final : public ScriptWrappable {
   int selectPopupItemStyleFontHeight(Node*, int);
   void resetTypeAheadSession(HTMLSelectElement*);
 
+  void resetSelectMenuTypeAheadSession(HTMLSelectMenuElement*);
+
   StaticSelection* getDragCaret();
   StaticSelection* getSelectionInFlatTree(DOMWindow*, ExceptionState&);
   Node* visibleSelectionAnchorNode();
@@ -469,6 +479,7 @@ class Internals final : public ScriptWrappable {
 
   void forceCompositingUpdate(Document*, ExceptionState&);
 
+  void setDarkPreferredColorScheme(Document* document);
   void setForcedColorsAndDarkPreferredColorScheme(Document* document);
 
   void setShouldRevealPassword(Element*, bool, ExceptionState&);
@@ -520,7 +531,8 @@ class Internals final : public ScriptWrappable {
   String selectedHTMLForClipboard();
   String selectedTextForClipboard();
 
-  void setVisualViewportOffset(int x, int y);
+  // Sets the visual viewport offset within the layout viewport.
+  void setVisualViewportOffset(int css_x, int css_y);
 
   // Return true if the given use counter exists for the given document.
   // |feature| must be one of the values from the WebFeature enum.
@@ -592,10 +604,6 @@ class Internals final : public ScriptWrappable {
 
   void simulateRasterUnderInvalidations(bool enable);
 
-  // The number of calls to update the blink lifecycle (see:
-  // LocalFrameView::UpdateLifecyclePhasesInternal).
-  unsigned LifecycleUpdateCount() const;
-
   void DisableIntersectionObserverThrottleDelay() const;
   bool isSiteIsolated(HTMLIFrameElement* iframe) const;
   bool isTrackingOcclusionForIFrame(HTMLIFrameElement* iframe) const;
@@ -613,8 +621,7 @@ class Internals final : public ScriptWrappable {
 
   void generateTestReport(const String& message);
 
-  void setIsAdSubframe(HTMLIFrameElement* iframe,
-                       ExceptionState& exception_state);
+  void setIsAdFrame(Document* target_doc, ExceptionState& exception_state);
 
   ReadableStream* createReadableStream(ScriptState* script_state,
                                        int32_t queueSize,
@@ -627,6 +634,9 @@ class Internals final : public ScriptWrappable {
                                           ExceptionState&);
 
   void setAllowPerChunkTransferring(ReadableStream* stream);
+  void setBackForwardCacheRestorationBufferSize(unsigned int maxSize);
+
+  InternalsUkmRecorder* initializeUKMRecorder();
 
  private:
   Document* ContextDocument() const;

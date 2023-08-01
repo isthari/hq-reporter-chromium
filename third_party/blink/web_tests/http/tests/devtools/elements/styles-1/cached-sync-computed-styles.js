@@ -1,10 +1,13 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {TestRunner} from 'test_runner';
+import {ElementsTestRunner} from 'elements_test_runner';
+
 (async function() {
   TestRunner.addResult(`Tests that computed styles are cached across synchronous requests.\n`);
-  await TestRunner.loadLegacyModule('elements'); await TestRunner.loadTestModule('elements_test_runner');
+  await TestRunner.loadLegacyModule('elements');
   await TestRunner.showPanel('elements');
   await TestRunner.loadHTML(`
       <style>
@@ -36,8 +39,8 @@
     var callsLeft = 2;
     nodeId = node.id;
     TestRunner.addSniffer(ProtocolClient.SessionRouter.prototype, 'sendMessage', onBackendCall, true);
-    TestRunner.cssModel.computedStylePromise(nodeId).then(styleCallback);
-    TestRunner.cssModel.computedStylePromise(nodeId).then(styleCallback);
+    TestRunner.cssModel.getComputedStyle(nodeId).then(styleCallback);
+    TestRunner.cssModel.getComputedStyle(nodeId).then(styleCallback);
     function styleCallback() {
       if (--callsLeft)
         return;
@@ -47,7 +50,7 @@
   }
 
   function step2() {
-    TestRunner.cssModel.computedStylePromise(nodeId).then(callback);
+    TestRunner.cssModel.getComputedStyle(nodeId).then(callback);
     function callback() {
       TestRunner.addResult('# of backend calls sent [style update + another request]: ' + backendCallCount);
       TestRunner.completeTest();

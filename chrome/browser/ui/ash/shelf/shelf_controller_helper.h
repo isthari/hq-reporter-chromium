@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include <string>
 
 #include "ash/public/cpp/shelf_types.h"
+#include "base/memory/raw_ptr.h"
 #include "chrome/browser/ui/extensions/extension_enable_flow_delegate.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
@@ -78,7 +79,7 @@ class ShelfControllerHelper : public ExtensionEnableFlowDelegate {
   bool IsValidIDFromAppService(const std::string& app_id) const;
 
   // The currently active profile for the usage of |GetAppID|.
-  Profile* profile_;
+  raw_ptr<Profile, ExperimentalAsh> profile_;
   std::unique_ptr<ExtensionEnableFlow> extension_enable_flow_;
 };
 

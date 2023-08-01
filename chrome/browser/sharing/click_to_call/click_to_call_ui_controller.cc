@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,14 +6,13 @@
 
 #include <utility>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/external_protocol/external_protocol_handler.h"
 #include "chrome/browser/sharing/click_to_call/click_to_call_utils.h"
 #include "chrome/browser/sharing/sharing_constants.h"
 #include "chrome/browser/sharing/sharing_dialog.h"
-#include "chrome/browser/shell_integration.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/grit/chromium_strings.h"
@@ -44,11 +43,13 @@ void ClickToCallUiController::ShowDialog(
     const absl::optional<url::Origin>& initiating_origin,
     content::WeakDocumentPtr initiator_document,
     const GURL& url,
-    bool hide_default_handler) {
+    bool hide_default_handler,
+    const std::u16string& program_name) {
   auto* controller = GetOrCreateFromWebContents(web_contents);
   controller->phone_url_ = url;
   controller->initiator_document_ = std::move(initiator_document);
   controller->hide_default_handler_ = hide_default_handler;
+  controller->default_program_name_ = program_name;
   controller->UpdateAndShowDialog(initiating_origin);
 }
 
@@ -122,12 +123,9 @@ void ClickToCallUiController::DoUpdateApps(UpdateAppsCallback callback) {
     return;
   }
 
-  std::u16string app_name =
-      shell_integration::GetApplicationNameForProtocol(phone_url_);
-
-  if (!app_name.empty()) {
-    apps.emplace_back(&vector_icons::kOpenInNewIcon, gfx::Image(),
-                      std::move(app_name), std::string());
+  if (!default_program_name_.empty()) {
+    apps.emplace_back(&kOpenInNewIcon, gfx::Image(), default_program_name_,
+                      std::string());
   }
   std::move(callback).Run(std::move(apps));
 }

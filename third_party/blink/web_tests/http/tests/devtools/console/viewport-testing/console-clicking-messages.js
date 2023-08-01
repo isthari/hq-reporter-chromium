@@ -1,10 +1,13 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {TestRunner} from 'test_runner';
+import {ConsoleTestRunner} from 'console_test_runner';
+
 (async function() {
   TestRunner.addResult(`Tests that console messages are navigable with the keyboard.\n`);
-  await TestRunner.loadLegacyModule('console'); await TestRunner.loadTestModule('console_test_runner');
+  await TestRunner.loadLegacyModule('console');
   await TestRunner.showPanel('console');
   ConsoleTestRunner.fixConsoleViewportDimensions(600, 200);
   await ConsoleTestRunner.waitUntilConsoleEditorLoaded();
@@ -126,7 +129,7 @@
       TestRunner.addResult(`Is group expanded: ${expanded ? 'YES' : 'NO'}`);
     }
 
-    var element = document.deepActiveElement();
+    var element = Platform.DOMUtilities.deepActiveElement(document);
     if (!element) {
       TestRunner.addResult('null');
       return;

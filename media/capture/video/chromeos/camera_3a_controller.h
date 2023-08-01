@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,10 @@
 #include <unordered_set>
 
 #include "base/cancelable_callback.h"
+#include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ref.h"
+#include "base/task/single_thread_task_runner.h"
+#include "base/time/time.h"
 #include "media/base/media_export.h"
 #include "media/capture/video/chromeos/mojom/camera3.mojom.h"
 #include "media/capture/video/chromeos/request_manager.h"
@@ -101,13 +105,15 @@ class CAPTURE_EXPORT Camera3AController final
 
   void ClearRepeatingCaptureMetadata();
 
-  const cros::mojom::CameraMetadataPtr& static_metadata_;
+  const raw_ref<const cros::mojom::CameraMetadataPtr, ExperimentalAsh>
+      static_metadata_;
   bool ae_region_supported_;
   bool af_region_supported_;
   bool point_of_interest_supported_;
   bool zero_shutter_lag_supported_;
 
-  CaptureMetadataDispatcher* capture_metadata_dispatcher_;
+  raw_ptr<CaptureMetadataDispatcher, ExperimentalAsh>
+      capture_metadata_dispatcher_;
   const scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 
   std::unordered_set<cros::mojom::AndroidControlAfMode> available_af_modes_;
@@ -134,6 +140,8 @@ class CAPTURE_EXPORT Camera3AController final
   bool set_point_of_interest_running_;
 
   bool ae_locked_for_point_of_interest_;
+
+  int32_t request_id_ = 0;
 
   base::TimeDelta latest_sensor_timestamp_;
 

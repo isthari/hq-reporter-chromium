@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@ package org.chromium.android_webview;
 
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.task.PostTask;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
+import org.chromium.base.task.TaskTraits;
 
 import java.util.Queue;
 import java.util.concurrent.Callable;
@@ -40,7 +40,7 @@ public class WebViewChromiumRunQueue {
     public void addTask(Runnable task) {
         mQueue.add(task);
         if (mChromiumHasStartedCallable.hasStarted()) {
-            PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT, () -> { drainQueue(); });
+            PostTask.runOrPostTask(TaskTraits.UI_DEFAULT, () -> { drainQueue(); });
         }
     }
 

@@ -1,9 +1,9 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <atlbase.h>
-#include <atlcom.h>
+#include "base/win/atl.h"
+
 #include <atlcomcli.h>
 #include <datetimeapi.h>
 #include <lmerr.h>
@@ -106,8 +106,7 @@ class GcpSetupTest : public ::testing::Test {
   }
 
   void CreateJsonFile(const base::FilePath& path, const std::string& data) {
-    ASSERT_EQ(static_cast<int>(data.size()),
-              base::WriteFile(path, data.data(), data.size()));
+    ASSERT_TRUE(base::WriteFile(path, data));
   }
 
   void assert_addremove_reg_exists() {
@@ -181,9 +180,9 @@ class GcpSetupTest : public ::testing::Test {
  private:
   std::wstring GetCurrentDateForTesting() {
     static const wchar_t kDateFormat[] = L"yyyyMMdd";
-    wchar_t date_str[base::size(kDateFormat)] = {0};
+    wchar_t date_str[std::size(kDateFormat)] = {0};
     int len = GetDateFormatW(LOCALE_INVARIANT, 0, nullptr, kDateFormat,
-                             date_str, base::size(date_str));
+                             date_str, std::size(date_str));
     if (len) {
       --len;  // Subtract terminating \0.
     } else {

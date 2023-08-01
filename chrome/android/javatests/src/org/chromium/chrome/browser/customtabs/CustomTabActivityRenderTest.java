@@ -1,8 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.customtabs;
+
+import static androidx.browser.customtabs.CustomTabsIntent.CLOSE_BUTTON_POSITION_END;
+import static androidx.browser.customtabs.CustomTabsIntent.EXTRA_CLOSE_BUTTON_POSITION;
 
 import static org.chromium.chrome.browser.customtabs.CustomTabsTestUtils.createTestBitmap;
 
@@ -11,14 +14,15 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
-import android.support.test.InstrumentationRegistry;
 import android.view.View;
 
 import androidx.annotation.DrawableRes;
 import androidx.appcompat.content.res.AppCompatResources;
 import androidx.browser.customtabs.CustomTabsIntent;
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.MediumTest;
 
 import org.junit.Before;
@@ -32,9 +36,9 @@ import org.chromium.base.test.params.ParameterSet;
 import org.chromium.base.test.params.ParameterizedRunner;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeJUnit4RunnerDelegate;
+import org.chromium.chrome.test.R;
 import org.chromium.net.test.EmbeddedTestServerRule;
 import org.chromium.ui.test.util.RenderTestRule;
 
@@ -59,6 +63,7 @@ public class CustomTabActivityRenderTest {
     private static final int PORT_NO = 31415;
 
     private final boolean mRunWithHttps;
+    private String mUrl;
     private Intent mIntent;
 
     static class CustomTabTopActionIconHelper {
@@ -70,12 +75,12 @@ public class CustomTabActivityRenderTest {
         public static void addMaxTopActionIconToIntent(Intent intent) {
             ArrayList<Bundle> toolbarItems = new ArrayList<>(2);
             PendingIntent pendingIntent =
-                    PendingIntent.getBroadcast(InstrumentationRegistry.getTargetContext(), 0,
+                    PendingIntent.getBroadcast(ApplicationProvider.getApplicationContext(), 0,
                             new Intent(), IntentUtils.getPendingIntentMutabilityFlag(true));
 
-            toolbarItems.add(CustomTabsTestUtils.makeToolbarItemBundle(
+            toolbarItems.add(CustomTabsIntentTestUtils.makeToolbarItemBundle(
                     ICON_CREDIT_CARD, "Top Action #1", pendingIntent, 1));
-            toolbarItems.add(CustomTabsTestUtils.makeToolbarItemBundle(
+            toolbarItems.add(CustomTabsIntentTestUtils.makeToolbarItemBundle(
                     ICON_EMAIL, "Top Action #2", pendingIntent, 2));
             intent.putParcelableArrayListExtra(CustomTabsIntent.EXTRA_TOOLBAR_ITEMS, toolbarItems);
         }
@@ -90,7 +95,10 @@ public class CustomTabActivityRenderTest {
 
     @Rule
     public final RenderTestRule mRenderTestRule =
-            RenderTestRule.Builder.withPublicCorpus().setRevision(1).build();
+            RenderTestRule.Builder.withPublicCorpus()
+                    .setRevision(1)
+                    .setBugComponent(RenderTestRule.Component.UI_BROWSER_MOBILE_CUSTOM_TABS)
+                    .build();
 
     @Before
     public void setUp() {
@@ -105,7 +113,7 @@ public class CustomTabActivityRenderTest {
 
     private static Bitmap createVectorDrawableBitmap(
             @DrawableRes int resId, int widthDp, int heightDp) {
-        Context context = InstrumentationRegistry.getTargetContext();
+        Context context = ApplicationProvider.getApplicationContext();
         Drawable vectorDrawable = AppCompatResources.getDrawable(context, resId);
         Bitmap bitmap = createTestBitmap(widthDp, heightDp);
         Canvas canvas = new Canvas(bitmap);
@@ -118,9 +126,9 @@ public class CustomTabActivityRenderTest {
     }
 
     private void prepareCCTIntent() {
-        String url = mEmbeddedTestServerRule.getServer().getURL(TEST_PAGE);
-        mIntent = CustomTabsTestUtils.createMinimalCustomTabIntent(
-                InstrumentationRegistry.getContext(), url);
+        mUrl = mEmbeddedTestServerRule.getServer().getURL(TEST_PAGE);
+        mIntent = CustomTabsIntentTestUtils.createMinimalCustomTabIntent(
+                ApplicationProvider.getApplicationContext(), mUrl);
     }
 
     private void startActivityAndRenderToolbar(String renderTestId) throws IOException {
@@ -166,5 +174,36 @@ public class CustomTabActivityRenderTest {
         startActivityAndRenderToolbar(
                 "cct_toolbar_with_custom_close_button_and_max_top_action_icon_and_with_https_"
                 + mRunWithHttps);
+    }
+
+    @Test
+    @MediumTest
+    @Feature("RenderTest")
+    public void testCCTToolbarWithEndCloseButton() throws IOException {
+        mIntent.putExtra(EXTRA_CLOSE_BUTTON_POSITION, CLOSE_BUTTON_POSITION_END);
+
+        startActivityAndRenderToolbar("cct_close_button_end_with_https_" + mRunWithHttps);
+    }
+
+    @Test
+    @MediumTest
+    @Feature("RenderTest")
+    public void custom_color_red() throws IOException {
+        Context context = ApplicationProvider.getApplicationContext();
+        mIntent = CustomTabsIntentTestUtils.createCustomTabIntent(
+                context, mUrl, true, builder -> { builder.setToolbarColor(Color.RED); });
+
+        startActivityAndRenderToolbar("cct_red" + mRunWithHttps);
+    }
+
+    @Test
+    @MediumTest
+    @Feature("RenderTest")
+    public void custom_color_black() throws IOException {
+        Context context = ApplicationProvider.getApplicationContext();
+        mIntent = CustomTabsIntentTestUtils.createCustomTabIntent(
+                context, mUrl, true, builder -> { builder.setToolbarColor(Color.BLACK); });
+
+        startActivityAndRenderToolbar("cct_black" + mRunWithHttps);
     }
 }

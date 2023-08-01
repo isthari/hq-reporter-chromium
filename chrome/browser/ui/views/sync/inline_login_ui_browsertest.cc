@@ -1,12 +1,13 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/containers/contains.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
+#include "base/ranges/algorithm.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -110,7 +111,8 @@ ContentInfo NavigateAndGetInfo(Browser* browser,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_LOAD_STOP);
   content::WebContents* contents =
       browser->tab_strip_model()->GetActiveWebContents();
-  content::RenderProcessHost* process = contents->GetMainFrame()->GetProcess();
+  content::RenderProcessHost* process =
+      contents->GetPrimaryMainFrame()->GetProcess();
   return ContentInfo(contents, process->GetID(),
                      process->GetStoragePartition());
 }
@@ -131,9 +133,10 @@ GURL GetSigninPromoURL() {
 class FooWebUIProvider
     : public TestChromeWebUIControllerFactory::WebUIProvider {
  public:
-  MOCK_METHOD2(NewWebUI,
-               std::unique_ptr<content::WebUIController>(content::WebUI* web_ui,
-                                                         const GURL& url));
+  MOCK_METHOD(std::unique_ptr<content::WebUIController>,
+              NewWebUI,
+              (content::WebUI * web_ui, const GURL& url),
+              (override));
 };
 
 bool AddToSet(std::set<content::WebContents*>* set,
@@ -171,9 +174,15 @@ class MockInlineSigninHelper : public InlineSigninHelper {
   MockInlineSigninHelper(const MockInlineSigninHelper&) = delete;
   MockInlineSigninHelper& operator=(const MockInlineSigninHelper&) = delete;
 
-  MOCK_METHOD1(OnClientOAuthSuccess, void(const ClientOAuthResult& result));
-  MOCK_METHOD1(OnClientOAuthFailure, void(const GoogleServiceAuthError& error));
-  MOCK_METHOD1(CreateSyncStarter, void(const std::string&));
+  MOCK_METHOD(void,
+              OnClientOAuthSuccess,
+              (const ClientOAuthResult& result),
+              (override));
+  MOCK_METHOD(void,
+              OnClientOAuthFailure,
+              (const GoogleServiceAuthError& error),
+              (override));
+  MOCK_METHOD(void, CreateSyncStarter, (const std::string&), (override));
 
   GaiaAuthFetcher* GetGaiaAuthFetcher() { return GetGaiaAuthFetcherForTest(); }
 };
@@ -223,7 +232,7 @@ class MockSyncStarterInlineSigninHelper : public InlineSigninHelper {
   MockSyncStarterInlineSigninHelper& operator=(
       const MockSyncStarterInlineSigninHelper&) = delete;
 
-  MOCK_METHOD1(CreateSyncStarter, void(const std::string&));
+  MOCK_METHOD(void, CreateSyncStarter, (const std::string&), (override));
 };
 
 MockSyncStarterInlineSigninHelper::MockSyncStarterInlineSigninHelper(
@@ -272,10 +281,11 @@ void InlineLoginUIBrowserTest::EnableSigninAllowed(bool enable) {
 void InlineLoginUIBrowserTest::AddEmailToOneClickRejectedList(
     const std::string& email) {
   PrefService* pref_service = browser()->profile()->GetPrefs();
-  ListPrefUpdate updater(pref_service,
-                         prefs::kReverseAutologinRejectedEmailList);
-  if (!base::Contains(updater->GetList(), base::Value(email)))
+  ScopedListPrefUpdate updater(pref_service,
+                               prefs::kReverseAutologinRejectedEmailList);
+  if (!base::Contains(*updater, base::Value(email))) {
     updater->Append(email);
+  }
 }
 
 void InlineLoginUIBrowserTest::AllowSigninCookies(bool enable) {
@@ -311,7 +321,7 @@ IN_PROC_BROWSER_TEST_F(InlineLoginUIBrowserTest, MAYBE_DifferentStorageId) {
   ASSERT_EQ(1u, set.size());
   content::WebContents* webview_contents = *set.begin();
   content::RenderProcessHost* process =
-      webview_contents->GetMainFrame()->GetProcess();
+      webview_contents->GetPrimaryMainFrame()->GetProcess();
   ASSERT_NE(info.pid, process->GetID());
   ASSERT_NE(info.storage_partition, process->GetStoragePartition());
 }
@@ -478,8 +488,10 @@ class InlineLoginHelperBrowserTest : public DialogBrowserTest {
 
   void SimulateOnClientOAuthSuccess(GaiaAuthConsumer* consumer,
                                     const std::string& refresh_token) {
-    GaiaAuthConsumer::ClientOAuthResult result(refresh_token, "", 0, false,
-                                               false);
+    GaiaAuthConsumer::ClientOAuthResult result(
+        refresh_token, /*access_token=*/"", /*expires_in_secs=*/0,
+        /*is_child_account*/ false,
+        /*is_under_advanced_protection=*/false, /*is_bound_to_key=*/false);
     consumer->OnClientOAuthSuccess(result);
     base::RunLoop().RunUntilIdle();
   }
@@ -495,7 +507,7 @@ class InlineLoginHelperBrowserTest : public DialogBrowserTest {
     // possible values of access_point=, reason=.
     GURL url("chrome://chrome-signin/?access_point=0&reason=5");
     // MockSyncStarterInlineSigninHelper will delete itself when done using
-    // base::ThreadTaskRunnerHandle::DeleteSoon(), so need to delete here.  But
+    // base::SingleThreadTaskRunner::DeleteSoon(), so need to delete here.  But
     // do need the RunUntilIdle() at the end.
     MockSyncStarterInlineSigninHelper* helper =
         new MockSyncStarterInlineSigninHelper(
@@ -521,7 +533,7 @@ class InlineLoginHelperBrowserTest : public DialogBrowserTest {
   std::unique_ptr<IdentityTestEnvironmentProfileAdaptor>
       identity_test_env_profile_adaptor_;
   base::CallbackListSubscription create_services_subscription_;
-  raw_ptr<Profile> profile_ = nullptr;
+  raw_ptr<Profile, DanglingUntriaged> profile_ = nullptr;
   signin_util::ScopedForceSigninSetterForTesting forced_signin_setter_;
 };
 
@@ -557,7 +569,7 @@ IN_PROC_BROWSER_TEST_F(InlineLoginHelperBrowserTest,
   // possible values of access_point=, reason=.
   GURL url("chrome://chrome-signin/?access_point=0&reason=5");
   // MockSyncStarterInlineSigninHelper will delete itself when done using
-  // base::ThreadTaskRunnerHandle::DeleteSoon(), so need to delete here.  But
+  // base::SingleThreadTaskRunner::DeleteSoon(), so need to delete here.  But
   // do need the RunUntilIdle() at the end.
   MockSyncStarterInlineSigninHelper* helper =
       new MockSyncStarterInlineSigninHelper(
@@ -595,7 +607,7 @@ IN_PROC_BROWSER_TEST_F(InlineLoginHelperBrowserTest,
   // possible values of access_point=, reason=.
   const GURL url("chrome://chrome-signin/?access_point=0&reason=5");
   // MockSyncStarterInlineSigninHelper will delete itself when done using
-  // base::ThreadTaskRunnerHandle::DeleteSoon(), so need to delete here.  But
+  // base::SingleThreadTaskRunner::DeleteSoon(), so need to delete here.  But
   // do need the RunUntilIdle() at the end.
   MockSyncStarterInlineSigninHelper* helper =
       new MockSyncStarterInlineSigninHelper(
@@ -618,7 +630,7 @@ IN_PROC_BROWSER_TEST_F(InlineLoginHelperBrowserTest,
   // possible values of access_point=, reason=.
   GURL url("chrome://chrome-signin/?access_point=0&reason=5");
   // MockSyncStarterInlineSigninHelper will delete itself when done using
-  // base::ThreadTaskRunnerHandle::DeleteSoon(), so need to delete here.  But
+  // base::SingleThreadTaskRunner::DeleteSoon(), so need to delete here.  But
   // do need the RunUntilIdle() at the end.
   MockSyncStarterInlineSigninHelper* helper =
       new MockSyncStarterInlineSigninHelper(
@@ -643,7 +655,7 @@ IN_PROC_BROWSER_TEST_F(InlineLoginHelperBrowserTest,
   // possible values of access_point=, reason=.
   GURL url("chrome://chrome-signin/?access_point=0&reason=5");
   // MockSyncStarterInlineSigninHelper will delete itself when done using
-  // base::ThreadTaskRunnerHandle::DeleteSoon(), so need to delete here.  But
+  // base::SingleThreadTaskRunner::DeleteSoon(), so need to delete here.  But
   // do need the RunUntilIdle() at the end.
   MockSyncStarterInlineSigninHelper* helper =
       new MockSyncStarterInlineSigninHelper(
@@ -671,7 +683,7 @@ IN_PROC_BROWSER_TEST_F(InlineLoginHelperBrowserTest,
   // possible values of access_point=, reason=.
   const GURL url("chrome://chrome-signin/?access_point=3&reason=5");
   // MockSyncStarterInlineSigninHelper will delete itself when done using
-  // base::ThreadTaskRunnerHandle::DeleteSoon(), so need to delete here.  But
+  // base::SingleThreadTaskRunner::DeleteSoon(), so need to delete here.  But
   // do need the RunUntilIdle() at the end.
   MockSyncStarterInlineSigninHelper* helper =
       new MockSyncStarterInlineSigninHelper(
@@ -694,7 +706,7 @@ IN_PROC_BROWSER_TEST_F(InlineLoginHelperBrowserTest,
   InlineLoginHandlerImpl handler;
   GURL url("chrome://chrome-signin/?access_point=0&reason=5");
   // MockSyncStarterInlineSigninHelper will delete itself when done using
-  // base::ThreadTaskRunnerHandle::DeleteSoon(), so need to delete here.  But
+  // base::SingleThreadTaskRunner::DeleteSoon(), so need to delete here.  But
   // do need the RunUntilIdle() at the end.
   MockSyncStarterInlineSigninHelper* helper =
       new MockSyncStarterInlineSigninHelper(
@@ -827,71 +839,49 @@ IN_PROC_BROWSER_TEST_F(InlineLoginUISafeIframeBrowserTest,
   base::RunLoop().RunUntilIdle();
 }
 
+#if BUILDFLAG(IS_WIN)
 // Tracks the URLs requested while running a browser test and returns a default
 // empty html page as a result. Each URL + path tracks all the query params
 // requested to this endpoint for validation later on.
 class HtmlRequestTracker {
  public:
+  using QueryParamSet = std::set<std::pair<std::string, std::string>>;
+
   HtmlRequestTracker() = default;
   ~HtmlRequestTracker() = default;
+
   std::unique_ptr<net::test_server::HttpResponse> HtmlResponseHandler(
       const net::test_server::HttpRequest& request) {
-    // Track the query keyed on the host + path portion of the URL.
-    std::vector<std::pair<std::string, std::string>> query_params;
-    GURL request_url = request.GetURL();
-    net::QueryIterator it(request_url);
-    for (; !it.IsAtEnd(); it.Advance()) {
-      query_params.push_back(
-          std::make_pair(std::string(it.GetKey()), it.GetUnescapedValue()));
+    QueryParamSet query_params;
+    const GURL url = request.GetURL();
+    for (net::QueryIterator it(url); !it.IsAtEnd(); it.Advance()) {
+      query_params.emplace(it.GetKey(), it.GetUnescapedValue());
     }
-    requested_urls_[GURL(request.GetURL().GetWithEmptyPath().Resolve(
-                        request.GetURL().path()))]
-        .push_back(query_params);
+    requests_per_url_[StripParams(url)].push_back(query_params);
 
+    // Dummy response.
     return EmptyHtmlResponseHandler(request);
   }
 
-  bool PageRequested(const GURL& url) { return PageRequested(url, {}); }
-
-  bool PageRequested(const GURL& url,
-                     const std::vector<std::pair<std::string, std::string>>&
-                         required_query_params) {
-    auto it = requested_urls_.find(url.GetWithEmptyPath().Resolve(url.path()));
-
-    if (it == requested_urls_.end())
+  bool PageRequested(const GURL& url, const QueryParamSet& required_params) {
+    auto it = requests_per_url_.find(StripParams(url));
+    if (it == requests_per_url_.end()) {
       return false;
-
-    if (required_query_params.empty())
-      return true;
-
-    // Go to every query made on this endpoint and see if one of them matches
-    // the required query params.
-    for (auto& query_param : required_query_params) {
-      bool query_params_match = true;
-      for (auto& requested_query_params : it->second) {
-        if (std::find_if(requested_query_params.begin(),
-                         requested_query_params.end(),
-                         [&query_param](auto& lhs) {
-                           return base::EqualsCaseInsensitiveASCII(
-                                      query_param.first, lhs.first) &&
-                                  base::EqualsCaseInsensitiveASCII(
-                                      query_param.second, lhs.second);
-                         }) == requested_query_params.end()) {
-          query_params_match = false;
-          break;
-        }
-      }
-
-      if (!query_params_match)
-        return false;
     }
 
-    return true;
+    return base::ranges::all_of(
+        it->second, [&required_params](const QueryParamSet& request_params) {
+          return base::ranges::includes(request_params, required_params);
+        });
   }
 
  private:
-  std::map<GURL, std::vector<std::vector<std::pair<std::string, std::string>>>>
-      requested_urls_;
+  static GURL StripParams(const GURL& url) {
+    return url.GetWithEmptyPath().Resolve(url.path());
+  }
+
+  // Given a URL, gives the parameters of each request made to it.
+  std::map<GURL, std::vector<QueryParamSet>> requests_per_url_;
 };
 
 // Tests whether the correct gaia url and query parameters are requested based
@@ -931,7 +921,6 @@ class InlineLoginCorrectGaiaUrlBrowserTest : public InProcessBrowserTest {
   HtmlRequestTracker tracker_;
 };
 
-#if BUILDFLAG(IS_WIN)
 IN_PROC_BROWSER_TEST_F(InlineLoginCorrectGaiaUrlBrowserTest,
                        FetchLstOnlyEndpointForSignin) {
   signin_metrics::AccessPoint access_point =
@@ -982,6 +971,6 @@ IN_PROC_BROWSER_TEST_F(InlineLoginCorrectGaiaUrlBrowserTest,
   GURL gaia_url = GaiaUrls::GetInstance()->embedded_setup_windows_url();
 
   EXPECT_TRUE(tracker_.PageRequested(
-      gaia_url, {{"flow", "reauth"}, {"email", email}, {"show_tos", "1"}}));
+      gaia_url, {{"flow", "reauth"}, {"Email", email}, {"show_tos", "1"}}));
 }
 #endif

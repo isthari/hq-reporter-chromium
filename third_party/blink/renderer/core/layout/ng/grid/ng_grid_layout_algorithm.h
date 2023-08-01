@@ -1,15 +1,15 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_GRID_NG_GRID_LAYOUT_ALGORITHM_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_GRID_NG_GRID_LAYOUT_ALGORITHM_H_
 
-#include "third_party/blink/renderer/core/layout/ng/grid/ng_grid_geometry.h"
-#include "third_party/blink/renderer/core/layout/ng/grid/ng_grid_item.h"
+#include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/layout/ng/grid/ng_grid_break_token_data.h"
 #include "third_party/blink/renderer/core/layout/ng/grid/ng_grid_node.h"
-#include "third_party/blink/renderer/core/layout/ng/grid/ng_grid_properties.h"
-#include "third_party/blink/renderer/core/layout/ng/grid/ng_grid_track_collection.h"
+#include "third_party/blink/renderer/core/layout/ng/grid/ng_grid_placement.h"
+#include "third_party/blink/renderer/core/layout/ng/grid/ng_grid_sizing_tree.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_block_break_token.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_box_fragment_builder.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_constraint_space.h"
@@ -18,8 +18,7 @@
 
 namespace blink {
 
-class NGGridPlacement;
-struct GridItemOffsets;
+class NGBoxFragment;
 
 // This enum corresponds to each step used to accommodate grid items across
 // intrinsic tracks according to their min and max track sizing functions, as
@@ -33,6 +32,9 @@ enum class GridItemContributionType {
   kForFreeSpace,
 };
 
+using GridItemDataPtrVector = Vector<GridItemData*, 16>;
+using GridSetPtrVector = Vector<NGGridSet*, 16>;
+
 class CORE_EXPORT NGGridLayoutAlgorithm
     : public NGLayoutAlgorithm<NGGridNode,
                                NGBoxFragmentBuilder,
@@ -40,167 +42,220 @@ class CORE_EXPORT NGGridLayoutAlgorithm
  public:
   explicit NGGridLayoutAlgorithm(const NGLayoutAlgorithmParams& params);
 
-  scoped_refptr<const NGLayoutResult> Layout() override;
+  const NGLayoutResult* Layout() override;
   MinMaxSizesResult ComputeMinMaxSizes(const MinMaxSizesFloatInput&) override;
 
   // Computes the containing block rect of out of flow items from stored data in
   // |NGGridLayoutData|.
   static LogicalRect ComputeOutOfFlowItemContainingRect(
-      const NGGridPlacement& grid_placement,
+      const NGGridPlacementData& placement_data,
       const NGGridLayoutData& layout_data,
+      const ComputedStyle& grid_style,
       const NGBoxStrut& borders,
       const LogicalSize& border_box_size,
-      const LayoutUnit block_size,
       GridItemData* out_of_flow_item);
 
   // Helper that computes tracks sizes in a given range.
   static Vector<std::div_t> ComputeTrackSizesInRange(
-      const SetGeometry& set_geometry,
+      const NGGridLayoutTrackCollection& track_collection,
       wtf_size_t range_starting_set_index,
       wtf_size_t range_set_count);
 
  private:
   friend class NGGridLayoutAlgorithmTest;
 
-  scoped_refptr<const NGLayoutResult> LayoutInternal();
+  // Aggregate all direct out of flow children from the current grid container
+  // to |oof_children|, unless |oof_children| is not provided.
+  wtf_size_t BuildGridSizingSubtree(
+      NGGridSizingTree* sizing_tree,
+      HeapVector<Member<LayoutBox>>* oof_children = nullptr,
+      const NGSubgriddedItemData& opt_subgrid_data = kNoSubgriddedItemData,
+      const NGGridLineResolver* parent_line_resolver = nullptr,
+      bool must_ignore_children = false) const;
 
-  LayoutUnit Baseline(const NGGridGeometry& grid_geometry,
+  NGGridSizingTree BuildGridSizingTree(
+      HeapVector<Member<LayoutBox>>* oof_children = nullptr) const;
+  NGGridSizingTree BuildGridSizingTreeIgnoringChildren() const;
+
+  const NGLayoutResult* LayoutInternal();
+
+  LayoutUnit Baseline(const NGGridLayoutData& layout_data,
                       const GridItemData& grid_item,
-                      const GridTrackSizingDirection track_direction) const;
+                      GridTrackSizingDirection track_direction) const;
 
-  NGGridGeometry ComputeGridGeometry(
-      const NGGridBlockTrackCollection& column_block_track_collection,
-      const NGGridBlockTrackCollection& row_block_track_collection,
-      GridItems* grid_items,
-      LayoutUnit* intrinsic_block_size,
-      NGGridLayoutAlgorithmTrackCollection* column_track_collection,
-      NGGridLayoutAlgorithmTrackCollection* row_track_collection);
+  void ComputeGridGeometry(const NGGridSizingTree& grid_sizing_tree,
+                           LayoutUnit* intrinsic_block_size);
 
   LayoutUnit ComputeIntrinsicBlockSizeIgnoringChildren() const;
+
+  LayoutUnit GetLogicalBaseline(const NGBoxFragment&,
+                                const bool is_last_baseline) const;
+  LayoutUnit GetSynthesizedLogicalBaseline(const LayoutUnit block_size,
+                                           const bool is_flipped_lines,
+                                           const bool is_last_baseline) const;
 
   // Returns the size that a grid item will distribute across the tracks with an
   // intrinsic sizing function it spans in the relevant track direction.
   LayoutUnit ContributionSizeForGridItem(
-      const NGGridGeometry& grid_geometry,
-      const SizingConstraint sizing_constraint,
-      const GridTrackSizingDirection track_direction,
-      const GridItemContributionType contribution_type,
+      const NGGridSizingSubtree& sizing_subtree,
+      GridItemContributionType contribution_type,
+      GridTrackSizingDirection track_direction,
+      SizingConstraint sizing_constraint,
       GridItemData* grid_item) const;
 
   wtf_size_t ComputeAutomaticRepetitions(
-      const GridTrackSizingDirection track_direction) const;
+      const GridSpan& subgrid_span,
+      GridTrackSizingDirection track_direction) const;
 
-  void ConstructAndAppendGridItems(GridItems* grid_items,
-                                   NGGridPlacement* grid_placement) const;
-
-  void BuildBlockTrackCollections(
-      const NGGridPlacement& grid_placement,
-      GridItems* grid_items,
-      NGGridBlockTrackCollection* column_track_collection,
-      NGGridBlockTrackCollection* row_track_collection) const;
-
-  // Ensure coverage in block collection after grid items have been placed.
-  void EnsureTrackCoverageForGridItems(
-      GridItems* grid_items,
-      NGGridBlockTrackCollection* track_collection) const;
+  // Subgrids compute auto repetitions differently than standalone grids.
+  wtf_size_t ComputeAutomaticRepetitionsForSubgrid(
+      wtf_size_t subgrid_span_size,
+      GridTrackSizingDirection track_direction) const;
 
   // Determines the major/minor alignment baselines for each row/column based on
-  // each item in |grid_items|, and stores the results in |grid_geometry|.
-  void CalculateAlignmentBaselines(
-      const GridTrackSizingDirection track_direction,
-      const SizingConstraint sizing_constraint,
-      NGGridGeometry* grid_geometry,
-      GridItems* grid_items,
-      bool* needs_additional_pass = nullptr) const;
+  // each item in |grid_items|, and stores the results in |track_collection|.
+  void ComputeGridItemBaselines(const NGGridSizingSubtree& sizing_subtree,
+                                GridTrackSizingDirection track_direction,
+                                SizingConstraint sizing_constraint) const;
 
-  // Initializes the given track collection, and returns the base set geometry.
-  SetGeometry InitializeTrackSizes(
-      const NGGridProperties& grid_properties,
-      NGGridLayoutAlgorithmTrackCollection* track_collection) const;
+  std::unique_ptr<NGGridLayoutTrackCollection> CreateSubgridTrackCollection(
+      const NGSubgriddedItemData& subgrid_data,
+      GridTrackSizingDirection track_direction) const;
+
+  // Initialize the track collections of a given grid sizing data.
+  void InitializeTrackCollection(const NGSubgriddedItemData& opt_subgrid_data,
+                                 GridTrackSizingDirection track_direction,
+                                 NGGridLayoutData* layout_data) const;
+
+  // Initializes the track sizes of a grid sizing subtree.
+  void InitializeTrackSizes(const NGGridSizingSubtree& sizing_subtree,
+                            const NGSubgriddedItemData& opt_subgrid_data,
+                            const absl::optional<GridTrackSizingDirection>&
+                                opt_track_direction) const;
+
+  // Helper that calls the method above for the entire grid sizing tree.
+  void InitializeTrackSizes(const NGGridSizingTree& sizing_tree,
+                            const absl::optional<GridTrackSizingDirection>&
+                                opt_track_direction = absl::nullopt) const;
 
   // Calculates from the min and max track sizing functions the used track size.
-  SetGeometry ComputeUsedTrackSizes(
-      const NGGridGeometry& grid_geometry,
-      const NGGridProperties& grid_properties,
-      const SizingConstraint sizing_constraint,
-      NGGridLayoutAlgorithmTrackCollection* track_collection,
-      GridItems* grid_items) const;
+  void ComputeUsedTrackSizes(const NGGridSizingSubtree& sizing_subtree,
+                             GridTrackSizingDirection track_direction,
+                             SizingConstraint sizing_constraint,
+                             bool* opt_needs_additional_pass) const;
+
+  // Computes and caches the used track sizes of a grid sizing subtree.
+  void CompleteTrackSizingAlgorithm(
+      const NGGridSizingSubtree& sizing_subtree,
+      const NGSubgriddedItemData& opt_subgrid_data,
+      GridTrackSizingDirection track_direction,
+      SizingConstraint sizing_constraint,
+      bool* opt_needs_additional_pass) const;
+
+  // Helper that calls the method above for the entire grid sizing tree.
+  void CompleteTrackSizingAlgorithm(
+      const NGGridSizingTree& sizing_tree,
+      GridTrackSizingDirection track_direction,
+      SizingConstraint sizing_constraint,
+      bool* opt_needs_additional_pass = nullptr) const;
+
+  // Performs the final baseline alignment pass of a grid sizing subtree.
+  void ComputeBaselineAlignment(
+      const NGGridSizingSubtree& sizing_subtree,
+      const NGSubgriddedItemData& opt_subgrid_data,
+      const absl::optional<GridTrackSizingDirection>& opt_track_direction,
+      SizingConstraint) const;
+
+  // Helper that calls the method above for the entire grid sizing tree.
+  void CompleteFinalBaselineAlignment(
+      const NGGridSizingTree& sizing_tree) const;
+
+  // Helper which iterates over the sizing tree, and instantiates a subgrid
+  // algorithm to invoke the callback with.
+  template <typename CallbackFunc>
+  void ForEachSubgrid(const NGGridSizingSubtree& sizing_subtree,
+                      const CallbackFunc& callback_func) const;
+
+  LayoutUnit ComputeSubgridContributionSize(
+      const NGGridSizingSubtree& sizing_subtree,
+      GridTrackSizingDirection track_direction,
+      SizingConstraint sizing_constraint) const;
 
   // These methods implement the steps of the algorithm for intrinsic track size
   // resolution defined in https://drafts.csswg.org/css-grid-2/#algo-content.
-  void ResolveIntrinsicTrackSizes(
-      const NGGridGeometry& grid_geometry,
-      const SizingConstraint sizing_constraint,
-      NGGridLayoutAlgorithmTrackCollection* track_collection,
-      GridItems* grid_items) const;
+  void ResolveIntrinsicTrackSizes(const NGGridSizingSubtree& sizing_subtree,
+                                  GridTrackSizingDirection track_direction,
+                                  SizingConstraint sizing_constraint) const;
 
   void IncreaseTrackSizesToAccommodateGridItems(
-      GridItems::Iterator group_begin,
-      GridItems::Iterator group_end,
-      const NGGridGeometry& grid_geometry,
-      const bool is_group_spanning_flex_track,
-      const SizingConstraint sizing_constraint,
-      const GridItemContributionType contribution_type,
-      NGGridLayoutAlgorithmTrackCollection* track_collection) const;
+      GridItemDataPtrVector::iterator group_begin,
+      GridItemDataPtrVector::iterator group_end,
+      const NGGridSizingSubtree& sizing_subtree,
+      bool is_group_spanning_flex_track,
+      SizingConstraint sizing_constraint,
+      GridItemContributionType contribution_type,
+      NGGridSizingTrackCollection* track_collection) const;
 
-  void MaximizeTracks(
-      const SizingConstraint sizing_constraint,
-      NGGridLayoutAlgorithmTrackCollection* track_collection) const;
+  void MaximizeTracks(SizingConstraint sizing_constraint,
+                      NGGridSizingTrackCollection* track_collection) const;
 
-  void StretchAutoTracks(
-      const SizingConstraint sizing_constraint,
-      NGGridLayoutAlgorithmTrackCollection* track_collection) const;
+  void StretchAutoTracks(SizingConstraint sizing_constraint,
+                         NGGridSizingTrackCollection* track_collection) const;
 
-  void ExpandFlexibleTracks(
-      const NGGridGeometry& grid_geometry,
-      const SizingConstraint sizing_constraint,
-      NGGridLayoutAlgorithmTrackCollection* track_collection,
-      GridItems* grid_items) const;
+  void ExpandFlexibleTracks(const NGGridSizingSubtree& sizing_subtree,
+                            GridTrackSizingDirection track_direction,
+                            SizingConstraint sizing_constraint) const;
 
-  SetGeometry ComputeSetGeometry(
-      const NGGridLayoutAlgorithmTrackCollection& track_collection) const;
-
-  // Gets the row or column gap of the grid.
-  LayoutUnit GridGap(const GridTrackSizingDirection track_direction) const;
+  // Gets the specified [column|row]-gap of the grid.
+  LayoutUnit GutterSize(
+      GridTrackSizingDirection track_direction,
+      LayoutUnit parent_grid_gutter_size = LayoutUnit()) const;
 
   LayoutUnit DetermineFreeSpace(
       SizingConstraint sizing_constraint,
-      const NGGridLayoutAlgorithmTrackCollection& track_collection) const;
+      const NGGridSizingTrackCollection& track_collection) const;
 
-  const NGConstraintSpace CreateConstraintSpace(
+  NGConstraintSpace CreateConstraintSpace(
+      NGCacheSlot cache_slot,
       const GridItemData& grid_item,
       const LogicalSize& containing_grid_area_size,
-      NGCacheSlot cache_slot,
-      absl::optional<LayoutUnit> opt_fixed_block_size,
+      const LogicalSize& fixed_available_size,
+      NGGridLayoutSubtree&& opt_layout_subtree = NGGridLayoutSubtree(),
+      bool min_block_size_should_encompass_intrinsic_size = false,
       absl::optional<LayoutUnit> opt_fragment_relative_block_offset =
-          absl::nullopt,
-      bool opt_min_block_size_should_encompass_intrinsic_size = false) const;
+          absl::nullopt) const;
 
-  const NGConstraintSpace CreateConstraintSpaceForLayout(
-      const NGGridGeometry& grid_geometry,
+  NGConstraintSpace CreateConstraintSpaceForLayout(
       const GridItemData& grid_item,
+      const NGGridLayoutData& layout_data,
       LogicalRect* containing_grid_area,
+      NGGridLayoutSubtree&& opt_layout_subtree = NGGridLayoutSubtree(),
+      LayoutUnit unavailable_block_size = LayoutUnit(),
+      bool min_block_size_should_encompass_intrinsic_size = false,
       absl::optional<LayoutUnit> opt_fragment_relative_block_offset =
-          absl::nullopt,
-      bool opt_min_block_size_should_encompass_intrinsic_size = false) const;
+          absl::nullopt) const;
 
-  const NGConstraintSpace CreateConstraintSpaceForMeasure(
-      const GridItemData& grid_item,
-      const NGGridGeometry& grid_geometry,
-      const GridTrackSizingDirection track_direction,
+  NGConstraintSpace CreateConstraintSpaceForMeasure(
+      const NGSubgriddedItemData& subgridded_item,
+      GridTrackSizingDirection track_direction,
       absl::optional<LayoutUnit> opt_fixed_block_size = absl::nullopt) const;
+
+  NGConstraintSpace CreateConstraintSpaceForSubgridAlgorithm(
+      const NGSubgriddedItemData& subgrid_data) const;
 
   // Layout the |grid_items|, and add them to the builder.
   //
-  // If |out_offsets| is present determine the offset for each of the
-  // |grid_items| but *don't* add the resulting fragment to the builder.
+  // If |out_grid_items_placement_data| is present determine the offset for
+  // each of the |grid_items| but *don't* add the resulting fragment to the
+  // builder.
   //
   // This is used for fragmentation which requires us to know the final offset
   // of each item before fragmentation occurs.
-  void PlaceGridItems(const GridItems& grid_items,
-                      const NGGridGeometry& grid_geometry,
-                      Vector<GridItemOffsets>* out_offsets = nullptr,
-                      Vector<EBreakBetween>* out_row_break_between = nullptr);
+  void PlaceGridItems(
+      const GridItems& grid_items,
+      const NGGridLayoutSubtree& layout_subtree,
+      Vector<EBreakBetween>* out_row_break_between,
+      Vector<GridItemPlacementData>* out_grid_items_placement_data = nullptr);
 
   // Layout the |grid_items| for fragmentation (when there is a known
   // fragmentainer size).
@@ -210,24 +265,23 @@ class CORE_EXPORT NGGridLayoutAlgorithm
   void PlaceGridItemsForFragmentation(
       const GridItems& grid_items,
       const Vector<EBreakBetween>& row_break_between,
-      NGGridGeometry* grid_geometry,
-      Vector<GridItemOffsets>* offsets,
+      NGGridLayoutData* layout_data,
+      Vector<GridItemPlacementData>* grid_item_placement_data,
       Vector<LayoutUnit>* row_offset_adjustments,
-      LayoutUnit* intrinsic_block_size);
+      LayoutUnit* intrinsic_block_size,
+      LayoutUnit* consumed_grid_block_size);
 
   // Computes the static position, grid area and its offset of out of flow
-  // elements in the grid.
+  // elements in the grid (as provided by `oof_children`).
   void PlaceOutOfFlowItems(const NGGridLayoutData& layout_data,
-                           const LayoutUnit block_size);
+                           const LayoutUnit block_size,
+                           HeapVector<Member<LayoutBox>>& oof_children);
 
-  void ComputeGridItemOffsetAndSize(
+  LayoutUnit ComputeGridItemAvailableSize(
       const GridItemData& grid_item,
-      const SetGeometry& set_geometry,
-      const GridTrackSizingDirection track_direction,
-      LayoutUnit* start_offset,
-      LayoutUnit* size) const;
+      const NGGridLayoutTrackCollection& track_collection,
+      LayoutUnit* start_offset = nullptr) const;
 
-  LogicalSize border_box_size_;
   LogicalSize grid_available_size_;
   LogicalSize grid_min_available_size_;
   LogicalSize grid_max_available_size_;

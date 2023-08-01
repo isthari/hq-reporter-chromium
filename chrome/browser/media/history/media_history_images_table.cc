@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -122,8 +122,7 @@ absl::optional<int64_t> MediaHistoryImagesTable::SaveOrGetImage(
     }
   }
 
-  NOTREACHED();
-  return absl::nullopt;
+  NOTREACHED_NORETURN();
 }
 
 }  // namespace media_history

@@ -1,28 +1,29 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "services/network/network_service.h"
 
+#include <algorithm>
 #include <map>
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
+#include "base/check.h"
+#include "base/check_op.h"
 #include "base/command_line.h"
-#include "base/containers/contains.h"
-#include "base/cxx17_backports.h"
 #include "base/debug/crash_logging.h"
 #include "base/debug/dump_without_crashing.h"
 #include "base/environment.h"
 #include "base/feature_list.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/timer/timer.h"
 #include "base/values.h"
@@ -30,13 +31,16 @@
 #include "build/chromecast_buildflags.h"
 #include "build/chromeos_buildflags.h"
 #include "components/network_session_configurator/common/network_features.h"
-#include "components/os_crypt/os_crypt.h"
+#include "components/os_crypt/sync/os_crypt.h"
+#include "mojo/public/cpp/bindings/callback_helpers.h"
 #include "mojo/public/cpp/bindings/scoped_message_error_crash_key.h"
+#include "mojo/public/cpp/bindings/shared_remote.h"
 #include "mojo/public/cpp/system/functions.h"
+#include "net/base/address_list.h"
 #include "net/base/features.h"
 #include "net/base/logging_network_change_observer.h"
 #include "net/base/network_change_notifier.h"
-#include "net/base/network_change_notifier_posix.h"
+#include "net/base/network_change_notifier_passive.h"
 #include "net/base/port_util.h"
 #include "net/cert/cert_database.h"
 #include "net/cert/ct_log_response_parser.h"
@@ -45,9 +49,14 @@
 #include "net/cookies/cookie_util.h"
 #include "net/dns/host_resolver.h"
 #include "net/dns/host_resolver_manager.h"
+#include "net/dns/host_resolver_proc.h"
 #include "net/dns/public/dns_config_overrides.h"
+#include "net/dns/public/dns_over_https_config.h"
+#include "net/dns/public/doh_provider_entry.h"
+#include "net/dns/system_dns_config_change_notifier.h"
+#include "net/dns/test_dns_config_service.h"
+#include "net/first_party_sets/global_first_party_sets.h"
 #include "net/http/http_auth_handler_factory.h"
-#include "net/http/transport_security_state.h"
 #include "net/log/file_net_log_observer.h"
 #include "net/log/net_log.h"
 #include "net/log/net_log_capture_mode.h"
@@ -56,9 +65,8 @@
 #include "net/socket/client_socket_pool_manager.h"
 #include "net/ssl/ssl_key_logger_impl.h"
 #include "net/url_request/url_request_context.h"
-#include "services/network/crl_set_distributor.h"
 #include "services/network/dns_config_change_manager.h"
-#include "services/network/first_party_sets/first_party_sets.h"
+#include "services/network/first_party_sets/first_party_sets_manager.h"
 #include "services/network/http_auth_cache_copier.h"
 #include "services/network/net_log_exporter.h"
 #include "services/network/net_log_proxy_sink.h"
@@ -69,7 +77,10 @@
 #include "services/network/public/cpp/load_info_util.h"
 #include "services/network/public/cpp/network_switches.h"
 #include "services/network/public/cpp/parsed_headers.h"
+#include "services/network/public/mojom/key_pinning.mojom.h"
 #include "services/network/public/mojom/network_service_test.mojom.h"
+#include "services/network/public/mojom/system_dns_resolution.mojom-forward.h"
+#include "services/network/restricted_cookie_manager.h"
 #include "services/network/url_loader.h"
 
 #if BUILDFLAG(IS_ANDROID) && defined(ARCH_CPU_ARMEL)
@@ -77,9 +88,14 @@
 #include "third_party/boringssl/src/include/openssl/cpu.h"
 #endif
 
-#if (BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)) && \
-    !BUILDFLAG(IS_CHROMECAST)
-#include "components/os_crypt/key_storage_config_linux.h"
+#if (BUILDFLAG(IS_LINUX) && !BUILDFLAG(IS_CASTOS)) || \
+    BUILDFLAG(IS_CHROMEOS_LACROS)
+
+#include "components/os_crypt/sync/key_storage_config_linux.h"
+#endif
+
+#if BUILDFLAG(IS_LINUX)
+#include "services/network/network_change_notifier_passive_factory.h"
 #endif
 
 #if BUILDFLAG(IS_ANDROID)
@@ -92,6 +108,10 @@
 #include "services/network/ct_log_list_distributor.h"
 #include "services/network/sct_auditing/sct_auditing_cache.h"
 #endif
+
+namespace net {
+class FirstPartySetEntry;
+}
 
 namespace network {
 
@@ -200,6 +220,57 @@ void HandleBadMessage(const std::string& error) {
   network::debug::ClearDeserializationCrashKeyString();
 }
 
+void ResolveSystemDnsWithMojo(
+    const mojo::Remote<mojom::SystemDnsResolver>& system_dns_override,
+    const absl::optional<std::string>& hostname,
+    net::AddressFamily addr_family,
+    net::HostResolverFlags flags,
+    net::SystemDnsResultsCallback results_cb,
+    net::handles::NetworkHandle network) {
+  auto results_cb_with_default_invoke =
+      mojo::WrapCallbackWithDefaultInvokeIfNotRun(
+          std::move(results_cb), net::AddressList(), 0,
+          net::ERR_DNS_REQUEST_CANCELLED);
+  system_dns_override->Resolve(hostname, addr_family, flags, network,
+                               std::move(results_cb_with_default_invoke));
+}
+
+// Creating an instance of this class starts exporting UMA data related to
+// RestrictedCookieManager. There should only be one instance of this class at a
+// time and it should be kept around for the duration of the program. This is
+// accomplished by having NetworkService own the instance.
+class RestrictedCookieManagerMetrics
+    : public RestrictedCookieManager::UmaMetricsUpdater {
+ public:
+  RestrictedCookieManagerMetrics() {
+    histogram_ = base::Histogram::FactoryGet(
+        "Net.RestrictedCookieManager.GetCookiesString.Count30Seconds", 1, 10000,
+        50, base::HistogramBase::kUmaTargetedHistogramFlag);
+    timer_.Start(
+        FROM_HERE, base::Seconds(30),
+        base::BindRepeating(&RestrictedCookieManagerMetrics::OnTimerTick,
+                            base::Unretained(this)));
+  }
+  ~RestrictedCookieManagerMetrics() override = default;
+
+ private:
+  void OnGetCookiesString() override {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    ++get_cookies_string_count_;
+  }
+
+  void OnTimerTick() {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    histogram_->Add(get_cookies_string_count_);
+    get_cookies_string_count_ = 0;
+  }
+
+  SEQUENCE_CHECKER(sequence_checker_);
+  uint64_t get_cookies_string_count_{0};
+  raw_ptr<base::HistogramBase> histogram_;
+  base::RepeatingTimer timer_;
+};
+
 }  // namespace
 
 // static
@@ -261,10 +332,17 @@ NetworkService::NetworkService(
   DCHECK(!g_network_service);
   g_network_service = this;
 
-  // |registry_| is nullptr when an in-process NetworkService is
-  // created directly, like in most unit tests.
-  if (registry_)
+  // |registry_| is nullptr when a NetworkService is out-of-process.
+  if (registry_) {
     mojo::SetDefaultProcessErrorHandler(base::BindRepeating(&HandleBadMessage));
+#if BUILDFLAG(IS_LINUX)
+    if (base::FeatureList::IsEnabled(
+            net::features::kAddressTrackerLinuxIsProxied)) {
+      net::NetworkChangeNotifier::SetFactory(
+          new network::NetworkChangeNotifierPassiveFactory());
+    }
+#endif
+  }
 
   if (receiver.is_valid())
     Bind(std::move(receiver));
@@ -284,8 +362,6 @@ void NetworkService::Initialize(mojom::NetworkServiceParamsPtr params,
   // Make sure OpenSSL is initialized before using it to histogram data.
   crypto::EnsureOpenSSLInit();
 
-  // Measure CPUs with broken NEON units. See https://crbug.com/341598.
-  UMA_HISTOGRAM_BOOLEAN("Net.HasBrokenNEON", CRYPTO_has_broken_NEON());
   // Measure Android kernels with missing AT_HWCAP2 auxv fields. See
   // https://crbug.com/boringssl/46.
   UMA_HISTOGRAM_BOOLEAN("Net.NeedsHWCAP2Workaround",
@@ -303,13 +379,38 @@ void NetworkService::Initialize(mojom::NetworkServiceParamsPtr params,
       "Net.Certificate.IgnoreCertificateErrorsSPKIListPresent",
       command_line->HasSwitch(switches::kIgnoreCertificateErrorsSPKIList));
 
-  network_change_manager_ = std::make_unique<NetworkChangeManager>(
+  if (params->system_dns_resolver)
+    SetSystemDnsResolver(std::move(params->system_dns_resolver));
+
+  std::unique_ptr<net::NetworkChangeNotifier> network_change_notifier =
       CreateNetworkChangeNotifierIfNeeded(
           net::NetworkChangeNotifier::ConnectionType(
               params->initial_connection_type),
           net::NetworkChangeNotifier::ConnectionSubtype(
               params->initial_connection_subtype),
-          mock_network_change_notifier));
+          mock_network_change_notifier);
+
+#if BUILDFLAG(IS_LINUX)
+  if (params->initial_address_map) {
+    // The NetworkChangeNotifierPassive should only be included if it's
+    // necessary to instantiate an AddressMapCacheLinux rather than an
+    // AddressTrackerLinux.
+    DCHECK(base::FeatureList::IsEnabled(
+        net::features::kAddressTrackerLinuxIsProxied));
+    // There should be a factory that creates NetworkChangeNotifierPassives.
+    DCHECK(net::NetworkChangeNotifier::GetFactory());
+    // Network service should be out of process or it's unsandboxed and can just
+    // use AddressTrackerLinux.
+    DCHECK(registry_);
+    network_change_notifier->GetAddressMapOwner()
+        ->GetAddressMapCacheLinux()
+        ->SetCachedInfo(std::move(params->initial_address_map->address_map),
+                        std::move(params->initial_address_map->online_links));
+  }
+#endif  // BUILDFLAG(IS_LINUX)
+
+  network_change_manager_ = std::make_unique<NetworkChangeManager>(
+      std::move(network_change_notifier));
 
   trace_net_log_observer_.WatchForTraceStart(net_log_);
 
@@ -331,8 +432,6 @@ void NetworkService::Initialize(mojom::NetworkServiceParamsPtr params,
 
   http_auth_cache_copier_ = std::make_unique<HttpAuthCacheCopier>();
 
-  crl_set_distributor_ = std::make_unique<CRLSetDistributor>();
-
 #if BUILDFLAG(IS_CT_SUPPORTED)
   ct_log_list_distributor_ = std::make_unique<CtLogListDistributor>();
 #endif
@@ -346,18 +445,18 @@ void NetworkService::Initialize(mojom::NetworkServiceParamsPtr params,
         std::move(params->default_observer));
   }
 
-  first_party_sets_ =
-      std::make_unique<FirstPartySets>(params->first_party_sets_enabled);
-  if (first_party_sets_->is_enabled()) {
-    first_party_sets_->SetManuallySpecifiedSet(
-        command_line->GetSwitchValueASCII(switches::kUseFirstPartySet));
-  }
+  first_party_sets_manager_ =
+      std::make_unique<FirstPartySetsManager>(params->first_party_sets_enabled);
 
 #if BUILDFLAG(IS_CT_SUPPORTED)
   constexpr size_t kMaxSCTAuditingCacheEntries = 1024;
   sct_auditing_cache_ =
       std::make_unique<SCTAuditingCache>(kMaxSCTAuditingCacheEntries);
 #endif
+
+  if (base::FeatureList::IsEnabled(features::kGetCookiesStringUma)) {
+    metrics_updater_ = std::make_unique<RestrictedCookieManagerMetrics>();
+  }
 }
 
 NetworkService::~NetworkService() {
@@ -382,6 +481,42 @@ NetworkService::~NetworkService() {
     trace_net_log_observer_.StopWatchForTraceStart();
 }
 
+void NetworkService::ReplaceSystemDnsConfigForTesting(
+    base::OnceClosure replace_cb) {
+  // Create a test `net::DnsConfigService` that will yield a dummy config once.
+  auto config_service = std::make_unique<net::TestDnsConfigService>();
+  config_service->SetConfigForRefresh(
+      net::DnsConfig({net::IPEndPoint(net::IPAddress::IPv4Localhost(), 1234)}));
+
+  // Replace the existing `net::DnsConfigService` and flush the lines once to
+  // replace the system DNS config, in case we already received it.
+  auto* notifier = net::NetworkChangeNotifier::GetSystemDnsConfigNotifier();
+  DCHECK(notifier);
+  notifier->SetDnsConfigServiceForTesting(  // IN-TEST
+      std::move(config_service), std::move(replace_cb));
+
+  // Force-disable the system resolver so that HostResolverManager will actually
+  // use the replacement config.
+  host_resolver_manager_->DisableSystemResolverForTesting();  // IN-TEST
+}
+
+void NetworkService::SetTestDohConfigForTesting(
+    net::SecureDnsMode secure_dns_mode,
+    const net::DnsOverHttpsConfig& doh_config) {
+  DCHECK_EQ(dns_config_overrides_set_by_, FunctionTag::None);
+  dns_config_overrides_set_by_ = FunctionTag::SetTestDohConfigForTesting;
+
+  // Overlay DoH settings on top of the system config, whenever it is received.
+  net::DnsConfigOverrides overrides;
+  overrides.secure_dns_mode = secure_dns_mode;
+  overrides.dns_over_https_config = doh_config;
+  host_resolver_manager_->SetDnsConfigOverrides(std::move(overrides));
+
+  // Force-disable the system resolver so that HostResolverManager will actually
+  // query the test DoH server.
+  host_resolver_manager_->DisableSystemResolverForTesting();  // IN-TEST
+}
+
 std::unique_ptr<NetworkService> NetworkService::Create(
     mojo::PendingReceiver<mojom::NetworkService> receiver) {
   return std::make_unique<NetworkService>(nullptr, std::move(receiver));
@@ -389,8 +524,8 @@ std::unique_ptr<NetworkService> NetworkService::Create(
 
 // static
 std::unique_ptr<NetworkService> NetworkService::CreateForTesting() {
-  auto network_service = std::make_unique<NetworkService>(
-      std::make_unique<service_manager::BinderRegistry>());
+  auto network_service =
+      std::make_unique<NetworkService>(nullptr /* binder_registry */);
   network_service->InitMockNetworkChangeNotifierForTesting();  // IN-TEST
   return network_service;
 }
@@ -412,27 +547,18 @@ void NetworkService::RegisterNetworkContext(NetworkContext* network_context) {
 
   if (doh_probe_activator_)
     doh_probe_activator_->MaybeActivateDohProbes(network_context);
+
+#if BUILDFLAG(IS_CT_SUPPORTED)
+  network_context->url_request_context()
+      ->transport_security_state()
+      ->SetCTEmergencyDisabled(!ct_enforcement_enabled_);
+#endif  // BUILDFLAG(IS_CT_SUPPORTED)
 }
 
 void NetworkService::DeregisterNetworkContext(NetworkContext* network_context) {
   DCHECK_EQ(1u, network_contexts_.count(network_context));
   network_contexts_.erase(network_context);
 }
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-void NetworkService::ReinitializeLogging(mojom::LoggingSettingsPtr settings) {
-  logging::LoggingSettings logging_settings;
-  logging_settings.logging_dest = settings->logging_dest;
-  base::ScopedFD log_file_descriptor = settings->log_file_descriptor.TakeFD();
-  logging_settings.log_file = fdopen(log_file_descriptor.release(), "a");
-  if (!logging_settings.log_file) {
-    LOG(ERROR) << "Failed to open new log file handle";
-    return;
-  }
-  if (!logging::InitLogging(logging_settings))
-    LOG(ERROR) << "Unable to reinitialize logging";
-}
-#endif
 
 void NetworkService::CreateNetLogEntriesForActiveObjects(
     net::NetLog::ThreadSafeObserver* observer) {
@@ -446,17 +572,31 @@ void NetworkService::SetParams(mojom::NetworkServiceParamsPtr params) {
   Initialize(std::move(params));
 }
 
+void NetworkService::SetSystemDnsResolver(
+    mojo::PendingRemote<mojom::SystemDnsResolver> override_remote) {
+  CHECK(override_remote);
+
+  // Using a Remote (as opposed to a SharedRemote) is fine as system host
+  // resolver overrides should only be invoked on the main thread.
+  mojo::Remote<mojom::SystemDnsResolver> system_dns_override(
+      std::move(override_remote));
+
+  // Note that if this override replaces a currently existing override, it wil
+  // destruct the Remote<mojom::SystemDnsResolver> owned by the other override,
+  // which will cancel all ongoing DNS resolutions.
+  net::SetSystemDnsResolverOverride(base::BindRepeating(
+      ResolveSystemDnsWithMojo, std::move(system_dns_override)));
+}
+
 void NetworkService::StartNetLog(base::File file,
                                  net::NetLogCaptureMode capture_mode,
-                                 base::Value client_constants) {
-  DCHECK(client_constants.is_dict());
-  std::unique_ptr<base::DictionaryValue> constants =
-      base::DictionaryValue::From(
-          base::Value::ToUniquePtrValue(net::GetNetConstants()));
-  constants->MergeDictionary(&client_constants);
+                                 base::Value::Dict client_constants) {
+  base::Value::Dict constants = net::GetNetConstants();
+  constants.Merge(std::move(client_constants));
 
   file_net_log_observer_ = net::FileNetLogObserver::CreateUnboundedPreExisting(
-      std::move(file), capture_mode, std::move(constants));
+      std::move(file), capture_mode,
+      std::make_unique<base::Value::Dict>(std::move(constants)));
   file_net_log_observer_->StartObserving(net_log_);
 }
 
@@ -486,7 +626,7 @@ void NetworkService::CreateNetworkContext(
 void NetworkService::ConfigureStubHostResolver(
     bool insecure_dns_client_enabled,
     net::SecureDnsMode secure_dns_mode,
-    const std::vector<net::DnsOverHttpsServerConfig>& dns_over_https_servers,
+    const net::DnsOverHttpsConfig& dns_over_https_config,
     bool additional_dns_types_enabled) {
   // Enable or disable the insecure part of DnsClient. "DnsClient" is the class
   // that implements the stub resolver.
@@ -494,14 +634,15 @@ void NetworkService::ConfigureStubHostResolver(
       insecure_dns_client_enabled, additional_dns_types_enabled);
 
   // Configure DNS over HTTPS.
+  DCHECK(dns_config_overrides_set_by_ == FunctionTag::None ||
+         dns_config_overrides_set_by_ ==
+             FunctionTag::ConfigureStubHostResolver);
+  dns_config_overrides_set_by_ = FunctionTag::ConfigureStubHostResolver;
   net::DnsConfigOverrides overrides;
-  overrides.dns_over_https_servers = dns_over_https_servers;
+  overrides.dns_over_https_config = dns_over_https_config;
   overrides.secure_dns_mode = secure_dns_mode;
   overrides.allow_dns_over_https_upgrade =
       base::FeatureList::IsEnabled(features::kDnsOverHttpsUpgrade);
-  overrides.disabled_upgrade_providers =
-      SplitString(features::kDnsOverHttpsUpgradeDisabledProvidersParam.Get(),
-                  ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
 
   host_resolver_manager_->SetDnsConfigOverrides(overrides);
 }
@@ -557,7 +698,7 @@ void NetworkService::SetMaxConnectionsPerProxy(int32_t max_connections) {
   int max_limit = 99;
   int min_limit = net::ClientSocketPoolManager::max_sockets_per_group(
       net::HttpNetworkSession::NORMAL_SOCKET_POOL);
-  new_limit = base::clamp(new_limit, min_limit, max_limit);
+  new_limit = std::clamp(new_limit, min_limit, max_limit);
 
   // Assign the global limit.
   net::ClientSocketPoolManager::set_max_sockets_per_proxy_server(
@@ -607,45 +748,12 @@ void NetworkService::GetNetworkList(
                      std::move(callback)));
 }
 
-void NetworkService::UpdateCRLSet(
-    base::span<const uint8_t> crl_set,
-    mojom::NetworkService::UpdateCRLSetCallback callback) {
-  crl_set_distributor_->OnNewCRLSet(crl_set, std::move(callback));
-}
-
 void NetworkService::OnCertDBChanged() {
   net::CertDatabase::GetInstance()->NotifyObserversCertDBChanged();
 }
 
 void NetworkService::SetEncryptionKey(const std::string& encryption_key) {
   OSCrypt::SetRawEncryptionKey(encryption_key);
-}
-
-void NetworkService::AddAllowedRequestInitiatorForPlugin(
-    int32_t process_id,
-    const url::Origin& allowed_request_initiator) {
-  DCHECK_NE(mojom::kBrowserProcessId, process_id);
-  std::map<int, std::set<url::Origin>>& map = plugin_origins_;
-  map[process_id].insert(allowed_request_initiator);
-}
-
-void NetworkService::RemoveSecurityExceptionsForPlugin(int32_t process_id) {
-  DCHECK_NE(mojom::kBrowserProcessId, process_id);
-
-  std::map<int, std::set<url::Origin>>& map = plugin_origins_;
-  map.erase(process_id);
-}
-
-bool NetworkService::IsInitiatorAllowedForPlugin(
-    int process_id,
-    const url::Origin& request_initiator) {
-  const std::map<int, std::set<url::Origin>>& map = plugin_origins_;
-  const auto it = map.find(process_id);
-  if (it == map.end())
-    return false;
-
-  const std::set<url::Origin>& allowed_origins = it->second;
-  return base::Contains(allowed_origins, request_initiator);
 }
 
 void NetworkService::OnMemoryPressure(
@@ -687,24 +795,23 @@ void NetworkService::ParseHeaders(
   std::move(callback).Run(PopulateParsedHeaders(headers.get(), url));
 }
 
+void NetworkService::EnableDataUseUpdates(bool enable) {
+  data_use_updates_enabled_ = enable;
+}
+
 #if BUILDFLAG(IS_CT_SUPPORTED)
 void NetworkService::ClearSCTAuditingCache() {
   sct_auditing_cache_->ClearCache();
 }
 
 void NetworkService::ConfigureSCTAuditing(
-    bool enabled,
-    double sampling_rate,
-    const GURL& reporting_uri,
-    const net::MutableNetworkTrafficAnnotationTag& traffic_annotation) {
-  sct_auditing_cache_->set_enabled(enabled);
-  sct_auditing_cache_->set_sampling_rate(sampling_rate);
-  sct_auditing_cache_->set_report_uri(reporting_uri);
-  sct_auditing_cache_->set_traffic_annotation(traffic_annotation);
+    mojom::SCTAuditingConfigurationPtr configuration) {
+  sct_auditing_cache_->Configure(std::move(configuration));
 }
 
 void NetworkService::UpdateCtLogList(std::vector<mojom::CTLogInfoPtr> log_list,
-                                     base::Time update_time) {
+                                     base::Time update_time,
+                                     UpdateCtLogListCallback callback) {
   log_list_ = std::move(log_list);
   ct_log_list_update_time_ = update_time;
 
@@ -714,30 +821,57 @@ void NetworkService::UpdateCtLogList(std::vector<mojom::CTLogInfoPtr> log_list,
     ct_log_list_distributor_->OnNewCtConfig(log_list_);
     for (auto* context : network_contexts_) {
       context->OnCTLogListUpdated(log_list_, update_time);
-      context->url_request_context()
-          ->transport_security_state()
-          ->SetCTLogListUpdateTime(update_time);
     }
   }
+  std::move(callback).Run();
 }
 
 void NetworkService::UpdateCtKnownPopularSCTs(
-    const std::vector<std::vector<uint8_t>>& sct_hashes) {
+    const std::vector<std::vector<uint8_t>>& sct_hashes,
+    UpdateCtLogListCallback callback) {
   sct_auditing_cache_->set_popular_scts(std::move(sct_hashes));
+  std::move(callback).Run();
 }
 
-void NetworkService::SetCtEnforcementEnabled(bool enabled) {
+void NetworkService::SetCtEnforcementEnabled(
+    bool enabled,
+    SetCtEnforcementEnabledCallback callback) {
+  ct_enforcement_enabled_ = enabled;
   DCHECK(base::FeatureList::IsEnabled(
       certificate_transparency::features::
           kCertificateTransparencyComponentUpdater));
   for (auto* context : network_contexts_) {
     context->url_request_context()
         ->transport_security_state()
-        ->SetCTEmergencyDisabled(!enabled);
+        ->SetCTEmergencyDisabled(!ct_enforcement_enabled_);
   }
+  std::move(callback).Run();
 }
 
 #endif  // BUILDFLAG(IS_CT_SUPPORTED)
+
+void NetworkService::UpdateKeyPinsList(mojom::PinListPtr pin_list,
+                                       base::Time update_time) {
+  pins_list_updated_ = true;
+  pinsets_.clear();
+  host_pins_.clear();
+  pins_list_update_time_ = update_time;
+  for (const auto& pinset : pin_list->pinsets) {
+    pinsets_.emplace_back(pinset->name, pinset->static_spki_hashes,
+                          pinset->bad_static_spki_hashes, pinset->report_uri);
+  }
+  for (const auto& info : pin_list->host_pins) {
+    host_pins_.emplace_back(info->hostname, info->pinset_name,
+                            info->include_subdomains);
+  }
+  for (NetworkContext* context : network_contexts_) {
+    net::TransportSecurityState* state =
+        context->url_request_context()->transport_security_state();
+    if (state) {
+      state->UpdatePinList(pinsets_, host_pins_, pins_list_update_time_);
+    }
+  }
+}
 
 #if BUILDFLAG(IS_ANDROID)
 void NetworkService::DumpWithoutCrashing(base::Time dump_request_time) {
@@ -751,7 +885,7 @@ void NetworkService::DumpWithoutCrashing(base::Time dump_request_time) {
 }
 #endif
 
-void NetworkService::BindTestInterface(
+void NetworkService::BindTestInterfaceForTesting(
     mojo::PendingReceiver<mojom::NetworkServiceTest> receiver) {
   if (registry_) {
     auto pipe = receiver.PassPipe();
@@ -759,16 +893,8 @@ void NetworkService::BindTestInterface(
   }
 }
 
-void NetworkService::SetFirstPartySets(base::File sets_file) {
-  first_party_sets_->ParseAndSet(std::move(sets_file));
-}
-
-void NetworkService::SetPersistedFirstPartySetsAndGetCurrentSets(
-    const std::string& persisted_sets,
-    mojom::NetworkService::SetPersistedFirstPartySetsAndGetCurrentSetsCallback
-        callback) {
-  first_party_sets_->SetPersistedSets(persisted_sets);
-  first_party_sets_->SetOnSiteDataCleared(std::move(callback));
+void NetworkService::SetFirstPartySets(net::GlobalFirstPartySets sets) {
+  first_party_sets_manager_->SetCompleteSets(std::move(sets));
 }
 
 void NetworkService::SetExplicitlyAllowedPorts(

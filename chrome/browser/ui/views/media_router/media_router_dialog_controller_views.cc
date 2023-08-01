@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,7 @@
 #include "chrome/browser/ui/views/frame/top_container_view.h"
 #include "chrome/browser/ui/views/global_media_controls/media_dialog_view.h"
 #include "chrome/browser/ui/views/global_media_controls/media_toolbar_button_view.h"
+#include "chrome/browser/ui/views/media_router/cast_dialog_coordinator.h"
 #include "chrome/browser/ui/views/media_router/cast_dialog_view.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
 #include "components/media_router/browser/presentation/start_presentation_context.h"
@@ -49,17 +50,20 @@ bool MediaRouterDialogControllerViews::ShowMediaRouterDialogForPresentation(
     return MediaRouterDialogController::ShowMediaRouterDialogForPresentation(
         std::move(context));
   }
-
-  ShowGlobalMeidaControlsDialog(std::move(context));
+#if BUILDFLAG(IS_CHROMEOS)
+  ShowGlobalMediaControlsDialog(std::move(context));
+#else
+  ShowGlobalMediaControlsDialogAsync(std::move(context));
+#endif  // BUILDFLAG(IS_CHROMEOS)
   return true;
 }
 
 void MediaRouterDialogControllerViews::CreateMediaRouterDialog(
-    MediaRouterDialogOpenOrigin activation_location) {
+    MediaRouterDialogActivationLocation activation_location) {
   base::Time dialog_creation_time = base::Time::Now();
-  if (GetActionController())
+  if (GetActionController()) {
     GetActionController()->OnDialogShown();
-
+  }
   Profile* profile =
       Profile::FromBrowserContext(initiator()->GetBrowserContext());
 
@@ -70,10 +74,10 @@ void MediaRouterDialogControllerViews::CreateMediaRouterDialog(
   if (browser_view) {
     // Show the Cast dialog anchored to the Cast toolbar button.
     if (browser_view->toolbar()->cast_button()) {
-      CastDialogView::ShowDialogWithToolbarAction(
+      cast_dialog_coordinator_.ShowDialogWithToolbarAction(
           ui_.get(), browser, dialog_creation_time, activation_location);
     } else {
-      CastDialogView::ShowDialogCenteredForBrowserWindow(
+      cast_dialog_coordinator_.ShowDialogCenteredForBrowserWindow(
           ui_.get(), browser, dialog_creation_time, activation_location);
     }
   } else {
@@ -82,39 +86,47 @@ void MediaRouterDialogControllerViews::CreateMediaRouterDialog(
     // Set the height to 0 so that the dialog gets anchored to the top of the
     // window.
     anchor_bounds.set_height(0);
-    CastDialogView::ShowDialogCentered(anchor_bounds, ui_.get(), profile,
-                                       dialog_creation_time,
-                                       activation_location);
+    cast_dialog_coordinator_.ShowDialogCentered(anchor_bounds, ui_.get(),
+                                                profile, dialog_creation_time,
+                                                activation_location);
   }
   scoped_widget_observations_.AddObservation(
-      CastDialogView::GetCurrentDialogWidget());
+      cast_dialog_coordinator_.GetCastDialogWidget());
 
-  if (dialog_creation_callback_)
+  if (dialog_creation_callback_) {
     dialog_creation_callback_.Run();
+  }
+  MediaRouterMetrics::RecordMediaRouterDialogActivationLocation(
+      activation_location);
 }
 
 void MediaRouterDialogControllerViews::CloseMediaRouterDialog() {
-  CastDialogView::HideDialog();
+  if (IsShowingMediaRouterDialog()) {
+    cast_dialog_coordinator_.Hide();
+  }
 }
 
 bool MediaRouterDialogControllerViews::IsShowingMediaRouterDialog() const {
-  return CastDialogView::IsShowing();
+  return cast_dialog_coordinator_.IsShowing();
 }
 
 void MediaRouterDialogControllerViews::Reset() {
   // If |ui_| is null, Reset() has already been called.
   if (ui_) {
-    if (IsShowingMediaRouterDialog() && GetActionController())
+    if (GetActionController()) {
       GetActionController()->OnDialogHidden();
+    }
     ui_.reset();
     MediaRouterDialogController::Reset();
   }
 }
 
-void MediaRouterDialogControllerViews::OnWidgetClosing(views::Widget* widget) {
+void MediaRouterDialogControllerViews::OnWidgetDestroying(
+    views::Widget* widget) {
   DCHECK(scoped_widget_observations_.IsObservingSource(widget));
-  if (ui_)
+  if (ui_) {
     ui_->LogMediaSinkStatus();
+  }
   Reset();
   scoped_widget_observations_.RemoveObservation(widget);
 }
@@ -144,16 +156,34 @@ void MediaRouterDialogControllerViews::OnServiceDisabled() {
 }
 
 void MediaRouterDialogControllerViews::InitializeMediaRouterUI() {
-  ui_ = std::make_unique<MediaRouterUI>(initiator());
-  if (start_presentation_context_) {
-    ui_->InitWithStartPresentationContextAndMirroring(
-        std::move(start_presentation_context_));
-  } else {
-    ui_->InitWithDefaultMediaSourceAndMirroring();
-  }
+  ui_ = start_presentation_context_
+            ? MediaRouterUI::CreateWithStartPresentationContextAndMirroring(
+                  initiator(), std::move(start_presentation_context_))
+            : MediaRouterUI::CreateWithDefaultMediaSourceAndMirroring(
+                  initiator());
+  ui_->RegisterDestructor(
+      base::BindOnce(&MediaRouterDialogControllerViews::DestroyMediaRouterUI,
+                     // Safe to use base::Unretained here: the callback being
+                     // bound is held by the MediaRouterUI we are creating and
+                     // owning, and ownership of |ui_| is never transferred
+                     // away from this object.
+                     base::Unretained(this)));
 }
 
-void MediaRouterDialogControllerViews::ShowGlobalMeidaControlsDialog(
+void MediaRouterDialogControllerViews::DestroyMediaRouterUI() {
+  ui_.reset();
+}
+
+#if BUILDFLAG(IS_CHROMEOS)
+void MediaRouterDialogControllerViews::ShowGlobalMediaControlsDialog(
+    std::unique_ptr<StartPresentationContext> context) {
+  Profile* const profile =
+      Profile::FromBrowserContext(initiator()->GetBrowserContext());
+  MediaNotificationServiceFactory::GetForProfile(profile)->ShowDialogAsh(
+      std::move(context));
+}
+#else
+void MediaRouterDialogControllerViews::ShowGlobalMediaControlsDialogAsync(
     std::unique_ptr<StartPresentationContext> context) {
   // Show the WebContents requesting a dialog.
   initiator()->GetDelegate()->ActivateContents(initiator());
@@ -163,9 +193,42 @@ void MediaRouterDialogControllerViews::ShowGlobalMeidaControlsDialog(
   MediaNotificationService* const service =
       MediaNotificationServiceFactory::GetForProfile(profile);
   service->OnStartPresentationContextCreated(std::move(context));
+  // This needs to be async because it needs to happen after UI preparations
+  // (done through OnStartPresentationContextCreated()) that may happen
+  // asynchronously as it crosses a Mojo boundary.
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          &MediaRouterDialogControllerViews::ShowGlobalMediaControlsDialog,
+          weak_ptr_factory_.GetWeakPtr()));
+}
 
+void MediaRouterDialogControllerViews::ShowGlobalMediaControlsDialog() {
+  Profile* const profile =
+      Profile::FromBrowserContext(initiator()->GetBrowserContext());
+  MediaNotificationService* const service =
+      MediaNotificationServiceFactory::GetForProfile(profile);
   MediaToolbarButtonView* const media_button = GetMediaButton();
-  if (!media_button) {
+  // If there exists a media button, anchor the dialog to this media button.
+  if (media_button) {
+    scoped_widget_observations_.AddObservation(MediaDialogView::ShowDialog(
+        media_button, views::BubbleBorder::TOP_RIGHT, service, profile,
+        initiator(),
+        global_media_controls::GlobalMediaControlsEntryPoint::kPresentation));
+    return;
+  }
+  Browser* const browser = chrome::FindBrowserWithWebContents(initiator());
+  BrowserView* const browser_view =
+      browser ? BrowserView::GetBrowserViewForBrowser(browser) : nullptr;
+  // If there exists a browser_view, anchor the dialog to the top center of the
+  // browser_view. This is necessary only for Mac, but works for other
+  // platforms.
+  if (browser_view) {
+    scoped_widget_observations_.AddObservation(MediaDialogView::ShowDialog(
+        browser_view->top_container(), views::BubbleBorder::TOP_CENTER, service,
+        profile, initiator(),
+        global_media_controls::GlobalMediaControlsEntryPoint::kPresentation));
+  } else {
     // Show the GMC dialog anchored to the top of the web contents.
     gfx::Rect anchor_bounds = initiator()->GetContainerBounds();
     anchor_bounds.set_height(0);
@@ -174,19 +237,14 @@ void MediaRouterDialogControllerViews::ShowGlobalMeidaControlsDialog(
             anchor_bounds, service, profile, initiator(),
             global_media_controls::GlobalMediaControlsEntryPoint::
                 kPresentation));
-    return;
   }
-
-  scoped_widget_observations_.AddObservation(MediaDialogView::ShowDialog(
-      media_button, views::BubbleBorder::TOP_RIGHT, service, profile,
-      initiator(),
-      global_media_controls::GlobalMediaControlsEntryPoint::kPresentation));
 }
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 MediaToolbarButtonView* MediaRouterDialogControllerViews::GetMediaButton() {
-  if (hide_media_button_for_testing_)
+  if (hide_media_button_for_testing_) {
     return nullptr;
-
+  }
   Browser* const browser = chrome::FindBrowserWithWebContents(initiator());
   BrowserView* const browser_view =
       browser ? BrowserView::GetBrowserViewForBrowser(browser) : nullptr;
@@ -195,9 +253,9 @@ MediaToolbarButtonView* MediaRouterDialogControllerViews::GetMediaButton() {
   MediaToolbarButtonView* media_button =
       toolbar_view ? toolbar_view->media_button() : nullptr;
 
-  if (!media_button)
+  if (!media_button) {
     return nullptr;
-
+  }
   // Show the |media_button| before opening the dialog so that when the bubble
   // dialog is opened, it has an anchor.
   media_button->media_toolbar_button_controller()->ShowToolbarButton();

@@ -1,6 +1,8 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+#include "ui/base/l10n/l10n_util.h"
 
 #include <stddef.h>
 
@@ -8,7 +10,6 @@
 #include <memory>
 
 #include "base/containers/flat_set.h"
-#include "base/cxx17_backports.h"
 #include "base/environment.h"
 #include "base/files/file_util.h"
 #include "base/i18n/case_conversion.h"
@@ -26,7 +27,6 @@
 #include "testing/platform_test.h"
 #include "third_party/icu/source/common/unicode/locid.h"
 #include "ui/base/grit/ui_base_test_resources.h"
-#include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/l10n_util_collator.h"
 #include "ui/base/ui_base_paths.h"
 
@@ -115,7 +115,7 @@ TEST_F(L10nUtilTest, GetAppLocale) {
       "fr", "he", "nb",          "pt-BR", "pt-PT", "zh-CN", "zh-TW",
   };
 
-  for (size_t i = 0; i < base::size(filenames); ++i) {
+  for (size_t i = 0; i < std::size(filenames); ++i) {
     base::FilePath filename = new_locale_dir.AppendASCII(
         filenames[i] + ".pak");
     base::WriteFile(filename, "");
@@ -431,6 +431,23 @@ void CheckUiDisplayNameForLocale(const std::string& locale,
   }
 }
 
+TEST_F(L10nUtilTest, GetDisplayNameForLocaleWithoutCountry) {
+  ASSERT_EQ(u"English", l10n_util::GetDisplayNameForLocaleWithoutCountry(
+                            "en-US", "en", false));
+  ASSERT_EQ(u"English", l10n_util::GetDisplayNameForLocaleWithoutCountry(
+                            "en-GB", "en", false));
+  ASSERT_EQ(u"English", l10n_util::GetDisplayNameForLocaleWithoutCountry(
+                            "en-AU", "en", false));
+  ASSERT_EQ(u"English", l10n_util::GetDisplayNameForLocaleWithoutCountry(
+                            "en", "en", false));
+  EXPECT_EQ(u"Spanish", l10n_util::GetDisplayNameForLocaleWithoutCountry(
+                            "es-419", "en", false));
+  EXPECT_EQ(u"Chinese", l10n_util::GetDisplayNameForLocaleWithoutCountry(
+                            "zh-CH", "en", false));
+  EXPECT_EQ(u"Chinese", l10n_util::GetDisplayNameForLocaleWithoutCountry(
+                            "zh-TW", "en", false));
+}
+
 TEST_F(L10nUtilTest, GetDisplayNameForLocale) {
   // TODO(jungshik): Make this test more extensive.
   // Test zh-CN and zh-TW are treated as zh-Hans and zh-Hant.
@@ -651,4 +668,23 @@ TEST_F(L10nUtilTest, PlatformLocalesIsSorted) {
         << " >= " << cur_locale;
     last_locale = cur_locale;
   }
+}
+
+TEST_F(L10nUtilTest, FormatStringComputeCorrectOffsetInRTL) {
+  base::i18n::SetICUDefaultLocale("ar");
+  ASSERT_EQ(true, base::i18n::IsRTL());
+  // Use a format string that contains Strong RTL Chars.
+  const std::u16string kFormatString(u"كلمة مرور $1");
+  std::vector<size_t> offsets;
+  std::u16string formatted_string =
+      l10n_util::FormatString(kFormatString, {u"Replacement"}, &offsets);
+  ASSERT_FALSE(offsets.empty());
+  // On Linux, an extra base::i18n::kRightToLeftMark character is appended for
+  // the text rendering engine to render the string correctly. This should be
+  // considered when computing the offsets.
+#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_ANDROID)
+  EXPECT_EQ(offsets[0], 11u);
+#else
+  EXPECT_EQ(offsets[0], 10u);
+#endif
 }

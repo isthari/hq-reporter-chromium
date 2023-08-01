@@ -1,14 +1,12 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef COMPONENTS_AUTOFILL_CORE_BROWSER_FORM_PARSING_AUTOFILL_PARSING_UTILS_H_
 #define COMPONENTS_AUTOFILL_CORE_BROWSER_FORM_PARSING_AUTOFILL_PARSING_UTILS_H_
 
-#include <string>
-
+#include "base/strings/string_piece.h"
 #include "components/autofill/core/common/dense_set.h"
-#include "components/autofill/core/common/language_code.h"
 
 namespace autofill {
 
@@ -82,20 +80,18 @@ constexpr MatchParams kDefaultMatchParams = kDefaultMatchParamsWith<>;
 // for autofill regex_constants. In the future, to implement faster
 // changes without global updates also for having a quick possibility
 // to recognize incorrect matches.
+//
+// We pack this struct to minimize memory consumption of the built-in array of
+// MatchingPatterns (see GetMatchPatterns()), which holds several hundred
+// objects.
+// Using packed DenseSets reduces the size of the struct by 40 to 24 on 64 bit
+// platforms, and from 20 to 16 bytes on 32 bit platforms.
 struct MatchingPattern {
-  MatchingPattern();
-  MatchingPattern(const MatchingPattern&);
-  MatchingPattern& operator=(const MatchingPattern&);
-  MatchingPattern(MatchingPattern&&);
-  MatchingPattern& operator=(MatchingPattern&&);
-  ~MatchingPattern();
-
-  LanguageCode language;
-  std::u16string positive_pattern;
-  std::u16string negative_pattern;
-  float positive_score = 1.1;
-  DenseSet<MatchAttribute> match_field_attributes;
-  DenseSet<MatchFieldType> match_field_input_types;
+  const char16_t* positive_pattern;
+  const char16_t* negative_pattern;
+  const float positive_score = 1.1;
+  const DenseSet<MatchAttribute> match_field_attributes;
+  const DenseSet<MatchFieldType> match_field_input_types;
 };
 
 }  // namespace autofill

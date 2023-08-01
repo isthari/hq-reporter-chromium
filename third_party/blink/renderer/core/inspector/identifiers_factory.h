@@ -28,16 +28,21 @@
 
 #include "base/unguessable_token.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/dom/weak_identifier_map.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
 
 class DocumentLoader;
+class ExecutionContext;
 class Frame;
 class LocalFrame;
 class Node;
 class InspectedFrames;
+class CSSStyleSheet;
+
+DECLARE_WEAK_IDENTIFIER_MAP(CSSStyleSheet);
 
 class CORE_EXPORT IdentifiersFactory {
   STATIC_ONLY(IdentifiersFactory);
@@ -45,8 +50,14 @@ class CORE_EXPORT IdentifiersFactory {
  public:
   static String CreateIdentifier();
 
+  static String RequestId(ExecutionContext*, uint64_t identifier);
+
+  // Same as above, but used when it's inconvenient to get the ExecutionContext
+  // or it does not exist. Prefer using RequestId with ExecutionContext. (See
+  // above.)
   static String RequestId(DocumentLoader*, uint64_t identifier);
-  // Same as above, but can only be used on reuquests that are guaranteed
+
+  // Same as RequestId, but can only be used on reuquests that are guaranteed
   // to be subresources, not main resource.
   static String SubresourceRequestId(uint64_t identifier);
 
@@ -60,6 +71,14 @@ class CORE_EXPORT IdentifiersFactory {
   static String IdFromToken(const base::UnguessableToken&);
 
   static int IntIdForNode(Node* node);
+
+  // The IdentifiersFactory::IdForCSSStyleSheet() function generates unique
+  // IDs for CSS style sheets. These IDs are used to identify the style sheets
+  // within the InspectorStyleSheet, InspectorCSSAgent, and ElementRuleCollector
+  // classes. If the style sheet has a CSSStyleSheet object, its ID will have a
+  // "style-sheet-{process_id}-" prefix. If it lacks a CSSStyleSheet object (a
+  // UA stylesheet), its ID will be "ua-style-sheet".
+  static String IdForCSSStyleSheet(const CSSStyleSheet*);
 
  private:
   static String AddProcessIdPrefixTo(uint64_t id);

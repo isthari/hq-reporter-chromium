@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,14 +14,14 @@
 #include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
 #include "base/android/scoped_java_ref.h"
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/containers/contains.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/lazy_instance.h"
+#include "base/memory/ref_counted_memory.h"
 #include "base/notreached.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/lock.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/thread_annotations.h"
 #include "base/time/time.h"
@@ -29,6 +29,7 @@
 #include "ui/base/clipboard/clipboard_constants.h"
 #include "ui/base/clipboard/clipboard_format_type.h"
 #include "ui/base/clipboard/clipboard_metrics.h"
+#include "ui/base/clipboard/clipboard_util.h"
 #include "ui/base/data_transfer_policy/data_transfer_endpoint.h"
 #include "ui/base/ui_base_jni_headers/Clipboard_jni.h"
 #include "ui/gfx/android/java_bitmap.h"
@@ -117,7 +118,7 @@ class ClipboardMap {
   std::vector<ClipboardFormatType> GetFormats();
   void OnPrimaryClipboardChanged();
   void OnPrimaryClipTimestampInvalidated(int64_t timestamp_ms);
-  void Set(const ClipboardFormatType& format, const std::string& data);
+  void Set(const ClipboardFormatType& format, base::StringPiece data);
   void CommitToAndroidClipboard();
   void Clear();
 
@@ -311,7 +312,7 @@ void ClipboardMap::OnPrimaryClipTimestampInvalidated(int64_t timestamp_ms) {
 }
 
 void ClipboardMap::Set(const ClipboardFormatType& format,
-                       const std::string& data) {
+                       base::StringPiece data) {
   base::AutoLock lock(lock_);
   map_[format] = data;
   map_state_ = MapState::kPreparingCommit;
@@ -418,6 +419,11 @@ void ClipboardMap::UpdateFromAndroidClipboard() {
 // static
 Clipboard* Clipboard::Create() {
   return new ClipboardAndroid;
+}
+
+// Static method for testing.
+void JNI_Clipboard_CleanupForTesting(JNIEnv* env) {
+  Clipboard::DestroyClipboardForCurrentThread();
 }
 
 // ClipboardAndroid implementation.
@@ -669,30 +675,31 @@ void ClipboardAndroid::WritePortableAndPlatformRepresentations(
 
   DispatchPlatformRepresentations(std::move(platform_representations));
   for (const auto& object : objects)
-    DispatchPortableRepresentation(object.first, object.second);
+    DispatchPortableRepresentation(object.second);
 
   g_map.Get().CommitToAndroidClipboard();
 }
 
-void ClipboardAndroid::WriteText(const char* text_data, size_t text_len) {
-  g_map.Get().Set(ClipboardFormatType::PlainTextType(),
-                  std::string(text_data, text_len));
+void ClipboardAndroid::WriteText(base::StringPiece text) {
+  g_map.Get().Set(ClipboardFormatType::PlainTextType(), text);
 }
 
-void ClipboardAndroid::WriteHTML(const char* markup_data,
-                                 size_t markup_len,
-                                 const char* url_data,
-                                 size_t url_len) {
-  g_map.Get().Set(ClipboardFormatType::HtmlType(),
-                  std::string(markup_data, markup_len));
+void ClipboardAndroid::WriteHTML(base::StringPiece markup,
+                                 absl::optional<base::StringPiece> source_url) {
+  g_map.Get().Set(ClipboardFormatType::HtmlType(), markup);
 }
 
-void ClipboardAndroid::WriteSvg(const char* markup_data, size_t markup_len) {
-  g_map.Get().Set(ClipboardFormatType::SvgType(),
-                  std::string(markup_data, markup_len));
+void ClipboardAndroid::WriteUnsanitizedHTML(
+    base::StringPiece markup,
+    absl::optional<base::StringPiece> source_url) {
+  WriteHTML(markup, source_url);
 }
 
-void ClipboardAndroid::WriteRTF(const char* rtf_data, size_t data_len) {
+void ClipboardAndroid::WriteSvg(base::StringPiece markup) {
+  g_map.Get().Set(ClipboardFormatType::SvgType(), markup);
+}
+
+void ClipboardAndroid::WriteRTF(base::StringPiece rtf) {
   NOTIMPLEMENTED();
 }
 
@@ -702,12 +709,9 @@ void ClipboardAndroid::WriteFilenames(std::vector<ui::FileInfo> filenames) {
 
 // According to other platforms implementations, this really writes the
 // URL spec.
-void ClipboardAndroid::WriteBookmark(const char* title_data,
-                                     size_t title_len,
-                                     const char* url_data,
-                                     size_t url_len) {
-  g_map.Get().Set(ClipboardFormatType::UrlType(),
-                  std::string(url_data, url_len));
+void ClipboardAndroid::WriteBookmark(base::StringPiece title,
+                                     base::StringPiece url) {
+  g_map.Get().Set(ClipboardFormatType::UrlType(), url);
 }
 
 // Write an extra flavor that signifies WebKit was the last to modify the
@@ -719,6 +723,11 @@ void ClipboardAndroid::WriteWebSmartPaste() {
 // Encoding SkBitmap to PNG data. Then, |g_map| can commit the PNG data to
 // Android system clipboard without encode/decode.
 void ClipboardAndroid::WriteBitmap(const SkBitmap& sk_bitmap) {
+  // Encode the bitmap to a PNG from the UI thread. Ideally this CPU-intensive
+  // encoding operation would be performed on a background thread, but
+  // ui::base::Clipboard writes are (unfortunately) synchronous.
+  // We could consider making writes async, then moving this image encoding to a
+  // background sequence.
   scoped_refptr<base::RefCountedMemory> image_memory =
       gfx::Image::CreateFrom1xBitmap(sk_bitmap).As1xPNGBytes();
   std::string packed(image_memory->front_as<char>(), image_memory->size());
@@ -727,9 +736,10 @@ void ClipboardAndroid::WriteBitmap(const SkBitmap& sk_bitmap) {
 }
 
 void ClipboardAndroid::WriteData(const ClipboardFormatType& format,
-                                 const char* data_data,
-                                 size_t data_len) {
-  g_map.Get().Set(format, std::string(data_data, data_len));
+                                 base::span<const uint8_t> data) {
+  g_map.Get().Set(
+      format,
+      std::string(reinterpret_cast<const char*>(data.data()), data.size()));
 }
 
 }  // namespace ui

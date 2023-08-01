@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/skia_util.h"
 
 namespace ash {
@@ -99,9 +100,11 @@ class FolderImageTest : public testing::Test,
  protected:
   void AddAppWithColoredIcon(const std::string& id, SkColor icon_color) {
     std::unique_ptr<AppListItem> item(new AppListItem(id));
-    item->SetDefaultIcon(CreateSquareBitmapWithColor(
-        SharedAppListConfig::instance().default_grid_icon_dimension(),
-        icon_color));
+    item->SetDefaultIconAndColor(
+        CreateSquareBitmapWithColor(
+            SharedAppListConfig::instance().default_grid_icon_dimension(),
+            icon_color),
+        IconColor());
     static_cast<AppListModel*>(app_list_model_.get())->AddItem(std::move(item));
   }
 
@@ -116,9 +119,8 @@ class FolderImageTest : public testing::Test,
 INSTANTIATE_TEST_SUITE_P(
     All,
     FolderImageTest,
-    ::testing::Combine(::testing::Values(AppListConfigType::kLarge,
-                                         AppListConfigType::kMedium,
-                                         AppListConfigType::kSmall),
+    ::testing::Combine(::testing::Values(AppListConfigType::kRegular,
+                                         AppListConfigType::kDense),
                        ::testing::Bool()));
 
 TEST_P(FolderImageTest, UpdateListTest) {
@@ -170,9 +172,11 @@ TEST_P(FolderImageTest, UpdateItemTest) {
   gfx::ImageSkia icon1 = folder_image_->icon();
 
   // Change an item's icon. Ensure that the observer fired and the icon changed.
-  app_list_model_->FindItem("app2")->SetDefaultIcon(CreateSquareBitmapWithColor(
-      SharedAppListConfig::instance().default_grid_icon_dimension(),
-      SK_ColorMAGENTA));
+  app_list_model_->FindItem("app2")->SetDefaultIconAndColor(
+      CreateSquareBitmapWithColor(
+          SharedAppListConfig::instance().default_grid_icon_dimension(),
+          SK_ColorMAGENTA),
+      IconColor());
   EXPECT_TRUE(observer_.updated());
   observer_.Reset();
   EXPECT_FALSE(ImagesAreEqual(icon1, folder_image_->icon()));
@@ -185,10 +189,10 @@ TEST_P(FolderImageTest, GetTargetIconRectInFolderWithSingleItem) {
   ASSERT_TRUE(config);
 
   const gfx::Rect test_rects[] = {
-      gfx::Rect(config->folder_icon_size()),
-      gfx::Rect(gfx::Point(10, 10), config->folder_icon_size()),
-      gfx::Rect(config->folder_unclipped_icon_size()),
-      gfx::Rect(gfx::Point(10, 10), config->folder_unclipped_icon_size()),
+      gfx::Rect(config->icon_visible_size()),
+      gfx::Rect(gfx::Point(10, 10), config->icon_visible_size()),
+      gfx::Rect(config->unclipped_icon_size()),
+      gfx::Rect(gfx::Point(10, 10), config->unclipped_icon_size()),
   };
 
   for (const auto& test_rect : test_rects) {
@@ -214,10 +218,10 @@ TEST_P(FolderImageTest, GetTargetIconRectInFolderWithTwoItems) {
   ASSERT_TRUE(config);
 
   const gfx::Rect test_rects[] = {
-      gfx::Rect(config->folder_icon_size()),
-      gfx::Rect(gfx::Point(10, 10), config->folder_icon_size()),
-      gfx::Rect(config->folder_unclipped_icon_size()),
-      gfx::Rect(gfx::Point(10, 10), config->folder_unclipped_icon_size()),
+      gfx::Rect(config->icon_visible_size()),
+      gfx::Rect(gfx::Point(10, 10), config->icon_visible_size()),
+      gfx::Rect(config->unclipped_icon_size()),
+      gfx::Rect(gfx::Point(10, 10), config->unclipped_icon_size()),
   };
 
   for (const auto& test_rect : test_rects) {
@@ -257,10 +261,10 @@ TEST_P(FolderImageTest, GetTargetIconRectInFolderWithThreeItems) {
   ASSERT_TRUE(config);
 
   const gfx::Rect test_rects[] = {
-      gfx::Rect(config->folder_icon_size()),
-      gfx::Rect(gfx::Point(10, 10), config->folder_icon_size()),
-      gfx::Rect(config->folder_unclipped_icon_size()),
-      gfx::Rect(gfx::Point(10, 10), config->folder_unclipped_icon_size()),
+      gfx::Rect(config->icon_visible_size()),
+      gfx::Rect(gfx::Point(10, 10), config->icon_visible_size()),
+      gfx::Rect(config->unclipped_icon_size()),
+      gfx::Rect(gfx::Point(10, 10), config->unclipped_icon_size()),
   };
 
   for (const auto& test_rect : test_rects) {
@@ -281,25 +285,25 @@ TEST_P(FolderImageTest, GetTargetIconRectInFolderWithThreeItems) {
         *config, app_list_model_->FindItem("app3"), test_rect);
 
     if (is_rtl())
-      std::swap(item_1_bounds, item_2_bounds);
+      std::swap(item_2_bounds, item_3_bounds);
+
     EXPECT_EQ(expected_icon_rect_size, item_1_bounds.size());
-    EXPECT_EQ(
-        test_rect_center.x() - config->item_icon_in_folder_icon_margin() / 2,
-        item_1_bounds.right());
+    EXPECT_EQ(test_rect_center.x(), item_1_bounds.CenterPoint().x());
     EXPECT_EQ(
         test_rect_center.y() - config->item_icon_in_folder_icon_margin() / 2,
         item_1_bounds.bottom());
-
     EXPECT_EQ(expected_icon_rect_size, item_2_bounds.size());
     EXPECT_EQ(
-        test_rect_center.x() + config->item_icon_in_folder_icon_margin() / 2,
-        item_2_bounds.x());
+        test_rect_center.x() - config->item_icon_in_folder_icon_margin() / 2,
+        item_2_bounds.right());
     EXPECT_EQ(
-        test_rect_center.y() - config->item_icon_in_folder_icon_margin() / 2,
-        item_2_bounds.bottom());
+        test_rect_center.y() + config->item_icon_in_folder_icon_margin() / 2,
+        item_2_bounds.y());
 
     EXPECT_EQ(expected_icon_rect_size, item_3_bounds.size());
-    EXPECT_EQ(test_rect_center.x(), item_3_bounds.CenterPoint().x());
+    EXPECT_EQ(
+        test_rect_center.x() + config->item_icon_in_folder_icon_margin() / 2,
+        item_3_bounds.x());
     EXPECT_EQ(
         test_rect_center.y() + config->item_icon_in_folder_icon_margin() / 2,
         item_3_bounds.y());
@@ -313,10 +317,10 @@ TEST_P(FolderImageTest, GetTargetIconRectInFolderWithFourItems) {
   ASSERT_TRUE(config);
 
   const gfx::Rect test_rects[] = {
-      gfx::Rect(config->folder_icon_size()),
-      gfx::Rect(gfx::Point(10, 10), config->folder_icon_size()),
-      gfx::Rect(config->folder_unclipped_icon_size()),
-      gfx::Rect(gfx::Point(10, 10), config->folder_unclipped_icon_size()),
+      gfx::Rect(config->icon_visible_size()),
+      gfx::Rect(gfx::Point(10, 10), config->icon_visible_size()),
+      gfx::Rect(config->unclipped_icon_size()),
+      gfx::Rect(gfx::Point(10, 10), config->unclipped_icon_size()),
   };
 
   for (const auto& test_rect : test_rects) {
@@ -384,10 +388,10 @@ TEST_P(FolderImageTest, GetTargetIconRectInFolderWithFiveItems) {
   ASSERT_TRUE(config);
 
   const gfx::Rect test_rects[] = {
-      gfx::Rect(config->folder_icon_size()),
-      gfx::Rect(gfx::Point(10, 10), config->folder_icon_size()),
-      gfx::Rect(config->folder_unclipped_icon_size()),
-      gfx::Rect(gfx::Point(10, 10), config->folder_unclipped_icon_size()),
+      gfx::Rect(config->icon_visible_size()),
+      gfx::Rect(gfx::Point(10, 10), config->icon_visible_size()),
+      gfx::Rect(config->unclipped_icon_size()),
+      gfx::Rect(gfx::Point(10, 10), config->unclipped_icon_size()),
   };
 
   for (const auto& test_rect : test_rects) {

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,8 @@
 #include <unordered_set>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -53,11 +53,8 @@ const char kStartupUrl1[] = "http://start1.com";
 const char kStartupUrl2[] = "http://start2.com";
 const char kStartupUrl3[] = "http://start3.com";
 
-bool ListValueContainsUrl(const base::Value* list, const GURL& url) {
-  if (!list || !list->is_list())
-    return false;
-
-  for (const base::Value& i : list->GetList()) {
+bool ListValueContainsUrl(const base::Value::List& list, const GURL& url) {
+  for (const base::Value& i : list) {
     const std::string* url_text = i.GetIfString();
     if (url_text && url == *url_text)
       return true;
@@ -77,13 +74,7 @@ class SettingsResetPromptModelTest
 
   void SetUp() override {
     extensions::ExtensionServiceTestBase::SetUp();
-
-    // By not specifying a pref_file filepath, we get a
-    // sync_preferences::TestingPrefServiceSyncable, which in turn provides us
-    // with a convient way of registring preferences.
-    ExtensionServiceInitParams init_params = CreateDefaultInitParams();
-    init_params.pref_file.clear();
-    InitializeExtensionService(init_params);
+    InitializeExtensionService(ExtensionServiceInitParams());
 
 #if !BUILDFLAG(IS_WIN)
     // In production code, the settings reset prompt profile preferences are
@@ -94,7 +85,6 @@ class SettingsResetPromptModelTest
         testing_pref_service()->registry());
 #endif  // !BUILDFLAG(IS_WIN)
 
-    profile_->CreateWebDataService();
     TemplateURLServiceFactory::GetInstance()->SetTestingFactory(
         profile(), base::BindRepeating(&CreateTemplateURLServiceForTesting));
 

@@ -44,24 +44,24 @@ class BaseButtonInputType : public InputType,
   using InputType::GetElement;
 
  protected:
-  explicit BaseButtonInputType(HTMLInputElement&);
+  BaseButtonInputType(Type, HTMLInputElement&);
   void ValueAttributeChanged() override;
   void CreateShadowSubtree() override;
+  HTMLFormControlElement::PopoverTriggerSupport SupportsPopoverTriggering()
+      const override;
 
  private:
   InputTypeView* CreateView() override;
   bool ShouldSaveAndRestoreFormControlState() const override;
   void AppendToFormData(FormData&) const override;
-  LayoutObject* CreateLayoutObject(const ComputedStyle&,
-                                   LegacyLayout) const override;
+  ControlPart AutoAppearance() const override;
+  LayoutObject* CreateLayoutObject(const ComputedStyle&) const override;
   ValueMode GetValueMode() const override;
   void SetValue(const String&,
                 bool,
                 TextFieldEventBehavior,
                 TextControlSetValueSelection) override;
   bool MatchesDefaultPseudoClass() override;
-
-  String DisplayValue() const;
 };
 
 }  // namespace blink

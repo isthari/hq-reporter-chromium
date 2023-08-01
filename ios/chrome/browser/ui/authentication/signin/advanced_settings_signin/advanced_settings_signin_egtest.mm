@@ -1,28 +1,32 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/ios/ios_util.h"
+#import "base/ios/ios_util.h"
 #import "base/test/ios/wait_util.h"
+#import "base/time/time.h"
+#import "components/strings/grit/components_strings.h"
+#import "ios/chrome/browser/signin/fake_system_identity.h"
 #import "ios/chrome/browser/ui/authentication/signin/advanced_settings_signin/advanced_settings_signin_constants.h"
 #import "ios/chrome/browser/ui/authentication/signin_earl_grey.h"
 #import "ios/chrome/browser/ui/authentication/signin_earl_grey_ui_test_util.h"
 #import "ios/chrome/browser/ui/authentication/signin_matchers.h"
+#import "ios/chrome/browser/ui/authentication/unified_consent/unified_consent_constants.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_earl_grey.h"
 #import "ios/chrome/browser/ui/bookmarks/bookmark_earl_grey_ui.h"
 #import "ios/chrome/browser/ui/content_suggestions/content_suggestions_feature.h"
 #import "ios/chrome/browser/ui/recent_tabs/recent_tabs_constants.h"
 #import "ios/chrome/browser/ui/settings/google_services/manage_sync_settings_constants.h"
-#include "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
 #import "ios/chrome/test/earl_grey/web_http_server_chrome_test_case.h"
-#import "ios/public/provider/chrome/browser/signin/fake_chrome_identity.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
 #import "ios/testing/earl_grey/matchers.h"
-#include "ui/base/l10n/l10n_util_mac.h"
+#import "net/test/embedded_test_server/embedded_test_server.h"
+#import "ui/base/l10n/l10n_util_mac.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -44,7 +48,7 @@ namespace {
 NSString* const kPassphrase = @"hello";
 
 // Timeout in seconds to wait for asynchronous sync operations.
-const NSTimeInterval kSyncOperationTimeout = 5.0;
+constexpr base::TimeDelta kSyncOperationTimeout = base::Seconds(5);
 
 // Waits for the settings done button to be enabled.
 void WaitForSettingDoneButton() {
@@ -85,7 +89,7 @@ void WaitForSettingDoneButton() {
 // and closing the advanced sign-in settings correctly leaves the user signed
 // in.
 - (void)testSignInOpenSyncSettings {
-  FakeChromeIdentity* fakeIdentity = [FakeChromeIdentity fakeIdentity1];
+  FakeSystemIdentity* fakeIdentity = [FakeSystemIdentity fakeIdentity1];
   [SigninEarlGrey addFakeIdentity:fakeIdentity];
 
   [ChromeEarlGreyUI openSettingsMenu];
@@ -98,11 +102,47 @@ void WaitForSettingDoneButton() {
   [SigninEarlGrey verifySignedInWithFakeIdentity:fakeIdentity];
 }
 
+// Tests the following scenario:
+//  * Open the advanced link
+//  * Open the encryption view
+//  * Open the create syncpassphrase view
+//  * Interrupt the sign-in by opening a link
+// Result: the link should be opened without a crash.
+// See http://crbug.com/1424870.
+- (void)testInterruptSyncPassphraseEdition {
+  FakeSystemIdentity* fakeIdentity = [FakeSystemIdentity fakeIdentity1];
+  [SigninEarlGrey addFakeIdentity:fakeIdentity];
+  // Open the sync passphrase editor through the sign-in flow.
+  [ChromeEarlGreyUI openSettingsMenu];
+  [ChromeEarlGreyUI tapSettingsMenuButton:PrimarySignInButton()];
+  [[[EarlGrey selectElementWithMatcher:SettingsLink()]
+         usingSearchAction:grey_scrollInDirection(kGREYDirectionDown, 200)
+      onElementWithMatcher:grey_accessibilityID(
+                               kUnifiedConsentScrollViewIdentifier)]
+      performAction:grey_tap()];
+  [[[EarlGrey selectElementWithMatcher:grey_accessibilityID(
+                                           kEncryptionAccessibilityIdentifier)]
+         usingSearchAction:grey_scrollInDirection(kGREYDirectionDown, 200)
+      onElementWithMatcher:grey_accessibilityID(
+                               kManageSyncTableViewAccessibilityIdentifier)]
+      performAction:grey_tap()];
+  [[EarlGrey
+      selectElementWithMatcher:grey_accessibilityLabel(l10n_util::GetNSString(
+                                   IDS_SYNC_FULL_ENCRYPTION_DATA))]
+      performAction:grey_tap()];
+  // Interrupt the flow by opening an URL.
+  GREYAssertTrue(self.testServer->Start(), @"Test server failed to start.");
+  const GURL expectedURL = self.testServer->GetURL("/echo");
+  // Result: the URL is opened without a crash.
+  [ChromeEarlGrey
+      simulateExternalAppURLOpeningAndWaitUntilOpenedWithGURL:expectedURL];
+}
+
 // Tests that a user that signs in and gives sync consent can sign
 // out through the "Sign out and Turn Off Sync" > "Clear Data" option in Sync
 // settings.
 - (void)testSignInOpenSyncSettingsSignOutAndTurnOffSyncWithClearData {
-  FakeChromeIdentity* fakeIdentity = [FakeChromeIdentity fakeIdentity1];
+  FakeSystemIdentity* fakeIdentity = [FakeSystemIdentity fakeIdentity1];
   [SigninEarlGrey addFakeIdentity:fakeIdentity];
 
   [ChromeEarlGreyUI openSettingsMenu];
@@ -115,7 +155,8 @@ void WaitForSettingDoneButton() {
   [SigninEarlGrey verifySignedInWithFakeIdentity:fakeIdentity];
 
   // Add a bookmark after sync is initialized.
-  [ChromeEarlGrey waitForSyncInitialized:YES syncTimeout:kSyncOperationTimeout];
+  [ChromeEarlGrey waitForSyncEngineInitialized:YES
+                                   syncTimeout:kSyncOperationTimeout];
   [ChromeEarlGrey waitForBookmarksToFinishLoading];
   [BookmarkEarlGrey setupStandardBookmarks];
 
@@ -149,7 +190,7 @@ void WaitForSettingDoneButton() {
 // out through the "Sign out and Turn Off Sync" > "Keep Data" option in Sync
 // setting.
 - (void)testSignInOpenSyncSettingsSignOutAndTurnOffSyncWithKeepData {
-  FakeChromeIdentity* fakeIdentity = [FakeChromeIdentity fakeIdentity1];
+  FakeSystemIdentity* fakeIdentity = [FakeSystemIdentity fakeIdentity1];
   [SigninEarlGrey addFakeIdentity:fakeIdentity];
 
   [ChromeEarlGreyUI openSettingsMenu];
@@ -162,7 +203,8 @@ void WaitForSettingDoneButton() {
   [SigninEarlGrey verifySignedInWithFakeIdentity:fakeIdentity];
 
   // Add a bookmark after sync is initialized.
-  [ChromeEarlGrey waitForSyncInitialized:YES syncTimeout:kSyncOperationTimeout];
+  [ChromeEarlGrey waitForSyncEngineInitialized:YES
+                                   syncTimeout:kSyncOperationTimeout];
   [ChromeEarlGrey waitForBookmarksToFinishLoading];
   [BookmarkEarlGrey setupStandardBookmarks];
 
@@ -194,7 +236,7 @@ void WaitForSettingDoneButton() {
 
 // Tests that "Sign out and Turn Off Sync" is not present in advanced settings.
 - (void)testSignInOpenSyncSettingsNoSignOut {
-  FakeChromeIdentity* fakeIdentity = [FakeChromeIdentity fakeIdentity1];
+  FakeSystemIdentity* fakeIdentity = [FakeSystemIdentity fakeIdentity1];
   [SigninEarlGrey addFakeIdentity:fakeIdentity];
 
   [ChromeEarlGreyUI openSettingsMenu];
@@ -214,7 +256,7 @@ void WaitForSettingDoneButton() {
 // message after sign-in.
 - (void)testSigninOpenSyncSettingsWithPasswordError {
   [ChromeEarlGrey addBookmarkWithSyncPassphrase:kPassphrase];
-  FakeChromeIdentity* fakeIdentity = [FakeChromeIdentity fakeIdentity1];
+  FakeSystemIdentity* fakeIdentity = [FakeSystemIdentity fakeIdentity1];
   [SigninEarlGrey addFakeIdentity:fakeIdentity];
 
   [ChromeEarlGreyUI openSettingsMenu];
@@ -236,8 +278,12 @@ void WaitForSettingDoneButton() {
   ConditionBlock condition = ^{
     NSError* error = nil;
     [[EarlGrey
-        selectElementWithMatcher:grey_accessibilityLabel(l10n_util::GetNSString(
-                                     IDS_IOS_SYNC_ERROR_TITLE))]
+        selectElementWithMatcher:grey_allOf(
+                                     grey_accessibilityLabel(
+                                         l10n_util::GetNSString(
+                                             IDS_IOS_SYNC_ERROR_TITLE)),
+                                     grey_not(grey_userInteractionEnabled()),
+                                     nil)]
         assertWithMatcher:grey_sufficientlyVisible()
                     error:&error];
     return error == nil;
@@ -250,7 +296,7 @@ void WaitForSettingDoneButton() {
 // passphrase correctly from Advanced Settings and then signs in.
 - (void)testSigninWithPassword {
   [ChromeEarlGrey addBookmarkWithSyncPassphrase:kPassphrase];
-  FakeChromeIdentity* fakeIdentity = [FakeChromeIdentity fakeIdentity1];
+  FakeSystemIdentity* fakeIdentity = [FakeSystemIdentity fakeIdentity1];
   [SigninEarlGrey addFakeIdentity:fakeIdentity];
 
   [ChromeEarlGreyUI openSettingsMenu];
@@ -279,7 +325,7 @@ void WaitForSettingDoneButton() {
 // Sign-in opened from: setting menu.
 // Interrupted at: advanced sign-in.
 - (void)testInterruptAdvancedSigninSettingsFromAdvancedSigninSettings {
-  FakeChromeIdentity* fakeIdentity = [FakeChromeIdentity fakeIdentity1];
+  FakeSystemIdentity* fakeIdentity = [FakeSystemIdentity fakeIdentity1];
   [SigninEarlGrey addFakeIdentity:fakeIdentity];
 
   [ChromeEarlGreyUI openSettingsMenu];
@@ -289,7 +335,10 @@ void WaitForSettingDoneButton() {
   [[EarlGrey selectElementWithMatcher:SettingsLink()] performAction:grey_tap()];
   [ChromeEarlGreyUI waitForAppToIdle];
 
-  [ChromeEarlGrey simulateExternalAppURLOpening];
+  GREYAssertTrue(self.testServer->Start(), @"Test server failed to start.");
+  const GURL expectedURL = self.testServer->GetURL("/echo");
+  [ChromeEarlGrey
+      simulateExternalAppURLOpeningAndWaitUntilOpenedWithGURL:expectedURL];
 
   [SigninEarlGrey verifySignedOut];
 }
@@ -298,17 +347,21 @@ void WaitForSettingDoneButton() {
 // Sign-in opened from: bookmark view.
 // Interrupted at: advanced sign-in.
 - (void)testInterruptAdvancedSigninBookmarksFromAdvancedSigninSettings {
-  FakeChromeIdentity* fakeIdentity = [FakeChromeIdentity fakeIdentity1];
+  FakeSystemIdentity* fakeIdentity = [FakeSystemIdentity fakeIdentity1];
   [SigninEarlGrey addFakeIdentity:fakeIdentity];
 
   [ChromeEarlGreyUI openToolsMenu];
-  [ChromeEarlGreyUI tapToolsMenuButton:chrome_test_util::BookmarksMenuButton()];
+  [ChromeEarlGreyUI
+      tapToolsMenuButton:chrome_test_util::BookmarksDestinationButton()];
   [[EarlGrey selectElementWithMatcher:PrimarySignInButton()]
       performAction:grey_tap()];
   [[EarlGrey selectElementWithMatcher:SettingsLink()] performAction:grey_tap()];
   [ChromeEarlGreyUI waitForAppToIdle];
 
-  [ChromeEarlGrey simulateExternalAppURLOpening];
+  GREYAssertTrue(self.testServer->Start(), @"Test server failed to start.");
+  const GURL expectedURL = self.testServer->GetURL("/echo");
+  [ChromeEarlGrey
+      simulateExternalAppURLOpeningAndWaitUntilOpenedWithGURL:expectedURL];
 
   [SigninEarlGrey verifySignedOut];
 }
@@ -317,14 +370,17 @@ void WaitForSettingDoneButton() {
 // Sign-in opened from: recent tabs.
 // Interrupted at: advanced sign-in.
 - (void)testInterruptSigninFromRecentTabsFromAdvancedSigninSettings {
-  FakeChromeIdentity* fakeIdentity = [FakeChromeIdentity fakeIdentity1];
+  FakeSystemIdentity* fakeIdentity = [FakeSystemIdentity fakeIdentity1];
   [SigninEarlGrey addFakeIdentity:fakeIdentity];
 
   [SigninEarlGreyUI tapPrimarySignInButtonInRecentTabs];
   [[EarlGrey selectElementWithMatcher:SettingsLink()] performAction:grey_tap()];
   [ChromeEarlGreyUI waitForAppToIdle];
 
-  [ChromeEarlGrey simulateExternalAppURLOpening];
+  GREYAssertTrue(self.testServer->Start(), @"Test server failed to start.");
+  const GURL expectedURL = self.testServer->GetURL("/echo");
+  [ChromeEarlGrey
+      simulateExternalAppURLOpeningAndWaitUntilOpenedWithGURL:expectedURL];
 
   [SigninEarlGrey verifySignedOut];
 }
@@ -333,14 +389,17 @@ void WaitForSettingDoneButton() {
 // Sign-in opened from: tab switcher.
 // Interrupted at: advanced sign-in.
 - (void)testInterruptSigninFromTabSwitcherFromAdvancedSigninSettings {
-  FakeChromeIdentity* fakeIdentity = [FakeChromeIdentity fakeIdentity1];
+  FakeSystemIdentity* fakeIdentity = [FakeSystemIdentity fakeIdentity1];
   [SigninEarlGrey addFakeIdentity:fakeIdentity];
 
   [SigninEarlGreyUI tapPrimarySignInButtonInTabSwitcher];
   [[EarlGrey selectElementWithMatcher:SettingsLink()] performAction:grey_tap()];
   [ChromeEarlGreyUI waitForAppToIdle];
 
-  [ChromeEarlGrey simulateExternalAppURLOpening];
+  GREYAssertTrue(self.testServer->Start(), @"Test server failed to start.");
+  const GURL expectedURL = self.testServer->GetURL("/echo");
+  [ChromeEarlGrey
+      simulateExternalAppURLOpeningAndWaitUntilOpenedWithGURL:expectedURL];
 
   [SigninEarlGrey verifySignedOut];
 }
@@ -348,7 +407,7 @@ void WaitForSettingDoneButton() {
 // Tests that canceling sign-in from advanced sign-in settings will
 // return the user to their prior sign-in state.
 - (void)testCancelSigninFromAdvancedSigninSettings {
-  FakeChromeIdentity* fakeIdentity = [FakeChromeIdentity fakeIdentity1];
+  FakeSystemIdentity* fakeIdentity = [FakeSystemIdentity fakeIdentity1];
   [SigninEarlGrey addFakeIdentity:fakeIdentity];
 
   [ChromeEarlGreyUI openSettingsMenu];

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,12 @@
 #define ASH_CAPTURE_MODE_VIDEO_RECORDING_WATCHER_H_
 
 #include "ash/ash_export.h"
+#include "ash/capture_mode/capture_mode_behavior.h"
 #include "ash/capture_mode/capture_mode_types.h"
 #include "ash/display/cursor_window_controller.h"
 #include "ash/public/cpp/tablet_mode_observer.h"
 #include "ash/wm/window_dimmer.h"
+#include "base/memory/raw_ptr.h"
 #include "base/timer/timer.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -32,7 +34,9 @@ class CursorManager;
 
 namespace ash {
 
+class CaptureModeBehavior;
 class CaptureModeController;
+class CaptureModeDemoToolsController;
 class RecordingOverlayController;
 class RecordedWindowRootObserver;
 
@@ -43,7 +47,7 @@ class RecordedWindowRootObserver;
 // This also paints a dimming shield to distinguish the area being recorded, but
 // only when recording a window or a partial region.
 // Note that this object doesn't create a new layer, rather the controller makes
-// it acquire and reuse the layer of the |CaptureModeSession| prior to the
+// it acquire and reuse the layer of the `CaptureModeSession` prior to the
 // session ending.
 // It also controls the overlay created on the video capturer to efficiently
 // record the mouse cursor on top of the video frames.
@@ -60,23 +64,48 @@ class ASH_EXPORT VideoRecordingWatcher
  public:
   VideoRecordingWatcher(
       CaptureModeController* controller,
+      CaptureModeBehavior* active_behavior,
       aura::Window* window_being_recorded,
       mojo::PendingRemote<viz::mojom::FrameSinkVideoCaptureOverlay>
           cursor_capture_overlay,
-      bool projector_mode);
+      bool is_recording_audio);
   ~VideoRecordingWatcher() override;
 
+  const CaptureModeBehavior* active_behavior() const {
+    return active_behavior_;
+  }
   aura::Window* window_being_recorded() const { return window_being_recorded_; }
-  bool is_in_projector_mode() const { return is_in_projector_mode_; }
+  bool is_recording_audio() const { return is_recording_audio_; }
   bool should_paint_layer() const { return should_paint_layer_; }
   bool is_shutting_down() const { return is_shutting_down_; }
+  CaptureModeSource recording_source() const { return recording_source_; }
 
-  // Toggles the Projector mode's overlay widget on or off. Can only be called
-  // if |is_in_projector_mode()| is true.
+  // Toggles the overlay widget on or off. Can only be called if
+  // `ShouldCreateRecordingOverlayController()` return true for
+  // `active_behavior_`.
   void ToggleRecordingOverlayEnabled();
 
   // Clean up prior to deletion.
   void ShutDown();
+
+  // Returns the current parent window for the on-capture-surface widgets such
+  // as `CaptureModeCameraController::camera_preview_widget_` and
+  // `CaptureModeDemoToolsController::key_combo_widget_` when recording is in
+  // progress.
+  aura::Window* GetOnCaptureSurfaceWidgetParentWindow() const;
+
+  // Returns the bounds within which the on-capture-surface widgets (such as
+  // capture mode camera preview widget and key combo widget) will be confined
+  // when recording is in progress.
+  gfx::Rect GetCaptureSurfaceConfineBounds() const;
+
+  // Returns the `partial_region_bounds_` clamped to the bounds of the
+  // `current_root_`. It should only be called if `recording_source_` is
+  // `kRegion`.
+  gfx::Rect GetEffectivePartialRegionBounds() const;
+
+  // Returns the `key_combo_widget_` if it is visible.
+  const views::Widget* GetKeyComboWidgetIfVisible() const;
 
   // aura::WindowObserver:
   void OnWindowParentChanged(aura::Window* window,
@@ -113,7 +142,9 @@ class ASH_EXPORT VideoRecordingWatcher
   void OnDimmedWindowParentChanged(aura::Window* dimmed_window) override;
 
   // ui::EventHandler:
+  void OnKeyEvent(ui::KeyEvent* event) override;
   void OnMouseEvent(ui::MouseEvent* event) override;
+  void OnTouchEvent(ui::TouchEvent* event) override;
 
   // TabletModeObserver:
   void OnTabletModeStarted() override;
@@ -130,6 +161,10 @@ class ASH_EXPORT VideoRecordingWatcher
   void FlushCursorOverlayForTesting();
 
   void SendThrottledWindowSizeChangedNowForTesting();
+
+  CaptureModeDemoToolsController* demo_tools_controller_for_testing() const {
+    return demo_tools_controller_.get();
+  }
 
  protected:
   // ui::LayerOwner:
@@ -193,10 +228,17 @@ class ASH_EXPORT VideoRecordingWatcher
   // relative to its parent |window_being_recorded_|.
   gfx::Rect GetOverlayWidgetBounds() const;
 
-  CaptureModeController* const controller_;
-  wm::CursorManager* const cursor_manager_;
-  aura::Window* const window_being_recorded_;
-  aura::Window* current_root_;
+  // Returns true if the mouse and touch highlights should be enabled during
+  // video recording.
+  bool PointerHighlightingEnabled() const;
+
+  const raw_ptr<CaptureModeController, ExperimentalAsh> controller_;
+
+  // The currently active behavior which is passed from capture mode session.
+  const raw_ptr<CaptureModeBehavior, ExperimentalAsh> active_behavior_;
+  const raw_ptr<wm::CursorManager, ExperimentalAsh> cursor_manager_;
+  const raw_ptr<aura::Window, ExperimentalAsh> window_being_recorded_;
+  raw_ptr<aura::Window, ExperimentalAsh> current_root_;
   const CaptureModeSource recording_source_;
 
   // The end point of the overlay owned by the video capturer on Viz, which is
@@ -240,8 +282,9 @@ class ASH_EXPORT VideoRecordingWatcher
   // throttle such events.
   base::OneShotTimer window_size_change_throttle_timer_;
 
-  // True if the current in progress recording is for a Projector mode session.
-  const bool is_in_projector_mode_;
+  // True if this active recording session started with audio recording turned
+  // on, and audio recording is being done by the recording service.
+  const bool is_recording_audio_;
 
   // True if we force hiding the cursor overlay. This happens when we record a
   // fullscreen, or a partial screen region, and the software-composited cursor
@@ -276,7 +319,10 @@ class ASH_EXPORT VideoRecordingWatcher
   // make it capturable by the |FrameSinkVideoCapturer|.
   aura::ScopedWindowCaptureRequest non_root_window_capture_request_;
 
-  // True if the shutting down process has been triggered.
+  std::unique_ptr<CaptureModeDemoToolsController> demo_tools_controller_;
+
+  // True if the shutting down process has been triggered. We want to keep
+  // `is_shutting_down_` as the last member variable in this class.
   bool is_shutting_down_ = false;
 };
 

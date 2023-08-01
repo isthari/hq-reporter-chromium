@@ -1,16 +1,16 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/drag_and_drop/url_drag_drop_handler.h"
 
-#import <MobileCoreServices/UTCoreTypes.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
-#include "base/check_op.h"
-#include "base/mac/foundation_util.h"
+#import "base/check_op.h"
+#import "base/mac/foundation_util.h"
 #import "ios/chrome/browser/drag_and_drop/drag_item_util.h"
 #import "net/base/mac/url_conversions.h"
-#include "url/gurl.h"
+#import "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -92,9 +92,8 @@
   // TODO(crbug.com/1100940): Enable multi-item drops.
   return session.items.count == 1U &&
          [self.dropDelegate canHandleURLDropInView:interaction.view] &&
-         [session hasItemsConformingToTypeIdentifiers:@[
-           (__bridge NSString*)kUTTypeURL
-         ]];
+         [session
+             hasItemsConformingToTypeIdentifiers:@[ UTTypeURL.identifier ]];
 }
 
 - (UIDropProposal*)dropInteraction:(UIDropInteraction*)interaction

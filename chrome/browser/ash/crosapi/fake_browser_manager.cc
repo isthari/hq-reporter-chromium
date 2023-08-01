@@ -1,10 +1,11 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/crosapi/fake_browser_manager.h"
 
 #include "base/memory/scoped_refptr.h"
+#include "base/version.h"
 #include "chrome/browser/component_updater/cros_component_manager.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
@@ -25,6 +26,10 @@ class MockCrOSComponentManager
                     UpdatePolicy update_policy,
                     LoadCallback load_callback));
   MOCK_METHOD1(Unload, bool(const std::string& name));
+  MOCK_CONST_METHOD2(
+      GetVersion,
+      void(const std::string& name,
+           base::OnceCallback<void(const base::Version&)> version_callback));
   MOCK_METHOD2(RegisterCompatiblePath,
                void(const std::string& name, const base::FilePath& path));
   MOCK_METHOD1(UnregisterCompatiblePath, void(const std::string& name));
@@ -46,7 +51,8 @@ FakeBrowserManager::FakeBrowserManager()
 
 FakeBrowserManager::~FakeBrowserManager() = default;
 
-void FakeBrowserManager::SetGetFeedbackDataResponse(base::Value response) {
+void FakeBrowserManager::SetGetFeedbackDataResponse(
+    base::Value::Dict response) {
   feedback_response_ = std::move(response);
 }
 
@@ -58,12 +64,8 @@ void FakeBrowserManager::StartRunning() {
   SetState(State::RUNNING);
 }
 
-bool FakeBrowserManager::IsRunning() const {
-  return is_running_;
-}
-
-bool FakeBrowserManager::IsRunningOrWillRun() const {
-  return is_running_;
+void FakeBrowserManager::StopRunning() {
+  SetState(State::STOPPED);
 }
 
 void FakeBrowserManager::NewFullscreenWindow(
@@ -73,13 +75,15 @@ void FakeBrowserManager::NewFullscreenWindow(
 }
 
 void FakeBrowserManager::GetFeedbackData(GetFeedbackDataCallback callback) {
-  const base::DictionaryValue* sysinfo_entries;
-  feedback_response_.GetAsDictionary(&sysinfo_entries);
-
   // Run |callback| with the pre-set |feedback_responses_|, unless testing
   // client requests waiting for crosapi mojo disconnected event being observed.
-  if (!wait_for_mojo_disconnect_)
+  if (!wait_for_mojo_disconnect_) {
     std::move(callback).Run(std::move(feedback_response_));
+  }
+}
+
+void FakeBrowserManager::InitializeAndStartIfNeeded() {
+  StartRunning();
 }
 
 void FakeBrowserManager::OnSessionStateChanged() {}

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -54,6 +54,8 @@ class GestureConfigurationAndroid : public GestureConfiguration {
     set_max_gesture_bounds_length(kMaxGestureBoundsLengthDips);
     set_max_touch_move_in_pixels_for_click(
         ViewConfiguration::GetTouchSlopInDips());
+    set_max_stylus_move_in_pixels_for_click(
+        ViewConfiguration::GetTouchSlopInDips() * 1.5f);
     set_min_fling_velocity(
         ViewConfiguration::GetMinimumFlingVelocityInDipsPerSecond());
     set_min_gesture_bounds_length(kMinGestureBoundsLengthDips);
@@ -68,6 +70,15 @@ class GestureConfigurationAndroid : public GestureConfiguration {
         ViewConfiguration::GetTapTimeoutInMs());
     set_fling_max_tap_gap_time_in_ms(
         ViewConfiguration::GetLongPressTimeoutInMs());
+
+    // Android ViewConfiguration doesn't have a short-press timeout.  We are
+    // using the heuristic that it would be 100ms less than the long-press
+    // provided this is not too close with show-press.
+    //
+    // TODO(https://crbug.com/1294280): Replace this with platform-defined
+    // timeout when available.
+    set_short_press_time(base::Milliseconds(
+        std::max(long_press_time_in_ms() - 100, long_press_time_in_ms() / 2)));
   }
 
   friend struct base::DefaultSingletonTraits<GestureConfigurationAndroid>;

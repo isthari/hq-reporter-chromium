@@ -1,20 +1,20 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/prerender/prerender_service_impl.h"
 
-#include "base/metrics/histogram_macros.h"
-#import "ios/chrome/browser/main/browser.h"
+#import "base/metrics/histogram_macros.h"
+#import "ios/chrome/browser/ntp/new_tab_page_util.h"
 #import "ios/chrome/browser/prerender/preload_controller.h"
 #import "ios/chrome/browser/sessions/session_restoration_browser_agent.h"
-#import "ios/chrome/browser/ui/ntp/ntp_util.h"
+#import "ios/chrome/browser/shared/model/browser/browser.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/web/load_timing_tab_helper.h"
-#import "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/web/public/navigation/navigation_manager.h"
-#include "ios/web/public/web_client.h"
+#import "ios/web/public/web_client.h"
 #import "ios/web/public/web_state.h"
-#include "ui/base/page_transition_types.h"
+#import "ui/base/page_transition_types.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -79,16 +79,6 @@ bool PrerenderServiceImpl::MaybeLoadPrerenderedURL(
   }
 
   DCHECK_NE(WebStateList::kInvalidIndex, web_state_list->active_index());
-
-  web::NavigationManager* active_navigation_manager =
-      web_state_list->GetActiveWebState()->GetNavigationManager();
-  int lastIndex = active_navigation_manager->GetLastCommittedItemIndex();
-  UMA_HISTOGRAM_COUNTS_100("Prerender.PrerenderLoadedOnIndex", lastIndex);
-
-  BOOL onFirstNTP =
-      IsVisibleURLNewTabPage(web_state_list->GetActiveWebState()) &&
-      lastIndex == 0;
-  UMA_HISTOGRAM_BOOLEAN("Prerender.PrerenderLoadedOnFirstNTP", onFirstNTP);
 
   loading_prerender_ = true;
   web_state_list->ReplaceWebStateAt(web_state_list->active_index(),

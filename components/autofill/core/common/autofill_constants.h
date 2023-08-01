@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -38,6 +38,19 @@ constexpr size_t kMaxParseableFields = 200;
 // computational costs.
 constexpr size_t kMaxParseableChildFrames = 20;
 
+// The maximum string length supported by Autofill. In particular, this is used
+// for the length of field values.
+// This limit prevents sending overly large strings via IPC to the browser
+// process.
+constexpr size_t kMaxStringLength = 1024;
+
+// The maximum list size supported by Autofill.
+// Allow enough space for all countries (roughly 300 distinct values) and all
+// timezones (roughly 400 distinct values), plus some extra wiggle room.
+// This limit prevents sending overly large strings via IPC to the browser
+// process.
+constexpr size_t kMaxListSize = 512;
+
 // The maximum number of allowed calls to CreditCard::GetMatchingTypes() and
 // AutofillProfile::GetMatchingTypeAndValidities().
 // If #fields * (#profiles + #credit-cards) exceeds this number, type matching
@@ -50,14 +63,6 @@ constexpr size_t kMaxTypeMatchingCalls = 5000;
 // upload the form to and request predictions from the Autofill servers.
 constexpr size_t kRequiredFieldsForFormsWithOnlyPasswordFields = 2;
 
-// Special query id used between the browser and the renderer when the action
-// is initiated from the browser.
-constexpr int kNoQueryId = -1;
-
-// Special query id used between the browser and the renderer when the action
-// is initiated from the browser.
-constexpr int kCrossFrameFill = -2;
-
 // Options bitmask values for AutofillHostMsg_ShowPasswordSuggestions IPC
 enum ShowPasswordSuggestionsOptions {
   SHOW_ALL = 1 << 0 /* show all credentials, not just ones matching username */,
@@ -66,9 +71,16 @@ enum ShowPasswordSuggestionsOptions {
       1 << 2 /* input field is marked to accept webauthn credentials */,
 };
 
+// A refill happens only within `kLimitBeforeRefill` of the original fill.
+constexpr base::TimeDelta kLimitBeforeRefill = base::Seconds(1);
+
 // Constants for the soft/hard deletion of Autofill data.
 constexpr base::TimeDelta kDisusedDataModelTimeDelta = base::Days(180);
 constexpr base::TimeDelta kDisusedDataModelDeletionTimeDelta = base::Days(395);
+
+// Defines for how long recently submitted profile fragments are retained in
+// memory for multi-step imports.
+constexpr base::TimeDelta kMultiStepImportTTL = base::Minutes(5);
 
 // Returns if the entry with the given |use_date| is deletable? (i.e. has not
 // been used for a long time).
@@ -76,7 +88,8 @@ bool IsAutofillEntryWithUseDateDeletable(const base::Time& use_date);
 
 // The period after which autocomplete entries should be cleaned-up in days.
 // Equivalent to roughly 14 months.
-const int64_t kAutocompleteRetentionPolicyPeriodInDays = 14 * 31;
+constexpr base::TimeDelta kAutocompleteRetentionPolicyPeriod =
+    base::Days(14 * 31);
 
 // Limits the number of times the value of a specific type can be filled into a
 // form.

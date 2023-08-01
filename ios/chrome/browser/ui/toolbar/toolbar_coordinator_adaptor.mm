@@ -1,11 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/toolbar/toolbar_coordinator_adaptor.h"
 
-#import "ios/chrome/browser/ui/commands/command_dispatcher.h"
-#import "ios/chrome/browser/ui/commands/toolbar_commands.h"
+#import "ios/chrome/browser/shared/public/commands/command_dispatcher.h"
+#import "ios/chrome/browser/shared/public/commands/toolbar_commands.h"
 #import "ios/chrome/browser/ui/toolbar/toolbar_coordinatee.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -58,9 +58,9 @@
 
 #pragma mark - ToolbarCommands
 
-- (void)triggerToolsMenuButtonAnimation {
+- (void)triggerToolbarSlideInAnimation {
   for (id<ToolbarCommands> coordinator in self.coordinators) {
-    [coordinator triggerToolsMenuButtonAnimation];
+    [coordinator triggerToolbarSlideInAnimation];
   }
 }
 
@@ -83,15 +83,15 @@
 
 #pragma mark - PopupMenuUIUpdating
 
-- (void)updateUIForMenuDisplayed:(PopupMenuType)popupType {
+- (void)updateUIForOverflowMenuIPHDisplayed {
   for (id<ToolbarCoordinatee> coordinator in self.coordinators) {
-    [coordinator.popupMenuUIUpdater updateUIForMenuDisplayed:popupType];
+    [coordinator.popupMenuUIUpdater updateUIForOverflowMenuIPHDisplayed];
   }
 }
 
-- (void)updateUIForMenuDismissed {
+- (void)updateUIForIPHDismissed {
   for (id<ToolbarCoordinatee> coordinator in self.coordinators) {
-    [coordinator.popupMenuUIUpdater updateUIForMenuDismissed];
+    [coordinator.popupMenuUIUpdater updateUIForIPHDismissed];
   }
 }
 

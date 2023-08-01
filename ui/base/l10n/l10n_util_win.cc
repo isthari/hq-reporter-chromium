@@ -1,14 +1,14 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ui/base/l10n/l10n_util_win.h"
 
-#include <algorithm>
 #include <iterator>
 
 #include "base/i18n/rtl.h"
 #include "base/lazy_instance.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -46,12 +46,12 @@ int GetExtendedStyles() {
   return !base::i18n::IsRTL() ? 0 : WS_EX_LAYOUTRTL | WS_EX_RTLREADING;
 }
 
-int GetExtendedTooltipStyles() {
-  return !base::i18n::IsRTL() ? 0 : WS_EX_LAYOUTRTL;
+DWORD GetExtendedTooltipStyles() {
+  return base::i18n::IsRTL() ? WS_EX_LAYOUTRTL : 0;
 }
 
 void HWNDSetRTLLayout(HWND hwnd) {
-  DWORD ex_style = ::GetWindowLong(hwnd, GWL_EXSTYLE);
+  LONG ex_style = ::GetWindowLong(hwnd, GWL_EXSTYLE);
 
   // We don't have to do anything if the style is already set for the HWND.
   if (!(ex_style & WS_EX_LAYOUTRTL)) {
@@ -99,8 +99,8 @@ void OverrideLocaleWithUILanguageList() {
   if (base::win::i18n::GetThreadPreferredUILanguageList(&ui_languages)) {
     std::vector<std::string> ascii_languages;
     ascii_languages.reserve(ui_languages.size());
-    std::transform(ui_languages.begin(), ui_languages.end(),
-                   std::back_inserter(ascii_languages), &base::WideToASCII);
+    base::ranges::transform(ui_languages, std::back_inserter(ascii_languages),
+                            &base::WideToASCII);
     override_locale_holder.Get().swap_value(&ascii_languages);
   } else {
     NOTREACHED() << "Failed to determine the UI language for locale override.";

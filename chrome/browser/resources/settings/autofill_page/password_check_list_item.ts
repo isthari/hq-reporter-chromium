@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,44 +7,56 @@
  * list of insecure passwords.
  */
 
-import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
-import 'chrome://resources/cr_elements/cr_icons_css.m.js';
+import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.js';
+import 'chrome://resources/cr_elements/cr_icons.css.js';
 import 'chrome://resources/js/action_link.js';
-import '../settings_shared_css.js';
+import '../settings_shared.css.js';
 import '../site_favicon.js';
-import './passwords_shared_css.js';
+// <if expr="is_chromeos">
+import '/shared/settings/controls/password_prompt_dialog.js';
+// </if>
+import './passwords_shared.css.js';
 
-import {assert, assertNotReached} from 'chrome://resources/js/assert.m.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {CrIconButtonElement} from 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.js';
+import {assert, assertNotReached} from 'chrome://resources/js/assert_ts.js';
+import {OpenWindowProxyImpl} from 'chrome://resources/js/open_window_proxy.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {loadTimeData} from '../i18n_setup.js';
-import {OpenWindowProxyImpl} from '../open_window_proxy.js';
 
-// <if expr="chromeos_ash or chromeos_lacros">
-import {BlockingRequestManager} from './blocking_request_manager.js';
-// </if>
+import {getTemplate} from './password_check_list_item.html.js';
 import {PasswordCheckInteraction, PasswordManagerImpl, PasswordManagerProxy} from './password_manager_proxy.js';
+import {PasswordRequestorMixin} from './password_requestor_mixin.js';
 
+export interface PasswordCheckListItemElement {
+  $: {
+    insecureOrigin: HTMLElement,
+    insecureUsername: HTMLElement,
+    insecurePassword: HTMLInputElement,
+    more: CrIconButtonElement,
+  };
+}
 
-export class PasswordCheckListItemElement extends PolymerElement {
+const PasswordCheckListItemElementBase = PasswordRequestorMixin(PolymerElement);
+
+export class PasswordCheckListItemElement extends
+    PasswordCheckListItemElementBase {
   static get is() {
     return 'password-check-list-item';
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
     return {
-      // <if expr="chromeos_ash or chromeos_lacros">
-      tokenRequestManager: Object,
-      // </if>
-
       /**
        * The password that is being displayed.
        */
       item: Object,
+
+      showDetails: Boolean,
 
       isPasswordVisible: {
         type: Boolean,
@@ -63,21 +75,18 @@ export class PasswordCheckListItemElement extends PolymerElement {
 
       buttonClass_: {
         type: String,
-        computed: 'computeButtonClass_(item.compromisedInfo)',
+        computed: 'computeButtonClass_(showDetails)',
       },
 
       iconClass_: {
         type: String,
-        computed: 'computeIconClass_(item.compromisedInfo)',
+        computed: 'computeIconClass_(showDetails)',
       },
     };
   }
 
-  // <if expr="chromeos_ash or chromeos_lacros">
-  tokenRequestManager: BlockingRequestManager;
-  // </if>
-
-  item: chrome.passwordsPrivate.InsecureCredential;
+  item: chrome.passwordsPrivate.PasswordUiEntry;
+  showDetails: boolean = false;
   isPasswordVisible: boolean;
   private password_: string;
   clickedChangePassword: boolean;
@@ -86,27 +95,23 @@ export class PasswordCheckListItemElement extends PolymerElement {
   private passwordManager_: PasswordManagerProxy =
       PasswordManagerImpl.getInstance();
 
-  /**
-   * @return Whether |item| is compromised credential.
-   */
-  private isCompromisedItem_(): boolean {
-    return !!this.item.compromisedInfo;
-  }
-
   private getCompromiseType_(): string {
-    switch (this.item.compromisedInfo!.compromiseType) {
-      case chrome.passwordsPrivate.CompromiseType.PHISHED:
-        return loadTimeData.getString('phishedPassword');
-      case chrome.passwordsPrivate.CompromiseType.LEAKED:
-        return loadTimeData.getString('leakedPassword');
-      case chrome.passwordsPrivate.CompromiseType.PHISHED_AND_LEAKED:
-        return loadTimeData.getString('phishedAndLeakedPassword');
+    const isLeaked = this.item.compromisedInfo!.compromiseTypes.some(
+        type => type === chrome.passwordsPrivate.CompromiseType.LEAKED);
+    const isPhished = this.item.compromisedInfo!.compromiseTypes.some(
+        type => type === chrome.passwordsPrivate.CompromiseType.PHISHED);
+    if (isLeaked && isPhished) {
+      return loadTimeData.getString('phishedAndLeakedPassword');
+    }
+    if (isPhished) {
+      return loadTimeData.getString('phishedPassword');
+    }
+    if (isLeaked) {
+      return loadTimeData.getString('leakedPassword');
     }
 
     assertNotReached(
-        'Can\'t find a string for type: ' +
-        this.item.compromisedInfo!.compromiseType);
-    return '';
+        'Can\'t find a string for type: ' + this.item.compromisedInfo!);
   }
 
   private fire_(eventName: string, detail?: any) {
@@ -117,9 +122,10 @@ export class PasswordCheckListItemElement extends PolymerElement {
   private onChangePasswordClick_() {
     this.fire_('change-password-clicked', {id: this.item.id});
 
-    const url = assert(this.item.changePasswordUrl!);
-    OpenWindowProxyImpl.getInstance().openURL(url);
-
+    assert(this.item.changePasswordUrl);
+    OpenWindowProxyImpl.getInstance().openUrl(this.item.changePasswordUrl);
+    PasswordManagerImpl.getInstance().recordChangePasswordFlowStarted(
+        this.item);
     PasswordManagerImpl.getInstance().recordPasswordCheckInteraction(
         PasswordCheckInteraction.CHANGE_PASSWORD);
   }
@@ -137,7 +143,7 @@ export class PasswordCheckListItemElement extends PolymerElement {
   }
 
   private computeButtonClass_(): string {
-    if (this.item.compromisedInfo) {
+    if (this.showDetails) {
       // Strong CTA.
       return 'action-button';
     }
@@ -146,7 +152,7 @@ export class PasswordCheckListItemElement extends PolymerElement {
   }
 
   private computeIconClass_(): string {
-    if (this.item.compromisedInfo) {
+    if (this.showDetails) {
       // Strong CTA, white icon.
       return '';
     }
@@ -166,22 +172,12 @@ export class PasswordCheckListItemElement extends PolymerElement {
   showPassword() {
     this.passwordManager_.recordPasswordCheckInteraction(
         PasswordCheckInteraction.SHOW_PASSWORD);
-    this.passwordManager_
-        .getPlaintextInsecurePassword(
-            assert(this.item), chrome.passwordsPrivate.PlaintextReason.VIEW)
-        .then(
-            insecureCredential => {
-              this.set('item', insecureCredential);
-            },
-            _error => {
-              // <if expr="chromeos_ash or chromeos_lacros">
-              // If no password was found, refresh auth token and retry.
-              this.tokenRequestManager.request(() => this.showPassword());
-              // </if>
-            });
+    this.requestPlaintextPassword(
+            this.item.id, chrome.passwordsPrivate.PlaintextReason.VIEW)
+        .then(password => this.set('item.password', password), _error => {});
   }
 
-  private onReadonlyInputTap_() {
+  private onReadonlyInputClick_() {
     if (this.isPasswordVisible) {
       (this.shadowRoot!.querySelector('#leakedPassword') as HTMLInputElement)
           .select();
@@ -191,6 +187,12 @@ export class PasswordCheckListItemElement extends PolymerElement {
   private onAlreadyChangedClick_(event: Event) {
     event.preventDefault();
     this.fire_('already-changed-password-click', event.target);
+  }
+}
+
+declare global {
+  interface HTMLElementTagNameMap {
+    'password-check-list-item': PasswordCheckListItemElement;
   }
 }
 

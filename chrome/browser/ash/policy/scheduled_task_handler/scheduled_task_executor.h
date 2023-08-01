@@ -1,11 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_ASH_POLICY_SCHEDULED_TASK_HANDLER_SCHEDULED_TASK_EXECUTOR_H_
 #define CHROME_BROWSER_ASH_POLICY_SCHEDULED_TASK_HANDLER_SCHEDULED_TASK_EXECUTOR_H_
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/time/time.h"
 #include "chromeos/dbus/power/native_timer.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -50,15 +50,19 @@ class ScheduledTaskExecutor {
 
   virtual ~ScheduledTaskExecutor() = default;
 
-  // Starts the native timer. Runs result_cb with false result if there
-  // was an error while calculating the next_scheduled_task_time_ticks,
-  // otherwise starts NativeTimer.
+  // Starts the native timer with |external_delay| added to scheduled task time.
+  // Runs |result_cb| with false result if there was an error while calculating
+  // the next_scheduled_task_time_ticks, otherwise starts NativeTimer.
   virtual void Start(ScheduledTaskData* scheduled_task_data,
                      chromeos::OnStartNativeTimerCallback result_cb,
-                     TimerCallback timer_expired_cb) = 0;
+                     TimerCallback timer_expired_cb,
+                     base::TimeDelta external_delay = base::TimeDelta()) = 0;
 
   // Resets the native timer.
   virtual void Reset() = 0;
+
+  // Gets the time when scheduled task will be executed.
+  virtual const base::Time GetScheduledTaskTime() const = 0;
 };
 
 }  // namespace policy

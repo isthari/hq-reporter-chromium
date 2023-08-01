@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "base/memory/raw_ptr.h"
 #include "ui/base/ime/linux/text_edit_command_auralinux.h"
 #include "ui/events/platform_event.h"
 #include "ui/gtk/gtk_compat.h"
@@ -56,9 +57,9 @@ class GtkKeyBindingsHandler {
     // with Gtk4 headers.  To facilitate this, we manually copy the class
     // hierarchy up to GtkWidget.
     GtkWidget widget;
-    void* container_private;
-    void* text_view_private;
-    GtkKeyBindingsHandler* owner;
+    raw_ptr<void> container_private;
+    raw_ptr<void> text_view_private;
+    raw_ptr<GtkKeyBindingsHandler> owner;
   };
 
   // Class structure of Handler class.
@@ -171,8 +172,10 @@ class GtkKeyBindingsHandler {
   // Handler of "move-focus" signal.
   static void MoveFocus(GtkWidget* widget, GtkDirectionType arg1);
 
-  GtkWidget* fake_window_;
-  GtkWidget* handler_;
+  // These fields are not a raw_ptr<> because of a static_cast not related by
+  // inheritance.
+  RAW_PTR_EXCLUSION GtkWidget* fake_window_;
+  RAW_PTR_EXCLUSION GtkWidget* handler_;
 
   // Buffer to store the match results.
   std::vector<ui::TextEditCommandAuraLinux> edit_commands_;

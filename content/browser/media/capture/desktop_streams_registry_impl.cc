@@ -1,12 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "content/browser/media/capture/desktop_streams_registry_impl.h"
 
 #include "base/base64.h"
-#include "base/bind.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/no_destructor.h"
 #include "base/time/time.h"
@@ -22,9 +21,9 @@ const int kApprovedStreamTimeToLiveSeconds = 10;
 
 std::string GenerateRandomStreamId() {
   char buffer[kStreamIdLengthBytes];
-  crypto::RandBytes(buffer, base::size(buffer));
+  crypto::RandBytes(buffer, std::size(buffer));
   std::string result;
-  base::Base64Encode(base::StringPiece(buffer, base::size(buffer)), &result);
+  base::Base64Encode(base::StringPiece(buffer, std::size(buffer)), &result);
   return result;
 }
 
@@ -51,7 +50,6 @@ std::string DesktopStreamsRegistryImpl::RegisterStream(
     int render_frame_id,
     const url::Origin& origin,
     const DesktopMediaID& source,
-    const std::string& extension_name,
     const DesktopStreamRegistryType type) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
@@ -62,7 +60,6 @@ std::string DesktopStreamsRegistryImpl::RegisterStream(
   stream.render_frame_id = render_frame_id;
   stream.origin = origin;
   stream.source = source;
-  stream.extension_name = extension_name;
   stream.type = type;
 
   GetUIThreadTaskRunner({})->PostDelayedTask(
@@ -79,7 +76,6 @@ DesktopMediaID DesktopStreamsRegistryImpl::RequestMediaForStreamId(
     int render_process_id,
     int render_frame_id,
     const url::Origin& origin,
-    std::string* extension_name,
     const DesktopStreamRegistryType type) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
@@ -95,9 +91,6 @@ DesktopMediaID DesktopStreamsRegistryImpl::RequestMediaForStreamId(
   }
 
   DesktopMediaID result = it->second.source;
-  if (extension_name) {
-    *extension_name = it->second.extension_name;
-  }
   approved_streams_.erase(it);
   return result;
 }

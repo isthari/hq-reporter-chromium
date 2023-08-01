@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,13 +9,15 @@
 #include <string>
 #include <utility>
 
+#include "ash/display/window_tree_host_manager.h"
 #include "ash/shell.h"
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/i18n/icu_string_conversions.h"
 #include "base/location.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/system/sys_info.h"
+#include "base/task/single_thread_task_runner.h"
 #include "remoting/host/chromeos/point_transformer.h"
 #include "remoting/host/clipboard.h"
 #include "remoting/proto/internal.pb.h"
@@ -59,7 +61,7 @@ ui::EventFlags MouseButtonToUIFlags(MouseEvent::MouseButton button) {
 bool IsLockKey(ui::DomCode dom_code) {
   switch (dom_code) {
     // Ignores all the keys that could possibly be mapped to Caps Lock in event
-    // rewriter. Please refer to ui::EventRewriterChromeOS::RewriteModifierKeys.
+    // rewriter. Please refer to ui::EventRewriterAsh::RewriteModifierKeys.
     case ui::DomCode::F16:
     case ui::DomCode::CAPS_LOCK:
     case ui::DomCode::META_LEFT:
@@ -93,6 +95,7 @@ class SystemInputInjectorStub : public ui::SystemInputInjector {
   ~SystemInputInjectorStub() override = default;
 
   // SystemInputInjector implementation:
+  void SetDeviceId(int device_id) override {}
   void MoveCursorTo(const gfx::PointF& location) override {}
   void InjectMouseButton(ui::EventFlags button, bool down) override {}
   void InjectMouseWheel(int delta_x, int delta_y) override {}
@@ -123,13 +126,11 @@ class InputInjectorChromeos::Core {
  private:
   void SetLockStates(uint32_t states);
 
+  void InjectMouseMove(const MouseEvent& event);
+
   bool hide_cursor_on_disconnect_ = false;
   std::unique_ptr<ui::SystemInputInjector> delegate_;
   std::unique_ptr<Clipboard> clipboard_;
-
-  // Used to rotate the input coordinates appropriately based on the current
-  // display rotation settings.
-  std::unique_ptr<PointTransformer> point_transformer_;
 };
 
 InputInjectorChromeos::Core::Core() = default;
@@ -213,10 +214,18 @@ void InputInjectorChromeos::Core::InjectMouseEvent(const MouseEvent& event) {
   } else if (event.has_wheel_delta_y() || event.has_wheel_delta_x()) {
     delegate_->InjectMouseWheel(event.wheel_delta_x(), event.wheel_delta_y());
   } else {
-    DCHECK(event.has_x() && event.has_y());
-    delegate_->MoveCursorTo(point_transformer_->ToScreenCoordinates(
-        gfx::PointF(event.x(), event.y())));
+    InjectMouseMove(event);
   }
+}
+
+void InputInjectorChromeos::Core::InjectMouseMove(const MouseEvent& event) {
+  DCHECK(event.has_x() && event.has_y());
+  gfx::PointF location_in_screen_in_dip = gfx::PointF(event.x(), event.y());
+  gfx::PointF location_in_screen_in_pixels =
+      PointTransformer::ConvertScreenInDipToScreenInPixel(
+          location_in_screen_in_dip);
+
+  delegate_->MoveCursorTo(location_in_screen_in_pixels);
 }
 
 void InputInjectorChromeos::Core::Start(
@@ -232,10 +241,11 @@ void InputInjectorChromeos::Core::Start(
   }
   DCHECK(delegate_);
 
+  delegate_->SetDeviceId(ui::ED_REMOTE_INPUT_DEVICE);
+
   // Implemented by remoting::ClipboardAura.
   clipboard_ = Clipboard::Create();
   clipboard_->Start(std::move(client_clipboard));
-  point_transformer_ = std::make_unique<PointTransformer>();
 
   // If the cursor was hidden before we start injecting input then we should try
   // to restore its state when the remote user disconnects.  The main scenario

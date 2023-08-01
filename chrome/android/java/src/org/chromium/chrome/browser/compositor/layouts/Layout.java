@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -64,6 +64,20 @@ public abstract class Layout {
         int USE_PREVIOUS_BROWSER_CONTROLS_STATE = 3;
     }
 
+    @IntDef({LayoutState.STARTING_TO_SHOW, LayoutState.SHOWING, LayoutState.STARTING_TO_HIDE,
+            LayoutState.HIDDEN})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface LayoutState {
+        /** The layout is going to hide as soon as the animation finishes. */
+        int STARTING_TO_SHOW = 0;
+        /** Actively being showed, no ongoing animation. */
+        int SHOWING = 1;
+        /** The layout is going to show as soon as the animation finishes. */
+        int STARTING_TO_HIDE = 2;
+        /** Not currently showed, and no ongoing animation. */
+        int HIDDEN = 3;
+    }
+
     /** Length of the unstalling animation. **/
     public static final long UNSTALLED_ANIMATION_DURATION_MS = 500;
 
@@ -93,11 +107,8 @@ public abstract class Layout {
      * drawn using the same ordering as this array. */
     protected LayoutTab[] mLayoutTabs;
 
-    // True means that the layout is going to hide as soon as the animation finishes.
-    private boolean mIsStartingToHide;
-
-    // True means that the layout is going to show as soon as the animation finishes.
-    private boolean mIsStartingToShow;
+    // Current state of the Layout.
+    private @LayoutState int mLayoutState;
 
     // The next id to show when the layout is hidden, or TabBase#INVALID_TAB_ID if no change.
     protected int mNextTabId = Tab.INVALID_TAB_ID;
@@ -127,6 +138,8 @@ public abstract class Layout {
         mCurrentOrientation = Orientation.UNSET;
         mDpToPx = context.getResources().getDisplayMetrics().density;
         mPxToDp = 1 / mDpToPx;
+
+        mLayoutState = LayoutState.HIDDEN;
     }
 
     /**
@@ -380,7 +393,7 @@ public abstract class Layout {
      * is no primary screen-filling tab.
      */
     protected void updateCacheVisibleIds(List<Integer> visible) {
-        if (mTabContentManager != null) mTabContentManager.updateVisibleIds(visible, -1);
+        updateCacheVisibleIdsAndPrimary(visible, Tab.INVALID_TAB_ID);
     }
 
     /**
@@ -392,7 +405,7 @@ public abstract class Layout {
      */
     public void startHiding(int nextTabId, boolean hintAtTabSelection) {
         mUpdateHost.startHiding(nextTabId, hintAtTabSelection);
-        mIsStartingToHide = true;
+        mLayoutState = LayoutState.STARTING_TO_HIDE;
         mNextTabId = nextTabId;
     }
 
@@ -400,14 +413,14 @@ public abstract class Layout {
      * @return True is the layout is in the process of hiding itself.
      */
     public boolean isStartingToHide() {
-        return mIsStartingToHide;
+        return mLayoutState == LayoutState.STARTING_TO_HIDE;
     }
 
     /**
      * @return True is the layout is in the process of showing itself.
      */
     public boolean isStartingToShow() {
-        return mIsStartingToShow;
+        return mLayoutState == LayoutState.STARTING_TO_SHOW;
     }
 
     /**
@@ -421,9 +434,9 @@ public abstract class Layout {
      * To be called when the transition into the layout is done.
      */
     public void doneShowing() {
-        if (!mIsStartingToShow) return;
+        if (mLayoutState != LayoutState.STARTING_TO_SHOW) return;
 
-        mIsStartingToShow = false;
+        mLayoutState = LayoutState.SHOWING;
         mUpdateHost.doneShowing();
     }
 
@@ -432,9 +445,9 @@ public abstract class Layout {
      * This is currently called by the renderer when all the animation are done while hiding.
      */
     public void doneHiding() {
-        if (!mIsStartingToHide) return;
+        if (mLayoutState != LayoutState.STARTING_TO_HIDE) return;
 
-        mIsStartingToHide = false;
+        mLayoutState = LayoutState.HIDDEN;
         if (mNextTabId != Tab.INVALID_TAB_ID) {
             TabModel model = mTabModelSelector.getModelForTabId(mNextTabId);
             if (model != null) {
@@ -467,8 +480,7 @@ public abstract class Layout {
      */
     public void show(long time, boolean animate) {
         // TODO(crbug.com/1108496): Remove after LayoutManager explicitly hide the old layout.
-        mIsStartingToHide = false;
-        mIsStartingToShow = true;
+        mLayoutState = LayoutState.STARTING_TO_SHOW;
         mNextTabId = Tab.INVALID_TAB_ID;
     }
 
@@ -566,15 +578,6 @@ public abstract class Layout {
     }
 
     /**
-     * Called when a tab is about to be closed. When called, the closing tab will still
-     * be part of the model.
-     * @param time  The current time of the app in ms.
-     * @param tabId The id of the tab being closed
-     */
-    public void onTabClosing(long time, int tabId) {
-    }
-
-    /**
      * Called when a tab is being closed. When called, the closing tab will not
      * be part of the model.
      * @param time      The current time of the app in ms.
@@ -586,13 +589,11 @@ public abstract class Layout {
     }
 
     /**
-     * Called when all the tabs in the current stack need to be closed.
+     * Called when all the tabs in the current stack will be closed.
      * When called, the tabs will still be part of the model.
-     * @param time      The current time of the app in ms.
-     * @param incognito True if this the incognito tab model should close all tabs, false otherwise.
+     * @param incognito True if this is the incognito tab model.
      */
-    public void onTabsAllClosing(long time, boolean incognito) {
-    }
+    public void onTabsAllClosing(boolean incognito) {}
 
     /**
      * Called before a tab is created from the top left button.
@@ -659,19 +660,6 @@ public abstract class Layout {
     }
 
     /**
-     * @param id The id of the {@link LayoutTab} to search for.
-     * @return   A {@link LayoutTab} represented by a {@link Tab} with an id of {@code id}.
-     */
-    public LayoutTab getLayoutTab(int id) {
-        if (mLayoutTabs != null) {
-            for (int i = 0; i < mLayoutTabs.length; i++) {
-                if (mLayoutTabs[i].getId() == id) return mLayoutTabs[i];
-            }
-        }
-        return null;
-    }
-
-    /**
      * @return Whether the layout is handling the model updates when a tab is closing.
      */
     public boolean handlesTabClosing() {
@@ -683,13 +671,6 @@ public abstract class Layout {
      */
     public boolean handlesTabCreating() {
         if (mLayoutTabs == null || mLayoutTabs.length != 1) return false;
-        return false;
-    }
-
-    /**
-     * @return Whether the layout is handling the model updates when closing all the tabs.
-     */
-    public boolean handlesCloseAll() {
         return false;
     }
 
@@ -788,4 +769,9 @@ public abstract class Layout {
      */
     @LayoutType
     public abstract int getLayoutType();
+
+    /** Returns whether the layout is currently running animations. */
+    public boolean isRunningAnimations() {
+        return false;
+    }
 }

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,11 +22,11 @@ dnr_api::HeaderOperation ConvertFlatHeaderOperation(
     flat::HeaderOperation operation) {
   switch (operation) {
     case flat::HeaderOperation_append:
-      return dnr_api::HEADER_OPERATION_APPEND;
+      return dnr_api::HeaderOperation::kAppend;
     case flat::HeaderOperation_set:
-      return dnr_api::HEADER_OPERATION_SET;
+      return dnr_api::HeaderOperation::kSet;
     case flat::HeaderOperation_remove:
-      return dnr_api::HEADER_OPERATION_REMOVE;
+      return dnr_api::HeaderOperation::kRemove;
   }
 }
 

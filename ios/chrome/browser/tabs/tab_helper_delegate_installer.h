@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,10 @@
 
 #include "base/check.h"
 #include "base/scoped_observation.h"
-#import "ios/chrome/browser/main/browser.h"
-#import "ios/chrome/browser/main/browser_observer.h"
-#import "ios/chrome/browser/web_state_list/web_state_list.h"
-#import "ios/chrome/browser/web_state_list/web_state_list_observer.h"
+#import "ios/chrome/browser/shared/model/browser/browser.h"
+#import "ios/chrome/browser/shared/model/browser/browser_observer.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list_observer.h"
 
 // TabHelperDelegateInstaller is used to install a single delegate instance as
 // the delegate for the tab helper associated with every WebState in a Browser's
@@ -104,7 +104,7 @@ class TabHelperDelegateInstaller {
       SetTabHelperDelegate(web_state, nullptr);
     }
 
-    // Sets the delegate for |web_state|'s Helper to |delegate|.
+    // Sets the delegate for `web_state`'s Helper to `delegate`.
     void SetTabHelperDelegate(web::WebState* web_state, Delegate* delegate) {
       (Helper::FromWebState(web_state)->*SetDelFn)(delegate);
     }
@@ -113,7 +113,7 @@ class TabHelperDelegateInstaller {
     Delegate* delegate_ = nullptr;
     // The WebStateList whose Helpers's delegates are being installed.
     WebStateList* web_state_list_ = nullptr;
-    // Scoped observer for |web_state_list_|.
+    // Scoped observer for `web_state_list_`.
     base::ScopedObservation<WebStateList, WebStateListObserver>
         scoped_observation_{this};
   };

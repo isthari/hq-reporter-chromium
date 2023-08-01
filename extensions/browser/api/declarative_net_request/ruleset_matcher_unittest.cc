@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -58,14 +58,14 @@ TEST_F(RulesetMatcherTest, BlockingRule) {
   };
 
   GURL google_url("http://google.com");
+  GURL yahoo_url("http://yahoo.com");
+
   RequestParams params;
   params.url = &google_url;
   params.element_type = url_pattern_index::flat::ElementType_SUBDOCUMENT;
   params.is_third_party = true;
-
   EXPECT_TRUE(should_block_request(params));
 
-  GURL yahoo_url("http://yahoo.com");
   params.url = &yahoo_url;
   EXPECT_FALSE(should_block_request(params));
 }
@@ -164,8 +164,7 @@ TEST_F(RulesetMatcherTest, FailedVerification) {
   // Persist invalid data to the ruleset file and ensure that a version mismatch
   // occurs.
   std::string data = "invalid data";
-  ASSERT_EQ(static_cast<int>(data.size()),
-            base::WriteFile(source.indexed_path(), data.c_str(), data.size()));
+  ASSERT_TRUE(base::WriteFile(source.indexed_path(), data));
   EXPECT_EQ(LoadRulesetResult::kErrorVersionMismatch,
             source.CreateVerifiedMatcher(expected_checksum, &matcher));
 
@@ -173,8 +172,7 @@ TEST_F(RulesetMatcherTest, FailedVerification) {
   // correct version header. Ensure that it fails verification due to checksum
   // mismatch.
   data = GetVersionHeaderForTesting() + "invalid data";
-  ASSERT_EQ(static_cast<int>(data.size()),
-            base::WriteFile(source.indexed_path(), data.c_str(), data.size()));
+  ASSERT_TRUE(base::WriteFile(source.indexed_path(), data));
   EXPECT_EQ(LoadRulesetResult::kErrorChecksumMismatch,
             source.CreateVerifiedMatcher(expected_checksum, &matcher));
 }
@@ -228,14 +226,14 @@ TEST_F(RulesetMatcherTest, ModifyHeaders) {
   RequestAction expected_rule_1_action = CreateRequestActionForTesting(
       RequestAction::Type::MODIFY_HEADERS, *rule_1.id, *rule_1.priority);
   expected_rule_1_action.request_headers_to_modify = {RequestAction::HeaderInfo(
-      "header1", dnr_api::HEADER_OPERATION_REMOVE, absl::nullopt)};
+      "header1", dnr_api::HeaderOperation::kRemove, absl::nullopt)};
 
   RequestAction expected_rule_2_action = CreateRequestActionForTesting(
       RequestAction::Type::MODIFY_HEADERS, *rule_2.id, *rule_2.priority);
   expected_rule_2_action.request_headers_to_modify = {
-      RequestAction::HeaderInfo("header1", dnr_api::HEADER_OPERATION_SET,
+      RequestAction::HeaderInfo("header1", dnr_api::HeaderOperation::kSet,
                                 "value1"),
-      RequestAction::HeaderInfo("header2", dnr_api::HEADER_OPERATION_REMOVE,
+      RequestAction::HeaderInfo("header2", dnr_api::HeaderOperation::kRemove,
                                 absl::nullopt)};
 
   EXPECT_THAT(modify_header_actions,
@@ -574,7 +572,7 @@ TEST_F(RulesetMatcherTest, RegexRules) {
     test_case.expected_modify_header_action = CreateRequestActionForTesting(
         RequestAction::Type::MODIFY_HEADERS, *modify_headers_rule.id);
     test_case.expected_modify_header_action->request_headers_to_modify = {
-        RequestAction::HeaderInfo("header1", dnr_api::HEADER_OPERATION_SET,
+        RequestAction::HeaderInfo("header1", dnr_api::HeaderOperation::kSet,
                                   "value1")};
     test_cases.push_back(std::move(test_case));
   }
@@ -630,21 +628,37 @@ TEST_F(RulesetMatcherTest, RegexRules_Metadata) {
   xyz_rule.condition->is_url_filter_case_sensitive = false;
   rules.push_back(xyz_rule);
 
-  // Test |domains|, |excludedDomains|.
-  TestRule google_rule = create_regex_rule(3, "google");
-  google_rule.condition->domains = std::vector<std::string>({"example.com"});
-  google_rule.condition->excluded_domains =
+  // Test `domains`, `excludedDomains`.
+  TestRule domains_rule = create_regex_rule(3, "deprecated_domains");
+  domains_rule.condition->domains = std::vector<std::string>({"example.com"});
+  domains_rule.condition->excluded_domains =
       std::vector<std::string>({"b.example.com"});
-  rules.push_back(google_rule);
+  rules.push_back(domains_rule);
+
+  // Test `initiatorDomains`, `excludedInitiatorDomains`.
+  TestRule initiator_domains_rule = create_regex_rule(4, "initiator_domains");
+  initiator_domains_rule.condition->initiator_domains =
+      std::vector<std::string>({"example.com"});
+  initiator_domains_rule.condition->excluded_initiator_domains =
+      std::vector<std::string>({"b.example.com"});
+  rules.push_back(initiator_domains_rule);
+
+  // Test `requestDomains`, `excludedRequestDomains`.
+  TestRule request_domains_rule = create_regex_rule(5, "request_domains");
+  request_domains_rule.condition->request_domains =
+      std::vector<std::string>({"example.com"});
+  request_domains_rule.condition->excluded_request_domains =
+      std::vector<std::string>({"b.example.com"});
+  rules.push_back(request_domains_rule);
 
   // Test |resourceTypes|.
-  TestRule sub_frame_rule = create_regex_rule(4, R"((abc|def)\.com)");
+  TestRule sub_frame_rule = create_regex_rule(6, R"((abc|def)\.com)");
   sub_frame_rule.condition->resource_types =
       std::vector<std::string>({"sub_frame"});
   rules.push_back(sub_frame_rule);
 
   // Test |domainType|.
-  TestRule third_party_rule = create_regex_rule(5, R"(http://(\d+)\.com)");
+  TestRule third_party_rule = create_regex_rule(7, R"(http://(\d+)\.com)");
   third_party_rule.condition->domain_type = "thirdParty";
   rules.push_back(third_party_rule);
 
@@ -688,20 +702,65 @@ TEST_F(RulesetMatcherTest, RegexRules_Metadata) {
   }
 
   {
-    TestCase test_case = {"http://example.com/google"};
+    TestCase test_case = {"http://example.com/deprecated_domains"};
     test_case.first_party_origin =
         url::Origin::Create(GURL("http://a.example.com"));
     test_case.is_third_party = true;
     test_case.expected_action = CreateRequestActionForTesting(
-        RequestAction::Type::BLOCK, *google_rule.id);
+        RequestAction::Type::BLOCK, *domains_rule.id);
     test_cases.push_back(std::move(test_case));
   }
 
   {
-    TestCase test_case = {"http://example.com/google"};
+    TestCase test_case = {"http://example.com/deprecated_domains"};
     test_case.first_party_origin =
         url::Origin::Create(GURL("http://b.example.com"));
     test_case.is_third_party = true;
+    test_cases.push_back(std::move(test_case));
+  }
+
+  {
+    TestCase test_case = {"http://example.com/initiator_domains"};
+    test_case.first_party_origin =
+        url::Origin::Create(GURL("http://a.example.com"));
+    test_case.is_third_party = true;
+    test_case.expected_action = CreateRequestActionForTesting(
+        RequestAction::Type::BLOCK, *initiator_domains_rule.id);
+    test_cases.push_back(std::move(test_case));
+  }
+
+  {
+    TestCase test_case = {"http://example.com/initiator_domains"};
+    test_case.first_party_origin =
+        url::Origin::Create(GURL("http://b.example.com"));
+    test_case.is_third_party = true;
+    test_cases.push_back(std::move(test_case));
+  }
+
+  {
+    TestCase test_case = {"http://example.com/request_domains"};
+    test_case.first_party_origin =
+        url::Origin::Create(GURL("http://foobar.com"));
+    test_case.is_third_party = true;
+    test_case.expected_action = CreateRequestActionForTesting(
+        RequestAction::Type::BLOCK, *request_domains_rule.id);
+    test_cases.push_back(std::move(test_case));
+  }
+
+  {
+    TestCase test_case = {"http://example.com/request_domains"};
+    test_case.expected_action = CreateRequestActionForTesting(
+        RequestAction::Type::BLOCK, *request_domains_rule.id);
+    test_cases.push_back(std::move(test_case));
+  }
+
+  {
+    TestCase test_case = {"http://b.example.com/request_domains"};
+    test_cases.push_back(std::move(test_case));
+  }
+
+  {
+    TestCase test_case = {"http://foobar.com/request_domains"};
     test_cases.push_back(std::move(test_case));
   }
 
@@ -733,7 +792,7 @@ TEST_F(RulesetMatcherTest, RegexRules_Metadata) {
     test_cases.push_back(std::move(test_case));
   }
 
-  for (size_t i = 0; i < base::size(test_cases); ++i) {
+  for (size_t i = 0; i < std::size(test_cases); ++i) {
     SCOPED_TRACE(base::StringPrintf("Case number-%" PRIuS " url-%s", i,
                                     test_cases[i].url));
 
@@ -888,9 +947,9 @@ TEST_F(RulesetMatcherTest, RegexAndFilterListRules_ModifyHeaders) {
   RequestAction action_1 = CreateRequestActionForTesting(
       RequestAction::Type::MODIFY_HEADERS, 1, *rule.priority);
   action_1.request_headers_to_modify = {
-      RequestAction::HeaderInfo("header1", dnr_api::HEADER_OPERATION_REMOVE,
+      RequestAction::HeaderInfo("header1", dnr_api::HeaderOperation::kRemove,
                                 absl::nullopt),
-      RequestAction::HeaderInfo("header2", dnr_api::HEADER_OPERATION_REMOVE,
+      RequestAction::HeaderInfo("header2", dnr_api::HeaderOperation::kRemove,
                                 absl::nullopt)};
 
   rule = CreateGenericRule();
@@ -907,9 +966,9 @@ TEST_F(RulesetMatcherTest, RegexAndFilterListRules_ModifyHeaders) {
   RequestAction action_2 = CreateRequestActionForTesting(
       RequestAction::Type::MODIFY_HEADERS, 2, *rule.priority);
   action_2.request_headers_to_modify = {
-      RequestAction::HeaderInfo("header1", dnr_api::HEADER_OPERATION_REMOVE,
+      RequestAction::HeaderInfo("header1", dnr_api::HeaderOperation::kRemove,
                                 absl::nullopt),
-      RequestAction::HeaderInfo("header3", dnr_api::HEADER_OPERATION_REMOVE,
+      RequestAction::HeaderInfo("header3", dnr_api::HeaderOperation::kRemove,
                                 absl::nullopt)};
 
   std::unique_ptr<RulesetMatcher> matcher;
@@ -1203,23 +1262,23 @@ TEST_F(AllowAllRequestsTest, AllowlistedFrameTracking) {
   ASSERT_TRUE(web_contents);
 
   GURL example_url("http://example.com");
-  simulate_navigation(web_contents->GetMainFrame(), example_url);
+  simulate_navigation(web_contents->GetPrimaryMainFrame(), example_url);
   absl::optional<RequestAction> action =
       matcher->GetAllowlistedFrameActionForTesting(
-          web_contents->GetMainFrame());
+          web_contents->GetPrimaryMainFrame());
   EXPECT_FALSE(action);
 
   GURL google_url_1("http://google.com/xyz");
-  simulate_navigation(web_contents->GetMainFrame(), google_url_1);
+  simulate_navigation(web_contents->GetPrimaryMainFrame(), google_url_1);
   action = matcher->GetAllowlistedFrameActionForTesting(
-      web_contents->GetMainFrame());
+      web_contents->GetPrimaryMainFrame());
   RequestAction google_rule_2_action =
       CreateRequestActionForTesting(RequestAction::Type::ALLOW_ALL_REQUESTS,
                                     *google_rule_2.id, *google_rule_2.priority);
   EXPECT_EQ(google_rule_2_action, action);
 
   auto* rfh_tester =
-      content::RenderFrameHostTester::For(web_contents->GetMainFrame());
+      content::RenderFrameHostTester::For(web_contents->GetPrimaryMainFrame());
   content::RenderFrameHost* child = rfh_tester->AppendChild("sub_frame");
   ASSERT_TRUE(child);
 
@@ -1239,9 +1298,9 @@ TEST_F(AllowAllRequestsTest, AllowlistedFrameTracking) {
   action = matcher->GetAllowlistedFrameActionForTesting(child);
   EXPECT_FALSE(action);
 
-  simulate_frame_destroyed(web_contents->GetMainFrame());
+  simulate_frame_destroyed(web_contents->GetPrimaryMainFrame());
   action = matcher->GetAllowlistedFrameActionForTesting(
-      web_contents->GetMainFrame());
+      web_contents->GetPrimaryMainFrame());
   EXPECT_FALSE(action);
 }
 
@@ -1292,7 +1351,7 @@ TEST_F(AllowAllRequestsTest, GetBeforeRequestAction) {
       ->NavigateAndCommit(google_url);
 
   testing::NiceMock<content::MockNavigationHandle> navigation_handle(
-      google_url, web_contents->GetMainFrame());
+      google_url, web_contents->GetPrimaryMainFrame());
   navigation_handle.set_has_committed(true);
   matcher->OnDidFinishNavigation(&navigation_handle);
 
@@ -1322,13 +1381,65 @@ TEST_F(AllowAllRequestsTest, GetBeforeRequestAction) {
     params.first_party_origin = url::Origin::Create(google_url);
     params.is_third_party = true;
     params.element_type = url_pattern_index::flat::ElementType_SUBDOCUMENT;
-    params.parent_routing_id = content::GlobalRenderFrameHostId(
-        web_contents->GetMainFrame()->GetProcess()->GetID(),
-        web_contents->GetMainFrame()->GetRoutingID());
+    params.parent_routing_id =
+        web_contents->GetPrimaryMainFrame()->GetGlobalId();
 
     EXPECT_EQ(test_case.expected_action,
               matcher->GetBeforeRequestAction(params));
   }
+}
+
+// Tests disable rules with simple blocking rules.
+TEST_F(RulesetMatcherTest, SetDisabledRuleIds) {
+  TestRule rule_1 = CreateGenericRule(kMinValidID);
+  rule_1.condition->url_filter = std::string("google.com");
+  GURL google_url("http://google.com");
+
+  TestRule rule_2 = CreateGenericRule(kMinValidID + 1);
+  rule_2.condition->url_filter = std::string("yahoo.com");
+  GURL yahoo_url("http://yahoo.com");
+
+  GURL example_url("http://example.com");
+
+  auto should_block_request = [](const RulesetMatcher& matcher,
+                                 const RequestParams& params) {
+    auto action = matcher.GetBeforeRequestAction(params);
+    return action.has_value() && action->IsBlockOrCollapse();
+  };
+
+  RequestParams params;
+  params.element_type = url_pattern_index::flat::ElementType_SUBDOCUMENT;
+  params.is_third_party = true;
+
+  std::unique_ptr<RulesetMatcher> matcher;
+  ASSERT_TRUE(CreateVerifiedMatcher({rule_1, rule_2}, CreateTemporarySource(),
+                                    &matcher));
+  ASSERT_TRUE(matcher);
+
+  params.url = &google_url;
+  EXPECT_TRUE(should_block_request(*matcher, params));
+
+  params.url = &yahoo_url;
+  EXPECT_TRUE(should_block_request(*matcher, params));
+
+  params.url = &example_url;
+  EXPECT_FALSE(should_block_request(*matcher, params));
+
+  EXPECT_THAT(matcher->GetDisabledRuleIdsForTesting(), testing::IsEmpty());
+
+  matcher->SetDisabledRuleIds({*rule_1.id});
+
+  EXPECT_THAT(matcher->GetDisabledRuleIdsForTesting(),
+              testing::ElementsAreArray({*rule_1.id}));
+
+  params.url = &google_url;
+  EXPECT_FALSE(should_block_request(*matcher, params));
+
+  params.url = &yahoo_url;
+  EXPECT_TRUE(should_block_request(*matcher, params));
+
+  params.url = &example_url;
+  EXPECT_FALSE(should_block_request(*matcher, params));
 }
 
 }  // namespace

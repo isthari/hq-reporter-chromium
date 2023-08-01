@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,10 +12,10 @@
 #include "build/build_config.h"
 #include "chrome/browser/devtools/devtools_toggle_action.h"
 #include "chrome/browser/devtools/devtools_window.h"
-#include "chrome/browser/image_editor/screenshot_flow.h"
 #include "chrome/browser/ui/chrome_pages.h"
-#include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_delegate.h"
+#include "chrome/browser/ui/tabs/tab_strip_user_gesture_details.h"
+#include "components/services/screen_ai/buildflags/buildflags.h"
 #include "content/public/common/page_zoom.h"
 #include "printing/buildflags/buildflags.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -73,9 +73,13 @@ void OpenWindowWithRestoredTabs(Profile* profile);
 void OpenURLOffTheRecord(Profile* profile, const GURL& url);
 
 bool CanGoBack(const Browser* browser);
+bool CanGoBack(content::WebContents* web_contents);
 void GoBack(Browser* browser, WindowOpenDisposition disposition);
+void GoBack(content::WebContents* web_contents);
 bool CanGoForward(const Browser* browser);
+bool CanGoForward(content::WebContents* web_contents);
 void GoForward(Browser* browser, WindowOpenDisposition disposition);
+void GoForward(content::WebContents* web_contents);
 void NavigateToIndexWithDisposition(Browser* browser,
                                     int index,
                                     WindowOpenDisposition disposition);
@@ -97,23 +101,23 @@ bool CanResetZoom(content::WebContents* contents);
 void RestoreTab(Browser* browser);
 void SelectNextTab(
     Browser* browser,
-    TabStripModel::UserGestureDetails gesture_detail =
-        TabStripModel::UserGestureDetails(TabStripModel::GestureType::kOther));
+    TabStripUserGestureDetails gesture_detail = TabStripUserGestureDetails(
+        TabStripUserGestureDetails::GestureType::kOther));
 void SelectPreviousTab(
     Browser* browser,
-    TabStripModel::UserGestureDetails gesture_detail =
-        TabStripModel::UserGestureDetails(TabStripModel::GestureType::kOther));
+    TabStripUserGestureDetails gesture_detail = TabStripUserGestureDetails(
+        TabStripUserGestureDetails::GestureType::kOther));
 void MoveTabNext(Browser* browser);
 void MoveTabPrevious(Browser* browser);
 void SelectNumberedTab(
     Browser* browser,
     int index,
-    TabStripModel::UserGestureDetails gesture_detail =
-        TabStripModel::UserGestureDetails(TabStripModel::GestureType::kOther));
+    TabStripUserGestureDetails gesture_detail = TabStripUserGestureDetails(
+        TabStripUserGestureDetails::GestureType::kOther));
 void SelectLastTab(
     Browser* browser,
-    TabStripModel::UserGestureDetails gesture_detail =
-        TabStripModel::UserGestureDetails(TabStripModel::GestureType::kOther));
+    TabStripUserGestureDetails gesture_detail = TabStripUserGestureDetails(
+        TabStripUserGestureDetails::GestureType::kOther));
 void DuplicateTab(Browser* browser);
 bool CanDuplicateTab(const Browser* browser);
 bool CanDuplicateKeyboardFocusedTab(const Browser* browser);
@@ -148,7 +152,12 @@ void ConvertPopupToTabbedBrowser(Browser* browser);
 void CloseTabsToRight(Browser* browser);
 void CloseOtherTabs(Browser* browser);
 void Exit();
+// Bookmarks the current tab in the most recently used folder and shows the
+// edit dialog.
 void BookmarkCurrentTab(Browser* browser);
+// Bookmarks the current tab in the given folder and does not show the edit
+// dialog.
+void BookmarkCurrentTabInFolder(Browser* browser, int64_t folder_id);
 bool CanBookmarkCurrentTab(const Browser* browser);
 void BookmarkAllTabs(Browser* browser);
 bool CanBookmarkAllTabs(const Browser* browser);
@@ -157,9 +166,10 @@ bool MoveCurrentTabToReadLater(Browser* browser);
 bool MoveTabToReadLater(Browser* browser, content::WebContents* web_contents);
 bool MarkCurrentTabAsReadInReadLater(Browser* browser);
 bool IsCurrentTabUnreadInReadLater(Browser* browser);
-void MaybeShowBookmarkBarForReadLater(Browser* browser);
 void ShowOffersAndRewardsForPage(Browser* browser);
 void SaveCreditCard(Browser* browser);
+void SaveIBAN(Browser* browser);
+void ShowMandatoryReauthOptInPrompt(Browser* browser);
 void MigrateLocalCards(Browser* browser);
 void SaveAutofillAddress(Browser* browser);
 void ShowVirtualCardManualFallbackBubble(Browser* browser);
@@ -228,7 +238,7 @@ void SetAndroidOsForTabletSite(content::WebContents* current_tab);
 void ToggleFullscreenMode(Browser* browser);
 void ClearCache(Browser* browser);
 bool IsDebuggerAttachedToCurrentTab(Browser* browser);
-void CopyURL(Browser* browser);
+void CopyURL(content::WebContents* web_contents);
 // Moves the WebContents of a hosted app Browser to a tabbed Browser. Returns
 // the tabbed Browser.
 Browser* OpenInChrome(Browser* hosted_app_browser);
@@ -236,6 +246,9 @@ bool CanViewSource(const Browser* browser);
 bool CanToggleCaretBrowsing(Browser* browser);
 void ToggleCaretBrowsing(Browser* browser);
 void PromptToNameWindow(Browser* browser);
+#if BUILDFLAG(IS_CHROMEOS)
+void ToggleMultitaskMenu(Browser* browser);
+#endif
 void ToggleCommander(Browser* browser);
 void ExecuteUIDebugCommand(int id, const Browser* browser);
 
@@ -247,6 +260,18 @@ bool ShouldInterceptChromeURLNavigationInIncognito(Browser* browser,
                                                    const GURL& url);
 void ProcessInterceptedChromeURLNavigationInIncognito(Browser* browser,
                                                       const GURL& url);
+
+// Follows/unfollows a web feed associated with the main frame of specified web
+// contents.
+void FollowSite(content::WebContents* web_contents);
+void UnfollowSite(content::WebContents* web_contents);
+
+#if BUILDFLAG(ENABLE_SCREEN_AI_SERVICE)
+// Triggers the Screen AI visual annotations to be run once on the |browser|.
+void RunScreenAIVisualAnnotation(Browser* browser);
+#endif  // BUILDFLAG(ENABLE_SCREEN_AI_SERVICE)
+
+void ExecLensRegionSearch(Browser* browser);
 
 }  // namespace chrome
 

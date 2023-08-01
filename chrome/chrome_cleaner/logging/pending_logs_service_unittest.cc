@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,11 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/task_environment.h"
@@ -213,9 +213,7 @@ TEST_F(PendingLogsServiceTest, UploadPendingLogs) {
   ASSERT_TRUE(
       base::CreateTemporaryFileInDir(scoped_temp_dir.GetPath(), &log_file));
   ASSERT_TRUE(base::PathExists(log_file));
-  ASSERT_GT(base::WriteFile(log_file, raw_report_string.c_str(),
-                            raw_report_string.size()),
-            0);
+  ASSERT_TRUE(base::WriteFile(log_file, raw_report_string));
 
   // Set it up as a pending log.
   ASSERT_TRUE(registry_logger_->AppendLogFilePath(log_file));
@@ -291,7 +289,7 @@ TEST_F(PendingLogsServiceTest, UploadPendingLogsFromInvalidFile) {
   ASSERT_TRUE(
       base::CreateTemporaryFileInDir(scoped_temp_dir.GetPath(), &invalid_file));
   ASSERT_TRUE(base::PathExists(invalid_file));
-  ASSERT_GT(base::WriteFile(invalid_file, "wat", 3), 0);
+  ASSERT_TRUE(base::WriteFile(invalid_file, "wat"));
 
   ValidatePendingLogsUploadFailure(invalid_file);
 }

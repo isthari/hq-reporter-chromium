@@ -1,2 +1,2 @@
 # This suite runs wpt_internal/direct-sockets/ with
-# --enable-features=DirectSockets.
+# --isolated-context-origins=https://web-platform.test

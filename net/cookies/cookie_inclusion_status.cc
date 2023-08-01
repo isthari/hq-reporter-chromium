@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -121,7 +121,7 @@ bool CookieInclusionStatus::HasWarningReason(WarningReason reason) const {
   return warning_reasons_[reason];
 }
 
-bool CookieInclusionStatus::HasDowngradeWarning(
+bool CookieInclusionStatus::HasSchemefulDowngradeWarning(
     CookieInclusionStatus::WarningReason* reason) const {
   if (!ShouldWarn())
     return false;
@@ -165,33 +165,31 @@ CookieInclusionStatus::GetBreakingDowngradeMetricsEnumValue(
 
   // Don't bother checking the return value because the default switch case
   // will handle if no reason was found.
-  HasDowngradeWarning(&reason);
+  HasSchemefulDowngradeWarning(&reason);
 
   switch (reason) {
     case WarningReason::WARN_STRICT_LAX_DOWNGRADE_STRICT_SAMESITE:
       return url_is_secure
-                 ? ContextDowngradeMetricValues::STRICT_LAX_STRICT_SECURE
-                 : ContextDowngradeMetricValues::STRICT_LAX_STRICT_INSECURE;
+                 ? ContextDowngradeMetricValues::kStrictLaxStrictSecure
+                 : ContextDowngradeMetricValues::kStrictLaxStrictInsecure;
     case WarningReason::WARN_STRICT_CROSS_DOWNGRADE_STRICT_SAMESITE:
       return url_is_secure
-                 ? ContextDowngradeMetricValues::STRICT_CROSS_STRICT_SECURE
-                 : ContextDowngradeMetricValues::STRICT_CROSS_STRICT_INSECURE;
+                 ? ContextDowngradeMetricValues::kStrictCrossStrictSecure
+                 : ContextDowngradeMetricValues::kStrictCrossStrictInsecure;
     case WarningReason::WARN_STRICT_CROSS_DOWNGRADE_LAX_SAMESITE:
       return url_is_secure
-                 ? ContextDowngradeMetricValues::STRICT_CROSS_LAX_SECURE
-                 : ContextDowngradeMetricValues::STRICT_CROSS_LAX_INSECURE;
+                 ? ContextDowngradeMetricValues::kStrictCrossLaxSecure
+                 : ContextDowngradeMetricValues::kStrictCrossLaxInsecure;
     case WarningReason::WARN_LAX_CROSS_DOWNGRADE_STRICT_SAMESITE:
       return url_is_secure
-                 ? ContextDowngradeMetricValues::LAX_CROSS_STRICT_SECURE
-                 : ContextDowngradeMetricValues::LAX_CROSS_STRICT_INSECURE;
+                 ? ContextDowngradeMetricValues::kLaxCrossStrictSecure
+                 : ContextDowngradeMetricValues::kLaxCrossStrictInsecure;
     case WarningReason::WARN_LAX_CROSS_DOWNGRADE_LAX_SAMESITE:
-      return url_is_secure
-                 ? ContextDowngradeMetricValues::LAX_CROSS_LAX_SECURE
-                 : ContextDowngradeMetricValues::LAX_CROSS_LAX_INSECURE;
+      return url_is_secure ? ContextDowngradeMetricValues::kLaxCrossLaxSecure
+                           : ContextDowngradeMetricValues::kLaxCrossLaxInsecure;
     default:
-      return url_is_secure
-                 ? ContextDowngradeMetricValues::NO_DOWNGRADE_SECURE
-                 : ContextDowngradeMetricValues::NO_DOWNGRADE_INSECURE;
+      return url_is_secure ? ContextDowngradeMetricValues::kNoDowngradeSecure
+                           : ContextDowngradeMetricValues::kNoDowngradeInsecure;
   }
 }
 
@@ -227,6 +225,9 @@ std::string CookieInclusionStatus::GetDebugString() const {
             "EXCLUDE_NAME_VALUE_PAIR_EXCEEDS_MAX_SIZE"},
            {EXCLUDE_ATTRIBUTE_VALUE_EXCEEDS_MAX_SIZE,
             "EXCLUDE_ATTRIBUTE_VALUE_EXCEEDS_MAX_SIZE"},
+           {EXCLUDE_DOMAIN_NON_ASCII, "EXCLUDE_DOMAIN_NON_ASCII"},
+           {EXCLUDE_PORT_MISMATCH, "EXCLUDE_PORT_MISMATCH"},
+           {EXCLUDE_SCHEME_MISMATCH, "EXCLUDE_SCHEME_MISMATCH"},
        }) {
     if (HasExclusionReason(reason.first))
       base::StrAppend(&out, {reason.second, ", "});
@@ -261,19 +262,15 @@ std::string CookieInclusionStatus::GetDebugString() const {
             "WARN_SAMEPARTY_EXCLUSION_OVERRULED_SAMESITE"},
            {WARN_SAMEPARTY_INCLUSION_OVERRULED_SAMESITE,
             "WARN_SAMEPARTY_INCLUSION_OVERRULED_SAMESITE"},
-           {WARN_SAMESITE_NONE_REQUIRED, "WARN_SAMESITE_NONE_REQUIRED"},
-           {WARN_SAMESITE_NONE_INCLUDED_BY_SAMEPARTY_TOP_RESOURCE,
-            "WARN_SAMESITE_NONE_INCLUDED_BY_SAMEPARTY_TOP_RESOURCE"},
-           {WARN_SAMESITE_NONE_INCLUDED_BY_SAMEPARTY_ANCESTORS,
-            "WARN_SAMESITE_NONE_INCLUDED_BY_SAMEPARTY_ANCESTORS"},
-           {WARN_SAMESITE_NONE_INCLUDED_BY_SAMESITE_LAX,
-            "WARN_SAMESITE_NONE_INCLUDED_BY_SAMESITE_LAX"},
-           {WARN_SAMESITE_NONE_INCLUDED_BY_SAMESITE_STRICT,
-            "WARN_SAMESITE_NONE_INCLUDED_BY_SAMESITE_STRICT"},
            {WARN_CROSS_SITE_REDIRECT_DOWNGRADE_CHANGES_INCLUSION,
             "WARN_CROSS_SITE_REDIRECT_DOWNGRADE_CHANGES_INCLUSION"},
            {WARN_ATTRIBUTE_VALUE_EXCEEDS_MAX_SIZE,
             "WARN_ATTRIBUTE_VALUE_EXCEEDS_MAX_SIZE"},
+           {WARN_DOMAIN_NON_ASCII, "WARN_DOMAIN_NON_ASCII"},
+           {WARN_PORT_MISMATCH, "WARN_PORT_MISMATCH"},
+           {WARN_SCHEME_MISMATCH, "WARN_SCHEME_MISMATCH"},
+           {WARN_TENTATIVELY_ALLOWING_SECURE_SOURCE_SCHEME,
+            "WARN_TENTATIVELY_ALLOWING_SECURE_SOURCE_SCHEME"},
        }) {
     if (HasWarningReason(reason.first))
       base::StrAppend(&out, {reason.second, ", "});
@@ -320,6 +317,16 @@ CookieInclusionStatus CookieInclusionStatus::MakeFromReasonsForTesting(
     status.AddWarningReason(warning);
   }
   return status;
+}
+
+bool CookieInclusionStatus::ExcludedByUserPreferences() const {
+  if (HasOnlyExclusionReason(ExclusionReason::EXCLUDE_USER_PREFERENCES))
+    return true;
+  return exclusion_reasons_.count() == 2 &&
+         exclusion_reasons_[ExclusionReason::EXCLUDE_USER_PREFERENCES] &&
+         exclusion_reasons_
+             [ExclusionReason::
+                  EXCLUDE_THIRD_PARTY_BLOCKED_WITHIN_FIRST_PARTY_SET];
 }
 
 }  // namespace net

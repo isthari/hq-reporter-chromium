@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,7 +32,7 @@ void Viewport::Pan(const gfx::Vector2dF& delta) {
   DCHECK(InnerScrollNode());
   gfx::Vector2dF pending_delta = delta;
   float page_scale = host_impl_->active_tree()->current_page_scale_factor();
-  pending_delta.Scale(1 / page_scale);
+  pending_delta.InvScale(page_scale);
   scroll_tree().ScrollBy(*InnerScrollNode(), pending_delta,
                          host_impl_->active_tree());
 }
@@ -59,13 +59,16 @@ Viewport::ScrollResult Viewport::ScrollBy(const gfx::Vector2dF& physical_delta,
       is_direct_manipulation);
 
   // Now attempt to scroll the outer viewport.
+  gfx::Vector2dF outer_delta;
   if (scroll_outer_viewport) {
-    pending_scroll_node_delta -= host_impl_->GetInputHandler().ScrollSingleNode(
+    outer_delta = host_impl_->GetInputHandler().ScrollSingleNode(
         *OuterScrollNode(), pending_scroll_node_delta, viewport_point,
         is_direct_manipulation);
+    pending_scroll_node_delta -= outer_delta;
   }
 
   ScrollResult result;
+  result.outer_viewport_scrolled_delta = outer_delta;
   result.consumed_delta =
       physical_delta - AdjustOverscroll(pending_scroll_node_delta);
   result.content_scrolled_delta = scroll_node_delta - pending_scroll_node_delta;
@@ -102,7 +105,7 @@ gfx::Vector2dF Viewport::ComputeClampedDelta(
 
   float page_scale = host_impl_->active_tree()->page_scale_factor_for_scroll();
   gfx::Vector2dF unscaled_delta = scroll_delta;
-  unscaled_delta.Scale(1.f / page_scale);
+  unscaled_delta.InvScale(page_scale);
 
   gfx::Vector2dF remaining_delta = unscaled_delta - inner_delta;
   remaining_delta.Scale(page_scale);
@@ -158,15 +161,15 @@ bool Viewport::ShouldAnimateViewport(const gfx::Vector2dF& viewport_delta,
   return max_dim_viewport_delta > max_dim_pending_delta;
 }
 
-gfx::Vector2dF Viewport::ScrollAnimated(const gfx::Vector2dF& delta,
-                                        base::TimeDelta delayed_by) {
+Viewport::ScrollResult Viewport::ScrollAnimated(const gfx::Vector2dF& delta,
+                                                base::TimeDelta delayed_by) {
   auto* outer_node = OuterScrollNode();
   if (!outer_node)
-    return gfx::Vector2dF(0, 0);
+    return Viewport::ScrollResult();
 
   float scale_factor = host_impl_->active_tree()->current_page_scale_factor();
   gfx::Vector2dF scaled_delta = delta;
-  scaled_delta.Scale(1.f / scale_factor);
+  scaled_delta.InvScale(scale_factor);
 
   ScrollNode* inner_node = InnerScrollNode();
   gfx::Vector2dF inner_delta =
@@ -179,7 +182,7 @@ gfx::Vector2dF Viewport::ScrollAnimated(const gfx::Vector2dF& delta,
       *outer_node, pending_delta);
 
   if (inner_delta.IsZero() && outer_delta.IsZero())
-    return gfx::Vector2dF(0, 0);
+    return Viewport::ScrollResult();
 
   // Animate the viewport to which the majority of scroll delta will be applied.
   // The animation system only supports running one scroll offset animation.
@@ -193,9 +196,12 @@ gfx::Vector2dF Viewport::ScrollAnimated(const gfx::Vector2dF& delta,
     host_impl_->ScrollAnimationCreate(*outer_node, outer_delta, delayed_by);
   }
 
+  ScrollResult result;
   pending_delta = scaled_delta - inner_delta - outer_delta;
   pending_delta.Scale(scale_factor);
-  return delta - pending_delta;
+  result.consumed_delta = delta - pending_delta;
+  result.outer_viewport_scrolled_delta = outer_delta;
+  return result;
 }
 
 void Viewport::SnapPinchAnchorIfWithinMargin(const gfx::Point& anchor) {
@@ -305,7 +311,8 @@ bool Viewport::ShouldBrowserControlsConsumeScroll(
   if (scroll_delta.y() < 0)
     return true;
 
-  if (TotalScrollOffset().y() < MaxTotalScrollOffset().y())
+  const float kEpsilon = 0.1f;
+  if (TotalScrollOffset().y() + kEpsilon < MaxUserReachableTotalScrollOffsetY())
     return true;
 
   return false;
@@ -325,14 +332,17 @@ gfx::Vector2dF Viewport::AdjustOverscroll(const gfx::Vector2dF& delta) const {
   return adjusted;
 }
 
-gfx::PointF Viewport::MaxTotalScrollOffset() const {
-  gfx::Vector2dF offset =
-      scroll_tree().MaxScrollOffset(InnerScrollNode()->id).OffsetFromOrigin();
+float Viewport::MaxUserReachableTotalScrollOffsetY() const {
+  auto& tree = scroll_tree();
+  float y_offset = tree.MaxScrollOffset(InnerScrollNode()->id).y();
 
-  if (auto* outer_node = OuterScrollNode())
-    offset += scroll_tree().MaxScrollOffset(outer_node->id).OffsetFromOrigin();
-
-  return gfx::PointAtOffsetFromOrigin(offset);
+  if (auto* outer_node = OuterScrollNode()) {
+    if (outer_node->user_scrollable_vertical)
+      y_offset += tree.MaxScrollOffset(outer_node->id).y();
+    else
+      y_offset += tree.current_scroll_offset(outer_node->element_id).y();
+  }
+  return y_offset;
 }
 
 gfx::PointF Viewport::TotalScrollOffset() const {

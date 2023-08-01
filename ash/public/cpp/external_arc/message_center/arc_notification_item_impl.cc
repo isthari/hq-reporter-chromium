@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,15 +8,18 @@
 #include <vector>
 
 #include "ash/components/arc/metrics/arc_metrics_constants.h"
+#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/external_arc/message_center/arc_notification_content_view.h"
 #include "ash/public/cpp/external_arc/message_center/arc_notification_delegate.h"
 #include "ash/public/cpp/external_arc/message_center/arc_notification_view.h"
+#include "ash/public/cpp/external_arc/message_center/metrics_utils.h"
 #include "ash/public/cpp/message_center/arc_notification_constants.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/image/image.h"
+#include "ui/gfx/image/image_skia_rep.h"
 #include "ui/message_center/public/cpp/message_center_constants.h"
 #include "ui/message_center/public/cpp/notification.h"
 #include "ui/message_center/public/cpp/notification_types.h"
@@ -116,23 +119,41 @@ void ArcNotificationItemImpl::OnUpdatedFromAndroid(
       app_id.empty() ? kDefaultArcNotifierId : app_id);
   notifier_id.profile_id = profile_id_.GetUserEmail();
 
+  if (data->group_key) {
+    notifier_id.group_key = data->group_key;
+  }
+
+  const bool render_on_chrome =
+      features::IsRenderArcNotificationsByChromeEnabled() &&
+      data->render_on_chrome;
+
+  const auto notification_type = render_on_chrome
+                                     ? message_center::NOTIFICATION_TYPE_SIMPLE
+                                     : message_center::NOTIFICATION_TYPE_CUSTOM;
+
   auto notification = std::make_unique<message_center::Notification>(
-      message_center::NOTIFICATION_TYPE_CUSTOM, notification_id_,
-      base::UTF8ToUTF16(data->title), base::UTF8ToUTF16(data->message),
-      gfx::Image(),
+      notification_type, notification_id_, base::UTF8ToUTF16(data->title),
+      base::UTF8ToUTF16(data->message), ui::ImageModel(),
       u"arc",  // display source
       GURL(),  // empty origin url, for system component
       notifier_id, rich_data,
       new ArcNotificationDelegate(weak_ptr_factory_.GetWeakPtr()));
   notification->set_timestamp(base::Time::FromJavaTime(data->time));
-  notification->set_custom_view_type(kArcNotificationCustomViewType);
+
+  if (notification_type == message_center::NOTIFICATION_TYPE_CUSTOM) {
+    notification->set_custom_view_type(kArcNotificationCustomViewType);
+  }
 
   if (expand_state_ != ArcNotificationExpandState::FIXED_SIZE &&
       data->expand_state != ArcNotificationExpandState::FIXED_SIZE &&
       expand_state_ != data->expand_state) {
-    // Assuming changing the expand status on Android-side is manually tiggered
+    // Assuming changing the expand status on Android-side is manually triggered
     // by user.
     manually_expanded_or_collapsed_ = true;
+    metrics_utils::LogArcNotificationExpandState(
+        data->expand_state == ArcNotificationExpandState::EXPANDED
+            ? metrics_utils::ArcNotificationExpandState::kExpanded
+            : metrics_utils::ArcNotificationExpandState::kCollapsed);
   }
 
   type_ = data->type;

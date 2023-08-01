@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,6 +23,7 @@ import org.chromium.base.Log;
 import org.chromium.base.SysUtils;
 import org.chromium.base.compat.ApiHelperForM;
 
+import java.lang.reflect.Method;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -61,7 +62,9 @@ public abstract class ChildConnectionAllocator {
     private static final long FREE_CONNECTION_DELAY_MILLIS = 1;
 
     // Max number of connections allocated for variable allocator.
-    private static final int MAX_VARIABLE_ALLOCATED = 100;
+    // Android allocates 100 UIDs for a zygote, but unbinding and killing a service is not
+    // synchronous. So leave 2 to leave some time for ActivityManager to respond.
+    private static final int MAX_VARIABLE_ALLOCATED = 98;
 
     // Runnable which will be called when allocator wants to allocate a new connection, but does
     // not have any more free slots. May be null.
@@ -81,8 +84,30 @@ public abstract class ChildConnectionAllocator {
 
     /* package */ ConnectionFactory mConnectionFactory = new ConnectionFactoryImpl();
 
+    // Need to call an internal method to work around a framework bug.
+    @SuppressWarnings("PrivateApi")
+    private static void workAroundWebViewPackageVisibility() {
+        try {
+            Class wvus = Class.forName("android.webkit.WebViewUpdateService");
+            Method getWVPN = wvus.getDeclaredMethod("getCurrentWebViewPackageName");
+            // Calling this for the side effect of granting implicit visibility..
+            getWVPN.invoke(null);
+        } catch (Exception e) {
+            // Don't crash the host app; the workaround is only necessary in a few special cases,
+            // so failing is okay.
+            Log.w(TAG, "workAroundWebViewPackageVisibility failed", e);
+        }
+    }
+
     private static void checkServiceExists(
             Context context, String packageName, String serviceClassName) {
+        // On R+ it's possible for the app to lose visibility of the WebView package in rare cases;
+        // see crbug.com/1363832 - we attempt to get re-granted visibility here to work around it.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+                && !packageName.equals(context.getPackageName())) {
+            workAroundWebViewPackageVisibility();
+        }
+
         PackageManager packageManager = context.getPackageManager();
         // Check that the service exists.
         try {
@@ -347,7 +372,7 @@ public abstract class ChildConnectionAllocator {
         /* package */ ChildProcessConnection doAllocate(Context context, Bundle serviceBundle,
                 ChildProcessConnection.ServiceCallback serviceCallback) {
             if (mFreeConnectionIndices.isEmpty()) {
-                Log.d(TAG, "Ran out of services to allocate.");
+                Log.w(TAG, "Ran out of services to allocate.");
                 return null;
             }
             int slot = mFreeConnectionIndices.remove(0);
@@ -448,7 +473,7 @@ public abstract class ChildConnectionAllocator {
 
         private ChildProcessConnection allocate(Context context, Bundle serviceBundle) {
             if (mAllocatedConnections.size() >= mMaxAllocated) {
-                Log.d(TAG, "Ran out of UIDs to allocate.");
+                Log.w(TAG, "Ran out of UIDs to allocate.");
                 return null;
             }
             ComponentName serviceName = new ComponentName(mPackageName, mServiceClassName);

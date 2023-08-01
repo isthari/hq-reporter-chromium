@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,10 +25,10 @@ import org.chromium.chrome.browser.compositor.layouts.eventfilter.BlackHoleEvent
 import org.chromium.chrome.browser.layouts.EventFilter;
 import org.chromium.chrome.browser.layouts.LayoutType;
 import org.chromium.chrome.browser.layouts.scene_layer.SceneLayer;
+import org.chromium.chrome.browser.tab.TabObscuringHandler;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelUtils;
-import org.chromium.chrome.browser.ui.TabObscuringHandler;
 import org.chromium.ui.base.DeviceFormFactor;
 
 /**
@@ -83,8 +83,11 @@ public class OverviewListLayout extends Layout
 
         if (container == null || mTabModelWrapper.getParent() != null) return;
 
+        // Use full-screen tab_switcher_view_holder to hold the list layout on tablets.
         ViewGroup overviewList =
-                (ViewGroup) container.findViewById(R.id.overview_list_layout_holder);
+                DeviceFormFactor.isNonMultiDisplayContextOnTablet(mTabModelWrapper.getContext())
+                ? (ViewGroup) container.findViewById(R.id.tab_switcher_view_holder)
+                : (ViewGroup) container.findViewById(R.id.overview_list_layout_holder);
         overviewList.setVisibility(View.VISIBLE);
         overviewList.addView(mTabModelWrapper);
     }
@@ -106,7 +109,8 @@ public class OverviewListLayout extends Layout
         if (params == null) return;
 
         params.bottomMargin = (int) (getBottomBrowserControlsHeight() * mDensity);
-        params.topMargin = mBrowserControlsStateProvider.getContentOffset();
+        params.topMargin = mBrowserControlsStateProvider.getContentOffset()
+                - (int) getContext().getResources().getDimension(R.dimen.tab_strip_height);
 
         mTabModelWrapper.setLayoutParams(params);
     }
@@ -118,11 +122,6 @@ public class OverviewListLayout extends Layout
 
     @Override
     public boolean handlesTabCreating() {
-        return true;
-    }
-
-    @Override
-    public boolean handlesCloseAll() {
         return true;
     }
 
@@ -165,6 +164,9 @@ public class OverviewListLayout extends Layout
         doneShowing();
         mBrowserControlsStateProvider.addObserver(mBrowserControlsObserver);
         adjustForFullscreen();
+
+        final int currentTabId = TabModelUtils.getCurrentTabId(mTabModelSelector.getCurrentModel());
+        mTabModelWrapper.scrollToTabAndFocus(currentTabId);
     }
 
     @Override
@@ -215,11 +217,8 @@ public class OverviewListLayout extends Layout
     }
 
     @Override
-    public void onTabsAllClosing(long time, boolean incognito) {
-        super.onTabsAllClosing(time, incognito);
-
-        TabModel model = mTabModelSelector.getModel(incognito);
-        while (model.getCount() > 0) TabModelUtils.closeTabByIndex(model, 0);
+    public void onTabsAllClosing(boolean incognito) {
+        super.onTabsAllClosing(incognito);
 
         if (incognito) {
             mTabModelSelector.selectModel(!incognito);
@@ -249,10 +248,10 @@ public class OverviewListLayout extends Layout
     }
 
     @Override
-    public void updateObscured(boolean isObscured) {
+    public void updateObscured(boolean obscureTabContent, boolean obscureToolbar) {
         if (mTabModelWrapper == null) return;
 
-        int importantForAccessibility = !isObscured
+        int importantForAccessibility = !obscureTabContent
                 ? View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
                 : View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS;
         if (mTabModelWrapper.getImportantForAccessibility() != importantForAccessibility) {

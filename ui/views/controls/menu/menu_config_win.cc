@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include <windows.h>  // Must come before other Windows system headers.
 
 #include <Vssym32.h>
-#include <uxtheme.h>
 
 #include "base/check.h"
 #include "base/feature_list.h"
@@ -45,13 +44,17 @@ void MenuConfig::Init() {
 
   SystemParametersInfo(SPI_GETMENUSHOWDELAY, 0, &show_delay, 0);
 
-  win11_style_menus = base::win::GetVersion() >= base::win::Version::WIN11;
-  UMA_HISTOGRAM_BOOLEAN("Windows.Menu.Win11Style", win11_style_menus);
+  bool is_win11 = base::win::GetVersion() >= base::win::Version::WIN11;
+  bool is_refresh = features::IsChromeRefresh2023();
+  use_bubble_border = corner_radius > 0 || is_win11;
+  UMA_HISTOGRAM_BOOLEAN("Windows.Menu.Win11Style", is_win11 && !is_refresh);
   separator_upper_height = 5;
   separator_lower_height = 7;
 
-  if (win11_style_menus)
+  // Under ChromeRefresh2023, the corner radius will not use the win11 style.
+  if (use_bubble_border && !is_refresh) {
     corner_radius = 8;
+  }
 }
 
 }  // namespace views

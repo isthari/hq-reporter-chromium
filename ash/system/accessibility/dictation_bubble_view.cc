@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,14 @@
 #include <memory>
 #include <vector>
 
+#include "ash/constants/ash_features.h"
 #include "ash/public/cpp/accessibility_controller_enums.h"
 #include "ash/public/cpp/resources/grit/ash_public_unscaled_resources.h"
+#include "ash/public/cpp/shell_window_ids.h"
 #include "ash/resources/vector_icons/vector_icons.h"
+#include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
+#include "ash/style/ash_color_id.h"
 #include "ash/style/ash_color_provider.h"
 #include "cc/paint/skottie_wrapper.h"
 #include "third_party/skia/include/core/SkColor.h"
@@ -18,7 +22,9 @@
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/base/models/image_model.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/color/color_id.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/lottie/animation.h"
@@ -30,8 +36,10 @@
 namespace ash {
 
 namespace {
-constexpr int kIconSizeDip = 15;
-constexpr int kSpaceBetweenIconAndTextDip = 10;
+constexpr int kIconSizeDip = 16;
+constexpr int kSpaceBetweenTopRowAndHintViewsDip = 4;
+constexpr int kSpaceBetweenHintLabelsDip = 4;
+constexpr int kSpaceBetweenIconAndTextDip = 4;
 constexpr int kMaxNumHints = 5;
 
 std::unique_ptr<views::ImageView> CreateImageView(
@@ -39,26 +47,18 @@ std::unique_ptr<views::ImageView> CreateImageView(
     const gfx::VectorIcon& icon) {
   return views::Builder<views::ImageView>()
       .CopyAddressTo(destination_view)
-      .SetImage(gfx::CreateVectorIcon(
-          icon, kIconSizeDip,
-          AshColorProvider::Get()->GetContentLayerColor(
-              AshColorProvider::ContentLayerType::kIconColorPrimary)))
+      .SetImage(ui::ImageModel::FromVectorIcon(icon, kColorAshTextColorPrimary,
+                                               kIconSizeDip))
       .Build();
-}
-
-void SetImageHelper(views::ImageView* image_view,
-                    const gfx::VectorIcon& icon,
-                    SkColor color) {
-  image_view->SetImage(gfx::CreateVectorIcon(icon, kIconSizeDip, color));
 }
 
 std::unique_ptr<views::Label> CreateLabelView(views::Label** destination_view,
                                               const std::u16string& text,
-                                              SkColor color) {
+                                              ui::ColorId enabled_color_id) {
   return views::Builder<views::Label>()
       .CopyAddressTo(destination_view)
       .SetText(text)
-      .SetEnabledColor(color)
+      .SetEnabledColorId(enabled_color_id)
       .SetHorizontalAlignment(gfx::HorizontalAlignment::ALIGN_LEFT)
       .SetMultiLine(false)
       .Build();
@@ -78,6 +78,10 @@ int ToMessageId(DictationBubbleHintType hint_type) {
       return IDS_ASH_DICTATION_HINT_UNDO;
     case DictationBubbleHintType::kHelp:
       return IDS_ASH_DICTATION_HINT_HELP;
+    case DictationBubbleHintType::kUnselect:
+      return IDS_ASH_DICTATION_HINT_UNSELECT;
+    case DictationBubbleHintType::kCopy:
+      return IDS_ASH_DICTATION_HINT_COPY;
   }
 }
 
@@ -98,10 +102,8 @@ class ASH_EXPORT TopRowView : public views::View {
                                  kDictationBubbleMacroSucceededIcon));
     AddChildView(
         CreateImageView(&macro_failed_image_, kDictationBubbleMacroFailedIcon));
-    AddChildView(CreateLabelView(
-        &label_, std::u16string(),
-        AshColorProvider::Get()->GetContentLayerColor(
-            AshColorProvider::ContentLayerType::kTextColorPrimary)));
+    AddChildView(
+        CreateLabelView(&label_, std::u16string(), kColorAshTextColorPrimary));
   }
 
   TopRowView(const TopRowView&) = delete;
@@ -113,12 +115,12 @@ class ASH_EXPORT TopRowView : public views::View {
   void Update(DictationBubbleIconType icon,
               const absl::optional<std::u16string>& text) {
     // Update visibility.
+    bool is_standby = icon == DictationBubbleIconType::kStandby;
     if (use_standby_animation_) {
-      standby_animation_->SetVisible(icon == DictationBubbleIconType::kStandby);
-      icon == DictationBubbleIconType::kStandby ? standby_animation_->Play()
-                                                : standby_animation_->Stop();
+      standby_animation_->SetVisible(is_standby);
+      is_standby ? standby_animation_->Play() : standby_animation_->Stop();
     } else {
-      standby_image_->SetVisible(icon == DictationBubbleIconType::kStandby);
+      standby_image_->SetVisible(is_standby);
     }
 
     macro_succeeded_image_->SetVisible(icon ==
@@ -132,32 +134,18 @@ class ASH_EXPORT TopRowView : public views::View {
     SizeToPreferredSize();
   }
 
-  // Updates this view so that it respects the global dark mode setting.
-  void OnColorModeChanged(bool dark_mode_enabled) {
-    AshColorProvider* color_provider = AshColorProvider::Get();
-    if (!color_provider)
-      return;
-
-    SkColor icon_color = color_provider->GetContentLayerColor(
-        AshColorProvider::ContentLayerType::kIconColorPrimary);
-    SkColor text_color = color_provider->GetContentLayerColor(
-        AshColorProvider::ContentLayerType::kTextColorPrimary);
-    if (!use_standby_animation_)
-      SetImageHelper(standby_image_, kDictationBubbleIcon, icon_color);
-    SetImageHelper(macro_succeeded_image_, kDictationBubbleMacroSucceededIcon,
-                   icon_color);
-    SetImageHelper(macro_failed_image_, kDictationBubbleMacroFailedIcon,
-                   icon_color);
-    label_->SetEnabledColor(text_color);
-  }
-
   // views::View:
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override {
+    // Note: this static variable is used so that this view can be identified
+    // from tests. Do not change this, as it will cause test failures.
+    static constexpr char kDictationBubbleViewName[] = "DictationBubbleView";
     node_data->role = ax::mojom::Role::kGenericContainer;
+    node_data->AddStringAttribute(ax::mojom::StringAttribute::kClassName,
+                                  kDictationBubbleViewName);
   }
 
  private:
-  friend DictationBubbleView;
+  friend class ash::DictationBubbleView;
 
   // Returns a std::unique_ptr<AnimatedImageView> if the standby animation
   // can successfully be loaded. Otherwise, returns a std::unique_ptr<ImageView>
@@ -173,7 +161,7 @@ class ASH_EXPORT TopRowView : public views::View {
       return views::Builder<views::AnimatedImageView>()
           .CopyAddressTo(&standby_animation_)
           .SetAnimatedImage(std::make_unique<lottie::Animation>(skottie))
-          .SetImageSize(gfx::Size(32, 16))
+          .SetImageSize(gfx::Size(18, 16))
           .Build();
     }
 
@@ -206,12 +194,15 @@ class ASH_EXPORT HintView : public views::View {
     std::unique_ptr<views::BoxLayout> layout =
         std::make_unique<views::BoxLayout>(
             views::BoxLayout::Orientation::kVertical);
+    layout->set_between_child_spacing(kSpaceBetweenHintLabelsDip);
     SetLayoutManager(std::move(layout));
+
     for (size_t i = 0; i < labels_.size(); ++i) {
-      AddChildView(CreateLabelView(
-          &labels_[i], std::u16string(),
-          AshColorProvider::Get()->GetContentLayerColor(
-              AshColorProvider::ContentLayerType::kTextColorPrimary)));
+      // The first label should use the secondary text color. All other labels
+      // should use the primary text color.
+      ui::ColorId color_id =
+          i == 0 ? kColorAshTextColorSecondary : kColorAshTextColorPrimary;
+      AddChildView(CreateLabelView(&labels_[i], std::u16string(), color_id));
     }
   }
 
@@ -222,9 +213,13 @@ class ASH_EXPORT HintView : public views::View {
   // Updates the text content and visibility of all labels in this view.
   void Update(
       const absl::optional<std::vector<DictationBubbleHintType>>& hints) {
-    if (hints.has_value())
+    int num_visible_hints = 0;
+    if (hints.has_value()) {
       DCHECK(hints.value().size() <= kMaxNumHints);
+      num_visible_hints = hints.value().size();
+    }
 
+    // Update labels.
     for (size_t i = 0; i < labels_.size(); ++i) {
       bool has_hint_for_index = hints.has_value() && (i < hints.value().size());
       labels_[i]->SetVisible(has_hint_for_index);
@@ -235,20 +230,17 @@ class ASH_EXPORT HintView : public views::View {
         labels_[i]->SetText(std::u16string());
       }
     }
-    SizeToPreferredSize();
-  }
 
-  // Updates this view so that it respects the global dark mode setting.
-  void OnColorModeChanged(bool dark_mode_enabled) {
-    AshColorProvider* color_provider = AshColorProvider::Get();
-    if (!color_provider)
-      return;
-
-    SkColor text_color = color_provider->GetContentLayerColor(
-        AshColorProvider::ContentLayerType::kTextColorPrimary);
-    for (size_t i = 0; i < labels_.size(); ++i) {
-      labels_[i]->SetEnabledColor(text_color);
+    // Set visibility of this view based on the number of visible hints.
+    // If the hint view is visible, send an alert event so that ChromeVox reads
+    // hints to the user.
+    if (num_visible_hints > 0) {
+      SetVisible(true);
+      NotifyAccessibilityEvent(ax::mojom::Event::kAlert, true);
+    } else {
+      SetVisible(false);
     }
+    SizeToPreferredSize();
   }
 
   // views::View:
@@ -257,7 +249,7 @@ class ASH_EXPORT HintView : public views::View {
   }
 
  private:
-  friend DictationBubbleView;
+  friend class ash::DictationBubbleView;
 
   // Labels containing hints for users of Dictation. A max of five hints can be
   // shown at any given time.
@@ -274,7 +266,9 @@ END_METADATA
 
 DictationBubbleView::DictationBubbleView() {
   SetButtons(ui::DIALOG_BUTTON_NONE);
-  set_has_parent(false);
+  set_parent_window(
+      Shell::GetContainer(Shell::GetPrimaryRootWindow(),
+                          kShellWindowId_AccessibilityBubbleContainer));
 }
 
 DictationBubbleView::~DictationBubbleView() = default;
@@ -288,14 +282,10 @@ void DictationBubbleView::Update(
   SizeToContents();
 }
 
-void DictationBubbleView::OnColorModeChanged(bool dark_mode_enabled) {
-  top_row_view_->OnColorModeChanged(dark_mode_enabled);
-  hint_view_->OnColorModeChanged(dark_mode_enabled);
-}
-
 void DictationBubbleView::Init() {
   std::unique_ptr<views::BoxLayout> layout = std::make_unique<views::BoxLayout>(
       views::BoxLayout::Orientation::kVertical);
+  layout->set_between_child_spacing(kSpaceBetweenTopRowAndHintViewsDip);
   SetLayoutManager(std::move(layout));
   UseCompactMargins();
 

@@ -39,11 +39,13 @@
 namespace blink {
 
 void CharacterData::MakeParkable() {
-  if (is_parkable_)
+  if (is_parkable_) {
     return;
+  }
 
-  parkable_data_ = ParkableString(data_.ReleaseImpl());
-  data_ = String();
+  auto released = data_.ReleaseImpl();
+  data_.~String();
+  new (&parkable_data_) ParkableString(std::move(released));
   is_parkable_ = true;
 }
 
@@ -186,7 +188,7 @@ bool CharacterData::ContainsOnlyWhitespaceOrEmpty() const {
   return data().ContainsOnlyWhitespaceOrEmpty();
 }
 
-void CharacterData::setNodeValue(const String& node_value) {
+void CharacterData::setNodeValue(const String& node_value, ExceptionState&) {
   setData(!node_value.IsNull() ? node_value : g_empty_string);
 }
 
@@ -196,11 +198,7 @@ void CharacterData::SetDataAndUpdate(const String& new_data,
                                      unsigned new_length,
                                      UpdateSource source) {
   String old_data = this->data();
-  if (is_parkable_) {
-    is_parkable_ = false;
-    parkable_data_ = ParkableString();
-  }
-  data_ = new_data;
+  SetDataWithoutUpdate(new_data);
 
   DCHECK(!GetLayoutObject() || IsTextNode());
   if (auto* text_node = DynamicTo<Text>(this))
@@ -227,15 +225,15 @@ void CharacterData::DidModifyData(const String& old_data, UpdateSource source) {
 
   if (parentNode()) {
     ContainerNode::ChildrenChange change = {
-        ContainerNode::ChildrenChangeType::kTextChanged,
-        source == kUpdateFromParser
-            ? ContainerNode::ChildrenChangeSource::kParser
-            : ContainerNode::ChildrenChangeSource::kAPI,
-        this,
-        previousSibling(),
-        nextSibling(),
-        {},
-        old_data};
+        .type = ContainerNode::ChildrenChangeType::kTextChanged,
+        .by_parser = source == kUpdateFromParser
+                         ? ContainerNode::ChildrenChangeSource::kParser
+                         : ContainerNode::ChildrenChangeSource::kAPI,
+        .affects_elements = ContainerNode::ChildrenChangeAffectsElements::kNo,
+        .sibling_changed = this,
+        .sibling_before_change = previousSibling(),
+        .sibling_after_change = nextSibling(),
+        .old_text = &old_data};
     parentNode()->ChildrenChanged(change);
   }
 

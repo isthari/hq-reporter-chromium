@@ -36,19 +36,19 @@ class SVGLinearGradientElement final : public SVGGradientElement {
  public:
   explicit SVGLinearGradientElement(Document&);
 
-  void CollectGradientAttributes(LinearGradientAttributes&) const;
-
   SVGAnimatedLength* x1() const { return x1_.Get(); }
   SVGAnimatedLength* y1() const { return y1_.Get(); }
   SVGAnimatedLength* x2() const { return x2_.Get(); }
   SVGAnimatedLength* y2() const { return y2_.Get(); }
+
+  LinearGradientAttributes CollectGradientAttributes() const;
 
   void Trace(Visitor*) const override;
 
  private:
   void SvgAttributeChanged(const SvgAttributeChangedParams&) override;
 
-  LayoutObject* CreateLayoutObject(const ComputedStyle&, LegacyLayout) override;
+  LayoutObject* CreateLayoutObject(const ComputedStyle&) override;
 
   bool SelfHasRelativeLengths() const override;
 

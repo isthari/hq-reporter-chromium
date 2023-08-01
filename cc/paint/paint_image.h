@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,13 +13,22 @@
 #include "cc/paint/frame_metadata.h"
 #include "cc/paint/image_animation_count.h"
 #include "cc/paint/paint_export.h"
+#include "cc/paint/paint_record.h"
 #include "gpu/command_buffer/common/mailbox.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkImage.h"
+#include "third_party/skia/include/core/SkImageInfo.h"
+#include "third_party/skia/include/core/SkRefCnt.h"
 #include "third_party/skia/include/core/SkYUVAPixmaps.h"
+#include "third_party/skia/include/private/SkGainmapInfo.h"
 #include "ui/gfx/display_color_spaces.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
+#include "ui/gfx/hdr_metadata.h"
+
+class SkBitmap;
+class SkColorSpace;
+struct SkISize;
 
 namespace blink {
 class VideoFrame;
@@ -28,22 +37,32 @@ class VideoFrame;
 namespace cc {
 
 class PaintImageGenerator;
-class PaintOpBuffer;
 class PaintWorkletInput;
 class TextureBacking;
-using PaintRecord = PaintOpBuffer;
 
-enum class ImageType {
-  kPNG,
-  kJPEG,
-  kWEBP,
-  kGIF,
-  kICO,
-  kBMP,
-  kAVIF,
-  kJXL,
-  kInvalid
-};
+enum class ImageType { kPNG, kJPEG, kWEBP, kGIF, kICO, kBMP, kAVIF, kInvalid };
+
+enum class AuxImage : size_t { kDefault = 0, kGainmap = 1 };
+static constexpr std::array<AuxImage, 2> kAllAuxImages = {AuxImage::kDefault,
+                                                          AuxImage::kGainmap};
+constexpr size_t AuxImageIndex(AuxImage aux_image) {
+  return static_cast<size_t>(aux_image);
+}
+static constexpr size_t kAuxImageCount = 2;
+static constexpr size_t kAuxImageIndexDefault =
+    AuxImageIndex(AuxImage::kDefault);
+static constexpr size_t kAuxImageIndexGainmap =
+    AuxImageIndex(AuxImage::kGainmap);
+constexpr const char* AuxImageName(AuxImage aux_image) {
+  switch (aux_image) {
+    case AuxImage::kDefault:
+      return "default";
+      break;
+    case AuxImage::kGainmap:
+      return "gainmap";
+      break;
+  }
+}
 
 enum class YUVSubsampling { k410, k411, k420, k422, k440, k444, kUnknown };
 
@@ -64,6 +83,9 @@ struct CC_PAINT_EXPORT ImageHeaderMetadata {
 
   // The subsampling format used for the chroma planes, e.g., YUV 4:2:0.
   YUVSubsampling yuv_subsampling = YUVSubsampling::kUnknown;
+
+  // The HDR metadata included with the image, if present.
+  absl::optional<gfx::HDRMetadata> hdr_metadata;
 
   // The visible size of the image (i.e., the area that contains meaningful
   // pixels).
@@ -199,8 +221,10 @@ class CC_PAINT_EXPORT PaintImage {
   PaintImage& operator=(const PaintImage& other);
   PaintImage& operator=(PaintImage&& other);
 
-  bool operator==(const PaintImage& other) const;
-  bool operator!=(const PaintImage& other) const { return !(*this == other); }
+  // For testing only. Checks if `this` and `other` are the same image, i.e.
+  // share the same underlying image. `a.IsSameForTesting(b)` will be true after
+  // `PaintImage b = a;`.
+  bool IsSameForTesting(const PaintImage& other) const;
 
   // Returns the smallest size that is at least as big as the requested_size
   // such that we can decode to exactly that scale. If the requested size is
@@ -208,20 +232,15 @@ class CC_PAINT_EXPORT PaintImage {
   // guaranteed to be stable. That is,
   // GetSupportedDecodeSize(GetSupportedDecodeSize(size)) is guaranteed to be
   // GetSupportedDecodeSize(size).
-  SkISize GetSupportedDecodeSize(const SkISize& requested_size) const;
+  SkISize GetSupportedDecodeSize(const SkISize& requested_size,
+                                 AuxImage aux_image = AuxImage::kDefault) const;
 
-  // Decode the image into RGBX into the given memory for the given SkImageInfo.
-  // - Size in |info| must be supported.
-  // - The amount of memory allocated must be at least
-  //   |info|.minRowBytes() * |info|.height()
-  // Returns true on success and false on failure. Updates |info| to match the
-  // requested color space, if provided.
-  // Note that for non-lazy images this will do a copy or readback if the image
-  // is texture backed.
-  bool Decode(void* memory,
-              SkImageInfo* info,
-              sk_sp<SkColorSpace> color_space,
+  // Decode the image into RGBX into the pixels of the specified SkPixmap.
+  // Returns true on success and false on failure. Note that for non-lazy images
+  // this will do a copy or readback if the image is texture backed.
+  bool Decode(SkPixmap pixmap,
               size_t frame_index,
+              AuxImage aux_image,
               GeneratorClientId client_id) const;
 
   // Decode the image into YUV into |pixmaps|.
@@ -233,6 +252,7 @@ class CC_PAINT_EXPORT PaintImage {
   //    needs a separate YUV frame buffer cache.
   bool DecodeYuv(const SkYUVAPixmaps& pixmaps,
                  size_t frame_index,
+                 AuxImage aux_image,
                  GeneratorClientId client_id) const;
 
   // Returns the SkImage associated with this PaintImage. If PaintImage is
@@ -253,11 +273,12 @@ class CC_PAINT_EXPORT PaintImage {
   gpu::Mailbox GetMailbox() const;
 
   Id stable_id() const { return id_; }
-  SkImageInfo GetSkImageInfo() const;
+  SkImageInfo GetSkImageInfo(AuxImage aux_image = AuxImage::kDefault) const;
   AnimationType animation_type() const { return animation_type_; }
   CompletionState completion_state() const { return completion_state_; }
   bool is_multipart() const { return is_multipart_; }
   bool is_high_bit_depth() const { return is_high_bit_depth_; }
+  bool may_be_lcp_candidate() const { return may_be_lcp_candidate_; }
   int repetition_count() const { return repetition_count_; }
   bool ShouldAnimate() const;
   AnimationSequenceId reset_animation_sequence_id() const {
@@ -276,10 +297,14 @@ class CC_PAINT_EXPORT PaintImage {
   // Skia internally buffers commands and flushes them as necessary but there
   // are some cases where we need to force a flush.
   void FlushPendingSkiaOps();
-  int width() const;
-  int height() const;
+  int width() const { return GetSkImageInfo().width(); }
+  int height() const { return GetSkImageInfo().height(); }
   SkColorSpace* color_space() const {
     return paint_worklet_input_ ? nullptr : GetSkImageInfo().colorSpace();
+  }
+  gfx::Size GetSize(AuxImage aux_image) const;
+  SkISize GetSkISize(AuxImage aux_image) const {
+    return GetSkImageInfo(aux_image).dimensions();
   }
 
   gfx::ContentColorUsage GetContentColorUsage(bool* is_hlg = nullptr) const;
@@ -290,11 +315,12 @@ class CC_PAINT_EXPORT PaintImage {
   // SkPixmaps to pass DecodeYuv() and render with the correct YUV->RGB
   // transformation.
   bool IsYuv(const SkYUVAPixmapInfo::SupportedDataTypes& supported_data_types,
+             AuxImage aux_image,
              SkYUVAPixmapInfo* info = nullptr) const;
 
   // Get metadata associated with this image.
-  SkColorType GetColorType() const;
-  SkAlphaType GetAlphaType() const;
+  SkColorType GetColorType() const { return GetSkImageInfo().colorType(); }
+  SkAlphaType GetAlphaType() const { return GetSkImageInfo().alphaType(); }
 
   // Returns general information about the underlying image. Returns nullptr if
   // there is no available |paint_image_generator_|.
@@ -321,6 +347,15 @@ class CC_PAINT_EXPORT PaintImage {
   }
 
   bool IsOpaque() const;
+  bool HasGainmap() const {
+    DCHECK_EQ(gainmap_paint_image_generator_ != nullptr,
+              gainmap_info_.has_value());
+    return gainmap_paint_image_generator_.get();
+  }
+  const SkGainmapInfo& GetGainmapInfo() const {
+    DCHECK(HasGainmap());
+    return gainmap_info_.value();
+  }
 
   std::string ToString() const;
 
@@ -344,14 +379,7 @@ class CC_PAINT_EXPORT PaintImage {
   friend class PaintShader;
   friend class blink::VideoFrame;
 
-  bool DecodeFromGenerator(void* memory,
-                           SkImageInfo* info,
-                           sk_sp<SkColorSpace> color_space,
-                           size_t frame_index,
-                           GeneratorClientId client_id) const;
-  bool DecodeFromSkImage(void* memory,
-                         SkImageInfo* info,
-                         sk_sp<SkColorSpace> color_space,
+  bool DecodeFromSkImage(SkPixmap pixmap,
                          size_t frame_index,
                          GeneratorClientId client_id) const;
   void CreateSkImage();
@@ -364,12 +392,15 @@ class CC_PAINT_EXPORT PaintImage {
   const sk_sp<SkImage>& GetSkImage() const;
 
   sk_sp<SkImage> sk_image_;
-  sk_sp<PaintRecord> paint_record_;
+  absl::optional<PaintRecord> paint_record_;
   gfx::Rect paint_record_rect_;
 
   ContentId content_id_ = kInvalidContentId;
 
   sk_sp<PaintImageGenerator> paint_image_generator_;
+  sk_sp<PaintImageGenerator> gainmap_paint_image_generator_;
+  absl::optional<SkGainmapInfo> gainmap_info_;
+
   sk_sp<TextureBacking> texture_backing_;
 
   Id id_ = 0;
@@ -382,6 +413,12 @@ class CC_PAINT_EXPORT PaintImage {
 
   // Whether this image has more than 8 bits per color channel.
   bool is_high_bit_depth_ = false;
+
+  // Whether this image may untimately be a candidate for Largest Contentful
+  // Paint. The final LCP contribution of an image is unknown until we present
+  // it, but this flag is intended for metrics on when we do not present the
+  // image when the system claims.
+  bool may_be_lcp_candidate_ = false;
 
   // An incrementing sequence number maintained by the painter to indicate if
   // this animation should be reset in the compositor. Incrementing this number

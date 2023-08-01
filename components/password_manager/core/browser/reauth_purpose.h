@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,8 @@ enum class ReauthPurpose {
   EDIT_PASSWORD,  // A password value will be edited in the UI
   EXPORT,         // Password values will be written to the filesystem without
                   // protection
+  IMPORT,         // Password values will be made visible on the UI to resolve
+                  // conflicts.
 };
 
 }  // namespace password_manager

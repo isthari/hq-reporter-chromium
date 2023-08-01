@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,11 @@
 #include "third_party/perfetto/protos/perfetto/trace/track_event/source_location.pbzero.h"  // nogncheck
 #endif  // BUILDFLAG(ENABLE_BASE_TRACING)
 
+#if DCHECK_IS_ON()
+#include "base/auto_reset.h"
+#include "third_party/abseil-cpp/absl/base/attributes.h"
+#endif
+
 namespace base {
 
 namespace {
@@ -24,8 +29,7 @@ namespace {
 // Used to verify that the trace events used in the constructor do not result in
 // instantiating a ScopedBlockingCall themselves (which would cause an infinite
 // reentrancy loop).
-LazyInstance<ThreadLocalBoolean>::Leaky tls_construction_in_progress =
-    LAZY_INSTANCE_INITIALIZER;
+ABSL_CONST_INIT thread_local bool construction_in_progress = false;
 #endif
 
 }  // namespace
@@ -33,26 +37,18 @@ LazyInstance<ThreadLocalBoolean>::Leaky tls_construction_in_progress =
 ScopedBlockingCall::ScopedBlockingCall(const Location& from_here,
                                        BlockingType blocking_type)
     : UncheckedScopedBlockingCall(
-          from_here,
           blocking_type,
           UncheckedScopedBlockingCall::BlockingCallType::kRegular) {
 #if DCHECK_IS_ON()
-  DCHECK(!tls_construction_in_progress.Get().Get());
-  tls_construction_in_progress.Get().Set(true);
+  const AutoReset<bool> resetter(&construction_in_progress, true, false);
 #endif
 
   internal::AssertBlockingAllowed();
   TRACE_EVENT_BEGIN(
       "base", "ScopedBlockingCall", [&](perfetto::EventContext ctx) {
-        perfetto::protos::pbzero::SourceLocation* source_location_data =
-            ctx.event()->set_source_location();
-        source_location_data->set_file_name(from_here.file_name());
-        source_location_data->set_function_name(from_here.function_name());
+        ctx.event()->set_source_location_iid(
+            base::trace_event::InternedSourceLocation::Get(&ctx, from_here));
       });
-
-#if DCHECK_IS_ON()
-  tls_construction_in_progress.Get().Set(false);
-#endif
 }
 
 ScopedBlockingCall::~ScopedBlockingCall() {
@@ -65,12 +61,10 @@ ScopedBlockingCallWithBaseSyncPrimitives::
     ScopedBlockingCallWithBaseSyncPrimitives(const Location& from_here,
                                              BlockingType blocking_type)
     : UncheckedScopedBlockingCall(
-          from_here,
           blocking_type,
           UncheckedScopedBlockingCall::BlockingCallType::kBaseSyncPrimitives) {
 #if DCHECK_IS_ON()
-  DCHECK(!tls_construction_in_progress.Get().Get());
-  tls_construction_in_progress.Get().Set(true);
+  const AutoReset<bool> resetter(&construction_in_progress, true, false);
 #endif
 
   internal::AssertBaseSyncPrimitivesAllowed();
@@ -82,10 +76,6 @@ ScopedBlockingCallWithBaseSyncPrimitives::
         source_location_data->set_file_name(from_here.file_name());
         source_location_data->set_function_name(from_here.function_name());
       });
-
-#if DCHECK_IS_ON()
-  tls_construction_in_progress.Get().Set(false);
-#endif
 }
 
 ScopedBlockingCallWithBaseSyncPrimitives::

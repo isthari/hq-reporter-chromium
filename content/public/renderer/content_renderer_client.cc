@@ -1,11 +1,14 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "content/public/renderer/content_renderer_client.h"
 
 #include "base/command_line.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
+#include "build/chromecast_buildflags.h"
 #include "content/public/common/content_switches.h"
 #include "media/base/demuxer.h"
 #include "media/base/renderer_factory.h"
@@ -73,7 +76,7 @@ bool ContentRendererClient::DeferMediaLoad(RenderFrame* render_frame,
 std::unique_ptr<media::Demuxer> ContentRendererClient::OverrideDemuxerForUrl(
     RenderFrame* render_frame,
     const GURL& url,
-    scoped_refptr<base::SingleThreadTaskRunner> task_runner) {
+    scoped_refptr<base::SequencedTaskRunner> task_runner) {
   return nullptr;
 }
 
@@ -104,7 +107,6 @@ ContentRendererClient::GetProtocolHandlerSecurityLevel() {
 #if BUILDFLAG(IS_ANDROID)
 bool ContentRendererClient::HandleNavigation(
     RenderFrame* render_frame,
-    bool render_view_was_created_by_renderer,
     blink::WebFrame* frame,
     const blink::WebURLRequest& request,
     blink::WebNavigationType type,
@@ -156,11 +158,9 @@ bool ContentRendererClient::IsOriginIsolatedPepperPlugin(
   return true;
 }
 
-void ContentRendererClient::AddSupportedKeySystems(
-    std::vector<std::unique_ptr<media::KeySystemProperties>>* key_systems) {}
-
-bool ContentRendererClient::IsKeySystemsUpdateNeeded() {
-  return false;
+void ContentRendererClient::GetSupportedKeySystems(
+    media::GetSupportedKeySystemsCB cb) {
+  std::move(cb).Run({});
 }
 
 bool ContentRendererClient::IsSupportedAudioType(const media::AudioType& type) {
@@ -175,7 +175,15 @@ bool ContentRendererClient::IsSupportedVideoType(const media::VideoType& type) {
 
 bool ContentRendererClient::IsSupportedBitstreamAudioCodec(
     media::AudioCodec codec) {
-  return false;
+  switch (codec) {
+#if BUILDFLAG(ENABLE_PLATFORM_DTS_AUDIO)
+    case media::AudioCodec::kDTS:
+    case media::AudioCodec::kDTSXP2:
+      return true;
+#endif  // BUILDFLAG(ENABLE_PLATFORM_DTS_AUDIO)
+    default:
+      return false;
+  }
 }
 
 bool ContentRendererClient::ShouldReportDetailedMessageForSource(
@@ -192,8 +200,7 @@ ContentRendererClient::CreateWorkerContentSettingsClient(
 #if !BUILDFLAG(IS_ANDROID)
 std::unique_ptr<media::SpeechRecognitionClient>
 ContentRendererClient::CreateSpeechRecognitionClient(
-    RenderFrame* render_frame,
-    media::SpeechRecognitionClient::OnReadyCallback callback) {
+    RenderFrame* render_frame) {
   return nullptr;
 }
 #endif
@@ -232,7 +239,8 @@ blink::WebFrame* ContentRendererClient::FindFrame(
   return nullptr;
 }
 
-bool ContentRendererClient::IsSafeRedirectTarget(const GURL& url) {
+bool ContentRendererClient::IsSafeRedirectTarget(const GURL& from_url,
+                                                 const GURL& to_url) {
   return true;
 }
 
@@ -257,5 +265,12 @@ ContentRendererClient::GetBaseRendererFactory(
         get_gpu_factories_cb) {
   return nullptr;
 }
+
+#if BUILDFLAG(ENABLE_CAST_RECEIVER)
+std::unique_ptr<cast_streaming::ResourceProvider>
+ContentRendererClient::CreateCastStreamingResourceProvider() {
+  return nullptr;
+}
+#endif
 
 }  // namespace content

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,10 +12,13 @@ import android.text.TextUtils;
 
 import androidx.annotation.Nullable;
 
+import org.chromium.base.BuildInfo;
 import org.chromium.base.Callback;
+import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.chrome.browser.signin.services.ProfileDataCache;
 import org.chromium.chrome.browser.signin.services.SigninMetricsUtils;
 import org.chromium.chrome.browser.signin.services.SigninPreferencesManager;
+import org.chromium.chrome.browser.ui.signin.DeviceLockActivityLauncher;
 import org.chromium.chrome.browser.ui.signin.SigninUtils;
 import org.chromium.chrome.browser.ui.signin.account_picker.AccountPickerBottomSheetCoordinator.EntryPoint;
 import org.chromium.chrome.browser.ui.signin.account_picker.AccountPickerBottomSheetProperties.ViewState;
@@ -27,7 +30,9 @@ import org.chromium.components.signin.base.GoogleServiceAuthError;
 import org.chromium.components.signin.base.GoogleServiceAuthError.State;
 import org.chromium.components.signin.metrics.AccountConsistencyPromoAction;
 import org.chromium.ui.base.WindowAndroid;
+import org.chromium.ui.modelutil.PropertyKey;
 import org.chromium.ui.modelutil.PropertyModel;
+import org.chromium.ui.modelutil.PropertyObservable.PropertyObserver;
 
 import java.util.List;
 
@@ -44,21 +49,39 @@ class AccountPickerBottomSheetMediator implements AccountPickerCoordinator.Liste
     private final ProfileDataCache mProfileDataCache;
     private final PropertyModel mModel;
     private final AccountManagerFacade mAccountManagerFacade;
+    private final DeviceLockActivityLauncher mDeviceLockActivityLauncher;
 
     private @Nullable String mSelectedAccountName;
     private @Nullable String mDefaultAccountName;
     private @Nullable String mAddedAccountName;
 
+    private final PropertyObserver<PropertyKey> mModelPropertyChangedObserver;
+    private final ObservableSupplierImpl<Boolean> mBackPressStateChangedSupplier =
+            new ObservableSupplierImpl<>();
+
     AccountPickerBottomSheetMediator(WindowAndroid windowAndroid,
-            AccountPickerDelegate accountPickerDelegate, Runnable onDismissButtonClicked) {
+            AccountPickerDelegate accountPickerDelegate, Runnable onDismissButtonClicked,
+            AccountPickerBottomSheetStrings accountPickerBottomSheetStrings,
+            DeviceLockActivityLauncher deviceLockActivityLauncher) {
         mWindowAndroid = windowAndroid;
         mActivity = windowAndroid.getActivity().get();
         mAccountPickerDelegate = accountPickerDelegate;
         mProfileDataCache = ProfileDataCache.createWithDefaultImageSizeAndNoBadge(mActivity);
+        mDeviceLockActivityLauncher = deviceLockActivityLauncher;
 
         mModel = AccountPickerBottomSheetProperties.createModel(this::onSelectedAccountClicked,
                 this::onContinueAsClicked,
-                view -> onDismissButtonClicked.run(), accountPickerDelegate.getEntryPoint());
+                view
+                -> onDismissButtonClicked.run(),
+                accountPickerDelegate.getEntryPoint(), accountPickerBottomSheetStrings);
+        mModelPropertyChangedObserver = (source, propertyKey) -> {
+            if (AccountPickerBottomSheetProperties.VIEW_STATE == propertyKey) {
+                mBackPressStateChangedSupplier.set(
+                        mModel.get(AccountPickerBottomSheetProperties.VIEW_STATE)
+                        == ViewState.EXPANDED_ACCOUNT_LIST);
+            }
+        };
+        mModel.addObserver(mModelPropertyChangedObserver);
         mProfileDataCache.addObserver(this);
 
         mAccountManagerFacade = AccountManagerFacadeProvider.getInstance();
@@ -130,6 +153,11 @@ class AccountPickerBottomSheetMediator implements AccountPickerCoordinator.Liste
         return false;
     }
 
+    @Override
+    public ObservableSupplierImpl<Boolean> getBackPressStateChangedSupplier() {
+        return mBackPressStateChangedSupplier;
+    }
+
     /**
      * Implements {@link AccountsChangeObserver}.
      */
@@ -158,6 +186,11 @@ class AccountPickerBottomSheetMediator implements AccountPickerCoordinator.Liste
         mAccountPickerDelegate.destroy();
         mProfileDataCache.removeObserver(this);
         mAccountManagerFacade.removeObserver(this);
+        mModel.removeObserver(mModelPropertyChangedObserver);
+    }
+
+    public void setTryAgainBottomSheetView() {
+        mModel.set(AccountPickerBottomSheetProperties.VIEW_STATE, ViewState.SIGNIN_GENERAL_ERROR);
     }
 
     private void updateAccounts(List<Account> accounts) {
@@ -220,7 +253,16 @@ class AccountPickerBottomSheetMediator implements AccountPickerCoordinator.Liste
         int viewState = mModel.get(AccountPickerBottomSheetProperties.VIEW_STATE);
         if (viewState == ViewState.COLLAPSED_ACCOUNT_LIST
                 || viewState == ViewState.SIGNIN_GENERAL_ERROR) {
-            signIn();
+            if (BuildInfo.getInstance().isAutomotive) {
+                mDeviceLockActivityLauncher.launchDeviceLockActivity(mActivity, true,
+                        mSelectedAccountName, mWindowAndroid, (resultCode, data) -> {
+                            if (resultCode == Activity.RESULT_OK) {
+                                signIn();
+                            }
+                        });
+            } else {
+                signIn();
+            }
         } else if (viewState == ViewState.NO_ACCOUNTS) {
             addAccount();
         } else if (viewState == ViewState.SIGNIN_AUTH_ERROR) {

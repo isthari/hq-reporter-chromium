@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,10 @@
 #include <set>
 #include <string>
 
-#include "base/callback.h"
-#include "base/callback_helpers.h"
 #include "base/containers/flat_map.h"
+#include "base/feature_list.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
@@ -19,10 +20,6 @@
 #include "components/keyed_service/core/keyed_service.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
-
-namespace base {
-struct Feature;
-}
 
 namespace content {
 class WebContents;
@@ -36,7 +33,6 @@ class Browser;
 class Profile;
 
 // Trigger identifiers currently used; duplicates not allowed.
-extern const char kHatsSurveyTriggerAccuracyTips[];
 extern const char kHatsSurveyTriggerAutofillAddress[];
 extern const char kHatsSurveyTriggerAutofillCard[];
 extern const char kHatsSurveyTriggerAutofillPassword[];
@@ -46,14 +42,42 @@ extern const char kHatsSurveyTriggerDevToolsIssuesCookiesSameSite[];
 extern const char kHatsSurveyTriggerDevToolsIssuesHeavyAd[];
 extern const char kHatsSurveyTriggerDevToolsIssuesCSP[];
 extern const char kHatsSurveyTriggerNtpModules[];
-extern const char kHatsSurveyTriggerPrivacyReview[];
+extern const char kHatsSurveyTriggerNtpPhotosModuleOptOut[];
+extern const char kHatsSurveyTriggerPerformanceControlsPerformance[];
+extern const char kHatsSurveyTriggerPerformanceControlsBatteryPerformance[];
+extern const char kHatsSurveyTriggerPerformanceControlsHighEfficiencyOptOut[];
+extern const char kHatsSurveyTriggerPerformanceControlsBatterySaverOptOut[];
+extern const char kHatsSurveyTriggerPermissionsPrompt[];
+extern const char kHatsSurveyTriggerPrivacyGuide[];
 extern const char kHatsSurveyTriggerPrivacySandbox[];
 extern const char kHatsSurveyTriggerSettings[];
 extern const char kHatsSurveyTriggerSettingsPrivacy[];
 extern const char kHatsSurveyTriggerTesting[];
+extern const char kHatsSurveyTriggerTrustSafetyPrivacySandbox3ConsentAccept[];
+extern const char kHatsSurveyTriggerTrustSafetyPrivacySandbox3ConsentDecline[];
+extern const char kHatsSurveyTriggerTrustSafetyPrivacySandbox3NoticeDismiss[];
+extern const char kHatsSurveyTriggerTrustSafetyPrivacySandbox3NoticeOk[];
+extern const char kHatsSurveyTriggerTrustSafetyPrivacySandbox3NoticeSettings[];
+extern const char kHatsSurveyTriggerTrustSafetyPrivacySandbox3NoticeLearnMore[];
+extern const char kHatsSurveyTriggerTrustSafetyPrivacySandbox4ConsentAccept[];
+extern const char kHatsSurveyTriggerTrustSafetyPrivacySandbox4ConsentDecline[];
+extern const char kHatsSurveyTriggerTrustSafetyPrivacySandbox4NoticeOk[];
+extern const char kHatsSurveyTriggerTrustSafetyPrivacySandbox4NoticeSettings[];
 extern const char kHatsSurveyTriggerTrustSafetyPrivacySettings[];
 extern const char kHatsSurveyTriggerTrustSafetyTrustedSurface[];
 extern const char kHatsSurveyTriggerTrustSafetyTransactions[];
+extern const char kHatsSurveyTriggerTrustSafetyV2BrowsingData[];
+extern const char kHatsSurveyTriggerTrustSafetyV2ControlGroup[];
+extern const char kHatsSurveyTriggerTrustSafetyV2PasswordCheck[];
+extern const char kHatsSurveyTriggerTrustSafetyV2SafetyCheck[];
+extern const char kHatsSurveyTriggerTrustSafetyV2TrustedSurface[];
+extern const char kHatsSurveyTriggerTrustSafetyV2PrivacyGuide[];
+extern const char kHatsSurveyTriggerTrustSafetyV2PrivacySandbox4ConsentAccept[];
+extern const char
+    kHatsSurveyTriggerTrustSafetyV2PrivacySandbox4ConsentDecline[];
+extern const char kHatsSurveyTriggerTrustSafetyV2PrivacySandbox4NoticeOk[];
+extern const char
+    kHatsSurveyTriggerTrustSafetyV2PrivacySandbox4NoticeSettings[];
 extern const char kHatsSurveyTriggerWhatsNew[];
 
 // The Trigger ID for a test HaTS Next survey which is available for testing
@@ -281,6 +305,8 @@ class HatsService : public KeyedService {
   friend class DelayedSurveyTask;
   FRIEND_TEST_ALL_PREFIXES(HatsServiceProbabilityOne, SingleHatsNextDialog);
 
+  using SurveyConfigs = base::flat_map<std::string, SurveyConfig>;
+
   void LaunchSurveyForWebContents(
       const std::string& trigger,
       content::WebContents* web_contents,
@@ -318,7 +344,7 @@ class HatsService : public KeyedService {
 
   std::set<DelayedSurveyTask> pending_tasks_;
 
-  base::flat_map<std::string, SurveyConfig> survey_configs_by_triggers_;
+  SurveyConfigs survey_configs_by_triggers_;
 
   // Whether a HaTS Next dialog currently exists (regardless of whether it
   // is being shown to the user).

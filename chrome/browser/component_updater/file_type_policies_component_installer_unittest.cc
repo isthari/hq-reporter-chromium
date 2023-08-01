@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,7 +25,7 @@ TEST(FileTypePoliciesComponentInstallerTest, VerifyAttributes) {
   // Feature enabled
   {
     base::test::ScopedFeatureList feature_list;
-    base::test::ScopedFeatureList::FeatureAndParams feature_params(
+    base::test::FeatureRefAndParams feature_params(
         safe_browsing::kFileTypePoliciesTag, {{"policy_omaha_tag", "46"}});
     feature_list.InitWithFeaturesAndParameters({feature_params}, {});
 

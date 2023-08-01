@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -57,7 +57,7 @@ class ExtensionContextMenuController : public views::ContextMenuController {
 
   // The root MenuItemView for the context menu, or null if no menu is being
   // shown. This is used for testing.
-  raw_ptr<views::MenuItemView> menu_ = nullptr;
+  raw_ptr<views::MenuItemView, DanglingUntriaged> menu_ = nullptr;
 
   // This controller contains the data for the extension's context menu.
   const raw_ptr<ToolbarActionViewController> controller_;

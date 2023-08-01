@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 GEN('#include "ash/webui/help_app_ui/test/help_app_ui_browsertest.h"');
 
 GEN('#include "ash/constants/ash_features.h"');
+GEN('#include "ash/public/cpp/style/dark_light_mode_controller.h"');
 GEN('#include "content/public/test/browser_test.h"');
 
 const HOST_ORIGIN = 'chrome://help-app';
@@ -32,8 +33,7 @@ var HelpAppUIGtestBrowserTest = class extends testing.Test {
     return {
       enabled: [
         'ash::features::kHelpAppLauncherSearch',
-        'ash::features::kHelpAppSearchServiceIntegration',
-      ]
+      ],
     };
   }
 
@@ -41,10 +41,18 @@ var HelpAppUIGtestBrowserTest = class extends testing.Test {
   get typedefCppFixture() {
     return 'HelpAppUiBrowserTest';
   }
+};
 
+// js2gtest fixtures require var here (https://crbug.com/1033337).
+// eslint-disable-next-line no-var
+var HelpAppUIWithDarkModeGtestBrowserTest =
+    class extends HelpAppUIGtestBrowserTest {
   /** @override */
-  get runAccessibilityChecks() {
-    return false;
+  get testGenPreamble() {
+    return () => {
+      // Switch to dark mode.
+      GEN('ash::DarkLightModeController::Get()->SetDarkModeEnabledForTest(true);');
+    };
   }
 };
 
@@ -72,6 +80,7 @@ async function GetTestHarness() {
  * object we get from `help_app_ui_browsertest.js`.
  */
 async function runHelpAppTest(name, guest = false) {
+  await import('chrome://webui-test/mojo_webui_test_support.js');
   const HelpAppUIBrowserTest = await GetTestHarness();
   try {
     if (guest) {
@@ -98,10 +107,15 @@ function runHelpAppTestInGuest(name) {
 
 // Ensure every test body has a `TEST_F` call in this file.
 TEST_F('HelpAppUIGtestBrowserTest', 'ConsistencyCheck', async () => {
+  await import('chrome://webui-test/mojo_webui_test_support.js');
   const HelpAppUIBrowserTest = await GetTestHarness();
-  const bodies =
-      /** @type {{testCaseBodies: Object}} */ (HelpAppUIGtestBrowserTest)
-          .testCaseBodies;
+  const bodies = {
+    ...(/** @type {{testCaseBodies: Object}} */ (HelpAppUIGtestBrowserTest))
+        .testCaseBodies,
+    ...(/** @type {{testCaseBodies: Object}} */ (
+            HelpAppUIWithDarkModeGtestBrowserTest))
+        .testCaseBodies,
+  };
   for (const f in HelpAppUIBrowserTest) {
     if (f === 'runTestInGuest') {
       continue;
@@ -122,11 +136,21 @@ TEST_F('HelpAppUIGtestBrowserTest', 'HasTitleAndLang', () => {
   runHelpAppTest('HasTitleAndLang');
 });
 
+TEST_F(
+    'HelpAppUIWithDarkModeGtestBrowserTest',
+    'BodyHasCorrectBackgroundColorInDarkMode', () => {
+      runHelpAppTest('BodyHasCorrectBackgroundColorInDarkMode');
+    });
+
 // Test cases injected into the guest context.
 // See implementations in `help_app_guest_ui_browsertest.js`.
 
 TEST_F('HelpAppUIGtestBrowserTest', 'GuestHasLang', () => {
   runHelpAppTestInGuest('GuestHasLang');
+});
+
+TEST_F('HelpAppUIGtestBrowserTest', 'GuestLoadsLoadTimeData', () => {
+  runHelpAppTestInGuest('GuestLoadsLoadTimeData');
 });
 
 TEST_F('HelpAppUIGtestBrowserTest', 'GuestCanSearchWithHeadings', () => {
@@ -139,4 +163,8 @@ TEST_F('HelpAppUIGtestBrowserTest', 'GuestCanSearchWithCategories', () => {
 
 TEST_F('HelpAppUIGtestBrowserTest', 'GuestCanClearSearchIndex', () => {
   runHelpAppTestInGuest('GuestCanClearSearchIndex');
+});
+
+TEST_F('HelpAppUIGtestBrowserTest', 'GuestCanGetDeviceInfo', () => {
+  runHelpAppTestInGuest('GuestCanGetDeviceInfo');
 });

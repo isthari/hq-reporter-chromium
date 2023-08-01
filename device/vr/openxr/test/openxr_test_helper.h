@@ -1,27 +1,28 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef DEVICE_VR_OPENXR_TEST_OPENXR_TEST_HELPER_H_
 #define DEVICE_VR_OPENXR_TEST_OPENXR_TEST_HELPER_H_
 
-#include <d3d11.h>
-#include <unknwn.h>
-#include <wrl.h>
 #include <array>
 #include <queue>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
-#include "base/cxx17_backports.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/synchronization/lock.h"
 #include "device/vr/openxr/openxr_defs.h"
+#include "device/vr/openxr/openxr_platform.h"
 #include "device/vr/openxr/openxr_view_configuration.h"
 #include "device/vr/test/test_hook.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/openxr/src/include/openxr/openxr.h"
-#include "third_party/openxr/src/include/openxr/openxr_platform.h"
+
+#if BUILDFLAG(IS_WIN)
+#include <wrl.h>
+#endif
 
 namespace gfx {
 class Transform;
@@ -170,7 +171,7 @@ class OpenXrTestHelper : public device::ServiceTestHook {
       XR_TYPE_SYSTEM_PROPERTIES, nullptr,           0, 0xBADFACE, "Test System",
       {2048, 2048, 1},           {XR_TRUE, XR_TRUE}};
 
-  static constexpr uint32_t kNumExtensionsSupported = base::size(kExtensions);
+  static constexpr uint32_t kNumExtensionsSupported = std::size(kExtensions);
 
  private:
   struct ActionProperties {
@@ -200,6 +201,7 @@ class OpenXrTestHelper : public device::ServiceTestHook {
       const XrCompositionLayerProjectionView& projection_view,
       uint32_t view_count,
       uint32_t index);
+  bool GetCanCreateSession();
 
   // Properties of the mock OpenXR runtime that doesn't change throughout the
   // lifetime of the instance. However, these aren't static because they are
@@ -261,7 +263,9 @@ class OpenXrTestHelper : public device::ServiceTestHook {
 
   std::queue<XrEventDataBuffer> event_queue_;
 
-  device::VRTestHook* test_hook_ GUARDED_BY(lock_) = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #global-scope
+  RAW_PTR_EXCLUSION device::VRTestHook* test_hook_ GUARDED_BY(lock_) = nullptr;
   base::Lock lock_;
 };
 

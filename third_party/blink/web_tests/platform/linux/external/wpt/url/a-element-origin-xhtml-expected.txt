@@ -1,5 +1,5 @@
 This is a testharness.js-based test.
-Found 329 tests; 324 PASS, 5 FAIL, 0 TIMEOUT, 0 NOTRUN.
+Found 354 tests; 350 PASS, 4 FAIL, 0 TIMEOUT, 0 NOTRUN.
 PASS Loading data…
 PASS Parsing origin: <http://example	.
 org> against <http://example.org/foo/bar>
@@ -214,18 +214,20 @@ PASS Parsing origin: <http://www.foo。bar.com> against <http://other.com/>
 PASS Parsing origin: <https://x/�?�#�> against <about:blank>
 PASS Parsing origin: <http://Ｇｏ.com> against <http://other.com/>
 PASS Parsing origin: <http://你好你好> against <http://other.com/>
-FAIL Parsing origin: <https://faß.ExAmPlE/> against <about:blank> assert_equals: origin expected "https://xn--fa-hia.example" but got "https://fass.example"
+PASS Parsing origin: <https://faß.ExAmPlE/> against <about:blank>
 PASS Parsing origin: <sc://faß.ExAmPlE/> against <about:blank>
 PASS Parsing origin: <http://%30%78%63%30%2e%30%32%35%30.01> against <http://other.com/>
 PASS Parsing origin: <http://%30%78%63%30%2e%30%32%35%30.01%2e> against <http://other.com/>
 PASS Parsing origin: <http://０Ｘｃ０．０２５０．０１> against <http://other.com/>
 PASS Parsing origin: <http://./> against <about:blank>
 PASS Parsing origin: <http://../> against <about:blank>
+PASS Parsing origin: <h://.> against <about:blank>
 PASS Parsing origin: <http://foo:💩@example.com/bar> against <http://other.com/>
 PASS Parsing origin: <#> against <test:test>
 PASS Parsing origin: <#x> against <mailto:x@x.com>
 PASS Parsing origin: <#x> against <data:,>
 PASS Parsing origin: <#x> against <about:blank>
+PASS Parsing origin: <#x:y> against <about:blank>
 PASS Parsing origin: <#> against <test:test?test>
 PASS Parsing origin: <https://@test@test@example:800/> against <http://doesnotmatter/>
 PASS Parsing origin: <https://@@@example> against <http://doesnotmatter/>
@@ -338,5 +340,28 @@ PASS Parsing origin: <foo://host/dir/? !"$%&'()*+,-./:;<=>?@[\]^_`{|}~> against 
 PASS Parsing origin: <wss://host/dir/? !"$%&'()*+,-./:;<=>?@[\]^_`{|}~> against <about:blank>
 PASS Parsing origin: <foo://host/dir/# !"#$%&'()*+,-./:;<=>?@[\]^_`{|}~> against <about:blank>
 PASS Parsing origin: <wss://host/dir/# !"#$%&'()*+,-./:;<=>?@[\]^_`{|}~> against <about:blank>
+PASS Parsing origin: <https://example.com/"quoted"> against <about:blank>
+PASS Parsing origin: <https://a%C2%ADb/> against <about:blank>
+PASS Parsing origin: <data://example.com:8080/pathname?search#hash> against <about:blank>
+PASS Parsing origin: <data:///test> against <about:blank>
+PASS Parsing origin: <data://test/a/../b> against <about:blank>
+PASS Parsing origin: <javascript://example.com:8080/pathname?search#hash> against <about:blank>
+PASS Parsing origin: <javascript:///test> against <about:blank>
+PASS Parsing origin: <javascript://test/a/../b> against <about:blank>
+PASS Parsing origin: <mailto://example.com:8080/pathname?search#hash> against <about:blank>
+PASS Parsing origin: <mailto:///test> against <about:blank>
+PASS Parsing origin: <mailto://test/a/../b> against <about:blank>
+PASS Parsing origin: <intent://example.com:8080/pathname?search#hash> against <about:blank>
+PASS Parsing origin: <intent:///test> against <about:blank>
+PASS Parsing origin: <intent://test/a/../b> against <about:blank>
+PASS Parsing origin: <urn://example.com:8080/pathname?search#hash> against <about:blank>
+PASS Parsing origin: <urn:///test> against <about:blank>
+PASS Parsing origin: <urn://test/a/../b> against <about:blank>
+PASS Parsing origin: <turn://example.com:8080/pathname?search#hash> against <about:blank>
+PASS Parsing origin: <turn:///test> against <about:blank>
+PASS Parsing origin: <turn://test/a/../b> against <about:blank>
+PASS Parsing origin: <stun://example.com:8080/pathname?search#hash> against <about:blank>
+PASS Parsing origin: <stun:///test> against <about:blank>
+PASS Parsing origin: <stun://test/a/../b> against <about:blank>
 Harness: the test ran to completion.
 

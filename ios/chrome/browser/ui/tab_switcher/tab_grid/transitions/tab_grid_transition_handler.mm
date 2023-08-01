@@ -1,14 +1,14 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/transitions/tab_grid_transition_handler.h"
 
+#import "ios/chrome/browser/shared/ui/util/named_guide.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/transitions/grid_transition_animation.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/transitions/grid_transition_animation_layout_providing.h"
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/transitions/grid_transition_layout.h"
-#import "ios/chrome/browser/ui/util/named_guide.h"
-#include "ios/chrome/browser/ui/util/ui_util.h"
+#import "ios/chrome/common/ui/util/ui_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -59,12 +59,14 @@ const CGFloat kReducedMotionDuration = 0.25;
     return;
   }
 
+  GridAnimationDirection direction = GridAnimationDirectionContracting;
   CGFloat duration = self.animationDisabled ? 0 : kBrowserToGridDuration;
+
   self.animation = [[GridTransitionAnimation alloc]
       initWithLayout:[self transitionLayoutForTabInViewController:browser
                                                        activePage:activePage]
             duration:duration
-           direction:GridAnimationDirectionContracting];
+           direction:direction];
 
   UIView* animationContainer = [self.layoutProvider animationViewsContainer];
   UIView* bottomViewForAnimations =
@@ -72,11 +74,25 @@ const CGFloat kReducedMotionDuration = 0.25;
   [animationContainer insertSubview:self.animation
                        aboveSubview:bottomViewForAnimations];
 
+  UIView* activeItem = self.animation.activeItem;
+  UIView* selectedItem = self.animation.selectionItem;
+  BOOL shouldReparentSelectedCell =
+      [self.layoutProvider shouldReparentSelectedCell:direction];
+
+  if (shouldReparentSelectedCell) {
+    [tabGrid.view addSubview:selectedItem];
+    [tabGrid.view addSubview:activeItem];
+  }
+
   [self.animation.animator addAnimations:^{
     [tabGrid setNeedsStatusBarAppearanceUpdate];
   }];
 
   [self.animation.animator addCompletion:^(UIViewAnimatingPosition position) {
+    if (shouldReparentSelectedCell) {
+      [activeItem removeFromSuperview];
+      [selectedItem removeFromSuperview];
+    }
     [self.animation removeFromSuperview];
     if (position == UIViewAnimatingPositionEnd) {
       [browser.view removeFromSuperview];
@@ -129,12 +145,14 @@ const CGFloat kReducedMotionDuration = 0.25;
     return;
   }
 
+  GridAnimationDirection direction = GridAnimationDirectionExpanding;
   CGFloat duration = self.animationDisabled ? 0 : kGridToBrowserDuration;
+
   self.animation = [[GridTransitionAnimation alloc]
       initWithLayout:[self transitionLayoutForTabInViewController:browser
                                                        activePage:activePage]
             duration:duration
-           direction:GridAnimationDirectionExpanding];
+           direction:direction];
 
   UIView* animationContainer = [self.layoutProvider animationViewsContainer];
   UIView* bottomViewForAnimations =
@@ -142,14 +160,25 @@ const CGFloat kReducedMotionDuration = 0.25;
   [animationContainer insertSubview:self.animation
                        aboveSubview:bottomViewForAnimations];
 
-  [tabGrid.view addSubview:self.animation.activeCell];
+  UIView* activeItem = self.animation.activeItem;
+  UIView* selectedItem = self.animation.selectionItem;
+  BOOL shouldReparentSelectedCell =
+      [self.layoutProvider shouldReparentSelectedCell:direction];
+
+  if (shouldReparentSelectedCell) {
+    [tabGrid.view addSubview:selectedItem];
+    [tabGrid.view addSubview:activeItem];
+  }
 
   [self.animation.animator addAnimations:^{
     [tabGrid setNeedsStatusBarAppearanceUpdate];
   }];
 
   [self.animation.animator addCompletion:^(UIViewAnimatingPosition position) {
-    [self.animation.activeCell removeFromSuperview];
+    if (shouldReparentSelectedCell) {
+      [activeItem removeFromSuperview];
+      [selectedItem removeFromSuperview];
+    }
     [self.animation removeFromSuperview];
     if (position == UIViewAnimatingPositionEnd) {
       browser.view.alpha = 1;
@@ -165,7 +194,7 @@ const CGFloat kReducedMotionDuration = 0.25;
 
 #pragma mark - Private
 
-// Returns the transition layout for the |activePage|, based on the |browser|.
+// Returns the transition layout for the `activePage`, based on the `browser`.
 - (GridTransitionLayout*)transitionLayoutForTabInViewController:
                              (UIViewController*)viewControllerForTab
                                                      activePage:(TabGridPage)
@@ -177,7 +206,7 @@ const CGFloat kReducedMotionDuration = 0.25;
   // Conceptually the transition is dismissing/presenting a tab (a BVC).
   // However, currently the BVC instances are themselves contanted within a
   // BVCContainer view controller. This means that the
-  // |viewControllerForTab.view| is not the BVC's view; rather it's the view of
+  // `viewControllerForTab.view` is not the BVC's view; rather it's the view of
   // the view controller that contains the BVC. Unfortunatley, the layout guide
   // needed here is attached to the BVC's view, which is the first (and only)
   // subview of the BVCContainerViewController's view.
@@ -197,7 +226,7 @@ const CGFloat kReducedMotionDuration = 0.25;
   return layout;
 }
 
-// Animates the transition for the |tab|, whether it is |beingPresented| or not,
+// Animates the transition for the `tab`, whether it is `beingPresented` or not,
 // with reduced animations.
 - (void)transitionWithReducedAnimationsForTab:(UIView*)tab
                                beingPresented:(BOOL)beingPresented
@@ -243,7 +272,7 @@ const CGFloat kReducedMotionDuration = 0.25;
       }
       completion:^(BOOL finished) {
         // When presenting the FirstRun ViewController, this can be called with
-        // |finished| to NO on official builds. For now, the animation not
+        // `finished` to NO on official builds. For now, the animation not
         // finishing isn't handled anywhere.
         tab.clipsToBounds = oldClipsToBounds;
         if (completion)

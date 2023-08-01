@@ -1,12 +1,8 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "content/web_test/common/web_test_switches.h"
-
-#include "base/command_line.h"
-#include "base/strings/string_split.h"
-#include "build/build_config.h"
 
 namespace switches {
 
@@ -42,6 +38,12 @@ const char kEncodeBinary[] = "encode-binary";
 const char kDisableAutoWPTOriginIsolation[] =
     "disable-auto-wpt-origin-isolation";
 
+// Forces each web test to be run in a new BrowsingInstance. Required for origin
+// isolation web tests where the BrowsingInstance retains state from origin
+// isolation requests, but this flag may benefit other web tests.
+const char kResetBrowsingInstanceBetweenTests[] =
+    "reset-browsing-instance-between-tests";
+
 // This makes us disable some web-platform runtime features so that we test
 // content_shell as if it was a stable release. It is only followed when
 // kRunWebTest is set. For the features' level, see
@@ -52,24 +54,5 @@ const char kStableReleaseMode[] = "stable-release-mode";
 // to use the hardware GPU for rendering. This is only followed when
 // kRunWebTests is set.
 const char kDisableHeadlessMode[] = "disable-headless-mode";
-
-#if BUILDFLAG(IS_WIN)
-// Registers additional font files on Windows (for fonts outside the usual
-// %WINDIR%\Fonts location). Multiple files can be used by separating them
-// with a semicolon (;).
-const char kRegisterFontFiles[] = "register-font-files";
-
-std::vector<std::string> GetSideloadFontFiles() {
-  std::vector<std::string> files;
-  const base::CommandLine& command_line =
-      *base::CommandLine::ForCurrentProcess();
-  if (command_line.HasSwitch(switches::kRegisterFontFiles)) {
-    files = base::SplitString(
-        command_line.GetSwitchValueASCII(switches::kRegisterFontFiles), ";",
-        base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
-  }
-  return files;
-}
-#endif
 
 }  // namespace switches

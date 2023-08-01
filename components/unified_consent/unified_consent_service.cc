@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,11 @@
 #include "base/check_op.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/scoped_observation.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "build/build_config.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/sync/base/user_selectable_type.h"
-#include "components/sync/driver/sync_service.h"
-#include "components/sync/driver/sync_user_settings.h"
+#include "components/sync/service/sync_service.h"
+#include "components/sync/service/sync_user_settings.h"
 #include "components/sync_preferences/pref_service_syncable.h"
 #include "components/unified_consent/pref_names.h"
 
@@ -79,9 +78,9 @@ void UnifiedConsentService::OnPrimaryAccountChanged(
 void UnifiedConsentService::OnStateChanged(syncer::SyncService* sync) {
   // Start observing pref changes when the user enters sync setup.
   // Note: Only |sync->IsSetupInProgress()| is used (i.e. no check for
-  // |IsFirstSetupComplete()|), because on Android |SetFirstSetupComplete()| is
-  // called automatically during the first setup, i.e. the value could change in
-  // the meantime.
+  // |IsInitialSyncFeatureSetupComplete()|), because on Android
+  // |SetInitialSyncFeatureSetupComplete()| is called automatically during the
+  // first setup, i.e. the value could change in the meantime.
   if (sync->IsSetupInProgress() && !pref_service_->IsSyncing()) {
     StartObservingServicePrefChanges();
   } else {
@@ -133,9 +132,8 @@ void UnifiedConsentService::StopObservingServicePrefChanges() {
 
 void UnifiedConsentService::ServicePrefChanged(const std::string& name) {
   DCHECK(sync_service_->IsSetupInProgress());
-  const base::Value* value = pref_service_->Get(name);
-  DCHECK(value);
-  service_pref_changes_[name] = value->Clone();
+  const base::Value& value = pref_service_->GetValue(name);
+  service_pref_changes_[name] = value.Clone();
 }
 
 MigrationState UnifiedConsentService::GetMigrationState() {

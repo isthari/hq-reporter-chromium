@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 
 #import <UIKit/UIKit.h>
 
-#import "ios/chrome/browser/ui/table_view/chrome_table_view_controller.h"
+#import "ios/chrome/browser/shared/ui/table_view/chrome_table_view_controller.h"
 
 @protocol TableViewFaviconDataSource;
 
@@ -20,6 +20,9 @@
 
 // Data source for images.
 @property(nonatomic, weak) id<TableViewFaviconDataSource> imageDataSource;
+
+// Presents a given item as a header section above data.
+- (void)presentHeaderItem:(TableViewItem*)item;
 
 // Presents given items in 'items' section.
 - (void)presentDataItems:(NSArray<TableViewItem*>*)items;

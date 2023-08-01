@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,13 @@
 #include <memory>
 #include <string>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
 #include "chrome/browser/extensions/extension_install_prompt.h"
 #include "chrome/browser/extensions/load_error_reporter.h"
-#include "chrome/common/buildflags.h"
+#include "components/supervised_user/core/common/buildflags.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_registry_observer.h"
 
@@ -82,14 +82,10 @@ class ExtensionEnableFlow : public extensions::LoadErrorReporter::Observer,
   void CreatePrompt();
 
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS)
-  // Called when the user dismisses the Parent Permission Dialog.
-  void OnParentPermissionDialogDone(
-      extensions::SupervisedUserExtensionsDelegate::ParentPermissionDialogResult
+  // Called when the extension approval flow is complete.
+  void OnExtensionApprovalDone(
+      extensions::SupervisedUserExtensionsDelegate::ExtensionApprovalResult
           result);
-
-  // Called when the user dismisses the Extension Install Blocked By Parent
-  // Dialog.
-  void OnBlockedByParentDialogDone();
 #endif  // BUILDFLAG(ENABLE_SUPERVISED_USERS)
 
   // Starts/stops observing extension load notifications.

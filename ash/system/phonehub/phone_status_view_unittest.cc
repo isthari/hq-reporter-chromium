@@ -1,16 +1,18 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/system/phonehub/phone_status_view.h"
 
-#include "ash/components/phonehub/mutable_phone_model.h"
 #include "ash/constants/ash_features.h"
 #include "ash/style/icon_button.h"
 #include "ash/test/ash_test_base.h"
+#include "base/memory/raw_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
+#include "chromeos/ash/components/phonehub/mutable_phone_model.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "ui/events/test/test_event.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/test/button_test_api.h"
@@ -20,12 +22,6 @@ namespace ash {
 
 using PhoneStatusModel = phonehub::PhoneStatusModel;
 
-class DummyEvent : public ui::Event {
- public:
-  DummyEvent() : Event(ui::ET_UNKNOWN, base::TimeTicks(), 0) {}
-  ~DummyEvent() override = default;
-};
-
 class PhoneStatusViewTest : public AshTestBase,
                             public PhoneStatusView::Delegate {
  public:
@@ -34,7 +30,7 @@ class PhoneStatusViewTest : public AshTestBase,
 
   // AshTestBase:
   void SetUp() override {
-    feature_list_.InitAndEnableFeature(chromeos::features::kPhoneHub);
+    feature_list_.InitAndEnableFeature(features::kPhoneHub);
     AshTestBase::SetUp();
     widget_ = CreateFramelessTestWidget();
     status_view_ = widget_->SetContentsView(
@@ -57,7 +53,7 @@ class PhoneStatusViewTest : public AshTestBase,
 
  protected:
   std::unique_ptr<views::Widget> widget_;
-  PhoneStatusView* status_view_ = nullptr;
+  raw_ptr<PhoneStatusView, ExperimentalAsh> status_view_ = nullptr;
   phonehub::MutablePhoneModel phone_model_;
   base::test::ScopedFeatureList feature_list_;
   bool can_open_connected_device_settings_ = false;
@@ -122,7 +118,7 @@ TEST_F(PhoneStatusViewTest, ClickOnSettings) {
 
   // Click on the settings button.
   views::test::ButtonTestApi(status_view_->settings_button_)
-      .NotifyClick(DummyEvent());
+      .NotifyClick(ui::test::TestEvent());
   EXPECT_TRUE(connected_device_settings_opened_);
 }
 

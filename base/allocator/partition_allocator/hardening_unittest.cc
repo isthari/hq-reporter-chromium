@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,24 +16,19 @@
 // With *SAN, PartitionAlloc is rerouted to malloc().
 #if !defined(MEMORY_TOOL_REPLACES_ALLOCATOR)
 
-namespace base {
-namespace internal {
+namespace partition_alloc::internal {
+namespace {
 
 // Death tests misbehave on Android, crbug.com/1240184
 #if !BUILDFLAG(IS_ANDROID) && defined(GTEST_HAS_DEATH_TEST) && \
-    defined(PA_HAS_FREELIST_SHADOW_ENTRY)
+    PA_CONFIG(HAS_FREELIST_SHADOW_ENTRY)
 
 TEST(HardeningTest, PartialCorruption) {
   std::string important_data("very important");
   char* to_corrupt = const_cast<char*>(important_data.c_str());
 
-  PartitionRoot<ThreadSafe> root({
-      PartitionOptions::AlignedAlloc::kAllowed,
-      PartitionOptions::ThreadCache::kDisabled,
-      PartitionOptions::Quarantine::kDisallowed,
-      PartitionOptions::Cookie::kDisallowed,
-      PartitionOptions::BackupRefPtr::kDisabled,
-      PartitionOptions::UseConfigurablePool::kNo,
+  PartitionRoot<ThreadSafe> root(PartitionOptions{
+      .aligned_alloc = PartitionOptions::AlignedAlloc::kAllowed,
   });
   root.UncapEmptySlotSpanMemoryForTesting();
 
@@ -57,13 +52,8 @@ TEST(HardeningTest, OffHeapPointerCrashing) {
   std::string important_data("very important");
   char* to_corrupt = const_cast<char*>(important_data.c_str());
 
-  PartitionRoot<ThreadSafe> root({
-      PartitionOptions::AlignedAlloc::kAllowed,
-      PartitionOptions::ThreadCache::kDisabled,
-      PartitionOptions::Quarantine::kDisallowed,
-      PartitionOptions::Cookie::kDisallowed,
-      PartitionOptions::BackupRefPtr::kDisabled,
-      PartitionOptions::UseConfigurablePool::kNo,
+  PartitionRoot<ThreadSafe> root(PartitionOptions{
+      .aligned_alloc = PartitionOptions::AlignedAlloc::kAllowed,
   });
   root.UncapEmptySlotSpanMemoryForTesting();
 
@@ -83,13 +73,8 @@ TEST(HardeningTest, OffHeapPointerCrashing) {
 }
 
 TEST(HardeningTest, MetadataPointerCrashing) {
-  PartitionRoot<ThreadSafe> root({
-      PartitionOptions::AlignedAlloc::kAllowed,
-      PartitionOptions::ThreadCache::kDisabled,
-      PartitionOptions::Quarantine::kDisallowed,
-      PartitionOptions::Cookie::kDisallowed,
-      PartitionOptions::BackupRefPtr::kDisabled,
-      PartitionOptions::UseConfigurablePool::kNo,
+  PartitionRoot<ThreadSafe> root(PartitionOptions{
+      .aligned_alloc = PartitionOptions::AlignedAlloc::kAllowed,
   });
   root.UncapEmptySlotSpanMemoryForTesting();
 
@@ -107,21 +92,21 @@ TEST(HardeningTest, MetadataPointerCrashing) {
   EXPECT_DEATH(root.Alloc(kAllocSize, ""), "");
 }
 #endif  // !BUILDFLAG(IS_ANDROID) && defined(GTEST_HAS_DEATH_TEST) &&
-        // defined(PA_HAS_FREELIST_SHADOW_ENTRY)
+        // PA_CONFIG(HAS_FREELIST_SHADOW_ENTRY)
+
+// Below test also misbehaves on Android; as above, death tests don't
+// quite work (crbug.com/1240184), and having free slot bitmaps enabled
+// force the expectations below to crash.
+#if !BUILDFLAG(IS_ANDROID)
 
 TEST(HardeningTest, SuccessfulCorruption) {
-  PartitionRoot<ThreadSafe> root({
-      PartitionOptions::AlignedAlloc::kAllowed,
-      PartitionOptions::ThreadCache::kDisabled,
-      PartitionOptions::Quarantine::kDisallowed,
-      PartitionOptions::Cookie::kDisallowed,
-      PartitionOptions::BackupRefPtr::kDisabled,
-      PartitionOptions::UseConfigurablePool::kNo,
+  PartitionRoot<ThreadSafe> root(PartitionOptions{
+      .aligned_alloc = PartitionOptions::AlignedAlloc::kAllowed,
   });
   root.UncapEmptySlotSpanMemoryForTesting();
 
   uintptr_t* zero_vector = reinterpret_cast<uintptr_t*>(
-      root.AllocFlags(PartitionAllocZeroFill, 100 * sizeof(uintptr_t), ""));
+      root.AllocWithFlags(AllocFlags::kZeroFill, 100 * sizeof(uintptr_t), ""));
   ASSERT_TRUE(zero_vector);
   // Pointer to the middle of an existing allocation.
   uintptr_t* to_corrupt = zero_vector + 20;
@@ -135,6 +120,11 @@ TEST(HardeningTest, SuccessfulCorruption) {
   PartitionFreelistEntry::EmplaceAndInitForTest(root.ObjectToSlotStart(data),
                                                 to_corrupt, true);
 
+#if BUILDFLAG(USE_FREESLOT_BITMAP)
+  // This part crashes with freeslot bitmap because it detects freelist
+  // corruptions, which is rather desirable behavior.
+  EXPECT_DEATH_IF_SUPPORTED(root.Alloc(kAllocSize, ""), "");
+#else
   // Next allocation is what was in
   // root->bucket->active_slot_span_head->freelist_head, so not the corrupted
   // pointer.
@@ -145,9 +135,11 @@ TEST(HardeningTest, SuccessfulCorruption) {
   void* new_data2 = root.Alloc(kAllocSize, "");
   // Now we have a pointer to the middle of an existing allocation.
   EXPECT_EQ(new_data2, to_corrupt);
+#endif  // BUILDFLAG(USE_FREESLOT_BITMAP)
 }
+#endif  // !BUILDFLAG(IS_ANDROID)
 
-}  // namespace internal
-}  // namespace base
+}  // namespace
+}  // namespace partition_alloc::internal
 
 #endif  // !defined(MEMORY_TOOL_REPLACES_ALLOCATOR)

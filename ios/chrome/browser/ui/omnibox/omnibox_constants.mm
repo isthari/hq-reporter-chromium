@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,3 +9,15 @@
 #endif
 
 const CGFloat kOmniboxPlaceholderAlpha = 0.3;
+
+NSString* const kOmniboxLeadingImageDefaultAccessibilityIdentifier =
+    @"OmniboxLeadingImageDefaultAccessibilityIdentifier";
+
+NSString* const kOmniboxLeadingImageEmptyTextAccessibilityIdentifier =
+    @"OmniboxLeadingImageEmptyTextAccessibilityIdentifier";
+
+NSString* const kOmniboxLeadingImageSuggestionImageAccessibilityIdentifier =
+    @"OmniboxLeadingImageSuggestionImageAccessibilityIdentifier";
+
+NSString* const kOmniboxAutocompleteLabelAccessibilityIdentifier =
+    @"OmniboxAutocompleteLabelAccessibilityIdentifier";

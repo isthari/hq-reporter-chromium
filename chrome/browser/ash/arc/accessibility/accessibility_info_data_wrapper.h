@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,8 @@
 #define CHROME_BROWSER_ASH_ARC_ACCESSIBILITY_ACCESSIBILITY_INFO_DATA_WRAPPER_H_
 
 #include "ash/components/arc/mojom/accessibility_helper.mojom.h"
+#include "base/memory/raw_ptr.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 #include <string>
 #include <vector>
@@ -23,7 +25,7 @@ class AXTreeSourceArc;
 class AccessibilityInfoDataWrapper {
  public:
   explicit AccessibilityInfoDataWrapper(AXTreeSourceArc* tree_source);
-  virtual ~AccessibilityInfoDataWrapper() = default;
+  virtual ~AccessibilityInfoDataWrapper();
 
   // True if this AccessibilityInfoDataWrapper represents an Android node, false
   // if it represents an Android window.
@@ -51,9 +53,12 @@ class AccessibilityInfoDataWrapper {
   virtual int32_t GetWindowId() const = 0;
 
  protected:
-  AXTreeSourceArc* tree_source_;
+  raw_ptr<AXTreeSourceArc, ExperimentalAsh> tree_source_;
+  absl::optional<std::vector<AccessibilityInfoDataWrapper*>> cached_children_;
 
  private:
+  friend class AXTreeSourceArc;
+
   // Populate bounds of a node which can be passed to AXNodeData.location.
   // Bounds are returned in the following coordinates depending on whether it's
   // root or not.

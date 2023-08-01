@@ -1,4 +1,4 @@
-// Copyright (c) 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,7 @@
 #include "base/allocator/partition_allocator/partition_alloc_constants.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-namespace base {
-namespace internal {
+namespace partition_alloc::internal {
 
 namespace {
 
@@ -20,16 +19,17 @@ using TestBitmap = StateBitmap<kSuperPageSize, kSuperPageSize, kAlignment>;
 class PageWithBitmap final {
  public:
   PageWithBitmap()
-      : base_(base::AllocPages(kSuperPageSize,
-                               kSuperPageAlignment,
-                               PageAccessibilityConfiguration::kReadWrite,
-                               PageTag::kPartitionAlloc)),
-        bitmap_(new (reinterpret_cast<void*>(base_)) TestBitmap) {}
+      : base_(AllocPages(kSuperPageSize,
+                         kSuperPageAlignment,
+                         PageAccessibilityConfiguration(
+                             PageAccessibilityConfiguration::kReadWrite),
+                         PageTag::kPartitionAlloc)),
+        bitmap_(new(reinterpret_cast<void*>(base_)) TestBitmap) {}
 
   PageWithBitmap(const PageWithBitmap&) = delete;
   PageWithBitmap& operator=(const PageWithBitmap&) = delete;
 
-  ~PageWithBitmap() { base::FreePages(base_, kSuperPageSize); }
+  ~PageWithBitmap() { FreePages(base_, kSuperPageSize); }
 
   TestBitmap& bitmap() const { return *bitmap_; }
 
@@ -261,8 +261,9 @@ TEST_F(PartitionAllocStateBitmapTest, AdjacentQuarantinedObjectsAtBegin) {
     size_t count = 0;
     this->bitmap().IterateUnmarkedQuarantined(
         kTestEpoch, [&count, this](uintptr_t current) {
-          if (count == 0)
+          if (count == 0) {
             EXPECT_EQ(ObjectAddress(1), current);
+          }
           count++;
         });
 
@@ -295,8 +296,9 @@ TEST_F(PartitionAllocStateBitmapTest, AdjacentQuarantinedObjectsAtMiddle) {
     size_t count = 0;
     this->bitmap().IterateUnmarkedQuarantined(
         kTestEpoch, [&count, this](uintptr_t current) {
-          if (count == 0)
+          if (count == 0) {
             EXPECT_EQ(ObjectAddress(MiddleIndex() + 1), current);
+          }
           count++;
         });
 
@@ -331,8 +333,9 @@ TEST_F(PartitionAllocStateBitmapTest, AdjacentQuarantinedObjectsAtEnd) {
     size_t count = 0;
     this->bitmap().IterateUnmarkedQuarantined(
         kTestEpoch, [&count, this](uintptr_t current) {
-          if (count == 0)
+          if (count == 0) {
             EXPECT_EQ(ObjectAddress(LastIndex() - 1), current);
+          }
           count++;
         });
 
@@ -340,5 +343,4 @@ TEST_F(PartitionAllocStateBitmapTest, AdjacentQuarantinedObjectsAtEnd) {
   }
 }
 
-}  // namespace internal
-}  // namespace base
+}  // namespace partition_alloc::internal

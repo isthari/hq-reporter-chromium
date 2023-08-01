@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,16 @@
 
 #include <stddef.h>
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/containers/contains.h"
+#include "base/feature_list.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/task/sequenced_task_runner.h"
+#include "media/base/media_switches.h"
 #include "media/base/video_types.h"
 #include "media/gpu/buildflags.h"
+#include "media/gpu/chromeos/gl_image_processor_backend.h"
 #include "media/gpu/chromeos/image_processor.h"
 #include "media/gpu/chromeos/libyuv_image_processor_backend.h"
 #include "media/gpu/macros.h"
@@ -19,13 +23,11 @@
 #if BUILDFLAG(USE_VAAPI)
 #include "media/gpu/vaapi/vaapi_image_processor_backend.h"
 #include "media/gpu/vaapi/vaapi_wrapper.h"
-#endif  // BUILDFLAG(USE_VAAPI)
-
-#if BUILDFLAG(USE_V4L2_CODEC)
+#elif BUILDFLAG(USE_V4L2_CODEC)
 #include "media/gpu/v4l2/v4l2_device.h"
 #include "media/gpu/v4l2/v4l2_image_processor_backend.h"
 #include "media/gpu/v4l2/v4l2_vda_helpers.h"
-#endif  // BUILDFLAG(USE_V4L2_CODEC)
+#endif
 
 namespace media {
 
@@ -79,9 +81,9 @@ std::unique_ptr<ImageProcessor> CreateVaapiImageProcessorWithInputCandidates(
       output_config, ImageProcessor::OutputMode::IMPORT, VIDEO_ROTATION_0,
       std::move(error_cb), std::move(client_task_runner));
 }
-#endif  // BUILDFLAG(USE_VAAPI)
 
-#if BUILDFLAG(USE_V4L2_CODEC) && !BUILDFLAG(USE_VAAPI)
+#elif BUILDFLAG(USE_V4L2_CODEC)
+
 std::unique_ptr<ImageProcessor> CreateV4L2ImageProcessorWithInputCandidates(
     const std::vector<PixelLayoutCandidate>& input_candidates,
     const gfx::Rect& visible_rect,
@@ -104,8 +106,17 @@ std::unique_ptr<ImageProcessor> CreateV4L2ImageProcessorWithInputCandidates(
 
   const auto output_fourcc = out_format_picker.Run(
       /*candidates=*/supported_fourccs, /*preferred_fourcc=*/absl::nullopt);
-  if (!output_fourcc)
+  if (!output_fourcc) {
+#if DCHECK_IS_ON()
+    std::string output_fourccs_string;
+    for (const auto fourcc : supported_fourccs) {
+      output_fourccs_string += fourcc.ToString();
+      output_fourccs_string += " ";
+    }
+    DVLOGF(1) << "None of " << output_fourccs_string << "formats is supported.";
+#endif
     return nullptr;
+  }
 
   const auto supported_input_pixfmts =
       V4L2ImageProcessorBackend::GetSupportedInputFormats();
@@ -150,7 +161,76 @@ std::unique_ptr<ImageProcessor> CreateV4L2ImageProcessorWithInputCandidates(
   }
   return nullptr;
 }
-#endif  // BUILDFLAG(USE_V4L2_CODEC) && !BUILDFLAG(USE_VAAPI)
+
+std::unique_ptr<ImageProcessor> CreateLibYUVImageProcessorWithInputCandidates(
+    const std::vector<PixelLayoutCandidate>& input_candidates,
+    const gfx::Rect& input_visible_rect,
+    const gfx::Size& output_size,
+    scoped_refptr<base::SequencedTaskRunner> client_task_runner,
+    ImageProcessorFactory::PickFormatCB out_format_picker,
+    ImageProcessor::ErrorCB error_cb) {
+  if (input_candidates.size() != 1)
+    return nullptr;
+
+  if (input_candidates[0].fourcc != Fourcc(Fourcc::MM21) &&
+      input_candidates[0].fourcc != Fourcc(Fourcc::MT2T)) {
+    return nullptr;
+  }
+
+  std::vector<Fourcc> supported_output_formats =
+      LibYUVImageProcessorBackend::GetSupportedOutputFormats(
+          input_candidates[0].fourcc);
+  auto output_format =
+      out_format_picker.Run(supported_output_formats, absl::nullopt);
+
+  if (!output_format)
+    return nullptr;
+
+  ImageProcessor::PortConfig input_config(
+      input_candidates[0].fourcc, input_candidates[0].size, /*planes=*/{},
+      input_visible_rect, {VideoFrame::STORAGE_DMABUFS});
+  ImageProcessor::PortConfig output_config(
+      *output_format, output_size, /*planes=*/{}, gfx::Rect(output_size),
+      {VideoFrame::STORAGE_GPU_MEMORY_BUFFER});
+  return ImageProcessor::Create(
+      base::BindRepeating(&LibYUVImageProcessorBackend::Create), input_config,
+      output_config, ImageProcessor::OutputMode::IMPORT, VIDEO_ROTATION_0,
+      std::move(error_cb), std::move(client_task_runner));
+}
+
+#if defined(ARCH_CPU_ARM_FAMILY)
+std::unique_ptr<ImageProcessor> CreateGLImageProcessorWithInputCandidates(
+    const std::vector<PixelLayoutCandidate>& input_candidates,
+    const gfx::Rect& input_visible_rect,
+    const gfx::Size& output_size,
+    scoped_refptr<base::SequencedTaskRunner> client_task_runner,
+    ImageProcessorFactory::PickFormatCB out_format_picker,
+    ImageProcessor::ErrorCB error_cb) {
+  if (input_candidates.size() != 1)
+    return nullptr;
+
+  if (input_candidates[0].fourcc != Fourcc(Fourcc::MM21))
+    return nullptr;
+
+  ImageProcessor::PortConfig input_config(
+      Fourcc(Fourcc::MM21), input_candidates[0].size, /*planes=*/{},
+      input_visible_rect, {VideoFrame::STORAGE_DMABUFS});
+  ImageProcessor::PortConfig output_config(
+      Fourcc(Fourcc::NV12), output_size, /*planes=*/{}, gfx::Rect(output_size),
+      {VideoFrame::STORAGE_GPU_MEMORY_BUFFER});
+
+  if (!GLImageProcessorBackend::IsSupported(input_config, output_config,
+                                            VIDEO_ROTATION_0)) {
+    return nullptr;
+  }
+
+  return ImageProcessor::Create(
+      base::BindRepeating(&GLImageProcessorBackend::Create), input_config,
+      output_config, ImageProcessor::OutputMode::IMPORT, VIDEO_ROTATION_0,
+      std::move(error_cb), std::move(client_task_runner));
+}
+#endif  // defined(ARCH_CPU_ARM_FAMILY)
+#endif
 
 }  // namespace
 
@@ -170,7 +250,7 @@ std::unique_ptr<ImageProcessor> ImageProcessorFactory::Create(
 #elif BUILDFLAG(USE_V4L2_CODEC)
   create_funcs.push_back(base::BindRepeating(
       &V4L2ImageProcessorBackend::Create, V4L2Device::Create(), num_buffers));
-#endif  // BUILDFLAG(USE_V4L2_CODEC)
+#endif
   create_funcs.push_back(
       base::BindRepeating(&LibYUVImageProcessorBackend::Create));
 
@@ -202,12 +282,29 @@ ImageProcessorFactory::CreateWithInputCandidates(
   if (processor)
     return processor;
 #elif BUILDFLAG(USE_V4L2_CODEC)
-  auto processor = CreateV4L2ImageProcessorWithInputCandidates(
-      input_candidates, input_visible_rect, num_buffers, client_task_runner,
-      out_format_picker, error_cb);
-  if (processor)
-    return processor;
-#endif  // BUILDFLAG(USE_V4L2_CODEC)
+#if defined(ARCH_CPU_ARM_FAMILY)
+  if (base::FeatureList::IsEnabled(media::kPreferGLImageProcessor)) {
+    auto processor = CreateGLImageProcessorWithInputCandidates(
+        input_candidates, input_visible_rect, output_size, client_task_runner,
+        out_format_picker, error_cb);
+    if (processor)
+      return processor;
+  }
+#endif  // defined(ARCH_CPU_ARM_FAMILY)
+
+    auto processor = CreateLibYUVImageProcessorWithInputCandidates(
+        input_candidates, input_visible_rect, output_size, client_task_runner,
+        out_format_picker, error_cb);
+    if (processor)
+      return processor;
+
+    processor = CreateV4L2ImageProcessorWithInputCandidates(
+        input_candidates, input_visible_rect, num_buffers, client_task_runner,
+        out_format_picker, error_cb);
+    if (processor)
+      return processor;
+
+#endif
 
   // TODO(crbug.com/1004727): Implement LibYUVImageProcessorBackend. When doing
   // so, we must keep in mind that it might not be desirable to fallback to
@@ -215,5 +312,35 @@ ImageProcessorFactory::CreateWithInputCandidates(
   // protected content).
   return nullptr;
 }
+
+#if BUILDFLAG(USE_V4L2_CODEC)
+std::unique_ptr<ImageProcessor>
+ImageProcessorFactory::CreateLibYUVImageProcessorWithInputCandidatesForTesting(
+    const std::vector<ImageProcessor::PixelLayoutCandidate>& input_candidates,
+    const gfx::Rect& input_visible_rect,
+    const gfx::Size& output_size,
+    size_t num_buffers,
+    scoped_refptr<base::SequencedTaskRunner> client_task_runner,
+    PickFormatCB out_format_picker,
+    ImageProcessor::ErrorCB error_cb) {
+  return CreateLibYUVImageProcessorWithInputCandidates(
+      input_candidates, input_visible_rect, output_size, client_task_runner,
+      out_format_picker, error_cb);
+}
+
+std::unique_ptr<ImageProcessor>
+ImageProcessorFactory::CreateGLImageProcessorWithInputCandidatesForTesting(
+    const std::vector<ImageProcessor::PixelLayoutCandidate>& input_candidates,
+    const gfx::Rect& input_visible_rect,
+    const gfx::Size& output_size,
+    size_t num_buffers,
+    scoped_refptr<base::SequencedTaskRunner> client_task_runner,
+    PickFormatCB out_format_picker,
+    ImageProcessor::ErrorCB error_cb) {
+  return CreateGLImageProcessorWithInputCandidates(
+      input_candidates, input_visible_rect, output_size, client_task_runner,
+      out_format_picker, error_cb);
+}
+#endif
 
 }  // namespace media

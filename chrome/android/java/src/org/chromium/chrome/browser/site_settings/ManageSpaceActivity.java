@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,6 @@ import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.res.Resources;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.SystemClock;
 import android.text.TextUtils;
 import android.text.format.Formatter;
 import android.view.View;
@@ -25,7 +24,6 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import org.chromium.base.Log;
-import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.about_settings.AboutChromeSettings;
@@ -45,7 +43,6 @@ import org.chromium.components.browser_ui.site_settings.SiteSettingsCategory;
 import org.chromium.components.browser_ui.site_settings.Website;
 import org.chromium.components.browser_ui.site_settings.Website.StoredDataClearedCallback;
 import org.chromium.components.browser_ui.site_settings.WebsitePermissionsFetcher;
-import org.chromium.components.browser_ui.util.ConversionUtils;
 import org.chromium.components.version_info.VersionInfo;
 
 import java.util.Collection;
@@ -59,12 +56,6 @@ import java.util.Collection;
  */
 public class ManageSpaceActivity extends AppCompatActivity implements View.OnClickListener {
     private static final String TAG = "ManageSpaceActivity";
-
-    // Do not change these constants except for the MAX entry, they are used with UMA histograms.
-    private static final int OPTION_CLEAR_UNIMPORTANT = 0;
-    private static final int OPTION_MANAGE_STORAGE = 1;
-    private static final int OPTION_CLEAR_APP_DATA = 2;
-    private static final int OPTION_MAX = 3;
 
     private TextView mUnimportantSiteDataSizeText;
     private TextView mSiteDataSizeText;
@@ -83,11 +74,11 @@ public class ManageSpaceActivity extends AppCompatActivity implements View.OnCli
     protected void onCreate(Bundle savedInstanceState) {
         ensureActivityNotExported();
 
-        setTheme(R.style.ColorOverlay_ChromiumAndroid);
         setContentView(R.layout.manage_space_activity);
         Resources r = getResources();
         setTitle(String.format(r.getString(R.string.storage_management_activity_label),
                 r.getString(R.string.app_name)));
+        getSupportActionBar().setDisplayHomeAsUpEnabled(true);
 
         mSiteDataSizeText = (TextView) findViewById(R.id.site_data_storage_size_text);
         mSiteDataSizeText.setText(R.string.storage_management_computing_size);
@@ -172,6 +163,12 @@ public class ManageSpaceActivity extends AppCompatActivity implements View.OnCli
                 ChromePreferenceKeys.SETTINGS_WEBSITE_FAILED_BUILD_VERSION, null);
     }
 
+    @Override
+    public boolean onSupportNavigateUp() {
+        finish();
+        return true;
+    }
+
     @VisibleForTesting
     public Button getClearUnimportantButton() {
         return mClearUnimportantButton;
@@ -216,8 +213,6 @@ public class ManageSpaceActivity extends AppCompatActivity implements View.OnCli
                     @Override
                     public void onClick(DialogInterface dialog, int id) {
                         mUnimportantDialog = null;
-                        RecordHistogram.recordEnumeratedHistogram("Android.ManageSpace.ActionTaken",
-                                OPTION_CLEAR_UNIMPORTANT, OPTION_MAX);
                         clearUnimportantData();
                     }
                 });
@@ -233,8 +228,6 @@ public class ManageSpaceActivity extends AppCompatActivity implements View.OnCli
                     SiteSettingsCategory.preferenceKey(SiteSettingsCategory.Type.USE_STORAGE));
             initialArguments.putString(SingleCategorySettings.EXTRA_TITLE,
                     getString(R.string.website_settings_storage));
-            RecordHistogram.recordEnumeratedHistogram(
-                    "Android.ManageSpace.ActionTaken", OPTION_MANAGE_STORAGE, OPTION_MAX);
             SettingsLauncher settingsLauncher = new SettingsLauncherImpl();
             settingsLauncher.launchSettingsActivity(this, AllSiteSettings.class, initialArguments);
         } else if (view == mClearAllDataButton) {
@@ -244,13 +237,6 @@ public class ManageSpaceActivity extends AppCompatActivity implements View.OnCli
             builder.setPositiveButton(R.string.ok, new DialogInterface.OnClickListener() {
                 @Override
                 public void onClick(DialogInterface dialog, int id) {
-                    if (mIsNativeInitialized) {
-                        // This probably won't actually be uploaded, as android will probably kill
-                        // all processes & data before it gets sent to the network.
-                        RecordHistogram.recordEnumeratedHistogram("Android.ManageSpace.ActionTaken",
-                                OPTION_CLEAR_APP_DATA, OPTION_MAX);
-                    }
-
                     SearchActivityPreferencesManager.resetCachedValues();
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         SiteChannelsManager.getInstance().deleteAllSiteChannels();
@@ -266,10 +252,6 @@ public class ManageSpaceActivity extends AppCompatActivity implements View.OnCli
     }
 
     private void onSiteStorageSizeCalculated(long totalSize, long unimportantSize) {
-        RecordHistogram.recordCountHistogram("Android.ManageSpace.TotalDiskUsageMB",
-                (int) ConversionUtils.bytesToMegabytes(totalSize));
-        RecordHistogram.recordCountHistogram("Android.ManageSpace.UnimportantDiskUsageMB",
-                (int) ConversionUtils.bytesToMegabytes(unimportantSize));
         mSiteDataSizeText.setText(Formatter.formatFileSize(this, totalSize));
         mUnimportantSiteDataSizeText.setText(Formatter.formatFileSize(this, unimportantSize));
     }
@@ -297,7 +279,6 @@ public class ManageSpaceActivity extends AppCompatActivity implements View.OnCli
         // We keep track of the number of sites waiting to be cleared, and when it reaches 0 we can
         // set our testing variable.
         private int mNumSitesClearing;
-        private long mClearStartTime;
 
         /**
          * We fetch all the websites and clear all the non-important data. This happens
@@ -305,7 +286,6 @@ public class ManageSpaceActivity extends AppCompatActivity implements View.OnCli
          */
         public void clearData() {
             Profile profile = Profile.getLastUsedRegularProfile();
-            mClearStartTime = SystemClock.elapsedRealtime();
             WebsitePermissionsFetcher fetcher = new WebsitePermissionsFetcher(profile, true);
             fetcher.fetchPreferencesForCategory(SiteSettingsCategory.createFromType(profile,
                                                         SiteSettingsCategory.Type.USE_STORAGE),
@@ -316,8 +296,6 @@ public class ManageSpaceActivity extends AppCompatActivity implements View.OnCli
         public void onStoredDataCleared() {
             mNumSitesClearing--;
             if (mNumSitesClearing <= 0) {
-                RecordHistogram.recordTimesHistogram("Android.ManageSpace.ClearUnimportantTime",
-                        SystemClock.elapsedRealtime() - mClearStartTime);
                 clearUnimportantDataDone();
             }
         }

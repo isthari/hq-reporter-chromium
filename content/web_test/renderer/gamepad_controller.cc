@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "content/public/renderer/render_frame.h"
 #include "gin/arguments.h"
 #include "gin/handle.h"
@@ -66,6 +66,13 @@ class GamepadControllerBindings
   void SetAxisCount(int index, int axes);
   void SetAxisData(int index, int axis, double data);
   void SetDualRumbleVibrationActuator(int index, bool enabled);
+  void SetTriggerRumbleVibrationActuator(int index, bool enabled);
+  void SetTouchCount(int index, int touches);
+  void SetTouchData(int index,
+                    int touch,
+                    unsigned int touch_id,
+                    float position_x,
+                    float position_y);
 
   base::WeakPtr<GamepadController> controller_;
 };
@@ -116,7 +123,11 @@ gin::ObjectTemplateBuilder GamepadControllerBindings::GetObjectTemplateBuilder(
       .SetMethod("setAxisCount", &GamepadControllerBindings::SetAxisCount)
       .SetMethod("setAxisData", &GamepadControllerBindings::SetAxisData)
       .SetMethod("setDualRumbleVibrationActuator",
-                 &GamepadControllerBindings::SetDualRumbleVibrationActuator);
+                 &GamepadControllerBindings::SetDualRumbleVibrationActuator)
+      .SetMethod("setTriggerRumbleVibrationActuator",
+                 &GamepadControllerBindings::SetTriggerRumbleVibrationActuator)
+      .SetMethod("setTouchCount", &GamepadControllerBindings::SetTouchCount)
+      .SetMethod("setTouchData", &GamepadControllerBindings::SetTouchData);
 }
 
 void GamepadControllerBindings::Connect(int index) {
@@ -165,6 +176,29 @@ void GamepadControllerBindings::SetDualRumbleVibrationActuator(int index,
                                                                bool enabled) {
   if (controller_)
     controller_->SetDualRumbleVibrationActuator(index, enabled);
+}
+
+void GamepadControllerBindings::SetTriggerRumbleVibrationActuator(
+    int index,
+    bool enabled) {
+  if (controller_)
+    controller_->SetTriggerRumbleVibrationActuator(index, enabled);
+}
+
+void GamepadControllerBindings::SetTouchData(int index,
+                                             int touch,
+                                             unsigned int touch_id,
+                                             float position_x,
+                                             float position_y) {
+  if (controller_) {
+    controller_->SetTouchData(index, touch, touch_id, position_x, position_y);
+  }
+}
+
+void GamepadControllerBindings::SetTouchCount(int index, int touches) {
+  if (controller_) {
+    controller_->SetTouchCount(index, touches);
+  }
 }
 
 GamepadController::MonitorImpl::MonitorImpl(
@@ -419,6 +453,59 @@ void GamepadController::SetDualRumbleVibrationActuator(int index,
   Gamepad& pad = gamepads_->data.items[index];
   pad.vibration_actuator.type = device::GamepadHapticActuatorType::kDualRumble;
   pad.vibration_actuator.not_null = enabled;
+  pad.timestamp = now;
+  gamepads_->seqlock.WriteEnd();
+}
+
+void GamepadController::SetTriggerRumbleVibrationActuator(int index,
+                                                          bool enabled) {
+  if (index < 0 || index >= static_cast<int>(Gamepads::kItemsLengthCap))
+    return;
+  const int64_t now = CurrentTimeInMicroseconds();
+  gamepads_->seqlock.WriteBegin();
+  Gamepad& pad = gamepads_->data.items[index];
+  pad.vibration_actuator.type =
+      device::GamepadHapticActuatorType::kTriggerRumble;
+  pad.vibration_actuator.not_null = enabled;
+  pad.timestamp = now;
+  gamepads_->seqlock.WriteEnd();
+}
+
+void GamepadController::SetTouchCount(int index, int touches) {
+  if (index < 0 || index >= static_cast<int>(Gamepads::kItemsLengthCap)) {
+    return;
+  }
+  if (touches < 0 ||
+      touches >= static_cast<int>(Gamepad::kTouchEventsLengthCap)) {
+    return;
+  }
+  const int64_t now = CurrentTimeInMicroseconds();
+  gamepads_->seqlock.WriteBegin();
+  Gamepad& pad = gamepads_->data.items[index];
+  pad.supports_touch_events_ = true;
+  pad.touch_events_length = touches;
+  pad.timestamp = now;
+  gamepads_->seqlock.WriteEnd();
+}
+
+void GamepadController::SetTouchData(int index,
+                                     int touch,
+                                     unsigned int touch_id,
+                                     float position_x,
+                                     float position_y) {
+  if (index < 0 || index >= static_cast<int>(Gamepads::kItemsLengthCap)) {
+    return;
+  }
+  if (touch < 0 || touch >= static_cast<int>(Gamepad::kTouchEventsLengthCap)) {
+    return;
+  }
+  const int64_t now = CurrentTimeInMicroseconds();
+  gamepads_->seqlock.WriteBegin();
+  Gamepad& pad = gamepads_->data.items[index];
+  pad.supports_touch_events_ = true;
+  pad.touch_events[touch].touch_id = touch_id;
+  pad.touch_events[touch].x = position_x;
+  pad.touch_events[touch].y = position_y;
   pad.timestamp = now;
   gamepads_->seqlock.WriteEnd();
 }

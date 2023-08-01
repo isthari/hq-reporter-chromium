@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,23 +6,23 @@
 
 #import <UIKit/UIKit.h>
 
-#include "base/files/file_path.h"
-#include "base/files/file_util.h"
-#include "base/files/scoped_temp_dir.h"
-#include "base/format_macros.h"
-#include "base/location.h"
-#include "base/mac/scoped_cftyperef.h"
-#include "base/run_loop.h"
-#include "base/strings/sys_string_conversions.h"
-#include "base/task/thread_pool/thread_pool_instance.h"
-#include "base/time/time.h"
+#import "base/files/file_path.h"
+#import "base/files/file_util.h"
+#import "base/files/scoped_temp_dir.h"
+#import "base/format_macros.h"
+#import "base/location.h"
+#import "base/mac/scoped_cftyperef.h"
+#import "base/run_loop.h"
+#import "base/strings/sys_string_conversions.h"
+#import "base/task/thread_pool/thread_pool_instance.h"
+#import "base/time/time.h"
 #import "ios/chrome/browser/snapshots/snapshot_cache_internal.h"
 #import "ios/chrome/browser/snapshots/snapshot_cache_observer.h"
-#include "ios/web/public/test/web_task_environment.h"
-#include "ios/web/public/thread/web_thread.h"
-#include "testing/gtest/include/gtest/gtest.h"
-#include "testing/gtest_mac.h"
-#include "testing/platform_test.h"
+#import "ios/web/public/test/web_task_environment.h"
+#import "ios/web/public/thread/web_thread.h"
+#import "testing/gtest/include/gtest/gtest.h"
+#import "testing/gtest_mac.h"
+#import "testing/platform_test.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -84,7 +84,7 @@ class SnapshotCacheTest : public PlatformTest {
 
   SnapshotCache* GetSnapshotCache() { return snapshotCache_; }
 
-  // Adds a fake snapshot file into |directory| using |snapshot_id| in the
+  // Adds a fake snapshot file into `directory` using `snapshot_id` in the
   // filename.
   base::FilePath AddSnapshotFileToDirectory(const base::FilePath directory,
                                             NSString* snapshot_id) {
@@ -112,7 +112,7 @@ class SnapshotCacheTest : public PlatformTest {
     return UIGraphicsGetImageFromCurrentImageContext();
   }
 
-  // Generates an image of |size|, filled with a random color.
+  // Generates an image of `size`, filled with a random color.
   UIImage* GenerateRandomImage(CGSize size) {
     UIGraphicsBeginImageContextWithOptions(size, /*opaque=*/NO,
                                            UIScreen.mainScreen.scale);
@@ -165,13 +165,13 @@ class SnapshotCacheTest : public PlatformTest {
     EXPECT_FALSE(foundImage);
   }
 
-  // Loads kSnapshotCount color images into the cache.  If |waitForFilesOnDisk|
+  // Loads kSnapshotCount color images into the cache.  If `waitForFilesOnDisk`
   // is YES, will not return until the images have been written to disk.
   void LoadAllColorImagesIntoCache(bool waitForFilesOnDisk) {
     LoadColorImagesIntoCache(kSnapshotCount, waitForFilesOnDisk);
   }
 
-  // Loads |count| color images into the cache.  If |waitForFilesOnDisk|
+  // Loads `count` color images into the cache.  If `waitForFilesOnDisk`
   // is YES, will not return until the images have been written to disk.
   void LoadColorImagesIntoCache(NSUInteger count, bool waitForFilesOnDisk) {
     SnapshotCache* cache = GetSnapshotCache();
@@ -194,7 +194,7 @@ class SnapshotCacheTest : public PlatformTest {
     }
   }
 
-  // Waits for the first |count| grey images for |snapshotIDs_| to be placed in
+  // Waits for the first `count` grey images for `snapshotIDs_` to be placed in
   // the cache.
   void WaitForGreyImagesInCache(NSUInteger count) {
     SnapshotCache* cache = GetSnapshotCache();
@@ -343,45 +343,6 @@ TEST_F(SnapshotCacheTest, SaveToDisk) {
   }
 }
 
-// Tests that migration moves only specified files to the current SnapshotCache
-// folder. Tests that the legacy folder and any remaining contents are deleted.
-TEST_F(SnapshotCacheTest, MigrationMovesFileAndDeletesSource) {
-  base::ScopedTempDir scoped_source_directory;
-  ASSERT_TRUE(scoped_source_directory.CreateUniqueTempDir());
-
-  SnapshotCache* cache = GetSnapshotCache();
-  base::FilePath source_folder = scoped_source_directory.GetPath();
-
-  // This snapshot will be included in migration.
-  NSString* image1_id = [[NSUUID UUID] UUIDString];
-  base::FilePath source_image1_path =
-      AddSnapshotFileToDirectory(source_folder, image1_id);
-  base::FilePath destination_image1_path =
-      [cache imagePathForSnapshotID:image1_id];
-
-  // This snapshot will be excluded from migration.
-  NSString* image2_id = [[NSUUID UUID] UUIDString];
-  base::FilePath source_image2_path =
-      AddSnapshotFileToDirectory(source_folder, image2_id);
-  base::FilePath destination_image2_path =
-      [cache imagePathForSnapshotID:image2_id];
-
-  NSSet<NSString*>* snapshot_ids = [[NSSet alloc] initWithArray:@[ image1_id ]];
-  [cache migrateSnapshotsWithIDs:snapshot_ids fromSourcePath:source_folder];
-  FlushRunLoops();
-
-  // image1 should have been moved to the destination path.
-  EXPECT_TRUE(base::PathExists(destination_image1_path));
-
-  // image2 should not have been moved.
-  EXPECT_FALSE(base::PathExists(destination_image2_path));
-
-  // The legacy folder should have been deleted.
-  EXPECT_FALSE(base::PathExists(source_image1_path));
-  EXPECT_FALSE(base::PathExists(source_image1_path));
-  EXPECT_FALSE(base::PathExists(source_folder));
-}
-
 TEST_F(SnapshotCacheTest, Purge) {
   SnapshotCache* cache = GetSnapshotCache();
 
@@ -424,6 +385,34 @@ TEST_F(SnapshotCacheTest, Purge) {
     else
       EXPECT_FALSE(base::PathExists(path));
   }
+}
+
+// Tests that migration code correctly rename the specified files and leave
+// the other files untouched.
+TEST_F(SnapshotCacheTest, RenameSnapshots) {
+  SnapshotCache* cache = GetSnapshotCache();
+
+  // This snapshot will be renamed.
+  NSString* image1_id = [[NSUUID UUID] UUIDString];
+  base::FilePath image1_path = [cache imagePathForSnapshotID:image1_id];
+  ASSERT_TRUE(base::WriteFile(image1_path, "image1"));
+
+  // This snapshot will not be renamed.
+  NSString* image2_id = [[NSUUID UUID] UUIDString];
+  base::FilePath image2_path = [cache imagePathForSnapshotID:image2_id];
+  ASSERT_TRUE(base::WriteFile(image2_path, "image2"));
+
+  NSString* new_identifier = [[NSUUID UUID] UUIDString];
+  [cache renameSnapshotWithIdentifiers:@[ image1_id ]
+                         toIdentifiers:@[ new_identifier ]];
+  FlushRunLoops();
+
+  // image1 should have been moved.
+  EXPECT_FALSE(base::PathExists(image1_path));
+  EXPECT_TRUE(base::PathExists([cache imagePathForSnapshotID:new_identifier]));
+
+  // image2 should not have moved.
+  EXPECT_TRUE(base::PathExists(image2_path));
 }
 
 // Loads the color images into the cache, and pins two of them.  Ensures that
@@ -573,7 +562,7 @@ TEST_F(SnapshotCacheTest, GreyImageAllInBackground) {
     [cache saveGreyInBackgroundForSnapshotID:[snapshotIDs_ objectAtIndex:i]];
   }
 
-  // Waits for the grey images for |snapshotIDs_| to be written to disk, which
+  // Waits for the grey images for `snapshotIDs_` to be written to disk, which
   // happens in a background thread.
   FlushRunLoops();
 
@@ -652,7 +641,7 @@ TEST_F(SnapshotCacheTest, DeleteRetinaImages) {
 }
 
 // Tests that image immediately deletes when calling
-// |-removeImageWithSnapshotID:|.
+// `-removeImageWithSnapshotID:`.
 TEST_F(SnapshotCacheTest, ImageDeleted) {
   SnapshotCache* cache = GetSnapshotCache();
   UIImage* image =
@@ -665,7 +654,7 @@ TEST_F(SnapshotCacheTest, ImageDeleted) {
   EXPECT_FALSE(base::PathExists(image_path));
 }
 
-// Tests that all images are deleted when calling |-removeAllImages|.
+// Tests that all images are deleted when calling `-removeAllImages`.
 TEST_F(SnapshotCacheTest, AllImagesDeleted) {
   SnapshotCache* cache = GetSnapshotCache();
   UIImage* image =

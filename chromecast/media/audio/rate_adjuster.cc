@@ -1,14 +1,14 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chromecast/media/audio/rate_adjuster.h"
 
+#include <algorithm>
 #include <cmath>
 #include <utility>
 
 #include "base/check.h"
-#include "base/cxx17_backports.h"
 
 namespace chromecast {
 namespace media {
@@ -95,16 +95,17 @@ void RateAdjuster::AddError(int64_t error, int64_t timestamp) {
   // However, we also want to correct for any existing offset. We correct so
   // that the error should reduce to 0 by the next rate change interval;
   // however the rate change is capped to prevent very fast slewing.
-  double offset_correction = static_cast<double>(smoothed_error) /
-                             config_.rate_change_interval.InMicroseconds();
+  double offset_correction =
+      static_cast<double>(smoothed_error) /
+      (config_.rate_change_interval.InMicroseconds() * 2);
   if (std::abs(smoothed_error) < config_.max_ignored_current_error) {
     // Offset is small enough that we can ignore it, but still correct a little
     // bit to avoid bouncing in and out of the ignored region.
     offset_correction = offset_correction / 4;
   }
   offset_correction =
-      base::clamp(offset_correction, -config_.max_current_error_correction,
-                  config_.max_current_error_correction);
+      std::clamp(offset_correction, -config_.max_current_error_correction,
+                 config_.max_current_error_correction);
   double new_rate = (1.0 + slope) + offset_correction;
 
   // Only change the clock rate if the difference between the desired rate and

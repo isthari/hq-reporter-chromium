@@ -1,18 +1,18 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/safe_browsing/download_protection/download_url_sb_client.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "chrome/browser/metrics/chrome_metrics_service_accessor.h"
-#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/safe_browsing/download_protection/download_protection_service.h"
 #include "components/safe_browsing/content/browser/safe_browsing_navigation_observer_manager.h"
 #include "components/safe_browsing/content/browser/ui_manager.h"
-#include "content/public/browser/browser_task_traits.h"
+#include "components/safe_browsing/core/common/features.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/download_item_utils.h"
 
 namespace safe_browsing {
@@ -56,7 +56,9 @@ void DownloadUrlSBClient::OnDownloadDestroyed(
 }
 
 void DownloadUrlSBClient::StartCheck() {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(base::FeatureList::IsEnabled(kSafeBrowsingOnUIThread)
+                          ? content::BrowserThread::UI
+                          : content::BrowserThread::IO);
   if (!database_manager_.get() ||
       database_manager_->CheckDownloadUrl(url_chain_, this)) {
     CheckDone(SB_THREAT_TYPE_SAFE);
@@ -116,21 +118,21 @@ void DownloadUrlSBClient::ReportMalware(SBThreatType threat_type) {
     post_data += url_chain_[i].spec() + "\n";
   }
 
-  safe_browsing::HitReport hit_report;
-  hit_report.malicious_url = url_chain_.back();
-  hit_report.page_url = url_chain_.front();
-  hit_report.referrer_url = referrer_url_;
-  hit_report.is_subresource = true;
-  hit_report.threat_type = threat_type;
-  hit_report.threat_source = database_manager_->GetThreatSource();
-  hit_report.post_data = post_data;
-  hit_report.extended_reporting_level = extended_reporting_level_;
-  hit_report.is_enhanced_protection = is_enhanced_protection_;
-  hit_report.is_metrics_reporting_active =
+  std::unique_ptr<HitReport> hit_report = std::make_unique<HitReport>();
+  hit_report->malicious_url = url_chain_.back();
+  hit_report->page_url = url_chain_.front();
+  hit_report->referrer_url = referrer_url_;
+  hit_report->is_subresource = true;
+  hit_report->threat_type = threat_type;
+  hit_report->threat_source = database_manager_->GetThreatSource();
+  hit_report->post_data = post_data;
+  hit_report->extended_reporting_level = extended_reporting_level_;
+  hit_report->is_enhanced_protection = is_enhanced_protection_;
+  hit_report->is_metrics_reporting_active =
       ChromeMetricsServiceAccessor::IsMetricsAndCrashReportingEnabled();
 
   ui_manager_->MaybeReportSafeBrowsingHit(
-      hit_report, content::DownloadItemUtils::GetWebContents(item_));
+      std::move(hit_report), content::DownloadItemUtils::GetWebContents(item_));
 }
 
 void DownloadUrlSBClient::IdentifyReferrerChain() {

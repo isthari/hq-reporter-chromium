@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,20 +7,20 @@
 #include <utility>
 
 #include "base/base64.h"
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/strings/pattern.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_restrictions.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "content/browser/site_instance_impl.h"
 #include "content/public/browser/browser_context.h"
@@ -52,8 +52,8 @@
 #include "net/test/embedded_test_server/controllable_http_response.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "services/network/public/cpp/corb/corb_impl.h"
+#include "services/network/public/cpp/corb/orb_impl.h"
 #include "services/network/public/cpp/features.h"
-#include "services/network/public/cpp/initiator_lock_compatibility.h"
 #include "services/network/public/cpp/network_switches.h"
 #include "services/network/test/test_url_loader_client.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -66,8 +66,6 @@ using testing::Not;
 using testing::HasSubstr;
 using Action = network::corb::CrossOriginReadBlocking::Action;
 using CorbMimeType = network::corb::CrossOriginReadBlocking::MimeType;
-using RequestInitiatorOriginLockCompatibility =
-    network::InitiatorLockCompatibility;
 
 namespace {
 
@@ -75,98 +73,16 @@ enum CorbExpectations {
   kShouldBeBlocked = 1 << 0,
   kShouldBeSniffed = 1 << 1,
 
+  kBlockResourcesAsError = 1 << 2,
+
   kShouldBeAllowedWithoutSniffing = 0,
   kShouldBeBlockedWithoutSniffing = kShouldBeBlocked,
   kShouldBeSniffedAndAllowed = kShouldBeSniffed,
   kShouldBeSniffedAndBlocked = kShouldBeSniffed | kShouldBeBlocked,
 };
 
-std::ostream& operator<<(std::ostream& os, const CorbExpectations& value) {
-  if (value == 0) {
-    os << "(none)";
-    return os;
-  }
-
-  os << "( ";
-  if (0 != (value & kShouldBeBlocked))
-    os << "kShouldBeBlocked ";
-  if (0 != (value & kShouldBeSniffed))
-    os << "kShouldBeSniffed ";
-  os << ")";
-  return os;
-}
-
-// Ensure the correct histograms are incremented for blocking events.
-// Assumes the resource type is XHR.
-void InspectHistograms(const base::HistogramTester& histograms,
-                       const CorbExpectations& expectations,
-                       const std::string& resource_name) {
-  FetchHistogramsFromChildProcesses();
-
-  histograms.ExpectUniqueSample(
-      "NetworkService.URLLoader.RequestInitiatorOriginLockCompatibility",
-      network::InitiatorLockCompatibility::kCompatibleLock, 1);
-
-  CorbMimeType expected_mime_type = CorbMimeType::kInvalidMimeType;
-  if (base::MatchPattern(resource_name, "*.html")) {
-    expected_mime_type = CorbMimeType::kHtml;
-  } else if (base::MatchPattern(resource_name, "*.xml")) {
-    expected_mime_type = CorbMimeType::kXml;
-  } else if (base::MatchPattern(resource_name, "*.json")) {
-    expected_mime_type = CorbMimeType::kJson;
-  } else if (base::MatchPattern(resource_name, "*.txt")) {
-    expected_mime_type = CorbMimeType::kPlain;
-  } else if (base::MatchPattern(resource_name, "*.zip") ||
-             base::MatchPattern(resource_name, "*.pdf")) {
-    expected_mime_type = CorbMimeType::kNeverSniffed;
-  } else {
-    expected_mime_type = CorbMimeType::kOthers;
-  }
-
-  // Determine the appropriate histograms, including a start and end action
-  // (which are verified in unit tests), a read size if it was sniffed, and
-  // additional blocked metrics if it was blocked.
-  base::HistogramTester::CountsMap expected_counts;
-  std::string base = "SiteIsolation.XSD.Browser";
-  expected_counts[base + ".Action"] = 2;
-  if (0 != (expectations & kShouldBeBlocked)) {
-    expected_counts[base + ".Blocked.CanonicalMimeType"] = 1;
-  }
-
-  // Make sure that the expected metrics, and only those metrics, were
-  // incremented.
-  EXPECT_THAT(histograms.GetTotalCountsForPrefix("SiteIsolation.XSD.Browser"),
-              testing::ContainerEq(expected_counts))
-      << "For resource_name=" << resource_name
-      << ", expectations=" << expectations;
-
-  // Determine if the bucket for the resource type (XHR) was incremented.
-  if (0 != (expectations & kShouldBeBlocked)) {
-    EXPECT_THAT(histograms.GetAllSamples(base + ".Blocked.CanonicalMimeType"),
-                testing::ElementsAre(
-                    base::Bucket(static_cast<int>(expected_mime_type), 1)))
-        << "The wrong CorbMimeType bucket was incremented.";
-  }
-
-  // SiteIsolation.XSD.Browser.Action should always include kResponseStarted.
-  histograms.ExpectBucketCount(base + ".Action",
-                               static_cast<int>(Action::kResponseStarted), 1);
-
-  // Second value in SiteIsolation.XSD.Browser.Action depends on |expectations|.
-  Action expected_action = static_cast<Action>(-1);
-  if (expectations & kShouldBeBlocked) {
-    if (expectations & kShouldBeSniffed)
-      expected_action = Action::kBlockedAfterSniffing;
-    else
-      expected_action = Action::kBlockedWithoutSniffing;
-  } else {
-    if (expectations & kShouldBeSniffed)
-      expected_action = Action::kAllowedAfterSniffing;
-    else
-      expected_action = Action::kAllowedWithoutSniffing;
-  }
-  histograms.ExpectBucketCount(base + ".Action",
-                               static_cast<int>(expected_action), 1);
+constexpr CorbExpectations BlockAsError(const CorbExpectations expectations) {
+  return CorbExpectations(expectations | kBlockResourcesAsError);
 }
 
 // Gets contents of a file at //content/test/data/<dir>/<file>.
@@ -250,20 +166,31 @@ class RequestInterceptor {
   void Verify(CorbExpectations expectations,
               const std::string& expected_resource_body) {
     if (0 != (expectations & kShouldBeBlocked)) {
-      ASSERT_EQ(net::OK, completion_status().error_code);
-
       // Verify that the body is empty.
       EXPECT_EQ("", response_body());
       EXPECT_EQ(0, completion_status().decoded_body_length);
 
-      // Verify that other response parts have been sanitized.
-      EXPECT_EQ(0u, response_head()->content_length);
-      const std::string& headers = response_head()->headers->raw_headers();
-      EXPECT_THAT(headers, Not(HasSubstr("Content-Length")));
-      EXPECT_THAT(headers, Not(HasSubstr("Content-Type")));
-
       // Verify that the console message would have been printed.
       EXPECT_TRUE(completion_status().should_report_corb_blocking);
+
+      // Verify the response code & headers, which depends on whether the
+      // response is blocked as an error, or as an empty response.
+      if (0 != (expectations & kBlockResourcesAsError)) {
+        ASSERT_EQ(net::ERR_BLOCKED_BY_ORB, completion_status().error_code);
+        ASSERT_FALSE(response_head());
+      } else {
+        ASSERT_EQ(net::OK, completion_status().error_code);
+
+        // Verify that response has no content.
+        EXPECT_EQ(0u, response_head()->content_length);
+
+        // Verify that response headers have been sanitized.
+        size_t iter = 0;
+        std::string name, value;
+        EXPECT_FALSE(response_head()->headers->EnumerateHeaderLines(
+            &iter, &name, &value));
+        EXPECT_EQ(iter, 0u);
+      }
     } else {
       ASSERT_EQ(net::OK, completion_status().error_code);
       EXPECT_FALSE(completion_status().should_report_corb_blocking);
@@ -312,7 +239,7 @@ class RequestInterceptor {
     }
 
     if (!got_all_data) {
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE,
           base::BindOnce(&RequestInterceptor::ReadBody, base::Unretained(this),
                          std::move(completion_callback)));
@@ -331,7 +258,8 @@ class RequestInterceptor {
     if (request_intercepted_)
       return false;
     request_intercepted_ = true;
-    interceptor_task_runner_ = base::ThreadTaskRunnerHandle::Get();
+    interceptor_task_runner_ =
+        base::SingleThreadTaskRunner::GetCurrentDefault();
 
     // Modify |params| if requested.
     if (request_initiator_to_inject_.has_value())
@@ -385,15 +313,13 @@ class RequestInterceptor {
     // Tell the |original_client_| that the request has completed (and that it
     // can release its URLLoaderClient.
     if (status.error_code == net::OK) {
-      original_client_->OnReceiveResponse(std::move(response_head),
-                                          mojo::ScopedDataPipeConsumerHandle());
-
       mojo::ScopedDataPipeProducerHandle producer_handle;
       mojo::ScopedDataPipeConsumerHandle consumer_handle;
       ASSERT_EQ(mojo::CreateDataPipe(response_body.size() + 1, producer_handle,
                                      consumer_handle),
                 MOJO_RESULT_OK);
-      original_client_->OnStartLoadingResponseBody(std::move(consumer_handle));
+      original_client_->OnReceiveResponse(
+          std::move(response_head), std::move(consumer_handle), absl::nullopt);
 
       uint32_t num_bytes = response_body.size();
       EXPECT_EQ(MOJO_RESULT_OK,
@@ -474,8 +400,8 @@ class CrossSiteDocumentBlockingTestBase : public ContentBrowserTest {
 };
 
 enum class TestMode {
-  kWithCORBProtectionSniffing,
-  kWithoutCORBProtectionSniffing,
+  kWithORBv01,
+  kWithORBv02,
 };
 struct ImgTestParams {
   const char* resource;
@@ -488,13 +414,17 @@ class CrossSiteDocumentBlockingImgElementTest
  public:
   CrossSiteDocumentBlockingImgElementTest() {
     switch (GetParam().mode) {
-      case TestMode::kWithCORBProtectionSniffing:
-        scoped_feature_list_.InitAndEnableFeature(
-            network::features::kCORBProtectionSniffing);
+      case TestMode::kWithORBv01:
+        scoped_feature_list_.InitWithFeatures(
+            /* enabled_features= */ {},
+            /* disabled_features= */ {
+                network::features::kOpaqueResponseBlockingV02});
         break;
-      case TestMode::kWithoutCORBProtectionSniffing:
-        scoped_feature_list_.InitAndDisableFeature(
-            network::features::kCORBProtectionSniffing);
+      case TestMode::kWithORBv02:
+        scoped_feature_list_.InitWithFeatures(
+            /* enabled_features= */
+            {network::features::kOpaqueResponseBlockingV02},
+            /* disabled_features= */ {});
         break;
     }
   }
@@ -538,7 +468,6 @@ class CrossSiteDocumentBlockingImgElementTest
     interceptor.WaitForRequestCompletion();
 
     // Verify...
-    InspectHistograms(histograms, expectations, resource);
     interceptor.Verify(expectations,
                        GetTestFileContents("site_isolation", resource.c_str()));
   }
@@ -550,21 +479,22 @@ class CrossSiteDocumentBlockingImgElementTest
 IN_PROC_BROWSER_TEST_P(CrossSiteDocumentBlockingImgElementTest, Test) {
   embedded_test_server()->StartAcceptingConnections();
 
-  const char* resource = GetParam().resource;
+  std::string resource = GetParam().resource;
   CorbExpectations expectations = GetParam().expectations;
 
+  base::HistogramTester histograms;
   VerifyImgRequest(resource, expectations);
 }
 
-#define IMG_TEST(tag, resource, expectations)                                  \
-  INSTANTIATE_TEST_SUITE_P(                                                    \
-      ProtectionSniffingOn##tag, CrossSiteDocumentBlockingImgElementTest,      \
-      ::testing::Values(ImgTestParams{                                         \
-          resource, expectations, TestMode::kWithoutCORBProtectionSniffing})); \
-  INSTANTIATE_TEST_SUITE_P(                                                    \
-      ProtectionSniffingOff##tag, CrossSiteDocumentBlockingImgElementTest,     \
-      ::testing::Values(ImgTestParams{                                         \
-          resource, expectations, TestMode::kWithCORBProtectionSniffing}));
+#define IMG_TEST(tag, resource, expectations)                               \
+  INSTANTIATE_TEST_SUITE_P(                                                 \
+      ORBv01_##tag, CrossSiteDocumentBlockingImgElementTest,                \
+      ::testing::Values(                                                    \
+          ImgTestParams{resource, expectations, TestMode::kWithORBv01}));   \
+  INSTANTIATE_TEST_SUITE_P(                                                 \
+      ORBv02_##tag, CrossSiteDocumentBlockingImgElementTest,                \
+      ::testing::Values(ImgTestParams{resource, BlockAsError(expectations), \
+                                      TestMode::kWithORBv02}));
 
 // The following are files under content/test/data/site_isolation. All
 // should be disallowed for cross site XHR under the document blocking policy.
@@ -578,6 +508,7 @@ IMG_TEST(valid_json, "valid.json", kShouldBeSniffedAndBlocked)
 IMG_TEST(html_txt, "html.txt", kShouldBeSniffedAndBlocked)
 IMG_TEST(xml_txt, "xml.txt", kShouldBeSniffedAndBlocked)
 IMG_TEST(json_txt, "json.txt", kShouldBeSniffedAndBlocked)
+IMG_TEST(json_octet_stream, "json.octet-stream", kShouldBeSniffedAndBlocked)
 IMG_TEST(comment_valid_html, "comment_valid.html", kShouldBeSniffedAndBlocked)
 IMG_TEST(html4_dtd_html, "html4_dtd.html", kShouldBeSniffedAndBlocked)
 IMG_TEST(html4_dtd_txt, "html4_dtd.txt", kShouldBeSniffedAndBlocked)
@@ -592,6 +523,20 @@ IMG_TEST(nosniff_json_js, "nosniff.json.js", kShouldBeSniffedAndBlocked)
 IMG_TEST(nosniff_json_prefixed_js,
          "nosniff.json-prefixed.js",
          kShouldBeSniffedAndBlocked)
+
+// ORB blocks responses with non-image/audio/video MIME type that don't
+// sniff as Javascript (ORBv0.1 blocks ones that sniff as HTML or XML or JSON).
+IMG_TEST(html_octet_stream, "html.octet-stream", kShouldBeSniffedAndBlocked)
+IMG_TEST(xml_octet_stream, "xml.octet-stream", kShouldBeSniffedAndBlocked)
+
+// ORB detects audio/video responses before the final Javascript sniffing (or in
+// the case of ORBv0.1, confirmation sniffing for HTML/XML/JSON).  This
+// sequencing simplifies the ORB algorithm and implementation because it means
+// that the final sniffing step doesn't need to take into account media content.
+// OTOH, if ORB detects some audio/video responses based on the MIME type of the
+// response, then it may allow some cases that CORB would block - such as a JSON
+// response incorrectly labeled as "audio/x-wav".
+IMG_TEST(json_wav, "json.wav", kShouldBeSniffedAndAllowed)
 
 // These files should be disallowed without sniffing.
 //   nosniff.*   - Won't sniff correctly, but blocked because of nosniff.
@@ -634,19 +579,31 @@ IMG_TEST(js_html_polyglot2_html,
          "js-html-polyglot2.html",
          kShouldBeSniffedAndAllowed)
 
+// ORB allows, because even with 'XCTO: nosniff' ORB will sniff that this is an
+// image.  CORB allows, because CORB doesn't care about
+// 'application/octet-stream'.
+IMG_TEST(nosniff_png, "nosniff.png.octet-stream", kShouldBeSniffedAndAllowed)
+// Like nosniff_png above, except that ORB v0.1 allows because HLS/m3u8 doesn't
+// sniff as HTML/XML/JSON.
+IMG_TEST(m3u8_octet_stream, "m3u8.octet-stream", kShouldBeSniffedAndAllowed)
+
 class CrossSiteDocumentBlockingTest
     : public CrossSiteDocumentBlockingTestBase,
       public testing::WithParamInterface<TestMode> {
  public:
   CrossSiteDocumentBlockingTest() {
     switch (GetParam()) {
-      case TestMode::kWithCORBProtectionSniffing:
-        scoped_feature_list_.InitAndEnableFeature(
-            network::features::kCORBProtectionSniffing);
+      case TestMode::kWithORBv01:
+        scoped_feature_list_.InitWithFeatures(
+            /* enabled_features= */ {},
+            /* disabled_features= */ {
+                network::features::kOpaqueResponseBlockingV02});
         break;
-      case TestMode::kWithoutCORBProtectionSniffing:
-        scoped_feature_list_.InitAndDisableFeature(
-            network::features::kCORBProtectionSniffing);
+      case TestMode::kWithORBv02:
+        scoped_feature_list_.InitWithFeatures(
+            /* enabled_features= */
+            {network::features::kOpaqueResponseBlockingV02},
+            /* disabled_features= */ {});
         break;
     }
   }
@@ -683,6 +640,79 @@ IN_PROC_BROWSER_TEST_P(CrossSiteDocumentBlockingTest,
   EXPECT_EQ("", interceptor.response_body());
 }
 
+// TODO(crbug.com/1448564): Remove support for old header names once API users
+// have switched.
+IN_PROC_BROWSER_TEST_P(CrossSiteDocumentBlockingTest,
+                       FledgeAuctionOnlySignalsNotReadableFromFetch) {
+  embedded_test_server()->StartAcceptingConnections();
+
+  // Navigate to the test page while request interceptor is active.
+  // Note that even same origin requests are blocked.
+  GURL resource_url("http://foo.com/interest_group/auction_only.json");
+  RequestInterceptor interceptor(resource_url);
+  EXPECT_TRUE(NavigateToURL(shell(), GURL("http://foo.com/title1.html")));
+
+  // Issue the request that will be intercepted.
+  const char kScriptTemplate[] = "fetch($1)";
+  EXPECT_TRUE(ExecJs(shell(), JsReplace(kScriptTemplate, resource_url),
+                     content::EXECUTE_SCRIPT_NO_RESOLVE_PROMISES));
+  interceptor.WaitForRequestCompletion();
+
+  // Verify that X-FLEDGE-Auction-Only blocked the response before it
+  // reached the renderer process.
+  EXPECT_EQ(net::ERR_BLOCKED_BY_RESPONSE,
+            interceptor.completion_status().error_code);
+  EXPECT_EQ("", interceptor.response_body());
+}
+
+IN_PROC_BROWSER_TEST_P(CrossSiteDocumentBlockingTest,
+                       FledgeAuctionOnlySignalsNotReadableFromFetchNewName) {
+  embedded_test_server()->StartAcceptingConnections();
+
+  // Navigate to the test page while request interceptor is active.
+  // Note that even same origin requests are blocked.
+  GURL resource_url("http://foo.com/interest_group/auction_only_new_name.json");
+  RequestInterceptor interceptor(resource_url);
+  EXPECT_TRUE(NavigateToURL(shell(), GURL("http://foo.com/title1.html")));
+
+  // Issue the request that will be intercepted.
+  const char kScriptTemplate[] = "fetch($1)";
+  EXPECT_TRUE(ExecJs(shell(), JsReplace(kScriptTemplate, resource_url),
+                     content::EXECUTE_SCRIPT_NO_RESOLVE_PROMISES));
+  interceptor.WaitForRequestCompletion();
+
+  // Verify that Ad-Auction-Only blocked the response before it reached the
+  // renderer process.
+  EXPECT_EQ(net::ERR_BLOCKED_BY_RESPONSE,
+            interceptor.completion_status().error_code);
+  EXPECT_EQ("", interceptor.response_body());
+}
+
+IN_PROC_BROWSER_TEST_P(
+    CrossSiteDocumentBlockingTest,
+    FledgeAuctionOnlySignalsNotReadableFromFetchBothNewAndOldNames) {
+  embedded_test_server()->StartAcceptingConnections();
+
+  // Navigate to the test page while request interceptor is active.
+  // Note that even same origin requests are blocked.
+  GURL resource_url(
+      "http://foo.com/interest_group/auction_only_both_new_and_old_names.json");
+  RequestInterceptor interceptor(resource_url);
+  EXPECT_TRUE(NavigateToURL(shell(), GURL("http://foo.com/title1.html")));
+
+  // Issue the request that will be intercepted.
+  const char kScriptTemplate[] = "fetch($1)";
+  EXPECT_TRUE(ExecJs(shell(), JsReplace(kScriptTemplate, resource_url),
+                     content::EXECUTE_SCRIPT_NO_RESOLVE_PROMISES));
+  interceptor.WaitForRequestCompletion();
+
+  // Verify that Ad-Auction-Only and X-FLEDGE-Auction-Only blocked the response
+  // before it reached the renderer process.
+  EXPECT_EQ(net::ERR_BLOCKED_BY_RESPONSE,
+            interceptor.completion_status().error_code);
+  EXPECT_EQ("", interceptor.response_body());
+}
+
 IN_PROC_BROWSER_TEST_P(CrossSiteDocumentBlockingTest, AllowCorsFetches) {
   embedded_test_server()->StartAcceptingConnections();
   GURL foo_url("http://foo.com/cross_site_document_blocking/request.html");
@@ -700,10 +730,8 @@ IN_PROC_BROWSER_TEST_P(CrossSiteDocumentBlockingTest, AllowCorsFetches) {
 
     base::HistogramTester histograms;
     // Fetch and verify results of the fetch.
-    EXPECT_EQ(false, EvalJs(shell(),
-                            base::StringPrintf("sendRequest('%s');", resource),
-                            EXECUTE_SCRIPT_USE_MANUAL_REPLY));
-    InspectHistograms(histograms, kShouldBeAllowedWithoutSniffing, resource);
+    EXPECT_EQ(false, EvalJs(shell(), base::StringPrintf("sendRequest('%s');",
+                                                        resource)));
   }
 }
 
@@ -733,8 +761,9 @@ IN_PROC_BROWSER_TEST_P(CrossSiteDocumentBlockingTest,
 
   // Fetch a same-origin resource.
   GURL resource_url("http://foo.com/site_isolation/nosniff.html");
-  EXPECT_EQ(url::Origin::Create(resource_url),
-            shell()->web_contents()->GetMainFrame()->GetLastCommittedOrigin());
+  EXPECT_EQ(
+      url::Origin::Create(resource_url),
+      shell()->web_contents()->GetPrimaryMainFrame()->GetLastCommittedOrigin());
   FetchHistogramsFromChildProcesses();
   base::HistogramTester histograms;
   std::string fetch_result =
@@ -745,8 +774,6 @@ IN_PROC_BROWSER_TEST_P(CrossSiteDocumentBlockingTest,
 
   // Verify that the response was not blocked.
   EXPECT_EQ("runMe({ \"name\" : \"chromium\" });", fetch_result);
-  InspectHistograms(histograms, kShouldBeAllowedWithoutSniffing,
-                    "nosniff.html");
 }
 
 // Regression test for https://crbug.com/958421.
@@ -755,7 +782,6 @@ IN_PROC_BROWSER_TEST_P(CrossSiteDocumentBlockingTest, BackToAboutBlank) {
 
   // Prepare to verify results of a fetch.
   GURL resource_url("http://foo.com/title2.html");
-  const char* resource = "title2.html";
   const char kFetchScriptTemplate[] = R"(
       fetch($1, {mode: 'no-cors'}).then(response => 'ok');
   )";
@@ -768,9 +794,10 @@ IN_PROC_BROWSER_TEST_P(CrossSiteDocumentBlockingTest, BackToAboutBlank) {
   ASSERT_TRUE(ExecJs(shell(), "var popup = window.open('title1.html')"));
   WebContents* popup = popup_observer.GetWebContents();
   EXPECT_TRUE(WaitForLoadStop(popup));
-  EXPECT_EQ(initial_url, popup->GetMainFrame()->GetLastCommittedURL());
-  EXPECT_EQ(shell()->web_contents()->GetMainFrame()->GetLastCommittedOrigin(),
-            popup->GetMainFrame()->GetLastCommittedOrigin());
+  EXPECT_EQ(initial_url, popup->GetPrimaryMainFrame()->GetLastCommittedURL());
+  EXPECT_EQ(
+      shell()->web_contents()->GetPrimaryMainFrame()->GetLastCommittedOrigin(),
+      popup->GetPrimaryMainFrame()->GetLastCommittedOrigin());
 
   // Navigate the popup to about:blank. Note that we didn't directly
   // window.open() to about:blank because otherwise the about:blank page will
@@ -781,9 +808,12 @@ IN_PROC_BROWSER_TEST_P(CrossSiteDocumentBlockingTest, BackToAboutBlank) {
     nav_observer.Wait();
     EXPECT_EQ(2, popup->GetController().GetEntryCount());
     EXPECT_EQ(GURL(url::kAboutBlankURL),
-              popup->GetMainFrame()->GetLastCommittedURL());
-    EXPECT_EQ(shell()->web_contents()->GetMainFrame()->GetLastCommittedOrigin(),
-              popup->GetMainFrame()->GetLastCommittedOrigin());
+              popup->GetPrimaryMainFrame()->GetLastCommittedURL());
+    EXPECT_EQ(shell()
+                  ->web_contents()
+                  ->GetPrimaryMainFrame()
+                  ->GetLastCommittedOrigin(),
+              popup->GetPrimaryMainFrame()->GetLastCommittedOrigin());
   }
 
   // Verify that CORB doesn't block same-origin request from the popup.
@@ -791,7 +821,6 @@ IN_PROC_BROWSER_TEST_P(CrossSiteDocumentBlockingTest, BackToAboutBlank) {
     FetchHistogramsFromChildProcesses();
     base::HistogramTester histograms;
     ASSERT_EQ("ok", EvalJs(popup, fetch_script));
-    InspectHistograms(histograms, kShouldBeAllowedWithoutSniffing, resource);
   }
 
   // Navigate the popup and then go back to the 'about:blank' URL.
@@ -802,18 +831,18 @@ IN_PROC_BROWSER_TEST_P(CrossSiteDocumentBlockingTest, BackToAboutBlank) {
   ASSERT_TRUE(ExecJs(shell(), "popup.history.back()"));
   back_observer.WaitForNavigationFinished();
   EXPECT_EQ(GURL(url::kAboutBlankURL),
-            popup->GetMainFrame()->GetLastCommittedURL());
-  EXPECT_EQ(shell()->web_contents()->GetMainFrame()->GetLastCommittedOrigin(),
-            popup->GetMainFrame()->GetLastCommittedOrigin());
+            popup->GetPrimaryMainFrame()->GetLastCommittedURL());
+  EXPECT_EQ(
+      shell()->web_contents()->GetPrimaryMainFrame()->GetLastCommittedOrigin(),
+      popup->GetPrimaryMainFrame()->GetLastCommittedOrigin());
   EXPECT_EQ(url::Origin::Create(resource_url),
-            popup->GetMainFrame()->GetLastCommittedOrigin());
+            popup->GetPrimaryMainFrame()->GetLastCommittedOrigin());
 
   // Verify that CORB doesn't block same-origin request from the popup.
   {
     FetchHistogramsFromChildProcesses();
     base::HistogramTester histograms;
     ASSERT_EQ("ok", EvalJs(popup, fetch_script));
-    InspectHistograms(histograms, kShouldBeAllowedWithoutSniffing, resource);
   }
 }
 
@@ -856,16 +885,17 @@ IN_PROC_BROWSER_TEST_P(CrossSiteDocumentBlockingTest,
   // window.onerror to result, because no syntax error is generated by the empty
   // response.
   std::string script = R"((subresource_url => {
-    window.onerror = () => domAutomationController.send("CORB BYPASSED");
-    var script = document.createElement('script');
-    script.src = subresource_url;
-    script.onload = () => domAutomationController.send("CORB WORKED");
-    document.body.appendChild(script);
+    return new Promise(resolve => {
+      window.onerror = () => resolve("CORB BYPASSED");
+      var script = document.createElement('script');
+      script.src = subresource_url;
+      script.onload = () => resolve("CORB WORKED");
+      document.body.appendChild(script);
+    });
     }))";
 
   EXPECT_EQ("CORB WORKED",
-            EvalJs(shell(), script + "('" + subresource_url.spec() + "')",
-                   EXECUTE_SCRIPT_USE_MANUAL_REPLY));
+            EvalJs(shell(), script + "('" + subresource_url.spec() + "')"));
 }
 
 IN_PROC_BROWSER_TEST_P(CrossSiteDocumentBlockingTest,
@@ -952,8 +982,8 @@ IN_PROC_BROWSER_TEST_P(CrossSiteDocumentBlockingTest,
   EXPECT_TRUE(ExecJs(shell(), JsReplace(kScriptTemplate, bar_url)));
   interceptor.WaitForRequestCompletion();
 
-  // Verify that the response completed successfully, was blocked and was logged
-  // as having initially a non-empty body.
+  // Verify that the response completed successfully, was *not* blocked and
+  // returned the full `png_body`.
   interceptor.Verify(kShouldBeSniffedAndAllowed, png_body);
 
   // Verify that most response headers have been allowed by CORB.
@@ -1128,11 +1158,6 @@ IN_PROC_BROWSER_TEST_P(CrossSiteDocumentBlockingTest, SharedWorker) {
       });
   )";
   EXPECT_EQ("FETCH SUCCEEDED", EvalJs(shell(), kFetchWait));
-
-  // Verify that the response completed successfully, was blocked and was logged
-  // as having initially a non-empty body.
-  InspectHistograms(histograms, kShouldBeBlockedWithoutSniffing,
-                    "nosniff.json");
 }
 #endif  // !BUILDFLAG(IS_ANDROID)
 
@@ -1193,21 +1218,21 @@ IN_PROC_BROWSER_TEST_P(CrossSiteDocumentBlockingTest,
   // listening to the onload event below (after/if CORB starts to consistently
   // avoid injecting net errors).
   std::string wait_script = R"(
-      function notify_prefetch_is_done() { domAutomationController.send(123); }
+      new Promise(resolve => {
+        function notify_prefetch_is_done() { resolve(123); }
 
-      if (window.is_prefetch_done) {
-        // Can notify immediately if |window.is_prefetch_done| has already been
-        // set by |prefetch_injection_script|.
-        notify_prefetch_is_done();
-      } else {
-        // Otherwise wait for CORB's empty response to reach the renderer.
-        link = document.getElementsByTagName('link')[0];
-        link.onerror = notify_prefetch_is_done;
-      }
+        if (window.is_prefetch_done) {
+          // Can notify immediately if |window.is_prefetch_done| has already
+          // been set by |prefetch_injection_script|.
+          notify_prefetch_is_done();
+        } else {
+          // Otherwise wait for CORB's empty response to reach the renderer.
+          link = document.getElementsByTagName('link')[0];
+          link.onerror = notify_prefetch_is_done;
+        }
+      });
   )";
-  EXPECT_EQ(123, EvalJs(shell()->web_contents(), wait_script,
-                        EXECUTE_SCRIPT_USE_MANUAL_REPLY));
-  InspectHistograms(histograms, kShouldBeBlockedWithoutSniffing, "x.html");
+  EXPECT_EQ(123, EvalJs(shell()->web_contents(), wait_script));
 
   // Finish the HTTP response - this should store the response in the cache.
   response.Done();
@@ -1227,30 +1252,20 @@ IN_PROC_BROWSER_TEST_P(CrossSiteDocumentBlockingTest,
   const char* fetch_script_template = R"(
       fetch('%s')
           .then(response => response.text())
-          .then(responseBody => {
-              domAutomationController.send(responseBody);
-          })
           .catch(error => {
               var errorMessage = 'error: ' + error;
               console.log(errorMessage);
-              domAutomationController.send(errorMessage);
+              return errorMessage;
           }); )";
   std::string fetch_script =
       base::StringPrintf(fetch_script_template, kPrefetchResourcePath);
   EXPECT_EQ("<p>contents of the response</p>",
-            EvalJs(ChildFrameAt(shell()->web_contents(), 0), fetch_script,
-                   EXECUTE_SCRIPT_USE_MANUAL_REPLY));
+            EvalJs(ChildFrameAt(shell()->web_contents(), 0), fetch_script));
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    WithCORBProtectionSniffing,
-    CrossSiteDocumentBlockingTest,
-    ::testing::Values(TestMode::kWithCORBProtectionSniffing));
-
-INSTANTIATE_TEST_SUITE_P(
-    WithoutCORBProtectionSniffing,
-    CrossSiteDocumentBlockingTest,
-    ::testing::Values(TestMode::kWithoutCORBProtectionSniffing));
+INSTANTIATE_TEST_SUITE_P(WithORBv01,
+                         CrossSiteDocumentBlockingTest,
+                         ::testing::Values(TestMode::kWithORBv01));
 
 // This test class sets up a service worker that can be used to try to respond
 // to same-origin requests with cross-origin responses.
@@ -1315,12 +1330,12 @@ class CrossSiteDocumentBlockingServiceWorkerTest : public ContentBrowserTest {
         navigator.serviceWorker
             .register('/cross_site_document_blocking/service_worker.js')
             .then(registration => navigator.serviceWorker.ready)
-            .then(function(r) { domAutomationController.send(true); })
+            .then(function(r) { return true; })
             .catch(function(e) {
                 console.log('error: ' + e);
-                domAutomationController.send(false);
+                return false;
             }); )";
-    ASSERT_EQ(true, EvalJs(shell(), script, EXECUTE_SCRIPT_USE_MANUAL_REPLY));
+    ASSERT_EQ(true, EvalJs(shell(), script));
 
     // Navigate again to the same URL - the service worker should be 1) active
     // at this time (because of waiting for |navigator.serviceWorker.ready|
@@ -1353,12 +1368,9 @@ IN_PROC_BROWSER_TEST_F(CrossSiteDocumentBlockingServiceWorkerTest,
   const char* script_template = R"(
       fetch('%s', { mode: 'no-cors' })
           .then(response => response.text())
-          .then(responseText => {
-              domAutomationController.send(responseText);
-          })
           .catch(error => {
               var errorMessage = 'error: ' + error;
-              domAutomationController.send(errorMessage);
+              return errorMessage;
           }); )";
   std::string script =
       base::StringPrintf(script_template, cross_origin_url.spec().c_str());
@@ -1370,12 +1382,7 @@ IN_PROC_BROWSER_TEST_F(CrossSiteDocumentBlockingServiceWorkerTest,
   // will be intercepted by the service worker and replaced with a new,
   // artificial error.
   base::HistogramTester histograms;
-  std::string response =
-      EvalJs(shell(), script, EXECUTE_SCRIPT_USE_MANUAL_REPLY).ExtractString();
-
-  // Verify that CORB blocked the response from the network (from
-  // |cross_origin_https_server_|) to the service worker.
-  InspectHistograms(histograms, kShouldBeBlockedWithoutSniffing, "network.txt");
+  std::string response = EvalJs(shell(), script).ExtractString();
 
   // Verify that the service worker replied with an expected error.
   // Replying with an error means that CORB is only active once (for the
@@ -1405,8 +1412,7 @@ IN_PROC_BROWSER_TEST_F(CrossSiteDocumentBlockingDisableWebSecurityTest,
   GURL foo_url("http://foo.com/cross_site_document_blocking/request.html");
   EXPECT_TRUE(NavigateToURL(shell(), foo_url));
 
-  ASSERT_EQ(false, EvalJs(shell(), "sendRequest(\"valid.html\");",
-                          EXECUTE_SCRIPT_USE_MANUAL_REPLY));
+  ASSERT_EQ(false, EvalJs(shell(), "sendRequest(\"valid.html\");"));
 }
 
 // Test class to verify that documents are blocked for isolated origins as well.
@@ -1435,8 +1441,7 @@ IN_PROC_BROWSER_TEST_F(CrossSiteDocumentBlockingIsolatedOriginTest,
   GURL foo_url("http://foo.com/cross_site_document_blocking/request.html");
   EXPECT_TRUE(NavigateToURL(shell(), foo_url));
 
-  ASSERT_EQ(true, EvalJs(shell(), "sendRequest(\"valid.html\");",
-                         EXECUTE_SCRIPT_USE_MANUAL_REPLY));
+  ASSERT_EQ(true, EvalJs(shell(), "sendRequest(\"valid.html\");"));
 }
 
 IN_PROC_BROWSER_TEST_F(ContentBrowserTest, CorpVsBrowserInitiatedRequest) {
@@ -1451,15 +1456,11 @@ IN_PROC_BROWSER_TEST_F(ContentBrowserTest, CorpVsBrowserInitiatedRequest) {
             LoadBasicRequest(partition->GetNetworkContext(), test_url));
 }
 
-// This test class sets up a link element for webbundle subresource loading.
-// e.g. <link rel=webbundle href=".../foo.wbn" resources="...">.
-class CrossSiteDocumentBlockingWebBundleTest
-    : public ContentBrowserTest,
-      public testing::WithParamInterface<std::string> {
+// This test class sets up a script element for webbundle subresource loading.
+// e.g. <script type=webbundle>...</script>
+class CrossSiteDocumentBlockingWebBundleTest : public ContentBrowserTest {
  public:
-  CrossSiteDocumentBlockingWebBundleTest() {
-    scoped_feature_list_.InitAndEnableFeature(features::kSubresourceWebBundles);
-  }
+  CrossSiteDocumentBlockingWebBundleTest() = default;
   ~CrossSiteDocumentBlockingWebBundleTest() override = default;
 
   CrossSiteDocumentBlockingWebBundleTest(
@@ -1469,31 +1470,28 @@ class CrossSiteDocumentBlockingWebBundleTest
 
   net::EmbeddedTestServer* https_server() { return &https_server_; }
 
-  static std::string DescribeParams(
-      const testing::TestParamInfo<ParamType>& info) {
-    return info.param;
-  }
-
  protected:
-  void SetupLinkWebBundleElementAndImgElement(const GURL& bundle_url,
-                                              const GURL subresource_url) {
+  void SetupScriptWebBundleElementAndImgElement(const GURL& bundle_url,
+                                                const GURL subresource_url) {
     // Navigate to the test page.
     ASSERT_TRUE(
         NavigateToURL(shell(), GURL("https://same-origin.test/title1.html")));
 
     const char kScriptTemplate[] = R"(
-      const link = document.createElement('link');
-      link.rel = 'webbundle';
-      link.href = $1;
-      link.resources.add($2);
-      document.body.appendChild(link);
+      const script = document.createElement('script');
+      script.type = 'webbundle';
+      script.textContent = JSON.stringify({
+        source: $1,
+        resources: [$2],
+      });
+      document.body.appendChild(script);
 
       const img = document.createElement('img');
       img.src = $2;
       document.body.appendChild(img);
 )";
-    // Insert a <link> element for webbundle subresoruce loading, and insert an
-    // <img> element which loads a resource from the webbundle.
+    // Insert a <script> element for webbundle subresoruce loading, and insert
+    // an <img> element which loads a resource from the webbundle.
     ASSERT_TRUE(ExecJs(
         shell(), JsReplace(kScriptTemplate, bundle_url, subresource_url)));
   }
@@ -1535,14 +1533,13 @@ class CrossSiteDocumentBlockingWebBundleTest
 // 1) cross-origin bundle, 2) same-origin bundle
 // X
 // A). CORB-protected MIME type (e.g. text/json), B) other type (e.g. image/png)
-IN_PROC_BROWSER_TEST_P(CrossSiteDocumentBlockingWebBundleTest,
+IN_PROC_BROWSER_TEST_F(CrossSiteDocumentBlockingWebBundleTest,
                        CrossOriginWebBundleSubresoruceJson) {
   https_server()->StartAcceptingConnections();
-  GURL bundle_url("https://cross-origin.test/web_bundle/cross_origin" +
-                  GetParam() + ".wbn");
+  GURL bundle_url("https://cross-origin.test/web_bundle/cross_origin_b2.wbn");
   GURL subresource_url("https://cross-origin.test/web_bundle/resource.json");
   RequestInterceptor interceptor(subresource_url);
-  SetupLinkWebBundleElementAndImgElement(bundle_url, subresource_url);
+  SetupScriptWebBundleElementAndImgElement(bundle_url, subresource_url);
   interceptor.WaitForRequestCompletion();
 
   EXPECT_EQ(0, interceptor.completion_status().error_code);
@@ -1550,14 +1547,13 @@ IN_PROC_BROWSER_TEST_P(CrossSiteDocumentBlockingWebBundleTest,
       << "JSON in a cross-origin webbundle should be blocked by CORB";
 }
 
-IN_PROC_BROWSER_TEST_P(CrossSiteDocumentBlockingWebBundleTest,
+IN_PROC_BROWSER_TEST_F(CrossSiteDocumentBlockingWebBundleTest,
                        CrossOriginWebBundleSubresorucePng) {
   https_server()->StartAcceptingConnections();
-  GURL bundle_url("https://cross-origin.test/web_bundle/cross_origin" +
-                  GetParam() + ".wbn");
+  GURL bundle_url("https://cross-origin.test/web_bundle/cross_origin_b2.wbn");
   GURL subresource_url("https://cross-origin.test/web_bundle/resource.png");
   RequestInterceptor interceptor(subresource_url);
-  SetupLinkWebBundleElementAndImgElement(bundle_url, subresource_url);
+  SetupScriptWebBundleElementAndImgElement(bundle_url, subresource_url);
   interceptor.WaitForRequestCompletion();
 
   EXPECT_EQ(0, interceptor.completion_status().error_code);
@@ -1565,14 +1561,13 @@ IN_PROC_BROWSER_TEST_P(CrossSiteDocumentBlockingWebBundleTest,
       << "PNG in a cross-origin webbundle should not be blocked";
 }
 
-IN_PROC_BROWSER_TEST_P(CrossSiteDocumentBlockingWebBundleTest,
+IN_PROC_BROWSER_TEST_F(CrossSiteDocumentBlockingWebBundleTest,
                        SameOriginWebBundleSubresoruceJson) {
   https_server()->StartAcceptingConnections();
-  GURL bundle_url("https://same-origin.test/web_bundle/same_origin" +
-                  GetParam() + ".wbn");
+  GURL bundle_url("https://same-origin.test/web_bundle/same_origin_b2.wbn");
   GURL subresource_url("https://same-origin.test/web_bundle/resource.json");
   RequestInterceptor interceptor(subresource_url);
-  SetupLinkWebBundleElementAndImgElement(bundle_url, subresource_url);
+  SetupScriptWebBundleElementAndImgElement(bundle_url, subresource_url);
   interceptor.WaitForRequestCompletion();
 
   EXPECT_EQ(0, interceptor.completion_status().error_code);
@@ -1580,14 +1575,13 @@ IN_PROC_BROWSER_TEST_P(CrossSiteDocumentBlockingWebBundleTest,
       << "JSON in a same-origin webbundle should not be blocked";
 }
 
-IN_PROC_BROWSER_TEST_P(CrossSiteDocumentBlockingWebBundleTest,
+IN_PROC_BROWSER_TEST_F(CrossSiteDocumentBlockingWebBundleTest,
                        SameOriginWebBundleSubresorucePng) {
   https_server()->StartAcceptingConnections();
-  GURL bundle_url("https://same-origin.test/web_bundle/same_origin" +
-                  GetParam() + ".wbn");
+  GURL bundle_url("https://same-origin.test/web_bundle/same_origin_b2.wbn");
   GURL subresource_url("https://same-origin.test/web_bundle/resource.png");
   RequestInterceptor interceptor(subresource_url);
-  SetupLinkWebBundleElementAndImgElement(bundle_url, subresource_url);
+  SetupScriptWebBundleElementAndImgElement(bundle_url, subresource_url);
   interceptor.WaitForRequestCompletion();
 
   EXPECT_EQ(0, interceptor.completion_status().error_code);
@@ -1595,10 +1589,85 @@ IN_PROC_BROWSER_TEST_P(CrossSiteDocumentBlockingWebBundleTest,
       << "PNG in a same-origin webbundle should not be blocked";
 }
 
-INSTANTIATE_TEST_SUITE_P(
+// TODO(crbug.com/1448564): Remove support for old header names once API users
+// have switched.
+IN_PROC_BROWSER_TEST_F(CrossSiteDocumentBlockingWebBundleTest,
+                       FledgeAuctionOnlySignalsNotReadableFromFetchWebBundle) {
+  https_server()->StartAcceptingConnections();
+
+  // Navigate to the test page while request interceptor is active.
+  // Note that even same origin requests are blocked.
+  GURL subresource_url(
+      "https://foo.com/interest_group/auction_only_in_bundle.json");
+  RequestInterceptor interceptor(subresource_url);
+  EXPECT_TRUE(NavigateToURL(
+      shell(), GURL("https://foo.com/interest_group/auction_only.html")));
+
+  // Issue the request that will be intercepted.
+  const char kScriptTemplate[] = "fetch($1)";
+  EXPECT_TRUE(ExecJs(shell(), JsReplace(kScriptTemplate, subresource_url),
+                     content::EXECUTE_SCRIPT_NO_RESOLVE_PROMISES));
+  interceptor.WaitForRequestCompletion();
+
+  // Verify that X-FLEDGE-Auction-Only blocked the response before it
+  // reached the renderer process.
+  EXPECT_EQ(net::ERR_BLOCKED_BY_RESPONSE,
+            interceptor.completion_status().error_code);
+  EXPECT_EQ("", interceptor.response_body());
+}
+
+IN_PROC_BROWSER_TEST_F(
     CrossSiteDocumentBlockingWebBundleTest,
+    FledgeAuctionOnlySignalsNotReadableFromFetchWebBundleNewName) {
+  https_server()->StartAcceptingConnections();
+
+  // Navigate to the test page while request interceptor is active.
+  // Note that even same origin requests are blocked.
+  GURL subresource_url(
+      "https://foo.com/interest_group/auction_only_in_bundle.json");
+  RequestInterceptor interceptor(subresource_url);
+  EXPECT_TRUE(NavigateToURL(
+      shell(),
+      GURL("https://foo.com/interest_group/auction_only_new_name.html")));
+
+  // Issue the request that will be intercepted.
+  const char kScriptTemplate[] = "fetch($1)";
+  EXPECT_TRUE(ExecJs(shell(), JsReplace(kScriptTemplate, subresource_url),
+                     content::EXECUTE_SCRIPT_NO_RESOLVE_PROMISES));
+  interceptor.WaitForRequestCompletion();
+
+  // Verify that Ad-Auction-Only blocked the response before it
+  // reached the renderer process.
+  EXPECT_EQ(net::ERR_BLOCKED_BY_RESPONSE,
+            interceptor.completion_status().error_code);
+  EXPECT_EQ("", interceptor.response_body());
+}
+
+IN_PROC_BROWSER_TEST_F(
     CrossSiteDocumentBlockingWebBundleTest,
-    testing::Values("_b1", "_b2"),
-    CrossSiteDocumentBlockingWebBundleTest::DescribeParams);
+    FledgeAuctionOnlySignalsNotReadableFromFetchWebBundleBothNewAndOldNames) {
+  https_server()->StartAcceptingConnections();
+
+  // Navigate to the test page while request interceptor is active.
+  // Note that even same origin requests are blocked.
+  GURL subresource_url(
+      "https://foo.com/interest_group/auction_only_in_bundle.json");
+  RequestInterceptor interceptor(subresource_url);
+  EXPECT_TRUE(
+      NavigateToURL(shell(), GURL("https://foo.com/interest_group/"
+                                  "auction_only_both_new_and_old_names.html")));
+
+  // Issue the request that will be intercepted.
+  const char kScriptTemplate[] = "fetch($1)";
+  EXPECT_TRUE(ExecJs(shell(), JsReplace(kScriptTemplate, subresource_url),
+                     content::EXECUTE_SCRIPT_NO_RESOLVE_PROMISES));
+  interceptor.WaitForRequestCompletion();
+
+  // Verify that both Ad-Auction-Only and X-FLEDGE-Auction-Only blocked the
+  // response before it reached the renderer process.
+  EXPECT_EQ(net::ERR_BLOCKED_BY_RESPONSE,
+            interceptor.completion_status().error_code);
+  EXPECT_EQ("", interceptor.response_body());
+}
 
 }  // namespace content

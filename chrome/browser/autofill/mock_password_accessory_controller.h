@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -39,6 +39,7 @@ class MockPasswordAccessoryController : public PasswordAccessoryController {
               (autofill::password_generation::PasswordGenerationType),
               (override));
   MOCK_METHOD(void, DidNavigateMainFrame, ());
+  MOCK_METHOD(void, UpdateCredManReentryUi, ());
   MOCK_METHOD(void,
               RegisterFillingSourceObserver,
               (FillingSourceObserver),

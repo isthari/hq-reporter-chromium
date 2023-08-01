@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -44,6 +44,8 @@ public abstract class EditorBase<T extends EditableOption> {
      *         with null (|toEdit| was null), incomplete information (|toEdit| was incomplete),
      *         invalid information (|toEdit| was invalid), or even with complete and valid
      *         information (|toEdit| was both complete and valid to begin with).
+     *
+     * TODO(crbug.com/1421056) Rename this method to showEditPrompt.
      */
     protected void edit(@Nullable T toEdit, Callback<T> doneCallback, Callback<T> cancelCallback) {
         assert doneCallback != null;

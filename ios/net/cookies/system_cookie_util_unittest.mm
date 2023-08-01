@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,8 +28,6 @@ const char kCookieName[] = "name";
 const char kCookiePath[] = "path/";
 const char kCookieValue[] = "value";
 const char kCookieValueInvalidUtf8[] = "\x81r\xe4\xbd\xa0\xe5\xa5\xbd";
-const char kGetCookiesResultHistogram[] =
-    "IOS.Cookies.GetCookiesForURLCallResult";
 
 void CheckSystemCookie(const base::Time& expires, bool secure, bool httponly) {
   net::CookieSameSite same_site = net::CookieSameSite::NO_RESTRICTION;
@@ -44,6 +42,7 @@ void CheckSystemCookie(const base::Time& expires, bool secure, bool httponly) {
           base::Time(),  // creation
           expires,
           base::Time(),  // last_access
+          base::Time(),  // last_update
           secure, httponly, same_site, net::COOKIE_PRIORITY_DEFAULT,
           false /* same_party */);
   // Convert it to system cookie.
@@ -68,14 +67,6 @@ void CheckSystemCookie(const base::Time& expires, bool secure, bool httponly) {
       [[system_cookie expiresDate] timeIntervalSince1970]);
   EXPECT_LE(expires - base::Seconds(1), system_cookie_expire_date);
   EXPECT_GE(expires + base::Seconds(1), system_cookie_expire_date);
-}
-
-void VerifyGetCookiesResultHistogram(
-    const base::HistogramTester& histogram_tester,
-    GetCookiesForURLCallResult expected_value) {
-  histogram_tester.ExpectBucketCount(
-      kGetCookiesResultHistogram,
-      static_cast<base::HistogramBase::Sample>(expected_value), 1);
 }
 
 }  // namespace
@@ -148,38 +139,6 @@ TEST_F(CookieUtil, CanonicalCookieFromSystemCookie) {
   EXPECT_FALSE(CanonicalCookieFromSystemCookie(system_cookie, creation_time));
 }
 
-// Tests that histogram is reported correctly based on the input.
-TEST_F(CookieUtil, ReportGetCookiesForURLResult) {
-  base::HistogramTester histogram_tester;
-  histogram_tester.ExpectTotalCount(kGetCookiesResultHistogram, 0);
-  ReportGetCookiesForURLResult(SystemCookieStoreType::kNSHTTPSystemCookieStore,
-                               /*has_cookies=*/true);
-  VerifyGetCookiesResultHistogram(
-      histogram_tester,
-      GetCookiesForURLCallResult::kCookiesFoundOnNSHTTPSystemCookieStore);
-  histogram_tester.ExpectTotalCount(kGetCookiesResultHistogram, 1);
-
-  ReportGetCookiesForURLResult(SystemCookieStoreType::kNSHTTPSystemCookieStore,
-                               /*has_cookies=*/false);
-  VerifyGetCookiesResultHistogram(
-      histogram_tester,
-      GetCookiesForURLCallResult::kNoCookiesOnNSHTTPSystemCookieStore);
-  histogram_tester.ExpectTotalCount(kGetCookiesResultHistogram, 2);
-
-  ReportGetCookiesForURLResult(SystemCookieStoreType::kCookieMonster,
-                               /*has_cookies=*/false);
-  VerifyGetCookiesResultHistogram(
-      histogram_tester, GetCookiesForURLCallResult::kNoCookiesOnCookieMonster);
-  histogram_tester.ExpectTotalCount(kGetCookiesResultHistogram, 3);
-
-  ReportGetCookiesForURLResult(SystemCookieStoreType::kWKHTTPSystemCookieStore,
-                               /*has_cookies=*/true);
-  VerifyGetCookiesResultHistogram(
-      histogram_tester,
-      GetCookiesForURLCallResult::kCookiesFoundOnWKHTTPSystemCookieStore);
-  histogram_tester.ExpectTotalCount(kGetCookiesResultHistogram, 4);
-}
-
 TEST_F(CookieUtil, SystemCookieFromCanonicalCookie) {
   base::Time expire_date = base::Time::Now() + base::Hours(2);
 
@@ -198,6 +157,7 @@ TEST_F(CookieUtil, SystemCookieFromBadCanonicalCookie) {
           base::Time(),  // creation
           base::Time(),  // expires
           base::Time(),  // last_access
+          base::Time(),  // last_update
           false,         // secure
           false,         // httponly
           net::CookieSameSite::NO_RESTRICTION, net::COOKIE_PRIORITY_DEFAULT,
@@ -216,6 +176,7 @@ TEST_F(CookieUtil, SystemCookiesFromCanonicalCookieList) {
           base::Time(),  // creation
           expire_date,
           base::Time(),  // last_access
+          base::Time(),  // last_update
           false,         // secure
           false,         // httponly
           net::CookieSameSite::UNSPECIFIED, net::COOKIE_PRIORITY_DEFAULT,
@@ -225,6 +186,7 @@ TEST_F(CookieUtil, SystemCookiesFromCanonicalCookieList) {
           base::Time(),  // creation
           expire_date,
           base::Time(),  // last_access
+          base::Time(),  // last_update
           false,         // secure
           false,         // httponly
           net::CookieSameSite::UNSPECIFIED, net::COOKIE_PRIORITY_DEFAULT,

@@ -1,12 +1,13 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.keyboard_accessory.all_passwords_bottom_sheet;
 
+import static androidx.test.espresso.matcher.ViewMatchers.assertThat;
+
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertThat;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.verify;
@@ -104,9 +105,10 @@ public class AllPasswordsBottomSheetControllerTest {
     @Test
     public void testOnCredentialSelected() {
         mMediator.showCredentials(TEST_CREDENTIALS, IS_PASSWORD_FIELD);
-        mMediator.onCredentialSelected(TEST_CREDENTIALS[1]);
+        CredentialFillRequest request = new CredentialFillRequest(TEST_CREDENTIALS[1], true);
+        mMediator.onCredentialSelected(request);
         assertThat(mModel.get(VISIBLE), is(false));
-        verify(mMockDelegate).onCredentialSelected(TEST_CREDENTIALS[1]);
+        verify(mMockDelegate).onCredentialSelected(request);
     }
 
     @Test

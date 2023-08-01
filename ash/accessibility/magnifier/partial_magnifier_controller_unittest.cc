@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "ash/accessibility/magnifier/magnifier_glass.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
+#include "base/memory/raw_ptr.h"
 #include "ui/display/manager/display_manager.h"
 #include "ui/display/screen.h"
 #include "ui/events/test/event_generator.h"
@@ -43,7 +44,7 @@ class PartialMagnifierControllerTestApi {
   }
 
  private:
-  PartialMagnifierController* controller_;
+  raw_ptr<PartialMagnifierController, ExperimentalAsh> controller_;
 };
 
 class PartialMagnifierControllerTest : public AshTestBase {
@@ -91,6 +92,21 @@ TEST_F(PartialMagnifierControllerTest, ActiveOnPointerDown) {
   EXPECT_TRUE(GetTestApi().is_active());
   EXPECT_TRUE(GetTestApi().host_widget());
   event_generator->ReleaseTouch();
+  EXPECT_FALSE(GetTestApi().is_active());
+  EXPECT_FALSE(GetTestApi().host_widget());
+}
+
+// The magnifier should disappear after a pointer is cancelled while enabled.
+TEST_F(PartialMagnifierControllerTest, InactiveOnPointerCancelled) {
+  ui::test::EventGenerator* event_generator = GetEventGenerator();
+  event_generator->EnterPenPointerMode();
+
+  // While enabled the magnifier is disactivated when the pointer is cancelled.
+  GetController()->SetEnabled(true);
+  event_generator->PressTouch();
+  EXPECT_TRUE(GetTestApi().is_active());
+  EXPECT_TRUE(GetTestApi().host_widget());
+  event_generator->CancelTouch();
   EXPECT_FALSE(GetTestApi().is_active());
   EXPECT_FALSE(GetTestApi().host_widget());
 }

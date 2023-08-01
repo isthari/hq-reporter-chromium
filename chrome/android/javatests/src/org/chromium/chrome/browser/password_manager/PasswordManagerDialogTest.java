@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,11 +32,11 @@ import org.mockito.quality.Strictness;
 import org.chromium.base.Callback;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.CriteriaHelper;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.chrome.test.R;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.modaldialog.DialogDismissalCause;
 import org.chromium.ui.modaldialog.ModalDialogManager;
@@ -73,7 +73,7 @@ public class PasswordManagerDialogTest {
                     activity.findViewById(android.R.id.content),
                     activity.getBrowserControlsManager());
             PasswordManagerDialogContents contents = new PasswordManagerDialogContents(TITLE,
-                    DETAILS, R.drawable.password_checkup_warning, OK_BUTTON, 0, CANCEL_BUTTON,
+                    DETAILS, R.drawable.password_checkup_warning, OK_BUTTON, CANCEL_BUTTON,
                     mOnClick);
             contents.setDialogType(ModalDialogManager.ModalDialogType.TAB);
             mCoordinator.initialize(activity.getWindowAndroid().getContext().get(), contents);

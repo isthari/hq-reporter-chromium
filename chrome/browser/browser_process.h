@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,7 @@
 #include <memory>
 #include <string>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/scoped_refptr.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -28,6 +28,7 @@ class BuildState;
 class DownloadRequestLimiter;
 class DownloadStatusUpdater;
 class GpuModeManager;
+class HidPolicyAllowedDevices;
 class IconManager;
 class MediaFileSystemRegistry;
 class NotificationPlatformBridge;
@@ -41,11 +42,16 @@ class SystemNetworkContextManager;
 class WebRtcLogUploader;
 
 #if !BUILDFLAG(IS_ANDROID)
+class HidSystemTrayIcon;
 class IntranetRedirectDetector;
 #endif
 
-namespace breadcrumbs {
-class BreadcrumbPersistentStorageManager;
+namespace device {
+class GeolocationManager;
+}
+
+namespace embedder_support {
+class OriginTrialsSettingsStorage;
 }
 
 namespace network {
@@ -59,10 +65,6 @@ class SafeBrowsingService;
 
 namespace subresource_filter {
 class RulesetService;
-}
-
-namespace federated_learning {
-class FlocSortingLshClustersService;
 }
 
 namespace variations {
@@ -130,10 +132,17 @@ class BrowserProcess {
   // the current sequence.
   virtual void FlushLocalStateAndReply(base::OnceClosure reply) = 0;
 
+  // Provides the geolocation manager or nullptr if not available
+  virtual device::GeolocationManager* geolocation_manager() = 0;
+
   // Gets the manager for the various metrics-related services, constructing it
   // if necessary.
   virtual metrics_services_manager::MetricsServicesManager*
   GetMetricsServicesManager() = 0;
+
+  // Gets the OriginTrialsSettingsStorage, constructing it if necessary.
+  virtual embedder_support::OriginTrialsSettingsStorage*
+  GetOriginTrialsSettingsStorage() = 0;
 
   // Services: any of these getters may return NULL
   virtual metrics::MetricsService* metrics_service() = 0;
@@ -153,6 +162,10 @@ class BrowserProcess {
   // NotificationPlatformBridge + NotificationDisplayService
   virtual NotificationUIManager* notification_ui_manager() = 0;
   virtual NotificationPlatformBridge* notification_platform_bridge() = 0;
+
+  // Sets geolocation manager
+  virtual void SetGeolocationManager(
+      std::unique_ptr<device::GeolocationManager> geolocation_manager) = 0;
 
   // Replacement for IOThread. It owns and manages the
   // NetworkContext which will use the network service when the network service
@@ -221,11 +234,6 @@ class BrowserProcess {
   virtual subresource_filter::RulesetService*
   subresource_filter_ruleset_service() = 0;
 
-  // Returns the service providing versioned storage for a list of limit values
-  // for calculating the floc based on SortingLSH.
-  virtual federated_learning::FlocSortingLshClustersService*
-  floc_sorting_lsh_clusters_service() = 0;
-
   // Returns the StartupData which owns any pre-created objects in //chrome
   // before the full browser starts.
   virtual StartupData* startup_data() = 0;
@@ -268,14 +276,17 @@ class BrowserProcess {
   // Returns the object which keeps track of serial port permissions configured
   // through the policy engine.
   virtual SerialPolicyAllowedPorts* serial_policy_allowed_ports() = 0;
+
+  // Returns the object which keeps track of Human Interface Device (HID)
+  // permissions configured through the policy engine.
+  virtual HidPolicyAllowedDevices* hid_policy_allowed_devices() = 0;
+
+  // Returns the object which maintains Human Interface Device (HID) system tray
+  // icon.
+  virtual HidSystemTrayIcon* hid_system_tray_icon() = 0;
 #endif
 
   virtual BuildState* GetBuildState() = 0;
-
-  // Returns the BreadcrumbPersistentStorageManager writing breadcrumbs to disk,
-  // or nullptr if breadcrumbs logging is disabled.
-  virtual breadcrumbs::BreadcrumbPersistentStorageManager*
-  GetBreadcrumbPersistentStorageManager() = 0;
 };
 
 extern BrowserProcess* g_browser_process;

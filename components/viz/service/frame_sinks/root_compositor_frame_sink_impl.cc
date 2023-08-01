@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,9 @@
 
 #include "base/containers/flat_set.h"
 #include "base/memory/ptr_util.h"
+#include "base/memory/raw_ptr.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/platform_thread.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -24,12 +25,57 @@
 #include "components/viz/service/frame_sinks/frame_sink_manager_impl.h"
 #include "components/viz/service/frame_sinks/gpu_vsync_begin_frame_source.h"
 #include "components/viz/service/hit_test/hit_test_aggregator.h"
+#include "services/viz/public/mojom/compositing/layer_context.mojom.h"
+#include "ui/gfx/geometry/skia_conversions.h"
 
 #if BUILDFLAG(IS_ANDROID)
 #include "components/viz/service/frame_sinks/external_begin_frame_source_android.h"
 #endif
 
+#if BUILDFLAG(IS_IOS)
+#include "components/viz/service/frame_sinks/external_begin_frame_source_ios.h"
+#endif
+
+#if BUILDFLAG(IS_MAC)
+#include "components/viz/service/frame_sinks/external_begin_frame_source_mac.h"
+#endif
+
 namespace viz {
+
+class RootCompositorFrameSinkImpl::StandaloneBeginFrameObserver
+    : public BeginFrameObserverBase {
+ public:
+  StandaloneBeginFrameObserver(
+      mojo::PendingRemote<mojom::BeginFrameObserver> observer,
+      BeginFrameSource* begin_frame_source)
+      : remote_observer_(std::move(observer)),
+        begin_frame_source_(begin_frame_source) {
+    remote_observer_.set_disconnect_handler(base::BindOnce(
+        &StandaloneBeginFrameObserver::StopObserving, base::Unretained(this)));
+    begin_frame_source_->AddObserver(this);
+  }
+
+  ~StandaloneBeginFrameObserver() override { StopObserving(); }
+
+  bool OnBeginFrameDerivedImpl(const BeginFrameArgs& args) override {
+    remote_observer_->OnStandaloneBeginFrame(args);
+    return true;
+  }
+
+  void OnBeginFrameSourcePausedChanged(bool paused) override {}
+  bool IsRoot() const override { return true; }
+
+ private:
+  void StopObserving() {
+    if (!begin_frame_source_)
+      return;
+    begin_frame_source_->RemoveObserver(this);
+    begin_frame_source_ = nullptr;
+  }
+
+  mojo::Remote<mojom::BeginFrameObserver> remote_observer_;
+  raw_ptr<BeginFrameSource> begin_frame_source_;
+};
 
 // static
 std::unique_ptr<RootCompositorFrameSinkImpl>
@@ -45,7 +91,7 @@ RootCompositorFrameSinkImpl::Create(
   mojo::Remote<mojom::DisplayClient> display_client(
       std::move(params->display_client));
   auto display_controller = output_surface_provider->CreateGpuDependency(
-      params->gpu_compositing, params->widget, params->renderer_settings);
+      params->gpu_compositing, params->widget);
   auto output_surface = output_surface_provider->CreateOutputSurface(
       params->widget, params->gpu_compositing, display_client.get(),
       display_controller.get(), params->renderer_settings, debug_settings);
@@ -93,12 +139,19 @@ RootCompositorFrameSinkImpl::Create(
         std::make_unique<ExternalBeginFrameSourceAndroid>(
             restart_id, params->refresh_rate,
             /*requires_align_with_java=*/false);
+#elif BUILDFLAG(IS_IOS)
+    hw_support_for_multiple_refresh_rates = true;
+    external_begin_frame_source =
+        std::make_unique<ExternalBeginFrameSourceIOS>(restart_id);
 #else
-    if (params->disable_frame_rate_limit) {
+    // TODO(b/221220344): Support dynamically choosing the BeginFrameSource per
+    // VRR state changes.
+    if (params->disable_frame_rate_limit ||
+        params->enable_variable_refresh_rate) {
       synthetic_begin_frame_source =
           std::make_unique<BackToBackBeginFrameSource>(
               std::make_unique<DelayBasedTimeSource>(
-                  base::ThreadTaskRunnerHandle::Get().get()));
+                  base::SingleThreadTaskRunner::GetCurrentDefault().get()));
     } else if (output_surface->capabilities().supports_gpu_vsync) {
 #if BUILDFLAG(IS_WIN)
       hw_support_for_multiple_refresh_rates =
@@ -108,16 +161,22 @@ RootCompositorFrameSinkImpl::Create(
       // Vsync updates are required to update the FrameRateDecider with
       // supported refresh rates.
 #if !BUILDFLAG(IS_APPLE)
-      wants_vsync_updates = params->use_preferred_interval_for_video;
+      wants_vsync_updates = true;
 #endif
       external_begin_frame_source = std::make_unique<GpuVSyncBeginFrameSource>(
           restart_id, output_surface.get());
     } else {
+      auto time_source = std::make_unique<DelayBasedTimeSource>(
+          base::SingleThreadTaskRunner::GetCurrentDefault().get());
+#if BUILDFLAG(IS_MAC)
       synthetic_begin_frame_source =
-          std::make_unique<DelayBasedBeginFrameSource>(
-              std::make_unique<DelayBasedTimeSource>(
-                  base::ThreadTaskRunnerHandle::Get().get()),
-              restart_id);
+          std::make_unique<DelayBasedBeginFrameSourceMac>(
+              std::move(time_source), restart_id);
+#else
+      synthetic_begin_frame_source =
+          std::make_unique<DelayBasedBeginFrameSource>(std::move(time_source),
+                                                       restart_id);
+#endif
     }
 #endif  // BUILDFLAG(IS_ANDROID)
   }
@@ -127,7 +186,7 @@ RootCompositorFrameSinkImpl::Create(
     begin_frame_source = external_begin_frame_source.get();
   DCHECK(begin_frame_source);
 
-  auto task_runner = base::ThreadTaskRunnerHandle::Get();
+  auto task_runner = base::SingleThreadTaskRunner::GetCurrentDefault();
 
   const auto& capabilities = output_surface->capabilities();
   DCHECK_GT(capabilities.pending_swap_params.max_pending_swaps, 0);
@@ -139,9 +198,7 @@ RootCompositorFrameSinkImpl::Create(
   auto* output_surface_ptr = output_surface.get();
 #endif
   gpu::SharedImageInterface* sii = nullptr;
-  if (output_surface->context_provider())
-    sii = output_surface->context_provider()->SharedImageInterface();
-  else if (display_controller)
+  if (display_controller)
     sii = display_controller->shared_image_interface();
 
   auto overlay_processor = OverlayProcessorInterface::CreateOverlayProcessor(
@@ -166,7 +223,6 @@ RootCompositorFrameSinkImpl::Create(
       std::move(params->display_private), std::move(display_client),
       std::move(synthetic_begin_frame_source),
       std::move(external_begin_frame_source), std::move(display),
-      params->use_preferred_interval_for_video,
       hw_support_for_multiple_refresh_rates,
       params->renderer_settings.apply_simple_frame_rate_throttling));
 
@@ -224,13 +280,19 @@ void RootCompositorFrameSinkImpl::Resize(const gfx::Size& size) {
 
 void RootCompositorFrameSinkImpl::SetDisplayColorMatrix(
     const gfx::Transform& color_matrix) {
-  display_->SetColorMatrix(color_matrix.matrix());
+  display_->SetColorMatrix(gfx::TransformToSkM44(color_matrix));
 }
 
 void RootCompositorFrameSinkImpl::SetDisplayColorSpaces(
     const gfx::DisplayColorSpaces& display_color_spaces) {
   display_->SetDisplayColorSpaces(display_color_spaces);
 }
+
+#if BUILDFLAG(IS_MAC)
+void RootCompositorFrameSinkImpl::SetVSyncDisplayID(int64_t display_id) {
+  begin_frame_source()->SetVSyncDisplayID(display_id);
+}
+#endif
 
 void RootCompositorFrameSinkImpl::SetOutputIsSecure(bool secure) {
   display_->SetOutputIsSecure(secure);
@@ -366,12 +428,23 @@ void RootCompositorFrameSinkImpl::SetDelegatedInkPointRenderer(
   display_->InitDelegatedInkPointRendererReceiver(std::move(receiver));
 }
 
+void RootCompositorFrameSinkImpl::SetStandaloneBeginFrameObserver(
+    mojo::PendingRemote<mojom::BeginFrameObserver> observer) {
+  standalone_begin_frame_observer_ =
+      std::make_unique<StandaloneBeginFrameObserver>(std::move(observer),
+                                                     begin_frame_source());
+}
+
 void RootCompositorFrameSinkImpl::SetNeedsBeginFrame(bool needs_begin_frame) {
   support_->SetNeedsBeginFrame(needs_begin_frame);
 }
 
 void RootCompositorFrameSinkImpl::SetWantsAnimateOnlyBeginFrames() {
   support_->SetWantsAnimateOnlyBeginFrames();
+}
+
+void RootCompositorFrameSinkImpl::SetWantsBeginFrameAcks() {
+  support_->SetWantsBeginFrameAcks();
 }
 
 void RootCompositorFrameSinkImpl::SubmitCompositorFrame(
@@ -436,6 +509,11 @@ void RootCompositorFrameSinkImpl::InitializeCompositorFrameSinkType(
   support_->InitializeCompositorFrameSinkType(type);
 }
 
+void RootCompositorFrameSinkImpl::BindLayerContext(
+    mojom::PendingLayerContextPtr context) {
+  support_->BindLayerContext(*context);
+}
+
 #if BUILDFLAG(IS_ANDROID)
 void RootCompositorFrameSinkImpl::SetThreadIds(
     const std::vector<int32_t>& thread_ids) {
@@ -455,7 +533,6 @@ RootCompositorFrameSinkImpl::RootCompositorFrameSinkImpl(
     std::unique_ptr<SyntheticBeginFrameSource> synthetic_begin_frame_source,
     std::unique_ptr<ExternalBeginFrameSource> external_begin_frame_source,
     std::unique_ptr<Display> display,
-    bool use_preferred_interval_for_video,
     bool hw_support_for_multiple_refresh_rates,
     bool apply_simple_frame_rate_throttling)
     : compositor_frame_sink_client_(std::move(frame_sink_client)),
@@ -479,11 +556,24 @@ RootCompositorFrameSinkImpl::RootCompositorFrameSinkImpl(
                        Display::kEnableSharedImages,
                        hw_support_for_multiple_refresh_rates);
   support_->SetUpHitTest(display_.get());
-  if (use_preferred_interval_for_video &&
-      !hw_support_for_multiple_refresh_rates) {
+#if BUILDFLAG(IS_IOS)
+  // iOS supports preferred refresh rate interval set as a hint how often a
+  // client wants to refresh the content. It works two ways - a client setting a
+  // preferred refresh rate and the system throttling the refresh rate in case
+  // of battery saving or any other events.
+  DCHECK(hw_support_for_multiple_refresh_rates);
+  use_preferred_interval_ = true;
+#else
+  if (!hw_support_for_multiple_refresh_rates) {
     display_->SetSupportedFrameIntervals(
         {display_frame_interval_, display_frame_interval_ * 2});
     use_preferred_interval_ = true;
+  }
+#endif
+
+  if (external_begin_frame_source_) {
+    display_frame_interval_ =
+        external_begin_frame_source_->GetMaximumRefreshFrameInterval();
   }
 }
 
@@ -508,13 +598,22 @@ base::ScopedClosureRunner RootCompositorFrameSinkImpl::GetCacheBackBufferCb() {
 
 void RootCompositorFrameSinkImpl::DisplayDidReceiveCALayerParams(
     const gfx::CALayerParams& ca_layer_params) {
-  if (last_ca_layer_params_ == ca_layer_params)
-    return;
 #if BUILDFLAG(IS_APPLE)
   // If |ca_layer_params| should have content only when there exists a client
   // to send it to.
   DCHECK(ca_layer_params.is_empty || display_client_);
+  if (last_ca_layer_params_ == ca_layer_params &&
+      base::TimeTicks::Now() < next_forced_ca_layer_params_update_time_) {
+    return;
+  }
   last_ca_layer_params_ = ca_layer_params;
+  // OnDisplayReceivedCALayerParams() is ultimately responsible for triggering
+  // updates to vsync. VSync may change dynamically. To ensure the value is
+  // updated correctly, OnDisplayReceivedCALayerParams() is periodically called,
+  // even if the params haven't changed. The value here matches that of
+  // DisplayLinkMac, which is responsible for querying for vsync updates.
+  next_forced_ca_layer_params_update_time_ =
+      base::TimeTicks::Now() + base::Seconds(10);
   if (display_client_)
     display_client_->OnDisplayReceivedCALayerParams(ca_layer_params);
 #else
@@ -533,6 +632,17 @@ void RootCompositorFrameSinkImpl::DisplayDidCompleteSwapWithSize(
   if (display_client_ && pixel_size != last_swap_pixel_size_) {
     last_swap_pixel_size_ = pixel_size;
     display_client_->DidCompleteSwapWithNewSize(last_swap_pixel_size_);
+  }
+#else
+  NOTREACHED();
+#endif
+}
+
+void RootCompositorFrameSinkImpl::DisplayAddChildWindowToBrowser(
+    gpu::SurfaceHandle child_window) {
+#if BUILDFLAG(IS_WIN)
+  if (display_client_) {
+    display_client_->AddChildWindowToBrowser(child_window);
   }
 #else
   NOTREACHED();
@@ -573,6 +683,13 @@ BeginFrameSource* RootCompositorFrameSinkImpl::begin_frame_source() {
   if (external_begin_frame_source_)
     return external_begin_frame_source_.get();
   return synthetic_begin_frame_source_.get();
+}
+
+void RootCompositorFrameSinkImpl::SetMaxVrrInterval(
+    absl::optional<base::TimeDelta> max_vrr_interval) {
+  if (synthetic_begin_frame_source_) {
+    synthetic_begin_frame_source_->SetMaxVrrInterval(max_vrr_interval);
+  }
 }
 
 }  // namespace viz

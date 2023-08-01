@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,13 +12,13 @@
 #include "base/android/jni_weak_ref.h"
 #include "base/android/scoped_java_ref.h"
 #include "base/memory/raw_ptr.h"
-#include "cc/layers/layer.h"
-#include "cc/layers/ui_resource_layer.h"
 #include "chrome/browser/ui/android/layouts/scene_layer.h"
 
-namespace cc {
+namespace cc::slim {
+class Layer;
 class SolidColorLayer;
-}
+class UIResourceLayer;
+}  // namespace cc::slim
 
 namespace android {
 
@@ -29,7 +29,10 @@ class TabHandleLayer;
 // added as a subtree.
 class TabStripSceneLayer : public SceneLayer {
  public:
-  TabStripSceneLayer(JNIEnv* env, const base::android::JavaRef<jobject>& jobj);
+  TabStripSceneLayer(JNIEnv* env,
+                     const base::android::JavaRef<jobject>& jobj,
+                     jboolean is_tab_strip_redesign_enabled,
+                     jboolean is_tsr_btn_style_disabled);
 
   TabStripSceneLayer(const TabStripSceneLayer&) = delete;
   TabStripSceneLayer& operator=(const TabStripSceneLayer&) = delete;
@@ -50,22 +53,23 @@ class TabStripSceneLayer : public SceneLayer {
 
   void UpdateTabStripLayer(JNIEnv* env,
                            const base::android::JavaParamRef<jobject>& jobj,
-                           jfloat width,
-                           jfloat height,
+                           jint width,
+                           jint height,
                            jfloat y_offset,
-                           jfloat background_tab_brightness,
-                           jfloat brightness,
-                           jboolean should_readd_background);
+                           jint background_color);
 
   void UpdateNewTabButton(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& jobj,
       jint resource_id,
+      jint bg_resource_id,
       jfloat x,
       jfloat y,
-      jfloat width,
-      jfloat height,
+      jfloat touch_target_offset,
       jboolean visible,
+      jint tint,
+      jint background_tint,
+      jfloat button_alpha,
       const base::android::JavaParamRef<jobject>& jresource_manager);
 
   void UpdateModelSelectorButton(
@@ -78,6 +82,23 @@ class TabStripSceneLayer : public SceneLayer {
       jfloat height,
       jboolean incognito,
       jboolean visible,
+      jfloat button_alpha,
+      const base::android::JavaParamRef<jobject>& jresource_manager);
+
+  void UpdateModelSelectorButtonBackground(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& jobj,
+      jint resource_id,
+      jint bg_resource_id,
+      jfloat x,
+      jfloat y,
+      jfloat width,
+      jfloat height,
+      jboolean incognito,
+      jboolean visible,
+      jint tint,
+      jint background_tint,
+      jfloat button_alpha,
       const base::android::JavaParamRef<jobject>& jresource_manager);
 
   void UpdateTabStripLeftFade(
@@ -85,23 +106,27 @@ class TabStripSceneLayer : public SceneLayer {
       const base::android::JavaParamRef<jobject>& jobj,
       jint resource_id,
       jfloat opacity,
-      const base::android::JavaParamRef<jobject>& jresource_manager);
+      const base::android::JavaParamRef<jobject>& jresource_manager,
+      jint leftFadeColor);
 
   void UpdateTabStripRightFade(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& jobj,
       jint resource_id,
       jfloat opacity,
-      const base::android::JavaParamRef<jobject>& jresource_manager);
+      const base::android::JavaParamRef<jobject>& jresource_manager,
+      jint rightFadeColor);
 
   void PutStripTabLayer(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& jobj,
       jint id,
       jint close_resource_id,
+      jint divider_resource_id,
       jint handle_resource_id,
       jint handle_outline_resource_id,
       jint close_tint,
+      jint divider_tint,
       jint handle_tint,
       jint handle_outline_tint,
       jboolean foreground,
@@ -112,9 +137,17 @@ class TabStripSceneLayer : public SceneLayer {
       jfloat width,
       jfloat height,
       jfloat content_offset_x,
+      jfloat content_offset_y,
+      jfloat divider_offset_x,
+      jfloat bottom_offset_y,
+      jfloat close_button_padding,
       jfloat close_button_alpha,
+      jboolean is_start_divider_visible,
+      jboolean is_end_divider_visible,
       jboolean is_loading,
       jfloat spinner_rotation,
+      jfloat brightness,
+      jfloat opacity,
       const base::android::JavaParamRef<jobject>& jlayer_title_cache,
       const base::android::JavaParamRef<jobject>& jresource_manager);
 
@@ -127,15 +160,18 @@ class TabStripSceneLayer : public SceneLayer {
 
   typedef std::vector<scoped_refptr<TabHandleLayer>> TabHandleLayerList;
 
-  scoped_refptr<cc::SolidColorLayer> tab_strip_layer_;
-  scoped_refptr<cc::Layer> scrollable_strip_layer_;
-  scoped_refptr<cc::UIResourceLayer> new_tab_button_;
-  scoped_refptr<cc::UIResourceLayer> left_fade_;
-  scoped_refptr<cc::UIResourceLayer> right_fade_;
-  scoped_refptr<cc::UIResourceLayer> model_selector_button_;
+  scoped_refptr<cc::slim::SolidColorLayer> tab_strip_layer_;
+  scoped_refptr<cc::slim::Layer> scrollable_strip_layer_;
+  scoped_refptr<cc::slim::UIResourceLayer> new_tab_button_;
+  scoped_refptr<cc::slim::UIResourceLayer> new_tab_button_background_;
+  scoped_refptr<cc::slim::UIResourceLayer> left_fade_;
+  scoped_refptr<cc::slim::UIResourceLayer> right_fade_;
+  scoped_refptr<cc::slim::UIResourceLayer> model_selector_button_;
+  scoped_refptr<cc::slim::UIResourceLayer> model_selector_button_background_;
 
-  float background_tab_brightness_;
-  float brightness_;
+  const bool is_tab_strip_redesign_enabled_ = false;
+  const bool is_tsr_btn_style_disabled_ = false;
+
   unsigned write_index_;
   TabHandleLayerList tab_handle_layers_;
   raw_ptr<SceneLayer> content_tree_;

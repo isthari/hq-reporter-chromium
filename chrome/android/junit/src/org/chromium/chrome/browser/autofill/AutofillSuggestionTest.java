@@ -1,12 +1,15 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 package org.chromium.chrome.browser.autofill;
 
 import static org.junit.Assert.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import android.graphics.Bitmap;
+import android.graphics.drawable.BitmapDrawable;
 
 import androidx.test.filters.SmallTest;
 
@@ -19,13 +22,19 @@ import org.chromium.url.GURL;
 
 /** Unit tests for {@link AutofillSuggestion} */
 @RunWith(BaseRobolectricTestRunner.class)
+@SuppressWarnings("DoNotMock") // Mocks GURL.
 public class AutofillSuggestionTest {
     @Test
     @SmallTest
     public void testAutofillSuggestion_toBuilder() {
-        AutofillSuggestion suggestion = new AutofillSuggestion("label", "sub_label", "item_tag", 1,
-                true, 1, true, true, true, "feature_for_iph", mock(GURL.class),
-                Bitmap.createBitmap(100, 200, Bitmap.Config.ARGB_8888));
+        Bitmap bitmapIcon = mock(Bitmap.class);
+        when(bitmapIcon.sameAs(any(Bitmap.class))).thenReturn(true);
+        BitmapDrawable drawableIcon = mock(BitmapDrawable.class);
+        when(drawableIcon.getBitmap()).thenReturn(bitmapIcon);
+
+        AutofillSuggestion suggestion = new AutofillSuggestion("label", "secondary_label",
+                "sublabel", "secondary_sublabel", "item_tag", 1, true, 1, true, true, true,
+                "feature_for_iph", mock(GURL.class), drawableIcon);
         assertEquals(suggestion.toBuilder().build(), suggestion);
     }
 }

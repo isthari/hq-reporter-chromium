@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,7 @@
 
 #include <vector>
 
-#include "base/bind.h"
-#include "base/guid.h"
+#include "base/functional/bind.h"
 #include "base/hash/sha1.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
@@ -17,6 +16,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
+#include "base/uuid.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/sync/test/integration/sync_datatype_helper.h"
@@ -83,8 +83,9 @@ bool ServicesMatch(int profile_a, int profile_b, std::ostream* os) {
       *os << "TURL GUID from a not found in b's TURLs: " << guid;
       return false;
     }
-    if (!TURLsMatch(*b_turls[guid], *a_turl))
+    if (!TURLsMatch(*b_turls[guid], *a_turl)) {
       return false;
+    }
   }
 
   const TemplateURL* default_a = service_a->GetDefaultSearchProvider();
@@ -127,18 +128,18 @@ bool ServiceMatchesVerifier(int profile_index) {
     return false;
   }
 
-  for (size_t i = 0; i < verifier_turls.size(); ++i) {
-    const TemplateURL& verifier_turl = *verifier_turls.at(i);
+  for (TemplateURL* verifier_turl : verifier_turls) {
     const TemplateURL* other_turl =
-        other->GetTemplateURLForKeyword(verifier_turl.keyword());
+        other->GetTemplateURLForKeyword(verifier_turl->keyword());
 
     if (!other_turl) {
       DVLOG(1) << "The other service did not contain a TURL with keyword: "
-               << verifier_turl.keyword();
+               << verifier_turl->keyword();
       return false;
     }
-    if (!TURLsMatch(verifier_turl, *other_turl))
+    if (!TURLsMatch(*verifier_turl, *other_turl)) {
       return false;
+    }
   }
 
   return true;
@@ -181,7 +182,7 @@ TemplateURLBuilder::TemplateURLBuilder(const std::string& keyword) {
   hex_encoded_hash.resize(12);
   data_.sync_guid =
       base::StrCat({"12345678-0000-4000-8000-", hex_encoded_hash});
-  DCHECK(base::IsValidGUID(data_.sync_guid));
+  DCHECK(base::Uuid::ParseCaseInsensitive(data_.sync_guid).is_valid());
 }
 
 TemplateURLBuilder::~TemplateURLBuilder() = default;
@@ -194,8 +195,9 @@ void AddSearchEngine(int profile_index, const std::string& keyword) {
   Profile* profile = test()->GetProfile(profile_index);
   TemplateURLBuilder builder(keyword);
   TemplateURLServiceFactory::GetForProfile(profile)->Add(builder.Build());
-  if (test()->UseVerifier())
+  if (test()->UseVerifier()) {
     GetVerifierService()->Add(builder.Build());
+  }
 }
 
 void EditSearchEngine(int profile_index,

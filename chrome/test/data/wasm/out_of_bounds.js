@@ -1,14 +1,8 @@
-// Copyright (c) 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // This file contains tests to exercise Wasm's in- and out- of bounds behavior.
-
-function testPass() {
-  console.error("testPass");
-  domAutomationController.send(true);
-};
-function testFail() { return false; }
 
 const module_bytes = (function createModule() {
   const builder = new WasmModuleBuilder;
@@ -82,14 +76,14 @@ function define_promise_test(name, f) {
   window[name] = function() {
     try {
       f()
-          .then(_ => domAutomationController.send(true))
+          .then(_ => true)
           .catch(function(e) {
             console.error("uncaught exception: " + e);
-            domAutomationController.send(false)
+            return false;
           })
     } catch (e) {
       console.error("uncaught exception: " + e);
-      domAutomationController.send(false);
+      return false;
     }
   }
 }

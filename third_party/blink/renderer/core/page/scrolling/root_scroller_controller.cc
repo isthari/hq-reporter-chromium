@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -114,9 +114,20 @@ Node& RootScrollerController::EffectiveRootScroller() const {
 void RootScrollerController::DidResizeFrameView() {
   DCHECK(document_);
 
-  Page* page = document_->GetPage();
-  if (document_->GetFrame() && document_->GetFrame()->IsMainFrame() && page)
-    page->GlobalRootScrollerController().DidResizeViewport();
+  // TODO(bokan): This method is called from the LocalFrameView but before it's
+  // attached to the document so View() can be nullptr. It's not great that we
+  // might avoid calling DidResizeViewport on the initial size but it doesn't
+  // currently matter since GlobalRootScrollerController().DidResizeViewport()
+  // is used only to invalidate paint and compositing which is unnecessary when
+  // creating the view.
+  if (document_->View()) {
+    // RootFrameViewport exists only in pages with a RootScroller, see
+    // LocalFrameView::InitializeRootScroller.
+    if (document_->View()->GetRootFrameViewport()) {
+      DCHECK(document_->GetFrame()->IsMainFrame());
+      document_->GetPage()->GlobalRootScrollerController().DidResizeViewport();
+    }
+  }
 
   // If the effective root scroller in this Document is a Frame, it'll match
   // its parent's frame rect. We can't rely on layout to kick it to update its
@@ -275,8 +286,9 @@ bool RootScrollerController::IsValidImplicit(const Element& element) const {
     return false;
 
   // Do not implicitly promote things that are partially or fully invisible.
-  if (style->HasOpacity() || style->Visibility() != EVisibility::kVisible)
+  if (style->HasOpacity() || !style->VisibleToHitTesting()) {
     return false;
+  }
 
   PaintLayerScrollableArea* scrollable_area = GetScrollableArea(element);
   if (!scrollable_area)
@@ -375,8 +387,14 @@ Element* RootScrollerController::ImplicitRootScrollerFromCandidates() {
   if (!document_->GetLayoutView())
     return nullptr;
 
-  if (!document_->GetFrame()->IsMainFrame())
+  DCHECK(document_->View());
+
+  // RootFrameViewport exists only in pages with a RootScroller, see
+  // LocalFrameView::InitializeRootScroller.
+  if (!document_->View()->GetRootFrameViewport())
     return nullptr;
+
+  DCHECK(document_->GetFrame()->IsMainFrame());
 
   bool multiple_matches = false;
 
@@ -410,8 +428,10 @@ void RootScrollerController::ElementRemoved(const Element& element) {
 
 void RootScrollerController::ConsiderForImplicit(Node& node) {
   DCHECK(RuntimeEnabledFeatures::ImplicitRootScrollerEnabled());
-  if (!document_->GetFrame()->IsMainFrame())
+  if (!document_->View()->GetRootFrameViewport())
     return;
+
+  DCHECK(document_->GetFrame()->IsMainFrame());
 
   if (document_->GetPage()->GetChromeClient().IsPopup())
     return;

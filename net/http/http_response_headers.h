@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,21 +12,21 @@
 #include <unordered_set>
 #include <vector>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/string_piece.h"
 #include "base/time/time.h"
+#include "base/trace_event/base_tracing_forward.h"
+#include "base/values.h"
 #include "net/base/net_export.h"
 #include "net/http/http_version.h"
 #include "net/log/net_log_capture_mode.h"
-#include "third_party/perfetto/include/perfetto/tracing/traced_value_forward.h"
 
 namespace base {
 class Pickle;
 class PickleIterator;
 class Time;
 class TimeDelta;
-class Value;
 }
 
 namespace net {
@@ -64,6 +64,7 @@ class NET_EXPORT HttpResponseHeaders
 
   static const char kContentRange[];
   static const char kLastModified[];
+  static const char kVary[];
 
   HttpResponseHeaders() = delete;
 
@@ -323,7 +324,7 @@ class NET_EXPORT HttpResponseHeaders
   bool IsChunkEncoded() const;
 
   // Creates a Value for use with the NetLog containing the response headers.
-  base::Value NetLogParams(NetLogCaptureMode capture_mode) const;
+  base::Value::Dict NetLogParams(NetLogCaptureMode capture_mode) const;
 
   // Returns the HTTP response code.  This is 0 if the response code text seems
   // to exist but could not be parsed.  Otherwise, it defaults to 200 if the
@@ -395,11 +396,13 @@ class NET_EXPORT HttpResponseHeaders
                    std::string::const_iterator value_begin,
                    std::string::const_iterator value_end);
 
-  // Replaces the current headers with the merged version of |raw_headers| and
-  // the current headers without the headers in |headers_to_remove|. Note that
-  // |headers_to_remove| are removed from the current headers (before the
+  // Replaces the current headers with the merged version of `raw_headers` and
+  // the current headers without the headers in `headers_to_remove`. Note that
+  // `headers_to_remove` are removed from the current headers (before the
   // merge), not after the merge.
-  void MergeWithHeaders(const std::string& raw_headers,
+  // `raw_headers` is a std::string, not a const reference to a std::string,
+  // to avoid a potentially excessive copy.
+  void MergeWithHeaders(std::string raw_headers,
                         const HeaderSet& headers_to_remove);
 
   // Adds the values from any 'cache-control: no-cache="foo,bar"' headers.

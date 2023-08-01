@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,10 @@
 #include <string>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/rand_util.h"
 #include "base/run_loop.h"
@@ -25,11 +25,6 @@
 #include "third_party/zlib/google/zip_reader.h"
 
 namespace {
-
-bool CreateFile(const base::FilePath& file, const std::string& content) {
-  return base::WriteFile(file, content.c_str(), content.size()) ==
-         static_cast<int>(content.size());
-}
 
 class ZipFileCreatorTest : public InProcessBrowserTest {
  protected:
@@ -130,18 +125,16 @@ IN_PROC_BROWSER_TEST_F(ZipFileCreatorTest, SomeFilesZip) {
   zip::ZipReader reader;
   ASSERT_TRUE(reader.Open(zip_archive_path()));
   EXPECT_EQ(3, reader.num_entries());
-  while (reader.HasMore()) {
-    ASSERT_TRUE(reader.OpenCurrentEntryInZip());
-    const zip::ZipReader::EntryInfo* entry = reader.current_entry_info();
+  while (const zip::ZipReader::Entry* const entry = reader.Next()) {
     // ZipReader returns directory path with trailing slash.
-    if (entry->file_path() == kDir1.AsEndingWithSeparator()) {
-      EXPECT_TRUE(entry->is_directory());
-    } else if (entry->file_path() == kFile1) {
-      EXPECT_FALSE(entry->is_directory());
-      EXPECT_EQ(3, entry->original_size());
-    } else if (entry->file_path() == kFile2) {
-      EXPECT_FALSE(entry->is_directory());
-      EXPECT_EQ(kRandomDataSize, entry->original_size());
+    if (entry->path == kDir1.AsEndingWithSeparator()) {
+      EXPECT_TRUE(entry->is_directory);
+    } else if (entry->path == kFile1) {
+      EXPECT_FALSE(entry->is_directory);
+      EXPECT_EQ(3, entry->original_size);
+    } else if (entry->path == kFile2) {
+      EXPECT_FALSE(entry->is_directory);
+      EXPECT_EQ(kRandomDataSize, entry->original_size);
 
       const base::FilePath out = dir_.GetPath().AppendASCII("archived_content");
       zip::FilePathWriterDelegate writer(out);
@@ -151,8 +144,8 @@ IN_PROC_BROWSER_TEST_F(ZipFileCreatorTest, SomeFilesZip) {
     } else {
       ADD_FAILURE();
     }
-    ASSERT_TRUE(reader.AdvanceToNextEntry());
   }
+  EXPECT_TRUE(reader.ok());
 }
 
 IN_PROC_BROWSER_TEST_F(ZipFileCreatorTest, Cancellation) {
@@ -237,18 +230,15 @@ IN_PROC_BROWSER_TEST_F(ZipFileCreatorTest, DISABLED_BigFile) {
   // Check the archive content.
   zip::ZipReader reader;
   ASSERT_TRUE(reader.Open(zip_archive_path()));
-  while (reader.HasMore()) {
-    ASSERT_TRUE(reader.OpenCurrentEntryInZip());
-    const zip::ZipReader::EntryInfo* entry = reader.current_entry_info();
-    if (entry->file_path() == kFile) {
-      EXPECT_FALSE(entry->is_directory());
-      EXPECT_EQ(kSize, entry->original_size());
+  while (const zip::ZipReader::Entry* const entry = reader.Next()) {
+    if (entry->path == kFile) {
+      EXPECT_FALSE(entry->is_directory);
+      EXPECT_EQ(kSize, entry->original_size);
     } else {
       ADD_FAILURE();
     }
-
-    ASSERT_TRUE(reader.AdvanceToNextEntry());
   }
+  EXPECT_TRUE(reader.ok());
 }
 
 IN_PROC_BROWSER_TEST_F(ZipFileCreatorTest, ZipDirectoryWithManyFiles) {
@@ -281,7 +271,7 @@ IN_PROC_BROWSER_TEST_F(ZipFileCreatorTest, ZipDirectoryWithManyFiles) {
     for (int i = 1; i < 90; i++) {
       base::FilePath file(std::to_string(i) + ".txt");
       std::string content = "Hello" + std::to_string(i);
-      ASSERT_TRUE(CreateFile(root_dir.Append(file), content));
+      ASSERT_TRUE(base::WriteFile(root_dir.Append(file), content));
       file_tree_content[file] = content;
     }
     for (int i = 1; i <= 10; i++) {
@@ -292,7 +282,7 @@ IN_PROC_BROWSER_TEST_F(ZipFileCreatorTest, ZipDirectoryWithManyFiles) {
         base::FilePath file = dir.Append(std::to_string(j) + ".txt");
         std::string content =
             "Hello" + std::to_string(i) + "/" + std::to_string(j);
-        ASSERT_TRUE(CreateFile(root_dir.Append(file), content));
+        ASSERT_TRUE(base::WriteFile(root_dir.Append(file), content));
         file_tree_content[file] = content;
       }
     }
@@ -333,21 +323,17 @@ IN_PROC_BROWSER_TEST_F(ZipFileCreatorTest, ZipDirectoryWithManyFiles) {
   ASSERT_TRUE(reader.Open(zip_archive_path()));
   EXPECT_EQ(file_tree_content.size(),
             static_cast<size_t>(reader.num_entries()));
-  while (reader.HasMore()) {
-    ASSERT_TRUE(reader.OpenCurrentEntryInZip());
-    const zip::ZipReader::EntryInfo* entry = reader.current_entry_info();
-
-    base::FilePath path(entry->file_path());
-    path = path.StripTrailingSeparators();
+  while (const zip::ZipReader::Entry* const entry = reader.Next()) {
+    base::FilePath path = entry->path.StripTrailingSeparators();
     auto iter = file_tree_content.find(path);
     ASSERT_NE(iter, file_tree_content.end())
-        << "Path not found in unzipped archive: " << path.value();
+        << "Path not found in unzipped archive: " << path;
     const std::string& expected_content = iter->second;
     if (expected_content.empty()) {
-      EXPECT_TRUE(entry->is_directory());
+      EXPECT_TRUE(entry->is_directory);
     } else {
       // It's a file.
-      EXPECT_FALSE(entry->is_directory());
+      EXPECT_FALSE(entry->is_directory);
       std::string actual_content;
       EXPECT_TRUE(reader.ExtractCurrentEntryToString(
           10 * 1024,  // 10KB, any of our test data is less than that.
@@ -355,7 +341,7 @@ IN_PROC_BROWSER_TEST_F(ZipFileCreatorTest, ZipDirectoryWithManyFiles) {
       EXPECT_EQ(expected_content, actual_content);
     }
     file_tree_content.erase(iter);
-    ASSERT_TRUE(reader.AdvanceToNextEntry());
   }
+  EXPECT_TRUE(reader.ok());
   EXPECT_TRUE(file_tree_content.empty());
 }

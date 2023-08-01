@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,13 +9,13 @@
 #include <tuple>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
+#include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
-#include "base/task/post_task.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/multiprocess_test.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "chrome/browser/metrics/chrome_metrics_service_accessor.h"
 #include "chrome/browser/profiles/profile.h"
@@ -273,7 +273,7 @@ class ChromeCleanerControllerTest
   // ChromeCleanerControllerDelegate overrides.
 
   void FetchAndVerifyChromeCleaner(FetchedCallback fetched_callback) override {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(
             std::move(fetched_callback),
@@ -440,7 +440,7 @@ class ChromeCleanerControllerTest
   MockChromeCleanerProcess::Options cleaner_process_options_;
 
   StrictMock<MockChromeCleanerControllerObserver> mock_observer_;
-  ChromeCleanerControllerImpl* controller_;
+  raw_ptr<ChromeCleanerControllerImpl> controller_;
   ChromeCleanerRunner::ProcessStatus cleaner_process_status_;
 
   std::vector<Profile*> profiles_tagged_;
@@ -716,7 +716,7 @@ class ChromeCleanerControllerReporterInteractionTest
 
   ChromeCleanerController::State initial_state_;
 
-  ChromeCleanerControllerImpl* controller_ = nullptr;
+  raw_ptr<ChromeCleanerControllerImpl> controller_ = nullptr;
   StrictMock<MockChromeCleanerControllerObserver> mock_observer_;
 };
 

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,14 +8,14 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/logging.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/shared_memory_mapping.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string_piece.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/unguessable_token.h"
 #include "chrome/browser/ash/wilco_dtc_supportd/mojo_utils.h"
 #include "chrome/browser/ash/wilco_dtc_supportd/wilco_dtc_supportd_bridge.h"
@@ -27,6 +27,7 @@
 #include "extensions/browser/api/messaging/message_service.h"
 #include "extensions/browser/api/messaging/native_message_host.h"
 #include "extensions/browser/extension_registry.h"
+#include "extensions/common/api/messaging/channel_type.h"
 #include "extensions/common/api/messaging/messaging_endpoint.h"
 #include "extensions/common/api/messaging/serialization_format.h"
 #include "extensions/common/extension.h"
@@ -47,7 +48,7 @@ const char* const kWilcoDtcSupportdHostOrigins[] = {
 
 // Size of |kWilcoDtcSupportdHostOrigins| array.
 const size_t kWilcoDtcSupportdHostOriginsSize =
-    base::size(kWilcoDtcSupportdHostOrigins);
+    std::size(kWilcoDtcSupportdHostOrigins);
 
 // Native application name that is used for passing UI messages between the
 // wilco_dtc daemon and extensions.
@@ -200,7 +201,7 @@ class WilcoDtcSupportdExtensionOwnedMessageHost final
   }
 
   const scoped_refptr<base::SingleThreadTaskRunner> task_runner_ =
-      base::ThreadTaskRunnerHandle::Get();
+      base::SingleThreadTaskRunner::GetCurrentDefault();
 
   // Unowned.
   Client* client_ = nullptr;
@@ -278,11 +279,11 @@ class WilcoDtcSupportdDaemonOwnedMessageHost final
 
  private:
   const scoped_refptr<base::SingleThreadTaskRunner> task_runner_ =
-      base::ThreadTaskRunnerHandle::Get();
+      base::SingleThreadTaskRunner::GetCurrentDefault();
   const std::string json_message_to_send_;
   base::OnceCallback<void(const std::string& response)> send_response_callback_;
   // Unowned.
-  Client* client_ = nullptr;
+  raw_ptr<Client, ExperimentalAsh> client_ = nullptr;
 };
 
 // Helper that wraps the specified OnceCallback and encapsulates logic that
@@ -363,7 +364,7 @@ void DeliverMessageToExtension(
       extensions::MessagingEndpoint::ForNativeApp(
           kWilcoDtcSupportdUiMessageHost),
       std::move(native_message_port), extension_id, GURL(),
-      std::string() /* channel_name */);
+      extensions::ChannelType::kNative, std::string() /* channel_name */);
 }
 
 }  // namespace

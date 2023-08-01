@@ -30,13 +30,13 @@
 
 #include "mojo/public/mojom/base/text_direction.mojom-blink-forward.h"
 #include "third_party/blink/public/mojom/webpreferences/web_preferences.mojom-blink.h"
-#include "third_party/blink/public/web/web_local_frame_client.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/editing/editing_style.h"
 #include "third_party/blink/renderer/core/editing/finder/find_options.h"
 #include "third_party/blink/renderer/core/editing/forward.h"
 #include "third_party/blink/renderer/core/editing/visible_selection.h"
 #include "third_party/blink/renderer/core/events/input_event.h"
+#include "third_party/blink/renderer/core/loader/resource/image_resource_observer.h"
 #include "third_party/blink/renderer/core/scroll/scroll_alignment.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 
@@ -52,6 +52,7 @@ class HitTestResult;
 class KeyboardEvent;
 class KillRing;
 class SpellChecker;
+enum class SyncCondition;
 class CSSPropertyValueSet;
 class TextEvent;
 class UndoStack;
@@ -147,6 +148,8 @@ class CORE_EXPORT Editor final : public GarbageCollected<Editor> {
 
   void SetStartNewKillRingSequence(bool);
 
+  void ElementRemoved(Element* element);
+
   void Clear();
 
   SelectionInDOMTree SelectionForCommand(Event*);
@@ -175,6 +178,8 @@ class CORE_EXPORT Editor final : public GarbageCollected<Editor> {
   void ComputeAndSetTypingStyle(CSSPropertyValueSet*, InputEvent::InputType);
 
   EphemeralRange RangeForPoint(const gfx::Point&) const;
+  EphemeralRange RangeBetweenPoints(const gfx::Point& start_point,
+                                    const gfx::Point& end_point) const;
 
   void RespondToChangedSelection();
   void SyncSelection(blink::SyncCondition force_sync);
@@ -229,6 +234,9 @@ class CORE_EXPORT Editor final : public GarbageCollected<Editor> {
   void RevealSelectionAfterEditingOperation(
       const mojom::blink::ScrollAlignment& = ScrollAlignment::ToEdgeIfNeeded());
 
+  void AddImageResourceObserver(ImageResourceObserver*);
+  void RemoveImageResourceObserver(ImageResourceObserver*);
+
  private:
   Member<LocalFrame> frame_;
   Member<CompositeEditCommand> last_edit_command_;
@@ -242,6 +250,7 @@ class CORE_EXPORT Editor final : public GarbageCollected<Editor> {
   EditorParagraphSeparator default_paragraph_separator_;
   Member<EditingStyle> typing_style_;
   bool mark_is_directional_ = false;
+  HeapHashSet<Member<ImageResourceObserver>> image_resource_observers_;
 
   LocalFrame& GetFrame() const {
     DCHECK(frame_);

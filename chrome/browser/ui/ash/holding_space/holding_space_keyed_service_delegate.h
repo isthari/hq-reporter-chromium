@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 
 #include "ash/public/cpp/holding_space/holding_space_model.h"
 #include "ash/public/cpp/holding_space/holding_space_model_observer.h"
+#include "base/memory/raw_ptr.h"
 #include "base/scoped_observation.h"
 #include "chrome/browser/ui/ash/holding_space/holding_space_keyed_service.h"
 
@@ -59,8 +60,8 @@ class HoldingSpaceKeyedServiceDelegate : public HoldingSpaceModelObserver {
   // Invoked when holding space persistence has been restored.
   virtual void OnPersistenceRestored();
 
-  HoldingSpaceKeyedService* const service_;
-  HoldingSpaceModel* const model_;
+  const raw_ptr<HoldingSpaceKeyedService, ExperimentalAsh> service_;
+  const raw_ptr<HoldingSpaceModel, ExperimentalAsh> model_;
 
   // If persistence is being restored.
   bool is_restoring_persistence_ = true;

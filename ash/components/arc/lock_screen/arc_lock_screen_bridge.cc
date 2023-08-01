@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,8 @@
 #include "ash/components/arc/arc_browser_context_keyed_service_factory_base.h"
 #include "ash/components/arc/session/arc_bridge_service.h"
 #include "ash/components/arc/session/arc_service_manager.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/singleton.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "components/session_manager/core/session_manager.h"
 #include "mojo/public/cpp/system/platform_handle.h"
 
@@ -77,6 +76,11 @@ void ArcLockScreenBridge::SendDeviceLockedState() {
     return;
   lock_screen_instance->SetDeviceLocked(
       session_manager::SessionManager::Get()->IsUserSessionBlocked());
+}
+
+// static
+void ArcLockScreenBridge::EnsureFactoryBuilt() {
+  ArcLockScreenBridgeFactory::GetInstance();
 }
 
 }  // namespace arc

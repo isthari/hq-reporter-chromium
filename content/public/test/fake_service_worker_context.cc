@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,10 @@
 
 #include <utility>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/no_destructor.h"
 #include "base/notreached.h"
+#include "base/task/single_thread_task_runner.h"
 #include "content/public/browser/service_worker_context_observer.h"
 #include "third_party/blink/public/common/messaging/transferable_message.h"
 #include "third_party/blink/public/common/storage_key/storage_key.h"
@@ -42,6 +43,7 @@ void FakeServiceWorkerContext::UnregisterServiceWorker(
 ServiceWorkerExternalRequestResult
 FakeServiceWorkerContext::StartingExternalRequest(
     int64_t service_worker_version_id,
+    ServiceWorkerExternalRequestTimeoutType timeout_type,
     const std::string& request_uuid) {
   NOTREACHED();
   return ServiceWorkerExternalRequestResult::kWorkerNotFound;
@@ -69,7 +71,7 @@ bool FakeServiceWorkerContext::MaybeHasRegistrationForStorageKey(
     const blink::StorageKey& key) {
   return registered_storage_keys_.find(key) != registered_storage_keys_.end();
 }
-void FakeServiceWorkerContext::GetAllOriginsInfo(
+void FakeServiceWorkerContext::GetAllStorageKeysInfo(
     GetUsageInfoCallback callback) {
   NOTREACHED();
 }
@@ -100,6 +102,22 @@ void FakeServiceWorkerContext::StartWorkerForScope(
     ServiceWorkerContext::StatusCodeCallback failure_callback) {
   NOTREACHED();
 }
+
+bool FakeServiceWorkerContext::IsLiveRunningServiceWorker(
+    int64_t service_worker_version_id) {
+  NOTREACHED();
+  return false;
+}
+
+service_manager::InterfaceProvider&
+FakeServiceWorkerContext::GetRemoteInterfaces(
+    int64_t service_worker_version_id) {
+  NOTREACHED();
+  static service_manager::InterfaceProvider interface_provider(
+      base::SingleThreadTaskRunner::GetCurrentDefault());
+  return interface_provider;
+}
+
 void FakeServiceWorkerContext::StartServiceWorkerForNavigationHint(
     const GURL& document_url,
     const blink::StorageKey& key,

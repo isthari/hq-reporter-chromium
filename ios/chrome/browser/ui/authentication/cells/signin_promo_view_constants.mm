@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,9 @@
 #error "This file requires ARC support."
 #endif
 
-NSString* const kSigninPromoViewId = @"kSigninPromoViewId";
-NSString* const kSigninPromoPrimaryButtonId = @"kSigninPromoPrimaryButtonId";
-NSString* const kSigninPromoSecondaryButtonId =
-    @"kSigninPromoSecondaryButtonId";
-NSString* const kSigninPromoCloseButtonId = @"kSigninPromoCloseButtonId";
+NSString* const kSigninPromoViewId = @"SigninPromoViewId";
+NSString* const kSigninPromoPrimaryButtonId = @"SigninPromoPrimaryButtonId";
+NSString* const kSigninPromoSecondaryButtonId = @"SigninPromoSecondaryButtonId";
+NSString* const kSigninPromoCloseButtonId = @"SigninPromoCloseButtonId";
+NSString* const kSigninPromoActivityIndicatorId =
+    @"SigninPromoActivityIndicatorId";

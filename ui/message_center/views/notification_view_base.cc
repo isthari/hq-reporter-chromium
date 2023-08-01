@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,11 +10,12 @@
 #include <utility>
 
 #include "ash/constants/ash_features.h"
-#include "base/bind.h"
 #include "base/check.h"
+#include "base/functional/bind.h"
 #include "base/i18n/case_conversion.h"
 #include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/observer_list.h"
 #include "base/strings/string_util.h"
 #include "build/chromeos_buildflags.h"
 #include "components/url_formatter/elide_url.h"
@@ -37,10 +38,12 @@
 #include "ui/gfx/text_constants.h"
 #include "ui/gfx/text_elider.h"
 #include "ui/message_center/message_center.h"
+#include "ui/message_center/notification_list.h"
 #include "ui/message_center/public/cpp/message_center_constants.h"
 #include "ui/message_center/public/cpp/notification.h"
 #include "ui/message_center/public/cpp/notification_types.h"
 #include "ui/message_center/vector_icons.h"
+#include "ui/message_center/views/large_image_view.h"
 #include "ui/message_center/views/notification_control_buttons_view.h"
 #include "ui/message_center/views/notification_header_view.h"
 #include "ui/message_center/views/proportional_image_view.h"
@@ -57,7 +60,6 @@
 #include "ui/views/focus/focus_manager.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/box_layout_view.h"
-#include "ui/views/native_cursor.h"
 #include "ui/views/style/typography.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
@@ -68,7 +70,7 @@ namespace {
 
 // Dimensions.
 constexpr int kActionsRowHorizontalSpacing = 8;
-constexpr gfx::Insets kStatusTextPadding(4, 0, 0, 0);
+constexpr auto kStatusTextPadding = gfx::Insets::TLBR(4, 0, 0, 0);
 constexpr gfx::Insets kActionsRowPadding(8);
 constexpr int kLargeImageMaxHeight = 218;
 
@@ -81,10 +83,6 @@ constexpr int kProgressBarHeight = 4;
 // However, it is not preferable that we completely omit the title, so
 // the ratio of the message width is limited to this value.
 constexpr double kProgressNotificationMessageRatio = 0.7;
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-constexpr int kLargeImageCornerRadius = 8;
-#endif  // IS_CHROMEOS_ASH
 
 class ClickActivator : public ui::EventHandler {
  public:
@@ -125,6 +123,14 @@ std::unique_ptr<views::View> CreateItemView(const NotificationItem& item) {
   message->SetCollapseWhenHidden(true);
   message->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   return view;
+}
+
+bool IsForAshNotification() {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  return true;
+#else
+  return false;
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 }
 
 }  // anonymous namespace
@@ -185,93 +191,6 @@ void CompactTitleMessageView::set_message(const std::u16string& message) {
   message_->SetText(message);
 }
 
-// LargeImageView //////////////////////////////////////////////////////////////
-
-LargeImageView::LargeImageView(const gfx::Size& max_size)
-    : max_size_(max_size), min_size_(max_size_.width(), /*height=*/0) {}
-
-LargeImageView::~LargeImageView() = default;
-
-void LargeImageView::SetImage(const gfx::ImageSkia& image) {
-  image_ = image;
-  gfx::Size preferred_size = GetResizedImageSize();
-  preferred_size.SetToMax(min_size_);
-  preferred_size.SetToMin(max_size_);
-  SetPreferredSize(preferred_size);
-  SchedulePaint();
-  Layout();
-}
-
-void LargeImageView::OnPaint(gfx::Canvas* canvas) {
-  views::View::OnPaint(canvas);
-
-  gfx::Size resized_size = GetResizedImageSize();
-  gfx::Size drawn_size = resized_size;
-  drawn_size.SetToMin(max_size_);
-  gfx::Rect drawn_bounds = GetContentsBounds();
-  drawn_bounds.ClampToCenteredSize(drawn_size);
-
-  gfx::ImageSkia resized_image = gfx::ImageSkiaOperations::CreateResizedImage(
-      image_, skia::ImageOperations::RESIZE_BEST, resized_size);
-
-  // Cut off the overflown part.
-  gfx::ImageSkia drawn_image = gfx::ImageSkiaOperations::ExtractSubset(
-      resized_image, gfx::Rect(drawn_size));
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  if (ash::features::IsNotificationsRefreshEnabled()) {
-    SkPath path;
-    const SkScalar corner_radius = SkIntToScalar(kLargeImageCornerRadius);
-    const SkScalar kRadius[8] = {corner_radius, corner_radius, corner_radius,
-                                 corner_radius, corner_radius, corner_radius,
-                                 corner_radius, corner_radius};
-    path.addRoundRect(gfx::RectToSkRect(drawn_bounds), kRadius);
-
-    cc::PaintFlags flags;
-    flags.setAntiAlias(true);
-
-    canvas->DrawImageInPath(drawn_image, drawn_bounds.x(), drawn_bounds.y(),
-                            path, flags);
-    return;
-  }
-#endif  // IS_CHROMEOS_ASH
-
-  canvas->DrawImageInt(drawn_image, drawn_bounds.x(), drawn_bounds.y());
-}
-
-const char* LargeImageView::GetClassName() const {
-  return "LargeImageView";
-}
-
-void LargeImageView::OnThemeChanged() {
-  View::OnThemeChanged();
-  bool set_background = true;
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  set_background = !ash::features::IsNotificationsRefreshEnabled();
-#endif  // IS_CHROMEOS_ASH
-  if (!set_background)
-    return;
-
-  SetBackground(views::CreateSolidBackground(
-      GetColorProvider()->GetColor(ui::kColorNotificationImageBackground)));
-}
-
-// Returns expected size of the image right after resizing.
-// The GetResizedImageSize().width() <= max_size_.width() holds, but
-// GetResizedImageSize().height() may be larger than max_size_.height().
-// In this case, the overflown part will be just cut off from the view.
-gfx::Size LargeImageView::GetResizedImageSize() {
-  gfx::Size original_size = image_.size();
-  if (original_size.width() <= max_size_.width())
-    return image_.size();
-
-  const double proportion =
-      original_size.height() / static_cast<double>(original_size.width());
-  gfx::Size resized_size;
-  resized_size.SetSize(max_size_.width(), max_size_.width() * proportion);
-  return resized_size;
-}
-
 // ////////////////////////////////////////////////////////////
 // NotificationViewBase
 // ////////////////////////////////////////////////////////////
@@ -297,13 +216,7 @@ void NotificationViewBase::CreateOrUpdateViews(
 }
 
 NotificationViewBase::NotificationViewBase(const Notification& notification)
-    : MessageView(notification) {
-  for_ash_notification_ = false;
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  if (ash::features::IsNotificationsRefreshEnabled())
-    for_ash_notification_ = true;
-#endif
-
+    : MessageView(notification), for_ash_notification_(IsForAshNotification()) {
   SetNotifyEnterExitOnChild(true);
 
   click_activator_ = std::make_unique<ClickActivator>(this);
@@ -347,7 +260,9 @@ void NotificationViewBase::Layout() {
     path.addRoundRect(gfx::RectToSkRect(bounds), kCornerRadius, kCornerRadius);
 
     action_buttons_row_->SetClipPath(path);
-    inline_reply_->SetClipPath(path);
+
+    if (inline_reply_)
+      inline_reply_->SetClipPath(path);
   }
 }
 
@@ -452,10 +367,6 @@ NotificationViewBase::CreateHeaderRowBuilder() {
   auto header_row_builder = views::Builder<NotificationHeaderView>()
                                 .SetID(kHeaderRow)
                                 .CopyAddressTo(&header_row_);
-  if (!for_ash_notification_) {
-    header_row_builder.SetCallback(base::BindRepeating(
-        &NotificationViewBase::HeaderRowPressed, base::Unretained(this)));
-  }
   return header_row_builder;
 }
 
@@ -605,8 +516,8 @@ void NotificationViewBase::CreateOrUpdateProgressBarView(
     auto progress_bar_view =
         std::make_unique<views::ProgressBar>(kProgressBarHeight,
                                              /* allow_round_corner */ false);
-    progress_bar_view->SetBorder(
-        views::CreateEmptyBorder(kProgressBarTopPadding, 0, 0, 0));
+    progress_bar_view->SetBorder(views::CreateEmptyBorder(
+        gfx::Insets::TLBR(kProgressBarTopPadding, 0, 0, 0)));
     progress_bar_view_ = AddViewToLeftContent(std::move(progress_bar_view));
   } else {
     ReorderViewInLeftContent(progress_bar_view_);
@@ -706,11 +617,12 @@ void NotificationViewBase::CreateOrUpdateIconView(
     const Notification& notification) {
   const bool use_image_for_icon = notification.icon().IsEmpty();
 
-  gfx::ImageSkia icon = use_image_for_icon ? notification.image().AsImageSkia()
-                                           : notification.icon().AsImageSkia();
+  ui::ImageModel icon = use_image_for_icon
+                            ? ui::ImageModel::FromImage(notification.image())
+                            : notification.icon();
 
   if (notification.type() == NOTIFICATION_TYPE_PROGRESS ||
-      notification.type() == NOTIFICATION_TYPE_MULTIPLE || icon.isNull()) {
+      notification.type() == NOTIFICATION_TYPE_MULTIPLE || icon.IsEmpty()) {
     DCHECK(!icon_view_ || right_content_->Contains(icon_view_));
     delete icon_view_;
     icon_view_ = nullptr;
@@ -724,10 +636,9 @@ void NotificationViewBase::CreateOrUpdateIconView(
 
   bool apply_rounded_corners = false;
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  apply_rounded_corners =
-      ash::features::IsNotificationsRefreshEnabled() && use_image_for_icon;
+  apply_rounded_corners = for_ash_notification_;
 #endif  // IS_CHROMEOS_ASH
-  icon_view_->SetImage(icon, icon.size(), apply_rounded_corners);
+  icon_view_->SetImage(icon, icon.Size(), apply_rounded_corners);
 
   // Hide the icon on the right side when the notification is expanded.
   hide_icon_on_expanded_ = use_image_for_icon;
@@ -764,16 +675,17 @@ void NotificationViewBase::CreateOrUpdateActionButtonViews(
   }
 
   // Hide inline reply field if it doesn't exist anymore.
-  if (inline_reply_->GetVisible()) {
-    if (HasInlineReply(notification)) {
-      action_buttons_row_->SetVisible(true);
-      inline_reply_->SetVisible(false);
-    }
+  if (inline_reply_ && inline_reply_->GetVisible() &&
+      !HasInlineReply(notification)) {
+    action_buttons_row_->SetVisible(true);
+    inline_reply_->SetVisible(false);
   }
 
   for (size_t i = 0; i < buttons.size(); ++i) {
     ButtonInfo button_info = buttons[i];
-    std::u16string label = base::i18n::ToUpper(button_info.title);
+    std::u16string label = for_ash_notification_
+                               ? button_info.title
+                               : base::i18n::ToUpper(button_info.title);
     if (new_buttons) {
       action_buttons_.push_back(
           action_buttons_row_->AddChildView(GenerateNotificationLabelButton(
@@ -791,7 +703,10 @@ void NotificationViewBase::CreateOrUpdateActionButtonViews(
           button_info.placeholder;
     }
 
-    if (!for_ash_notification_) {
+    bool use_accent_color =
+        !for_ash_notification_ &&
+        !notification.rich_notification_data().ignore_accent_color_for_text;
+    if (use_accent_color) {
       // Change action button color to the accent color.
       action_buttons_[i]->SetEnabledTextColors(notification.accent_color());
     }
@@ -801,12 +716,12 @@ void NotificationViewBase::CreateOrUpdateActionButtonViews(
   // If the view is not expanded, there should be no hover state.
   if (new_buttons && expanded_) {
     views::Widget* widget = GetWidget();
-    if (widget) {
+    if (widget && !widget->IsClosed()) {
       // This Layout() is needed because button should be in the right location
       // in the view hierarchy when SynthesizeMouseMoveEvent() is called.
       Layout();
       widget->SetSize(widget->GetContentsView()->GetPreferredSize());
-      GetWidget()->SynthesizeMouseMoveEvent();
+      widget->SynthesizeMouseMoveEvent();
     }
   }
 }
@@ -815,28 +730,11 @@ void NotificationViewBase::ReorderViewInLeftContent(views::View* view) {
   left_content_->ReorderChildView(view, left_content_count_++);
 }
 
-void NotificationViewBase::HeaderRowPressed() {
-  if (!IsExpandable() || !content_row_->GetVisible())
-    return;
-
-  // Tapping anywhere on |header_row_| can expand the notification, though only
-  // |expand_button| can be focused by TAB.
-  SetManuallyExpandedOrCollapsed(true);
-  auto weak_ptr = weak_ptr_factory_.GetWeakPtr();
-  ToggleExpanded();
-  // Check |this| is valid before continuing, because ToggleExpanded() might
-  // cause |this| to be deleted.
-  if (!weak_ptr)
-    return;
-  Layout();
-  SchedulePaint();
-}
-
 void NotificationViewBase::ActionButtonPressed(size_t index,
                                                const ui::Event& event) {
   const absl::optional<std::u16string>& placeholder =
       action_button_to_placeholder_map_[action_buttons_[index]];
-  if (placeholder) {
+  if (placeholder && inline_reply_) {
     inline_reply_->SetTextfieldIndex(static_cast<int>(index));
     inline_reply_->SetPlaceholderText(placeholder);
     inline_reply_->AnimateBackground(event);
@@ -848,26 +746,32 @@ void NotificationViewBase::ActionButtonPressed(size_t index,
     inline_reply_->textfield()->RequestFocus();
     Layout();
     SchedulePaint();
-  } else {
+
+    OnInlineReplyUpdated();
+    return;
+  }
+
     MessageCenter::Get()->ClickOnNotificationButton(notification_id(),
                                                     static_cast<int>(index));
-  }
+    // `this` may be deleted after handling the click. See crbug/1316656.
+}
+
+void NotificationViewBase::OnInlineReplyUpdated() {
+  // Not implemented by default.
 }
 
 bool NotificationViewBase::HasInlineReply(
     const Notification& notification) const {
+  if (!inline_reply_)
+    return false;
   auto buttons = notification.buttons();
   const size_t index = inline_reply_->GetTextfieldIndex();
-  return index >= buttons.size() || !buttons[index].placeholder.has_value();
+  return index < buttons.size() && buttons[index].placeholder.has_value();
 }
 
 void NotificationViewBase::SetExpandButtonEnabled(bool enabled) {
   if (!for_ash_notification_)
     header_row_->SetExpandButtonEnabled(enabled);
-}
-
-void NotificationViewBase::ToggleExpanded() {
-  SetExpanded(!expanded_);
 }
 
 void NotificationViewBase::UpdateViewForExpandedState(bool expanded) {
@@ -881,7 +785,8 @@ void NotificationViewBase::UpdateViewForExpandedState(bool expanded) {
                            !action_buttons_row_->children().empty());
   if (!expanded) {
     action_buttons_row_->SetVisible(true);
-    inline_reply_->SetVisible(false);
+    if (inline_reply_)
+      inline_reply_->SetVisible(false);
   }
 
   for (size_t i = kMaxLinesForMessageLabel; i < item_views_.size(); ++i) {
@@ -939,11 +844,12 @@ void NotificationViewBase::SetExpanded(bool expanded) {
 }
 
 bool NotificationViewBase::IsManuallyExpandedOrCollapsed() const {
-  return manually_expanded_or_collapsed_;
+  return MessageCenter::Get()->GetNotificationExpandState(notification_id()) !=
+         ExpandState::DEFAULT;
 }
 
-void NotificationViewBase::SetManuallyExpandedOrCollapsed(bool value) {
-  manually_expanded_or_collapsed_ = value;
+void NotificationViewBase::SetManuallyExpandedOrCollapsed(ExpandState state) {
+  MessageCenter::Get()->SetNotificationExpandState(notification_id(), state);
 }
 
 void NotificationViewBase::OnSettingsButtonPressed(const ui::Event& event) {

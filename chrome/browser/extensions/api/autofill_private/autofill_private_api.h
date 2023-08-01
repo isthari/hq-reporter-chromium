@@ -1,13 +1,35 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_EXTENSIONS_API_AUTOFILL_PRIVATE_AUTOFILL_PRIVATE_API_H_
 #define CHROME_BROWSER_EXTENSIONS_API_AUTOFILL_PRIVATE_AUTOFILL_PRIVATE_API_H_
 
+#include "components/prefs/pref_service.h"
 #include "extensions/browser/extension_function.h"
+#include "extensions/browser/extension_function_histogram_value.h"
+
+namespace device_reauth {
+class DeviceAuthenticator;
+}
 
 namespace extensions {
+class AutofillPrivateGetAccountInfoFunction : public ExtensionFunction {
+ public:
+  AutofillPrivateGetAccountInfoFunction() = default;
+  AutofillPrivateGetAccountInfoFunction(
+      const AutofillPrivateGetAccountInfoFunction&) = delete;
+  AutofillPrivateGetAccountInfoFunction& operator=(
+      const AutofillPrivateGetAccountInfoFunction&) = delete;
+  DECLARE_EXTENSION_FUNCTION("autofillPrivate.getAccountInfo",
+                             AUTOFILLPRIVATE_GETACCOUNTINFO)
+
+ protected:
+  ~AutofillPrivateGetAccountInfoFunction() override = default;
+
+  // ExtensionFunction overrides.
+  ResponseAction Run() override;
+};
 
 class AutofillPrivateSaveAddressFunction : public ExtensionFunction {
  public:
@@ -217,6 +239,57 @@ class AutofillPrivateSetCreditCardFIDOAuthEnabledStateFunction
   ResponseAction Run() override;
 };
 
+class AutofillPrivateSaveIbanFunction : public ExtensionFunction {
+ public:
+  AutofillPrivateSaveIbanFunction() = default;
+  AutofillPrivateSaveIbanFunction(const AutofillPrivateSaveIbanFunction&) =
+      delete;
+  AutofillPrivateSaveIbanFunction& operator=(
+      const AutofillPrivateSaveIbanFunction&) = delete;
+  DECLARE_EXTENSION_FUNCTION("autofillPrivate.saveIban",
+                             AUTOFILLPRIVATE_SAVEIBAN)
+
+ protected:
+  ~AutofillPrivateSaveIbanFunction() override = default;
+
+  // ExtensionFunction overrides.
+  ResponseAction Run() override;
+};
+
+class AutofillPrivateGetIbanListFunction : public ExtensionFunction {
+ public:
+  AutofillPrivateGetIbanListFunction() = default;
+  AutofillPrivateGetIbanListFunction(
+      const AutofillPrivateGetIbanListFunction&) = delete;
+  AutofillPrivateGetIbanListFunction& operator=(
+      const AutofillPrivateGetIbanListFunction&) = delete;
+  DECLARE_EXTENSION_FUNCTION("autofillPrivate.getIbanList",
+                             AUTOFILLPRIVATE_GETIBANLIST)
+
+ protected:
+  ~AutofillPrivateGetIbanListFunction() override = default;
+
+  // ExtensionFunction overrides.
+  ResponseAction Run() override;
+};
+
+class AutofillPrivateIsValidIbanFunction : public ExtensionFunction {
+ public:
+  AutofillPrivateIsValidIbanFunction() = default;
+  AutofillPrivateIsValidIbanFunction(
+      const AutofillPrivateIsValidIbanFunction&) = delete;
+  AutofillPrivateIsValidIbanFunction& operator=(
+      const AutofillPrivateIsValidIbanFunction&) = delete;
+  DECLARE_EXTENSION_FUNCTION("autofillPrivate.isValidIban",
+                             AUTOFILLPRIVATE_ISVALIDIBAN)
+
+ protected:
+  ~AutofillPrivateIsValidIbanFunction() override = default;
+
+  // ExtensionFunction overrides.
+  ResponseAction Run() override;
+};
+
 class AutofillPrivateGetUpiIdListFunction : public ExtensionFunction {
  public:
   AutofillPrivateGetUpiIdListFunction() = default;
@@ -232,6 +305,73 @@ class AutofillPrivateGetUpiIdListFunction : public ExtensionFunction {
 
   // ExtensionFunction overrides.
   ResponseAction Run() override;
+};
+
+class AutofillPrivateAddVirtualCardFunction : public ExtensionFunction {
+ public:
+  AutofillPrivateAddVirtualCardFunction() = default;
+  AutofillPrivateAddVirtualCardFunction(
+      const AutofillPrivateAddVirtualCardFunction&) = delete;
+  AutofillPrivateAddVirtualCardFunction& operator=(
+      const AutofillPrivateAddVirtualCardFunction&) = delete;
+  DECLARE_EXTENSION_FUNCTION("autofillPrivate.addVirtualCard",
+                             AUTOFILLPRIVATE_ADDVIRTUALCARD)
+
+ protected:
+  ~AutofillPrivateAddVirtualCardFunction() override = default;
+
+  // ExtensionFunction overrides.
+  ResponseAction Run() override;
+};
+
+class AutofillPrivateRemoveVirtualCardFunction : public ExtensionFunction {
+ public:
+  AutofillPrivateRemoveVirtualCardFunction() = default;
+  AutofillPrivateRemoveVirtualCardFunction(
+      const AutofillPrivateRemoveVirtualCardFunction&) = delete;
+  AutofillPrivateRemoveVirtualCardFunction& operator=(
+      const AutofillPrivateRemoveVirtualCardFunction&) = delete;
+  DECLARE_EXTENSION_FUNCTION("autofillPrivate.removeVirtualCard",
+                             AUTOFILLPRIVATE_REMOVEVIRTUALCARD)
+
+ protected:
+  ~AutofillPrivateRemoveVirtualCardFunction() override = default;
+
+  // ExtensionFunction overrides.
+  ResponseAction Run() override;
+};
+
+class AutofillPrivateAuthenticateUserAndFlipMandatoryAuthToggleFunction
+    : public ExtensionFunction {
+ public:
+  AutofillPrivateAuthenticateUserAndFlipMandatoryAuthToggleFunction();
+  AutofillPrivateAuthenticateUserAndFlipMandatoryAuthToggleFunction(
+      const AutofillPrivateAuthenticateUserAndFlipMandatoryAuthToggleFunction&) =
+      delete;
+  AutofillPrivateAuthenticateUserAndFlipMandatoryAuthToggleFunction& operator=(
+      const AutofillPrivateAuthenticateUserAndFlipMandatoryAuthToggleFunction&) =
+      delete;
+  DECLARE_EXTENSION_FUNCTION(
+      "autofillPrivate.authenticateUserAndFlipMandatoryAuthToggle",
+      AUTOFILLPRIVATE_AUTHENTICATEUSERANDFLIPMANDATORYAUTHTOGGLE)
+
+ protected:
+  ~AutofillPrivateAuthenticateUserAndFlipMandatoryAuthToggleFunction() override;
+
+  // ExtensionFunction overrides.
+  ResponseAction Run() override;
+
+ private:
+  void UpdateMandatoryAuthTogglePref(bool reauth_succeeded);
+
+  // Callback to reset `device_authenticator_` after auth is completed.
+  void OnReauthCompleted();
+
+  // Reference pointer to prevent `device_authenticator` from getting
+  // dereferenced before the auth is completed.
+  // `device_authenticator_` is used to access the OS level biometric auth. If
+  // not available, it uses device password/pin auth as the fallback.
+  scoped_refptr<device_reauth::DeviceAuthenticator> device_authenticator_;
 };
 
 }  // namespace extensions

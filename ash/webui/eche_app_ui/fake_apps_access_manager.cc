@@ -1,18 +1,22 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/webui/eche_app_ui/fake_apps_access_manager.h"
+#include "chromeos/ash/components/phonehub/multidevice_feature_access_manager.h"
 
 namespace ash {
 namespace eche_app {
+
+using AccessStatus =
+    ash::phonehub::MultideviceFeatureAccessManager::AccessStatus;
 
 FakeAppsAccessManager::FakeAppsAccessManager(AccessStatus access_status)
     : access_status_(access_status) {}
 
 FakeAppsAccessManager::~FakeAppsAccessManager() = default;
 
-AppsAccessManager::AccessStatus FakeAppsAccessManager::GetAccessStatus() const {
+AccessStatus FakeAppsAccessManager::GetAccessStatus() const {
   return access_status_;
 }
 
@@ -21,6 +25,8 @@ void FakeAppsAccessManager::SetAccessStatusInternal(
   access_status_ = access_status;
   NotifyAppsAccessChanged();
 }
+
+void FakeAppsAccessManager::NotifyAppsAccessCanceled() {}
 
 void FakeAppsAccessManager::OnSetupRequested() {}
 

@@ -1,17 +1,18 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/signin/chrome_account_manager_service.h"
 
-#include "components/signin/public/base/signin_pref_names.h"
-#import "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
-#include "ios/chrome/browser/browser_state/test_chrome_browser_state_manager.h"
+#import "components/signin/public/base/signin_pref_names.h"
+#import "ios/chrome/browser/shared/model/application_context/application_context.h"
+#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state_manager.h"
 #import "ios/chrome/browser/signin/chrome_account_manager_service_factory.h"
-#include "ios/chrome/test/testing_application_context.h"
-#import "ios/public/provider/chrome/browser/signin/fake_chrome_identity.h"
-#import "ios/public/provider/chrome/browser/signin/fake_chrome_identity_service.h"
-#include "ios/web/public/test/web_task_environment.h"
+#import "ios/chrome/browser/signin/fake_system_identity.h"
+#import "ios/chrome/browser/signin/fake_system_identity_manager.h"
+#import "ios/chrome/test/testing_application_context.h"
+#import "ios/web/public/test/web_task_environment.h"
 #import "testing/gtest_mac.h"
 #import "testing/platform_test.h"
 
@@ -20,22 +21,22 @@
 #endif
 
 namespace {
-FakeChromeIdentity* identity1 =
-    [FakeChromeIdentity identityWithEmail:@"foo1@gmail.com"
+FakeSystemIdentity* identity1 =
+    [FakeSystemIdentity identityWithEmail:@"foo1@gmail.com"
                                    gaiaID:@"foo1ID"
                                      name:@"Fake Foo 1"];
-FakeChromeIdentity* identity2 =
-    [FakeChromeIdentity identityWithEmail:@"foo2@google.com"
+FakeSystemIdentity* identity2 =
+    [FakeSystemIdentity identityWithEmail:@"foo2@google.com"
                                    gaiaID:@"foo2ID"
                                      name:@"Fake Foo 2"];
-FakeChromeIdentity* identity3 =
-    [FakeChromeIdentity identityWithEmail:@"foo3@chromium.com"
+FakeSystemIdentity* identity3 =
+    [FakeSystemIdentity identityWithEmail:@"foo3@chromium.com"
                                    gaiaID:@"foo3ID"
                                      name:@"Fake Foo 3"];
-FakeChromeIdentity* identity4 =
-    [FakeChromeIdentity identityWithEmail:@"foo4@chromium.com"
-                                   gaiaID:@"foo3ID"
-                                     name:@"Fake Foo 3"];
+FakeSystemIdentity* identity4 =
+    [FakeSystemIdentity identityWithEmail:@"foo4@chromium.com"
+                                   gaiaID:@"foo4ID"
+                                     name:@"Fake Foo 4"];
 }  // namespace
 
 class ChromeAccountManagerServiceTest : public PlatformTest {
@@ -46,24 +47,25 @@ class ChromeAccountManagerServiceTest : public PlatformTest {
 
     account_manager_ = ChromeAccountManagerServiceFactory::GetForBrowserState(
         browser_state_.get());
-    identity_service_ =
-        ios::FakeChromeIdentityService::GetInstanceFromChromeProvider();
   }
 
   // Adds identities to the identity service.
   void AddIdentities() {
-    identity_service_->AddIdentity(identity1);
-    identity_service_->AddIdentity(identity2);
-    identity_service_->AddIdentity(identity3);
-    identity_service_->AddIdentity(identity4);
+    FakeSystemIdentityManager* system_identity_manager =
+        FakeSystemIdentityManager::FromSystemIdentityManager(
+            GetApplicationContext()->GetSystemIdentityManager());
+    system_identity_manager->AddIdentity(identity1);
+    system_identity_manager->AddIdentity(identity2);
+    system_identity_manager->AddIdentity(identity3);
+    system_identity_manager->AddIdentity(identity4);
   }
 
   // Sets a restricted pattern.
-  void SetPattern(const std::string pattern) {
-    base::ListValue allowed_patterns;
+  void SetPattern(const std::string& pattern) {
+    base::Value::List allowed_patterns;
     allowed_patterns.Append(pattern);
-    GetApplicationContext()->GetLocalState()->Set(
-        prefs::kRestrictAccountsToPatterns, allowed_patterns);
+    GetApplicationContext()->GetLocalState()->SetList(
+        prefs::kRestrictAccountsToPatterns, std::move(allowed_patterns));
   }
 
  protected:
@@ -71,7 +73,6 @@ class ChromeAccountManagerServiceTest : public PlatformTest {
   base::test::TaskEnvironment task_environment_;
   std::unique_ptr<TestChromeBrowserState> browser_state_;
   ChromeAccountManagerService* account_manager_;
-  ios::FakeChromeIdentityService* identity_service_;
 };
 
 // Tests to get identities when the restricted pattern is not set.

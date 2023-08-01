@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,50 +9,22 @@
 #include <fcntl.h>
 #include <jni.h>
 #include <sys/eventfd.h>
-#include <sys/syscall.h>
+#include <sys/timerfd.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <utility>
 
 #include "base/android/jni_android.h"
 #include "base/android/scoped_java_ref.h"
-#include "base/callback_helpers.h"
 #include "base/check_op.h"
-#include "base/lazy_instance.h"
 #include "base/notreached.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/run_loop.h"
 #include "build/build_config.h"
-
-// Android stripped sys/timerfd.h out of their platform headers, so we have to
-// use syscall to make use of timerfd. Once the min API level is 20, we can
-// directly use timerfd.h.
-#ifndef __NR_timerfd_create
-#error "Unable to find syscall for __NR_timerfd_create"
-#endif
-
-#ifndef TFD_TIMER_ABSTIME
-#define TFD_TIMER_ABSTIME (1 << 0)
-#endif
-
-using base::android::JavaParamRef;
-using base::android::ScopedJavaLocalRef;
 
 namespace base {
 
 namespace {
-
-// See sys/timerfd.h
-int timerfd_create(int clockid, int flags) {
-  return syscall(__NR_timerfd_create, clockid, flags);
-}
-
-// See sys/timerfd.h
-int timerfd_settime(int ufc,
-                    int flags,
-                    const struct itimerspec* utmr,
-                    struct itimerspec* otmr) {
-  return syscall(__NR_timerfd_settime, ufc, flags, utmr, otmr);
-}
 
 // https://crbug.com/873588. The stack may not be aligned when the ALooper calls
 // into our code due to the inconsistent ABI on older Android OS versions.
@@ -83,8 +55,8 @@ STACK_ALIGN int DelayedLooperCallback(int fd, int events, void* data) {
 }
 
 // A bit added to the |non_delayed_fd_| to keep it signaled when we yield to
-// native tasks below.
-constexpr uint64_t kTryNativeTasksBeforeIdleBit = uint64_t(1) << 32;
+// native work below.
+constexpr uint64_t kTryNativeWorkBeforeIdleBit = uint64_t(1) << 32;
 }  // namespace
 
 MessagePumpForUI::MessagePumpForUI()
@@ -97,11 +69,8 @@ MessagePumpForUI::MessagePumpForUI()
   CHECK_NE(non_delayed_fd_, -1);
   DCHECK_EQ(TimeTicks::GetClock(), TimeTicks::Clock::LINUX_CLOCK_MONOTONIC);
 
-  // We can't create the timerfd with TFD_NONBLOCK | TFD_CLOEXEC as we can't
-  // include timerfd.h. See comments above on __NR_timerfd_create. It looks like
-  // they're just aliases to O_NONBLOCK and O_CLOEXEC anyways, so this should be
-  // fine.
-  delayed_fd_ = timerfd_create(CLOCK_MONOTONIC, O_NONBLOCK | O_CLOEXEC);
+  delayed_fd_ = checked_cast<int>(
+      timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC));
   CHECK_NE(delayed_fd_, -1);
 
   looper_ = ALooper_prepare(0);
@@ -141,7 +110,7 @@ void MessagePumpForUI::OnDelayedLooperCallback() {
 
   // Clear the fd.
   uint64_t value;
-  int ret = read(delayed_fd_, &value, sizeof(value));
+  long ret = read(delayed_fd_, &value, sizeof(value));
 
   // TODO(mthiesse): Figure out how it's possible to hit EAGAIN here.
   // According to http://man7.org/linux/man-pages/man2/timerfd_create.2.html
@@ -171,7 +140,7 @@ void MessagePumpForUI::DoDelayedLooperWork() {
 
   DoIdleWork();
   if (!next_work_info.delayed_run_time.is_max())
-    ScheduleDelayedWork(next_work_info.delayed_run_time);
+    ScheduleDelayedWork(next_work_info);
 }
 
 void MessagePumpForUI::OnNonDelayedLooperCallback() {
@@ -196,10 +165,10 @@ void MessagePumpForUI::OnNonDelayedLooperCallback() {
   // should be greater than 0 since work having been scheduled is the reason
   // we're here. See http://man7.org/linux/man-pages/man2/eventfd.2.html
   uint64_t value = 0;
-  int ret = read(non_delayed_fd_, &value, sizeof(value));
+  long ret = read(non_delayed_fd_, &value, sizeof(value));
   DPCHECK(ret >= 0);
   DCHECK_GT(value, 0U);
-  bool do_idle_work = value == kTryNativeTasksBeforeIdleBit;
+  bool do_idle_work = value == kTryNativeWorkBeforeIdleBit;
   DoNonDelayedLooperWork(do_idle_work);
 }
 
@@ -216,9 +185,9 @@ void MessagePumpForUI::DoNonDelayedLooperWork(bool do_idle_work) {
 
     next_work_info = delegate_->DoWork();
     // If we are prioritizing native, and the next work would normally run
-    // immediately, skip the next work and let the native tasks have a chance to
-    // run. This is useful when user input is waiting for native to have a
-    // chance to run.
+    // immediately, skip the next work and let the native work items have a
+    // chance to run. This is useful when user input is waiting for native to
+    // have a chance to run.
     if (next_work_info.is_immediate() && next_work_info.yield_to_native) {
       ScheduleWork();
       return;
@@ -231,14 +200,14 @@ void MessagePumpForUI::DoNonDelayedLooperWork(bool do_idle_work) {
   if (ShouldQuit())
     return;
 
-  // Before declaring this loop idle, yield to native tasks and arrange to be
-  // called again (unless we're already in that second call).
+  // Before declaring this loop idle, yield to native work items and arrange to
+  // be called again (unless we're already in that second call).
   if (!do_idle_work) {
     ScheduleWorkInternal(/*do_idle_work=*/true);
     return;
   }
 
-  // We yielded to native tasks already and they didn't generate a
+  // We yielded to native work items already and they didn't generate a
   // ScheduleWork() request so we can declare idleness. It's possible for a
   // ScheduleWork() request to come in racily while this method unwinds, this is
   // fine and will merely result in it being re-invoked shortly after it
@@ -246,7 +215,7 @@ void MessagePumpForUI::DoNonDelayedLooperWork(bool do_idle_work) {
   // TODO(scheduler-dev): this doesn't account for tasks that don't ever call
   // SchedulerWork() but still keep the system non-idle (e.g., the Java Handler
   // API). It would be better to add an API to query the presence of native
-  // tasks instead of relying on yielding once + kTryNativeTasksBeforeIdleBit.
+  // tasks instead of relying on yielding once + kTryNativeWorkBeforeIdleBit.
   DCHECK(do_idle_work);
 
   if (ShouldQuit())
@@ -260,8 +229,9 @@ void MessagePumpForUI::DoNonDelayedLooperWork(bool do_idle_work) {
   // callback to the java looper, as that will fire even if application tasks
   // are still queued up.
   DoIdleWork();
-  if (!next_work_info.delayed_run_time.is_max())
-    ScheduleDelayedWork(next_work_info.delayed_run_time);
+  if (!next_work_info.delayed_run_time.is_max()) {
+    ScheduleDelayedWork(next_work_info);
+  }
 }
 
 void MessagePumpForUI::DoIdleWork() {
@@ -331,31 +301,36 @@ void MessagePumpForUI::ScheduleWorkInternal(bool do_idle_work) {
   // where the parameter is false. This is fine as write() is adding |value|,
   // not overwriting the existing value, and as such racing calls would merely
   // have their values added together. Since idle work is only executed when the
-  // value read equals kTryNativeTasksBeforeIdleBit, a race would prevent idle
+  // value read equals kTryNativeWorkBeforeIdleBit, a race would prevent idle
   // work from being run and trigger another call to this method with
   // |do_idle_work| set to true.
-  uint64_t value = do_idle_work ? kTryNativeTasksBeforeIdleBit : 1;
-  int ret = write(non_delayed_fd_, &value, sizeof(value));
+  uint64_t value = do_idle_work ? kTryNativeWorkBeforeIdleBit : 1;
+  long ret = write(non_delayed_fd_, &value, sizeof(value));
   DPCHECK(ret >= 0);
 }
 
-void MessagePumpForUI::ScheduleDelayedWork(const TimeTicks& delayed_work_time) {
+void MessagePumpForUI::ScheduleDelayedWork(
+    const Delegate::NextWorkInfo& next_work_info) {
   if (ShouldQuit())
     return;
 
-  if (delayed_scheduled_time_ && *delayed_scheduled_time_ == delayed_work_time)
+  if (delayed_scheduled_time_ &&
+      *delayed_scheduled_time_ == next_work_info.delayed_run_time) {
     return;
+  }
 
-  DCHECK(!delayed_work_time.is_null());
-  delayed_scheduled_time_ = delayed_work_time;
-  int64_t nanos = delayed_work_time.since_origin().InNanoseconds();
+  DCHECK(!next_work_info.is_immediate());
+  delayed_scheduled_time_ = next_work_info.delayed_run_time;
+  int64_t nanos =
+      next_work_info.delayed_run_time.since_origin().InNanoseconds();
   struct itimerspec ts;
   ts.it_interval.tv_sec = 0;  // Don't repeat.
   ts.it_interval.tv_nsec = 0;
-  ts.it_value.tv_sec = nanos / TimeTicks::kNanosecondsPerSecond;
+  ts.it_value.tv_sec =
+      static_cast<time_t>(nanos / TimeTicks::kNanosecondsPerSecond);
   ts.it_value.tv_nsec = nanos % TimeTicks::kNanosecondsPerSecond;
 
-  int ret = timerfd_settime(delayed_fd_, TFD_TIMER_ABSTIME, &ts, nullptr);
+  long ret = timerfd_settime(delayed_fd_, TFD_TIMER_ABSTIME, &ts, nullptr);
   DPCHECK(ret >= 0);
 }
 

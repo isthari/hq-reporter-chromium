@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -67,6 +67,8 @@ enum class ProtoDbType {
   VIDEO_TUTORIALS_V2_DATABASE = 40,
   COUPON_DATABASE = 41,
   PAGE_ENTITY_METADATA_STORE = 42,
+  WEBRTC_VIDEO_STATS_DB = 43,
+  PERSISTENT_ORIGIN_TRIALS = 44,
   LAST,
 };
 
@@ -88,6 +90,7 @@ constexpr ProtoDbType kObsoleteSharedProtoDbTypeClients[] = {
     ProtoDbType::FEED_CONTENT_DATABASE,
     ProtoDbType::FEED_JOURNAL_DATABASE,
     ProtoDbType::VIDEO_TUTORIALS_DATABASE,
+    ProtoDbType::VIDEO_TUTORIALS_V2_DATABASE,
     ProtoDbType::LAST,  // Marks the end of list.
 };
 

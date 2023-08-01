@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,12 @@
 #include <vector>
 
 #include "base/memory/raw_ptr.h"
+#include "base/ranges/algorithm.h"
 #include "build/build_config.h"
+#include "ui/base/interaction/element_identifier.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/base/ui_base_types.h"
 #include "ui/color/color_id.h"
 #include "ui/color/color_provider.h"
 #include "ui/events/keycodes/keyboard_codes.h"
@@ -21,12 +24,12 @@
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/button/checkbox.h"
 #include "ui/views/controls/button/image_button.h"
-#include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/button/md_text_button.h"
 #include "ui/views/layout/layout_provider.h"
 #include "ui/views/layout/table_layout.h"
 #include "ui/views/metadata/view_factory.h"
 #include "ui/views/style/platform_style.h"
+#include "ui/views/view_class_properties.h"
 #include "ui/views/view_observer.h"
 #include "ui/views/view_tracker.h"
 #include "ui/views/view_utils.h"
@@ -53,6 +56,19 @@ gfx::Size GetBoundingSizeForVerticalStack(const gfx::Size& size1,
                                           const gfx::Size& size2) {
   return gfx::Size(std::max(size1.width(), size2.width()),
                    size1.height() + size2.height());
+}
+
+constexpr ui::ElementIdentifier kNoElementId;
+
+ui::ElementIdentifier GetButtonId(ui::DialogButton type) {
+  switch (type) {
+    case ui::DialogButton::DIALOG_BUTTON_OK:
+      return DialogClientView::kOkButtonElementId;
+    case ui::DialogButton::DIALOG_BUTTON_CANCEL:
+      return DialogClientView::kCancelButtonElementId;
+    default:
+      return kNoElementId;
+  }
 }
 
 }  // namespace
@@ -83,7 +99,9 @@ END_METADATA
 DialogClientView::DialogClientView(Widget* owner, View* contents_view)
     : ClientView(owner, contents_view),
       button_row_insets_(
-          LayoutProvider::Get()->GetInsetsMetric(INSETS_DIALOG_BUTTON_ROW)) {
+          LayoutProvider::Get()->GetInsetsMetric(INSETS_DIALOG_BUTTON_ROW)),
+      input_protector_(
+          std::make_unique<views::InputEventActivationProtector>()) {
   // Doing this now ensures this accelerator will have lower priority than
   // one set by the contents view.
   AddAccelerator(ui::Accelerator(ui::VKEY_ESCAPE, ui::EF_NONE));
@@ -153,7 +171,7 @@ gfx::Size DialogClientView::GetMaximumSize() const {
 
 void DialogClientView::VisibilityChanged(View* starting_from, bool is_visible) {
   ClientView::VisibilityChanged(starting_from, is_visible);
-  input_protector_.VisibilityChanged(is_visible);
+  input_protector_->VisibilityChanged(is_visible);
 }
 
 void DialogClientView::Layout() {
@@ -225,8 +243,16 @@ void DialogClientView::OnThemeChanged() {
   }
 }
 
+void DialogClientView::UpdateInputProtectorTimeStamp() {
+  input_protector_->UpdateViewShownTimeStamp();
+}
+
 void DialogClientView::ResetViewShownTimeStampForTesting() {
-  input_protector_.ResetForTesting();
+  input_protector_->ResetForTesting();  // IN-TEST
+}
+
+bool DialogClientView::IsPossiblyUnintendedInteraction(const ui::Event& event) {
+  return input_protector_->IsPossiblyUnintendedInteraction(event);
 }
 
 DialogDelegate* DialogClientView::GetDialogDelegate() const {
@@ -240,6 +266,10 @@ void DialogClientView::ChildVisibilityChanged(View* child) {
   InvalidateLayout();
 }
 
+void DialogClientView::TriggerInputProtection() {
+  input_protector_->UpdateViewShownTimeStamp();
+}
+
 void DialogClientView::OnDialogChanged() {
   UpdateDialogButtons();
 }
@@ -249,7 +279,7 @@ void DialogClientView::UpdateDialogButtons() {
   InvalidateLayout();
 }
 
-void DialogClientView::UpdateDialogButton(LabelButton** member,
+void DialogClientView::UpdateDialogButton(MdTextButton** member,
                                           ui::DialogButton type) {
   DialogDelegate* const delegate = GetDialogDelegate();
   if (!(delegate->GetDialogButtons() & type)) {
@@ -259,16 +289,16 @@ void DialogClientView::UpdateDialogButton(LabelButton** member,
     return;
   }
 
-  const bool is_default = delegate->GetDefaultDialogButton() == type &&
-                          (type != ui::DIALOG_BUTTON_CANCEL ||
-                           PlatformStyle::kDialogDefaultButtonCanBeCancel);
+  const bool is_default = delegate->GetIsDefault(type);
   const std::u16string title = delegate->GetDialogButtonLabel(type);
+  const ui::ButtonStyle style = delegate->GetDialogButtonStyle(type);
 
   if (*member) {
-    LabelButton* button = *member;
+    MdTextButton* button = *member;
     button->SetEnabled(delegate->IsDialogButtonEnabled(type));
     button->SetIsDefault(is_default);
     button->SetText(title);
+    button->SetStyle(style);
     return;
   }
 
@@ -282,6 +312,8 @@ void DialogClientView::UpdateDialogButton(LabelButton** member,
               .SetCallback(base::BindRepeating(&DialogClientView::ButtonPressed,
                                                base::Unretained(this), type))
               .SetText(title)
+              .SetProperty(views::kElementIdentifierKey, GetButtonId(type))
+              .SetStyle(style)
               .SetProminent(is_default)
               .SetIsDefault(is_default)
               .SetEnabled(delegate->IsDialogButtonEnabled(type))
@@ -293,15 +325,27 @@ void DialogClientView::UpdateDialogButton(LabelButton** member,
 void DialogClientView::ButtonPressed(ui::DialogButton type,
                                      const ui::Event& event) {
   DialogDelegate* const delegate = GetDialogDelegate();
-  if (delegate && !input_protector_.IsPossiblyUnintendedInteraction(event)) {
-    (type == ui::DIALOG_BUTTON_OK) ? delegate->AcceptDialog()
-                                   : delegate->CancelDialog();
+  if (!delegate || input_protector_->IsPossiblyUnintendedInteraction(event)) {
+    return;
+  }
+
+  DCHECK(type == ui::DIALOG_BUTTON_OK || type == ui::DIALOG_BUTTON_CANCEL);
+  if (type == ui::DIALOG_BUTTON_OK &&
+      !delegate->ShouldIgnoreButtonPressedEventHandling(ok_button_, event)) {
+    delegate->AcceptDialog();
+  }
+
+  if (type == ui::DIALOG_BUTTON_CANCEL &&
+      !delegate->ShouldIgnoreButtonPressedEventHandling(cancel_button_,
+                                                        event)) {
+    delegate->CancelDialog();
   }
 }
 
 int DialogClientView::GetExtraViewSpacing() const {
-  if (!ShouldShow(extra_view_) || !(ok_button_ || cancel_button_))
+  if (!ShouldShow(extra_view_) || !(ok_button_ || cancel_button_)) {
     return 0;
+  }
 
   return LayoutProvider::Get()->GetDistanceMetric(
       views::DISTANCE_RELATED_BUTTON_HORIZONTAL);
@@ -340,7 +384,7 @@ void DialogClientView::SetupLayout() {
       button_row_container_->AddChildViewAt(extra_view_.get(), 0);
   }
 
-  if (std::count(views.begin(), views.end(), nullptr) == kNumButtons)
+  if (base::ranges::count(views, nullptr) == kNumButtons)
     return;
 
   // This will also clobber any existing layout manager and clear any settings
@@ -369,10 +413,10 @@ void DialogClientView::SetupLayout() {
       .AddColumn(LayoutAlignment::kStretch, LayoutAlignment::kStretch, kFixed,
                  TableLayout::ColumnSize::kUsePreferred, 0, 0)
       .AddPaddingColumn(kStretchy, GetExtraViewSpacing())
-      .AddColumn(LayoutAlignment::kStretch, LayoutAlignment::kStretch, kFixed,
+      .AddColumn(LayoutAlignment::kStretch, LayoutAlignment::kEnd, kFixed,
                  TableLayout::ColumnSize::kUsePreferred, 0, 0)
       .AddPaddingColumn(kFixed, button_spacing)
-      .AddColumn(LayoutAlignment::kStretch, LayoutAlignment::kStretch, kFixed,
+      .AddColumn(LayoutAlignment::kStretch, LayoutAlignment::kEnd, kFixed,
                  TableLayout::ColumnSize::kUsePreferred, 0, 0)
       .AddPaddingColumn(kFixed, button_row_insets_.right())
       .AddPaddingRow(kFixed, button_row_insets_.top())
@@ -382,7 +426,7 @@ void DialogClientView::SetupLayout() {
           DISTANCE_BUTTON_MAX_LINKABLE_WIDTH));
 
   // Track which columns to link sizes under MD.
-  constexpr int kViewToColumnIndex[] = {1, 3, 5};
+  constexpr size_t kViewToColumnIndex[] = {1, 3, 5};
   std::vector<size_t> columns_to_link;
 
   // Skip views that are not a button, or are a specific subclass of Button
@@ -454,5 +498,8 @@ void DialogClientView::RemoveFillerView(size_t view_index) {
 
 BEGIN_METADATA(DialogClientView, ClientView)
 END_METADATA
+
+DEFINE_CLASS_ELEMENT_IDENTIFIER_VALUE(DialogClientView, kOkButtonElementId);
+DEFINE_CLASS_ELEMENT_IDENTIFIER_VALUE(DialogClientView, kCancelButtonElementId);
 
 }  // namespace views

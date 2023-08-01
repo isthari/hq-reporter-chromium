@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,12 +26,22 @@
 using base::android::AttachCurrentThread;
 using base::android::ConvertJavaStringToUTF8;
 using base::android::ConvertUTF8ToJavaString;
+using base::android::JavaArrayOfByteArrayToStringVector;
 using base::android::ScopedJavaLocalRef;
 using base::android::ToJavaArrayOfByteArray;
 using base::android::ToJavaByteArray;
 
-namespace net {
-namespace android {
+namespace net::android {
+
+std::vector<std::string> GetUserAddedRoots() {
+  std::vector<std::string> roots;
+  JNIEnv* env = AttachCurrentThread();
+
+  ScopedJavaLocalRef<jobjectArray> roots_byte_array =
+      Java_AndroidNetworkLibrary_getUserAddedRoots(env);
+  JavaArrayOfByteArrayToStringVector(env, roots_byte_array, &roots);
+  return roots;
+}
 
 void VerifyX509CertChain(const std::vector<std::string>& cert_chain,
                          base::StringPiece auth_type,
@@ -122,6 +132,11 @@ std::string GetWifiSSID() {
           base::android::AttachCurrentThread()));
 }
 
+void SetWifiEnabledForTesting(bool enabled) {
+  Java_AndroidNetworkLibrary_setWifiEnabled(
+      base::android::AttachCurrentThread(), enabled);
+}
+
 absl::optional<int32_t> GetWifiSignalLevel() {
   const int count_buckets = 5;
   int signal_strength = Java_AndroidNetworkLibrary_getWifiSignalLevel(
@@ -134,41 +149,71 @@ absl::optional<int32_t> GetWifiSignalLevel() {
   return signal_strength;
 }
 
-bool GetDnsServers(std::vector<IPEndPoint>* dns_servers,
-                   bool* dns_over_tls_active,
-                   std::string* dns_over_tls_hostname,
-                   std::vector<std::string>* search_suffixes) {
-  DCHECK_GE(base::android::BuildInfo::GetInstance()->sdk_int(),
-            base::android::SDK_VERSION_MARSHMALLOW);
+namespace {
 
-  JNIEnv* env = AttachCurrentThread();
-  // Get the DNS status for the active network.
-  ScopedJavaLocalRef<jobject> result =
-      Java_AndroidNetworkLibrary_getDnsStatus(env, nullptr /* network */);
-  if (result.is_null())
-    return false;
-
+bool GetDnsServersInternal(JNIEnv* env,
+                           const base::android::JavaRef<jobject>& dns_status,
+                           std::vector<IPEndPoint>* dns_servers,
+                           bool* dns_over_tls_active,
+                           std::string* dns_over_tls_hostname,
+                           std::vector<std::string>* search_suffixes) {
   // Parse the DNS servers.
   std::vector<std::vector<uint8_t>> dns_servers_data;
   base::android::JavaArrayOfByteArrayToBytesVector(
-      env, Java_DnsStatus_getDnsServers(env, result), &dns_servers_data);
+      env, Java_DnsStatus_getDnsServers(env, dns_status), &dns_servers_data);
   for (const std::vector<uint8_t>& dns_address_data : dns_servers_data) {
     IPAddress dns_address(dns_address_data.data(), dns_address_data.size());
     IPEndPoint dns_server(dns_address, dns_protocol::kDefaultPort);
     dns_servers->push_back(dns_server);
   }
 
-  *dns_over_tls_active = Java_DnsStatus_getPrivateDnsActive(env, result);
+  *dns_over_tls_active = Java_DnsStatus_getPrivateDnsActive(env, dns_status);
   *dns_over_tls_hostname = base::android::ConvertJavaStringToUTF8(
-      Java_DnsStatus_getPrivateDnsServerName(env, result));
+      Java_DnsStatus_getPrivateDnsServerName(env, dns_status));
 
   std::string search_suffixes_str = base::android::ConvertJavaStringToUTF8(
-      Java_DnsStatus_getSearchDomains(env, result));
+      Java_DnsStatus_getSearchDomains(env, dns_status));
   *search_suffixes =
       base::SplitString(search_suffixes_str, ",", base::TRIM_WHITESPACE,
                         base::SPLIT_WANT_NONEMPTY);
 
   return !dns_servers->empty();
+}
+
+}  // namespace
+
+bool GetCurrentDnsServers(std::vector<IPEndPoint>* dns_servers,
+                          bool* dns_over_tls_active,
+                          std::string* dns_over_tls_hostname,
+                          std::vector<std::string>* search_suffixes) {
+  DCHECK_GE(base::android::BuildInfo::GetInstance()->sdk_int(),
+            base::android::SDK_VERSION_MARSHMALLOW);
+
+  JNIEnv* env = AttachCurrentThread();
+  // Get the DNS status for the current default network.
+  ScopedJavaLocalRef<jobject> result =
+      Java_AndroidNetworkLibrary_getCurrentDnsStatus(env);
+  if (result.is_null())
+    return false;
+  return GetDnsServersInternal(env, result, dns_servers, dns_over_tls_active,
+                               dns_over_tls_hostname, search_suffixes);
+}
+
+bool GetDnsServersForNetwork(std::vector<IPEndPoint>* dns_servers,
+                             bool* dns_over_tls_active,
+                             std::string* dns_over_tls_hostname,
+                             std::vector<std::string>* search_suffixes,
+                             handles::NetworkHandle network) {
+  DCHECK_GE(base::android::BuildInfo::GetInstance()->sdk_int(),
+            base::android::SDK_VERSION_P);
+
+  JNIEnv* env = AttachCurrentThread();
+  ScopedJavaLocalRef<jobject> result =
+      Java_AndroidNetworkLibrary_getDnsStatusForNetwork(env, network);
+  if (result.is_null())
+    return false;
+  return GetDnsServersInternal(env, result, dns_servers, dns_over_tls_active,
+                               dns_over_tls_hostname, search_suffixes);
 }
 
 bool ReportBadDefaultNetwork() {
@@ -213,10 +258,9 @@ LollipopSetNetworkForSocket GetLollipopSetNetworkForSocket() {
 
 }  // namespace
 
-int BindToNetwork(SocketDescriptor socket,
-                  NetworkChangeNotifier::NetworkHandle network) {
+int BindToNetwork(SocketDescriptor socket, handles::NetworkHandle network) {
   DCHECK_NE(socket, kInvalidSocket);
-  if (network == NetworkChangeNotifier::kInvalidNetworkHandle)
+  if (network == handles::kInvalidNetworkHandle)
     return ERR_INVALID_ARGUMENT;
 
   // Android prior to Lollipop didn't have support for binding sockets to
@@ -250,5 +294,51 @@ int BindToNetwork(SocketDescriptor socket,
   return MapSystemError(rv);
 }
 
-}  // namespace android
-}  // namespace net
+namespace {
+
+using MarshmallowGetAddrInfoForNetwork = int (*)(int64_t network,
+                                                 const char* node,
+                                                 const char* service,
+                                                 const struct addrinfo* hints,
+                                                 struct addrinfo** res);
+
+MarshmallowGetAddrInfoForNetwork GetMarshmallowGetAddrInfoForNetwork() {
+  // On Android M and newer releases use supported NDK API.
+  base::FilePath file(base::GetNativeLibraryName("android"));
+  // See declaration of android_getaddrinfofornetwork() here:
+  // https://developer.android.com/ndk/reference/group/networking#android_getaddrinfofornetwork
+  // Function cannot be called directly as it will cause app to fail to load on
+  // pre-marshmallow devices.
+  void* dl = dlopen(file.value().c_str(), RTLD_NOW);
+  return reinterpret_cast<MarshmallowGetAddrInfoForNetwork>(
+      dlsym(dl, "android_getaddrinfofornetwork"));
+}
+
+}  // namespace
+
+NET_EXPORT_PRIVATE int GetAddrInfoForNetwork(handles::NetworkHandle network,
+                                             const char* node,
+                                             const char* service,
+                                             const struct addrinfo* hints,
+                                             struct addrinfo** res) {
+  if (network == handles::kInvalidNetworkHandle) {
+    errno = EINVAL;
+    return EAI_SYSTEM;
+  }
+  if (base::android::BuildInfo::GetInstance()->sdk_int() <
+      base::android::SDK_VERSION_MARSHMALLOW) {
+    errno = ENOSYS;
+    return EAI_SYSTEM;
+  }
+
+  static MarshmallowGetAddrInfoForNetwork get_addrinfo_for_network =
+      GetMarshmallowGetAddrInfoForNetwork();
+  if (!get_addrinfo_for_network) {
+    errno = ENOSYS;
+    return EAI_SYSTEM;
+  }
+
+  return get_addrinfo_for_network(network, node, service, hints, res);
+}
+
+}  // namespace net::android

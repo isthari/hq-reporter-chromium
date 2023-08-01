@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,8 @@ import static org.chromium.chrome.browser.dependency_injection.ChromeCommonQuali
 import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.view.View;
+
+import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.Callback;
 import org.chromium.base.SysUtils;
@@ -62,9 +64,8 @@ public class EphemeralTabCoordinator implements View.OnLayoutChangeListener {
     private final ActivityTabProvider mTabProvider;
     private final Supplier<TabCreator> mTabCreator;
     private final BottomSheetController mBottomSheetController;
+    private final EphemeralTabMediator mMediator;
     private final boolean mCanPromoteToNewTab;
-
-    private EphemeralTabMediator mMediator;
 
     private WebContents mWebContents;
     private ContentView mContentView;
@@ -72,6 +73,7 @@ public class EphemeralTabCoordinator implements View.OnLayoutChangeListener {
     private EmptyBottomSheetObserver mSheetObserver;
 
     private GURL mUrl;
+    private GURL mFullPageUrl;
     private int mCurrentMaxViewHeight;
     private boolean mPeeked;
     private boolean mFullyOpened;
@@ -99,6 +101,12 @@ public class EphemeralTabCoordinator implements View.OnLayoutChangeListener {
         mTabCreator = tabCreator;
         mBottomSheetController = bottomSheetController;
         mCanPromoteToNewTab = canPromoteToNewTab;
+
+        float topControlsHeight =
+                mContext.getResources().getDimensionPixelSize(R.dimen.toolbar_height_no_shadow)
+                / mWindow.getDisplay().getDipScale();
+        mMediator = new EphemeralTabMediator(
+                mBottomSheetController, new FaviconLoader(mContext), (int) topControlsHeight);
     }
 
     /**
@@ -124,15 +132,38 @@ public class EphemeralTabCoordinator implements View.OnLayoutChangeListener {
      * @param isIncognito Whether we are currently in incognito mode.
      */
     public void requestOpenSheet(GURL url, String title, boolean isIncognito) {
+        requestOpenSheetWithFullPageUrl(url, null, title, isIncognito);
+    }
+
+    /**
+     * Add observer to be notified of ephemeral tab events.
+     */
+    public void addObserver(EphemeralTabObserver ephemeralTabObserver) {
+        mMediator.addObserver(ephemeralTabObserver);
+    }
+
+    /**
+     * Remove observer.
+     */
+    public void removeObserver(EphemeralTabObserver ephemeralTabObserver) {
+        mMediator.removeObserver(ephemeralTabObserver);
+    }
+
+    /**
+     * Alternative entry point for ephemeral tab flow. This will create an ephemeral tab and show it
+     * in the bottom sheet. When the tab is opened in a fullPage, an alternative URL is opened.
+     *
+     * @param url The URL to be shown in the bottomsheet.
+     * @param fullPageUrl The URL that will be opened when the bottomsheet is transformed to a full
+     *         page.
+     * @param title The title to be shown.
+     * @param isIncognito Whether we are currently in incognito mode.
+     */
+    public void requestOpenSheetWithFullPageUrl(
+            GURL url, GURL fullPageUrl, String title, boolean isIncognito) {
         mUrl = url;
+        mFullPageUrl = fullPageUrl;
         Profile profile = getProfile(isIncognito);
-        if (mMediator == null) {
-            float topControlsHeight =
-                    mContext.getResources().getDimensionPixelSize(R.dimen.toolbar_height_no_shadow)
-                    / mWindow.getDisplay().getDipScale();
-            mMediator = new EphemeralTabMediator(
-                    mBottomSheetController, new FaviconLoader(mContext), (int) topControlsHeight);
-        }
         if (mWebContents == null) {
             assert mSheetContent == null;
             createWebContents(profile);
@@ -173,7 +204,8 @@ public class EphemeralTabCoordinator implements View.OnLayoutChangeListener {
             assert intentRequestTracker
                     != null : "ActivityWindowAndroid must have a IntentRequestTracker.";
             mSheetContent = new EphemeralTabSheetContent(mContext, this::openInNewTab,
-                    this::onToolbarClick, this::close, getMaxViewHeight(), intentRequestTracker);
+                    this::onToolbarClick, this::close, getMaxViewHeight(), intentRequestTracker,
+                    (toolbarView) -> mMediator.onToolbarCreated(toolbarView));
             mMediator.init(mWebContents, mContentView, mSheetContent, profile);
             mLayoutView.addOnLayoutChangeListener(this);
         }
@@ -198,7 +230,7 @@ public class EphemeralTabCoordinator implements View.OnLayoutChangeListener {
         assert mWebContents == null;
 
         // Creates an initially hidden WebContents which gets shown when the panel is opened.
-        mWebContents = WebContentsFactory.createWebContents(profile, true);
+        mWebContents = WebContentsFactory.createWebContents(profile, true, false);
 
         mContentView = ContentView.createContentView(
                 mContext, null /* eventOffsetHandler */, mWebContents);
@@ -221,7 +253,7 @@ public class EphemeralTabCoordinator implements View.OnLayoutChangeListener {
             mContentView = null;
         }
 
-        if (mMediator != null) mMediator.destroyContent();
+        mMediator.destroyContent();
 
         mLayoutView.removeOnLayoutChangeListener(this);
         if (mSheetObserver != null) mBottomSheetController.removeObserver(mSheetObserver);
@@ -231,7 +263,8 @@ public class EphemeralTabCoordinator implements View.OnLayoutChangeListener {
         if (mCanPromoteToNewTab && mUrl != null) {
             mBottomSheetController.hideContent(
                     mSheetContent, /* animate= */ true, StateChangeReason.PROMOTE_TAB);
-            mTabCreator.get().createNewTab(new LoadUrlParams(mUrl.getSpec(), PageTransition.LINK),
+            GURL url = mFullPageUrl != null ? mFullPageUrl : mUrl;
+            mTabCreator.get().createNewTab(new LoadUrlParams(url.getSpec(), PageTransition.LINK),
                     TabLaunchType.FROM_LINK, mTabProvider.get());
         }
     }
@@ -243,6 +276,14 @@ public class EphemeralTabCoordinator implements View.OnLayoutChangeListener {
         } else if (state == SheetState.FULL) {
             mBottomSheetController.collapseSheet(true);
         }
+    }
+
+    /**
+     * @return The WebContents that this Ephemeral tab currently holds.
+     */
+    @VisibleForTesting
+    public WebContents getWebContentsForTesting() {
+        return mWebContents;
     }
 
     /**
@@ -287,7 +328,7 @@ public class EphemeralTabCoordinator implements View.OnLayoutChangeListener {
         public FaviconLoader(Context context) {
             mContext = context;
             mFaviconHelper = new FaviconHelper();
-            mIconGenerator = FaviconUtils.createCircularIconGenerator(mContext.getResources());
+            mIconGenerator = FaviconUtils.createCircularIconGenerator(mContext);
             mFaviconSize =
                     mContext.getResources().getDimensionPixelSize(R.dimen.preview_tab_favicon_size);
         }

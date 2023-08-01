@@ -89,17 +89,12 @@ class CORE_EXPORT ScriptedAnimationController
   void EnqueueMediaQueryChangeListeners(
       HeapVector<Member<MediaQueryListListener>>&);
 
-  // Invokes callbacks, dispatches events, etc. The order is defined by HTML:
-  // https://html.spec.whatwg.org/C/#event-loop-processing-model
-  void ServiceScriptedAnimations(base::TimeTicks monotonic_time_now,
-                                 bool can_throttle = false);
-
   void ContextLifecycleStateChanged(mojom::FrameLifecycleState) final;
   void ContextDestroyed() final {}
 
   void DispatchEventsAndCallbacksForPrinting();
 
- private:
+  LocalDOMWindow* GetWindow() const;
   void ScheduleAnimationIfNeeded();
 
   void RunTasks();
@@ -109,14 +104,17 @@ class CORE_EXPORT ScriptedAnimationController
   void ExecuteFrameCallbacks();
   void ExecuteVideoFrameCallbacks();
   void CallMediaQueryListListeners();
-
-  bool HasScheduledFrameTasks() const;
-
-  LocalDOMWindow* GetWindow() const;
-
+  void SetCurrentFrameTimeMs(double time_ms) {
+    current_frame_time_ms_ = time_ms;
+  }
+  void SetCurrentFrameLegacyTimeMs(double time_ms) {
+    current_frame_legacy_time_ms_ = time_ms;
+  }
   // A helper function that is called by more than one callsite.
   PageAnimator* GetPageAnimator();
+  bool HasScheduledFrameTasks() const;
 
+ private:
   ALWAYS_INLINE bool InsertToPerFrameEventsMap(const Event* event);
   ALWAYS_INLINE void EraseFromPerFrameEventsMap(const Event* event);
 

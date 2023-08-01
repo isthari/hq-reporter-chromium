@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,11 @@
  * ChromeVox interactive tutorial.
  */
 
-import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
-import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.m.js';
-import 'chrome://resources/cr_elements/md_select_css.m.js';
-import 'chrome://resources/cr_elements/shared_style_css.m.js';
-import 'chrome://resources/cr_elements/shared_vars_css.m.js';
+import 'chrome://resources/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
+import 'chrome://resources/cr_elements/md_select.css.js';
+import 'chrome://resources/cr_elements/cr_shared_style.css.js';
+import 'chrome://resources/cr_elements/cr_shared_vars.css.js';
 
 import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
@@ -42,12 +42,6 @@ export const TutorialLesson = Polymer({
 
     practiceFile: {type: String},
 
-    practiceState: {type: Object},
-
-    events: {type: Array},
-
-    goalStateReached: {type: Boolean, value: false},
-
     actions: {type: Array},
 
     autoInteractive: {type: Boolean, value: false},
@@ -59,23 +53,19 @@ export const TutorialLesson = Polymer({
 
   /** @override */
   ready() {
-    this.$.contentTemplate.addEventListener('dom-change', (evt) => {
+    this.$.contentTemplate.addEventListener('dom-change', evt => {
       this.dispatchEvent(new CustomEvent('lessonready', {composed: true}));
     });
 
 
     if (this.practiceFile) {
       this.populatePracticeContent();
-      for (const evt of this.events) {
-        this.$.practiceContent.addEventListener(
-            evt, event => this.onPracticeEvent(event), true);
-      }
-      this.$.practiceContent.addEventListener('focus', (evt) => {
+      this.$.practiceContent.addEventListener('focus', evt => {
         // The practice area has the potential to overflow, so ensure elements
         // are scrolled into view when focused.
         evt.target.scrollIntoView();
       }, true);
-      this.$.practiceContent.addEventListener('click', (evt) => {
+      this.$.practiceContent.addEventListener('click', evt => {
         // Intercept click events. For example, clicking a link will exit the
         // tutorial without this listener.
         evt.preventDefault();
@@ -139,7 +129,7 @@ export const TutorialLesson = Polymer({
     const path = '../tutorial/practice_areas/' + this.practiceFile + '.html';
     const xhr = new XMLHttpRequest();
     xhr.open('GET', path, true);
-    xhr.onload = (evt) => {
+    xhr.onload = evt => {
       if (xhr.readyState === 4 && xhr.status === 200) {
         this.$.practiceContent.innerHTML = xhr.responseText;
         this.localizePracticeAreaContent();
@@ -176,58 +166,6 @@ export const TutorialLesson = Polymer({
   /** @private */
   notifyEndPractice() {
     this.dispatchEvent(new CustomEvent('endpractice', {composed: true}));
-  },
-
-
-  // Methods for tracking the state of the practice area.
-
-
-  /**
-   * @param {Event} event
-   * @private
-   */
-  onPracticeEvent(event) {
-    const elt = event.target.id;
-    const type = event.type;
-    // Maybe update goal state.
-    if (elt in this.practiceState) {
-      if (type in this.practiceState[elt]) {
-        this.practiceState[elt][type] = true;
-      }
-    }
-
-    if (this.isGoalStateReached()) {
-      this.onGoalStateReached();
-    }
-  },
-
-  /**
-   * @return {boolean}
-   * @private
-   */
-  isGoalStateReached() {
-    if (!this.practiceState) {
-      return false;
-    }
-
-    if (this.goalStateReached === true) {
-      return true;
-    }
-
-    for (const [elt, state] of Object.entries(this.practiceState)) {
-      for (const [evt, performed] of Object.entries(state)) {
-        if (performed === false) {
-          return false;
-        }
-      }
-    }
-    return true;
-  },
-
-  /** @private */
-  onGoalStateReached() {
-    const previousState = this.goalStateReached;
-    this.goalStateReached = true;
   },
 
   // Miscellaneous methods.

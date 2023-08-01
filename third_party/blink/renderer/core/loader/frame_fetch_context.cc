@@ -39,15 +39,15 @@
 #include "build/build_config.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
 #include "net/http/structured_headers.h"
+#include "services/network/public/cpp/attribution_reporting_runtime_features.h"
 #include "services/network/public/cpp/client_hints.h"
+#include "services/network/public/cpp/features.h"
 #include "services/network/public/mojom/web_client_hints_types.mojom-blink.h"
 #include "services/network/public/mojom/web_client_hints_types.mojom-shared.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
 #include "third_party/blink/public/common/client_hints/client_hints.h"
 #include "third_party/blink/public/common/device_memory/approximated_device_memory.h"
-#include "third_party/blink/public/common/features.h"
-#include "third_party/blink/public/mojom/conversions/conversions.mojom-blink.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/public/mojom/loader/request_context_frame_type.mojom-blink.h"
 #include "third_party/blink/public/mojom/permissions_policy/permissions_policy.mojom-blink.h"
@@ -65,8 +65,9 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/fileapi/public_url_manager.h"
 #include "third_party/blink/renderer/core/frame/ad_tracker.h"
+#include "third_party/blink/renderer/core/frame/attribution_src_loader.h"
 #include "third_party/blink/renderer/core/frame/csp/content_security_policy.h"
-#include "third_party/blink/renderer/core/frame/deprecation.h"
+#include "third_party/blink/renderer/core/frame/deprecation/deprecation.h"
 #include "third_party/blink/renderer/core/frame/frame_console.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -89,7 +90,7 @@
 #include "third_party/blink/renderer/core/loader/resource_load_observer_for_frame.h"
 #include "third_party/blink/renderer/core/loader/subresource_filter.h"
 #include "third_party/blink/renderer/core/page/page.h"
-#include "third_party/blink/renderer/core/paint/first_meaningful_paint_detector.h"
+#include "third_party/blink/renderer/core/paint/timing/first_meaningful_paint_detector.h"
 #include "third_party/blink/renderer/core/probe/core_probes.h"
 #include "third_party/blink/renderer/core/svg/graphics/svg_image_chrome_client.h"
 #include "third_party/blink/renderer/core/timing/dom_window_performance.h"
@@ -107,10 +108,9 @@
 #include "third_party/blink/renderer/platform/loader/fetch/resource_load_priority.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loader_options.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_loading_log.h"
-#include "third_party/blink/renderer/platform/loader/fetch/resource_timing_info.h"
+#include "third_party/blink/renderer/platform/loader/fetch/resource_timing_utils.h"
 #include "third_party/blink/renderer/platform/loader/fetch/unique_identifier.h"
 #include "third_party/blink/renderer/platform/mhtml/mhtml_archive.h"
-#include "third_party/blink/renderer/platform/network/http_names.h"
 #include "third_party/blink/renderer/platform/network/network_state_notifier.h"
 #include "third_party/blink/renderer/platform/network/network_utils.h"
 #include "third_party/blink/renderer/platform/weborigin/scheme_registry.h"
@@ -122,19 +122,6 @@ namespace blink {
 
 namespace {
 
-// Requested client hints are always sent for first-party subresources, but
-// third party subresources receive hints based on (1) the state of the flag
-// `kAllowClientHintsToThirdParty` and (2) whether they are a legacy client
-// hint (device-memory, resource-width, viewport-width and dpr).
-// TODO(crbug.com/1227043): Remove both of the above mechanisms.
-//
-// If `kAllowClientHintsToThirdParty` is enabled AND the requested client hint
-// is a legacy client hint, then the hint is shared to third parties regardless
-// of permissions policy. This flag is only enabled by default on Android.
-//
-// If `kAllowClientHintsToThirdParty` is disabled OR the requested client hint
-// isn't a legacy client hint, then the hint is shared only to third parties
-// specifically enabled by the permissions policy.
 mojom::FetchCacheMode DetermineFrameCacheMode(Frame* frame) {
   if (!frame)
     return mojom::FetchCacheMode::kDefault;
@@ -190,7 +177,8 @@ struct FrameFetchContext::FrozenState final : GarbageCollected<FrozenState> {
               const String& user_agent,
               const absl::optional<UserAgentMetadata>& user_agent_metadata,
               bool is_svg_image_chrome_client,
-              bool is_prerendering)
+              bool is_prerendering,
+              const String& reduced_accept_language)
       : url(url),
         content_security_policy(content_security_policy),
         site_for_cookies(std::move(site_for_cookies)),
@@ -200,7 +188,8 @@ struct FrameFetchContext::FrozenState final : GarbageCollected<FrozenState> {
         user_agent(user_agent),
         user_agent_metadata(user_agent_metadata),
         is_svg_image_chrome_client(is_svg_image_chrome_client),
-        is_prerendering(is_prerendering) {}
+        is_prerendering(is_prerendering),
+        reduced_accept_language(reduced_accept_language) {}
 
   const KURL url;
   const scoped_refptr<const SecurityOrigin> parent_security_origin;
@@ -213,6 +202,7 @@ struct FrameFetchContext::FrozenState final : GarbageCollected<FrozenState> {
   const absl::optional<UserAgentMetadata> user_agent_metadata;
   const bool is_svg_image_chrome_client;
   const bool is_prerendering;
+  const String reduced_accept_language;
 
   void Trace(Visitor* visitor) const {
     visitor->Trace(content_security_policy);
@@ -262,12 +252,11 @@ FrameFetchContext::FrameFetchContext(
     DocumentLoader& document_loader,
     Document& document,
     const DetachableResourceFetcherProperties& properties)
-    : BaseFetchContext(properties),
+    : BaseFetchContext(properties,
+                       MakeGarbageCollected<DetachableConsoleLogger>(
+                           document.GetExecutionContext())),
       document_loader_(document_loader),
-      document_(document),
-      save_data_enabled_(
-          GetNetworkStateNotifier().SaveDataEnabled() &&
-          !GetFrame()->GetSettings()->GetDataSaverHoldbackWebApi()) {}
+      document_(document) {}
 
 net::SiteForCookies FrameFetchContext::GetSiteForCookies() const {
   if (GetResourceFetcherProperties().IsDetached())
@@ -303,15 +292,6 @@ void FrameFetchContext::AddAdditionalRequestHeaders(ResourceRequest& request) {
 
   if (GetResourceFetcherProperties().IsDetached())
     return;
-
-  // Reload should reflect the current data saver setting.
-  if (IsReloadLoadType(document_loader_->LoadType()))
-    request.ClearHttpHeaderField(http_names::kSaveData);
-
-  if (save_data_enabled_)
-    request.SetHttpHeaderField(http_names::kSaveData, "on");
-
-  AddBackForwardCacheExperimentHTTPHeaderIfNeeded(request);
 }
 
 // TODO(toyoshim, arthursonzogni): PlzNavigate doesn't use this function to set
@@ -361,15 +341,44 @@ void FrameFetchContext::PrepareRequest(
           network::GetClientHintToNameMap()
               .at(network::mojom::blink::WebClientHintsType::kUAReduced)
               .c_str()) == "?1";
-  String user_agent = ua_reduced ? GetReducedUserAgent() : GetUserAgent();
-  base::UmaHistogramBoolean("Blink.Fetch.ReducedUserAgent", ua_reduced);
+  const bool ua_full =
+      request.HttpHeaderField(
+          network::GetClientHintToNameMap()
+              .at(network::mojom::blink::WebClientHintsType::kFullUserAgent)
+              .c_str()) == "?1";
+
+  String user_agent =
+      ua_full ? GetFullUserAgent()
+              : (ua_reduced ? GetReducedUserAgent() : GetUserAgent());
   request.SetHTTPUserAgent(AtomicString(user_agent));
 
   if (GetResourceFetcherProperties().IsDetached())
     return;
 
+  request.SetUkmSourceId(document_->UkmSourceID());
+  request.SetHasStorageAccess(
+      document_->GetExecutionContext()->HasStorageAccess());
+
   if (document_loader_->ForceFetchCacheMode())
     request.SetCacheMode(*document_loader_->ForceFetchCacheMode());
+
+  if (const AttributionSrcLoader* attribution_src_loader =
+          GetFrame()->GetAttributionSrcLoader()) {
+    request.SetAttributionReportingSupport(
+        attribution_src_loader->GetSupport());
+    request.SetAttributionReportingRuntimeFeatures(
+        attribution_src_loader->GetRuntimeFeatures());
+  }
+
+  if (request.GetSharedStorageWritable()) {
+    auto* policy = GetPermissionsPolicy();
+    if (!policy ||
+        !request.IsFeatureEnabledForSubresourceRequestAssumingOptIn(
+            policy, mojom::blink::PermissionsPolicyFeature::kSharedStorage,
+            SecurityOrigin::Create(request.Url())->ToUrlOrigin())) {
+      request.SetSharedStorageWritable(false);
+    }
+  }
 
   GetLocalFrameClient()->DispatchWillSendRequest(request);
   FrameScheduler* frame_scheduler = GetFrame()->GetFrameScheduler();
@@ -390,7 +399,9 @@ void FrameFetchContext::PrepareRequest(
   }
 }
 
-void FrameFetchContext::AddResourceTiming(const ResourceTimingInfo& info) {
+void FrameFetchContext::AddResourceTiming(
+    mojom::blink::ResourceTimingInfoPtr info,
+    const AtomicString& initiator_type) {
   // Normally, |document_| is cleared on Document shutdown. In that case,
   // early return, as there is nothing to report the resource timing to.
   if (GetResourceFetcherProperties().IsDetached())
@@ -399,7 +410,7 @@ void FrameFetchContext::AddResourceTiming(const ResourceTimingInfo& info) {
   // Timing for main resource is handled in DocumentLoader.
   // All other resources are reported to the corresponding Document.
   DOMWindowPerformance::performance(*document_->domWindow())
-      ->GenerateAndAddResourceTiming(info);
+      ->AddResourceTiming(std::move(info), initiator_type);
 }
 
 bool FrameFetchContext::AllowImage(bool images_enabled, const KURL& url) const {
@@ -421,8 +432,7 @@ void FrameFetchContext::ModifyRequestForCSP(ResourceRequest& resource_request) {
 }
 
 void FrameFetchContext::AddClientHintsIfNecessary(
-    const ClientHintsPreferences& hints_preferences,
-    const FetchParameters::ResourceWidth& resource_width,
+    const absl::optional<float> resource_width,
     ResourceRequest& request) {
   // If the feature is enabled, then client hints are allowed only on secure
   // URLs.
@@ -451,6 +461,7 @@ void FrameFetchContext::AddClientHintsIfNecessary(
 
   absl::optional<ClientHintImageInfo> image_info;
   absl::optional<WTF::AtomicString> prefers_color_scheme;
+  absl::optional<WTF::AtomicString> prefers_reduced_motion;
 
   if (document_) {  // Only get frame info if the frame is not detached
     image_info = ClientHintImageInfo();
@@ -461,37 +472,62 @@ void FrameFetchContext::AddClientHintsIfNecessary(
       image_info->viewport_height = GetFrame()->View()->ViewportHeight();
     }
 
-    MediaValues* media_values =
-        MediaValues::CreateDynamicIfFrameExists(GetFrame());
-    bool is_dark_mode = media_values->GetPreferredColorScheme() ==
-                        mojom::blink::PreferredColorScheme::kDark;
-    prefers_color_scheme = is_dark_mode ? "dark" : "light";
+    prefers_color_scheme = document_->InDarkMode()
+                               ? network::kPrefersColorSchemeDark
+                               : network::kPrefersColorSchemeLight;
+    prefers_reduced_motion = GetSettings()->GetPrefersReducedMotion()
+                                 ? network::kPrefersReducedMotionReduce
+                                 : network::kPrefersReducedMotionNoPreference;
   }
 
-  // |hints_preferences| is used only in case of the preload scanner;
   // GetClientHintsPreferences() has things parsed for this document
   // by browser (from accept-ch header on this response or previously persisted)
   // with renderer-parsed http-equiv merged in.
-  ClientHintsPreferences prefs;
-  prefs.CombineWith(hints_preferences);
-  prefs.CombineWith(GetClientHintsPreferences());
-
   BaseFetchContext::AddClientHintsIfNecessary(
-      prefs, resource_origin, is_1p_origin, ua, policy, image_info,
-      prefers_color_scheme, request);
+      GetClientHintsPreferences(), resource_origin, is_1p_origin, ua, policy,
+      image_info, prefers_color_scheme, prefers_reduced_motion, request);
+}
+
+void FrameFetchContext::AddReducedAcceptLanguageIfNecessary(
+    ResourceRequest& request) {
+  // If the feature is enabled, then reduce accept language are allowed only on
+  // http and https.
+
+  // For detached frame, we check whether the feature flag turns on because it
+  // will crash when detach frame calls GetExecutionContext().
+  if (GetResourceFetcherProperties().IsDetached() &&
+      !base::FeatureList::IsEnabled(network::features::kReduceAcceptLanguage)) {
+    return;
+  }
+
+  if (!GetResourceFetcherProperties().IsDetached() &&
+      !RuntimeEnabledFeatures::ReduceAcceptLanguageEnabled(
+          GetExecutionContext())) {
+    return;
+  }
+
+  if (!request.Url().ProtocolIsInHTTPFamily())
+    return;
+
+  const String& reduced_accept_language = GetReducedAcceptLanguage();
+  if (!reduced_accept_language.empty() &&
+      request.HttpHeaderField(http_names::kAcceptLanguage).empty()) {
+    request.SetHttpHeaderField(http_names::kAcceptLanguage,
+                               reduced_accept_language.Ascii().c_str());
+  }
 }
 
 void FrameFetchContext::PopulateResourceRequest(
     ResourceType type,
-    const ClientHintsPreferences& hints_preferences,
-    const FetchParameters::ResourceWidth& resource_width,
+    const absl::optional<float> resource_width,
     ResourceRequest& request,
     const ResourceLoaderOptions& options) {
   if (!GetResourceFetcherProperties().IsDetached())
     probe::SetDevToolsIds(Probe(), request, options.initiator_info);
 
   ModifyRequestForCSP(request);
-  AddClientHintsIfNecessary(hints_preferences, resource_width, request);
+  AddClientHintsIfNecessary(resource_width, request);
+  AddReducedAcceptLanguageIfNecessary(request);
 }
 
 bool FrameFetchContext::IsPrerendering() const {
@@ -614,6 +650,7 @@ FrameFetchContext::CreateWebSocketHandshakeThrottle() {
 
 bool FrameFetchContext::ShouldBlockFetchByMixedContentCheck(
     mojom::blink::RequestContextType request_context,
+    network::mojom::blink::IPAddressSpace target_address_space,
     const absl::optional<ResourceRequest::RedirectInfo>& redirect_info,
     const KURL& url,
     ReportingDisposition reporting_disposition,
@@ -628,8 +665,8 @@ bool FrameFetchContext::ShouldBlockFetchByMixedContentCheck(
       redirect_info ? RedirectStatus::kFollowedRedirect
                     : RedirectStatus::kNoRedirect;
   return MixedContentChecker::ShouldBlockFetch(
-      GetFrame(), request_context, url_before_redirects, redirect_status, url,
-      devtools_id, reporting_disposition,
+      GetFrame(), request_context, target_address_space, url_before_redirects,
+      redirect_status, url, devtools_id, reporting_disposition,
       document_loader_->GetContentSecurityNotifier());
 }
 
@@ -637,7 +674,7 @@ bool FrameFetchContext::ShouldBlockFetchAsCredentialedSubresource(
     const ResourceRequest& resource_request,
     const KURL& url) const {
   // URLs with no embedded credentials should load correctly.
-  if (url.User().IsEmpty() && url.Pass().IsEmpty())
+  if (url.User().empty() && url.Pass().empty())
     return false;
 
   if (resource_request.GetRequestContext() ==
@@ -674,13 +711,6 @@ ContentSecurityPolicy* FrameFetchContext::GetContentSecurityPolicy() const {
   return document_->domWindow()->GetContentSecurityPolicy();
 }
 
-void FrameFetchContext::AddConsoleMessage(ConsoleMessage* message) const {
-  if (GetResourceFetcherProperties().IsDetached())
-    return;
-
-  document_->AddConsoleMessage(message);
-}
-
 WebContentSettingsClient* FrameFetchContext::GetContentSettingsClient() const {
   if (GetResourceFetcherProperties().IsDetached())
     return nullptr;
@@ -698,6 +728,12 @@ String FrameFetchContext::GetUserAgent() const {
   if (GetResourceFetcherProperties().IsDetached())
     return frozen_state_->user_agent;
   return GetFrame()->Loader().UserAgent();
+}
+
+String FrameFetchContext::GetFullUserAgent() const {
+  if (GetResourceFetcherProperties().IsDetached())
+    return frozen_state_->user_agent;
+  return GetFrame()->Loader().FullUserAgent();
 }
 
 String FrameFetchContext::GetReducedUserAgent() const {
@@ -729,6 +765,21 @@ const ClientHintsPreferences FrameFetchContext::GetClientHintsPreferences()
   return frame->GetClientHintsPreferences();
 }
 
+String FrameFetchContext::GetReducedAcceptLanguage() const {
+  if (GetResourceFetcherProperties().IsDetached())
+    return frozen_state_->reduced_accept_language;
+  LocalFrame* frame = document_->GetFrame();
+  DCHECK(frame);
+  // If accept language override from inspector emulation, set Accept-Language
+  // header as the overridden value.
+  String override_accept_language;
+  probe::ApplyAcceptLanguageOverride(Probe(), &override_accept_language);
+  return override_accept_language.empty()
+             ? frame->GetReducedAcceptLanguage().GetString()
+             : network_utils::GenerateAcceptLanguageHeader(
+                   override_accept_language);
+}
+
 float FrameFetchContext::GetDevicePixelRatio() const {
   if (GetResourceFetcherProperties().IsDetached())
     return frozen_state_->device_pixel_ratio;
@@ -739,21 +790,26 @@ FetchContext* FrameFetchContext::Detach() {
   if (GetResourceFetcherProperties().IsDetached())
     return this;
 
+  // If the Sec-CH-UA-Full client hint header is set on the request, then the
+  // full User-Agent string should be set on the User-Agent request header.
   // If the Sec-CH-UA-Reduced client hint header is set on the request, then the
   // reduced User-Agent string should also be set on the User-Agent request
   // header.
   const ClientHintsPreferences& client_hints_prefs =
       GetClientHintsPreferences();
   String user_agent = client_hints_prefs.ShouldSend(
-                          network::mojom::WebClientHintsType::kUAReduced)
-                          ? GetReducedUserAgent()
-                          : GetUserAgent();
+                          network::mojom::WebClientHintsType::kFullUserAgent)
+                          ? GetFullUserAgent()
+                          : client_hints_prefs.ShouldSend(
+                                network::mojom::WebClientHintsType::kUAReduced)
+                                ? GetReducedUserAgent()
+                                : GetUserAgent();
 
   frozen_state_ = MakeGarbageCollected<FrozenState>(
       Url(), GetContentSecurityPolicy(), GetSiteForCookies(),
       GetTopFrameOrigin(), client_hints_prefs, GetDevicePixelRatio(),
       user_agent, GetUserAgentMetadata(), IsSVGImageChromeClient(),
-      IsPrerendering());
+      IsPrerendering(), GetReducedAcceptLanguage());
   document_loader_ = nullptr;
   document_ = nullptr;
   return this;
@@ -784,173 +840,6 @@ bool FrameFetchContext::CalculateIfAdSubresource(
   const KURL& url = alias_url ? alias_url.value() : resource_request.Url();
   return GetFrame()->GetAdTracker()->CalculateIfAdSubresource(
       document_->domWindow(), url, type, initiator_info, known_ad);
-}
-
-bool FrameFetchContext::SendConversionRequestInsteadOfRedirecting(
-    const KURL& url,
-    const absl::optional<ResourceRequest::RedirectInfo>& redirect_info,
-    ReportingDisposition reporting_disposition,
-    const String& devtools_request_id) const {
-  const char kWellKnownConversionRegistrationPath[] =
-      "/.well-known/attribution-reporting/trigger-attribution";
-  if (url.GetPath() != kWellKnownConversionRegistrationPath)
-    return false;
-
-  const bool detached = GetResourceFetcherProperties().IsDetached();
-  UMA_HISTOGRAM_BOOLEAN("Conversions.RedirectInterceptedFrameDetached",
-                        detached);
-
-  if (detached)
-    return false;
-
-  if (!RuntimeEnabledFeatures::ConversionMeasurementEnabled(
-          document_->domWindow())) {
-    return false;
-  }
-
-  // Only treat same origin redirects as conversion pings.
-  if (!redirect_info ||
-      !SecurityOrigin::AreSameOrigin(url, redirect_info->previous_url)) {
-    return false;
-  }
-
-  const bool feature_policy_enabled = document_->domWindow()->IsFeatureEnabled(
-      mojom::blink::PermissionsPolicyFeature::kAttributionReporting);
-  UMA_HISTOGRAM_BOOLEAN("Conversions.ConversionIgnoredByFeaturePolicy",
-                        !feature_policy_enabled);
-
-  if (!feature_policy_enabled) {
-    AuditsIssue::ReportAttributionIssue(
-        document_->domWindow(),
-        AttributionReportingIssueType::kPermissionPolicyDisabled,
-        GetFrame()->GetDevToolsFrameToken(), nullptr, devtools_request_id);
-    return false;
-  }
-
-  // Only allow conversion registration in secure context.
-  if (!document_->GetExecutionContext()->IsSecureContext()) {
-    AuditsIssue::ReportAttributionIssue(
-        document_->domWindow(),
-        AttributionReportingIssueType::kAttributionUntrustworthyOrigin,
-        GetFrame()->GetDevToolsFrameToken(), nullptr, devtools_request_id,
-        GetFrame()->GetSecurityContext()->GetSecurityOrigin()->ToString());
-    return false;
-  }
-
-  scoped_refptr<const SecurityOrigin> redirect_origin =
-      SecurityOrigin::Create(url);
-  if (!redirect_origin->IsPotentiallyTrustworthy()) {
-    AuditsIssue::ReportAttributionIssue(
-        document_->domWindow(),
-        AttributionReportingIssueType::kAttributionUntrustworthyOrigin,
-        absl::nullopt, nullptr, devtools_request_id,
-        redirect_origin->ToString());
-    return false;
-  }
-
-  // Only report conversions for requests with reporting enabled (i.e. do not
-  // count preload requests). However, return true.
-  if (reporting_disposition == ReportingDisposition::kSuppressReporting)
-    return true;
-
-  mojom::blink::ConversionPtr conversion = mojom::blink::Conversion::New();
-  conversion->reporting_origin = SecurityOrigin::Create(url);
-  conversion->devtools_request_id = devtools_request_id;
-
-  URLSearchParams* search_params = URLSearchParams::Create(url.Query());
-
-  auto parse_uint64 = [](const String& string) -> absl::optional<uint64_t> {
-    bool valid = false;
-    uint64_t value = string.ToUInt64Strict(&valid);
-    return valid ? absl::make_optional(value) : absl::nullopt;
-  };
-
-  auto parse_int64 = [](const String& string) -> absl::optional<int64_t> {
-    bool valid = false;
-    int64_t value = string.ToInt64Strict(&valid);
-    return valid ? absl::make_optional(value) : absl::nullopt;
-  };
-
-  if (String string = search_params->get("trigger-data")) {
-    if (absl::optional<uint64_t> value = parse_uint64(string)) {
-      conversion->conversion_data = *value;
-    } else {
-      AuditsIssue::ReportAttributionIssue(
-          document_->domWindow(),
-          AttributionReportingIssueType::kInvalidAttributionData, absl::nullopt,
-          nullptr, devtools_request_id, string);
-    }
-  } else {
-    AuditsIssue::ReportAttributionIssue(
-        document_->domWindow(),
-        AttributionReportingIssueType::kInvalidAttributionData, absl::nullopt,
-        nullptr, devtools_request_id);
-  }
-
-  // Defaulting to 0 means that it is not possible to selectively convert only
-  // event sources or navigation sources.
-  if (String string = search_params->get("event-source-trigger-data")) {
-    if (absl::optional<uint64_t> value = parse_uint64(string)) {
-      conversion->event_source_trigger_data = *value;
-    } else {
-      AuditsIssue::ReportAttributionIssue(
-          document_->domWindow(),
-          AttributionReportingIssueType::kInvalidEventSourceTriggerData,
-          absl::nullopt, nullptr, devtools_request_id, string);
-    }
-  }
-
-  if (String string = search_params->get("priority")) {
-    if (absl::optional<int64_t> value = parse_int64(string)) {
-      conversion->priority = *value;
-    } else {
-      AuditsIssue::ReportAttributionIssue(
-          document_->domWindow(),
-          AttributionReportingIssueType::kInvalidTriggerPriority, absl::nullopt,
-          nullptr, devtools_request_id, string);
-    }
-  }
-
-  if (String string = search_params->get("dedup-key")) {
-    if (absl::optional<int64_t> value = parse_int64(string)) {
-      conversion->dedup_key = mojom::blink::DedupKey::New(*value);
-    } else {
-      AuditsIssue::ReportAttributionIssue(
-          document_->domWindow(),
-          AttributionReportingIssueType::kInvalidTriggerDedupKey, absl::nullopt,
-          nullptr, devtools_request_id, string);
-    }
-  }
-
-  if (document_->IsPrerendering()) {
-    document_->AddPostPrerenderingActivationStep(
-        WTF::Bind(&FrameFetchContext::RegisterConversion,
-                  WrapWeakPersistent(this), std::move(conversion)));
-  } else {
-    RegisterConversion(std::move(conversion));
-  }
-
-  return true;
-}
-
-void FrameFetchContext::RegisterConversion(
-    mojom::blink::ConversionPtr conversion) const {
-  mojo::AssociatedRemote<mojom::blink::ConversionHost> conversion_host;
-  GetFrame()->GetRemoteNavigationAssociatedInterfaces()->GetInterface(
-      &conversion_host);
-  conversion_host->RegisterConversion(std::move(conversion));
-
-  // Log use counters once we have a conversion.
-  UseCounter::Count(document_->domWindow(),
-                    mojom::blink::WebFeature::kConversionAPIAll);
-  UseCounter::Count(document_->domWindow(),
-                    mojom::blink::WebFeature::kConversionRegistration);
-}
-
-mojo::PendingReceiver<mojom::blink::WorkerTimingContainer>
-FrameFetchContext::TakePendingWorkerTimingReceiver(int request_id) {
-  DCHECK(!GetResourceFetcherProperties().IsDetached());
-  return document_loader_->TakePendingWorkerTimingReceiver(request_id);
 }
 
 void FrameFetchContext::DidObserveLoadingBehavior(
@@ -986,10 +875,12 @@ absl::optional<ResourceRequestBlockedReason> FrameFetchContext::CanRequest(
     const absl::optional<ResourceRequest::RedirectInfo>& redirect_info) const {
   if (!GetResourceFetcherProperties().IsDetached() &&
       document_->IsFreezingInProgress() && !resource_request.GetKeepalive()) {
-    AddConsoleMessage(MakeGarbageCollected<ConsoleMessage>(
-        mojom::ConsoleMessageSource::kJavaScript,
-        mojom::ConsoleMessageLevel::kError,
-        "Only fetch keepalive is allowed during onfreeze: " + url.GetString()));
+    GetDetachableConsoleLogger().AddConsoleMessage(
+        MakeGarbageCollected<ConsoleMessage>(
+            mojom::ConsoleMessageSource::kJavaScript,
+            mojom::ConsoleMessageLevel::kError,
+            "Only fetch keepalive is allowed during onfreeze: " +
+                url.GetString()));
     return ResourceRequestBlockedReason::kOther;
   }
   return BaseFetchContext::CanRequest(type, resource_request, url, options,
@@ -998,6 +889,11 @@ absl::optional<ResourceRequestBlockedReason> FrameFetchContext::CanRequest(
 
 CoreProbeSink* FrameFetchContext::Probe() const {
   return probe::ToCoreProbeSink(GetFrame()->GetDocument());
+}
+
+void FrameFetchContext::UpdateSubresourceLoadMetrics(
+    const SubresourceLoadMetrics& subresource_load_metrics) {
+  document_loader_->UpdateSubresourceLoadMetrics(subresource_load_metrics);
 }
 
 }  // namespace blink

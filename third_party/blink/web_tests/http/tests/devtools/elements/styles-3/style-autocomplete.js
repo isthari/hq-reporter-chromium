@@ -1,10 +1,13 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {TestRunner} from 'test_runner';
+import {ElementsTestRunner} from 'elements_test_runner';
+
 (async function() {
   TestRunner.addResult(`Tests that autocompletions are computed correctly when editing the Styles pane.\n`);
-  await TestRunner.loadLegacyModule('elements'); await TestRunner.loadTestModule('elements_test_runner');
+  await TestRunner.loadLegacyModule('elements');
   await TestRunner.showPanel('elements');
   await TestRunner.loadHTML(`
       <style>
@@ -120,8 +123,7 @@
     } else {
       selectionRange.selectNodeContents(proxyElement);
     }
-    var range = selectionRange.startContainer.rangeOfWord(
-        selectionRange.startOffset, prompt.completionStopCharacters, proxyElement, 'backward');
+    var range = self.Platform.DOMUtilities.rangeOfWord(selectionRange.startContainer, selectionRange.startOffset, prompt.completionStopCharacters, proxyElement, 'backward');
     var prefix = range.toString();
     prompt.buildPropertyCompletions(inputText.substring(0, inputText.length - prefix.length), prefix, force)
         .then(completions);

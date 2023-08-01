@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,19 +9,25 @@
 #include <set>
 #include <string>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/media/webrtc/media_stream_capture_indicator.h"
 #include "chrome/browser/media/webrtc/same_origin_observer.h"
 #include "chrome/browser/ui/browser_list_observer.h"
+#include "chrome/browser/ui/tab_sharing/tab_sharing_infobar_delegate.h"
 #include "chrome/browser/ui/tab_sharing/tab_sharing_ui.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
+#include "chrome/browser/ui/views/tab_sharing/tab_capture_contents_border_helper.h"
 #include "components/infobars/core/infobar_manager.h"
 #include "content/public/browser/desktop_media_id.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "ui/base/models/image_model.h"
+
+#if BUILDFLAG(IS_CHROMEOS)
+#include "chrome/browser/chromeos/policy/dlp/dlp_content_manager_observer.h"
+#endif
 
 namespace content {
 class WebContents;
@@ -36,13 +42,17 @@ class TabSharingUIViews : public TabSharingUI,
                           public BrowserListObserver,
                           public TabStripModelObserver,
                           public infobars::InfoBarManager::Observer,
+#if BUILDFLAG(IS_CHROMEOS)
+                          public policy::DlpContentManagerObserver,
+#endif
                           public content::WebContentsObserver {
  public:
   TabSharingUIViews(content::GlobalRenderFrameHostId capturer,
                     const content::DesktopMediaID& media_id,
-                    std::u16string app_name,
-                    bool region_capture_capable,
-                    bool favicons_used_for_switch_to_tab_button);
+                    const std::u16string& capturer_name,
+                    bool favicons_used_for_switch_to_tab_button,
+                    bool app_preferred_current_tab,
+                    TabSharingInfoBarDelegate::TabShareType capture_type);
   ~TabSharingUIViews() override;
 
   // MediaStreamUI:
@@ -86,14 +96,38 @@ class TabSharingUIViews : public TabSharingUI,
   // toggle its favicon back and forth at an arbitrary rate, but we implicitly
   // rate-limit our response.
 
+  void OnRegionCaptureRectChanged(
+      const absl::optional<gfx::Rect>& region_capture_rect) override;
+
+ protected:
+#if BUILDFLAG(IS_CHROMEOS)
+  // DlpContentManagerObserver:
+  void OnConfidentialityChanged(
+      policy::DlpRulesManager::Level old_restriction_level,
+      policy::DlpRulesManager::Level new_restriction_level,
+      content::WebContents* web_contents) override;
+#endif
+
  private:
+  using InfoBars = std::map<content::WebContents*, infobars::InfoBar*>;
   friend class TabSharingUIViewsBrowserTest;
+
+  // Used to identify |TabSharingUIViews| instances to
+  // |TabCaptureContentsBorderHelper|, without passing pointers,
+  // which is less robust lifetime-wise.
+  using CaptureSessionId = TabCaptureContentsBorderHelper::CaptureSessionId;
 
   enum class TabCaptureUpdate {
     kCaptureAdded,
     kCaptureRemoved,
     kCapturedVisibilityUpdated
   };
+
+#if BUILDFLAG(IS_CHROMEOS)
+  // Allows to test the DLP functionality of TabSharingUIViews even if the user
+  // is not managed and without the need to initialize DlpRulesManager in tests.
+  static void ApplyDlpForAllUsersForTesting();
+#endif
 
   void CreateInfobarsForAllTabs();
   void CreateInfobarForWebContents(content::WebContents* contents);
@@ -123,7 +157,29 @@ class TabSharingUIViews : public TabSharingUI,
   void UpdateTabCaptureData(content::WebContents* contents,
                             TabCaptureUpdate update);
 
-  std::map<content::WebContents*, infobars::InfoBar*> infobars_;
+  // Whether the share-this-tab-instead button may be shown for |web_contents|.
+  bool IsShareInsteadButtonPossible(content::WebContents* web_contents) const;
+
+  // Tabs eligible for capture include:
+  // * Tabs from the same profile.
+  // * Tabs from an incognito profile may capture the original profile's tabs,
+  //   and vice versa.
+  // * Guest tabs may only capture other guest tabs. (Note that a guest tab's
+  //   "original" session might be an arbitrary non-guest session.)
+  bool IsCapturableByCapturer(const Profile* profile) const;
+
+  // As for the purpose of this identification:
+  // Assume a tab is captured twice, and both sessions use Region Capture.
+  // The blue border falls back on its viewport-encompassing form. But when
+  // one of these captures terminates, the blue border should track the
+  // remaining session's crop-target.
+  static CaptureSessionId next_capture_session_id_;
+  const CaptureSessionId capture_session_id_;
+
+  // The capturer's profile.
+  const raw_ptr<Profile, DanglingUntriaged> profile_;
+
+  InfoBars infobars_;
   std::map<content::WebContents*, std::unique_ptr<SameOriginObserver>>
       same_origin_observers_;
   const content::GlobalRenderFrameHostId capturer_;
@@ -131,13 +187,13 @@ class TabSharingUIViews : public TabSharingUI,
   const bool can_focus_capturer_;
   const bool capturer_restricted_to_same_origin_ = false;
   content::DesktopMediaID shared_tab_media_id_;
-  const std::u16string app_name_;
-  raw_ptr<content::WebContents> shared_tab_;
+
+  // Represents the web app name or the sink name receiving the captured stream.
+  const std::u16string capturer_name_;
+
+  raw_ptr<content::WebContents, DanglingUntriaged> shared_tab_;
   std::unique_ptr<SameOriginObserver> shared_tab_origin_observer_;
   std::u16string shared_tab_name_;
-  const bool is_self_capture_;
-  const bool region_capture_capable_;
-  raw_ptr<Profile> profile_;
   std::unique_ptr<content::MediaStreamUI> tab_capture_indicator_ui_;
 
   // FaviconPeriodicUpdate() runs on a delayed task which re-posts itself.
@@ -153,6 +209,11 @@ class TabSharingUIViews : public TabSharingUI,
 
   // TODO(crbug.com/1224363): Re-enable favicons by default or drop the code.
   const bool favicons_used_for_switch_to_tab_button_;
+
+  const bool app_preferred_current_tab_;
+
+  // Indicates whether this instance is used for casting or capturing.
+  const TabSharingInfoBarDelegate::TabShareType capture_type_;
 
   absl::optional<uint32_t> capturer_favicon_hash_;
   absl::optional<uint32_t> captured_favicon_hash_;

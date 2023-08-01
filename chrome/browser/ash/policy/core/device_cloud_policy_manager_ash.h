@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,17 +9,20 @@
 #include <string>
 #include <vector>
 
-#include "base/callback_forward.h"
-#include "base/memory/ref_counted.h"
+#include "base/memory/raw_ptr.h"
 #include "base/observer_list.h"
-#include "chrome/browser/ash/cert_provisioning/cert_provisioning_scheduler.h"
+#include "base/scoped_observation.h"
+#include "base/scoped_observation_traits.h"
 #include "chrome/browser/ash/policy/server_backed_state/server_backed_state_keys_broker.h"
 #include "components/policy/core/common/cloud/cloud_policy_client.h"
 #include "components/policy/core/common/cloud/cloud_policy_manager.h"
+#include "components/user_manager/user_manager.h"
 
 namespace reporting {
 class MetricReportingManager;
+class OsUpdatesReporter;
 class UserAddedRemovedReporter;
+class UserEventReporterHelper;
 }  // namespace reporting
 
 namespace ash {
@@ -31,16 +34,14 @@ class MachineCertificateUploader;
 }  // namespace attestation
 namespace reporting {
 class LoginLogoutReporter;
-}
+class LockUnlockReporter;
+}  // namespace reporting
+class InstallAttributes;
 }  // namespace ash
 
 namespace base {
 class SequencedTaskRunner;
 }  // namespace base
-
-namespace chromeos {
-class InstallAttributes;
-}
 
 class PrefRegistrySimple;
 class PrefService;
@@ -52,6 +53,7 @@ class EuiccStatusUploader;
 class ForwardingSchemaRegistry;
 class HeartbeatScheduler;
 class ManagedSessionService;
+class ReportingUserTracker;
 class SchemaRegistry;
 class StatusUploader;
 class SystemLogUploader;
@@ -60,17 +62,16 @@ class LookupKeyUploader;
 enum class ZeroTouchEnrollmentMode { DISABLED, ENABLED, FORCED, HANDS_OFF };
 
 // CloudPolicyManager specialization for device policy in Ash.
-class DeviceCloudPolicyManagerAsh : public CloudPolicyManager {
+class DeviceCloudPolicyManagerAsh : public CloudPolicyManager,
+                                    public user_manager::UserManager::Observer {
  public:
   class Observer {
    public:
     // Invoked when the device cloud policy manager connects.
     virtual void OnDeviceCloudPolicyManagerConnected() = 0;
-    // Invoked when the device cloud policy manager disconnects.
-    virtual void OnDeviceCloudPolicyManagerDisconnected() = 0;
+    // Invoked when the device cloud policy manager obtains schema registry.
+    virtual void OnDeviceCloudPolicyManagerGotRegistry() = 0;
   };
-
-  using UnregisterCallback = base::OnceCallback<void(bool)>;
 
   // |task_runner| is the runner for policy refresh, heartbeat, and status
   // upload tasks.
@@ -85,6 +86,9 @@ class DeviceCloudPolicyManagerAsh : public CloudPolicyManager {
       delete;
 
   ~DeviceCloudPolicyManagerAsh() override;
+
+  // ConfigurationPolicyProvider:
+  void Init(SchemaRegistry* registry) override;
 
   // Initializes state keys.
   void Initialize(PrefService* local_state);
@@ -101,25 +105,23 @@ class DeviceCloudPolicyManagerAsh : public CloudPolicyManager {
   // Returns the mode for using zero-touch enrollment.
   static ZeroTouchEnrollmentMode GetZeroTouchEnrollmentMode();
 
-  // Returns the robot 'email address' associated with the device robot
-  // account (sometimes called a service account) associated with this device
-  // during enterprise enrollment.
-  std::string GetRobotAccountId();
-
   // Starts the connection via |client_to_connect|.
   void StartConnection(std::unique_ptr<CloudPolicyClient> client_to_connect,
-                       chromeos::InstallAttributes* install_attributes);
+                       ash::InstallAttributes* install_attributes);
 
-  // Sends the unregister request. |callback| is invoked with a boolean
-  // parameter indicating the result when done.
-  virtual void Unregister(UnregisterCallback callback);
-
-  // Disconnects the manager.
-  virtual void Disconnect();
+  // Called when policy store is ready.
+  void OnPolicyStoreReady(ash::InstallAttributes* install_attributes);
 
   bool IsConnected() const { return core()->service() != nullptr; }
 
+  bool HasSchemaRegistry() const {
+    return signin_profile_forwarding_schema_registry_ != nullptr;
+  }
+
   DeviceCloudPolicyStoreAsh* device_store() { return device_store_.get(); }
+  ReportingUserTracker* reporting_user_tracker() {
+    return reporting_user_tracker_.get();
+  }
 
   // Return the StatusUploader used to communicate device status to the
   // policy server.
@@ -153,15 +155,59 @@ class DeviceCloudPolicyManagerAsh : public CloudPolicyManager {
     return machine_certificate_uploader_.get();
   }
 
+  // Called when UserManager is created.
+  void OnUserManagerCreated(user_manager::UserManager* user_manager);
+  // Called just before UserManager is destroyed.
+  void OnUserManagerWillBeDestroyed(user_manager::UserManager* user_manager);
+
+  // user_manager::UserManager::Observer:
+  void OnUserToBeRemoved(const AccountId& account_id) override;
+  void OnUserRemoved(const AccountId& account_id,
+                     user_manager::UserRemovalReason reason) override;
+
+ protected:
+  // Object that monitors managed session related events used by reporting
+  // services, protected for testing.
+  std::unique_ptr<ManagedSessionService> managed_session_service_;
+
+  // Object that reports login/logout events to the server, protected for
+  // testing.
+  std::unique_ptr<ash::reporting::LoginLogoutReporter> login_logout_reporter_;
+
+  // Object that reports user added/removed events to the server, protected for
+  // testing.
+  std::unique_ptr<reporting::UserAddedRemovedReporter>
+      user_added_removed_reporter_;
+
+  // Object that reports user lock/unlock events to the server, protected for
+  // testing.
+  std::unique_ptr<ash::reporting::LockUnlockReporter> lock_unlock_reporter_;
+
+  // Object that handles reporting of ChromeOS updates, protected for
+  // testing.
+  std::unique_ptr<reporting::OsUpdatesReporter> os_updates_reporter_;
+
  private:
+  // Caches removed users. Passed to the reporter, when it is created.
+  struct RemovedUser {
+    std::string user_email;  // Maybe empty, if the user should not be reported.
+    user_manager::UserRemovalReason reason;
+  };
+
   // Saves the state keys received from |session_manager_client_|.
   void OnStateKeysUpdated();
 
   void NotifyConnected();
   void NotifyDisconnected();
+  void NotifyGotRegistry();
 
   // Factory function to create the StatusUploader.
   void CreateStatusUploader(ManagedSessionService* managed_session_service);
+
+  // Init |managed_session_service_| and reporting objects such as
+  // |login_logout_reporter_|, |user_added_removed_reporter_| and
+  // |lock_unlock_reporter_|.
+  void CreateManagedSessionServiceAndReporters();
 
   // Points to the same object as the base CloudPolicyManager::store(), but with
   // actual device policy specific type.
@@ -170,7 +216,8 @@ class DeviceCloudPolicyManagerAsh : public CloudPolicyManager {
   // Manages external data referenced by device policies.
   std::unique_ptr<CloudExternalDataManager> external_data_manager_;
 
-  ServerBackedStateKeysBroker* state_keys_broker_;
+  raw_ptr<ServerBackedStateKeysBroker, DanglingUntriaged | ExperimentalAsh>
+      state_keys_broker_;
 
   // Helper object that handles updating the server with our current device
   // state.
@@ -183,27 +230,18 @@ class DeviceCloudPolicyManagerAsh : public CloudPolicyManager {
   // the server, to monitor connectivity.
   std::unique_ptr<HeartbeatScheduler> heartbeat_scheduler_;
 
-  // Object that monitors managed session related events used by reporting
-  // services.
-  std::unique_ptr<ManagedSessionService> managed_session_service_;
-
-  // Object that reports login/logout events to the server.
-  std::unique_ptr<ash::reporting::LoginLogoutReporter> login_logout_reporter_;
-
-  // Object that reports user added/removed events to the server.
-  std::unique_ptr<reporting::UserAddedRemovedReporter>
-      user_added_removed_reporter_;
-
   // Object that initiates device metrics collection and reporting.
   std::unique_ptr<reporting::MetricReportingManager> metric_reporting_manager_;
 
   // The TaskRunner used to do device status and log uploads.
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
 
+  // PrefService instance to read the policy refresh rate from.
+  raw_ptr<PrefService, DanglingUntriaged | ExperimentalAsh> local_state_;
+
   base::CallbackListSubscription state_keys_update_subscription_;
 
-  // PrefService instance to read the policy refresh rate from.
-  PrefService* local_state_;
+  std::unique_ptr<ReportingUserTracker> reporting_user_tracker_;
 
   std::unique_ptr<ash::attestation::EnrollmentCertificateUploader>
       enrollment_certificate_uploader_;
@@ -227,9 +265,39 @@ class DeviceCloudPolicyManagerAsh : public CloudPolicyManager {
   // component cloud policy service creation).
   bool component_policy_disabled_for_testing_ = false;
 
+  // Caches users being removed.
+  base::flat_map<AccountId, bool> users_to_be_removed_;
+
+  std::vector<RemovedUser> removed_users_;
+
+  std::unique_ptr<reporting::UserEventReporterHelper> helper_;
+
   base::ObserverList<Observer, true>::Unchecked observers_;
+
+  base::ScopedObservation<user_manager::UserManager,
+                          DeviceCloudPolicyManagerAsh>
+      user_manager_observation_{this};
 };
 
 }  // namespace policy
+
+namespace base {
+
+template <>
+struct ScopedObservationTraits<policy::DeviceCloudPolicyManagerAsh,
+                               policy::DeviceCloudPolicyManagerAsh::Observer> {
+  static void AddObserver(
+      policy::DeviceCloudPolicyManagerAsh* source,
+      policy::DeviceCloudPolicyManagerAsh::Observer* observer) {
+    source->AddDeviceCloudPolicyManagerObserver(observer);
+  }
+  static void RemoveObserver(
+      policy::DeviceCloudPolicyManagerAsh* source,
+      policy::DeviceCloudPolicyManagerAsh::Observer* observer) {
+    source->RemoveDeviceCloudPolicyManagerObserver(observer);
+  }
+};
+
+}  // namespace base
 
 #endif  // CHROME_BROWSER_ASH_POLICY_CORE_DEVICE_CLOUD_POLICY_MANAGER_ASH_H_

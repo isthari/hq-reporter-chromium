@@ -37,12 +37,14 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_html_document.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_mouse_event.h"
+#include "third_party/blink/renderer/bindings/core/v8/v8_string_resource.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_window.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/html/html_document.h"
 #include "third_party/blink/renderer/core/inspector/dev_tools_host.h"
 #include "third_party/blink/renderer/core/inspector/inspector_frontend_client.h"
+#include "third_party/blink/renderer/platform/bindings/v8_binding_macros.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
@@ -63,8 +65,13 @@ static bool PopulateContextMenuItems(v8::Isolate* isolate,
                                      std::vector<MenuItemInfo>& items) {
   v8::Local<v8::Context> context = isolate->GetCurrentContext();
   for (uint32_t i = 0; i < item_array->Length(); ++i) {
-    v8::Local<v8::Object> item =
-        item_array->Get(context, i).ToLocalChecked().As<v8::Object>();
+    v8::Local<v8::Value> item_value =
+        item_array->Get(context, i).ToLocalChecked();
+    if (!item_value->IsObject()) {
+      return false;
+    }
+    v8::Local<v8::Object> item = item_value.As<v8::Object>();
+
     v8::Local<v8::Value> type;
     v8::Local<v8::Value> id;
     v8::Local<v8::Value> label;
@@ -153,7 +160,7 @@ void V8DevToolsHost::ShowContextMenuAtPointMethodCustom(
 
   Document* document = nullptr;
   if (info.Length() >= 4 && info[3]->IsObject()) {
-    document = V8HTMLDocument::ToImplWithTypeCheck(isolate, info[3]);
+    document = V8HTMLDocument::ToWrappable(isolate, info[3]);
   } else {
     LocalDOMWindow* window = EnteredDOMWindow(isolate);
     document = window ? window->document() : nullptr;
@@ -161,7 +168,8 @@ void V8DevToolsHost::ShowContextMenuAtPointMethodCustom(
   if (!document || !document->GetFrame())
     return;
 
-  DevToolsHost* devtools_host = V8DevToolsHost::ToImpl(info.Holder());
+  DevToolsHost* devtools_host =
+      V8DevToolsHost::ToWrappableUnsafe(info.Holder());
   devtools_host->ShowContextMenu(document->GetFrame(), x, y, std::move(items));
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,25 +11,21 @@ namespace autofill {
 class AutofillPopupController;
 }
 
-@interface CreditCardAutofillTouchBarController : NSObject<NSTouchBarDelegate> {
-  autofill::AutofillPopupController* _controller;  // weak
-  bool _is_credit_card_popup;
-}
+@interface CreditCardAutofillTouchBarController : NSObject <NSTouchBarDelegate>
 
 - (instancetype)initWithController:
     (autofill::AutofillPopupController*)controller;
 
-- (NSTouchBar*)makeTouchBar API_AVAILABLE(macos(10.12.2));
+- (NSTouchBar*)makeTouchBar;
 
 - (NSTouchBarItem*)touchBar:(NSTouchBar*)touchBar
-      makeItemForIdentifier:(NSTouchBarItemIdentifier)identifier
-    API_AVAILABLE(macos(10.12.2));
+      makeItemForIdentifier:(NSTouchBarItemIdentifier)identifier;
 
 @end
 
 @interface CreditCardAutofillTouchBarController (ExposedForTesting)
 
-- (NSButton*)createCreditCardButtonAtRow:(int)row API_AVAILABLE(macos(10.12.2));
+- (NSButton*)createCreditCardButtonAtRow:(int)row;
 - (void)acceptCreditCard:(id)sender;
 - (void)setIsCreditCardPopup:(bool)is_credit_card_popup;
 

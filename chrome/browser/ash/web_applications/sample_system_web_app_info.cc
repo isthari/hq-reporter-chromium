@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,11 @@
 
 #include <memory>
 
-#include "ash/grit/ash_sample_system_web_app_resources.h"
+#include "ash/webui/grit/ash_sample_system_web_app_resources.h"
 #include "ash/webui/sample_system_web_app_ui/url_constants.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ash/web_applications/system_web_app_install_utils.h"
+#include "chrome/browser/web_applications/mojom/user_display_mode.mojom.h"
 #include "chrome/browser/web_applications/web_app_constants.h"
 #include "chrome/browser/web_applications/web_app_install_info.h"
 #include "third_party/blink/public/mojom/manifest/display_mode.mojom.h"
@@ -36,7 +37,17 @@ std::unique_ptr<WebAppInstallInfo> CreateWebAppInfoForSampleSystemWebApp() {
   info->dark_mode_theme_color = 0xFF11ff00;
   info->dark_mode_background_color = 0xFFff8888;
   info->display_mode = blink::mojom::DisplayMode::kStandalone;
-  info->user_display_mode = blink::mojom::DisplayMode::kStandalone;
+  info->user_display_mode = web_app::mojom::UserDisplayMode::kStandalone;
+
+  info->share_target = apps::ShareTarget();
+  info->share_target->action =
+      GURL("chrome://sample-system-web-app/share.html");
+  {
+    apps::ShareTarget::Files icon_files;
+    icon_files.name = "icons";
+    icon_files.accept.push_back("image/x-xbitmap");
+    info->share_target->params.files.push_back(std::move(icon_files));
+  }
 
   {
     WebAppShortcutsMenuItemInfo shortcut;
@@ -57,15 +68,15 @@ std::unique_ptr<WebAppInstallInfo> CreateWebAppInfoForSampleSystemWebApp() {
 }
 
 SampleSystemAppDelegate::SampleSystemAppDelegate(Profile* profile)
-    : web_app::SystemWebAppDelegate(
-          web_app::SystemAppType::SAMPLE,
+    : ash::SystemWebAppDelegate(
+          ash::SystemWebAppType::SAMPLE,
           "Sample",
           GURL("chrome://sample-system-web-app/pwa.html"),
           profile,
-          web_app::OriginTrialsMap(
-              {{web_app::GetOrigin("chrome://sample-system-web-app"),
+          ash::OriginTrialsMap(
+              {{ash::GetOrigin("chrome://sample-system-web-app"),
                 {"Frobulate"}},
-               {web_app::GetOrigin("chrome-untrusted://sample-system-web-app"),
+               {ash::GetOrigin("chrome-untrusted://sample-system-web-app"),
                 {"Frobulate"}}})) {}
 
 std::unique_ptr<WebAppInstallInfo> SampleSystemAppDelegate::GetWebAppInfo()
@@ -81,12 +92,13 @@ bool SampleSystemAppDelegate::ShouldShowNewWindowMenuOption() const {
   return true;
 }
 
-bool SampleSystemAppDelegate::ShouldReuseExistingWindow() const {
-  return false;
+Browser* SampleSystemAppDelegate::GetWindowForLaunch(Profile* profile,
+                                                     const GURL& url) const {
+  return nullptr;
 }
 
-absl::optional<web_app::SystemAppBackgroundTaskInfo>
+absl::optional<ash::SystemWebAppBackgroundTaskInfo>
 SampleSystemAppDelegate::GetTimerInfo() const {
-  return web_app::SystemAppBackgroundTaskInfo(
+  return ash::SystemWebAppBackgroundTaskInfo(
       base::Seconds(30), GURL("chrome://sample-system-web-app/timer.html"));
 }

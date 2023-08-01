@@ -1,14 +1,14 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/thumb_strip/thumb_strip_mediator.h"
 
-#import "ios/chrome/browser/chrome_url_util.h"
-#include "ios/chrome/browser/overlays/public/overlay_presentation_context.h"
-#import "ios/chrome/browser/web_state_list/active_web_state_observation_forwarder.h"
-#include "ios/chrome/browser/web_state_list/web_state_list.h"
-#import "ios/chrome/browser/web_state_list/web_state_list_observer_bridge.h"
+#import "ios/chrome/browser/overlays/public/overlay_presentation_context.h"
+#import "ios/chrome/browser/shared/model/url/url_util.h"
+#import "ios/chrome/browser/shared/model/web_state_list/active_web_state_observation_forwarder.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list_observer_bridge.h"
 #import "ios/web/public/navigation/navigation_context.h"
 #import "ios/web/public/ui/crw_web_view_proxy.h"
 #import "ios/web/public/ui/crw_web_view_scroll_view_proxy.h"
@@ -108,7 +108,7 @@
 
 #pragma mark - Privates
 
-// Remove |self.webViewScrollViewObserver| from the given |webState|. |webState|
+// Remove `self.webViewScrollViewObserver` from the given `webState`. `webState`
 // can be nullptr.
 - (void)removeObserverFromWebState:(web::WebState*)webState {
   if (webState && self.webViewScrollViewObserver) {
@@ -117,7 +117,7 @@
   }
 }
 
-// Add |self.webViewScrollViewObserver| to the given |webState|. |webState| can
+// Add `self.webViewScrollViewObserver` to the given `webState`. `webState` can
 // be nullptr.
 - (void)addObserverToWebState:(web::WebState*)webState {
   if (webState && self.webViewScrollViewObserver) {
@@ -143,7 +143,7 @@
     didStartNavigation:(web::NavigationContext*)navigation {
   // Don't alert the consumer if this navigation is the first navigation in
   // a newly opened tab. That doesn't count.
-  if (IsURLNtp(webState->GetVisibleURL()) &&
+  if (IsUrlNtp(webState->GetVisibleURL()) &&
       webState->GetLastCommittedURL().is_empty()) {
     return;
   }
@@ -154,8 +154,7 @@
 
 - (void)willAnimateViewRevealFromState:(ViewRevealState)currentViewRevealState
                                toState:(ViewRevealState)nextViewRevealState {
-  if (nextViewRevealState == ViewRevealState::Revealed ||
-      nextViewRevealState == ViewRevealState::Fullscreen) {
+  if (nextViewRevealState == ViewRevealState::Revealed) {
     self.regularOverlayPresentationContext->SetUIDisabled(true);
     if (self.incognitoOverlayPresentationContext) {
       self.incognitoOverlayPresentationContext->SetUIDisabled(true);

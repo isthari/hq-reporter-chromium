@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,18 +12,17 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
 #include "base/component_export.h"
 #include "base/containers/span.h"
+#include "base/functional/callback.h"
 #include "device/fido/attested_credential_data.h"
 #include "device/fido/authenticator_data.h"
 #include "device/fido/fido_constants.h"
+#include "device/fido/mac/credential_metadata.h"
 #include "device/fido/p256_public_key.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
-namespace device {
-namespace fido {
-namespace mac {
+namespace device::fido::mac {
 
 // MakeAttestedCredentialData returns an AttestedCredentialData instance for
 // the Touch ID authenticator credential ID and public key or |absl::nullopt|
@@ -38,8 +37,10 @@ absl::optional<AttestedCredentialData> MakeAttestedCredentialData(
 // which may be |absl::nullopt| in GetAssertion operations.
 COMPONENT_EXPORT(DEVICE_FIDO)
 AuthenticatorData MakeAuthenticatorData(
+    CredentialMetadata::SignCounter counter_type,
     const std::string& rp_id,
-    absl::optional<AttestedCredentialData> attested_credential_data);
+    absl::optional<AttestedCredentialData> attested_credential_data,
+    bool has_uv);
 
 // GenerateSignature signs the concatenation of the serialization of the given
 // authenticator data and the given client data hash, as required for
@@ -48,16 +49,28 @@ AuthenticatorData MakeAuthenticatorData(
 absl::optional<std::vector<uint8_t>> GenerateSignature(
     const AuthenticatorData& authenticator_data,
     base::span<const uint8_t, kClientDataHashLength> client_data_hash,
-    SecKeyRef private_key) API_AVAILABLE(macosx(10.12.2));
+    SecKeyRef private_key);
 
 // SecKeyRefToECPublicKey converts a SecKeyRef for a public key into an
 // equivalent |PublicKey| instance. It returns |nullptr| if the key cannot
 // be converted.
-std::unique_ptr<PublicKey> SecKeyRefToECPublicKey(SecKeyRef public_key_ref)
-    API_AVAILABLE(macosx(10.12.2));
+std::unique_ptr<PublicKey> SecKeyRefToECPublicKey(SecKeyRef public_key_ref);
 
-}  // namespace mac
-}  // namespace fido
-}  // namespace device
+enum class CodeSigningState {
+  kSigned,
+  kNotSigned,
+};
+
+// ProcessIsSigned returns whether the current process has been code
+// signed.
+CodeSigningState ProcessIsSigned();
+
+// Returns whether biometrics are available for use. On macOS, this translates
+// to whether the device supports Touch ID, and whether the sensor is ready to
+// be used (i.e. not soft-locked from consecutive bad attempts; laptop lid not
+// closed).
+bool DeviceHasBiometricsAvailable();
+
+}  // namespace device::fido::mac
 
 #endif  // DEVICE_FIDO_MAC_UTIL_H_

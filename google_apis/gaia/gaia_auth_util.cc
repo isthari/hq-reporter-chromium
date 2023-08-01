@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include <memory>
 
 #include "base/base64url.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/json/json_reader.h"
 #include "base/logging.h"
 #include "base/strings/string_split.h"
@@ -19,6 +19,8 @@
 #include "google_apis/gaia/gaia_urls.h"
 #include "google_apis/gaia/oauth2_mint_token_consent_result.pb.h"
 #include "url/gurl.h"
+#include "url/origin.h"
+#include "url/scheme_host_port.h"
 
 namespace gaia {
 
@@ -28,7 +30,7 @@ const char kGmailDomain[] = "gmail.com";
 const char kGoogleDomain[] = "google.com";
 const char kGooglemailDomain[] = "googlemail.com";
 
-std::string CanonicalizeEmailImpl(const std::string& email_address,
+std::string CanonicalizeEmailImpl(base::StringPiece email_address,
                                   bool change_googlemail_to_gmail) {
   std::string lower_case_email = base::ToLowerASCII(email_address);
   std::vector<std::string> parts = base::SplitString(
@@ -56,7 +58,7 @@ ListedAccount::ListedAccount(const ListedAccount& other) = default;
 
 ListedAccount::~ListedAccount() {}
 
-std::string CanonicalizeEmail(const std::string& email_address) {
+std::string CanonicalizeEmail(base::StringPiece email_address) {
   // CanonicalizeEmail() is called to process email strings that are eventually
   // shown to the user, and may also be used in persisting email strings.  To
   // avoid breaking this existing behavior, this function will not try to
@@ -64,13 +66,13 @@ std::string CanonicalizeEmail(const std::string& email_address) {
   return CanonicalizeEmailImpl(email_address, false);
 }
 
-std::string CanonicalizeDomain(const std::string& domain) {
+std::string CanonicalizeDomain(base::StringPiece domain) {
   // Canonicalization of domain names means lower-casing them. Make sure to
   // update this function in sync with Canonicalize if this ever changes.
   return base::ToLowerASCII(domain);
 }
 
-std::string SanitizeEmail(const std::string& email_address) {
+std::string SanitizeEmail(base::StringPiece email_address) {
   std::string sanitized(email_address);
 
   // Apply a default domain if necessary.
@@ -82,35 +84,46 @@ std::string SanitizeEmail(const std::string& email_address) {
   return sanitized;
 }
 
-bool AreEmailsSame(const std::string& email1, const std::string& email2) {
+bool AreEmailsSame(base::StringPiece email1, base::StringPiece email2) {
   return CanonicalizeEmailImpl(gaia::SanitizeEmail(email1), true) ==
       CanonicalizeEmailImpl(gaia::SanitizeEmail(email2), true);
 }
 
-std::string ExtractDomainName(const std::string& email_address) {
+std::string ExtractDomainName(base::StringPiece email_address) {
   // First canonicalize which will also verify we have proper domain part.
   std::string email = CanonicalizeEmail(email_address);
   size_t separator_pos = email.find('@');
-  if (separator_pos != email.npos && separator_pos < email.length() - 1)
+  if (separator_pos != std::string::npos &&
+      separator_pos < email.length() - 1) {
     return email.substr(separator_pos + 1);
-  else
+  } else {
     NOTREACHED() << "Not a proper email address: " << email;
+  }
   return std::string();
 }
 
-bool IsGoogleInternalAccountEmail(const std::string& email) {
+bool IsGoogleInternalAccountEmail(base::StringPiece email) {
   return ExtractDomainName(SanitizeEmail(email)) == kGoogleDomain;
 }
 
-bool IsGaiaSignonRealm(const GURL& url) {
-  if (!url.SchemeIsCryptographic())
-    return false;
-
-  return url == GaiaUrls::GetInstance()->gaia_url();
+bool IsGoogleRobotAccountEmail(base::StringPiece email) {
+  std::string domain_name = gaia::ExtractDomainName(SanitizeEmail(email));
+  return base::EndsWith(domain_name, "gserviceaccount.com") ||
+         base::EndsWith(domain_name, "googleusercontent.com");
 }
 
+bool HasGaiaSchemeHostPort(const GURL& url) {
+  const url::Origin& gaia_origin = GaiaUrls::GetInstance()->gaia_origin();
+  CHECK(!gaia_origin.opaque());
+  CHECK(gaia_origin.GetURL().SchemeIsHTTPOrHTTPS());
 
-bool ParseListAccountsData(const std::string& data,
+  const url::SchemeHostPort& gaia_scheme_host_port =
+      gaia_origin.GetTupleOrPrecursorTupleIfOpaque();
+
+  return url::SchemeHostPort(url) == gaia_scheme_host_port;
+}
+
+bool ParseListAccountsData(base::StringPiece data,
                            std::vector<ListedAccount>* accounts,
                            std::vector<ListedAccount>* signed_out_accounts) {
   if (accounts)
@@ -120,26 +133,26 @@ bool ParseListAccountsData(const std::string& data,
     signed_out_accounts->clear();
 
   // Parse returned data and make sure we have data.
-  std::unique_ptr<base::Value> value = base::JSONReader::ReadDeprecated(data);
+  absl::optional<base::Value> value = base::JSONReader::Read(data);
   if (!value)
     return false;
 
   if (!value->is_list())
     return false;
-  base::Value::ConstListView list = value->GetList();
+  const base::Value::List& list = value->GetList();
   if (list.size() < 2u)
     return false;
 
   // Get list of account info.
   if (!list[1].is_list())
     return false;
-  base::Value::ConstListView account_list = list[1].GetList();
+  const base::Value::List& account_list = list[1].GetList();
 
   // Build a vector of accounts from the cookie.  Order is important: the first
   // account in the list is the primary account.
   for (size_t i = 0; i < account_list.size(); ++i) {
     if (account_list[i].is_list()) {
-      base::Value::ConstListView account = account_list[i].GetList();
+      const base::Value::List& account = account_list[i].GetList();
       std::string email;
       // Canonicalize the email since ListAccounts returns "display email".
       if (3u < account.size() && account[3].is_string() &&
@@ -183,7 +196,7 @@ bool ParseListAccountsData(const std::string& data,
   return true;
 }
 
-bool ParseOAuth2MintTokenConsentResult(const std::string& consent_result,
+bool ParseOAuth2MintTokenConsentResult(base::StringPiece consent_result,
                                        bool* approved,
                                        std::string* gaia_id) {
   DCHECK(approved);

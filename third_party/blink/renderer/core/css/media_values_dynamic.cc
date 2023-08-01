@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,8 +21,9 @@ MediaValues* MediaValuesDynamic::Create(Document& document) {
 
 MediaValues* MediaValuesDynamic::Create(LocalFrame* frame) {
   if (!frame || !frame->View() || !frame->GetDocument() ||
-      !frame->GetDocument()->GetLayoutView())
+      !frame->GetDocument()->GetLayoutView()) {
     return MakeGarbageCollected<MediaValuesCached>();
+  }
   return MakeGarbageCollected<MediaValuesDynamic>(frame);
 }
 
@@ -45,33 +46,105 @@ MediaValuesDynamic::MediaValuesDynamic(LocalFrame* frame,
   DCHECK(frame_);
 }
 
-double MediaValuesDynamic::ViewportWidth() const {
-  if (viewport_dimensions_overridden_)
-    return viewport_width_override_;
-  return CalculateViewportWidth(frame_);
-}
-
-double MediaValuesDynamic::ViewportHeight() const {
-  if (viewport_dimensions_overridden_)
-    return viewport_height_override_;
-  return CalculateViewportHeight(frame_);
-}
-
-float MediaValuesDynamic::EmSize() const {
+float MediaValuesDynamic::EmFontSize(float zoom) const {
+  DCHECK_EQ(1.0f, zoom);
   return CalculateEmSize(frame_);
 }
 
-float MediaValuesDynamic::RemSize() const {
+float MediaValuesDynamic::RemFontSize(float zoom) const {
+  DCHECK_EQ(1.0f, zoom);
   // For media queries rem and em units are both based on the initial font.
   return CalculateEmSize(frame_);
 }
 
-float MediaValuesDynamic::ExSize() const {
+float MediaValuesDynamic::ExFontSize(float zoom) const {
+  DCHECK_EQ(1.0f, zoom);
   return CalculateExSize(frame_);
 }
 
-float MediaValuesDynamic::ChSize() const {
+float MediaValuesDynamic::RexFontSize(float zoom) const {
+  DCHECK_EQ(1.0f, zoom);
+  // For media queries rex and ex units are both based on the initial font.
+  return CalculateExSize(frame_);
+}
+
+float MediaValuesDynamic::ChFontSize(float zoom) const {
+  DCHECK_EQ(1.0f, zoom);
   return CalculateChSize(frame_);
+}
+
+float MediaValuesDynamic::RchFontSize(float zoom) const {
+  DCHECK_EQ(1.0f, zoom);
+  // For media queries rch and ch units are both based on the initial font.
+  return CalculateChSize(frame_);
+}
+
+float MediaValuesDynamic::IcFontSize(float zoom) const {
+  DCHECK_EQ(1.0f, zoom);
+  return CalculateIcSize(frame_);
+}
+
+float MediaValuesDynamic::RicFontSize(float zoom) const {
+  DCHECK_EQ(1.0f, zoom);
+  // For media queries ric and ic units are both based on the initial font.
+  return CalculateIcSize(frame_);
+}
+
+float MediaValuesDynamic::LineHeight(float zoom) const {
+  DCHECK_EQ(1.0f, zoom);
+  return CalculateLineHeight(frame_);
+}
+
+float MediaValuesDynamic::RootLineHeight(float zoom) const {
+  DCHECK_EQ(1.0f, zoom);
+  // For media queries rlh and lh units are both based on the initial font.
+  return CalculateLineHeight(frame_);
+}
+
+double MediaValuesDynamic::ViewportWidth() const {
+  if (viewport_dimensions_overridden_) {
+    return viewport_width_override_;
+  }
+  return CalculateViewportWidth(frame_);
+}
+
+double MediaValuesDynamic::ViewportHeight() const {
+  if (viewport_dimensions_overridden_) {
+    return viewport_height_override_;
+  }
+  return CalculateViewportHeight(frame_);
+}
+
+double MediaValuesDynamic::SmallViewportWidth() const {
+  return CalculateSmallViewportWidth(frame_);
+}
+
+double MediaValuesDynamic::SmallViewportHeight() const {
+  return CalculateSmallViewportHeight(frame_);
+}
+
+double MediaValuesDynamic::LargeViewportWidth() const {
+  return CalculateLargeViewportWidth(frame_);
+}
+
+double MediaValuesDynamic::LargeViewportHeight() const {
+  return CalculateLargeViewportHeight(frame_);
+}
+
+double MediaValuesDynamic::DynamicViewportWidth() const {
+  return CalculateDynamicViewportWidth(frame_);
+}
+
+double MediaValuesDynamic::DynamicViewportHeight() const {
+  return CalculateDynamicViewportHeight(frame_);
+}
+
+double MediaValuesDynamic::ContainerWidth() const {
+  return SmallViewportWidth();
+}
+
+double MediaValuesDynamic::ContainerHeight() const {
+  return SmallViewportHeight();
 }
 
 int MediaValuesDynamic::DeviceWidth() const {
@@ -110,16 +183,17 @@ mojom::blink::HoverType MediaValuesDynamic::PrimaryHoverType() const {
   return CalculatePrimaryHoverType(frame_);
 }
 
+mojom::blink::OutputDeviceUpdateAbilityType
+MediaValuesDynamic::OutputDeviceUpdateAbilityType() const {
+  return CalculateOutputDeviceUpdateAbilityType(frame_);
+}
+
 int MediaValuesDynamic::AvailableHoverTypes() const {
   return CalculateAvailableHoverTypes(frame_);
 }
 
 bool MediaValuesDynamic::ThreeDEnabled() const {
   return CalculateThreeDEnabled(frame_);
-}
-
-bool MediaValuesDynamic::InImmersiveMode() const {
-  return CalculateInImmersiveMode(frame_);
 }
 
 const String MediaValuesDynamic::MediaType() const {

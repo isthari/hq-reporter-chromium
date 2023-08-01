@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,7 +26,6 @@
 #include "components/account_id/account_id.h"
 #include "components/user_manager/scoped_user_manager.h"
 #include "content/public/test/browser_task_environment.h"
-#include "testing/gmock/include/gmock/gmock.h"
 #endif
 
 namespace webrtc_event_logging {
@@ -683,9 +682,7 @@ TEST_P(DoesProfileDefaultToLoggingEnabledForUserTypeParametrizedTest,
   TestingProfile::Builder profile_builder;
   profile_builder.OverridePolicyConnectorIsManagedForTesting(true);
   std::unique_ptr<TestingProfile> testing_profile = profile_builder.Build();
-  std::unique_ptr<testing::NiceMock<ash::FakeChromeUserManager>>
-      fake_user_manager_ =
-          std::make_unique<testing::NiceMock<ash::FakeChromeUserManager>>();
+  auto fake_user_manager_ = std::make_unique<ash::FakeChromeUserManager>();
   // We use a standard Gaia account by default:
   AccountId account_id = AccountId::FromUserEmailGaiaId("name", "id");
 
@@ -711,7 +708,8 @@ TEST_P(DoesProfileDefaultToLoggingEnabledForUserTypeParametrizedTest,
       fake_user_manager_->AddArcKioskAppUser(account_id);
       break;
     case user_manager::USER_TYPE_ACTIVE_DIRECTORY:
-      account_id = AccountId::AdFromObjGuid("guid");
+      account_id =
+          AccountId::AdFromUserEmailObjGuid(account_id.GetUserEmail(), "guid");
       fake_user_manager_->AddUserWithAffiliationAndTypeAndProfile(
           account_id, false, test_case.user_type, testing_profile.get());
       break;

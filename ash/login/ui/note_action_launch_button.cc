@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,13 +6,17 @@
 
 #include <memory>
 
+#include "ash/metrics/user_metrics_recorder.h"
 #include "ash/public/cpp/shelf_config.h"
 #include "ash/public/mojom/tray_action.mojom.h"
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/strings/grit/ash_strings.h"
-#include "base/bind.h"
+#include "ash/style/ash_color_id.h"
+#include "base/functional/bind.h"
 #include "base/i18n/rtl.h"
+#include "base/memory/raw_ptr.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/models/image_model.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animator.h"
 #include "ui/compositor/paint_recorder.h"
@@ -20,7 +24,6 @@
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
-#include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/animation/ink_drop_painted_layer_delegates.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/button/image_button.h"
@@ -125,8 +128,9 @@ class NoteActionLaunchButton::BackgroundView : public NonAccessibleView {
   // applying scale transform to the view's layout. Transformations are
   // animated.
   void SetBubbleRadiusAndOpacity(int target_radius, float opacity) {
-    if (target_radius == bubble_radius_ && opacity_ == opacity)
+    if (target_radius == bubble_radius_ && opacity_ == opacity) {
       return;
+    }
 
     ui::ScopedLayerAnimationSettings settings(layer()->GetAnimator());
     settings.SetPreemptionStrategy(
@@ -137,8 +141,9 @@ class NoteActionLaunchButton::BackgroundView : public NonAccessibleView {
     if (target_radius != kLargeBubbleRadiusDp) {
       // Move the buble to it's new origin before scaling the image - note that
       // in RTL layout, the origin remains the same - (0, 0) in local bounds.
-      if (!base::i18n::IsRTL())
+      if (!base::i18n::IsRTL()) {
         transform.Translate(kLargeBubbleRadiusDp - target_radius, 0);
+      }
       float scale = target_radius / static_cast<float>(kLargeBubbleRadiusDp);
       transform.Scale(scale, scale);
     }
@@ -192,11 +197,10 @@ class NoteActionLaunchButton::ActionButton : public views::ImageButton {
         event_targeter_delegate_(kLargeBubbleRadiusDp, kSmallBubbleRadiusDp) {
     SetAccessibleName(
         l10n_util::GetStringUTF16(IDS_ASH_STYLUS_TOOLS_CREATE_NOTE_ACTION));
-    SetImage(views::Button::STATE_NORMAL,
-             CreateVectorIcon(
-                 kTrayActionNewLockScreenNoteIcon,
-                 AshColorProvider::Get()->GetContentLayerColor(
-                     AshColorProvider::ContentLayerType::kButtonIconColor)));
+    SetImageModel(
+        views::Button::STATE_NORMAL,
+        ui::ImageModel::FromVectorIcon(kTrayActionNewLockScreenNoteIcon,
+                                       kColorAshButtonIconColor));
     SetFocusBehavior(views::View::FocusBehavior::ALWAYS);
     SetFocusPainter(nullptr);
     SetFlipCanvasOnPaintForRTLUI(true);
@@ -258,8 +262,9 @@ class NoteActionLaunchButton::ActionButton : public views::ImageButton {
         // If the user has added fingers to the gesture, cancel the fling
         // detection - the note action requests are restricted to single finger
         // gestures.
-        if (event->details().touch_points() != 1)
+        if (event->details().touch_points() != 1) {
           SetTrackingPotentialActivationGesture(false);
+        }
         break;
       case ui::ET_GESTURE_END:
       case ui::ET_GESTURE_SCROLL_END:
@@ -275,8 +280,9 @@ class NoteActionLaunchButton::ActionButton : public views::ImageButton {
         break;
     }
 
-    if (!event->handled())
+    if (!event->handled()) {
       views::ImageButton::OnGestureEvent(event);
+    }
   }
 
  private:
@@ -326,7 +332,9 @@ class NoteActionLaunchButton::ActionButton : public views::ImageButton {
   }
 
   // The background view, which paints the note action bubble.
-  NoteActionLaunchButton::BackgroundView* background_;
+  raw_ptr<NoteActionLaunchButton::BackgroundView,
+          DanglingUntriaged | ExperimentalAsh>
+      background_;
 
   BubbleTargeterDelegate event_targeter_delegate_;
 
@@ -353,10 +361,10 @@ NoteActionLaunchButton::NoteActionLaunchButton(
   SetLayoutManager(std::make_unique<views::FillLayout>());
 
   background_ = new BackgroundView();
-  AddChildView(background_);
+  AddChildView(background_.get());
 
   action_button_ = new ActionButton(background_);
-  AddChildView(action_button_);
+  AddChildView(action_button_.get());
 
   UpdateVisibility(initial_note_action_state);
 }

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@ import android.content.SharedPreferences;
 
 import androidx.annotation.VisibleForTesting;
 
+import org.chromium.android_webview.common.Lifetime;
 import org.chromium.android_webview.common.PlatformServiceBridge;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.StrictModeContext;
@@ -16,7 +17,10 @@ import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
 import org.chromium.base.memory.MemoryPressureMonitor;
+import org.chromium.content_public.browser.BrowserContextHandle;
 import org.chromium.content_public.browser.ContentViewStatics;
+
+import java.util.Set;
 
 /**
  * Java side of the Browser Context: contains all the java side objects needed to host one
@@ -27,14 +31,14 @@ import org.chromium.content_public.browser.ContentViewStatics;
  * AwBrowserContext instance, so at this point the class mostly exists for conceptual clarity.
  */
 @JNINamespace("android_webview")
-public class AwBrowserContext {
+@Lifetime.Profile
+public class AwBrowserContext implements BrowserContextHandle {
     private static final String CHROMIUM_PREFS_NAME = "WebViewProfilePrefsDefault";
 
     private static final String TAG = "AwBrowserContext";
     private final SharedPreferences mSharedPreferences;
 
     private AwGeolocationPermissions mGeolocationPermissions;
-    private AwFormDatabase mFormDatabase;
     private AwServiceWorkerController mServiceWorkerController;
     private AwQuotaManagerBridge mQuotaManagerBridge;
 
@@ -81,13 +85,6 @@ public class AwBrowserContext {
         return mGeolocationPermissions;
     }
 
-    public AwFormDatabase getFormDatabase() {
-        if (mFormDatabase == null) {
-            mFormDatabase = new AwFormDatabase();
-        }
-        return mFormDatabase;
-    }
-
     public AwServiceWorkerController getServiceWorkerController() {
         if (mServiceWorkerController == null) {
             mServiceWorkerController =
@@ -119,6 +116,17 @@ public class AwBrowserContext {
     }
 
     /**
+     * Used by {@link AwServiceWorkerSettings#setRequestedWithHeaderOriginAllowList(Set)}
+     */
+    Set<String> updateServiceWorkerXRequestedWithAllowListOriginMatcher(
+            Set<String> allowedOriginRules) {
+        String[] badRules =
+                AwBrowserContextJni.get().updateServiceWorkerXRequestedWithAllowListOriginMatcher(
+                        mNativeAwBrowserContext, allowedOriginRules.toArray(new String[0]));
+        return Set.of(badRules);
+    }
+
+    /**
      * @see android.webkit.WebView#pauseTimers()
      */
     public void pauseTimers() {
@@ -132,7 +140,8 @@ public class AwBrowserContext {
         ContentViewStatics.setWebKitSharedTimersSuspended(false);
     }
 
-    public long getNativePointer() {
+    @Override
+    public long getNativeBrowserContextPointer() {
         return mNativeAwBrowserContext;
     }
 
@@ -153,6 +162,20 @@ public class AwBrowserContext {
         AwBrowserContextJni.get().setWebLayerRunningInSameProcess(mNativeAwBrowserContext);
     }
 
+    @VisibleForTesting
+    public void clearPersistentOriginTrialStorageForTesting() {
+        AwBrowserContextJni.get().clearPersistentOriginTrialStorageForTesting(
+                mNativeAwBrowserContext);
+    }
+
+    public boolean hasFormData() {
+        return AwBrowserContextJni.get().hasFormData(mNativeAwBrowserContext);
+    }
+
+    public void clearFormData() {
+        AwBrowserContextJni.get().clearFormData(mNativeAwBrowserContext);
+    }
+
     @CalledByNative
     public static AwBrowserContext create(long nativeAwBrowserContext, boolean isDefault) {
         SharedPreferences sharedPreferences;
@@ -170,5 +193,10 @@ public class AwBrowserContext {
         AwBrowserContext getDefaultJava();
         long getQuotaManagerBridge(long nativeAwBrowserContext);
         void setWebLayerRunningInSameProcess(long nativeAwBrowserContext);
+        String[] updateServiceWorkerXRequestedWithAllowListOriginMatcher(
+                long nativeAwBrowserContext, String[] rules);
+        void clearPersistentOriginTrialStorageForTesting(long nativeAwBrowserContext);
+        boolean hasFormData(long nativeAwBrowserContext);
+        void clearFormData(long nativeAwBrowserContext);
     }
 }

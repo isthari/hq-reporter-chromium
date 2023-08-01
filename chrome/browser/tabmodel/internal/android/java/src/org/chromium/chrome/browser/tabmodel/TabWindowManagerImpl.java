@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -61,6 +61,8 @@ public class TabWindowManagerImpl implements ActivityStateListener, TabWindowMan
                     return Pair.create(i, assignedSelector);
                 }
             }
+            // The following log statement is used in tools/android/build_speed/benchmark.py. Please
+            // update the string there if this string is updated.
             throw new IllegalStateException(
                     "TabModelSelector is assigned to an Activity but has no index.");
         }

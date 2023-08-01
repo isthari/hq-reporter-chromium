@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/memory/weak_ptr.h"
 #include "components/viz/common/surfaces/surface_id.h"
 #include "components/viz/host/hit_test/hit_test_query.h"
@@ -90,7 +91,7 @@ class CONTENT_EXPORT RenderWidgetHostInputEventRouter final
       RenderWidgetHostViewBase* view) override;
 
   void RouteMouseEvent(RenderWidgetHostViewBase* root_view,
-                       blink::WebMouseEvent* event,
+                       const blink::WebMouseEvent* event,
                        const ui::LatencyInfo& latency);
   void RouteMouseWheelEvent(RenderWidgetHostViewBase* root_view,
                             blink::WebMouseWheelEvent* event,
@@ -178,7 +179,7 @@ class CONTENT_EXPORT RenderWidgetHostInputEventRouter final
       const blink::WebGestureEvent& event) override;
   void ForwardEmulatedTouchEvent(const blink::WebTouchEvent& event,
                                  RenderWidgetHostViewBase* target) override;
-  void SetCursor(const WebCursor& cursor) override;
+  void SetCursor(const ui::Cursor& cursor) override;
   void ShowContextMenuAtPoint(const gfx::Point& point,
                               const ui::MenuSourceType source_type,
                               RenderWidgetHostViewBase* target) override;
@@ -200,8 +201,9 @@ class CONTENT_EXPORT RenderWidgetHostInputEventRouter final
   void SetAutoScrollInProgress(bool is_autoscroll_in_progress);
 
  private:
-  FRIEND_TEST_ALL_PREFIXES(BrowserSideFlingBrowserTest,
-                           InertialGSUBubblingStopsWhenParentCannotScroll);
+  FRIEND_TEST_ALL_PREFIXES(
+      BrowserSideFlingBrowserTest,
+      DISABLED_InertialGSUBubblingStopsWhenParentCannotScroll);
 
   using FrameSinkIdOwnerMap =
       std::unordered_map<viz::FrameSinkId,
@@ -355,15 +357,22 @@ class CONTENT_EXPORT RenderWidgetHostInputEventRouter final
 
   FrameSinkIdOwnerMap owner_map_;
   TargetMap touchscreen_gesture_target_map_;
-  RenderWidgetHostViewBase* touch_target_ = nullptr;
+  // This field is not a raw_ptr<> because of a reference to raw_ptr in
+  // not-rewritten platform specific code.
+  RAW_PTR_EXCLUSION RenderWidgetHostViewBase* touch_target_ = nullptr;
   base::WeakPtr<RenderWidgetHostViewBase> touchscreen_gesture_target_;
   bool touchscreen_gesture_target_moved_recently_ = false;
-  RenderWidgetHostViewBase* touchpad_gesture_target_ = nullptr;
+  // // This field is not a raw_ptr<> because of a reference to raw_ptr in
+  // not-rewritten platform specific code.
+  RAW_PTR_EXCLUSION RenderWidgetHostViewBase* touchpad_gesture_target_ =
+      nullptr;
   raw_ptr<RenderWidgetHostViewBase> bubbling_gesture_scroll_target_ = nullptr;
   raw_ptr<RenderWidgetHostViewChildFrame> bubbling_gesture_scroll_origin_ =
       nullptr;
   // Used to target wheel events for the duration of a scroll.
-  RenderWidgetHostViewBase* wheel_target_ = nullptr;
+  // This field is not a raw_ptr<> because of missing |.get()| in not-rewritten
+  // platform specific code.
+  RAW_PTR_EXCLUSION RenderWidgetHostViewBase* wheel_target_ = nullptr;
   // Maintains the same target between mouse down and mouse up.
   raw_ptr<RenderWidgetHostViewBase> mouse_capture_target_ = nullptr;
 

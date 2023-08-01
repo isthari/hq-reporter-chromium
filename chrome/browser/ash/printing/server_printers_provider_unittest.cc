@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,7 +21,8 @@
 #include "services/network/test/test_url_loader_factory.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/libipp/libipp/ipp.h"
+#include "third_party/libipp/libipp/builder.h"
+#include "third_party/libipp/libipp/frame.h"
 
 namespace ash {
 
@@ -48,15 +49,15 @@ class TestingProfileWithURLLoaderFactory : public TestingProfile {
   scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
 };
 
-chromeos::PrintServer PrintServer1() {
+PrintServer PrintServer1() {
   GURL url("http://192.168.1.5/printer");
-  chromeos::PrintServer print_server("id1", url, "LexaPrint");
+  PrintServer print_server("id1", url, "LexaPrint");
   return print_server;
 }
 
-chromeos::PrintServer PrintServer2() {
+PrintServer PrintServer2() {
   GURL url("https://print-server.intranet.example.com:443/ipp/cl2k4");
-  chromeos::PrintServer print_server("id2", url, "Color Laser");
+  PrintServer print_server("id2", url, "Color Laser");
   return print_server;
 }
 
@@ -83,8 +84,7 @@ Printer Printer2() {
 
 }  // namespace
 
-auto GetPrinter =
-    [](const chromeos::PrinterDetector::DetectedPrinter& input) -> Printer {
+auto GetPrinter = [](const PrinterDetector::DetectedPrinter& input) -> Printer {
   return input.printer;
 };
 
@@ -106,28 +106,25 @@ class ServerPrintersProviderTest : public ::testing::Test {
         ServerPrintersProvider::Create(test_profile_.get());
   }
 
-  void TearDown() override {
-    chromeos::PrintServersProviderFactory::Get()->Shutdown();
-  }
+  void TearDown() override { PrintServersProviderFactory::Get()->Shutdown(); }
 
   std::string CreateResponse(const std::string& name,
                              const std::string& description) {
-    ipp::Response_CUPS_Get_Printers response;
-    response.printer_attributes[0].printer_name.Set(
-        ipp::StringWithLanguage(name, "us-EN"));
-    response.printer_attributes[0].printer_info.Set(
-        ipp::StringWithLanguage(description, "us-EN"));
-    ipp::Server server(ipp::Version::_1_1, 1);
-    server.BuildResponseFrom(&response);
-    std::vector<uint8_t> bin_data;
-    EXPECT_TRUE(server.WriteResponseFrameTo(&bin_data));
+    ipp::Frame response(ipp::Operation::CUPS_Get_Printers);
+    ipp::CollsView::iterator grp;
+    response.AddGroup(ipp::GroupTag::printer_attributes, grp);
+    grp->AddAttr("printer-name", ipp::ValueTag::nameWithLanguage,
+                 ipp::StringWithLanguage(name, "us-EN"));
+    grp->AddAttr("printer-info", ipp::ValueTag::textWithLanguage,
+                 ipp::StringWithLanguage(description, "us-EN"));
+    std::vector<uint8_t> bin_data = ipp::BuildBinaryFrame(response);
     std::string response_body(bin_data.begin(), bin_data.end());
     return response_body;
   }
 
   void OnServersChanged(bool is_complete,
-                        std::vector<chromeos::PrintServer> print_servers) {
-    std::map<GURL, chromeos::PrintServer> new_print_servers;
+                        std::vector<PrintServer> print_servers) {
+    std::map<GURL, PrintServer> new_print_servers;
     for (auto& print_server : print_servers) {
       new_print_servers.emplace(print_server.GetUrl(), print_server);
     }
@@ -156,7 +153,7 @@ TEST_F(ServerPrintersProviderTest, GetPrinters) {
 
   EXPECT_TRUE(server_printers_provider_->GetPrinters().empty());
 
-  std::vector<chromeos::PrintServer> print_servers;
+  std::vector<PrintServer> print_servers;
   print_servers.push_back(PrintServer1());
   print_servers.push_back(PrintServer2());
   OnServersChanged(true, print_servers);

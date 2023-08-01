@@ -20,7 +20,7 @@
 
 #include "third_party/blink/renderer/platform/graphics/filters/fe_drop_shadow.h"
 
-#include "base/stl_util.h"
+#include "base/types/optional_util.h"
 #include "third_party/blink/renderer/platform/graphics/filters/fe_gaussian_blur.h"
 #include "third_party/blink/renderer/platform/graphics/filters/filter.h"
 #include "third_party/blink/renderer/platform/graphics/filters/paint_filter_builder.h"
@@ -70,14 +70,16 @@ sk_sp<PaintFilter> FEDropShadow::CreateImageFilter() {
   float dy = GetFilter()->ApplyVerticalScale(dy_);
   float std_x = GetFilter()->ApplyHorizontalScale(std_x_);
   float std_y = GetFilter()->ApplyVerticalScale(std_y_);
-  Color color = AdaptColorToOperatingInterpolationSpace(
-      shadow_color_.CombineWithAlpha(shadow_opacity_));
+  Color drop_shadow_color = shadow_color_;
+  drop_shadow_color.SetAlpha(shadow_opacity_ * drop_shadow_color.Alpha());
+  drop_shadow_color =
+      AdaptColorToOperatingInterpolationSpace(drop_shadow_color);
   absl::optional<PaintFilter::CropRect> crop_rect = GetCropRect();
   return sk_make_sp<DropShadowPaintFilter>(
       SkFloatToScalar(dx), SkFloatToScalar(dy), SkFloatToScalar(std_x),
-      SkFloatToScalar(std_y), color.Rgb(),
+      SkFloatToScalar(std_y), drop_shadow_color.toSkColor4f(),
       DropShadowPaintFilter::ShadowMode::kDrawShadowAndForeground,
-      std::move(input), base::OptionalOrNullptr(crop_rect));
+      std::move(input), base::OptionalToPtr(crop_rect));
 }
 
 WTF::TextStream& FEDropShadow::ExternalRepresentation(WTF::TextStream& ts,

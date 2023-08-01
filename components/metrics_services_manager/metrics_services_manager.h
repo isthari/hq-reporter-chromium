@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,13 +10,13 @@
 #include "base/metrics/field_trial.h"
 #include "base/threading/thread_checker.h"
 
-namespace base {
-class FilePath;
-}
-
 namespace metrics {
 class MetricsService;
 class MetricsServiceClient;
+}  // namespace metrics
+
+namespace metrics::structured {
+class StructuredMetricsService;
 }
 
 namespace ukm {
@@ -24,8 +24,9 @@ class UkmService;
 }
 
 namespace variations {
+class EntropyProviders;
 class VariationsService;
-}
+}  // namespace variations
 
 namespace metrics_services_manager {
 
@@ -46,12 +47,9 @@ class MetricsServicesManager {
   virtual ~MetricsServicesManager();
 
   // Instantiates the FieldTrialList using Chrome's default entropy provider.
-  // Uses |enable_gpu_benchmarking_switch| to set up the FieldTrialList for
-  // benchmarking runs.
   //
   // Side effect: Initializes the CleanExitBeacon.
-  void InstantiateFieldTrialList(
-      const char* enable_gpu_benchmarking_switch = nullptr) const;
+  void InstantiateFieldTrialList() const;
 
   // Returns the MetricsService, creating it if it hasn't been created yet (and
   // additionally creating the MetricsServiceClient in that case).
@@ -60,16 +58,17 @@ class MetricsServicesManager {
   // Returns the UkmService, creating it if it hasn't been created yet.
   ukm::UkmService* GetUkmService();
 
+  // Returns the StructuredMetricsService associated with the
+  // |metrics_service_client_|.
+  metrics::structured::StructuredMetricsService* GetStructuredMetricsService();
+
   // Returns the VariationsService, creating it if it hasn't been created yet.
   variations::VariationsService* GetVariationsService();
 
   // Called when loading state changed.
   void LoadingStateChanged(bool is_loading);
 
-  // Should be called when a plugin loading error occurs.
-  void OnPluginLoadingError(const base::FilePath& plugin_path);
-
-  // Update the managed services when permissions for uploading metrics change.
+  // Updates the managed services when permissions for uploading metrics change.
   void UpdateUploadPermissions(bool may_upload);
 
   // Gets the current state of metric reporting.
@@ -78,22 +77,28 @@ class MetricsServicesManager {
   // Gets the current state of metrics consent.
   bool IsMetricsConsentGiven() const;
 
-  // Returns the default entropy provider.
-  std::unique_ptr<const base::FieldTrial::EntropyProvider>
-  CreateEntropyProviderForTesting();
+  // Returns true iff UKM is allowed for all profiles.
+  bool IsUkmAllowedForAllProfiles();
+
+  // Returns a low entropy provider.
+  std::unique_ptr<const variations::EntropyProviders>
+  CreateEntropyProvidersForTesting();
 
  private:
   // Returns the MetricsServiceClient, creating it if it hasn't been
   // created yet (and additionally creating the MetricsService in that case).
   metrics::MetricsServiceClient* GetMetricsServiceClient();
 
-  // Update which services are running to match current permissions.
+  // Updates which services are running to match current permissions.
   void UpdateRunningServices();
 
-  // Update the state of UkmService to match current permissions.
+  // Updates the state of UkmService to match current permissions.
   void UpdateUkmService();
 
-  // Update the managed services when permissions for recording/uploading
+  // Updates the state of StructuredMetricsService to match current permissions.
+  void UpdateStructuredMetricsService();
+
+  // Updates the managed services when permissions for recording/uploading
   // metrics change.
   void UpdatePermissions(bool current_may_record,
                          bool current_consent_given,

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,12 +9,11 @@
 #include <set>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/strcat.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/time.h"
 #include "components/optimization_guide/core/optimization_guide_features.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -373,12 +372,11 @@ void PageTextObserver::DidFinishNavigation(content::NavigationHandle* handle) {
 }
 
 bool PageTextObserver::IsOOPIF(content::RenderFrameHost* rfh) const {
-  return rfh->GetProcess()->GetID() !=
-         rfh->GetMainFrame()->GetProcess()->GetID();
+  return rfh->IsCrossProcessSubframe();
 }
 
 void PageTextObserver::RenderFrameCreated(content::RenderFrameHost* rfh) {
-  if (!IsOOPIF(rfh)) {
+  if (!IsOOPIF(rfh) || !rfh->GetPage().IsPrimary()) {
     return;
   }
 
@@ -429,6 +427,9 @@ void PageTextObserver::OnFrameTextDumpCompleted(
 void PageTextObserver::DidFinishLoad(
     content::RenderFrameHost* render_frame_host,
     const GURL& validated_url) {
+  if (!render_frame_host->IsInPrimaryMainFrame())
+    return;
+
   base::UmaHistogramCounts100(
       "OptimizationGuide.PageTextDump.OutstandingRequests.DidFinishLoad",
       outstanding_requests_);

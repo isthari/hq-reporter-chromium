@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -78,6 +78,14 @@ void CdmFactoryDaemonProxyLacros::GetScreenResolutions(
   }
 }
 
+void CdmFactoryDaemonProxyLacros::GetAndroidHwKeyData(
+    const std::vector<uint8_t>& key_id,
+    const std::vector<uint8_t>& hw_identifier,
+    GetAndroidHwKeyDataCallback callback) {
+  // This should only go through ash-chrome.
+  NOTREACHED();
+}
+
 void CdmFactoryDaemonProxyLacros::EstablishAshConnection(
     base::OnceClosure callback) {
   // This may have happened already.
@@ -86,13 +94,14 @@ void CdmFactoryDaemonProxyLacros::EstablishAshConnection(
     return;
   }
 
-  if (!LacrosService::Get()->IsBrowserCdmFactoryAvailable()) {
+  auto* service = LacrosService::Get();
+  if (!service || !service->IsSupported<cdm::mojom::BrowserCdmFactory>()) {
     std::move(callback).Run();
     return;
   }
   // For Lacros, we connect to the ash-chrome browser process which will proxy
   // the connection to the daemon.
-  LacrosService::Get()->BindBrowserCdmFactory(
+  service->BindBrowserCdmFactory(
       mojo::GenericPendingReceiver(ash_remote_.BindNewPipeAndPassReceiver()));
   std::move(callback).Run();
   return;

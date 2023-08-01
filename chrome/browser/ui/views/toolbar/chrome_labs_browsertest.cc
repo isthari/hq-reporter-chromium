@@ -1,14 +1,15 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/test/scoped_feature_list.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/about_flags.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/test/test_browser_dialog.h"
+#include "chrome/browser/ui/toolbar/chrome_labs_model.h"
 #include "chrome/browser/ui/ui_features.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
-#include "chrome/browser/ui/views/toolbar/chrome_labs_bubble_view_model.h"
 #include "chrome/browser/ui/views/toolbar/chrome_labs_button.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
 #include "components/flags_ui/feature_entry_macros.h"
@@ -18,26 +19,15 @@
 
 namespace {
 const char kFirstTestFeatureId[] = "feature-1";
-const base::Feature kTestFeature1{"FeatureName1",
-                                  base::FEATURE_ENABLED_BY_DEFAULT};
-
-// Experiment platform to use for feature flags.
-unsigned short GetPlatformToUse() {
-#if BUILDFLAG(IS_CHROMEOS_LACROS)
-  return flags_ui::FlagsState::GetCurrentPlatform() | flags_ui::kOsCrOS;
-#else
-  return flags_ui::FlagsState::GetCurrentPlatform();
-#endif
-}
-
+BASE_FEATURE(kTestFeature1, "FeatureName1", base::FEATURE_ENABLED_BY_DEFAULT);
 }  // namespace
 
 class ChromeLabsUiTest : public DialogBrowserTest {
  public:
   ChromeLabsUiTest()
-      : scoped_feature_entries_(
-            {{kFirstTestFeatureId, "", "", GetPlatformToUse(),
-              FEATURE_VALUE_TYPE(kTestFeature1)}}) {
+      : scoped_feature_entries_({{kFirstTestFeatureId, "", "",
+                                  flags_ui::FlagsState::GetCurrentPlatform(),
+                                  FEATURE_VALUE_TYPE(kTestFeature1)}}) {
     scoped_feature_list_.InitAndEnableFeature(features::kChromeLabs);
 
     std::vector<LabInfo> test_feature_info = {

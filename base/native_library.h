@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -37,7 +37,6 @@ enum NativeLibraryObjCStatus {
 };
 struct NativeLibraryStruct {
   NativeLibraryType type;
-  CFBundleRefNum bundle_resource_ref;
   NativeLibraryObjCStatus objc_status;
   union {
     CFBundleRef bundle;
@@ -65,9 +64,6 @@ struct BASE_EXPORT NativeLibraryLoadError {
 };
 
 struct BASE_EXPORT NativeLibraryOptions {
-  NativeLibraryOptions() = default;
-  NativeLibraryOptions(const NativeLibraryOptions& options) = default;
-
   // If |true|, a loaded library is required to prefer local symbol resolution
   // before considering global symbols. Note that this is already the default
   // behavior on most systems. Setting this to |false| does not guarantee the

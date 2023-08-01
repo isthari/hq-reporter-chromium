@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include <stdint.h>
 
+#include "base/apple/bundle_locations.h"
 #include "base/check_op.h"
-#include "base/mac/bundle_locations.h"
 #include "base/mac/scoped_nsobject.h"
 #include "content/public/browser/browser_thread.h"
 #include "ui/gfx/scoped_ns_graphics_context_save_gstate_mac.h"
@@ -63,11 +63,11 @@ constexpr int64_t kUpdateFrequencyMs = 200;
 - (void)drawRect:(NSRect)dirtyRect {
   // Not -[NSApplication applicationIconImage]; that fails to return a pasted
   // custom icon.
-  NSString* appPath = [base::mac::MainBundle() bundlePath];
+  NSString* appPath = [base::apple::MainBundle() bundlePath];
   NSImage* appIcon = [[NSWorkspace sharedWorkspace] iconForFile:appPath];
   [appIcon drawInRect:[self bounds]
              fromRect:NSZeroRect
-            operation:NSCompositeSourceOver
+            operation:NSCompositingOperationSourceOver
              fraction:1.0];
 
   if (_downloads == 0)
@@ -119,10 +119,12 @@ constexpr int64_t kUpdateFrequencyMs = 200;
                                   clockwise:YES];
     }
     [strokePath setLineWidth:kBadgeStrokeWidth];
-    [[NSColor colorWithCalibratedRed:0x42 / 255.0
-                               green:0x85 / 255.0
-                                blue:0xf4 / 255.0
-                               alpha:1] setStroke];
+    // This color is GoogleBlue600, which matches the stroke color for the
+    // progress ring of the download toolbar icon in a light theme.
+    [[NSColor colorWithSRGBRed:0x1a / 255.0
+                         green:0x73 / 255.0
+                          blue:0xe8 / 255.0
+                         alpha:1] setStroke];
     [strokePath stroke];
   }
 

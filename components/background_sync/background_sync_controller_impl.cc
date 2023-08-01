@@ -1,10 +1,11 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/background_sync/background_sync_controller_impl.h"
 
 #include "base/containers/contains.h"
+#include "base/metrics/field_trial_params.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/time/time.h"
@@ -12,7 +13,6 @@
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/keep_alive_registry/keep_alive_registry.h"
-#include "components/variations/variations_associated_data.h"
 #include "content/public/browser/background_sync_context.h"
 #include "content/public/browser/background_sync_controller.h"
 #include "content/public/browser/background_sync_parameters.h"
@@ -111,20 +111,21 @@ void BackgroundSyncControllerImpl::GetParameterOverrides(
 #endif
 
   std::map<std::string, std::string> field_params;
-  if (!variations::GetVariationParams(kFieldTrialName, &field_params))
+  if (!base::GetFieldTrialParams(kFieldTrialName, &field_params)) {
     return;
+  }
 
-  if (base::LowerCaseEqualsASCII(field_params[kDisabledParameterName],
-                                 "true")) {
+  if (base::EqualsCaseInsensitiveASCII(field_params[kDisabledParameterName],
+                                       "true")) {
     parameters->disable = true;
   }
 
-  if (base::LowerCaseEqualsASCII(field_params[kKeepBrowserAwakeParameterName],
-                                 "true")) {
+  if (base::EqualsCaseInsensitiveASCII(
+          field_params[kKeepBrowserAwakeParameterName], "true")) {
     parameters->keep_browser_awake_till_events_complete = true;
   }
 
-  if (base::LowerCaseEqualsASCII(
+  if (base::EqualsCaseInsensitiveASCII(
           field_params[kSkipPermissionsCheckParameterName], "true")) {
     parameters->skip_permissions_check_for_testing = true;
   }
@@ -195,8 +196,8 @@ void BackgroundSyncControllerImpl::GetParameterOverrides(
   if (delegate_->ShouldDisableAndroidNetworkDetection()) {
     parameters->rely_on_android_network_detection = false;
   } else if (base::Contains(field_params, kRelyOnAndroidNetworkDetection)) {
-    if (base::LowerCaseEqualsASCII(field_params[kRelyOnAndroidNetworkDetection],
-                                   "true")) {
+    if (base::EqualsCaseInsensitiveASCII(
+            field_params[kRelyOnAndroidNetworkDetection], "true")) {
       parameters->rely_on_android_network_detection = true;
     }
   }

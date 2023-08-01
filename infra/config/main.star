@@ -1,5 +1,5 @@
 #!/usr/bin/env lucicfg
-# Copyright 2020 The Chromium Authors. All rights reserved.
+# Copyright 2020 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -10,7 +10,7 @@ load("//lib/branches.star", "branches")
 load("//project.star", "settings")
 
 lucicfg.check_version(
-    min = "1.30.9",
+    min = "1.38.1",
     message = "Update depot_tools",
 )
 
@@ -25,9 +25,10 @@ lucicfg.config(
         "cq-builders.md",
         "cq-usage/default.cfg",
         "cq-usage/full.cfg",
+        "health-specs/health-specs.json",
         "luci/commit-queue.cfg",
-        "luci/chops-weetbix.cfg",
         "luci/cr-buildbucket.cfg",
+        "luci/luci-analysis.cfg",
         "luci/luci-logdog.cfg",
         "luci/luci-milo.cfg",
         "luci/luci-notify.cfg",
@@ -37,7 +38,9 @@ lucicfg.config(
         "luci/realms.cfg",
         "luci/tricium-prod.cfg",
         "outages.pyl",
+        "sheriff-rotations/*.txt",
         "project.pyl",
+        "testing/*.pyl",
     ],
     fail_on_warnings = True,
     lint_checks = [
@@ -57,11 +60,10 @@ lucicfg.emit(
     data = io.read_file("tricium-prod.cfg"),
 )
 
-# Weetbix configuration is also copied verbatim to generated
-# outputs.
+# Just copy LUCI Analysis config to generated outputs.
 lucicfg.emit(
-    dest = "luci/chops-weetbix.cfg",
-    data = io.read_file("chops-weetbix.cfg"),
+    dest = "luci/luci-analysis.cfg",
+    data = io.read_file("luci-analysis.cfg"),
 )
 
 luci.project(
@@ -94,7 +96,23 @@ luci.project(
     bindings = [
         luci.binding(
             roles = "role/configs.validator",
-            groups = "project-chromium-try-task-accounts",
+            groups = [
+                "project-chromium-try-task-accounts",
+                "project-chromium-ci-task-accounts",
+            ],
+        ),
+        # Roles for LUCI Analysis.
+        luci.binding(
+            roles = "role/analysis.reader",
+            groups = "all",
+        ),
+        luci.binding(
+            roles = "role/analysis.queryUser",
+            groups = "authenticated-users",
+        ),
+        luci.binding(
+            roles = "role/analysis.editor",
+            groups = ["project-chromium-committers", "googlers"],
         ),
     ],
 )
@@ -150,7 +168,17 @@ luci.realm(
         # Allow try builders to create invocations in their own builds.
         luci.binding(
             roles = "role/resultdb.invocationCreator",
-            groups = "project-chromium-try-task-accounts",
+            groups = [
+                "project-chromium-try-task-accounts",
+                # In order to be able to reproduce test tasks that have
+                # ResultDB enabled (at this point that should be all
+                # tests), a realm must be provided. The ability to
+                # trigger machines in the test pool is associated with
+                # the try realm, so allow those who can trigger swarming
+                # tasks in that pool tasks to create invocations.
+                "chromium-led-users",
+                "project-chromium-tryjob-access",
+            ],
         ),
     ],
 )
@@ -166,32 +194,37 @@ luci.realm(
     ],
 )
 
-luci.builder.defaults.experiments.set({
-    # Launch Swarming tasks in "realms-aware mode", crbug.com/1136313.
-    "luci.use_realms": 100,
-})
 luci.builder.defaults.test_presentation.set(resultdb.test_presentation(grouping_keys = ["status", "v.test_suite"]))
 
 exec("//swarming.star")
 
 exec("//recipes.star")
+exec("//targets/mixins.star")
+exec("//targets/targets.star")
+exec("//targets/variants.star")
 
 exec("//notifiers.star")
 
 exec("//subprojects/chromium/subproject.star")
+exec("//subprojects/chrome/subproject.star")
+exec("//subprojects/crossbench/subproject.star")
+exec("//subprojects/infra.star")
 branches.exec("//subprojects/codesearch/subproject.star")
 branches.exec("//subprojects/findit/subproject.star")
 branches.exec("//subprojects/flakiness/subproject.star")
 branches.exec("//subprojects/goma/subproject.star")
 branches.exec("//subprojects/reclient/subproject.star")
+branches.exec("//subprojects/reviver/subproject.star")
 branches.exec("//subprojects/webrtc/subproject.star")
 
 exec("//generators/cq-usage.star")
 branches.exec("//generators/cq-builders-md.star")
 
-exec("//generators/scheduler-noop-jobs.star")
 exec("//generators/sort-consoles.star")
 
+# Execute validators after eveything except the outage file so that we're
+# validating the final non-outages configuration
+exec("//validators/builder-group-triggers.star")
 exec("//validators/builders-in-consoles.star")
 
 # Execute this file last so that any configuration changes needed for handling

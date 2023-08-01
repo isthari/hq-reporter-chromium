@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,16 @@
 
 #include <memory>
 
+#include "base/auto_reset.h"
+#include "base/memory/raw_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/gmock_callback_support.h"
+#include "base/test/metrics/histogram_tester.h"
+#include "base/test/test_future.h"
 #include "chrome/browser/ash/app_mode/kiosk_app_manager_observer.h"
 #include "chrome/browser/ash/app_mode/web_app/web_kiosk_app_data.h"
 #include "chrome/browser/ash/app_mode/web_app/web_kiosk_app_manager.h"
+#include "chrome/browser/ash/crosapi/browser_util.h"
 #include "chrome/browser/ash/crosapi/fake_browser_manager.h"
 #include "chrome/browser/ash/login/users/fake_chrome_user_manager.h"
 #include "chrome/browser/ui/browser_list.h"
@@ -20,35 +25,64 @@
 #include "chrome/common/chrome_features.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "chrome/test/base/testing_profile.h"
+#include "chromeos/ash/components/network/network_handler_test_helper.h"
+#include "chromeos/ash/components/standalone_browser/browser_support.h"
 #include "components/exo/shell_surface_util.h"
-#include "components/exo/wm_helper_chromeos.h"
+#include "components/exo/wm_helper.h"
 #include "components/user_manager/scoped_user_manager.h"
+#include "components/webapps/browser/install_result_code.h"
 #include "content/public/test/browser_task_environment.h"
+#include "content/public/test/browser_test_utils.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/gurl.h"
 
-using ::base::test::RunClosure;
-using ::testing::_;
-using ::testing::Return;
+using ash::standalone_browser::BrowserSupport;
 
 namespace ash {
 
-class MockAppLauncherDelegate : public WebKioskAppLauncher::Delegate {
+namespace {
+
+using ::base::test::TestFuture;
+using ::testing::_;
+using ::testing::Invoke;
+using ::testing::Return;
+
+// TODO(crbug/1379290): Use `TestFuture<void>` in all these tests
+#define EXEC_AND_WAIT_FOR_CALL(exec, mock, method)    \
+  ({                                                  \
+    TestFuture<bool> waiter;                          \
+    EXPECT_CALL(mock, method).WillOnce(Invoke([&]() { \
+      waiter.SetValue(true);                          \
+    }));                                              \
+    exec;                                             \
+    EXPECT_TRUE(waiter.Wait());                       \
+  })
+
+}  // namespace
+
+class MockAppLauncherDelegate : public KioskAppLauncher::NetworkDelegate {
  public:
   MockAppLauncherDelegate() = default;
   ~MockAppLauncherDelegate() override = default;
 
   MOCK_METHOD0(InitializeNetwork, void());
-  MOCK_METHOD0(OnAppInstalling, void());
-  MOCK_METHOD0(OnAppPrepared, void());
-  MOCK_METHOD0(OnAppLaunched, void());
-  MOCK_METHOD0(OnAppWindowCreated, void());
-  MOCK_METHOD1(OnLaunchFailed, void(KioskAppLaunchError::Error));
 
   MOCK_CONST_METHOD0(IsNetworkReady, bool());
   MOCK_CONST_METHOD0(IsShowingNetworkConfigScreen, bool());
-  MOCK_CONST_METHOD0(ShouldSkipAppInstallation, bool());
+};
+
+class MockAppLauncherObserver : public KioskAppLauncher::Observer {
+ public:
+  MockAppLauncherObserver() = default;
+  ~MockAppLauncherObserver() override = default;
+
+  MOCK_METHOD0(OnAppInstalling, void());
+  MOCK_METHOD0(OnAppPrepared, void());
+  MOCK_METHOD0(OnAppLaunched, void());
+  MOCK_METHOD(void, OnAppWindowCreated, (const absl::optional<std::string>&));
+  MOCK_METHOD1(OnLaunchFailed, void(KioskAppLaunchError::Error));
 };
 
 const char kAppEmail[] = "lala@example.com";
@@ -79,40 +113,35 @@ class AppWindowCloser : public BrowserListObserver {
   void OnBrowserAdded(Browser* browser) override { app_browser_ = browser; }
 
   void OnBrowserRemoved(Browser* browser) override {
-    closed_ = true;
-    waiter.Quit();
+    closed_waiter_.SetValue(true);
   }
 
   void Close() {
     DCHECK(app_browser_);
     app_browser_->tab_strip_model()->CloseAllTabs();
     delete app_browser_;
-    if (!closed_)
-      waiter.Run();
+
+    EXPECT_TRUE(closed_waiter_.Wait());
   }
 
  private:
-  bool closed_ = false;
-  Browser* app_browser_ = nullptr;
-  base::RunLoop waiter;
+  raw_ptr<Browser, ExperimentalAsh> app_browser_ = nullptr;
+  // TODO(crbug/1379290): Use `TestFuture<void>` in all these tests
+  TestFuture<bool> closed_waiter_;
 };
 
 class WebKioskAppLauncherTest : public BrowserWithTestWindowTest {
  public:
-  WebKioskAppLauncherTest() : BrowserWithTestWindowTest() {}
-  ~WebKioskAppLauncherTest() override {}
+  WebKioskAppLauncherTest() = default;
+  ~WebKioskAppLauncherTest() override = default;
 
   void SetUp() override {
     BrowserWithTestWindowTest::SetUp();
-    app_manager_ = std::make_unique<WebKioskAppManager>();
-    delegate_ = std::make_unique<MockAppLauncherDelegate>();
-    launcher_ = std::make_unique<WebKioskAppLauncher>(
-        profile(), delegate_.get(), AccountId::FromUserEmail(kAppEmail));
+    network_handler_test_helper_ = std::make_unique<NetworkHandlerTestHelper>();
 
-    launcher_->SetBrowserWindowForTesting(window());
-    url_loader_ = new web_app::TestWebAppUrlLoader();
-    launcher_->SetUrlLoaderForTesting(
-        std::unique_ptr<web_app::TestWebAppUrlLoader>(url_loader_));
+    app_manager_ = std::make_unique<WebKioskAppManager>();
+
+    ConstructLauncher(/*should_skip_install=*/false);
 
     closer_ = std::make_unique<AppWindowCloser>();
   }
@@ -120,9 +149,20 @@ class WebKioskAppLauncherTest : public BrowserWithTestWindowTest {
   void TearDown() override {
     closer_.reset();
     launcher_.reset();
-    delegate_.reset();
     app_manager_.reset();
+    network_handler_test_helper_.reset();
     BrowserWithTestWindowTest::TearDown();
+  }
+
+  void ConstructLauncher(bool should_skip_install) {
+    launcher_ = std::make_unique<WebKioskAppLauncher>(
+        profile(), AccountId::FromUserEmail(kAppEmail), should_skip_install,
+        &delegate_);
+    launcher_->AddObserver(&observer_);
+    launcher_->SetBrowserWindowForTesting(window());
+    auto url_loader = std::make_unique<web_app::TestWebAppUrlLoader>();
+    url_loader_ = url_loader.get();
+    launcher_->SetUrlLoaderForTesting(std::move(url_loader));
   }
 
   void SetupAppData(bool installed) {
@@ -130,10 +170,10 @@ class WebKioskAppLauncherTest : public BrowserWithTestWindowTest {
     app_manager_->AddAppForTesting(account_id_, GURL(kAppInstallUrl));
 
     if (installed) {
-      auto info = std::make_unique<WebAppInstallInfo>();
-      info->start_url = GURL(kAppLaunchUrl);
-      info->title = kAppTitle;
-      app_manager_->UpdateAppByAccountId(account_id_, std::move(info));
+      WebAppInstallInfo info;
+      info.start_url = GURL(kAppLaunchUrl);
+      info.title = kAppTitle;
+      app_manager_->UpdateAppByAccountId(account_id_, info);
     }
   }
 
@@ -166,65 +206,52 @@ class WebKioskAppLauncherTest : public BrowserWithTestWindowTest {
     closer_->Close();
   }
 
-  MockAppLauncherDelegate* delegate() { return delegate_.get(); }
+  MockAppLauncherDelegate& delegate() { return delegate_; }
+  MockAppLauncherObserver& observer() { return observer_; }
   KioskAppLauncher* launcher() { return launcher_.get(); }
 
  protected:
   AccountId account_id_;
-  web_app::TestWebAppUrlLoader* url_loader_;  // Owned by |launcher_|.
+  raw_ptr<web_app::TestWebAppUrlLoader, ExperimentalAsh>
+      url_loader_;  // Owned by |launcher_|.
 
  private:
   std::unique_ptr<WebKioskAppManager> app_manager_;
+  std::unique_ptr<NetworkHandlerTestHelper> network_handler_test_helper_;
 
-  std::unique_ptr<MockAppLauncherDelegate> delegate_;
+  MockAppLauncherDelegate delegate_;
+  MockAppLauncherObserver observer_;
   std::unique_ptr<WebKioskAppLauncher> launcher_;
   std::unique_ptr<AppWindowCloser> closer_;
 };
 
 TEST_F(WebKioskAppLauncherTest, NormalFlowNotInstalled) {
   SetupAppData(/*installed*/ false);
+  ConstructLauncher(/*should_skip_install=*/false);
 
-  base::RunLoop loop1;
-  EXPECT_CALL(*delegate(), ShouldSkipAppInstallation()).WillOnce(Return(false));
-  EXPECT_CALL(*delegate(), InitializeNetwork())
-      .WillOnce(RunClosure(loop1.QuitClosure()));
-  launcher()->Initialize();
-  loop1.Run();
+  EXEC_AND_WAIT_FOR_CALL(launcher()->Initialize(), delegate(),
+                         InitializeNetwork());
 
   SetupInstallData();
 
-  base::RunLoop loop2;
-  EXPECT_CALL(*delegate(), OnAppInstalling());
-  EXPECT_CALL(*delegate(), OnAppPrepared())
-      .WillOnce(RunClosure(loop2.QuitClosure()));
-  launcher()->ContinueWithNetworkReady();
-  loop2.Run();
+  EXPECT_CALL(observer(), OnAppInstalling());
+  EXEC_AND_WAIT_FOR_CALL(launcher()->ContinueWithNetworkReady(), observer(),
+                         OnAppPrepared());
 
   EXPECT_EQ(app_data()->status(), WebKioskAppData::Status::kInstalled);
   EXPECT_EQ(app_data()->launch_url(), kAppLaunchUrl);
 
-  base::RunLoop loop3;
-  EXPECT_CALL(*delegate(), OnAppLaunched())
-      .WillOnce(RunClosure(loop3.QuitClosure()));
-  launcher()->LaunchApp();
-  loop3.Run();
+  EXEC_AND_WAIT_FOR_CALL(launcher()->LaunchApp(), observer(), OnAppLaunched());
 
   CloseAppWindow();
 }
 
 TEST_F(WebKioskAppLauncherTest, NormalFlowAlreadyInstalled) {
   SetupAppData(/*installed*/ true);
-  base::RunLoop loop1;
-  EXPECT_CALL(*delegate(), OnAppPrepared())
-      .WillOnce(RunClosure(loop1.QuitClosure()));
-  launcher()->Initialize();
-  loop1.Run();
 
-  base::RunLoop loop2;
-  EXPECT_CALL(*delegate(), OnAppLaunched())
-      .WillOnce(RunClosure(loop2.QuitClosure()));
-  launcher()->LaunchApp();
-  loop2.Run();
+  EXEC_AND_WAIT_FOR_CALL(launcher()->Initialize(), observer(), OnAppPrepared());
+
+  EXEC_AND_WAIT_FOR_CALL(launcher()->LaunchApp(), observer(), OnAppLaunched());
 
   CloseAppWindow();
 }
@@ -232,116 +259,53 @@ TEST_F(WebKioskAppLauncherTest, NormalFlowAlreadyInstalled) {
 TEST_F(WebKioskAppLauncherTest, NormalFlowBadLaunchUrl) {
   SetupAppData(/*installed*/ false);
 
-  base::RunLoop loop1;
-  EXPECT_CALL(*delegate(), ShouldSkipAppInstallation()).WillOnce(Return(false));
-  EXPECT_CALL(*delegate(), InitializeNetwork())
-      .WillOnce(RunClosure(loop1.QuitClosure()));
-  launcher()->Initialize();
-  loop1.Run();
+  EXEC_AND_WAIT_FOR_CALL(launcher()->Initialize(), delegate(),
+                         InitializeNetwork());
 
   SetupBadInstallData();
 
-  base::RunLoop loop2;
-  EXPECT_CALL(*delegate(), OnAppInstalling());
-  EXPECT_CALL(*delegate(),
-              OnLaunchFailed((KioskAppLaunchError::Error::kUnableToLaunch)))
-      .WillOnce(RunClosure(loop2.QuitClosure()));
-  launcher()->ContinueWithNetworkReady();
-  loop2.Run();
+  EXPECT_CALL(observer(), OnAppInstalling());
+  EXEC_AND_WAIT_FOR_CALL(
+      launcher()->ContinueWithNetworkReady(), observer(),
+      OnLaunchFailed((KioskAppLaunchError::Error::kUnableToLaunch)));
 
   EXPECT_NE(app_data()->status(), WebKioskAppData::Status::kInstalled);
-}
-
-TEST_F(WebKioskAppLauncherTest, InstallationRestarted) {
-  SetupAppData(/*installed*/ false);
-  // Freezes url requests until they are manually processed.
-  url_loader_->SaveLoadUrlRequests();
-
-  base::RunLoop loop1;
-  EXPECT_CALL(*delegate(), ShouldSkipAppInstallation()).WillOnce(Return(false));
-  EXPECT_CALL(*delegate(), InitializeNetwork())
-      .WillOnce(RunClosure(loop1.QuitClosure()));
-  launcher()->Initialize();
-  loop1.Run();
-
-  SetupInstallData();
-
-  EXPECT_CALL(*delegate(), OnAppInstalling());
-  launcher()->ContinueWithNetworkReady();
-
-  EXPECT_CALL(*delegate(), ShouldSkipAppInstallation()).WillOnce(Return(false));
-  EXPECT_CALL(*delegate(), InitializeNetwork()).Times(1);
-  launcher()->RestartLauncher();
-
-  // App should not be installed yet.
-  EXPECT_NE(app_data()->status(), WebKioskAppData::Status::kInstalled);
-
-  // We should not receive any status updates now.
-  url_loader_->ProcessLoadUrlRequests();
-
-  SetupInstallData();
-
-  base::RunLoop loop2;
-  EXPECT_CALL(*delegate(), OnAppInstalling()).Times(1);
-  EXPECT_CALL(*delegate(), OnAppPrepared())
-      .Times(1)
-      .WillOnce(RunClosure(loop2.QuitClosure()));
-  launcher()->ContinueWithNetworkReady();
-  url_loader_->ProcessLoadUrlRequests();
-  loop2.Run();
-
-  EXPECT_EQ(app_data()->status(), WebKioskAppData::Status::kInstalled);
-
-  base::RunLoop loop3;
-  EXPECT_CALL(*delegate(), OnAppLaunched())
-      .WillOnce(RunClosure(loop3.QuitClosure()));
-  launcher()->LaunchApp();
-  loop3.Run();
-
-  CloseAppWindow();
 }
 
 TEST_F(WebKioskAppLauncherTest, UrlNotLoaded) {
+  base::HistogramTester histogram;
+
   SetupAppData(/*installed*/ false);
 
-  base::RunLoop loop1;
-  EXPECT_CALL(*delegate(), ShouldSkipAppInstallation()).WillOnce(Return(false));
-  EXPECT_CALL(*delegate(), InitializeNetwork())
-      .WillOnce(RunClosure(loop1.QuitClosure()));
-  launcher()->Initialize();
-  loop1.Run();
+  EXEC_AND_WAIT_FOR_CALL(launcher()->Initialize(), delegate(),
+                         InitializeNetwork());
 
   SetupNotLoadedAppData();
 
-  base::RunLoop loop2;
-  EXPECT_CALL(*delegate(), OnAppInstalling());
-  EXPECT_CALL(*delegate(),
-              OnLaunchFailed(KioskAppLaunchError::Error::kUnableToInstall))
-      .WillOnce(RunClosure(loop2.QuitClosure()));
-  launcher()->ContinueWithNetworkReady();
-  loop2.Run();
+  EXPECT_CALL(observer(), OnAppInstalling());
+  EXEC_AND_WAIT_FOR_CALL(
+      launcher()->ContinueWithNetworkReady(), observer(),
+      OnLaunchFailed(KioskAppLaunchError::Error::kUnableToInstall));
 
   EXPECT_NE(app_data()->status(), WebKioskAppData::Status::kInstalled);
+
+  content::FetchHistogramsFromChildProcesses();
+  histogram.ExpectUniqueSample(
+      "Kiosk.WebApp.InstallError",
+      webapps::InstallResultCode::kInstallURLLoadTimeOut, 1);
 }
 
 TEST_F(WebKioskAppLauncherTest, SkipInstallation) {
   SetupAppData(/*installed*/ false);
 
-  base::RunLoop loop1;
-  EXPECT_CALL(*delegate(), ShouldSkipAppInstallation()).WillOnce(Return(true));
-  EXPECT_CALL(*delegate(), OnAppPrepared())
-      .WillOnce(RunClosure(loop1.QuitClosure()));
-  launcher()->Initialize();
-  loop1.Run();
+  ConstructLauncher(/*should_skip_install=*/true);
+
+  EXEC_AND_WAIT_FOR_CALL(launcher()->Initialize(), observer(), OnAppPrepared());
 
   EXPECT_EQ(app_data()->status(), WebKioskAppData::Status::kInit);
   EXPECT_EQ(app_data()->launch_url(), GURL());
 
-  base::RunLoop loop2;
-  EXPECT_CALL(*delegate(), OnAppLaunched())
-      .WillOnce(RunClosure(loop2.QuitClosure()));
-  launcher()->LaunchApp();
-  loop2.Run();
+  EXEC_AND_WAIT_FOR_CALL(launcher()->LaunchApp(), observer(), OnAppLaunched());
 
   CloseAppWindow();
 }
@@ -350,12 +314,11 @@ class WebKioskAppLauncherUsingLacrosTest : public WebKioskAppLauncherTest {
  public:
   WebKioskAppLauncherUsingLacrosTest()
       : browser_manager_(std::make_unique<crosapi::FakeBrowserManager>()),
-        fake_user_manager_(new ash::FakeChromeUserManager()),
-        scoped_user_manager_(base::WrapUnique(fake_user_manager_)),
-        wm_helper_(std::make_unique<exo::WMHelperChromeOS>()) {
-    scoped_feature_list_.InitAndEnableFeature(features::kWebKioskEnableLacros);
-    crosapi::browser_util::SetLacrosEnabledForTest(true);
-    crosapi::browser_util::SetLacrosPrimaryBrowserForTest(true);
+        fake_user_manager_(new FakeChromeUserManager()),
+        scoped_user_manager_(base::WrapUnique(fake_user_manager_.get())),
+        wm_helper_(std::make_unique<exo::WMHelper>()) {
+    scoped_feature_list_.InitAndEnableFeature(
+        ::features::kWebKioskEnableLacros);
   }
 
   void LoginWebKioskUser() {
@@ -375,16 +338,20 @@ class WebKioskAppLauncherUsingLacrosTest : public WebKioskAppLauncherTest {
     return browser_manager_.get();
   }
 
-  ash::FakeChromeUserManager* fake_user_manager() const {
+  FakeChromeUserManager* fake_user_manager() const {
     return fake_user_manager_;
   }
 
   exo::WMHelper* wm_helper() const { return wm_helper_.get(); }
 
  private:
+  base::AutoReset<bool> set_lacros_enabled_ =
+      BrowserSupport::SetLacrosEnabledForTest(true);
+  base::AutoReset<absl::optional<bool>> set_lacros_primary_ =
+      crosapi::browser_util::SetLacrosPrimaryBrowserForTest(true);
   base::test::ScopedFeatureList scoped_feature_list_;
   std::unique_ptr<crosapi::FakeBrowserManager> browser_manager_;
-  ash::FakeChromeUserManager* fake_user_manager_;
+  raw_ptr<FakeChromeUserManager, ExperimentalAsh> fake_user_manager_;
   user_manager::ScopedUserManager scoped_user_manager_;
   std::unique_ptr<exo::WMHelper> wm_helper_;
 };
@@ -395,25 +362,18 @@ TEST_F(WebKioskAppLauncherUsingLacrosTest, NormalFlow) {
   browser_manager()->set_new_fullscreen_window_creation_result(
       crosapi::mojom::CreationResult::kSuccess);
 
-  base::RunLoop loop1;
-  EXPECT_CALL(*delegate(), OnAppPrepared())
-      .WillOnce(RunClosure(loop1.QuitClosure()));
-  launcher()->Initialize();
-  loop1.Run();
+  EXEC_AND_WAIT_FOR_CALL(launcher()->Initialize(), observer(), OnAppPrepared());
 
   // The browser manager is running before launching app. The
   // `OnAppWindowCreated` method will be called after the lacros-chrome window
   // is created successfully.
-  base::RunLoop loop2;
-  EXPECT_CALL(*delegate(), OnAppLaunched()).Times(1);
-  EXPECT_CALL(*delegate(), OnAppWindowCreated())
-      .Times(1)
-      .WillOnce(RunClosure(loop2.QuitClosure()));
-  EXPECT_CALL(*delegate(), OnLaunchFailed(_)).Times(0);
-  browser_manager()->set_is_running(true);
+  EXPECT_CALL(observer(), OnAppLaunched()).Times(1);
+  browser_manager()->StartRunning();
   launcher()->LaunchApp();
-  CreateLacrosWindowAndNotify();
-  loop2.Run();
+
+  EXEC_AND_WAIT_FOR_CALL(CreateLacrosWindowAndNotify(), observer(),
+                         OnAppWindowCreated);
+  EXPECT_CALL(observer(), OnLaunchFailed(_)).Times(0);
 }
 
 TEST_F(WebKioskAppLauncherUsingLacrosTest, WaitBrowserManagerToRun) {
@@ -421,28 +381,20 @@ TEST_F(WebKioskAppLauncherUsingLacrosTest, WaitBrowserManagerToRun) {
   SetupAppData(/*installed*/ true);
   browser_manager()->set_new_fullscreen_window_creation_result(
       crosapi::mojom::CreationResult::kSuccess);
+  browser_manager()->StopRunning();
 
-  base::RunLoop loop1;
-  EXPECT_CALL(*delegate(), OnAppPrepared())
-      .WillOnce(RunClosure(loop1.QuitClosure()));
-  launcher()->Initialize();
-  loop1.Run();
+  EXEC_AND_WAIT_FOR_CALL(launcher()->Initialize(), observer(), OnAppPrepared());
 
   // The browser manager is not running before launching app. The crosapi call
   // will pend until it is ready. The `OnAppWindowCreated` method will be called
   // after the lacros-chrome window is created successfully.
-  base::RunLoop loop2;
-  EXPECT_CALL(*delegate(), OnAppLaunched()).Times(1);
-  EXPECT_CALL(*delegate(), OnAppWindowCreated())
-      .Times(1)
-      .WillOnce(RunClosure(loop2.QuitClosure()));
-  EXPECT_CALL(*delegate(), OnLaunchFailed(_)).Times(0);
-  browser_manager()->set_is_running(false);
+  EXPECT_CALL(observer(), OnAppLaunched()).Times(1);
   launcher()->LaunchApp();
-  browser_manager()->set_is_running(true);
   browser_manager()->StartRunning();
-  CreateLacrosWindowAndNotify();
-  loop2.Run();
+
+  EXEC_AND_WAIT_FOR_CALL(CreateLacrosWindowAndNotify(), observer(),
+                         OnAppWindowCreated);
+  EXPECT_CALL(observer(), OnLaunchFailed(_)).Times(0);
 }
 
 TEST_F(WebKioskAppLauncherUsingLacrosTest, FailToLaunchApp) {
@@ -451,24 +403,17 @@ TEST_F(WebKioskAppLauncherUsingLacrosTest, FailToLaunchApp) {
   browser_manager()->set_new_fullscreen_window_creation_result(
       crosapi::mojom::CreationResult::kBrowserNotRunning);
 
-  base::RunLoop loop1;
-  EXPECT_CALL(*delegate(), OnAppPrepared())
-      .WillOnce(RunClosure(loop1.QuitClosure()));
-  launcher()->Initialize();
-  loop1.Run();
+  EXEC_AND_WAIT_FOR_CALL(launcher()->Initialize(), observer(), OnAppPrepared());
 
   // If the lacros-chrome window fails to be created, the `OnLaunchFailed`
   // method will be called instead.
-  base::RunLoop loop2;
-  EXPECT_CALL(*delegate(), OnAppLaunched()).Times(1);
-  EXPECT_CALL(*delegate(), OnAppWindowCreated()).Times(0);
-  EXPECT_CALL(*delegate(), OnLaunchFailed(_))
-      .Times(1)
-      .WillOnce(RunClosure(loop2.QuitClosure()));
 
-  browser_manager()->set_is_running(true);
-  launcher()->LaunchApp();
-  loop2.Run();
+  EXPECT_CALL(observer(), OnAppLaunched()).Times(1);
+  EXPECT_CALL(observer(), OnAppWindowCreated).Times(0);
+  browser_manager()->StartRunning();
+
+  EXEC_AND_WAIT_FOR_CALL(launcher()->LaunchApp(), observer(),
+                         OnLaunchFailed(_));
 }
 
 }  // namespace ash

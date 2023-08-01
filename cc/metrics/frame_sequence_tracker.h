@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 
 #include "base/containers/circular_deque.h"
 #include "base/containers/flat_set.h"
+#include "base/time/time.h"
 #include "cc/cc_export.h"
 #include "cc/metrics/frame_sequence_metrics.h"
 
@@ -25,8 +26,6 @@ struct BeginFrameId;
 }  // namespace viz
 
 namespace cc {
-class ThroughputUkmReporter;
-
 // Tracks a sequence of frames to determine the throughput. It tracks this by
 // tracking the vsync sequence-numbers (from |BeginFrameArgs::sequence_number|),
 // and the presentation-timestamps (from |gfx::PresentationFeedback|). It also
@@ -116,8 +115,7 @@ class CC_EXPORT FrameSequenceTracker {
   friend class FrameSequenceTrackerTest;
 
   // Constructs a tracker for a typed sequence other than kCustom.
-  FrameSequenceTracker(FrameSequenceTrackerType type,
-                       ThroughputUkmReporter* throughput_ukm_reporter);
+  explicit FrameSequenceTracker(FrameSequenceTrackerType type);
   // Constructs a tracker for a kCustom typed sequence.
   FrameSequenceTracker(int custom_sequence_id,
                        FrameSequenceMetrics::CustomReporter custom_reporter);
@@ -218,9 +216,6 @@ class CC_EXPORT FrameSequenceTracker {
   // The time when this tracker is created, or the time when it was previously
   // scheduled to report histogram.
   base::TimeTicks first_frame_timestamp_;
-
-  // Tracks the presentation timestamp of the previous frame.
-  base::TimeTicks last_frame_presentation_timestamp_;
 
   // Keeps track of whether the impl-frame being processed did not have any
   // damage from the compositor (i.e. 'impl damage').

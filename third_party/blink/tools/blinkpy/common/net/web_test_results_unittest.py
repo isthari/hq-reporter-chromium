@@ -128,12 +128,10 @@ class WebTestResultsTest(unittest.TestCase):
     def test_was_interrupted(self):
         self.assertTrue(
             WebTestResults.results_from_string(
-                b'ADD_RESULTS({"tests":{},"interrupted":true});').
-            run_was_interrupted())
+                b'ADD_RESULTS({"tests":{},"interrupted":true});').interrupted)
         self.assertFalse(
             WebTestResults.results_from_string(
-                b'ADD_RESULTS({"tests":{},"interrupted":false});').
-            run_was_interrupted())
+                b'ADD_RESULTS({"tests":{},"interrupted":false});').interrupted)
 
     def test_chromium_revision(self):
         self.assertEqual(
@@ -167,11 +165,12 @@ class WebTestResultsTest(unittest.TestCase):
         results = WebTestResults.results_from_string(
             self.example_full_results_json)
         self.assertEqual(
-            results.result_for_test('fast/dom/unexpected-pass.html').
-            actual_results(), 'PASS')
+            results.result_for_test(
+                'fast/dom/unexpected-pass.html').actual_results(), ['PASS'])
         self.assertEqual(
-            results.result_for_test('fast/dom/unexpected-flaky.html').
-            actual_results(), 'PASS FAIL')
+            results.result_for_test(
+                'fast/dom/unexpected-flaky.html').actual_results(),
+            ['PASS', 'FAIL'])
 
     def test_expected_results(self):
         results = WebTestResults.results_from_string(
@@ -183,18 +182,15 @@ class WebTestResultsTest(unittest.TestCase):
             results.result_for_test('fast/dom/expected-flaky.html').
             expected_results(), 'PASS FAIL')
 
-    def test_has_non_reftest_mismatch(self):
+    def test_has_mismatch(self):
         results = WebTestResults.results_from_string(
             self.example_full_results_json)
         self.assertTrue(
-            results.result_for_test('fast/dom/many-mismatches.html').
-            has_non_reftest_mismatch())
+            results.result_for_test(
+                'fast/dom/many-mismatches.html').has_mismatch())
         self.assertTrue(
-            results.result_for_test('fast/dom/mismatch-implicit-baseline.html'
-                                    ).has_non_reftest_mismatch())
-        self.assertFalse(
-            results.result_for_test('fast/dom/reference-mismatch.html').
-            has_non_reftest_mismatch())
+            results.result_for_test(
+                'fast/dom/mismatch-implicit-baseline.html').has_mismatch())
 
     def test_is_missing_baseline(self):
         results = WebTestResults.results_from_string(
@@ -209,9 +205,7 @@ class WebTestResultsTest(unittest.TestCase):
     def test_suffixes_for_test_result(self):
         results = WebTestResults.results_from_string(
             self.example_full_results_json)
-        self.assertSetEqual(
-            results.result_for_test('fast/dom/many-mismatches.html').
-            suffixes_for_test_result(), {'txt', 'png'})
-        self.assertSetEqual(
-            results.result_for_test('fast/dom/missing-text.html').
-            suffixes_for_test_result(), {'txt'})
+        result = results.result_for_test('fast/dom/many-mismatches.html')
+        self.assertEqual(set(result.baselines_by_suffix()), {'txt', 'png'})
+        result = results.result_for_test('fast/dom/missing-text.html')
+        self.assertEqual(set(result.baselines_by_suffix()), {'txt'})

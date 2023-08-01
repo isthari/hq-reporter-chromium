@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,12 +10,6 @@
 #include "components/page_info/page_info_ui.h"
 #include "ui/base/models/image_model.h"
 #include "ui/views/view.h"
-
-namespace page_info {
-namespace proto {
-class SiteInfo;
-}
-}  // namespace page_info
 
 class ChromePageInfoUiDelegate;
 class PageInfo;
@@ -39,7 +33,14 @@ class PageInfoViewFactory {
     VIEW_ID_PAGE_INFO_BUTTON_CHANGE_PASSWORD,
     VIEW_ID_PAGE_INFO_BUTTON_ALLOWLIST_PASSWORD_REUSE,
     VIEW_ID_PAGE_INFO_LABEL_EV_CERTIFICATE_DETAILS,
+    VIEW_ID_PAGE_INFO_BLOCK_THIRD_PARTY_COOKIES_ROW,
+    VIEW_ID_PAGE_INFO_BLOCK_THIRD_PARTY_COOKIES_TOGGLE,
+    VIEW_ID_PAGE_INFO_BLOCK_THIRD_PARTY_COOKIES_SUBTITLE,
     VIEW_ID_PAGE_INFO_LINK_OR_BUTTON_COOKIE_DIALOG,
+    VIEW_ID_PAGE_INFO_LINK_OR_BUTTON_COOKIES_SUBPAGE,
+    VIEW_ID_PAGE_INFO_COOKIES_DESCRIPTION_LABEL,
+    VIEW_ID_PAGE_INFO_LINK_OR_BUTTON_FPS_SETTINGS,
+    VIEW_ID_PAGE_INFO_COOKIES_BUTTONS_CONTAINER,
     VIEW_ID_PAGE_INFO_LINK_OR_BUTTON_SITE_SETTINGS,
     VIEW_ID_PAGE_INFO_LINK_OR_BUTTON_CERTIFICATE_VIEWER,
     VIEW_ID_PAGE_INFO_BUTTON_END_VR,
@@ -56,12 +57,16 @@ class PageInfoViewFactory {
     VIEW_ID_PAGE_INFO_RESET_PERMISSIONS_BUTTON,
     VIEW_ID_PAGE_INFO_ABOUT_THIS_SITE_BUTTON,
     VIEW_ID_PAGE_INFO_HISTORY_BUTTON,
-    VIEW_ID_PAGE_INFO_AD_PERSONALIZATION_BUTTON
+    VIEW_ID_PAGE_INFO_AD_PERSONALIZATION_BUTTON,
+    VIEW_ID_PAGE_INFO_MORE_ABOUT_THIS_PAGE_BUTTON,
+    VIEW_ID_PERMISSION_TOGGLE_ROW_TOGGLE_BUTTON,
+    VIEW_ID_PAGE_INFO_RESET_DECISIONS_LABEL,
   };
 
   // Creates a separator view with padding on top and bottom. Use with flex
   // layout only.
-  [[nodiscard]] static std::unique_ptr<views::View> CreateSeparator();
+  [[nodiscard]] static std::unique_ptr<views::View> CreateSeparator(
+      int horizontal_inset = 0);
 
   // Creates a label container view with padding on left and right side.
   // Supports multiple multiline labels in a column (ex. title and subtitle
@@ -108,37 +113,63 @@ class PageInfoViewFactory {
   static const ui::ImageModel GetManagedPermissionIcon(
       const PageInfo::PermissionInfo& info);
 
+  // Returns the icon for third party cookies control in a state not managed
+  // by the user.
+  static const ui::ImageModel GetEnforcedCookieControlsIcon(
+      CookieControlsEnforcement enforcement);
+
   // Returns the icon for 'About this site' button.
   static const ui::ImageModel GetAboutThisSiteIcon();
 
+  // Returns a reference to the color vector icon for 'About this site'
+  // sidepanel.
+  static const gfx::VectorIcon& GetAboutThisSiteColorVectorIcon();
+
+  // Returns a reference to the vector icon for 'About this site' button.
+  static const gfx::VectorIcon& GetAboutThisSiteVectorIcon();
+
   // Returns the icon for the history button.
   static const ui::ImageModel GetHistoryIcon();
+
+  // Returns the icon for the 'Ad personalization' button.
+  static const ui::ImageModel GetAdPersonalizationIcon();
+
+  static const ui::ImageModel GetEnforcedByPolicyIcon();
+  static const ui::ImageModel GetEnforcedByExtensionIcon();
+  static const ui::ImageModel GetEnforcedBySettingsIcon();
+
+  // Returns the icon for the 'Block third party cookies' button.
+  static const ui::ImageModel GetBlockingThirdPartyCookiesIcon();
+
+  // Returns the icon for the first party sets button.
+  static const ui::ImageModel GetFpsIcon();
 
   [[nodiscard]] std::unique_ptr<views::View> CreateMainPageView(
       base::OnceClosure initialized_callback);
   [[nodiscard]] std::unique_ptr<views::View> CreateSecurityPageView();
   [[nodiscard]] std::unique_ptr<views::View> CreatePermissionPageView(
       ContentSettingsType type);
-  [[nodiscard]] std::unique_ptr<views::View> CreateAboutThisSitePageView(
-      const page_info::proto::SiteInfo& info);
   [[nodiscard]] std::unique_ptr<views::View> CreateAdPersonalizationPageView();
+  [[nodiscard]] std::unique_ptr<views::View> CreateCookiesPageView();
 
  private:
   // Creates a subpage header with back button that opens the main page, a
-  // title label with text |title|, a subtitle label with the site origin text,
-  // and close button that closes the bubble.
+  // title label with text |title|, an optional subtitle label with text
+  // |subtitle| if |subtitle| is not empty and close button that closes the
+  // bubble.
   // *------------------------------------------------*
   // | Back | |title|                           Close |
   // |------------------------------------------------|
-  // |      | Site origin (example.com)               |
+  // |      | |subtitle|
   // *-------------------------------------------------*
   [[nodiscard]] std::unique_ptr<views::View> CreateSubpageHeader(
-      std::u16string title);
+      std::u16string title,
+      std::u16string subtitle);
 
-  raw_ptr<PageInfo> presenter_;
-  raw_ptr<ChromePageInfoUiDelegate> ui_delegate_;
+  raw_ptr<PageInfo, DanglingUntriaged> presenter_;
+  raw_ptr<ChromePageInfoUiDelegate, DanglingUntriaged> ui_delegate_;
   raw_ptr<PageInfoNavigationHandler> navigation_handler_;
-  raw_ptr<PageInfoHistoryController> history_controller_;
+  raw_ptr<PageInfoHistoryController, DanglingUntriaged> history_controller_;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_PAGE_INFO_PAGE_INFO_VIEW_FACTORY_H_

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -79,7 +79,7 @@ public class PlatformSensor implements SensorEventListener {
      * Creates new PlatformSensor.
      *
      * @param provider object that shares SensorManager and polling thread Handler with sensors.
-     * @param sensorType type of the sensor to be constructed. @see android.hardware.Sensor.TYPE_*
+     * @param type type of the sensor to be constructed. @see android.hardware.Sensor.TYPE_*
      * @param nativePlatformSensorAndroid identifier of device::PlatformSensorAndroid instance.
      */
     @CalledByNative
@@ -88,47 +88,46 @@ public class PlatformSensor implements SensorEventListener {
         SensorManager sensorManager = provider.getSensorManager();
         if (sensorManager == null) return null;
 
-        List<Sensor> sensors;
+        int sensorType;
         int readingCount;
         switch (type) {
             case SensorType.AMBIENT_LIGHT:
-                sensors = provider.getSensorManager().getSensorList(Sensor.TYPE_LIGHT);
+                sensorType = Sensor.TYPE_LIGHT;
                 readingCount = 1;
                 break;
             case SensorType.ACCELEROMETER:
-                sensors = provider.getSensorManager().getSensorList(Sensor.TYPE_ACCELEROMETER);
+                sensorType = Sensor.TYPE_ACCELEROMETER;
                 readingCount = 3;
                 break;
             case SensorType.LINEAR_ACCELERATION:
-                sensors =
-                        provider.getSensorManager().getSensorList(Sensor.TYPE_LINEAR_ACCELERATION);
+                sensorType = Sensor.TYPE_LINEAR_ACCELERATION;
                 readingCount = 3;
                 break;
             case SensorType.GRAVITY:
-                sensors = provider.getSensorManager().getSensorList(Sensor.TYPE_GRAVITY);
+                sensorType = Sensor.TYPE_GRAVITY;
                 readingCount = 3;
                 break;
             case SensorType.GYROSCOPE:
-                sensors = provider.getSensorManager().getSensorList(Sensor.TYPE_GYROSCOPE);
+                sensorType = Sensor.TYPE_GYROSCOPE;
                 readingCount = 3;
                 break;
             case SensorType.MAGNETOMETER:
-                sensors = provider.getSensorManager().getSensorList(Sensor.TYPE_MAGNETIC_FIELD);
+                sensorType = Sensor.TYPE_MAGNETIC_FIELD;
                 readingCount = 3;
                 break;
             case SensorType.ABSOLUTE_ORIENTATION_QUATERNION:
-                sensors = provider.getSensorManager().getSensorList(Sensor.TYPE_ROTATION_VECTOR);
+                sensorType = Sensor.TYPE_ROTATION_VECTOR;
                 readingCount = 4;
                 break;
             case SensorType.RELATIVE_ORIENTATION_QUATERNION:
-                sensors =
-                        provider.getSensorManager().getSensorList(Sensor.TYPE_GAME_ROTATION_VECTOR);
+                sensorType = Sensor.TYPE_GAME_ROTATION_VECTOR;
                 readingCount = 4;
                 break;
             default:
                 return null;
         }
 
+        List<Sensor> sensors = sensorManager.getSensorList(sensorType);
         if (sensors.isEmpty()) return null;
         return new PlatformSensor(
                 sensors.get(0), readingCount, provider, nativePlatformSensorAndroid);
@@ -181,13 +180,11 @@ public class PlatformSensor implements SensorEventListener {
 
     /**
      * Requests sensor to start polling for data.
-     *
-     * @return boolean true if successful, false otherwise.
      */
     @CalledByNative
-    protected boolean startSensor(double frequency) {
+    protected void startSensor(double frequency) {
         // If we already polling hw with same frequency, do not restart the sensor.
-        if (mCurrentPollingFrequency == frequency) return true;
+        if (mCurrentPollingFrequency == frequency) return;
 
         // Unregister old listener if polling frequency has changed.
         unregisterListener();
@@ -205,11 +202,12 @@ public class PlatformSensor implements SensorEventListener {
 
         if (!sensorStarted) {
             stopSensor();
-            return sensorStarted;
+            synchronized (mLock) {
+                sensorError();
+            }
+        } else {
+            mCurrentPollingFrequency = frequency;
         }
-
-        mCurrentPollingFrequency = frequency;
-        return sensorStarted;
     }
 
     private void unregisterListener() {
@@ -245,7 +243,6 @@ public class PlatformSensor implements SensorEventListener {
      */
     @CalledByNative
     protected void sensorDestroyed() {
-        stopSensor();
         synchronized (mLock) {
             mNativePlatformSensorAndroid = 0;
         }
@@ -263,8 +260,10 @@ public class PlatformSensor implements SensorEventListener {
      */
     @GuardedBy("mLock")
     protected void sensorError() {
-        PlatformSensorJni.get().notifyPlatformSensorError(
-                mNativePlatformSensorAndroid, PlatformSensor.this);
+        if (mNativePlatformSensorAndroid != 0) {
+            PlatformSensorJni.get().notifyPlatformSensorError(
+                    mNativePlatformSensorAndroid, PlatformSensor.this);
+        }
     }
 
     /**

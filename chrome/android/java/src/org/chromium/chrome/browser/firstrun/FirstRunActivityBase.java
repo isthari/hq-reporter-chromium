@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,20 +11,33 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.os.SystemClock;
 
+import androidx.annotation.CallSuper;
+import androidx.annotation.VisibleForTesting;
+
 import org.chromium.base.IntentUtils;
 import org.chromium.base.Log;
 import org.chromium.base.metrics.RecordHistogram;
+import org.chromium.base.supplier.ObservableSupplier;
+import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.base.supplier.OneshotSupplier;
 import org.chromium.base.supplier.OneshotSupplierImpl;
+import org.chromium.chrome.browser.back_press.BackPressHelper;
+import org.chromium.chrome.browser.back_press.BackPressManager;
+import org.chromium.chrome.browser.back_press.SecondaryActivityBackPressUma.SecondaryActivity;
 import org.chromium.chrome.browser.customtabs.CustomTabsConnection;
 import org.chromium.chrome.browser.init.AsyncInitializationActivity;
+import org.chromium.chrome.browser.metrics.SimpleStartupForegroundSessionDetector;
 import org.chromium.chrome.browser.metrics.UmaUtils;
 import org.chromium.chrome.browser.policy.PolicyServiceFactory;
 import org.chromium.chrome.browser.profiles.ProfileManagerUtils;
+import org.chromium.components.browser_ui.widget.gesture.BackPressHandler;
 import org.chromium.components.policy.PolicyService;
+import org.chromium.components.signin.AccountManagerFacade;
+import org.chromium.components.signin.AccountManagerFacadeProvider;
 
 /** Base class for First Run Experience. */
-public abstract class FirstRunActivityBase extends AsyncInitializationActivity {
+public abstract class FirstRunActivityBase
+        extends AsyncInitializationActivity implements BackPressHandler {
     private static final String TAG = "FirstRunActivity";
 
     public static final String EXTRA_COMING_FROM_CHROME_ICON = "Extra.ComingFromChromeIcon";
@@ -43,24 +56,33 @@ public abstract class FirstRunActivityBase extends AsyncInitializationActivity {
     static final String SHOW_SEARCH_ENGINE_PAGE = "ShowSearchEnginePage";
     static final String SHOW_SYNC_CONSENT_PAGE = "ShowSyncConsent";
 
-    static final String OPEN_ADVANCED_SYNC_SETTINGS = "OpenAdvancedSyncSettings";
-
     public static final boolean DEFAULT_METRICS_AND_CRASH_REPORTING = true;
+
+    private static PolicyLoadListenerFactory sPolicyLoadListenerFactory;
 
     private boolean mNativeInitialized;
 
     private final FirstRunAppRestrictionInfo mFirstRunAppRestrictionInfo;
     private final OneshotSupplierImpl<PolicyService> mPolicyServiceSupplier;
-    private final PolicyLoadListener mPolicyLoadListener;
+    private final ObservableSupplierImpl<Boolean> mBackPressStateSupplier =
+            new ObservableSupplierImpl<>() {
+                // Always intercept back press.
+                { set(true); }
+            };
+    private PolicyLoadListener mPolicyLoadListener;
 
     private final long mStartTime;
     private long mNativeInitializedTime;
 
+    private ChildAccountStatusSupplier mChildAccountStatusSupplier;
+
     public FirstRunActivityBase() {
         mFirstRunAppRestrictionInfo = FirstRunAppRestrictionInfo.takeMaybeInitialized();
         mPolicyServiceSupplier = new OneshotSupplierImpl<>();
-        mPolicyLoadListener =
-                new PolicyLoadListener(mFirstRunAppRestrictionInfo, mPolicyServiceSupplier);
+        mPolicyLoadListener = sPolicyLoadListenerFactory == null
+                ? new PolicyLoadListener(mFirstRunAppRestrictionInfo, mPolicyServiceSupplier)
+                : sPolicyLoadListenerFactory.inject(
+                        mFirstRunAppRestrictionInfo, mPolicyServiceSupplier);
         mStartTime = SystemClock.elapsedRealtime();
         mPolicyLoadListener.onAvailable(this::onPolicyLoadListenerAvailable);
     }
@@ -76,21 +98,48 @@ public abstract class FirstRunActivityBase extends AsyncInitializationActivity {
         return true;
     }
 
-    // Activity:
+    @Override
+    @CallSuper
+    public void triggerLayoutInflation() {
+        AccountManagerFacade accountManagerFacade = AccountManagerFacadeProvider.getInstance();
+        mChildAccountStatusSupplier =
+                new ChildAccountStatusSupplier(accountManagerFacade, mFirstRunAppRestrictionInfo);
+    }
 
+    @Override
+    protected void onPreCreate() {
+        super.onPreCreate();
+        if (BackPressManager.isSecondaryActivityEnabled()) {
+            BackPressHelper.create(
+                    this, getOnBackPressedDispatcher(), this, getSecondaryActivity());
+        } else {
+            BackPressHelper.create(this, getOnBackPressedDispatcher(), () -> {
+                handleBackPress();
+                return true;
+            }, getSecondaryActivity());
+        }
+    }
+
+    // Activity:
     @Override
     public void onPause() {
         super.onPause();
-        UmaUtils.recordBackgroundTime();
+        // As with onResume() below, for historical reasons the FRE has been able to report
+        // background time before post-native initialization, unlike other activities. See
+        // http://crrev.com/436530.
+        UmaUtils.recordBackgroundTimeWithNative();
         flushPersistentData();
     }
 
     @Override
     public void onResume() {
+        SimpleStartupForegroundSessionDetector.discardSession();
         super.onResume();
-        // Since the FRE may be shown before any tab is shown, mark that this is the point at
-        // which Chrome went to foreground.
-        UmaUtils.recordForegroundStartTime();
+        // Since the FRE may be shown before any tab is shown, mark that this is the point at which
+        // Chrome went to foreground. Other activities can only
+        // recordForegroundStartTimeWithNative() after the post-native initialization has started.
+        // See http://crrev.com/436530.
+        UmaUtils.recordForegroundStartTimeWithNative();
     }
 
     @Override
@@ -110,6 +159,19 @@ public abstract class FirstRunActivityBase extends AsyncInitializationActivity {
         mPolicyLoadListener.destroy();
         mFirstRunAppRestrictionInfo.destroy();
     }
+
+    @Override
+    public ObservableSupplier<Boolean> getHandleBackPressChangedSupplier() {
+        return mBackPressStateSupplier;
+    }
+
+    /**
+     * Called when back press is intercepted.
+     */
+    @Override
+    public abstract @BackPressResult int handleBackPress();
+
+    public abstract @SecondaryActivity int getSecondaryActivity();
 
     protected void flushPersistentData() {
         if (mNativeInitialized) {
@@ -177,7 +239,14 @@ public abstract class FirstRunActivityBase extends AsyncInitializationActivity {
      * @see PolicyLoadListener for return value expectation.
      */
     public OneshotSupplier<Boolean> getPolicyLoadListener() {
-        return mPolicyLoadListener;
+      return mPolicyLoadListener;
+    }
+
+    /**
+     * Returns the supplier that supplies child account status.
+     */
+    public OneshotSupplier<Boolean> getChildAccountStatusSupplier() {
+        return mChildAccountStatusSupplier;
     }
 
     /**
@@ -196,5 +265,24 @@ public abstract class FirstRunActivityBase extends AsyncInitializationActivity {
                 IntentUtils.safeGetBundleExtra(freIntent, EXTRA_CHROME_LAUNCH_INTENT_EXTRAS);
         CustomTabsConnection.getInstance().sendFirstRunCallbackIfNecessary(
                 launchIntentExtras, complete);
+    }
+
+    /**
+     * Allows tests to inject a fake/mock {@link PolicyLoadListener} into {@link
+     * FirstRunActivityBase}'s constructor.
+     */
+    public interface PolicyLoadListenerFactory {
+        PolicyLoadListener inject(FirstRunAppRestrictionInfo appRestrictionInfo,
+                OneshotSupplier<PolicyService> policyServiceSupplier);
+    }
+
+    /**
+     * Forces the {@link FirstRunActivityBase}'s constructor to use a {@link PolicyLoadListener}
+     * defined by a test, instead of creating its own instance.
+     */
+    @VisibleForTesting
+    public static void setPolicyLoadListenerFactoryForTesting(
+            PolicyLoadListenerFactory policyLoadListenerFactory) {
+        sPolicyLoadListenerFactory = policyLoadListenerFactory;
     }
 }

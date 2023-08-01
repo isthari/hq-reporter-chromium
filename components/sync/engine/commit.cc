@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -43,10 +43,7 @@ std::string RandASCIIString(size_t length) {
 SyncCommitError GetSyncCommitError(SyncerError syncer_error) {
   switch (syncer_error.value()) {
     case SyncerError::UNSET:
-    case SyncerError::CANNOT_DO_WORK:
     case SyncerError::SYNCER_OK:
-    case SyncerError::DATATYPE_TRIGGERED_RETRY:
-    case SyncerError::SERVER_MORE_TO_DOWNLOAD:
       NOTREACHED();
       break;
     case SyncerError::NETWORK_CONNECTION_UNAVAILABLE:
@@ -62,7 +59,6 @@ SyncCommitError GetSyncCommitError(SyncerError syncer_error) {
     case SyncerError::SERVER_RETURN_CLEAR_PENDING:
     case SyncerError::SERVER_RETURN_NOT_MY_BIRTHDAY:
     case SyncerError::SERVER_RETURN_CONFLICT:
-    case SyncerError::SERVER_RETURN_PARTIAL_FAILURE:
     case SyncerError::SERVER_RETURN_CLIENT_DATA_OBSOLETE:
     case SyncerError::SERVER_RETURN_ENCRYPTION_OBSOLETE:
     case SyncerError::SERVER_RETURN_DISABLED_BY_ADMIN:
@@ -135,7 +131,14 @@ std::unique_ptr<Commit> Commit::Init(
       enabled_types, proxy_tabs_datatype_enabled, cookie_jar_mismatch,
       active_devices_invalidation_info.IsSingleClientForTypes(
           contributed_data_types),
-      active_devices_invalidation_info.fcm_registration_tokens(),
+      active_devices_invalidation_info
+          .IsSingleClientWithStandaloneInvalidationsForTypes(
+              contributed_data_types),
+      active_devices_invalidation_info
+          .IsSingleClientWithOldInvalidationsForTypes(contributed_data_types),
+      active_devices_invalidation_info.all_fcm_registration_tokens(),
+      active_devices_invalidation_info
+          .GetFcmRegistrationTokensForInterestedClients(contributed_data_types),
       commit_message);
 
   // Finally, serialize all our contributions.

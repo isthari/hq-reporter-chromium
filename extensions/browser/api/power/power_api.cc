@@ -1,14 +1,13 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "extensions/browser/api/power/power_api.h"
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
 #include "base/lazy_instance.h"
-#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/device_service.h"
+#include "extensions/browser/api/power/activity_reporter_delegate.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/api/power.h"
 #include "extensions/common/extension.h"
@@ -28,7 +27,7 @@ device::mojom::WakeLockType LevelToWakeLockType(api::power::Level level) {
     case api::power::LEVEL_NONE:
       return device::mojom::WakeLockType::kPreventDisplaySleep;
   }
-  NOTREACHED() << "Unhandled level " << level;
+  NOTREACHED() << "Unhandled power level: " << level;
   return device::mojom::WakeLockType::kPreventDisplaySleep;
 }
 
@@ -38,8 +37,8 @@ base::LazyInstance<BrowserContextKeyedAPIFactory<PowerAPI>>::DestructorAtExit
 }  // namespace
 
 ExtensionFunction::ResponseAction PowerRequestKeepAwakeFunction::Run() {
-  std::unique_ptr<api::power::RequestKeepAwake::Params> params(
-      api::power::RequestKeepAwake::Params::Create(args()));
+  absl::optional<api::power::RequestKeepAwake::Params> params =
+      api::power::RequestKeepAwake::Params::Create(args());
   EXTENSION_FUNCTION_VALIDATE(params);
   PowerAPI::Get(browser_context())->AddRequest(extension_id(), params->level);
   return RespondNow(NoArguments());
@@ -49,6 +48,17 @@ ExtensionFunction::ResponseAction PowerReleaseKeepAwakeFunction::Run() {
   PowerAPI::Get(browser_context())->RemoveRequest(extension_id());
   return RespondNow(NoArguments());
 }
+
+#if BUILDFLAG(IS_CHROMEOS)
+ExtensionFunction::ResponseAction PowerReportActivityFunction::Run() {
+  absl::optional<std::string> error =
+      extensions::ActivityReporterDelegate::GetDelegate()->ReportActivity();
+  if (error.has_value()) {
+    return RespondNow(Error(error.value()));
+  }
+  return RespondNow(NoArguments());
+}
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 // static
 PowerAPI* PowerAPI::Get(content::BrowserContext* context) {
@@ -105,8 +115,7 @@ PowerAPI::PowerAPI(content::BrowserContext* context)
   ExtensionRegistry::Get(browser_context_)->AddObserver(this);
 }
 
-PowerAPI::~PowerAPI() {
-}
+PowerAPI::~PowerAPI() = default;
 
 void PowerAPI::UpdateWakeLock() {
   if (extension_levels_.empty()) {

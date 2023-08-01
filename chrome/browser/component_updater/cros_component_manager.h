@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,12 @@
 
 #include <string>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/ref_counted.h"
 
 namespace base {
 class FilePath;
+class Version;
 }
 
 namespace component_updater {
@@ -103,6 +104,12 @@ class CrOSComponentManager
   // Returns true if the component was successfully unloaded
   // or false if it couldn't be unloaded or already wasn't loaded.
   virtual bool Unload(const std::string& name) = 0;
+
+  // Gets version of a component. `version_callback` runs on the calling thread.
+  // Return invalid base::Version() as `version` if the error occurs.
+  virtual void GetVersion(const std::string& name,
+                          base::OnceCallback<void(const base::Version& version)>
+                              version_callback) const = 0;
 
   // Saves the name and install path of a compatible component.
   virtual void RegisterCompatiblePath(const std::string& name,

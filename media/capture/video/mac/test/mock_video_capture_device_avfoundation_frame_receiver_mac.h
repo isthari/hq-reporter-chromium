@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,9 +29,7 @@ class MockVideoCaptureDeviceAVFoundationFrameReceiver
 
   MOCK_METHOD(void,
               ReceiveExternalGpuMemoryBufferFrame,
-              (CapturedExternalVideoBuffer frame,
-               std::vector<CapturedExternalVideoBuffer> scaled_frames,
-               base::TimeDelta timestamp),
+              (CapturedExternalVideoBuffer frame, base::TimeDelta timestamp),
               (override));
 
   MOCK_METHOD(void,
@@ -49,6 +47,8 @@ class MockVideoCaptureDeviceAVFoundationFrameReceiver
                const base::Location& from_here,
                const std::string& reason),
               (override));
+
+  MOCK_METHOD(void, ReceiveCaptureConfigurationChanged, (), (override));
 };
 
 }  // namespace media

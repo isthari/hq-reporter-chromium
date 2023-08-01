@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,9 @@
 
 #include <memory>
 
-#include "base/bind.h"
+#include "base/check_deref.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "build/build_config.h"
@@ -84,15 +85,16 @@ class ExtensionWebUITest : public testing::Test {
 TEST_F(ExtensionWebUITest, ExtensionURLOverride) {
   const char kOverrideResource[] = "1.html";
   // Register a non-component extension.
-  DictionaryBuilder manifest;
-  manifest.Set(manifest_keys::kName, "ext1")
-      .Set(manifest_keys::kVersion, "0.1")
-      .Set(manifest_keys::kManifestVersion, 2)
-      .Set(api::chrome_url_overrides::ManifestKeys::kChromeUrlOverrides,
-           DictionaryBuilder().Set("bookmarks", kOverrideResource).Build());
+  auto manifest =
+      base::Value::Dict()
+          .Set(manifest_keys::kName, "ext1")
+          .Set(manifest_keys::kVersion, "0.1")
+          .Set(manifest_keys::kManifestVersion, 2)
+          .Set(api::chrome_url_overrides::ManifestKeys::kChromeUrlOverrides,
+               base::Value::Dict().Set("bookmarks", kOverrideResource));
   scoped_refptr<const Extension> ext_unpacked(
       ExtensionBuilder()
-          .SetManifest(manifest.Build())
+          .SetManifest(std::move(manifest))
           .SetLocation(ManifestLocation::kUnpacked)
           .SetID("abcdefghijabcdefghijabcdefghijaa")
           .Build());
@@ -120,15 +122,16 @@ TEST_F(ExtensionWebUITest, ExtensionURLOverride) {
 
   // Register a component extension
   const char kOverrideResource2[] = "2.html";
-  DictionaryBuilder manifest2;
-  manifest2.Set(manifest_keys::kName, "ext2")
-      .Set(manifest_keys::kVersion, "0.1")
-      .Set(manifest_keys::kManifestVersion, 2)
-      .Set(api::chrome_url_overrides::ManifestKeys::kChromeUrlOverrides,
-           DictionaryBuilder().Set("bookmarks", kOverrideResource2).Build());
+  auto manifest2 =
+      base::Value::Dict()
+          .Set(manifest_keys::kName, "ext2")
+          .Set(manifest_keys::kVersion, "0.1")
+          .Set(manifest_keys::kManifestVersion, 2)
+          .Set(api::chrome_url_overrides::ManifestKeys::kChromeUrlOverrides,
+               base::Value::Dict().Set("bookmarks", kOverrideResource2));
   scoped_refptr<const Extension> ext_component(
       ExtensionBuilder()
-          .SetManifest(manifest2.Build())
+          .SetManifest(std::move(manifest2))
           .SetLocation(ManifestLocation::kComponent)
           .SetID("bbabcdefghijabcdefghijabcdefghij")
           .Build());
@@ -176,7 +179,7 @@ TEST_F(ExtensionWebUITest, TestRemovingDuplicateEntriesForHosts) {
   // happen because of https://crbug.com/782959.
   scoped_refptr<const Extension> extension =
       ExtensionBuilder("extension")
-          .SetManifestPath({"chrome_url_overrides", "newtab"}, "newtab.html")
+          .SetManifestPath("chrome_url_overrides.newtab", "newtab.html")
           .Build();
 
   const GURL newtab_url = extension->GetResourceURL("newtab.html");
@@ -184,25 +187,20 @@ TEST_F(ExtensionWebUITest, TestRemovingDuplicateEntriesForHosts) {
   PrefService* prefs = profile_->GetPrefs();
   {
     // Add multiple entries for the same extension.
-    DictionaryPrefUpdate update(prefs, ExtensionWebUI::kExtensionURLOverrides);
-    base::Value* all_overrides = update.Get();
-    base::Value newtab_list(base::Value::Type::LIST);
-    {
-      base::Value newtab(base::Value::Type::DICTIONARY);
-      newtab.SetKey("entry", base::Value(newtab_url.spec()));
-      newtab.SetKey("active", base::Value(true));
-      newtab_list.Append(std::move(newtab));
-    }
-    {
-      base::Value newtab(base::Value::Type::DICTIONARY);
-      newtab.SetKey(
-          "entry",
-          base::Value(extension->GetResourceURL("oldtab.html").spec()));
-      newtab.SetKey("active", base::Value(true));
-      newtab_list.Append(std::move(newtab));
-    }
+    ScopedDictPrefUpdate update(prefs, ExtensionWebUI::kExtensionURLOverrides);
+    base::Value::Dict& all_overrides = update.Get();
 
-    all_overrides->SetKey("newtab", std::move(newtab_list));
+    auto newtab_list =
+        base::Value::List()
+            .Append(base::Value::Dict()
+                        .Set("entry", newtab_url.spec())
+                        .Set("active", true))
+            .Append(base::Value::Dict()
+                        .Set("entry",
+                             extension->GetResourceURL("oldtab.html").spec())
+                        .Set("active", true));
+
+    all_overrides.Set("newtab", std::move(newtab_list));
   }
 
   extension_service_->AddExtension(extension.get());
@@ -212,16 +210,14 @@ TEST_F(ExtensionWebUITest, TestRemovingDuplicateEntriesForHosts) {
 
   // Duplicates should be removed (in response to ExtensionSystem::ready()).
   // Only a single entry should remain.
-  const base::Value* overrides =
-      prefs->GetDictionary(ExtensionWebUI::kExtensionURLOverrides);
-  ASSERT_TRUE(overrides);
-  const base::Value* newtab_overrides =
-      overrides->FindKeyOfType("newtab", base::Value::Type::LIST);
+  const base::Value::Dict& overrides =
+      prefs->GetDict(ExtensionWebUI::kExtensionURLOverrides);
+  const base::Value::List* newtab_overrides = overrides.FindList("newtab");
   ASSERT_TRUE(newtab_overrides);
-  ASSERT_EQ(1u, newtab_overrides->GetList().size());
-  const base::Value& override_dict = newtab_overrides->GetList()[0];
-  EXPECT_EQ(newtab_url.spec(), override_dict.FindKey("entry")->GetString());
-  EXPECT_TRUE(override_dict.FindKey("active")->GetBool());
+  ASSERT_EQ(1u, newtab_overrides->size());
+  const base::Value::Dict& override_dict = (*newtab_overrides)[0].GetDict();
+  EXPECT_EQ(newtab_url.spec(), CHECK_DEREF(override_dict.FindString("entry")));
+  EXPECT_TRUE(override_dict.FindBool("active").value_or(false));
 }
 
 TEST_F(ExtensionWebUITest, TestFaviconAlwaysAvailable) {
@@ -267,8 +263,8 @@ TEST_F(ExtensionWebUITest, TestFaviconAlwaysAvailable) {
 
 TEST_F(ExtensionWebUITest, TestNumExtensionsOverridingURL) {
   auto load_extension_overriding_newtab = [this](const char* name) {
-    std::unique_ptr<base::Value> chrome_url_overrides =
-        DictionaryBuilder().Set("newtab", "newtab.html").Build();
+    base::Value::Dict chrome_url_overrides =
+        base::Value::Dict().Set("newtab", "newtab.html");
     scoped_refptr<const Extension> extension =
         ExtensionBuilder(name)
             .SetLocation(ManifestLocation::kInternal)

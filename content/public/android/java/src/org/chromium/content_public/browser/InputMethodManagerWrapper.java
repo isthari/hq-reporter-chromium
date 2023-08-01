@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -59,12 +59,6 @@ public interface InputMethodManagerWrapper {
      * #updateExtractedText(View,int, ExtractedText)
      */
     void updateExtractedText(View view, int token, android.view.inputmethod.ExtractedText text);
-
-    /**
-     * Notify that a user took some action with the current input method. Without this call
-     * an input method app may wait longer when the user switches methods within the app.
-     */
-    void notifyUserAction();
 
     /**
      * Call this when WindowAndroid object has changed.

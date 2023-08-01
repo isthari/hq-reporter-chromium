@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,6 +30,7 @@
 #include "components/policy/core/common/cloud/cloud_policy_manager.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_value_store.h"
+#include "components/supervised_user/core/common/buildflags.h"
 #include "components/sync_preferences/pref_service_syncable.h"
 #include "content/public/browser/network_service_instance.h"
 #include "services/preferences/public/mojom/tracked_preference_validation_delegate.mojom.h"
@@ -37,9 +38,9 @@
 
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS)
 #include "chrome/browser/content_settings/content_settings_supervised_provider.h"
-#include "chrome/browser/supervised_user/supervised_user_constants.h"
-#include "chrome/browser/supervised_user/supervised_user_settings_service.h"
 #include "chrome/browser/supervised_user/supervised_user_settings_service_factory.h"
+#include "components/supervised_user/core/browser/supervised_user_settings_service.h"
+#include "components/supervised_user/core/common/supervised_user_constants.h"
 #endif
 
 namespace {
@@ -61,8 +62,7 @@ void CreateProfileReadme(const base::FilePath& profile_path) {
   std::string product_name = l10n_util::GetStringUTF8(IDS_PRODUCT_NAME);
   std::string readme_text = base::StringPrintf(
       kReadmeText, product_name.c_str(), product_name.c_str());
-  if (base::WriteFile(readme_path, readme_text.data(), readme_text.size()) ==
-      -1) {
+  if (!base::WriteFile(readme_path, readme_text)) {
     LOG(ERROR) << "Could not create README file.";
   }
 }
@@ -94,7 +94,8 @@ std::unique_ptr<sync_preferences::PrefServiceSyncable> CreatePrefService(
     SimpleFactoryKey* key,
     const base::FilePath& path,
     bool async_prefs) {
-  SupervisedUserSettingsService* supervised_user_settings = nullptr;
+  supervised_user::SupervisedUserSettingsService* supervised_user_settings =
+      nullptr;
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS)
   supervised_user_settings =
       SupervisedUserSettingsServiceFactory::GetForKey(key);

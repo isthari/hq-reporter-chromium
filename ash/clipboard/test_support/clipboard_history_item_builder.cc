@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,9 @@
 #include "base/notreached.h"
 #include "base/pickle.h"
 #include "base/strings/string_util.h"
-#include "base/strings/utf_string_conversions.h"
 #include "ui/base/clipboard/clipboard_data.h"
 #include "ui/base/clipboard/clipboard_format_type.h"
 #include "ui/base/clipboard/custom_data_helper.h"
-#include "ui/gfx/codec/png_codec.h"
 #include "ui/gfx/image/image_unittest_util.h"
 
 namespace ash {
@@ -23,6 +21,10 @@ ClipboardHistoryItemBuilder::ClipboardHistoryItemBuilder() = default;
 ClipboardHistoryItemBuilder::~ClipboardHistoryItemBuilder() = default;
 
 ClipboardHistoryItem ClipboardHistoryItemBuilder::Build() const {
+  return ClipboardHistoryItem(BuildData());
+}
+
+ui::ClipboardData ClipboardHistoryItemBuilder::BuildData() const {
   ui::ClipboardData data;
   if (text_.has_value())
     data.set_text(text_.value());
@@ -40,7 +42,7 @@ ClipboardHistoryItem ClipboardHistoryItemBuilder::Build() const {
     data.SetCustomData(custom_format_.value(), custom_data_.value());
   if (web_smart_paste_.has_value())
     data.set_web_smart_paste(web_smart_paste_.value());
-  return ClipboardHistoryItem(std::move(data));
+  return data;
 }
 
 ClipboardHistoryItemBuilder& ClipboardHistoryItemBuilder::Clear() {
@@ -62,7 +64,7 @@ ClipboardHistoryItemBuilder& ClipboardHistoryItemBuilder::SetFormat(
     case ui::ClipboardInternalFormat::kText:
       return SetText("Text");
     case ui::ClipboardInternalFormat::kHtml:
-      return SetMarkup("Markup");
+      return SetMarkup("Markup with an <img> tag");
     case ui::ClipboardInternalFormat::kSvg:
       return SetMarkup("Svg");
     case ui::ClipboardInternalFormat::kRtf:
@@ -215,9 +217,9 @@ ClipboardHistoryItemBuilder& ClipboardHistoryItemBuilder::SetFileSystemData(
           {{kFileSystemSourcesType, base::JoinString(source_list, u"\n")}}),
       &custom_data);
 
-  return SetCustomData(ui::ClipboardFormatType::WebCustomDataType().GetName(),
-                       std::string(static_cast<const char*>(custom_data.data()),
-                                   custom_data.size()));
+  return SetCustomData(
+      ui::ClipboardFormatType::WebCustomDataType().GetName(),
+      std::string(custom_data.data_as_char(), custom_data.size()));
 }
 
 ClipboardHistoryItemBuilder& ClipboardHistoryItemBuilder::SetWebSmartPaste(

@@ -1,13 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROMECAST_MEDIA_AUDIO_CAST_AUDIO_OUTPUT_DEVICE_H_
 #define CHROMECAST_MEDIA_AUDIO_CAST_AUDIO_OUTPUT_DEVICE_H_
 
-#include <cstdint>
 #include <memory>
-#include <string>
 
 #include "base/memory/scoped_refptr.h"
 #include "base/synchronization/lock.h"
@@ -19,10 +17,6 @@
 #include "media/mojo/mojom/cast_application_media_info_manager.mojom.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/remote.h"
-
-namespace media {
-class AudioBus;
-}  // namespace media
 
 namespace chromecast {
 namespace media {
@@ -66,14 +60,13 @@ class CastAudioOutputDevice : public ::media::AudioRendererSink {
   bool IsOptimizedForHardwareParameters() override;
   bool CurrentThreadIsRenderingThread() override;
 
-  void OnBackendError();
-  int ReadBuffer(base::TimeDelta delay, ::media::AudioBus* audio_bus);
-
   const scoped_refptr<base::SequencedTaskRunner> task_runner_;
-  const base::SequenceBound<Internal> internal_;
+  base::SequenceBound<std::unique_ptr<Internal>> internal_;
+  Internal* internal_ptr_ = nullptr;
 
-  base::Lock callback_lock_;
-  RenderCallback* render_callback_ GUARDED_BY(callback_lock_) = nullptr;
+  mojo::PendingRemote<mojom::AudioSocketBroker> pending_socket_broker_;
+  mojo::PendingRemote<::media::mojom::CastApplicationMediaInfoManager>
+      pending_app_media_info_manager_;
 };
 
 }  // namespace media

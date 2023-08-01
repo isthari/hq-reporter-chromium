@@ -1,11 +1,11 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ios/chrome/browser/browsing_data/browsing_data_counter_wrapper.h"
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/memory/ptr_util.h"
 #include "components/browsing_data/core/counters/autofill_counter.h"
 #include "components/browsing_data/core/counters/browsing_data_counter.h"
@@ -15,20 +15,21 @@
 #include "components/keyed_service/core/service_access_type.h"
 #include "components/password_manager/core/browser/password_store_interface.h"
 #include "components/prefs/pref_service.h"
-#include "components/sync/driver/sync_service.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#include "components/sync/service/sync_service.h"
 #include "ios/chrome/browser/browsing_data/browsing_data_features.h"
 #include "ios/chrome/browser/browsing_data/cache_counter.h"
 #include "ios/chrome/browser/history/history_service_factory.h"
 #include "ios/chrome/browser/history/web_history_service_factory.h"
+#include "ios/chrome/browser/passwords/ios_chrome_account_password_store_factory.h"
 #include "ios/chrome/browser/passwords/ios_chrome_password_store_factory.h"
+#include "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
 #include "ios/chrome/browser/sync/sync_service_factory.h"
 #include "ios/chrome/browser/webdata_services/web_data_service_factory.h"
 
 namespace {
 
 // Creates a new instance of BrowsingDataCounter that is counting the data
-// for |browser_state| related to a given deletion preference |pref_name|.
+// for `browser_state` related to a given deletion preference `pref_name`.
 std::unique_ptr<browsing_data::BrowsingDataCounter>
 CreateCounterForBrowserStateAndPref(ChromeBrowserState* browser_state,
                                     base::StringPiece pref_name) {
@@ -49,7 +50,8 @@ CreateCounterForBrowserStateAndPref(ChromeBrowserState* browser_state,
     return std::make_unique<browsing_data::PasswordsCounter>(
         IOSChromePasswordStoreFactory::GetForBrowserState(
             browser_state, ServiceAccessType::EXPLICIT_ACCESS),
-        /*account_store=*/nullptr,
+        IOSChromeAccountPasswordStoreFactory::GetForBrowserState(
+            browser_state, ServiceAccessType::EXPLICIT_ACCESS),
         SyncServiceFactory::GetForBrowserState(browser_state));
   }
 

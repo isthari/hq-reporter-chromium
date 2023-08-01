@@ -1,10 +1,9 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.components.autofill;
 
-import android.annotation.TargetApi;
 import android.content.ComponentName;
 import android.content.Context;
 import android.graphics.Rect;
@@ -13,10 +12,12 @@ import android.view.View;
 import android.view.autofill.AutofillManager;
 import android.view.autofill.AutofillValue;
 
+import androidx.annotation.RequiresApi;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.CollectionUtil;
 import org.chromium.base.Log;
+import org.chromium.build.annotations.DoNotStripLogs;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -24,7 +25,7 @@ import java.util.ArrayList;
 /**
  * The class to call Android's AutofillManager.
  */
-@TargetApi(Build.VERSION_CODES.O)
+@RequiresApi(Build.VERSION_CODES.O)
 public class AutofillManagerWrapper {
     // Don't change TAG, it is used for runtime log.
     // NOTE: As a result of the above, the tag below still references the name of this class from
@@ -90,6 +91,7 @@ public class AutofillManagerWrapper {
             if (componentName != null) {
                 mIsAwGCurrentAutofillService =
                         AWG_COMPONENT_NAME.equals(componentName.flattenToString());
+                AutofillProviderUMA.logCurrentProvider(componentName.getPackageName());
             } else {
                 mIsAwGCurrentAutofillService = false;
             }
@@ -221,6 +223,7 @@ public class AutofillManagerWrapper {
         return sIsLoggable;
     }
 
+    @DoNotStripLogs
     private static void updateLogStat() {
         // Use 'setprop log.tag.AwAutofillManager DEBUG' to enable the log at runtime.
         // NOTE: See the comment on TAG above for why this is still AwAutofillManager.

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,17 +6,23 @@
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_WEBCODECS_CODEC_LOGGER_H_
 
 #include <memory>
+#include <string>
 
+#include "base/check.h"
+#include "base/location.h"
+#include "base/memory/scoped_refptr.h"
+#include "base/sequence_checker.h"
 #include "media/base/media_log.h"
 #include "media/base/media_util.h"
-#include "media/base/status.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
-#include "third_party/blink/renderer/core/frame/local_dom_window.h"
-#include "third_party/blink/renderer/core/frame/web_local_frame_impl.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/inspector/inspector_media_context_impl.h"
-#include "third_party/blink/renderer/core/workers/worklet_global_scope.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
+#include "third_party/blink/renderer/platform/bindings/exception_code.h"
+#include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+#include "third_party/blink/renderer/platform/wtf/wtf.h"
 
 namespace base {
 class SingleThreadTaskRunner;
@@ -31,8 +37,6 @@ void SendPlayerNameInformationInternal(media::MediaLog* media_log,
                                        std::string loadedAs);
 
 }  // namespace internal
-
-class ExecutionContext;
 
 // Simple wrapper around MediaLog instances, to manage the lifetime safety of
 // said MediaLogs. |parent_media_log_| must be destroyed and created on the
@@ -69,9 +73,28 @@ class MODULES_EXPORT CodecLogger final {
     // This allows us to destroy |parent_media_log_| and stop logging,
     // without causing problems to |media_log_| users.
     media_log_ = parent_media_log_->Clone();
+
+    task_runner_ = task_runner;
   }
 
-  ~CodecLogger() { DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_); }
+  ~CodecLogger() {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+    // media logs must be posted for destruction, since they can cause the
+    // garbage collector to trigger an immediate cleanup and delete the owning
+    // instance of |CodecLogger|.
+    if (parent_media_log_) {
+      parent_media_log_->Stop();
+      if (base::FeatureList::IsEnabled(
+              features::kUseBlinkSchedulerTaskRunnerWithCustomDeleter)) {
+        task_runner_->DeleteSoon(FROM_HERE, std::move(parent_media_log_));
+      } else {
+        // This task runner may be destroyed without running tasks, so don't use
+        // DeleteSoon() which can leak the log. See https://crbug.com/1376851.
+        task_runner_->PostTask(FROM_HERE, base::DoNothingWithBoundArgs(
+                                              std::move(parent_media_log_)));
+      }
+    }
+  }
 
   void SendPlayerNameInformation(const ExecutionContext& context,
                                  std::string loadedAs) {
@@ -83,7 +106,7 @@ class MODULES_EXPORT CodecLogger final {
   // the given |status| in |media_log_|.
   // Since |status| can come from platform codecs, its contents won't be
   // surfaced to JS, since we could leak important information.
-  DOMException* MakeException(std::string error_msg, StatusImpl status) {
+  DOMException* MakeOperationError(std::string error_msg, StatusImpl status) {
     media_log_->NotifyError(status);
 
     if (!status_code_)
@@ -93,13 +116,37 @@ class MODULES_EXPORT CodecLogger final {
                                               error_msg.c_str());
   }
 
-  // Convenience wrapper for MakeException(), where |error_msg| is shared for
-  // both the exception message and the status message.
-  DOMException* MakeException(
+  // Convenience wrapper for MakeOperationError(), where |error_msg| is shared
+  // for both the exception message and the status message.
+  DOMException* MakeOperationError(
       std::string error_msg,
       typename StatusImpl::Codes code,
       const base::Location& location = base::Location::Current()) {
-    return MakeException(error_msg, StatusImpl(code, error_msg, location));
+    return MakeOperationError(error_msg, StatusImpl(code, error_msg, location));
+  }
+
+  // Creates an EncodingError DOMException with the given |error_msg|, and logs
+  // the given |status| in |media_log_|.
+  // Since |status| can come from platform codecs, its contents won't be
+  // surfaced to JS, since we could leak important information.
+  DOMException* MakeEncodingError(std::string error_msg, StatusImpl status) {
+    media_log_->NotifyError(status);
+
+    if (!status_code_) {
+      status_code_ = status.code();
+    }
+
+    return MakeGarbageCollected<DOMException>(DOMExceptionCode::kEncodingError,
+                                              error_msg.c_str());
+  }
+
+  // Convenience wrapper for MakeEncodingError(), where |error_msg| is shared
+  // for both the exception message and the status message.
+  DOMException* MakeEncodingError(
+      std::string error_msg,
+      typename StatusImpl::Codes code,
+      const base::Location& location = base::Location::Current()) {
+    return MakeEncodingError(error_msg, StatusImpl(code, error_msg, location));
   }
 
   // Safe to use on any thread. |this| should still outlive users of log().
@@ -116,7 +163,7 @@ class MODULES_EXPORT CodecLogger final {
 
   // Records the first media::Status passed to MakeException.
   typename StatusImpl::Codes status_code() const {
-    return status_code_.value_or(StatusImpl::Traits::DefaultEnumValue());
+    return status_code_.value_or(StatusImpl::Codes::kOk);
   }
 
  private:
@@ -131,6 +178,9 @@ class MODULES_EXPORT CodecLogger final {
   // We might destroy |parent_media_log_| at any point, so keep a clone which
   // can be safely accessed, and whose raw pointer can be given callbacks.
   std::unique_ptr<media::MediaLog> media_log_;
+
+  // Keep task runner around for posting the media log to upon destruction.
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 
   SEQUENCE_CHECKER(sequence_checker_);
 };

@@ -33,17 +33,21 @@
 
 #include <memory>
 
+#include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_checker.h"
+#include "base/time/time.h"
 #include "third_party/blink/public/mojom/service_worker/controller_service_worker.mojom-blink.h"
 #include "third_party/blink/public/mojom/service_worker/dispatch_fetch_event_params.mojom-blink.h"
 #include "third_party/blink/public/mojom/service_worker/service_worker.mojom-blink.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_fetch_handler_type.mojom-blink.h"
 #include "third_party/blink/public/platform/web_string.h"
 #include "third_party/blink/public/web/modules/service_worker/web_service_worker_context_proxy.h"
 #include "third_party/blink/renderer/core/workers/worker_reporting_proxy.h"
-#include "third_party/blink/renderer/platform/heap/persistent.h"
+#include "third_party/blink/renderer/platform/heap/cross_thread_persistent.h"
 #include "third_party/blink/renderer/platform/weborigin/kurl.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
+#include "third_party/blink/renderer/platform/wtf/functional.h"
 
 namespace blink {
 
@@ -101,7 +105,7 @@ class ServiceWorkerGlobalScopeProxy final : public WebServiceWorkerContextProxy,
   bool IsWindowInteractionAllowed() override;
   void PauseEvaluation() override;
   void ResumeEvaluation() override;
-  bool HasFetchHandler() override;
+  mojom::blink::ServiceWorkerFetchHandlerType FetchHandlerType() override;
 
   // WorkerReportingProxy overrides:
   void CountFeature(WebFeature) override;
@@ -118,11 +122,7 @@ class ServiceWorkerGlobalScopeProxy final : public WebServiceWorkerContextProxy,
   void DidFetchScript() override;
   void DidFailToFetchClassicScript() override;
   void DidFailToFetchModuleScript() override;
-  void WillEvaluateClassicScript(size_t script_size,
-                                 size_t cached_metadata_size) override;
-  void WillEvaluateImportedClassicScript(size_t script_size,
-                                         size_t cached_metadata_size) override;
-  void WillEvaluateModuleScript() override;
+  void WillEvaluateScript() override;
   void DidEvaluateTopLevelScript(bool success) override;
   void DidCloseWorkerGlobalScope() override;
   void WillDestroyWorkerGlobalScope() override;
@@ -160,6 +160,8 @@ class ServiceWorkerGlobalScopeProxy final : public WebServiceWorkerContextProxy,
   WebServiceWorkerContextClient* client_;
 
   CrossThreadPersistent<ServiceWorkerGlobalScope> worker_global_scope_;
+
+  base::TimeTicks top_level_script_evaluation_start_time_;
 
   THREAD_CHECKER(worker_thread_checker_);
 };

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,14 @@
 #define COMPONENTS_VIZ_SERVICE_DISPLAY_EMBEDDER_SKIA_OUTPUT_SURFACE_IMPL_H_
 
 #include <memory>
+#include <string>
 #include <vector>
 
-#include "base/callback_helpers.h"
 #include "base/containers/circular_deque.h"
+#include "base/functional/callback_forward.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/observer_list.h"
 #include "base/threading/thread_checker.h"
 #include "base/timer/timer.h"
@@ -23,12 +26,12 @@
 #include "components/viz/service/viz_service_export.h"
 #include "gpu/command_buffer/common/sync_token.h"
 #include "gpu/ipc/common/vulkan_ycbcr_info.h"
-#include "gpu/ipc/in_process_command_buffer.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkDeferredDisplayListRecorder.h"
 #include "third_party/skia/include/core/SkOverdrawCanvas.h"
 #include "third_party/skia/include/core/SkSurfaceCharacterization.h"
+#include "ui/gfx/presentation_feedback.h"
 
 namespace gfx {
 namespace mojom {
@@ -38,7 +41,13 @@ class DelegatedInkPointRenderer;
 
 namespace gpu {
 class SharedImageRepresentationFactory;
-}
+struct SwapBuffersCompleteParams;
+}  // namespace gpu
+
+namespace skgpu::graphite {
+class Recorder;
+class Recording;
+}  // namespace skgpu::graphite
 
 namespace viz {
 
@@ -76,30 +85,21 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurfaceImpl : public SkiaOutputSurface {
   // OutputSurface implementation:
   gpu::SurfaceHandle GetSurfaceHandle() const override;
   void BindToClient(OutputSurfaceClient* client) override;
-  void BindFramebuffer() override;
   void SetDrawRectangle(const gfx::Rect& draw_rectangle) override;
   void SetEnableDCLayers(bool enable) override;
   void EnsureBackbuffer() override;
   void DiscardBackbuffer() override;
-  void Reshape(const gfx::Size& size,
-               float device_scale_factor,
-               const gfx::ColorSpace& color_space,
-               gfx::BufferFormat format,
-               bool use_stencil) override;
+  void Reshape(const ReshapeParams& params) override;
   void SetUpdateVSyncParametersCallback(
       UpdateVSyncParametersCallback callback) override;
   void SetGpuVSyncEnabled(bool enabled) override;
   void SetGpuVSyncCallback(GpuVSyncCallback callback) override;
+  void SetVSyncDisplayID(int64_t display_id) override;
   void SetDisplayTransformHint(gfx::OverlayTransform transform) override;
   gfx::OverlayTransform GetDisplayTransform() override;
   void SwapBuffers(OutputSurfaceFrame frame) override;
-  uint32_t GetFramebufferCopyTextureFormat() override;
   bool IsDisplayedAsOverlayPlane() const override;
-  unsigned GetOverlayTextureId() const override;
   gpu::Mailbox GetOverlayMailbox() const override;
-  bool HasExternalStencilTest() const override;
-  void ApplyExternalStencil() override;
-  unsigned UpdateGpuFence() override;
   void SetNeedsSwapSizeNotifications(
       bool needs_swap_size_notifications) override;
   base::ScopedClosureRunner GetCacheBackBufferCb() override;
@@ -121,16 +121,24 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurfaceImpl : public SkiaOutputSurface {
 
   SkCanvas* BeginPaintRenderPass(const AggregatedRenderPassId& id,
                                  const gfx::Size& surface_size,
-                                 ResourceFormat format,
+                                 SharedImageFormat format,
                                  bool mipmap,
+                                 bool scanout_dcomp_surface,
                                  sk_sp<SkColorSpace> color_space,
+                                 bool is_overlay,
                                  const gpu::Mailbox& mailbox) override;
-  void EndPaint(base::OnceClosure on_finished) override;
-  void MakePromiseSkImage(ImageContext* image_context) override;
+  SkCanvas* RecordOverdrawForCurrentPaint() override;
+  void EndPaint(
+      base::OnceClosure on_finished,
+      base::OnceCallback<void(gfx::GpuFenceHandle)> return_release_fence_cb,
+      const gfx::Rect& update_rect,
+      bool is_overlay) override;
+  void MakePromiseSkImage(ImageContext* image_context,
+                          const gfx::ColorSpace& yuv_color_space) override;
   sk_sp<SkImage> MakePromiseSkImageFromRenderPass(
       const AggregatedRenderPassId& id,
       const gfx::Size& size,
-      ResourceFormat format,
+      SharedImageFormat format,
       bool mipmap,
       sk_sp<SkColorSpace> color_space,
       const gpu::Mailbox& mailbox) override;
@@ -138,29 +146,27 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurfaceImpl : public SkiaOutputSurface {
   void RemoveRenderPassResource(
       std::vector<AggregatedRenderPassId> ids) override;
   void ScheduleOverlays(OverlayList overlays,
-                        std::vector<gpu::SyncToken> sync_tokens,
-                        base::OnceClosure on_finished) override;
+                        std::vector<gpu::SyncToken> sync_tokens) override;
 
-  void CopyOutput(AggregatedRenderPassId id,
-                  const copy_output::RenderPassGeometry& geometry,
+  void CopyOutput(const copy_output::RenderPassGeometry& geometry,
                   const gfx::ColorSpace& color_space,
                   std::unique_ptr<CopyOutputRequest> request,
                   const gpu::Mailbox& mailbox) override;
   void AddContextLostObserver(ContextLostObserver* observer) override;
   void RemoveContextLostObserver(ContextLostObserver* observer) override;
   void PreserveChildSurfaceControls() override;
-  gpu::SharedImageInterface* GetSharedImageInterface() override;
   gpu::SyncToken Flush() override;
-  void OnObservingBeginFrameSourceChanged(bool observing) override;
-
-#if BUILDFLAG(IS_APPLE) || defined(USE_OZONE)
-  SkCanvas* BeginPaintRenderPassOverlay(
-      const gfx::Size& size,
-      ResourceFormat format,
-      bool mipmap,
-      sk_sp<SkColorSpace> color_space) override;
-  sk_sp<SkDeferredDisplayList> EndPaintRenderPassOverlay() override;
-#endif
+  bool EnsureMinNumberOfBuffers(int n) override;
+  gpu::Mailbox CreateSharedImage(SharedImageFormat format,
+                                 const gfx::Size& size,
+                                 const gfx::ColorSpace& color_space,
+                                 uint32_t usage,
+                                 base::StringPiece debug_label,
+                                 gpu::SurfaceHandle surface_handle) override;
+  gpu::Mailbox CreateSolidColorSharedImage(
+      const SkColor4f& color,
+      const gfx::ColorSpace& color_space) override;
+  void DestroySharedImage(const gpu::Mailbox& mailbox) override;
 
   // ExternalUseClient implementation:
   gpu::SyncToken ReleaseImageContexts(
@@ -168,7 +174,7 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurfaceImpl : public SkiaOutputSurface {
   std::unique_ptr<ExternalUseClient::ImageContext> CreateImageContext(
       const gpu::MailboxHolder& holder,
       const gfx::Size& size,
-      ResourceFormat format,
+      SharedImageFormat format,
       bool maybe_concurrent_reads,
       const absl::optional<gpu::VulkanYCbCrInfo>& ycbcr_info,
       sk_sp<SkColorSpace> color_space,
@@ -191,16 +197,25 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurfaceImpl : public SkiaOutputSurface {
   bool Initialize();
   void InitializeOnGpuThread(GpuVSyncCallback vsync_callback_runner,
                              bool* result);
-  SkSurfaceCharacterization CreateSkSurfaceCharacterization(
+  SkSurfaceCharacterization CreateSkSurfaceCharacterizationRenderPass(
       const gfx::Size& surface_size,
-      gfx::BufferFormat format,
+      SkColorType color_type,
+      SkAlphaType alpha_type,
       bool mipmap,
       sk_sp<SkColorSpace> color_space,
-      bool is_root_render_pass);
+      bool is_overlay,
+      bool scanout_dcomp_surface) const;
+  SkSurfaceCharacterization CreateSkSurfaceCharacterizationCurrentFrame(
+      const gfx::Size& surface_size,
+      SkColorType color_type,
+      SkAlphaType alpha_type,
+      bool mipmap,
+      sk_sp<SkColorSpace> color_space) const;
   void DidSwapBuffersComplete(gpu::SwapBuffersCompleteParams params,
                               const gfx::Size& pixel_size,
                               gfx::GpuFenceHandle release_fence);
   void BufferPresented(const gfx::PresentationFeedback& feedback);
+  void AddChildWindowToBrowser(gpu::SurfaceHandle child_window);
 
   // Provided as a callback for the GPU thread.
   void OnGpuVSync(base::TimeTicks timebase, base::TimeDelta interval);
@@ -210,6 +225,8 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurfaceImpl : public SkiaOutputSurface {
                       std::vector<gpu::SyncToken> sync_tokens,
                       bool make_current,
                       bool need_framebuffer);
+  void ScheduleOrRetainGpuTask(base::OnceClosure callback,
+                               std::vector<gpu::SyncToken> tokens);
 
   enum class SyncMode {
     kNoWait = 0,
@@ -217,17 +234,22 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurfaceImpl : public SkiaOutputSurface {
     kWaitForTasksFinished = 2,
   };
   void FlushGpuTasks(SyncMode sync_mode);
+  // When flushing the final task to destroy |impl_on_gpu_| we need to pass in a
+  // copy of that pointer for any tasks that were already enqueued and will run
+  // before the destructor.
+  void FlushGpuTasksWithImpl(SyncMode sync_mode,
+                             SkiaOutputSurfaceImplOnGpu* impl_on_gpu);
   GrBackendFormat GetGrBackendFormatForTexture(
-      ResourceFormat resource_format,
+      SharedImageFormat si_format,
+      int plane_index,
       uint32_t gl_texture_target,
       const absl::optional<gpu::VulkanYCbCrInfo>& ycbcr_info);
+  void MakePromiseSkImageSinglePlane(ImageContextImpl* image_context,
+                                     bool mipmapped);
+  void MakePromiseSkImageMultiPlane(ImageContextImpl* image_context,
+                                    const gfx::ColorSpace& yuv_color_space);
   void ContextLost();
-
-  void RecreateRootRecorder();
-
-  // Note this can be negative.
-  int AvailableBuffersLowerBound() const;
-  bool ShouldCreateNewBufferForNextSwap() const;
+  void RecreateRootDDLRecorder();
 
   raw_ptr<OutputSurfaceClient> client_ = nullptr;
   bool needs_swap_size_notifications_ = false;
@@ -248,32 +270,53 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurfaceImpl : public SkiaOutputSurface {
   gpu::Mailbox last_swapped_mailbox_;
 
   gfx::Size size_;
-  gfx::ColorSpace color_space_;
-  gfx::BufferFormat format_;
-  bool is_hdr_ = false;
-  SkSurfaceCharacterization characterization_;
-  absl::optional<SkDeferredDisplayListRecorder> root_recorder_;
+  SharedImageFormat format_;
+  int sample_count_ = 1;
+  SkColorType color_type_ = kUnknown_SkColorType;
+  SkAlphaType alpha_type_ = kUnknown_SkAlphaType;
+  sk_sp<SkColorSpace> sk_color_space_;
+  bool reset_ddl_recorder_on_swap_ = false;
+  absl::optional<SkDeferredDisplayListRecorder> root_ddl_recorder_;
 
   class ScopedPaint {
    public:
-    explicit ScopedPaint(SkDeferredDisplayListRecorder* root_recorder);
-    explicit ScopedPaint(SkSurfaceCharacterization characterization);
-    ScopedPaint(SkSurfaceCharacterization characterization,
-                AggregatedRenderPassId render_pass_id,
-                gpu::Mailbox mailbox);
+    // Ganesh root surface
+    explicit ScopedPaint(SkDeferredDisplayListRecorder* root_ddl_recorder);
+    // Ganesh render pass (root or non-root)
+    ScopedPaint(const SkSurfaceCharacterization& characterization,
+                const gpu::Mailbox& mailbox);
+    // Graphite (root or non-root)
+    ScopedPaint(skgpu::graphite::Recorder* recorder,
+                const SkImageInfo& image_info,
+                skgpu::graphite::TextureInfo texture_info,
+                const gpu::Mailbox& mailbox = gpu::Mailbox());
     ~ScopedPaint();
 
-    SkDeferredDisplayListRecorder* recorder() { return recorder_; }
-    AggregatedRenderPassId render_pass_id() { return render_pass_id_; }
-    gpu::Mailbox mailbox() { return mailbox_; }
+    // SkCanvas for the current paint, retrieved from the DDL recorder for
+    // Ganesh, or from the Graphite recorder.
+    SkCanvas* canvas() const { return canvas_; }
+
+    // Mailbox for the render pass for the current paint (if present).
+    const gpu::Mailbox& mailbox() const { return mailbox_; }
+
+    // Detach DDL and reset the SkCanvas pointer.
+    sk_sp<SkDeferredDisplayList> DetachDDL();
+
+    // Snap Graphite recording and reset the SkCanvas pointer.
+    std::unique_ptr<skgpu::graphite::Recording> SnapRecording();
 
    private:
-    // This is recorder being used for current paint
-    SkDeferredDisplayListRecorder* recorder_;
-    // If we need new recorder for this Paint (i.e it's not root render pass),
+    // This is the DDL recorder being used for current paint when using Ganesh.
+    raw_ptr<SkDeferredDisplayListRecorder> ddl_recorder_ = nullptr;
+    // If we need new recorder for this Paint (i.e. it's not root render pass),
     // it's stored here
-    absl::optional<SkDeferredDisplayListRecorder> recorder_storage_;
-    const AggregatedRenderPassId render_pass_id_;
+    absl::optional<SkDeferredDisplayListRecorder> ddl_recorder_storage_;
+    // Graphite recorder used for current paint.
+    raw_ptr<skgpu::graphite::Recorder> graphite_recorder_ = nullptr;
+    // SkCanvas for the current paint, retrieved from the DDL recorder for
+    // Ganesh, or from the Graphite recorder.
+    raw_ptr<SkCanvas> canvas_ = nullptr;
+    // Mailbox for the render pass for the current paint (if present).
     const gpu::Mailbox mailbox_;
   };
 
@@ -293,13 +336,13 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurfaceImpl : public SkiaOutputSurface {
    private:
     gfx::Rect ComputeCurrentFrameBufferDamage() const;
 
-    const size_t number_of_buffers_;
+    size_t number_of_buffers_;
     gfx::Size frame_buffer_size_;
     // This deque should contains the incremental damage of the last N swapped
-    // frames where N is at most `capabilities_.number_of_buffers - 1`. Each
-    // rect represents from the incremental damage from the previous frame; note
-    // if there is no previous frame (eg first swap after a `Reshape`), the
-    // damage should be the full frame buffer.
+    // frames where N is at most `number_of_buffers_`. Each rect represents
+    // from the incremental damage from the previous frame; note if there is no
+    // previous frame (eg first swap after a `Reshape`), the damage should be
+    // the full frame buffer.
     base::circular_deque<gfx::Rect> damage_between_frames_;
     // Result of `GetCurrentFramebufferDamage` to optimize consecutive calls.
     mutable absl::optional<gfx::Rect> cached_current_damage_;
@@ -311,7 +354,7 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurfaceImpl : public SkiaOutputSurface {
   // The SkDDL recorder is used for overdraw feedback. It is created by
   // BeginPaintOverdraw, and FinishPaintCurrentFrame will turn it into a SkDDL
   // and play the SkDDL back on the GPU thread.
-  absl::optional<SkDeferredDisplayListRecorder> overdraw_surface_recorder_;
+  absl::optional<SkDeferredDisplayListRecorder> overdraw_surface_ddl_recorder_;
 
   // |overdraw_canvas_| is used to record draw counts.
   absl::optional<SkOverdrawCanvas> overdraw_canvas_;
@@ -337,7 +380,7 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurfaceImpl : public SkiaOutputSurface {
   // scheduler inside this class by having a unique_ptr.
   // TODO(weiliangc): After changing to proper initialization order for Android
   // WebView, remove this holder.
-  raw_ptr<DisplayCompositorMemoryAndTaskController>
+  const raw_ptr<DisplayCompositorMemoryAndTaskController>
       display_compositor_controller_;
 
   // |gpu_task_scheduler_| holds a gpu::SingleTaskSequence, and helps schedule
@@ -345,7 +388,13 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurfaceImpl : public SkiaOutputSurface {
   // compositing and overlay processing are in order. A gpu::SingleTaskSequence
   // in regular Viz is implemented by SchedulerSequence. In Android WebView
   // gpu::SingleTaskSequence is implemented on top of WebView's task queue.
-  raw_ptr<gpu::GpuTaskSchedulerHelper> gpu_task_scheduler_;
+  const raw_ptr<gpu::GpuTaskSchedulerHelper> gpu_task_scheduler_;
+
+  // True if raw draw is being used.
+  const bool is_using_raw_draw_;
+
+  // True if raw draw is using MSAA output surface.
+  const bool is_raw_draw_using_msaa_;
 
   // The display transform relative to the hardware natural orientation,
   // applied to the frame content. The transform can be rotations in 90 degree
@@ -359,6 +408,7 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurfaceImpl : public SkiaOutputSurface {
   std::unique_ptr<SkiaOutputSurfaceImplOnGpu> impl_on_gpu_;
 
   sk_sp<GrContextThreadSafeProxy> gr_context_thread_safe_;
+  raw_ptr<skgpu::graphite::Recorder> graphite_recorder_ = nullptr;
 
   bool has_set_draw_rectangle_for_frame_ = false;
   absl::optional<gfx::Rect> draw_rectangle_;
@@ -385,33 +435,14 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurfaceImpl : public SkiaOutputSurface {
   // Track if the current buffer content is changed.
   bool current_buffer_modified_ = false;
 
-  // Variables used to track state for dynamic frame buffer allocation. When
-  // enabled, `capabilities_.number_of_buffers` should be interpreted as the
-  // maximum number of buffers to allocate.
-  //
-  // This class controls the allocation and release of frame buffers:
-  // * FinishPaintCurrentFrame may allocate a new buffer for the frame
-  // * SwapBuffers may release an unused buffer.
-  // * Reshape will reallocate the same number of buffers.
-  // This way, this class knows exactly the number of allocated (once all work
-  // posted to GPU thread are done).
-  int num_allocated_buffers_ = 0;
-  // For each SwapBuffers that has yet been matched with a
-  // DidSwapBuffersComplete, store whether that swap has damage to the main
-  // buffer. DidSwapBuffersComplete. This is used to compute a lower bound on
-  // the number of available buffers on the GPU thread.
-  base::circular_deque<bool> pending_swaps_;
-  // Consecutive number of swaps where there is an extra buffer allocated. Used
-  // as part of heuristic to decide when to release extra frame buffers when
-  // active.
-  int consecutive_frames_with_extra_buffer_ = 0;
-  // Delayed task to drop frame buffers when idle.
-  base::OneShotTimer idle_drop_frame_buffer_timer_;
-  // Pre-allocate up to this number of buffers on begin frame start.
-  int num_preallocate_frame_buffer_ = 1;
+  // Last number sent to `SetNumberOfFrameBuffers` on the GPU.
+  int cached_number_of_buffers_ = 0;
+
   // For accessing tile shared image backings from compositor thread.
   std::unique_ptr<gpu::SharedImageRepresentationFactory>
       representation_factory_;
+  // The refresh interval from presentation feedback.
+  base::TimeDelta refresh_interval_;
 
   base::WeakPtr<SkiaOutputSurfaceImpl> weak_ptr_;
   base::WeakPtrFactory<SkiaOutputSurfaceImpl> weak_ptr_factory_{this};

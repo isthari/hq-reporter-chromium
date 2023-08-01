@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,22 +9,27 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/base/ui_base_features.h"
 #include "ui/color/color_id.h"
 #include "ui/color/color_provider.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/geometry/skia_conversions.h"
+#include "ui/gfx/image/image_skia_operations.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/native_theme/native_theme.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/animation/ink_drop.h"
+#include "ui/views/animation/ink_drop_host.h"
 #include "ui/views/animation/ink_drop_impl.h"
+#include "ui/views/animation/ink_drop_painted_layer_delegates.h"
 #include "ui/views/animation/ink_drop_ripple.h"
+#include "ui/views/controls/button/button_controller.h"
 #include "ui/views/controls/button/label_button_border.h"
 #include "ui/views/controls/focus_ring.h"
 #include "ui/views/controls/highlight_path_generator.h"
@@ -36,6 +41,12 @@
 #include "ui/views/vector_icons.h"
 
 namespace views {
+
+namespace {
+constexpr gfx::Size kCheckboxInkDropSize = gfx::Size(24, 24);
+constexpr float kCheckboxIconDipSize = 16;
+constexpr int kCheckboxIconCornerRadius = 2;
+}
 
 class Checkbox::FocusRingHighlightPathGenerator
     : public views::HighlightPathGenerator {
@@ -90,6 +101,43 @@ Checkbox::Checkbox(const std::u16string& label,
   // Avoid the default ink-drop mask to allow the ripple effect to extend beyond
   // the checkbox view (otherwise it gets clipped which looks weird).
   views::InstallEmptyHighlightPathGenerator(this);
+
+  if (features::IsChromeRefresh2023()) {
+    InkDrop::Install(image(), std::make_unique<InkDropHost>(image()));
+    SetInkDropView(image());
+    InkDrop::Get(image())->SetMode(InkDropHost::InkDropMode::ON);
+
+    // Allow ImageView to capture mouse events in order for InkDrop effects to
+    // trigger.
+    image()->SetCanProcessEventsWithinSubtree(true);
+
+    // Avoid the default ink-drop mask to allow the InkDrop effect to extend
+    // beyond the image view (otherwise it gets clipped which looks weird).
+    views::InstallEmptyHighlightPathGenerator(image());
+
+    InkDrop::Get(image())->SetCreateHighlightCallback(base::BindRepeating(
+        [](ImageView* host) {
+          int radius =
+              InkDropHost::GetLargeSize(kCheckboxInkDropSize).width() / 2;
+          return std::make_unique<views::InkDropHighlight>(
+              gfx::PointF(host->GetContentsBounds().CenterPoint()),
+              std::make_unique<CircleLayerDelegate>(
+                  views::InkDrop::Get(host)->GetBaseColor(), radius));
+        },
+        image()));
+
+    InkDrop::Get(image())->SetCreateRippleCallback(base::BindRepeating(
+        [](ImageView* host) {
+          return InkDrop::Get(host)->CreateSquareRipple(
+              host->GetContentsBounds().CenterPoint(), kCheckboxInkDropSize);
+        },
+        image()));
+
+    // Usually ink-drop ripples match the text color. Checkboxes use the
+    // color of the unchecked, enabled icon.
+    InkDrop::Get(image())->SetBaseColorId(
+        ui::kColorCheckboxForegroundUnchecked);
+  }
 }
 
 Checkbox::~Checkbox() = default;
@@ -125,18 +173,8 @@ bool Checkbox::GetMultiLine() const {
   return label()->GetMultiLine();
 }
 
-void Checkbox::SetAssociatedLabel(View* labelling_view) {
-  DCHECK(labelling_view);
-  GetViewAccessibility().OverrideLabelledBy(labelling_view);
-  ui::AXNodeData node_data;
-  labelling_view->GetAccessibleNodeData(&node_data);
-  // Labelled-by relations are not common practice in native UI, so we also
-  // set the checkbox accessible name for ATs which don't support that.
-  // TODO(aleventhal) automatically handle setting the name from the related
-  // label in ViewAccessibility and have it update the name if the text of the
-  // associated label changes.
-  SetAccessibleName(
-      node_data.GetString16Attribute(ax::mojom::StringAttribute::kName));
+void Checkbox::SetCheckedIconImageColor(SkColor color) {
+  checked_icon_image_color_ = color;
 }
 
 void Checkbox::GetAccessibleNodeData(ui::AXNodeData* node_data) {
@@ -159,7 +197,22 @@ gfx::ImageSkia Checkbox::GetImage(ButtonState for_state) const {
     icon_state |= IconState::CHECKED;
   if (for_state != STATE_DISABLED)
     icon_state |= IconState::ENABLED;
-  return gfx::CreateVectorIcon(GetVectorIcon(), 16,
+
+  if (features::IsChromeRefresh2023()) {
+    const SkColor container_color = GetIconContainerColor(icon_state);
+    if (GetChecked()) {
+      const gfx::ImageSkia check_icon = gfx::CreateVectorIcon(
+          GetVectorIcon(), kCheckboxIconDipSize, GetIconImageColor(icon_state));
+
+      return gfx::ImageSkiaOperations::CreateImageWithRoundRectBackground(
+          kCheckboxIconDipSize, kCheckboxIconCornerRadius, container_color,
+          check_icon);
+    }
+    return gfx::CreateVectorIcon(GetVectorIcon(), kCheckboxIconDipSize,
+                                 container_color);
+  }
+
+  return gfx::CreateVectorIcon(GetVectorIcon(), kCheckboxIconDipSize,
                                GetIconImageColor(icon_state));
 }
 
@@ -173,28 +226,62 @@ std::unique_ptr<LabelButtonBorder> Checkbox::CreateDefaultBorder() const {
 
 void Checkbox::OnThemeChanged() {
   LabelButton::OnThemeChanged();
-  UpdateImage();
 }
 
 SkPath Checkbox::GetFocusRingPath() const {
   SkPath path;
   gfx::Rect bounds = image()->GetMirroredContentsBounds();
-  bounds.Inset(1, 1);
+  // Correct for slight discrepancy between visual image bounds and view bounds.
+  if (features::IsChromeRefresh2023()) {
+    bounds.Inset(2);
+  } else {
+    bounds.Inset(1);
+  }
   path.addRect(RectToSkRect(bounds));
   return path;
 }
 
 SkColor Checkbox::GetIconImageColor(int icon_state) const {
-  const SkColor active_color = GetColorProvider()->GetColor(
-      (icon_state & IconState::CHECKED) ? ui::kColorButtonForegroundChecked
-                                        : ui::kColorButtonForegroundUnchecked);
+  SkColor active_color =
+      GetColorProvider()->GetColor((icon_state & IconState::CHECKED)
+                                       ? ui::kColorCheckboxForegroundChecked
+                                       : ui::kColorCheckboxForegroundUnchecked);
+
+  // Use the overridden checked icon image color instead if set.
+  if (icon_state & IconState::CHECKED && checked_icon_image_color_.has_value())
+    active_color = checked_icon_image_color_.value();
+
+  // TODO(crbug.com/1394575): Replace return statement with the following once
+  // CR2023 is launched
+  if (features::IsChromeRefresh2023()) {
+    return (icon_state & IconState::ENABLED)
+               ? GetColorProvider()->GetColor(ui::kColorCheckboxCheck)
+               : GetColorProvider()->GetColor(ui::kColorCheckboxCheckDisabled);
+  }
+
   return (icon_state & IconState::ENABLED)
              ? active_color
              : color_utils::BlendTowardMaxContrast(active_color,
                                                    gfx::kDisabledControlAlpha);
 }
 
+SkColor Checkbox::GetIconContainerColor(int icon_state) const {
+  if (icon_state & IconState::CHECKED) {
+    return GetColorProvider()->GetColor(
+        (icon_state & IconState::ENABLED)
+            ? ui::kColorCheckboxContainer
+            : ui::kColorCheckboxContainerDisabled);
+  }
+  return GetColorProvider()->GetColor((icon_state & IconState::ENABLED)
+                                          ? ui::kColorCheckboxOutline
+                                          : ui::kColorCheckboxOutlineDisabled);
+}
+
 const gfx::VectorIcon& Checkbox::GetVectorIcon() const {
+  if (features::IsChromeRefresh2023()) {
+    return GetChecked() ? kCheckboxCheckCr2023Icon : kCheckboxNormalCr2023Icon;
+  }
+
   return GetChecked() ? kCheckboxActiveIcon : kCheckboxNormalIcon;
 }
 

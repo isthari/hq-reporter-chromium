@@ -1,8 +1,9 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/wm/toplevel_window_event_handler.h"
+#include "base/memory/raw_ptr.h"
 
 #include "ash/accelerators/accelerator_controller_impl.h"
 #include "ash/constants/app_types.h"
@@ -26,10 +27,10 @@
 #include "ash/wm/window_util.h"
 #include "ash/wm/wm_event.h"
 #include "ash/wm/workspace_controller.h"
-#include "base/bind.h"
 #include "base/compiler_specific.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/capture_client.h"
@@ -82,8 +83,9 @@ class ResizeLoopWindowObserver : public aura::WindowObserver {
   ResizeLoopWindowObserver& operator=(const ResizeLoopWindowObserver&) = delete;
 
   ~ResizeLoopWindowObserver() override {
-    if (window_)
+    if (window_) {
       window_->RemoveObserver(this);
+    }
   }
 
   bool in_resize_loop() const { return in_resize_loop_; }
@@ -103,7 +105,7 @@ class ResizeLoopWindowObserver : public aura::WindowObserver {
   }
 
  private:
-  aura::Window* window_;
+  raw_ptr<aura::Window, ExperimentalAsh> window_;
   bool in_resize_loop_ = false;
 };
 
@@ -189,7 +191,7 @@ TEST_F(ToplevelWindowEventHandlerTest, WindowPositionAutoManagement) {
   generator.PressLeftButton();
   ::wm::WindowMoveClient* move_client =
       ::wm::GetWindowMoveClient(w1->GetRootWindow());
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(&ContinueAndCompleteDrag, base::Unretained(&generator),
                      base::Unretained(window_state),
@@ -208,7 +210,7 @@ TEST_F(ToplevelWindowEventHandlerTest, WindowPositionAutoManagement) {
   // restored after drag completes.
   window_state->SetWindowPositionManaged(false);
   generator.PressLeftButton();
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(&ContinueAndCompleteDrag, base::Unretained(&generator),
                      base::Unretained(window_state),
@@ -514,6 +516,8 @@ TEST_F(ToplevelWindowEventHandlerTest, GestureDrag) {
   std::unique_ptr<aura::Window> target(CreateTestWindowInShellWithDelegate(
       new TestWindowDelegate(HTCAPTION), 0, gfx::Rect(0, 0, 100, 100)));
   WindowState* window_state = WindowState::Get(target.get());
+  EXPECT_EQ(WindowStateType::kDefault, window_state->GetStateType());
+  EXPECT_EQ(gfx::Rect(), window_state->GetRestoreBoundsInScreen());
   ui::test::EventGenerator generator(Shell::GetPrimaryRootWindow(),
                                      target.get());
   gfx::Rect old_bounds = target->bounds();
@@ -531,6 +535,8 @@ TEST_F(ToplevelWindowEventHandlerTest, GestureDrag) {
   // Verify that the window has moved after the gesture.
   EXPECT_NE(old_bounds.ToString(), target->bounds().ToString());
   EXPECT_EQ(WindowStateType::kSecondarySnapped, window_state->GetStateType());
+  EXPECT_EQ(gfx::Rect(0, 0, 100, 100),
+            window_state->GetRestoreBoundsInScreen());
 
   old_bounds = target->bounds();
 
@@ -542,8 +548,12 @@ TEST_F(ToplevelWindowEventHandlerTest, GestureDrag) {
 
   EXPECT_NE(old_bounds.ToString(), target->bounds().ToString());
   EXPECT_EQ(WindowStateType::kPrimarySnapped, window_state->GetStateType());
+  EXPECT_EQ(gfx::Rect(0, 0, 100, 100),
+            window_state->GetRestoreBoundsInScreen());
 
   window_state->Restore();
+  EXPECT_EQ(WindowStateType::kNormal, window_state->GetStateType());
+  EXPECT_EQ(gfx::Rect(), window_state->GetRestoreBoundsInScreen());
   gfx::Rect bounds_before_maximization = target->bounds();
   bounds_before_maximization.Offset(0, 100);
   target->SetBounds(bounds_before_maximization);
@@ -1030,7 +1040,7 @@ TEST_F(ToplevelWindowEventHandlerTest, CaptureLossAfterMouseRelease) {
 
   ::wm::WindowMoveClient* move_client =
       ::wm::GetWindowMoveClient(window->GetRootWindow());
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&SendMouseReleaseAndReleaseCapture,
                                 base::Unretained(&generator),
                                 base::Unretained(window.get())));
@@ -1057,7 +1067,7 @@ TEST_F(ToplevelWindowEventHandlerTest, GestureDragCaptureLoss) {
 
   ::wm::WindowMoveClient* move_client =
       ::wm::GetWindowMoveClient(window->GetRootWindow());
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&CheckHasCaptureAndReleaseCapture,
                                 base::Unretained(window.get())));
   EXPECT_EQ(::wm::MOVE_SUCCESSFUL,
@@ -1085,7 +1095,7 @@ TEST_F(ToplevelWindowEventHandlerTest, DragSnappedWindowToExternalDisplay) {
   // Snap the window to the right.
   WindowState* window_state = WindowState::Get(w1.get());
   ASSERT_TRUE(window_state->CanSnap());
-  const WMEvent event(WM_EVENT_CYCLE_SNAP_SECONDARY);
+  const WindowSnapWMEvent event(WM_EVENT_CYCLE_SNAP_SECONDARY);
   window_state->OnWMEvent(&event);
   ASSERT_TRUE(window_state->IsSnapped());
 
@@ -1142,6 +1152,73 @@ TEST_F(ToplevelWindowEventHandlerTest, EnterResizeLoopOnResize) {
   EXPECT_FALSE(window_observer.in_resize_loop());
 }
 
+// Explicitly start a window drag using a child window as a target of drag
+// events.
+TEST_F(ToplevelWindowEventHandlerTest, ExplicitDragWithChildWindow) {
+  std::unique_ptr<aura::Window> w1(CreateWindow(HTCLIENT));
+  w1->SetName("parent");
+  auto* c1 = new aura::Window(
+      aura::test::TestWindowDelegate::CreateSelfDestroyingDelegate(),
+      aura::client::WINDOW_TYPE_CONTROL);
+  c1->SetName("child");
+  c1->Init(ui::LAYER_TEXTURED);
+  w1->AddChild(c1);
+  c1->SetBounds(gfx::Rect(25, 25, 50, 50));
+  c1->Show();
+  c1->SetBounds(gfx::Rect(1, 1, 100, 100));
+
+  ui::test::EventGenerator generator(Shell::GetPrimaryRootWindow(), c1);
+  auto* toplevel_window_event_handler =
+      Shell::Get()->toplevel_window_event_handler();
+
+  generator.PressLeftButton();
+
+  // Do not capture where because we're dragging using a window that is
+  // different from w1.
+  ASSERT_TRUE(toplevel_window_event_handler->AttemptToStartDrag(
+      w1.get(), gfx::PointF(50, 50), HTCAPTION, ::wm::WINDOW_MOVE_SOURCE_MOUSE,
+      base::DoNothing(),
+      /*update_gesture_target=*/false,
+      /*grab_capture=*/false));
+
+  EXPECT_TRUE(toplevel_window_event_handler->is_drag_in_progress());
+  generator.MoveMouseBy(20, 10);
+  EXPECT_EQ(gfx::Rect(21, 11, 100, 100), w1->bounds());
+  generator.MoveMouseBy(20, 10);
+  EXPECT_EQ(gfx::Rect(41, 21, 100, 100), w1->bounds());
+}
+
+// Test that if a display is detached during dragging, the drag will be ended.
+TEST_F(ToplevelWindowEventHandlerTest, DetachDisplayDuringDragging) {
+  UpdateDisplay("800x600,1200x800");
+  aura::Window::Windows root_windows = Shell::GetAllRootWindows();
+  ASSERT_EQ(2U, root_windows.size());
+  const display::Display display1 =
+      display::Screen::GetScreen()->GetDisplayNearestWindow(root_windows[1]);
+
+  // Move the window to the second display and start drag the window.
+  std::unique_ptr<aura::Window> dragged_window(CreateWindow(HTCAPTION));
+  dragged_window->SetBoundsInScreen(gfx::Rect(900, 0, 50, 60), display1);
+  EXPECT_EQ(dragged_window->GetRootWindow(), root_windows[1]);
+
+  ui::test::EventGenerator generator(root_windows[1], dragged_window.get());
+  generator.PressLeftButton();
+  generator.MoveMouseBy(20, 10);
+
+  EXPECT_TRUE(WindowState::Get(dragged_window.get())->is_dragged());
+  ToplevelWindowEventHandler* event_handler =
+      Shell::Get()->toplevel_window_event_handler();
+  EXPECT_TRUE(event_handler->is_drag_in_progress());
+  EXPECT_EQ(dragged_window->GetRootWindow(), root_windows[1]);
+
+  // Detach the display.
+  UpdateDisplay("800x600");
+  base::RunLoop().RunUntilIdle();
+  EXPECT_FALSE(WindowState::Get(dragged_window.get())->is_dragged());
+}
+
+namespace {
+
 // Provides common setup and convenience for a handful of tests.
 class ToplevelWindowEventHandlerDragTest : public AshTestBase {
  public:
@@ -1187,25 +1264,7 @@ class ToplevelWindowEventHandlerDragTest : public AshTestBase {
   std::unique_ptr<aura::Window> non_dragged_window_;
 };
 
-// In tablet mode, the window's resizability shouldn't be taken into account
-// when dragging from the top. Regression test for https://crbug.com/1444132
-TEST_F(ToplevelWindowEventHandlerDragTest,
-       NonResizableWindowsCanBeDraggedInTabletMode) {
-  TabletModeControllerTestApi().EnterTabletMode();
-
-  dragged_window_->SetProperty(aura::client::kResizeBehaviorKey,
-                               aura::client::kResizeBehaviorNone);
-
-  SendGestureEvent(gfx::Point(100, 0), 0, 5, ui::ET_GESTURE_SCROLL_BEGIN);
-  SendGestureEvent(gfx::Point(600, 500), 600, 500,
-                   ui::ET_GESTURE_SCROLL_UPDATE);
-  EXPECT_TRUE(WindowState::Get(dragged_window_.get())->is_dragged());
-
-  OverviewController* overview_controller = Shell::Get()->overview_controller();
-  EXPECT_TRUE(overview_controller->InOverviewSession());
-  EXPECT_TRUE(overview_controller->overview_session()->IsWindowInOverview(
-      non_dragged_window_.get()));
-}
+}  // namespace
 
 // Contrary to tablet mode, in non-tablet mode, non resizable windows cannot be
 // dragged.
@@ -1237,29 +1296,6 @@ TEST_F(ToplevelWindowEventHandlerDragTest, WindowDestroyedDuringDragging) {
 
   dragged_window_.reset();
   EXPECT_FALSE(event_handler->is_drag_in_progress());
-}
-
-// Test that if window destroyed during resize/dragging in tablet mode, no crash
-// should happen.
-TEST_F(ToplevelWindowEventHandlerDragTest,
-       WindowDestroyedDuringDraggingInTabletMode) {
-  TabletModeControllerTestApi().EnterTabletMode();
-
-  SendGestureEvent(gfx::Point(0, 0), 0, 5, ui::ET_GESTURE_SCROLL_BEGIN);
-  SendGestureEvent(gfx::Point(700, 500), 700, 500,
-                   ui::ET_GESTURE_SCROLL_UPDATE);
-  EXPECT_TRUE(WindowState::Get(dragged_window_.get())->is_dragged());
-  ToplevelWindowEventHandler* event_handler =
-      Shell::Get()->toplevel_window_event_handler();
-  EXPECT_TRUE(event_handler->is_drag_in_progress());
-  OverviewController* overview_controller = Shell::Get()->overview_controller();
-  EXPECT_TRUE(overview_controller->InOverviewSession());
-  EXPECT_FALSE(overview_controller->overview_session()->IsWindowInOverview(
-      dragged_window_.get()));
-
-  dragged_window_.reset();
-  EXPECT_FALSE(event_handler->is_drag_in_progress());
-  EXPECT_TRUE(overview_controller->InOverviewSession());
 }
 
 // Showing the resize shadows when the mouse is over the window edges is

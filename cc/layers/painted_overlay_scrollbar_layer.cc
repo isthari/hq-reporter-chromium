@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -84,7 +84,7 @@ void PaintedOverlayScrollbarLayer::PushPropertiesTo(
     scrollbar_layer->SetTrackLength(track_rect_.Read(*this).height());
   }
 
-  if (thumb_resource_.Read(*this).get()) {
+  if (thumb_resource_.Read(*this)) {
     auto iter =
         commit_state.ui_resource_sizes.find(thumb_resource_.Read(*this)->id());
     gfx::Size image_bounds = (iter == commit_state.ui_resource_sizes.end())
@@ -100,7 +100,7 @@ void PaintedOverlayScrollbarLayer::PushPropertiesTo(
     scrollbar_layer->set_thumb_ui_resource_id(0);
   }
 
-  if (track_resource_.Read(*this).get())
+  if (track_resource_.Read(*this))
     scrollbar_layer->set_track_ui_resource_id(
         track_resource_.Read(*this)->id());
   else
@@ -155,7 +155,7 @@ bool PaintedOverlayScrollbarLayer::PaintThumbIfNeeded() {
   SkBitmap skbitmap;
   skbitmap.allocN32Pixels(paint_size.width(), paint_size.height());
   SkiaPaintCanvas canvas(skbitmap);
-  canvas.clear(SK_ColorTRANSPARENT);
+  canvas.clear(SkColors::kTransparent);
 
   scrollbar->PaintPart(&canvas, ScrollbarPart::THUMB, gfx::Rect(paint_size));
   // Make sure that the pixels are no longer mutable to unavoid unnecessary
@@ -188,7 +188,7 @@ bool PaintedOverlayScrollbarLayer::PaintTickmarks() {
   SkBitmap skbitmap;
   skbitmap.allocN32Pixels(paint_size.width(), paint_size.height());
   SkiaPaintCanvas canvas(skbitmap);
-  canvas.clear(SK_ColorTRANSPARENT);
+  canvas.clear(SkColors::kTransparent);
 
   scrollbar_.Write(*this)->PaintPart(
       &canvas, ScrollbarPart::TRACK_BUTTONS_TICKMARKS, gfx::Rect(paint_size));

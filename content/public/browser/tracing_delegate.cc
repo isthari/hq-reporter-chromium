@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,13 +10,14 @@
 namespace content {
 
 bool TracingDelegate::IsAllowedToBeginBackgroundScenario(
-    const BackgroundTracingConfig& config,
-    bool requires_anonymized_data) {
+    const std::string& scenario_name,
+    bool requires_anonymized_data,
+    bool is_crash_scenario) {
   return false;
 }
 
 bool TracingDelegate::IsAllowedToEndBackgroundScenario(
-    const content::BackgroundTracingConfig& config,
+    const std::string& scenario_name,
     bool requires_anonymized_data,
     bool is_crash_scenario) {
   return false;
@@ -26,7 +27,7 @@ bool TracingDelegate::IsSystemWideTracingEnabled() {
   return false;
 }
 
-absl::optional<base::Value> TracingDelegate::GenerateMetadataDict() {
+absl::optional<base::Value::Dict> TracingDelegate::GenerateMetadataDict() {
   return absl::nullopt;
 }
 

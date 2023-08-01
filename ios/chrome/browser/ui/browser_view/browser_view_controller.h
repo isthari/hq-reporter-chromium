@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,27 +8,86 @@
 #import <UIKit/UIKit.h>
 
 #import "base/ios/block_types.h"
+
+#import "base/memory/weak_ptr.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/shared/public/commands/browser_commands.h"
+#import "ios/chrome/browser/ui/browser_view/tab_consumer.h"
 #import "ios/chrome/browser/ui/find_bar/find_bar_coordinator.h"
 #import "ios/chrome/browser/ui/incognito_reauth/incognito_reauth_consumer.h"
 #import "ios/chrome/browser/ui/ntp/logo_animation_controller.h"
-#import "ios/chrome/browser/ui/page_info/requirements/page_info_presentation.h"
-#import "ios/chrome/browser/ui/print/print_controller.h"
-#import "ios/chrome/browser/ui/settings/sync/utils/sync_presenter.h"
+#import "ios/chrome/browser/ui/omnibox/omnibox_focus_delegate.h"
+#import "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_presenter.h"
 #import "ios/chrome/browser/ui/thumb_strip/thumb_strip_supporting.h"
-#import "ios/chrome/browser/ui/toolbar/toolbar_coordinator_delegate.h"
-#import "ios/chrome/browser/web/web_navigation_ntp_delegate.h"
 #import "ios/chrome/browser/web/web_state_container_view_provider.h"
 
-@protocol ActivityServicePositioner;
-class Browser;
+@protocol ApplicationCommands;
+@class BookmarksCoordinator;
 @class BrowserContainerViewController;
-@class BrowserViewControllerDependencyFactory;
-@class CommandDispatcher;
+@protocol BrowserCoordinatorCommands;
+@class BubblePresenter;
 @protocol CRWResponderInputView;
-@class DefaultBrowserPromoNonModalScheduler;
+@class NonModalDefaultBrowserPromoSchedulerSceneAgent;
 @protocol DefaultPromoNonModalPresentationDelegate;
+@protocol FindInPageCommands;
+class FullscreenController;
+@protocol HelpCommands;
+@class KeyCommandsProvider;
+@class NewTabPageCoordinator;
+@class LensCoordinator;
+@protocol OmniboxCommands;
+class PagePlaceholderBrowserAgent;
+@protocol PopupMenuCommands;
+@class PopupMenuCoordinator;
+@class PrimaryToolbarCoordinator;
+@class SafeAreaProvider;
+@class SecondaryToolbarCoordinator;
+@class SideSwipeController;
+@class TabStripCoordinator;
+@class TabStripLegacyCoordinator;
+class TabUsageRecorderBrowserAgent;
+@protocol TextZoomCommands;
 @class ToolbarAccessoryPresenter;
 @protocol IncognitoReauthCommands;
+@class LayoutGuideCenter;
+@protocol LoadQueryCommands;
+class UrlLoadingBrowserAgent;
+class UrlLoadingNotifierBrowserAgent;
+@protocol VoiceSearchController;
+class WebNavigationBrowserAgent;
+class WebStateUpdateBrowserAgent;
+
+typedef struct {
+  BubblePresenter* bubblePresenter;
+  ToolbarAccessoryPresenter* toolbarAccessoryPresenter;
+  PopupMenuCoordinator* popupMenuCoordinator;
+  NewTabPageCoordinator* ntpCoordinator;
+  LensCoordinator* lensCoordinator;
+  PrimaryToolbarCoordinator* primaryToolbarCoordinator;
+  SecondaryToolbarCoordinator* secondaryToolbarCoordinator;
+  TabStripCoordinator* tabStripCoordinator;
+  TabStripLegacyCoordinator* legacyTabStripCoordinator;
+  SideSwipeController* sideSwipeController;
+  BookmarksCoordinator* bookmarksCoordinator;
+  FullscreenController* fullscreenController;
+  id<TextZoomCommands> textZoomHandler;
+  id<HelpCommands> helpHandler;
+  id<PopupMenuCommands> popupMenuCommandsHandler;
+  id<ApplicationCommands> applicationCommandsHandler;
+  id<BrowserCoordinatorCommands> browserCoordinatorCommandsHandler;
+  id<FindInPageCommands> findInPageCommandsHandler;
+  LayoutGuideCenter* layoutGuideCenter;
+  BOOL isOffTheRecord;
+  PagePlaceholderBrowserAgent* pagePlaceholderBrowserAgent;
+  UrlLoadingBrowserAgent* urlLoadingBrowserAgent;
+  UrlLoadingNotifierBrowserAgent* urlLoadingNotifierBrowserAgent;
+  id<VoiceSearchController> voiceSearchController;
+  TabUsageRecorderBrowserAgent* tabUsageRecorderBrowserAgent;
+  WebNavigationBrowserAgent* webNavigationBrowserAgent;
+  base::WeakPtr<WebStateList> webStateList;
+  SafeAreaProvider* safeAreaProvider;
+  WebStateUpdateBrowserAgent* webStateUpdateBrowserAgent;
+} BrowserViewControllerDependencies;
 
 // The top-level view controller for the browser UI. Manages other controllers
 // which implement the interface.
@@ -36,28 +95,24 @@ class Browser;
     : UIViewController <FindBarPresentationDelegate,
                         IncognitoReauthConsumer,
                         LogoAnimationControllerOwnerOwner,
-                        PageInfoPresentation,
-                        PrintControllerDelegate,
-                        SyncPresenter,
+                        TabConsumer,
+                        OmniboxFocusDelegate,
+                        OmniboxPopupPresenterDelegate,
                         ThumbStripSupporting,
-                        ToolbarCoordinatorDelegate,
-                        WebNavigationNTPDelegate,
-                        WebStateContainerViewProvider>
+                        WebStateContainerViewProvider,
+                        BrowserCommands>
 
 // Initializes a new BVC.
-// |browser| is the browser whose tabs this BVC will display.
-// |factory| is the dependency factory created for this BVC instance.
-// |browserContainerViewController| is the container object this BVC will exist
+// `browserContainerViewController` is the container object this BVC will exist
 // inside.
-// |dispatcher| is the dispatcher instance this BVC will use.
-// TODO(crbug.com/992582): Remove references to model objects -- including
-//   |browser| and |dispatcher| -- from this class.
-- (instancetype)initWithBrowser:(Browser*)browser
-                 dependencyFactory:
-                     (BrowserViewControllerDependencyFactory*)factory
-    browserContainerViewController:
+// TODO(crbug.com/992582): Remove references to model objects from this class.
+- (instancetype)
+    initWithBrowserContainerViewController:
         (BrowserContainerViewController*)browserContainerViewController
-                        dispatcher:(CommandDispatcher*)dispatcher
+                       keyCommandsProvider:
+                           (KeyCommandsProvider*)keyCommandsProvider
+                              dependencies:(BrowserViewControllerDependencies)
+                                               dependencies
     NS_DESIGNATED_INITIALIZER;
 
 - (instancetype)initWithNibName:(NSString*)nibNameOrNil
@@ -65,14 +120,11 @@ class Browser;
 
 - (instancetype)initWithCoder:(NSCoder*)aDecoder NS_UNAVAILABLE;
 
-// Command dispatcher.
-@property(nonatomic, weak) CommandDispatcher* commandDispatcher;
-
 // Handler for reauth commands.
 @property(nonatomic, weak) id<IncognitoReauthCommands> reauthHandler;
 
-// Returns whether or not text to speech is playing.
-@property(nonatomic, assign, readonly, getter=isPlayingTTS) BOOL playingTTS;
+// Whether web usage is enabled for the WebStates in `self.browser`.
+@property(nonatomic) BOOL webUsageEnabled;
 
 // The container used for infobar banner overlays.
 @property(nonatomic, strong)
@@ -82,22 +134,20 @@ class Browser;
 @property(nonatomic, strong)
     UIViewController* infobarModalOverlayContainerViewController;
 
-// Presenter used to display accessories over the toolbar (e.g. Find In Page).
-@property(nonatomic, strong)
-    ToolbarAccessoryPresenter* toolbarAccessoryPresenter;
-
-// Positioner for activity services attached to the toolbar.
-@property(nonatomic, readonly) id<ActivityServicePositioner>
-    activityServicePositioner;
-
 // Scheduler for the non-modal default browser promo.
 // TODO(crbug.com/1204120): The BVC should not need this model-level object.
 @property(nonatomic, weak)
-    DefaultBrowserPromoNonModalScheduler* nonModalPromoScheduler;
+    NonModalDefaultBrowserPromoSchedulerSceneAgent* nonModalPromoScheduler;
 
 // Presentation delegate for the non-modal default browser promo.
 @property(nonatomic, weak) id<DefaultPromoNonModalPresentationDelegate>
     nonModalPromoPresentationDelegate;
+
+// Command handler for load query commands.
+@property(nonatomic, weak) id<LoadQueryCommands> loadQueryCommandsHandler;
+
+// Command handler for omnibox commands.
+@property(nonatomic, weak) id<OmniboxCommands> omniboxCommandsHandler;
 
 // Whether the receiver is currently the primary BVC.
 - (void)setPrimary:(BOOL)primary;
@@ -105,27 +155,23 @@ class Browser;
 // Called when the user explicitly opens the tab switcher.
 - (void)userEnteredTabSwitcher;
 
-// Opens a new tab as if originating from |originPoint| and |focusOmnibox|.
+// Opens a new tab as if originating from `originPoint` and `focusOmnibox`.
 - (void)openNewTabFromOriginPoint:(CGPoint)originPoint
                      focusOmnibox:(BOOL)focusOmnibox
                     inheritOpener:(BOOL)inheritOpener;
 
-// Adds |tabAddedCompletion| to the completion block (if any) that will be run
+// Adds `tabAddedCompletion` to the completion block (if any) that will be run
 // the next time a tab is added to the Browser this object was initialized
 // with.
 - (void)appendTabAddedCompletion:(ProceduralBlock)tabAddedCompletion;
 
-// Informs the BVC that a new foreground tab is about to be opened. This is
-// intended to be called before setWebUsageSuspended:NO in cases where a new tab
-// is about to appear in order to allow the BVC to avoid doing unnecessary work
-// related to showing the previously selected tab.
-- (void)expectNewForegroundTab;
-
 // Shows the voice search UI.
 - (void)startVoiceSearch;
 
-// Returns the number of tabs with the NTP open.
-- (int)liveNTPCount;
+// Displays or refreshes the current tab.
+// TODO:(crbug.com/1385847): Remove this when BVC is refactored to not know
+// about model layer objects such as webstates.
+- (void)displayCurrentTab;
 
 @end
 

@@ -1,14 +1,14 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/printing/test_printer_configurer.h"
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "chrome/browser/ash/printing/test_cups_printers_manager.h"
 #include "chromeos/printing/printer_configuration.h"
 
-namespace chromeos {
+namespace ash {
 
 TestPrinterConfigurer::TestPrinterConfigurer() = default;
 
@@ -17,7 +17,7 @@ TestPrinterConfigurer::TestPrinterConfigurer(TestCupsPrintersManager* manager)
 
 TestPrinterConfigurer::~TestPrinterConfigurer() = default;
 
-void TestPrinterConfigurer::SetUpPrinter(const Printer& printer,
+void TestPrinterConfigurer::SetUpPrinter(const chromeos::Printer& printer,
                                          PrinterSetupCallback callback) {
   MarkConfigured(printer.id());
   auto it = assigned_results_.find(printer.id());
@@ -42,4 +42,4 @@ void TestPrinterConfigurer::AssignPrinterSetupResult(
   assigned_results_[printer_id] = result;
 }
 
-}  // namespace chromeos
+}  // namespace ash

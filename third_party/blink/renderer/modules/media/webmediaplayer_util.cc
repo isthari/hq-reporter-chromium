@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 #include <utility>
 
 #include "base/metrics/histogram_macros.h"
-#include "media/base/bind_to_current_loop.h"
+#include "base/task/bind_post_task.h"
 #include "media/base/media_log.h"
 #include "third_party/blink/public/common/scheme_registry.h"
 #include "third_party/blink/public/platform/url_conversion.h"
@@ -139,7 +139,7 @@ void ReportMetrics(WebMediaPlayer::LoadType load_type,
                             WebMediaPlayer::kLoadTypeMax + 1);
 
   // Report load type separately for ad frames.
-  if (frame.IsAdSubframe()) {
+  if (frame.IsAdFrame()) {
     UMA_HISTOGRAM_ENUMERATION("Ads.Media.LoadType", load_type,
                               WebMediaPlayer::kLoadTypeMax + 1);
   }
@@ -147,8 +147,8 @@ void ReportMetrics(WebMediaPlayer::LoadType load_type,
 
 media::OutputDeviceStatusCB ConvertToOutputDeviceStatusCB(
     WebSetSinkIdCompleteCallback callback) {
-  return media::BindToCurrentLoop(
-      WTF::Bind(RunSetSinkIdCallback, std::move(callback)));
+  return base::BindPostTaskToCurrentDefault(
+      WTF::BindOnce(RunSetSinkIdCallback, std::move(callback)));
 }
 
 }  // namespace blink

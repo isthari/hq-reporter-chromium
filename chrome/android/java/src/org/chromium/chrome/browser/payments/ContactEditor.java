@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,9 +17,9 @@ import org.chromium.chrome.browser.autofill.PersonalDataManager;
 import org.chromium.chrome.browser.autofill.PersonalDataManager.AutofillProfile;
 import org.chromium.chrome.browser.autofill.PhoneNumberUtil;
 import org.chromium.chrome.browser.autofill.prefeditor.EditorBase;
-import org.chromium.chrome.browser.autofill.prefeditor.EditorFieldModel;
-import org.chromium.chrome.browser.autofill.prefeditor.EditorFieldModel.EditorFieldValidator;
 import org.chromium.chrome.browser.autofill.prefeditor.EditorModel;
+import org.chromium.components.autofill.prefeditor.EditorFieldModel;
+import org.chromium.components.autofill.prefeditor.EditorFieldModel.EditorFieldValidator;
 import org.chromium.payments.mojom.PayerErrors;
 
 import java.util.HashSet;
@@ -31,9 +31,7 @@ import java.util.UUID;
  */
 public class ContactEditor extends EditorBase<AutofillContact> {
     // Bit field values are identical to ProfileFields in payments_profile_comparator.h.
-    // Please also modify payments_profile_comparator.h after changing these bits since
-    // missing fields on both Android and Desktop are recorded in the same UMA metric:
-    // PaymentRequest.MissingContactFields.
+    // Please also modify payments_profile_comparator.h after changing these bits.
     public @interface CompletionStatus {}
     /** Can be sent to the merchant as-is without editing first. */
     public static final int COMPLETE = 0;
@@ -176,16 +174,16 @@ public class ContactEditor extends EditorBase<AutofillContact> {
         super.edit(toEdit, doneCallback, cancelCallback);
 
         final AutofillContact contact = toEdit == null
-                ? new AutofillContact(mContext, new AutofillProfile(), null, null, null,
-                          INVALID_NAME | INVALID_PHONE_NUMBER | INVALID_EMAIL, mRequestPayerName,
-                          mRequestPayerPhone, mRequestPayerEmail)
+                ? new AutofillContact(mContext, AutofillProfile.builder().build(), null, null, null,
+                        INVALID_NAME | INVALID_PHONE_NUMBER | INVALID_EMAIL, mRequestPayerName,
+                        mRequestPayerPhone, mRequestPayerEmail)
                 : toEdit;
 
         final EditorFieldModel nameField = mRequestPayerName
                 ? EditorFieldModel.createTextInput(EditorFieldModel.INPUT_TYPE_HINT_PERSON_NAME,
                         mContext.getString(R.string.payments_name_field_in_contact_details),
-                        mPayerNames, null /* suggestions */, null /* formatter */,
-                        null /* validator */,
+                        mPayerNames, /*suggestions=*/null, /*formatter=*/null,
+                        /*validator=*/null,
                         mContext.getString(
                                 R.string.pref_edit_dialog_field_required_validation_message),
                         null, EditorFieldModel.LENGTH_COUNTER_LIMIT_NONE, contact.getPayerName())

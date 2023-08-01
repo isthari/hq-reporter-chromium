@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,15 +22,13 @@ namespace subresource_filter {
 
 // This class provides a static API to log console messages when an ongoing
 // navigation successfully commits.
-// - This class only supports main frame navigations.
-// - This class should be replaced with a class scoped to the NavigationHandle
-//   if it ever starts supporting user data.
+// - This class only supports root frame navigations.
 class NavigationConsoleLogger
     : public content::WebContentsObserver,
       public content::NavigationHandleUserData<NavigationConsoleLogger> {
  public:
   // Creates a NavigationConsoleLogger object if it does not already exist for
-  // |handle|. It will be scoped until the current main frame navigation commits
+  // |handle|. It will be scoped until the current root frame navigation commits
   // its next navigation. If |handle| has already committed, logs the message
   // immediately.
   static void LogMessageOnCommit(content::NavigationHandle* handle,
@@ -49,7 +47,7 @@ class NavigationConsoleLogger
   // Creates a new NavigationConsoleLogger scoped to |handle| if one doesn't
   // exist. Returns the NavigationConsoleLogger associated with |handle|.
   //
-  // Note: |handle| must be associated with a main frame navigation.
+  // Note: |handle| must be associated with a root frame navigation.
   static NavigationConsoleLogger* CreateIfNeededForNavigation(
       content::NavigationHandle* handle);
 

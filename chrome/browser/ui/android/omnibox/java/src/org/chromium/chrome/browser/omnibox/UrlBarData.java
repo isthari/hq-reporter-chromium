@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@ import org.chromium.chrome.browser.ui.native_page.NativePage;
 import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.components.embedder_support.util.UrlUtilities;
 import org.chromium.content_public.common.ContentUrlConstants;
+import org.chromium.url.GURL;
 
 import java.util.HashSet;
 
@@ -62,14 +63,14 @@ public class UrlBarData {
     }
 
     /** Returns whether supplied URL should be shown in the Omnibox/Suggestions list. */
-    public static boolean shouldShowUrl(String url, boolean isIncognito) {
-        return !(NativePage.isNativePageUrl(url, isIncognito) || UrlUtilities.isNTPUrl(url));
+    public static boolean shouldShowUrl(GURL gurl, boolean isIncognito) {
+        return !(NativePage.isNativePageUrl(gurl, isIncognito) || UrlUtilities.isNTPUrl(gurl));
     }
 
     public static UrlBarData forUrlAndText(
             String url, CharSequence displayText, @Nullable String editingText) {
         int pathSearchOffset = 0;
-        String displayTextStr = displayText.toString();
+        String displayTextStr = displayText == null ? "" : displayText.toString();
         String scheme = Uri.parse(displayTextStr).getScheme();
 
         if (!TextUtils.isEmpty(scheme)) {
@@ -92,14 +93,17 @@ public class UrlBarData {
             }
         }
         int pathOffset = -1;
-        if (pathSearchOffset < displayText.length()) {
+        if (displayText != null && pathSearchOffset < displayText.length()) {
             pathOffset = displayTextStr.indexOf('/', pathSearchOffset);
         }
-        if (pathOffset == -1) return create(url, displayText, 0, displayText.length(), editingText);
+        if (pathOffset == -1) {
+            return create(url, displayText, 0, displayText == null ? 0 : displayText.length(),
+                    editingText);
+        }
 
         // If the '/' is the last character and the beginning of the path, then just drop
         // the path entirely.
-        if (pathOffset == displayText.length() - 1) {
+        if (displayText != null && pathOffset == displayText.length() - 1) {
             return create(
                     url, displayTextStr.subSequence(0, pathOffset), 0, pathOffset, editingText);
         }

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,6 +26,7 @@ class LargeIconBridge {
       const base::android::JavaParamRef<jobject>& j_browser_context,
       const base::android::JavaParamRef<jobject>& j_page_url,
       jint min_source_size_px,
+      jint desired_source_size_px,
       const base::android::JavaParamRef<jobject>& j_callback);
 
  private:

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,12 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/check_op.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/sparse_histogram.h"
+#include "base/task/sequenced_task_runner.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
 #include "net/quic/quic_chromium_client_session.h"
@@ -69,9 +70,9 @@ const net::NetworkTrafficAnnotationTag kTrafficAnnotation =
 }  // namespace
 
 QuicChromiumPacketWriter::ReusableIOBuffer::ReusableIOBuffer(size_t capacity)
-    : IOBuffer(capacity), capacity_(capacity), size_(0) {}
+    : IOBuffer(capacity), capacity_(capacity) {}
 
-QuicChromiumPacketWriter::ReusableIOBuffer::~ReusableIOBuffer() {}
+QuicChromiumPacketWriter::ReusableIOBuffer::~ReusableIOBuffer() = default;
 
 void QuicChromiumPacketWriter::ReusableIOBuffer::Set(const char* buffer,
                                                      size_t buf_len) {
@@ -81,24 +82,18 @@ void QuicChromiumPacketWriter::ReusableIOBuffer::Set(const char* buffer,
   std::memcpy(data(), buffer, buf_len);
 }
 
-QuicChromiumPacketWriter::QuicChromiumPacketWriter() {}
-
 QuicChromiumPacketWriter::QuicChromiumPacketWriter(
     DatagramClientSocket* socket,
     base::SequencedTaskRunner* task_runner)
     : socket_(socket),
-      delegate_(nullptr),
-      packet_(
-          base::MakeRefCounted<ReusableIOBuffer>(quic::kMaxOutgoingPacketSize)),
-      write_in_progress_(false),
-      force_write_blocked_(false),
-      retry_count_(0) {
+      packet_(base::MakeRefCounted<ReusableIOBuffer>(
+          quic::kMaxOutgoingPacketSize)) {
   retry_timer_.SetTaskRunner(task_runner);
   write_callback_ = base::BindRepeating(
       &QuicChromiumPacketWriter::OnWriteComplete, weak_factory_.GetWeakPtr());
 }
 
-QuicChromiumPacketWriter::~QuicChromiumPacketWriter() {}
+QuicChromiumPacketWriter::~QuicChromiumPacketWriter() = default;
 
 void QuicChromiumPacketWriter::set_force_write_blocked(
     bool force_write_blocked) {
@@ -131,14 +126,15 @@ quic::WriteResult QuicChromiumPacketWriter::WritePacket(
     const quic::QuicIpAddress& self_address,
     const quic::QuicSocketAddress& peer_address,
     quic::PerPacketOptions* /*options*/) {
-  DCHECK(!IsWriteBlocked());
+  CHECK(!IsWriteBlocked());
   SetPacket(buffer, buf_len);
   return WritePacketToSocketImpl();
 }
 
 void QuicChromiumPacketWriter::WritePacketToSocket(
     scoped_refptr<ReusableIOBuffer> packet) {
-  DCHECK(!force_write_blocked_);
+  CHECK(!force_write_blocked_);
+  CHECK(!IsWriteBlocked());
   packet_ = std::move(packet);
   quic::WriteResult result = WritePacketToSocketImpl();
   if (result.error_code != ERR_IO_PENDING)
@@ -196,6 +192,10 @@ bool QuicChromiumPacketWriter::IsWriteBlocked() const {
 
 void QuicChromiumPacketWriter::SetWritable() {
   write_in_progress_ = false;
+}
+
+absl::optional<int> QuicChromiumPacketWriter::MessageTooBigErrorCode() const {
+  return ERR_MSG_TOO_BIG;
 }
 
 void QuicChromiumPacketWriter::OnWriteComplete(int rv) {

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,7 +53,7 @@ TEST(H264AnnexBToAvcBitstreamConverterTest, Success) {
 
     auto status =
         converter.ConvertChunk(input, output, &config_changed, &desired_size);
-    ASSERT_EQ(status.code(), StatusCode::kH264BufferTooSmall);
+    ASSERT_EQ(status.code(), MP4Status::Codes::kBufferTooSmall);
     output.resize(desired_size);
 
     status = converter.ConvertChunk(input, output, &config_changed, nullptr);
@@ -124,6 +124,45 @@ TEST(H264AnnexBToAvcBitstreamConverterTest, PPS_SwitchWithoutReconfig) {
   EXPECT_FALSE(config_changed);
 }
 
+// Tests that REXT metadata is handled correctly.
+TEST(H264AnnexBToAvcBitstreamConverterTest, REXT) {
+  std::vector<uint8_t> sps{0,   0,  0, 1,   39,  100, 0, 31, 172, 86,
+                           128, 80, 5, 186, 106, 12,  2, 12, 4};
+  std::vector<uint8_t> spsext{0, 0, 0, 1, 45, 208};
+  std::vector<uint8_t> pps{0, 0, 0, 1, 40, 238, 60, 176};
+  std::vector<uint8_t> idr{
+      0, 0, 0, 1, 37, 184, 32, 1, 239, 27, 89, 188, 127, 248, 98, 186,
+      // Encoded data omitted here, it's not important for NALU parsing
+  };
+
+  std::vector<uint8_t> chunk;
+  chunk.insert(chunk.end(), sps.begin(), sps.end());
+  chunk.insert(chunk.end(), spsext.begin(), spsext.end());
+  chunk.insert(chunk.end(), pps.begin(), pps.end());
+  chunk.insert(chunk.end(), idr.begin(), idr.end());
+
+  H264AnnexBToAvcBitstreamConverter converter;
+  std::vector<uint8_t> output(10000);
+  bool config_changed = false;
+
+  auto status = converter.ConvertChunk(chunk, output, &config_changed, nullptr);
+  EXPECT_TRUE(status.is_ok()) << status.message();
+  EXPECT_TRUE(config_changed);
+
+  auto& config = converter.GetCurrentConfig();
+  EXPECT_EQ(config.version, 1);
+  EXPECT_EQ(config.profile_indication, 100);
+  EXPECT_EQ(config.profile_compatibility, 0);
+  EXPECT_EQ(config.avc_level, 31);
+  EXPECT_EQ(config.length_size, 4);
+  EXPECT_EQ(config.sps_list.size(), 1ul);
+  EXPECT_EQ(config.pps_list.size(), 1ul);
+  EXPECT_EQ(config.chroma_format, 1);
+  EXPECT_EQ(config.bit_depth_luma_minus8, 0);
+  EXPECT_EQ(config.bit_depth_chroma_minus8, 0);
+  EXPECT_EQ(config.sps_ext_list.size(), 1ul);
+}
+
 TEST(H264AnnexBToAvcBitstreamConverterTest, Failure) {
   H264AnnexBToAvcBitstreamConverter converter;
 
@@ -132,7 +171,8 @@ TEST(H264AnnexBToAvcBitstreamConverterTest, Failure) {
   std::vector<uint8_t> output(input.size());
 
   auto status = converter.ConvertChunk(input, output, nullptr, nullptr);
-  ASSERT_EQ(status.code(), StatusCode::kH264ParsingError);
+
+  ASSERT_EQ(status.code(), MP4Status::Codes::kInvalidSPS);
 }
 
 }  // namespace media

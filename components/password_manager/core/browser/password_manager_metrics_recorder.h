@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,24 +33,26 @@ class PasswordManagerMetricsRecorder {
  public:
   // Reasons why the password manager failed to do a provisional saving and
   // therefore did not offer the user to save a password.
+  // These values are persisted to logs. Entries should not be renumbered and
+  // numeric values should never be reused.
   enum ProvisionalSaveFailure {
     // Password manager is disabled or user is in incognito mode.
-    SAVING_DISABLED,
+    SAVING_DISABLED = 0,
     // Submitted form contains an empty password.
-    EMPTY_PASSWORD,
+    EMPTY_PASSWORD = 1,
     // No PasswordFormManager exists for this form.
-    NO_MATCHING_FORM,
+    NO_MATCHING_FORM = 2,
     // FormFetcher of PasswordFormManager is still loading.
-    MATCHING_NOT_COMPLETE,
+    MATCHING_NOT_COMPLETE = 3,
     // <unknown purpose>. Obsolete since M48.
-    INVALID_FORM,
+    INVALID_FORM = 4,
     // A Google credential cannot be saved by policy because it is the Chrome
     // Sync credential and therefore acts as a master password that gives access
     // to all other credentials on https://passwords.google.com.
-    SYNC_CREDENTIAL,
+    SYNC_CREDENTIAL = 5,
     // Credentials are not offered to be saved on HTTP pages if a credential is
     // stored for the corresponding HTTPS page.
-    SAVING_ON_HTTP_AFTER_HTTPS,
+    SAVING_ON_HTTP_AFTER_HTTPS = 6,
     MAX_FAILURE_VALUE
   };
 
@@ -78,22 +80,8 @@ class PasswordManagerMetricsRecorder {
     kObsoleteShowAllPasswordsWhileNoneAreSuggested = 2,
   };
 
-  // This purpose of this interface is to allow browser to record metrics
-  // about the current navigation.
-  class NavigationMetricRecorderDelegate {
-   public:
-    virtual ~NavigationMetricRecorderDelegate() = default;
-    // Called the first time the user focuses on a password field.
-    virtual void OnUserFocusedPasswordFieldFirstTime() = 0;
-    // Called the first time the user types into a password field.
-    virtual void OnUserModifiedPasswordFieldFirstTime() = 0;
-  };
-
   // Records UKM metrics and reports them on destruction.
-  PasswordManagerMetricsRecorder(
-      ukm::SourceId source_id,
-      std::unique_ptr<NavigationMetricRecorderDelegate>
-          navigation_metric_recorder);
+  explicit PasswordManagerMetricsRecorder(ukm::SourceId source_id);
 
   PasswordManagerMetricsRecorder(
       PasswordManagerMetricsRecorder&& that) noexcept;
@@ -111,9 +99,6 @@ class PasswordManagerMetricsRecorder {
   // Records that the user has modified a password field on a page. This may be
   // called multiple times but a single metric will be reported.
   void RecordUserModifiedPasswordField();
-  // Records that the user has focused a password field on a page. This may be
-  // called multiple times but a single metric will be reported.
-  void RecordUserFocusedPasswordField();
 
   // Log failure to provisionally save a password to in the PasswordManager to
   // UMA and the |logger|.
@@ -133,13 +118,10 @@ class PasswordManagerMetricsRecorder {
   std::unique_ptr<ukm::builders::PageWithPassword> ukm_entry_builder_;
 
   bool user_modified_password_field_ = false;
-  bool user_focused_password_field_ = false;
 
   // Stores the value most recently reported via RecordFormManagerAvailable.
   FormManagerAvailable form_manager_availability_ =
       FormManagerAvailable::kNotSet;
-
-  std::unique_ptr<NavigationMetricRecorderDelegate> navigation_metric_recorder_;
 };
 
 }  // namespace password_manager

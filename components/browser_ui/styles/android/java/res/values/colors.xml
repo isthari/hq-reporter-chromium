@@ -1,9 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Copyright 2019 The Chromium Authors. All rights reserved.
-     Use of this source code is governed by a BSD-style license that can be
-     found in the LICENSE file. -->
+<!--
+Copyright 2019 The Chromium Authors
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
 
 <resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Surface tint -->
+    <color name="gm3_baseline_surface_tint">@color/gm3_baseline_surface_tint_light</color>
+
     <!-- Text colors -->
     <color name="default_primary_color">#F2F2F2</color>
     <color name="input_underline_error_color">#D32F2F</color>
@@ -11,7 +16,6 @@
 
     <!-- Toolbar colors -->
     <!-- Same as ?attr/colorSurface. -->
-    <color name="toolbar_background_primary">@color/default_bg_color</color>
     <color name="toolbar_background_primary_dark">@color/default_bg_color_dark</color>
 
     <!-- Infobar colors -->
@@ -33,19 +37,24 @@
     <color name="default_favicon_background_color">@color/default_control_color_normal_light</color>
 
     <!-- Navigation bar colors -->
-    <color name="bottom_system_nav_color">@color/toolbar_background_primary</color>
+    <macro name="bottom_system_nav_color" tools:ignore="UnusedResources">@macro/toolbar_background_primary</macro>
     <macro name="bottom_system_nav_divider_color">@macro/divider_line_bg_color</macro>
     <color name="bottom_system_nav_divider_color_light">@color/divider_line_bg_color_light</color>
 
     <!-- This is the color that will appear on the system recents UI. It is a neutral background
          color that adapts to dark/light modes but not a dynamic color. -->
-    <color name="default_task_description_color">@color/default_bg_color</color>
+    <color name="default_task_description_color">@color/default_bg_color_baseline</color>
 
     <!-- Progress Bar colors -->
     <macro name="progress_bar_foreground">@macro/default_control_color_active</macro>
     <color name="progress_bar_secondary">@color/modern_grey_600</color>
 
     <!-- Chip Colors -->
-    <color name="chip_text_color_selected">@color/default_text_color_on_accent2_container</color>
-    <color name="default_chip_assistive_text_color_secondary">@color/default_text_color_secondary</color>
+    <macro name="default_chip_assistive_text_color_secondary" tools:ignore="UnusedResources">@macro/default_text_color_secondary</macro>
+
+    <!-- Clank Empty States Colors-->
+    <color name="empty_state_icon_bg_color">@color/material_primary_95</color>
+    <color name="empty_state_icon_bg_background_color">@color/material_primary_95</color>
+    <color name="empty_state_icon_bg_foreground_color">@color/material_primary_90</color>
+    <color name="empty_state_icon_color">@color/material_primary_40</color>
 </resources>

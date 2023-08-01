@@ -9,7 +9,6 @@
 <translation id="3444832043240812445">Tällä sivulla näkyy tietoja viimeaikaisista kaatumisista vain, jos <ph name="BEGIN_LINK" />otat kaatumisraportit käyttöön<ph name="END_LINK" />.</translation>
 <translation id="3875312571075912821">Myönnä Chromelle verkon käyttöoikeus palomuurin tai virustorjuntaohjelmiston
           asetuksissa</translation>
-<translation id="4010643444566880169">Chrome-käyttöjärjestelmä ei ole suorittanut alkuasetuksia.</translation>
 <translation id="5005121315113832363">Chrome on estänyt tämän sivun</translation>
 <translation id="6011049234605203654">Avaa
           Chrome-valikko &gt;
@@ -41,4 +40,6 @@
 <translation id="8187289872471304532">Avaa
           Sovellukset &gt; Järjestelmäasetukset &gt; Verkko &gt; Lisäasetukset &gt; Välityspalvelimet
           ja poista valinta kaikkien valittujen välityspalvelimien kohdalta.</translation>
+<translation id="8232971017369963250">Chromen mahdollistivat avoimen lähdekoodin projekti <ph name="BEGIN_LINK_CHROMIUM" />Chromium<ph name="END_LINK_CHROMIUM" />.</translation>
+<translation id="8279509328145658601">Muu <ph name="BEGIN_LINK_OSS" />avoimen lähdekoodin ohjelmisto<ph name="END_LINK_OSS" /> tukee Chromea.</translation>
 </translationbundle>

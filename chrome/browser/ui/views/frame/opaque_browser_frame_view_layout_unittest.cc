@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,19 +10,24 @@
 
 #include "base/command_line.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/views/tab_icon_view.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/views/chrome_views_test_base.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/base/models/image_model.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/image/image_skia_rep.h"
 #include "ui/gfx/text_constants.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/controls/button/menu_button.h"
 #include "ui/views/controls/label.h"
+#include "ui/views/test/views_test_utils.h"
 
 namespace {
 
@@ -64,10 +69,13 @@ class TestLayoutDelegate : public OpaqueBrowserFrameViewLayoutDelegate {
     return show_caption_buttons_;
   }
   bool IsRegularOrGuestSession() const override { return true; }
+  bool CanMaximize() const override { return true; }
+  bool CanMinimize() const override { return true; }
   bool IsMaximized() const override { return maximized_; }
   bool IsMinimized() const override { return false; }
   bool IsFullscreen() const override { return false; }
   bool IsTabStripVisible() const override { return window_title_.empty(); }
+  bool GetBorderlessModeEnabled() const override { return false; }
   int GetTabStripHeight() const override {
     return IsTabStripVisible() ? GetLayoutConstant(TAB_HEIGHT) : 0;
   }
@@ -85,6 +93,10 @@ class TestLayoutDelegate : public OpaqueBrowserFrameViewLayoutDelegate {
       const gfx::Rect& bounding_rect) const override {}
   bool IsTranslucentWindowOpacitySupported() const override { return true; }
   bool ShouldDrawRestoredFrameShadow() const override { return true; }
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+  ui::WindowTiledEdges GetTiledEdges() const override { return {}; }
+#endif
+  int WebAppButtonHeight() const override { return 0; }
 
  private:
   std::u16string window_title_;
@@ -154,7 +166,8 @@ class OpaqueBrowserFrameViewLayoutTest
     auto button = std::make_unique<views::ImageButton>();
     gfx::ImageSkiaRep rep(size, 1.0f);
     gfx::ImageSkia image(rep);
-    button->SetImage(views::Button::STATE_NORMAL, &image);
+    button->SetImageModel(views::Button::STATE_NORMAL,
+                          ui::ImageModel::FromImageSkia(image));
     button->SetID(view_id);
 
     // OpaqueBrowserFrameViewLayout requires the id of a view is set before
@@ -361,14 +374,16 @@ class OpaqueBrowserFrameViewLayoutTest
   raw_ptr<views::ImageButton> restore_button_ = nullptr;
   raw_ptr<views::ImageButton> close_button_ = nullptr;
 
-  TabIconView* tab_icon_view_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION TabIconView* tab_icon_view_ = nullptr;
   raw_ptr<views::Label> window_title_ = nullptr;
 };
 
 TEST_P(OpaqueBrowserFrameViewLayoutTest, BasicWindow) {
   // Tests the layout of a default chrome window with a tabstrip and no window
   // title.
-  root_view_->Layout();
+  views::test::RunScheduledLayout(root_view_);
   ExpectCaptionButtons(false, 0);
   ExpectTabStripAndMinimumSize(false);
   ExpectWindowIcon(false);
@@ -383,7 +398,7 @@ TEST_P(OpaqueBrowserFrameViewLayoutTest, WindowButtonsOnLeft) {
   leading_buttons.push_back(views::FrameButton::kMaximize);
   layout_manager_->SetButtonOrdering(leading_buttons, trailing_buttons);
 
-  root_view_->Layout();
+  views::test::RunScheduledLayout(root_view_);
   ExpectCaptionButtons(true, 0);
   ExpectTabStripAndMinimumSize(true);
   ExpectWindowIcon(true);
@@ -394,7 +409,7 @@ TEST_P(OpaqueBrowserFrameViewLayoutTest, WithoutCaptionButtons) {
   // should force the tab strip to be condensed).
   delegate_->set_show_caption_buttons(false);
 
-  root_view_->Layout();
+  views::test::RunScheduledLayout(root_view_);
   ExpectCaptionButtons(false, 0);
   ExpectTabStripAndMinimumSize(false);
   ExpectWindowIcon(false);
@@ -405,7 +420,7 @@ TEST_P(OpaqueBrowserFrameViewLayoutTest, WindowWithTitleAndIcon) {
   delegate_->set_window_title(u"Window Title");
   AddWindowTitleIcons();
 
-  root_view_->Layout();
+  views::test::RunScheduledLayout(root_view_);
   ExpectCaptionButtons(false, 0);
   ExpectWindowIcon(false);
   ExpectWindowTitle();

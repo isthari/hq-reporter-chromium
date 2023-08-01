@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,9 +17,9 @@ class BorealisContextManager;
 class BorealisDiskManagerDispatcher;
 class BorealisFeatures;
 class BorealisInstaller;
+class BorealisInstallUrlHandler;
 class BorealisLaunchOptions;
 class BorealisShutdownMonitor;
-class BorealisWaylandInterface;
 class BorealisWindowManager;
 
 // A common location for all the interdependant components of borealis.
@@ -36,9 +36,9 @@ class BorealisService : public KeyedService {
   virtual BorealisDiskManagerDispatcher& DiskManagerDispatcher() = 0;
   virtual BorealisFeatures& Features() = 0;
   virtual BorealisInstaller& Installer() = 0;
+  virtual BorealisInstallUrlHandler& InstallUrlHandler() = 0;
   virtual BorealisLaunchOptions& LaunchOptions() = 0;
   virtual BorealisShutdownMonitor& ShutdownMonitor() = 0;
-  virtual BorealisWaylandInterface& WaylandInterface() = 0;
   virtual BorealisWindowManager& WindowManager() = 0;
 };
 

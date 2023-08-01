@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -47,11 +47,6 @@ class FakeArcBridgeHost : public mojom::ArcBridgeHost {
           boot_phase_monitor_remote) override;
   void OnCameraInstanceReady(
       mojo::PendingRemote<mojom::CameraInstance> camera_remote) override;
-  void OnCastReceiverInstanceReady(
-      mojo::PendingRemote<mojom::CastReceiverInstance> cast_receiver_remote)
-      override;
-  void OnCertStoreInstanceReady(
-      mojo::PendingRemote<mojom::CertStoreInstance> instance_remote) override;
   void OnClipboardInstanceReady(
       mojo::PendingRemote<mojom::ClipboardInstance> clipboard_remote) override;
   void OnCompatibilityModeInstanceReady(
@@ -60,8 +55,6 @@ class FakeArcBridgeHost : public mojom::ArcBridgeHost {
   void OnCrashCollectorInstanceReady(
       mojo::PendingRemote<mojom::CrashCollectorInstance> crash_collector_remote)
       override;
-  void OnDarkThemeInstanceReady(
-      mojo::PendingRemote<mojom::DarkThemeInstance> dark_theme_remote) override;
   void OnDigitalGoodsInstanceReady(
       mojo::PendingRemote<mojom::DigitalGoodsInstance> digital_goods_remote)
       override;
@@ -87,6 +80,9 @@ class FakeArcBridgeHost : public mojom::ArcBridgeHost {
           keyboard_shortcut_remote) override;
   void OnKeymasterInstanceReady(
       mojo::PendingRemote<mojom::KeymasterInstance> keymaster_remote) override;
+  void OnKeyMintInstanceReady(
+      mojo::PendingRemote<mojom::keymint::KeyMintInstance> keymint_remote)
+      override;
   void OnKioskInstanceReady(
       mojo::PendingRemote<mojom::KioskInstance> kiosk_remote) override;
   void OnLockScreenInstanceReady(mojo::PendingRemote<mojom::LockScreenInstance>
@@ -136,16 +132,16 @@ class FakeArcBridgeHost : public mojom::ArcBridgeHost {
   void OnScreenCaptureInstanceReady(
       mojo::PendingRemote<mojom::ScreenCaptureInstance> screen_capture_remote)
       override;
-  void OnSensorInstanceReady(
-      mojo::PendingRemote<mojom::SensorInstance> sensor_remote) override;
   void OnSharesheetInstanceReady(mojo::PendingRemote<mojom::SharesheetInstance>
                                      sharesheet_remote) override;
-  void OnSmartCardManagerInstanceReady(
-      mojo::PendingRemote<mojom::SmartCardManagerInstance>
-          smart_card_manager_remote) override;
   void OnStorageManagerInstanceReady(
       mojo::PendingRemote<mojom::StorageManagerInstance> storage_manager_remote)
       override;
+  void OnSystemStateInstanceReady(
+      mojo::PendingRemote<mojom::SystemStateInstance> system_state_remote)
+      override;
+  void OnSystemUiInstanceReady(
+      mojo::PendingRemote<mojom::SystemUiInstance> system_ui_remote) override;
   void OnTimerInstanceReady(
       mojo::PendingRemote<mojom::TimerInstance> timer_remote) override;
   void OnTracingInstanceReady(

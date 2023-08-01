@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,8 +11,10 @@ import org.chromium.base.ThreadUtils;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
+import org.chromium.base.lifetime.Destroyable;
 import org.chromium.components.optimization_guide.OptimizationGuideDecision;
 import org.chromium.components.optimization_guide.proto.CommonTypesProto.Any;
+import org.chromium.components.optimization_guide.proto.CommonTypesProto.RequestContext;
 import org.chromium.components.optimization_guide.proto.HintsProto.OptimizationType;
 import org.chromium.components.optimization_guide.proto.PushNotificationProto.HintNotificationPayload;
 import org.chromium.content_public.browser.NavigationHandle;
@@ -27,7 +29,7 @@ import java.util.List;
  * An instance of this class must be created, used, and destroyed on the UI thread.
  */
 @JNINamespace("optimization_guide::android")
-public class OptimizationGuideBridge {
+public class OptimizationGuideBridge implements Destroyable {
     private long mNativeOptimizationGuideBridge;
 
     /**
@@ -35,6 +37,14 @@ public class OptimizationGuideBridge {
      */
     public interface OptimizationGuideCallback {
         void onOptimizationGuideDecision(
+                @OptimizationGuideDecision int decision, @Nullable Any metadata);
+    }
+
+    /**
+     * Interface to implement to receive on-demand decisions from the optimization guide.
+     */
+    public interface OnDemandOptimizationGuideCallback {
+        void onOnDemandOptimizationGuideDecision(GURL url, OptimizationType optimizationType,
                 @OptimizationGuideDecision int decision, @Nullable Any metadata);
     }
 
@@ -57,6 +67,7 @@ public class OptimizationGuideBridge {
     /**
      * Deletes the C++ side of this class. This must be called when this object is no longer needed.
      */
+    @Override
     public void destroy() {
         ThreadUtils.assertOnUiThread();
 
@@ -126,6 +137,47 @@ public class OptimizationGuideBridge {
                 mNativeOptimizationGuideBridge, url, optimizationType.getNumber(), callback);
     }
 
+    /**
+     * Invokes {@link OnDemandOptimizationGuideCallback} with the decision for all types contained
+     * in {@link optimizationTypes} for each URL contained in {@link urls}, when sufficient
+     * information has been collected to make decisions. {@link requestContext} must be included to
+     * indicate when the request is being made to determine the appropriate permissions to make the
+     * request for accounting purposes.
+     *
+     * It is expected for consumers to consult with the Optimization Guide team before using this
+     * API. If approved, add your request context to the assertion list here.
+     */
+    public void canApplyOptimizationOnDemand(List<GURL> urls,
+            List<OptimizationType> optimizationTypes, RequestContext requestContext,
+            OnDemandOptimizationGuideCallback callback) {
+        ThreadUtils.assertOnUiThread();
+
+        // TODO(b/279643150): Reconfigure this assertion once we have an actual client here.
+        //
+        // Currently, this is just for testing purposes to allow new tab page.
+        assert requestContext == RequestContext.CONTEXT_NEW_TAB_PAGE;
+
+        if (mNativeOptimizationGuideBridge == 0) {
+            for (GURL url : urls) {
+                for (OptimizationType optimizationType : optimizationTypes) {
+                    callback.onOnDemandOptimizationGuideDecision(
+                            url, optimizationType, OptimizationGuideDecision.UNKNOWN, null);
+                }
+            }
+            return;
+        }
+
+        GURL[] gurlsArray = new GURL[urls.size()];
+        urls.toArray(gurlsArray);
+        int[] intOptimizationTypes = new int[optimizationTypes.size()];
+        for (int i = 0; i < optimizationTypes.size(); i++) {
+            intOptimizationTypes[i] = optimizationTypes.get(i).getNumber();
+        }
+        OptimizationGuideBridgeJni.get().canApplyOptimizationOnDemand(
+                mNativeOptimizationGuideBridge, gurlsArray, intOptimizationTypes,
+                requestContext.getNumber(), callback);
+    }
+
     public void onNewPushNotification(HintNotificationPayload notification) {
         ThreadUtils.assertOnUiThread();
         if (mNativeOptimizationGuideBridge == 0) {
@@ -155,6 +207,17 @@ public class OptimizationGuideBridge {
             @OptimizationGuideDecision int optimizationGuideDecision,
             @Nullable byte[] serializedAnyMetadata) {
         callback.onOptimizationGuideDecision(
+                optimizationGuideDecision, deserializeAnyMetadata(serializedAnyMetadata));
+    }
+
+    @CalledByNative
+    private static void onOnDemandOptimizationGuideDecision(
+            OnDemandOptimizationGuideCallback callback, GURL url, int optimizationTypeInt,
+            @OptimizationGuideDecision int optimizationGuideDecision,
+            @Nullable byte[] serializedAnyMetadata) {
+        OptimizationType optimizationType = OptimizationType.forNumber(optimizationTypeInt);
+        if (optimizationType == null) return;
+        callback.onOnDemandOptimizationGuideDecision(url, optimizationType,
                 optimizationGuideDecision, deserializeAnyMetadata(serializedAnyMetadata));
     }
 
@@ -259,6 +322,9 @@ public class OptimizationGuideBridge {
                 int optimizationType, OptimizationGuideCallback callback);
         void canApplyOptimization(long nativeOptimizationGuideBridge, GURL url,
                 int optimizationType, OptimizationGuideCallback callback);
+        void canApplyOptimizationOnDemand(long nativeOptimizationGuideBridge, GURL[] urls,
+                int[] optimizationTypes, int requestContext,
+                OnDemandOptimizationGuideCallback callback);
         void onNewPushNotification(long nativeOptimizationGuideBridge, byte[] encodedNotification);
         void onDeferredStartup(long nativeOptimizationGuideBridge);
     }

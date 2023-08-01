@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include "ash/ash_export.h"
 #include "ash/system/tray/actionable_view.h"
+#include "base/memory/raw_ptr.h"
 #include "google_apis/calendar/calendar_api_response_types.h"
 #include "url/gurl.h"
 
@@ -24,13 +25,15 @@ class Label;
 
 namespace ash {
 
+class CalendarViewController;
+
 // This view displays a calendar event entry.
 class ASH_EXPORT CalendarEventListItemView : public ActionableView {
  public:
   METADATA_HEADER(CalendarEventListItemView);
 
-  explicit CalendarEventListItemView(
-      google_apis::calendar::CalendarEvent event);
+  CalendarEventListItemView(CalendarViewController* calendar_view_controller,
+                            google_apis::calendar::CalendarEvent event);
   CalendarEventListItemView(const CalendarEventListItemView& other) = delete;
   CalendarEventListItemView& operator=(const CalendarEventListItemView& other) =
       delete;
@@ -45,11 +48,15 @@ class ASH_EXPORT CalendarEventListItemView : public ActionableView {
  private:
   friend class CalendarViewEventListViewTest;
 
+  // Unowned.
+  const raw_ptr<CalendarViewController, ExperimentalAsh>
+      calendar_view_controller_;
+
   // The summary (title) of the meeting event.
-  views::Label* const summary_;
+  const raw_ptr<views::Label, ExperimentalAsh> summary_;
 
   // The start time and end time of a meeting event.
-  views::Label* const time_range_;
+  const raw_ptr<views::Label, ExperimentalAsh> time_range_;
 
   // The URL for the meeting event.
   const GURL event_url_;

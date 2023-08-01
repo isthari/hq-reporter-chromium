@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@ package org.chromium.content.browser.selection;
 import android.animation.Animator;
 import android.animation.Animator.AnimatorListener;
 import android.animation.AnimatorListenerAdapter;
-import android.annotation.TargetApi;
 import android.content.Context;
 import android.os.Build;
 import android.view.ActionMode;
@@ -21,7 +20,7 @@ import android.widget.PopupWindow;
 import org.chromium.base.Log;
 import org.chromium.base.PackageUtils;
 import org.chromium.base.task.PostTask;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
+import org.chromium.base.task.TaskTraits;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
@@ -59,7 +58,7 @@ public final class LGEmailActionModeWorkaroundImpl {
 
     private static boolean shouldAllowActionModeDestroyOnNonUiThread(Context context) {
         String appName = context.getPackageName();
-        int versionCode = PackageUtils.getPackageVersion(context, appName);
+        int versionCode = PackageUtils.getPackageVersion(appName);
         if (versionCode == -1) return false;
 
         int appTargetSdkVersion = context.getApplicationInfo().targetSdkVersion;
@@ -78,7 +77,6 @@ public final class LGEmailActionModeWorkaroundImpl {
         return true;
     }
 
-    @TargetApi(Build.VERSION_CODES.M)
     private static void allowActionModeDestroyOnNonUiThread(ActionMode actionMode) {
         // LG Email app dismisses ActionMode whenever InputConnection#setComposingText() or
         // InputConnection#commitText() occurs. But they do on ImeThread, not on UI thread and
@@ -104,7 +102,7 @@ public final class LGEmailActionModeWorkaroundImpl {
 
                 @Override
                 public void onDestroyActionMode(final ActionMode mode) {
-                    PostTask.postTask(UiThreadTaskTraits.DEFAULT, new Runnable() {
+                    PostTask.postTask(TaskTraits.UI_DEFAULT, new Runnable() {
                         @Override
                         public void run() {
                             c.onDestroyActionMode(mode);
@@ -125,7 +123,7 @@ public final class LGEmailActionModeWorkaroundImpl {
                     null, contentContainer, 150, new AnimatorListenerAdapter() {
                         @Override
                         public void onAnimationEnd(Animator animation) {
-                            PostTask.postTask(UiThreadTaskTraits.DEFAULT, new Runnable() {
+                            PostTask.postTask(TaskTraits.UI_DEFAULT, new Runnable() {
                                 @Override
                                 public void run() {
                                     popupWindow.dismiss();

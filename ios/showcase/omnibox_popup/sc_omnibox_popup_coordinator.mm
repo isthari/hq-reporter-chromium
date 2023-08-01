@@ -1,9 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/showcase/omnibox_popup/sc_omnibox_popup_coordinator.h"
 
+#import "ios/chrome/browser/shared/ui/util/util_swift.h"
 #import "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_view_controller.h"
 #import "ios/showcase/common/coordinator.h"
 #import "ios/showcase/common/protocol_alerter.h"
@@ -38,6 +39,7 @@
   self.popupViewController = [[OmniboxPopupViewController alloc] init];
   self.popupViewController.delegate =
       static_cast<id<AutocompleteResultConsumerDelegate>>(self.alerter);
+  self.popupViewController.layoutGuideCenter = [[LayoutGuideCenter alloc] init];
 
   self.mediator = [[SCOmniboxPopupMediator alloc]
       initWithConsumer:self.popupViewController];

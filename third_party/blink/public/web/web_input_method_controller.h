@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define THIRD_PARTY_BLINK_PUBLIC_WEB_WEB_INPUT_METHOD_CONTROLLER_H_
 
 #include "third_party/blink/public/platform/web_text_input_info.h"
+#include "third_party/blink/public/web/web_range.h"
 #include "third_party/blink/public/web/web_widget.h"
 #include "ui/base/ime/ime_text_span.h"
 
@@ -15,7 +16,6 @@ class Rect;
 
 namespace blink {
 
-class WebRange;
 class WebString;
 template <typename T>
 class WebVector;
@@ -75,7 +75,7 @@ class WebInputMethodController {
 
   // Fetches the character range of the current composition, also called the
   // "marked range."
-  virtual WebRange CompositionRange() { return WebRange(); }
+  virtual WebRange CompositionRange() const { return WebRange(); }
 
   // Populate |bounds| with the composition character bounds for the ongoing
   // composition. Returns false if there is no focused input or any ongoing

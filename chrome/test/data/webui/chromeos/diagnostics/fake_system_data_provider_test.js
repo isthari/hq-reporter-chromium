@@ -1,15 +1,16 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {BatteryChargeStatusObserverRemote, BatteryHealthObserverRemote, CpuUsageObserverRemote, DeviceCapabilities, MemoryUsageObserverRemote, SystemInfo, VersionInfo} from 'chrome://diagnostics/diagnostics_types.js';
+import 'chrome://webui-test/mojo_webui_test_support.js';
+
 import {fakeBatteryChargeStatus, fakeBatteryHealth, fakeBatteryInfo, fakeBatteryInfo2, fakeCpuUsage, fakeMemoryUsage} from 'chrome://diagnostics/fake_data.js';
 import {FakeSystemDataProvider} from 'chrome://diagnostics/fake_system_data_provider.js';
-import {PromiseResolver} from 'chrome://resources/js/promise_resolver.m.js';
+import {BatteryChargeStatusObserverRemote, BatteryHealthObserverRemote, CpuUsageObserverRemote, DeviceCapabilities, MemoryUsageObserverRemote, SystemInfo, VersionInfo} from 'chrome://diagnostics/system_data_provider.mojom-webui.js';
+import {PromiseResolver} from 'chrome://resources/js/promise_resolver.js';
+import {assertDeepEquals, assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chromeos/chai_assert.js';
 
-import {assertDeepEquals, assertEquals, assertFalse, assertTrue} from '../../chai_assert.js';
-
-export function fakeSystemDataProviderTestSuite() {
+suite('fakeSystemDataProviderTestSuite', function() {
   /** @type {?FakeSystemDataProvider} */
   let provider = null;
 
@@ -65,7 +66,7 @@ export function fakeSystemDataProviderTestSuite() {
         /** @type {!BatteryHealthObserverRemote} */ ({
           onBatteryHealthUpdated: (batteryHealth) => {
             assertDeepEquals(fakeBatteryHealth[0], batteryHealth);
-          }
+          },
         });
 
     provider.observeBatteryHealth(batteryHealthObserverRemote);
@@ -79,7 +80,7 @@ export function fakeSystemDataProviderTestSuite() {
         /** @type {!BatteryChargeStatusObserverRemote} */ ({
           onBatteryChargeStatusUpdated: (batteryChargeStatus) => {
             assertDeepEquals(fakeBatteryChargeStatus[0], batteryChargeStatus);
-          }
+          },
         });
 
     provider.observeBatteryChargeStatus(batteryChargeStatusObserverRemote);
@@ -92,7 +93,7 @@ export function fakeSystemDataProviderTestSuite() {
     const cpuObserverRemote = /** @type {!CpuUsageObserverRemote} */ ({
       onCpuUsageUpdated: (cpuUsage) => {
         assertDeepEquals(fakeCpuUsage[0], cpuUsage);
-      }
+      },
     });
 
     provider.observeCpuUsage(cpuObserverRemote);
@@ -106,7 +107,7 @@ export function fakeSystemDataProviderTestSuite() {
         /** @type {!MemoryUsageObserverRemote} */ ({
           onMemoryUsageUpdated: (memoryUsage) => {
             assertDeepEquals(fakeMemoryUsage[0], memoryUsage);
-          }
+          },
         });
 
     provider.observeMemoryUsage(memoryUsageObserverRemote);
@@ -162,8 +163,8 @@ export function fakeSystemDataProviderTestSuite() {
 
     // Keep track of which observation we should get.
     let whichSample = 0;
-    let firstResolver = new PromiseResolver();
-    let completeResolver = new PromiseResolver();
+    const firstResolver = new PromiseResolver();
+    const completeResolver = new PromiseResolver();
 
     /** @type {!CpuUsageObserverRemote} */
     const cpuObserverRemote = /** @type {!CpuUsageObserverRemote} */ ({
@@ -179,7 +180,7 @@ export function fakeSystemDataProviderTestSuite() {
           completeResolver.resolve();
         }
         whichSample++;
-      }
+      },
     });
 
     provider.observeCpuUsage(cpuObserverRemote);
@@ -202,8 +203,8 @@ export function fakeSystemDataProviderTestSuite() {
 
     // Keep track of which observation we should get.
     let whichSample = 0;
-    let firstResolver = new PromiseResolver();
-    let completeResolver = new PromiseResolver();
+    const firstResolver = new PromiseResolver();
+    const completeResolver = new PromiseResolver();
 
     const memoryObserverRemote = /** @type {!MemoryUsageObserverRemote} */ ({
       onMemoryUsageUpdated: (memoryUsage) => {
@@ -218,7 +219,7 @@ export function fakeSystemDataProviderTestSuite() {
           completeResolver.resolve();
         }
         whichSample++;
-      }
+      },
     });
 
     provider.observeMemoryUsage(memoryObserverRemote);
@@ -241,8 +242,8 @@ export function fakeSystemDataProviderTestSuite() {
 
     // Keep track of which observation we should get.
     let whichSample = 0;
-    let firstResolver = new PromiseResolver();
-    let completeResolver = new PromiseResolver();
+    const firstResolver = new PromiseResolver();
+    const completeResolver = new PromiseResolver();
 
     const batteryHealthObserverRemote =
         /** @type {!BatteryHealthObserverRemote} */ ({
@@ -258,7 +259,7 @@ export function fakeSystemDataProviderTestSuite() {
               completeResolver.resolve();
             }
             whichSample++;
-          }
+          },
         });
 
     provider.observeBatteryHealth(batteryHealthObserverRemote);
@@ -281,8 +282,8 @@ export function fakeSystemDataProviderTestSuite() {
 
     // Keep track of which observation we should get.
     let whichSample = 0;
-    let firstResolver = new PromiseResolver();
-    let completeResolver = new PromiseResolver();
+    const firstResolver = new PromiseResolver();
+    const completeResolver = new PromiseResolver();
 
     const batteryChargeStatusObserverRemote =
         /** @type {!BatteryChargeStatusObserverRemote} */ ({
@@ -299,7 +300,7 @@ export function fakeSystemDataProviderTestSuite() {
               completeResolver.resolve();
             }
             whichSample++;
-          }
+          },
         });
 
     provider.observeBatteryChargeStatus(batteryChargeStatusObserverRemote);
@@ -322,8 +323,8 @@ export function fakeSystemDataProviderTestSuite() {
 
     // Keep track of which call to the callback.
     let whichSample = 0;
-    let firstResolver = new PromiseResolver();
-    let completeResolver = new PromiseResolver();
+    const firstResolver = new PromiseResolver();
+    const completeResolver = new PromiseResolver();
 
     /** @type {!CpuUsageObserverRemote} */
     const cpuObserverRemote = /** @type {!CpuUsageObserverRemote} */ ({
@@ -341,7 +342,7 @@ export function fakeSystemDataProviderTestSuite() {
           completeResolver.resolve();
         }
         whichSample++;
-      }
+      },
     });
 
     provider.observeCpuUsage(cpuObserverRemote);
@@ -364,4 +365,4 @@ export function fakeSystemDataProviderTestSuite() {
           return completeResolver.promise;
         });
   });
-}
+});

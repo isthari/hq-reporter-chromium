@@ -1,19 +1,18 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.notifications;
 
 import android.content.Context;
-import android.os.Bundle;
 
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ContextUtils;
+import org.chromium.base.Log;
 import org.chromium.components.background_task_scheduler.BackgroundTaskSchedulerFactory;
 import org.chromium.components.background_task_scheduler.NativeBackgroundTask;
 import org.chromium.components.background_task_scheduler.TaskIds;
-import org.chromium.components.background_task_scheduler.TaskInfo;
 import org.chromium.components.background_task_scheduler.TaskParameters;
 
 /**
@@ -61,30 +60,14 @@ public class NotificationTriggerBackgroundTask extends NativeBackgroundTask {
         return mShouldReschedule;
     }
 
-    @Override
-    public void reschedule(Context context) {
-        NotificationTriggerScheduler.getInstance().reschedule();
-    }
-
     /**
      * Schedules and replaces a task to trigger notifications at |timestamp|.
      * @param timestamp The time at which this task should trigger.
      * @param delay The delay from now in milliseconds when this task should trigger.
      */
     public static void schedule(long timestamp, long delay) {
-        Bundle bundle = new Bundle();
-        bundle.putLong(KEY_TIMESTAMP, timestamp);
-        TaskInfo.TimingInfo exactInfo =
-                TaskInfo.ExactInfo.create().setTriggerAtMs(timestamp).build();
-        TaskInfo taskInfo = TaskInfo.createTask(TaskIds.NOTIFICATION_TRIGGER_JOB_ID, exactInfo)
-                                    .setUpdateCurrent(true)
-                                    .setIsPersisted(true)
-                                    .setExtras(bundle)
-                                    .build();
-
-        // This will overwrite any existing task with this ID.
-        BackgroundTaskSchedulerFactory.getScheduler().schedule(
-                ContextUtils.getApplicationContext(), taskInfo);
+        // See crbug.com/1379251.
+        Log.e("NotifTrigBT", "Scheduling BackgroundTasks with exact timing is unsupported");
     }
 
     /**

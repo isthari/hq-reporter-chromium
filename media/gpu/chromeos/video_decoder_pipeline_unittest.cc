@@ -1,18 +1,21 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "media/gpu/chromeos/video_decoder_pipeline.h"
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/check_op.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
+#include "base/memory/raw_ptr.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/test/gmock_callback_support.h"
 #include "base/test/mock_callback.h"
 #include "base/test/task_environment.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "gpu/config/gpu_driver_bug_workarounds.h"
 #include "media/base/cdm_context.h"
 #include "media/base/media_util.h"
 #include "media/base/mock_filters.h"
@@ -20,7 +23,6 @@
 #include "media/base/status.h"
 #include "media/base/video_decoder_config.h"
 #include "media/gpu/chromeos/dmabuf_video_frame_pool.h"
-#include "media/gpu/chromeos/mailbox_video_frame_converter.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/libdrm/src/include/drm/drm_fourcc.h"
@@ -55,26 +57,28 @@ class MockVideoFramePool : public DmabufVideoFramePool {
   ~MockVideoFramePool() override = default;
 
   // DmabufVideoFramePool implementation.
-  MOCK_METHOD6(Initialize,
+  MOCK_METHOD7(Initialize,
                CroStatus::Or<GpuBufferLayout>(const Fourcc&,
                                               const gfx::Size&,
                                               const gfx::Rect&,
                                               const gfx::Size&,
                                               size_t,
+                                              bool,
                                               bool));
   MOCK_METHOD0(GetFrame, scoped_refptr<VideoFrame>());
   MOCK_METHOD0(IsExhausted, bool());
   MOCK_METHOD1(NotifyWhenFrameAvailable, void(base::OnceClosure));
   MOCK_METHOD0(ReleaseAllFrames, void());
-};
+  MOCK_METHOD0(GetGpuBufferLayout, absl::optional<GpuBufferLayout>());
 
-constexpr gfx::Size kCodedSize(48, 36);
+  bool IsFakeVideoFramePool() override { return true; }
+};
 
 class MockDecoder : public VideoDecoderMixin {
  public:
   MockDecoder()
       : VideoDecoderMixin(std::make_unique<MockMediaLog>(),
-                          base::ThreadTaskRunnerHandle::Get(),
+                          base::SingleThreadTaskRunner::GetCurrentDefault(),
                           base::WeakPtr<VideoDecoderMixin::Client>(nullptr)) {}
   ~MockDecoder() override = default;
 
@@ -104,8 +108,13 @@ class MockChromeOsCdmContext : public chromeos::ChromeOsCdmContext {
                void(const DecryptConfig*,
                     const std::vector<uint8_t>&,
                     chromeos::ChromeOsCdmContext::GetHwKeyDataCB));
+  MOCK_METHOD1(GetHwConfigData,
+               void(chromeos::ChromeOsCdmContext::GetHwConfigDataCB));
+  MOCK_METHOD1(GetScreenResolutions,
+               void(chromeos::ChromeOsCdmContext::GetScreenResolutionsCB));
   MOCK_METHOD0(GetCdmContextRef, std::unique_ptr<CdmContextRef>());
   MOCK_CONST_METHOD0(UsingArcCdm, bool());
+  MOCK_CONST_METHOD0(IsRemoteCdm, bool());
 };
 // A real implementation of this class would actually hold onto a reference of
 // the owner of the CdmContext to ensure it is not destructed before the
@@ -147,6 +156,16 @@ struct DecoderPipelineTestParams {
   DecoderStatus::Codes status_code;
 };
 
+constexpr gfx::Size kMinSupportedResolution(64, 64);
+constexpr gfx::Size kMaxSupportedResolution(2048, 1088);
+constexpr gfx::Size kCodedSize(128, 128);
+
+static_assert(kMinSupportedResolution.width() <= kCodedSize.width() &&
+                  kMinSupportedResolution.height() <= kCodedSize.height() &&
+                  kCodedSize.width() <= kMaxSupportedResolution.width() &&
+                  kCodedSize.height() <= kMaxSupportedResolution.height(),
+              "kCodedSize must be within the supported resolutions.");
+
 class VideoDecoderPipelineTest
     : public testing::TestWithParam<DecoderPipelineTestParams> {
  public:
@@ -160,15 +179,25 @@ class VideoDecoderPipelineTest
                 gfx::Rect(kCodedSize),
                 kCodedSize,
                 EmptyExtraData(),
-                EncryptionScheme::kUnencrypted),
-        converter_(new VideoFrameConverter) {
+                EncryptionScheme::kUnencrypted) {
     auto pool = std::make_unique<MockVideoFramePool>();
     pool_ = pool.get();
     decoder_ = base::WrapUnique(new VideoDecoderPipeline(
-        base::ThreadTaskRunnerHandle::Get(), std::move(pool),
-        std::move(converter_), std::make_unique<MockMediaLog>(),
+        gpu::GpuDriverBugWorkarounds(),
+        base::SingleThreadTaskRunner::GetCurrentDefault(), std::move(pool),
+        /*frame_converter=*/nullptr,
+        VideoDecoderPipeline::DefaultPreferredRenderableFourccs(),
+        std::make_unique<MockMediaLog>(),
         // This callback needs to be configured in the individual tests.
-        base::BindOnce(&VideoDecoderPipelineTest::CreateNullMockDecoder)));
+        base::BindOnce(&VideoDecoderPipelineTest::CreateNullMockDecoder),
+        /*uses_oop_video_decoder=*/false));
+
+    SetSupportedVideoDecoderConfigs({SupportedVideoDecoderConfig(
+        /*profile_min,=*/VP8PROFILE_ANY,
+        /*profile_max=*/VP8PROFILE_ANY, kMinSupportedResolution,
+        kMaxSupportedResolution,
+        /*allow_encrypted=*/true,
+        /*require_encrypted=*/false)});
   }
   ~VideoDecoderPipelineTest() override = default;
 
@@ -241,9 +270,9 @@ class VideoDecoderPipelineTest
     EXPECT_CALL(cdm_context_, GetDecryptor())
         .WillRepeatedly(Return(&decryptor_));
     encrypted_buffer_ =
-        DecoderBuffer::CopyFrom(kEncryptedData, base::size(kEncryptedData));
+        DecoderBuffer::CopyFrom(kEncryptedData, std::size(kEncryptedData));
     transcrypted_buffer_ = DecoderBuffer::CopyFrom(
-        kTranscryptedData, base::size(kTranscryptedData));
+        kTranscryptedData, std::size(kTranscryptedData));
   }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
@@ -301,6 +330,11 @@ class VideoDecoderPipelineTest
     return decoder_->decoder_.get();
   }
 
+  void SetSupportedVideoDecoderConfigs(
+      const SupportedVideoDecoderConfigs& configs) {
+    decoder_->supported_configs_for_testing_ = configs;
+  }
+
   void DetachDecoderSequenceChecker() NO_THREAD_SAFETY_ANALYSIS {
     // |decoder_| will be destroyed on its |decoder_task_runner| via
     // DestroyAsync(). This will trip its |decoder_sequence_checker_| if it has
@@ -345,9 +379,8 @@ class VideoDecoderPipelineTest
   scoped_refptr<DecoderBuffer> transcrypted_buffer_;
   media::CallbackRegistry<CdmContext::EventCB::RunType> event_callbacks_;
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
-  std::unique_ptr<VideoFrameConverter> converter_;
   std::unique_ptr<VideoDecoderPipeline> decoder_;
-  MockVideoFramePool* pool_;
+  raw_ptr<MockVideoFramePool> pool_;
 };
 
 // Verifies the status code for several typical CreateDecoderFunctionCB cases.
@@ -370,6 +403,7 @@ const struct DecoderPipelineTestParams kDecoderPipelineTestParams[] = {
     {base::BindRepeating(&VideoDecoderPipelineTest::CreateGoodMockDecoder),
      DecoderStatus::Codes::kOk},
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     // A CreateDecoderFunctionCB for transcryption, where Create() is ok, and
     // the decoder will Initialize OK, but then the pipeline will not create the
     // transcryptor due to a missing CdmContext. This will succeed if called
@@ -377,6 +411,7 @@ const struct DecoderPipelineTestParams kDecoderPipelineTestParams[] = {
     {base::BindRepeating(
          &VideoDecoderPipelineTest::CreateGoodMockTranscryptDecoder),
      DecoderStatus::Codes::kUnsupportedEncryptionMode},
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
     // A CreateDecoderFunctionCB that Create()s ok but fails to Initialize()
     // correctly.
@@ -387,6 +422,24 @@ const struct DecoderPipelineTestParams kDecoderPipelineTestParams[] = {
 INSTANTIATE_TEST_SUITE_P(All,
                          VideoDecoderPipelineTest,
                          testing::ValuesIn(kDecoderPipelineTestParams));
+
+// Verifies that trying to Initialize() with a non-supported config fails.
+TEST_F(VideoDecoderPipelineTest, InitializeFailsDueToNotSupportedConfig) {
+  // Configure the supported configs to something that we know is not supported,
+  // e.g. making the smallest supported resolution larger than the |config_|
+  // we'll be requesting.
+  SetSupportedVideoDecoderConfigs({SupportedVideoDecoderConfig(
+      /*profile_min=*/config_.profile(),
+      /*profile_max=*/config_.profile(),
+      /*coded_size_min=*/config_.coded_size() + gfx::Size(1, 1),
+      kMaxSupportedResolution,
+      /*allow_encrypted=*/true,
+      /*require_encrypted=*/false)});
+
+  InitializeDecoder(
+      base::BindOnce(&VideoDecoderPipelineTest::CreateGoodMockDecoder),
+      DecoderStatus::Codes::kUnsupportedConfig);
+}
 
 // Verifies the Reset sequence.
 TEST_F(VideoDecoderPipelineTest, Reset) {
@@ -464,7 +517,7 @@ TEST_F(VideoDecoderPipelineTest, TranscryptThenEos) {
 TEST_F(VideoDecoderPipelineTest, TranscryptReset) {
   InitializeForTranscrypt();
   scoped_refptr<DecoderBuffer> encrypted_buffer2 = DecoderBuffer::CopyFrom(
-      &kEncryptedData[1], base::size(kEncryptedData) - 1);
+      &kEncryptedData[1], std::size(kEncryptedData) - 1);
   // Send in a buffer, but don't invoke the Decrypt callback so it stays as
   // pending. Then send in 2 more buffers so they are in the queue.
   EXPECT_CALL(decryptor_, Decrypt(Decryptor::kVideo, encrypted_buffer_, _))
@@ -509,7 +562,8 @@ TEST_F(VideoDecoderPipelineTest, TranscryptKeyAddedDuringTranscrypt) {
       .WillOnce([&saved_decrypt_cb](Decryptor::StreamType stream_type,
                                     scoped_refptr<DecoderBuffer> encrypted,
                                     Decryptor::DecryptCB decrypt_cb) {
-        saved_decrypt_cb = BindToCurrentLoop(std::move(decrypt_cb));
+        saved_decrypt_cb =
+            base::BindPostTaskToCurrentDefault(std::move(decrypt_cb));
       });
   decoder_->Decode(encrypted_buffer_,
                    base::BindOnce(&VideoDecoderPipelineTest::OnDecodeDone,
@@ -618,7 +672,7 @@ TEST_F(VideoDecoderPipelineTest, TranscryptError) {
 TEST_F(VideoDecoderPipelineTest, PickDecoderOutputFormat) {
   constexpr gfx::Size kSize(320, 240);
   constexpr gfx::Rect kVisibleRect(320, 240);
-  constexpr size_t kMaxNumOfFrames = 4u;
+  constexpr size_t kNumCodecReferenceFrames = 4u;
   constexpr uint64_t kModifier = ~DRM_FORMAT_MOD_LINEAR;
 
   const struct {
@@ -660,17 +714,21 @@ TEST_F(VideoDecoderPipelineTest, PickDecoderOutputFormat) {
         test_vector.expected_chosen_candidate.size;
     std::vector<ColorPlaneLayout> planes(
         VideoFrame::NumPlanes(expected_fourcc.ToVideoPixelFormat()));
-    EXPECT_CALL(*pool_,
-                Initialize(expected_fourcc, expected_coded_size, kVisibleRect,
-                           /*natural_size=*/kVisibleRect.size(),
-                           kMaxNumOfFrames, /*use_protected=*/false))
+    EXPECT_CALL(
+        *pool_,
+        Initialize(expected_fourcc, expected_coded_size, kVisibleRect,
+                   /*natural_size=*/kVisibleRect.size(),
+                   /*max_num_frames=*/::testing::Gt(kNumCodecReferenceFrames),
+                   /*use_protected=*/false,
+                   /*use_linear_buffers=*/false))
         .WillOnce(Return(*GpuBufferLayout::Create(
             expected_fourcc, expected_coded_size, std::move(planes),
             /*modifier=*/kModifier)));
     auto status_or_chosen_candidate = decoder_->PickDecoderOutputFormat(
         test_vector.input_candidates, kVisibleRect,
         /*decoder_natural_size=*/kVisibleRect.size(),
-        /*output_size=*/absl::nullopt, /*num_of_pictures=*/kMaxNumOfFrames,
+        /*output_size=*/absl::nullopt,
+        /*num_codec_reference_frames=*/kNumCodecReferenceFrames,
         /*use_protected=*/false, /*need_aux_frame_pool=*/false, absl::nullopt);
     ASSERT_TRUE(status_or_chosen_candidate.has_value());
     const PixelLayoutCandidate chosen_candidate =
@@ -685,9 +743,10 @@ TEST_F(VideoDecoderPipelineTest, PickDecoderOutputFormat) {
   DetachDecoderSequenceChecker();
 }
 
-// These tests only work on non-linux vaapi systems, since on linux, there is no
-// support for different modifiers.
-#if BUILDFLAG(USE_VAAPI) && !BUILDFLAG(IS_LINUX)
+// These tests only work on non-linux and non-lacros vaapi systems, since on
+// linux and lacros there is no support for different modifiers.
+#if BUILDFLAG(USE_VAAPI) && !BUILDFLAG(IS_LINUX) && \
+    !BUILDFLAG(IS_CHROMEOS_LACROS)
 
 // Verifies the algorithm for choosing formats in PickDecoderOutputFormat works
 // as expected when the pool returns linear buffers. It should allocate an image
@@ -695,7 +754,7 @@ TEST_F(VideoDecoderPipelineTest, PickDecoderOutputFormat) {
 TEST_F(VideoDecoderPipelineTest, PickDecoderOutputFormatLinearModifier) {
   constexpr gfx::Size kSize(320, 240);
   constexpr gfx::Rect kVisibleRect(320, 240);
-  constexpr size_t kMaxNumOfFrames = 4u;
+  constexpr size_t kNumCodecReferenceFrames = 4u;
   const Fourcc kFourcc(Fourcc::NV12);
 
   auto image_processor =
@@ -719,7 +778,7 @@ TEST_F(VideoDecoderPipelineTest, PickDecoderOutputFormatLinearModifier) {
       std::vector<ColorPlaneLayout>(
           VideoFrame::NumPlanes(kFourcc.ToVideoPixelFormat())),
       /*modifier=*/DRM_FORMAT_MOD_LINEAR);
-  EXPECT_CALL(*pool_, Initialize(_, _, _, _, _, _))
+  EXPECT_CALL(*pool_, Initialize(_, _, _, _, _, _, _))
       .WillRepeatedly(Return(gpu_buffer_layout));
 
   PixelLayoutCandidate candidate{Fourcc(Fourcc::NV12), kSize,
@@ -727,7 +786,8 @@ TEST_F(VideoDecoderPipelineTest, PickDecoderOutputFormatLinearModifier) {
   auto status_or_chosen_candidate = decoder_->PickDecoderOutputFormat(
       {candidate}, kVisibleRect,
       /*decoder_natural_size=*/kVisibleRect.size(),
-      /*output_size=*/absl::nullopt, /*num_of_pictures=*/kMaxNumOfFrames,
+      /*output_size=*/absl::nullopt,
+      /*num_codec_reference_frames=*/kNumCodecReferenceFrames,
       /*use_protected=*/false, /*need_aux_frame_pool=*/false, absl::nullopt);
 
   EXPECT_TRUE(status_or_chosen_candidate.has_value());
@@ -742,7 +802,7 @@ TEST_F(VideoDecoderPipelineTest, PickDecoderOutputFormatLinearModifier) {
 TEST_F(VideoDecoderPipelineTest, PickDecoderOutputFormatUnsupportedModifier) {
   constexpr gfx::Size kSize(320, 240);
   constexpr gfx::Rect kVisibleRect(320, 240);
-  constexpr size_t kMaxNumOfFrames = 4u;
+  constexpr size_t kNumCodecReferenceFrames = 4u;
   const Fourcc kFourcc(Fourcc::NV12);
 
   // Modifier is *not* the linear format.
@@ -751,7 +811,7 @@ TEST_F(VideoDecoderPipelineTest, PickDecoderOutputFormatUnsupportedModifier) {
       std::vector<ColorPlaneLayout>(
           VideoFrame::NumPlanes(kFourcc.ToVideoPixelFormat())),
       /*modifier=*/~DRM_FORMAT_MOD_LINEAR);
-  EXPECT_CALL(*pool_, Initialize(_, _, _, _, _, _))
+  EXPECT_CALL(*pool_, Initialize(_, _, _, _, _, _, _))
       .WillRepeatedly(Return(gpu_buffer_layout));
 
   // Make sure the modifier mismatches the |gpu_buffer_layout|'s
@@ -760,15 +820,17 @@ TEST_F(VideoDecoderPipelineTest, PickDecoderOutputFormatUnsupportedModifier) {
   auto status_or_chosen_candidate = decoder_->PickDecoderOutputFormat(
       {candidate}, kVisibleRect,
       /*decoder_natural_size=*/kVisibleRect.size(),
-      /*output_size=*/absl::nullopt, /*num_of_pictures=*/kMaxNumOfFrames,
+      /*output_size=*/absl::nullopt,
+      /*num_codec_reference_frames=*/kNumCodecReferenceFrames,
       /*use_protected=*/false, /*need_aux_frame_pool=*/false, absl::nullopt);
 
-  EXPECT_TRUE(status_or_chosen_candidate.has_error());
+  EXPECT_FALSE(status_or_chosen_candidate.has_value());
   EXPECT_FALSE(DecoderHasImageProcessor());
   DetachDecoderSequenceChecker();
 }
 
-#endif  // BUILDFLAG(USE_VAAPI) && !BUILDFLAG(IS_LINUX)
+#endif  // BUILDFLAG(USE_VAAPI) && !BUILDFLAG(IS_LINUX) &&
+        // !BUILDFLAG(IS_CHROMEOS_LACROS)
 
 // Verifies that ReleaseAllFrames is called on the frame pool when we receive
 // the kDecoderStateLost event through the waiting callback. This can occur

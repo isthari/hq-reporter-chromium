@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -52,7 +52,7 @@ void LoggingServiceAPI::MaybeSaveLogsToFile(const std::wstring& tag) {
                                      .InsertBeforeExtension(tag));
 
     std::string logs_proto = RawReportContent();
-    base::WriteFile(log_file_path, logs_proto.c_str(), logs_proto.length());
+    base::WriteFile(log_file_path, logs_proto);
   }
 }
 

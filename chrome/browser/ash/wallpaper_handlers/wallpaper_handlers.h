@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,10 +10,13 @@
 #include <vector>
 
 #include "ash/webui/personalization_app/mojom/personalization_app.mojom-forward.h"
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
+#include "base/memory/raw_ptr.h"
 #include "base/scoped_observation.h"
+#include "base/values.h"
+#include "chrome/browser/ash/wallpaper_handlers/wallpaper_fetcher_delegate.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
-#include "services/data_decoder/public/cpp/data_decoder.h"
+#include "url/gurl.h"
 
 class GoogleServiceAuthError;
 class Profile;
@@ -22,10 +25,6 @@ namespace backdrop {
 class Collection;
 class Image;
 }  // namespace backdrop
-
-namespace base {
-class Value;
-}  // namespace base
 
 namespace net {
 struct NetworkTrafficAnnotationTag;
@@ -50,18 +49,24 @@ class BackdropCollectionInfoFetcher {
   using OnCollectionsInfoFetched = base::OnceCallback<
       void(bool success, const std::vector<backdrop::Collection>& collections)>;
 
-  BackdropCollectionInfoFetcher();
-
   BackdropCollectionInfoFetcher(const BackdropCollectionInfoFetcher&) = delete;
   BackdropCollectionInfoFetcher& operator=(
       const BackdropCollectionInfoFetcher&) = delete;
 
-  ~BackdropCollectionInfoFetcher();
+  virtual ~BackdropCollectionInfoFetcher();
 
   // Starts the fetcher.
-  void Start(OnCollectionsInfoFetched callback);
+  virtual void Start(OnCollectionsInfoFetched callback);
+
+ protected:
+  // Protected constructor forces creation via `WallpaperFetcherDelegate` to
+  // allow mocking in test code.
+  BackdropCollectionInfoFetcher();
 
  private:
+  // Allow delegate to view the constructor.
+  friend class WallpaperFetcherDelegateImpl;
+
   // Called when the collections info download completes.
   void OnResponseFetched(const std::string& response);
 
@@ -81,17 +86,23 @@ class BackdropImageInfoFetcher {
                               const std::string& collection_id,
                               const std::vector<backdrop::Image>& images)>;
 
-  explicit BackdropImageInfoFetcher(const std::string& collection_id);
-
   BackdropImageInfoFetcher(const BackdropImageInfoFetcher&) = delete;
   BackdropImageInfoFetcher& operator=(const BackdropImageInfoFetcher&) = delete;
 
-  ~BackdropImageInfoFetcher();
+  virtual ~BackdropImageInfoFetcher();
 
   // Starts the fetcher.
-  void Start(OnImagesInfoFetched callback);
+  virtual void Start(OnImagesInfoFetched callback);
+
+ protected:
+  // Protected constructor forces creation via `WallpaperFetcherDelegate` to
+  // allow mocking in test code.
+  explicit BackdropImageInfoFetcher(const std::string& collection_id);
 
  private:
+  // Allow delegate to view the constructor.
+  friend class WallpaperFetcherDelegateImpl;
+
   // Called when the images info download completes.
   void OnResponseFetched(const std::string& response);
 
@@ -166,29 +177,47 @@ class GooglePhotosFetcher : public signin::IdentityManager::Observer {
   // function that prepares `service_url`--with appended query params from the
   // client if applicable--and delegates the rest of the work to this function.
   using ClientCallback = base::OnceCallback<void(T)>;
-  void AddRequestAndStartIfNecessary(const std::string& service_url,
+  void AddRequestAndStartIfNecessary(const GURL& service_url,
                                      ClientCallback callback);
 
   // Called when the API request finishes. `response` will be absent if there
   // was an error in sending the request, receiving the response, or parsing the
   // response; otherwise, it will hold a response in the API's specified
   // structure.
-  virtual T ParseResponse(absl::optional<base::Value> response) = 0;
+  virtual T ParseResponse(const base::Value::Dict* response) = 0;
+
+  // Returns the count of results contained within the specified `result`.
+  virtual absl::optional<size_t> GetResultCount(const T& result) = 0;
+
+  // Contains logic for different HTTP error codes that we receive, as they can
+  // carry information on the state of the user's Google Photos library.
+  virtual absl::optional<base::Value> CreateErrorResponse(int error_code);
+
+  // Returns the result of the managed policy
+  // WallpaperGooglePhotosIntegrationEnabled, or true if this pref is
+  // not managed.
+  virtual bool IsGooglePhotosIntegrationPolicyEnabled() const;
 
  private:
-  void OnTokenReceived(const std::string& service_url,
-                       GoogleServiceAuthError error,
-                       signin::AccessTokenInfo token_info);
-  void OnJsonReceived(const std::string& service_url,
+  void OnTokenReceived(
+      std::unique_ptr<signin::PrimaryAccountAccessTokenFetcher> fetcher,
+      const GURL& service_url,
+      base::TimeTicks start_time,
+      GoogleServiceAuthError error,
+      signin::AccessTokenInfo token_info);
+  void OnJsonReceived(std::unique_ptr<network::SimpleURLLoader> loader,
+                      const GURL& service_url,
+                      base::TimeTicks start_time,
                       std::unique_ptr<std::string> response_body);
-  void OnResponseReady(const std::string& service_url,
+  void OnResponseReady(const GURL& service_url,
+                       base::TimeTicks start_time,
                        absl::optional<base::Value> response);
 
   // Profile associated with the Google Photos account that will be queried.
-  Profile* const profile_;
+  const raw_ptr<Profile, ExperimentalAsh> profile_;
 
   // Supplies `token_fetcher_` with `profile_`'s GAIA account information.
-  signin::IdentityManager* const identity_manager_;
+  const raw_ptr<signin::IdentityManager, ExperimentalAsh> identity_manager_;
   base::ScopedObservation<signin::IdentityManager,
                           signin::IdentityManager::Observer>
       identity_manager_observation_{this};
@@ -199,17 +228,7 @@ class GooglePhotosFetcher : public signin::IdentityManager::Observer {
   // Callbacks for each distinct query this fetcher has been asked to make. A
   // URL's callbacks are called and then removed when the download finishes,
   // successfully or in error.
-  std::map<std::string, std::vector<ClientCallback>> pending_client_callbacks_;
-
-  // OAuth2 access token fetcher for each distinct query this fetcher has been
-  // asked to make. A URL's fetcher exists until its callbacks have been called.
-  std::map<std::string,
-           std::unique_ptr<signin::PrimaryAccountAccessTokenFetcher>>
-      token_fetchers_;
-
-  // Used to download the client's desired information from the Google Photos
-  // service. A URL's loader exists until its callbacks have been called.
-  std::map<std::string, std::unique_ptr<network::SimpleURLLoader>> url_loaders_;
+  std::map<GURL, std::vector<ClientCallback>> pending_client_callbacks_;
 
   base::WeakPtrFactory<GooglePhotosFetcher> weak_factory_{this};
 };
@@ -220,8 +239,6 @@ using GooglePhotosAlbumsCbkArgs =
 class GooglePhotosAlbumsFetcher
     : public GooglePhotosFetcher<GooglePhotosAlbumsCbkArgs> {
  public:
-  explicit GooglePhotosAlbumsFetcher(Profile* profile);
-
   GooglePhotosAlbumsFetcher(const GooglePhotosAlbumsFetcher&) = delete;
   GooglePhotosAlbumsFetcher& operator=(const GooglePhotosAlbumsFetcher&) =
       delete;
@@ -233,37 +250,94 @@ class GooglePhotosAlbumsFetcher
       base::OnceCallback<void(GooglePhotosAlbumsCbkArgs)> callback);
 
  protected:
+  // Protected constructor forces creation via `WallpaperFetcherDelegate` to
+  // allow mocking in test code.
+  explicit GooglePhotosAlbumsFetcher(Profile* profile);
+
   // GooglePhotosFetcher:
   GooglePhotosAlbumsCbkArgs ParseResponse(
-      absl::optional<base::Value> response) override;
+      const base::Value::Dict* response) override;
+  absl::optional<size_t> GetResultCount(
+      const GooglePhotosAlbumsCbkArgs& result) override;
+
+ private:
+  // Allow delegate to see the constructor.
+  friend class WallpaperFetcherDelegateImpl;
+  friend class GooglePhotosAlbumsFetcherTest;
+
+  int albums_api_refresh_counter_ = 0;
 };
 
-// Downloads the number of photos in a user's Google Photos library.
-class GooglePhotosCountFetcher : public GooglePhotosFetcher<int> {
+using GooglePhotosAlbumsCbkArgs =
+    ash::personalization_app::mojom::FetchGooglePhotosAlbumsResponsePtr;
+// Downloads the Google Photos albums a user has created.
+class GooglePhotosSharedAlbumsFetcher
+    : public GooglePhotosFetcher<GooglePhotosAlbumsCbkArgs> {
  public:
-  explicit GooglePhotosCountFetcher(Profile* profile);
+  GooglePhotosSharedAlbumsFetcher(const GooglePhotosSharedAlbumsFetcher&) =
+      delete;
+  GooglePhotosSharedAlbumsFetcher& operator=(
+      const GooglePhotosSharedAlbumsFetcher&) = delete;
 
-  GooglePhotosCountFetcher(const GooglePhotosCountFetcher&) = delete;
-  GooglePhotosCountFetcher& operator=(const GooglePhotosCountFetcher&) = delete;
-
-  ~GooglePhotosCountFetcher() override;
+  ~GooglePhotosSharedAlbumsFetcher() override;
 
   virtual void AddRequestAndStartIfNecessary(
-      base::OnceCallback<void(int)> callback);
+      const absl::optional<std::string>& resume_token,
+      base::OnceCallback<void(GooglePhotosAlbumsCbkArgs)> callback);
 
  protected:
+  // Protected constructor forces creation via `WallpaperFetcherDelegate` to
+  // allow mocking in test code.
+  explicit GooglePhotosSharedAlbumsFetcher(Profile* profile);
+
   // GooglePhotosFetcher:
-  int ParseResponse(absl::optional<base::Value> response) override;
+  GooglePhotosAlbumsCbkArgs ParseResponse(
+      const base::Value::Dict* response) override;
+  absl::optional<size_t> GetResultCount(
+      const GooglePhotosAlbumsCbkArgs& result) override;
+
+ private:
+  friend class WallpaperFetcherDelegateImpl;
+
+  int shared_albums_api_refresh_counter_ = 0;
+};
+
+using ash::personalization_app::mojom::GooglePhotosEnablementState;
+// Downloads whether the user is allowed to access Google Photos data.
+class GooglePhotosEnabledFetcher
+    : public GooglePhotosFetcher<GooglePhotosEnablementState> {
+ public:
+  GooglePhotosEnabledFetcher(const GooglePhotosEnabledFetcher&) = delete;
+  GooglePhotosEnabledFetcher& operator=(const GooglePhotosEnabledFetcher&) =
+      delete;
+
+  ~GooglePhotosEnabledFetcher() override;
+
+  virtual void AddRequestAndStartIfNecessary(
+      base::OnceCallback<void(GooglePhotosEnablementState)> callback);
+
+ protected:
+  // Protected constructor forces creation via `WallpaperFetcherDelegate` to
+  // allow mocking in test code.
+  explicit GooglePhotosEnabledFetcher(Profile* profile);
+
+  // GooglePhotosFetcher:
+  GooglePhotosEnablementState ParseResponse(
+      const base::Value::Dict* response) override;
+  absl::optional<size_t> GetResultCount(
+      const GooglePhotosEnablementState& result) override;
+
+ private:
+  friend class WallpaperFetcherDelegateImpl;
+  friend class GooglePhotosEnabledFetcherTest;
 };
 
 using GooglePhotosPhotosCbkArgs =
     ash::personalization_app::mojom::FetchGooglePhotosPhotosResponsePtr;
-// Downloads the visible photos in a user's Google Photos library.
+// Downloads visible photos from a user's Google Photos library.
 class GooglePhotosPhotosFetcher
     : public GooglePhotosFetcher<GooglePhotosPhotosCbkArgs> {
  public:
-  explicit GooglePhotosPhotosFetcher(Profile* profile);
-
   GooglePhotosPhotosFetcher(const GooglePhotosPhotosFetcher&) = delete;
   GooglePhotosPhotosFetcher& operator=(const GooglePhotosPhotosFetcher&) =
       delete;
@@ -271,13 +345,29 @@ class GooglePhotosPhotosFetcher
   ~GooglePhotosPhotosFetcher() override;
 
   virtual void AddRequestAndStartIfNecessary(
+      const absl::optional<std::string>& item_id,
+      const absl::optional<std::string>& album_id,
       const absl::optional<std::string>& resume_token,
+      bool shuffle,
       base::OnceCallback<void(GooglePhotosPhotosCbkArgs)> callback);
 
  protected:
+  // Protected constructor forces creation via `WallpaperFetcherDelegate` to
+  // allow mocking in test code.
+  explicit GooglePhotosPhotosFetcher(Profile* profile);
+
   // GooglePhotosFetcher:
+  absl::optional<base::Value> CreateErrorResponse(int error_code) override;
   GooglePhotosPhotosCbkArgs ParseResponse(
-      absl::optional<base::Value> response) override;
+      const base::Value::Dict* response) override;
+  absl::optional<size_t> GetResultCount(
+      const GooglePhotosPhotosCbkArgs& result) override;
+
+ private:
+  friend class WallpaperFetcherDelegateImpl;
+  friend class GooglePhotosPhotosFetcherTest;
+
+  int photos_api_refresh_counter_ = 0;
 };
 
 }  // namespace wallpaper_handlers

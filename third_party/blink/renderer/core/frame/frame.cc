@@ -33,9 +33,11 @@
 #include <memory>
 
 #include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/mojom/fenced_frame/fenced_frame.mojom-blink.h"
+#include "third_party/blink/public/mojom/frame/frame.mojom-blink.h"
 #include "third_party/blink/public/mojom/frame/frame_owner_properties.mojom-blink.h"
+#include "third_party/blink/public/web/web_local_frame.h"
 #include "third_party/blink/public/web/web_local_frame_client.h"
-#include "third_party/blink/public/web/web_remote_frame_client.h"
 #include "third_party/blink/renderer/bindings/core/v8/window_proxy_manager.h"
 #include "third_party/blink/renderer/core/accessibility/ax_object_cache.h"
 #include "third_party/blink/renderer/core/dom/document_type.h"
@@ -63,6 +65,7 @@
 #include "third_party/blink/renderer/platform/instrumentation/instance_counters.h"
 #include "third_party/blink/renderer/platform/instrumentation/use_counter.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_error.h"
+#include "third_party/blink/renderer/platform/loader/fetch/resource_fetcher.h"
 #include "third_party/blink/renderer/platform/wtf/assertions.h"
 
 namespace blink {
@@ -135,6 +138,7 @@ bool Frame::Detach(FrameDetachType type) {
       provisional_frame_->Detach(FrameDetachType::kRemove);
     }
     SetOpener(nullptr);
+    opened_frame_tracker_.Dispose();
     // Clearing the window proxies can call back into `LocalFrameClient`, so
     // this must be done before nulling out `client_` below.
     GetWindowProxyManager()->ClearForClose();
@@ -193,7 +197,11 @@ bool Frame::IsMainFrame() const {
   return !Tree().Parent();
 }
 
-bool Frame::IsCrossOriginToMainFrame() const {
+bool Frame::IsOutermostMainFrame() const {
+  return IsMainFrame() && !IsInFencedFrameTree();
+}
+
+bool Frame::IsCrossOriginToNearestMainFrame() const {
   DCHECK(GetSecurityContext());
   const SecurityOrigin* security_origin =
       GetSecurityContext()->GetSecurityOrigin();
@@ -201,8 +209,14 @@ bool Frame::IsCrossOriginToMainFrame() const {
       Tree().Top().GetSecurityContext()->GetSecurityOrigin());
 }
 
-bool Frame::IsCrossOriginToParentFrame() const {
+bool Frame::IsCrossOriginToOutermostMainFrame() const {
+  return IsCrossOriginToNearestMainFrame() || IsInFencedFrameTree();
+}
+
+bool Frame::IsCrossOriginToParentOrOuterDocument() const {
   DCHECK(GetSecurityContext());
+  if (IsInFencedFrameTree())
+    return true;
   if (IsMainFrame())
     return false;
   Frame* parent = Tree().Parent();
@@ -276,6 +290,7 @@ void Frame::NotifyUserActivationInFrameTree(
     mojom::blink::UserActivationNotificationType notification_type) {
   for (Frame* node = this; node; node = node->Tree().Parent()) {
     node->user_activation_state_.Activate(notification_type);
+    node->ActivateHistoryUserActivationState();
   }
 
   // See the "Same-origin Visibility" section in |UserActivationState| class
@@ -293,6 +308,7 @@ void Frame::NotifyUserActivationInFrameTree(
           security_origin->CanAccess(
               local_frame_node->GetSecurityContext()->GetSecurityOrigin())) {
         node->user_activation_state_.Activate(notification_type);
+        node->ActivateHistoryUserActivationState();
       }
     }
   }
@@ -314,8 +330,10 @@ bool Frame::ConsumeTransientUserActivationInFrameTree() {
 }
 
 void Frame::ClearUserActivationInFrameTree() {
-  for (Frame* node = this; node; node = node->Tree().TraverseNext(this))
+  for (Frame* node = this; node; node = node->Tree().TraverseNext(this)) {
     node->user_activation_state_.Clear();
+    node->ClearHistoryUserActivationState();
+  }
 }
 
 void Frame::RenderFallbackContent() {
@@ -325,31 +343,33 @@ void Frame::RenderFallbackContent() {
       HTMLObjectElement::ErrorEventPolicy::kDispatch);
 }
 
-void Frame::RenderFallbackContentWithResourceTiming(
-    mojom::blink::ResourceTimingInfoPtr timing,
-    const String& server_timing_value) {
-  auto* local_dom_window = To<LocalDOMWindow>(Parent()->DomWindow());
-  DOMWindowPerformance::performance(*local_dom_window)
-      ->AddResourceTimingWithUnparsedServerTiming(
-          std::move(timing), server_timing_value,
-          html_names::kObjectTag.LocalName(), mojo::NullReceiver(),
-          local_dom_window);
-  RenderFallbackContent();
-}
-
 bool Frame::IsInFencedFrameTree() const {
-  if (!blink::features::IsFencedFramesEnabled())
+  DCHECK(!IsDetached());
+  if (!features::IsFencedFramesEnabled())
     return false;
 
-  switch (blink::features::kFencedFramesImplementationTypeParam.Get()) {
-    case blink::features::FencedFramesImplementationType::kMPArch:
-      return GetPage()->IsMainFrameFencedFrameRoot();
-    case blink::features::FencedFramesImplementationType::kShadowDOM:
-      return Tree().Top(FrameTreeBoundary::kFenced) !=
-             Tree().Top(FrameTreeBoundary::kIgnoreFence);
-    default:
-      return false;
-  }
+  return GetPage() && GetPage()->IsMainFrameFencedFrameRoot();
+}
+
+bool Frame::IsFencedFrameRoot() const {
+  DCHECK(!IsDetached());
+  if (!features::IsFencedFramesEnabled())
+    return false;
+
+  return IsInFencedFrameTree() && IsMainFrame();
+}
+
+absl::optional<blink::FencedFrame::DeprecatedFencedFrameMode>
+Frame::GetDeprecatedFencedFrameMode() const {
+  DCHECK(!IsDetached());
+
+  if (!features::IsFencedFramesEnabled())
+    return absl::nullopt;
+
+  if (!IsInFencedFrameTree())
+    return absl::nullopt;
+
+  return GetPage()->DeprecatedFencedFrameMode();
 }
 
 void Frame::SetOwner(FrameOwner* owner) {
@@ -362,7 +382,8 @@ void Frame::UpdateInertIfPossible() {
   if (auto* frame_owner_element =
           DynamicTo<HTMLFrameOwnerElement>(owner_.Get())) {
     const ComputedStyle* style = frame_owner_element->GetComputedStyle();
-    SetIsInert(style && style->IsInert());
+    const LocalFrame* parent = DynamicTo<LocalFrame>(Parent());
+    SetIsInert((style && style->IsInert()) || (parent && parent->IsInert()));
   }
 }
 
@@ -397,7 +418,7 @@ void Frame::UpdateVisibleToHitTesting() {
     DidChangeVisibleToHitTesting();
 }
 
-const std::string& Frame::ToTraceValue() {
+const std::string& Frame::GetFrameIdForTracing() {
   // token's ToString() is latin1.
   if (!trace_value_)
     trace_value_ = devtools_frame_token_.ToString();
@@ -434,7 +455,8 @@ Frame::Frame(FrameClient* client,
       navigation_rate_limiter_(*this),
       window_agent_factory_(inheriting_agent_factory
                                 ? inheriting_agent_factory
-                                : MakeGarbageCollected<WindowAgentFactory>()),
+                                : MakeGarbageCollected<WindowAgentFactory>(
+                                      page.GetAgentGroupScheduler())),
       is_loading_(false),
       devtools_frame_token_(devtools_frame_token),
       frame_token_(frame_token) {
@@ -510,15 +532,27 @@ void Frame::InsertAfter(Frame* new_child, Frame* previous_sibling) {
   GetPage()->IncrementSubframeCount();
 }
 
-void Frame::ScheduleFormSubmission(FrameScheduler* scheduler,
-                                   FormSubmission* form_submission) {
+base::OnceClosure Frame::ScheduleFormSubmission(
+    FrameScheduler* scheduler,
+    FormSubmission* form_submission) {
   form_submit_navigation_task_ = PostCancellableTask(
       *scheduler->GetTaskRunner(TaskType::kDOMManipulation), FROM_HERE,
-      WTF::Bind(&FormSubmission::Navigate, WrapPersistent(form_submission)));
+      WTF::BindOnce(&FormSubmission::Navigate,
+                    WrapPersistent(form_submission)));
+  form_submit_navigation_task_version_++;
+
+  return WTF::BindOnce(&Frame::CancelFormSubmissionWithVersion,
+                       WrapWeakPersistent(this),
+                       form_submit_navigation_task_version_);
 }
 
 void Frame::CancelFormSubmission() {
   form_submit_navigation_task_.Cancel();
+}
+
+void Frame::CancelFormSubmissionWithVersion(uint64_t version) {
+  if (form_submit_navigation_task_version_ == version)
+    form_submit_navigation_task_.Cancel();
 }
 
 bool Frame::IsFormSubmissionPending() {
@@ -550,26 +584,19 @@ void Frame::SetOpenerDoNotNotify(Frame* opener) {
   opener_ = opener;
 }
 
-Frame* Frame::Parent(FrameTreeBoundary frame_tree_boundary) const {
-  // TODO(crbug.com/1123606): Remove this once we use MPArch as the underlying
-  // fenced frames implementation, instead of the
-  // `FencedFrameShadowDOMDelegate`.
-  if (frame_tree_boundary == FrameTreeBoundary::kFenced &&
-      RuntimeEnabledFeatures::FencedFramesEnabled(
-          DomWindow()->GetExecutionContext()) &&
-      features::kFencedFramesImplementationTypeParam.Get() ==
-          features::FencedFramesImplementationType::kShadowDOM &&
-      Owner() && Owner()->GetFramePolicy().is_fenced) {
+Frame* Frame::Parent() const {
+  // |parent_| will be null if detached, return early before accessing
+  // Page.
+  if (!parent_)
     return nullptr;
-  }
 
   return parent_;
 }
 
-Frame* Frame::Top(FrameTreeBoundary frame_tree_boundary) {
+Frame* Frame::Top() {
   Frame* parent = this;
   while (true) {
-    Frame* next_parent = parent->Parent(frame_tree_boundary);
+    Frame* next_parent = parent->Parent();
     if (!next_parent)
       break;
     parent = next_parent;
@@ -577,15 +604,38 @@ Frame* Frame::Top(FrameTreeBoundary frame_tree_boundary) {
   return parent;
 }
 
-Frame* Frame::FirstChild(FrameTreeBoundary frame_tree_boundary) const {
-  if (frame_tree_boundary == FrameTreeBoundary::kFenced && first_child_ &&
-      first_child_->Owner()->GetFramePolicy().is_fenced) {
-    return nullptr;
-  }
-  return first_child_;
+bool Frame::AllowFocusWithoutUserActivation() {
+  if (!features::IsFencedFramesEnabled())
+    return true;
+
+  if (!IsInFencedFrameTree())
+    return true;
+
+  // Inside a fenced frame tree, a frame can only request focus is its focus
+  // controller already has focus.
+  return GetPage()->GetFocusController().IsFocused();
 }
 
-bool Frame::Swap(WebFrame* new_web_frame) {
+bool Frame::Swap(WebLocalFrame* new_web_frame) {
+  return SwapImpl(new_web_frame, mojo::NullAssociatedRemote(),
+                  mojo::NullAssociatedReceiver());
+}
+
+bool Frame::Swap(WebRemoteFrame* new_web_frame,
+                 mojo::PendingAssociatedRemote<mojom::blink::RemoteFrameHost>
+                     remote_frame_host,
+                 mojo::PendingAssociatedReceiver<mojom::blink::RemoteFrame>
+                     remote_frame_receiver) {
+  return SwapImpl(new_web_frame, std::move(remote_frame_host),
+                  std::move(remote_frame_receiver));
+}
+
+bool Frame::SwapImpl(
+    WebFrame* new_web_frame,
+    mojo::PendingAssociatedRemote<mojom::blink::RemoteFrameHost>
+        remote_frame_host,
+    mojo::PendingAssociatedReceiver<mojom::blink::RemoteFrame>
+        remote_frame_receiver) {
   DCHECK(IsAttached());
 
   using std::swap;
@@ -634,16 +684,19 @@ bool Frame::Swap(WebFrame* new_web_frame) {
     provisional_frame_ = nullptr;
   }
 
-  v8::HandleScope handle_scope(v8::Isolate::GetCurrent());
+  v8::HandleScope handle_scope(page->GetAgentGroupScheduler().Isolate());
   WindowProxyManager::GlobalProxyVector global_proxies;
   GetWindowProxyManager()->ReleaseGlobalProxies(global_proxies);
 
   if (new_web_frame->IsWebRemoteFrame()) {
+    DCHECK(remote_frame_host && remote_frame_receiver);
     CHECK(!WebFrame::ToCoreFrame(*new_web_frame));
     To<WebRemoteFrameImpl>(new_web_frame)
         ->InitializeCoreFrame(*page, owner, WebFrame::FromCoreFrame(parent_),
                               nullptr, FrameInsertType::kInsertLater, name,
-                              &window_agent_factory(), devtools_frame_token_);
+                              &window_agent_factory(), devtools_frame_token_,
+                              std::move(remote_frame_host),
+                              std::move(remote_frame_receiver));
     // At this point, a `RemoteFrame` will have already updated
     // `Page::MainFrame()` or `FrameOwner::ContentFrame()` as appropriate, and
     // its `parent_` pointer is also populated.
@@ -653,6 +706,7 @@ bool Frame::Swap(WebFrame* new_web_frame) {
     // `Page::MainFrame()` or `FrameOwner::ContentFrame()` updates are deferred
     // until after `new_frame` is linked into the frame tree.
     // TODO(dcheng): Make local and remote frame updates more uniform.
+    DCHECK(!remote_frame_host && !remote_frame_receiver);
   }
 
   Frame* new_frame = WebFrame::ToCoreFrame(*new_web_frame);
@@ -704,13 +758,56 @@ bool Frame::Swap(WebFrame* new_web_frame) {
         frame_owner_element->SetEmbeddedContentView(new_local_frame->View());
       }
     } else {
-      Page* other_page = new_local_frame->GetPage();
-      other_page->SetMainFrame(new_local_frame);
+      Page* new_page = new_local_frame->GetPage();
+      if (page != new_page) {
+        // The new frame can only belong to a different Page when doing a main
+        // frame LocalFrame <-> LocalFrame swap, where we want to detach the
+        // LocalFrame of the old Page before swapping in the new provisional
+        // LocalFrame into the new Page.
+        CHECK(IsLocalFrame());
+
+        // First, finish handling the old page. At this point, the old Page's
+        // main LocalFrame had already been detached by the `Detach()` call
+        // above, and we should create and swap in a placeholder RemoteFrame to
+        // ensure the old Page still has a main frame until it gets deleted
+        // later on, when its WebView gets deleted. Attach the newly created
+        // placeholder RemoteFrame as the main frame of the old Page.
+        WebRemoteFrame* old_page_placeholder_remote_frame =
+            WebRemoteFrame::Create(mojom::blink::TreeScopeType::kDocument,
+                                   RemoteFrameToken());
+        To<WebRemoteFrameImpl>(old_page_placeholder_remote_frame)
+            ->InitializeCoreFrame(
+                *page, /*owner=*/nullptr, /*parent=*/nullptr,
+                /*previous_sibling=*/nullptr, FrameInsertType::kInsertLater,
+                name, &window_agent_factory(), devtools_frame_token_,
+                mojo::NullAssociatedRemote(), mojo::NullAssociatedReceiver());
+        page->SetMainFrame(
+            WebFrame::ToCoreFrame(*old_page_placeholder_remote_frame));
+
+        // On the new Page, we have a different placeholder main RemoteFrame,
+        // which was created when the new Page's WebView was created from
+        // AgentSchedulingGroup::CreateWebView(). The placeholder main
+        // RemoteFrame needs to be detached before the new Page's provisional
+        // LocalFrame can take its place as the new Page's main frame.
+        CHECK_NE(new_page->MainFrame(), this);
+        CHECK(new_page->MainFrame()->IsRemoteFrame());
+        CHECK(!DynamicTo<RemoteFrame>(new_page->MainFrame())
+                   ->IsRemoteFrameHostRemoteBound());
+        // Trigger the detachment of the new page's placeholder main
+        // RemoteFrame. Note that we also use `FrameDetachType::kSwap` here
+        // instead of kRemove to avoid triggering destructive action on the new
+        // Page and the provisional LocalFrame that will be swapped in (e.g.
+        // clearing the opener, or detaching the provisional frame).
+        new_page->MainFrame()->Detach(FrameDetachType::kSwap);
+      }
+
+      // Set the provisioanl LocalFrame to become the new page's main frame.
+      new_page->SetMainFrame(new_local_frame);
       // This trace event is needed to detect the main frame of the
       // renderer in telemetry metrics. See crbug.com/692112#c11.
       TRACE_EVENT_INSTANT1("loading", "markAsMainFrame",
                            TRACE_EVENT_SCOPE_THREAD, "frame",
-                           ::blink::ToTraceValue(new_local_frame));
+                           ::blink::GetFrameIdForTracing(new_local_frame));
     }
   }
 
@@ -770,9 +867,27 @@ void Frame::DetachFromParent() {
   Parent()->RemoveChild(this);
 }
 
-STATIC_ASSERT_ENUM(FrameDetachType::kRemove,
-                   WebRemoteFrameClient::DetachType::kRemove);
-STATIC_ASSERT_ENUM(FrameDetachType::kSwap,
-                   WebRemoteFrameClient::DetachType::kSwap);
+HeapVector<Member<Resource>> Frame::AllResourcesUnderFrame() {
+  DCHECK(base::FeatureList::IsEnabled(features::kMemoryCacheStrongReference));
+
+  HeapVector<Member<Resource>> resources;
+  if (IsLocalFrame()) {
+    if (auto* this_local_frame = DynamicTo<LocalFrame>(this)) {
+      HeapHashSet<Member<Resource>> local_frame_resources =
+          this_local_frame->GetDocument()
+              ->Fetcher()
+              ->MoveResourceStrongReferences();
+      for (Resource* resource : local_frame_resources) {
+        resources.push_back(resource);
+      }
+    }
+  }
+
+  for (Frame* child = Tree().FirstChild(); child;
+       child = child->Tree().NextSibling()) {
+    resources.AppendVector(child->AllResourcesUnderFrame());
+  }
+  return resources;
+}
 
 }  // namespace blink

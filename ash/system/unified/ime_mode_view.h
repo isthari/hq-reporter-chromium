@@ -1,11 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef ASH_SYSTEM_UNIFIED_IME_MODE_VIEW_H_
 #define ASH_SYSTEM_UNIFIED_IME_MODE_VIEW_H_
 
-#include "ash/public/cpp/session/session_observer.h"
 #include "ash/public/cpp/tablet_mode_observer.h"
 #include "ash/system/ime/ime_observer.h"
 #include "ash/system/model/locale_model.h"
@@ -17,8 +16,7 @@ namespace ash {
 class ImeModeView : public TrayItemView,
                     public IMEObserver,
                     public LocaleModel::Observer,
-                    public TabletModeObserver,
-                    public SessionObserver {
+                    public TabletModeObserver {
  public:
   explicit ImeModeView(Shelf* shelf);
 
@@ -38,22 +36,14 @@ class ImeModeView : public TrayItemView,
   void OnTabletModeStarted() override;
   void OnTabletModeEnded() override;
 
-  // SessionObserver:
-  void OnSessionStateChanged(session_manager::SessionState state) override;
-
   // views::TrayItemView:
   const char* GetClassName() const override;
   void HandleLocaleChange() override;
-
-  // views::View:
-  void OnThemeChanged() override;
 
  private:
   void Update();
 
   bool ime_menu_on_shelf_activated_ = false;
-
-  ScopedSessionObserver session_observer_{this};
 };
 
 }  // namespace ash

@@ -37,13 +37,14 @@
 #include "mojo/public/cpp/bindings/pending_associated_remote.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "services/network/public/mojom/content_security_policy.mojom-blink-forward.h"
-#include "services/network/public/mojom/ip_address_space.mojom-blink-forward.h"
 #include "services/network/public/mojom/web_sandbox_flags.mojom-blink-forward.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/common/loader/loading_behavior_flag.h"
+#include "third_party/blink/public/common/loader/url_loader_factory_bundle.h"
 #include "third_party/blink/public/common/permissions_policy/document_policy_features.h"
 #include "third_party/blink/public/common/permissions_policy/permissions_policy.h"
 #include "third_party/blink/public/common/responsiveness_metrics/user_interaction_latency.h"
+#include "third_party/blink/public/common/subresource_load_metrics.h"
 #include "third_party/blink/public/common/tokens/tokens.h"
 #include "third_party/blink/public/common/use_counter/use_counter_feature.h"
 #include "third_party/blink/public/common/user_agent/user_agent_metadata.h"
@@ -54,11 +55,9 @@
 #include "third_party/blink/public/platform/scheduler/web_scoped_virtual_time_pauser.h"
 #include "third_party/blink/public/platform/web_content_settings_client.h"
 #include "third_party/blink/public/platform/web_effective_connection_type.h"
-#include "third_party/blink/public/platform/web_impression.h"
 #include "third_party/blink/public/platform/web_worker_fetch_context.h"
 #include "third_party/blink/public/web/web_frame_load_type.h"
 #include "third_party/blink/public/web/web_history_commit_type.h"
-#include "third_party/blink/public/web/web_local_frame_client.h"
 #include "third_party/blink/public/web/web_manifest_manager.h"
 #include "third_party/blink/public/web/web_navigation_params.h"
 #include "third_party/blink/renderer/core/core_export.h"
@@ -78,9 +77,14 @@
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "v8/include/v8.h"
 
+namespace network {
+class SharedURLLoaderFactory;
+}  // namespace network
+
 namespace blink {
 
 class AssociatedInterfaceProvider;
+class BrowserInterfaceBrokerProxy;
 class DocumentLoader;
 class HTMLFencedFrameElement;
 class HTMLFormElement;
@@ -92,7 +96,6 @@ class HistoryItem;
 class KURL;
 class LocalDOMWindow;
 class LocalFrame;
-class WebPluginContainerImpl;
 class RemoteFrame;
 class ResourceError;
 class ResourceRequest;
@@ -104,11 +107,20 @@ class WebLocalFrame;
 class WebMediaPlayer;
 class WebMediaPlayerClient;
 class WebMediaPlayerSource;
+class WebPluginContainerImpl;
 class WebRemotePlaybackClient;
 class WebServiceWorkerProvider;
 class WebSpellCheckPanelHostClient;
 class WebTextCheckClient;
+class URLLoader;
 class ResourceLoadInfoNotifierWrapper;
+enum class SyncCondition;
+struct Impression;
+struct MobileFriendliness;
+
+namespace scheduler {
+class TaskAttributionId;
+}  // namespace scheduler
 
 class CORE_EXPORT LocalFrameClient : public FrameClient {
  public:
@@ -132,12 +144,12 @@ class CORE_EXPORT LocalFrameClient : public FrameClient {
 
   virtual void DispatchDidHandleOnloadEvents() = 0;
   virtual void DidFinishSameDocumentNavigation(
-      HistoryItem*,
       WebHistoryCommitType,
       bool is_synchronously_committed,
       mojom::blink::SameDocumentNavigationType,
       bool is_client_redirect,
       bool is_browser_initiated) {}
+  virtual void DidFailAsyncSameDocumentCommit() {}
   virtual void DispatchDidOpenDocumentInputStream(const KURL&) {}
   virtual void DispatchDidReceiveTitle(const String&) = 0;
   virtual void DispatchDidCommitLoad(
@@ -154,13 +166,17 @@ class CORE_EXPORT LocalFrameClient : public FrameClient {
 
   virtual void BeginNavigation(
       const ResourceRequest&,
+      const KURL& requestor_base_url,
       mojom::RequestContextFrameType,
       LocalDOMWindow* origin_window,
       DocumentLoader*,
       WebNavigationType,
       NavigationPolicy,
       WebFrameLoadType,
+      mojom::blink::ForceHistoryPush,
       bool is_client_redirect,
+      // TODO(crbug.com/1315802): Refactor _unfencedTop handling.
+      bool is_unfenced_top_navigation,
       mojom::blink::TriggeringEventInfo,
       HTMLFormElement*,
       network::mojom::CSPDisposition
@@ -168,19 +184,23 @@ class CORE_EXPORT LocalFrameClient : public FrameClient {
       mojo::PendingRemote<mojom::blink::BlobURLToken>,
       base::TimeTicks input_start_time,
       const String& href_translate,
-      const absl::optional<WebImpression>& impression,
-      network::mojom::IPAddressSpace,
+      const absl::optional<Impression>& impression,
       const LocalFrameToken* initiator_frame_token,
       std::unique_ptr<SourceLocation> source_location,
       mojo::PendingRemote<mojom::blink::PolicyContainerHostKeepAliveHandle>
-          initiator_policy_container_handle) = 0;
+          initiator_policy_container_handle,
+      bool is_container_initiated,
+      bool is_fullscreen_requested) = 0;
 
   virtual void DispatchWillSendSubmitEvent(HTMLFormElement*) = 0;
 
   virtual void DidStartLoading() = 0;
   virtual void DidStopLoading() = 0;
 
-  virtual bool NavigateBackForward(int offset) const = 0;
+  virtual bool NavigateBackForward(
+      int offset,
+      absl::optional<scheduler::TaskAttributionId>
+          soft_navigation_heuristics_task_id) const = 0;
 
   virtual void DidDispatchPingLoader(const KURL&) = 0;
 
@@ -191,7 +211,6 @@ class CORE_EXPORT LocalFrameClient : public FrameClient {
 
   // Will be called when a user interaction is observed.
   virtual void DidObserveUserInteraction(base::TimeDelta max_event_duration,
-                                         base::TimeDelta total_event_duration,
                                          UserInteractionType interaction_type) {
   }
 
@@ -202,33 +221,25 @@ class CORE_EXPORT LocalFrameClient : public FrameClient {
   // propogates renderer loading behavior to the browser process for histograms.
   virtual void DidObserveLoadingBehavior(LoadingBehaviorFlag) {}
 
+  // Will be called when a sub resource load happens.
+  virtual void DidObserveSubresourceLoad(
+      const SubresourceLoadMetrics& subresource_load_metrics) {}
+
   // Will be called when a new UseCounterFeature has been observed in a frame.
   // This propagates feature usage to the browser process for histograms.
   virtual void DidObserveNewFeatureUsage(const UseCounterFeature&) {}
+
+  // A new soft navigation was observed.
+  virtual void DidObserveSoftNavigation(uint32_t count) {}
 
   // Reports that visible elements in the frame shifted (bit.ly/lsm-explainer).
   virtual void DidObserveLayoutShift(double score, bool after_input_or_scroll) {
   }
 
-  // Reports the number of LayoutBlock creation, and LayoutObject::UpdateLayout
-  // calls. All values are deltas since the last calls of this function.
-  virtual void DidObserveLayoutNg(uint32_t all_block_count,
-                                  uint32_t ng_block_count,
-                                  uint32_t all_call_count,
-                                  uint32_t ng_call_count) {}
-
-  // Reports lazy loaded behavior when the frame or image is fully deferred or
-  // if the frame or image is loaded after being deferred. Called every time the
-  // behavior occurs. This does not apply to images that were loaded as
-  // placeholders.
-  virtual void DidObserveLazyLoadBehavior(
-      WebLocalFrameClient::LazyLoadBehavior lazy_load_behavior) {}
-
   // Notifies the observers of the origins for which subresource redirect
   // optimizations can be preloaded.
   virtual void PreloadSubresourceOptimizationsForOrigins(
-      const WTF::HashSet<scoped_refptr<const SecurityOrigin>,
-                         SecurityOriginHash>& origins) {}
+      const WTF::HashSet<scoped_refptr<const SecurityOrigin>>& origins) {}
 
   // Transmits the change in the set of watched CSS selectors property that
   // match any element on the frame.
@@ -236,18 +247,11 @@ class CORE_EXPORT LocalFrameClient : public FrameClient {
       const Vector<String>& added_selectors,
       const Vector<String>& removed_selectors) = 0;
 
-  virtual DocumentLoader* CreateDocumentLoader(
-      LocalFrame*,
-      WebNavigationType,
-      std::unique_ptr<WebNavigationParams> navigation_params,
-      std::unique_ptr<PolicyContainer> policy_container,
-      std::unique_ptr<WebDocumentLoader::ExtraData> extra_data) = 0;
+  virtual void DidCreateDocumentLoader(DocumentLoader*) = 0;
 
-  virtual void UpdateDocumentLoader(
-      DocumentLoader* document_loader,
-      std::unique_ptr<WebDocumentLoader::ExtraData> extra_data) = 0;
-
+  virtual String UserAgentOverride() = 0;
   virtual String UserAgent() = 0;
+  virtual String FullUserAgent() = 0;
   virtual String ReducedUserAgent() = 0;
   virtual absl::optional<blink::UserAgentMetadata> UserAgentMetadata() = 0;
 
@@ -301,7 +305,9 @@ class CORE_EXPORT LocalFrameClient : public FrameClient {
       HTMLMediaElement&) = 0;
 
   virtual void DidCommitDocumentReplacementNavigation(DocumentLoader*) = 0;
-  virtual void DispatchDidClearWindowObjectInMainWorld() = 0;
+  virtual void DispatchDidClearWindowObjectInMainWorld(
+      v8::Isolate* isolate,
+      v8::MicrotaskQueue* microtask_queue) = 0;
   virtual void DocumentElementAvailable() = 0;
   virtual void RunScriptsAtDocumentElementAvailable() = 0;
   virtual void RunScriptsAtDocumentReady(bool document_is_empty) = 0;
@@ -314,6 +320,12 @@ class CORE_EXPORT LocalFrameClient : public FrameClient {
   virtual bool AllowScriptExtensions() = 0;
 
   virtual void DidChangeScrollOffset() {}
+
+  // Immediately notifies the browser of a change in the current HistoryItem.
+  // Prefer DidUpdateCurrentHistoryItem().
+  virtual void NotifyCurrentHistoryItemChanged() {}
+  // Notifies the browser of a change in the current HistoryItem on a timer,
+  // allowing batching of updates.
   virtual void DidUpdateCurrentHistoryItem() {}
 
   // Called when a content-initiated, main frame navigation to a data URL is
@@ -339,8 +351,6 @@ class CORE_EXPORT LocalFrameClient : public FrameClient {
   // returned if the URL is not overriden.
   virtual KURL OverrideFlashEmbedWithHTML(const KURL&) { return KURL(); }
 
-  virtual BlameContext* GetFrameBlameContext() { return nullptr; }
-
   virtual BrowserInterfaceBrokerProxy& GetBrowserInterfaceBroker() = 0;
 
   virtual AssociatedInterfaceProvider*
@@ -354,7 +364,9 @@ class CORE_EXPORT LocalFrameClient : public FrameClient {
 
   virtual WebTextCheckClient* GetTextCheckerClient() const = 0;
 
-  virtual std::unique_ptr<WebURLLoaderFactory> CreateURLLoaderFactory() = 0;
+  virtual scoped_refptr<network::SharedURLLoaderFactory>
+  GetURLLoaderFactory() = 0;
+  virtual std::unique_ptr<URLLoader> CreateURLLoaderForTesting() = 0;
 
   virtual void AnnotatedRegionsChanged() = 0;
 

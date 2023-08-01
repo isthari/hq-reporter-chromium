@@ -1,10 +1,9 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.compositor.layouts;
 
-import android.content.res.Resources;
 import android.graphics.Rect;
 
 import org.chromium.ui.resources.ResourceManager;
@@ -32,8 +31,10 @@ public interface LayoutRenderHost {
     /**
      * Indicates that the compositor swapped buffers.
      * @param swappedCurrentSize Whether the swapped buffer size is the same as the current one.
+     * @param framesUntilHideBackground The number of buffer swaps needed until the incoming surface
+     *         has a frame ready. Zero if no incoming surface or if the incoming surface is ready.
      */
-    default void didSwapBuffers(boolean swappedCurrentSize) {}
+    default void didSwapBuffers(boolean swappedCurrentSize, int framesUntilHideBackground) {}
 
     /**
      * Indicates that the rendering surface has just been created.
@@ -52,16 +53,6 @@ public interface LayoutRenderHost {
      * @param color The color of the rect.
      */
     void pushDebugRect(Rect rect, int color);
-
-    /**
-     * Loads the persistent textures if they are not loaded already.
-     */
-    void loadPersitentTextureDataIfNeeded();
-
-    /**
-     * @return The background color of the toolbar.
-     */
-    int getBrowserControlsBackgroundColor(Resources resources);
 
     /**
      * @return The {@link ResourceManager}.

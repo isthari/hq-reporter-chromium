@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,6 +20,10 @@ namespace blink {
 // directions.
 //
 // See README.md for more details.
+
+////////////////////////////////////////////////////////////////////////////////
+// DOCUMENT TOKENS
+using DocumentToken = base::TokenType<class DocumentTokenTypeMarker>;
 
 ////////////////////////////////////////////////////////////////////////////////
 // FRAME TOKENS
@@ -75,11 +79,20 @@ using LayoutWorkletToken = base::TokenType<class LayoutWorkletTokenTypeMarker>;
 // Identifies a paint worklet.
 using PaintWorkletToken = base::TokenType<class PaintWorkletTokenTypeMarker>;
 
+// Identifies a shared storage worklet.
+using SharedStorageWorkletToken =
+    base::TokenType<class SharedStorageWorkletTokenTypeMarker>;
+
 // Can represent any type of WorkletToken.
 using WorkletToken = MultiToken<AnimationWorkletToken,
                                 AudioWorkletToken,
                                 LayoutWorkletToken,
-                                PaintWorkletToken>;
+                                PaintWorkletToken,
+                                SharedStorageWorkletToken>;
+
+////////////////////////////////////////////////////////////////////////////////
+// SHADOW REALM TOKENS
+using ShadowRealmToken = base::TokenType<class ShadowRealmTokenTypeMarker>;
 
 ////////////////////////////////////////////////////////////////////////////////
 // OTHER TOKENS
@@ -90,6 +103,13 @@ using WorkletToken = MultiToken<AnimationWorkletToken,
 // their own section, in alphabetical order. If adding a new token here, please
 // keep the following list in alphabetic order.
 
+// Identifies an attributionsrc request made by the Attribution Reporting API.
+using AttributionSrcToken =
+    base::TokenType<class AttributionSrcTokenTypeMarker>;
+
+// Identifies a unique clipboard state.
+using ClipboardSequenceNumberToken = ui::ClipboardSequenceNumberToken;
+
 // Identifies an arbitrary ExecutionContext. Each concrete implementation of an
 // ExecutionContext has a distinct token type that can be represented here.
 using ExecutionContextToken = MultiToken<LocalFrameToken,
@@ -99,7 +119,9 @@ using ExecutionContextToken = MultiToken<LocalFrameToken,
                                          AnimationWorkletToken,
                                          AudioWorkletToken,
                                          LayoutWorkletToken,
-                                         PaintWorkletToken>;
+                                         PaintWorkletToken,
+                                         SharedStorageWorkletToken,
+                                         ShadowRealmToken>;
 
 // Identifies a blink::PortalContents / blink::HTMLPortalElement in the
 // renderer process, and a content::Portal in the browser process.
@@ -108,8 +130,13 @@ using PortalToken = base::TokenType<class PortalTokenTypeMarker>;
 // Identifies a v8::Context / blink::ScriptState.
 using V8ContextToken = base::TokenType<class V8ContextTokenTypeMarker>;
 
-// Identifies a unique clipboard state.
-using ClipboardSequenceNumberToken = ui::ClipboardSequenceNumberToken;
+// Identifies possible contexts used for WebGPU. Used in cross-process mojo
+// interfaces for isolation key coordination.
+// TODO(dawn:549) Might be able to eventually swap this out to use
+//     ExecutionContextToken from above whif DocumentToken gets encapsulated
+//     there later on.
+using WebGPUExecutionContextToken =
+    MultiToken<DocumentToken, DedicatedWorkerToken>;
 
 }  // namespace blink
 

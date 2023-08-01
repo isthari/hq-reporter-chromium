@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -174,8 +174,7 @@ public class SequencedTaskRunnerTaskMigrationTest {
         }
 
         @Override
-        public long init(int taskRunnerType, int priority, boolean mayBlock, boolean useThreadPool,
-                byte extensionId, byte[] extensionData) {
+        public long init(int taskRunnerType, int taskTraits) {
             return 1;
         }
 

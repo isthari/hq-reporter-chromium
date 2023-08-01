@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/bindings/core/v8/serialization/post_message_helper.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_window_post_message_options.h"
+#include "third_party/blink/renderer/core/event_target_names.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -23,11 +24,12 @@
 namespace blink {
 
 PortalHost::PortalHost(LocalDOMWindow& window)
-    : Supplement<LocalDOMWindow>(window) {}
+    : Supplement<LocalDOMWindow>(window), portal_host_(&window) {}
 
 void PortalHost::Trace(Visitor* visitor) const {
   EventTargetWithInlineData::Trace(visitor);
   Supplement<LocalDOMWindow>::Trace(visitor);
+  visitor->Trace(portal_host_);
 }
 
 // static
@@ -107,10 +109,12 @@ void PortalHost::ReceiveMessage(
 mojom::blink::PortalHost& PortalHost::GetPortalHostInterface() {
   if (!portal_host_) {
     DCHECK(GetSupplementable()->GetFrame());
-    GetSupplementable()
-        ->GetFrame()
-        ->GetRemoteNavigationAssociatedInterfaces()
-        ->GetInterface(&portal_host_);
+    AssociatedInterfaceProvider* provider =
+        GetSupplementable()
+            ->GetFrame()
+            ->GetRemoteNavigationAssociatedInterfaces();
+    provider->GetInterface(
+        portal_host_.BindNewEndpointAndPassReceiver(provider->GetTaskRunner()));
   }
   return *portal_host_.get();
 }

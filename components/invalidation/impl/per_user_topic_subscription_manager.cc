@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,9 +13,10 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/observer_list.h"
 #include "base/rand_util.h"
 #include "base/strings/strcat.h"
 #include "base/strings/stringprintf.h"
@@ -32,14 +33,8 @@ namespace invalidation {
 
 namespace {
 
-const char kTypeSubscribedForInvalidationsDeprecated[] =
-    "invalidation.registered_for_invalidation";
-
 const char kTypeSubscribedForInvalidations[] =
     "invalidation.per_sender_registered_for_invalidation";
-
-const char kActiveRegistrationTokenDeprecated[] =
-    "invalidation.active_registration_token";
 
 const char kActiveRegistrationTokens[] =
     "invalidation.per_sender_active_registration_tokens";
@@ -89,53 +84,24 @@ class PerProjectDictionaryPrefUpdate {
   explicit PerProjectDictionaryPrefUpdate(PrefService* prefs,
                                           const std::string& project_id)
       : update_(prefs, kTypeSubscribedForInvalidations) {
-    per_sender_pref_ = update_->FindDictKey(project_id);
-    if (!per_sender_pref_) {
-      update_->SetKey(project_id, base::Value(base::Value::Type::DICTIONARY));
-      per_sender_pref_ = update_->FindDictKey(project_id);
-    }
+    per_sender_pref_ = update_->EnsureDict(project_id);
     DCHECK(per_sender_pref_);
   }
 
-  base::Value& operator*() { return *per_sender_pref_; }
+  base::Value::Dict& operator*() { return *per_sender_pref_; }
 
-  base::Value* operator->() { return per_sender_pref_; }
+  base::Value::Dict* operator->() { return per_sender_pref_; }
 
  private:
-  DictionaryPrefUpdate update_;
-  raw_ptr<base::Value> per_sender_pref_;
+  ScopedDictPrefUpdate update_;
+  raw_ptr<base::Value::Dict> per_sender_pref_;
 };
-
-// Added in M76.
-void MigratePrefs(PrefService* prefs, const std::string& project_id) {
-  if (!prefs->HasPrefPath(kActiveRegistrationTokenDeprecated)) {
-    return;
-  }
-  {
-    DictionaryPrefUpdate token_update(prefs, kActiveRegistrationTokens);
-    token_update->SetStringKey(
-        project_id, prefs->GetString(kActiveRegistrationTokenDeprecated));
-  }
-
-  auto* old_subscriptions =
-      prefs->GetDictionary(kTypeSubscribedForInvalidationsDeprecated);
-  {
-    PerProjectDictionaryPrefUpdate update(prefs, project_id);
-    *update = old_subscriptions->Clone();
-  }
-  prefs->ClearPref(kActiveRegistrationTokenDeprecated);
-  prefs->ClearPref(kTypeSubscribedForInvalidationsDeprecated);
-}
 
 }  // namespace
 
 // static
 void PerUserTopicSubscriptionManager::RegisterProfilePrefs(
     PrefRegistrySimple* registry) {
-  registry->RegisterDictionaryPref(kTypeSubscribedForInvalidationsDeprecated);
-  registry->RegisterStringPref(kActiveRegistrationTokenDeprecated,
-                               std::string());
-
   registry->RegisterDictionaryPref(kTypeSubscribedForInvalidations);
   registry->RegisterDictionaryPref(kActiveRegistrationTokens);
 }
@@ -211,13 +177,11 @@ PerUserTopicSubscriptionManager::PerUserTopicSubscriptionManager(
     IdentityProvider* identity_provider,
     PrefService* pref_service,
     network::mojom::URLLoaderFactory* url_loader_factory,
-    const std::string& project_id,
-    bool migrate_prefs)
+    const std::string& project_id)
     : pref_service_(pref_service),
       identity_provider_(identity_provider),
       url_loader_factory_(url_loader_factory),
       project_id_(project_id),
-      migrate_prefs_(migrate_prefs),
       request_access_token_backoff_(&kBackoffPolicy) {}
 
 PerUserTopicSubscriptionManager::~PerUserTopicSubscriptionManager() = default;
@@ -228,26 +192,21 @@ PerUserTopicSubscriptionManager::Create(
     IdentityProvider* identity_provider,
     PrefService* pref_service,
     network::mojom::URLLoaderFactory* url_loader_factory,
-    const std::string& project_id,
-    bool migrate_prefs) {
+    const std::string& project_id) {
   return std::make_unique<PerUserTopicSubscriptionManager>(
-      identity_provider, pref_service, url_loader_factory, project_id,
-      migrate_prefs);
+      identity_provider, pref_service, url_loader_factory, project_id);
 }
 
 void PerUserTopicSubscriptionManager::Init() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  if (migrate_prefs_) {
-    MigratePrefs(pref_service_, project_id_);
-  }
   PerProjectDictionaryPrefUpdate update(pref_service_, project_id_);
-  if (update->DictEmpty()) {
+  if (update->empty()) {
     return;
   }
 
   std::vector<std::string> keys_to_remove;
   // Load subscribed topics from prefs.
-  for (auto it : update->DictItems()) {
+  for (auto it : *update) {
     Topic topic = it.first;
     const std::string* private_topic_name = it.second.GetIfString();
     if (private_topic_name && !private_topic_name->empty()) {
@@ -261,7 +220,7 @@ void PerUserTopicSubscriptionManager::Init() {
 
   // Delete prefs, which weren't decoded successfully.
   for (const std::string& key : keys_to_remove) {
-    update->RemoveKey(key);
+    update->Remove(key);
   }
 }
 
@@ -304,7 +263,7 @@ void PerUserTopicSubscriptionManager::UpdateSubscribedTopics(
     if (topics.find(topic) == topics.end()) {
       // Unsubscription request may only replace pending subscription request,
       // because topic immediately deleted from |topic_to_private_topic_| when
-      // unsubsciption request scheduled.
+      // unsubscription request scheduled.
       DCHECK(pending_subscriptions_.count(topic) == 0 ||
              pending_subscriptions_[topic]->type ==
                  PerUserTopicSubscriptionRequest::SUBSCRIBE);
@@ -321,7 +280,7 @@ void PerUserTopicSubscriptionManager::UpdateSubscribedTopics(
       // The decision to unsubscribe from invalidations for |topic| was
       // made, the preferences should be cleaned up immediately.
       PerProjectDictionaryPrefUpdate update(pref_service_, project_id_);
-      update->RemoveKey(topic);
+      update->Remove(topic);
     } else {
       // Topic is still wanted, nothing to do.
       ++it;
@@ -404,7 +363,7 @@ void PerUserTopicSubscriptionManager::ActOnSuccessfulSubscription(
     // request).
     {
       PerProjectDictionaryPrefUpdate update(pref_service_, project_id_);
-      update->SetStringKey(topic, private_topic_name);
+      update->Set(topic, private_topic_name);
       topic_to_private_topic_[topic] = private_topic_name;
       private_topic_to_topic_[private_topic_name] = topic;
     }
@@ -568,9 +527,9 @@ void PerUserTopicSubscriptionManager::DropAllSavedSubscriptionsOnTokenChange() {
 PerUserTopicSubscriptionManager::TokenStateOnSubscriptionRequest
 PerUserTopicSubscriptionManager::DropAllSavedSubscriptionsOnTokenChangeImpl() {
   {
-    DictionaryPrefUpdate token_update(pref_service_, kActiveRegistrationTokens);
+    ScopedDictPrefUpdate token_update(pref_service_, kActiveRegistrationTokens);
     std::string previous_token;
-    if (const std::string* str_ptr = token_update->FindStringKey(project_id_)) {
+    if (const std::string* str_ptr = token_update->FindString(project_id_)) {
       previous_token = *str_ptr;
     }
     if (previous_token == instance_id_token_) {
@@ -578,7 +537,7 @@ PerUserTopicSubscriptionManager::DropAllSavedSubscriptionsOnTokenChangeImpl() {
       return TokenStateOnSubscriptionRequest::kTokenUnchanged;
     }
 
-    token_update->SetStringKey(project_id_, instance_id_token_);
+    token_update->Set(project_id_, instance_id_token_);
     if (previous_token.empty()) {
       // If we didn't have a registration token before, we shouldn't have had
       // any subscriptions either, so no need to drop them.
@@ -591,7 +550,7 @@ PerUserTopicSubscriptionManager::DropAllSavedSubscriptionsOnTokenChangeImpl() {
   // unsubscribe requests - if the token was revoked, the server will drop the
   // subscriptions anyway.)
   PerProjectDictionaryPrefUpdate update(pref_service_, project_id_);
-  *update = base::Value(base::Value::Type::DICTIONARY);
+  *update = base::Value::Dict();
   topic_to_private_topic_.clear();
   private_topic_to_topic_.clear();
   pending_subscriptions_.clear();
@@ -616,14 +575,12 @@ void PerUserTopicSubscriptionManager::NotifySubscriptionChannelStateChange(
   }
 }
 
-base::DictionaryValue PerUserTopicSubscriptionManager::CollectDebugData()
-    const {
-  base::DictionaryValue status;
+base::Value::Dict PerUserTopicSubscriptionManager::CollectDebugData() const {
+  base::Value::Dict status;
   for (const auto& topic_to_private_topic : topic_to_private_topic_) {
-    status.SetString(topic_to_private_topic.first,
-                     topic_to_private_topic.second);
+    status.Set(topic_to_private_topic.first, topic_to_private_topic.second);
   }
-  status.SetString("Instance id token", instance_id_token_);
+  status.Set("Instance id token", instance_id_token_);
   return status;
 }
 

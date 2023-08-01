@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <stddef.h>
 
-#include "base/cxx17_backports.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_base.h"
 #include "base/metrics/histogram_functions.h"
@@ -39,7 +38,7 @@ const SimilarLanguageCode kSimilarLanguageCodes[] = {
 
 // Checks |kSimilarLanguageCodes| and returns group code.
 int GetSimilarLanguageGroupCode(const std::string& language) {
-  for (size_t i = 0; i < base::size(kSimilarLanguageCodes); ++i) {
+  for (size_t i = 0; i < std::size(kSimilarLanguageCodes); ++i) {
     if (language.find(kSimilarLanguageCodes[i].code) != 0)
       continue;
     return kSimilarLanguageCodes[i].group;
@@ -211,25 +210,25 @@ std::string DeterminePageLanguage(const std::string& code,
 
   if (model_detected_language == kUnknownLanguageCode) {
     translate::ReportLanguageVerification(
-        translate::LANGUAGE_VERIFICATION_UNKNOWN);
+        translate::LANGUAGE_VERIFICATION_MODEL_UNKNOWN);
     return language;
   }
 
   if (CanModelComplementSubCode(language, model_detected_language)) {
     translate::ReportLanguageVerification(
-        translate::LANGUAGE_VERIFICATION_MODEL_COMPLEMENT_SUB_CODE);
+        translate::LANGUAGE_VERIFICATION_MODEL_COMPLEMENTS_COUNTRY);
     return model_detected_language;
   }
 
   if (IsSameOrSimilarLanguages(language, model_detected_language)) {
     translate::ReportLanguageVerification(
-        translate::LANGUAGE_VERIFICATION_MODEL_AGREE);
+        translate::LANGUAGE_VERIFICATION_MODEL_AGREES);
     return language;
   }
 
   if (MaybeServerWrongConfiguration(language, model_detected_language)) {
     translate::ReportLanguageVerification(
-        translate::LANGUAGE_VERIFICATION_TRUST_MODEL);
+        translate::LANGUAGE_VERIFICATION_MODEL_OVERRIDES);
     return model_detected_language;
   }
 
@@ -237,7 +236,7 @@ std::string DeterminePageLanguage(const std::string& code,
   // written in another language with confidence. In this case, Chrome doesn't
   // rely on any of the language codes, and gives up suggesting a translation.
   translate::ReportLanguageVerification(
-      translate::LANGUAGE_VERIFICATION_MODEL_DISAGREE);
+      translate::LANGUAGE_VERIFICATION_MODEL_DISAGREES);
   return kUnknownLanguageCode;
 }
 
@@ -318,9 +317,7 @@ bool IsSameOrSimilarLanguages(const std::string& page_language,
   // Language code part of |page_language| is matched to one of
   // |model_detected_language|. Country code is ignored here.
   if (page_language_main_part == model_detected_language_main_part) {
-    // Languages are matched strictly. Reports false to metrics, but returns
-    // true.
-    translate::ReportSimilarLanguageMatch(false);
+    // Languages are matched strictly - return true.
     return true;
   }
 
@@ -330,12 +327,11 @@ bool IsSameOrSimilarLanguages(const std::string& page_language,
   bool match = page_code != 0 && page_code == GetSimilarLanguageGroupCode(
                                                   model_detected_language);
 
-  translate::ReportSimilarLanguageMatch(match);
   return match;
 }
 
 bool IsServerWrongConfigurationLanguage(const std::string& language_code) {
-  for (size_t i = 0; i < base::size(kWellKnownCodesOnWrongConfiguration); ++i) {
+  for (size_t i = 0; i < std::size(kWellKnownCodesOnWrongConfiguration); ++i) {
     if (language_code == kWellKnownCodesOnWrongConfiguration[i])
       return true;
   }

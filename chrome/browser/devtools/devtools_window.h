@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,11 @@
 #include <string>
 
 #include "base/memory/weak_ptr.h"
+#include "base/time/time.h"
 #include "chrome/browser/devtools/devtools_contents_resizing_strategy.h"
 #include "chrome/browser/devtools/devtools_toggle_action.h"
 #include "chrome/browser/devtools/devtools_ui_bindings.h"
+#include "components/version_info/channel.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/browser/web_contents_observer.h"
 
@@ -249,6 +251,7 @@ class DevToolsWindow : public DevToolsUIBindings::Delegate,
 
  private:
   friend class DevToolsWindowTesting;
+  friend class DevToolsWindowTest;
   friend class DevToolsWindowCreationObserver;
   friend class HatsNextWebDialogBrowserTest;
 
@@ -321,6 +324,7 @@ class DevToolsWindow : public DevToolsUIBindings::Delegate,
                                 bool browser_connection);
   static GURL GetDevToolsURL(Profile* profile,
                              FrontendType frontend_type,
+                             version_info::Channel channel,
                              const std::string& frontend_url,
                              bool can_dock,
                              const std::string& panel,
@@ -343,7 +347,7 @@ class DevToolsWindow : public DevToolsUIBindings::Delegate,
                       std::unique_ptr<content::WebContents> new_contents,
                       const GURL& target_url,
                       WindowOpenDisposition disposition,
-                      const gfx::Rect& initial_rect,
+                      const blink::mojom::WindowFeatures& window_features,
                       bool user_gesture,
                       bool* was_blocked) override;
   void WebContentsCreated(content::WebContents* source_contents,

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,25 +16,16 @@
 
 import '//resources/polymer/v3_0/iron-pages/iron-pages.js';
 
-import {assert} from '//resources/js/assert.m.js';
-import {focusWithoutInk} from '//resources/js/cr/ui/focus_without_ink.m.js';
-
-// <if expr="chromeos">
-import {loadTimeData} from '//resources/js/load_time_data.m.js';
-// </if>
-
+import {assert} from '//resources/js/assert_ts.js';
+import {focusWithoutInk} from '//resources/js/focus_without_ink.js';
 import {IronPagesElement} from '//resources/polymer/v3_0/iron-pages/iron-pages.js';
-import {DomIf, FlattenedNodesObserver, html, microTask, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {DomIf, FlattenedNodesObserver, microTask, PolymerElement} from '//resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {Route, RouteObserverMixin, RouteObserverMixinInterface, Router} from '../router.js';
+import {FocusConfig} from '../focus_config.js';
+import {Route, RouteObserverMixin, Router} from '../router.js';
 
-// <if expr="chromeos">
-import {getSettingIdParameter} from '../setting_id_param_util.js';
-// </if>
-
+import {getTemplate} from './settings_animated_pages.html.js';
 import {SettingsSubpageElement} from './settings_subpage.js';
-
-type FocusConfig = Map<string, (string|Element|(() => void))>;
 
 interface SettingsAnimatedPagesElement {
   $: {
@@ -42,8 +33,7 @@ interface SettingsAnimatedPagesElement {
   };
 }
 
-const SettingsAnimatedPagesElementBase = RouteObserverMixin(PolymerElement) as
-    {new (): PolymerElement & RouteObserverMixinInterface};
+const SettingsAnimatedPagesElementBase = RouteObserverMixin(PolymerElement);
 
 class SettingsAnimatedPagesElement extends SettingsAnimatedPagesElementBase {
   static get is() {
@@ -51,7 +41,7 @@ class SettingsAnimatedPagesElement extends SettingsAnimatedPagesElementBase {
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
@@ -103,15 +93,6 @@ class SettingsAnimatedPagesElement extends SettingsAnimatedPagesElementBase {
       return;
     }
 
-    // <if expr="chromeos">
-    // If the setting ID parameter is present, don't focus anything since
-    // a setting element will be deep linked and focused.
-    if (loadTimeData.valueExists('isOSSettings') &&
-        loadTimeData.getBoolean('isOSSettings') && getSettingIdParameter()) {
-      return;
-    }
-    // </if>
-
     // Call focusBackButton() on the selected subpage, only if:
     //  1) Not a direct navigation (such that the search box stays focused), and
     //  2) Not a "back" navigation, in which case the anchor element should be
@@ -154,9 +135,11 @@ class SettingsAnimatedPagesElement extends SettingsAnimatedPagesElementBase {
       } else {
         handler = () => {
           if (typeof pathConfig === 'string') {
-            pathConfig = assert(this.querySelector(pathConfig)!);
+            const element = this.querySelector(pathConfig);
+            assert(element);
+            pathConfig = element;
           }
-          focusWithoutInk(pathConfig as Element);
+          focusWithoutInk(pathConfig as HTMLElement);
         };
       }
       handler();
@@ -191,7 +174,7 @@ class SettingsAnimatedPagesElement extends SettingsAnimatedPagesElementBase {
     });
   }
 
-  currentRouteChanged(newRoute: Route, oldRoute?: Route) {
+  override currentRouteChanged(newRoute: Route, oldRoute?: Route) {
     this.previousRoute_ = oldRoute || null;
 
     if (newRoute.section === this.section && newRoute.isSubpage()) {

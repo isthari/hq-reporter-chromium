@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,12 @@
 
 #import "base/test/ios/wait_util.h"
 #import "components/signin/public/base/consent_level.h"
+#import "ios/chrome/browser/signin/fake_system_identity.h"
 #import "ios/chrome/browser/ui/authentication/signin_earl_grey_app_interface.h"
 #import "ios/chrome/browser/ui/settings/settings_table_view_controller_constants.h"
-#include "ios/chrome/grit/ios_strings.h"
-#import "ios/public/provider/chrome/browser/signin/fake_chrome_identity.h"
+#import "ios/chrome/grit/ios_strings.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
-#include "ui/base/l10n/l10n_util_mac.h"
+#import "ui/base/l10n/l10n_util_mac.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -21,17 +21,23 @@ using base::test::ios::WaitUntilConditionOrTimeout;
 
 @implementation SigninEarlGreyImpl
 
-- (void)addFakeIdentity:(FakeChromeIdentity*)fakeIdentity {
+- (void)addFakeIdentity:(FakeSystemIdentity*)fakeIdentity {
   [SigninEarlGreyAppInterface addFakeIdentity:fakeIdentity];
 }
 
-- (void)setCapabilities:(NSDictionary*)capabilities
-            forIdentity:(FakeChromeIdentity*)fakeIdentity {
+- (void)addFakeIdentityForSSOAuthAddAccountFlow:
+    (FakeSystemIdentity*)fakeIdentity {
+  [SigninEarlGreyAppInterface
+      addFakeIdentityForSSOAuthAddAccountFlow:fakeIdentity];
+}
+
+- (void)setCapabilities:(ios::CapabilitiesDict*)capabilities
+            forIdentity:(FakeSystemIdentity*)fakeIdentity {
   [SigninEarlGreyAppInterface setCapabilities:capabilities
                                   forIdentity:fakeIdentity];
 }
 
-- (void)forgetFakeIdentity:(FakeChromeIdentity*)fakeIdentity {
+- (void)forgetFakeIdentity:(FakeSystemIdentity*)fakeIdentity {
   [SigninEarlGreyAppInterface forgetFakeIdentity:fakeIdentity];
 }
 
@@ -40,7 +46,7 @@ using base::test::ios::WaitUntilConditionOrTimeout;
   [self verifySignedOut];
 }
 
-- (void)verifySignedInWithFakeIdentity:(FakeChromeIdentity*)fakeIdentity {
+- (void)verifySignedInWithFakeIdentity:(FakeSystemIdentity*)fakeIdentity {
   BOOL fakeIdentityIsNonNil = fakeIdentity != nil;
   EG_TEST_HELPER_ASSERT_TRUE(fakeIdentityIsNonNil, @"Need to give an identity");
 
@@ -109,11 +115,6 @@ using base::test::ios::WaitUntilConditionOrTimeout;
       WaitUntilConditionOrTimeout(base::test::ios::kWaitForActionTimeout,
                                   condition),
       @"Unexpected signed in user");
-}
-
-- (void)verifyAuthenticated {
-  EG_TEST_HELPER_ASSERT_TRUE([SigninEarlGreyAppInterface hasPrimaryIdentity],
-                             @"User is not signed in");
 }
 
 - (void)verifySyncUIEnabled:(BOOL)enabled {

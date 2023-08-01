@@ -1,4 +1,4 @@
-// Copyright 2010 The Chromium Authors. All rights reserved.
+// Copyright 2010 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,34 +14,32 @@
 #include <vector>
 
 #include "base/auto_reset.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "cc/base/protected_sequence_synchronizer.h"
 #include "cc/base/region.h"
 #include "cc/benchmarks/micro_benchmark.h"
 #include "cc/cc_export.h"
-#include "cc/input/input_handler.h"
 #include "cc/input/scroll_snap_data.h"
 #include "cc/layers/layer_collections.h"
 #include "cc/layers/touch_action_region.h"
 #include "cc/paint/element_id.h"
 #include "cc/paint/filter_operations.h"
+#include "cc/paint/node_id.h"
 #include "cc/paint/paint_record.h"
 #include "cc/trees/effect_node.h"
 #include "cc/trees/property_tree.h"
 #include "cc/trees/target_property.h"
-#include "components/viz/common/shared_element_resource_id.h"
 #include "components/viz/common/surfaces/region_capture_bounds.h"
 #include "components/viz/common/surfaces/subtree_capture_id.h"
+#include "components/viz/common/view_transition_element_resource_id.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/gfx/geometry/linear_gradient.h"
 #include "ui/gfx/geometry/point3_f.h"
 #include "ui/gfx/geometry/point_f.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rounded_corners_f.h"
-#include "ui/gfx/geometry/rrect_f.h"
-#include "ui/gfx/geometry/transform.h"
-#include "ui/gfx/geometry/vector2d_f.h"
 
 namespace viz {
 class CopyOutputRequest;
@@ -172,33 +170,32 @@ class CC_EXPORT Layer : public base::RefCounted<Layer>,
     return layer_tree_inputs() && !layer_tree_inputs()->copy_requests.empty();
   }
 
-  // Set and get the background color for the layer. This color is not used by
-  // basic Layers, but subclasses may make use of it.
-  virtual void SetBackgroundColor(SkColor background_color);
-  SkColor background_color() const {
+  // Set and get the background color for the layer. This color is used to
+  // calculate the safe opaque background color. Subclasses may also use the
+  // color for other purposes.
+  virtual void SetBackgroundColor(SkColor4f background_color);
+  SkColor4f background_color() const {
     return inputs_.Read(*this).background_color;
   }
 
   // For layer tree mode only. In layer list mode, client doesn't need to set
   // it. Sets an opaque background color for the layer, to be used in place of
   // the background_color() if the layer says contents_opaque() is true.
-  void SetSafeOpaqueBackgroundColor(SkColor background_color);
+  void SetSafeOpaqueBackgroundColor(SkColor4f background_color);
 
   // Returns a background color with opaqueness equal to the value of
   // contents_opaque().
   // If the layer says contents_opaque() is true, in layer tree mode, this
   // returns the value set by SetSafeOpaqueBackgroundColor() which should be an
-  // opaque color, and in layer list mode, returns an opaque color calculated
-  // from background_color() and the argument host_background_color.
+  // opaque color, and in layer list mode, returns background_color() which
+  // should be opaque (otherwise SetBackgroundColor() should have set
+  // contents_opaque to false).
   // Otherwise, it returns something non-opaque. It prefers to return the
   // background_color(), but if the background_color() is opaque (and this layer
-  // claims to not be), then SK_ColorTRANSPARENT is returned to avoid intrusive
-  // checkerboard where the layer is not covered by the background_color().
-  SkColor SafeOpaqueBackgroundColor(SkColor host_background_color) const;
-
-  // Same as the one-argument version, except that host_background_color is
-  // layer_tree_host()->pending_commit_state()->background_color.
-  SkColor SafeOpaqueBackgroundColor() const;
+  // claims to not be), then SkColors::kTransparent is returned to avoid
+  // intrusive checkerboard where the layer is not covered by the
+  // background_color().
+  SkColor4f SafeOpaqueBackgroundColor() const;
 
   // For layer tree mode only.
   // Set and get the position of this layer, relative to its parent. This is
@@ -282,7 +279,9 @@ class CC_EXPORT Layer : public base::RefCounted<Layer>,
   // subtree (as if they are together as a single composited entity) when
   // blitting into their target. Setting this makes the layer masked to bounds.
   // If the layer has a clip of its own, the rounded corner will be applied
-  // along the layer's clip rect corners.
+  // along the layer's clip rect corners. TODO(sashamcintosh): Apply rounded
+  // corner when the layer has a transform that is not 2d axis aligned.
+  // Currently the rounded corner is ignored in this case.
   void SetRoundedCorner(const gfx::RoundedCornersF& corner_radii);
   const gfx::RoundedCornersF& corner_radii() const {
     return layer_tree_inputs() ? layer_tree_inputs()->corner_radii
@@ -300,6 +299,23 @@ class CC_EXPORT Layer : public base::RefCounted<Layer>,
   bool is_fast_rounded_corner() const {
     return layer_tree_inputs() && layer_tree_inputs()->is_fast_rounded_corner;
   }
+
+  // For layer tree mode only.
+  // Set or get the gradient mask which is applied to the layer and its
+  // subtree (as if they are together as a single composited entity) when
+  // blitting into their target. Setting applies a linear gradient to the layer
+  // bounds and optionally the rounded corner defined by SetRoundedCorner.
+  // TODO(sashamcintosh): Apply gradient mask when the layer has a transform
+  // that is not 2d axis aligned. Currently the gradient mask is ignored in this
+  // case.
+  void SetGradientMask(const gfx::LinearGradient& gradient_mask);
+  const gfx::LinearGradient& gradient_mask() const {
+    return layer_tree_inputs() ? layer_tree_inputs()->gradient_mask
+                               : gfx::LinearGradient::GetEmpty();
+  }
+  bool HasGradientMask() const { return !gradient_mask().IsEmpty(); }
+
+  bool HasMaskFilter() const { return HasRoundedCorner() || HasGradientMask(); }
 
   // For layer tree mode only.
   // Set or get the opacity which should be applied to the contents of the layer
@@ -583,7 +599,6 @@ class CC_EXPORT Layer : public base::RefCounted<Layer>,
   // the layer itself has no content to contribute, even though the layer was
   // given SetIsDrawable(true).
   bool draws_content() const { return GetBitFlag(kDrawsContentFlagMask); }
-  void SetDrawsContent(bool value);
 
   // Returns the number of layers in this layers subtree (excluding itself) for
   // which DrawsContent() is true.
@@ -642,7 +657,7 @@ class CC_EXPORT Layer : public base::RefCounted<Layer>,
     return GetBitFlag(kMayContainVideoFlagMask);
   }
 
-  // Stable identifier for clients. See comment in cc/trees/element_id.h.
+  // Stable identifier for clients. See comment in cc/paint/element_id.h.
   void SetElementId(ElementId id);
   ElementId element_id() const { return inputs_.Read(*this).element_id; }
 
@@ -677,9 +692,9 @@ class CC_EXPORT Layer : public base::RefCounted<Layer>,
   // display.
   virtual sk_sp<const SkPicture> GetPicture() const;
 
-  const LayerDebugInfo* debug_info() const {
-    return debug_info_.Read(*this).get();
-  }
+  virtual bool IsSolidColorLayerForTesting() const;
+
+  const LayerDebugInfo* debug_info() const { return debug_info_.Read(*this); }
   LayerDebugInfo& EnsureDebugInfo();
   void ClearDebugInfo();
 
@@ -707,7 +722,7 @@ class CC_EXPORT Layer : public base::RefCounted<Layer>,
 
   // Internal method to be overridden by Layer subclasses that need to do work
   // during a main frame. The method should compute any state that will need to
-  // propogated to the compositor thread for the next commit, and return true
+  // propagated to the compositor thread for the next commit, and return true
   // if there is anything new to commit. If all layers return false, the commit
   // may be aborted.
   virtual bool Update();
@@ -829,7 +844,7 @@ class CC_EXPORT Layer : public base::RefCounted<Layer>,
 
   // If the content of this layer is provided by a cached or live render
   // surface, returns the ID of that resource.
-  virtual viz::SharedElementResourceId DocumentTransitionResourceId() const;
+  virtual viz::ViewTransitionElementResourceId ViewTransitionResourceId() const;
 
  protected:
   friend class LayerImpl;
@@ -852,6 +867,10 @@ class CC_EXPORT Layer : public base::RefCounted<Layer>,
   // they should return the value from this base class method.
   virtual bool HasDrawableContent() const;
 
+  // Updates draws_content() according to the current HasDrawableContent().
+  // This should be called when HasDrawableContent() changes.
+  void UpdateDrawsContent();
+
   // Called when the layer's number of drawable descendants changes.
   void AddDrawableDescendants(int num);
 
@@ -861,11 +880,6 @@ class CC_EXPORT Layer : public base::RefCounted<Layer>,
   // BeginMainFrame, and should not be changed while the frame is being
   // generated or committed.
   bool IsPropertyChangeAllowed() const;
-
-  // For debugging. This is less restrictive than IsPropertyChangeAllowed().
-  // It is intended for layer attributes that can be modified during layer
-  // update, but not during commit.
-  bool IsMutationAllowed() const;
 
   void IncreasePaintCount() {
     if (debug_info_.Read(*this))
@@ -889,7 +903,7 @@ class CC_EXPORT Layer : public base::RefCounted<Layer>,
   const LayerTreeInputs* layer_tree_inputs() const;
 #else
   const LayerTreeInputs* layer_tree_inputs() const {
-    return layer_tree_inputs_.Read(*this).get();
+    return layer_tree_inputs_.Read(*this);
   }
 #endif
 
@@ -902,10 +916,23 @@ class CC_EXPORT Layer : public base::RefCounted<Layer>,
   void AddClipChild(Layer* child);
   void RemoveClipChild(Layer* child);
 
-  void SetParent(Layer* layer);
+  // For functions that do or (as SetParent) might remove a child layer,
+  // passing kForReadd causes the removal to *not* call SetLayerTreeHost.
+  // This variation assumes that the caller will re-add the layer (probably to
+  // the same layer tree host) and then call SetLayerTreeHost.
+  enum class RemovalReason {
+    kNormal,
+    kForReadd,
+  };
+
+  void SetParent(Layer* layer, RemovalReason reason);
 
   // This should only be called from RemoveFromParent().
-  void RemoveChild(Layer* child);
+  void RemoveChild(Layer* child, RemovalReason reason);
+
+  // Variant (for internal use) of RemoveFromParent (which is a widely-used
+  // public API) as though it were passed RemovalReason::kForReadd.
+  void RemoveFromParentForReadd();
 
   bool GetBitFlag(uint8_t mask) const;
 
@@ -977,7 +1004,7 @@ class CC_EXPORT Layer : public base::RefCounted<Layer>,
     bool is_drawable : 1;
     bool double_sided : 1;
 
-    SkColor background_color;
+    SkColor4f background_color;
     TouchActionRegion touch_action_region;
 
     ElementId element_id;
@@ -1031,7 +1058,7 @@ class CC_EXPORT Layer : public base::RefCounted<Layer>,
     // surface that darws in a render pass.
     viz::SubtreeCaptureId subtree_capture_id;
 
-    SkColor safe_opaque_background_color = SK_ColorTRANSPARENT;
+    SkColor4f safe_opaque_background_color = SkColors::kTransparent;
 
     FilterOperations filters;
     FilterOperations backdrop_filters;
@@ -1048,10 +1075,21 @@ class CC_EXPORT Layer : public base::RefCounted<Layer>,
     //     top left, top right, bottom right, bottom left
     gfx::RoundedCornersF corner_radii;
 
+    // Linear gradient mask applied to the layer's clip bounds and optionally
+    // the rounded corner given by |corner_radii|.
+    gfx::LinearGradient gradient_mask;
+
     base::RepeatingCallback<void(const gfx::PointF&, const ElementId&)>
         did_scroll_callback;
     std::vector<std::unique_ptr<viz::CopyOutputRequest>> copy_requests;
   };
+
+  // Set either one or both components of the mask filter info which is then
+  // applied to the layer and its
+  // subtree (as if they are together as a single composited entity) when
+  // blitting into their target.
+  void UpdateMaskFilterInfo(const gfx::RoundedCornersF* corner_radii,
+                            const gfx::LinearGradient* gradient_mask);
 
   ProtectedSequenceReadable<raw_ptr<Layer>> parent_;
 
@@ -1103,6 +1141,43 @@ class CC_EXPORT Layer : public base::RefCounted<Layer>,
   ProtectedSequenceReadable<uint8_t> bitflags_;
 
   ProtectedSequenceWritable<bool> subtree_property_changed_;
+
+#if DCHECK_IS_ON()
+  class AllowRemoveForReadd {
+   public:
+    explicit AllowRemoveForReadd(Layer* layer) : layer_(layer) {
+      // Assume these will never be nested.  If this DCHECK() fails due to
+      // nesting, we could convert to using base::AutoReset.
+      DCHECK(!layer_->allow_remove_for_readd_);
+      layer_->allow_remove_for_readd_ = true;
+    }
+    ~AllowRemoveForReadd() {
+      // Check that the layer has actually been re-added.
+      DCHECK(layer_->parent());
+
+      // Assume these will never be nested.  If this DCHECK() fails due to
+      // nesting, we could convert to using base::AutoReset.
+      DCHECK(layer_->allow_remove_for_readd_);
+      layer_->allow_remove_for_readd_ = false;
+    }
+
+    AllowRemoveForReadd(const AllowRemoveForReadd&) = delete;
+    AllowRemoveForReadd& operator=(const AllowRemoveForReadd&) = delete;
+
+   private:
+    raw_ptr<Layer> layer_;
+  };
+
+  bool allow_remove_for_readd_ = false;
+#else
+  class AllowRemoveForReadd {
+   public:
+    explicit AllowRemoveForReadd(Layer* layer) {}
+
+    AllowRemoveForReadd(const AllowRemoveForReadd&) = delete;
+    AllowRemoveForReadd& operator=(const AllowRemoveForReadd&) = delete;
+  };
+#endif
 
   ProtectedSequenceWritable<std::unique_ptr<LayerDebugInfo>> debug_info_;
 

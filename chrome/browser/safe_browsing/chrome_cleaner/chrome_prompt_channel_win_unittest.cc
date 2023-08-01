@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,16 +12,15 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/process/launch.h"
 #include "base/process/process.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
-#include "base/task/post_task.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/test/metrics/histogram_tester.h"
@@ -84,8 +83,7 @@ class ChromePromptChannelTest : public ::testing::Test {
 
     base::CommandLine command_line(base::CommandLine::NO_PROGRAM);
     base::HandlesToInheritVector handles_to_inherit;
-    ASSERT_TRUE(
-        channel_->PrepareForCleaner(&command_line, &handles_to_inherit));
+    ASSERT_TRUE(channel_->PrepareForCleaner(command_line, &handles_to_inherit));
 
     // Instead of spawning a cleaner process, extract the prompt handles from
     // the command-line. Duplicate them so that we retain ownership if

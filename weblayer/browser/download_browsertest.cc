@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
-#include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/test/bind.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
@@ -231,13 +231,7 @@ IN_PROC_BROWSER_TEST_F(DownloadBrowserTest, Basic) {
             download_location().DirName());
 }
 
-// Test consistently failing on android: crbug.com/1273105
-#if BUILDFLAG(IS_ANDROID)
-#define MAYBE_OverrideDownloadDirectory DISABLED_OverrideDownloadDirectory
-#else
-#define MAYBE_OverrideDownloadDirectory OverrideDownloadDirectory
-#endif
-IN_PROC_BROWSER_TEST_F(DownloadBrowserTest, MAYBE_OverrideDownloadDirectory) {
+IN_PROC_BROWSER_TEST_F(DownloadBrowserTest, OverrideDownloadDirectory) {
   base::ScopedAllowBlockingForTesting allow_blocking;
   base::ScopedTempDir download_dir;
   ASSERT_TRUE(download_dir.CreateUniqueTempDir());
@@ -299,7 +293,7 @@ IN_PROC_BROWSER_TEST_F(DownloadBrowserTest, PauseResume) {
     download->Pause();
     GURL url = embedded_test_server()->GetURL(
         content::SlowDownloadHttpResponse::kFinishSlowResponseUrl);
-    base::SequencedTaskRunnerHandle::Get()->PostTask(
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(
                        [](Download* download, Shell* shell, const GURL& url) {
                          CHECK_EQ(download->GetState(), DownloadState::kPaused);

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,6 +25,7 @@
 #include "third_party/blink/renderer/core/html/html_document.h"
 #include "third_party/blink/renderer/core/html/html_element.h"
 #include "third_party/blink/renderer/core/html/html_html_element.h"
+#include "third_party/blink/renderer/core/testing/null_execution_context.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
@@ -39,6 +40,11 @@ using ::testing::ElementsAre;
 class RangeTest : public EditingTestBase {};
 
 TEST_F(RangeTest, extractContentsWithDOMMutationEvent) {
+  if (!RuntimeEnabledFeatures::MutationEventsEnabled()) {
+    // TODO(crbug.com/1446498) Remove this test when MutationEvents are disabled
+    // for good. This is just a test of `DOMSubtreeModified` and ranges.
+    return;
+  }
   GetDocument().body()->setInnerHTML("<span><b>abc</b>def</span>");
   GetDocument().GetSettings()->SetScriptEnabled(true);
   Element* const script_element =
@@ -224,7 +230,9 @@ TEST_F(RangeTest, updateOwnerDocumentIfNeeded) {
   auto* range = MakeGarbageCollected<Range>(GetDocument(), Position(bar, 0),
                                             Position(foo, 1));
 
-  auto* another_document = Document::CreateForTest();
+  ScopedNullExecutionContext execution_context;
+  auto* another_document =
+      Document::CreateForTest(execution_context.GetExecutionContext());
   another_document->AppendChild(foo);
 
   EXPECT_EQ(bar, range->startContainer());
@@ -351,8 +359,6 @@ static Vector<gfx::Size> ComputeSizesOfQuads(const Vector<gfx::QuadF>& quads) {
 
 // http://crbug.com/1240510
 TEST_F(RangeTest, GetBorderAndTextQuadsWithCombinedText) {
-  ScopedLayoutNGTextCombineForTest enable_layout_ng_text_combine(true);
-
   LoadAhem();
   InsertStyleElement(
       "body { font: 20px/25px Ahem; margin: 0px; }"
@@ -369,22 +375,12 @@ TEST_F(RangeTest, GetBorderAndTextQuadsWithCombinedText) {
 
   EXPECT_THAT(GetBorderAndTextQuads(Position(text1, 0), Position(text1, 1)),
               ElementsAre(gfx::QuadF(gfx::RectF(3, 0, 20, 20))));
-
-  if (RuntimeEnabledFeatures::LayoutNGTextCombineEnabled()) {
-    EXPECT_THAT(GetBorderAndTextQuads(Position(text2, 0), Position(text2, 2)),
-                ElementsAre(gfx::QuadF(gfx::RectF(2, 20, 22, 20))));
-    EXPECT_THAT(GetBorderAndTextQuads(Position(text3, 0), Position(text3, 3)),
-                ElementsAre(gfx::QuadF(gfx::RectF(2, 40, 22, 20))));
-    EXPECT_THAT(GetBorderAndTextQuads(Position(text4, 0), Position(text4, 4)),
-                ElementsAre(gfx::QuadF(gfx::RectF(2, 60, 22, 20))));
-  } else {
-    EXPECT_THAT(GetBorderAndTextQuads(Position(text2, 0), Position(text2, 2)),
-                ElementsAre(gfx::QuadF(gfx::RectF(3, 20, 20, 20))));
-    EXPECT_THAT(GetBorderAndTextQuads(Position(text3, 0), Position(text3, 3)),
-                ElementsAre(gfx::QuadF(gfx::RectF(3, 40, 20, 20))));
-    EXPECT_THAT(GetBorderAndTextQuads(Position(text4, 0), Position(text4, 4)),
-                ElementsAre(gfx::QuadF(gfx::RectF(3, 60, 20, 20))));
-  }
+  EXPECT_THAT(GetBorderAndTextQuads(Position(text2, 0), Position(text2, 2)),
+              ElementsAre(gfx::QuadF(gfx::RectF(2, 20, 22, 20))));
+  EXPECT_THAT(GetBorderAndTextQuads(Position(text3, 0), Position(text3, 3)),
+              ElementsAre(gfx::QuadF(gfx::RectF(2, 40, 22, 20))));
+  EXPECT_THAT(GetBorderAndTextQuads(Position(text4, 0), Position(text4, 4)),
+              ElementsAre(gfx::QuadF(gfx::RectF(2, 60, 22, 20))));
 }
 
 TEST_F(RangeTest, GetBorderAndTextQuadsWithFirstLetterOne) {

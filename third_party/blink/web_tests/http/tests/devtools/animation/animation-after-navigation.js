@@ -1,6 +1,9 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import {TestRunner} from 'test_runner';
+import {ElementsTestRunner} from 'elements_test_runner';
 
 (async function() {
   TestRunner.addResult(`Tests that animation view works post navigation.\n`);
@@ -8,7 +11,7 @@
   // This loads the animations view on the existing page, which is
   // somewhere below http://127.0.0.1:8000/. By loading the animations view,
   // we'll start the InspectorAnimationAgent.
-  await TestRunner.loadLegacyModule('elements'); await TestRunner.loadTestModule('elements_test_runner');
+  await TestRunner.loadLegacyModule('elements');
   await TestRunner.showPanel('elements');
   await UI.viewManager.showView('animations');
 

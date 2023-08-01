@@ -26,7 +26,8 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_FONT_SELECTION_TYPES_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_FONT_SELECTION_TYPES_H_
 
-#include "base/cxx17_backports.h"
+#include <algorithm>
+
 #include "third_party/blink/renderer/platform/platform_export.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
@@ -168,12 +169,12 @@ inline bool FontSelectionValue::operator>=(
 
 static inline const FontSelectionValue& ItalicThreshold() {
   DEFINE_THREAD_SAFE_STATIC_LOCAL(const FontSelectionValue, italicThreshold,
-                                  (20));
+                                  (14));
   return italicThreshold;
 }
 
-static inline bool isItalic(FontSelectionValue fontWeight) {
-  return fontWeight >= ItalicThreshold();
+static inline bool isItalic(FontSelectionValue fontStyle) {
+  return fontStyle >= ItalicThreshold();
 }
 
 static inline const FontSelectionValue& FontSelectionZeroValue() {
@@ -189,7 +190,7 @@ static inline const FontSelectionValue& NormalSlopeValue() {
 }
 
 static inline const FontSelectionValue& ItalicSlopeValue() {
-  DEFINE_THREAD_SAFE_STATIC_LOCAL(const FontSelectionValue, italicValue, (20));
+  DEFINE_THREAD_SAFE_STATIC_LOCAL(const FontSelectionValue, italicValue, (14));
   return italicValue;
 }
 
@@ -355,7 +356,7 @@ struct FontSelectionRange {
   }
 
   FontSelectionValue clampToRange(FontSelectionValue selection_value) const {
-    return base::clamp(selection_value, minimum, maximum);
+    return std::clamp(selection_value, minimum, maximum);
   }
 
   FontSelectionValue minimum{FontSelectionValue(1)};
@@ -413,15 +414,9 @@ struct FontSelectionRequestKey {
   bool isDeletedValue{false};
 };
 
-struct PLATFORM_EXPORT FontSelectionRequestKeyHash {
+struct PLATFORM_EXPORT FontSelectionRequestKeyHashTraits
+    : SimpleClassHashTraits<FontSelectionRequestKey> {
   static unsigned GetHash(const FontSelectionRequestKey&);
-
-  static bool Equal(const FontSelectionRequestKey& a,
-                    const FontSelectionRequestKey& b) {
-    return a == b;
-  }
-
-  static const bool safe_to_compare_to_empty_or_deleted = true;
 };
 
 struct FontSelectionCapabilities {
@@ -468,15 +463,9 @@ struct FontSelectionCapabilities {
   bool is_deleted_value_{false};
 };
 
-struct PLATFORM_EXPORT FontSelectionCapabilitiesHash {
+struct PLATFORM_EXPORT FontSelectionCapabilitiesHashTraits
+    : SimpleClassHashTraits<FontSelectionCapabilities> {
   static unsigned GetHash(const FontSelectionCapabilities& key);
-
-  static bool Equal(const FontSelectionCapabilities& a,
-                    const FontSelectionCapabilities& b) {
-    return a == b;
-  }
-
-  static const bool safe_to_compare_to_empty_or_deleted = true;
 };
 
 }  // namespace blink
@@ -484,16 +473,12 @@ struct PLATFORM_EXPORT FontSelectionCapabilitiesHash {
 namespace WTF {
 
 template <>
-struct DefaultHash<blink::FontSelectionCapabilities> {
-  STATIC_ONLY(DefaultHash);
-  typedef blink::FontSelectionCapabilitiesHash Hash;
-};
+struct HashTraits<blink::FontSelectionRequestKey>
+    : blink::FontSelectionRequestKeyHashTraits {};
 
 template <>
 struct HashTraits<blink::FontSelectionCapabilities>
-    : SimpleClassHashTraits<blink::FontSelectionCapabilities> {
-  STATIC_ONLY(HashTraits);
-};
+    : blink::FontSelectionCapabilitiesHashTraits {};
 
 }  // namespace WTF
 

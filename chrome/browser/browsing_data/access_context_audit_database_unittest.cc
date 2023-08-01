@@ -1,12 +1,14 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/browsing_data/access_context_audit_database.h"
 
-#include "base/callback_helpers.h"
+#include "base/containers/contains.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/callback_helpers.h"
+#include "base/ranges/algorithm.h"
 #include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
@@ -16,6 +18,7 @@
 #include "sql/test/scoped_error_expecter.h"
 #include "sql/test/test_helpers.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
 
 namespace {
 
@@ -496,11 +499,7 @@ TEST_F(AccessContextAuditDatabaseTest, RemoveAllRecordsForTopFrameOrigins) {
       std::remove_if(
           test_records.begin(), test_records.end(),
           [=](const AccessContextAuditDatabase::AccessRecord& record) {
-            return std::find_if(many_visit_origins.begin(),
-                                many_visit_origins.end(),
-                                [=](const url::Origin origin) {
-                                  return record.top_frame_origin == origin;
-                                }) != many_visit_origins.end();
+            return base::Contains(many_visit_origins, record.top_frame_origin);
           }),
       test_records.end());
 
@@ -550,12 +549,9 @@ TEST_F(AccessContextAuditDatabaseTest, RepeatedAccesses) {
   CloseDatabase();
 
   // Verify that extra entries are not present in the database.
-  size_t num_test_cookie_entries = std::count_if(
-      test_records.begin(), test_records.end(),
-      [](const AccessContextAuditDatabase::AccessRecord& record) {
-        return record.type ==
-               AccessContextAuditDatabase::StorageAPIType::kCookie;
-      });
+  size_t num_test_cookie_entries = base::ranges::count(
+      test_records, AccessContextAuditDatabase::StorageAPIType::kCookie,
+      &AccessContextAuditDatabase::AccessRecord::type);
   size_t num_test_storage_entries =
       test_records.size() - num_test_cookie_entries;
 
@@ -643,14 +639,17 @@ TEST_F(AccessContextAuditDatabaseTest, RemoveStorageApiRecords) {
   auto kStorageOrigin =
       url::Origin::Create(GURL(kManyContextsStorageAPIOrigin));
 
-  auto origin_matcher = base::BindLambdaForTesting(
-      [&](const url::Origin& origin) { return origin == kStorageOrigin; });
+  auto storage_key_matcher =
+      base::BindLambdaForTesting([&](const blink::StorageKey& storage_key) {
+        return storage_key ==
+               blink::StorageKey::CreateFirstParty(kStorageOrigin);
+      });
 
   auto begin_time = base::Time::FromDeltaSinceWindowsEpoch(base::Hours(5));
   auto end_time = base::Time::FromDeltaSinceWindowsEpoch(base::Hours(9));
 
-  database()->RemoveStorageApiRecords(storage_types, origin_matcher, begin_time,
-                                      end_time);
+  database()->RemoveStorageApiRecords(storage_types, storage_key_matcher,
+                                      begin_time, end_time);
   test_records.erase(
       std::remove_if(
           test_records.begin(), test_records.end(),
@@ -715,194 +714,4 @@ TEST_F(AccessContextAuditDatabaseTest, GetStorageRecords) {
   }
 
   ValidateRecords(database()->GetStorageRecords(), want_records);
-}
-
-class AccessContextAuditDatabaseThirdPartyDataClearingTest
-    : public AccessContextAuditDatabaseTest {
- public:
-  void SetUp() override {
-    feature_list_.InitWithFeatures(
-        {browsing_data::features::kEnableRemovingAllThirdPartyCookies}, {});
-    AccessContextAuditDatabaseTest::SetUp();
-  }
-
- protected:
-  base::test::ScopedFeatureList feature_list_;
-};
-
-TEST_F(AccessContextAuditDatabaseThirdPartyDataClearingTest,
-       RemoveAllRecordsForTopFrameOrigins) {
-  const url::Origin kTopLevelOrigin1 =
-      url::Origin::Create(GURL("https://toplevel1.com/"));
-  const url::Origin kTopLevelOrigin2 =
-      url::Origin::Create(GURL("https://toplevel2.com/"));
-  const url::Origin kCrossSiteOrigin =
-      url::Origin::Create(GURL("https://cross.site.com/"));
-  const base::Time kAccessTime =
-      base::Time::FromDeltaSinceWindowsEpoch(base::Hours(1));
-  const base::Time kLaterAccessTime =
-      base::Time::FromDeltaSinceWindowsEpoch(base::Hours(2));
-
-  std::vector<AccessContextAuditDatabase::AccessRecord> test_records = {
-      // Same-site and cross-site cookie records must be removed.
-      AccessContextAuditDatabase::AccessRecord(
-          kTopLevelOrigin1, "samesite", "toplevel1.com", "/", kAccessTime,
-          /* is_persistent */ true),
-      AccessContextAuditDatabase::AccessRecord(kTopLevelOrigin1, "xsite",
-                                               "xsite.com", "/", kAccessTime,
-                                               /* is_persistent */ true),
-      // Same-site storage access record. This should be removed.
-      AccessContextAuditDatabase::AccessRecord(
-          kTopLevelOrigin1,
-          AccessContextAuditDatabase::StorageAPIType::kLocalStorage,
-          kTopLevelOrigin1, kAccessTime),
-      // Cross-site storage access records. These should both coalesce to the
-      // same storage record, since the top-level origin will be removed and
-      // replaced with an opaque origin.
-      AccessContextAuditDatabase::AccessRecord(
-          kTopLevelOrigin1,
-          AccessContextAuditDatabase::StorageAPIType::kLocalStorage,
-          kCrossSiteOrigin, kAccessTime),
-      AccessContextAuditDatabase::AccessRecord(
-          kTopLevelOrigin2,
-          AccessContextAuditDatabase::StorageAPIType::kLocalStorage,
-          kCrossSiteOrigin, kLaterAccessTime),
-  };
-  OpenDatabase();
-  database()->AddRecords(test_records);
-  ValidateDatabaseRecords(database(), test_records);
-
-  database()->RemoveAllRecordsForTopFrameOrigins(
-      {kTopLevelOrigin1, kTopLevelOrigin2});
-
-  ValidateDatabaseRecords(
-      database(),
-      {
-          AccessContextAuditDatabase::AccessRecord(
-              url::Origin(),
-              AccessContextAuditDatabase::StorageAPIType::kLocalStorage,
-              kCrossSiteOrigin, kLaterAccessTime),
-      });
-}
-
-TEST_F(AccessContextAuditDatabaseThirdPartyDataClearingTest,
-       RemoveAllRecordsHistory) {
-  const url::Origin kTopLevelOrigin1 =
-      url::Origin::Create(GURL("https://toplevel1.com/"));
-  const url::Origin kTopLevelOrigin2 =
-      url::Origin::Create(GURL("https://toplevel2.com/"));
-  const url::Origin kCrossSiteOrigin =
-      url::Origin::Create(GURL("https://cross.site.com/"));
-  const base::Time kAccessTime =
-      base::Time::FromDeltaSinceWindowsEpoch(base::Hours(1));
-  const base::Time kLaterAccessTime =
-      base::Time::FromDeltaSinceWindowsEpoch(base::Hours(2));
-
-  std::vector<AccessContextAuditDatabase::AccessRecord> test_records = {
-      // Same-site and cross-site cookie records must be removed.
-      AccessContextAuditDatabase::AccessRecord(kTopLevelOrigin1, "samesite",
-                                               "toplevel.com", "/", kAccessTime,
-                                               /* is_persistent */ true),
-      AccessContextAuditDatabase::AccessRecord(kTopLevelOrigin1, "xsite",
-                                               "xsite.com", "/", kAccessTime,
-                                               /* is_persistent */ true),
-      // Same-site storage access record. This should be removed.
-      AccessContextAuditDatabase::AccessRecord(
-          kTopLevelOrigin1,
-          AccessContextAuditDatabase::StorageAPIType::kLocalStorage,
-          kTopLevelOrigin1, kAccessTime),
-      // Cross-site storage access records. These should both coalesce to the
-      // same storage record, since the top-level origin will be removed and
-      // replaced with an opaque origin.
-      AccessContextAuditDatabase::AccessRecord(
-          kTopLevelOrigin1,
-          AccessContextAuditDatabase::StorageAPIType::kLocalStorage,
-          kCrossSiteOrigin, kAccessTime),
-      AccessContextAuditDatabase::AccessRecord(
-          kTopLevelOrigin2,
-          AccessContextAuditDatabase::StorageAPIType::kLocalStorage,
-          kCrossSiteOrigin, kLaterAccessTime),
-  };
-  OpenDatabase();
-  database()->AddRecords(test_records);
-  ValidateDatabaseRecords(database(), test_records);
-
-  database()->RemoveAllRecordsHistory();
-  ValidateDatabaseRecords(
-      database(),
-      {
-          AccessContextAuditDatabase::AccessRecord(
-              url::Origin(),
-              AccessContextAuditDatabase::StorageAPIType::kLocalStorage,
-              kCrossSiteOrigin, kLaterAccessTime),
-      });
-}
-
-TEST_F(AccessContextAuditDatabaseThirdPartyDataClearingTest,
-       RemoveAllRecordsForTimeRangeHistory) {
-  const url::Origin kTopFrameOrigin =
-      url::Origin::Create(GURL("https://toplevel.com/"));
-  const url::Origin kCrossSiteOrigin =
-      url::Origin::Create(GURL("https://cross.site.com/"));
-
-  const base::Time kBeginTime =
-      base::Time::FromDeltaSinceWindowsEpoch(base::Hours(4));
-  const base::Time kEndTime =
-      base::Time::FromDeltaSinceWindowsEpoch(base::Hours(6));
-  const base::Time kInsideRange =
-      base::Time::FromDeltaSinceWindowsEpoch(base::Hours(5));
-  const base::Time kOutsideRange =
-      base::Time::FromDeltaSinceWindowsEpoch(base::Hours(7));
-
-  std::vector<AccessContextAuditDatabase::AccessRecord> test_records = {
-      // Same-site and cross-site cookie records in the time range must be
-      // removed.
-      AccessContextAuditDatabase::AccessRecord(
-          kTopFrameOrigin, "samesite", "toplevel.com", "/", kInsideRange,
-          /* is_persistent */ true),
-      AccessContextAuditDatabase::AccessRecord(kTopFrameOrigin, "xsite",
-                                               "xsite.com", "/", kInsideRange,
-                                               /* is_persistent */ true),
-      // Cookie records outside the time range should remain.
-      AccessContextAuditDatabase::AccessRecord(
-          kTopFrameOrigin, "outside", "toplevel.com", "/", kOutsideRange,
-          /* is_persistent */ true),
-      // Same-site storage access record inside the itme range. This should be
-      // removed.
-      AccessContextAuditDatabase::AccessRecord(
-          kTopFrameOrigin,
-          AccessContextAuditDatabase::StorageAPIType::kLocalStorage,
-          kTopFrameOrigin, kInsideRange),
-      // Cross-site record inside the time range should have its top-level
-      // origin removed.
-      AccessContextAuditDatabase::AccessRecord(
-          kTopFrameOrigin,
-          AccessContextAuditDatabase::StorageAPIType::kLocalStorage,
-          kCrossSiteOrigin, kInsideRange),
-      // Cross-site record outside the time range should not be modified.
-      AccessContextAuditDatabase::AccessRecord(
-          kTopFrameOrigin,
-          AccessContextAuditDatabase::StorageAPIType::kIndexedDB,
-          kCrossSiteOrigin, kOutsideRange),
-  };
-  OpenDatabase();
-  database()->AddRecords(test_records);
-  ValidateDatabaseRecords(database(), test_records);
-
-  database()->RemoveAllRecordsForTimeRangeHistory(kBeginTime, kEndTime);
-  ValidateDatabaseRecords(
-      database(),
-      {
-          AccessContextAuditDatabase::AccessRecord(
-              kTopFrameOrigin, "outside", "toplevel.com", "/", kOutsideRange,
-              /* is_persistent */ true),
-          AccessContextAuditDatabase::AccessRecord(
-              url::Origin(),
-              AccessContextAuditDatabase::StorageAPIType::kLocalStorage,
-              kCrossSiteOrigin, kInsideRange),
-          AccessContextAuditDatabase::AccessRecord(
-              kTopFrameOrigin,
-              AccessContextAuditDatabase::StorageAPIType::kIndexedDB,
-              kCrossSiteOrigin, kOutsideRange),
-      });
 }

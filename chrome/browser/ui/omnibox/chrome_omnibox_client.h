@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,16 +15,17 @@
 #include "chrome/browser/bitmap_fetcher/bitmap_fetcher_service.h"
 #include "chrome/common/search/instant_types.h"
 #include "components/omnibox/browser/favicon_cache.h"
+#include "components/omnibox/browser/omnibox.mojom-shared.h"
 #include "components/omnibox/browser/omnibox_client.h"
 
-class ChromeOmniboxEditController;
+class ChromeOmniboxEditModelDelegate;
 class GURL;
-class OmniboxEditController;
 class Profile;
 
 class ChromeOmniboxClient : public OmniboxClient {
  public:
-  ChromeOmniboxClient(OmniboxEditController* controller, Profile* profile);
+  ChromeOmniboxClient(ChromeOmniboxEditModelDelegate* edit_model_delegate,
+                      Profile* profile);
 
   ChromeOmniboxClient(const ChromeOmniboxClient&) = delete;
   ChromeOmniboxClient& operator=(const ChromeOmniboxClient&) = delete;
@@ -41,14 +42,15 @@ class ChromeOmniboxClient : public OmniboxClient {
   bool IsLoading() const override;
   bool IsPasteAndGoEnabled() const override;
   bool IsDefaultSearchProviderEnabled() const override;
-  const SessionID& GetSessionID() const override;
+  SessionID GetSessionID() const override;
   bookmarks::BookmarkModel* GetBookmarkModel() override;
-  OmniboxControllerEmitter* GetOmniboxControllerEmitter() override;
+  AutocompleteControllerEmitter* GetAutocompleteControllerEmitter() override;
   TemplateURLService* GetTemplateURLService() override;
   const AutocompleteSchemeClassifier& GetSchemeClassifier() const override;
   AutocompleteClassifier* GetAutocompleteClassifier() override;
   bool ShouldDefaultTypedNavigationsToHttps() const override;
   int GetHttpsPortForTesting() const override;
+  bool IsUsingFakeHttpsForHttpsUpgradeTesting() const override;
   gfx::Image GetIconIfExtensionMatch(
       const AutocompleteMatch& match) const override;
   gfx::Image GetSizedIcon(const gfx::VectorIcon& vector_icon_type,
@@ -84,14 +86,15 @@ class ChromeOmniboxClient : public OmniboxClient {
   void DiscardNonCommittedNavigations() override;
   void OpenUpdateChromeDialog() override;
   void FocusWebContents() override;
+  void OnNavigationLikely(
+      size_t index,
+      const AutocompleteMatch& match,
+      omnibox::mojom::NavigationPredictor navigation_predictor) override;
 
   // Update shortcuts when a navigation succeeds.
   static void OnSuccessfulNavigation(Profile* profile,
                                      const std::u16string& text,
                                      const AutocompleteMatch& match);
-
-  // Called when a navigation finishes.
-  static void OnFinishedNavigation(Profile* profile);
 
  private:
   // Performs prerendering for |match|.
@@ -102,11 +105,9 @@ class ChromeOmniboxClient : public OmniboxClient {
 
   void OnBitmapFetched(const BitmapFetchedCallback& callback,
                        int result_index,
-                       bool is_cached,
-                       base::TimeTicks start_time,
                        const SkBitmap& bitmap);
 
-  raw_ptr<ChromeOmniboxEditController> controller_;
+  raw_ptr<ChromeOmniboxEditModelDelegate> edit_model_delegate_;
   raw_ptr<Profile> profile_;
   ChromeAutocompleteSchemeClassifier scheme_classifier_;
   std::vector<BitmapFetcherService::RequestId> request_ids_;

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,9 @@
 
 #include <memory>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/ref_counted.h"
 #include "base/test/task_environment.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/signin/internal/identity_manager/fake_profile_oauth2_token_service.h"
 #include "services/network/public/cpp/weak_wrapper_shared_url_loader_factory.h"
@@ -20,14 +19,12 @@ namespace {
 
 using TokenResponseBuilder = OAuth2AccessTokenConsumer::TokenResponse::Builder;
 
-const char kTestAccountId[] = "test@gmail.com";
+constexpr char kTestAccountId[] = "test_gaia_id";
 
 class MockUbertokenConsumer {
  public:
   MockUbertokenConsumer()
-      : nb_correct_token_(0),
-        last_error_(GoogleServiceAuthError::AuthErrorNone()),
-        nb_error_(0) {}
+      : last_error_(GoogleServiceAuthError::AuthErrorNone()) {}
   virtual ~MockUbertokenConsumer() = default;
 
   void OnUbertokenFetchComplete(GoogleServiceAuthError error,
@@ -43,9 +40,9 @@ class MockUbertokenConsumer {
   }
 
   std::string last_token_;
-  int nb_correct_token_;
+  int nb_correct_token_ = 0;
+  int nb_error_ = 0;
   GoogleServiceAuthError last_error_;
-  int nb_error_;
 };
 
 }  // namespace
@@ -59,7 +56,7 @@ class UbertokenFetcherImplTest : public testing::Test {
             base::MakeRefCounted<network::WeakWrapperSharedURLLoaderFactory>(
                 &url_loader_factory_)) {
     fetcher_ = std::make_unique<signin::UbertokenFetcherImpl>(
-        CoreAccountId(kTestAccountId), &token_service_,
+        CoreAccountId::FromGaiaId(kTestAccountId), &token_service_,
         base::BindOnce(&MockUbertokenConsumer::OnUbertokenFetchComplete,
                        base::Unretained(&consumer_)),
         gaia::GaiaSource::kChrome, test_shared_loader_factory_);

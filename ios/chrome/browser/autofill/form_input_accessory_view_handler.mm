@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,16 +6,15 @@
 
 #import <UIKit/UIKit.h>
 
-#include "base/mac/foundation_util.h"
-#include "base/metrics/histogram_macros.h"
-#include "base/notreached.h"
-#include "base/strings/sys_string_conversions.h"
-#import "components/autofill/core/browser/keyboard_accessory_metrics_logger.h"
+#import "base/mac/foundation_util.h"
+#import "base/metrics/histogram_macros.h"
+#import "base/notreached.h"
+#import "base/strings/sys_string_conversions.h"
 #import "components/autofill/ios/browser/suggestion_controller_java_script_feature.h"
-#import "ios/chrome/browser/ui/util/uikit_ui_util.h"
+#import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
 #import "ios/web/public/js_messaging/web_frames_manager.h"
 #import "ios/web/public/web_state.h"
-#include "ui/base/device_form_factor.h"
+#import "ui/base/device_form_factor.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -38,13 +37,14 @@ enum class FormInputAccessoryAction {
 };
 
 FormInputAccessoryAction UMAActionForAssistAction(NSString* assistAction) {
-  if ([assistAction isEqual:kFormSuggestionAssistButtonPreviousElement]) {
+  if ([assistAction
+          isEqualToString:kFormSuggestionAssistButtonPreviousElement]) {
     return FormInputAccessoryAction::kPreviousElement;
   }
-  if ([assistAction isEqual:kFormSuggestionAssistButtonNextElement]) {
+  if ([assistAction isEqualToString:kFormSuggestionAssistButtonNextElement]) {
     return FormInputAccessoryAction::kNextElement;
   }
-  if ([assistAction isEqual:kFormSuggestionAssistButtonDone]) {
+  if ([assistAction isEqualToString:kFormSuggestionAssistButtonDone]) {
     return FormInputAccessoryAction::kDone;
   }
   NOTREACHED();
@@ -55,8 +55,8 @@ FormInputAccessoryAction UMAActionForAssistAction(NSString* assistAction) {
 
 namespace {
 
-// Finds all views of a particular kind if class |aClass| in the subview
-// hierarchy of the given |root| view.
+// Finds all views of a particular kind if class `aClass` in the subview
+// hierarchy of the given `root` view.
 NSArray* SubviewsWithClass(UIView* root, Class aClass) {
   DCHECK(root);
   NSMutableArray* viewsToExamine = [NSMutableArray arrayWithObject:root];
@@ -74,7 +74,7 @@ NSArray* SubviewsWithClass(UIView* root, Class aClass) {
   return subviews;
 }
 
-// Returns true if |item|'s action name contains |actionName|.
+// Returns true if `item`'s action name contains `actionName`.
 BOOL ItemActionMatchesName(UIBarButtonItem* item, NSString* actionName) {
   SEL itemAction = [item action];
   if (!itemAction)
@@ -85,9 +85,9 @@ BOOL ItemActionMatchesName(UIBarButtonItem* item, NSString* actionName) {
   return [itemActionName rangeOfString:actionName].location != NSNotFound;
 }
 
-// Finds all UIToolbarItems associated with a given UIToolbar |toolbar| with
+// Finds all UIToolbarItems associated with a given UIToolbar `toolbar` with
 // action selectors with a name that contains the action name specified by
-// |actionName|.
+// `actionName`.
 NSArray* FindToolbarItemsForActionName(UIToolbar* toolbar,
                                        NSString* actionName) {
   NSMutableArray* toolbarItems = [NSMutableArray array];
@@ -101,7 +101,7 @@ NSArray* FindToolbarItemsForActionName(UIToolbar* toolbar,
 }
 
 // Finds all UIToolbarItem(s) with action selectors of the name specified by
-// |actionName| in any UIToolbars in the view hierarchy below |root|.
+// `actionName` in any UIToolbars in the view hierarchy below `root`.
 NSArray* FindDescendantToolbarItemsForActionName(UIView* root,
                                                  NSString* actionName) {
   NSMutableArray* descendants = [NSMutableArray array];
@@ -116,7 +116,7 @@ NSArray* FindDescendantToolbarItemsForActionName(UIView* root,
 }
 
 // Finds all UIBarButtonItem(s) with action selectors of the name specified by
-// |actionName| in the UITextInputAssistantItem passed.
+// `actionName` in the UITextInputAssistantItem passed.
 NSArray* FindDescendantToolbarItemsForActionName(
     UITextInputAssistantItem* inputAssistantItem,
     NSString* actionName) {
@@ -152,20 +152,12 @@ NSArray* FindDescendantToolbarItemsForActionName(
 
 @end
 
-@implementation FormInputAccessoryViewHandler {
-  // Logs UMA metrics for the keyboard accessory.
-  std::unique_ptr<autofill::KeyboardAccessoryMetricsLogger>
-      _keyboardAccessoryMetricsLogger;
-}
+@implementation FormInputAccessoryViewHandler
 
 @synthesize webState = _webState;
 
 - (instancetype)init {
   self = [super init];
-  if (self) {
-    _keyboardAccessoryMetricsLogger.reset(
-        new autofill::KeyboardAccessoryMetricsLogger());
-  }
   return self;
 }
 
@@ -227,35 +219,30 @@ NSArray* FindDescendantToolbarItemsForActionName(
   return YES;
 }
 
-- (void)reset {
-  _keyboardAccessoryMetricsLogger.reset(
-      new autofill::KeyboardAccessoryMetricsLogger());
-}
-
 #pragma mark - FormInputNavigator
 
 - (void)closeKeyboardWithButtonPress {
-  [self closeKeyboardLoggingButtonPressed:YES];
+  [self closeKeyboardLoggingButtonPressed];
 }
 
 - (void)closeKeyboardWithoutButtonPress {
-  [self closeKeyboardLoggingButtonPressed:NO];
+  [self closeKeyboardLoggingButtonPressed];
 }
 
 - (void)selectPreviousElementWithButtonPress {
-  [self selectPreviousElementLoggingButtonPressed:YES];
+  [self selectPreviousElementLoggingButtonPressed];
 }
 
 - (void)selectPreviousElementWithoutButtonPress {
-  [self selectPreviousElementLoggingButtonPressed:NO];
+  [self selectPreviousElementLoggingButtonPressed];
 }
 
 - (void)selectNextElementWithButtonPress {
-  [self selectNextElementLoggingButtonPressed:YES];
+  [self selectNextElementLoggingButtonPressed];
 }
 
 - (void)selectNextElementWithoutButtonPress {
-  [self selectNextElementLoggingButtonPressed:NO];
+  [self selectNextElementLoggingButtonPressed];
 }
 
 - (void)fetchPreviousAndNextElementsPresenceWithCompletionHandler:
@@ -267,8 +254,7 @@ NSArray* FindDescendantToolbarItemsForActionName(
     return;
   }
 
-  web::WebFrame* frame = _webState->GetWebFramesManager()->GetFrameWithId(
-      base::SysNSStringToUTF8(_lastFocusFormActivityWebFrameID));
+  web::WebFrame* frame = [self webFrame];
 
   if (!frame) {
     completionHandler(false, false);
@@ -282,74 +268,62 @@ NSArray* FindDescendantToolbarItemsForActionName(
 
 #pragma mark - Private
 
-// Tries to close the keyboard sendind an action to the default accessory bar
-// if that fails, fallbacks on JavaScript. Logs metrics if loggingButtonPressed
-// is YES.
-- (void)closeKeyboardLoggingButtonPressed:(BOOL)loggingButtonPressed {
+// Tries to close the keyboard sending an action to the default accessory bar.
+// If that fails, fallbacks on the view to resign the first responder status.
+- (void)closeKeyboardLoggingButtonPressed {
   NSString* actionName = kFormSuggestionAssistButtonDone;
   BOOL performedAction = [self executeFormAssistAction:actionName];
 
-  if (!performedAction && [_lastFocusFormActivityWebFrameID length] &&
-      _webState) {
-    // We could not find the built-in form assist controls, so try to focus
-    // the next or previous control using JavaScript.
-    web::WebFrame* frame = _webState->GetWebFramesManager()->GetFrameWithId(
-        base::SysNSStringToUTF8(_lastFocusFormActivityWebFrameID));
-
-    if (frame) {
-      autofill::SuggestionControllerJavaScriptFeature::GetInstance()
-          ->CloseKeyboardForFrame(frame);
-    }
-  }
-  if (loggingButtonPressed) {
-    _keyboardAccessoryMetricsLogger->OnCloseButtonPressed();
+  if (!performedAction && _webState) {
+    UIView* view = _webState->GetView();
+    DCHECK(view);
+    [view endEditing:YES];
   }
 }
 
 // Tries to focus on the next element sendind an action to the default accessory
-// bar if that fails, fallbacks on JavaScript. Logs metrics if
-// loggingButtonPressed is YES.
-- (void)selectPreviousElementLoggingButtonPressed:(BOOL)loggingButtonPressed {
+// bar if that fails, fallbacks on JavaScript.
+- (void)selectPreviousElementLoggingButtonPressed {
   NSString* actionName = kFormSuggestionAssistButtonPreviousElement;
   BOOL performedAction = [self executeFormAssistAction:actionName];
 
   if (!performedAction && _webState) {
     // We could not find the built-in form assist controls, so try to focus
     // the next or previous control using JavaScript.
-    web::WebFrame* frame = _webState->GetWebFramesManager()->GetFrameWithId(
-        base::SysNSStringToUTF8(_lastFocusFormActivityWebFrameID));
+    web::WebFrame* frame = [self webFrame];
 
     if (frame) {
       autofill::SuggestionControllerJavaScriptFeature::GetInstance()
           ->SelectPreviousElementInFrame(frame);
     }
   }
-  if (loggingButtonPressed) {
-    _keyboardAccessoryMetricsLogger->OnPreviousButtonPressed();
-  }
 }
 
 // Tries to focus on the previous element sendind an action to the default
-// accessory bar if that fails, fallbacks on JavaScript. Logs metrics if
-// loggingButtonPressed is YES.
-- (void)selectNextElementLoggingButtonPressed:(BOOL)loggingButtonPressed {
+// accessory bar if that fails, fallbacks on JavaScript.
+- (void)selectNextElementLoggingButtonPressed {
   NSString* actionName = kFormSuggestionAssistButtonNextElement;
   BOOL performedAction = [self executeFormAssistAction:actionName];
 
   if (!performedAction && _webState) {
     // We could not find the built-in form assist controls, so try to focus
     // the next or previous control using JavaScript.
-    web::WebFrame* frame = _webState->GetWebFramesManager()->GetFrameWithId(
-        base::SysNSStringToUTF8(_lastFocusFormActivityWebFrameID));
+    web::WebFrame* frame = [self webFrame];
 
     if (frame) {
       autofill::SuggestionControllerJavaScriptFeature::GetInstance()
           ->SelectNextElementInFrame(frame);
     }
   }
-  if (loggingButtonPressed) {
-    _keyboardAccessoryMetricsLogger->OnNextButtonPressed();
-  }
+}
+
+// Attempts to fetch the frame object from its id. May return nil.
+- (web::WebFrame*)webFrame {
+  web::WebFramesManager* framesManager =
+      autofill::SuggestionControllerJavaScriptFeature::GetInstance()
+          ->GetWebFramesManager(_webState);
+  return framesManager->GetFrameWithId(
+      base::SysNSStringToUTF8(_lastFocusFormActivityWebFrameID));
 }
 
 @end

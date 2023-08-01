@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -267,8 +267,9 @@ class CopyFunction : public StackCopier {
 
 // Copies the current stack segment, starting from the frame pointer of the
 // caller frame. Also fills in |stack_end| for the copied stack.
-static std::unique_ptr<StackBuffer> NOINLINE
-CopyCurrentStackAndRewritePointers(uintptr_t* out_fp, uintptr_t* stack_end) {
+NOINLINE static std::unique_ptr<StackBuffer> CopyCurrentStackAndRewritePointers(
+    uintptr_t* out_fp,
+    uintptr_t* stack_end) {
   const uint8_t* fp =
       reinterpret_cast<const uint8_t*>(__builtin_frame_address(0));
   uintptr_t original_stack_end = GetStackEnd();
@@ -283,10 +284,10 @@ CopyCurrentStackAndRewritePointers(uintptr_t* out_fp, uintptr_t* stack_end) {
 }
 
 template <size_t Depth>
-void NOINLINE ExpectStackFramePointers(const void** frames,
+NOINLINE void ExpectStackFramePointers(const void** frames,
                                        size_t max_depth,
                                        bool copy_stack) {
-  code_start:
+code_start:
   // Calling __builtin_frame_address() forces compiler to emit
   // frame pointers, even if they are not enabled.
   EXPECT_NE(nullptr, __builtin_frame_address(0));
@@ -296,14 +297,15 @@ void NOINLINE ExpectStackFramePointers(const void** frames,
   const void* frame = frames[frame_index];
   EXPECT_GE(frame, &&code_start) << "For frame at index " << frame_index;
   EXPECT_LE(frame, &&code_end) << "For frame at index " << frame_index;
-  code_end: return;
-  }
+code_end:
+  return;
+}
 
-  template <>
-  void NOINLINE ExpectStackFramePointers<1>(const void** frames,
-                                            size_t max_depth,
-                                            bool copy_stack) {
-  code_start:
+template <>
+NOINLINE void ExpectStackFramePointers<1>(const void** frames,
+                                          size_t max_depth,
+                                          bool copy_stack) {
+code_start:
   // Calling __builtin_frame_address() forces compiler to emit
   // frame pointers, even if they are not enabled.
   EXPECT_NE(nullptr, __builtin_frame_address(0));
@@ -322,7 +324,8 @@ void NOINLINE ExpectStackFramePointers(const void** frames,
   const void* frame = frames[0];
   EXPECT_GE(frame, &&code_start) << "For the top frame";
   EXPECT_LE(frame, &&code_end) << "For the top frame";
-  code_end: return;
+code_end:
+  return;
 }
 
 #if defined(MEMORY_SANITIZER)
@@ -399,6 +402,22 @@ TEST(CheckExitCodeAfterSignalHandlerDeathTest, CheckSIGSEGV) {
 
   EXPECT_EXIT(*p_int = 1234, ::testing::KilledBySignal(SIGSEGV), "");
 }
+
+#if defined(ARCH_CPU_X86_64)
+TEST(CheckExitCodeAfterSignalHandlerDeathTest,
+     CheckSIGSEGVNonCanonicalAddress) {
+  // Pointee and pointer are volatile to prevent reordering of instructions,
+  // i.e. for optimization. Reordering may lead to tests erroneously failing due
+  // to SIGSEGV being raised outside of EXPECT_EXIT.
+  //
+  // On Linux, the upper half of the address space is reserved by the kernel, so
+  // all upper bits must be 0 for canonical addresses.
+  volatile int* const volatile p_int =
+      reinterpret_cast<int*>(0xabcdabcdabcdabcdULL);
+
+  EXPECT_EXIT(*p_int = 1234, ::testing::KilledBySignal(SIGSEGV), "SI_KERNEL");
+}
+#endif
 
 #endif  // #if !defined(ADDRESS_SANITIZER) && !defined(UNDEFINED_SANITIZER)
 

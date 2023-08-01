@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -14,7 +14,6 @@
 
 #include "base/containers/flat_set.h"
 #include "base/memory/ref_counted.h"
-#include "base/memory/weak_ptr.h"
 #include "components/safe_browsing/core/browser/db/database_manager.h"
 #include "services/network/public/mojom/fetch_api.mojom.h"
 #include "url/gurl.h"
@@ -27,8 +26,21 @@ struct V4ProtocolConfig;
 // Does not manage a local database.
 class RemoteSafeBrowsingDatabaseManager : public SafeBrowsingDatabaseManager {
  public:
+  // These values are persisted to logs. Entries should not be renumbered and
+  // numeric values should never be reused.
+  enum class HighConfidenceUrlAllowlistCheckResult {
+    kUnknown = 0,
+    kHandlerAndComponentUpdaterBothNoMatch = 1,
+    kHandlerAndComponentUpdaterBothMatch = 2,
+    kHandlerMatchAndComponentUpdaterNoMatch = 3,
+    kHandlerNoMatchAndComponentUpdaterMatch = 4,
+    kHandlerUninitializedAndComponentUpdaterMatch = 5,
+    kHandlerUninitializedAndComponentUpdaterNoMatch = 6,
+    kMaxValue = kHandlerUninitializedAndComponentUpdaterNoMatch,
+  };
+
   // Construct RemoteSafeBrowsingDatabaseManager.
-  // Must be initialized by calling StartOnIOThread() before using.
+  // Must be initialized by calling StartOnSBThread() before using.
   RemoteSafeBrowsingDatabaseManager();
 
   RemoteSafeBrowsingDatabaseManager(const RemoteSafeBrowsingDatabaseManager&) =
@@ -45,28 +57,34 @@ class RemoteSafeBrowsingDatabaseManager : public SafeBrowsingDatabaseManager {
       network::mojom::RequestDestination request_destination) const override;
   bool CanCheckUrl(const GURL& url) const override;
   bool ChecksAreAlwaysAsync() const override;
-  bool CheckBrowseUrl(const GURL& url,
-                      const SBThreatTypeSet& threat_types,
-                      Client* client) override;
+  bool CheckBrowseUrl(
+      const GURL& url,
+      const SBThreatTypeSet& threat_types,
+      Client* client,
+      MechanismExperimentHashDatabaseCache experiment_cache_selection) override;
   bool CheckDownloadUrl(const std::vector<GURL>& url_chain,
                         Client* client) override;
   bool CheckExtensionIDs(const std::set<std::string>& extension_ids,
                          Client* client) override;
   AsyncMatch CheckCsdAllowlistUrl(const GURL& url, Client* client) override;
   bool CheckResourceUrl(const GURL& url, Client* client) override;
-  AsyncMatch CheckUrlForHighConfidenceAllowlist(const GURL& url,
-                                                Client* client) override;
-  bool CheckUrlForAccuracyTips(const GURL& url, Client* client) override;
+  void LogCheckUrlForHighConfidenceAllowlistResults(
+      absl::optional<bool> sb_api_result,
+      bool component_updater_result);
+  void CheckUrlForHighConfidenceAllowlist(
+      const GURL& url,
+      const std::string& metric_variation,
+      base::OnceCallback<void(bool)> callback) override;
   bool CheckUrlForSubresourceFilter(const GURL& url, Client* client) override;
-  bool MatchDownloadAllowlistUrl(const GURL& url) override;
-  bool MatchMalwareIP(const std::string& ip_address) override;
+  void MatchDownloadAllowlistUrl(
+      const GURL& url,
+      base::OnceCallback<void(bool)> callback) override;
   safe_browsing::ThreatSource GetThreatSource() const override;
   bool IsDownloadProtectionEnabled() const override;
-  bool IsSupported() const override;
-  void StartOnIOThread(
+  void StartOnSBThread(
       scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       const V4ProtocolConfig& config) override;
-  void StopOnIOThread(bool shutdown) override;
+  void StopOnSBThread(bool shutdown) override;
 
   //
   // RemoteSafeBrowsingDatabaseManager implementation

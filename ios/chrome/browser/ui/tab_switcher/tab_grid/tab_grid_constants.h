@@ -1,12 +1,21 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef IOS_CHROME_BROWSER_UI_TAB_SWITCHER_TAB_GRID_TAB_GRID_CONSTANTS_H_
 #define IOS_CHROME_BROWSER_UI_TAB_SWITCHER_TAB_GRID_TAB_GRID_CONSTANTS_H_
 
-#include <CoreGraphics/CoreGraphics.h>
+#import <CoreGraphics/CoreGraphics.h>
 #import <Foundation/Foundation.h>
+
+namespace base {
+class TimeDelta;
+}  // namespace base
+
+// Keys of UMA IOS.TabSwitcher.Idle histograms.
+extern const char kUMATabSwitcherIdleIncognitoTabGridPageHistogram[];
+extern const char kUMATabSwitcherIdleRecentTabsHistogram[];
+extern const char kUMATabSwitcherIdleRegularTabGridPageHistogram[];
 
 // Accessibility identifiers for automated testing.
 extern NSString* const kTabGridIncognitoTabsPageButtonIdentifier;
@@ -22,6 +31,8 @@ extern NSString* const kTabGridRegularTabsEmptyStateIdentifier;
 extern NSString* const kTabGridScrollViewIdentifier;
 extern NSString* const kRegularTabGridIdentifier;
 extern NSString* const kIncognitoTabGridIdentifier;
+extern NSString* const kInactiveTabGridIdentifier;
+extern NSString* const kInactiveTabGridCloseAllButtonIdentifier;
 
 extern NSString* const kTabGridEditButtonIdentifier;
 extern NSString* const kTabGridEditCloseTabsButtonIdentifier;
@@ -29,6 +40,7 @@ extern NSString* const kTabGridEditSelectAllButtonIdentifier;
 extern NSString* const kTabGridEditAddToButtonIdentifier;
 extern NSString* const kTabGridEditShareButtonIdentifier;
 extern NSString* const kTabGridSearchBarIdentifier;
+extern NSString* const kTabGridSearchTextFieldIdentifierPrefix;
 extern NSString* const kTabGridScrimIdentifier;
 
 // All kxxxColor constants are RGB values stored in a Hex integer. These will be
@@ -74,5 +86,11 @@ extern const CGFloat kThumbStripSlideInHeight;
 // The distance travelled by the thumb strip's plus sign button during the
 // slide-out animation of the transition from Peeked to Revealed state.
 extern const CGFloat kThumbStripPlusSignButtonSlideOutDistance;
+
+// Alpha of the background color of the toolbar.
+extern const CGFloat kToolbarBackgroundAlpha;
+
+// Duration for animations in the tab grid.
+extern const base::TimeDelta kAnimationDuration;
 
 #endif  // IOS_CHROME_BROWSER_UI_TAB_SWITCHER_TAB_GRID_TAB_GRID_CONSTANTS_H_

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,13 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
-#include "base/run_loop.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/task_runner.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/test/test_future.h"
 #include "base/time/time.h"
 #include "chrome/browser/ash/policy/remote_commands/device_commands_factory_ash.h"
 #include "chrome/browser/ash/system/user_removal_manager.h"
@@ -61,24 +61,24 @@ class TestingRemoteCommandsService : public RemoteCommandsService {
   base::OnceClosure on_command_acked_callback_;
 };
 
-std::unique_ptr<policy::RemoteCommandJob> CreateWipeUsersJob(
+std::unique_ptr<RemoteCommandJob> CreateWipeUsersJob(
     base::TimeDelta age_of_command,
     RemoteCommandsService* service) {
   // Create the job proto.
   enterprise_management::RemoteCommand command_proto;
   command_proto.set_type(
       enterprise_management::RemoteCommand_Type_DEVICE_WIPE_USERS);
-  constexpr policy::RemoteCommandJob::UniqueIDType kUniqueID = 123456789;
+  constexpr RemoteCommandJob::UniqueIDType kUniqueID = 123456789;
   command_proto.set_command_id(kUniqueID);
   command_proto.set_age_of_command(age_of_command.InMilliseconds());
 
   // Create the job and validate.
-  auto job = std::make_unique<policy::DeviceCommandWipeUsersJob>(service);
+  auto job = std::make_unique<DeviceCommandWipeUsersJob>(service);
 
   EXPECT_TRUE(job->Init(base::TimeTicks::Now(), command_proto,
                         enterprise_management::SignedData()));
   EXPECT_EQ(kUniqueID, job->unique_id());
-  EXPECT_EQ(policy::RemoteCommandJob::NOT_STARTED, job->status());
+  EXPECT_EQ(RemoteCommandJob::NOT_STARTED, job->status());
 
   return job;
 }
@@ -94,7 +94,6 @@ class DeviceCommandWipeUsersJobTest : public testing::Test {
   ~DeviceCommandWipeUsersJobTest() override;
 
   content::BrowserTaskEnvironment task_environment_;
-  base::RunLoop run_loop_;
 
   ScopedTestingLocalState local_state_;
   const std::unique_ptr<MockCloudPolicyClient> client_;
@@ -110,7 +109,7 @@ DeviceCommandWipeUsersJobTest::~DeviceCommandWipeUsersJobTest() {}
 
 // Make sure that the command is still valid 175 days after being issued.
 TEST_F(DeviceCommandWipeUsersJobTest, TestCommandLifetime) {
-  std::unique_ptr<policy::RemoteCommandJob> job =
+  std::unique_ptr<RemoteCommandJob> job =
       CreateWipeUsersJob(kVeryoldCommandAge, service_.get());
 
   EXPECT_TRUE(
@@ -119,55 +118,44 @@ TEST_F(DeviceCommandWipeUsersJobTest, TestCommandLifetime) {
 
 // Make sure that the command's succeeded_callback is being invoked.
 TEST_F(DeviceCommandWipeUsersJobTest, TestCommandSucceededCallback) {
-  std::unique_ptr<policy::RemoteCommandJob> job =
+  std::unique_ptr<RemoteCommandJob> job =
       CreateWipeUsersJob(kCommandAge, service_.get());
 
-  auto check_result_callback = base::BindOnce(
-      [](base::RunLoop* run_loop, policy::RemoteCommandJob* job) {
-        EXPECT_EQ(policy::RemoteCommandJob::SUCCEEDED, job->status());
-        run_loop->Quit();
-      },
-      &run_loop_, job.get());
+  base::test::TestFuture<void> job_finished_future;
   EXPECT_TRUE(job->Run(base::Time::Now(), base::TimeTicks::Now(),
-                       std::move(check_result_callback)));
+                       job_finished_future.GetCallback()));
   // This call processes the CommitPendingWrite which persists the pref to disk,
   // and runs the passed callback which is the succeeded_callback.
-  run_loop_.Run();
+  ASSERT_TRUE(job_finished_future.Wait()) << "Job did not finish.";
+  EXPECT_EQ(RemoteCommandJob::SUCCEEDED, job->status());
 }
 
 // Make sure that LogOut is being called after the commands gets ACK'd to the
 // server.
 TEST_F(DeviceCommandWipeUsersJobTest, TestLogOutCalled) {
-  std::unique_ptr<policy::RemoteCommandJob> job =
+  std::unique_ptr<RemoteCommandJob> job =
       CreateWipeUsersJob(kCommandAge, service_.get());
 
+  base::test::TestFuture<void> job_finished_future;
   EXPECT_TRUE(job->Run(base::Time::Now(), base::TimeTicks::Now(),
-                       run_loop_.QuitClosure()));
+                       job_finished_future.GetCallback()));
   // At this point the job is run, and the succeeded_callback is waiting to be
   // invoked.
 
-  run_loop_.Run();
+  ASSERT_TRUE(job_finished_future.Wait()) << "Job did not finish.";
   // Now the succeeded_callback has been invoked, and normally it would cause an
   // ACK to be sent to the server, and upon receiving a response back from the
   // server LogOut would get called.
 
   // Simulate a response from the server by posting a task and waiting for
   // LogOut to be called.
-  bool log_out_called = false;
-  base::RunLoop run_loop2;
-  auto log_out_callback = base::BindOnce(
-      [](base::RunLoop* run_loop, bool* log_out_called) {
-        *log_out_called = true;
-        run_loop->Quit();
-      },
-      &run_loop2, &log_out_called);
-  chromeos::user_removal_manager::OverrideLogOutForTesting(
-      std::move(log_out_callback));
-
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
+  base::test::TestFuture<void> log_out_callback_future;
+  ash::user_removal_manager::OverrideLogOutForTesting(
+      log_out_callback_future.GetCallback());
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, service_->OnCommandAckedCallback());
-  run_loop2.Run();
-  EXPECT_TRUE(log_out_called);
+  ASSERT_TRUE(log_out_callback_future.Wait())
+      << "Log out callback was not invoked.";
 }
 
 }  // namespace policy

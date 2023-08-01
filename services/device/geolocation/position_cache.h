@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 namespace device {
 namespace mojom {
 class Geoposition;
+class GeopositionResult;
 }  // namespace mojom
 
 struct WifiData;
@@ -36,13 +37,14 @@ class PositionCache {
   // Returns the number of cached position responses stored in the cache.
   virtual size_t GetPositionCacheSize() const = 0;
 
-  // Returns most recently used position, or an invalid Geoposition if
+  // Returns most recently used position, or `nullptr` if
   // SetLastUsedNetworkPosition wasn't called yet.
-  virtual const mojom::Geoposition& GetLastUsedNetworkPosition() const = 0;
+  virtual const mojom::GeopositionResult* GetLastUsedNetworkPosition()
+      const = 0;
 
   // Stores the most recently used position.
   virtual void SetLastUsedNetworkPosition(
-      const mojom::Geoposition& position) = 0;
+      const mojom::GeopositionResult& result) = 0;
 };
 
 }  // namespace device

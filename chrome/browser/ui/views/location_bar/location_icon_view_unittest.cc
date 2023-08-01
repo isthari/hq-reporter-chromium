@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,12 @@
 #include "base/memory/raw_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
-#include "chrome/test/base/testing_profile.h"
+#include "chrome/grit/generated_resources.h"
 #include "chrome/test/views/chrome_views_test_base.h"
 #include "components/omnibox/browser/location_bar_model.h"
 #include "components/omnibox/browser/test_location_bar_model.h"
+#include "components/strings/grit/components_strings.h"
+#include "ui/base/l10n/l10n_util.h"
 #include "ui/views/widget/widget.h"
 
 namespace {
@@ -64,7 +66,6 @@ class LocationIconViewTest : public ChromeViewsTestBase {
   // ChromeViewsTestBase:
   void SetUp() override {
     ChromeViewsTestBase::SetUp();
-    profile_ = std::make_unique<TestingProfile>();
 
     gfx::FontList font_list;
 
@@ -74,8 +75,8 @@ class LocationIconViewTest : public ChromeViewsTestBase {
     delegate_ =
         std::make_unique<TestLocationIconDelegate>(location_bar_model());
 
-    auto view = std::make_unique<LocationIconView>(font_list, delegate(),
-                                                   delegate(), profile_.get());
+    auto view =
+        std::make_unique<LocationIconView>(font_list, delegate(), delegate());
     view->SetBoundsRect(gfx::Rect(0, 0, 24, 24));
     view_ = widget_->SetContentsView(std::move(view));
 
@@ -84,7 +85,6 @@ class LocationIconViewTest : public ChromeViewsTestBase {
 
   void TearDown() override {
     widget_.reset();
-    profile_.reset();
     ChromeViewsTestBase::TearDown();
   }
 
@@ -111,7 +111,6 @@ class LocationIconViewTest : public ChromeViewsTestBase {
   std::unique_ptr<TestLocationIconDelegate> delegate_;
   raw_ptr<LocationIconView> view_;
   std::unique_ptr<views::Widget> widget_;
-  std::unique_ptr<TestingProfile> profile_;
 };
 
 TEST_F(LocationIconViewTest, ShouldNotAnimateWhenSuppressingAnimations) {
@@ -153,4 +152,37 @@ TEST_F(LocationIconViewTest, ShouldNotAnimateWarningToDangerous) {
   SetSecurityLevel(security_state::SecurityLevel::DANGEROUS);
   view()->Update(/*suppress_animations=*/false);
   EXPECT_FALSE(view()->is_animating_label());
+}
+
+TEST_F(LocationIconViewTest, IconViewAccessibleNameAndRole) {
+  ui::AXNodeData data;
+  view()->GetAccessibleNodeData(&data);
+  EXPECT_EQ(view()->GetAccessibleName(),
+            l10n_util::GetStringUTF16(IDS_TOOLTIP_LOCATION_ICON));
+  EXPECT_EQ(data.GetString16Attribute(ax::mojom::StringAttribute::kName),
+            l10n_util::GetStringUTF16(IDS_TOOLTIP_LOCATION_ICON));
+  EXPECT_EQ(view()->GetAccessibleRole(), ax::mojom::Role::kPopUpButton);
+  EXPECT_EQ(data.role, ax::mojom::Role::kPopUpButton);
+
+  delegate()->set_is_editing_or_empty(true);
+  view()->Update(/*suppress_animations=*/true);
+  data = ui::AXNodeData();
+  view()->GetAccessibleNodeData(&data);
+  EXPECT_EQ(view()->GetAccessibleName(),
+            l10n_util::GetStringUTF16(IDS_ACC_SEARCH_ICON));
+  EXPECT_EQ(data.GetString16Attribute(ax::mojom::StringAttribute::kName),
+            l10n_util::GetStringUTF16(IDS_ACC_SEARCH_ICON));
+  EXPECT_EQ(view()->GetAccessibleRole(), ax::mojom::Role::kImage);
+  EXPECT_EQ(data.role, ax::mojom::Role::kImage);
+
+  delegate()->set_is_editing_or_empty(false);
+  SetSecurityLevel(security_state::SecurityLevel::WARNING);
+  view()->Update(/*suppress_animations=*/true);
+  data = ui::AXNodeData();
+  view()->GetAccessibleNodeData(&data);
+  EXPECT_EQ(view()->GetAccessibleName(), u"Insecure");
+  EXPECT_EQ(data.GetString16Attribute(ax::mojom::StringAttribute::kName),
+            u"Insecure");
+  EXPECT_EQ(view()->GetAccessibleRole(), ax::mojom::Role::kPopUpButton);
+  EXPECT_EQ(data.role, ax::mojom::Role::kPopUpButton);
 }

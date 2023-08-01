@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2021 The Chromium Authors. All rights reserved.
+# Copyright 2021 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 """This script automatically disables tests, given an ID and a set of
@@ -11,7 +11,7 @@ import os
 import sys
 import subprocess
 import traceback
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import urllib.parse
 
 import conditions
@@ -31,12 +31,17 @@ def main(argv: List[str]) -> int:
       description='Disables tests.',
       epilog=f"Valid conditions are:\n{valid_conds}")
 
-  parser.add_argument('test_id',
+  parser.add_argument(
+      'build',
+      type=str,
+      help='the Buildbucket build ID to search for tests to disable ')
+  parser.add_argument('test_regex',
                       type=str,
-                      help='the test to disable. For example: ' +
-                      'ninja://chrome/test:browser_tests/Suite.Name. You can ' +
-                      'also just pass Suite.Name, and the tool will search ' +
-                      'for a test with a matching ID')
+                      help='the regex for the test to disable. For example: ' +
+                      '".*CompressionUtilsTest.GzipCompression.*". Currently' +
+                      'we assume that there is at most one test matching' +
+                      'the regex. Disabling multiple tests at the same time' +
+                      'is not currently supported (crbug.com/1364416)')
   parser.add_argument('conditions',
                       type=str,
                       nargs='*',
@@ -48,7 +53,18 @@ def main(argv: List[str]) -> int:
   parser.add_argument('-c',
                       '--cache',
                       action='store_true',
-                      help='cache ResultDB rpc results, useful for testing')
+                      help='cache ResultDB rpc results, useful for testing.')
+
+  group = parser.add_mutually_exclusive_group()
+  group.add_argument('-b',
+                     '--bug',
+                     help="write a TODO referencing this bug in a comment " +
+                     "next to the disabled test. Bug can be given as just the" +
+                     " ID or a URL (e.g. 123456, crbug.com/v8/654321).")
+  group.add_argument('-m',
+                     '--message',
+                     help="write a comment containing this message next to " +
+                     "the disabled test.")
 
   args = parser.parse_args(argv[1:])
 
@@ -56,8 +72,21 @@ def main(argv: List[str]) -> int:
     resultdb.CANNED_RESPONSE_FILE = os.path.join(os.path.dirname(__file__),
                                                  '.canned_responses.json')
 
+  message = args.message
+  if args.bug is not None:
+    try:
+      message = make_bug_message(args.bug)
+    except Exception:
+      print(
+          'Invalid value for --bug. Should have one of the following forms:\n' +
+          '\t1234\n' + '\tcrbug/1234\n' + '\tcrbug/project/1234\n' +
+          '\tcrbug.com/1234\n' + '\tcrbug.com/project/1234\n' +
+          '\tbugs.chromium.org/p/project/issues/detail?id=1234\n',
+          file=sys.stderr)
+      return 1
+
   try:
-    disable_test(args.test_id, args.conditions)
+    disable_test(args.build, args.test_regex, args.conditions, message)
     return 0
   except errors.UserError as e:
     print(e, file=sys.stderr)
@@ -76,23 +105,64 @@ def main(argv: List[str]) -> int:
     return 1
 
 
+def make_bug_message(bug: str) -> str:
+  bug_id, project = parse_bug(bug)
+  project_component = '' if project == 'chromium' else f'{project}/'
+  bug_url = f"crbug.com/{project_component}{bug_id}"
+  return f"TODO({bug_url}): Re-enable this test"
+
+
+def parse_bug(bug: str) -> Tuple[int, str]:
+  # bug can be in a few different forms:
+  # * Just the ID, e.g. "1281261"
+  # * Monorail URL, e.g.
+  #     "https://bugs.chromium.org/p/chromium/issues/detail?id=1281261"
+  # * Monorail short URL, e.g.
+  #     "https://crbug.com/1281261"
+  #     or "crbug/1281261"
+  try:
+    bug_id = int(bug)
+    # Assume chromium host if only the ID is specified
+    return bug_id, 'chromium'
+  except ValueError:
+    pass
+
+  # Otherwise it should be a URL.
+  # Slight hack to ensure the domain is always in 'netloc'
+  if '//' not in bug:
+    bug = f"https://{bug}"
+  url = urllib.parse.urlparse(bug)
+
+  # Match crbug.com/ and crbug/
+  if url.netloc in {'crbug', 'crbug.com'}:
+    parts = url.path.split('/')[1:]
+    if len(parts) == 1:
+      return int(parts[0]), 'chromium'
+
+    return int(parts[1]), parts[0]
+
+  # Match full Monorail URLs.
+  if url.netloc == 'bugs.chromium.org':
+    parts = url.path.split('/')[1:]
+    project = parts[1]
+
+    bug_id = int(urllib.parse.parse_qs(url.query)['id'][0])
+    return bug_id, project
+
+  raise ValueError()
+
+
 # TODO: Extra command line flags for:
 #   * Opening the right file at the right line, for when you want to do
 #     something manually. Use $EDITOR.
-#   * Adding a comment / message accompanying the disablement.
 #   * Printing out all valid configs.
 #   * Overwrite the existing state rather than adding to it. Probably leave this
 #     until it's requested.
-def disable_test(test_id: str, cond_strs: List[str]):
+def disable_test(build: str, test_regex: str, cond_strs: List[str],
+                 message: Optional[str]):
   conds = conditions.parse(cond_strs)
-
-  #  If the given ID starts with "ninja:", then it's a full test ID. If not,
-  #  assume it's a test name, and transform it into a query that will match the
-  #  full ID.
-  if not test_id.startswith('ninja:'):
-    test_id = f'ninja://.*/{extract_name_and_suite(test_id)}(/.*)?'
-
-  test_name, filename = resultdb.get_test_metadata(test_id)
+  invocation = "invocations/build-" + build
+  test_name, filename = resultdb.get_test_metadata(invocation, test_regex)
   test_name = extract_name_and_suite(test_name)
 
   # Paths returned from ResultDB look like //foo/bar, where // refers to the
@@ -120,7 +190,7 @@ def disable_test(test_id: str, cond_strs: List[str]):
     raise errors.UserError(
         f"Don't know how to disable tests for this file format ({extension})")
 
-  new_content = disabler(test_name, source_file, conds)
+  new_content = disabler(test_name, source_file, conds, message)
   with open(full_path, 'w') as f:
     f.write(new_content)
 

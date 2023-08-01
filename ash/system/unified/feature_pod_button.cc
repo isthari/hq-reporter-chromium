@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,12 @@
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/style/ash_color_provider.h"
+#include "ash/style/color_util.h"
+#include "ash/style/style_util.h"
 #include "ash/system/tray/tray_constants.h"
-#include "ash/system/tray/tray_popup_utils.h"
 #include "ash/system/unified/feature_pod_controller_base.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
+#include "ui/color/color_id.h"
 #include "ui/compositor/layer.h"
 #include "ui/gfx/paint_vector_icon.h"
 #include "ui/views/accessibility/view_accessibility.h"
@@ -49,7 +52,7 @@ void ConfigureFeaturePodLabel(views::Label* label,
 FeaturePodIconButton::FeaturePodIconButton(PressedCallback callback,
                                            bool is_togglable)
     : IconButton(std::move(callback),
-                 IconButton::Type::kMedium,
+                 IconButton::Type::kLarge,
                  /*icon=*/nullptr,
                  is_togglable,
                  /*has_border=*/true) {
@@ -59,9 +62,8 @@ FeaturePodIconButton::FeaturePodIconButton(PressedCallback callback,
 
 FeaturePodIconButton::~FeaturePodIconButton() = default;
 
-const char* FeaturePodIconButton::GetClassName() const {
-  return "FeaturePodIconButton";
-}
+BEGIN_METADATA(FeaturePodIconButton, IconButton)
+END_METADATA
 
 FeaturePodLabelButton::FeaturePodLabelButton(PressedCallback callback)
     : Button(std::move(callback)),
@@ -83,20 +85,19 @@ FeaturePodLabelButton::FeaturePodLabelButton(PressedCallback callback)
   detailed_view_arrow_->SetCanProcessEventsWithinSubtree(false);
   detailed_view_arrow_->SetVisible(false);
 
-  AddChildView(label_);
-  AddChildView(detailed_view_arrow_);
-  AddChildView(sub_label_);
+  AddChildView(label_.get());
+  AddChildView(detailed_view_arrow_.get());
+  AddChildView(sub_label_.get());
 
-  TrayPopupUtils::ConfigureTrayPopupButton(this);
+  StyleUtil::SetUpInkDropForButton(this);
 
   SetPaintToLayer();
   layer()->SetFillsBoundsOpaquely(false);
 
-  views::FocusRing::Get(this)->SetColor(
-      AshColorProvider::Get()->GetControlsLayerColor(
-          ControlsLayerType::kFocusRingColor));
   views::InstallRoundRectHighlightPathGenerator(
       this, gfx::Insets(), kUnifiedFeaturePodHoverCornerRadius);
+
+  views::FocusRing::Get(this)->SetColorId(ui::kColorAshFocusRing);
 }
 
 FeaturePodLabelButton::~FeaturePodLabelButton() = default;
@@ -149,10 +150,6 @@ gfx::Size FeaturePodLabelButton::CalculatePreferredSize() const {
   return gfx::Size(width, height);
 }
 
-const char* FeaturePodLabelButton::GetClassName() const {
-  return "FeaturePodLabelButton";
-}
-
 void FeaturePodLabelButton::OnThemeChanged() {
   views::Button::OnThemeChanged();
   OnEnabledChanged();
@@ -191,17 +188,16 @@ void FeaturePodLabelButton::OnEnabledChanged() {
       ContentLayerType::kTextColorSecondary);
   label_->SetEnabledColor(
       GetEnabled() ? primary_text_color
-                   : AshColorProvider::GetDisabledColor(primary_text_color));
+                   : ColorUtil::GetDisabledColor(primary_text_color));
   sub_label_->SetEnabledColor(
       GetEnabled() ? secondary_text_color
-                   : AshColorProvider::GetDisabledColor(secondary_text_color));
+                   : ColorUtil::GetDisabledColor(secondary_text_color));
 
   const SkColor icon_color =
       color_provider->GetContentLayerColor(ContentLayerType::kIconColorPrimary);
   detailed_view_arrow_->SetImage(gfx::CreateVectorIcon(
       kUnifiedMenuMoreIcon,
-      GetEnabled() ? icon_color
-                   : AshColorProvider::GetDisabledColor(icon_color)));
+      GetEnabled() ? icon_color : ColorUtil::GetDisabledColor(icon_color)));
 }
 
 void FeaturePodLabelButton::LayoutInCenter(views::View* child, int y) {
@@ -213,6 +209,9 @@ void FeaturePodLabelButton::LayoutInCenter(views::View* child, int y) {
       contents_bounds.x() + (contents_bounds.width() - child_width) / 2, y,
       child_width, preferred_size.height());
 }
+
+BEGIN_METADATA(FeaturePodLabelButton, views::Button)
+END_METADATA
 
 FeaturePodButton::FeaturePodButton(FeaturePodControllerBase* controller,
                                    bool is_togglable)
@@ -229,8 +228,8 @@ FeaturePodButton::FeaturePodButton(FeaturePodControllerBase* controller,
   layout->set_cross_axis_alignment(
       views::BoxLayout::CrossAxisAlignment::kCenter);
 
-  AddChildView(icon_button_);
-  AddChildView(label_button_);
+  AddChildView(icon_button_.get());
+  AddChildView(label_button_.get());
 
   SetPaintToLayer();
   layer()->SetFillsBoundsOpaquely(false);
@@ -321,13 +320,12 @@ void FeaturePodButton::RequestFocus() {
   label_button_->RequestFocus();
 }
 
-const char* FeaturePodButton::GetClassName() const {
-  return "FeaturePodButton";
-}
-
 void FeaturePodButton::OnEnabledChanged() {
   icon_button_->SetEnabled(GetEnabled());
   label_button_->SetEnabled(GetEnabled());
 }
+
+BEGIN_METADATA(FeaturePodButton, views::View)
+END_METADATA
 
 }  // namespace ash

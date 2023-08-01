@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -83,8 +83,7 @@ class WebRtcTextLogIndexCleanupTest : public testing::Test {
   void CreateLogListFileWithContents(const std::string& contents) {
     ASSERT_FALSE(base::PathExists(log_list_path_));  // Only call once per test.
 
-    const int len = static_cast<int>(contents.length());
-    ASSERT_EQ(base::WriteFile(log_list_path_, contents.c_str(), len), len);
+    ASSERT_TRUE(base::WriteFile(log_list_path_, contents));
 
     ASSERT_TRUE(base::PathExists(log_list_path_));  // Only call once per test.
   }

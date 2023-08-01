@@ -1,11 +1,10 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef NET_SSL_CLIENT_CERT_IDENTITY_TEST_UTIL_H_
 #define NET_SSL_CLIENT_CERT_IDENTITY_TEST_UTIL_H_
 
-#include "build/build_config.h"
 #include "net/ssl/client_cert_identity.h"
 
 namespace base {
@@ -45,9 +44,6 @@ class FakeClientCertIdentity : public ClientCertIdentity {
   // ClientCertIdentity implementation:
   void AcquirePrivateKey(base::OnceCallback<void(scoped_refptr<SSLPrivateKey>)>
                              private_key_callback) override;
-#if BUILDFLAG(IS_APPLE)
-  SecIdentityRef sec_identity_ref() const override;
-#endif
 
  private:
   scoped_refptr<SSLPrivateKey> key_;

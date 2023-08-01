@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,9 @@
 
 #include "media/base/video_bitrate_allocation.h"
 #include "media/gpu/vaapi/vaapi_video_encoder_delegate.h"
+#include "media/gpu/video_rate_control.h"
 #include "media/gpu/vp8_picture.h"
 #include "media/gpu/vp8_reference_frame_vector.h"
-#include "media/gpu/vpx_rate_control.h"
 #include "media/parsers/vp8_parser.h"
 
 namespace libvpx {
@@ -41,6 +41,9 @@ class VP8VaapiVideoEncoderDelegate : public VaapiVideoEncoderDelegate {
     // 0-127.
     uint8_t min_qp;
     uint8_t max_qp;
+
+    // Error resilient mode.
+    bool error_resilient_mode = false;
   };
 
   VP8VaapiVideoEncoderDelegate(scoped_refptr<VaapiWrapper> vaapi_wrapper,
@@ -69,12 +72,11 @@ class VP8VaapiVideoEncoderDelegate : public VaapiVideoEncoderDelegate {
       VP8Picture& picture,
       std::array<bool, kNumVp8ReferenceBuffers>& ref_frames_used);
   void UpdateReferenceFrames(scoped_refptr<VP8Picture> picture);
-  void Reset();
 
   bool PrepareEncodeJob(EncodeJob& encode_job) override;
   BitstreamBufferMetadata GetMetadata(const EncodeJob& encode_job,
                                       size_t payload_size) override;
-  void BitrateControlUpdate(uint64_t encoded_chunk_size_bytes) override;
+  void BitrateControlUpdate(const BitstreamBufferMetadata& metadata) override;
 
   bool SubmitFrameParameters(
       EncodeJob& job,
@@ -95,9 +97,10 @@ class VP8VaapiVideoEncoderDelegate : public VaapiVideoEncoderDelegate {
 
   Vp8ReferenceFrameVector reference_frames_;
 
-  using VP8RateControl = VPXRateControl<libvpx::VP8RateControlRtcConfig,
-                                        libvpx::VP8RateControlRTC,
-                                        libvpx::VP8FrameParamsQpRTC>;
+  using VP8RateControl = VideoRateControl<libvpx::VP8RateControlRtcConfig,
+                                          libvpx::VP8RateControlRTC,
+                                          libvpx::VP8FrameParamsQpRTC,
+                                          int>;
   std::unique_ptr<VP8RateControl> rate_ctrl_;
 };
 

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,7 +45,7 @@ class DeviceServiceImpl final
 
  private:
   DeviceServiceImpl(
-      content::RenderFrameHost* host,
+      content::RenderFrameHost& host,
       mojo::PendingReceiver<blink::mojom::DeviceAPIService> receiver);
 
   void GetDeviceAttribute(
@@ -54,7 +54,6 @@ class DeviceServiceImpl final
 
   void OnDisposingIfNeeded();
 
-  const raw_ptr<content::RenderFrameHost> host_;
   PrefChangeRegistrar pref_change_registrar_;
 };
 

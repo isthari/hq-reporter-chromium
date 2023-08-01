@@ -1,12 +1,12 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_CHROME_PROCESS_SINGLETON_H_
 #define CHROME_BROWSER_CHROME_PROCESS_SINGLETON_H_
 
-#include "base/callback.h"
 #include "base/files/file_path.h"
+#include "base/functional/callback.h"
 #include "chrome/browser/process_singleton.h"
 #include "chrome/browser/process_singleton_modal_dialog_lock.h"
 #include "chrome/browser/process_singleton_startup_lock.h"
@@ -17,7 +17,7 @@
 // Notifications from ProcessSingleton will first close a modal dialog if
 // active. Otherwise, until |Unlock()| is called, they will be queued up. Once
 // unlocked, notifications will be passed to the client-supplied
-// NotificationCallback.
+// NotificationCallback; which is passed as an argument by |Unlock()|.
 //
 // The client must ensure that SetModalDialogNotificationHandler is called
 // appropriately when dialogs are displayed or dismissed during startup. If a
@@ -25,9 +25,7 @@
 // notification is processed as normal.
 class ChromeProcessSingleton {
  public:
-  ChromeProcessSingleton(
-      const base::FilePath& user_data_dir,
-      const ProcessSingleton::NotificationCallback& notification_callback);
+  explicit ChromeProcessSingleton(const base::FilePath& user_data_dir);
 
   ChromeProcessSingleton(const ChromeProcessSingleton&) = delete;
   ChromeProcessSingleton& operator=(const ChromeProcessSingleton&) = delete;
@@ -44,6 +42,12 @@ class ChromeProcessSingleton {
   // PROFILE_IN_USE if it happens to use the same profile directory.
   ProcessSingleton::NotifyResult NotifyOtherProcessOrCreate();
 
+  // Start watching for notifications from other processes. After this call,
+  // the notifications sent by other process can be processed. This call
+  // requires the browser threads (UI / IO) to be created. Requests that occur
+  // before calling StartWatching(...) will be blocked and may timeout.
+  void StartWatching();
+
   // Clear any lock state during shutdown.
   void Cleanup();
 
@@ -55,9 +59,27 @@ class ChromeProcessSingleton {
   // Executes previously queued command-line invocations and allows future
   // invocations to be executed immediately.
   // This only has an effect the first time it is called.
-  void Unlock();
+  void Unlock(
+      const ProcessSingleton::NotificationCallback& notification_callback);
+
+  // Create the chrome process singleton instance for the current process.
+  static void CreateInstance(const base::FilePath& user_data_dir);
+  // Delete the chrome process singleton instance.
+  static void DeleteInstance();
+  // Retrieve the chrome process singleton instance for the current process.
+  static ChromeProcessSingleton* GetInstance();
+
+  // Setup the experiment for the early process singleton. Remove this code
+  // when the experiment is over (http://www.crbug.com/1340599).
+  static void SetupEarlySingletonFeature(const base::CommandLine& command_line);
+  static void RegisterEarlySingletonFeature();
+  static bool IsEarlySingletonFeatureEnabled();
+  static bool ShouldMergeMetrics();
 
  private:
+  bool NotificationCallback(const base::CommandLine& command_line,
+                            const base::FilePath& current_directory);
+
   // We compose these two locks with the client-supplied notification callback.
   // First |modal_dialog_lock_| will discard any notifications that arrive while
   // a modal dialog is active. Otherwise, it will pass the notification to
@@ -69,6 +91,7 @@ class ChromeProcessSingleton {
 
   // The basic ProcessSingleton
   ProcessSingleton process_singleton_;
+  ProcessSingleton::NotificationCallback notification_callback_;
 };
 
 #endif  // CHROME_BROWSER_CHROME_PROCESS_SINGLETON_H_

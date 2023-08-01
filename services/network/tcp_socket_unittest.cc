@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,13 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/check_op.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread.h"
@@ -62,7 +63,9 @@ class MockServerSocket : public net::ServerSocket {
   ~MockServerSocket() override {}
 
   // net::ServerSocket implementation.
-  int Listen(const net::IPEndPoint& address, int backlog) override {
+  int Listen(const net::IPEndPoint& address,
+             int backlog,
+             absl::optional<bool> ipv6_only) override {
     return net::OK;
   }
 
@@ -82,7 +85,7 @@ class MockServerSocket : public net::ServerSocket {
     run_loop_.Quit();
 
     if (mode_ == net::ASYNC) {
-      base::ThreadTaskRunnerHandle::Get()->PostTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE, base::BindOnce(&MockServerSocket::CompleteAccept,
                                     base::Unretained(this), accept_result_));
       return net::ERR_IO_PENDING;
@@ -162,8 +165,10 @@ class TestServer {
   void Start(uint32_t backlog) {
     int net_error = net::ERR_FAILED;
     base::RunLoop run_loop;
+    auto options = mojom::TCPServerSocketOptions::New();
+    options->backlog = backlog;
     factory_.CreateTCPServerSocket(
-        server_addr_, backlog, TRAFFIC_ANNOTATION_FOR_TESTS,
+        server_addr_, std::move(options), TRAFFIC_ANNOTATION_FOR_TESTS,
         server_socket_.BindNewPipeAndPassReceiver(),
         base::BindLambdaForTesting(
             [&](int result, const absl::optional<net::IPEndPoint>& local_addr) {
@@ -221,8 +226,7 @@ class TestServer {
                 mojo::PendingRemote<mojom::TCPConnectedSocket> connected_socket,
                 mojo::ScopedDataPipeConsumerHandle receive_pipe_handle,
                 mojo::ScopedDataPipeProducerHandle send_pipe_handle) {
-    connected_sockets_.push_back(
-        mojo::Remote<mojom::TCPConnectedSocket>(std::move(connected_socket)));
+    connected_sockets_.emplace_back(std::move(connected_socket));
     server_socket_receive_handle_ = std::move(receive_pipe_handle);
     server_socket_send_handle_ = std::move(send_pipe_handle);
     std::move(callback).Run(result);
@@ -321,8 +325,9 @@ class TCPSocketTest : public testing::Test {
         factory_.get(), nullptr /*netlog*/, TRAFFIC_ANNOTATION_FOR_TESTS);
     server_socket_impl->SetSocketForTest(std::move(socket));
     net::IPEndPoint local_addr;
-    EXPECT_EQ(net::OK,
-              server_socket_impl->Listen(local_addr, backlog, &local_addr));
+    auto result = server_socket_impl->Listen(local_addr, backlog,
+                                             /*ipv6_only=*/absl::nullopt);
+    EXPECT_TRUE(result.has_value());
     tcp_server_socket_receiver_.Add(std::move(server_socket_impl),
                                     std::move(receiver));
   }
@@ -336,7 +341,21 @@ class TCPSocketTest : public testing::Test {
       mojo::ScopedDataPipeProducerHandle* send_pipe_handle_out,
       mojom::TCPConnectedSocketOptionsPtr tcp_connected_socket_options =
           nullptr) {
-    net::AddressList remote_addr_list(remote_addr);
+    return CreateTCPConnectedSocketSync(
+        std::move(receiver), std::move(observer), local_addr,
+        net::AddressList(remote_addr), receive_pipe_handle_out,
+        send_pipe_handle_out, std::move(tcp_connected_socket_options));
+  }
+
+  int CreateTCPConnectedSocketSync(
+      mojo::PendingReceiver<mojom::TCPConnectedSocket> receiver,
+      mojo::PendingRemote<mojom::SocketObserver> observer,
+      const absl::optional<net::IPEndPoint>& local_addr,
+      const net::AddressList& remote_addr_list,
+      mojo::ScopedDataPipeConsumerHandle* receive_pipe_handle_out,
+      mojo::ScopedDataPipeProducerHandle* send_pipe_handle_out,
+      mojom::TCPConnectedSocketOptionsPtr tcp_connected_socket_options =
+          nullptr) {
     base::RunLoop run_loop;
     int net_error = net::ERR_FAILED;
     factory_->CreateTCPConnectedSocket(
@@ -351,7 +370,9 @@ class TCPSocketTest : public testing::Test {
               net_error = result;
               if (result == net::OK) {
                 EXPECT_NE(0, actual_local_addr.value().port());
-                EXPECT_EQ(remote_addr, peer_addr.value());
+                if (remote_addr_list.size() == 1) {
+                  EXPECT_EQ(remote_addr_list.front(), peer_addr.value());
+                }
               }
               *receive_pipe_handle_out = std::move(receive_pipe_handle);
               *send_pipe_handle_out = std::move(send_pipe_handle);
@@ -889,14 +910,13 @@ TEST_P(TCPSocketWithMockSocketTest, ReadAndWriteMultiple) {
   net::IoMode mode = GetParam();
   for (int j = 0; j < kNumIterations; ++j) {
     for (size_t i = 0; i < kMsgSize; ++i) {
-      reads.push_back(net::MockRead(mode, &kTestMsg[i], 1, sequence_number++));
+      reads.emplace_back(mode, &kTestMsg[i], 1, sequence_number++);
     }
     if (j == kNumIterations - 1) {
-      reads.push_back(net::MockRead(mode, net::OK, sequence_number++));
+      reads.emplace_back(mode, net::OK, sequence_number++);
     }
     for (size_t i = 0; i < kMsgSize; ++i) {
-      writes.push_back(
-          net::MockWrite(mode, &kTestMsg[i], 1, sequence_number++));
+      writes.emplace_back(mode, &kTestMsg[i], 1, sequence_number++);
     }
   }
   net::StaticSocketDataProvider data_provider(reads, writes);
@@ -941,14 +961,13 @@ TEST_P(TCPSocketWithMockSocketTest, PartialStreamSocketWrite) {
   net::IoMode mode = GetParam();
   for (int j = 0; j < kNumIterations; ++j) {
     for (size_t i = 0; i < kMsgSize; ++i) {
-      reads.push_back(net::MockRead(mode, &kTestMsg[i], 1, sequence_number++));
+      reads.emplace_back(mode, &kTestMsg[i], 1, sequence_number++);
     }
     if (j == kNumIterations - 1) {
-      reads.push_back(net::MockRead(mode, net::OK, sequence_number++));
+      reads.emplace_back(mode, net::OK, sequence_number++);
     }
     for (size_t i = 0; i < kMsgSize; ++i) {
-      writes.push_back(
-          net::MockWrite(mode, &kTestMsg[i], 1, sequence_number++));
+      writes.emplace_back(mode, &kTestMsg[i], 1, sequence_number++);
     }
   }
   net::StaticSocketDataProvider data_provider(reads, writes);
@@ -1064,8 +1083,8 @@ TEST_P(TCPSocketWithMockSocketTest, InitialTCPConnectedSocketOptions) {
   std::vector<mojom::TCPKeepAliveOptionsPtr> keep_alive_options_list;
 
   keep_alive_options_list.emplace_back(nullptr);
-  keep_alive_options_list.emplace_back(base::in_place, false, 0U);
-  keep_alive_options_list.emplace_back(base::in_place, true, 100U);
+  keep_alive_options_list.emplace_back(absl::in_place, false, 0U);
+  keep_alive_options_list.emplace_back(absl::in_place, true, 100U);
 
   for (int receive_buffer_size :
        {-1, 0, 1024, TCPConnectedSocket::kMaxBufferSize,
@@ -1187,6 +1206,38 @@ TEST_P(TCPSocketWithMockSocketTest, InitialTCPConnectedSocketOptionsFails) {
                   &client_socket_send_handle,
                   std::move(tcp_connected_socket_options)));
   }
+}
+
+// Simulates the initial connection attempt failing, followed by another
+// attempt. Used to simulate cases where the BeforeConnectionCallback is
+// invoked multiple times.
+TEST_P(TCPSocketWithMockSocketTest,
+       InitialTCPConnectedSocketSucceedsOnSecondAttempt) {
+  net::IPEndPoint server_addr_a(net::IPAddress::IPv4Localhost(), 1234);
+  net::IPEndPoint server_addr_b(net::IPAddress::IPv4Localhost(), 1235);
+
+  mojo::ScopedDataPipeConsumerHandle client_socket_receive_handle;
+  mojo::ScopedDataPipeProducerHandle client_socket_send_handle;
+
+  mojo::Remote<mojom::TCPConnectedSocket> client_socket;
+  net::StaticSocketDataProvider data_provider;
+  data_provider.set_connect_data(net::MockConnect(
+      GetParam(), net::OK, server_addr_b, /*first_attempt_fails=*/true));
+
+  mock_client_socket_factory_.AddSocketDataProvider(&data_provider);
+
+  mojom::TCPConnectedSocketOptionsPtr tcp_connected_socket_options =
+      mojom::TCPConnectedSocketOptions::New();
+  tcp_connected_socket_options->receive_buffer_size = 1;
+  tcp_connected_socket_options->send_buffer_size = 2;
+
+  EXPECT_EQ(net::OK,
+            CreateTCPConnectedSocketSync(
+                client_socket.BindNewPipeAndPassReceiver(),
+                mojo::NullRemote() /*observer*/, absl::nullopt /*local_addr*/,
+                net::AddressList({server_addr_a, server_addr_b}),
+                &client_socket_receive_handle, &client_socket_send_handle,
+                std::move(tcp_connected_socket_options)));
 }
 
 TEST_P(TCPSocketWithMockSocketTest, SetBufferSizes) {
@@ -1510,7 +1561,9 @@ TEST(TCPServerSocketTest, GetLocalAddressFailedInListen) {
                          TRAFFIC_ANNOTATION_FOR_TESTS);
   socket.SetSocketForTest(std::make_unique<FailingServerSocket>());
   net::IPEndPoint local_addr;
-  EXPECT_EQ(net::ERR_FAILED, socket.Listen(local_addr, 1, &local_addr));
+  auto result = socket.Listen(local_addr, 1, /*ipv6_only=*/absl::nullopt);
+  ASSERT_FALSE(result.has_value());
+  EXPECT_EQ(net::ERR_FAILED, result.error());
 }
 
 }  // namespace network

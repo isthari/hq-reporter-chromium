@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/test/task_environment.h"
@@ -16,6 +16,7 @@
 #include "content/public/browser/xr_runtime_manager.h"
 #include "device/vr/public/cpp/vr_device_provider.h"
 #include "device/vr/public/mojom/vr_service.mojom.h"
+#include "device/vr/public/mojom/xr_session.mojom.h"
 #include "device/vr/test/fake_vr_device.h"
 #include "device/vr/test/fake_vr_device_provider.h"
 #include "device/vr/test/fake_vr_service_client.h"
@@ -107,7 +108,7 @@ TEST_F(XRRuntimeManagerTest, GetNoDevicesTest) {
 
   // GetDeviceByIndex should return nullptr if an invalid index in queried.
   device::mojom::XRRuntime* queried_device =
-      GetRuntimeForTest(device::mojom::XRDeviceId::GVR_DEVICE_ID);
+      GetRuntimeForTest(device::mojom::XRDeviceId::FAKE_DEVICE_ID);
   EXPECT_EQ(nullptr, queried_device);
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "base/allocator/partition_allocator/partition_alloc.h"
 #include "base/numerics/safe_conversions.h"
 #include "mojo/public/cpp/system/simple_watcher.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_binding_for_core.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_throw_dom_exception.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_typedefs.h"
@@ -123,7 +124,7 @@ class OutgoingStream::UnderlyingSink final : public UnderlyingSinkBase {
     DCHECK(!reason.IsEmpty());
 
     uint8_t code = 0;
-    WebTransportError* exception = V8WebTransportError::ToImplWithTypeCheck(
+    WebTransportError* exception = V8WebTransportError::ToWrappable(
         script_state->GetIsolate(), reason.V8Value());
     if (exception) {
       code = exception->streamErrorCode().value_or(0);
@@ -197,12 +198,13 @@ void OutgoingStream::InitWithExistingWritableStream(
   stream->InitWithCountQueueingStrategy(
       script_state_, MakeGarbageCollected<UnderlyingSink>(this), 1,
       /*optimizer=*/nullptr, exception_state);
-
-  controller_->signal()->AddAlgorithm(
+  send_stream_abort_handle_ = controller_->signal()->AddAlgorithm(
       MakeGarbageCollected<SendStreamAbortAlgorithm>(this));
 }
 
 void OutgoingStream::AbortAlgorithm(OutgoingStream* stream) {
+  send_stream_abort_handle_.Clear();
+
   // Step 6 of https://w3c.github.io/webtransport/#sendstream-create
   // 1. If stream's [[PendingOperation]] is null, then abort these steps.
   if (!stream->pending_operation_) {
@@ -285,6 +287,7 @@ void OutgoingStream::Trace(Visitor* visitor) const {
   visitor->Trace(script_state_);
   visitor->Trace(client_);
   visitor->Trace(writable_);
+  visitor->Trace(send_stream_abort_handle_);
   visitor->Trace(controller_);
   visitor->Trace(write_promise_resolver_);
   visitor->Trace(close_promise_resolver_);

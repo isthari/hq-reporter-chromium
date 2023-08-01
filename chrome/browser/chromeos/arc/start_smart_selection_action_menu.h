@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <memory>
 #include <vector>
 
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "components/arc/common/intent_helper/arc_intent_helper_mojo_delegate.h"
 #include "components/renderer_context_menu/render_view_context_menu_observer.h"
@@ -46,8 +47,9 @@ class StartSmartSelectionActionMenu : public RenderViewContextMenuObserver {
   void HandleTextSelectionActions(
       std::vector<ArcIntentHelperMojoDelegate::TextSelectionAction> actions);
 
-  content::BrowserContext* context_;
-  RenderViewContextMenuProxy* const proxy_;  // Owned by RenderViewContextMenu.
+  raw_ptr<content::BrowserContext> context_;
+  const raw_ptr<RenderViewContextMenuProxy>
+      proxy_;  // Owned by RenderViewContextMenu.
 
   // The text selection actions passed from ARC.
   std::vector<ArcIntentHelperMojoDelegate::TextSelectionAction> actions_;

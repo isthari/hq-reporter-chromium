@@ -1,11 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.components.webauthn;
 
 import org.chromium.blink.mojom.Authenticator;
-import org.chromium.content_public.browser.ContentFeatureList;
 import org.chromium.content_public.browser.RenderFrameHost;
 import org.chromium.content_public.browser.WebAuthenticationDelegate;
 import org.chromium.content_public.browser.WebContents;
@@ -24,8 +23,7 @@ public class AuthenticatorFactory implements InterfaceFactory<Authenticator> {
 
     @Override
     public Authenticator createImpl() {
-        if (!ContentFeatureList.isEnabled(ContentFeatureList.WEB_AUTH)
-                || mRenderFrameHost == null) {
+        if (mRenderFrameHost == null) {
             return null;
         }
         WebContents webContents = WebContentsStatics.fromRenderFrameHost(mRenderFrameHost);
@@ -34,13 +32,6 @@ public class AuthenticatorFactory implements InterfaceFactory<Authenticator> {
         }
 
         WebAuthenticationDelegate delegate = new WebAuthenticationDelegate();
-        @WebAuthenticationDelegate.Support
-        int supportLevel = delegate.getSupportLevel(webContents);
-        if (supportLevel == WebAuthenticationDelegate.Support.NONE) {
-            return null;
-        }
-
-        return new AuthenticatorImpl(
-                delegate.getIntentSender(webContents), mRenderFrameHost, supportLevel);
+        return new AuthenticatorImpl(delegate.getIntentSender(webContents), mRenderFrameHost);
     }
 }

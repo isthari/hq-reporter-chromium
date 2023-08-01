@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <memory>
 
 #include "base/logging.h"
-#include "base/metrics/histogram_macros.h"
+#include "base/metrics/histogram_functions.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/history/history_service_factory.h"
@@ -18,6 +18,7 @@
 #include "chrome/browser/safe_browsing/chrome_user_population_helper.h"
 #include "chrome/browser/safe_browsing/download_protection/download_protection_service.h"
 #include "chrome/browser/safe_browsing/download_protection/download_protection_util.h"
+#include "components/safe_browsing/core/common/features.h"
 #include "components/safe_browsing/core/common/proto/csd.pb.h"
 #include "components/safe_browsing/core/common/utils.h"
 #include "content/public/browser/browser_context.h"
@@ -29,6 +30,13 @@
 namespace safe_browsing {
 
 namespace {
+
+// The version of this client supporting tailored warnings.
+// Please update the description of TailoredInfo field in csd.proto when
+// changing this value.
+// Note: The name of this variable is checked by PRESUBMIT. Please update the
+// PRESUBMIT script before renaming this variable.
+constexpr int kTailoredWarningVersion = 1;
 
 DownloadRequestMaker::TabUrls TabUrlsFromWebContents(
     content::WebContents* web_contents) {
@@ -157,31 +165,38 @@ void DownloadRequestMaker::Start(DownloadRequestMaker::Callback callback) {
       profile && AdvancedProtectionStatusManagerFactory::GetForProfile(profile)
                      ->IsUnderAdvancedProtection();
 
-  *request_->mutable_population() = GetUserPopulationForProfile(profile);
+  *request_->mutable_population() =
+      GetUserPopulationForProfileWithCookieTheftExperiments(profile);
+  if (base::FeatureList::IsEnabled(kNestedArchives)) {
+    request_->mutable_population()->add_finch_active_groups(
+        "SafeBrowsingArchiveImprovements.Enabled");
+  }
   request_->set_request_ap_verdicts(is_under_advanced_protection);
   request_->set_locale(g_browser_process->GetApplicationLocale());
   request_->set_file_basename(target_file_path_.BaseName().AsUTF8Unsafe());
+
+  PopulateTailoredInfo();
 
   file_analyzer_->Start(
       target_file_path_, full_path_,
       base::BindOnce(&DownloadRequestMaker::OnFileFeatureExtractionDone,
                      weakptr_factory_.GetWeakPtr()));
+  start_time_ = base::Time::Now();
 }
 
 void DownloadRequestMaker::OnFileFeatureExtractionDone(
     FileAnalyzer::Results results) {
+  base::UmaHistogramMediumTimes(
+      "SBClientDownload.FileFeatureExtractionDuration",
+      base::Time::Now() - start_time_);
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   request_->set_download_type(results.type);
-  if (results.archive_is_valid != FileAnalyzer::ArchiveValid::UNSET)
-    request_->set_archive_valid(results.archive_is_valid ==
-                                FileAnalyzer::ArchiveValid::VALID);
   request_->mutable_archived_binary()->CopyFrom(results.archived_binaries);
   request_->mutable_signature()->CopyFrom(results.signature_info);
   request_->mutable_image_headers()->CopyFrom(results.image_headers);
-  request_->set_archive_file_count(results.file_count);
-  request_->set_archive_directory_count(results.directory_count);
   request_->mutable_document_summary()->CopyFrom(results.document_summary);
+  request_->mutable_archive_summary()->CopyFrom(results.archive_summary);
 
 #if BUILDFLAG(IS_MAC)
   if (!results.disk_image_signature.empty()) {
@@ -198,6 +213,7 @@ void DownloadRequestMaker::OnFileFeatureExtractionDone(
 }
 
 void DownloadRequestMaker::GetTabRedirects() {
+  start_time_ = base::Time::Now();
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   if (!tab_urls_.url.is_valid()) {
     OnGotTabRedirects({});
@@ -226,6 +242,8 @@ void DownloadRequestMaker::GetTabRedirects() {
 
 void DownloadRequestMaker::OnGotTabRedirects(
     history::RedirectList redirect_list) {
+  base::UmaHistogramMediumTimes("SBClientDownload.GetTabRedirectsDuration",
+                                base::Time::Now() - start_time_);
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
   for (size_t i = 0; i < redirect_list.size(); ++i) {
@@ -246,6 +264,12 @@ void DownloadRequestMaker::OnGotTabRedirects(
   }
 
   std::move(callback_).Run(std::move(request_));
+}
+
+void DownloadRequestMaker::PopulateTailoredInfo() {
+  ClientDownloadRequest::TailoredInfo tailored_info;
+  tailored_info.set_version(kTailoredWarningVersion);
+  *request_->mutable_tailored_info() = tailored_info;
 }
 
 }  // namespace safe_browsing

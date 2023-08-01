@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,7 @@ namespace blink {
 namespace {
 
 struct SameSizeAsNGBlockBreakToken : NGBreakToken {
-  std::unique_ptr<void> data;
+  Member<LayoutBox> data;
   unsigned numbers[1];
 };
 
@@ -34,6 +34,29 @@ NGBlockBreakToken* NGBlockBreakToken::Create(NGBoxFragmentBuilder* builder) {
       PassKey(), builder);
 }
 
+NGBlockBreakToken* NGBlockBreakToken::CreateRepeated(const NGBlockNode& node,
+                                                     unsigned sequence_number) {
+  auto* token = MakeGarbageCollected<NGBlockBreakToken>(PassKey(), node);
+  token->data_ = MakeGarbageCollected<NGBlockBreakTokenData>();
+  token->data_->sequence_number = sequence_number;
+  token->is_repeated_ = true;
+  return token;
+}
+
+NGBlockBreakToken* NGBlockBreakToken::CreateForBreakInRepeatedFragment(
+    const NGBlockNode& node,
+    unsigned sequence_number,
+    LayoutUnit consumed_block_size) {
+  auto* token = MakeGarbageCollected<NGBlockBreakToken>(PassKey(), node);
+  token->data_ = MakeGarbageCollected<NGBlockBreakTokenData>();
+  token->data_->sequence_number = sequence_number;
+  token->data_->consumed_block_size = consumed_block_size;
+#if DCHECK_IS_ON()
+  token->is_repeated_actual_break_ = true;
+#endif
+  return token;
+}
+
 NGBlockBreakToken::NGBlockBreakToken(PassKey key, NGBoxFragmentBuilder* builder)
     : NGBreakToken(kBlockBreakToken, builder->node_),
       const_num_children_(builder->child_break_tokens_.size()) {
@@ -43,14 +66,15 @@ NGBlockBreakToken::NGBlockBreakToken(PassKey key, NGBoxFragmentBuilder* builder)
   has_unpositioned_list_marker_ =
       static_cast<bool>(builder->UnpositionedListMarker());
   DCHECK(builder->HasBreakTokenData());
-  data_ = std::move(builder->break_token_data_);
+  data_ = builder->break_token_data_;
+  builder->break_token_data_ = nullptr;
   for (wtf_size_t i = 0; i < builder->child_break_tokens_.size(); ++i)
     child_break_tokens_[i] = builder->child_break_tokens_[i];
 }
 
 NGBlockBreakToken::NGBlockBreakToken(PassKey key, NGLayoutInputNode node)
     : NGBreakToken(kBlockBreakToken, node),
-      data_(std::make_unique<NGBlockBreakTokenData>()),
+      data_(MakeGarbageCollected<NGBlockBreakTokenData>()),
       const_num_children_(0) {}
 
 const NGInlineBreakToken* NGBlockBreakToken::InlineBreakTokenFor(
@@ -83,14 +107,30 @@ const NGInlineBreakToken* NGBlockBreakToken::InlineBreakTokenFor(
 
 String NGBlockBreakToken::ToString() const {
   StringBuilder string_builder;
-  string_builder.Append(NGBreakToken::ToString());
+  string_builder.Append("(");
+  string_builder.Append(InputNode().ToString());
+  string_builder.Append(")");
+  if (is_break_before_) {
+    string_builder.Append(" break-before");
+  } else {
+    string_builder.Append(" sequence:");
+    string_builder.AppendNumber(SequenceNumber());
+  }
+  if (is_repeated_)
+    string_builder.Append(" (repeated)");
   string_builder.Append(" consumed:");
   string_builder.Append(ConsumedBlockSize().ToString());
   string_builder.Append("px");
 
-  if (ConsumedBlockSizeForLegacy()) {
-    string_builder.Append(" legacy adjustment:");
+  if (ConsumedBlockSizeForLegacy() != ConsumedBlockSize()) {
+    string_builder.Append(" legacy consumed:");
     string_builder.Append(ConsumedBlockSizeForLegacy().ToString());
+    string_builder.Append("px");
+  }
+
+  if (MonolithicOverflow()) {
+    string_builder.Append(" monolithic overflow:");
+    string_builder.Append(MonolithicOverflow().ToString());
     string_builder.Append("px");
   }
 
@@ -99,12 +139,13 @@ String NGBlockBreakToken::ToString() const {
 
 #endif  // DCHECK_IS_ON()
 
-void NGBlockBreakToken::Trace(Visitor* visitor) const {
-  // Looking up |ChildBreakTokens()| in Trace() here is safe because
+void NGBlockBreakToken::TraceAfterDispatch(Visitor* visitor) const {
+  visitor->Trace(data_);
+  // Looking up |ChildBreakTokensInternal()| in Trace() here is safe because
   // |const_num_children_| is const.
-  for (auto& child : ChildBreakTokens())
+  for (auto& child : ChildBreakTokensInternal())
     visitor->Trace(child);
-  NGBreakToken::Trace(visitor);
+  NGBreakToken::TraceAfterDispatch(visitor);
 }
 
 }  // namespace blink

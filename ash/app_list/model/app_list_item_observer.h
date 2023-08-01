@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,9 @@ class APP_LIST_MODEL_EXPORT AppListItemObserver : public base::CheckedObserver {
   // |config_type| The app list configuration type for which the item icon
   // changed.
   virtual void ItemIconChanged(AppListConfigType config_type) {}
+
+  // Invoked after the item's default icon changes.
+  virtual void ItemDefaultIconChanged() {}
 
   // Invoked after item's icon version number is changed.
   virtual void ItemIconVersionChanged() {}

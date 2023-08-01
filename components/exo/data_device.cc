@@ -1,12 +1,13 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/exo/data_device.h"
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/run_loop.h"
+#include "base/task/single_thread_task_runner.h"
 #include "components/exo/data_device_delegate.h"
 #include "components/exo/data_exchange_delegate.h"
 #include "components/exo/data_offer.h"
@@ -21,11 +22,6 @@
 #include "ui/base/dragdrop/drag_drop_types.h"
 #include "ui/base/dragdrop/drop_target_event.h"
 #include "ui/base/dragdrop/mojom/drag_drop_types.mojom.h"
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chromeos/ui/base/window_properties.h"
-#include "components/exo/extended_drag_source.h"
-#endif
 
 namespace exo {
 namespace {
@@ -127,26 +123,7 @@ aura::client::DragUpdateInfo DataDevice::OnDragUpdated(
   aura::client::DragUpdateInfo drag_info(
       ui::DragDropTypes::DRAG_NONE, ui::DataTransferEndpoint(endpoint_type));
 
-  bool prevent_motion_drag_events = false;
-
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  // chromeos::kCanAttachToAnotherWindowKey controls if a drag operation should
-  // trigger swallow/unswallow tab.
-  if (focused_surface_) {
-    // The ExtendedDragSource instance can be null for tests.
-    auto* extended_drag_source = ExtendedDragSource::Get();
-    bool is_extended_drag_source_active =
-        extended_drag_source && extended_drag_source->IsActive();
-
-    prevent_motion_drag_events =
-        is_extended_drag_source_active &&
-        !focused_surface_->get()->window()->GetToplevelWindow()->GetProperty(
-            chromeos::kCanAttachToAnotherWindowKey);
-  }
-#endif
-
-  if (!prevent_motion_drag_events)
-    delegate_->OnMotion(event.time_stamp(), event.location_f());
+  delegate_->OnMotion(event.time_stamp(), event.location_f());
 
   // TODO(hirono): dnd_action() here may not be updated. Chrome needs to provide
   // a way to update DND action asynchronously.
@@ -163,41 +140,7 @@ void DataDevice::OnDragExited() {
   data_offer_.reset();
 }
 
-DragOperation DataDevice::OnPerformDrop() {
-  if (!data_offer_)
-    return DragOperation::kNone;
-
-  DndAction dnd_action = data_offer_->get()->dnd_action();
-
-  delegate_->OnDrop();
-
-  // TODO(crbug.com/1160925): Avoid using nested loop by adding asynchronous
-  // callback to aura::client::DragDropDelegate.
-  base::WeakPtr<DataDevice> alive(weak_factory_.GetWeakPtr());
-  base::RunLoop run_loop(base::RunLoop::Type::kNestableTasksAllowed);
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE, run_loop.QuitClosure(), kDataOfferDestructionTimeout);
-  quit_closure_ = run_loop.QuitClosure();
-  run_loop.Run();
-
-  if (!alive)
-    return DragOperation::kNone;
-
-  if (quit_closure_) {
-    // DataOffer not destroyed by the client until the timeout.
-    quit_closure_.Reset();
-    data_offer_.reset();
-    drop_succeeded_ = false;
-  }
-
-  if (!drop_succeeded_)
-    return DragOperation::kNone;
-
-  return DndActionToDragOperation(dnd_action);
-}
-
-WMHelper::DragDropObserver::DropCallback DataDevice::GetDropCallback(
-    const ui::DropTargetEvent& event) {
+WMHelper::DragDropObserver::DropCallback DataDevice::GetDropCallback() {
   base::ScopedClosureRunner drag_exit(
       base::BindOnce(&DataDevice::OnDragExited, weak_factory_.GetWeakPtr()));
   return base::BindOnce(&DataDevice::PerformDropOrExitDrag,
@@ -272,8 +215,42 @@ void DataDevice::SetSelectionToCurrentClipboardData() {
 void DataDevice::PerformDropOrExitDrag(
     base::ScopedClosureRunner exit_drag,
     ui::mojom::DragOperation& output_drag_op) {
-  output_drag_op = OnPerformDrop();
   exit_drag.ReplaceClosure(base::DoNothing());
+
+  if (!data_offer_) {
+    output_drag_op = DragOperation::kNone;
+    return;
+  }
+
+  DndAction dnd_action = data_offer_->get()->dnd_action();
+
+  delegate_->OnDrop();
+
+  // TODO(crbug.com/1160925): Avoid using nested loop by adding asynchronous
+  // callback to aura::client::DragDropDelegate.
+  base::WeakPtr<DataDevice> alive(weak_factory_.GetWeakPtr());
+  base::RunLoop run_loop(base::RunLoop::Type::kNestableTasksAllowed);
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
+      FROM_HERE, run_loop.QuitClosure(), kDataOfferDestructionTimeout);
+  quit_closure_ = run_loop.QuitClosure();
+  run_loop.Run();
+
+  if (!alive) {
+    output_drag_op = DragOperation::kNone;
+    return;
+  }
+
+  if (quit_closure_) {
+    // DataOffer not destroyed by the client until the timeout.
+    quit_closure_.Reset();
+    data_offer_.reset();
+    drop_succeeded_ = false;
+  }
+
+  if (!drop_succeeded_)
+    output_drag_op = DragOperation::kNone;
+  else
+    output_drag_op = DndActionToDragOperation(dnd_action);
 }
 
 }  // namespace exo

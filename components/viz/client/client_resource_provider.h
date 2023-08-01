@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,7 +18,6 @@
 #include "components/viz/common/resources/returned_resource.h"
 #include "components/viz/common/resources/transferable_resource.h"
 #include "third_party/khronos/GLES2/gl2.h"
-#include "third_party/skia/include/core/SkSurface.h"
 
 namespace gpu {
 namespace gles2 {
@@ -111,28 +110,6 @@ class VIZ_CLIENT_EXPORT ClientResourceProvider {
   bool InUseByConsumer(ResourceId id);
 
   size_t num_resources_for_testing() const;
-
-  class VIZ_CLIENT_EXPORT ScopedSkSurface {
-   public:
-    ScopedSkSurface(GrDirectContext* gr_context,
-                    sk_sp<SkColorSpace> color_space,
-                    GLuint texture_id,
-                    GLenum texture_target,
-                    const gfx::Size& size,
-                    ResourceFormat format,
-                    SkSurfaceProps surface_props,
-                    int msaa_sample_count);
-
-    ScopedSkSurface(const ScopedSkSurface&) = delete;
-    ScopedSkSurface& operator=(const ScopedSkSurface&) = delete;
-
-    ~ScopedSkSurface();
-
-    SkSurface* surface() const { return surface_.get(); }
-
-   private:
-    sk_sp<SkSurface> surface_;
-  };
 
  private:
   struct ImportedResource;

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,22 +9,22 @@
 #include <memory>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/containers/contains.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/guid.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/test/bind.h"
 #include "base/test/task_environment.h"
+#include "base/uuid.h"
 #include "components/services/storage/dom_storage/storage_area_test_util.h"
 #include "components/services/storage/dom_storage/testing_legacy_session_storage_database.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -86,7 +86,7 @@ class SessionStorageImplTest : public testing::Test {
       remote_session_storage_.reset();
       session_storage_ = std::make_unique<SessionStorageImpl>(
           temp_path(), blocking_task_runner_,
-          base::SequencedTaskRunnerHandle::Get(), backing_mode_,
+          base::SequencedTaskRunner::GetCurrentDefault(), backing_mode_,
           kSessionStorageDirectory,
           remote_session_storage_.BindNewPipeAndPassReceiver());
     }
@@ -167,8 +167,10 @@ class SessionStorageImplTest : public testing::Test {
 };
 
 TEST_F(SessionStorageImplTest, MigrationV0ToV1) {
-  std::string namespace_id1 = base::GenerateGUID();
-  std::string namespace_id2 = base::GenerateGUID();
+  std::string namespace_id1 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
+  std::string namespace_id2 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
   blink::StorageKey storage_key1 =
       blink::StorageKey::CreateFromStringForTesting("http://foobar.com");
   blink::StorageKey storage_key2 =
@@ -183,7 +185,7 @@ TEST_F(SessionStorageImplTest, MigrationV0ToV1) {
       temp_path().AppendASCII(kSessionStorageDirectory);
   {
     auto db = base::MakeRefCounted<TestingLegacySessionStorageDatabase>(
-        old_db_path, base::ThreadTaskRunnerHandle::Get().get());
+        old_db_path, base::SingleThreadTaskRunner::GetCurrentDefault().get());
     LegacyDomStorageValuesMap data;
     data[key] = value;
     data[key2] = value;
@@ -226,7 +228,8 @@ TEST_F(SessionStorageImplTest, MigrationV0ToV1) {
 }
 
 TEST_F(SessionStorageImplTest, StartupShutdownSave) {
-  std::string namespace_id1 = base::GenerateGUID();
+  std::string namespace_id1 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
   blink::StorageKey storage_key1 =
       blink::StorageKey::CreateFromStringForTesting("http://foobar.com");
   session_storage()->CreateNamespace(namespace_id1);
@@ -284,8 +287,10 @@ TEST_F(SessionStorageImplTest, StartupShutdownSave) {
 }
 
 TEST_F(SessionStorageImplTest, CloneBeforeBrowserClone) {
-  std::string namespace_id1 = base::GenerateGUID();
-  std::string namespace_id2 = base::GenerateGUID();
+  std::string namespace_id1 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
+  std::string namespace_id2 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
   blink::StorageKey storage_key1 =
       blink::StorageKey::CreateFromStringForTesting("http://foobar.com");
   session_storage()->CreateNamespace(namespace_id1);
@@ -324,8 +329,10 @@ TEST_F(SessionStorageImplTest, CloneBeforeBrowserClone) {
 }
 
 TEST_F(SessionStorageImplTest, Cloning) {
-  std::string namespace_id1 = base::GenerateGUID();
-  std::string namespace_id2 = base::GenerateGUID();
+  std::string namespace_id1 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
+  std::string namespace_id2 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
   blink::StorageKey storage_key1 =
       blink::StorageKey::CreateFromStringForTesting("http://foobar.com");
   session_storage()->CreateNamespace(namespace_id1);
@@ -389,9 +396,12 @@ TEST_F(SessionStorageImplTest, Cloning) {
 }
 
 TEST_F(SessionStorageImplTest, ImmediateCloning) {
-  std::string namespace_id1 = base::GenerateGUID();
-  std::string namespace_id2 = base::GenerateGUID();
-  std::string namespace_id3 = base::GenerateGUID();
+  std::string namespace_id1 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
+  std::string namespace_id2 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
+  std::string namespace_id3 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
   blink::StorageKey storage_key1 =
       blink::StorageKey::CreateFromStringForTesting("http://foobar.com");
   session_storage()->CreateNamespace(namespace_id1);
@@ -462,7 +472,8 @@ TEST_F(SessionStorageImplTest, Scavenging) {
   // Storage without calling CreateNamespace.
 
   // Create, verify we have no data.
-  std::string namespace_id1 = base::GenerateGUID();
+  std::string namespace_id1 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
   blink::StorageKey storage_key1 =
       blink::StorageKey::CreateFromStringForTesting("http://foobar.com");
   session_storage()->CreateNamespace(namespace_id1);
@@ -542,7 +553,7 @@ TEST_F(SessionStorageImplTest, Scavenging) {
 }
 
 TEST_F(SessionStorageImplTest, InvalidVersionOnDisk) {
-  std::string namespace_id = base::GenerateGUID();
+  std::string namespace_id = base::Uuid::GenerateRandomV4().AsLowercaseString();
   blink::StorageKey storage_key =
       blink::StorageKey::CreateFromStringForTesting("http://foobar.com");
 
@@ -582,7 +593,7 @@ TEST_F(SessionStorageImplTest, InvalidVersionOnDisk) {
 }
 
 TEST_F(SessionStorageImplTest, CorruptionOnDisk) {
-  std::string namespace_id = base::GenerateGUID();
+  std::string namespace_id = base::Uuid::GenerateRandomV4().AsLowercaseString();
   blink::StorageKey storage_key =
       blink::StorageKey::CreateFromStringForTesting("http://foobar.com");
 
@@ -622,7 +633,7 @@ TEST_F(SessionStorageImplTest, CorruptionOnDisk) {
 }
 
 TEST_F(SessionStorageImplTest, RecreateOnCommitFailure) {
-  std::string namespace_id = base::GenerateGUID();
+  std::string namespace_id = base::Uuid::GenerateRandomV4().AsLowercaseString();
   blink::StorageKey storage_key1 =
       blink::StorageKey::CreateFromStringForTesting("http://foobar.com");
   blink::StorageKey storage_key2 =
@@ -695,9 +706,7 @@ TEST_F(SessionStorageImplTest, RecreateOnCommitFailure) {
                base::BindOnce([](bool success) { EXPECT_TRUE(success); }));
 
   // Repeatedly write data to the database, to trigger enough commit errors.
-  int i = 0;
   while (area_o1.is_connected()) {
-    ++i;
     // Every write needs to be different to make sure there actually is a
     // change to commit.
     std::vector<uint8_t> old_value = value;
@@ -759,7 +768,7 @@ TEST_F(SessionStorageImplTest, RecreateOnCommitFailure) {
 }
 
 TEST_F(SessionStorageImplTest, DontRecreateOnRepeatedCommitFailure) {
-  std::string namespace_id = base::GenerateGUID();
+  std::string namespace_id = base::Uuid::GenerateRandomV4().AsLowercaseString();
   blink::StorageKey storage_key1 =
       blink::StorageKey::CreateFromStringForTesting("http://foobar.com");
 
@@ -867,7 +876,8 @@ TEST_F(SessionStorageImplTest, DontRecreateOnRepeatedCommitFailure) {
 }
 
 TEST_F(SessionStorageImplTest, GetUsage) {
-  std::string namespace_id1 = base::GenerateGUID();
+  std::string namespace_id1 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
   blink::StorageKey storage_key1 =
       blink::StorageKey::CreateFromStringForTesting("http://foobar.com");
   session_storage()->CreateNamespace(namespace_id1);
@@ -892,7 +902,8 @@ TEST_F(SessionStorageImplTest, GetUsage) {
 }
 
 TEST_F(SessionStorageImplTest, DeleteStorage) {
-  std::string namespace_id1 = base::GenerateGUID();
+  std::string namespace_id1 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
   blink::StorageKey storage_key1 =
       blink::StorageKey::CreateFromStringForTesting("http://foobar.com");
 
@@ -941,8 +952,10 @@ TEST_F(SessionStorageImplTest, DeleteStorage) {
 }
 
 TEST_F(SessionStorageImplTest, PurgeInactiveWrappers) {
-  std::string namespace_id1 = base::GenerateGUID();
-  std::string namespace_id2 = base::GenerateGUID();
+  std::string namespace_id1 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
+  std::string namespace_id2 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
   blink::StorageKey storage_key1 =
       blink::StorageKey::CreateFromStringForTesting("http://foobar.com");
 
@@ -995,7 +1008,8 @@ TEST_F(SessionStorageImplTest, PurgeInactiveWrappers) {
 // TODO(https://crbug.com/1008697): Flakes when verifying no data found.
 TEST_F(SessionStorageImplTest, ClearDiskState) {
   SetBackingMode(SessionStorageImpl::BackingMode::kClearDiskStateOnOpen);
-  std::string namespace_id1 = base::GenerateGUID();
+  std::string namespace_id1 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
   blink::StorageKey storage_key1 =
       blink::StorageKey::CreateFromStringForTesting("http://foobar.com");
   session_storage()->CreateNamespace(namespace_id1);
@@ -1035,9 +1049,12 @@ TEST_F(SessionStorageImplTest, ClearDiskState) {
 }
 
 TEST_F(SessionStorageImplTest, InterruptedCloneWithDelete) {
-  std::string namespace_id1 = base::GenerateGUID();
-  std::string namespace_id2 = base::GenerateGUID();
-  std::string namespace_id3 = base::GenerateGUID();
+  std::string namespace_id1 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
+  std::string namespace_id2 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
+  std::string namespace_id3 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
   blink::StorageKey storage_key1 =
       blink::StorageKey::CreateFromStringForTesting("http://foobar.com");
   session_storage()->CreateNamespace(namespace_id1);
@@ -1060,9 +1077,12 @@ TEST_F(SessionStorageImplTest, InterruptedCloneWithDelete) {
 }
 
 TEST_F(SessionStorageImplTest, InterruptedCloneChainWithDelete) {
-  std::string namespace_id1 = base::GenerateGUID();
-  std::string namespace_id2 = base::GenerateGUID();
-  std::string namespace_id3 = base::GenerateGUID();
+  std::string namespace_id1 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
+  std::string namespace_id2 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
+  std::string namespace_id3 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
   blink::StorageKey storage_key1 =
       blink::StorageKey::CreateFromStringForTesting("http://foobar.com");
   session_storage()->CreateNamespace(namespace_id1);
@@ -1089,10 +1109,14 @@ TEST_F(SessionStorageImplTest, InterruptedCloneChainWithDelete) {
 }
 
 TEST_F(SessionStorageImplTest, InterruptedTripleCloneChain) {
-  std::string namespace_id1 = base::GenerateGUID();
-  std::string namespace_id2 = base::GenerateGUID();
-  std::string namespace_id3 = base::GenerateGUID();
-  std::string namespace_id4 = base::GenerateGUID();
+  std::string namespace_id1 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
+  std::string namespace_id2 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
+  std::string namespace_id3 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
+  std::string namespace_id4 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
   blink::StorageKey storage_key1 =
       blink::StorageKey::CreateFromStringForTesting("http://foobar.com");
   session_storage()->CreateNamespace(namespace_id1);
@@ -1126,10 +1150,14 @@ TEST_F(SessionStorageImplTest, InterruptedTripleCloneChain) {
 }
 
 TEST_F(SessionStorageImplTest, TotalCloneChainDeletion) {
-  std::string namespace_id1 = base::GenerateGUID();
-  std::string namespace_id2 = base::GenerateGUID();
-  std::string namespace_id3 = base::GenerateGUID();
-  std::string namespace_id4 = base::GenerateGUID();
+  std::string namespace_id1 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
+  std::string namespace_id2 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
+  std::string namespace_id3 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
+  std::string namespace_id4 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
   blink::StorageKey storage_key1 =
       blink::StorageKey::CreateFromStringForTesting("http://foobar.com");
   session_storage()->CreateNamespace(namespace_id1);
@@ -1155,8 +1183,10 @@ TEST_F(SessionStorageImplTest, TotalCloneChainDeletion) {
 }  // namespace
 
 TEST_F(SessionStorageImplTest, PurgeMemoryDoesNotCrashOrHang) {
-  std::string namespace_id1 = base::GenerateGUID();
-  std::string namespace_id2 = base::GenerateGUID();
+  std::string namespace_id1 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
+  std::string namespace_id2 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
   blink::StorageKey storage_key1 =
       blink::StorageKey::CreateFromStringForTesting("http://foobar.com");
 
@@ -1209,8 +1239,10 @@ TEST_F(SessionStorageImplTest, PurgeMemoryDoesNotCrashOrHang) {
 }
 
 TEST_F(SessionStorageImplTest, DeleteWithPersistBeforeBrowserClone) {
-  std::string namespace_id1 = base::GenerateGUID();
-  std::string namespace_id2 = base::GenerateGUID();
+  std::string namespace_id1 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
+  std::string namespace_id2 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
   blink::StorageKey storage_key1 =
       blink::StorageKey::CreateFromStringForTesting("http://foobar.com");
   session_storage()->CreateNamespace(namespace_id1);
@@ -1245,8 +1277,10 @@ TEST_F(SessionStorageImplTest, DeleteWithPersistBeforeBrowserClone) {
 }
 
 TEST_F(SessionStorageImplTest, DeleteWithoutPersistBeforeBrowserClone) {
-  std::string namespace_id1 = base::GenerateGUID();
-  std::string namespace_id2 = base::GenerateGUID();
+  std::string namespace_id1 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
+  std::string namespace_id2 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
   blink::StorageKey storage_key1 =
       blink::StorageKey::CreateFromStringForTesting("http://foobar.com");
   session_storage()->CreateNamespace(namespace_id1);
@@ -1281,8 +1315,10 @@ TEST_F(SessionStorageImplTest, DeleteWithoutPersistBeforeBrowserClone) {
 }
 
 TEST_F(SessionStorageImplTest, DeleteAfterCloneWithoutMojoClone) {
-  std::string namespace_id1 = base::GenerateGUID();
-  std::string namespace_id2 = base::GenerateGUID();
+  std::string namespace_id1 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
+  std::string namespace_id2 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
   blink::StorageKey storage_key1 =
       blink::StorageKey::CreateFromStringForTesting("http://foobar.com");
   session_storage()->CreateNamespace(namespace_id1);
@@ -1319,9 +1355,12 @@ TEST_F(SessionStorageImplTest, DeleteAfterCloneWithoutMojoClone) {
 
 // Regression test for https://crbug.com/1128318
 TEST_F(SessionStorageImplTest, Bug1128318) {
-  std::string namespace_id1 = base::GenerateGUID();
-  std::string namespace_id2 = base::GenerateGUID();
-  std::string namespace_id3 = base::GenerateGUID();
+  std::string namespace_id1 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
+  std::string namespace_id2 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
+  std::string namespace_id3 =
+      base::Uuid::GenerateRandomV4().AsLowercaseString();
 
   // Create two namespaces by cloning.
   session_storage()->CloneNamespace(

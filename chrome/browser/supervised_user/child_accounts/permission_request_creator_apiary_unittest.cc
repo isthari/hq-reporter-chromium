@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,9 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/json/json_writer.h"
 #include "base/test/task_environment.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "components/signin/public/identity_manager/identity_test_environment.h"
 #include "net/base/net_errors.h"
@@ -27,11 +26,10 @@ namespace {
 const char kEmail[] = "account@gmail.com";
 
 std::string BuildResponse() {
-  base::DictionaryValue dict;
-  auto permission_dict = std::make_unique<base::DictionaryValue>();
-  permission_dict->SetKey("id", base::Value("requestid"));
-  dict.SetKey("permissionRequest",
-              base::Value::FromUniquePtrValue(std::move(permission_dict)));
+  base::Value::Dict dict;
+  base::Value::Dict permission_dict;
+  permission_dict.Set("id", "requestid");
+  dict.Set("permissionRequest", std::move(permission_dict));
   std::string result;
   base::JSONWriter::Write(dict, &result);
   return result;

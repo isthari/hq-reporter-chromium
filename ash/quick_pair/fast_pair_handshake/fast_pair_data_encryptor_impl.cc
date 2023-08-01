@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,10 +14,10 @@
 #include "ash/quick_pair/proto/fastpair.pb.h"
 #include "ash/quick_pair/repository/fast_pair/device_metadata.h"
 #include "ash/quick_pair/repository/fast_pair_repository.h"
-#include "ash/services/quick_pair/quick_pair_process.h"
 #include "base/check.h"
 #include "base/memory/ptr_util.h"
 #include "base/notreached.h"
+#include "chromeos/ash/services/quick_pair/quick_pair_process.h"
 
 namespace ash {
 namespace quick_pair {
@@ -59,11 +59,11 @@ void FastPairDataEncryptorImpl::Factory::CreateAsync(
     return;
   }
 
-  if (device->protocol == Protocol::kFastPairInitial ||
-      device->protocol == Protocol::kFastPairRetroactive) {
+  if (device->protocol() == Protocol::kFastPairInitial ||
+      device->protocol() == Protocol::kFastPairRetroactive) {
     CreateAsyncWithKeyExchange(std::move(device),
                                std::move(on_get_instance_callback));
-  } else if (device->protocol == Protocol::kFastPairSubsequent) {
+  } else if (device->protocol() == Protocol::kFastPairSubsequent) {
     CreateAsyncWithAccountKey(std::move(device),
                               std::move(on_get_instance_callback));
   } else {
@@ -78,9 +78,11 @@ void FastPairDataEncryptorImpl::Factory::CreateAsyncWithKeyExchange(
     scoped_refptr<Device> device,
     base::OnceCallback<void(std::unique_ptr<FastPairDataEncryptor>)>
         on_get_instance_callback) {
+  QP_LOG(INFO) << __func__;
+
   // We first have to get the metadata in order to get the public key to use
   // to generate the new secret key pair.
-  auto metadata_id = device->metadata_id;
+  auto metadata_id = device->metadata_id();
   FastPairRepository::Get()->GetDeviceMetadata(
       metadata_id,
       base::BindOnce(
@@ -93,10 +95,9 @@ void FastPairDataEncryptorImpl::Factory::CreateAsyncWithAccountKey(
     scoped_refptr<Device> device,
     base::OnceCallback<void(std::unique_ptr<FastPairDataEncryptor>)>
         on_get_instance_callback) {
-  QP_LOG(VERBOSE) << __func__;
+  QP_LOG(INFO) << __func__;
 
-  absl::optional<std::vector<uint8_t>> account_key =
-      device->GetAdditionalData(Device::AdditionalDataType::kAccountKey);
+  absl::optional<std::vector<uint8_t>> account_key = device->account_key();
   DCHECK(account_key);
   DCHECK_EQ(account_key->size(), static_cast<size_t>(kPrivateKeyByteSize));
 
@@ -116,7 +117,7 @@ void FastPairDataEncryptorImpl::Factory::DeviceMetadataRetrieved(
     DeviceMetadata* device_metadata,
     bool has_retryable_error) {
   if (!device_metadata) {
-    QP_LOG(WARNING) << "No device metadata retrieved.";
+    QP_LOG(WARNING) << __func__ << ": No device metadata retrieved.";
     std::move(on_get_instance_callback).Run(nullptr);
     return;
   }
@@ -197,15 +198,68 @@ void FastPairDataEncryptorImpl::ParseDecryptedPasskey(
 void FastPairDataEncryptorImpl::QuickPairProcessStoppedOnResponse(
     QuickPairProcessManager::ShutdownReason shutdown_reason) {
   QP_LOG(WARNING)
-      << "Quick Pair process stopped while decrypting response due to error: "
+      << ": Quick Pair process stopped while decrypting response due to error: "
       << shutdown_reason;
 }
 
 void FastPairDataEncryptorImpl::QuickPairProcessStoppedOnPasskey(
     QuickPairProcessManager::ShutdownReason shutdown_reason) {
   QP_LOG(WARNING)
-      << "Quick Pair process stopped while decrypting passkey due to error: "
+      << ": Quick Pair process stopped while decrypting passkey due to error: "
       << shutdown_reason;
+}
+
+std::vector<uint8_t> FastPairDataEncryptorImpl::CreateAdditionalDataPacket(
+    std::array<uint8_t, kNonceSizeBytes> nonce,
+    const std::vector<uint8_t>& additional_data) {
+  const std::vector<uint8_t> encrypted_additional_data =
+      EncryptAdditionalDataWithSecretKey(nonce, additional_data);
+
+  const std::array<uint8_t, fast_pair_encryption::kHmacSizeBytes> hmac =
+      fast_pair_encryption::GenerateHmacSha256(secret_key_, nonce,
+                                               encrypted_additional_data);
+
+  // Packet Structure (bytes): [First 8 bytes HMAC (8) | Nonce (8) | Encrypted
+  // Additional Data (n)].
+  int additional_data_packet_size = kHmacAdditionalDataPacketSizeBytes +
+                                    kNonceSizeBytes +
+                                    encrypted_additional_data.size();
+  std::vector<uint8_t> additional_data_packet;
+  additional_data_packet.reserve(additional_data_packet_size);
+  additional_data_packet.insert(
+      additional_data_packet.end(), hmac.begin(),
+      std::next(hmac.begin(), kHmacAdditionalDataPacketSizeBytes));
+  additional_data_packet.insert(additional_data_packet.end(), nonce.begin(),
+                                nonce.end());
+  additional_data_packet.insert(additional_data_packet.end(),
+                                encrypted_additional_data.begin(),
+                                encrypted_additional_data.end());
+  additional_data_packet.shrink_to_fit();
+  return additional_data_packet;
+}
+
+bool FastPairDataEncryptorImpl::VerifyEncryptedAdditionalData(
+    const std::array<uint8_t, kHmacVerifyLenBytes> hmacSha256First8Bytes,
+    std::array<uint8_t, kNonceSizeBytes> nonce,
+    const std::vector<uint8_t>& encrypted_additional_data) {
+  const std::array<uint8_t, fast_pair_encryption::kHmacSizeBytes>
+      hmac_calculated = fast_pair_encryption::GenerateHmacSha256(
+          secret_key_, nonce, encrypted_additional_data);
+  CHECK(hmac_calculated.size() >= kHmacVerifyLenBytes);
+  for (size_t i = 0; i < kHmacVerifyLenBytes; i++) {
+    if (hmacSha256First8Bytes[i] != hmac_calculated[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+std::vector<uint8_t>
+FastPairDataEncryptorImpl::EncryptAdditionalDataWithSecretKey(
+    std::array<uint8_t, kNonceSizeBytes> nonce,
+    const std::vector<uint8_t>& additional_data) {
+  return fast_pair_encryption::EncryptAdditionalData(secret_key_, nonce,
+                                                     additional_data);
 }
 
 }  // namespace quick_pair

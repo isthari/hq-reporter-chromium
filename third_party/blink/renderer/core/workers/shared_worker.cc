@@ -38,6 +38,7 @@
 #include "third_party/blink/public/mojom/worker/shared_worker_info.mojom-blink.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_union_string_workeroptions.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_worker_options.h"
+#include "third_party/blink/renderer/core/event_target_names.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/fetch/request.h"
 #include "third_party/blink/renderer/core/fileapi/public_url_manager.h"
@@ -67,6 +68,7 @@ void RecordSharedWorkerUsage(LocalDOMWindow* window) {
 
 SharedWorker::SharedWorker(ExecutionContext* context)
     : AbstractWorker(context),
+      ActiveScriptWrappable<SharedWorker>({}),
       is_being_connected_(false),
       feature_handle_for_scheduler_(context->GetScheduler()->RegisterFeature(
           SchedulingPolicy::Feature::kSharedWorker,

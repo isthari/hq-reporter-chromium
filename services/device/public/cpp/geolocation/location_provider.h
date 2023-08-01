@@ -1,12 +1,12 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef SERVICES_DEVICE_PUBLIC_CPP_GEOLOCATION_LOCATION_PROVIDER_H_
 #define SERVICES_DEVICE_PUBLIC_CPP_GEOLOCATION_LOCATION_PROVIDER_H_
 
-#include "base/callback.h"
 #include "base/compiler_specific.h"
+#include "base/functional/callback.h"
 #include "services/device/public/mojom/geoposition.mojom.h"
 
 namespace device {
@@ -17,7 +17,7 @@ class LocationProvider {
   virtual ~LocationProvider() {}
 
   typedef base::RepeatingCallback<void(const LocationProvider*,
-                                       const mojom::Geoposition&)>
+                                       mojom::GeopositionResultPtr)>
       LocationProviderUpdateCallback;
 
   // This callback will be used to notify when a new Geoposition becomes
@@ -37,8 +37,9 @@ class LocationProvider {
   // network requests can be done until OnPermissionGranted() has been called.
   virtual void StopProvider() = 0;
 
-  // Gets the current best position estimate.
-  virtual const mojom::Geoposition& GetPosition() = 0;
+  // Gets the current best position estimate, or nullptr if no position estimate
+  // has been received.
+  virtual const mojom::GeopositionResult* GetPosition() = 0;
 
   // Called everytime permission is granted to a page for using geolocation.
   // This may either be through explicit user action (e.g. responding to the

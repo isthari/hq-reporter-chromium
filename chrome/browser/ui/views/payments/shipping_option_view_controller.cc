@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -73,12 +73,12 @@ class ShippingOptionItem : public PaymentRequestItemList::Item {
 
   void PerformSelectionFallback() override {
     // Since CanBeSelected() is always true, this should never be called.
-    NOTREACHED();
+    NOTREACHED_NORETURN();
   }
 
   void EditButtonPressed() override {
     // This subclass doesn't display the edit button.
-    NOTREACHED();
+    NOTREACHED_NORETURN();
   }
 
   raw_ptr<mojom::PaymentShippingOption> shipping_option_;
@@ -139,6 +139,11 @@ bool ShippingOptionViewController::ShouldShowPrimaryButton() {
 bool ShippingOptionViewController::ShouldShowSecondaryButton() {
   // Do not show the "Cancel Payment" button.
   return false;
+}
+
+base::WeakPtr<PaymentRequestSheetController>
+ShippingOptionViewController::GetWeakPtr() {
+  return weak_ptr_factory_.GetWeakPtr();
 }
 
 }  // namespace payments

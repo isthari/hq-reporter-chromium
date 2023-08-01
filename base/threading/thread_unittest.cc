@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,18 +10,16 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/debug/leak_annotations.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/task/current_thread.h"
-#include "base/task/post_task.h"
 #include "base/task/sequence_manager/sequence_manager_impl.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/task/task_executor.h"
 #include "base/test/bind.h"
 #include "base/test/gtest_util.h"
 #include "base/third_party/dynamic_annotations/dynamic_annotations.h"
@@ -154,14 +152,19 @@ TEST_F(ThreadTest, StartWithOptions_StackSize) {
   // message. At the same time, we should scale with the bitness of the system
   // where 12 kb is definitely not enough.
   // 12 kb = 3072 Slots on a 32-bit system, so we'll scale based off of that.
+  int multiplier = 1;
   Thread::Options options;
 #if defined(ADDRESS_SANITIZER) || !defined(NDEBUG)
   // ASan bloats the stack variables and overflows the 3072 slot stack. Some
   // debug builds also grow the stack too much.
-  options.stack_size = 2 * 3072 * sizeof(uintptr_t);
-#else
-  options.stack_size = 3072 * sizeof(uintptr_t);
+  ++multiplier;
 #endif
+#if defined(LEAK_SANITIZER) && BUILDFLAG(IS_MAC)
+  // The first time an LSAN disable is fired on a thread, the LSAN Mac runtime
+  // initializes a 56k object on the stack.
+  ++multiplier;
+#endif
+  options.stack_size = 3072 * sizeof(uintptr_t) * multiplier;
   EXPECT_TRUE(a.StartWithOptions(std::move(options)));
   EXPECT_TRUE(a.task_runner());
   EXPECT_TRUE(a.IsRunning());
@@ -297,13 +300,15 @@ TEST_F(ThreadTest, DISABLED_StopOnNonOwningThreadIsDeath) {
 
   Thread b("NonOwningThread");
   b.Start();
-  EXPECT_DCHECK_DEATH({
-    // Stopping |a| on |b| isn't allowed.
-    b.task_runner()->PostTask(
-        FROM_HERE, base::BindOnce(&Thread::Stop, base::Unretained(&a)));
-    // Block here so the DCHECK on |b| always happens in this scope.
-    base::PlatformThread::Sleep(base::TimeDelta::Max());
-  });
+  EXPECT_DCHECK_DEATH_WITH(
+      {
+        // Stopping |a| on |b| isn't allowed.
+        b.task_runner()->PostTask(
+            FROM_HERE, base::BindOnce(&Thread::Stop, base::Unretained(&a)));
+        // Block here so the DCHECK on |b| always happens in this scope.
+        base::PlatformThread::Sleep(base::TimeDelta::Max());
+      },
+      "owning_sequence_checker_.CalledOnValidSequence()");
 }
 
 TEST_F(ThreadTest, TransferOwnershipAndStop) {
@@ -533,33 +538,17 @@ TEST_F(ThreadTest, FlushForTesting) {
   a.FlushForTesting();
 }
 
-TEST_F(ThreadTest, GetTaskExecutorForCurrentThread) {
-  Thread a("GetTaskExecutorForCurrentThread");
-  ASSERT_TRUE(a.Start());
-
-  base::WaitableEvent event;
-
-  a.task_runner()->PostTask(
-      FROM_HERE, base::BindLambdaForTesting([&]() {
-        EXPECT_THAT(base::GetTaskExecutorForCurrentThread(), NotNull());
-        event.Signal();
-      }));
-
-  event.Wait();
-  a.Stop();
-}
-
 namespace {
+
+using TaskQueue = base::sequence_manager::TaskQueue;
 
 class SequenceManagerThreadDelegate : public Thread::Delegate {
  public:
   SequenceManagerThreadDelegate()
       : sequence_manager_(
             base::sequence_manager::CreateUnboundSequenceManager()),
-        task_queue_(
-            sequence_manager_
-                ->CreateTaskQueueWithType<base::sequence_manager::TaskQueue>(
-                    base::sequence_manager::TaskQueue::Spec("default_tq"))) {
+        task_queue_(sequence_manager_->CreateTaskQueue(
+            TaskQueue::Spec(base::sequence_manager::QueueName::DEFAULT_TQ))) {
     sequence_manager_->SetDefaultTaskRunner(GetDefaultTaskRunner());
   }
 
@@ -583,7 +572,7 @@ class SequenceManagerThreadDelegate : public Thread::Delegate {
 
  private:
   std::unique_ptr<base::sequence_manager::SequenceManager> sequence_manager_;
-  scoped_refptr<base::sequence_manager::TaskQueue> task_queue_;
+  scoped_refptr<TaskQueue> task_queue_;
 };
 
 }  // namespace

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,43 +12,74 @@
 #include <string>
 
 #include "base/base_export.h"
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/gtest_prod_util.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
-#include "build/chromeos_buildflags.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+
+#if BUILDFLAG(IS_MAC)
+#include "base/feature_list.h"
+#endif
 
 namespace base {
+
+#if BUILDFLAG(IS_MAC)
+// When enabled, NumberOfProcessors() returns the number of physical processors
+// instead of the number of logical processors if CPU security mitigations are
+// enabled for the current process.
+BASE_EXPORT BASE_DECLARE_FEATURE(kNumberOfCoresWithCpuSecurityMitigation);
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+// Strings for environment variables.
+BASE_EXPORT extern const char kLsbReleaseKey[];
+BASE_EXPORT extern const char kLsbReleaseTimeKey[];
+#endif
 
 namespace debug {
 FORWARD_DECLARE_TEST(SystemMetricsTest, ParseMeminfo);
 }
 
-class CommandLine;
+namespace test {
+class ScopedAmountOfPhysicalMemoryOverride;
+}
+
 class FilePath;
 struct SystemMemoryInfoKB;
 
 class BASE_EXPORT SysInfo {
  public:
-  // Return the number of logical processors/cores on the current machine.
+  // Returns the number of processors/cores available for the current
+  // application. This is typically the number of logical cores installed on the
+  // system, but could instead be the number of physical cores when
+  // SetIsCpuSecurityMitigationsEnabled() has been invoked to indicate that CPU
+  // security mitigations are enabled on Mac.
   static int NumberOfProcessors();
+
+  // Returns the number of the most efficient logical processors for the current
+  // application. This is typically e-cores on Intel hybrid architecture, or
+  // LITTLE cores on ARM bit.LITTLE architecture.
+  // Returns 0 on symmetric architecture or when it failed to recognize.
+  // This function will cache the result value in its implementation.
+  static int NumberOfEfficientProcessors();
 
   // Return the number of bytes of physical memory on the current machine.
   // If low-end device mode is manually enabled via command line flag, this
   // will return the lesser of the actual physical memory, or 512MB.
-  static int64_t AmountOfPhysicalMemory();
+  static uint64_t AmountOfPhysicalMemory();
 
   // Return the number of bytes of current available physical memory on the
   // machine.
   // (The amount of memory that can be allocated without any significant
   // impact on the system. It can lead to freeing inactive file-backed
   // and/or speculative file-backed memory).
-  static int64_t AmountOfAvailablePhysicalMemory();
+  static uint64_t AmountOfAvailablePhysicalMemory();
 
   // Return the number of bytes of virtual memory of this process. A return
   // value of zero means that there is no limit on the available virtual
   // memory.
-  static int64_t AmountOfVirtualMemory();
+  static uint64_t AmountOfVirtualMemory();
 
   // Return the number of megabytes of physical memory on the current machine.
   static int AmountOfPhysicalMemoryMB() {
@@ -68,21 +99,6 @@ class BASE_EXPORT SysInfo {
   // Return the total disk space in bytes on the volume containing |path|, or -1
   // on failure.
   static int64_t AmountOfTotalDiskSpace(const FilePath& path);
-
-#if BUILDFLAG(IS_CHROMEOS)
-  // On ChromeOS, spaced is the central source-of-truth for disk space
-  // information. Spaced takes into account the available extents on the
-  // underlying thinpool to make sure that thinly provisioned filesystems
-  // return only the available physical extents as the free space.
-  //
-  // Return the available disk space in bytes on the volume containing |path|,
-  // or -1 on failure.
-  static int64_t GetFreeDiskSpaceFromSpaced(const FilePath& path);
-
-  // Return the total disk space in bytes on the volume containing |path|, or -1
-  // on failure.
-  static int64_t GetTotalDiskSpaceFromSpaced(const FilePath& path);
-#endif
 
 #if BUILDFLAG(IS_FUCHSIA)
   // Sets the total amount of disk space to report under the specified |path|.
@@ -139,17 +155,16 @@ class BASE_EXPORT SysInfo {
   // none of the above.
   static std::string ProcessCPUArchitecture();
 
-  // Avoid using this. Use base/cpu.h to get information about the CPU instead.
-  // http://crbug.com/148884
   // Returns the CPU model name of the system. If it can not be figured out,
   // an empty string is returned.
+  // More detailed info can be obtained from base/cpu.h.
   static std::string CPUModelName();
 
   // Return the smallest amount of memory (in bytes) which the VM system will
   // allocate.
   static size_t VMAllocationGranularity();
 
-#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS)
   // Set |value| and return true if LsbRelease contains information about |key|.
   static bool GetLsbReleaseValue(const std::string& key, std::string* value);
 
@@ -185,21 +200,13 @@ class BASE_EXPORT SysInfo {
   // Undoes the function above.
   static void ResetChromeOSVersionInfoForTest();
 
-  // Overrides the command runner for running commands. Overrides cannot be
-  // nested. Users must call SetChromeOSGetAppOutputForTest(nullptr) to revert
-  // the test function.
-  using GetAppOutputCallback =
-      RepeatingCallback<bool(const CommandLine&, std::string*)>;
-
-  static void SetChromeOSGetAppOutputForTest(GetAppOutputCallback* callback);
-
   // Returns the kernel version of the host operating system.
   static std::string KernelVersion();
 
   // Crashes if running on Chrome OS non-test image. Use only for really
   // sensitive and risky use cases.
   static void CrashIfChromeOSNonTestImage();
-#endif  // BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
+#endif  // BUILDFLAG(IS_CHROMEOS)
 
 #if BUILDFLAG(IS_ANDROID)
   // Returns the Android build's codename.
@@ -236,20 +243,43 @@ class BASE_EXPORT SysInfo {
   // On Desktop this returns true when memory <= 2GB.
   static bool IsLowEndDevice();
 
+  // The same as IsLowEndDevice() except on Android.
+  //
+  // On Android this returns:
+  //   true when IsLowEndDevice() returns true.
+  //   true when the physical memory of the device is 4gb or 6gb and
+  //             the feature: kPartialLowEndModeOnMidEndDevices() is enabled.
+  static bool IsLowEndDeviceOrPartialLowEndModeEnabled();
+
+#if BUILDFLAG(IS_MAC)
+  // Sets whether CPU security mitigations are enabled for the current process.
+  // This is used to control the behavior of NumberOfProcessors(), see comment
+  // on that method.
+  static void SetIsCpuSecurityMitigationsEnabled(bool is_enabled);
+#endif
+
  private:
+  friend class test::ScopedAmountOfPhysicalMemoryOverride;
   FRIEND_TEST_ALL_PREFIXES(SysInfoTest, AmountOfAvailablePhysicalMemory);
   FRIEND_TEST_ALL_PREFIXES(debug::SystemMetricsTest, ParseMeminfo);
 
-  static int64_t AmountOfPhysicalMemoryImpl();
-  static int64_t AmountOfAvailablePhysicalMemoryImpl();
+  static int NumberOfEfficientProcessorsImpl();
+  static uint64_t AmountOfPhysicalMemoryImpl();
+  static uint64_t AmountOfAvailablePhysicalMemoryImpl();
   static bool IsLowEndDeviceImpl();
   static HardwareInfo GetHardwareInfoSync();
 
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || \
     BUILDFLAG(IS_AIX)
-  static int64_t AmountOfAvailablePhysicalMemory(
+  static uint64_t AmountOfAvailablePhysicalMemory(
       const SystemMemoryInfoKB& meminfo);
 #endif
+
+  // Sets the amount of physical memory in MB for testing, thus allowing tests
+  // to run irrespective of the host machine's configuration.
+  static absl::optional<uint64_t> SetAmountOfPhysicalMemoryMbForTesting(
+      uint64_t amount_of_memory_mb);
+  static void ClearAmountOfPhysicalMemoryMbForTesting();
 };
 
 }  // namespace base

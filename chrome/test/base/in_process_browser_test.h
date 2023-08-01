@@ -1,21 +1,22 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_TEST_BASE_IN_PROCESS_BROWSER_TEST_H_
 #define CHROME_TEST_BASE_IN_PROCESS_BROWSER_TEST_H_
 
+#include <map>
 #include <memory>
 #include <string>
 
 #include "base/files/file_path.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/memory/raw_ptr.h"
-#include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "components/feature_engagement/test/scoped_iph_feature_list.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test_base.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -44,6 +45,10 @@ namespace win {
 class ScopedCOMInitializer;
 }
 #endif  // BUILDFLAG(IS_WIN)
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+class Process;
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
 }  // namespace base
 
 #if defined(TOOLKIT_VIEWS)
@@ -51,6 +56,10 @@ namespace views {
 class ViewsDelegate;
 }
 #endif  // defined(TOOLKIT_VIEWS)
+
+namespace display {
+class Screen;
+}
 
 class Browser;
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
@@ -175,6 +184,52 @@ class InProcessBrowserTest : public content::BrowserTestBase {
   // PreRunTestOnMainThread().
   void SelectFirstBrowser();
 
+  // This function is used to record a set of properties for a test case in
+  // gtest result and that will be used by resultDB. The map's key value pair
+  // are defined by each test case. For use case check this bug:
+  // https://crbug.com/1365899
+  // The final value of the result is the format of key1=value1;key2=value2.
+  void RecordPropertyFromMap(const std::map<std::string, std::string>& tags);
+
+  // Start ash-chrome with specific flags.
+  // In general, there is a shared ash chrome started and a lacros chrome
+  // started before a test case. But for some tests, you may need a special
+  // ash chrome. 2 common use cases:
+  //   1. you need to enable a feature in ash chrome then your test can verify
+  //      some behavior. In this case you need to call this function to start
+  //      a unique ash chrome with the feature enabled.
+  //   2. your test case will pollute ash and cause following test cases fail or
+  //      flaky. Instead of implementing cleanup in TearDown(), using a
+  //      unique ash just for the test is better.
+  // Call this function in the test SetUp() function before invoking
+  // InProcessBrowserTest::SetUp().
+  // This function has negative performance impact:
+  //   1. Start additional ash chrome uses more time.
+  //   2. Additional ash chrome uses more resources.
+  //      The shared ash chrome is still running. By calling this function,
+  //      you start another ash chrome.
+  // Args:
+  //   enabled_features: Additional features to be enabled in ash chrome.
+  //   disabled_features: Additional features to be disabled in ash chrome.
+  //   additional_cmdline_switches: Additional cmdline switches.
+  //       e.g. {"enable-pixel-outputs-in-tests"}
+  //   bug_number_and_reason: Not used in code. But please provide information
+  //       about why you need unique ash chrome. Hopefully this can help reduce
+  //       the usage of unique ash.
+  //       e.g. "crbug.com/11. Switch to shared ash when feature XX is default."
+  //
+  // After you call this function in SetUp(), before the test case test body,
+  // a unique ash chrome will be started and a lacros chrome will be connected
+  // to it. After the test case finishes, the unique ash chrome will be
+  // terminated and the next test case will use the default shared ash chrome.
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  void StartUniqueAshChrome(
+      const std::vector<std::string>& enabled_features,
+      const std::vector<std::string>& disabled_features,
+      const std::vector<std::string>& additional_cmdline_switches,
+      const std::string& bug_number_and_reason);
+#endif
+
  protected:
   // Closes the given browser and waits for it to release all its resources.
   void CloseBrowserSynchronously(Browser* browser);
@@ -196,12 +251,19 @@ class InProcessBrowserTest : public content::BrowserTestBase {
   // Convenience methods for adding tabs to a Browser. Returns true if the
   // navigation succeeded. |check_navigation_success| is ignored and will be
   // removed as part of check_navigation_success http://crbug.com/1014186.
-  bool AddTabAtIndexToBrowser(Browser* browser,
-                              int index,
-                              const GURL& url,
-                              ui::PageTransition transition,
-                              bool check_navigation_success);
-  bool AddTabAtIndex(int index, const GURL& url, ui::PageTransition transition);
+  // Do not add new usages of the version with |check_navigation_success|.
+  [[nodiscard]] bool AddTabAtIndexToBrowser(Browser* browser,
+                                            int index,
+                                            const GURL& url,
+                                            ui::PageTransition transition,
+                                            bool check_navigation_success);
+  [[nodiscard]] bool AddTabAtIndexToBrowser(Browser* browser,
+                                            int index,
+                                            const GURL& url,
+                                            ui::PageTransition transition);
+  [[nodiscard]] bool AddTabAtIndex(int index,
+                                   const GURL& url,
+                                   ui::PageTransition transition);
 
   // Sets up default command line that will be used to launch the child browser
   // process with an in-process test. Called by SetUp() after SetUpCommandLine()
@@ -218,7 +280,7 @@ class InProcessBrowserTest : public content::BrowserTestBase {
   [[nodiscard]] virtual bool SetUpUserDataDirectory();
 
   // Initializes the display::Screen instance.
-  virtual void SetScreenInstance() {}
+  virtual void SetScreenInstance();
 
   // BrowserTestBase:
   void PreRunTestOnMainThread() override;
@@ -307,7 +369,13 @@ class InProcessBrowserTest : public content::BrowserTestBase {
   FakeAccountManagerUI* GetFakeAccountManagerUI() const;
 #endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
 
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS_LACROS)
+  std::unique_ptr<display::Screen> screen_;
+#endif
+
  private:
+  friend class StartUniqueAshBrowserTest;
+
   void Initialize();
 
   // Quits all open browsers and waits until there are no more browsers.
@@ -319,7 +387,7 @@ class InProcessBrowserTest : public content::BrowserTestBase {
   // If no browser is created in BrowserMain(), then |browser_| will remain
   // nullptr unless SelectFirstBrowser() is called after the creation of the
   // first browser instance at a later time.
-  raw_ptr<Browser> browser_ = nullptr;
+  raw_ptr<Browser, DanglingUntriaged> browser_ = nullptr;
 
   // Used to run the process until the BrowserProcess signals the test to quit.
   std::unique_ptr<base::RunLoop> run_loop_;
@@ -340,8 +408,19 @@ class InProcessBrowserTest : public content::BrowserTestBase {
 
   base::test::ScopedFeatureList scoped_feature_list_;
 
+  // In-product help can conflict with tests' expected window activation and
+  // focus. This disables all IPH by default.
+  //
+  // This was previously done by disabling all IPH features, but that destroyed
+  // all field trials that included an IPH because overriding any feature
+  // touched by a field trial disables the field trial (see crbug.com/1381669).
+  //
+  // Individual tests can re-enable IPH using another ScopedIphFeatureList.
+  feature_engagement::test::ScopedIphFeatureList block_all_iph_feature_list_;
+
 #if BUILDFLAG(IS_MAC)
-  base::mac::ScopedNSAutoreleasePool* autorelease_pool_ = nullptr;
+  raw_ptr<base::mac::ScopedNSAutoreleasePool, DanglingUntriaged>
+      autorelease_pool_ = nullptr;
   std::unique_ptr<ScopedBundleSwizzlerMac> bundle_swizzler_;
 
   // Enable fake full keyboard access by default, so that tests don't depend on
@@ -368,6 +447,11 @@ class InProcessBrowserTest : public content::BrowserTestBase {
   // testing, when the full restore feature is enabled.
   std::unique_ptr<ash::full_restore::ScopedLaunchBrowserForTesting>
       launch_browser_for_testing_;
+#endif
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  base::ScopedTempDir unique_ash_user_data_dir_;
+  base::Process ash_process_;
 #endif
 };
 

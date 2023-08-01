@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sharesheet/sharesheet_service_delegator.h"
 #include "chrome/browser/ui/ash/sharesheet/sharesheet_bubble_view.h"
@@ -27,7 +27,7 @@ SharesheetBubbleViewDelegate::~SharesheetBubbleViewDelegate() = default;
 
 void SharesheetBubbleViewDelegate::ShowBubble(
     std::vector<::sharesheet::TargetInfo> targets,
-    apps::mojom::IntentPtr intent,
+    apps::IntentPtr intent,
     ::sharesheet::DeliveredCallback delivered_callback,
     ::sharesheet::CloseCallback close_callback) {
   if (IsBubbleVisible()) {
@@ -49,7 +49,7 @@ void SharesheetBubbleViewDelegate::ShowBubble(
 }
 
 void SharesheetBubbleViewDelegate::ShowNearbyShareBubbleForArc(
-    apps::mojom::IntentPtr intent,
+    apps::IntentPtr intent,
     ::sharesheet::DeliveredCallback delivered_callback,
     ::sharesheet::CloseCallback close_callback) {
   if (IsBubbleVisible()) {

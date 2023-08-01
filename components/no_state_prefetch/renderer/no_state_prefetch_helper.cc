@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,8 @@
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_macros.h"
 #include "components/no_state_prefetch/common/prerender_url_loader_throttle.h"
-#include "content/public/renderer/document_state.h"
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_thread.h"
-#include "content/public/renderer/render_view.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/web/web_frame.h"
 #include "third_party/blink/public/web/web_view.h"
@@ -56,7 +54,6 @@ bool NoStatePrefetchHelper::IsPrefetching(
 }
 
 void NoStatePrefetchHelper::DidDispatchDOMContentLoadedEvent() {
-  parsed_time_ = base::TimeTicks::Now();
   prefetch_finished_ = true;
   if (prefetch_count_ == 0)
     SendPrefetchFinished();
@@ -78,17 +75,12 @@ void NoStatePrefetchHelper::AddThrottle(PrerenderURLLoaderThrottle& throttle) {
 
 void NoStatePrefetchHelper::OnThrottleDestroyed() {
   if (--prefetch_count_ == 0 && prefetch_finished_) {
-    UMA_HISTOGRAM_MEDIUM_TIMES(
-        "Prerender.NoStatePrefetchRendererLifetimeExtension",
-        base::TimeTicks::Now() - parsed_time_);
     SendPrefetchFinished();
   }
 }
 
 void NoStatePrefetchHelper::SendPrefetchFinished() {
   DCHECK(prefetch_count_ == 0 && prefetch_finished_);
-  UMA_HISTOGRAM_MEDIUM_TIMES("Prerender.NoStatePrefetchRendererParseTime",
-                             parsed_time_ - start_time_);
 
   mojo::Remote<mojom::PrerenderCanceler> canceler;
   render_frame()->GetBrowserInterfaceBroker()->GetInterface(

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,6 @@
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
-#include "services/network/public/mojom/network_service.mojom.h"
 #include "services/network/public/mojom/udp_socket.mojom.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
@@ -63,6 +62,8 @@ class UDPSocket : public Socket, public network::mojom::UDPSocketListener {
 
   const std::vector<std::string>& GetJoinedGroups() const;
 
+  bool IsConnectedOrBound() const;
+
  protected:
   int WriteImpl(net::IOBuffer* io_buffer,
                 int io_buffer_size,
@@ -71,8 +72,6 @@ class UDPSocket : public Socket, public network::mojom::UDPSocketListener {
  private:
   // Make net::IPEndPoint can be refcounted
   typedef base::RefCountedData<net::IPEndPoint> IPEndPoint;
-
-  bool IsConnectedOrBound() const;
 
   // network::mojom::UDPSocketListener implementation.
   void OnReceived(int32_t result,

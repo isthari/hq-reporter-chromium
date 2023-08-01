@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <string>
 
+#import "ios/web/public/js_messaging/web_frames_manager.h"
 #include "ios/web/public/web_state_observer.h"
 #import "ios/web/public/web_state_user_data.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -28,10 +29,11 @@ enum Zoom {
 };
 
 // Adjusts font size of web page by mapping
-// |UIApplication.sharedApplication.preferredContentSizeCategory| to a scaling
+// `UIApplication.sharedApplication.preferredContentSizeCategory` to a scaling
 // percentage and setting it to "-webkit-font-size-adjust" style on <body> when
 // the page is successfully loaded or system font size changes.
-class FontSizeTabHelper : public web::WebStateObserver,
+class FontSizeTabHelper : public web::WebFramesManager::Observer,
+                          public web::WebStateObserver,
                           public web::WebStateUserData<FontSizeTabHelper> {
  public:
   FontSizeTabHelper(const FontSizeTabHelper&) = delete;
@@ -63,7 +65,7 @@ class FontSizeTabHelper : public web::WebStateObserver,
   // Text zoom is currently only supported on HTML pages.
   bool CurrentPageSupportsTextZoom() const;
 
-  // Remove any stored zoom levels from the provided |PrefService|.
+  // Remove any stored zoom levels from `pref_service`.
   static void ClearUserZoomPrefs(PrefService* pref_service);
 
   static void RegisterBrowserStatePrefs(
@@ -108,8 +110,10 @@ class FontSizeTabHelper : public web::WebStateObserver,
   void WebStateDestroyed(web::WebState* web_state) override;
   void DidFinishNavigation(web::WebState* web_state,
                            web::NavigationContext* context) override;
-  void WebFrameDidBecomeAvailable(web::WebState* web_state,
-                                  web::WebFrame* web_frame) override;
+
+  // web::WebFramesManager::Observer
+  void WebFrameBecameAvailable(web::WebFramesManager* web_frames_manager,
+                               web::WebFrame* web_frame) override;
 
   // Observer id returned by registering at NSNotificationCenter.
   id content_size_did_change_observer_ = nil;

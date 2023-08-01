@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,15 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_LAYOUT_NG_TEXT_COMBINE_H_
 
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/ng/layout_ng_block_flow.h"
 
 namespace blink {
 
 class AffineTransform;
+class LayoutText;
 class NGFragmentItem;
+class NGInlineCursor;
 
 // The layout object for the element having "text-combine-upright:all" in
 // vertical writing mode, e.g. <i style="text-upright:all"><b>12</b>34<i>.
@@ -64,7 +67,7 @@ class CORE_EXPORT LayoutNGTextCombine final : public LayoutNGBlockFlow {
       const PhysicalOffset& inline_root_offset) const;
 
   // Returns ink overflow for text decorations and emphasis mark.
-  PhysicalRect RecalcContentsInkOverflow() const;
+  PhysicalRect RecalcContentsInkOverflow(const NGInlineCursor&) const;
 
   void ResetLayout();
   void SetScaleX(float new_scale_x);
@@ -126,8 +129,9 @@ class CORE_EXPORT LayoutNGTextCombine final : public LayoutNGBlockFlow {
 inline bool LayoutNGTextCombine::ShouldBeParentOf(
     const LayoutObject& layout_object) {
   if (LIKELY(layout_object.IsHorizontalWritingMode()) ||
-      !layout_object.IsText())
+      !layout_object.IsText() || layout_object.IsSVGInlineText()) {
     return false;
+  }
   return UNLIKELY(layout_object.StyleRef().HasTextCombine()) &&
          layout_object.IsLayoutNGObject();
 }

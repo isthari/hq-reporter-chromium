@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,12 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/task/sequenced_task_runner.h"
 #include "build/build_config.h"
 #include "components/policy/core/common/management/management_service.h"
+#include "components/policy/core/common/management/platform_management_service.h"
 #include "components/policy/core/common/policy_bundle.h"
 
 using base::Time;
@@ -33,9 +34,9 @@ constexpr base::TimeDelta kReloadInterval = base::Minutes(15);
 AsyncPolicyLoader::AsyncPolicyLoader(
     const scoped_refptr<base::SequencedTaskRunner>& task_runner,
     bool periodic_updates)
-    : task_runner_(task_runner),
-      management_service_(nullptr),
-      periodic_updates_(periodic_updates) {}
+    : AsyncPolicyLoader(task_runner,
+                        /*management_service=*/nullptr,
+                        periodic_updates) {}
 
 AsyncPolicyLoader::AsyncPolicyLoader(
     const scoped_refptr<base::SequencedTaskRunner>& task_runner,
@@ -43,7 +44,8 @@ AsyncPolicyLoader::AsyncPolicyLoader(
     bool periodic_updates)
     : task_runner_(task_runner),
       management_service_(management_service),
-      periodic_updates_(periodic_updates) {}
+      periodic_updates_(periodic_updates),
+      reload_interval_(kReloadInterval) {}
 
 AsyncPolicyLoader::~AsyncPolicyLoader() {}
 
@@ -62,7 +64,27 @@ void AsyncPolicyLoader::Reload(bool force) {
     return;
   }
 
-  std::unique_ptr<PolicyBundle> bundle(Load());
+  // `management_service_` must be called on the main thread.
+  // base::Unretained is okay here since `management_service_` is an instance of
+  // PlatformManagementService which is a singleton that outlives this class.
+  if (NeedManagementBitBeforeLoad()) {
+    DCHECK_EQ(management_service_, PlatformManagementService::GetInstance());
+    ui_thread_task_runner_->PostTaskAndReplyWithResult(
+        FROM_HERE,
+        base::BindOnce(
+            &ManagementService::GetManagementAuthorityTrustworthiness,
+            base::Unretained(management_service_)),
+        base::BindOnce(
+            &AsyncPolicyLoader::SetPlatformManagementTrustworthinessAndReload,
+            weak_factory_.GetWeakPtr(), force));
+    return;
+  }
+
+  PolicyBundle bundle = Load();
+
+  // Reset so that we get the latest management trustworthiness at the next
+  // reload.
+  platform_management_trustworthiness_.reset();
 
   // Check if there was a modification while reading.
   if (!force && !IsSafeToReload(now, &delay)) {
@@ -71,43 +93,70 @@ void AsyncPolicyLoader::Reload(bool force) {
   }
 
   // Filter out mismatching policies.
-  schema_map_->FilterBundle(bundle.get(),
+  schema_map_->FilterBundle(bundle,
                             /*drop_invalid_component_policies=*/true);
 
   update_callback_.Run(std::move(bundle));
   if (periodic_updates_) {
-    ScheduleNextReload(kReloadInterval);
+    // Note: it is important to schedule the next reload after calling Load()
+    // to make sure that anything done in Load() that may change the state of
+    // the loader  (e.g. changing the `reload_interval_`) is effective before
+    // scheduling the next reload.
+    ScheduleNextReload(get_reload_interval());
   }
 }
 
 bool AsyncPolicyLoader::ShouldFilterSensitivePolicies() {
 #if BUILDFLAG(IS_WIN)
-  DCHECK(management_service_);
-  return management_service_->GetManagementAuthorityTrustworthiness() <
+  DCHECK(platform_management_trustworthiness_);
+
+  return *platform_management_trustworthiness_ <
          ManagementAuthorityTrustworthiness::TRUSTED;
 #else
   return false;
 #endif
 }
-std::unique_ptr<PolicyBundle> AsyncPolicyLoader::InitialLoad(
+
+void AsyncPolicyLoader::SetPlatformManagementTrustworthinessAndReload(
+    bool force,
+    ManagementAuthorityTrustworthiness trustworthiness) {
+  platform_management_trustworthiness_ = trustworthiness;
+  Reload(force);
+}
+
+bool AsyncPolicyLoader::NeedManagementBitBeforeLoad() {
+  return !platform_management_trustworthiness_.has_value() &&
+         management_service_;
+}
+
+PolicyBundle AsyncPolicyLoader::InitialLoad(
     const scoped_refptr<SchemaMap>& schema_map) {
   // This is the first load, early during startup. Use this to record the
   // initial |last_modification_time_|, so that potential changes made before
   // installing the watches can be detected.
   last_modification_time_ = LastModificationTime();
   schema_map_ = schema_map;
-  std::unique_ptr<PolicyBundle> bundle(Load());
+  if (management_service_) {
+    DCHECK_EQ(management_service_, PlatformManagementService::GetInstance());
+    platform_management_trustworthiness_ =
+        management_service_->GetManagementAuthorityTrustworthiness();
+  }
+  PolicyBundle bundle = Load();
+  platform_management_trustworthiness_.reset();
   // Filter out mismatching policies.
-  schema_map_->FilterBundle(bundle.get(),
+  schema_map_->FilterBundle(bundle,
                             /*drop_invalid_component_policies=*/true);
   return bundle;
 }
 
-void AsyncPolicyLoader::Init(const UpdateCallback& update_callback) {
+void AsyncPolicyLoader::Init(
+    scoped_refptr<base::SequencedTaskRunner> ui_thread_task_runner,
+    const UpdateCallback& update_callback) {
   DCHECK(task_runner_->RunsTasksInCurrentSequence());
   DCHECK(update_callback_.is_null());
   DCHECK(!update_callback.is_null());
   update_callback_ = update_callback;
+  ui_thread_task_runner_ = ui_thread_task_runner;
 
   InitOnBackgroundThread();
 
@@ -118,7 +167,7 @@ void AsyncPolicyLoader::Init(const UpdateCallback& update_callback) {
 
   // Start periodic refreshes.
   if (periodic_updates_) {
-    ScheduleNextReload(kReloadInterval);
+    ScheduleNextReload(get_reload_interval());
   }
 }
 

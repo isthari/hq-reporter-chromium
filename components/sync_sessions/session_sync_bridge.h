@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include <memory>
 #include <string>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
@@ -32,7 +32,7 @@ class SyncSessionsClient;
 // This is achieved by implementing the interface ModelTypeSyncBridge, which
 // ClientTagBasedModelTypeProcessor will use to interact, ultimately, with the
 // sync server. See
-// https://chromium.googlesource.com/chromium/src/+/lkcr/docs/sync/model_api.md#Implementing-ModelTypeSyncBridge
+// https://www.chromium.org/developers/design-documents/sync/model-api/#implementing-modeltypesyncbridge
 // for details.
 class SessionSyncBridge : public syncer::ModelTypeSyncBridge,
                           public LocalSessionEventHandlerImpl::Delegate {
@@ -56,18 +56,20 @@ class SessionSyncBridge : public syncer::ModelTypeSyncBridge,
       const syncer::DataTypeActivationRequest& request) override;
   std::unique_ptr<syncer::MetadataChangeList> CreateMetadataChangeList()
       override;
-  absl::optional<syncer::ModelError> MergeSyncData(
+  absl::optional<syncer::ModelError> MergeFullSyncData(
       std::unique_ptr<syncer::MetadataChangeList> metadata_change_list,
       syncer::EntityChangeList entity_data) override;
-  absl::optional<syncer::ModelError> ApplySyncChanges(
+  absl::optional<syncer::ModelError> ApplyIncrementalSyncChanges(
       std::unique_ptr<syncer::MetadataChangeList> metadata_change_list,
       syncer::EntityChangeList entity_changes) override;
   void GetData(StorageKeyList storage_keys, DataCallback callback) override;
   void GetAllDataForDebugging(DataCallback callback) override;
   std::string GetClientTag(const syncer::EntityData& entity_data) override;
   std::string GetStorageKey(const syncer::EntityData& entity_data) override;
-  void ApplyStopSyncChanges(std::unique_ptr<syncer::MetadataChangeList>
-                                delete_metadata_change_list) override;
+  void ApplyDisableSyncChanges(std::unique_ptr<syncer::MetadataChangeList>
+                                   delete_metadata_change_list) override;
+  void OnSyncPaused() override;
+  bool IsEntityDataValid(const syncer::EntityData& entity_data) const override;
 
   // LocalSessionEventHandlerImpl::Delegate implementation.
   std::unique_ptr<LocalSessionEventHandlerImpl::WriteBatch>

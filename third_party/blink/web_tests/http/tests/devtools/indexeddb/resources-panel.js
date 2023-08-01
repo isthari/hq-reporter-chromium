@@ -1,14 +1,18 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {TestRunner} from 'test_runner';
+import {ApplicationTestRunner} from 'application_test_runner';
+import {ConsoleTestRunner} from 'console_test_runner';
+
 (async function() {
   TestRunner.addResult(`Tests IndexedDB tree element on resources panel.\n`);
-  await TestRunner.loadLegacyModule('console'); await TestRunner.loadTestModule('application_test_runner');
+  await TestRunner.loadLegacyModule('console');
     // Note: every test that uses a storage API must manually clean-up state from previous tests.
   await ApplicationTestRunner.resetState();
 
-  await TestRunner.loadLegacyModule('console'); await TestRunner.loadTestModule('console_test_runner');
+  await TestRunner.loadLegacyModule('console');
 
   var mainFrameId;
   var indexedDBModel;
@@ -67,19 +71,26 @@
     TestRunner.addResult('Refreshing.');
   }
 
-  function databaseLoaded() {
+  async function databaseLoaded() {
     TestRunner.addResult('Refreshed.');
     indexedDBModel.removeEventListener(Resources.IndexedDBModel.Events.DatabaseLoaded, databaseLoaded);
     ApplicationTestRunner.dumpIndexedDBTree();
     TestRunner.addResult('Navigating to another security origin.');
-    TestRunner.navigate(withoutIndexedDBURL, navigatedAway);
+    const dbRemoval = indexedDBModel.once(Resources.IndexedDBModel.Events.DatabaseRemoved);
+    const navigationPromise = new Promise(resolve =>
+      TestRunner.deprecatedRunAfterPendingDispatches(() =>
+        TestRunner.navigatePromise(withoutIndexedDBURL).then(resolve))
+    );
+    await Promise.all([dbRemoval, navigationPromise]);
+    navigatedAway();
   }
 
   function navigatedAway() {
     TestRunner.addResult('Navigated to another security origin.');
+    indexedDBModel.removeEventListener(Resources.IndexedDBModel.Events.DatabaseRemoved);
     ApplicationTestRunner.dumpIndexedDBTree();
     TestRunner.addResult('Navigating back.');
-    TestRunner.navigate(originalURL, navigatedBack);
+    TestRunner.deprecatedRunAfterPendingDispatches(() => TestRunner.navigate(originalURL, navigatedBack));
   }
 
   function navigatedBack() {
@@ -104,7 +115,7 @@
     TestRunner.addResult('Refreshing.');
     UI.panels.resources.sidebar.indexedDBListTreeElement.refreshIndexedDB();
     TestRunner.addSniffer(
-        Resources.IndexedDBModel.prototype, 'updateOriginDatabaseNames', databaseNamesLoadedAfterDeleting, false);
+        Resources.IndexedDBModel.prototype, 'updateStorageKeyDatabaseNames', databaseNamesLoadedAfterDeleting, false);
   }
 
   function databaseNamesLoadedAfterDeleting() {

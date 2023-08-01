@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,10 @@
 
 #include "ash/accessibility/accessibility_observer.h"
 #include "ash/ash_export.h"
+#include "base/memory/raw_ptr.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "ui/views/view.h"
+#include "ui/views/view_observer.h"
 
 class PrefRegistrySimple;
 
@@ -41,22 +43,26 @@ class TopShortcutButtonContainer : public views::View {
   gfx::Size CalculatePreferredSize() const override;
   const char* GetClassName() const override;
 
-  void AddUserAvatarButton(views::View* user_avatar_button);
+  views::View* AddUserAvatarButton(
+      std::unique_ptr<views::View> user_avatar_button);
   // Add the sign-out button, which can be resized upon layout.
-  void AddSignOutButton(views::View* sign_out_button);
+  views::Button* AddSignOutButton(
+      std::unique_ptr<views::Button> sign_out_button);
 
  private:
-  views::View* user_avatar_button_ = nullptr;
-  views::View* sign_out_button_ = nullptr;
+  raw_ptr<views::View, ExperimentalAsh> user_avatar_button_ = nullptr;
+  raw_ptr<views::Button, ExperimentalAsh> sign_out_button_ = nullptr;
 };
 
 // Top shortcuts view shown on the top of UnifiedSystemTrayView.
-class ASH_EXPORT TopShortcutsView : public views::View {
+class ASH_EXPORT TopShortcutsView : public views::View,
+                                    public views::ViewObserver {
  public:
   explicit TopShortcutsView(UnifiedSystemTrayController* controller);
 
   TopShortcutsView(const TopShortcutsView&) = delete;
   TopShortcutsView& operator=(const TopShortcutsView&) = delete;
+  ~TopShortcutsView() override;
 
   static void RegisterLocalStatePrefs(PrefRegistrySimple* registry);
 
@@ -69,17 +75,20 @@ class ASH_EXPORT TopShortcutsView : public views::View {
  private:
   friend class TopShortcutsViewTest;
 
+  // views::ViewObserver:
+  void OnChildViewAdded(View* observed_view, View* child) override;
+
   // Disables/Enables the |settings_button_| based on kSettingsIconEnabled pref.
   void UpdateSettingsButtonState();
 
   // Owned by views hierarchy.
-  views::Button* user_avatar_button_ = nullptr;
-  views::Button* sign_out_button_ = nullptr;
-  TopShortcutButtonContainer* container_ = nullptr;
-  IconButton* lock_button_ = nullptr;
-  IconButton* settings_button_ = nullptr;
-  IconButton* power_button_ = nullptr;
-  CollapseButton* collapse_button_ = nullptr;
+  raw_ptr<views::View, ExperimentalAsh> user_avatar_button_ = nullptr;
+  raw_ptr<views::Button, ExperimentalAsh> sign_out_button_ = nullptr;
+  raw_ptr<TopShortcutButtonContainer, ExperimentalAsh> container_ = nullptr;
+  raw_ptr<IconButton, ExperimentalAsh> lock_button_ = nullptr;
+  raw_ptr<IconButton, ExperimentalAsh> settings_button_ = nullptr;
+  raw_ptr<IconButton, ExperimentalAsh> power_button_ = nullptr;
+  raw_ptr<CollapseButton, ExperimentalAsh> collapse_button_ = nullptr;
 
   PrefChangeRegistrar local_state_pref_change_registrar_;
 };

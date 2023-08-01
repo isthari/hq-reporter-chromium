@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,9 +15,11 @@
 #include "ash/system/message_center/message_view_factory.h"
 #include "ash/test/ash_test_base.h"
 #include "ash/wm/desks/desks_util.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/scoped_feature_list.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/ime/dummy_text_input_client.h"
 #include "ui/base/ime/input_method.h"
@@ -111,7 +113,7 @@ class ArcNotificationViewTest : public AshTestBase {
   std::unique_ptr<Notification> CreateSimpleNotification() {
     std::unique_ptr<Notification> notification = std::make_unique<Notification>(
         message_center::NOTIFICATION_TYPE_CUSTOM, kDefaultNotificationId,
-        u"title", u"message", gfx::Image(), u"display source", GURL(),
+        u"title", u"message", ui::ImageModel(), u"display source", GURL(),
         message_center::NotifierId(
             message_center::NotifierType::ARC_APPLICATION, "test_app_id"),
         message_center::RichNotificationData(), nullptr);
@@ -198,17 +200,19 @@ class ArcNotificationViewTest : public AshTestBase {
       ArcNotificationItem* item,
       const Notification& notification,
       bool shown_in_popup) {
-    auto message_view =
-        std::make_unique<ArcNotificationView>(item, notification);
+    auto message_view = std::make_unique<ArcNotificationView>(
+        item, notification, shown_in_popup);
     message_view->content_view_->SetPreferredSize(gfx::Size(100, 100));
     return message_view;
   }
 
   std::unique_ptr<MockArcNotificationSurface> surface_;
   std::unique_ptr<Notification> notification_;
-  ArcNotificationView* notification_view_ = nullptr;  // owned by its widget.
+  raw_ptr<ArcNotificationView, ExperimentalAsh> notification_view_ =
+      nullptr;  // owned by its widget.
 
   std::unique_ptr<MockArcNotificationItem> item_;
+  std::unique_ptr<base::test::ScopedFeatureList> scoped_feature_list_;
 };
 
 TEST_F(ArcNotificationViewTest, Events) {
@@ -251,7 +255,13 @@ TEST_F(ArcNotificationViewTest, SlideOut) {
   EXPECT_TRUE(IsRemovedAfterIdle(notification_id));
 }
 
-TEST_F(ArcNotificationViewTest, SlideOutNested) {
+// TODO(crbug.com/1410724): Flaky on MSAN bots.
+#if defined(MEMORY_SANITIZER)
+#define MAYBE_SlideOutNested DISABLED_SlideOutNested
+#else
+#define MAYBE_SlideOutNested SlideOutNested
+#endif
+TEST_F(ArcNotificationViewTest, MAYBE_SlideOutNested) {
   ui::ScopedAnimationDurationScaleMode zero_duration_scope(
       ui::ScopedAnimationDurationScaleMode::ZERO_DURATION);
 
@@ -305,7 +315,7 @@ TEST_F(ArcNotificationViewTest, SnoozeButton) {
   rich_data.should_show_snooze_button = true;
   std::unique_ptr<Notification> notification = std::make_unique<Notification>(
       message_center::NOTIFICATION_TYPE_CUSTOM, kDefaultNotificationId,
-      u"title", u"message", gfx::Image(), u"display source", GURL(),
+      u"title", u"message", ui::ImageModel(), u"display source", GURL(),
       message_center::NotifierId(message_center::NotifierType::ARC_APPLICATION,
                                  "test_app_id"),
       rich_data, nullptr);
@@ -357,19 +367,19 @@ TEST_F(ArcNotificationViewTest, ChangeContentHeight) {
   // Default size.
   gfx::Size size = notification_view()->GetPreferredSize();
   size.Enlarge(0, -notification_view()->GetInsets().height());
-  EXPECT_EQ("360x100", size.ToString());
+  EXPECT_EQ("344x100", size.ToString());
 
   // Allow small notifications.
   content_view()->SetPreferredSize(gfx::Size(10, 10));
   size = notification_view()->GetPreferredSize();
   size.Enlarge(0, -notification_view()->GetInsets().height());
-  EXPECT_EQ("360x10", size.ToString());
+  EXPECT_EQ("344x10", size.ToString());
 
   // The long notification.
   content_view()->SetPreferredSize(gfx::Size(1000, 1000));
   size = notification_view()->GetPreferredSize();
   size.Enlarge(0, -notification_view()->GetInsets().height());
-  EXPECT_EQ("360x1000", size.ToString());
+  EXPECT_EQ("344x1000", size.ToString());
 }
 
 }  // namespace ash

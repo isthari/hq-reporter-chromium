@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 
 #include "base/auto_reset.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/memory/raw_ptr.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
@@ -22,16 +23,20 @@
 #include "components/prefs/testing_pref_service.h"
 #include "components/signin/internal/identity_manager/account_capabilities_constants.h"
 #include "components/signin/internal/identity_manager/account_capabilities_fetcher.h"
+#include "components/signin/internal/identity_manager/account_capabilities_fetcher_gaia.h"
 #include "components/signin/internal/identity_manager/account_fetcher_service.h"
 #include "components/signin/internal/identity_manager/account_tracker_service.h"
+#include "components/signin/internal/identity_manager/fake_account_capabilities_fetcher_factory.h"
 #include "components/signin/internal/identity_manager/fake_profile_oauth2_token_service.h"
 #include "components/signin/public/base/avatar_icon_util.h"
 #include "components/signin/public/base/signin_pref_names.h"
 #include "components/signin/public/base/signin_switches.h"
 #include "components/signin/public/base/test_signin_client.h"
 #include "components/signin/public/identity_manager/account_capabilities.h"
+#include "components/signin/public/identity_manager/account_capabilities_test_mutator.h"
 #include "components/signin/public/identity_manager/account_info.h"
 #include "components/signin/public/identity_manager/tribool.h"
+#include "google_apis/gaia/core_account_id.h"
 #include "google_apis/gaia/gaia_oauth_client.h"
 #include "google_apis/gaia/gaia_urls.h"
 #include "google_apis/gaia/google_service_auth_error.h"
@@ -47,6 +52,10 @@
 
 #if BUILDFLAG(IS_ANDROID)
 #include "components/signin/public/identity_manager/identity_test_utils.h"
+#endif
+
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)
+#include "components/supervised_user/core/common/features.h"
 #endif
 
 namespace {
@@ -91,16 +100,6 @@ const char kTokenInfoIncompleteResponseFormat[] =
       \"email\": \"%s\",      \
       \"hd\": \"\",           \
     }";
-
-const char kAccountCapabilitiesResponseFormat[] =
-    "{                            \
-      \"accountCapabilities\": [  \
-       {                          \
-        \"name\": \"%s\",         \
-        \"booleanValue\": %s      \
-       }                          \
-      ]                           \
-     }";
 
 enum TrackingEventType {
   UPDATED,
@@ -218,7 +217,8 @@ class AccountTrackerServiceTest : public testing::Test {
   void SetUp() override {
     testing::Test::SetUp();
     CreateAccountTracker(base::FilePath(), /*network_enabled=*/true);
-    fake_oauth2_token_service_.LoadCredentials(CoreAccountId());
+    fake_oauth2_token_service_.LoadCredentials(CoreAccountId(),
+                                               /*is_syncing=*/false);
   }
 
   void TearDown() override {
@@ -254,12 +254,7 @@ class AccountTrackerServiceTest : public testing::Test {
 
   // Helpers to fake access token and user info fetching
   CoreAccountId AccountKeyToAccountId(AccountKey account_key) {
-    if (force_account_id_to_email_for_legacy_tests_)
-      return CoreAccountId(AccountKeyToEmail(account_key));
-
-    return AccountTrackerService::PickAccountIdForAccount(
-        &pref_service_, AccountKeyToGaiaId(account_key),
-        AccountKeyToEmail(account_key));
+    return CoreAccountId::FromGaiaId(AccountKeyToGaiaId(account_key));
   }
 
   void CheckAccountDetails(AccountKey account_key, const AccountInfo& info) {
@@ -274,10 +269,11 @@ class AccountTrackerServiceTest : public testing::Test {
 
   void CheckAccountCapabilities(AccountKey account_key,
                                 const AccountInfo& info) {
-    EXPECT_EQ(AccountKeyToAccountCapability(account_key)
-                  ? signin::Tribool::kTrue
-                  : signin::Tribool::kFalse,
-              info.capabilities.can_offer_extended_chrome_sync_promos());
+    AccountCapabilities expected_capabilities;
+    AccountCapabilitiesTestMutator mutator(&expected_capabilities);
+    mutator.SetAllSupportedCapabilities(
+        AccountKeyToAccountCapability(account_key));
+    EXPECT_EQ(info.capabilities, expected_capabilities);
   }
 
   testing::AssertionResult CheckAccountTrackerEvents(
@@ -343,19 +339,21 @@ class AccountTrackerServiceTest : public testing::Test {
                               AccountKeyToEmail(account_key).c_str());
   }
 
-  std::string GenerateValidAccountCapabilitiesResponse(AccountKey account_key) {
-    return base::StringPrintf(
-        kAccountCapabilitiesResponseFormat,
-        kCanOfferExtendedChromeSyncPromosCapabilityName,
-        AccountKeyToAccountCapability(account_key) ? "true" : "false");
-  }
-
   void ReturnAccountInfoFetchSuccess(AccountKey account_key);
   void ReturnAccountInfoFetchSuccessIncomplete(AccountKey account_key);
   void ReturnAccountInfoFetchFailure(AccountKey account_key);
   void ReturnAccountImageFetchSuccess(AccountKey account_key);
   void ReturnAccountImageFetchFailure(AccountKey account_key);
   void ReturnAccountCapabilitiesFetchSuccess(AccountKey account_key);
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)
+  void ReturnAccountCapabilitiesFetchIsSubjectToParentalSupervision(
+      AccountKey account_key,
+      bool is_subject_to_parental_controls);
+  void TestAccountCapabilitiesSubjectToParentalSupervision(
+      bool enable_supervision_on_desktop,
+      bool capability_value,
+      signin::Tribool expected_is_child_account);
+#endif
   void ReturnAccountCapabilitiesFetchFailure(AccountKey account_key);
 
   AccountFetcherService* account_fetcher() { return account_fetcher_.get(); }
@@ -370,10 +368,6 @@ class AccountTrackerServiceTest : public testing::Test {
     return signin_client_.GetTestURLLoaderFactory();
   }
 
-  bool* force_account_id_to_email_for_legacy_tests_pointer() {
-    return &force_account_id_to_email_for_legacy_tests_;
-  }
-
  protected:
   void ReturnFetchResults(const GURL& url,
                           net::HttpStatusCode response_code,
@@ -386,8 +380,10 @@ class AccountTrackerServiceTest : public testing::Test {
     DCHECK(!account_tracker_);
     DCHECK(!account_fetcher_);
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
     pref_service_.SetInteger(prefs::kAccountIdMigrationState,
                              AccountTrackerService::MIGRATION_NOT_STARTED);
+#endif
 
     account_tracker_ = std::make_unique<AccountTrackerService>();
     account_fetcher_ = std::make_unique<AccountFetcherService>();
@@ -400,9 +396,14 @@ class AccountTrackerServiceTest : public testing::Test {
         &AccountTrackerServiceTest::OnAccountRemoved, base::Unretained(this)));
 
     account_tracker_->Initialize(&pref_service_, std::move(path));
+    auto account_capabilities_fetcher_factory =
+        std::make_unique<FakeAccountCapabilitiesFetcherFactory>();
+    fake_account_capabilities_fetcher_factory_ =
+        account_capabilities_fetcher_factory.get();
     account_fetcher_->Initialize(
         signin_client(), token_service(), account_tracker_.get(),
-        std::make_unique<image_fetcher::FakeImageDecoder>());
+        std::make_unique<image_fetcher::FakeImageDecoder>(),
+        std::move(account_capabilities_fetcher_factory));
     if (network_enabled) {
       account_fetcher_->EnableNetworkFetchesForTest();
     }
@@ -421,8 +422,9 @@ class AccountTrackerServiceTest : public testing::Test {
   FakeProfileOAuth2TokenService fake_oauth2_token_service_;
   std::unique_ptr<AccountFetcherService> account_fetcher_;
   std::unique_ptr<AccountTrackerService> account_tracker_;
+  raw_ptr<FakeAccountCapabilitiesFetcherFactory>
+      fake_account_capabilities_fetcher_factory_ = nullptr;
   std::vector<TrackingEvent> account_tracker_events_;
-  bool force_account_id_to_email_for_legacy_tests_ = false;
 };
 
 void AccountTrackerServiceTest::ReturnFetchResults(
@@ -477,16 +479,67 @@ void AccountTrackerServiceTest::ReturnAccountImageFetchFailure(
 void AccountTrackerServiceTest::ReturnAccountCapabilitiesFetchSuccess(
     AccountKey account_key) {
   IssueAccessToken(account_key);
-  ReturnFetchResults(GaiaUrls::GetInstance()->account_capabilities_url(),
-                     net::HTTP_OK,
-                     GenerateValidAccountCapabilitiesResponse(account_key));
+  AccountCapabilities capabilities;
+  AccountCapabilitiesTestMutator mutator(&capabilities);
+  mutator.SetAllSupportedCapabilities(
+      AccountKeyToAccountCapability(account_key));
+  fake_account_capabilities_fetcher_factory_->CompleteAccountCapabilitiesFetch(
+      AccountKeyToAccountId(account_key), capabilities);
 }
+
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)
+void AccountTrackerServiceTest::
+    ReturnAccountCapabilitiesFetchIsSubjectToParentalSupervision(
+        AccountKey account_key,
+        bool is_subject_to_parental_controls) {
+  IssueAccessToken(account_key);
+  AccountCapabilities capabilities;
+  AccountCapabilitiesTestMutator mutator(&capabilities);
+  mutator.set_is_subject_to_parental_controls(is_subject_to_parental_controls);
+  fake_account_capabilities_fetcher_factory_->CompleteAccountCapabilitiesFetch(
+      AccountKeyToAccountId(account_key), capabilities);
+}
+
+void AccountTrackerServiceTest::
+    TestAccountCapabilitiesSubjectToParentalSupervision(
+        bool enable_supervision_on_desktop,
+        bool capability_value,
+        signin::Tribool expected_is_child_account) {
+  base::test::ScopedFeatureList scoped_feature_list;
+  if (enable_supervision_on_desktop) {
+    scoped_feature_list.InitAndEnableFeature(
+        supervised_user::kEnableSupervisionOnDesktopAndIOS);
+  } else {
+    scoped_feature_list.InitAndDisableFeature(
+        supervised_user::kEnableSupervisionOnDesktopAndIOS);
+  }
+
+  SimulateTokenAvailable(kAccountKeyChild);
+  AccountInfo account_info = account_tracker()->GetAccountInfo(
+      AccountKeyToAccountId(kAccountKeyChild));
+  EXPECT_EQ(account_info.is_child_account, signin::Tribool::kUnknown);
+
+  // AccountUpdated notification requires account's gaia to be known.
+  // Set account's user info first to receive an UPDATED event when capabilities
+  // are fetched.
+  ReturnAccountInfoFetchSuccess(kAccountKeyChild);
+  ClearAccountTrackerEvents();
+
+  ReturnAccountCapabilitiesFetchIsSubjectToParentalSupervision(
+      kAccountKeyChild, capability_value);
+
+  account_info = account_tracker()->GetAccountInfo(
+      AccountKeyToAccountId(kAccountKeyChild));
+
+  EXPECT_EQ(account_info.is_child_account, expected_is_child_account);
+}
+#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)
 
 void AccountTrackerServiceTest::ReturnAccountCapabilitiesFetchFailure(
     AccountKey account_key) {
   IssueAccessToken(account_key);
-  ReturnFetchResults(GaiaUrls::GetInstance()->account_capabilities_url(),
-                     net::HTTP_BAD_REQUEST, std::string());
+  fake_account_capabilities_fetcher_factory_->CompleteAccountCapabilitiesFetch(
+      AccountKeyToAccountId(account_key), absl::nullopt);
 }
 
 TEST_F(AccountTrackerServiceTest, Basic) {}
@@ -597,7 +650,6 @@ TEST_F(AccountTrackerServiceTest, TokenAvailable_AccountCapabilitiesSuccess) {
   SimulateTokenAvailable(kAccountKeyAlpha);
   EXPECT_FALSE(account_fetcher()->AreAllAccountCapabilitiesFetched());
 
-  base::HistogramTester tester;
   // AccountUpdated notification requires account's gaia to be known.
   // Set account's user info first to receive an UPDATED event when capabilities
   // are fetched.
@@ -614,21 +666,80 @@ TEST_F(AccountTrackerServiceTest, TokenAvailable_AccountCapabilitiesSuccess) {
   AccountInfo account_info = account_tracker()->GetAccountInfo(
       AccountKeyToAccountId(kAccountKeyAlpha));
   CheckAccountCapabilities(kAccountKeyAlpha, account_info);
-
-  tester.ExpectTotalCount("Signin.AccountCapabilities.FetchDuration.Success",
-                          1);
-  tester.ExpectTotalCount("Signin.AccountCapabilities.FetchDuration.Failure",
-                          0);
-  tester.ExpectUniqueSample("Signin.AccountCapabilities.FetchResult",
-                            AccountCapabilitiesFetcher::FetchResult::kSuccess,
-                            1);
 }
+
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)
+TEST_F(
+    AccountTrackerServiceTest,
+    TokenAvailable_AccountCapabilitiesSubjectToParentalSupervisionDisabledForDesktop) {
+  TestAccountCapabilitiesSubjectToParentalSupervision(
+      false, true, signin::Tribool::kUnknown);
+}
+
+TEST_F(
+    AccountTrackerServiceTest,
+    TokenAvailable_AccountCapabilitiesSubjectToParentalSupervisionEnabledForDesktop) {
+  TestAccountCapabilitiesSubjectToParentalSupervision(true, true,
+                                                      signin::Tribool::kTrue);
+}
+
+TEST_F(
+    AccountTrackerServiceTest,
+    TokenAvailable_AccountCapabilitiesNotSubjectToParentalSupervisionDisabledForDesktop) {
+  TestAccountCapabilitiesSubjectToParentalSupervision(
+      false, false, signin::Tribool::kUnknown);
+}
+
+TEST_F(
+    AccountTrackerServiceTest,
+    TokenAvailable_AccountCapabilitiesNotSubjectToParentalSupervisionEnabledForDesktop) {
+  TestAccountCapabilitiesSubjectToParentalSupervision(true, false,
+                                                      signin::Tribool::kFalse);
+}
+
+TEST_F(AccountTrackerServiceTest,
+       AccountCapabilitiesSubjectToParentalSupervisionThenEnableDesktopFlag) {
+  // This tests the case where the destkop supervision flag is enabled for an
+  // existing account that has the SubjectToParentalSupervision capability set.
+  // Validate that the child status is updated even though the account
+  // capabilities are unchanged.
+
+  // First, run through the a capabilities fetch where the feature flag is
+  // disabled and the parental controls capability is enabled.
+  //
+  // At this point, the child status is unknown, and the account capabilities
+  // are set on the account.
+  TestAccountCapabilitiesSubjectToParentalSupervision(
+      false, true, signin::Tribool::kUnknown);
+
+  // Now enable the flag, and repeat the fetch.
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(
+      supervised_user::kEnableSupervisionOnDesktopAndIOS);
+
+  ResetAccountTracker();
+
+  // Prior to the new fetch, the account capabilities say subject to parental
+  // controls, but the account state is not child.
+  AccountInfo account_info = account_tracker()->GetAccountInfo(
+      AccountKeyToAccountId(kAccountKeyChild));
+  EXPECT_EQ(account_info.capabilities.is_subject_to_parental_controls(),
+            signin::Tribool::kTrue);
+  EXPECT_EQ(account_info.is_child_account, signin::Tribool::kUnknown);
+
+  // After the new fetch, the account state is updated to child.
+  ReturnAccountCapabilitiesFetchIsSubjectToParentalSupervision(kAccountKeyChild,
+                                                               true);
+  account_info = account_tracker()->GetAccountInfo(
+      AccountKeyToAccountId(kAccountKeyChild));
+  EXPECT_EQ(account_info.is_child_account, signin::Tribool::kTrue);
+}
+#endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)
 
 TEST_F(AccountTrackerServiceTest, TokenAvailable_AccountCapabilitiesFailed) {
   SimulateTokenAvailable(kAccountKeyAlpha);
   EXPECT_FALSE(account_fetcher()->AreAllAccountCapabilitiesFetched());
 
-  base::HistogramTester tester;
   ReturnAccountInfoFetchSuccess(kAccountKeyAlpha);
   ClearAccountTrackerEvents();
 
@@ -638,44 +749,11 @@ TEST_F(AccountTrackerServiceTest, TokenAvailable_AccountCapabilitiesFailed) {
   AccountInfo account_info = account_tracker()->GetAccountInfo(
       AccountKeyToAccountId(kAccountKeyAlpha));
   EXPECT_FALSE(account_info.capabilities.AreAllCapabilitiesKnown());
-
-  tester.ExpectTotalCount("Signin.AccountCapabilities.FetchDuration.Success",
-                          0);
-  tester.ExpectTotalCount("Signin.AccountCapabilities.FetchDuration.Failure",
-                          1);
-  tester.ExpectUniqueSample(
-      "Signin.AccountCapabilities.FetchResult",
-      AccountCapabilitiesFetcher::FetchResult::kOAuthError, 1);
-}
-
-TEST_F(AccountTrackerServiceTest,
-       TokenAvailable_AccountCapabilitiesTokenFailure) {
-  SimulateTokenAvailable(kAccountKeyAlpha);
-  EXPECT_FALSE(account_fetcher()->AreAllAccountCapabilitiesFetched());
-
-  base::HistogramTester tester;
-
-  SimulateIssueAccessTokenPersistentError(kAccountKeyAlpha);
-  EXPECT_TRUE(account_fetcher()->AreAllAccountCapabilitiesFetched());
-  EXPECT_TRUE(CheckAccountTrackerEvents({}));
-  AccountInfo account_info = account_tracker()->GetAccountInfo(
-      AccountKeyToAccountId(kAccountKeyAlpha));
-  EXPECT_FALSE(account_info.capabilities.AreAllCapabilitiesKnown());
-
-  tester.ExpectTotalCount("Signin.AccountCapabilities.FetchDuration.Success",
-                          0);
-  tester.ExpectTotalCount("Signin.AccountCapabilities.FetchDuration.Failure",
-                          1);
-  tester.ExpectUniqueSample(
-      "Signin.AccountCapabilities.FetchResult",
-      AccountCapabilitiesFetcher::FetchResult::kGetTokenFailure, 1);
 }
 
 TEST_F(AccountTrackerServiceTest, TokenAvailable_AccountCapabilitiesCancelled) {
   SimulateTokenAvailable(kAccountKeyAlpha);
   EXPECT_FALSE(account_fetcher()->AreAllAccountCapabilitiesFetched());
-
-  base::HistogramTester tester;
 
   // Issue an access token first to not get the `kGetTokenFailure` error.
   IssueAccessToken(kAccountKeyAlpha);
@@ -686,14 +764,6 @@ TEST_F(AccountTrackerServiceTest, TokenAvailable_AccountCapabilitiesCancelled) {
   AccountInfo account_info = account_tracker()->GetAccountInfo(
       AccountKeyToAccountId(kAccountKeyAlpha));
   EXPECT_FALSE(account_info.capabilities.AreAllCapabilitiesKnown());
-
-  tester.ExpectTotalCount("Signin.AccountCapabilities.FetchDuration.Success",
-                          0);
-  tester.ExpectTotalCount("Signin.AccountCapabilities.FetchDuration.Failure",
-                          1);
-  tester.ExpectUniqueSample("Signin.AccountCapabilities.FetchResult",
-                            AccountCapabilitiesFetcher::FetchResult::kCancelled,
-                            1);
 }
 
 TEST_F(AccountTrackerServiceTest,
@@ -707,10 +777,12 @@ TEST_F(AccountTrackerServiceTest,
   CheckAccountCapabilities(kAccountKeyAlpha, account_info);
 }
 
-#if !BUILDFLAG(IS_CHROMEOS_ASH)
 TEST_F(AccountTrackerServiceTest,
        TokenAvailable_AccountCapabilitiesFetcherDisabled) {
   account_fetcher()->EnableAccountCapabilitiesFetcherForTest(false);
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndDisableFeature(
+      switches::kEnableFetchingAccountCapabilities);
   SimulateTokenAvailable(kAccountKeyAlpha);
   EXPECT_TRUE(account_fetcher()->AreAllAccountCapabilitiesFetched());
   EXPECT_TRUE(CheckAccountTrackerEvents({}));
@@ -718,7 +790,27 @@ TEST_F(AccountTrackerServiceTest,
       AccountKeyToAccountId(kAccountKeyAlpha));
   EXPECT_FALSE(account_info.capabilities.AreAllCapabilitiesKnown());
 }
-#endif
+
+// iOS doesn't support the kEnableFetchingAccountCapabilities feature.
+// TODO(https://crbug.com/1305191): enable these tests on iOS once the feature
+// is supported.
+#if !BUILDFLAG(IS_IOS)
+TEST_F(AccountTrackerServiceTest,
+       TokenAvailable_AccountCapabilitiesFetcherEnabled) {
+  account_fetcher()->EnableAccountCapabilitiesFetcherForTest(false);
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(
+      switches::kEnableFetchingAccountCapabilities);
+  SimulateTokenAvailable(kAccountKeyAlpha);
+  EXPECT_FALSE(account_fetcher()->AreAllAccountCapabilitiesFetched());
+
+  ReturnAccountInfoFetchSuccess(kAccountKeyAlpha);
+  ClearAccountTrackerEvents();
+
+  ReturnAccountCapabilitiesFetchSuccess(kAccountKeyAlpha);
+  EXPECT_TRUE(account_fetcher()->AreAllAccountCapabilitiesFetched());
+}
+#endif  // !BUILDFLAG(IS_IOS)
 
 TEST_F(AccountTrackerServiceTest, TokenAvailableTwice_UserInfoOnce) {
   SimulateTokenAvailable(kAccountKeyAlpha);
@@ -912,11 +1004,6 @@ TEST_F(AccountTrackerServiceTest, FindAccountInfoByEmail) {
 }
 
 TEST_F(AccountTrackerServiceTest, Persistence) {
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(switches::kAccountIdMigration);
-#endif
-
   // Define a user data directory for the account image storage.
   base::ScopedTempDir scoped_user_data_dir;
   ASSERT_TRUE(scoped_user_data_dir.CreateUniqueTempDir());
@@ -1003,11 +1090,6 @@ TEST_F(AccountTrackerServiceTest, Persistence) {
 }
 
 TEST_F(AccountTrackerServiceTest, ChildStatusMigration) {
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(switches::kAccountIdMigration);
-#endif
-
   base::ScopedTempDir scoped_user_data_dir;
   ASSERT_TRUE(scoped_user_data_dir.CreateUniqueTempDir());
 
@@ -1023,18 +1105,18 @@ TEST_F(AccountTrackerServiceTest, ChildStatusMigration) {
             account_tracker()
                 ->GetAccountInfo(AccountKeyToAccountId(kAccountKeyAlpha))
                 .is_child_account);
-  ListPrefUpdate update(prefs(), prefs::kAccountInfo);
-  ASSERT_FALSE(update->GetList().empty());
-  base::Value& dict = update->GetList()[0];
-  ASSERT_TRUE(dict.is_dict());
+  ScopedListPrefUpdate update(prefs(), prefs::kAccountInfo);
+  ASSERT_FALSE(update->empty());
+  base::Value::Dict* dict = (*update)[0].GetIfDict();
+  ASSERT_TRUE(dict);
   const char kDeprecatedChildKey[] = "is_child_account";
   const char kNewChildKey[] = "is_supervised_child";
   // The deprecated key is not set.
-  EXPECT_FALSE(dict.FindBoolKey(kDeprecatedChildKey));
+  EXPECT_FALSE(dict->FindBool(kDeprecatedChildKey));
 
   // Set the child status using the deprecated key, and reload the account.
-  dict.SetBoolKey(kDeprecatedChildKey, true);
-  dict.RemoveKey(kNewChildKey);
+  dict->Set(kDeprecatedChildKey, true);
+  dict->Remove(kNewChildKey);
   ClearAccountTrackerEvents();
   ResetAccountTrackerWithPersistence(scoped_user_data_dir.GetPath());
   EXPECT_TRUE(CheckAccountTrackerEvents(
@@ -1049,9 +1131,9 @@ TEST_F(AccountTrackerServiceTest, ChildStatusMigration) {
   // The deprecated key has been read.
   EXPECT_EQ(signin::Tribool::kTrue, infos[0].is_child_account);
   // The deprecated key has been removed.
-  EXPECT_FALSE(dict.FindBoolKey(kDeprecatedChildKey));
+  EXPECT_FALSE(dict->FindBool(kDeprecatedChildKey));
   // The new key has been written.
-  absl::optional<int> new_key = dict.FindIntKey(kNewChildKey);
+  absl::optional<int> new_key = dict->FindInt(kNewChildKey);
   ASSERT_TRUE(new_key.has_value());
   EXPECT_EQ(static_cast<int>(signin::Tribool::kTrue), new_key.value());
 }
@@ -1132,11 +1214,6 @@ TEST_F(AccountTrackerServiceTest, SeedAccountInfoFull) {
 }
 
 TEST_F(AccountTrackerServiceTest, UpgradeToFullAccountInfo) {
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(switches::kAccountIdMigration);
-#endif
-
   // Start by simulating an incomplete account info and let it be saved to
   // prefs.
   ResetAccountTracker();
@@ -1233,64 +1310,25 @@ TEST_F(AccountTrackerServiceTest, TimerRefresh) {
   EXPECT_FALSE(account_fetcher()->AreAllAccountCapabilitiesFetched());
 }
 
-TEST_F(AccountTrackerServiceTest, LegacyDottedAccountIds) {
-  // Force legacy of non-normalized email as account_id.
-  base::AutoReset<bool> force_account_id_to_email_for_legacy_test(
-      force_account_id_to_email_for_legacy_tests_pointer(), true);
-
-  // Start by creating a tracker and adding an account with a dotted account
-  // id because of an old bug in token service.  The token service would also
-  // add a correct non-dotted account id for the same account.
-  ResetAccountTracker();
-
-  SimulateTokenAvailable(kAccountKeyFooDotBar);
-  SimulateTokenAvailable(kAccountKeyFooBar);
-  ReturnAccountInfoFetchSuccess(kAccountKeyFooDotBar);
-  ReturnAccountInfoFetchSuccess(kAccountKeyFooBar);
-
-  EXPECT_TRUE(account_fetcher()->IsAllUserInfoFetched());
-  std::vector<AccountInfo> infos = account_tracker()->GetAccounts();
-  ASSERT_EQ(2u, infos.size());
-  EXPECT_EQ(AccountKeyToEmail(kAccountKeyFooDotBar), infos[0].email);
-  EXPECT_EQ(AccountKeyToEmail(kAccountKeyFooBar), infos[1].email);
-
-  // Remove the bad account now from the token service to simulate that it
-  // has been "fixed".
-  SimulateTokenRevoked(kAccountKeyFooDotBar);
-
-  // Instantiate a new tracker and validate that it has only one account, and
-  // it is the correct non dotted one.
-  ResetAccountTrackerNetworkDisabled();
-
-  EXPECT_TRUE(account_fetcher()->IsAllUserInfoFetched());
-  infos = account_tracker()->GetAccounts();
-  ASSERT_EQ(1u, infos.size());
-  EXPECT_EQ(AccountKeyToEmail(kAccountKeyFooBar), infos[0].email);
-}
-
-TEST_F(AccountTrackerServiceTest, MigrateAccountIdToGaiaId) {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(switches::kAccountIdMigration);
-#endif
-
+TEST_F(AccountTrackerServiceTest, MigrateAccountIdToGaiaId) {
   const std::string email_alpha = AccountKeyToEmail(kAccountKeyAlpha);
   const std::string gaia_alpha = AccountKeyToGaiaId(kAccountKeyAlpha);
   const std::string email_beta = AccountKeyToEmail(kAccountKeyBeta);
   const std::string gaia_beta = AccountKeyToGaiaId(kAccountKeyBeta);
 
-  ListPrefUpdate update(prefs(), prefs::kAccountInfo);
+  ScopedListPrefUpdate update(prefs(), prefs::kAccountInfo);
 
-  base::Value dict(base::Value::Type::DICTIONARY);
-  dict.SetStringKey("account_id", email_alpha);
-  dict.SetStringKey("email", email_alpha);
-  dict.SetStringKey("gaia", gaia_alpha);
+  base::Value::Dict dict;
+  dict.Set("account_id", email_alpha);
+  dict.Set("email", email_alpha);
+  dict.Set("gaia", gaia_alpha);
   update->Append(std::move(dict));
 
-  dict = base::Value(base::Value::Type::DICTIONARY);
-  dict.SetStringKey("account_id", email_beta);
-  dict.SetStringKey("email", email_beta);
-  dict.SetStringKey("gaia", gaia_beta);
+  dict = base::Value::Dict();
+  dict.Set("account_id", email_beta);
+  dict.Set("email", email_beta);
+  dict.Set("gaia", gaia_beta);
   update->Append(std::move(dict));
 
   base::HistogramTester tester;
@@ -1301,15 +1339,16 @@ TEST_F(AccountTrackerServiceTest, MigrateAccountIdToGaiaId) {
   EXPECT_EQ(account_tracker()->GetMigrationState(),
             AccountTrackerService::MIGRATION_IN_PROGRESS);
 
-  CoreAccountId gaia_alpha_account_id(gaia_alpha);
+  CoreAccountId gaia_alpha_account_id = CoreAccountId::FromGaiaId(gaia_alpha);
   AccountInfo account_info =
       account_tracker()->GetAccountInfo(gaia_alpha_account_id);
   EXPECT_EQ(account_info.account_id, gaia_alpha_account_id);
   EXPECT_EQ(account_info.gaia, gaia_alpha);
   EXPECT_EQ(account_info.email, email_alpha);
 
-  account_info = account_tracker()->GetAccountInfo(CoreAccountId(gaia_beta));
-  EXPECT_EQ(account_info.account_id, CoreAccountId(gaia_beta));
+  account_info =
+      account_tracker()->GetAccountInfo(CoreAccountId::FromGaiaId(gaia_beta));
+  EXPECT_EQ(account_info.account_id, CoreAccountId::FromGaiaId(gaia_beta));
   EXPECT_EQ(account_info.gaia, gaia_beta);
   EXPECT_EQ(account_info.email, email_beta);
 
@@ -1318,27 +1357,22 @@ TEST_F(AccountTrackerServiceTest, MigrateAccountIdToGaiaId) {
 }
 
 TEST_F(AccountTrackerServiceTest, CanNotMigrateAccountIdToGaiaId) {
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(switches::kAccountIdMigration);
-#endif
-
   const std::string email_alpha = AccountKeyToEmail(kAccountKeyAlpha);
   const std::string gaia_alpha = AccountKeyToGaiaId(kAccountKeyAlpha);
   const std::string email_beta = AccountKeyToEmail(kAccountKeyBeta);
 
-  ListPrefUpdate update(prefs(), prefs::kAccountInfo);
+  ScopedListPrefUpdate update(prefs(), prefs::kAccountInfo);
 
-  base::Value dict(base::Value::Type::DICTIONARY);
-  dict.SetStringKey("account_id", email_alpha);
-  dict.SetStringKey("email", email_alpha);
-  dict.SetStringKey("gaia", gaia_alpha);
+  base::Value::Dict dict;
+  dict.Set("account_id", email_alpha);
+  dict.Set("email", email_alpha);
+  dict.Set("gaia", gaia_alpha);
   update->Append(std::move(dict));
 
-  dict = base::Value(base::Value::Type::DICTIONARY);
-  dict.SetStringKey("account_id", email_beta);
-  dict.SetStringKey("email", email_beta);
-  dict.SetStringKey("gaia", "");
+  dict = base::Value::Dict();
+  dict.Set("account_id", email_beta);
+  dict.Set("email", email_beta);
+  dict.Set("gaia", "");
   update->Append(std::move(dict));
 
   base::HistogramTester tester;
@@ -1349,14 +1383,14 @@ TEST_F(AccountTrackerServiceTest, CanNotMigrateAccountIdToGaiaId) {
   EXPECT_EQ(account_tracker()->GetMigrationState(),
             AccountTrackerService::MIGRATION_NOT_STARTED);
 
-  CoreAccountId email_alpha_account_id(email_alpha);
+  CoreAccountId email_alpha_account_id = CoreAccountId::FromEmail(email_alpha);
   AccountInfo account_info =
       account_tracker()->GetAccountInfo(email_alpha_account_id);
   EXPECT_EQ(account_info.account_id, email_alpha_account_id);
   EXPECT_EQ(account_info.gaia, gaia_alpha);
   EXPECT_EQ(account_info.email, email_alpha);
 
-  CoreAccountId email_beta_account_id(email_beta);
+  CoreAccountId email_beta_account_id = CoreAccountId::FromEmail(email_beta);
   account_info = account_tracker()->GetAccountInfo(email_beta_account_id);
   EXPECT_EQ(account_info.account_id, email_beta_account_id);
   EXPECT_EQ(account_info.email, email_beta);
@@ -1366,35 +1400,30 @@ TEST_F(AccountTrackerServiceTest, CanNotMigrateAccountIdToGaiaId) {
 }
 
 TEST_F(AccountTrackerServiceTest, GaiaIdMigrationCrashInTheMiddle) {
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  base::test::ScopedFeatureList scoped_feature_list;
-  scoped_feature_list.InitAndEnableFeature(switches::kAccountIdMigration);
-#endif
-
   const std::string email_alpha = AccountKeyToEmail(kAccountKeyAlpha);
   const std::string gaia_alpha = AccountKeyToGaiaId(kAccountKeyAlpha);
   const std::string email_beta = AccountKeyToEmail(kAccountKeyBeta);
   const std::string gaia_beta = AccountKeyToGaiaId(kAccountKeyBeta);
 
-  ListPrefUpdate update(prefs(), prefs::kAccountInfo);
+  ScopedListPrefUpdate update(prefs(), prefs::kAccountInfo);
 
-  base::Value dict(base::Value::Type::DICTIONARY);
-  dict.SetStringKey("account_id", email_alpha);
-  dict.SetStringKey("email", email_alpha);
-  dict.SetStringKey("gaia", gaia_alpha);
+  base::Value::Dict dict;
+  dict.Set("account_id", email_alpha);
+  dict.Set("email", email_alpha);
+  dict.Set("gaia", gaia_alpha);
   update->Append(std::move(dict));
 
-  dict = base::Value(base::Value::Type::DICTIONARY);
-  dict.SetStringKey("account_id", email_beta);
-  dict.SetStringKey("email", email_beta);
-  dict.SetStringKey("gaia", gaia_beta);
+  dict = base::Value::Dict();
+  dict.Set("account_id", email_beta);
+  dict.Set("email", email_beta);
+  dict.Set("gaia", gaia_beta);
   update->Append(std::move(dict));
 
   // Succeed miggrated account.
-  dict = base::Value(base::Value::Type::DICTIONARY);
-  dict.SetStringKey("account_id", gaia_alpha);
-  dict.SetStringKey("email", email_alpha);
-  dict.SetStringKey("gaia", gaia_alpha);
+  dict = base::Value::Dict();
+  dict.Set("account_id", gaia_alpha);
+  dict.Set("email", email_alpha);
+  dict.Set("gaia", gaia_alpha);
   update->Append(std::move(dict));
 
   base::HistogramTester tester;
@@ -1405,14 +1434,14 @@ TEST_F(AccountTrackerServiceTest, GaiaIdMigrationCrashInTheMiddle) {
   EXPECT_EQ(account_tracker()->GetMigrationState(),
             AccountTrackerService::MIGRATION_IN_PROGRESS);
 
-  CoreAccountId gaia_alpha_account_id(gaia_alpha);
+  CoreAccountId gaia_alpha_account_id = CoreAccountId::FromGaiaId(gaia_alpha);
   AccountInfo account_info =
       account_tracker()->GetAccountInfo(gaia_alpha_account_id);
   EXPECT_EQ(account_info.account_id, gaia_alpha_account_id);
   EXPECT_EQ(account_info.gaia, gaia_alpha);
   EXPECT_EQ(account_info.email, email_alpha);
 
-  CoreAccountId gaia_beta_account_id(gaia_beta);
+  CoreAccountId gaia_beta_account_id = CoreAccountId::FromGaiaId(gaia_beta);
   account_info = account_tracker()->GetAccountInfo(gaia_beta_account_id);
   EXPECT_EQ(account_info.account_id, gaia_beta_account_id);
   EXPECT_EQ(account_info.gaia, gaia_beta);
@@ -1441,6 +1470,7 @@ TEST_F(AccountTrackerServiceTest, GaiaIdMigrationCrashInTheMiddle) {
   accounts = account_tracker()->GetAccounts();
   EXPECT_EQ(2u, accounts.size());
 }
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 TEST_F(AccountTrackerServiceTest, ChildAccountBasic) {
   SimulateTokenAvailable(kAccountKeyChild);
@@ -1674,6 +1704,22 @@ TEST_F(AccountTrackerServiceTest, RemoveAccountBeforeImageFetchDone) {
   }));
 }
 
+TEST_F(AccountTrackerServiceTest, RemoveAccountBeforeCapabilitiesFetched) {
+  SimulateTokenAvailable(kAccountKeyAlpha);
+
+  ReturnAccountInfoFetchSuccess(kAccountKeyAlpha);
+  SimulateTokenRevoked(kAccountKeyAlpha);
+  EXPECT_TRUE(account_fetcher()->AreAllAccountCapabilitiesFetched());
+
+  // Re-add the same account and verify that capabilities can be fetched
+  // successfully.
+  SimulateTokenAvailable(kAccountKeyAlpha);
+
+  ReturnAccountInfoFetchSuccess(kAccountKeyAlpha);
+  ReturnAccountCapabilitiesFetchSuccess(kAccountKeyAlpha);
+  EXPECT_TRUE(account_fetcher()->AreAllAccountCapabilitiesFetched());
+}
+
 #if !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_IOS)
 TEST_F(AccountTrackerServiceTest, AdvancedProtectionAccountBasic) {
   SimulateTokenAvailable(kAccountKeyAdvancedProtection);
@@ -1691,7 +1737,6 @@ TEST_F(AccountTrackerServiceTest, AdvancedProtectionAccountBasic) {
 
   SimulateTokenRevoked(kAccountKeyAdvancedProtection);
 }
-
 #endif
 
 TEST_F(AccountTrackerServiceTest, CountOfLoadedAccounts_NoAccount) {
@@ -1704,23 +1749,28 @@ TEST_F(AccountTrackerServiceTest, CountOfLoadedAccounts_NoAccount) {
 }
 
 TEST_F(AccountTrackerServiceTest, CountOfLoadedAccounts_TwoAccounts) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  prefs()->SetInteger(prefs::kAccountIdMigrationState,
+                      AccountTrackerService::MIGRATION_DONE);
+#endif
+
   const std::string email_alpha = AccountKeyToEmail(kAccountKeyAlpha);
   const std::string gaia_alpha = AccountKeyToGaiaId(kAccountKeyAlpha);
   const std::string email_beta = AccountKeyToEmail(kAccountKeyBeta);
   const std::string gaia_beta = AccountKeyToGaiaId(kAccountKeyBeta);
 
-  ListPrefUpdate update(prefs(), prefs::kAccountInfo);
+  ScopedListPrefUpdate update(prefs(), prefs::kAccountInfo);
 
-  base::Value dict(base::Value::Type::DICTIONARY);
-  dict.SetStringKey("account_id", email_alpha);
-  dict.SetStringKey("email", email_alpha);
-  dict.SetStringKey("gaia", gaia_alpha);
+  base::Value::Dict dict;
+  dict.Set("account_id", gaia_alpha);
+  dict.Set("email", email_alpha);
+  dict.Set("gaia", gaia_alpha);
   update->Append(std::move(dict));
 
-  dict = base::Value(base::Value::Type::DICTIONARY);
-  dict.SetStringKey("account_id", email_beta);
-  dict.SetStringKey("email", email_beta);
-  dict.SetStringKey("gaia", gaia_beta);
+  dict = base::Value::Dict();
+  dict.Set("account_id", gaia_beta);
+  dict.Set("email", email_beta);
+  dict.Set("gaia", gaia_beta);
   update->Append(std::move(dict));
 
   base::HistogramTester tester;
@@ -1731,26 +1781,56 @@ TEST_F(AccountTrackerServiceTest, CountOfLoadedAccounts_TwoAccounts) {
       testing::ElementsAre(base::Bucket(2, 1)));
 }
 
-TEST_F(AccountTrackerServiceTest, CountOfLoadedAccounts_TwoAccountsOneInvalid) {
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+TEST_F(AccountTrackerServiceTest, Migrate_CountOfLoadedAccounts_TwoAccounts) {
+  const std::string email_alpha = AccountKeyToEmail(kAccountKeyAlpha);
+  const std::string gaia_alpha = AccountKeyToGaiaId(kAccountKeyAlpha);
+  const std::string email_beta = AccountKeyToEmail(kAccountKeyBeta);
+  const std::string gaia_beta = AccountKeyToGaiaId(kAccountKeyBeta);
+
+  ScopedListPrefUpdate update(prefs(), prefs::kAccountInfo);
+
+  base::Value::Dict dict;
+  dict.Set("account_id", email_alpha);
+  dict.Set("email", email_alpha);
+  dict.Set("gaia", gaia_alpha);
+  update->Append(std::move(dict));
+
+  dict = base::Value::Dict();
+  dict.Set("account_id", email_beta);
+  dict.Set("email", email_beta);
+  dict.Set("gaia", gaia_beta);
+  update->Append(std::move(dict));
+
+  base::HistogramTester tester;
+  ResetAccountTracker();
+
+  EXPECT_THAT(
+      tester.GetAllSamples("Signin.AccountTracker.CountOfLoadedAccounts"),
+      testing::ElementsAre(base::Bucket(2, 1)));
+}
+
+TEST_F(AccountTrackerServiceTest,
+       Migrate_CountOfLoadedAccounts_TwoAccountsOneInvalid) {
   const std::string email_alpha = AccountKeyToEmail(kAccountKeyAlpha);
   const std::string gaia_alpha = AccountKeyToGaiaId(kAccountKeyAlpha);
   const std::string email_foobar = AccountKeyToEmail(kAccountKeyFooDotBar);
   const std::string gaia_foobar = AccountKeyToGaiaId(kAccountKeyFooDotBar);
 
-  ListPrefUpdate update(prefs(), prefs::kAccountInfo);
+  ScopedListPrefUpdate update(prefs(), prefs::kAccountInfo);
 
-  base::Value dict(base::Value::Type::DICTIONARY);
-  dict.SetStringKey("account_id", email_alpha);
-  dict.SetStringKey("email", email_alpha);
-  dict.SetStringKey("gaia", gaia_alpha);
+  base::Value::Dict dict;
+  dict.Set("account_id", email_alpha);
+  dict.Set("email", email_alpha);
+  dict.Set("gaia", gaia_alpha);
   update->Append(std::move(dict));
 
   // This account is invalid because the account_id is a non-canonicalized
   // version of the email.
-  dict = base::Value(base::Value::Type::DICTIONARY);
-  dict.SetStringKey("account_id", email_foobar);
-  dict.SetStringKey("email", email_foobar);
-  dict.SetStringKey("gaia", gaia_foobar);
+  dict = base::Value::Dict();
+  dict.Set("account_id", email_foobar);
+  dict.Set("email", email_foobar);
+  dict.Set("gaia", gaia_foobar);
   update->Append(std::move(dict));
 
   base::HistogramTester tester;
@@ -1759,4 +1839,58 @@ TEST_F(AccountTrackerServiceTest, CountOfLoadedAccounts_TwoAccountsOneInvalid) {
   EXPECT_THAT(
       tester.GetAllSamples("Signin.AccountTracker.CountOfLoadedAccounts"),
       testing::ElementsAre(base::Bucket(1, 1)));
+}
+#endif
+
+TEST_F(AccountTrackerServiceTest, CapabilityPrefNameMigration) {
+  base::ScopedTempDir scoped_user_data_dir;
+  ASSERT_TRUE(scoped_user_data_dir.CreateUniqueTempDir());
+
+  // Create a tracker and add an account. This should cause the account to be
+  // saved to persistence.
+  ResetAccountTrackerWithPersistence(scoped_user_data_dir.GetPath());
+  SimulateTokenAvailable(kAccountKeyAlpha);
+  ReturnAccountInfoFetchSuccess(kAccountKeyAlpha);
+
+  // The capability is unknown, and none of the capability-related keys should
+  // be set.
+  EXPECT_EQ(signin::Tribool::kUnknown,
+            account_tracker()
+                ->GetAccountInfo(AccountKeyToAccountId(kAccountKeyAlpha))
+                .capabilities.can_offer_extended_chrome_sync_promos());
+  ScopedListPrefUpdate update(prefs(), prefs::kAccountInfo);
+  ASSERT_FALSE(update->empty());
+  base::Value::Dict* dict = (*update)[0].GetIfDict();
+  ASSERT_TRUE(dict);
+  const char kDeprecatedCapabilityKey[] =
+      "accountcapabilities.can_offer_extended_chrome_sync_promos";
+  const char kNewCapabilityKey[] =
+      "accountcapabilities.accountcapabilities/gi2tklldmfya";
+  // The deprecated key is not set.
+  EXPECT_FALSE(dict->FindIntByDottedPath(kDeprecatedCapabilityKey));
+  EXPECT_TRUE(dict->FindIntByDottedPath(kNewCapabilityKey));
+
+  // Set the capability using the deprecated key, and reload the account.
+  dict->SetByDottedPath(kDeprecatedCapabilityKey, 1);
+  dict->RemoveByDottedPath(kNewCapabilityKey);
+  ClearAccountTrackerEvents();
+  ResetAccountTrackerWithPersistence(scoped_user_data_dir.GetPath());
+  EXPECT_TRUE(CheckAccountTrackerEvents(
+      {TrackingEvent(UPDATED, AccountKeyToAccountId(kAccountKeyAlpha),
+                     AccountKeyToGaiaId(kAccountKeyAlpha),
+                     AccountKeyToEmail(kAccountKeyAlpha))}));
+
+  // Check that the migration happened.
+  std::vector<AccountInfo> infos = account_tracker()->GetAccounts();
+  ASSERT_EQ(1u, infos.size());
+  CheckAccountDetails(kAccountKeyAlpha, infos[0]);
+  // The deprecated key has been read.
+  EXPECT_EQ(signin::Tribool::kTrue,
+            infos[0].capabilities.can_offer_extended_chrome_sync_promos());
+  // The deprecated key has been removed.
+  EXPECT_FALSE(dict->FindIntByDottedPath(kDeprecatedCapabilityKey));
+  // The new key has been written.
+  absl::optional<int> new_key = dict->FindIntByDottedPath(kNewCapabilityKey);
+  ASSERT_TRUE(new_key.has_value());
+  EXPECT_EQ(static_cast<int>(signin::Tribool::kTrue), new_key.value());
 }

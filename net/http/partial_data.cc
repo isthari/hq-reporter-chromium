@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,9 @@
 #include <limits>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/format_macros.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -17,6 +17,7 @@
 #include "net/base/net_errors.h"
 #include "net/disk_cache/disk_cache.h"
 #include "net/http/http_response_headers.h"
+#include "net/http/http_status_code.h"
 #include "net/http/http_util.h"
 
 namespace net {
@@ -30,18 +31,7 @@ const int kDataStream = 1;
 
 }  // namespace
 
-PartialData::PartialData()
-    : current_range_start_(0),
-      current_range_end_(0),
-      cached_start_(0),
-      cached_min_len_(0),
-      resource_size_(0),
-      range_requested_(false),
-      range_present_(false),
-      final_range_(false),
-      sparse_entry_(true),
-      truncated_(false),
-      initial_validation_(false) {}
+PartialData::PartialData() = default;
 
 PartialData::~PartialData() = default;
 
@@ -59,6 +49,7 @@ bool PartialData::Init(const HttpRequestHeaders& headers) {
 
   // We can handle this range request.
   byte_range_ = ranges[0];
+  user_byte_range_ = byte_range_;
   if (!byte_range_.IsValid())
     return false;
 
@@ -144,7 +135,12 @@ void PartialData::PrepareCacheValidation(disk_cache::Entry* entry,
   DCHECK_GE(cached_min_len_, 0);
 
   int len = GetNextRangeLen();
-  DCHECK_NE(0, len);
+  if (!len) {
+    // Stored body is empty, so just use the original range header.
+    headers->SetHeader(HttpRequestHeaders::kRange,
+                       user_byte_range_.GetHeaderValue());
+    return;
+  }
   range_present_ = false;
 
   headers->CopyFrom(extra_headers_);
@@ -226,7 +222,7 @@ bool PartialData::UpdateFromStoredHeaders(const HttpResponseHeaders* headers,
     return true;
   }
 
-  sparse_entry_ = (headers->response_code() == 206);
+  sparse_entry_ = (headers->response_code() == net::HTTP_PARTIAL_CONTENT);
 
   if (writing_in_progress || sparse_entry_) {
     // |writing_in_progress| means another Transaction is still fetching the
@@ -292,7 +288,7 @@ bool PartialData::IsRequestedRangeOK() {
 }
 
 bool PartialData::ResponseHeadersOK(const HttpResponseHeaders* headers) {
-  if (headers->response_code() == 304) {
+  if (headers->response_code() == net::HTTP_NOT_MODIFIED) {
     if (!byte_range_.IsValid() || truncated_)
       return true;
 
@@ -364,20 +360,21 @@ void PartialData::FixResponseHeaders(HttpResponseHeaders* headers,
   if (truncated_)
     return;
 
-  if (byte_range_.IsValid() && success) {
-    headers->UpdateWithNewRange(byte_range_, resource_size_, !sparse_entry_);
-    return;
-  }
-
-  if (byte_range_.IsValid()) {
+  if (!success) {
     headers->ReplaceStatusLine("HTTP/1.1 416 Requested Range Not Satisfiable");
     headers->SetHeader(
         kRangeHeader, base::StringPrintf("bytes 0-0/%" PRId64, resource_size_));
     headers->SetHeader(kLengthHeader, "0");
+    return;
+  }
+
+  if (byte_range_.IsValid() && resource_size_) {
+    headers->UpdateWithNewRange(byte_range_, resource_size_, !sparse_entry_);
   } else {
-    // TODO(rvargas): Is it safe to change the protocol version?
-    headers->ReplaceStatusLine("HTTP/1.1 200 OK");
-    DCHECK_NE(resource_size_, 0);
+    if (headers->response_code() == net::HTTP_PARTIAL_CONTENT) {
+      // TODO(rvargas): Is it safe to change the protocol version?
+      headers->ReplaceStatusLine("HTTP/1.1 200 OK");
+    }
     headers->RemoveHeader(kRangeHeader);
     headers->SetHeader(kLengthHeader,
                        base::StringPrintf("%" PRId64, resource_size_));
@@ -443,6 +440,9 @@ void PartialData::OnNetworkReadCompleted(int result) {
 }
 
 int PartialData::GetNextRangeLen() {
+  if (!resource_size_) {
+    return 0;
+  }
   int64_t range_len =
       byte_range_.HasLastBytePosition()
           ? byte_range_.last_byte_position() - current_range_start_ + 1

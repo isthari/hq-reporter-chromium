@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,12 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/syslog_logging.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
-#include "chromeos/dbus/session_manager/session_manager_client.h"
+#include "chromeos/ash/components/dbus/session_manager/session_manager_client.h"
+#include "components/policy/core/common/remote_commands/remote_command_job.h"
 #include "components/policy/core/common/remote_commands/remote_commands_service.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 
@@ -28,8 +29,11 @@ constexpr base::TimeDelta kRemotePowerwashCommandExpirationTime =
 // immediately start the powerwash process.
 constexpr base::TimeDelta kFailsafeTimerTimeout = base::Seconds(10);
 
-void StartPowerwash(enterprise_management::SignedData signed_command) {
-  chromeos::SessionManagerClient::Get()->StartRemoteDeviceWipe(signed_command);
+void StartPowerwash(
+    enterprise_management::SignedData signed_command,
+    enterprise_management::PolicyFetchRequest::SignatureType signature_type) {
+  ash::SessionManagerClient::Get()->StartRemoteDeviceWipe(signed_command,
+                                                          signature_type);
 }
 
 }  // namespace
@@ -50,23 +54,26 @@ bool DeviceCommandRemotePowerwashJob::IsExpired(base::TimeTicks now) {
 }
 
 void DeviceCommandRemotePowerwashJob::RunImpl(
-    CallbackWithResult succeeded_callback,
-    CallbackWithResult failed_callback) {
+    CallbackWithResult result_callback) {
   // Set callback which gets called after command is ACKd to the server. We want
   // to start the powerwash process only after the server got the ACK, otherwise
   // we could reboot before ACKing and then the server would never get the ACK.
   service_->SetOnCommandAckedCallback(
-      base::BindOnce(&StartPowerwash, signed_command()));
+      base::BindOnce(&StartPowerwash, signed_command(),
+                     RemoteCommandsService::GetSignatureType()));
 
   // Also set a failsafe timer that starts the powerwash so a faulty network
   // connection doesn't prevent the powerwash from happening.
-  base::SequencedTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE, base::BindOnce(&StartPowerwash, signed_command()),
+  base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(&StartPowerwash, signed_command(),
+                     RemoteCommandsService::GetSignatureType()),
       kFailsafeTimerTimeout);
 
   // Ack the command.
-  base::SequencedTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::BindOnce(std::move(succeeded_callback), nullptr));
+  base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(result_callback),
+                                ResultType::kSuccess, absl::nullopt));
 }
 
 }  // namespace policy

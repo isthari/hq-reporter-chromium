@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,7 @@
 #include "ash/wm/overview/overview_grid.h"
 #include "ash/wm/overview/overview_utils.h"
 #include "ash/wm/splitview/split_view_controller.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "ui/display/screen.h"
 #include "ui/events/event.h"
 #include "ui/gfx/geometry/vector2d_f.h"
@@ -82,6 +82,14 @@ void OverviewGridEventHandler::OnGestureEvent(ui::GestureEvent* event) {
     return;
   }
 
+  // TODO(crbug.com/1341128): Enable context menu via long-press in library page
+  // `SavedDeskLibraryView` will take over gesture event if it's active. When
+  // it's `ET_GESTURE_TAP`, here it does not set event to handled, and thus
+  // `HandleClickOrTap()` would be executed from
+  // `SavedDeskLibraryView::OnLocatedEvent()`.
+  if (grid_->IsShowingSavedDeskLibrary())
+    return;
+
   switch (event->type()) {
     case ui::ET_GESTURE_TAP: {
       HandleClickOrTap(event);
@@ -135,10 +143,10 @@ void OverviewGridEventHandler::OnGestureEvent(ui::GestureEvent* event) {
 void OverviewGridEventHandler::HandleClickOrTap(ui::Event* event) {
   CHECK_EQ(ui::EP_PRETARGET, event->phase());
 
-  // If the user is renaming a desk or template, rather than closing overview
+  // If the user is renaming a desk or saved desk, rather than closing overview
   // the focused name view should lose focus.
   if (grid_->IsDeskNameBeingModified() ||
-      grid_->IsTemplateNameBeingModified()) {
+      grid_->IsSavedDeskNameBeingModified()) {
     grid_->CommitNameChanges();
     event->StopPropagation();
     return;

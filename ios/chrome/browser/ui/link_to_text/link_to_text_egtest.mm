@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 #import "base/test/ios/wait_util.h"
 #import "components/shared_highlighting/core/common/fragment_directives_utils.h"
 #import "components/shared_highlighting/core/common/text_fragment.h"
-#import "ios/chrome/browser/ui/ui_feature_flags.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
 #import "ios/chrome/test/earl_grey/chrome_actions.h"
 #import "ios/chrome/test/earl_grey/chrome_actions_app_interface.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
@@ -97,7 +97,7 @@ NSArray<NSString*>* GetMarkedText() {
                   "  }"
                   "  return markedText;"
                   "})();";
-  auto result = [ChromeEarlGrey evaluateJavaScript:js];
+  base::Value result = [ChromeEarlGrey evaluateJavaScript:js];
   GREYAssertTrue(result.is_list(), @"Result is not iterable.");
 
   NSMutableArray<NSString*>* marked_texts = [NSMutableArray array];
@@ -125,7 +125,7 @@ NSString* GetFirstVisibleMarkedText() {
        "    rect.right <= window.innerWidth;"
        "  return isVisible ? firstMark.innerText : '';"
        "})();";
-  auto result = [ChromeEarlGrey evaluateJavaScript:js];
+  base::Value result = [ChromeEarlGrey evaluateJavaScript:js];
   GREYAssertTrue(result.is_string(), @"Result is not a string.");
   return base::SysUTF8ToNSString(result.GetString());
 }
@@ -184,10 +184,10 @@ std::unique_ptr<net::test_server::HttpResponse> LoadHtml(
 
   GREYAssertEqual(2, markedText.count,
                   @"Did not get the expected number of marked text.");
-  GREYAssertEqual(kFirstFragmentText, base::SysNSStringToUTF8(markedText[0]),
-                  @"First marked text is not valid.");
-  GREYAssertEqual(kSecondFragmentText, base::SysNSStringToUTF8(markedText[1]),
-                  @"Second marked text is not valid.");
+  GREYAssertEqualObjects(@(kFirstFragmentText), markedText[0],
+                         @"First marked text is not valid.");
+  GREYAssertEqualObjects(@(kSecondFragmentText), markedText[1],
+                         @"Second marked text is not valid.");
 }
 
 // Tests that a fragment will be scrolled to if it's lower on the page.
@@ -209,22 +209,18 @@ std::unique_ptr<net::test_server::HttpResponse> LoadHtml(
                   }];
 
   GREYAssert([scrolledToText
-                 waitWithTimeout:base::test::ios::kWaitForJSCompletionTimeout],
+                 waitWithTimeout:base::test::ios::kWaitForJSCompletionTimeout
+                                     .InSecondsF()],
              @"Could not find visible marked element.");
 
-  GREYAssertEqual(kFirstFragmentText, base::SysNSStringToUTF8(firstVisibleMark),
-                  @"Visible marked text is not valid.");
+  GREYAssertEqualObjects(@(kFirstFragmentText), firstVisibleMark,
+                         @"Visible marked text is not valid.");
 }
 
 // Tests that a link can be generated for a simple text selection.
-// TODO(crbug.com/1232101) Re-enable flakey tests.
-- (void)DISABLE_testGenerateLinkForSimpleText {
-  // TODO(crbug.com/1149603): Re-enable this test on iPad once presenting
-  // popovers work.
-  if ([ChromeEarlGrey isIPadIdiom]) {
-    EARL_GREY_TEST_DISABLED(@"Test is disabled on iPad.");
-  }
-
+// crbug.com/1403831 Disable flaky test
+- (void)DISABLED_testGenerateLinkForSimpleText {
+  [ChromeEarlGrey clearPasteboard];
   GURL pageURL = self.testServer->GetURL(kTestURL);
   [ChromeEarlGrey loadURL:pageURL];
   [ChromeEarlGrey waitForWebStateContainingText:kTestPageTextSample];
@@ -269,21 +265,16 @@ std::unique_ptr<net::test_server::HttpResponse> LoadHtml(
 
   // Assert the values stored in the pasteboard. Lower-casing the expected
   // GURL as that is what the JS library is doing.
-  std::vector<TextFragment> fragments{
-      TextFragment(base::ToLowerASCII(kToBeSelectedText))};
-  GURL expectedGURL =
-      shared_highlighting::AppendFragmentDirectives(pageURL, fragments);
+  NSString* stringURL = base::SysUTF8ToNSString(pageURL.spec());
+  NSString* fragment = @"#:~:text=bar-,";
+  NSString* selectedText =
+      base::SysUTF8ToNSString(base::ToLowerASCII(kToBeSelectedText));
 
-  // Wait for the value to be in the pasteboard.
-  GREYCondition* getPasteboardValue = [GREYCondition
-      conditionWithName:@"Could not get an expected URL from the pasteboard."
-                  block:^{
-                    return expectedGURL == [ChromeEarlGrey pasteboardURL];
-                  }];
+  NSString* expectedURL =
+      [NSString stringWithFormat:@"%@%@%@", stringURL, fragment, selectedText];
+  [ChromeEarlGrey verifyStringCopied:expectedURL];
 
-  GREYAssert([getPasteboardValue
-                 waitWithTimeout:base::test::ios::kWaitForActionTimeout],
-             @"Could not get expected URL from pasteboard.");
+  [ChromeEarlGrey clearPasteboard];
 }
 
 - (void)testBadSelectionDisablesGenerateLink {
@@ -312,7 +303,7 @@ std::unique_ptr<net::test_server::HttpResponse> LoadHtml(
       assertWithMatcher:grey_notVisible()];
 
   // TODO(crbug.com/1233056): Tap to dismiss the system selection callout
-  // buttons so tearDown doesn't hang when |disabler| goes out of scope.
+  // buttons so tearDown doesn't hang when `disabler` goes out of scope.
   [[EarlGrey selectElementWithMatcher:chrome_test_util::WebViewMatcher()]
       performAction:grey_tap()];
 }
@@ -353,7 +344,7 @@ std::unique_ptr<net::test_server::HttpResponse> LoadHtml(
       assertWithMatcher:grey_notVisible()];
 
   // TODO(crbug.com/1233056): Tap to dismiss the system selection callout
-  // buttons so tearDown doesn't hang when |disabler| goes out of scope.
+  // buttons so tearDown doesn't hang when `disabler` goes out of scope.
   [[EarlGrey selectElementWithMatcher:chrome_test_util::WebViewMatcher()]
       performAction:grey_tap()];
 }

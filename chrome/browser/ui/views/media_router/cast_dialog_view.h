@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "chrome/browser/ui/media_router/cast_dialog_controller.h"
-#include "chrome/browser/ui/views/hover_button.h"
+#include "chrome/browser/ui/views/controls/hover_button.h"
 #include "chrome/browser/ui/views/media_router/cast_dialog_access_code_cast_button.h"
 #include "chrome/browser/ui/views/media_router/cast_dialog_metrics.h"
 #include "ui/base/metadata/metadata_header_macros.h"
@@ -22,7 +22,6 @@
 #include "ui/views/bubble/bubble_dialog_delegate_view.h"
 #include "ui/views/controls/menu/menu_runner.h"
 
-class Browser;
 class Profile;
 
 namespace gfx {
@@ -31,8 +30,8 @@ class Canvas;
 
 namespace media_router {
 
-class CastDialogSinkButton;
-enum class MediaRouterDialogOpenOrigin;
+class CastDialogSinkView;
+enum class MediaRouterDialogActivationLocation;
 struct UIMediaSink;
 
 // View component of the Cast dialog that allows users to start and stop Casting
@@ -52,50 +51,22 @@ class CastDialogView : public views::BubbleDialogDelegateView,
 
   enum SourceType { kTab, kDesktop };
 
+  CastDialogView(views::View* anchor_view,
+                 views::BubbleBorder::Arrow anchor_position,
+                 CastDialogController* controller,
+                 Profile* profile,
+                 const base::Time& start_time,
+                 MediaRouterDialogActivationLocation activation_location);
+  ~CastDialogView() override;
   CastDialogView(const CastDialogView&) = delete;
   CastDialogView& operator=(const CastDialogView&) = delete;
-
-  // Shows the singleton dialog anchored to the Cast toolbar icon. Requires that
-  // BrowserActionsContainer exists for |browser|.
-  static void ShowDialogWithToolbarAction(
-      CastDialogController* controller,
-      Browser* browser,
-      const base::Time& start_time,
-      MediaRouterDialogOpenOrigin activation_location);
-
-  // Shows the singleton dialog anchored to the top-center of the browser
-  // window.
-  static void ShowDialogCenteredForBrowserWindow(
-      CastDialogController* controller,
-      Browser* browser,
-      const base::Time& start_time,
-      MediaRouterDialogOpenOrigin activation_location);
-
-  // Shows the singleton dialog anchored to the bottom of |bounds|, horizontally
-  // centered.
-  static void ShowDialogCentered(
-      const gfx::Rect& bounds,
-      CastDialogController* controller,
-      Profile* profile,
-      const base::Time& start_time,
-      MediaRouterDialogOpenOrigin activation_location);
-
-  // No-op if the dialog is currently not shown.
-  static void HideDialog();
-
-  static bool IsShowing();
-
-  static CastDialogView* GetInstance();
-
-  // Returns nullptr if the dialog is currently not shown.
-  static views::Widget* GetCurrentDialogWidget();
 
   // views::WidgetDelegate:
   std::u16string GetWindowTitle() const override;
 
   // CastDialogController::Observer:
   void OnModelUpdated(const CastDialogModel& model) override;
-  void OnControllerInvalidated() override;
+  void OnControllerDestroying() override;
 
   // views::BubbleDialogDelegateView:
   void OnPaint(gfx::Canvas* canvas) override;
@@ -114,8 +85,8 @@ class CastDialogView : public views::BubbleDialogDelegateView,
   void KeepShownForTesting();
 
   // Called by tests.
-  const std::vector<CastDialogSinkButton*>& sink_buttons_for_test() const {
-    return sink_buttons_;
+  const std::vector<raw_ptr<CastDialogSinkView>>& sink_views_for_test() const {
+    return sink_views_;
   }
   views::ScrollView* scroll_view_for_test() { return scroll_view_; }
   views::View* no_sinks_view_for_test() { return no_sinks_view_; }
@@ -131,28 +102,12 @@ class CastDialogView : public views::BubbleDialogDelegateView,
   }
 
  private:
+  // TODO(crbug.com/1346127): Remove friend classes.
   friend class CastDialogViewTest;
   friend class MediaRouterCastUiForTest;
   FRIEND_TEST_ALL_PREFIXES(CastDialogViewTest, DisableUnsupportedSinks);
   FRIEND_TEST_ALL_PREFIXES(CastDialogViewTest, ShowAndHideDialog);
   FRIEND_TEST_ALL_PREFIXES(CastDialogViewTest, ShowSourcesMenu);
-
-  // Instantiates and shows the singleton dialog. The dialog must not be
-  // currently shown.
-  static void ShowDialog(views::View* anchor_view,
-                         views::BubbleBorder::Arrow anchor_position,
-                         CastDialogController* controller,
-                         Profile* profile,
-                         const base::Time& start_time,
-                         MediaRouterDialogOpenOrigin activation_location);
-
-  CastDialogView(views::View* anchor_view,
-                 views::BubbleBorder::Arrow anchor_position,
-                 CastDialogController* controller,
-                 Profile* profile,
-                 const base::Time& start_time,
-                 MediaRouterDialogOpenOrigin activation_location);
-  ~CastDialogView() override;
 
   // views::BubbleDialogDelegateView:
   void Init() override;
@@ -178,6 +133,8 @@ class CastDialogView : public views::BubbleDialogDelegateView,
   void SelectSource(SourceType source);
 
   void SinkPressed(size_t index);
+  void StopPressed(size_t index);
+  void FreezePressed(size_t index);
 
   void MaybeSizeToContents();
 
@@ -196,16 +153,9 @@ class CastDialogView : public views::BubbleDialogDelegateView,
   // Records the number of sinks shown with the metrics recorder.
   void RecordSinkCount();
 
-  // Returns true if there are active Cast and DIAL sinks.
-  bool HasCastAndDialSinks() const;
-
   // Returns true iff feature is turned on and the access code casting policy
   // has been enabled for this user.
   bool IsAccessCodeCastingEnabled() const;
-
-  // The singleton dialog instance. This is a nullptr when a dialog is not
-  // shown.
-  static CastDialogView* instance_;
 
   // Title shown at the top of the dialog.
   std::u16string dialog_title_;
@@ -215,16 +165,16 @@ class CastDialogView : public views::BubbleDialogDelegateView,
   // the sources menu.
   SourceType selected_source_ = SourceType::kTab;
 
-  // Contains references to sink buttons in the order they appear.
-  std::vector<CastDialogSinkButton*> sink_buttons_;
+  // Contains references to sink views in the order they appear.
+  std::vector<raw_ptr<CastDialogSinkView>> sink_views_;
 
   raw_ptr<CastDialogController> controller_;
 
   // ScrollView containing the list of sink buttons.
-  raw_ptr<views::ScrollView> scroll_view_ = nullptr;
+  raw_ptr<views::ScrollView, DanglingUntriaged> scroll_view_ = nullptr;
 
   // View shown while there are no sinks.
-  raw_ptr<views::View> no_sinks_view_ = nullptr;
+  raw_ptr<views::View, DanglingUntriaged> no_sinks_view_ = nullptr;
 
   const raw_ptr<Profile> profile_;
 

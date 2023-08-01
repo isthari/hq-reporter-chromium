@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,14 @@
 #include <memory>
 #include <utility>
 
-#include "base/callback.h"
 #include "base/component_export.h"
 #include "base/containers/flat_map.h"
 #include "base/files/file_path.h"
+#include "base/functional/callback.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_multi_source_observation.h"
 #include "base/scoped_observation.h"
+#include "base/time/time.h"
 #include "components/app_restore/app_restore_arc_info.h"
 #include "components/app_restore/arc_read_handler.h"
 #include "components/app_restore/full_restore_utils.h"
@@ -25,7 +26,6 @@
 
 namespace app_restore {
 struct AppLaunchInfo;
-class LacrosReadHandler;
 class RestoreData;
 struct WindowInfo;
 }  // namespace app_restore
@@ -72,7 +72,6 @@ class COMPONENT_EXPORT(APP_RESTORE) FullRestoreReadHandler
   void OnWindowInitialized(aura::Window* window) override;
 
   // aura::WindowObserver:
-  void OnWindowAddedToRootWindow(aura::Window* window) override;
   void OnWindowDestroyed(aura::Window* window) override;
 
   // app_restore::ArcReadHandler::Delegate:
@@ -93,23 +92,6 @@ class COMPONENT_EXPORT(APP_RESTORE) FullRestoreReadHandler
                      int32_t task_id,
                      int32_t session_id) override;
   void OnTaskDestroyed(int32_t task_id) override;
-
-  // Invoked when Lacros window is created. `restored_browser_session_id` is the
-  // restored browser session id.
-  void OnLacrosBrowserWindowAdded(aura::Window* const window,
-                                  uint32_t restored_browser_session_id);
-
-  // Invoked when an Chrome app Lacros window is created. `app_id` is the
-  // AppService id, and `window_id` is the wayland app_id property for the
-  // window.
-  void OnLacrosChromeAppWindowAdded(const std::string& app_id,
-                                    const std::string& window_id);
-
-  // Invoked when an Chrome app Lacros window is removed. `app_id` is the
-  // AppService id, and `window_id` is the wayland app_id property for the
-  // window.
-  void OnLacrosChromeAppWindowRemoved(const std::string& app_id,
-                                      const std::string& window_id);
 
   void SetPrimaryProfilePath(const base::FilePath& profile_path);
 
@@ -169,10 +151,6 @@ class COMPONENT_EXPORT(APP_RESTORE) FullRestoreReadHandler
 
   // Returns the restore window id for the ARC app's |session_id|.
   int32_t GetArcRestoreWindowIdForSessionId(int32_t session_id);
-
-  // Generates the ARC session id (1,000,000,001 - INT_MAX) for restored ARC
-  // apps.
-  int32_t GetArcSessionId();
 
   // Returns the restore window id for the Lacros window with
   // `lacros_window_id`.
@@ -246,8 +224,6 @@ class COMPONENT_EXPORT(APP_RESTORE) FullRestoreReadHandler
       profile_path_to_start_time_data_;
 
   std::unique_ptr<app_restore::ArcReadHandler> arc_read_handler_;
-
-  std::unique_ptr<app_restore::LacrosReadHandler> lacros_read_handler_;
 
   // Records whether we need to check the restore data for the profile path. If
   // the profile path is recorded, we should check the restore data. Otherwise,

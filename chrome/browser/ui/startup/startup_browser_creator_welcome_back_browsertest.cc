@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,10 +15,12 @@
 #include "chrome/browser/profiles/keep_alive/scoped_profile_keep_alive.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/signin/signin_features.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/startup/startup_browser_creator.h"
 #include "chrome/browser/ui/startup/startup_tab_provider.h"
+#include "chrome/common/webui_url_constants.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "components/keep_alive_registry/keep_alive_types.h"
 #include "components/keep_alive_registry/scoped_keep_alive.h"
@@ -38,8 +40,6 @@ typedef absl::optional<policy::PolicyLevel> PolicyVariant;
 
 class StartupBrowserCreatorWelcomeBackTest : public InProcessBrowserTest {
  protected:
-  StartupBrowserCreatorWelcomeBackTest() = default;
-
   void SetUpInProcessBrowserTestFixture() override {
     provider_.SetDefaultReturns(
         /*is_initialization_complete_return=*/true,
@@ -70,11 +70,11 @@ class StartupBrowserCreatorWelcomeBackTest : public InProcessBrowserTest {
       values.Set(policy::key::kRestoreOnStartup, variant.value(),
                  policy::POLICY_SCOPE_MACHINE, policy::POLICY_SOURCE_CLOUD,
                  base::Value(4), nullptr);
-      base::Value url_list(base::Value::Type::LIST);
+      base::Value::List url_list;
       url_list.Append("http://managed.site.com/");
       values.Set(policy::key::kRestoreOnStartupURLs, variant.value(),
                  policy::POLICY_SCOPE_MACHINE, policy::POLICY_SOURCE_CLOUD,
-                 std::move(url_list), nullptr);
+                 base::Value(std::move(url_list)), nullptr);
       provider_.UpdateChromePolicy(values);
     }
 
@@ -97,7 +97,7 @@ class StartupBrowserCreatorWelcomeBackTest : public InProcessBrowserTest {
   }
 
  private:
-  raw_ptr<Profile> profile_ = nullptr;
+  raw_ptr<Profile, DanglingUntriaged> profile_ = nullptr;
   std::unique_ptr<ScopedKeepAlive> scoped_keep_alive_;
   std::unique_ptr<ScopedProfileKeepAlive> scoped_profile_keep_alive_;
   StartupBrowserCreator browser_creator_;
@@ -123,4 +123,19 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorWelcomeBackTest,
   ASSERT_NO_FATAL_FAILURE(
       StartBrowser(PolicyVariant(policy::POLICY_LEVEL_RECOMMENDED)));
   ExpectUrlInBrowserAtPosition(GURL("http://managed.site.com/"), 0);
+}
+
+class StartupBrowserCreatorWelcomeBackTestWithFre
+    : public StartupBrowserCreatorWelcomeBackTest {
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_{kForYouFre};
+};
+
+IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorWelcomeBackTestWithFre,
+                       WelcomeBackStandardNoPolicy) {
+  ASSERT_NO_FATAL_FAILURE(StartBrowser(PolicyVariant()));
+  // The chrome://welcome page should be shown for the welcome-back use case
+  // even if the "For You" Desktop First Run Experience is enabled.
+  ExpectUrlInBrowserAtPosition(StartupTabProviderImpl::GetWelcomePageUrl(false),
+                               0);
 }

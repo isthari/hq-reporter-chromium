@@ -20,6 +20,7 @@
 
 #include "third_party/blink/renderer/core/svg/svg_stop_element.h"
 
+#include "third_party/blink/renderer/core/css/properties/longhands.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/core/svg/svg_animated_number.h"
@@ -85,7 +86,8 @@ Color SVGStopElement::StopColorIncludingOpacity() const {
     return Color::kBlack;
 
   Color base_color = style->VisitedDependentColor(GetCSSPropertyStopColor());
-  return base_color.CombineWithAlpha(style->StopOpacity());
+  base_color.SetAlpha(style->StopOpacity() * base_color.Alpha());
+  return base_color;
 }
 
 }  // namespace blink

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,12 +14,11 @@
 #include "chrome/browser/ash/tether/fake_tether_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/network/network_handler.h"
-#include "chromeos/network/network_state_handler.h"
-#include "chromeos/services/multidevice_setup/public/cpp/prefs.h"
-#include "chromeos/services/multidevice_setup/public/mojom/multidevice_setup.mojom.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
+#include "chromeos/ash/components/dbus/dbus_thread_manager.h"
+#include "chromeos/ash/components/network/network_handler.h"
+#include "chromeos/ash/components/network/network_state_handler.h"
+#include "chromeos/ash/services/multidevice_setup/public/cpp/prefs.h"
+#include "chromeos/ash/services/multidevice_setup/public/mojom/multidevice_setup.mojom.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/session_manager/core/session_manager.h"
 
@@ -29,8 +28,8 @@ namespace tether {
 namespace {
 
 bool IsFeatureAllowed(content::BrowserContext* context) {
-  return chromeos::multidevice_setup::IsFeatureAllowed(
-      chromeos::multidevice_setup::mojom::Feature::kInstantTethering,
+  return multidevice_setup::IsFeatureAllowed(
+      multidevice_setup::mojom::Feature::kInstantTethering,
       Profile::FromBrowserContext(context)->GetPrefs());
 }
 
@@ -50,9 +49,14 @@ TetherService* TetherServiceFactory::GetForBrowserContext(
 }
 
 TetherServiceFactory::TetherServiceFactory()
-    : BrowserContextKeyedServiceFactory(
+    : ProfileKeyedServiceFactory(
           "TetherService",
-          BrowserContextDependencyManager::GetInstance()) {
+          ProfileSelections::Builder()
+              .WithRegular(ProfileSelection::kOriginalOnly)
+              // TODO(crbug.com/1418376): Check if this service is needed in
+              // Guest mode.
+              .WithGuest(ProfileSelection::kOriginalOnly)
+              .Build()) {
   DependsOn(device_sync::DeviceSyncClientFactory::GetInstance());
   DependsOn(multidevice_setup::MultiDeviceSetupClientFactory::GetInstance());
 }
@@ -61,7 +65,7 @@ TetherServiceFactory::~TetherServiceFactory() {}
 
 KeyedService* TetherServiceFactory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {
-  DCHECK(chromeos::NetworkHandler::IsInitialized());
+  DCHECK(NetworkHandler::IsInitialized());
 
   if (!IsFeatureAllowed(context))
     return nullptr;
@@ -76,7 +80,7 @@ KeyedService* TetherServiceFactory::BuildServiceInstanceFor(
         secure_channel::SecureChannelClientProvider::GetInstance()->GetClient(),
         multidevice_setup::MultiDeviceSetupClientFactory::GetForProfile(
             Profile::FromBrowserContext(context)),
-        chromeos::NetworkHandler::Get()->network_state_handler(),
+        NetworkHandler::Get()->network_state_handler(),
         session_manager::SessionManager::Get());
 
     int num_tether_networks = 0;
@@ -94,7 +98,7 @@ KeyedService* TetherServiceFactory::BuildServiceInstanceFor(
       secure_channel::SecureChannelClientProvider::GetInstance()->GetClient(),
       multidevice_setup::MultiDeviceSetupClientFactory::GetForProfile(
           Profile::FromBrowserContext(context)),
-      chromeos::NetworkHandler::Get()->network_state_handler(),
+      NetworkHandler::Get()->network_state_handler(),
       session_manager::SessionManager::Get());
 }
 

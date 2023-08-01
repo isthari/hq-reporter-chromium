@@ -1,6 +1,9 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import {TestRunner} from 'test_runner';
+import {NetworkTestRunner} from 'network_test_runner';
 
 (async function() {
   function getHTMLWithEncType(values, encType) {
@@ -55,7 +58,6 @@
   ];
 
   TestRunner.addResult('Tests that form submissions appear and are parsed in the network panel');
-  await TestRunner.loadTestModule('network_test_runner');
   await TestRunner.showPanel('network');
 
   await runFormTest(formValues);

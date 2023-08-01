@@ -1,13 +1,13 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <memory>
 #include <string>
 
-#include "base/callback_helpers.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/callback_helpers.h"
 #include "base/json/values_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/path_service.h"
@@ -16,6 +16,7 @@
 #include "base/test/metrics/histogram_tester.h"
 #include "base/time/time.h"
 #include "chrome/browser/devtools/devtools_window_testing.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/hats/hats_service.h"
 #include "chrome/browser/ui/hats/hats_service_factory.h"
@@ -71,9 +72,9 @@ class MockHatsNextWebDialog : public HatsNextWebDialog {
                           product_specific_bits_data,
                           product_specific_string_data) {}
 
-  MOCK_METHOD0(ShowWidget, void());
-  MOCK_METHOD0(CloseWidget, void());
-  MOCK_METHOD0(UpdateWidgetSize, void());
+  MOCK_METHOD(void, ShowWidget, (), (override));
+  MOCK_METHOD(void, CloseWidget, (), (override));
+  MOCK_METHOD(void, UpdateWidgetSize, (), (override));
 
   void WaitForClose() {
     base::RunLoop run_loop;
@@ -126,7 +127,7 @@ class HatsNextWebDialogBrowserTest : public InProcessBrowserTest {
   int failure_count = 0;
 
  private:
-  raw_ptr<MockHatsService> hats_service_;
+  raw_ptr<MockHatsService, DanglingUntriaged> hats_service_;
 };
 
 // Test that the web dialog correctly receives change to history state that
@@ -150,15 +151,16 @@ IN_PROC_BROWSER_TEST_F(HatsNextWebDialogBrowserTest, SurveyLoaded) {
       kHatsNextTestSurveyProductSpecificStringData);
 
   // Check that no record of a survey being shown is present.
-  const base::Value* pref_data =
-      browser()->profile()->GetPrefs()->GetDictionary(
-          prefs::kHatsSurveyMetadata);
-  absl::optional<base::Time> last_survey_started_time =
-      base::ValueToTime(pref_data->FindPath(kLastSurveyStartedTime));
-  absl::optional<int> last_major_version =
-      pref_data->FindIntPath(kLastMajorVersion);
-  ASSERT_FALSE(last_survey_started_time.has_value());
-  ASSERT_FALSE(last_major_version.has_value());
+  {
+    const base::Value::Dict& pref_data =
+        browser()->profile()->GetPrefs()->GetDict(prefs::kHatsSurveyMetadata);
+    absl::optional<base::Time> last_survey_started_time =
+        base::ValueToTime(pref_data.FindByDottedPath(kLastSurveyStartedTime));
+    absl::optional<int> last_major_version =
+        pref_data.FindIntByDottedPath(kLastMajorVersion);
+    ASSERT_FALSE(last_survey_started_time.has_value());
+    ASSERT_FALSE(last_major_version.has_value());
+  }
 
   // The hats_next_mock.html will provide a state update to the dialog to
   // indicate that the survey has been loaded.
@@ -174,15 +176,18 @@ IN_PROC_BROWSER_TEST_F(HatsNextWebDialogBrowserTest, SurveyLoaded) {
   EXPECT_EQ(0, failure_count);
 
   // Check that a record of the survey being shown has been recorded.
-  pref_data = browser()->profile()->GetPrefs()->GetDictionary(
-      prefs::kHatsSurveyMetadata);
-  last_survey_started_time =
-      base::ValueToTime(pref_data->FindPath(kLastSurveyStartedTime));
-  last_major_version = pref_data->FindIntPath(kLastMajorVersion);
-  ASSERT_TRUE(last_survey_started_time.has_value());
-  ASSERT_TRUE(last_major_version.has_value());
-  ASSERT_EQ(static_cast<uint32_t>(*last_major_version),
-            version_info::GetVersion().components()[0]);
+  {
+    const base::Value::Dict& pref_data =
+        browser()->profile()->GetPrefs()->GetDict(prefs::kHatsSurveyMetadata);
+    absl::optional<base::Time> last_survey_started_time =
+        base::ValueToTime(pref_data.FindByDottedPath(kLastSurveyStartedTime));
+    absl::optional<int> last_major_version =
+        pref_data.FindIntByDottedPath(kLastMajorVersion);
+    ASSERT_TRUE(last_survey_started_time.has_value());
+    ASSERT_TRUE(last_major_version.has_value());
+    ASSERT_EQ(static_cast<uint32_t>(*last_major_version),
+              version_info::GetVersion().components()[0]);
+  }
 }
 
 // Test that the web dialog correctly receives change to history state that

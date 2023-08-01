@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -54,12 +54,12 @@ TEST_F(PolicyProviderTest, DefaultGeolocationContentSetting) {
       provider.GetRuleIterator(ContentSettingsType::GEOLOCATION, false);
   ASSERT_TRUE(rule_iterator);
   EXPECT_TRUE(rule_iterator->HasNext());
-  Rule rule = rule_iterator->Next();
+  std::unique_ptr<Rule> rule = rule_iterator->Next();
   EXPECT_FALSE(rule_iterator->HasNext());
 
-  EXPECT_EQ(ContentSettingsPattern::Wildcard(), rule.primary_pattern);
-  EXPECT_EQ(ContentSettingsPattern::Wildcard(), rule.secondary_pattern);
-  EXPECT_EQ(CONTENT_SETTING_BLOCK, ValueToContentSetting(rule.value));
+  EXPECT_EQ(ContentSettingsPattern::Wildcard(), rule->primary_pattern);
+  EXPECT_EQ(ContentSettingsPattern::Wildcard(), rule->secondary_pattern);
+  EXPECT_EQ(CONTENT_SETTING_BLOCK, ValueToContentSetting(rule->value()));
 
   provider.ShutdownOnUIThread();
 }
@@ -76,12 +76,12 @@ TEST_F(PolicyProviderTest, ManagedDefaultContentSettings) {
   std::unique_ptr<RuleIterator> rule_iterator(
       provider.GetRuleIterator(ContentSettingsType::COOKIES, false));
   EXPECT_TRUE(rule_iterator->HasNext());
-  Rule rule = rule_iterator->Next();
+  std::unique_ptr<Rule> rule = rule_iterator->Next();
   EXPECT_FALSE(rule_iterator->HasNext());
 
-  EXPECT_EQ(ContentSettingsPattern::Wildcard(), rule.primary_pattern);
-  EXPECT_EQ(ContentSettingsPattern::Wildcard(), rule.secondary_pattern);
-  EXPECT_EQ(CONTENT_SETTING_BLOCK, ValueToContentSetting(rule.value));
+  EXPECT_EQ(ContentSettingsPattern::Wildcard(), rule->primary_pattern);
+  EXPECT_EQ(ContentSettingsPattern::Wildcard(), rule->secondary_pattern);
+  EXPECT_EQ(CONTENT_SETTING_BLOCK, ValueToContentSetting(rule->value()));
 
   provider.ShutdownOnUIThread();
 }
@@ -116,10 +116,9 @@ TEST_F(PolicyProviderTest, GettingManagedContentSettings) {
   sync_preferences::TestingPrefServiceSyncable* prefs =
       profile.GetTestingPrefService();
 
-  auto value = base::Value(base::Value::Type::LIST);
-  value.Append("[*.]google.com");
-  prefs->SetManagedPref(prefs::kManagedImagesBlockedForUrls,
-                        base::Value::ToUniquePtrValue(std::move(value)));
+  base::Value::List list;
+  list.Append("[*.]google.com");
+  prefs->SetManagedPref(prefs::kManagedImagesBlockedForUrls, std::move(list));
 
   PolicyProvider provider(prefs);
 
@@ -138,8 +137,8 @@ TEST_F(PolicyProviderTest, GettingManagedContentSettings) {
   EXPECT_EQ(CONTENT_SETTING_BLOCK,
             TestUtils::GetContentSetting(&provider, google_url, google_url,
                                          ContentSettingsType::IMAGES, false));
-  value = TestUtils::GetContentSettingValue(&provider, google_url, google_url,
-                                            ContentSettingsType::IMAGES, false);
+  base::Value value = TestUtils::GetContentSettingValue(
+      &provider, google_url, google_url, ContentSettingsType::IMAGES, false);
 
   EXPECT_EQ(CONTENT_SETTING_BLOCK,
             IntToContentSetting(value.GetIfInt().value_or(-1)));
@@ -175,10 +174,10 @@ TEST_F(PolicyProviderTest, AutoSelectCertificateList) {
   // certificates.
   std::string pattern_str("\"pattern\":\"[*.]google.com\"");
   std::string filter_str("\"filter\":{\"ISSUER\":{\"CN\":\"issuer name\"}}");
-  base::Value value(base::Value::Type::LIST);
-  value.Append("{" + pattern_str + "," + filter_str + "}");
+  base::Value::List list;
+  list.Append("{" + pattern_str + "," + filter_str + "}");
   prefs->SetManagedPref(prefs::kManagedAutoSelectCertificateForUrls,
-                        base::Value::ToUniquePtrValue(std::move(value)));
+                        std::move(list));
   GURL youtube_url("https://www.youtube.com");
   EXPECT_EQ(base::Value(),
             TestUtils::GetContentSettingValue(
@@ -188,16 +187,71 @@ TEST_F(PolicyProviderTest, AutoSelectCertificateList) {
       &provider, google_url, google_url,
       ContentSettingsType::AUTO_SELECT_CERTIFICATE, false);
 
-  ASSERT_EQ(base::Value::Type::DICTIONARY, cert_filter_setting.type());
-  base::Value* cert_filters =
-      cert_filter_setting.FindKeyOfType("filters", base::Value::Type::LIST);
+  ASSERT_EQ(base::Value::Type::DICT, cert_filter_setting.type());
+  base::Value::List* cert_filters =
+      cert_filter_setting.GetDict().FindList("filters");
   ASSERT_TRUE(cert_filters);
-  ASSERT_FALSE(cert_filters->GetList().empty());
-  auto& filter = cert_filters->GetList().front();
+  ASSERT_FALSE(cert_filters->empty());
+  auto& filter = cert_filters->front();
   ASSERT_TRUE(filter.is_dict());
-  const std::string* actual_common_name = filter.FindStringPath("ISSUER.CN");
+  const std::string* actual_common_name =
+      filter.GetDict().FindStringByDottedPath("ISSUER.CN");
   ASSERT_TRUE(actual_common_name);
   EXPECT_EQ("issuer name", *actual_common_name);
+  provider.ShutdownOnUIThread();
+}
+
+TEST_F(PolicyProviderTest, InvalidAutoSelectCertificateList) {
+  TestingProfile profile;
+  sync_preferences::TestingPrefServiceSyncable* prefs =
+      profile.GetTestingPrefService();
+
+  PolicyProvider provider(prefs);
+  GURL google_url("https://mail.google.com");
+
+  std::string pattern_str("\"pattern\":\"[*.]google.com\"");
+  std::string filter_str("\"filter\":{\"ISSUER\":{\"CN\":\"issuer name\"}}");
+
+  // Missing pattern should be rejected.
+  base::Value::List missing_pattern_value;
+  missing_pattern_value.Append("{" + filter_str + "}");
+  prefs->SetManagedPref(prefs::kManagedAutoSelectCertificateForUrls,
+                        std::move(missing_pattern_value));
+  EXPECT_EQ(base::Value(),
+            TestUtils::GetContentSettingValue(
+                &provider, google_url, google_url,
+                ContentSettingsType::AUTO_SELECT_CERTIFICATE, false));
+
+  // Non-dict value should be rejected.
+  base::Value::List no_dict_value;
+  no_dict_value.Append(pattern_str + "," + filter_str);
+  prefs->SetManagedPref(prefs::kManagedAutoSelectCertificateForUrls,
+                        std::move(no_dict_value));
+  EXPECT_EQ(base::Value(),
+            TestUtils::GetContentSettingValue(
+                &provider, google_url, google_url,
+                ContentSettingsType::AUTO_SELECT_CERTIFICATE, false));
+
+  // Missing filter should be rejected.
+  base::Value::List missing_filter_value;
+  missing_filter_value.Append("{" + pattern_str + "}");
+  prefs->SetManagedPref(prefs::kManagedAutoSelectCertificateForUrls,
+                        std::move(missing_filter_value));
+  EXPECT_EQ(base::Value(),
+            TestUtils::GetContentSettingValue(
+                &provider, google_url, google_url,
+                ContentSettingsType::AUTO_SELECT_CERTIFICATE, false));
+
+  // Valid configuration should not be rejected.
+  base::Value::List valid_value;
+  valid_value.Append("{" + pattern_str + "," + filter_str + "}");
+  prefs->SetManagedPref(prefs::kManagedAutoSelectCertificateForUrls,
+                        std::move(valid_value));
+  EXPECT_NE(base::Value(),
+            TestUtils::GetContentSettingValue(
+                &provider, google_url, google_url,
+                ContentSettingsType::AUTO_SELECT_CERTIFICATE, false));
+
   provider.ShutdownOnUIThread();
 }
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 
 #include <memory>
 
+#include "components/file_access/scoped_file_access_delegate.h"
 #include "storage/browser/file_system/file_system_backend.h"
 #include "storage/browser/file_system/task_runner_bound_observer_list.h"
 
@@ -27,7 +28,7 @@ class IsolatedFileSystemBackend : public FileSystemBackend {
   void Initialize(FileSystemContext* context) override;
   void ResolveURL(const FileSystemURL& url,
                   OpenFileSystemMode mode,
-                  OpenFileSystemCallback callback) override;
+                  ResolveURLCallback callback) override;
   AsyncFileUtil* GetAsyncFileUtil(FileSystemType type) override;
   WatcherManager* GetWatcherManager(FileSystemType type) override;
   CopyOrMoveFileValidatorFactory* GetCopyOrMoveFileValidatorFactory(
@@ -44,7 +45,9 @@ class IsolatedFileSystemBackend : public FileSystemBackend {
       int64_t offset,
       int64_t max_bytes_to_read,
       const base::Time& expected_modification_time,
-      FileSystemContext* context) const override;
+      FileSystemContext* context,
+      file_access::ScopedFileAccessDelegate::RequestFilesAccessIOCallback
+          file_access) const override;
   std::unique_ptr<FileStreamWriter> CreateFileStreamWriter(
       const FileSystemURL& url,
       int64_t offset,

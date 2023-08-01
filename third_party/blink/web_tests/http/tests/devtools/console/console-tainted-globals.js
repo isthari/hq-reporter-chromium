@@ -1,11 +1,14 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import {TestRunner} from 'test_runner';
+import {ConsoleTestRunner} from 'console_test_runner';
 
 (async function() {
   TestRunner.addResult(
       `Tests that overriding global methods (like Array.prototype.push, Math.max) will not break the inspector.\n`);
-  await TestRunner.loadLegacyModule('console'); await TestRunner.loadTestModule('console_test_runner');
+  await TestRunner.loadLegacyModule('console');
   await TestRunner.showPanel('console');
   await TestRunner.evaluateInPagePromise(`
       var originalError = window.Error;
@@ -136,8 +139,6 @@
         'testOverriddenToString(new Function, false)',
         'testOverriddenToString(/^regex$/, true)',
         'testOverriddenToString(/^regex$/, false)',
-        'testOverriddenToString(new Date, true)',
-        'testOverriddenToString(new Date, false)',
         'testOverriddenToString({}, true)',
         'testOverriddenToString({}, false)',
         'testOverriddenToString(new Number(1), true)',

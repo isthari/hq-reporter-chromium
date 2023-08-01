@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@
 #include <utility>
 
 #include "base/parameter_pack.h"
-#include "base/template_util.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 // A bag of Traits (structs / enums / etc...) can be an elegant alternative to
@@ -73,18 +72,14 @@ struct EmptyTrait {};
 // which isn't worth the complexity over ignoring EmptyTrait.
 template <typename... TraitsToExclude>
 struct Exclude {
-  template <typename T,
-            std::enable_if_t<ParameterPack<
-                TraitsToExclude...>::template HasType<T>::value>* = nullptr>
-  static constexpr EmptyTrait Filter(T t) {
-    return EmptyTrait();
-  }
-
-  template <typename T,
-            std::enable_if_t<!ParameterPack<
-                TraitsToExclude...>::template HasType<T>::value>* = nullptr>
-  static constexpr T Filter(T t) {
-    return t;
+  template <typename T>
+  static constexpr auto Filter(T t) {
+    if constexpr (ParameterPack<TraitsToExclude...>::template HasType<
+                      T>::value) {
+      return EmptyTrait();
+    } else {
+      return t;
+    }
   }
 };
 
@@ -199,8 +194,8 @@ struct RequiredEnumTraitFilter : public BasicTraitFilter<ArgType> {
 
 // Note EmptyTrait is always regarded as valid to support filtering.
 template <class ValidTraits, class T>
-using IsValidTrait = disjunction<std::is_constructible<ValidTraits, T>,
-                                 std::is_same<T, EmptyTrait>>;
+using IsValidTrait = std::disjunction<std::is_constructible<ValidTraits, T>,
+                                      std::is_same<T, EmptyTrait>>;
 
 // Tests whether a given trait type is valid or invalid by testing whether it is
 // convertible to the provided ValidTraits type. To use, define a ValidTraits
@@ -220,7 +215,7 @@ using IsValidTrait = disjunction<std::is_constructible<ValidTraits, T>,
 // };
 template <class ValidTraits, class... ArgTypes>
 using AreValidTraits =
-    bool_constant<all_of({IsValidTrait<ValidTraits, ArgTypes>::value...})>;
+    std::bool_constant<all_of({IsValidTrait<ValidTraits, ArgTypes>::value...})>;
 
 // Helper to make getting an enum from a trait more readable.
 template <typename Enum, typename... Args>

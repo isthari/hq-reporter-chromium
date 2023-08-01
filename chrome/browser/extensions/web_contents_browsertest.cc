@@ -1,10 +1,10 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <map>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/devtools/devtools_window_testing.h"
@@ -86,10 +86,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, WebContents) {
       browser(),
       GURL("chrome-extension://behllobkkfkfnphdnhnkndlbkcpglgmj/page.html")));
 
-  bool result = false;
-  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      GetActiveWebContents(browser()), "testTabsAPI()", &result));
-  EXPECT_TRUE(result);
+  EXPECT_EQ(true,
+            content::EvalJs(GetActiveWebContents(browser()), "testTabsAPI()"));
 
   // There was a bug where we would crash if we navigated to a page in the same
   // extension because no new render view was getting created, so we would not
@@ -97,10 +95,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, WebContents) {
   ASSERT_TRUE(ui_test_utils::NavigateToURL(
       browser(),
       GURL("chrome-extension://behllobkkfkfnphdnhnkndlbkcpglgmj/page.html")));
-  result = false;
-  ASSERT_TRUE(content::ExecuteScriptAndExtractBool(
-      GetActiveWebContents(browser()), "testTabsAPI()", &result));
-  EXPECT_TRUE(result);
+  EXPECT_EQ(true,
+            content::EvalJs(GetActiveWebContents(browser()), "testTabsAPI()"));
 }
 
 // Ensure that platform app frames can't be loaded in a tab even on a redirect.
@@ -152,7 +148,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, BackgroundPageNavigation) {
     ASSERT_TRUE(ExecuteScriptInBackgroundPageNoWait(
         extension->id(),
         base::StringPrintf(kScript, target_url.spec().c_str())));
-    navigation_observer.WaitForNavigationFinished();
+    ASSERT_TRUE(navigation_observer.WaitForNavigationFinished());
     EXPECT_FALSE(navigation_observer.was_committed());
     EXPECT_EQ(extension->GetResourceURL("background.html"),
               background_contents->GetLastCommittedURL());
@@ -167,7 +163,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, BackgroundPageNavigation) {
     ASSERT_TRUE(ExecuteScriptInBackgroundPageNoWait(
         extension->id(),
         base::StringPrintf(kScript, target_url.spec().c_str())));
-    navigation_observer.WaitForNavigationFinished();
+    ASSERT_TRUE(navigation_observer.WaitForNavigationFinished());
     EXPECT_TRUE(navigation_observer.was_committed());
     EXPECT_EQ(target_url, background_contents->GetLastCommittedURL());
   }
@@ -181,7 +177,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, BackgroundPageNavigation) {
     ASSERT_TRUE(ExecuteScriptInBackgroundPageNoWait(
         extension->id(),
         base::StringPrintf(kScript, target_url.spec().c_str())));
-    navigation_observer.WaitForNavigationFinished();
+    ASSERT_TRUE(navigation_observer.WaitForNavigationFinished());
     EXPECT_TRUE(navigation_observer.was_committed());
     EXPECT_EQ(target_url, background_contents->GetLastCommittedURL());
   }
@@ -207,7 +203,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, ExtensionNavigationUIData) {
   // Test ExtensionNavigationUIData for the main frame.
   {
     const auto* extension_navigation_ui_data =
-        observer.GetExtensionNavigationUIData(web_contents->GetMainFrame());
+        observer.GetExtensionNavigationUIData(
+            web_contents->GetPrimaryMainFrame());
     ASSERT_TRUE(extension_navigation_ui_data);
     EXPECT_FALSE(extension_navigation_ui_data->is_web_view());
 
@@ -224,7 +221,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, ExtensionNavigationUIData) {
   {
     const auto* extension_navigation_ui_data =
         observer.GetExtensionNavigationUIData(
-            content::ChildFrameAt(web_contents->GetMainFrame(), 0));
+            content::ChildFrameAt(web_contents->GetPrimaryMainFrame(), 0));
     ASSERT_TRUE(extension_navigation_ui_data);
     EXPECT_FALSE(extension_navigation_ui_data->is_web_view());
 

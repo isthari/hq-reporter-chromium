@@ -1,8 +1,9 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "omnibox_input_watcher.h"
+#include "base/observer_list.h"
 #include "build/build_config.h"
 
 #if !BUILDFLAG(IS_IOS)
@@ -69,4 +70,9 @@ void OmniboxInputWatcher::RemoveObserver(Observer* observer) {
 void OmniboxInputWatcher::NotifyInputEntered() {
   for (auto& observer : observers_)
     observer.OnOmniboxInputEntered();
+}
+
+// static
+void OmniboxInputWatcher::EnsureFactoryBuilt() {
+  OmniboxInputWatcherFactory::GetInstance();
 }

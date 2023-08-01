@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,7 +19,6 @@ import org.chromium.base.ApplicationStatus;
 import org.chromium.base.Callback;
 import org.chromium.base.ContentUriUtils;
 import org.chromium.base.Log;
-import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.base.task.AsyncTask;
 import org.chromium.base.task.PostTask;
@@ -44,9 +43,7 @@ import org.chromium.components.browser_ui.share.ShareParams;
 import org.chromium.components.dom_distiller.core.DomDistillerUrlUtils;
 import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.components.offline_items_collection.LaunchLocation;
-import org.chromium.components.offlinepages.SavePageResult;
 import org.chromium.content_public.browser.LoadUrlParams;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.net.NetworkChangeNotifier;
 import org.chromium.ui.base.PageTransition;
@@ -66,8 +63,6 @@ import java.util.Map;
  */
 public class OfflinePageUtils {
     private static final String TAG = "OfflinePageUtils";
-    /** Background task tag to differentiate from other task types */
-    public static final String TASK_TAG = "OfflinePageUtils";
 
     private static final int DEFAULT_SNACKBAR_DURATION_MS = 6 * 1000; // 6 second
 
@@ -316,20 +311,6 @@ public class OfflinePageUtils {
     }
 
     /**
-     * Records UMA data for publishing internal page during sharing.
-     * Most of the recording are in JNI layer, since it's a point that can be used by both ways of
-     * sharing a page.
-     * TODO(romax): See if we can merge that.
-     * @param result The result for publishing file.
-     */
-    public static void recordPublishPageResult(int result) {
-        // TODO(https://crbug.com/894714): Find a safer way to define the boundary value when
-        // using MAX_VALUE.
-        RecordHistogram.recordEnumeratedHistogram("OfflinePages.Sharing.PublishInternalPageResult",
-                result, SavePageResult.MAX_VALUE + 1);
-    }
-
-    /**
      * Save the page loaded in current tab and share the saved page.
      * @param tab The current tab from which the page is being shared.
      * @param shareCallback The callback to be used to send the ShareParams. This will only be
@@ -377,7 +358,7 @@ public class OfflinePageUtils {
                     uri = Uri.parse(tabUrl);
                 }
                 final Uri finalUri = uri;
-                PostTask.postTask(UiThreadTaskTraits.DEFAULT, callback.bind(finalUri));
+                PostTask.postTask(TaskTraits.UI_DEFAULT, callback.bind(finalUri));
             });
         } else {
             callback.onResult(Uri.parse(tabUrl));
@@ -400,7 +381,6 @@ public class OfflinePageUtils {
         }
 
         boolean isOfflinePage = OfflinePageUtils.isOfflinePage(tab);
-        RecordHistogram.recordBooleanHistogram("OfflinePages.SharedPageWasOffline", isOfflinePage);
 
         // If the current tab is not showing an offline page, try to see if we should do live page
         // sharing.
@@ -471,7 +451,6 @@ public class OfflinePageUtils {
         // file if it resides in internal directory.
         offlinePageBridge.acquireFileAccessPermission(webContents, (granted) -> {
             if (!granted) {
-                recordPublishPageResult(SavePageResult.STORAGE_PERMISSION_DENIED);
                 return;
             }
 
@@ -806,13 +785,13 @@ public class OfflinePageUtils {
         }
 
         @Override
-        public void didAddTab(
-                Tab tab, @TabLaunchType int type, @TabCreationState int creationState) {
+        public void didAddTab(Tab tab, @TabLaunchType int type, @TabCreationState int creationState,
+                boolean markedForSelection) {
             tab.addObserver(sTabRestoreTracker);
         }
 
         @Override
-        public void willCloseTab(Tab tab, boolean animate) {
+        public void willCloseTab(Tab tab, boolean animate, boolean didCloseAlone) {
             Profile profile = mTabModelSelector.getModel(tab.isIncognito()).getProfile();
             OfflinePageBridge bridge = OfflinePageBridge.getForProfile(profile);
             if (bridge == null) return;
@@ -822,8 +801,8 @@ public class OfflinePageUtils {
         }
 
         @Override
-        public void didCloseTab(int tabId, boolean incognito) {
-            Profile profile = mTabModelSelector.getModel(incognito).getProfile();
+        public void onFinishingTabClosure(Tab tab) {
+            Profile profile = mTabModelSelector.getModel(tab.isIncognito()).getProfile();
             OfflinePageBridge bridge = OfflinePageBridge.getForProfile(profile);
             if (bridge == null) return;
 
@@ -831,7 +810,7 @@ public class OfflinePageUtils {
             // the UI will no longer show the page, and the page would also be cleaned up by GC
             // given enough time.
             ClientId clientId =
-                    new ClientId(OfflinePageBridge.LAST_N_NAMESPACE, Integer.toString(tabId));
+                    new ClientId(OfflinePageBridge.LAST_N_NAMESPACE, Integer.toString(tab.getId()));
             List<ClientId> clientIds = new ArrayList<>();
             clientIds.add(clientId);
 
@@ -923,30 +902,7 @@ public class OfflinePageUtils {
                     assert false;
                     return;
             }
-            recordTabRestoreHistogram(tabRestoreType, tab.getUrl().getSpec());
         }
-
-        /**
-         * If the tab was being restored, reports that it failed reloading its contents.
-         */
-        @Override
-        public void onPageLoadFailed(Tab tab, int errorCode) {
-            if (tab.isBeingRestored()) recordTabRestoreHistogram(TabRestoreType.FAILED, null);
-        }
-
-        /**
-         * If the tab was being restored, reports that it crashed while doing so.
-         */
-        @Override
-        public void onCrash(Tab tab) {
-            if (tab.isBeingRestored()) recordTabRestoreHistogram(TabRestoreType.CRASHED, null);
-        }
-    }
-
-    private static void recordTabRestoreHistogram(int tabRestoreType, String url) {
-        Log.d(TAG, "Concluded tab restore: type=" + tabRestoreType + ", url=" + url);
-        RecordHistogram.recordEnumeratedHistogram(
-                "OfflinePages.TabRestore", tabRestoreType, TabRestoreType.NUM_ENTRIES);
     }
 
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)

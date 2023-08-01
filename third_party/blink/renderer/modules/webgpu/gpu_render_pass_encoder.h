@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@
 #include "third_party/blink/renderer/modules/webgpu/dawn_object.h"
 #include "third_party/blink/renderer/modules/webgpu/gpu_programmable_pass_encoder.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
-#include "third_party/blink/renderer/platform/bindings/no_alloc_direct_call_host.h"
 
 namespace blink {
 
@@ -19,8 +18,7 @@ class GPURenderBundle;
 class V8GPUIndexFormat;
 
 class GPURenderPassEncoder : public DawnObject<WGPURenderPassEncoder>,
-                             public GPUProgrammablePassEncoder,
-                             public NoAllocDirectCallHost {
+                             public GPUProgrammablePassEncoder {
   DEFINE_WRAPPERTYPEINFO();
 
  public:
@@ -138,11 +136,14 @@ class GPURenderPassEncoder : public DawnObject<WGPURenderPassEncoder>,
     GetProcs().renderPassEncoderEndOcclusionQuery(GetHandle());
   }
   void writeTimestamp(const DawnObject<WGPUQuerySet>* querySet,
-                      uint32_t queryIndex) {
-    GetProcs().renderPassEncoderWriteTimestamp(
-        GetHandle(), querySet->GetHandle(), queryIndex);
+                      uint32_t queryIndex,
+                      ExceptionState& exception_state);
+  void end() { GetProcs().renderPassEncoderEnd(GetHandle()); }
+
+  void setLabelImpl(const String& value) override {
+    std::string utf8_label = value.Utf8();
+    GetProcs().renderPassEncoderSetLabel(GetHandle(), utf8_label.c_str());
   }
-  void endPass() { GetProcs().renderPassEncoderEndPass(GetHandle()); }
 };
 
 }  // namespace blink

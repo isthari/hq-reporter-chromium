@@ -1,12 +1,11 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import {getInstance, MarginsType, NativeInitialSettings, NativeLayerImpl, PluginProxyImpl, PrintPreviewAppElement, ScalingType, SerializedSettings, Setting, SettingsMixinInterface} from 'chrome://print/print_preview.js';
-import {assert} from 'chrome://resources/js/assert.m.js';
+import {getInstance, MarginsType, NativeInitialSettings, NativeLayerImpl, PluginProxyImpl, PrintPreviewAppElement, ScalingType, SerializedSettings, Settings, SettingsMixinInterface} from 'chrome://print/print_preview.js';
 import {assertEquals} from 'chrome://webui-test/chai_assert.js';
 
-// <if expr="chromeos_ash or chromeos_lacros">
+// <if expr="is_chromeos">
 import {setNativeLayerCrosInstance} from './native_layer_cros_stub.js';
 // </if>
 
@@ -35,10 +34,10 @@ suite(restore_state_test.suiteName, function() {
   setup(function() {
     nativeLayer = new NativeLayerStub();
     NativeLayerImpl.setInstance(nativeLayer);
-    // <if expr="chromeos_ash or chromeos_lacros">
+    // <if expr="is_chromeos">
     setNativeLayerCrosInstance();
     // </if>
-    document.body.innerHTML = '';
+    document.body.innerHTML = window.trustedTypes!.emptyHTML;
   });
 
   /**
@@ -65,20 +64,22 @@ suite(restore_state_test.suiteName, function() {
         (stickySettings.vendorOptions! as {[key: string]: any})['printArea'],
         page.settings.vendorItems.value.printArea);
 
-    [['margins', 'marginsType'],
-     ['color', 'isColorEnabled'],
-     ['headerFooter', 'isHeaderFooterEnabled'],
-     ['layout', 'isLandscapeEnabled'],
-     ['collate', 'isCollateEnabled'],
-     ['cssBackground', 'isCssBackgroundEnabled'],
-     ['scaling', 'scaling'],
-     ['scalingType', 'scalingType'],
-     ['scalingTypePdf', 'scalingTypePdf'],
-    ].forEach(keys => {
-      assertEquals(
-          (stickySettings as {[key: string]: any})[keys[1]!],
-          (page.settings! as {[key: string]: Setting})[keys[0]!]!.value);
-    });
+    ([
+      ['margins', 'marginsType'],
+      ['color', 'isColorEnabled'],
+      ['headerFooter', 'isHeaderFooterEnabled'],
+      ['layout', 'isLandscapeEnabled'],
+      ['collate', 'isCollateEnabled'],
+      ['cssBackground', 'isCssBackgroundEnabled'],
+      ['scaling', 'scaling'],
+      ['scalingType', 'scalingType'],
+      ['scalingTypePdf', 'scalingTypePdf'],
+    ] as Array<[keyof Settings, string]>)
+        .forEach(keys => {
+          assertEquals(
+              (stickySettings as {[key: string]: any})[keys[1]!],
+              page.settings![keys[0]!]!.value);
+        });
   }
 
   /**
@@ -101,7 +102,7 @@ suite(restore_state_test.suiteName, function() {
 
     await Promise.all([
       nativeLayer.whenCalled('getInitialSettings'),
-      nativeLayer.whenCalled('getPrinterCapabilities')
+      nativeLayer.whenCalled('getPrinterCapabilities'),
     ]);
     verifyStickySettingsApplied(stickySettings);
   }
@@ -111,7 +112,7 @@ suite(restore_state_test.suiteName, function() {
    * 90, dpi = 100, custom square paper, and custom margins.
    */
   test(
-      assert(restore_state_test.TestNames.RestoreTrueValues), async function() {
+      restore_state_test.TestNames.RestoreTrueValues, async function() {
         const stickySettings: SerializedSettings = {
           version: 2,
           recentDestinations: [],
@@ -120,13 +121,13 @@ suite(restore_state_test.suiteName, function() {
             name: 'CUSTOM',
             width_microns: 215900,
             height_microns: 215900,
-            custom_display_name: 'CUSTOM_SQUARE'
+            custom_display_name: 'CUSTOM_SQUARE',
           },
           customMargins: {
             marginTop: 74,
             marginRight: 74,
             marginBottom: 74,
-            marginLeft: 74
+            marginLeft: 74,
           },
           vendorOptions: {
             paperType: 1,
@@ -143,7 +144,7 @@ suite(restore_state_test.suiteName, function() {
           isDuplexShortEdge: true,
           isLandscapeEnabled: true,
           isColorEnabled: true,
-          // <if expr="chromeos_ash or chromeos_lacros">
+          // <if expr="is_chromeos">
           isPinEnabled: true,
           pinValue: '0000',
           // </if>
@@ -156,8 +157,7 @@ suite(restore_state_test.suiteName, function() {
    * 120, dpi = 200, letter paper and default margins.
    */
   test(
-      assert(restore_state_test.TestNames.RestoreFalseValues),
-      async function() {
+      restore_state_test.TestNames.RestoreFalseValues, async function() {
         const stickySettings: SerializedSettings = {
           version: 2,
           recentDestinations: [],
@@ -167,7 +167,7 @@ suite(restore_state_test.suiteName, function() {
             width_microns: 215900,
             height_microns: 279400,
             is_default: true,
-            custom_display_name: 'Letter'
+            custom_display_name: 'Letter',
           },
           vendorOptions: {
             paperType: 0,
@@ -184,7 +184,7 @@ suite(restore_state_test.suiteName, function() {
           isDuplexShortEdge: false,
           isLandscapeEnabled: false,
           isColorEnabled: false,
-          // <if expr="chromeos_ash or chromeos_lacros">
+          // <if expr="is_chromeos">
           isPinEnabled: false,
           pinValue: '',
           // </if>
@@ -196,13 +196,13 @@ suite(restore_state_test.suiteName, function() {
    * Tests that setting the settings values results in the correct serialized
    * values being sent to the native layer.
    */
-  test(assert(restore_state_test.TestNames.SaveValues), async function() {
-    type TestCase = {
-      section: string,
-      settingName: string,
-      key: string,
-      value: any,
-    };
+  test(restore_state_test.TestNames.SaveValues, async function() {
+    interface TestCase {
+      section: string;
+      settingName: string;
+      key: string;
+      value: any;
+    }
 
     /**
      * Array of section names, setting names, keys for serialized state, and
@@ -301,7 +301,7 @@ suite(restore_state_test.suiteName, function() {
           printArea: 6,
         },
       },
-      // <if expr="chromeos_ash or chromeos_lacros">
+      // <if expr="is_chromeos">
       {
         section: 'print-preview-pin-settings',
         settingName: 'pin',
@@ -329,7 +329,7 @@ suite(restore_state_test.suiteName, function() {
 
     await Promise.all([
       nativeLayer.whenCalled('getInitialSettings'),
-      nativeLayer.whenCalled('getPrinterCapabilities')
+      nativeLayer.whenCalled('getPrinterCapabilities'),
     ]);
     // Set all the settings sections.
     testData.forEach((testValue: TestCase, index: number) => {

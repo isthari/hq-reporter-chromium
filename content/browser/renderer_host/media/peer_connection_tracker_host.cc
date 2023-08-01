@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,16 +7,15 @@
 #include <set>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/no_destructor.h"
 #include "base/observer_list.h"
 #include "base/power_monitor/power_monitor.h"
 #include "base/ranges/algorithm.h"
-#include "base/task/post_task.h"
-#include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/global_routing_id.h"
 #include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/render_process_host.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
 
 namespace content {
@@ -137,7 +136,8 @@ void PeerConnectionTrackerHost::OnPeerConnectionSessionIdSet(
   }
 }
 
-void PeerConnectionTrackerHost::AddStandardStats(int lid, base::Value value) {
+void PeerConnectionTrackerHost::AddStandardStats(int lid,
+                                                 base::Value::List value) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   for (auto& observer : GetObserverList()) {
@@ -145,7 +145,8 @@ void PeerConnectionTrackerHost::AddStandardStats(int lid, base::Value value) {
   }
 }
 
-void PeerConnectionTrackerHost::AddLegacyStats(int lid, base::Value value) {
+void PeerConnectionTrackerHost::AddLegacyStats(int lid,
+                                               base::Value::List value) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   for (auto& observer : GetObserverList()) {
@@ -189,6 +190,46 @@ void PeerConnectionTrackerHost::GetUserMediaFailure(
   for (auto& observer : GetObserverList()) {
     observer.OnGetUserMediaFailure(frame_id_, peer_pid_, request_id, error,
                                    error_message);
+  }
+}
+
+void PeerConnectionTrackerHost::GetDisplayMedia(
+    int request_id,
+    bool audio,
+    bool video,
+    const std::string& audio_constraints,
+    const std::string& video_constraints) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
+  for (auto& observer : GetObserverList()) {
+    observer.OnGetDisplayMedia(frame_id_, peer_pid_, request_id, audio, video,
+                               audio_constraints, video_constraints);
+  }
+}
+
+void PeerConnectionTrackerHost::GetDisplayMediaSuccess(
+    int request_id,
+    const std::string& stream_id,
+    const std::string& audio_track_info,
+    const std::string& video_track_info) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
+  for (auto& observer : GetObserverList()) {
+    observer.OnGetDisplayMediaSuccess(frame_id_, peer_pid_, request_id,
+                                      stream_id, audio_track_info,
+                                      video_track_info);
+  }
+}
+
+void PeerConnectionTrackerHost::GetDisplayMediaFailure(
+    int request_id,
+    const std::string& error,
+    const std::string& error_message) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
+  for (auto& observer : GetObserverList()) {
+    observer.OnGetDisplayMediaFailure(frame_id_, peer_pid_, request_id, error,
+                                      error_message);
   }
 }
 
@@ -238,6 +279,11 @@ void PeerConnectionTrackerHost::GetStandardStats() {
 void PeerConnectionTrackerHost::GetLegacyStats() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   tracker_->GetLegacyStats();
+}
+
+void PeerConnectionTrackerHost::GetCurrentState() {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  tracker_->GetCurrentState();
 }
 
 void PeerConnectionTrackerHost::BindReceiver(

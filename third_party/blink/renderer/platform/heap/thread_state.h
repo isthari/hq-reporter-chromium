@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,11 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_HEAP_THREAD_STATE_H_
 
 #include "base/compiler_specific.h"
+#include "base/functional/callback_forward.h"
 #include "build/build_config.h"
 #include "third_party/blink/renderer/platform/heap/forward.h"
 #include "third_party/blink/renderer/platform/heap/thread_state_storage.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
-#include "third_party/blink/renderer/platform/wtf/hash_set.h"
 #include "third_party/blink/renderer/platform/wtf/threading.h"
 #include "v8-profiler.h"
 #include "v8/include/cppgc/common.h"
@@ -20,9 +20,6 @@
 
 namespace v8 {
 class CppHeap;
-}  // namespace v8
-
-namespace v8 {
 class EmbedderGraph;
 class EmbedderRootsHandler;
 }  // namespace v8
@@ -35,18 +32,18 @@ using V8BuildEmbedderGraphCallback = void (*)(v8::Isolate*,
 
 class PLATFORM_EXPORT ThreadState final {
  public:
-  class NoAllocationScope;
   class GCForbiddenScope;
+  class NoAllocationScope;
 
   using StackState = cppgc::EmbedderStackState;
 
-  static ALWAYS_INLINE ThreadState* Current() {
+  ALWAYS_INLINE static ThreadState* Current() {
     return &ThreadStateStorage::Current()->thread_state();
   }
 
   // Returns true if the current thread is currently sweeping, i.e., whether the
   // caller is invoked from a destructor.
-  static ALWAYS_INLINE bool IsSweepingOnOwningThread(
+  ALWAYS_INLINE static bool IsSweepingOnOwningThread(
       ThreadStateStorage& storage);
 
   // Attaches a ThreadState to the main-thread.
@@ -58,6 +55,7 @@ class PLATFORM_EXPORT ThreadState final {
 
   void AttachToIsolate(v8::Isolate* isolate, V8BuildEmbedderGraphCallback);
   void DetachFromIsolate();
+  bool IsAttachedToIsolate() const { return isolate_; }
 
   ALWAYS_INLINE cppgc::HeapHandle& heap_handle() const { return heap_handle_; }
   ALWAYS_INLINE v8::CppHeap& cpp_heap() const { return *cpp_heap_; }
@@ -92,10 +90,23 @@ class PLATFORM_EXPORT ThreadState final {
   void CollectAllGarbageForTesting(
       StackState stack_state = StackState::kNoHeapPointers);
 
+  // Perform stop-the-world garbage collection in young generation for testing.
+  void CollectGarbageInYoungGenerationForTesting(
+      StackState stack_state = StackState::kNoHeapPointers);
+
   void EnableDetachedGarbageCollectionsForTesting();
 
   static ThreadState* AttachMainThreadForTesting(v8::Platform*);
   static ThreadState* AttachCurrentThreadForTesting(v8::Platform*);
+
+  // Takes a heap snapshot that can be loaded into DevTools. Requires that
+  // `ThreadState` is attached to a `v8::Isolate`.
+  //
+  // `filename` specifies the path on the system to store the snapshot. If no
+  // filename is provided, the snapshot will be emitted to `stdout`.
+  //
+  // Writing to a file requires a disabled sandbox.
+  void TakeHeapSnapshotForTesting(const char* filename) const;
 
  private:
   explicit ThreadState(v8::Platform*);

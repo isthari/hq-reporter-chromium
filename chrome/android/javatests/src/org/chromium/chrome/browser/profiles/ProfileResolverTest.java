@@ -1,8 +1,10 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.profiles;
+
+import static androidx.test.espresso.matcher.ViewMatchers.assertThat;
 
 import static org.hamcrest.Matchers.isEmptyString;
 
@@ -262,12 +264,12 @@ public class ProfileResolverTest {
 
         // Put nulls into variables first to get correct overloaded methods.
         Profile profile = null;
-        Assert.assertThat("Tokenizing a null profile should not work", tokenizeOnUiThread(profile),
+        assertThat("Tokenizing a null profile should not work", tokenizeOnUiThread(profile),
                 isEmptyString());
 
         ProfileKey profileKey = null;
-        Assert.assertThat("Tokenizing a null profile key should not work",
-                tokenizeOnUiThread(profileKey), isEmptyString());
+        assertThat("Tokenizing a null profile key should not work", tokenizeOnUiThread(profileKey),
+                isEmptyString());
     }
 
     @Test

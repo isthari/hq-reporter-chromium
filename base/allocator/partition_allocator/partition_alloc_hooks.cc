@@ -1,4 +1,4 @@
-// Copyright (c) 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,13 +9,13 @@
 #include "base/allocator/partition_allocator/partition_alloc_check.h"
 #include "base/allocator/partition_allocator/partition_lock.h"
 
-namespace base {
+namespace partition_alloc {
 
 namespace {
 
-internal::PartitionLock g_hook_lock;
+internal::Lock g_hook_lock;
 
-internal::PartitionLock& GetHooksLock() {
+internal::Lock& GetHooksLock() {
   return g_hook_lock;
 }
 
@@ -32,10 +32,12 @@ std::atomic<PartitionAllocHooks::FreeOverrideHook*>
     PartitionAllocHooks::free_override_hook_(nullptr);
 std::atomic<PartitionAllocHooks::ReallocOverrideHook*>
     PartitionAllocHooks::realloc_override_hook_(nullptr);
+std::atomic<PartitionAllocHooks::QuarantineOverrideHook*>
+    PartitionAllocHooks::quarantine_override_hook_(nullptr);
 
 void PartitionAllocHooks::SetObserverHooks(AllocationObserverHook* alloc_hook,
                                            FreeObserverHook* free_hook) {
-  internal::PartitionAutoLock guard(GetHooksLock());
+  internal::ScopedGuard guard(GetHooksLock());
 
   // Chained hooks are not supported. Registering a non-null hook when a
   // non-null hook is already registered indicates somebody is trying to
@@ -52,7 +54,7 @@ void PartitionAllocHooks::SetObserverHooks(AllocationObserverHook* alloc_hook,
 void PartitionAllocHooks::SetOverrideHooks(AllocationOverrideHook* alloc_hook,
                                            FreeOverrideHook* free_hook,
                                            ReallocOverrideHook realloc_hook) {
-  internal::PartitionAutoLock guard(GetHooksLock());
+  internal::ScopedGuard guard(GetHooksLock());
 
   PA_CHECK((!allocation_override_hook_ && !free_override_hook_ &&
             !realloc_override_hook_) ||
@@ -69,28 +71,32 @@ void PartitionAllocHooks::AllocationObserverHookIfEnabled(
     void* address,
     size_t size,
     const char* type_name) {
-  if (auto* hook = allocation_observer_hook_.load(std::memory_order_relaxed))
+  if (auto* hook = allocation_observer_hook_.load(std::memory_order_relaxed)) {
     hook(address, size, type_name);
+  }
 }
 
 bool PartitionAllocHooks::AllocationOverrideHookIfEnabled(
     void** out,
-    int flags,
+    unsigned int flags,
     size_t size,
     const char* type_name) {
-  if (auto* hook = allocation_override_hook_.load(std::memory_order_relaxed))
+  if (auto* hook = allocation_override_hook_.load(std::memory_order_relaxed)) {
     return hook(out, flags, size, type_name);
+  }
   return false;
 }
 
 void PartitionAllocHooks::FreeObserverHookIfEnabled(void* address) {
-  if (auto* hook = free_observer_hook_.load(std::memory_order_relaxed))
+  if (auto* hook = free_observer_hook_.load(std::memory_order_relaxed)) {
     hook(address);
+  }
 }
 
 bool PartitionAllocHooks::FreeOverrideHookIfEnabled(void* address) {
-  if (auto* hook = free_override_hook_.load(std::memory_order_relaxed))
+  if (auto* hook = free_override_hook_.load(std::memory_order_relaxed)) {
     return hook(address);
+  }
   return false;
 }
 
@@ -118,4 +124,11 @@ bool PartitionAllocHooks::ReallocOverrideHookIfEnabled(size_t* out,
   return false;
 }
 
-}  // namespace base
+// Do not unset the hook if there are remaining quarantined slots
+// not to break checks on unquarantining.
+void PartitionAllocHooks::SetQuarantineOverrideHook(
+    QuarantineOverrideHook* hook) {
+  quarantine_override_hook_.store(hook, std::memory_order_release);
+}
+
+}  // namespace partition_alloc

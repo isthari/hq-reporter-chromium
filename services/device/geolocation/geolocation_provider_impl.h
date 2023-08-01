@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,8 @@
 #include <string>
 #include <vector>
 
-#include "base/callback_forward.h"
 #include "base/compiler_specific.h"
+#include "base/functional/callback_forward.h"
 #include "base/threading/thread.h"
 #include "build/build_config.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
@@ -48,11 +48,11 @@ class GeolocationProviderImpl : public GeolocationProvider,
       const LocationUpdateCallback& callback,
       bool enable_high_accuracy) override;
   bool HighAccuracyLocationInUse() override;
-  void OverrideLocationForTesting(const mojom::Geoposition& position) override;
+  void OverrideLocationForTesting(mojom::GeopositionResultPtr result) override;
 
   // Callback from the LocationArbitrator. Public for testing.
   void OnLocationUpdate(const LocationProvider* provider,
-                        const mojom::Geoposition& position);
+                        mojom::GeopositionResultPtr result);
 
   // Gets a pointer to the singleton instance of the location relayer, which
   // is in turn bound to the browser's global context objects. This must only be
@@ -122,22 +122,22 @@ class GeolocationProviderImpl : public GeolocationProvider,
   void InformProvidersPermissionGranted();
 
   // Notifies all registered clients that a position update is available.
-  void NotifyClients(const mojom::Geoposition& position);
+  void NotifyClients(mojom::GeopositionResultPtr result);
 
   // Thread
   void Init() override;
   void CleanUp() override;
 
-  base::RepeatingCallbackList<void(const mojom::Geoposition&)>
+  base::RepeatingCallbackList<void(const mojom::GeopositionResult&)>
       high_accuracy_callbacks_;
-  base::RepeatingCallbackList<void(const mojom::Geoposition&)>
+  base::RepeatingCallbackList<void(const mojom::GeopositionResult&)>
       low_accuracy_callbacks_;
 
-  bool user_did_opt_into_location_services_;
-  mojom::Geoposition position_;
+  bool user_did_opt_into_location_services_ = false;
+  mojom::GeopositionResultPtr result_;
 
   // True only in testing, where we want to use a custom position.
-  bool ignore_location_updates_;
+  bool ignore_location_updates_ = false;
 
   // Used to PostTask()s from the geolocation thread to caller thread.
   const scoped_refptr<base::SingleThreadTaskRunner> main_task_runner_;

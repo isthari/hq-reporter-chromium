@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,19 +11,17 @@
 #include "base/memory/raw_ptr.h"
 #include "components/autofill/core/browser/payments/legal_message_line.h"
 #include "components/autofill/core/browser/ui/payments/payments_bubble_closed_reasons.h"
-#include "content/public/browser/web_contents.h"
-#include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/metadata/metadata_header_macros.h"
-#include "ui/gfx/color_palette.h"
+#include "ui/base/models/image_model.h"
 #include "ui/views/layout/box_layout_view.h"
 #include "ui/views/layout/table_layout_view.h"
-#include "ui/views/widget/widget.h"
-#include "url/gurl.h"
+
+class GURL;
 
 namespace views {
 class Label;
-class Textfield;
 class Throbber;
+class Widget;
 }  // namespace views
 
 namespace autofill {
@@ -35,6 +33,9 @@ class TitleWithIconAndSeparatorView : public views::TableLayoutView {
  public:
   METADATA_HEADER(TitleWithIconAndSeparatorView);
 
+  // TODO(crbug.com/1433075): This enum is also used by
+  // TitleWithIconAfterLabelView, and should be refactored to be outside of
+  // TitleWithIconAndSeparatorView.
   enum class Icon {
     // Google Pay icon. The "Pay" portion is recolored for light/dark mode.
     GOOGLE_PAY,
@@ -51,8 +52,24 @@ class TitleWithIconAndSeparatorView : public views::TableLayoutView {
   gfx::Size GetMinimumSize() const override;
 };
 
-// Creates and returns a small Textfield intended to be used for CVC entry.
-std::unique_ptr<views::Textfield> CreateCvcTextfield();
+// Defines a title view with a label and an icon, to be used by dialogs
+// that need to present the Google or Google Pay logo and custom
+// horizontal padding.
+//
+// Unlike TitleWithIconAndSeparatorView, this view has no separator and places
+// the icon after the title rather than before.
+class TitleWithIconAfterLabelView : public views::BoxLayoutView {
+ public:
+  METADATA_HEADER(TitleWithIconAfterLabelView);
+
+  TitleWithIconAfterLabelView(const std::u16string& window_title,
+                              TitleWithIconAndSeparatorView::Icon icon_to_show);
+  ~TitleWithIconAfterLabelView() override;
+
+ private:
+  // views::View:
+  gfx::Size GetMinimumSize() const override;
+};
 
 // Defines a view with legal message. This class handles the legal message
 // parsing and the links clicking events.
@@ -62,13 +79,18 @@ class LegalMessageView : public views::BoxLayoutView {
 
   using LinkClickedCallback = base::RepeatingCallback<void(const GURL&)>;
 
+  // Along with the legal message lines and link callbacks, we are sending the
+  // user email and avatar as optional params. These will be displayed at the
+  // bottom line of this view if they have value.
   LegalMessageView(const LegalMessageLines& legal_message_lines,
+                   absl::optional<std::u16string> optional_user_email,
+                   absl::optional<ui::ImageModel> optional_user_avatar,
                    LinkClickedCallback callback);
   ~LegalMessageView() override;
 };
 
-PaymentsBubbleClosedReason GetPaymentsBubbleClosedReasonFromWidgetClosedReason(
-    views::Widget::ClosedReason reason);
+PaymentsBubbleClosedReason GetPaymentsBubbleClosedReasonFromWidget(
+    const views::Widget* widget);
 
 // TODO(crbug.com/1249665): Replace all payments' progress bar usages with this.
 // Creates a progress bar with an explanatory text below.

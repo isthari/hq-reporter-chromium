@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "ash/public/cpp/external_arc/message_center/arc_notification_item.h"
 #include "ash/public/cpp/external_arc/message_center/arc_notification_surface_manager.h"
 #include "base/gtest_prod_util.h"
+#include "base/memory/raw_ptr.h"
 #include "ui/aura/window_observer.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/message_center/views/notification_background_painter.h"
@@ -47,6 +48,7 @@ class ArcNotificationContentView
  public:
   METADATA_HEADER(ArcNotificationContentView);
 
+  static int GetNotificationContentViewWidth();
 
   ArcNotificationContentView(ArcNotificationItem* item,
                              const message_center::Notification& notification,
@@ -65,8 +67,6 @@ class ArcNotificationContentView
   void ActivateWidget(bool activate);
 
   bool slide_in_progress() const { return slide_in_progress_; }
-
-  int notification_width() const { return notification_width_; }
 
  private:
   friend class ArcNotificationViewTest;
@@ -122,7 +122,7 @@ class ArcNotificationContentView
   void OnWindowDestroying(aura::Window* window) override;
 
   // views::WidgetObserver:
-  void OnWidgetClosing(views::Widget* widget) override;
+  void OnWidgetDestroying(views::Widget* widget) override;
   void OnWidgetActivationChanged(views::Widget* widget, bool active) override;
 
   // ArcNotificationItem::Observer
@@ -137,8 +137,8 @@ class ArcNotificationContentView
 
   // If |item_| is null, we may be about to be destroyed. In this case,
   // we have to be careful about what we do.
-  ArcNotificationItem* item_;
-  ArcNotificationSurface* surface_ = nullptr;
+  raw_ptr<ArcNotificationItem, ExperimentalAsh> item_;
+  raw_ptr<ArcNotificationSurface, ExperimentalAsh> surface_ = nullptr;
   arc::mojom::ArcNotificationShownContents shown_content_ =
       arc::mojom::ArcNotificationShownContents::CONTENTS_SHOWN;
 
@@ -183,7 +183,7 @@ class ArcNotificationContentView
 
   // The message view which wrapps thie view. This must be the parent of this
   // view.
-  message_center::MessageView* const message_view_;
+  const raw_ptr<message_center::MessageView, ExperimentalAsh> message_view_;
 
   // This view is owned by client (this).
   message_center::NotificationControlButtonsView control_buttons_view_;
@@ -192,7 +192,7 @@ class ArcNotificationContentView
   bool in_layout_ = false;
 
   // Widget which this view tree is currently attached to.
-  views::Widget* attached_widget_ = nullptr;
+  raw_ptr<views::Widget, ExperimentalAsh> attached_widget_ = nullptr;
 
   std::u16string accessible_name_;
 
@@ -207,8 +207,6 @@ class ArcNotificationContentView
   absl::optional<gfx::Insets> mask_insets_;
 
   std::unique_ptr<ui::LayerTreeOwner> surface_copy_;
-
-  const int notification_width_;
 };
 
 }  // namespace ash

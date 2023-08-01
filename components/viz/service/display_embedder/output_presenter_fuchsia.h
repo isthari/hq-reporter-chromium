@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 #include "components/viz/service/display_embedder/output_presenter.h"
 #include "components/viz/service/viz_service_export.h"
 #include "gpu/command_buffer/common/shared_image_usage.h"
-#include "gpu/command_buffer/service/shared_image_factory.h"
+#include "gpu/command_buffer/service/shared_image/shared_image_factory.h"
 #include "ui/ozone/public/overlay_plane.h"
 
 namespace ui {
@@ -24,41 +24,34 @@ class VIZ_SERVICE_EXPORT OutputPresenterFuchsia : public OutputPresenter {
  public:
   static std::unique_ptr<OutputPresenterFuchsia> Create(
       ui::PlatformWindowSurface* window_surface,
-      SkiaOutputSurfaceDependency* deps,
-      gpu::SharedImageFactory* shared_image_factory,
-      gpu::SharedImageRepresentationFactory* representation_factory);
+      SkiaOutputSurfaceDependency* deps);
 
-  OutputPresenterFuchsia(
-      ui::PlatformWindowSurface* window_surface,
-      SkiaOutputSurfaceDependency* deps,
-      gpu::SharedImageFactory* shared_image_factory,
-      gpu::SharedImageRepresentationFactory* representation_factory);
+  OutputPresenterFuchsia(ui::PlatformWindowSurface* window_surface,
+                         SkiaOutputSurfaceDependency* deps);
   ~OutputPresenterFuchsia() override;
 
   // OutputPresenter implementation:
   void InitializeCapabilities(OutputSurface::Capabilities* capabilities) final;
-  bool Reshape(const gfx::Size& size,
-               float device_scale_factor,
+  bool Reshape(const SkImageInfo& image_info,
                const gfx::ColorSpace& color_space,
-               gfx::BufferFormat format,
+               int sample_count,
+               float device_scale_factor,
                gfx::OverlayTransform transform) final;
   std::vector<std::unique_ptr<Image>> AllocateImages(
       gfx::ColorSpace color_space,
       gfx::Size image_size,
       size_t num_images) final;
-  void SwapBuffers(SwapCompletionCallback completion_callback,
-                   BufferPresentedCallback presentation_callback) final;
-  void PostSubBuffer(const gfx::Rect& rect,
-                     SwapCompletionCallback completion_callback,
-                     BufferPresentedCallback presentation_callback) final;
-  void CommitOverlayPlanes(SwapCompletionCallback completion_callback,
-                           BufferPresentedCallback presentation_callback) final;
+  void Present(SwapCompletionCallback completion_callback,
+               BufferPresentedCallback presentation_callback,
+               gfx::FrameData data) final;
   void SchedulePrimaryPlane(
       const OverlayProcessorInterface::OutputSurfaceOverlayPlane& plane,
       Image* image,
       bool is_submitted) final;
-  void ScheduleOverlays(SkiaOutputSurface::OverlayList overlays,
-                        std::vector<ScopedOverlayAccess*> accesses) final;
+  void ScheduleOverlayPlane(
+      const OutputPresenter::OverlayPlaneCandidate& overlay_plane_candidate,
+      ScopedOverlayAccess* access,
+      std::unique_ptr<gfx::GpuFence> acquire_fence) final;
 
  private:
   struct PendingFrame {
@@ -68,28 +61,18 @@ class VIZ_SERVICE_EXPORT OutputPresenterFuchsia : public OutputPresenter {
     PendingFrame(PendingFrame&&);
     PendingFrame& operator=(PendingFrame&&);
 
+    // Primary plane pixmap.
     scoped_refptr<gfx::NativePixmap> native_pixmap;
 
     std::vector<gfx::GpuFenceHandle> acquire_fences;
     std::vector<gfx::GpuFenceHandle> release_fences;
 
-    SwapCompletionCallback completion_callback;
-    BufferPresentedCallback presentation_callback;
-
     // Vector of overlays that are associated with this frame.
     std::vector<ui::OverlayPlane> overlays;
   };
 
-  void PresentNextFrame();
-
   ui::PlatformWindowSurface* const window_surface_;
   SkiaOutputSurfaceDependency* const dependency_;
-  gpu::SharedImageFactory* const shared_image_factory_;
-  gpu::SharedImageRepresentationFactory* const
-      shared_image_representation_factory_;
-
-  gfx::Size frame_size_;
-  gfx::BufferFormat buffer_format_ = gfx::BufferFormat::RGBA_8888;
 
   // The next frame to be submitted by SwapBuffers().
   absl::optional<PendingFrame> next_frame_;

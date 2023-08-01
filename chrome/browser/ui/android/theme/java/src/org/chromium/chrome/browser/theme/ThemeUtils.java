@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,15 +15,12 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.content.res.AppCompatResources;
 import androidx.core.content.res.ResourcesCompat;
 
-import com.google.android.material.color.MaterialColors;
-
-import org.chromium.base.ApiCompatibilityUtils;
-import org.chromium.chrome.browser.flags.BooleanCachedFieldTrialParameter;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.ui.native_page.NativePage;
 import org.chromium.chrome.browser.ui.theme.BrandedColorScheme;
 import org.chromium.components.browser_ui.styles.ChromeColors;
+import org.chromium.components.browser_ui.styles.SemanticColorUtils;
 import org.chromium.content_public.browser.RenderWidgetHostView;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.util.ColorUtils;
@@ -34,13 +31,6 @@ import org.chromium.ui.util.ColorUtils;
 public class ThemeUtils {
     private static final String TAG = "ThemeUtils";
     private static final float LOCATION_BAR_TRANSPARENT_BACKGROUND_ALPHA = 0.2f;
-
-    // This param is used to split the dynamic colors launch into a minimal launch that is primarily
-    // activity specific, and then a later launch that will be app wide.
-    private static final String FULL_DYNAMIC_COLORS_PARAM = "dynamic_color_full";
-    public static final BooleanCachedFieldTrialParameter ENABLE_FULL_DYNAMIC_COLORS =
-            new BooleanCachedFieldTrialParameter(
-                    ChromeFeatureList.DYNAMIC_COLOR_ANDROID, FULL_DYNAMIC_COLORS_PARAM, false);
 
     /**
      * The background color to use for a given {@link Tab}. This will either be the color specified
@@ -89,8 +79,8 @@ public class ThemeUtils {
         // Text box color on default toolbar background in incognito mode is a pre-defined
         // color. We calculate the equivalent opaque color from the pre-defined translucent color.
         if (isIncognito) {
-            final int overlayColor = ApiCompatibilityUtils.getColor(
-                    context.getResources(), R.color.toolbar_text_box_background_incognito);
+            final int overlayColor =
+                    context.getColor(R.color.toolbar_text_box_background_incognito);
             final float overlayColorAlpha = Color.alpha(overlayColor) / 255f;
             final int overlayColorOpaque = overlayColor & 0xFF000000;
             return ColorUtils.getColorWithOverlay(color, overlayColorOpaque, overlayColorAlpha);
@@ -99,7 +89,10 @@ public class ThemeUtils {
         // Text box color on default toolbar background in standard mode is a pre-defined
         // color instead of a calculated color.
         if (ThemeUtils.isUsingDefaultToolbarColor(context, false, color)) {
-            return ChromeColors.getSurfaceColor(context, R.dimen.toolbar_text_box_elevation);
+            float tabElevation = ChromeFeatureList.sBaselineGm3SurfaceColors.isEnabled()
+                    ? context.getResources().getDimension(R.dimen.default_elevation_4)
+                    : context.getResources().getDimension(R.dimen.toolbar_text_box_elevation);
+            return ChromeColors.getSurfaceColor(context, tabElevation);
         }
 
         // TODO(mdjones): Clean up shouldUseOpaqueTextboxBackground logic.
@@ -189,9 +182,8 @@ public class ThemeUtils {
             Context context, @ColorInt int toolbarColor, boolean isIncognito) {
         final Resources res = context.getResources();
         if (isUsingDefaultToolbarColor(context, isIncognito, toolbarColor)) {
-            return isIncognito
-                    ? res.getColor(R.color.divider_line_bg_color_light)
-                    : MaterialColors.getColor(context, R.attr.divider_line_bg_color_dynamic, TAG);
+            return isIncognito ? res.getColor(R.color.divider_line_bg_color_light)
+                               : SemanticColorUtils.getDividerLineBgColor(context);
         }
 
         final float alpha = ResourcesCompat.getFloat(res, R.dimen.toolbar_hairline_overlay_alpha);

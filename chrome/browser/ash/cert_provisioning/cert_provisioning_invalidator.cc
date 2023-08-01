@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,12 +11,12 @@
 #include "chrome/browser/ash/cert_provisioning/cert_provisioning_common.h"
 #include "chrome/browser/invalidation/profile_invalidation_provider_factory.h"
 #include "components/invalidation/impl/profile_invalidation_provider.h"
+#include "components/invalidation/public/invalidation_service.h"
 #include "components/invalidation/public/invalidator_state.h"
 #include "components/invalidation/public/topic_invalidation_map.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 
-namespace ash {
-namespace cert_provisioning {
+namespace ash::cert_provisioning {
 
 namespace {
 
@@ -89,7 +89,7 @@ bool CertProvisioningInvalidationHandler::Register() {
 
   OnInvalidatorStateChange(invalidation_service_->GetInvalidatorState());
 
-  invalidation_service_observation_.Observe(invalidation_service_);
+  invalidation_service_observation_.Observe(invalidation_service_.get());
 
   if (!invalidation_service_->UpdateInterestedTopics(this,
                                                      /*topics=*/{topic_})) {
@@ -113,7 +113,7 @@ void CertProvisioningInvalidationHandler::Unregister() {
       this, invalidation::TopicSet());
   DCHECK(topics_reset);
   DCHECK(invalidation_service_observation_.IsObservingSource(
-      invalidation_service_));
+      invalidation_service_.get()));
   invalidation_service_observation_.Reset();
 
   state_.is_registered = false;
@@ -271,5 +271,4 @@ void CertProvisioningDeviceInvalidator::OnInvalidationServiceSet(
   }
 }
 
-}  // namespace cert_provisioning
-}  // namespace ash
+}  // namespace ash::cert_provisioning

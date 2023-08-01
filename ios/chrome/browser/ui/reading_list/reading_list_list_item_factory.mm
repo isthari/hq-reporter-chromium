@@ -1,21 +1,20 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/reading_list/reading_list_list_item_factory.h"
 
-#include "base/mac/foundation_util.h"
-#include "base/strings/sys_string_conversions.h"
-#include "components/reading_list/core/reading_list_entry.h"
-#include "components/url_formatter/url_formatter.h"
-#import "ios/chrome/browser/ui/reading_list/reading_list_features.h"
+#import "base/mac/foundation_util.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/reading_list/core/reading_list_entry.h"
+#import "components/url_formatter/url_formatter.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_list_item_custom_action_factory.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_list_item_util.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_table_view_item.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_utils.h"
-#include "ios/chrome/grit/ios_strings.h"
-#include "ui/base/l10n/l10n_util_mac.h"
-#include "ui/base/l10n/time_format.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "ui/base/l10n/l10n_util_mac.h"
+#import "ui/base/l10n/time_format.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -61,8 +60,9 @@
 
 #pragma mark Public
 
-- (ListItem<ReadingListListItem>*)cellItemForReadingListEntry:
-    (const ReadingListEntry*)entry {
+- (ListItem<ReadingListListItem>*)
+    cellItemForReadingListEntry:(const ReadingListEntry*)entry
+            needsExplicitUpload:(BOOL)needsExplicitUpload {
   ListItem<ReadingListListItem>* item =
       [[ReadingListTableViewItem alloc] initWithType:0];
   item.title = base::SysUTF8ToNSString(entry->Title());
@@ -74,22 +74,12 @@
       reading_list::UIStatusFromModelStatus(entry->DistilledState());
   BOOL hasDistillationDetails =
       entry->DistilledState() == ReadingListEntry::PROCESSED &&
-      entry->DistillationSize() != 0 && entry->DistillationTime() != 0;
+      entry->DistillationTime() != 0;
   int64_t distillationDate =
       hasDistillationDetails ? entry->DistillationTime() : 0;
   item.distillationDateText =
       GetReadingListCellDistillationDateText(distillationDate);
-  int64_t distillationSize =
-      hasDistillationDetails ? entry->DistillationSize() : 0;
-  item.distillationSizeText =
-      GetReadingListCellDistillationSizeText(distillationSize);
-  if (IsReadingListTimeToReadEnabled() &&
-      !entry->EstimatedReadTime().is_zero()) {
-    item.estimatedReadTimeText =
-        base::SysUTF16ToNSString(ui::TimeFormat::Simple(
-            ui::TimeFormat::FORMAT_DURATION, ui::TimeFormat::LENGTH_SHORT,
-            entry->EstimatedReadTime()));
-  }
+  item.showCloudSlashIcon = needsExplicitUpload;
   item.customActionFactory = self.customActionFactory;
   return item;
 }

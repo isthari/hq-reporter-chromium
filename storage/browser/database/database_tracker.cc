@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,17 +12,18 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/metrics/user_metrics.h"
+#include "base/observer_list.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/time/time.h"
 #include "base/types/pass_key.h"
@@ -177,9 +178,10 @@ void DatabaseTracker::DatabaseOpened(const std::string& origin_identifier,
   }
 
   if (quota_manager_proxy_.get())
-    quota_manager_proxy_->NotifyStorageAccessed(
-        blink::StorageKey(GetOriginFromIdentifier(origin_identifier)),
-        blink::mojom::StorageType::kTemporary, base::Time::Now());
+    quota_manager_proxy_->NotifyBucketAccessed(
+        BucketLocator::ForDefaultBucket(blink::StorageKey::CreateFirstParty(
+            GetOriginFromIdentifier(origin_identifier))),
+        base::Time::Now());
 
   InsertOrUpdateDatabaseDetails(origin_identifier, database_name,
                                 database_description);
@@ -213,9 +215,10 @@ void DatabaseTracker::DatabaseClosed(const std::string& origin_identifier,
   // We call NotifiyStorageAccessed when a db is opened and also when
   // closed because we don't call it for read while open.
   if (quota_manager_proxy_.get())
-    quota_manager_proxy_->NotifyStorageAccessed(
-        blink::StorageKey(GetOriginFromIdentifier(origin_identifier)),
-        blink::mojom::StorageType::kTemporary, base::Time::Now());
+    quota_manager_proxy_->NotifyBucketAccessed(
+        BucketLocator::ForDefaultBucket(blink::StorageKey::CreateFirstParty(
+            GetOriginFromIdentifier(origin_identifier))),
+        base::Time::Now());
 
   UpdateOpenDatabaseSizeAndNotify(origin_identifier, database_name);
   if (database_connections_.RemoveConnection(origin_identifier, database_name))
@@ -421,12 +424,14 @@ bool DatabaseTracker::DeleteClosedDatabase(
   if (!sql::Database::Delete(db_file))
     return false;
 
-  if (quota_manager_proxy_.get() && db_file_size)
-    quota_manager_proxy_->NotifyStorageModified(
+  if (quota_manager_proxy_.get() && db_file_size) {
+    quota_manager_proxy_->NotifyBucketModified(
         QuotaClientType::kDatabase,
-        blink::StorageKey(GetOriginFromIdentifier(origin_identifier)),
-        blink::mojom::StorageType::kTemporary, -db_file_size,
-        base::Time::Now());
+        BucketLocator::ForDefaultBucket(blink::StorageKey::CreateFirstParty(
+            GetOriginFromIdentifier(origin_identifier))),
+        -db_file_size, base::Time::Now(),
+        base::SequencedTaskRunner::GetCurrentDefault(), base::DoNothing());
+  }
 
   // Clean up the main database and invalidate the cached record.
   databases_table_->DeleteDatabaseDetails(origin_identifier, database_name);
@@ -501,11 +506,12 @@ bool DatabaseTracker::DeleteOrigin(const std::string& origin_identifier,
   databases_table_->DeleteOriginIdentifier(origin_identifier);
 
   if (quota_manager_proxy_.get() && deleted_size) {
-    quota_manager_proxy_->NotifyStorageModified(
+    quota_manager_proxy_->NotifyBucketModified(
         QuotaClientType::kDatabase,
-        blink::StorageKey(GetOriginFromIdentifier(origin_identifier)),
-        blink::mojom::StorageType::kTemporary, -deleted_size,
-        base::Time::Now());
+        BucketLocator::ForDefaultBucket(blink::StorageKey::CreateFirstParty(
+            GetOriginFromIdentifier(origin_identifier))),
+        -deleted_size, base::Time::Now(),
+        base::SequencedTaskRunner::GetCurrentDefault(), base::DoNothing());
   }
 
   return true;
@@ -587,8 +593,10 @@ bool DatabaseTracker::UpgradeToCurrentVersion() {
       !databases_table_->Init())
     return false;
 
-  if (meta_table_->GetVersionNumber() < kDatabaseTrackerCurrentSchemaVersion)
-    meta_table_->SetVersionNumber(kDatabaseTrackerCurrentSchemaVersion);
+  if (meta_table_->GetVersionNumber() < kDatabaseTrackerCurrentSchemaVersion &&
+      !meta_table_->SetVersionNumber(kDatabaseTrackerCurrentSchemaVersion)) {
+    return false;
+  }
 
   return transaction.Commit();
 }
@@ -699,12 +707,16 @@ int64_t DatabaseTracker::UpdateOpenDatabaseInfoAndNotify(
     database_connections_.SetOpenDatabaseSize(origin_id, name, new_size);
     if (info)
       info->SetDatabaseSize(name, new_size);
-    if (quota_manager_proxy_.get())
-      quota_manager_proxy_->NotifyStorageModified(
+
+    if (quota_manager_proxy_.get()) {
+      quota_manager_proxy_->NotifyBucketModified(
           QuotaClientType::kDatabase,
-          blink::StorageKey(GetOriginFromIdentifier(origin_id)),
-          blink::mojom::StorageType::kTemporary, new_size - old_size,
-          base::Time::Now());
+          BucketLocator::ForDefaultBucket(blink::StorageKey::CreateFirstParty(
+              GetOriginFromIdentifier(origin_id))),
+          new_size - old_size, base::Time::Now(),
+          base::SequencedTaskRunner::GetCurrentDefault(), base::DoNothing());
+    }
+
     for (auto& observer : observers_)
       observer.OnDatabaseSizeChanged(origin_id, name, new_size);
   }

@@ -29,18 +29,39 @@
 #include "base/process/process_handle.h"
 #include "third_party/blink/renderer/core/dom/dom_node_ids.h"
 #include "third_party/blink/renderer/core/dom/weak_identifier_map.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_client.h"
 #include "third_party/blink/renderer/core/inspector/inspected_frames.h"
 #include "third_party/blink/renderer/core/loader/document_loader.h"
+#include "third_party/blink/renderer/core/workers/worker_global_scope.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
 namespace blink {
+
+DEFINE_WEAK_IDENTIFIER_MAP(CSSStyleSheet)
 
 // static
 String IdentifiersFactory::CreateIdentifier() {
   static base::AtomicSequenceNumber last_used_identifier;
   return AddProcessIdPrefixTo(last_used_identifier.GetNext());
+}
+
+// static
+String IdentifiersFactory::RequestId(ExecutionContext* execution_context,
+                                     uint64_t identifier) {
+  if (!identifier)
+    return String();
+  auto* worker_global_scope = DynamicTo<WorkerGlobalScope>(execution_context);
+  if (worker_global_scope &&
+      worker_global_scope->MainResourceIdentifier() == identifier) {
+    return String(worker_global_scope->GetDevToolsToken().ToString());
+  }
+  auto* window = DynamicTo<LocalDOMWindow>(execution_context);
+  if (window && window->document())
+    return RequestId(window->document()->Loader(), identifier);
+  return AddProcessIdPrefixTo(identifier);
 }
 
 // static
@@ -55,13 +76,13 @@ String IdentifiersFactory::RequestId(DocumentLoader* loader,
 
 // static
 String IdentifiersFactory::SubresourceRequestId(uint64_t identifier) {
-  return RequestId(nullptr, identifier);
+  return RequestId(static_cast<ExecutionContext*>(nullptr), identifier);
 }
 
 // static
 String IdentifiersFactory::FrameId(Frame* frame) {
-  // Note: this should be equal to ToTraceValue(frame).
-  return String(ToTraceValue(frame).data());
+  // Note: this should be equal to GetFrameIdForTracing(frame).
+  return String(GetFrameIdForTracing(frame).data());
 }
 
 // static
@@ -106,6 +127,26 @@ String IdentifiersFactory::AddProcessIdPrefixTo(uint64_t id) {
 
   builder.AppendNumber(process_id);
   builder.Append('.');
+  builder.AppendNumber(id);
+
+  return builder.ToString();
+}
+
+// static
+String IdentifiersFactory::IdForCSSStyleSheet(
+    const CSSStyleSheet* style_sheet) {
+  if (style_sheet == nullptr) {
+    return "ua-style-sheet";
+  }
+  const int id = WeakIdentifierMap<CSSStyleSheet>::Identifier(
+      const_cast<CSSStyleSheet*>(style_sheet));
+  const auto process_id = base::GetUniqueIdForProcess().GetUnsafeValue();
+
+  StringBuilder builder;
+
+  builder.Append("style-sheet-");
+  builder.AppendNumber(process_id);
+  builder.Append('-');
   builder.AppendNumber(id);
 
   return builder.ToString();

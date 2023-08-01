@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,7 +19,7 @@ import java.util.List;
  * children multiple times during the same {@link FrameLayout#onMeasure} call.
  */
 public class OptimizedFrameLayout extends FrameLayout {
-    private class MeasurementState {
+    private static class MeasurementState {
         final View mView;
         final int mWidthMeasureSpec;
         final int mHeightMeasureSpec;
@@ -31,7 +31,7 @@ public class OptimizedFrameLayout extends FrameLayout {
         }
     }
 
-    private List<MeasurementState> mMatchParentChildren = new ArrayList<>();
+    private final List<MeasurementState> mMatchParentChildren = new ArrayList<>();
 
     public OptimizedFrameLayout(Context context, AttributeSet attrs) {
         super(context, attrs);

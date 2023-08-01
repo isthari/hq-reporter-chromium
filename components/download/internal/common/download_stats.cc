@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include <map>
 
-#include "base/callback.h"
 #include "base/files/file_path.h"
+#include "base/functional/callback.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
@@ -116,6 +116,9 @@ std::string CreateHistogramNameWithSuffix(const std::string& name,
     case DownloadSource::RETRY:
       suffix = "Retry";
       break;
+    case DownloadSource::RETRY_FROM_BUBBLE:
+      suffix = "RetryFromBubble";
+      break;
   }
 
   return name + "." + suffix;
@@ -204,18 +207,8 @@ void RecordDownloadInterrupted(DownloadInterruptReason reason,
         "Download.InterruptedReason.ParallelDownload", reason, samples);
   }
 
-  // The maximum should be 2^kBuckets, to have the logarithmic bucket
-  // boundaries fall on powers of 2.
-  static const int kBuckets = 30;
-  static const int64_t kMaxKb = 1 << kBuckets;  // One Terabyte, in Kilobytes.
   int64_t delta_bytes = total - received;
   bool unknown_size = total <= 0;
-  int64_t received_kb = received / 1024;
-  if (is_parallel_download_enabled) {
-    UMA_HISTOGRAM_CUSTOM_COUNTS(
-        "Download.InterruptedReceivedSizeK.ParallelDownload", received_kb, 1,
-        kMaxKb, kBuckets);
-  }
 
   if (!unknown_size) {
     if (delta_bytes == 0) {
@@ -228,22 +221,11 @@ void RecordDownloadInterrupted(DownloadInterruptReason reason,
   }
 }
 
-void RecordDownloadResumption(DownloadInterruptReason reason,
-                              bool user_resume) {
+void RecordDownloadRetry(DownloadInterruptReason reason) {
   std::vector<base::HistogramBase::Sample> samples =
       base::CustomHistogram::ArrayToCustomEnumRanges(kAllInterruptReasonCodes);
-  UMA_HISTOGRAM_CUSTOM_ENUMERATION("Download.Resume.LastReason", reason,
+  UMA_HISTOGRAM_CUSTOM_ENUMERATION("Download.Retry.InterruptReason", reason,
                                    samples);
-  base::UmaHistogramBoolean("Download.Resume.UserResume", user_resume);
-}
-
-void RecordAutoResumeCountLimitReached(DownloadInterruptReason reason) {
-  base::UmaHistogramBoolean("Download.Resume.AutoResumeLimitReached", true);
-
-  std::vector<base::HistogramBase::Sample> samples =
-      base::CustomHistogram::ArrayToCustomEnumRanges(kAllInterruptReasonCodes);
-  UMA_HISTOGRAM_CUSTOM_ENUMERATION(
-      "Download.Resume.AutoResumeLimitReached.LastReason", reason, samples);
 }
 
 void RecordDangerousDownloadAccept(DownloadDangerType danger_type,
@@ -564,11 +546,6 @@ void RecordDownloadMimeTypeForNormalProfile(
       DownloadContent::MAX);
 }
 
-void RecordOpensOutstanding(int size) {
-  UMA_HISTOGRAM_CUSTOM_COUNTS("Download.OpensOutstanding", size, 1 /*min*/,
-                              (1 << 10) /*max*/, 64 /*num_buckets*/);
-}
-
 void RecordFileBandwidth(size_t length,
                          base::TimeDelta elapsed_time) {
   base::UmaHistogramCustomCounts(
@@ -660,37 +637,27 @@ void RecordInProgressDBCount(InProgressDBCountTypes type) {
   UMA_HISTOGRAM_ENUMERATION("Download.InProgressDB.Counts", type);
 }
 
-void RecordDuplicateInProgressDownloadIdCount(int count) {
-  UMA_HISTOGRAM_CUSTOM_COUNTS("Download.DuplicateInProgressDownloadIdCount",
-                              count, 1, 10, 11);
-}
-
-void RecordResumptionRestartReason(DownloadInterruptReason reason) {
-  base::UmaHistogramSparse("Download.ResumptionRestart.Reason", reason);
-}
-
-void RecordDownloadManagerCreationTimeSinceStartup(
-    base::TimeDelta elapsed_time) {
-  base::UmaHistogramLongTimes("Download.DownloadManager.CreationDelay",
-                              elapsed_time);
-}
-
-void RecordDownloadManagerMemoryUsage(size_t bytes_used) {
-  base::UmaHistogramMemoryKB("Download.DownloadManager.MemoryUsage",
-                             bytes_used / 1000);
-}
-
 void RecordDownloadLaterEvent(DownloadLaterEvent event) {
   base::UmaHistogramEnumeration("Download.Later.Events", event);
 }
 
-#if BUILDFLAG(IS_ANDROID)
-void RecordBackgroundTargetDeterminationResult(
-    BackgroudTargetDeterminationResultTypes type) {
-  base::UmaHistogramEnumeration(
-      "MobileDownload.Background.TargetDeterminationResult", type);
+void RecordInputStreamReadError(MojoResult mojo_result) {
+  InputStreamReadError error = InputStreamReadError::kUnknown;
+  switch (mojo_result) {
+    case MOJO_RESULT_INVALID_ARGUMENT:
+      error = InputStreamReadError::kInvalidArgument;
+      break;
+    case MOJO_RESULT_OUT_OF_RANGE:
+      error = InputStreamReadError::kOutOfRange;
+      break;
+    case MOJO_RESULT_BUSY:
+      error = InputStreamReadError::kBusy;
+      break;
+    default:
+      NOTREACHED();
+  }
+  base::UmaHistogramEnumeration("Download.InputStreamReadError", error);
 }
-#endif  // BUILDFLAG(IS_ANDROID)
 
 #if BUILDFLAG(IS_WIN)
 void RecordWinFileMoveError(int os_error) {

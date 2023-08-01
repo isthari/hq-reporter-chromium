@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,14 +7,14 @@
 #include <map>
 #include <memory>
 
-#include "base/bind.h"
 #include "base/containers/contains.h"
+#include "base/functional/bind.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
+#include "base/strings/escape.h"
 #include "base/strings/strcat.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/scoped_feature_list.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_browser_main.h"
@@ -38,7 +38,6 @@
 #include "components/optimization_guide/proto/hints.pb.h"
 #include "components/prefs/pref_service.h"
 #include "components/signin/public/identity_manager/identity_test_utils.h"
-#include "components/variations/net/variations_http_headers.h"
 #include "components/variations/proto/study.pb.h"
 #include "components/variations/variations.mojom.h"
 #include "components/variations/variations_associated_data.h"
@@ -51,7 +50,6 @@
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/network_connection_change_simulator.h"
 #include "content/public/test/simple_url_loader_test_helper.h"
-#include "net/base/escape.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_request.h"
@@ -201,16 +199,18 @@ class VariationsHttpHeadersBrowserTest : public InProcessBrowserTest {
         "xhr.open('GET', '");
     script += url.spec() +
               "', true);"
-              "xhr.onload = function (e) {"
-              "  if (xhr.readyState === 4) {"
-              "    window.domAutomationController.send(xhr.status === 200);"
-              "  }"
-              "};"
-              "xhr.onerror = function () {"
-              "  window.domAutomationController.send(false);"
-              "};"
-              "xhr.send(null)";
-    return ExecuteScript(browser, script);
+              "new Promise(resolve => {"
+              "  xhr.onload = function (e) {"
+              "    if (xhr.readyState === 4) {"
+              "      resolve(xhr.status === 200);"
+              "    }"
+              "  };"
+              "  xhr.onerror = function () {"
+              "    resolve(false);"
+              "  };"
+              "  xhr.send(null)"
+              "});";
+    return EvalJs(GetWebContents(browser), script).ExtractBool();
   }
 
   content::WebContents* GetWebContents() { return GetWebContents(browser()); }
@@ -284,13 +284,13 @@ class VariationsHttpHeadersBrowserTest : public InProcessBrowserTest {
     GURL absolute_import = GetExampleUrlWithPath("/workers/empty.js");
     const std::string worker_path = base::StrCat(
         {worker, "?import=",
-         net::EscapeQueryParamValue(absolute_import.spec(), false)});
+         base::EscapeQueryParamValue(absolute_import.spec(), false)});
     GURL worker_url = GetGoogleUrlWithPath(worker_path);
 
     // Build the page URL that tells the page to create the worker.
-    const std::string page_path = base::StrCat(
-        {page,
-         "?worker_url=", net::EscapeQueryParamValue(worker_url.spec(), false)});
+    const std::string page_path =
+        base::StrCat({page, "?worker_url=",
+                      base::EscapeQueryParamValue(worker_url.spec(), false)});
     GURL page_url = GetGoogleUrlWithPath(page_path);
 
     // Navigate and test.
@@ -309,14 +309,6 @@ class VariationsHttpHeadersBrowserTest : public InProcessBrowserTest {
   }
 
  private:
-  bool ExecuteScript(Browser* browser, const std::string& script) {
-    bool xhr_result = false;
-    // The JS call will fail if disallowed because the process will be killed.
-    bool execute_result = ExecuteScriptAndExtractBool(GetWebContents(browser),
-                                                      script, &xhr_result);
-    return xhr_result && execute_result;
-  }
-
   // Custom request handler that record request headers and simulates a redirect
   // from google.com to example.com.
   std::unique_ptr<net::test_server::HttpResponse> RequestHandler(
@@ -329,30 +321,6 @@ class VariationsHttpHeadersBrowserTest : public InProcessBrowserTest {
 
   // For waiting for requests.
   std::map<GURL, base::OnceClosure> done_callbacks_;
-};
-
-// Used for testing the kRestrictGoogleWebVisibility feature.
-class VariationsHttpHeadersBrowserTestWithRestrictedVisibility
-    : public VariationsHttpHeadersBrowserTest,
-      public testing::WithParamInterface<bool> {
- public:
-  VariationsHttpHeadersBrowserTestWithRestrictedVisibility() {
-    if (GetParam()) {
-      scoped_feature_list_.InitAndEnableFeature(
-          variations::internal::kRestrictGoogleWebVisibility);
-    } else {
-      scoped_feature_list_.InitAndDisableFeature(
-          variations::internal::kRestrictGoogleWebVisibility);
-    }
-  }
-
-  VariationsHttpHeadersBrowserTestWithRestrictedVisibility(
-      const VariationsHttpHeadersBrowserTestWithRestrictedVisibility&) = delete;
-  VariationsHttpHeadersBrowserTestWithRestrictedVisibility& operator=(
-      const VariationsHttpHeadersBrowserTestWithRestrictedVisibility&) = delete;
-
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
 std::unique_ptr<net::test_server::HttpResponse>
@@ -368,8 +336,8 @@ VariationsHttpHeadersBrowserTest::RequestHandler(
   // Recover the original URL of the request by replacing the host name in
   // request.GetURL() (which is 127.0.0.1) with the host name from the request
   // headers.
-  url::Replacements<char> replacements;
-  replacements.SetHost(host.c_str(), url::Component(0, host.length()));
+  GURL::Replacements replacements;
+  replacements.SetHostStr(host);
   GURL original_url = request.GetURL().ReplaceComponents(replacements);
 
   // Memorize the request headers for this URL for later verification.
@@ -426,54 +394,6 @@ void CreateGoogleSignedInFieldTrial(variations::VariationID id) {
                 variations::mojom::GoogleWebVisibility::FIRST_PARTY),
             signed_out_headers->headers_map.at(
                 variations::mojom::GoogleWebVisibility::FIRST_PARTY));
-}
-
-// Creates FieldTrials associated with the FIRST_PARTY IDCollectionKeys and
-// their corresponding ANY_CONTEXT keys.
-void CreateFieldTrialsWithDifferentVisibilities() {
-  scoped_refptr<base::FieldTrial> trial_1(variations::CreateTrialAndAssociateId(
-      "t1", "g1", variations::GOOGLE_WEB_PROPERTIES_ANY_CONTEXT, 11));
-  scoped_refptr<base::FieldTrial> trial_2(variations::CreateTrialAndAssociateId(
-      "t2", "g2", variations::GOOGLE_WEB_PROPERTIES_FIRST_PARTY, 22));
-  scoped_refptr<base::FieldTrial> trial_3(variations::CreateTrialAndAssociateId(
-      "t3", "g3", variations::GOOGLE_WEB_PROPERTIES_TRIGGER_ANY_CONTEXT, 33));
-  scoped_refptr<base::FieldTrial> trial_4(variations::CreateTrialAndAssociateId(
-      "t4", "g4", variations::GOOGLE_WEB_PROPERTIES_TRIGGER_FIRST_PARTY, 44));
-
-  auto* provider = variations::VariationsIdsProvider::GetInstance();
-  variations::mojom::VariationsHeadersPtr signed_in_headers =
-      provider->GetClientDataHeaders(/*is_signed_in=*/true);
-  variations::mojom::VariationsHeadersPtr signed_out_headers =
-      provider->GetClientDataHeaders(/*is_signed_in=*/false);
-
-  if (base::FeatureList::IsEnabled(
-          variations::internal::kRestrictGoogleWebVisibility)) {
-    EXPECT_NE(signed_in_headers->headers_map.at(
-                  variations::mojom::GoogleWebVisibility::ANY),
-              signed_in_headers->headers_map.at(
-                  variations::mojom::GoogleWebVisibility::FIRST_PARTY));
-    EXPECT_NE(signed_out_headers->headers_map.at(
-                  variations::mojom::GoogleWebVisibility::ANY),
-              signed_out_headers->headers_map.at(
-                  variations::mojom::GoogleWebVisibility::FIRST_PARTY));
-  } else {
-    // When kRestrictGoogleWebVisibility is disabled, the transmission of
-    // VariationIDs is not restricted. This is the status quo implementation.
-    //
-    // This means that IDs associated with the FIRST_PARTY IDCollectionKeys are
-    // treated as if they were associated with their corresponding ANY_CONTEXT
-    // IDCollectionKeys. For example, when the feature is disabled, IDs
-    // associated with GOOGLE_WEB_PROPERTIES_FIRST_PARTY are transmitted when
-    // IDs associated with GOOGLE_WEB_PROPERTIES_ANY_CONTEXT are.
-    EXPECT_EQ(signed_in_headers->headers_map.at(
-                  variations::mojom::GoogleWebVisibility::ANY),
-              signed_in_headers->headers_map.at(
-                  variations::mojom::GoogleWebVisibility::FIRST_PARTY));
-    EXPECT_EQ(signed_out_headers->headers_map.at(
-                  variations::mojom::GoogleWebVisibility::ANY),
-              signed_out_headers->headers_map.at(
-                  variations::mojom::GoogleWebVisibility::FIRST_PARTY));
-  }
 }
 
 }  // namespace
@@ -623,9 +543,8 @@ IN_PROC_BROWSER_TEST_F(VariationsHttpHeadersBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(VariationsHttpHeadersBrowserTest,
                        CheckLowEntropySourceValue) {
-  std::unique_ptr<const base::FieldTrial::EntropyProvider>
-      low_entropy_provider = g_browser_process->GetMetricsServicesManager()
-                                 ->CreateEntropyProviderForTesting();
+  auto entropy_providers = g_browser_process->GetMetricsServicesManager()
+                               ->CreateEntropyProvidersForTesting();
 
   // Create a trial with 100 groups and variation ids to validate that the group
   // reported in the variations header is actually based on the low entropy
@@ -635,9 +554,8 @@ IN_PROC_BROWSER_TEST_F(VariationsHttpHeadersBrowserTest,
   // either uses a different API or tighten the current API to set up a field
   // trial that can only be made with the low entropy provider.
   scoped_refptr<base::FieldTrial> trial =
-      base::FieldTrialList::FactoryGetFieldTrialWithRandomizationSeed(
-          "t1", 100, "default", base::FieldTrial::ONE_TIME_RANDOMIZED, 0,
-          /*default_group_number=*/nullptr, low_entropy_provider.get());
+      base::FieldTrialList::FactoryGetFieldTrial(
+          "t1", 100, "default", entropy_providers->low_entropy());
   for (int i = 1; i < 101; ++i) {
     const std::string group_name = base::StringPrintf("%d", i);
     variations::AssociateGoogleVariationID(
@@ -647,7 +565,7 @@ IN_PROC_BROWSER_TEST_F(VariationsHttpHeadersBrowserTest,
   }
   // Activate the trial. This corresponds to ACTIVATE_ON_STARTUP for server-side
   // studies.
-  trial->group();
+  trial->Activate();
 
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), GetGoogleUrl()));
   absl::optional<std::string> header =
@@ -668,33 +586,44 @@ IN_PROC_BROWSER_TEST_F(VariationsHttpHeadersBrowserTest,
   EXPECT_TRUE(base::Contains(variation_ids, 33));
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    VariationsHttpHeadersBrowserTest,
-    VariationsHttpHeadersBrowserTestWithRestrictedVisibility,
-    testing::Bool());
-
-IN_PROC_BROWSER_TEST_P(VariationsHttpHeadersBrowserTestWithRestrictedVisibility,
+IN_PROC_BROWSER_TEST_F(VariationsHttpHeadersBrowserTest,
                        TestRestrictGoogleWebVisibilityInThirdPartyContexts) {
-  // Ensure GetClientDataHeader() returns different values when
-  // kRestrictGoogleWebVisibility is enabled and the same values otherwise.
-  CreateFieldTrialsWithDifferentVisibilities();
+  scoped_refptr<base::FieldTrial> trial_1(variations::CreateTrialAndAssociateId(
+      "t1", "g1", variations::GOOGLE_WEB_PROPERTIES_ANY_CONTEXT, 11));
+  scoped_refptr<base::FieldTrial> trial_2(variations::CreateTrialAndAssociateId(
+      "t2", "g2", variations::GOOGLE_WEB_PROPERTIES_FIRST_PARTY, 22));
+  scoped_refptr<base::FieldTrial> trial_3(variations::CreateTrialAndAssociateId(
+      "t3", "g3", variations::GOOGLE_WEB_PROPERTIES_TRIGGER_ANY_CONTEXT, 33));
+  scoped_refptr<base::FieldTrial> trial_4(variations::CreateTrialAndAssociateId(
+      "t4", "g4", variations::GOOGLE_WEB_PROPERTIES_TRIGGER_FIRST_PARTY, 44));
+
+  auto* provider = variations::VariationsIdsProvider::GetInstance();
+  variations::mojom::VariationsHeadersPtr signed_in_headers =
+      provider->GetClientDataHeaders(/*is_signed_in=*/true);
+  variations::mojom::VariationsHeadersPtr signed_out_headers =
+      provider->GetClientDataHeaders(/*is_signed_in=*/false);
+
+  EXPECT_NE(signed_in_headers->headers_map.at(
+                variations::mojom::GoogleWebVisibility::ANY),
+            signed_in_headers->headers_map.at(
+                variations::mojom::GoogleWebVisibility::FIRST_PARTY));
+
+  EXPECT_NE(signed_out_headers->headers_map.at(
+                variations::mojom::GoogleWebVisibility::ANY),
+            signed_out_headers->headers_map.at(
+                variations::mojom::GoogleWebVisibility::FIRST_PARTY));
 
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), GetGoogleUrl()));
   absl::optional<std::string> header =
       GetReceivedHeader(GetGoogleUrl(), "X-Client-Data");
   ASSERT_TRUE(header);
 
-  variations::mojom::GoogleWebVisibility web_visibility =
-      base::FeatureList::IsEnabled(
-          variations::internal::kRestrictGoogleWebVisibility)
-          ? variations::mojom::GoogleWebVisibility::FIRST_PARTY
-          : variations::mojom::GoogleWebVisibility::ANY;
-
-  variations::mojom::VariationsHeadersPtr headers =
+  variations::mojom::VariationsHeadersPtr signed_out_headers_2 =
       variations::VariationsIdsProvider::GetInstance()->GetClientDataHeaders(
           /*is_signed_in=*/false);
 
-  EXPECT_EQ(*header, headers->headers_map.at(web_visibility));
+  EXPECT_EQ(*header, signed_out_headers_2->headers_map.at(
+                         variations::mojom::GoogleWebVisibility::FIRST_PARTY));
 }
 
 IN_PROC_BROWSER_TEST_F(
@@ -807,7 +736,7 @@ IN_PROC_BROWSER_TEST_F(VariationsHttpHeadersBrowserTest, ServiceWorkerScript) {
   GURL absolute_import = GetExampleUrlWithPath("/service_worker/empty.js");
   const std::string worker_path =
       "/service_worker/import_scripts_worker.js?import=" +
-      net::EscapeQueryParamValue(absolute_import.spec(), false);
+      base::EscapeQueryParamValue(absolute_import.spec(), false);
   RegisterServiceWorker(worker_path);
 
   // Test that the header is present on the main script request.
@@ -860,12 +789,12 @@ class VariationsHttpHeadersBrowserTestWithOptimizationGuide
     : public VariationsHttpHeadersBrowserTest {
  public:
   VariationsHttpHeadersBrowserTestWithOptimizationGuide() {
-    std::vector<base::test::ScopedFeatureList::FeatureAndParams> enabled = {
+    std::vector<base::test::FeatureRefAndParams> enabled = {
         {features::kLoadingPredictorPrefetch, {}},
         {features::kLoadingPredictorUseOptimizationGuide,
          {{"use_predictions_for_preconnect", "true"}}},
         {optimization_guide::features::kOptimizationHints, {}}};
-    std::vector<base::Feature> disabled = {
+    std::vector<base::test::FeatureRef> disabled = {
         features::kLoadingPredictorUseLocalPredictions};
     feature_list_.InitWithFeaturesAndParameters(enabled, disabled);
   }

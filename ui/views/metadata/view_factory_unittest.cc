@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,9 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/mock_callback.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/accessibility/ax_enums.mojom.h"
@@ -89,7 +90,7 @@ TEST_F(ViewFactoryTest, TestViewBuilder) {
           .SetEnabled(false)
           .SetVisible(true)
           .SetBackground(views::CreateSolidBackground(SK_ColorWHITE))
-          .SetBorder(views::CreateEmptyBorder(gfx::Insets()))
+          .SetBorder(views::CreateEmptyBorder(0))
           .AddChildren(views::Builder<views::View>()
                            .SetEnabled(false)
                            .SetVisible(true)
@@ -142,7 +143,7 @@ TEST_F(ViewFactoryTest, TestViewBuilderOwnerships) {
       .SetEnabled(false)
       .SetVisible(true)
       .SetBackground(views::CreateSolidBackground(SK_ColorWHITE))
-      .SetBorder(views::CreateEmptyBorder(gfx::Insets()));
+      .SetBorder(views::CreateEmptyBorder(0));
   view_builder.AddChild(views::Builder<views::View>()
                             .SetEnabled(false)
                             .SetVisible(true)
@@ -236,4 +237,61 @@ TEST_F(ViewFactoryTest, TestViewBuilderAddChildAtIndex) {
   // Make sure the OK button is inserted into the child list at index 0.
   EXPECT_EQ(ok_button, view->children()[0]);
   EXPECT_EQ(cancel_button, view->children()[1]);
+}
+
+TEST_F(ViewFactoryTest, TestOrderOfOperations) {
+  using ViewCallback = base::OnceCallback<void(views::View*)>;
+
+  views::View* view = nullptr;
+  base::MockCallback<ViewCallback> custom_configure_callback;
+  base::MockCallback<ViewCallback> after_build_callback;
+
+  EXPECT_CALL(custom_configure_callback, Run).Times(0);
+  EXPECT_CALL(after_build_callback, Run).Times(0);
+
+  views::Builder<views::View> builder;
+  builder.CopyAddressTo(&view)
+      .SetID(1)
+      .AddChild(views::Builder<views::View>())
+      .CustomConfigure(custom_configure_callback.Get())
+      .CustomConfigure(custom_configure_callback.Get())
+      .AfterBuild(after_build_callback.Get())
+      .AfterBuild(after_build_callback.Get());
+
+  // Addresses should be copied *before* build but properties shouldn't be set,
+  // children shouldn't be added, and callbacks shouldn't be run until *after*.
+  ASSERT_NE(view, nullptr);
+  EXPECT_EQ(view->GetID(), 0);
+  EXPECT_EQ(view->children().size(), 0u);
+  testing::Mock::VerifyAndClearExpectations(&custom_configure_callback);
+  testing::Mock::VerifyAndClearExpectations(&after_build_callback);
+
+  {
+    testing::InSequence sequence;
+
+    // Expect that two custom configure callbacks will be run *before* any
+    // after build callbacks. The order of the custom configure callbacks is
+    // not guaranteed by the builder.
+    EXPECT_CALL(custom_configure_callback, Run(testing::Pointer(view)))
+        .Times(2)
+        .WillRepeatedly(testing::Invoke([](views::View* view) {
+          // Properties should be set *before* but children shouldn't be added
+          // until *after* custom callbacks are run.
+          EXPECT_EQ(view->GetID(), 1);
+          EXPECT_EQ(view->children().size(), 0u);
+        }));
+
+    // Expect that two after build callbacks will be run *after* any custom
+    // configure callbacks. The order of the after build callbacks is not
+    // guaranteed by the builder.
+    EXPECT_CALL(after_build_callback, Run(testing::Pointer(view)))
+        .Times(2)
+        .WillRepeatedly(testing::Invoke([](views::View* view) {
+          // Children should be added *before* after build callbacks are run.
+          EXPECT_EQ(view->children().size(), 1u);
+        }));
+  }
+
+  // Build the view and verify order of operations.
+  std::ignore = std::move(builder).Build();
 }

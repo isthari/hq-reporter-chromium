@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,7 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/task/post_task.h"
+#include "base/functional/bind.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "chrome/app/vector_icons/vector_icons.h"
@@ -17,7 +16,7 @@
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
-#include "chrome/browser/ui/views/hover_button.h"
+#include "chrome/browser/ui/views/controls/hover_button.h"
 #include "chrome/browser/ui/views/media_router/cast_dialog_helper.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
@@ -32,12 +31,30 @@
 #include "ui/views/animation/ink_drop.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/button/image_button.h"
-#include "ui/views/controls/button/image_button_factory.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/controls/throbber.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/view_class_properties.h"
 #include "url/gurl.h"
+
+namespace {
+
+class HoverButtonHandCursor : public HoverButton {
+ public:
+  HoverButtonHandCursor(PressedCallback callback, const ui::ImageModel& icon)
+      : HoverButton(std::move(callback), icon, std::u16string()) {}
+
+  HoverButtonHandCursor(const HoverButtonHandCursor&) = delete;
+  HoverButtonHandCursor& operator=(const HoverButtonHandCursor&) = delete;
+
+  ~HoverButtonHandCursor() override = default;
+
+  ui::Cursor GetCursor(const ui::MouseEvent& event) override {
+    return ui::mojom::CursorType::kHand;
+  }
+};
+
+}  // namespace
 
 namespace media_router {
 
@@ -56,7 +73,7 @@ CastDialogNoSinksView::CastDialogNoSinksView(Profile* profile)
 
   auto* layout_manager = SetLayoutManager(std::make_unique<views::BoxLayout>(
       views::BoxLayout::Orientation::kHorizontal,
-      gfx::Insets(0, horizontal_padding), icon_label_spacing));
+      gfx::Insets::VH(0, horizontal_padding), icon_label_spacing));
   layout_manager->set_cross_axis_alignment(
       views::BoxLayout::CrossAxisAlignment::kCenter);
 
@@ -79,13 +96,17 @@ void CastDialogNoSinksView::SetHelpIconView() {
                           ui::PAGE_TRANSITION_LINK);
     Navigate(&params);
   };
-  auto* icon = AddChildViewAt(views::CreateVectorImageButtonWithNativeTheme(
-                                  base::BindRepeating(navigate, profile_),
-                                  vector_icons::kHelpOutlineIcon),
-                              0);
+  auto* icon = AddChildViewAt(
+      std::make_unique<HoverButtonHandCursor>(
+          base::BindRepeating(navigate, profile_),
+          ui::ImageModel::FromVectorIcon(vector_icons::kHelpOutlineIcon,
+                                         ui::kColorAccent, kPrimaryIconSize)),
+      0);
   icon->SetInstallFocusRingOnFocus(true);
   icon->SetBorder(views::CreateEmptyBorder(media_router::kPrimaryIconBorder));
   icon->SetAccessibleName(
+      l10n_util::GetStringUTF16(IDS_MEDIA_ROUTER_NO_DEVICES_FOUND_BUTTON));
+  icon->SetTooltipText(
       l10n_util::GetStringUTF16(IDS_MEDIA_ROUTER_NO_DEVICES_FOUND_BUTTON));
   views::InkDrop::Get(icon)->SetMode(views::InkDropHost::InkDropMode::OFF);
   icon_ = icon;

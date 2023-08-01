@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,14 +7,20 @@
 #import "base/test/ios/wait_util.h"
 #import "components/autofill/ios/form_util/form_util_java_script_feature.h"
 #import "components/password_manager/ios/password_manager_java_script_feature.h"
-#include "ios/chrome/browser/web/chrome_web_client.h"
-#import "ios/chrome/browser/web/chrome_web_test.h"
-#include "ios/web/public/js_messaging/web_frame.h"
-#include "ios/web/public/js_messaging/web_frame_util.h"
+#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/web/chrome_web_client.h"
+#import "ios/web/public/deprecated/url_verification_constants.h"
+#import "ios/web/public/js_messaging/web_frame.h"
 #import "ios/web/public/js_messaging/web_frames_manager.h"
+#import "ios/web/public/test/js_test_util.h"
+#import "ios/web/public/test/scoped_testing_web_client.h"
+#import "ios/web/public/test/web_state_test_util.h"
+#import "ios/web/public/test/web_task_environment.h"
 #import "ios/web/public/web_state.h"
-#include "testing/gtest/include/gtest/gtest.h"
-#include "testing/gtest_mac.h"
+#import "testing/gtest/include/gtest/gtest.h"
+#import "testing/gtest_mac.h"
+
+#import "testing/platform_test.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -22,23 +28,29 @@
 
 using base::test::ios::kWaitForJSCompletionTimeout;
 using base::test::ios::WaitUntilConditionOrTimeout;
-using web::WebFrame;
 
 // Unit tests for
 // components/password_manager/ios/resources/password_controller.js
 namespace {
 
 // Text fixture to test password controller.
-class PasswordControllerJsTest : public ChromeWebTest {
+class PasswordControllerJsTest : public PlatformTest {
  public:
   PasswordControllerJsTest()
-      : ChromeWebTest(std::make_unique<ChromeWebClient>()) {}
+      : web_client_(std::make_unique<ChromeWebClient>()) {
+    browser_state_ = TestChromeBrowserState::Builder().Build();
+
+    web::WebState::CreateParams params(browser_state_.get());
+    web_state_ = web::WebState::Create(params);
+    web_state_->GetView();
+    web_state_->SetKeepRenderProcessAlive(true);
+  }
 
   bool SetUpUniqueIDs() {
     __block web::WebFrame* main_frame = nullptr;
     bool success =
         WaitUntilConditionOrTimeout(kWaitForJSCompletionTimeout, ^bool {
-          main_frame = web_state()->GetWebFramesManager()->GetMainWebFrame();
+          main_frame = GetMainWebFrame();
           return main_frame != nullptr;
         });
     if (!success) {
@@ -50,7 +62,7 @@ class PasswordControllerJsTest : public ChromeWebTest {
     autofill::FormUtilJavaScriptFeature::GetInstance()
         ->SetUpForUniqueIDsWithInitialState(main_frame, next_available_id);
 
-    // Wait for |SetUpForUniqueIDsWithInitialState| to complete.
+    // Wait for `SetUpForUniqueIDsWithInitialState` to complete.
     success = WaitUntilConditionOrTimeout(kWaitForJSCompletionTimeout, ^bool {
       return [ExecuteJavaScript(@"document[__gCrWeb.fill.ID_SYMBOL]")
                  intValue] == int{next_available_id};
@@ -63,14 +75,21 @@ class PasswordControllerJsTest : public ChromeWebTest {
     return FindPasswordForms() != nil;
   }
 
+  web::WebFrame* GetMainWebFrame() {
+    password_manager::PasswordManagerJavaScriptFeature* feature =
+        password_manager::PasswordManagerJavaScriptFeature::GetInstance();
+    return feature->GetWebFramesManager(web_state())->GetMainWebFrame();
+  }
+
   // Finds all password forms in the window and returns for data as a JSON
   // string.
   NSString* FindPasswordForms() {
+    web::WebFrame* main_frame = GetMainWebFrame();
     // Run password forms search to set up unique IDs.
     __block bool complete = false;
     __block NSString* result = nil;
     password_manager::PasswordManagerJavaScriptFeature::GetInstance()
-        ->FindPasswordFormsInFrame(web::GetMainFrame(web_state()),
+        ->FindPasswordFormsInFrame(main_frame,
                                    base::BindOnce(^(NSString* forms) {
                                      result = forms;
                                      complete = true;
@@ -82,6 +101,25 @@ class PasswordControllerJsTest : public ChromeWebTest {
 
     return result;
   }
+
+  std::string BaseUrl() {
+    web::URLVerificationTrustLevel unused_level;
+    return web_state()->GetCurrentURL(&unused_level).spec();
+  }
+
+ protected:
+  id ExecuteJavaScript(NSString* script) {
+    password_manager::PasswordManagerJavaScriptFeature* feature =
+        password_manager::PasswordManagerJavaScriptFeature::GetInstance();
+    return web::test::ExecuteJavaScriptForFeature(web_state(), script, feature);
+  }
+
+  web::WebState* web_state() { return web_state_.get(); }
+
+  web::ScopedTestingWebClient web_client_;
+  web::WebTaskEnvironment task_environment_;
+  std::unique_ptr<TestChromeBrowserState> browser_state_;
+  std::unique_ptr<web::WebState> web_state_;
 };
 
 // IDs used in the Username and Password <input> elements.
@@ -89,8 +127,8 @@ NSString* const kEmailInputID = @"Email";
 NSString* const kPasswordInputID = @"Passwd";
 
 // Returns an autoreleased string of an HTML form that is similar to the
-// Google Accounts sign in form. |email| may be nil if the form does not
-// need to be pre-filled with the username. Use |isReadOnly| flag to indicate
+// Google Accounts sign in form. `email` may be nil if the form does not
+// need to be pre-filled with the username. Use `isReadOnly` flag to indicate
 // if the email field should be read-only.
 NSString* GAIASignInForm(NSString* formAction,
                          NSString* email,
@@ -139,9 +177,9 @@ TEST_F(PasswordControllerJsTest,
   NSString* const formName = @"gaia_loginform";
   NSString* const username = @"john.doe@gmail.com";
   NSString* const password = @"super!secret";
-  LoadHtml(GAIASignInForm(formOrigin, username, /*isReadOnly=*/YES,
-                          /*isDisabled=*/NO),
-           GURL(origin));
+  web::test::LoadHtml(GAIASignInForm(formOrigin, username, /*isReadOnly=*/YES,
+                                     /*isDisabled=*/NO),
+                      GURL(origin), web_state());
   ASSERT_TRUE(SetUpUniqueIDs());
 
   EXPECT_NSEQ(
@@ -173,9 +211,9 @@ TEST_F(PasswordControllerJsTest,
   NSString* const username1 = @"john.doe@gmail.com";
   NSString* const username2 = @"jane.doe@gmail.com";
   NSString* const password = @"super!secret";
-  LoadHtml(GAIASignInForm(formOrigin, username1, /*isReadOnly=*/NO,
-                          /*isDisabled=*/NO),
-           GURL(origin));
+  web::test::LoadHtml(GAIASignInForm(formOrigin, username1, /*isReadOnly=*/NO,
+                                     /*isDisabled=*/NO),
+                      GURL(origin), web_state());
   ASSERT_TRUE(SetUpUniqueIDs());
 
   EXPECT_NSEQ(
@@ -207,9 +245,9 @@ TEST_F(PasswordControllerJsTest,
   NSString* const formName = @"gaia_loginform";
   NSString* const username = @"john.doe@gmail.com";
   NSString* const password = @"super!secret";
-  LoadHtml(GAIASignInForm(formOrigin, username, /*isReadOnly=*/NO,
-                          /*isDisabled=*/YES),
-           GURL(origin));
+  web::test::LoadHtml(GAIASignInForm(formOrigin, username, /*isReadOnly=*/NO,
+                                     /*isDisabled=*/YES),
+                      GURL(origin), web_state());
   ASSERT_TRUE(SetUpUniqueIDs());
 
   EXPECT_NSEQ(
@@ -244,9 +282,10 @@ TEST_F(
   NSString* const initialInputValue = @"dummy_username_field";
   NSString* const username = @"john.doe@gmail.com";
   NSString* const password = @"super!secret";
-  LoadHtml(GAIASignInForm(formOrigin, initialInputValue, /*isReadOnly=*/NO,
-                          /*isDisabled=*/YES),
-           GURL(origin));
+  web::test::LoadHtml(
+      GAIASignInForm(formOrigin, initialInputValue, /*isReadOnly=*/NO,
+                     /*isDisabled=*/YES),
+      GURL(origin), web_state());
   ASSERT_TRUE(SetUpUniqueIDs());
 
   EXPECT_NSEQ(
@@ -271,18 +310,20 @@ TEST_F(
 // Check that one password form is identified and serialized correctly.
 TEST_F(PasswordControllerJsTest,
        FindAndPreparePasswordFormsSingleFrameSingleForm) {
-  LoadHtml(@"<html><body>"
-            "<form action='/generic_submit' method='post' name='login_form'>"
-            "  Name: <input type='text' name='name'>"
-            "  Password: <input type='password' name='password'>"
-            "  <input type='submit' value='Submit'>"
-            "</form>"
-            "</body></html>");
+  web::test::LoadHtml(
+      @"<html><body>"
+       "<form action='/generic_submit' method='post' name='login_form'>"
+       "  Name: <input type='text' name='name'>"
+       "  Password: <input type='password' name='password'>"
+       "  <input type='submit' value='Submit'>"
+       "</form>"
+       "</body></html>",
+      web_state());
   ASSERT_TRUE(SetUpUniqueIDs());
 
   const std::string base_url = BaseUrl();
-  WebFrame* main_frame = web_state()->GetWebFramesManager()->GetMainWebFrame();
-  std::string mainFrameID = main_frame->GetFrameId();
+
+  std::string mainFrameID = GetMainWebFrame()->GetFrameId();
   NSString* result = [NSString
       stringWithFormat:
           @"[{\"name\":\"login_form\",\"origin\":\"%s\",\"action\":\"https://"
@@ -311,23 +352,23 @@ TEST_F(PasswordControllerJsTest,
 // Check that multiple password forms are identified and serialized correctly.
 TEST_F(PasswordControllerJsTest,
        FindAndPreparePasswordFormsSingleFrameMultipleForms) {
-  LoadHtml(@"<html><body>"
-            "<form action='/generic_submit' id='login_form1'>"
-            "  Name: <input type='text' name='name'>"
-            "  Password: <input type='password' name='password'>"
-            "  <input type='submit' value='Submit'>"
-            "</form>"
-            "<form action='/generic_s2' name='login_form2'>"
-            "  Name: <input type='text' name='name2'>"
-            "  Password: <input type='password' name='password2'>"
-            "  <input type='submit' value='Submit'>"
-            "</form>"
-            "</body></html>");
+  web::test::LoadHtml(@"<html><body>"
+                       "<form action='/generic_submit' id='login_form1'>"
+                       "  Name: <input type='text' name='name'>"
+                       "  Password: <input type='password' name='password'>"
+                       "  <input type='submit' value='Submit'>"
+                       "</form>"
+                       "<form action='/generic_s2' name='login_form2'>"
+                       "  Name: <input type='text' name='name2'>"
+                       "  Password: <input type='password' name='password2'>"
+                       "  <input type='submit' value='Submit'>"
+                       "</form>"
+                       "</body></html>",
+                      web_state());
   ASSERT_TRUE(SetUpUniqueIDs());
 
   const std::string base_url = BaseUrl();
-  WebFrame* main_frame = web_state()->GetWebFramesManager()->GetMainWebFrame();
-  std::string mainFrameID = main_frame->GetFrameId();
+  std::string mainFrameID = GetMainWebFrame()->GetFrameId();
   NSString* result = [NSString
       stringWithFormat:
           @"[{\"name\":\"login_form1\",\"origin\":\"%s\",\"action\":\"%s"
@@ -377,20 +418,20 @@ TEST_F(PasswordControllerJsTest,
 
 // Test serializing of password forms.
 TEST_F(PasswordControllerJsTest, GetPasswordFormData) {
-  LoadHtml(@"<html><body>"
-            "<form name='np' id='np1' action='/generic_submit'>"
-            "  Name: <input type='text' name='name'>"
-            "  Password: <input type='password' name='password'>"
-            "  <input type='submit' value='Submit'>"
-            "</form>"
-            "</body></html>");
+  web::test::LoadHtml(@"<html><body>"
+                       "<form name='np' id='np1' action='/generic_submit'>"
+                       "  Name: <input type='text' name='name'>"
+                       "  Password: <input type='password' name='password'>"
+                       "  <input type='submit' value='Submit'>"
+                       "</form>"
+                       "</body></html>",
+                      web_state());
   ASSERT_TRUE(SetUpUniqueIDs());
 
   const std::string base_url = BaseUrl();
   NSString* parameter = @"window.document.getElementsByTagName('form')[0]";
 
-  WebFrame* main_frame = web_state()->GetWebFramesManager()->GetMainWebFrame();
-  std::string mainFrameID = main_frame->GetFrameId();
+  std::string mainFrameID = GetMainWebFrame()->GetFrameId();
   NSString* result = [NSString
       stringWithFormat:
           @"{\"name\":\"np\",\"origin\":\"%s\",\"action\":\"%sgeneric_submit\","
@@ -423,18 +464,18 @@ TEST_F(PasswordControllerJsTest, GetPasswordFormData) {
 // Check that if a form action is not set then the action is parsed to the
 // current url.
 TEST_F(PasswordControllerJsTest, FormActionIsNotSet) {
-  LoadHtml(@"<html><body>"
-            "<form name='login_form'>"
-            "  Name: <input type='text' name='name'>"
-            "  Password: <input type='password' name='password'>"
-            "  <input type='submit' value='Submit'>"
-            "</form>"
-            "</body></html>");
+  web::test::LoadHtml(@"<html><body>"
+                       "<form name='login_form'>"
+                       "  Name: <input type='text' name='name'>"
+                       "  Password: <input type='password' name='password'>"
+                       "  <input type='submit' value='Submit'>"
+                       "</form>"
+                       "</body></html>",
+                      web_state());
   ASSERT_TRUE(SetUpUniqueIDs());
 
   const std::string base_url = BaseUrl();
-  WebFrame* main_frame = web_state()->GetWebFramesManager()->GetMainWebFrame();
-  std::string mainFrameID = main_frame->GetFrameId();
+  std::string mainFrameID = GetMainWebFrame()->GetFrameId();
   NSString* result = [NSString
       stringWithFormat:
           @"[{\"name\":\"login_form\",\"origin\":\"%s\",\"action\":\"%s\","
@@ -462,27 +503,32 @@ TEST_F(PasswordControllerJsTest, FormActionIsNotSet) {
 // Checks that a touchend event from a button which contains in a password form
 // works as a submission indicator for this password form.
 TEST_F(PasswordControllerJsTest, TouchendAsSubmissionIndicator) {
-  LoadHtml(@"<html><body>"
-            "<form name='login_form' id='login_form'>"
-            "  Name: <input type='text' name='username'>"
-            "  Password: <input type='password' name='password'>"
-            "  <button id='submit_button' value='Submit'>"
-            "</form>"
-            "</body></html>");
+  web::test::LoadHtml(@"<html><body>"
+                       "<form name='login_form' id='login_form'>"
+                       "  Name: <input type='text' name='username'>"
+                       "  Password: <input type='password' name='password'>"
+                       "  <button id='submit_button' value='Submit'>"
+                       "</form>"
+                       "</body></html>",
+                      web_state());
   ASSERT_TRUE(SetUpUniqueIDs());
 
   // Call __gCrWeb.passwords.findPasswordForms in order to set an event handler
   // on the button touchend event.
   FindPasswordForms();
 
-  // Replace __gCrWeb.message.invokeOnHost with mock method for checking of call
-  // arguments.
-  ExecuteJavaScript(@"var invokeOnHostArgument = null;"
-                     "var invokeOnHostCalls = 0;"
-                     "__gCrWeb.message.invokeOnHost = function(command) {"
-                     "  invokeOnHostArgument = command;"
-                     "  invokeOnHostCalls++;"
-                     "}");
+  // Replace __gCrWeb.common.sendWebKitMessage with mock method for checking of
+  // call arguments.
+  ExecuteJavaScript(
+      @"var submittedFormData = null;"
+       "var submittedFormMessageCalls = 0;"
+       "__gCrWeb.common.sendWebKitMessage = function(messageName, messageData) "
+       "{"
+       "  if (messageName == 'PasswordFormSubmitButtonClick') {"
+       "    submittedFormData = messageData;"
+       "    submittedFormMessageCalls++;"
+       "  }"
+       "}");
 
   // Simulate touchend event on the button.
   ExecuteJavaScript(
@@ -491,11 +537,10 @@ TEST_F(PasswordControllerJsTest, TouchendAsSubmissionIndicator) {
        "var e = new UIEvent('touchend');"
        "document.getElementsByTagName('button')[0].dispatchEvent(e);");
 
-  // Check that there was only 1 call for invokeOnHost.
-  EXPECT_NSEQ(@1, ExecuteJavaScript(@"invokeOnHostCalls"));
+  // Check that there was only 1 call for sendWebKitMessage.
+  EXPECT_NSEQ(@1, ExecuteJavaScript(@"submittedFormMessageCalls"));
 
-  WebFrame* main_frame = web_state()->GetWebFramesManager()->GetMainWebFrame();
-  std::string mainFrameID = main_frame->GetFrameId();
+  std::string mainFrameID = GetMainWebFrame()->GetFrameId();
   NSString* expected_command = [NSString
       stringWithFormat:
           @"{\"name\":\"login_form\",\"origin\":\"https://chromium.test/"
@@ -518,25 +563,26 @@ TEST_F(PasswordControllerJsTest, TouchendAsSubmissionIndicator) {
           @"\"aria_label\":\"\",\"aria_description\":\"\","
           @"\"should_autocomplete\":true,"
           @"\"is_focusable\":true,\"max_length\":524288,\"is_checkable\":false,"
-          @"\"value\":\"password1\",\"label\":\"Password:\"}],"
-          @"\"command\":\"passwordForm.submitButtonClick\"}",
+          @"\"value\":\"password1\",\"label\":\"Password:\"}]}",
           BaseUrl().c_str(), mainFrameID.c_str()];
 
-  // Check that invokeOnHost was called with the correct argument.
+  // Check that sendWebKitMessage was called with the correct argument.
   EXPECT_NSEQ(expected_command,
-              ExecuteJavaScript(@"__gCrWeb.stringify(invokeOnHostArgument)"));
+              ExecuteJavaScript(@"__gCrWeb.stringify(submittedFormData)"));
 }
 
 // Check that a form is filled if url of a page and url in form fill data are
 // different only in pathes.
 TEST_F(PasswordControllerJsTest, OriginsAreDifferentInPathes) {
-  LoadHtml(@"<html><body>"
-            "<form name='login_form' action='action1'>"
-            "  Name: <input type='text' name='name' id='name'>"
-            "  Password: <input type='password' name='password' id='password'>"
-            "  <input type='submit' value='Submit'>"
-            "</form>"
-            "</body></html>");
+  web::test::LoadHtml(
+      @"<html><body>"
+       "<form name='login_form' action='action1'>"
+       "  Name: <input type='text' name='name' id='name'>"
+       "  Password: <input type='password' name='password' id='password'>"
+       "  <input type='submit' value='Submit'>"
+       "</form>"
+       "</body></html>",
+      web_state());
   ASSERT_TRUE(SetUpUniqueIDs());
 
   NSString* const username = @"john.doe@gmail.com";
@@ -574,13 +620,14 @@ TEST_F(PasswordControllerJsTest, OriginsAreDifferentInPathes) {
 // is not filled with generated password.
 TEST_F(PasswordControllerJsTest,
        FillPasswordFormWithGeneratedPassword_FailsWhenFormNotFound) {
-  LoadHtml(@"<html>"
-            "  <body>"
-            "    <form name=\"foo\">"
-            "      <input type=\"password\" id=\"ps1\" name=\"ps\">"
-            "    </form>"
-            "  </body"
-            "</html>");
+  web::test::LoadHtml(@"<html>"
+                       "  <body>"
+                       "    <form name=\"foo\">"
+                       "      <input type=\"password\" id=\"ps1\" name=\"ps\">"
+                       "    </form>"
+                       "  </body"
+                       "</html>",
+                      web_state());
   ASSERT_TRUE(SetUpUniqueIDs());
 
   uint32_t formIdentifier = 404;
@@ -597,14 +644,15 @@ TEST_F(PasswordControllerJsTest,
 // Check that filling a form without password fields fails.
 TEST_F(PasswordControllerJsTest,
        FillPasswordFormWithGeneratedPassword_FailsWhenNoPasswordFields) {
-  LoadHtml(@"<html>"
-            "  <body>"
-            "    <form name=\"foo\">"
-            "      <input type=\"text\" name=\"user\">"
-            "      <input type=\"submit\" name=\"go\">"
-            "    </form>"
-            "  </body"
-            "</html>");
+  web::test::LoadHtml(@"<html>"
+                       "  <body>"
+                       "    <form name=\"foo\">"
+                       "      <input type=\"text\" name=\"user\">"
+                       "      <input type=\"submit\" name=\"go\">"
+                       "    </form>"
+                       "  </body"
+                       "</html>",
+                      web_state());
   ASSERT_TRUE(SetUpUniqueIDs());
 
   uint32_t formIdentifier = 1;
@@ -624,16 +672,17 @@ TEST_F(PasswordControllerJsTest,
 // with the generated password.
 TEST_F(PasswordControllerJsTest,
        FillPasswordFormWithGeneratedPassword_SucceedsWhenFieldsFilled) {
-  LoadHtml(@"<html>"
-            "  <body>"
-            "    <form name=\"foo\">"
-            "      <input type=\"text\" id=\"user\" name=\"user\">"
-            "      <input type=\"password\" id=\"ps1\" name=\"ps1\">"
-            "      <input type=\"password\" id=\"ps2\" name=\"ps2\">"
-            "      <input type=\"submit\" name=\"go\">"
-            "    </form>"
-            "  </body"
-            "</html>");
+  web::test::LoadHtml(@"<html>"
+                       "  <body>"
+                       "    <form name=\"foo\">"
+                       "      <input type=\"text\" id=\"user\" name=\"user\">"
+                       "      <input type=\"password\" id=\"ps1\" name=\"ps1\">"
+                       "      <input type=\"password\" id=\"ps2\" name=\"ps2\">"
+                       "      <input type=\"submit\" name=\"go\">"
+                       "    </form>"
+                       "  </body"
+                       "</html>",
+                      web_state());
   ASSERT_TRUE(SetUpUniqueIDs());
 
   uint32_t formIdentifier = 1;
@@ -669,16 +718,17 @@ TEST_F(PasswordControllerJsTest,
 TEST_F(
     PasswordControllerJsTest,
     FillPasswordFormWithGeneratedPassword_SucceedsWhenOnlyNewPasswordFilled) {
-  LoadHtml(@"<html>"
-            "  <body>"
-            "    <form name=\"foo\">"
-            "      <input type=\"text\" id=\"user\" name=\"user\">"
-            "      <input type=\"password\" id=\"ps1\" name=\"ps1\">"
-            "      <input type=\"password\" id=\"ps2\" name=\"ps2\">"
-            "      <input type=\"submit\" name=\"go\">"
-            "    </form>"
-            "  </body"
-            "</html>");
+  web::test::LoadHtml(@"<html>"
+                       "  <body>"
+                       "    <form name=\"foo\">"
+                       "      <input type=\"text\" id=\"user\" name=\"user\">"
+                       "      <input type=\"password\" id=\"ps1\" name=\"ps1\">"
+                       "      <input type=\"password\" id=\"ps2\" name=\"ps2\">"
+                       "      <input type=\"submit\" name=\"go\">"
+                       "    </form>"
+                       "  </body"
+                       "</html>",
+                      web_state());
   ASSERT_TRUE(SetUpUniqueIDs());
 
   uint32_t formIdentifier = 1;
@@ -712,16 +762,17 @@ TEST_F(
 TEST_F(
     PasswordControllerJsTest,
     FillPasswordFormWithGeneratedPassword_FailsWhenOnlyConfirmPasswordFilled) {
-  LoadHtml(@"<html>"
-            "  <body>"
-            "    <form name=\"foo\">"
-            "      <input type=\"text\" id=\"user\" name=\"user\">"
-            "      <input type=\"password\" id=\"ps1\" name=\"ps1\">"
-            "      <input type=\"password\" id=\"ps2\" name=\"ps2\">"
-            "      <input type=\"submit\" name=\"go\">"
-            "    </form>"
-            "  </body"
-            "</html>");
+  web::test::LoadHtml(@"<html>"
+                       "  <body>"
+                       "    <form name=\"foo\">"
+                       "      <input type=\"text\" id=\"user\" name=\"user\">"
+                       "      <input type=\"password\" id=\"ps1\" name=\"ps1\">"
+                       "      <input type=\"password\" id=\"ps2\" name=\"ps2\">"
+                       "      <input type=\"submit\" name=\"go\">"
+                       "    </form>"
+                       "  </body"
+                       "</html>",
+                      web_state());
   ASSERT_TRUE(SetUpUniqueIDs());
 
   uint32_t formIdentifier = 1;
@@ -745,27 +796,26 @@ TEST_F(
 TEST_F(
     PasswordControllerJsTest,
     FillPasswordFormWithGeneratedPassword_SucceedsOnUnknownOrNullIdentifiers) {
-  LoadHtml(@"<html>"
-            "  <body>"
-            "    <form name=\"foo\">"
-            "      <input type=\"text\" id=\"user\" name=\"user\">"
-            "      <input type=\"password\" id=\"ps1\" name=\"ps1\">"
-            "      <input type=\"password\" id=\"ps2\" name=\"ps2\">"
-            "      <input type=\"submit\" name=\"go\">"
-            "    </form>"
-            "  </body"
-            "</html>");
+  web::test::LoadHtml(@"<html>"
+                       "  <body>"
+                       "    <form name=\"foo\">"
+                       "      <input type=\"text\" id=\"user\" name=\"user\">"
+                       "      <input type=\"password\" id=\"ps1\" name=\"ps1\">"
+                       "      <input type=\"password\" id=\"ps2\" name=\"ps2\">"
+                       "      <input type=\"submit\" name=\"go\">"
+                       "    </form>"
+                       "  </body"
+                       "</html>",
+                      web_state());
   ASSERT_TRUE(SetUpUniqueIDs());
 
   uint32_t formIdentifier = 1;
   NSString* const password = @"abc";
-  EXPECT_NSEQ(
-      @NO,
-      ExecuteJavaScript([NSString
-          stringWithFormat:
-              @"__gCrWeb.passwords."
-              @"fillPasswordFormWithGeneratedPassword(%u, '%@', null, '%@')",
-              formIdentifier, @"hello", password]));
+  EXPECT_NSEQ(@NO, ExecuteJavaScript([NSString
+                       stringWithFormat:@"__gCrWeb.passwords."
+                                        @"fillPasswordFormWithGeneratedPasswo"
+                                        @"rd(%u, '%@', null, '%@')",
+                                        formIdentifier, @"hello", password]));
   EXPECT_NSEQ(@YES,
               ExecuteJavaScript(@"document.getElementById('ps1').value == ''"));
   EXPECT_NSEQ(@YES,
@@ -781,14 +831,15 @@ TEST_F(
 // with the generated password.
 TEST_F(PasswordControllerJsTest,
        FillPasswordFormWithGeneratedPassword_SucceedsOutsideFormTag) {
-  LoadHtml(@"<html>"
-            "  <body>"
-            "    <input type=\"text\" id=\"user\" name=\"user\">"
-            "    <input type=\"password\" id=\"ps1\" name=\"ps1\">"
-            "    <input type=\"password\" id=\"ps2\" name=\"ps2\">"
-            "    <input type=\"submit\" name=\"go\">"
-            "  </body>"
-            "</html>");
+  web::test::LoadHtml(@"<html>"
+                       "  <body>"
+                       "    <input type=\"text\" id=\"user\" name=\"user\">"
+                       "    <input type=\"password\" id=\"ps1\" name=\"ps1\">"
+                       "    <input type=\"password\" id=\"ps2\" name=\"ps2\">"
+                       "    <input type=\"submit\" name=\"go\">"
+                       "  </body>"
+                       "</html>",
+                      web_state());
   ASSERT_TRUE(SetUpUniqueIDs());
 
   NSString* const password = @"abc";
@@ -820,11 +871,13 @@ TEST_F(PasswordControllerJsTest,
 
 // Check that a form with only password field (i.e. w/o username) is filled.
 TEST_F(PasswordControllerJsTest, FillOnlyPasswordField) {
-  LoadHtml(@"<html><body>"
-            "<form name='login_form' action='action1'>"
-            "  Password: <input type='password' name='password' id='password'>"
-            "</form>"
-            "</body></html>");
+  web::test::LoadHtml(
+      @"<html><body>"
+       "<form name='login_form' action='action1'>"
+       "  Password: <input type='password' name='password' id='password'>"
+       "</form>"
+       "</body></html>",
+      web_state());
   ASSERT_TRUE(SetUpUniqueIDs());
 
   NSString* const password = @"super!secret";
@@ -850,18 +903,19 @@ TEST_F(PasswordControllerJsTest, FillOnlyPasswordField) {
       ExecuteJavaScript([NSString
           stringWithFormat:@"__gCrWeb.passwords.fillPasswordForm(%@, '', '%@')",
                            form_fill_data, password]));
-  // Verifies that the sign-in form has been filled with |password|.
+  // Verifies that the sign-in form has been filled with `password`.
   EXPECT_NSEQ(password,
               ExecuteJavaScript(@"document.getElementById('password').value"));
 }
 
 // Check that password form outside the <form> tag is extracted correctly.
 TEST_F(PasswordControllerJsTest, ExtractFormOutsideTheFormTag) {
-  LoadHtml(@"<html><body>"
-            "  Name: <input type='text' name='name'>"
-            "  Password: <input type='password' name='password'>"
-            "  <input type='submit' value='Submit'>"
-            "</body></html>");
+  web::test::LoadHtml(@"<html><body>"
+                       "  Name: <input type='text' name='name'>"
+                       "  Password: <input type='password' name='password'>"
+                       "  <input type='submit' value='Submit'>"
+                       "</body></html>",
+                      web_state());
   ASSERT_TRUE(SetUpUniqueIDs());
 
   const std::string base_url = BaseUrl();

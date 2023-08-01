@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 
 #include "base/time/time.h"
 #include "components/keyed_service/core/keyed_service.h"
-#include "components/sync/driver/sync_session_durations_metrics_recorder.h"
+#include "components/sync/service/sync_session_durations_metrics_recorder.h"
 
 namespace signin {
 class IdentityManager;
@@ -46,6 +46,9 @@ class AndroidSessionDurationsService : public KeyedService {
       delete;
   AndroidSessionDurationsService& operator=(
       const AndroidSessionDurationsService&) = delete;
+
+  bool IsSignedIn() const;
+  bool IsSyncing() const;
 
   // KeyedService:
   void Shutdown() override;

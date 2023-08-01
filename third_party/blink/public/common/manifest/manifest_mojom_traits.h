@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,8 +12,10 @@
 #include "base/strings/utf_string_conversions.h"
 #include "mojo/public/cpp/bindings/struct_traits.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/abseil-cpp/absl/types/variant.h"
 #include "third_party/blink/public/common/common_export.h"
 #include "third_party/blink/public/mojom/manifest/manifest.mojom.h"
+#include "third_party/blink/public/mojom/url_pattern.mojom.h"
 
 namespace mojo {
 namespace internal {
@@ -200,15 +202,9 @@ template <>
 struct BLINK_COMMON_EXPORT
     StructTraits<blink::mojom::ManifestLaunchHandlerDataView,
                  ::blink::Manifest::LaunchHandler> {
-  static blink::mojom::ManifestLaunchHandler::RouteTo route_to(
+  static blink::mojom::ManifestLaunchHandler::ClientMode client_mode(
       const ::blink::Manifest::LaunchHandler& launch_handler) {
-    return launch_handler.route_to;
-  }
-
-  static blink::mojom::ManifestLaunchHandler::NavigateExistingClient
-  navigate_existing_client(
-      const ::blink::Manifest::LaunchHandler& launch_handler) {
-    return launch_handler.navigate_existing_client;
+    return launch_handler.client_mode;
   }
 
   static bool Read(blink::mojom::ManifestLaunchHandlerDataView data,
@@ -236,6 +232,94 @@ struct BLINK_COMMON_EXPORT
 
   static bool Read(blink::mojom::ManifestTranslationItemDataView data,
                    ::blink::Manifest::TranslationItem* out);
+};
+
+template <>
+struct BLINK_COMMON_EXPORT StructTraits<blink::mojom::HomeTabParamsDataView,
+                                        ::blink::Manifest::HomeTabParams> {
+  static const std::vector<::blink::Manifest::ImageResource>& icons(
+      const ::blink::Manifest::HomeTabParams& params) {
+    return params.icons;
+  }
+
+  static const std::vector<::blink::UrlPattern>& scope_patterns(
+      const ::blink::Manifest::HomeTabParams& params) {
+    return params.scope_patterns;
+  }
+
+  static bool Read(blink::mojom::HomeTabParamsDataView data,
+                   ::blink::Manifest::HomeTabParams* out);
+};
+
+template <>
+struct BLINK_COMMON_EXPORT
+    StructTraits<blink::mojom::NewTabButtonParamsDataView,
+                 ::blink::Manifest::NewTabButtonParams> {
+  static const absl::optional<GURL>& url(
+      const ::blink::Manifest::NewTabButtonParams& params) {
+    return params.url;
+  }
+
+  static bool Read(blink::mojom::NewTabButtonParamsDataView data,
+                   ::blink::Manifest::NewTabButtonParams* out);
+};
+
+template <>
+struct BLINK_COMMON_EXPORT UnionTraits<blink::mojom::HomeTabUnionDataView,
+                                       ::blink::Manifest::TabStrip::HomeTab> {
+  static blink::mojom::HomeTabUnionDataView::Tag GetTag(
+      const ::blink::Manifest::TabStrip::HomeTab& value);
+
+  static ::blink::mojom::TabStripMemberVisibility visibility(
+      const ::blink::Manifest::TabStrip::HomeTab& value) {
+    return absl::get<blink::mojom::TabStripMemberVisibility>(value);
+  }
+
+  static const ::blink::Manifest::HomeTabParams& params(
+      const ::blink::Manifest::TabStrip::HomeTab& value) {
+    return absl::get<blink::Manifest::HomeTabParams>(value);
+  }
+
+  static bool Read(blink::mojom::HomeTabUnionDataView data,
+                   ::blink::Manifest::TabStrip::HomeTab* out);
+};
+
+template <>
+struct BLINK_COMMON_EXPORT
+    UnionTraits<blink::mojom::NewTabButtonUnionDataView,
+                ::blink::Manifest::TabStrip::NewTabButton> {
+  static blink::mojom::NewTabButtonUnionDataView::Tag GetTag(
+      const ::blink::Manifest::TabStrip::NewTabButton& value);
+
+  static ::blink::mojom::TabStripMemberVisibility visibility(
+      const ::blink::Manifest::TabStrip::NewTabButton& value) {
+    return absl::get<blink::mojom::TabStripMemberVisibility>(value);
+  }
+
+  static const ::blink::Manifest::NewTabButtonParams& params(
+      const ::blink::Manifest::TabStrip::NewTabButton& value) {
+    return absl::get<blink::Manifest::NewTabButtonParams>(value);
+  }
+
+  static bool Read(blink::mojom::NewTabButtonUnionDataView data,
+                   ::blink::Manifest::TabStrip::NewTabButton* out);
+};
+
+template <>
+struct BLINK_COMMON_EXPORT StructTraits<blink::mojom::ManifestTabStripDataView,
+                                        ::blink::Manifest::TabStrip> {
+  static const ::blink::Manifest::TabStrip::HomeTab& home_tab(
+      const ::blink::Manifest::TabStrip& tab_strip) {
+    return tab_strip.home_tab;
+  }
+
+  static const ::blink::Manifest::TabStrip::NewTabButton& new_tab_button(
+      const ::blink::Manifest::TabStrip& tab_strip) {
+    return tab_strip.new_tab_button;
+  }
+
+  static bool Read(blink::mojom::ManifestTabStripDataView data,
+                   ::blink::Manifest::TabStrip* out);
 };
 
 }  // namespace mojo

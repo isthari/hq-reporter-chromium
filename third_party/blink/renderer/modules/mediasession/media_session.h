@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,13 @@
 #include "third_party/blink/public/mojom/mediasession/media_session.mojom-blink.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_receiver.h"
+#include "third_party/blink/renderer/platform/mojo/heap_mojo_remote.h"
 #include "third_party/blink/renderer/platform/mojo/heap_mojo_wrapper_mode.h"
 #include "third_party/blink/renderer/platform/supplementable.h"
+#include "third_party/blink/renderer/platform/wtf/gc_plugin.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace base {
@@ -89,7 +92,7 @@ class MODULES_EXPORT MediaSession final
   double declared_playback_rate_ = 0.0;
   Member<MediaMetadata> metadata_;
   HeapHashMap<String, Member<V8MediaSessionActionHandler>> action_handlers_;
-  mojo::Remote<mojom::blink::MediaSessionService> service_;
+  HeapMojoRemote<mojom::blink::MediaSessionService> service_;
   HeapMojoReceiver<blink::mojom::blink::MediaSessionClient, MediaSession>
       client_receiver_;
 };

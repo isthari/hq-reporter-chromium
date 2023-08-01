@@ -150,7 +150,7 @@ function waitForAnimationEndTimeBased(getValue) {
   })
 }
 
-function waitForEvent(eventTarget, eventName, timeoutMs = 1000) {
+function waitForEvent(eventTarget, eventName, timeoutMs = 2000) {
   return new Promise((resolve, reject) => {
     const eventListener = (evt) => {
       clearTimeout(timeout);
@@ -165,7 +165,7 @@ function waitForEvent(eventTarget, eventName, timeoutMs = 1000) {
   });
 }
 
-function waitForScrollEvent(eventTarget, timeoutMs = 1000) {
+function waitForScrollEvent(eventTarget, timeoutMs = 2000) {
   return waitForEvent(eventTarget, 'scroll', timeoutMs);
 }
 
@@ -402,7 +402,7 @@ const LEGACY_MOUSE_WHEEL_TICK_MULTIPLIER = 120;
 // Returns the number of pixels per wheel tick which is a platform specific value.
 function pixelsPerTick() {
   // Comes from ui/events/event.cc
-  if (navigator.platform.indexOf("Win") != -1)
+  if (navigator.platform.indexOf("Win") != -1 || navigator.platform.indexOf("Linux") != -1)
     return 120;
 
   if (navigator.platform.indexOf("Mac") != -1 || navigator.platform.indexOf("iPhone") != -1 ||
@@ -414,7 +414,7 @@ function pixelsPerTick() {
   if (navigator.platform.toLowerCase().indexOf("android") != -1)
     return 64;
 
-  // Comes from ui/events/event.cc
+  // Legacy, comes from ui/events/event.cc
   return 53;
 }
 
@@ -630,6 +630,24 @@ function touchTapOn(xPosition, yPosition) {
   });
 }
 
+function touchPull(pull) {
+  const PREVENT_FLING_PAUSE = 40;
+  return new Promise(function(resolve, reject) {
+    if (window.chrome && chrome.gpuBenchmarking) {
+      chrome.gpuBenchmarking.pointerActionSequence( [
+        {source: 'touch',
+         actions: [
+            { name: 'pointerDown', x: pull.start_x, y: pull.start_y },
+            { name: 'pause', duration: PREVENT_FLING_PAUSE },
+            { name: 'pointerMove', x: pull.end_x, y: pull.end_y},
+            { name: 'pause', duration: PREVENT_FLING_PAUSE },
+        ]}], resolve);
+    } else {
+      reject('This test requires chrome.gpuBenchmarking');
+    }
+  });
+}
+
 function touchDragTo(drag) {
   const PREVENT_FLING_PAUSE = 40;
   return new Promise(function(resolve, reject) {
@@ -644,7 +662,24 @@ function touchDragTo(drag) {
             { name: 'pointerUp', x: drag.end_x, y: drag.end_y }
         ]}], resolve);
     } else {
-      reject();
+      reject('This test requires chrome.gpuBenchmarking');
+    }
+  });
+}
+
+// Trigger fling by doing pointerUp right after pointerMoves.
+function touchFling(drag) {
+  return new Promise(function(resolve, reject) {
+    if (window.chrome && chrome.gpuBenchmarking) {
+      chrome.gpuBenchmarking.pointerActionSequence( [
+        {source: 'touch',
+         actions: [
+            { name: 'pointerDown', x: drag.start_x, y: drag.start_y },
+            { name: 'pointerMove', x: drag.end_x, y: drag.end_y},
+            { name: 'pointerUp', x: drag.end_x, y: drag.end_y }
+        ]}], resolve);
+    } else {
+      reject('This test requires chrome.gpuBenchmarking');
     }
   });
 }
@@ -720,5 +755,80 @@ function raf() {
     requestAnimationFrame(() => {
       resolve();
     });
+  });
+}
+
+// Resets the scroll position to (0,0).  If a scroll is required, then the
+// promise is not resolved until the scrollend event is received.
+async function waitForScrollReset(scroller) {
+  return new Promise(resolve => {
+    if (scroller.scrollTop == 0 &&
+        scroller.scrollLeft == 0) {
+      resolve();
+    } else {
+      const eventTarget =
+        scroller == document.scrollingElement ? document : scroller;
+      scroller.scrollTop = 0;
+      scroller.scrollLeft = 0;
+      waitForScrollendEvent(eventTarget).then(resolve);
+    }
+  });
+}
+
+// Call with an asynchronous function that triggers a scroll. The promise is
+// resolved once |scrollendEventReceiver| gets the scrollend event.
+async function triggerScrollAndWaitForScrollEnd(
+    scrollTriggerFn, scrollendEventReceiver = document) {
+  const scrollPromise = waitForScrollendEvent(scrollendEventReceiver);
+  await scrollTriggerFn();
+  return scrollPromise;
+}
+
+// Generates a synthetic click and returns a promise that is resolved once
+// |scrollendEventReceiver| gets the scrollend event.
+async function clickAndWaitForScroll(x, y, scrollendEventReceiver = document) {
+  return triggerScrollAndWaitForScrollEnd(async () => {
+    if (!window.test_driver) {
+      throw new Error('Test requires import of testdriver. Please add ' +
+                      'testdriver.js, testdriver-actions.js and ' +
+                      'testdriver-vendor.js to your test file');
+    }
+
+    return new test_driver.Actions()
+        .pointerMove(x, y)
+        .pointerDown()
+        .addTick()
+        .pointerUp()
+        .send();
+  }, scrollendEventReceiver);
+}
+
+function waitForStableScrollOffset(scroller, timeout) {
+  timeout = timeout || 5000;
+  return new Promise((resolve, reject) => {
+    let last_x = scroller.scrollLeft;
+    let last_y = scroller.scrollTop;
+    let start_timestamp = performance.now();
+    let last_change_timestamp = start_timestamp;
+    let last_change_frame_number = 0;
+    function tick(frame_number, timestamp) {
+      // We run a rAF loop until 100 milliseconds and at least five animation
+      // frames have elapsed since the last scroll offset change, with a timeout
+      // after `timeout` milliseconds.
+      if (scroller.scrollLeft != last_x || scroller.scrollTop != last_y) {
+        last_change_timestamp = timestamp;
+        last_x = scroller.scrollLeft;
+        last_y = scroller.scrollTop;
+      }
+      if (timestamp - last_change_timestamp > 100 &&
+          frame_number - last_change_frame_number > 4) {
+        resolve();
+      } else if (timestamp - start_timestamp > timeout) {
+        reject();
+      } else {
+        requestAnimationFrame(tick.bind(null, frame_number + 1));
+      }
+    }
+    tick(0, start_timestamp);
   });
 }

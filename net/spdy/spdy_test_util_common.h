@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,16 +14,14 @@
 #include <vector>
 
 #include "base/containers/span.h"
-#include "base/cxx17_backports.h"
 #include "base/memory/raw_ptr.h"
-#include "base/memory/ref_counted.h"
 #include "base/strings/string_piece.h"
 #include "crypto/ec_private_key.h"
 #include "net/base/completion_once_callback.h"
 #include "net/base/proxy_server.h"
 #include "net/base/request_priority.h"
 #include "net/base/test_completion_callback.h"
-#include "net/cert/cert_verifier.h"
+#include "net/cert/mock_cert_verifier.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/http/http_auth_handler_factory.h"
 #include "net/http/http_network_session.h"
@@ -35,9 +33,7 @@
 #include "net/spdy/spdy_session.h"
 #include "net/spdy/spdy_session_pool.h"
 #include "net/ssl/ssl_config_service_defaults.h"
-#include "net/third_party/quiche/src/spdy/core/spdy_protocol.h"
-#include "net/url_request/url_request_context.h"
-#include "net/url_request/url_request_context_storage.h"
+#include "net/third_party/quiche/src/quiche/spdy/core/spdy_protocol.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if BUILDFLAG(ENABLE_REPORTING)
@@ -50,6 +46,7 @@ class GURL;
 namespace net {
 
 class CTPolicyEnforcer;
+class ClientSocketFactory;
 class HashValue;
 class HostPortPair;
 class HostResolver;
@@ -60,12 +57,13 @@ class SpdySessionKey;
 class SpdyStream;
 class SpdyStreamRequest;
 class TransportSecurityState;
+class URLRequestContextBuilder;
 
 // Default upload data used by both, mock objects and framer when creating
 // data frames.
 const char kDefaultUrl[] = "https://www.example.org/";
 const char kUploadData[] = "hello!";
-const int kUploadDataSize = base::size(kUploadData) - 1;
+const int kUploadDataSize = std::size(kUploadData) - 1;
 
 // While HTTP/2 protocol defines default SETTINGS_MAX_HEADER_LIST_SIZE_FOR_TEST
 // to be unlimited, BufferedSpdyFramer constructor requires a value.
@@ -182,7 +180,7 @@ struct SpdySessionDependencies {
   std::unique_ptr<MockHostResolverBase> host_resolver;
   // For using a HostResolver not derived from MockHostResolverBase.
   std::unique_ptr<HostResolver> alternate_host_resolver;
-  std::unique_ptr<CertVerifier> cert_verifier;
+  std::unique_ptr<MockCertVerifier> cert_verifier;
   std::unique_ptr<TransportSecurityState> transport_security_state;
   std::unique_ptr<CTPolicyEnforcer> ct_policy_enforcer;
   std::unique_ptr<ProxyResolutionService> proxy_resolution_service;
@@ -196,39 +194,35 @@ struct SpdySessionDependencies {
   std::unique_ptr<ReportingService> reporting_service;
   std::unique_ptr<NetworkErrorLoggingService> network_error_logging_service;
 #endif
-  bool enable_ip_pooling;
-  bool enable_ping;
-  bool enable_user_alternate_protocol_ports;
-  bool enable_quic;
-  bool enable_server_push_cancellation;
-  size_t session_max_recv_window_size;
-  int session_max_queued_capped_frames;
+  bool enable_ip_pooling = true;
+  bool enable_ping = false;
+  bool enable_user_alternate_protocol_ports = false;
+  bool enable_quic = false;
+  bool enable_server_push_cancellation = false;
+  size_t session_max_recv_window_size = kDefaultInitialWindowSize;
+  int session_max_queued_capped_frames = kSpdySessionMaxQueuedCappedFrames;
   spdy::SettingsMap http2_settings;
   SpdySession::TimeFunc time_func;
-  bool enable_http2_alternative_service;
-  bool enable_websocket_over_http2;
-  bool enable_http2_settings_grease;
+  bool enable_http2_alternative_service = false;
+  bool enable_http2_settings_grease = false;
   absl::optional<SpdySessionPool::GreasedHttp2Frame> greased_http2_frame;
-  bool http2_end_stream_with_data_frame;
-  raw_ptr<NetLog> net_log;
-  bool disable_idle_sockets_close_on_memory_pressure;
-  bool enable_early_data;
-  bool key_auth_cache_server_entries_by_network_isolation_key;
-  bool enable_priority_update;
-  bool go_away_on_ip_change;
+  bool http2_end_stream_with_data_frame = false;
+  raw_ptr<NetLog> net_log = nullptr;
+  bool disable_idle_sockets_close_on_memory_pressure = false;
+  bool enable_early_data = false;
+  bool key_auth_cache_server_entries_by_network_anonymization_key = false;
+  bool enable_priority_update = false;
+#if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_IOS)
+  bool go_away_on_ip_change = true;
+#else
+  bool go_away_on_ip_change = false;
+#endif  // BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_WIN) || BUILDFLAG(IS_IOS)
+  bool ignore_ip_address_changes = false;
 };
 
-class SpdyURLRequestContext : public URLRequestContext {
- public:
-  SpdyURLRequestContext();
-  ~SpdyURLRequestContext() override;
-
-  MockClientSocketFactory& socket_factory() { return socket_factory_; }
-
- private:
-  MockClientSocketFactory socket_factory_;
-  URLRequestContextStorage storage_;
-};
+std::unique_ptr<URLRequestContextBuilder>
+CreateSpdyTestURLRequestContextBuilder(
+    ClientSocketFactory* client_socket_factory);
 
 // Equivalent to pool->GetIfExists(spdy_session_key, NetLogWithSource()) !=
 // NULL.

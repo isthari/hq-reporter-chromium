@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,8 @@
 
 #include <vector>
 
-#include "base/mac/bundle_locations.h"
+#include "base/apple/bridging.h"
+#include "base/apple/bundle_locations.h"
 #include "base/mac/foundation_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "build/branding_buildflags.h"
@@ -19,6 +20,10 @@
 #include "third_party/crashpad/crashpad/minidump/minidump_simple_string_dictionary_writer.h"
 #include "third_party/crashpad/crashpad/util/misc/metrics.h"
 
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
+
 namespace crash_reporter {
 
 namespace {
@@ -27,12 +32,13 @@ const std::map<std::string, std::string>& GetProcessSimpleAnnotations() {
   static std::map<std::string, std::string> annotations = []() -> auto {
     std::map<std::string, std::string> process_annotations;
     @autoreleasepool {
-      NSBundle* outer_bundle = base::mac::OuterBundle();
+      NSBundle* outer_bundle = base::apple::OuterBundle();
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
       process_annotations["prod"] = "Chrome_iOS";
 #else
-      NSString* product = base::mac::ObjCCast<NSString>([outer_bundle
-          objectForInfoDictionaryKey:base::mac::CFToNSCast(kCFBundleNameKey)]);
+      NSString* product = base::mac::ObjCCast<NSString>(
+          [outer_bundle objectForInfoDictionaryKey:base::apple::CFToNSPtrCast(
+                                                       kCFBundleNameKey)]);
       process_annotations["prod"] =
           base::SysNSStringToUTF8(product).append("_iOS");
 #endif
@@ -50,7 +56,7 @@ const std::map<std::string, std::string>& GetProcessSimpleAnnotations() {
         channel = @"developer";
       process_annotations["channel"] = base::SysNSStringToUTF8(channel);
       NSString* version =
-          base::mac::ObjCCast<NSString>([base::mac::FrameworkBundle()
+          base::mac::ObjCCast<NSString>([base::apple::FrameworkBundle()
               objectForInfoDictionaryKey:@"CFBundleVersion"]);
       process_annotations["ver"] = base::SysNSStringToUTF8(version);
       process_annotations["plat"] = std::string("iOS");
@@ -166,9 +172,13 @@ bool PlatformCrashpadInitialization(
   @autoreleasepool {
     CrashReporterClient* crash_reporter_client = GetCrashReporterClient();
     crash_reporter_client->GetCrashDumpLocation(database_path);
-    std::string url = crash_reporter_client->GetUploadUrl();
+    // Don't pass `url` to extensions since they never upload minidumps.
+    std::string url = [NSBundle.mainBundle.bundlePath hasSuffix:@"appex"]
+                          ? ""
+                          : crash_reporter_client->GetUploadUrl();
     return GetCrashpadClient().StartCrashpadInProcessHandler(
-        *database_path, url, GetProcessSimpleAnnotations());
+        *database_path, url, GetProcessSimpleAnnotations(),
+        crashpad::CrashpadClient::ProcessPendingReportsObservationCallback());
   }  // @autoreleasepool
 }
 

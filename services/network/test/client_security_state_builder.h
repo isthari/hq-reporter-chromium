@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 namespace network {
 
 namespace mojom {
-enum class PrivateNetworkRequestPolicy;
+enum class LocalNetworkRequestPolicy;
 enum class IPAddressSpace;
 }  // namespace mojom
 
@@ -22,8 +22,8 @@ class ClientSecurityStateBuilder {
   ClientSecurityStateBuilder() = default;
   ~ClientSecurityStateBuilder() = default;
 
-  ClientSecurityStateBuilder& WithPrivateNetworkRequestPolicy(
-      network::mojom::PrivateNetworkRequestPolicy policy);
+  ClientSecurityStateBuilder& WithLocalNetworkRequestPolicy(
+      network::mojom::LocalNetworkRequestPolicy policy);
 
   ClientSecurityStateBuilder& WithIPAddressSpace(
       network::mojom::IPAddressSpace space);

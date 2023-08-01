@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,7 +32,7 @@ public class NetworkFetcherTask {
     private static final String TAG = "AWNetworkFetcherTask";
     private static final int REQUEST_TIMEOUT = 30000;
     private static final int READ_TIMEOUT_MS = 30000;
-    private static final int BUFFER_SIZE_BYTES = 1024;
+    private static final int BUFFER_SIZE_BYTES = 8192;
 
     private static final String CONTENTTYPE = "Content-Type";
 
@@ -61,7 +61,7 @@ public class NetworkFetcherTask {
      * Downloads from a given url to a file.
      */
     @VisibleForTesting
-    static void downloadToFile(HttpURLConnection connection, long nativeDownloadFileTask,
+    public static void downloadToFile(HttpURLConnection connection, long nativeDownloadFileTask,
             long mainTaskRunner, GURL gurl, String filePath) {
         long bytesDownloaded = 0;
         try {
@@ -83,16 +83,16 @@ public class NetworkFetcherTask {
 
             connection.setConnectTimeout(READ_TIMEOUT_MS);
 
-            InputStream inputStream = connection.getInputStream();
-            OutputStream outputStream = new FileOutputStream(outputFile);
-            byte[] buffer = new byte[BUFFER_SIZE_BYTES];
-
-            int bytesCount;
-            while ((bytesCount = inputStream.read(buffer)) > 0) {
-                outputStream.write(buffer, 0, bytesCount);
-                bytesDownloaded += bytesCount;
-                NetworkFetcherTaskJni.get().callProgressCallback(
-                        nativeDownloadFileTask, mainTaskRunner, bytesDownloaded);
+            try (InputStream inputStream = connection.getInputStream();
+                    OutputStream outputStream = new FileOutputStream(outputFile)) {
+                byte[] buffer = new byte[BUFFER_SIZE_BYTES];
+                int bytesCount;
+                while ((bytesCount = inputStream.read(buffer)) > 0) {
+                    outputStream.write(buffer, 0, bytesCount);
+                    bytesDownloaded += bytesCount;
+                    NetworkFetcherTaskJni.get().callProgressCallback(
+                            nativeDownloadFileTask, mainTaskRunner, bytesDownloaded);
+                }
             }
 
             NetworkFetcherTaskJni.get().callDownloadToFileCompleteCallback(
@@ -141,7 +141,7 @@ public class NetworkFetcherTask {
      * Posts a request to a URL.
      */
     @VisibleForTesting
-    static void postRequest(HttpURLConnection connection, long nativeNetworkFetcherTask,
+    public static void postRequest(HttpURLConnection connection, long nativeNetworkFetcherTask,
             long mainTaskRunner, GURL gurl, byte[] postData, String contentType,
             String[] headerKeys, String[] headerValues) {
         String eTag = "";
@@ -167,9 +167,9 @@ public class NetworkFetcherTask {
             }
 
             connection.setFixedLengthStreamingMode(postData.length);
-            OutputStream outputStream = connection.getOutputStream();
-            outputStream.write(postData);
-            outputStream.close();
+            try (OutputStream outputStream = connection.getOutputStream()) {
+                outputStream.write(postData);
+            }
 
             long contentLength = getHeaderFieldAsLong(connection, "Content-Length");
 
@@ -188,19 +188,18 @@ public class NetworkFetcherTask {
 
             connection.setConnectTimeout(READ_TIMEOUT_MS);
 
-            InputStream inputStream = connection.getInputStream();
-            byte[] buffer = new byte[BUFFER_SIZE_BYTES];
-            int bytesCount;
-            ByteArrayOutputStream outBuffer = new ByteArrayOutputStream();
-            while ((bytesCount = inputStream.read(buffer)) > 0) {
-                bytesDownloaded += bytesCount;
-                outBuffer.write(buffer, /*offset = */ 0, bytesCount);
-                NetworkFetcherTaskJni.get().callProgressCallback(
-                        nativeNetworkFetcherTask, mainTaskRunner, bytesDownloaded);
+            try (InputStream inputStream = connection.getInputStream();
+                    ByteArrayOutputStream outBuffer = new ByteArrayOutputStream()) {
+                byte[] buffer = new byte[BUFFER_SIZE_BYTES];
+                int bytesCount;
+                while ((bytesCount = inputStream.read(buffer)) > 0) {
+                    bytesDownloaded += bytesCount;
+                    outBuffer.write(buffer, /*offset = */ 0, bytesCount);
+                    NetworkFetcherTaskJni.get().callProgressCallback(
+                            nativeNetworkFetcherTask, mainTaskRunner, bytesDownloaded);
+                }
+                responseBody = outBuffer.toByteArray();
             }
-
-            outBuffer.flush();
-            responseBody = outBuffer.toByteArray();
 
             NetworkFetcherTaskJni.get().callPostRequestCompleteCallback(nativeNetworkFetcherTask,
                     mainTaskRunner, responseBody,
@@ -223,7 +222,8 @@ public class NetworkFetcherTask {
     }
 
     @NativeMethods
-    interface Natives {
+    @VisibleForTesting
+    public interface Natives {
         void callProgressCallback(long weakPtr, long taskRunner, long current);
         void callResponseStartedCallback(
                 long weakPtr, long taskRunner, int responseCode, long contentLength);

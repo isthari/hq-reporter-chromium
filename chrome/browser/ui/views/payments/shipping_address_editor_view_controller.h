@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -67,6 +67,7 @@ class ShippingAddressEditorViewController : public EditorViewController {
 
   // PaymentRequestSheetController:
   std::u16string GetSheetTitle() override;
+  base::WeakPtr<PaymentRequestSheetController> GetWeakPtr() override;
 
  protected:
   int GetPrimaryButtonId() override;
@@ -171,8 +172,9 @@ class ShippingAddressEditorViewController : public EditorViewController {
   bool failed_to_load_region_data_;
 
   // Owned by the state combobox, which is owned by this object's base class.
-  raw_ptr<autofill::RegionComboboxModel> region_model_;
+  raw_ptr<autofill::RegionComboboxModel, DanglingUntriaged> region_model_;
 
+  // Must be the last member of a leaf class.
   base::WeakPtrFactory<ShippingAddressEditorViewController> weak_ptr_factory_{
       this};
 };

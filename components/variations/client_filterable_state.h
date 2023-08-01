@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,9 @@
 
 #include <string>
 
-#include "base/callback.h"
 #include "base/component_export.h"
+#include "base/containers/flat_set.h"
+#include "base/functional/callback.h"
 #include "base/time/time.h"
 #include "base/version.h"
 #include "components/variations/proto/study.pb.h"
@@ -29,6 +30,7 @@ enum class RestrictionPolicy {
 };
 
 using IsEnterpriseFunction = base::OnceCallback<bool()>;
+using GoogleGroupsFunction = base::OnceCallback<base::flat_set<uint64_t>()>;
 
 // A container for all of the client state which is used for filtering studies.
 struct COMPONENT_EXPORT(VARIATIONS) ClientFilterableState {
@@ -37,7 +39,8 @@ struct COMPONENT_EXPORT(VARIATIONS) ClientFilterableState {
   // base::Version used in {min,max}_os_version filtering.
   static base::Version GetOSVersion();
 
-  explicit ClientFilterableState(IsEnterpriseFunction is_enterprise_function);
+  explicit ClientFilterableState(IsEnterpriseFunction is_enterprise_function,
+                                 GoogleGroupsFunction google_groups_function);
 
   ClientFilterableState(const ClientFilterableState&) = delete;
   ClientFilterableState& operator=(const ClientFilterableState&) = delete;
@@ -63,16 +66,16 @@ struct COMPONENT_EXPORT(VARIATIONS) ClientFilterableState {
   base::Version os_version;
 
   // The Channel for this Chrome installation.
-  Study::Channel channel;
+  Study::Channel channel = Study::UNKNOWN;
 
   // The hardware form factor that Chrome is running on.
-  Study::FormFactor form_factor;
+  Study::FormFactor form_factor = Study::DESKTOP;
 
   // The CPU architecture on which Chrome is running.
-  Study::CpuArchitecture cpu_architecture;
+  Study::CpuArchitecture cpu_architecture = Study::X86_64;
 
   // The OS on which Chrome is running.
-  Study::Platform platform;
+  Study::Platform platform = Study::PLATFORM_WINDOWS;
 
   // The named hardware configuration that Chrome is running on -- used to
   // identify models of devices.
@@ -91,12 +94,23 @@ struct COMPONENT_EXPORT(VARIATIONS) ClientFilterableState {
   // The restriction applied to Chrome through the "ChromeVariations" policy.
   RestrictionPolicy policy_restriction = RestrictionPolicy::NO_RESTRICTIONS;
 
+  // The list of Google groups that one of more signed-in syncing users are a
+  // a member of.
+  // Each value is the Gaia ID of the google group.
+  base::flat_set<uint64_t> GoogleGroups() const;
+
  private:
   // Evaluating enterprise status negatively affects performance, so we only
   // evaluate it if needed (i.e. if a study is filtering by enterprise) and at
   // most once.
   mutable IsEnterpriseFunction is_enterprise_function_;
   mutable absl::optional<bool> is_enterprise_;
+
+  // Evaluating group memberships involves parsing data received from Chrome
+  // Sync server.  For safe rollout we do this only for studies that require
+  // inspecting group memberships (and for efficiency we do it only once.)
+  mutable GoogleGroupsFunction google_groups_function_;
+  mutable absl::optional<base::flat_set<uint64_t>> google_groups_;
 };
 
 }  // namespace variations

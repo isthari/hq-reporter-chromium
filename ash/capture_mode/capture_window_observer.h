@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 
 #include "ash/ash_export.h"
 #include "ash/capture_mode/capture_mode_types.h"
+#include "base/memory/raw_ptr.h"
 #include "ui/aura/window_observer.h"
 #include "ui/base/cursor/cursor.h"
 #include "ui/gfx/geometry/point.h"
@@ -33,17 +34,16 @@ class ASH_EXPORT CaptureWindowObserver : public aura::WindowObserver,
 
   ~CaptureWindowObserver() override;
 
-  // Updates selected window depending on the mouse/touch event location,
-  // ignoring |ignore_windows|. If there is an eligible window under the current
-  // mouse/touch event location, its bounds will be highlighted.
-  void UpdateSelectedWindowAtPosition(
-      const gfx::Point& location_in_screen,
-      const std::set<aura::Window*>& ignore_windows);
+  // Updates selected window depending on the mouse/touch event location. If
+  // there is an eligible window under the current mouse/touch event location,
+  // its bounds will be highlighted.
+  void UpdateSelectedWindowAtPosition(const gfx::Point& location_in_screen);
 
-  // Set the given |window| as the current observed |window_|.
-  // |window| will be ignored if it's a child of the wallpaper container
-  // or it's the home launcher window.
-  void SetSelectedWindow(aura::Window* window);
+  // Sets the given `window` as the current observed `window_`. `window` will be
+  // ignored if it's a child of the wallpaper container or it's the home
+  // launcher window. If `allow_window_change` is false, `window_` will not be
+  // allowed to be altered throughout the entire capture mode session.
+  void SetSelectedWindow(aura::Window* window, bool allow_window_change = true);
 
   // aura::WindowObserver:
   void OnWindowBoundsChanged(aura::Window* window,
@@ -68,13 +68,17 @@ class ASH_EXPORT CaptureWindowObserver : public aura::WindowObserver,
   void RepaintCaptureRegion();
 
   // Current observed window.
-  aura::Window* window_ = nullptr;
+  raw_ptr<aura::Window, ExperimentalAsh> window_ = nullptr;
+
+  // If false, `window_` is not allowed to be changed throughout the capture
+  // mode session once set.
+  bool allow_window_change_ = true;
 
   // Stores current mouse or touch location in screen coordinate.
   gfx::Point location_in_screen_;
 
   // Pointer to current capture session. Not nullptr during this lifecycle.
-  CaptureModeSession* const capture_mode_session_;
+  const raw_ptr<CaptureModeSession, ExperimentalAsh> capture_mode_session_;
 };
 
 }  // namespace ash

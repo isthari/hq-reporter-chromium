@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,9 +13,9 @@
 
 namespace blink {
 
-class ClipboardItemOptions;
 class Navigator;
 class ScriptState;
+class ClipboardUnsanitizedFormats;
 
 class Clipboard : public EventTargetWithInlineData,
                   public Supplement<Navigator> {
@@ -29,8 +29,8 @@ class Clipboard : public EventTargetWithInlineData,
   Clipboard(const Clipboard&) = delete;
   Clipboard& operator=(const Clipboard&) = delete;
 
-  ScriptPromise read(ScriptState*);
-  ScriptPromise read(ScriptState*, ClipboardItemOptions*);
+  ScriptPromise read(ScriptState*,
+                     ClipboardUnsanitizedFormats* formats = nullptr);
   ScriptPromise readText(ScriptState*);
 
   ScriptPromise write(ScriptState*, const HeapVector<Member<ClipboardItem>>&);
@@ -39,6 +39,8 @@ class Clipboard : public EventTargetWithInlineData,
   // EventTarget
   const AtomicString& InterfaceName() const override;
   ExecutionContext* GetExecutionContext() const override;
+
+  static String ParseWebCustomFormat(const String& format);
 
   void Trace(Visitor*) const override;
 };

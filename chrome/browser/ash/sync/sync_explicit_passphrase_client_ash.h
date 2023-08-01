@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,15 +8,11 @@
 #include "base/memory/raw_ptr.h"
 #include "chromeos/crosapi/mojom/account_manager.mojom.h"
 #include "chromeos/crosapi/mojom/sync.mojom.h"
-#include "components/sync/driver/sync_service.h"
-#include "components/sync/driver/sync_service_observer.h"
+#include "components/sync/service/sync_service.h"
+#include "components/sync/service/sync_service_observer.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
 #include "mojo/public/cpp/bindings/remote_set.h"
-
-namespace syncer {
-class Nigori;
-}
 
 namespace ash {
 
@@ -56,9 +52,10 @@ class SyncExplicitPassphraseClientAsh
   bool ValidateAccountKey(
       const crosapi::mojom::AccountKeyPtr& mojo_account_key) const;
 
-  const base::raw_ptr<syncer::SyncService> sync_service_;
+  const raw_ptr<syncer::SyncService> sync_service_;
 
-  bool previous_passphrase_required_state_;
+  bool is_passphrase_required_;
+  bool is_passphrase_available_;
 
   // Don't add new members below this. `receivers_` and `observers_` should be
   // destroyed as soon as `this` is getting destroyed so that we don't deal
@@ -67,9 +64,6 @@ class SyncExplicitPassphraseClientAsh
   mojo::RemoteSet<crosapi::mojom::SyncExplicitPassphraseClientObserver>
       observers_;
 };
-
-crosapi::mojom::NigoriKeyPtr NigoriToMojoForTesting(
-    const syncer::Nigori& nigori);
 
 }  // namespace ash
 

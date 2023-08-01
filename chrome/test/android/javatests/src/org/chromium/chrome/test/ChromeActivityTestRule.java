@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,10 @@ import android.content.ComponentName;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
-import android.support.test.InstrumentationRegistry;
-import android.support.test.internal.runner.listener.InstrumentationResultPrinter;
+
+import androidx.test.core.app.ApplicationProvider;
+import androidx.test.internal.runner.listener.InstrumentationResultPrinter;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.hamcrest.Matchers;
 import org.junit.Assert;
@@ -30,7 +32,6 @@ import org.chromium.base.test.util.ScalableTimeout;
 import org.chromium.chrome.browser.DeferredStartupHandler;
 import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.document.ChromeLauncherActivity;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.infobar.InfoBarContainer;
 import org.chromium.chrome.browser.init.ChromeBrowserInitializer;
 import org.chromium.chrome.browser.prefetch.settings.PreloadPagesSettingsBridge;
@@ -94,7 +95,7 @@ public class ChromeActivityTestRule<T extends ChromeActivity> extends BaseActivi
             public void evaluate() throws Throwable {
                 mDefaultUncaughtExceptionHandler = Thread.getDefaultUncaughtExceptionHandler();
                 Thread.setDefaultUncaughtExceptionHandler(new ChromeUncaughtExceptionHandler());
-                ChromeApplicationTestUtils.setUp(InstrumentationRegistry.getTargetContext());
+                ChromeApplicationTestUtils.setUp(ApplicationProvider.getApplicationContext());
                 // Instrumentation infrastructure and tests often access variables from the
                 // instrumentation thread for asserts. See crbug.com/1173814 for more details.
                 ObservableSupplierImpl.setIgnoreThreadChecksForTesting(true);
@@ -104,9 +105,6 @@ public class ChromeActivityTestRule<T extends ChromeActivity> extends BaseActivi
                 // https://crbug.com/577185
                 Calendar.getInstance();
 
-                // Disable offline indicator UI to prevent it from popping up to obstruct other UI
-                // views that may make tests flaky.
-                Features.getInstance().disable(ChromeFeatureList.OFFLINE_INDICATOR);
                 // Tests are run on bots that are offline by default. This might cause offline UI
                 // to show and cause flakiness or failures in tests. Using this switch will prevent
                 // that.
@@ -200,7 +198,11 @@ public class ChromeActivityTestRule<T extends ChromeActivity> extends BaseActivi
     public void startActivityCompletely(Intent intent) {
         launchActivity(intent);
         waitForActivityNativeInitializationComplete();
+        waitForActivityCompletelyLoaded();
+    }
 
+    /** Wait until the activity is completely loaded, and a tab is shown. */
+    public void waitForActivityCompletelyLoaded() {
         CriteriaHelper.pollUiThread(
                 () -> getActivity().getActivityTab() != null, "Tab never selected/initialized.");
         Tab tab = getActivity().getActivityTab();
@@ -231,7 +233,7 @@ public class ChromeActivityTestRule<T extends ChromeActivity> extends BaseActivi
         // Avoid relying on explicit intents, bypassing LaunchIntentDispatcher, created by null
         // startIntent launch behavior.
         Assert.assertNotNull(startIntent);
-        Features.ensureCommandLineIsUpToDate();
+        Features.getInstance().ensureCommandLineIsUpToDate();
         super.launchActivity(startIntent);
     }
 
@@ -353,7 +355,7 @@ public class ChromeActivityTestRule<T extends ChromeActivity> extends BaseActivi
                 }
             });
         } catch (ExecutionException e) {
-            Assert.fail("Failed to create new tab");
+            throw new AssertionError("Failed to create new tab", e);
         }
         ChromeTabUtils.waitForTabPageLoaded(tab, url);
         ChromeTabUtils.waitForInteractable(tab);
@@ -370,7 +372,7 @@ public class ChromeActivityTestRule<T extends ChromeActivity> extends BaseActivi
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         if (intent.getComponent() == null) {
             intent.setComponent(new ComponentName(
-                    InstrumentationRegistry.getTargetContext(), ChromeLauncherActivity.class));
+                    ApplicationProvider.getApplicationContext(), ChromeLauncherActivity.class));
         }
 
         if (url != null) {
@@ -416,11 +418,29 @@ public class ChromeActivityTestRule<T extends ChromeActivity> extends BaseActivi
     }
 
     /**
+     * Executes the given snippet of JavaScript code within the current tab, acting as if a user
+     * gesture has been made. Returns the result of its execution in JSON format.
+     */
+    public String runJavaScriptCodeWithUserGestureInCurrentTab(String code)
+            throws TimeoutException {
+        return JavaScriptUtils.executeJavaScriptWithUserGestureAndWaitForResult(
+                getActivity().getCurrentWebContents(), code);
+    }
+
+    /**
      * Waits till the WebContents receives the expected page scale factor
      * from the compositor and asserts that this happens.
      */
     public void assertWaitForPageScaleFactorMatch(float expectedScale) {
         ChromeApplicationTestUtils.assertWaitForPageScaleFactorMatch(getActivity(), expectedScale);
+    }
+
+    /**
+     * Waits till the WebContents receives a page scale factor different
+     * from the specified value and asserts that this happens.
+     */
+    public void assertWaitForPageScaleFactorChange(float initialScale) {
+        ChromeApplicationTestUtils.assertWaitForPageScaleFactorChange(getActivity(), initialScale);
     }
 
     public String getName() {

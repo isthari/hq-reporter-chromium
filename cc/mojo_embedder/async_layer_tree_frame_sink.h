@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,15 +23,21 @@
 #include "components/viz/common/gpu/context_provider.h"
 #include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
 #include "components/viz/common/surfaces/surface_id.h"
+#include "gpu/ipc/client/client_shared_image_interface.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
+#include "mojo/public/cpp/bindings/direct_receiver.h"
 #include "mojo/public/cpp/bindings/pending_associated_remote.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "services/viz/public/mojom/compositing/compositor_frame_sink.mojom.h"
+#include "third_party/abseil-cpp/absl/types/variant.h"
 
 namespace cc {
+
+class RasterContextProviderWrapper;
+
 namespace mojo_embedder {
 
 // A mojo-based implementation of LayerTreeFrameSink. The typically-used
@@ -69,13 +75,20 @@ class CC_MOJO_EMBEDDER_EXPORT AsyncLayerTreeFrameSink
         synthetic_begin_frame_source;
     UnboundMessagePipes pipes;
     bool wants_animate_only_begin_frames = false;
-    const char* client_name = nullptr;
     base::PlatformThreadId io_thread_id = base::kInvalidThreadId;
+
+    // If `true`, the CompositorFrameSinkClient receiver will receive IPC
+    // directly to the thread on which the AsyncLayerTreeFrameSink lives, rather
+    // than hopping through the I/O thread first. Only usable if the
+    // AsyncLayerTreeFrameSink lives on a thread which uses an IO message pump.
+    bool use_direct_client_receiver = false;
   };
 
   AsyncLayerTreeFrameSink(
       scoped_refptr<viz::ContextProvider> context_provider,
-      scoped_refptr<viz::RasterContextProvider> worker_context_provider,
+      scoped_refptr<RasterContextProviderWrapper>
+          worker_context_provider_wrapper,
+      std::unique_ptr<gpu::ClientSharedImageInterface> shared_image_interface,
       InitParams* params);
   AsyncLayerTreeFrameSink(const AsyncLayerTreeFrameSink&) = delete;
   ~AsyncLayerTreeFrameSink() override;
@@ -107,7 +120,9 @@ class CC_MOJO_EMBEDDER_EXPORT AsyncLayerTreeFrameSink
   void DidReceiveCompositorFrameAck(
       std::vector<viz::ReturnedResource> resources) override;
   void OnBeginFrame(const viz::BeginFrameArgs& begin_frame_args,
-                    const viz::FrameTimingDetailsMap& timing_details) override;
+                    const viz::FrameTimingDetailsMap& timing_details,
+                    bool frame_ack,
+                    std::vector<viz::ReturnedResource> resources) override;
   void OnBeginFramePausedChanged(bool paused) override;
   void ReclaimResources(std::vector<viz::ReturnedResource> resources) override;
   void OnCompositorFrameTransitionDirectiveProcessed(
@@ -119,6 +134,7 @@ class CC_MOJO_EMBEDDER_EXPORT AsyncLayerTreeFrameSink
   void OnMojoConnectionError(uint32_t custom_reason,
                              const std::string& description);
 
+  const bool use_direct_client_receiver_;
   bool begin_frames_paused_ = false;
   bool needs_begin_frames_ = false;
   viz::LocalSurfaceId local_surface_id_;
@@ -131,14 +147,20 @@ class CC_MOJO_EMBEDDER_EXPORT AsyncLayerTreeFrameSink
   // Message pipes that will be bound when BindToClient() is called.
   UnboundMessagePipes pipes_;
 
-  // One of |compositor_frame_sink_| or |compositor_frame_sink_associated_| will
-  // be bound after calling BindToClient(). |compositor_frame_sink_ptr_| will
-  // point to message pipe we want to use.
-  raw_ptr<viz::mojom::CompositorFrameSink> compositor_frame_sink_ptr_ = nullptr;
   mojo::Remote<viz::mojom::CompositorFrameSink> compositor_frame_sink_;
   mojo::AssociatedRemote<viz::mojom::CompositorFrameSink>
       compositor_frame_sink_associated_;
-  mojo::Receiver<viz::mojom::CompositorFrameSinkClient> client_receiver_{this};
+  // One of |compositor_frame_sink_| or |compositor_frame_sink_associated_| will
+  // be bound after calling BindToClient(). |compositor_frame_sink_ptr_| will
+  // point to message pipe we want to use. It must be declared last and cleared
+  // first.
+  raw_ptr<viz::mojom::CompositorFrameSink> compositor_frame_sink_ptr_ = nullptr;
+
+  using ClientReceiver = mojo::Receiver<viz::mojom::CompositorFrameSinkClient>;
+  using DirectClientReceiver =
+      mojo::DirectReceiver<viz::mojom::CompositorFrameSinkClient>;
+  absl::variant<absl::monostate, ClientReceiver, DirectClientReceiver>
+      client_receiver_;
 
   THREAD_CHECKER(thread_checker_);
   const bool wants_animate_only_begin_frames_;

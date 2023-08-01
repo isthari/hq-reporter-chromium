@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,13 +7,17 @@
 
 #include <vector>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/supports_user_data.h"
 #include "base/task/sequenced_task_runner.h"
+#include "components/content_creation/notes/core/templates/template_storage.pb.h"
 
 class PrefService;
+
+namespace base {
+class Time;
+}
 
 namespace content_creation {
 
@@ -26,21 +30,34 @@ using GetTemplatesCallback =
 // offered to the user.
 class TemplateStore {
  public:
-  explicit TemplateStore(PrefService* pref_service);
+  explicit TemplateStore(PrefService* pref_service, std::string country_code);
   virtual ~TemplateStore();
 
   // Not copyable or movable.
   TemplateStore(const TemplateStore&) = delete;
   TemplateStore& operator=(const TemplateStore&) = delete;
 
+  // Checks whether given template should be available based on activation and
+  // expiration dates.
+  bool TemplateDateAvailable(proto::CollectionItem current_template,
+                             base::Time today);
+
+  // Checks whether given template should be available based on the location of
+  // the user.
+  bool TemplateLocationAvailable(proto::CollectionItem current_template);
+
   // Gets the set of templates to be used for generating stylized notes. Will
   // invoke |callback| with the results.
   virtual void GetTemplates(GetTemplatesCallback callback);
 
  protected:
-  // Function which generates the ordered list of templates to be offered to
-  // the user.
-  std::vector<NoteTemplate> BuildTemplates();
+  // Function which generates the ordered list of default templates to be
+  // offered to the user.
+  static std::vector<NoteTemplate> BuildDefaultTemplates();
+
+  // Function which generates the ordered list of pulled templates to be
+  // offered to the user.
+  std::vector<NoteTemplate> ParseTemplatesFromString(std::string data);
 
   // This function is invoked when the store has successfully built the list
   // of |note_templates|, and will send them to the user via |callback|.
@@ -49,8 +66,9 @@ class TemplateStore {
 
   // Task runner delegating tasks to the ThreadPool.
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
-
   raw_ptr<PrefService> pref_service_;
+
+  std::string country_code_;
 
   base::WeakPtrFactory<TemplateStore> weak_ptr_factory_{this};
 };

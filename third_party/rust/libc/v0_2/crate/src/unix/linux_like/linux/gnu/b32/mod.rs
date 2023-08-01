@@ -11,6 +11,7 @@ pub type msgqnum_t = ::c_ulong;
 pub type msglen_t = ::c_ulong;
 pub type nlink_t = u32;
 pub type __u64 = ::c_ulonglong;
+pub type __s64 = ::c_longlong;
 pub type __fsword_t = i32;
 pub type fsblkcnt64_t = u64;
 pub type fsfilcnt64_t = u64;
@@ -134,12 +135,6 @@ s! {
         pub _f: [::c_char; 8],
     }
 
-    pub struct ip_mreqn {
-        pub imr_multiaddr: ::in_addr,
-        pub imr_address: ::in_addr,
-        pub imr_ifindex: ::c_int,
-    }
-
     pub struct semid_ds {
         pub sem_perm: ipc_perm,
         #[cfg(target_arch = "powerpc")]
@@ -168,8 +163,10 @@ pub const F_OFD_SETLKW: ::c_int = 38;
 pub const __SIZEOF_PTHREAD_CONDATTR_T: usize = 4;
 pub const __SIZEOF_PTHREAD_MUTEX_T: usize = 24;
 pub const __SIZEOF_PTHREAD_RWLOCK_T: usize = 32;
+pub const __SIZEOF_PTHREAD_BARRIER_T: usize = 20;
 pub const __SIZEOF_PTHREAD_MUTEXATTR_T: usize = 4;
 pub const __SIZEOF_PTHREAD_RWLOCKATTR_T: usize = 8;
+pub const __SIZEOF_PTHREAD_BARRIERATTR_T: usize = 4;
 
 cfg_if! {
     if #[cfg(target_arch = "sparc")] {
@@ -322,9 +319,6 @@ pub const PTRACE_SETFPREGS: ::c_uint = 15;
 pub const PTRACE_GETREGS: ::c_uint = 12;
 pub const PTRACE_SETREGS: ::c_uint = 13;
 
-pub const TIOCSBRK: ::c_int = 0x5427;
-pub const TIOCCBRK: ::c_int = 0x5428;
-
 extern "C" {
     pub fn sysctl(
         name: *mut ::c_int,
@@ -346,6 +340,9 @@ cfg_if! {
     } else if #[cfg(target_arch = "mips")] {
         mod mips;
         pub use self::mips::*;
+    } else if #[cfg(target_arch = "m68k")] {
+        mod m68k;
+        pub use self::m68k::*;
     } else if #[cfg(target_arch = "powerpc")] {
         mod powerpc;
         pub use self::powerpc::*;

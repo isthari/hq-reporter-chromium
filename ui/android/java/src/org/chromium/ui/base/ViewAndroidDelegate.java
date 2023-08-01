@@ -1,13 +1,11 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.ui.base;
 
-import android.annotation.TargetApi;
 import android.content.ClipData;
 import android.graphics.Bitmap;
-import android.os.Build;
 import android.os.Bundle;
 import android.view.MotionEvent;
 import android.view.PointerIcon;
@@ -16,15 +14,19 @@ import android.view.View.DragShadowBuilder;
 import android.view.ViewGroup;
 import android.view.ViewGroup.MarginLayoutParams;
 import android.view.inputmethod.InputConnection;
-import android.widget.ImageView;
 
+import androidx.annotation.CallSuper;
+import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 import androidx.core.view.MarginLayoutParamsCompat;
 
 import org.chromium.base.ObserverList;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
-import org.chromium.base.compat.ApiHelperForN;
+import org.chromium.ui.dragdrop.DragAndDropDelegate;
+import org.chromium.ui.dragdrop.DragAndDropDelegateImpl;
+import org.chromium.ui.dragdrop.DragStateTracker;
+import org.chromium.ui.dragdrop.DropDataAndroid;
 import org.chromium.ui.mojom.CursorType;
 
 /**
@@ -32,6 +34,9 @@ import org.chromium.ui.mojom.CursorType;
  */
 @JNINamespace("ui")
 public class ViewAndroidDelegate {
+    private static DragAndDropDelegate sDragAndDropTestDelegate;
+    private final DragAndDropDelegateImpl mDragAndDropDelegateImpl;
+
     /**
      * The current container view. This view can be updated with
      * {@link #setContainerView()}.
@@ -49,6 +54,56 @@ public class ViewAndroidDelegate {
     private ObserverList<ContainerViewObserver> mContainerViewObservers = new ObserverList<>();
 
     /**
+     * Notifies the listener of vertical scroll direction changes.
+     */
+    public interface VerticalScrollDirectionChangeListener {
+        /**
+         * Called when the vertical scroll direction changes.
+         * @param directionUp Whether the scroll direction is up, i.e. swiping down.
+         * @param currentScrollRatio The current scroll ratio of the page.
+         */
+        void onVerticalScrollDirectionChanged(boolean directionUp, float currentScrollRatio);
+    }
+
+    private final ObserverList<VerticalScrollDirectionChangeListener>
+            mVerticalScrollDirectionChangeListeners = new ObserverList<>();
+
+    /**
+     * Handles cursor updates for stylus writing.
+     */
+    public interface StylusWritingCursorHandler {
+        /**
+         * @param currentView the current view to set the cursor.
+         * @return true if cursor update was handled.
+         */
+        boolean didHandleCursorUpdate(View currentView);
+
+        /**
+         * Notify that stylus writing icon is removed and not shown.
+         */
+        default void notifyStylusWritingCursorRemoved() {}
+    }
+
+    private StylusWritingCursorHandler mStylusWritingCursorHandler;
+
+    // Cache the last Pointer Icon calculated for cursor type received from blink. Pointer is reset
+    // to this icon when once cursor stops being overridden.
+    private PointerIcon mPointerIconForLastCursor;
+
+    // Whether the cursor received from blink has been overridden to set specific cursor.
+    // Ex: Stylus writing cursor.
+    private boolean mCursorOverridden;
+
+    /**
+     * Sets a handler to handle the stylus writing cursor updates.
+     *
+     * @param handler the handler object.
+     */
+    public void setStylusWritingCursorHandler(StylusWritingCursorHandler handler) {
+        mStylusWritingCursorHandler = handler;
+    }
+
+    /**
      * Create and return a basic implementation of {@link ViewAndroidDelegate}.
      * @param containerView {@link ViewGroup} to be used as a container view.
      * @return a new instance of {@link ViewAndroidDelegate}.
@@ -59,6 +114,7 @@ public class ViewAndroidDelegate {
 
     protected ViewAndroidDelegate(ViewGroup containerView) {
         mContainerView = containerView;
+        mDragAndDropDelegateImpl = new DragAndDropDelegateImpl();
     }
 
     /**
@@ -70,6 +126,18 @@ public class ViewAndroidDelegate {
      */
     public final void addObserver(ContainerViewObserver observer) {
         mContainerViewObservers.addObserver(observer);
+    }
+
+    /** Adds the provided {@link VerticalScrollDirectionChangeListener}. */
+    public final void addVerticalScrollDirectionChangeListener(
+            VerticalScrollDirectionChangeListener listener) {
+        mVerticalScrollDirectionChangeListeners.addObserver(listener);
+    }
+
+    /** Removes the provided {@link VerticalScrollDirectionChangeListener}. */
+    public final void removeVerticalScrollDirectionChangeListener(
+            VerticalScrollDirectionChangeListener listener) {
+        mVerticalScrollDirectionChangeListeners.removeObserver(listener);
     }
 
     /**
@@ -97,6 +165,24 @@ public class ViewAndroidDelegate {
         for (ContainerViewObserver observer : mContainerViewObservers) {
             observer.onUpdateContainerView(containerView);
         }
+    }
+
+    protected DragAndDropDelegate getDragAndDropDelegate() {
+        return sDragAndDropTestDelegate != null ? sDragAndDropTestDelegate
+                                                : mDragAndDropDelegateImpl;
+    }
+
+    /**
+     * Get the tracker that records the drag event on the view this delegate attached to. Will
+     * return null if there's no {@link DragStateTracker} set up.
+     */
+    public @Nullable DragStateTracker getDragStateTracker() {
+        return null;
+    }
+
+    /** Return the {@link DragAndDropDelegateImpl} instance for this delegate class. */
+    protected DragStateTracker getDragStateTrackerInternal() {
+        return mDragAndDropDelegateImpl;
     }
 
     /**
@@ -169,41 +255,36 @@ public class ViewAndroidDelegate {
      * Start {@link View#startDragAndDrop(ClipData, DragShadowBuilder, Object, int)} with
      * {@link DropDataAndroid} from the web content.
      *
-     * @param shadowImage The shadow image for the dragged text.
+     * @param shadowImage The shadow image for the dragged object.
      * @param dropData The drop data presenting the drag target.
+     * @param cursorOffsetX The x offset of the cursor w.r.t. to top-left corner of the drag-image.
+     * @param cursorOffsetY The y offset of the cursor w.r.t. to top-left corner of the drag-image.
+     * @param dragObjRectWidth The width of the drag object.
+     * @param dragObjRectHeight The height of the drag object.
      */
-    @SuppressWarnings("deprecation")
-    @TargetApi(Build.VERSION_CODES.N)
     @CalledByNative
-    private boolean startDragAndDrop(Bitmap shadowImage, DropDataAndroid dropData) {
-        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.M) return false;
-
+    private boolean startDragAndDrop(Bitmap shadowImage, DropDataAndroid dropData,
+            int cursorOffsetX, int cursorOffsetY, int dragObjRectWidth, int dragObjRectHeight) {
         ViewGroup containerView = getContainerViewGroup();
         if (containerView == null) return false;
 
-        ImageView imageView = new ImageView(containerView.getContext());
-        imageView.setImageBitmap(shadowImage);
-        imageView.layout(0, 0, shadowImage.getWidth(), shadowImage.getHeight());
-        String text = dropData.text;
-        return ApiHelperForN.startDragAndDrop(containerView, ClipData.newPlainText(null, text),
-                new View.DragShadowBuilder(imageView), null, View.DRAG_FLAG_GLOBAL);
+        return getDragAndDropDelegate().startDragAndDrop(containerView, shadowImage, dropData,
+                cursorOffsetX, cursorOffsetY, dragObjRectWidth, dragObjRectHeight);
     }
 
     @VisibleForTesting
     @CalledByNative
     public void onCursorChangedToCustom(Bitmap customCursorBitmap, int hotspotX, int hotspotY) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            PointerIcon icon =
-                    ApiHelperForN.createPointerIcon(customCursorBitmap, hotspotX, hotspotY);
-            ApiHelperForN.setPointerIcon(getContainerViewGroup(), icon);
-        }
+        PointerIcon icon = PointerIcon.create(customCursorBitmap, hotspotX, hotspotY);
+        mPointerIconForLastCursor = icon;
+        if (mCursorOverridden) return;
+
+        getContainerViewGroup().setPointerIcon(icon);
     }
 
     @VisibleForTesting
     @CalledByNative
     public void onCursorChanged(int cursorType) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return;
-
         int pointerIconType = PointerIcon.TYPE_ARROW;
         switch (cursorType) {
             case CursorType.NONE:
@@ -327,7 +408,34 @@ public class ViewAndroidDelegate {
         }
         ViewGroup containerView = getContainerViewGroup();
         PointerIcon icon = PointerIcon.getSystemIcon(containerView.getContext(), pointerIconType);
-        ApiHelperForN.setPointerIcon(containerView, icon);
+        mPointerIconForLastCursor = icon;
+        if (mCursorOverridden) return;
+
+        containerView.setPointerIcon(icon);
+    }
+
+    @CalledByNative
+    private void notifyHoverActionStylusWritable(boolean stylusWritable) {
+        // Set stylus writing icon when hover action under pointer is writable.
+        if (stylusWritable && didHandleStylusWritingCursorUpdate()) {
+            mCursorOverridden = true;
+            return;
+        }
+
+        // If the hover action becomes not writable, then blink may not send another cursor update
+        // as the element under pointer is still same. Then reset to last cached icon from blink.
+        if (mCursorOverridden && !stylusWritable) {
+            getContainerViewGroup().setPointerIcon(mPointerIconForLastCursor);
+            if (mStylusWritingCursorHandler != null) {
+                mStylusWritingCursorHandler.notifyStylusWritingCursorRemoved();
+            }
+        }
+        mCursorOverridden = false;
+    }
+
+    private boolean didHandleStylusWritingCursorUpdate() {
+        return mStylusWritingCursorHandler != null
+                && mStylusWritingCursorHandler.didHandleCursorUpdate(getContainerViewGroup());
     }
 
     /**
@@ -373,7 +481,9 @@ public class ViewAndroidDelegate {
      * if page is not scrollable, though this should not be called in that case.
      */
     @CalledByNative
+    @CallSuper
     protected void onVerticalScrollDirectionChanged(boolean directionUp, float currentScrollRatio) {
+        notifyVerticalScrollDirectionChangeListeners(directionUp, currentScrollRatio);
     }
 
     /**
@@ -490,5 +600,24 @@ public class ViewAndroidDelegate {
     @CalledByNative
     protected int[] getDisplayFeature() {
         return null;
+    }
+
+    private void notifyVerticalScrollDirectionChangeListeners(
+            boolean directionUp, float currentScrollRatio) {
+        for (VerticalScrollDirectionChangeListener listener :
+                mVerticalScrollDirectionChangeListeners) {
+            listener.onVerticalScrollDirectionChanged(directionUp, currentScrollRatio);
+        }
+    }
+
+    /** Destroy and clean up dependencies (e.g. drag state tracker if set). */
+    public void destroy() {
+        // TODO(https://crbug.com/1297354): Call this in when destroying WebContents.
+        mDragAndDropDelegateImpl.destroy();
+    }
+
+    @VisibleForTesting
+    public static void setDragAndDropDelegateForTest(DragAndDropDelegate testDelegate) {
+        sDragAndDropTestDelegate = testDelegate;
     }
 }

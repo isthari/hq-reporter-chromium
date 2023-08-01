@@ -1,4 +1,4 @@
-// Copyright (c) 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -37,6 +37,23 @@ class MemoryUsageVisitor {
   void VisitBytes(const P& parent_proto,
                   const char* field_name,
                   const std::string& field) {
+    // Delegate to Visit(..., const std::string&) below.
+    Visit(parent_proto, field_name, field);
+  }
+
+  template <class P>
+  void VisitBytes(
+      const P& parent_proto,
+      const char* field_name,
+      const google::protobuf::RepeatedPtrField<std::string>& fields) {
+    // Delegate to Visit(..., const std::string&) below.
+    Visit(parent_proto, field_name, fields);
+  }
+
+  template <class P>
+  void VisitSecret(const P& parent_proto,
+                   const char* field_name,
+                   const std::string& field) {
     // Delegate to Visit(..., const std::string&) below.
     Visit(parent_proto, field_name, field);
   }

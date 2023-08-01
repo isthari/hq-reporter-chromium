@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,9 @@
   {
     "namespace":"management",
     "description": "The <code>chrome.management</code> API provides ways to manage the list of extensions/apps that are installed and running. It is particularly useful for extensions that <a href='override'>override</a> the built-in New Tab page.",
+    "compiler_options": {
+      "modernised_enums": true
+    },
     "types": [
       {
         "id": "IconInfo",
@@ -295,7 +298,7 @@
       },
       {
         "name": "uninstall",
-        "description": "Uninstalls a currently installed app or extension. Note: This function does not work in managed environments when the user is not allowed to uninstall the specified extension/app.",
+        "description": "Uninstalls a currently installed app or extension. Note: This function does not work in managed environments when the user is not allowed to uninstall the specified extension/app. If the uninstall fails (e.g. the user cancels the dialog) the promise will be rejected or the callback will be called with $(ref:runtime.lastError) set.",
         "parameters": [
           {
             "name": "id",

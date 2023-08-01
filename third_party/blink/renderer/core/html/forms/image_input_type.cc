@@ -39,13 +39,13 @@
 #include "third_party/blink/renderer/core/layout/layout_block_flow.h"
 #include "third_party/blink/renderer/core/layout/layout_image.h"
 #include "third_party/blink/renderer/core/layout/layout_inline.h"
-#include "third_party/blink/renderer/core/layout/layout_object_factory.h"
 #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
 
 namespace blink {
 
 ImageInputType::ImageInputType(HTMLInputElement& element)
-    : BaseButtonInputType(element), use_fallback_content_(false) {}
+    : BaseButtonInputType(Type::kImage, element),
+      use_fallback_content_(false) {}
 
 void ImageInputType::CountUsage() {
   CountUsageIfVisible(WebFeature::kInputTypeImage);
@@ -63,7 +63,7 @@ void ImageInputType::AppendToFormData(FormData& form_data) const {
   if (!GetElement().IsActivatedSubmit())
     return;
   const AtomicString& name = GetElement().GetName();
-  if (name.IsEmpty()) {
+  if (name.empty()) {
     form_data.AppendFromElement("x", click_location_.x());
     form_data.AppendFromElement("y", click_location_.y());
     return;
@@ -105,10 +105,14 @@ void ImageInputType::HandleDOMActivateEvent(Event& event) {
   event.SetDefaultHandled();
 }
 
-LayoutObject* ImageInputType::CreateLayoutObject(const ComputedStyle& style,
-                                                 LegacyLayout legacy) const {
+ControlPart ImageInputType::AutoAppearance() const {
+  return kNoControlPart;
+}
+
+LayoutObject* ImageInputType::CreateLayoutObject(
+    const ComputedStyle& style) const {
   if (use_fallback_content_)
-    return LayoutObject::CreateObject(&GetElement(), style, legacy);
+    return LayoutObject::CreateObject(&GetElement(), style);
   LayoutImage* image = MakeGarbageCollected<LayoutImage>(&GetElement());
   image->SetImageResource(MakeGarbageCollected<LayoutImageResource>());
   return image;
@@ -125,8 +129,10 @@ void ImageInputType::AltAttributeChanged() {
 }
 
 void ImageInputType::SrcAttributeChanged() {
-  if (!GetElement().GetLayoutObject())
+  if (!GetElement().GetLayoutObject() &&
+      !RuntimeEnabledFeatures::LoadInputImageWithoutObjectEnabled()) {
     return;
+  }
   GetElement().EnsureImageLoader().UpdateFromElement(
       ImageLoader::kUpdateIgnorePreviousError);
 }
@@ -271,9 +277,11 @@ void ImageInputType::CreateShadowSubtree() {
   HTMLImageFallbackHelper::CreateAltTextShadowTree(GetElement());
 }
 
-void ImageInputType::CustomStyleForLayoutObject(ComputedStyle& style) {
-  if (use_fallback_content_)
-    HTMLImageFallbackHelper::CustomStyleForAltText(GetElement(), style);
+void ImageInputType::AdjustStyle(ComputedStyleBuilder& builder) {
+  if (!use_fallback_content_)
+    return;
+
+  HTMLImageFallbackHelper::CustomStyleForAltText(GetElement(), builder);
 }
 
 }  // namespace blink

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@ import androidx.annotation.Nullable;
 
 import org.chromium.base.IntentUtils;
 import org.chromium.chrome.browser.IntentHandler;
-import org.chromium.url.Origin;
 
 import java.security.SecureRandom;
 import java.util.Arrays;
@@ -46,13 +45,10 @@ public class IntentWithRequestMetadataHandler {
     public static class RequestMetadata {
         private final boolean mHasUserGesture;
         private final boolean mIsRendererIntiated;
-        private final Origin mInitiatorOrigin;
 
-        public RequestMetadata(boolean hasUserGesture, boolean isRendererIntiated,
-                @Nullable Origin initiatorOrigin) {
+        public RequestMetadata(boolean hasUserGesture, boolean isRendererIntiated) {
             mHasUserGesture = hasUserGesture;
             mIsRendererIntiated = isRendererIntiated;
-            mInitiatorOrigin = initiatorOrigin;
         }
 
         public boolean isRendererInitiated() {
@@ -61,11 +57,6 @@ public class IntentWithRequestMetadataHandler {
 
         public boolean hasUserGesture() {
             return mHasUserGesture;
-        }
-
-        @Nullable
-        public Origin getInitiatorOrigin() {
-            return mInitiatorOrigin;
         }
     };
 

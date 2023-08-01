@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,12 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/sequence_checker.h"
+#include "base/time/time.h"
+#include "chrome/browser/page_load_metrics/observers/page_anchors_metrics_observer.h"
 #include "content/public/browser/document_service.h"
 #include "content/public/browser/visibility.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "navigation_predictor_metrics_document_data.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
 #include "services/metrics/public/cpp/ukm_source_id.h"
 #include "third_party/blink/public/mojom/loader/navigation_predictor.mojom.h"
@@ -34,25 +37,36 @@ class RenderFrameHost;
 class NavigationPredictor
     : public content::DocumentService<blink::mojom::AnchorElementMetricsHost> {
  public:
-  NavigationPredictor(content::RenderFrameHost* render_frame_host,
-                      mojo::PendingReceiver<AnchorElementMetricsHost> receiver);
-
   NavigationPredictor(const NavigationPredictor&) = delete;
   NavigationPredictor& operator=(const NavigationPredictor&) = delete;
-
-  ~NavigationPredictor() override;
 
   // Create and bind NavigationPredictor.
   static void Create(content::RenderFrameHost* render_frame_host,
                      mojo::PendingReceiver<AnchorElementMetricsHost> receiver);
 
  private:
+  friend class MockNavigationPredictorForTesting;
+  using AnchorId = base::StrongAlias<class AnchorId, uint32_t>;
+
+  NavigationPredictor(content::RenderFrameHost& render_frame_host,
+                      mojo::PendingReceiver<AnchorElementMetricsHost> receiver);
+  ~NavigationPredictor() override;
+
   // blink::mojom::AnchorElementMetricsHost:
   void ReportAnchorElementClick(
       blink::mojom::AnchorElementClickPtr click) override;
   void ReportAnchorElementsEnteredViewport(
       std::vector<blink::mojom::AnchorElementEnteredViewportPtr> elements)
       override;
+  void ReportAnchorElementsLeftViewport(
+      std::vector<blink::mojom::AnchorElementLeftViewportPtr> elements)
+      override;
+  void ReportAnchorElementPointerOver(
+      blink::mojom::AnchorElementPointerOverPtr pointer_over_event) override;
+  void ReportAnchorElementPointerOut(
+      blink::mojom::AnchorElementPointerOutPtr hover_event) override;
+  void ReportAnchorElementPointerDown(
+      blink::mojom::AnchorElementPointerDownPtr pointer_down_event) override;
   void ReportNewAnchorElements(
       std::vector<blink::mojom::AnchorElementMetricsPtr> elements) override;
 
@@ -77,16 +91,26 @@ class NavigationPredictor
   // |ratio_area|.
   int GetLinearBucketForRatioArea(int value) const;
 
+  // Returns `NavigationPredictorMetricsDocumentData` for the current page.
+  NavigationPredictorMetricsDocumentData&
+  GetNavigationPredictorMetricsDocumentData() const;
+
   // A count of clicks to prevent reporting more than 10 clicks to UKM.
   size_t clicked_count_ = 0;
 
-  // For each anchor ID that we track, the index that this anchor will have in
-  // the UKM logs.
-  std::unordered_map<uint32_t, blink::mojom::AnchorElementMetricsPtr> anchors_;
+  // Stores the anchor element metrics for each anchor ID that we track.
+  std::unordered_map<AnchorId,
+                     blink::mojom::AnchorElementMetricsPtr,
+                     typename AnchorId::Hasher>
+      anchors_;
 
-  // For each anchor ID that we track, the index that this anchor will have in
-  // the UKM logs.
-  std::unordered_map<uint32_t, int> tracked_anchor_id_to_index_;
+  // The time between navigation start and the last time user clicked on a link.
+  absl::optional<base::TimeDelta> navigation_start_to_click_;
+
+  // Mapping between the anchor ID for the anchors that we track and the index
+  // that this anchor will have in the UKM logs.
+  std::unordered_map<AnchorId, int, typename AnchorId::Hasher>
+      tracked_anchor_id_to_index_;
 
   // URLs that were sent to the prediction service.
   std::set<GURL> predicted_urls_;

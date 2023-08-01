@@ -1,13 +1,16 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_LINE_INFO_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_LINE_INFO_H_
 
+#include "base/check_op.h"
 #include "base/dcheck_is_on.h"
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/ng/geometry/ng_bfc_offset.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_item_result.h"
+#include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_item_text_index.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_block_break_token.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_layout_result.h"
 #include "third_party/blink/renderer/core/style/computed_style_base_constants.h"
@@ -15,6 +18,7 @@
 namespace blink {
 
 class ComputedStyle;
+class NGInlineBreakToken;
 class NGInlineNode;
 struct NGInlineItemsData;
 
@@ -27,6 +31,8 @@ class CORE_EXPORT NGLineInfo {
   STACK_ALLOCATED();
 
  public:
+  void Reset();
+
   const NGInlineItemsData& ItemsData() const {
     DCHECK(items_data_);
     return *items_data_;
@@ -84,6 +90,17 @@ class CORE_EXPORT NGLineInfo {
   NGInlineItemResults* MutableResults() { return &results_; }
   const NGInlineItemResults& Results() const { return results_; }
 
+  const NGInlineBreakToken* BreakToken() const { return break_token_; }
+  void SetBreakToken(const NGInlineBreakToken* break_token) {
+    break_token_ = break_token;
+  }
+  HeapVector<Member<const NGBlockBreakToken>>& PropagatedBreakTokens() {
+    return propagated_break_tokens_;
+  }
+  void PropagateBreakToken(const NGBlockBreakToken* token) {
+    propagated_break_tokens_.push_back(token);
+  }
+
   void SetTextIndent(LayoutUnit indent) { text_indent_ = indent; }
   LayoutUnit TextIndent() const { return text_indent_; }
 
@@ -130,14 +147,22 @@ class CORE_EXPORT NGLineInfo {
   void SetHasOverflow(bool value = true) { has_overflow_ = value; }
 
   void SetBfcOffset(const NGBfcOffset& bfc_offset) { bfc_offset_ = bfc_offset; }
+  void SetBfcBlockOffset(LayoutUnit block_offset) {
+    bfc_offset_.block_offset = block_offset;
+  }
   void SetWidth(LayoutUnit available_width, LayoutUnit width) {
     available_width_ = available_width;
     width_ = width;
   }
 
-  // Start text offset of this line.
-  unsigned StartOffset() const { return start_offset_; }
-  void SetStartOffset(unsigned offset) { start_offset_ = offset; }
+  // Start offset of this line.
+  const NGInlineItemTextIndex& Start() const { return start_; }
+  unsigned StartOffset() const { return start_.text_offset; }
+  void SetStart(const NGInlineItemTextIndex& index) { start_ = index; }
+  // End offset of this line. This is the same as the start offset of the next
+  // line, or the end of block if this is the last line.
+  NGInlineItemTextIndex End() const;
+  unsigned EndTextOffset() const;
   // End text offset of this line, excluding out-of-flow objects such as
   // floating or positioned.
   unsigned InflowEndOffset() const;
@@ -163,10 +188,9 @@ class CORE_EXPORT NGLineInfo {
 
   // The block-in-inline layout result.
   const NGLayoutResult* BlockInInlineLayoutResult() const {
-    return block_in_inline_layout_result_.get();
+    return block_in_inline_layout_result_;
   }
-  void SetBlockInInlineLayoutResult(
-      scoped_refptr<const NGLayoutResult> layout_result) {
+  void SetBlockInInlineLayoutResult(const NGLayoutResult* layout_result) {
     block_in_inline_layout_result_ = std::move(layout_result);
   }
 
@@ -174,6 +198,41 @@ class CORE_EXPORT NGLineInfo {
   // ideographic character during "text-align:justify".
   bool MayHaveTextCombineItem() const { return may_have_text_combine_item_; }
   void SetHaveTextCombineItem() { may_have_text_combine_item_ = true; }
+
+  // Returns annotation block start adjustment base on annotation and initial
+  // letter.
+  LayoutUnit ComputeAnnotationBlockOffsetAdjustment() const;
+
+  // Returns block start adjustment for line base on annotation and initial
+  // letter.
+  LayoutUnit ComputeBlockStartAdjustment() const;
+
+  // Returns block start adjustment for initial letter box base on annotation
+  // and initial letter.
+  LayoutUnit ComputeInitialLetterBoxBlockStartAdjustment() const;
+
+  // Returns total block size of this line to check whether we should use next
+  // layout opportunity or not base on `line_height`, annotation and initial
+  // letter box.
+  LayoutUnit ComputeTotalBlockSize(
+      LayoutUnit line_height,
+      LayoutUnit annotation_overflow_block_end) const;
+
+  void SetAnnotationBlockStartAdjustment(LayoutUnit amount) {
+    DCHECK(!IsEmptyLine());
+    annotation_block_start_adjustment_ = amount;
+  }
+
+  void SetInitialLetterBlockStartAdjustment(LayoutUnit amount) {
+    DCHECK_GE(amount, LayoutUnit());
+    DCHECK(!IsEmptyLine());
+    initial_letter_box_block_start_adjustment_ = amount;
+  }
+
+  void SetInitialLetterBoxBlockSize(LayoutUnit block_size) {
+    DCHECK_GE(block_size, LayoutUnit());
+    initial_letter_box_block_size_ = block_size;
+  }
 
  private:
   ETextAlign GetTextAlign(bool is_last_line = false) const;
@@ -184,19 +243,26 @@ class CORE_EXPORT NGLineInfo {
       unsigned* end_offset_out = nullptr) const;
 
   const NGInlineItemsData* items_data_ = nullptr;
-  const ComputedStyle* line_style_ = nullptr;
+  scoped_refptr<const ComputedStyle> line_style_;
   NGInlineItemResults results_;
 
   NGBfcOffset bfc_offset_;
 
-  scoped_refptr<const NGLayoutResult> block_in_inline_layout_result_;
+  const NGInlineBreakToken* break_token_ = nullptr;
+  HeapVector<Member<const NGBlockBreakToken>> propagated_break_tokens_;
+
+  const NGLayoutResult* block_in_inline_layout_result_ = nullptr;
 
   LayoutUnit available_width_;
   LayoutUnit width_;
   LayoutUnit hang_width_;
   LayoutUnit text_indent_;
 
-  unsigned start_offset_;
+  LayoutUnit annotation_block_start_adjustment_;
+  LayoutUnit initial_letter_box_block_start_adjustment_;
+  LayoutUnit initial_letter_box_block_size_;
+
+  NGInlineItemTextIndex start_;
   unsigned end_item_index_;
   unsigned end_offset_for_justify_;
 
@@ -221,6 +287,8 @@ class CORE_EXPORT NGLineInfo {
   // when |NGInlineItemResult| to |results_|.
   bool may_have_text_combine_item_ = false;
   bool allow_hang_for_alignment_ = false;
+
+  // When adding fields, pelase ensure `Reset()` is in sync.
 };
 
 std::ostream& operator<<(std::ostream& ostream, const NGLineInfo& line_info);

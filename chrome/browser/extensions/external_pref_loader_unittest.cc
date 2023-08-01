@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,21 +7,16 @@
 #include <memory>
 #include <utility>
 
-#include "ash/constants/ash_features.h"
 #include "ash/constants/ash_pref_names.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_feature_list.h"
 #include "chrome/browser/extensions/external_provider_impl.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/sync_service_factory.h"
 #include "chrome/test/base/testing_profile.h"
-#include "components/prefs/pref_service.h"
-#include "components/sync/driver/test_sync_service.h"
-#include "components/sync/test/model/fake_sync_change_processor.h"
-#include "components/sync/test/model/sync_error_factory_mock.h"
-#include "components/sync_preferences/pref_model_associator.h"
-#include "components/sync_preferences/testing_pref_service_syncable.h"
+#include "components/sync/test/test_sync_service.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/browser_task_environment.h"
@@ -58,7 +53,7 @@ class TestSyncService : public syncer::TestSyncService {
   }
 
  private:
-  syncer::SyncServiceObserver* observer_ = nullptr;
+  raw_ptr<syncer::SyncServiceObserver, ExperimentalAsh> observer_ = nullptr;
 };
 
 std::unique_ptr<KeyedService> TestingSyncFactoryFunction(
@@ -93,17 +88,17 @@ class TestExternalPrefLoader : public ExternalPrefLoader {
   base::OnceClosure load_callback_;
 };
 
-class ExternalPrefLoaderTestBase : public ::testing::Test {
+class ExternalPrefLoaderTest : public ::testing::Test {
  public:
-  ExternalPrefLoaderTestBase(ExternalPrefLoaderTestBase&) = delete;
-  ExternalPrefLoaderTestBase& operator=(ExternalPrefLoaderTestBase&) = delete;
+  ExternalPrefLoaderTest(ExternalPrefLoaderTest&) = delete;
+  ExternalPrefLoaderTest& operator=(ExternalPrefLoaderTest&) = delete;
 
   void SetUp() override {
     profile_ = std::make_unique<TestingProfile>();
     sync_service_ = static_cast<TestSyncService*>(
         SyncServiceFactory::GetInstance()->SetTestingFactoryAndUse(
             profile(), base::BindRepeating(&TestingSyncFactoryFunction)));
-    sync_service_->SetFirstSetupComplete(true);
+    sync_service_->SetInitialSyncFeatureSetupComplete(true);
   }
 
   void TearDown() override { profile_.reset(); }
@@ -113,46 +108,23 @@ class ExternalPrefLoaderTestBase : public ::testing::Test {
   TestSyncService* sync_service() { return sync_service_; }
 
  protected:
-  ExternalPrefLoaderTestBase() = default;
-  ~ExternalPrefLoaderTestBase() override = default;
+  ExternalPrefLoaderTest() = default;
+  ~ExternalPrefLoaderTest() override = default;
 
   base::test::ScopedFeatureList feature_list_;
 
  private:
   content::BrowserTaskEnvironment task_environment_;
   std::unique_ptr<TestingProfile> profile_;
-  TestSyncService* sync_service_ = nullptr;
-};
-
-// TODO(https://crbug.com/1249845): Remove parameterization after rolling out
-//                                  SyncSettingsCategorization.
-class ExternalPrefLoaderTest : public ExternalPrefLoaderTestBase,
-                               public ::testing::WithParamInterface<bool> {
- public:
-  ExternalPrefLoaderTest() {
-    if (ShouldEnableSyncSettingsCategorization()) {
-      feature_list_.InitAndEnableFeature(
-          chromeos::features::kSyncSettingsCategorization);
-    } else {
-      feature_list_.InitAndDisableFeature(
-          chromeos::features::kSyncSettingsCategorization);
-    }
-  }
-  ~ExternalPrefLoaderTest() override = default;
-  ExternalPrefLoaderTest(ExternalPrefLoaderTest&) = delete;
-  ExternalPrefLoaderTest& operator=(ExternalPrefLoaderTest&) = delete;
-
- private:
-  bool ShouldEnableSyncSettingsCategorization() const { return GetParam(); }
+  raw_ptr<TestSyncService, ExperimentalAsh> sync_service_ = nullptr;
 };
 
 // TODO(lazyboy): Add a test to cover
 // PrioritySyncReadyWaiter::OnIsSyncingChanged().
 
 // Tests that we fire pref reading correctly after priority sync state
-// is resolved by ExternalPrefLoader. This test checks that the flow works
-// regardless of the state of SyncSettingsCategorization.
-TEST_P(ExternalPrefLoaderTest, PrefReadInitiatesCorrectly) {
+// is resolved by ExternalPrefLoader.
+TEST_F(ExternalPrefLoaderTest, PrefReadInitiatesCorrectly) {
   base::RunLoop run_loop;
   scoped_refptr<ExternalPrefLoader> loader(
       new TestExternalPrefLoader(profile(), run_loop.QuitWhenIdleClosure()));
@@ -163,15 +135,10 @@ TEST_P(ExternalPrefLoaderTest, PrefReadInitiatesCorrectly) {
 
   // Initially CanSyncFeatureStart() returns true, returning false will let
   // |loader| proceed.
-  sync_service()->SetDisableReasons(
-      syncer::SyncService::DISABLE_REASON_USER_CHOICE);
+  sync_service()->SetHasSyncConsent(false);
   ASSERT_FALSE(sync_service()->CanSyncFeatureStart());
   sync_service()->FireOnStateChanged();
   run_loop.Run();
 }
-
-INSTANTIATE_TEST_SUITE_P(/* no label */,
-                         ExternalPrefLoaderTest,
-                         ::testing::Bool());
 
 }  // namespace extensions

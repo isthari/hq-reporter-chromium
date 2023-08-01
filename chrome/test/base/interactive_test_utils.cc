@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "base/logging.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/task/current_thread.h"
 #include "build/build_config.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
@@ -23,11 +24,12 @@ namespace {
 
 bool GetNativeWindow(const Browser* browser, gfx::NativeWindow* native_window) {
   BrowserWindow* window = browser->window();
-  if (!window)
+  if (!window) {
     return false;
+  }
 
   *native_window = window->GetNativeWindow();
-  return *native_window;
+  return !!(*native_window);
 }
 
 }  // namespace
@@ -94,7 +96,7 @@ void BrowserDeactivationWaiter::OnBrowserNoLongerActive(Browser* browser) {
 }
 
 bool BringBrowserWindowToFront(const Browser* browser) {
-  gfx::NativeWindow window = NULL;
+  gfx::NativeWindow window = nullptr;
   if (!GetNativeWindow(browser, &window))
     return false;
 
@@ -112,7 +114,7 @@ bool SendKeyPressSync(const Browser* browser,
                       bool shift,
                       bool alt,
                       bool command) {
-  gfx::NativeWindow window = NULL;
+  gfx::NativeWindow window = nullptr;
   if (!GetNativeWindow(browser, &window))
     return false;
   return SendKeyPressToWindowSync(window, key, control, shift, alt, command);
@@ -131,15 +133,13 @@ bool SendKeyPressToWindowSync(const gfx::NativeWindow window,
          "interactive tests.";
 #endif
 
-  scoped_refptr<content::MessageLoopRunner> runner =
-      new content::MessageLoopRunner;
-  bool result;
-  result = ui_controls::SendKeyPressNotifyWhenDone(
-      window, key, control, shift, alt, command, runner->QuitClosure());
+  base::RunLoop run_loop(base::RunLoop::Type::kNestableTasksAllowed);
+  bool result = ui_controls::SendKeyPressNotifyWhenDone(
+      window, key, control, shift, alt, command, run_loop.QuitClosure());
 #if BUILDFLAG(IS_WIN)
   if (!result && ui_test_utils::ShowAndFocusNativeWindow(window)) {
     result = ui_controls::SendKeyPressNotifyWhenDone(
-        window, key, control, shift, alt, command, runner->QuitClosure());
+        window, key, control, shift, alt, command, run_loop.QuitClosure());
   }
 #endif
   if (!result) {
@@ -150,7 +150,8 @@ bool SendKeyPressToWindowSync(const gfx::NativeWindow window,
   // Run the message loop. It'll stop running when either the key was received
   // or the test timed out (in which case testing::Test::HasFatalFailure should
   // be set).
-  runner->Run();
+  run_loop.Run();
+
   return !testing::Test::HasFatalFailure();
 }
 

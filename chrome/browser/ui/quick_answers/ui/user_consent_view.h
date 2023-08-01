@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,16 @@
 
 #include <memory>
 
+#include "base/memory/raw_ptr.h"
+#include "base/memory/weak_ptr.h"
 #include "chrome/browser/ui/quick_answers/ui/quick_answers_focus_search.h"
 #include "chrome/browser/ui/quick_answers/ui/quick_answers_pre_target_handler.h"
+#include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/views/view.h"
+#include "ui/views/widget/unique_widget_ptr.h"
 
 namespace views {
+class Label;
 class LabelButton;
 }  // namespace views
 
@@ -24,10 +29,14 @@ namespace quick_answers {
 // information if any of these two strings are empty.
 class UserConsentView : public views::View {
  public:
+  METADATA_HEADER(UserConsentView);
+
+  static constexpr char kWidgetName[] = "UserConsentViewWidget";
+
   UserConsentView(const gfx::Rect& anchor_view_bounds,
                   const std::u16string& intent_type,
                   const std::u16string& intent_text,
-                  QuickAnswersUiController* ui_controller);
+                  base::WeakPtr<QuickAnswersUiController> controller);
 
   // Disallow copy and assign.
   UserConsentView(const UserConsentView&) = delete;
@@ -35,10 +44,16 @@ class UserConsentView : public views::View {
 
   ~UserConsentView() override;
 
+  static views::UniqueWidgetPtr CreateWidget(
+      const gfx::Rect& anchor_view_bounds,
+      const std::u16string& intent_type,
+      const std::u16string& intent_text,
+      base::WeakPtr<QuickAnswersUiController> controller);
+
   // views::View:
-  const char* GetClassName() const override;
   gfx::Size CalculatePreferredSize() const override;
   void OnFocus() override;
+  void OnThemeChanged() override;
   views::FocusTraversable* GetPaneFocusTraversable() override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
 
@@ -48,7 +63,6 @@ class UserConsentView : public views::View {
   void InitLayout();
   void InitContent();
   void InitButtonBar();
-  void InitWidget();
   void UpdateWidgetBounds();
 
   // QuickAnswersFocusSearch::GetFocusableViewsCallback to poll currently
@@ -58,17 +72,19 @@ class UserConsentView : public views::View {
   // Cached bounds of the anchor this view is tied to.
   gfx::Rect anchor_view_bounds_;
   // Cached title text.
-  std::u16string title_;
+  std::u16string title_text_;
 
   QuickAnswersPreTargetHandler event_handler_;
-  QuickAnswersUiController* const ui_controller_;
+  base::WeakPtr<QuickAnswersUiController> controller_;
   QuickAnswersFocusSearch focus_search_;
 
   // Owned by view hierarchy.
-  views::View* main_view_ = nullptr;
-  views::View* content_ = nullptr;
-  views::LabelButton* no_thanks_button_ = nullptr;
-  views::LabelButton* allow_button_ = nullptr;
+  raw_ptr<views::View> main_view_ = nullptr;
+  raw_ptr<views::View> content_ = nullptr;
+  raw_ptr<views::Label> title_ = nullptr;
+  raw_ptr<views::Label> desc_ = nullptr;
+  raw_ptr<views::LabelButton> no_thanks_button_ = nullptr;
+  raw_ptr<views::LabelButton> allow_button_ = nullptr;
 };
 
 }  // namespace quick_answers

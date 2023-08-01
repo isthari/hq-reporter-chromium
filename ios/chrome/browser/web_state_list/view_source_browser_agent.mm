@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,10 @@
 
 #import "base/base64.h"
 #import "base/strings/sys_string_conversions.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
 #import "ios/chrome/browser/web_state_list/tab_insertion_browser_agent.h"
-#import "ios/chrome/browser/web_state_list/web_state_list.h"
 #import "ios/web/public/js_messaging/web_frame.h"
-#import "ios/web/public/js_messaging/web_frame_util.h"
+#import "ios/web/public/js_messaging/web_frames_manager.h"
 #import "ios/web/public/navigation/navigation_manager.h"
 #import "ios/web/public/web_state.h"
 
@@ -28,8 +28,9 @@ void ViewSourceBrowserAgent::ViewSourceForActiveWebState() {
   web::WebState* web_state = browser_->GetWebStateList()->GetActiveWebState();
   DCHECK(web_state);
 
-  web::WebFrame* web_frame = web::GetMainFrame(web_state);
-  static const char kScript[] = "document.documentElement.outerHTML;";
+  web::WebFrame* web_frame =
+      web_state->GetPageWorldWebFramesManager()->GetMainWebFrame();
+  static const char16_t kScript[] = u"document.documentElement.outerHTML;";
 
   web_frame->ExecuteJavaScript(
       kScript,
@@ -66,5 +67,7 @@ void ViewSourceBrowserAgent::InsertSourceViewTab(NSString* source,
       TabInsertionBrowserAgent::FromBrowser(browser_);
   insertionAgent->InsertWebState(
       loadParams, web_state, true, TabInsertion::kPositionAutomatically,
-      /*in_background=*/false, /*inherit_opener=*/false);
+      /*in_background=*/false, /*inherit_opener=*/false,
+      /*should_show_start_surface=*/false,
+      /*should_skip_new_tab_animation=*/false);
 }

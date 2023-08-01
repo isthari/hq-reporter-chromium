@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_PAINT_BOX_DECORATION_DATA_H_
 
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/blink/renderer/core/css/properties/longhands.h"
 #include "third_party/blink/renderer/core/layout/background_bleed_avoidance.h"
 #include "third_party/blink/renderer/core/layout/layout_box.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_physical_box_fragment.h"
@@ -38,6 +39,17 @@ class BoxDecorationData {
   BoxDecorationData(const PaintInfo& paint_info,
                     const NGPhysicalFragment& fragment)
       : BoxDecorationData(paint_info, fragment, fragment.Style()) {}
+
+  BoxDecorationData BackgroundOnly() const {
+    DCHECK(should_paint_background_);
+    return BoxDecorationData(*this, /*should_paint_background=*/true,
+                             /*should_paint_border=*/false);
+  }
+  BoxDecorationData BorderOnly() const {
+    DCHECK(should_paint_border_);
+    return BoxDecorationData(*this, /*should_paint_background=*/false,
+                             /*should_paint_border=*/true);
+  }
 
   bool IsPaintingBackgroundInContentsSpace() const {
     return paint_info_.IsPaintingBackgroundInContentsSpace();
@@ -76,6 +88,21 @@ class BoxDecorationData {
         should_paint_border_(
             ComputeShouldPaintBorder(has_non_collapsed_border_decoration)),
         should_paint_shadow_(ComputeShouldPaintShadow()) {}
+
+  // For BackgroundOnly() and BorderOnly().
+  BoxDecorationData(const BoxDecorationData& data,
+                    bool should_paint_background,
+                    bool should_paint_border)
+      : paint_info_(data.paint_info_),
+        layout_box_(data.layout_box_),
+        style_(data.style_),
+        has_appearance_(false),
+        should_paint_background_(should_paint_background),
+        should_paint_border_(should_paint_border),
+        should_paint_shadow_(false) {
+    DCHECK(!data.has_appearance_);
+    DCHECK(!data.should_paint_shadow_);
+  }
 
   bool ComputeShouldPaintBackground() const {
     return style_.HasBackground() && !layout_box_.BackgroundTransfersToView() &&

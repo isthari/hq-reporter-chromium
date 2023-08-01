@@ -1,10 +1,11 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "content/public/test/test_host_resolver.h"
 
-#include "base/cxx17_backports.h"
+#include <algorithm>
+
 #include "base/threading/thread.h"
 #include "content/browser/notification_service_impl.h"
 #include "net/base/net_errors.h"
@@ -51,8 +52,7 @@ class LocalHostResolverProc : public net::HostResolverProc {
 
 TestHostResolver::TestHostResolver()
     : local_resolver_(new LocalHostResolverProc()),
-      rule_based_resolver_(
-          new net::RuleBasedHostResolverProc(local_resolver_.get())),
+      rule_based_resolver_(new net::RuleBasedHostResolverProc(local_resolver_)),
       scoped_local_host_resolver_proc_(
           new net::ScopedDefaultHostResolverProc(rule_based_resolver_.get())) {
   rule_based_resolver_->AddSimulatedFailure("wpad");

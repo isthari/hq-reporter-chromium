@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,13 +10,14 @@
 #include "ash/public/cpp/holding_space/holding_space_image.h"
 #include "ash/public/cpp/holding_space/holding_space_progress.h"
 #include "ash/public/cpp/holding_space/holding_space_util.h"
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/test/bind.h"
 #include "base/test/scoped_locale.h"
 #include "base/values.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "ui/chromeos/styles/cros_styles.h"
+#include "ui/chromeos/styles/cros_tokens_color_mappings.h"
+#include "ui/gfx/paint_vector_icon.h"
 
 namespace ash {
 
@@ -50,7 +51,7 @@ TEST_P(HoldingSpaceItemTest, Serialization) {
       /*type=*/GetParam(), file_path, file_system_url,
       /*image_resolver=*/base::BindOnce(&CreateFakeHoldingSpaceImage));
 
-  const base::DictionaryValue serialized_holding_space_item =
+  const base::Value::Dict serialized_holding_space_item =
       holding_space_item->Serialize();
 
   const auto deserialized_holding_space_item = HoldingSpaceItem::Deserialize(
@@ -72,7 +73,7 @@ TEST_P(HoldingSpaceItemTest, DeserializeId) {
       GURL("filesystem:file_system_url"),
       /*image_resolver=*/base::BindOnce(&CreateFakeHoldingSpaceImage));
 
-  const base::DictionaryValue serialized_holding_space_item =
+  const base::Value::Dict serialized_holding_space_item =
       holding_space_item->Serialize();
 
   const std::string& deserialized_holding_space_id =
@@ -118,8 +119,8 @@ TEST_P(HoldingSpaceItemTest, AccessibleName) {
             u"Primary text, Secondary text");
 }
 
-// Tests pause for each holding space item type.
-TEST_P(HoldingSpaceItemTest, Pause) {
+// Tests in-progress commands for each holding space item type.
+TEST_P(HoldingSpaceItemTest, InProgressCommands) {
   // Create an in-progress `holding_space_item`.
   auto holding_space_item = HoldingSpaceItem::CreateFileBackedItem(
       /*type=*/GetParam(), base::FilePath("file_path"),
@@ -127,28 +128,91 @@ TEST_P(HoldingSpaceItemTest, Pause) {
       HoldingSpaceProgress(/*current_bytes=*/50, /*total_bytes=*/100),
       /*image_resolver=*/base::BindOnce(&CreateFakeHoldingSpaceImage));
 
-  // Initially items are not paused.
-  EXPECT_FALSE(holding_space_item->IsPaused());
+  // Initially commands are not set.
+  EXPECT_TRUE(holding_space_item->in_progress_commands().empty());
 
-  // It should be possible to update pause to a new value.
-  EXPECT_TRUE(holding_space_item->SetPaused(true));
-  EXPECT_TRUE(holding_space_item->IsPaused());
+  // It should be possible to update commands to a new value.
+  std::vector<HoldingSpaceItem::InProgressCommand> in_progress_commands;
+  in_progress_commands.push_back(HoldingSpaceItem::InProgressCommand(
+      HoldingSpaceCommandId::kCancelItem, /*label_id=*/-1, &gfx::kNoneIcon,
+      /*handler=*/base::DoNothing()));
+  EXPECT_TRUE(holding_space_item->SetInProgressCommands(in_progress_commands));
+  EXPECT_EQ(holding_space_item->in_progress_commands(), in_progress_commands);
 
   // It should no-op to try to update pause to its existing value.
-  EXPECT_FALSE(holding_space_item->SetPaused(true));
-  EXPECT_TRUE(holding_space_item->IsPaused());
+  EXPECT_FALSE(holding_space_item->SetInProgressCommands(in_progress_commands));
+  EXPECT_EQ(holding_space_item->in_progress_commands(), in_progress_commands);
 
-  // Once progress has been marked completed, items are no longer paused.
+  // Once progress has been marked completed, commands are not set.
   EXPECT_TRUE(holding_space_item->SetProgress(
       HoldingSpaceProgress(/*current_bytes=*/100, /*total_bytes=*/100)));
   EXPECT_TRUE(holding_space_item->progress().IsComplete());
-  EXPECT_FALSE(holding_space_item->IsPaused());
+  EXPECT_TRUE(holding_space_item->in_progress_commands().empty());
 
-  // It should no-op to try to update pause for items which are not in-progress.
-  EXPECT_FALSE(holding_space_item->SetPaused(true));
-  EXPECT_FALSE(holding_space_item->IsPaused());
-  EXPECT_FALSE(holding_space_item->SetPaused(false));
-  EXPECT_FALSE(holding_space_item->IsPaused());
+  // It should no-op to try to update commands for items which are not
+  // in-progress.
+  EXPECT_FALSE(holding_space_item->SetInProgressCommands(in_progress_commands));
+  EXPECT_TRUE(holding_space_item->in_progress_commands().empty());
+}
+
+// Tests identification of Camera app holding space item types.
+TEST_P(HoldingSpaceItemTest, IsCameraAppType) {
+  const HoldingSpaceItem::Type type = GetParam();
+  switch (type) {
+    case HoldingSpaceItem::Type::kCameraAppPhoto:
+    case HoldingSpaceItem::Type::kCameraAppScanJpg:
+    case HoldingSpaceItem::Type::kCameraAppScanPdf:
+    case HoldingSpaceItem::Type::kCameraAppVideoGif:
+    case HoldingSpaceItem::Type::kCameraAppVideoMp4:
+      EXPECT_TRUE(HoldingSpaceItem::IsCameraAppType(type));
+      return;
+    case HoldingSpaceItem::Type::kArcDownload:
+    case HoldingSpaceItem::Type::kDiagnosticsLog:
+    case HoldingSpaceItem::Type::kDownload:
+    case HoldingSpaceItem::Type::kDriveSuggestion:
+    case HoldingSpaceItem::Type::kLacrosDownload:
+    case HoldingSpaceItem::Type::kLocalSuggestion:
+    case HoldingSpaceItem::Type::kNearbyShare:
+    case HoldingSpaceItem::Type::kPhoneHubCameraRoll:
+    case HoldingSpaceItem::Type::kPinnedFile:
+    case HoldingSpaceItem::Type::kPrintedPdf:
+    case HoldingSpaceItem::Type::kScan:
+    case HoldingSpaceItem::Type::kScreenRecording:
+    case HoldingSpaceItem::Type::kScreenRecordingGif:
+    case HoldingSpaceItem::Type::kScreenshot:
+      EXPECT_FALSE(HoldingSpaceItem::IsCameraAppType(type));
+      return;
+  }
+}
+
+// Tests identification of screen capture holding space item types.
+TEST_P(HoldingSpaceItemTest, IsScreenCapture) {
+  const HoldingSpaceItem::Type type = GetParam();
+  switch (type) {
+    case HoldingSpaceItem::Type::kScreenRecording:
+    case HoldingSpaceItem::Type::kScreenRecordingGif:
+    case HoldingSpaceItem::Type::kScreenshot:
+      EXPECT_TRUE(HoldingSpaceItem::IsScreenCaptureType(type));
+      return;
+    case HoldingSpaceItem::Type::kArcDownload:
+    case HoldingSpaceItem::Type::kCameraAppPhoto:
+    case HoldingSpaceItem::Type::kCameraAppScanJpg:
+    case HoldingSpaceItem::Type::kCameraAppScanPdf:
+    case HoldingSpaceItem::Type::kCameraAppVideoGif:
+    case HoldingSpaceItem::Type::kCameraAppVideoMp4:
+    case HoldingSpaceItem::Type::kDiagnosticsLog:
+    case HoldingSpaceItem::Type::kDownload:
+    case HoldingSpaceItem::Type::kDriveSuggestion:
+    case HoldingSpaceItem::Type::kLacrosDownload:
+    case HoldingSpaceItem::Type::kLocalSuggestion:
+    case HoldingSpaceItem::Type::kNearbyShare:
+    case HoldingSpaceItem::Type::kPhoneHubCameraRoll:
+    case HoldingSpaceItem::Type::kPinnedFile:
+    case HoldingSpaceItem::Type::kPrintedPdf:
+    case HoldingSpaceItem::Type::kScan:
+      EXPECT_FALSE(HoldingSpaceItem::IsScreenCaptureType(type));
+      return;
+  }
 }
 
 // Tests progress for each holding space item type.
@@ -235,24 +299,25 @@ TEST_P(HoldingSpaceItemTest, SecondaryTextColor) {
       GURL("filesystem::file_system_url"),
       /*image_resolver=*/base::BindOnce(&CreateFakeHoldingSpaceImage));
 
-  // Initially the secondary text color should be absent.
-  EXPECT_FALSE(holding_space_item->secondary_text_color());
+  // Initially the secondary text color id should be absent.
+  EXPECT_FALSE(holding_space_item->secondary_text_color_id());
 
-  // It should be possible to update secondary text color to a new value.
-  EXPECT_TRUE(holding_space_item->SetSecondaryTextColor(
-      cros_styles::ColorName::kTextColorAlert));
-  EXPECT_EQ(holding_space_item->secondary_text_color().value(),
-            cros_styles::ColorName::kTextColorAlert);
+  // It should be possible to update secondary text color id to a new value.
+  EXPECT_TRUE(holding_space_item->SetSecondaryTextColorId(
+      cros_tokens::kTextColorAlert));
+  EXPECT_EQ(holding_space_item->secondary_text_color_id().value(),
+            cros_tokens::kTextColorAlert);
 
-  // It should no-op to try to update secondary text color to existing values.
-  EXPECT_FALSE(holding_space_item->SetSecondaryTextColor(
-      cros_styles::ColorName::kTextColorAlert));
-  EXPECT_EQ(holding_space_item->secondary_text_color().value(),
-            cros_styles::ColorName::kTextColorAlert);
+  // It should no-op to try to update secondary text color id to existing
+  // values.
+  EXPECT_FALSE(holding_space_item->SetSecondaryTextColorId(
+      cros_tokens::kTextColorAlert));
+  EXPECT_EQ(holding_space_item->secondary_text_color_id().value(),
+            cros_tokens::kTextColorAlert);
 
-  // It should be possible to unset secondary text color.
-  EXPECT_TRUE(holding_space_item->SetSecondaryTextColor(absl::nullopt));
-  EXPECT_FALSE(holding_space_item->secondary_text_color());
+  // It should be possible to unset secondary text color id.
+  EXPECT_TRUE(holding_space_item->SetSecondaryTextColorId(absl::nullopt));
+  EXPECT_FALSE(holding_space_item->secondary_text_color_id());
 }
 
 // Tests setting the text for each holding space item type.

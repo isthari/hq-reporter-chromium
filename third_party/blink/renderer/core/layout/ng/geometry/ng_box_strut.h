@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,15 @@
 
 #include <utility>
 
+#include "base/notreached.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/layout/geometry/box_sides.h"
 #include "third_party/blink/renderer/core/layout/geometry/logical_offset.h"
-#include "third_party/blink/renderer/platform/geometry/layout_rect_outsets.h"
+#include "third_party/blink/renderer/core/layout/geometry/physical_offset.h"
 #include "third_party/blink/renderer/platform/geometry/layout_unit.h"
 #include "third_party/blink/renderer/platform/text/text_direction.h"
 #include "third_party/blink/renderer/platform/text/writing_mode.h"
+#include "ui/gfx/geometry/outsets_f.h"
 
 namespace blink {
 
@@ -141,11 +144,39 @@ CORE_EXPORT std::ostream& operator<<(std::ostream&, const NGLineBoxStrut&);
 // See https://drafts.csswg.org/css-writing-modes-3/#abstract-box
 struct CORE_EXPORT NGPhysicalBoxStrut {
   NGPhysicalBoxStrut() = default;
+  explicit NGPhysicalBoxStrut(LayoutUnit value)
+      : top(value), right(value), bottom(value), left(value) {}
   NGPhysicalBoxStrut(LayoutUnit top,
                      LayoutUnit right,
                      LayoutUnit bottom,
                      LayoutUnit left)
       : top(top), right(right), bottom(bottom), left(left) {}
+
+  // Arguments are clamped to [LayoutUnix::Min(), LayoutUnit::Max()].
+  NGPhysicalBoxStrut(int t, int r, int b, int l)
+      : top(LayoutUnit(t)),
+        right(LayoutUnit(r)),
+        bottom(LayoutUnit(b)),
+        left(LayoutUnit(l)) {}
+
+  // Creates new NGPhysicalBoxStrut instance from the specified `outsets`.
+  // A data member of `outsets` is rounded up to the minimum LayoutUnit value
+  // which is equal or lager than the data member.
+  static NGPhysicalBoxStrut Enclosing(const gfx::OutsetsF& outsets) {
+    return {LayoutUnit::FromFloatCeil(outsets.top()),
+            LayoutUnit::FromFloatCeil(outsets.right()),
+            LayoutUnit::FromFloatCeil(outsets.bottom()),
+            LayoutUnit::FromFloatCeil(outsets.left())};
+  }
+
+  PhysicalOffset Offset() const { return {left, top}; }
+
+  void TruncateSides(const PhysicalBoxSides& sides_to_include) {
+    top = sides_to_include.top ? top : LayoutUnit();
+    bottom = sides_to_include.bottom ? bottom : LayoutUnit();
+    left = sides_to_include.left ? left : LayoutUnit();
+    right = sides_to_include.right ? right : LayoutUnit();
+  }
 
   // Converts physical dimensions to logical ones per
   // https://drafts.csswg.org/css-writing-modes-3/#logical-to-physical
@@ -182,9 +213,17 @@ struct CORE_EXPORT NGPhysicalBoxStrut {
   LayoutUnit HorizontalSum() const { return left + right; }
   LayoutUnit VerticalSum() const { return top + bottom; }
 
-  LayoutRectOutsets ToLayoutRectOutsets() const {
-    return LayoutRectOutsets(top, right, bottom, left);
+  NGPhysicalBoxStrut& Inflate(LayoutUnit diff) {
+    top += diff;
+    right += diff;
+    bottom += diff;
+    left += diff;
+    return *this;
   }
+
+  // Update each of data members with std::max(this->member, other.member).
+  // This function returns `*this`.
+  NGPhysicalBoxStrut& Unite(const NGPhysicalBoxStrut& other);
 
   NGPhysicalBoxStrut& operator+=(const NGPhysicalBoxStrut& other) {
     top += other.top;
@@ -194,15 +233,37 @@ struct CORE_EXPORT NGPhysicalBoxStrut {
     return *this;
   }
 
+  NGPhysicalBoxStrut& operator-=(const NGPhysicalBoxStrut& other) {
+    top -= other.top;
+    right -= other.right;
+    bottom -= other.bottom;
+    left -= other.left;
+    return *this;
+  }
+
   NGPhysicalBoxStrut operator+(const NGPhysicalBoxStrut& other) const {
     NGPhysicalBoxStrut result(*this);
     result += other;
     return result;
   }
 
+  NGPhysicalBoxStrut operator-(const NGPhysicalBoxStrut& other) const {
+    NGPhysicalBoxStrut result(*this);
+    result -= other;
+    return result;
+  }
+
   bool operator==(const NGPhysicalBoxStrut& other) const {
     return top == other.top && right == other.right && bottom == other.bottom &&
            left == other.left;
+  }
+
+  explicit operator gfx::OutsetsF() const {
+    return gfx::OutsetsF()
+        .set_left(left.ToFloat())
+        .set_right(right.ToFloat())
+        .set_top(top.ToFloat())
+        .set_bottom(bottom.ToFloat());
   }
 
   bool IsZero() const { return !top && !right && !bottom && !left; }
@@ -237,6 +298,10 @@ inline NGPhysicalBoxStrut NGBoxStrut::ConvertToPhysical(
       NOTREACHED();
       return NGPhysicalBoxStrut();
   }
+}
+
+inline NGPhysicalBoxStrut operator-(const NGPhysicalBoxStrut& a) {
+  return {-a.top, -a.right, -a.bottom, -a.left};
 }
 
 }  // namespace blink

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,9 +27,11 @@
 namespace ash {
 
 namespace {
+
 constexpr char kTestSupportPath[] =
     "chrome/browser/resources/chromeos/accessibility/switch_access/"
     "test_support.js";
+
 }
 
 class SwitchAccessTest : public InProcessBrowserTest {
@@ -64,13 +66,10 @@ class SwitchAccessTest : public InProcessBrowserTest {
   }
 
   std::string GetInputString() {
-    std::string output;
-    std::string script =
-        "window.domAutomationController.send("
-        "document.getElementById('in').value)";
-    CHECK(ExecuteScriptAndExtractString(
-        browser()->tab_strip_model()->GetWebContentsAt(0), script, &output));
-    return output;
+    std::string script = "document.getElementById('in').value";
+    return content::EvalJs(browser()->tab_strip_model()->GetWebContentsAt(0),
+                           script)
+        .ExtractString();
   }
 
   void SetUpOnMainThread() override {
@@ -92,7 +91,7 @@ class SwitchAccessTest : public InProcessBrowserTest {
         << test_support_path;
 
     std::string result =
-        extensions::browsertest_util::ExecuteScriptInBackgroundPage(
+        extensions::browsertest_util::ExecuteScriptInBackgroundPageDeprecated(
             browser()->profile(), extension_misc::kSwitchAccessExtensionId,
             script);
     ASSERT_EQ("ready", result);
@@ -101,7 +100,7 @@ class SwitchAccessTest : public InProcessBrowserTest {
   // Run js snippet and wait for it to finish.
   void WaitForJS(const std::string& js_to_eval) {
     std::string result =
-        extensions::browsertest_util::ExecuteScriptInBackgroundPage(
+        extensions::browsertest_util::ExecuteScriptInBackgroundPageDeprecated(
             browser()->profile(), extension_misc::kSwitchAccessExtensionId,
             js_to_eval,
             extensions::browsertest_util::ScriptUserActivation::kDontActivate);
@@ -142,7 +141,7 @@ class SwitchAccessTest : public InProcessBrowserTest {
     const display::Display& display =
         display::Screen::GetScreen()->GetDisplayNearestPoint(
             location_in_screen);
-    auto* host = ash::GetWindowTreeHostForDisplay(display.id());
+    auto* host = GetWindowTreeHostForDisplay(display.id());
     CHECK(host);
 
     aura::Window* root_window = host->window();
@@ -363,7 +362,15 @@ IN_PROC_BROWSER_TEST_F(SwitchAccessTest, TypeIntoVirtualKeyboard) {
   // js-based tests that have the ability to ask the text field for its value.
 }
 
-IN_PROC_BROWSER_TEST_F(SwitchAccessTest, PointScanClickWhenMouseEventsEnabled) {
+#if defined(MEMORY_SANITIZER) && BUILDFLAG(IS_CHROMEOS)
+#define MAYBE_PointScanClickWhenMouseEventsEnabled \
+  DISABLED_PointScanClickWhenMouseEventsEnabled
+#else
+#define MAYBE_PointScanClickWhenMouseEventsEnabled \
+  PointScanClickWhenMouseEventsEnabled
+#endif
+IN_PROC_BROWSER_TEST_F(SwitchAccessTest,
+                       MAYBE_PointScanClickWhenMouseEventsEnabled) {
   EnableSwitchAccess({'1', 'A'} /* select */, {'2', 'B'} /* next */,
                      {'3', 'C'} /* previous */);
 
@@ -395,8 +402,15 @@ IN_PROC_BROWSER_TEST_F(SwitchAccessTest, PointScanClickWhenMouseEventsEnabled) {
   ASSERT_TRUE(IsMouseEventsEnabled(600, 600));
 }
 
+#if defined(MEMORY_SANITIZER) && BUILDFLAG(IS_CHROMEOS)
+#define MAYBE_PointScanClickWhenMouseEventsDisabled \
+  DISABLED_PointScanClickWhenMouseEventsDisabled
+#else
+#define MAYBE_PointScanClickWhenMouseEventsDisabled \
+  PointScanClickWhenMouseEventsDisabled
+#endif
 IN_PROC_BROWSER_TEST_F(SwitchAccessTest,
-                       PointScanClickWhenMouseEventsDisabled) {
+                       MAYBE_PointScanClickWhenMouseEventsDisabled) {
   EnableSwitchAccess({'1', 'A'} /* select */, {'2', 'B'} /* next */,
                      {'3', 'C'} /* previous */);
 

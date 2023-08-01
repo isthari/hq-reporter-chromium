@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <windows.h>
 #include <string>
 
+#include "base/dcheck_is_on.h"
 #include "base/memory/raw_ptr.h"
 #include "base/time/time.h"
 #include "base/win/scoped_handle.h"
@@ -60,7 +61,9 @@ enum SboxTestResult {
   SBOX_TEST_TIMED_OUT,
   // Test failed. (0xE5B1000B or -441384949)
   SBOX_TEST_FAILED,
-  // Last Result. (0xE5B1000C or -441384948)
+  // Failed to configure sandbox before test. (0xE5B1000C or -441384948)
+  SBOX_TEST_FAILED_SETUP,
+  // Last Result. (0xE5B1000D or -441384947)
   SBOX_TEST_LAST_RESULT
 };
 
@@ -99,18 +102,18 @@ class TestRunner {
 
   // Adds a rule to the policy. The parameters are the same as the AddRule
   // function in the sandbox.
-  bool AddRule(TargetPolicy::SubSystem subsystem,
-               TargetPolicy::Semantics semantics,
+  bool AddRule(SubSystem subsystem,
+               Semantics semantics,
                const wchar_t* pattern);
 
   // Adds a filesystem rules with the path of a file in system32. The function
   // appends "pattern" to "system32" and then call AddRule. Return true if the
   // function succeeds.
-  bool AddRuleSys32(TargetPolicy::Semantics semantics, const wchar_t* pattern);
+  bool AddRuleSys32(Semantics semantics, const wchar_t* pattern);
 
   // Adds a filesystem rules to the policy. Returns true if the functions
   // succeeds.
-  bool AddFsRule(TargetPolicy::Semantics semantics, const wchar_t* pattern);
+  bool AddFsRule(Semantics semantics, const wchar_t* pattern);
 
   // Starts a child process in the sandbox and ask it to run |command|. Returns
   // a SboxTestResult. By default, the test runs AFTER_REVERT.
@@ -137,10 +140,6 @@ class TestRunner {
   // destroyed.
   void SetKillOnDestruction(bool value) { kill_on_destruction_ = value; }
 
-  // Sets whether the TargetPolicy should be released after the child process
-  // is launched while the test is running.
-  void SetReleasePolicyInRun(bool value) { release_policy_in_run_ = value; }
-
   // Returns the pointers to the policy object. It can be used to modify
   // the policy manually.
   TargetPolicy* GetPolicy();
@@ -153,6 +152,9 @@ class TestRunner {
   // Returns the process ID for an asynchronous test.
   DWORD process_id() { return target_process_id_; }
 
+  // Blocks until the number of tracked processes returns to zero.
+  bool WaitForAllTargets();
+
  private:
 
   // The actual runner.
@@ -160,7 +162,7 @@ class TestRunner {
   DWORD timeout_ms();
 
   raw_ptr<BrokerServices> broker_;
-  scoped_refptr<TargetPolicy> policy_;
+  std::unique_ptr<TargetPolicy> policy_;
   base::TimeDelta timeout_;
   SboxTestsState state_;
   bool is_init_;
@@ -168,7 +170,6 @@ class TestRunner {
   bool no_sandbox_;
   bool disable_csrss_;
   bool kill_on_destruction_;
-  bool release_policy_in_run_ = false;
   base::win::ScopedHandle target_process_;
   DWORD target_process_id_;
 };

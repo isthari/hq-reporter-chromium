@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,7 @@
 #include "net/base/net_export.h"
 #include "net/http/http_request_info.h"
 #include "net/spdy/spdy_session_key.h"
-#include "net/third_party/quiche/src/spdy/core/spdy_protocol.h"
+#include "net/third_party/quiche/src/quiche/spdy/core/spdy_protocol.h"
 #include "url/gurl.h"
 
 namespace net {
@@ -34,18 +34,19 @@ const spdy::SpdyStreamId kNoPushedStreamFound = 0;
 // SpdySession uses this class to register, unregister and query pushed streams.
 // HttpStreamFactory::Job uses this class to find a SpdySession with a pushed
 // stream matching the request, if such exists.
+// TODO(https://crbug.com/1426477): Remove.
 class NET_EXPORT Http2PushPromiseIndex {
  public:
   // Interface for validating pushed streams, signaling when a pushed stream is
   // claimed, and generating SpdySession weak pointer.
   class NET_EXPORT Delegate {
    public:
-    Delegate() {}
+    Delegate() = default;
 
     Delegate(const Delegate&) = delete;
     Delegate& operator=(const Delegate&) = delete;
 
-    virtual ~Delegate() {}
+    virtual ~Delegate() = default;
 
     // Return true if a pushed stream with |url| can be used for a request with
     // |key|.

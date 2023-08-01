@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,32 +9,6 @@
 #include "ui/accessibility/platform/ax_platform_node_base.h"
 #include "ui/accessibility/platform/ax_platform_node_cocoa.h"
 #include "ui/accessibility/platform/ax_platform_node_delegate.h"
-
-// The following are private accessibility APIs required for cursor navigation
-// and text selection. VoiceOver started relying on them in Mac OS X 10.11.
-// They are public as of the 12.0 SDK.
-#if !defined(MAC_OS_VERSION_12_0) || \
-    MAC_OS_X_VERSION_MAX_ALLOWED < MAC_OS_VERSION_12_0
-using AXTextMarkerRangeRef = CFTypeRef;
-using AXTextMarkerRef = CFTypeRef;
-extern "C" {
-CFTypeID AXTextMarkerGetTypeID();
-AXTextMarkerRef AXTextMarkerCreate(CFAllocatorRef,
-                                   const UInt8* bytes,
-                                   CFIndex length);
-AXTextMarkerRangeRef AXTextMarkerRangeCreate(CFAllocatorRef,
-                                             AXTextMarkerRef start,
-                                             AXTextMarkerRef end);
-AXTextMarkerRef AXTextMarkerRangeCopyStartMarker(AXTextMarkerRangeRef);
-AXTextMarkerRef AXTextMarkerRangeCopyEndMarker(AXTextMarkerRangeRef);
-size_t AXTextMarkerGetLength(AXTextMarkerRef);
-const UInt8* AXTextMarkerGetBytePtr(AXTextMarkerRef);
-
-CFTypeID AXTextMarkerRangeGetTypeID();
-AXTextMarkerRef AXTextMarkerRangeCopyStartMarker(AXTextMarkerRangeRef);
-AXTextMarkerRef AXTextMarkerRangeCopyEndMarker(AXTextMarkerRangeRef);
-}  // extern "C"
-#endif
 
 namespace ui {
 

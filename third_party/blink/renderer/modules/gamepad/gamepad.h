@@ -26,10 +26,12 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_GAMEPAD_GAMEPAD_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_GAMEPAD_GAMEPAD_H_
 
+#include "base/time/time.h"
 #include "device/gamepad/public/cpp/gamepad.h"
 #include "third_party/blink/renderer/core/dom/dom_high_res_time_stamp.h"
 #include "third_party/blink/renderer/modules/gamepad/gamepad_button.h"
 #include "third_party/blink/renderer/modules/gamepad/gamepad_haptic_actuator.h"
+#include "third_party/blink/renderer/modules/gamepad/gamepad_touch.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
@@ -47,6 +49,11 @@ class MODULES_EXPORT Gamepad final : public ScriptWrappable {
    public:
     virtual GamepadHapticActuator* GetVibrationActuatorForGamepad(
         const Gamepad&) = 0;
+    virtual void SetTouchEvents(const Gamepad&,
+                                GamepadTouchVector&,
+                                unsigned count,
+                                const device::GamepadTouch* data) {}
+
     virtual ~Client() = default;
   };
 
@@ -89,6 +96,12 @@ class MODULES_EXPORT Gamepad final : public ScriptWrappable {
     return vibration_actuator_type_;
   }
 
+  const GamepadTouchVector* touchEvents();
+  void SetTouchEvents(unsigned count, const device::GamepadTouch* data);
+
+  bool HasTouchEvents() const { return has_touch_events_; }
+  bool IsTouchDataDirty() const { return is_touch_data_dirty_; }
+
   void Trace(Visitor*) const override;
 
  private:
@@ -124,6 +137,12 @@ class MODULES_EXPORT Gamepad final : public ScriptWrappable {
   // The type of haptic actuator used for vibration effects.
   device::GamepadHapticActuatorType vibration_actuator_type_;
 
+  // True if the gamepad can provide touch events.
+  bool has_touch_events_ = false;
+
+  // The container used to store the gamepad touch events data.
+  GamepadTouchVector touch_events_;
+
   // True if the data in |axes_| has changed since the last time it was
   // accessed.
   bool is_axis_data_dirty_;
@@ -131,6 +150,10 @@ class MODULES_EXPORT Gamepad final : public ScriptWrappable {
   // True if the data in |buttons_| has changed since the last time it was
   // accessed.
   bool is_button_data_dirty_;
+
+  // True if the data in |touches_| has changed since the last time it was
+  // accessed.
+  bool is_touch_data_dirty_;
 
   // Base time on which all relative timestamps are based.
   const base::TimeTicks time_origin_;

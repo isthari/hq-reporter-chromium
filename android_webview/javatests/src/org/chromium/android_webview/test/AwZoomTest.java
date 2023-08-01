@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,6 +21,7 @@ import org.chromium.android_webview.AwContents;
 import org.chromium.android_webview.AwSettings;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.TestThreadUtils;
 
 import java.util.Locale;
 
@@ -89,6 +90,8 @@ public class AwZoomTest {
 
     private void invokeZoomPickerOnUiThread() {
         ThreadUtils.runOnUiThreadBlocking(() -> mAwContents.invokeZoomPicker());
+        // Zoom picker is updated asynchronously.
+        TestThreadUtils.flushNonDelayedLooperTasks();
     }
 
     private void zoomInOnUiThreadAndWait() throws Throwable {

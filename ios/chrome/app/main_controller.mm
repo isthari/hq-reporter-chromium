@@ -1,141 +1,166 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/app/main_controller.h"
-#import "ios/chrome/app/main_controller_private.h"
 
-#include <memory>
+#import <memory>
 
-#include "base/feature_list.h"
-#include "base/ios/ios_util.h"
-#include "base/mac/bundle_locations.h"
-#include "base/mac/foundation_util.h"
-#include "base/metrics/histogram_functions.h"
-#include "base/path_service.h"
-#include "base/strings/sys_string_conversions.h"
-#include "components/breadcrumbs/core/breadcrumb_manager_keyed_service.h"
-#include "components/breadcrumbs/core/breadcrumb_persistent_storage_manager.h"
-#include "components/breadcrumbs/core/features.h"
-#include "components/component_updater/component_updater_service.h"
-#include "components/component_updater/crl_set_remover.h"
-#include "components/component_updater/installer_policies/autofill_states_component_installer.h"
-#include "components/component_updater/installer_policies/on_device_head_suggest_component_installer.h"
+#import "base/apple/bundle_locations.h"
+#import "base/feature_list.h"
+#import "base/functional/callback.h"
+#import "base/ios/ios_util.h"
+#import "base/mac/foundation_util.h"
+#import "base/metrics/histogram_functions.h"
+#import "base/metrics/histogram_macros.h"
+#import "base/path_service.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/component_updater/component_updater_service.h"
+#import "components/component_updater/crl_set_remover.h"
+#import "components/component_updater/installer_policies/autofill_states_component_installer.h"
+#import "components/component_updater/installer_policies/on_device_head_suggest_component_installer.h"
 #import "components/component_updater/installer_policies/optimization_hints_component_installer.h"
-#include "components/component_updater/installer_policies/safety_tips_component_installer.h"
-#include "components/feature_engagement/public/event_constants.h"
-#include "components/feature_engagement/public/tracker.h"
-#include "components/metrics/metrics_pref_names.h"
-#include "components/metrics/metrics_service.h"
-#include "components/password_manager/core/common/password_manager_features.h"
-#include "components/password_manager/core/common/passwords_directory_util_ios.h"
-#include "components/prefs/ios/pref_observer_bridge.h"
-#include "components/prefs/pref_change_registrar.h"
+#import "components/component_updater/installer_policies/safety_tips_component_installer.h"
+#import "components/component_updater/url_param_filter_remover.h"
+#import "components/feature_engagement/public/event_constants.h"
+#import "components/feature_engagement/public/tracker.h"
+#import "components/metrics/metrics_pref_names.h"
+#import "components/metrics/metrics_service.h"
+#import "components/password_manager/core/common/password_manager_features.h"
+#import "components/password_manager/core/common/passwords_directory_util_ios.h"
+#import "components/prefs/ios/pref_observer_bridge.h"
+#import "components/prefs/pref_change_registrar.h"
 #import "components/previous_session_info/previous_session_info.h"
-#include "components/web_resource/web_resource_pref_names.h"
-#include "ios/chrome/app/app_metrics_app_state_agent.h"
+#import "components/sync/base/features.h"
+#import "components/sync/service/sync_service.h"
+#import "components/web_resource/web_resource_pref_names.h"
+#import "ios/chrome/app/app_metrics_app_state_agent.h"
 #import "ios/chrome/app/application_delegate/metrics_mediator.h"
+#import "ios/chrome/app/application_storage_metrics.h"
 #import "ios/chrome/app/blocking_scene_commands.h"
-#import "ios/chrome/app/content_suggestions_scheduler_app_state_agent.h"
 #import "ios/chrome/app/deferred_initialization_runner.h"
 #import "ios/chrome/app/enterprise_app_agent.h"
+#import "ios/chrome/app/fast_app_terminate_buildflags.h"
+#import "ios/chrome/app/features.h"
+#import "ios/chrome/app/feed_app_agent.h"
 #import "ios/chrome/app/first_run_app_state_agent.h"
 #import "ios/chrome/app/memory_monitor.h"
+#import "ios/chrome/app/post_restore_app_agent.h"
 #import "ios/chrome/app/safe_mode_app_state_agent.h"
 #import "ios/chrome/app/spotlight/spotlight_manager.h"
-#include "ios/chrome/app/startup/chrome_app_startup_parameters.h"
-#include "ios/chrome/app/startup/chrome_main_starter.h"
-#include "ios/chrome/app/startup/client_registration.h"
-#include "ios/chrome/app/startup/ios_chrome_main.h"
-#include "ios/chrome/app/startup/provider_registration.h"
-#include "ios/chrome/app/startup/register_experimental_settings.h"
-#include "ios/chrome/app/startup/setup_debugging.h"
+#import "ios/chrome/app/startup/chrome_app_startup_parameters.h"
+#import "ios/chrome/app/startup/chrome_main_starter.h"
+#import "ios/chrome/app/startup/client_registration.h"
+#import "ios/chrome/app/startup/ios_chrome_main.h"
+#import "ios/chrome/app/startup/ios_enable_sandbox_dump_buildflags.h"
+#import "ios/chrome/app/startup/provider_registration.h"
+#import "ios/chrome/app/startup/register_experimental_settings.h"
+#import "ios/chrome/app/startup/setup_debugging.h"
 #import "ios/chrome/app/startup_tasks.h"
-#include "ios/chrome/app/tests_hook.h"
+#import "ios/chrome/app/tests_hook.h"
+#import "ios/chrome/app/variations_app_state_agent.h"
 #import "ios/chrome/browser/accessibility/window_accessibility_change_notifier_app_agent.h"
-#include "ios/chrome/browser/application_context.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state_manager.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state_removal_controller.h"
-#include "ios/chrome/browser/browsing_data/browsing_data_remover.h"
-#include "ios/chrome/browser/browsing_data/browsing_data_remover_factory.h"
+#import "ios/chrome/browser/browser_state/chrome_browser_state_removal_controller.h"
+#import "ios/chrome/browser/browsing_data/browsing_data_remover.h"
+#import "ios/chrome/browser/browsing_data/browsing_data_remover_factory.h"
 #import "ios/chrome/browser/browsing_data/sessions_storage_util.h"
-#include "ios/chrome/browser/chrome_paths.h"
-#include "ios/chrome/browser/crash_report/breadcrumbs/breadcrumb_manager_keyed_service_factory.h"
-#include "ios/chrome/browser/crash_report/crash_helper.h"
-#include "ios/chrome/browser/crash_report/crash_keys_helper.h"
-#include "ios/chrome/browser/crash_report/crash_loop_detection_util.h"
-#include "ios/chrome/browser/crash_report/crash_report_helper.h"
-#import "ios/chrome/browser/crash_report/crash_restore_helper.h"
-#include "ios/chrome/browser/credential_provider/credential_provider_buildflags.h"
-#include "ios/chrome/browser/download/download_directory_util.h"
+#import "ios/chrome/browser/crash_report/crash_helper.h"
+#import "ios/chrome/browser/crash_report/crash_keys_helper.h"
+#import "ios/chrome/browser/crash_report/crash_loop_detection_util.h"
+#import "ios/chrome/browser/crash_report/crash_report_helper.h"
+#import "ios/chrome/browser/credential_provider/credential_provider_buildflags.h"
+#import "ios/chrome/browser/default_browser/utils.h"
+#import "ios/chrome/browser/download/download_directory_util.h"
 #import "ios/chrome/browser/external_files/external_file_remover_factory.h"
 #import "ios/chrome/browser/external_files/external_file_remover_impl.h"
-#include "ios/chrome/browser/feature_engagement/tracker_factory.h"
+#import "ios/chrome/browser/favicon/ios_chrome_favicon_loader_factory.h"
+#import "ios/chrome/browser/feature_engagement/tracker_factory.h"
 #import "ios/chrome/browser/first_run/first_run.h"
-#include "ios/chrome/browser/main/browser.h"
-#import "ios/chrome/browser/main/browser_list.h"
-#import "ios/chrome/browser/main/browser_list_factory.h"
+#import "ios/chrome/browser/flags/system_flags.h"
+#import "ios/chrome/browser/mailto_handler/mailto_handler_service.h"
+#import "ios/chrome/browser/mailto_handler/mailto_handler_service_factory.h"
 #import "ios/chrome/browser/memory/memory_debugger_manager.h"
-#include "ios/chrome/browser/metrics/first_user_action_recorder.h"
+#import "ios/chrome/browser/metrics/first_user_action_recorder.h"
 #import "ios/chrome/browser/metrics/incognito_usage_app_state_agent.h"
 #import "ios/chrome/browser/metrics/window_configuration_recorder.h"
-#import "ios/chrome/browser/net/cookie_util.h"
 #import "ios/chrome/browser/omaha/omaha_service.h"
-#include "ios/chrome/browser/pref_names.h"
+#import "ios/chrome/browser/passwords/password_manager_util_ios.h"
+#import "ios/chrome/browser/paths/paths.h"
+#import "ios/chrome/browser/promos_manager/promos_manager_factory.h"
 #import "ios/chrome/browser/screenshot/screenshot_metrics_recorder.h"
 #import "ios/chrome/browser/search_engines/extension_search_engine_data_updater.h"
-#include "ios/chrome/browser/search_engines/search_engines_util.h"
-#include "ios/chrome/browser/search_engines/template_url_service_factory.h"
+#import "ios/chrome/browser/search_engines/search_engines_util.h"
+#import "ios/chrome/browser/search_engines/template_url_service_factory.h"
 #import "ios/chrome/browser/sessions/scene_util.h"
+#import "ios/chrome/browser/sessions/session_service_ios.h"
 #import "ios/chrome/browser/share_extension/share_extension_service.h"
 #import "ios/chrome/browser/share_extension/share_extension_service_factory.h"
-#include "ios/chrome/browser/signin/authentication_service_delegate.h"
-#include "ios/chrome/browser/signin/authentication_service_factory.h"
+#import "ios/chrome/browser/shared/coordinator/scene/scene_delegate.h"
+#import "ios/chrome/browser/shared/coordinator/scene/scene_state.h"
+#import "ios/chrome/browser/shared/model/application_context/application_context.h"
+#import "ios/chrome/browser/shared/model/browser/browser.h"
+#import "ios/chrome/browser/shared/model/browser/browser_list.h"
+#import "ios/chrome/browser/shared/model/browser/browser_list_factory.h"
+#import "ios/chrome/browser/shared/model/browser/browser_provider.h"
+#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state_manager.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/shared/public/commands/browser_coordinator_commands.h"
+#import "ios/chrome/browser/shared/public/commands/command_dispatcher.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
+#import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
+#import "ios/chrome/browser/signin/authentication_service_delegate.h"
+#import "ios/chrome/browser/signin/authentication_service_factory.h"
 #import "ios/chrome/browser/snapshots/snapshot_browser_agent.h"
 #import "ios/chrome/browser/snapshots/snapshot_cache.h"
-#include "ios/chrome/browser/system_flags.h"
+#import "ios/chrome/browser/sync/sync_service_factory.h"
 #import "ios/chrome/browser/ui/appearance/appearance_customization.h"
-#import "ios/chrome/browser/ui/commands/browser_commands.h"
-#import "ios/chrome/browser/ui/commands/command_dispatcher.h"
-#import "ios/chrome/browser/ui/first_run/welcome_to_chrome_view_controller.h"
+#import "ios/chrome/browser/ui/first_run/first_run_util.h"
 #import "ios/chrome/browser/ui/main/browser_view_wrangler.h"
-#import "ios/chrome/browser/ui/main/scene_delegate.h"
-#import "ios/chrome/browser/ui/ui_feature_flags.h"
-#include "ios/chrome/browser/ui/util/uikit_ui_util.h"
 #import "ios/chrome/browser/ui/webui/chrome_web_ui_ios_controller_factory.h"
 #import "ios/chrome/browser/url_loading/url_loading_params.h"
 #import "ios/chrome/browser/web/certificate_policy_app_agent.h"
+#import "ios/chrome/browser/web/features.h"
 #import "ios/chrome/browser/web/session_state/web_session_state_cache.h"
 #import "ios/chrome/browser/web/session_state/web_session_state_cache_factory.h"
-#import "ios/chrome/browser/web_state_list/web_state_list.h"
-#include "ios/chrome/common/app_group/app_group_constants.h"
-#include "ios/chrome/common/app_group/app_group_field_trial_version.h"
-#include "ios/chrome/common/app_group/app_group_utils.h"
-#include "ios/net/cookies/cookie_store_ios.h"
+#import "ios/chrome/common/app_group/app_group_constants.h"
+#import "ios/chrome/common/app_group/app_group_field_trial_version.h"
+#import "ios/chrome/common/app_group/app_group_utils.h"
+#import "ios/components/cookie_util/cookie_util.h"
+#import "ios/net/cookies/cookie_store_ios.h"
 #import "ios/net/empty_nsurlcache.h"
-#include "ios/public/provider/chrome/browser/app_distribution/app_distribution_api.h"
-#include "ios/public/provider/chrome/browser/chrome_browser_provider.h"
-#include "ios/public/provider/chrome/browser/mailto/mailto_handler_provider.h"
+#import "ios/public/provider/chrome/browser/app_distribution/app_distribution_api.h"
 #import "ios/public/provider/chrome/browser/overrides/overrides_api.h"
 #import "ios/public/provider/chrome/browser/ui_utils/ui_utils_api.h"
-#import "ios/public/provider/chrome/browser/user_feedback/user_feedback_provider.h"
+#import "ios/public/provider/chrome/browser/user_feedback/user_feedback_api.h"
 #import "ios/web/common/features.h"
-#include "ios/web/public/webui/web_ui_ios_controller_factory.h"
+#import "ios/web/public/webui/web_ui_ios_controller_factory.h"
 #import "net/base/mac/url_conversions.h"
-#include "services/network/public/cpp/shared_url_loader_factory.h"
+#import "services/network/public/cpp/shared_url_loader_factory.h"
 
 #if BUILDFLAG(IOS_CREDENTIAL_PROVIDER_ENABLED)
 #import "ios/chrome/app/credential_provider_migrator_app_agent.h"
-#include "ios/chrome/browser/credential_provider/credential_provider_service_factory.h"
-#include "ios/chrome/browser/credential_provider/credential_provider_support.h"
+#import "ios/chrome/browser/credential_provider/credential_provider_service_factory.h"
+#import "ios/chrome/browser/credential_provider/credential_provider_support.h"
+#import "ios/chrome/browser/credential_provider/credential_provider_util.h"
 #endif
+
+#if BUILDFLAG(IOS_ENABLE_SANDBOX_DUMP)
+#import "ios/chrome/app/dump_documents_statistics.h"
+#endif  // BUILDFLAG(IOS_ENABLE_SANDBOX_DUMP)
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
 namespace {
+
+#if BUILDFLAG(FAST_APP_TERMINATE_ENABLED)
+// Skip chromeMain.reset() on shutdown, see crbug.com/1328891 for details.
+BASE_FEATURE(kFastApplicationWillTerminate,
+             "FastApplicationWillTerminate",
+             base::FEATURE_DISABLED_BY_DEFAULT);
+#endif  // BUILDFLAG(FAST_APP_TERMINATE_ENABLED)
 
 // Constants for deferring resetting the startup attempt count (to give the app
 // a little while to make sure it says alive).
@@ -185,6 +210,14 @@ NSString* const kEnterpriseManagedDeviceCheck = @"EnterpriseManagedDeviceCheck";
 // Constants for deferred deletion of leftover session state files.
 NSString* const kPurgeWebSessionStates = @"PurgeWebSessionStates";
 
+// Constants for deferred favicons clean up.
+NSString* const kFaviconsCleanup = @"FaviconsCleanup";
+
+// The minimum amount of time (2 weeks in seconds) between calculating and
+// logging metrics about the amount of device storage space used by Chrome.
+const NSTimeInterval kMinimumTimeBetweenDocumentsSizeLogging =
+    60.0 * 60.0 * 24.0 * 14.0;
+
 // Adapted from chrome/browser/ui/browser_init.cc.
 void RegisterComponentsForUpdate() {
   component_updater::ComponentUpdateService* cus =
@@ -196,6 +229,7 @@ void RegisterComponentsForUpdate() {
   // Clean up any legacy CRLSet on the local disk - CRLSet used to be shipped
   // as a component on iOS but is not anymore.
   component_updater::DeleteLegacyCRLSet(path);
+  component_updater::DeleteUrlParamFilter(path);
 
   RegisterOnDeviceHeadSuggestComponent(
       cus, GetApplicationContext()->GetApplicationLocale());
@@ -251,15 +285,13 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 
 }  // namespace
 
-@interface MainController () <PrefObserverDelegate, BlockingSceneCommands> {
+@interface MainController () <PrefObserverDelegate,
+                              BlockingSceneCommands,
+                              SceneStateObserver> {
   IBOutlet UIWindow* _window;
-
-  // Weak; owned by the ApplicationContext.
-  ios::ChromeBrowserStateManager* _browserStateManager;
 
   // The object that drives the Chrome startup/shutdown logic.
   std::unique_ptr<IOSChromeMain> _chromeMain;
-
 
   // True if the current session began from a cold start. False if the app has
   // entered the background at least once since start up.
@@ -287,9 +319,6 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
   // in system Spotlight index.
   SpotlightManager* _spotlightManager;
 
-  // Cached launchOptions from -didFinishLaunchingWithOptions.
-  NSDictionary* _launchOptions;
-
   // Variable backing metricsMediator property.
   __weak MetricsMediator* _metricsMediator;
 
@@ -297,18 +326,11 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 
   // Handler for the startup tasks, deferred or not.
   StartupTasks* _startupTasks;
-
-  // List of closure to run as part of shutdown. The closure will be called
-  // in reverse order of registration.
-  std::vector<base::OnceClosure> _cleanupClosures;
 }
 
 // Handles collecting metrics on user triggered screenshots
 @property(nonatomic, strong)
     ScreenshotMetricsRecorder* screenshotMetricsRecorder;
-
-// Returns whether the restore infobar should be displayed.
-- (bool)mustShowRestoreInfobar;
 // Cleanup snapshots on disk.
 - (void)cleanupSnapshots;
 // Cleanup discarded sessions on disk.
@@ -317,8 +339,7 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 - (void)sendQueuedFeedback;
 // Called whenever an orientation change is received.
 - (void)orientationDidChange:(NSNotification*)notification;
-// Register to receive orientation change notification to update breakpad
-// report.
+// Register to receive orientation change notification to update crash keys.
 - (void)registerForOrientationChangeNotifications;
 // Asynchronously creates the pref observers.
 - (void)schedulePrefObserverInitialization;
@@ -326,8 +347,6 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 - (void)scheduleAppDistributionPings;
 // Asynchronously schedule the init of the memoryDebuggerManager.
 - (void)scheduleMemoryDebuggingTools;
-// Starts logging breadcrumbs.
-- (void)startLoggingBreadcrumbs;
 // Asynchronously kick off regular free memory checks.
 - (void)startFreeMemoryMonitoring;
 // Asynchronously schedules the reset of the failed startup attempt counter.
@@ -362,17 +381,11 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 // Initializes the browser objects for the browser UI (e.g., the browser
 // state).
 - (void)startUpBrowserForegroundInitialization;
-// Register a closure to be called as part of app cleanup.
-- (void)registerCleanupClosure:(base::OnceClosure)closure;
 @end
 
 @implementation MainController
-// Defined by MainControllerGuts.
-@synthesize restoreHelper = _restoreHelper;
 
 // Defined by public protocols.
-// - BrowserLauncher
-@synthesize launchOptions = _launchOptions;
 // - StartupInformation
 @synthesize isColdStart = _isColdStart;
 @synthesize appLaunchTime = _appLaunchTime;
@@ -384,6 +397,7 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 
 - (instancetype)init {
   if ((self = [super init])) {
+    _isFirstRun = ShouldPresentFirstRunExperience();
     _startupTasks = [[StartupTasks alloc] init];
   }
   return self;
@@ -396,6 +410,10 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 - (void)startUpBrowserBasicInitialization {
   _appLaunchTime = IOSChromeMain::StartTime();
   _isColdStart = YES;
+  if (@available(iOS 15, *)) {
+    UMA_HISTOGRAM_BOOLEAN("IOS.Process.ActivePrewarm",
+                          base::ios::IsApplicationPreWarmed());
+  }
 
   [SetupDebugging setUpDebuggingOptions];
 
@@ -414,7 +432,7 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 - (void)startUpBrowserBackgroundInitialization {
   DCHECK(self.appState.initStage > InitStageSafeMode);
 
-  NSBundle* baseBundle = base::mac::OuterBundle();
+  NSBundle* baseBundle = base::apple::OuterBundle();
   base::mac::SetBaseBundleID(
       base::SysNSStringToUTF8([baseBundle bundleIdentifier]).c_str());
 
@@ -423,13 +441,45 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
   [RegisterExperimentalSettings
       registerExperimentalSettingsWithUserDefaults:[NSUserDefaults
                                                        standardUserDefaults]
-                                            bundle:base::mac::
+                                            bundle:base::apple::
                                                        FrameworkBundle()];
 
   // Register all clients before calling any web code.
   [ClientRegistration registerClients];
 
   _chromeMain = [ChromeMainStarter startChromeMain];
+
+  // Start recording field trial info.
+  [[PreviousSessionInfo sharedInstance] beginRecordingFieldTrials];
+
+  // Remove the extra browser states as Chrome iOS is single profile in M48+.
+  ChromeBrowserStateRemovalController::GetInstance()
+      ->RemoveBrowserStatesIfNecessary();
+
+  ChromeBrowserState* chromeBrowserState = GetApplicationContext()
+                                               ->GetChromeBrowserStateManager()
+                                               ->GetLastUsedBrowserState();
+
+  // Initialize and set the main browser state.
+  [self initializeBrowserState:chromeBrowserState];
+  self.appState.mainBrowserState = chromeBrowserState;
+
+  // Give tests a chance to prepare for testing.
+  tests_hook::SetUpTestsIfPresent();
+
+  // Force an obvious initialization of the AuthenticationService. This must
+  // be done before creation of the UI to ensure the service is initialised
+  // before use (it is a security issue, so accessing the service CHECKs if
+  // this is not the case). It is important to do this during background
+  // initialization when the app is cold started directly into the background
+  // because it is used by the DiscoverFeedService, which is started in the
+  // background to perform background refresh. There is no downside to doing
+  // this during background initialization when the app is launched into the
+  // foreground.
+  AuthenticationServiceFactory::CreateAndInitializeForBrowserState(
+      self.appState.mainBrowserState,
+      std::make_unique<MainControllerAuthenticationServiceDelegate>(
+          self.appState.mainBrowserState, self));
 
   // Initialize the provider UI global state.
   ios::provider::InitializeUI();
@@ -456,15 +506,21 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
       ChromeWebUIIOSControllerFactory::GetInstance());
 
   [NSURLCache setSharedURLCache:[EmptyNSURLCache emptyNSURLCache]];
+
+  ChromeBrowserState* browserState = self.appState.mainBrowserState;
+  DCHECK(browserState);
+  [self.appState
+      addAgent:
+          [[PostRestoreAppAgent alloc]
+              initWithPromosManager:PromosManagerFactory::GetForBrowserState(
+                                        browserState)
+              authenticationService:AuthenticationServiceFactory::
+                                        GetForBrowserState(browserState)
+                         localState:GetApplicationContext()->GetLocalState()]];
 }
 
 // This initialization must happen before any windows are created.
-// Returns YES iff there's a session restore available.
-- (BOOL)startUpBeforeFirstWindowCreatedAndPrepareForRestorationPostCrash:
-    (BOOL)isPostCrashLaunch {
-  // Give tests a chance to prepare for testing.
-  tests_hook::SetUpTestsIfPresent();
-
+- (void)startUpBeforeFirstWindowCreated {
   GetApplicationContext()->OnAppEnterForeground();
 
   // Although this duplicates some metrics_service startup logic also in
@@ -485,25 +541,16 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 
   RegisterComponentsForUpdate();
 
-  // Remove the extra browser states as Chrome iOS is single profile in M48+.
-  ChromeBrowserStateRemovalController::GetInstance()
-      ->RemoveBrowserStatesIfNecessary();
+#if !defined(NDEBUG)
+  // Legacy code used GetLastUsedBrowserState() in this method. We changed it to
+  // use self.appState.mainBrowserState instead. The DCHECK ensures that
+  // invariant holds true.
+  ChromeBrowserState* chromeBrowserState = GetApplicationContext()
+                                               ->GetChromeBrowserStateManager()
+                                               ->GetLastUsedBrowserState();
+  DCHECK_EQ(chromeBrowserState, self.appState.mainBrowserState);
+#endif  // !defined(NDEBUG)
 
-  _browserStateManager =
-      GetApplicationContext()->GetChromeBrowserStateManager();
-  ChromeBrowserState* chromeBrowserState =
-      _browserStateManager->GetLastUsedBrowserState();
-
-  // The CrashRestoreHelper must clean up the old browser state information.
-  // |self.restoreHelper| must be kept alive until the BVC receives the
-  // browser state.
-  BOOL needRestoration = NO;
-  if (isPostCrashLaunch) {
-    NSSet<NSString*>* sessions =
-        [[PreviousSessionInfo sharedInstance] connectedSceneSessionsIDs];
-    needRestoration = [CrashRestoreHelper moveAsideSessions:sessions
-                                            forBrowserState:chromeBrowserState];
-  }
   if (!base::ios::IsMultipleScenesSupported()) {
     NSSet<NSString*>* previousSessions =
         [PreviousSessionInfo sharedInstance].connectedSceneSessionsIDs;
@@ -512,28 +559,19 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
   }
   [[PreviousSessionInfo sharedInstance] resetConnectedSceneSessionIDs];
 
-  // Initialize and set the main browser state.
-  [self initializeBrowserState:chromeBrowserState];
-  self.appState.mainBrowserState = chromeBrowserState;
-
-  if (base::FeatureList::IsEnabled(breadcrumbs::kLogBreadcrumbs)) {
-    [self startLoggingBreadcrumbs];
-  }
-
-  // Force an obvious initialization of the AuthenticationService. This must
-  // be done before creation of the UI to ensure the service is initialised
-  // before use (it is a security issue, so accessing the service CHECK if
-  // this is not the case).
-  DCHECK(self.appState.mainBrowserState);
-  AuthenticationServiceFactory::CreateAndInitializeForBrowserState(
-      self.appState.mainBrowserState,
-      std::make_unique<MainControllerAuthenticationServiceDelegate>(
-          self.appState.mainBrowserState, self));
-
+  feature_engagement::Tracker* tracker =
+      feature_engagement::TrackerFactory::GetForBrowserState(
+          self.appState.mainBrowserState);
   // Send "Chrome Opened" event to the feature_engagement::Tracker on cold
   // start.
-  feature_engagement::TrackerFactory::GetForBrowserState(chromeBrowserState)
-      ->NotifyEvent(feature_engagement::events::kChromeOpened);
+  tracker->NotifyEvent(feature_engagement::events::kChromeOpened);
+
+  // Send "default_browser_video_promo_conditions_met" event to the
+  // feature_engagement::Tracker on cold start.
+  if (HasAppLaunchedOnColdStartAndRecordsLaunch()) {
+    tracker->NotifyEvent(
+        feature_engagement::events::kDefaultBrowserVideoPromoConditionsMet);
+  }
 
   _spotlightManager = [SpotlightManager
       spotlightManagerWithBrowserState:self.appState.mainBrowserState];
@@ -551,8 +589,6 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 #endif
 
   _windowConfigurationRecorder = [[WindowConfigurationRecorder alloc] init];
-
-  return needRestoration;
 }
 
 // This initialization must only happen once there's at least one Chrome window
@@ -561,8 +597,6 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
   // "Low priority" tasks
   [_startupTasks registerForApplicationWillResignActiveNotification];
   [self registerForOrientationChangeNotifications];
-
-  _launchOptions = nil;
 
   [self scheduleTasksRequiringBVCWithBrowserState];
 
@@ -584,18 +618,28 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
   [self.screenshotMetricsRecorder startRecordingMetrics];
 }
 
+- (PostCrashAction)postCrashAction {
+  if (self.appState.resumingFromSafeMode)
+    return PostCrashAction::kShowSafeMode;
+
+  if (GetApplicationContext()->WasLastShutdownClean())
+    return PostCrashAction::kRestoreTabsCleanShutdown;
+
+  if (crash_util::GetFailedStartupAttemptCount() >= 2) {
+    return PostCrashAction::kShowNTPWithReturnToTab;
+  }
+
+  return PostCrashAction::kRestoreTabsUncleanShutdown;
+}
+
 - (void)startUpBrowserForegroundInitialization {
   // TODO(crbug/1232027): Determine whether Chrome needs to resume watching for
   // crashes.
 
-  self.appState.postCrashLaunch = [self mustShowRestoreInfobar];
-  self.appState.sessionRestorationRequired =
-      [self startUpBeforeFirstWindowCreatedAndPrepareForRestorationPostCrash:
-                self.appState.postCrashLaunch];
-}
-
-- (void)registerCleanupClosure:(base::OnceClosure)closure {
-  _cleanupClosures.push_back(std::move(closure));
+  self.appState.postCrashAction = [self postCrashAction];
+  [self startUpBeforeFirstWindowCreated];
+  base::UmaHistogramEnumeration("Stability.IOS.PostCrashAction",
+                                self.appState.postCrashAction);
 }
 
 - (void)initializeBrowserState:(ChromeBrowserState*)browserState {
@@ -606,6 +650,10 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 }
 
 #pragma mark - AppStateObserver
+
+- (void)appState:(AppState*)appState sceneConnected:(SceneState*)sceneState {
+  [sceneState addObserver:self];
+}
 
 // Called when the first scene becomes active.
 - (void)appState:(AppState*)appState
@@ -639,18 +687,16 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
     case InitStageSafeMode:
       [self addPostSafeModeAgents];
       break;
-    case InitStageEnterprise:
+    case InitStageVariationsSeed:
       break;
     case InitStageBrowserObjectsForBackgroundHandlers:
       [self startUpBrowserBackgroundInitialization];
       [appState queueTransitionToNextInitStage];
       break;
+    case InitStageEnterprise:
+      break;
     case InitStageBrowserObjectsForUI:
-      // When adding a new initialization flow, consider setting
-      // |_appState.userInteracted| at the appropriate time.
-      DCHECK(_appState.userInteracted);
-      [self startUpBrowserForegroundInitialization];
-      [appState queueTransitionToNextInitStage];
+      [self maybeContinueForegroundInitialization];
       break;
     case InitStageNormalUI:
       // Scene controllers use this stage to create the normal UI if needed.
@@ -666,7 +712,6 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 }
 
 - (void)addPostSafeModeAgents {
-  [self.appState addAgent:[[ContentSuggestionsSchedulerAppAgent alloc] init]];
   [self.appState addAgent:[[EnterpriseAppAgent alloc] init]];
   [self.appState addAgent:[[IncognitoUsageAppStateAgent alloc] init]];
   [self.appState addAgent:[[FirstRunAppAgent alloc] init]];
@@ -674,6 +719,22 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 #if BUILDFLAG(IOS_CREDENTIAL_PROVIDER_ENABLED)
   [self.appState addAgent:[[CredentialProviderAppAgent alloc] init]];
 #endif
+}
+
+#pragma mark - SceneStateObserver
+
+- (void)sceneState:(SceneState*)sceneState
+    transitionedToActivationLevel:(SceneActivationLevel)level {
+  if (level == SceneActivationLevelUnattached) {
+    [sceneState removeObserver:self];
+  } else if (level > SceneActivationLevelBackground) {
+    // Stop observing all scenes since we only needed to know when the app
+    // (first scene) is about to go to the foreground.
+    for (SceneState* scene in _appState.connectedScenes) {
+      [scene removeObserver:self];
+    }
+    [self maybeContinueForegroundInitialization];
+  }
 }
 
 #pragma mark - Property implementation.
@@ -686,6 +747,8 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
   // Create app state agents.
   [appState addAgent:[[AppMetricsAppStateAgent alloc] init]];
   [appState addAgent:[[SafeModeAppAgent alloc] init]];
+  [appState addAgent:[[FeedAppAgent alloc] init]];
+  [appState addAgent:[[VariationsAppStateAgent alloc] init]];
 
   // Create the window accessibility agent only when multiple windows are
   // possible.
@@ -694,14 +757,15 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
   }
 }
 
-- (id<BrowserInterfaceProvider>)interfaceProvider {
+- (id<BrowserProviderInterface>)browserProviderInterface {
   if (self.appState.foregroundActiveScene) {
-    return self.appState.foregroundActiveScene.interfaceProvider;
+    return self.appState.foregroundActiveScene.browserProviderInterface;
   }
   NSArray<SceneState*>* connectedScenes = self.appState.connectedScenes;
 
-  return connectedScenes.count == 0 ? nil
-                                    : connectedScenes[0].interfaceProvider;
+  return connectedScenes.count == 0
+             ? nil
+             : connectedScenes[0].browserProviderInterface;
 }
 
 - (BOOL)isFirstLaunchAfterUpgrade {
@@ -732,43 +796,10 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 }
 
 - (void)stopChromeMain {
-  OmahaService::Stop();
-
   [_spotlightManager shutdown];
   _spotlightManager = nil;
 
-  if (base::FeatureList::IsEnabled(breadcrumbs::kLogBreadcrumbs)) {
-    if (self.appState.mainBrowserState->HasOffTheRecordChromeBrowserState()) {
-      breadcrumbs::BreadcrumbManagerKeyedService* service =
-          BreadcrumbManagerKeyedServiceFactory::GetForBrowserState(
-              self.appState.mainBrowserState
-                  ->GetOffTheRecordChromeBrowserState());
-      service->StopPersisting();
-      breakpad::StopMonitoringBreadcrumbManagerService(service);
-    }
-
-    breadcrumbs::BreadcrumbManagerKeyedService* service =
-        BreadcrumbManagerKeyedServiceFactory::GetForBrowserState(
-            self.appState.mainBrowserState);
-    service->StopPersisting();
-    breakpad::StopMonitoringBreadcrumbManagerService(service);
-  }
-
   _extensionSearchEngineDataUpdater = nullptr;
-
-  if (!_cleanupClosures.empty()) {
-    std::vector<base::OnceClosure> cleanupClosures;
-    cleanupClosures.swap(_cleanupClosures);
-
-    while (!cleanupClosures.empty()) {
-      base::OnceClosure closure = std::move(cleanupClosures.back());
-      cleanupClosures.pop_back();
-      std::move(closure).Run();
-    }
-
-    DCHECK(_cleanupClosures.empty())
-        << "-registerCleanupClosure must not be called during shutdown";
-  }
 
   // _localStatePrefChangeRegistrar is observing the PrefService, which is owned
   // indirectly by _chromeMain (through the ChromeBrowserState).
@@ -783,19 +814,64 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
     sceneState.activationLevel = SceneActivationLevelUnattached;
   }
 
+#if BUILDFLAG(FAST_APP_TERMINATE_ENABLED)
+  // _chromeMain.reset() is a blocking call that regularly causes
+  // applicationWillTerminate to fail after a 5s delay. Experiment with skipping
+  // this shutdown call. See: crbug.com/1328891
+  if (base::FeatureList::IsEnabled(kFastApplicationWillTerminate)) {
+    metrics::MetricsService* metrics =
+        GetApplicationContext()->GetMetricsService();
+    dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+    static std::atomic<uint32_t> counter{metrics ? 2u : 1u};
+    ProceduralBlock completionBlock = ^{
+      if (!--counter) {
+        dispatch_semaphore_signal(semaphore);
+      }
+    };
+    [[SessionServiceIOS sharedService] shutdownWithCompletion:completionBlock];
+
+    if (metrics) {
+      metrics->Stop();
+      // MetricsService::Stop() depends on a committed local state, and does so
+      // asynchronously. To avoid losing metrics, this minimum wait is required.
+      // This will introduce a wait that will likely be the source of a number
+      // of watchdog kills, but it should still be fewer than the number of
+      // kills `_chromeMain.reset()` is responsible for.
+      GetApplicationContext()->GetLocalState()->CommitPendingWrite(
+          {}, base::BindOnce(completionBlock));
+      dispatch_time_t dispatchTime =
+          dispatch_time(DISPATCH_TIME_NOW, 4 * NSEC_PER_SEC);
+      dispatch_semaphore_wait(semaphore, dispatchTime);
+    }
+
+    return;
+  }
+#endif  // BUILDFLAG(FAST_APP_TERMINATE_ENABLED)
+
   _chromeMain.reset();
 }
 
 #pragma mark - Startup tasks
 
+// Continues foreground initialization iff both the init stage and activation
+// level are ready.
+- (void)maybeContinueForegroundInitialization {
+  if (self.appState.foregroundScenes.count > 0 &&
+      self.appState.initStage == InitStageBrowserObjectsForUI) {
+    DCHECK(self.appState.userInteracted);
+    [self startUpBrowserForegroundInitialization];
+    [self.appState queueTransitionToNextInitStage];
+  }
+}
+
 - (void)sendQueuedFeedback {
-  [[DeferredInitializationRunner sharedInstance]
-      enqueueBlockNamed:kSendQueuedFeedback
-                  block:^{
-                    ios::GetChromeBrowserProvider()
-                        .GetUserFeedbackProvider()
-                        ->Synchronize();
-                  }];
+  if (ios::provider::IsUserFeedbackSupported()) {
+    [[DeferredInitializationRunner sharedInstance]
+        enqueueBlockNamed:kSendQueuedFeedback
+                    block:^{
+                      ios::provider::UploadAllPendingUserFeedback();
+                    }];
+  }
 }
 
 - (void)orientationDidChange:(NSNotification*)notification {
@@ -824,16 +900,30 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 
 - (void)initializePrefObservers {
   // Track changes to local state prefs.
-  _localStatePrefChangeRegistrar.Init(GetApplicationContext()->GetLocalState());
+  PrefService* localState = GetApplicationContext()->GetLocalState();
+  _localStatePrefChangeRegistrar.Init(localState);
   _localStatePrefObserverBridge = std::make_unique<PrefObserverBridge>(self);
   _localStatePrefObserverBridge->ObserveChangesForPreference(
       metrics::prefs::kMetricsReportingEnabled,
       &_localStatePrefChangeRegistrar);
 
-  // Calls the onPreferenceChanged function in case there was
-  // a change to the observed preferences before the observer
-  // bridge was set up.
-  [self onPreferenceChanged:metrics::prefs::kMetricsReportingEnabled];
+  // Calls the onPreferenceChanged function in case there was a change to the
+  // observed preferences before the observer bridge was set up. However, if the
+  // metrics reporting pref is still unset (has default value), then do not
+  // call. This likely means that the user is still on the welcome screen during
+  // the first run experience (FRE), and calling onPreferenceChanged here would
+  // clear the provisional client ID (in
+  // MetricsMediator::updateMetricsPrefsOnPermissionChange). The provisional
+  // client ID is crucial for field trial assignment consistency between the
+  // first session and follow-up sessions, and is promoted to be the real client
+  // ID if the user enables metrics reporting in the FRE. Otherwise, it is
+  // discarded, as would happen here if onPreferenceChanged was called while the
+  // user was still on the welcome screen and did yet enable/disable metrics
+  // reporting.
+  if (!localState->FindPreference(metrics::prefs::kMetricsReportingEnabled)
+           ->IsDefaultValue()) {
+    [self onPreferenceChanged:metrics::prefs::kMetricsReportingEnabled];
+  }
 
   // Track changes to default search engine.
   TemplateURLService* service =
@@ -899,21 +989,28 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
   [[DeferredInitializationRunner sharedInstance]
       enqueueBlockNamed:kPurgeWebSessionStates
                   block:^{
-                    WebSessionStateCache* cache =
-                        WebSessionStateCacheFactory::GetForBrowserState(
-                            self.appState.mainBrowserState);
-                    [cache purgeUnassociatedData];
+                    if (web::UseNativeSessionRestorationCache()) {
+                      WebSessionStateCache* cache =
+                          WebSessionStateCacheFactory::GetForBrowserState(
+                              self.appState.mainBrowserState);
+                      [cache purgeUnassociatedData];
+                    }
                   }];
 }
 
 - (void)scheduleStartupCleanupTasks {
+  // Schedule the prefs observer init first to ensure kMetricsReportingEnabled
+  // is synced before starting uploads.
+  [self schedulePrefObserverInitialization];
   [self scheduleCrashReportUpload];
 
   // ClearSessionCookies() is not synchronous.
   if (cookie_util::ShouldClearSessionCookies()) {
     cookie_util::ClearSessionCookies(
         self.appState.mainBrowserState->GetOriginalChromeBrowserState());
-    if (!(self.otrBrowser->GetWebStateList()->empty())) {
+    Browser* otrBrowser =
+        self.browserProviderInterface.incognitoBrowserProvider.browser;
+    if (otrBrowser && !(otrBrowser->GetWebStateList()->empty())) {
       cookie_util::ClearSessionCookies(
           self.appState.mainBrowserState->GetOffTheRecordChromeBrowserState());
     }
@@ -925,10 +1022,8 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
   // If the user chooses to restore their session, some cached snapshots and
   // session states may be needed. Otherwise, cleanup the snapshots and session
   // states
-  if (![self mustShowRestoreInfobar]) {
-    [self scheduleSnapshotsCleanup];
-    [self scheduleSessionStateCacheCleanup];
-  }
+  [self scheduleSnapshotsCleanup];
+  [self scheduleSessionStateCacheCleanup];
 }
 
 - (void)scheduleMemoryDebuggingTools {
@@ -959,47 +1054,50 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
                     if (!strongSelf || !strongSelf.appState.mainBrowserState) {
                       return;
                     }
-                    ios::GetChromeBrowserProvider()
-                        .GetMailtoHandlerProvider()
-                        ->PrepareMailtoHandling(
-                            strongSelf.appState.mainBrowserState);
-
-                    [strongSelf registerCleanupClosure:base::BindOnce([] {
-                                  ios::GetChromeBrowserProvider()
-                                      .GetMailtoHandlerProvider()
-                                      ->RemoveMailtoHandling();
-                                })];
+                    // Force the creation of the MailtoHandlerService.
+                    MailtoHandlerServiceFactory::GetForBrowserState(
+                        strongSelf.appState.mainBrowserState);
                   }];
 }
 
-// Schedule a call to |saveFieldTrialValuesForExtensions| for deferred
-// execution.
-- (void)scheduleSaveFieldTrialValuesForExtensions {
+// Schedule a call to `scheduleSaveFieldTrialValuesForExternals` for deferred
+// execution. Externals can be extensions or 1st party apps.
+- (void)scheduleSaveFieldTrialValuesForExternals {
+  __weak __typeof(self) weakSelf = self;
   [[DeferredInitializationRunner sharedInstance]
       enqueueBlockNamed:kSaveFieldTrialValues
                   block:^{
-                    [self saveFieldTrialValuesForExtensions];
+                    [weakSelf saveFieldTrialValuesForExtensions];
+                    [weakSelf saveFieldTrialValuesForGroupApp];
                   }];
 }
 
+// Some experiments value may be useful for first-party applications, so save
+// the value in the shared application group.
+- (void)saveFieldTrialValuesForGroupApp {
+  NSUserDefaults* sharedDefaults = app_group::GetCommonGroupUserDefaults();
+  NSNumber* supportsShowDefaultBrowserPromo =
+      @(base::FeatureList::IsEnabled(kDefaultBrowserIntentsShowSettings));
+
+  NSDictionary* capabilities = @{
+    app_group::
+    kChromeShowDefaultBrowserPromoCapability : supportsShowDefaultBrowserPromo
+  };
+  [sharedDefaults setObject:capabilities
+                     forKey:app_group::kChromeCapabilitiesPreference];
+}
+
 // Some extensions need the value of field trials but can't get them because the
-// field trial infrastruction isn't in extensions. Save the necessary values to
+// field trial infrastructure isn't in extensions. Save the necessary values to
 // NSUserDefaults here.
 - (void)saveFieldTrialValuesForExtensions {
-  using password_manager::features::kIOSEnablePasswordManagerBrandingUpdate;
-
   NSUserDefaults* sharedDefaults = app_group::GetGroupUserDefaults();
 
-  NSNumber* credentialProviderExtensionPromoValue =
+  NSNumber* credentialProviderExtensionPasswordNotesValue =
       [NSNumber numberWithBool:base::FeatureList::IsEnabled(
-                                   kCredentialProviderExtensionPromo)];
-  NSNumber* credentialProviderExtensionPromoVersion =
-      [NSNumber numberWithInt:kCredentialProviderExtensionPromoFeatureVersion];
-
-  NSNumber* passwordManagerBrandingUpdateValue =
-      @(base::FeatureList::IsEnabled(kIOSEnablePasswordManagerBrandingUpdate));
-  NSNumber* passwordManagerBrandingUpdateVersion =
-      [NSNumber numberWithInt:kPasswordManagerBrandingUpdateFeatureVersion];
+                                   syncer::kPasswordNotesWithBackup)];
+  NSNumber* credentialProviderExtensionPasswordNotesVersion =
+      [NSNumber numberWithInt:kCredentialProviderExtensionPasswordNotesVersion];
 
   // Add other field trial values here if they are needed by extensions.
   // The general format is
@@ -1010,20 +1108,16 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
   //   }
   // }
   NSDictionary* fieldTrialValues = @{
-    base::SysUTF8ToNSString(kCredentialProviderExtensionPromo.name) : @{
-      kFieldTrialValueKey : credentialProviderExtensionPromoValue,
-      kFieldTrialVersionKey : credentialProviderExtensionPromoVersion,
+    base::SysUTF8ToNSString(syncer::kPasswordNotesWithBackup.name) : @{
+      kFieldTrialValueKey : credentialProviderExtensionPasswordNotesValue,
+      kFieldTrialVersionKey : credentialProviderExtensionPasswordNotesVersion,
     },
-    base::SysUTF8ToNSString(kIOSEnablePasswordManagerBrandingUpdate.name) : @{
-      kFieldTrialValueKey : passwordManagerBrandingUpdateValue,
-      kFieldTrialVersionKey : passwordManagerBrandingUpdateVersion,
-    }
   };
   [sharedDefaults setObject:fieldTrialValues
                      forKey:app_group::kChromeExtensionFieldTrialPreference];
 }
 
-// Schedules a call to |logIfEnterpriseManagedDevice| for deferred
+// Schedules a call to `logIfEnterpriseManagedDevice` for deferred
 // execution.
 - (void)scheduleEnterpriseManagedDeviceCheck {
   [[DeferredInitializationRunner sharedInstance]
@@ -1047,30 +1141,10 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
   StartFreeMemoryMonitor();
 }
 
-- (void)startLoggingBreadcrumbs {
-  breadcrumbs::BreadcrumbManagerKeyedService* breadcrumbService =
-      BreadcrumbManagerKeyedServiceFactory::GetForBrowserState(
-          self.appState.mainBrowserState);
-  breakpad::MonitorBreadcrumbManagerService(breadcrumbService);
-
-  breadcrumbs::BreadcrumbPersistentStorageManager* persistentStorageManager =
-      GetApplicationContext()->GetBreadcrumbPersistentStorageManager();
-  DCHECK(persistentStorageManager);
-
-  breadcrumbService->StartPersisting(persistentStorageManager);
-
-  // Get stored persistent breadcrumbs from last run to set on crash reports.
-  persistentStorageManager->GetStoredEvents(
-      base::BindOnce(^(std::vector<std::string> events) {
-        breakpad::SetPreviousSessionEvents(events);
-      }));
-}
-
 - (void)scheduleLowPriorityStartupTasks {
   [_startupTasks initializeOmaha];
 
   // Deferred tasks.
-  [self schedulePrefObserverInitialization];
   [self scheduleMemoryDebuggingTools];
   [StartupTasks
       scheduleDeferredBrowserStateInitialization:self.appState
@@ -1084,8 +1158,13 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
   [self startFreeMemoryMonitoring];
   [self scheduleAppDistributionPings];
   [self initializeMailtoHandling];
-  [self scheduleSaveFieldTrialValuesForExtensions];
+  [self scheduleSaveFieldTrialValuesForExternals];
   [self scheduleEnterpriseManagedDeviceCheck];
+  [self scheduleFaviconsCleanup];
+  [self scheduleLogDocumentsSize];
+#if BUILDFLAG(IOS_ENABLE_SANDBOX_DUMP)
+  [self scheduleDumpDocumentsStatistics];
+#endif  // BUILDFLAG(IOS_ENABLE_SANDBOX_DUMP)
 }
 
 - (void)scheduleTasksRequiringBVCWithBrowserState {
@@ -1133,9 +1212,51 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
                   }];
 }
 
+- (void)scheduleFaviconsCleanup {
+#if BUILDFLAG(IOS_CREDENTIAL_PROVIDER_ENABLED)
+  __weak MainController* weakSelf = self;
+  [[DeferredInitializationRunner sharedInstance]
+      enqueueBlockNamed:kFaviconsCleanup
+                  block:^{
+                    [weakSelf performFaviconsCleanup];
+                  }];
+#endif
+}
+
+#if BUILDFLAG(IOS_ENABLE_SANDBOX_DUMP)
+- (void)scheduleDumpDocumentsStatistics {
+  if ([[NSUserDefaults standardUserDefaults]
+          boolForKey:@"EnableDumpSandboxFileStatistics"]) {
+    // Reset the pref to prevent dumping statistics on every launch.
+    [[NSUserDefaults standardUserDefaults]
+        setBool:NO
+         forKey:@"EnableDumpSandboxFileStatistics"];
+
+    documents_statistics::DumpSandboxFileStatistics();
+  }
+}
+#endif  // BUILDFLAG(IOS_ENABLE_SANDBOX_DUMP)
+
+- (void)scheduleLogDocumentsSize {
+  if (!base::FeatureList::IsEnabled(kLogApplicationStorageSizeMetrics)) {
+    return;
+  }
+
+  NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+  NSDate* lastLogged = base::mac::ObjCCast<NSDate>(
+      [defaults objectForKey:kLastApplicationStorageMetricsLogTime]);
+  if (lastLogged && [[NSDate date] timeIntervalSinceDate:lastLogged] <
+                        kMinimumTimeBetweenDocumentsSizeLogging) {
+    return;
+  }
+
+  base::FilePath profilePath = self.appState.mainBrowserState->GetStatePath();
+  LogApplicationStorageMetrics(profilePath);
+}
+
 - (void)expireFirstUserActionRecorder {
   // Clear out any scheduled calls to this method. For example, the app may have
-  // been backgrounded before the |kFirstUserActionTimeout| expired.
+  // been backgrounded before the `kFirstUserActionTimeout` expired.
   [NSObject
       cancelPreviousPerformRequestsWithTarget:self
                                      selector:@selector(
@@ -1169,31 +1290,12 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
 
 #pragma mark - Helper methods backed by interfaces.
 
-- (Browser*)mainBrowser {
-  DCHECK(self.interfaceProvider);
-  return self.interfaceProvider.mainInterface.browser;
-}
-
-- (Browser*)otrBrowser {
-  DCHECK(self.interfaceProvider);
-  return self.interfaceProvider.incognitoInterface.browser;
-}
-
-- (Browser*)currentBrowser {
-  return self.interfaceProvider.currentInterface.browser;
-}
-
 - (ChromeBrowserState*)currentBrowserState {
-  if (!self.interfaceProvider.currentInterface.browser) {
+  if (!self.browserProviderInterface.currentBrowserProvider.browser) {
     return nullptr;
   }
-  return self.interfaceProvider.currentInterface.browser->GetBrowserState();
-}
-
-- (bool)mustShowRestoreInfobar {
-  if ([self isFirstLaunchAfterUpgrade])
-    return false;
-  return !GetApplicationContext()->WasLastShutdownClean();
+  return self.browserProviderInterface.currentBrowserProvider.browser
+      ->GetBrowserState();
 }
 
 - (void)cleanupSnapshots {
@@ -1229,42 +1331,25 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
                                timePeriod:(browsing_data::TimePeriod)timePeriod
                                removeMask:(BrowsingDataRemoveMask)removeMask
                           completionBlock:(ProceduralBlock)completionBlock {
-  // TODO(crbug.com/632772): https://bugs.webkit.org/show_bug.cgi?id=149079
-  // makes it necessary to disable web usage while clearing browsing data.
-  // It is however unnecessary for off-the-record BrowserState (as the code
-  // is not invoked) and has undesired side-effect (cause all regular tabs
-  // to reload, see http://crbug.com/821753 for details).
-  BOOL disableWebUsageDuringRemoval =
+  BOOL willShowActivityIndicator =
       !browserState->IsOffTheRecord() &&
       IsRemoveDataMaskSet(removeMask, BrowsingDataRemoveMask::REMOVE_SITE_DATA);
-  BOOL willShowActivityIndicator = NO;
   BOOL didShowActivityIndicator = NO;
 
-  // TODO(crbug.com/632772): Visited links clearing doesn't require disabling
-  // web usage with iOS 13. Stop disabling web usage once iOS 12 is not
-  // supported.
-  willShowActivityIndicator = disableWebUsageDuringRemoval;
-  disableWebUsageDuringRemoval = NO;
-
   for (SceneState* sceneState in self.appState.connectedScenes) {
-    // Assumes all scenes share |browserState|.
-    id<BrowserInterfaceProvider> sceneInterface = sceneState.interfaceProvider;
-    if (disableWebUsageDuringRemoval) {
-      // Disables browsing and purges web views.
-      // Must be called only on the main thread.
-      DCHECK([NSThread isMainThread]);
-      sceneInterface.mainInterface.userInteractionEnabled = NO;
-      sceneInterface.incognitoInterface.userInteractionEnabled = NO;
-    } else if (willShowActivityIndicator) {
+    // Assumes all scenes share `browserState`.
+    id<BrowserProviderInterface> browserProviderInterface =
+        sceneState.browserProviderInterface;
+    if (willShowActivityIndicator) {
       // Show activity overlay so users know that clear browsing data is in
       // progress.
-      // TODO(crbug.com/1045047): Use HandlerForProtocol after commands protocol
-      // clean up.
-      if (sceneInterface.mainInterface.browser) {
+      if (browserProviderInterface.mainBrowserProvider.browser) {
         didShowActivityIndicator = YES;
-        id<BrowserCommands> handler = static_cast<id<BrowserCommands>>(
-            sceneInterface.mainInterface.browser->GetCommandDispatcher());
-        [handler showActivityOverlay:YES];
+        id<BrowserCoordinatorCommands> handler =
+            HandlerForProtocol(browserProviderInterface.mainBrowserProvider
+                                   .browser->GetCommandDispatcher(),
+                               BrowserCoordinatorCommands);
+        [handler showActivityOverlay];
       }
     }
   }
@@ -1274,29 +1359,33 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
     // Must be called only on the main thread.
     DCHECK([NSThread isMainThread]);
     for (SceneState* sceneState in self.appState.connectedScenes) {
-      // Assumes all scenes share |browserState|.
-      id<BrowserInterfaceProvider> sceneInterface =
-          sceneState.interfaceProvider;
+      // Assumes all scenes share `browserState`.
+      id<BrowserProviderInterface> browserProviderInterface =
+          sceneState.browserProviderInterface;
 
       if (willShowActivityIndicator) {
         // User interaction still needs to be disabled as a way to
         // force reload all the web states and to reset NTPs.
-        sceneInterface.mainInterface.userInteractionEnabled = NO;
-        sceneInterface.incognitoInterface.userInteractionEnabled = NO;
+        browserProviderInterface.mainBrowserProvider.userInteractionEnabled =
+            NO;
+        browserProviderInterface.incognitoBrowserProvider
+            .userInteractionEnabled = NO;
 
-        // TODO(crbug.com/1045047): Use HandlerForProtocol after commands
-        // protocol clean up.
-        if (didShowActivityIndicator && sceneInterface.mainInterface.browser) {
-          id<BrowserCommands> handler = static_cast<id<BrowserCommands>>(
-              sceneInterface.mainInterface.browser->GetCommandDispatcher());
-          [handler showActivityOverlay:NO];
+        if (didShowActivityIndicator &&
+            browserProviderInterface.mainBrowserProvider.browser) {
+          id<BrowserCoordinatorCommands> handler =
+              HandlerForProtocol(browserProviderInterface.mainBrowserProvider
+                                     .browser->GetCommandDispatcher(),
+                                 BrowserCoordinatorCommands);
+          [handler hideActivityOverlay];
         }
       }
-      sceneInterface.mainInterface.userInteractionEnabled = YES;
-      sceneInterface.incognitoInterface.userInteractionEnabled = YES;
-      [sceneInterface.currentInterface setPrimary:YES];
+      browserProviderInterface.mainBrowserProvider.userInteractionEnabled = YES;
+      browserProviderInterface.incognitoBrowserProvider.userInteractionEnabled =
+          YES;
+      [browserProviderInterface.currentBrowserProvider setPrimary:YES];
     }
-    // |completionBlock is run once, not once per scene.
+    // `completionBlock` is run once, not once per scene.
     if (completionBlock)
       completionBlock();
   };
@@ -1304,6 +1393,27 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
   BrowsingDataRemoverFactory::GetForBrowserState(browserState)
       ->Remove(timePeriod, removeMask, base::BindOnce(removalCompletion));
 }
+
+#if BUILDFLAG(IOS_CREDENTIAL_PROVIDER_ENABLED)
+- (void)performFaviconsCleanup {
+  ChromeBrowserState* browserState = self.currentBrowserState;
+  if (!browserState)
+    return;
+
+  syncer::SyncService* syncService =
+      SyncServiceFactory::GetForBrowserState(browserState);
+  // Only use the fallback to the Google server when fetching favicons for
+  // normal encryption synced users because they are the only users who
+  // consented to share data to Google. The other types of synced users did not.
+  BOOL isPasswordSyncEnabled =
+      password_manager_util::IsPasswordSyncNormalEncryptionEnabled(syncService);
+  if (isPasswordSyncEnabled) {
+    UpdateFaviconsStorage(
+        IOSChromeFaviconLoaderFactory::GetForBrowserState(browserState),
+        /*sync_enabled=*/isPasswordSyncEnabled);
+  }
+}
+#endif
 
 #pragma mark - BlockingSceneCommands
 
@@ -1314,20 +1424,6 @@ void MainControllerAuthenticationServiceDelegate::ClearBrowsingData(
   }
 
   [uiBlocker bringBlockerToFront:requestingScene];
-}
-
-@end
-
-#pragma mark - TestingOnly
-
-@implementation MainController (TestingOnly)
-
-- (void)setStartupParametersWithURL:(const GURL&)launchURL {
-  NSString* sourceApplication = @"Fake App";
-  SceneState* sceneState = self.appState.foregroundActiveScene;
-  sceneState.controller.startupParameters = [ChromeAppStartupParameters
-      newChromeAppStartupParametersWithURL:net::NSURLWithGURL(launchURL)
-                     fromSourceApplication:sourceApplication];
 }
 
 @end

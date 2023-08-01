@@ -1,22 +1,24 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.android_webview.test.services;
 
 import static org.chromium.android_webview.test.OnlyRunIn.ProcessMode.SINGLE_PROCESS;
+import static org.chromium.base.test.util.ScalableTimeout.scaleTimeout;
 
 import android.os.ParcelFileDescriptor;
 
 import androidx.test.filters.MediumTest;
 
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.android_webview.common.PlatformServiceBridge;
-import org.chromium.android_webview.common.crash.SystemWideCrashDirectories;
+import org.chromium.android_webview.nonembedded.crash.SystemWideCrashDirectories;
 import org.chromium.android_webview.services.AwMinidumpUploaderDelegate;
 import org.chromium.android_webview.services.AwMinidumpUploaderDelegate.SamplingDelegate;
 import org.chromium.android_webview.services.CrashReceiverService;
@@ -25,13 +27,13 @@ import org.chromium.android_webview.test.OnlyRunIn;
 import org.chromium.base.Callback;
 import org.chromium.base.FileUtils;
 import org.chromium.base.ThreadUtils;
+import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.components.minidump_uploader.CrashFileManager;
 import org.chromium.components.minidump_uploader.CrashTestRule;
 import org.chromium.components.minidump_uploader.CrashTestRule.MockCrashReportingPermissionManager;
 import org.chromium.components.minidump_uploader.MinidumpUploadJob;
 import org.chromium.components.minidump_uploader.MinidumpUploadJobImpl;
-import org.chromium.components.minidump_uploader.MinidumpUploadTestUtility;
 import org.chromium.components.minidump_uploader.MinidumpUploaderDelegate;
 import org.chromium.components.minidump_uploader.MinidumpUploaderTestConstants;
 import org.chromium.components.minidump_uploader.TestMinidumpUploadJobImpl;
@@ -42,6 +44,11 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Instrumentation tests for WebView's implementation of MinidumpUploaderDelegate, and the
@@ -54,7 +61,7 @@ import java.io.IOException;
 @OnlyRunIn(SINGLE_PROCESS)
 public class MinidumpUploadJobTest {
     @Rule
-    public CrashTestRule mTestRule = new CrashTestRule(LibraryProcessType.PROCESS_WEBVIEW) {
+    public CrashTestRule mTestRule = new CrashTestRule() {
         @Override
         public File getExistingCacheDir() {
             return SystemWideCrashDirectories.getOrCreateWebViewCrashDir();
@@ -100,6 +107,12 @@ public class MinidumpUploadJobTest {
         }
     }
 
+    @Before
+    public void setUp() {
+        LibraryLoader.getInstance().setLibraryProcessType(LibraryProcessType.PROCESS_WEBVIEW);
+        LibraryLoader.getInstance().ensureInitialized();
+    }
+
     // randomSampl < CRASH_DUMP_PERCENTAGE_FOR_STABLE to always sample-in crashes.
     private static final SamplingDelegate TEST_SAMPLING_DELEGATE =
             new TestSamplingDelegate(Channel.UNKNOWN, 0);
@@ -135,8 +148,7 @@ public class MinidumpUploadJobTest {
                 });
 
         // Ensure that we don't crash when trying to upload minidumps without a crash directory.
-        MinidumpUploadTestUtility.uploadMinidumpsSync(
-                minidumpUploadJob, false /* expectReschedule */);
+        uploadMinidumpsSync(minidumpUploadJob, false /* expectReschedule */);
     }
 
     /**
@@ -243,7 +255,7 @@ public class MinidumpUploadJobTest {
 
     /**
      * MinidumpUploaderDelegate sub-class that uses MinidumpUploaderDelegate's implementation of
-     * CrashReportingPermissionManager.isUsageAndCrashReportingPermittedByUser().
+     * {@see CrashReportingPermissionManager#isUsageAndCrashReportingPermitted()}.
      */
     private static class TestCrashSamplingMinidumpUploaderDelegate
             extends AwMinidumpUploaderDelegate {
@@ -292,8 +304,7 @@ public class MinidumpUploadJobTest {
         File expectedSecondFile = new File(mTestRule.getCrashDir(),
                 secondFile.getName().replace(".dmp", isSampled ? ".up" : ".skipped"));
 
-        MinidumpUploadTestUtility.uploadMinidumpsSync(
-                minidumpUploadJob, false /* expectReschedule */);
+        uploadMinidumpsSync(minidumpUploadJob, false /* expectReschedule */);
 
         Assert.assertFalse(firstFile.exists());
         Assert.assertTrue(expectedFirstFile.exists());
@@ -321,7 +332,7 @@ public class MinidumpUploadJobTest {
 
     /**
      * MinidumpUploaderDelegate sub-class that uses MinidumpUploaderDelegate's implementation of
-     * CrashReportingPermissionManager.isUsageAndCrashReportingPermittedByUser().
+     * {@see CrashReportingPermissionManager#isUsageAndCrashReportingPermitted()}.
      */
     private static class WebViewUserConsentMinidumpUploaderDelegate
             extends AwMinidumpUploaderDelegate {
@@ -337,17 +348,17 @@ public class MinidumpUploadJobTest {
             return new MockCrashReportingPermissionManager() {
                 {
                     // This setup ensures we depend on
-                    // isUsageAndCrashReportingPermittedByUser().
+                    // isUsageAndCrashReportingPermitted().
                     mIsInSample = true;
                     mIsNetworkAvailable = true;
                     mIsEnabledForTests = false;
                 }
                 @Override
-                public boolean isUsageAndCrashReportingPermittedByUser() {
+                public boolean isUsageAndCrashReportingPermitted() {
                     // Ensure that we use the real implementation of
-                    // isUsageAndCrashReportingPermittedByUser.
+                    // isUsageAndCrashReportingPermitted.
                     boolean userPermitted =
-                            realPermissionManager.isUsageAndCrashReportingPermittedByUser();
+                            realPermissionManager.isUsageAndCrashReportingPermitted();
                     Assert.assertEquals(mUserConsent, userPermitted);
                     return userPermitted;
                 }
@@ -368,8 +379,7 @@ public class MinidumpUploadJobTest {
         File expectedSecondFile = new File(mTestRule.getCrashDir(),
                 secondFile.getName().replace(".dmp", userConsent ? ".up" : ".skipped"));
 
-        MinidumpUploadTestUtility.uploadMinidumpsSync(
-                minidumpUploadJob, false /* expectReschedule */);
+        uploadMinidumpsSync(minidumpUploadJob, false /* expectReschedule */);
 
         Assert.assertFalse(firstFile.exists());
         Assert.assertTrue(expectedFirstFile.exists());
@@ -429,6 +439,32 @@ public class MinidumpUploadJobTest {
     }
 
     /**
+     * Utility method for uploading minidumps, and waiting for the uploads to finish.
+     * @param minidumpUploadJob the implementation to use to upload minidumps.
+     * @param expectReschedule value used to assert whether the uploads should be rescheduled,
+     *                         e.g. when uploading succeeds we should normally not expect to
+     *                         reschedule.
+     */
+    private static void uploadMinidumpsSync(
+            MinidumpUploadJob minidumpUploadJob, boolean expectReschedule) {
+        final CountDownLatch uploadsFinishedLatch = new CountDownLatch(1);
+        AtomicBoolean wasRescheduled = new AtomicBoolean();
+        ThreadUtils.runOnUiThread(() -> {
+            minidumpUploadJob.uploadAllMinidumps(reschedule -> {
+                wasRescheduled.set(reschedule);
+                uploadsFinishedLatch.countDown();
+            });
+        });
+        try {
+            Assert.assertTrue(
+                    uploadsFinishedLatch.await(scaleTimeout(3000), TimeUnit.MILLISECONDS));
+            Assert.assertEquals(expectReschedule, wasRescheduled.get());
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
      * Copy and upload {@param minidumps} by one array at a time - i.e. the minidumps in a single
      * array in {@param minidumps} will all be copied in the same call into CrashReceiverService.
      * @param fileManager the CrashFileManager to use when copying/renaming minidumps.
@@ -451,15 +487,17 @@ public class MinidumpUploadJobTest {
         int numMinidumps = 0;
         for (int n = 0; n < minidumps.length; n++) {
             File[] currentMinidumps = minidumps[n];
+            ArrayList<Map<String, String>> crashInfos = new ArrayList<>();
             numMinidumps += currentMinidumps.length;
             fileDescriptors[n] = new ParcelFileDescriptor[currentMinidumps.length];
             for (int m = 0; m < currentMinidumps.length; m++) {
                 fileDescriptors[n][m] = ParcelFileDescriptor.open(
                         currentMinidumps[m], ParcelFileDescriptor.MODE_READ_ONLY);
                 Assert.assertTrue(currentMinidumps[m].delete());
+                crashInfos.add(null);
             }
             crashReceiverService.performMinidumpCopyingSerially(
-                    uids[n] /* uid */, fileDescriptors[n], null, false /* scheduleUploads */);
+                    uids[n] /* uid */, fileDescriptors[n], crashInfos, false /* scheduleUploads */);
         }
 
         final CrashReportingPermissionManager permManager =
@@ -478,8 +516,7 @@ public class MinidumpUploadJobTest {
                     }
                 });
 
-        MinidumpUploadTestUtility.uploadMinidumpsSync(
-                minidumpUploadJob, false /* expectReschedule */);
+        uploadMinidumpsSync(minidumpUploadJob, false /* expectReschedule */);
         // Ensure there are no minidumps left to upload.
         File[] nonUploadedMinidumps = fileManager.getMinidumpsReadyForUpload(
                 MinidumpUploadJobImpl.MAX_UPLOAD_TRIES_ALLOWED);

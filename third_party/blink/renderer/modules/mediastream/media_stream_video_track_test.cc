@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
@@ -99,15 +99,15 @@ class MediaStreamVideoTrackTest
  protected:
   virtual void InitializeSource() {
     source_ = nullptr;
-    mock_source_ = new MockMediaStreamVideoSource(
+    auto mock_source = std::make_unique<MockMediaStreamVideoSource>(
         media::VideoCaptureFormat(
             gfx::Size(kMockSourceWidth, kMockSourceHeight), 30.0,
             media::PIXEL_FORMAT_I420),
         false);
+    mock_source_ = mock_source.get();
     source_ = MakeGarbageCollected<MediaStreamSource>(
         "dummy_source_id", MediaStreamSource::kTypeVideo, "dummy_source_name",
-        false /* remote */);
-    source_->SetPlatformSource(base::WrapUnique(mock_source_));
+        false /* remote */, std::move(mock_source));
   }
 
   // Create a track that's associated with |mock_source_|.
@@ -141,21 +141,21 @@ class MediaStreamVideoTrackTest
 
   void UpdateVideoSourceToRespondToRequestRefreshFrame() {
     source_ = nullptr;
-    mock_source_ = new MockMediaStreamVideoSource(
+    auto mock_source = std::make_unique<MockMediaStreamVideoSource>(
         media::VideoCaptureFormat(
             gfx::Size(kMockSourceWidth, kMockSourceHeight), 30.0,
             media::PIXEL_FORMAT_I420),
         true);
+    mock_source_ = mock_source.get();
     source_ = MakeGarbageCollected<MediaStreamSource>(
         "dummy_source_id", MediaStreamSource::kTypeVideo, "dummy_source_name",
-        false /* remote */);
-    source_->SetPlatformSource(base::WrapUnique(mock_source_));
+        false /* remote */, std::move(mock_source));
   }
 
   void DepleteIOCallbacks() {
     base::RunLoop run_loop;
     base::RepeatingClosure quit_closure = run_loop.QuitClosure();
-    mock_source()->io_task_runner()->PostTask(
+    mock_source()->video_task_runner()->PostTask(
         FROM_HERE,
         base::BindLambdaForTesting([&] { std::move(quit_closure).Run(); }));
     run_loop.Run();
@@ -189,7 +189,7 @@ TEST_F(MediaStreamVideoTrackTest, AddAndRemoveSink) {
       gfx::Size(MediaStreamVideoSource::kDefaultWidth,
                 MediaStreamVideoSource::kDefaultHeight));
   mock_source()->DeliverVideoFrame(frame);
-  // Wait for the IO thread to complete delivering frames.
+  // Wait for the video task runner to complete delivering frames.
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(2, sink.number_of_frames());
 }
@@ -268,7 +268,7 @@ TEST_F(MediaStreamVideoTrackTest, SourceDetached) {
   WebMediaStreamTrack track = CreateTrack();
   MockMediaStreamVideoSink sink;
   auto* video_track = MediaStreamVideoTrack::From(track);
-  video_track->StopAndNotify(base::BindOnce([] {}));
+  video_track->StopAndNotify(base::DoNothing());
   sink.ConnectToTrack(track);
   sink.ConnectEncodedToTrack(track);
   video_track->SetEnabled(true);
@@ -396,6 +396,7 @@ TEST_F(MediaStreamVideoTrackTest, DeliverFramesAndGetSettings) {
   sink.ConnectToTrack(track);
   MediaStreamVideoTrack* const native_track =
       MediaStreamVideoTrack::From(track);
+  EXPECT_FALSE(native_track->max_frame_rate().has_value());
   MediaStreamTrackPlatform::Settings settings;
 
   auto frame1 = media::VideoFrame::CreateBlackFrame(gfx::Size(600, 400));
@@ -420,6 +421,98 @@ TEST_P(MediaStreamVideoTrackTest, PropagatesContentHintType) {
   sink.ConnectToTrack(track);
   MediaStreamVideoTrack::From(track)->SetContentHint(GetParam());
   EXPECT_EQ(sink.content_hint(), GetParam());
+  sink.DisconnectFromTrack();
+}
+
+TEST_F(MediaStreamVideoTrackTest, DeliversFramesWithCurrentCropVersion) {
+  InitializeSource();
+  MockMediaStreamVideoSink sink;
+
+  // Track is initialized with crop version 5.
+  EXPECT_CALL(*mock_source(), GetCropVersion).WillOnce(Return(5));
+  WebMediaStreamTrack track = CreateTrack();
+  sink.ConnectToTrack(track);
+
+  scoped_refptr<media::VideoFrame> frame =
+      media::VideoFrame::CreateBlackFrame(gfx::Size(600, 400));
+  // Frame with current crop version should be delivered.
+  frame->metadata().crop_version = 5;
+  EXPECT_CALL(*mock_source(), OnFrameDropped).Times(0);
+  DeliverVideoFrameAndWaitForRenderer(std::move(frame), &sink);
+
+  sink.DisconnectFromTrack();
+}
+
+TEST_F(MediaStreamVideoTrackTest,
+       DropsOldFramesWhenInitializedWithNewerCropVersion) {
+  InitializeSource();
+  MockMediaStreamVideoSink sink;
+
+  // Track is initialized with crop version 5.
+  EXPECT_CALL(*mock_source(), GetCropVersion).WillOnce(Return(5));
+  WebMediaStreamTrack track = CreateTrack();
+  sink.ConnectToTrack(track);
+
+  scoped_refptr<media::VideoFrame> frame =
+      media::VideoFrame::CreateBlackFrame(gfx::Size(600, 400));
+  // Old crop version delivered after construction.
+  frame->metadata().crop_version = 4;
+  base::RunLoop run_loop;
+  EXPECT_CALL(*mock_source(),
+              OnFrameDropped(
+                  media::VideoCaptureFrameDropReason::kCropVersionNotCurrent))
+      .WillOnce(RunOnceClosure(run_loop.QuitClosure()));
+  mock_source()->DeliverVideoFrame(std::move(frame));
+  run_loop.Run();
+
+  sink.DisconnectFromTrack();
+}
+
+TEST_F(MediaStreamVideoTrackTest, DropsOldFramesAfterCropVersionChanges) {
+  InitializeSource();
+  MockMediaStreamVideoSink sink;
+
+  // Track is initialized with crop version 5.
+  EXPECT_CALL(*mock_source(), GetCropVersion).WillOnce(Return(5));
+  WebMediaStreamTrack track = CreateTrack();
+  sink.ConnectToTrack(track);
+
+  // Crop version updated to 6.
+  mock_source()->DeliverNewCropVersion(6);
+
+  scoped_refptr<media::VideoFrame> frame =
+      media::VideoFrame::CreateBlackFrame(gfx::Size(600, 400));
+  frame->metadata().crop_version = 5;  // No longer current version.
+  base::RunLoop run_loop;
+  EXPECT_CALL(*mock_source(),
+              OnFrameDropped(
+                  media::VideoCaptureFrameDropReason::kCropVersionNotCurrent))
+      .WillOnce(RunOnceClosure(run_loop.QuitClosure()));
+  mock_source()->DeliverVideoFrame(std::move(frame));
+  run_loop.Run();
+
+  sink.DisconnectFromTrack();
+}
+
+TEST_F(MediaStreamVideoTrackTest, DeliversNewFramesAfterCropVersionChanges) {
+  InitializeSource();
+  MockMediaStreamVideoSink sink;
+
+  // Track is initialized with crop version 5.
+  EXPECT_CALL(*mock_source(), GetCropVersion).WillOnce(Return(5));
+  WebMediaStreamTrack track = CreateTrack();
+  sink.ConnectToTrack(track);
+
+  // Crop version updated to 6.
+  mock_source()->DeliverNewCropVersion(6);
+
+  scoped_refptr<media::VideoFrame> frame =
+      media::VideoFrame::CreateBlackFrame(gfx::Size(600, 400));
+  // Frame with current crop version should be delivered.
+  frame->metadata().crop_version = 6;
+  EXPECT_CALL(*mock_source(), OnFrameDropped).Times(0);
+  DeliverVideoFrameAndWaitForRenderer(std::move(frame), &sink);
+
   sink.DisconnectFromTrack();
 }
 
@@ -556,26 +649,32 @@ TEST_F(MediaStreamVideoTrackTest, DeliversConstraintsToKnownSinks) {
   InitializeSource();
   WebMediaStreamTrack track = CreateTrack();
   MockMediaStreamVideoSink sink1;
-  EXPECT_CALL(sink1, OnVideoConstraintsChanged(Eq(absl::nullopt), Optional(0)));
+  EXPECT_CALL(sink1,
+              OnVideoConstraintsChanged(Eq(absl::nullopt), Eq(absl::nullopt)));
   sink1.ConnectToTrack(track);
   MockMediaStreamVideoSink sink2;
-  EXPECT_CALL(sink2, OnVideoConstraintsChanged(Eq(absl::nullopt), Optional(0)));
+  EXPECT_CALL(sink2,
+              OnVideoConstraintsChanged(Eq(absl::nullopt), Eq(absl::nullopt)));
   sink2.ConnectToTrack(track);
   MediaStreamVideoTrack* const native_track =
       MediaStreamVideoTrack::From(track);
   Mock::VerifyAndClearExpectations(&sink1);
   Mock::VerifyAndClearExpectations(&sink2);
 
-  EXPECT_CALL(sink1, OnVideoConstraintsChanged(Eq(absl::nullopt), Optional(0)));
-  EXPECT_CALL(sink2, OnVideoConstraintsChanged(Eq(absl::nullopt), Optional(0)));
+  EXPECT_CALL(sink1,
+              OnVideoConstraintsChanged(Eq(absl::nullopt), Eq(absl::nullopt)));
+  EXPECT_CALL(sink2,
+              OnVideoConstraintsChanged(Eq(absl::nullopt), Eq(absl::nullopt)));
   native_track->SetTrackAdapterSettings(VideoTrackAdapterSettings());
   native_track->NotifyConstraintsConfigurationComplete();
   Mock::VerifyAndClearExpectations(&sink1);
   Mock::VerifyAndClearExpectations(&sink2);
 
   native_track->SetMinimumFrameRate(200);
-  EXPECT_CALL(sink1, OnVideoConstraintsChanged(Optional(200.0), Optional(0)));
-  EXPECT_CALL(sink2, OnVideoConstraintsChanged(Optional(200.0), Optional(0)));
+  EXPECT_CALL(sink1,
+              OnVideoConstraintsChanged(Optional(200.0), Eq(absl::nullopt)));
+  EXPECT_CALL(sink2,
+              OnVideoConstraintsChanged(Optional(200.0), Eq(absl::nullopt)));
   native_track->SetTrackAdapterSettings(VideoTrackAdapterSettings());
   native_track->NotifyConstraintsConfigurationComplete();
   Mock::VerifyAndClearExpectations(&sink1);
@@ -589,6 +688,7 @@ TEST_F(MediaStreamVideoTrackTest, DeliversConstraintsToKnownSinks) {
   settings.set_max_frame_rate(300);
   native_track->SetTrackAdapterSettings(settings);
   native_track->NotifyConstraintsConfigurationComplete();
+  EXPECT_THAT(native_track->max_frame_rate(), testing::Optional(300));
   Mock::VerifyAndClearExpectations(&sink1);
   Mock::VerifyAndClearExpectations(&sink2);
 
@@ -606,6 +706,7 @@ TEST_F(MediaStreamVideoTrackTest, DeliversConstraintsToNewSinks) {
   settings.set_max_frame_rate(20);
   native_track->SetTrackAdapterSettings(settings);
   native_track->NotifyConstraintsConfigurationComplete();
+  EXPECT_THAT(native_track->max_frame_rate(), testing::Optional(20));
 
   MockMediaStreamVideoSink sink1;
   sink1.ConnectToTrack(track);
@@ -651,7 +752,7 @@ TEST_F(MediaStreamVideoTrackRefreshFrameTimerTest,
   test::RunDelayedTasks(base::Hertz(kMinFrameRate));
 
   EXPECT_TRUE(video_track->IsRefreshFrameTimerRunningForTesting());
-  video_track->StopAndNotify(base::BindOnce([] {}));
+  video_track->StopAndNotify(base::DoNothing());
   EXPECT_FALSE(video_track->IsRefreshFrameTimerRunningForTesting());
 }
 
@@ -771,6 +872,48 @@ TEST_F(MediaStreamVideoTrackRefreshFrameTimerTest,
   }
 
   test::RunDelayedTasks(base::Seconds(1));
+}
+
+TEST_F(MediaStreamVideoTrackRefreshFrameTimerTest,
+       NotifyConstraintsStartsTimerIfMinFpsIsSet) {
+  // |RequestRefreshFrame| should be called exactly twice within kMinFrameRate
+  // interval: First time from |NotifyConstraintsConfigurationComplete| and
+  // second time from the refresh timer.
+  EXPECT_CALL(*mock_source(), OnRequestRefreshFrame).Times(2);
+  MockMediaStreamVideoSink sink;
+  WebMediaStreamTrack track =
+      CreateTrackWithSettings(VideoTrackAdapterSettings());
+  auto* video_track = MediaStreamVideoTrack::From(track);
+
+  video_track->SetIsScreencastForTesting(true);
+  sink.ConnectToTrack(track);
+  video_track->SetMinimumFrameRate(kMinFrameRate);
+  video_track->NotifyConstraintsConfigurationComplete();
+
+  test::RunDelayedTasks(base::Hertz(kMinFrameRate));
+
+  EXPECT_TRUE(video_track->IsRefreshFrameTimerRunningForTesting());
+  video_track->StopAndNotify(base::DoNothing());
+  EXPECT_FALSE(video_track->IsRefreshFrameTimerRunningForTesting());
+}
+
+TEST_F(MediaStreamVideoTrackRefreshFrameTimerTest,
+       NotifyConstraintsDontStartTimerIfMinFpsIsUnset) {
+  // |RequestRefreshFrame| should only be called once from |AddSink| since
+  // refresh frame timer is not running.
+  EXPECT_CALL(*mock_source(), OnRequestRefreshFrame).Times(1);
+  MockMediaStreamVideoSink sink;
+  WebMediaStreamTrack track =
+      CreateTrackWithSettings(VideoTrackAdapterSettings());
+  auto* video_track = MediaStreamVideoTrack::From(track);
+
+  video_track->SetIsScreencastForTesting(true);
+  sink.ConnectToTrack(track);
+  video_track->NotifyConstraintsConfigurationComplete();
+
+  test::RunDelayedTasks(base::Hertz(kMinFrameRate));
+
+  EXPECT_FALSE(video_track->IsRefreshFrameTimerRunningForTesting());
 }
 
 }  // namespace media_stream_video_track_test

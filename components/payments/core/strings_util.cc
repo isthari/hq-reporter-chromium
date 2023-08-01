@@ -1,11 +1,9 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/payments/core/strings_util.h"
 
-
-#include "base/cxx17_backports.h"
 #include "base/notreached.h"
 #include "components/autofill/core/browser/data_model/autofill_profile.h"
 #include "components/autofill/core/browser/field_types.h"
@@ -29,8 +27,8 @@ std::u16string GetShippingAddressLabelFromAutofillProfile(
       autofill::ADDRESS_HOME_SORTING_CODE,
   };
 
-  return profile.ConstructInferredLabel(kLabelFields, base::size(kLabelFields),
-                                        base::size(kLabelFields), locale);
+  return profile.ConstructInferredLabel(kLabelFields, std::size(kLabelFields),
+                                        std::size(kLabelFields), locale);
 }
 
 std::u16string GetShippingAddressSelectorInfoMessage(

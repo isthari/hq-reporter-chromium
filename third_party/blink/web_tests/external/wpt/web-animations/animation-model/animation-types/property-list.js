@@ -747,8 +747,10 @@ const gCSSProperties2 = {
     types: [ 'color' ]
   },
   'line-height': {
-    // https://drafts.csswg.org/css21/visudet.html#propdef-line-height
+    // https://drafts.csswg.org/css-inline/#line-height-property
     types: [
+        { type: 'discrete', options: [ [ 'normal', '10px' ],
+                                       [ 'normal', '10', 'normal', '100px' ] ] }
     ]
   },
   'list-style-image': {
@@ -1170,6 +1172,12 @@ const gCSSProperties2 = {
       { type: 'discrete', options: [ [ 'auto', 'smooth' ] ] }
     ]
   },
+  'scrollbar-width': {
+    // https://drafts.csswg.org/css-scrollbars/#propdef-scrollbar-width
+    types: [
+      { type: 'discrete', options: [ [ 'auto', 'thin' ], [ 'auto', 'none' ], [ 'thin', 'none' ] ] }
+    ]
+  },
   'shape-outside': {
     // http://dev.w3.org/csswg/css-shapes/#propdef-shape-outside
     types: [
@@ -1293,6 +1301,12 @@ const gCSSProperties2 = {
       { type: 'discrete', options: [ [ 'circle', 'open dot' ] ] }
     ]
   },
+  'text-group-align': {
+    // https://drafts.csswg.org/css-text-4/#propdef-text-group-align
+    types: [
+      { type: 'discrete', options: [ [ 'none', 'center' ] ] }
+    ]
+  },
   'text-indent': {
     // https://drafts.csswg.org/css-text-3/#propdef-text-indent
     types: [
@@ -1323,6 +1337,12 @@ const gCSSProperties2 = {
     // https://drafts.csswg.org/css-text-3/#propdef-text-transform
     types: [
       { type: 'discrete', options: [ [ 'capitalize', 'uppercase' ] ] }
+    ]
+  },
+  'text-wrap': {
+    // https://drafts.csswg.org/css-text-4/#propdef-text-wrap
+    types: [
+      { type: 'discrete', options: [ [ 'wrap', 'nowrap' ] ] }
     ]
   },
   'touch-action': {
@@ -1424,7 +1444,7 @@ function testAnimationSamples(animation, idlName, testSamples) {
   const target = animation.effect.target;
   for (const testSample of testSamples) {
     animation.currentTime = testSample.time;
-    assert_equals(getComputedStyle(target, pseudoType)[idlName],
+    assert_equals(getComputedStyle(target, pseudoType)[idlName].toLowerCase(),
                   testSample.expected,
                   `The value should be ${testSample.expected}` +
                   ` at ${testSample.time}ms`);

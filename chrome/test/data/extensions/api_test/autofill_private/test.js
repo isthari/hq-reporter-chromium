@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,9 +21,85 @@ var CARD_NAME = 'CardName';
 var NUMBER = '4111 1111 1111 1111';
 var EXP_MONTH = '02';
 var EXP_YEAR = '2999';
+var IBAN_VALUE = 'AD1400080001001234567890';
+var INVALID_IBAN_VALUE = 'AD14000800010012345678900';
 
 var failOnceCalled = function() {
   chrome.test.fail();
+};
+
+function addNewIban(nickname) {
+  function filterIbanProperties(ibans) {
+    return ibans.map(iban => {
+      var filteredIban = {};
+      ['value', 'nickname'].forEach(property => {
+        filteredIban[property] = iban[property];
+      });
+      return filteredIban;
+    });
+  }
+
+  chrome.autofillPrivate.getIbanList(chrome.test.callbackPass(function(
+      ibanList) {
+    chrome.test.assertEq([], ibanList);
+
+    // Set up the callback that verifies that the IBAN was correctly added.
+    chrome.test.listenOnce(
+        chrome.autofillPrivate.onPersonalDataChanged,
+        chrome.test.callbackPass(function(addressList, cardList, ibanList) {
+          chrome.test.assertEq(
+              [{value: IBAN_VALUE, nickname: nickname}],
+              filterIbanProperties(ibanList));
+        }));
+
+    chrome.autofillPrivate.saveIban({
+      value: IBAN_VALUE,
+      nickname: nickname
+    });
+  }));
+};
+
+function updateExistingIban(updatedNickname) {
+  var UPDATED_IBAN_VALUE = 'AL35202111090000000001234567';
+
+  function filterIbanProperties(ibans) {
+    return ibans.map(iban => {
+      var filteredIban = {};
+      ['guid', 'value', 'nickname'].forEach(property => {
+        filteredIban[property] = iban[property];
+      });
+      return filteredIban;
+    });
+  }
+
+  chrome.autofillPrivate.getIbanList(chrome.test.callbackPass(function(
+      ibanList) {
+    // The IBAN from the addNewIban function should still be there.
+    chrome.test.assertEq(1, ibanList.length);
+    var ibanGuid = ibanList[0].guid;
+
+    // Set up the callback that verifies that the IBAN was correctly
+    // updated.
+    chrome.test.listenOnce(
+        chrome.autofillPrivate.onPersonalDataChanged,
+        chrome.test.callbackPass(function(addressList, cardList, ibanList) {
+          chrome.test.assertEq(
+              [{
+                guid: ibanGuid,
+                value: UPDATED_IBAN_VALUE,
+                nickname: updatedNickname
+              }],
+              filterIbanProperties(ibanList));
+        }));
+
+    // Update the IBAN by saving an IBAN with the same guid and using some
+    // different information.
+    chrome.autofillPrivate.saveIban({
+      guid: ibanGuid,
+      value: UPDATED_IBAN_VALUE,
+      nickname: updatedNickname
+    });
+  }));
 };
 
 var availableTests = [
@@ -302,6 +378,66 @@ var availableTests = [
         }));
   },
 
+  function addNewIbanNoNickname() {
+    addNewIban(/*nickname=*/undefined);
+  },
+
+  function addNewIbanWithNickname() {
+    addNewIban(/*nickname=*/'nickname');
+  },
+
+  function noChangesToExistingIban() {
+    chrome.autofillPrivate.getIbanList(chrome.test.callbackPass(function(
+        ibanList) {
+      // The IBAN from the addNewIban function should still be there.
+      chrome.test.assertEq(1, ibanList.length);
+      var ibanGuid = ibanList[0].guid;
+
+      // Set up the listener that verifies that onPersonalDataChanged shouldn't
+      // be called.
+      chrome.autofillPrivate.onPersonalDataChanged.addListener(failOnceCalled);
+
+      // Save the IBAN with the same info, shouldn't invoke
+      // onPersonalDataChanged.
+      chrome.autofillPrivate.saveIban({
+        guid: ibanGuid,
+        value: IBAN_VALUE,
+      });
+
+      // Reset onPersonalDataChanged.
+      chrome.autofillPrivate.onPersonalDataChanged.removeListener(
+          failOnceCalled);
+    }));
+  },
+
+  function updateExistingIban_NoNickname() {
+    updateExistingIban(/*updatedNickname=*/undefined);
+  },
+
+  function updateExistingIban_WithNickname() {
+    updateExistingIban(/*updatedNickname=*/'New nickname');
+  },
+
+  function removeExistingIban() {
+    chrome.autofillPrivate.getIbanList(chrome.test.callbackPass(function(
+        ibanList) {
+      // The IBAN from the addNewIban function should still be there.
+      chrome.test.assertEq(1, ibanList.length);
+      var ibanGuid = ibanList[0].guid;
+
+      // Set up the callback that verifies that the IBAN was correctly
+      // updated.
+      chrome.test.listenOnce(
+          chrome.autofillPrivate.onPersonalDataChanged,
+          chrome.test.callbackPass(function(addressList, cardList, ibanList) {
+            chrome.test.assertEq(0, ibanList.length);
+          }));
+
+      // Remove the IBAN with the given guid.
+      chrome.autofillPrivate.removeEntry(ibanGuid);
+    }));
+  },
+
   function removeEntry() {
     var guid;
 
@@ -389,6 +525,28 @@ var availableTests = [
       countryCode: COUNTRY_CODE
     }, handler1);
   },
+
+  function isValidIban() {
+    var handler1 = function(isValidIban) {
+      // IBAN_VALUE should be valid, then follow up with invalid value.
+      chrome.test.assertTrue(isValidIban);
+      chrome.autofillPrivate.isValidIban(INVALID_IBAN_VALUE, handler2);
+    }
+
+    var handler2 = function(isValidIban) {
+      // INVALID_IBAN_VALUE is not valid.
+      chrome.test.assertFalse(isValidIban);
+      chrome.test.succeed();
+    }
+
+    chrome.autofillPrivate.isValidIban(IBAN_VALUE, handler1);
+  },
+
+  function authenticateUserAndFlipMandatoryAuthToggle() {
+    chrome.autofillPrivate.authenticateUserAndFlipMandatoryAuthToggle();
+    chrome.test.assertNoLastError();
+    chrome.test.succeed();
+  },
 ];
 
 /** @const */
@@ -397,13 +555,23 @@ var TESTS_FOR_CONFIG = {
   'addAndUpdateCreditCard': [
     'addNewCreditCard', 'noChangesToExistingCreditCard',
     'updateExistingCreditCard'
-  ]
+  ],
+  'addNewIbanNoNickname': ['addNewIbanNoNickname'],
+  'addNewIbanWithNickname': ['addNewIbanWithNickname'],
+  'noChangesToExistingIban':
+      ['addNewIbanNoNickname', 'noChangesToExistingIban'],
+  'updateExistingIbanNoNickname':
+      ['addNewIbanNoNickname', 'updateExistingIban_NoNickname'],
+  'updateExistingIbanWithNickname':
+      ['addNewIbanNoNickname', 'updateExistingIban_WithNickname'],
+  'removeExistingIban': ['addNewIbanNoNickname', 'removeExistingIban'],
+  'isValidIban': ['isValidIban'],
+  'authenticateUserAndFlipMandatoryAuthToggle':
+      ['authenticateUserAndFlipMandatoryAuthToggle'],
 };
 
-chrome.test.getConfig(function(config) {
-  var testConfig = config.customArg;
-  var testsToRun = TESTS_FOR_CONFIG[testConfig] || [testConfig];
-  chrome.test.runTests(availableTests.filter(function(op) {
-    return testsToRun.includes(op.name);
-  }));
-});
+var testConfig = window.location.search.substring(1);
+var testsToRun = TESTS_FOR_CONFIG[testConfig] || [testConfig];
+chrome.test.runTests(availableTests.filter(function(op) {
+  return testsToRun.includes(op.name);
+}));

@@ -1,13 +1,13 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/files/file.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/field_trial_param_associator.h"
 #include "base/run_loop.h"
@@ -16,6 +16,7 @@
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/threading/platform_thread.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "net/base/completion_once_callback.h"
 #include "net/base/io_buffer.h"
@@ -605,9 +606,9 @@ void DiskCacheEntryTest::StreamAccess() {
   const int kBufferSize = 1024;
   const int kNumStreams = 3;
   scoped_refptr<net::IOBuffer> reference_buffers[kNumStreams];
-  for (int i = 0; i < kNumStreams; i++) {
-    reference_buffers[i] = base::MakeRefCounted<net::IOBuffer>(kBufferSize);
-    CacheTestFillBuffer(reference_buffers[i]->data(), kBufferSize, false);
+  for (auto& reference_buffer : reference_buffers) {
+    reference_buffer = base::MakeRefCounted<net::IOBuffer>(kBufferSize);
+    CacheTestFillBuffer(reference_buffer->data(), kBufferSize, false);
   }
   scoped_refptr<net::IOBuffer> buffer1 =
       base::MakeRefCounted<net::IOBuffer>(kBufferSize);
@@ -2327,7 +2328,7 @@ TEST_F(DiskCacheEntryTest, DoomSparseEntry2) {
 
   entry->Close();
   disk_cache::Backend* cache = cache_.get();
-  SparseTestCompletionCallback cb(std::move(cache_));
+  SparseTestCompletionCallback cb(TakeCache());
   int rv = cache->DoomEntry(key, net::HIGHEST, cb.callback());
   EXPECT_THAT(rv, IsError(net::ERR_IO_PENDING));
   EXPECT_THAT(cb.WaitForResult(), IsOk());
@@ -2551,7 +2552,7 @@ TEST_F(DiskCacheEntryTest, SparseClipEnd) {
 
   // Blockfile refuses to deal with sparse indices over 64GiB.
   SparseClipEnd(std::numeric_limits<int64_t>::max(),
-                /* expect_unsupported = */ true);
+                /*expected_unsupported=*/true);
 }
 
 TEST_F(DiskCacheEntryTest, SparseClipEnd2) {
@@ -2560,7 +2561,7 @@ TEST_F(DiskCacheEntryTest, SparseClipEnd2) {
   const int64_t kLimit = 64ll * 1024 * 1024 * 1024;
   // Separate test for blockfile for indices right at the edge of its address
   // space limit. kLimit must match kMaxEndOffset in sparse_control.cc
-  SparseClipEnd(kLimit, /* expect_unsupported = */ false);
+  SparseClipEnd(kLimit, /*expected_unsupported=*/false);
 
   // Test with things after kLimit, too, which isn't an issue for backends
   // supporting the entire 64-bit offset range.
@@ -2593,14 +2594,14 @@ TEST_F(DiskCacheEntryTest, MemoryOnlySparseClipEnd) {
   SetMemoryOnlyMode();
   InitCache();
   SparseClipEnd(std::numeric_limits<int64_t>::max(),
-                /* expect_unsupported = */ false);
+                /* expected_unsupported = */ false);
 }
 
 TEST_F(DiskCacheEntryTest, SimpleSparseClipEnd) {
   SetSimpleCacheMode();
   InitCache();
   SparseClipEnd(std::numeric_limits<int64_t>::max(),
-                /* expect_unsupported = */ false);
+                /* expected_unsupported = */ false);
 }
 
 // Tests that corrupt sparse children are removed automatically.
@@ -2624,16 +2625,16 @@ TEST_F(DiskCacheEntryTest, CleanupSparseEntry) {
 
   std::unique_ptr<TestIterator> iter = CreateIterator();
   int count = 0;
-  std::string child_key[2];
+  std::string child_keys[2];
   while (iter->OpenNextEntry(&entry) == net::OK) {
     ASSERT_TRUE(entry != nullptr);
     // Writing to an entry will alter the LRU list and invalidate the iterator.
     if (entry->GetKey() != key && count < 2)
-      child_key[count++] = entry->GetKey();
+      child_keys[count++] = entry->GetKey();
     entry->Close();
   }
-  for (int i = 0; i < 2; i++) {
-    ASSERT_THAT(OpenEntry(child_key[i], &entry), IsOk());
+  for (const auto& child_key : child_keys) {
+    ASSERT_THAT(OpenEntry(child_key, &entry), IsOk());
     // Overwrite the header's magic and signature.
     EXPECT_EQ(12, WriteData(entry, 2, 0, buf1.get(), 12, false));
     entry->Close();
@@ -4470,7 +4471,7 @@ void DiskCacheEntryTest::TruncateFileFromEnd(int file_index,
 void DiskCacheEntryTest::UseAfterBackendDestruction() {
   disk_cache::Entry* entry = nullptr;
   ASSERT_THAT(CreateEntry("the first key", &entry), IsOk());
-  cache_.reset();
+  ResetCaches();
 
   const int kSize = 100;
   scoped_refptr<net::IOBuffer> buffer =
@@ -4496,7 +4497,7 @@ void DiskCacheEntryTest::CloseSparseAfterBackendDestruction() {
   ASSERT_THAT(CreateEntry("the first key", &entry), IsOk());
   WriteSparseData(entry, 20000, buffer.get(), kSize);
 
-  cache_.reset();
+  ResetCaches();
 
   // This call shouldn't DCHECK or crash.
   entry->Close();
@@ -4930,7 +4931,7 @@ TEST_F(DiskCacheEntryTest, SimpleCacheReadWithoutKeySHA256) {
   entry->Close();
 
   base::RunLoop().RunUntilIdle();
-  disk_cache::SimpleBackendImpl::FlushWorkerPoolForTesting();
+  disk_cache::FlushCacheThreadForTesting();
   base::RunLoop().RunUntilIdle();
 
   EXPECT_TRUE(
@@ -4970,7 +4971,7 @@ TEST_F(DiskCacheEntryTest, SimpleCacheDoubleOpenWithoutKeySHA256) {
   entry->Close();
 
   base::RunLoop().RunUntilIdle();
-  disk_cache::SimpleBackendImpl::FlushWorkerPoolForTesting();
+  disk_cache::FlushCacheThreadForTesting();
   base::RunLoop().RunUntilIdle();
 
   EXPECT_TRUE(
@@ -4979,7 +4980,7 @@ TEST_F(DiskCacheEntryTest, SimpleCacheDoubleOpenWithoutKeySHA256) {
   entry->Close();
 
   base::RunLoop().RunUntilIdle();
-  disk_cache::SimpleBackendImpl::FlushWorkerPoolForTesting();
+  disk_cache::FlushCacheThreadForTesting();
   base::RunLoop().RunUntilIdle();
 
   ASSERT_THAT(OpenEntry(key, &entry), IsOk());
@@ -4997,7 +4998,7 @@ TEST_F(DiskCacheEntryTest, SimpleCacheReadCorruptKeySHA256) {
   entry->Close();
 
   base::RunLoop().RunUntilIdle();
-  disk_cache::SimpleBackendImpl::FlushWorkerPoolForTesting();
+  disk_cache::FlushCacheThreadForTesting();
   base::RunLoop().RunUntilIdle();
 
   EXPECT_TRUE(
@@ -5015,7 +5016,7 @@ TEST_F(DiskCacheEntryTest, SimpleCacheReadCorruptLength) {
   entry->Close();
 
   base::RunLoop().RunUntilIdle();
-  disk_cache::SimpleBackendImpl::FlushWorkerPoolForTesting();
+  disk_cache::FlushCacheThreadForTesting();
   base::RunLoop().RunUntilIdle();
 
   EXPECT_TRUE(
@@ -5072,7 +5073,7 @@ TEST_F(DiskCacheEntryTest, SimpleCacheSparseErrorHandling) {
   EXPECT_EQ(kSize, WriteSparseData(entry, 0, buffer.get(), kSize));
   entry->Close();
 
-  disk_cache::SimpleBackendImpl::FlushWorkerPoolForTesting();
+  disk_cache::FlushCacheThreadForTesting();
   EXPECT_TRUE(base::PathExists(path_0));
   EXPECT_TRUE(base::PathExists(path_s));
 
@@ -5512,7 +5513,7 @@ TEST_F(DiskCacheEntryTest, SimpleCacheCloseResurrection) {
 
   // Let optimistic create finish.
   base::RunLoop().RunUntilIdle();
-  disk_cache::SimpleBackendImpl::FlushWorkerPoolForTesting();
+  disk_cache::FlushCacheThreadForTesting();
   base::RunLoop().RunUntilIdle();
 
   int rv = entry->WriteData(1, 0, buffer.get(), kSize,
@@ -5539,7 +5540,7 @@ TEST_F(DiskCacheEntryTest, SimpleCacheCloseResurrection) {
 
   // Get first close a chance to finish.
   base::RunLoop().RunUntilIdle();
-  disk_cache::SimpleBackendImpl::FlushWorkerPoolForTesting();
+  disk_cache::FlushCacheThreadForTesting();
   base::RunLoop().RunUntilIdle();
 
   // Make sure |entry2| is still usable.
@@ -5574,7 +5575,7 @@ TEST_F(DiskCacheEntryTest, BlockFileSparsePendingAfterDtor) {
   EXPECT_EQ(net::ERR_IO_PENDING,
             entry->WriteSparseData(2560, buf.get(), kSize, base::DoNothing()));
   entry->Close();
-  cache_.reset();
+  ResetCaches();
 
   // Create a new instance as a way of flushing the thread.
   InitCache();

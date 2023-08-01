@@ -40,7 +40,7 @@ namespace blink {
 class HiddenInputType final : public InputType, private InputTypeView {
  public:
   HiddenInputType(HTMLInputElement& element)
-      : InputType(element), InputTypeView(element) {}
+      : InputType(Type::kHidden, element), InputTypeView(element) {}
 
   void Trace(Visitor*) const override;
   using InputType::GetElement;
@@ -51,8 +51,7 @@ class HiddenInputType final : public InputType, private InputTypeView {
   const AtomicString& FormControlType() const override;
   bool ShouldSaveAndRestoreFormControlState() const override;
   bool SupportsValidation() const override;
-  LayoutObject* CreateLayoutObject(const ComputedStyle&,
-                                   LegacyLayout) const override;
+  LayoutObject* CreateLayoutObject(const ComputedStyle&) const override;
   void AccessKeyAction(SimulatedClickCreationScope creation_scope) override;
   bool LayoutObjectIsNeeded() override;
   ValueMode GetValueMode() const override;
@@ -64,6 +63,13 @@ class HiddenInputType final : public InputType, private InputTypeView {
                 TextControlSetValueSelection) override;
   void AppendToFormData(FormData&) const override;
   bool NeedsShadowSubtree() const override { return false; }
+};
+
+template <>
+struct DowncastTraits<HiddenInputType> {
+  static bool AllowFrom(const InputType& type) {
+    return type.IsHiddenInputType();
+  }
 };
 
 }  // namespace blink

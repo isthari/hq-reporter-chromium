@@ -23,11 +23,12 @@
 
 #include "third_party/blink/renderer/core/html/html_html_element.h"
 
+#include "third_party/blink/renderer/core/css/css_property_value_set.h"
+#include "third_party/blink/renderer/core/css/resolver/style_resolver.h"
 #include "third_party/blink/renderer/core/css/style_engine.h"
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/document_parser.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
-#include "third_party/blink/renderer/core/frame/deprecation.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/html/html_body_element.h"
@@ -54,9 +55,6 @@ void HTMLHtmlElement::InsertedByParser() {
   if (!GetDocument().Parser())
     return;
 
-  if (!GetDocument().Parser())
-    return;
-
   GetDocument().Parser()->DocumentElementAvailable();
   if (GetDocument().GetFrame()) {
     GetDocument().GetFrame()->Loader().DispatchDocumentElementAvailable();
@@ -64,19 +62,6 @@ void HTMLHtmlElement::InsertedByParser() {
     // RunScriptsAtDocumentElementAvailable might have invalidated
     // GetDocument().
   }
-}
-
-const CSSPropertyValueSet*
-HTMLHtmlElement::AdditionalPresentationAttributeStyle() {
-  if (const CSSValue* color_scheme =
-          GetDocument().GetStyleEngine().GetMetaColorSchemeValue()) {
-    DEFINE_STATIC_LOCAL(
-        Persistent<MutableCSSPropertyValueSet>, color_scheme_style,
-        (MakeGarbageCollected<MutableCSSPropertyValueSet>(kHTMLStandardMode)));
-    color_scheme_style->SetProperty(CSSPropertyID::kColorScheme, *color_scheme);
-    return color_scheme_style;
-  }
-  return nullptr;
 }
 
 namespace {
@@ -90,11 +75,11 @@ bool NeedsLayoutStylePropagation(const ComputedStyle& layout_style,
 scoped_refptr<const ComputedStyle> CreateLayoutStyle(
     const ComputedStyle& style,
     const ComputedStyle& propagated_style) {
-  scoped_refptr<ComputedStyle> layout_style = ComputedStyle::Clone(style);
-  layout_style->SetDirection(propagated_style.Direction());
-  layout_style->SetWritingMode(propagated_style.GetWritingMode());
-  layout_style->UpdateFontOrientation();
-  return layout_style;
+  ComputedStyleBuilder builder(style);
+  builder.SetDirection(propagated_style.Direction());
+  builder.SetWritingMode(propagated_style.GetWritingMode());
+  builder.UpdateFontOrientation();
+  return builder.TakeStyle();
 }
 
 }  // namespace

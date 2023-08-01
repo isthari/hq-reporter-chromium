@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,11 @@
 #include "ash/constants/ash_features.h"
 #include "ash/public/cpp/ambient/ambient_client.h"
 #include "ash/public/cpp/ambient/proto/photo_cache_entry.pb.h"
-#include "base/bind.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
+#include "base/memory/raw_ref.h"
 #include "base/memory/weak_ptr.h"
+#include "base/no_destructor.h"
 #include "base/path_service.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/system/sys_info.h"
@@ -86,12 +88,10 @@ std::unique_ptr<network::SimpleURLLoader> CreateSimpleURLLoader(
   resource_request->method = "GET";
   resource_request->credentials_mode = network::mojom::CredentialsMode::kOmit;
 
-  if (ash::features::IsAmbientModeNewUrlEnabled()) {
-    if (token.empty())
-      DVLOG(2) << "Failed to fetch access token";
-    else
-      resource_request->headers.SetHeader("Authorization", "Bearer " + token);
-  }
+  if (token.empty())
+    DVLOG(2) << "Failed to fetch access token";
+  else
+    resource_request->headers.SetHeader("Authorization", "Bearer " + token);
 
   return network::SimpleURLLoader::Create(std::move(resource_request),
                                           kAmbientPhotoCacheNetworkTag);
@@ -153,6 +153,14 @@ base::FilePath GetCachePath(int cache_index, const base::FilePath& root_path) {
   return root_path.Append(base::NumberToString(cache_index) + kPhotoCacheExt);
 }
 
+base::RepeatingCallback<std::unique_ptr<AmbientPhotoCache>()>&
+GetCustomFactoryFunction() {
+  static base::NoDestructor<
+      base::RepeatingCallback<std::unique_ptr<AmbientPhotoCache>()>>
+      g_custom_factory;
+  return *g_custom_factory;
+}
+
 // -----------------AmbientPhotoCacheImpl---------------------------------------
 
 class AmbientPhotoCacheImpl : public AmbientPhotoCache {
@@ -173,14 +181,9 @@ class AmbientPhotoCacheImpl : public AmbientPhotoCache {
   void DownloadPhoto(
       const std::string& url,
       base::OnceCallback<void(std::string&&)> callback) override {
-    if (ash::features::IsAmbientModeNewUrlEnabled()) {
-      access_token_controller_.RequestAccessToken(
-          base::BindOnce(&AmbientPhotoCacheImpl::DownloadPhotoInternal,
-                         weak_factory_.GetWeakPtr(), url, std::move(callback)));
-    } else {
-      DownloadPhotoInternal(url, std::move(callback), /*gaia_id=*/std::string(),
-                            /*access_token=*/std::string());
-    }
+    access_token_controller_->RequestAccessToken(
+        base::BindOnce(&AmbientPhotoCacheImpl::DownloadPhotoInternal,
+                       weak_factory_.GetWeakPtr(), url, std::move(callback)));
   }
 
   void DownloadPhotoToFile(const std::string& url,
@@ -188,26 +191,19 @@ class AmbientPhotoCacheImpl : public AmbientPhotoCache {
                            base::OnceCallback<void(bool)> callback) override {
     auto file_path = GetCachePath(cache_index, root_directory_);
     base::OnceClosure download_callback;
-    if (ash::features::IsAmbientModeNewUrlEnabled()) {
-      download_callback = base::BindOnce(
-          [](base::WeakPtr<AmbientPhotoCacheImpl> weak_ptr,
-             base::OnceCallback<void(const std::string&, const std::string&)>
-                 callback) {
-            if (!weak_ptr)
-              return;
-            weak_ptr->access_token_controller_.RequestAccessToken(
-                std::move(callback));
-          },
-          weak_factory_.GetWeakPtr(),
-          base::BindOnce(&AmbientPhotoCacheImpl::DownloadPhotoToFileInternal,
-                         weak_factory_.GetWeakPtr(), url, std::move(callback),
-                         file_path));
-    } else {
-      download_callback = base::BindOnce(
-          &AmbientPhotoCacheImpl::DownloadPhotoToFileInternal,
-          weak_factory_.GetWeakPtr(), url, std::move(callback), file_path,
-          /*gaia_id=*/std::string(), /*access_token=*/std::string());
-    }
+    download_callback = base::BindOnce(
+        [](base::WeakPtr<AmbientPhotoCacheImpl> weak_ptr,
+           base::OnceCallback<void(const std::string&, const std::string&)>
+               callback) {
+          if (!weak_ptr)
+            return;
+          weak_ptr->access_token_controller_->RequestAccessToken(
+              std::move(callback));
+        },
+        weak_factory_.GetWeakPtr(),
+        base::BindOnce(&AmbientPhotoCacheImpl::DownloadPhotoToFileInternal,
+                       weak_factory_.GetWeakPtr(), url, std::move(callback),
+                       file_path));
 
     task_runner_->PostTaskAndReply(
         FROM_HERE,
@@ -247,26 +243,27 @@ class AmbientPhotoCacheImpl : public AmbientPhotoCache {
         std::move(callback));
   }
 
-  void ReadPhotoCache(int cache_index,
-                      ambient::PhotoCacheEntry* cache_entry,
-                      base::OnceCallback<void()> callback) override {
-    task_runner_->PostTaskAndReply(
+  void ReadPhotoCache(
+      int cache_index,
+      base::OnceCallback<void(::ambient::PhotoCacheEntry)> callback) override {
+    task_runner_->PostTaskAndReplyWithResult(
         FROM_HERE,
         base::BindOnce(
-            [](int cache_index, const base::FilePath& root_path,
-               ambient::PhotoCacheEntry* cache_entry) {
+            [](int cache_index, const base::FilePath& root_path) {
               auto cache_path = GetCachePath(cache_index, root_path);
 
               // Read the existing cache.
               const char* path_str = cache_path.value().c_str();
               std::fstream input(path_str, std::ios::in | std::ios::binary);
-              if (!input || !cache_entry->ParseFromIstream(&input)) {
+              ambient::PhotoCacheEntry cache_entry;
+              if (!input || !cache_entry.ParseFromIstream(&input)) {
                 LOG(ERROR) << "Unable to read photo cache";
-                *cache_entry = ambient::PhotoCacheEntry();
+                cache_entry = ::ambient::PhotoCacheEntry();
                 base::DeleteFile(cache_path);
               }
+              return cache_entry;
             },
-            cache_index, root_directory_, cache_entry),
+            cache_index, root_directory_),
         std::move(callback));
   }
 
@@ -287,7 +284,7 @@ class AmbientPhotoCacheImpl : public AmbientPhotoCache {
     std::unique_ptr<network::SimpleURLLoader> simple_loader =
         CreateSimpleURLLoader(url, access_token);
     scoped_refptr<network::SharedURLLoaderFactory> loader_factory =
-        ambient_client_.GetURLLoaderFactory();
+        ambient_client_->GetURLLoaderFactory();
     auto* loader_ptr = simple_loader.get();
     auto* loader_factory_ptr = loader_factory.get();
 
@@ -307,7 +304,7 @@ class AmbientPhotoCacheImpl : public AmbientPhotoCache {
     std::unique_ptr<network::SimpleURLLoader> simple_loader =
         CreateSimpleURLLoader(url, access_token);
     scoped_refptr<network::SharedURLLoaderFactory> loader_factory =
-        ambient_client_.GetURLLoaderFactory();
+        ambient_client_->GetURLLoaderFactory();
     auto* loader_ptr = simple_loader.get();
     auto* loader_factory_ptr = loader_factory.get();
 
@@ -399,8 +396,9 @@ class AmbientPhotoCacheImpl : public AmbientPhotoCache {
 
   const base::FilePath root_directory_;
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
-  AmbientClient& ambient_client_;
-  AmbientAccessTokenController& access_token_controller_;
+  const raw_ref<AmbientClient, ExperimentalAsh> ambient_client_;
+  const raw_ref<AmbientAccessTokenController, ExperimentalAsh>
+      access_token_controller_;
   base::WeakPtrFactory<AmbientPhotoCacheImpl> weak_factory_{this};
 };
 
@@ -413,8 +411,16 @@ std::unique_ptr<AmbientPhotoCache> AmbientPhotoCache::Create(
     base::FilePath root_path,
     AmbientClient& ambient_client,
     AmbientAccessTokenController& access_token_controller) {
-  return std::make_unique<AmbientPhotoCacheImpl>(root_path, ambient_client,
-                                                 access_token_controller);
+  return GetCustomFactoryFunction()
+             ? GetCustomFactoryFunction().Run()
+             : std::make_unique<AmbientPhotoCacheImpl>(
+                   root_path, ambient_client, access_token_controller);
+}
+
+// static
+void AmbientPhotoCache::SetFactoryForTesting(
+    base::RepeatingCallback<std::unique_ptr<AmbientPhotoCache>()> create_cb) {
+  GetCustomFactoryFunction() = std::move(create_cb);
 }
 
 }  // namespace ash

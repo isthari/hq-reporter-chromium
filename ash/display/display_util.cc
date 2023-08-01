@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <memory>
 #include <utility>
 
+#include "ash/constants/notifier_catalogs.h"
 #include "ash/display/display_configuration_controller.h"
 #include "ash/display/extended_mouse_warp_controller.h"
 #include "ash/display/null_mouse_warp_controller.h"
@@ -19,7 +20,7 @@
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -116,7 +117,7 @@ void MoveCursorTo(AshWindowTreeHost* ash_host,
   // Shrink further so that the mouse doesn't warp on the
   // edge. The right/bottom needs to be shrink by 2 to subtract
   // the 1 px from width/height value.
-  native_bounds.Inset(1, 1, 2, 2);
+  native_bounds.Inset(gfx::Insets::TLBR(1, 1, 2, 2));
 
   // Ensure that |point_in_native| is inside the |native_bounds|.
   point_in_native.SetToMax(native_bounds.origin());
@@ -159,7 +160,7 @@ void ShowDisplayErrorNotification(const std::u16string& message,
   }
 
   std::unique_ptr<message_center::Notification> notification =
-      CreateSystemNotification(
+      CreateSystemNotificationPtr(
           message_center::NOTIFICATION_TYPE_SIMPLE, kDisplayErrorNotificationId,
           std::u16string(),  // title
           message,
@@ -167,7 +168,7 @@ void ShowDisplayErrorNotification(const std::u16string& message,
           GURL(),
           message_center::NotifierId(
               message_center::NotifierType::SYSTEM_COMPONENT,
-              kNotifierDisplayError),
+              kNotifierDisplayError, NotificationCatalogName::kDisplayError),
           data,
           base::MakeRefCounted<message_center::HandleNotificationClickDelegate>(
               base::BindRepeating([](absl::optional<int> button_index) {

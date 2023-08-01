@@ -1,18 +1,17 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_UI_WEBUI_SIGNIN_PROFILE_PICKER_LACROS_SIGN_IN_PROVIDER_H_
 #define CHROME_BROWSER_UI_WEBUI_SIGNIN_PROFILE_PICKER_LACROS_SIGN_IN_PROVIDER_H_
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/lacros/account_manager/account_profile_mapper.h"
 #include "chrome/browser/profiles/keep_alive/scoped_profile_keep_alive.h"
 #include "chrome/browser/profiles/profile.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
-
-struct CoreAccountInfo;
 
 // Class responsible for showing the lacros sign-in dialog and returning a
 // profile with a kSignin primary account.
@@ -24,7 +23,9 @@ class ProfilePickerLacrosSignInProvider
   // window, the callback gets called with a nullptr.
   using SignedInCallback = base::OnceCallback<void(Profile* profile)>;
 
-  ProfilePickerLacrosSignInProvider();
+  // `hidden_profile` controls whether the new profile is ephemeral and omitted.
+  explicit ProfilePickerLacrosSignInProvider(bool hidden_profile);
+
   ~ProfilePickerLacrosSignInProvider() override;
   ProfilePickerLacrosSignInProvider(const ProfilePickerLacrosSignInProvider&) =
       delete;
@@ -44,18 +45,19 @@ class ProfilePickerLacrosSignInProvider
 
  private:
   // IdentityManager::Observer:
-  void OnRefreshTokenUpdatedForAccount(
-      const CoreAccountInfo& account_info) override;
+  void OnPrimaryAccountChanged(
+      const signin::PrimaryAccountChangeEvent& event_details) override;
 
   void OnLacrosProfileCreated(
       const absl::optional<AccountProfileMapper::AddAccountResult>& result);
 
-  void OnLacrosAccountLoaded(const CoreAccountInfo& account);
+  void OnProfileSignedIn();
 
   // Sign-in callback, valid until it's called.
   SignedInCallback callback_;
 
-  Profile* profile_ = nullptr;
+  const bool hidden_profile_;
+  raw_ptr<Profile> profile_ = nullptr;
   // Prevent |profile_| from being destroyed first.
   std::unique_ptr<ScopedProfileKeepAlive> profile_keep_alive_;
 

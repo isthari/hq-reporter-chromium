@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,17 @@
  * @fileoverview Utilities for strings.
  */
 
-goog.provide('StringUtil');
-
-StringUtil = class {
-  constructor() {}
+export class StringUtil {
+  /**
+   * @param {string} str
+   * @return {string}
+   */
+  static toUpperCamelCase(str) {
+    const wordRegex = /(?:^\w|[A-Z]|(?:\b|_)\w)/g;
+    const underscoreAndWhitespaceRegex = /(\s|_)+/g;
+    return str.replace(wordRegex, word => word.toUpperCase())
+        .replace(underscoreAndWhitespaceRegex, '');
+  }
 
   /**
    * Returns the length of the longest common prefix of two strings.
@@ -84,8 +91,16 @@ StringUtil = class {
     }
     return result;
   }
-};
 
+  /**
+   * Converts a camel case string to snake case.
+   * @param {string} s A camel case string, e.g. 'brailleTable8'.
+   * @return {string} A snake case string, e.g. 'braille_table_8'.
+   */
+  static camelToSnake(s) {
+    return s.replace(/([A-Z0-9])/g, '_$1').toLowerCase();
+  }
+}
 
 /**
  * The last code point of the Unicode basic multilingual plane.

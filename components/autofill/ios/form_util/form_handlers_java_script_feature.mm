@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,7 @@
 #endif
 
 namespace {
-constexpr char kScriptName[] = "form_handlers_js";
+constexpr char kScriptName[] = "form_handlers";
 constexpr char kScriptMessageName[] = "FormHandlersMessage";
 }  // namespace
 
@@ -30,9 +30,7 @@ FormHandlersJavaScriptFeature* FormHandlersJavaScriptFeature::GetInstance() {
 
 FormHandlersJavaScriptFeature::FormHandlersJavaScriptFeature()
     : web::JavaScriptFeature(
-          // TODO(crbug.com/1175793): Move autofill code to kAnyContentWorld
-          // once all scripts are converted to JavaScriptFeatures.
-          ContentWorld::kPageContentWorld,
+          web::ContentWorld::kIsolatedWorld,
           {FeatureScript::CreateWithFilename(
               kScriptName,
               FeatureScript::InjectionTime::kDocumentStart,
@@ -49,18 +47,15 @@ FormHandlersJavaScriptFeature::~FormHandlersJavaScriptFeature() = default;
 void FormHandlersJavaScriptFeature::TrackFormMutations(
     web::WebFrame* frame,
     int mutation_tracking_delay) {
-  std::vector<base::Value> parameters;
-  parameters.push_back(base::Value(mutation_tracking_delay));
-  CallJavaScriptFunction(frame, "formHandlers.trackFormMutations", parameters);
+  CallJavaScriptFunction(frame, "formHandlers.trackFormMutations",
+                         base::Value::List().Append(mutation_tracking_delay));
 }
 
 void FormHandlersJavaScriptFeature::ToggleTrackingUserEditedFields(
     web::WebFrame* frame,
     bool track_user_edited_fields) {
-  std::vector<base::Value> parameters;
-  parameters.push_back(base::Value(track_user_edited_fields));
   CallJavaScriptFunction(frame, "formHandlers.toggleTrackingUserEditedFields",
-                         parameters);
+                         base::Value::List().Append(track_user_edited_fields));
 }
 
 absl::optional<std::string>

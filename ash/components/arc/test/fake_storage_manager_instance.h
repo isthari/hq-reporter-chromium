@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 #define ASH_COMPONENTS_ARC_TEST_FAKE_STORAGE_MANAGER_INSTANCE_H_
 
 #include "ash/components/arc/mojom/storage_manager.mojom.h"
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 
 namespace arc {
 
@@ -23,9 +23,6 @@ class FakeStorageManagerInstance : public mojom::StorageManagerInstance {
   using GetApplicationsSizeCallback =
       base::OnceCallback<void(bool, mojom::ApplicationsSizePtr)>;
   void GetApplicationsSize(GetApplicationsSizeCallback callback) override;
-  using DeleteApplicationsCacheCallback = base::OnceCallback<void()>;
-  void DeleteApplicationsCache(
-      DeleteApplicationsCacheCallback callback) override;
 
   size_t num_open_private_volume_settings_called() const {
     return num_open_private_volume_settings_called_;

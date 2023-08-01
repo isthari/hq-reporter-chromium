@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,19 +9,19 @@
 
 #include "android_webview/browser/gfx/aw_vulkan_context_provider.h"
 #include "android_webview/public/browser/draw_fn.h"
+#include "base/android/scoped_hardware_buffer_handle.h"
 #include "base/containers/queue.h"
 #include "base/files/scoped_file.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
 #include "third_party/skia/include/gpu/vk/GrVkTypes.h"
+#include "ui/gfx/geometry/size.h"
+#include "ui/gl/scoped_egl_image.h"
 
 class GrVkSecondaryCBDrawContext;
 class SkColorSpace;
-
-namespace gl {
-class GLImageAHardwareBuffer;
-}
+class SkImage;
 
 namespace gpu {
 class VulkanImage;
@@ -35,6 +35,8 @@ struct OverlaysParams;
 
 // With interop mode, we will render frames on AHBs with GL api, and then draw
 // AHBs with Vulkan API on the final target.
+//
+// Lifetime: WebView
 class VulkanGLInterop {
  public:
   VulkanGLInterop(RenderThreadManager* render_thread_manager,
@@ -63,7 +65,9 @@ class VulkanGLInterop {
     VkFence post_draw_fence = VK_NULL_HANDLE;
     VkSemaphore post_draw_semaphore = VK_NULL_HANDLE;
     base::ScopedFD sync_fd;
-    scoped_refptr<gl::GLImageAHardwareBuffer> ahb_image;
+    gl::ScopedEGLImage egl_image;
+    gfx::Size image_size;
+    base::android::ScopedHardwareBufferHandle scoped_buffer;
     sk_sp<SkImage> ahb_skimage;
     uint32_t texture_id = 0;
     uint32_t framebuffer_id = 0;
@@ -74,8 +78,9 @@ class VulkanGLInterop {
     raw_ptr<AwVulkanContextProvider> vk_context_provider;
   };
 
-  RenderThreadManager* const render_thread_manager_;
-  AwVulkanContextProvider* const vulkan_context_provider_;
+  raw_ptr<RenderThreadManager> const render_thread_manager_;
+
+  raw_ptr<AwVulkanContextProvider> const vulkan_context_provider_;
 
   // GL context used to draw via GL in Vk interop path.
   scoped_refptr<GLNonOwnedCompatibilityContext> gl_context_;

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,11 @@
 #include <memory>
 #include <string>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/time/time.h"
+#include "third_party/webrtc/api/video/encoded_image.h"
 #include "third_party/webrtc/api/video/video_codec_type.h"
+#include "third_party/webrtc/modules/desktop_capture/desktop_capture_types.h"
 #include "third_party/webrtc/modules/desktop_capture/desktop_geometry.h"
 
 namespace webrtc {
@@ -35,14 +37,14 @@ class WebrtcVideoEncoder {
     // If set to true then the active map passed to the encoder will only
     // contain updated_region() from the current frame. Otherwise the active map
     // is not cleared before adding updated_region(), which means it will
-    // contain union of updated_region() from all frames since this flag was
+    // contain a union of updated_region() from all frames since this flag was
     // last set. This flag is used to top-off video quality with VP8.
     bool clear_active_map = false;
 
     // Indicates that the encoder should encode this frame as a key frame.
     bool key_frame = false;
 
-    // Target FPS. < 0 means unset.
+    // Target FPS. A value less than 0 means unset.
     int fps = -1;
 
     // Quantization parameters for the encoder.
@@ -68,6 +70,9 @@ class WebrtcVideoEncoder {
     base::TimeDelta send_pending_delay{base::TimeDelta::Max()};
     base::TimeDelta rtt_estimate{base::TimeDelta::Max()};
     int bandwidth_estimate_kbps = -1;
+
+    // The screen that this frame was captured from.
+    webrtc::ScreenId screen_id = webrtc::kInvalidScreenId;
   };
 
   struct EncodedFrame {
@@ -78,13 +83,18 @@ class WebrtcVideoEncoder {
     EncodedFrame& operator=(EncodedFrame&&);
     ~EncodedFrame();
 
-    webrtc::DesktopSize size;
-    std::string data;
+    webrtc::DesktopSize dimensions;
+    rtc::scoped_refptr<webrtc::EncodedImageBuffer> data;
     bool key_frame;
     int quantizer;
     webrtc::VideoCodecType codec;
+    int32_t profile = 0;
 
+    uint32_t rtp_timestamp;
     std::unique_ptr<FrameStats> stats;
+    // This rectangle in the input frame will be encoded by the encoder.
+    int32_t encoded_rect_width = 0;
+    int32_t encoded_rect_height = 0;
   };
 
   enum class EncodeResult {
@@ -99,6 +109,10 @@ class WebrtcVideoEncoder {
     UNKNOWN_ERROR,
   };
 
+  // Helper function for the VPX and AOM encoders to determine the number of
+  // threads needed to efficiently encode a frame based on its width.
+  static int GetEncoderThreadCount(int frame_width);
+
   // A derived class calls EncodeCallback to return the result of an encoding
   // request. SUCCEEDED with an empty EncodedFrame (nullptr) indicates the frame
   // should be dropped (unchanged or empty frame). Otherwise EncodeResult shows
@@ -108,9 +122,11 @@ class WebrtcVideoEncoder {
 
   virtual ~WebrtcVideoEncoder() {}
 
-  // Request that the encoder provide lossless encoding, or color, if possible.
+  // Encoder configurable settings, may be provided via SDP or OOB via a
+  // proprietary message.
   virtual void SetLosslessEncode(bool want_lossless) {}
   virtual void SetLosslessColor(bool want_lossless) {}
+  virtual void SetEncoderSpeed(int encoder_speed) {}
 
   // Encode an image stored in |frame|. If frame.updated_region() is empty
   // then the encoder may return a frame (e.g. to top-off previously-encoded
@@ -118,7 +134,7 @@ class WebrtcVideoEncoder {
   // there is no work to do. |frame| may be nullptr, which is equivalent to a
   // frame with an empty updated_region(). |done| callback may be called
   // synchronously. It must not be called if the encoder is destroyed while
-  // request is pending.
+  // the request is pending.
   virtual void Encode(std::unique_ptr<webrtc::DesktopFrame> frame,
                       const FrameParams& param,
                       EncodeCallback done) = 0;

@@ -1,23 +1,24 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/location_bar/location_bar_model_delegate_ios.h"
 
-#include "base/check.h"
-#include "components/omnibox/browser/autocomplete_classifier.h"
-#include "components/omnibox/browser/autocomplete_input.h"
-#include "components/omnibox/browser/autocomplete_match.h"
-#include "components/prefs/pref_service.h"
-#include "components/security_state/ios/security_state_utils.h"
-#include "ios/chrome/browser/autocomplete/autocomplete_scheme_classifier_impl.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/chrome_url_constants.h"
-#include "ios/chrome/browser/pref_names.h"
+#import "base/check.h"
+#import "components/omnibox/browser/autocomplete_classifier.h"
+#import "components/omnibox/browser/autocomplete_input.h"
+#import "components/omnibox/browser/autocomplete_match.h"
+#import "components/prefs/pref_service.h"
+#import "components/security_state/ios/security_state_utils.h"
+#import "ios/chrome/browser/autocomplete/autocomplete_scheme_classifier_impl.h"
 #import "ios/chrome/browser/reading_list/offline_page_tab_helper.h"
-#include "ios/chrome/browser/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/search_engines/template_url_service_factory.h"
+#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/prefs/pref_names.h"
+#import "ios/chrome/browser/shared/model/url/chrome_url_constants.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
 #import "ios/components/security_interstitials/ios_blocking_page_tab_helper.h"
-#include "ios/components/webui/web_ui_url_constants.h"
+#import "ios/components/webui/web_ui_url_constants.h"
 #import "ios/web/public/navigation/navigation_item.h"
 #import "ios/web/public/navigation/navigation_manager.h"
 #import "ios/web/public/security/ssl_status.h"
@@ -28,8 +29,9 @@
 #endif
 
 LocationBarModelDelegateIOS::LocationBarModelDelegateIOS(
-    WebStateList* web_state_list)
-    : web_state_list_(web_state_list) {}
+    WebStateList* web_state_list,
+    ChromeBrowserState* browser_state)
+    : web_state_list_(web_state_list), browser_state_(browser_state) {}
 
 LocationBarModelDelegateIOS::~LocationBarModelDelegateIOS() {}
 
@@ -58,7 +60,7 @@ bool LocationBarModelDelegateIOS::GetURL(GURL* url) const {
   if (!item)
     return false;
   *url = item->GetVirtualURL();
-  // Return |false| for about scheme pages.  This will result in the location
+  // Return `false` for about scheme pages.  This will result in the location
   // bar showing the default page, "about:blank". See crbug.com/989497 for
   // details on why.
   if (url->SchemeIs(url::kAboutScheme))
@@ -144,4 +146,10 @@ bool LocationBarModelDelegateIOS::IsNewTabPageURL(const GURL& url) const {
 bool LocationBarModelDelegateIOS::IsHomePage(const GURL& url) const {
   // iOS does not have a notion of home page.
   return false;
+}
+
+TemplateURLService* LocationBarModelDelegateIOS::GetTemplateURLService()
+
+{
+  return ios::TemplateURLServiceFactory::GetForBrowserState(browser_state_);
 }

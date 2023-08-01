@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,10 @@
 
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkSurface.h"
+#include "third_party/skia/include/gpu/GpuTypes.h"
 #include "third_party/skia/include/gpu/GrBackendSurface.h"
 #include "third_party/skia/include/gpu/GrDirectContext.h"
+#include "third_party/skia/include/gpu/ganesh/SkSurfaceGanesh.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gl/gl_implementation.h"
 #include "ui/gl/gl_version_info.h"
@@ -35,8 +37,8 @@ NativeGlSurfaceProvider::NativeGlSurfaceProvider() {
 NativeGlSurfaceProvider::~NativeGlSurfaceProvider() = default;
 
 sk_sp<SkSurface> NativeGlSurfaceProvider::MakeSurface(const gfx::Size& size) {
-  return SkSurface::MakeRenderTarget(
-      gr_context_.get(), SkBudgeted::kNo,
+  return SkSurfaces::RenderTarget(
+      gr_context_.get(), skgpu::Budgeted::kNo,
       SkImageInfo::MakeN32Premul(size.width(), size.height()), 0,
       kTopLeft_GrSurfaceOrigin, nullptr);
 }
@@ -44,8 +46,8 @@ sk_sp<SkSurface> NativeGlSurfaceProvider::MakeSurface(const gfx::Size& size) {
 GLuint NativeGlSurfaceProvider::FlushSurface(SkSurface* surface,
                                              GLuint reuse_texture_id) {
   surface->getCanvas()->flush();
-  GrBackendTexture backend_texture =
-      surface->getBackendTexture(SkSurface::kFlushRead_BackendHandleAccess);
+  GrBackendTexture backend_texture = SkSurfaces::GetBackendTexture(
+      surface, SkSurfaces::BackendHandleAccess::kFlushRead);
   DCHECK(backend_texture.isValid());
   GrGLTextureInfo info;
   bool result = backend_texture.getGLTextureInfo(&info);

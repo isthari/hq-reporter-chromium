@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,9 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/debug/dump_without_crashing.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/no_destructor.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -71,8 +72,15 @@ std::string DecryptRefreshToken(const std::string& cipher_text) {
 // from ImportCredentialsFromProvider() if a browser window for the profile is
 // already available or is delayed until a browser can first be opened.
 void FinishImportCredentialsFromProvider(const CoreAccountId& account_id,
-                                         Browser* browser,
-                                         Profile* profile) {
+                                         Profile* profile,
+                                         Browser* browser) {
+  if (!browser) {
+    // Chrome failed to open a browser, the sync confirmation cannot be shown.
+    base::debug::DumpWithoutCrashing();
+    return;
+  }
+  CHECK_EQ(browser->profile(), profile);
+
   // TurnSyncOnHelper deletes itself once done.
   if (GetTurnSyncOnHelperDelegateForTestingStorage()->get()) {
     new TurnSyncOnHelper(
@@ -83,9 +91,6 @@ void FinishImportCredentialsFromProvider(const CoreAccountId& account_id,
         std::move(*GetTurnSyncOnHelperDelegateForTestingStorage()),
         base::DoNothing());
   } else {
-    if (!browser)
-      browser = chrome::FindLastActiveWithProfile(profile);
-
     new TurnSyncOnHelper(
         profile, browser,
         signin_metrics::AccessPoint::ACCESS_POINT_MACHINE_LOGON,
@@ -124,14 +129,14 @@ void ImportCredentialsFromProvider(Profile* profile,
   if (turn_on_sync) {
     Browser* browser = chrome::FindLastActiveWithProfile(profile);
     if (browser) {
-      FinishImportCredentialsFromProvider(account_id, browser, profile);
+      FinishImportCredentialsFromProvider(account_id, profile, browser);
     } else {
       // If no active browser exists yet, this profile is in the process of
       // being created.  Wait for the browser to be created before finishing the
       // sign in.  This object deletes itself when done.
       new profiles::BrowserAddedForProfileObserver(
           profile, base::BindOnce(&FinishImportCredentialsFromProvider,
-                                  account_id, nullptr, profile));
+                                  account_id, profile));
     }
   }
 

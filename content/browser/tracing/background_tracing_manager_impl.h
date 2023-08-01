@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,48 +20,21 @@
 #include "services/tracing/public/mojom/background_tracing_agent.mojom.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
-namespace base {
-class Value;
-}  // namespace base
-
-namespace tracing {
-namespace mojom {
+namespace tracing::mojom {
 class BackgroundTracingAgent;
 class BackgroundTracingAgentProvider;
-}  // namespace mojom
-}  // namespace tracing
+}  // namespace tracing::mojom
 
 namespace content {
 namespace mojom {
 class ChildProcess;
 }  // namespace mojom
 
-class BackgroundTracingRule;
 class BackgroundTracingActiveScenario;
 class TracingDelegate;
 
 class BackgroundTracingManagerImpl : public BackgroundTracingManager {
  public:
-  // Enabled state observers get a callback when the state of background tracing
-  // changes.
-  class CONTENT_EXPORT EnabledStateObserver {
-   public:
-    // Called when the activation of a background tracing scenario is
-    // successful.
-    virtual void OnScenarioActivated(
-        const BackgroundTracingConfigImpl* config) = 0;
-
-    // In case the scenario was aborted before or after tracing was enabled.
-    virtual void OnScenarioAborted() = 0;
-
-    // Called after tracing is enabled on all processes because the rule was
-    // triggered.
-    virtual void OnTracingEnabled(
-        BackgroundTracingConfigImpl::CategoryPreset preset) = 0;
-
-    virtual ~EnabledStateObserver() = default;
-  };
-
   class AgentObserver {
    public:
     virtual void OnAgentAdded(
@@ -93,7 +66,7 @@ class BackgroundTracingManagerImpl : public BackgroundTracingManager {
   };
   static void RecordMetric(Metrics metric);
 
-  CONTENT_EXPORT static BackgroundTracingManagerImpl* GetInstance();
+  CONTENT_EXPORT static BackgroundTracingManagerImpl& GetInstance();
 
   BackgroundTracingManagerImpl(const BackgroundTracingManagerImpl&) = delete;
   BackgroundTracingManagerImpl& operator=(const BackgroundTracingManagerImpl&) =
@@ -113,27 +86,22 @@ class BackgroundTracingManagerImpl : public BackgroundTracingManager {
   bool HasActiveScenario() override;
 
   // Named triggers
-  void TriggerNamedEvent(TriggerHandle, StartedFinalizingCallback) override;
-  TriggerHandle RegisterTriggerType(base::StringPiece trigger_name) override;
-  const std::string& GetTriggerNameFromHandle(
-      TriggerHandle trigger_handle) override;
+  bool EmitNamedTrigger(const std::string& trigger_name) override;
 
-  void OnHistogramTrigger(const std::string& histogram_name);
+  void SetNamedTriggerCallback(const std::string& trigger_name,
+                               base::RepeatingCallback<bool()> callback);
 
-  void OnRuleTriggered(const BackgroundTracingRule* triggered_rule,
-                       StartedFinalizingCallback callback);
   bool HasTraceToUpload() override;
   std::string GetLatestTraceToUpload() override;
   void SetTraceToUpload(std::unique_ptr<std::string> trace_data);
-  std::string GetBackgroundTracingUploadUrl(
-      const std::string& trial_name) override;
   std::unique_ptr<BackgroundTracingConfig> GetBackgroundTracingConfig(
       const std::string& trial_name) override;
 
-  // Add/remove EnabledStateObserver.
-  CONTENT_EXPORT void AddEnabledStateObserver(EnabledStateObserver* observer);
-  CONTENT_EXPORT void RemoveEnabledStateObserver(
-      EnabledStateObserver* observer);
+  // Add/remove EnabledStateTestObserver.
+  CONTENT_EXPORT void AddEnabledStateObserverForTesting(
+      BackgroundTracingManager::EnabledStateTestObserver* observer);
+  CONTENT_EXPORT void RemoveEnabledStateObserverForTesting(
+      BackgroundTracingManager::EnabledStateTestObserver* observer);
 
   // Add/remove Agent{Observer}.
   void AddAgent(tracing::mojom::BackgroundTracingAgent* agent);
@@ -146,13 +114,12 @@ class BackgroundTracingManagerImpl : public BackgroundTracingManager {
   bool IsAllowedFinalization(bool is_crash_scenario) const;
 
   // Called by BackgroundTracingActiveScenario
-  void OnStartTracingDone(BackgroundTracingConfigImpl::CategoryPreset preset);
+  void OnStartTracingDone();
 
   // For tests
   CONTENT_EXPORT BackgroundTracingActiveScenario* GetActiveScenarioForTesting();
-  CONTENT_EXPORT void InvalidateTriggerHandlesForTesting();
+  CONTENT_EXPORT void InvalidateTriggersCallbackForTesting();
   CONTENT_EXPORT bool IsTracingForTesting();
-  void WhenIdle(IdleCallback idle_callback) override;
   CONTENT_EXPORT void AbortScenarioForTesting() override;
   CONTENT_EXPORT void SetTraceToUploadForTesting(
       std::unique_ptr<std::string> trace_data) override;
@@ -165,12 +132,9 @@ class BackgroundTracingManagerImpl : public BackgroundTracingManager {
   BackgroundTracingManagerImpl();
   ~BackgroundTracingManagerImpl() override;
 
-  bool IsSupportedConfig(BackgroundTracingConfigImpl* config);
-  absl::optional<base::Value> GenerateMetadataDict();
   void GenerateMetadataProto(
       perfetto::protos::pbzero::ChromeMetadataPacket* metadata,
       bool privacy_filtering_enabled);
-  bool IsTriggerHandleValid(TriggerHandle handle) const;
   void OnScenarioAborted();
   static void AddPendingAgent(
       int child_process_id,
@@ -182,20 +146,17 @@ class BackgroundTracingManagerImpl : public BackgroundTracingManager {
   std::unique_ptr<BackgroundTracingActiveScenario> active_scenario_;
 
   std::unique_ptr<TracingDelegate> delegate_;
-  std::map<TriggerHandle, std::string> trigger_handles_;
-  int trigger_handle_ids_;
+  std::map<std::string, base::RepeatingCallback<bool()>>
+      named_trigger_callbacks_;
 
   // Note, these sets are not mutated during iteration so it is okay to not use
   // base::ObserverList.
-  std::set<EnabledStateObserver*> background_tracing_observers_;
+  std::set<EnabledStateTestObserver*> background_tracing_observers_;
   std::set<tracing::mojom::BackgroundTracingAgent*> agents_;
   std::set<AgentObserver*> agent_observers_;
 
   std::map<int, mojo::Remote<tracing::mojom::BackgroundTracingAgentProvider>>
       pending_agents_;
-
-  IdleCallback idle_callback_;
-  base::RepeatingClosure tracing_enabled_callback_for_testing_;
 
   // This field contains serialized trace log proto.
   std::string trace_to_upload_;

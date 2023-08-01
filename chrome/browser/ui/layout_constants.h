@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,21 +18,11 @@ enum LayoutConstant {
   // The height of a button within the Bookmarks Bar.
   BOOKMARK_BAR_BUTTON_HEIGHT,
 
-#if BUILDFLAG(IS_MAC)
-  // This is a little smaller than the bookmarkbar height because of the visual
-  // overlap with the main toolbar. This height should not be used when
-  // computing the height of the toolbar.
-  BOOKMARK_BAR_HEIGHT_NO_OVERLAP,
-#endif
-
-  // The height of Bookmarks Bar, when visible in "New Tab Page" mode.
-  BOOKMARK_BAR_NTP_HEIGHT,
-
-#if BUILDFLAG(IS_MAC)
-  // The amount of space between the inner bookmark bar and the outer toolbar on
-  // new tab pages.
-  BOOKMARK_BAR_NTP_PADDING,
-#endif
+  // The size of icons used in Download bubbles.
+  // TODO(crbug/1296323): We should be sourcing the size of the file icon from
+  // the layout
+  // provider rather than relying on hardcoded constants.
+  DOWNLOAD_ICON_SIZE,
 
   // The vertical padding between the edge of a location bar bubble and its
   // contained text.
@@ -53,8 +43,29 @@ enum LayoutConstant {
   // The height to be occupied by the LocationBar.
   LOCATION_BAR_HEIGHT,
 
+  // The vertical margins from the page info icon
+  LOCATION_BAR_PAGE_INFO_ICON_VERTICAL_PADDING,
+
+  // The leading edge space in the omnibox from the LHS icons used in Chrome
+  // with the chrome refresh flag.
+  LOCATION_BAR_LEADING_DECORATION_EDGE_PADDING,
+
+  // The trailing edge space in the omnibox from the RHS icons used in Chrome
+  // with the chrome refresh flag.
+  LOCATION_BAR_TRAILING_DECORATION_EDGE_PADDING,
+
   // The size of the icons used inside the LocationBar.
+  // TODO(crbug.com/1399991): Deprecate this after the size of all location bar
+  // icons have moved to
+  // either `LOCATION_BAR_LEADING_ICON_SIZE` or
+  // `LOCATION_BAR_TRAILING_ICON_SIZE`
   LOCATION_BAR_ICON_SIZE,
+
+  // The size of the leading icons used inside the LocationBar.
+  LOCATION_BAR_LEADING_ICON_SIZE,
+
+  // The size of the trailing icons used inside the LocationBar.
+  LOCATION_BAR_TRAILING_ICON_SIZE,
 
   // The size of icons used in PageInfo bubbles.
   PAGE_INFO_ICON_SIZE,
@@ -98,8 +109,14 @@ enum LayoutConstant {
   // Additional horizontal padding between the elements in the toolbar.
   TOOLBAR_ELEMENT_PADDING,
 
+  // Default margin of the toolbar icons set by the layout manager.
+  TOOLBAR_ICON_DEFAULT_MARGIN,
+
   // The horizontal space between most items in the toolbar.
   TOOLBAR_STANDARD_SPACING,
+
+  // corner radius on the top of the toolbar introduced in chrome refresh 2023
+  TOOLBAR_CORNER_RADIUS,
 
   // The size of the app menu button in a web app browser window.
   WEB_APP_MENU_BUTTON_SIZE,
@@ -109,6 +126,12 @@ enum LayoutConstant {
 };
 
 enum LayoutInset {
+  // The padding around icons used in Download bubbles.
+  DOWNLOAD_ICON,
+
+  // The padding around rows used in Download bubbles.
+  DOWNLOAD_ROW,
+
   // The padding used around the icon inside the LocationBar. The full width of
   // the icon would be LOCATION_BAR_ICON_SIZE + 2 * inset.width(). The full
   // height of the icon would be LOCATION_BAR_ICON_SIZE + 2 * inset.height().
@@ -117,23 +140,31 @@ enum LayoutInset {
   // (e.g. does not highlight on hover).
   LOCATION_BAR_ICON_INTERIOR_PADDING,
 
-  // The padding inside the border of a toolbar button (around the image).
-  TOOLBAR_BUTTON,
+  // The page info icon in the location bar has different insets than the other
+  // icons with chrome refresh flag.
+  LOCATION_BAR_PAGE_INFO_ICON_PADDING,
+
+  // The page action icons in the location bar have different insets than the
+  // other icons with chrome refresh flag.
+  LOCATION_BAR_PAGE_ACTION_ICON_PADDING,
 
   // The padding inside the border of a toolbar action view button.
   TOOLBAR_ACTION_VIEW,
 
+  // The padding inside the border of a toolbar button (around the image).
+  TOOLBAR_BUTTON,
+
   // The padding between the edges of the toolbar and its content.
   TOOLBAR_INTERIOR_MARGIN,
+
+  // The padding between the edges of the toolbar and its content when the webui
+  // tab strip is enabled. Special handling is needed as when the browser is
+  // maximized and the tabstrip is collapsed the toolbar will sit flush with the
+  // edge of the screen.
+  WEBUI_TAB_STRIP_TOOLBAR_INTERIOR_MARGIN,
 };
 
 int GetLayoutConstant(LayoutConstant constant);
-#if BUILDFLAG(IS_MAC)
-// Use this function instead of GetLayoutConstant() for Cocoa browser.
-// This will handle Cocoa specific layout constants. For non Cocoa specific
-// constants, it will call GetLayoutConstant() anyway.
-int GetCocoaLayoutConstant(LayoutConstant constant);
-#endif
 
 gfx::Insets GetLayoutInsets(LayoutInset inset);
 

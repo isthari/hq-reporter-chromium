@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,18 +6,18 @@
 
 #include <memory>
 
-#include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/memory_mapped_file.h"
+#include "base/functional/bind.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/strcat.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/time/time.h"
 #include "chrome/browser/safe_browsing/cloud_content_scanning/multipart_data_pipe_getter.h"
 #include "components/safe_browsing/core/common/features.h"
+#include "components/safe_browsing/core/common/utils.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "mojo/public/c/system/data_pipe.h"
@@ -48,10 +48,6 @@ const char kUploadContentType[] = "multipart/related; boundary=";
 
 // Content type of the metadata and file contents.
 const char kDataContentType[] = "Content-Type: application/octet-stream";
-
-void RecordUploadSuccessHistogram(bool success) {
-  base::UmaHistogramBoolean("SBMultipartUploader.UploadSuccess", success);
-}
 
 std::unique_ptr<MultipartDataPipeGetter> CreateFileDataPipeGetterBlocking(
     const std::string& boundary,
@@ -92,12 +88,14 @@ MultipartUploadRequest::MultipartUploadRequest(
     const GURL& base_url,
     const std::string& metadata,
     const base::FilePath& path,
+    uint64_t file_size,
     const net::NetworkTrafficAnnotationTag& traffic_annotation,
     Callback callback)
     : base_url_(base_url),
       metadata_(metadata),
       data_source_(FILE),
       path_(path),
+      data_size_(file_size),
       boundary_(net::GenerateMimeMultipartBoundary()),
       callback_(std::move(callback)),
       current_backoff_(base::Seconds(kInitialBackoffSeconds)),
@@ -118,6 +116,7 @@ MultipartUploadRequest::MultipartUploadRequest(
       metadata_(metadata),
       data_source_(PAGE),
       page_region_(std::move(page_region)),
+      data_size_(page_region_.GetSize()),
       boundary_(net::GenerateMimeMultipartBoundary()),
       callback_(std::move(callback)),
       current_backoff_(base::Seconds(kInitialBackoffSeconds)),
@@ -137,8 +136,10 @@ MultipartUploadRequest::~MultipartUploadRequest() {
   if (file) {
     base::ThreadPool::PostTask(
         FROM_HERE, {base::MayBlock()},
-        base::BindOnce([](std::unique_ptr<base::MemoryMappedFile> file) {},
-                       std::move(file)));
+        base::BindOnce(
+            [](std::unique_ptr<
+                MultipartDataPipeGetter::InternalMemoryMappedFile> file) {},
+            std::move(file)));
   }
 }
 
@@ -157,12 +158,36 @@ std::string MultipartUploadRequest::GenerateRequestBody(
                        "\r\n\r\n", data, "\r\n--", boundary_, "--\r\n"});
 }
 
+void MultipartUploadRequest::SetRequestHeaders(
+    network::ResourceRequest* request) {
+  request->headers.SetHeader("X-Goog-Upload-Protocol", "multipart");
+  uint64_t data_size = 0;
+  switch (data_source_) {
+    case STRING:
+      data_size = data_.size();
+      break;
+    case FILE:
+    case PAGE:
+      data_size = data_size_;
+      break;
+    default:
+      NOTREACHED();
+  }
+  request->headers.SetHeader("X-Goog-Upload-Header-Content-Length",
+                             base::NumberToString(data_size));
+
+  if (access_token_.empty()) {
+    request->credentials_mode = network::mojom::CredentialsMode::kOmit;
+  } else {
+    SetAccessTokenAndClearCookieInResourceRequest(request, access_token_);
+  }
+}
+
 void MultipartUploadRequest::SendRequest() {
   auto resource_request = std::make_unique<network::ResourceRequest>();
   resource_request->url = base_url_;
   resource_request->method = "POST";
-  resource_request->headers.SetHeader("X-Goog-Upload-Protocol", "multipart");
-  resource_request->credentials_mode = network::mojom::CredentialsMode::kOmit;
+  SetRequestHeaders(resource_request.get());
 
   switch (data_source_) {
     case STRING:
@@ -176,7 +201,7 @@ void MultipartUploadRequest::SendRequest() {
       break;
     default:
       NOTREACHED();
-  };
+  }
 }
 
 void MultipartUploadRequest::SendStringRequest(
@@ -187,8 +212,6 @@ void MultipartUploadRequest::SendStringRequest(
       network::SimpleURLLoader::Create(std::move(request), traffic_annotation_);
   url_loader_->SetAllowHttpErrorResults(true);
   std::string request_body = GenerateRequestBody(metadata_, data_);
-  base::UmaHistogramMemoryKB("SBMultipartUploader.UploadSize",
-                             request_body.size());
   url_loader_->AttachStringForUpload(request_body,
                                      kUploadContentType + boundary_);
   url_loader_->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
@@ -279,24 +302,11 @@ void MultipartUploadRequest::RetryOrFinish(
     int net_error,
     int response_code,
     std::unique_ptr<std::string> response_body) {
-  base::UmaHistogramSparse(
-      "SBMultipartUploader.NetworkRequestResponseCodeOrError",
-      net_error == net::OK ? response_code : net_error);
-
   if (net_error == net::OK && response_code == net::HTTP_OK) {
-    RecordUploadSuccessHistogram(/*success=*/true);
-    base::UmaHistogramExactLinear("SBMultipartUploader.RetriesNeeded",
-                                  retry_count_, kMaxRetryAttempts);
-    base::UmaHistogramMediumTimes(
-        "SBMultipartUploader.SuccessfulUploadDuration",
-        base::Time::Now() - start_time_);
     std::move(callback_).Run(/*success=*/true, response_code,
                              *response_body.get());
   } else {
     if (response_code < 500 || retry_count_ >= kMaxRetryAttempts) {
-      RecordUploadSuccessHistogram(/*success=*/false);
-      base::UmaHistogramMediumTimes("SBMultipartUploader.FailedUploadDuration",
-                                    base::Time::Now() - start_time_);
       std::move(callback_).Run(/*success=*/false, response_code,
                                *response_body.get());
     } else {
@@ -341,16 +351,17 @@ MultipartUploadRequest::CreateFileRequest(
     const GURL& base_url,
     const std::string& metadata,
     const base::FilePath& path,
+    uint64_t file_size,
     const net::NetworkTrafficAnnotationTag& traffic_annotation,
     MultipartUploadRequest::Callback callback) {
   if (!factory_) {
     return std::make_unique<MultipartUploadRequest>(
-        url_loader_factory, base_url, metadata, path, traffic_annotation,
-        std::move(callback));
+        url_loader_factory, base_url, metadata, path, file_size,
+        traffic_annotation, std::move(callback));
   }
 
   return factory_->CreateFileRequest(url_loader_factory, base_url, metadata,
-                                     path, traffic_annotation,
+                                     path, file_size, traffic_annotation,
                                      std::move(callback));
 }
 
@@ -372,6 +383,10 @@ MultipartUploadRequest::CreatePageRequest(
   return factory_->CreatePageRequest(url_loader_factory, base_url, metadata,
                                      std::move(page_region), traffic_annotation,
                                      std::move(callback));
+}
+
+void MultipartUploadRequest::set_access_token(const std::string& access_token) {
+  access_token_ = access_token;
 }
 
 }  // namespace safe_browsing

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -79,6 +79,9 @@ class CORE_EXPORT RootFrameViewport final
   gfx::Rect ScrollCornerRect() const override;
   void UpdateScrollOffset(const ScrollOffset&,
                           mojom::blink::ScrollType) override;
+  gfx::PointF ScrollOffsetToPosition(const ScrollOffset& offset) const override;
+  ScrollOffset ScrollPositionToOffset(
+      const gfx::PointF& position) const override;
   gfx::Vector2d ScrollOffsetInt() const override;
   ScrollOffset GetScrollOffset() const override;
   gfx::Vector2d MinimumScrollOffsetInt() const override;
@@ -98,7 +101,7 @@ class CORE_EXPORT RootFrameViewport final
                                     kIgnoreOverlayScrollbarSize) const override;
   int VerticalScrollbarWidth(OverlayScrollbarClipBehavior =
                                  kIgnoreOverlayScrollbarSize) const override;
-  ScrollResult UserScroll(ScrollGranularity,
+  ScrollResult UserScroll(ui::ScrollGranularity,
                           const ScrollOffset&,
                           ScrollableArea::ScrollCallback on_finish) override;
   CompositorElementId GetScrollElementId() const override;
@@ -111,7 +114,7 @@ class CORE_EXPORT RootFrameViewport final
   void UpdateCompositorScrollAnimations() override;
   void CancelProgrammaticScrollAnimation() override;
   mojom::blink::ScrollBehavior ScrollBehaviorStyle() const override;
-  mojom::blink::ColorScheme UsedColorScheme() const override;
+  mojom::blink::ColorScheme UsedColorSchemeScrollbars() const override;
   void ClearScrollableArea() override;
   LayoutBox* GetLayoutBox() const override;
   gfx::QuadF LocalToVisibleContentQuad(const gfx::QuadF&,
@@ -145,6 +148,14 @@ class CORE_EXPORT RootFrameViewport final
     return !!pending_view_state_;
   }
 
+  // A sequence of UserScrolls may occur close enough to each other (e.g.
+  // repeated keypresses) to produce a single scroll.
+  // This function returns true if any UserScroll in a sequence of
+  // UserScrolls applies a non-zero scroll delta to the LayoutViewport.
+  bool ScrollAffectsLayoutViewport() {
+    return user_scroll_sequence_affects_layout_viewport_;
+  }
+
  private:
   FRIEND_TEST_ALL_PREFIXES(RootFrameViewportTest, DistributeScrollOrder);
 
@@ -175,6 +186,7 @@ class CORE_EXPORT RootFrameViewport final
   Member<ScrollableArea> layout_viewport_;
   absl::optional<HistoryItem::ViewState> pending_view_state_;
   bool should_restore_scroll_;
+  bool user_scroll_sequence_affects_layout_viewport_ = false;
 };
 
 template <>

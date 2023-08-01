@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,18 +7,19 @@
 #include <memory>
 #include <utility>
 
+#include "base/memory/raw_ptr.h"
 #include "base/test/bind.h"
+#include "base/test/test_future.h"
 #include "chrome/browser/ash/crostini/crostini_manager.h"
 #include "chrome/browser/ash/crostini/crostini_test_helper.h"
 #include "chrome/browser/ash/crostini/crostini_types.mojom.h"
-#include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
-#include "chromeos/dbus/cicerone/cicerone_client.h"
-#include "chromeos/dbus/concierge/concierge_client.h"
-#include "chromeos/dbus/concierge/concierge_service.pb.h"
-#include "chromeos/dbus/concierge/fake_concierge_client.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/seneschal/seneschal_client.h"
+#include "chromeos/ash/components/dbus/chunneld/chunneld_client.h"
+#include "chromeos/ash/components/dbus/cicerone/cicerone_client.h"
+#include "chromeos/ash/components/dbus/concierge/concierge_client.h"
+#include "chromeos/ash/components/dbus/concierge/fake_concierge_client.h"
+#include "chromeos/ash/components/dbus/seneschal/seneschal_client.h"
+#include "chromeos/ash/components/dbus/vm_concierge/concierge_service.pb.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gmock/include/gmock/gmock-matchers.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -54,11 +55,11 @@ class CrostiniDiskTest : public testing::Test {
 class CrostiniDiskTestDbus : public CrostiniDiskTest {
  public:
   CrostiniDiskTestDbus() {
-    chromeos::DBusThreadManager::Initialize();
-    chromeos::CiceroneClient::InitializeFake();
-    chromeos::ConciergeClient::InitializeFake();
-    chromeos::SeneschalClient::InitializeFake();
-    fake_concierge_client_ = chromeos::FakeConciergeClient::Get();
+    ash::ChunneldClient::InitializeFake();
+    ash::CiceroneClient::InitializeFake();
+    ash::ConciergeClient::InitializeFake();
+    ash::SeneschalClient::InitializeFake();
+    fake_concierge_client_ = ash::FakeConciergeClient::Get();
   }
 
   void SetUp() override {
@@ -71,10 +72,10 @@ class CrostiniDiskTestDbus : public CrostiniDiskTest {
   void TearDown() override {
     test_helper_.reset();
     profile_.reset();
-    chromeos::SeneschalClient::Shutdown();
-    chromeos::ConciergeClient::Shutdown();
-    chromeos::CiceroneClient::Shutdown();
-    chromeos::DBusThreadManager::Shutdown();
+    ash::SeneschalClient::Shutdown();
+    ash::ConciergeClient::Shutdown();
+    ash::CiceroneClient::Shutdown();
+    ash::ChunneldClient::Shutdown();
   }
 
  protected:
@@ -82,23 +83,16 @@ class CrostiniDiskTestDbus : public CrostiniDiskTest {
   bool OnResizeWithResult(Profile* profile,
                           const char* vm_name,
                           int64_t size_bytes) {
-    bool result;
-    base::RunLoop run_loop;
-    auto store =
-        base::BindLambdaForTesting([&result, &run_loop = run_loop](bool info) {
-          result = std::move(info);
-          run_loop.Quit();
-        });
-
-    ResizeCrostiniDisk(profile, vm_name, size_bytes, std::move(store));
-    run_loop.Run();
-    return result;
+    base::test::TestFuture<bool> result_future;
+    ResizeCrostiniDisk(profile, vm_name, size_bytes,
+                       result_future.GetCallback());
+    return result_future.Get();
   }
 
   Profile* profile() { return profile_.get(); }
 
   content::BrowserTaskEnvironment task_environment_;
-  chromeos::FakeConciergeClient* fake_concierge_client_;
+  raw_ptr<ash::FakeConciergeClient, ExperimentalAsh> fake_concierge_client_;
 
   std::unique_ptr<TestingProfile> profile_;
   std::unique_ptr<CrostiniTestHelper> test_helper_;
@@ -213,8 +207,11 @@ TEST_F(CrostiniDiskTest, AllocatedAboveMax) {
   ASSERT_TRUE(disk_info);
 
   ASSERT_TRUE(disk_info->ticks.size() > 3);
-  EXPECT_EQ(disk_info->default_index, disk_info->ticks.size() - 1);
-  EXPECT_EQ(disk_info->ticks.at(disk_info->default_index)->value,
+  ASSERT_GE(disk_info->default_index, 0);
+  ASSERT_EQ(static_cast<size_t>(disk_info->default_index),
+            disk_info->ticks.size() - 1);
+  EXPECT_EQ(static_cast<uint64_t>(
+                disk_info->ticks.at(disk_info->default_index)->value),
             image->size());
 }
 

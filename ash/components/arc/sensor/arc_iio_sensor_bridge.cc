@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -96,6 +96,11 @@ void ArcIioSensorBridge::OnGetSwitchStates(
     SetIsTabletModeOn(states->tablet_mode ==
                       chromeos::PowerManagerClient::TabletMode::ON);
   }
+}
+
+// static
+void ArcIioSensorBridge::EnsureFactoryBuilt() {
+  ArcIioSensorBridgeFactory::GetInstance();
 }
 
 }  // namespace arc

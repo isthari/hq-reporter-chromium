@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,14 +21,14 @@
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
-#include "content/services/auction_worklet/console.h"
+#include "content/common/content_export.h"
 #include "gin/public/isolate_holder.h"
+#include "mojo/public/cpp/bindings/pending_associated_receiver.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/mojom/devtools/devtools_agent.mojom.h"
 #include "url/gurl.h"
 #include "v8/include/v8-forward.h"
 #include "v8/include/v8-isolate.h"
-#include "v8/include/v8-locker.h"
 #include "v8/include/v8-persistent-handle.h"
 
 namespace v8 {
@@ -57,7 +57,7 @@ class DebugCommandQueue;
 // the thread represented by the `v8_runner` argument to Create(). It's the
 // caller's responsibility to ensure that all other methods are used from the v8
 // runner.
-class AuctionV8Helper
+class CONTENT_EXPORT AuctionV8Helper
     : public base::RefCountedDeleteOnSequence<AuctionV8Helper> {
  public:
   // Timeout for script execution.
@@ -66,7 +66,7 @@ class AuctionV8Helper
   // Helper class to set up v8 scopes to use Isolate. All methods expect a
   // FullIsolateScope to be have been created on the current thread, and a
   // context to be entered.
-  class FullIsolateScope {
+  class CONTENT_EXPORT FullIsolateScope {
    public:
     explicit FullIsolateScope(AuctionV8Helper* v8_helper);
     explicit FullIsolateScope(const FullIsolateScope&) = delete;
@@ -74,7 +74,6 @@ class AuctionV8Helper
     ~FullIsolateScope();
 
    private:
-    const v8::Locker locker_;
     const v8::Isolate::Scope isolate_scope_;
     const v8::HandleScope handle_scope_;
   };
@@ -85,7 +84,7 @@ class AuctionV8Helper
   //
   // This class is thread-safe, except SetResumeCallback must be used from V8
   // thread.
-  class DebugId : public base::RefCountedThreadSafe<DebugId> {
+  class CONTENT_EXPORT DebugId : public base::RefCountedThreadSafe<DebugId> {
    public:
     explicit DebugId(AuctionV8Helper* v8_helper);
 
@@ -120,6 +119,26 @@ class AuctionV8Helper
     const int context_group_id_;
   };
 
+  // Representation for results of serialization via SerializeValue().
+  // Helps with the memory management. Movable but not copyable.
+  class CONTENT_EXPORT SerializedValue {
+   public:
+    SerializedValue();
+    SerializedValue(const SerializedValue&) = delete;
+    SerializedValue(SerializedValue&& other);
+    ~SerializedValue();
+
+    SerializedValue& operator=(const SerializedValue&) = delete;
+    SerializedValue& operator=(SerializedValue&&);
+
+    bool IsOK() const { return buffer_; }
+
+   private:
+    friend class AuctionV8Helper;
+    raw_ptr<uint8_t, DanglingUntriaged> buffer_;
+    size_t size_;
+  };
+
   explicit AuctionV8Helper(const AuctionV8Helper&) = delete;
   AuctionV8Helper& operator=(const AuctionV8Helper&) = delete;
 
@@ -130,6 +149,11 @@ class AuctionV8Helper
   scoped_refptr<base::SequencedTaskRunner> v8_runner() const {
     return v8_runner_;
   }
+
+  // Note: `callback` will be called on `v8_runner()`. This method may be called
+  // on the creation thread if done before any non-initialization work on v8
+  // thread begins.
+  void SetDestroyedCallback(base::OnceClosure callback);
 
   v8::Isolate* isolate() {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -144,8 +168,7 @@ class AuctionV8Helper
   }
 
   // Create a v8::Context. The one thing this does that v8::Context::New() does
-  // not is remove access the Date object. It also (for now) installs some
-  // rudimentary console emulation.
+  // not is remove access to the Date object.
   v8::Local<v8::Context> CreateContext(
       v8::Local<v8::ObjectTemplate> global_template =
           v8::Local<v8::ObjectTemplate>());
@@ -190,6 +213,18 @@ class AuctionV8Helper
                    v8::Local<v8::Value> value,
                    std::string* out);
 
+  // Serializes |value| via v8::ValueSerializer and returns it. This is faster
+  // than JSON. The return value can be used (and deserialized) in any context,
+  // and can be freed on any thread (though some malloc implementations would
+  // prefer if it were to be freed on v8 thread).
+  SerializedValue Serialize(v8::Local<v8::Context> context,
+                            v8::Local<v8::Value> value);
+
+  // Deserializes `value` via v8::ValueDeserializer in `context`.
+  v8::MaybeLocal<v8::Value> Deserialize(
+      v8::Local<v8::Context> context,
+      const SerializedValue& serialized_value);
+
   // Compiles the provided script. Despite not being bound to a context, there
   // still must be an active context for this method to be invoked. In case of
   // an error sets `error_out`.
@@ -220,10 +255,8 @@ class AuctionV8Helper
   v8::MaybeLocal<v8::WasmModuleObject> CloneWasmModule(
       v8::Local<v8::WasmModuleObject> in);
 
-  // Binds a script and runs it in the passed in context, returning the result.
-  // Note that the returned value could include references to objects or
-  // functions contained within the context, so is likely not safe to use in
-  // other contexts without sanitization.
+  // Binds a script and runs it in the passed in context, returning true if it
+  // succeeded.
   //
   // If `debug_id` is not nullptr, and a debugger connection has been
   // instantiated, will notify debugger of `context`.
@@ -231,16 +264,45 @@ class AuctionV8Helper
   // Assumes passed in context is the active context. Passed in context must be
   // using the Helper's isolate.
   //
-  // Running this multiple times in the same context will re-load the entire
-  // script file in the context, and then run the script again.
+  // If `script_timeout` has no value, kScriptTimeout will be used as the
+  // default timeout.
   //
-  // In case of an error or console output sets `error_out`.
-  v8::MaybeLocal<v8::Value> RunScript(v8::Local<v8::Context> context,
-                                      v8::Local<v8::UnboundScript> script,
-                                      const DebugId* debug_id,
-                                      base::StringPiece function_name,
-                                      base::span<v8::Local<v8::Value>> args,
-                                      std::vector<std::string>& error_out);
+  // In case of an error sets `error_out`.
+  bool RunScript(v8::Local<v8::Context> context,
+                 v8::Local<v8::UnboundScript> script,
+                 const DebugId* debug_id,
+                 absl::optional<base::TimeDelta> script_timeout,
+                 std::vector<std::string>& error_out);
+
+  // Calls a bound function (by name) attached to the global context in the
+  // passed in context and returns the value returned by the function. Note that
+  // the returned value could include references to objects or functions
+  // contained within the context, so is likely not safe to use in other
+  // contexts without sanitization.
+  //
+  // `script_name` is the name of the script for debugging. Can be found by
+  // calling `FormatScriptName` on the `script` passed to `RunScript()`.
+  //
+  // `function_name` will be called passing in `args` as arguments.
+  //
+  // If `debug_id` is not nullptr, and a debugger connection has been
+  // instantiated, will notify debugger of `context`.
+  //
+  // Assumes passed in context is the active context. Passed in context must be
+  // using the Helper's isolate.
+  //
+  // If `script_timeout` has no value, kScriptTimeout will be used as the
+  // default timeout.
+  //
+  // In case of an error sets `error_out`.
+  v8::MaybeLocal<v8::Value> CallFunction(
+      v8::Local<v8::Context> context,
+      const DebugId* debug_id,
+      const std::string& script_name,
+      base::StringPiece function_name,
+      base::span<v8::Local<v8::Value>> args,
+      absl::optional<base::TimeDelta> script_timeout,
+      std::vector<std::string>& error_out);
 
   // If any debugging session targeting `debug_id` has set an active
   // DOM instrumentation breakpoint `name`, asks for v8 to do a debugger pause
@@ -251,22 +313,6 @@ class AuctionV8Helper
                                              const std::string& name);
 
   void set_script_timeout_for_testing(base::TimeDelta script_timeout);
-
-  // If non-nullptr, this returns a pointer to the of vector representing the
-  // debug output lines of the currently running script.  It's nullptr when
-  // nothing is running.
-  std::vector<std::string>* console_buffer() {
-    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-    return console_buffer_;
-  }
-
-  // Returns a string identifying the currently running script for purpose of
-  // attributing its debug output in a human-understandable way. Empty if
-  // nothing is running.
-  const std::string& console_script_name() {
-    DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-    return console_script_name_;
-  }
 
   // Invokes the registered resume callback for given ID. Does nothing if it
   // was already invoked.
@@ -288,7 +334,7 @@ class AuctionV8Helper
   // value passed in for `mojo_sequence` the first time this method is called
   // will be used.
   void ConnectDevToolsAgent(
-      mojo::PendingReceiver<blink::mojom::DevToolsAgent> agent,
+      mojo::PendingAssociatedReceiver<blink::mojom::DevToolsAgent> agent,
       scoped_refptr<base::SequencedTaskRunner> mojo_sequence,
       const DebugId& debug_id);
 
@@ -313,24 +359,13 @@ class AuctionV8Helper
   // Helper for formatting script name for debug messages.
   std::string FormatScriptName(v8::Local<v8::UnboundScript> script);
 
+  static std::string FormatExceptionMessage(v8::Local<v8::Context> context,
+                                            v8::Local<v8::Message> message);
+
  private:
   friend class base::RefCountedDeleteOnSequence<AuctionV8Helper>;
   friend class base::DeleteHelper<AuctionV8Helper>;
   class ScriptTimeoutHelper;
-
-  // Sets values of console_buffer() and console_script_name() to those
-  // passed-in to its constructor for duration of its existence, and clears
-  // them afterward.
-  class ScopedConsoleTarget {
-   public:
-    ScopedConsoleTarget(AuctionV8Helper* owner,
-                        const std::string& console_script_name,
-                        std::vector<std::string>* out);
-    ~ScopedConsoleTarget();
-
-   private:
-    raw_ptr<AuctionV8Helper> owner_;
-  };
 
   explicit AuctionV8Helper(
       scoped_refptr<base::SingleThreadTaskRunner> v8_runner);
@@ -346,8 +381,6 @@ class AuctionV8Helper
   void AbortDebuggerPauses(int context_group_id);
   void FreeContextGroupId(int context_group_id);
 
-  static std::string FormatExceptionMessage(v8::Local<v8::Context> context,
-                                            v8::Local<v8::Message> message);
   static std::string FormatValue(v8::Isolate* isolate,
                                  v8::Local<v8::Value> val);
 
@@ -356,17 +389,11 @@ class AuctionV8Helper
 
   std::unique_ptr<gin::IsolateHolder> isolate_holder_
       GUARDED_BY_CONTEXT(sequence_checker_);
-  Console console_ GUARDED_BY_CONTEXT(sequence_checker_){this};
   v8::Global<v8::Context> scratch_context_
       GUARDED_BY_CONTEXT(sequence_checker_);
   // Script timeout. Can be changed for testing.
   base::TimeDelta script_timeout_ GUARDED_BY_CONTEXT(sequence_checker_) =
       kScriptTimeout;
-
-  // See corresponding getters for description.
-  raw_ptr<std::vector<std::string>> console_buffer_
-      GUARDED_BY_CONTEXT(sequence_checker_) = nullptr;
-  std::string console_script_name_ GUARDED_BY_CONTEXT(sequence_checker_);
 
   raw_ptr<ScriptTimeoutHelper> timeout_helper_
       GUARDED_BY_CONTEXT(sequence_checker_) = nullptr;
@@ -386,6 +413,8 @@ class AuctionV8Helper
       GUARDED_BY_CONTEXT(sequence_checker_);
   std::unique_ptr<v8_inspector::V8Inspector> v8_inspector_
       GUARDED_BY_CONTEXT(sequence_checker_);
+
+  base::OnceClosure destroyed_callback_;
 
   SEQUENCE_CHECKER(sequence_checker_);
 };

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,7 +20,7 @@
 #include "content/public/browser/browser_context.h"
 #include "google_apis/google_api_keys.h"
 #include "weblayer/browser/browser_context_impl.h"
-#include "weblayer/browser/browser_list.h"
+#include "weblayer/browser/browser_fragment_list.h"
 #include "weblayer/browser/browser_process.h"
 #include "weblayer/browser/java/jni/MetricsServiceClient_jni.h"
 #include "weblayer/browser/system_network_context_manager.h"
@@ -82,11 +82,11 @@ WebLayerMetricsServiceClient* WebLayerMetricsServiceClient::GetInstance() {
 
 WebLayerMetricsServiceClient::WebLayerMetricsServiceClient() {
   ProfileImpl::AddProfileObserver(this);
-  BrowserList::GetInstance()->AddObserver(this);
+  BrowserFragmentList::GetInstance()->AddObserver(this);
 }
 
 WebLayerMetricsServiceClient::~WebLayerMetricsServiceClient() {
-  BrowserList::GetInstance()->RemoveObserver(this);
+  BrowserFragmentList::GetInstance()->RemoveObserver(this);
   ProfileImpl::RemoveProfileObserver(this);
 }
 
@@ -101,7 +101,7 @@ void WebLayerMetricsServiceClient::RegisterExternalExperiments(
     return;
   }
 
-  GetMetricsService()->synthetic_trial_registry()->RegisterExternalExperiments(
+  GetMetricsService()->GetSyntheticTrialRegistry()->RegisterExternalExperiments(
       "WebLayerExperiments", experiment_ids,
       variations::SyntheticTrialRegistry::kOverrideExistingIds);
 }
@@ -199,7 +199,7 @@ void WebLayerMetricsServiceClient::ApplyConsent(bool user_consent,
 
 void WebLayerMetricsServiceClient::ApplyForegroundStateToServices() {
   const bool is_in_foreground =
-      BrowserList::GetInstance()->HasAtLeastOneResumedBrowser();
+      BrowserFragmentList::GetInstance()->HasAtLeastOneResumedBrowser();
   if (auto* metrics_service = WebLayerMetricsServiceClient::GetInstance()
                                   ->GetMetricsServiceIfStarted()) {
     if (is_in_foreground)
@@ -224,8 +224,8 @@ void WebLayerMetricsServiceClient::ProfileDestroyed(ProfileImpl* profile) {
   UpdateUkmService();
 }
 
-void WebLayerMetricsServiceClient::OnHasAtLeastOneResumedBrowserStateChanged(
-    bool new_value) {
+void WebLayerMetricsServiceClient::
+    OnHasAtLeastOneResumedBrowserFragmentStateChanged(bool new_value) {
   ApplyForegroundStateToServices();
 }
 

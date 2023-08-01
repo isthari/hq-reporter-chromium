@@ -1,61 +1,78 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/enterprise/connectors/device_trust/signals/decorators/browser/browser_signals_decorator.h"
 
 #include <functional>
+#include <utility>
 
+#include "base/barrier_closure.h"
 #include "base/check.h"
 #include "base/task/thread_pool.h"
+#include "base/values.h"
 #include "chrome/browser/enterprise/connectors/device_trust/signals/decorators/common/metrics_utils.h"
+#include "chrome/browser/enterprise/connectors/device_trust/signals/decorators/common/signals_utils.h"
 #include "chrome/browser/enterprise/signals/device_info_fetcher.h"
 #include "chrome/browser/enterprise/signals/signals_common.h"
-#include "components/enterprise/browser/controller/browser_dm_token_storage.h"
+#include "components/device_signals/core/browser/signals_aggregator.h"
+#include "components/device_signals/core/browser/signals_types.h"
+#include "components/device_signals/core/common/common_types.h"
+#include "components/device_signals/core/common/signals_constants.h"
 #include "components/policy/core/common/cloud/cloud_policy_store.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 
 namespace enterprise_connectors {
 
 namespace {
-using policy::BrowserDMTokenStorage;
-using policy::CloudPolicyStore;
 
 constexpr char kLatencyHistogramVariant[] = "Browser";
-constexpr char kLatencyHistogramWithCacheVariant[] = "Browser.WithCache";
+
+absl::optional<std::string> TryGetEnrollmentDomain(
+    policy::CloudPolicyStore* store) {
+  if (store && store->has_policy()) {
+    const auto* policy = store->policy();
+    return policy->has_managed_by() ? policy->managed_by()
+                                    : policy->display_domain();
+  }
+  return absl::nullopt;
+}
+
 }  // namespace
 
 BrowserSignalsDecorator::BrowserSignalsDecorator(
-    BrowserDMTokenStorage* dm_token_storage,
-    CloudPolicyStore* cloud_policy_store)
-    : dm_token_storage_(dm_token_storage),
-      cloud_policy_store_(cloud_policy_store) {
-  DCHECK(dm_token_storage_);
-  DCHECK(cloud_policy_store_);
-}
+    policy::CloudPolicyStore* browser_cloud_policy_store,
+    policy::CloudPolicyStore* user_cloud_policy_store,
+    device_signals::SignalsAggregator* signals_aggregator)
+    : browser_cloud_policy_store_(browser_cloud_policy_store),
+      user_cloud_policy_store_(user_cloud_policy_store),
+      signals_aggregator_(signals_aggregator) {}
 
 BrowserSignalsDecorator::~BrowserSignalsDecorator() = default;
 
-void BrowserSignalsDecorator::Decorate(DeviceTrustSignals& signals,
+void BrowserSignalsDecorator::Decorate(base::Value::Dict& signals,
                                        base::OnceClosure done_closure) {
   auto start_time = base::TimeTicks::Now();
 
-  signals.set_device_id(dm_token_storage_->RetrieveClientId());
-
-  if (cloud_policy_store_->has_policy()) {
-    const auto* policy = cloud_policy_store_->policy();
-    signals.set_obfuscated_customer_id(policy->obfuscated_customer_id());
-    signals.set_enrollment_domain(policy->has_managed_by()
-                                      ? policy->managed_by()
-                                      : policy->display_domain());
+  const auto device_enrollment_domain =
+      TryGetEnrollmentDomain(browser_cloud_policy_store_);
+  if (device_enrollment_domain) {
+    signals.Set(device_signals::names::kDeviceEnrollmentDomain,
+                device_enrollment_domain.value());
   }
 
-  if (cache_initialized_) {
-    UpdateFromCache(signals);
-    LogSignalsCollectionLatency(kLatencyHistogramWithCacheVariant, start_time);
-    std::move(done_closure).Run();
-    return;
+  const auto user_enrollment_domain =
+      TryGetEnrollmentDomain(user_cloud_policy_store_);
+  if (user_enrollment_domain) {
+    signals.Set(device_signals::names::kUserEnrollmentDomain,
+                user_enrollment_domain.value());
   }
+
+  auto barrier_closure = base::BarrierClosure(
+      /*num_closures=*/signals_aggregator_ ? 2 : 1,
+      base::BindOnce(&BrowserSignalsDecorator::OnAllSignalsReceived,
+                     weak_ptr_factory_.GetWeakPtr(), start_time,
+                     std::move(done_closure)));
 
   base::ThreadPool::PostTaskAndReplyWithResult(
       FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_BLOCKING},
@@ -63,35 +80,73 @@ void BrowserSignalsDecorator::Decorate(DeviceTrustSignals& signals,
                      enterprise_signals::DeviceInfoFetcher::CreateInstance()),
       base::BindOnce(&BrowserSignalsDecorator::OnDeviceInfoFetched,
                      weak_ptr_factory_.GetWeakPtr(), std::ref(signals),
-                     start_time, std::move(done_closure)));
+                     barrier_closure));
+
+  if (signals_aggregator_) {
+    device_signals::SignalsAggregationRequest request;
+    request.signal_names.emplace(device_signals::SignalName::kAgent);
+    signals_aggregator_->GetSignals(
+        request,
+        base::BindOnce(&BrowserSignalsDecorator::OnAggregatedSignalsReceived,
+                       weak_ptr_factory_.GetWeakPtr(), std::ref(signals),
+                       barrier_closure));
+  }
 }
 
 void BrowserSignalsDecorator::OnDeviceInfoFetched(
-    DeviceTrustSignals& signals,
-    base::TimeTicks start_time,
+    base::Value::Dict& signals,
     base::OnceClosure done_closure,
     const enterprise_signals::DeviceInfo& device_info) {
-  cached_serial_number_ = device_info.serial_number;
-  cached_is_disk_encrypted_ =
-      enterprise_signals::SettingValueToBool(device_info.disk_encrypted);
+  signals.Set(device_signals::names::kSerialNumber, device_info.serial_number);
+  signals.Set(device_signals::names::kScreenLockSecured,
+              static_cast<int32_t>(device_info.screen_lock_secured));
+  signals.Set(device_signals::names::kDiskEncrypted,
+              static_cast<int32_t>(device_info.disk_encrypted));
+  signals.Set(device_signals::names::kDeviceHostName,
+              device_info.device_host_name);
+  signals.Set(device_signals::names::kMacAddresses,
+              ToListValue(device_info.mac_addresses));
 
-  cache_initialized_ = true;
-  UpdateFromCache(signals);
+  if (device_info.windows_machine_domain) {
+    signals.Set(device_signals::names::kWindowsMachineDomain,
+                device_info.windows_machine_domain.value());
+  }
 
-  LogSignalsCollectionLatency(kLatencyHistogramVariant, start_time);
+  if (device_info.windows_user_domain) {
+    signals.Set(device_signals::names::kWindowsUserDomain,
+                device_info.windows_user_domain.value());
+  }
+
+  if (device_info.secure_boot_enabled) {
+    signals.Set(device_signals::names::kSecureBootEnabled,
+                static_cast<int32_t>(device_info.secure_boot_enabled.value()));
+  }
 
   std::move(done_closure).Run();
 }
 
-void BrowserSignalsDecorator::UpdateFromCache(DeviceTrustSignals& signals) {
-  DCHECK(cache_initialized_);
-  if (cached_serial_number_) {
-    signals.set_serial_number(cached_serial_number_.value());
+void BrowserSignalsDecorator::OnAggregatedSignalsReceived(
+    base::Value::Dict& signals,
+    base::OnceClosure done_closure,
+    device_signals::SignalsAggregationResponse response) {
+  if (response.agent_signals_response &&
+      response.agent_signals_response->crowdstrike_signals) {
+    auto serialized_crowdstrike_signals =
+        response.agent_signals_response->crowdstrike_signals->ToValue();
+    if (serialized_crowdstrike_signals) {
+      signals.Set(device_signals::names::kCrowdStrike,
+                  std::move(serialized_crowdstrike_signals.value()));
+    }
   }
 
-  if (cached_is_disk_encrypted_.has_value()) {
-    signals.set_is_disk_encrypted(cached_is_disk_encrypted_.value());
-  }
+  std::move(done_closure).Run();
+}
+
+void BrowserSignalsDecorator::OnAllSignalsReceived(
+    base::TimeTicks start_time,
+    base::OnceClosure done_closure) {
+  LogSignalsCollectionLatency(kLatencyHistogramVariant, start_time);
+  std::move(done_closure).Run();
 }
 
 }  // namespace enterprise_connectors

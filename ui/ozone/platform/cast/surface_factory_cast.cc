@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,8 +32,7 @@ class DummySurface : public SurfaceOzoneCanvas {
   SkCanvas* GetCanvas() override { return surface_->getCanvas(); }
 
   void ResizeCanvas(const gfx::Size& viewport_size, float scale) override {
-    surface_ =
-        SkSurface::MakeNull(viewport_size.width(), viewport_size.height());
+    surface_ = SkSurfaces::Null(viewport_size.width(), viewport_size.height());
   }
 
   void PresentCanvas(const gfx::Rect& damage) override {}
@@ -63,6 +62,11 @@ class CastPixmap : public gfx::NativePixmap {
     return gfx::BufferFormat::BGRA_8888;
   }
   size_t GetNumberOfPlanes() const override { return 1; }
+  bool SupportsZeroCopyWebGPUImport() const override {
+    // TODO(crbug.com/1258986): Figure out how to import multi-planar pixmap
+    // into WebGPU without copy.
+    return false;
+  }
   gfx::Size GetBufferSize() const override { return gfx::Size(); }
   uint32_t GetUniqueId() const override { return 0; }
 
@@ -124,7 +128,7 @@ std::unique_ptr<SurfaceOzoneCanvas> SurfaceFactoryCast::CreateCanvasForWidget(
 
 scoped_refptr<gfx::NativePixmap> SurfaceFactoryCast::CreateNativePixmap(
     gfx::AcceleratedWidget widget,
-    VkDevice vk_device,
+    gpu::VulkanDeviceQueue* device_queue,
     gfx::Size size,
     gfx::BufferFormat format,
     gfx::BufferUsage usage,

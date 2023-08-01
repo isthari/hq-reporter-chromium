@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,11 +12,13 @@
 #include <string>
 #include <vector>
 
-#include "base/callback_forward.h"
 #include "base/component_export.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
+#include "base/functional/callback_forward.h"
+#include "components/file_access/scoped_file_access_delegate.h"
 #include "storage/browser/file_system/file_permission_policy.h"
+#include "storage/browser/file_system/file_stream_reader.h"
 #include "storage/browser/file_system/open_file_system_mode.h"
 #include "storage/browser/file_system/task_runner_bound_observer_list.h"
 #include "storage/common/file_system/file_system_types.h"
@@ -53,9 +55,11 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemBackend {
  public:
   // Callback for InitializeFileSystem.
   using OpenFileSystemCallback =
-      base::OnceCallback<void(const GURL& root_url,
+      base::OnceCallback<void(const FileSystemURL& root_url,
                               const std::string& name,
                               base::File::Error error)>;
+  using ResolveURLCallback = base::OnceCallback<
+      void(const GURL&, const std::string&, base::File::Error)>;
   virtual ~FileSystemBackend() = default;
 
   // Returns true if this filesystem backend can handle |type|.
@@ -75,7 +79,7 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemBackend {
   // doesn't exist.
   virtual void ResolveURL(const FileSystemURL& url,
                           OpenFileSystemMode mode,
-                          OpenFileSystemCallback callback) = 0;
+                          ResolveURLCallback callback) = 0;
 
   // Returns the specialized AsyncFileUtil for this backend.
   virtual AsyncFileUtil* GetAsyncFileUtil(FileSystemType type) = 0;
@@ -119,13 +123,17 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) FileSystemBackend {
   // ERR_UPLOAD_FILE_CHANGED error.
   // This method itself does *not* check if the given path exists and is a
   // regular file. At most |max_bytes_to_read| can be fetched from the file
-  // stream reader.
+  // stream reader. The callback `file_access` grants access to dlp restricted
+  // files. If it is a NullCallback currently the access will be granted. This
+  // will change to being denied after b/265908846
   virtual std::unique_ptr<FileStreamReader> CreateFileStreamReader(
       const FileSystemURL& url,
       int64_t offset,
       int64_t max_bytes_to_read,
       const base::Time& expected_modification_time,
-      FileSystemContext* context) const = 0;
+      FileSystemContext* context,
+      file_access::ScopedFileAccessDelegate::RequestFilesAccessIOCallback
+          file_access) const = 0;
 
   // Creates a new file stream writer for a given filesystem URL |url| with an
   // offset |offset|.

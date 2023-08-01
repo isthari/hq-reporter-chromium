@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,25 +10,22 @@
 #include "components/autofill/core/browser/data_model/credit_card.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
 #include "components/autofill/core/browser/test_autofill_clock.h"
+#include "components/autofill/core/common/autofill_features.h"
 #include "components/autofill/core/common/autofill_util.h"
-#include "components/sync/driver/sync_service_impl.h"
-#include "components/sync/test/fake_server/fake_server_http_post_provider.h"
+#include "components/sync/service/sync_service_impl.h"
+#include "components/sync/test/fake_server_http_post_provider.h"
 #include "content/public/test/browser_test.h"
 #include "net/base/network_change_notifier.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
 
-using autofill::AutofillMetadata;
 using autofill::AutofillProfile;
 using autofill::CreditCard;
-using autofill::PersonalDataManager;
 using wallet_helper::CreateDefaultSyncPaymentsCustomerData;
 using wallet_helper::CreateSyncWalletAddress;
 using wallet_helper::CreateSyncWalletCard;
-using wallet_helper::GetCreditCard;
 using wallet_helper::GetLocalProfiles;
-using wallet_helper::GetPersonalDataManager;
 using wallet_helper::GetServerAddressesMetadata;
 using wallet_helper::GetServerCardsMetadata;
 using wallet_helper::GetServerCreditCards;
@@ -60,15 +57,15 @@ class TwoClientWalletSyncTest : public SyncTest {
   TwoClientWalletSyncTest(const TwoClientWalletSyncTest&) = delete;
   TwoClientWalletSyncTest& operator=(const TwoClientWalletSyncTest&) = delete;
 
-  ~TwoClientWalletSyncTest() override {}
+  ~TwoClientWalletSyncTest() override = default;
 
   // Needed for AwaitQuiescence().
   bool TestUsesSelfNotifications() override { return true; }
 
-  bool SetupSync() override {
+  bool SetupSyncAndInitialize() {
     test_clock_.SetNow(kArbitraryDefaultTime);
 
-    if (!SyncTest::SetupSync()) {
+    if (!SetupSync()) {
       return false;
     }
 
@@ -81,12 +78,25 @@ class TwoClientWalletSyncTest : public SyncTest {
   autofill::TestAutofillClock test_clock_;
 };
 
+// AutofillAccountProfilesUnionView deprecates support for server profiles.
+// TODO(crbug.com/1348294): Remove when launched.
+class TwoClientWalletServerAddressSyncTest : public TwoClientWalletSyncTest {
+ public:
+  TwoClientWalletServerAddressSyncTest() {
+    features_.InitAndDisableFeature(
+        autofill::features::kAutofillAccountProfilesUnionView);
+  }
+
+ private:
+  base::test::ScopedFeatureList features_;
+};
+
 IN_PROC_BROWSER_TEST_F(TwoClientWalletSyncTest, UpdateCreditCardMetadata) {
   GetFakeServer()->SetWalletData(
       {CreateSyncWalletCard(/*name=*/"card-1", /*last_four=*/"0001",
                             kDefaultBillingAddressID),
        CreateDefaultSyncPaymentsCustomerData()});
-  ASSERT_TRUE(SetupSync());
+  ASSERT_TRUE(SetupSyncAndInitialize());
 
   // Grab the current card on the first client.
   std::vector<CreditCard*> credit_cards = GetServerCreditCards(0);
@@ -119,7 +129,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientWalletSyncTest,
       {CreateSyncWalletCard(/*name=*/"card-1", /*last_four=*/"0001",
                             kDefaultBillingAddressID),
        CreateDefaultSyncPaymentsCustomerData()});
-  ASSERT_TRUE(SetupSync());
+  ASSERT_TRUE(SetupSyncAndInitialize());
 
   // Sumulate going offline on both clients.
   fake_server::FakeServerHttpPostProvider::DisableNetwork();
@@ -160,7 +170,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientWalletSyncTest,
       {CreateSyncWalletCard(/*name=*/"card-1", /*last_four=*/"0001",
                             kDefaultBillingAddressID),
        CreateDefaultSyncPaymentsCustomerData()});
-  ASSERT_TRUE(SetupSync());
+  ASSERT_TRUE(SetupSyncAndInitialize());
 
   // Sumulate going offline on both clients.
   fake_server::FakeServerHttpPostProvider::DisableNetwork();
@@ -202,13 +212,14 @@ IN_PROC_BROWSER_TEST_F(TwoClientWalletSyncTest,
   EXPECT_EQ(kEvenLaterTime, credit_cards[0]->use_date());
 }
 
-IN_PROC_BROWSER_TEST_F(TwoClientWalletSyncTest, UpdateServerAddressMetadata) {
+IN_PROC_BROWSER_TEST_F(TwoClientWalletServerAddressSyncTest,
+                       UpdateServerAddressMetadata) {
   GetFakeServer()->SetWalletData(
       {CreateSyncWalletCard(/*name=*/"card-1", /*last_four=*/"0001",
                             kDefaultBillingAddressID),
        CreateSyncWalletAddress(/*name=*/"address-1", /*company=*/"Company-1"),
        CreateDefaultSyncPaymentsCustomerData()});
-  ASSERT_TRUE(SetupSync());
+  ASSERT_TRUE(SetupSyncAndInitialize());
 
   // Grab the current address on the first client.
   std::vector<AutofillProfile*> server_addresses = GetServerProfiles(0);
@@ -235,12 +246,12 @@ IN_PROC_BROWSER_TEST_F(TwoClientWalletSyncTest, UpdateServerAddressMetadata) {
   EXPECT_EQ(kLaterTime, server_addresses[0]->use_date());
 }
 
-IN_PROC_BROWSER_TEST_F(TwoClientWalletSyncTest,
+IN_PROC_BROWSER_TEST_F(TwoClientWalletServerAddressSyncTest,
                        UpdateServerAddressMetadataWhileNotSyncing) {
   GetFakeServer()->SetWalletData(
       {CreateSyncWalletAddress(/*name=*/"address-1", /*company=*/"Company-1"),
        CreateDefaultSyncPaymentsCustomerData()});
-  ASSERT_TRUE(SetupSync());
+  ASSERT_TRUE(SetupSyncAndInitialize());
 
   // Sumulate going offline on both clients.
   fake_server::FakeServerHttpPostProvider::DisableNetwork();
@@ -275,12 +286,12 @@ IN_PROC_BROWSER_TEST_F(TwoClientWalletSyncTest,
   EXPECT_EQ(kLaterTime, server_addresses[0]->use_date());
 }
 
-IN_PROC_BROWSER_TEST_F(TwoClientWalletSyncTest,
+IN_PROC_BROWSER_TEST_F(TwoClientWalletServerAddressSyncTest,
                        UpdateServerAddressMetadataConflictsWhileNotSyncing) {
   GetFakeServer()->SetWalletData(
       {CreateSyncWalletAddress(/*name=*/"address-1", /*company=*/"Company-1"),
        CreateDefaultSyncPaymentsCustomerData()});
-  ASSERT_TRUE(SetupSync());
+  ASSERT_TRUE(SetupSyncAndInitialize());
 
   // Sumulate going offline on both clients.
   fake_server::FakeServerHttpPostProvider::DisableNetwork();
@@ -328,7 +339,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientWalletSyncTest,
       {CreateSyncWalletCard(/*name=*/"card-1", /*last_four=*/"0001",
                             /*billing_address_id=*/""),
        CreateDefaultSyncPaymentsCustomerData()});
-  ASSERT_TRUE(SetupSync());
+  ASSERT_TRUE(SetupSyncAndInitialize());
 
   // Grab the current card on the first client.
   std::vector<CreditCard*> credit_cards = GetServerCreditCards(0);
@@ -357,7 +368,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientWalletSyncTest,
       {CreateSyncWalletCard(/*name=*/"card-1", /*last_four=*/"0001",
                             kDefaultBillingAddressID),
        CreateDefaultSyncPaymentsCustomerData()});
-  ASSERT_TRUE(SetupSync());
+  ASSERT_TRUE(SetupSyncAndInitialize());
 
   // Grab the current card on the first client.
   std::vector<CreditCard*> credit_cards = GetServerCreditCards(0);
@@ -387,7 +398,7 @@ IN_PROC_BROWSER_TEST_F(
       {CreateSyncWalletCard(/*name=*/"card-1", /*last_four=*/"0001",
                             kDefaultBillingAddressID),
        CreateDefaultSyncPaymentsCustomerData()});
-  ASSERT_TRUE(SetupSync());
+  ASSERT_TRUE(SetupSyncAndInitialize());
 
   // Grab the current card on the first client.
   std::vector<CreditCard*> credit_cards = GetServerCreditCards(0);
@@ -418,7 +429,7 @@ IN_PROC_BROWSER_TEST_F(
       {CreateSyncWalletCard(/*name=*/"card-1", /*last_four=*/"0001",
                             kDefaultBillingAddressID),
        CreateDefaultSyncPaymentsCustomerData()});
-  ASSERT_TRUE(SetupSync());
+  ASSERT_TRUE(SetupSyncAndInitialize());
 
   // Sumulate going offline on both clients.
   fake_server::FakeServerHttpPostProvider::DisableNetwork();
@@ -466,12 +477,12 @@ IN_PROC_BROWSER_TEST_F(
 }
 
 // Flaky. http://crbug.com/917498
-IN_PROC_BROWSER_TEST_F(TwoClientWalletSyncTest,
+IN_PROC_BROWSER_TEST_F(TwoClientWalletServerAddressSyncTest,
                        ServerAddressConvertsToSameLocalAddress) {
   GetFakeServer()->SetWalletData(
       {CreateSyncWalletAddress(/*name=*/"address-1", /*company=*/"Company-1"),
        CreateDefaultSyncPaymentsCustomerData()});
-  ASSERT_TRUE(SetupSync());
+  ASSERT_TRUE(SetupSyncAndInitialize());
 
   // On top of expecting convergence on AutofillWalletChecker, expect
   // convergence on wallet metadata and on autofill profiles.
@@ -498,14 +509,20 @@ IN_PROC_BROWSER_TEST_F(TwoClientWalletSyncTest,
   EXPECT_TRUE(local_address_0.EqualsForSyncPurposes(*local_addresses_1[0]));
 }
 
-IN_PROC_BROWSER_TEST_F(TwoClientWalletSyncTest,
+// TODO(crbug.com/1348294): This test doesn't actually depend on the
+// SERVER_PROFILE -> LOCAL_ADDRESS conversion (which is deprecated by
+// AutofillAccountProfilesUnionView). However, since `SetupSyncAndInitialize()`
+// waits for the conversion to complete, this test is also using the fixture
+// `TwoClientWalletServerAddressSyncTest`. Once AutofillAccountProfilesUnionView
+// has launched, SERVER_PROFILEs will be removed and the test can be simplified.
+IN_PROC_BROWSER_TEST_F(TwoClientWalletServerAddressSyncTest,
                        DeleteServerCardMetadataWhenDataGetsRemoved) {
   GetFakeServer()->SetWalletData(
       {CreateSyncWalletCard(/*name=*/"card-1", /*last_four=*/"0001",
                             kDefaultBillingAddressID),
        CreateSyncWalletAddress(/*name=*/"address-1", /*company=*/"Company-1"),
        CreateDefaultSyncPaymentsCustomerData()});
-  ASSERT_TRUE(SetupSync());
+  ASSERT_TRUE(SetupSyncAndInitialize());
   // Wait until sync settles (for the wallet metadata) before we change the
   // data again.
   ASSERT_TRUE(AwaitQuiescence());
@@ -549,14 +566,14 @@ IN_PROC_BROWSER_TEST_F(TwoClientWalletSyncTest,
   EXPECT_EQ(1U, GetServerAddressesMetadata(1).size());
 }
 
-IN_PROC_BROWSER_TEST_F(TwoClientWalletSyncTest,
+IN_PROC_BROWSER_TEST_F(TwoClientWalletServerAddressSyncTest,
                        DeleteServerAddressMetadataWhenDataGetsRemoved) {
   GetFakeServer()->SetWalletData(
       {CreateSyncWalletCard(/*name=*/"card-1", /*last_four=*/"0001",
                             kDefaultBillingAddressID),
        CreateSyncWalletAddress(/*name=*/"address-1", /*company=*/"Company-1"),
        CreateDefaultSyncPaymentsCustomerData()});
-  ASSERT_TRUE(SetupSync());
+  ASSERT_TRUE(SetupSyncAndInitialize());
   // Wait until sync settles (for the wallet metadata) before we change the
   // data again.
   ASSERT_TRUE(AwaitQuiescence());

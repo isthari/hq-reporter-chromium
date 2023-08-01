@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,9 +13,10 @@
 #include <string>
 
 #include "ash/components/arc/mojom/metrics.mojom.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
 #include "base/time/time.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_list_prefs.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_list_prefs.h"
 #include "components/exo/surface_observer.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "ui/aura/window_observer.h"
@@ -116,6 +117,8 @@ class ArcAppPerformanceTracing : public KeyedService,
   // profiled.
   aura::Window* active_window() { return arc_active_window_; }
 
+  static void EnsureFactoryBuilt();
+
  private:
   // May be start tracing session if all conditions are met. Window creating is
   // controlled by Wayland protocol implementation and task creation is reported
@@ -135,7 +138,7 @@ class ArcAppPerformanceTracing : public KeyedService,
   void MaybeStopTracing();
 
   // Attaches observer to the |window| and stores at as |arc_active_window_|.
-  void AttachActiveWindow(aura::Window* window);
+  void AttachActiveWindow(aura::Window* window, exo::Surface* surface);
 
   // Detaches observer from |arc_active_window_| and resets
   // |arc_active_window_|.
@@ -160,9 +163,9 @@ class ArcAppPerformanceTracing : public KeyedService,
                     mojom::GfxMetricsPtr metrics_ptr);
 
   // Unowned pointers.
-  content::BrowserContext* const context_;
+  const raw_ptr<content::BrowserContext, ExperimentalAsh> context_;
   // Currently active ARC++ app window.
-  aura::Window* arc_active_window_ = nullptr;
+  raw_ptr<aura::Window, ExperimentalAsh> arc_active_window_ = nullptr;
 
   // Maps active tasks to app id and package name.
   std::map<int, std::pair<std::string, std::string>> task_id_to_app_id_;

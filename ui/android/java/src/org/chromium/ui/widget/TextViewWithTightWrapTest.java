@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,16 +19,16 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.test.BaseJUnit4ClassRunner;
 import org.chromium.base.test.util.Feature;
-import org.chromium.components.browser_ui.widget.R;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
-import org.chromium.ui.test.util.DummyUiActivityTestCase;
+import org.chromium.ui.R;
+import org.chromium.ui.test.util.BlankUiTestActivityTestCase;
 import org.chromium.ui.test.util.RenderTestRule;
 
 /**
 Render tests for {@link TextViewWithTightWrap}.
 */
 @RunWith(BaseJUnit4ClassRunner.class)
-public class TextViewWithTightWrapTest extends DummyUiActivityTestCase {
+public class TextViewWithTightWrapTest extends BlankUiTestActivityTestCase {
     private static final int RENDER_TEST_REVISION = 2;
     private static final String RENDER_TEST_REVISION_DESCRIPTION = "Update the text style.";
 
@@ -40,6 +40,7 @@ public class TextViewWithTightWrapTest extends DummyUiActivityTestCase {
             RenderTestRule.Builder.withPublicCorpus()
                     .setRevision(RENDER_TEST_REVISION)
                     .setDescription(RENDER_TEST_REVISION_DESCRIPTION)
+                    .setBugComponent(RenderTestRule.Component.UI_BROWSER_MOBILE)
                     .build();
 
     @Before
@@ -93,6 +94,6 @@ public class TextViewWithTightWrapTest extends DummyUiActivityTestCase {
         Button snoozeButton = (Button) mView.findViewById(R.id.button_snooze);
         TestThreadUtils.runOnUiThreadBlocking(() -> { snoozeButton.setVisibility(View.VISIBLE); });
         // Render UI Elements.
-        mRenderTestRule.render(mView, "TextViewWithTightWrap_MatchParent");
+        mRenderTestRule.render(mView, "TextViewWithTightWrap_MatchParent_WithSnooze");
     }
 }

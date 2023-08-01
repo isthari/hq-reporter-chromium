@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,13 @@
 
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/no_destructor.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/task_runner.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
@@ -40,24 +41,39 @@ base::OnceClosure& GetLogOutOverrideCallbackForTest() {
 
 bool RemoveUsersIfNeeded() {
   PrefService* local_state = g_browser_process->local_state();
-  const bool should_remove_users =
-      local_state->GetBoolean(prefs::kRemoveUsersRemoteCommand);
-  if (!should_remove_users)
+  const PrefService::Preference* pref =
+      local_state->FindPreference(prefs::kRemoveUsersRemoteCommand);
+
+  if (pref->IsDefaultValue()) {
+    // Nothing to be done.
     return false;
+  }
+
+  if (!pref->GetValue()->GetBool()) {
+    LOG(ERROR) << "RemoveUsers started and did not finish. Chrome crashed?";
+    // Return to avoid crash loop.
+    return false;
+  }
 
   local_state->SetBoolean(prefs::kRemoveUsersRemoteCommand, false);
+  local_state->CommitPendingWrite();
+  // TODO(https://crbug.com/1344832): Emit start metric here.
 
   user_manager::UserManager* user_manager = user_manager::UserManager::Get();
   // Make a copy of the list since we'll be removing users (and the list would
   // change underneath us if we used a reference).
   const user_manager::UserList user_list = user_manager->GetUsers();
 
-  for (user_manager::User* user : user_list)
+  for (user_manager::User* user : user_list) {
     user_manager->RemoveUser(
         user->GetAccountId(),
-        user_manager::UserRemovalReason::REMOTE_ADMIN_INITIATED,
-        /*delegate=*/nullptr);
+        user_manager::UserRemovalReason::REMOTE_ADMIN_INITIATED);
+  }
 
+  // Revert to default value after removal is done.
+  local_state->ClearPref(prefs::kRemoveUsersRemoteCommand);
+
+  // TODO(https://crbug.com/1344832): Emit finish metric here.
   return true;
 }
 
@@ -82,7 +98,7 @@ void InitiateUserRemoval(base::OnceClosure on_pref_persisted_callback) {
   local_state->CommitPendingWrite(base::BindOnce(
       [](base::OnceClosure on_pref_persisted_callback) {
         // Start the failsafe timer.
-        base::SequencedTaskRunnerHandle::Get()->PostDelayedTask(
+        base::SequencedTaskRunner::GetCurrentDefault()->PostDelayedTask(
             FROM_HERE, base::BindOnce(&LogOut), kFailsafeTimerTimeout);
 
         if (on_pref_persisted_callback)

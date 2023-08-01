@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "build/build_config.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
+#include "components/omnibox/browser/omnibox_field_trial.h"
 #include "ui/base/default_style.h"
 #include "ui/base/pointer/touch_ui_controller.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -72,26 +73,41 @@ void ApplyCommonFontStyles(int context,
       break;
     }
     case CONTEXT_OMNIBOX_PRIMARY:
+    case CONTEXT_OMNIBOX_POPUP:
+    case CONTEXT_OMNIBOX_SECTION_HEADER:
     case CONTEXT_OMNIBOX_DEEMPHASIZED: {
+      const bool is_touch_ui = ui::TouchUiController::Get()->touch_ui();
+      const bool use_gm3_text_style =
+          OmniboxFieldTrial::IsGM3TextStyleEnabled();
+
+      int desired_font_size = is_touch_ui ? 15 : 14;
+      if (use_gm3_text_style) {
+        desired_font_size = is_touch_ui
+                                ? OmniboxFieldTrial::kFontSizeTouchUI.Get()
+                                : OmniboxFieldTrial::kFontSizeNonTouchUI.Get();
+      }
+
       const int omnibox_primary_delta =
           GetFontSizeDeltaBoundedByAvailableHeight(
-              LocationBarView::GetAvailableTextHeight(),
-              ui::TouchUiController::Get()->touch_ui() ? 15 : 14);
+              LocationBarView::GetAvailableTextHeight(), desired_font_size);
       details.size_delta = omnibox_primary_delta;
-      if (context == CONTEXT_OMNIBOX_DEEMPHASIZED)
+      if (context == CONTEXT_OMNIBOX_DEEMPHASIZED && !use_gm3_text_style) {
         --details.size_delta;
-      break;
-    }
-    case CONTEXT_OMNIBOX_DECORATION: {
-      // Use 11 for both touchable and non-touchable. The touchable spec
-      // specifies 11 explicitly. Historically, non-touchable would take the
-      // primary omnibox font and incrementally reduce its size until it fit.
-      // In default configurations, it would obtain 11. Deriving fonts is slow,
-      // so don't bother starting at 14.
-      const int omnibox_decoration_delta =
-          GetFontSizeDeltaBoundedByAvailableHeight(
-              LocationBarView::GetAvailableDecorationTextHeight(), 11);
-      details.size_delta = omnibox_decoration_delta;
+      }
+
+      if (use_gm3_text_style) {
+        if (context == CONTEXT_OMNIBOX_SECTION_HEADER) {
+          --details.size_delta;
+        }
+
+        if (context == CONTEXT_OMNIBOX_PRIMARY ||
+            context == CONTEXT_OMNIBOX_SECTION_HEADER) {
+          details.weight = gfx::Font::Weight::MEDIUM;
+        } else if (context == CONTEXT_OMNIBOX_POPUP ||
+                   context == CONTEXT_OMNIBOX_DEEMPHASIZED) {
+          details.weight = gfx::Font::Weight::NORMAL;
+        }
+      }
       break;
     }
 #if BUILDFLAG(IS_WIN)
@@ -106,7 +122,7 @@ void ApplyCommonFontStyles(int context,
     case CONTEXT_IPH_BUBBLE_BODY:
       details.size_delta = GetFontSizeDeltaIgnoringUserOrLocaleSettings(14);
       break;
-    case CONTEXT_IPH_BUBBLE_BUTTON:
+    case CONTEXT_SIDE_PANEL_TITLE:
       details.size_delta = GetFontSizeDeltaIgnoringUserOrLocaleSettings(13);
       break;
   }

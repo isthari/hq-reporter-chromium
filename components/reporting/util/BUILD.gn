@@ -1,6 +1,6 @@
-# Copyright 2021 The Chromium Authors. All rights reserved.  Use
-# of this source code is governed by a BSD-style license that can
-# be found in the LICENSE file.
+# Copyright 2021 The Chromium Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
 
 import("//build/config/features.gni")
 import("//third_party/libprotobuf-mutator/fuzzable_proto_library.gni")
@@ -20,20 +20,10 @@ static_library("file") {
     "file.cc",
     "file.h",
   ]
-  deps = [ "//base" ]
-}
-
-source_set("shared_vector") {
-  sources = [ "shared_vector.h" ]
   deps = [
     ":status",
     "//base",
   ]
-}
-
-proto_library("status_proto") {
-  proto_in_dir = "//"
-  sources = [ "status.proto" ]
 }
 
 static_library("status") {
@@ -43,16 +33,8 @@ static_library("status") {
     "statusor.cc",
     "statusor.h",
   ]
-  public_deps = [ ":status_proto" ]
+  public_deps = [ "//components/reporting/proto:status_proto" ]
   deps = [ "//base" ]
-}
-
-source_set("shared_queue") {
-  sources = [ "shared_queue.h" ]
-  deps = [
-    ":status",
-    "//base",
-  ]
 }
 
 source_set("status_macros") {
@@ -68,12 +50,59 @@ source_set("task_runner_context") {
 }
 
 source_set("test_callbacks_support") {
+  testonly = true
   sources = [
+    "mock_clock.cc",
+    "mock_clock.h",
     "test_support_callbacks.cc",
     "test_support_callbacks.h",
+    "test_util.h",
+  ]
+
+  deps = [
+    "//base",
+    "//base/test:test_support",
+    "//testing/gtest",
+  ]
+}
+
+source_set("disconnectable_client") {
+  sources = [
+    "disconnectable_client.cc",
+    "disconnectable_client.h",
+  ]
+
+  deps = [
+    ":status",
+    "//base",
+  ]
+}
+
+source_set("refcounted_closure_list") {
+  sources = [
+    "refcounted_closure_list.cc",
+    "refcounted_closure_list.h",
   ]
 
   deps = [ "//base" ]
+}
+
+source_set("rate_limiter_interface") {
+  sources = [ "rate_limiter_interface.h" ]
+
+  deps = [ "//base" ]
+}
+
+source_set("wrapped_rate_limiter") {
+  sources = [
+    "wrapped_rate_limiter.cc",
+    "wrapped_rate_limiter.h",
+  ]
+
+  deps = [
+    ":rate_limiter_interface",
+    "//base",
+  ]
 }
 
 # All unit tests are built as part of the //components:components_unittests
@@ -81,24 +110,27 @@ source_set("test_callbacks_support") {
 source_set("unit_tests") {
   testonly = true
   sources = [
+    "disconnectable_client_unittest.cc",
     "file_unittest.cc",
-    "shared_queue_unittest.cc",
-    "shared_vector_unittest.cc",
+    "refcounted_closure_list_unittest.cc",
     "status_macros_unittest.cc",
     "status_unittest.cc",
     "statusor_unittest.cc",
+    "wrapped_rate_limiter_unittest.cc",
   ]
   deps = [
+    ":disconnectable_client",
     ":file",
-    ":shared_queue",
-    ":shared_vector",
+    ":rate_limiter_interface",
+    ":refcounted_closure_list",
     ":status",
     ":status_macros",
-    ":status_proto",
     ":task_runner_context",
     ":test_callbacks_support",
+    ":wrapped_rate_limiter",
     "//base",
     "//base/test:test_support",
+    "//components/reporting/proto:status_proto",
     "//testing/gmock",
     "//testing/gtest",
   ]

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 
 #include "base/memory/raw_ptr.h"
 #include "base/strings/string_piece.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/test/values_test_util.h"
 #include "chrome/browser/media/router/discovery/dial/dial_app_discovery_service.h"
 #include "chrome/browser/media/router/discovery/dial/dial_media_sink_service.h"
@@ -25,7 +26,6 @@
 #include "components/media_router/browser/media_sinks_observer.h"
 #include "components/media_router/browser/test/test_helper.h"
 #include "components/media_router/common/discovery/media_sink_internal.h"
-#include "components/media_router/common/mojom/logger.mojom.h"
 #include "net/base/ip_endpoint.h"
 #include "services/network/test/test_url_loader_factory.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -39,8 +39,7 @@ class MockDialMediaSinkService : public DialMediaSinkService {
   ~MockDialMediaSinkService() override;
 
   MOCK_METHOD1(Start, void(const OnSinksDiscoveredCallback&));
-  MOCK_METHOD0(OnUserGesture, void());
-  MOCK_METHOD1(BindLogger, void(mojo::PendingRemote<mojom::Logger>));
+  MOCK_METHOD0(DiscoverSinksNow, void());
 };
 
 class MockCastMediaSinkService : public CastMediaSinkService {
@@ -50,9 +49,7 @@ class MockCastMediaSinkService : public CastMediaSinkService {
 
   MOCK_METHOD2(Start,
                void(const OnSinksDiscoveredCallback&, MediaSinkServiceBase*));
-  MOCK_METHOD0(OnUserGesture, void());
-  MOCK_METHOD1(BindLogger, void(LoggerImpl*));
-  MOCK_METHOD0(RemoveLogger, void());
+  MOCK_METHOD0(DiscoverSinksNow, void());
   MOCK_METHOD0(StartMdnsDiscovery, void());
 };
 
@@ -67,7 +64,6 @@ class MockCastAppDiscoveryService : public CastAppDiscoveryService {
   scoped_refptr<base::SequencedTaskRunner> task_runner() override;
   MOCK_METHOD1(DoStartObservingMediaSinks, void(const CastMediaSource&));
   MOCK_METHOD0(Refresh, void());
-  MOCK_METHOD1(BindLogger, void(mojo::PendingRemote<mojom::Logger>));
 
   SinkQueryCallbackList& callbacks() { return callbacks_; }
 

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include <memory>
 
-#include "base/bind.h"
-#include "base/metrics/histogram_macros.h"
+#include "base/functional/bind.h"
+#include "base/metrics/histogram_functions.h"
 #include "chrome/browser/ash/login/signin/token_handle_util.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
@@ -135,10 +135,10 @@ void TokenHandleFetcher::OnNetworkError(int response_code) {
 }
 
 void TokenHandleFetcher::OnGetTokenInfoResponse(
-    std::unique_ptr<base::DictionaryValue> token_info) {
+    const base::Value::Dict& token_info) {
   bool success = false;
-  if (!token_info->FindKey("error")) {
-    const std::string* handle = token_info->FindStringKey("token_handle");
+  if (!token_info.Find("error")) {
+    const std::string* handle = token_info.FindString("token_handle");
     if (handle) {
       success = true;
       token_handle_util_->StoreTokenHandle(account_id_, *handle);
@@ -146,12 +146,17 @@ void TokenHandleFetcher::OnGetTokenInfoResponse(
   }
   const base::TimeDelta duration =
       base::TimeTicks::Now() - tokeninfo_response_start_time_;
-  UMA_HISTOGRAM_TIMES("Login.TokenObtainResponseTime", duration);
+  base::UmaHistogramTimes("Login.TokenObtainResponseTime", duration);
   std::move(callback_).Run(account_id_, success);
 }
 
 void TokenHandleFetcher::OnProfileDestroyed() {
   std::move(callback_).Run(account_id_, false);
+}
+
+// static
+void TokenHandleFetcher::EnsureFactoryBuilt() {
+  TokenHandleFetcherShutdownNotifierFactory::GetInstance();
 }
 
 }  // namespace ash

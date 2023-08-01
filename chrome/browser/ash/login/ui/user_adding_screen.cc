@@ -1,11 +1,12 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/login/ui/user_adding_screen.h"
 
 #include "ash/constants/ash_features.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/singleton.h"
 #include "base/observer_list.h"
 #include "chrome/browser/ash/login/helper.h"
@@ -41,7 +42,7 @@ class UserAddingScreenImpl : public UserAddingScreen {
   ~UserAddingScreenImpl() override;
 
   base::ObserverList<UserAddingScreen::Observer>::Unchecked observers_;
-  LoginDisplayHost* display_host_;
+  raw_ptr<LoginDisplayHost, DanglingUntriaged | ExperimentalAsh> display_host_;
 
   UserAddingScreenInputMethodsController im_controller_;
 };
@@ -75,7 +76,7 @@ void UserAddingScreenImpl::Cancel() {
 }
 
 bool UserAddingScreenImpl::IsRunning() {
-  return display_host_ != NULL;
+  return display_host_ != nullptr;
 }
 
 void UserAddingScreenImpl::AddObserver(UserAddingScreen::Observer* observer) {
@@ -89,7 +90,7 @@ void UserAddingScreenImpl::RemoveObserver(
 
 void UserAddingScreenImpl::OnDisplayHostCompletion() {
   CHECK(IsRunning());
-  display_host_ = NULL;
+  display_host_ = nullptr;
 
   session_manager::SessionManager::Get()->SetSessionState(
       session_manager::SessionState::ACTIVE);
@@ -103,7 +104,7 @@ UserAddingScreenImpl* UserAddingScreenImpl::GetInstance() {
 }
 
 UserAddingScreenImpl::UserAddingScreenImpl()
-    : display_host_(NULL), im_controller_(this) {}
+    : display_host_(nullptr), im_controller_(this) {}
 
 UserAddingScreenImpl::~UserAddingScreenImpl() {}
 

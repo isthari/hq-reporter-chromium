@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,24 +6,27 @@
 
 #include <string>
 
+#include "base/android/jni_android.h"
+#include "base/android/jni_string.h"
+#include "base/feature_list.h"
 #include "base/logging.h"
 #include "base/no_destructor.h"
+#include "base/uuid.h"
 #include "build/build_config.h"
 #include "components/infobars/content/content_infobar_manager.h"
 #include "components/security_state/content/content_utils.h"
-#include "components/webapps/browser/installable/installable_metrics.h"
-#include "weblayer/browser/java/jni/WebappsHelper_jni.h"
-
-#if BUILDFLAG(IS_ANDROID)
-#include "base/android/jni_android.h"
-#include "base/android/jni_string.h"
-#include "base/guid.h"
 #include "components/webapps/browser/android/add_to_homescreen_params.h"
 #include "components/webapps/browser/android/shortcut_info.h"
+#include "components/webapps/browser/features.h"
+#include "components/webapps/browser/installable/installable_metrics.h"
+#include "content/public/browser/browser_context.h"
 #include "ui/android/color_utils_android.h"
 #include "ui/gfx/android/java_bitmap.h"
 #include "url/gurl.h"
-#endif
+#include "url/origin.h"
+#include "weblayer/browser/webapps/webapk_install_scheduler.h"
+#include "weblayer/browser/webapps/webapps_utils.h"
+#include "weblayer/browser/webapps/weblayer_app_banner_manager_android.h"
 
 namespace weblayer {
 
@@ -32,10 +35,18 @@ using base::android::ConvertUTF8ToJavaString;
 using base::android::JavaParamRef;
 using base::android::ScopedJavaLocalRef;
 
+WebLayerWebappsClient::WebLayerWebappsClient() = default;
+WebLayerWebappsClient::~WebLayerWebappsClient() = default;
+
 // static
 void WebLayerWebappsClient::Create() {
   static base::NoDestructor<WebLayerWebappsClient> instance;
   instance.get();
+}
+
+bool WebLayerWebappsClient::IsOriginConsideredSecure(
+    const url::Origin& origin) {
+  return false;
 }
 
 security_state::SecurityLevel
@@ -56,28 +67,27 @@ WebLayerWebappsClient::GetInfoBarManagerForWebContents(
 webapps::WebappInstallSource WebLayerWebappsClient::GetInstallSource(
     content::WebContents* web_contents,
     webapps::InstallTrigger trigger) {
-  NOTIMPLEMENTED();
+  if (trigger == webapps::InstallTrigger::AMBIENT_BADGE) {
+    // RICH_INSTALL_UI is the new name for AMBIENT_BADGE.
+    return webapps::WebappInstallSource::RICH_INSTALL_UI_WEBLAYER;
+  }
   return webapps::WebappInstallSource::COUNT;
 }
 
 webapps::AppBannerManager* WebLayerWebappsClient::GetAppBannerManager(
     content::WebContents* web_contents) {
-  NOTIMPLEMENTED();
-  return nullptr;
+  return WebLayerAppBannerManagerAndroid::FromWebContents(web_contents);
 }
 
-#if BUILDFLAG(IS_ANDROID)
 bool WebLayerWebappsClient::IsInstallationInProgress(
     content::WebContents* web_contents,
-    const GURL& manifest_url) {
-  NOTIMPLEMENTED();
-  return false;
+    const GURL& manifest_id) {
+  return current_install_ids_.count(manifest_id);
 }
 
 bool WebLayerWebappsClient::CanShowAppBanners(
     content::WebContents* web_contents) {
-  NOTIMPLEMENTED();
-  return false;
+  return WebApkInstallScheduler::IsInstallServiceAvailable();
 }
 
 void WebLayerWebappsClient::OnWebApkInstallInitiatedFromAppMenu(
@@ -86,29 +96,27 @@ void WebLayerWebappsClient::OnWebApkInstallInitiatedFromAppMenu(
 void WebLayerWebappsClient::InstallWebApk(
     content::WebContents* web_contents,
     const webapps::AddToHomescreenParams& params) {
-  NOTIMPLEMENTED();
+  DCHECK(current_install_ids_.count(params.shortcut_info->manifest_id) == 0);
+  current_install_ids_.insert(params.shortcut_info->manifest_id);
+  WebApkInstallScheduler::FetchProtoAndScheduleInstall(
+      web_contents, *(params.shortcut_info), params.primary_icon,
+      base::BindOnce(&WebLayerWebappsClient::OnInstallFinished,
+                     weak_ptr_factory_.GetWeakPtr()));
 }
 
 void WebLayerWebappsClient::InstallShortcut(
     content::WebContents* web_contents,
     const webapps::AddToHomescreenParams& params) {
   const webapps::ShortcutInfo& info = *params.shortcut_info;
-  JNIEnv* env = base::android::AttachCurrentThread();
-  ScopedJavaLocalRef<jstring> java_id =
-      ConvertUTF8ToJavaString(env, base::GenerateGUID());
-  ScopedJavaLocalRef<jstring> java_url =
-      ConvertUTF8ToJavaString(env, info.url.spec());
-  ScopedJavaLocalRef<jstring> java_user_title =
-      ConvertUTF16ToJavaString(env, info.user_title);
-  ScopedJavaLocalRef<jstring> java_best_primary_icon_url =
-      ConvertUTF8ToJavaString(env, info.best_primary_icon_url.spec());
-  ScopedJavaLocalRef<jobject> java_bitmap;
-  if (!params.primary_icon.drawsNothing())
-    java_bitmap = gfx::ConvertToJavaBitmap(params.primary_icon);
-  Java_WebappsHelper_addShortcut(env, java_id, java_url, java_user_title,
-                                 java_bitmap, params.has_maskable_primary_icon,
-                                 info.source, java_best_primary_icon_url);
+
+  webapps::addShortcutToHomescreen(
+      base::Uuid::GenerateRandomV4().AsLowercaseString(), info.url,
+      info.user_title, params.primary_icon, info.is_primary_icon_maskable);
 }
-#endif
+
+void WebLayerWebappsClient::OnInstallFinished(GURL manifest_id) {
+  DCHECK(current_install_ids_.count(manifest_id) == 1);
+  current_install_ids_.erase(manifest_id);
+}
 
 }  // namespace weblayer

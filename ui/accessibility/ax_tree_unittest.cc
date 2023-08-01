@@ -1,48 +1,19 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ui/accessibility/ax_tree.h"
 
-#include <stddef.h>
-#include <stdint.h>
-
-#include <memory>
-
-#include "base/containers/contains.h"
-#include "base/memory/raw_ptr.h"
-#include "base/strings/string_number_conversions.h"
-#include "base/strings/stringprintf.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "base/test/scoped_feature_list.h"
 #include "testing/gmock/include/gmock/gmock-matchers.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/accessibility/accessibility_features.h"
 #include "ui/accessibility/ax_enum_util.h"
 #include "ui/accessibility/ax_node.h"
-#include "ui/accessibility/ax_node_position.h"
 #include "ui/accessibility/ax_serializable_tree.h"
-#include "ui/accessibility/ax_tree_data.h"
-#include "ui/accessibility/ax_tree_id.h"
 #include "ui/accessibility/ax_tree_observer.h"
 #include "ui/accessibility/ax_tree_serializer.h"
-#include "ui/accessibility/test_ax_tree_manager.h"
-#include "ui/gfx/geometry/transform.h"
-
-// Helper macro for testing selection values and maintain
-// correct stack tracing and failure causality.
-#define TEST_SELECTION(tree_update, tree, input, expected)         \
-  {                                                                \
-    tree_update.has_tree_data = true;                              \
-    tree_update.tree_data.sel_anchor_object_id = input.anchor_id;  \
-    tree_update.tree_data.sel_anchor_offset = input.anchor_offset; \
-    tree_update.tree_data.sel_focus_object_id = input.focus_id;    \
-    tree_update.tree_data.sel_focus_offset = input.focus_offset;   \
-    EXPECT_TRUE(tree->Unserialize(tree_update));                   \
-    AXTree::Selection actual = tree->GetUnignoredSelection();      \
-    EXPECT_EQ(expected.anchor_id, actual.anchor_object_id);        \
-    EXPECT_EQ(expected.anchor_offset, actual.anchor_offset);       \
-    EXPECT_EQ(expected.focus_id, actual.focus_object_id);          \
-    EXPECT_EQ(expected.focus_offset, actual.focus_offset);         \
-  }
 
 namespace ui {
 
@@ -386,10 +357,10 @@ TEST(AXTreeTest, SerializeSimpleAXTree) {
 
   EXPECT_EQ(
       "AXTree title=Title\n"
-      "id=1 dialog FOCUSABLE (0, 0)-(800, 600) child_ids=2,3\n"
-      "  id=2 button (20, 20)-(200, 30)\n"
-      "  id=3 checkBox (20, 50)-(200, 30)\n",
-      dst_tree.ToString());
+      "id=1 dialog FOCUSABLE child_ids=2,3\n"
+      "  id=2 button\n"
+      "  id=3 checkBox\n",
+      dst_tree.ToString(/*verbose*/ false));
 }
 
 TEST(AXTreeTest, SerializeAXTreeUpdate) {
@@ -421,11 +392,11 @@ TEST(AXTreeTest, SerializeAXTreeUpdate) {
 
   EXPECT_EQ(
       "AXTreeUpdate: root id 3\n"
-      "id=3 list (0, 0)-(0, 0) child_ids=4,5,6\n"
-      "  id=5 listItem (0, 0)-(0, 0)\n"
-      "  id=6 listItem (0, 0)-(0, 0)\n"
-      "id=7 button (0, 0)-(0, 0)\n",
-      update.ToString());
+      "id=3 list child_ids=4,5,6\n"
+      "  id=5 listItem\n"
+      "  id=6 listItem\n"
+      "id=7 button\n",
+      update.ToString(/*verbose*/ false));
 }
 
 TEST(AXTreeTest, LeaveOrphanedDeletedSubtreeFails) {
@@ -449,6 +420,10 @@ TEST(AXTreeTest, LeaveOrphanedDeletedSubtreeFails) {
   update.node_id_to_clear = 2;
   update.nodes.resize(1);
   update.nodes[0].id = 3;
+#if defined(AX_FAIL_FAST_BUILD)
+  EXPECT_DEATH_IF_SUPPORTED(tree.Unserialize(update),
+                            "Nodes left pending by the update: 2");
+#else
   EXPECT_FALSE(tree.Unserialize(update));
   ASSERT_EQ("Nodes left pending by the update: 2", tree.error());
   histogram_tester.ExpectUniqueSample(
@@ -456,6 +431,7 @@ TEST(AXTreeTest, LeaveOrphanedDeletedSubtreeFails) {
       AXTreeUnserializeError::kPendingNodes, 1);
   histogram_tester.ExpectTotalCount(
       "Accessibility.Performance.Tree.Unserialize", 2);
+#endif
 }
 
 TEST(AXTreeTest, LeaveOrphanedNewChildFails) {
@@ -475,6 +451,10 @@ TEST(AXTreeTest, LeaveOrphanedNewChildFails) {
   update.nodes.resize(1);
   update.nodes[0].id = 1;
   update.nodes[0].child_ids.push_back(2);
+#if defined(AX_FAIL_FAST_BUILD)
+  EXPECT_DEATH_IF_SUPPORTED(tree.Unserialize(update),
+                            "Nodes left pending by the update: 2");
+#else
   EXPECT_FALSE(tree.Unserialize(update));
   ASSERT_EQ("Nodes left pending by the update: 2", tree.error());
   histogram_tester.ExpectUniqueSample(
@@ -482,6 +462,7 @@ TEST(AXTreeTest, LeaveOrphanedNewChildFails) {
       AXTreeUnserializeError::kPendingNodes, 1);
   histogram_tester.ExpectTotalCount(
       "Accessibility.Performance.Tree.Unserialize", 2);
+#endif
 }
 
 TEST(AXTreeTest, DuplicateChildIdFails) {
@@ -502,6 +483,10 @@ TEST(AXTreeTest, DuplicateChildIdFails) {
   update.nodes[0].child_ids.push_back(2);
   update.nodes[0].child_ids.push_back(2);
   update.nodes[1].id = 2;
+#if defined(AX_FAIL_FAST_BUILD)
+  EXPECT_DEATH_IF_SUPPORTED(tree.Unserialize(update),
+                            "Node 1 has duplicate child id 2");
+#else
   EXPECT_FALSE(tree.Unserialize(update));
   ASSERT_EQ("Node 1 has duplicate child id 2", tree.error());
   histogram_tester.ExpectUniqueSample(
@@ -509,6 +494,7 @@ TEST(AXTreeTest, DuplicateChildIdFails) {
       AXTreeUnserializeError::kDuplicateChild, 1);
   histogram_tester.ExpectTotalCount(
       "Accessibility.Performance.Tree.Unserialize", 1);
+#endif
 }
 
 TEST(AXTreeTest, InvalidReparentingFails) {
@@ -536,6 +522,11 @@ TEST(AXTreeTest, InvalidReparentingFails) {
   update.nodes[0].child_ids.push_back(2);
   update.nodes[1].id = 2;
   update.nodes[2].id = 3;
+#if defined(AX_FAIL_FAST_BUILD)
+  EXPECT_DEATH_IF_SUPPORTED(
+      tree.Unserialize(update),
+      "Node 3 is not marked for destruction, would be reparented to 1");
+#else
   EXPECT_FALSE(tree.Unserialize(update));
   ASSERT_EQ("Node 3 is not marked for destruction, would be reparented to 1",
             tree.error());
@@ -544,6 +535,7 @@ TEST(AXTreeTest, InvalidReparentingFails) {
       AXTreeUnserializeError::kReparent, 1);
   histogram_tester.ExpectTotalCount(
       "Accessibility.Performance.Tree.Unserialize", 1);
+#endif
 }
 
 TEST(AXTreeTest, NoReparentingOfRootIfNoNewRoot) {
@@ -954,6 +946,7 @@ TEST(AXTreeTest, ImplicitAttributeDelete) {
   initial_state.root_id = 1;
   initial_state.nodes.resize(1);
   initial_state.nodes[0].id = 1;
+  initial_state.nodes[0].role = ax::mojom::Role::kGroup;
   initial_state.nodes[0].SetName("Node 1 name");
   AXTree tree(initial_state);
 
@@ -1095,7 +1088,12 @@ TEST(AXTreeTest, MultipleIgnoredChangesDoesNotBreakCache) {
 
   AXTree tree(initial_state);
   TestAXTreeObserver test_observer(&tree);
+#if DCHECK_IS_ON()
+  EXPECT_DEATH_IF_SUPPORTED(tree.GetFromId(2)->GetUnignoredChildCount(),
+                            "Called unignored method on ignored node");
+#else
   EXPECT_EQ(1u, tree.GetFromId(2)->GetUnignoredChildCount());
+#endif
 
   AXTreeUpdate update;
   update.nodes.resize(2);
@@ -1126,7 +1124,12 @@ TEST(AXTreeTest, NodeToClearUpdatesParentUnignoredCount) {
 
   AXTree tree(initial_state);
   EXPECT_EQ(2u, tree.GetFromId(1)->GetUnignoredChildCount());
+#if DCHECK_IS_ON()
+  EXPECT_DEATH_IF_SUPPORTED(tree.GetFromId(2)->GetUnignoredChildCount(),
+                            "Called unignored method on ignored node");
+#else
   EXPECT_EQ(2u, tree.GetFromId(2)->GetUnignoredChildCount());
+#endif
 
   AXTreeUpdate update;
   update.nodes.resize(1);
@@ -1182,48 +1185,67 @@ TEST(AXTreeTest, TreeObserverIsNotCalledForReparenting) {
   ASSERT_TRUE(test_observer.root_changed());
 }
 
+// https://crbug.com/1359080
 // UAF caught by ax_tree_fuzzer
-TEST(AXTreeTest, BogusAXTree) {
+TEST(AXTreeTest, DISABLED_BogusAXTree) {
   AXTreeUpdate initial_state;
   AXNodeData node;
   node.id = 0;
   initial_state.nodes.push_back(node);
   initial_state.nodes.push_back(node);
   ui::AXTree tree;
+#if DCHECK_IS_ON()
+  EXPECT_DEATH_IF_SUPPORTED(tree.Unserialize(initial_state),
+                            "AXTreeUpdate contains invalid node");
+#else
   tree.Unserialize(initial_state);
+#endif
 }
 
 // UAF caught by ax_tree_fuzzer
 TEST(AXTreeTest, BogusAXTree2) {
   AXTreeUpdate initial_state;
+  initial_state.root_id = 1;
   AXNodeData node;
-  node.id = 0;
+  node.id = 1;
   initial_state.nodes.push_back(node);
-  AXNodeData node2;
-  node2.id = 0;
-  node2.child_ids.push_back(0);
-  node2.child_ids.push_back(0);
-  initial_state.nodes.push_back(node2);
-  ui::AXTree tree;
-  tree.Unserialize(initial_state);
-}
-
-// UAF caught by ax_tree_fuzzer
-TEST(AXTreeTest, BogusAXTree3) {
-  AXTreeUpdate initial_state;
-  AXNodeData node;
-  node.id = 0;
-  node.child_ids.push_back(1);
-  initial_state.nodes.push_back(node);
-
   AXNodeData node2;
   node2.id = 1;
   node2.child_ids.push_back(1);
   node2.child_ids.push_back(1);
   initial_state.nodes.push_back(node2);
+  ui::AXTree tree;
+#if defined(AX_FAIL_FAST_BUILD)
+  EXPECT_DEATH_IF_SUPPORTED(tree.Unserialize(initial_state),
+                            "Node 1 has duplicate child id 1");
+#else
+  EXPECT_FALSE(tree.Unserialize(initial_state));
+  EXPECT_EQ("Node 1 has duplicate child id 1", tree.error());
+#endif
+}
+
+// UAF caught by ax_tree_fuzzer
+TEST(AXTreeTest, BogusAXTree3) {
+  AXTreeUpdate initial_state;
+  initial_state.root_id = 1;
+  AXNodeData node;
+  node.id = 1;
+  node.child_ids.push_back(2);
+  node.child_ids.push_back(2);
+  initial_state.nodes.push_back(node);
+
+  AXNodeData node2;
+  node2.id = 2;
+  initial_state.nodes.push_back(node2);
 
   ui::AXTree tree;
-  tree.Unserialize(initial_state);
+#if defined(AX_FAIL_FAST_BUILD)
+  EXPECT_DEATH_IF_SUPPORTED(tree.Unserialize(initial_state),
+                            "Node 1 has duplicate child id 2");
+#else
+  EXPECT_FALSE(tree.Unserialize(initial_state));
+  EXPECT_EQ("Node 1 has duplicate child id 2", tree.error());
+#endif
 }
 
 TEST(AXTreeTest, RoleAndStateChangeCallbacks) {
@@ -2924,188 +2946,6 @@ TEST(AXTreeTest, GetUnignoredSiblingsNestedIgnored) {
   EXPECT_EQ(node4, node6->GetNextUnignoredSibling());
 }
 
-TEST(AXTreeTest, UnignoredSelection) {
-  AXTreeUpdate tree_update;
-  // (i) => node is ignored
-  // 1
-  // |__________
-  // |     |   |
-  // 2(i)  3   4
-  // |_______________________
-  // |   |      |           |
-  // 5   6      7(i)        8(i)
-  // |   |      |________
-  // |   |      |       |
-  // 9   10(i)  11(i)  12
-  //     |      |____
-  //     |      |   |
-  //     13(i)  14  15
-  //     |
-  //     16
-  // Unignored Tree (conceptual)
-  // 1
-  // |______________________
-  // |  |    |   |   |  |  |
-  // 5  6   14  15  12  3  4
-  // |  |
-  // 9  16
-  tree_update.has_tree_data = true;
-  tree_update.tree_data.tree_id = AXTreeID::CreateNewAXTreeID();
-  tree_update.root_id = 1;
-  tree_update.nodes.resize(16);
-  tree_update.nodes[0].id = 1;
-  tree_update.nodes[0].role = ax::mojom::Role::kGenericContainer;
-  tree_update.nodes[0].child_ids = {2, 3, 4};
-
-  tree_update.nodes[1].id = 2;
-  tree_update.nodes[1].child_ids = {5, 6, 7, 8};
-  tree_update.nodes[1].role = ax::mojom::Role::kGenericContainer;
-  tree_update.nodes[1].AddState(ax::mojom::State::kIgnored);
-
-  tree_update.nodes[2].id = 3;
-  tree_update.nodes[2].role = ax::mojom::Role::kStaticText;
-  tree_update.nodes[2].SetName("text");
-
-  tree_update.nodes[3].id = 4;
-  tree_update.nodes[3].role = ax::mojom::Role::kStaticText;
-  tree_update.nodes[3].SetName("text");
-
-  tree_update.nodes[4].id = 5;
-  tree_update.nodes[4].role = ax::mojom::Role::kGenericContainer;
-  tree_update.nodes[4].child_ids = {9};
-
-  tree_update.nodes[5].id = 6;
-  tree_update.nodes[5].role = ax::mojom::Role::kGenericContainer;
-  tree_update.nodes[5].child_ids = {10};
-
-  tree_update.nodes[6].id = 7;
-  tree_update.nodes[6].child_ids = {11, 12};
-  tree_update.nodes[6].role = ax::mojom::Role::kGenericContainer;
-  tree_update.nodes[6].AddState(ax::mojom::State::kIgnored);
-
-  tree_update.nodes[7].id = 8;
-  tree_update.nodes[7].role = ax::mojom::Role::kGenericContainer;
-  tree_update.nodes[7].AddState(ax::mojom::State::kIgnored);
-
-  tree_update.nodes[8].id = 9;
-  tree_update.nodes[8].role = ax::mojom::Role::kStaticText;
-  tree_update.nodes[8].SetName("text");
-
-  tree_update.nodes[9].id = 10;
-  tree_update.nodes[9].child_ids = {13};
-  tree_update.nodes[9].role = ax::mojom::Role::kGenericContainer;
-  tree_update.nodes[9].AddState(ax::mojom::State::kIgnored);
-
-  tree_update.nodes[10].id = 11;
-  tree_update.nodes[10].child_ids = {14, 15};
-  tree_update.nodes[10].role = ax::mojom::Role::kGenericContainer;
-  tree_update.nodes[10].AddState(ax::mojom::State::kIgnored);
-
-  tree_update.nodes[11].id = 12;
-  tree_update.nodes[11].role = ax::mojom::Role::kStaticText;
-  tree_update.nodes[11].SetName("text");
-
-  tree_update.nodes[12].id = 13;
-  tree_update.nodes[12].child_ids = {16};
-  tree_update.nodes[12].role = ax::mojom::Role::kGenericContainer;
-  tree_update.nodes[12].AddState(ax::mojom::State::kIgnored);
-
-  tree_update.nodes[13].id = 14;
-  tree_update.nodes[13].role = ax::mojom::Role::kStaticText;
-  tree_update.nodes[13].SetName("text");
-
-  tree_update.nodes[14].id = 15;
-  tree_update.nodes[14].role = ax::mojom::Role::kStaticText;
-  tree_update.nodes[14].SetName("text");
-
-  tree_update.nodes[15].id = 16;
-  tree_update.nodes[15].role = ax::mojom::Role::kStaticText;
-  tree_update.nodes[15].SetName("text");
-
-  TestAXTreeManager test_ax_tree_manager(std::make_unique<AXTree>(tree_update));
-  AXTree::Selection unignored_selection =
-      test_ax_tree_manager.GetTree()->GetUnignoredSelection();
-
-  EXPECT_EQ(kInvalidAXNodeID, unignored_selection.anchor_object_id);
-  EXPECT_EQ(-1, unignored_selection.anchor_offset);
-  EXPECT_EQ(kInvalidAXNodeID, unignored_selection.focus_object_id);
-  EXPECT_EQ(-1, unignored_selection.focus_offset);
-  struct SelectionData {
-    int32_t anchor_id;
-    int32_t anchor_offset;
-    int32_t focus_id;
-    int32_t focus_offset;
-  };
-
-  SelectionData input = {1, 0, 1, 0};
-  SelectionData expected = {9, 0, 9, 0};
-  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
-
-  input = {1, 0, 2, 2};
-  expected = {9, 0, 14, 0};
-  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
-
-  input = {2, 1, 5, 0};
-  expected = {16, 0, 5, 0};
-  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
-
-  input = {5, 0, 9, 0};
-  expected = {5, 0, 9, 0};
-  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
-
-  input = {9, 0, 6, 0};
-  expected = {9, 0, 16, 0};
-  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
-
-  input = {6, 0, 10, 0};
-  expected = {16, 0, 16, 0};
-  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
-
-  input = {10, 0, 13, 0};
-  expected = {16, 0, 16, 0};
-  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
-
-  input = {13, 0, 16, 0};
-  expected = {16, 0, 16, 0};
-  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
-
-  input = {16, 0, 7, 0};
-  expected = {16, 0, 14, 0};
-  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
-
-  input = {7, 0, 11, 0};
-  expected = {14, 0, 14, 0};
-  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
-
-  input = {11, 1, 14, 2};
-  expected = {15, 0, 14, 2};
-  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
-
-  input = {14, 2, 15, 3};
-  expected = {14, 2, 15, 3};
-  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
-
-  input = {15, 0, 12, 0};
-  expected = {15, 0, 12, 0};
-  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
-
-  input = {12, 0, 8, 0};
-  expected = {12, 0, 3, 0};
-  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
-
-  input = {8, 0, 3, 0};
-  expected = {12, 4, 3, 0};
-  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
-
-  input = {3, 0, 4, 0};
-  expected = {3, 0, 4, 0};
-  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
-
-  input = {4, 0, 4, 0};
-  expected = {4, 0, 4, 0};
-  TEST_SELECTION(tree_update, test_ax_tree_manager.GetTree(), input, expected);
-}
-
 TEST(AXTreeTest, GetChildrenOrSiblings) {
   // 1
   // ├── 2
@@ -4326,13 +4166,14 @@ TEST(AXTreeTest, SetSizePosInSetSubtreeDeleted) {
 
   // These values are lazily created, so to test that they fail when
   // called in the middle of a tree update, fake the update state.
-  tree.SetTreeUpdateInProgressState(true);
-  ASSERT_FALSE(tree_node->GetPosInSet());
-  ASSERT_FALSE(tree_node->GetSetSize());
+  {
+    ScopedTreeUpdateInProgressStateSetter tree_update_in_progress(tree);
+    ASSERT_FALSE(tree_node->GetPosInSet());
+    ASSERT_FALSE(tree_node->GetSetSize());
 
-  // Then reset the state to make sure we have the expected values
-  // after |Unserialize|.
-  tree.SetTreeUpdateInProgressState(false);
+    // Then reset the state to make sure we have the expected values after
+    // |Unserialize|.
+  }  // tree_update_in_progress.
   ASSERT_FALSE(tree_node->GetPosInSet());
   EXPECT_OPTIONAL_EQ(1, tree_node->GetSetSize());
 }
@@ -4386,7 +4227,7 @@ TEST(AXTreeTest, SetSizePosInSetIgnoredItem) {
 
 // Tests that kPopUpButtons are assigned the SetSize of the wrapped
 // kMenuListPopup, if one is present.
-TEST(AXTreeTest, SetSizePosInSetPopUpButton) {
+TEST(AXTreeTest, SetSizePosInSetPopUpButtonAndSelect) {
   AXTreeUpdate initial_state;
   initial_state.root_id = 1;
   initial_state.nodes.resize(6);
@@ -4395,7 +4236,7 @@ TEST(AXTreeTest, SetSizePosInSetPopUpButton) {
   initial_state.nodes[1].id = 2;
   initial_state.nodes[1].role = ax::mojom::Role::kPopUpButton;
   initial_state.nodes[2].id = 3;
-  initial_state.nodes[2].role = ax::mojom::Role::kPopUpButton;
+  initial_state.nodes[2].role = ax::mojom::Role::kComboBoxSelect;
   initial_state.nodes[2].child_ids = {4};
   initial_state.nodes[3].id = 4;
   initial_state.nodes[3].role = ax::mojom::Role::kMenuListPopup;
@@ -4409,7 +4250,7 @@ TEST(AXTreeTest, SetSizePosInSetPopUpButton) {
   // The first popupbutton should have SetSize of 0.
   AXNode* popup_button_1 = tree.GetFromId(2);
   EXPECT_OPTIONAL_EQ(0, popup_button_1->GetSetSize());
-  // The second popupbutton should have SetSize of 2, since the menulistpopup
+  // The select should have SetSize of 2, since the menulistpopup
   // that it wraps has a SetSize of 2.
   AXNode* popup_button_2 = tree.GetFromId(3);
   EXPECT_OPTIONAL_EQ(2, popup_button_2->GetSetSize());
@@ -4891,8 +4732,8 @@ TEST(AXTreeTest, SingleUpdateDeletesNewlyCreatedChildNode) {
 
   ASSERT_EQ(
       "AXTree\n"
-      "id=1 rootWebArea (0, 0)-(0, 0)\n",
-      tree.ToString());
+      "id=1 rootWebArea\n",
+      tree.ToString(/*verbose*/ false));
 
   // Unserialize again, but with another add child.
   tree_update.nodes.resize(8);
@@ -4904,9 +4745,9 @@ TEST(AXTreeTest, SingleUpdateDeletesNewlyCreatedChildNode) {
 
   ASSERT_EQ(
       "AXTree\n"
-      "id=1 rootWebArea (0, 0)-(0, 0) child_ids=2\n"
-      "  id=2 genericContainer (0, 0)-(0, 0)\n",
-      tree.ToString());
+      "id=1 rootWebArea child_ids=2\n"
+      "  id=2 genericContainer\n",
+      tree.ToString(/*verbose*/ false));
 }
 
 // Tests a fringe scenario that may happen if multiple AXTreeUpdates are merged.
@@ -4955,11 +4796,11 @@ TEST(AXTreeTest, SingleUpdateReparentsNodeMultipleTimes) {
 
   ASSERT_TRUE(tree.Unserialize(tree_update)) << tree.error();
   EXPECT_EQ(
-      "AXTree\nid=1 rootWebArea (0, 0)-(0, 0) child_ids=2,3\n"
-      "  id=2 list (0, 0)-(0, 0) child_ids=4\n"
-      "    id=4 listItem (0, 0)-(0, 0)\n"
-      "  id=3 list (0, 0)-(0, 0)\n",
-      tree.ToString());
+      "AXTree\nid=1 rootWebArea child_ids=2,3\n"
+      "  id=2 list child_ids=4\n"
+      "    id=4 listItem\n"
+      "  id=3 list\n",
+      tree.ToString(/*verbose*/ false));
 
   // Unserialize again, but with another reparent.
   tree_update.nodes.resize(9);
@@ -4969,11 +4810,11 @@ TEST(AXTreeTest, SingleUpdateReparentsNodeMultipleTimes) {
 
   ASSERT_TRUE(tree.Unserialize(tree_update)) << tree.error();
   EXPECT_EQ(
-      "AXTree\nid=1 rootWebArea (0, 0)-(0, 0) child_ids=2,3\n"
-      "  id=2 list (0, 0)-(0, 0)\n"
-      "  id=3 list (0, 0)-(0, 0) child_ids=4\n"
-      "    id=4 listItem (0, 0)-(0, 0)\n",
-      tree.ToString());
+      "AXTree\nid=1 rootWebArea child_ids=2,3\n"
+      "  id=2 list\n"
+      "  id=3 list child_ids=4\n"
+      "    id=4 listItem\n",
+      tree.ToString(/*verbose*/ false));
 }
 
 // Tests a fringe scenario that may happen if multiple AXTreeUpdates are merged.
@@ -5002,9 +4843,9 @@ TEST(AXTreeTest, SingleUpdateIgnoresNewlyCreatedUnignoredChildNode) {
 
   ASSERT_EQ(
       "AXTree\n"
-      "id=1 rootWebArea (0, 0)-(0, 0) child_ids=2\n"
-      "  id=2 genericContainer IGNORED (0, 0)-(0, 0)\n",
-      tree.ToString());
+      "id=1 rootWebArea child_ids=2\n"
+      "  id=2 genericContainer IGNORED\n",
+      tree.ToString(/*verbose*/ false));
 }
 
 // Tests a fringe scenario that may happen if multiple AXTreeUpdates are merged.
@@ -5020,8 +4861,8 @@ TEST(AXTreeTest, SingleUpdateTogglesIgnoredStateAfterCreatingNode) {
 
   ASSERT_EQ(
       "AXTree\n"
-      "id=1 rootWebArea (0, 0)-(0, 0)\n",
-      tree.ToString());
+      "id=1 rootWebArea\n",
+      tree.ToString(/*verbose*/ false));
 
   AXTreeUpdate tree_update;
   tree_update.nodes.resize(5);
@@ -5044,10 +4885,10 @@ TEST(AXTreeTest, SingleUpdateTogglesIgnoredStateAfterCreatingNode) {
 
   ASSERT_EQ(
       "AXTree\n"
-      "id=1 rootWebArea (0, 0)-(0, 0) child_ids=2,3\n"
-      "  id=2 genericContainer IGNORED (0, 0)-(0, 0)\n"
-      "  id=3 genericContainer (0, 0)-(0, 0)\n",
-      tree.ToString());
+      "id=1 rootWebArea child_ids=2,3\n"
+      "  id=2 genericContainer IGNORED\n"
+      "  id=3 genericContainer\n",
+      tree.ToString(/*verbose*/ false));
 }
 
 // Tests a fringe scenario that may happen if multiple AXTreeUpdates are merged.
@@ -5069,10 +4910,10 @@ TEST(AXTreeTest, SingleUpdateTogglesIgnoredStateBeforeDestroyingNode) {
 
   ASSERT_EQ(
       "AXTree\n"
-      "id=1 rootWebArea (0, 0)-(0, 0) child_ids=2,3\n"
-      "  id=2 genericContainer (0, 0)-(0, 0)\n"
-      "  id=3 genericContainer IGNORED (0, 0)-(0, 0)\n",
-      tree.ToString());
+      "id=1 rootWebArea child_ids=2,3\n"
+      "  id=2 genericContainer\n"
+      "  id=3 genericContainer IGNORED\n",
+      tree.ToString(/*verbose*/ false));
 
   AXTreeUpdate tree_update;
   tree_update.nodes.resize(3);
@@ -5090,8 +4931,8 @@ TEST(AXTreeTest, SingleUpdateTogglesIgnoredStateBeforeDestroyingNode) {
 
   ASSERT_EQ(
       "AXTree\n"
-      "id=1 rootWebArea (0, 0)-(0, 0)\n",
-      tree.ToString());
+      "id=1 rootWebArea\n",
+      tree.ToString(/*verbose*/ false));
 }
 
 TEST(AXTreeTest, FocusChangeTogglesIgnoredState) {
@@ -5137,11 +4978,11 @@ TEST(AXTreeTest, FocusChangeTogglesIgnoredState) {
 
   EXPECT_EQ(
       "AXTree\n"
-      "id=1 rootWebArea (0, 0)-(0, 0) child_ids=2,3,4\n"
-      "  id=2 textField EDITABLE (0, 0)-(0, 0)\n"
-      "  id=3 button IGNORED (0, 0)-(0, 0)\n"
-      "  id=4 button IGNORED (0, 0)-(0, 0)\n",
-      tree.ToString());
+      "id=1 rootWebArea child_ids=2,3,4\n"
+      "  id=2 textField EDITABLE\n"
+      "  id=3 button IGNORED\n"
+      "  id=4 button IGNORED\n",
+      tree.ToString(/*verbose*/ false));
 
   //
   // Focus the first button which should change its ignored state.
@@ -5166,11 +5007,11 @@ TEST(AXTreeTest, FocusChangeTogglesIgnoredState) {
 
   EXPECT_EQ(
       "AXTree focus_id=3\n"
-      "id=1 rootWebArea (0, 0)-(0, 0) child_ids=2,3,4\n"
-      "  id=2 textField EDITABLE (0, 0)-(0, 0)\n"
-      "  id=3 button IGNORED (0, 0)-(0, 0)\n"
-      "  id=4 button IGNORED (0, 0)-(0, 0)\n",
-      tree.ToString());
+      "id=1 rootWebArea child_ids=2,3,4\n"
+      "  id=2 textField EDITABLE\n"
+      "  id=3 button IGNORED\n"
+      "  id=4 button IGNORED\n",
+      tree.ToString(/*verbose*/ false));
 
   {
     const std::vector<std::string>& change_log =
@@ -5201,11 +5042,11 @@ TEST(AXTreeTest, FocusChangeTogglesIgnoredState) {
 
   EXPECT_EQ(
       "AXTree focus_id=4\n"
-      "id=1 rootWebArea (0, 0)-(0, 0) child_ids=2,3,4\n"
-      "  id=2 textField EDITABLE (0, 0)-(0, 0)\n"
-      "  id=3 button IGNORED (0, 0)-(0, 0)\n"
-      "  id=4 button IGNORED (0, 0)-(0, 0)\n",
-      tree.ToString());
+      "id=1 rootWebArea child_ids=2,3,4\n"
+      "  id=2 textField EDITABLE\n"
+      "  id=3 button IGNORED\n"
+      "  id=4 button IGNORED\n",
+      tree.ToString(/*verbose*/ false));
 
   {
     const std::vector<std::string>& change_log =
@@ -5238,11 +5079,11 @@ TEST(AXTreeTest, FocusChangeTogglesIgnoredState) {
 
   EXPECT_EQ(
       "AXTree\n"
-      "id=1 rootWebArea (0, 0)-(0, 0) child_ids=2,3,4\n"
-      "  id=2 textField EDITABLE (0, 0)-(0, 0)\n"
-      "  id=3 button IGNORED (0, 0)-(0, 0)\n"
-      "  id=4 button IGNORED (0, 0)-(0, 0)\n",
-      tree.ToString());
+      "id=1 rootWebArea child_ids=2,3,4\n"
+      "  id=2 textField EDITABLE\n"
+      "  id=3 button IGNORED\n"
+      "  id=4 button IGNORED\n",
+      tree.ToString(/*verbose*/ false));
 
   {
     const std::vector<std::string>& change_log =
@@ -5269,11 +5110,11 @@ TEST(AXTreeTest, FocusChangeTogglesIgnoredState) {
 
   EXPECT_EQ(
       "AXTree focus_id=3\n"
-      "id=1 rootWebArea (0, 0)-(0, 0) child_ids=2,3,4\n"
-      "  id=2 textField EDITABLE (0, 0)-(0, 0)\n"
-      "  id=3 button IGNORED (0, 0)-(0, 0)\n"
-      "  id=4 button IGNORED (0, 0)-(0, 0)\n",
-      tree.ToString());
+      "id=1 rootWebArea child_ids=2,3,4\n"
+      "  id=2 textField EDITABLE\n"
+      "  id=3 button IGNORED\n"
+      "  id=4 button IGNORED\n",
+      tree.ToString(/*verbose*/ false));
 
   {
     const std::vector<std::string>& change_log =
@@ -5380,10 +5221,115 @@ TEST(AXTreeTest, UnserializeErrors) {
   ui::AXNodeData disconnected_node;
   disconnected_node.id = 2;
   tree_update_3.nodes.push_back(disconnected_node);
+#if defined(AX_FAIL_FAST_BUILD)
+  EXPECT_DEATH_IF_SUPPORTED(
+      tree.Unserialize(tree_update_3),
+      "2 will not be in the tree and is not the new root");
+#else
   EXPECT_FALSE(tree.Unserialize(tree_update_3));
+  EXPECT_EQ("2 will not be in the tree and is not the new root", tree.error());
   histogram_tester.ExpectUniqueSample(
       "Accessibility.Reliability.Tree.UnserializeError",
       AXTreeUnserializeError::kNotInTree, 1);
+#endif
 }
+
+#if !defined(AX_FAIL_FAST_BUILD) && !BUILDFLAG(IS_MAC) && !BUILDFLAG(IS_IOS)
+// TODO(crbug.com/1430317): UnserializePerformance is failing on fuchsia and
+// windows bots.
+#if BUILDFLAG(IS_FUCHSIA) || BUILDFLAG(IS_WIN)
+#define MAYBE_UnserializePerformance DISABLED_UnserializePerformance
+#else
+#define MAYBE_UnserializePerformance UnserializePerformance
+#endif
+TEST(AXTreeTest, MAYBE_UnserializePerformance) {
+  // Test parameters, tune per platform if needed.
+  const int NUMBER_OF_CHILDREN = 800;
+  const int NUMBER_OF_GRANDCHILDREN = 5;
+  const int NUMBER_OF_RUNS = 10;
+
+  // Setup an initial tree with a single node.
+  AXTreeUpdate initial_tree_update;
+  initial_tree_update.root_id = 1;
+  initial_tree_update.nodes.resize(1);
+  initial_tree_update.nodes[0].id = 1;
+  initial_tree_update.nodes[0].role = ax::mojom::Role::kRootWebArea;
+  AXTree tree(initial_tree_update);
+
+  // Add some observers to this tree.
+  TestAXTreeObserver test_observer1(&tree);
+  TestAXTreeObserver test_observer2(&tree);
+  TestAXTreeObserver test_observer3(&tree);
+  TestAXTreeObserver test_observer4(&tree);
+  TestAXTreeObserver test_observer5(&tree);
+
+  // Create an arbitrarily large AXTreeUpdate to apply. The root node should
+  // have |NUMBER_OF_CHILDREN| children, and each child node should have
+  // |NUMBER_OF_GRANDCHILDREN| children.
+  int total_nodes =
+      1 + NUMBER_OF_CHILDREN + (NUMBER_OF_CHILDREN * NUMBER_OF_GRANDCHILDREN);
+  int node_id = 1;
+  AXTreeUpdate test_update;
+  test_update.root_id = node_id;
+  test_update.nodes.resize(total_nodes);
+  test_update.nodes[0].id = node_id;
+  test_update.nodes[0].role = ax::mojom::Role::kRootWebArea;
+  test_update.nodes[0].child_ids.resize(NUMBER_OF_CHILDREN);
+
+  for (int i = 0; i < NUMBER_OF_CHILDREN; i++) {
+    test_update.nodes[0].child_ids[i] = node_id + 1;
+    test_update.nodes[node_id].id = node_id + 1;
+    test_update.nodes[node_id].role = ax::mojom::Role::kGenericContainer;
+    test_update.nodes[node_id].child_ids.resize(NUMBER_OF_GRANDCHILDREN);
+    int this_node = node_id;
+
+    for (int j = 0; j < NUMBER_OF_GRANDCHILDREN; j++) {
+      test_update.nodes[this_node].child_ids[j] = node_id + 2;
+      node_id++;
+      test_update.nodes[node_id].id = node_id + 1;
+      test_update.nodes[node_id].role = ax::mojom::Role::kButton;
+      test_update.nodes[node_id].AddBoolAttribute(
+          ax::mojom::BoolAttribute::kClickable, true);
+      test_update.nodes[node_id].AddStringAttribute(
+          ax::mojom::StringAttribute::kName, base::NumberToString(node_id + 1));
+    }
+    node_id++;
+  }
+  // This makes a structure like:
+  //
+  //                    1
+  //     2              8               14             ...  (1000 total nodes)
+  //  3,4,5,6,7    9,10,11,12,13   15,16,17,18,19      ...  (5000 total nodes)
+  //
+  // This is a relatively flat, wide tree.
+
+  // Unserialize this update |NUMBER_OF_RUNS| times and track duration.
+  base::TimeTicks startTime = base::TimeTicks::Now();
+  for (int k = 0; k < NUMBER_OF_RUNS; k++) {
+    EXPECT_TRUE(tree.Unserialize(test_update));
+    EXPECT_TRUE(tree.Unserialize(initial_tree_update));
+  }
+  int control_time = (base::TimeTicks::Now() - startTime).InMicroseconds();
+
+  // Enable the optimization feature.
+  base::test::ScopedFeatureList scoped_feature_list;
+  scoped_feature_list.InitAndEnableFeature(
+      features::kAccessibilityUnserializeOptimizations);
+
+  // Unserialize this update |NUMBER_OF_RUNS| times and track duration.
+  startTime = base::TimeTicks::Now();
+  for (int k = 0; k < NUMBER_OF_RUNS; k++) {
+    EXPECT_TRUE(tree.Unserialize(test_update));
+    EXPECT_TRUE(tree.Unserialize(initial_tree_update));
+  }
+  int experimental_time = (base::TimeTicks::Now() - startTime).InMicroseconds();
+
+  double percentage_gain =
+      (control_time - experimental_time) * 100.0 / (control_time);
+
+  // Assert that there is a net improvement from optimization.
+  EXPECT_GE(percentage_gain, 0);
+}
+#endif
 
 }  // namespace ui

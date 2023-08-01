@@ -33,16 +33,14 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_image_data_settings.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_typedefs.h"
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/html/canvas/canvas_rendering_context.h"
 #include "third_party/blink/renderer/core/imagebitmap/image_bitmap_source.h"
 #include "third_party/blink/renderer/core/typed_arrays/array_buffer_view_helpers.h"
 #include "third_party/blink/renderer/core/typed_arrays/dom_typed_array.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/graphics/canvas_color_params.h"
-#include "third_party/blink/renderer/platform/graphics/static_bitmap_image.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
-#include "third_party/skia/include/core/SkColorSpace.h"
+#include "third_party/skia/include/core/SkPixmap.h"
 #include "ui/gfx/geometry/size.h"
 
 namespace blink {
@@ -66,10 +64,8 @@ class CORE_EXPORT ImageData final : public ScriptWrappable,
                            unsigned height,
                            const ImageDataSettings* settings,
                            ExceptionState& exception_state) {
-    ValidateAndCreateParams params;
-    params.require_canvas_color_management = true;
-    return ValidateAndCreate(width, height, absl::nullopt, settings, params,
-                             exception_state);
+    return ValidateAndCreate(width, height, absl::nullopt, settings,
+                             ValidateAndCreateParams(), exception_state);
   }
 
   // Constructors that take Uint8ClampedArray, width, optional height, and
@@ -92,10 +88,8 @@ class CORE_EXPORT ImageData final : public ScriptWrappable,
                            unsigned height,
                            const ImageDataSettings* settings,
                            ExceptionState& exception_state) {
-    ValidateAndCreateParams params;
-    params.require_canvas_color_management = true;
-    return ValidateAndCreate(width, height, data, settings, params,
-                             exception_state);
+    return ValidateAndCreate(width, height, data, settings,
+                             ValidateAndCreateParams(), exception_state);
   }
 
   // Constructor that takes DOMUint16Array, width, optional height, and optional
@@ -104,7 +98,7 @@ class CORE_EXPORT ImageData final : public ScriptWrappable,
                            unsigned width,
                            ExceptionState& exception_state) {
     ValidateAndCreateParams params;
-    params.require_canvas_color_management_v2 = true;
+    params.require_canvas_floating_point = true;
     return ValidateAndCreate(width, absl::nullopt, data, nullptr, params,
                              exception_state);
   }
@@ -114,7 +108,7 @@ class CORE_EXPORT ImageData final : public ScriptWrappable,
                            const ImageDataSettings* settings,
                            ExceptionState& exception_state) {
     ValidateAndCreateParams params;
-    params.require_canvas_color_management_v2 = true;
+    params.require_canvas_floating_point = true;
     return ValidateAndCreate(width, height, data, settings, params,
                              exception_state);
   }
@@ -125,7 +119,7 @@ class CORE_EXPORT ImageData final : public ScriptWrappable,
                            unsigned width,
                            ExceptionState& exception_state) {
     ValidateAndCreateParams params;
-    params.require_canvas_color_management_v2 = true;
+    params.require_canvas_floating_point = true;
     return ValidateAndCreate(width, absl::nullopt, data, nullptr, params,
                              exception_state);
   }
@@ -135,7 +129,7 @@ class CORE_EXPORT ImageData final : public ScriptWrappable,
                            const ImageDataSettings* settings,
                            ExceptionState& exception_state) {
     ValidateAndCreateParams params;
-    params.require_canvas_color_management_v2 = true;
+    params.require_canvas_floating_point = true;
     return ValidateAndCreate(width, height, data, settings, params,
                              exception_state);
   }
@@ -151,12 +145,8 @@ class CORE_EXPORT ImageData final : public ScriptWrappable,
     bool context_2d_error_mode = false;
     // Constructors in IDL files cannot specify RuntimeEnabled restrictions.
     // This argument is passed by Create functions that should require that the
-    // CanvasColorManagement feature be enabled.
-    bool require_canvas_color_management = false;
-    // Constructors in IDL files cannot specify RuntimeEnabled restrictions.
-    // This argument is passed by Create functions that should require that the
-    // CanvasColorManagementV2 feature be enabled.
-    bool require_canvas_color_management_v2 = false;
+    // CanvasFloatingPoint feature be enabled.
+    bool require_canvas_floating_point = false;
     // If the caller is guaranteed to write over the result in its entirety,
     // then this flag may be used to skip initialization of the result's
     // data.

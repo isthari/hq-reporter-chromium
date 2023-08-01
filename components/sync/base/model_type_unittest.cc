@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,16 +22,14 @@ TEST_F(ModelTypeTest, ModelTypeToValue) {
   for (int i = 0; i < GetNumModelTypes(); ++i) {
     ModelType model_type = ModelTypeFromInt(i);
     base::ExpectStringValue(ModelTypeToDebugString(model_type),
-                            *ModelTypeToValue(model_type));
+                            ModelTypeToValue(model_type));
   }
 }
 
 TEST_F(ModelTypeTest, ModelTypeSetToValue) {
-  const ModelTypeSet model_types(BOOKMARKS, APPS);
+  const ModelTypeSet model_types = {BOOKMARKS, APPS};
 
-  std::unique_ptr<base::ListValue> value(ModelTypeSetToValue(model_types));
-  ASSERT_TRUE(value->is_list());
-  base::Value::ConstListView value_list = value->GetList();
+  base::Value::List value_list(ModelTypeSetToValue(model_types));
   ASSERT_EQ(2u, value_list.size());
   ASSERT_TRUE(value_list[0].is_string());
   EXPECT_EQ("Bookmarks", value_list[0].GetString());
@@ -47,6 +45,7 @@ TEST_F(ModelTypeTest, IsRealDataType) {
   EXPECT_TRUE(IsRealDataType(APPS));
   EXPECT_TRUE(IsRealDataType(ARC_PACKAGE));
   EXPECT_TRUE(IsRealDataType(PRINTERS));
+  EXPECT_TRUE(IsRealDataType(PRINTERS_AUTHORIZATION_SERVERS));
   EXPECT_TRUE(IsRealDataType(READING_LIST));
 }
 
@@ -117,9 +116,9 @@ TEST_F(ModelTypeTest, DefaultFieldValues) {
   }
 }
 
-TEST_F(ModelTypeTest, ModelTypeToRootTagValues) {
+TEST_F(ModelTypeTest, ModelTypeToProtocolRootTagValues) {
   for (ModelType model_type : ProtocolTypes()) {
-    std::string root_tag = ModelTypeToRootTag(model_type);
+    std::string root_tag = ModelTypeToProtocolRootTag(model_type);
     if (IsRealDataType(model_type)) {
       EXPECT_TRUE(base::StartsWith(root_tag, "google_chrome_",
                                    base::CompareCase::INSENSITIVE_ASCII));
@@ -151,6 +150,38 @@ TEST_F(ModelTypeTest, ModelTypeNotificationTypeMapping) {
       EXPECT_TRUE(notification_type.empty());
     }
   }
+}
+
+TEST_F(ModelTypeTest, ModelTypesSubsetsSanity) {
+  // UserTypes and ControlTypes shouldn't overlap.
+  EXPECT_TRUE(Intersection(UserTypes(), ControlTypes()).Empty());
+
+  // UserTypes should contain all *UserTypes.
+  EXPECT_TRUE(UserTypes().HasAll(AlwaysPreferredUserTypes()));
+  EXPECT_TRUE(UserTypes().HasAll(AlwaysEncryptedUserTypes()));
+  EXPECT_TRUE(UserTypes().HasAll(LowPriorityUserTypes()));
+  EXPECT_TRUE(UserTypes().HasAll(HighPriorityUserTypes()));
+
+  // Low-prio types and high-prio types shouldn't overlap.
+  EXPECT_TRUE(
+      Intersection(LowPriorityUserTypes(), HighPriorityUserTypes()).Empty());
+
+  // The always-encrypted types should be encryptable.
+  EXPECT_TRUE(EncryptableUserTypes().HasAll(AlwaysEncryptedUserTypes()));
+
+  // Commit-only types are meant for consumption on the server, and so should
+  // not be encryptable (with a custom passphrase).
+  EXPECT_TRUE(Intersection(CommitOnlyTypes(), EncryptableUserTypes()).Empty());
+}
+
+TEST_F(ModelTypeTest, ModelTypeSetFromSpecificsFieldNumberList) {
+  // Get field numbers corresponding to each model type in ProtocolTypes().
+  ::google::protobuf::RepeatedField<int> field_numbers;
+  for (auto model_type : ProtocolTypes()) {
+    field_numbers.Add(GetSpecificsFieldNumberFromModelType(model_type));
+  }
+  EXPECT_EQ(GetModelTypeSetFromSpecificsFieldNumberList(field_numbers),
+            ProtocolTypes());
 }
 
 }  // namespace

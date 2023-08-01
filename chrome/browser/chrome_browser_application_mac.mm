@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,6 +33,12 @@ void RegisterBrowserCrApp() {
   // will not be a BrowserCrApplication, but will instead be an NSApplication.
   // This is undesirable and we must enforce that this doesn't happen.
   CHECK([NSApp isKindOfClass:[BrowserCrApplication class]]);
+}
+
+void InitializeHeadlessMode() {
+  // In headless mode the browser window exists but is always hidden, so there
+  // is no point in showing dock icon and menu bar.
+  [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
 }
 
 void Terminate() {
@@ -96,10 +102,10 @@ std::string DescriptionForNSEvent(NSEvent* event) {
       desc += base::StringPrintf(" buttonNumber=%ld clickCount=%ld",
                                  event.buttonNumber, event.clickCount);
       break;
-    case NSAppKitDefined:
-    case NSSystemDefined:
-    case NSApplicationDefined:
-    case NSPeriodic:
+    case NSEventTypeAppKitDefined:
+    case NSEventTypeSystemDefined:
+    case NSEventTypeApplicationDefined:
+    case NSEventTypePeriodic:
       desc += base::StringPrintf(" subtype=%d data1=%ld data2=%ld",
                                  event.subtype, event.data1, event.data2);
       break;
@@ -325,9 +331,10 @@ std::string DescriptionForNSEvent(NSEvent* event) {
       // In kiosk mode, we want to prevent context menus from appearing,
       // so simply discard menu-generating events instead of passing them
       // along.
-      BOOL couldTriggerContextMenu = event.type == NSRightMouseDown ||
-                                     (event.type == NSLeftMouseDown &&
-                                      (event.modifierFlags & NSControlKeyMask));
+      BOOL couldTriggerContextMenu =
+          event.type == NSEventTypeRightMouseDown ||
+          (event.type == NSEventTypeLeftMouseDown &&
+           (event.modifierFlags & NSEventModifierFlagControl));
       if (couldTriggerContextMenu)
         return;
     }
@@ -337,7 +344,7 @@ std::string DescriptionForNSEvent(NSEvent* event) {
     // Mac Eisu and Kana keydown events are by default swallowed by sendEvent
     // and sent directly to IME, which prevents ui keydown events from firing.
     // These events need to be sent to [NSApp keyWindow] for handling.
-    if ([event type] == NSKeyDown &&
+    if ([event type] == NSEventTypeKeyDown &&
         ([event keyCode] == kVK_JIS_Eisu || [event keyCode] == kVK_JIS_Kana)) {
       [[NSApp keyWindow] sendEvent:event];
     } else {
@@ -354,7 +361,7 @@ std::string DescriptionForNSEvent(NSEvent* event) {
     if ([value intValue] == 1)
       accessibility_state->OnScreenReaderDetected();
     else
-      accessibility_state->DisableAccessibility();
+      accessibility_state->OnScreenReaderStopped();
   }
   return [super accessibilitySetValue:value forAttribute:attribute];
 }
@@ -373,7 +380,7 @@ std::string DescriptionForNSEvent(NSEvent* event) {
   content::BrowserAccessibilityState* accessibility_state =
       content::BrowserAccessibilityState::GetInstance();
   if (!accessibility_state->GetAccessibilityMode().has_mode(
-          ui::kAXModeBasic.mode())) {
+          ui::kAXModeBasic.flags())) {
     accessibility_state->AddAccessibilityModeFlags(ui::kAXModeBasic);
   }
   return [super accessibilityRole];

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,15 +7,15 @@
 #include <stddef.h>
 #include <string>
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/memory/ptr_util.h"
+#include "base/observer_list.h"
 #include "base/path_service.h"
 #include "base/scoped_observation.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/time/clock.h"
 #include "build/build_config.h"
@@ -67,10 +67,6 @@ InstantService::InstantService(Profile* profile)
   if (!content::BrowserThread::CurrentlyOn(content::BrowserThread::UI))
     return;
 
-  registrar_.Add(this,
-                 content::NOTIFICATION_RENDERER_PROCESS_TERMINATED,
-                 content::NotificationService::AllSources());
-
   most_visited_sites_ = ChromeMostVisitedSitesFactory::NewForProfile(profile_);
   if (most_visited_sites_) {
     most_visited_sites_->EnableCustomLinks(false);
@@ -100,8 +96,12 @@ InstantService::InstantService(Profile* profile)
 
 InstantService::~InstantService() = default;
 
-void InstantService::AddInstantProcess(int process_id) {
-  process_ids_.insert(process_id);
+void InstantService::AddInstantProcess(content::RenderProcessHost* host) {
+  process_ids_.insert(host->GetID());
+  // The same process may be added for multiple WebContents. Only observe once.
+  if (!host_observation_.IsObservingSource(host)) {
+    host_observation_.AddObservation(host);
+  }
 }
 
 bool InstantService::IsInstantProcess(int process_id) const {
@@ -177,26 +177,13 @@ void InstantService::Shutdown() {
   ThemeServiceFactory::GetForProfile(profile_)->RemoveObserver(this);
 }
 
-void InstantService::Observe(int type,
-                             const content::NotificationSource& source,
-                             const content::NotificationDetails& details) {
-  switch (type) {
-    case content::NOTIFICATION_RENDERER_PROCESS_TERMINATED: {
-      content::RenderProcessHost* rph =
-          content::Source<content::RenderProcessHost>(source).ptr();
-      Profile* renderer_profile =
-          static_cast<Profile*>(rph->GetBrowserContext());
-      if (profile_ == renderer_profile)
-        OnRendererProcessTerminated(rph->GetID());
-      break;
-    }
-    default:
-      NOTREACHED() << "Unexpected notification type in InstantService.";
+void InstantService::RenderProcessHostDestroyed(
+    content::RenderProcessHost* host) {
+  Profile* renderer_profile = static_cast<Profile*>(host->GetBrowserContext());
+  if (profile_ == renderer_profile) {
+    process_ids_.erase(host->GetID());
+    host_observation_.RemoveObservation(host);
   }
-}
-
-void InstantService::OnRendererProcessTerminated(int process_id) {
-  process_ids_.erase(process_id);
 }
 
 void InstantService::OnNativeThemeUpdated(ui::NativeTheme* observed_theme) {
@@ -246,15 +233,6 @@ void InstantService::BuildNtpTheme() {
   ThemeService* theme_service = ThemeServiceFactory::GetForProfile(profile_);
   theme_->using_default_theme = theme_service->UsingDefaultTheme();
 
-  // Get theme colors.
-  const ui::ThemeProvider& theme_provider =
-      ThemeService::GetThemeProviderForProfile(profile_);
-
-  // Set colors.
-  theme_->background_color =
-      theme_provider.GetColor(ThemeProperties::COLOR_NTP_BACKGROUND);
-  theme_->text_color_light =
-      theme_provider.GetColor(ThemeProperties::COLOR_NTP_TEXT_LIGHT);
   SetNtpElementsNtpTheme();
 
   if (theme_service->UsingExtensionTheme()) {
@@ -265,6 +243,8 @@ void InstantService::BuildNtpTheme() {
     if (extension) {
       theme_->theme_id = theme_service->GetThemeID();
 
+      const ui::ThemeProvider& theme_provider =
+          ThemeService::GetThemeProviderForProfile(profile_);
       if (theme_provider.HasCustomImage(IDR_THEME_NTP_BACKGROUND)) {
         theme_->has_theme_image = true;
 
@@ -334,7 +314,6 @@ void InstantService::SetNtpElementsNtpTheme() {
   NtpTheme* theme = GetInitializedNtpTheme();
   const ui::ThemeProvider& theme_provider =
       ThemeService::GetThemeProviderForProfile(profile_);
-  theme->text_color = theme_provider.GetColor(ThemeProperties::COLOR_NTP_TEXT);
   theme->logo_alternate = theme_provider.GetDisplayProperty(
                               ThemeProperties::NTP_LOGO_ALTERNATE) == 1;
 }

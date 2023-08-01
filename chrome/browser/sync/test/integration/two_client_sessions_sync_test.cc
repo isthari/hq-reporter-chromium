@@ -1,13 +1,14 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <string>
 
-#include "base/guid.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/test_timeouts.h"
+#include "base/threading/thread_restrictions.h"
+#include "base/uuid.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_features.h"
 #include "chrome/browser/sessions/session_service.h"
@@ -17,15 +18,14 @@
 #include "chrome/browser/sync/test/integration/sync_service_impl_harness.h"
 #include "chrome/browser/sync/test/integration/sync_test.h"
 #include "components/sync/engine/cycle/sync_cycle_snapshot.h"
-#include "components/sync/test/fake_server/fake_server_verifier.h"
-#include "components/sync/test/fake_server/sessions_hierarchy.h"
+#include "components/sync/test/fake_server_verifier.h"
+#include "components/sync/test/sessions_hierarchy.h"
 #include "content/public/test/browser_test.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
 
-using fake_server::SessionsHierarchy;
 using sessions_helper::CheckInitialState;
 using sessions_helper::CloseTab;
 using sessions_helper::DeleteForeignSession;
@@ -50,7 +50,7 @@ class TwoClientSessionsSyncTest : public SyncTest {
   TwoClientSessionsSyncTest& operator=(const TwoClientSessionsSyncTest&) =
       delete;
 
-  ~TwoClientSessionsSyncTest() override {}
+  ~TwoClientSessionsSyncTest() override = default;
 
   bool WaitForForeignSessionsToSync(int local_index, int non_local_index) {
     return ForeignSessionsMatchChecker(non_local_index, local_index).Wait();
@@ -75,8 +75,8 @@ IN_PROC_BROWSER_TEST_F(TwoClientSessionsSyncTest,
 
   // Open tab and access a url on client 0
   ScopedWindowMap client0_windows;
-  std::string url =
-      base::StringPrintf(kURLTemplate, base::GenerateGUID().c_str());
+  std::string url = base::StringPrintf(
+      kURLTemplate, base::Uuid::GenerateRandomV4().AsLowercaseString().c_str());
 
   ASSERT_TRUE(OpenTab(0, GURL(url)));
   EXPECT_TRUE(WaitForForeignSessionsToSync(0, 1));
@@ -92,7 +92,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientSessionsSyncTest, SingleClientClosed) {
 
   // Close one of the two tabs. We also issue another navigation to make sure
   // association logic kicks in.
-  CloseTab(/*index=*/0, /*tab_index=*/1);
+  CloseTab(/*browser_index=*/0, /*tab_index=*/1);
   NavigateTab(0, GURL(kURL3));
   EXPECT_TRUE(WaitForForeignSessionsToSync(0, 1));
 
@@ -109,8 +109,9 @@ IN_PROC_BROWSER_TEST_F(TwoClientSessionsSyncTest, E2E_ENABLED(AllChanged)) {
   // Open tabs on all clients and retain window information.
   for (int i = 0; i < num_clients(); ++i) {
     ScopedWindowMap windows;
-    std::string url =
-        base::StringPrintf(kURLTemplate, base::GenerateGUID().c_str());
+    std::string url = base::StringPrintf(
+        kURLTemplate,
+        base::Uuid::GenerateRandomV4().AsLowercaseString().c_str());
     ASSERT_TRUE(OpenTab(i, GURL(url)));
   }
 
@@ -158,7 +159,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientSessionsSyncTest, DeleteIdleSession) {
   ASSERT_TRUE(GetSessionData(1, &sessions1));
 
   // Client 1 now deletes client 0's tabs. This frees the memory of sessions1.
-  DeleteForeignSession(1, sessions1[0]->session_tag);
+  DeleteForeignSession(1, sessions1[0]->GetSessionTag());
   ASSERT_TRUE(GetClient(1)->AwaitMutualSyncCycleCompletion(GetClient(0)));
   EXPECT_FALSE(GetSessionData(1, &sessions1));
 }
@@ -178,7 +179,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientSessionsSyncTest, DeleteActiveSession) {
   ASSERT_EQ(1U, sessions1.size());
 
   // Client 1 now deletes client 0's tabs. This frees the memory of sessions1.
-  DeleteForeignSession(1, sessions1[0]->session_tag);
+  DeleteForeignSession(1, sessions1[0]->GetSessionTag());
   ASSERT_TRUE(GetClient(1)->AwaitMutualSyncCycleCompletion(GetClient(0)));
   ASSERT_FALSE(GetSessionData(1, &sessions1));
 
@@ -213,9 +214,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientSessionsSyncTest,
   ASSERT_TRUE(CheckInitialState(1));
 
   GetSyncService(0)->GetUserSettings()->SetEncryptionPassphrase("passphrase");
-  ASSERT_TRUE(
-      PassphraseRequiredStateChecker(GetSyncService(1), /*desired_state=*/true)
-          .Wait());
+  ASSERT_TRUE(PassphraseRequiredChecker(GetSyncService(1)).Wait());
   ASSERT_TRUE(GetSyncService(1)->GetUserSettings()->SetDecryptionPassphrase(
       "passphrase"));
   // Make sure that re-encryption happens before opening the tab (otherwise race
@@ -261,57 +260,5 @@ IN_PROC_BROWSER_TEST_F(TwoClientSessionsWithoutDestroyProfileSyncTest,
   EXPECT_TRUE(
       WaitForForeignSessionsToSync(/*local_index=*/0, /*non_local_index=*/1));
 }
-
-#if !BUILDFLAG(IS_CHROMEOS)
-class TwoClientSessionsWithDestroyProfileSyncTest
-    : public TwoClientSessionsSyncTest {
- public:
-  TwoClientSessionsWithDestroyProfileSyncTest() {
-    features_.InitAndEnableFeature(features::kDestroyProfileOnBrowserClose);
-  }
-
- private:
-  base::test::ScopedFeatureList features_;
-};
-
-IN_PROC_BROWSER_TEST_F(TwoClientSessionsWithDestroyProfileSyncTest,
-                       ShouldNotSyncLastClosedTab) {
-  ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
-
-  ASSERT_TRUE(CheckInitialState(0));
-  ASSERT_TRUE(CheckInitialState(1));
-
-  ASSERT_TRUE(OpenMultipleTabs(0, {GURL(kURL1), GURL(kURL2)}));
-
-  ASSERT_TRUE(
-      WaitForForeignSessionsToSync(/*local_index=*/0, /*non_local_index=*/1));
-
-  // Close all tabs and wait for syncing.
-  CloseTab(/*browser_index=*/0, /*tab_index=*/0);
-  ASSERT_TRUE(
-      WaitForForeignSessionsToSync(/*local_index=*/0, /*non_local_index=*/1));
-
-  ScopedWindowMap local_map_before_closing;
-  ASSERT_TRUE(GetLocalWindows(/*browser_index=*/0, &local_map_before_closing));
-
-  CloseTab(/*browser_index=*/0, /*tab_index=*/0);
-
-  // TODO(crbug.com/1039234): When DestroyProfileOnBrowserClose is enabled, the
-  // last CloseTab() triggers Profile deletion (and SyncService deletion).
-  // This means the last tab close never gets synced. We should fix this
-  // regression eventually. Once that's done, merge this test with the
-  // WithoutDestroyProfile version.
-  base::RunLoop run_loop;
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE, run_loop.QuitClosure(), TestTimeouts::action_timeout());
-  run_loop.Run();
-
-  SyncedSessionVector sessions;
-  ASSERT_TRUE(GetSessionData(/*browser_index=*/1, &sessions));
-  ASSERT_EQ(1u, sessions.size());
-  ASSERT_TRUE(
-      WindowsMatch(local_map_before_closing, sessions.front()->windows));
-}
-#endif  // !BUILDFLAG(IS_CHROMEOS)
 
 }  // namespace

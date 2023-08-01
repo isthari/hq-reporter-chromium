@@ -1,10 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import 'chrome://print/print_preview.js';
+
 import {PrintPreviewNumberSettingsSectionElement} from 'chrome://print/print_preview.js';
-import {assert} from 'chrome://resources/js/assert.m.js';
+import {getTrustedHTML} from 'chrome://resources/js/static_types.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
 
 import {triggerInputEvent} from './print_preview_test_utils.js';
@@ -18,14 +19,14 @@ const number_settings_section_interactive_test = {
 
 Object.assign(window, {
   number_settings_section_interactive_test:
-      number_settings_section_interactive_test
+      number_settings_section_interactive_test,
 });
 
 suite(number_settings_section_interactive_test.suiteName, function() {
   let numberSettings: PrintPreviewNumberSettingsSectionElement;
 
   setup(function() {
-    document.body.innerHTML = `
+    document.body.innerHTML = getTrustedHTML`
           <print-preview-number-settings-section
               min-value="1" max-value="100" default-value="50"
               current-value="10" hint-message="incorrect value entered"
@@ -38,8 +39,7 @@ suite(number_settings_section_interactive_test.suiteName, function() {
   // Verifies that blurring the input will reset it to the default if it is
   // empty, but not if it contains an invalid value.
   test(
-      assert(number_settings_section_interactive_test.TestNames
-                 .BlurResetsEmptyInput),
+      number_settings_section_interactive_test.TestNames.BlurResetsEmptyInput,
       async () => {
         // Initial value is 10.
         const crInput = numberSettings.getInput();

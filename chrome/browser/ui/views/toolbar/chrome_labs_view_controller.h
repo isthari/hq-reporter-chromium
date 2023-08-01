@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include "base/memory/raw_ptr.h"
 
 class Browser;
-class ChromeLabsBubbleViewModel;
+class ChromeLabsModel;
 class ChromeLabsBubbleView;
 struct LabInfo;
 class Profile;
@@ -22,10 +22,9 @@ struct FeatureEntry;
 
 class ChromeLabsViewController {
  public:
-  ChromeLabsViewController(const ChromeLabsBubbleViewModel* model,
+  ChromeLabsViewController(const ChromeLabsModel* model,
                            ChromeLabsBubbleView* chrome_labs_bubble_view,
-                           Browser* browser,
-                           flags_ui::FlagsState* flags_state,
+                           Browser* browser, flags_ui::FlagsState* flags_state,
                            flags_ui::FlagsStorage* flags_storage);
   ~ChromeLabsViewController() = default;
 
@@ -44,8 +43,8 @@ class ChromeLabsViewController {
 
   bool ShouldLabShowNewBadge(Profile* profile, const LabInfo& lab);
 
-  raw_ptr<const ChromeLabsBubbleViewModel> model_;
-  raw_ptr<ChromeLabsBubbleView> chrome_labs_bubble_view_;
+  raw_ptr<const ChromeLabsModel, DanglingUntriaged> model_;
+  raw_ptr<ChromeLabsBubbleView, DanglingUntriaged> chrome_labs_bubble_view_;
   base::CallbackListSubscription restart_callback_;
   raw_ptr<Browser> browser_;
   raw_ptr<flags_ui::FlagsState> flags_state_;

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,26 +22,21 @@ bool IsInterstitialDisplayingText(content::RenderFrameHost* interstitial_frame,
   DCHECK(text.find("\'") == std::string::npos);
   std::string command = base::StringPrintf(
       "var hasText = document.body.textContent.indexOf('%s') >= 0;"
-      "window.domAutomationController.send(hasText ? %d : %d);",
+      "hasText ? %d : %d;",
       text.c_str(), security_interstitials::CMD_TEXT_FOUND,
       security_interstitials::CMD_TEXT_NOT_FOUND);
-  int result = 0;
-  EXPECT_TRUE(content::ExecuteScriptAndExtractInt(interstitial_frame, command,
-                                                  &result));
-  return result == security_interstitials::CMD_TEXT_FOUND;
+  return content::EvalJs(interstitial_frame, command).ExtractInt() ==
+         security_interstitials::CMD_TEXT_FOUND;
 }
 
 bool InterstitialHasProceedLink(content::RenderFrameHost* interstitial_frame) {
-  int result = security_interstitials::CMD_ERROR;
   const std::string javascript = base::StringPrintf(
-      "domAutomationController.send("
-      "(document.querySelector(\"#proceed-link\") === null) "
-      "? (%d) : (%d))",
+      "document.querySelector(\"#proceed-link\") === null "
+      "? %d : %d",
       security_interstitials::CMD_TEXT_NOT_FOUND,
       security_interstitials::CMD_TEXT_FOUND);
-  EXPECT_TRUE(content::ExecuteScriptAndExtractInt(interstitial_frame,
-                                                  javascript, &result));
-  return result == security_interstitials::CMD_TEXT_FOUND;
+  return content::EvalJs(interstitial_frame, javascript).ExtractInt() ==
+         security_interstitials::CMD_TEXT_FOUND;
 }
 
 bool IsShowingInterstitial(content::WebContents* tab) {
@@ -54,36 +49,40 @@ bool IsShowingInterstitial(content::WebContents* tab) {
 
 bool IsShowingCaptivePortalInterstitial(content::WebContents* tab) {
   return IsShowingInterstitial(tab) &&
-         IsInterstitialDisplayingText(tab->GetMainFrame(), "Connect to");
+         IsInterstitialDisplayingText(tab->GetPrimaryMainFrame(), "Connect to");
 }
 
 bool IsShowingSSLInterstitial(content::WebContents* tab) {
   return IsShowingInterstitial(tab) &&
-         IsInterstitialDisplayingText(tab->GetMainFrame(),
+         IsInterstitialDisplayingText(tab->GetPrimaryMainFrame(),
                                       "Your connection is not private");
 }
 
 bool IsShowingMITMInterstitial(content::WebContents* tab) {
   return IsShowingInterstitial(tab) &&
-         IsInterstitialDisplayingText(tab->GetMainFrame(),
+         IsInterstitialDisplayingText(tab->GetPrimaryMainFrame(),
                                       "An application is stopping");
 }
 
 bool IsShowingBadClockInterstitial(content::WebContents* tab) {
   return IsShowingInterstitial(tab) &&
-         IsInterstitialDisplayingText(tab->GetMainFrame(), "Your clock is");
+         IsInterstitialDisplayingText(tab->GetPrimaryMainFrame(),
+                                      "Your clock is");
 }
 
 bool IsShowingBlockedInterceptionInterstitial(content::WebContents* tab) {
   return IsShowingInterstitial(tab) &&
-         IsInterstitialDisplayingText(tab->GetMainFrame(),
+         IsInterstitialDisplayingText(tab->GetPrimaryMainFrame(),
                                       "Anything you type, any pages you view");
 }
 
 bool IsShowingHttpsFirstModeInterstitial(content::WebContents* tab) {
   return IsShowingInterstitial(tab) &&
-         IsInterstitialDisplayingText(tab->GetMainFrame(),
-                                      "this site does not support HTTPS.");
+         (IsInterstitialDisplayingText(tab->GetPrimaryMainFrame(),
+                                       "this site does not support HTTPS.") ||
+          IsInterstitialDisplayingText(
+              tab->GetPrimaryMainFrame(),
+              "You usually connect to this site securely"));
 }
 
 }  // namespace chrome_browser_interstitials

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,8 @@
 #include <stdint.h>
 #include <utility>
 
-#include "base/strings/string_util.h"
-#include "chrome/updater/device_management/dm_cached_policy_info.h"
 #include "chrome/updater/protos/omaha_settings.pb.h"
-#include "chrome/updater/unittest_util.h"
+#include "chrome/updater/util/unittest_util.h"
 #include "components/policy/proto/device_management_backend.pb.h"
 #include "crypto/rsa_private_key.h"
 #include "crypto/signature_creator.h"
@@ -168,12 +166,12 @@ GetDefaultTestingOmahaPolicyProto() {
   omaha_settings->set_proxy_mode("pac_script");
   omaha_settings->set_proxy_pac_url("foo.c/proxy.pa");
   omaha_settings->set_install_default(
-      ::wireless_android_enterprise_devicemanagement::INSTALL_ENABLED);
+      ::wireless_android_enterprise_devicemanagement::INSTALL_DEFAULT_ENABLED);
   omaha_settings->set_update_default(
       ::wireless_android_enterprise_devicemanagement::MANUAL_UPDATES_ONLY);
 
   ::wireless_android_enterprise_devicemanagement::ApplicationSettings app;
-  app.set_app_guid(kChromeAppId);
+  app.set_app_guid(test::kChromeAppId);
   app.set_install(
       ::wireless_android_enterprise_devicemanagement::INSTALL_DISABLED);
   app.set_update(

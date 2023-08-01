@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 
 #include "base/feature_list.h"
 #include "base/metrics/field_trial_params.h"
-#include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "base/metrics/user_metrics_action.h"
 #include "build/build_config.h"
@@ -57,6 +56,9 @@
 #if BUILDFLAG(IS_MAC)
 #include "chrome/browser/browser_process_platform_part.h"
 #include "chrome/browser/media/webrtc/system_media_capture_permissions_mac.h"
+#endif
+
+#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_CHROMEOS)
 #include "services/device/public/cpp/geolocation/geolocation_manager.h"
 #endif
 
@@ -102,13 +104,13 @@ class ContentSettingGeolocationImageModel : public ContentSettingImageModel {
   ContentSettingGeolocationImageModel& operator=(
       const ContentSettingGeolocationImageModel&) = delete;
 
+  ~ContentSettingGeolocationImageModel() override;
+
   bool UpdateAndGetVisibility(WebContents* web_contents) override;
 
   bool IsGeolocationAccessed();
-#if BUILDFLAG(IS_MAC)
   bool IsGeolocationAllowedOnASystemLevel();
   bool IsGeolocationPermissionDetermined();
-#endif  // BUILDFLAG(IS_MAC)
 
   std::unique_ptr<ContentSettingBubbleModel> CreateBubbleModelImpl(
       ContentSettingBubbleModel::Delegate* delegate,
@@ -459,7 +461,8 @@ bool ContentSettingBlockedImageModel::UpdateAndGetVisibility(
   // If a content type is blocked by default and was accessed, display the
   // content blocked page action.
   PageSpecificContentSettings* content_settings =
-      PageSpecificContentSettings::GetForFrame(web_contents->GetMainFrame());
+      PageSpecificContentSettings::GetForFrame(
+          web_contents->GetPrimaryMainFrame());
   if (!content_settings)
     return false;
 
@@ -513,26 +516,30 @@ bool ContentSettingBlockedImageModel::UpdateAndGetVisibility(
 ContentSettingGeolocationImageModel::ContentSettingGeolocationImageModel()
     : ContentSettingImageModel(ImageType::GEOLOCATION, kNotifyAccessibility) {}
 
+ContentSettingGeolocationImageModel::~ContentSettingGeolocationImageModel() {}
+
 bool ContentSettingGeolocationImageModel::UpdateAndGetVisibility(
     WebContents* web_contents) {
   PageSpecificContentSettings* content_settings =
-      PageSpecificContentSettings::GetForFrame(web_contents->GetMainFrame());
+      PageSpecificContentSettings::GetForFrame(
+          web_contents->GetPrimaryMainFrame());
   set_should_auto_open_bubble(false);
-  if (!content_settings)
+  if (!content_settings) {
     return false;
+  }
 
   bool is_allowed =
       content_settings->IsContentAllowed(ContentSettingsType::GEOLOCATION);
   bool is_blocked =
       content_settings->IsContentBlocked(ContentSettingsType::GEOLOCATION);
 
-  if (!is_allowed && !is_blocked)
+  if (!is_allowed && !is_blocked) {
     return false;
+  }
 
-#if BUILDFLAG(IS_MAC)
-  set_explanatory_string_id(0);
   if (is_allowed) {
     if (!IsGeolocationAllowedOnASystemLevel()) {
+      set_explanatory_string_id(0);
       set_icon(vector_icons::kLocationOnIcon, vector_icons::kBlockedBadgeIcon);
       base::RecordAction(base::UserMetricsAction(
           "ContentSettings.Geolocation.BlockedIconShown"));
@@ -544,6 +551,7 @@ bool ContentSettingGeolocationImageModel::UpdateAndGetVisibility(
       // determined before displaying this message since it triggers an
       // animation that cannot be cancelled
       if (IsGeolocationPermissionDetermined()) {
+#if BUILDFLAG(IS_MAC)
         if (base::FeatureList::IsEnabled(
                 features::kLocationPermissionsExperiment)) {
           PrefService* prefs = g_browser_process->local_state();
@@ -573,11 +581,13 @@ bool ContentSettingGeolocationImageModel::UpdateAndGetVisibility(
         } else {
           set_explanatory_string_id(IDS_GEOLOCATION_TURNED_OFF);
         }
+#else
+        set_explanatory_string_id(IDS_GEOLOCATION_TURNED_OFF);
+#endif  // BUILDFLAG(IS_MAC)
       }
       return true;
     }
   }
-#endif  // BUILDFLAG(IS_MAC)
 
   set_icon(vector_icons::kLocationOnIcon,
            is_allowed ? gfx::kNoneIcon : vector_icons::kBlockedBadgeIcon);
@@ -589,26 +599,34 @@ bool ContentSettingGeolocationImageModel::UpdateAndGetVisibility(
   return true;
 }
 
-#if BUILDFLAG(IS_MAC)
 bool ContentSettingGeolocationImageModel::IsGeolocationAllowedOnASystemLevel() {
+#if !BUILDFLAG(IS_MAC) && !BUILDFLAG(IS_CHROMEOS)
+  return true;
+#else
   device::GeolocationManager* geolocation_manager =
-      g_browser_process->platform_part()->geolocation_manager();
+      g_browser_process->geolocation_manager();
+  CHECK(geolocation_manager);
   device::LocationSystemPermissionStatus permission =
       geolocation_manager->GetSystemPermission();
 
   return permission == device::LocationSystemPermissionStatus::kAllowed;
+#endif
 }
 
 bool ContentSettingGeolocationImageModel::IsGeolocationPermissionDetermined() {
+#if !BUILDFLAG(IS_MAC) && !BUILDFLAG(IS_CHROMEOS)
+  return true;
+#else
+
   device::GeolocationManager* geolocation_manager =
-      g_browser_process->platform_part()->geolocation_manager();
+      g_browser_process->geolocation_manager();
+  CHECK(geolocation_manager);
   device::LocationSystemPermissionStatus permission =
       geolocation_manager->GetSystemPermission();
 
   return permission != device::LocationSystemPermissionStatus::kNotDetermined;
+#endif
 }
-
-#endif  // BUILDFLAG(IS_MAC)
 
 std::unique_ptr<ContentSettingBubbleModel>
 ContentSettingGeolocationImageModel::CreateBubbleModelImpl(
@@ -649,7 +667,8 @@ ContentSettingMIDISysExImageModel::ContentSettingMIDISysExImageModel()
 bool ContentSettingMIDISysExImageModel::UpdateAndGetVisibility(
     WebContents* web_contents) {
   PageSpecificContentSettings* content_settings =
-      PageSpecificContentSettings::GetForFrame(web_contents->GetMainFrame());
+      PageSpecificContentSettings::GetForFrame(
+          web_contents->GetPrimaryMainFrame());
   if (!content_settings)
     return false;
 
@@ -714,7 +733,8 @@ ContentSettingClipboardReadWriteImageModel::
 bool ContentSettingClipboardReadWriteImageModel::UpdateAndGetVisibility(
     WebContents* web_contents) {
   PageSpecificContentSettings* content_settings =
-      PageSpecificContentSettings::GetForFrame(web_contents->GetMainFrame());
+      PageSpecificContentSettings::GetForFrame(
+          web_contents->GetPrimaryMainFrame());
   if (!content_settings)
     return false;
   ContentSettingsType content_type = ContentSettingsType::CLIPBOARD_READ_WRITE;
@@ -739,7 +759,8 @@ bool ContentSettingMediaImageModel::UpdateAndGetVisibility(
     WebContents* web_contents) {
   set_should_auto_open_bubble(false);
   PageSpecificContentSettings* content_settings =
-      PageSpecificContentSettings::GetForFrame(web_contents->GetMainFrame());
+      PageSpecificContentSettings::GetForFrame(
+          web_contents->GetPrimaryMainFrame());
   if (!content_settings)
     return false;
   state_ = content_settings->GetMicrophoneCameraState();
@@ -834,16 +855,28 @@ bool ContentSettingMediaImageModel::UpdateAndGetVisibility(
 
   int id = IDS_CAMERA_BLOCKED;
   if (IsMicBlockedOnSiteLevel() || IsCameraBlockedOnSiteLevel()) {
-    set_icon(vector_icons::kVideocamIcon, vector_icons::kBlockedBadgeIcon);
     if (IsMicAccessed())
       id = IsCamAccessed() ? IDS_MICROPHONE_CAMERA_BLOCKED
                            : IDS_MICROPHONE_BLOCKED;
+
+    if (IsCamAccessed()) {
+      set_icon(vector_icons::kVideocamIcon, vector_icons::kBlockedBadgeIcon);
+    } else {
+      set_icon(vector_icons::kMicIcon, vector_icons::kBlockedBadgeIcon);
+    }
+
   } else {
     set_icon(vector_icons::kVideocamIcon, gfx::kNoneIcon);
     id = IDS_CAMERA_ACCESSED;
     if (IsMicAccessed())
       id = IsCamAccessed() ? IDS_MICROPHONE_CAMERA_ALLOWED
                            : IDS_MICROPHONE_ACCESSED;
+
+    if (IsCamAccessed()) {
+      set_icon(vector_icons::kVideocamIcon, gfx::kNoneIcon);
+    } else {
+      set_icon(vector_icons::kMicIcon, gfx::kNoneIcon);
+    }
   }
   set_tooltip(l10n_util::GetStringUTF16(id));
   set_accessibility_string_id(id);
@@ -936,8 +969,8 @@ ContentSettingSensorsImageModel::ContentSettingSensorsImageModel()
 
 bool ContentSettingSensorsImageModel::UpdateAndGetVisibility(
     WebContents* web_contents) {
-  auto* content_settings =
-      PageSpecificContentSettings::GetForFrame(web_contents->GetMainFrame());
+  auto* content_settings = PageSpecificContentSettings::GetForFrame(
+      web_contents->GetPrimaryMainFrame());
   if (!content_settings)
     return false;
 
@@ -979,7 +1012,8 @@ ContentSettingPopupImageModel::ContentSettingPopupImageModel()
 bool ContentSettingPopupImageModel::UpdateAndGetVisibility(
     WebContents* web_contents) {
   PageSpecificContentSettings* content_settings =
-      PageSpecificContentSettings::GetForFrame(web_contents->GetMainFrame());
+      PageSpecificContentSettings::GetForFrame(
+          web_contents->GetPrimaryMainFrame());
   if (!content_settings || !content_settings->IsContentBlocked(content_type()))
     return false;
   set_icon(kWebIcon, vector_icons::kBlockedBadgeIcon);
@@ -1080,9 +1114,6 @@ ContentSettingImageModel::CreateBubbleModel(
     ContentSettingBubbleModel::Delegate* delegate,
     content::WebContents* web_contents) {
   DCHECK(web_contents);
-  UMA_HISTOGRAM_ENUMERATION(
-      "ContentSettings.ImagePressed", image_type(),
-      ContentSettingImageModel::ImageType::NUM_IMAGE_TYPES);
   return CreateBubbleModelImpl(delegate, web_contents);
 }
 

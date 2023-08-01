@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -50,8 +50,11 @@ public class SystemAccountManagerDelegate implements AccountManagerDelegate {
     private static final String TAG = "Auth";
 
     public SystemAccountManagerDelegate() {
-        Context context = ContextUtils.getApplicationContext();
-        mAccountManager = AccountManager.get(context);
+        this(AccountManager.get(ContextUtils.getApplicationContext()));
+    }
+
+    SystemAccountManagerDelegate(AccountManager accountManager) {
+        mAccountManager = accountManager;
         mObserver = null;
     }
 
@@ -69,7 +72,8 @@ public class SystemAccountManagerDelegate implements AccountManagerDelegate {
         };
         IntentFilter accountsChangedIntentFilter = new IntentFilter();
         accountsChangedIntentFilter.addAction(AccountManager.LOGIN_ACCOUNTS_CHANGED_ACTION);
-        context.registerReceiver(receiver, accountsChangedIntentFilter);
+        ContextUtils.registerProtectedBroadcastReceiver(
+                context, receiver, accountsChangedIntentFilter);
 
         IntentFilter gmsPackageReplacedFilter = new IntentFilter();
         gmsPackageReplacedFilter.addAction(Intent.ACTION_PACKAGE_REPLACED);
@@ -77,7 +81,8 @@ public class SystemAccountManagerDelegate implements AccountManagerDelegate {
         gmsPackageReplacedFilter.addDataPath(
                 "com.google.android.gms", PatternMatcher.PATTERN_PREFIX);
 
-        context.registerReceiver(receiver, gmsPackageReplacedFilter);
+        ContextUtils.registerProtectedBroadcastReceiver(
+                context, receiver, gmsPackageReplacedFilter);
     }
 
     @Override
@@ -207,6 +212,22 @@ public class SystemAccountManagerDelegate implements AccountManagerDelegate {
             Log.e(TAG, "SystemAccountManagerDelegate.getAccountGaiaId", ex);
             return null;
         }
+    }
+
+    @Override
+    public void confirmCredentials(Account account, Activity activity, Callback<Bundle> callback) {
+        AccountManagerCallback<Bundle> accountManagerCallback = (accountManagerFuture) -> {
+            @Nullable
+            Bundle result = null;
+            try {
+                result = accountManagerFuture.getResult();
+            } catch (Exception e) {
+                Log.e(TAG, "Error while confirming credentials: ", e);
+            }
+            callback.onResult(result);
+        };
+        mAccountManager.confirmCredentials(
+                account, new Bundle(), activity, accountManagerCallback, null);
     }
 
     protected boolean isGooglePlayServicesAvailable() {

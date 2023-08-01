@@ -1,4 +1,4 @@
-# Copyright 2019 The Chromium Authors. All rights reserved.
+# Copyright 2019 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -19,22 +19,31 @@ component("media_message_center") {
     "media_notification_util.cc",
     "media_notification_util.h",
     "media_notification_view.h",
+    "media_notification_view_ash_impl.cc",
+    "media_notification_view_ash_impl.h",
     "media_notification_view_impl.cc",
     "media_notification_view_impl.h",
     "media_notification_view_modern_impl.cc",
     "media_notification_view_modern_impl.h",
     "media_notification_volume_slider_view.cc",
     "media_notification_volume_slider_view.h",
+    "media_squiggly_progress_view.cc",
+    "media_squiggly_progress_view.h",
+    "notification_theme.h",
   ]
 
   defines = [ "IS_MEDIA_MESSAGE_CENTER_IMPL" ]
 
-  public_deps = [ "//services/media_session/public/mojom" ]
+  public_deps = [
+    "//services/media_session/public/mojom",
+    "//third_party/abseil-cpp:absl",
+  ]
 
   deps = [
     "//base",
     "//components/media_message_center/vector_icons",
     "//components/strings:components_strings_grit",
+    "//components/url_formatter",
     "//components/vector_icons",
     "//services/media_session/public/cpp",
     "//skia",
@@ -53,9 +62,11 @@ source_set("unit_tests") {
     "media_controls_progress_view_unittest.cc",
     "media_notification_background_ash_impl_unittest.cc",
     "media_notification_background_impl_unittest.cc",
+    "media_notification_view_ash_impl_unittest.cc",
     "media_notification_view_impl_unittest.cc",
     "media_notification_view_modern_impl_unittest.cc",
     "media_notification_volume_slider_view_unittest.cc",
+    "media_squiggly_progress_view_unittest.cc",
   ]
 
   deps = [

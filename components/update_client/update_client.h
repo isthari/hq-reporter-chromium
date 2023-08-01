@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/ref_counted.h"
 #include "base/version.h"
 #include "components/crx_file/crx_verifier.h"
@@ -43,15 +43,14 @@
 // The UpdateClient class features a subject-observer interface to observe
 // the CRX state changes during an update.
 //
-// The threading model for this code assumes that most of the code in the
-// public interface runs on a SingleThreadTaskRunner.
-// This task runner corresponds to the browser UI thread in many cases. There
-// are parts of the installer interface that run on blocking task runners, which
-// are usually threads in a thread pool.
+// Most of the code in the public interface runs on a SequencedTaskRunner. This
+// task runner corresponds to the browser UI thread but it can be any other
+// sequenced task runner. There are parts of the installer interface that run
+// on blocking task runners, which are usually sequences managed by the thread
+// pool.
 //
-// Using the UpdateClient is relatively easy. This assumes that the client
-// of this code has already implemented the observer interface as needed, and
-// can provide an installer, as described below.
+// Using the UpdateClient requires creating an instance, adding observers, and
+// providing an installer instance, as shown below:
 //
 //    std::unique_ptr<UpdateClient> update_client(UpdateClientFactory(...));
 //    update_client->AddObserver(&observer);
@@ -189,15 +188,18 @@ class CrxInstaller : public base::RefCountedThreadSafe<CrxInstaller> {
   };
 
   struct InstallParams {
-    InstallParams(const std::string& run, const std::string& arguments);
+    InstallParams(const std::string& run,
+                  const std::string& arguments,
+                  const std::string& server_install_data);
     std::string run;
     std::string arguments;
+    std::string server_install_data;
   };
 
   using ProgressCallback = base::RepeatingCallback<void(int progress)>;
   using Callback = base::OnceCallback<void(const Result& result)>;
 
-  // Called on the main thread when there was a problem unpacking or
+  // Called on the main sequence when there was a problem unpacking or
   // verifying the CRX. |error| is a non-zero value which is only meaningful
   // to the caller.
   virtual void OnUpdateError(int error) = 0;
@@ -266,6 +268,7 @@ using InstallerAttributes = std::map<std::string, std::string>;
 struct CrxComponent {
   CrxComponent();
   CrxComponent(const CrxComponent& other);
+  CrxComponent& operator=(const CrxComponent& other);
   ~CrxComponent();
 
   // Optional SHA256 hash of the CRX's public key. If not supplied, the
@@ -292,6 +295,12 @@ struct CrxComponent {
   // If nonempty, the brand is an uppercase 4-letter string that describes the
   // flavor, branding, or provenance of the software.
   std::string brand;
+
+  // If populated, the `install_data_index` is sent to the update server as part
+  // of the `data` element. The server will provide corresponding installer data
+  // in the update response. This data is then provided to the installer when
+  // running it.
+  std::string install_data_index;
 
   std::string fingerprint;  // Optional.
   std::string name;         // Optional.
@@ -402,7 +411,7 @@ class UpdateClient : public base::RefCountedThreadSafe<UpdateClient> {
 
       // Sent when a CRX has not been updated because there was no update
       // available for this component.
-      COMPONENT_NOT_UPDATED,
+      COMPONENT_ALREADY_UP_TO_DATE,
 
       // Sent when an error ocurred during an update for any reason, including
       // the update check itself failed, or the download of the update payload
@@ -445,10 +454,20 @@ class UpdateClient : public base::RefCountedThreadSafe<UpdateClient> {
   // one CRX. These cases are usually associated with on-demand install
   // scenarios, which are triggered by user actions. Installs are never
   // queued up.
-  virtual void Install(const std::string& id,
-                       CrxDataCallback crx_data_callback,
-                       CrxStateChangeCallback crx_state_change_callback,
-                       Callback callback) = 0;
+  // Returns a closure that can be called to cancel the installation.
+  virtual base::RepeatingClosure Install(
+      const std::string& id,
+      CrxDataCallback crx_data_callback,
+      CrxStateChangeCallback crx_state_change_callback,
+      Callback callback) = 0;
+
+  // Does an update check with the server, gets an update response, but it does
+  // not continue further with downloading, nor installing the payload.
+  virtual void CheckForUpdate(const std::string& id,
+                              CrxDataCallback crx_data_callback,
+                              CrxStateChangeCallback crx_state_change_callback,
+                              bool is_foreground,
+                              Callback callback) = 0;
 
   // Updates the specified CRXs. Calls back on |crx_data_callback| before the
   // update is attempted to give the caller the opportunity to provide the
@@ -474,13 +493,6 @@ class UpdateClient : public base::RefCountedThreadSafe<UpdateClient> {
   virtual void SendUninstallPing(const CrxComponent& crx_component,
                                  int reason,
                                  Callback callback) = 0;
-
-  // Sends a registration ping for `crx_component`. The current implementation
-  // of this function only sends a best-effort ping. It has no other side
-  // effects regarding installs or updates done through an instance of this
-  // class.
-  virtual void SendRegistrationPing(const CrxComponent& crx_component,
-                                    Callback callback) = 0;
 
   // Returns status details about a CRX update. The function returns true in
   // case of success and false in case of errors, such as |id| was

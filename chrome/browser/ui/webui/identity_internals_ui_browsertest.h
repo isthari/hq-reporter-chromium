@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,7 +29,7 @@ class IdentityInternalsUIBrowserTest : public WebUIBrowserTest {
  private:
   void AddTokenToCache(const std::string& token_id,
                        const std::string& extension_id,
-                       const std::string& account_id,
+                       const std::string& gaia_id,
                        const std::vector<std::string>& scopes,
                        int time_to_live);
 };

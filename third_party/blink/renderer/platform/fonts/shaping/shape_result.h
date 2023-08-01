@@ -62,6 +62,7 @@ template <typename TextContainerType>
 class PLATFORM_EXPORT ShapeResultSpacing;
 class TextRun;
 class ShapeResultView;
+struct TabSize;
 
 enum class AdjustMidCluster {
   // Adjust the middle of a grapheme cluster to the logical end boundary.
@@ -128,17 +129,13 @@ class PLATFORM_EXPORT ShapeResult : public RefCounted<ShapeResult> {
     return base::AdoptRef(new ShapeResult(other));
   }
   static scoped_refptr<ShapeResult> CreateForTabulationCharacters(
-      const Font*,
-      const TextRun&,
-      float position_offset,
-      unsigned length);
-  static scoped_refptr<ShapeResult> CreateForTabulationCharacters(
       const Font* font,
       TextDirection direction,
       const TabSize& tab_size,
       float position,
       unsigned start_index,
       unsigned length);
+  // The first glyph has |width| advance, and other glyphs have 0 advance.
   static scoped_refptr<ShapeResult> CreateForSpaces(const Font* font,
                                                     TextDirection direction,
                                                     unsigned start_index,
@@ -161,6 +158,7 @@ class PLATFORM_EXPORT ShapeResult : public RefCounted<ShapeResult> {
   LayoutUnit SnappedWidth() const { return LayoutUnit::FromFloatCeil(width_); }
   unsigned NumCharacters() const { return num_characters_; }
   unsigned NumGlyphs() const { return num_glyphs_; }
+  const SimpleFontData* PrimaryFont() const { return primary_font_.get(); }
 
   // TODO(eae): Remove start_x and return value once ShapeResultBuffer has been
   // removed.
@@ -170,7 +168,6 @@ class PLATFORM_EXPORT ShapeResult : public RefCounted<ShapeResult> {
   // The character start/end index of a range shape result.
   unsigned StartIndex() const { return start_index_; }
   unsigned EndIndex() const { return start_index_ + num_characters_; }
-  void FallbackFonts(HashSet<const SimpleFontData*>*) const;
   TextDirection Direction() const {
     return static_cast<TextDirection>(direction_);
   }
@@ -466,7 +463,6 @@ class PLATFORM_EXPORT ShapeResult : public RefCounted<ShapeResult> {
   void ComputeGlyphPositions(ShapeResult::RunInfo*,
                              unsigned start_glyph,
                              unsigned num_glyphs,
-                             unsigned start_cluster,
                              hb_buffer_t*);
   // Inserts as many glyphs as possible as a RunInfo, and sets
   // |next_start_glyph| to the start index of the remaining glyphs to be

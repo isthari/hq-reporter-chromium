@@ -52,8 +52,6 @@ class LayoutPoint;
 
 enum LayoutAsTextBehaviorFlags {
   kLayoutAsTextBehaviorNormal = 0,
-  // Dump all layers, not just those that would paint.
-  kLayoutAsTextShowAllLayers = 1 << 0,
   // Annotate the layer lists.
   kLayoutAsTextShowLayerNesting = 1 << 1,
   // Show layer and layoutObject addresses.
@@ -99,14 +97,10 @@ class LayoutTreeAsText {
                                 const LayoutObject&,
                                 LayoutAsTextBehavior);
   static void WriteLayers(WTF::TextStream&,
-                          const PaintLayer* root_layer,
                           PaintLayer*,
                           int indent = 0,
                           LayoutAsTextBehavior = kLayoutAsTextBehaviorNormal,
                           const PaintLayer* marked_layer = nullptr);
-  static void WriteLineBoxTree(WTF::TextStream&,
-                               const LayoutBlockFlow&,
-                               int indent = 0);
 };
 
 // Helper function shared with SVGLayoutTreeAsText (so they are not exported).

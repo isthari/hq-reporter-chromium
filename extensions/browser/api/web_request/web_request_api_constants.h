@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,8 +11,12 @@ namespace extension_web_request_api_constants {
 
 // Keys.
 extern const char kChallengerKey[];
+extern const char kDocumentIdKey[];
+extern const char kDocumentLifecycleKey[];
 extern const char kErrorKey[];
 extern const char kFrameIdKey[];
+extern const char kFrameTypeKey[];
+extern const char kParentDocumentIdKey[];
 extern const char kParentFrameIdKey[];
 extern const char kProcessIdKey[];
 extern const char kFromCache[];
@@ -64,18 +68,17 @@ extern const char kOnResponseStartedEvent[];
 extern const char kOnSendHeadersEvent[];
 
 // Stages.
-extern const char kOnAuthRequired[];
-extern const char kOnBeforeRedirect[];
-extern const char kOnBeforeRequest[];
-extern const char kOnBeforeSendHeaders[];
-extern const char kOnCompleted[];
-extern const char kOnErrorOccurred[];
-extern const char kOnHeadersReceived[];
-extern const char kOnResponseStarted[];
-extern const char kOnSendHeaders[];
+inline constexpr char kOnAuthRequired[] = "onAuthRequired";
+inline constexpr char kOnBeforeRedirect[] = "onBeforeRedirect";
+inline constexpr char kOnBeforeRequest[] = "onBeforeRequest";
+inline constexpr char kOnBeforeSendHeaders[] = "onBeforeSendHeaders";
+inline constexpr char kOnCompleted[] = "onCompleted";
+inline constexpr char kOnErrorOccurred[] = "onErrorOccurred";
+inline constexpr char kOnHeadersReceived[] = "onHeadersReceived";
+inline constexpr char kOnResponseStarted[] = "onResponseStarted";
+inline constexpr char kOnSendHeaders[] = "onSendHeaders";
 
 // Error messages.
-extern const char kInvalidPublicSessionBlockingResponse[];
 extern const char kInvalidRedirectUrl[];
 extern const char kInvalidBlockingResponse[];
 extern const char kInvalidRequestFilterUrl[];

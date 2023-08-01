@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,6 +23,7 @@ class FakeCanvasResourceHost : public CanvasResourceHost {
   void SetNeedsCompositingUpdate() override {}
   void RestoreCanvasMatrixClipStack(cc::PaintCanvas*) const override {}
   void UpdateMemoryUsage() override {}
+  bool PrintedInCurrentTask() const override { return false; }
   size_t GetMemoryUsage() const override { return 0; }
   CanvasResourceProvider* GetOrCreateCanvasResourceProvider(
       RasterModeHint hint) override {
@@ -38,8 +39,8 @@ class FakeCanvasResourceHost : public CanvasResourceHost {
     std::unique_ptr<CanvasResourceProvider> provider;
     if (hint == RasterModeHint::kPreferGPU ||
         RuntimeEnabledFeatures::Canvas2dImageChromiumEnabled()) {
-      uint32_t shared_image_usage_flags =
-          gpu::SHARED_IMAGE_USAGE_DISPLAY | gpu::SHARED_IMAGE_USAGE_SCANOUT;
+      uint32_t shared_image_usage_flags = gpu::SHARED_IMAGE_USAGE_DISPLAY_READ |
+                                          gpu::SHARED_IMAGE_USAGE_SCANOUT;
       provider = CanvasResourceProvider::CreateSharedImageProvider(
           resource_info, cc::PaintFlags::FilterQuality::kMedium,
           CanvasResourceProvider::ShouldInitialize::kCallClear,

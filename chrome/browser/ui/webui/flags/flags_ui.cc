@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,14 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
+#include "chrome/browser/about_flags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/flags/flags_ui_handler.h"
@@ -43,10 +44,7 @@
 #include "base/command_line.h"
 #include "base/system/sys_info.h"
 #include "chrome/browser/ash/login/session/user_session_manager.h"
-#include "chrome/browser/ash/ownership/owner_settings_service_ash.h"
-#include "chrome/browser/ash/ownership/owner_settings_service_ash_factory.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
-#include "chrome/browser/ash/settings/about_flags.h"
 #include "chrome/browser/ash/settings/cros_settings.h"
 #include "chrome/browser/infobars/simple_alert_infobar_creator.h"
 #include "chrome/grit/generated_resources.h"
@@ -63,16 +61,17 @@ using content::WebUIMessageHandler;
 
 namespace {
 
-content::WebUIDataSource* CreateFlagsUIHTMLSource() {
-  content::WebUIDataSource* source =
-      content::WebUIDataSource::Create(chrome::kChromeUIFlagsHost);
+content::WebUIDataSource* CreateAndAddFlagsUIHTMLSource(Profile* profile) {
+  content::WebUIDataSource* source = content::WebUIDataSource::CreateAndAdd(
+      profile, chrome::kChromeUIFlagsHost);
   source->OverrideContentSecurityPolicy(
       network::mojom::CSPDirectiveName::ScriptSrc,
       "script-src chrome://resources 'self' 'unsafe-eval';");
   source->OverrideContentSecurityPolicy(
       network::mojom::CSPDirectiveName::TrustedTypes,
       "trusted-types jstemplate;");
-  source->AddString(flags_ui::kVersion, version_info::GetVersionNumber());
+  source->AddString(flags_ui::kVersion,
+                    std::string(version_info::GetVersionNumber()));
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   if (!user_manager::UserManager::Get()->IsCurrentUserOwner() &&
@@ -95,7 +94,6 @@ content::WebUIDataSource* CreateFlagsUIHTMLSource() {
   return source;
 }
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
 // On ChromeOS verifying if the owner is signed in is async operation and only
 // after finishing it the UI can be properly populated. This function is the
 // callback for whether the owner is signed in. It will respectively pick the
@@ -104,28 +102,17 @@ template <class T>
 void FinishInitialization(base::WeakPtr<T> flags_ui,
                           Profile* profile,
                           FlagsUIHandler* dom_handler,
-                          bool current_user_is_owner) {
-  DCHECK(!profile->IsOffTheRecord());
+                          std::unique_ptr<flags_ui::FlagsStorage> storage,
+                          flags_ui::FlagAccess access) {
   // If the flags_ui has gone away, there's nothing to do.
   if (!flags_ui)
     return;
 
-  // On Chrome OS the owner can set system wide flags and other users can only
-  // set flags for their own session.
   // Note that |dom_handler| is owned by the web ui that owns |flags_ui|, so
   // it is still alive if |flags_ui| is.
-  if (current_user_is_owner) {
-    ash::OwnerSettingsServiceAsh* service =
-        ash::OwnerSettingsServiceAshFactory::GetForBrowserContext(profile);
-    dom_handler->Init(new chromeos::about_flags::OwnerFlagsStorage(
-                          profile->GetPrefs(), service),
-                      flags_ui::kOwnerAccessToFlags);
-  } else {
-    dom_handler->Init(
-        new flags_ui::PrefServiceFlagsStorage(profile->GetPrefs()),
-        flags_ui::kGeneralAccessFlagsOnly);
-  }
+  dom_handler->Init(std::move(storage), access);
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
   // Show a warning info bar when kSafeMode switch is present.
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           ash::switches::kSafeMode)) {
@@ -148,8 +135,8 @@ void FinishInitialization(base::WeakPtr<T> flags_ui,
         l10n_util::GetStringUTF16(IDS_FLAGS_IGNORED_SECONDARY_USERS),
         /*auto_expire=*/false, /*should_animate=*/true);
   }
-}
 #endif
+}
 
 }  // namespace
 
@@ -230,27 +217,9 @@ FlagsUIHandler* InitializeHandler(content::WebUI* web_ui,
   FlagsUIHandler* handler = handler_owner.get();
   web_ui->AddMessageHandler(std::move(handler_owner));
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-  // Bypass possible incognito profile.
-  Profile* original_profile = profile->GetOriginalProfile();
-  if (base::SysInfo::IsRunningOnChromeOS() &&
-      ash::OwnerSettingsServiceAshFactory::GetForBrowserContext(
-          original_profile)) {
-    ash::OwnerSettingsServiceAsh* service =
-        ash::OwnerSettingsServiceAshFactory::GetForBrowserContext(
-            original_profile);
-    service->IsOwnerAsync(base::BindOnce(&FinishInitialization<T>,
-                                         weak_factory.GetWeakPtr(),
-                                         original_profile, handler));
-  } else {
-    FinishInitialization(weak_factory.GetWeakPtr(), original_profile, handler,
-                         false /* current_user_is_owner */);
-  }
-#else
-  handler->Init(
-      new flags_ui::PrefServiceFlagsStorage(g_browser_process->local_state()),
-      flags_ui::kOwnerAccessToFlags);
-#endif
+  about_flags::GetStorage(
+      profile, base::BindOnce(&FinishInitialization<T>,
+                              weak_factory.GetWeakPtr(), profile, handler));
   return handler;
 }
 
@@ -262,9 +231,8 @@ FlagsUI::FlagsUI(content::WebUI* web_ui)
   handler->set_deprecated_features_only(false);
 
   // Set up the about:flags source.
-  auto* source = CreateFlagsUIHTMLSource();
+  content::WebUIDataSource* source = CreateAndAddFlagsUIHTMLSource(profile);
   AddStrings(source);
-  content::WebUIDataSource::Add(profile, source);
 }
 
 FlagsUI::~FlagsUI() {}
@@ -284,9 +252,8 @@ FlagsDeprecatedUI::FlagsDeprecatedUI(content::WebUI* web_ui)
   handler->set_deprecated_features_only(true);
 
   // Set up the about:flags/deprecated source.
-  auto* source = CreateFlagsUIHTMLSource();
+  content::WebUIDataSource* source = CreateAndAddFlagsUIHTMLSource(profile);
   AddStrings(source);
-  content::WebUIDataSource::Add(profile, source);
 }
 
 FlagsDeprecatedUI::~FlagsDeprecatedUI() {}

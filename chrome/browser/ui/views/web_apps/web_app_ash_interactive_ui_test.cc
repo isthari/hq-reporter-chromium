@@ -1,7 +1,8 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/memory/raw_ptr.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_manager.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_test.h"
@@ -27,7 +28,7 @@ class WebAppAshInteractiveUITest : public web_app::WebAppControllerBrowserTest {
 
   ~WebAppAshInteractiveUITest() override = default;
 
-  // InProcessBrowserTest override:
+  // web_app::WebAppControllerBrowserTest override:
   void SetUpOnMainThread() override {
     auto web_app_info = std::make_unique<WebAppInstallInfo>();
     web_app_info->start_url = GURL("https://test.org");
@@ -65,8 +66,8 @@ class WebAppAshInteractiveUITest : public web_app::WebAppControllerBrowserTest {
     EXPECT_FALSE(menu_button->IsMenuShowing());
   }
 
-  BrowserView* browser_view_ = nullptr;
-  ImmersiveModeController* controller_ = nullptr;
+  raw_ptr<BrowserView, ExperimentalAsh> browser_view_ = nullptr;
+  raw_ptr<ImmersiveModeController, ExperimentalAsh> controller_ = nullptr;
 };
 
 // Test that the web app menu button opens a menu on click.
@@ -81,9 +82,9 @@ IN_PROC_BROWSER_TEST_F(WebAppAshInteractiveUITest,
   chrome::ToggleFullscreenMode(browser());
   waiter.Wait();
 
-  std::unique_ptr<ImmersiveRevealedLock> revealed_lock(
+  std::unique_ptr<ImmersiveRevealedLock> revealed_lock =
       controller_->GetRevealedLock(
-          ImmersiveModeControllerChromeos::ANIMATE_REVEAL_NO));
+          ImmersiveModeControllerChromeos::ANIMATE_REVEAL_NO);
 
   CheckWebAppMenuClickable();
 }

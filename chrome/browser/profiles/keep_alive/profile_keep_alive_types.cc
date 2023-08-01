@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -59,6 +59,22 @@ std::ostream& operator<<(std::ostream& out,
       return out << "kProfilePickerView";
     case ProfileKeepAliveOrigin::kCommanderFrontend:
       return out << "kCommanderFrontend";
+    case ProfileKeepAliveOrigin::kDiceWebSigninInterceptionBubble:
+      return out << "kDiceWebSigninInterceptionBubble";
+    case ProfileKeepAliveOrigin::kHistoryMenuBridge:
+      return out << "kHistoryMenuBridge";
+    case ProfileKeepAliveOrigin::kLacrosMainProfile:
+      return out << "kLacrosMainProfile";
+    case ProfileKeepAliveOrigin::kProfileCreationSamlFlow:
+      return out << "kProfileCreationSamlFlow";
+    case ProfileKeepAliveOrigin::kDriveFsNativeMessageHostLacros:
+      return out << "kDriveFsNativeMessageHostLacros";
+    case ProfileKeepAliveOrigin::kProfileDeletionProcess:
+      return out << "kProfileDeletionProcess";
+    case ProfileKeepAliveOrigin::kProfileStatistics:
+      return out << "kProfileStatistics";
+    case ProfileKeepAliveOrigin::kIsolatedWebAppInstall:
+      return out << "kIsolatedWebAppInstall";
   }
   NOTREACHED();
   return out << static_cast<int>(origin);

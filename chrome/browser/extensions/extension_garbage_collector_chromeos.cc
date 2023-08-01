@@ -1,10 +1,10 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <stddef.h>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/extensions/extension_assets_manager_chromeos.h"
 #include "chrome/browser/extensions/extension_garbage_collector_chromeos.h"
@@ -65,7 +65,7 @@ bool ExtensionGarbageCollectorChromeOS::CanGarbageCollectSharedExtensions() {
     if (!active_users[i]->is_profile_created())
       return false;
     Profile* profile =
-        ash::ProfileHelper::Get()->GetProfileByUserUnsafe(active_users[i]);
+        ash::ProfileHelper::Get()->GetProfileByUser(active_users[i]);
     ExtensionGarbageCollectorChromeOS* gc =
         ExtensionGarbageCollectorChromeOS::Get(profile);
     if (gc && gc->crx_installs_in_progress_ > 0)

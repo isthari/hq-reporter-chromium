@@ -1,16 +1,15 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/core/layout/svg/svg_content_container.h"
 
+#include "third_party/blink/renderer/core/layout/ng/svg/layout_ng_svg_foreign_object.h"
 #include "third_party/blink/renderer/core/layout/ng/svg/layout_ng_svg_text.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_container.h"
-#include "third_party/blink/renderer/core/layout/svg/layout_svg_foreign_object.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_image.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_resource_marker.h"
 #include "third_party/blink/renderer/core/layout/svg/layout_svg_shape.h"
-#include "third_party/blink/renderer/core/layout/svg/layout_svg_text.h"
 #include "third_party/blink/renderer/core/layout/svg/svg_layout_support.h"
 #include "third_party/blink/renderer/core/layout/svg/svg_resources.h"
 
@@ -32,6 +31,21 @@ static void LayoutMarkerResourcesIfNeeded(LayoutObject& layout_object) {
     marker->LayoutIfNeeded();
 }
 
+// static
+bool SVGContentContainer::IsChildAllowed(const LayoutObject& child) {
+  // https://svgwg.org/svg2-draft/struct.html#ForeignNamespaces
+  // the SVG user agent must include the unknown foreign-namespaced elements
+  // in the DOM but will ignore and exclude them for rendering purposes.
+  if (!child.IsSVG())
+    return false;
+  if (child.IsSVGInline() || child.IsSVGInlineText())
+    return false;
+  // The above IsSVG() check is not enough for a <svg> in a foreign element
+  // with `display: contents` because SVGSVGElement::LayoutObjectIsNeeded()
+  // doesn't check HasSVGParent().
+  return !child.IsSVGRoot();
+}
+
 void SVGContentContainer::Layout(const SVGContainerLayoutInfo& layout_info) {
   for (LayoutObject* child = children_.FirstChild(); child;
        child = child->NextSibling()) {
@@ -40,10 +54,9 @@ void SVGContentContainer::Layout(const SVGContainerLayoutInfo& layout_info) {
     if (layout_info.scale_factor_changed) {
       // If the screen scaling factor changed we need to update the text
       // metrics (note: this also happens for layoutSizeChanged=true).
-      if (auto* text = DynamicTo<LayoutSVGText>(child))
-        text->SetNeedsTextMetricsUpdate();
-      else if (auto* ng_text = DynamicTo<LayoutNGSVGText>(child))
+      if (auto* ng_text = DynamicTo<LayoutNGSVGText>(child)) {
         ng_text->SetNeedsTextMetricsUpdate();
+      }
       force_child_layout = true;
     }
 
@@ -57,9 +70,6 @@ void SVGContentContainer::Layout(const SVGContainerLayoutInfo& layout_info) {
           // the LayoutSVGShape to update its shape object
           if (auto* shape = DynamicTo<LayoutSVGShape>(child)) {
             shape->SetNeedsShapeUpdate();
-          } else if (auto* text = DynamicTo<LayoutSVGText>(child)) {
-            text->SetNeedsTextMetricsUpdate();
-            text->SetNeedsPositioningValuesUpdate();
           } else if (auto* ng_text = DynamicTo<LayoutNGSVGText>(child)) {
             ng_text->SetNeedsTextMetricsUpdate();
           }
@@ -70,22 +80,20 @@ void SVGContentContainer::Layout(const SVGContainerLayoutInfo& layout_info) {
     }
 
     // Resource containers are nasty: they can invalidate clients outside the
-    // current SubtreeLayoutScope.
+    // containers.
     // Since they only care about viewport size changes (to resolve their
     // relative lengths), we trigger their invalidation directly from
-    // SVGSVGElement::svgAttributeChange() or at a higher SubtreeLayoutScope (in
-    // LayoutView::layout()). We do not create a SubtreeLayoutScope for
-    // resources because their ability to reference each other leads to circular
-    // layout. We protect against that within the layout code for marker
-    // resources, but it causes assertions if we use a SubtreeLayoutScope for
-    // them.
+    // SVGSVGElement::svgAttributeChange() or at the LayoutView. We do not mark
+    // them for resources here, because their ability to reference each other
+    // leads to circular layout.
+    // TODO(layout-dev): Do we still need this special treatment?
     if (child->IsSVGResourceContainer()) {
       child->LayoutIfNeeded();
     } else {
-      SubtreeLayoutScope layout_scope(*child);
+      DCHECK(!child->IsSVGRoot());
       if (force_child_layout) {
-        layout_scope.SetNeedsLayout(child,
-                                    layout_invalidation_reason::kSvgChanged);
+        child->SetNeedsLayout(layout_invalidation_reason::kSvgChanged,
+                              kMarkOnlyThis);
       }
 
       // Lay out any referenced resources before the child.
@@ -97,17 +105,17 @@ void SVGContentContainer::Layout(const SVGContainerLayoutInfo& layout_info) {
 
 bool SVGContentContainer::HitTest(HitTestResult& result,
                                   const HitTestLocation& location,
-                                  HitTestAction hit_test_action) const {
+                                  HitTestPhase phase) const {
   PhysicalOffset accumulated_offset;
   for (LayoutObject* child = children_.LastChild(); child;
        child = child->PreviousSibling()) {
-    if (auto* foreign_object = DynamicTo<LayoutSVGForeignObject>(child)) {
-      if (foreign_object->NodeAtPointFromSVG(
-              result, location, accumulated_offset, hit_test_action))
+    if (auto* foreign_object = DynamicTo<LayoutNGSVGForeignObject>(child)) {
+      if (foreign_object->NodeAtPointFromSVG(result, location,
+                                             accumulated_offset, phase)) {
         return true;
+      }
     } else {
-      if (child->NodeAtPoint(result, location, accumulated_offset,
-                             hit_test_action))
+      if (child->NodeAtPoint(result, location, accumulated_offset, phase))
         return true;
     }
   }
@@ -132,8 +140,6 @@ static bool HasValidBoundingBoxForContainer(const LayoutObject& object) {
   if (object.IsSVGShape())
     return !To<LayoutSVGShape>(object).IsShapeEmpty();
 
-  if (object.IsSVGText())
-    return To<LayoutSVGText>(object).IsObjectBoundingBoxValid();
   if (const auto* ng_text = DynamicTo<LayoutNGSVGText>(object))
     return ng_text->IsObjectBoundingBoxValid();
 
@@ -142,8 +148,9 @@ static bool HasValidBoundingBoxForContainer(const LayoutObject& object) {
            !svg_container->IsSVGHiddenContainer();
   }
 
-  if (auto* foreign_object = DynamicTo<LayoutSVGForeignObject>(object))
+  if (auto* foreign_object = DynamicTo<LayoutNGSVGForeignObject>(object)) {
     return foreign_object->IsObjectBoundingBoxValid();
+  }
 
   if (object.IsSVGImage())
     return To<LayoutSVGImage>(object).IsObjectBoundingBoxValid();
@@ -156,8 +163,9 @@ static gfx::RectF ObjectBoundsForPropagation(const LayoutObject& object) {
   // The local-to-parent transform for <foreignObject> contains a zoom inverse,
   // so we need to apply zoom to the bounding box that we use for propagation to
   // be in the correct coordinate space.
-  if (IsA<LayoutSVGForeignObject>(object))
+  if (object.IsSVGForeignObject()) {
     bounds.Scale(object.StyleRef().EffectiveZoom());
+  }
   return bounds;
 }
 

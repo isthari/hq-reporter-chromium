@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,6 @@
 #include "ash/wm/window_util.h"
 #include "ash/wm/work_area_insets.h"
 #include "base/numerics/safe_conversions.h"
-#include "ui/aura/window.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/wm/core/coordinate_conversion.h"
 
@@ -47,9 +46,9 @@ gfx::Rect PipPositioner::GetDismissedPosition(
   // Allow the bounds to move at most |kPipDismissMovementProportion| of the
   // length of the bounds in the direction of movement.
   gfx::Rect bounds_movement_area = bounds_in_screen;
-  bounds_movement_area.Inset(
-      -bounds_in_screen.width() * kPipDismissMovementProportion,
-      -bounds_in_screen.height() * kPipDismissMovementProportion);
+  bounds_movement_area.Inset(gfx::Insets::VH(
+      -bounds_in_screen.height() * kPipDismissMovementProportion,
+      -bounds_in_screen.width() * kPipDismissMovementProportion));
   gfx::Rect dismissed_bounds =
       CollisionDetectionUtils::GetAdjustedBoundsByGravity(
           bounds_in_screen, bounds_movement_area, gravity);

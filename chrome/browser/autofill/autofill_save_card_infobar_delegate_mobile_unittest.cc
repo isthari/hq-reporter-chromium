@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <memory>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/json/json_reader.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
@@ -14,6 +14,7 @@
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/autofill/core/browser/autofill_test_utils.h"
+#include "components/autofill/core/browser/metrics/payments/credit_card_save_metrics.h"
 #include "components/autofill/core/browser/personal_data_manager.h"
 #include "components/autofill/core/browser/test_personal_data_manager.h"
 #include "components/autofill/core/common/autofill_payments_features.h"
@@ -50,6 +51,12 @@ class AutofillSaveCardInfoBarDelegateMobileTest
   CreateDelegateWithLegalMessage(
       bool is_uploading,
       std::string legal_message_string,
+      CreditCard credit_card = CreditCard());
+  std::unique_ptr<AutofillSaveCardInfoBarDelegateMobile>
+  CreateDelegateWithLegalMessageAndOptions(
+      bool is_uploading,
+      std::string legal_message_string,
+      AutofillClient::SaveCreditCardOptions options,
       CreditCard credit_card = CreditCard());
 
   std::unique_ptr<TestPersonalDataManager> personal_data_;
@@ -103,41 +110,39 @@ AutofillSaveCardInfoBarDelegateMobileTest::CreateDelegateWithLegalMessage(
     bool is_uploading,
     std::string legal_message_string,
     CreditCard credit_card) {
+  return CreateDelegateWithLegalMessageAndOptions(
+      is_uploading, legal_message_string,
+      AutofillClient::SaveCreditCardOptions(), credit_card);
+}
+
+std::unique_ptr<AutofillSaveCardInfoBarDelegateMobile>
+AutofillSaveCardInfoBarDelegateMobileTest::
+    CreateDelegateWithLegalMessageAndOptions(
+        bool is_uploading,
+        std::string legal_message_string,
+        AutofillClient::SaveCreditCardOptions options,
+        CreditCard credit_card) {
   LegalMessageLines legal_message_lines;
   if (!legal_message_string.empty()) {
-    std::unique_ptr<base::Value> value(
-        base::JSONReader::ReadDeprecated(legal_message_string));
+    absl::optional<base::Value> value =
+        base::JSONReader::Read(legal_message_string);
     EXPECT_TRUE(value);
-    LegalMessageLine::Parse(*value, &legal_message_lines,
+    LegalMessageLine::Parse(value->GetDict(), &legal_message_lines,
                             /*escape_apostrophes=*/true);
   }
-  if (is_uploading) {
-    // Upload save infobar delegate:
-    credit_card_to_save_ = credit_card;
-    std::unique_ptr<AutofillSaveCardInfoBarDelegateMobile> delegate(
-        new AutofillSaveCardInfoBarDelegateMobile(
-            is_uploading, AutofillClient::SaveCreditCardOptions(), credit_card,
-            legal_message_lines,
-            /*upload_save_card_callback=*/
-            base::BindOnce(&AutofillSaveCardInfoBarDelegateMobileTest::
-                               UploadSaveCardPromptCallback,
-                           base::Unretained(this)),
-            /*local_save_card_callback=*/{}, AccountInfo()));
-    return delegate;
-  }
-  // Local save infobar delegate:
   credit_card_to_save_ = credit_card;
-  std::unique_ptr<AutofillSaveCardInfoBarDelegateMobile> delegate(
-      new AutofillSaveCardInfoBarDelegateMobile(
-          is_uploading, AutofillClient::SaveCreditCardOptions(), credit_card,
-          legal_message_lines,
-          /*upload_save_card_callback=*/{},
-          /*local_save_card_callback=*/
-          base::BindOnce(&AutofillSaveCardInfoBarDelegateMobileTest::
-                             LocalSaveCardPromptCallback,
-                         base::Unretained(this)),
-          AccountInfo()));
-  return delegate;
+  return is_uploading
+             ? AutofillSaveCardInfoBarDelegateMobile::CreateForUploadSave(
+                   options, credit_card,
+                   base::BindOnce(&AutofillSaveCardInfoBarDelegateMobileTest::
+                                      UploadSaveCardPromptCallback,
+                                  base::Unretained(this)),
+                   legal_message_lines, AccountInfo())
+             : AutofillSaveCardInfoBarDelegateMobile::CreateForLocalSave(
+                   options, credit_card,
+                   base::BindOnce(&AutofillSaveCardInfoBarDelegateMobileTest::
+                                      LocalSaveCardPromptCallback,
+                                  base::Unretained(this)));
 }
 
 // Test that local credit card save infobar metrics are logged correctly.
@@ -165,6 +170,9 @@ TEST_F(AutofillSaveCardInfoBarDelegateMobileTest, Metrics_Local_Main) {
     ASSERT_EQ(1U, personal_data_->GetCreditCards().size());
     histogram_tester.ExpectUniqueSample("Autofill.CreditCardInfoBar.Local",
                                         AutofillMetrics::INFOBAR_ACCEPTED, 1);
+    histogram_tester.ExpectUniqueSample(
+        "Autofill.CreditCardSaveFlowResult.Local",
+        autofill_metrics::SaveCreditCardPromptResult::kAccepted, 1);
   }
 
   // Dismiss the infobar.
@@ -176,6 +184,9 @@ TEST_F(AutofillSaveCardInfoBarDelegateMobileTest, Metrics_Local_Main) {
     infobar->InfoBarDismissed();
     histogram_tester.ExpectUniqueSample("Autofill.CreditCardInfoBar.Local",
                                         AutofillMetrics::INFOBAR_DENIED, 1);
+    histogram_tester.ExpectUniqueSample(
+        "Autofill.CreditCardSaveFlowResult.Local",
+        autofill_metrics::SaveCreditCardPromptResult::kDenied, 1);
   }
 
   // Ignore the infobar.
@@ -187,6 +198,9 @@ TEST_F(AutofillSaveCardInfoBarDelegateMobileTest, Metrics_Local_Main) {
     infobar.reset();
     histogram_tester.ExpectUniqueSample("Autofill.CreditCardInfoBar.Local",
                                         AutofillMetrics::INFOBAR_IGNORED, 1);
+    histogram_tester.ExpectUniqueSample(
+        "Autofill.CreditCardSaveFlowResult.Local",
+        autofill_metrics::SaveCreditCardPromptResult::kIgnored, 1);
   }
 }
 
@@ -232,9 +246,66 @@ TEST_F(AutofillSaveCardInfoBarDelegateMobileTest, Metrics_Server_Main) {
     ASSERT_EQ(1U, personal_data_->GetCreditCards().size());
     histogram_tester.ExpectUniqueSample("Autofill.CreditCardInfoBar.Server",
                                         AutofillMetrics::INFOBAR_ACCEPTED, 1);
+    histogram_tester.ExpectUniqueSample(
+        "Autofill.CreditCardSaveFlowResult.Server",
+        autofill_metrics::SaveCreditCardPromptResult::kAccepted, 1);
   }
 
-  // Dismiss the infobar.
+  // Accept the infobar which should request an expiration date.
+  {
+    personal_data_->ClearCreditCards();
+    std::unique_ptr<ConfirmInfoBarDelegate> infobar(
+        CreateDelegateWithLegalMessageAndOptions(
+            /* is_uploading= */ true, /* legal_message_string= */ "",
+            AutofillClient::SaveCreditCardOptions()
+                .with_should_request_expiration_date_from_user(true)));
+
+    base::HistogramTester histogram_tester;
+    EXPECT_TRUE(infobar->Accept());
+    ASSERT_EQ(1U, personal_data_->GetCreditCards().size());
+    histogram_tester.ExpectUniqueSample("Autofill.CreditCardInfoBar.Server",
+                                        AutofillMetrics::INFOBAR_ACCEPTED, 1);
+    histogram_tester.ExpectUniqueSample(
+        "Autofill.CreditCardInfoBar.Server.RequestingExpirationDate",
+        AutofillMetrics::INFOBAR_ACCEPTED, 1);
+    // kAccept of "Autofill.CreditCardSaveFlowResult.Server" should only be
+    // recorded when all data is collected.
+    histogram_tester.ExpectUniqueSample(
+        "Autofill.CreditCardSaveFlowResult.Server",
+        autofill_metrics::SaveCreditCardPromptResult::kAccepted, 0);
+    histogram_tester.ExpectUniqueSample(
+        "Autofill.CreditCardSaveFlowResult.Server.RequestingExpirationDate",
+        autofill_metrics::SaveCreditCardPromptResult::kAccepted, 0);
+  }
+
+  // Accept the infobar which should request a cardholder name.
+  {
+    personal_data_->ClearCreditCards();
+    std::unique_ptr<ConfirmInfoBarDelegate> infobar(
+        CreateDelegateWithLegalMessageAndOptions(
+            /* is_uploading= */ true, /* legal_message_string= */ "",
+            AutofillClient::SaveCreditCardOptions()
+                .with_should_request_name_from_user(true)));
+
+    base::HistogramTester histogram_tester;
+    EXPECT_TRUE(infobar->Accept());
+    ASSERT_EQ(1U, personal_data_->GetCreditCards().size());
+    histogram_tester.ExpectUniqueSample("Autofill.CreditCardInfoBar.Server",
+                                        AutofillMetrics::INFOBAR_ACCEPTED, 1);
+    histogram_tester.ExpectUniqueSample(
+        "Autofill.CreditCardInfoBar.Server.RequestingCardholderName",
+        AutofillMetrics::INFOBAR_ACCEPTED, 1);
+    // kAccept of "Autofill.CreditCardSaveFlowResult.Server" should only be
+    // recorded when all data is collected.
+    histogram_tester.ExpectUniqueSample(
+        "Autofill.CreditCardSaveFlowResult.Server",
+        autofill_metrics::SaveCreditCardPromptResult::kAccepted, 0);
+    histogram_tester.ExpectUniqueSample(
+        "Autofill.CreditCardSaveFlowResult.Server.RequestingCardholderName",
+        autofill_metrics::SaveCreditCardPromptResult::kAccepted, 0);
+  }
+
+  // Dismiss the infobar which doesn't request any data from user.
   {
     std::unique_ptr<ConfirmInfoBarDelegate> infobar(CreateDelegate(
         /* is_uploading= */ true));
@@ -243,9 +314,58 @@ TEST_F(AutofillSaveCardInfoBarDelegateMobileTest, Metrics_Server_Main) {
     infobar->InfoBarDismissed();
     histogram_tester.ExpectUniqueSample("Autofill.CreditCardInfoBar.Server",
                                         AutofillMetrics::INFOBAR_DENIED, 1);
+    histogram_tester.ExpectUniqueSample(
+        "Autofill.CreditCardSaveFlowResult.Server",
+        autofill_metrics::SaveCreditCardPromptResult::kDenied, 1);
   }
 
-  // Ignore the infobar.
+  // Dismiss the infobar which should request an expiration date.
+  {
+    std::unique_ptr<ConfirmInfoBarDelegate> infobar(
+        CreateDelegateWithLegalMessageAndOptions(
+            /* is_uploading= */ true, /* legal_message_string= */ "",
+            AutofillClient::SaveCreditCardOptions()
+                .with_should_request_expiration_date_from_user(true)));
+
+    base::HistogramTester histogram_tester;
+    infobar->InfoBarDismissed();
+    histogram_tester.ExpectUniqueSample("Autofill.CreditCardInfoBar.Server",
+                                        AutofillMetrics::INFOBAR_DENIED, 1);
+    histogram_tester.ExpectUniqueSample(
+        "Autofill.CreditCardInfoBar.Server.RequestingExpirationDate",
+        AutofillMetrics::INFOBAR_DENIED, 1);
+    histogram_tester.ExpectUniqueSample(
+        "Autofill.CreditCardSaveFlowResult.Server",
+        autofill_metrics::SaveCreditCardPromptResult::kDenied, 1);
+    histogram_tester.ExpectUniqueSample(
+        "Autofill.CreditCardSaveFlowResult.Server.RequestingExpirationDate",
+        autofill_metrics::SaveCreditCardPromptResult::kDenied, 1);
+  }
+
+  // Dismiss the infobar which should request a cardholder name.
+  {
+    std::unique_ptr<ConfirmInfoBarDelegate> infobar(
+        CreateDelegateWithLegalMessageAndOptions(
+            /* is_uploading= */ true, /* legal_message_string= */ "",
+            AutofillClient::SaveCreditCardOptions()
+                .with_should_request_name_from_user(true)));
+
+    base::HistogramTester histogram_tester;
+    infobar->InfoBarDismissed();
+    histogram_tester.ExpectUniqueSample("Autofill.CreditCardInfoBar.Server",
+                                        AutofillMetrics::INFOBAR_DENIED, 1);
+    histogram_tester.ExpectUniqueSample(
+        "Autofill.CreditCardInfoBar.Server.RequestingCardholderName",
+        AutofillMetrics::INFOBAR_DENIED, 1);
+    histogram_tester.ExpectUniqueSample(
+        "Autofill.CreditCardSaveFlowResult.Server",
+        autofill_metrics::SaveCreditCardPromptResult::kDenied, 1);
+    histogram_tester.ExpectUniqueSample(
+        "Autofill.CreditCardSaveFlowResult.Server.RequestingCardholderName",
+        autofill_metrics::SaveCreditCardPromptResult::kDenied, 1);
+  }
+
+  // Ignore the infobar which doesn't request any data from user.
   {
     std::unique_ptr<ConfirmInfoBarDelegate> infobar(CreateDelegate(
         /* is_uploading= */ true));
@@ -254,6 +374,55 @@ TEST_F(AutofillSaveCardInfoBarDelegateMobileTest, Metrics_Server_Main) {
     infobar.reset();
     histogram_tester.ExpectUniqueSample("Autofill.CreditCardInfoBar.Server",
                                         AutofillMetrics::INFOBAR_IGNORED, 1);
+    histogram_tester.ExpectUniqueSample(
+        "Autofill.CreditCardSaveFlowResult.Server",
+        autofill_metrics::SaveCreditCardPromptResult::kIgnored, 1);
+  }
+
+  // Ignore the infobar which should request an expiration date.
+  {
+    std::unique_ptr<ConfirmInfoBarDelegate> infobar(
+        CreateDelegateWithLegalMessageAndOptions(
+            /* is_uploading= */ true, /* legal_message_string= */ "",
+            AutofillClient::SaveCreditCardOptions()
+                .with_should_request_expiration_date_from_user(true)));
+
+    base::HistogramTester histogram_tester;
+    infobar.reset();
+    histogram_tester.ExpectUniqueSample("Autofill.CreditCardInfoBar.Server",
+                                        AutofillMetrics::INFOBAR_IGNORED, 1);
+    histogram_tester.ExpectUniqueSample(
+        "Autofill.CreditCardInfoBar.Server.RequestingExpirationDate",
+        AutofillMetrics::INFOBAR_IGNORED, 1);
+    histogram_tester.ExpectUniqueSample(
+        "Autofill.CreditCardSaveFlowResult.Server",
+        autofill_metrics::SaveCreditCardPromptResult::kIgnored, 1);
+    histogram_tester.ExpectUniqueSample(
+        "Autofill.CreditCardSaveFlowResult.Server.RequestingExpirationDate",
+        autofill_metrics::SaveCreditCardPromptResult::kIgnored, 1);
+  }
+
+  // Ignore the infobar which should request a cardholder name.
+  {
+    std::unique_ptr<ConfirmInfoBarDelegate> infobar(
+        CreateDelegateWithLegalMessageAndOptions(
+            /* is_uploading= */ true, /* legal_message_string= */ "",
+            AutofillClient::SaveCreditCardOptions()
+                .with_should_request_name_from_user(true)));
+
+    base::HistogramTester histogram_tester;
+    infobar.reset();
+    histogram_tester.ExpectUniqueSample("Autofill.CreditCardInfoBar.Server",
+                                        AutofillMetrics::INFOBAR_IGNORED, 1);
+    histogram_tester.ExpectUniqueSample(
+        "Autofill.CreditCardInfoBar.Server.RequestingCardholderName",
+        AutofillMetrics::INFOBAR_IGNORED, 1);
+    histogram_tester.ExpectUniqueSample(
+        "Autofill.CreditCardSaveFlowResult.Server",
+        autofill_metrics::SaveCreditCardPromptResult::kIgnored, 1);
+    histogram_tester.ExpectUniqueSample(
+        "Autofill.CreditCardSaveFlowResult.Server.RequestingCardholderName",
+        autofill_metrics::SaveCreditCardPromptResult::kIgnored, 1);
   }
 }
 

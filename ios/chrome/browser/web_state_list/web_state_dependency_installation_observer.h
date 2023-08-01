@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 
 #import "base/scoped_multi_source_observation.h"
 #import "base/scoped_observation.h"
-#import "ios/chrome/browser/web_state_list/web_state_list.h"
-#import "ios/chrome/browser/web_state_list/web_state_list_observer.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list_observer.h"
 #import "ios/web/public/web_state.h"
 #import "ios/web/public/web_state_observer.h"
 
@@ -51,6 +51,7 @@ class WebStateDependencyInstallationObserver : public WebStateListObserver,
   void WebStateDetachedAt(WebStateList* web_state_list,
                           web::WebState* web_state,
                           int index) override;
+  void WebStateListDestroyed(WebStateList* web_state_list) override;
 
   WebStateDependencyInstallationObserver(
       const WebStateDependencyInstallationObserver&) = delete;
@@ -74,10 +75,10 @@ class WebStateDependencyInstallationObserver : public WebStateListObserver,
   // The class which installs/uninstalls dependencies in response to changes to
   // the WebStateList
   DependencyInstaller* dependency_installer_;
-  // Automatically detaches |this| from the WebStateList when destroyed
+  // Automatically detaches `this` from the WebStateList when destroyed
   base::ScopedObservation<WebStateList, WebStateListObserver>
       web_state_list_observation_{this};
-  // Automatically detaches |this| from the WebStates when destroyed.
+  // Automatically detaches `this` from the WebStates when destroyed.
   base::ScopedMultiSourceObservation<web::WebState, web::WebStateObserver>
       web_state_observations_{this};
 };

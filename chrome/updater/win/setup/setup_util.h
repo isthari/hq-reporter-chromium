@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,16 +6,18 @@
 #define CHROME_UPDATER_WIN_SETUP_SETUP_UTIL_H_
 
 #include <guiddef.h>
+#include <wrl/client.h>
+#include <wrl/implements.h>
 
+#include <ios>
 #include <string>
 #include <vector>
 
+#include "base/command_line.h"
 #include "base/win/windows_types.h"
-
-class WorkItemList;
+#include "chrome/installer/util/work_item_list.h"
 
 namespace base {
-class CommandLine;
 class FilePath;
 }  // namespace base
 
@@ -23,9 +25,11 @@ namespace updater {
 
 enum class UpdaterScope;
 
-bool RegisterWakeTask(const base::CommandLine& run_command, UpdaterScope scope);
+std::wstring GetTaskName(UpdaterScope scope);
 void UnregisterWakeTask(UpdaterScope scope);
 
+std::wstring GetProgIdForClsid(REFCLSID clsid);
+std::wstring GetComProgIdRegistryPath(const std::wstring& progid);
 std::wstring GetComServerClsidRegistryPath(REFCLSID clsid);
 std::wstring GetComServerAppidRegistryPath(REFGUID appid);
 std::wstring GetComIidRegistryPath(REFIID iid);
@@ -43,11 +47,16 @@ std::wstring GetComTypeLibResourceIndex(REFIID iid);
 
 // Returns the interfaces ids of all interfaces declared in IDL of the updater
 // that can be installed side-by-side with other instances of the updater.
-std::vector<IID> GetSideBySideInterfaces();
+std::vector<IID> GetSideBySideInterfaces(UpdaterScope scope);
 
 // Returns the interfaces ids of all interfaces declared in IDL of the updater
 // that can only be installed for the active instance of the updater.
-std::vector<IID> GetActiveInterfaces();
+std::vector<IID> GetActiveInterfaces(UpdaterScope scope);
+
+// Returns the interfaces ids of all interfaces declared in IDL of the updater
+// that can be installed side-by-side (if `is_internal` is `true`) or for the
+// active instance (if `is_internal` is `false`) .
+std::vector<IID> GetInterfaces(bool is_internal, UpdaterScope scope);
 
 // Returns the CLSIDs of servers that can be installed side-by-side with other
 // instances of the updater.
@@ -56,6 +65,11 @@ std::vector<CLSID> GetSideBySideServers(UpdaterScope scope);
 // Returns the CLSIDs of servers that can only be installed for the active
 // instance of the updater.
 std::vector<CLSID> GetActiveServers(UpdaterScope scope);
+
+// Returns the CLSIDs of servers that can be installed side-by-side (if
+// `is_internal` is `true`) or for the active instance (if `is_internal` is
+// `false`) .
+std::vector<CLSID> GetServers(bool is_internal, UpdaterScope scope);
 
 // Helper function that joins two vectors and returns the resultant vector.
 template <typename T>
@@ -66,29 +80,15 @@ std::vector<T> JoinVectors(const std::vector<T>& vector1,
   return joined_vector;
 }
 
-// Adds work items to `list` to install the interface `iid`.
-void AddInstallComInterfaceWorkItems(HKEY root,
-                                     const base::FilePath& typelib_path,
-                                     GUID iid,
-                                     WorkItemList* list);
+// Adds work items to register the per-user COM server.
+void AddComServerWorkItems(const base::FilePath& com_server_path,
+                           bool is_internal,
+                           WorkItemList* list);
 
-// Adds work items to `list` to install the server `iid`.
-void AddInstallServerWorkItems(HKEY root,
-                               CLSID iid,
-                               const base::FilePath& executable_path,
-                               bool internal_service,
-                               WorkItemList* list);
-
-// Adds work items to `list` to install the COM service.
+// Adds work items to register the COM service.
 void AddComServiceWorkItems(const base::FilePath& com_service_path,
                             bool internal_service,
                             WorkItemList* list);
-
-// Parses the run time dependency file which contains all dependencies of
-// the `updater` target. This file is a text file, where each line of
-// text represents a single dependency. Some dependencies are not needed for
-// updater to run, and are filtered out from the return value of this function.
-std::vector<base::FilePath> ParseFilesFromDeps(const base::FilePath& deps);
 
 // Adds a worklist item to set a value in the Run key in the user registry under
 // the value `run_value_name` to start the specified `command`.
@@ -99,6 +99,26 @@ void RegisterUserRunAtStartup(const std::wstring& run_value_name,
 // Deletes the value in the Run key in the user registry under the value
 // `run_value_name`.
 bool UnregisterUserRunAtStartup(const std::wstring& run_value_name);
+
+class RegisterWakeTaskWorkItem : public WorkItem {
+ public:
+  RegisterWakeTaskWorkItem(const base::CommandLine& run_command,
+                           UpdaterScope scope);
+
+  RegisterWakeTaskWorkItem(const RegisterWakeTaskWorkItem&) = delete;
+  RegisterWakeTaskWorkItem& operator=(const RegisterWakeTaskWorkItem&) = delete;
+
+  ~RegisterWakeTaskWorkItem() override;
+
+ private:
+  // Overrides of WorkItem.
+  bool DoImpl() override;
+  void RollbackImpl() override;
+
+  const base::CommandLine run_command_;
+  const UpdaterScope scope_;
+  std::wstring task_name_;
+};
 
 }  // namespace updater
 

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 #include "base/task/single_thread_task_executor.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "gin/v8_initializer.h"
 #include "mojo/core/embedder/embedder.h"
 #include "mojo/public/cpp/bindings/binder_map.h"
@@ -58,11 +57,12 @@ int main(int argc, char** argv) {
   base::FilePath file_path =
       base::CommandLine::ForCurrentProcess()->GetSwitchValuePath("output_file");
   CHECK(!file_path.empty());
-  int written = base::WriteFile(file_path, blob.data, blob.raw_size);
   int error_code = 0;
-  if (written != blob.raw_size) {
-    fprintf(stderr, "Error: WriteFile of %d snapshot bytes returned %d.\n",
-            blob.raw_size, written);
+  if (!base::WriteFile(file_path,
+                       base::as_bytes(base::make_span(
+                           blob.data, static_cast<size_t>(blob.raw_size))))) {
+    fprintf(stderr, "Error: WriteFile of %d snapshot has failed.\n",
+            blob.raw_size);
     error_code = 1;
   }
 

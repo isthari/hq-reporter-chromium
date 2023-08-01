@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,22 +6,22 @@
 
 #include <memory>
 
-#include "base/bind.h"
 #include "base/containers/contains.h"
+#include "base/functional/bind.h"
 #include "base/values.h"
 #include "net/base/load_flags.h"
+#include "net/base/network_anonymization_key.h"
 #include "net/http/http_request_info.h"
-
 namespace net {
 
 // Returns parameters associated with the start of a server push lookup
 // transaction.
-base::Value NetLogPushLookupTransactionParams(
+base::Value::Dict NetLogPushLookupTransactionParams(
     const NetLogSource& net_log,
     const ServerPushDelegate::ServerPushHelper* push_helper) {
-  base::Value dict(base::Value::Type::DICTIONARY);
-  net_log.AddToEventParameters(&dict);
-  dict.SetStringKey("push_url", push_helper->GetURL().possibly_invalid_spec());
+  base::Value::Dict dict;
+  net_log.AddToEventParameters(dict);
+  dict.Set("push_url", push_helper->GetURL().possibly_invalid_spec());
   return dict;
 }
 
@@ -29,8 +29,7 @@ HttpCacheLookupManager::LookupTransaction::LookupTransaction(
     std::unique_ptr<ServerPushHelper> server_push_helper,
     NetLog* net_log)
     : push_helper_(std::move(server_push_helper)),
-      request_(new HttpRequestInfo()),
-      transaction_(nullptr),
+      request_(std::make_unique<HttpRequestInfo>()),
       net_log_(NetLogWithSource::Make(
           net_log,
           NetLogSourceType::SERVER_PUSH_LOOKUP_TRANSACTION)) {}
@@ -47,7 +46,11 @@ int HttpCacheLookupManager::LookupTransaction::StartLookup(
   });
 
   request_->url = push_helper_->GetURL();
-  request_->network_isolation_key = push_helper_->GetNetworkIsolationKey();
+  // Note: since HTTP/2 Server Push has been disabled and this code will likely
+  // be removed, just use empty NIKs and NAKs here. For more info, see
+  // https://crbug.com/1355929.
+  request_->network_isolation_key = NetworkIsolationKey();
+  request_->network_anonymization_key = NetworkAnonymizationKey();
   request_->method = "GET";
   request_->load_flags = LOAD_ONLY_FROM_CACHE | LOAD_SKIP_CACHE_VALIDATION;
   cache->CreateTransaction(DEFAULT_PRIORITY, &transaction_);

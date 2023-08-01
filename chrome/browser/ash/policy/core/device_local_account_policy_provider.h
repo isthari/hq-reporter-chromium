@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 
+#include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/ash/policy/core/device_local_account.h"
@@ -69,14 +70,10 @@ class DeviceLocalAccountPolicyProvider
   // policy from the broker if available or keeping the current policy.
   void UpdateFromBroker();
 
-  // Applies the policy restrictions related to the restricted managed guest
-  // session override.
-  void ApplyRestrictedManagedGuestSessionOverride(PolicyMap* chrome_policy);
-
   const std::string user_id_;
   scoped_refptr<DeviceLocalAccountExternalDataManager> external_data_manager_;
 
-  DeviceLocalAccountPolicyService* service_;
+  raw_ptr<DeviceLocalAccountPolicyService, ExperimentalAsh> service_;
   DeviceLocalAccount::Type type_;
 
   bool store_initialized_;

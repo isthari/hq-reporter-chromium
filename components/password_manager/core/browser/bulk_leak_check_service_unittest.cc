@@ -1,16 +1,16 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-
-#include <algorithm>
 
 #include "components/password_manager/core/browser/bulk_leak_check_service.h"
 
 #include "base/memory/raw_ptr.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/task_environment.h"
 #include "base/timer/elapsed_timer.h"
+#include "components/password_manager/core/browser/leak_detection/leak_detection_request_utils.h"
 #include "components/password_manager/core/browser/leak_detection/mock_leak_detection_check_factory.h"
 #include "components/signin/public/identity_manager/identity_test_environment.h"
 #include "services/network/test/test_shared_url_loader_factory.h"
@@ -34,12 +34,11 @@ constexpr char16_t kUsername[] = u"user";
 constexpr char16_t kPassword[] = u"password123";
 
 MATCHER_P(CredentialsAre, credentials, "") {
-  return std::equal(arg.begin(), arg.end(), credentials.get().begin(),
-                    credentials.get().end(),
-                    [](const auto& lhs, const auto& rhs) {
-                      return lhs.username() == rhs.username() &&
-                             lhs.password() == rhs.password();
-                    });
+  return base::ranges::equal(arg, credentials.get(),
+                             [](const auto& lhs, const auto& rhs) {
+                               return lhs.username() == rhs.username() &&
+                                      lhs.password() == rhs.password();
+                             });
   ;
 }
 
@@ -63,7 +62,7 @@ class MockBulkLeakCheck : public BulkLeakCheck {
  public:
   MOCK_METHOD(void,
               CheckCredentials,
-              (std::vector<LeakCheckCredential> credentials),
+              (LeakDetectionInitiator, std::vector<LeakCheckCredential>),
               (override));
   MOCK_METHOD(size_t, GetPendingChecksCount, (), (const override));
 };
@@ -119,7 +118,9 @@ void BulkLeakCheckServiceTest::ConductLeakCheck(
   EXPECT_CALL(factory(), TryCreateBulkLeakCheck)
       .WillOnce(
           DoAll(SaveArg<0>(&delegate), Return(ByMove(std::move(leak_check)))));
-  service().CheckUsernamePasswordPairs(std::move(credentials));
+  service().CheckUsernamePasswordPairs(
+      LeakDetectionInitiator::kBulkSyncedPasswordsCheck,
+      std::move(credentials));
 
   EXPECT_CALL(*weak_leak_check, GetPendingChecksCount)
       .WillRepeatedly(Return(0));
@@ -142,7 +143,8 @@ TEST_F(BulkLeakCheckServiceTest, StartWithZeroPasswords) {
 
   EXPECT_CALL(observer, OnStateChanged(BulkLeakCheckService::State::kRunning));
   EXPECT_CALL(observer, OnStateChanged(BulkLeakCheckService::State::kIdle));
-  service().CheckUsernamePasswordPairs({});
+  service().CheckUsernamePasswordPairs(
+      LeakDetectionInitiator::kBulkSyncedPasswordsCheck, {});
 
   EXPECT_EQ(BulkLeakCheckService::State::kIdle, service().GetState());
   EXPECT_EQ(0u, service().GetPendingChecksCount());
@@ -160,12 +162,15 @@ TEST_F(BulkLeakCheckServiceTest, Running) {
   auto leak_check = std::make_unique<MockBulkLeakCheck>();
   auto* weak_leak_check = leak_check.get();
   const std::vector<LeakCheckCredential> credentials = TestCredentials();
-  EXPECT_CALL(*weak_leak_check,
-              CheckCredentials(CredentialsAre(std::cref(credentials))));
+  EXPECT_CALL(
+      *weak_leak_check,
+      CheckCredentials(LeakDetectionInitiator::kBulkSyncedPasswordsCheck,
+                       CredentialsAre(std::cref(credentials))));
   EXPECT_CALL(factory(), TryCreateBulkLeakCheck)
       .WillOnce(Return(ByMove(std::move(leak_check))));
   EXPECT_CALL(observer, OnStateChanged(BulkLeakCheckService::State::kRunning));
-  service().CheckUsernamePasswordPairs(TestCredentials());
+  service().CheckUsernamePasswordPairs(
+      LeakDetectionInitiator::kBulkSyncedPasswordsCheck, TestCredentials());
 
   EXPECT_EQ(BulkLeakCheckService::State::kRunning, service().GetState());
   EXPECT_CALL(*weak_leak_check, GetPendingChecksCount)
@@ -188,13 +193,17 @@ TEST_F(BulkLeakCheckServiceTest, AppendRunning) {
       .WillOnce(Return(ByMove(std::move(leak_check))));
   EXPECT_CALL(*weak_leak_check, CheckCredentials);
   EXPECT_CALL(observer, OnStateChanged(BulkLeakCheckService::State::kRunning));
-  service().CheckUsernamePasswordPairs(TestCredentials());
+  service().CheckUsernamePasswordPairs(
+      LeakDetectionInitiator::kBulkSyncedPasswordsCheck, TestCredentials());
 
   const std::vector<LeakCheckCredential> credentials = TestCredentials();
-  EXPECT_CALL(*weak_leak_check,
-              CheckCredentials(CredentialsAre(std::cref(credentials))));
+  EXPECT_CALL(
+      *weak_leak_check,
+      CheckCredentials(LeakDetectionInitiator::kBulkSyncedPasswordsCheck,
+                       CredentialsAre(std::cref(credentials))));
   EXPECT_CALL(observer, OnStateChanged(BulkLeakCheckService::State::kRunning));
-  service().CheckUsernamePasswordPairs(TestCredentials());
+  service().CheckUsernamePasswordPairs(
+      LeakDetectionInitiator::kBulkSyncedPasswordsCheck, TestCredentials());
 
   EXPECT_EQ(BulkLeakCheckService::State::kRunning, service().GetState());
   EXPECT_CALL(*weak_leak_check, GetPendingChecksCount)
@@ -210,7 +219,8 @@ TEST_F(BulkLeakCheckServiceTest, FailedToCreateCheck) {
 
   EXPECT_CALL(factory(), TryCreateBulkLeakCheck)
       .WillOnce(Return(ByMove(nullptr)));
-  service().CheckUsernamePasswordPairs(TestCredentials());
+  service().CheckUsernamePasswordPairs(
+      LeakDetectionInitiator::kBulkSyncedPasswordsCheck, TestCredentials());
 
   EXPECT_EQ(BulkLeakCheckService::State::kIdle, service().GetState());
   EXPECT_EQ(0u, service().GetPendingChecksCount());
@@ -232,7 +242,8 @@ TEST_F(BulkLeakCheckServiceTest, FailedToCreateCheckWithError) {
       }));
   EXPECT_CALL(observer,
               OnStateChanged(BulkLeakCheckService::State::kSignedOut));
-  service().CheckUsernamePasswordPairs(TestCredentials());
+  service().CheckUsernamePasswordPairs(
+      LeakDetectionInitiator::kBulkSyncedPasswordsCheck, TestCredentials());
 
   EXPECT_EQ(BulkLeakCheckService::State::kSignedOut, service().GetState());
   EXPECT_EQ(0u, service().GetPendingChecksCount());
@@ -240,7 +251,6 @@ TEST_F(BulkLeakCheckServiceTest, FailedToCreateCheckWithError) {
   expected_counts
       ["PasswordManager.BulkCheck.CheckedCredentialsOnErrorOrCanceled"] = 1;
   expected_counts["PasswordManager.BulkCheck.Error"] = 1;
-  expected_counts["PasswordManager.BulkCheck.LeaksFoundOnErrorOrCanceled"] = 1;
   EXPECT_THAT(
       histogram_tester().GetTotalCountsForPrefix("PasswordManager.BulkCheck"),
       expected_counts);
@@ -274,7 +284,8 @@ TEST_F(BulkLeakCheckServiceTest, CancelSomething) {
       .WillOnce(
           DoAll(SaveArg<0>(&delegate), Return(ByMove(std::move(leak_check)))));
 
-  service().CheckUsernamePasswordPairs(TestCredentials());
+  service().CheckUsernamePasswordPairs(
+      LeakDetectionInitiator::kBulkSyncedPasswordsCheck, TestCredentials());
 
   // Finish one credential before the bulk check gets canceled.
   delegate->OnFinishedCredential(TestCredential(), IsLeaked(true));
@@ -288,8 +299,6 @@ TEST_F(BulkLeakCheckServiceTest, CancelSomething) {
   EXPECT_EQ(0u, service().GetPendingChecksCount());
   histogram_tester().ExpectUniqueSample(
       "PasswordManager.BulkCheck.CanceledTime", kMockElapsedTime, 1);
-  histogram_tester().ExpectUniqueSample(
-      "PasswordManager.BulkCheck.LeaksFoundOnErrorOrCanceled", 1, 1);
   histogram_tester().ExpectUniqueSample(
       "PasswordManager.BulkCheck.CheckedCredentialsOnErrorOrCanceled",
       TestCredentials().size(), 1);
@@ -305,7 +314,8 @@ TEST_F(BulkLeakCheckServiceTest, NotifyAboutLeak) {
   EXPECT_CALL(factory(), TryCreateBulkLeakCheck)
       .WillOnce(
           DoAll(SaveArg<0>(&delegate), Return(ByMove(std::move(leak_check)))));
-  service().CheckUsernamePasswordPairs(TestCredentials());
+  service().CheckUsernamePasswordPairs(
+      LeakDetectionInitiator::kBulkSyncedPasswordsCheck, TestCredentials());
 
   StrictMock<MockObserver> observer;
   service().AddObserver(&observer);
@@ -332,7 +342,8 @@ TEST_F(BulkLeakCheckServiceTest, CheckFinished) {
   EXPECT_CALL(factory(), TryCreateBulkLeakCheck)
       .WillOnce(
           DoAll(SaveArg<0>(&delegate), Return(ByMove(std::move(leak_check)))));
-  service().CheckUsernamePasswordPairs(TestCredentials());
+  service().CheckUsernamePasswordPairs(
+      LeakDetectionInitiator::kBulkSyncedPasswordsCheck, TestCredentials());
 
   StrictMock<MockObserver> observer;
   service().AddObserver(&observer);
@@ -366,7 +377,8 @@ TEST_F(BulkLeakCheckServiceTest, CheckFinishedWithLeakedCredential) {
   EXPECT_CALL(factory(), TryCreateBulkLeakCheck)
       .WillOnce(
           DoAll(SaveArg<0>(&delegate), Return(ByMove(std::move(leak_check)))));
-  service().CheckUsernamePasswordPairs(TestCredentials());
+  service().CheckUsernamePasswordPairs(
+      LeakDetectionInitiator::kBulkSyncedPasswordsCheck, TestCredentials());
 
   StrictMock<MockObserver> observer;
   service().AddObserver(&observer);
@@ -432,7 +444,8 @@ TEST_F(BulkLeakCheckServiceTest, CheckFinishedWithError) {
   EXPECT_CALL(factory(), TryCreateBulkLeakCheck)
       .WillOnce(
           DoAll(SaveArg<0>(&delegate), Return(ByMove(std::move(leak_check)))));
-  service().CheckUsernamePasswordPairs(TestCredentials());
+  service().CheckUsernamePasswordPairs(
+      LeakDetectionInitiator::kBulkSyncedPasswordsCheck, TestCredentials());
 
   StrictMock<MockObserver> observer;
   service().AddObserver(&observer);
@@ -446,7 +459,6 @@ TEST_F(BulkLeakCheckServiceTest, CheckFinishedWithError) {
   expected_counts
       ["PasswordManager.BulkCheck.CheckedCredentialsOnErrorOrCanceled"] = 1;
   expected_counts["PasswordManager.BulkCheck.Error"] = 1;
-  expected_counts["PasswordManager.BulkCheck.LeaksFoundOnErrorOrCanceled"] = 1;
   EXPECT_THAT(
       histogram_tester().GetTotalCountsForPrefix("PasswordManager.BulkCheck"),
       expected_counts);
@@ -464,7 +476,8 @@ TEST_F(BulkLeakCheckServiceTest, CheckFinishedWithQuotaLimit) {
   EXPECT_CALL(factory(), TryCreateBulkLeakCheck)
       .WillOnce(
           DoAll(SaveArg<0>(&delegate), Return(ByMove(std::move(leak_check)))));
-  service().CheckUsernamePasswordPairs(TestCredentials());
+  service().CheckUsernamePasswordPairs(
+      LeakDetectionInitiator::kBulkSyncedPasswordsCheck, TestCredentials());
 
   StrictMock<MockObserver> observer;
   service().AddObserver(&observer);
@@ -478,7 +491,6 @@ TEST_F(BulkLeakCheckServiceTest, CheckFinishedWithQuotaLimit) {
   expected_counts
       ["PasswordManager.BulkCheck.CheckedCredentialsOnErrorOrCanceled"] = 1;
   expected_counts["PasswordManager.BulkCheck.Error"] = 1;
-  expected_counts["PasswordManager.BulkCheck.LeaksFoundOnErrorOrCanceled"] = 1;
   EXPECT_THAT(
       histogram_tester().GetTotalCountsForPrefix("PasswordManager.BulkCheck"),
       expected_counts);

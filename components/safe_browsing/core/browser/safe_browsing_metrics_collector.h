@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,15 +9,13 @@
 #include "base/memory/raw_ptr.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
+#include "base/values.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/prefs/pref_change_registrar.h"
+#include "components/safe_browsing/core/browser/db/hit_report.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 class PrefService;
-
-namespace base {
-class Value;
-}  // namespace base
 
 namespace safe_browsing {
 
@@ -48,7 +46,7 @@ class SafeBrowsingMetricsCollector : public KeyedService {
     CSD_INTERSTITIAL_BYPASS = 3,
     // The user bypasses the interstitial that is triggered by real time URL
     // check.
-    REAL_TIME_INTERSTITIAL_BYPASS = 4,
+    URL_REAL_TIME_INTERSTITIAL_BYPASS = 4,
     // The user bypasses the dangerous download warning based on server
     // verdicts.
     DANGEROUS_DOWNLOAD_BYPASS = 5,
@@ -115,6 +113,10 @@ class SafeBrowsingMetricsCollector : public KeyedService {
   // Adds |event_type| and the current timestamp to pref.
   void AddSafeBrowsingEventToPref(EventType event_type);
 
+  // Uses |threat_source| to choose which EventType should be passed into
+  // AddSafeBrowsingEventToPref
+  void AddBypassEventToPref(ThreatSource threat_source);
+
   // Gets the latest event timestamp of the |event_type|. Returns nullopt if
   // the |event_type| didn't happen in the past.
   absl::optional<base::Time> GetLatestEventTimestamp(EventType event_type);
@@ -129,14 +131,54 @@ class SafeBrowsingMetricsCollector : public KeyedService {
 
  private:
   FRIEND_TEST_ALL_PREFIXES(SafeBrowsingMetricsCollectorTest, GetUserState);
+  FRIEND_TEST_ALL_PREFIXES(SafeBrowsingMetricsCollectorTest,
+                           ProtegoRequestIsNotLoggedWhenEsbIsNotEnabled);
+  FRIEND_TEST_ALL_PREFIXES(
+      SafeBrowsingMetricsCollectorTest,
+      ProtegoRequestLogsNoneIfNotRecordedBeforeFirstRunOfCollector);
+  FRIEND_TEST_ALL_PREFIXES(
+      SafeBrowsingMetricsCollectorTest,
+      ProtegoRequestLogsWithTokenWhenPingSincePreviousLogTime);
+  FRIEND_TEST_ALL_PREFIXES(
+      SafeBrowsingMetricsCollectorTest,
+      ProtegoRequestLogsWithoutTokenWhenPingSincePreviousLogTime);
+  FRIEND_TEST_ALL_PREFIXES(
+      SafeBrowsingMetricsCollectorTest,
+      ProtegoRequestLogsWithTokenWhenPingMoreRecentThanWithoutToken);
+  FRIEND_TEST_ALL_PREFIXES(
+      SafeBrowsingMetricsCollectorTest,
+      ProtegoRequestLogsWithoutTokenWhenPingMoreRecentThanWithToken);
+  FRIEND_TEST_ALL_PREFIXES(
+      SafeBrowsingMetricsCollectorTest,
+      ProtegoRequestLogsNoneWhenNoPingWithTokenSincePreviousLogTime);
+  FRIEND_TEST_ALL_PREFIXES(
+      SafeBrowsingMetricsCollectorTest,
+      ProtegoRequestLogsNoneWhenNoPingWithoutTokenSincePreviousLogTime);
+  FRIEND_TEST_ALL_PREFIXES(
+      SafeBrowsingMetricsCollectorTest,
+      ProtegoRequestLogsWithTokenWhenPingBeforeCollectorHasEverRun);
+  FRIEND_TEST_ALL_PREFIXES(
+      SafeBrowsingMetricsCollectorTest,
+      ProtegoRequestLogsWithoutTokenWhenPingBeforeCollectorHasEverRun);
+
+  // The type of Protego ping that was sent by an enhanced protection
+  // user. These values are persisted to logs. Entries should not be renumbered
+  // and numeric values should never be reused.
+  enum class ProtegoPingType {
+    kUnknownType = 0,
+    kNone = 1,
+    kWithToken = 2,
+    kWithoutToken = 3,
+    kMaxValue = kWithoutToken,
+  };
 
   static bool IsBypassEventType(const EventType& type);
   static bool IsSecuritySensitiveEventType(const EventType& type);
   static std::string GetUserStateMetricSuffix(const UserState& user_state);
-  static std::string GetEventTypeMetricSuffix(const EventType& event_type);
 
   // For daily metrics.
   void LogMetricsAndScheduleNextLogging();
+  void MaybeLogDailyEsbProtegoPingSentLast24Hours();
   void ScheduleNextLoggingAfterInterval(base::TimeDelta interval);
   void LogDailyOptInMetrics();
   void LogDailyEventMetrics();
@@ -163,7 +205,7 @@ class SafeBrowsingMetricsCollector : public KeyedService {
   absl::optional<SafeBrowsingMetricsCollector::Event>
   GetLatestEventFromEventTypeFilter(UserState user_state,
                                     EventTypeFilter event_type_filter);
-  const base::Value* GetSafeBrowsingEventDictionary(UserState user_state);
+  const base::Value::Dict* GetSafeBrowsingEventDictionary(UserState user_state);
   int GetEventCountSince(UserState user_state,
                          EventType event_type,
                          base::Time since_time);

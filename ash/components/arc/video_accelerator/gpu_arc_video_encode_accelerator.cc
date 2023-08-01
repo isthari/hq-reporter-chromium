@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,17 +7,21 @@
 #include <utility>
 
 #include "ash/components/arc/video_accelerator/arc_video_accelerator_util.h"
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/platform_shared_memory_region.h"
 #include "base/memory/unsafe_shared_memory_region.h"
 #include "base/numerics/checked_math.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/system/sys_info.h"
+#include "base/task/bind_post_task.h"
 #include "media/base/bitrate.h"
+#include "media/base/bitstream_buffer.h"
 #include "media/base/color_plane_layout.h"
 #include "media/base/format_utils.h"
+#include "media/base/media_log.h"
+#include "media/base/video_frame.h"
 #include "media/base/video_types.h"
 #include "media/gpu/buffer_validation.h"
 #include "media/gpu/gpu_video_encode_accelerator_factory.h"
@@ -81,10 +85,14 @@ void GpuArcVideoEncodeAccelerator::BitstreamBufferReady(
   use_bitstream_cbs_.erase(iter);
 }
 
-void GpuArcVideoEncodeAccelerator::NotifyError(Error error) {
-  DVLOGF(2) << "error=" << error;
+void GpuArcVideoEncodeAccelerator::NotifyErrorStatus(
+    const media::EncoderStatus& status) {
+  LOG(ERROR) << "NotifyErrorStatus() is called, code="
+             << static_cast<int32_t>(status.code())
+             << ", message=" << status.message();
   DCHECK(client_);
-  client_->NotifyError(error);
+  client_->NotifyError(
+      mojom::VideoEncodeAccelerator::Error::kPlatformFailureError);
 }
 
 // ::arc::mojom::VideoEncodeAccelerator implementation.
@@ -92,7 +100,7 @@ void GpuArcVideoEncodeAccelerator::GetSupportedProfiles(
     GetSupportedProfilesCallback callback) {
   std::move(callback).Run(
       media::GpuVideoEncodeAcceleratorFactory::GetSupportedProfiles(
-          gpu_preferences_, gpu_workarounds_));
+          gpu_preferences_, gpu_workarounds_, gpu::GPUInfo::GPUDevice()));
 }
 
 void GpuArcVideoEncodeAccelerator::Initialize(
@@ -126,7 +134,8 @@ GpuArcVideoEncodeAccelerator::InitializeTask(
 
   visible_size_ = config.input_visible_size;
   accelerator_ = media::GpuVideoEncodeAcceleratorFactory::CreateVEA(
-      config, this, gpu_preferences_, gpu_workarounds_);
+      config, this, gpu_preferences_, gpu_workarounds_,
+      gpu::GPUInfo::GPUDevice());
   if (accelerator_ == nullptr) {
     DLOG(ERROR) << "Failed to create a VideoEncodeAccelerator.";
     return mojom::VideoEncodeAccelerator::Result::kPlatformFailureError;
@@ -209,7 +218,10 @@ void GpuArcVideoEncodeAccelerator::Encode(
     return;
   }
 
-  frame->AddDestructionObserver(std::move(callback));
+  // Make sure the Mojo callback is called on the same thread as where the Mojo
+  // call is received (here).
+  frame->AddDestructionObserver(
+      base::BindPostTaskToCurrentDefault(std::move(callback)));
   accelerator_->Encode(std::move(frame), force_keyframe);
 }
 
@@ -242,9 +254,11 @@ void GpuArcVideoEncodeAccelerator::UseBitstreamBuffer(
   // rather than pulling out the fd. https://crbug.com/713763.
   // TODO(rockot): Pass through a real size rather than |0|.
   base::UnguessableToken guid = base::UnguessableToken::Create();
-  auto shm_region = base::subtle::PlatformSharedMemoryRegion::Take(
-      std::move(fd), base::subtle::PlatformSharedMemoryRegion::Mode::kUnsafe,
-      shmem_size, guid);
+  auto shm_region = base::UnsafeSharedMemoryRegion::Deserialize(
+      base::subtle::PlatformSharedMemoryRegion::Take(
+          std::move(fd),
+          base::subtle::PlatformSharedMemoryRegion::Mode::kUnsafe, shmem_size,
+          guid));
   if (!shm_region.IsValid()) {
     client_->NotifyError(Error::kInvalidArgumentError);
     return;

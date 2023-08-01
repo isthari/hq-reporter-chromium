@@ -1,18 +1,18 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import <objc/runtime.h>
 
-#include <memory>
+#import <memory>
 
-#include "base/compiler_specific.h"
-#include "base/ios/ios_util.h"
-#include "base/strings/stringprintf.h"
-#include "base/strings/sys_string_conversions.h"
-#include "base/strings/utf_string_conversions.h"
-#include "components/version_info/version_info.h"
-#include "ios/chrome/browser/chrome_url_constants.h"
+#import "base/ios/ios_util.h"
+#import "base/strings/stringprintf.h"
+#import "base/strings/sys_string_conversions.h"
+#import "base/strings/utf_string_conversions.h"
+#import "components/version_info/version_info.h"
+#import "ios/chrome/browser/shared/model/url/chrome_url_constants.h"
+#import "ios/chrome/browser/web/features.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
@@ -20,10 +20,10 @@
 #import "ios/chrome/test/scoped_eg_synchronization_disabler.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
 #import "ios/web/common/features.h"
-#include "ios/web/public/test/http_server/html_response_provider.h"
+#import "ios/web/public/test/http_server/html_response_provider.h"
 #import "ios/web/public/test/http_server/http_server.h"
-#include "ios/web/public/test/http_server/http_server_util.h"
-#include "url/gurl.h"
+#import "ios/web/public/test/http_server/http_server_util.h"
+#import "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -39,19 +39,14 @@ const char kTestPage3[] = "Test Page 3";
 const char kGoBackLink[] = "go-back";
 const char kGoForwardLink[] = "go-forward";
 const char kGoNegativeDeltaLink[] = "go-negative-delta";
+const char kGoNegativeDeltaTwiceLink[] = "go-negative-delta-twice";
 const char kGoPositiveDeltaLink[] = "go-positive-delta";
 const char kPage1Link[] = "page-1";
 const char kPage2Link[] = "page-2";
 const char kPage3Link[] = "page-3";
 
-id<GREYMatcher> ContextMenuMatcherForText(NSString* text) {
-  return grey_allOf(
-      grey_ancestor(grey_kindOfClassName(@"PopupMenuNavigationCell")),
-      grey_text(text), nil);
-}
-
 // Response provider which can be paused. When it is paused it buffers all
-// requests and does not respond to them until |set_paused(false)| is called.
+// requests and does not respond to them until `set_paused(false)` is called.
 class PausableResponseProvider : public HtmlResponseProvider {
  public:
   explicit PausableResponseProvider(
@@ -99,7 +94,7 @@ class PausableResponseProvider : public HtmlResponseProvider {
 
 // Test case for back forward and delta navigations focused on making sure that
 // omnibox visible URL always represents the current page.
-@interface VisibleURLTestCase : WebHttpServerChromeTestCase {
+@interface VisibleURLWithCachedRestoreTestCase : WebHttpServerChromeTestCase {
   PausableResponseProvider* _responseProvider;
   GURL _testURL1;
   GURL _testURL2;
@@ -112,13 +107,13 @@ class PausableResponseProvider : public HtmlResponseProvider {
 // Pauses response server.
 - (void)setServerPaused:(BOOL)paused;
 
-// Waits until |_responseProvider| receives a request with the given |URL|.
+// Waits until `_responseProvider` receives a request with the given `URL`.
 // Returns YES if request was received, NO on timeout.
 - (BOOL)waitForServerToReceiveRequestWithURL:(GURL)URL;
 
 @end
 
-@implementation VisibleURLTestCase
+@implementation VisibleURLWithCachedRestoreTestCase
 
 - (void)setUp {
   [super setUp];
@@ -150,15 +145,16 @@ class PausableResponseProvider : public HtmlResponseProvider {
       "<a onclick='window.history.back()' id='%s'>Go Back</a><br/>"
       "<a onclick='window.history.forward()' id='%s'>Go Forward</a><br/>"
       "<a onclick='window.history.go(-1)' id='%s'>Go Delta -1</a><br/>"
+      "<a onclick='window.history.go(-2)' id='%s'>Go Delta -2</a><br/>"
       "<a onclick='window.history.go(1)' id='%s'>Go Delta +1</a><br/>"
       "<a href='%s' id='%s'>Page 1</a><br/>"
       "<a href='%s' id='%s'>Page 2</a><br/>"
       "<a href='%s' id='%s'>Page 3</a><br/>"
       "</body>",
       title, title, kGoBackLink, kGoForwardLink, kGoNegativeDeltaLink,
-      kGoPositiveDeltaLink, _testURL1.spec().c_str(), kPage1Link,
-      _testURL2.spec().c_str(), kPage2Link, _testURL3.spec().c_str(),
-      kPage3Link);
+      kGoNegativeDeltaTwiceLink, kGoPositiveDeltaLink, _testURL1.spec().c_str(),
+      kPage1Link, _testURL2.spec().c_str(), kPage2Link,
+      _testURL3.spec().c_str(), kPage3Link);
 }
 
 #pragma mark -
@@ -231,8 +227,9 @@ class PausableResponseProvider : public HtmlResponseProvider {
   [[EarlGrey selectElementWithMatcher:chrome_test_util::BackButton()]
       performAction:grey_longPress()];
   NSString* URL1Title = base::SysUTF8ToNSString(kTestPage1);
-  [[EarlGrey selectElementWithMatcher:ContextMenuMatcherForText(URL1Title)]
-      performAction:grey_tap()];
+  [[EarlGrey
+      selectElementWithMatcher:chrome_test_util::ButtonWithAccessibilityLabel(
+                                   URL1Title)] performAction:grey_tap()];
 
   {
     // Disables EG synchronization.
@@ -419,7 +416,7 @@ class PausableResponseProvider : public HtmlResponseProvider {
   [ChromeEarlGrey goForward];
   [ChromeEarlGrey goForward];
 
-  const std::string version = version_info::GetVersionNumber();
+  const std::string version(version_info::GetVersionNumber());
   [ChromeEarlGrey waitForWebStateContainingText:version];
 
   // Make sure that kChromeUIVersionURL URL is displayed in the omnibox.
@@ -445,12 +442,9 @@ class PausableResponseProvider : public HtmlResponseProvider {
     ScopedSynchronizationDisabler disabler;
     [self setServerPaused:YES];
 
-    // Tap the back button twice on the page and verify that URL1 (pending
-    // URL) is displayed.
-    [ChromeEarlGrey
-        tapWebStateElementWithID:base::SysUTF8ToNSString(kGoBackLink)];
-    [ChromeEarlGrey
-        tapWebStateElementWithID:base::SysUTF8ToNSString(kGoBackLink)];
+    // Tap the window.history.go(-2) link.
+    [ChromeEarlGrey tapWebStateElementWithID:base::SysUTF8ToNSString(
+                                                 kGoNegativeDeltaTwiceLink)];
 
     // Make server respond so URL1 becomes committed.
     [self setServerPaused:NO];
@@ -478,6 +472,25 @@ class PausableResponseProvider : public HtmlResponseProvider {
                   block:^{
                     return self->_responseProvider->last_request_url() == URL;
                   }] waitWithTimeout:10];
+}
+
+@end
+
+// Test using synthesized restore.
+@interface VisibleURLWithWithSynthesizedRestoreTestCase
+    : VisibleURLWithCachedRestoreTestCase
+@end
+
+@implementation VisibleURLWithWithSynthesizedRestoreTestCase
+
+- (AppLaunchConfiguration)appConfigurationForTestCase {
+  AppLaunchConfiguration config = [super appConfigurationForTestCase];
+  config.features_disabled.push_back(web::kRestoreSessionFromCache);
+  return config;
+}
+
+// This is currently needed to prevent this test case from being ignored.
+- (void)testEmpty {
 }
 
 @end

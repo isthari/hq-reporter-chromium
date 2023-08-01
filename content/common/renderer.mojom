@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,10 +10,11 @@ import "ipc/ipc.mojom";
 import "mojo/public/mojom/base/generic_pending_receiver.mojom";
 import "mojo/public/mojom/base/time.mojom";
 import "services/network/public/mojom/network_types.mojom";
+import "services/network/public/mojom/attribution.mojom";
 import "skia/public/mojom/skcolor.mojom";
 import "third_party/blink/public/mojom/browser_interface_broker.mojom";
+import "third_party/blink/public/mojom/origin_trials/origin_trials_settings.mojom";
 import "third_party/blink/public/mojom/user_agent/user_agent_metadata.mojom";
-import "ui/gfx/geometry/mojom/geometry.mojom";
 import "ui/color/color_id.mojom";
 
 struct UpdateScrollbarThemeParams {
@@ -116,30 +117,12 @@ interface Renderer {
   // Android.
   SetWebKitSharedTimersSuspended(bool suspend);
 
-  // Sets the user-agent string. This is needed because getting the value in the
-  // renderer from the system leads to a wrong value due to sandboxing. This
-  // must be called as early as possible, during the renderer process
-  // initialization.
-  SetUserAgent(string user_agent);
-
-  // Sets a user-agent with high-entropy information reduced to common values.
-  // See `SetUserAgent` for caveats.
-  SetReducedUserAgent(string user_agent);
-
-  // Sets the user agent metadata. This will replace `SetUserAgent()` if we
-  // decide to ship https://github.com/WICG/ua-client-hints.
-  SetUserAgentMetadata(blink.mojom.UserAgentMetadata metadata);
-
-  // Sets the CORS exempt header list for sanity checking (e.g. DCHECKs).
-  SetCorsExemptHeaderList(array<string> list);
-
   // Tells the renderer about a scrollbar appearance change. Only for use on
   // OS X.
   UpdateScrollbarTheme(UpdateScrollbarThemeParams params);
 
   // Notification that the OS X Aqua color preferences changed.
-  OnSystemColorsChanged(int32 aqua_color_variant, string highlight_text_color,
-                        string highlight_color);
+  OnSystemColorsChanged(int32 aqua_color_variant);
 
   // Tells the renderer process the new system color info.
   UpdateSystemColorInfo(UpdateSystemColorInfoParams params);
@@ -148,6 +131,8 @@ interface Renderer {
   // pages containing plugins.
   PurgePluginListCache(bool reload_pages);
 
+  // Tells the renderer to purge its in-memory resource cache.
+  PurgeResourceCache() => ();
 
   // Tells the renderer process of a change in visibility or background state.
   SetProcessState(RenderProcessBackgroundState background_state,
@@ -172,18 +157,45 @@ interface Renderer {
   // This is called at most once, prior to committing a navigation.
   SetIsCrossOriginIsolated(bool value);
 
-  // Direct sockets require isolation above and beyond what "cross-origin
-  // isolation" provides. This flag corresponds to that set of restrictions.
+  // Set whether this renderer process is allowed to use Isolated Context APIs.
   // Similarly to the `SetIsCrossOriginIsolated()` method above, this flag is
   // process global, and called at most once, prior to committing a navigation.
   //
   // TODO(crbug.com/1206150): We need a specification for this restriction.
-  SetIsDirectSocketEnabled(bool value);
+  SetIsIsolatedContext(bool value);
 
-  // Enable the given blink runtime features (based on their names) for this
-  // renderer process. If this is non-empty, the embedder should ensure this
-  // renderer process is isolated to avoid exposing such features to other
-  // sites, because those features are highly privileged and shouldn't be
-  // exposed to other sites.
-  EnableBlinkRuntimeFeatures(array<string> features);
+  // Initialize renderer user agent string, user agent metadata, CORS exempt
+  // header list and origin trials settings on renderer startup.
+  //
+  // |user_agent| sets the user-agent string. This is needed because getting the
+  // value in the renderer from the system leads to a wrong value due to
+  // sandboxing. This must be called as early as possible, during the renderer
+  // process initialization.
+  //
+  // |full_user_agent| sets the full user-agent with high-entropy information.
+  //
+  // |reduced_user_agent| sets a user-agent with high-entropy information
+  // reduced to common values.
+  //
+  // |metadata| sets the user agent metadata. This will replace `SetUserAgent()`
+  // if we decide to ship https://github.com/WICG/ua-client-hints.
+  //
+  // |cors_exempt_header_list| sets the CORS exempt header list for sanity
+  // checking (e.g. DCHECKs).
+  //
+  // |attribution_support| sets whether web or OS-level Attribution Reporting is supported.
+  //
+  // |origin_trials_settings| sets the settings used to build a
+  // blink::OriginTrialPolicy for the renderer. It can be null if the embedder
+  // does not support origin trials.
+  InitializeRenderer(string user_agent,
+                     string full_user_agent,
+                     string reduced_user_agent,
+                     blink.mojom.UserAgentMetadata metadata,
+                     array<string> cors_exempt_header_list,
+                     network.mojom.AttributionSupport attribution_support,
+                     blink.mojom.OriginTrialsSettings? origin_trials_settings);
+
+ // Set whether web or OS-level Attribution Reporting is supported.
+  SetAttributionReportingSupport(network.mojom.AttributionSupport attribution_support);
 };

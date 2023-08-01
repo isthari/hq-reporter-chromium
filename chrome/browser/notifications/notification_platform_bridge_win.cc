@@ -1,19 +1,22 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/notifications/notification_platform_bridge_win.h"
 
-#include <memory>
-#include <utility>
-
 #include <objbase.h>
 #include <wrl/event.h>
 
-#include "base/bind.h"
+#include <map>
+#include <memory>
+#include <set>
+#include <utility>
+#include <vector>
+
 #include "base/command_line.h"
 #include "base/feature_list.h"
 #include "base/files/file_path.h"
+#include "base/functional/bind.h"
 #include "base/hash/hash.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
@@ -36,6 +39,8 @@
 #include "chrome/browser/notifications/win/notification_template_builder.h"
 #include "chrome/browser/notifications/win/notification_util.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/themes/theme_service.h"
+#include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/notifications/notification_image_retainer.h"
@@ -164,10 +169,7 @@ class NotificationPlatformBridgeWinImpl
  public:
   explicit NotificationPlatformBridgeWinImpl(
       scoped_refptr<base::SequencedTaskRunner> notification_task_runner)
-      : com_functions_initialized_(
-            base::win::ResolveCoreWinRTDelayload() &&
-            ScopedHString::ResolveCoreWinRTStringDelayload()),
-        notification_task_runner_(std::move(notification_task_runner)),
+      : notification_task_runner_(std::move(notification_task_runner)),
         image_retainer_(std::make_unique<NotificationImageRetainer>()) {
     // Delete any remaining temp files in the image folder from the previous
     // sessions.
@@ -700,8 +702,7 @@ class NotificationPlatformBridgeWinImpl
         InstallUtil::IsStartMenuShortcutWithActivatorGuidInstalled();
 
     int status = static_cast<int>(SetReadyCallbackStatus::kSuccess);
-    bool enabled = com_functions_initialized_ && activator_registered &&
-                   shortcut_installed;
+    bool enabled = activator_registered && shortcut_installed;
 
     if (!enabled) {
       if (!shortcut_installed) {
@@ -712,8 +713,6 @@ class NotificationPlatformBridgeWinImpl
         status |= static_cast<int>(
             SetReadyCallbackStatus::kComServerMisconfiguration);
       }
-      if (!com_functions_initialized_)
-        status |= static_cast<int>(SetReadyCallbackStatus::kComNotInitialized);
     }
 
     LogSetReadyCallbackStatus(static_cast<SetReadyCallbackStatus>(status));
@@ -878,9 +877,6 @@ class NotificationPlatformBridgeWinImpl
            NotificationLaunchId>
       displayed_notifications_;
 
-  // Whether the required functions from combase.dll have been loaded.
-  const bool com_functions_initialized_;
-
   // The task runner running notification related tasks.
   scoped_refptr<base::SequencedTaskRunner> notification_task_runner_;
 
@@ -921,7 +917,9 @@ void NotificationPlatformBridgeWin::Display(
   // Make a deep copy of the notification as its resources cannot safely
   // be passed between threads.
   auto notification_copy = message_center::Notification::DeepCopy(
-      notification, /*include_body_image=*/true, /*include_small_image=*/true,
+      notification,
+      ThemeServiceFactory::GetForProfile(profile)->GetColorProvider(),
+      /*include_body_image=*/true, /*include_small_image=*/true,
       /*include_icon_images=*/true);
 
   notification_task_runner_->PostTask(

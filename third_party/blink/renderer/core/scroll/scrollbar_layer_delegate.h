@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,8 +17,7 @@ class Scrollbar;
 // scrollbar state and to paint the image in the scrollbar.
 class CORE_EXPORT ScrollbarLayerDelegate : public cc::Scrollbar {
  public:
-  ScrollbarLayerDelegate(blink::Scrollbar& scrollbar,
-                         float device_scale_factor);
+  explicit ScrollbarLayerDelegate(blink::Scrollbar& scrollbar);
   ScrollbarLayerDelegate(const ScrollbarLayerDelegate&) = delete;
   ScrollbarLayerDelegate& operator=(const ScrollbarLayerDelegate&) = delete;
 
@@ -40,6 +39,8 @@ class CORE_EXPORT ScrollbarLayerDelegate : public cc::Scrollbar {
 
   float Opacity() const override;
   bool NeedsRepaintPart(cc::ScrollbarPart part) const override;
+  bool NeedsUpdateDisplay() const override;
+  void ClearNeedsUpdateDisplay() override;
   bool HasTickmarks() const override;
   void PaintPart(cc::PaintCanvas* canvas,
                  cc::ScrollbarPart part,
@@ -55,7 +56,6 @@ class CORE_EXPORT ScrollbarLayerDelegate : public cc::Scrollbar {
   bool ShouldPaint() const;
 
   Persistent<blink::Scrollbar> scrollbar_;
-  float device_scale_factor_;
 };
 
 }  // namespace blink

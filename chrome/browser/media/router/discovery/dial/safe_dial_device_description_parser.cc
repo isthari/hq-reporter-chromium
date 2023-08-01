@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/media/router/data_decoder_util.h"
 #include "services/data_decoder/public/cpp/safe_xml_parser.h"
@@ -29,7 +29,7 @@ std::string ComputeFriendlyName(const std::string& unique_id,
 }
 
 void NotifyParsingError(SafeDialDeviceDescriptionParser::ParseCallback callback,
-                        SafeDialDeviceDescriptionParser::ParsingError error) {
+                        SafeDialDeviceDescriptionParser::ParsingResult error) {
   std::move(callback).Run(ParsedDialDeviceDescription(), error);
 }
 
@@ -44,7 +44,7 @@ void SafeDialDeviceDescriptionParser::Parse(const std::string& xml_text,
                                             ParseCallback callback) {
   DCHECK(callback);
   GetDataDecoder().ParseXml(
-      xml_text,
+      xml_text, data_decoder::mojom::XmlParser::WhitespaceBehavior::kIgnore,
       base::BindOnce(&SafeDialDeviceDescriptionParser::OnXmlParsingDone,
                      weak_factory_.GetWeakPtr(), std::move(callback), app_url));
 }
@@ -53,20 +53,20 @@ void SafeDialDeviceDescriptionParser::OnXmlParsingDone(
     SafeDialDeviceDescriptionParser::ParseCallback callback,
     const GURL& app_url,
     data_decoder::DataDecoder::ValueOrError result) {
-  if (!result.value || !result.value->is_dict()) {
+  if (!result.has_value() || !result->is_dict()) {
     std::move(callback).Run(
         ParsedDialDeviceDescription(),
-        SafeDialDeviceDescriptionParser::ParsingError::kInvalidXml);
+        SafeDialDeviceDescriptionParser::ParsingResult::kInvalidXml);
     return;
   }
 
   bool unique_device = true;
   const base::Value* device_element = data_decoder::FindXmlElementPath(
-      *result.value, {"root", "device"}, &unique_device);
+      *result, {"root", "device"}, &unique_device);
   if (!device_element) {
     NotifyParsingError(
         std::move(callback),
-        SafeDialDeviceDescriptionParser::ParsingError::kInvalidXml);
+        SafeDialDeviceDescriptionParser::ParsingResult::kInvalidXml);
     return;
   }
   DCHECK(unique_device);
@@ -75,16 +75,11 @@ void SafeDialDeviceDescriptionParser::OnXmlParsingDone(
   static constexpr size_t kArraySize = 4U;
   static constexpr std::array<const char* const, kArraySize> kNodeNames{
       {"UDN", "friendlyName", "modelName", "deviceType"}};
-  static constexpr std::array<SafeDialDeviceDescriptionParser::ParsingError,
-                              kArraySize>
-      kParsingErrors{
-          {SafeDialDeviceDescriptionParser::ParsingError::kFailedToReadUdn,
-           SafeDialDeviceDescriptionParser::ParsingError::
-               kFailedToReadFriendlyName,
-           SafeDialDeviceDescriptionParser::ParsingError::
-               kFailedToReadModelName,
-           SafeDialDeviceDescriptionParser::ParsingError::
-               kFailedToReadDeviceType}};
+  static constexpr std::array<ParsingResult, kArraySize> kParsingErrors{
+      {ParsingResult::kFailedToReadUdn,
+       ParsingResult::kFailedToReadFriendlyName,
+       ParsingResult::kFailedToReadModelName,
+       ParsingResult::kFailedToReadDeviceType}};
   const std::array<std::string*, kArraySize> kFields{
       {&device_description.unique_id, &device_description.friendly_name,
        &device_description.model_name, &device_description.device_type}};
@@ -110,8 +105,7 @@ void SafeDialDeviceDescriptionParser::OnXmlParsingDone(
 
   device_description.app_url = app_url;
 
-  std::move(callback).Run(device_description,
-                          SafeDialDeviceDescriptionParser::ParsingError::kNone);
+  std::move(callback).Run(device_description, ParsingResult::kSuccess);
 }
 
 }  // namespace media_router

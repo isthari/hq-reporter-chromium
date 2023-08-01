@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 #include "components/safe_browsing/content/browser/password_protection/password_protection_service.h"
@@ -8,7 +8,7 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/read_only_shared_memory_region.h"
@@ -31,7 +31,7 @@
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
 #include "components/password_manager/core/browser/password_reuse_detector.h"
 #include "components/safe_browsing/content/browser/password_protection/mock_password_protection_service.h"
-#include "components/safe_browsing/content/browser/password_protection/password_protection_navigation_throttle.h"
+#include "components/safe_browsing/content/browser/password_protection/password_protection_commit_deferring_condition.h"
 #include "components/safe_browsing/content/browser/password_protection/password_protection_request_content.h"
 #include "components/safe_browsing/content/common/safe_browsing.mojom-forward.h"
 #include "components/safe_browsing/content/common/safe_browsing.mojom.h"
@@ -50,6 +50,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_task_environment.h"
+#include "content/public/test/mock_navigation_handle.h"
 #include "content/public/test/test_browser_context.h"
 #include "content/public/test/test_renderer_host.h"
 #include "content/public/test/web_contents_tester.h"
@@ -135,11 +136,6 @@ class TestPhishingDetector : public mojom::PhishingDetector {
         mojo::PendingReceiver<mojom::PhishingDetector>(std::move(handle)));
   }
 
-  void SetPhishingModel(const std::string& model, base::File file) override {}
-
-  void SetPhishingFlatBufferModel(base::ReadOnlySharedMemoryRegion region,
-                                  base::File file) override {}
-
   void StartPhishingDetection(
       const GURL& url,
       StartPhishingDetectionCallback callback) override {
@@ -187,8 +183,10 @@ class TestPasswordProtectionService : public MockPasswordProtectionService {
                                       try_token_fetch,
                                       nullptr),
         cache_manager_(
-            std::make_unique<VerdictCacheManager>(nullptr,
-                                                  content_setting_map.get())) {
+            std::make_unique<VerdictCacheManager>(/*history_service=*/nullptr,
+                                                  content_setting_map.get(),
+                                                  pref_service,
+                                                  /*sync_observer=*/nullptr)) {
     cache_manager_->StopCleanUpTimerForTesting();
   }
   TestPasswordProtectionService(const TestPasswordProtectionService&) = delete;
@@ -286,7 +284,8 @@ class PasswordProtectionServiceTest : public ::testing::Test {
     HostContentSettingsMap::RegisterProfilePrefs(test_pref_service_.registry());
     content_setting_map_ = new HostContentSettingsMap(
         &test_pref_service_, /*is_off_the_record=*/false,
-        /*store_last_modified=*/false, /*restore_session=*/false);
+        /*store_last_modified=*/false, /*restore_session=*/false,
+        /*should_record_metrics=*/false);
     database_manager_ = new MockSafeBrowsingDatabaseManager();
     password_protection_service_ =
         std::make_unique<NiceMock<TestPasswordProtectionService>>(
@@ -316,8 +315,8 @@ class PasswordProtectionServiceTest : public ::testing::Test {
     content_setting_map_->ShutdownOnUIThread();
   }
 
-  size_t GetNumberOfNavigationThrottles() {
-    return request_ ? request_->throttles_.size() : 0u;
+  size_t GetNumberOfDeferredNavigations() {
+    return request_ ? request_->deferred_navigations_.size() : 0u;
   }
 
   // |task_environment_| is needed here because this test involves both UI and
@@ -335,23 +334,38 @@ class PasswordProtectionServiceTest : public ::testing::Test {
 };
 
 TEST_F(PasswordProtectionServiceTest,
-       VerifyNavigationThrottleNotRemovedWhenCanceledOnTimeout) {
+       VerifyCommitDeferringConditionNotRemovedWhenCanceledOnTimeout) {
   request_->Start();
-  auto throttle = std::make_unique<PasswordProtectionNavigationThrottle>(
-      nullptr, request_, false);
-  EXPECT_EQ(1U, GetNumberOfNavigationThrottles());
+  content::MockNavigationHandle mock_handle;
+  auto condition = std::make_unique<PasswordProtectionCommitDeferringCondition>(
+      mock_handle, *request_.get());
+  EXPECT_EQ(1U, GetNumberOfDeferredNavigations());
   request_->Cancel(/*timed_out=*/true);
-  EXPECT_EQ(1U, GetNumberOfNavigationThrottles());
+  EXPECT_EQ(1U, GetNumberOfDeferredNavigations());
 }
 
 TEST_F(PasswordProtectionServiceTest,
-       VerifyNavigationThrottleRemovedWhenCanceledNotOnTimeout) {
+       VerifyCommitDeferringConditionRemovedWhenCanceledNotOnTimeout) {
   request_->Start();
-  auto throttle = std::make_unique<PasswordProtectionNavigationThrottle>(
-      nullptr, request_, false);
-  EXPECT_EQ(1U, GetNumberOfNavigationThrottles());
+  content::MockNavigationHandle mock_handle;
+  auto condition = std::make_unique<PasswordProtectionCommitDeferringCondition>(
+      mock_handle, *request_.get());
+  EXPECT_EQ(1U, GetNumberOfDeferredNavigations());
   request_->Cancel(/*timed_out=*/false);
-  EXPECT_EQ(0U, GetNumberOfNavigationThrottles());
+  EXPECT_EQ(0U, GetNumberOfDeferredNavigations());
+}
+
+TEST_F(PasswordProtectionServiceTest, NoSendPingPrivateIpHostname) {
+  EXPECT_CALL(*password_protection_service_, IsPingingEnabled(_, _))
+      .WillRepeatedly(Return(true));
+  ReusedPasswordAccountType reused_password_type;
+  reused_password_type.set_account_type(ReusedPasswordAccountType::GMAIL);
+  EXPECT_FALSE(password_protection_service_->CanSendPing(
+      LoginReputationClientRequest::PASSWORD_REUSE_EVENT,
+      GURL("http://127.0.0.1"), reused_password_type));
+  EXPECT_FALSE(password_protection_service_->CanSendPing(
+      LoginReputationClientRequest::PASSWORD_REUSE_EVENT,
+      GURL("http://192.168.1.1"), reused_password_type));
 }
 
 class PasswordProtectionServiceBaseTest
@@ -376,7 +390,8 @@ class PasswordProtectionServiceBaseTest
     safe_browsing::RegisterProfilePrefs(test_pref_service_.registry());
     content_setting_map_ = new HostContentSettingsMap(
         &test_pref_service_, false /* is_off_the_record */,
-        false /* store_last_modified */, false /* restore_session*/);
+        false /* store_last_modified */, false /* restore_session*/,
+        false /* should_record_metrics */);
     database_manager_ = new MockSafeBrowsingDatabaseManager();
     auto token_fetcher =
         std::make_unique<StrictMock<MockSafeBrowsingTokenFetcher>>();
@@ -465,28 +480,26 @@ class PasswordProtectionServiceBaseTest
 
   void CacheInvalidVerdict(ReusedPasswordAccountType password_type) {
     GURL invalid_hostname("http://invalid.com");
-    base::Value verdict_dictionary = content_setting_map_->GetWebsiteSetting(
+    base::Value verdict = content_setting_map_->GetWebsiteSetting(
         invalid_hostname, GURL(), ContentSettingsType::PASSWORD_PROTECTION,
         nullptr);
 
-    if (!verdict_dictionary.is_dict())
-      verdict_dictionary = base::Value(base::Value::Type::DICTIONARY);
-
-    base::Value invalid_verdict_entry(base::Value::Type::DICTIONARY);
-    invalid_verdict_entry.SetStringKey("invalid", "invalid_string");
-
-    base::Value invalid_cache_expression_entry(base::Value::Type::DICTIONARY);
-    invalid_cache_expression_entry.SetKey("invalid_cache_expression",
-                                          std::move(invalid_verdict_entry));
-    verdict_dictionary.SetKey(
+    auto verdict_dictionary = base::Value::Dict();
+    if (verdict.is_dict()) {
+      verdict_dictionary = std::move(verdict).TakeDict();
+    }
+    verdict_dictionary.Set(
         base::NumberToString(static_cast<std::underlying_type_t<PasswordType>>(
             password_protection_service_
                 ->ConvertReusedPasswordAccountTypeToPasswordType(
                     password_type))),
-        std::move(invalid_cache_expression_entry));
+        base::Value::Dict().Set(
+            "invalid_cache_expression",
+            base::Value::Dict().Set("invalid", "invalid_string")));
+
     content_setting_map_->SetWebsiteSettingDefaultScope(
         invalid_hostname, GURL(), ContentSettingsType::PASSWORD_PROTECTION,
-        std::move(verdict_dictionary));
+        base::Value(std::move(verdict_dictionary)));
   }
 
   size_t GetStoredVerdictCount(LoginReputationClientRequest::TriggerType type) {
@@ -503,8 +516,9 @@ class PasswordProtectionServiceBaseTest
     return contents;
   }
 
-  void SetFeatures(const std::vector<base::Feature>& enabled_features,
-                   const std::vector<base::Feature>& disabled_features) {
+  void SetFeatures(
+      const std::vector<base::test::FeatureRef>& enabled_features,
+      const std::vector<base::test::FeatureRef>& disabled_features) {
     feature_list_.InitWithFeatures(enabled_features, disabled_features);
   }
 
@@ -825,11 +839,12 @@ TEST_P(PasswordProtectionServiceBaseTest, TestGetCachedVerdicts) {
                 LoginReputationClientRequest::PASSWORD_REUSE_EVENT,
                 reused_password_account_type, &actual_verdict));
 
-  // Return VERDICT_TYPE_UNSPECIFIED if look up for a URL whose variants match
-  // test.com/def, but the corresponding verdict is expired.
+  // Return SAFE if look up for a URL whose variants match
+  // test.com/def, but the corresponding verdict is expired, so the most
+  // matching unexpired verdict will return SAFE
   reused_password_account_type.set_account_type(
       ReusedPasswordAccountType::GSUITE);
-  EXPECT_EQ(LoginReputationClientResponse::VERDICT_TYPE_UNSPECIFIED,
+  EXPECT_EQ(LoginReputationClientResponse::SAFE,
             password_protection_service_->GetCachedVerdict(
                 GURL("http://test.com/def/ghi/index.html"),
                 LoginReputationClientRequest::PASSWORD_REUSE_EVENT,
@@ -1114,7 +1129,7 @@ TEST_P(PasswordProtectionServiceBaseTest,
 
   // Initiate a saved password entry request (w/ no sync password).
   AccountInfo account_info;
-  account_info.account_id = CoreAccountId("account_id");
+  account_info.account_id = CoreAccountId::FromGaiaId("gaia");
   account_info.email = "email";
   account_info.gaia = "gaia";
   EXPECT_CALL(*password_protection_service_, GetAccountInfoForUsername(_))
@@ -1287,7 +1302,6 @@ TEST_P(PasswordProtectionServiceBaseTest,
   EXPECT_TRUE(actual_request->frames(0).has_password_field());
   ASSERT_TRUE(actual_request->has_password_reuse_event());
   const auto& reuse_event = actual_request->password_reuse_event();
-  EXPECT_TRUE(reuse_event.is_chrome_signin_password());
   EXPECT_EQ(0, reuse_event.domains_matching_password_size());
 #if !BUILDFLAG(IS_ANDROID)
   VerifyContentAreaSizeCollection(*actual_request);
@@ -1318,7 +1332,6 @@ TEST_P(PasswordProtectionServiceBaseTest,
       password_protection_service_->GetLatestRequestProto();
   ASSERT_TRUE(actual_request->has_password_reuse_event());
   const auto& reuse_event = actual_request->password_reuse_event();
-  EXPECT_FALSE(reuse_event.is_chrome_signin_password());
 
   if (password_protection_service_->IsExtendedReporting() &&
       !password_protection_service_->IsIncognito()) {
@@ -1341,7 +1354,7 @@ TEST_P(PasswordProtectionServiceBaseTest, VerifyShouldShowModalWarning) {
   EXPECT_CALL(*password_protection_service_, IsPrimaryAccountSignedIn())
       .WillRepeatedly(Return(true));
   AccountInfo account_info;
-  account_info.account_id = CoreAccountId("account_id");
+  account_info.account_id = CoreAccountId::FromGaiaId("gaia");
   account_info.email = "email";
   account_info.gaia = "gaia";
   EXPECT_CALL(*password_protection_service_, GetAccountInfoForUsername(_))
@@ -1365,24 +1378,6 @@ TEST_P(PasswordProtectionServiceBaseTest, VerifyShouldShowModalWarning) {
       LoginReputationClientResponse::LOW_REPUTATION));
 
   {
-    base::test::ScopedFeatureList feature_list;
-    feature_list.InitAndDisableFeature(
-        safe_browsing::kPasswordProtectionForSignedInUsers);
-
-    // Don't show modal warning if non-sync gaia account experiment is not
-    // on.
-    reused_password_account_type.set_account_type(
-        ReusedPasswordAccountType::GMAIL);
-    reused_password_account_type.set_is_account_syncing(false);
-    EXPECT_FALSE(password_protection_service_->ShouldShowModalWarning(
-        LoginReputationClientRequest::PASSWORD_REUSE_EVENT,
-        reused_password_account_type, LoginReputationClientResponse::PHISHING));
-  }
-  {
-    base::test::ScopedFeatureList feature_list;
-    feature_list.InitAndEnableFeature(
-        safe_browsing::kPasswordProtectionForSignedInUsers);
-    // Show modal warning if non-sync gaia account experiment is on.
     reused_password_account_type.set_account_type(
         ReusedPasswordAccountType::GMAIL);
     reused_password_account_type.set_is_account_syncing(false);
@@ -1405,37 +1400,10 @@ TEST_P(PasswordProtectionServiceBaseTest, VerifyShouldShowModalWarning) {
       reused_password_account_type, LoginReputationClientResponse::PHISHING));
 
   {
-    base::test::ScopedFeatureList feature_list;
-    feature_list.InitAndEnableFeature(
-        safe_browsing::kPasswordProtectionForSignedInUsers);
-
     reused_password_account_type.set_account_type(
         ReusedPasswordAccountType::GMAIL);
     reused_password_account_type.set_is_account_syncing(true);
-    // If kPasswordProtectionForSignedInUsers is enabled, then password reuse
-    // warnings are supported for both saved passwords and GMAIL passwords on
-    // both desktop and Android platforms.
     EXPECT_TRUE(password_protection_service_->ShouldShowModalWarning(
-        LoginReputationClientRequest::PASSWORD_REUSE_EVENT,
-        reused_password_account_type, LoginReputationClientResponse::PHISHING));
-  }
-
-  {
-    // TODO(crbug.com/1237388): Remove it once the flag is completed removed.
-    base::test::ScopedFeatureList feature_list;
-    feature_list.InitAndDisableFeature(
-        safe_browsing::kPasswordProtectionForSignedInUsers);
-
-    reused_password_account_type.set_account_type(
-        ReusedPasswordAccountType::GMAIL);
-    reused_password_account_type.set_is_account_syncing(true);
-// If kPasswordProtectionForSignedInUsers is disabled, then GMAIL password
-// reuse warnings are only supported on desktop platforms.
-#if BUILDFLAG(IS_ANDROID)
-    EXPECT_FALSE(password_protection_service_->ShouldShowModalWarning(
-#else
-  EXPECT_TRUE(password_protection_service_->ShouldShowModalWarning(
-#endif
         LoginReputationClientRequest::PASSWORD_REUSE_EVENT,
         reused_password_account_type, LoginReputationClientResponse::PHISHING));
   }
@@ -1537,7 +1505,7 @@ TEST_P(PasswordProtectionServiceBaseTest,
   EXPECT_CALL(*password_protection_service_, IsPrimaryAccountSignedIn())
       .WillRepeatedly(Return(true));
   AccountInfo account_info;
-  account_info.account_id = CoreAccountId("account_id");
+  account_info.account_id = CoreAccountId::FromGaiaId("gaia");
   account_info.email = "email";
   account_info.gaia = "gaia";
   EXPECT_CALL(*password_protection_service_, GetAccountInfoForUsername(_))
@@ -1551,14 +1519,6 @@ TEST_P(PasswordProtectionServiceBaseTest,
       PasswordType::ENTERPRISE_PASSWORD));
   EXPECT_TRUE(password_protection_service_->IsSupportedPasswordTypeForPinging(
       PasswordType::SAVED_PASSWORD));
-  {
-    base::test::ScopedFeatureList feature_list;
-    feature_list.InitAndDisableFeature(
-        safe_browsing::kPasswordProtectionForSignedInUsers);
-    EXPECT_FALSE(
-        password_protection_service_->IsSupportedPasswordTypeForPinging(
-            PasswordType::OTHER_GAIA_PASSWORD));
-  }
 }
 
 TEST_P(PasswordProtectionServiceBaseTest, TestPingsForAboutBlank) {

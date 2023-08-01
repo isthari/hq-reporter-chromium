@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,8 +20,8 @@ import android.widget.FrameLayout;
 import android.widget.TextView;
 
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.chrome.R;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.ui.widget.ButtonCompat;
 
 /**
@@ -29,8 +29,6 @@ import org.chromium.ui.widget.ButtonCompat;
  */
 class QrCodeScanView {
     public interface PermissionPrompter { void promptForCameraPermission(); }
-
-    public interface PermissionPromptAllowedChecker { Boolean canPromptForPermission(); }
 
     private final Context mContext;
     private final FrameLayout mView;
@@ -108,7 +106,7 @@ class QrCodeScanView {
             String errorString = mContext.getResources().getString(stringResource);
             // displayCameraErrorDialog should be called from the UI thread.
             PostTask.runOrPostTask(
-                    UiThreadTaskTraits.DEFAULT, () -> displayCameraErrorDialog(errorString));
+                    TaskTraits.UI_DEFAULT, () -> displayCameraErrorDialog(errorString));
         }
     };
 

@@ -26,6 +26,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_MEDIA_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_MEDIA_H_
 
+#include "base/check_op.h"
 #include "third_party/blink/renderer/core/layout/layout_image.h"
 
 namespace blink {
@@ -69,9 +70,9 @@ class LayoutMedia : public LayoutImage {
     return "LayoutMedia";
   }
 
- protected:
-  void UpdateLayout() override;
+  LayoutUnit ComputePanelWidth(const LayoutRect& media_width) const;
 
+ protected:
   bool IsOfType(LayoutObjectType type) const override {
     NOT_DESTROYED();
     return type == kLayoutObjectMedia || LayoutImage::IsOfType(type);
@@ -104,9 +105,14 @@ class LayoutMedia : public LayoutImage {
     return false;
   }
 
-  LayoutUnit ComputePanelWidth(const LayoutRect& media_width) const;
+  RecalcLayoutOverflowResult RecalcLayoutOverflow() override;
 
   LayoutObjectChildList children_;
+};
+
+template <>
+struct DowncastTraits<LayoutMedia> {
+  static bool AllowFrom(const LayoutObject& object) { return object.IsMedia(); }
 };
 
 }  // namespace blink

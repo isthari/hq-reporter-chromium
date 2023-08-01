@@ -1,24 +1,28 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.net.test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import android.content.Context;
-import android.support.test.InstrumentationRegistry;
-import android.support.test.runner.AndroidJUnit4;
 
+import androidx.test.core.app.ApplicationProvider;
+import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.filters.SmallTest;
 
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import org.chromium.base.test.util.Batch;
 import org.chromium.net.CronetException;
+import org.chromium.net.RequestFinishedInfo;
+import org.chromium.net.TestRequestFinishedListener;
 import org.chromium.net.UrlRequest;
 import org.chromium.net.UrlResponseInfo;
 import org.chromium.net.impl.ImplVersion;
@@ -32,6 +36,7 @@ import java.util.concurrent.Executors;
  * Test functionality of {@link FakeCronetEngine}.
  */
 @RunWith(AndroidJUnit4.class)
+@Batch(Batch.UNIT_TESTS)
 public class FakeCronetEngineTest {
     Context mContext;
     FakeCronetEngine mFakeCronetEngine;
@@ -40,7 +45,7 @@ public class FakeCronetEngineTest {
 
     @Before
     public void setUp() {
-        mContext = InstrumentationRegistry.getTargetContext();
+        mContext = ApplicationProvider.getApplicationContext();
         mFakeCronetEngine =
                 (FakeCronetEngine) new FakeCronetProvider(mContext).createBuilder().build();
         mCallback = new UrlRequest.Callback() {
@@ -49,7 +54,9 @@ public class FakeCronetEngineTest {
                     UrlRequest request, UrlResponseInfo info, String newLocationUrl) {}
 
             @Override
-            public void onResponseStarted(UrlRequest request, UrlResponseInfo info) {}
+            public void onResponseStarted(UrlRequest request, UrlResponseInfo info) {
+                request.read(ByteBuffer.allocate(0));
+            }
 
             @Override
             public void onReadCompleted(
@@ -240,31 +247,101 @@ public class FakeCronetEngineTest {
 
     @Test
     @SmallTest
-    public void testAddRequestFinishedListener() {
-        mFakeCronetEngine.addRequestFinishedListener(null);
-    }
-
-    @Test
-    @SmallTest
-    public void testRemoveRequestFinishedListener() {
-        mFakeCronetEngine.removeRequestFinishedListener(null);
-    }
-
-    @Test
-    @SmallTest
     public void testShutdownBlockedWhenRequestCountNotZero() {
         // Start a request and verify the engine can't be shutdown.
         assertTrue(mFakeCronetEngine.startRequest());
         try {
             mFakeCronetEngine.shutdown();
-            fail("Shutdown not checked for active requests.");
+            fail("Shutdown not checked for running requests.");
         } catch (IllegalStateException e) {
-            assertEquals("Cannot shutdown with active requests.", e.getMessage());
+            assertEquals("Cannot shutdown with running requests.", e.getMessage());
         }
 
         // Finish the request and verify the engine can be shutdown.
         mFakeCronetEngine.onRequestDestroyed();
         mFakeCronetEngine.shutdown();
+    }
+
+    @Test
+    @SmallTest
+    public void testAddRequestFinishedListenerShouldAffectSize() {
+        mFakeCronetEngine.addRequestFinishedListener(new RequestFinishedInfo.Listener(mExecutor) {
+            @Override
+            public void onRequestFinished(RequestFinishedInfo requestInfo) {}
+        });
+        assertTrue(mFakeCronetEngine.hasRequestFinishedListeners());
+    }
+
+    @Test
+    @SmallTest
+    public void testRemoveRequestFinishedListenerShouldAffectSize() {
+        RequestFinishedInfo.Listener listener = new RequestFinishedInfo.Listener(mExecutor) {
+            @Override
+            public void onRequestFinished(RequestFinishedInfo requestInfo) {}
+        };
+        mFakeCronetEngine.addRequestFinishedListener(listener);
+        assertTrue(mFakeCronetEngine.hasRequestFinishedListeners());
+        mFakeCronetEngine.removeRequestFinishedListener(listener);
+        assertFalse(mFakeCronetEngine.hasRequestFinishedListeners());
+    }
+
+    @Test
+    @SmallTest
+    public void testAddNullRequestFinishedListenerShouldThrowException() {
+        assertThrows(IllegalArgumentException.class,
+                () -> mFakeCronetEngine.addRequestFinishedListener(null));
+    }
+
+    @Test
+    @SmallTest
+    public void testRemoveNullRequestFinishedListenerShouldThrowException() {
+        assertThrows(IllegalArgumentException.class,
+                () -> mFakeCronetEngine.removeRequestFinishedListener(null));
+    }
+
+    @Test
+    @SmallTest
+    public void testFinishedRequestListener() {
+        String url = "broken_url";
+        String annotation = "some_annotation";
+        TestRequestFinishedListener listener = new TestRequestFinishedListener(mExecutor) {
+            @Override
+            public void onRequestFinished(RequestFinishedInfo requestInfo) {
+                super.onRequestFinished(requestInfo);
+                assertEquals(url, requestInfo.getUrl());
+                assertTrue(requestInfo.getAnnotations().contains(annotation));
+            }
+        };
+        mFakeCronetEngine.addRequestFinishedListener(listener);
+        UrlRequest urlRequest = mFakeCronetEngine.newUrlRequestBuilder(url, mCallback, mExecutor)
+                                        .addRequestAnnotation(annotation)
+                                        .build();
+        urlRequest.start();
+        listener.blockUntilDone();
+    }
+
+    @Test
+    @SmallTest
+    public void testFinishedRequestListenerFailWithException() {
+        UrlRequest.Callback exceptionCallBack = new FakeUrlRequestTest.StubCallback() {
+            @Override
+            public void onResponseStarted(UrlRequest request, UrlResponseInfo info) {
+                throw new IllegalStateException("Throwing an exception");
+            }
+        };
+        TestRequestFinishedListener listener = new TestRequestFinishedListener(mExecutor) {
+            @Override
+            public void onRequestFinished(RequestFinishedInfo requestInfo) {
+                super.onRequestFinished(requestInfo);
+                assertEquals("Exception received from UrlRequest.Callback",
+                        requestInfo.getException().getMessage());
+            }
+        };
+        mFakeCronetEngine.addRequestFinishedListener(listener);
+        UrlRequest urlRequest =
+                mFakeCronetEngine.newUrlRequestBuilder("", exceptionCallBack, mExecutor).build();
+        urlRequest.start();
+        listener.blockUntilDone();
     }
 
     @Test

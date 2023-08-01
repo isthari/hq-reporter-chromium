@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,8 @@
 
 #include "base/memory/raw_ptr.h"
 #include "components/prefs/pref_change_registrar.h"
-#include "components/sync/driver/model_type_controller.h"
-#include "components/sync/driver/sync_service_observer.h"
+#include "components/sync/service/model_type_controller.h"
+#include "components/sync/service/sync_service_observer.h"
 
 class PrefService;
 
@@ -49,8 +49,7 @@ class AutofillWalletModelTypeController : public syncer::ModelTypeController,
   ~AutofillWalletModelTypeController() override;
 
   // DataTypeController overrides.
-  void Stop(syncer::ShutdownReason shutdown_reason,
-            StopCallback callback) override;
+  void Stop(syncer::SyncStopMetadataFate fate, StopCallback callback) override;
   PreconditionState GetPreconditionState() const override;
   bool ShouldRunInTransportOnlyMode() const override;
 

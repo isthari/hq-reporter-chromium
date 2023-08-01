@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/threading/thread_restrictions.h"
 #include "media/audio/audio_output_device_thread_callback.h"
 #include "media/mojo/mojom/audio_data_pipe.mojom.h"
@@ -42,17 +42,23 @@ OutputDevice::~OutputDevice() {
 
 void OutputDevice::Play() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  stream_->Play();
+  if (stream_.is_bound()) {
+    stream_->Play();
+  }
 }
 
 void OutputDevice::Pause() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  stream_->Pause();
+  if (stream_.is_bound()) {
+    stream_->Pause();
+  }
 }
 
 void OutputDevice::SetVolume(double volume) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  stream_->SetVolume(volume);
+  if (stream_.is_bound()) {
+    stream_->SetVolume(volume);
+  }
 }
 
 void OutputDevice::StreamCreated(
@@ -73,7 +79,7 @@ void OutputDevice::StreamCreated(
       audio_parameters_, std::move(shared_memory_region), render_callback_);
   audio_thread_ = std::make_unique<media::AudioDeviceThread>(
       audio_callback_.get(), std::move(socket_handle), "audio::OutputDevice",
-      base::ThreadPriority::REALTIME_AUDIO);
+      base::ThreadType::kRealtimeAudio);
 }
 
 void OutputDevice::OnConnectionError() {
@@ -81,6 +87,8 @@ void OutputDevice::OnConnectionError() {
   // simpler.
   base::ScopedAllowBaseSyncPrimitivesOutsideBlockingScope allow_thread_join;
   CleanUp();
+
+  render_callback_->OnRenderError();
 }
 
 void OutputDevice::CleanUp() {

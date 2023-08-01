@@ -1,14 +1,14 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/platform/peerconnection/webrtc_video_track_source.h"
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
-#include "base/stl_util.h"
 #include "base/trace_event/trace_event.h"
+#include "base/types/optional_util.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/renderer/platform/webrtc/convert_to_webrtc_video_frame_buffer.h"
 #include "third_party/webrtc/rtc_base/ref_counted_object.h"
@@ -214,23 +214,12 @@ void WebRtcVideoTrackSource::OnFrameCaptured(
       timestamp_aligner_.TranslateTimestamp(frame->timestamp().InMicroseconds(),
                                             now_us);
 
-  // Return |frame| directly if it is texture not backed up by GPU memory,
-  // because there is no cropping support for texture yet. See
-  // http://crbug/503653.
-  if (frame->HasTextures() &&
-      frame->storage_type() != media::VideoFrame::STORAGE_GPU_MEMORY_BUFFER) {
-    // The webrtc::VideoFrame::UpdateRect expected by WebRTC must
-    // be relative to the |visible_rect()|. We need to translate.
-    absl::optional<gfx::Rect> cropped_rect;
-    if (accumulated_update_rect_) {
-      cropped_rect =
-          CropRectangle(*accumulated_update_rect_, frame->visible_rect());
-    }
-
-    DeliverFrame(std::move(frame), std::move(scaled_frames),
-                 base::OptionalOrNullptr(cropped_rect),
-                 translated_camera_time_us);
-    return;
+  absl::optional<webrtc::Timestamp> capture_time_identifier;
+  // Set |capture_time_identifier| only when frame->timestamp() is a valid
+  // value (infinite values are invalid).
+  if (!frame->timestamp().is_inf()) {
+    capture_time_identifier =
+        webrtc::Timestamp::Micros(frame->timestamp().InMicroseconds());
   }
 
   // Translate the |crop_*| values output by AdaptFrame() from natural size to
@@ -275,8 +264,8 @@ void WebRtcVideoTrackSource::OnFrameCaptured(
   // of the pipeline.
   if (video_frame->natural_size() == video_frame->visible_rect().size()) {
     DeliverFrame(std::move(video_frame), std::move(scaled_frames),
-                 base::OptionalOrNullptr(accumulated_update_rect_),
-                 translated_camera_time_us);
+                 base::OptionalToPtr(accumulated_update_rect_),
+                 translated_camera_time_us, capture_time_identifier);
     return;
   }
 
@@ -287,8 +276,13 @@ void WebRtcVideoTrackSource::OnFrameCaptured(
   }
 
   DeliverFrame(std::move(video_frame), std::move(scaled_frames),
-               base::OptionalOrNullptr(accumulated_update_rect_),
-               translated_camera_time_us);
+               base::OptionalToPtr(accumulated_update_rect_),
+               translated_camera_time_us, capture_time_identifier);
+}
+
+void WebRtcVideoTrackSource::OnNotifyFrameDropped() {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  OnFrameDropped();
 }
 
 WebRtcVideoTrackSource::FrameAdaptationParams
@@ -309,7 +303,8 @@ void WebRtcVideoTrackSource::DeliverFrame(
     scoped_refptr<media::VideoFrame> frame,
     std::vector<scoped_refptr<media::VideoFrame>> scaled_frames,
     gfx::Rect* update_rect,
-    int64_t timestamp_us) {
+    int64_t timestamp_us,
+    absl::optional<webrtc::Timestamp> capture_time_identifier) {
   if (update_rect) {
     DVLOG(3) << "update_rect = "
              << "[" << update_rect->x() << ", " << update_rect->y() << ", "
@@ -334,7 +329,8 @@ void WebRtcVideoTrackSource::DeliverFrame(
       webrtc::VideoFrame::Builder()
           .set_video_frame_buffer(frame_adapter)
           .set_rotation(GetFrameRotation(frame.get()))
-          .set_timestamp_us(timestamp_us);
+          .set_timestamp_us(timestamp_us)
+          .set_capture_time_identifier(capture_time_identifier);
   if (update_rect) {
     frame_builder.set_update_rect(webrtc::VideoFrame::UpdateRect{
         update_rect->x(), update_rect->y(), update_rect->width(),

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,8 +17,10 @@
 #include "ash/tray_action/test_tray_action_client.h"
 #include "ash/tray_action/tray_action.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "chromeos/dbus/power/fake_power_manager_client.h"
@@ -36,7 +38,7 @@ class TestPowerManagerObserver : public chromeos::PowerManagerClient::Observer {
  public:
   TestPowerManagerObserver()
       : power_manager_(chromeos::FakePowerManagerClient::Get()) {
-    scoped_observation_.Observe(power_manager_);
+    scoped_observation_.Observe(power_manager_.get());
     power_manager_->set_user_activity_callback(base::BindRepeating(
         &TestPowerManagerObserver::OnUserActivity, base::Unretained(this)));
   }
@@ -68,7 +70,7 @@ class TestPowerManagerObserver : public chromeos::PowerManagerClient::Observer {
   }
 
  private:
-  chromeos::FakePowerManagerClient* power_manager_;
+  raw_ptr<chromeos::FakePowerManagerClient, ExperimentalAsh> power_manager_;
   std::vector<double> brightness_changes_;
 
   base::ScopedObservation<chromeos::PowerManagerClient,

@@ -1,15 +1,19 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "sandbox/win/tests/common/controller.h"
 
+#include <memory>
 #include <string>
 
+#include "base/check.h"
+#include "base/dcheck_is_on.h"
 #include "base/memory/platform_shared_memory_region.h"
 #include "base/memory/read_only_shared_memory_region.h"
 #include "base/process/process.h"
 #include "base/process/process_handle.h"
+#include "base/sequence_checker.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/sys_string_conversions.h"
@@ -23,11 +27,58 @@
 
 namespace {
 
+// Used by the machinery that counts how many processes the sandbox is tracking.
+HANDLE g_no_targets_event = nullptr;
+
+// Helper to track the number of live processes, sets an event when there are
+// none and resets it when one process is added.
+class TargetTracker : public sandbox::BrokerServicesTargetTracker {
+ public:
+  TargetTracker(HANDLE no_targets) : no_targets_event_(no_targets) {
+    // We create this in a test thread but it is only accessed on the sandbox
+    // internal events thread.
+    DETACH_FROM_SEQUENCE(target_events_sequence_);
+    ::ResetEvent(no_targets_event_);
+  }
+  TargetTracker(const TargetTracker&) = delete;
+  TargetTracker& operator=(const TargetTracker&) = delete;
+  ~TargetTracker() override {}
+
+  void OnTargetAdded() override {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(target_events_sequence_);
+    ++targets_;
+    if (1 == targets_) {
+      ::ResetEvent(no_targets_event_);
+    }
+  }
+  void OnTargetRemoved() override {
+    DCHECK_CALLED_ON_VALID_SEQUENCE(target_events_sequence_);
+    CHECK_NE(targets_, 0U);
+    --targets_;
+    if (targets_ == 0) {
+      ::SetEvent(no_targets_event_);
+    }
+  }
+
+ private:
+  // Event is owned by the test framework but we can set it.
+  const HANDLE no_targets_event_;
+  // Number of processes we're tracking (both directly associated with a
+  // TargetPolicy in a job, and those launched by tracked jobs).
+  size_t targets_ GUARDED_BY_CONTEXT(target_events_sequence_) = 0;
+  SEQUENCE_CHECKER(target_events_sequence_);
+};
+
 bool IsProcessRunning(HANDLE process) {
   DWORD exit_code = 0;
   if (::GetExitCodeProcess(process, &exit_code))
     return exit_code == STILL_ACTIVE;
   return false;
+}
+
+bool WaitForAllTargetsInternal() {
+  ::WaitForSingleObject(g_no_targets_event, INFINITE);
+  return true;
 }
 
 }  // namespace
@@ -85,8 +136,15 @@ BrokerServices* GetBroker() {
   }
 
   if (!is_initialized) {
-    if (SBOX_ALL_OK != broker->Init())
-      return NULL;
+    g_no_targets_event = ::CreateEventW(nullptr, true, false, nullptr);
+    if (!g_no_targets_event) {
+      return nullptr;
+    }
+
+    auto tracker = std::make_unique<TargetTracker>(g_no_targets_event);
+    if (SBOX_ALL_OK != broker->InitForTesting(std::move(tracker))) {
+      return nullptr;
+    }
 
     is_initialized = true;
   }
@@ -118,14 +176,20 @@ TestRunner::TestRunner(JobLevel job_level,
   if (!policy_)
     return;
 
-  policy_->SetJobLevel(job_level, 0);
-  policy_->SetTokenLevel(startup_token, main_token);
+  auto result = policy_->GetConfig()->SetJobLevel(job_level, 0);
+  if (result != SBOX_ALL_OK)
+    return;
+  result = policy_->GetConfig()->SetTokenLevel(startup_token, main_token);
+  if (result != SBOX_ALL_OK)
+    return;
 
   is_init_ = true;
 }
 
 TestRunner::TestRunner()
-    : TestRunner(JOB_LOCKDOWN, USER_RESTRICTED_SAME_ACCESS, USER_LOCKDOWN) {}
+    : TestRunner(JobLevel::kLockdown,
+                 USER_RESTRICTED_SAME_ACCESS,
+                 USER_LOCKDOWN) {}
 
 TargetPolicy* TestRunner::GetPolicy() {
   return policy_.get();
@@ -136,17 +200,24 @@ TestRunner::~TestRunner() {
     ::TerminateProcess(target_process_.Get(), 0);
 }
 
-bool TestRunner::AddRule(TargetPolicy::SubSystem subsystem,
-                         TargetPolicy::Semantics semantics,
+bool TestRunner::WaitForAllTargets() {
+  return WaitForAllTargetsInternal();
+}
+
+bool TestRunner::AddRule(SubSystem subsystem,
+                         Semantics semantics,
                          const wchar_t* pattern) {
   if (!is_init_)
     return false;
 
-  return (SBOX_ALL_OK == policy_->AddRule(subsystem, semantics, pattern));
+  if (policy_->GetConfig()->IsConfigured())
+    return false;
+
+  return (SBOX_ALL_OK ==
+          policy_->GetConfig()->AddRule(subsystem, semantics, pattern));
 }
 
-bool TestRunner::AddRuleSys32(TargetPolicy::Semantics semantics,
-                              const wchar_t* pattern) {
+bool TestRunner::AddRuleSys32(Semantics semantics, const wchar_t* pattern) {
   if (!is_init_)
     return false;
 
@@ -154,7 +225,7 @@ bool TestRunner::AddRuleSys32(TargetPolicy::Semantics semantics,
   if (win32_path.empty())
     return false;
 
-  if (!AddRule(TargetPolicy::SUBSYS_FILES, semantics, win32_path.c_str()))
+  if (!AddRule(SubSystem::kFiles, semantics, win32_path.c_str()))
     return false;
 
   if (!base::win::OSInfo::GetInstance()->IsWowX86OnAMD64())
@@ -164,15 +235,14 @@ bool TestRunner::AddRuleSys32(TargetPolicy::Semantics semantics,
   if (win32_path.empty())
     return false;
 
-  return AddRule(TargetPolicy::SUBSYS_FILES, semantics, win32_path.c_str());
+  return AddRule(SubSystem::kFiles, semantics, win32_path.c_str());
 }
 
-bool TestRunner::AddFsRule(TargetPolicy::Semantics semantics,
-                           const wchar_t* pattern) {
+bool TestRunner::AddFsRule(Semantics semantics, const wchar_t* pattern) {
   if (!is_init_)
     return false;
 
-  return AddRule(TargetPolicy::SUBSYS_FILES, semantics, pattern);
+  return AddRule(SubSystem::kFiles, semantics, pattern);
 }
 
 int TestRunner::RunTest(const wchar_t* command) {
@@ -200,16 +270,18 @@ int TestRunner::InternalRunTest(const wchar_t* command) {
     target_process_id_ = 0;
   }
 
-  if (disable_csrss_)
-    policy_->SetDisconnectCsrss();
+  ResultCode result = SBOX_ALL_OK;
+  if (disable_csrss_) {
+    result = policy_->GetConfig()->SetDisconnectCsrss();
+    if (result != SBOX_ALL_OK)
+      return SBOX_TEST_FAILED_SETUP;
+  }
 
   // Get the path to the sandboxed process.
   wchar_t prog_name[MAX_PATH];
   GetModuleFileNameW(NULL, prog_name, MAX_PATH);
 
   // Launch the sandboxed process.
-  ResultCode result = SBOX_ALL_OK;
-  ResultCode warning_result = SBOX_ALL_OK;
   DWORD last_error = ERROR_SUCCESS;
   PROCESS_INFORMATION target = {0};
 
@@ -226,14 +298,21 @@ int TestRunner::InternalRunTest(const wchar_t* command) {
       return SBOX_ERROR_GENERIC;
     }
   } else {
-    result = broker_->SpawnTarget(prog_name, arguments.c_str(), policy_,
-                                  &warning_result, &last_error, &target);
+    result = broker_->SpawnTarget(prog_name, arguments.c_str(),
+                                  std::move(policy_), &last_error, &target);
   }
-  if (release_policy_in_run_)
-    policy_ = nullptr;
 
   if (SBOX_ALL_OK != result)
     return SBOX_TEST_FAILED_TO_RUN_TEST;
+
+  FILETIME creation_time, exit_time, kernel_time, user_time;
+  // Can never fail. If it does, then something really bad has happened.
+  CHECK(::GetProcessTimes(target.hProcess, &creation_time, &exit_time,
+                          &kernel_time, &user_time));
+
+  // Execution times should be zero. If not, something has changed in Windows.
+  CHECK_EQ(0, base::TimeDelta::FromFileTime(user_time).InMicroseconds());
+  CHECK_EQ(0, base::TimeDelta::FromFileTime(kernel_time).InMicroseconds());
 
   ::ResumeThread(target.hThread);
 

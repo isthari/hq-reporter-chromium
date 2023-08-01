@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <memory>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/test/task_environment.h"
 #include "chrome/browser/policy/dm_token_utils.h"
@@ -41,8 +41,7 @@ class UserDMTokenRetrieverTest : public ::testing::Test {
   }
 
   void SetUp() override {
-    policy::SetDMTokenForTesting(
-        policy::DMToken::CreateValidTokenForTesting(kDMToken));
+    policy::SetDMTokenForTesting(policy::DMToken::CreateValidToken(kDMToken));
 
     // Use the mock profile retrieval callback for setting up the retriever
     user_dm_token_retriever_ = UserDMTokenRetriever::CreateForTest(
@@ -52,7 +51,7 @@ class UserDMTokenRetrieverTest : public ::testing::Test {
 
   void TearDown() override {
     // Unset mocks and test hooks
-    policy::SetDMTokenForTesting(policy::DMToken::CreateEmptyTokenForTesting());
+    policy::SetDMTokenForTesting(policy::DMToken::CreateEmptyToken());
   }
 
   // Creates a new profile with the current context for testing purposes.
@@ -102,7 +101,7 @@ TEST_F(UserDMTokenRetrieverTest, GetDMTokenMultipleRequests) {
 }
 
 TEST_F(UserDMTokenRetrieverTest, GetDMTokenInvalid) {
-  policy::SetDMTokenForTesting(policy::DMToken::CreateInvalidTokenForTesting());
+  policy::SetDMTokenForTesting(policy::DMToken::CreateInvalidToken());
   EXPECT_CALL(profile_retrieval_cb_, Call()).WillOnce(Return(profile_.get()));
 
   test::TestEvent<StatusOr<std::string>> dm_token_retrieved_event;

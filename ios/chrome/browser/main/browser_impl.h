@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,9 @@
 
 #include <CoreFoundation/CoreFoundation.h>
 
-#include "base/gtest_prod_util.h"
+#include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
-#import "ios/chrome/browser/main/browser.h"
+#include "ios/chrome/browser/shared/model/browser/browser.h"
 
 class ChromeBrowserState;
 @class SceneState;
@@ -21,29 +21,45 @@ class WebStateListDelegate;
 // session.
 //
 // See src/docs/ios/objects.md for more information.
-class BrowserImpl : public Browser {
+class BrowserImpl final : public Browser {
  public:
-  // Constructs a BrowserImpl attached to |browser_state|.
-  BrowserImpl(ChromeBrowserState* browser_state);
+  // Constructs a BrowserImpl attached to `browser_state`.
+  // If `active_browser` is not null, the created browser is the inactive
+  // counterpart to that active browser. Otherwise, the created browser is
+  // considered active by default.
+  BrowserImpl(ChromeBrowserState* browser_state,
+              BrowserImpl* active_browser = nullptr);
 
   BrowserImpl(const BrowserImpl&) = delete;
   BrowserImpl& operator=(const BrowserImpl&) = delete;
 
-  ~BrowserImpl() override;
+  ~BrowserImpl() final;
 
   // Browser.
-  ChromeBrowserState* GetBrowserState() override;
-  WebStateList* GetWebStateList() override;
-  CommandDispatcher* GetCommandDispatcher() override;
-  void AddObserver(BrowserObserver* observer) override;
-  void RemoveObserver(BrowserObserver* observer) override;
+  ChromeBrowserState* GetBrowserState() final;
+  WebStateList* GetWebStateList() final;
+  CommandDispatcher* GetCommandDispatcher() final;
+  void AddObserver(BrowserObserver* observer) final;
+  void RemoveObserver(BrowserObserver* observer) final;
+  base::WeakPtr<Browser> AsWeakPtr() final;
+  bool IsInactive() const final;
+  Browser* GetActiveBrowser() final;
+  Browser* GetInactiveBrowser() final;
+  Browser* CreateInactiveBrowser() final;
+  void DestroyInactiveBrowser() final;
 
  private:
-  ChromeBrowserState* browser_state_;
+  ChromeBrowserState* const browser_state_;
   std::unique_ptr<WebStateListDelegate> web_state_list_delegate_;
   std::unique_ptr<WebStateList> web_state_list_;
   __strong CommandDispatcher* command_dispatcher_;
   base::ObserverList<BrowserObserver, /* check_empty= */ true> observers_;
+  Browser* const active_browser_;
+  std::unique_ptr<Browser> inactive_browser_;
+
+  // Needs to be the last member field to ensure all weak pointers are
+  // invalidated before the other internal objects are destroyed.
+  base::WeakPtrFactory<Browser> weak_ptr_factory_{this};
 };
 
 #endif  // IOS_CHROME_BROWSER_MAIN_BROWSER_IMPL_H_

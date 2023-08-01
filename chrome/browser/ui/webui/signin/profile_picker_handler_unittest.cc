@@ -1,25 +1,29 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/webui/signin/profile_picker_handler.h"
 
+#include <memory>
 #include <vector>
 
 #include "base/json/values_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/mock_callback.h"
 #include "build/buildflag.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/profiles/profile_attributes_entry.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
+#include "chrome/browser/ui/profile_picker.h"
 #include "chrome/test/base/profile_waiter.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile_manager.h"
 #include "components/signin/public/identity_manager/account_info.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
+#include "components/signin/public/identity_manager/primary_account_mutator.h"
 #include "content/public/test/browser_task_environment.h"
 #include "content/public/test/test_web_contents_factory.h"
 #include "content/public/test/test_web_ui.h"
@@ -30,30 +34,56 @@
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
 #include "chrome/browser/lacros/account_manager/account_profile_mapper.h"
 #include "chrome/browser/lacros/account_manager/get_account_information_helper.h"
+#include "chrome/browser/lacros/identity_manager_lacros.h"
 #include "components/account_manager_core/account.h"
-#include "components/account_manager_core/account_addition_result.h"
+#include "components/account_manager_core/account_upsertion_result.h"
 #include "components/account_manager_core/mock_account_manager_facade.h"
 #include "ui/gfx/image/image_unittest_util.h"
+
 const char kTestCallbackId[] = "test-callback-id";
 #endif
 
-void VerifyProfileEntry(const base::Value& value,
+namespace {
+
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+class MockIdentityManagerLacros : public IdentityManagerLacros {
+ public:
+  MockIdentityManagerLacros() = default;
+  ~MockIdentityManagerLacros() override = default;
+
+  MOCK_METHOD(
+      void,
+      GetAccountEmail,
+      (const std::string& gaia_id,
+       crosapi::mojom::IdentityManager::GetAccountEmailCallback callback));
+
+  MOCK_METHOD(
+      void,
+      HasAccountWithPersistentError,
+      (const std::string& gaia_id,
+       crosapi::mojom::IdentityManager::HasAccountWithPersistentErrorCallback
+           callback));
+};
+#endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
+
+void VerifyProfileEntry(const base::Value::Dict& dict,
                         ProfileAttributesEntry* entry) {
-  EXPECT_EQ(*value.FindKey("profilePath"),
-            base::FilePathToValue(entry->GetPath()));
-  EXPECT_EQ(*value.FindStringKey("localProfileName"),
+  EXPECT_EQ(*dict.Find("profilePath"), base::FilePathToValue(entry->GetPath()));
+  EXPECT_EQ(*dict.FindString("localProfileName"),
             base::UTF16ToUTF8(entry->GetLocalProfileName()));
-  EXPECT_EQ(value.FindBoolKey("isSyncing"),
+  EXPECT_EQ(*dict.FindBool("isSyncing"),
             entry->GetSigninState() ==
                 SigninState::kSignedInWithConsentedPrimaryAccount);
-  EXPECT_EQ(value.FindBoolKey("needsSignin"), entry->IsSigninRequired());
-  EXPECT_EQ(*value.FindStringKey("gaiaName"),
+  EXPECT_EQ(*dict.FindBool("needsSignin"), entry->IsSigninRequired());
+  EXPECT_EQ(*dict.FindString("gaiaName"),
             base::UTF16ToUTF8(entry->GetGAIANameToDisplay()));
-  EXPECT_EQ(*value.FindStringKey("userName"),
+  EXPECT_EQ(*dict.FindString("userName"),
             base::UTF16ToUTF8(entry->GetUserName()));
-  EXPECT_EQ(value.FindBoolKey("isManaged"),
+  EXPECT_EQ(*dict.FindBool("isManaged"),
             AccountInfo::IsManaged(entry->GetHostedDomain()));
 }
+
+}  // namespace
 
 class ProfilePickerHandlerTest : public testing::Test {
  public:
@@ -63,6 +93,7 @@ class ProfilePickerHandlerTest : public testing::Test {
   void SetUp() override {
     ASSERT_TRUE(profile_manager_.SetUp());
 
+    handler_ = std::make_unique<ProfilePickerHandler>();
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
     // Configure a mock account manager facade.
     ON_CALL(mock_account_manager_facade_, GetAccounts(testing::_))
@@ -85,8 +116,11 @@ class ProfilePickerHandlerTest : public testing::Test {
             &mock_account_manager_facade_,
             profile_manager()->profile_attributes_storage(),
             profile_manager()->local_state()->Get()));
+
+    handler_->identity_manager_lacros_ =
+        std::make_unique<MockIdentityManagerLacros>();
+
 #endif
-    handler_ = std::make_unique<ProfilePickerHandler>();
     web_ui_profile_ = GetWebUIProfile();
     web_ui_.set_web_contents(
         web_contents_factory_.CreateWebContents(web_ui_profile_));
@@ -107,7 +141,9 @@ class ProfilePickerHandlerTest : public testing::Test {
     size_t size = data.arg2()->GetList().size();
     ASSERT_EQ(size, ordered_profile_entries.size());
     for (size_t i = 0; i < size; ++i) {
-      VerifyProfileEntry(data.arg2()->GetList()[i], ordered_profile_entries[i]);
+      ASSERT_TRUE(data.arg2()->GetList()[i].is_dict());
+      VerifyProfileEntry(data.arg2()->GetList()[i].GetDict(),
+                         ordered_profile_entries[i]);
     }
   }
 
@@ -121,8 +157,8 @@ class ProfilePickerHandlerTest : public testing::Test {
 
   void InitializeMainViewAndVerifyProfileList(
       const std::vector<ProfileAttributesEntry*>& ordered_profile_entries) {
-    base::ListValue empty_args;
-    web_ui()->HandleReceivedMessage("mainViewInitialize", &empty_args);
+    base::Value::List empty_args;
+    web_ui()->HandleReceivedMessage("mainViewInitialize", empty_args);
     VerifyProfileListWasPushed(ordered_profile_entries);
   }
 
@@ -150,6 +186,34 @@ class ProfilePickerHandlerTest : public testing::Test {
   void CompleteFacadeGetAccounts(
       const std::vector<account_manager::Account>& accounts) {
     std::move(facade_get_accounts_callback_).Run(accounts);
+  }
+
+  MockIdentityManagerLacros* mock_identity_manager_lacros() {
+    return static_cast<MockIdentityManagerLacros*>(
+        handler_->identity_manager_lacros_.get());
+  }
+
+  // Set the account check to return in error and the proper email based on the
+  // given gaia id through callbacks.
+  void SetAccountInErrorRequestResponse(const std::string& gaia_id,
+                                        const std::string& email,
+                                        bool account_in_error_response) {
+    ON_CALL(*mock_identity_manager_lacros(),
+            GetAccountEmail(testing::_, testing::_))
+        .WillByDefault(testing::Invoke(
+            [email](const std::string& gaia_id,
+                    crosapi::mojom::IdentityManager::GetAccountEmailCallback
+                        callback) { std::move(callback).Run(email); }));
+
+    ON_CALL(*mock_identity_manager_lacros(),
+            HasAccountWithPersistentError(gaia_id, testing::_))
+        .WillByDefault(testing::Invoke(
+            [account_in_error_response](
+                const std::string& gaia_id,
+                crosapi::mojom::IdentityManager::
+                    HasAccountWithPersistentErrorCallback callback) {
+              std::move(callback).Run(account_in_error_response);
+            }));
   }
 #endif
 
@@ -308,8 +372,8 @@ TEST_F(ProfilePickerHandlerTest, HandleGetAvailableAccounts_Empty) {
   CompleteFacadeGetAccounts({});
 
   // Send message to the handler.
-  base::ListValue empty_args;
-  web_ui()->HandleReceivedMessage("getAvailableAccounts", &empty_args);
+  base::Value::List empty_args;
+  web_ui()->HandleReceivedMessage("getAvailableAccounts", empty_args);
 
   // Check that the handler replied.
   ASSERT_TRUE(!web_ui()->call_data().empty());
@@ -341,8 +405,8 @@ TEST_F(ProfilePickerHandlerTest, HandleGetAvailableAccounts_Available) {
 
   // ****** No accounts syncing in any profile: return all.
   // Send message to the handler.
-  base::ListValue empty_args;
-  web_ui()->HandleReceivedMessage("getAvailableAccounts", &empty_args);
+  base::Value::List empty_args;
+  web_ui()->HandleReceivedMessage("getAvailableAccounts", empty_args);
 
   // Check that the handler replied.
   ASSERT_TRUE(!web_ui()->call_data().empty());
@@ -351,22 +415,32 @@ TEST_F(ProfilePickerHandlerTest, HandleGetAvailableAccounts_Available) {
   EXPECT_EQ("available-accounts-changed", data1.arg1()->GetString());
   EXPECT_EQ(data1.arg2()->GetList().size(), 2u);
 
-  // ****** Account 1 syncing in Secondary profile: return account 2.
+  // ****** Account 1 syncing in Secondary profile: return account 1 and 2
+  // regardless of syncing status.
   secondary->SetAuthInfo(kGaiaId1, u"example1@gmail.com",
                          /*is_consented_primary_account=*/true);
   // Send message to the handler.
-  web_ui()->HandleReceivedMessage("getAvailableAccounts", &empty_args);
+  web_ui()->HandleReceivedMessage("getAvailableAccounts", empty_args);
 
   // Check that the handler replied.
   ASSERT_TRUE(!web_ui()->call_data().empty());
   const content::TestWebUI::CallData& data2 = *web_ui()->call_data().back();
   EXPECT_EQ("cr.webUIListenerCallback", data2.function_name());
   EXPECT_EQ("available-accounts-changed", data2.arg1()->GetString());
-  EXPECT_EQ(data2.arg2()->GetList().size(), 1u);
-  const std::string* gaia_id =
-      data2.arg2()->GetList()[0].FindStringPath("gaiaId");
-  EXPECT_NE(gaia_id, nullptr);
-  EXPECT_EQ(*gaia_id, kGaiaId2);
+  EXPECT_EQ(data2.arg2()->GetList().size(), 2u);
+  // Arbitrary order of results; using a set to perform the search without
+  // order.
+  base::flat_set<std::string> gaia_id_results;
+  const std::string* gaia_id1 =
+      data2.arg2()->GetList()[0].GetDict().FindString("gaiaId");
+  EXPECT_NE(gaia_id1, nullptr);
+  gaia_id_results.insert(*gaia_id1);
+  const std::string* gaia_id2 =
+      data2.arg2()->GetList()[1].GetDict().FindString("gaiaId");
+  EXPECT_NE(gaia_id2, nullptr);
+  gaia_id_results.insert(*gaia_id2);
+  EXPECT_TRUE(gaia_id_results.contains(kGaiaId1));
+  EXPECT_TRUE(gaia_id_results.contains(kGaiaId2));
   // TODO(https://crbug/1226050): Test all other fields.
 }
 
@@ -390,8 +464,8 @@ TEST_F(ProfilePickerHandlerTest, ProfilePickerObservesAvailableAccounts) {
   CompleteFacadeGetAccounts({account1, account2});
 
   // Send message to the handler.
-  base::ListValue empty_args;
-  web_ui()->HandleReceivedMessage("getAvailableAccounts", &empty_args);
+  base::Value::List empty_args;
+  web_ui()->HandleReceivedMessage("getAvailableAccounts", empty_args);
 
   // Check that the handler replied.
   ASSERT_TRUE(!web_ui()->call_data().empty());
@@ -423,26 +497,39 @@ TEST_F(ProfilePickerHandlerTest, ProfilePickerObservesAvailableAccounts) {
 }
 
 TEST_F(ProfilePickerHandlerTest, CreateProfileExistingAccount) {
+  const std::string kGaiaId = "some_gaia_id";
+  const std::string kEmail = "example@gmail.com";
+  SetAccountInErrorRequestResponse(kGaiaId, kEmail,
+                                   /*account_in_error_response=*/false);
+
   // Lacros always expects a default profile.
   CreateTestingProfile("Default");
 
   // Add account to the facade.
-  const std::string kGaiaId = "some_gaia_id";
   CompleteFacadeGetAccounts({account_manager::Account{
       account_manager::AccountKey{kGaiaId, account_manager::AccountType::kGaia},
-      "example@gmail.com"}});
+      kEmail}});
 
   // OS account addition flow should not trigger.
   EXPECT_CALL(*mock_account_manager_facade(),
               ShowAddAccountDialog(testing::_, testing::_))
       .Times(0);
 
+  // Expecting the account in error check call.
+  EXPECT_CALL(*mock_identity_manager_lacros(),
+              HasAccountWithPersistentError(kGaiaId, testing::_))
+      .Times(1);
+  // Since the account is not in error there is no call to getting the email.
+  EXPECT_CALL(*mock_identity_manager_lacros(),
+              GetAccountEmail(kGaiaId, testing::_))
+      .Times(0);
+
   // Request profile creation with the existing account.
   ProfileWaiter profile_waiter;
-  base::ListValue args;
+  base::Value::List args;
   args.Append(/*color=*/base::Value());
   args.Append(/*gaiaId=*/kGaiaId);
-  web_ui()->HandleReceivedMessage("loadSignInProfileCreationFlow", &args);
+  web_ui()->HandleReceivedMessage("selectExistingAccountLacros", args);
 
   // Check profile creation.
   Profile* new_profile = profile_waiter.WaitForProfileAdded();
@@ -454,6 +541,15 @@ TEST_F(ProfilePickerHandlerTest, CreateProfileExistingAccount) {
   ASSERT_TRUE(entry);
   EXPECT_EQ(entry->GetGaiaIds(), base::flat_set<std::string>{kGaiaId});
 
+  // Set the primary account (simulate the `SigninManager`).
+  signin::IdentityManager* identity_manager =
+      IdentityManagerFactory::GetForProfile(new_profile);
+  std::vector<CoreAccountInfo> accounts =
+      identity_manager->GetAccountsWithRefreshTokens();
+  ASSERT_EQ(1u, accounts.size());
+  identity_manager->GetPrimaryAccountMutator()->SetPrimaryAccount(
+      accounts[0].account_id, signin::ConsentLevel::kSignin);
+
   // Check that the handler replied.
   ASSERT_TRUE(!web_ui()->call_data().empty());
   const content::TestWebUI::CallData& data = *web_ui()->call_data().back();
@@ -461,6 +557,40 @@ TEST_F(ProfilePickerHandlerTest, CreateProfileExistingAccount) {
   EXPECT_EQ("load-signin-finished", data.arg1()->GetString());
   bool success = data.arg2()->GetBool();
   EXPECT_TRUE(success);
+}
+
+TEST_F(ProfilePickerHandlerTest, CreateProfileExistingAccountInError) {
+  const std::string kGaiaId = "some_gaia_id";
+  const std::string kEmail = "example@gmail.com";
+  SetAccountInErrorRequestResponse(kGaiaId, kEmail,
+                                   /*account_in_error_response=*/true);
+
+  // Add account to the facade.
+  CompleteFacadeGetAccounts({account_manager::Account{
+      account_manager::AccountKey{kGaiaId, account_manager::AccountType::kGaia},
+      kEmail}});
+
+  // Since account is in error, AccountManagerFacade will try to display the
+  // Reauth Account dialog after getting the email. Testing version directly
+  // redirects to the callback simulating the reauth dialog closed.
+  EXPECT_CALL(*mock_identity_manager_lacros(),
+              HasAccountWithPersistentError(kGaiaId, testing::_))
+      .Times(1);
+
+  EXPECT_CALL(*mock_identity_manager_lacros(),
+              GetAccountEmail(kGaiaId, testing::_))
+      .Times(1);
+
+  base::Value::List args;
+  args.Append(/*color=*/base::Value());
+  args.Append(/*gaiaId=*/kGaiaId);
+  web_ui()->HandleReceivedMessage("selectExistingAccountLacros", args);
+
+  // Check that the handler replied.
+  ASSERT_TRUE(!web_ui()->call_data().empty());
+  const content::TestWebUI::CallData& data = *web_ui()->call_data().back();
+  EXPECT_EQ("cr.webUIListenerCallback", data.function_name());
+  EXPECT_EQ("reauth-dialog-closed", data.arg1()->GetString());
 }
 
 TEST_F(ProfilePickerHandlerTest, CreateProfileNewAccount) {
@@ -482,9 +612,9 @@ TEST_F(ProfilePickerHandlerTest, CreateProfileNewAccount) {
           [account, this](
               account_manager::AccountManagerFacade::AccountAdditionSource,
               base::OnceCallback<void(
-                  const account_manager::AccountAdditionResult&)> callback) {
+                  const account_manager::AccountUpsertionResult&)> callback) {
             std::move(callback).Run(
-                account_manager::AccountAdditionResult::FromAccount(account));
+                account_manager::AccountUpsertionResult::FromAccount(account));
             // Notify the mapper that an account has been added.
             profile_manager()
                 ->profile_manager()
@@ -495,10 +625,9 @@ TEST_F(ProfilePickerHandlerTest, CreateProfileNewAccount) {
 
   // Request profile creation.
   ProfileWaiter profile_waiter;
-  base::ListValue args;
+  base::Value::List args;
   args.Append(/*color=*/base::Value());
-  args.Append(/*gaiaId=*/base::Value(base::Value::Type::STRING));
-  web_ui()->HandleReceivedMessage("loadSignInProfileCreationFlow", &args);
+  web_ui()->HandleReceivedMessage("selectNewAccount", args);
 
   // Check profile creation.
   Profile* new_profile = profile_waiter.WaitForProfileAdded();
@@ -509,6 +638,15 @@ TEST_F(ProfilePickerHandlerTest, CreateProfileNewAccount) {
           ->GetProfileAttributesWithPath(new_profile->GetPath());
   ASSERT_TRUE(entry);
   EXPECT_EQ(entry->GetGaiaIds(), base::flat_set<std::string>{kGaiaId});
+
+  // Set the primary account (simulate the `SigninManager`).
+  signin::IdentityManager* identity_manager =
+      IdentityManagerFactory::GetForProfile(new_profile);
+  std::vector<CoreAccountInfo> accounts =
+      identity_manager->GetAccountsWithRefreshTokens();
+  ASSERT_EQ(1u, accounts.size());
+  identity_manager->GetPrimaryAccountMutator()->SetPrimaryAccount(
+      accounts[0].account_id, signin::ConsentLevel::kSignin);
 
   // Check that the handler replied.
   ASSERT_TRUE(!web_ui()->call_data().empty());
@@ -547,7 +685,7 @@ class ProfilePickerHandlerInUserProfileTest : public ProfilePickerHandlerTest {
     return *data.arg3();
   }
 
-  Profile* secondary_profile_ = nullptr;
+  raw_ptr<Profile> secondary_profile_ = nullptr;
 };
 
 // Tests that accounts available as secondary are returned.
@@ -556,8 +694,8 @@ TEST_F(ProfilePickerHandlerInUserProfileTest,
   CompleteFacadeGetAccounts({});
 
   // Send message to the handler.
-  base::ListValue empty_args;
-  web_ui()->HandleReceivedMessage("getAvailableAccounts", &empty_args);
+  base::Value::List empty_args;
+  web_ui()->HandleReceivedMessage("getAvailableAccounts", empty_args);
 
   // Check that the handler replied.
   ASSERT_TRUE(!web_ui()->call_data().empty());
@@ -585,8 +723,8 @@ TEST_F(ProfilePickerHandlerInUserProfileTest,
 
   // ****** No accounts assigned to "Secondary": return all.
   // Send message to the handler.
-  base::ListValue empty_args;
-  web_ui()->HandleReceivedMessage("getAvailableAccounts", &empty_args);
+  base::Value::List empty_args;
+  web_ui()->HandleReceivedMessage("getAvailableAccounts", empty_args);
 
   // Check that the handler replied.
   ASSERT_TRUE(!web_ui()->call_data().empty());
@@ -602,7 +740,7 @@ TEST_F(ProfilePickerHandlerInUserProfileTest,
           ->GetProfileAttributesWithPath(GetWebUIProfile()->GetPath());
   profile_entry->SetGaiaIds({kGaiaId1});
   // Send message to the handler.
-  web_ui()->HandleReceivedMessage("getAvailableAccounts", &empty_args);
+  web_ui()->HandleReceivedMessage("getAvailableAccounts", empty_args);
 
   // Check that the handler replied.
   ASSERT_TRUE(!web_ui()->call_data().empty());
@@ -611,7 +749,7 @@ TEST_F(ProfilePickerHandlerInUserProfileTest,
   EXPECT_EQ("available-accounts-changed", data2.arg1()->GetString());
   EXPECT_EQ(data2.arg2()->GetList().size(), 1u);
   const std::string* gaia_id =
-      data2.arg2()->GetList()[0].FindStringPath("gaiaId");
+      data2.arg2()->GetList()[0].GetDict().FindString("gaiaId");
   EXPECT_NE(gaia_id, nullptr);
   EXPECT_EQ(*gaia_id, kGaiaId2);
 }
@@ -638,32 +776,33 @@ TEST_F(ProfilePickerHandlerInUserProfileTest,
   EXPECT_EQ("available-accounts-changed", data1.arg1()->GetString());
   EXPECT_EQ(data1.arg2()->GetList().size(), 1u);
   const std::string* gaia_id =
-      data1.arg2()->GetList()[0].FindStringPath("gaiaId");
+      data1.arg2()->GetList()[0].GetDict().FindString("gaiaId");
   EXPECT_NE(gaia_id, nullptr);
   EXPECT_EQ(*gaia_id, kGaiaId1);
-  const std::string* email = data1.arg2()->GetList()[0].FindStringPath("email");
+  const std::string* email =
+      data1.arg2()->GetList()[0].GetDict().FindString("email");
   EXPECT_NE(email, nullptr);
   EXPECT_EQ(*email, kEmail1);
   const std::string* full_name =
-      data1.arg2()->GetList()[0].FindStringPath("name");
+      data1.arg2()->GetList()[0].GetDict().FindString("name");
   EXPECT_NE(full_name, nullptr);
   EXPECT_EQ(*full_name, kFullName1);
   const std::string* account_image_url =
-      data1.arg2()->GetList()[0].FindStringPath("accountImageUrl");
+      data1.arg2()->GetList()[0].GetDict().FindString("accountImageUrl");
   EXPECT_NE(account_image_url, nullptr);
 }
 
 TEST_F(ProfilePickerHandlerInUserProfileTest,
        HandleGetNewProfileSuggestedThemeInfo_Default) {
   // Send message to the handler.
-  base::ListValue args;
+  base::Value::List args;
   args.Append(kTestCallbackId);
-  web_ui()->HandleReceivedMessage("getNewProfileSuggestedThemeInfo", &args);
+  web_ui()->HandleReceivedMessage("getNewProfileSuggestedThemeInfo", args);
 
   // Check that the handler replied correctly.
-  const base::Value& theme_info = GetThemeInfoReply();
-  EXPECT_EQ(-1, *theme_info.FindIntKey("colorId"));  // -1: default color
-  EXPECT_EQ(absl::nullopt, theme_info.FindIntKey("color"));
+  const base::Value::Dict& theme_info = GetThemeInfoReply().GetDict();
+  EXPECT_EQ(-1, *theme_info.FindInt("colorId"));  // -1: default color
+  EXPECT_EQ(absl::nullopt, theme_info.FindInt("color"));
 }
 
 TEST_F(ProfilePickerHandlerInUserProfileTest,
@@ -673,13 +812,90 @@ TEST_F(ProfilePickerHandlerInUserProfileTest,
   theme_service->BuildAutogeneratedThemeFromColor(SK_ColorRED);
 
   // Send message to the handler.
-  base::ListValue args;
+  base::Value::List args;
   args.Append(kTestCallbackId);
-  web_ui()->HandleReceivedMessage("getNewProfileSuggestedThemeInfo", &args);
+  web_ui()->HandleReceivedMessage("getNewProfileSuggestedThemeInfo", args);
 
   // Check that the handler replied correctly.
-  const base::Value& theme_info = GetThemeInfoReply();
-  EXPECT_EQ(0, *theme_info.FindIntKey("colorId"));  // 0: manually picked color.
-  EXPECT_EQ(SK_ColorRED, static_cast<SkColor>(*theme_info.FindIntKey("color")));
+  const base::Value::Dict& theme_info = GetThemeInfoReply().GetDict();
+  EXPECT_EQ(0, *theme_info.FindInt("colorId"));  // 0: manually picked color.
+  EXPECT_EQ(SK_ColorRED, static_cast<SkColor>(*theme_info.FindInt("color")));
 }
+
+TEST_F(ProfilePickerHandlerInUserProfileTest, NoAvailableAccount) {
+  // Lacros always expects a default profile.
+  CreateTestingProfile("Default");
+  CompleteFacadeGetAccounts({});
+  const std::string kGaiaId = "some_gaia_id";
+
+  // Set a callback for account selection.
+  testing::StrictMock<base::MockOnceCallback<void(const std::string&)>>
+      callback;
+  ProfilePicker::Show(ProfilePicker::Params::ForLacrosSelectAvailableAccount(
+      base::FilePath(), callback.Get()));
+  EXPECT_CALL(callback, Run(kGaiaId));
+
+  // Mock the OS account addition.
+  account_manager::Account account{
+      account_manager::AccountKey{kGaiaId, account_manager::AccountType::kGaia},
+      "example@gmail.com"};
+  EXPECT_CALL(*mock_account_manager_facade(),
+              ShowAddAccountDialog(account_manager::AccountManagerFacade::
+                                       AccountAdditionSource::kOgbAddAccount,
+                                   testing::_))
+      .WillOnce(
+          [account, this](
+              account_manager::AccountManagerFacade::AccountAdditionSource,
+              base::OnceCallback<void(
+                  const account_manager::AccountUpsertionResult&)> callback) {
+            std::move(callback).Run(
+                account_manager::AccountUpsertionResult::FromAccount(account));
+            // Notify the mapper that an account has been added.
+            profile_manager()
+                ->profile_manager()
+                ->GetAccountProfileMapper()
+                ->OnAccountUpserted(account);
+            CompleteFacadeGetAccounts({account});
+          });
+
+  // Request account addition.
+  base::Value::List args;
+  args.Append(/*color=*/base::Value());
+  web_ui()->HandleReceivedMessage("selectNewAccount", args);
+}
+
+TEST_F(ProfilePickerHandlerInUserProfileTest,
+       ExistingProfileExistingAccountInError) {
+  const std::string kGaiaId = "some_gaia_id";
+  const std::string kEmail = "example@gmail.com";
+  SetAccountInErrorRequestResponse(kGaiaId, kEmail,
+                                   /*account_in_error_response=*/true);
+
+  // Add account to the facade.
+  CompleteFacadeGetAccounts({account_manager::Account{
+      account_manager::AccountKey{kGaiaId, account_manager::AccountType::kGaia},
+      kEmail}});
+
+  // Since account is in error, AccountManagerFacade will try to display the
+  // Reauth Account dialog after getting the email. Testing version directly
+  // redirects to the callback simulating the reauth dialog closed.
+  EXPECT_CALL(*mock_identity_manager_lacros(),
+              HasAccountWithPersistentError(kGaiaId, testing::_))
+      .Times(1);
+  EXPECT_CALL(*mock_identity_manager_lacros(),
+              GetAccountEmail(kGaiaId, testing::_))
+      .Times(1);
+
+  base::Value::List args;
+  args.Append(/*color=*/base::Value());
+  args.Append(/*gaiaId=*/kGaiaId);
+  web_ui()->HandleReceivedMessage("selectExistingAccountLacros", args);
+
+  // Check that the handler replied.
+  ASSERT_TRUE(!web_ui()->call_data().empty());
+  const content::TestWebUI::CallData& data = *web_ui()->call_data().back();
+  EXPECT_EQ("cr.webUIListenerCallback", data.function_name());
+  EXPECT_EQ("reauth-dialog-closed", data.arg1()->GetString());
+}
+
 #endif  //  BUILDFLAG(IS_CHROMEOS_LACROS)

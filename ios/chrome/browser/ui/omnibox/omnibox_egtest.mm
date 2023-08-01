@@ -1,35 +1,43 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import <XCTest/XCTest.h>
 
-#include "base/bind.h"
-#include "base/ios/ios_util.h"
-#include "base/mac/foundation_util.h"
-#include "base/strings/sys_string_conversions.h"
+#import "base/functional/bind.h"
+#import "base/ios/ios_util.h"
+#import "base/mac/foundation_util.h"
+#import "base/strings/sys_string_conversions.h"
 #import "base/test/ios/wait_util.h"
+#import "build/build_config.h"
+#import "components/strings/grit/components_strings.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
 #import "ios/chrome/browser/ui/content_suggestions/ntp_home_constant.h"
 #import "ios/chrome/browser/ui/omnibox/omnibox_app_interface.h"
+#import "ios/chrome/browser/ui/omnibox/omnibox_ui_features.h"
 #import "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_accessibility_identifier_constants.h"
-#include "ios/chrome/browser/ui/ui_feature_flags.h"
-#include "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/test/earl_grey/chrome_actions.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers_app_interface.h"
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
+#import "ios/chrome/test/earl_grey/chrome_xcui_actions.h"
+#import "ios/testing/earl_grey/app_launch_manager.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
-#include "net/test/embedded_test_server/embedded_test_server.h"
-#include "net/test/embedded_test_server/http_request.h"
-#include "net/test/embedded_test_server/http_response.h"
-#include "ui/base/l10n/l10n_util.h"
+#import "ios/web/public/test/element_selector.h"
+#import "net/test/embedded_test_server/embedded_test_server.h"
+#import "net/test/embedded_test_server/http_request.h"
+#import "net/test/embedded_test_server/http_response.h"
+#import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
 using base::test::ios::kWaitForUIElementTimeout;
+using chrome_test_util::WebViewMatcher;
 
 namespace {
 
@@ -47,6 +55,13 @@ const char kPage2URL[] = "/page2.html";
 const char kHeaderPageURL[] = "/page3.html";
 const char kHeaderPageSuccess[] = "header found!";
 const char kHeaderPageFailure[] = "header failure";
+
+// Path to a page containing the chromium logo and the text `kLogoPageText`.
+const char kLogoPagePath[] = "/chromium_logo_page.html";
+// The text of the message on the logo page.
+const char kLogoPageText[] = "Page with some text and the chromium logo image.";
+// The DOM element ID of the chromium image on the logo page.
+const char kLogoPageChromiumImageId[] = "chromium_image";
 
 // Provides responses for the different pages.
 std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
@@ -81,7 +96,7 @@ std::unique_ptr<net::test_server::HttpResponse> StandardResponse(
   return nil;
 }
 
-// Returns visit Copied Link button matcher from UIMenuController.
+// Returns Visit Copied Link button matcher from UIMenuController.
 id<GREYMatcher> VisitCopiedLinkButton() {
   NSString* a11yLabelCopiedLink =
       l10n_util::GetNSString(IDS_IOS_VISIT_COPIED_LINK);
@@ -119,14 +134,61 @@ id<GREYMatcher> CutButton() {
 
 // Returns Search Copied Text button from UIMenuController.
 id<GREYMatcher> SearchCopiedTextButton() {
-  NSString* a11yLabelsearchCopiedText = @"Search for Copied Text";
-  return grey_allOf(grey_accessibilityLabel(a11yLabelsearchCopiedText),
+  NSString* a11yLabelCopiedText =
+      l10n_util::GetNSString(IDS_IOS_SEARCH_COPIED_TEXT);
+  return grey_allOf(grey_accessibilityLabel(a11yLabelCopiedText),
                     chrome_test_util::SystemSelectionCallout(), nil);
+}
+
+// Returns Search Copied Image button from UIMenuController.
+id<GREYMatcher> SearchCopiedImageButton() {
+  NSString* a11yLabelCopiedImage =
+      l10n_util::GetNSString(IDS_IOS_SEARCH_COPIED_IMAGE);
+  return grey_allOf(grey_accessibilityLabel(a11yLabelCopiedImage),
+                    chrome_test_util::SystemSelectionCallout(), nil);
+}
+
+// Returns Clear button at the trailing edge of the omnibox's text field.
+id<GREYMatcher> ClearButton() {
+  return chrome_test_util::ButtonWithAccessibilityLabelId(
+      IDS_IOS_ACCNAME_CLEAR_TEXT);
+}
+
+// Returns Paste to Search button on the omnibox's keyboard accessory.
+id<GREYMatcher> PasteToSearchButton() {
+  NSString* a11yHintPasteButton =
+      l10n_util::GetNSString(IDS_IOS_KEYBOARD_ACCESSORY_VIEW_PASTE_SEARCH);
+  return grey_accessibilityHint(a11yHintPasteButton);
+}
+
+// Returns Copy button from the context menu.
+id<GREYMatcher> CopyContextMenuButton() {
+  return grey_allOf(
+      grey_accessibilityLabel(l10n_util::GetNSString(IDS_IOS_SHARE_MENU_COPY)),
+      grey_accessibilityTrait(UIAccessibilityTraitButton), nil);
+}
+
+// Returns Visit Copied Link button from the context menu.
+id<GREYMatcher> VisitCopiedLinkContextMenuButton() {
+  return grey_allOf(grey_accessibilityLabel(
+                        l10n_util::GetNSString(IDS_IOS_VISIT_COPIED_LINK)),
+                    grey_accessibilityTrait(UIAccessibilityTraitButton), nil);
+}
+
+// Taps the fake omnibox and waits for the real omnibox to be visible.
+void FocusFakebox() {
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::FakeOmnibox()]
+      performAction:grey_tap()];
+  [ChromeEarlGrey
+      waitForSufficientlyVisibleElementWithMatcher:chrome_test_util::Omnibox()];
 }
 
 }  //  namespace
 
-@interface OmniboxTestCase : ChromeTestCase
+@interface OmniboxTestCase : ChromeTestCase {
+  GURL _URL1;
+}
+
 @end
 
 @implementation OmniboxTestCase
@@ -138,18 +200,43 @@ id<GREYMatcher> SearchCopiedTextButton() {
   self.testServer->RegisterRequestHandler(
       base::BindRepeating(&StandardResponse));
   GREYAssertTrue(self.testServer->Start(), @"Test server failed to start.");
+
+  _URL1 = self.testServer->GetURL(kPage1URL);
+
+  [ChromeEarlGrey clearPasteboard];
+  [ChromeEarlGrey clearBrowsingHistory];
+}
+
+#pragma mark - Helpers
+
+// Copies image from `kLogoPagePath` into the clipboard using web context menu
+// interactions.
+- (void)copyImageIntoClipboard {
+  [ChromeEarlGrey clearPasteboard];
+  [ChromeEarlGrey loadURL:self.testServer->GetURL(kLogoPagePath)];
+  [ChromeEarlGrey waitForWebStateContainingText:kLogoPageText];
+  [[EarlGrey selectElementWithMatcher:WebViewMatcher()]
+      performAction:chrome_test_util::LongPressElementForContextMenu(
+                        [ElementSelector
+                            selectorWithElementID:kLogoPageChromiumImageId],
+                        true /* menu should appear */)];
+  [[EarlGrey
+      selectElementWithMatcher:chrome_test_util::ButtonWithAccessibilityLabelId(
+                                   IDS_IOS_CONTENT_CONTEXT_COPYIMAGE)]
+      performAction:grey_tap()];
+
+  GREYCondition* copyCondition =
+      [GREYCondition conditionWithName:@"Image copied condition"
+                                 block:^BOOL {
+                                   return [ChromeEarlGrey pasteboardHasImages];
+                                 }];
+  // Wait for copy to happen or timeout after 5 seconds.
+  GREYAssertTrue([copyCondition waitWithTimeout:5], @"Copying image failed");
 }
 
 // Tests that the XClientData header is sent when navigating to
 // https://google.com through the omnibox.
 - (void)testXClientData {
-// TODO(crbug.com/1067815): Test doesn't pass on iPad device.
-#if !TARGET_IPHONE_SIMULATOR
-  if ([ChromeEarlGrey isIPadIdiom]) {
-    EARL_GREY_TEST_SKIPPED(@"testXClientData doesn't pass on iPad device.");
-  }
-#endif
-
   // TODO(crbug.com/1120723) This test is flakily because of a DCHECK in
   // ios/web.  Clearing browser history first works around the problem, but
   // shouldn't be necessary otherwise.  Remove once the bug is fixed.
@@ -182,12 +269,204 @@ id<GREYMatcher> SearchCopiedTextButton() {
   [ChromeEarlGrey waitForWebStateContainingText:kHeaderPageSuccess];
 }
 
+#pragma mark - Omnibox Menu Paste to Search
+
+// Tests that Visit Copied Link, Search Copied Text, Search Copied Image and
+// Paste menu buttons are not shown with an empty Clipboard.
+- (void)testOmniboxMenuEmptyPasteboard {
+  FocusFakebox();
+
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
+      performAction:grey_longPress()];
+
+  // Pressing should not allow pasting when pasteboard is empty.
+  // Verify that system text selection callout is not displayed.
+  [[EarlGrey selectElementWithMatcher:VisitCopiedLinkButton()]
+      assertWithMatcher:grey_nil()];
+  [[EarlGrey selectElementWithMatcher:SearchCopiedTextButton()]
+      assertWithMatcher:grey_nil()];
+  [[EarlGrey selectElementWithMatcher:SearchCopiedImageButton()]
+      assertWithMatcher:grey_nil()];
+  [[EarlGrey selectElementWithMatcher:PasteButton()]
+      assertWithMatcher:grey_nil()];
+}
+
+// Tests that Search Copied Text menu button is shown with text in the clipboard
+// and is starting a search.
+- (void)testOmniboxMenuPasteTextToSearch {
+  FocusFakebox();
+  NSString* textToSearch = @"TextToCopy";
+  // Copy text in clipboard.
+  [ChromeEarlGrey copyTextToPasteboard:textToSearch];
+  // Tap Search Copied Text menu button.
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
+      performAction:grey_longPress()];
+
+  // Wait for UIMenuController to appear or timeout after 2 seconds.
+  GREYCondition* SearchTextButtonIsDisplayed = [GREYCondition
+      conditionWithName:@"Search Copied Text button display condition"
+                  block:^BOOL {
+                    NSError* error = nil;
+                    [[EarlGrey
+                        selectElementWithMatcher:SearchCopiedTextButton()]
+                        assertWithMatcher:grey_notNil()
+                                    error:&error];
+                    return error == nil;
+                  }];
+  GREYAssertTrue([SearchTextButtonIsDisplayed
+                     waitWithTimeout:kWaitForUIElementTimeout.InSecondsF()],
+                 @"Search Copied Text button display failed");
+  [[EarlGrey selectElementWithMatcher:SearchCopiedTextButton()]
+      performAction:grey_tap()];
+  // Check that the omnibox contains the copied text.
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
+      assertWithMatcher:chrome_test_util::OmniboxContainingText(
+                            base::SysNSStringToUTF8(textToSearch))];
+}
+
+// Tests that Visit Copied Link menu button is shown with a link in the
+// clipboard and is visiting the URL.
+- (void)testOmniboxMenuPasteURLToSearch {
+  FocusFakebox();
+  // Copy URL into clipboard.
+  [ChromeEarlGrey copyTextToPasteboard:base::SysUTF8ToNSString(_URL1.spec())];
+  // Tap Visit Copied Link menu button.
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
+      performAction:grey_longPress()];
+
+  // Wait for UIMenuController to appear or timeout after 2 seconds.
+  GREYCondition* VisitLinkButtonIsDisplayed = [GREYCondition
+      conditionWithName:@"Visit Copied Link button display condition"
+                  block:^BOOL {
+                    NSError* error = nil;
+                    [[EarlGrey selectElementWithMatcher:VisitCopiedLinkButton()]
+                        assertWithMatcher:grey_notNil()
+                                    error:&error];
+                    return error == nil;
+                  }];
+  GREYAssertTrue([VisitLinkButtonIsDisplayed
+                     waitWithTimeout:kWaitForUIElementTimeout.InSecondsF()],
+                 @"Visit Copied Link button display failed");
+  [[EarlGrey selectElementWithMatcher:VisitCopiedLinkButton()]
+      performAction:grey_tap()];
+  // Verify that the page is loaded.
+  [ChromeEarlGrey waitForWebStateContainingText:kPage1];
+}
+
+// Tests that Search Copied Image menu button is shown with an image in the
+// clipboard and is starting an image search.
+- (void)testOmniboxMenuPasteImageToSearch {
+  [self copyImageIntoClipboard];
+
+  // Wait for the context menu to dismiss, so the omnibox can be tapped.
+  [ChromeEarlGrey waitForSufficientlyVisibleElementWithMatcher:
+                      chrome_test_util::DefocusedLocationView()];
+
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::DefocusedLocationView()]
+      performAction:grey_tap()];
+  [[EarlGrey selectElementWithMatcher:ClearButton()] performAction:grey_tap()];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
+      performAction:grey_longPress()];
+
+  // Wait for UIMenuController to appear or timeout after 2 seconds.
+  GREYCondition* SearchImageButtonIsDisplayed = [GREYCondition
+      conditionWithName:@"Search Copied Image button display condition"
+                  block:^BOOL {
+                    NSError* error = nil;
+                    [[EarlGrey
+                        selectElementWithMatcher:SearchCopiedImageButton()]
+                        assertWithMatcher:grey_notNil()
+                                    error:&error];
+                    return error == nil;
+                  }];
+  GREYAssertTrue([SearchImageButtonIsDisplayed
+                     waitWithTimeout:kWaitForUIElementTimeout.InSecondsF()],
+                 @"Search Copied Image button display failed");
+  [[EarlGrey selectElementWithMatcher:SearchCopiedImageButton()]
+      performAction:grey_tap()];
+
+  // Check that the omnibox started a google search.
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
+      assertWithMatcher:chrome_test_util::OmniboxContainingText("google")];
+}
+
+#pragma mark - Omnibox Keyboard Accessory Paste to Search
+
+// Tests that the keyboard accessory's paste to search button is shown with a
+// text in the clipboard and is starting a search.
+// TODO(crbug.com/1445718): Re-enable when fixed.
+- (void)DISABLED_testOmniboxKeyboardAccessoryPasteTextToSearch {
+  if (@available(iOS 16, *)) {
+    [[AppLaunchManager sharedManager]
+        ensureAppLaunchedWithFeaturesEnabled:{kOmniboxKeyboardPasteButton}
+                                    disabled:{}
+                              relaunchPolicy:ForceRelaunchByCleanShutdown];
+    FocusFakebox();
+    NSString* textToSearch = @"TextToCopy";
+    [ChromeEarlGrey copyTextToPasteboard:textToSearch];
+    [[EarlGrey selectElementWithMatcher:PasteToSearchButton()]
+        performAction:grey_tap()];
+
+    // Check that the omnibox contains the copied text.
+    [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
+        assertWithMatcher:chrome_test_util::OmniboxContainingText(
+                              base::SysNSStringToUTF8(textToSearch))];
+  }
+}
+
+// Tests that the keyboard accessory's paste to search button is shown with a
+// link in the clipboard and is visiting the link.
+- (void)testOmniboxKeyboardAccessoryPasteURLToSearch {
+  if (@available(iOS 16, *)) {
+    [[AppLaunchManager sharedManager]
+        ensureAppLaunchedWithFeaturesEnabled:{kOmniboxKeyboardPasteButton}
+                                    disabled:{}
+                              relaunchPolicy:ForceRelaunchByCleanShutdown];
+    FocusFakebox();
+    [ChromeEarlGrey copyTextToPasteboard:base::SysUTF8ToNSString(_URL1.spec())];
+
+    [[EarlGrey selectElementWithMatcher:PasteToSearchButton()]
+        performAction:grey_tap()];
+    [ChromeEarlGrey waitForPageToFinishLoading];
+    [ChromeEarlGrey waitForWebStateContainingText:kPage1];
+  }
+}
+
+// Tests that the keyboard accessory's paste to search button is shown with an
+// image in the clipboard and is starting an image search.
+// TODO(crbug.com/1445718): Re-enable when fixed.
+- (void)DISABLED_testOmniboxKeyboardAccessoryPasteImageToSearch {
+  if (@available(iOS 16, *)) {
+    [[AppLaunchManager sharedManager]
+        ensureAppLaunchedWithFeaturesEnabled:{kOmniboxKeyboardPasteButton}
+                                    disabled:{}
+                              relaunchPolicy:ForceRelaunchByCleanShutdown];
+    [self copyImageIntoClipboard];
+
+    // Wait for the context menu to dismiss, so the omnibox can be tapped.
+    [ChromeEarlGrey waitForSufficientlyVisibleElementWithMatcher:
+                        chrome_test_util::DefocusedLocationView()];
+
+    [[EarlGrey
+        selectElementWithMatcher:chrome_test_util::DefocusedLocationView()]
+        performAction:grey_tap()];
+    [[EarlGrey selectElementWithMatcher:PasteToSearchButton()]
+        performAction:grey_tap()];
+    // Check that the omnibox started a google search.
+    [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
+        assertWithMatcher:chrome_test_util::OmniboxContainingText("google")];
+  }
+}
+
 @end
 
 #pragma mark - Steady state tests
 
-@interface LocationBarSteadyStateTestCase : ChromeTestCase
-- (void)testFocusingOmniboxDismissesEditMenu;
+@interface LocationBarSteadyStateTestCase : ChromeTestCase {
+  GURL _URL1;
+  GURL _URL2;
+}
+
 @end
 
 @implementation LocationBarSteadyStateTestCase
@@ -200,21 +479,14 @@ id<GREYMatcher> SearchCopiedTextButton() {
       base::BindRepeating(&StandardResponse));
   GREYAssertTrue(self.testServer->Start(), @"Test server failed to start.");
 
+  _URL1 = self.testServer->GetURL(kPage1URL);
+  _URL2 = self.testServer->GetURL(kPage2URL);
+
   [ChromeEarlGrey clearBrowsingHistory];
 
   // Clear the pasteboard in case there is a URL copied.
   UIPasteboard* pasteboard = UIPasteboard.generalPasteboard;
   [pasteboard setValue:@"" forPasteboardType:UIPasteboardNameGeneral];
-}
-
-- (AppLaunchConfiguration)appConfigurationForTestCase {
-  AppLaunchConfiguration config;
-
-  if ([self isRunningTest:@selector(testFocusingOmniboxDismissesEditMenu)]) {
-    config.features_disabled.push_back(kIOSLocationBarUseNativeContextMenu);
-  }
-
-  return config;
 }
 
 // Tapping on steady view starts editing.
@@ -228,9 +500,7 @@ id<GREYMatcher> SearchCopiedTextButton() {
 // Tests that in compact, a share button is visible.
 // Voice search is not enabled on the bots, so the voice search button is
 // not tested here.
-// TODO(crbug.com/996541) Starting in Xcode 11 beta 6, the share button does
-// not appear (even with a delay) flakily.
-- (void)DISABLED_testTrailingButton {
+- (void)testTrailingButton {
   [self openPage1];
 
   if ([ChromeEarlGrey isCompactWidth]) {
@@ -238,23 +508,38 @@ id<GREYMatcher> SearchCopiedTextButton() {
         assertWithMatcher:grey_sufficientlyVisible()];
   }
 }
+// Tests that a security info icon is visible on a web page.
+- (void)testSecurityInfoIcon {
+  [self openPage1];
 
-// Test is flaky: crbug.com/1056700.
-- (void)DISABLED_testCopyPaste {
+  [[EarlGrey
+      selectElementWithMatcher:chrome_test_util::PageSecurityInfoIndicator()]
+      assertWithMatcher:grey_sufficientlyVisible()];
+}
+
+// Tests that location bar shows the current URL in a short form.
+- (void)testLocationBarUrl {
+  [self openPage1];
+
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::DefocusedLocationView()]
+      assertWithMatcher:chrome_test_util::LocationViewContainingText(
+                            _URL1.host())];
+}
+
+- (void)testCopyPaste {
   [self openPage1];
 
   // Long pressing should allow copying.
   [[EarlGrey selectElementWithMatcher:chrome_test_util::DefocusedLocationView()]
       performAction:grey_longPress()];
 
-  // Verify that system text selection callout is displayed.
-  [[EarlGrey selectElementWithMatcher:chrome_test_util::
-                                          SystemSelectionCalloutCopyButton()]
+  // Verify that the Copy button is displayed.
+  [[EarlGrey selectElementWithMatcher:CopyContextMenuButton()]
       assertWithMatcher:grey_notNil()];
 
   // Pressing should not allow pasting when pasteboard is empty.
   // Verify that system text selection callout is not displayed.
-  [[EarlGrey selectElementWithMatcher:VisitCopiedLinkButton()]
+  [[EarlGrey selectElementWithMatcher:VisitCopiedLinkContextMenuButton()]
       assertWithMatcher:grey_nil()];
   [[EarlGrey selectElementWithMatcher:SearchCopiedTextButton()]
       assertWithMatcher:grey_nil()];
@@ -264,21 +549,9 @@ id<GREYMatcher> SearchCopiedTextButton() {
   [self checkLocationBarSteadyState];
 
   // Tapping it should copy the URL.
-  [[EarlGrey selectElementWithMatcher:chrome_test_util::
-                                          SystemSelectionCalloutCopyButton()]
+  [[EarlGrey selectElementWithMatcher:CopyContextMenuButton()]
       performAction:grey_tap()];
-
-  // Edit menu takes a while to copy, and not waiting here will cause Page 2 to
-  // load before the copy happens, so Page 2 URL may be copied.
-  GREYCondition* copyCondition = [GREYCondition
-      conditionWithName:@"page1 URL copied condition"
-                  block:^BOOL {
-                    return [UIPasteboard.generalPasteboard.string
-                        hasSuffix:base::SysUTF8ToNSString(kPage1URL)];
-                  }];
-  // Wait for copy to happen or timeout after 5 seconds.
-  GREYAssertTrue([copyCondition waitWithTimeout:5],
-                 @"Copying page 1 URL failed");
+  [ChromeEarlGrey verifyStringCopied:base::SysUTF8ToNSString(_URL1.spec())];
 
   // Go to another web page.
   [self openPage2];
@@ -286,37 +559,47 @@ id<GREYMatcher> SearchCopiedTextButton() {
   // Visit copied link should now be available.
   [[EarlGrey selectElementWithMatcher:chrome_test_util::DefocusedLocationView()]
       performAction:grey_longPress()];
-  [[EarlGrey selectElementWithMatcher:VisitCopiedLinkButton()]
+  [[EarlGrey selectElementWithMatcher:VisitCopiedLinkContextMenuButton()]
       assertWithMatcher:grey_notNil()];
 
   [self checkLocationBarSteadyState];
 
   // Tapping it should navigate to Page 1.
-  [[EarlGrey selectElementWithMatcher:VisitCopiedLinkButton()]
+  [[EarlGrey selectElementWithMatcher:VisitCopiedLinkContextMenuButton()]
       performAction:grey_tap()];
 
   [ChromeEarlGrey waitForPageToFinishLoading];
   [ChromeEarlGrey waitForWebStateContainingText:kPage1];
 }
 
-- (void)testFocusingOmniboxDismissesEditMenu {
+- (void)testDismissesEditMenu {
   [self openPage1];
 
   // Long pressing should open edit menu.
   [[EarlGrey selectElementWithMatcher:chrome_test_util::DefocusedLocationView()]
       performAction:grey_longPress()];
-  [[EarlGrey selectElementWithMatcher:chrome_test_util::
-                                          SystemSelectionCalloutCopyButton()]
+  [[EarlGrey selectElementWithMatcher:CopyContextMenuButton()]
       assertWithMatcher:grey_notNil()];
 
-  // Focus omnibox.
-  [ChromeEarlGreyUI focusOmnibox];
-  [self checkLocationBarEditState];
+  // Dismiss context menu.
+  GREYAssertTrue([ChromeEarlGreyUI dismissContextMenuIfPresent],
+                 @"Failed to dismiss context menu.");
 
-  // Verify that the edit menu disappeared.
-  [[EarlGrey selectElementWithMatcher:chrome_test_util::
-                                          SystemSelectionCalloutCopyButton()]
-      assertWithMatcher:grey_nil()];
+  GREYCondition* contextMenuDismissed = [GREYCondition
+      conditionWithName:@"Wait for context menu to be dismissed"
+                  block:^BOOL {
+                    NSError* error;
+                    [[EarlGrey selectElementWithMatcher:CopyContextMenuButton()]
+                        assertWithMatcher:grey_nil()
+                                    error:&error];
+                    return error == nil;
+                  }];
+
+  // Verify that the context menu disappeared.
+  GREYAssertTrue([contextMenuDismissed
+                     waitWithTimeout:base::test::ios::kWaitForUIElementTimeout
+                                         .InSecondsF()],
+                 @"Context menu is still visible.");
 }
 
 // Copies and pastes a URL, then performs an undo of the paste, and attempts to
@@ -345,6 +628,7 @@ id<GREYMatcher> SearchCopiedTextButton() {
 
   // Defocus the omnibox.
   if ([ChromeEarlGrey isIPadIdiom]) {
+    // This won't defocus the omnibox, it would only dismiss the keyboard.
     id<GREYMatcher> typingShield = grey_accessibilityID(@"Typing Shield");
     [[EarlGrey selectElementWithMatcher:typingShield] performAction:grey_tap()];
   } else {
@@ -392,17 +676,7 @@ id<GREYMatcher> SearchCopiedTextButton() {
 
   [ChromeEarlGrey simulatePhysicalKeyboardEvent:@"X"
                                           flags:UIKeyModifierCommand];
-
-  // It takes a while to copy, and not waiting here will cause the test to fail.
-  GREYCondition* copyCondition = [GREYCondition
-      conditionWithName:@"page1 URL copied condition"
-                  block:^BOOL {
-                    return [UIPasteboard.generalPasteboard.string
-                        hasSuffix:base::SysUTF8ToNSString(kPage1URL)];
-                  }];
-  // Wait for copy to happen or timeout after 5 seconds.
-  GREYAssertTrue([copyCondition waitWithTimeout:5],
-                 @"Copying page 1 URL failed");
+  [ChromeEarlGrey verifyStringCopied:base::SysUTF8ToNSString(_URL1.spec())];
 
   // Verify that the omnibox is empty.
   [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
@@ -428,9 +702,7 @@ id<GREYMatcher> SearchCopiedTextButton() {
       performAction:grey_typeText(@"Obama")];
 
   // The popup should open.
-  [[EarlGrey
-      selectElementWithMatcher:
-          grey_accessibilityID(kOmniboxPopupTableViewAccessibilityIdentifier)]
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::OmniboxPopupList()]
       assertWithMatcher:grey_notNil()];
 
   // Switch to the first tab.
@@ -439,9 +711,7 @@ id<GREYMatcher> SearchCopiedTextButton() {
 
   // The omnibox shouldn't be focused and the popup should be closed.
   [self checkLocationBarSteadyState];
-  [[EarlGrey
-      selectElementWithMatcher:
-          grey_accessibilityID(kOmniboxPopupTableViewAccessibilityIdentifier)]
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::OmniboxPopupList()]
       assertWithMatcher:grey_notVisible()];
 }
 
@@ -465,9 +735,7 @@ id<GREYMatcher> SearchCopiedTextButton() {
       performAction:grey_typeText(@"Obama")];
 
   // The popup should open.
-  [[EarlGrey
-      selectElementWithMatcher:
-          grey_accessibilityID(kOmniboxPopupTableViewAccessibilityIdentifier)]
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::OmniboxPopupList()]
       assertWithMatcher:grey_notNil()];
 
   // Switch to the first tab.
@@ -476,9 +744,7 @@ id<GREYMatcher> SearchCopiedTextButton() {
 
   // The omnibox shouldn't be focused and the popup should be closed.
   [self checkLocationBarSteadyState];
-  [[EarlGrey
-      selectElementWithMatcher:
-          grey_accessibilityID(kOmniboxPopupTableViewAccessibilityIdentifier)]
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::OmniboxPopupList()]
       assertWithMatcher:grey_notVisible()];
 }
 
@@ -487,14 +753,14 @@ id<GREYMatcher> SearchCopiedTextButton() {
 // Navigates to Page 1 in a tab and waits for it to load.
 - (void)openPage1 {
   // Go to a web page to have a normal location bar.
-  [ChromeEarlGrey loadURL:self.testServer->GetURL(kPage1URL)];
+  [ChromeEarlGrey loadURL:_URL1];
   [ChromeEarlGrey waitForWebStateContainingText:kPage1];
 }
 
 // Navigates to Page 2 in a tab and waits for it to load.
 - (void)openPage2 {
   // Go to a web page to have a normal location bar.
-  [ChromeEarlGrey loadURL:self.testServer->GetURL(kPage2URL)];
+  [ChromeEarlGrey loadURL:_URL2];
   [ChromeEarlGrey waitForWebStateContainingText:kPage2];
 }
 
@@ -512,6 +778,157 @@ id<GREYMatcher> SearchCopiedTextButton() {
 
 @end
 
+#pragma mark - Pre-edit state tests
+
+@interface LocationBarPreEditStateTestCase : ChromeTestCase
+@end
+
+@implementation LocationBarPreEditStateTestCase {
+  GURL _URL;
+}
+
+- (void)setUp {
+  [super setUp];
+
+  [ChromeEarlGrey clearBrowsingHistory];
+
+  // Start a server to be able to navigate to a web page.
+  self.testServer->RegisterRequestHandler(
+      base::BindRepeating(&StandardResponse));
+  GREYAssertTrue(self.testServer->Start(), @"Test server failed to start.");
+
+  _URL = self.testServer->GetURL(kPage1URL);
+
+  // Clear the pasteboard in case there is a URL copied.
+  [ChromeEarlGrey clearPasteboard];
+}
+
+- (void)tearDown {
+  // Clear the pasteboard after every test.
+  [ChromeEarlGrey clearPasteboard];
+  [super tearDown];
+}
+
+// Tests that tapping on steady view on webpage and starting typing a query
+// would clear the page url and have instead the typed query in the omnibox text
+// field.
+- (void)testTypingOnPreEditState {
+  // Load a web page.
+  [ChromeEarlGrey loadURL:_URL];
+  [ChromeEarlGrey waitForWebStateContainingText:kPage1];
+
+  [ChromeEarlGreyUI focusOmnibox];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
+      assertWithMatcher:chrome_test_util::OmniboxText(_URL.GetContent())];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
+      performAction:grey_typeText(@"hello")];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
+      assertWithMatcher:chrome_test_util::OmniboxText("hello")];
+}
+
+// Tests that tapping on omnibox in pre-edit state in SRP or webpage would
+// display a callout menu with cut,copy and paste (if there is a text on the
+// pasteboard).
+- (void)testTapOmniboxOnPreEditState {
+  // Load a web page.
+  [ChromeEarlGrey loadURL:_URL];
+  [ChromeEarlGrey waitForWebStateContainingText:kPage1];
+
+  // Focus Omnibox.
+  [ChromeEarlGreyUI focusOmnibox];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
+      assertWithMatcher:grey_sufficientlyVisible()];
+
+  // Add a text to the pasteBoard (So that we have the paste button displayed).
+  [ChromeEarlGrey copyTextToPasteboard:@"hello"];
+
+  // Tap on Omnibox on pre edit state.
+  // TODO(crbug.com/1442458): Find a better way to tap on the selected url.
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
+      performAction:grey_tapAtPoint(CGPointMake(0, 0))];
+
+  // Wait for callout copy button to be displayed.
+  [ChromeEarlGrey waitForUIElementToAppearWithMatcher:
+                      chrome_test_util::SystemSelectionCalloutCopyButton()];
+
+  // Verify that system text cut callout is displayed.
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::
+                                          SystemSelectionCalloutCutButton()]
+      assertWithMatcher:grey_notNil()];
+
+  // Verify that system text paste callout is displayed.
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::
+                                          SystemSelectionCalloutPasteButton()]
+      assertWithMatcher:grey_notNil()];
+}
+
+// Tests that Cut callout button would erase the current url and copy it on the
+// pasteboard.
+- (void)testCutCalloutButton {
+  // Load a web page.
+  [ChromeEarlGrey loadURL:_URL];
+  [ChromeEarlGrey waitForWebStateContainingText:kPage1];
+
+  // Focus Omnibox.
+  [ChromeEarlGreyUI focusOmnibox];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
+      assertWithMatcher:grey_sufficientlyVisible()];
+
+  // Tap on Omnibox on pre edit state.
+  // TODO(crbug.com/1442458): Find a better way to tap on the selected url.
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
+      performAction:grey_tapAtPoint(CGPointMake(0, 0))];
+
+  // Wait for callout cut button to be displayed.
+  [ChromeEarlGrey waitForUIElementToAppearWithMatcher:
+                      chrome_test_util::SystemSelectionCalloutCutButton()];
+
+  // Tapping on Cut.
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::
+                                          SystemSelectionCalloutCutButton()]
+      performAction:grey_tap()];
+
+  // Omnibox now should be empty.
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
+      assertWithMatcher:chrome_test_util::OmniboxText("")];
+}
+
+// Tests that Paste callout button would erase the current url and replace it
+// with text on pasteboard.
+- (void)testPasteCalloutButton {
+  // Load a web page.
+  [ChromeEarlGrey loadURL:_URL];
+  [ChromeEarlGrey waitForWebStateContainingText:kPage1];
+
+  // Focus Omnibox.
+  [ChromeEarlGreyUI focusOmnibox];
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
+      assertWithMatcher:grey_sufficientlyVisible()];
+
+  // Add a text to the pasteBoard (So that we have the paste button displayed).
+  [ChromeEarlGrey copyTextToPasteboard:@"hello"];
+
+  // Tap on Omnibox on pre edit state.
+  // TODO(crbug.com/1442458): Find a better way to tap on the selected url.
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
+      performAction:grey_tapAtPoint(CGPointMake(0, 0))];
+
+  // Wait for callout paste button to be displayed.
+  [ChromeEarlGrey waitForUIElementToAppearWithMatcher:
+                      chrome_test_util::SystemSelectionCalloutPasteButton()];
+
+  // Tapping on Paste.
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::
+                                          SystemSelectionCalloutPasteButton()]
+      performAction:grey_tap()];
+
+  // Omnibox now should be empty.
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
+      assertWithMatcher:chrome_test_util::OmniboxText("hello")];
+}
+
+@end
+
 #pragma mark - Edit state tests
 
 @interface LocationBarEditStateTestCase : ChromeTestCase
@@ -525,8 +942,7 @@ id<GREYMatcher> SearchCopiedTextButton() {
   [ChromeEarlGrey clearBrowsingHistory];
 
   // Clear the pasteboard in case there is a URL copied.
-  UIPasteboard* pasteboard = UIPasteboard.generalPasteboard;
-  [pasteboard setValue:@"" forPasteboardType:UIPasteboardNameGeneral];
+  [ChromeEarlGrey clearPasteboard];
 }
 
 // Copy button should be hidden when the omnibox is empty otherwise it should be
@@ -534,12 +950,12 @@ id<GREYMatcher> SearchCopiedTextButton() {
 // it should be displayed. Select & SelectAll buttons should be hidden when the
 // omnibox is empty.
 - (void)testEmptyOmnibox {
-// TODO(crbug.com/1209342): test failing on ipad device
-#if !TARGET_IPHONE_SIMULATOR
-  if ([ChromeEarlGrey isIPadIdiom]) {
-    EARL_GREY_TEST_SKIPPED(@"This test doesn't pass on iPad device.");
+  // TODO(crbug.com/1209342): this test fails on iOS 15 devices.
+  if (base::ios::IsRunningOnIOS15OrLater() &&
+      !base::ios::IsRunningOnIOS16OrLater()) {
+    EARL_GREY_TEST_DISABLED(@"Test disabled on iOS 15.");
   }
-#endif
+
   // Focus omnibox.
   [self focusFakebox];
   [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
@@ -561,9 +977,9 @@ id<GREYMatcher> SearchCopiedTextButton() {
                     return error == nil;
                   }];
   // Verify that system text selection callout is not displayed.
-  GREYAssertFalse(
-      [CopyButtonIsDisplayed waitWithTimeout:kWaitForUIElementTimeout],
-      @"Copy button should not be displayed");
+  GREYAssertFalse([CopyButtonIsDisplayed
+                      waitWithTimeout:kWaitForUIElementTimeout.InSecondsF()],
+                  @"Copy button should not be displayed");
 
   // Pressing should not allow select or selectAll when omnibox is empty.
   // Verify that system text selection callout is not displayed.
@@ -599,11 +1015,23 @@ id<GREYMatcher> SearchCopiedTextButton() {
                                 error:&error];
                     return error == nil;
                   }];
-  GREYAssertTrue(
-      [SelectAllButtonIsDisplayed waitWithTimeout:kWaitForUIElementTimeout],
-      @"SelectAll button display failed");
+  GREYAssertTrue([SelectAllButtonIsDisplayed
+                     waitWithTimeout:kWaitForUIElementTimeout.InSecondsF()],
+                 @"SelectAll button display failed");
 
   // Cut the text.
+  GREYCondition* CutButtonIsDisplayed = [GREYCondition
+      conditionWithName:@"Cut button display condition"
+                  block:^BOOL {
+                    NSError* error = nil;
+                    [[EarlGrey selectElementWithMatcher:CutButton()]
+                        assertWithMatcher:grey_notNil()
+                                    error:&error];
+                    return error == nil;
+                  }];
+  GREYAssertTrue([CutButtonIsDisplayed
+                     waitWithTimeout:kWaitForUIElementTimeout.InSecondsF()],
+                 @"Cut button display failed");
   [[EarlGrey selectElementWithMatcher:CutButton()] performAction:grey_tap()];
 
   // Long pressing should allow pasting.
@@ -622,7 +1050,7 @@ id<GREYMatcher> SearchCopiedTextButton() {
                     return error == nil;
                   }];
   GREYAssertTrue([searchCopiedTextButtonIsDisplayed
-                     waitWithTimeout:kWaitForUIElementTimeout],
+                     waitWithTimeout:kWaitForUIElementTimeout.InSecondsF()],
                  @"Search Copied Text button display failed");
   // Verify that system text selection callout is displayed (Paste).
   [[EarlGrey selectElementWithMatcher:PasteButton()]
@@ -635,12 +1063,6 @@ id<GREYMatcher> SearchCopiedTextButton() {
 // If the selected text is the entire omnibox field, select & SelectAll button
 // should be hidden.
 - (void)testSelection {
-// TODO(crbug.com/1209342): test failing on ipad device
-#if !TARGET_IPHONE_SIMULATOR
-  if ([ChromeEarlGrey isIPadIdiom]) {
-    EARL_GREY_TEST_SKIPPED(@"This test doesn't pass on iPad device.");
-  }
-#endif
   // Focus omnibox.
   [self focusFakebox];
   [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
@@ -664,18 +1086,30 @@ id<GREYMatcher> SearchCopiedTextButton() {
                     return error == nil;
                   }];
   // Verify that system text selection callout is displayed.
-  GREYAssertTrue(
-      [SelectButtonIsDisplayed waitWithTimeout:kWaitForUIElementTimeout],
-      @"Select button display failed");
+  GREYAssertTrue([SelectButtonIsDisplayed
+                     waitWithTimeout:kWaitForUIElementTimeout.InSecondsF()],
+                 @"Select button display failed");
   [[EarlGrey selectElementWithMatcher:SelectAllButton()]
       assertWithMatcher:grey_notNil()];
 
+  // Wait for UIMenuController to appear or timeout after 2 seconds.
+  GREYCondition* CopyButtonIsDisplayed = [GREYCondition
+      conditionWithName:@"Copy button display condition"
+                  block:^BOOL {
+                    NSError* error = nil;
+                    [[EarlGrey selectElementWithMatcher:
+                                   chrome_test_util::
+                                       SystemSelectionCalloutCopyButton()]
+                        assertWithMatcher:grey_notNil()
+                                    error:&error];
+                    return error == nil;
+                  }];
   // Pressing select should allow copy.
   // select should be hidden.
   [[EarlGrey selectElementWithMatcher:SelectButton()] performAction:grey_tap()];
-  [[EarlGrey selectElementWithMatcher:chrome_test_util::
-                                          SystemSelectionCalloutCopyButton()]
-      assertWithMatcher:grey_notNil()];
+  GREYAssertTrue([CopyButtonIsDisplayed
+                     waitWithTimeout:kWaitForUIElementTimeout.InSecondsF()],
+                 @"Copy button display failed");
   [[EarlGrey selectElementWithMatcher:SelectButton()]
       assertWithMatcher:grey_nil()];
 
@@ -683,31 +1117,26 @@ id<GREYMatcher> SearchCopiedTextButton() {
   // selectAll should be hidden.
   [[EarlGrey selectElementWithMatcher:SelectAllButton()]
       performAction:grey_tap()];
-  [[EarlGrey selectElementWithMatcher:chrome_test_util::
-                                          SystemSelectionCalloutCopyButton()]
-      assertWithMatcher:grey_notNil()];
+  GREYAssertTrue([CopyButtonIsDisplayed
+                     waitWithTimeout:kWaitForUIElementTimeout.InSecondsF()],
+                 @"Copy button display failed");
   [[EarlGrey selectElementWithMatcher:SelectAllButton()]
       assertWithMatcher:grey_nil()];
 }
 
-// TODO(crbug.com/1067815): Test can't pass on devices.
-// TODO(crbug.com/1253345) Re-enable this test
-- (void)DISABLED_testNoDefaultMatch {
+- (void)testNoDefaultMatch {
+  // TODO(crbug.com/1253345) This test fails on iOS 15 devices.
+  if (base::ios::IsRunningOnIOS15OrLater() &&
+      !base::ios::IsRunningOnIOS16OrLater()) {
+    EARL_GREY_TEST_DISABLED(@"Test disabled on iOS 15.");
+  }
+
   NSString* copiedText = @"test no default match1";
 
   // Put some text in pasteboard.
-  UIPasteboard.generalPasteboard.string = copiedText;
+  [ChromeEarlGrey copyTextToPasteboard:copiedText];
 
-  // Copying can take a while, wait for it to happen.
-  GREYCondition* copyCondition =
-      [GREYCondition conditionWithName:@"test text copied condition"
-                                 block:^BOOL {
-                                   return [UIPasteboard.generalPasteboard.string
-                                       isEqualToString:copiedText];
-                                 }];
-  // Wait for copy to happen or timeout after 5 seconds.
-  GREYAssertTrue([copyCondition waitWithTimeout:5],
-                 @"Copying test text failed");
+  [ChromeEarlGrey verifyStringCopied:copiedText];
 
   // Focus the omnibox.
   [self focusFakebox];
@@ -720,10 +1149,12 @@ id<GREYMatcher> SearchCopiedTextButton() {
   [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
       assertWithMatcher:chrome_test_util::OmniboxText("")];
 
-  // Returns the popup row containing the |url| as suggestion.
-  id<GREYMatcher> textYouCopiedMatch =
-      grey_allOf(grey_kindOfClassName(@"OmniboxPopupRowCell"),
-                 grey_descendant(grey_accessibilityLabel(copiedText)), nil);
+  // Returns the "Text you copied" row.
+  NSString* textYouCopiedLabel =
+      l10n_util::GetNSString(IDS_TEXT_FROM_CLIPBOARD);
+  id<GREYMatcher> textYouCopiedMatch = grey_allOf(
+      grey_kindOfClassName(@"OmniboxPopupRowCell"),
+      grey_descendant(grey_accessibilityLabel(textYouCopiedLabel)), nil);
   [[EarlGrey selectElementWithMatcher:textYouCopiedMatch]
       assertWithMatcher:grey_notNil()];
 }

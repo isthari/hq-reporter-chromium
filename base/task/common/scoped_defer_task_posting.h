@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "base/base_export.h"
 #include "base/location.h"
 #include "base/task/sequenced_task_runner.h"
+#include "base/time/time.h"
 
 namespace base {
 
@@ -22,7 +23,7 @@ namespace base {
 // TODO(altimin): It should be possible to get rid of this scope, but this
 // requires refactoring TimeDomain to ensure that TimeDomain never changes and
 // we can read current time without grabbing a lock.
-class BASE_EXPORT ScopedDeferTaskPosting {
+class BASE_EXPORT [[maybe_unused, nodiscard]] ScopedDeferTaskPosting {
  public:
   static void PostOrDefer(scoped_refptr<SequencedTaskRunner> task_runner,
                           const Location& from_here,

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,15 +10,18 @@ import android.view.View;
 
 import androidx.annotation.NonNull;
 
+import org.chromium.base.TraceEvent;
 import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.bookmarks.PowerBookmarkUtils;
-import org.chromium.chrome.browser.commerce.shopping_list.ShoppingFeatures;
+import org.chromium.chrome.browser.commerce.ShoppingFeatures;
 import org.chromium.chrome.browser.download.DownloadUtils;
 import org.chromium.chrome.browser.feature_engagement.ScreenshotMonitor;
 import org.chromium.chrome.browser.feature_engagement.ScreenshotMonitorDelegate;
+import org.chromium.chrome.browser.feature_engagement.ScreenshotMonitorImpl;
 import org.chromium.chrome.browser.feature_engagement.ScreenshotTabObserver;
 import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
 import org.chromium.chrome.browser.feature_guide.notifications.FeatureNotificationUtils;
@@ -31,6 +34,7 @@ import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.tab.CurrentTabObserver;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.toolbar.adaptive.AdaptiveToolbarFeatures;
 import org.chromium.chrome.browser.translate.TranslateBridge;
 import org.chromium.chrome.browser.translate.TranslateUtils;
 import org.chromium.chrome.browser.ui.appmenu.AppMenuCoordinator;
@@ -38,12 +42,9 @@ import org.chromium.chrome.browser.ui.appmenu.AppMenuHandler;
 import org.chromium.chrome.browser.ui.appmenu.AppMenuPropertiesDelegate;
 import org.chromium.chrome.browser.user_education.IPHCommandBuilder;
 import org.chromium.chrome.browser.user_education.UserEducationHelper;
-import org.chromium.chrome.browser.video_tutorials.VideoTutorialServiceFactory;
-import org.chromium.chrome.browser.video_tutorials.iph.VideoTutorialTryNowTracker;
 import org.chromium.components.feature_engagement.EventConstants;
 import org.chromium.components.feature_engagement.FeatureConstants;
 import org.chromium.components.feature_engagement.Tracker;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.ui.base.DeviceFormFactor;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.url.GURL;
@@ -93,19 +94,24 @@ public class ToolbarButtonInProductHelpController
         mSecurityIconAnchorView = securityIconAnchorView;
         mIsInOverviewModeSupplier = isInOverviewModeSupplier;
         mUserEducationHelper = new UserEducationHelper(mActivity, mHandler);
-        mScreenshotMonitor = new ScreenshotMonitor(this);
+        mScreenshotMonitor = new ScreenshotMonitorImpl(this, mActivity);
         mLifecycleDispatcher = lifecycleDispatcher;
         mLifecycleDispatcher.register(this);
         mCurrentTabSupplier = tabSupplier;
         mPageLoadObserver = new CurrentTabObserver(tabSupplier, new EmptyTabObserver() {
             @Override
             public void onPageLoadFinished(Tab tab, GURL url) {
-                if (tab.isShowingErrorPage()) {
-                    handleIPHForErrorPageShown(tab);
-                    return;
-                }
+                // Part of scroll jank investigation http://crbug.com/1311003. Will remove
+                // TraceEvent after the investigation is complete.
+                try (TraceEvent te = TraceEvent.scoped(
+                             "ToolbarButtonInProductHelpController::onPageLoadFinished")) {
+                    if (tab.isShowingErrorPage()) {
+                        handleIPHForErrorPageShown(tab);
+                        return;
+                    }
 
-                handleIPHForSuccessfulPageLoad(tab);
+                    handleIPHForSuccessfulPageLoad(tab);
+                }
             }
 
             private void handleIPHForSuccessfulPageLoad(final Tab tab) {
@@ -147,8 +153,9 @@ public class ToolbarButtonInProductHelpController
      * @param tab The tab currently being displayed to the user.
      */
     private void showPriceTrackingIPH(Tab tab) {
-        if (!ShoppingFeatures.isShoppingListEnabled()
-                || !PowerBookmarkUtils.isPriceTrackingEligible(tab)) {
+        if (!ShoppingFeatures.isShoppingListEligible()
+                || !PowerBookmarkUtils.isPriceTrackingEligible(tab)
+                || AdaptiveToolbarFeatures.isContextualPageActionUiEnabled()) {
             return;
         }
 
@@ -196,7 +203,6 @@ public class ToolbarButtonInProductHelpController
         // (e.g. tab switch or in overview mode).
         if (DeviceFormFactor.isWindowOnTablet(mWindowAndroid)) return;
         mScreenshotMonitor.startMonitoring();
-        mHandler.post(this::showVideoTutorialTryNowUIForDownload);
     }
 
     @Override
@@ -212,7 +218,7 @@ public class ToolbarButtonInProductHelpController
         Tracker tracker = TrackerFactory.getTrackerForProfile(profile);
         tracker.notifyEvent(EventConstants.SCREENSHOT_TAKEN_CHROME_IN_FOREGROUND);
 
-        PostTask.postTask(UiThreadTaskTraits.DEFAULT, () -> {
+        PostTask.postTask(TaskTraits.UI_DEFAULT, () -> {
             showDownloadPageTextBubble(
                     mCurrentTabSupplier.get(), FeatureConstants.DOWNLOAD_PAGE_SCREENSHOT_FEATURE);
             ScreenshotTabObserver tabObserver =
@@ -299,30 +305,6 @@ public class ToolbarButtonInProductHelpController
                         .setOnDismissCallback(this::turnOffHighlightForMenuItem)
                         .setAnchorView(mMenuButtonAnchorView)
                         .build());
-    }
-
-    /** Show the Try Now UI for video tutorial download feature. */
-    private void showVideoTutorialTryNowUIForDownload() {
-        VideoTutorialTryNowTracker tryNowTracker = VideoTutorialServiceFactory.getTryNowTracker();
-        if (!tryNowTracker.didClickTryNowButton(
-                    org.chromium.chrome.browser.video_tutorials.FeatureType.DOWNLOAD)) {
-            return;
-        }
-
-        Integer menuItemId = DownloadUtils.isAllowedToDownloadPage(mCurrentTabSupplier.get())
-                ? R.id.offline_page_id
-                : R.id.downloads_menu_id;
-
-        mUserEducationHelper.requestShowIPH(
-                new IPHCommandBuilder(mActivity.getResources(), null,
-                        R.string.video_tutorials_iph_tap_here_to_start,
-                        R.string.video_tutorials_iph_tap_here_to_start)
-                        .setAnchorView(mMenuButtonAnchorView)
-                        .setOnShowCallback(() -> turnOnHighlightForMenuItem(menuItemId))
-                        .setOnDismissCallback(this::turnOffHighlightForMenuItem)
-                        .build());
-        tryNowTracker.tryNowUIShown(
-                org.chromium.chrome.browser.video_tutorials.FeatureType.DOWNLOAD);
     }
 
     private void turnOnHighlightForMenuItem(Integer highlightMenuItemId) {

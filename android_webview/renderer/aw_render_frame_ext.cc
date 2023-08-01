@@ -1,14 +1,13 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "android_webview/renderer/aw_render_frame_ext.h"
 
-#include <map>
 #include <memory>
 
+#include "android_webview/common/aw_features.h"
 #include "android_webview/common/mojom/frame.mojom.h"
-#include "base/no_destructor.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/autofill/content/renderer/autofill_agent.h"
@@ -16,7 +15,6 @@
 #include "components/content_capture/common/content_capture_features.h"
 #include "components/content_capture/renderer/content_capture_sender.h"
 #include "content/public/renderer/render_frame.h"
-#include "content/public/renderer/render_view.h"
 #include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
 #include "third_party/blink/public/platform/web_security_origin.h"
 #include "third_party/blink/public/web/web_element.h"
@@ -144,13 +142,6 @@ void PopulateHitTestData(const GURL& absolute_link_url,
 
 }  // namespace
 
-// Registry for RenderFrame => AwRenderFrameExt lookups
-typedef std::map<content::RenderFrame*, AwRenderFrameExt*> FrameExtMap;
-FrameExtMap* GetFrameExtMap() {
-  static base::NoDestructor<FrameExtMap> map;
-  return map.get();
-}
-
 AwRenderFrameExt::AwRenderFrameExt(content::RenderFrame* render_frame)
     : content::RenderFrameObserver(render_frame) {
   // TODO(sgurun) do not create a password autofill agent (change
@@ -158,47 +149,18 @@ AwRenderFrameExt::AwRenderFrameExt(content::RenderFrame* render_frame)
   autofill::PasswordAutofillAgent* password_autofill_agent =
       new autofill::PasswordAutofillAgent(render_frame, &registry_);
   new autofill::AutofillAgent(render_frame, password_autofill_agent, nullptr,
-                              nullptr, &registry_);
+                              &registry_);
   if (content_capture::features::IsContentCaptureEnabled())
     new content_capture::ContentCaptureSender(render_frame, &registry_);
 
   // If we are the main frame register an additional mojo interface.
   if (render_frame->IsMainFrame()) {
-    registry_.AddInterface(base::BindRepeating(
+    registry_.AddInterface<mojom::LocalMainFrame>(base::BindRepeating(
         &AwRenderFrameExt::BindLocalMainFrame, base::Unretained(this)));
   }
-
-  // Add myself to the RenderFrame => AwRenderFrameExt register.
-  GetFrameExtMap()->emplace(render_frame, this);
 }
 
-AwRenderFrameExt::~AwRenderFrameExt() {
-  // Remove myself from the RenderFrame => AwRenderFrameExt register. Ideally,
-  // we'd just use render_frame() and erase by key. However, by this time the
-  // render_frame has already been cleared so we have to iterate over all
-  // render_frames in the map and wipe the one(s) that point to this
-  // AwRenderFrameExt
-
-  auto* map = GetFrameExtMap();
-  auto it = map->begin();
-  while (it != map->end()) {
-    if (it->second == this) {
-      it = map->erase(it);
-    } else {
-      ++it;
-    }
-  }
-}
-
-AwRenderFrameExt* AwRenderFrameExt::FromRenderFrame(
-    content::RenderFrame* render_frame) {
-  DCHECK(render_frame != nullptr);
-  auto iter = GetFrameExtMap()->find(render_frame);
-  DCHECK(GetFrameExtMap()->end() != iter)
-      << "Should always exist a render_frame_ext for a render_frame";
-  AwRenderFrameExt* render_frame_ext = iter->second;
-  return render_frame_ext;
-}
+AwRenderFrameExt::~AwRenderFrameExt() = default;
 
 const mojo::AssociatedRemote<mojom::FrameHost>&
 AwRenderFrameExt::GetFrameHost() {
@@ -214,6 +176,16 @@ bool AwRenderFrameExt::OnAssociatedInterfaceRequestForFrame(
     const std::string& interface_name,
     mojo::ScopedInterfaceEndpointHandle* handle) {
   return registry_.TryBindInterface(interface_name, handle);
+}
+
+void AwRenderFrameExt::DidCreateDocumentElement() {
+  if (!base::FeatureList::IsEnabled(
+          features::kWebViewHitTestInBlinkOnTouchStart)) {
+    return;
+  }
+  render_frame()->GetWebFrame()->AddHitTestOnTouchStartCallback(
+      base::BindRepeating(&AwRenderFrameExt::HandleHitTestResult,
+                          base::Unretained(this)));
 }
 
 void AwRenderFrameExt::DidCommitProvisionalLoad(
@@ -236,7 +208,7 @@ void AwRenderFrameExt::DidCommitProvisionalLoad(
 }
 
 void AwRenderFrameExt::FocusedElementChanged(const blink::WebElement& element) {
-  if (element.IsNull() || !render_frame() || !render_frame()->GetRenderView())
+  if (element.IsNull() || !render_frame())
     return;
 
   auto data = mojom::HitTestData::New();
@@ -268,6 +240,11 @@ void AwRenderFrameExt::HitTest(const gfx::PointF& touch_center,
   const blink::WebHitTestResult result = webview->HitTestResultForTap(
       gfx::Point(touch_center.x(), touch_center.y()),
       gfx::Size(touch_area.width(), touch_area.height()));
+  HandleHitTestResult(result);
+}
+
+void AwRenderFrameExt::HandleHitTestResult(
+    const blink::WebHitTestResult& result) {
   auto data = mojom::HitTestData::New();
 
   GURL absolute_image_url = result.AbsoluteImageURL();
@@ -312,9 +289,10 @@ void AwRenderFrameExt::SetTextZoomFactor(float zoom_factor) {
 void AwRenderFrameExt::DocumentHasImage(DocumentHasImageCallback callback) {
   blink::WebLocalFrame* frame = render_frame()->GetWebFrame();
 
-  // DocumentHasImages Mojo message should only be sent to the main frame.
+  // DocumentHasImages Mojo message should only be sent to the outermost main
+  // frame.
   DCHECK(frame);
-  DCHECK(!frame->Parent());
+  DCHECK(frame->IsOutermostMainFrame());
 
   const blink::WebElement child_img = GetImgChild(frame->GetDocument());
   bool has_images = !child_img.IsNull();
@@ -359,6 +337,9 @@ void AwRenderFrameExt::OnDestruct() {
 
 void AwRenderFrameExt::BindLocalMainFrame(
     mojo::PendingAssociatedReceiver<mojom::LocalMainFrame> pending_receiver) {
+  // When bfcache is enabled, this bind can occur multiple times.
+  // receiver should be reset before.
+  local_main_frame_receiver_.reset();
   local_main_frame_receiver_.Bind(std::move(pending_receiver));
 }
 

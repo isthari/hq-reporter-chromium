@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,21 +7,21 @@
 #include <atlsecurity.h>
 #include <sddl.h>
 
+#include <ios>
 #include <string>
 #include <type_traits>
 
+#include "base/check_op.h"
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
 #include "base/logging.h"
 #include "base/no_destructor.h"
+#include "base/process/launch.h"
 #include "base/task/single_thread_task_executor.h"
 #include "base/win/scoped_com_initializer.h"
-#include "chrome/updater/app/server/win/com_classes.h"
-#include "chrome/updater/app/server/win/com_classes_legacy.h"
+#include "chrome/updater/app/app_server.h"
 #include "chrome/updater/app/server/win/server.h"
 #include "chrome/updater/constants.h"
-#include "chrome/updater/win/win_constants.h"
-#include "chrome/updater/win/win_util.h"
+#include "chrome/updater/util/win_util.h"
 
 namespace updater {
 
@@ -31,28 +31,34 @@ namespace {
 // debugging purposes.
 constexpr char kConsoleSwitchName[] = "console";
 
-bool IsInternalService() {
-  return base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-             kServerServiceSwitch) == kServerUpdateServiceInternalSwitchValue;
+HRESULT RunWakeTask() {
+  base::CommandLine run_updater_wake_command(
+      base::CommandLine::ForCurrentProcess()->GetProgram());
+  run_updater_wake_command.AppendSwitch(kWakeSwitch);
+  run_updater_wake_command.AppendSwitch(kSystemSwitch);
+  run_updater_wake_command.AppendSwitch(kEnableLoggingSwitch);
+  run_updater_wake_command.AppendSwitchASCII(kLoggingModuleSwitch,
+                                             kLoggingModuleSwitchValue);
+  VLOG(2) << "Launching Wake command: "
+          << run_updater_wake_command.GetCommandLineString();
+
+  base::LaunchOptions options;
+  options.start_hidden = true;
+  const base::Process process =
+      base::LaunchProcess(run_updater_wake_command, options);
+  return process.IsValid() ? S_OK : HRESULTFromLastError();
 }
 
 }  // namespace
 
-int ServiceMain::RunComService(const base::CommandLine* command_line) {
-  base::win::ScopedCOMInitializer com_initializer(
-      base::win::ScopedCOMInitializer::kMTA);
-  if (!com_initializer.Succeeded()) {
-    LOG(ERROR) << "Failed to initialize COM";
-    return CO_E_INITIALIZATIONFAILED;
+int ServiceMain::RunWindowsService(const base::CommandLine* command_line) {
+  ServiceMain* service = ServiceMain::GetInstance();
+  if (!service->InitWithCommandLine(command_line)) {
+    return ERROR_BAD_ARGUMENTS;
   }
 
-  // Run the COM service.
-  ServiceMain* service = ServiceMain::GetInstance();
-  if (!service->InitWithCommandLine(command_line))
-    return ERROR_BAD_ARGUMENTS;
-
   int ret = service->Start();
-  DCHECK_NE(ret, int{STILL_ACTIVE});
+  CHECK_NE(ret, int{STILL_ACTIVE});
   return ret;
 }
 
@@ -69,8 +75,9 @@ bool ServiceMain::InitWithCommandLine(const base::CommandLine* command_line) {
   }
 
   // Run interactively if needed.
-  if (command_line->HasSwitch(kConsoleSwitchName))
+  if (command_line->HasSwitch(kConsoleSwitchName)) {
     run_routine_ = &ServiceMain::RunInteractive;
+  }
 
   return true;
 }
@@ -103,7 +110,7 @@ int ServiceMain::RunAsService() {
   return service_status_.dwWin32ExitCode;
 }
 
-void ServiceMain::ServiceMainImpl() {
+void ServiceMain::ServiceMainImpl(const base::CommandLine& command_line) {
   service_status_handle_ =
       ::RegisterServiceCtrlHandler(GetServiceName(IsInternalService()).c_str(),
                                    &ServiceMain::ServiceControlHandler);
@@ -114,9 +121,10 @@ void ServiceMain::ServiceMainImpl() {
   SetServiceStatus(SERVICE_RUNNING);
 
   // When the Run function returns, the service has stopped.
-  // `hr` can be either a HRESULT or a Windows error code.
-  const HRESULT hr = Run();
+  // `hr` can be either an HRESULT or a Windows error code.
+  const HRESULT hr = Run(command_line);
   if (hr != S_OK) {
+    VLOG(2) << "Run returned: " << std::hex << hr;
     service_status_.dwWin32ExitCode = ERROR_SERVICE_SPECIFIC_ERROR;
     service_status_.dwServiceSpecificExitCode = hr;
   }
@@ -125,7 +133,7 @@ void ServiceMain::ServiceMainImpl() {
 }
 
 int ServiceMain::RunInteractive() {
-  return Run();
+  return RunCOMServer();
 }
 
 // static
@@ -144,7 +152,7 @@ void ServiceMain::ServiceControlHandler(DWORD control) {
 
 // static
 void WINAPI ServiceMain::ServiceMainEntry(DWORD argc, wchar_t* argv[]) {
-  ServiceMain::GetInstance()->ServiceMainImpl();
+  ServiceMain::GetInstance()->ServiceMainImpl(base::CommandLine(argc, argv));
 }
 
 void ServiceMain::SetServiceStatus(DWORD state) {
@@ -152,7 +160,17 @@ void ServiceMain::SetServiceStatus(DWORD state) {
   ::SetServiceStatus(service_status_handle_, &service_status_);
 }
 
-HRESULT ServiceMain::Run() {
+HRESULT ServiceMain::Run(const base::CommandLine& command_line) {
+  if (command_line.HasSwitch(kComServiceSwitch)) {
+    VLOG(2) << "Running COM server within the Windows Service";
+    return RunCOMServer();
+  }
+
+  VLOG(2) << "Running Wake task from the Windows Service";
+  return RunWakeTask();
+}
+
+HRESULT ServiceMain::RunCOMServer() {
   base::SingleThreadTaskExecutor service_task_executor(
       base::MessagePumpType::UI);
 
@@ -165,8 +183,9 @@ HRESULT ServiceMain::Run() {
   }
 
   HRESULT hr = InitializeComSecurity();
-  if (FAILED(hr))
+  if (FAILED(hr)) {
     return hr;
+  }
 
   return AppServerSingletonInstance()->Run();
 }
@@ -176,9 +195,11 @@ HRESULT ServiceMain::InitializeComSecurity() {
   CDacl dacl;
   constexpr auto com_rights_execute_local =
       COM_RIGHTS_EXECUTE | COM_RIGHTS_EXECUTE_LOCAL;
-  dacl.AddAllowedAce(Sids::System(), com_rights_execute_local);
-  dacl.AddAllowedAce(Sids::Admins(), com_rights_execute_local);
-  dacl.AddAllowedAce(Sids::Interactive(), com_rights_execute_local);
+  if (!dacl.AddAllowedAce(Sids::System(), com_rights_execute_local) ||
+      !dacl.AddAllowedAce(Sids::Admins(), com_rights_execute_local) ||
+      !dacl.AddAllowedAce(Sids::Interactive(), com_rights_execute_local)) {
+    return E_ACCESSDENIED;
+  }
 
   CSecurityDesc sd;
   sd.SetDacl(dacl);
@@ -186,10 +207,30 @@ HRESULT ServiceMain::InitializeComSecurity() {
   sd.SetOwner(Sids::Admins());
   sd.SetGroup(Sids::Admins());
 
+  // These are the flags being set:
+  // EOAC_DYNAMIC_CLOAKING: DCOM uses the thread token (if present) when
+  //   determining the client's identity. Useful when impersonating another
+  //   user.
+  // EOAC_SECURE_REFS: Authenticates distributed reference count calls to
+  //   prevent malicious users from releasing objects that are still being used.
+  // EOAC_DISABLE_AAA: Causes any activation where a server process would be
+  //   launched under the caller's identity (activate-as-activator) to fail with
+  //   E_ACCESSDENIED.
+  // EOAC_NO_CUSTOM_MARSHAL: reduces the chances of executing arbitrary DLLs
+  //   because it allows the marshaling of only CLSIDs that are implemented in
+  //   Ole32.dll, ComAdmin.dll, ComSvcs.dll, or Es.dll, or that implement the
+  //   CATID_MARSHALER category ID.
+  // RPC_C_AUTHN_LEVEL_PKT_PRIVACY: prevents replay attacks, verifies that none
+  //   of the data transferred between the client and server has been modified,
+  //   ensures that the data transferred can only be seen unencrypted by the
+  //   client and the server.
   return ::CoInitializeSecurity(
       const_cast<SECURITY_DESCRIPTOR*>(sd.GetPSECURITY_DESCRIPTOR()), -1,
       nullptr, nullptr, RPC_C_AUTHN_LEVEL_PKT_PRIVACY, RPC_C_IMP_LEVEL_IDENTIFY,
-      nullptr, EOAC_DYNAMIC_CLOAKING | EOAC_NO_CUSTOM_MARSHAL, nullptr);
+      nullptr,
+      EOAC_DYNAMIC_CLOAKING | EOAC_DISABLE_AAA | EOAC_SECURE_REFS |
+          EOAC_NO_CUSTOM_MARSHAL,
+      nullptr);
 }
 
 }  // namespace updater

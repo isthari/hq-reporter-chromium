@@ -1,115 +1,87 @@
-# Copyright 2021 The Chromium Authors. All rights reserved.
+# Copyright 2021 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//testing/test.gni")
+visibility = [ ":*" ]
 
+# Public target on which all external code requiring a resource_provider
+# implementation should depend.
 source_set("renderer") {
-  deps = [
-    ":demuxer",
-    "//base",
-    "//components/cast_streaming/public",
-    "//content/public/renderer",
-    "//third_party/blink/public:blink_headers",
-    "//third_party/blink/public/common",
-  ]
-  public = [ "public/demuxer_provider.h " ]
+  visibility += [ "*" ]
+  public = [ "public/resource_provider_factory.h" ]
   sources = [
-    "cast_streaming_render_frame_observer.cc",
-    "cast_streaming_render_frame_observer.h",
-    "demuxer_provider.cc",
+    "resource_provider_impl.cc",
+    "resource_provider_impl.h",
   ]
-}
-
-source_set("playback_command_forwarding_renderer_factory") {
-  public = [ "public/playback_command_forwarding_renderer_factory.h" ]
-  sources = [ "playback_command_forwarding_renderer_factory.cc" ]
-  deps = [
-    ":playback_command_forwarding_renderer",
-    "//base",
-    "//media",
-    "//media/mojo/mojom",
-    "//mojo/public/cpp/bindings",
-  ]
-}
-
-source_set("renderer_controller_proxy") {
-  public = [ "public/renderer_controller_proxy.h" ]
-  sources = [ "renderer_controller_proxy.cc" ]
-  public_deps = [
-    "//base",
-    "//components/cast_streaming/public/mojom",
-    "//mojo/public/cpp/bindings",
-  ]
-}
-
-source_set("renderer_controller_proxy_factory") {
-  public = [ "public/renderer_controller_proxy_factory.h" ]
-  sources = [
-    "renderer_controller_proxy_impl.cc",
-    "renderer_controller_proxy_impl.h",
-  ]
-
-  public_deps = [
-    ":renderer_controller_proxy",
-    "//base",
-    "//components/cast_streaming/public/mojom",
-    "//mojo/public/cpp/bindings",
-  ]
-}
-
-source_set("demuxer") {
+  public_deps = [ ":resource_provider" ]
   deps = [
     "//base",
-    "//components/cast_streaming/public/mojom",
+    "//components/cast_streaming/common",
+    "//components/cast_streaming/common:mojom",
+    "//components/cast_streaming/renderer/control",
+    "//components/cast_streaming/renderer/frame",
     "//media",
     "//media/mojo/common",
+    "//media/mojo/mojom",
     "//mojo/public/cpp/bindings",
+    "//url",
   ]
-  sources = [
-    "cast_streaming_demuxer.cc",
-    "cast_streaming_demuxer.h",
-    "cast_streaming_receiver.cc",
-    "cast_streaming_receiver.h",
-  ]
-  visibility = [ ":*" ]
 }
 
-source_set("playback_command_forwarding_renderer") {
-  sources = [
-    "playback_command_forwarding_renderer.cc",
-    "playback_command_forwarding_renderer.h",
+# Public target used by the //content code to inject the Renderer used for
+# cast_streaming operations. This target is included in ALL chromium builds
+# that use the Chromium media pipeline, so be careful when adding new
+# dependencies here.
+source_set("resource_provider") {
+  visibility += [
+    "//components/cast_streaming/renderer/*",
+    "//content/renderer:renderer",
   ]
-  deps = [
+  public = [
+    "public/resource_provider.h",
+    "public/wrapping_renderer_factory_selector.h",
+  ]
+  sources = [
+    "resource_provider.cc",
+    "wrapping_renderer_factory_selector.cc",
+  ]
+  public_deps = [
     "//base",
-    "//media",
+    "//components/cast_streaming/common:mojom",
     "//media/mojo/mojom",
     "//mojo/public/cpp/bindings",
   ]
-  visibility = [ ":*" ]
+  deps = [
+    "//components/cast_streaming/renderer/control:renderer",
+    "//media",
+  ]
+}
+
+# This file is to be used with the WebCodecs-based receiver. An instance of this
+# type will be directly handled by blink.
+source_set("decoder_buffer_provider") {
+  visibility += [ "*" ]
+  public = [ "public/decoder_buffer_provider.h" ]
+  public_deps = [ "//base" ]
 }
 
 source_set("unit_tests") {
   testonly = true
-
-  sources = [
-    "playback_command_forwarding_renderer_factory_unittest.cc",
-    "playback_command_forwarding_renderer_unittest.cc",
+  visibility += [ "//components/cast_streaming:unit_tests" ]
+  sources = []
+  deps = [
+    "//components/cast_streaming/renderer/common:unit_tests",
+    "//components/cast_streaming/renderer/control:unit_tests",
+    "//components/cast_streaming/renderer/web_codecs:unit_tests",
   ]
 
-  deps = [
-    ":playback_command_forwarding_renderer",
-    ":playback_command_forwarding_renderer_factory",
+  # The following are not used by the tests, but have been explicitly added
+  # as deps to ensure changes outside of this component do not remove their CQ
+  # coverage.
+  # TODO(crbug.com/1357085): Add tests or handle this in a more appropriate way.
+  deps += [
+    ":decoder_buffer_provider",
     ":renderer",
-    ":renderer_controller_proxy",
-    ":renderer_controller_proxy_factory",
-    "//base/test:test_support",
-    "//components/cast_streaming/public/mojom",
-    "//media:test_support",
-    "//media/mojo:test_support",
-    "//media/mojo/mojom",
-    "//mojo/public/cpp/test_support:test_utils",
-    "//testing/gmock",
-    "//testing/gtest",
+    ":resource_provider",
   ]
 }

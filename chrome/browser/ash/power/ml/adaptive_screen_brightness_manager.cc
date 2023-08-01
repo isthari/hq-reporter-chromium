@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,8 @@
 #include <utility>
 
 #include "ash/constants/ash_pref_names.h"
-#include "ash/constants/devicetype.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/process/launch.h"
-#include "base/task/post_task.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/ash/accessibility/accessibility_manager.h"
@@ -25,10 +23,10 @@
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
+#include "chromeos/ash/components/dbus/dbus_thread_manager.h"
+#include "chromeos/constants/devicetype.h"
 #include "chromeos/dbus/power_manager/backlight.pb.h"
 #include "components/prefs/pref_service.h"
-#include "components/ukm/content/source_url_recorder.h"
 #include "components/viz/host/host_frame_sink_manager.h"
 #include "content/public/browser/web_contents.h"
 #include "mojo/public/cpp/bindings/pending_remote.h"
@@ -53,15 +51,8 @@ constexpr int kNumUserInputEventsBuckets = kUserInputEventsDuration.InMinutes();
 // Returns nullopt if no suitable browsers are found.
 Browser* GetFocusedOrTopmostVisibleBrowser() {
   Browser* topmost_browser = nullptr;
-  Browser* browser = nullptr;
-  BrowserList* browser_list = BrowserList::GetInstance();
-  DCHECK(browser_list);
 
-  for (auto browser_iterator =
-           browser_list->begin_browsers_ordered_by_activation();
-       browser_iterator != browser_list->end_browsers_ordered_by_activation();
-       ++browser_iterator) {
-    browser = *browser_iterator;
+  for (Browser* browser : BrowserList::GetInstance()->OrderedByActivation()) {
     if (browser->profile()->IsOffTheRecord() || !browser->window()->IsVisible())
       continue;
 
@@ -69,7 +60,7 @@ Browser* GetFocusedOrTopmostVisibleBrowser() {
       return browser;
 
     if (!topmost_browser)
-      topmost_browser = *browser_iterator;
+      topmost_browser = browser;
   }
   if (topmost_browser)
     return topmost_browser;
@@ -89,7 +80,7 @@ const std::pair<ukm::SourceId, bool> GetActiveTabData() {
     DCHECK(tab_strip_model);
     content::WebContents* contents = tab_strip_model->GetActiveWebContents();
     if (contents) {
-      tab_id = ukm::GetSourceIdForWebContentsDocument(contents);
+      tab_id = contents->GetPrimaryMainFrame()->GetPageUkmSourceId();
       has_form_entry = FormInteractionTabHelper::FromWebContents(contents)
                            ->had_form_interaction();
     }
@@ -149,7 +140,7 @@ AdaptiveScreenBrightnessManager::~AdaptiveScreenBrightnessManager() = default;
 
 std::unique_ptr<AdaptiveScreenBrightnessManager>
 AdaptiveScreenBrightnessManager::CreateInstance() {
-  if (GetDeviceType() != DeviceType::kChromebook)
+  if (chromeos::GetDeviceType() != chromeos::DeviceType::kChromebook)
     return nullptr;
 
   chromeos::PowerManagerClient* const power_manager_client =

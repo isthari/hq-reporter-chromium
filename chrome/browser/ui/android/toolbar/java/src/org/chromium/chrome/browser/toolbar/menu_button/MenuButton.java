@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,6 +24,7 @@ import android.widget.ImageView;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.VisibleForTesting;
 import androidx.core.view.ViewCompat;
+import androidx.core.widget.ImageViewCompat;
 
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.supplier.Supplier;
@@ -125,6 +126,9 @@ public class MenuButton extends FrameLayout implements TintObserver {
         int color = ThemeUtils.getThemedToolbarIconTint(getContext(), mBrandedColorScheme)
                             .getDefaultColor();
         mMenuImageButtonAnimationDrawable.setColorFilter(color, PorterDuff.Mode.SRC_IN);
+
+        // Not reliably set in tests.
+        if (mStateSupplier == null) return;
 
         // As an optimization, don't re-calculate drawable state for the update badge unless we
         // intend to actually show it.
@@ -310,7 +314,7 @@ public class MenuButton extends FrameLayout implements TintObserver {
 
     @Override
     public void onTintChanged(ColorStateList tintList, @BrandedColorScheme int brandedColorScheme) {
-        ApiCompatibilityUtils.setImageTintList(mMenuImageButton, tintList);
+        ImageViewCompat.setImageTintList(mMenuImageButton, tintList);
         mBrandedColorScheme = brandedColorScheme;
         updateImageResources();
         updateMenuButtonHighlightDrawable();

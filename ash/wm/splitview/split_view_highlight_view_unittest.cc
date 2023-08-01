@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,10 @@
 #include "ash/test/ash_test_base.h"
 #include "ash/wm/splitview/split_view_constants.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
+#include "base/memory/raw_ptr.h"
 #include "base/test/icu_test_util.h"
 #include "ui/compositor/layer.h"
+#include "ui/compositor/layer_animator.h"
 #include "ui/compositor/scoped_animation_duration_scale_mode.h"
 #include "ui/display/test/display_manager_test_api.h"
 #include "ui/views/widget/widget.h"
@@ -50,8 +52,8 @@ class SplitViewHighlightViewTest : public AshTestBase {
   }
 
  protected:
-  SplitViewHighlightView* left_highlight_;
-  SplitViewHighlightView* right_highlight_;
+  raw_ptr<SplitViewHighlightView, ExperimentalAsh> left_highlight_;
+  raw_ptr<SplitViewHighlightView, ExperimentalAsh> right_highlight_;
   std::unique_ptr<views::Widget> widget_;
 
  private:
@@ -61,7 +63,8 @@ class SplitViewHighlightViewTest : public AshTestBase {
     auto animation_type =
         animate ? absl::make_optional(SPLITVIEW_ANIMATION_PREVIEW_AREA_SLIDE_IN)
                 : absl::nullopt;
-    auto* highlight_view = is_left ? left_highlight_ : right_highlight_;
+    auto* highlight_view =
+        is_left ? left_highlight_.get() : right_highlight_.get();
     highlight_view->SetBounds(bounds, animation_type);
   }
 };

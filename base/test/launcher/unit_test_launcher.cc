@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,13 +9,13 @@
 #include <utility>
 
 #include "base/base_switches.h"
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/debug/debugger.h"
 #include "base/files/file_util.h"
 #include "base/format_macros.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/message_loop/message_pump_type.h"
@@ -26,11 +26,11 @@
 #include "base/system/sys_info.h"
 #include "base/task/single_thread_task_executor.h"
 #include "base/task/single_thread_task_runner.h"
+#include "base/test/allow_check_is_test_for_testing.h"
 #include "base/test/launcher/test_launcher.h"
 #include "base/test/test_switches.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/thread_checker.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -38,12 +38,21 @@
 #include "base/files/file_descriptor_watcher_posix.h"
 #endif
 
+#if BUILDFLAG(IS_IOS)
+#include "base/test/test_support_ios.h"
+#endif
+
 namespace base {
 
 namespace {
 
 // This constant controls how many tests are run in a single batch by default.
-const size_t kDefaultTestBatchLimit = 10;
+const size_t kDefaultTestBatchLimit =
+#if BUILDFLAG(IS_IOS)
+    100;
+#else
+    10;
+#endif
 
 #if !BUILDFLAG(IS_ANDROID)
 void PrintUsage() {
@@ -117,9 +126,6 @@ void PrintUsage() {
       "  --test-launcher-shard-index=N\n"
       "    Sets the shard index to run to N (from 0 to TOTAL - 1).\n"
       "\n"
-      "  --dont-use-job-objects\n"
-      "    Avoids using job objects in Windows.\n"
-      "\n"
       "  --test-launcher-print-temp-leaks\n"
       "    Prints information about leaked files and/or directories in\n"
       "    child process's temporary directories (Windows and macOS).\n");
@@ -139,18 +145,14 @@ bool GetSwitchValueAsInt(const std::string& switch_name, int* result) {
 
   return true;
 }
-#endif
 
-int LaunchUnitTestsInternal(RunTestSuiteCallback run_test_suite,
-                            size_t parallel_jobs,
-                            int default_batch_limit,
-                            size_t retry_limit,
-                            bool use_job_objects,
-                            OnceClosure gtest_init) {
-#if BUILDFLAG(IS_ANDROID)
-  // We can't easily fork on Android, just run the test suite directly.
-  return std::move(run_test_suite).Run();
-#else
+int RunTestSuite(RunTestSuiteCallback run_test_suite,
+                 size_t parallel_jobs,
+                 int default_batch_limit,
+                 size_t retry_limit,
+                 bool use_job_objects,
+                 RepeatingClosure timeout_callback,
+                 OnceClosure gtest_init) {
   bool force_single_process = false;
   if (CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kTestLauncherDebugLauncher)) {
@@ -202,13 +204,9 @@ int LaunchUnitTestsInternal(RunTestSuiteCallback run_test_suite,
 #if BUILDFLAG(IS_POSIX)
   FileDescriptorWatcher file_descriptor_watcher(executor.task_runner());
 #endif
-  use_job_objects =
-      use_job_objects &&
-      !CommandLine::ForCurrentProcess()->HasSwitch(kDontUseJobObjectFlag);
-
   DefaultUnitTestPlatformDelegate platform_delegate;
   UnitTestLauncherDelegate delegate(&platform_delegate, batch_limit,
-                                    use_job_objects);
+                                    use_job_objects, timeout_callback);
   TestLauncher launcher(&delegate, parallel_jobs, retry_limit);
   bool success = launcher.Run();
 
@@ -217,6 +215,31 @@ int LaunchUnitTestsInternal(RunTestSuiteCallback run_test_suite,
   fflush(stdout);
 
   return (success ? 0 : 1);
+}
+#endif
+
+int LaunchUnitTestsInternal(RunTestSuiteCallback run_test_suite,
+                            size_t parallel_jobs,
+                            int default_batch_limit,
+                            size_t retry_limit,
+                            bool use_job_objects,
+                            RepeatingClosure timeout_callback,
+                            OnceClosure gtest_init) {
+  base::test::AllowCheckIsTestForTesting();
+
+#if BUILDFLAG(IS_ANDROID)
+  // We can't easily fork on Android, just run the test suite directly.
+  return std::move(run_test_suite).Run();
+#elif BUILDFLAG(IS_IOS)
+  InitIOSRunHook(base::BindOnce(&RunTestSuite, std::move(run_test_suite),
+                                parallel_jobs, default_batch_limit, retry_limit,
+                                use_job_objects, timeout_callback,
+                                std::move(gtest_init)));
+  return RunTestsFromIOSApp();
+#else
+  return RunTestSuite(std::move(run_test_suite), parallel_jobs,
+                      default_batch_limit, retry_limit, use_job_objects,
+                      timeout_callback, std::move(gtest_init));
 #endif
 }
 
@@ -231,9 +254,6 @@ void InitGoogleTestWChar(int* argc, wchar_t** argv) {
 #endif  // BUILDFLAG(IS_WIN)
 
 }  // namespace
-
-// Flag to avoid using job objects
-const char kDontUseJobObjectFlag[] = "dont-use-job-objects";
 
 MergeTestFilterSwitchHandler::~MergeTestFilterSwitchHandler() = default;
 void MergeTestFilterSwitchHandler::ResolveDuplicate(
@@ -267,6 +287,7 @@ int LaunchUnitTests(int argc,
   }
   return LaunchUnitTestsInternal(std::move(run_test_suite), parallel_jobs,
                                  kDefaultTestBatchLimit, retry_limit, true,
+                                 DoNothing(),
                                  BindOnce(&InitGoogleTestChar, &argc, argv));
 }
 
@@ -275,7 +296,7 @@ int LaunchUnitTestsSerially(int argc,
                             RunTestSuiteCallback run_test_suite) {
   CommandLine::Init(argc, argv);
   return LaunchUnitTestsInternal(std::move(run_test_suite), 1U,
-                                 kDefaultTestBatchLimit, 1U, true,
+                                 kDefaultTestBatchLimit, 1U, true, DoNothing(),
                                  BindOnce(&InitGoogleTestChar, &argc, argv));
 }
 
@@ -284,10 +305,12 @@ int LaunchUnitTestsWithOptions(int argc,
                                size_t parallel_jobs,
                                int default_batch_limit,
                                bool use_job_objects,
+                               RepeatingClosure timeout_callback,
                                RunTestSuiteCallback run_test_suite) {
   CommandLine::Init(argc, argv);
   return LaunchUnitTestsInternal(std::move(run_test_suite), parallel_jobs,
                                  default_batch_limit, 1U, use_job_objects,
+                                 timeout_callback,
                                  BindOnce(&InitGoogleTestChar, &argc, argv));
 }
 
@@ -304,6 +327,7 @@ int LaunchUnitTests(int argc,
   }
   return LaunchUnitTestsInternal(std::move(run_test_suite), parallel_jobs,
                                  kDefaultTestBatchLimit, 1U, use_job_objects,
+                                 DoNothing(),
                                  BindOnce(&InitGoogleTestWChar, &argc, argv));
 }
 #endif  // BUILDFLAG(IS_WIN)
@@ -359,10 +383,12 @@ std::string DefaultUnitTestPlatformDelegate::GetWrapperForChildGTestProcess() {
 UnitTestLauncherDelegate::UnitTestLauncherDelegate(
     UnitTestPlatformDelegate* platform_delegate,
     size_t batch_limit,
-    bool use_job_objects)
+    bool use_job_objects,
+    RepeatingClosure timeout_callback)
     : platform_delegate_(platform_delegate),
       batch_limit_(batch_limit),
-      use_job_objects_(use_job_objects) {}
+      use_job_objects_(use_job_objects),
+      timeout_callback_(timeout_callback) {}
 
 UnitTestLauncherDelegate::~UnitTestLauncherDelegate() {
   DCHECK(thread_checker_.CalledOnValidThread());
@@ -404,6 +430,10 @@ TimeDelta UnitTestLauncherDelegate::GetTimeout() {
 
 size_t UnitTestLauncherDelegate::GetBatchSize() {
   return batch_limit_;
+}
+
+void UnitTestLauncherDelegate::OnTestTimedOut(const CommandLine& cmd_line) {
+  timeout_callback_.Run();
 }
 
 }  // namespace base

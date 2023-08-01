@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,13 +6,93 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "chrome/browser/browsing_data/browsing_data_file_system_util.h"
 #include "chrome/browser/browsing_data/cookies_tree_model.h"
+#include "components/browsing_data/core/features.h"
 #include "content/public/browser/storage_usage_info.h"
 #include "net/cookies/canonical_cookie.h"
 
 ///////////////////////////////////////////////////////////////////////////////
 // LocalDataContainer, public:
+
+// static
+std::unique_ptr<LocalDataContainer>
+LocalDataContainer::CreateFromLocalSharedObjectsContainer(
+    const browsing_data::LocalSharedObjectsContainer& shared_objects) {
+  return std::make_unique<LocalDataContainer>(
+      shared_objects.cookies(), shared_objects.databases(),
+      shared_objects.local_storages(), shared_objects.session_storages(),
+      shared_objects.indexed_dbs(), shared_objects.file_systems(),
+      /*quota_helper=*/nullptr, shared_objects.service_workers(),
+      shared_objects.shared_workers(), shared_objects.cache_storages());
+}
+
+// static
+std::unique_ptr<LocalDataContainer>
+LocalDataContainer::CreateFromStoragePartition(
+    content::StoragePartition* storage_partition,
+    browsing_data::CookieHelper::IsDeletionDisabledCallback
+        is_cookie_deletion_disabled_callback) {
+  // Deprecating CookiesTreeModel excludes all related helpers from local data
+  // container that are handled by the `BrowsingDataModel`.
+  // This works independently whether partitioned storage is enabled or not.
+  if (base::FeatureList::IsEnabled(
+          browsing_data::features::kDeprecateCookiesTreeModel)) {
+    return std::make_unique<LocalDataContainer>(
+        base::MakeRefCounted<browsing_data::CookieHelper>(
+            storage_partition, is_cookie_deletion_disabled_callback),
+        /*database_helper=*/nullptr,
+        /*local_storage_helper=*/nullptr,
+        /*session_storage_helper=*/nullptr,
+        /*indexed_db_helper=*/nullptr,
+        /*file_system_helper=*/nullptr,
+        /*quota_helper=*/nullptr,
+        /*service_worker_helper=*/nullptr,
+        base::MakeRefCounted<browsing_data::SharedWorkerHelper>(
+            storage_partition),
+        /*cache_storage_helper=*/nullptr);
+  }
+
+  // If partitioned storage is enabled, the quota node is used to represent all
+  // types of quota managed storage. If not, the quota node type is excluded as
+  // it is represented by other types.
+  if (blink::StorageKey::IsThirdPartyStoragePartitioningEnabled()) {
+    return std::make_unique<LocalDataContainer>(
+        base::MakeRefCounted<browsing_data::CookieHelper>(
+            storage_partition, is_cookie_deletion_disabled_callback),
+        /*database_helper=*/nullptr,
+        base::MakeRefCounted<browsing_data::LocalStorageHelper>(
+            storage_partition),
+        /*session_storage_helper=*/nullptr,
+        /*indexed_db_helper=*/nullptr,
+        /*file_system_helper=*/nullptr,
+        /*quota_helper=*/BrowsingDataQuotaHelper::Create(storage_partition),
+        /*service_worker_helper=*/nullptr,
+        base::MakeRefCounted<browsing_data::SharedWorkerHelper>(
+            storage_partition),
+        /*cache_storage_helper=*/nullptr);
+  }
+
+  return std::make_unique<LocalDataContainer>(
+      base::MakeRefCounted<browsing_data::CookieHelper>(
+          storage_partition, is_cookie_deletion_disabled_callback),
+      base::MakeRefCounted<browsing_data::DatabaseHelper>(storage_partition),
+      base::MakeRefCounted<browsing_data::LocalStorageHelper>(
+          storage_partition),
+      /*session_storage_helper=*/nullptr,
+      base::MakeRefCounted<browsing_data::IndexedDBHelper>(storage_partition),
+      base::MakeRefCounted<browsing_data::FileSystemHelper>(
+          storage_partition->GetFileSystemContext(),
+          browsing_data_file_system_util::GetAdditionalFileSystemTypes()),
+      /*quota_helper=*/nullptr,
+      base::MakeRefCounted<browsing_data::ServiceWorkerHelper>(
+          storage_partition->GetServiceWorkerContext()),
+      base::MakeRefCounted<browsing_data::SharedWorkerHelper>(
+          storage_partition),
+      base::MakeRefCounted<browsing_data::CacheStorageHelper>(
+          storage_partition));
+}
 
 LocalDataContainer::LocalDataContainer(
     scoped_refptr<browsing_data::CookieHelper> cookie_helper,
@@ -24,8 +104,7 @@ LocalDataContainer::LocalDataContainer(
     scoped_refptr<BrowsingDataQuotaHelper> quota_helper,
     scoped_refptr<browsing_data::ServiceWorkerHelper> service_worker_helper,
     scoped_refptr<browsing_data::SharedWorkerHelper> shared_worker_helper,
-    scoped_refptr<browsing_data::CacheStorageHelper> cache_storage_helper,
-    scoped_refptr<BrowsingDataMediaLicenseHelper> media_license_helper)
+    scoped_refptr<browsing_data::CacheStorageHelper> cache_storage_helper)
     : cookie_helper_(std::move(cookie_helper)),
       database_helper_(std::move(database_helper)),
       local_storage_helper_(std::move(local_storage_helper)),
@@ -35,8 +114,7 @@ LocalDataContainer::LocalDataContainer(
       quota_helper_(std::move(quota_helper)),
       service_worker_helper_(std::move(service_worker_helper)),
       shared_worker_helper_(std::move(shared_worker_helper)),
-      cache_storage_helper_(std::move(cache_storage_helper)),
-      media_license_helper_(std::move(media_license_helper)) {}
+      cache_storage_helper_(std::move(cache_storage_helper)) {}
 
 LocalDataContainer::~LocalDataContainer() {}
 
@@ -44,85 +122,81 @@ void LocalDataContainer::Init(CookiesTreeModel* model) {
   DCHECK(!model_);
   model_ = model;
 
-  batches_started_ = 0;
+  int batches_started = 0;
   if (cookie_helper_.get()) {
-    batches_started_++;
+    batches_started++;
     cookie_helper_->StartFetching(
         base::BindOnce(&LocalDataContainer::OnCookiesModelInfoLoaded,
                        weak_ptr_factory_.GetWeakPtr()));
   }
 
   if (database_helper_.get()) {
-    batches_started_++;
+    batches_started++;
     database_helper_->StartFetching(
         base::BindOnce(&LocalDataContainer::OnDatabaseModelInfoLoaded,
                        weak_ptr_factory_.GetWeakPtr()));
   }
 
   if (local_storage_helper_.get()) {
-    batches_started_++;
+    batches_started++;
     local_storage_helper_->StartFetching(
         base::BindOnce(&LocalDataContainer::OnLocalStorageModelInfoLoaded,
                        weak_ptr_factory_.GetWeakPtr()));
   }
 
   if (session_storage_helper_.get()) {
-    batches_started_++;
+    batches_started++;
     session_storage_helper_->StartFetching(
         base::BindOnce(&LocalDataContainer::OnSessionStorageModelInfoLoaded,
                        weak_ptr_factory_.GetWeakPtr()));
   }
 
   if (indexed_db_helper_.get()) {
-    batches_started_++;
+    batches_started++;
     indexed_db_helper_->StartFetching(
         base::BindOnce(&LocalDataContainer::OnIndexedDBModelInfoLoaded,
                        weak_ptr_factory_.GetWeakPtr()));
   }
 
   if (file_system_helper_.get()) {
-    batches_started_++;
+    batches_started++;
     file_system_helper_->StartFetching(
         base::BindOnce(&LocalDataContainer::OnFileSystemModelInfoLoaded,
                        weak_ptr_factory_.GetWeakPtr()));
   }
 
   if (quota_helper_.get()) {
-    batches_started_++;
+    batches_started++;
     quota_helper_->StartFetching(
         base::BindOnce(&LocalDataContainer::OnQuotaModelInfoLoaded,
                        weak_ptr_factory_.GetWeakPtr()));
   }
 
   if (service_worker_helper_.get()) {
-    batches_started_++;
+    batches_started++;
     service_worker_helper_->StartFetching(
         base::BindOnce(&LocalDataContainer::OnServiceWorkerModelInfoLoaded,
                        weak_ptr_factory_.GetWeakPtr()));
   }
 
   if (shared_worker_helper_.get()) {
-    batches_started_++;
+    batches_started++;
     shared_worker_helper_->StartFetching(
         base::BindOnce(&LocalDataContainer::OnSharedWorkerInfoLoaded,
                        weak_ptr_factory_.GetWeakPtr()));
   }
 
   if (cache_storage_helper_.get()) {
-    batches_started_++;
+    batches_started++;
     cache_storage_helper_->StartFetching(
         base::BindOnce(&LocalDataContainer::OnCacheStorageModelInfoLoaded,
                        weak_ptr_factory_.GetWeakPtr()));
   }
 
-  if (media_license_helper_.get()) {
-    batches_started_++;
-    media_license_helper_->StartFetching(
-        base::BindOnce(&LocalDataContainer::OnMediaLicenseInfoLoaded,
-                       weak_ptr_factory_.GetWeakPtr()));
-  }
-
-  model_->SetBatchExpectation(batches_started_, true);
+  // Don't reset batches, as some completions may have been reported
+  // synchronously. As this function is called during model construction, there
+  // can't have been any batches started outside this function.
+  model_->SetBatchExpectation(batches_started, /*reset=*/false);
 }
 
 void LocalDataContainer::OnCookiesModelInfoLoaded(
@@ -195,11 +269,4 @@ void LocalDataContainer::OnCacheStorageModelInfoLoaded(
   cache_storage_info_list_ = cache_storage_info;
   DCHECK(model_);
   model_->PopulateCacheStorageUsageInfo(this);
-}
-
-void LocalDataContainer::OnMediaLicenseInfoLoaded(
-    const MediaLicenseUsageInfoList& media_license_info) {
-  media_license_info_list_ = media_license_info;
-  DCHECK(model_);
-  model_->PopulateMediaLicenseInfo(this);
 }

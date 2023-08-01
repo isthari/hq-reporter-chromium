@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,10 +40,12 @@ std::unique_ptr<GpuBlocklist> GpuBlocklist::Create(
   list->AddSupportedFeature("android_surface_control",
                             GPU_FEATURE_TYPE_ANDROID_SURFACE_CONTROL);
   list->AddSupportedFeature("accelerated_gl", GPU_FEATURE_TYPE_ACCELERATED_GL);
-  list->AddSupportedFeature("metal", GPU_FEATURE_TYPE_METAL);
   list->AddSupportedFeature("vulkan", GPU_FEATURE_TYPE_VULKAN);
   list->AddSupportedFeature("canvas_oop_rasterization",
                             GPU_FEATURE_TYPE_CANVAS_OOP_RASTERIZATION);
+  list->AddSupportedFeature("accelerated_webgpu",
+                            GPU_FEATURE_TYPE_ACCELERATED_WEBGPU);
+  list->AddSupportedFeature("skia_graphite", GPU_FEATURE_TYPE_SKIA_GRAPHITE);
   return list;
 }
 

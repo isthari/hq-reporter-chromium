@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,13 +13,14 @@ import androidx.preference.PreferenceFragmentCompat;
 
 import org.chromium.chrome.browser.omnibox.voice.VoiceRecognitionUtil;
 import org.chromium.chrome.browser.toolbar.R;
+import org.chromium.chrome.browser.toolbar.adaptive.AdaptiveToolbarFeatures;
 import org.chromium.chrome.browser.toolbar.adaptive.AdaptiveToolbarPrefs;
 import org.chromium.chrome.browser.toolbar.adaptive.AdaptiveToolbarStatePredictor;
 import org.chromium.chrome.browser.toolbar.adaptive.AdaptiveToolbarStats;
 import org.chromium.components.browser_ui.settings.ChromeSwitchPreference;
 import org.chromium.components.browser_ui.settings.SettingsUtils;
-import org.chromium.ui.base.ActivityAndroidPermissionDelegate;
-import org.chromium.ui.base.AndroidPermissionDelegate;
+import org.chromium.ui.permissions.ActivityAndroidPermissionDelegate;
+import org.chromium.ui.permissions.AndroidPermissionDelegate;
 
 import java.lang.ref.WeakReference;
 
@@ -54,6 +55,10 @@ public class AdaptiveToolbarPreferenceFragment extends PreferenceFragmentCompat 
         mRadioButtonGroup = (RadioButtonGroupAdaptiveToolbarPreference) findPreference(
                 PREF_ADAPTIVE_RADIO_GROUP);
         mRadioButtonGroup.setCanUseVoiceSearch(getCanUseVoiceSearch());
+        mRadioButtonGroup.setCanUseTranslate(
+                AdaptiveToolbarFeatures.isAdaptiveToolbarTranslateEnabled());
+        mRadioButtonGroup.setCanUseAddToBookmarks(
+                AdaptiveToolbarFeatures.isAdaptiveToolbarAddToBookmarksEnabled());
         mRadioButtonGroup.setStatePredictor(new AdaptiveToolbarStatePredictor(
                 new ActivityAndroidPermissionDelegate(new WeakReference(getActivity()))));
         mRadioButtonGroup.setOnPreferenceChangeListener((preference, newValue) -> {

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,8 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/containers/stack_container.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
@@ -19,10 +19,12 @@
 #include "base/rand_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "base/trace_event/memory_dump_manager.h"
+#include "base/trace_event/trace_id_helper.h"
 #include "build/build_config.h"
+#include "mojo/buildflags.h"
 #include "mojo/core/channel.h"
 #include "mojo/core/configuration.h"
 #include "mojo/core/data_pipe_consumer_dispatcher.h"
@@ -41,6 +43,7 @@
 #include "mojo/core/shared_buffer_dispatcher.h"
 #include "mojo/core/user_message_impl.h"
 #include "mojo/core/watcher_dispatcher.h"
+#include "mojo/public/cpp/bindings/mojo_buildflags.h"
 #include "mojo/public/cpp/platform/platform_handle_internal.h"
 
 namespace mojo {
@@ -107,6 +110,14 @@ void RunMojoProcessErrorHandler(
     const std::string& error) {
   InvokeProcessErrorCallback(handler, context, error,
                              MOJO_PROCESS_ERROR_FLAG_NONE);
+}
+
+uint64_t MakePipeId() {
+#if BUILDFLAG(MOJO_TRACE_ENABLED)
+  return base::trace_event::GetNextGlobalTraceId();
+#else
+  return 0;
+#endif
 }
 
 }  // namespace
@@ -499,15 +510,15 @@ MojoResult Core::CreateMessagePipe(const MojoCreateMessagePipeOptions* options,
   DCHECK(message_pipe_handle0);
   DCHECK(message_pipe_handle1);
 
-  uint64_t pipe_id = base::RandUint64();
+  uint64_t pipe_id = MakePipeId();
 
-  *message_pipe_handle0 = AddDispatcher(
-      new MessagePipeDispatcher(GetNodeController(), port0, pipe_id, 0));
+  *message_pipe_handle0 = AddDispatcher(new MessagePipeDispatcher(
+      GetNodeController(), port0, pipe_id, /*endpoint=*/0));
   if (*message_pipe_handle0 == MOJO_HANDLE_INVALID)
     return MOJO_RESULT_RESOURCE_EXHAUSTED;
 
-  *message_pipe_handle1 = AddDispatcher(
-      new MessagePipeDispatcher(GetNodeController(), port1, pipe_id, 1));
+  *message_pipe_handle1 = AddDispatcher(new MessagePipeDispatcher(
+      GetNodeController(), port1, pipe_id, /*endpoint=*/1));
   if (*message_pipe_handle1 == MOJO_HANDLE_INVALID) {
     scoped_refptr<Dispatcher> dispatcher0;
     {
@@ -652,7 +663,7 @@ MojoResult Core::CreateDataPipe(const MojoCreateDataPipeOptions* options,
   // consumer of this pipe, and it would be impossible to support such access
   // control on Android anyway.
   auto writable_region_handle = ring_buffer_region.PassPlatformHandle();
-#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_MAC)
+#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_APPLE)
   // This isn't strictly necessary, but it does make the handle configuration
   // consistent with regular UnsafeSharedMemoryRegions.
   writable_region_handle.readonly_fd.reset();
@@ -673,7 +684,7 @@ MojoResult Core::CreateDataPipe(const MojoCreateDataPipeOptions* options,
   DCHECK(data_pipe_consumer_handle);
 
   base::UnsafeSharedMemoryRegion consumer_region = producer_region.Duplicate();
-  uint64_t pipe_id = base::RandUint64();
+  uint64_t pipe_id = MakePipeId();
   scoped_refptr<Dispatcher> producer = DataPipeProducerDispatcher::Create(
       GetNodeController(), port0, std::move(producer_region), create_options,
       pipe_id);
@@ -740,13 +751,14 @@ MojoResult Core::BeginWriteData(MojoHandle data_pipe_producer_handle,
       GetDispatcher(data_pipe_producer_handle));
   if (!dispatcher)
     return MOJO_RESULT_INVALID_ARGUMENT;
+  MojoBeginWriteDataFlags flags = MOJO_BEGIN_WRITE_DATA_FLAG_NONE;
   if (options) {
-    if (options->struct_size < sizeof(*options))
+    if (options->struct_size < sizeof(*options)) {
       return MOJO_RESULT_INVALID_ARGUMENT;
-    if (options->flags != MOJO_BEGIN_WRITE_DATA_FLAG_NONE)
-      return MOJO_RESULT_UNIMPLEMENTED;
+    }
+    flags = options->flags;
   }
-  return dispatcher->BeginWriteData(buffer, buffer_num_bytes);
+  return dispatcher->BeginWriteData(buffer, buffer_num_bytes, flags);
 }
 
 MojoResult Core::EndWriteData(MojoHandle data_pipe_producer_handle,
@@ -1015,7 +1027,8 @@ MojoResult Core::WrapPlatformSharedMemoryRegion(
     MojoHandle* mojo_handle) {
   DCHECK(size);
 
-#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_MAC)
+#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_ANDROID) && \
+    !BUILDFLAG(MOJO_USE_APPLE_CHANNEL)
   if (access_mode == MOJO_PLATFORM_SHARED_MEMORY_REGION_ACCESS_MODE_WRITABLE) {
     if (num_platform_handles != 2)
       return MOJO_RESULT_INVALID_ARGUMENT;
@@ -1035,8 +1048,11 @@ MojoResult Core::WrapPlatformSharedMemoryRegion(
   if (!handles_ok)
     return MOJO_RESULT_INVALID_ARGUMENT;
 
-  base::UnguessableToken token =
+  absl::optional<base::UnguessableToken> token =
       mojo::internal::PlatformHandleInternal::UnmarshalUnguessableToken(guid);
+  if (!token.has_value()) {
+    return MOJO_RESULT_INVALID_ARGUMENT;
+  }
 
   base::subtle::PlatformSharedMemoryRegion::Mode mode;
   switch (access_mode) {
@@ -1057,7 +1073,7 @@ MojoResult Core::WrapPlatformSharedMemoryRegion(
       base::subtle::PlatformSharedMemoryRegion::Take(
           CreateSharedMemoryRegionHandleFromPlatformHandles(
               std::move(handles[0]), std::move(handles[1])),
-          mode, size, token);
+          mode, size, token.value());
   if (!region.IsValid())
     return MOJO_RESULT_UNKNOWN;
 
@@ -1135,7 +1151,8 @@ MojoResult Core::UnwrapPlatformSharedMemoryRegion(
   if (available_handle_storage_slots < 1)
     return MOJO_RESULT_RESOURCE_EXHAUSTED;
   *num_platform_handles = 1;
-#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_ANDROID) && !BUILDFLAG(IS_MAC)
+#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_ANDROID) && \
+    !BUILDFLAG(MOJO_USE_APPLE_CHANNEL)
   if (region.GetMode() ==
       base::subtle::PlatformSharedMemoryRegion::Mode::kWritable) {
     if (available_handle_storage_slots < 2)
@@ -1284,8 +1301,6 @@ MojoResult Core::SendInvitation(
     return MOJO_RESULT_INVALID_ARGUMENT;
   if (transport_endpoint->type != MOJO_INVITATION_TRANSPORT_TYPE_CHANNEL &&
       transport_endpoint->type !=
-          MOJO_INVITATION_TRANSPORT_TYPE_CHANNEL_SERVER &&
-      transport_endpoint->type !=
           MOJO_INVITATION_TRANSPORT_TYPE_CHANNEL_ASYNC) {
     return MOJO_RESULT_UNIMPLEMENTED;
   }
@@ -1301,18 +1316,8 @@ MojoResult Core::SendInvitation(
   if (!endpoint.is_valid())
     return MOJO_RESULT_INVALID_ARGUMENT;
 
-  ConnectionParams connection_params;
-#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_POSIX)
-  if (transport_endpoint->type ==
-      MOJO_INVITATION_TRANSPORT_TYPE_CHANNEL_SERVER) {
-    connection_params =
-        ConnectionParams(PlatformChannelServerEndpoint(std::move(endpoint)));
-  }
-#endif
-  if (!connection_params.server_endpoint().is_valid()) {
-    connection_params =
-        ConnectionParams(PlatformChannelEndpoint(std::move(endpoint)));
-  }
+  ConnectionParams connection_params(
+      PlatformChannelEndpoint(std::move(endpoint)));
 
   // At this point everything else has been validated, so we can take ownership
   // of the dispatcher.
@@ -1325,7 +1330,6 @@ MojoResult Core::SendInvitation(
       // Release ownership of the endpoint platform handle, per the API
       // contract. The caller retains ownership on failure.
       connection_params.TakeEndpoint().TakePlatformHandle().release();
-      connection_params.TakeServerEndpoint().TakePlatformHandle().release();
       return result;
     }
     DCHECK_EQ(removed_dispatcher.get(), invitation_dispatcher);
@@ -1337,6 +1341,10 @@ MojoResult Core::SendInvitation(
   invitation_dispatcher->Close();
   for (auto& entry : attached_port_map)
     attached_ports.emplace_back(entry.first, std::move(entry.second));
+
+  connection_params.set_is_untrusted_process(
+      options &&
+      (options->flags & MOJO_SEND_INVITATION_FLAG_UNTRUSTED_PROCESS));
 
   bool is_isolated =
       options && (options->flags & MOJO_SEND_INVITATION_FLAG_ISOLATED);
@@ -1379,8 +1387,6 @@ MojoResult Core::AcceptInvitation(
     return MOJO_RESULT_INVALID_ARGUMENT;
   if (transport_endpoint->type != MOJO_INVITATION_TRANSPORT_TYPE_CHANNEL &&
       transport_endpoint->type !=
-          MOJO_INVITATION_TRANSPORT_TYPE_CHANNEL_SERVER &&
-      transport_endpoint->type !=
           MOJO_INVITATION_TRANSPORT_TYPE_CHANNEL_ASYNC) {
     return MOJO_RESULT_UNIMPLEMENTED;
   }
@@ -1400,18 +1406,8 @@ MojoResult Core::AcceptInvitation(
     return MOJO_RESULT_INVALID_ARGUMENT;
   }
 
-  ConnectionParams connection_params;
-#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_POSIX)
-  if (transport_endpoint->type ==
-      MOJO_INVITATION_TRANSPORT_TYPE_CHANNEL_SERVER) {
-    connection_params =
-        ConnectionParams(PlatformChannelServerEndpoint(std::move(endpoint)));
-  }
-#endif
-  if (!connection_params.server_endpoint().is_valid()) {
-    connection_params =
-        ConnectionParams(PlatformChannelEndpoint(std::move(endpoint)));
-  }
+  ConnectionParams connection_params(
+      PlatformChannelEndpoint(std::move(endpoint)));
   if (options &&
       options->flags & MOJO_ACCEPT_INVITATION_FLAG_LEAK_TRANSPORT_ENDPOINT) {
     connection_params.set_leak_endpoint(true);

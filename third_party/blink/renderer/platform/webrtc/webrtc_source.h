@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,11 +10,11 @@
 
 namespace base {
 class TimeDelta;
-class UnguessableToken;
 }
 
 namespace media {
 class AudioBus;
+struct AudioGlitchInfo;
 }
 
 namespace blink {
@@ -30,7 +30,8 @@ class PLATFORM_EXPORT WebRtcAudioRendererSource {
   virtual void RenderData(media::AudioBus* audio_bus,
                           int sample_rate,
                           base::TimeDelta audio_delay,
-                          base::TimeDelta* current_time) = 0;
+                          base::TimeDelta* current_time,
+                          const media::AudioGlitchInfo& glitch_info) = 0;
 
   // Callback to notify the client that the renderer is going away.
   virtual void RemoveAudioRenderer(WebRtcAudioRenderer* renderer) = 0;
@@ -42,10 +43,6 @@ class PLATFORM_EXPORT WebRtcAudioRendererSource {
 
   // Callback to notify the client of the output device the renderer is using.
   virtual void SetOutputDeviceForAec(const String& output_device_id) = 0;
-
-  // Returns the UnguessableToken used to connect this stream to an input stream
-  // for echo cancellation.
-  virtual base::UnguessableToken GetAudioProcessingId() const = 0;
 
  protected:
   virtual ~WebRtcAudioRendererSource() {}

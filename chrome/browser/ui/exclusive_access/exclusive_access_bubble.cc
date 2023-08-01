@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -67,8 +67,6 @@ void ExclusiveAccessBubble::OnUserInput() {
 
   // If the notification suppression timer has elapsed, re-show it.
   if (!suppress_notify_timeout_.IsRunning()) {
-    manager_->RecordBubbleReshownUMA(bubble_type_);
-
     ShowAndStartTimers();
     return;
   }
@@ -119,8 +117,8 @@ std::u16string ExclusiveAccessBubble::GetCurrentAllowButtonText() const {
 
 std::u16string ExclusiveAccessBubble::GetInstructionText(
     const std::u16string& accelerator) const {
-  return exclusive_access_bubble::GetInstructionTextForType(bubble_type_,
-                                                            accelerator);
+  return exclusive_access_bubble::GetInstructionTextForType(
+      bubble_type_, accelerator, notify_download_, notify_overridden_);
 }
 
 bool ExclusiveAccessBubble::IsHideTimeoutRunning() const {

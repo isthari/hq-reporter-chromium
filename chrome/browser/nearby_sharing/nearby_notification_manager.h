@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_NEARBY_SHARING_NEARBY_NOTIFICATION_MANAGER_H_
 
 #include "base/containers/flat_map.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "chrome/browser/nearby_sharing/nearby_notification_delegate.h"
@@ -38,14 +39,16 @@ class NearbyNotificationManager : public TransferUpdateCallback,
     kCopyImage,
     kOpenDownloads,
     kOpenUrl,
+    kOpenWifiNetworksList,
   };
 
   // Type of content we received that determines the actions we provide.
   enum class ReceivedContentType {
-    kFiles,        // One or more generic files
-    kSingleImage,  // One image that will be shown as a preview
-    kSingleUrl,    // One URL that will be opened on click.
-    kText,         // Arbitrary text content
+    kFiles,            // One or more generic files
+    kSingleImage,      // One image that will be shown as a preview
+    kSingleUrl,        // One URL that will be opened on click.
+    kText,             // Arbitrary text content
+    kWifiCredentials,  // Wi-Fi credentials for a network configuration
   };
 
   class SettingsOpener {
@@ -112,6 +115,9 @@ class NearbyNotificationManager : public TransferUpdateCallback,
   // Shows a notification for send or receive cancellation.
   void ShowCancelled(const ShareTarget& share_target);
 
+  // Shows a notification to remind users of their current visibility selection.
+  void ShowVisibilityReminder();
+
   // Closes any currently shown transfer notification (e.g. progress or
   // connection).
   void CloseTransfer();
@@ -121,11 +127,17 @@ class NearbyNotificationManager : public TransferUpdateCallback,
   // visibility mode UI.
   void CloseNearbyDeviceTryingToShare();
 
+  // Closes any currently shown nearby visibility reminder notification.
+  void CloseVisibilityReminder();
+
   // Gets the currently registered delegate for |notification_id|.
   NearbyNotificationDelegate* GetNotificationDelegate(
       const std::string& notification_id);
 
   void OpenURL(GURL url);
+
+  // Opens Wi-Fi Networks subpage in Settings.
+  void OpenWifiNetworksList();
 
   // Cancels the currently in progress transfer.
   void CancelTransfer();
@@ -145,6 +157,12 @@ class NearbyNotificationManager : public TransferUpdateCallback,
 
   void CloseSuccessNotification(const std::string& notification_id);
 
+  // Called when the nearby visibility reminder notification got clicked.
+  void OnNearbyVisibilityReminderClicked();
+
+  // Called when the nearby visibility reminder notification got dismissed.
+  void OnNearbyVisibilityReminderDismissed();
+
   void SetOnSuccessClickedForTesting(
       base::OnceCallback<void(SuccessNotificationAction)> callback);
   void SetSettingsOpenerForTesting(
@@ -155,10 +173,11 @@ class NearbyNotificationManager : public TransferUpdateCallback,
                            ReceivedContentType type,
                            const SkBitmap& image);
 
-  NotificationDisplayService* notification_display_service_;
-  NearbySharingService* nearby_service_;
-  PrefService* pref_service_;
-  Profile* profile_;
+  raw_ptr<NotificationDisplayService, DanglingUntriaged | ExperimentalAsh>
+      notification_display_service_;
+  raw_ptr<NearbySharingService, ExperimentalAsh> nearby_service_;
+  raw_ptr<PrefService, ExperimentalAsh> pref_service_;
+  raw_ptr<Profile, ExperimentalAsh> profile_;
   std::unique_ptr<SettingsOpener> settings_opener_;
 
   // Maps notification ids to notification delegates.

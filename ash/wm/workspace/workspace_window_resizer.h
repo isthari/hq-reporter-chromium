@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,8 +12,12 @@
 
 #include "ash/wm/window_resizer.h"
 #include "ash/wm/workspace/magnetism_matcher.h"
+#include "base/gtest_prod_util.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/timer/timer.h"
 #include "ui/aura/window_tracker.h"
+#include "ui/compositor/presentation_time_recorder.h"
 #include "ui/display/display.h"
 #include "ui/gfx/geometry/point_f.h"
 
@@ -129,15 +133,17 @@ class ASH_EXPORT WorkspaceWindowResizer : public WindowResizer {
   int PrimaryAxisSize(const gfx::Size& size) const;
   int PrimaryAxisCoordinate(int x, int y) const;
 
-  // From a given snap |type| and a current display orientation, returns true
-  // if the snap is snap top or maximize. This function is used to decide if
-  // we need to show the phantom window for top snap or maximize or not.
-  bool IsSnapTopOrMaximize(SnapType type) const;
+  // From a given snap |type| and the current |display|, returns true if the
+  // snap is snap top or maximize. This function is used to decide if we need
+  // to show the phantom window for top snap or maximize or not.
+  bool IsSnapTopOrMaximize(SnapType type,
+                           const display::Display& display) const;
 
   // Updates the bounds of the phantom window where the snap bounds are
   // calculated from GetSnappedWindowBounds() given a |target_snap_type| and
-  // maximize bounds is from full display work area.
-  void UpdateSnapPhantomWindow(const SnapType target_snap_type);
+  // maximize bounds is from the current |display|'s full work area.
+  void UpdateSnapPhantomWindow(const SnapType target_snap_type,
+                               const display::Display& display);
 
   // Restacks the windows z-order position so that one of the windows is at the
   // top of the z-order, and the rest directly underneath it.
@@ -162,10 +168,6 @@ class ASH_EXPORT WorkspaceWindowResizer : public WindowResizer {
   // Start/End drag for attached windows if there is any.
   void StartDragForAttachedWindows();
   void EndDragForAttachedWindows(bool revert_drag);
-
-  // Gets the display associated with GetTarget() if touch dragging. Gets the
-  // display associated with the cursor if mouse dragging.
-  display::Display GetDisplay() const;
 
   WindowState* window_state() { return window_state_; }
   const WindowState* window_state() const { return window_state_; }
@@ -210,11 +212,11 @@ class ASH_EXPORT WorkspaceWindowResizer : public WindowResizer {
   // The location for drag maximize in screen.
   absl::optional<gfx::PointF> dwell_location_in_screen_;
 
-  // The mouse location passed to Drag().
-  gfx::PointF last_mouse_location_;
+  // The location in parent passed to `Drag()`.
+  gfx::PointF last_location_in_parent_;
 
   // Window the drag has magnetically attached to.
-  aura::Window* magnetism_window_ = nullptr;
+  raw_ptr<aura::Window, ExperimentalAsh> magnetism_window_ = nullptr;
 
   // Used to verify |magnetism_window_| is still valid.
   aura::WindowTracker window_tracker_;
@@ -231,7 +233,7 @@ class ASH_EXPORT WorkspaceWindowResizer : public WindowResizer {
   gfx::Rect restore_bounds_for_gesture_;
 
   // Presentation time recorder for tab dragging in clamshell mode.
-  std::unique_ptr<PresentationTimeRecorder> tab_dragging_recorder_;
+  std::unique_ptr<ui::PresentationTimeRecorder> tab_dragging_recorder_;
 
   // Used to determine if this has been deleted during a drag such as when a tab
   // gets dragged into another browser window.

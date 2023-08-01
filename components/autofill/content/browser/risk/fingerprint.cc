@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -14,10 +14,10 @@
 
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/check.h"
 #include "base/cpu.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
@@ -46,6 +46,7 @@
 #include "services/device/public/mojom/geolocation_context.mojom.h"
 #include "services/device/public/mojom/geoposition.mojom.h"
 #include "ui/display/display.h"
+#include "ui/display/display_util.h"
 #include "ui/display/screen.h"
 #include "ui/gfx/geometry/rect.h"
 #include "url/gurl.h"
@@ -87,9 +88,9 @@ std::string GetOperatingSystemVersion() {
 }
 
 // Adds the list of |fonts| to the |machine|.
-void AddFontsToFingerprint(const base::ListValue& fonts,
+void AddFontsToFingerprint(const base::Value::List& fonts,
                            Fingerprint::MachineCharacteristics* machine) {
-  for (const auto& it : fonts.GetList()) {
+  for (const auto& it : fonts) {
     // Each item in the list is a two-element list such that the first element
     // is the font family and the second is the font name.
     DCHECK(it.is_list());
@@ -202,9 +203,9 @@ class FingerprintDataLoader : public content::GpuDataManagerObserver {
   void OnGpuInfoUpdate() override;
 
   // Callbacks for asynchronously loaded data.
-  void OnGotFonts(std::unique_ptr<base::ListValue> fonts);
+  void OnGotFonts(base::Value::List fonts);
   void OnGotPlugins(const std::vector<content::WebPluginInfo>& plugins);
-  void OnGotGeoposition(device::mojom::GeopositionPtr geoposition);
+  void OnGotGeoposition(device::mojom::GeopositionResultPtr result);
 
   // If all of the asynchronous data has been loaded, calls |callback_| with
   // the fingerprint data.
@@ -237,10 +238,10 @@ class FingerprintDataLoader : public content::GpuDataManagerObserver {
   const base::Time install_time_;
 
   // Data that will be loaded asynchronously.
-  std::unique_ptr<base::ListValue> fonts_;
+  std::unique_ptr<base::Value::List> fonts_;
   std::vector<content::WebPluginInfo> plugins_;
-  bool waiting_on_plugins_;
-  device::mojom::Geoposition geoposition_;
+  bool waiting_on_plugins_ = true;
+  device::mojom::GeopositionResultPtr geoposition_result_;
   mojo::Remote<device::mojom::Geolocation> geolocation_;
   mojo::Remote<device::mojom::GeolocationContext> geolocation_context_;
 
@@ -280,7 +281,6 @@ FingerprintDataLoader::FingerprintDataLoader(
       app_locale_(app_locale),
       user_agent_(user_agent),
       install_time_(install_time),
-      waiting_on_plugins_(true),
       callback_(std::move(callback)) {
   DCHECK(!install_time_.is_null());
 
@@ -328,9 +328,9 @@ void FingerprintDataLoader::OnGpuInfoUpdate() {
   MaybeFillFingerprint();
 }
 
-void FingerprintDataLoader::OnGotFonts(std::unique_ptr<base::ListValue> fonts) {
+void FingerprintDataLoader::OnGotFonts(base::Value::List fonts) {
   DCHECK(!fonts_);
-  fonts_ = std::move(fonts);
+  fonts_ = std::make_unique<base::Value::List>(std::move(fonts));
   MaybeFillFingerprint();
 }
 
@@ -343,13 +343,10 @@ void FingerprintDataLoader::OnGotPlugins(
 }
 
 void FingerprintDataLoader::OnGotGeoposition(
-    device::mojom::GeopositionPtr geoposition) {
-  DCHECK(!device::ValidateGeoposition(geoposition_));
-
-  geoposition_ = *geoposition;
-  DCHECK(device::ValidateGeoposition(geoposition_) ||
-         geoposition_.error_code !=
-             device::mojom::Geoposition::ErrorCode::NONE);
+    device::mojom::GeopositionResultPtr result) {
+  DCHECK(!geoposition_result_);
+  DCHECK(result);
+  geoposition_result_ = std::move(result);
 
   geolocation_.reset();
   geolocation_context_.reset();
@@ -363,10 +360,7 @@ void FingerprintDataLoader::MaybeFillFingerprint() {
   if (!timeout_timer_.IsRunning() ||
       ((!gpu_data_manager_->GpuAccessAllowed(nullptr) ||
         gpu_data_manager_->IsEssentialGpuInfoAvailable()) &&
-       fonts_ && !waiting_on_plugins_ &&
-       (device::ValidateGeoposition(geoposition_) ||
-        geoposition_.error_code !=
-            device::mojom::Geoposition::ErrorCode::NONE))) {
+       fonts_ && !waiting_on_plugins_ && geoposition_result_)) {
     FillFingerprint();
     delete this;
   }
@@ -415,16 +409,16 @@ void FingerprintDataLoader::FillFingerprint() {
   // available to JS.
 
   // TODO(isherman): Record more user behavior data.
-  if (device::ValidateGeoposition(geoposition_) &&
-      geoposition_.error_code == device::mojom::Geoposition::ErrorCode::NONE) {
+  if (geoposition_result_ && geoposition_result_->is_position()) {
+    const auto& geoposition = *geoposition_result_->get_position();
     Fingerprint::UserCharacteristics::Location* location =
         fingerprint->mutable_user_characteristics()->mutable_location();
-    location->set_altitude(geoposition_.altitude);
-    location->set_latitude(geoposition_.latitude);
-    location->set_longitude(geoposition_.longitude);
-    location->set_accuracy(geoposition_.accuracy);
+    location->set_altitude(geoposition.altitude);
+    location->set_latitude(geoposition.latitude);
+    location->set_longitude(geoposition.longitude);
+    location->set_accuracy(geoposition.accuracy);
     location->set_time_in_ms(
-        (geoposition_.timestamp - base::Time::UnixEpoch()).InMilliseconds());
+        (geoposition.timestamp - base::Time::UnixEpoch()).InMilliseconds());
   }
 
   Fingerprint::Metadata* metadata = fingerprint->mutable_metadata();
@@ -474,13 +468,21 @@ void GetFingerprint(
     const std::string& app_locale,
     const std::string& user_agent,
     base::OnceCallback<void(std::unique_ptr<Fingerprint>)> callback) {
-  gfx::Rect content_bounds = web_contents->GetContainerBounds();
-
+  gfx::Rect content_bounds;
   display::ScreenInfo screen_info;
-  content::RenderWidgetHostView* host_view =
-      web_contents->GetRenderWidgetHostView();
-  if (host_view)
-    screen_info = host_view->GetRenderWidgetHost()->GetScreenInfo();
+
+  // |web_contents| can be nullptr in the Clank settings page, as a user can
+  // open Clank settings without opening a tab. Thus, we will need to populate
+  // |screen_info| using display::DisplayUtil::GetDefaultScreenInfo().
+  if (web_contents) {
+    content_bounds = web_contents->GetContainerBounds();
+    raw_ptr<content::RenderWidgetHostView> host_view =
+        web_contents->GetRenderWidgetHostView();
+    if (host_view)
+      screen_info = host_view->GetRenderWidgetHost()->GetScreenInfo();
+  } else {
+    display::DisplayUtil::GetDefaultScreenInfo(&screen_info);
+  }
 
   internal::GetFingerprintInternal(
       obfuscated_gaia_id, window_bounds, content_bounds, screen_info, version,

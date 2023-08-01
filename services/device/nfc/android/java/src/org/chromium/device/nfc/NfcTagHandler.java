@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -169,25 +169,11 @@ public class NfcTagHandler {
     /**
      * Connects to NFC tag.
      */
-    public void connect() throws IOException, TagLostException {
+    public void connect() throws IOException, SecurityException, TagLostException {
         if (!mTech.isConnected()) {
             mTech.connect();
             mWasConnected = true;
         }
-    }
-
-    /**
-     * Checks if NFC tag is connected.
-     */
-    public boolean isConnected() {
-        return mTech.isConnected();
-    }
-
-    /**
-     * Closes connection.
-     */
-    public void close() throws IOException {
-        mTech.close();
     }
 
     /**
@@ -217,7 +203,7 @@ public class NfcTagHandler {
     public boolean isTagOutOfRange() {
         try {
             connect();
-        } catch (IOException e) {
+        } catch (IOException | SecurityException e) {
             return mWasConnected;
         }
         return false;

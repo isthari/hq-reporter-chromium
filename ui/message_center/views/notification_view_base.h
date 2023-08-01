@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,10 +11,12 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/time/time.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/metadata/metadata_header_macros.h"
 #include "ui/message_center/message_center_export.h"
+#include "ui/message_center/notification_list.h"
 #include "ui/message_center/views/message_view.h"
 #include "ui/message_center/views/notification_input_container.h"
 #include "ui/views/animation/ink_drop.h"
@@ -60,27 +62,6 @@ class CompactTitleMessageView : public views::View {
   raw_ptr<views::Label> message_ = nullptr;
 };
 
-class LargeImageView : public views::View {
- public:
-  explicit LargeImageView(const gfx::Size& max_size);
-  LargeImageView(const LargeImageView&) = delete;
-  LargeImageView& operator=(const LargeImageView&) = delete;
-  ~LargeImageView() override;
-
-  void SetImage(const gfx::ImageSkia& image);
-
-  void OnPaint(gfx::Canvas* canvas) override;
-  const char* GetClassName() const override;
-  void OnThemeChanged() override;
-
- private:
-  gfx::Size GetResizedImageSize();
-
-  gfx::Size max_size_;
-  gfx::Size min_size_;
-  gfx::ImageSkia image_;
-};
-
 // View that displays all current types of notification (web, basic, image, and
 // list) except the custom notification. Future notification types may be
 // handled by other classes, in which case instances of those classes would be
@@ -106,6 +87,7 @@ class MESSAGE_CENTER_EXPORT NotificationViewBase
     kHeaderLeftContent,
     kCollapsedSummaryView,
     kAppIconViewContainer,
+    kLargeImageView,
   };
 
   NotificationViewBase(const NotificationViewBase&) = delete;
@@ -127,7 +109,7 @@ class MESSAGE_CENTER_EXPORT NotificationViewBase
   bool IsExpanded() const override;
   void SetExpanded(bool expanded) override;
   bool IsManuallyExpandedOrCollapsed() const override;
-  void SetManuallyExpandedOrCollapsed(bool value) override;
+  void SetManuallyExpandedOrCollapsed(ExpandState state) override;
   void OnSettingsButtonPressed(const ui::Event& event) override;
 
   // views::InkDropObserver:
@@ -225,9 +207,12 @@ class MESSAGE_CENTER_EXPORT NotificationViewBase
   // inline settings or vice versa.
   virtual void ToggleInlineSettings(const ui::Event& event);
 
-  // This function is called when user clicks on the notification action
-  // buttons.
+  // Called when a user clicks on a notification action button, identified by
+  // `index`.
   virtual void ActionButtonPressed(size_t index, const ui::Event& event);
+
+  // Called after `inline_reply_` is updated for custom handling.
+  virtual void OnInlineReplyUpdated();
 
   // Whether `notification` is configured to have an inline reply field.
   bool HasInlineReply(const Notification& notification) const;
@@ -263,8 +248,11 @@ class MESSAGE_CENTER_EXPORT NotificationViewBase
 
   std::vector<views::LabelButton*> action_buttons() { return action_buttons_; }
 
+  views::ProgressBar* progress_bar_view() const { return progress_bar_view_; }
+
   NotificationInputContainer* inline_reply() { return inline_reply_; }
 
+  views::Label* status_view() { return status_view_; }
   const views::Label* status_view() const { return status_view_; }
   const std::vector<views::View*> item_views() const { return item_views_; }
 
@@ -291,8 +279,6 @@ class MESSAGE_CENTER_EXPORT NotificationViewBase
   FRIEND_TEST_ALL_PREFIXES(NotificationViewBaseTest, AppNameWebNotification);
   FRIEND_TEST_ALL_PREFIXES(NotificationViewBaseTest, AppNameWebAppNotification);
   FRIEND_TEST_ALL_PREFIXES(NotificationViewBaseTest, CreateOrUpdateTest);
-  FRIEND_TEST_ALL_PREFIXES(NotificationViewBaseTest,
-                           ManuallyExpandedOrCollapsed);
   FRIEND_TEST_ALL_PREFIXES(NotificationViewBaseTest, InlineSettings);
   FRIEND_TEST_ALL_PREFIXES(NotificationViewBaseTest,
                            InlineSettingsInkDropAnimation);
@@ -319,9 +305,12 @@ class MESSAGE_CENTER_EXPORT NotificationViewBase
   FRIEND_TEST_ALL_PREFIXES(NotificationViewBaseTest, UseImageAsIcon);
   FRIEND_TEST_ALL_PREFIXES(NotificationViewTest, TestIconSizing);
   FRIEND_TEST_ALL_PREFIXES(NotificationViewTest, LeftContentResizeForIcon);
+  FRIEND_TEST_ALL_PREFIXES(NotificationViewTest, ManuallyExpandedOrCollapsed);
   FRIEND_TEST_ALL_PREFIXES(NotificationViewTest, InlineSettingsNotBlock);
   FRIEND_TEST_ALL_PREFIXES(NotificationViewTest, InlineSettingsBlockAll);
   FRIEND_TEST_ALL_PREFIXES(NotificationViewTest, TestAccentColor);
+  FRIEND_TEST_ALL_PREFIXES(NotificationViewTest,
+                           TestAccentColorTextFlagAffectsHeaderRow);
   FRIEND_TEST_ALL_PREFIXES(NotificationViewTest, ExpandLongMessage);
 
   friend class NotificationViewBaseTest;
@@ -333,12 +322,11 @@ class MESSAGE_CENTER_EXPORT NotificationViewBase
   void CreateOrUpdateImageView(const Notification& notification);
   void CreateOrUpdateActionButtonViews(const Notification& notification);
 
-  void HeaderRowPressed();
-
-  void ToggleExpanded();
-
   // View containing close and settings buttons
-  NotificationControlButtonsView* control_buttons_view_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION NotificationControlButtonsView* control_buttons_view_ =
+      nullptr;
 
   // Whether this notification is expanded or not.
   bool expanded_ = false;
@@ -359,29 +347,41 @@ class MESSAGE_CENTER_EXPORT NotificationViewBase
   // Describes whether this view is for an ash/ChromeOS notification (ash
   // notification UI uses AshNotificationView, which has customized layout,
   // header view, etc.).
-  bool for_ash_notification_ = true;
+  const bool for_ash_notification_;
 
   // Describes whether the view can display inline settings or not.
   bool inline_settings_enabled_ = false;
 
   // Container views directly attached to this view.
-  NotificationHeaderView* header_row_ = nullptr;
-  views::View* content_row_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION NotificationHeaderView* header_row_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION views::View* content_row_ = nullptr;
   raw_ptr<views::View> actions_row_ = nullptr;
-  views::View* settings_row_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION views::View* settings_row_ = nullptr;
 
   // Containers for left and right side on |content_row_|
-  views::View* left_content_ = nullptr;
-  views::View* right_content_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION views::View* left_content_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION views::View* right_content_ = nullptr;
 
   // Views which are dynamically created inside view hierarchy.
-  raw_ptr<views::Label> message_label_ = nullptr;
-  raw_ptr<views::Label> status_view_ = nullptr;
-  raw_ptr<ProportionalImageView> icon_view_ = nullptr;
-  views::View* image_container_view_ = nullptr;
+  raw_ptr<views::Label, DanglingUntriaged> message_label_ = nullptr;
+  raw_ptr<views::Label, DanglingUntriaged> status_view_ = nullptr;
+  raw_ptr<ProportionalImageView, DanglingUntriaged> icon_view_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #addr-of
+  RAW_PTR_EXCLUSION views::View* image_container_view_ = nullptr;
   std::vector<views::LabelButton*> action_buttons_;
   std::vector<views::View*> item_views_;
-  raw_ptr<views::ProgressBar> progress_bar_view_ = nullptr;
+  raw_ptr<views::ProgressBar, DanglingUntriaged> progress_bar_view_ = nullptr;
   raw_ptr<CompactTitleMessageView> compact_title_message_view_ = nullptr;
   raw_ptr<views::View> action_buttons_row_ = nullptr;
   raw_ptr<NotificationInputContainer> inline_reply_ = nullptr;
@@ -393,7 +393,7 @@ class MESSAGE_CENTER_EXPORT NotificationViewBase
 
   // Counter for view layouting, which is used during the CreateOrUpdate*
   // phases to keep track of the view ordering. See crbug.com/901045
-  int left_content_count_;
+  size_t left_content_count_;
 
   std::unique_ptr<ui::EventHandler> click_activator_;
 

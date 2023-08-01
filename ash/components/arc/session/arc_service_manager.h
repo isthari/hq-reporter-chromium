@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "base/memory/raw_ptr.h"
 #include "base/threading/thread_checker.h"
 #include "components/account_id/account_id.h"
 
@@ -75,7 +76,8 @@ class ArcServiceManager {
   // allowed to use ARC.
   // TODO(hidehiko): Remove this when we move IsArcAllowedForProfile() to
   // components/arc. See browser_context() for details.
-  content::BrowserContext* browser_context_ = nullptr;
+  raw_ptr<content::BrowserContext, DanglingUntriaged | ExperimentalAsh>
+      browser_context_ = nullptr;
 
   // This holds the AccountId corresponding to the |browser_context_|.
   // TODO(hidehiko): Remove this when we move IsArcAllowedForProfile() to

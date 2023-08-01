@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,27 +10,28 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/command_line.h"
 #include "base/debug/leak_annotations.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/location.h"
 #include "base/memory/discardable_memory.h"
 #include "base/metrics/field_trial.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/test/test_switches.h"
-#include "base/threading/sequenced_task_runner_handle.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "cc/base/switches.h"
 #include "content/app/mojo/mojo_init.h"
 #include "content/common/in_process_child_thread_params.h"
+#include "content/common/pseudonymization_salt.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/child_process_host.h"
+#include "content/public/browser/child_process_host_delegate.h"
 #include "content/public/browser/content_browser_client.h"
-#include "content/public/common/child_process_host.h"
-#include "content/public/common/child_process_host_delegate.h"
 #include "content/public/common/content_client.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
@@ -39,6 +40,7 @@
 #include "content/public/test/browser_test.h"
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
+#include "content/public/test/content_test_suite_base.h"
 #include "content/public/test/test_content_client_initializer.h"
 #include "content/public/test/test_launcher.h"
 #include "content/renderer/render_process_impl.h"
@@ -177,12 +179,14 @@ class RenderThreadImplBrowserTest : public testing::Test,
 
     cmd->AppendSwitchASCII(switches::kLang, "en-US");
 
-    cmd->AppendSwitchASCII(switches::kNumRasterThreads, "1");
+    cmd->AppendSwitchASCII(cc::switches::kNumRasterThreads, "1");
 
     // To avoid creating a GPU channel to query if
     // accelerated_video_decode is blocklisted on older Android system
     // in RenderThreadImpl::Init().
     cmd->AppendSwitch(switches::kIgnoreGpuBlocklist);
+
+    ContentTestSuiteBase::InitializeResourceBundle();
 
     blink::Platform::InitializeBlink();
     auto main_thread_scheduler =
@@ -292,6 +296,12 @@ TEST_F(RenderThreadImplBrowserTest,
   // NOTE other than not being a resource message, the actual message is
   // unimportant.
   sender()->Send(new TestMsg_QuitRunLoop());
+
+  // In-process RenderThreadImpl does not start a browser loop so the random
+  // browser seed is never generated. To allow the ChildProcessHost to correctly
+  // send a seed to the ChildProcess without hitting a DCHECK, set the seed to
+  // an arbitrary non-zero value.
+  SetPseudonymizationSalt(0xDEADBEEF);
 
   run_loop_->Run();
 

@@ -10,6 +10,8 @@ interface AbortPaymentEvent : ExtendableEvent
     method respondWith
 interface AbortSignal : EventTarget
     static method abort
+    static method any
+    static method timeout
     attribute @@toStringTag
     getter aborted
     getter onabort
@@ -106,10 +108,6 @@ interface CacheStorage
     method open
 interface CanMakePaymentEvent : ExtendableEvent
     attribute @@toStringTag
-    getter methodData
-    getter modifiers
-    getter paymentRequestOrigin
-    getter topOrigin
     method constructor
     method respondWith
 interface CanvasFilter
@@ -177,6 +175,9 @@ interface CountQueuingStrategy
     attribute @@toStringTag
     getter highWaterMark
     getter size
+    method constructor
+interface CropTarget
+    attribute @@toStringTag
     method constructor
 interface Crypto
     attribute @@toStringTag
@@ -421,7 +422,6 @@ interface Event
     getter currentTarget
     getter defaultPrevented
     getter eventPhase
-    getter path
     getter returnValue
     getter srcElement
     getter target
@@ -486,7 +486,6 @@ interface FetchEvent : ExtendableEvent
     getter preloadResponse
     getter request
     getter resultingClientId
-    method addPerformanceEntry
     method constructor
     method respondWith
 interface File : Blob
@@ -550,6 +549,7 @@ interface FileSystemHandle
     getter kind
     getter name
     method constructor
+    method getUniqueId
     method isSameEntry
     method move
     method queryPermission
@@ -614,6 +614,7 @@ interface Headers
     method entries
     method forEach
     method get
+    method getSetCookie
     method has
     method keys
     method set
@@ -667,6 +668,7 @@ interface IDBIndex
     getter name
     getter objectStore
     getter unique
+    method batchGetAll
     method constructor
     method count
     method get
@@ -696,6 +698,7 @@ interface IDBObjectStore
     getter name
     getter transaction
     method add
+    method batchGetAll
     method clear
     method constructor
     method count
@@ -773,7 +776,6 @@ interface ImageData
     getter storageFormat
     getter width
     method constructor
-    method getSettings
 interface InstallEvent : ExtendableEvent
     attribute @@toStringTag
     method constructor
@@ -792,37 +794,6 @@ interface MediaCapabilities
     method constructor
     method decodingInfo
     method encodingInfo
-interface MediaStreamTrack : EventTarget
-    attribute @@toStringTag
-    getter contentHint
-    getter enabled
-    getter id
-    getter kind
-    getter label
-    getter muted
-    getter oncapturehandlechange
-    getter onended
-    getter onmute
-    getter onunmute
-    getter readyState
-    method applyConstraints
-    method clone
-    method constructor
-    method getCapabilities
-    method getCaptureHandle
-    method getConstraints
-    method getSettings
-    method stop
-    setter contentHint
-    setter enabled
-    setter oncapturehandlechange
-    setter onended
-    setter onmute
-    setter onunmute
-interface MediaStreamTrackGenerator : MediaStreamTrack
-    attribute @@toStringTag
-    getter writable
-    method constructor
 interface MessageChannel
     attribute @@toStringTag
     getter port1
@@ -901,25 +872,6 @@ interface MojoWatcher
     attribute @@toStringTag
     method cancel
     method constructor
-interface NativeIOFile
-    attribute @@toStringTag
-    method close
-    method constructor
-    method flush
-    method getLength
-    method read
-    method setLength
-    method write
-interface NativeIOFileManager
-    attribute @@toStringTag
-    method constructor
-    method delete
-    method getAll
-    method getRemainingCapacity
-    method open
-    method releaseCapacity
-    method rename
-    method requestCapacity
 interface NavigationPreloadManager
     attribute @@toStringTag
     method constructor
@@ -1113,15 +1065,6 @@ interface Path2D
     method quadraticCurveTo
     method rect
     method roundRect
-interface PaymentInstruments
-    attribute @@toStringTag
-    method clear
-    method constructor
-    method delete
-    method get
-    method has
-    method keys
-    method set
 interface PaymentRequestEvent : ExtendableEvent
     attribute @@toStringTag
     getter instrumentKey
@@ -1161,6 +1104,7 @@ interface PerformanceEntry
     getter duration
     getter entryType
     getter name
+    getter navigationId
     getter startTime
     method constructor
     method toJSON
@@ -1189,23 +1133,27 @@ interface PerformanceResourceTiming : PerformanceEntry
     attribute @@toStringTag
     getter connectEnd
     getter connectStart
+    getter contentType
     getter decodedBodySize
+    getter deliveryType
     getter domainLookupEnd
     getter domainLookupStart
     getter encodedBodySize
     getter fetchStart
+    getter firstInterimResponseStart
     getter initiatorType
     getter nextHopProtocol
     getter redirectEnd
     getter redirectStart
+    getter renderBlockingStatus
     getter requestStart
     getter responseEnd
     getter responseStart
+    getter responseStatus
     getter secureConnectionStart
     getter serverTiming
     getter transferSize
     getter workerStart
-    getter workerTiming
     method constructor
     method toJSON
 interface PerformanceServerTiming
@@ -1378,9 +1326,9 @@ interface Response
     method text
 interface Scheduler
     attribute @@toStringTag
-    getter currentTaskSignal
     method constructor
     method postTask
+    method yield
 interface SecurityPolicyViolationEvent : Event
     attribute @@toStringTag
     getter blockedURI
@@ -1433,10 +1381,15 @@ interface ServiceWorkerRegistration : EventTarget
     setter onupdatefound
 interface StorageBucket
     attribute @@toStringTag
+    getter caches
+    getter indexedDB
+    getter locks
+    getter name
     method constructor
     method durability
     method estimate
     method expires
+    method getDirectory
     method persisted
     method setExpires
 interface StorageBucketManager
@@ -1546,17 +1499,27 @@ interface TransformStream
     getter readable
     getter writable
     method constructor
+interface TransformStreamDefaultController
+    attribute @@toStringTag
+    getter desiredSize
+    method constructor
+    method enqueue
+    method error
+    method terminate
 interface TrustedHTML
+    static method fromLiteral
     attribute @@toStringTag
     method constructor
     method toJSON
     method toString
 interface TrustedScript
+    static method fromLiteral
     attribute @@toStringTag
     method constructor
     method toJSON
     method toString
 interface TrustedScriptURL
+    static method fromLiteral
     attribute @@toStringTag
     method constructor
     method toJSON
@@ -1626,6 +1589,7 @@ interface URLPattern
     method test
 interface URLSearchParams
     attribute @@toStringTag
+    getter size
     method @@iterator
     method append
     method constructor
@@ -2207,9 +2171,11 @@ interface WebGL2RenderingContext
     attribute WAIT_FAILED
     attribute ZERO
     getter canvas
+    getter drawingBufferColorSpace
     getter drawingBufferFormat
     getter drawingBufferHeight
     getter drawingBufferWidth
+    getter unpackColorSpace
     method activeTexture
     method attachShader
     method beginQuery
@@ -2438,6 +2404,8 @@ interface WebGL2RenderingContext
     method vertexAttribPointer
     method viewport
     method waitSync
+    setter drawingBufferColorSpace
+    setter unpackColorSpace
 interface WebGLActiveInfo
     attribute @@toStringTag
     getter name
@@ -2446,6 +2414,10 @@ interface WebGLActiveInfo
     method constructor
 interface WebGLBuffer
     attribute @@toStringTag
+    method constructor
+interface WebGLContextEvent : Event
+    attribute @@toStringTag
+    getter statusMessage
     method constructor
 interface WebGLFramebuffer
     attribute @@toStringTag
@@ -2758,9 +2730,11 @@ interface WebGLRenderingContext
     attribute VIEWPORT
     attribute ZERO
     getter canvas
+    getter drawingBufferColorSpace
     getter drawingBufferFormat
     getter drawingBufferHeight
     getter drawingBufferWidth
+    getter unpackColorSpace
     method activeTexture
     method attachShader
     method bindAttribLocation
@@ -2901,6 +2875,8 @@ interface WebGLRenderingContext
     method vertexAttrib4fv
     method vertexAttribPointer
     method viewport
+    setter drawingBufferColorSpace
+    setter unpackColorSpace
 interface WebGLSampler
     attribute @@toStringTag
     method constructor
@@ -3003,8 +2979,8 @@ interface WindowClient : Client
     method navigate
 interface WorkerGlobalScope : EventTarget
     attribute @@toStringTag
-    getter addressSpace
     getter caches
+    getter crossOriginEmbedderPolicy
     getter crossOriginIsolated
     getter crypto
     getter fonts
@@ -3021,7 +2997,6 @@ interface WorkerGlobalScope : EventTarget
     getter performance
     getter scheduler
     getter self
-    getter storageFoundation
     getter trustedTypes
     method atob
     method btoa
@@ -3103,8 +3078,33 @@ interface WritableStreamDefaultWriter
     method releaseLock
     method write
 [NAMESPACES]
+namespace console
+    attribute @@toStringTag
+    method assert
+    method clear
+    method context
+    method count
+    method countReset
+    method createTask
+    method debug
+    method dir
+    method dirxml
+    method error
+    method group
+    method groupCollapsed
+    method groupEnd
+    method info
+    method log
+    method profile
+    method profileEnd
+    method table
+    method time
+    method timeEnd
+    method timeLog
+    method timeStamp
+    method trace
+    method warn
 [GLOBAL OBJECT]
-    attribute console
     attribute globalThis
     attribute internals
     getter clients

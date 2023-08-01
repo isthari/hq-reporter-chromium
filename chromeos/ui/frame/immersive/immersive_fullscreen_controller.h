@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "base/component_export.h"
+#include "base/memory/raw_ptr.h"
 #include "base/timer/timer.h"
 #include "chromeos/ui/frame/immersive/immersive_revealed_lock.h"
 #include "ui/aura/window_observer.h"
@@ -253,9 +254,9 @@ class COMPONENT_EXPORT(CHROMEOS_UI_FRAME) ImmersiveFullscreenController
   void EnableTouchInsets(bool enable);
 
   // Not owned.
-  ImmersiveFullscreenControllerDelegate* delegate_ = nullptr;
-  views::View* top_container_ = nullptr;
-  views::Widget* widget_ = nullptr;
+  raw_ptr<ImmersiveFullscreenControllerDelegate> delegate_ = nullptr;
+  raw_ptr<views::View> top_container_ = nullptr;
+  raw_ptr<views::Widget> widget_ = nullptr;
 
   // True if the observers have been enabled.
   bool event_observers_enabled_ = false;

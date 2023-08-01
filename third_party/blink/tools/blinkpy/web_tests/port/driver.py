@@ -99,10 +99,11 @@ def coalesce_repeated_switches(cmd):
 
 
 class DriverInput(object):
-    def __init__(self, test_name, timeout, image_hash, args):
+    def __init__(self, test_name, timeout, image_hash, wpt_print_mode, args):
         self.test_name = test_name
         self.timeout = timeout  # in ms
         self.image_hash = image_hash
+        self.wpt_print_mode = wpt_print_mode
         self.args = args
 
 
@@ -120,7 +121,7 @@ class DriverOutput(object):
                  test_time=0,
                  measurements=None,
                  timeout=False,
-                 error='',
+                 error=b'',
                  crashed_process_name='??',
                  crashed_pid=None,
                  crash_log=None,
@@ -134,6 +135,7 @@ class DriverOutput(object):
         self.image = image  # May be empty-string if the test crashes.
         self.image_hash = image_hash
         self.image_diff = None  # image_diff gets filled in after construction.
+        self.image_diff_stats = None  # Number of changed pixels, etc.
         self.audio = audio  # Binary format is port-dependent.
         self.crash = crash
         self.crashed_process_name = crashed_process_name
@@ -148,6 +150,7 @@ class DriverOutput(object):
         self.error = error  # stderr output
         self.pid = pid
         self.command = command
+        self.test_type = set()
 
     def has_stderr(self):
         return bool(self.error)
@@ -257,8 +260,9 @@ class Driver(object):
             sanitizer = self._port.output_contains_sanitizer_messages(
                 self.error_from_test)
             if sanitizer:
-                self.error_from_test = 'OUTPUT CONTAINS "sanitizer",' + \
-                    ' so we are treating this test as if it crashed, even though it did not.\n\n' + self.error_from_test
+                self.error_from_test = b'OUTPUT CONTAINS "sanitizer",' + \
+                    b' so we are treating this test as if it crashed, even though it did not.\n\n' + \
+                    self.error_from_test
                 crashed = True
                 self._crashed_process_name = 'unknown process name'
                 self._crashed_pid = 0
@@ -507,6 +511,7 @@ class Driver(object):
             "wpt_internal/webgpu/000_run_me_first.https.html",
             timeout=init_timeout,
             image_hash=None,
+            wpt_print_mode=None,
             args=per_test_args)
         output = self._run_one_input(startup_input, start_time=time.time())
         if output.text and b'PASS 000_run_me_first' in output.text:
@@ -587,6 +592,7 @@ class Driver(object):
             # See http://trac.webkit.org/changeset/65537.
             self._crashed_process_name = self._server_process.name()
             self._crashed_pid = self._server_process.pid()
+            self.error_from_test += error_line.encode('utf-8')
         elif (error_line.startswith('#CRASHED - ')
               or error_line.startswith('#PROCESS UNRESPONSIVE - ')):
             # WebKitTestRunner uses this to report that the WebProcess subprocess crashed.
@@ -604,8 +610,7 @@ class Driver(object):
                 self._subprocess_was_unresponsive = True
                 self._port.sample_process(self._crashed_process_name,
                                           self._crashed_pid)
-                # We want to show this since it's not a regular crash and probably we don't have a crash log.
-                self.error_from_test += error_line.encode('utf-8')
+            self.error_from_test += error_line.encode('utf-8')
             return True
         return self.has_crashed()
 
@@ -632,6 +637,10 @@ class Driver(object):
             command += "'--timeout'%s" % driver_input.timeout
         if driver_input.image_hash:
             command += "'" + driver_input.image_hash
+        if driver_input.wpt_print_mode:
+            if not driver_input.image_hash:
+                command += "'"
+            command += "'print"
         return command + '\n'
 
     def _read_first_block(self, deadline):

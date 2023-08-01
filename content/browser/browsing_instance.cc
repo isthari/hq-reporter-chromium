@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,8 @@
 #include "base/check_op.h"
 #include "base/command_line.h"
 #include "content/browser/child_process_security_policy_impl.h"
+#include "content/browser/coop_related_group.h"
+#include "content/browser/origin_agent_cluster_isolation_state.h"
 #include "content/browser/site_info.h"
 #include "content/browser/site_instance_impl.h"
 #include "content/public/browser/browser_context.h"
@@ -26,15 +28,32 @@ int BrowsingInstance::next_browsing_instance_id_ = 1;
 BrowsingInstance::BrowsingInstance(
     BrowserContext* browser_context,
     const WebExposedIsolationInfo& web_exposed_isolation_info,
-    bool is_guest)
+    bool is_guest,
+    bool is_fenced,
+    const scoped_refptr<CoopRelatedGroup>& coop_related_group,
+    absl::optional<url::Origin> common_coop_origin)
     : isolation_context_(
           BrowsingInstanceId::FromUnsafeValue(next_browsing_instance_id_++),
           BrowserOrResourceContext(browser_context),
-          is_guest),
+          is_guest,
+          is_fenced,
+          OriginAgentClusterIsolationState::CreateForDefaultIsolation(
+              browser_context)),
       active_contents_count_(0u),
       default_site_instance_(nullptr),
-      web_exposed_isolation_info_(web_exposed_isolation_info) {
+      web_exposed_isolation_info_(web_exposed_isolation_info),
+      coop_related_group_(coop_related_group),
+      common_coop_origin_(common_coop_origin) {
   DCHECK(browser_context);
+
+  // If we get passed an empty group, build a new one. This is the common case.
+  if (!coop_related_group_) {
+    coop_related_group_ = base::WrapRefCounted<CoopRelatedGroup>(
+        new CoopRelatedGroup(browser_context, is_guest, is_fenced));
+  }
+  DCHECK(coop_related_group_);
+
+  coop_related_group_->RegisterBrowsingInstance(this);
 }
 
 BrowserContext* BrowsingInstance::GetBrowserContext() const {
@@ -57,10 +76,15 @@ scoped_refptr<SiteInstanceImpl> BrowsingInstance::GetSiteInstanceForURL(
   // No current SiteInstance for this site, so let's create one.
   scoped_refptr<SiteInstanceImpl> instance = new SiteInstanceImpl(this);
 
-  // Set the site of this new SiteInstance, which will register it with us,
-  // unless this URL should leave the SiteInstance's site unassigned.
-  if (SiteInstance::ShouldAssignSiteForURL(url_info.url))
+  // Set the site of this new SiteInstance, which will register it with us.
+  // Some URLs should leave the SiteInstance's site unassigned, though if
+  // `instance` is for a guest, we should always set the site to ensure that it
+  // carries guest information contained within SiteInfo.
+  if (SiteInstanceImpl::ShouldAssignSiteForUrlInfo(url_info) ||
+      isolation_context_.is_guest()) {
     instance->SetSite(url_info);
+  }
+
   return instance;
 }
 
@@ -73,6 +97,25 @@ SiteInfo BrowsingInstance::GetSiteInfoForURL(const UrlInfo& url_info,
     return site_instance->GetSiteInfo();
 
   return ComputeSiteInfoForURL(url_info);
+}
+
+scoped_refptr<SiteInstanceImpl> BrowsingInstance::GetSiteInstanceForSiteInfo(
+    const SiteInfo& site_info) {
+  auto i = site_instance_map_.find(site_info);
+  if (i != site_instance_map_.end())
+    return i->second;
+
+  scoped_refptr<SiteInstanceImpl> instance = new SiteInstanceImpl(this);
+  instance->SetSite(site_info);
+  return instance;
+}
+
+scoped_refptr<SiteInstanceImpl>
+BrowsingInstance::GetCoopRelatedSiteInstanceForURL(
+    const UrlInfo& url_info,
+    bool allow_default_instance) {
+  return coop_related_group_->GetCoopRelatedSiteInstanceForURL(
+      url_info, allow_default_instance);
 }
 
 scoped_refptr<SiteInstanceImpl> BrowsingInstance::GetSiteInstanceForURLHelper(
@@ -185,6 +228,8 @@ BrowsingInstance::~BrowsingInstance() {
       ChildProcessSecurityPolicyImpl::GetInstance();
   policy->RemoveOptInIsolatedOriginsForBrowsingInstance(
       isolation_context_.browsing_instance_id());
+
+  coop_related_group_->UnregisterBrowsingInstance(this);
 }
 
 SiteInfo BrowsingInstance::ComputeSiteInfoForURL(
@@ -260,6 +305,23 @@ int BrowsingInstance::EstimateOriginAgentClusterOverhead() {
   DCHECK_GE(site_info_set.size(), site_info_set_no_oac.size());
   int result = site_info_set.size() - site_info_set_no_oac.size();
   return result;
+}
+
+size_t BrowsingInstance::GetCoopRelatedGroupActiveContentsCount() {
+  return coop_related_group_->active_contents_count();
+}
+
+void BrowsingInstance::IncrementActiveContentsCount() {
+  active_contents_count_++;
+
+  coop_related_group_->increment_active_contents_count();
+}
+
+void BrowsingInstance::DecrementActiveContentsCount() {
+  DCHECK_LT(0u, active_contents_count_);
+  active_contents_count_--;
+
+  coop_related_group_->decrement_active_contents_count();
 }
 
 }  // namespace content

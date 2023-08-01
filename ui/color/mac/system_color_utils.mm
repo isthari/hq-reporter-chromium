@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,10 @@
 #import <Cocoa/Cocoa.h>
 
 #include "ui/gfx/color_utils.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 namespace {
 bool graphite_tint_test_override = false;
@@ -18,7 +22,7 @@ bool IsSystemGraphiteTinted() {
   if (graphite_tint_test_override)
     return true;
 
-  return [NSColor currentControlTint] == NSGraphiteControlTint;
+  return NSColor.currentControlTint == NSGraphiteControlTint;
 }
 
 SkColor ColorToGrayscale(SkColor color) {
@@ -35,4 +39,4 @@ ScopedEnableGraphiteTint::~ScopedEnableGraphiteTint() {
   graphite_tint_test_override = original_test_override_;
 }
 
-}  // ui
+}  // namespace ui

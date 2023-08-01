@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,20 +7,20 @@
 
 #import <UIKit/UIKit.h>
 
-#import "ios/chrome/browser/ui/table_view/cells/table_view_link_header_footer_item.h"
-#import "ios/chrome/browser/ui/table_view/chrome_table_view_consumer.h"
-#import "ios/chrome/browser/ui/table_view/table_view_model.h"
+#import "ios/chrome/browser/shared/ui/table_view/cells/table_view_link_header_footer_item.h"
+#import "ios/chrome/browser/shared/ui/table_view/chrome_table_view_consumer.h"
+#import "ios/chrome/browser/shared/ui/table_view/table_view_model.h"
 
 // Consumer protocol for safety check.
 @protocol SafetyCheckConsumer <ChromeTableViewConsumer>
 
-// Initializes the check types section with |items|.
+// Initializes the check types section with `items`.
 - (void)setCheckItems:(NSArray<TableViewItem*>*)items;
 
-// Initializes the safety check header with |item|.
+// Initializes the safety check header with `item`.
 - (void)setSafetyCheckHeaderItem:(TableViewLinkHeaderFooterItem*)item;
 
-// Initializes the check start section with |item|.
+// Initializes the check start section with `item`.
 - (void)setCheckStartItem:(TableViewItem*)item;
 
 // Initializes the footer with timestamp of last completed run.

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -65,7 +65,7 @@
   var sendMessageToBackendOriginal = InspectorFrontendHost.sendMessageToBackend;
   InspectorFrontendHost.sendMessageToBackend = sendMessageToBackendLoopback;
 
-  var agent = SDK.targetManager.mainTarget().profilerAgent();
+  var agent = SDK.targetManager.rootTarget().profilerAgent();
   await processResult(
       'commandError',
       agent.commandError({'message': 'this is the error message'}));  // Error: error in the protocol response

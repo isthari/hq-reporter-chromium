@@ -1,13 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.base.test.util;
 
 import org.junit.Assert;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TestRule;
 import org.junit.runner.RunWith;
 import org.robolectric.annotation.Config;
 
@@ -21,13 +19,10 @@ import org.chromium.base.test.BaseRobolectricTestRunner;
 @RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
 public class CommandLineFlagsNoClassAnnotationCheckTest {
-    @Rule
-    public TestRule mCommandLineFlagsRule = CommandLineFlags.getTestRule();
-
     @Test
     public void testNoAnnotation() throws Throwable {
-        Assert.assertTrue("CommandLine switches should be empty by default",
-                CommandLine.getInstance().getSwitches().isEmpty());
+        var switches = CommandLine.getInstance().getSwitches();
+        Assert.assertTrue("CommandLine switches should be empty: " + switches, switches.isEmpty());
     }
 
     @Test
@@ -38,22 +33,20 @@ public class CommandLineFlagsNoClassAnnotationCheckTest {
     }
 
     @Test
-    @CommandLineFlags.Add("some-switch")
+    @CommandLineFlags.Add("some-switch=method_value")
     @CommandLineFlags.Remove("some-switch")
     public void testAddThenRemoveSwitch_method() throws Throwable {
-        Assert.assertTrue(
-                "CommandLine switches should be empty after adding and removing the same switch",
-                CommandLine.getInstance().getSwitches().isEmpty());
+        Assert.assertEquals(
+                "some-switch should be removed from the class level and added back, not ignored",
+                "method_value", CommandLine.getInstance().getSwitchValue("some-switch"));
     }
 
     @Test
     @CommandLineFlags.Remove("some-switch")
-    @CommandLineFlags.Add("some-switch")
+    @CommandLineFlags.Add("some-switch=method_value")
     public void testRemoveThenAddSwitch_method() throws Throwable {
-        // ".Add" rules apply before ".Remove" rules when annotating the same method/class,
-        // regardless of the order the annotations are written.
-        Assert.assertTrue(
-                "CommandLine switches should be empty after removing and adding the same switch",
-                CommandLine.getInstance().getSwitches().isEmpty());
+        Assert.assertEquals(
+                "some-switch should be removed from the class level and added back, not ignored",
+                "method_value", CommandLine.getInstance().getSwitchValue("some-switch"));
     }
 }

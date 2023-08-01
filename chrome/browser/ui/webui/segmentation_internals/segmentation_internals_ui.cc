@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,17 +16,14 @@
 SegmentationInternalsUI::SegmentationInternalsUI(content::WebUI* web_ui)
     : MojoWebUIController(web_ui, /*enable_chrome_send=*/true) {
   profile_ = Profile::FromWebUI(web_ui);
-  auto source = base::WrapUnique(content::WebUIDataSource::Create(
-      chrome::kChromeUISegmentationInternalsHost));
+  content::WebUIDataSource* source = content::WebUIDataSource::CreateAndAdd(
+      web_ui->GetWebContents()->GetBrowserContext(),
+      chrome::kChromeUISegmentationInternalsHost);
   webui::SetupWebUIDataSource(
-      source.get(),
+      source,
       base::make_span(kSegmentationInternalsResources,
                       kSegmentationInternalsResourcesSize),
       IDR_SEGMENTATION_INTERNALS_SEGMENTATION_INTERNALS_HTML);
-
-  content::BrowserContext* browser_context =
-      web_ui->GetWebContents()->GetBrowserContext();
-  content::WebUIDataSource::Add(browser_context, source.release());
 }
 
 SegmentationInternalsUI::~SegmentationInternalsUI() = default;

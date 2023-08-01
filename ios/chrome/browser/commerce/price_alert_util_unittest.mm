@@ -1,50 +1,49 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/commerce/price_alert_util.h"
 
-#include "base/test/scoped_feature_list.h"
-#include "components/sync_preferences/testing_pref_service_syncable.h"
-#include "components/unified_consent/pref_names.h"
-#include "components/unified_consent/unified_consent_service.h"
-#import "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
-#import "ios/chrome/browser/pref_names.h"
+#import "base/test/scoped_feature_list.h"
+#import "components/commerce/core/commerce_feature_list.h"
+#import "components/sync_preferences/testing_pref_service_syncable.h"
+#import "components/unified_consent/pref_names.h"
+#import "components/unified_consent/unified_consent_service.h"
+#import "ios/chrome/browser/shared/model/application_context/application_context.h"
+#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/prefs/pref_names.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
+#import "ios/chrome/browser/signin/authentication_service.h"
 #import "ios/chrome/browser/signin/authentication_service_factory.h"
-#import "ios/chrome/browser/signin/authentication_service_fake.h"
-#import "ios/chrome/browser/ui/ui_feature_flags.h"
+#import "ios/chrome/browser/signin/fake_authentication_service_delegate.h"
+#import "ios/chrome/browser/signin/fake_system_identity.h"
+#import "ios/chrome/browser/signin/fake_system_identity_manager.h"
 #import "ios/chrome/test/ios_chrome_scoped_testing_local_state.h"
-#import "ios/public/provider/chrome/browser/signin/fake_chrome_identity.h"
 #import "ios/web/public/test/web_task_environment.h"
-#include "testing/platform_test.h"
+#import "testing/platform_test.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
 
-namespace {
-const char kPriceTrackingWithOptimizationGuideParam[] =
-    "price_tracking_with_optimization_guide";
-}  // namespace
-
 class PriceAlertUtilTest : public PlatformTest {
  public:
   void SetUp() override {
     browser_state_ = BuildChromeBrowserState();
-    auth_service_ = static_cast<AuthenticationServiceFake*>(
+    AuthenticationServiceFactory::CreateAndInitializeForBrowserState(
+        browser_state_.get(),
+        std::make_unique<FakeAuthenticationServiceDelegate>());
+    auth_service_ = static_cast<AuthenticationService*>(
         AuthenticationServiceFactory::GetInstance()->GetForBrowserState(
             browser_state_.get()));
-    fake_identity_ = [FakeChromeIdentity identityWithEmail:@"foo1@gmail.com"
-                                                    gaiaID:@"foo1ID"
-                                                      name:@"Fake Foo 1"];
+    fake_identity_ = [FakeSystemIdentity fakeIdentity1];
   }
 
   std::unique_ptr<TestChromeBrowserState> BuildChromeBrowserState() {
     TestChromeBrowserState::Builder builder;
     builder.AddTestingFactory(
         AuthenticationServiceFactory::GetInstance(),
-        base::BindRepeating(
-            &AuthenticationServiceFake::CreateAuthenticationService));
+        AuthenticationServiceFactory::GetDefaultFactory());
     return builder.Build();
   }
 
@@ -59,20 +58,17 @@ class PriceAlertUtilTest : public PlatformTest {
                                            enabled);
   }
 
-  void SetFeatureFlag(bool enabled) {
-    if (enabled) {
-      scoped_feature_list_.InitAndEnableFeatureWithParameters(
-          kCommercePriceTracking,
-          {{kPriceTrackingWithOptimizationGuideParam, "true"}});
-    } else {
-      scoped_feature_list_.InitWithFeatures({}, {});
-    }
+  void SignIn() {
+    FakeSystemIdentityManager* system_identity_manager =
+        FakeSystemIdentityManager::FromSystemIdentityManager(
+            GetApplicationContext()->GetSystemIdentityManager());
+    system_identity_manager->AddIdentity(fake_identity_);
+    auth_service_->SignIn(fake_identity_,
+                          signin_metrics::AccessPoint::ACCESS_POINT_UNKNOWN);
   }
 
-  void SignIn() { auth_service_->SignIn(fake_identity_); }
-
   void SignOut() {
-    auth_service_->SignOut(signin_metrics::SIGNOUT_TEST,
+    auth_service_->SignOut(signin_metrics::ProfileSignout::kTest,
                            /*force_clear_browsing_data=*/false, nil);
   }
 
@@ -80,9 +76,8 @@ class PriceAlertUtilTest : public PlatformTest {
   web::WebTaskEnvironment task_environment_;
   IOSChromeScopedTestingLocalState scoped_testing_local_state_;
   std::unique_ptr<TestChromeBrowserState> browser_state_;
-  AuthenticationServiceFake* auth_service_ = nullptr;
-  FakeChromeIdentity* fake_identity_ = nullptr;
-  base::test::ScopedFeatureList scoped_feature_list_;
+  AuthenticationService* auth_service_ = nullptr;
+  FakeSystemIdentity* fake_identity_ = nullptr;
 };
 
 TEST_F(PriceAlertUtilTest, TestMSBBOff) {
@@ -96,27 +91,14 @@ TEST_F(PriceAlertUtilTest, TestNotSignedIn) {
   EXPECT_FALSE(IsPriceAlertsEligible(browser_state_.get()));
 }
 
-TEST_F(PriceAlertUtilTest, TestFlagOff) {
-  SetFeatureFlag(false);
-  EXPECT_FALSE(IsPriceAlertsEnabled());
-}
-
-TEST_F(PriceAlertUtilTest, TestFlagOn) {
-  SetFeatureFlag(true);
-  EXPECT_TRUE(IsPriceAlertsEnabled());
-}
-
 TEST_F(PriceAlertUtilTest, TestPriceAlertsAllowed) {
   SignIn();
-  SetFeatureFlag(true);
   SetMSBB(true);
   EXPECT_TRUE(IsPriceAlertsEligible(browser_state_.get()));
-  EXPECT_TRUE(IsPriceAlertsEnabled());
 }
 
 TEST_F(PriceAlertUtilTest, TestPriceAlertsEligibleThenSignOut) {
   SignIn();
-  SetFeatureFlag(true);
   SetMSBB(true);
   EXPECT_TRUE(IsPriceAlertsEligible(browser_state_.get()));
   SignOut();
@@ -125,7 +107,6 @@ TEST_F(PriceAlertUtilTest, TestPriceAlertsEligibleThenSignOut) {
 
 TEST_F(PriceAlertUtilTest, TestIncognito) {
   SignIn();
-  SetFeatureFlag(true);
   SetMSBB(true);
   EXPECT_FALSE(IsPriceAlertsEligible(
       browser_state_->GetOffTheRecordChromeBrowserState()));
@@ -133,7 +114,6 @@ TEST_F(PriceAlertUtilTest, TestIncognito) {
 
 TEST_F(PriceAlertUtilTest, TestUserSettingOn) {
   SignIn();
-  SetFeatureFlag(true);
   SetMSBB(true);
   SetUserSetting(true);
   EXPECT_TRUE(IsPriceAlertsEligible(browser_state_.get()));
@@ -141,7 +121,6 @@ TEST_F(PriceAlertUtilTest, TestUserSettingOn) {
 
 TEST_F(PriceAlertUtilTest, TestUserSettingOff) {
   SignIn();
-  SetFeatureFlag(true);
   SetMSBB(true);
   SetUserSetting(false);
   EXPECT_FALSE(IsPriceAlertsEligible(browser_state_.get()));

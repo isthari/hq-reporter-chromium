@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,12 +10,9 @@
 
 #include "ash/ash_export.h"
 #include "ash/wm/window_transient_descendant_iterator.h"
+#include "ui/aura/window.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/wm/core/window_util.h"
-
-namespace aura {
-class Window;
-}
 
 namespace gfx {
 class Point;
@@ -27,14 +24,22 @@ namespace ui {
 class LocatedEvent;
 }  // namespace ui
 
-namespace ash {
-
-namespace window_util {
+namespace ash::window_util {
 
 // See ui/wm/core/window_util.h for ActivateWindow(), DeactivateWindow(),
 // IsActiveWindow() and CanActivateWindow().
 ASH_EXPORT aura::Window* GetActiveWindow();
 ASH_EXPORT aura::Window* GetFocusedWindow();
+
+// Returns true if `win1` is stacked (not directly) below `win2`. Note that this
+// API only applies for windows with the same direct parent.
+ASH_EXPORT bool IsStackedBelow(aura::Window* win1, aura::Window* win2);
+
+// Returns the top most window for the given `windows` list by first finding the
+// lowest common parent of all the `windows` and then finding the window among
+// `windows` that is top-most in terms of z-order. Note that this doesn't take
+// account of the visibility of the windows.
+ASH_EXPORT aura::Window* GetTopMostWindow(const aura::Window::Windows& windows);
 
 // Returns the window with capture, null if no window currently has capture.
 ASH_EXPORT aura::Window* GetCaptureWindow();
@@ -83,10 +88,10 @@ ASH_EXPORT void CloseWidgetForWindow(aura::Window* window);
 ASH_EXPORT void InstallResizeHandleWindowTargeterForWindow(
     aura::Window* window);
 
-// Returns true if |window| is currently in tab-dragging process.
+// Returns true if `window` is currently in tab-dragging process.
 ASH_EXPORT bool IsDraggingTabs(const aura::Window* window);
 
-// Returns true if |window| should be excluded from the cycle list and/or
+// Returns true if `window` should be excluded from the cycle list and/or
 // overview.
 ASH_EXPORT bool ShouldExcludeForCycleList(const aura::Window* window);
 ASH_EXPORT bool ShouldExcludeForOverview(const aura::Window* window);
@@ -123,9 +128,17 @@ bool IsAnyWindowDragged();
 
 // Returns the top window on MRU window list, or null if the list is empty.
 aura::Window* GetTopWindow();
+aura::Window* GetTopNonFloatedWindow();
+
+// Returns the floated window for the active desk if it exists.
+ASH_EXPORT aura::Window* GetFloatedWindowForActiveDesk();
 
 // Returns whether the top window should be minimized on back action.
 ASH_EXPORT bool ShouldMinimizeTopWindowOnBack();
+
+// Returns true if `window` is in minimized state, or is in floated state and
+// tucked to the side in tablet mode.
+bool IsMinimizedOrTucked(aura::Window* window);
 
 // Sends |ui::VKEY_BROWSER_BACK| key press and key release event to the
 // WindowTreeHost associated with |root_window|.
@@ -150,7 +163,9 @@ bool ShouldShowForCurrentUser(aura::Window* window);
 
 ASH_EXPORT aura::Window* GetEventHandlerForEvent(const ui::LocatedEvent& event);
 
-}  // namespace window_util
-}  // namespace ash
+// Checks the prefs to see if natural scroll for the touchpad is turned on.
+ASH_EXPORT bool IsNaturalScrollOn();
+
+}  // namespace ash::window_util
 
 #endif  // ASH_WM_WINDOW_UTIL_H_

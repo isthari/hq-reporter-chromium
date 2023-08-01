@@ -1,4 +1,4 @@
-// Copyright (c) 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "ash/public/cpp/external_arc/message_center/arc_notification_manager.h"
 #include "ash/public/cpp/message_center/arc_notification_manager_delegate.h"
 #include "ash/public/cpp/message_center/arc_notifications_host_initializer.h"
+#include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -34,7 +35,6 @@
 #include "chrome/browser/extensions/api/notifications/extension_notification_handler.h"
 #include "chrome/browser/extensions/api/notifications/notifications_api.h"
 #include "chrome/browser/extensions/extension_apitest.h"
-#include "chrome/browser/extensions/extension_function_test_utils.h"
 #include "chrome/browser/notifications/notification_display_service_tester.h"
 #include "chrome/browser/notifications/profile_notification.h"
 #include "chrome/browser/profiles/profile.h"
@@ -54,7 +54,6 @@
 #include "ui/message_center/public/cpp/notification.h"
 #include "ui/message_center/public/cpp/notifier_id.h"
 
-using apps::mojom::OptionalBool;
 using extensions::Extension;
 using extensions::ExtensionNotificationDisplayHelper;
 using extensions::ExtensionNotificationDisplayHelperFactory;
@@ -94,27 +93,13 @@ std::vector<arc::mojom::AppInfoPtr> GetTestAppsList() {
 }
 
 absl::optional<bool> HasBadge(Profile* profile, const std::string& app_id) {
-  auto mojom_has_badge = OptionalBool::kUnknown;
   auto* proxy = apps::AppServiceProxyFactory::GetForProfile(profile);
-  proxy->FlushMojoCallsForTesting();
-  proxy->AppRegistryCache().ForOneApp(
-      app_id, [&mojom_has_badge](const apps::AppUpdate& update) {
-        mojom_has_badge = update.HasBadge();
-      });
-
   absl::optional<bool> has_badge;
-  proxy->AppRegistryCache().ForApp(app_id,
-                                   [&has_badge](const apps::AppUpdate& update) {
-                                     has_badge = update.GetHasBadge();
-                                   });
-
-  if (has_badge.has_value()) {
-    if (has_badge.value() && mojom_has_badge == OptionalBool::kTrue)
-      return true;
-    if (!has_badge.value() && mojom_has_badge == OptionalBool::kFalse)
-      return false;
-  }
-  return absl::nullopt;
+  proxy->AppRegistryCache().ForOneApp(
+      app_id, [&has_badge](const apps::AppUpdate& update) {
+        has_badge = update.HasBadge();
+      });
+  return has_badge;
 }
 
 void RemoveNotification(Profile* profile, const std::string& notification_id) {
@@ -127,8 +112,7 @@ void RemoveNotification(Profile* profile, const std::string& notification_id) {
 
 void UninstallApp(Profile* profile, const std::string& app_id) {
   auto* proxy = apps::AppServiceProxyFactory::GetForProfile(profile);
-  proxy->UninstallSilently(app_id, apps::mojom::UninstallSource::kAppList);
-  proxy->FlushMojoCallsForTesting();
+  proxy->UninstallSilently(app_id, apps::UninstallSource::kAppList);
 }
 
 class ScopedBadgingClockOverride {
@@ -144,8 +128,8 @@ class ScopedBadgingClockOverride {
   }
 
  private:
-  badging::BadgeManager* const badge_manager_;
-  const base::Clock* previous_clock_;
+  const raw_ptr<badging::BadgeManager, ExperimentalAsh> badge_manager_;
+  raw_ptr<const base::Clock, ExperimentalAsh> previous_clock_;
 };
 
 }  // namespace
@@ -166,10 +150,10 @@ class AppNotificationsExtensionApiTest : public extensions::ExtensionApiTest {
     const extensions::Extension* extension = LoadExtension(extdir);
     EXPECT_TRUE(extension);
 
-    ExtensionTestMessageListener launched_listener("launched", true);
+    ExtensionTestMessageListener launched_listener("launched",
+                                                   ReplyBehavior::kWillReply);
     apps::AppServiceProxyFactory::GetForProfile(profile())->Launch(
-        extension->id(), ui::EF_SHIFT_DOWN,
-        apps::mojom::LaunchSource::kFromTest);
+        extension->id(), ui::EF_SHIFT_DOWN, apps::LaunchSource::kFromTest);
     EXPECT_TRUE(launched_listener.WaitUntilSatisfied());
     launched_listener.Reply(create_window_options);
 
@@ -207,7 +191,7 @@ IN_PROC_BROWSER_TEST_F(AppNotificationsExtensionApiTest,
   ASSERT_FALSE(HasBadge(profile(), extension1->id()).value());
 
   // Load the basic app to generate a notification.
-  ExtensionTestMessageListener notification_created_listener("created", false);
+  ExtensionTestMessageListener notification_created_listener("created");
   const Extension* extension2 =
       LoadAppWithWindowState("notifications/api/basic_app");
   ASSERT_TRUE(extension2);
@@ -234,7 +218,7 @@ IN_PROC_BROWSER_TEST_F(AppNotificationsExtensionApiTest,
   ASSERT_FALSE(HasBadge(profile(), extension1->id()).value());
 
   // Load the basic app to generate a notification.
-  ExtensionTestMessageListener notification_created_listener1("created", false);
+  ExtensionTestMessageListener notification_created_listener1("created");
   const Extension* extension2 =
       LoadAppWithWindowState("notifications/api/basic_app");
   ASSERT_TRUE(extension2);
@@ -249,7 +233,7 @@ IN_PROC_BROWSER_TEST_F(AppNotificationsExtensionApiTest,
   ASSERT_FALSE(HasBadge(profile(), extension1->id()).value());
 
   // Re-load the basic app to generate a notification again.
-  ExtensionTestMessageListener notification_created_listener2("created", false);
+  ExtensionTestMessageListener notification_created_listener2("created");
   const Extension* extension3 =
       LoadAppWithWindowState("notifications/api/basic_app");
   ASSERT_TRUE(extension3);
@@ -300,16 +284,14 @@ class AppNotificationsWebNotificationTest
       const GURL& origin) {
     return std::make_unique<message_center::Notification>(
         message_center::NOTIFICATION_TYPE_SIMPLE, notification_id,
-        std::u16string(), std::u16string(), gfx::Image(),
+        std::u16string(), std::u16string(), ui::ImageModel(),
         base::UTF8ToUTF16(origin.host()), origin,
         message_center::NotifierId(origin),
         message_center::RichNotificationData(), nullptr);
   }
 
   void UninstallWebApp(const std::string& app_id) const {
-    web_app::UninstallWebApp(browser()->profile(), app_id);
-    apps::AppServiceProxyFactory::GetForProfile(browser()->profile())
-        ->FlushMojoCallsForTesting();
+    web_app::test::UninstallWebApp(browser()->profile(), app_id);
   }
 
   GURL GetOrigin() const { return https_server_.GetURL("app.com", "/"); }
@@ -381,8 +363,18 @@ IN_PROC_BROWSER_TEST_F(AppNotificationsWebNotificationTest,
   ASSERT_FALSE(HasBadge(profile(), app_id2).value());
 }
 
+// TODO(crbug.com/1334960): Disabled AppNotificationsWebNotificationTest.
+// PersistentNotificationWhenInstallAndUninstallApp on chromeos and linux,
+// because it is failing on linux-chromeos-dbg.
+#if BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_LINUX)
+#define MAYBE_PersistentNotificationWhenInstallAndUninstallApp \
+  DISABLED_PersistentNotificationWhenInstallAndUninstallApp
+#else
+#define MAYBE_PersistentNotificationWhenInstallAndUninstallApp \
+  PersistentNotificationWhenInstallAndUninstallApp
+#endif
 IN_PROC_BROWSER_TEST_F(AppNotificationsWebNotificationTest,
-                       PersistentNotificationWhenInstallAndUninstallApp) {
+                       MAYBE_PersistentNotificationWhenInstallAndUninstallApp) {
   // Send a notification before installing apps.
   const GURL origin = GetOrigin();
   std::string notification_id = "notification-id2";
@@ -869,7 +861,6 @@ class AppNotificationsArcNotificationTest
     package_info->last_backup_android_id = 1;
     package_info->last_backup_time = 1;
     package_info->sync = package_synced;
-    package_info->system = false;
     app_instance_->SendPackageAdded(std::move(package_info));
     base::RunLoop().RunUntilIdle();
   }

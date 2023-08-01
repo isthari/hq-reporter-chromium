@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,11 @@
 
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/task/sequenced_task_runner.h"
 #include "chrome/chrome_cleaner/engines/broker/logging_conversion.h"
 #include "chrome/chrome_cleaner/engines/common/engine_result_codes.h"
 #include "chrome/chrome_cleaner/logging/logging_service_api.h"
@@ -42,7 +42,7 @@ void UpdateStatusOfMissingMatchedFiles(const std::vector<UwSId>& pup_ids) {
 
 EngineCleaner::EngineCleaner(EngineClient* engine_client)
     : engine_client_(engine_client),
-      task_runner_(base::SequencedTaskRunnerHandle::Get()) {
+      task_runner_(base::SequencedTaskRunner::GetCurrentDefault()) {
   DCHECK(engine_client);
 }
 

@@ -1,28 +1,27 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/supervised_user/child_accounts/permission_request_creator_apiary.h"
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
-#include "base/strings/stringprintf.h"
+#include "base/strings/string_util.h"
 #include "base/values.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
-#include "chrome/browser/supervised_user/child_accounts/kids_management_api.h"
-#include "chrome/browser/supervised_user/supervised_user_constants.h"
 #include "chrome/common/chrome_switches.h"
 #include "components/signin/public/base/consent_level.h"
 #include "components/signin/public/identity_manager/access_token_info.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/signin/public/identity_manager/primary_account_access_token_fetcher.h"
 #include "components/signin/public/identity_manager/scope_set.h"
+#include "components/supervised_user/core/common/supervised_user_constants.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/storage_partition.h"
 #include "google_apis/gaia/gaia_constants.h"
@@ -38,8 +37,6 @@
 #include "url/gurl.h"
 
 namespace {
-
-const char kPermissionRequestApiPath[] = "people/me/permissionRequests";
 
 const int kNumPermissionRequestRetries = 1;
 
@@ -95,7 +92,7 @@ PermissionRequestCreatorApiary::PermissionRequestCreatorApiary(
 PermissionRequestCreatorApiary::~PermissionRequestCreatorApiary() {}
 
 // static
-std::unique_ptr<PermissionRequestCreator>
+std::unique_ptr<supervised_user::PermissionRequestCreator>
 PermissionRequestCreatorApiary::CreateWithProfile(Profile* profile) {
   auto* identity_manager = IdentityManagerFactory::GetForProfile(profile);
   return std::make_unique<PermissionRequestCreatorApiary>(
@@ -115,7 +112,7 @@ void PermissionRequestCreatorApiary::CreateURLAccessRequest(
 }
 
 GURL PermissionRequestCreatorApiary::GetApiUrl() const {
-  return kids_management_api::GetURL(kPermissionRequestApiPath);
+  return supervised_user::KidsManagementPermissionRequestsURL();
 }
 
 std::string PermissionRequestCreatorApiary::GetApiScope() const {
@@ -197,10 +194,10 @@ void PermissionRequestCreatorApiary::OnAccessTokenFetchComplete(
           }
         })");
 
-  base::DictionaryValue dict;
-  dict.SetKey(kEventTypeKey, base::Value((*it)->request_type));
-  dict.SetKey(kObjectRefKey, base::Value((*it)->object_ref));
-  dict.SetKey(kStateKey, base::Value(kState));
+  base::Value::Dict dict;
+  dict.Set(kEventTypeKey, base::Value((*it)->request_type));
+  dict.Set(kObjectRefKey, base::Value((*it)->object_ref));
+  dict.Set(kStateKey, base::Value(kState));
   std::string body;
   base::JSONWriter::Write(dict, &body);
 
@@ -210,8 +207,8 @@ void PermissionRequestCreatorApiary::OnAccessTokenFetchComplete(
   resource_request->method = "POST";
   resource_request->headers.SetHeader(
       net::HttpRequestHeaders::kAuthorization,
-      base::StringPrintf(supervised_users::kAuthorizationHeaderFormat,
-                         token_info.token.c_str()));
+      base::JoinString(
+          {supervised_user::kAuthorizationHeader, token_info.token}, " "));
   (*it)->simple_url_loader = network::SimpleURLLoader::Create(
       std::move(resource_request), traffic_annotation);
   (*it)->simple_url_loader->AttachStringForUpload(body, "application/json");
@@ -269,21 +266,21 @@ void PermissionRequestCreatorApiary::OnSimpleLoaderComplete(
   if (response_body)
     body = std::move(*response_body);
 
-  std::unique_ptr<base::Value> value = base::JSONReader::ReadDeprecated(body);
-  base::DictionaryValue* dict = NULL;
-  if (!value || !value->GetAsDictionary(&dict)) {
+  absl::optional<base::Value> value = base::JSONReader::Read(body);
+  if (!value || !value->is_dict()) {
     LOG(WARNING) << "Invalid top-level dictionary";
     DispatchResult(std::move(it), false);
     return;
   }
-  base::DictionaryValue* permission_dict = NULL;
-  if (!dict->GetDictionary(kPermissionRequestKey, &permission_dict)) {
+  const base::Value::Dict& dict = value->GetDict();
+  const base::Value::Dict* permission_dict =
+      dict.FindDict(kPermissionRequestKey);
+  if (!permission_dict) {
     LOG(WARNING) << "Permission request not found";
     DispatchResult(std::move(it), false);
     return;
   }
-  std::string id;
-  if (!permission_dict->GetString(kIdKey, &id)) {
+  if (!permission_dict->FindString(kIdKey)) {
     LOG(WARNING) << "ID not found";
     DispatchResult(std::move(it), false);
     return;

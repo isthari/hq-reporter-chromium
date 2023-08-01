@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,10 +25,8 @@ static constexpr float kContentBoundsPropagationThreshold = 0.2f;
 static constexpr float kContentAspectRatioPropagationThreshold = 0.01f;
 
 gfx::Vector3dF GetNormalFromTransform(const gfx::Transform& transform) {
-  gfx::Vector3dF x_axis(1, 0, 0);
-  gfx::Vector3dF y_axis(0, 1, 0);
-  transform.TransformVector(&x_axis);
-  transform.TransformVector(&y_axis);
+  gfx::Vector3dF x_axis = transform.MapVector(gfx::Vector3dF(1, 0, 0));
+  gfx::Vector3dF y_axis = transform.MapVector(gfx::Vector3dF(0, 1, 0));
   gfx::Vector3dF normal = CrossProduct(x_axis, y_axis);
   normal.GetNormalized(&normal);
   return normal;
@@ -36,12 +34,8 @@ gfx::Vector3dF GetNormalFromTransform(const gfx::Transform& transform) {
 
 }  // namespace
 
-ContentElement::ContentElement(
-    ContentInputDelegate* delegate,
-    ContentElement::ScreenBoundsChangedCallback bounds_changed_callback)
-    : PlatformUiElement(),
-      bounds_changed_callback_(bounds_changed_callback),
-      content_delegate_(delegate) {
+ContentElement::ContentElement(ContentInputDelegate* delegate)
+    : content_delegate_(delegate) {
   DCHECK(delegate);
   SetDelegate(delegate);
 }
@@ -164,8 +158,7 @@ bool ContentElement::OnBeginFrame(const gfx::Transform& head_pose) {
   // set of animated properties.
   gfx::Transform target_transform = ComputeTargetWorldSpaceTransform();
 
-  gfx::Point3F target_center;
-  target_transform.TransformPoint(&target_center);
+  gfx::Point3F target_center = target_transform.MapPoint(gfx::Point3F());
   gfx::Vector3dF target_normal = GetNormalFromTransform(target_transform);
   float distance = gfx::DotProduct(target_center - kOrigin, -target_normal);
   gfx::SizeF screen_size =
@@ -187,7 +180,6 @@ bool ContentElement::OnBeginFrame(const gfx::Transform& head_pose) {
           kContentBoundsPropagationThreshold ||
       std::abs(aspect_ratio - last_content_aspect_ratio_) >
           kContentAspectRatioPropagationThreshold) {
-    bounds_changed_callback_.Run(screen_bounds);
     last_content_screen_bounds_.set_width(screen_bounds.width());
     last_content_screen_bounds_.set_height(screen_bounds.height());
     last_content_aspect_ratio_ = aspect_ratio;

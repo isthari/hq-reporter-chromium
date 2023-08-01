@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,16 +14,22 @@
 #include <linux/videodev2.h>
 
 #include "base/containers/queue.h"
+#include "base/containers/small_map.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
+#include "media/base/decoder_status.h"
 #include "media/gpu/chromeos/image_processor_backend.h"
 #include "media/gpu/media_gpu_export.h"
 #include "media/gpu/v4l2/v4l2_device.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/gfx/geometry/size.h"
+
+namespace base {
+class TimeTicks;
+}
 
 namespace media {
 
@@ -49,8 +55,7 @@ class MEDIA_GPU_EXPORT V4L2ImageProcessorBackend
       const PortConfig& output_config,
       OutputMode output_mode,
       VideoRotation relative_rotation,
-      ErrorCB error_cb,
-      scoped_refptr<base::SequencedTaskRunner> backend_task_runner);
+      ErrorCB error_cb);
 
   V4L2ImageProcessorBackend(const V4L2ImageProcessorBackend&) = delete;
   V4L2ImageProcessorBackend& operator=(const V4L2ImageProcessorBackend&) =
@@ -86,6 +91,8 @@ class MEDIA_GPU_EXPORT V4L2ImageProcessorBackend
                               gfx::Size* output_size,
                               size_t* num_planes);
 
+  std::string type() const override;
+
  private:
   friend struct std::default_delete<V4L2ImageProcessorBackend>;
 
@@ -104,29 +111,20 @@ class MEDIA_GPU_EXPORT V4L2ImageProcessorBackend
     LegacyFrameReadyCB legacy_ready_cb;
     scoped_refptr<VideoFrame> output_frame;
     size_t output_buffer_id;
+
+    // This is filled only if chrome tracing in "media" category is enabled.
+    absl::optional<base::TimeTicks> start_time;
   };
 
-  static std::unique_ptr<ImageProcessorBackend> CreateWithOutputMode(
-      scoped_refptr<V4L2Device> device,
-      size_t num_buffers,
-      const PortConfig& input_config,
-      const PortConfig& output_config,
-      const OutputMode& preferred_output_modes,
-      VideoRotation relative_rotation,
-      ErrorCB error_cb,
-      scoped_refptr<base::SequencedTaskRunner> backend_task_runner);
-
-  V4L2ImageProcessorBackend(
-      scoped_refptr<base::SequencedTaskRunner> backend_task_runner,
-      scoped_refptr<V4L2Device> device,
-      const PortConfig& input_config,
-      const PortConfig& output_config,
-      v4l2_memory input_memory_type,
-      v4l2_memory output_memory_type,
-      OutputMode output_mode,
-      VideoRotation relative_rotation,
-      size_t num_buffers,
-      ErrorCB error_cb);
+  V4L2ImageProcessorBackend(scoped_refptr<V4L2Device> device,
+                            const PortConfig& input_config,
+                            const PortConfig& output_config,
+                            v4l2_memory input_memory_type,
+                            v4l2_memory output_memory_type,
+                            OutputMode output_mode,
+                            VideoRotation relative_rotation,
+                            size_t num_buffers,
+                            ErrorCB error_cb);
   ~V4L2ImageProcessorBackend() override;
   void Destroy() override;
   // Stop all processing on |poll_task_runner_|.
@@ -184,6 +182,9 @@ class MEDIA_GPU_EXPORT V4L2ImageProcessorBackend
   // Sequence and its checker used to poll the V4L2 for events only.
   scoped_refptr<base::SingleThreadTaskRunner> poll_task_runner_;
   SEQUENCE_CHECKER(poll_sequence_checker_);
+
+  base::small_map<std::map<base::TimeDelta, std::unique_ptr<ScopedDecodeTrace>>>
+      buffer_tracers_ GUARDED_BY_CONTEXT(backend_sequence_checker_);
 
   // WeakPtr bound to |backend_task_runner_|.
   base::WeakPtr<V4L2ImageProcessorBackend> backend_weak_this_;

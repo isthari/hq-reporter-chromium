@@ -1,10 +1,11 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/test/chromedriver/chrome/chrome_desktop_impl.h"
 
 #include <stddef.h>
+#include <memory>
 #include <utility>
 
 #include "base/files/file_path.h"
@@ -18,6 +19,7 @@
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "chrome/test/chromedriver/chrome/devtools_client.h"
+#include "chrome/test/chromedriver/chrome/devtools_client_impl.h"
 #include "chrome/test/chromedriver/chrome/devtools_event_listener.h"
 #include "chrome/test/chromedriver/chrome/devtools_http_client.h"
 #include "chrome/test/chromedriver/chrome/status.h"
@@ -43,7 +45,7 @@ bool KillProcess(const base::Process& process, bool kill_gracefully) {
     kill(process.Pid(), SIGKILL);
     base::TimeTicks deadline = base::TimeTicks::Now() + base::Seconds(30);
     while (base::TimeTicks::Now() < deadline) {
-      pid_t pid = HANDLE_EINTR(waitpid(process.Pid(), NULL, WNOHANG));
+      pid_t pid = HANDLE_EINTR(waitpid(process.Pid(), nullptr, WNOHANG));
       if (pid == process.Pid())
         return true;
       if (pid == -1) {
@@ -75,6 +77,8 @@ ChromeDesktopImpl::ChromeDesktopImpl(
     std::unique_ptr<DevToolsClient> websocket_client,
     std::vector<std::unique_ptr<DevToolsEventListener>>
         devtools_event_listeners,
+    absl::optional<MobileDevice> mobile_device,
+    SyncWebSocketFactory socket_factory,
     std::string page_load_strategy,
     base::Process process,
     const base::CommandLine& command,
@@ -84,6 +88,8 @@ ChromeDesktopImpl::ChromeDesktopImpl(
     : ChromeImpl(std::move(http_client),
                  std::move(websocket_client),
                  std::move(devtools_event_listeners),
+                 std::move(mobile_device),
+                 std::move(socket_factory),
                  page_load_strategy),
       process_(std::move(process)),
       command_(command),
@@ -122,7 +128,7 @@ Status ChromeDesktopImpl::WaitForPageToLoad(
   WebViewInfo::Type type = WebViewInfo::Type::kPage;
   while (timeout.GetRemainingTime().is_positive()) {
     WebViewsInfo views_info;
-    Status status = devtools_http_client_->GetWebViewsInfo(&views_info);
+    Status status = GetWebViewsInfo(&views_info);
     if (status.IsError())
       return status;
 
@@ -141,22 +147,29 @@ Status ChromeDesktopImpl::WaitForPageToLoad(
   if (id.empty())
     return Status(kUnknownError, "page could not be found: " + url);
 
-  const DeviceMetrics* device_metrics = devtools_http_client_->device_metrics();
+  absl::optional<MobileDevice> mobile_device = mobile_device_;
   if (type == WebViewInfo::Type::kApp ||
       type == WebViewInfo::Type::kBackgroundPage) {
     // Apps and extensions don't work on Android, so it doesn't make sense to
-    // provide override device metrics in mobile emulation mode, and can also
+    // provide mobile_device in mobile emulation mode, and can also
     // potentially crash the renderer, for more details see:
     // https://code.google.com/p/chromedriver/issues/detail?id=1205
-    device_metrics = nullptr;
+    mobile_device.reset();
   }
-  std::unique_ptr<WebView> web_view_tmp(new WebViewImpl(
-      id, w3c_compliant, nullptr, devtools_http_client_->browser_info(),
-      devtools_http_client_->CreateClient(id), device_metrics,
-      page_load_strategy()));
-  Status status = web_view_tmp->ConnectIfNecessary();
+
+  std::unique_ptr<DevToolsClientImpl> client;
+  Status status = CreateClient(id, &client);
   if (status.IsError())
     return status;
+  std::unique_ptr<WebViewImpl> web_view_tmp(new WebViewImpl(
+      id, w3c_compliant, nullptr, devtools_http_client_->browser_info(),
+      std::move(client), mobile_device, page_load_strategy()));
+  DevToolsClientImpl* parent =
+      static_cast<DevToolsClientImpl*>(devtools_websocket_client_.get());
+  status = web_view_tmp->AttachTo(parent);
+  if (status.IsError()) {
+    return status;
+  }
 
   status = web_view_tmp->WaitForPendingNavigations(
       std::string(), timeout, false);
@@ -175,7 +188,8 @@ std::string ChromeDesktopImpl::GetOperatingSystemName() {
 }
 
 bool ChromeDesktopImpl::IsMobileEmulationEnabled() const {
-  return devtools_http_client_->device_metrics() != NULL;
+  return mobile_device_.has_value() &&
+         mobile_device_->device_metrics.has_value();
 }
 
 bool ChromeDesktopImpl::HasTouchScreen() const {
@@ -197,14 +211,12 @@ Status ChromeDesktopImpl::QuitImpl() {
   // to allow Chrome to write out all the net logs to the log path.
   kill_gracefully = kill_gracefully || command_.HasSwitch("log-net-log");
   if (kill_gracefully) {
-    Status status = devtools_websocket_client_->ConnectIfNecessary();
-    if (status.IsOk()) {
-      status = devtools_websocket_client_->SendCommandAndIgnoreResponse(
-          "Browser.close", base::DictionaryValue());
-      // If status is not okay, we will try the old method of KillProcess
-      if (status.IsOk() &&
-          process_.WaitForExitWithTimeout(base::Seconds(10), nullptr))
-        return status;
+    Status status = devtools_websocket_client_->SendCommandAndIgnoreResponse(
+        "Browser.close", base::Value::Dict());
+    // If status is not okay, we will try the old method of KillProcess
+    if (status.IsOk() &&
+        process_.WaitForExitWithTimeout(base::Seconds(10), nullptr)) {
+      return status;
     }
   }
 

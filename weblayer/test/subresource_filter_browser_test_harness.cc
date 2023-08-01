@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -137,11 +137,7 @@ content::WebContents* SubresourceFilterBrowserTest::web_contents() {
 bool SubresourceFilterBrowserTest::WasParsedScriptElementLoaded(
     content::RenderFrameHost* rfh) {
   DCHECK(rfh);
-  bool script_resource_was_loaded = false;
-  EXPECT_TRUE(content::ExecuteScriptAndExtractBool(
-      rfh, "domAutomationController.send(!!document.scriptExecuted)",
-      &script_resource_was_loaded));
-  return script_resource_was_loaded;
+  return content::EvalJs(rfh, "!!document.scriptExecuted").ExtractBool();
 }
 
 bool SubresourceFilterBrowserTest::StartEmbeddedTestServerAutomatically() {

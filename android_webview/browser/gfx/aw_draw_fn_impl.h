@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,11 +11,13 @@
 #include "android_webview/browser/gfx/vulkan_gl_interop.h"
 #include "android_webview/public/browser/draw_fn.h"
 #include "base/android/scoped_java_ref.h"
+#include "base/threading/platform_thread.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
 
 namespace android_webview {
 
+// Lifetime: WebView
 class AwDrawFnImpl {
  public:
   // Safe to call even on versions where draw_fn functor is not supported.
@@ -70,6 +72,9 @@ class AwDrawFnImpl {
       scoped_secondary_cb_draw_;
 
   absl::optional<VulkanGLInterop> interop_;
+
+  // Latched on first DrawGL / InitVk call.
+  absl::optional<base::PlatformThreadId> render_thread_id_;
 
   bool skip_next_post_draw_vk_ = false;
 };

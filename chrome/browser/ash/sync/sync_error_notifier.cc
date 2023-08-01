@@ -1,11 +1,12 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/sync/sync_error_notifier.h"
 
+#include "ash/constants/notifier_catalogs.h"
 #include "ash/public/cpp/notification_utils.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/ash/crosapi/browser_util.h"
@@ -25,12 +26,12 @@
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/theme_resources.h"
-#include "chromeos/ui/vector_icons/vector_icons.h"
 #include "components/account_id/account_id.h"
-#include "components/sync/driver/sync_service.h"
-#include "components/sync/driver/sync_service_utils.h"
-#include "components/sync/driver/sync_user_settings.h"
+#include "components/sync/service/sync_service.h"
+#include "components/sync/service/sync_service_utils.h"
+#include "components/sync/service/sync_user_settings.h"
 #include "components/user_manager/user_manager.h"
+#include "components/vector_icons/vector_icons.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/message_center/public/cpp/notification.h"
@@ -175,7 +176,7 @@ void SyncErrorNotifier::OnStateChanged(syncer::SyncService* service) {
 
   message_center::NotifierId notifier_id(
       message_center::NotifierType::SYSTEM_COMPONENT,
-      kProfileSyncNotificationId);
+      kProfileSyncNotificationId, ash::NotificationCatalogName::kSyncError);
 
   // Set |profile_id| for multi-user notification blocker.
   notifier_id.profile_id =
@@ -185,19 +186,18 @@ void SyncErrorNotifier::OnStateChanged(syncer::SyncService* service) {
       GetBubbleViewParameters(profile_, sync_service_);
 
   // Add a new notification.
-  std::unique_ptr<message_center::Notification> notification =
-      ash::CreateSystemNotification(
-          message_center::NOTIFICATION_TYPE_SIMPLE, notification_id_,
-          l10n_util::GetStringUTF16(parameters.title_id),
-          l10n_util::GetStringUTF16(parameters.message_id), std::u16string(),
-          GURL(notification_id_), notifier_id,
-          message_center::RichNotificationData(),
-          base::MakeRefCounted<message_center::HandleNotificationClickDelegate>(
-              parameters.click_action),
-          chromeos::kNotificationWarningIcon,
-          message_center::SystemNotificationWarningLevel::WARNING);
+  message_center::Notification notification = ash::CreateSystemNotification(
+      message_center::NOTIFICATION_TYPE_SIMPLE, notification_id_,
+      l10n_util::GetStringUTF16(parameters.title_id),
+      l10n_util::GetStringUTF16(parameters.message_id), std::u16string(),
+      GURL(notification_id_), notifier_id,
+      message_center::RichNotificationData(),
+      base::MakeRefCounted<message_center::HandleNotificationClickDelegate>(
+          parameters.click_action),
+      vector_icons::kNotificationWarningIcon,
+      message_center::SystemNotificationWarningLevel::WARNING);
 
-  display_service->Display(NotificationHandler::Type::TRANSIENT, *notification,
+  display_service->Display(NotificationHandler::Type::TRANSIENT, notification,
                            /*metadata=*/nullptr);
   notification_displayed_ = true;
 }

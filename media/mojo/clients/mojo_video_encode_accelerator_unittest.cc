@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,13 @@
 #include <memory>
 
 #include "base/memory/ptr_util.h"
+#include "base/memory/read_only_shared_memory_region.h"
+#include "base/memory/unsafe_shared_memory_region.h"
 #include "base/run_loop.h"
 #include "base/test/task_environment.h"
 #include "gpu/config/gpu_info.h"
+#include "media/base/bitstream_buffer.h"
+#include "media/base/media_util.h"
 #include "media/mojo/clients/mojo_video_encode_accelerator.h"
 #include "media/mojo/mojom/video_encode_accelerator.mojom.h"
 #include "media/video/video_encode_accelerator.h"
@@ -26,6 +30,10 @@ using ::testing::InSequence;
 using ::testing::Invoke;
 
 namespace media {
+
+MATCHER_P(ExpectEncoderStatusCode, expected_code, "encoder status code") {
+  return arg.code() == expected_code;
+}
 
 static const gfx::Size kInputVisibleSize(64, 48);
 
@@ -48,6 +56,7 @@ class MockMojoVideoEncodeAccelerator : public mojom::VideoEncodeAccelerator {
   void Initialize(
       const media::VideoEncodeAccelerator::Config& config,
       mojo::PendingAssociatedRemote<mojom::VideoEncodeAcceleratorClient> client,
+      mojo::PendingRemote<mojom::MediaLog> media_log,
       InitializeCallback success_callback) override {
     if (initialization_success_) {
       ASSERT_TRUE(client);
@@ -90,14 +99,14 @@ class MockMojoVideoEncodeAccelerator : public mojom::VideoEncodeAccelerator {
 
   void UseOutputBitstreamBuffer(
       int32_t bitstream_buffer_id,
-      mojo::ScopedSharedBufferHandle buffer) override {
+      base::UnsafeSharedMemoryRegion region) override {
     EXPECT_EQ(-1, configured_bitstream_buffer_id_);
     configured_bitstream_buffer_id_ = bitstream_buffer_id;
 
-    DoUseOutputBitstreamBuffer(bitstream_buffer_id, &buffer);
+    DoUseOutputBitstreamBuffer(bitstream_buffer_id, &region);
   }
   MOCK_METHOD2(DoUseOutputBitstreamBuffer,
-               void(int32_t, mojo::ScopedSharedBufferHandle*));
+               void(int32_t, base::UnsafeSharedMemoryRegion*));
 
   MOCK_METHOD2(RequestEncodingParametersChangeWithLayers,
                void(const media::VideoBitrateAllocation&, uint32_t));
@@ -142,7 +151,7 @@ class MockVideoEncodeAcceleratorClient : public VideoEncodeAccelerator::Client {
                void(unsigned int, const gfx::Size&, size_t));
   MOCK_METHOD2(BitstreamBufferReady,
                void(int32_t, const media::BitstreamBufferMetadata&));
-  MOCK_METHOD1(NotifyError, void(VideoEncodeAccelerator::Error));
+  MOCK_METHOD1(NotifyErrorStatus, void(const media::EncoderStatus&));
   MOCK_METHOD1(NotifyEncoderInfoChange, void(const media::VideoEncoderInfo&));
 };
 
@@ -172,7 +181,8 @@ class MojoVideoEncodeAcceleratorTest : public ::testing::Test {
     // The destruction of a mojo::SelfOwnedReceiver closes the bound message
     // pipe but does not destroy the implementation object(s): this needs to
     // happen manually by Close()ing it.
-    mojo_vea_receiver_->Close();
+    if (mojo_vea_receiver_)
+      mojo_vea_receiver_->Close();
   }
 
   MockMojoVideoEncodeAccelerator* mock_mojo_vea() {
@@ -203,11 +213,12 @@ class MojoVideoEncodeAcceleratorTest : public ::testing::Test {
         PIXEL_FORMAT_I420, kInputVisibleSize, kOutputProfile, kInitialBitrate,
         absl::nullopt, absl::nullopt, absl::nullopt, false, absl::nullopt,
         kContentType);
-    EXPECT_TRUE(mojo_vea()->Initialize(config, mock_vea_client));
+    EXPECT_TRUE(mojo_vea()->Initialize(
+        config, mock_vea_client, std::make_unique<media::NullMediaLog>()));
     base::RunLoop().RunUntilIdle();
   }
 
- private:
+ protected:
   base::test::SingleThreadTaskEnvironment task_environment_;
 
   // This member holds on to the mock implementation of the "service" side.
@@ -239,27 +250,21 @@ TEST_F(MojoVideoEncodeAcceleratorTest, EncodeOneFrame) {
     auto shmem = base::UnsafeSharedMemoryRegion::Create(kShMemSize);
     EXPECT_CALL(*mock_mojo_vea(),
                 DoUseOutputBitstreamBuffer(kBitstreamBufferId, _));
-    mojo_vea()->UseOutputBitstreamBuffer(BitstreamBuffer(
-        kBitstreamBufferId,
-        base::UnsafeSharedMemoryRegion::TakeHandleForSerialization(
-            std::move(shmem)),
-        kShMemSize, 0 /* offset */, base::TimeDelta()));
+    mojo_vea()->UseOutputBitstreamBuffer(
+        BitstreamBuffer(kBitstreamBufferId, std::move(shmem), kShMemSize,
+                        0 /* offset */, base::TimeDelta()));
     base::RunLoop().RunUntilIdle();
   }
 
   {
-    base::UnsafeSharedMemoryRegion shmem =
-        base::UnsafeSharedMemoryRegion::Create(
-            VideoFrame::AllocationSize(PIXEL_FORMAT_I420, kInputVisibleSize) *
-            2);
+    base::MappedReadOnlyRegion shmem = base::ReadOnlySharedMemoryRegion::Create(
+        VideoFrame::AllocationSize(PIXEL_FORMAT_I420, kInputVisibleSize) * 2);
     ASSERT_TRUE(shmem.IsValid());
-    base::WritableSharedMemoryMapping mapping = shmem.Map();
-    ASSERT_TRUE(mapping.IsValid());
     const scoped_refptr<VideoFrame> video_frame = VideoFrame::WrapExternalData(
         PIXEL_FORMAT_I420, kInputVisibleSize, gfx::Rect(kInputVisibleSize),
-        kInputVisibleSize, mapping.GetMemoryAsSpan<uint8_t>().data(),
-        mapping.size(), base::TimeDelta());
-    video_frame->BackWithSharedMemory(&shmem);
+        kInputVisibleSize, static_cast<uint8_t*>(shmem.mapping.memory()),
+        shmem.mapping.size(), base::TimeDelta());
+    video_frame->BackWithSharedMemory(&shmem.region);
     const bool is_keyframe = true;
 
     // The remote end of the mojo Pipe doesn't receive |video_frame| itself.
@@ -331,7 +336,41 @@ TEST_F(MojoVideoEncodeAcceleratorTest, InitializeFailure) {
   const VideoEncodeAccelerator::Config config(
       PIXEL_FORMAT_I420, kInputVisibleSize, VIDEO_CODEC_PROFILE_UNKNOWN,
       kInitialBitrate);
-  EXPECT_FALSE(mojo_vea()->Initialize(config, mock_vea_client.get()));
+  EXPECT_FALSE(mojo_vea()->Initialize(config, mock_vea_client.get(),
+                                      std::make_unique<media::NullMediaLog>()));
+  base::RunLoop().RunUntilIdle();
+}
+
+// Test that mojo disconnect before initialize is surfaced as a platform error.
+TEST_F(MojoVideoEncodeAcceleratorTest, MojoDisconnectBeforeInitialize) {
+  std::unique_ptr<MockVideoEncodeAcceleratorClient> mock_vea_client =
+      std::make_unique<MockVideoEncodeAcceleratorClient>();
+
+  constexpr Bitrate kInitialBitrate = Bitrate::ConstantBitrate(100000u);
+  const VideoEncodeAccelerator::Config config(
+      PIXEL_FORMAT_I420, kInputVisibleSize, VIDEO_CODEC_PROFILE_UNKNOWN,
+      kInitialBitrate);
+  mojo_vea_receiver_->Close();
+  EXPECT_FALSE(mojo_vea()->Initialize(config, mock_vea_client.get(),
+                                      std::make_unique<media::NullMediaLog>()));
+  base::RunLoop().RunUntilIdle();
+}
+
+// Test that mojo disconnect after initialize is surfaced as a platform error.
+TEST_F(MojoVideoEncodeAcceleratorTest, MojoDisconnectAfterInitialize) {
+  std::unique_ptr<MockVideoEncodeAcceleratorClient> mock_vea_client =
+      std::make_unique<MockVideoEncodeAcceleratorClient>();
+
+  constexpr Bitrate kInitialBitrate = Bitrate::ConstantBitrate(100000u);
+  const VideoEncodeAccelerator::Config config(
+      PIXEL_FORMAT_I420, kInputVisibleSize, VIDEO_CODEC_PROFILE_UNKNOWN,
+      kInitialBitrate);
+  EXPECT_TRUE(mojo_vea()->Initialize(config, mock_vea_client.get(),
+                                     std::make_unique<media::NullMediaLog>()));
+  mojo_vea_receiver_->Close();
+  EXPECT_CALL(*mock_vea_client,
+              NotifyErrorStatus(ExpectEncoderStatusCode(
+                  EncoderStatus::Codes::kEncoderMojoConnectionError)));
   base::RunLoop().RunUntilIdle();
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,9 +13,11 @@
 #include "base/containers/flat_map.h"
 #include "base/files/scoped_file.h"
 #include "base/gtest_prod_util.h"
+#include "base/memory/raw_ptr.h"
 #include "mojo/public/cpp/bindings/associated_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
 #include "mojo/public/cpp/bindings/remote.h"
+#include "ui/gfx/frame_data.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/gpu_fence_handle.h"
 #include "ui/gfx/native_widget_types.h"
@@ -59,14 +61,18 @@ class WaylandBufferManagerHost : public ozone::mojom::WaylandBufferManagerHost {
   // destroyed.
   void OnChannelDestroyed();
 
+  // Called by WaylandFrameManager if overlay data is invalid.
+  void OnCommitOverlayError(const std::string& message);
+
   // Returns supported buffer formats either from zwp_linux_dmabuf or wl_drm.
   wl::BufferFormatsWithModifiersMap GetSupportedBufferFormats() const;
 
   bool SupportsDmabuf() const;
   bool SupportsAcquireFence() const;
   bool SupportsViewporter() const;
+  bool SupportsOverlays() const;
   bool SupportsNonBackedSolidColorBuffers() const;
-  bool SupportsSubpixelAccuratePosition() const;
+  uint32_t GetSurfaceAugmentorVersion() const;
 
   // ozone::mojom::WaylandBufferManagerHost overrides:
   //
@@ -99,18 +105,18 @@ class WaylandBufferManagerHost : public ozone::mojom::WaylandBufferManagerHost {
   // ui/ozone/platform/wayland/mojom/wayland_buffer_manager.mojom. The
   // availability of this depends on existence of surface-augmenter protocol.
   void CreateSolidColorBuffer(const gfx::Size& size,
-                              SkColor color,
+                              const SkColor4f& color,
                               uint32_t buffer_id) override;
 
   // Called by the GPU to destroy the imported wl_buffer with a |buffer_id|.
-  void DestroyBuffer(gfx::AcceleratedWidget widget,
-                     uint32_t buffer_id) override;
+  void DestroyBuffer(uint32_t buffer_id) override;
   // Called by the GPU and asks to configure the surface/subsurfaces and attach
   // wl_buffers to WaylandWindow with the specified |widget|. Calls OnSubmission
   // and OnPresentation on successful swap and pixels presented.
-  void CommitOverlays(
-      gfx::AcceleratedWidget widget,
-      std::vector<ui::ozone::mojom::WaylandOverlayConfigPtr> overlays) override;
+  void CommitOverlays(gfx::AcceleratedWidget widget,
+                      uint32_t frame_id,
+                      const gfx::FrameData& data,
+                      std::vector<wl::WaylandOverlayConfig> overlays) override;
 
   // Ensures a WaylandBufferHandle of |buffer_id| is created for the
   // |requestor|, with its wl_buffer object requested via Wayland. Returns said
@@ -122,15 +128,21 @@ class WaylandBufferManagerHost : public ozone::mojom::WaylandBufferManagerHost {
   WaylandBufferHandle* GetBufferHandle(WaylandSurface* requestor,
                                        uint32_t buffer_id);
 
+  // Gets the buffer format of |buffer_id| used for |requestor| if it is a
+  // DMA based buffer.
+  uint32_t GetBufferFormat(WaylandSurface* requestor, uint32_t buffer_id);
+
   // Tells the |buffer_manager_gpu_ptr_| the result of a swap call and provides
   // it with the presentation feedback.
-  void OnSubmission(gfx::AcceleratedWidget widget,
-                    uint32_t buffer_id,
-                    const gfx::SwapResult& swap_result,
-                    gfx::GpuFenceHandle release_fence);
-  void OnPresentation(gfx::AcceleratedWidget widget,
-                      uint32_t buffer_id,
-                      const gfx::PresentationFeedback& feedback);
+  void OnSubmission(
+      gfx::AcceleratedWidget widget,
+      uint32_t frame_id,
+      const gfx::SwapResult& swap_result,
+      gfx::GpuFenceHandle release_fence,
+      const std::vector<wl::WaylandPresentationInfo>& presentation_infos);
+  void OnPresentation(
+      gfx::AcceleratedWidget widget,
+      const std::vector<wl::WaylandPresentationInfo>& presentation_infos);
 
  private:
   // Validates data sent from GPU. If invalid, returns false and sets an error
@@ -150,8 +162,6 @@ class WaylandBufferManagerHost : public ozone::mojom::WaylandBufferManagerHost {
                            uint32_t buffer_id);
   bool ValidateDataFromGpu(const gfx::Size& size, uint32_t buffer_id);
   bool ValidateBufferExistence(uint32_t buffer_id);
-  bool ValidateOverlayData(
-      const ui::ozone::mojom::WaylandOverlayConfig& overlay_data);
 
   // Terminates the GPU process on invalid data received
   void TerminateGpuProcess();
@@ -160,7 +170,7 @@ class WaylandBufferManagerHost : public ozone::mojom::WaylandBufferManagerHost {
   std::string error_message_;
 
   // Non-owned pointer to the main connection.
-  WaylandConnection* const connection_;
+  const raw_ptr<WaylandConnection> connection_;
 
   mojo::AssociatedRemote<ozone::mojom::WaylandBufferManagerGpu>
       buffer_manager_gpu_associated_;

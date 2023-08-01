@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,6 +21,7 @@ import org.chromium.base.PathUtils;
 import org.chromium.base.annotations.NativeMethods;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.chrome.browser.base.SplitCompatApplication;
 import org.chromium.chrome.browser.firstrun.FirstRunStatus;
 import org.chromium.chrome.browser.init.AsyncInitTaskRunner;
@@ -32,7 +33,6 @@ import org.chromium.components.signin.AccountManagerFacadeProvider;
 import org.chromium.components.signin.AccountUtils;
 import org.chromium.components.signin.base.CoreAccountInfo;
 import org.chromium.components.signin.identitymanager.ConsentLevel;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.common.ContentProcessInfo;
 
 import java.io.FileInputStream;
@@ -96,8 +96,8 @@ public class ChromeBackupAgentImpl extends ChromeBackupAgent.Impl {
             ChromePreferenceKeys.FIRST_RUN_CACHED_TOS_ACCEPTED,
             ChromePreferenceKeys.FIRST_RUN_FLOW_COMPLETE,
             ChromePreferenceKeys.FIRST_RUN_LIGHTWEIGHT_FLOW_COMPLETE,
-            ChromePreferenceKeys.FIRST_RUN_FLOW_SIGNIN_SETUP,
-            ChromePreferenceKeys.PRIVACY_METRICS_REPORTING,
+            ChromePreferenceKeys.PRIVACY_METRICS_REPORTING_PERMITTED_BY_POLICY,
+            ChromePreferenceKeys.PRIVACY_METRICS_REPORTING_PERMITTED_BY_USER,
     };
 
     // Key used to store the email of the signed in account. This email is obtained from
@@ -182,7 +182,7 @@ public class ChromeBackupAgentImpl extends ChromeBackupAgent.Impl {
         final AtomicReference<CoreAccountInfo> syncAccount = new AtomicReference<>();
 
         // The native preferences can only be read on the UI thread.
-        Boolean nativePrefsRead = PostTask.runSynchronously(UiThreadTaskTraits.DEFAULT, () -> {
+        Boolean nativePrefsRead = PostTask.runSynchronously(TaskTraits.UI_DEFAULT, () -> {
             // Start the browser if necessary, so that Chrome can access the native
             // preferences. Although Chrome requests the backup, it doesn't happen
             // immediately, so by the time it does Chrome may not be running.
@@ -317,7 +317,7 @@ public class ChromeBackupAgentImpl extends ChromeBackupAgent.Impl {
         // if it were called from the UI thread the broadcast would not be received until after it
         // exited.
         final CountDownLatch latch = new CountDownLatch(1);
-        PostTask.runSynchronously(UiThreadTaskTraits.DEFAULT, () -> {
+        PostTask.runSynchronously(TaskTraits.UI_DEFAULT, () -> {
             // Chrome library loading depends on PathUtils.
             PathUtils.setPrivateDataDirectorySuffix(
                     SplitCompatApplication.PRIVATE_DATA_DIRECTORY_SUFFIX);
@@ -336,7 +336,7 @@ public class ChromeBackupAgentImpl extends ChromeBackupAgent.Impl {
 
         // Chrome has to be running before it can check if the account exists. Because the native
         // library is already loaded Chrome startup should be fast.
-        boolean browserStarted = PostTask.runSynchronously(UiThreadTaskTraits.DEFAULT, () -> {
+        boolean browserStarted = PostTask.runSynchronously(TaskTraits.UI_DEFAULT, () -> {
             // Start the browser if necessary.
             return initializeBrowser();
         });
@@ -354,7 +354,7 @@ public class ChromeBackupAgentImpl extends ChromeBackupAgent.Impl {
         }
 
         // Restore the native preferences on the UI thread
-        PostTask.runSynchronously(UiThreadTaskTraits.DEFAULT, () -> {
+        PostTask.runSynchronously(TaskTraits.UI_DEFAULT, () -> {
             ArrayList<String> nativeBackupNames = new ArrayList<>();
             boolean[] nativeBackupValues = new boolean[backupNames.size()];
             int count = 0;
@@ -387,10 +387,9 @@ public class ChromeBackupAgentImpl extends ChromeBackupAgent.Impl {
             }
         }
 
-        // Because FirstRunSignInProcessor.FIRST_RUN_FLOW_SIGNIN_COMPLETE is not restored Chrome
-        // will sign in the user on first run to the account in FIRST_RUN_FLOW_SIGNIN_ACCOUNT_NAME
-        // if any. If the rest of FRE has been completed this will happen silently.
-        editor.putString(ChromePreferenceKeys.FIRST_RUN_FLOW_SIGNIN_ACCOUNT_NAME, restoredUserName);
+        // This will sign in the user on first run to the account in BACKUP_FLOW_SIGNIN_ACCOUNT_NAME
+        // if any.
+        editor.putString(ChromePreferenceKeys.BACKUP_FLOW_SIGNIN_ACCOUNT_NAME, restoredUserName);
         editor.apply();
 
         // The silent first run will change things, so there is no point in trying to prevent
@@ -417,7 +416,7 @@ public class ChromeBackupAgentImpl extends ChromeBackupAgent.Impl {
     }
 
     private boolean accountExistsOnDevice(String accountName) {
-        return PostTask.runSynchronously(UiThreadTaskTraits.DEFAULT, () -> {
+        return PostTask.runSynchronously(TaskTraits.UI_DEFAULT, () -> {
             List<Account> accounts = AccountUtils.getAccountsIfFulfilledOrEmpty(
                     AccountManagerFacadeProvider.getInstance().getAccounts());
             return accountName != null

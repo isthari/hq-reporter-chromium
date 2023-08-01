@@ -1,10 +1,10 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.net.smoke;
 
-import android.support.test.InstrumentationRegistry;
+import androidx.test.core.app.ApplicationProvider;
 
 import org.junit.runner.Description;
 import org.junit.runners.model.Statement;
@@ -42,8 +42,7 @@ public class NativeCronetTestRule extends CronetSmokeTestRule {
     }
 
     private void ruleSetUp() throws Exception {
-        ContextUtils.initApplicationContext(
-                InstrumentationRegistry.getTargetContext().getApplicationContext());
+        ContextUtils.initApplicationContext(ApplicationProvider.getApplicationContext());
         PathUtils.setPrivateDataDirectorySuffix(PRIVATE_DATA_DIRECTORY_SUFFIX);
         mTestSupport.loadTestNativeLibrary();
     }
@@ -64,6 +63,6 @@ public class NativeCronetTestRule extends CronetSmokeTestRule {
         mCronetEngine.stopNetLog();
         File netLogFile = new File(PathUtils.getDataDirectory(), LOGFILE_NAME);
         if (!netLogFile.exists()) return;
-        mTestSupport.processNetLog(InstrumentationRegistry.getTargetContext(), netLogFile);
+        mTestSupport.processNetLog(ApplicationProvider.getApplicationContext(), netLogFile);
     }
 }

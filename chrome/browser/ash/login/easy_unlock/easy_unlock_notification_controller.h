@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,8 @@
 #include <memory>
 #include <string>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "ui/message_center/public/cpp/notification.h"
 #include "ui/message_center/public/cpp/notification_delegate.h"
@@ -42,7 +43,7 @@ class EasyUnlockNotificationController {
 
  protected:
   // Exposed for testing.
-  virtual void LaunchEasyUnlockSettings();
+  virtual void LaunchMultiDeviceSettings();
   virtual void LockScreen();
 
  private:
@@ -71,7 +72,7 @@ class EasyUnlockNotificationController {
   void ShowNotification(
       std::unique_ptr<message_center::Notification> notification);
 
-  Profile* profile_;
+  raw_ptr<Profile, ExperimentalAsh> profile_;
 
   base::WeakPtrFactory<EasyUnlockNotificationController> weak_ptr_factory_{
       this};

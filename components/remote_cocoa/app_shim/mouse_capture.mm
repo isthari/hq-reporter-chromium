@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,12 @@
 
 #import <Cocoa/Cocoa.h>
 
+#include <memory>
+
 #include "base/check_op.h"
+#include "base/memory/raw_ptr.h"
+#include "base/memory/weak_ptr.h"
 #import "components/remote_cocoa/app_shim/mouse_capture_delegate.h"
-#include "ui/base/cocoa/weak_ptr_nsobject.h"
 
 namespace remote_cocoa {
 
@@ -38,20 +41,16 @@ class CocoaMouseCapture::ActiveEventTap {
   // The currently active event tap, or null if there is none.
   static ActiveEventTap* g_active_event_tap;
 
-  CocoaMouseCapture* owner_;  // Weak. Owns this.
-  id local_monitor_;
-  id global_monitor_;
-  ui::WeakPtrNSObjectFactory<CocoaMouseCapture> factory_;
+  raw_ptr<CocoaMouseCapture> owner_;  // Weak. Owns this.
+  id local_monitor_ = nil;
+  id global_monitor_ = nil;
 };
 
 CocoaMouseCapture::ActiveEventTap*
     CocoaMouseCapture::ActiveEventTap::g_active_event_tap = nullptr;
 
 CocoaMouseCapture::ActiveEventTap::ActiveEventTap(CocoaMouseCapture* owner)
-    : owner_(owner),
-      local_monitor_(nil),
-      global_monitor_(nil),
-      factory_(owner) {
+    : owner_(owner) {
   if (g_active_event_tap)
     g_active_event_tap->owner_->OnOtherClientGotCapture();
   DCHECK(!g_active_event_tap);
@@ -72,31 +71,34 @@ NSWindow* CocoaMouseCapture::ActiveEventTap::GetGlobalCaptureWindow() {
 }
 
 void CocoaMouseCapture::ActiveEventTap::Init() {
-  // Consume most things, but not NSMouseEntered/Exited: The Widget doing
-  // capture will still see its own Entered/Exit events, but not those for other
-  // NSViews, since consuming those would break their tracking area logic.
-  NSEventMask event_mask =
-      NSLeftMouseDownMask | NSLeftMouseUpMask | NSRightMouseDownMask |
-      NSRightMouseUpMask | NSMouseMovedMask | NSLeftMouseDraggedMask |
-      NSRightMouseDraggedMask | NSScrollWheelMask | NSOtherMouseDownMask |
-      NSOtherMouseUpMask | NSOtherMouseDraggedMask;
+  // Consume most things, but not NSEventTypeMouseEntered/Exited: The Widget
+  // doing capture will still see its own Entered/Exit events, but not those for
+  // other NSViews, since consuming those would break their tracking area logic.
+  NSEventMask event_mask = NSEventMaskLeftMouseDown | NSEventMaskLeftMouseUp |
+                           NSEventMaskRightMouseDown | NSEventMaskRightMouseUp |
+                           NSEventMaskMouseMoved | NSEventMaskLeftMouseDragged |
+                           NSEventMaskRightMouseDragged |
+                           NSEventMaskScrollWheel | NSEventMaskOtherMouseDown |
+                           NSEventMaskOtherMouseUp |
+                           NSEventMaskOtherMouseDragged;
 
-  // Capture a WeakPtr via NSObject. This allows the block to detect another
-  // event monitor for the same event deleting |owner_|.
-  WeakPtrNSObject* handle = factory_.handle();
+  // Capture a WeakPtr. This allows the block to detect another event monitor
+  // for the same event deleting |owner_|.
+  base::WeakPtr<CocoaMouseCapture> weak_ptr = owner_->factory_.GetWeakPtr();
 
   auto local_block = ^NSEvent*(NSEvent* event) {
-    CocoaMouseCapture* owner =
-        ui::WeakPtrNSObjectFactory<CocoaMouseCapture>::Get(handle);
-    if (owner)
-      owner->delegate_->PostCapturedEvent(event);
-    return nil;  // Swallow all local events.
+    if (!weak_ptr) {
+      return event;
+    }
+
+    bool handled = weak_ptr->delegate_->PostCapturedEvent(event);
+    return handled ? nil : event;
   };
   auto global_block = ^void(NSEvent* event) {
-    CocoaMouseCapture* owner =
-        ui::WeakPtrNSObjectFactory<CocoaMouseCapture>::Get(handle);
-    if (owner)
+    CocoaMouseCapture* owner = weak_ptr.get();
+    if (owner) {
       owner->delegate_->PostCapturedEvent(event);
+    }
   };
   local_monitor_ = [NSEvent addLocalMonitorForEventsMatchingMask:event_mask
                                                          handler:local_block];
@@ -110,11 +112,12 @@ NSWindow* CocoaMouseCapture::ActiveEventTap::GetCaptureWindow() const {
 }
 
 CocoaMouseCapture::CocoaMouseCapture(CocoaMouseCaptureDelegate* delegate)
-    : delegate_(delegate), active_handle_(new ActiveEventTap(this)) {
+    : delegate_(delegate),
+      active_handle_(std::make_unique<ActiveEventTap>(this)) {
   active_handle_->Init();
 }
 
-CocoaMouseCapture::~CocoaMouseCapture() {}
+CocoaMouseCapture::~CocoaMouseCapture() = default;
 
 // static
 NSWindow* CocoaMouseCapture::GetGlobalCaptureWindow() {

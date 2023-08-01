@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,9 @@
 #include <string>
 #include <vector>
 
+#include "absl/types/variant.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/memory/ref_counted.h"
 #include "base/values.h"
 #include "components/policy/policy_export.h"
@@ -23,6 +25,18 @@ struct POLICY_EXPORT PropertyNode;
 struct POLICY_EXPORT PropertiesNode;
 
 }  // namespace internal
+
+// The error path, which leads to an error occurred. Members of the
+// error path can either be ints in case of list items or strings in case of
+// dictionary keys.
+using PolicyErrorPath = std::vector<absl::variant<int, std::string>>;
+
+// Returns a formatted string for a given error path |error_path|, consisting
+// of list indices and dict keys.
+// For example, ErrorPathToString("TestPolicy", {4, "testField"}) will be
+// encoded as "TestPolicy[4].testField"
+POLICY_EXPORT std::string ErrorPathToString(const std::string& policy_name,
+                                            PolicyErrorPath error_path);
 
 // Option flags passed to Schema::Validate() and Schema::Normalize(), describing
 // the strategy to handle unknown properties or invalid values for dict type.
@@ -49,6 +63,11 @@ enum SchemaOnErrorStrategy {
   // is safe. For example, can't be used if an empty list has a special meaning,
   // like allowing everything.
   SCHEMA_ALLOW_UNKNOWN_AND_INVALID_LIST_ENTRY,
+  // Same as |SCHEMA_ALLOW_UNKNOWN|, but unknown properties won't cause errors
+  // messages to be added. Used to allow adding extra fields to the policy
+  // internally, without adding those fields to the schema. This option should
+  // be avoided, since it suppresses the errors.
+  SCHEMA_ALLOW_UNKNOWN_WITHOUT_WARNING,
 };
 
 // Schema validation options for Schema::ParseToDictAndValidate().
@@ -101,8 +120,8 @@ class POLICY_EXPORT Schema {
   static Schema Parse(const std::string& schema, std::string* error);
 
   // Verifies if |schema| is a valid JSON v3 schema. When this validation passes
-  // then |schema| is valid JSON that can be parsed into a Value, and that Value
-  // can be used to build a |Schema|. Returns the parsed Value when |schema|
+  // then |schema| is valid JSON that can be parsed into a Value::Dict which can
+  // be used to build a |Schema|. Returns the parsed Value::Dict when |schema|
   // validated, otherwise returns nullopt. In that case, |error| contains an
   // error description. For performance reasons, currently IsValidSchema() won't
   // check the correctness of regular expressions used in "pattern" and
@@ -110,7 +129,7 @@ class POLICY_EXPORT Schema {
   // accept any strings.
   // |options| is a bitwise-OR combination of the options above (see
   // |kSchemaOptions*| above).
-  static absl::optional<base::Value> ParseToDictAndValidate(
+  static absl::optional<base::Value::Dict> ParseToDictAndValidate(
       const std::string& schema,
       int options,
       std::string* error);
@@ -132,7 +151,7 @@ class POLICY_EXPORT Schema {
   // will be returned.
   bool Validate(const base::Value& value,
                 SchemaOnErrorStrategy strategy,
-                std::string* out_error_path,
+                PolicyErrorPath* out_error_path,
                 std::string* out_error) const;
 
   // Similar to Validate() but drop values with errors instead of ignoring them.
@@ -144,7 +163,7 @@ class POLICY_EXPORT Schema {
   // dropped base::Value and destroy them.
   bool Normalize(base::Value* value,
                  SchemaOnErrorStrategy strategy,
-                 std::string* out_error_path,
+                 PolicyErrorPath* out_error_path,
                  std::string* out_error,
                  bool* out_changed) const;
 
@@ -155,7 +174,7 @@ class POLICY_EXPORT Schema {
   // types may not correspond to this Schema anymore.
   void MaskSensitiveValues(base::Value* value) const;
 
-  // Used to iterate over the known properties of Type::DICTIONARY schemas.
+  // Used to iterate over the known properties of Type::DICT schemas.
   class POLICY_EXPORT Iterator {
    public:
     Iterator(const scoped_refptr<const InternalStorage>& storage,
@@ -179,11 +198,11 @@ class POLICY_EXPORT Schema {
 
    private:
     scoped_refptr<const InternalStorage> storage_;
-    raw_ptr<const internal::PropertyNode> it_;
+    raw_ptr<const internal::PropertyNode, AllowPtrArithmetic> it_;
     raw_ptr<const internal::PropertyNode> end_;
   };
 
-  // These methods should be called only if type() == Type::DICTIONARY,
+  // These methods should be called only if type() == Type::DICT,
   // otherwise invalid memory will be read. A CHECK is currently enforcing this.
 
   // Returns an iterator that goes over the named properties of this schema.
@@ -251,7 +270,9 @@ class POLICY_EXPORT Schema {
   void MaskSensitiveValuesRecursive(base::Value* value) const;
 
   scoped_refptr<const InternalStorage> storage_;
-  const internal::SchemaNode* node_;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #union
+  RAW_PTR_EXCLUSION const internal::SchemaNode* node_;
 };
 
 }  // namespace policy

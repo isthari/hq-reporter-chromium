@@ -1,12 +1,12 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/constants/ash_features.h"
 #include "ash/public/cpp/desk_template.h"
-#include "base/guid.h"
 #include "base/test/bind.h"
 #include "base/test/simple_test_clock.h"
+#include "base/uuid.h"
 #include "chrome/browser/sync/desk_sync_service_factory.h"
 #include "chrome/browser/sync/test/integration/sync_integration_test_util.h"
 #include "chrome/browser/sync/test/integration/sync_service_impl_harness.h"
@@ -25,6 +25,7 @@ namespace {
 
 using ash::DeskTemplate;
 using ash::DeskTemplateSource;
+using ash::DeskTemplateType;
 using desks_storage::DeskModel;
 using desks_storage::DeskSyncService;
 using sync_pb::WorkspaceDeskSpecifics;
@@ -46,7 +47,7 @@ class SingleClientWorkspaceDeskSyncTest : public SyncTest {
  public:
   SingleClientWorkspaceDeskSyncTest() : SyncTest(SINGLE_CLIENT) {
     kTestUuid1_ =
-        base::GUID::ParseCaseInsensitive(base::StringPrintf(kUuidFormat, 1));
+        base::Uuid::ParseCaseInsensitive(base::StringPrintf(kUuidFormat, 1));
   }
 
   SingleClientWorkspaceDeskSyncTest(const SingleClientWorkspaceDeskSyncTest&) =
@@ -63,20 +64,14 @@ class SingleClientWorkspaceDeskSyncTest : public SyncTest {
   void DisableDeskSync() {
     syncer::SyncService* service = GetSyncService(0);
 
-    if (chromeos::features::IsSyncSettingsCategorizationEnabled()) {
       // Disable all OS types, including the desk sync type.
-      service->GetUserSettings()->SetSelectedOsTypes(
-          /*sync_all_os_types=*/false, syncer::UserSelectableOsTypeSet());
-    } else {
-      // Disable all user types, including the desk sync type.
-      service->GetUserSettings()->SetSelectedTypes(
-          /*sync_everything=*/false, syncer::UserSelectableTypeSet());
-    }
+    service->GetUserSettings()->SetSelectedOsTypes(
+        /*sync_all_os_types=*/false, syncer::UserSelectableOsTypeSet());
 
     GetClient(0)->AwaitSyncSetupCompletion();
   }
 
-  base::GUID kTestUuid1_;
+  base::Uuid kTestUuid1_;
 
  private:
   base::SimpleTestClock clock_;
@@ -139,7 +134,7 @@ IN_PROC_BROWSER_TEST_F(SingleClientWorkspaceDeskSyncTest, DeleteDeskTemplate) {
   // Delete template 1.
   base::RunLoop loop;
   model->DeleteEntry(
-      kTestUuid1_.AsLowercaseString(),
+      kTestUuid1_,
       base::BindLambdaForTesting([&](DeskModel::DeleteEntryStatus status) {
         EXPECT_EQ(DeskModel::DeleteEntryStatus::kOk, status);
         loop.Quit();
@@ -168,13 +163,15 @@ IN_PROC_BROWSER_TEST_F(SingleClientWorkspaceDeskSyncTest,
 
   base::RunLoop loop;
   model->AddOrUpdateEntry(
-      std::make_unique<DeskTemplate>(kTestUuid1_.AsLowercaseString(),
-                                     DeskTemplateSource::kUser, "template 1",
-                                     AdvanceAndGetTime()),
-      base::BindLambdaForTesting([&](DeskModel::AddOrUpdateEntryStatus status) {
-        EXPECT_EQ(DeskModel::AddOrUpdateEntryStatus::kOk, status);
-        loop.Quit();
-      }));
+      std::make_unique<DeskTemplate>(kTestUuid1_, DeskTemplateSource::kUser,
+                                     "template 1", AdvanceAndGetTime(),
+                                     DeskTemplateType::kTemplate),
+      base::BindLambdaForTesting(
+          [&](DeskModel::AddOrUpdateEntryStatus status,
+              std::unique_ptr<ash::DeskTemplate> new_entry) {
+            EXPECT_EQ(DeskModel::AddOrUpdateEntryStatus::kOk, status);
+            loop.Quit();
+          }));
   loop.Run();
 
   DeskSyncService* service =

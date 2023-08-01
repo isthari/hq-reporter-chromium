@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,17 +8,18 @@
 #include <memory>
 #include <string>
 
-#include "base/callback.h"
-#include "base/callback_forward.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_forward.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/ash/policy/core/device_cloud_policy_validator.h"
 #include "chrome/browser/ash/policy/enrollment/enrollment_config.h"
 #include "chrome/browser/policy/device_account_initializer.h"
-#include "chromeos/dbus/authpolicy/authpolicy_client.h"
-#include "chromeos/dbus/constants/attestation_constants.h"
-#include "chromeos/dbus/userdataauth/userdataauth_client.h"
-#include "chromeos/tpm/install_attributes.h"
+#include "chromeos/ash/components/attestation/attestation_flow.h"
+#include "chromeos/ash/components/dbus/constants/attestation_constants.h"
+#include "chromeos/ash/components/dbus/userdataauth/userdataauth_client.h"
+#include "chromeos/ash/components/install_attributes/install_attributes.h"
 #include "components/policy/core/common/cloud/cloud_policy_client.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/core/common/cloud/cloud_policy_store.h"
@@ -29,7 +30,7 @@
 
 namespace ash {
 namespace attestation {
-class AttestationFlow;
+class AttestationFeatures;
 }  // namespace attestation
 }  // namespace ash
 
@@ -38,7 +39,7 @@ class SequencedTaskRunner;
 }  // namespace base
 
 namespace policy {
-class ActiveDirectoryJoinDelegate;
+
 class DeviceCloudPolicyStoreAsh;
 class DMTokenStorage;
 class EnrollmentStatus;
@@ -62,18 +63,25 @@ class EnrollmentHandler : public CloudPolicyClient::Observer,
  public:
   using EnrollmentCallback = base::OnceCallback<void(EnrollmentStatus)>;
 
+  // Base class for factories providing SigningService. Exists for testing.
+  class SigningServiceProvider {
+   public:
+    virtual ~SigningServiceProvider() = default;
+
+    virtual std::unique_ptr<SigningService> CreateSigningService() const = 0;
+  };
+
   // |store| and |install_attributes| must remain valid for the life time of the
   // enrollment handler.
   EnrollmentHandler(
       DeviceCloudPolicyStoreAsh* store,
-      chromeos::InstallAttributes* install_attributes,
+      ash::InstallAttributes* install_attributes,
       ServerBackedStateKeysBroker* state_keys_broker,
       ash::attestation::AttestationFlow* attestation_flow,
-      std::unique_ptr<SigningService> signing_service,
       std::unique_ptr<CloudPolicyClient> client,
       scoped_refptr<base::SequencedTaskRunner> background_task_runner,
-      ActiveDirectoryJoinDelegate* ad_join_delegate,
       const EnrollmentConfig& enrollment_config,
+      LicenseType license_type,
       DMAuth dm_auth,
       const std::string& client_id,
       const std::string& requisition,
@@ -84,6 +92,9 @@ class EnrollmentHandler : public CloudPolicyClient::Observer,
   EnrollmentHandler& operator=(const EnrollmentHandler&) = delete;
 
   ~EnrollmentHandler() override;
+
+  void SetSigningServiceProviderForTesting(
+      std::unique_ptr<SigningServiceProvider> signing_service_provider);
 
   // Starts the enrollment process and reports the result to
   // |completion_callback_|.
@@ -104,7 +115,9 @@ class EnrollmentHandler : public CloudPolicyClient::Observer,
   // DeviceAccountInitializer::Delegate:
   void OnDeviceAccountTokenFetched(bool empty_token) override;
   void OnDeviceAccountTokenStored() override;
-  void OnDeviceAccountTokenError(EnrollmentStatus status) override;
+  void OnDeviceAccountTokenFetchError(
+      absl::optional<DeviceManagementStatus> dm_status) override;
+  void OnDeviceAccountTokenStoreError() override;
   void OnDeviceAccountClientError(DeviceManagementStatus status) override;
   enterprise_management::DeviceServiceApiAccessRequest::DeviceType
   GetRobotAuthCodeDeviceType() override;
@@ -124,13 +137,12 @@ class EnrollmentHandler : public CloudPolicyClient::Observer,
     STEP_VALIDATION = 5,        // Policy validation.
     STEP_ROBOT_AUTH_FETCH = 6,  // Fetching device API auth code.
     UNUSED_ROBOT_AUTH_REFRESH = 7,  // Fetching device API refresh token.
-    STEP_AD_DOMAIN_JOIN = 8,        // Joining Active Directory domain.
+    UNUSED_AD_DOMAIN_JOIN = 8,      // Joining Active Directory domain.
     STEP_SET_FWMP_DATA = 9,      // Setting the firmware management parameters.
     STEP_LOCK_DEVICE = 10,       // Writing installation-time attributes.
     STEP_STORE_TOKEN = 11,       // Encrypting and storing DM token.
     STEP_STORE_ROBOT_AUTH = 12,  // Encrypting & writing robot refresh token.
-    STEP_STORE_POLICY = 13,      // Storing policy and API refresh token. For
-                                 // AD, includes policy fetch via authpolicyd.
+    STEP_STORE_POLICY = 13,      // Storing policy and API refresh token.
     STEP_FINISHED = 14,          // Enrollment process done, no further action.
   };
 
@@ -140,13 +152,15 @@ class EnrollmentHandler : public CloudPolicyClient::Observer,
   // Starts attestation based enrollment flow.
   void StartAttestationBasedEnrollmentFlow();
 
+  // Checks the Attestation Features and gets a fresh certificate.
+  void OnGetFeaturesReady(
+      ash::attestation::AttestationFlow::CertificateCallback callback,
+      const ash::attestation::AttestationFeatures* features);
+
   // Handles the response to a request for a registration certificate.
   void HandleRegistrationCertificateResult(
-      chromeos::attestation::AttestationStatus status,
+      ash::attestation::AttestationStatus status,
       const std::string& pem_certificate_chain);
-
-  // Starts the enrollment flow for the offline demo mode.
-  void StartOfflineDemoEnrollmentFlow();
 
   // Starts registration if the store is initialized.
   void StartRegistration();
@@ -154,13 +168,6 @@ class EnrollmentHandler : public CloudPolicyClient::Observer,
   // Handles the policy validation result, proceeding with device lock if
   // successful.
   void HandlePolicyValidationResult(DeviceCloudPolicyValidator* validator);
-
-  // Start joining the Active Directory domain in case the device is enrolling
-  // into Active Directory management mode.
-  void StartJoinAdDomain();
-
-  // Handles successful Active Directory domain join.
-  void OnAdDomainJoined(const std::string& realm);
 
   // Updates the firmware management partition from TPM, setting the flags
   // according to enum FirmwareManagementParametersFlags from rpc.proto if
@@ -178,26 +185,10 @@ class EnrollmentHandler : public CloudPolicyClient::Observer,
   void StartLockDevice();
 
   // Handle callback from InstallAttributes::LockDevice() and retry on failure.
-  void HandleLockDeviceResult(
-      chromeos::InstallAttributes::LockResult lock_result);
-
-  // Initiates storing DM token. For Active Directory devices only.
-  void StartStoreDMToken();
-
-  // Called after StartStoreDMtoken() is done.
-  void HandleDMTokenStoreResult(bool success);
+  void HandleLockDeviceResult(ash::InstallAttributes::LockResult lock_result);
 
   // Initiates storing of robot auth token.
   void StartStoreRobotAuth();
-
-  // Handles result from device policy refresh via authpolicyd.
-  void HandleActiveDirectoryPolicyRefreshed(authpolicy::ErrorType error);
-
-  // Handles the blob for the device policy for the offline demo mode.
-  void OnOfflinePolicyBlobLoaded(absl::optional<std::string> blob);
-
-  // Handles the policy validation result for the offline demo mode.
-  void OnOfflinePolicyValidated(DeviceCloudPolicyValidator* validator);
 
   std::unique_ptr<DeviceCloudPolicyValidator> CreateValidator(
       std::unique_ptr<enterprise_management::PolicyFetchResponse> policy,
@@ -212,20 +203,19 @@ class EnrollmentHandler : public CloudPolicyClient::Observer,
   // Set |enrollment_step_| to |step|.
   void SetStep(EnrollmentStep step);
 
-  DeviceCloudPolicyStoreAsh* store_;
-  chromeos::InstallAttributes* install_attributes_;
-  ServerBackedStateKeysBroker* state_keys_broker_;
-  ash::attestation::AttestationFlow* attestation_flow_;
-  // SigningService to be used by |client_| to register with.
-  std::unique_ptr<SigningService> signing_service_;
+  raw_ptr<DeviceCloudPolicyStoreAsh, ExperimentalAsh> store_;
+  raw_ptr<ash::InstallAttributes, ExperimentalAsh> install_attributes_;
+  raw_ptr<ServerBackedStateKeysBroker, ExperimentalAsh> state_keys_broker_;
+  raw_ptr<ash::attestation::AttestationFlow, ExperimentalAsh> attestation_flow_;
+  // Factory for SigningService to be used by |client_| to register with.
+  std::unique_ptr<SigningServiceProvider> signing_service_provider_;
   std::unique_ptr<CloudPolicyClient> client_;
   scoped_refptr<base::SequencedTaskRunner> background_task_runner_;
-  ActiveDirectoryJoinDelegate* ad_join_delegate_ = nullptr;
   std::unique_ptr<DeviceAccountInitializer> device_account_initializer_;
-  std::unique_ptr<policy::DMTokenStorage> dm_token_storage_;
+  std::unique_ptr<DMTokenStorage> dm_token_storage_;
 
   EnrollmentConfig enrollment_config_;
-  policy::DMAuth dm_auth_;
+  DMAuth dm_auth_;
   std::string client_id_;
   std::string sub_organization_;
   std::unique_ptr<CloudPolicyClient::RegistrationParameters> register_params_;

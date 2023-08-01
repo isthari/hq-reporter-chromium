@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,13 @@
 #include <memory>
 #include <set>
 
-#include "base/bind.h"
 #include "base/files/file_path.h"
-#include "base/guid.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
+#include "base/time/time.h"
+#include "base/uuid.h"
 #include "build/build_config.h"
 #include "chrome/browser/download/download_core_service.h"
 #include "chrome/browser/download/download_core_service_factory.h"
@@ -25,6 +26,7 @@
 #include "components/history/core/browser/download_row.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/download_manager.h"
+#include "content/public/browser/storage_partition_config.h"
 #include "content/public/test/browser_test.h"
 #include "extensions/buildflags/buildflags.h"
 #include "url/origin.h"
@@ -116,7 +118,7 @@ class DownloadsCounterTest : public InProcessBrowserTest,
                                   const GURL& url,
                                   std::string mime_type,
                                   bool incognito) {
-    std::string guid = base::GenerateGUID();
+    std::string guid = base::Uuid::GenerateRandomV4().AsLowercaseString();
 
     std::vector<GURL> url_chain;
     url_chain.push_back(url);
@@ -127,11 +129,12 @@ class DownloadsCounterTest : public InProcessBrowserTest,
         guid, download::DownloadItem::kInvalidId + (++items_count_),
         base::FilePath(FILE_PATH_LITERAL("current/path")),
         base::FilePath(FILE_PATH_LITERAL("target/path")), url_chain, GURL(),
-        GURL(), GURL(), GURL(), url::Origin(), mime_type, std::string(), time_,
-        time_, std::string(), std::string(), 1, 1, std::string(), state, danger,
+        content::StoragePartitionConfig::CreateDefault(
+            manager->GetBrowserContext()),
+        GURL(), GURL(), url::Origin(), mime_type, std::string(), time_, time_,
+        std::string(), std::string(), 1, 1, std::string(), state, danger,
         reason, false, time_, false,
-        std::vector<download::DownloadItem::ReceivedSlice>(),
-        download::DownloadItemRerouteInfo());
+        std::vector<download::DownloadItem::ReceivedSlice>());
 
     return guid;
   }
@@ -225,9 +228,9 @@ class DownloadsCounterTest : public InProcessBrowserTest,
   // a set of IDs.
   std::set<uint32_t> ids_to_remove_;
 
-  raw_ptr<content::DownloadManager> manager_;
-  raw_ptr<content::DownloadManager> otr_manager_;
-  raw_ptr<DownloadHistory> history_;
+  raw_ptr<content::DownloadManager, DanglingUntriaged> manager_;
+  raw_ptr<content::DownloadManager, DanglingUntriaged> otr_manager_;
+  raw_ptr<DownloadHistory, DanglingUntriaged> history_;
   base::Time time_;
 
   int items_count_;

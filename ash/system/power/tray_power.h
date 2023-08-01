@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,17 +7,12 @@
 
 #include <memory>
 
-#include "ash/public/cpp/session/session_observer.h"
 #include "ash/system/power/power_status.h"
 #include "ash/system/tray/tray_item_view.h"
 
 namespace ash {
 
-namespace tray {
-
-class PowerTrayView : public TrayItemView,
-                      public PowerStatus::Observer,
-                      public SessionObserver {
+class PowerTrayView : public TrayItemView, public PowerStatus::Observer {
  public:
   explicit PowerTrayView(Shelf* shelf);
 
@@ -40,22 +35,14 @@ class PowerTrayView : public TrayItemView,
   // PowerStatus::Observer:
   void OnPowerStatusChanged() override;
 
-  // SessionObserver:
-  void OnSessionStateChanged(session_manager::SessionState state) override;
-
  private:
   void UpdateStatus();
   void UpdateImage(bool icon_color_changed);
 
-  std::u16string accessible_name_;
   std::u16string tooltip_;
   absl::optional<PowerStatus::BatteryImageInfo> info_;
-  session_manager::SessionState session_state_ =
-      session_manager::SessionState::UNKNOWN;
-  ScopedSessionObserver session_observer_{this};
 };
 
-}  // namespace tray
 }  // namespace ash
 
 #endif  // ASH_SYSTEM_POWER_TRAY_POWER_H_

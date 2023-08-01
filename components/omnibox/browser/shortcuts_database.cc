@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,12 @@
 #include <string>
 #include <tuple>
 
-#include "base/bind.h"
-#include "base/guid.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
+#include "base/uuid.h"
 #include "components/omnibox/browser/autocomplete_match_type.h"
 #include "sql/meta_table.h"
 #include "sql/recovery.h"
@@ -32,7 +32,7 @@ const int kCompatibleVersionNumber = 1;
 
 void BindShortcutToStatement(const ShortcutsDatabase::Shortcut& shortcut,
                              sql::Statement* s) {
-  DCHECK(base::IsValidGUID(shortcut.id));
+  DCHECK(base::Uuid::ParseCaseInsensitive(shortcut.id).is_valid());
   s->BindString(0, shortcut.id);
   s->BindString16(1, shortcut.text);
   s->BindString16(2, shortcut.match_core.fill_into_edit);
@@ -45,7 +45,7 @@ void BindShortcutToStatement(const ShortcutsDatabase::Shortcut& shortcut,
   s->BindInt(9, base::checked_cast<int>(shortcut.match_core.transition));
   s->BindInt(10, base::checked_cast<int>(shortcut.match_core.type));
   s->BindString16(11, shortcut.match_core.keyword);
-  s->BindInt64(12, shortcut.last_access_time.ToInternalValue());
+  s->BindTime(12, shortcut.last_access_time);
   s->BindInt(13, shortcut.number_of_hits);
 }
 
@@ -249,8 +249,9 @@ void ShortcutsDatabase::LoadShortcuts(GuidToShortcutMap* shortcuts) {
       continue;
 
     const int page_transition_integer = s.ColumnInt(9);
-    if (!ui::PageTransitionIsValidType(page_transition_integer))
+    if (!ui::IsValidPageTransitionType(page_transition_integer)) {
       continue;
+    }
     ui::PageTransition transition =
         ui::PageTransitionFromInt(page_transition_integer);
 
@@ -269,7 +270,7 @@ void ShortcutsDatabase::LoadShortcuts(GuidToShortcutMap* shortcuts) {
                                 transition,               // transition
                                 type,                     // type
                                 s.ColumnString16(11)),    // keyword
-            base::Time::FromInternalValue(s.ColumnInt64(12)),
+            s.ColumnTime(12),
             // last_access_time
             s.ColumnInt(13))));  // number_of_hits
   }
@@ -305,7 +306,9 @@ bool ShortcutsDatabase::EnsureTable() {
   for (int i = current_version + 1; i <= kCurrentVersionNumber; ++i) {
     if (!DoMigration(i))
       return false;
-    meta_table_.SetVersionNumber(i);
+    if (!meta_table_.SetVersionNumber(i)) {
+      return false;
+    }
   }
 
   return true;

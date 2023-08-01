@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,7 @@
 #include <utility>
 #include <vector>
 
-#include "base/feature_list.h"
 #include "base/values.h"
-#include "chrome/browser/flags/android/chrome_feature_list.h"
 #include "chrome/browser/installable/installed_webapp_bridge.h"
 #include "components/content_settings/core/browser/content_settings_rule.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
@@ -32,16 +30,16 @@ class InstalledWebappIterator : public content_settings::RuleIterator {
 
   bool HasNext() const override { return index_ < rules_.size(); }
 
-  content_settings::Rule Next() override {
+  std::unique_ptr<content_settings::Rule> Next() override {
     DCHECK(HasNext());
     const GURL& origin = rules_[index_].first;
     ContentSetting setting = rules_[index_].second;
     index_++;
 
-    return content_settings::Rule(
+    return std::make_unique<content_settings::OwnedRule>(
         ContentSettingsPattern::FromURLNoWildcard(origin),
-        ContentSettingsPattern::Wildcard(), base::Value(setting), base::Time(),
-        content_settings::SessionModel::Durable);
+        ContentSettingsPattern::Wildcard(), base::Value(setting),
+        content_settings::RuleMetaData{});
   }
 
  private:
@@ -54,8 +52,7 @@ bool IsSupportedContentType(ContentSettingsType content_type) {
     case ContentSettingsType::NOTIFICATIONS:
       return true;
     case ContentSettingsType::GEOLOCATION:
-      return base::FeatureList::IsEnabled(
-          chrome::android::kTrustedWebActivityLocationDelegation);
+      return true;
     default:
       return false;
   }

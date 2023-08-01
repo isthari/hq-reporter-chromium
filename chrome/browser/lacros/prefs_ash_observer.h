@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,8 @@
 #include <memory>
 
 #include "base/gtest_prod_util.h"
-#include "chrome/browser/lacros/crosapi_pref_observer.h"
+#include "base/memory/raw_ptr.h"
+#include "chromeos/lacros/crosapi_pref_observer.h"
 #include "components/prefs/pref_service.h"
 
 // Observes ash-chrome for changes in the secure DNS preferences.
@@ -26,10 +27,14 @@ class PrefsAshObserver {
 
   void OnDnsOverHttpsModeChanged(base::Value value);
   void OnDnsOverHttpsTemplatesChanged(base::Value value);
+  void OnDnsOverHttpsTemplatesWithIdentifiersChanged(base::Value value);
+  void OnDnsOverHttpsSaltChanged(base::Value value);
 
-  PrefService* local_state_{nullptr};
+  raw_ptr<PrefService, DanglingUntriaged> local_state_{nullptr};
   std::unique_ptr<CrosapiPrefObserver> doh_mode_observer_;
   std::unique_ptr<CrosapiPrefObserver> doh_templates_observer_;
+  std::unique_ptr<CrosapiPrefObserver> doh_templates_with_identifiers_observer_;
+  std::unique_ptr<CrosapiPrefObserver> doh_salt_observer_;
 };
 
 #endif  // CHROME_BROWSER_LACROS_PREFS_ASH_OBSERVER_H_

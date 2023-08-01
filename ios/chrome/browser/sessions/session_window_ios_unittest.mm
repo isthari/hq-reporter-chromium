@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,10 @@
 
 #import <Foundation/Foundation.h>
 
+#import "components/sessions/core/session_id.h"
 #import "ios/web/public/session/crw_session_storage.h"
-#include "testing/gtest/include/gtest/gtest.h"
-#include "testing/platform_test.h"
+#import "testing/gtest/include/gtest/gtest.h"
+#import "testing/platform_test.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -19,6 +20,7 @@ namespace {
 CRWSessionStorage* CreateSessionForTest(BOOL has_opener) {
   CRWSessionStorage* session = [[CRWSessionStorage alloc] init];
   session.stableIdentifier = [[NSUUID UUID] UUIDString];
+  session.uniqueIdentifier = SessionID::NewUnique();
   session.hasOpener = has_opener;
   return session;
 }
@@ -26,8 +28,6 @@ CRWSessionStorage* CreateSessionForTest(BOOL has_opener) {
 SessionWindowIOS* CreateSessionWindowForTest(NSUInteger selectedIndex) {
   return [[SessionWindowIOS alloc]
       initWithSessions:@[ CreateSessionForTest(YES), CreateSessionForTest(NO) ]
-       sessionsSummary:nil
-           tabContents:nil
          selectedIndex:selectedIndex];
 }
 

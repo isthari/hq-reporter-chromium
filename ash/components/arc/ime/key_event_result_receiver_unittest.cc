@@ -1,10 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/components/arc/ime/key_event_result_receiver.h"
 
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/task_environment.h"
@@ -183,28 +183,6 @@ TEST_F(KeyEventResultReceiverTest, NormalCharacters) {
   // 'A' key should be sent to the proxy IME.
   EXPECT_TRUE(result.has_value());
   EXPECT_TRUE(result.value());
-}
-
-TEST_F(KeyEventResultReceiverTest, Histrogram) {
-  base::HistogramTester histogram_tester;
-  constexpr char kHistogramName[] = "Arc.ChromeOsImeLatency";
-  auto delay = base::Milliseconds(100);
-
-  ui::KeyEvent event{'a', ui::VKEY_A, ui::DomCode::NONE, ui::EF_NONE};
-  receiver()->SetCallback(base::DoNothing(), &event);
-
-  ForwardBy(delay);
-
-  receiver()->DispatchKeyEventPostIME(&event);
-
-  histogram_tester.ExpectTotalCount(kHistogramName, 1);
-  histogram_tester.ExpectUniqueTimeSample(kHistogramName, delay, 1);
-
-  receiver()->SetCallback(base::DoNothing(), &event);
-
-  ForwardBy(base::Seconds(1));
-
-  histogram_tester.ExpectTotalCount(kHistogramName, 2);
 }
 
 TEST_F(KeyEventResultReceiverTest, DifferentEvent) {

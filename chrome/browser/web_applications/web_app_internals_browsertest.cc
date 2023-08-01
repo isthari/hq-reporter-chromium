@@ -1,28 +1,31 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <string>
 
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/web_applications/test/web_app_browsertest_util.h"
-#include "chrome/browser/web_applications/os_integration_manager.h"
+#include "chrome/browser/ui/web_applications/web_app_controller_browsertest.h"
+#include "chrome/browser/web_applications/os_integration/os_integration_manager.h"
 #include "chrome/browser/web_applications/test/web_app_install_test_utils.h"
 #include "chrome/browser/web_applications/test/web_app_test_utils.h"
 #include "chrome/browser/web_applications/web_app.h"
-#include "chrome/browser/web_applications/web_app_constants.h"
+#include "chrome/browser/web_applications/web_app_command_scheduler.h"
 #include "chrome/browser/web_applications/web_app_install_manager.h"
+#include "chrome/browser/web_applications/web_app_install_params.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/browser/web_applications/web_app_registrar.h"
 #include "chrome/browser/web_applications/web_app_utils.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/webapps/browser/install_result_code.h"
 #include "content/public/test/browser_test.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_request.h"
@@ -36,7 +39,7 @@ namespace {
 constexpr char kBadIconErrorTemplate[] = R"({
    "!url": "$1banners/manifest_test_page.html",
    "background_installation": false,
-   "install_source": 15,
+   "install_surface": 15,
    "stages": [ {
       "!stage": "OnIconsRetrieved",
       "icons_downloaded_result": "Completed",
@@ -52,13 +55,14 @@ constexpr char kBadIconErrorTemplate[] = R"({
 
 // Drops all CR and LF characters.
 std::string TrimLineEndings(base::StringPiece text) {
-  return CollapseWhitespaceASCII(text,
-                                 /*trim_sequences_with_line_breaks=*/true);
+  return base::CollapseWhitespaceASCII(
+      text,
+      /*trim_sequences_with_line_breaks=*/true);
 }
 
 }  // namespace
 
-class WebAppInternalsBrowserTest : public InProcessBrowserTest {
+class WebAppInternalsBrowserTest : public WebAppControllerBrowserTest {
  public:
   WebAppInternalsBrowserTest() = default;
   WebAppInternalsBrowserTest(const WebAppInternalsBrowserTest&) = delete;
@@ -74,13 +78,12 @@ class WebAppInternalsBrowserTest : public InProcessBrowserTest {
                             base::Unretained(this)));
     ASSERT_TRUE(embedded_test_server()->Start());
 
-    InProcessBrowserTest::SetUp();
+    WebAppControllerBrowserTest::SetUp();
   }
 
   void SetUpOnMainThread() override {
-    web_app::test::WaitUntilReady(
-        web_app::WebAppProvider::GetForTest(browser()->profile()));
-    InProcessBrowserTest::SetUpOnMainThread();
+    test::WaitUntilReady(WebAppProvider::GetForTest(browser()->profile()));
+    WebAppControllerBrowserTest::SetUpOnMainThread();
   }
 
   AppId InstallWebApp(const GURL& app_url) {
@@ -88,17 +91,19 @@ class WebAppInternalsBrowserTest : public InProcessBrowserTest {
 
     AppId app_id;
     base::RunLoop run_loop;
-    GetProvider().install_manager().InstallWebAppFromManifestWithFallback(
-        browser()->tab_strip_model()->GetActiveWebContents(),
-        /*force_shortcut_app=*/false,
+    GetProvider().scheduler().FetchManifestAndInstall(
         webapps::WebappInstallSource::OMNIBOX_INSTALL_ICON,
+        browser()->tab_strip_model()->GetActiveWebContents()->GetWeakPtr(),
+        /*bypass_service_worker_check=*/false,
         base::BindOnce(test::TestAcceptDialogCallback),
         base::BindLambdaForTesting(
-            [&](const AppId& new_app_id, InstallResultCode code) {
-              EXPECT_EQ(code, InstallResultCode::kSuccessNewInstall);
+            [&](const AppId& new_app_id, webapps::InstallResultCode code) {
+              EXPECT_EQ(code, webapps::InstallResultCode::kSuccessNewInstall);
               app_id = new_app_id;
               run_loop.Quit();
-            }));
+            }),
+        /*use_fallback=*/true);
+
     run_loop.Run();
     return app_id;
   }
@@ -131,8 +136,6 @@ class WebAppInternalsBrowserTest : public InProcessBrowserTest {
  private:
   net::EmbeddedTestServer::HandleRequestCallback request_override_;
 
-  OsIntegrationManager::ScopedSuppressForTesting os_hooks_suppress_;
-
   base::test::ScopedFeatureList scoped_feature_list_{
       features::kRecordWebAppDebugInfo};
 };
@@ -145,7 +148,7 @@ IN_PROC_BROWSER_TEST_F(WebAppInternalsBrowserTest,
   AppId app_id = InstallWebApp(embedded_test_server()->GetURL(
       "/banners/manifest_test_page.html?manifest=manifest_bad_icon.json"));
 
-  const WebApp* web_app = GetProvider().registrar().GetAppById(app_id);
+  const WebApp* web_app = GetProvider().registrar_unsafe().GetAppById(app_id);
   ASSERT_TRUE(web_app);
   EXPECT_TRUE(web_app->is_generated_icon());
 
@@ -157,9 +160,9 @@ IN_PROC_BROWSER_TEST_F(WebAppInternalsBrowserTest,
   ASSERT_EQ(1u, GetProvider().install_manager().error_log()->size());
 
   const base::Value& error_log =
-      GetProvider().install_manager().error_log()->at(0);
-
-  EXPECT_EQ(4u, error_log.DictSize());
+      (*GetProvider().install_manager().error_log())[0];
+  EXPECT_TRUE(error_log.is_dict());
+  EXPECT_EQ(4u, error_log.GetDict().size());
 
   EXPECT_EQ(TrimLineEndings(expected_error),
             TrimLineEndings(error_log.DebugString()));
@@ -167,20 +170,19 @@ IN_PROC_BROWSER_TEST_F(WebAppInternalsBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(WebAppInternalsBrowserTest,
                        InstallManagerErrorsPersist) {
-  web_app::test::WaitUntilReady(
-      web_app::WebAppProvider::GetForTest(browser()->profile()));
+  test::WaitUntilReady(WebAppProvider::GetForTest(browser()->profile()));
 
   ASSERT_TRUE(GetProvider().install_manager().error_log());
   ASSERT_EQ(1u, GetProvider().install_manager().error_log()->size());
 
   const base::Value& error_log =
-      GetProvider().install_manager().error_log()->at(0);
-
-  EXPECT_EQ(4u, error_log.DictSize());
+      (*GetProvider().install_manager().error_log())[0];
+  EXPECT_TRUE(error_log.is_dict());
+  EXPECT_EQ(4u, error_log.GetDict().size());
 
   // Parses base url from the log: the port for embedded_test_server() changes
   // on every test run.
-  const std::string* url_value = error_log.FindStringKey("!url");
+  const std::string* url_value = error_log.GetDict().FindString("!url");
   ASSERT_TRUE(url_value);
   GURL url{*url_value};
   ASSERT_TRUE(url.is_valid());

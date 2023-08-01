@@ -1,12 +1,13 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/borealis/borealis_splash_screen_view.h"
 
+#include "ash/constants/ash_features.h"
 #include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
-#include "chrome/browser/ash/borealis/borealis_app_launcher.h"
+#include "chrome/browser/ash/borealis/borealis_app_launcher_impl.h"
 #include "chrome/browser/ash/borealis/borealis_context.h"
 #include "chrome/browser/ash/borealis/borealis_context_manager.h"
 #include "chrome/browser/ash/borealis/borealis_context_manager_mock.h"
@@ -17,7 +18,6 @@
 #include "chrome/browser/ash/borealis/borealis_util.h"
 #include "chrome/browser/ash/borealis/borealis_window_manager_mock.h"
 #include "chrome/browser/ash/borealis/borealis_window_manager_test_helper.h"
-#include "chrome/browser/ash/borealis/infra/expected.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/test/test_browser_dialog.h"
@@ -32,11 +32,8 @@ namespace {
 class FakeBorealisContextManager : public BorealisContextManager {
  public:
   void StartBorealis(ResultCallback callback) override {
-    std::move(callback).Run(
-        BorealisContextManager::ContextOrFailure::Unexpected(
-            Described<BorealisStartupResult>(
-                BorealisStartupResult::kMountFailed,
-                "failed on purpose for testing")));
+    std::move(callback).Run(base::unexpected(Described<BorealisStartupResult>(
+        BorealisStartupResult::kMountFailed, "failed on purpose for testing")));
   }
 
   bool IsRunning() override { return false; }
@@ -57,7 +54,8 @@ class CallbackFactory
 class BorealisSplashScreenViewBrowserTest : public DialogBrowserTest {
  public:
   BorealisSplashScreenViewBrowserTest() {
-    feature_list_.InitAndEnableFeature(features::kBorealis);
+    feature_list_.InitWithFeatures(
+        {features::kBorealis, ash::features::kBorealisPermitted}, {});
   }
 
   // DialogBrowserTest:
@@ -99,7 +97,7 @@ IN_PROC_BROWSER_TEST_F(BorealisSplashScreenViewBrowserTest,
   EXPECT_TRUE(VerifyUi());
   EXPECT_NE(nullptr, BorealisSplashScreenView::GetActiveViewForTesting());
   MakeAndTrackWindow(
-      "org.chromium.borealis.foobarbaz",
+      "org.chromium.guest_os.borealis.foobarbaz",
       &borealis::BorealisService::GetForProfile(browser()->profile())
            ->WindowManager());
   base::RunLoop().RunUntilIdle();
@@ -115,7 +113,7 @@ IN_PROC_BROWSER_TEST_F(BorealisSplashScreenViewBrowserTest,
 
   CallbackFactory callback_check;
   EXPECT_CALL(callback_check, Call(BorealisAppLauncher::LaunchResult::kError));
-  BorealisAppLauncher launcher(browser()->profile());
+  BorealisAppLauncherImpl launcher(browser()->profile());
   launcher.Launch("foo.desktop", callback_check.BindOnce());
   base::RunLoop().RunUntilIdle();
 

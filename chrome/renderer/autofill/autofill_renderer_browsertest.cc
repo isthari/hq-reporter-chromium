@@ -1,13 +1,13 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <memory>
 #include <tuple>
 
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
@@ -20,7 +20,6 @@
 #include "components/autofill/core/common/form_field_data.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/renderer/render_frame.h"
-#include "content/public/renderer/render_view.h"
 #include "mojo/public/cpp/bindings/associated_receiver_set.h"
 #include "mojo/public/cpp/bindings/pending_associated_receiver.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -51,8 +50,8 @@ namespace {
 
 class FakeContentAutofillDriver : public mojom::AutofillDriver {
  public:
-  FakeContentAutofillDriver() : called_field_change_(false) {}
-  ~FakeContentAutofillDriver() override {}
+  FakeContentAutofillDriver() = default;
+  ~FakeContentAutofillDriver() override = default;
 
   void BindReceiver(
       mojo::PendingAssociatedReceiver<mojom::AutofillDriver> receiver) {
@@ -64,6 +63,11 @@ class FakeContentAutofillDriver : public mojom::AutofillDriver {
   const std::vector<FormData>* forms() const { return forms_.get(); }
 
   void reset_forms() { return forms_.reset(); }
+
+  void WaitForFormsSeen() {
+    forms_seen_run_loop_->Run();
+    forms_seen_run_loop_ = std::make_unique<base::RunLoop>();
+  }
 
  private:
   // mojom::AutofillDriver:
@@ -77,6 +81,7 @@ class FakeContentAutofillDriver : public mojom::AutofillDriver {
     // call.
     if (!forms_)
       forms_ = std::make_unique<std::vector<FormData>>(updated_forms);
+    forms_seen_run_loop_->Quit();
   }
 
   void FormSubmitted(const FormData& form,
@@ -98,11 +103,17 @@ class FakeContentAutofillDriver : public mojom::AutofillDriver {
                               const FormFieldData& field,
                               const gfx::RectF& bounding_box) override {}
 
-  void AskForValuesToFill(int32_t id,
-                          const FormData& form,
-                          const FormFieldData& field,
-                          const gfx::RectF& bounding_box,
-                          bool autoselect_first_suggestion) override {}
+  void JavaScriptChangedAutofilledValue(
+      const FormData& form,
+      const FormFieldData& field,
+      const std::u16string& old_value) override {}
+
+  void AskForValuesToFill(
+      const FormData& form,
+      const FormFieldData& field,
+      const gfx::RectF& bounding_box,
+      AutoselectFirstSuggestion autoselect_first_suggestion,
+      FormElementWasClicked form_element_was_clicked) override {}
 
   void HidePopup() override {}
 
@@ -121,8 +132,11 @@ class FakeContentAutofillDriver : public mojom::AutofillDriver {
 
   void SelectFieldOptionsDidChange(const autofill::FormData& form) override {}
 
+  std::unique_ptr<base::RunLoop> forms_seen_run_loop_ =
+      std::make_unique<base::RunLoop>();
+
   // Records whether TextFieldDidChange() get called.
-  bool called_field_change_;
+  bool called_field_change_ = false;
   // Records data received via FormSeen() call.
   std::unique_ptr<std::vector<FormData>> forms_;
 
@@ -136,12 +150,10 @@ using AutofillQueryParam =
 
 class AutofillRendererTest : public ChromeRenderViewTest {
  public:
-  AutofillRendererTest() {}
-
+  AutofillRendererTest() = default;
   AutofillRendererTest(const AutofillRendererTest&) = delete;
   AutofillRendererTest& operator=(const AutofillRendererTest&) = delete;
-
-  ~AutofillRendererTest() override {}
+  ~AutofillRendererTest() override = default;
 
  protected:
   void SetUp() override {
@@ -178,9 +190,8 @@ TEST_F(AutofillRendererTest, SendForms) {
            "    <option>Texas</option>"
            "  </select>"
            "</form>");
+  fake_driver_.WaitForFormsSeen();
 
-  base::RunLoop run_loop;
-  run_loop.RunUntilIdle();
   // Verify that "FormsSeen" sends the expected number of fields.
   ASSERT_TRUE(fake_driver_.forms());
   std::vector<FormData> forms = *(fake_driver_.forms());
@@ -245,7 +256,7 @@ TEST_F(AutofillRendererTest, SendForms) {
       "newForm.appendChild(newEmail);"
       "document.body.appendChild(newForm);");
 
-  WaitForAutofillDidAssociateFormControl();
+  fake_driver_.WaitForFormsSeen();
   ASSERT_TRUE(fake_driver_.forms());
   forms = *(fake_driver_.forms());
   ASSERT_EQ(1UL, forms.size());
@@ -292,6 +303,7 @@ TEST_F(AutofillRendererTest, DynamicallyAddedUnownedFormElements) {
       base::FilePath(FILE_PATH_LITERAL("autofill_noform_dynamic.html")));
   ASSERT_TRUE(base::ReadFileToString(test_path, &html_data));
   LoadHTML(html_data.c_str());
+  fake_driver_.WaitForFormsSeen();
 
   base::RunLoop run_loop;
   run_loop.RunUntilIdle();
@@ -305,7 +317,7 @@ TEST_F(AutofillRendererTest, DynamicallyAddedUnownedFormElements) {
 
   ExecuteJavaScriptForTests("AddFields()");
 
-  WaitForAutofillDidAssociateFormControl();
+  fake_driver_.WaitForFormsSeen();
   ASSERT_TRUE(fake_driver_.forms());
   forms = *(fake_driver_.forms());
   ASSERT_EQ(1UL, forms.size());
@@ -332,6 +344,7 @@ TEST_F(AutofillRendererTest, IgnoreNonUserGestureTextFieldChanges) {
   LoadHTML("<form method='post'>"
            "  <input type='text' id='full_name'/>"
            "</form>");
+  fake_driver_.WaitForFormsSeen();
 
   blink::WebInputElement full_name = GetMainFrame()
                                          ->GetDocument()

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_ASH_WEB_APPLICATIONS_MEDIA_APP_MEDIA_APP_GUEST_UI_CONFIG_H_
 
 #include "ash/webui/media_app_ui/media_app_guest_ui.h"
-#include "ui/webui/webui_config.h"
+#include "content/public/browser/webui_config.h"
 
 namespace content {
 class WebUIDataSource;
@@ -27,7 +27,7 @@ class ChromeMediaAppGuestUIDelegate : public ash::MediaAppGuestUIDelegate {
 };
 
 // A webui config for the chrome-untrusted:// part of media-app.
-class MediaAppGuestUIConfig : public ui::WebUIConfig {
+class MediaAppGuestUIConfig : public content::WebUIConfig {
  public:
   MediaAppGuestUIConfig();
   MediaAppGuestUIConfig(const MediaAppGuestUIConfig& other) = delete;
@@ -35,7 +35,8 @@ class MediaAppGuestUIConfig : public ui::WebUIConfig {
   ~MediaAppGuestUIConfig() override;
 
   std::unique_ptr<content::WebUIController> CreateWebUIController(
-      content::WebUI* web_ui) override;
+      content::WebUI* web_ui,
+      const GURL& url) override;
 };
 
 #endif  // CHROME_BROWSER_ASH_WEB_APPLICATIONS_MEDIA_APP_MEDIA_APP_GUEST_UI_CONFIG_H_

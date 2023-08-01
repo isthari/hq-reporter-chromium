@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,20 +14,23 @@
 #include "base/json/json_string_value_serializer.h"
 #include "base/logging.h"
 #include "base/path_service.h"
+#include "base/strings/strcat.h"
 #include "base/strings/string_piece.h"
+#include "base/strings/string_piece_forward.h"
 #include "base/strings/string_util.h"
 #include "base/system/sys_info.h"
-#include "base/task/post_task.h"
 #include "base/task/thread_pool.h"
 #include "base/trace_event/trace_event.h"
 #include "build/branding_buildflags.h"
+#include "chrome/browser/ash/settings/cros_settings.h"
 #include "chrome/browser/extensions/component_loader.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/grit/browser_resources.h"
+#include "chromeos/ash/components/settings/cros_settings_names.h"
+#include "chromeos/constants/chromeos_features.h"
 #include "chromeos/ime/input_methods.h"
 #include "extensions/browser/extension_pref_value_map.h"
 #include "extensions/browser/extension_pref_value_map_factory.h"
@@ -35,6 +38,7 @@
 #include "extensions/browser/extension_system.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/manifest_constants.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/ime/ash/extension_ime_util.h"
 #include "ui/base/resource/resource_bundle.h"
 
@@ -195,12 +199,6 @@ void ComponentExtensionIMEManagerDelegateImpl::Load(
   // will improve the IME extension load latency a lot.
   // See http://b/192032670 for more details.
   if (extension_id == extension_ime_util::kXkbExtensionId) {
-    // Update manifest content inplace to load Mojo background page for ChromeOS
-    // IME extension when the feature 'ImeMojoDecoder' is enabled.
-    // See http://b/181170189 for more details.
-    // TODO(http://b/170278753): Remove this once NaCl decoder is removed.
-    base::ReplaceFirstSubstringAfterOffset(manifest_cp, 0, "background.html",
-                                           "background_mojo.html");
     DoLoadExtension(profile, extension_id, *manifest_cp, file_path);
     return;
   }
@@ -224,26 +222,29 @@ bool ComponentExtensionIMEManagerDelegateImpl::IsInLoginLayoutAllowlist(
   return login_layout_set_.find(layout) != login_layout_set_.end();
 }
 
-std::unique_ptr<base::DictionaryValue>
-ComponentExtensionIMEManagerDelegateImpl::GetManifest(
-    const std::string& manifest_string) {
-  std::string error;
-  JSONStringValueDeserializer deserializer(manifest_string);
-  std::unique_ptr<base::Value> manifest =
-      deserializer.Deserialize(nullptr, &error);
-  if (!manifest.get())
-    LOG(ERROR) << "Failed at getting manifest";
-
-  std::unique_ptr<base::DictionaryValue> ret(
-      static_cast<base::DictionaryValue*>(manifest.release()));
-  return ret;
+absl::optional<base::Value::Dict>
+ComponentExtensionIMEManagerDelegateImpl::ParseManifest(
+    const base::StringPiece& manifest_string) {
+  base::JSONReader::Result result =
+      base::JSONReader::ReadAndReturnValueWithError(manifest_string);
+  if (!result.has_value()) {
+    LOG(ERROR) << "Failed to parse manifest: " << result.error().message
+               << " at line " << result.error().line << " column "
+               << result.error().column;
+    return absl::nullopt;
+  }
+  if (!result.value().is_dict()) {
+    LOG(ERROR) << "Failed to parse manifest: parsed value is not a dictionary";
+    return absl::nullopt;
+  }
+  return absl::make_optional(std::move(result.value()).TakeDict());
 }
 
 // static
 bool ComponentExtensionIMEManagerDelegateImpl::IsIMEExtensionID(
     const std::string& id) {
   for (auto& extension : allowlisted_component_extensions) {
-    if (base::LowerCaseEqualsASCII(id, extension.id))
+    if (base::EqualsCaseInsensitiveASCII(id, extension.id))
       return true;
   }
   return false;
@@ -252,28 +253,28 @@ bool ComponentExtensionIMEManagerDelegateImpl::IsIMEExtensionID(
 // static
 bool ComponentExtensionIMEManagerDelegateImpl::ReadEngineComponent(
     const ComponentExtensionIME& component_extension,
-    const base::DictionaryValue& dict,
+    const base::Value::Dict& dict,
     ComponentExtensionEngine* out) {
   DCHECK(out);
   const std::string* engine_id =
-      dict.FindStringKey(extensions::manifest_keys::kId);
+      dict.FindString(extensions::manifest_keys::kId);
   if (!engine_id)
     return false;
   out->engine_id = *engine_id;
 
   const std::string* display_name =
-      dict.FindStringKey(extensions::manifest_keys::kName);
+      dict.FindString(extensions::manifest_keys::kName);
   if (!display_name)
     return false;
   out->display_name = *display_name;
 
   const std::string* indicator =
-      dict.FindStringKey(extensions::manifest_keys::kIndicator);
+      dict.FindString(extensions::manifest_keys::kIndicator);
   out->indicator = indicator ? *indicator : "";
 
   std::set<std::string> languages;
   const base::Value* language_value =
-      dict.FindKey(extensions::manifest_keys::kLanguage);
+      dict.Find(extensions::manifest_keys::kLanguage);
   if (language_value) {
     if (language_value->is_string()) {
       languages.insert(language_value->GetString());
@@ -292,13 +293,13 @@ bool ComponentExtensionIMEManagerDelegateImpl::ReadEngineComponent(
   // supports one layout per input method. Thus use the "first" layout if
   // specified, else default to "us". CrOS IME extension manifests should
   // specify one and only one layout per input method to avoid confusion.
-  const base::ListValue* layouts = nullptr;
-  if (!dict.GetList(extensions::manifest_keys::kLayouts, &layouts))
+  const base::Value::List* layouts =
+      dict.FindList(extensions::manifest_keys::kLayouts);
+  if (!layouts)
     return false;
 
-  base::Value::ConstListView layouts_list = layouts->GetList();
-  if (!layouts_list.empty() && layouts_list[0].is_string())
-    out->layout = layouts_list[0].GetString();
+  if (!layouts->empty() && layouts->front().is_string())
+    out->layout = layouts->front().GetString();
   else
     out->layout = "us";
 
@@ -306,15 +307,17 @@ bool ComponentExtensionIMEManagerDelegateImpl::ReadEngineComponent(
 #if BUILDFLAG(GOOGLE_CHROME_BRANDING)
   // Information is managed on VK extension side so just use a default value
   // here.
+  std::string query_part = base::StrCat(
+      {"?", "jelly=", chromeos::features::IsJellyEnabled() ? "true" : "false"});
   GURL url = extensions::Extension::GetResourceURL(
       extensions::Extension::GetBaseURLFromExtensionId(component_extension.id),
-      "inputview.html#id=default");
+      "inputview.html" + query_part + "#id=default");
   if (!url.is_valid())
     return false;
   out->input_view_url = url;
 #else
   const std::string* input_view =
-      dict.FindStringKey(extensions::manifest_keys::kInputView);
+      dict.FindString(extensions::manifest_keys::kInputView);
   if (input_view) {
     url_string = *input_view;
     GURL url = extensions::Extension::GetResourceURL(
@@ -328,16 +331,16 @@ bool ComponentExtensionIMEManagerDelegateImpl::ReadEngineComponent(
 #endif
 
   const std::string* option_page =
-      dict.FindStringKey(extensions::manifest_keys::kOptionsPage);
+      dict.FindString(extensions::manifest_keys::kOptionsPage);
   if (option_page) {
     url_string = *option_page;
-    GURL url = extensions::Extension::GetResourceURL(
+    GURL options_page_url = extensions::Extension::GetResourceURL(
         extensions::Extension::GetBaseURLFromExtensionId(
             component_extension.id),
         url_string);
-    if (!url.is_valid())
+    if (!options_page_url.is_valid())
       return false;
-    out->options_page_url = url;
+    out->options_page_url = options_page_url;
   } else {
     // Fallback to extension level options page.
     out->options_page_url = component_extension.options_page_url;
@@ -348,20 +351,20 @@ bool ComponentExtensionIMEManagerDelegateImpl::ReadEngineComponent(
 
 // static
 bool ComponentExtensionIMEManagerDelegateImpl::ReadExtensionInfo(
-    const base::DictionaryValue& manifest,
+    const base::Value::Dict& manifest,
     const std::string& extension_id,
     ComponentExtensionIME* out) {
   const std::string* description =
-      manifest.FindStringKey(extensions::manifest_keys::kDescription);
+      manifest.FindString(extensions::manifest_keys::kDescription);
   if (!description)
     return false;
   out->description = *description;
 
-  const std::string* path = manifest.FindStringKey(kImePathKeyName);
+  const std::string* path = manifest.FindString(kImePathKeyName);
   if (path)
     out->path = base::FilePath(*path);
   const std::string* url_string =
-      manifest.FindStringKey(extensions::manifest_keys::kOptionsPage);
+      manifest.FindString(extensions::manifest_keys::kOptionsPage);
   if (url_string) {
     GURL url = extensions::Extension::GetResourceURL(
         extensions::Extension::GetBaseURLFromExtensionId(extension_id),
@@ -381,8 +384,9 @@ void ComponentExtensionIMEManagerDelegateImpl::ReadComponentExtensionsInfo(
   for (auto& extension : allowlisted_component_extensions) {
     ComponentExtensionIME component_ime;
     ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
-    component_ime.manifest =
-        std::string(rb.GetRawDataResource(extension.manifest_resource_id));
+    const base::StringPiece& manifest_string =
+        rb.GetRawDataResource(extension.manifest_resource_id);
+    component_ime.manifest = std::string(manifest_string);
 
     if (component_ime.manifest.empty()) {
       LOG(ERROR) << "Couldn't get manifest from resource_id("
@@ -390,15 +394,16 @@ void ComponentExtensionIMEManagerDelegateImpl::ReadComponentExtensionsInfo(
       continue;
     }
 
-    std::unique_ptr<base::DictionaryValue> manifest =
-        GetManifest(component_ime.manifest);
-    if (!manifest.get()) {
+    absl::optional<base::Value::Dict> maybe_manifest =
+        ParseManifest(manifest_string);
+    if (!maybe_manifest.has_value()) {
       LOG(ERROR) << "Failed to load invalid manifest: "
                  << component_ime.manifest;
       continue;
     }
+    const base::Value::Dict& manifest = maybe_manifest.value();
 
-    if (!ReadExtensionInfo(*manifest.get(), extension.id, &component_ime)) {
+    if (!ReadExtensionInfo(manifest, extension.id, &component_ime)) {
       LOG(ERROR) << "manifest doesn't have needed information for IME.";
       continue;
     }
@@ -412,19 +417,18 @@ void ComponentExtensionIMEManagerDelegateImpl::ReadComponentExtensionsInfo(
       component_ime.path = resources_path.Append(component_ime.path);
     }
 
-    const base::ListValue* component_list;
-    if (!manifest->GetList(extensions::manifest_keys::kInputComponents,
-                           &component_list)) {
+    const base::Value::List* component_list =
+        manifest.FindList(extensions::manifest_keys::kInputComponents);
+    if (!component_list) {
       LOG(ERROR) << "No input_components is found in manifest.";
       continue;
     }
 
-    for (const base::Value& value : component_list->GetList()) {
+    for (const base::Value& value : *component_list) {
       if (!value.is_dict())
         continue;
 
-      const base::DictionaryValue& dictionary =
-          base::Value::AsDictionaryValue(value);
+      const base::Value::Dict& dictionary = value.GetDict();
       ComponentExtensionEngine engine;
       ReadEngineComponent(component_ime, dictionary, &engine);
 
@@ -432,6 +436,17 @@ void ComponentExtensionIMEManagerDelegateImpl::ReadComponentExtensionsInfo(
                            base::CompareCase::SENSITIVE) &&
           !base::FeatureList::IsEnabled(features::kMultilingualTyping)) {
         continue;
+      }
+
+      const char* kHindiInscriptEngineId = "vkd_hi_inscript";
+      if (engine.engine_id == kHindiInscriptEngineId &&
+          !base::FeatureList::IsEnabled(features::kHindiInscriptLayout)) {
+        bool policy_value = false;
+        CrosSettings::Get()->GetBoolean(kDeviceHindiInscriptLayoutEnabled,
+                                        &policy_value);
+        if (!policy_value) {
+          continue;
+        }
       }
 
       component_ime.engines.push_back(engine);

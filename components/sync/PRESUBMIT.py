@@ -1,4 +1,4 @@
-# Copyright 2016 The Chromium Authors. All rights reserved.
+# Copyright 2016 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -58,8 +58,8 @@ MODEL_TYPE_END_PATTERN = '^\};'
 # Strings relating to files we'll need to read.
 # model_type.cc is where the ModelTypeInfoMap is
 # entity_specifics.proto is where the proto definitions for ModelTypes are.
-PROTO_FILE_PATH = './protocol/entity_specifics.proto'
-PROTO_FILE_NAME = 'entity_specifics.proto'
+ENTITY_SPECIFICS_PROTO_FILE_PATH = './protocol/entity_specifics.proto'
+ENTITY_SPECIFICS_PROTO_FILE_NAME = 'entity_specifics.proto'
 MODEL_TYPE_FILE_NAME = 'model_type.cc'
 
 SYNC_SOURCE_FILES = (r'^components[\\/]sync[\\/].*\.(cc|h)$',)
@@ -96,7 +96,7 @@ def CheckModelTypeInfoMap(input_api, output_api, model_type_file):
   if not check_map:
     return []
   proto_field_definitions = ParseEntitySpecificsProtoFieldIdentifiers(
-    input_api, os.path.abspath(PROTO_FILE_PATH))
+    input_api, os.path.abspath(ENTITY_SPECIFICS_PROTO_FILE_PATH))
   accumulated_problems.extend(
     CheckNoDuplicatedFieldValues(output_api, map_entries))
 
@@ -197,6 +197,7 @@ def ParseEntitySpecificsProtoFieldIdentifiers(input_api, proto_path):
   start_pattern = input_api.re.compile(PROTO_DEFINITION_START_PATTERN)
   end_pattern = input_api.re.compile(PROTO_DEFINITION_END_PATTERN)
   in_proto_def = False
+  split_proto_line = []
   for line in proto_file_contents:
     if start_pattern.match(line):
       in_proto_def = True
@@ -204,10 +205,16 @@ def ParseEntitySpecificsProtoFieldIdentifiers(input_api, proto_path):
     if in_proto_def:
       if end_pattern.match(line):
         break
+      # Clean up last line on the end of the definition.
+      if len(split_proto_line) > 0 and (';' in split_proto_line[-1]):
+        split_proto_line.clear()
       line = line.strip()
-      split_proto_line = line.split(' ')
-      # ignore comments and lines that don't contain definitions.
-      if '//' in line or len(split_proto_line) < 3:
+      # Ignore comments.
+      if '//' in line:
+        continue
+      split_proto_line.extend(line.split(' '))
+      # Ignore lines that don't contain definitions.
+      if len(split_proto_line) < 3:
         continue
 
       field_typename = split_proto_line[0]
@@ -220,8 +227,7 @@ def StripTrailingS(string):
 
 
 def IsTitleCased(string):
-  return reduce(lambda bool1, bool2: bool1 and bool2,
-    [s[0].isupper() for s in string.split(' ')])
+  return all([s[0].isupper() for s in string.split(' ')])
 
 
 def FormatPresubmitError(output_api, message, affected_lines):
@@ -334,7 +340,7 @@ def CheckRootTagMatchesModelType(output_api, map_entry):
     StripTrailingS(map_entry.root_tag)):
     return [
       FormatPresubmitError(
-        output_api,'root tag "%s" does not match model type. It should'
+        output_api,'root tag "%s" does not match model type. It should '
         'be "%s"' % (map_entry.root_tag, expected_root_tag),
         map_entry.affected_lines)]
   return []
@@ -377,10 +383,25 @@ def CheckChangeLintsClean(input_api, output_api):
 def CheckChanges(input_api, output_api):
   results = []
   results += CheckChangeLintsClean(input_api, output_api)
+
+  proto_file_changed = False
+  proto_visitors_changed = False
+
   for f in input_api.AffectedFiles():
     if (f.LocalPath().endswith(MODEL_TYPE_FILE_NAME) or
-        f.LocalPath().endswith(PROTO_FILE_NAME)):
+        f.LocalPath().endswith(ENTITY_SPECIFICS_PROTO_FILE_NAME)):
       results += CheckModelTypeInfoMap(input_api, output_api, f)
+
+    if (f.LocalPath().endswith('.proto')):
+      proto_file_changed = True
+    if (f.LocalPath().endswith(os.path.sep + 'proto_visitors.h')):
+      proto_visitors_changed = True
+
+  if proto_file_changed and not proto_visitors_changed:
+    results.append(
+      output_api.PresubmitPromptWarning(
+        'You changed proto files, but didn\'t change proto_visitors.h'))
+
   return results
 
 def CheckChangeOnUpload(input_api, output_api):

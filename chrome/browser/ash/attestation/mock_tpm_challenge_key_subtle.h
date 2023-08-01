@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,16 +21,16 @@ class MockTpmChallengeKeySubtle : public TpmChallengeKeySubtle {
       delete;
   ~MockTpmChallengeKeySubtle() override;
 
-  MOCK_METHOD(
-      void,
-      StartPrepareKeyStep,
-      (AttestationKeyType key_type,
-       bool will_register_key,
-       const std::string& key_name,
-       Profile* profile,
-       TpmChallengeKeyCallback callback,
-       const absl::optional<::attestation::DeviceTrustSignals>& signals),
-      (override));
+  MOCK_METHOD(void,
+              StartPrepareKeyStep,
+              (AttestationKeyType key_type,
+               bool will_register_key,
+               ::attestation::KeyType key_crypto_type,
+               const std::string& key_name,
+               Profile* profile,
+               TpmChallengeKeyCallback callback,
+               const absl::optional<std::string>& signals),
+              (override));
 
   MOCK_METHOD(void,
               StartSignChallengeStep,
@@ -46,6 +46,7 @@ class MockTpmChallengeKeySubtle : public TpmChallengeKeySubtle {
               RestorePreparedKeyState,
               (AttestationKeyType key_type,
                bool will_register_key,
+               ::attestation::KeyType key_crypto_type,
                const std::string& key_name,
                const std::string& public_key,
                Profile* profile),

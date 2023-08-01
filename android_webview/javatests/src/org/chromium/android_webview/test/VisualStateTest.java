@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,9 @@ import static org.chromium.base.test.util.ScalableTimeout.scaleTimeout;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Rect;
-import android.support.test.InstrumentationRegistry;
 import android.util.Base64;
 
+import androidx.test.InstrumentationRegistry;
 import androidx.test.filters.SmallTest;
 
 import org.junit.Assert;
@@ -25,16 +25,16 @@ import org.chromium.android_webview.AwContents.VisualStateCallback;
 import org.chromium.android_webview.AwContentsClient;
 import org.chromium.android_webview.test.util.CommonResources;
 import org.chromium.android_webview.test.util.GraphicsTestUtils;
+import org.chromium.android_webview.test.util.JSUtils;
 import org.chromium.android_webview.test.util.JavascriptEventObserver;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.Feature;
 import org.chromium.components.embedder_support.util.WebResourceResponseInfo;
 import org.chromium.content_public.browser.JavascriptInjector;
 import org.chromium.content_public.browser.LoadUrlParams;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.WebContents;
-import org.chromium.content_public.browser.test.util.DOMUtils;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 
 import java.io.ByteArrayInputStream;
@@ -113,7 +113,7 @@ public class VisualStateTest {
         public InputStream getData() {
             final DelayedInputStream stream = (DelayedInputStream) super.getData();
             PostTask.postDelayedTask(
-                    UiThreadTaskTraits.DEFAULT, () -> stream.allowReads(), IMAGE_LOADING_DELAY_MS);
+                    TaskTraits.UI_DEFAULT, () -> stream.allowReads(), IMAGE_LOADING_DELAY_MS);
             return stream;
         }
     }
@@ -314,7 +314,7 @@ public class VisualStateTest {
 
         Assert.assertTrue(readyToUpdateColor.await(
                 AwActivityTestRule.SCALED_WAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS));
-        DOMUtils.clickNode(webContents, UPDATE_COLOR_CONTROL_ID);
+        JSUtils.clickNodeWithUserGesture(webContents, UPDATE_COLOR_CONTROL_ID);
         Assert.assertTrue(jsObserver.waitForEvent(WAIT_TIMEOUT_MS));
 
         InstrumentationRegistry.getInstrumentation().runOnMainSync(
@@ -381,7 +381,7 @@ public class VisualStateTest {
 
         Assert.assertTrue(readyToEnterFullscreenSignal.await(
                 AwActivityTestRule.SCALED_WAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS));
-        DOMUtils.clickNode(webContents, ENTER_FULLSCREEN_CONTROL_ID);
+        JSUtils.clickNodeWithUserGesture(webContents, ENTER_FULLSCREEN_CONTROL_ID);
         Assert.assertTrue(jsObserver.waitForEvent(WAIT_TIMEOUT_MS));
 
         InstrumentationRegistry.getInstrumentation().runOnMainSync(
@@ -428,7 +428,7 @@ public class VisualStateTest {
         // JS will notify this observer once it has changed the background color of the page.
         final Object pageChangeNotifier = new Object() {
             public void onPageChanged() {
-                PostTask.postTask(UiThreadTaskTraits.DEFAULT,
+                PostTask.postTask(TaskTraits.UI_DEFAULT,
                         () -> awContents.insertVisualStateCallback(20, new VisualStateCallback() {
                             @Override
                             public void onComplete(long id) {

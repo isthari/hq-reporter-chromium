@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -98,6 +98,20 @@ TEST_F(ContentSettingsRegistryTest, Properties) {
   // Check the WebsiteSettingsInfo is registered correctly.
   EXPECT_EQ(website_settings_registry()->Get(ContentSettingsType::COOKIES),
             website_settings_info);
+
+  // Check that PRIVATE_NETWORK_GUARD is registered correctly.
+#if !BUILDFLAG(IS_IOS) && !BUILDFLAG(IS_ANDROID)
+  info = registry()->Get(ContentSettingsType::PRIVATE_NETWORK_GUARD);
+  ASSERT_TRUE(info);
+
+  // Check the other properties are populated correctly.
+  EXPECT_TRUE(info->IsSettingValid(CONTENT_SETTING_BLOCK));
+  EXPECT_TRUE(info->IsSettingValid(CONTENT_SETTING_ASK));
+  EXPECT_FALSE(info->IsSettingValid(CONTENT_SETTING_SESSION_ONLY));
+  EXPECT_FALSE(info->IsSettingValid(CONTENT_SETTING_ALLOW));
+  EXPECT_EQ(ContentSettingsInfo::INHERIT_IF_LESS_PERMISSIVE,
+            info->incognito_behavior());
+#endif
 }
 
 TEST_F(ContentSettingsRegistryTest, Iteration) {
@@ -127,8 +141,7 @@ TEST_F(ContentSettingsRegistryTest, Inheritance) {
       ContentSettingsType::ADS,
       ContentSettingsType::DURABLE_STORAGE,
       ContentSettingsType::LEGACY_COOKIE_ACCESS,
-      ContentSettingsType::STORAGE_ACCESS,
-      ContentSettingsType::INSECURE_PRIVATE_NETWORK,
+      ContentSettingsType::INSECURE_LOCAL_NETWORK,
       ContentSettingsType::REQUEST_DESKTOP_SITE,
   };
 
@@ -166,13 +179,16 @@ TEST_F(ContentSettingsRegistryTest, IsDefaultSettingValid) {
   EXPECT_FALSE(info->IsDefaultSettingValid(CONTENT_SETTING_ALLOW));
 #endif
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
+#if BUILDFLAG(IS_CHROMEOS)
   info = registry()->Get(ContentSettingsType::PROTECTED_MEDIA_IDENTIFIER);
   EXPECT_TRUE(info->IsDefaultSettingValid(CONTENT_SETTING_ALLOW));
 #endif
 
 #if !BUILDFLAG(IS_IOS) && !BUILDFLAG(IS_ANDROID)
   info = registry()->Get(ContentSettingsType::FILE_SYSTEM_WRITE_GUARD);
+  EXPECT_FALSE(info->IsDefaultSettingValid(CONTENT_SETTING_ALLOW));
+
+  info = registry()->Get(ContentSettingsType::PRIVATE_NETWORK_GUARD);
   EXPECT_FALSE(info->IsDefaultSettingValid(CONTENT_SETTING_ALLOW));
 #endif
 }
@@ -196,10 +212,33 @@ TEST_F(ContentSettingsRegistryTest, GetInitialDefaultSetting) {
       registry()->Get(ContentSettingsType::POPUPS);
   EXPECT_EQ(CONTENT_SETTING_BLOCK, popups->GetInitialDefaultSetting());
 
-  const ContentSettingsInfo* insecure_private_network =
-      registry()->Get(ContentSettingsType::INSECURE_PRIVATE_NETWORK);
+  const ContentSettingsInfo* insecure_local_network =
+      registry()->Get(ContentSettingsType::INSECURE_LOCAL_NETWORK);
   EXPECT_EQ(CONTENT_SETTING_BLOCK,
-            insecure_private_network->GetInitialDefaultSetting());
+            insecure_local_network->GetInitialDefaultSetting());
+
+  const ContentSettingsInfo* federated_identity =
+      registry()->Get(ContentSettingsType::FEDERATED_IDENTITY_API);
+  EXPECT_EQ(CONTENT_SETTING_ALLOW,
+            federated_identity->GetInitialDefaultSetting());
+
+  const ContentSettingsInfo* federated_identity_auto_reauthn = registry()->Get(
+      ContentSettingsType::FEDERATED_IDENTITY_AUTO_REAUTHN_PERMISSION);
+  EXPECT_EQ(CONTENT_SETTING_ALLOW,
+            federated_identity_auto_reauthn->GetInitialDefaultSetting());
+}
+
+TEST_F(ContentSettingsRegistryTest, SettingsHaveAHistogramMapping) {
+  size_t count = 0;
+  std::set<int> values;
+  for (const WebsiteSettingsInfo* info : *website_settings_registry()) {
+    int value = ContentSettingTypeToHistogramValue(info->type());
+    EXPECT_GT(value, 0);
+    count++;
+    values.insert(value);
+  }
+  // Validate that values are unique.
+  EXPECT_EQ(count, values.size());
 }
 
 }  // namespace content_settings

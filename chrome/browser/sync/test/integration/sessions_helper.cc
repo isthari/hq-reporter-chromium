@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,13 +9,13 @@
 #include <set>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/memory/weak_ptr.h"
+#include "base/ranges/algorithm.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/test/test_timeouts.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/session_sync_service_factory.h"
@@ -23,12 +23,11 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/singleton_tabs.h"
+#include "chrome/browser/ui/tabs/tab_enums.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/ui_test_utils.h"
-#include "components/sync/driver/sync_client.h"
-#include "components/sync/test/fake_server/fake_server.h"
-#include "components/sync/test/fake_server/sessions_hierarchy.h"
+#include "components/sync/service/sync_client.h"
 #include "components/sync_sessions/open_tabs_ui_delegate.h"
 #include "components/sync_sessions/session_sync_service.h"
 #include "content/public/browser/navigation_entry.h"
@@ -140,9 +139,9 @@ bool OpenTabFromSourceIndex(int browser_index,
                                          ui::PAGE_TRANSITION_LINK, false,
                                          false);
   open_url_params.source_render_frame_id =
-      source_contents->GetMainFrame()->GetRoutingID();
+      source_contents->GetPrimaryMainFrame()->GetRoutingID();
   open_url_params.source_render_process_id =
-      source_contents->GetMainFrame()->GetProcess()->GetID();
+      source_contents->GetPrimaryMainFrame()->GetProcess()->GetID();
 
   content::WebContents* new_contents =
       source_contents->OpenURL(open_url_params);
@@ -156,7 +155,7 @@ bool OpenTabFromSourceIndex(int browser_index,
 void CloseTab(int browser_index, int tab_index) {
   TabStripModel* tab_strip =
       test()->GetBrowser(browser_index)->tab_strip_model();
-  tab_strip->CloseWebContentsAt(tab_index, TabStripModel::CLOSE_USER_GESTURE);
+  tab_strip->CloseWebContentsAt(tab_index, TabCloseTypes::CLOSE_USER_GESTURE);
 }
 
 void MoveTab(int from_browser_index, int to_browser_index, int tab_index) {
@@ -170,7 +169,7 @@ void MoveTab(int from_browser_index, int to_browser_index, int tab_index) {
       test()->GetBrowser(to_browser_index)->tab_strip_model();
   target_strip->InsertWebContentsAt(target_strip->count(),
                                     std::move(detached_contents),
-                                    TabStripModel::ADD_ACTIVE);
+                                    AddTabTypes::ADD_ACTIVE);
 }
 
 void NavigateTab(int browser_index, const GURL& url) {
@@ -197,9 +196,11 @@ void NavigateTabForward(int browser_index) {
 }
 
 bool ExecJs(int browser_index, int tab_index, const std::string& script) {
-  return content::ExecJs(
-      test()->GetBrowser(browser_index)->tab_strip_model()->GetWebContentsAt(0),
-      script);
+  return content::ExecJs(test()
+                             ->GetBrowser(browser_index)
+                             ->tab_strip_model()
+                             ->GetWebContentsAt(tab_index),
+                         script);
 }
 
 bool WaitForTabsToLoad(int browser_index, const std::vector<GURL>& urls) {
@@ -258,13 +259,11 @@ bool GetLocalWindows(int browser_index, ScopedWindowMap* local_windows) {
         std::make_unique<sync_sessions::SyncedSessionWindow>();
     new_window->wrapped_window.window_id =
         SessionID::FromSerializedValue(window.window_id.id());
-    for (size_t t = 0; t < window.tabs.size(); ++t) {
-      const sessions::SessionTab& tab = *window.tabs.at(t);
+    for (const std::unique_ptr<sessions::SessionTab>& tab : window.tabs) {
       std::unique_ptr<sessions::SessionTab> new_tab =
           std::make_unique<sessions::SessionTab>();
-      new_tab->navigations.resize(tab.navigations.size());
-      std::copy(tab.navigations.begin(), tab.navigations.end(),
-                new_tab->navigations.begin());
+      new_tab->navigations.resize(tab->navigations.size());
+      base::ranges::copy(tab->navigations, new_tab->navigations.begin());
       new_window->wrapped_window.tabs.push_back(std::move(new_tab));
     }
     SessionID id = new_window->wrapped_window.window_id;
@@ -275,10 +274,12 @@ bool GetLocalWindows(int browser_index, ScopedWindowMap* local_windows) {
 }
 
 bool CheckInitialState(int browser_index) {
-  if (0 != GetNumWindows(browser_index))
+  if (0 != GetNumWindows(browser_index)) {
     return false;
-  if (0 != GetNumForeignSessions(browser_index))
+  }
+  if (0 != GetNumForeignSessions(browser_index)) {
     return false;
+  }
   return true;
 }
 
@@ -323,7 +324,7 @@ bool CompareSyncedSessions(const sync_sessions::SyncedSession* lhs,
 }
 
 void SortSyncedSessions(SyncedSessionVector* sessions) {
-  std::sort(sessions->begin(), sessions->end(), CompareSyncedSessions);
+  base::ranges::sort(*sessions, CompareSyncedSessions);
 }
 
 bool NavigationEquals(const sessions::SerializedNavigationEntry& expected,

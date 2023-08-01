@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,10 +10,7 @@
 
 namespace blink {
 
-class InlineBox;
-struct InlineBoxPosition;
 struct NGCaretPosition;
-class NGPaintFragment;
 enum class TextDirection : uint8_t;
 
 class BidiAdjustment final {
@@ -22,14 +19,11 @@ class BidiAdjustment final {
  public:
   // Function to be called at the end of caret position resolution, adjusting
   // the result in bidi text runs.
-  static InlineBoxPosition AdjustForCaretPositionResolution(
-      const InlineBoxPosition&);
   static NGCaretPosition AdjustForCaretPositionResolution(
       const NGCaretPosition&);
 
   // Function to be called at the end of hit tests, adjusting the result in bidi
   // text runs.
-  static InlineBoxPosition AdjustForHitTest(const InlineBoxPosition&);
   static NGCaretPosition AdjustForHitTest(const NGCaretPosition&);
 
   // Function to be called at the end of creating a range selection by mouse
@@ -40,9 +34,6 @@ class BidiAdjustment final {
       const PositionInFlatTreeWithAffinity&,
       const PositionInFlatTreeWithAffinity&);
 };
-
-TextDirection ParagraphDirectionOf(const InlineBox&);
-TextDirection ParagraphDirectionOf(const NGPaintFragment&);
 
 }  // namespace blink
 

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,15 +6,17 @@
 
 #import <CoreSpotlight/CoreSpotlight.h>
 
-#include "base/mac/foundation_util.h"
-#include "base/metrics/histogram_macros.h"
-#include "base/strings/sys_string_conversions.h"
+#import "base/mac/foundation_util.h"
+#import "base/metrics/histogram_macros.h"
+#import "base/strings/sys_string_conversions.h"
 #import "ios/chrome/app/app_startup_parameters.h"
-#include "ios/chrome/common/app_group/app_group_constants.h"
-#include "ios/chrome/grit/ios_strings.h"
-#include "net/base/mac/url_conversions.h"
-#include "ui/base/l10n/l10n_util.h"
-#include "url/gurl.h"
+#import "ios/chrome/app/spotlight/spotlight_interface.h"
+#import "ios/chrome/app/spotlight/spotlight_logger.h"
+#import "ios/chrome/common/app_group/app_group_constants.h"
+#import "ios/chrome/grit/ios_strings.h"
+#import "net/base/mac/url_conversions.h"
+#import "ui/base/l10n/l10n_util.h"
+#import "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -41,6 +43,7 @@ const char kSpotlightActionNewTab[] = "OpenNewTab";
 const char kSpotlightActionNewIncognitoTab[] = "OpenIncognitoTab";
 const char kSpotlightActionVoiceSearch[] = "OpenVoiceSearch";
 const char kSpotlightActionQRScanner[] = "OpenQRScanner";
+const char kSpotlightActionSetDefaultBrowser[] = "SetDefaultBrowser";
 
 // Enum is used to record the actions performed by the user.
 enum {
@@ -52,8 +55,10 @@ enum {
   SPOTLIGHT_ACTION_VOICE_SEARCH_PRESSED,
   // Recorded when a user pressed the QR scanner spotlight action.
   SPOTLIGHT_ACTION_QR_CODE_SCANNER_PRESSED,
+  // Recorded when a user pressed the Set Default Browser spotlight action.
+  SPOTLIGHT_ACTION_SET_DEFAULT_BROWSER_PRESSED,
   // NOTE: Add new spotlight actions in sources only immediately above this
-  // line. Also, make sure the enum list for histogram |SpotlightActions| in
+  // line. Also, make sure the enum list for histogram `SpotlightActions` in
   // histograms.xml is updated with any change in here.
   SPOTLIGHT_ACTION_COUNT
 };
@@ -71,24 +76,37 @@ BOOL SetStartupParametersForSpotlightAction(
     UMA_HISTOGRAM_ENUMERATION(kSpotlightActionsHistogram,
                               SPOTLIGHT_ACTION_NEW_INCOGNITO_TAB_PRESSED,
                               SPOTLIGHT_ACTION_COUNT);
-    [startupParams setLaunchInIncognito:YES];
+    [startupParams setApplicationMode:ApplicationModeForTabOpening::INCOGNITO];
   } else if ([action isEqualToString:base::SysUTF8ToNSString(
                                          kSpotlightActionVoiceSearch)]) {
     UMA_HISTOGRAM_ENUMERATION(kSpotlightActionsHistogram,
                               SPOTLIGHT_ACTION_VOICE_SEARCH_PRESSED,
                               SPOTLIGHT_ACTION_COUNT);
+    [startupParams setApplicationMode:ApplicationModeForTabOpening::NORMAL];
     [startupParams setPostOpeningAction:START_VOICE_SEARCH];
   } else if ([action isEqualToString:base::SysUTF8ToNSString(
                                          kSpotlightActionQRScanner)]) {
     UMA_HISTOGRAM_ENUMERATION(kSpotlightActionsHistogram,
                               SPOTLIGHT_ACTION_QR_CODE_SCANNER_PRESSED,
                               SPOTLIGHT_ACTION_COUNT);
+    [startupParams setApplicationMode:ApplicationModeForTabOpening::NORMAL];
     [startupParams setPostOpeningAction:START_QR_CODE_SCANNER];
   } else if ([action isEqualToString:base::SysUTF8ToNSString(
                                          kSpotlightActionNewTab)]) {
     UMA_HISTOGRAM_ENUMERATION(kSpotlightActionsHistogram,
                               SPOTLIGHT_ACTION_NEW_TAB_PRESSED,
                               SPOTLIGHT_ACTION_COUNT);
+    [startupParams setApplicationMode:ApplicationModeForTabOpening::NORMAL];
+  } else if ([action isEqualToString:base::SysUTF8ToNSString(
+                                         kSpotlightActionSetDefaultBrowser)]) {
+    UMA_HISTOGRAM_ENUMERATION(kSpotlightActionsHistogram,
+                              SPOTLIGHT_ACTION_SET_DEFAULT_BROWSER_PRESSED,
+                              SPOTLIGHT_ACTION_COUNT);
+    [[UIApplication sharedApplication]
+                  openURL:[NSURL
+                              URLWithString:UIApplicationOpenSettingsURLString]
+                  options:{}
+        completionHandler:nil];
   } else {
     return NO;
   }
@@ -98,8 +116,7 @@ BOOL SetStartupParametersForSpotlightAction(
 }  // namespace spotlight
 
 @interface ActionsSpotlightManager ()
-
-// Creates a new Spotlight entry with title |title| for the given |action|.
+// Creates a new Spotlight entry with title `title` for the given `action`.
 - (CSSearchableItem*)itemForAction:(NSString*)action title:(NSString*)title;
 
 // Clears and re-inserts all Spotlight actions.
@@ -112,7 +129,8 @@ BOOL SetStartupParametersForSpotlightAction(
 + (ActionsSpotlightManager*)actionsSpotlightManager {
   return [[ActionsSpotlightManager alloc]
       initWithLargeIconService:nil
-                        domain:spotlight::DOMAIN_ACTIONS];
+                        domain:spotlight::DOMAIN_ACTIONS
+            spotlightInterface:[SpotlightInterface defaultInterface]];
 }
 
 #pragma mark public methods
@@ -162,16 +180,22 @@ BOOL SetStartupParametersForSpotlightAction(
           NSString* qrScannerAction =
               base::SysUTF8ToNSString(spotlight::kSpotlightActionQRScanner);
 
+          NSString* defaultBrowserTitle = l10n_util::GetNSString(
+              IDS_IOS_APPLICATION_SHORTCUT_SET_DEFAULT_BROWSER);
+          NSString* defaultBrowserAction = base::SysUTF8ToNSString(
+              spotlight::kSpotlightActionSetDefaultBrowser);
+
           NSArray* spotlightItems = @[
             [strongSelf itemForAction:voiceSearchAction title:voiceSearchTitle],
             [strongSelf itemForAction:newTabAction title:newTabTitle],
             [strongSelf itemForAction:incognitoAction title:incognitoTitle],
             [strongSelf itemForAction:qrScannerAction title:qrScannerTitle],
+            [strongSelf itemForAction:defaultBrowserAction
+                                title:defaultBrowserTitle],
           ];
 
-          [[CSSearchableIndex defaultSearchableIndex]
-              indexSearchableItems:spotlightItems
-                 completionHandler:nil];
+          [self.spotlightInterface indexSearchableItems:spotlightItems
+                                      completionHandler:nil];
         });
   }];
 }

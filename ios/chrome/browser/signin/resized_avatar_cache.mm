@@ -1,14 +1,14 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/signin/resized_avatar_cache.h"
 
+#import "ios/chrome/browser/shared/model/application_context/application_context.h"
 #import "ios/chrome/browser/signin/signin_util.h"
+#import "ios/chrome/browser/signin/system_identity.h"
+#import "ios/chrome/browser/signin/system_identity_manager.h"
 #import "ios/chrome/common/ui/util/image_util.h"
-#import "ios/public/provider/chrome/browser/chrome_browser_provider.h"
-#import "ios/public/provider/chrome/browser/signin/chrome_identity.h"
-#import "ios/public/provider/chrome/browser/signin/chrome_identity_service.h"
 #import "ios/public/provider/chrome/browser/signin/signin_resources_api.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
@@ -19,14 +19,15 @@
 
 // Size of resized avatar.
 @property(nonatomic, assign) CGSize expectedSize;
-// Default avatar at |self.expectedSize| size.
+// Default avatar at `self.expectedSize` size.
 @property(nonatomic, strong) UIImage* defaultResizedAvatar;
 // Retains resized images. Key is Chrome Identity.
-@property(nonatomic, strong) NSCache<ChromeIdentity*, UIImage*>* resizedImages;
+@property(nonatomic, strong)
+    NSCache<id<SystemIdentity>, UIImage*>* resizedImages;
 // Holds weak references to the cached avatar image from the
 // ChromeIdentityService. Key is Chrome Identity.
 @property(nonatomic, strong)
-    NSMapTable<ChromeIdentity*, UIImage*>* originalImages;
+    NSMapTable<id<SystemIdentity>, UIImage*>* originalImages;
 
 @end
 
@@ -52,15 +53,15 @@
   return [self initWithSize:size];
 }
 
-- (UIImage*)resizedAvatarForIdentity:(ChromeIdentity*)identity {
-  UIImage* image = ios::GetChromeBrowserProvider()
-                       .GetChromeIdentityService()
-                       ->GetCachedAvatarForIdentity(identity);
+- (UIImage*)resizedAvatarForIdentity:(id<SystemIdentity>)identity {
+  SystemIdentityManager* system_identity_manager =
+      GetApplicationContext()->GetSystemIdentityManager();
+
+  UIImage* image =
+      system_identity_manager->GetCachedAvatarForIdentity(identity);
   if (!image) {
     // No cached image, trigger a fetch, which will notify all observers.
-    ios::GetChromeBrowserProvider()
-        .GetChromeIdentityService()
-        ->GetAvatarForIdentity(identity);
+    system_identity_manager->FetchAvatarForIdentity(identity);
     return self.defaultResizedAvatar;
   }
 

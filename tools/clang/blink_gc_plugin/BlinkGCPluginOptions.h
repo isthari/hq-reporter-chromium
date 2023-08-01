@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -49,8 +49,18 @@ struct BlinkGCPluginOptions {
   // TODO(chromium:1283720): Enable this checks once all violations are handled.
   bool enable_members_on_stack_check = false;
 
+  // Checks that any inlined classes (ones that could be a value-type of heap
+  // containers) don't have extra padding potentially introduced by Member (e.g
+  // due to pointer compression).
+  bool enable_extra_padding_check = false;
+
+  // Enables checking for `mojo::Associated{Remote,Receiver}` in the forbidden
+  // fields checker.
+  bool forbid_associated_remote_receiver = false;
+
   std::set<std::string> ignored_classes;
   std::set<std::string> checked_namespaces;
+  std::vector<std::string> checked_directories;
   std::vector<std::string> ignored_directories;
   // |allowed_directories| overrides |ignored_directories|.
   std::vector<std::string> allowed_directories;

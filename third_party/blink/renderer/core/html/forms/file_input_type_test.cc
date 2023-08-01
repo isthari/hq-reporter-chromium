@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/renderer/core/clipboard/data_object.h"
 #include "third_party/blink/renderer/core/dom/document.h"
+#include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/fileapi/file_list.h"
 #include "third_party/blink/renderer/core/frame/frame_test_helpers.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
@@ -19,6 +20,8 @@
 #include "third_party/blink/renderer/core/loader/empty_clients.h"
 #include "third_party/blink/renderer/core/page/drag_data.h"
 #include "third_party/blink/renderer/core/testing/dummy_page_holder.h"
+#include "third_party/blink/renderer/core/testing/null_execution_context.h"
+#include "third_party/blink/renderer/core/testing/wait_for_event.h"
 #include "third_party/blink/renderer/platform/file_metadata.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/wtf/date_math.h"
@@ -26,6 +29,13 @@
 namespace blink {
 
 namespace {
+
+class MockEventListener final : public NativeEventListener {
+ public:
+  bool invoked = false;
+  void Invoke(ExecutionContext*, Event*) override { invoked = true; }
+  void ClearInvoked() { invoked = false; }
+};
 
 class WebKitDirectoryChromeClient : public EmptyChromeClient {
  public:
@@ -51,7 +61,9 @@ TEST(FileInputTypeTest, createFileList) {
   files.push_back(CreateFileChooserFileInfoFileSystem(
       url, base::Time::FromJsTime(1.0 * kMsPerDay + 3), 64));
 
-  FileList* list = FileInputType::CreateFileList(files, base::FilePath());
+  ScopedNullExecutionContext execution_context;
+  FileList* list = FileInputType::CreateFileList(
+      execution_context.GetExecutionContext(), files, base::FilePath());
   ASSERT_TRUE(list);
   ASSERT_EQ(2u, list->length());
 
@@ -59,7 +71,7 @@ TEST(FileInputTypeTest, createFileList) {
   EXPECT_EQ("display-name", list->item(0)->name());
   EXPECT_TRUE(list->item(0)->FileSystemURL().IsEmpty());
 
-  EXPECT_TRUE(list->item(1)->GetPath().IsEmpty());
+  EXPECT_TRUE(list->item(1)->GetPath().empty());
   EXPECT_EQ("non-native-file", list->item(1)->name());
   EXPECT_EQ(url, list->item(1)->FileSystemURL());
   EXPECT_EQ(64u, list->item(1)->size());
@@ -67,7 +79,9 @@ TEST(FileInputTypeTest, createFileList) {
 }
 
 TEST(FileInputTypeTest, ignoreDroppedNonNativeFiles) {
-  auto* document = Document::CreateForTest();
+  ScopedNullExecutionContext execution_context;
+  auto* document =
+      Document::CreateForTest(execution_context.GetExecutionContext());
   auto* input =
       MakeGarbageCollected<HTMLInputElement>(*document, CreateElementFlags());
   InputType* file_input = MakeGarbageCollected<FileInputType>(*input);
@@ -90,8 +104,8 @@ TEST(FileInputTypeTest, ignoreDroppedNonNativeFiles) {
   FileMetadata metadata;
   metadata.length = 1234;
   const KURL url("filesystem:http://example.com/isolated/hash/non-native-file");
-  non_native_file_drag_data.PlatformData()->Add(
-      File::CreateForFileSystemFile(url, metadata, File::kIsUserVisible));
+  non_native_file_drag_data.PlatformData()->Add(File::CreateForFileSystemFile(
+      url, metadata, File::kIsUserVisible, BlobDataHandle::Create()));
   non_native_file_drag_data.PlatformData()->SetFilesystemId("fileSystemId");
   file_input->ReceiveDroppedFiles(&non_native_file_drag_data);
   // Dropping non-native files should not change the existing files.
@@ -101,7 +115,9 @@ TEST(FileInputTypeTest, ignoreDroppedNonNativeFiles) {
 }
 
 TEST(FileInputTypeTest, setFilesFromPaths) {
-  auto* document = Document::CreateForTest();
+  ScopedNullExecutionContext execution_context;
+  auto* document =
+      Document::CreateForTest(execution_context.GetExecutionContext());
   auto* input =
       MakeGarbageCollected<HTMLInputElement>(*document, CreateElementFlags());
   InputType* file_input = MakeGarbageCollected<FileInputType>(*input);
@@ -227,7 +243,198 @@ TEST(FileInputTypeTest, ChangeTypeDuringOpeningFileChooser) {
   // Receiving a FileChooser response should not alter a shadow tree
   // for another type.
   EXPECT_TRUE(IsA<HTMLElement>(
-      input.UserAgentShadowRoot()->firstChild()->firstChild()));
+      input.EnsureShadowSubtree()->firstChild()->firstChild()));
+}
+
+// Tests selecting same file twice should fire cancel event second time.
+TEST(FileInputTypeTest, SetFilesFireCorrectEventsForSameFile) {
+  ScopedNullExecutionContext execution_context;
+
+  auto* document =
+      Document::CreateForTest(execution_context.GetExecutionContext());
+  auto* input =
+      MakeGarbageCollected<HTMLInputElement>(*document, CreateElementFlags());
+  InputType* file_input = MakeGarbageCollected<FileInputType>(*input);
+  auto* listener_change = MakeGarbageCollected<MockEventListener>();
+  auto* listener_cancel = MakeGarbageCollected<MockEventListener>();
+  input->addEventListener(event_type_names::kChange, listener_change);
+  input->addEventListener(event_type_names::kCancel, listener_cancel);
+  auto reset = [&] {
+    listener_change->ClearInvoked();
+    listener_cancel->ClearInvoked();
+  };
+
+  auto* const selection_1 = MakeGarbageCollected<FileList>();
+  selection_1->Append(MakeGarbageCollected<File>("/path/to/A.txt"));
+  file_input->SetFilesAndDispatchEvents(selection_1);
+  EXPECT_TRUE(listener_change->invoked);
+  EXPECT_FALSE(listener_cancel->invoked);
+
+  reset();
+  auto* const selection_2 = MakeGarbageCollected<FileList>();
+  selection_2->Append(MakeGarbageCollected<File>("/path/to/A.txt"));
+  file_input->SetFilesAndDispatchEvents(selection_2);
+  EXPECT_FALSE(listener_change->invoked);
+  EXPECT_TRUE(listener_cancel->invoked);
+}
+
+// Tests selecting same files twice should fire cancel event second time.
+TEST(FileInputTypeTest, SetFilesFireCorrectEventsForSameFiles) {
+  ScopedNullExecutionContext execution_context;
+
+  auto* document =
+      Document::CreateForTest(execution_context.GetExecutionContext());
+  auto* input =
+      MakeGarbageCollected<HTMLInputElement>(*document, CreateElementFlags());
+  InputType* file_input = MakeGarbageCollected<FileInputType>(*input);
+  auto* listener_change = MakeGarbageCollected<MockEventListener>();
+  auto* listener_cancel = MakeGarbageCollected<MockEventListener>();
+  input->addEventListener(event_type_names::kChange, listener_change);
+  input->addEventListener(event_type_names::kCancel, listener_cancel);
+  input->SetBooleanAttribute(html_names::kMultipleAttr, true);
+  auto reset = [&] {
+    listener_change->ClearInvoked();
+    listener_cancel->ClearInvoked();
+  };
+
+  auto* const selection_1 = MakeGarbageCollected<FileList>();
+  selection_1->Append(MakeGarbageCollected<File>("/path/to/A.txt"));
+  selection_1->Append(MakeGarbageCollected<File>("/path/to/B.txt"));
+  file_input->SetFilesAndDispatchEvents(selection_1);
+  EXPECT_TRUE(listener_change->invoked);
+  EXPECT_FALSE(listener_cancel->invoked);
+
+  reset();
+  auto* const selection_2 = MakeGarbageCollected<FileList>();
+  selection_2->Append(MakeGarbageCollected<File>("/path/to/A.txt"));
+  selection_2->Append(MakeGarbageCollected<File>("/path/to/B.txt"));
+  file_input->SetFilesAndDispatchEvents(selection_2);
+  EXPECT_FALSE(listener_change->invoked);
+  EXPECT_TRUE(listener_cancel->invoked);
+}
+
+// Tests selecting different file after first selection should fire change
+// event.
+TEST(FileInputTypeTest, SetFilesFireCorrectEventsForDifferentFile) {
+  ScopedNullExecutionContext execution_context;
+
+  auto* document =
+      Document::CreateForTest(execution_context.GetExecutionContext());
+  auto* input =
+      MakeGarbageCollected<HTMLInputElement>(*document, CreateElementFlags());
+  InputType* file_input = MakeGarbageCollected<FileInputType>(*input);
+  auto* listener_change = MakeGarbageCollected<MockEventListener>();
+  auto* listener_cancel = MakeGarbageCollected<MockEventListener>();
+  input->addEventListener(event_type_names::kChange, listener_change);
+  input->addEventListener(event_type_names::kCancel, listener_cancel);
+  auto reset = [&] {
+    listener_change->ClearInvoked();
+    listener_cancel->ClearInvoked();
+  };
+
+  auto* const selection_1 = MakeGarbageCollected<FileList>();
+  selection_1->Append(MakeGarbageCollected<File>("/path/to/A.txt"));
+  file_input->SetFilesAndDispatchEvents(selection_1);
+  EXPECT_TRUE(listener_change->invoked);
+  EXPECT_FALSE(listener_cancel->invoked);
+
+  reset();
+  auto* const selection_2 = MakeGarbageCollected<FileList>();
+  selection_2->Append(MakeGarbageCollected<File>("/path/to/B.txt"));
+  file_input->SetFilesAndDispatchEvents(selection_2);
+  EXPECT_TRUE(listener_change->invoked);
+  EXPECT_FALSE(listener_cancel->invoked);
+}
+
+// Tests selecting different files after first selection should fire change
+// event.
+TEST(FileInputTypeTest, SetFilesFireCorrectEventsForDifferentFiles) {
+  ScopedNullExecutionContext execution_context;
+
+  auto* document =
+      Document::CreateForTest(execution_context.GetExecutionContext());
+  auto* input =
+      MakeGarbageCollected<HTMLInputElement>(*document, CreateElementFlags());
+  InputType* file_input = MakeGarbageCollected<FileInputType>(*input);
+  auto* listener_change = MakeGarbageCollected<MockEventListener>();
+  auto* listener_cancel = MakeGarbageCollected<MockEventListener>();
+  input->addEventListener(event_type_names::kChange, listener_change);
+  input->addEventListener(event_type_names::kCancel, listener_cancel);
+  input->SetBooleanAttribute(html_names::kMultipleAttr, true);
+  auto reset = [&] {
+    listener_change->ClearInvoked();
+    listener_cancel->ClearInvoked();
+  };
+
+  auto* const selection_1 = MakeGarbageCollected<FileList>();
+  selection_1->Append(MakeGarbageCollected<File>("/path/to/A.txt"));
+  selection_1->Append(MakeGarbageCollected<File>("/path/to/B.txt"));
+  file_input->SetFilesAndDispatchEvents(selection_1);
+  EXPECT_TRUE(listener_change->invoked);
+  EXPECT_FALSE(listener_cancel->invoked);
+
+  reset();
+  auto* const selection_2 = MakeGarbageCollected<FileList>();
+  selection_2->Append(MakeGarbageCollected<File>("/path/to/A.txt"));
+  file_input->SetFilesAndDispatchEvents(selection_2);
+  EXPECT_TRUE(listener_change->invoked);
+  EXPECT_FALSE(listener_cancel->invoked);
+}
+
+// Tests clearing selection (click cancel in file chooser) after selection
+// should fire change event.
+TEST(FileInputTypeTest, SetFilesFireCorrectEventsCancelWithSelection) {
+  ScopedNullExecutionContext execution_context;
+
+  auto* document =
+      Document::CreateForTest(execution_context.GetExecutionContext());
+  auto* input =
+      MakeGarbageCollected<HTMLInputElement>(*document, CreateElementFlags());
+  InputType* file_input = MakeGarbageCollected<FileInputType>(*input);
+  auto* listener_change = MakeGarbageCollected<MockEventListener>();
+  auto* listener_cancel = MakeGarbageCollected<MockEventListener>();
+  input->addEventListener(event_type_names::kChange, listener_change);
+  input->addEventListener(event_type_names::kCancel, listener_cancel);
+  input->SetBooleanAttribute(html_names::kMultipleAttr, true);
+  auto reset = [&] {
+    listener_change->ClearInvoked();
+    listener_cancel->ClearInvoked();
+  };
+
+  auto* const selection_1 = MakeGarbageCollected<FileList>();
+  selection_1->Append(MakeGarbageCollected<File>("/path/to/A.txt"));
+  selection_1->Append(MakeGarbageCollected<File>("/path/to/B.txt"));
+  file_input->SetFilesAndDispatchEvents(selection_1);
+  EXPECT_TRUE(listener_change->invoked);
+  EXPECT_FALSE(listener_cancel->invoked);
+
+  reset();
+  auto* const selection_2 = MakeGarbageCollected<FileList>();
+  file_input->SetFilesAndDispatchEvents(selection_2);
+  EXPECT_TRUE(listener_change->invoked);
+  EXPECT_FALSE(listener_cancel->invoked);
+}
+
+// Tests clearing selection (click cancel in file chooser) without selection
+// should fire cancel event.
+TEST(FileInputTypeTest, SetFilesFireCorrectEventsCancelWithoutSelection) {
+  ScopedNullExecutionContext execution_context;
+
+  auto* document =
+      Document::CreateForTest(execution_context.GetExecutionContext());
+  auto* input =
+      MakeGarbageCollected<HTMLInputElement>(*document, CreateElementFlags());
+  InputType* file_input = MakeGarbageCollected<FileInputType>(*input);
+  auto* listener_change = MakeGarbageCollected<MockEventListener>();
+  auto* listener_cancel = MakeGarbageCollected<MockEventListener>();
+  input->addEventListener(event_type_names::kChange, listener_change);
+  input->addEventListener(event_type_names::kCancel, listener_cancel);
+  input->SetBooleanAttribute(html_names::kMultipleAttr, true);
+
+  auto* const selection = MakeGarbageCollected<FileList>();
+  file_input->SetFilesAndDispatchEvents(selection);
+  EXPECT_FALSE(listener_change->invoked);
+  EXPECT_TRUE(listener_cancel->invoked);
 }
 
 }  // namespace blink

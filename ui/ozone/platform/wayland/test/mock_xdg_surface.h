@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,8 @@
 #include <utility>
 
 #include <xdg-shell-server-protocol.h>
-#include <xdg-shell-unstable-v6-server-protocol.h>
 
+#include "base/memory/raw_ptr.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "ui/ozone/platform/wayland/test/server_object.h"
 #include "ui/ozone/platform/wayland/test/test_xdg_popup.h"
@@ -25,6 +25,7 @@ extern const struct zxdg_surface_v6_interface kMockZxdgSurfaceV6Impl;
 extern const struct zxdg_toplevel_v6_interface kMockZxdgToplevelV6Impl;
 
 class MockXdgTopLevel;
+class TestZAuraToplevel;
 
 // Manage xdg_surface, zxdg_surface_v6 and zxdg_toplevel for providing desktop
 // UI.
@@ -38,8 +39,7 @@ class MockXdgSurface : public ServerObject {
   ~MockXdgSurface() override;
 
   MOCK_METHOD1(AckConfigure, void(uint32_t serial));
-  MOCK_METHOD4(SetWindowGeometry,
-               void(int32_t x, int32_t y, int32_t width, int32_t height));
+  MOCK_METHOD1(SetWindowGeometry, void(const gfx::Rect&));
 
   void set_xdg_toplevel(std::unique_ptr<MockXdgTopLevel> xdg_toplevel) {
     xdg_toplevel_ = std::move(xdg_toplevel);
@@ -53,10 +53,10 @@ class MockXdgSurface : public ServerObject {
   // Has either toplevel role..
   std::unique_ptr<MockXdgTopLevel> xdg_toplevel_;
   // Or popup role.
-  TestXdgPopup* xdg_popup_ = nullptr;
+  raw_ptr<TestXdgPopup> xdg_popup_ = nullptr;
 
   // MockSurface that is the ground for this xdg_surface.
-  wl_resource* surface_ = nullptr;
+  raw_ptr<wl_resource> surface_ = nullptr;
 };
 
 // Manage zxdg_toplevel for providing desktop UI.
@@ -94,7 +94,14 @@ class MockXdgTopLevel : public ServerObject {
   const gfx::Size& max_size() const { return max_size_; }
   void set_max_size(const gfx::Size& max_size) { max_size_ = max_size; }
 
+  TestZAuraToplevel* zaura_toplevel() { return zaura_toplevel_; }
+  void set_zaura_toplevel(TestZAuraToplevel* zaura_toplevel) {
+    zaura_toplevel_ = zaura_toplevel;
+  }
+
  private:
+  raw_ptr<TestZAuraToplevel> zaura_toplevel_ = nullptr;
+
   gfx::Size min_size_;
   gfx::Size max_size_;
 

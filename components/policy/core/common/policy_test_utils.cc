@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,9 @@
 
 #include <string>
 
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/values.h"
@@ -24,9 +24,9 @@
 
 namespace policy {
 
-PolicyDetailsMap::PolicyDetailsMap() {}
+PolicyDetailsMap::PolicyDetailsMap() = default;
 
-PolicyDetailsMap::~PolicyDetailsMap() {}
+PolicyDetailsMap::~PolicyDetailsMap() = default;
 
 GetChromePolicyDetailsCallback PolicyDetailsMap::GetCallback() const {
   return base::BindRepeating(&PolicyDetailsMap::Lookup, base::Unretained(this));
@@ -46,9 +46,9 @@ bool PolicyServiceIsEmpty(const PolicyService* service) {
   const PolicyMap& map = service->GetPolicies(
       PolicyNamespace(POLICY_DOMAIN_CHROME, std::string()));
   if (!map.empty()) {
-    base::DictionaryValue dict;
-    for (auto it = map.begin(); it != map.end(); ++it)
-      dict.SetKey(it->first, it->second.value()->Clone());
+    base::Value::Dict dict;
+    for (const auto& it : map)
+      dict.Set(it.first, it.second.value_unsafe()->Clone());
     LOG(WARNING) << "There are pre-existing policies in this machine: " << dict;
 #if BUILDFLAG(IS_WIN)
     LOG(WARNING) << "From: " << kRegistryChromePolicyKey;
@@ -82,12 +82,13 @@ CFPropertyListRef ValueToProperty(const base::Value& value) {
       return base::SysUTF8ToCFStringRef(string_value).release();
     }
 
-    case base::Value::Type::DICTIONARY: {
+    case base::Value::Type::DICT: {
+      const base::Value::Dict& value_dict = value.GetDict();
       // |dict| is owned by the caller.
       CFMutableDictionaryRef dict = CFDictionaryCreateMutable(
-          kCFAllocatorDefault, value.DictSize(), &kCFTypeDictionaryKeyCallBacks,
-          &kCFTypeDictionaryValueCallBacks);
-      for (const auto key_value_pair : value.DictItems()) {
+          kCFAllocatorDefault, value_dict.size(),
+          &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+      for (const auto key_value_pair : value_dict) {
         // CFDictionaryAddValue() retains both |key| and |value|, so make sure
         // the references are balanced.
         base::ScopedCFTypeRef<CFStringRef> key(
@@ -101,10 +102,10 @@ CFPropertyListRef ValueToProperty(const base::Value& value) {
     }
 
     case base::Value::Type::LIST: {
-      base::Value::ConstListView list_view = value.GetList();
+      const base::Value::List& list = value.GetList();
       CFMutableArrayRef array =
-          CFArrayCreateMutable(NULL, list_view.size(), &kCFTypeArrayCallBacks);
-      for (const base::Value& entry : list_view) {
+          CFArrayCreateMutable(nullptr, list.size(), &kCFTypeArrayCallBacks);
+      for (const base::Value& entry : list) {
         // CFArrayAppendValue() retains |cf_value|, so make sure the reference
         // created by ValueToProperty() is released.
         base::ScopedCFTypeRef<CFPropertyListRef> cf_value(
@@ -122,13 +123,11 @@ CFPropertyListRef ValueToProperty(const base::Value& value) {
       break;
   }
 
-  return NULL;
+  return nullptr;
 }
 #endif  // BUILDFLAG(IS_APPLE)
 
-}  // namespace policy
-
-std::ostream& operator<<(std::ostream& os, const policy::PolicyBundle& bundle) {
+std::ostream& operator<<(std::ostream& os, const PolicyBundle& bundle) {
   os << "{" << std::endl;
   for (const auto& entry : bundle)
     os << "  \"" << entry.first << "\": " << entry.second << "," << std::endl;
@@ -136,41 +135,41 @@ std::ostream& operator<<(std::ostream& os, const policy::PolicyBundle& bundle) {
   return os;
 }
 
-std::ostream& operator<<(std::ostream& os, policy::PolicyScope scope) {
+std::ostream& operator<<(std::ostream& os, PolicyScope scope) {
   switch (scope) {
-    case policy::POLICY_SCOPE_USER:
+    case POLICY_SCOPE_USER:
       return os << "POLICY_SCOPE_USER";
-    case policy::POLICY_SCOPE_MACHINE:
+    case POLICY_SCOPE_MACHINE:
       return os << "POLICY_SCOPE_MACHINE";
   }
   return os << "POLICY_SCOPE_UNKNOWN(" << int(scope) << ")";
 }
 
-std::ostream& operator<<(std::ostream& os, policy::PolicyLevel level) {
+std::ostream& operator<<(std::ostream& os, PolicyLevel level) {
   switch (level) {
-    case policy::POLICY_LEVEL_RECOMMENDED:
+    case POLICY_LEVEL_RECOMMENDED:
       return os << "POLICY_LEVEL_RECOMMENDED";
-    case policy::POLICY_LEVEL_MANDATORY:
+    case POLICY_LEVEL_MANDATORY:
       return os << "POLICY_LEVEL_MANDATORY";
   }
   return os << "POLICY_LEVEL_UNKNOWN(" << int(level) << ")";
 }
 
-std::ostream& operator<<(std::ostream& os, policy::PolicyDomain domain) {
+std::ostream& operator<<(std::ostream& os, PolicyDomain domain) {
   switch (domain) {
-    case policy::POLICY_DOMAIN_CHROME:
+    case POLICY_DOMAIN_CHROME:
       return os << "POLICY_DOMAIN_CHROME";
-    case policy::POLICY_DOMAIN_EXTENSIONS:
+    case POLICY_DOMAIN_EXTENSIONS:
       return os << "POLICY_DOMAIN_EXTENSIONS";
-    case policy::POLICY_DOMAIN_SIGNIN_EXTENSIONS:
+    case POLICY_DOMAIN_SIGNIN_EXTENSIONS:
       return os << "POLICY_DOMAIN_SIGNIN_EXTENSIONS";
-    case policy::POLICY_DOMAIN_SIZE:
+    case POLICY_DOMAIN_SIZE:
       break;
   }
   return os << "POLICY_DOMAIN_UNKNOWN(" << int(domain) << ")";
 }
 
-std::ostream& operator<<(std::ostream& os, const policy::PolicyMap& policies) {
+std::ostream& operator<<(std::ostream& os, const PolicyMap& policies) {
   os << "{" << std::endl;
   for (const auto& iter : policies)
     os << "  \"" << iter.first << "\": " << iter.second << "," << std::endl;
@@ -178,13 +177,15 @@ std::ostream& operator<<(std::ostream& os, const policy::PolicyMap& policies) {
   return os;
 }
 
-std::ostream& operator<<(std::ostream& os, const policy::PolicyMap::Entry& e) {
+std::ostream& operator<<(std::ostream& os, const PolicyMap::Entry& e) {
   return os << "{" << std::endl
             << "  \"level\": " << e.level << "," << std::endl
             << "  \"scope\": " << e.scope << "," << std::endl
-            << "  \"value\": " << *e.value() << "}";
+            << "  \"value\": " << *e.value_unsafe() << "}";
 }
 
-std::ostream& operator<<(std::ostream& os, const policy::PolicyNamespace& ns) {
+std::ostream& operator<<(std::ostream& os, const PolicyNamespace& ns) {
   return os << ns.domain << "/" << ns.component_id;
 }
+
+}  // namespace policy

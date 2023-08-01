@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,10 @@ import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
+import org.chromium.base.ContextUtils;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.browser.price_tracking.PriceDropNotificationManager;
+import org.chromium.chrome.browser.price_tracking.PriceTrackingUtilities;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.state.ShoppingPersistedTabData;
 
@@ -153,7 +155,9 @@ public class PriceMessageService extends MessageService {
     // TabUiFeatureUtilities#isTabToGtsAnimationEnabled} returns true, see {@link
     // TabSwitcherMediator#prepareOverview}.
     private static final int PREPARE_MESSAGE_TIMES_ENTERING_TAB_SWITCHER =
-            TabUiFeatureUtilities.isTabToGtsAnimationEnabled() ? 2 : 1;
+            TabUiFeatureUtilities.isTabToGtsAnimationEnabled(ContextUtils.getApplicationContext())
+            ? 2
+            : 1;
 
     private final PriceWelcomeMessageProvider mPriceWelcomeMessageProvider;
     private final PriceWelcomeMessageReviewActionProvider mPriceWelcomeMessageReviewActionProvider;
@@ -189,8 +193,11 @@ public class PriceMessageService extends MessageService {
                 return false;
             }
             // When PriceWelcomeMessageCard is available, it takes priority over
-            // PriceAlertsMessageCard.
-            PriceTrackingUtilities.decreasePriceAlertsMessageCardShowCount();
+            // PriceAlertsMessageCard which will be removed first. This should be called only if
+            // PriceAlertsMessageCard is currently enabled.
+            if (PriceTrackingUtilities.isPriceAlertsMessageCardEnabled()) {
+                PriceTrackingUtilities.decreasePriceAlertsMessageCardShowCount();
+            }
         } else if (type == PriceMessageType.PRICE_ALERTS) {
             PriceTrackingUtilities.increasePriceAlertsMessageCardShowCount();
             if (PriceTrackingUtilities.getPriceAlertsMessageCardShowCount()

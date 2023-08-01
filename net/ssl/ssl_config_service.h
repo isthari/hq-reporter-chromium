@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,10 @@
 
 #include <vector>
 
-#include "base/memory/ref_counted.h"
 #include "base/observer_list.h"
 #include "net/base/net_export.h"
 #include "net/ssl/ssl_config.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace net {
 
@@ -22,6 +22,12 @@ struct NET_EXPORT SSLContextConfig {
   SSLContextConfig& operator=(const SSLContextConfig&);
   SSLContextConfig& operator=(SSLContextConfig&&);
 
+  // EncryptedClientHelloEnabled returns whether ECH is enabled.
+  bool EncryptedClientHelloEnabled() const;
+
+  // Returns whether insecure hashes are allowed in TLS handshakes.
+  bool InsecureHashesInTLSHandshakesEnabled() const;
+
   // The minimum and maximum protocol versions that are enabled.
   // (Use the SSL_PROTOCOL_VERSION_xxx enumerators defined in ssl_config.h.)
   // SSL 2.0/3.0 and TLS 1.0/1.1 are not supported. If version_max <
@@ -29,8 +35,8 @@ struct NET_EXPORT SSLContextConfig {
   uint16_t version_min = kDefaultSSLVersionMin;
   uint16_t version_max = kDefaultSSLVersionMax;
 
-  // Presorted list of cipher suites which should be explicitly prevented from
-  // being used in addition to those disabled by the net built-in policy.
+  // A list of cipher suites which should be explicitly prevented from being
+  // used in addition to those disabled by the net built-in policy.
   //
   // Though cipher suites are sent in TLS as "uint8_t CipherSuite[2]", in
   // big-endian form, they should be declared in host byte order, with the
@@ -40,9 +46,18 @@ struct NET_EXPORT SSLContextConfig {
   std::vector<uint16_t> disabled_cipher_suites;
 
   // If false, disables post-quantum key agreement in TLS connections.
-  bool cecpq2_enabled = true;
+  bool post_quantum_enabled = true;
 
-  // ADDING MORE HERE? Don't forget to update |SSLContextConfigsAreEqual|.
+  // If false, disables TLS Encrypted ClientHello (ECH). If true, the feature
+  // may be enabled or disabled, depending on feature flags. If querying whether
+  // ECH is enabled, use `EncryptedClientHelloEnabled` instead.
+  bool ech_enabled = true;
+
+  // If specified, controls whether insecure hashes are allowed in TLS
+  // handshakes. If `absl::nullopt`, this is determined by feature flags.
+  absl::optional<bool> insecure_hash_override;
+
+  // ADDING MORE HERE? Don't forget to update `SSLContextConfigsAreEqual`.
 };
 
 // The interface for retrieving global SSL configuration.  This interface
@@ -58,7 +73,7 @@ class NET_EXPORT SSLConfigService {
     virtual void OnSSLContextConfigChanged() = 0;
 
    protected:
-    virtual ~Observer() {}
+    virtual ~Observer() = default;
   };
 
   SSLConfigService();

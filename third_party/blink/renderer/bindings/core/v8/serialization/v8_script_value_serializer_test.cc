@@ -1,14 +1,18 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/bindings/core/v8/serialization/v8_script_value_serializer.h"
 
+#include "base/test/scoped_feature_list.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/platform/web_blob_info.h"
+#include "third_party/blink/renderer/bindings/core/v8/script_evaluation_result.h"
+#include "third_party/blink/renderer/bindings/core/v8/serialization/trailer_reader.h"
 #include "third_party/blink/renderer/bindings/core/v8/serialization/unpacked_serialized_script_value.h"
 #include "third_party/blink/renderer/bindings/core/v8/serialization/v8_script_value_deserializer.h"
 #include "third_party/blink/renderer/bindings/core/v8/to_v8_traits.h"
@@ -34,10 +38,12 @@
 #include "third_party/blink/renderer/bindings/core/v8/v8_readable_stream.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_string_resource.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_union_float32array_uint16array_uint8clampedarray.h"
+#include "third_party/blink/renderer/core/context_features/context_feature_settings.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/fileapi/blob.h"
 #include "third_party/blink/renderer/core/fileapi/file.h"
 #include "third_party/blink/renderer/core/fileapi/file_list.h"
+#include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/geometry/dom_matrix.h"
 #include "third_party/blink/renderer/core/geometry/dom_matrix_read_only.h"
@@ -55,9 +61,11 @@
 #include "third_party/blink/renderer/core/streams/readable_stream.h"
 #include "third_party/blink/renderer/core/streams/transform_stream.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
+#include "third_party/blink/renderer/platform/blob/blob_data.h"
 #include "third_party/blink/renderer/platform/file_metadata.h"
 #include "third_party/blink/renderer/platform/graphics/unaccelerated_static_bitmap_image.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
+#include "third_party/blink/renderer/platform/testing/runtime_enabled_features_test_helpers.h"
 #include "third_party/blink/renderer/platform/wtf/date_math.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkImage.h"
@@ -112,7 +120,8 @@ v8::Local<v8::Value> RoundTrip(
 
 v8::Local<v8::Value> Eval(const String& source, V8TestingScope& scope) {
   return ClassicScript::CreateUnspecifiedScript(source)
-      ->RunScriptAndReturnValue(&scope.GetWindow());
+      ->RunScriptAndReturnValue(&scope.GetWindow())
+      .GetSuccessValueOrEmpty();
 }
 
 String ToJSON(v8::Local<v8::Object> object, const V8TestingScope& scope) {
@@ -124,11 +133,7 @@ String ToJSON(v8::Local<v8::Object> object, const V8TestingScope& scope) {
 
 scoped_refptr<SerializedScriptValue> SerializedValue(
     const Vector<uint8_t>& bytes) {
-  // TODO(jbroman): Fix this once SerializedScriptValue can take bytes without
-  // endianness swapping.
-  DCHECK_EQ(bytes.size() % 2, 0u);
-  return SerializedScriptValue::Create(
-      String(reinterpret_cast<const UChar*>(&bytes[0]), bytes.size() / 2));
+  return SerializedScriptValue::Create(bytes);
 }
 
 // Checks for a DOM exception, including a rethrown one.
@@ -138,7 +143,7 @@ testing::AssertionResult HadDOMExceptionInCoreTest(
     ExceptionState& exception_state) {
   if (!exception_state.HadException())
     return testing::AssertionFailure() << "no exception thrown";
-  DOMException* dom_exception = V8DOMException::ToImplWithTypeCheck(
+  DOMException* dom_exception = V8DOMException::ToWrappable(
       script_state->GetIsolate(), exception_state.GetException());
   if (!dom_exception)
     return testing::AssertionFailure()
@@ -177,8 +182,8 @@ TEST(V8ScriptValueSerializerTest, ThrowsDataCloneError) {
       V8ScriptValueSerializer(script_state).Serialize(symbol, exception_state));
   ASSERT_TRUE(HadDOMExceptionInCoreTest("DataCloneError", script_state,
                                         exception_state));
-  DOMException* dom_exception =
-      V8DOMException::ToImpl(exception_state.GetException().As<v8::Object>());
+  DOMException* dom_exception = V8DOMException::ToWrappable(
+      scope.GetIsolate(), exception_state.GetException());
   EXPECT_TRUE(dom_exception->message().Contains("postMessage"));
 }
 
@@ -242,8 +247,8 @@ TEST(V8ScriptValueSerializerTest, RoundTripDOMPoint) {
       ToV8Traits<DOMPoint>::ToV8(scope.GetScriptState(), point)
           .ToLocalChecked();
   v8::Local<v8::Value> result = RoundTrip(wrapper, scope);
-  ASSERT_TRUE(V8DOMPoint::HasInstance(result, scope.GetIsolate()));
-  DOMPoint* new_point = V8DOMPoint::ToImpl(result.As<v8::Object>());
+  DOMPoint* new_point = V8DOMPoint::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_point, nullptr);
   EXPECT_NE(point, new_point);
   EXPECT_EQ(point->x(), new_point->x());
   EXPECT_EQ(point->y(), new_point->y());
@@ -261,8 +266,8 @@ TEST(V8ScriptValueSerializerTest, DecodeDOMPoint) {
        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x40});
   v8::Local<v8::Value> result =
       V8ScriptValueDeserializer(script_state, input).Deserialize();
-  ASSERT_TRUE(V8DOMPoint::HasInstance(result, scope.GetIsolate()));
-  DOMPoint* point = V8DOMPoint::ToImpl(result.As<v8::Object>());
+  DOMPoint* point = V8DOMPoint::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(point, nullptr);
   EXPECT_EQ(1, point->x());
   EXPECT_EQ(2, point->y());
   EXPECT_EQ(3, point->z());
@@ -276,10 +281,10 @@ TEST(V8ScriptValueSerializerTest, RoundTripDOMPointReadOnly) {
   v8::Local<v8::Value> wrapper =
       ToV8(point, scope.GetContext()->Global(), scope.GetIsolate());
   v8::Local<v8::Value> result = RoundTrip(wrapper, scope);
-  ASSERT_TRUE(V8DOMPointReadOnly::HasInstance(result, scope.GetIsolate()));
-  EXPECT_FALSE(V8DOMPoint::HasInstance(result, scope.GetIsolate()));
+  EXPECT_FALSE(V8DOMPoint::HasInstance(scope.GetIsolate(), result));
   DOMPointReadOnly* new_point =
-      V8DOMPointReadOnly::ToImpl(result.As<v8::Object>());
+      V8DOMPointReadOnly::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_point, nullptr);
   EXPECT_NE(point, new_point);
   EXPECT_EQ(point->x(), new_point->x());
   EXPECT_EQ(point->y(), new_point->y());
@@ -297,8 +302,9 @@ TEST(V8ScriptValueSerializerTest, DecodeDOMPointReadOnly) {
        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x40});
   v8::Local<v8::Value> result =
       V8ScriptValueDeserializer(script_state, input).Deserialize();
-  ASSERT_TRUE(V8DOMPointReadOnly::HasInstance(result, scope.GetIsolate()));
-  DOMPointReadOnly* point = V8DOMPointReadOnly::ToImpl(result.As<v8::Object>());
+  DOMPointReadOnly* point =
+      V8DOMPointReadOnly::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(point, nullptr);
   EXPECT_EQ(1, point->x());
   EXPECT_EQ(2, point->y());
   EXPECT_EQ(3, point->z());
@@ -312,8 +318,8 @@ TEST(V8ScriptValueSerializerTest, RoundTripDOMRect) {
   v8::Local<v8::Value> wrapper =
       ToV8(rect, scope.GetContext()->Global(), scope.GetIsolate());
   v8::Local<v8::Value> result = RoundTrip(wrapper, scope);
-  ASSERT_TRUE(V8DOMRect::HasInstance(result, scope.GetIsolate()));
-  DOMRect* new_rect = V8DOMRect::ToImpl(result.As<v8::Object>());
+  DOMRect* new_rect = V8DOMRect::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_rect, nullptr);
   EXPECT_NE(rect, new_rect);
   EXPECT_EQ(rect->x(), new_rect->x());
   EXPECT_EQ(rect->y(), new_rect->y());
@@ -331,8 +337,8 @@ TEST(V8ScriptValueSerializerTest, DecodeDOMRect) {
        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x40});
   v8::Local<v8::Value> result =
       V8ScriptValueDeserializer(script_state, input).Deserialize();
-  ASSERT_TRUE(V8DOMRect::HasInstance(result, scope.GetIsolate()));
-  DOMRect* rect = V8DOMRect::ToImpl(result.As<v8::Object>());
+  DOMRect* rect = V8DOMRect::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(rect, nullptr);
   EXPECT_EQ(1, rect->x());
   EXPECT_EQ(2, rect->y());
   EXPECT_EQ(3, rect->width());
@@ -346,10 +352,10 @@ TEST(V8ScriptValueSerializerTest, RoundTripDOMRectReadOnly) {
   v8::Local<v8::Value> wrapper =
       ToV8(rect, scope.GetContext()->Global(), scope.GetIsolate());
   v8::Local<v8::Value> result = RoundTrip(wrapper, scope);
-  ASSERT_TRUE(V8DOMRectReadOnly::HasInstance(result, scope.GetIsolate()));
-  EXPECT_FALSE(V8DOMRect::HasInstance(result, scope.GetIsolate()));
+  EXPECT_FALSE(V8DOMRect::HasInstance(scope.GetIsolate(), result));
   DOMRectReadOnly* new_rect =
-      V8DOMRectReadOnly::ToImpl(result.As<v8::Object>());
+      V8DOMRectReadOnly::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_rect, nullptr);
   EXPECT_NE(rect, new_rect);
   EXPECT_EQ(rect->x(), new_rect->x());
   EXPECT_EQ(rect->y(), new_rect->y());
@@ -367,8 +373,9 @@ TEST(V8ScriptValueSerializerTest, DecodeDOMRectReadOnly) {
        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x40});
   v8::Local<v8::Value> result =
       V8ScriptValueDeserializer(script_state, input).Deserialize();
-  ASSERT_TRUE(V8DOMRectReadOnly::HasInstance(result, scope.GetIsolate()));
-  DOMRectReadOnly* rect = V8DOMRectReadOnly::ToImpl(result.As<v8::Object>());
+  DOMRectReadOnly* rect =
+      V8DOMRectReadOnly::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(rect, nullptr);
   EXPECT_EQ(1, rect->x());
   EXPECT_EQ(2, rect->y());
   EXPECT_EQ(3, rect->width());
@@ -402,8 +409,8 @@ TEST(V8ScriptValueSerializerTest, RoundTripDOMQuad) {
   v8::Local<v8::Value> wrapper =
       ToV8(quad, scope.GetContext()->Global(), scope.GetIsolate());
   v8::Local<v8::Value> result = RoundTrip(wrapper, scope);
-  ASSERT_TRUE(V8DOMQuad::HasInstance(result, scope.GetIsolate()));
-  DOMQuad* new_quad = V8DOMQuad::ToImpl(result.As<v8::Object>());
+  DOMQuad* new_quad = V8DOMQuad::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_quad, nullptr);
   EXPECT_NE(quad, new_quad);
   EXPECT_NE(quad->p1(), new_quad->p1());
   EXPECT_NE(quad->p2(), new_quad->p2());
@@ -445,8 +452,8 @@ TEST(V8ScriptValueSerializerTest, DecodeDOMQuad) {
        0x30, 0x40});
   v8::Local<v8::Value> result =
       V8ScriptValueDeserializer(script_state, input).Deserialize();
-  ASSERT_TRUE(V8DOMQuad::HasInstance(result, scope.GetIsolate()));
-  DOMQuad* quad = V8DOMQuad::ToImpl(result.As<v8::Object>());
+  DOMQuad* quad = V8DOMQuad::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(quad, nullptr);
   EXPECT_EQ(1, quad->p1()->x());
   EXPECT_EQ(5, quad->p1()->y());
   EXPECT_EQ(9, quad->p1()->z());
@@ -481,8 +488,8 @@ TEST(V8ScriptValueSerializerTest, RoundTripDOMMatrix2D) {
   v8::Local<v8::Value> wrapper =
       ToV8(matrix, scope.GetContext()->Global(), scope.GetIsolate());
   v8::Local<v8::Value> result = RoundTrip(wrapper, scope);
-  ASSERT_TRUE(V8DOMMatrix::HasInstance(result, scope.GetIsolate()));
-  DOMMatrix* new_matrix = V8DOMMatrix::ToImpl(result.As<v8::Object>());
+  DOMMatrix* new_matrix = V8DOMMatrix::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_matrix, nullptr);
   EXPECT_NE(matrix, new_matrix);
   EXPECT_TRUE(new_matrix->is2D());
   EXPECT_EQ(matrix->a(), new_matrix->a());
@@ -509,8 +516,8 @@ TEST(V8ScriptValueSerializerTest, DecodeDOMMatrix2D) {
   });
   v8::Local<v8::Value> result =
       V8ScriptValueDeserializer(script_state, input).Deserialize();
-  ASSERT_TRUE(V8DOMMatrix::HasInstance(result, scope.GetIsolate()));
-  DOMMatrix* matrix = V8DOMMatrix::ToImpl(result.As<v8::Object>());
+  DOMMatrix* matrix = V8DOMMatrix::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(matrix, nullptr);
   EXPECT_TRUE(matrix->is2D());
   EXPECT_EQ(1.0, matrix->a());
   EXPECT_EQ(2.0, matrix->b());
@@ -537,10 +544,10 @@ TEST(V8ScriptValueSerializerTest, RoundTripDOMMatrixReadOnly2D) {
   v8::Local<v8::Value> wrapper =
       ToV8(matrix, scope.GetContext()->Global(), scope.GetIsolate());
   v8::Local<v8::Value> result = RoundTrip(wrapper, scope);
-  ASSERT_TRUE(V8DOMMatrixReadOnly::HasInstance(result, scope.GetIsolate()));
-  EXPECT_FALSE(V8DOMMatrix::HasInstance(result, scope.GetIsolate()));
+  EXPECT_FALSE(V8DOMMatrix::HasInstance(scope.GetIsolate(), result));
   DOMMatrixReadOnly* new_matrix =
-      V8DOMMatrixReadOnly::ToImpl(result.As<v8::Object>());
+      V8DOMMatrixReadOnly::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_matrix, nullptr);
   EXPECT_NE(matrix, new_matrix);
   EXPECT_TRUE(new_matrix->is2D());
   EXPECT_EQ(matrix->a(), new_matrix->a());
@@ -567,9 +574,9 @@ TEST(V8ScriptValueSerializerTest, DecodeDOMMatrixReadOnly2D) {
   });
   v8::Local<v8::Value> result =
       V8ScriptValueDeserializer(script_state, input).Deserialize();
-  ASSERT_TRUE(V8DOMMatrixReadOnly::HasInstance(result, scope.GetIsolate()));
   DOMMatrixReadOnly* matrix =
-      V8DOMMatrixReadOnly::ToImpl(result.As<v8::Object>());
+      V8DOMMatrixReadOnly::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(matrix, nullptr);
   EXPECT_TRUE(matrix->is2D());
   EXPECT_EQ(1.0, matrix->a());
   EXPECT_EQ(2.0, matrix->b());
@@ -605,8 +612,8 @@ TEST(V8ScriptValueSerializerTest, RoundTripDOMMatrix) {
   v8::Local<v8::Value> wrapper =
       ToV8(matrix, scope.GetContext()->Global(), scope.GetIsolate());
   v8::Local<v8::Value> result = RoundTrip(wrapper, scope);
-  ASSERT_TRUE(V8DOMMatrix::HasInstance(result, scope.GetIsolate()));
-  DOMMatrix* new_matrix = V8DOMMatrix::ToImpl(result.As<v8::Object>());
+  DOMMatrix* new_matrix = V8DOMMatrix::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_matrix, nullptr);
   EXPECT_NE(matrix, new_matrix);
   EXPECT_FALSE(new_matrix->is2D());
   EXPECT_EQ(matrix->m11(), new_matrix->m11());
@@ -646,8 +653,8 @@ TEST(V8ScriptValueSerializerTest, DecodeDOMMatrix) {
   });
   v8::Local<v8::Value> result =
       V8ScriptValueDeserializer(script_state, input).Deserialize();
-  ASSERT_TRUE(V8DOMMatrix::HasInstance(result, scope.GetIsolate()));
-  DOMMatrix* matrix = V8DOMMatrix::ToImpl(result.As<v8::Object>());
+  DOMMatrix* matrix = V8DOMMatrix::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(matrix, nullptr);
   EXPECT_FALSE(matrix->is2D());
   EXPECT_EQ(1.1, matrix->m11());
   EXPECT_EQ(1.2, matrix->m12());
@@ -694,10 +701,10 @@ TEST(V8ScriptValueSerializerTest, RoundTripDOMMatrixReadOnly) {
   v8::Local<v8::Value> wrapper =
       ToV8(matrix, scope.GetContext()->Global(), scope.GetIsolate());
   v8::Local<v8::Value> result = RoundTrip(wrapper, scope);
-  ASSERT_TRUE(V8DOMMatrixReadOnly::HasInstance(result, scope.GetIsolate()));
-  EXPECT_FALSE(V8DOMMatrix::HasInstance(result, scope.GetIsolate()));
+  EXPECT_FALSE(V8DOMMatrix::HasInstance(scope.GetIsolate(), result));
   DOMMatrixReadOnly* new_matrix =
-      V8DOMMatrixReadOnly::ToImpl(result.As<v8::Object>());
+      V8DOMMatrixReadOnly::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_matrix, nullptr);
   EXPECT_NE(matrix, new_matrix);
   EXPECT_FALSE(new_matrix->is2D());
   EXPECT_EQ(matrix->m11(), new_matrix->m11());
@@ -738,9 +745,9 @@ TEST(V8ScriptValueSerializerTest, DecodeDOMMatrixReadOnly) {
   });
   v8::Local<v8::Value> result =
       V8ScriptValueDeserializer(script_state, input).Deserialize();
-  ASSERT_TRUE(V8DOMMatrixReadOnly::HasInstance(result, scope.GetIsolate()));
   DOMMatrixReadOnly* matrix =
-      V8DOMMatrixReadOnly::ToImpl(result.As<v8::Object>());
+      V8DOMMatrixReadOnly::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(matrix, nullptr);
   EXPECT_FALSE(matrix->is2D());
   EXPECT_EQ(1.1, matrix->m11());
   EXPECT_EQ(1.2, matrix->m12());
@@ -772,8 +779,9 @@ TEST(V8ScriptValueSerializerTest, RoundTripImageData) {
   v8::Local<v8::Value> wrapper =
       ToV8(image_data, scope.GetContext()->Global(), scope.GetIsolate());
   v8::Local<v8::Value> result = RoundTrip(wrapper, scope);
-  ASSERT_TRUE(V8ImageData::HasInstance(result, scope.GetIsolate()));
-  ImageData* new_image_data = V8ImageData::ToImpl(result.As<v8::Object>());
+  ImageData* new_image_data =
+      V8ImageData::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_image_data, nullptr);
   EXPECT_NE(image_data, new_image_data);
   EXPECT_EQ(image_data->Size(), new_image_data->Size());
   SkPixmap new_pm = new_image_data->GetSkPixmap();
@@ -795,7 +803,7 @@ TEST(V8ScriptValueSerializerTest, RoundTripDetachedImageData) {
   v8::Local<v8::Value> wrapper =
       ToV8(image_data, scope.GetContext()->Global(), scope.GetIsolate());
   v8::Local<v8::Value> result = RoundTrip(wrapper, scope);
-  EXPECT_FALSE(V8ImageData::HasInstance(result, scope.GetIsolate()));
+  EXPECT_FALSE(V8ImageData::HasInstance(scope.GetIsolate(), result));
 }
 
 TEST(V8ScriptValueSerializerTest, RoundTripImageDataWithColorSpaceInfo) {
@@ -815,8 +823,9 @@ TEST(V8ScriptValueSerializerTest, RoundTripImageDataWithColorSpaceInfo) {
   v8::Local<v8::Value> wrapper =
       ToV8(image_data, scope.GetContext()->Global(), scope.GetIsolate());
   v8::Local<v8::Value> result = RoundTrip(wrapper, scope);
-  ASSERT_TRUE(V8ImageData::HasInstance(result, scope.GetIsolate()));
-  ImageData* new_image_data = V8ImageData::ToImpl(result.As<v8::Object>());
+  ImageData* new_image_data =
+      V8ImageData::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_image_data, nullptr);
   EXPECT_NE(image_data, new_image_data);
   EXPECT_EQ(image_data->Size(), new_image_data->Size());
   ImageDataSettings* new_image_data_settings = new_image_data->getSettings();
@@ -838,8 +847,9 @@ TEST(V8ScriptValueSerializerTest, DecodeImageDataV9) {
                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
   v8::Local<v8::Value> result =
       V8ScriptValueDeserializer(script_state, input).Deserialize();
-  ASSERT_TRUE(V8ImageData::HasInstance(result, scope.GetIsolate()));
-  ImageData* new_image_data = V8ImageData::ToImpl(result.As<v8::Object>());
+  ImageData* new_image_data =
+      V8ImageData::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_image_data, nullptr);
   EXPECT_EQ(gfx::Size(2, 1), new_image_data->Size());
   SkPixmap new_pm = new_image_data->GetSkPixmap();
   EXPECT_EQ(8u, new_pm.computeByteSize());
@@ -854,8 +864,9 @@ TEST(V8ScriptValueSerializerTest, DecodeImageDataV16) {
                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
   v8::Local<v8::Value> result =
       V8ScriptValueDeserializer(script_state, input).Deserialize();
-  ASSERT_TRUE(V8ImageData::HasInstance(result, scope.GetIsolate()));
-  ImageData* new_image_data = V8ImageData::ToImpl(result.As<v8::Object>());
+  ImageData* new_image_data =
+      V8ImageData::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_image_data, nullptr);
   EXPECT_EQ(gfx::Size(2, 1), new_image_data->Size());
   SkPixmap new_pm = new_image_data->GetSkPixmap();
   EXPECT_EQ(kRGBA_8888_SkColorType, new_pm.info().colorType());
@@ -873,8 +884,9 @@ TEST(V8ScriptValueSerializerTest, DecodeImageDataV18) {
        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
   v8::Local<v8::Value> result =
       V8ScriptValueDeserializer(script_state, input).Deserialize();
-  ASSERT_TRUE(V8ImageData::HasInstance(result, scope.GetIsolate()));
-  ImageData* new_image_data = V8ImageData::ToImpl(result.As<v8::Object>());
+  ImageData* new_image_data =
+      V8ImageData::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_image_data, nullptr);
   EXPECT_EQ(gfx::Size(2, 1), new_image_data->Size());
   ImageDataSettings* new_image_data_settings = new_image_data->getSettings();
   EXPECT_EQ("display-p3", new_image_data_settings->colorSpace());
@@ -922,8 +934,9 @@ TEST(V8ScriptValueSerializerTest, RoundTripMessagePort) {
 
   v8::Local<v8::Value> result =
       RoundTrip(wrapper, scope, nullptr, &transferables);
-  ASSERT_TRUE(V8MessagePort::HasInstance(result, scope.GetIsolate()));
-  MessagePort* new_port = V8MessagePort::ToImpl(result.As<v8::Object>());
+  MessagePort* new_port =
+      V8MessagePort::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_port, nullptr);
   EXPECT_FALSE(port->IsEntangled());
   EXPECT_TRUE(new_port->IsEntangled());
   EXPECT_EQ(unowned_handle, new_port->EntangledHandleForTesting());
@@ -993,13 +1006,16 @@ TEST(V8ScriptValueSerializerTest, OutOfRangeMessagePortIndex) {
     options.message_ports->push_back(port2);
     V8ScriptValueDeserializer deserializer(script_state, input, options);
     v8::Local<v8::Value> result = deserializer.Deserialize();
-    ASSERT_TRUE(V8MessagePort::HasInstance(result, scope.GetIsolate()));
-    EXPECT_EQ(port2, V8MessagePort::ToImpl(result.As<v8::Object>()));
+    EXPECT_EQ(port2, V8MessagePort::ToWrappable(scope.GetIsolate(), result));
   }
 }
 
 TEST(V8ScriptValueSerializerTest, RoundTripMojoHandle) {
   V8TestingScope scope;
+  ContextFeatureSettings::From(
+      scope.GetExecutionContext(),
+      ContextFeatureSettings::CreationMode::kCreateIfNotExists)
+      ->EnableMojoJS(true);
 
   mojo::MessagePipe pipe;
   auto* handle = MakeGarbageCollected<MojoHandle>(
@@ -1010,8 +1026,9 @@ TEST(V8ScriptValueSerializerTest, RoundTripMojoHandle) {
 
   v8::Local<v8::Value> result =
       RoundTrip(wrapper, scope, nullptr, &transferables);
-  ASSERT_TRUE(V8MojoHandle::HasInstance(result, scope.GetIsolate()));
-  MojoHandle* new_handle = V8MojoHandle::ToImpl(result.As<v8::Object>());
+  MojoHandle* new_handle =
+      V8MojoHandle::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_handle, nullptr);
   EXPECT_FALSE(handle->TakeHandle().is_valid());
   EXPECT_TRUE(new_handle->TakeHandle().is_valid());
 }
@@ -1041,7 +1058,8 @@ TEST(V8ScriptValueSerializerTest, RoundTripImageBitmap) {
   V8TestingScope scope;
 
   // Make a 10x7 red ImageBitmap.
-  sk_sp<SkSurface> surface = SkSurface::MakeRasterN32Premul(10, 7);
+  sk_sp<SkSurface> surface =
+      SkSurfaces::Raster(SkImageInfo::MakeN32Premul(10, 7));
   surface->getCanvas()->clear(SK_ColorRED);
   auto* image_bitmap = MakeGarbageCollected<ImageBitmap>(
       UnacceleratedStaticBitmapImage::Create(surface->makeImageSnapshot()));
@@ -1050,9 +1068,9 @@ TEST(V8ScriptValueSerializerTest, RoundTripImageBitmap) {
   // Serialize and deserialize it.
   v8::Local<v8::Value> wrapper = ToV8(image_bitmap, scope.GetScriptState());
   v8::Local<v8::Value> result = RoundTrip(wrapper, scope);
-  ASSERT_TRUE(V8ImageBitmap::HasInstance(result, scope.GetIsolate()));
   ImageBitmap* new_image_bitmap =
-      V8ImageBitmap::ToImpl(result.As<v8::Object>());
+      V8ImageBitmap::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_image_bitmap, nullptr);
   ASSERT_TRUE(new_image_bitmap->BitmapImage());
   ASSERT_EQ(gfx::Size(10, 7), new_image_bitmap->Size());
 
@@ -1065,6 +1083,37 @@ TEST(V8ScriptValueSerializerTest, RoundTripImageBitmap) {
   ASSERT_THAT(pixel, testing::ElementsAre(255, 0, 0, 255));
 }
 
+TEST(V8ScriptValueSerializerTest, ImageBitmapEXIFImageOrientation) {
+  // More complete end-to-end testing is provided by WPT test
+  // imagebitmap-replication-exif-orientation.html.
+  // The purpose of this complementary test is to get complete code coverage
+  // for all possible values of ImageOrientationEnum.
+  V8TestingScope scope;
+  const uint32_t kImageWidth = 10;
+  const uint32_t kImageHeight = 5;
+  for (uint8_t i = static_cast<uint8_t>(ImageOrientationEnum::kOriginTopLeft);
+       i <= static_cast<uint8_t>(ImageOrientationEnum::kMaxValue); i++) {
+    ImageOrientationEnum orientation = static_cast<ImageOrientationEnum>(i);
+    sk_sp<SkSurface> surface = SkSurfaces::Raster(
+        SkImageInfo::MakeN32Premul(kImageWidth, kImageHeight));
+    auto static_image =
+        UnacceleratedStaticBitmapImage::Create(surface->makeImageSnapshot());
+    static_image->SetOrientation(orientation);
+    auto* image_bitmap = MakeGarbageCollected<ImageBitmap>(static_image);
+    ASSERT_TRUE(image_bitmap->BitmapImage());
+    // Serialize and deserialize it.
+    v8::Local<v8::Value> wrapper = ToV8(image_bitmap, scope.GetScriptState());
+    v8::Local<v8::Value> result = RoundTrip(wrapper, scope);
+    ImageBitmap* new_image_bitmap =
+        V8ImageBitmap::ToWrappable(scope.GetIsolate(), result);
+    ASSERT_NE(new_image_bitmap, nullptr);
+    ASSERT_TRUE(new_image_bitmap->BitmapImage());
+    // Ensure image orientation did not confuse (e.g transpose) the image size
+    ASSERT_EQ(new_image_bitmap->Size(), image_bitmap->Size());
+    ASSERT_EQ(new_image_bitmap->ImageOrientation(), orientation);
+  }
+}
+
 TEST(V8ScriptValueSerializerTest, RoundTripImageBitmapWithColorSpaceInfo) {
   sk_sp<SkColorSpace> p3 =
       SkColorSpace::MakeRGB(SkNamedTransferFn::kSRGB, SkNamedGamut::kDisplayP3);
@@ -1072,7 +1121,7 @@ TEST(V8ScriptValueSerializerTest, RoundTripImageBitmapWithColorSpaceInfo) {
   // Make a 10x7 red ImageBitmap in P3 color space.
   SkImageInfo info =
       SkImageInfo::Make(10, 7, kRGBA_F16_SkColorType, kPremul_SkAlphaType, p3);
-  sk_sp<SkSurface> surface = SkSurface::MakeRaster(info);
+  sk_sp<SkSurface> surface = SkSurfaces::Raster(info);
   surface->getCanvas()->clear(SK_ColorRED);
   auto* image_bitmap = MakeGarbageCollected<ImageBitmap>(
       UnacceleratedStaticBitmapImage::Create(surface->makeImageSnapshot()));
@@ -1081,9 +1130,9 @@ TEST(V8ScriptValueSerializerTest, RoundTripImageBitmapWithColorSpaceInfo) {
   // Serialize and deserialize it.
   v8::Local<v8::Value> wrapper = ToV8(image_bitmap, scope.GetScriptState());
   v8::Local<v8::Value> result = RoundTrip(wrapper, scope);
-  ASSERT_TRUE(V8ImageBitmap::HasInstance(result, scope.GetIsolate()));
   ImageBitmap* new_image_bitmap =
-      V8ImageBitmap::ToImpl(result.As<v8::Object>());
+      V8ImageBitmap::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_image_bitmap, nullptr);
   ASSERT_TRUE(new_image_bitmap->BitmapImage());
   ASSERT_EQ(gfx::Size(10, 7), new_image_bitmap->Size());
 
@@ -1136,9 +1185,9 @@ TEST(V8ScriptValueSerializerTest, DecodeImageBitmap) {
 
   v8::Local<v8::Value> result =
       V8ScriptValueDeserializer(script_state, input).Deserialize();
-  ASSERT_TRUE(V8ImageBitmap::HasInstance(result, scope.GetIsolate()));
   ImageBitmap* new_image_bitmap =
-      V8ImageBitmap::ToImpl(result.As<v8::Object>());
+      V8ImageBitmap::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_image_bitmap, nullptr);
   ASSERT_EQ(gfx::Size(2, 1), new_image_bitmap->Size());
 
   // Check that the pixels are opaque red and green, respectively.
@@ -1148,6 +1197,9 @@ TEST(V8ScriptValueSerializerTest, DecodeImageBitmap) {
           SkImageInfo::Make(2, 1, kRGBA_8888_SkColorType, kPremul_SkAlphaType),
           &pixels, 8, 0, 0));
   ASSERT_THAT(pixels, testing::ElementsAre(255, 0, 0, 255, 0, 255, 0, 255));
+  // Check that orientation is top left (default).
+  ASSERT_EQ(new_image_bitmap->ImageOrientation(),
+            ImageOrientationEnum::kOriginTopLeft);
 }
 
 TEST(V8ScriptValueSerializerTest, DecodeImageBitmapV18) {
@@ -1162,9 +1214,9 @@ TEST(V8ScriptValueSerializerTest, DecodeImageBitmapV18) {
 
   v8::Local<v8::Value> result =
       V8ScriptValueDeserializer(script_state, input).Deserialize();
-  ASSERT_TRUE(V8ImageBitmap::HasInstance(result, scope.GetIsolate()));
   ImageBitmap* new_image_bitmap =
-      V8ImageBitmap::ToImpl(result.As<v8::Object>());
+      V8ImageBitmap::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_image_bitmap, nullptr);
   ASSERT_EQ(gfx::Size(2, 1), new_image_bitmap->Size());
 
   // Check the color settings.
@@ -1183,6 +1235,133 @@ TEST(V8ScriptValueSerializerTest, DecodeImageBitmapV18) {
   // in half floats by Skia).
   ASSERT_THAT(pixel, testing::ElementsAre(0x94, 0x3A, 0x3F, 0x28, 0x5F, 0x24,
                                           0x0, 0x3C));
+  // Check that orientation is top left (default).
+  ASSERT_EQ(new_image_bitmap->ImageOrientation(),
+            ImageOrientationEnum::kOriginTopLeft);
+}
+
+TEST(V8ScriptValueSerializerTest, DecodeImageBitmapV20WithoutImageOrientation) {
+  V8TestingScope scope;
+  ScriptState* script_state = scope.GetScriptState();
+  scoped_refptr<SerializedScriptValue> input = SerializedValue({
+      0xff,  // kVersionTag
+      0x14,  // 20
+      0xff,  // Value serializer header
+      0x0f,  // Value serializer version 15 (varint format)
+      0x5c,  // kHostObjectTag
+      0x67,  // kImageBitmapTag
+      0x07,  // kParametricColorSpaceTag
+      // srgb colorspace
+      0x00, 0x00, 0x00, 0x40, 0x33, 0x33, 0x03, 0x40, 0x00, 0x00, 0x00, 0xc0,
+      0xed, 0x54, 0xee, 0x3f, 0x00, 0x00, 0x00, 0x20, 0x23, 0xb1, 0xaa, 0x3f,
+      0x00, 0x00, 0x00, 0x20, 0x72, 0xd0, 0xb3, 0x3f, 0x00, 0x00, 0x00, 0xc0,
+      0xdc, 0xb5, 0xa4, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x80, 0xe8, 0xdb, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x40, 0xa6, 0xd8, 0x3f,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x50, 0xc2, 0x3f, 0x00, 0x00, 0x00, 0x00,
+      0x80, 0x7a, 0xcc, 0x3f, 0x00, 0x00, 0x00, 0x00, 0xa0, 0xf0, 0xe6, 0x3f,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0xaf, 0x3f, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x80, 0x8c, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0xda, 0xb8, 0x3f,
+      0x00, 0x00, 0x00, 0x00, 0xe0, 0xd9, 0xe6, 0x3f, 0x02,
+      0x03,        // kCanvasPixelFormatTag kBGRA8
+      0x06, 0x00,  // kCanvasOpacityModeTag
+      0x04, 0x01,  // kOriginCleanTag
+      0x05, 0x01,  // kIsPremultipliedTag
+      // Image orientation omitted
+      0x0,         // kEndTag
+      0x01, 0x01,  // width, height (varint format)
+      0x04,        // pixel size (varint format)
+      0xee, 0xaa, 0x77, 0xff,
+      0x00  // padding: even number of bytes for endianness swapping.
+  });
+
+  v8::Local<v8::Value> result =
+      V8ScriptValueDeserializer(script_state, input).Deserialize();
+  ImageBitmap* new_image_bitmap =
+      V8ImageBitmap::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_image_bitmap, nullptr);
+  // Check image size
+  ASSERT_EQ(gfx::Size(1, 1), new_image_bitmap->Size());
+  // Check the color settings.
+  SkImageInfo bitmap_info = new_image_bitmap->GetBitmapSkImageInfo();
+  EXPECT_EQ(kBGRA_8888_SkColorType, bitmap_info.colorType());
+  sk_sp<SkColorSpace> srgb =
+      SkColorSpace::MakeRGB(SkNamedTransferFn::kSRGB, SkNamedGamut::kSRGB);
+  EXPECT_TRUE(SkColorSpace::Equals(srgb.get(), bitmap_info.colorSpace()));
+  // Check that orientation is bottom left.
+  ASSERT_EQ(new_image_bitmap->ImageOrientation(),
+            ImageOrientationEnum::kOriginTopLeft);
+  // Check pixel value
+  SkImageInfo info = SkImageInfo::Make(1, 1, kRGBA_8888_SkColorType,
+                                       kPremul_SkAlphaType, srgb);
+  uint8_t pixel[4] = {};
+  ASSERT_TRUE(
+      new_image_bitmap->BitmapImage()->PaintImageForCurrentFrame().readPixels(
+          info, &pixel, 4, 0, 0));
+  // BGRA encoding, swapped to RGBA
+  ASSERT_THAT(pixel, testing::ElementsAre(0x77, 0xaa, 0xee, 0xff));
+}
+
+TEST(V8ScriptValueSerializerTest, DecodeImageBitmapV20WithImageOrientation) {
+  V8TestingScope scope;
+  ScriptState* script_state = scope.GetScriptState();
+  scoped_refptr<SerializedScriptValue> input = SerializedValue({
+      0xff,  // kVersionTag
+      0x14,  // 20
+      0xff,  // Value serializer header
+      0x0f,  // Value serializer version 15, varint encoding
+      0x5c,  // kHostObjectTag
+      0x67,  // kImageBitmapTag
+      0x07,  // kParametricColorSpaceTag
+      // srgb colorspace
+      0x00, 0x00, 0x00, 0x40, 0x33, 0x33, 0x03, 0x40, 0x00, 0x00, 0x00, 0xc0,
+      0xed, 0x54, 0xee, 0x3f, 0x00, 0x00, 0x00, 0x20, 0x23, 0xb1, 0xaa, 0x3f,
+      0x00, 0x00, 0x00, 0x20, 0x72, 0xd0, 0xb3, 0x3f, 0x00, 0x00, 0x00, 0xc0,
+      0xdc, 0xb5, 0xa4, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x80, 0xe8, 0xdb, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x40, 0xa6, 0xd8, 0x3f,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x50, 0xc2, 0x3f, 0x00, 0x00, 0x00, 0x00,
+      0x80, 0x7a, 0xcc, 0x3f, 0x00, 0x00, 0x00, 0x00, 0xa0, 0xf0, 0xe6, 0x3f,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0xaf, 0x3f, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x80, 0x8c, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0xda, 0xb8, 0x3f,
+      0x00, 0x00, 0x00, 0x00, 0xe0, 0xd9, 0xe6, 0x3f, 0x02,
+      0x03,        // kCanvasPixelFormatTag kBGRA8
+      0x06, 0x00,  // kCanvasOpacityModeTag
+      0x04, 0x01,  // kOriginCleanTag
+      0x05, 0x01,  // kIsPremultipliedTag
+      0x08, 0x03,  // kImageOrientationTag -> kBottomLeft
+      0x0,         // kEndTag
+      0x01, 0x01,  // width, height (varint format)
+      0x04,        // pixel size (varint format)
+      0xee, 0xaa, 0x77, 0xff,
+      0x00  // padding: even number of bytes for endianness swapping.
+  });
+
+  v8::Local<v8::Value> result =
+      V8ScriptValueDeserializer(script_state, input).Deserialize();
+  ImageBitmap* new_image_bitmap =
+      V8ImageBitmap::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_image_bitmap, nullptr);
+  // Check image size
+  ASSERT_EQ(gfx::Size(1, 1), new_image_bitmap->Size());
+  // Check the color settings.
+  SkImageInfo bitmap_info = new_image_bitmap->GetBitmapSkImageInfo();
+  EXPECT_EQ(kBGRA_8888_SkColorType, bitmap_info.colorType());
+  sk_sp<SkColorSpace> srgb =
+      SkColorSpace::MakeRGB(SkNamedTransferFn::kSRGB, SkNamedGamut::kSRGB);
+  EXPECT_TRUE(SkColorSpace::Equals(srgb.get(), bitmap_info.colorSpace()));
+  // Check that orientation is bottom left.
+  ASSERT_EQ(new_image_bitmap->ImageOrientation(),
+            ImageOrientationEnum::kOriginBottomLeft);
+  // Check pixel value
+  SkImageInfo info = SkImageInfo::Make(1, 1, kRGBA_8888_SkColorType,
+                                       kPremul_SkAlphaType, srgb);
+  uint8_t pixel[4] = {};
+  ASSERT_TRUE(
+      new_image_bitmap->BitmapImage()->PaintImageForCurrentFrame().readPixels(
+          info, &pixel, 4, 0, 0));
+  // BGRA encoding, swapped to RGBA
+  ASSERT_THAT(pixel, testing::ElementsAre(0x77, 0xaa, 0xee, 0xff));
 }
 
 TEST(V8ScriptValueSerializerTest, InvalidImageBitmapDecode) {
@@ -1304,7 +1483,8 @@ TEST(V8ScriptValueSerializerTest, TransferImageBitmap) {
   // More thorough tests exist in web_tests/.
   V8TestingScope scope;
 
-  sk_sp<SkSurface> surface = SkSurface::MakeRasterN32Premul(10, 7);
+  sk_sp<SkSurface> surface =
+      SkSurfaces::Raster(SkImageInfo::MakeN32Premul(10, 7));
   surface->getCanvas()->clear(SK_ColorRED);
   sk_sp<SkImage> image = surface->makeImageSnapshot();
   auto* image_bitmap = MakeGarbageCollected<ImageBitmap>(
@@ -1316,9 +1496,9 @@ TEST(V8ScriptValueSerializerTest, TransferImageBitmap) {
   transferables.image_bitmaps.push_back(image_bitmap);
   v8::Local<v8::Value> result =
       RoundTrip(wrapper, scope, nullptr, &transferables);
-  ASSERT_TRUE(V8ImageBitmap::HasInstance(result, scope.GetIsolate()));
   ImageBitmap* new_image_bitmap =
-      V8ImageBitmap::ToImpl(result.As<v8::Object>());
+      V8ImageBitmap::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_image_bitmap, nullptr);
   ASSERT_TRUE(new_image_bitmap->BitmapImage());
   ASSERT_EQ(gfx::Size(10, 7), new_image_bitmap->Size());
 
@@ -1348,9 +1528,9 @@ TEST(V8ScriptValueSerializerTest, TransferOffscreenCanvas) {
   transferables.offscreen_canvases.push_back(canvas);
   v8::Local<v8::Value> result =
       RoundTrip(wrapper, scope, nullptr, &transferables);
-  ASSERT_TRUE(V8OffscreenCanvas::HasInstance(result, scope.GetIsolate()));
   OffscreenCanvas* new_canvas =
-      V8OffscreenCanvas::ToImpl(result.As<v8::Object>());
+      V8OffscreenCanvas::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_canvas, nullptr);
   EXPECT_EQ(gfx::Size(10, 7), new_canvas->Size());
   EXPECT_EQ(519, new_canvas->PlaceholderCanvasId());
   EXPECT_TRUE(canvas->IsNeutered());
@@ -1364,11 +1544,11 @@ TEST(V8ScriptValueSerializerTest, RoundTripBlob) {
       Blob::Create(reinterpret_cast<const unsigned char*>(&kHelloWorld),
                    sizeof(kHelloWorld), "text/plain");
   String uuid = blob->Uuid();
-  EXPECT_FALSE(uuid.IsEmpty());
+  EXPECT_FALSE(uuid.empty());
   v8::Local<v8::Value> wrapper = ToV8(blob, scope.GetScriptState());
   v8::Local<v8::Value> result = RoundTrip(wrapper, scope);
-  ASSERT_TRUE(V8Blob::HasInstance(result, scope.GetIsolate()));
-  Blob* new_blob = V8Blob::ToImpl(result.As<v8::Object>());
+  Blob* new_blob = V8Blob::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_blob, nullptr);
   EXPECT_EQ("text/plain", new_blob->type());
   EXPECT_EQ(sizeof(kHelloWorld), new_blob->size());
   EXPECT_EQ(uuid, new_blob->Uuid());
@@ -1384,8 +1564,8 @@ TEST(V8ScriptValueSerializerTest, DecodeBlob) {
        0x65, 0x78, 0x74, 0x2f, 0x70, 0x6c, 0x61, 0x69, 0x6e, 0x0c});
   v8::Local<v8::Value> result =
       V8ScriptValueDeserializer(scope.GetScriptState(), input).Deserialize();
-  ASSERT_TRUE(V8Blob::HasInstance(result, scope.GetIsolate()));
-  Blob* new_blob = V8Blob::ToImpl(result.As<v8::Object>());
+  Blob* new_blob = V8Blob::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_blob, nullptr);
   EXPECT_EQ("d875dfc2-4505-461b-98fe-0cf6cc5eaf44", new_blob->Uuid());
   EXPECT_EQ("text/plain", new_blob->type());
   EXPECT_EQ(12u, new_blob->size());
@@ -1398,15 +1578,15 @@ TEST(V8ScriptValueSerializerTest, RoundTripBlobIndex) {
       Blob::Create(reinterpret_cast<const unsigned char*>(&kHelloWorld),
                    sizeof(kHelloWorld), "text/plain");
   String uuid = blob->Uuid();
-  EXPECT_FALSE(uuid.IsEmpty());
+  EXPECT_FALSE(uuid.empty());
   v8::Local<v8::Value> wrapper = ToV8(blob, scope.GetScriptState());
   WebBlobInfoArray blob_info_array;
   v8::Local<v8::Value> result =
       RoundTrip(wrapper, scope, nullptr, nullptr, &blob_info_array);
 
   // As before, the resulting blob should be correct.
-  ASSERT_TRUE(V8Blob::HasInstance(result, scope.GetIsolate()));
-  Blob* new_blob = V8Blob::ToImpl(result.As<v8::Object>());
+  Blob* new_blob = V8Blob::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_blob, nullptr);
   EXPECT_EQ("text/plain", new_blob->type());
   EXPECT_EQ(sizeof(kHelloWorld), new_blob->size());
   EXPECT_EQ(uuid, new_blob->Uuid());
@@ -1433,8 +1613,8 @@ TEST(V8ScriptValueSerializerTest, DecodeBlobIndex) {
   V8ScriptValueDeserializer deserializer(scope.GetScriptState(), input,
                                          options);
   v8::Local<v8::Value> result = deserializer.Deserialize();
-  ASSERT_TRUE(V8Blob::HasInstance(result, scope.GetIsolate()));
-  Blob* new_blob = V8Blob::ToImpl(result.As<v8::Object>());
+  Blob* new_blob = V8Blob::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_blob, nullptr);
   EXPECT_EQ("d875dfc2-4505-461b-98fe-0cf6cc5eaf44", new_blob->Uuid());
   EXPECT_EQ("text/plain", new_blob->type());
   EXPECT_EQ(12u, new_blob->size());
@@ -1465,8 +1645,8 @@ TEST(V8ScriptValueSerializerTest, RoundTripFileNative) {
   auto* file = MakeGarbageCollected<File>("/native/path");
   v8::Local<v8::Value> wrapper = ToV8(file, scope.GetScriptState());
   v8::Local<v8::Value> result = RoundTrip(wrapper, scope);
-  ASSERT_TRUE(V8File::HasInstance(result, scope.GetIsolate()));
-  File* new_file = V8File::ToImpl(result.As<v8::Object>());
+  File* new_file = V8File::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_file, nullptr);
   EXPECT_TRUE(new_file->HasBackingFile());
   EXPECT_EQ("/native/path", new_file->GetPath());
   EXPECT_TRUE(new_file->FileSystemURL().IsEmpty());
@@ -1480,10 +1660,10 @@ TEST(V8ScriptValueSerializerTest, RoundTripFileBackedByBlob) {
                                           blob_data_handle);
   v8::Local<v8::Value> wrapper = ToV8(file, scope.GetScriptState());
   v8::Local<v8::Value> result = RoundTrip(wrapper, scope);
-  ASSERT_TRUE(V8File::HasInstance(result, scope.GetIsolate()));
-  File* new_file = V8File::ToImpl(result.As<v8::Object>());
+  File* new_file = V8File::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_file, nullptr);
   EXPECT_FALSE(new_file->HasBackingFile());
-  EXPECT_TRUE(file->GetPath().IsEmpty());
+  EXPECT_TRUE(file->GetPath().empty());
   EXPECT_TRUE(new_file->FileSystemURL().IsEmpty());
 }
 
@@ -1495,8 +1675,8 @@ TEST(V8ScriptValueSerializerTest, RoundTripFileNativeSnapshot) {
       File::CreateForFileSystemFile("name", metadata, File::kIsUserVisible);
   v8::Local<v8::Value> wrapper = ToV8(file, scope.GetScriptState());
   v8::Local<v8::Value> result = RoundTrip(wrapper, scope);
-  ASSERT_TRUE(V8File::HasInstance(result, scope.GetIsolate()));
-  File* new_file = V8File::ToImpl(result.As<v8::Object>());
+  File* new_file = V8File::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_file, nullptr);
   EXPECT_TRUE(new_file->HasBackingFile());
   EXPECT_EQ("/native/snapshot", new_file->GetPath());
   EXPECT_TRUE(new_file->FileSystemURL().IsEmpty());
@@ -1504,18 +1684,18 @@ TEST(V8ScriptValueSerializerTest, RoundTripFileNativeSnapshot) {
 
 TEST(V8ScriptValueSerializerTest, RoundTripFileNonNativeSnapshot) {
   // Preserving behavior, filesystem URL is not preserved across cloning.
-  V8TestingScope scope;
   KURL url("filesystem:http://example.com/isolated/hash/non-native-file");
+  V8TestingScope scope;
   FileMetadata metadata;
   metadata.length = 0;
-  File* file =
-      File::CreateForFileSystemFile(url, metadata, File::kIsUserVisible);
+  File* file = File::CreateForFileSystemFile(
+      url, metadata, File::kIsUserVisible, BlobDataHandle::Create());
   v8::Local<v8::Value> wrapper = ToV8(file, scope.GetScriptState());
   v8::Local<v8::Value> result = RoundTrip(wrapper, scope);
-  ASSERT_TRUE(V8File::HasInstance(result, scope.GetIsolate()));
-  File* new_file = V8File::ToImpl(result.As<v8::Object>());
+  File* new_file = V8File::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_file, nullptr);
   EXPECT_FALSE(new_file->HasBackingFile());
-  EXPECT_TRUE(file->GetPath().IsEmpty());
+  EXPECT_TRUE(file->GetPath().empty());
   EXPECT_TRUE(new_file->FileSystemURL().IsEmpty());
 }
 
@@ -1549,8 +1729,8 @@ TEST(V8ScriptValueSerializerTest, DecodeFileV3) {
        't',  'e',  'x',  't',  '/',  'p',  'l', 'a', 'i', 'n'});
   v8::Local<v8::Value> result =
       V8ScriptValueDeserializer(scope.GetScriptState(), input).Deserialize();
-  ASSERT_TRUE(V8File::HasInstance(result, scope.GetIsolate()));
-  File* new_file = V8File::ToImpl(result.As<v8::Object>());
+  File* new_file = V8File::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_file, nullptr);
   EXPECT_EQ("path", new_file->GetPath());
   EXPECT_EQ("f4a6edd5-65ad-4dc3-b67c-a779c02f0fa3", new_file->Uuid());
   EXPECT_EQ("text/plain", new_file->type());
@@ -1572,8 +1752,8 @@ TEST(V8ScriptValueSerializerTest, DecodeFileV4) {
        't',  '/',  'p',  'l',  'a',  'i',  'n', 0x00});
   v8::Local<v8::Value> result =
       V8ScriptValueDeserializer(scope.GetScriptState(), input).Deserialize();
-  ASSERT_TRUE(V8File::HasInstance(result, scope.GetIsolate()));
-  File* new_file = V8File::ToImpl(result.As<v8::Object>());
+  File* new_file = V8File::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_file, nullptr);
   EXPECT_EQ("path", new_file->GetPath());
   EXPECT_EQ("name", new_file->name());
   EXPECT_EQ("rel", new_file->webkitRelativePath());
@@ -1597,8 +1777,8 @@ TEST(V8ScriptValueSerializerTest, DecodeFileV4WithSnapshot) {
        0x00, 0x00, 0x00, 0x00, 0xd0, 0xbf});
   v8::Local<v8::Value> result =
       V8ScriptValueDeserializer(scope.GetScriptState(), input).Deserialize();
-  ASSERT_TRUE(V8File::HasInstance(result, scope.GetIsolate()));
-  File* new_file = V8File::ToImpl(result.As<v8::Object>());
+  File* new_file = V8File::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_file, nullptr);
   EXPECT_EQ("path", new_file->GetPath());
   EXPECT_EQ("name", new_file->name());
   EXPECT_EQ("rel", new_file->webkitRelativePath());
@@ -1625,8 +1805,8 @@ TEST(V8ScriptValueSerializerTest, DecodeFileV7) {
        't',  '/',  'p',  'l',  'a',  'i',  'n', 0x00, 0x00, 0x00});
   v8::Local<v8::Value> result =
       V8ScriptValueDeserializer(scope.GetScriptState(), input).Deserialize();
-  ASSERT_TRUE(V8File::HasInstance(result, scope.GetIsolate()));
-  File* new_file = V8File::ToImpl(result.As<v8::Object>());
+  File* new_file = V8File::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_file, nullptr);
   EXPECT_EQ("path", new_file->GetPath());
   EXPECT_EQ("name", new_file->name());
   EXPECT_EQ("rel", new_file->webkitRelativePath());
@@ -1650,8 +1830,8 @@ TEST(V8ScriptValueSerializerTest, DecodeFileV8WithSnapshot) {
        0x00, 0x00, 0x00, 0x00, 0xd0, 0xbf, 0x01, 0x00});
   v8::Local<v8::Value> result =
       V8ScriptValueDeserializer(scope.GetScriptState(), input).Deserialize();
-  ASSERT_TRUE(V8File::HasInstance(result, scope.GetIsolate()));
-  File* new_file = V8File::ToImpl(result.As<v8::Object>());
+  File* new_file = V8File::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_file, nullptr);
   EXPECT_EQ("path", new_file->GetPath());
   EXPECT_EQ("name", new_file->name());
   EXPECT_EQ("rel", new_file->webkitRelativePath());
@@ -1680,8 +1860,8 @@ TEST(V8ScriptValueSerializerTest, RoundTripFileIndex) {
   // The only users of the 'blob_info_array' version of serialization is
   // IndexedDB, and the full path is not needed for that system - thus it is not
   // sent in the round trip.
-  ASSERT_TRUE(V8File::HasInstance(result, scope.GetIsolate()));
-  File* new_file = V8File::ToImpl(result.As<v8::Object>());
+  File* new_file = V8File::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_file, nullptr);
   EXPECT_FALSE(new_file->HasBackingFile());
   EXPECT_EQ("path", new_file->name());
   EXPECT_TRUE(new_file->FileSystemURL().IsEmpty());
@@ -1707,11 +1887,11 @@ TEST(V8ScriptValueSerializerTest, DecodeFileIndex) {
   V8ScriptValueDeserializer deserializer(scope.GetScriptState(), input,
                                          options);
   v8::Local<v8::Value> result = deserializer.Deserialize();
-  ASSERT_TRUE(V8File::HasInstance(result, scope.GetIsolate()));
-  File* new_file = V8File::ToImpl(result.As<v8::Object>());
+  File* new_file = V8File::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_file, nullptr);
   EXPECT_EQ("d875dfc2-4505-461b-98fe-0cf6cc5eaf44", new_file->Uuid());
   EXPECT_EQ("text/plain", new_file->type());
-  EXPECT_TRUE(new_file->GetPath().IsEmpty());
+  EXPECT_TRUE(new_file->GetPath().empty());
   EXPECT_EQ("path", new_file->name());
 }
 
@@ -1745,8 +1925,8 @@ TEST(V8ScriptValueSerializerTest, RoundTripFileList) {
   file_list->Append(MakeGarbageCollected<File>("/native/path2"));
   v8::Local<v8::Value> wrapper = ToV8(file_list, scope.GetScriptState());
   v8::Local<v8::Value> result = RoundTrip(wrapper, scope);
-  ASSERT_TRUE(V8FileList::HasInstance(result, scope.GetIsolate()));
-  FileList* new_file_list = V8FileList::ToImpl(result.As<v8::Object>());
+  FileList* new_file_list = V8FileList::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_file_list, nullptr);
   ASSERT_EQ(2u, new_file_list->length());
   EXPECT_EQ("/native/path", new_file_list->item(0)->GetPath());
   EXPECT_EQ("/native/path2", new_file_list->item(1)->GetPath());
@@ -1758,8 +1938,8 @@ TEST(V8ScriptValueSerializerTest, DecodeEmptyFileList) {
       SerializedValue({0xff, 0x09, 0x3f, 0x00, 0x6c, 0x00});
   v8::Local<v8::Value> result =
       V8ScriptValueDeserializer(scope.GetScriptState(), input).Deserialize();
-  ASSERT_TRUE(V8FileList::HasInstance(result, scope.GetIsolate()));
-  FileList* new_file_list = V8FileList::ToImpl(result.As<v8::Object>());
+  FileList* new_file_list = V8FileList::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_file_list, nullptr);
   EXPECT_EQ(0u, new_file_list->length());
 }
 
@@ -1784,8 +1964,8 @@ TEST(V8ScriptValueSerializerTest, DecodeFileListV8WithoutSnapshot) {
        'x',  't',  '/',  'p',  'l',  'a',  'i',  'n', 0x00, 0x00});
   v8::Local<v8::Value> result =
       V8ScriptValueDeserializer(scope.GetScriptState(), input).Deserialize();
-  ASSERT_TRUE(V8FileList::HasInstance(result, scope.GetIsolate()));
-  FileList* new_file_list = V8FileList::ToImpl(result.As<v8::Object>());
+  FileList* new_file_list = V8FileList::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_file_list, nullptr);
   EXPECT_EQ(1u, new_file_list->length());
   File* new_file = new_file_list->item(0);
   EXPECT_EQ("path", new_file->GetPath());
@@ -1813,8 +1993,8 @@ TEST(V8ScriptValueSerializerTest, RoundTripFileListIndex) {
   // The only users of the 'blob_info_array' version of serialization is
   // IndexedDB, and the full path is not needed for that system - thus it is not
   // sent in the round trip.
-  ASSERT_TRUE(V8FileList::HasInstance(result, scope.GetIsolate()));
-  FileList* new_file_list = V8FileList::ToImpl(result.As<v8::Object>());
+  FileList* new_file_list = V8FileList::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_file_list, nullptr);
   ASSERT_EQ(2u, new_file_list->length());
   EXPECT_EQ("path", new_file_list->item(0)->name());
   EXPECT_EQ("path2", new_file_list->item(1)->name());
@@ -1837,8 +2017,8 @@ TEST(V8ScriptValueSerializerTest, DecodeEmptyFileListIndex) {
   V8ScriptValueDeserializer deserializer(scope.GetScriptState(), input,
                                          options);
   v8::Local<v8::Value> result = deserializer.Deserialize();
-  ASSERT_TRUE(V8FileList::HasInstance(result, scope.GetIsolate()));
-  FileList* new_file_list = V8FileList::ToImpl(result.As<v8::Object>());
+  FileList* new_file_list = V8FileList::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_file_list, nullptr);
   EXPECT_EQ(0u, new_file_list->length());
 }
 
@@ -1867,10 +2047,10 @@ TEST(V8ScriptValueSerializerTest, DecodeFileListIndex) {
   V8ScriptValueDeserializer deserializer(scope.GetScriptState(), input,
                                          options);
   v8::Local<v8::Value> result = deserializer.Deserialize();
-  FileList* new_file_list = V8FileList::ToImpl(result.As<v8::Object>());
+  FileList* new_file_list = V8FileList::ToWrappable(scope.GetIsolate(), result);
   EXPECT_EQ(1u, new_file_list->length());
   File* new_file = new_file_list->item(0);
-  EXPECT_TRUE(new_file->GetPath().IsEmpty());
+  EXPECT_TRUE(new_file->GetPath().empty());
   EXPECT_EQ("name", new_file->name());
   EXPECT_EQ("d875dfc2-4505-461b-98fe-0cf6cc5eaf44", new_file->Uuid());
   EXPECT_EQ("text/plain", new_file->type());
@@ -1895,7 +2075,7 @@ TEST(V8ScriptValueSerializerTest, DecodeHardcodedNullValue) {
 TEST(V8ScriptValueSerializerTest, DecodeWithInefficientVersionEnvelope) {
   V8TestingScope scope;
   scoped_refptr<SerializedScriptValue> input =
-      SerializedValue({0xff, 0x80, 0x09, 0xff, 0x09, 0x54});
+      SerializedValue({0xff, 0x90, 0x00, 0xff, 0x09, 0x54});
   EXPECT_TRUE(
       V8ScriptValueDeserializer(scope.GetScriptState(), std::move(input))
           .Deserialize()
@@ -1918,9 +2098,8 @@ TEST(V8ScriptValueSerializerTest, RoundTripReadableStream) {
   v8::Local<v8::Value> result =
       RoundTrip(wrapper, scope, &ASSERT_NO_EXCEPTION, &transferables);
   EXPECT_TRUE(result->IsObject());
-  ASSERT_TRUE(V8ReadableStream::HasInstance(result, isolate));
-  ReadableStream* transferred =
-      V8ReadableStream::ToImpl(result.As<v8::Object>());
+  ReadableStream* transferred = V8ReadableStream::ToWrappable(isolate, result);
+  ASSERT_NE(transferred, nullptr);
   EXPECT_NE(rs, transferred);
   EXPECT_TRUE(rs->locked());
   EXPECT_FALSE(transferred->locked());
@@ -1959,9 +2138,8 @@ TEST(V8ScriptValueSerializerTest, TransformStreamIntegerOverflow) {
   uint8_t serialized_value[] = {0xff, 0x14, 0xff, 0x0d, 0x5c, 0x6d,
                                 0xff, 0xff, 0xff, 0xff, 0x0f};
 
-  auto corrupted_serialized_script_value = SerializedScriptValue::Create(
-      reinterpret_cast<const char*>(serialized_value),
-      sizeof(serialized_value));
+  auto corrupted_serialized_script_value =
+      SerializedScriptValue::Create(serialized_value);
   corrupted_serialized_script_value->GetStreams() =
       std::move(serialized_script_value->GetStreams());
 
@@ -1989,8 +2167,9 @@ TEST(V8ScriptValueSerializerTest, RoundTripDOMException) {
   v8::Local<v8::Value> wrapper =
       ToV8(exception, scope.GetContext()->Global(), scope.GetIsolate());
   v8::Local<v8::Value> result = RoundTrip(wrapper, scope);
-  ASSERT_TRUE(V8DOMException::HasInstance(result, scope.GetIsolate()));
-  DOMException* new_exception = V8DOMException::ToImpl(result.As<v8::Object>());
+  DOMException* new_exception =
+      V8DOMException::ToWrappable(scope.GetIsolate(), result);
+  ASSERT_NE(new_exception, nullptr);
   EXPECT_NE(exception, new_exception);
   EXPECT_EQ(exception->code(), new_exception->code());
   EXPECT_EQ(exception->name(), new_exception->name());
@@ -2004,6 +2183,98 @@ TEST(V8ScriptValueSerializerTest, DecodeDOMExceptionWithInvalidNameString) {
   v8::Local<v8::Value> result =
       V8ScriptValueDeserializer(scope.GetScriptState(), input).Deserialize();
   EXPECT_TRUE(result->IsNull());
+}
+
+TEST(V8ScriptValueSerializerTest, NoSharedValueConveyor) {
+  V8TestingScope scope;
+  scoped_refptr<SerializedScriptValue> input =
+      SerializedValue({0xff, 0x14, 0xff, 0x0f, 'p', 0x00});
+  v8::Local<v8::Value> result =
+      V8ScriptValueDeserializer(scope.GetScriptState(), input).Deserialize();
+  EXPECT_TRUE(result->IsNull());
+}
+
+TEST(V8ScriptValueSerializerTest, CanDeserializeIn_OldValues) {
+  // This is `true` serialized in version 9. It should still return true from
+  // CanDeserializeIn.
+  V8TestingScope scope;
+  scoped_refptr<SerializedScriptValue> input =
+      SerializedValue({0xff, 0x09, 'T', 0x00});
+  EXPECT_TRUE(input->CanDeserializeIn(scope.GetExecutionContext()));
+}
+
+// TODO(crbug.com/1341844): Remove this along with the rest of the plumbing for
+// `features::kSSVTrailerWriteNewVersion.
+TEST(V8ScriptValueSerializerTest, SSVTrailerWriteNewVersionDisabled) {
+  base::test::ScopedFeatureList scoped_features;
+  scoped_features.InitAndDisableFeature(features::kSSVTrailerWriteNewVersion);
+  V8TestingScope scope;
+  v8::Isolate* isolate = scope.GetIsolate();
+
+  // Should still be able to write and read the old version.
+  EXPECT_TRUE(RoundTrip(v8::True(isolate), scope)->IsTrue());
+
+  // Should actually be the old version (decimal 20).
+  V8ScriptValueSerializer serializer(scope.GetScriptState());
+  auto value = serializer.Serialize(v8::True(isolate), ASSERT_NO_EXCEPTION);
+  EXPECT_THAT(value->GetWireData().first(2), ::testing::ElementsAre(0xff, 20));
+}
+
+// TODO(crbug.com/1341844): Remove this along with the rest of the plumbing for
+// `features::kSSVTrailerWriteExposureAssertion`.
+TEST(V8ScriptValueSerializerTest, SSVTrailerWriteExposureAssertionDisabled) {
+  base::test::ScopedFeatureList scoped_features;
+  scoped_features.InitAndDisableFeature(
+      features::kSSVTrailerWriteExposureAssertion);
+  V8TestingScope scope;
+
+  // Even though this has an exposure restriction, it should not be reflected
+  // while the feature to write the assertion is disabled.
+  DOMPoint* point = DOMPoint::Create(0, 0);
+  v8::Local<v8::Value> wrapper =
+      ToV8Traits<DOMPoint>::ToV8(scope.GetScriptState(), point)
+          .ToLocalChecked();
+  V8ScriptValueSerializer serializer(scope.GetScriptState());
+  auto value = serializer.Serialize(wrapper, ASSERT_NO_EXCEPTION);
+  TrailerReader trailer_reader(value->GetWireData());
+  ASSERT_TRUE(trailer_reader.SkipToTrailer().has_value());
+  ASSERT_TRUE(trailer_reader.Read().has_value());
+  EXPECT_THAT(trailer_reader.required_exposed_interfaces(),
+              ::testing::IsEmpty());
+}
+
+// TODO(crbug.com/1341844): Remove this along with the rest of the plumbing for
+// `features::kSSVTrailerWriteExposureAssertion`.
+TEST(V8ScriptValueSerializerTest, SSVTrailerEnforceExposureAssertionDisabled) {
+  base::test::ScopedFeatureList scoped_features;
+  scoped_features.InitAndDisableFeature(
+      features::kSSVTrailerEnforceExposureAssertion);
+  scoped_refptr<SerializedScriptValue> ssv;
+  mojo::MessagePipe pipe;
+
+  {
+    V8TestingScope scope;
+    ContextFeatureSettings::From(
+        scope.GetExecutionContext(),
+        ContextFeatureSettings::CreationMode::kCreateIfNotExists)
+        ->EnableMojoJS(true);
+    auto* handle = MakeGarbageCollected<MojoHandle>(
+        mojo::ScopedHandle::From(std::move(pipe.handle0)));
+    Transferables transferables;
+    transferables.mojo_handles.push_back(handle);
+
+    V8ScriptValueSerializer::Options options;
+    options.transferables = &transferables;
+    V8ScriptValueSerializer serializer(scope.GetScriptState(), options);
+    ssv = serializer.Serialize(ToV8(handle, scope.GetScriptState()),
+                               ASSERT_NO_EXCEPTION);
+  }
+
+  {
+    ScopedMojoJSForTest disable_mojo_js(false);
+    V8TestingScope scope;
+    EXPECT_TRUE(ssv->CanDeserializeIn(scope.GetExecutionContext()));
+  }
 }
 
 }  // namespace blink

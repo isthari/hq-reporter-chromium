@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,14 +7,13 @@
 #include <set>
 #include <string>
 
-#include "base/callback_helpers.h"
 #include "base/files/file_util.h"
+#include "base/functional/callback_helpers.h"
 #include "base/strings/string_split.h"
-#include "base/strings/stringprintf.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
+#include "base/test/test_file_util.h"
 #include "base/threading/thread_restrictions.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/browsertest_util.h"
 #include "chrome/browser/extensions/chrome_content_verifier_delegate.h"
@@ -68,9 +67,12 @@ class MockUpdateService : public UpdateService {
                void(const std::string& id,
                     const base::Version& version,
                     int reason));
-  MOCK_METHOD2(StartUpdateCheck,
-               void(const ExtensionUpdateCheckParams& params,
-                    base::OnceClosure callback));
+  MOCK_METHOD(void,
+              StartUpdateCheck,
+              (const ExtensionUpdateCheckParams& params,
+               UpdateFoundCallback update_found_callback,
+               base::OnceClosure callback),
+              (override));
 };
 
 void ExtensionUpdateComplete(base::OnceClosure callback,
@@ -110,15 +112,17 @@ class ContentVerifierTest : public ExtensionBrowserTest {
 
   void AssertIsCorruptBitSetOnUpdateCheck(
       const ExtensionUpdateCheckParams& params,
+      UpdateFoundCallback update_found_callback,
       base::OnceClosure callback) {
     ASSERT_FALSE(params.update_info.empty());
     for (auto element : params.update_info) {
       ASSERT_TRUE(element.second.is_corrupt_reinstall);
     }
-    OnUpdateCheck(params, std::move(callback));
+    OnUpdateCheck(params, update_found_callback, std::move(callback));
   }
 
   virtual void OnUpdateCheck(const ExtensionUpdateCheckParams& params,
+                             UpdateFoundCallback update_found_callback,
                              base::OnceClosure callback) {
     scoped_refptr<CrxInstaller> installer(
         CrxInstaller::CreateSilent(extension_service()));
@@ -127,15 +131,26 @@ class ContentVerifierTest : public ExtensionBrowserTest {
     installer->set_allow_silent_install(true);
     installer->set_off_store_install_allow_reason(
         CrxInstaller::OffStoreInstallAllowedInTest);
-    installer->set_installer_callback(
+    installer->AddInstallerCallback(
         base::BindOnce(&ExtensionUpdateComplete, std::move(callback)));
     installer->InstallCrx(
         test_data_dir_.AppendASCII("content_verifier/v1.crx"));
   }
 
+  // Types of modification used by `TestContentScriptExtension` method below.
+  enum class ScriptModificationAction {
+    // Alter script content.
+    kAlter,
+    // Delete the script file.
+    kDelete,
+    // Make the script unreadable.
+    kMakeUnreadable,
+  };
+
   void TestContentScriptExtension(const std::string& crx_relpath,
                                   const std::string& id,
-                                  const std::string& script_relpath) {
+                                  const std::string& script_relpath,
+                                  ScriptModificationAction action) {
     VerifierObserver verifier_observer;
 
     // Install the extension with content scripts. The initial read of the
@@ -168,10 +183,20 @@ class ContentVerifierTest : public ExtensionBrowserTest {
     // expect to see a job failure due to the content script content hash not
     // being what was signed by the webstore.
     base::FilePath scriptfile = extension->path().AppendASCII(script_relpath);
-    std::string extra = "some_extra_function_call();";
     {
       base::ScopedAllowBlockingForTesting allow_blocking;
-      ASSERT_TRUE(base::AppendToFile(scriptfile, extra));
+      switch (action) {
+        case ScriptModificationAction::kAlter:
+          ASSERT_TRUE(
+              base::AppendToFile(scriptfile, "some_extra_function_call();"));
+          break;
+        case ScriptModificationAction::kDelete:
+          ASSERT_TRUE(base::DeleteFile(scriptfile));
+          break;
+        case ScriptModificationAction::kMakeUnreadable:
+          ASSERT_TRUE(base::MakeFileUnreadable(scriptfile));
+          break;
+      }
     }
     DisableExtension(id);
     job_observer.ExpectJobResult(id, script_relfilepath, Result::FAILURE);
@@ -187,7 +212,7 @@ class ContentVerifierTest : public ExtensionBrowserTest {
     ui_test_utils::NavigateToURLWithDisposition(
         browser(), extension_resource,
         WindowOpenDisposition::NEW_FOREGROUND_TAB,
-        ui_test_utils::BROWSER_TEST_NONE);
+        ui_test_utils::BROWSER_TEST_NO_WAIT);
     EXPECT_TRUE(unload_observer.WaitForExtensionUnloaded());
     ExtensionPrefs* prefs = ExtensionPrefs::Get(profile());
     int reasons = prefs->GetDisableReasons(extension_id);
@@ -213,6 +238,17 @@ class ContentVerifierTest : public ExtensionBrowserTest {
     return crx_file::id_util::GenerateId(public_key_str);
   }
 
+  // Creates a random signing key and sets |extension_id| according to it.
+  std::unique_ptr<crypto::RSAPrivateKey> CreateExtensionSigningKey(
+      std::string& extension_id) {
+    auto signing_key = crypto::RSAPrivateKey::Create(2048);
+    std::vector<uint8_t> public_key;
+    signing_key->ExportPublicKey(&public_key);
+    const std::string public_key_str(public_key.begin(), public_key.end());
+    extension_id = crx_file::id_util::GenerateId(public_key_str);
+    return signing_key;
+  }
+
   // Creates a CRX in a temporary directory under |temp_dir| using contents from
   // |unpacked_path|. Compresses the |verified_contents| and injects these
   // contents into the the header of the CRX. Creates a random signing key
@@ -220,8 +256,8 @@ class ContentVerifierTest : public ExtensionBrowserTest {
   testing::AssertionResult CreateCrxWithVerifiedContentsInHeader(
       base::ScopedTempDir* temp_dir,
       const base::FilePath& unpacked_path,
+      crypto::RSAPrivateKey* private_key,
       const std::string& verified_contents,
-      std::string* extension_id,
       base::FilePath* crx_path) {
     std::string compressed_verified_contents;
     if (!compression::GzipCompress(verified_contents,
@@ -235,8 +271,8 @@ class ContentVerifierTest : public ExtensionBrowserTest {
     *crx_path = temp_dir->GetPath().AppendASCII("temp.crx");
 
     ExtensionCreator creator;
-    creator.CreateCrxWithVerifiedContentsInHeaderForTesting(
-        unpacked_path, *crx_path, compressed_verified_contents, extension_id);
+    creator.CreateCrxAndPerformCleanup(unpacked_path, *crx_path, private_key,
+                                       compressed_verified_contents);
     return testing::AssertionSuccess();
   }
 
@@ -306,7 +342,8 @@ IN_PROC_BROWSER_TEST_F(ContentVerifierTest, DotSlashPaths) {
 
 IN_PROC_BROWSER_TEST_F(ContentVerifierTest, ContentScripts) {
   TestContentScriptExtension("content_verifier/content_script.crx",
-                             "jmllhlobpjcnnomjlipadejplhmheiif", "script.js");
+                             "jmllhlobpjcnnomjlipadejplhmheiif", "script.js",
+                             ScriptModificationAction::kAlter);
 }
 
 // crbug.com/897059 tracks test flakiness.
@@ -318,7 +355,27 @@ IN_PROC_BROWSER_TEST_F(ContentVerifierTest, ContentScripts) {
 IN_PROC_BROWSER_TEST_F(ContentVerifierTest, MAYBE_ContentScriptsInLocales) {
   TestContentScriptExtension("content_verifier/content_script_locales.crx",
                              "jaghonccckpcikmliipifpoodmeofoon",
-                             "_locales/en/content_script.js");
+                             "_locales/en/content_script.js",
+                             ScriptModificationAction::kAlter);
+}
+
+// Tests that a deleted content_script results in content verification failure.
+//
+// Regression test for crbug.com/1296310.
+IN_PROC_BROWSER_TEST_F(ContentVerifierTest,
+                       DeletedContentScriptFailsContentVerification) {
+  TestContentScriptExtension("content_verifier/content_script.crx",
+                             "jmllhlobpjcnnomjlipadejplhmheiif", "script.js",
+                             ScriptModificationAction::kDelete);
+}
+
+// Tests that an unreadable content_script results in content verification
+// failure.
+IN_PROC_BROWSER_TEST_F(ContentVerifierTest,
+                       UnreadableContentScriptFailsContentVerification) {
+  TestContentScriptExtension("content_verifier/content_script.crx",
+                             "jmllhlobpjcnnomjlipadejplhmheiif", "script.js",
+                             ScriptModificationAction::kMakeUnreadable);
 }
 
 // Tests the case of a corrupt extension that is force-installed by policy and
@@ -372,6 +429,7 @@ IN_PROC_BROWSER_TEST_F(ContentVerifierTest, PolicyCorrupted) {
 
   reasons = prefs->GetDisableReasons(kExtensionId);
   EXPECT_FALSE(reasons & disable_reason::DISABLE_CORRUPTED);
+  system->management_policy()->UnregisterProvider(&policy);
 }
 
 // Tests the case when an extension is first manually installed, then it gets
@@ -451,6 +509,7 @@ class UserInstalledContentVerifierTest : public ContentVerifierTest {
 
  protected:
   void OnUpdateCheck(const ExtensionUpdateCheckParams& params,
+                     UpdateFoundCallback update_found_callback,
                      base::OnceClosure callback) override {
     scoped_refptr<CrxInstaller> installer(
         CrxInstaller::CreateSilent(extension_service()));
@@ -459,16 +518,14 @@ class UserInstalledContentVerifierTest : public ContentVerifierTest {
     installer->set_allow_silent_install(true);
     installer->set_off_store_install_allow_reason(
         CrxInstaller::OffStoreInstallAllowedInTest);
-    installer->set_installer_callback(
+    installer->AddInstallerCallback(
         base::BindOnce(&ExtensionUpdateComplete, std::move(callback)));
     installer->InstallCrx(
         test_data_dir_.AppendASCII(kStoragePermissionExtensionCrx));
   }
 
-  PendingExtensionManager* pending_extension_manager() {
-    return ExtensionSystem::Get(profile())
-        ->extension_service()
-        ->pending_extension_manager();
+  CorruptedExtensionReinstaller* corrupted_extension_reinstaller() {
+    return extension_service()->corrupted_extension_reinstaller();
   }
 };
 
@@ -490,12 +547,12 @@ IN_PROC_BROWSER_TEST_F(UserInstalledContentVerifierTest,
   EXPECT_EQ("Test", ExecuteScriptInBackgroundPage(
                         kStoragePermissionExtensionId,
                         R"(chrome.storage.local.set({key: "Test"}, () =>
-             domAutomationController.send("Test")))"));
+             chrome.test.sendScriptResult("Test")))"));
 
   EXPECT_EQ("Test", ExecuteScriptInBackgroundPage(
                         kStoragePermissionExtensionId,
                         R"(chrome.storage.local.get(['key'], ({key}) =>
-             domAutomationController.send(key)))"));
+             chrome.test.sendScriptResult(key)))"));
   // Corrupt the extension
   {
     base::FilePath resource_path = extension->path().Append(kResourcePath);
@@ -515,8 +572,9 @@ IN_PROC_BROWSER_TEST_F(UserInstalledContentVerifierTest,
   EXPECT_TRUE(registry_observer.WaitForExtensionUnloaded());
 
   // The extension should be disabled and not be in expected to be repaired yet.
-  EXPECT_FALSE(pending_extension_manager()->IsReinstallForCorruptionExpected(
-      kStoragePermissionExtensionId));
+  EXPECT_FALSE(
+      corrupted_extension_reinstaller()->IsReinstallForCorruptionExpected(
+          kStoragePermissionExtensionId));
   EXPECT_EQ(disable_reason::DISABLE_CORRUPTED,
             ExtensionPrefs::Get(profile())->GetDisableReasons(
                 kStoragePermissionExtensionId));
@@ -536,15 +594,17 @@ IN_PROC_BROWSER_TEST_F(UserInstalledContentVerifierTest,
   // such as the build waterfall / trybots). If the reinstall didn't already
   // happen, wait for it.
   if (disable_reasons & disable_reason::DISABLE_CORRUPTED) {
-    EXPECT_TRUE(pending_extension_manager()->IsReinstallForCorruptionExpected(
-        kStoragePermissionExtensionId));
+    EXPECT_TRUE(
+        corrupted_extension_reinstaller()->IsReinstallForCorruptionExpected(
+            kStoragePermissionExtensionId));
     TestExtensionRegistryObserver registry_observer(
         registry, kStoragePermissionExtensionId);
     ASSERT_TRUE(registry_observer.WaitForExtensionInstalled());
     disable_reasons = prefs->GetDisableReasons(kStoragePermissionExtensionId);
   }
-  EXPECT_FALSE(pending_extension_manager()->IsReinstallForCorruptionExpected(
-      kStoragePermissionExtensionId));
+  EXPECT_FALSE(
+      corrupted_extension_reinstaller()->IsReinstallForCorruptionExpected(
+          kStoragePermissionExtensionId));
   EXPECT_EQ(disable_reason::DISABLE_NONE, disable_reasons);
   const Extension* extension =
       ExtensionRegistry::Get(profile())->enabled_extensions().GetByID(
@@ -566,7 +626,7 @@ IN_PROC_BROWSER_TEST_F(UserInstalledContentVerifierTest,
   EXPECT_EQ("Test", ExecuteScriptInBackgroundPage(
                         kStoragePermissionExtensionId,
                         R"(chrome.storage.local.get(['key'], ({key}) =>
-             domAutomationController.send(key)))"));
+             chrome.test.sendScriptResult(key)))"));
 }
 
 // Tests that verification failure during navigating to an extension resource
@@ -601,8 +661,11 @@ IN_PROC_BROWSER_TEST_F(
       test_data_dir_.AppendASCII("content_verifier/storage_permission");
   base::FilePath resource_path = base::FilePath().AppendASCII("background.js");
 
+  std::string extension_id;
+  auto signing_key = CreateExtensionSigningKey(extension_id);
+
   extensions::content_verifier_test_utils::TestExtensionBuilder
-      verified_contents_builder;
+      verified_contents_builder(extension_id);
 
   std::string resource_contents;
   base::ReadFileToString(extension_dir.Append(resource_path),
@@ -620,10 +683,10 @@ IN_PROC_BROWSER_TEST_F(
       ->content_verifier()
       ->OverrideDelegateForTesting(std::move(mock_content_verifier_delegate));
 
-  std::string extension_id;
   base::FilePath crx_path;
   ASSERT_TRUE(CreateCrxWithVerifiedContentsInHeader(
-      &temp_dir, extension_dir, verified_contents, &extension_id, &crx_path));
+      &temp_dir, extension_dir, signing_key.get(), verified_contents,
+      &crx_path));
 
   TestContentVerifySingleJobObserver observer(extension_id, resource_path);
 
@@ -647,8 +710,9 @@ IN_PROC_BROWSER_TEST_F(
   std::string verified_contents =
       "Not a valid verified contents, not even a valid JSON.";
   base::FilePath crx_path;
+  auto signing_key = CreateExtensionSigningKey(extension_id);
   ASSERT_TRUE(CreateCrxWithVerifiedContentsInHeader(
-      &temp_dir, test_dir, verified_contents, &extension_id, &crx_path));
+      &temp_dir, test_dir, signing_key.get(), verified_contents, &crx_path));
 
   const Extension* extension = InstallExtensionFromWebstore(crx_path, 0);
   EXPECT_FALSE(extension);
@@ -729,7 +793,7 @@ IN_PROC_BROWSER_TEST_F(ContentVerifierTest,
   ui_test_utils::NavigateToURLWithDisposition(
       browser(), extension->GetResourceURL(kLargeResource),
       WindowOpenDisposition::NEW_FOREGROUND_TAB,
-      ui_test_utils::BROWSER_TEST_NONE);
+      ui_test_utils::BROWSER_TEST_NO_WAIT);
 }
 
 IN_PROC_BROWSER_TEST_F(ContentVerifierTest,

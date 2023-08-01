@@ -7,7 +7,7 @@ The tests are designed to be run from your local computer.
 Running the tests requires `python`, `pip` and `virtualenv`, as well as updating
 the system `hosts` file.
 
-WPT requires Python 3.6 or higher.
+WPT requires Python 3.7 or higher.
 
 The required setup is different depending on your operating system.
 
@@ -33,7 +33,7 @@ installed for the user only:
 
 ```bash
 python -m ensurepip --user
-export PATH="$PATH:$HOME/Library/Python/2.7/bin"
+export PATH="$PATH:$( python3 -m site --user-base )/bin"
 pip install --user virtualenv
 ```
 
@@ -207,3 +207,9 @@ tracking is required, the command-line interface supports storing and loading
 the expected result of each test in a test run. See [Expectations
 Data](../../tools/wptrunner/docs/expectation) for more information on creating
 and maintaining these files.
+
+## Testing polyfills
+
+Polyfill scripts can be tested using the `--inject-script` argument to either
+`wpt run` or `wpt serve`. See [Testing Polyfills](testing-polyfills) for
+details.

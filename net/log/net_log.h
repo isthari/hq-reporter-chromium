@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,9 +13,11 @@
 #include "base/atomicops.h"
 #include "base/compiler_specific.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ref.h"
 #include "base/synchronization/lock.h"
 #include "base/time/time.h"
 #include "base/types/pass_key.h"
+#include "base/values.h"
 #include "build/build_config.h"
 #include "net/base/net_export.h"
 #include "net/log/net_log_capture_mode.h"
@@ -23,10 +25,6 @@
 #include "net/log/net_log_event_type.h"
 #include "net/log/net_log_source.h"
 #include "net/log/net_log_source_type.h"
-
-namespace base {
-class Value;
-}
 
 namespace net {
 
@@ -136,8 +134,8 @@ class NET_EXPORT NetLog {
     friend class NetLog;
 
     // Both of these values are only modified by the NetLog.
-    NetLogCaptureMode capture_mode_;
-    raw_ptr<NetLog> net_log_;
+    NetLogCaptureMode capture_mode_ = NetLogCaptureMode::kDefault;
+    raw_ptr<NetLog> net_log_ = nullptr;
   };
 
   // An observer that is notified of changes in the capture mode set, and has
@@ -165,7 +163,7 @@ class NET_EXPORT NetLog {
                                               const NetLogSource& source,
                                               NetLogEventPhase phase,
                                               base::TimeTicks time,
-                                              base::Value&& params);
+                                              base::Value::Dict params);
 
    private:
     // Friend NetLog so that AddCaptureModeObserver/RemoveCaptureModeObserver
@@ -254,12 +252,12 @@ class NET_EXPORT NetLog {
      public:
       explicit GetParamsImpl(const ParametersCallback& get_params)
           : get_params_(get_params) {}
-      base::Value GetParams(NetLogCaptureMode mode) const override {
-        return get_params_(mode);
+      base::Value::Dict GetParams(NetLogCaptureMode mode) const override {
+        return (*get_params_)(mode);
       }
 
      private:
-      const ParametersCallback& get_params_;
+      const raw_ref<const ParametersCallback> get_params_;
     };
 
     GetParamsImpl wrapper(get_params);
@@ -334,9 +332,6 @@ class NET_EXPORT NetLog {
   // timestamps are desired, but is suitable for e.g. expiration times.
   static std::string TimeToString(const base::Time& time);
 
-  // Returns a C-String symbolic name for |event_type|.
-  static const char* EventTypeToString(NetLogEventType event_type);
-
   // Returns a dictionary that maps event type symbolic names to their enum
   // values.
   static base::Value GetEventTypesAsValue();
@@ -354,7 +349,7 @@ class NET_EXPORT NetLog {
  private:
   class GetParamsInterface {
    public:
-    virtual base::Value GetParams(NetLogCaptureMode mode) const = 0;
+    virtual base::Value::Dict GetParams(NetLogCaptureMode mode) const = 0;
     virtual ~GetParamsInterface() = default;
   };
 
@@ -379,7 +374,7 @@ class NET_EXPORT NetLog {
   void AddEntryWithMaterializedParams(NetLogEventType type,
                                       const NetLogSource& source,
                                       NetLogEventPhase phase,
-                                      base::Value&& params);
+                                      base::Value::Dict params);
 
   // Adds an entry at a certain time, using already materialized parameters,
   // when it is already known that the log is capturing (goes straight to
@@ -388,7 +383,7 @@ class NET_EXPORT NetLog {
                                             const NetLogSource& source,
                                             NetLogEventPhase phase,
                                             base::TimeTicks time,
-                                            base::Value&& params);
+                                            base::Value::Dict params);
 
   // Called whenever an observer is added or removed, to update
   // |observer_capture_modes_|. Must have acquired |lock_| prior to calling.

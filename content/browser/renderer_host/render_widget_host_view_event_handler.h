@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -214,6 +214,9 @@ class CONTENT_EXPORT RenderWidgetHostViewEventHandler
   // handled if it should not be further processed.
   void HandleGestureForTouchSelection(ui::GestureEvent* event);
 
+  // Performs gesture ack handling needed for swipe-to-move-cursor gestures.
+  void HandleSwipeToMoveCursorGestureAck(const blink::WebGestureEvent& event);
+
   // Handles mouse event handling while the mouse is locked via LockMouse.
   void HandleMouseEventWhileLocked(ui::MouseEvent* event);
 
@@ -300,6 +303,9 @@ class CONTENT_EXPORT RenderWidgetHostViewEventHandler
   absl::optional<gfx::Point> synthetic_move_position_;
 
   bool enable_consolidated_movement_;
+
+  // Whether a swipe-to-move-cursor gesture is activated.
+  bool swipe_to_move_cursor_activated_ = false;
 
   // Stores the current state of the active pointers targeting this
   // object.

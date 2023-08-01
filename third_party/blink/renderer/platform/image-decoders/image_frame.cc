@@ -36,16 +36,7 @@
 
 namespace blink {
 
-ImageFrame::ImageFrame()
-    : allocator_(nullptr),
-      has_alpha_(true),
-      pixel_format_(kN32),
-      status_(kFrameEmpty),
-      disposal_method_(kDisposeNotSpecified),
-      alpha_blend_source_(kBlendAtopPreviousFrame),
-      premultiply_alpha_(true),
-      pixels_changed_(false),
-      required_previous_frame_index_(kNotFound) {}
+ImageFrame::ImageFrame() = default;
 
 ImageFrame& ImageFrame::operator=(const ImageFrame& other) {
   if (this == &other)
@@ -58,6 +49,10 @@ ImageFrame& ImageFrame::operator=(const ImageFrame& other) {
   SetMemoryAllocator(other.GetAllocator());
   SetOriginalFrameRect(other.OriginalFrameRect());
   SetStatus(other.GetStatus());
+  if (other.Timestamp())
+    SetTimestamp(*other.Timestamp());
+  else
+    timestamp_.reset();
   SetDuration(other.Duration());
   SetDisposalMethod(other.GetDisposalMethod());
   SetAlphaBlendSource(other.GetAlphaBlendSource());
@@ -146,7 +141,7 @@ bool ImageFrame::AllocatePixelData(int new_width,
 sk_sp<SkImage> ImageFrame::FinalizePixelsAndGetImage() {
   DCHECK_EQ(kFrameComplete, status_);
   bitmap_.setImmutable();
-  return SkImage::MakeFromBitmap(bitmap_);
+  return SkImages::RasterFromBitmap(bitmap_);
 }
 
 void ImageFrame::SetHasAlpha(bool alpha) {
@@ -188,12 +183,12 @@ static void BlendRGBAF16Buffer(ImageFrame::PixelDataF16* dst,
                                        kRGBA_F16_SkColorType, dst_alpha_type,
                                        SkColorSpace::MakeSRGBLinear());
   sk_sp<SkSurface> surface =
-      SkSurface::MakeRasterDirect(info, dst, info.minRowBytes());
+      SkSurfaces::WrapPixels(info, dst, info.minRowBytes());
 
   SkPixmap src_pixmap(info.makeAlphaType(kUnpremul_SkAlphaType), src,
                       info.minRowBytes());
   sk_sp<SkImage> src_image =
-      SkImage::MakeFromRaster(src_pixmap, nullptr, nullptr);
+      SkImages::RasterFromPixmap(src_pixmap, nullptr, nullptr);
 
   surface->getCanvas()->drawImage(src_image, 0, 0);
   surface->flushAndSubmit();

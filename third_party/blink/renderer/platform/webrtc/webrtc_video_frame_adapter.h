@@ -1,17 +1,16 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_WEBRTC_WEBRTC_VIDEO_FRAME_ADAPTER_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_WEBRTC_WEBRTC_VIDEO_FRAME_ADAPTER_H_
 
-#include <vector>
-
 #include "base/feature_list.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/synchronization/lock.h"
 #include "base/time/default_tick_clock.h"
+#include "base/time/time.h"
 #include "components/viz/common/gpu/raster_context_provider.h"
 #include "media/base/video_frame.h"
 #include "media/base/video_frame_pool.h"
@@ -20,6 +19,7 @@
 #include "media/video/gpu_video_accelerator_factories.h"
 #include "media/video/renderable_gpu_memory_buffer_video_frame_pool.h"
 #include "third_party/blink/renderer/platform/platform_export.h"
+#include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "third_party/webrtc/api/scoped_refptr.h"
 #include "third_party/webrtc/api/video/video_frame_buffer.h"
 #include "ui/gfx/geometry/rect.h"
@@ -43,9 +43,6 @@ namespace blink {
 //
 // WebRtcVideoFrameAdapter keeps track of which crops and scales were
 // hard-applied during its lifetime.
-// TODO(https://crbug.com/webrtc/12469): Expose this information to the caller
-// or to the frame feeddback so that we may optionally use this information to
-// optimize future captured frames for these sizes.
 class PLATFORM_EXPORT WebRtcVideoFrameAdapter
     : public webrtc::VideoFrameBuffer {
  public:
@@ -64,7 +61,7 @@ class PLATFORM_EXPORT WebRtcVideoFrameAdapter
       std::unique_ptr<std::vector<uint8_t>> buffer;
     };
     base::Lock buffer_lock_;
-    std::vector<BufferEntry> free_buffers_ GUARDED_BY(buffer_lock_);
+    Vector<BufferEntry> free_buffers_ GUARDED_BY(buffer_lock_);
     const base::TickClock* tick_clock_;
   };
 
@@ -123,6 +120,7 @@ class PLATFORM_EXPORT WebRtcVideoFrameAdapter
 
     std::unique_ptr<media::RenderableGpuMemoryBufferVideoFramePool>
         accelerated_frame_pool_;
+    bool disable_gmb_frames_ = false;
 
     base::Lock context_provider_lock_;
     scoped_refptr<viz::RasterContextProvider> raster_context_provider_
@@ -261,11 +259,11 @@ class PLATFORM_EXPORT WebRtcVideoFrameAdapter
 
   base::Lock adapted_frames_lock_;
   const scoped_refptr<media::VideoFrame> frame_;
-  const std::vector<scoped_refptr<media::VideoFrame>> scaled_frames_;
+  const Vector<scoped_refptr<media::VideoFrame>> scaled_frames_;
   const scoped_refptr<SharedResources> shared_resources_;
   const ScaledBufferSize full_size_;
   // Frames that have been adapted, i.e. that were "hard-applied" and mapped.
-  std::vector<AdaptedFrame> adapted_frames_ GUARDED_BY(adapted_frames_lock_);
+  Vector<AdaptedFrame> adapted_frames_ GUARDED_BY(adapted_frames_lock_);
 };
 
 }  // namespace blink

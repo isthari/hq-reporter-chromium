@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,14 +33,6 @@ public interface PageInfoMainController {
      * @param action The action to record.
      */
     void recordAction(@PageInfoAction int action);
-
-    /**
-     * Inform the native controller that the AboutThisSite section was shown.
-     * This signal is used for metrics.
-     *
-     * @param wasAboutThisSiteShown Whether the section was shown.
-     */
-    void setAboutThisSiteShown(boolean wasAboutThisSiteShown);
 
     /** Refreshes the permissions of the page info. */
     void refreshPermissions();

@@ -1,10 +1,11 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/browsing_data/counters/site_data_counting_helper.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/task/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -17,7 +18,6 @@
 #include "content/public/browser/session_storage_usage_info.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/storage_usage_info.h"
-#include "media/media_buildflags.h"
 #include "net/cookies/cookie_util.h"
 #include "ppapi/buildflags/buildflags.h"
 #include "services/network/public/mojom/cookie_manager.mojom.h"
@@ -61,14 +61,13 @@ void SiteDataCountingHelper::CountAndDestroySelfWhenFinished() {
 
   storage::QuotaManager* quota_manager = partition->GetQuotaManager();
   if (quota_manager) {
-    // Count storage keys with filesystem, websql, appcache, indexeddb,
-    // serviceworkers and cachestorage using quota manager.
+    // Count storage keys with filesystem, websql, indexeddb, serviceworkers,
+    // cachestorage, and medialicense using quota manager.
     auto buckets_callback =
         base::BindRepeating(&SiteDataCountingHelper::GetQuotaBucketsCallback,
                             base::Unretained(this));
     const blink::mojom::StorageType types[] = {
         blink::mojom::StorageType::kTemporary,
-        blink::mojom::StorageType::kPersistent,
         blink::mojom::StorageType::kSyncable};
     for (auto type : types) {
       tasks_ += 1;
@@ -97,28 +96,11 @@ void SiteDataCountingHelper::CountAndDestroySelfWhenFinished() {
                                                            begin_, end_));
 #endif  // BUILDFLAG(IS_ANDROID)
 
-#if BUILDFLAG(ENABLE_LIBRARY_CDMS)
-  // Count origins with media licenses.
-  storage::FileSystemContext* file_system_context =
-      profile_->GetDefaultStoragePartition()->GetFileSystemContext();
-  media_license_helper_ =
-      BrowsingDataMediaLicenseHelper::Create(file_system_context);
-  if (media_license_helper_) {
-    tasks_ += 1;
-    media_license_helper_->StartFetching(
-        base::BindOnce(&SiteDataCountingHelper::SitesWithMediaLicensesCallback,
-                       base::Unretained(this)));
-  }
-#endif
-
   // Counting site usage data and durable permissions.
   auto* hcsm = HostContentSettingsMapFactory::GetForProfile(profile_);
   const ContentSettingsType content_settings[] = {
     ContentSettingsType::DURABLE_STORAGE,
     ContentSettingsType::APP_BANNER,
-#if !BUILDFLAG(IS_ANDROID)
-    ContentSettingsType::INSTALLED_WEB_APP_METADATA,
-#endif
   };
   for (auto type : content_settings) {
     tasks_ += 1;
@@ -157,8 +139,7 @@ void SiteDataCountingHelper::GetCookiesCallback(
 }
 
 void SiteDataCountingHelper::GetQuotaBucketsCallback(
-    const std::set<storage::BucketLocator>& buckets,
-    blink::mojom::StorageType type) {
+    const std::set<storage::BucketLocator>& buckets) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   std::set<GURL> urls;
   for (const storage::BucketLocator& bucket : buckets)
@@ -175,19 +156,10 @@ void SiteDataCountingHelper::GetLocalStorageUsageInfoCallback(
   std::vector<GURL> origins;
   for (const auto& info : infos) {
     if (info.last_modified >= begin_ && info.last_modified < end_ &&
-        (!policy || !policy->IsStorageProtected(info.origin.GetURL()))) {
-      origins.push_back(info.origin.GetURL());
+        (!policy ||
+         !policy->IsStorageProtected(info.storage_key.origin().GetURL()))) {
+      origins.push_back(info.storage_key.origin().GetURL());
     }
-  }
-  Done(origins);
-}
-
-void SiteDataCountingHelper::SitesWithMediaLicensesCallback(
-    const std::list<content::StorageUsageInfo>& media_license_usage_info_list) {
-  std::vector<GURL> origins;
-  for (const auto& info : media_license_usage_info_list) {
-    if (info.last_modified >= begin_ && info.last_modified < end_)
-      origins.push_back(info.origin.GetURL());
   }
   Done(origins);
 }
@@ -201,8 +173,9 @@ void SiteDataCountingHelper::Done(const std::vector<GURL>& origins) {
   }
   if (--tasks_ > 0)
     return;
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(std::move(completion_callback_), unique_hosts_.size()));
-  base::ThreadTaskRunnerHandle::Get()->DeleteSoon(FROM_HERE, this);
+  base::SingleThreadTaskRunner::GetCurrentDefault()->DeleteSoon(FROM_HERE,
+                                                                this);
 }

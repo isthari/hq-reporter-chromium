@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@ import androidx.annotation.StringRes;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ContextUtils;
+import org.chromium.base.PackageUtils;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
@@ -40,8 +41,8 @@ public class AppBannerManager {
         }
     }
 
-    public static final InstallStringPair PWA_PAIR = new InstallStringPair(
-            R.string.menu_add_to_homescreen_install, R.string.app_banner_install);
+    public static final InstallStringPair PWA_PAIR =
+            new InstallStringPair(R.string.menu_install_webapp, R.string.app_banner_install);
     public static final InstallStringPair NON_PWA_PAIR =
             new InstallStringPair(R.string.menu_add_to_homescreen, R.string.add);
 
@@ -121,6 +122,11 @@ public class AppBannerManager {
                 createAppDetailsObserver(), url, packageName, referrer, iconSizeInPx);
     }
 
+    @CalledByNative
+    private static boolean isRelatedNonWebAppInstalled(String packageName) {
+        return PackageUtils.isPackageInstalled(packageName);
+    }
+
     private AppDetailsDelegate.Observer createAppDetailsObserver() {
         return new AppDetailsDelegate.Observer() {
             /**
@@ -153,6 +159,16 @@ public class AppBannerManager {
         }
     }
 
+    /** Returns the language option to use for the add to homescreen dialog and menu item. */
+    public static String maybeGetManifestId(WebContents webContents) {
+        AppBannerManager manager =
+                webContents != null ? AppBannerManager.forWebContents(webContents) : null;
+        if (manager != null) {
+            return manager.getManifestId(webContents);
+        }
+        return null;
+    }
+
     /** Sets the app-banner-showing logic to ignore the Chrome channel. */
     @VisibleForTesting
     public static void ignoreChromeChannelForTesting() {
@@ -169,6 +185,12 @@ public class AppBannerManager {
     @VisibleForTesting
     public int getPipelineStatusForTesting() {
         return AppBannerManagerJni.get().getPipelineStatusForTesting(mNativePointer);
+    }
+
+    /** Returns the state of the ambient badge. */
+    @VisibleForTesting
+    public int getBadgeStatusForTesting() {
+        return AppBannerManagerJni.get().getBadgeStatusForTesting(mNativePointer);
     }
 
     /** Sets constants (in days) the banner should be blocked for after dismissing and ignoring. */
@@ -204,16 +226,22 @@ public class AppBannerManager {
         return !TextUtils.equals("", AppBannerManagerJni.get().getInstallableWebAppName(contents));
     }
 
+    public String getManifestId(WebContents contents) {
+        return AppBannerManagerJni.get().getInstallableWebAppManifestId(contents);
+    }
+
     @NativeMethods
-    interface Natives {
+    public interface Natives {
         AppBannerManager getJavaBannerManagerForWebContents(WebContents webContents);
         String getInstallableWebAppName(WebContents webContents);
+        String getInstallableWebAppManifestId(WebContents webContents);
         boolean onAppDetailsRetrieved(long nativeAppBannerManagerAndroid, AppBannerManager caller,
                 AppData data, String title, String packageName, String imageUrl);
         // Testing methods.
         void ignoreChromeChannelForTesting();
         boolean isRunningForTesting(long nativeAppBannerManagerAndroid, AppBannerManager caller);
         int getPipelineStatusForTesting(long nativeAppBannerManagerAndroid);
+        int getBadgeStatusForTesting(long nativeAppBannerManagerAndroid);
         void setDaysAfterDismissAndIgnoreToTrigger(int dismissDays, int ignoreDays);
         void setTimeDeltaForTesting(int days);
         void setTotalEngagementToTrigger(double engagement);

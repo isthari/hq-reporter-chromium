@@ -1,21 +1,23 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/system/network/network_info_bubble.h"
 
 #include <string>
+#include <utility>
 
 #include "ash/constants/ash_features.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/test/ash_test_base.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/strcat.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/time/time.h"
 #include "base/values.h"
-#include "chromeos/services/network_config/public/cpp/cros_network_config_test_helper.h"
+#include "chromeos/ash/services/network_config/public/cpp/cros_network_config_test_helper.h"
 #include "third_party/cros_system_api/dbus/shill/dbus-constants.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/events/event.h"
@@ -24,10 +26,8 @@
 #include "ui/views/view.h"
 
 namespace ash {
-namespace tray {
-namespace {
 
-using chromeos::network_config::CrosNetworkConfigTestHelper;
+namespace {
 
 const char kIPv4ConfigPath[] = "/ipconfig/stub_ipv4_config";
 const char kIPv6ConfigPath[] = "/ipconfig/stub_ipv6_config";
@@ -82,12 +82,18 @@ class FakeNetworkInfoBubbleDelegate : public NetworkInfoBubble::Delegate {
 
 }  // namespace
 
-class NetworkInfoBubbleTest : public AshTestBase {
+class NetworkInfoBubbleTest : public AshTestBase,
+                              public testing::WithParamInterface<bool> {
  public:
   void SetUp() override {
-    AshTestBase::SetUp();
+    scoped_feature_list_ = std::make_unique<base::test::ScopedFeatureList>();
+    if (IsQsRevampEnabled()) {
+      scoped_feature_list_->InitAndEnableFeature(features::kQsRevamp);
+    } else {
+      scoped_feature_list_->InitAndDisableFeature(features::kQsRevamp);
+    }
 
-    feature_list_.InitAndEnableFeature(features::kQuickSettingsNetworkRevamp);
+    AshTestBase::SetUp();
 
     network_state_helper()->ClearDevices();
 
@@ -111,6 +117,8 @@ class NetworkInfoBubbleTest : public AshTestBase {
     AshTestBase::TearDown();
   }
 
+  bool IsQsRevampEnabled() { return GetParam(); }
+
   void OpenBubble() {
     ASSERT_FALSE(network_info_bubble_);
 
@@ -131,27 +139,28 @@ class NetworkInfoBubbleTest : public AshTestBase {
   }
 
   void AddDefaultNetworkWithIPAddresses() {
-    base::DictionaryValue ipv4;
-    ipv4.SetKey(shill::kAddressProperty, base::Value(kIpv4Address));
-    ipv4.SetKey(shill::kMethodProperty, base::Value(shill::kTypeIPv4));
+    base::Value::Dict ipv4;
+    ipv4.Set(shill::kAddressProperty, kIpv4Address);
+    ipv4.Set(shill::kMethodProperty, shill::kTypeIPv4);
 
-    base::DictionaryValue ipv6;
-    ipv6.SetKey(shill::kAddressProperty, base::Value(kIpv6Address));
-    ipv6.SetKey(shill::kMethodProperty, base::Value(shill::kTypeIPv6));
+    base::Value::Dict ipv6;
+    ipv6.Set(shill::kAddressProperty, kIpv6Address);
+    ipv6.Set(shill::kMethodProperty, shill::kTypeIPv6);
 
     network_config_helper_.network_state_helper().ip_config_test()->AddIPConfig(
-        kIPv4ConfigPath, ipv4);
+        kIPv4ConfigPath, std::move(ipv4));
     network_config_helper_.network_state_helper().ip_config_test()->AddIPConfig(
-        kIPv6ConfigPath, ipv6);
+        kIPv6ConfigPath, std::move(ipv6));
 
-    base::ListValue ip_configs;
+    base::Value::List ip_configs;
     ip_configs.Append(kIPv4ConfigPath);
     ip_configs.Append(kIPv6ConfigPath);
 
     network_config_helper_.network_state_helper()
         .device_test()
         ->SetDeviceProperty(kStubWiFiDevicePath, shill::kIPConfigsProperty,
-                            ip_configs, /*notify_changed=*/true);
+                            base::Value(std::move(ip_configs)),
+                            /*notify_changed=*/true);
 
     network_config_helper_.network_state_helper().service_test()->AddService(
         kWiFiServicePath, kWiFiServiceGuid, kWiFiServiceName, shill::kTypeWifi,
@@ -185,17 +194,17 @@ class NetworkInfoBubbleTest : public AshTestBase {
         NetworkInfoBubble::kNetworkInfoBubbleLabelViewId));
   }
 
-  chromeos::NetworkStateTestHelper* network_state_helper() {
+  NetworkStateTestHelper* network_state_helper() {
     return &network_config_helper_.network_state_helper();
   }
 
   FakeNetworkInfoBubbleDelegate* fake_delegate() { return &fake_delegate_; }
 
  private:
-  CrosNetworkConfigTestHelper network_config_helper_;
+  std::unique_ptr<base::test::ScopedFeatureList> scoped_feature_list_;
+  network_config::CrosNetworkConfigTestHelper network_config_helper_;
   FakeNetworkInfoBubbleDelegate fake_delegate_;
-  NetworkInfoBubble* network_info_bubble_ = nullptr;
-  base::test::ScopedFeatureList feature_list_;
+  raw_ptr<NetworkInfoBubble, ExperimentalAsh> network_info_bubble_ = nullptr;
   std::string wifi_path_;
   std::unique_ptr<views::Widget> widget_;
 
@@ -203,21 +212,25 @@ class NetworkInfoBubbleTest : public AshTestBase {
       &fake_delegate_};
 };
 
-TEST_F(NetworkInfoBubbleTest, NotifiesDelegateOnDestruction) {
+INSTANTIATE_TEST_SUITE_P(All,
+                         NetworkInfoBubbleTest,
+                         testing::Bool() /* IsQsRevampEnabled() */);
+
+TEST_P(NetworkInfoBubbleTest, NotifiesDelegateOnDestruction) {
   OpenBubble();
   EXPECT_EQ(0u, fake_delegate()->on_info_bubble_destroyed_call_count());
   CloseBubble();
   EXPECT_EQ(1u, fake_delegate()->on_info_bubble_destroyed_call_count());
 }
 
-TEST_F(NetworkInfoBubbleTest, BubbleClosesOnMouseExit) {
+TEST_P(NetworkInfoBubbleTest, BubbleClosesOnMouseExit) {
   OpenBubble();
   EXPECT_EQ(0u, fake_delegate()->on_info_bubble_destroyed_call_count());
   SimulateMouseExit();
   EXPECT_EQ(1u, fake_delegate()->on_info_bubble_destroyed_call_count());
 }
 
-TEST_F(NetworkInfoBubbleTest, DoesNotNotifyDelegateIfDelegateInvalid) {
+TEST_P(NetworkInfoBubbleTest, DoesNotNotifyDelegateIfDelegateInvalid) {
   OpenBubble();
   EXPECT_EQ(0u, fake_delegate()->on_info_bubble_destroyed_call_count());
   InvalidateDelegate();
@@ -225,69 +238,162 @@ TEST_F(NetworkInfoBubbleTest, DoesNotNotifyDelegateIfDelegateInvalid) {
   EXPECT_EQ(0u, fake_delegate()->on_info_bubble_destroyed_call_count());
 }
 
-TEST_F(NetworkInfoBubbleTest, HasCorrectText) {
+TEST_P(NetworkInfoBubbleTest, HasCorrectText) {
   OpenBubble();
   EXPECT_EQ(l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_NO_NETWORKS),
             FindLabelView()->GetText());
   CloseBubble();
 
-  std::u16string expected_text =
-      l10n_util::GetStringFUTF16(IDS_ASH_STATUS_TRAY_ETHERNET_ADDRESS,
-                                 base::UTF8ToUTF16(kEthernetMacAddress));
-  SetDeviceMacAddress(kStubEthernetDevicePath, kEthernetMacAddress);
+  if (IsQsRevampEnabled()) {
+    std::u16string expected_title =
+        l10n_util::GetStringFUTF16(IDS_ASH_STATUS_TRAY_ETHERNET_ADDRESS, u"");
+    std::u16string expected_address = base::UTF8ToUTF16(kEthernetMacAddress);
+    SetDeviceMacAddress(kStubEthernetDevicePath, kEthernetMacAddress);
+    OpenBubble();
+    EXPECT_EQ(expected_title, static_cast<views::Label*>(
+                                  FindLabelView()->children()[0]->children()[0])
+                                  ->GetText());
+    EXPECT_EQ(expected_address,
+              static_cast<views::Label*>(
+                  FindLabelView()->children()[0]->children()[1])
+                  ->GetText());
+    CloseBubble();
 
-  OpenBubble();
-  EXPECT_EQ(expected_text, FindLabelView()->GetText());
-  CloseBubble();
+    expected_title =
+        l10n_util::GetStringFUTF16(IDS_ASH_STATUS_TRAY_WIFI_ADDRESS, u"");
+    expected_address = base::UTF8ToUTF16(kWiFiMacAddress);
+    SetDeviceMacAddress(kStubWiFiDevicePath, kWiFiMacAddress);
+    OpenBubble();
+    EXPECT_EQ(expected_title, static_cast<views::Label*>(
+                                  FindLabelView()->children()[1]->children()[0])
+                                  ->GetText());
+    EXPECT_EQ(expected_address,
+              static_cast<views::Label*>(
+                  FindLabelView()->children()[1]->children()[1])
+                  ->GetText());
+    CloseBubble();
 
-  base::StrAppend(
-      &expected_text,
-      {u"\n", l10n_util::GetStringFUTF16(IDS_ASH_STATUS_TRAY_WIFI_ADDRESS,
-                                         base::UTF8ToUTF16(kWiFiMacAddress))});
-  SetDeviceMacAddress(kStubWiFiDevicePath, kWiFiMacAddress);
+    expected_title =
+        l10n_util::GetStringFUTF16(IDS_ASH_STATUS_TRAY_CELLULAR_ADDRESS, u"");
+    expected_address = base::UTF8ToUTF16(kCellularMacAddress);
+    SetDeviceMacAddress(kStubCellularDevicePath, kCellularMacAddress);
+    OpenBubble();
+    EXPECT_EQ(expected_title, static_cast<views::Label*>(
+                                  FindLabelView()->children()[2]->children()[0])
+                                  ->GetText());
+    EXPECT_EQ(expected_address,
+              static_cast<views::Label*>(
+                  FindLabelView()->children()[2]->children()[1])
+                  ->GetText());
+    CloseBubble();
 
-  OpenBubble();
-  EXPECT_EQ(expected_text, FindLabelView()->GetText());
-  CloseBubble();
+    AddDefaultNetworkWithIPAddresses();
+    expected_title =
+        l10n_util::GetStringFUTF16(IDS_ASH_STATUS_TRAY_IP_ADDRESS, u"");
+    expected_address = base::UTF8ToUTF16(kIpv4Address);
+    OpenBubble();
+    EXPECT_EQ(expected_title, static_cast<views::Label*>(
+                                  FindLabelView()->children()[0]->children()[0])
+                                  ->GetText());
+    EXPECT_EQ(expected_address,
+              static_cast<views::Label*>(
+                  FindLabelView()->children()[0]->children()[1])
+                  ->GetText());
+    CloseBubble();
+    expected_title =
+        l10n_util::GetStringFUTF16(IDS_ASH_STATUS_TRAY_IPV6_ADDRESS, u"");
+    expected_address = base::UTF8ToUTF16(kIpv6Address);
+    OpenBubble();
+    EXPECT_EQ(expected_title, static_cast<views::Label*>(
+                                  FindLabelView()->children()[1]->children()[0])
+                                  ->GetText());
+    EXPECT_EQ(expected_address,
+              static_cast<views::Label*>(
+                  FindLabelView()->children()[1]->children()[1])
+                  ->GetText());
+    CloseBubble();
 
-  base::StrAppend(&expected_text,
-                  {u"\n", l10n_util::GetStringFUTF16(
-                              IDS_ASH_STATUS_TRAY_CELLULAR_ADDRESS,
-                              base::UTF8ToUTF16(kCellularMacAddress))});
-  SetDeviceMacAddress(kStubCellularDevicePath, kCellularMacAddress);
+    fake_delegate()->SetShouldIncludeDeviceAddresses(true);
+    OpenBubble();
+    expected_title =
+        l10n_util::GetStringFUTF16(IDS_ASH_STATUS_TRAY_IPV6_ADDRESS, u"");
+    expected_address = base::UTF8ToUTF16(kIpv6Address);
+    EXPECT_EQ(expected_title, static_cast<views::Label*>(
+                                  FindLabelView()->children()[1]->children()[0])
+                                  ->GetText());
+    EXPECT_EQ(expected_address,
+              static_cast<views::Label*>(
+                  FindLabelView()->children()[1]->children()[1])
+                  ->GetText());
+    expected_title =
+        l10n_util::GetStringFUTF16(IDS_ASH_STATUS_TRAY_WIFI_ADDRESS, u"");
+    expected_address = base::UTF8ToUTF16(kWiFiMacAddress);
+    EXPECT_EQ(expected_title, static_cast<views::Label*>(
+                                  FindLabelView()->children()[3]->children()[0])
+                                  ->GetText());
+    EXPECT_EQ(expected_address,
+              static_cast<views::Label*>(
+                  FindLabelView()->children()[3]->children()[1])
+                  ->GetText());
+    CloseBubble();
+  } else {
+    std::u16string expected_text =
+        l10n_util::GetStringFUTF16(IDS_ASH_STATUS_TRAY_ETHERNET_ADDRESS,
+                                   base::UTF8ToUTF16(kEthernetMacAddress));
+    SetDeviceMacAddress(kStubEthernetDevicePath, kEthernetMacAddress);
 
-  OpenBubble();
-  EXPECT_EQ(expected_text, FindLabelView()->GetText());
-  CloseBubble();
+    OpenBubble();
+    EXPECT_EQ(expected_text, FindLabelView()->GetText());
+    CloseBubble();
 
-  fake_delegate()->SetShouldIncludeDeviceAddresses(false);
+    base::StrAppend(&expected_text,
+                    {u"\n", l10n_util::GetStringFUTF16(
+                                IDS_ASH_STATUS_TRAY_WIFI_ADDRESS,
+                                base::UTF8ToUTF16(kWiFiMacAddress))});
+    SetDeviceMacAddress(kStubWiFiDevicePath, kWiFiMacAddress);
 
-  OpenBubble();
-  EXPECT_EQ(l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_NO_NETWORKS),
-            FindLabelView()->GetText());
-  CloseBubble();
+    OpenBubble();
+    EXPECT_EQ(expected_text, FindLabelView()->GetText());
+    CloseBubble();
 
-  const std::u16string expected_text_ip_addresses = base::StrCat(
-      {l10n_util::GetStringFUTF16(IDS_ASH_STATUS_TRAY_IP_ADDRESS,
-                                  base::UTF8ToUTF16(kIpv4Address)),
-       u"\n",
-       l10n_util::GetStringFUTF16(IDS_ASH_STATUS_TRAY_IPV6_ADDRESS,
-                                  base::UTF8ToUTF16(kIpv6Address))});
+    base::StrAppend(&expected_text,
+                    {u"\n", l10n_util::GetStringFUTF16(
+                                IDS_ASH_STATUS_TRAY_CELLULAR_ADDRESS,
+                                base::UTF8ToUTF16(kCellularMacAddress))});
+    SetDeviceMacAddress(kStubCellularDevicePath, kCellularMacAddress);
 
-  AddDefaultNetworkWithIPAddresses();
+    OpenBubble();
+    EXPECT_EQ(expected_text, FindLabelView()->GetText());
+    CloseBubble();
 
-  OpenBubble();
-  EXPECT_EQ(expected_text_ip_addresses, FindLabelView()->GetText());
-  CloseBubble();
+    fake_delegate()->SetShouldIncludeDeviceAddresses(false);
 
-  fake_delegate()->SetShouldIncludeDeviceAddresses(true);
+    OpenBubble();
+    EXPECT_EQ(l10n_util::GetStringUTF16(IDS_ASH_STATUS_TRAY_NO_NETWORKS),
+              FindLabelView()->GetText());
+    CloseBubble();
 
-  expected_text = expected_text_ip_addresses + u"\n" + expected_text;
+    const std::u16string expected_text_ip_addresses = base::StrCat(
+        {l10n_util::GetStringFUTF16(IDS_ASH_STATUS_TRAY_IP_ADDRESS,
+                                    base::UTF8ToUTF16(kIpv4Address)),
+         u"\n",
+         l10n_util::GetStringFUTF16(IDS_ASH_STATUS_TRAY_IPV6_ADDRESS,
+                                    base::UTF8ToUTF16(kIpv6Address))});
 
-  OpenBubble();
-  EXPECT_EQ(expected_text, FindLabelView()->GetText());
-  CloseBubble();
+    AddDefaultNetworkWithIPAddresses();
+
+    OpenBubble();
+    EXPECT_EQ(expected_text_ip_addresses, FindLabelView()->GetText());
+    CloseBubble();
+
+    fake_delegate()->SetShouldIncludeDeviceAddresses(true);
+
+    expected_text = expected_text_ip_addresses + u"\n" + expected_text;
+
+    OpenBubble();
+    EXPECT_EQ(expected_text, FindLabelView()->GetText());
+    CloseBubble();
+  }
 }
 
-}  // namespace tray
 }  // namespace ash

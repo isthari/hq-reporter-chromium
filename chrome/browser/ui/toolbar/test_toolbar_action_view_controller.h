@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,20 +25,25 @@ class TestToolbarActionViewController : public ToolbarActionViewController {
   // ToolbarActionViewController:
   std::string GetId() const override;
   void SetDelegate(ToolbarActionViewDelegate* delegate) override;
-  gfx::Image GetIcon(content::WebContents* web_contents,
-                     const gfx::Size& size) override;
+  ui::ImageModel GetIcon(content::WebContents* web_contents,
+                         const gfx::Size& size) override;
   std::u16string GetActionName() const override;
   std::u16string GetAccessibleName(
       content::WebContents* web_contents) const override;
   std::u16string GetTooltip(content::WebContents* web_contents) const override;
+  ToolbarActionViewController::HoverCardState GetHoverCardState(
+      content::WebContents* web_contents) const override;
   bool IsEnabled(content::WebContents* web_contents) const override;
   bool IsShowingPopup() const override;
+  bool ShouldShowSiteAccessRequestInToolbar(
+      content::WebContents* web_contents) const override;
   void HidePopup() override;
   gfx::NativeView GetPopupNativeView() override;
   ui::MenuModel* GetContextMenu(
       extensions::ExtensionContextMenuModel::ContextMenuSource
           context_menu_source) override;
-  bool ExecuteAction(bool by_user, InvocationSource source) override;
+  void ExecuteUserAction(InvocationSource source) override;
+  void TriggerPopupForAPI(ShowPopupCallback callback) override;
   void UpdateState() override;
   extensions::SitePermissionsHelper::SiteInteraction GetSiteInteraction(
       content::WebContents* web_contents) const override;

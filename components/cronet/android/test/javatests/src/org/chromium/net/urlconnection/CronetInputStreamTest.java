@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,15 +6,14 @@ package org.chromium.net.urlconnection;
 
 import static com.google.common.truth.Truth.assertThat;
 
-import android.support.test.runner.AndroidJUnit4;
-
+import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.filters.SmallTest;
 
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import org.chromium.base.test.util.Feature;
+import org.chromium.base.test.util.Batch;
 import org.chromium.net.CronetTestRule;
 
 import java.io.IOException;
@@ -22,6 +21,7 @@ import java.nio.ByteBuffer;
 import java.util.concurrent.Callable;
 
 /** Test for {@link CronetInputStream}. */
+@Batch(Batch.UNIT_TESTS)
 @RunWith(AndroidJUnit4.class)
 public class CronetInputStreamTest {
     @Rule
@@ -32,7 +32,6 @@ public class CronetInputStreamTest {
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     public void testAvailable_closed_withoutException() throws Exception {
         underTest = new CronetInputStream(new MockHttpURLConnection());
 
@@ -43,7 +42,6 @@ public class CronetInputStreamTest {
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     public void testAvailable_closed_withException() throws Exception {
         underTest = new CronetInputStream(new MockHttpURLConnection());
         IOException expected = new IOException();
@@ -56,7 +54,6 @@ public class CronetInputStreamTest {
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     public void testAvailable_noReads() throws Exception {
         underTest = new CronetInputStream(new MockHttpURLConnection());
 
@@ -65,7 +62,6 @@ public class CronetInputStreamTest {
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     public void testAvailable_everythingRead() throws Exception {
         int bytesInBuffer = 10;
 
@@ -80,7 +76,6 @@ public class CronetInputStreamTest {
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     public void testAvailable_partiallyRead() throws Exception {
         int bytesInBuffer = 10;
         int consumed = 3;
@@ -96,7 +91,6 @@ public class CronetInputStreamTest {
 
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     public void testRead_afterDataCompleted() throws Exception {
         int bytesInBuffer = 10;
         int consumed = 3;

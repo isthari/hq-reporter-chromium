@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,14 +10,15 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/check.h"
+#include "base/files/file_error_or.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/run_loop.h"
 #include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/task_environment.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "storage/browser/file_system/file_system_usage_cache.h"
 #include "storage/browser/file_system/obfuscated_file_util.h"
 #include "storage/browser/quota/quota_manager_proxy.h"
@@ -44,7 +45,9 @@ bool DidReserveQuota(bool accepted,
 class MockQuotaManagerProxy : public QuotaManagerProxy {
  public:
   MockQuotaManagerProxy()
-      : QuotaManagerProxy(nullptr, base::ThreadTaskRunnerHandle::Get()),
+      : QuotaManagerProxy(/*quota_manager_impl=*/nullptr,
+                          base::SingleThreadTaskRunner::GetCurrentDefault(),
+                          /*profile_path=*/base::FilePath()),
         storage_modified_count_(0),
         usage_(0),
         quota_(0) {}
@@ -58,10 +61,9 @@ class MockQuotaManagerProxy : public QuotaManagerProxy {
                             blink::mojom::StorageType type,
                             bool enabled) override {}
 
-  void NotifyStorageModified(
+  void NotifyBucketModified(
       QuotaClientType client_id,
-      const blink::StorageKey& storage_key,
-      blink::mojom::StorageType type,
+      const BucketLocator& bucket,
       int64_t delta,
       base::Time modification_time,
       scoped_refptr<base::SequencedTaskRunner> callback_task_runner,
@@ -135,28 +137,28 @@ class QuotaBackendImplTest : public testing::Test,
     ASSERT_TRUE(file_util_->InitOriginDatabase(origin, true /* create */));
     ASSERT_TRUE(file_util_->origin_database_ != nullptr);
 
-    std::string type_string =
-        SandboxFileSystemBackendDelegate::GetTypeString(type);
-    base::File::Error error = base::File::FILE_ERROR_FAILED;
-    base::FilePath path = file_util_->GetDirectoryForStorageKeyAndType(
-        blink::StorageKey(origin), type_string, true /* create */, &error);
-    ASSERT_EQ(base::File::FILE_OK, error);
+    base::FileErrorOr<base::FilePath> path =
+        file_util_->GetDirectoryForStorageKeyAndType(
+            blink::StorageKey::CreateFirstParty(origin), type,
+            true /* create */);
+    ASSERT_TRUE(path.has_value());
 
-    ASSERT_TRUE(file_system_usage_cache_.UpdateUsage(
-        GetUsageCachePath(origin, type), 0));
+    path = GetUsageCachePath(origin, type);
+    ASSERT_TRUE(path.has_value());
+    ASSERT_TRUE(file_system_usage_cache_.UpdateUsage(*path, 0));
   }
 
   base::SequencedTaskRunner* file_task_runner() {
-    return base::ThreadTaskRunnerHandle::Get().get();
+    return base::SingleThreadTaskRunner::GetCurrentDefault().get();
   }
 
-  base::FilePath GetUsageCachePath(const url::Origin& origin,
-                                   FileSystemType type) {
-    base::FilePath path;
-    base::File::Error error = backend_->GetUsageCachePath(origin, type, &path);
-    EXPECT_EQ(base::File::FILE_OK, error);
-    EXPECT_FALSE(path.empty());
-    return path;
+  base::FileErrorOr<base::FilePath> GetUsageCachePath(const url::Origin& origin,
+                                                      FileSystemType type) {
+    return backend_->GetUsageCachePath(origin, type)
+        .transform([](base::FilePath path) {
+          EXPECT_FALSE(path.empty());
+          return path;
+        });
   }
 
   base::test::SingleThreadTaskEnvironment task_environment_;
@@ -264,20 +266,21 @@ TEST_P(QuotaBackendImplTest, CommitQuotaUsage) {
   FileSystemType type = kFileSystemTypeTemporary;
   InitializeForOriginAndType(kOrigin, type);
   quota_manager_proxy_->set_quota(10000);
-  base::FilePath path = GetUsageCachePath(kOrigin, type);
+  auto path = GetUsageCachePath(kOrigin, type);
+  ASSERT_TRUE(path.has_value());
 
   const int64_t kDelta1 = 1000;
   backend_->CommitQuotaUsage(kOrigin, type, kDelta1);
   EXPECT_EQ(kDelta1, quota_manager_proxy_->usage());
   int64_t usage = 0;
-  EXPECT_TRUE(file_system_usage_cache_.GetUsage(path, &usage));
+  EXPECT_TRUE(file_system_usage_cache_.GetUsage(*path, &usage));
   EXPECT_EQ(kDelta1, usage);
 
   const int64_t kDelta2 = -300;
   backend_->CommitQuotaUsage(kOrigin, type, kDelta2);
   EXPECT_EQ(kDelta1 + kDelta2, quota_manager_proxy_->usage());
   usage = 0;
-  EXPECT_TRUE(file_system_usage_cache_.GetUsage(path, &usage));
+  EXPECT_TRUE(file_system_usage_cache_.GetUsage(*path, &usage));
   EXPECT_EQ(kDelta1 + kDelta2, usage);
 
   EXPECT_EQ(2, quota_manager_proxy_->storage_modified_count());
@@ -288,15 +291,16 @@ TEST_P(QuotaBackendImplTest, DirtyCount) {
 
   FileSystemType type = kFileSystemTypeTemporary;
   InitializeForOriginAndType(kOrigin, type);
-  base::FilePath path = GetUsageCachePath(kOrigin, type);
+  auto path = GetUsageCachePath(kOrigin, type);
+  ASSERT_TRUE(path.has_value());
 
   backend_->IncrementDirtyCount(kOrigin, type);
   uint32_t dirty = 0;
-  ASSERT_TRUE(file_system_usage_cache_.GetDirty(path, &dirty));
+  ASSERT_TRUE(file_system_usage_cache_.GetDirty(*path, &dirty));
   EXPECT_EQ(1u, dirty);
 
   backend_->DecrementDirtyCount(kOrigin, type);
-  ASSERT_TRUE(file_system_usage_cache_.GetDirty(path, &dirty));
+  ASSERT_TRUE(file_system_usage_cache_.GetDirty(*path, &dirty));
   EXPECT_EQ(0u, dirty);
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -137,7 +137,7 @@ void AppWindowMetricsTracker::Reset() {
 
 void AppWindowMetricsTracker::RenderFrameCreated(
     content::RenderFrameHost* frame_host) {
-  if (frame_host->GetParent())
+  if (frame_host->GetParentOrOuterDocument())
     return;
   SetState(State::kWindowShown);
 

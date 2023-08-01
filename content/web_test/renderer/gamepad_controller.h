@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -80,6 +80,13 @@ class GamepadController : public base::SupportsWeakPtr<GamepadController> {
   void SetAxisCount(int index, int axes);
   void SetAxisData(int index, int axis, double data);
   void SetDualRumbleVibrationActuator(int index, bool enabled);
+  void SetTriggerRumbleVibrationActuator(int index, bool enabled);
+  void SetTouchCount(int index, int touches);
+  void SetTouchData(int index,
+                    int touch,
+                    unsigned int touch_id,
+                    float position_x,
+                    float position_y);
 
   void OnInterfaceRequest(mojo::ScopedMessagePipeHandle handle);
 

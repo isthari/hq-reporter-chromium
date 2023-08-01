@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 
 #include "base/strings/utf_string_conversions.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/color/color_provider.h"
 #include "ui/events/event.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/range/range.h"
@@ -18,6 +19,7 @@
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/controls/textfield/textfield.h"
+#include "ui/views/examples/examples_color_id.h"
 #include "ui/views/examples/examples_window.h"
 #include "ui/views/examples/grit/views_examples_resources.h"
 #include "ui/views/layout/table_layout.h"
@@ -26,8 +28,7 @@
 using l10n_util::GetStringUTF16;
 using l10n_util::GetStringUTF8;
 
-namespace views {
-namespace examples {
+namespace views::examples {
 
 TextfieldExample::TextfieldExample()
     : ExampleBase(GetStringUTF8(IDS_TEXTFIELD_SELECT_LABEL).c_str()) {}
@@ -85,7 +86,8 @@ void TextfieldExample::CreateExampleView(View* container) {
   invalid_->SetInvalid(true);
   invalid_->SetAccessibleName(
       l10n_util::GetStringUTF16(IDS_TEXTFIELD_INVALID_LABEL));
-
+  invalid_->SetPlaceholderText(
+      l10n_util::GetStringUTF16(IDS_TEXTFIELD_INVALID_PLACEHOLDER));
   container->AddChildView(
       std::make_unique<Label>(GetStringUTF16(IDS_TEXTFIELD_RTL_LABEL)));
   rtl_ = container->AddChildView(std::make_unique<Textfield>());
@@ -173,7 +175,8 @@ void TextfieldExample::SetButtonPressed() {
 void TextfieldExample::SetStyleButtonPressed() {
   if (name_->GetText().empty())
     return;
-  name_->SetColor(SK_ColorGREEN);
+  auto* const cp = name_->GetColorProvider();
+  name_->SetColor(cp->GetColor(ExamplesColorIds::kColorTextfieldExampleName));
 
   const size_t fifth = name_->GetText().length() / 5;
   if (!fifth)
@@ -181,13 +184,16 @@ void TextfieldExample::SetStyleButtonPressed() {
 
   const gfx::Range big_range(1 * fifth, 4 * fifth);
   name_->ApplyStyle(gfx::TEXT_STYLE_UNDERLINE, true, big_range);
-  name_->ApplyColor(SK_ColorBLUE, big_range);
+  name_->ApplyColor(
+      cp->GetColor(ExamplesColorIds::kColorTextfieldExampleBigRange),
+      big_range);
 
   const gfx::Range small_range(2 * fifth, 3 * fifth);
   name_->ApplyStyle(gfx::TEXT_STYLE_ITALIC, true, small_range);
   name_->ApplyStyle(gfx::TEXT_STYLE_UNDERLINE, false, small_range);
-  name_->ApplyColor(SK_ColorRED, small_range);
+  name_->ApplyColor(
+      cp->GetColor(ExamplesColorIds::kColorTextfieldExampleSmallRange),
+      small_range);
 }
 
-}  // namespace examples
-}  // namespace views
+}  // namespace views::examples

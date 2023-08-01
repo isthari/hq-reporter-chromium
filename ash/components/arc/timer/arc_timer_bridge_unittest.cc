@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,10 +16,11 @@
 #include "ash/components/arc/test/test_browser_context.h"
 #include "ash/components/arc/timer/arc_timer_bridge.h"
 #include "ash/components/arc/timer/arc_timer_mojom_traits.h"
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/files/file_descriptor_watcher_posix.h"
 #include "base/files/scoped_file.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
+#include "base/memory/raw_ptr.h"
 #include "base/posix/unix_domain_socket.h"
 #include "base/run_loop.h"
 #include "base/time/time.h"
@@ -136,7 +137,7 @@ class ArcTimerTest : public testing::Test {
 
   ArcTimerStore arc_timer_store_;
 
-  ArcTimerBridge* timer_bridge_;
+  raw_ptr<ArcTimerBridge, ExperimentalAsh> timer_bridge_;
 };
 
 bool ArcTimerTest::StoreReadFds(const std::vector<clockid_t> clocks,

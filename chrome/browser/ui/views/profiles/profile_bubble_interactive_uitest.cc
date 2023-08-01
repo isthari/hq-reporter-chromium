@@ -1,17 +1,18 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/profiles/profile_customization_bubble_view.h"
 
-#include "base/callback_helpers.h"
 #include "base/check.h"
 #include "base/files/file_util.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ptr_util.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/profiles/profile_test_util.h"
 #include "chrome/browser/signin/dice_web_signin_interceptor.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -20,6 +21,7 @@
 #include "chrome/browser/ui/views/profiles/avatar_toolbar_button.h"
 #include "chrome/browser/ui/views/profiles/dice_web_signin_interception_bubble_view.h"
 #include "chrome/browser/ui/views/profiles/profile_customization_bubble_view.h"
+#include "chrome/browser/ui/views/profiles/profile_menu_coordinator.h"
 #include "chrome/browser/ui/views/profiles/profile_menu_view.h"
 #include "chrome/browser/ui/views/profiles/profile_menu_view_base.h"
 #include "chrome/test/base/in_process_browser_test.h"
@@ -48,14 +50,14 @@ class ProfileBubbleInteractiveUiTest : public InProcessBrowserTest {
   }
 
   // Returns dummy parameters for the interception bubble.
-  DiceWebSigninInterceptor::Delegate::BubbleParameters
-  GetTestBubbleParameters() {
+  WebSigninInterceptor::Delegate::BubbleParameters GetTestBubbleParameters() {
     AccountInfo account;
     account.account_id = CoreAccountId::FromGaiaId("ID1");
     AccountInfo primary_account;
     primary_account.account_id = CoreAccountId::FromGaiaId("ID2");
-    return {DiceWebSigninInterceptor::SigninInterceptionType::kMultiUser,
-            account, primary_account};
+    return WebSigninInterceptor::Delegate::BubbleParameters(
+        WebSigninInterceptor::SigninInterceptionType::kMultiUser, account,
+        primary_account);
   }
 
   // Waits until the bubble is displayed and focused, and returns the view that
@@ -119,9 +121,9 @@ IN_PROC_BROWSER_TEST_F(ProfileBubbleInteractiveUiTest,
                        InterceptionBubbleFocus) {
   // Create the inteerception bubble, owned by the view hierarchy.
   DiceWebSigninInterceptionBubbleView* bubble =
-      new DiceWebSigninInterceptionBubbleView(
-          browser()->profile(), GetAvatarButton(), GetTestBubbleParameters(),
-          base::DoNothing());
+      new DiceWebSigninInterceptionBubbleView(browser(), GetAvatarButton(),
+                                              GetTestBubbleParameters(),
+                                              base::DoNothing());
   views::Widget* widget = views::BubbleDialogDelegateView::CreateBubble(bubble);
   widget->Show();
   // The bubble takes focus when it is displayed.
@@ -144,8 +146,9 @@ class ProfileMenuInteractiveUiTest : public ProfileBubbleInteractiveUiTest {
   }
 
   ProfileMenuViewBase* profile_menu_view() {
-    return static_cast<ProfileMenuViewBase*>(
-        ProfileMenuViewBase::GetBubbleForTesting());
+    auto* coordinator = ProfileMenuCoordinator::FromBrowser(browser());
+    return coordinator ? coordinator->GetProfileMenuViewBaseForTesting()
+                       : nullptr;
   }
 };
 
@@ -153,15 +156,8 @@ IN_PROC_BROWSER_TEST_F(ProfileMenuInteractiveUiTest, OtherProfileFocus) {
   base::HistogramTester histogram_tester;
   // Add an additional profiles.
   ProfileManager* profile_manager = g_browser_process->profile_manager();
-  base::RunLoop run_loop;
-  profile_manager->CreateProfileAsync(
-      profile_manager->GenerateNextProfileDirectoryPath(),
-      base::BindLambdaForTesting(
-          [&run_loop](Profile* profile, Profile::CreateStatus status) {
-            if (status == Profile::CREATE_STATUS_INITIALIZED)
-              run_loop.Quit();
-          }));
-  run_loop.Run();
+  profiles::testing::CreateProfileSync(
+      profile_manager, profile_manager->GenerateNextProfileDirectoryPath());
 
   // Open the menu using the keyboard.
   bool control = false;

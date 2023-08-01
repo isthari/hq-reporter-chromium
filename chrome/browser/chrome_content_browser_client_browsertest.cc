@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 #include <memory>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -18,7 +18,6 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry_factory.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/search/instant_service.h"
 #include "chrome/browser/search/instant_service_factory.h"
 #include "chrome/browser/search/search.h"
@@ -32,10 +31,12 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/custom_handlers/protocol_handler.h"
 #include "components/custom_handlers/protocol_handler_registry.h"
 #include "components/network_session_configurator/common/network_switches.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/prefs/pref_service.h"
+#include "components/safe_browsing/buildflags.h"
 #include "components/site_isolation/site_isolation_policy.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
@@ -67,6 +68,21 @@
 #if BUILDFLAG(IS_MAC)
 #include "chrome/test/base/launchservices_utils_mac.h"
 #endif
+
+#if BUILDFLAG(FULL_SAFE_BROWSING)
+#include "base/files/scoped_temp_dir.h"
+#include "base/test/bind.h"
+#include "base/threading/scoped_blocking_call.h"
+#include "chrome/browser/enterprise/connectors/analysis/fake_content_analysis_delegate.h"
+#include "chrome/browser/enterprise/connectors/connectors_service.h"
+#include "chrome/browser/safe_browsing/cloud_content_scanning/deep_scanning_test_utils.h"
+#include "ui/base/clipboard/clipboard_format_type.h"
+
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)
+#include "chrome/browser/enterprise/connectors/analysis/fake_content_analysis_sdk_manager.h"  // nogncheck
+#endif
+
+#endif  // BUILDFLAG(FULL_SAFE_BROWSING)
 
 namespace {
 
@@ -101,9 +117,71 @@ IN_PROC_BROWSER_TEST_F(ChromeContentBrowserClientBrowserTest,
                                         ->GetController()
                                         .GetLastCommittedEntry();
 
-  ASSERT_TRUE(entry != NULL);
+  ASSERT_TRUE(entry != nullptr);
   EXPECT_EQ(url, entry->GetURL());
   EXPECT_EQ(url, entry->GetVirtualURL());
+}
+
+class TopChromeChromeContentBrowserClientTest
+    : public ChromeContentBrowserClientBrowserTest {
+ public:
+  TopChromeChromeContentBrowserClientTest() {
+    feature_list_.InitAndEnableFeature(
+        features::kTopChromeWebUIUsesSpareRenderer);
+  }
+
+  // ChromeContentBrowserClientBrowserTest:
+  void SetUpOnMainThread() override {
+    ChromeContentBrowserClientBrowserTest::SetUpOnMainThread();
+    client_ = static_cast<ChromeContentBrowserClient*>(
+        content::SetBrowserClientForTesting(nullptr));
+    content::SetBrowserClientForTesting(client_);
+  }
+
+  ChromeContentBrowserClient* client() { return client_; }
+
+ private:
+  raw_ptr<ChromeContentBrowserClient> client_ = nullptr;
+  base::test::ScopedFeatureList feature_list_;
+};
+
+IN_PROC_BROWSER_TEST_F(TopChromeChromeContentBrowserClientTest,
+                       ShouldUseSpareRendererWhenNoTopChromePagesPresent) {
+  const GURL top_chrome_url(chrome::kChromeUITabSearchURL);
+  const GURL non_top_chrome_url(chrome::kChromeUINewTabPageURL);
+
+  const auto navigate_browser = [&](const GURL& url) {
+    ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), url));
+    content::NavigationEntry* entry = browser()
+                                          ->tab_strip_model()
+                                          ->GetWebContentsAt(0)
+                                          ->GetController()
+                                          .GetLastCommittedEntry();
+    ASSERT_NE(nullptr, entry);
+    EXPECT_EQ(url, entry->GetURL());
+    EXPECT_EQ(url, entry->GetVirtualURL());
+  };
+
+  // Initially there will be no top chrome pages and the client should return
+  // true for using the spare renderer.
+  EXPECT_TRUE(client()->ShouldUseSpareRenderProcessHost(browser()->profile(),
+                                                        top_chrome_url));
+
+  // Navigate to a top chrome URL.
+  navigate_browser(top_chrome_url);
+
+  // The browser now hosts a top chrome page and the client should return false
+  // for using the spare renderer.
+  EXPECT_FALSE(client()->ShouldUseSpareRenderProcessHost(browser()->profile(),
+                                                         top_chrome_url));
+
+  // Navigate away from the top chrome page.
+  navigate_browser(non_top_chrome_url);
+
+  // There will no longer be any top chrome pages hosted by the browser and the
+  // client should return true for using the spare renderer.
+  EXPECT_TRUE(client()->ShouldUseSpareRenderProcessHost(browser()->profile(),
+                                                        top_chrome_url));
 }
 
 // Helper class to mark "https://ntp.com/" as an isolated origin.
@@ -172,16 +250,16 @@ IN_PROC_BROWSER_TEST_F(IsolatedOriginNTPBrowserTest,
   InstantService* instant_service =
       InstantServiceFactory::GetForProfile(browser()->profile());
   EXPECT_TRUE(instant_service->IsInstantProcess(
-      contents->GetMainFrame()->GetProcess()->GetID()));
-  EXPECT_EQ(contents->GetMainFrame()->GetSiteInstance()->GetSiteURL(),
+      contents->GetPrimaryMainFrame()->GetProcess()->GetID()));
+  EXPECT_EQ(contents->GetPrimaryMainFrame()->GetSiteInstance()->GetSiteURL(),
             ntp_site_instance->GetSiteURL());
 
   // Navigating to a non-NTP URL on ntp.com should not result in an Instant
   // process.
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), isolated_url));
   EXPECT_FALSE(instant_service->IsInstantProcess(
-      contents->GetMainFrame()->GetProcess()->GetID()));
-  EXPECT_EQ(contents->GetMainFrame()->GetSiteInstance()->GetSiteURL(),
+      contents->GetPrimaryMainFrame()->GetProcess()->GetID()));
+  EXPECT_EQ(contents->GetPrimaryMainFrame()->GetSiteInstance()->GetSiteURL(),
             site_instance->GetSiteURL());
 }
 
@@ -226,7 +304,7 @@ IN_PROC_BROWSER_TEST_F(OpenWindowFromNTPBrowserTest,
   InstantService* instant_service =
       InstantServiceFactory::GetForProfile(browser()->profile());
   EXPECT_TRUE(instant_service->IsInstantProcess(
-      ntp_tab->GetMainFrame()->GetProcess()->GetID()));
+      ntp_tab->GetPrimaryMainFrame()->GetProcess()->GetID()));
 
   // Execute script that creates new window from ntp tab with
   // ntp.com/title1.html as target url. Host is same as remote-ntp host, yet
@@ -234,8 +312,7 @@ IN_PROC_BROWSER_TEST_F(OpenWindowFromNTPBrowserTest,
   GURL generic_url(https_test_server().GetURL("ntp.com", "/title1.html"));
   content::TestNavigationObserver opened_tab_observer(nullptr);
   opened_tab_observer.StartWatchingNewWebContents();
-  EXPECT_TRUE(
-      ExecuteScript(ntp_tab, "window.open('" + generic_url.spec() + "');"));
+  EXPECT_TRUE(ExecJs(ntp_tab, "window.open('" + generic_url.spec() + "');"));
   opened_tab_observer.Wait();
   ASSERT_EQ(2, browser()->tab_strip_model()->count());
 
@@ -249,7 +326,7 @@ IN_PROC_BROWSER_TEST_F(OpenWindowFromNTPBrowserTest,
   EXPECT_EQ(generic_url, opened_tab->GetLastCommittedURL());
   // New created tab should not reside in an Instant process.
   EXPECT_FALSE(instant_service->IsInstantProcess(
-      opened_tab->GetMainFrame()->GetProcess()->GetID()));
+      opened_tab->GetPrimaryMainFrame()->GetProcess()->GetID()));
 }
 
 class PrefersColorSchemeTest : public testing::WithParamInterface<bool>,
@@ -322,14 +399,12 @@ IN_PROC_BROWSER_TEST_P(PrefersColorSchemeTest, FeatureOverridesChromeSchemes) {
   ASSERT_TRUE(ui_test_utils::NavigateToURL(
       browser(), GURL(chrome::kChromeUIDownloadsURL)));
 
-  bool matches;
-  ASSERT_TRUE(ExecuteScriptAndExtractBool(
-      browser()->tab_strip_model()->GetActiveWebContents(),
-      base::StringPrintf("window.domAutomationController.send(window."
-                         "matchMedia('(prefers-color-scheme: %s)').matches)",
-                         ExpectedColorScheme()),
-      &matches));
-  EXPECT_TRUE(matches);
+  EXPECT_EQ(
+      true,
+      EvalJs(browser()->tab_strip_model()->GetActiveWebContents(),
+             base::StringPrintf(
+                 "window.matchMedia('(prefers-color-scheme: %s)').matches",
+                 ExpectedColorScheme())));
 }
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
@@ -346,14 +421,12 @@ IN_PROC_BROWSER_TEST_P(PrefersColorSchemeTest, FeatureOverridesPdfUI) {
   GURL pdf_index = GURL(pdf_extension_url).Resolve("/index.html");
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), pdf_index));
 
-  bool matches;
-  ASSERT_TRUE(ExecuteScriptAndExtractBool(
-      browser()->tab_strip_model()->GetActiveWebContents(),
-      base::StringPrintf("window.domAutomationController.send(window."
-                         "matchMedia('(prefers-color-scheme: %s)').matches)",
-                         ExpectedColorScheme()),
-      &matches));
-  EXPECT_TRUE(matches);
+  EXPECT_EQ(
+      true,
+      EvalJs(browser()->tab_strip_model()->GetActiveWebContents(),
+             base::StringPrintf(
+                 "window.matchMedia('(prefers-color-scheme: %s)').matches",
+                 ExpectedColorScheme())));
 }
 #endif
 
@@ -418,7 +491,7 @@ class PrefersContrastTest
 };
 
 IN_PROC_BROWSER_TEST_P(PrefersContrastTest, PrefersContrast) {
-  test_theme_.set_preferred_contrast(GetParam());
+  test_theme_.SetPreferredContrast(GetParam());
   browser()
       ->tab_strip_model()
       ->GetActiveWebContents()
@@ -458,8 +531,8 @@ class ProtocolHandlerTest : public InProcessBrowserTest {
   void AddProtocolHandler(const std::string& scheme,
                           const std::string& redirect_template) {
     protocol_handler_registry()->OnAcceptRegisterProtocolHandler(
-        ProtocolHandler::CreateProtocolHandler(scheme,
-                                               GURL(redirect_template)));
+        custom_handlers::ProtocolHandler::CreateProtocolHandler(
+            scheme, GURL(redirect_template)));
   }
 
   custom_handlers::ProtocolHandlerRegistry* protocol_handler_registry() {
@@ -533,22 +606,19 @@ class KeepaliveDurationOnShutdownTest : public InProcessBrowserTest,
 };
 
 IN_PROC_BROWSER_TEST_F(KeepaliveDurationOnShutdownTest, DefaultValue) {
-  Profile* profile =
-      g_browser_process->profile_manager()->GetPrimaryUserProfile();
+  Profile* profile = browser()->profile();
   EXPECT_EQ(client_->GetKeepaliveTimerTimeout(profile), base::TimeDelta());
 }
 
 IN_PROC_BROWSER_TEST_F(KeepaliveDurationOnShutdownTest, PolicySettings) {
-  Profile* profile =
-      g_browser_process->profile_manager()->GetPrimaryUserProfile();
+  Profile* profile = browser()->profile();
   profile->GetPrefs()->SetInteger(prefs::kFetchKeepaliveDurationOnShutdown, 2);
 
   EXPECT_EQ(client_->GetKeepaliveTimerTimeout(profile), base::Seconds(2));
 }
 
 IN_PROC_BROWSER_TEST_F(KeepaliveDurationOnShutdownTest, DynamicUpdate) {
-  Profile* profile =
-      g_browser_process->profile_manager()->GetPrimaryUserProfile();
+  Profile* profile = browser()->profile();
   profile->GetPrefs()->SetInteger(prefs::kFetchKeepaliveDurationOnShutdown, 2);
 
   EXPECT_EQ(client_->GetKeepaliveTimerTimeout(profile), base::Seconds(2));
@@ -559,5 +629,208 @@ IN_PROC_BROWSER_TEST_F(KeepaliveDurationOnShutdownTest, DynamicUpdate) {
 }
 
 #endif  // !BUILDFLAG(IS_ANDROID)
+
+#if BUILDFLAG(FULL_SAFE_BROWSING)
+
+class IsClipboardPasteContentAllowedTest : public InProcessBrowserTest {
+ public:
+  IsClipboardPasteContentAllowedTest() {
+    EXPECT_TRUE(temp_dir_.CreateUniqueTempDir());
+  }
+
+  void SetUpOnMainThread() override {
+    InProcessBrowserTest::SetUpOnMainThread();
+
+    // Make sure enterprise policies are set to turn on content analysis.
+    safe_browsing::SetAnalysisConnector(browser()->profile()->GetPrefs(),
+                                        enterprise_connectors::BULK_DATA_ENTRY,
+                                        kBulkDataEntryPolicyValue);
+    safe_browsing::SetAnalysisConnector(browser()->profile()->GetPrefs(),
+                                        enterprise_connectors::FILE_ATTACHED,
+                                        kFileAttachedPolicyValue);
+
+    enterprise_connectors::ContentAnalysisDelegate::SetFactoryForTesting(
+        base::BindRepeating(
+            &enterprise_connectors::FakeContentAnalysisDelegate::Create,
+            base::DoNothing(),
+            base::BindRepeating([](const std::string& contents,
+                                   const base::FilePath& path) {
+              bool success = false;
+              if (!contents.empty()) {
+                success = contents.substr(0, 5) == "allow";
+              } else {
+                success =
+                    path.BaseName().AsUTF8Unsafe().substr(0, 5) == "allow";
+              }
+              return success
+                         ? enterprise_connectors::FakeContentAnalysisDelegate::
+                               SuccessfulResponse({"dlp"})
+                         : enterprise_connectors::FakeContentAnalysisDelegate::
+                               DlpResponse(
+                                   enterprise_connectors::
+                                       ContentAnalysisResponse::Result::SUCCESS,
+                                   "rule-name",
+                                   enterprise_connectors::
+                                       ContentAnalysisResponse::Result::
+                                           TriggeredRule::BLOCK);
+            }),
+            /*dm_token=*/std::string()));
+
+    client_ = static_cast<ChromeContentBrowserClient*>(
+        content::SetBrowserClientForTesting(nullptr));
+    content::SetBrowserClientForTesting(client_);
+  }
+
+  void TearDownOnMainThread() override {
+    client_ = nullptr;
+    InProcessBrowserTest::TearDownOnMainThread();
+  }
+
+ protected:
+  ChromeContentBrowserClient* client() const { return client_; }
+
+  std::string CreateTestFile(const base::FilePath::StringType& filename,
+                             const std::string& content) {
+    base::ScopedAllowBlockingForTesting allow_blocking;
+    base::FilePath path = temp_dir_.GetPath().Append(filename);
+    base::File file(path, base::File::FLAG_CREATE | base::File::FLAG_WRITE);
+    file.WriteAtCurrentPos(content.data(), content.size());
+    return path.AsUTF8Unsafe();
+  }
+
+ private:
+  static constexpr char kBulkDataEntryPolicyValue[] = R"(
+  {
+    "service_provider": "local_system_agent",
+    "enable": [
+      {
+        "url_list": ["*"],
+        "tags": ["dlp"]
+      }
+    ],
+    "block_until_verdict": 1,
+    "minimum_data_size": 1
+  })";
+
+  static constexpr char kFileAttachedPolicyValue[] = R"(
+  {
+    "service_provider": "local_system_agent",
+    "enable": [
+      {
+        "url_list": ["*"],
+        "tags": ["dlp"]
+      }
+    ],
+    "block_until_verdict": 1
+  })";
+
+  base::ScopedTempDir temp_dir_;
+  raw_ptr<ChromeContentBrowserClient> client_ = nullptr;
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_MAC) || BUILDFLAG(IS_LINUX)
+  // This installs a fake SDK manager that creates fake SDK clients when
+  // its GetClient() method is called. This is needed so that calls to
+  // ContentAnalysisSdkManager::Get()->GetClient() do not fail.
+  enterprise_connectors::FakeContentAnalysisSdkManager sdk_manager_;
+#endif
+};
+
+IN_PROC_BROWSER_TEST_F(IsClipboardPasteContentAllowedTest, TextAllowed) {
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetWebContentsAt(0);
+  ChromeContentBrowserClient::ClipboardPasteData clipboard_paste_data =
+      ChromeContentBrowserClient::ClipboardPasteData("allowed", std::string(),
+                                                     {});
+
+  client()->IsClipboardPasteContentAllowed(
+      contents, GURL("google.com"), ui::ClipboardFormatType::PlainTextType(),
+      clipboard_paste_data,
+      base::BindOnce(
+          [](absl::optional<ChromeContentBrowserClient::ClipboardPasteData>
+                 clipboard_paste_data) {
+            EXPECT_TRUE(clipboard_paste_data.has_value());
+          }));
+}
+
+IN_PROC_BROWSER_TEST_F(IsClipboardPasteContentAllowedTest, TextBlocked) {
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetWebContentsAt(0);
+  ChromeContentBrowserClient::ClipboardPasteData clipboard_paste_data =
+      ChromeContentBrowserClient::ClipboardPasteData("blocked", std::string(),
+                                                     {});
+
+  client()->IsClipboardPasteContentAllowed(
+      contents, GURL("google.com"), ui::ClipboardFormatType::PlainTextType(),
+      clipboard_paste_data,
+      base::BindOnce(
+          [](absl::optional<ChromeContentBrowserClient::ClipboardPasteData>
+                 clipboard_paste_data) {
+            EXPECT_FALSE(clipboard_paste_data.has_value());
+          }));
+}
+
+IN_PROC_BROWSER_TEST_F(IsClipboardPasteContentAllowedTest, AllFilesAllowed) {
+  std::vector<std::string> paths;
+  paths.push_back(CreateTestFile(FILE_PATH_LITERAL("allow0"), "data"));
+  paths.push_back(CreateTestFile(FILE_PATH_LITERAL("allow1"), "data"));
+  ChromeContentBrowserClient::ClipboardPasteData clipboard_paste_data =
+      ChromeContentBrowserClient::ClipboardPasteData(std::string(),
+                                                     std::string(), paths);
+
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetWebContentsAt(0);
+  client()->IsClipboardPasteContentAllowed(
+      contents, GURL("google.com"), ui::ClipboardFormatType::FilenamesType(),
+      clipboard_paste_data,
+      base::BindLambdaForTesting(
+          [paths](absl::optional<ChromeContentBrowserClient::ClipboardPasteData>
+                      clipboard_paste_data) {
+            EXPECT_TRUE(clipboard_paste_data.has_value());
+            EXPECT_EQ(paths[0], clipboard_paste_data->file_paths[0]);
+            EXPECT_EQ(paths[1], clipboard_paste_data->file_paths[1]);
+          }));
+}
+
+IN_PROC_BROWSER_TEST_F(IsClipboardPasteContentAllowedTest, AllFilesBlocked) {
+  std::vector<std::string> paths;
+  paths.push_back(CreateTestFile(FILE_PATH_LITERAL("block0"), "data"));
+  paths.push_back(CreateTestFile(FILE_PATH_LITERAL("block1"), "data"));
+
+  ChromeContentBrowserClient::ClipboardPasteData clipboard_paste_data =
+      ChromeContentBrowserClient::ClipboardPasteData(std::string(),
+                                                     std::string(), paths);
+
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetWebContentsAt(0);
+  client()->IsClipboardPasteContentAllowed(
+      contents, GURL("google.com"), ui::ClipboardFormatType::FilenamesType(),
+      clipboard_paste_data,
+      base::BindLambdaForTesting(
+          [](absl::optional<ChromeContentBrowserClient::ClipboardPasteData>
+                 clipboard_paste_data) {
+            EXPECT_FALSE(clipboard_paste_data.has_value());
+          }));
+}
+
+IN_PROC_BROWSER_TEST_F(IsClipboardPasteContentAllowedTest, SomeFilesBlocked) {
+  std::vector<std::string> paths;
+  paths.push_back(CreateTestFile(FILE_PATH_LITERAL("allow0"), "data"));
+  paths.push_back(CreateTestFile(FILE_PATH_LITERAL("block1"), "data"));
+  ChromeContentBrowserClient::ClipboardPasteData clipboard_paste_data =
+      ChromeContentBrowserClient::ClipboardPasteData(std::string(),
+                                                     std::string(), paths);
+
+  content::WebContents* contents =
+      browser()->tab_strip_model()->GetWebContentsAt(0);
+  client()->IsClipboardPasteContentAllowed(
+      contents, GURL("google.com"), ui::ClipboardFormatType::FilenamesType(),
+      clipboard_paste_data,
+      base::BindLambdaForTesting(
+          [paths](absl::optional<ChromeContentBrowserClient::ClipboardPasteData>
+                      clipboard_paste_data) {
+            EXPECT_TRUE(clipboard_paste_data.has_value());
+            EXPECT_EQ(clipboard_paste_data->file_paths[0], paths[0]);
+          }));
+}
+#endif
 
 }  // namespace

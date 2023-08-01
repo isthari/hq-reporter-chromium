@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,14 +7,15 @@
 #include <algorithm>
 #include <string>
 
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/ash/smb_client/discovery/in_memory_host_locator.h"
 #include "chrome/browser/ash/smb_client/smb_constants.h"
 #include "chrome/browser/ash/smb_client/smb_url.h"
-#include "chromeos/dbus/smbprovider/fake_smb_provider_client.h"
+#include "chromeos/ash/components/dbus/smbprovider/fake_smb_provider_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace ash {
@@ -133,6 +134,8 @@ class SmbShareFinderTest : public testing::Test {
         std::make_unique<InMemoryHostLocator>(should_run_synchronously);
     host_locator_ = host_locator.get();
 
+    // If re-initializing the client, ensure the old client is destroyed first.
+    fake_client_.reset();
     fake_client_ =
         std::make_unique<FakeSmbProviderClient>(should_run_synchronously);
     share_finder_ = std::make_unique<SmbShareFinder>(fake_client_.get());
@@ -174,7 +177,7 @@ class SmbShareFinderTest : public testing::Test {
 
   int32_t discovery_callback_counter_ = 0;
 
-  InMemoryHostLocator* host_locator_;
+  raw_ptr<InMemoryHostLocator, ExperimentalAsh> host_locator_;
   std::unique_ptr<FakeSmbProviderClient> fake_client_;
   std::unique_ptr<SmbShareFinder> share_finder_;
 };

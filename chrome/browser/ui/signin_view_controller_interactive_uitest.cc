@@ -1,15 +1,16 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <utility>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/scoped_observation.h"
 #include "base/test/bind.h"
 #include "build/build_config.h"
+#include "build/chromeos_buildflags.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/signin/reauth_result.h"
 #include "chrome/browser/ui/browser.h"
@@ -64,7 +65,7 @@ class SyncConfirmationClosedObserver : public LoginUIService::Observer {
     run_loop_.Quit();
   }
 
-  Browser* const browser_;
+  const raw_ptr<Browser> browser_;
   base::RunLoop run_loop_;
   base::ScopedObservation<LoginUIService, LoginUIService::Observer>
       login_ui_service_observation_{this};
@@ -89,6 +90,8 @@ class SignInViewControllerBrowserTest : public InProcessBrowserTest {
   }
 };
 
+#if !BUILDFLAG(IS_CHROMEOS_LACROS)
+// DICE sign-in flow isn't applicable on Lacros.
 IN_PROC_BROWSER_TEST_F(SignInViewControllerBrowserTest, Accelerators) {
   ASSERT_EQ(1, browser()->tab_strip_model()->count());
   browser()->signin_view_controller()->ShowSignin(
@@ -111,13 +114,26 @@ IN_PROC_BROWSER_TEST_F(SignInViewControllerBrowserTest, Accelerators) {
 
   EXPECT_EQ(2, browser()->tab_strip_model()->count());
 }
+#endif  // !BUILDFLAG(IS_CHROMEOS_LACROS)
 
 // Tests that the confirm button is focused by default in the sync confirmation
 // dialog.
 IN_PROC_BROWSER_TEST_F(SignInViewControllerBrowserTest,
                        SyncConfirmationDefaultFocus) {
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  // This test runs in the main profile.
+  EXPECT_TRUE(
+      GetIdentityManager()->HasPrimaryAccount(signin::ConsentLevel::kSignin));
+  CoreAccountInfo device_primary_account =
+      GetIdentityManager()->GetPrimaryAccountInfo(
+          signin::ConsentLevel::kSignin);
+  signin::MakePrimaryAccountAvailable(GetIdentityManager(),
+                                      device_primary_account.email,
+                                      signin::ConsentLevel::kSync);
+#else
   signin::MakePrimaryAccountAvailable(GetIdentityManager(), "alice@gmail.com",
                                       signin::ConsentLevel::kSync);
+#endif
   content::TestNavigationObserver content_observer(
       GURL("chrome://sync-confirmation/"));
   content_observer.StartWatchingNewWebContents();
@@ -200,18 +216,31 @@ IN_PROC_BROWSER_TEST_F(SignInViewControllerBrowserTest,
 // interception dialog.
 IN_PROC_BROWSER_TEST_F(SignInViewControllerBrowserTest,
                        EnterpriseConfirmationDefaultFocus) {
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  // This test runs in the main profile.
+  EXPECT_TRUE(
+      GetIdentityManager()->HasPrimaryAccount(signin::ConsentLevel::kSignin));
+  auto primary_account_info = GetIdentityManager()->GetPrimaryAccountInfo(
+      signin::ConsentLevel::kSignin);
+  auto account_info = signin::MakePrimaryAccountAvailable(
+      GetIdentityManager(), primary_account_info.email,
+      signin::ConsentLevel::kSync);
+#else
   auto account_info = signin::MakePrimaryAccountAvailable(
       GetIdentityManager(), "alice@gmail.com", signin::ConsentLevel::kSync);
+#endif
   content::TestNavigationObserver content_observer(
       GURL("chrome://enterprise-profile-welcome/"));
   content_observer.StartWatchingNewWebContents();
-  bool result;
+  signin::SigninChoice result;
   browser()->signin_view_controller()->ShowModalEnterpriseConfirmationDialog(
-      account_info, SK_ColorWHITE,
+      account_info, /*force_new_profile=*/true, /*show_link_data_option=*/true,
+      SK_ColorWHITE,
       base::BindOnce(
-          [](Browser* browser, bool* result, bool create) {
+          [](Browser* browser, signin::SigninChoice* result,
+             signin::SigninChoice choice) {
             browser->signin_view_controller()->CloseModalSignin();
-            *result = create;
+            *result = choice;
           },
           browser(), &result));
   EXPECT_TRUE(browser()->signin_view_controller()->ShowsModalDialog());
@@ -227,6 +256,6 @@ IN_PROC_BROWSER_TEST_F(SignInViewControllerBrowserTest,
                                               /*command=*/false));
 
   dialog_destroyed_watcher.Wait();
-  EXPECT_TRUE(result);
+  EXPECT_EQ(result, signin::SigninChoice::SIGNIN_CHOICE_NEW_PROFILE);
   EXPECT_FALSE(browser()->signin_view_controller()->ShowsModalDialog());
 }

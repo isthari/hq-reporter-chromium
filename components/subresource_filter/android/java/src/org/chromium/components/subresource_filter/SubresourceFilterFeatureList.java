@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@ package org.chromium.components.subresource_filter;
 
 import org.chromium.base.FeatureList;
 import org.chromium.base.annotations.JNINamespace;
-import org.chromium.base.annotations.MainDex;
 import org.chromium.base.annotations.NativeMethods;
 
 /**
@@ -14,7 +13,6 @@ import org.chromium.base.annotations.NativeMethods;
  */
 // TODO(crbug.com/1060097): Remove/update this once a generalized FeatureList exists.
 @JNINamespace("subresource_filter")
-@MainDex
 public class SubresourceFilterFeatureList {
     public static final String SUBRESOURCE_FILTER = "SubresourceFilter";
 

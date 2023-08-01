@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,17 +8,17 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/compiler_specific.h"
 #include "base/containers/circular_deque.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/test/task_environment.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/time/time.h"
 #include "components/webrtc/thread_wrapper.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
@@ -29,8 +29,7 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-namespace remoting {
-namespace protocol {
+namespace remoting::protocol {
 
 namespace {
 
@@ -53,8 +52,7 @@ class LeakyBucket : public RateLimiter {
       : volume_(volume),
         rate_(rate),
         level_(0.0),
-        last_update_(base::TimeTicks::Now()) {
-  }
+        last_update_(base::TimeTicks::Now()) {}
 
   ~LeakyBucket() override = default;
 
@@ -85,8 +83,9 @@ class FakeSocket : public P2PDatagramSocket {
   ~FakeSocket() override = default;
 
   void AppendInputPacket(const std::vector<char>& data) {
-    if (rate_limiter_ && rate_limiter_->DropNextPacket())
+    if (rate_limiter_ && rate_limiter_->DropNextPacket()) {
       return;  // Lose the packet.
+    }
 
     if (!read_callback_.is_null()) {
       int size = std::min(read_buffer_size_, static_cast<int>(data.size()));
@@ -100,9 +99,7 @@ class FakeSocket : public P2PDatagramSocket {
     }
   }
 
-  void Connect(FakeSocket* peer_socket) {
-    peer_socket_ = peer_socket;
-  }
+  void Connect(FakeSocket* peer_socket) { peer_socket_ = peer_socket; }
 
   void set_rate_limiter(RateLimiter* rate_limiter) {
     rate_limiter_ = rate_limiter;
@@ -119,8 +116,8 @@ class FakeSocket : public P2PDatagramSocket {
 
     if (incoming_packets_.size() > 0) {
       scoped_refptr<net::IOBuffer> buffer(buf);
-      int size = std::min(
-          static_cast<int>(incoming_packets_.front().size()), buf_len);
+      int size =
+          std::min(static_cast<int>(incoming_packets_.front().size()), buf_len);
       memcpy(buffer->data(), &*incoming_packets_.front().begin(), size);
       incoming_packets_.pop_front();
       return size;
@@ -137,7 +134,7 @@ class FakeSocket : public P2PDatagramSocket {
            const net::CompletionRepeatingCallback& callback) override {
     DCHECK(buf);
     if (peer_socket_) {
-      base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
           FROM_HERE,
           base::BindOnce(&FakeSocket::AppendInputPacket,
                          base::Unretained(peer_socket_),
@@ -186,8 +183,8 @@ class TCPChannelTester : public base::RefCountedThreadSafe<TCPChannelTester> {
     output_buffer_->SetOffset(0);
     ASSERT_EQ(kTestDataSize, output_buffer_->size());
 
-    EXPECT_EQ(0, memcmp(output_buffer_->data(),
-                        input_buffer_->StartOfBuffer(), kTestDataSize));
+    EXPECT_EQ(0, memcmp(output_buffer_->data(), input_buffer_->StartOfBuffer(),
+                        kTestDataSize));
   }
 
  protected:
@@ -218,11 +215,12 @@ class TCPChannelTester : public base::RefCountedThreadSafe<TCPChannelTester> {
   void DoWrite() {
     int result = 1;
     while (result > 0) {
-      if (output_buffer_->BytesRemaining() == 0)
+      if (output_buffer_->BytesRemaining() == 0) {
         break;
+      }
 
-      int bytes_to_write = std::min(output_buffer_->BytesRemaining(),
-                                    kMessageSize);
+      int bytes_to_write =
+          std::min(output_buffer_->BytesRemaining(), kMessageSize);
       result = client_socket_->Write(
           output_buffer_.get(), bytes_to_write,
           base::BindOnce(&TCPChannelTester::OnWritten, base::Unretained(this)),
@@ -273,8 +271,9 @@ class TCPChannelTester : public base::RefCountedThreadSafe<TCPChannelTester> {
     } else if (result > 0) {
       // Allocate memory for the next read.
       input_buffer_->SetCapacity(input_buffer_->capacity() + result);
-      if (input_buffer_->capacity() == kTestDataSize + kMessageSize)
+      if (input_buffer_->capacity() == kTestDataSize + kMessageSize) {
         Done();
+      }
     }
   }
 
@@ -333,7 +332,7 @@ TEST_F(PseudoTcpAdapterTest, DataTransfer) {
   EXPECT_EQ(net::OK, client_connect_cb.WaitForResult());
 
   scoped_refptr<TCPChannelTester> tester =
-      new TCPChannelTester(base::ThreadTaskRunnerHandle::Get(),
+      new TCPChannelTester(base::SingleThreadTaskRunner::GetCurrentDefault(),
                            host_pseudotcp_.get(), client_pseudotcp_.get());
 
   tester->Start();
@@ -368,7 +367,7 @@ TEST_F(PseudoTcpAdapterTest, LimitedChannel) {
   EXPECT_EQ(net::OK, client_connect_cb.WaitForResult());
 
   scoped_refptr<TCPChannelTester> tester =
-      new TCPChannelTester(base::ThreadTaskRunnerHandle::Get(),
+      new TCPChannelTester(base::SingleThreadTaskRunner::GetCurrentDefault(),
                            host_pseudotcp_.get(), client_pseudotcp_.get());
 
   tester->Start();
@@ -395,8 +394,8 @@ TEST_F(PseudoTcpAdapterTest, DeleteOnConnected) {
   // to deleted structures being touched as the stack unrolls, so the failure
   // mode is a crash rather than a normal test failure.
   net::TestCompletionCallback client_connect_cb;
-  DeleteOnConnected host_delete(base::ThreadTaskRunnerHandle::Get(),
-                                &host_pseudotcp_);
+  DeleteOnConnected host_delete(
+      base::SingleThreadTaskRunner::GetCurrentDefault(), &host_pseudotcp_);
 
   host_pseudotcp_->Connect(base::BindOnce(&DeleteOnConnected::OnConnected,
                                           base::Unretained(&host_delete)));
@@ -430,7 +429,7 @@ TEST_F(PseudoTcpAdapterTest, WriteWaitsForSendLetsDataThrough) {
   EXPECT_EQ(net::OK, client_connect_cb.WaitForResult());
 
   scoped_refptr<TCPChannelTester> tester =
-      new TCPChannelTester(base::ThreadTaskRunnerHandle::Get(),
+      new TCPChannelTester(base::SingleThreadTaskRunner::GetCurrentDefault(),
                            host_pseudotcp_.get(), client_pseudotcp_.get());
 
   tester->Start();
@@ -440,5 +439,4 @@ TEST_F(PseudoTcpAdapterTest, WriteWaitsForSendLetsDataThrough) {
 
 }  // namespace
 
-}  // namespace protocol
-}  // namespace remoting
+}  // namespace remoting::protocol

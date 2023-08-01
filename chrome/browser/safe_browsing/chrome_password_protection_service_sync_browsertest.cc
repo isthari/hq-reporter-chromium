@@ -1,10 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/safe_browsing/chrome_password_protection_service.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/metrics/histogram_tester.h"
@@ -34,9 +34,9 @@
 #include "components/signin/public/base/signin_pref_names.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/signin/public/identity_manager/identity_test_utils.h"
-#include "components/sync/driver/sync_service.h"
-#include "components/sync/driver/sync_user_settings.h"
-#include "components/sync/test/fake_server/fake_server_network_resources.h"
+#include "components/sync/service/sync_service.h"
+#include "components/sync/service/sync_user_settings.h"
+#include "components/sync/test/fake_server_network_resources.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
@@ -138,14 +138,12 @@ IN_PROC_BROWSER_TEST_F(ChromePasswordProtectionServiceSyncBrowserTest,
   ASSERT_EQ(2, GetBrowser(0)->tab_strip_model()->count());
   ASSERT_EQ(GURL(chrome::kChromeUIResetPasswordURL),
             interstitial_web_contents->GetVisibleURL());
-  EXPECT_THAT(histograms.GetAllSamples("PasswordProtection.InterstitialString"),
-              testing::ElementsAre(base::Bucket(3, 1)));
 
   // Clicks on "Reset Password" button.
   std::string script =
       "var node = document.getElementById('reset-password-button'); \n"
       "node.click();";
-  ASSERT_TRUE(content::ExecuteScript(interstitial_web_contents, script));
+  ASSERT_TRUE(content::ExecJs(interstitial_web_contents, script));
   content::TestNavigationObserver observer1(interstitial_web_contents,
                                             /*number_of_navigations=*/1);
   observer1.Wait();

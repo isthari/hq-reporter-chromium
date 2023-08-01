@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,6 +21,7 @@ import androidx.annotation.Nullable;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.PackageManagerUtils;
+import org.chromium.base.PackageUtils;
 
 import java.util.List;
 
@@ -43,12 +44,7 @@ public class PackageManagerDelegate {
      */
     @SuppressLint("PackageManagerGetSignatures")
     public PackageInfo getPackageInfoWithSignatures(String packageName) {
-        try {
-            return ContextUtils.getApplicationContext().getPackageManager().getPackageInfo(
-                    packageName, PackageManager.GET_SIGNATURES);
-        } catch (NameNotFoundException e) {
-            return null;
-        }
+        return PackageUtils.getPackageInfo(packageName, PackageManager.GET_SIGNATURES);
     }
 
     /**

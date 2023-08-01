@@ -1,17 +1,19 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/extensions/blocklist.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/extensions/blocklist_state_fetcher.h"
 #include "chrome/browser/extensions/fake_safe_browsing_database_manager.h"
+#include "chrome/browser/extensions/scoped_database_manager_for_test.h"
 #include "chrome/browser/extensions/test_blocklist.h"
 #include "chrome/browser/extensions/test_blocklist_state_fetcher.h"
 #include "chrome/browser/extensions/test_extension_prefs.h"
+#include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "content/public/test/browser_task_environment.h"
 #include "extensions/browser/extension_prefs.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -21,10 +23,11 @@ namespace {
 
 class BlocklistTest : public testing::Test {
  public:
-  BlocklistTest() : test_prefs_(base::ThreadTaskRunnerHandle::Get()) {}
+  BlocklistTest()
+      : test_prefs_(base::SingleThreadTaskRunner::GetCurrentDefault()) {}
 
  protected:
-  ExtensionPrefs* prefs() { return test_prefs_.prefs(); }
+  PrefService* pref_service() { return test_prefs_.pref_service(); }
 
   std::string AddExtension(const std::string& id) {
     return test_prefs_.AddExtension(id)->id();
@@ -48,7 +51,7 @@ TEST_F(BlocklistTest, OnlyIncludesRequestedIDs) {
   std::string b = AddExtension("b");
   std::string c = AddExtension("c");
 
-  Blocklist blocklist(prefs());
+  Blocklist blocklist(pref_service());
   TestBlocklist tester(&blocklist);
   tester.SetBlocklistState(a, BLOCKLISTED_MALWARE, false);
   tester.SetBlocklistState(b, BLOCKLISTED_MALWARE, false);
@@ -68,7 +71,7 @@ TEST_F(BlocklistTest, OnlyIncludesRequestedIDs) {
 TEST_F(BlocklistTest, SafeBrowsing) {
   std::string a = AddExtension("a");
 
-  Blocklist blocklist(prefs());
+  Blocklist blocklist(pref_service());
   TestBlocklist tester(&blocklist);
   tester.DisableSafeBrowsing();
 
@@ -89,9 +92,31 @@ TEST_F(BlocklistTest, SafeBrowsing) {
   EXPECT_EQ(NOT_BLOCKLISTED, tester.GetBlocklistState(a));
 }
 
+// Should mimic Safe Browsing test for extension protection specific policy
+TEST_F(BlocklistTest, SafeBrowingExtensionProtectionAllowedPolicy) {
+  std::string a = AddExtension("a");
+
+  Blocklist blocklist(pref_service());
+  TestBlocklist tester(&blocklist);
+  // Set policy to disabled
+  pref_service()->SetBoolean(
+      prefs::kSafeBrowsingExtensionProtectionAllowedByPolicy, false);
+
+  EXPECT_EQ(NOT_BLOCKLISTED, tester.GetBlocklistState(a));
+
+  tester.SetBlocklistState(a, BLOCKLISTED_MALWARE, false);
+  // The policy is still disabled at this point, so extension won't be
+  // blocklisted.
+  EXPECT_EQ(NOT_BLOCKLISTED, tester.GetBlocklistState(a));
+  // Reenable the policy
+  pref_service()->SetBoolean(
+      prefs::kSafeBrowsingExtensionProtectionAllowedByPolicy, true);
+  EXPECT_EQ(BLOCKLISTED_MALWARE, tester.GetBlocklistState(a));
+}
+
 // Test getting different blocklist states from Blocklist.
 TEST_F(BlocklistTest, GetBlocklistStates) {
-  Blocklist blocklist(prefs());
+  Blocklist blocklist(pref_service());
   TestBlocklist tester(&blocklist);
 
   std::string a = AddExtension("a");
@@ -139,10 +164,10 @@ TEST_F(BlocklistTest, GetBlocklistStates) {
 // Test both Blocklist and BlocklistStateFetcher by requesting the blocklist
 // states, sending fake requests and parsing the responses.
 TEST_F(BlocklistTest, FetchBlocklistStates) {
-  Blocklist blocklist(prefs());
+  Blocklist blocklist(pref_service());
   scoped_refptr<FakeSafeBrowsingDatabaseManager> blocklist_db(
       new FakeSafeBrowsingDatabaseManager(true));
-  Blocklist::ScopedDatabaseManagerForTest scoped_blocklist_db(blocklist_db);
+  ScopedDatabaseManagerForTest scoped_blocklist_db(blocklist_db);
 
   std::string a = AddExtension("a");
   std::string b = AddExtension("b");

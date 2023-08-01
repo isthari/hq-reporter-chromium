@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,10 +11,13 @@
 
 #include "ash/components/arc/mojom/anr.mojom.h"
 #include "ash/components/arc/mojom/power.mojom.h"
+#include "ash/components/arc/session/arc_service_manager.h"
 #include "ash/components/arc/session/connection_observer.h"
+#include "base/memory/raw_ptr.h"
 #include "base/observer_list.h"
+#include "base/time/time.h"
 #include "base/timer/timer.h"
-#include "chromeos/dbus/concierge/concierge_client.h"
+#include "chromeos/ash/components/dbus/concierge/concierge_client.h"
 #include "chromeos/dbus/power/power_manager_client.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -60,6 +63,12 @@ class ArcPowerBridge : public KeyedService,
 
   ~ArcPowerBridge() override;
 
+  // Disables Android Idle Control logic locally.
+  // This is necessary because we are in the process of moving this control
+  // to a different class, and need to accommodate both cases.
+  // TODO(b/259622742): remove this once the new control is default.
+  void DisableAndroidIdleControl();
+
   void AddObserver(Observer* observer);
   void RemoveObserver(Observer* observer);
 
@@ -83,6 +92,8 @@ class ArcPowerBridge : public KeyedService,
   void ScreenBrightnessChanged(
       const power_manager::BacklightBrightnessChange& change) override;
   void PowerChanged(const power_manager::PowerSupplyProperties& proto) override;
+  void BatterySaverModeStateChanged(
+      const power_manager::BatterySaverModeState& state) override;
 
   // DisplayConfigurator::Observer overrides.
   void OnPowerStateChanged(chromeos::DisplayPowerState power_state) override;
@@ -95,11 +106,15 @@ class ArcPowerBridge : public KeyedService,
   void OnWakefulnessChanged(mojom::WakefulnessMode mode) override;
   void OnPreAnr(mojom::AnrType type) override;
   void OnAnrRecoveryFailed(::arc::mojom::AnrType type) override;
+  void GetBatterySaverModeState(
+      GetBatterySaverModeStateCallback callback) override;
 
   void SetWakeLockProviderForTesting(
       mojo::Remote<device::mojom::WakeLockProvider> provider) {
     wake_lock_provider_ = std::move(provider);
   }
+
+  static void EnsureFactoryBuilt();
 
  private:
   class WakeLockRequestor;
@@ -124,13 +139,19 @@ class ArcPowerBridge : public KeyedService,
   void OnConciergeResumeVmResponse(
       absl::optional<vm_tools::concierge::ResumeVmResponse> reply);
 
+  // Called on PowerManagerClient::GetBatterySaverModeState() completion.
+  void OnBatterySaverModeStateReceived(
+      GetBatterySaverModeStateCallback callback,
+      absl::optional<power_manager::BatterySaverModeState> state);
+
   // Sends a PowerInstance::UpdateScreenBrightnessSettings mojo call to Android.
   void UpdateAndroidScreenBrightness(double percent);
 
   // Sends a PowerInstance::Resume mojo call to Android.
   void DispatchAndroidResume();
 
-  ArcBridgeService* const arc_bridge_service_;  // Owned by ArcServiceManager.
+  const raw_ptr<ArcBridgeService, ExperimentalAsh>
+      arc_bridge_service_;  // Owned by ArcServiceManager.
 
   std::string user_id_hash_;
 
@@ -154,6 +175,9 @@ class ArcPowerBridge : public KeyedService,
   // SuspendImminent event has been observed, but a SuspendDone event has not
   // yet been observed.
   bool is_suspending_ = false;
+
+  // Controls whether or not we switch Android's idle state upon events.
+  bool android_idle_control_disabled_ = false;
 
   base::WeakPtrFactory<ArcPowerBridge> weak_ptr_factory_{this};
 };

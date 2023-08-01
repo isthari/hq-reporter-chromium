@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,8 @@
 #define IOS_CHROME_BROWSER_UI_OMNIBOX_POPUP_OMNIBOX_POPUP_VIEW_IOS_H_
 
 #import <UIKit/UIKit.h>
+
+#include <string>
 
 #include "components/omnibox/browser/omnibox_popup_view.h"
 #import "ios/chrome/browser/ui/omnibox/popup/omnibox_popup_mediator.h"
@@ -35,8 +37,9 @@ class OmniboxPopupViewIOS : public OmniboxPopupView,
   void ProvideButtonFocusHint(size_t line) override {}
   void OnMatchIconUpdated(size_t match_index) override {}
   void OnDragCanceled() override {}
-
-  void UpdateEditViewIcon();
+  void GetPopupAccessibleNodeData(ui::AXNodeData* node_data) override {}
+  void AddPopupAccessibleNodeData(ui::AXNodeData* node_data) override {}
+  std::u16string GetAccessibleButtonTextForResult(size_t line) override;
 
   // OmniboxPopupProvider implemetation.
   void SetTextAlignment(NSTextAlignment alignment) override;
@@ -46,8 +49,7 @@ class OmniboxPopupViewIOS : public OmniboxPopupView,
 
   // OmniboxPopupViewControllerDelegate implementation.
   bool IsStarredMatch(const AutocompleteMatch& match) const override;
-  void OnMatchHighlighted(size_t row) override;
-  // |disposition| should be CURRENT_TAB is the match should be loaded,
+  // `disposition` should be CURRENT_TAB is the match should be loaded,
   // SWITCH_TO_TAB if it should switch to this tab.
   void OnMatchSelected(const AutocompleteMatch& match,
                        size_t row,

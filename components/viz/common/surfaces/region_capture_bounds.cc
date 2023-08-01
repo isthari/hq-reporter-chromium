@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,6 +32,10 @@ const RegionCaptureBounds& RegionCaptureBounds::Empty() {
 void RegionCaptureBounds::Set(const RegionCaptureCropId& crop_id,
                               const gfx::Rect& region) {
   bounds_.insert_or_assign(crop_id, region);
+}
+
+void RegionCaptureBounds::Reset() {
+  bounds_.clear();
 }
 
 bool RegionCaptureBounds::operator==(const RegionCaptureBounds& rhs) const {

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -41,10 +41,6 @@ bookmarks::BookmarkModel* OmniboxClient::GetBookmarkModel() {
   return nullptr;
 }
 
-OmniboxControllerEmitter* OmniboxClient::GetOmniboxControllerEmitter() {
-  return nullptr;
-}
-
 TemplateURLService* OmniboxClient::GetTemplateURLService() {
   return nullptr;
 }
@@ -59,6 +55,10 @@ bool OmniboxClient::ShouldDefaultTypedNavigationsToHttps() const {
 
 int OmniboxClient::GetHttpsPortForTesting() const {
   return 0;
+}
+
+bool OmniboxClient::IsUsingFakeHttpsForHttpsUpgradeTesting() const {
+  return false;
 }
 
 gfx::Image OmniboxClient::GetIconIfExtensionMatch(
@@ -81,6 +81,8 @@ bool OmniboxClient::ProcessExtensionKeyword(const std::u16string& text,
                                             WindowOpenDisposition disposition) {
   return false;
 }
+
+void OmniboxClient::OnUserPastedInOmniboxResultingInValidURL() {}
 
 gfx::Image OmniboxClient::GetFaviconForPageUrl(
     const GURL& page_url,

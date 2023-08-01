@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include <string>
 #include <utility>
 
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/metrics/histogram_enum_reader.h"
@@ -21,6 +22,7 @@
 #include "components/flags_ui/flags_test_helpers.h"
 #include "components/flags_ui/flags_ui_metrics.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace about_flags {
 
@@ -64,12 +66,61 @@ std::set<std::string> GetAllPublicSwitchesAndFeaturesForTesting() {
         result.insert(std::string(entry.feature.feature->name) + ":enabled");
         result.insert(std::string(entry.feature.feature->name) + ":disabled");
         break;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+      case flags_ui::FeatureEntry::PLATFORM_FEATURE_NAME_VALUE:
+      case flags_ui::FeatureEntry::PLATFORM_FEATURE_NAME_WITH_PARAMS_VALUE:
+        std::string name(entry.platform_feature_name.name);
+        result.insert(name + ":enabled");
+        result.insert(name + ":disabled");
+        break;
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
     }
   }
   return result;
 }
 
-}  // anonymous namespace
+// Returns all variation ids defined in flags entries.
+std::vector<std::string> GetAllVariationIds() {
+  std::vector<std::string> variation_ids;
+  for (const auto& entry : testing::GetFeatureEntries()) {
+    // Only FEATURE_WITH_PARAMS_VALUE or PLATFORM_FEATURE_NAME_WITH_PARAMS_VALUE
+    // entries can have a variation id.
+    if (entry.type != flags_ui::FeatureEntry::FEATURE_WITH_PARAMS_VALUE
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+        && entry.type !=
+               flags_ui::FeatureEntry::PLATFORM_FEATURE_NAME_WITH_PARAMS_VALUE
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+    ) {
+      continue;
+    }
+
+    for (const auto& variation : entry.GetVariations()) {
+      if (variation.variation_id)
+        variation_ids.push_back(variation.variation_id);
+    }
+  }
+  return variation_ids;
+}
+
+// Returns the parsed pair: <variation_id, is_triggering>.
+std::pair<int, bool> ParseVariationId(const std::string& variation_str) {
+  // Fail if an empty string has been supplied as variation_id.
+  EXPECT_FALSE(variation_str.empty())
+      << "Empty string used to denote variation ID. Use `nullptr` instead.";
+
+  int variation_id{};
+  bool is_triggering = variation_str[0] == 't';
+
+  // Fail if we could not process the integer value.
+  EXPECT_TRUE(
+      base::StringToInt(&variation_str[is_triggering ? 1 : 0], &variation_id))
+      << "Invalid variation string: \"" << variation_str
+      << "\": must be either `#######` or `t#######`";
+
+  return {variation_id, is_triggering};
+}
+
+}  // namespace
 
 // Makes sure there are no separators in any of the entry names.
 TEST(AboutFlagsTest, NoSeparators) {
@@ -120,6 +171,45 @@ TEST(AboutFlagsTest, RecentUnexpireFlagsArePresent) {
       testing::GetFeatureEntries(), CHROME_VERSION_MAJOR);
 }
 
+// Ensures that all variation IDs specified are well-formed.
+// - Variation IDs may be re-used, when multiple variants change client-side
+//   behavior alone.
+// - Variation IDs must be associated with the appropriate pool of valid numbers
+TEST(AboutFlagsTest, VariationIdsAreValid) {
+  std::set<int> nontriggering_variation_ids;
+  std::set<int> triggering_variation_ids;
+
+  // See: go/finch-allocating-gws-ids.
+  int LOWER_VALID_VARIATION_ID = 3340000;
+  int UPPER_VALID_VARIATION_ID = 3399999;
+
+  for (const std::string& variation_str : GetAllVariationIds()) {
+    auto [variation_id, is_triggering] = ParseVariationId(variation_str);
+    // Reject variation IDs used both as triggering and non-triggering.
+    // This is generally considered invalid.
+    EXPECT_FALSE(
+        // Triggering, but already recorded as visible.
+        (is_triggering && nontriggering_variation_ids.contains(variation_id)) ||
+        // Visible, but already recorded as triggering.
+        (!is_triggering && triggering_variation_ids.contains(variation_id)))
+        << "Variation ID \"" << variation_id
+        << "\" used both as triggering and "
+        << "non-triggering.";
+
+    EXPECT_TRUE(variation_id >= LOWER_VALID_VARIATION_ID &&
+                variation_id <= UPPER_VALID_VARIATION_ID)
+        << "Variation ID \"" << variation_id << "\" falls outside of range of "
+        << "valid variation IDs: [" << LOWER_VALID_VARIATION_ID << ", "
+        << UPPER_VALID_VARIATION_ID << "].";
+
+    if (is_triggering) {
+      triggering_variation_ids.insert(variation_id);
+    } else {
+      nontriggering_variation_ids.insert(variation_id);
+    }
+  }
+}
+
 // Test that ScopedFeatureEntries restores existing feature entries on
 // destruction.
 TEST(AboutFlagsTest, ScopedFeatureEntriesRestoresFeatureEntries) {
@@ -128,8 +218,8 @@ TEST(AboutFlagsTest, ScopedFeatureEntriesRestoresFeatureEntries) {
   EXPECT_GT(old_entries.size(), 0U);
   const char* first_feature_name = old_entries[0].internal_name;
   {
-    const base::Feature kTestFeature1{"FeatureName1",
-                                      base::FEATURE_ENABLED_BY_DEFAULT};
+    static BASE_FEATURE(kTestFeature1, "FeatureName1",
+                        base::FEATURE_ENABLED_BY_DEFAULT);
     testing::ScopedFeatureEntries feature_entries(
         {{"feature-1", "", "", flags_ui::FlagsState::GetCurrentPlatform(),
           FEATURE_VALUE_TYPE(kTestFeature1)}});
@@ -225,8 +315,9 @@ TEST_F(AboutFlagsHistogramTest, CheckHistograms) {
                 enum_entry->first == flag)
         << "tools/metrics/histograms/enums.xml enum LoginCustomFlags doesn't "
            "contain switch '"
-        << flag << "' (value=" << uma_id
-        << " expected). Consider adding entry:\n"
+        << flag << "' (value=" << uma_id << " expected). Consider running:\n"
+        << "  tools/metrics/histograms/generate_flag_enums.py --feature "
+        << flag.substr(0, flag.find(":")) << "\nOr manually adding the entry:\n"
         << "  " << GetHistogramEnumEntryText(flag, uma_id);
   }
 }

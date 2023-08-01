@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,10 +11,11 @@
 #include <utility>
 #include <vector>
 
-#include "ash/services/nearby/public/mojom/nearby_connections.mojom.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
-#include "chrome/browser/nearby_sharing/nearby_connections_manager.h"
+#include "chrome/browser/nearby_sharing/public/cpp/nearby_connections_manager.h"
+#include "chromeos/ash/services/nearby/public/mojom/nearby_connections.mojom.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 class NearbyConnection;
@@ -22,7 +23,7 @@ class NearbyConnection;
 // Fake NearbyConnectionsManager for testing.
 class FakeNearbyConnectionsManager
     : public NearbyConnectionsManager,
-      public location::nearby::connections::mojom::EndpointDiscoveryListener {
+      public nearby::connections::mojom::EndpointDiscoveryListener {
  public:
   FakeNearbyConnectionsManager();
   ~FakeNearbyConnectionsManager() override;
@@ -57,18 +58,22 @@ class FakeNearbyConnectionsManager
   Payload* GetIncomingPayload(int64_t payload_id) override;
   void Cancel(int64_t payload_id) override;
   void ClearIncomingPayloads() override;
+  absl::optional<std::string> GetAuthenticationToken(
+      const std::string& endpoint_id) override;
   absl::optional<std::vector<uint8_t>> GetRawAuthenticationToken(
       const std::string& endpoint_id) override;
   void UpgradeBandwidth(const std::string& endpoint_id) override;
+  base::WeakPtr<NearbyConnectionsManager> GetWeakPtr() override;
 
+  void SetAuthenticationToken(const std::string& endpoint_id,
+                              const std::string& token);
   void SetRawAuthenticationToken(const std::string& endpoint_id,
                                  std::vector<uint8_t> token);
 
   // mojom::EndpointDiscoveryListener:
   void OnEndpointFound(
       const std::string& endpoint_id,
-      location::nearby::connections::mojom::DiscoveredEndpointInfoPtr info)
-      override;
+      nearby::connections::mojom::DiscoveredEndpointInfoPtr info) override;
   void OnEndpointLost(const std::string& endpoint_id) override;
 
   // Testing methods
@@ -84,6 +89,9 @@ class FakeNearbyConnectionsManager
   void CleanupForProcessStopped();
   ConnectionsCallback GetStartAdvertisingCallback();
   ConnectionsCallback GetStopAdvertisingCallback();
+  IncomingConnectionListener* GetAdvertisingListener() const {
+    return advertising_listener_;
+  }
 
   bool is_shutdown() const { return is_shutdown_; }
   DataUsage advertising_data_usage() const { return advertising_data_usage_; }
@@ -106,8 +114,9 @@ class FakeNearbyConnectionsManager
   absl::optional<std::vector<uint8_t>> connection_endpoint_info(
       const std::string& endpoint_id) {
     auto it = connection_endpoint_infos_.find(endpoint_id);
-    if (it == connection_endpoint_infos_.end())
+    if (it == connection_endpoint_infos_.end()) {
       return absl::nullopt;
+    }
 
     return it->second;
   }
@@ -118,14 +127,16 @@ class FakeNearbyConnectionsManager
   void HandleStartAdvertisingCallback(ConnectionsStatus status);
   void HandleStopAdvertisingCallback(ConnectionsStatus status);
 
-  IncomingConnectionListener* advertising_listener_ = nullptr;
-  DiscoveryListener* discovery_listener_ = nullptr;
+  raw_ptr<IncomingConnectionListener, ExperimentalAsh> advertising_listener_ =
+      nullptr;
+  raw_ptr<DiscoveryListener, ExperimentalAsh> discovery_listener_ = nullptr;
   bool is_shutdown_ = false;
   DataUsage advertising_data_usage_ = DataUsage::kUnknown;
   PowerLevel advertising_power_level_ = PowerLevel::kUnknown;
   std::set<std::string> upgrade_bandwidth_endpoint_ids_;
-  std::map<std::string, std::vector<uint8_t>> endpoint_auth_tokens_;
-  NearbyConnection* connection_ = nullptr;
+  std::map<std::string, std::string> endpoint_auth_tokens_;
+  std::map<std::string, std::vector<uint8_t>> endpoint_raw_auth_tokens_;
+  raw_ptr<NearbyConnection, ExperimentalAsh> connection_ = nullptr;
   DataUsage connected_data_usage_ = DataUsage::kUnknown;
   base::RepeatingCallback<void(PayloadPtr,
                                base::WeakPtr<PayloadStatusListener>)>
@@ -146,6 +157,8 @@ class FakeNearbyConnectionsManager
       payload_status_listeners_;
   std::map<int64_t, PayloadPtr> incoming_payloads_;
   std::map<int64_t, base::FilePath> registered_payload_paths_;
+
+  base::WeakPtrFactory<FakeNearbyConnectionsManager> weak_ptr_factory_{this};
 };
 
 #endif  // CHROME_BROWSER_NEARBY_SHARING_FAKE_NEARBY_CONNECTIONS_MANAGER_H_

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -46,8 +46,8 @@ class ChromeSpeechRecognitionTest : public InProcessBrowserTest {
   }
 
   void TearDown() override {
-    content::SpeechRecognitionManager::SetManagerForTesting(NULL);
-    fake_speech_recognition_manager_->SetDelegate(NULL);
+    content::SpeechRecognitionManager::SetManagerForTesting(nullptr);
+    fake_speech_recognition_manager_->SetDelegate(nullptr);
     InProcessBrowserTest::TearDown();
   }
 
@@ -60,7 +60,7 @@ class SpeechWebContentsObserver : public content::WebContentsObserver {
  public:
   explicit SpeechWebContentsObserver(WebContents* web_contents)
       : WebContentsObserver(web_contents),
-        render_view_host_changed_(false),
+        render_frame_host_changed_(false),
         web_contents_destroyed_(false) {}
 
   SpeechWebContentsObserver(const SpeechWebContentsObserver&) = delete;
@@ -70,23 +70,23 @@ class SpeechWebContentsObserver : public content::WebContentsObserver {
   ~SpeechWebContentsObserver() override {}
 
   // content::WebContentsObserver overrides.
-  void RenderViewHostChanged(content::RenderViewHost* old_host,
-                             content::RenderViewHost* new_host) override {
-    render_view_host_changed_ = true;
+  void RenderFrameHostChanged(content::RenderFrameHost* old_host,
+                              content::RenderFrameHost* new_host) override {
+    render_frame_host_changed_ = true;
   }
   void WebContentsDestroyed() override { web_contents_destroyed_ = true; }
 
   bool web_contents_destroyed() { return web_contents_destroyed_; }
-  bool render_view_host_changed() { return render_view_host_changed_; }
+  bool render_frame_host_changed() { return render_frame_host_changed_; }
 
  private:
-  bool render_view_host_changed_;
+  bool render_frame_host_changed_;
   bool web_contents_destroyed_;
 };
 
 // Tests that ChromeSpeechRecognitionManagerDelegate works properly
-// when a WebContents goes away (WCO::WebContentsDestroyed) or the RVH
-// changes within a WebContents (WCO::RenderViewHostChanged).
+// when a WebContents goes away (WCO::WebContentsDestroyed) or the RFH
+// changes within a WebContents (WCO::RenderFrameHostChanged).
 IN_PROC_BROWSER_TEST_F(ChromeSpeechRecognitionTest, BasicTearDown) {
   ASSERT_TRUE(embedded_test_server()->Start());
   net::EmbeddedTestServer https_server(net::EmbeddedTestServer::TYPE_HTTPS);
@@ -111,40 +111,33 @@ IN_PROC_BROWSER_TEST_F(ChromeSpeechRecognitionTest, BasicTearDown) {
   std::u16string success_title(u"PASS");
   std::u16string failure_title(u"FAIL");
 
-  const char kRetriveTranscriptScript[] =
-      "window.domAutomationController.send(window.getFirstTranscript())";
+  const char kRetriveTranscriptScript[] = "window.getFirstTranscript()";
   const char kExpectedTranscript[] = "Pictures of the moon";
 
   {
     content::TitleWatcher title_watcher(web_contents, success_title);
     title_watcher.AlsoWaitForTitle(failure_title);
-    EXPECT_TRUE(
-        content::ExecuteScript(web_contents, "testSpeechRecognition()"));
+    EXPECT_TRUE(content::ExecJs(web_contents, "testSpeechRecognition()"));
     EXPECT_EQ(success_title, title_watcher.WaitAndGetTitle());
 
-    std::string output;
-    EXPECT_TRUE(content::ExecuteScriptAndExtractString(
-        web_contents, kRetriveTranscriptScript, &output));
-    EXPECT_EQ(kExpectedTranscript, output);
+    EXPECT_EQ(kExpectedTranscript,
+              content::EvalJs(web_contents, kRetriveTranscriptScript));
   }
 
-  // Navigating to an https page will force RVH change within
-  // |web_contents|, results in WCO::RenderViewHostChanged().
+  // Navigating to an https page will force RFH change within
+  // |web_contents|, results in WCO::RenderFrameHostChanged().
   ASSERT_TRUE(ui_test_utils::NavigateToURL(browser(), https_url));
 
-  EXPECT_TRUE(speech_contents_observer.render_view_host_changed());
+  EXPECT_TRUE(speech_contents_observer.render_frame_host_changed());
 
   {
     content::TitleWatcher title_watcher(web_contents, success_title);
     title_watcher.AlsoWaitForTitle(failure_title);
-    EXPECT_TRUE(
-        content::ExecuteScript(web_contents, "testSpeechRecognition()"));
+    EXPECT_TRUE(content::ExecJs(web_contents, "testSpeechRecognition()"));
     EXPECT_EQ(success_title, title_watcher.WaitAndGetTitle());
 
-    std::string output;
-    EXPECT_TRUE(content::ExecuteScriptAndExtractString(
-        web_contents, kRetriveTranscriptScript, &output));
-    EXPECT_EQ(kExpectedTranscript, output);
+    EXPECT_EQ(kExpectedTranscript,
+              content::EvalJs(web_contents, kRetriveTranscriptScript));
   }
 
   // Close the tab to so that we see WCO::WebContentsDestroyed().

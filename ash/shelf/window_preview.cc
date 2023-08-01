@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/wm/window_preview_view.h"
 #include "ash/wm/window_util.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "ui/aura/window.h"
 #include "ui/color/color_id.h"
 #include "ui/color/color_provider.h"
@@ -38,20 +38,19 @@ constexpr int kPreviewBorderRadius = 4;
 
 WindowPreview::WindowPreview(aura::Window* window, Delegate* delegate)
     : delegate_(delegate) {
-  preview_view_ =
-      new WindowPreviewView(window, /*trilinear_filtering_on_init=*/false);
+  preview_view_ = new WindowPreviewView(window);
   preview_container_view_ = new views::View();
   preview_container_view_->SetBackground(views::CreateRoundedRectBackground(
       kPreviewContainerBgColor, kPreviewBorderRadius));
   title_ = new views::Label(window->GetTitle());
   close_button_ = new views::ImageButton(base::BindRepeating(
       &WindowPreview::CloseButtonPressed, base::Unretained(this)));
-  close_button_->SetFocusBehavior(FocusBehavior::ACCESSIBLE_ONLY);
+  close_button_->SetFocusBehavior(FocusBehavior::NEVER);
 
-  AddChildView(preview_container_view_);
-  AddChildView(preview_view_);
-  AddChildView(title_);
-  AddChildView(close_button_);
+  AddChildView(preview_container_view_.get());
+  AddChildView(preview_view_.get());
+  AddChildView(title_.get());
+  AddChildView(close_button_.get());
 }
 
 WindowPreview::~WindowPreview() = default;
@@ -135,6 +134,7 @@ const char* WindowPreview::GetClassName() const {
 }
 
 void WindowPreview::OnThemeChanged() {
+  views::View::OnThemeChanged();
   const auto* color_provider = GetColorProvider();
   SkColor background_color =
       color_provider->GetColor(ui::kColorTooltipBackground);

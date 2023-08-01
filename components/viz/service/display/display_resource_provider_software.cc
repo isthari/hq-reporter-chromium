@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 
 #include "components/viz/common/resources/resource_format_utils.h"
 #include "components/viz/service/display/shared_bitmap_manager.h"
+#include "third_party/skia/include/core/SkImage.h"
 
 namespace viz {
 
@@ -107,7 +108,7 @@ void DisplayResourceProviderSoftware::PopulateSkBitmapWithResource(
     SkBitmap* sk_bitmap,
     const ChildResource* resource,
     SkAlphaType alpha_type) {
-  DCHECK(IsBitmapFormatSupported(resource->transferable.format));
+  DCHECK(resource->transferable.format.IsBitmapFormatSupported());
   SkImageInfo info =
       SkImageInfo::MakeN32(resource->transferable.size.width(),
                            resource->transferable.size.height(), alpha_type);
@@ -148,7 +149,7 @@ DisplayResourceProviderSoftware::ScopedReadLockSkImage::ScopedReadLockSkImage(
   resource_provider->PopulateSkBitmapWithResource(&sk_bitmap, resource,
                                                   alpha_type);
   sk_bitmap.setImmutable();
-  sk_image_ = SkImage::MakeFromBitmap(sk_bitmap);
+  sk_image_ = SkImages::RasterFromBitmap(sk_bitmap);
   resource_provider_->resource_sk_images_[resource_id] = sk_image_;
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,19 +10,32 @@
 #include "base/metrics/field_trial.h"
 #include "build/build_config.h"
 #include "content/public/browser/browser_main_parts.h"
-#include "content/public/common/main_function_params.h"
 #include "content/shell/browser/shell_browser_context.h"
+
+#if BUILDFLAG(IS_IOS)
+#include "services/device/public/cpp/geolocation/geolocation_manager.h"
+#endif
 
 namespace performance_manager {
 class PerformanceManagerLifetime;
 }  // namespace performance_manager
 
+#if BUILDFLAG(IS_ANDROID)
+namespace crash_reporter {
+class ChildExitObserver;
+}
+#endif
+
 namespace content {
 class ShellPlatformDelegate;
 
+#if BUILDFLAG(IS_FUCHSIA)
+class FuchsiaViewPresenter;
+#endif
+
 class ShellBrowserMainParts : public BrowserMainParts {
  public:
-  explicit ShellBrowserMainParts(MainFunctionParams parameters);
+  ShellBrowserMainParts();
 
   ShellBrowserMainParts(const ShellBrowserMainParts&) = delete;
   ShellBrowserMainParts& operator=(const ShellBrowserMainParts&) = delete;
@@ -43,6 +56,9 @@ class ShellBrowserMainParts : public BrowserMainParts {
       std::unique_ptr<base::RunLoop>& run_loop) override;
   void PostMainMessageLoopRun() override;
   void PostDestroyThreads() override;
+#if BUILDFLAG(IS_IOS)
+  device::GeolocationManager* GetGeolocationManager();
+#endif
 
   ShellBrowserContext* browser_context() { return browser_context_.get(); }
   ShellBrowserContext* off_the_record_browser_context() {
@@ -67,11 +83,17 @@ class ShellBrowserMainParts : public BrowserMainParts {
   std::unique_ptr<ShellBrowserContext> browser_context_;
   std::unique_ptr<ShellBrowserContext> off_the_record_browser_context_;
 
-  // For running content_browsertests.
-  MainFunctionParams parameters_;
-
   std::unique_ptr<performance_manager::PerformanceManagerLifetime>
       performance_manager_lifetime_;
+#if BUILDFLAG(IS_ANDROID)
+  std::unique_ptr<crash_reporter::ChildExitObserver> child_exit_observer_;
+#endif
+#if BUILDFLAG(IS_FUCHSIA)
+  std::unique_ptr<FuchsiaViewPresenter> fuchsia_view_presenter_;
+#endif
+#if BUILDFLAG(IS_IOS)
+  std::unique_ptr<device::GeolocationManager> geolocation_manager_;
+#endif
 };
 
 }  // namespace content

@@ -1,11 +1,11 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <memory>
 
 #include "base/base_paths.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/path_service.h"
 #include "base/test/launcher/unit_test_launcher.h"
 #include "base/test/test_io_thread.h"
@@ -59,15 +59,13 @@ class ExtensionsTestSuite : public content::ContentTestSuiteBase {
 ExtensionsTestSuite::ExtensionsTestSuite(int argc, char** argv)
     : content::ContentTestSuiteBase(argc, argv) {}
 
-ExtensionsTestSuite::~ExtensionsTestSuite() {}
+ExtensionsTestSuite::~ExtensionsTestSuite() = default;
 
 void ExtensionsTestSuite::Initialize() {
   content::ContentTestSuiteBase::Initialize();
   gl::GLSurfaceTestSupport::InitializeOneOff();
 
-  // Register the chrome-extension:// scheme via this circuitous path. Note
-  // that this does not persistently set up a ContentClient; individual tests
-  // must use content::SetContentClient().
+  // Register the chrome-extension:// scheme via this circuitous path.
   {
     ExtensionsContentClient content_client;
     RegisterContentSchemes(&content_client);
@@ -87,7 +85,7 @@ void ExtensionsTestSuite::Initialize() {
 }
 
 void ExtensionsTestSuite::Shutdown() {
-  extensions::ExtensionsClient::Set(NULL);
+  extensions::ExtensionsClient::Set(nullptr);
   client_.reset();
 
   ui::ResourceBundle::CleanupSharedInstance();
@@ -97,7 +95,10 @@ void ExtensionsTestSuite::Shutdown() {
 }  // namespace
 
 int main(int argc, char** argv) {
-  content::UnitTestTestSuite test_suite(new ExtensionsTestSuite(argc, argv));
+  content::UnitTestTestSuite test_suite(
+      new ExtensionsTestSuite(argc, argv),
+      base::BindRepeating(
+          content::UnitTestTestSuite::CreateTestContentClients));
   return base::LaunchUnitTests(argc, argv,
                                base::BindOnce(&content::UnitTestTestSuite::Run,
                                               base::Unretained(&test_suite)));

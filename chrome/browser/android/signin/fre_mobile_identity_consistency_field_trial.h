@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,19 +7,25 @@
 
 #include <string>
 
+#include "components/variations/variations_associated_data.h"
+
 namespace fre_mobile_identity_consistency_field_trial {
 
-// Returns the field trial group created in Java code.
+// Returns the name of the field trial group created in Java code.
 // The groups are created in FREMobileIdentityConsistencyFieldTrial.java.
-std::string GetFREFieldTrialGroup();
+std::string GetFREFieldTrialGroupName();
 
-// Returns whether MobileIdentityConsistencyFRESynthetic field trial is
-// enabled.
-bool IsFREFieldTrialEnabled();
-
-// Returns the variation field trial group created in Java code.
-// The groups are created in FREMobileIdentityConsistencyFieldTrial.java.
-std::string GetFREVariationsFieldTrialGroup();
+// Returns VariationID that should be associated with the selected group for
+// FREMobileIdentityConsistencyFieldTrial. Returns variations::EMPTY_ID if no
+// VariationID should be associated.
+//
+// `low_entropy_source` and `low_entropy_size` should contain the low entropy
+// source used on C++ side. These values are used to check that the group
+// assigned in the first run is still consistent with the current low entropy
+// source. If the group is inconsistent (for example, if the low entropy source
+// was reset) - this method will return variations::EMPTY_ID.
+variations::VariationID GetFREFieldTrialVariationId(int low_entropy_source,
+                                                    int low_entropy_size);
 
 }  // namespace fre_mobile_identity_consistency_field_trial
 

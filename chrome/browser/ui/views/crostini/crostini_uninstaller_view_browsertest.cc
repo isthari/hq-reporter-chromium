@@ -1,24 +1,26 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/crostini/crostini_uninstaller_view.h"
 
 #include "base/memory/ptr_util.h"
+#include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_base.h"
 #include "base/run_loop.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
+#include "chrome/browser/ash/app_list/app_list_client_impl.h"
+#include "chrome/browser/ash/app_list/test/chrome_app_list_test_support.h"
 #include "chrome/browser/ash/crostini/crostini_manager.h"
 #include "chrome/browser/ash/crostini/crostini_pref_names.h"
 #include "chrome/browser/ash/crostini/crostini_util.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/app_list/app_list_client_impl.h"
-#include "chrome/browser/ui/app_list/test/chrome_app_list_test_support.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/views/crostini/crostini_dialogue_browser_test_util.h"
 #include "chrome/test/base/in_process_browser_test.h"
-#include "chromeos/dbus/cicerone/cicerone_client.h"
-#include "chromeos/dbus/concierge/fake_concierge_client.h"
+#include "chromeos/ash/components/dbus/cicerone/cicerone_client.h"
+#include "chromeos/ash/components/dbus/concierge/fake_concierge_client.h"
 #include "components/crx_file/id_util.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/test/browser_test.h"
@@ -26,19 +28,19 @@
 
 class CrostiniUninstallerViewBrowserTest : public CrostiniDialogBrowserTest {
  public:
-  class WaitingFakeConciergeClient : public chromeos::FakeConciergeClient {
+  class WaitingFakeConciergeClient : public ash::FakeConciergeClient {
    public:
-    explicit WaitingFakeConciergeClient(chromeos::FakeCiceroneClient* client)
-        : chromeos::FakeConciergeClient(client) {}
+    explicit WaitingFakeConciergeClient(ash::FakeCiceroneClient* client)
+        : ash::FakeConciergeClient(client) {}
 
     void StopVm(
         const vm_tools::concierge::StopVmRequest& request,
         chromeos::DBusMethodCallback<vm_tools::concierge::StopVmResponse>
             callback) override {
-      chromeos::FakeConciergeClient::StopVm(request, std::move(callback));
+      ash::FakeConciergeClient::StopVm(request, std::move(callback));
       if (closure_) {
-        base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                      std::move(closure_));
+        base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+            FROM_HERE, std::move(closure_));
       }
     }
 
@@ -58,7 +60,7 @@ class CrostiniUninstallerViewBrowserTest : public CrostiniDialogBrowserTest {
 
   explicit CrostiniUninstallerViewBrowserTest(bool register_termina)
       : CrostiniDialogBrowserTest(register_termina) {
-    chromeos::ConciergeClient::Shutdown();
+    ash::ConciergeClient::Shutdown();
     // After the browser's mainloop is terminated. chromeos::ShutdownDBus() will
     // delete the object.
     waiting_fake_concierge_client_ = new WaitingFakeConciergeClient(nullptr);
@@ -71,8 +73,7 @@ class CrostiniUninstallerViewBrowserTest : public CrostiniDialogBrowserTest {
 
   // DialogBrowserTest:
   void ShowUi(const std::string& name) override {
-    ShowCrostiniUninstallerView(browser()->profile(),
-                                crostini::CrostiniUISurface::kSettings);
+    crostini::ShowCrostiniUninstallerView(browser()->profile());
   }
 
   CrostiniUninstallerView* ActiveView() {
@@ -91,7 +92,8 @@ class CrostiniUninstallerViewBrowserTest : public CrostiniDialogBrowserTest {
   }
 
  protected:
-  WaitingFakeConciergeClient* waiting_fake_concierge_client_;
+  raw_ptr<WaitingFakeConciergeClient, ExperimentalAsh>
+      waiting_fake_concierge_client_;
 };
 
 class CrostiniUninstalledUninstallerViewBrowserTest

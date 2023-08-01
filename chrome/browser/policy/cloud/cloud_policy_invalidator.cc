@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/hash/hash.h"
 #include "base/location.h"
 #include "base/metrics/histogram_functions.h"
@@ -475,13 +475,15 @@ void CloudPolicyInvalidator::Unregister() {
 }
 
 void CloudPolicyInvalidator::UpdateMaxFetchDelay(const PolicyMap& policy_map) {
+#if !BUILDFLAG(IS_ANDROID)
   // Try reading the delay from the policy.
-  const base::Value* delay_policy_value =
-      policy_map.GetValue(key::kMaxInvalidationFetchDelay);
-  if (delay_policy_value && delay_policy_value->is_int()) {
+  const base::Value* delay_policy_value = policy_map.GetValue(
+      key::kMaxInvalidationFetchDelay, base::Value::Type::INTEGER);
+  if (delay_policy_value) {
     set_max_fetch_delay(delay_policy_value->GetInt());
     return;
   }
+#endif
 
   set_max_fetch_delay(kMaxFetchDelayDefault);
 }

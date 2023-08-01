@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,20 +7,23 @@
 #include <cert.h>
 #include <certdb.h>
 #include <pk11pub.h>
+#include <seccomon.h>
 
 #include <algorithm>
 #include <memory>
 #include <string>
 
-#include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/lazy_instance.h"
 #include "base/run_loop.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/test_future.h"
 #include "crypto/scoped_nss_types.h"
 #include "crypto/scoped_test_nss_db.h"
+#include "net/base/features.h"
 #include "net/base/hash_value.h"
 #include "net/base/net_errors.h"
 #include "net/cert/cert_net_fetcher.h"
@@ -47,17 +50,28 @@ namespace net {
 
 namespace {
 
-void SwapCertList(ScopedCERTCertificateList* destination,
-                  ScopedCERTCertificateList source) {
-  ASSERT_TRUE(destination);
-  destination->swap(source);
-}
-
 std::string GetSubjectCN(CERTCertificate* cert) {
   char* cn = CERT_GetCommonName(&cert->subject);
   std::string s = cn;
   PORT_Free(cn);
   return s;
+}
+
+bool GetCertIsPerm(const CERTCertificate* cert) {
+  PRBool is_perm;
+  CHECK_EQ(CERT_GetCertIsPerm(cert, &is_perm), SECSuccess);
+  return is_perm != PR_FALSE;
+}
+
+const NSSCertDatabase::CertInfo* FindCertInfoForCert(
+    const NSSCertDatabase::CertInfoList& cert_info_list,
+    CERTCertificate* target_cert) {
+  for (const auto& c : cert_info_list) {
+    if (x509_util::IsSameCertificate(c.cert.get(), target_cert)) {
+      return &c;
+    }
+  }
+  return nullptr;
 }
 
 }  // namespace
@@ -108,7 +122,8 @@ class CertDatabaseNSSTest : public TestWithTaskEnvironment {
 
   ScopedCERTCertificateList ListCerts() {
     ScopedCERTCertificateList result;
-    CERTCertList* cert_list = PK11_ListCertsInSlot(test_nssdb_.slot());
+    crypto::ScopedCERTCertList cert_list(
+        PK11_ListCertsInSlot(test_nssdb_.slot()));
     if (!cert_list)
       return result;
     for (CERTCertListNode* node = CERT_LIST_HEAD(cert_list);
@@ -116,7 +131,6 @@ class CertDatabaseNSSTest : public TestWithTaskEnvironment {
          node = CERT_LIST_NEXT(node)) {
       result.push_back(x509_util::DupCERTCertificate(node->cert));
     }
-    CERT_DestroyCertList(cert_list);
 
     // Sort the result so that test comparisons can be deterministic.
     std::sort(
@@ -141,15 +155,164 @@ class CertDatabaseNSSTest : public TestWithTaskEnvironment {
 TEST_F(CertDatabaseNSSTest, ListCerts) {
   // This test isn't terribly useful, though it might help with memory
   // leak tests.
-  ScopedCERTCertificateList certs;
-  cert_db_->ListCerts(base::BindOnce(&SwapCertList, base::Unretained(&certs)));
-  EXPECT_EQ(0U, certs.size());
+  base::test::TestFuture<ScopedCERTCertificateList> future;
+  cert_db_->ListCerts(future.GetCallback());
 
-  RunUntilIdle();
-
+  ScopedCERTCertificateList certs = future.Take();
   // The test DB is empty, but let's assume there will always be something in
   // the other slots.
   EXPECT_LT(0U, certs.size());
+}
+
+TEST_F(CertDatabaseNSSTest, ListCertsInfo) {
+  // Since ListCertsInfo queries all the "permanent" certs NSS knows about,
+  // including NSS builtin trust anchors and any locally installed certs of the
+  // user running the test, it's hard to do really precise testing here. Try to
+  // do some general testing as well as testing that a cert added through
+  // ScopedTestNSSDB is handled properly.
+
+  // Load a test certificate
+  ScopedCERTCertificateList test_root_certs = CreateCERTCertificateListFromFile(
+      GetTestCertsDirectory(), "root_ca_cert.pem",
+      X509Certificate::FORMAT_AUTO);
+  ASSERT_EQ(1U, test_root_certs.size());
+  // Should be only a temp certificate at this point, and thus not be returned
+  // in the listed certs.
+  EXPECT_FALSE(GetCertIsPerm(test_root_certs[0].get()));
+
+  // Get lists of all certs both including and excluding NSS roots.
+  NSSCertDatabase::CertInfoList certs_including_nss;
+  NSSCertDatabase::CertInfoList certs_excluding_nss;
+  {
+    base::test::TestFuture<NSSCertDatabase::CertInfoList> future;
+    cert_db_->ListCertsInfo(future.GetCallback(),
+                            NSSCertDatabase::NSSRootsHandling::kInclude);
+    certs_including_nss = future.Take();
+  }
+  {
+    base::test::TestFuture<NSSCertDatabase::CertInfoList> future;
+    cert_db_->ListCertsInfo(future.GetCallback(),
+                            NSSCertDatabase::NSSRootsHandling::kExclude);
+    certs_excluding_nss = future.Take();
+  }
+
+  // The tests based on GetAnNssSslTrustedBuiltinRoot could be flaky in obscure
+  // local configurations (if the user running the test has manually imported
+  // the same certificate into their user NSS DB.) Oh well.
+  ScopedCERTCertificate nss_root = GetAnNssBuiltinSslTrustedRoot();
+  // (Also this will fail if we ever do the "don't load libnssckbi.so" thing.)
+  ASSERT_TRUE(nss_root);
+  {
+    const NSSCertDatabase::CertInfo* nss_root_info =
+        FindCertInfoForCert(certs_including_nss, nss_root.get());
+    ASSERT_TRUE(nss_root_info);
+    EXPECT_TRUE(nss_root_info->web_trust_anchor);
+    EXPECT_FALSE(nss_root_info->untrusted);
+    EXPECT_FALSE(nss_root_info->device_wide);
+    EXPECT_FALSE(nss_root_info->hardware_backed);
+    EXPECT_TRUE(nss_root_info->on_read_only_slot);
+  }
+  EXPECT_FALSE(FindCertInfoForCert(certs_excluding_nss, nss_root.get()));
+
+  // Test root cert should not be in the lists retrieved before it was imported.
+  EXPECT_FALSE(
+      FindCertInfoForCert(certs_including_nss, test_root_certs[0].get()));
+  EXPECT_FALSE(
+      FindCertInfoForCert(certs_excluding_nss, test_root_certs[0].get()));
+
+  // Import the NSS root into the test DB.
+  SECStatus srv =
+      PK11_ImportCert(test_nssdb_.slot(), nss_root.get(), CK_INVALID_HANDLE,
+                      net::x509_util::GetDefaultUniqueNickname(
+                          nss_root.get(), net::CA_CERT, test_nssdb_.slot())
+                          .c_str(),
+                      PR_FALSE /* includeTrust (unused) */);
+  ASSERT_EQ(SECSuccess, srv);
+
+  // Import test certificate to the test DB.
+  NSSCertDatabase::ImportCertFailureList failed;
+  EXPECT_TRUE(cert_db_->ImportCACerts(test_root_certs,
+                                      NSSCertDatabase::TRUSTED_SSL, &failed));
+  EXPECT_EQ(0U, failed.size());
+
+  // Get new lists of all certs both including and excluding NSS roots, which
+  // should now also include the test db certificates.
+  NSSCertDatabase::CertInfoList certs_including_nss_with_local;
+  NSSCertDatabase::CertInfoList certs_excluding_nss_with_local;
+  {
+    base::test::TestFuture<NSSCertDatabase::CertInfoList> future;
+    cert_db_->ListCertsInfo(future.GetCallback(),
+                            NSSCertDatabase::NSSRootsHandling::kInclude);
+    certs_including_nss_with_local = future.Take();
+  }
+  {
+    base::test::TestFuture<NSSCertDatabase::CertInfoList> future;
+    cert_db_->ListCertsInfo(future.GetCallback(),
+                            NSSCertDatabase::NSSRootsHandling::kExclude);
+    certs_excluding_nss_with_local = future.Take();
+  }
+
+  // After adding the certs to the test db, the number certs returned should be
+  // 1 more than before in kInclude and and 2 more in kExclude cases.
+  EXPECT_EQ(certs_including_nss_with_local.size(),
+            1 + certs_including_nss.size());
+  EXPECT_EQ(certs_excluding_nss_with_local.size(),
+            2 + certs_excluding_nss.size());
+
+  // Using kExclude should give a smaller number of results than kInclude.
+  // (Although this would be wrong if we ever do the "don't load libnssckbi.so"
+  // thing.)
+  EXPECT_LT(certs_excluding_nss_with_local.size(),
+            certs_including_nss_with_local.size());
+
+  // The NSS root that was imported to the test db should be in both lists now.
+  {
+    const NSSCertDatabase::CertInfo* nss_root_info =
+        FindCertInfoForCert(certs_including_nss_with_local, nss_root.get());
+    ASSERT_TRUE(nss_root_info);
+    EXPECT_TRUE(nss_root_info->web_trust_anchor);
+    EXPECT_FALSE(nss_root_info->untrusted);
+    EXPECT_FALSE(nss_root_info->device_wide);
+    EXPECT_FALSE(nss_root_info->hardware_backed);
+    // `on_read_only_slot` is not tested here as the way it is calculated could
+    // be potentially flaky if the cert exists on both a readonly and
+    // non-readonly slot.
+  }
+  {
+    const NSSCertDatabase::CertInfo* nss_root_info =
+        FindCertInfoForCert(certs_excluding_nss_with_local, nss_root.get());
+    ASSERT_TRUE(nss_root_info);
+    EXPECT_FALSE(nss_root_info->web_trust_anchor);
+    EXPECT_TRUE(nss_root_info->untrusted);
+    EXPECT_FALSE(nss_root_info->device_wide);
+    EXPECT_FALSE(nss_root_info->hardware_backed);
+    // `on_read_only_slot` is not tested here as the way it is calculated could
+    // be potentially flaky if the cert exists on both a readonly and
+    // non-readonly slot.
+  }
+
+  // Ensure the test root cert is present in the lists retrieved after it was
+  // imported, and that the info returned is as expected.
+  {
+    const NSSCertDatabase::CertInfo* test_cert_info = FindCertInfoForCert(
+        certs_including_nss_with_local, test_root_certs[0].get());
+    ASSERT_TRUE(test_cert_info);
+    EXPECT_TRUE(test_cert_info->web_trust_anchor);
+    EXPECT_FALSE(test_cert_info->untrusted);
+    EXPECT_FALSE(test_cert_info->device_wide);
+    EXPECT_FALSE(test_cert_info->hardware_backed);
+    EXPECT_FALSE(test_cert_info->on_read_only_slot);
+  }
+  {
+    const NSSCertDatabase::CertInfo* test_cert_info = FindCertInfoForCert(
+        certs_excluding_nss_with_local, test_root_certs[0].get());
+    ASSERT_TRUE(test_cert_info);
+    EXPECT_TRUE(test_cert_info->web_trust_anchor);
+    EXPECT_FALSE(test_cert_info->untrusted);
+    EXPECT_FALSE(test_cert_info->device_wide);
+    EXPECT_FALSE(test_cert_info->hardware_backed);
+    EXPECT_FALSE(test_cert_info->on_read_only_slot);
+  }
 }
 
 TEST_F(CertDatabaseNSSTest, ImportFromPKCS12WrongPassword) {
@@ -287,7 +450,7 @@ TEST_F(CertDatabaseNSSTest, ImportCACert_SSLTrust) {
       GetTestCertsDirectory(), "root_ca_cert.pem",
       X509Certificate::FORMAT_AUTO);
   ASSERT_EQ(1U, certs.size());
-  EXPECT_FALSE(certs[0]->isperm);
+  EXPECT_FALSE(GetCertIsPerm(certs[0].get()));
 
   // Import it.
   NSSCertDatabase::ImportCertFailureList failed;
@@ -316,7 +479,7 @@ TEST_F(CertDatabaseNSSTest, ImportCACert_EmailTrust) {
       GetTestCertsDirectory(), "root_ca_cert.pem",
       X509Certificate::FORMAT_AUTO);
   ASSERT_EQ(1U, certs.size());
-  EXPECT_FALSE(certs[0]->isperm);
+  EXPECT_FALSE(GetCertIsPerm(certs[0].get()));
 
   // Import it.
   NSSCertDatabase::ImportCertFailureList failed;
@@ -345,7 +508,7 @@ TEST_F(CertDatabaseNSSTest, ImportCACert_ObjSignTrust) {
       GetTestCertsDirectory(), "root_ca_cert.pem",
       X509Certificate::FORMAT_AUTO);
   ASSERT_EQ(1U, certs.size());
-  EXPECT_FALSE(certs[0]->isperm);
+  EXPECT_FALSE(GetCertIsPerm(certs[0].get()));
 
   // Import it.
   NSSCertDatabase::ImportCertFailureList failed;
@@ -373,7 +536,7 @@ TEST_F(CertDatabaseNSSTest, ImportCA_NotCACert) {
   ScopedCERTCertificateList certs = CreateCERTCertificateListFromFile(
       GetTestCertsDirectory(), "ok_cert.pem", X509Certificate::FORMAT_AUTO);
   ASSERT_EQ(1U, certs.size());
-  EXPECT_FALSE(certs[0]->isperm);
+  EXPECT_FALSE(GetCertIsPerm(certs[0].get()));
 
   // Import it.
   NSSCertDatabase::ImportCertFailureList failed;
@@ -574,13 +737,14 @@ TEST_F(CertDatabaseNSSTest, ImportServerCert) {
       x509_util::CreateX509CertificateFromCERTCertificate(found_server_cert);
   ASSERT_TRUE(x509_found_server_cert);
   scoped_refptr<CertVerifyProc> verify_proc(
-      CertVerifyProc::CreateBuiltinVerifyProc(/*cert_net_fetcher=*/nullptr));
+      CertVerifyProc::CreateBuiltinVerifyProc(/*cert_net_fetcher=*/nullptr,
+                                              crl_set_));
   int flags = 0;
   CertVerifyResult verify_result;
   int error = verify_proc->Verify(
       x509_found_server_cert.get(), "127.0.0.1",
       /*ocsp_response=*/std::string(), /*sct_list=*/std::string(), flags,
-      crl_set_.get(), empty_cert_list_, &verify_result, NetLogWithSource());
+      empty_cert_list_, &verify_result, NetLogWithSource());
   EXPECT_THAT(error, IsError(ERR_CERT_AUTHORITY_INVALID));
   EXPECT_EQ(CERT_STATUS_AUTHORITY_INVALID, verify_result.cert_status);
 }
@@ -607,13 +771,14 @@ TEST_F(CertDatabaseNSSTest, ImportServerCert_SelfSigned) {
       x509_util::CreateX509CertificateFromCERTCertificate(puny_cert);
   ASSERT_TRUE(x509_puny_cert);
   scoped_refptr<CertVerifyProc> verify_proc(
-      CertVerifyProc::CreateBuiltinVerifyProc(/*cert_net_fetcher=*/nullptr));
+      CertVerifyProc::CreateBuiltinVerifyProc(/*cert_net_fetcher=*/nullptr,
+                                              crl_set_));
   int flags = 0;
   CertVerifyResult verify_result;
   int error = verify_proc->Verify(
       x509_puny_cert.get(), "xn--wgv71a119e.com",
       /*ocsp_response=*/std::string(), /*sct_list=*/std::string(), flags,
-      crl_set_.get(), empty_cert_list_, &verify_result, NetLogWithSource());
+      empty_cert_list_, &verify_result, NetLogWithSource());
   EXPECT_THAT(error, IsError(ERR_CERT_AUTHORITY_INVALID));
   EXPECT_EQ(CERT_STATUS_AUTHORITY_INVALID, verify_result.cert_status);
 }
@@ -641,16 +806,21 @@ TEST_F(CertDatabaseNSSTest, ImportServerCert_SelfSigned_Trusted) {
       x509_util::CreateX509CertificateFromCERTCertificate(puny_cert);
   ASSERT_TRUE(x509_puny_cert);
   scoped_refptr<CertVerifyProc> verify_proc(
-      CertVerifyProc::CreateBuiltinVerifyProc(/*cert_net_fetcher=*/nullptr));
+      CertVerifyProc::CreateBuiltinVerifyProc(/*cert_net_fetcher=*/nullptr,
+                                              crl_set_));
   int flags = 0;
   CertVerifyResult verify_result;
   int error = verify_proc->Verify(
       x509_puny_cert.get(), "xn--wgv71a119e.com",
       /*ocsp_response=*/std::string(), /*sct_list=*/std::string(), flags,
-      crl_set_.get(), empty_cert_list_, &verify_result, NetLogWithSource());
-  // New verifier does not support server cert trust records.
-  EXPECT_THAT(error, IsError(ERR_CERT_AUTHORITY_INVALID));
-  EXPECT_EQ(CERT_STATUS_AUTHORITY_INVALID, verify_result.cert_status);
+      empty_cert_list_, &verify_result, NetLogWithSource());
+  if (base::FeatureList::IsEnabled(features::kTrustStoreTrustedLeafSupport)) {
+    EXPECT_THAT(error, IsOk());
+    EXPECT_EQ(0U, verify_result.cert_status);
+  } else {
+    EXPECT_THAT(error, IsError(ERR_CERT_AUTHORITY_INVALID));
+    EXPECT_EQ(CERT_STATUS_AUTHORITY_INVALID, verify_result.cert_status);
+  }
 }
 
 TEST_F(CertDatabaseNSSTest, ImportCaAndServerCert) {
@@ -679,13 +849,14 @@ TEST_F(CertDatabaseNSSTest, ImportCaAndServerCert) {
       x509_util::CreateX509CertificateFromCERTCertificate(certs[0].get());
   ASSERT_TRUE(x509_server_cert);
   scoped_refptr<CertVerifyProc> verify_proc(
-      CertVerifyProc::CreateBuiltinVerifyProc(/*cert_net_fetcher=*/nullptr));
+      CertVerifyProc::CreateBuiltinVerifyProc(/*cert_net_fetcher=*/nullptr,
+                                              crl_set_));
   int flags = 0;
   CertVerifyResult verify_result;
   int error = verify_proc->Verify(
       x509_server_cert.get(), "127.0.0.1",
       /*ocsp_response=*/std::string(), /*sct_list=*/std::string(), flags,
-      crl_set_.get(), empty_cert_list_, &verify_result, NetLogWithSource());
+      empty_cert_list_, &verify_result, NetLogWithSource());
   EXPECT_THAT(error, IsOk());
   EXPECT_EQ(0U, verify_result.cert_status);
 }
@@ -721,18 +892,16 @@ TEST_F(CertDatabaseNSSTest, ImportCaAndServerCert_DistrustServer) {
       x509_util::CreateX509CertificateFromCERTCertificate(certs[0].get());
   ASSERT_TRUE(x509_server_cert);
   scoped_refptr<CertVerifyProc> verify_proc(
-      CertVerifyProc::CreateBuiltinVerifyProc(/*cert_net_fetcher=*/nullptr));
+      CertVerifyProc::CreateBuiltinVerifyProc(/*cert_net_fetcher=*/nullptr,
+                                              crl_set_));
   int flags = 0;
   CertVerifyResult verify_result;
   int error = verify_proc->Verify(
       x509_server_cert.get(), "127.0.0.1",
       /*ocsp_response=*/std::string(), /*sct_list=*/std::string(), flags,
-      crl_set_.get(), empty_cert_list_, &verify_result, NetLogWithSource());
-  // This hits the "Cannot verify a chain of length 1" error in the new
-  // verifier, since path building stops at the leaf which has a distrust
-  // record.
-  EXPECT_THAT(error, IsError(ERR_CERT_INVALID));
-  EXPECT_EQ(CERT_STATUS_INVALID, verify_result.cert_status);
+      empty_cert_list_, &verify_result, NetLogWithSource());
+  EXPECT_THAT(error, IsError(ERR_CERT_AUTHORITY_INVALID));
+  EXPECT_EQ(CERT_STATUS_AUTHORITY_INVALID, verify_result.cert_status);
 }
 
 TEST_F(CertDatabaseNSSTest, TrustIntermediateCa) {
@@ -775,13 +944,14 @@ TEST_F(CertDatabaseNSSTest, TrustIntermediateCa) {
       x509_util::CreateX509CertificateFromCERTCertificate(certs[0].get());
   ASSERT_TRUE(x509_server_cert);
   scoped_refptr<CertVerifyProc> verify_proc(
-      CertVerifyProc::CreateBuiltinVerifyProc(/*cert_net_fetcher=*/nullptr));
+      CertVerifyProc::CreateBuiltinVerifyProc(/*cert_net_fetcher=*/nullptr,
+                                              crl_set_));
   int flags = 0;
   CertVerifyResult verify_result;
   int error = verify_proc->Verify(
       x509_server_cert.get(), "127.0.0.1",
       /*ocsp_response=*/std::string(), /*sct_list=*/std::string(), flags,
-      crl_set_.get(), empty_cert_list_, &verify_result, NetLogWithSource());
+      empty_cert_list_, &verify_result, NetLogWithSource());
   EXPECT_THAT(error, IsOk());
   EXPECT_EQ(0U, verify_result.cert_status);
 
@@ -804,11 +974,11 @@ TEST_F(CertDatabaseNSSTest, TrustIntermediateCa) {
 
   // Server cert should fail to verify.
   CertVerifyResult verify_result2;
-  error = verify_proc->Verify(x509_server_cert.get(), "127.0.0.1",
-                              /*ocsp_response=*/std::string(),
-                              /*sct_list=*/std::string(), flags, crl_set_.get(),
-                              empty_cert_list_, &verify_result2,
-                              NetLogWithSource());
+  error =
+      verify_proc->Verify(x509_server_cert.get(), "127.0.0.1",
+                          /*ocsp_response=*/std::string(),
+                          /*sct_list=*/std::string(), flags, empty_cert_list_,
+                          &verify_result2, NetLogWithSource());
   EXPECT_THAT(error, IsError(ERR_CERT_AUTHORITY_INVALID));
   EXPECT_EQ(CERT_STATUS_AUTHORITY_INVALID, verify_result2.cert_status);
 }
@@ -844,13 +1014,14 @@ TEST_F(CertDatabaseNSSTest, TrustIntermediateCa2) {
       x509_util::CreateX509CertificateFromCERTCertificate(certs[0].get());
   ASSERT_TRUE(x509_server_cert);
   scoped_refptr<CertVerifyProc> verify_proc(
-      CertVerifyProc::CreateBuiltinVerifyProc(/*cert_net_fetcher=*/nullptr));
+      CertVerifyProc::CreateBuiltinVerifyProc(/*cert_net_fetcher=*/nullptr,
+                                              crl_set_));
   int flags = 0;
   CertVerifyResult verify_result;
   int error = verify_proc->Verify(
       x509_server_cert.get(), "127.0.0.1",
       /*ocsp_response=*/std::string(), /*sct_list=*/std::string(), flags,
-      crl_set_.get(), empty_cert_list_, &verify_result, NetLogWithSource());
+      empty_cert_list_, &verify_result, NetLogWithSource());
   EXPECT_THAT(error, IsOk());
   EXPECT_EQ(0U, verify_result.cert_status);
 
@@ -860,11 +1031,11 @@ TEST_F(CertDatabaseNSSTest, TrustIntermediateCa2) {
 
   // Server cert should fail to verify.
   CertVerifyResult verify_result2;
-  error = verify_proc->Verify(x509_server_cert.get(), "127.0.0.1",
-                              /*ocsp_response=*/std::string(),
-                              /*sct_list=*/std::string(), flags, crl_set_.get(),
-                              empty_cert_list_, &verify_result2,
-                              NetLogWithSource());
+  error =
+      verify_proc->Verify(x509_server_cert.get(), "127.0.0.1",
+                          /*ocsp_response=*/std::string(),
+                          /*sct_list=*/std::string(), flags, empty_cert_list_,
+                          &verify_result2, NetLogWithSource());
   EXPECT_THAT(error, IsError(ERR_CERT_AUTHORITY_INVALID));
   EXPECT_EQ(CERT_STATUS_AUTHORITY_INVALID, verify_result2.cert_status);
 }
@@ -910,13 +1081,14 @@ TEST_F(CertDatabaseNSSTest, TrustIntermediateCa3) {
       x509_util::CreateX509CertificateFromCERTCertificate(certs[0].get());
   ASSERT_TRUE(x509_server_cert);
   scoped_refptr<CertVerifyProc> verify_proc(
-      CertVerifyProc::CreateBuiltinVerifyProc(/*cert_net_fetcher=*/nullptr));
+      CertVerifyProc::CreateBuiltinVerifyProc(/*cert_net_fetcher=*/nullptr,
+                                              crl_set_));
   int flags = 0;
   CertVerifyResult verify_result;
   int error = verify_proc->Verify(
       x509_server_cert.get(), "127.0.0.1",
       /*ocsp_response=*/std::string(), /*sct_list=*/std::string(), flags,
-      crl_set_.get(), empty_cert_list_, &verify_result, NetLogWithSource());
+      empty_cert_list_, &verify_result, NetLogWithSource());
   EXPECT_THAT(error, IsOk());
   EXPECT_EQ(0U, verify_result.cert_status);
 
@@ -926,11 +1098,11 @@ TEST_F(CertDatabaseNSSTest, TrustIntermediateCa3) {
 
   // Server cert should fail to verify.
   CertVerifyResult verify_result2;
-  error = verify_proc->Verify(x509_server_cert.get(), "127.0.0.1",
-                              /*ocsp_response=*/std::string(),
-                              /*sct_list=*/std::string(), flags, crl_set_.get(),
-                              empty_cert_list_, &verify_result2,
-                              NetLogWithSource());
+  error =
+      verify_proc->Verify(x509_server_cert.get(), "127.0.0.1",
+                          /*ocsp_response=*/std::string(),
+                          /*sct_list=*/std::string(), flags, empty_cert_list_,
+                          &verify_result2, NetLogWithSource());
   EXPECT_THAT(error, IsError(ERR_CERT_AUTHORITY_INVALID));
   EXPECT_EQ(CERT_STATUS_AUTHORITY_INVALID, verify_result2.cert_status);
 }
@@ -976,13 +1148,14 @@ TEST_F(CertDatabaseNSSTest, TrustIntermediateCa4) {
       x509_util::CreateX509CertificateFromCERTCertificate(certs[0].get());
   ASSERT_TRUE(x509_server_cert);
   scoped_refptr<CertVerifyProc> verify_proc(
-      CertVerifyProc::CreateBuiltinVerifyProc(/*cert_net_fetcher=*/nullptr));
+      CertVerifyProc::CreateBuiltinVerifyProc(/*cert_net_fetcher=*/nullptr,
+                                              crl_set_));
   int flags = 0;
   CertVerifyResult verify_result;
   int error = verify_proc->Verify(
       x509_server_cert.get(), "127.0.0.1",
       /*ocsp_response=*/std::string(), /*sct_list=*/std::string(), flags,
-      crl_set_.get(), empty_cert_list_, &verify_result, NetLogWithSource());
+      empty_cert_list_, &verify_result, NetLogWithSource());
   EXPECT_THAT(error, IsError(ERR_CERT_AUTHORITY_INVALID));
   EXPECT_EQ(CERT_STATUS_AUTHORITY_INVALID, verify_result.cert_status);
 
@@ -992,11 +1165,11 @@ TEST_F(CertDatabaseNSSTest, TrustIntermediateCa4) {
 
   // Server cert should verify.
   CertVerifyResult verify_result2;
-  error = verify_proc->Verify(x509_server_cert.get(), "127.0.0.1",
-                              /*ocsp_response=*/std::string(),
-                              /*sct_list=*/std::string(), flags, crl_set_.get(),
-                              empty_cert_list_, &verify_result2,
-                              NetLogWithSource());
+  error =
+      verify_proc->Verify(x509_server_cert.get(), "127.0.0.1",
+                          /*ocsp_response=*/std::string(),
+                          /*sct_list=*/std::string(), flags, empty_cert_list_,
+                          &verify_result2, NetLogWithSource());
   EXPECT_THAT(error, IsOk());
   EXPECT_EQ(0U, verify_result2.cert_status);
 }

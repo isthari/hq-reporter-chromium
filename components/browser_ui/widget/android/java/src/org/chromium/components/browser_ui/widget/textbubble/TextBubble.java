@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,11 +22,14 @@ import android.widget.TextView;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.Nullable;
 import androidx.annotation.StringRes;
+import androidx.annotation.VisibleForTesting;
 import androidx.appcompat.content.res.AppCompatResources;
 
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.MathUtils;
 import org.chromium.base.metrics.RecordHistogram;
+import org.chromium.base.supplier.ObservableSupplier;
+import org.chromium.base.supplier.ObservableSupplierImpl;
 import org.chromium.components.browser_ui.styles.SemanticColorUtils;
 import org.chromium.components.browser_ui.widget.R;
 import org.chromium.ui.widget.AnchoredPopupWindow;
@@ -51,6 +54,13 @@ public class TextBubble implements AnchoredPopupWindow.LayoutObserver {
      * bubbles on a back press event.
      */
     private static final Set<TextBubble> sBubbles = new HashSet<>();
+
+    /** A supplier which notifies of changes of text bubbles count. */
+    private static final ObservableSupplierImpl<Integer> sCountSupplier =
+            new ObservableSupplierImpl<>();
+
+    /** Disable assert error if it fails to be displayed. */
+    private static boolean sSkipShowCheckForTesting;
 
     protected final Context mContext;
     private final Handler mHandler;
@@ -84,6 +94,7 @@ public class TextBubble implements AnchoredPopupWindow.LayoutObserver {
         @Override
         public void onDismiss() {
             sBubbles.remove(TextBubble.this);
+            sCountSupplier.set(sBubbles.size());
         }
     };
 
@@ -345,7 +356,11 @@ public class TextBubble implements AnchoredPopupWindow.LayoutObserver {
         }
 
         mPopupWindow.show();
+        assert sSkipShowCheckForTesting || mPopupWindow.isShowing() : "TextBubble is not presented";
+        if (!mPopupWindow.isShowing()) return;
+
         sBubbles.add(this);
+        sCountSupplier.set(sBubbles.size());
         mBubbleShowStartTime = System.currentTimeMillis();
     }
 
@@ -354,13 +369,13 @@ public class TextBubble implements AnchoredPopupWindow.LayoutObserver {
      * @see PopupWindow#dismiss()
      */
     public void dismiss() {
-        mPopupWindow.dismiss();
-
-        if (mBubbleShowStartTime != 0) {
+        if (mPopupWindow.isShowing() && mBubbleShowStartTime != 0) {
             RecordHistogram.recordTimesHistogram("InProductHelp.TextBubble.ShownTime",
                     System.currentTimeMillis() - mBubbleShowStartTime);
             mBubbleShowStartTime = 0;
         }
+
+        mPopupWindow.dismiss();
     }
 
     /**
@@ -378,6 +393,13 @@ public class TextBubble implements AnchoredPopupWindow.LayoutObserver {
         for (TextBubble bubble : bubbles) {
             bubble.dismiss();
         }
+    }
+
+    /**
+     * @return A supplier which notifies of changes of text bubbles count.
+     * */
+    public static ObservableSupplier<Integer> getCountSupplier() {
+        return sCountSupplier;
     }
 
     /**
@@ -525,7 +547,15 @@ public class TextBubble implements AnchoredPopupWindow.LayoutObserver {
      */
     private void setText(TextView view) {
         view.setText(mIsAccessibilityEnabled ? mAccessibilityString : mString);
-        if (mInverseColor) {
+        updateTextStyle(view, mInverseColor);
+    }
+
+    /**
+     * @param isInverse Whether the color scheme is inversed or not.
+     * @param view The {@link TextView} to update the style for.
+     */
+    protected void updateTextStyle(TextView view, boolean isInverse) {
+        if (isInverse) {
             ApiCompatibilityUtils.setTextAppearance(
                     view, R.style.TextAppearance_TextMediumThick_Accent1);
         }
@@ -539,5 +569,10 @@ public class TextBubble implements AnchoredPopupWindow.LayoutObserver {
     /** For testing only, get the content view of a TextBubble. */
     public View getTextBubbleContentViewForTesting() {
         return mContentView;
+    }
+
+    @VisibleForTesting
+    public static void setSkipShowCheckForTesting(boolean skip) {
+        sSkipShowCheckForTesting = skip;
     }
 }

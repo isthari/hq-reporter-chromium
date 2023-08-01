@@ -10,7 +10,6 @@
 <translation id="3875312571075912821">អនុញ្ញាតឲ្យ Chrome ចូលប្រើបណ្តាញនៅក្នុងការកំណត់ firewall ឬកម្មវិធីកម្ចាត់មេរោគ
 
           របស់អ្នក។</translation>
-<translation id="4010643444566880169">ប្រព័ន្ធប្រតិបត្តិការ Chrome មិនបានបញ្ចប់ការដំឡើងដំបូងទេ</translation>
 <translation id="5005121315113832363">ទំព័រ​នេះ​ត្រូវបាន​ទប់ស្កាត់ដោយ Chrome</translation>
 <translation id="6011049234605203654">ទៅកាន់
           ម៉ឺនុយ Chrome &gt;
@@ -42,4 +41,6 @@
 <translation id="8187289872471304532">ទៅកាន់
           កម្មវិធី &gt; ចំណូលចិត្តប្រព័ន្ធ &gt; បណ្តាញ &gt; កម្រិតខ្ពស់ &gt; ប្រូកស៊ី
           ហើយលុបការជ្រើសរើសប្រូកស៊ីណាមួយដែលបានជ្រើសរើស។</translation>
+<translation id="8232971017369963250">Chrome អាច​បង្កើតឡើង​បាន​ដោយគម្រោង​កូដ​ចំហ <ph name="BEGIN_LINK_CHROMIUM" />Chromium<ph name="END_LINK_CHROMIUM" />។</translation>
+<translation id="8279509328145658601">Chrome អាច​បង្កើត​ឡើង​បាន​ដោយ<ph name="BEGIN_LINK_OSS" />កម្មវិធីកូដ​ចំហ<ph name="END_LINK_OSS" />ផ្សេងទៀត​ផងដែរ។</translation>
 </translationbundle>

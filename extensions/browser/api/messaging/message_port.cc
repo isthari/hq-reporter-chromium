@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,10 +18,10 @@ bool MessagePort::HasFrame(content::RenderFrameHost* rfh) const {
 void MessagePort::RevalidatePort() {}
 
 void MessagePort::DispatchOnConnect(
+    ChannelType channel_type,
     const std::string& channel_name,
-    std::unique_ptr<base::DictionaryValue> source_tab,
-    int source_frame_id,
-    const ExtensionApiFrameIdMap::DocumentId& source_document_id,
+    absl::optional<base::Value::Dict> source_tab,
+    const ExtensionApiFrameIdMap::FrameData& source_frame,
     int guest_process_id,
     int guest_render_frame_routing_id,
     const MessagingEndpoint& source_endpoint,
@@ -37,8 +37,10 @@ void MessagePort::ClosePort(int process_id,
                             int routing_id,
                             int worker_thread_id) {}
 
-void MessagePort::IncrementLazyKeepaliveCount() {}
+void MessagePort::IncrementLazyKeepaliveCount(Activity::Type activity_type) {}
 
-void MessagePort::DecrementLazyKeepaliveCount() {}
+void MessagePort::DecrementLazyKeepaliveCount(Activity::Type activity_type) {}
+
+void MessagePort::NotifyResponsePending() {}
 
 }  // namespace extensions

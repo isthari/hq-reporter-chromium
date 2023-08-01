@@ -2,5 +2,8 @@
   RuntimeEnabled=SharedStorageAPI,
   ImplementedAs=WindowSharedStorage
 ] partial interface Window {
-    readonly attribute SharedStorage sharedStorage;
+  [
+    MeasureAs=SharedStorageAPI_SharedStorage_DOMReference,
+    SecureContext
+  ] readonly attribute SharedStorage sharedStorage;
 };

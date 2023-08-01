@@ -1,13 +1,14 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "content/browser/renderer_host/render_widget_host_view_child_frame.h"
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/run_loop.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/bind.h"
 #include "base/test/scoped_feature_list.h"
 #include "base/test/test_timeouts.h"
@@ -61,7 +62,7 @@ class RenderWidgetHostViewChildFrameBrowserTest : public ContentBrowserTest {
   }
 
   // Tests that the FrameSinkId of each child frame has been updated by the
-  // RenderFrameProxy.
+  // `blink::RemoteFrame`.
   void CheckFrameSinkId(RenderFrameHost* render_frame_host) {
     RenderWidgetHostViewBase* child_view =
         static_cast<RenderFrameHostImpl*>(render_frame_host)
@@ -91,7 +92,7 @@ class RenderWidgetHostViewChildFrameBrowserTest : public ContentBrowserTest {
                             GURL portal_url,
                             int number_of_navigations) {
     EXPECT_GE(number_of_navigations, 1);
-    RenderFrameHostImpl* main_frame = host_contents->GetMainFrame();
+    RenderFrameHostImpl* main_frame = host_contents->GetPrimaryMainFrame();
 
     // Create portal and wait for navigation.
     PortalCreatedObserver portal_created_observer(main_frame);
@@ -121,7 +122,7 @@ class RenderWidgetHostViewChildFrameBrowserTest : public ContentBrowserTest {
 
   void GiveItSomeTime() {
     base::RunLoop run_loop;
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE, run_loop.QuitClosure(), TestTimeouts::tiny_timeout());
     run_loop.Run();
   }
@@ -150,18 +151,16 @@ IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewChildFrameBrowserTest, Screen) {
   EXPECT_TRUE(NavigateToURLFromRenderer(root->child_at(0), cross_site_url));
 
   int main_frame_screen_width =
-      ExecuteScriptAndGetValue(shell()->web_contents()->GetMainFrame(),
-                               "window.screen.width")
-          .GetInt();
+      EvalJs(shell()->web_contents()->GetPrimaryMainFrame(),
+             "window.screen.width")
+          .ExtractInt();
   EXPECT_NE(main_frame_screen_width, 0);
 
-  auto check_screen_width = [&](RenderFrameHost* frame_host) {
-    int width =
-        ExecuteScriptAndGetValue(frame_host, "window.screen.width").GetInt();
-    EXPECT_EQ(width, main_frame_screen_width);
-  };
-  shell()->web_contents()->GetMainFrame()->ForEachRenderFrameHost(
-      base::BindLambdaForTesting(check_screen_width));
+  shell()->web_contents()->GetPrimaryMainFrame()->ForEachRenderFrameHost(
+      [&](RenderFrameHost* frame_host) {
+        EXPECT_EQ(main_frame_screen_width,
+                  EvalJs(frame_host, "window.screen.width"));
+      });
 }
 
 // Auto-resize is only implemented for Ash and GuestViews. So we need to inject
@@ -185,7 +184,6 @@ class AutoResizeWebContentsDelegate : public WebContentsDelegate {
 // resizes the top level widget.
 // d) When auto-resize is enabled for the nested main frame and the renderer
 // resizes the nested widget.
-// See https://crbug.com/726743 and https://crbug.com/1050635.
 IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewChildFrameBrowserTest,
                        VisualPropertiesPropagation_VisibleViewportSize) {
   GURL main_url(embedded_test_server()->GetURL(
@@ -220,8 +218,16 @@ IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewChildFrameBrowserTest,
   ASSERT_NE(nested_root_rwh->GetProcess(), nested_child_rwh->GetProcess());
 
   const gfx::Size initial_size = root_view->GetVisibleViewportSize();
-  const gfx::Size nested_initial_size =
-      nested_root_view->GetVisibleViewportSize();
+  ASSERT_FALSE(initial_size.IsEmpty());
+
+  gfx::Size nested_initial_size = nested_root_view->GetVisibleViewportSize();
+  while (nested_initial_size.IsEmpty()) {
+    // CrossProcessFrameConnector for `nested_child_rwh` must receive a
+    // SetRectInParentView() IPC before it has a viewport size. Run tasks until
+    // that IPC arrives.
+    base::RunLoop().RunUntilIdle();
+    nested_initial_size = nested_root_view->GetVisibleViewportSize();
+  }
   ASSERT_NE(initial_size, nested_initial_size);
 
   // We should see the top level widget's size in the visible_viewport_size
@@ -270,7 +276,7 @@ IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewChildFrameBrowserTest,
 // 2. AutoResize on Android does not size to the min/max bounds specified, it
 // ends up ignoring them and sizing to the screen (I think).
 // Luckily this test is verifying interactions and behaviour of
-// RenderWidgetHostImpl - RenderWidget - RenderFrameProxy -
+// RenderWidgetHostImpl - RenderWidget - `blink::RemoteFrame` -
 // CrossProcessFrameConnector, and this isn't Android-specific code.
 #if !BUILDFLAG(IS_ANDROID)
 
@@ -403,31 +409,29 @@ IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewChildFrameBrowserTest,
     child_rwh_impl->WasShown(
         blink::mojom::RecordContentToVisibleTimeRequest::New(
             base::TimeTicks::Now(),
-            /* destination_is_loaded */ true,
-            /* show_reason_tab_switching */ true,
-            /* show_reason_unoccluded */ false,
-            /* show_reason_bfcache_restore */ false));
+            /*destination_is_loaded=*/true,
+            /*show_reason_tab_switching=*/true,
+            /*show_reason_bfcache_restore=*/false));
     // Force the child to submit a new frame.
     return ExecJs(root->child_at(0)->current_frame_host(),
                   "document.write('Force a new frame.');");
   };
   ASSERT_TRUE(trigger_subframe_tab_switch());
 
-  // If TabSwitchMetrics2 is enabled, both Browser.Tabs.TotalSwitchDuration.*
-  // and Browser.Tabs.TotalSwitchDuration2.* will be logged.
-  const size_t expected_histogram_count =
-      base::FeatureList::IsEnabled(blink::features::kTabSwitchMetrics2) ? 2 : 1;
+  // Ensure the loop starts in the right state.
+  ASSERT_TRUE(
+      histogram_tester.GetAllSamples("Browser.Tabs.TotalSwitchDuration3")
+          .empty());
 
+  // Once the tab switch completes the PresentationFeedback should cause a
+  // single TotalSwitchDuration3 histogram to be logged.
   bool got_incomplete_tab_switch = false;
   const base::TimeTicks start_time = base::TimeTicks::Now();
-  do {
-    if (base::TimeTicks::Now() - start_time > TestTimeouts::action_timeout()) {
-      FAIL()
-          << "Timed out waiting for Browser.Tabs.TotalSwitchDuration. Received "
-             "these histograms instead: "
-          << ::testing::PrintToString(
-                 histogram_tester.GetTotalCountsForPrefix("Browser.Tabs."));
-    }
+  while (histogram_tester.GetAllSamples("Browser.Tabs.TotalSwitchDuration3")
+             .empty()) {
+    ASSERT_LT(base::TimeTicks::Now() - start_time,
+              TestTimeouts::action_timeout())
+        << "Timed out waiting for Browser.Tabs.TotalSwitchDuration3.";
     FetchHistogramsFromChildProcesses();
     GiveItSomeTime();
 
@@ -444,8 +448,8 @@ IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewChildFrameBrowserTest,
     // pump the message loop. If CrossProcessFrameConnector calls WasHidden
     // after the WasShown call above, it will cancel the simulated tab switch.
     // This causes ContentToVisibleTimeReporter to log
-    // TotalIncompleteSwitchDuration, which is not based on
-    // PresentationFeedback, instead of TotalSwitchDuration. See
+    // TotalIncompleteSwitchDuration3, which is not based on
+    // PresentationFeedback, instead of TotalSwitchDuration3. See
     // crbug.com/1288560 for more details.
     //
     // The race condition can only cause a single incomplete tab switch, so
@@ -456,20 +460,14 @@ IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewChildFrameBrowserTest,
     // TODO(crbug.com/1288560): Remove this once the race condition is
     // fixed.
     if (!got_incomplete_tab_switch &&
-        histogram_tester
-                .GetTotalCountsForPrefix(
-                    "Browser.Tabs.TotalIncompleteSwitchDuration")
-                .size() == expected_histogram_count) {
+        !histogram_tester
+             .GetAllSamples("Browser.Tabs.TotalIncompleteSwitchDuration3")
+             .empty()) {
       LOG(ERROR) << "Incomplete tab switch - try again.";
       got_incomplete_tab_switch = true;
       ASSERT_TRUE(trigger_subframe_tab_switch());
     }
-
-    // Once the tab switch completes the PresentationFeedback should cause a
-    // single TotalSwitchDuration histogram to be logged.
-  } while (histogram_tester
-               .GetTotalCountsForPrefix("Browser.Tabs.TotalSwitchDuration")
-               .size() != expected_histogram_count);
+  }
 }
 
 // Auto-resize is only implemented for Ash and GuestViews. So we need to inject
@@ -712,12 +710,8 @@ IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewChildFrameBrowserTest,
                      "document.getElementById('mainframe_input_id').focus();"));
   root_widget->UpdateTextDirection(base::i18n::RIGHT_TO_LEFT);
   root_widget->NotifyTextDirection();
-  std::string mainframe_input_element_dir =
-      ExecuteScriptAndGetValue(
-          root->current_frame_host(),
-          "document.getElementById('mainframe_input_id').dir")
-          .GetString();
-  EXPECT_EQ(mainframe_input_element_dir, "rtl");
+  EXPECT_EQ("rtl", EvalJs(root->current_frame_host(),
+                          "document.getElementById('mainframe_input_id').dir"));
 
   // In-process frame.
   FrameTreeNode* ipchild = root->child_at(0);
@@ -730,12 +724,8 @@ IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewChildFrameBrowserTest,
                      "document.getElementById('ipchild_input_id').focus();"));
   ipchild_widget->UpdateTextDirection(base::i18n::LEFT_TO_RIGHT);
   ipchild_widget->NotifyTextDirection();
-  std::string ip_input_element_dir =
-      ExecuteScriptAndGetValue(
-          ipchild->current_frame_host(),
-          "document.getElementById('ipchild_input_id').dir")
-          .GetString();
-  EXPECT_EQ(ip_input_element_dir, "ltr");
+  EXPECT_EQ("ltr", EvalJs(ipchild->current_frame_host(),
+                          "document.getElementById('ipchild_input_id').dir"));
 
   // Out-of-process frame.
   FrameTreeNode* oopchild = root->child_at(1);
@@ -748,20 +738,14 @@ IN_PROC_BROWSER_TEST_F(RenderWidgetHostViewChildFrameBrowserTest,
                      "document.getElementById('oop_input_id').focus();"));
   oopchild_widget->UpdateTextDirection(base::i18n::RIGHT_TO_LEFT);
   oopchild_widget->NotifyTextDirection();
-  std::string oop_input_element_dir =
-      ExecuteScriptAndGetValue(oopchild->current_frame_host(),
-                               "document.getElementById('oop_input_id').dir")
-          .GetString();
-  EXPECT_EQ(oop_input_element_dir, "rtl");
+  EXPECT_EQ("rtl", EvalJs(oopchild->current_frame_host(),
+                          "document.getElementById('oop_input_id').dir"));
 
   // In case of UNKNOWN_DIRECTION, old value of direction is maintained.
   oopchild_widget->UpdateTextDirection(base::i18n::UNKNOWN_DIRECTION);
   oopchild_widget->NotifyTextDirection();
-  oop_input_element_dir =
-      ExecuteScriptAndGetValue(oopchild->current_frame_host(),
-                               "document.getElementById('oop_input_id').dir")
-          .GetString();
-  EXPECT_EQ(oop_input_element_dir, "rtl");
+  EXPECT_EQ("rtl", EvalJs(oopchild->current_frame_host(),
+                          "document.getElementById('oop_input_id').dir"));
 }
 
 }  // namespace

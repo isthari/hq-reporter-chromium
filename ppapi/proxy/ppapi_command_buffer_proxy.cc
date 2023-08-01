@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -119,6 +119,7 @@ void PpapiCommandBufferProxy::SetGetBuffer(int32_t transfer_buffer_id) {
 scoped_refptr<gpu::Buffer> PpapiCommandBufferProxy::CreateTransferBuffer(
     uint32_t size,
     int32_t* id,
+    uint32_t alignment,
     gpu::TransferBufferAllocationOption option) {
   *id = -1;
 
@@ -169,6 +170,12 @@ void PpapiCommandBufferProxy::DestroyTransferBuffer(int32_t id) {
 
   Send(new PpapiHostMsg_PPBGraphics3D_DestroyTransferBuffer(
       ppapi::API_ID_PPB_GRAPHICS_3D, resource_, id));
+}
+
+void PpapiCommandBufferProxy::ForceLostContext(gpu::error::ContextLostReason) {
+  // This entry point was added to CommandBuffer well after PPAPI's
+  // deprecation. No current clients determined its necessity, so it
+  // will not be implemented.
 }
 
 void PpapiCommandBufferProxy::SetLock(base::Lock*) {
@@ -227,11 +234,6 @@ bool PpapiCommandBufferProxy::CanWaitUnverifiedSyncToken(
   return false;
 }
 
-void PpapiCommandBufferProxy::SetDisplayTransform(
-    gfx::OverlayTransform transform) {
-  NOTREACHED();
-}
-
 void PpapiCommandBufferProxy::SignalQuery(uint32_t query,
                                           base::OnceClosure callback) {
   NOTREACHED();
@@ -255,17 +257,6 @@ void PpapiCommandBufferProxy::SetGpuControlClient(gpu::GpuControlClient*) {
 
 const gpu::Capabilities& PpapiCommandBufferProxy::GetCapabilities() const {
   return capabilities_;
-}
-
-int32_t PpapiCommandBufferProxy::CreateImage(ClientBuffer buffer,
-                                             size_t width,
-                                             size_t height) {
-  NOTREACHED();
-  return -1;
-}
-
-void PpapiCommandBufferProxy::DestroyImage(int32_t id) {
-  NOTREACHED();
 }
 
 bool PpapiCommandBufferProxy::Send(IPC::Message* msg) {

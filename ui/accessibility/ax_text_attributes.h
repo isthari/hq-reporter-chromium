@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,10 @@
 #define UI_ACCESSIBILITY_AX_TEXT_ATTRIBUTES_H_
 
 #include <string>
+#include <vector>
 
 #include "ui/accessibility/ax_base_export.h"
+#include "ui/accessibility/ax_enums.mojom-shared.h"
 
 namespace ui {
 
@@ -35,6 +37,8 @@ struct AX_BASE_EXPORT AXTextAttributes final {
 
   bool IsUnset() const;
 
+  bool HasTextStyle(const ax::mojom::TextStyle text_style_enum) const;
+
   int32_t background_color = kUnsetValue;
   int32_t color = kUnsetValue;
   int32_t invalid_state = kUnsetValue;
@@ -47,6 +51,8 @@ struct AX_BASE_EXPORT AXTextAttributes final {
   float font_size = kUnsetValue;
   float font_weight = kUnsetValue;
   std::string font_family;
+  std::vector<int32_t> marker_types;
+  std::vector<int32_t> highlight_types;
 };
 
 }  // namespace ui

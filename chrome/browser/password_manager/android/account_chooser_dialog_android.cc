@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,9 +15,9 @@
 #include "chrome/browser/password_manager/chrome_password_manager_client.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/passwords/account_avatar_fetcher.h"
-#include "chrome/browser/ui/passwords/manage_passwords_view_utils.h"
+#include "chrome/browser/ui/passwords/ui_utils.h"
 #include "chrome/grit/generated_resources.h"
-#include "components/device_reauth/biometric_authenticator.h"
+#include "components/device_reauth/device_authenticator.h"
 #include "components/password_manager/core/browser/password_bubble_experiment.h"
 #include "components/password_manager/core/browser/password_manager_constants.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
@@ -123,7 +123,7 @@ AccountChooserDialogAndroid::AccountChooserDialogAndroid(
 AccountChooserDialogAndroid::~AccountChooserDialogAndroid() {
   if (authenticator_) {
     authenticator_->Cancel(
-        device_reauth::BiometricAuthRequester::kAccountChooserDialog);
+        device_reauth::DeviceAuthRequester::kAccountChooserDialog);
   }
 
   // |dialog_jobject_| can be null in tests or if the dialog could not
@@ -167,7 +167,7 @@ bool AccountChooserDialogAndroid::ShowDialog() {
   for (const auto& form : local_credentials_forms()) {
     FetchAvatar(dialog_jobject_, form.get(), avatar_index++,
                 loader_factory.get(),
-                web_contents_->GetMainFrame()->GetLastCommittedOrigin());
+                web_contents_->GetPrimaryMainFrame()->GetLastCommittedOrigin());
   }
   return true;
 }
@@ -242,16 +242,16 @@ bool AccountChooserDialogAndroid::HandleCredentialChosen(
     return true;
   }
 
-  scoped_refptr<device_reauth::BiometricAuthenticator> authenticator =
-      client_->GetBiometricAuthenticator();
-  if (password_manager_util::CanUseBiometricAuth(
-          authenticator.get(),
-          device_reauth::BiometricAuthRequester::kAccountChooserDialog)) {
+  scoped_refptr<device_reauth::DeviceAuthenticator> authenticator =
+      client_->GetDeviceAuthenticator();
+  if (password_manager_util::CanUseBiometricAuth(authenticator.get(),
+                                                 client_)) {
     authenticator_ = std::move(authenticator);
     authenticator_->Authenticate(
-        device_reauth::BiometricAuthRequester::kAccountChooserDialog,
+        device_reauth::DeviceAuthRequester::kAccountChooserDialog,
         base::BindOnce(&AccountChooserDialogAndroid::OnReauthCompleted,
-                       base::Unretained(this), index));
+                       base::Unretained(this), index),
+        /*use_last_valid_auth=*/true);
     // The credential handling will only happen after the authentication
     // finishes.
     return false;

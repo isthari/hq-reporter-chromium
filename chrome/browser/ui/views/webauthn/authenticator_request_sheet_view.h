@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include "ui/views/view.h"
 
 namespace views {
+class AnimatedImageView;
 class Label;
 }  // namespace views
 
@@ -115,10 +116,12 @@ class AuthenticatorRequestSheetView : public views::View {
   std::unique_ptr<AuthenticatorRequestSheetModel> model_;
   raw_ptr<views::Button> back_arrow_button_ = nullptr;
   raw_ptr<views::ImageButton> back_arrow_ = nullptr;
-  raw_ptr<views::View> step_specific_content_ = nullptr;
+  raw_ptr<views::ImageButton> close_button_ = nullptr;
+  raw_ptr<views::View, DanglingUntriaged> step_specific_content_ = nullptr;
   AutoFocus should_focus_step_specific_content_ = AutoFocus::kNo;
-  raw_ptr<NonAccessibleImageView> step_illustration_ = nullptr;
-  raw_ptr<views::Label> error_label_ = nullptr;
+  raw_ptr<NonAccessibleImageView> step_illustration_image_ = nullptr;
+  raw_ptr<views::AnimatedImageView> step_illustration_animation_ = nullptr;
+  raw_ptr<views::Label, DanglingUntriaged> error_label_ = nullptr;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_WEBAUTHN_AUTHENTICATOR_REQUEST_SHEET_VIEW_H_

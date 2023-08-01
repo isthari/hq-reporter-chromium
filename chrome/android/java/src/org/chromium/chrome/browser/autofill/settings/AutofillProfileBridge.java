@@ -1,13 +1,13 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.autofill.settings;
 
 import android.app.Activity;
-import android.util.Pair;
 
 import androidx.annotation.IntDef;
+import androidx.annotation.VisibleForTesting;
 import androidx.fragment.app.Fragment;
 
 import org.chromium.base.annotations.CalledByNative;
@@ -15,6 +15,7 @@ import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.browser.settings.SettingsLauncherImpl;
+import org.chromium.components.autofill.prefeditor.EditorFieldModel;
 import org.chromium.components.browser_ui.settings.SettingsLauncher;
 import org.chromium.content_public.browser.WebContents;
 
@@ -33,7 +34,7 @@ import java.util.Locale;
  * form.
  */
 @JNINamespace("autofill")
-public class AutofillProfileBridge {
+public final class AutofillProfileBridge {
     /**
      * Address field types.
      * This list must be kept in-sync with the corresponding enum in
@@ -57,30 +58,6 @@ public class AutofillProfileBridge {
         int NUM_ENTRIES = 9;
     }
 
-    /**
-     * A convenience class for displaying keyed values in a dropdown.
-     */
-    public static class DropdownKeyValue extends Pair<String, CharSequence> {
-        public DropdownKeyValue(String key, CharSequence value) {
-            super(key, value);
-        }
-
-        /** @return The key identifier. */
-        public String getKey() {
-            return super.first;
-        }
-
-        /** @return The human-readable localized display value. */
-        public CharSequence getValue() {
-            return super.second;
-        }
-
-        @Override
-        public String toString() {
-            return super.second.toString();
-        }
-    }
-
     private String mCurrentBestLanguageCode;
 
     /**
@@ -91,22 +68,24 @@ public class AutofillProfileBridge {
     }
 
     /** @return The list of supported countries sorted by their localized display names. */
-    public static List<DropdownKeyValue> getSupportedCountries() {
+    public static List<EditorFieldModel.DropdownKeyValue> getSupportedCountries() {
         List<String> countryCodes = new ArrayList<>();
         List<String> countryNames = new ArrayList<>();
-        List<DropdownKeyValue> countries = new ArrayList<>();
+        List<EditorFieldModel.DropdownKeyValue> countries = new ArrayList<>();
 
         AutofillProfileBridgeJni.get().getSupportedCountries(countryCodes, countryNames);
 
         for (int i = 0; i < countryCodes.size(); i++) {
-            countries.add(new DropdownKeyValue(countryCodes.get(i), countryNames.get(i)));
+            countries.add(new EditorFieldModel.DropdownKeyValue(
+                    countryCodes.get(i), countryNames.get(i)));
         }
 
         final Collator collator = Collator.getInstance(Locale.getDefault());
         collator.setStrength(Collator.PRIMARY);
-        Collections.sort(countries, new Comparator<DropdownKeyValue>() {
+        Collections.sort(countries, new Comparator<EditorFieldModel.DropdownKeyValue>() {
             @Override
-            public int compare(DropdownKeyValue lhs, DropdownKeyValue rhs) {
+            public int compare(
+                    EditorFieldModel.DropdownKeyValue lhs, EditorFieldModel.DropdownKeyValue rhs) {
                 int result = collator.compare(lhs.getValue(), rhs.getValue());
                 if (result == 0) result = lhs.getKey().compareTo(rhs.getKey());
                 return result;
@@ -116,19 +95,21 @@ public class AutofillProfileBridge {
     }
 
     /** @return The list of admin areas sorted by their localized display names. */
-    public static List<DropdownKeyValue> getAdminAreaDropdownList(
+    public static List<EditorFieldModel.DropdownKeyValue> getAdminAreaDropdownList(
             String[] adminAreaCodes, String[] adminAreaNames) {
-        List<DropdownKeyValue> adminAreas = new ArrayList<>();
+        List<EditorFieldModel.DropdownKeyValue> adminAreas = new ArrayList<>();
 
         for (int i = 0; i < adminAreaCodes.length; ++i) {
-            adminAreas.add(new DropdownKeyValue(adminAreaCodes[i], adminAreaNames[i]));
+            adminAreas.add(
+                    new EditorFieldModel.DropdownKeyValue(adminAreaCodes[i], adminAreaNames[i]));
         }
 
         final Collator collator = Collator.getInstance(Locale.getDefault());
         collator.setStrength(Collator.PRIMARY);
-        Collections.sort(adminAreas, new Comparator<DropdownKeyValue>() {
+        Collections.sort(adminAreas, new Comparator<EditorFieldModel.DropdownKeyValue>() {
             @Override
-            public int compare(DropdownKeyValue lhs, DropdownKeyValue rhs) {
+            public int compare(
+                    EditorFieldModel.DropdownKeyValue lhs, EditorFieldModel.DropdownKeyValue rhs) {
                 // Sorted according to the admin area values, such as Quebec,
                 // rather than the admin area keys, such as QC.
                 return collator.compare(lhs.getValue(), rhs.getValue());
@@ -186,20 +167,21 @@ public class AutofillProfileBridge {
      * @param languageCode The language code associated with the saved autofill profile that ui
      *                     components are being retrieved for; can be null if ui components are
      *                     being retrieved for a new profile.
+     * @param validationType The target usage validation rules.
      * @return A list of address UI components. The ordering in the list specifies the order these
      *         components should appear in the UI.
      */
     public List<AddressUiComponent> getAddressUiComponents(
-            String countryCode, String languageCode) {
+            String countryCode, String languageCode, @AddressValidationType int validationType) {
         List<Integer> componentIds = new ArrayList<>();
         List<String> componentNames = new ArrayList<>();
         List<Integer> componentRequired = new ArrayList<>();
         List<Integer> componentLengths = new ArrayList<>();
         List<AddressUiComponent> uiComponents = new ArrayList<>();
 
-        mCurrentBestLanguageCode =
-                AutofillProfileBridgeJni.get().getAddressUiComponents(countryCode, languageCode,
-                        componentIds, componentNames, componentRequired, componentLengths);
+        mCurrentBestLanguageCode = AutofillProfileBridgeJni.get().getAddressUiComponents(
+                countryCode, languageCode, validationType, componentIds, componentNames,
+                componentRequired, componentLengths);
 
         for (int i = 0; i < componentIds.size(); i++) {
             uiComponents.add(new AddressUiComponent(componentIds.get(i), componentNames.get(i),
@@ -252,12 +234,14 @@ public class AutofillProfileBridge {
     }
 
     @NativeMethods
-    interface Natives {
+    @VisibleForTesting(otherwise = VisibleForTesting.PACKAGE_PRIVATE)
+    public interface Natives {
         String getDefaultCountryCode();
         void getSupportedCountries(List<String> countryCodes, List<String> countryNames);
         void getRequiredFields(String countryCode, List<Integer> requiredFields);
         String getAddressUiComponents(String countryCode, String languageCode,
-                List<Integer> componentIds, List<String> componentNames,
-                List<Integer> componentRequired, List<Integer> componentLengths);
+                @AddressValidationType int validationType, List<Integer> componentIds,
+                List<String> componentNames, List<Integer> componentRequired,
+                List<Integer> componentLengths);
     }
 }

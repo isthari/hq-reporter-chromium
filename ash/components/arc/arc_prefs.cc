@@ -1,12 +1,14 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/components/arc/arc_prefs.h"
-#include "ash/components/arc/session/arc_management_transition.h"
 
 #include <string>
 
+#include "ash/components/arc/metrics/arc_daily_metrics_prefs.h"
+#include "ash/components/arc/session/arc_management_transition.h"
+#include "ash/components/arc/session/arc_vm_data_migration_status.h"
 #include "components/guest_os/guest_os_prefs.h"
 #include "components/prefs/pref_registry_simple.h"
 
@@ -31,6 +33,10 @@ const char kArcActiveDirectoryPlayUserId[] =
 const char kArcApps[] = "arc.apps";
 // A preference to store backup and restore state for Android apps.
 const char kArcBackupRestoreEnabled[] = "arc.backup_restore.enabled";
+// Cumulative daily counts of app kills by priority and with other VM context.
+const char kArcDailyMetricsKills[] = "arc.dialy_metrics_kills";
+//  Timestamp of the last time daily metrics have been reported.
+const char kArcDailyMetricsSample[] = "arc.daily_metrics_sample";
 // A preference to indicate that Android's data directory should be removed.
 const char kArcDataRemoveRequested[] = "arc.data.remove_requested";
 // A preference representing whether a user has opted in to use Google Play
@@ -65,12 +71,12 @@ const char kArcManagementTransition[] = "arc.management_transition";
 const char kArcPolicyComplianceReported[] = "arc.policy_compliance_reported";
 // A preference that indicates that user accepted PlayStore terms.
 const char kArcTermsAccepted[] = "arc.terms.accepted";
-// A preference that indicates that ToS was shown in OOBE flow.
-const char kArcTermsShownInOobe[] = "arc.terms.shown_in_oobe";
 // A preference to keep user's consent to use location service.
 const char kArcLocationServiceEnabled[] = "arc.location_service.enabled";
 // A preference to keep list of Android packages and their infomation.
 const char kArcPackages[] = "arc.packages";
+// A preference that indicates that arc.packages is up to date.
+const char kArcPackagesIsUpToDate[] = "arc.packages_is_up_to_date";
 // A preference that indicates that Play Auto Install flow was already started.
 const char kArcPaiStarted[] = "arc.pai.started";
 // A preference that indicates that provisioning was initiated from OOBE. This
@@ -119,14 +125,25 @@ const char kArcShowResizeLockSplashScreenLimits[] =
 const char kArcPlayStoreLaunchMetricCanBeRecorded[] =
     "arc.playstore_launched_by_user";
 
-// ======== LOCAL STATE PREFS ========
+// An integer preference to count how many times ARCVM /data migration has been
+// automatically resumed.
+const char kArcVmDataMigrationAutoResumeCount[] =
+    "arc.vm_data_migration_auto_resume_count";
 
-// A boolean preference that indicates whether this device has run with the
-// native bridge 64 bit support experiment enabled. Persisting value in local
-// state, rather than in a user profile, is required as it needs to be read
-// whenever ARC mini-container is started.
-const char kNativeBridge64BitSupportExperimentEnabled[] =
-    "arc.native_bridge_64bit_support_experiment";
+// A time preference to indicate when the ARCVM /data migration notification is
+// shown for the first time.
+const char kArcVmDataMigrationNotificationFirstShownTime[] =
+    "arc.vm_data_migration_notification_first_shown_time";
+
+// An integer preference to indicate the status of ARCVM /data migration.
+const char kArcVmDataMigrationStatus[] = "arc.vm_data_migration_status";
+
+// ======== LOCAL STATE PREFS ========
+// ANR count which is currently pending, not flashed to UMA.
+const char kAnrPendingCount[] = "arc.anr_pending_count";
+
+// Keeps the duration of the current ANR rate period.
+const char kAnrPendingDuration[] = "arc.anr_pending_duration";
 
 // A dictionary preference that keeps track of stability metric values, which is
 // maintained by StabilityMetricsManager. Persisting values in local state is
@@ -138,20 +155,33 @@ const char kStabilityMetrics[] = "arc.metrics.stability";
 // Android properties. Used only in ARCVM.
 const char kArcSerialNumberSalt[] = "arc.serialno_salt";
 
-// A preference to keep time intervals when snapshotting is allowed.
-const char kArcSnapshotHours[] = "arc.snapshot_hours";
-
 // A preferece to keep ARC snapshot related info in dictionary.
 const char kArcSnapshotInfo[] = "arc.snapshot";
 
+// A time pref indicating the time in microseconds when ARCVM success executed
+// vmm swap out. If it never swapped out, the pref holds the default value
+// base::Time().
+const char kArcVmmSwapOutTime[] = "arc_vmm_swap_out_time";
+
+// A preference to keep track of whether or not Android WebView was used in the
+// current ARC session.
+const char kWebViewProcessStarted[] = "arc.webview.started";
+
+// An integer preference to indicate the strategy of ARCVM /data migration for
+// enterprise user.
+const char kArcVmDataMigrationStrategy[] = "arc.vm_data_migration_strategy";
+
 void RegisterLocalStatePrefs(PrefRegistrySimple* registry) {
   // Sorted in lexicographical order.
+  RegisterDailyMetricsPrefs(registry);
   registry->RegisterStringPref(kArcSerialNumberSalt, std::string());
-  registry->RegisterDictionaryPref(kArcSnapshotHours);
   registry->RegisterDictionaryPref(kArcSnapshotInfo);
-  registry->RegisterBooleanPref(kNativeBridge64BitSupportExperimentEnabled,
-                                false);
+  registry->RegisterTimePref(kArcVmmSwapOutTime, base::Time());
   registry->RegisterDictionaryPref(kStabilityMetrics);
+
+  registry->RegisterIntegerPref(kAnrPendingCount, 0);
+  registry->RegisterTimeDeltaPref(kAnrPendingDuration, base::TimeDelta());
+  registry->RegisterBooleanPref(kWebViewProcessStarted, false);
 }
 
 void RegisterProfilePrefs(PrefRegistrySimple* registry) {
@@ -193,8 +223,16 @@ void RegisterProfilePrefs(PrefRegistrySimple* registry) {
   registry->RegisterBooleanPref(kArcSignedIn, false);
   registry->RegisterBooleanPref(kArcSkippedReportingNotice, false);
   registry->RegisterBooleanPref(kArcTermsAccepted, false);
-  registry->RegisterBooleanPref(kArcTermsShownInOobe, false);
   registry->RegisterListPref(kArcVisibleExternalStorages);
+  registry->RegisterIntegerPref(kArcVmDataMigrationAutoResumeCount, 0);
+  registry->RegisterTimePref(kArcVmDataMigrationNotificationFirstShownTime,
+                             base::Time());
+  registry->RegisterIntegerPref(
+      kArcVmDataMigrationStatus,
+      static_cast<int>(ArcVmDataMigrationStatus::kUnnotified));
+  registry->RegisterIntegerPref(
+      kArcVmDataMigrationStrategy,
+      static_cast<int>(ArcVmDataMigrationStrategy::kDoNotPrompt));
 }
 
 }  // namespace prefs

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include "base/check.h"
 #include "base/metrics/histogram_macros.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
+#include "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
 
 namespace {
 // Global whose address is used as a unique key to find the
@@ -53,14 +53,6 @@ SessionMetrics* SessionMetrics::FromBrowserState(
 
 void SessionMetrics::RecordAndClearSessionMetrics(
     MetricsToRecordFlagSet flag_set) {
-  if (flag_set & MetricsToRecordFlags::kOpenedTabCount) {
-    UMA_HISTOGRAM_CUSTOM_COUNTS("Session.NewTabCounts",
-                                inserted_web_state_counter_, 1, 200, 50);
-  }
-  if (flag_set & MetricsToRecordFlags::kClosedTabCount) {
-    UMA_HISTOGRAM_CUSTOM_COUNTS("Session.ClosedTabCounts",
-                                detached_web_state_counter_, 1, 200, 50);
-  }
   if (flag_set & MetricsToRecordFlags::kActivatedTabCount) {
     UMA_HISTOGRAM_CUSTOM_COUNTS("Session.OpenedTabCounts",
                                 activated_web_state_counter_, 1, 200, 50);
@@ -73,20 +65,10 @@ void SessionMetrics::RecordAndClearSessionMetrics(MetricsToRecordFlags flag) {
   RecordAndClearSessionMetrics(static_cast<MetricsToRecordFlagSet>(flag));
 }
 
-void SessionMetrics::OnWebStateInserted() {
-  inserted_web_state_counter_++;
-}
-
-void SessionMetrics::OnWebStateDetached() {
-  detached_web_state_counter_++;
-}
-
 void SessionMetrics::OnWebStateActivated() {
   activated_web_state_counter_++;
 }
 
 void SessionMetrics::ResetSessionMetrics() {
-  inserted_web_state_counter_ = 0;
-  detached_web_state_counter_ = 0;
   activated_web_state_counter_ = 0;
 }

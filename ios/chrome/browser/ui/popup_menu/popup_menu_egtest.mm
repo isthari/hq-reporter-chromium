@@ -1,20 +1,24 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/ios/ios_util.h"
-#include "base/strings/sys_string_conversions.h"
+#import "base/ios/ios_util.h"
+#import "base/strings/stringprintf.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/feature_engagement/public/feature_constants.h"
+#import "ios/chrome/browser/find_in_page/features.h"
 #import "ios/chrome/browser/ui/popup_menu/popup_menu_constants.h"
-#include "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/web_http_server_chrome_test_case.h"
+#import "ios/chrome/test/scoped_eg_synchronization_disabler.h"
+#import "ios/testing/earl_grey/app_launch_manager.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
 #import "ios/web/public/test/http_server/http_server.h"
 #import "ios/web/public/test/http_server/http_server_util.h"
-#include "ios/web/public/test/http_server/http_server_util.h"
-#include "ui/base/l10n/l10n_util.h"
+#import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -29,6 +33,14 @@ const char kPDFURL[] = "http://ios/testing/data/http_server_files/testpage.pdf";
 @end
 
 @implementation PopupMenuTestCase
+
+- (AppLaunchConfiguration)appConfigurationForTestCase {
+  AppLaunchConfiguration config = [super appConfigurationForTestCase];
+  // This test suite assumes JavaScript Find in Page is used. This is required
+  // for `testNoSearchForPDF`.
+  config.features_disabled.push_back(kNativeFindInPage);
+  return config;
+}
 
 // Rotate the device back to portrait if needed, since some tests attempt to run
 // in landscape.
@@ -145,7 +157,7 @@ const char kPDFURL[] = "http://ios/testing/data/http_server_files/testpage.pdf";
   [ChromeEarlGreyUI openToolsMenu];
 
   // If using the new overflow menu, swipe up to expand the menu to the full
-  // height to make sure that |closeToolsMenu| still closes it.
+  // height to make sure that `closeToolsMenu` still closes it.
   if ([ChromeEarlGrey isNewOverflowMenuEnabled] &&
       [ChromeEarlGrey isCompactWidth]) {
     [[EarlGrey selectElementWithMatcher:chrome_test_util::ToolsMenuView()]
@@ -174,17 +186,6 @@ const char kPDFURL[] = "http://ios/testing/data/http_server_files/testpage.pdf";
 // Navigates to a pdf page and verifies that the "Find in Page..." tool
 // is not enabled
 - (void)testNoSearchForPDF {
-#if !TARGET_IPHONE_SIMULATOR
-  // TODO(crbug.com/1209346): test failing on ipad device
-  if ([ChromeEarlGrey isIPadIdiom]) {
-    EARL_GREY_TEST_SKIPPED(@"This test doesn't pass on iPad device.");
-  }
-#else
-  // TODO(crbug.com/1293132): Test is flaky on iphone simulator.
-  if (![ChromeEarlGrey isIPadIdiom]) {
-    EARL_GREY_TEST_SKIPPED(@"This test is flaky on iPhone simulator.");
-  }
-#endif
   const GURL URL = web::test::HttpServer::MakeUrl(kPDFURL);
 
   // Navigate to a mock pdf and verify that the find button is disabled.
@@ -210,6 +211,44 @@ const char kPDFURL[] = "http://ios/testing/data/http_server_files/testpage.pdf";
   [ChromeEarlGrey verifyAccessibilityForCurrentScreen];
   // Close Tools menu.
   [ChromeTestCase removeAnyOpenMenusAndInfoBars];
+}
+
+// Tests that the overflow menu IPH shows up when triggered.
+- (void)testOverflowMenuIPHForHistory {
+  if (![ChromeEarlGrey isNewOverflowMenuEnabled]) {
+    EARL_GREY_TEST_SKIPPED(
+        @"The overflow menu IPH only exists when the overflow menu is enabled.")
+  }
+
+  // Enable the IPH Demo Mode feature to ensure the IPH triggers
+  AppLaunchConfiguration config = [self appConfigurationForTestCase];
+  config.additional_args.push_back(base::StringPrintf(
+      "--enable-features=%s:chosen_feature/IPH_iOSHistoryOnOverflowMenuFeature",
+      feature_engagement::kIPHDemoMode.name));
+
+  // The IPH appears immediately on startup, so don't open a new tab when the
+  // app starts up.
+  [[self class] testForStartup];
+
+  // Scope for the synchronization disabled.
+  {
+    ScopedSynchronizationDisabler syncDisabler;
+
+    [[AppLaunchManager sharedManager]
+        ensureAppLaunchedWithConfiguration:config];
+
+    // The app relaunch (to enable a feature flag) may take a while, therefore
+    // the timeout is extended to 15 seconds.
+    [ChromeEarlGrey
+        waitForUIElementToAppearWithMatcher:grey_accessibilityID(
+                                                @"BubbleViewLabelIdentifier")
+                                    timeout:base::Seconds(15)];
+
+    // Open the tools menu and verify the second tooltip is visible.
+    [ChromeEarlGreyUI openToolsMenu];
+    [ChromeEarlGrey waitForSufficientlyVisibleElementWithMatcher:
+                        grey_accessibilityID(@"BubbleViewLabelIdentifier")];
+  }  // End of the sync disabler scope.
 }
 
 @end

@@ -1,24 +1,23 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/ios/ios_util.h"
+#import "base/ios/ios_util.h"
 #import "base/test/ios/wait_util.h"
-#include "components/strings/grit/components_strings.h"
+#import "components/strings/grit/components_strings.h"
 #import "ios/chrome/browser/ui/content_suggestions/ntp_home_constant.h"
 #import "ios/chrome/browser/ui/popup_menu/popup_menu_constants.h"
 #import "ios/chrome/browser/ui/start_surface/start_surface_features.h"
 #import "ios/chrome/browser/ui/toolbar/public/toolbar_constants.h"
-#include "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_ui.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
-#import "ios/chrome/test/earl_grey/web_http_server_chrome_test_case.h"
+#import "ios/chrome/test/earl_grey/chrome_test_case.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
-#import "ios/web/public/test/http_server/http_server.h"
-#include "ios/web/public/test/http_server/http_server_util.h"
-#include "net/test/embedded_test_server/embedded_test_server.h"
-#include "ui/base/l10n/l10n_util_mac.h"
+#import "net/test/embedded_test_server/default_handlers.h"
+#import "net/test/embedded_test_server/embedded_test_server.h"
+#import "ui/base/l10n/l10n_util_mac.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -29,11 +28,11 @@ using chrome_test_util::SystemSelectionCallout;
 using chrome_test_util::SystemSelectionCalloutCopyButton;
 
 namespace {
-// Waits for omnibox suggestion with index |suggestionID| to contain
-// |suggestion|.
-void WaitForOmniboxSuggestion(NSString* suggestion, int suggestionID) {
+// Waits for omnibox suggestion with index `suggestionID` to contain
+// `suggestion`.
+void WaitForOmniboxSuggestion(NSString* suggestion, int section, int row) {
   NSString* accessibilityID =
-      [NSString stringWithFormat:@"omnibox suggestion %d", suggestionID];
+      [NSString stringWithFormat:@"omnibox suggestion %d %d", section, row];
   ConditionBlock condition = ^{
     NSError* error = nil;
     [[EarlGrey
@@ -56,17 +55,22 @@ void WaitForOmniboxSuggestion(NSString* suggestion, int suggestionID) {
 }  // namespace
 
 // Toolbar integration tests for Chrome.
-@interface ToolbarTestCase : WebHttpServerChromeTestCase
+@interface ToolbarTestCase : ChromeTestCase
 @end
 
 @implementation ToolbarTestCase
+
+- (void)setUp {
+  [super setUp];
+  net::test_server::RegisterDefaultHandlers(self.testServer);
+  GREYAssertTrue(self.testServer->Start(), @"Server did not start.");
+}
 
 #pragma mark Tests
 
 // Verifies that entering a URL in the omnibox navigates to the correct URL and
 // displays content.
 - (void)testEnterURL {
-  GREYAssertTrue(self.testServer->Start(), @"Server did not start.");
   const GURL URL = self.testServer->GetURL("/destination.html");
   [ChromeEarlGrey loadURL:URL];
   [[EarlGrey selectElementWithMatcher:OmniboxText(URL.GetContent())]
@@ -110,7 +114,7 @@ void WaitForOmniboxSuggestion(NSString* suggestion, int suggestionID) {
     EARL_GREY_TEST_SKIPPED(@"Test not support on iPad");
   }
 
-  const GURL URL = web::test::HttpServer::MakeUrl("http://origin");
+  const GURL URL = self.testServer->GetURL("/echo");
 
   [ChromeEarlGrey loadURL:URL];
 
@@ -143,7 +147,7 @@ void WaitForOmniboxSuggestion(NSString* suggestion, int suggestionID) {
     EARL_GREY_TEST_SKIPPED(@"Test not support on iPhone");
   }
 
-  const GURL URL = web::test::HttpServer::MakeUrl("http://origin");
+  const GURL URL = self.testServer->GetURL("/echo");
 
   [ChromeEarlGrey loadURL:URL];
 
@@ -162,15 +166,13 @@ void WaitForOmniboxSuggestion(NSString* suggestion, int suggestionID) {
 // Tests whether input mode in an omnibox can be canceled via tapping the typing
 // shield and asserts it doesn't commit the omnibox contents if the input is
 // canceled.
-// TODO(crbug.com/753098): Re-enable this test on iPad once grey_typeText
-// works on iOS 11.
-- (void)DISABLED_testToolbarOmniboxTypingShield {
+- (void)testToolbarOmniboxTypingShield {
   // Tablet only (handset keyboard does not have "hide keyboard" button).
   if (![ChromeEarlGrey isIPadIdiom]) {
-    EARL_GREY_TEST_SKIPPED(@"Test not support on iPhone");
+    EARL_GREY_TEST_SKIPPED(@"There is no typing shield on iPhone, skip.");
   }
 
-  const GURL URL = web::test::HttpServer::MakeUrl("http://origin");
+  const GURL URL = self.testServer->GetURL("/echo");
 
   [ChromeEarlGrey loadURL:URL];
 
@@ -239,10 +241,9 @@ void WaitForOmniboxSuggestion(NSString* suggestion, int suggestionID) {
     [UIPasteboard generalPasteboard].string = @"";
   }];
 
-  std::map<GURL, std::string> responses;
   // The URL needs to be long enough so the tap to the omnibox selects it.
-  const GURL URL = web::test::HttpServer::MakeUrl("http://veryLongURLTestPage");
-  const GURL secondURL = web::test::HttpServer::MakeUrl("http://pastePage");
+  const GURL URL = self.testServer->GetURL("http://veryLongURLTestPage");
+  const GURL secondURL = self.testServer->GetURL("http://pastePage");
 
   [ChromeEarlGrey loadURL:URL];
 
@@ -293,13 +294,7 @@ void WaitForOmniboxSuggestion(NSString* suggestion, int suggestionID) {
 
 // Verifies that the clear text button clears any text in the omnibox.
 - (void)testOmniboxClearTextButton {
-  // TODO(crbug.com/753098): Re-enable this test on iPad once grey_typeText
-  // works.
-  if ([ChromeEarlGrey isIPadIdiom]) {
-    EARL_GREY_TEST_DISABLED(@"Test disabled on iPad.");
-  }
-
-  const GURL URL = web::test::HttpServer::MakeUrl("http://origin");
+  const GURL URL = self.testServer->GetURL("/echo");
 
   [ChromeEarlGrey loadURL:URL];
   [[EarlGrey selectElementWithMatcher:chrome_test_util::DefocusedLocationView()]
@@ -321,23 +316,15 @@ void WaitForOmniboxSuggestion(NSString* suggestion, int suggestionID) {
 
 // Types JavaScript into Omnibox and verify that an alert is displayed.
 - (void)testTypeJavaScriptIntoOmnibox {
-// TODO(crbug.com/1067819): Test won't pass on iPad devices.
-#if !TARGET_IPHONE_SIMULATOR
-  if ([ChromeEarlGrey isIPadIdiom]) {
-    EARL_GREY_TEST_SKIPPED(@"This test doesn't pass on iPad device.");
-  }
-#endif
-  std::map<GURL, std::string> responses;
-  GURL URL = web::test::HttpServer::MakeUrl("http://foo");
-  responses[URL] = "bar";
-  web::test::SetUpSimpleHttpServer(responses);
-  [ChromeEarlGrey loadURL:GURL(URL)];
+  [ChromeEarlGrey loadURL:self.testServer->GetURL("/echo")];
 
-  [ChromeEarlGreyUI focusOmniboxAndType:@"javascript:alert('Hello');\n"];
+  [ChromeEarlGreyUI
+      focusOmniboxAndType:@"javascript:alert('JS Alert Text');\n"];
 
   ConditionBlock condition = ^{
     NSError* error = nil;
-    [[EarlGrey selectElementWithMatcher:grey_accessibilityLabel(@"Hello")]
+    [[EarlGrey
+        selectElementWithMatcher:grey_accessibilityLabel(@"JS Alert Text")]
         assertWithMatcher:grey_sufficientlyVisible()
                     error:&error];
     return error == nil;
@@ -352,12 +339,6 @@ void WaitForOmniboxSuggestion(NSString* suggestion, int suggestionID) {
 // not displayed. WebUI pages have elevated privileges and should not allow
 // script execution.
 - (void)testTypeJavaScriptIntoOmniboxWithWebUIPage {
-// TODO(crbug.com/1067819): Test won't pass on iPad devices.
-#if !TARGET_IPHONE_SIMULATOR
-  if ([ChromeEarlGrey isIPadIdiom]) {
-    EARL_GREY_TEST_SKIPPED(@"This test doesn't pass on iPad device.");
-  }
-#endif
   [ChromeEarlGrey loadURL:GURL("chrome://version")];
   [ChromeEarlGreyUI focusOmniboxAndType:@"javascript:alert('Hello');\n"];
 
@@ -377,35 +358,35 @@ void WaitForOmniboxSuggestion(NSString* suggestion, int suggestionID) {
 
   [[EarlGrey selectElementWithMatcher:chrome_test_util::NewTabPageOmnibox()]
       performAction:grey_typeText(@"a")];
-  WaitForOmniboxSuggestion(@"a", 0);
+  WaitForOmniboxSuggestion(@"a", 0, 0);
 
   [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
       performAction:grey_typeText(@"b")];
-  WaitForOmniboxSuggestion(@"ab", 0);
+  WaitForOmniboxSuggestion(@"ab", 0, 0);
 
   [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
       performAction:grey_typeText(@"C")];
-  WaitForOmniboxSuggestion(@"abC", 0);
+  WaitForOmniboxSuggestion(@"abC", 0, 0);
 
   [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
       performAction:grey_typeText(@"1")];
-  WaitForOmniboxSuggestion(@"abC1", 0);
+  WaitForOmniboxSuggestion(@"abC1", 0, 0);
 
   [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
       performAction:grey_typeText(@"2")];
-  WaitForOmniboxSuggestion(@"abC12", 0);
+  WaitForOmniboxSuggestion(@"abC12", 0, 0);
 
   [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
       performAction:grey_typeText(@"@")];
-  WaitForOmniboxSuggestion(@"abC12@", 0);
+  WaitForOmniboxSuggestion(@"abC12@", 0, 0);
 
   [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
       performAction:grey_typeText(@"{")];
-  WaitForOmniboxSuggestion(@"abC12@{", 0);
+  WaitForOmniboxSuggestion(@"abC12@{", 0, 0);
 
   [[EarlGrey selectElementWithMatcher:chrome_test_util::Omnibox()]
       performAction:grey_typeText(@"#")];
-  WaitForOmniboxSuggestion(@"abC12@{#", 0);
+  WaitForOmniboxSuggestion(@"abC12@{#", 0, 0);
 
   id<GREYMatcher> cancelButton =
       grey_accessibilityID(kToolbarCancelOmniboxEditButtonIdentifier);

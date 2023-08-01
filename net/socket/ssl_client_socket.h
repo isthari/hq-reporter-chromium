@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include "base/observer_list.h"
 #include "net/base/net_export.h"
 #include "net/cert/cert_database.h"
+#include "net/cert/cert_verifier.h"
 #include "net/socket/ssl_socket.h"
 #include "net/ssl/ssl_client_auth_cache.h"
 #include "net/ssl/ssl_config_service.h"
@@ -22,7 +23,6 @@
 namespace net {
 
 class CTPolicyEnforcer;
-class CertVerifier;
 class HostPortPair;
 class SCTAuditingDelegate;
 class SSLClientSessionCache;
@@ -80,22 +80,29 @@ class NET_EXPORT SSLClientSocket : public SSLSocket {
                            ConnectSignedCertTimestampsEnablesOCSP);
 
   // True if SCTs were received via a TLS extension.
-  bool signed_cert_timestamps_received_;
+  bool signed_cert_timestamps_received_ = false;
   // True if a stapled OCSP response was received.
-  bool stapled_ocsp_response_received_;
+  bool stapled_ocsp_response_received_ = false;
 };
 
 // Shared state and configuration across multiple SSLClientSockets.
 class NET_EXPORT SSLClientContext : public SSLConfigService::Observer,
+                                    public CertVerifier::Observer,
                                     public CertDatabase::Observer {
  public:
+  enum class SSLConfigChangeType {
+    kSSLConfigChanged,
+    kCertDatabaseChanged,
+    kCertVerifierChanged,
+  };
+
   class NET_EXPORT Observer : public base::CheckedObserver {
    public:
     // Called when SSL configuration for all hosts changed. Newly-created
     // SSLClientSockets will pick up the new configuration. Note that changes
     // which only apply to one server will result in a call to
     // OnSSLConfigForServerChanged() instead.
-    virtual void OnSSLConfigChanged(bool is_cert_database_change) = 0;
+    virtual void OnSSLConfigChanged(SSLConfigChangeType change_type) = 0;
     // Called when SSL configuration for |server| changed. Newly-created
     // SSLClientSockets to |server| will pick up the new configuration.
     virtual void OnSSLConfigForServerChanged(const HostPortPair& server) = 0;
@@ -181,11 +188,14 @@ class NET_EXPORT SSLClientContext : public SSLConfigService::Observer,
   // SSLConfigService::Observer:
   void OnSSLContextConfigChanged() override;
 
+  // CertVerifier::Observer:
+  void OnCertVerifierChanged() override;
+
   // CertDatabase::Observer:
   void OnCertDBChanged() override;
 
  private:
-  void NotifySSLConfigChanged(bool is_cert_database_change);
+  void NotifySSLConfigChanged(SSLConfigChangeType change_type);
   void NotifySSLConfigForServerChanged(const HostPortPair& server);
 
   SSLContextConfig config_;

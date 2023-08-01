@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,16 +6,16 @@
 
 #include <vector>
 
-#include "base/bind.h"
 #include "base/compiler_specific.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
 #include "base/rand_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/synchronization/waitable_event.h"
-#include "base/task/post_task.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/test/task_environment.h"
+#include "base/time/time.h"
 #include "base/timer/elapsed_timer.h"
 #include "net/base/test_completion_callback.h"
 #include "net/cookies/canonical_cookie.h"
@@ -58,8 +58,7 @@ perf_test::PerfResultReporter SetUpSQLPCSReporter(const std::string& story) {
 class SQLitePersistentCookieStorePerfTest : public testing::Test {
  public:
   SQLitePersistentCookieStorePerfTest()
-      : seed_multiple_(1),
-        test_start_(base::Time::Now()),
+      : test_start_(base::Time::Now()),
         loaded_event_(base::WaitableEvent::ResetPolicy::AUTOMATIC,
                       base::WaitableEvent::InitialState::NOT_SIGNALED),
         key_loaded_event_(base::WaitableEvent::ResetPolicy::AUTOMATIC,
@@ -89,15 +88,16 @@ class SQLitePersistentCookieStorePerfTest : public testing::Test {
     std::string domain_name(base::StringPrintf(".domain_%d.com", domain_num));
     return *CanonicalCookie::CreateUnsafeCookieForTesting(
         base::StringPrintf("Cookie_%d", cookie_num), "1", domain_name, "/", t,
-        t, t, false, false, CookieSameSite::NO_RESTRICTION,
+        t, t, t, false, false, CookieSameSite::NO_RESTRICTION,
         COOKIE_PRIORITY_DEFAULT, false);
   }
 
   void SetUp() override {
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
-    store_ = new SQLitePersistentCookieStore(
+    store_ = base::MakeRefCounted<SQLitePersistentCookieStore>(
         temp_dir_.GetPath().Append(cookie_filename), client_task_runner_,
-        background_task_runner_, false, nullptr);
+        background_task_runner_, /*restore_old_session_cookies=*/true,
+        /*crypto_delegate=*/nullptr, /*enable_exclusive_access=*/false);
     std::vector<CanonicalCookie*> cookies;
     Load();
     ASSERT_EQ(0u, cookies_.size());
@@ -114,9 +114,10 @@ class SQLitePersistentCookieStorePerfTest : public testing::Test {
     // Flush ThreadPool tasks, causing pending commits to run.
     task_environment_.RunUntilIdle();
 
-    store_ = new SQLitePersistentCookieStore(
+    store_ = base::MakeRefCounted<SQLitePersistentCookieStore>(
         temp_dir_.GetPath().Append(cookie_filename), client_task_runner_,
-        background_task_runner_, false, nullptr);
+        background_task_runner_, /*restore_old_session_cookies=*/true,
+        /*crypto_delegate=*/nullptr, /*enable_exclusive_access=*/false);
   }
 
   // Pick a random cookie out of the 15000 in the store and return it.
@@ -146,7 +147,7 @@ class SQLitePersistentCookieStorePerfTest : public testing::Test {
   }
 
  protected:
-  int seed_multiple_;
+  int seed_multiple_ = 1;
   base::Time test_start_;
   base::test::TaskEnvironment task_environment_;
   const scoped_refptr<base::SequencedTaskRunner> background_task_runner_ =

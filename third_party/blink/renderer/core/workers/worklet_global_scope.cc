@@ -1,16 +1,17 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/renderer/core/workers/worklet_global_scope.h"
 
 #include <memory>
+#include "base/task/single_thread_task_runner.h"
 #include "services/metrics/public/cpp/mojo_ukm_recorder.h"
 #include "third_party/blink/public/common/browser_interface_broker_proxy.h"
 #include "third_party/blink/public/common/thread_safe_browser_interface_broker_proxy.h"
+#include "third_party/blink/public/mojom/devtools/inspector_issue.mojom-blink.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
 #include "third_party/blink/public/platform/task_type.h"
-#include "third_party/blink/renderer/bindings/core/v8/source_location.h"
 #include "third_party/blink/renderer/bindings/core/v8/worker_or_worklet_script_controller.h"
 #include "third_party/blink/renderer/core/execution_context/agent.h"
 #include "third_party/blink/renderer/core/frame/frame_console.h"
@@ -32,6 +33,7 @@
 #include "third_party/blink/renderer/core/workers/worklet_module_responses_map.h"
 #include "third_party/blink/renderer/core/workers/worklet_module_tree_client.h"
 #include "third_party/blink/renderer/core/workers/worklet_pending_tasks.h"
+#include "third_party/blink/renderer/platform/bindings/source_location.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_client_settings_object_snapshot.h"
 
 namespace blink {
@@ -52,14 +54,15 @@ WorkletGlobalScope::WorkletGlobalScope(
 WorkletGlobalScope::WorkletGlobalScope(
     std::unique_ptr<GlobalScopeCreationParams> creation_params,
     WorkerReportingProxy& reporting_proxy,
-    WorkerThread* worker_thread)
+    WorkerThread* worker_thread,
+    bool create_microtask_queue)
     : WorkletGlobalScope(std::move(creation_params),
                          reporting_proxy,
                          worker_thread->GetIsolate(),
                          ThreadType::kOffMainThread,
                          nullptr /* frame */,
                          worker_thread,
-                         false /* create_microtask_queue */) {}
+                         create_microtask_queue) {}
 
 // Partial implementation of the "set up a worklet environment settings object"
 // algorithm:
@@ -89,7 +92,9 @@ WorkletGlobalScope::WorkletGlobalScope(
           creation_params->worker_clients,
           std::move(creation_params->content_settings_client),
           std::move(creation_params->web_worker_fetch_context),
-          reporting_proxy),
+          reporting_proxy,
+          /*is_worker_loaded_from_data_url=*/false),
+      ActiveScriptWrappable<WorkletGlobalScope>({}),
       url_(creation_params->script_url),
       user_agent_(creation_params->user_agent),
       document_security_origin_(creation_params->starter_origin),
@@ -99,19 +104,22 @@ WorkletGlobalScope::WorkletGlobalScope(
       thread_type_(thread_type),
       frame_(frame),
       worker_thread_(worker_thread),
-      // Worklets should always have a parent LocalFrameToken.
+      // Worklets should often have a parent LocalFrameToken. Only shared
+      // storage worklet does not have it.
       frame_token_(
-          creation_params->parent_context_token->GetAs<LocalFrameToken>()),
+          creation_params->parent_context_token
+              ? creation_params->parent_context_token->GetAs<LocalFrameToken>()
+              : blink::LocalFrameToken()),
       parent_cross_origin_isolated_capability_(
           creation_params->parent_cross_origin_isolated_capability),
-      parent_direct_socket_capability_(
-          creation_params->parent_direct_socket_capability) {
+      parent_is_isolated_context_(creation_params->parent_is_isolated_context) {
   DCHECK((thread_type_ == ThreadType::kMainThread && frame_) ||
          (thread_type_ == ThreadType::kOffMainThread && worker_thread_));
 
   // Worklet should be in the owner's agent cluster.
   // https://html.spec.whatwg.org/C/#obtain-a-worklet-agent
-  DCHECK(creation_params->agent_cluster_id);
+  DCHECK(creation_params->agent_cluster_id ||
+         !creation_params->parent_context_token);
 
   // Step 2: "Let inheritedAPIBaseURL be outsideSettings's API base URL."
   // |url_| is the inheritedAPIBaseURL passed from the parent Document.
@@ -136,10 +144,12 @@ WorkletGlobalScope::WorkletGlobalScope(
   DCHECK_EQ(creation_params->ukm_source_id, ukm::kInvalidSourceId);
 
   if (creation_params->code_cache_host_interface.is_valid()) {
-    code_cache_host_ =
-        std::make_unique<CodeCacheHost>(mojo::Remote<mojom::CodeCacheHost>(
+    code_cache_host_ = std::make_unique<CodeCacheHost>(
+        mojo::Remote<mojom::blink::CodeCacheHost>(
             std::move(creation_params->code_cache_host_interface)));
   }
+
+  blob_url_store_pending_remote_ = std::move(creation_params->blob_url_store);
 }
 
 WorkletGlobalScope::~WorkletGlobalScope() = default;
@@ -307,20 +317,30 @@ bool WorkletGlobalScope::CrossOriginIsolatedCapability() const {
   return parent_cross_origin_isolated_capability_;
 }
 
-bool WorkletGlobalScope::DirectSocketCapability() const {
-  return parent_direct_socket_capability_;
+bool WorkletGlobalScope::IsIsolatedContext() const {
+  return parent_is_isolated_context_;
 }
 
 ukm::UkmRecorder* WorkletGlobalScope::UkmRecorder() {
   if (ukm_recorder_)
     return ukm_recorder_.get();
 
-  mojo::PendingRemote<ukm::mojom::UkmRecorderInterface> recorder;
+  mojo::Remote<ukm::mojom::UkmRecorderFactory> factory;
   GetBrowserInterfaceBroker().GetInterface(
-      recorder.InitWithNewPipeAndPassReceiver());
-  ukm_recorder_ = std::make_unique<ukm::MojoUkmRecorder>(std::move(recorder));
+      factory.BindNewPipeAndPassReceiver());
+  ukm_recorder_ = ukm::MojoUkmRecorder::Create(*factory);
 
   return ukm_recorder_.get();
+}
+
+ukm::SourceId WorkletGlobalScope::UkmSourceID() const {
+  return ukm::kInvalidSourceId;
+}
+
+mojo::PendingRemote<mojom::blink::BlobURLStore>
+WorkletGlobalScope::TakeBlobUrlStorePendingRemote() {
+  DCHECK(blob_url_store_pending_remote_.is_valid());
+  return std::move(blob_url_store_pending_remote_);
 }
 
 void WorkletGlobalScope::Trace(Visitor* visitor) const {

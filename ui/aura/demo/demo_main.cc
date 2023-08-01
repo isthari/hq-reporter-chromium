@@ -1,12 +1,12 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <memory>
 
 #include "base/at_exit.h"
-#include "base/callback.h"
 #include "base/command_line.h"
+#include "base/functional/callback.h"
 #include "base/i18n/icu_util.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
@@ -39,14 +39,14 @@
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/skia_conversions.h"
-#include "ui/gl/gl_switches.h"
+#include "ui/gl/gl_utils.h"
 #include "ui/gl/init/gl_factory.h"
 
 #if BUILDFLAG(IS_WIN)
 #include "ui/display/win/dpi.h"
 #endif
 
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
 #include "ui/ozone/public/ozone_platform.h"
 #endif
 
@@ -90,7 +90,7 @@ class DemoWindowDelegate : public aura::WindowDelegate {
     // Fill with a non-solid color so that the compositor will exercise its
     // texture upload path.
     while (!r.IsEmpty()) {
-      r.Inset(2, 2);
+      r.Inset(2);
       recorder.canvas()->FillRect(r, color_, SkBlendMode::kXor);
     }
   }
@@ -163,13 +163,13 @@ void RunRunLoopUntilOnHostCloseRequested(aura::WindowTreeHost* host) {
 }
 
 int DemoMain() {
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
   ui::OzonePlatform::InitParams params;
   params.single_process = true;
   ui::OzonePlatform::InitializeForUI(params);
   ui::OzonePlatform::InitializeForGPU(params);
 #endif
-  gl::init::InitializeGLOneOff();
+  gl::init::InitializeGLOneOff(/*gpu_preference=*/gl::GpuPreference::kDefault);
 
 #if BUILDFLAG(IS_WIN)
   display::win::SetDefaultDeviceScaleFactor(1.0f);
@@ -188,8 +188,7 @@ int DemoMain() {
   host_frame_sink_manager.SetLocalManager(&frame_sink_manager);
   frame_sink_manager.SetLocalClient(&host_frame_sink_manager);
   auto context_factory = std::make_unique<ui::InProcessContextFactory>(
-      &host_frame_sink_manager, &frame_sink_manager);
-  context_factory->set_use_test_surface(false);
+      &host_frame_sink_manager, &frame_sink_manager, /*output_to_window=*/true);
 
   base::PowerMonitor::Initialize(
       std::make_unique<base::PowerMonitorDeviceSource>());
@@ -251,8 +250,7 @@ int main(int argc, char** argv) {
   // Disabling Direct Composition works around the limitation that
   // InProcessContextFactory doesn't work with Direct Composition, causing the
   // window to not render. See http://crbug.com/936249.
-  base::CommandLine::ForCurrentProcess()->AppendSwitch(
-      switches::kDisableDirectComposition);
+  gl::SetGlWorkarounds(gl::GlWorkarounds{.disable_direct_composition = true});
 
   // The exit manager is in charge of calling the dtors of singleton objects.
   base::AtExitManager exit_manager;

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,10 @@
 #include "services/shape_detection/detection_utils_mac.h"
 #include "services/shape_detection/text_detection_impl.h"
 
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
+
 namespace shape_detection {
 
 // static
@@ -22,16 +26,16 @@ void TextDetectionImpl::Create(
 
 TextDetectionImplMac::TextDetectionImplMac() {
   NSDictionary* const opts = @{CIDetectorAccuracy : CIDetectorAccuracyHigh};
-  detector_.reset(
-      [[CIDetector detectorOfType:CIDetectorTypeText context:nil options:opts]
-          retain]);
+  detector_ = [CIDetector detectorOfType:CIDetectorTypeText
+                                 context:nil
+                                 options:opts];
 }
 
-TextDetectionImplMac::~TextDetectionImplMac() {}
+TextDetectionImplMac::~TextDetectionImplMac() = default;
 
 void TextDetectionImplMac::Detect(const SkBitmap& bitmap,
                                   DetectCallback callback) {
-  base::scoped_nsobject<CIImage> ci_image = CreateCIImageFromSkBitmap(bitmap);
+  CIImage* ci_image = CIImageFromSkBitmap(bitmap);
   if (!ci_image) {
     std::move(callback).Run({});
     return;

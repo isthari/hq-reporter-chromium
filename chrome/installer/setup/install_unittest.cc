@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@
 #include <tuple>
 
 #include "base/base_paths.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -25,6 +24,7 @@
 #include "base/win/scoped_com_initializer.h"
 #include "base/win/shortcut.h"
 #include "build/branding_buildflags.h"
+#include "chrome/browser/chrome_for_testing/buildflags.h"
 #include "chrome/install_static/install_details.h"
 #include "chrome/install_static/install_modes.h"
 #include "chrome/install_static/test/scoped_install_details.h"
@@ -37,6 +37,7 @@
 #include "chrome/installer/util/installer_util_strings.h"
 #include "chrome/installer/util/l10n_string_util.h"
 #include "chrome/installer/util/shell_util.h"
+#include "chrome/installer/util/taskbar_util.h"
 #include "chrome/installer/util/util_constants.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -87,8 +88,7 @@ class CreateVisualElementsManifestTest
   // Creates a dummy test file at |path|.
   void CreateTestFile(const base::FilePath& path) {
     static constexpr char kBlah[] = "blah";
-    ASSERT_EQ(static_cast<int>(base::size(kBlah) - 1),
-              base::WriteFile(path, &kBlah[0], base::size(kBlah) - 1));
+    ASSERT_TRUE(base::WriteFile(path, kBlah));
   }
 
   // Creates the VisualElements directory and a light asset, if testing such.
@@ -197,6 +197,13 @@ INSTANTIATE_TEST_SUITE_P(
     CreateVisualElementsManifestTest,
     testing::Combine(testing::Values(install_static::CANARY_INDEX),
                      testing::Values(kExpectedCanaryManifest)));
+#elif BUILDFLAG(GOOGLE_CHROME_FOR_TESTING_BRANDING)
+INSTANTIATE_TEST_SUITE_P(
+    ChromeForTesting,
+    CreateVisualElementsManifestTest,
+    testing::Combine(
+        testing::Values(install_static::GOOGLE_CHROME_FOR_TESTING_INDEX),
+        testing::Values(kExpectedPrimaryManifest)));
 #else
 INSTANTIATE_TEST_SUITE_P(
     Chromium,
@@ -211,7 +218,7 @@ class InstallShortcutTest : public testing::Test {
     ASSERT_TRUE(com_initializer_.Succeeded());
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
     chrome_exe_ = temp_dir_.GetPath().Append(installer::kChromeExe);
-    EXPECT_EQ(0, base::WriteFile(chrome_exe_, "", 0));
+    EXPECT_TRUE(base::WriteFile(chrome_exe_, ""));
 
     ShellUtil::ShortcutProperties chrome_properties(ShellUtil::CURRENT_USER);
     ShellUtil::AddDefaultShortcutProperties(chrome_exe_, &chrome_properties);
@@ -225,7 +232,7 @@ class InstallShortcutTest : public testing::Test {
     expected_start_menu_properties_ = expected_properties_;
     expected_start_menu_properties_.set_dual_mode(false);
 
-    prefs_.reset(GetFakeMasterPrefs(false, false));
+    prefs_.reset(GetFakeInitialPrefs(false, false));
 
     ASSERT_TRUE(fake_user_desktop_.CreateUniqueTempDir());
     ASSERT_TRUE(fake_common_desktop_.CreateUniqueTempDir());
@@ -268,13 +275,13 @@ class InstallShortcutTest : public testing::Test {
   void TearDown() override {
     // Try to unpin potentially pinned shortcuts (although pinning isn't tested,
     // the call itself might still have pinned the Start Menu shortcuts).
-    base::win::UnpinShortcutFromTaskbar(user_start_menu_shortcut_);
-    base::win::UnpinShortcutFromTaskbar(user_start_menu_subdir_shortcut_);
-    base::win::UnpinShortcutFromTaskbar(system_start_menu_shortcut_);
-    base::win::UnpinShortcutFromTaskbar(system_start_menu_subdir_shortcut_);
+    UnpinShortcutFromTaskbar(user_start_menu_shortcut_);
+    UnpinShortcutFromTaskbar(user_start_menu_subdir_shortcut_);
+    UnpinShortcutFromTaskbar(system_start_menu_shortcut_);
+    UnpinShortcutFromTaskbar(system_start_menu_subdir_shortcut_);
   }
 
-  installer::InitialPreferences* GetFakeMasterPrefs(
+  installer::InitialPreferences* GetFakeInitialPrefs(
       bool do_not_create_desktop_shortcut,
       bool do_not_create_quick_launch_shortcut) {
     const struct {
@@ -288,7 +295,7 @@ class InstallShortcutTest : public testing::Test {
     };
 
     std::string initial_prefs("{\"distribution\":{");
-    for (size_t i = 0; i < base::size(desired_prefs); ++i) {
+    for (size_t i = 0; i < std::size(desired_prefs); ++i) {
       initial_prefs += (i == 0 ? "\"" : ",\"");
       initial_prefs += desired_prefs[i].pref_name;
       initial_prefs += "\":";
@@ -377,7 +384,7 @@ TEST_F(InstallShortcutTest, CreateAllShortcutsSystemLevel) {
 
 TEST_F(InstallShortcutTest, CreateAllShortcutsButDesktopShortcut) {
   std::unique_ptr<installer::InitialPreferences> prefs_no_desktop(
-      GetFakeMasterPrefs(true, false));
+      GetFakeInitialPrefs(true, false));
   installer::CreateOrUpdateShortcuts(chrome_exe_, *prefs_no_desktop,
                                      installer::CURRENT_USER,
                                      installer::INSTALL_SHORTCUT_CREATE_ALL);
@@ -390,7 +397,7 @@ TEST_F(InstallShortcutTest, CreateAllShortcutsButDesktopShortcut) {
 
 TEST_F(InstallShortcutTest, CreateAllShortcutsButQuickLaunchShortcut) {
   std::unique_ptr<installer::InitialPreferences> prefs_no_ql(
-      GetFakeMasterPrefs(false, true));
+      GetFakeInitialPrefs(false, true));
   installer::CreateOrUpdateShortcuts(chrome_exe_, *prefs_no_ql,
                                      installer::CURRENT_USER,
                                      installer::INSTALL_SHORTCUT_CREATE_ALL);

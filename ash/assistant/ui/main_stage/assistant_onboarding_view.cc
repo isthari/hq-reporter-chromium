@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,12 +17,12 @@
 #include "ash/assistant/ui/main_stage/assistant_onboarding_suggestion_view.h"
 #include "ash/public/cpp/assistant/controller/assistant_suggestions_controller.h"
 #include "ash/public/cpp/assistant/controller/assistant_ui_controller.h"
-#include "ash/public/cpp/style/color_provider.h"
-#include "ash/public/cpp/style/scoped_light_mode_as_default.h"
 #include "ash/strings/grit/ash_strings.h"
+#include "ash/style/ash_color_id.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/color/color_provider.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/views/background.h"
 #include "ui/views/border.h"
@@ -35,8 +35,8 @@ namespace ash {
 
 namespace {
 
-using chromeos::assistant::AssistantSuggestion;
-using chromeos::assistant::AssistantSuggestionType;
+using assistant::AssistantSuggestion;
+using assistant::AssistantSuggestionType;
 
 // Greeting.
 constexpr int kGreetingLabelLineHeight = 28;
@@ -143,12 +143,10 @@ void AssistantOnboardingView::ChildPreferredSizeChanged(views::View* child) {
 void AssistantOnboardingView::OnThemeChanged() {
   views::View::OnThemeChanged();
 
-  ScopedAssistantLightModeAsDefault scoped_light_mode_as_default;
-
-  greeting_->SetEnabledColor(ColorProvider::Get()->GetContentLayerColor(
-      ColorProvider::ContentLayerType::kTextColorPrimary));
-  intro_->SetEnabledColor(ColorProvider::Get()->GetContentLayerColor(
-      ColorProvider::ContentLayerType::kTextColorPrimary));
+  SkColor greeting_color =
+      GetColorProvider()->GetColor(kColorAshAssistantGreetingEnabled);
+  greeting_->SetEnabledColor(greeting_color);
+  intro_->SetEnabledColor(greeting_color);
 }
 
 void AssistantOnboardingView::OnAssistantControllerDestroying() {
@@ -181,7 +179,7 @@ void AssistantOnboardingView::OnUiVisibilityChanged(
 void AssistantOnboardingView::InitLayout() {
   SetLayoutManager(std::make_unique<views::BoxLayout>(
       views::BoxLayout::Orientation::kVertical,
-      gfx::Insets(0, assistant::ui::GetHorizontalMargin())));
+      gfx::Insets::VH(0, assistant::ui::kHorizontalMargin)));
 
   // Greeting.
   greeting_ = AddChildView(std::make_unique<views::Label>());
@@ -196,7 +194,8 @@ void AssistantOnboardingView::InitLayout() {
   // Intro.
   intro_ = AddChildView(std::make_unique<views::Label>());
   intro_->SetAutoColorReadabilityEnabled(false);
-  intro_->SetBorder(views::CreateEmptyBorder(kIntroLabelMarginTopDip, 0, 0, 0));
+  intro_->SetBorder(views::CreateEmptyBorder(
+      gfx::Insets::TLBR(kIntroLabelMarginTopDip, 0, 0, 0)));
   intro_->SetFontList(assistant::ui::GetDefaultFontList()
                           .DeriveWithSizeDelta(kIntroLabelSizeDelta)
                           .DeriveWithWeight(gfx::Font ::Weight::MEDIUM));
@@ -212,11 +211,11 @@ void AssistantOnboardingView::InitLayout() {
 
 void AssistantOnboardingView::UpdateSuggestions() {
   if (table_)
-    RemoveChildViewT(table_);
+    RemoveChildViewT(table_.get());
 
   table_ = AddChildView(std::make_unique<views::TableLayoutView>());
-  table_->SetBorder(
-      views::CreateEmptyBorder(kSuggestionsMarginTopDip, 0, 0, 0));
+  table_->SetBorder(views::CreateEmptyBorder(
+      gfx::Insets::TLBR(kSuggestionsMarginTopDip, 0, 0, 0)));
 
   // Initialize columns.
   for (int i = 0; i < kSuggestionsColumnCount; ++i) {

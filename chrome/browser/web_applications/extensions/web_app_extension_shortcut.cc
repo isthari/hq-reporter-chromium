@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,19 +7,22 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_forward.h"
+#include "base/functional/callback_helpers.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/no_destructor.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/task/task_traits.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/extensions/extension_ui_util.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/web_applications/os_integration/os_integration_manager.h"
+#include "chrome/browser/web_applications/web_app_constants.h"
 #include "chrome/browser/web_applications/web_app_id.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/browser/web_applications/web_app_registrar.h"
@@ -35,7 +38,7 @@
 #include "ui/gfx/image/image_skia.h"
 
 #if BUILDFLAG(IS_WIN)
-#include "chrome/browser/web_applications/web_app_shortcut_win.h"
+#include "chrome/browser/web_applications/os_integration/web_app_shortcut_win.h"
 #endif
 
 #if BUILDFLAG(IS_MAC)
@@ -66,13 +69,14 @@ void OnImageLoaded(std::unique_ptr<ShortcutInfo> shortcut_info,
 
 void UpdateAllShortcutsForShortcutInfo(
     const std::u16string& old_app_title,
-    base::OnceClosure callback,
+    ResultCallback callback,
     std::unique_ptr<ShortcutInfo> shortcut_info) {
   base::FilePath shortcut_data_dir =
       internals::GetShortcutDataDir(*shortcut_info);
-  internals::PostShortcutIOTaskAndReply(
+  internals::PostShortcutIOTaskAndReplyWithResult(
       base::BindOnce(&internals::UpdatePlatformShortcuts,
-                     std::move(shortcut_data_dir), old_app_title),
+                     std::move(shortcut_data_dir), old_app_title,
+                     /*user_specified_locations=*/absl::nullopt),
       std::move(shortcut_info), std::move(callback));
 }
 
@@ -109,7 +113,7 @@ void CreateShortcutsWithInfo(ShortcutCreationReason reason,
 
   // If the shortcut is for an application shortcut with the new bookmark app
   // flow disabled, there will be no corresponding extension.
-  if (!shortcut_info->extension_id.empty()) {
+  if (!shortcut_info->app_id.empty()) {
     // The profile manager does not exist in some unit tests.
     if (!g_browser_process->profile_manager()) {
       std::move(callback).Run(false /* created_shortcut */);
@@ -129,11 +133,11 @@ void CreateShortcutsWithInfo(ShortcutCreationReason reason,
     extensions::ExtensionRegistry* registry =
         extensions::ExtensionRegistry::Get(profile);
     const extensions::Extension* extension = registry->GetExtensionById(
-        shortcut_info->extension_id, extensions::ExtensionRegistry::EVERYTHING);
+        shortcut_info->app_id, extensions::ExtensionRegistry::EVERYTHING);
     bool is_app_installed = false;
     auto* app_provider = WebAppProvider::GetForWebApps(profile);
     if (app_provider &&
-        app_provider->registrar().IsInstalled(shortcut_info->extension_id)) {
+        app_provider->registrar_unsafe().IsInstalled(shortcut_info->app_id)) {
       is_app_installed = true;
     }
 
@@ -163,10 +167,10 @@ void GetShortcutInfoForApp(const extensions::Extension* extension,
         extensions::IconsInfo::GetIconResource(extension, size,
                                                ExtensionIconSet::MATCH_EXACTLY);
     if (!resource.empty()) {
-      info_list.push_back(extensions::ImageLoader::ImageRepresentation(
+      info_list.emplace_back(
           resource, extensions::ImageLoader::ImageRepresentation::ALWAYS_RESIZE,
           gfx::Size(size, size),
-          GetScaleForResourceScaleFactor(ui::k100Percent)));
+          GetScaleForResourceScaleFactor(ui::k100Percent));
     }
   }
 
@@ -183,10 +187,9 @@ void GetShortcutInfoForApp(const extensions::Extension* extension,
       resource = extensions::IconsInfo::GetIconResource(
           extension, size, ExtensionIconSet::MATCH_SMALLER);
     }
-    info_list.push_back(extensions::ImageLoader::ImageRepresentation(
+    info_list.emplace_back(
         resource, extensions::ImageLoader::ImageRepresentation::ALWAYS_RESIZE,
-        gfx::Size(size, size),
-        GetScaleForResourceScaleFactor(ui::k100Percent)));
+        gfx::Size(size, size), GetScaleForResourceScaleFactor(ui::k100Percent));
   }
 
   // |info_list| may still be empty at this point, in which case
@@ -203,7 +206,7 @@ std::unique_ptr<ShortcutInfo> ShortcutInfoForExtensionAndProfile(
     Profile* profile) {
   auto shortcut_info = std::make_unique<ShortcutInfo>();
 
-  shortcut_info->extension_id = app->id();
+  shortcut_info->app_id = app->id();
   shortcut_info->url = extensions::AppLaunchInfo::GetLaunchWebURL(app);
   shortcut_info->title = base::UTF8ToUTF16(app->name());
   shortcut_info->description = base::UTF8ToUTF16(app->description());
@@ -290,9 +293,16 @@ void UpdateAllShortcuts(const std::u16string& old_app_title,
                         base::OnceClosure callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  GetShortcutInfoForApp(app, profile,
-                        base::BindOnce(&UpdateAllShortcutsForShortcutInfo,
-                                       old_app_title, std::move(callback)));
+  ResultCallback metrics_callback =
+      base::BindOnce([](Result result) {
+        base::UmaHistogramBoolean("WebApp.Shortcuts.Update.Result",
+                                  (result == Result::kOk));
+      }).Then(std::move(callback));
+
+  GetShortcutInfoForApp(
+      app, profile,
+      base::BindOnce(&UpdateAllShortcutsForShortcutInfo, old_app_title,
+                     std::move(metrics_callback)));
 }
 
 #if !BUILDFLAG(IS_MAC)

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,7 @@
 
 #include "base/check.h"
 #include "base/debug/alias.h"
-#include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/profiler/native_unwinder_win.h"
 #include "build/build_config.h"
 
@@ -54,15 +54,15 @@ win::ScopedHandle GetThreadHandle(PlatformThreadId thread_id) {
 
   flags |= THREAD_GET_CONTEXT;
   win::ScopedHandle test_handle1(::OpenThread(flags, FALSE, thread_id));
-  CHECK(test_handle1.IsValid());
+  CHECK(test_handle1.is_valid());
 
   flags |= THREAD_QUERY_INFORMATION;
   win::ScopedHandle test_handle2(::OpenThread(flags, FALSE, thread_id));
-  CHECK(test_handle2.IsValid());
+  CHECK(test_handle2.is_valid());
 
   flags |= THREAD_SUSPEND_RESUME;
   win::ScopedHandle handle(::OpenThread(flags, FALSE, thread_id));
-  CHECK(handle.IsValid());
+  CHECK(handle.is_valid());
   return handle;
 }
 
@@ -75,34 +75,19 @@ const TEB* GetThreadEnvironmentBlock(PlatformThreadId thread_id,
   if (thread_id == ::GetCurrentThreadId())
     return reinterpret_cast<TEB*>(NtCurrentTeb());
 
-  // Define the internal types we need to invoke NtQueryInformationThread.
-  enum THREAD_INFORMATION_CLASS { ThreadBasicInformation };
-
-  struct CLIENT_ID {
-    HANDLE UniqueProcess;
-    HANDLE UniqueThread;
-  };
-
+  // Define types not in winternl.h needed to invoke NtQueryInformationThread().
+  constexpr auto ThreadBasicInformation = static_cast<THREADINFOCLASS>(0);
   struct THREAD_BASIC_INFORMATION {
     NTSTATUS ExitStatus;
-    raw_ptr<TEB> Teb;
+    RAW_PTR_EXCLUSION TEB* Teb;  // Filled in by the OS so cannot use raw_ptr<>.
     CLIENT_ID ClientId;
     KAFFINITY AffinityMask;
     LONG Priority;
     LONG BasePriority;
   };
 
-  using NtQueryInformationThreadFunction =
-      NTSTATUS(WINAPI*)(HANDLE, THREAD_INFORMATION_CLASS, PVOID, ULONG, PULONG);
-
-  static const auto nt_query_information_thread =
-      reinterpret_cast<NtQueryInformationThreadFunction>(::GetProcAddress(
-          ::GetModuleHandle(L"ntdll.dll"), "NtQueryInformationThread"));
-  if (!nt_query_information_thread)
-    return nullptr;
-
   THREAD_BASIC_INFORMATION basic_info = {0};
-  NTSTATUS status = nt_query_information_thread(
+  NTSTATUS status = ::NtQueryInformationThread(
       thread_handle, ThreadBasicInformation, &basic_info,
       sizeof(THREAD_BASIC_INFORMATION), nullptr);
   if (status != 0)
@@ -202,14 +187,14 @@ SuspendableThreadDelegateWin::SuspendableThreadDelegateWin(
     : thread_id_(thread_token.id),
       thread_handle_(GetThreadHandle(thread_token.id)),
       thread_stack_base_address_(reinterpret_cast<uintptr_t>(
-          GetThreadEnvironmentBlock(thread_token.id, thread_handle_.Get())
+          GetThreadEnvironmentBlock(thread_token.id, thread_handle_.get())
               ->Tib.StackBase)) {}
 
 SuspendableThreadDelegateWin::~SuspendableThreadDelegateWin() = default;
 
 std::unique_ptr<SuspendableThreadDelegate::ScopedSuspendThread>
 SuspendableThreadDelegateWin::CreateScopedSuspendThread() {
-  return std::make_unique<ScopedSuspendThread>(thread_handle_.Get());
+  return std::make_unique<ScopedSuspendThread>(thread_handle_.get());
 }
 
 PlatformThreadId SuspendableThreadDelegateWin::GetThreadId() const {
@@ -220,7 +205,7 @@ PlatformThreadId SuspendableThreadDelegateWin::GetThreadId() const {
 bool SuspendableThreadDelegateWin::GetThreadContext(CONTEXT* thread_context) {
   *thread_context = {0};
   thread_context->ContextFlags = CONTEXT_FULL;
-  return ::GetThreadContext(thread_handle_.Get(), thread_context) != 0;
+  return ::GetThreadContext(thread_handle_.get(), thread_context) != 0;
 }
 
 // NO HEAP ALLOCATIONS.

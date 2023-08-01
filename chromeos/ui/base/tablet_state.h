@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define CHROMEOS_UI_BASE_TABLET_STATE_H_
 
 #include "base/component_export.h"
+#include "build/chromeos_buildflags.h"
 #include "ui/display/display_observer.h"
 #include "ui/display/tablet_state.h"
 
@@ -29,15 +30,24 @@ class COMPONENT_EXPORT(CHROMEOS_UI_BASE) TabletState
   // Returns true if the system is in tablet mode.
   bool InTabletMode() const;
 
-  display::TabletState state() const { return state_; }
+  display::TabletState state() const;
 
   // display::DisplayObserver:
   void OnDisplayTabletStateChanged(display::TabletState state) override;
 
+#if BUILDFLAG(IS_CHROMEOS_LACROS)
+  // Enables/disables tablet mode on client side. Not thet this does not modify
+  // server side tablet state.
+  //
+  // DO NOT use this for integration tests such as browser tests. Use this only
+  // on unit-testing.
+  // Use TestController crosapi EnterTabletMode/ExitTabletMode if Ash server is
+  // available since the test may depend on server side behavior.
+  void EnableTabletModeForTesting(bool enable);
+#endif
+
  private:
   display::ScopedDisplayObserver display_observer_{this};
-
-  display::TabletState state_ = display::TabletState::kInClamshellMode;
 };
 
 }  // namespace chromeos

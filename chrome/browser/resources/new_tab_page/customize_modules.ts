@@ -1,40 +1,50 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_elements/cr_icons_css.m.js';
-import 'chrome://resources/cr_elements/cr_toggle/cr_toggle.m.js';
-import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
-import 'chrome://resources/cr_elements/cr_radio_group/cr_radio_group.m.js';
-import 'chrome://resources/cr_elements/cr_radio_button/cr_radio_button.m.js';
-import 'chrome://resources/cr_elements/policy/cr_policy_indicator.m.js';
+import 'chrome://resources/cr_elements/cr_icons.css.js';
+import 'chrome://resources/cr_elements/cr_toggle/cr_toggle.js';
+import 'chrome://resources/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/cr_elements/cr_radio_group/cr_radio_group.js';
+import 'chrome://resources/cr_elements/cr_radio_button/cr_radio_button.js';
+import 'chrome://resources/cr_elements/policy/cr_policy_indicator.js';
 
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {CrRadioButtonElement} from 'chrome://resources/cr_elements/cr_radio_button/cr_radio_button.js';
+import {DomRepeat, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
+import {getTemplate} from './customize_modules.html.js';
 import {I18nMixin, loadTimeData} from './i18n_setup.js';
 import {ChromeCartProxy} from './modules/cart/chrome_cart_proxy.js';
-import {ModuleRegistry} from './modules/module_registry.js';
+import {ModuleIdName} from './new_tab_page.mojom-webui.js';
 import {NewTabPageProxy} from './new_tab_page_proxy.js';
 
-declare global {
-  interface Window {
-    CrPolicyStrings: {[key: string]: string},
-  }
+interface ModuleSetting {
+  name: string;
+  id: string;
+  checked: boolean;
+  initiallyChecked: boolean;
+  disabled: boolean;
 }
 
-type ModuleSetting = {
-  name: string,
-  id: string,
-  checked: boolean,
-  initiallyChecked: boolean,
-  disabled: boolean,
-};
+
+export interface CustomizeModulesElement {
+  $: {
+    container: HTMLElement,
+    customizeButton: CrRadioButtonElement,
+    hideButton: CrRadioButtonElement,
+    toggleRepeat: DomRepeat,
+  };
+}
 
 /** Element that lets the user configure modules settings. */
-class CustomizeModulesElement extends I18nMixin
+export class CustomizeModulesElement extends I18nMixin
 (PolymerElement) {
   static get is() {
     return 'ntp-customize-modules';
+  }
+
+  static get template() {
+    return getTemplate();
   }
 
   static get properties() {
@@ -52,41 +62,43 @@ class CustomizeModulesElement extends I18nMixin
         value: () => loadTimeData.getBoolean('modulesVisibleManagedByPolicy'),
       },
 
-      modules_: {
-        type: Array,
-        value: () => ModuleRegistry.getInstance().getDescriptors().map(
-            d => ({name: d.name, id: d.id, checked: true, hidden: false})),
-      },
+      modules_: Array,
 
-      // Discount toggle is a workaround for crbug.com/1199465 and will be
-      // removed after module customization is better defined. Please avoid
-      // using similar pattern for other features.
-      discountToggle_: {
+      // Cart and Discount option toggles are workarounds for crbug.com/1199465
+      // and will be removed after module customization is better defined.
+      // Please avoid using similar pattern for other features.
+      cartOptionToggle_: {
         type: Object,
         value: {enabled: false, initiallyEnabled: false},
       },
 
-      discountToggleEligible_: {
+      discountOptionToggle_: {
+        type: Object,
+        value: {enabled: false, initiallyEnabled: false},
+      },
+
+      discountOptionToggleEligible_: {
         type: Boolean,
         value: false,
-      }
+      },
     };
   }
 
   private show_: boolean;
   private showManagedByPolicy_: boolean;
   private modules_: ModuleSetting[];
-  private discountToggle_: {enabled: boolean, initiallyEnabled: boolean};
-  private discountToggleEligible_: boolean;
-
+  private cartOptionToggle_: {enabled: boolean, initiallyEnabled: boolean};
+  private discountOptionToggle_: {enabled: boolean, initiallyEnabled: boolean};
+  private discountOptionToggleEligible_: boolean;
   private setDisabledModulesListenerId_: number|null = null;
 
-  connectedCallback() {
+  override connectedCallback() {
     super.connectedCallback();
     this.setDisabledModulesListenerId_ =
         NewTabPageProxy.getInstance()
             .callbackRouter.setDisabledModules.addListener(
                 (all: boolean, ids: string[]) => {
+                  this.$.container.hidden = false;
                   this.show_ = !all;
                   this.modules_.forEach(({id}, i) => {
                     const checked = !all && !ids.includes(id);
@@ -95,26 +107,55 @@ class CustomizeModulesElement extends I18nMixin
                     this.set(`modules_.${i}.disabled`, ids.includes(id));
                   });
                 });
-    NewTabPageProxy.getInstance().handler.updateDisabledModules();
-    this.set(
-        'discountToggleEligible_',
-        loadTimeData.getBoolean('ruleBasedDiscountEnabled'));
-    if (!this.discountToggleEligible_) {
-      return;
-    }
-    ChromeCartProxy.getHandler().getDiscountEnabled().then(({enabled}) => {
-      this.set('discountToggle_.enabled', enabled);
-      this.discountToggle_.initiallyEnabled = enabled;
+
+    NewTabPageProxy.getInstance().handler.getModulesIdNames().then(({data}) => {
+      this.modules_ = data.map((d: ModuleIdName) => ({
+                                 name: d.name,
+                                 id: d.id,
+                                 checked: true,
+                               } as ModuleSetting));
+
+      NewTabPageProxy.getInstance().handler.updateDisabledModules();
+
+      if (this.modules_.some(module => module.id === 'chrome_cart')) {
+        ChromeCartProxy.getHandler().getDiscountToggleVisible().then(
+            ({toggleVisible}) => {
+              this.set('discountOptionToggleEligible_', toggleVisible);
+            });
+
+        ChromeCartProxy.getHandler().getDiscountEnabled().then(({enabled}) => {
+          this.set('discountOptionToggle_.enabled', enabled);
+          this.discountOptionToggle_.initiallyEnabled = enabled;
+        });
+      } else if (
+          this.modules_.some(module => module.id === 'history_clusters') &&
+          loadTimeData.getBoolean('showCartInQuestModuleSetting')) {
+        ChromeCartProxy.getHandler().getDiscountToggleVisible().then(
+            ({toggleVisible}) => {
+              this.set('discountOptionToggleEligible_', toggleVisible);
+            });
+
+        ChromeCartProxy.getHandler().getDiscountEnabled().then(({enabled}) => {
+          this.set('discountOptionToggle_.enabled', enabled);
+          this.discountOptionToggle_.initiallyEnabled = enabled;
+        });
+
+        ChromeCartProxy.getHandler().getCartFeatureEnabled().then(
+            ({enabled}) => {
+              this.set('cartOptionToggle_.enabled', enabled);
+              this.cartOptionToggle_.initiallyEnabled = enabled;
+            });
+      }
     });
   }
 
-  disconnectedCallback() {
+  override disconnectedCallback() {
     super.disconnectedCallback();
     NewTabPageProxy.getInstance().callbackRouter.removeListener(
         this.setDisabledModulesListenerId_!);
   }
 
-  ready() {
+  override ready() {
     // |window.CrPolicyStrings.controlledSettingPolicy| populates the tooltip
     // text of <cr-policy-indicator indicator-type="devicePolicy" /> elements.
     // Needs to be called before |super.ready()| so that the string is available
@@ -138,20 +179,25 @@ class CustomizeModulesElement extends I18nMixin
             handler.setModuleDisabled(id, !checked);
           }
           const base = `NewTabPage.Modules.${checked ? 'Enabled' : 'Disabled'}`;
-          chrome.metricsPrivate.recordSparseHashable(base, id);
-          chrome.metricsPrivate.recordSparseHashable(`${base}.Customize`, id);
+          chrome.metricsPrivate.recordSparseValueWithPersistentHash(base, id);
+          chrome.metricsPrivate.recordSparseValueWithPersistentHash(
+              `${base}.Customize`, id);
         });
     // Discount toggle is a workaround for crbug.com/1199465 and will be
     // removed after module customization is better defined. Please avoid
     // using similar pattern for other features.
-    if (this.discountToggleEligible_ &&
-        this.discountToggle_.enabled !==
-            this.discountToggle_.initiallyEnabled) {
+    if (this.discountOptionToggleEligible_ &&
+        this.discountOptionToggle_.enabled !==
+            this.discountOptionToggle_.initiallyEnabled) {
       ChromeCartProxy.getHandler().setDiscountEnabled(
-          this.discountToggle_.enabled);
+          this.discountOptionToggle_.enabled);
       chrome.metricsPrivate.recordUserAction(`NewTabPage.Carts.${
-          this.discountToggle_.enabled ? 'EnableDiscount' :
-                                         'DisableDiscount'}`);
+          this.discountOptionToggle_.enabled ? 'EnableDiscount' :
+                                               'DisableDiscount'}`);
+    }
+    if (this.cartOptionToggle_.enabled !==
+        this.cartOptionToggle_.initiallyEnabled) {
+      handler.setModuleDisabled('chrome_cart', !this.cartOptionToggle_.enabled);
     }
   }
 
@@ -172,13 +218,20 @@ class CustomizeModulesElement extends I18nMixin
     return this.showManagedByPolicy_ || !this.show_;
   }
 
-  private showDiscountToggle_(
-      id: string, checked: boolean, eligible: boolean): boolean {
-    return id === 'chrome_cart' && checked && eligible;
+  private showCartOptionToggle_(id: string, checked: boolean): boolean {
+    return id === 'history_clusters' && checked &&
+        loadTimeData.getBoolean('showCartInQuestModuleSetting');
   }
 
-  static get template() {
-    return html`{__html_template__}`;
+  private showDiscountOptionToggle_(
+      id: string, checked: boolean, eligible: boolean,
+      cartOptionChecked: boolean): boolean {
+    if (id === 'chrome_cart') {
+      return checked && eligible;
+    } else if (id === 'history_clusters') {
+      return checked && eligible && cartOptionChecked;
+    }
+    return false;
   }
 }
 

@@ -1,28 +1,29 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/ios/ios_util.h"
-#include "base/strings/sys_string_conversions.h"
-#include "base/strings/utf_string_conversions.h"
+#import "base/ios/ios_util.h"
+#import "base/strings/sys_string_conversions.h"
+#import "base/strings/utf_string_conversions.h"
 #import "base/test/ios/wait_util.h"
-#include "components/password_manager/core/browser/password_ui_utils.h"
-#include "components/password_manager/core/common/password_manager_features.h"
-#include "components/strings/grit/components_strings.h"
+#import "components/password_manager/core/browser/password_ui_utils.h"
+#import "components/password_manager/core/common/password_manager_features.h"
+#import "components/strings/grit/components_strings.h"
+#import "ios/chrome/browser/signin/fake_system_identity.h"
 #import "ios/chrome/browser/ui/authentication/signin_earl_grey.h"
 #import "ios/chrome/browser/ui/authentication/signin_earl_grey_ui_test_util.h"
 #import "ios/chrome/browser/ui/autofill/autofill_app_interface.h"
-#include "ios/chrome/grit/ios_strings.h"
+#import "ios/chrome/browser/ui/settings/password/passwords_table_view_constants.h"
+#import "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_actions.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
 #import "ios/chrome/test/earl_grey/chrome_test_case.h"
-#import "ios/public/provider/chrome/browser/signin/fake_chrome_identity.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
-#include "ios/web/public/test/element_selector.h"
-#include "net/test/embedded_test_server/embedded_test_server.h"
-#include "ui/base/l10n/l10n_util_mac.h"
-#include "url/gurl.h"
+#import "ios/web/public/test/element_selector.h"
+#import "net/test/embedded_test_server/embedded_test_server.h"
+#import "ui/base/l10n/l10n_util_mac.h"
+#import "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -31,17 +32,18 @@
 using chrome_test_util::ButtonWithAccessibilityLabelId;
 using chrome_test_util::CancelButton;
 using chrome_test_util::ManualFallbackKeyboardIconMatcher;
-using chrome_test_util::ManualFallbackPasswordIconMatcher;
-using chrome_test_util::ManualFallbackPasswordTableViewMatcher;
-using chrome_test_util::ManualFallbackPasswordSearchBarMatcher;
 using chrome_test_util::ManualFallbackManagePasswordsMatcher;
-using chrome_test_util::ManualFallbackOtherPasswordsMatcher;
+using chrome_test_util::ManualFallbackManageSettingsMatcher;
 using chrome_test_util::ManualFallbackOtherPasswordsDismissMatcher;
+using chrome_test_util::ManualFallbackOtherPasswordsMatcher;
 using chrome_test_util::ManualFallbackPasswordButtonMatcher;
+using chrome_test_util::ManualFallbackPasswordIconMatcher;
+using chrome_test_util::ManualFallbackPasswordSearchBarMatcher;
+using chrome_test_util::ManualFallbackPasswordTableViewMatcher;
 using chrome_test_util::ManualFallbackPasswordTableViewWindowMatcher;
 using chrome_test_util::ManualFallbackSuggestPasswordMatcher;
-using chrome_test_util::NavigationBarDoneButton;
 using chrome_test_util::NavigationBarCancelButton;
+using chrome_test_util::NavigationBarDoneButton;
 using chrome_test_util::SettingsPasswordMatcher;
 using chrome_test_util::SettingsPasswordSearchMatcher;
 using chrome_test_util::StaticTextWithAccessibilityLabelId;
@@ -95,15 +97,6 @@ id<GREYMatcher> CancelUsingOtherPasswordButton() {
 
 @implementation PasswordViewControllerTestCase
 
-- (AppLaunchConfiguration)appConfigurationForTestCase {
-  AppLaunchConfiguration config;
-  if ([self isRunningTest:@selector(testPasswordGenerationOnManualFallback)]) {
-    config.features_enabled.push_back(
-        password_manager::features::kEnableManualPasswordGeneration);
-  }
-  return config;
-}
-
 - (void)setUp {
   [super setUp];
   GREYAssertTrue(self.testServer->Start(), @"Test server failed to start.");
@@ -116,6 +109,15 @@ id<GREYMatcher> CancelUsingOtherPasswordButton() {
 - (void)tearDown {
   [AutofillAppInterface clearPasswordStore];
   [super tearDown];
+}
+
+- (AppLaunchConfiguration)appConfigurationForTestCase {
+  AppLaunchConfiguration config;
+
+  config.features_enabled.push_back(
+      password_manager::features::kIOSPasswordUISplit);
+
+  return config;
 }
 
 // Tests that the passwords view controller appears on screen.
@@ -134,8 +136,13 @@ id<GREYMatcher> CancelUsingOtherPasswordButton() {
 }
 
 // Tests that the passwords view controller contains the "Manage Passwords..."
-// action.
-- (void)testPasswordsViewControllerContainsManagePasswordsAction {
+// and "Manage Settings..." actions.
+- (void)testPasswordsViewControllerContainsManageActions {
+  // TODO(crbug.com/1352059): Re-enable when flake fixed.
+  if ([ChromeEarlGrey isIPadIdiom]) {
+    EARL_GREY_TEST_DISABLED(@"Test flaky failing on iPad.")
+  }
+
   // Bring up the keyboard.
   [[EarlGrey selectElementWithMatcher:chrome_test_util::WebViewMatcher()]
       performAction:TapWebElementWithId(kFormElementUsername)];
@@ -146,6 +153,10 @@ id<GREYMatcher> CancelUsingOtherPasswordButton() {
 
   // Verify the password controller contains the "Manage Passwords..." action.
   [[EarlGrey selectElementWithMatcher:ManualFallbackManagePasswordsMatcher()]
+      assertWithMatcher:grey_interactable()];
+
+  // Verify the password controller contains the "Manage Settings..." action.
+  [[EarlGrey selectElementWithMatcher:ManualFallbackManageSettingsMatcher()]
       assertWithMatcher:grey_interactable()];
 }
 
@@ -163,22 +174,93 @@ id<GREYMatcher> CancelUsingOtherPasswordButton() {
   [[EarlGrey selectElementWithMatcher:ManualFallbackManagePasswordsMatcher()]
       performAction:grey_tap()];
 
-  if ([ChromeEarlGrey isAddCredentialsInSettingsEnabled]) {
-    // Verify the password settings opened.
-    // Changed minimum visible percentage to 70% for Passwords table view in
-    // settings because subviews cover > 25% in smaller screens(eg. iPhone 6s).
-    [[EarlGrey selectElementWithMatcher:SettingsPasswordMatcher()]
-        assertWithMatcher:grey_minimumVisiblePercent(0.7)];
-  } else {
-    [[EarlGrey selectElementWithMatcher:SettingsPasswordMatcher()]
-        assertWithMatcher:grey_sufficientlyVisible()];
-  }
+  // Verify the password settings opened.
+  // Changed minimum visible percentage to 70% for Passwords table view in
+  // settings because subviews cover > 25% in smaller screens(eg. iPhone 6s).
+  [[EarlGrey
+      selectElementWithMatcher:grey_accessibilityID(kPasswordsTableViewId)]
+      assertWithMatcher:grey_minimumVisiblePercent(0.7)];
 }
 
-// Tests that returning from "Manage Passwords..." leaves the keyboard and the
+// Tests that the "Manage Settings..." action works.
+- (void)testManageSettingsActionOpensPasswordSettings {
+  // Bring up the keyboard.
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::WebViewMatcher()]
+      performAction:TapWebElementWithId(kFormElementUsername)];
+
+  // Tap on the passwords icon.
+  [[EarlGrey selectElementWithMatcher:ManualFallbackPasswordIconMatcher()]
+      performAction:grey_tap()];
+
+  // Tap the "Manage Passwords..." action.
+  [[EarlGrey selectElementWithMatcher:ManualFallbackManageSettingsMatcher()]
+      performAction:grey_tap()];
+
+  // Verify the password settings opened.
+  // Changed minimum visible percentage to 70% for Passwords table view in
+  // settings because subviews cover > 25% in smaller screens(eg. iPhone 6s).
+  [[EarlGrey selectElementWithMatcher:SettingsPasswordMatcher()]
+      assertWithMatcher:grey_minimumVisiblePercent(0.7)];
+}
+
+// Tests that the "Manage Passwords..." action works in incognito mode.
+- (void)testManagePasswordsActionOpensPasswordSettingsInIncognito {
+  // Open a tab in incognito.
+  [ChromeEarlGrey openNewIncognitoTab];
+  self.URL = self.testServer->GetURL(kFormHTMLFile);
+  [ChromeEarlGrey loadURL:self.URL];
+  [ChromeEarlGrey waitForWebStateContainingText:"hello!"];
+
+  // Bring up the keyboard.
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::WebViewMatcher()]
+      performAction:TapWebElementWithId(kFormElementUsername)];
+
+  // Tap on the passwords icon.
+  [[EarlGrey selectElementWithMatcher:ManualFallbackPasswordIconMatcher()]
+      performAction:grey_tap()];
+
+  // Tap the "Manage Passwords..." action.
+  [[EarlGrey selectElementWithMatcher:ManualFallbackManagePasswordsMatcher()]
+      performAction:grey_tap()];
+
+  // Verify the password settings opened.
+  // Changed minimum visible percentage to 70% for Passwords table view in
+  // settings because subviews cover > 25% in smaller screens(eg. iPhone 6s).
+  [[EarlGrey
+      selectElementWithMatcher:grey_accessibilityID(kPasswordsTableViewId)]
+      assertWithMatcher:grey_minimumVisiblePercent(0.7)];
+}
+
+// Tests that the "Manage Settings..." action works in incognito mode.
+- (void)testManageSettingsActionOpensPasswordSettingsInIncognito {
+  // Open a tab in incognito.
+  [ChromeEarlGrey openNewIncognitoTab];
+  self.URL = self.testServer->GetURL(kFormHTMLFile);
+  [ChromeEarlGrey loadURL:self.URL];
+  [ChromeEarlGrey waitForWebStateContainingText:"hello!"];
+
+  // Bring up the keyboard.
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::WebViewMatcher()]
+      performAction:TapWebElementWithId(kFormElementUsername)];
+
+  // Tap on the passwords icon.
+  [[EarlGrey selectElementWithMatcher:ManualFallbackPasswordIconMatcher()]
+      performAction:grey_tap()];
+
+  // Tap the "Manage Settings..." action.
+  [[EarlGrey selectElementWithMatcher:ManualFallbackManageSettingsMatcher()]
+      performAction:grey_tap()];
+
+  // Verify the password settings opened.
+  // Changed minimum visible percentage to 70% for Passwords table view in
+  // settings because subviews cover > 25% in smaller screens(eg. iPhone 6s).
+  [[EarlGrey selectElementWithMatcher:SettingsPasswordMatcher()]
+      assertWithMatcher:grey_minimumVisiblePercent(0.7)];
+}
+
+// Tests that returning from "Manage Settings..." leaves the keyboard and the
 // icons in the right state.
-// TODO(crbug.com/1234759): Re-enable after fixing flake.
-- (void)DISABLED_testPasswordsStateAfterPresentingManagePasswords {
+- (void)testPasswordsStateAfterPresentingManageSettings {
   // Bring up the keyboard.
   [[EarlGrey selectElementWithMatcher:chrome_test_util::WebViewMatcher()]
       performAction:TapWebElementWithId(kFormElementUsername)];
@@ -192,15 +274,15 @@ id<GREYMatcher> CancelUsingOtherPasswordButton() {
       assertWithMatcher:grey_not(grey_userInteractionEnabled())];
 
   // Tap the "Manage Passwords..." action.
-  [[EarlGrey selectElementWithMatcher:ManualFallbackManagePasswordsMatcher()]
+  [[EarlGrey selectElementWithMatcher:ManualFallbackManageSettingsMatcher()]
       performAction:grey_tap()];
 
   // Verify the password settings opened.
   [[EarlGrey selectElementWithMatcher:SettingsPasswordMatcher()]
       assertWithMatcher:grey_sufficientlyVisible()];
 
-  // Tap Cancel Button.
-  [[EarlGrey selectElementWithMatcher:NavigationBarCancelButton()]
+  // Tap Done Button.
+  [[EarlGrey selectElementWithMatcher:NavigationBarDoneButton()]
       performAction:grey_tap()];
 
   // Verify the status of the icons.
@@ -232,9 +314,11 @@ id<GREYMatcher> CancelUsingOtherPasswordButton() {
 
   std::u16string origin = base::ASCIIToUTF16(
       password_manager::GetShownOrigin(url::Origin::Create(self.URL)));
-  NSString* title = l10n_util::GetNSStringF(
-      IDS_IOS_CONFIRM_USING_OTHER_PASSWORD_DESCRIPTION, origin);
-  [[EarlGrey selectElementWithMatcher:grey_text(title)]
+
+  NSString* message = l10n_util::GetNSStringF(
+      IDS_IOS_MANUAL_FALLBACK_SELECT_PASSWORD_DIALOG_MESSAGE, origin);
+
+  [[EarlGrey selectElementWithMatcher:grey_text(message)]
       assertWithMatcher:grey_notNil()];
 
   // Acknowledge concerns using other passwords on a website.
@@ -299,7 +383,7 @@ id<GREYMatcher> CancelUsingOtherPasswordButton() {
       selectElementWithMatcher:ManualFallbackOtherPasswordsDismissMatcher()]
       assertWithMatcher:grey_sufficientlyVisible()];
 
-  // Tap Cancel Button.
+  // Tap Done Button.
   [[EarlGrey selectElementWithMatcher:NavigationBarDoneButton()]
       performAction:grey_tap()];
 
@@ -316,8 +400,9 @@ id<GREYMatcher> CancelUsingOtherPasswordButton() {
       assertWithMatcher:grey_notVisible()];
 }
 
-// Tests that the Password View Controller is not present when presenting UI.
-- (void)testPasswordControllerPauses {
+// Tests that the Password View Controller is still present after tapping the
+// search bar.
+- (void)testPasswordControllerWhileSearching {
   // Bring up the keyboard.
   [[EarlGrey selectElementWithMatcher:chrome_test_util::WebViewMatcher()]
       performAction:TapWebElementWithId(kFormElementUsername)];
@@ -326,22 +411,29 @@ id<GREYMatcher> CancelUsingOtherPasswordButton() {
   [[EarlGrey selectElementWithMatcher:ManualFallbackPasswordIconMatcher()]
       performAction:grey_tap()];
 
-  // Tap the "Manage Passwords..." action.
-  [[EarlGrey selectElementWithMatcher:ManualFallbackManagePasswordsMatcher()]
+  // Tap the "Select Password..." action.
+  [[EarlGrey selectElementWithMatcher:ManualFallbackOtherPasswordsMatcher()]
       performAction:grey_tap()];
+
+  // Acknowledge concerns using other passwords on a website.
+  [[EarlGrey selectElementWithMatcher:ConfirmUsingOtherPasswordButton()]
+      performAction:grey_tap()];
+
+  // Verify the use other passwords opened.
+  [[EarlGrey
+      selectElementWithMatcher:ManualFallbackOtherPasswordsDismissMatcher()]
+      assertWithMatcher:grey_sufficientlyVisible()];
 
   // Tap the password search.
-  [[EarlGrey selectElementWithMatcher:SettingsPasswordSearchMatcher()]
+  [[EarlGrey selectElementWithMatcher:ManualFallbackPasswordSearchBarMatcher()]
       performAction:grey_tap()];
 
-  // Verify keyboard is shown without the password controller.
+  // Verify keyboard is shown and that the password controller is still present
+  // in the background.
   GREYAssertTrue([EarlGrey isKeyboardShownWithError:nil],
                  @"Keyboard Should be Shown");
   [[EarlGrey selectElementWithMatcher:ManualFallbackPasswordTableViewMatcher()]
-      assertWithMatcher:grey_notVisible()];
-
-  [[EarlGrey selectElementWithMatcher:SettingsPasswordMatcher()]
-      performAction:grey_tap()];
+      assertWithMatcher:grey_minimumVisiblePercent(0.5)];
 }
 
 // Tests that the Password View Controller is dismissed when tapping the
@@ -531,6 +623,10 @@ id<GREYMatcher> CancelUsingOtherPasswordButton() {
   // Look for the alert.
   [[EarlGrey selectElementWithMatcher:NotSecureWebsiteAlert()]
       assertWithMatcher:grey_not(grey_nil())];
+
+  // Dismiss the alert.
+  [[EarlGrey selectElementWithMatcher:chrome_test_util::OKButton()]
+      performAction:grey_tap()];
 }
 
 // Tests that the password icon is not present when no passwords are available.
@@ -547,9 +643,16 @@ id<GREYMatcher> CancelUsingOtherPasswordButton() {
 }
 
 // Tests password generation on manual fallback.
-- (void)testPasswordGenerationOnManualFallback {
-  [SigninEarlGreyUI signinWithFakeIdentity:[FakeChromeIdentity fakeIdentity1]];
-  [ChromeEarlGrey waitForSyncInitialized:YES syncTimeout:10.0];
+// TODO(crbug.com/1394448): enable the test with fix.
+- (void)DISABLED_testPasswordGenerationOnManualFallback {
+  // Disable the test on iOS 15.3 due to build failure.
+  // TODO(crbug.com/1304685): enable the test with fix.
+  if (@available(iOS 15.3, *)) {
+    EARL_GREY_TEST_DISABLED(@"Test disabled on iOS 15.3.");
+  }
+  [SigninEarlGreyUI signinWithFakeIdentity:[FakeSystemIdentity fakeIdentity1]];
+  [ChromeEarlGrey waitForSyncEngineInitialized:YES
+                                   syncTimeout:base::Seconds(10)];
 
   const GURL URL = self.testServer->GetURL(kFormHTMLFile);
   [ChromeEarlGrey loadURL:URL];

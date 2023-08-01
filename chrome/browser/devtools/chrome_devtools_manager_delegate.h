@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,13 +11,13 @@
 #include <string>
 
 #include "chrome/browser/devtools/device/devtools_device_discovery.h"
-#include "chrome/browser/devtools/protocol/forward.h"
 #include "chrome/browser/devtools/protocol/protocol.h"
 #include "content/public/browser/devtools_agent_host_observer.h"
 #include "content/public/browser/devtools_manager_delegate.h"
 #include "net/base/host_port_pair.h"
 
 class ChromeDevToolsSession;
+class Profile;
 class ScopedKeepAlive;
 using RemoteLocations = std::set<net::HostPortPair>;
 
@@ -25,10 +25,15 @@ namespace extensions {
 class Extension;
 }
 
+namespace web_app {
+class WebApp;
+}
+
 class ChromeDevToolsManagerDelegate : public content::DevToolsManagerDelegate {
  public:
   static const char kTypeApp[];
   static const char kTypeBackgroundPage[];
+  static const char kTypePage[];
 
   ChromeDevToolsManagerDelegate();
 
@@ -50,6 +55,10 @@ class ChromeDevToolsManagerDelegate : public content::DevToolsManagerDelegate {
   // the settings for |profile|.
   static bool AllowInspection(Profile* profile,
                               const extensions::Extension* extension);
+
+  // |web_app| may be null, in which case this function just checks
+  // the settings for |profile|.
+  static bool AllowInspection(Profile* profile, const web_app::WebApp* web_app);
 
   // Resets |device_manager_|.
   void ResetAndroidDeviceManagerForTesting();
@@ -81,8 +90,8 @@ class ChromeDevToolsManagerDelegate : public content::DevToolsManagerDelegate {
   void ClientDetached(
       content::DevToolsAgentHostClientChannel* channel) override;
   scoped_refptr<content::DevToolsAgentHost> CreateNewTarget(
-      const GURL& url) override;
-  std::string GetDiscoveryPageHTML() override;
+      const GURL& url,
+      bool for_tab) override;
   bool HasBundledFrontendResources() override;
 
   void DevicesAvailable(

@@ -1,29 +1,31 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/media/router/discovery/access_code/access_code_cast_discovery_interface.h"
 
 #include <cstddef>
+#include <string>
 
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/strcat.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/strings/stringprintf.h"
 #include "base/time/time.h"
+#include "chrome/browser/media/router/discovery/access_code/access_code_cast_constants.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/common/channel_info.h"
+#include "chrome/browser/signin/identity_manager_factory.h"
 #include "components/signin/public/base/consent_level.h"
 #include "components/signin/public/identity_manager/access_token_info.h"
 #include "components/signin/public/identity_manager/account_info.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
-#include "components/version_info/channel.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/storage_partition.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
 #include "net/http/http_request_headers.h"
@@ -34,48 +36,10 @@
 namespace media_router {
 
 namespace {
+
+constexpr char kLoggerComponent[] = "AccessCodeCastDiscoveryInterface";
+
 using AddSinkResultCode = access_code_cast::mojom::AddSinkResultCode;
-
-bool command_line_enabled_for_testing = false;
-
-// TODO(b/206131520): Add Policy Switches to
-// AccessCodeCastDiscoveryInterface.
-constexpr char kGetMethod[] = "GET";
-constexpr char kContentType[] = "application/json; charset=UTF-8";
-constexpr char kDiscoveryOAuth2Scope[] =
-    "https://www.googleapis.com/auth/cast-edu-messaging";
-// TODO(b/215241542): Add a command-line switch to change Cast2Class endpoint
-// URL.
-constexpr char kDefaultDiscoveryEndpoint[] =
-    "https://castedumessaging-pa.googleapis.com";
-
-// Specifies the URL from which to obtain cast discovery information.
-constexpr char kDiscoveryEndpointSwitch[] = "access-code-cast-url";
-
-constexpr char kDiscoveryServicePath[] = "/v1/receivers";
-constexpr char kDiscoveryOAuthConsumerName[] = "access_code_cast_discovery";
-constexpr char kEmptyPostData[] = "";
-
-constexpr char kJsonDevice[] = "device";
-constexpr char kJsonDisplayName[] = "displayName";
-constexpr char kJsonId[] = "id";
-
-constexpr char kJsonNetworkInfo[] = "networkInfo";
-constexpr char kJsonHostName[] = "hostName";
-constexpr char kJsonPort[] = "port";
-constexpr char kJsonIpV4Address[] = "ipV4Address";
-constexpr char kJsonIpV6Address[] = "ipV6Address";
-
-constexpr char kJsonDeviceCapabilities[] = "deviceCapabilities";
-constexpr char kJsonVideoOut[] = "videoOut";
-constexpr char kJsonVideoIn[] = "videoIn";
-constexpr char kJsonAudioOut[] = "audioOut";
-constexpr char kJsonAudioIn[] = "audioIn";
-constexpr char kJsonDevMode[] = "devMode";
-
-constexpr char kJsonError[] = "error";
-constexpr char kJsonErrorCode[] = "code";
-constexpr char kJsonErrorMessage[] = "message";
 
 const int64_t kTimeoutMs = 30000;
 
@@ -111,40 +75,78 @@ const net::NetworkTrafficAnnotationTag kTrafficAnnotation =
         }
   )");
 
-bool IsCommandLineSwitchSupported() {
-  if (command_line_enabled_for_testing)
-    return true;
-  version_info::Channel channel = chrome::GetChannel();
-  return channel != version_info::Channel::STABLE &&
-         channel != version_info::Channel::BETA;
-}
-
 std::string GetDiscoveryUrl() {
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
 
   if (IsCommandLineSwitchSupported() &&
-      command_line->HasSwitch(kDiscoveryEndpointSwitch)) {
-    return command_line->GetSwitchValueASCII(kDiscoveryEndpointSwitch);
+      command_line->HasSwitch(switches::kDiscoveryEndpointSwitch)) {
+    return command_line->GetSwitchValueASCII(
+        switches::kDiscoveryEndpointSwitch);
   }
 
   return std::string(kDefaultDiscoveryEndpoint) + kDiscoveryServicePath;
 }
 
-AddSinkResultCode GetErrorFromResponse(const base::Value& response) {
-  const base::Value* error = response.FindKey(kJsonError);
+}  // namespace
+
+AccessCodeCastDiscoveryInterface::AccessCodeCastDiscoveryInterface(
+    Profile* profile,
+    const std::string& access_code,
+    LoggerImpl* logger,
+    signin::IdentityManager* identity_manager)
+    : profile_(profile),
+      access_code_(access_code),
+      logger_(logger),
+      identity_manager_(identity_manager),
+      endpoint_fetcher_(CreateEndpointFetcher(access_code)) {
+  DCHECK(profile_);
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+}
+
+AccessCodeCastDiscoveryInterface::AccessCodeCastDiscoveryInterface(
+    Profile* profile,
+    const std::string& access_code,
+    LoggerImpl* logger,
+    signin::IdentityManager* identity_manager,
+    std::unique_ptr<EndpointFetcher> endpoint_fetcher)
+    : profile_(profile),
+      access_code_(access_code),
+      logger_(logger),
+      identity_manager_(identity_manager),
+      endpoint_fetcher_(std::move(endpoint_fetcher)) {
+  DCHECK(profile_);
+}
+
+AccessCodeCastDiscoveryInterface::~AccessCodeCastDiscoveryInterface() = default;
+
+void AccessCodeCastDiscoveryInterface::ReportErrorViaCallback(
+    AddSinkResultCode error) {
+  if (callback_.is_null()) {
+    return;
+  }
+  std::move(callback_).Run(absl::nullopt, error);
+}
+
+AddSinkResultCode AccessCodeCastDiscoveryInterface::GetErrorFromResponse(
+    const base::Value& response) {
+  const base::Value::Dict* error = response.GetDict().FindDict(kJsonError);
   if (!error) {
     return AddSinkResultCode::OK;
   }
 
   // Get the HTTP code
-  absl::optional<int> http_code = error->FindIntKey(kJsonErrorCode);
+  absl::optional<int> http_code = error->FindInt(kJsonErrorCode);
   if (!http_code) {
     return AddSinkResultCode::RESPONSE_MALFORMED;
   }
 
-  const std::string* error_message = error->FindStringKey(kJsonErrorMessage);
-  DVLOG(1) << "Error: HTTP " << *http_code << ": ("
-           << (error_message ? *error_message : "") << ")";
+  const std::string* error_message = error->FindString(kJsonErrorMessage);
+
+  logger_->LogError(
+      mojom::LogCategory::kDiscovery, kLoggerComponent,
+      "The server response yielded the error: " + std::string(*error_message) +
+          " with HTTP code: " + base::NumberToString(*http_code),
+      "", "", "");
 
   switch (*http_code) {
     // 401
@@ -194,58 +196,26 @@ AddSinkResultCode GetErrorFromResponse(const base::Value& response) {
 
 // TODO(b/206997996): Add an enum to the EndpointResponse struct so that we can
 // check the enum instead of the string
-AddSinkResultCode IsResponseValid(const absl::optional<base::Value>& response) {
+AddSinkResultCode AccessCodeCastDiscoveryInterface::IsResponseValid(
+    const absl::optional<base::Value>& response) {
   if (!response || !response->is_dict()) {
-    DVLOG(1) << "response_body was of unexpected format.";
+    logger_->LogError(
+        mojom::LogCategory::kDiscovery, kLoggerComponent,
+        "The response body from the server was of unexpected format.", "", "",
+        "");
     return AddSinkResultCode::RESPONSE_MALFORMED;
   }
 
-  if (response->DictEmpty()) {
-    DVLOG(1) << "Response does not have value. Response: "
-             << response->DebugString();
+  if (response->GetDict().empty()) {
+    logger_->LogError(mojom::LogCategory::kDiscovery, kLoggerComponent,
+                      "The response from the server does not have a value. "
+                      "Server response is: " +
+                          response->DebugString(),
+                      "", "", "");
     return AddSinkResultCode::EMPTY_RESPONSE;
   }
 
   return GetErrorFromResponse(*response);
-}
-
-bool HasAuthenticationError(const std::string& response) {
-  return response == "There was an authentication error";
-}
-
-bool HasServerError(const std::string& response) {
-  return response == "There was a response error";
-}
-
-}  // namespace
-
-void AccessCodeCastDiscoveryInterface::EnableCommandLineSupportForTesting() {
-  command_line_enabled_for_testing = true;
-}
-
-AccessCodeCastDiscoveryInterface::AccessCodeCastDiscoveryInterface(
-    Profile* profile,
-    const std::string& access_code)
-    : profile_(profile),
-      access_code_(access_code),
-      endpoint_fetcher_(CreateEndpointFetcher(access_code)) {
-  DCHECK(profile_);
-}
-
-AccessCodeCastDiscoveryInterface::AccessCodeCastDiscoveryInterface(
-    Profile* profile,
-    const std::string& access_code,
-    std::unique_ptr<EndpointFetcher> endpoint_fetcher)
-    : profile_(profile),
-      access_code_(access_code),
-      endpoint_fetcher_(std::move(endpoint_fetcher)) {
-  DCHECK(profile_);
-}
-
-AccessCodeCastDiscoveryInterface::~AccessCodeCastDiscoveryInterface() = default;
-
-void AccessCodeCastDiscoveryInterface::ReportError(AddSinkResultCode error) {
-  std::move(callback_).Run(absl::nullopt, error);
 }
 
 void AccessCodeCastDiscoveryInterface::SetDeviceCapabilitiesField(
@@ -283,19 +253,24 @@ void AccessCodeCastDiscoveryInterface::SetNetworkInfoField(
 std::unique_ptr<EndpointFetcher>
 AccessCodeCastDiscoveryInterface::CreateEndpointFetcher(
     const std::string& access_code) {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+
   std::vector<std::string> discovery_scopes;
   discovery_scopes.push_back(kDiscoveryOAuth2Scope);
 
   return std::make_unique<EndpointFetcher>(
-      profile_, kDiscoveryOAuthConsumerName,
+      profile_->GetDefaultStoragePartition()
+          ->GetURLLoaderFactoryForBrowserProcess(),
+      kDiscoveryOAuthConsumerName,
       GURL(base::StrCat({GetDiscoveryUrl(), "/", access_code})), kGetMethod,
       kContentType, discovery_scopes, kTimeoutMs, kEmptyPostData,
-      kTrafficAnnotation);
+      kTrafficAnnotation, identity_manager_);
 }
 
 void AccessCodeCastDiscoveryInterface::ValidateDiscoveryAccessCode(
     DiscoveryDeviceCallback callback) {
   DCHECK(!callback_);
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   callback_ = std::move(callback);
 
   auto* const fetcher_ptr = endpoint_fetcher_.get();
@@ -306,17 +281,8 @@ void AccessCodeCastDiscoveryInterface::ValidateDiscoveryAccessCode(
 
 void AccessCodeCastDiscoveryInterface::HandleServerResponse(
     std::unique_ptr<EndpointResponse> response) {
-  const std::string& response_string = response->response;
-  if (HasAuthenticationError(response_string)) {
-    DVLOG(1) << "The request to the server failed to be authenticated";
-    ReportError(AddSinkResultCode::AUTH_ERROR);
-    return;
-  }
-
-  if (HasServerError(response_string)) {
-    DVLOG(1) << "Did not recieve a response from server while attempting to"
-             << " validate discovery device.";
-    ReportError(AddSinkResultCode::SERVER_ERROR);
+  if (response->error_type.has_value()) {
+    HandleServerError(std::move(response));
     return;
   }
 
@@ -325,7 +291,10 @@ void AccessCodeCastDiscoveryInterface::HandleServerResponse(
 
   AddSinkResultCode result_code = IsResponseValid(response_value);
   if (result_code != AddSinkResultCode::OK) {
-    ReportError(result_code);
+    logger_->LogError(mojom::LogCategory::kDiscovery, kLoggerComponent,
+                      "The response string from the server was not valid", "",
+                      "", "");
+    ReportErrorViaCallback(result_code);
     return;
   }
 
@@ -336,29 +305,82 @@ void AccessCodeCastDiscoveryInterface::HandleServerResponse(
                            construction_result.second);
 }
 
+void AccessCodeCastDiscoveryInterface::HandleServerError(
+    std::unique_ptr<EndpointResponse> response) {
+  if (!response->error_type.has_value()) {
+    return;
+  }
+
+  auto error_type = response->error_type.value();
+
+  switch (error_type) {
+    case FetchErrorType::kAuthError:
+      if (response->response == "No primary accounts found") {
+        logger_->LogError(mojom::LogCategory::kDiscovery, kLoggerComponent,
+                          "The account needs to have sync enabled.", "", "",
+                          "");
+        ReportErrorViaCallback(AddSinkResultCode::PROFILE_SYNC_ERROR);
+      } else {
+        logger_->LogError(
+            mojom::LogCategory::kDiscovery, kLoggerComponent,
+            "The request to the server failed to be authenticated.", "", "",
+            "");
+        ReportErrorViaCallback(AddSinkResultCode::AUTH_ERROR);
+      }
+      break;
+
+    case FetchErrorType::kNetError:
+      logger_->LogError(mojom::LogCategory::kDiscovery, kLoggerComponent,
+                        "Did not receive a response from server while "
+                        "attempting to validate discovery device.",
+                        "", "", "");
+      ReportErrorViaCallback(AddSinkResultCode::SERVER_ERROR);
+      break;
+
+    case FetchErrorType::kResultParseError:
+      logger_->LogError(
+          mojom::LogCategory::kDiscovery, kLoggerComponent,
+          "The server response was incorrectly formatted/malformed "
+          "and we are not able to use it.",
+          "", "", "");
+      ReportErrorViaCallback(AddSinkResultCode::RESPONSE_MALFORMED);
+      break;
+
+    default:
+      logger_->LogError(
+          mojom::LogCategory::kDiscovery, kLoggerComponent,
+          base::StringPrintf("An unknown error occurred. HTTP Status "
+                             "of the response is: %d",
+                             response->http_status_code),
+          "", "", "");
+      ReportErrorViaCallback(AddSinkResultCode::SERVER_ERROR);
+  }
+}
+
 std::pair<absl::optional<AccessCodeCastDiscoveryInterface::DiscoveryDevice>,
           AccessCodeCastDiscoveryInterface::AddSinkResultCode>
 AccessCodeCastDiscoveryInterface::ConstructDiscoveryDeviceFromJson(
     base::Value json_response) {
   DiscoveryDevice discovery_device;
 
-  base::Value* device = json_response.FindKey(kJsonDevice);
+  base::Value::Dict* device = json_response.GetDict().FindDict(kJsonDevice);
   if (!device) {
     return std::make_pair(absl::nullopt, AddSinkResultCode::RESPONSE_MALFORMED);
   }
 
-  std::string* display_name = device->FindStringKey(kJsonDisplayName);
+  std::string* display_name = device->FindString(kJsonDisplayName);
   if (!display_name) {
     return std::make_pair(absl::nullopt, AddSinkResultCode::RESPONSE_MALFORMED);
   }
 
-  std::string* sink_id = device->FindStringKey(kJsonId);
+  std::string* sink_id = device->FindString(kJsonId);
   if (!sink_id) {
     return std::make_pair(absl::nullopt, AddSinkResultCode::RESPONSE_MALFORMED);
   }
 
   chrome_browser_media::proto::DeviceCapabilities device_capabilities_proto;
-  base::Value* device_capabilities = device->FindKey(kJsonDeviceCapabilities);
+  base::Value::Dict* device_capabilities =
+      device->FindDict(kJsonDeviceCapabilities);
   if (!device_capabilities) {
     return std::make_pair(absl::nullopt, AddSinkResultCode::RESPONSE_MALFORMED);
   }
@@ -367,11 +389,11 @@ AccessCodeCastDiscoveryInterface::ConstructDiscoveryDeviceFromJson(
 
   for (auto* const capability_key : capability_keys) {
     absl::optional<bool> capability =
-        device_capabilities->FindBoolKey(capability_key);
+        device_capabilities->FindBool(capability_key);
     if (capability.has_value()) {
       SetDeviceCapabilitiesField(&device_capabilities_proto, capability.value(),
                                  capability_key);
-    } else if (device_capabilities->FindKey(capability_key)) {
+    } else if (device_capabilities->contains(capability_key)) {
       // It's ok if the capability isn't present, but if it is, it must be a
       // bool
       return std::make_pair(absl::nullopt,
@@ -380,14 +402,14 @@ AccessCodeCastDiscoveryInterface::ConstructDiscoveryDeviceFromJson(
   }
 
   chrome_browser_media::proto::NetworkInfo network_info_proto;
-  base::Value* network_info = device->FindKey(kJsonNetworkInfo);
+  base::Value::Dict* network_info = device->FindDict(kJsonNetworkInfo);
   if (!network_info) {
     return std::make_pair(absl::nullopt, AddSinkResultCode::RESPONSE_MALFORMED);
   }
   const auto network_keys = {kJsonHostName, kJsonPort, kJsonIpV4Address,
                              kJsonIpV6Address};
   for (auto* const network_key : network_keys) {
-    std::string* network_value = network_info->FindStringKey(network_key);
+    std::string* network_value = network_info->FindString(network_key);
     if (network_value) {
       SetNetworkInfoField(&network_info_proto, *network_value, network_key);
     }

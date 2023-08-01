@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,6 @@ PasswordBubbleControllerBase::PasswordBubbleControllerBase(
     base::WeakPtr<PasswordsModelDelegate> delegate,
     password_manager::metrics_util::UIDisplayDisposition display_disposition)
     : metrics_recorder_(delegate->GetPasswordFormMetricsRecorder()),
-      are_passwords_revealed_when_bubble_is_opened_(
-          delegate->ArePasswordsRevealedWhenBubbleIsOpened()),
       delegate_(std::move(delegate)) {
   if (metrics_recorder_) {
     metrics_recorder_->RecordPasswordBubbleShown(
@@ -31,11 +29,12 @@ PasswordBubbleControllerBase::~PasswordBubbleControllerBase() {
 }
 
 void PasswordBubbleControllerBase::OnBubbleClosing() {
-  ReportInteractions();
+  // This method can be reentered from OnBubbleHidden() below. Reset the things
+  // before calling it.
+  if (!std::exchange(interaction_reported_, true))
+    ReportInteractions();
   if (delegate_)
-    delegate_->OnBubbleHidden();
-  delegate_.reset();
-  interaction_reported_ = true;
+    std::exchange(delegate_, nullptr)->OnBubbleHidden();
 }
 
 Profile* PasswordBubbleControllerBase::GetProfile() const {

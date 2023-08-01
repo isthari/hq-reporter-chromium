@@ -25,6 +25,7 @@
  */
 #include "third_party/blink/renderer/core/editing/serializers/markup_accumulator.h"
 
+#include "base/containers/adapters.h"
 #include "third_party/blink/renderer/core/dom/attr.h"
 #include "third_party/blink/renderer/core/dom/cdata_section.h"
 #include "third_party/blink/renderer/core/dom/comment.h"
@@ -54,9 +55,9 @@ class MarkupAccumulator::NamespaceContext final {
   //  - The default namespace is managed separately.
   //  - Namespace URI never be empty if the prefix is not empty.
   void Add(const AtomicString& prefix, const AtomicString& namespace_uri) {
-    DCHECK(!prefix.IsEmpty())
+    DCHECK(!prefix.empty())
         << " prefix=" << prefix << " namespace_uri=" << namespace_uri;
-    DCHECK(!namespace_uri.IsEmpty())
+    DCHECK(!namespace_uri.empty())
         << " prefix=" << prefix << " namespace_uri=" << namespace_uri;
     prefix_ns_map_.Set(prefix, namespace_uri);
     auto result =
@@ -73,7 +74,7 @@ class MarkupAccumulator::NamespaceContext final {
       // We don't check xmlns namespace of attr here because xmlns attributes in
       // HTML documents don't have namespace URI. Some web tests serialize
       // HTML documents with XMLSerializer, and Firefox has the same behavior.
-      if (attr.Prefix().IsEmpty() && attr.LocalName() == g_xmlns_atom) {
+      if (attr.Prefix().empty() && attr.LocalName() == g_xmlns_atom) {
         // 3.1. If attribute prefix is null, then attr is a default namespace
         // declaration. Set the default namespace attr value to attr's value
         // and stop running these steps, returning to Main to visit the next
@@ -101,7 +102,7 @@ class MarkupAccumulator::NamespaceContext final {
       const AtomicString& local_default_namespace) {
     if (!local_default_namespace)
       return;
-    SetContextNamespace(local_default_namespace.IsEmpty()
+    SetContextNamespace(local_default_namespace.empty()
                             ? g_null_atom
                             : local_default_namespace);
   }
@@ -166,7 +167,8 @@ void MarkupAccumulator::AppendStartMarkup(const Node& node) {
     case Node::kAttributeNode:
       // Only XMLSerializer can pass an Attr.  So, |documentIsHTML| flag is
       // false.
-      formatter_.AppendAttributeValue(markup_, To<Attr>(node).value(), false);
+      formatter_.AppendAttributeValue(markup_, To<Attr>(node).value(), false,
+                                      node.GetDocument());
       break;
     default:
       formatter_.AppendStartMarkup(markup_, node);
@@ -208,7 +210,7 @@ AtomicString MarkupAccumulator::AppendElement(const Element& element) {
     for (const auto& attribute : element.Attributes()) {
       if (data.ignore_namespace_definition_attribute_ &&
           attribute.NamespaceURI() == xmlns_names::kNamespaceURI &&
-          attribute.Prefix().IsEmpty()) {
+          attribute.Prefix().empty()) {
         // Drop xmlns= only if it's inconsistent with element's namespace.
         // https://github.com/w3c/DOM-Parsing/issues/47
         if (!EqualIgnoringNullity(attribute.Value(), element.namespaceURI()))
@@ -273,7 +275,7 @@ MarkupAccumulator::AppendStartTagOpen(const Element& element) {
   // 12.2. Let candidate prefix be the result of retrieving a preferred prefix
   // string prefix from map given namespace ns.
   AtomicString candidate_prefix;
-  if (!ns.IsEmpty() && (!prefix.IsEmpty() || ns != local_default_namespace)) {
+  if (!ns.empty() && (!prefix.empty() || ns != local_default_namespace)) {
     candidate_prefix = RetrievePreferredPrefixString(ns, prefix);
   }
   // 12.4. if candidate prefix is not null (a namespace prefix is defined which
@@ -297,7 +299,7 @@ MarkupAccumulator::AppendStartTagOpen(const Element& element) {
   }
 
   // 12.5. Otherwise, if prefix is not null, then:
-  if (!prefix.IsEmpty()) {
+  if (!prefix.empty()) {
     // 12.5.1. If the local prefixes map contains a key matching prefix, then
     // let prefix be the result of generating a prefix providing as input map,
     // ns, and prefix index
@@ -314,7 +316,8 @@ MarkupAccumulator::AppendStartTagOpen(const Element& element) {
     formatter_.AppendStartTagOpen(markup_, prefix, element.localName());
     data.serialized_prefix_ = prefix;
     // 12.5.5. Append the following to markup, in the order listed:
-    MarkupFormatter::AppendAttribute(markup_, g_xmlns_atom, prefix, ns, false);
+    MarkupFormatter::AppendAttribute(markup_, g_xmlns_atom, prefix, ns, false,
+                                     element.GetDocument());
     // 12.5.5.7. If local default namespace is not null (there exists a
     // locally-defined default namespace declaration attribute), then let
     // inherited ns get the value of local default namespace unless the local
@@ -335,7 +338,7 @@ MarkupAccumulator::AppendStartTagOpen(const Element& element) {
     formatter_.AppendStartTagOpen(markup_, element);
     // 12.6.5. Append the following to markup, in the order listed:
     MarkupFormatter::AppendAttribute(markup_, g_null_atom, g_xmlns_atom, ns,
-                                     false);
+                                     false, element.GetDocument());
     return data;
   }
 
@@ -356,7 +359,8 @@ void MarkupAccumulator::AppendAttribute(const Element& element,
                                         const Attribute& attribute) {
   String value = formatter_.ResolveURLIfNeeded(element, attribute);
   if (SerializeAsHTML()) {
-    MarkupFormatter::AppendAttributeAsHTML(markup_, attribute, value);
+    MarkupFormatter::AppendAttributeAsHTML(markup_, attribute, value,
+                                           element.GetDocument());
   } else {
     AppendAttributeAsXMLWithNamespace(element, attribute, value);
   }
@@ -376,7 +380,8 @@ void MarkupAccumulator::AppendAttributeAsXMLWithNamespace(
 
   if (attribute_namespace.IsNull()) {
     MarkupFormatter::AppendAttribute(markup_, candidate_prefix,
-                                     attribute.LocalName(), value, false);
+                                     attribute.LocalName(), value, false,
+                                     element.GetDocument());
     return;
   }
   // 3.5. If attribute namespace is not null, then run these sub-steps:
@@ -403,15 +408,17 @@ void MarkupAccumulator::AppendAttributeAsXMLWithNamespace(
         // 3.5.3.2. Append the following to result, in the order listed:
         MarkupFormatter::AppendAttribute(markup_, g_xmlns_atom,
                                          candidate_prefix, attribute_namespace,
-                                         false);
+                                         false, element.GetDocument());
       } else {
         DCHECK(candidate_prefix);
-        AppendNamespace(candidate_prefix, attribute_namespace);
+        AppendNamespace(candidate_prefix, attribute_namespace,
+                        element.GetDocument());
       }
     }
   }
   MarkupFormatter::AppendAttribute(markup_, candidate_prefix,
-                                   attribute.LocalName(), value, false);
+                                   attribute.LocalName(), value, false,
+                                   element.GetDocument());
 }
 
 bool MarkupAccumulator::ShouldAddNamespaceAttribute(
@@ -433,16 +440,17 @@ bool MarkupAccumulator::ShouldAddNamespaceAttribute(
 }
 
 void MarkupAccumulator::AppendNamespace(const AtomicString& prefix,
-                                        const AtomicString& namespace_uri) {
+                                        const AtomicString& namespace_uri,
+                                        const Document& document) {
   AtomicString found_uri = LookupNamespaceURI(prefix);
   if (!EqualIgnoringNullity(found_uri, namespace_uri)) {
     AddPrefix(prefix, namespace_uri);
-    if (prefix.IsEmpty()) {
+    if (prefix.empty()) {
       MarkupFormatter::AppendAttribute(markup_, g_null_atom, g_xmlns_atom,
-                                       namespace_uri, false);
+                                       namespace_uri, false, document);
     } else {
       MarkupFormatter::AppendAttribute(markup_, g_xmlns_atom, prefix,
-                                       namespace_uri, false);
+                                       namespace_uri, false, document);
     }
   }
 }
@@ -472,14 +480,14 @@ void MarkupAccumulator::PopNamespaces(const Element& element) {
 AtomicString MarkupAccumulator::RetrievePreferredPrefixString(
     const AtomicString& ns,
     const AtomicString& preferred_prefix) {
-  DCHECK(!ns.IsEmpty()) << ns;
+  DCHECK(!ns.empty()) << ns;
   AtomicString ns_for_preferred = LookupNamespaceURI(preferred_prefix);
   // Preserve the prefix if the prefix is used in the scope and the namespace
   // for it is matches to the node's one.
   // This is equivalent to the following step in the specification:
   // 2.1. If prefix matches preferred prefix, then stop running these steps and
   // return prefix.
-  if (!preferred_prefix.IsEmpty() && !ns_for_preferred.IsNull() &&
+  if (!preferred_prefix.empty() && !ns_for_preferred.IsNull() &&
       EqualIgnoringNullity(ns_for_preferred, ns))
     return preferred_prefix;
 
@@ -495,9 +503,8 @@ AtomicString MarkupAccumulator::RetrievePreferredPrefixString(
   // <el1 xmlns="U1">
   //  el1.setAttributeNS(U1, 'n', 'v');
   // We should not get '' for attributes.
-  for (auto it = candidate_list.rbegin(); it != candidate_list.rend(); ++it) {
-    AtomicString candidate_prefix = *it;
-    DCHECK(!candidate_prefix.IsEmpty());
+  for (const auto& candidate_prefix : base::Reversed(candidate_list)) {
+    DCHECK(!candidate_prefix.empty());
     AtomicString ns_for_candidate = LookupNamespaceURI(candidate_prefix);
     if (EqualIgnoringNullity(ns_for_candidate, ns))
       return candidate_prefix;
@@ -505,7 +512,7 @@ AtomicString MarkupAccumulator::RetrievePreferredPrefixString(
 
   // No prefixes for |ns|.
   // Preserve the prefix if the prefix is not used in the current scope.
-  if (!preferred_prefix.IsEmpty() && ns_for_preferred.IsNull())
+  if (!preferred_prefix.empty() && ns_for_preferred.IsNull())
     return preferred_prefix;
   // If a prefix is not specified, or the prefix is mapped to a
   // different namespace, we should generate new prefix.

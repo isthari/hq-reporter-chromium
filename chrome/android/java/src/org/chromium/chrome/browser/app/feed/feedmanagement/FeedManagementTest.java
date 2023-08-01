@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 package org.chromium.chrome.browser.app.feed.feedmanagement;
@@ -32,7 +32,7 @@ import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
 import org.chromium.chrome.test.util.browser.Features;
-import org.chromium.chrome.test.util.browser.signin.AccountManagerTestRule;
+import org.chromium.chrome.test.util.browser.signin.SigninTestRule;
 import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.net.NetworkChangeNotifier;
@@ -45,7 +45,6 @@ import java.io.IOException;
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE, "vmodule=metrics_reporter=2"})
 @Features.EnableFeatures({ChromeFeatureList.INTEREST_FEED_V2, ChromeFeatureList.WEB_FEED})
 public final class FeedManagementTest {
-    static final String TAG = "FeedMgmtInstTest";
     static final String PACKAGE_NAME = "org.chromium.chrome";
 
     private UserActionTester mActionTester;
@@ -53,7 +52,7 @@ public final class FeedManagementTest {
     @Rule
     public ChromeTabbedActivityTestRule mActivityTestRule = new ChromeTabbedActivityTestRule();
     @Rule
-    public final AccountManagerTestRule mAccountManagerTestRule = new AccountManagerTestRule();
+    public final SigninTestRule mSigninTestRule = new SigninTestRule();
 
     @Before
     public void setUp() {
@@ -79,7 +78,7 @@ public final class FeedManagementTest {
     @MediumTest
     public void launchNTP_launchFeedManagement() throws IOException, InterruptedException {
         // The web feed requires login to enable, so we must log in first.
-        mAccountManagerTestRule.addTestAccountThenSigninAndEnableSync();
+        mSigninTestRule.addTestAccountThenSigninAndEnableSync();
         // Load the NTP.
         mActivityTestRule.loadUrlInNewTab(UrlConstants.NTP_URL);
         // Bring up the gear icon menu.
@@ -92,7 +91,7 @@ public final class FeedManagementTest {
     @MediumTest
     public void launchNTP_launchActivitySettings() throws IOException, InterruptedException {
         // The web feed requires login to enable, so we must log in first.
-        mAccountManagerTestRule.addTestAccountThenSigninAndEnableSync();
+        mSigninTestRule.addTestAccountThenSigninAndEnableSync();
         // Load the NTP.
         mActivityTestRule.loadUrlInNewTab(UrlConstants.NTP_URL);
 

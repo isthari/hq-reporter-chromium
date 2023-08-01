@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,18 +7,19 @@
  * 'settings-category-default-radio-group' is the polymer element for showing
  * a certain category under Site Settings.
  */
-import '../settings_shared_css.js';
-import '../controls/settings_radio_group.js';
+import '../settings_shared.css.js';
+import '/shared/settings/controls/settings_radio_group.js';
 import '../privacy_page/collapse_radio_button.js';
 
-import {assert, assertNotReached} from 'chrome://resources/js/assert.m.js';
-import {WebUIListenerMixin} from 'chrome://resources/js/web_ui_listener_mixin.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {WebUiListenerMixin} from 'chrome://resources/cr_elements/web_ui_listener_mixin.js';
+import {assert, assertNotReached} from 'chrome://resources/js/assert_ts.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 import {loadTimeData} from '../i18n_setup.js';
 import {SettingsCollapseRadioButtonElement} from '../privacy_page/collapse_radio_button.js';
 
 import {ContentSetting, ContentSettingsTypes} from './constants.js';
+import {getTemplate} from './settings_category_default_radio_group.html.js';
 import {SiteSettingsMixin} from './site_settings_mixin.js';
 import {ContentSettingProvider, DefaultContentSetting} from './site_settings_prefs_browser_proxy.js';
 
@@ -38,7 +39,7 @@ export interface SettingsCategoryDefaultRadioGroupElement {
 }
 
 const SettingsCategoryDefaultRadioGroupElementBase =
-    SiteSettingsMixin(WebUIListenerMixin(PolymerElement));
+    SiteSettingsMixin(WebUiListenerMixin(PolymerElement));
 
 export class SettingsCategoryDefaultRadioGroupElement extends
     SettingsCategoryDefaultRadioGroupElementBase {
@@ -47,7 +48,7 @@ export class SettingsCategoryDefaultRadioGroupElement extends
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
@@ -110,24 +111,21 @@ export class SettingsCategoryDefaultRadioGroupElement extends
   blockOptionLabel: string;
   blockOptionSubLabel: string;
   blockOptionIcon: string;
-  private pref_: chrome.settingsPrivate.PrefObject;
+  private pref_: chrome.settingsPrivate.PrefObject<number>;
 
-  ready() {
+  override ready() {
     super.ready();
 
-    this.addWebUIListener(
+    this.addWebUiListener(
         'contentSettingCategoryChanged',
         (category: ContentSettingsTypes) => this.onCategoryChanged_(category));
   }
 
   private getAllowOptionForCategory_(): ContentSetting {
-    /**
-     * This list must be kept in sync with the list in
-     * category_default_setting.js
-     */
     switch (this.category) {
       case ContentSettingsTypes.ADS:
       case ContentSettingsTypes.BACKGROUND_SYNC:
+      case ContentSettingsTypes.FEDERATED_IDENTITY_API:
       case ContentSettingsTypes.IMAGES:
       case ContentSettingsTypes.JAVASCRIPT:
       case ContentSettingsTypes.MIXEDSCRIPT:
@@ -146,22 +144,21 @@ export class SettingsCategoryDefaultRadioGroupElement extends
       case ContentSettingsTypes.CAMERA:
       case ContentSettingsTypes.CLIPBOARD:
       case ContentSettingsTypes.FILE_SYSTEM_WRITE:
-      case ContentSettingsTypes.FONT_ACCESS:
       case ContentSettingsTypes.GEOLOCATION:
       case ContentSettingsTypes.HID_DEVICES:
       case ContentSettingsTypes.IDLE_DETECTION:
+      case ContentSettingsTypes.LOCAL_FONTS:
       case ContentSettingsTypes.MIC:
       case ContentSettingsTypes.MIDI_DEVICES:
       case ContentSettingsTypes.NOTIFICATIONS:
       case ContentSettingsTypes.SERIAL_PORTS:
       case ContentSettingsTypes.USB_DEVICES:
       case ContentSettingsTypes.VR:
-      case ContentSettingsTypes.WINDOW_PLACEMENT:
+      case ContentSettingsTypes.WINDOW_MANAGEMENT:
         // "Ask" vs "Blocked".
         return ContentSetting.ASK;
       default:
         assertNotReached('Invalid category: ' + this.category);
-        return ContentSetting.ALLOW;
     }
   }
 
@@ -210,6 +207,9 @@ export class SettingsCategoryDefaultRadioGroupElement extends
           break;
       }
       this.set('pref_.controlledBy', controlledBy);
+    } else {
+      this.set('pref_.enforcement', undefined);
+      this.set('pref_.controlledBy', undefined);
     }
 
     const enabled = this.computeIsSettingEnabled(update.setting);

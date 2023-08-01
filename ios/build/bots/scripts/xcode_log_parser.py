@@ -1,4 +1,4 @@
-# Copyright 2019 The Chromium Authors. All rights reserved.
+# Copyright 2019 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -236,9 +236,11 @@ class Xcode11LogParser(object):
           continue
         for test in test_suite['subtests']['_values']:
           test_name = _sanitize_str(test['identifier']['_value'])
-          # Raw duration is a str in seconds with decimals. Convert to
-          # milliseconds as int as used in |TestResult|.
-          duration = int(float(test['duration']['_value']) * 1000)
+          duration = test.get('duration', {}).get('_value')
+          if duration:
+            # Raw duration is a str in seconds with decimals if it exists.
+            # Convert to milliseconds as int as used in |TestResult|.
+            duration = int(float(duration) * 1000)
           if any(
               test_name.endswith(suffix)
               for suffix in SYSTEM_ERROR_TEST_NAME_SUFFIXES):
@@ -249,9 +251,24 @@ class Xcode11LogParser(object):
           # If a test case was executed multiple times, there will be multiple
           # |test| objects of it. Each |test| corresponds to an execution of the
           # test case.
-          if test['testStatus']['_value'] == 'Success':
+          test_status_value = test['testStatus']['_value']
+          if test_status_value == 'Success':
             result.add_test_result(
                 TestResult(test_name, TestStatus.PASS, duration=duration))
+          elif test_status_value == 'Expected Failure':
+            result.add_test_result(
+                TestResult(
+                    test_name,
+                    TestStatus.FAIL,
+                    expected_status=TestStatus.FAIL,
+                    duration=duration))
+          elif test_status_value == 'Skipped':
+            result.add_test_result(
+                TestResult(
+                    test_name,
+                    TestStatus.SKIP,
+                    expected_status=TestStatus.SKIP,
+                    duration=duration))
           else:
             # Parse data for failed test by its id. See SINGLE_TEST_SUMMARY_REF
             # in xcode_log_parser_test.py for an example of |summary_ref|.
@@ -388,10 +405,12 @@ class Xcode11LogParser(object):
           for test_suite in all_tests.get('subtests', {}).get('_values', []):
             for test_case in test_suite.get('subtests', {}).get('_values', []):
               for test in test_case.get('subtests', {}).get('_values', []):
-                if test['testStatus']['_value'] != 'Success':
-                  test_summary_refs[
-                      test['identifier']
-                      ['_value']] = test['summaryRef']['id']['_value']
+                test_status_value = test['testStatus']['_value']
+                if test_status_value not in [
+                    'Success', 'Expected Failure', 'Skipped'
+                ]:
+                  summary_ref = test['summaryRef']['id']['_value']
+                  test_summary_refs[test['identifier']['_value']] = summary_ref
 
     for test, summary_ref_id in test_summary_refs.items():
       # See SINGLE_TEST_SUMMARY_REF in xcode_log_parser_test.py for an example
@@ -502,16 +521,16 @@ class Xcode11LogParser(object):
       for attachment in activity_summary.get('attachments',
                                              {}).get('_values', []):
         payload_ref = attachment['payloadRef']['id']['_value']
-        _, file_name_extension = os.path.splitext(
-            str(attachment['filename']['_value']))
+        raw_file_name = str(attachment['filename']['_value'])
+        _, file_name_extension = os.path.splitext(raw_file_name)
+
         if not include_jpg and file_name_extension in ['.jpg', '.jpeg']:
           continue
 
-        attachment_index = len(attachments) + 1
         attachment_filename = (
-            '%s_%s_%d%s' %
+            '%s_%s_%s' %
             (os.path.splitext(os.path.basename(xcresult))[0],
-             test.replace('/', '_'), attachment_index, file_name_extension))
+             test.replace('/', '_'), raw_file_name))
         # Extracts attachment to the same folder containing xcresult.
         attachment_output_path = os.path.abspath(
             os.path.join(xcresult, os.pardir, attachment_filename))
@@ -572,9 +591,16 @@ class XcodeLogParser(object):
         continue
       for test_suite in summary['Tests'][0]['Subtests'][0]['Subtests']:
         for test in test_suite['Subtests']:
-          if test['TestStatus'] == 'Success':
+          test_status = test['TestStatus']
+          if test_status == 'Success':
             result.add_test_result(
                 TestResult(test['TestIdentifier'], TestStatus.PASS))
+          elif test_status == 'Expected Failure':
+            result.add_test_result(
+                TestResult(
+                    test['TestIdentifier'],
+                    TestStatus.FAIL,
+                    expected_status=TestStatus.FAIL))
           else:
             message = ''
             for failure_summary in test['FailureSummaries']:

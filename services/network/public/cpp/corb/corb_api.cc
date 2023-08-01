@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,10 @@
 #include <unordered_set>
 
 #include "net/http/http_response_headers.h"
-#include "services/network/public/cpp/corb/corb_impl.h"
+#include "services/network/public/cpp/corb/orb_impl.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
 
-namespace network {
-namespace corb {
+namespace network::corb {
 
 namespace {
 
@@ -35,11 +34,9 @@ void RemoveAllHttpResponseHeaders(
 ResponseAnalyzer::~ResponseAnalyzer() = default;
 
 // static
-std::unique_ptr<ResponseAnalyzer> ResponseAnalyzer::Create() {
-  // TODO(https://crbug.com/1178928): Instead of always returning a CORB-based
-  // implementation, consult base::FeatureList and return an ORB-based
-  // implementation if needed.
-  return std::make_unique<CrossOriginReadBlocking::CorbResponseAnalyzer>();
+std::unique_ptr<ResponseAnalyzer> ResponseAnalyzer::Create(
+    PerFactoryState& state) {
+  return std::make_unique<OpaqueResponseBlockingAnalyzer>(state);
 }
 
 void SanitizeBlockedResponseHeaders(network::mojom::URLResponseHead& response) {
@@ -48,5 +45,4 @@ void SanitizeBlockedResponseHeaders(network::mojom::URLResponseHead& response) {
     RemoveAllHttpResponseHeaders(response.headers);
 }
 
-}  // namespace corb
-}  // namespace network
+}  // namespace network::corb

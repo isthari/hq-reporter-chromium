@@ -1,8 +1,10 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ui/views/widget/native_widget_mac.h"
+
+#include "base/memory/raw_ptr.h"
 
 #import <Cocoa/Cocoa.h>
 
@@ -16,9 +18,9 @@
 #include "ui/views/test/native_widget_factory.h"
 #include "ui/views/test/test_widget_observer.h"
 #include "ui/views/test/widget_test.h"
+#include "ui/views/widget/widget_interactive_uitest_utils.h"
 
-namespace views {
-namespace test {
+namespace views::test {
 
 // Tests for NativeWidgetMac that rely on global window manager state, and can
 // not be parallelized.
@@ -68,7 +70,7 @@ class NativeWidgetMacInteractiveUITest::Observer : public TestWidgetObserver {
   }
 
  private:
-  NativeWidgetMacInteractiveUITest* parent_;
+  raw_ptr<NativeWidgetMacInteractiveUITest> parent_;
 };
 
 // Test that showing a window causes it to attain global keyWindow status.
@@ -266,6 +268,19 @@ TEST_F(NativeWidgetMacInteractiveUITest,
   params.workspace = kDummyWindowRestorationData;
   widget->Init(std::move(params));
 
+  // Wait for the window to minimize. Ultimately we're going to check the
+  // NSWindow minimization state, so it would make sense to wait on the
+  // notification as we do below. However,
+  // widget->GetNativeWindow().GetNativeNSWindow() returns nil before the call
+  // to widget->Init(), and we'd need to set up the notification observer at
+  // that point. So instead, wait on the Widget state change.
+  {
+    views::test::PropertyWaiter minimize_waiter(
+        base::BindRepeating(&Widget::IsMinimized, base::Unretained(widget)),
+        true);
+    EXPECT_TRUE(minimize_waiter.Wait());
+  }
+
   NSWindow* window = widget->GetNativeWindow().GetNativeNSWindow();
   EXPECT_TRUE([window isMiniaturized]);
 
@@ -280,7 +295,12 @@ TEST_F(NativeWidgetMacInteractiveUITest,
 
   // Activate the window from the dock (i.e.
   // SetVisibilityState(WindowVisibilityState::kShowAndActivateWindow)).
+  base::scoped_nsobject<WindowedNSNotificationObserver>
+      deminiaturizationObserver([[WindowedNSNotificationObserver alloc]
+          initForNotification:NSWindowDidDeminiaturizeNotification
+                       object:window]);
   widget->Activate();
+  [deminiaturizationObserver wait];
   EXPECT_FALSE([window isMiniaturized]);
 
   widget->CloseNow();
@@ -379,5 +399,4 @@ INSTANTIATE_TEST_SUITE_P(NativeWidgetMacInteractiveUITestInstance,
                          NativeWidgetMacInteractiveUITest,
                          ::testing::Bool());
 
-}  // namespace test
-}  // namespace views
+}  // namespace views::test

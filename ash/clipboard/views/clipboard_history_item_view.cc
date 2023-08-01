@@ -1,10 +1,12 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/clipboard/views/clipboard_history_item_view.h"
 
+#include "ash/clipboard/clipboard_history.h"
 #include "ash/clipboard/clipboard_history_item.h"
+#include "ash/clipboard/clipboard_history_util.h"
 #include "ash/clipboard/views/clipboard_history_bitmap_item_view.h"
 #include "ash/clipboard/views/clipboard_history_delete_button.h"
 #include "ash/clipboard/views/clipboard_history_file_item_view.h"
@@ -12,21 +14,32 @@
 #include "ash/clipboard/views/clipboard_history_text_item_view.h"
 #include "ash/clipboard/views/clipboard_history_view_constants.h"
 #include "base/auto_reset.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/strings/utf_string_conversions.h"
+#include "base/notreached.h"
+#include "base/unguessable_token.h"
+#include "chromeos/crosapi/mojom/clipboard_history.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/clipboard/clipboard_data.h"
+#include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/animation/ink_drop.h"
 #include "ui/views/border.h"
-#include "ui/views/controls/menu/menu_config.h"
 #include "ui/views/controls/menu/menu_item_view.h"
 #include "ui/views/layout/fill_layout.h"
 
 namespace ash {
 namespace {
-using Action = ClipboardHistoryUtil::Action;
+using Action = clipboard_history_util::Action;
+
+const ClipboardHistoryItem* GetClipboardHistoryItemImpl(
+    const base::UnguessableToken& item_id,
+    const ClipboardHistory* clipboard_history) {
+  const auto& items = clipboard_history->GetItems();
+  const auto& item_iter =
+      base::ranges::find(items, item_id, &ClipboardHistoryItem::id);
+  return item_iter == items.cend() ? nullptr : &(*item_iter);
+}
 }  // namespace
 
 ClipboardHistoryItemView::ContentsView::ContentsView(
@@ -45,17 +58,14 @@ void ClipboardHistoryItemView::ContentsView::InstallDeleteButton() {
 void ClipboardHistoryItemView::ContentsView::OnHostPseudoFocusUpdated() {
   delete_button_->SetVisible(container_->ShouldShowDeleteButton());
 
-  const bool focused =
-      (container_->pseudo_focus_ == PseudoFocus::kDeleteButton);
-  views::InkDrop::Get(delete_button_)->GetInkDrop()->SetFocused(focused);
-  if (focused) {
+  const bool delete_button_focused = container_->IsDeleteButtonPseudoFocused();
+  views::InkDrop::Get(delete_button_)
+      ->GetInkDrop()
+      ->SetFocused(delete_button_focused);
+  if (delete_button_focused) {
     delete_button_->NotifyAccessibilityEvent(ax::mojom::Event::kHover,
                                              /*send_native_event*/ true);
   }
-}
-
-const char* ClipboardHistoryItemView::ContentsView::GetClassName() const {
-  return "ContenstView";
 }
 
 // Accepts the event only when |delete_button_| should be the handler.
@@ -74,31 +84,38 @@ bool ClipboardHistoryItemView::ContentsView::DoesIntersectRect(
 // static
 std::unique_ptr<ClipboardHistoryItemView>
 ClipboardHistoryItemView::CreateFromClipboardHistoryItem(
-    const ClipboardHistoryItem& item,
-    const ClipboardHistoryResourceManager* resource_manager,
+    const base::UnguessableToken& item_id,
+    const ClipboardHistory* clipboard_history,
     views::MenuItemView* container) {
-  const auto display_format =
-      ClipboardHistoryUtil::CalculateDisplayFormat(item.data());
+  const auto* item = GetClipboardHistoryItemImpl(item_id, clipboard_history);
+  const auto display_format = item->display_format();
   UMA_HISTOGRAM_ENUMERATION(
       "Ash.ClipboardHistory.ContextMenu.DisplayFormatShown", display_format);
   switch (display_format) {
-    case ClipboardHistoryUtil::ClipboardHistoryDisplayFormat::kText:
-      return std::make_unique<ClipboardHistoryTextItemView>(&item, container);
-    case ClipboardHistoryUtil::ClipboardHistoryDisplayFormat::kPng:
-    case ClipboardHistoryUtil::ClipboardHistoryDisplayFormat::kHtml:
+    case crosapi::mojom::ClipboardHistoryDisplayFormat::kUnknown:
+      NOTREACHED_NORETURN();
+    case crosapi::mojom::ClipboardHistoryDisplayFormat::kText:
+      return std::make_unique<ClipboardHistoryTextItemView>(
+          item_id, clipboard_history, container);
+    case crosapi::mojom::ClipboardHistoryDisplayFormat::kPng:
+    case crosapi::mojom::ClipboardHistoryDisplayFormat::kHtml:
       return std::make_unique<ClipboardHistoryBitmapItemView>(
-          &item, resource_manager, container);
-    case ClipboardHistoryUtil::ClipboardHistoryDisplayFormat::kFile:
-      return std::make_unique<ClipboardHistoryFileItemView>(&item, container);
+          item_id, clipboard_history, container);
+    case crosapi::mojom::ClipboardHistoryDisplayFormat::kFile:
+      return std::make_unique<ClipboardHistoryFileItemView>(
+          item_id, clipboard_history, container);
   }
 }
 
 ClipboardHistoryItemView::~ClipboardHistoryItemView() = default;
 
 ClipboardHistoryItemView::ClipboardHistoryItemView(
-    const ClipboardHistoryItem* clipboard_history_item,
+    const base::UnguessableToken& item_id,
+    const ClipboardHistory* clipboard_history,
     views::MenuItemView* container)
-    : clipboard_history_item_(clipboard_history_item), container_(container) {}
+    : item_id_(item_id),
+      clipboard_history_(clipboard_history),
+      container_(container) {}
 
 bool ClipboardHistoryItemView::AdvancePseudoFocus(bool reverse) {
   if (pseudo_focus_ == PseudoFocus::kEmpty) {
@@ -108,13 +125,12 @@ bool ClipboardHistoryItemView::AdvancePseudoFocus(bool reverse) {
 
   // When the menu item is disabled, only the delete button is able to work.
   if (!container_->GetEnabled()) {
-    DCHECK_EQ(PseudoFocus::kDeleteButton, pseudo_focus_);
+    DCHECK(IsDeleteButtonPseudoFocused());
     SetPseudoFocus(PseudoFocus::kEmpty);
     return false;
   }
 
-  DCHECK(pseudo_focus_ == PseudoFocus::kMainButton ||
-         pseudo_focus_ == PseudoFocus::kDeleteButton);
+  DCHECK(IsMainButtonPseudoFocused() || IsDeleteButtonPseudoFocused());
   int new_pseudo_focus = pseudo_focus_;
   bool move_focus_out = false;
   if (reverse) {
@@ -160,8 +176,6 @@ void ClipboardHistoryItemView::HandleMainButtonPressEvent(
 
 void ClipboardHistoryItemView::Init() {
   SetFocusBehavior(views::View::FocusBehavior::ACCESSIBLE_ONLY);
-  GetViewAccessibility().OverrideRole(ax::mojom::Role::kMenuItem);
-
   SetLayoutManager(std::make_unique<views::FillLayout>());
 
   // Ensures that MainButton is below any other child views.
@@ -201,8 +215,9 @@ void ClipboardHistoryItemView::MaybeHandleGestureEventFromMainButton(
         // The menu item is already selected so show the delete button if the
         // button is hidden.
         views::View* delete_button = contents_view_->delete_button();
-        if (!delete_button->GetVisible())
+        if (!delete_button->GetVisible()) {
           delete_button->SetVisible(true);
+        }
         break;
       }
       case PseudoFocus::kDeleteButton:
@@ -231,8 +246,12 @@ void ClipboardHistoryItemView::OnSelectionChanged() {
   InitiatePseudoFocus(/*reverse=*/false);
 }
 
-bool ClipboardHistoryItemView::ShouldHighlight() const {
+bool ClipboardHistoryItemView::IsMainButtonPseudoFocused() const {
   return pseudo_focus_ == PseudoFocus::kMainButton;
+}
+
+bool ClipboardHistoryItemView::IsDeleteButtonPseudoFocused() const {
+  return pseudo_focus_ == PseudoFocus::kDeleteButton;
 }
 
 void ClipboardHistoryItemView::OnMouseClickOnDescendantCanceled() {
@@ -240,37 +259,31 @@ void ClipboardHistoryItemView::OnMouseClickOnDescendantCanceled() {
   // the one where the click event started. A typical way is to move the mouse
   // while pressing the mouse left button. Hence, update the menu selection due
   // to the mouse location change.
-  Activate(ClipboardHistoryUtil::Action::kSelectItemHoveredByMouse,
-           ui::EF_NONE);
+  Activate(Action::kSelectItemHoveredByMouse, ui::EF_NONE);
 }
 
-void ClipboardHistoryItemView::MaybeRecordButtonPressedHistogram() const {
-  switch (action_) {
-    case Action::kDelete:
-      ClipboardHistoryUtil::RecordClipboardHistoryItemDeleted(
-          *clipboard_history_item_);
-      return;
-    case Action::kPaste:
-      ClipboardHistoryUtil::RecordClipboardHistoryItemPasted(
-          *clipboard_history_item_);
-      return;
-    case Action::kSelect:
-    case Action::kSelectItemHoveredByMouse:
-      return;
-    case Action::kEmpty:
-      NOTREACHED();
-      return;
-  }
+const ClipboardHistoryItem* ClipboardHistoryItemView::GetClipboardHistoryItem()
+    const {
+  return GetClipboardHistoryItemImpl(item_id_, clipboard_history_);
 }
 
 gfx::Size ClipboardHistoryItemView::CalculatePreferredSize() const {
   const int preferred_width =
-      views::MenuConfig::instance().touchable_menu_min_width;
+      clipboard_history_util::GetPreferredItemViewWidth();
   return gfx::Size(preferred_width, GetHeightForWidth(preferred_width));
 }
 
 void ClipboardHistoryItemView::GetAccessibleNodeData(ui::AXNodeData* data) {
-  data->SetName(GetAccessibleName());
+  // A valid role must be set in the AXNodeData prior to setting the name
+  // via AXNodeData::SetName.
+  data->role = ax::mojom::Role::kMenuItem;
+  data->SetNameChecked(GetAccessibleName());
+
+  // In fitting with existing conventions for menu items, we treat clipboard
+  // history items as "selected" from an accessibility standpoint if pressing
+  // Enter will perform the item's default expected action: pasting.
+  data->AddBoolAttribute(ax::mojom::BoolAttribute::kSelected,
+                         IsMainButtonPseudoFocused());
 }
 
 void ClipboardHistoryItemView::Activate(Action action, int event_flags) {
@@ -278,7 +291,6 @@ void ClipboardHistoryItemView::Activate(Action action, int event_flags) {
   DCHECK_NE(action_, action);
 
   base::AutoReset<Action> action_to_take(&action_, action);
-  MaybeRecordButtonPressedHistogram();
 
   views::MenuDelegate* delegate = container_->GetDelegate();
   const int command_id = container_->GetCommand();
@@ -308,19 +320,14 @@ Action ClipboardHistoryItemView::CalculateActionForMainButtonClick() const {
 }
 
 bool ClipboardHistoryItemView::ShouldShowDeleteButton() const {
-  return (pseudo_focus_ == PseudoFocus::kMainButton && IsMouseHovered()) ||
-         pseudo_focus_ == PseudoFocus::kDeleteButton ||
-         under_gesture_long_press_;
+  return (IsMainButtonPseudoFocused() && IsMouseHovered()) ||
+         IsDeleteButtonPseudoFocused() || under_gesture_long_press_;
 }
 
 void ClipboardHistoryItemView::InitiatePseudoFocus(bool reverse) {
-  PseudoFocus target_pseudo_focus;
-  if (!container_->GetEnabled() || reverse)
-    target_pseudo_focus = PseudoFocus::kDeleteButton;
-  else
-    target_pseudo_focus = PseudoFocus::kMainButton;
-
-  SetPseudoFocus(target_pseudo_focus);
+  SetPseudoFocus(reverse || !container_->GetEnabled()
+                     ? PseudoFocus::kDeleteButton
+                     : PseudoFocus::kMainButton);
 }
 
 void ClipboardHistoryItemView::SetPseudoFocus(PseudoFocus new_pseudo_focus) {
@@ -329,7 +336,7 @@ void ClipboardHistoryItemView::SetPseudoFocus(PseudoFocus new_pseudo_focus) {
     return;
 
   pseudo_focus_ = new_pseudo_focus;
-  if (pseudo_focus_ == PseudoFocus::kMainButton) {
+  if (IsMainButtonPseudoFocused()) {
     NotifyAccessibilityEvent(ax::mojom::Event::kSelection,
                              /*send_native_event=*/true);
   }
@@ -337,5 +344,11 @@ void ClipboardHistoryItemView::SetPseudoFocus(PseudoFocus new_pseudo_focus) {
   contents_view_->OnHostPseudoFocusUpdated();
   main_button_->OnHostPseudoFocusUpdated();
 }
+
+BEGIN_METADATA(ClipboardHistoryItemView, ContentsView, views::View)
+END_METADATA
+
+BEGIN_METADATA(ClipboardHistoryItemView, views::View)
+END_METADATA
 
 }  // namespace ash

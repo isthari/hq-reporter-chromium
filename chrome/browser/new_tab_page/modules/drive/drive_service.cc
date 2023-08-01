@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,13 +28,13 @@
 #include "services/network/public/cpp/resource_request.h"
 
 namespace {
-#if OS_LINUX
+#if BUILDFLAG(IS_LINUX)
 constexpr char kPlatform[] = "LINUX";
-#elif OS_WIN
+#elif BUILDFLAG(IS_WIN)
 constexpr char kPlatform[] = "WINDOWS";
-#elif OS_MAC
+#elif BUILDFLAG(IS_MAC)
 constexpr char kPlatform[] = "MAC_OS";
-#elif OS_CHROMEOS
+#elif BUILDFLAG(IS_CHROMEOS)
 constexpr char kPlatform[] = "CHROME_OS";
 #else
 constexpr char kPlatform[] = "UNSPECIFIED_PLATFORM";
@@ -103,7 +103,9 @@ constexpr char kFakeData[] = R"({
         "mimeType": "application/vnd.google-apps.document"
       },
       "justification": {
-        "displayText": { "textSegment": [{"text": "You opened yesterday"}]}
+        "unstructuredJustificationDescription": {
+          "textSegment": [{"text": "You opened yesterday"}]
+        }
       }
     },
     {
@@ -114,7 +116,9 @@ constexpr char kFakeData[] = R"({
         "mimeType": "application/vnd.google-apps.spreadsheet"
       },
       "justification": {
-        "displayText": { "textSegment": [{"text": "You opened today"}]}
+        "unstructuredJustificationDescription": {
+          "textSegment": [{"text": "You opened today"}]
+        }
       }
     },
     {
@@ -125,7 +129,9 @@ constexpr char kFakeData[] = R"({
         "mimeType": "application/vnd.google-apps.presentation"
       },
       "justification": {
-        "displayText": { "textSegment": [{"text": "You opened on Monday"}]}
+        "unstructuredJustificationDescription": {
+          "textSegment": [{"text": "You opened on Monday"}]
+        }
       }
     }
   ]
@@ -274,6 +280,8 @@ void DriveService::OnJsonReceived(const std::string& token,
   url_loader_.reset();
 
   if (net_error != net::OK || !response_body) {
+    base::UmaHistogramEnumeration("NewTabPage.Drive.ItemSuggestRequestResult",
+                                  ItemSuggestRequestResult::kNetworkError);
     for (auto& callback : callbacks_) {
       std::move(callback).Run(std::vector<drive::mojom::FilePtr>());
     }
@@ -290,43 +298,52 @@ void DriveService::OnJsonReceived(const std::string& token,
 
 void DriveService::OnJsonParsed(
     data_decoder::DataDecoder::ValueOrError result) {
-  if (!result.value) {
+  if (!result.has_value()) {
+    base::UmaHistogramEnumeration("NewTabPage.Drive.ItemSuggestRequestResult",
+                                  ItemSuggestRequestResult::kJsonParseError);
     for (auto& callback : callbacks_) {
       std::move(callback).Run(std::vector<drive::mojom::FilePtr>());
     }
     callbacks_.clear();
     return;
   }
-  auto* items = result.value->FindListPath("item");
+  auto* items = result->GetDict().FindList("item");
   if (!items) {
+    base::UmaHistogramEnumeration("NewTabPage.Drive.ItemSuggestRequestResult",
+                                  ItemSuggestRequestResult::kContentError);
     for (auto& callback : callbacks_) {
       std::move(callback).Run(std::vector<drive::mojom::FilePtr>());
     }
     callbacks_.clear();
     return;
   }
+  ItemSuggestRequestResult request_result = ItemSuggestRequestResult::kSuccess;
   std::vector<drive::mojom::FilePtr> document_list;
-  for (const auto& item : items->GetList()) {
-    auto* title = item.FindStringPath("driveItem.title");
-    auto* mime_type = item.FindStringPath("driveItem.mimeType");
-    auto* justification_text_segments =
-        item.FindListPath("justification.displayText.textSegment");
+  for (const auto& item : *items) {
+    const auto& item_dict = item.GetDict();
+    auto* title = item_dict.FindStringByDottedPath("driveItem.title");
+    auto* mime_type = item_dict.FindStringByDottedPath("driveItem.mimeType");
+    auto* justification_text_segments = item_dict.FindListByDottedPath(
+        "justification.unstructuredJustificationDescription.textSegment");
     if (!justification_text_segments ||
-        justification_text_segments->GetList().size() == 0) {
+        justification_text_segments->size() == 0) {
+      request_result = ItemSuggestRequestResult::kContentError;
       continue;
     }
     std::string justification_text;
-    for (auto& text_segment : justification_text_segments->GetList()) {
-      auto* justification_text_path = text_segment.FindStringPath("text");
+    for (auto& text_segment : *justification_text_segments) {
+      auto* justification_text_path = text_segment.GetDict().FindString("text");
       if (!justification_text_path) {
+        request_result = ItemSuggestRequestResult::kContentError;
         continue;
       }
       justification_text += *justification_text_path;
     }
-    auto* id = item.FindStringKey("itemId");
-    auto* item_url = item.FindStringKey("url");
+    auto* id = item_dict.FindString("itemId");
+    auto* item_url = item_dict.FindString("url");
     if (!title || !mime_type || justification_text.empty() || !id ||
         !item_url || !GURL(*item_url).is_valid()) {
+      request_result = ItemSuggestRequestResult::kContentError;
       continue;
     }
     auto mojo_drive_doc = drive::mojom::File::New();
@@ -337,6 +354,10 @@ void DriveService::OnJsonParsed(
     mojo_drive_doc->item_url = GURL(*item_url);
     document_list.push_back(std::move(mojo_drive_doc));
   }
+  base::UmaHistogramEnumeration("NewTabPage.Drive.ItemSuggestRequestResult",
+                                request_result);
+  base::UmaHistogramCounts100("NewTabPage.Drive.FileCount",
+                              document_list.size());
   for (auto& callback : callbacks_) {
     std::move(callback).Run(mojo::Clone(document_list));
   }

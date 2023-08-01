@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,10 @@
 #include <memory>
 #include <string>
 
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace gfx {
 struct VectorIcon;
-}
-
-namespace ui {
-class MenuModel;
 }
 
 // The basic interface of models backing a given UI sheet shown in the WebAuthn
@@ -41,10 +38,12 @@ class AuthenticatorRequestSheetModel {
   // Indicates what style to pick for the step illustration.
   enum class ImageColorScheme { kDark, kLight };
 
-  virtual ~AuthenticatorRequestSheetModel() {}
+  virtual ~AuthenticatorRequestSheetModel() = default;
 
   virtual bool IsActivityIndicatorVisible() const = 0;
   virtual bool IsBackButtonVisible() const = 0;
+  virtual bool ShouldFocusBackArrow() const;
+  virtual bool IsCloseButtonVisible() const;
 
   virtual bool IsCancelButtonVisible() const = 0;
   virtual std::u16string GetCancelButtonLabel() const = 0;
@@ -54,6 +53,8 @@ class AuthenticatorRequestSheetModel {
   virtual std::u16string GetAcceptButtonLabel() const = 0;
 
   virtual bool IsManageDevicesButtonVisible() const;
+  virtual bool IsOtherMechanismButtonVisible() const;
+  virtual std::u16string GetOtherMechanismButtonLabel() const;
 
   virtual const gfx::VectorIcon& GetStepIllustration(
       ImageColorScheme color_scheme) const = 0;
@@ -62,12 +63,22 @@ class AuthenticatorRequestSheetModel {
   virtual std::u16string GetAdditionalDescription() const;
   virtual std::u16string GetError() const;
 
-  virtual ui::MenuModel* GetOtherMechanismsMenuModel();
-
   virtual void OnBack() = 0;
   virtual void OnAccept() = 0;
   virtual void OnCancel() = 0;
   virtual void OnManageDevices();
+
+  absl::optional<int> lottie_illustration_light_id() const {
+    return lottie_illustration_light_id_;
+  }
+
+  absl::optional<int> lottie_illustration_dark_id() const {
+    return lottie_illustration_dark_id_;
+  }
+
+ protected:
+  absl::optional<int> lottie_illustration_light_id_;
+  absl::optional<int> lottie_illustration_dark_id_;
 };
 
 #endif  // CHROME_BROWSER_UI_WEBAUTHN_AUTHENTICATOR_REQUEST_SHEET_MODEL_H_

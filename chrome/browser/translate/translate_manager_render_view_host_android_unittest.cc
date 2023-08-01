@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -98,8 +98,8 @@ class TranslateManagerRenderViewHostAndroidTest
  protected:
   void SetUp() override {
     // Setup the test environment, including the threads and message loops. This
-    // must be done before base::ThreadTaskRunnerHandle::Get() is called when
-    // setting up the net::TestURLRequestContextGetter below.
+    // must be done before base::SingleThreadTaskRunner::GetCurrentDefault() is
+    // called when setting up the net::TestURLRequestContextGetter below.
     ChromeRenderViewHostTestHarness::SetUp();
 
     // Clears the translate script so it is fetched every time and sets the

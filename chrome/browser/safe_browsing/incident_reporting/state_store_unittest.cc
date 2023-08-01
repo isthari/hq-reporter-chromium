@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -110,9 +110,9 @@ class StateStoreTest : public PlatformStateStoreTestBase {
     std::unique_ptr<base::Value> prefs(JSONFileValueDeserializer(GetPrefsPath())
                                            .Deserialize(nullptr, nullptr));
     ASSERT_NE(nullptr, prefs.get());
-    base::DictionaryValue* dict = nullptr;
-    ASSERT_TRUE(prefs->GetAsDictionary(&dict));
-    ASSERT_TRUE(dict->RemovePath(prefs::kSafeBrowsingIncidentsSent));
+    base::Value::Dict* dict = prefs->GetIfDict();
+    ASSERT_TRUE(dict);
+    ASSERT_TRUE(dict->RemoveByDottedPath(prefs::kSafeBrowsingIncidentsSent));
     ASSERT_TRUE(JSONFileValueSerializer(GetPrefsPath()).Serialize(*dict));
   }
 
@@ -126,7 +126,7 @@ class StateStoreTest : public PlatformStateStoreTestBase {
     RegisterUserProfilePrefs(pref_registry);
     profile_ = profile_manager_.CreateTestingProfile(
         kProfileName_, factory.CreateSyncable(pref_registry),
-        base::UTF8ToUTF16(kProfileName_), 0, std::string(),
+        base::UTF8ToUTF16(kProfileName_), 0,
         TestingProfile::TestingFactories());
   }
 

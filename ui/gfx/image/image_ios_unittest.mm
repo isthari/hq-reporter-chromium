@@ -1,16 +1,22 @@
-// Copyright (c) 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#import <QuartzCore/QuartzCore.h>
-#include <stddef.h>
-#import <UIKit/UIKit.h>
+#include "ui/gfx/image/image.h"
 
-#include "base/cxx17_backports.h"
+#import <QuartzCore/QuartzCore.h>
+#import <UIKit/UIKit.h>
+#include <stddef.h>
+
 #include "base/mac/scoped_cftyperef.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "ui/gfx/image/image.h"
+#include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/base/resource/resource_scale_factor.h"
 #include "ui/gfx/image/image_skia.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 namespace {
 
@@ -23,13 +29,10 @@ UIImage* UIImageWithSizeAndScale(CGFloat width, CGFloat height, CGFloat scale) {
   base::ScopedCFTypeRef<CGColorSpaceRef> color_space(
       CGColorSpaceCreateDeviceRGB());
   base::ScopedCFTypeRef<CGContextRef> context(CGBitmapContextCreate(
-      NULL,
-      target_size.width,
-      target_size.height,
-      8,
-      target_size.width * 4,
+      NULL, target_size.width, target_size.height, 8, target_size.width * 4,
       color_space,
-      kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Host));
+      kCGImageAlphaPremultipliedFirst |
+          static_cast<CGImageAlphaInfo>(kCGBitmapByteOrder32Host)));
 
   CGRect target_rect = CGRectMake(0, 0,
                                   target_size.width, target_size.height);
@@ -46,24 +49,10 @@ UIImage* UIImageWithSizeAndScale(CGFloat width, CGFloat height, CGFloat scale) {
 
 class ImageIOSTest : public testing::Test {
  public:
-  ImageIOSTest() {}
-
+  ImageIOSTest() = default;
   ImageIOSTest(const ImageIOSTest&) = delete;
   ImageIOSTest& operator=(const ImageIOSTest&) = delete;
-
-  ~ImageIOSTest() override {}
-
-  void SetUp() override {
-    original_scale_factors_ = gfx::ImageSkia::GetSupportedScales();
-  }
-
-  void TearDown() override {
-    gfx::ImageSkia::SetSupportedScales(original_scale_factors_);
-  }
-
- private:
-  // Used to save and restore the scale factors in effect before this test.
-  std::vector<float> original_scale_factors_;
+  ~ImageIOSTest() override = default;
 };
 
 // Tests image conversion when the scale factor of the source image is not in
@@ -71,17 +60,17 @@ class ImageIOSTest : public testing::Test {
 TEST_F(ImageIOSTest, ImageConversionWithUnsupportedScaleFactor) {
   const CGFloat kWidth = 200;
   const CGFloat kHeight = 100;
-  const CGFloat kTestScales[3] = { 1.0f, 2.0f, 3.0f };
+  const ui::ResourceScaleFactor kTestScales[3] = {
+      ui::k100Percent, ui::k200Percent, ui::k300Percent};
 
-  for (size_t i = 0; i < base::size(kTestScales); ++i) {
-    for (size_t j = 0; j < base::size(kTestScales); ++j) {
+  for (size_t i = 0; i < std::size(kTestScales); ++i) {
+    for (size_t j = 0; j < std::size(kTestScales); ++j) {
       const CGFloat source_scale = kTestScales[i];
-      const CGFloat supported_scale = kTestScales[j];
+      const ui::ResourceScaleFactor supported_scale = kTestScales[j];
 
       // Set the supported scale for testing.
-      std::vector<float> supported_scales;
-      supported_scales.push_back(supported_scale);
-      gfx::ImageSkia::SetSupportedScales(supported_scales);
+      ui::test::ScopedSetSupportedResourceScaleFactors scoped_scale_factors(
+          {supported_scale});
 
       // Create an UIImage with the appropriate source_scale.
       UIImage* ui_image =
@@ -91,14 +80,16 @@ TEST_F(ImageIOSTest, ImageConversionWithUnsupportedScaleFactor) {
       ASSERT_EQ(source_scale, ui_image.scale);
 
       // Convert to SkBitmap and test its size.
-      gfx::Image to_skbitmap([ui_image retain]);
+      gfx::Image to_skbitmap(ui_image);
       const SkBitmap* bitmap = to_skbitmap.ToSkBitmap();
       ASSERT_TRUE(bitmap != NULL);
-      EXPECT_EQ(kWidth * supported_scale, bitmap->width());
-      EXPECT_EQ(kHeight * supported_scale, bitmap->height());
+      EXPECT_EQ(kWidth * ui::GetScaleForResourceScaleFactor(supported_scale),
+                bitmap->width());
+      EXPECT_EQ(kHeight * ui::GetScaleForResourceScaleFactor(supported_scale),
+                bitmap->height());
 
       // Convert to ImageSkia and test its size.
-      gfx::Image to_imageskia([ui_image retain]);
+      gfx::Image to_imageskia(ui_image);
       const gfx::ImageSkia* imageskia = to_imageskia.ToImageSkia();
       EXPECT_EQ(kWidth, imageskia->width());
       EXPECT_EQ(kHeight, imageskia->height());

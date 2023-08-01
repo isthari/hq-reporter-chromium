@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,44 +19,37 @@
 namespace media {
 
 VaapiVideoEncoderDelegate::EncodeJob::EncodeJob(
-    scoped_refptr<VideoFrame> input_frame,
     bool keyframe,
+    base::TimeDelta timestamp,
     VASurfaceID input_surface_id,
-    const gfx::Size& input_surface_size,
     scoped_refptr<CodecPicture> picture,
     std::unique_ptr<ScopedVABuffer> coded_buffer)
-    : input_frame_(input_frame),
-      keyframe_(keyframe),
+    : keyframe_(keyframe),
+      timestamp_(timestamp),
       input_surface_id_(input_surface_id),
-      input_surface_size_(input_surface_size),
       picture_(std::move(picture)),
       coded_buffer_(std::move(coded_buffer)) {
   DCHECK(picture_);
   DCHECK(coded_buffer_);
 }
 
-VaapiVideoEncoderDelegate::EncodeJob::EncodeJob(
-    scoped_refptr<VideoFrame> input_frame,
-    bool keyframe)
-    : input_frame_(input_frame),
-      keyframe_(keyframe),
-      input_surface_id_(VA_INVALID_ID) {}
+VaapiVideoEncoderDelegate::EncodeJob::EncodeJob(bool keyframe,
+                                                base::TimeDelta timestamp,
+                                                VASurfaceID input_surface_id)
+    : keyframe_(keyframe),
+      timestamp_(timestamp),
+      input_surface_id_(input_surface_id) {}
 
 VaapiVideoEncoderDelegate::EncodeJob::~EncodeJob() = default;
 
-std::unique_ptr<VaapiVideoEncoderDelegate::EncodeResult>
+VaapiVideoEncoderDelegate::EncodeResult
 VaapiVideoEncoderDelegate::EncodeJob::CreateEncodeResult(
     const BitstreamBufferMetadata& metadata) && {
-  return std::make_unique<EncodeResult>(std::move(coded_buffer_), metadata);
+  return EncodeResult(std::move(coded_buffer_), metadata);
 }
 
 base::TimeDelta VaapiVideoEncoderDelegate::EncodeJob::timestamp() const {
-  return input_frame_->timestamp();
-}
-
-const scoped_refptr<VideoFrame>&
-VaapiVideoEncoderDelegate::EncodeJob::input_frame() const {
-  return input_frame_;
+  return timestamp_;
 }
 
 VABufferID VaapiVideoEncoderDelegate::EncodeJob::coded_buffer_id() const {
@@ -65,11 +58,6 @@ VABufferID VaapiVideoEncoderDelegate::EncodeJob::coded_buffer_id() const {
 
 VASurfaceID VaapiVideoEncoderDelegate::EncodeJob::input_surface_id() const {
   return input_surface_id_;
-}
-
-const gfx::Size& VaapiVideoEncoderDelegate::EncodeJob::input_surface_size()
-    const {
-  return input_surface_size_;
 }
 
 const scoped_refptr<CodecPicture>&
@@ -84,6 +72,11 @@ VaapiVideoEncoderDelegate::EncodeResult::EncodeResult(
 
 VaapiVideoEncoderDelegate::EncodeResult::~EncodeResult() = default;
 
+VaapiVideoEncoderDelegate::EncodeResult::EncodeResult(EncodeResult&&) = default;
+
+VaapiVideoEncoderDelegate::EncodeResult&
+VaapiVideoEncoderDelegate::EncodeResult::operator=(EncodeResult&&) = default;
+
 VABufferID VaapiVideoEncoderDelegate::EncodeResult::coded_buffer_id() const {
   return coded_buffer_->id();
 }
@@ -96,11 +89,11 @@ VaapiVideoEncoderDelegate::EncodeResult::metadata() const {
 VaapiVideoEncoderDelegate::VaapiVideoEncoderDelegate(
     scoped_refptr<VaapiWrapper> vaapi_wrapper,
     base::RepeatingClosure error_cb)
-    : vaapi_wrapper_(vaapi_wrapper), error_cb_(error_cb) {
-  DETACH_FROM_SEQUENCE(sequence_checker_);
-}
+    : vaapi_wrapper_(vaapi_wrapper), error_cb_(error_cb) {}
 
-VaapiVideoEncoderDelegate::~VaapiVideoEncoderDelegate() = default;
+VaapiVideoEncoderDelegate::~VaapiVideoEncoderDelegate() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+}
 
 size_t VaapiVideoEncoderDelegate::GetBitstreamBufferSize() const {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -109,7 +102,7 @@ size_t VaapiVideoEncoderDelegate::GetBitstreamBufferSize() const {
 }
 
 void VaapiVideoEncoderDelegate::BitrateControlUpdate(
-    uint64_t encoded_chunk_size_bytes) {
+    const BitstreamBufferMetadata& metadata) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 }
 
@@ -122,37 +115,36 @@ BitstreamBufferMetadata VaapiVideoEncoderDelegate::GetMetadata(
                                  encode_job.timestamp());
 }
 
-std::unique_ptr<VaapiVideoEncoderDelegate::EncodeResult>
-VaapiVideoEncoderDelegate::Encode(std::unique_ptr<EncodeJob> encode_job) {
-  if (!PrepareEncodeJob(*encode_job)) {
+bool VaapiVideoEncoderDelegate::Encode(EncodeJob& encode_job) {
+  if (!PrepareEncodeJob(encode_job)) {
     VLOGF(1) << "Failed preparing an encode job";
-    return nullptr;
+    return false;
   }
 
-  const VASurfaceID va_surface_id = encode_job->input_surface_id();
-  if (!native_input_mode_ && !vaapi_wrapper_->UploadVideoFrameToSurface(
-                                 *encode_job->input_frame(), va_surface_id,
-                                 encode_job->input_surface_size())) {
-    VLOGF(1) << "Failed to upload frame";
-    return nullptr;
-  }
-
-  if (!vaapi_wrapper_->ExecuteAndDestroyPendingBuffers(va_surface_id)) {
+  if (!vaapi_wrapper_->ExecuteAndDestroyPendingBuffers(
+          encode_job.input_surface_id())) {
     VLOGF(1) << "Failed to execute encode";
-    return nullptr;
+    return false;
   }
 
+  return true;
+}
+
+absl::optional<VaapiVideoEncoderDelegate::EncodeResult>
+VaapiVideoEncoderDelegate::GetEncodeResult(
+    std::unique_ptr<EncodeJob> encode_job) {
+  const VASurfaceID va_surface_id = encode_job->input_surface_id();
   const uint64_t encoded_chunk_size = vaapi_wrapper_->GetEncodedChunkSize(
       encode_job->coded_buffer_id(), va_surface_id);
   if (encoded_chunk_size == 0) {
     VLOGF(1) << "Invalid encoded chunk size";
-    return nullptr;
+    return absl::nullopt;
   }
 
-  BitrateControlUpdate(encoded_chunk_size);
-
   auto metadata = GetMetadata(*encode_job, encoded_chunk_size);
-  return std::move(*encode_job).CreateEncodeResult(metadata);
+  BitrateControlUpdate(metadata);
+  return absl::make_optional<EncodeResult>(
+      std::move(*encode_job).CreateEncodeResult(metadata));
 }
 
 }  // namespace media

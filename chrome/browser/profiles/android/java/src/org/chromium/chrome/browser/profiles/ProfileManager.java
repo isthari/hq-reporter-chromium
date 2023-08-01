@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -53,7 +53,8 @@ public class ProfileManager {
     }
 
     @CalledByNative
-    private static void onProfileAdded(Profile profile) {
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    public static void onProfileAdded(Profile profile) {
         // If a profile has been added, we know the ProfileManager has been initialized.
         sInitialized = true;
         for (Observer observer : sObservers) {

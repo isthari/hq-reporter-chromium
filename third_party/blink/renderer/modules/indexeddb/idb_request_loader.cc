@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <algorithm>
 
-#include "base/metrics/histogram_functions.h"
 #include "third_party/blink/public/platform/task_type.h"
 #include "third_party/blink/renderer/core/dom/dom_exception.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
@@ -28,9 +27,7 @@ IDBRequestLoader::IDBRequestLoader(
   DCHECK(IDBValueUnwrapper::IsWrapped(values_));
 }
 
-IDBRequestLoader::~IDBRequestLoader() {
-  // TODO(pwnall): Do we need to call loader_->Cancel() here?
-}
+IDBRequestLoader::~IDBRequestLoader() {}
 
 void IDBRequestLoader::Start() {
 #if DCHECK_IS_ON()
@@ -81,25 +78,27 @@ void IDBRequestLoader::StartNextValue() {
   if (!exection_context)
     return;
 
-  wrapped_data_.ReserveCapacity(unwrapper.WrapperBlobSize());
+  wrapped_data_.reserve(unwrapper.WrapperBlobSize());
 #if DCHECK_IS_ON()
   DCHECK(!file_reader_loading_);
   file_reader_loading_ = true;
 #endif  // DCHECK_IS_ON()
-  loader_ = std::make_unique<FileReaderLoader>(
-      FileReaderLoader::kReadByClient, this,
-      exection_context->GetTaskRunner(TaskType::kDatabaseAccess));
+  loader_ = MakeGarbageCollected<FileReaderLoader>(
+      this, exection_context->GetTaskRunner(TaskType::kDatabaseAccess));
   loader_->Start(unwrapper.WrapperBlobHandle());
 }
 
-void IDBRequestLoader::DidStartLoading() {}
+FileErrorCode IDBRequestLoader::DidStartLoading(uint64_t) {
+  return FileErrorCode::kOK;
+}
 
-void IDBRequestLoader::DidReceiveDataForClient(const char* data,
+FileErrorCode IDBRequestLoader::DidReceiveData(const char* data,
                                                unsigned data_length) {
   DCHECK_LE(wrapped_data_.size() + data_length, wrapped_data_.capacity())
       << "The reader returned more data than we were prepared for";
 
   wrapped_data_.Append(data, data_length);
+  return FileErrorCode::kOK;
 }
 
 void IDBRequestLoader::DidFinishLoading() {
@@ -130,10 +129,6 @@ void IDBRequestLoader::DidFail(FileErrorCode) {
   DCHECK(file_reader_loading_);
   file_reader_loading_ = false;
 #endif  // DCHECK_IS_ON()
-
-  base::UmaHistogramSparse("Storage.Blob.IDBRequestLoader.ReadError",
-                           std::max(0, -loader_->GetNetError()));
-
   ReportError();
 }
 

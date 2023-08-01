@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,10 +10,8 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/task/post_task.h"
+#include "base/functional/bind.h"
 #include "base/task/sequenced_task_runner.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/time.h"
 #include "content/browser/indexed_db/cursor_impl.h"
 #include "content/browser/indexed_db/database_impl.h"
@@ -43,7 +41,7 @@ class SafeConnectionWrapper {
   explicit SafeConnectionWrapper(
       std::unique_ptr<IndexedDBConnection> connection)
       : connection_(std::move(connection)),
-        idb_runner_(base::SequencedTaskRunnerHandle::Get()) {}
+        idb_runner_(base::SequencedTaskRunner::GetCurrentDefault()) {}
 
   SafeConnectionWrapper(const SafeConnectionWrapper&) = delete;
   SafeConnectionWrapper& operator=(const SafeConnectionWrapper&) = delete;
@@ -68,7 +66,7 @@ class SafeCursorWrapper {
  public:
   explicit SafeCursorWrapper(std::unique_ptr<IndexedDBCursor> cursor)
       : cursor_(std::move(cursor)),
-        idb_runner_(base::SequencedTaskRunnerHandle::Get()) {}
+        idb_runner_(base::SequencedTaskRunner::GetCurrentDefault()) {}
 
   SafeCursorWrapper(const SafeCursorWrapper&) = delete;
   SafeCursorWrapper& operator=(const SafeCursorWrapper&) = delete;
@@ -87,12 +85,12 @@ class SafeCursorWrapper {
 
 IndexedDBCallbacks::IndexedDBCallbacks(
     base::WeakPtr<IndexedDBDispatcherHost> dispatcher_host,
-    const blink::StorageKey& storage_key,
+    const absl::optional<storage::BucketInfo>& bucket,
     mojo::PendingAssociatedRemote<blink::mojom::IDBCallbacks> pending_callbacks,
     scoped_refptr<base::SequencedTaskRunner> idb_runner)
     : data_loss_(blink::mojom::IDBDataLoss::None),
       dispatcher_host_(std::move(dispatcher_host)),
-      storage_key_(storage_key),
+      bucket_info_(bucket),
       idb_runner_(std::move(idb_runner)) {
   DCHECK(idb_runner_->RunsTasksInCurrentSequence());
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
@@ -121,21 +119,6 @@ void IndexedDBCallbacks::OnError(const IndexedDBDatabaseError& error) {
     return;
   }
   callbacks_->Error(error.code(), error.message());
-  complete_ = true;
-}
-
-void IndexedDBCallbacks::OnSuccess(
-    std::vector<blink::mojom::IDBNameAndVersionPtr> names_and_versions) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  DCHECK(!complete_);
-
-  if (!callbacks_)
-    return;
-  if (!dispatcher_host_) {
-    OnConnectionError();
-    return;
-  }
-  callbacks_->SuccessNamesAndVersionsList(std::move(names_and_versions));
   complete_ = true;
 }
 
@@ -178,7 +161,7 @@ void IndexedDBCallbacks::OnUpgradeNeeded(
   }
 
   auto database = std::make_unique<DatabaseImpl>(
-      std::move(wrapper.connection_), storage_key_, dispatcher_host_.get(),
+      std::move(wrapper.connection_), *bucket_info_, dispatcher_host_.get(),
       idb_runner_);
 
   mojo::PendingAssociatedRemote<blink::mojom::IDBDatabase> pending_remote;
@@ -216,7 +199,7 @@ void IndexedDBCallbacks::OnSuccess(
   mojo::PendingAssociatedRemote<blink::mojom::IDBDatabase> pending_remote;
   if (wrapper.connection_) {
     auto database = std::make_unique<DatabaseImpl>(
-        std::move(wrapper.connection_), storage_key_, dispatcher_host_.get(),
+        std::move(wrapper.connection_), *bucket_info_, dispatcher_host_.get(),
         idb_runner_);
     dispatcher_host_->AddDatabaseBinding(
         std::move(database),

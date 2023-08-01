@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,17 @@
 #include "base/component_export.h"
 #include "base/containers/flat_set.h"
 #include "base/time/time.h"
+#include "base/values.h"
 #include "chromeos/crosapi/mojom/local_printer.mojom.h"
 
 namespace chromeos {
+
+// Holds information about authentication required by a printer.
+struct PrinterAuthenticationInfo {
+  // URI of OAuth2 Authorization Server and scope. Empty strings if not set.
+  std::string oauth_server;
+  std::string oauth_scope;
+};
 
 // A container for the results of a printer status query. A printer status query
 // can return multiple error reasons so CupsPrinterStatus contains multiple
@@ -65,15 +73,24 @@ class COMPONENT_EXPORT(CHROMEOS_PRINTING) CupsPrinterStatus {
   // printer.
   const base::flat_set<CupsPrinterStatusReason>& GetStatusReasons() const;
 
+  const PrinterAuthenticationInfo& GetAuthenticationInfo() const {
+    return auth_info_;
+  }
+
   const base::Time& GetTimestamp() const;
 
   // Adds a new CupsPrinterStatusReason to an existing CupsPrinterStatus.
   void AddStatusReason(const CupsPrinterStatusReason::Reason& reason,
                        const CupsPrinterStatusReason::Severity& severity);
 
+  void SetAuthenticationInfo(const PrinterAuthenticationInfo& auth_info);
+
+  base::Value::Dict ConvertToValue() const;
+
  private:
   std::string printer_id_;
   base::flat_set<CupsPrinterStatusReason> status_reasons_;
+  PrinterAuthenticationInfo auth_info_;
   base::Time timestamp_;
 };
 

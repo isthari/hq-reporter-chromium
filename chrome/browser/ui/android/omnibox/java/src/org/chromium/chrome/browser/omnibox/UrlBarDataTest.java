@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -101,7 +101,8 @@ public class UrlBarDataTest {
     private void verifyOriginSpan(
             String expectedOrigin, @Nullable String expectedOriginSuffix, String url) {
         UrlBarData urlBarData = UrlBarData.forUrl(url);
-        String displayText = urlBarData.displayText.toString();
+        String displayText =
+                urlBarData.displayText == null ? "" : urlBarData.displayText.toString();
         Assert.assertEquals(expectedOriginSuffix == null ? expectedOrigin
                                                          : expectedOrigin + expectedOriginSuffix,
                 displayText);

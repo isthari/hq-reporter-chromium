@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,14 @@ void NGInlineItemsData::GetOpenTagItems(wtf_size_t size,
       open_items->pop_back();
   }
 }
+
+#if DCHECK_IS_ON()
+void NGInlineItemsData::CheckConsistency() const {
+  for (const NGInlineItem& item : items) {
+    item.CheckTextType(text_content);
+  }
+}
+#endif
 
 void NGInlineItemsData::Trace(Visitor* visitor) const {
   visitor->Trace(items);

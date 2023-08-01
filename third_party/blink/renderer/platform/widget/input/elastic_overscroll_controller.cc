@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 
 #include <algorithm>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "build/build_config.h"
 #include "cc/input/input_handler.h"
 #include "third_party/blink/renderer/platform/widget/input/elastic_overscroll_controller_bezier.h"
@@ -181,14 +181,20 @@ void ElasticOverscrollController::UpdateVelocity(
 
 void ElasticOverscrollController::Overscroll(
     const gfx::Vector2dF& overscroll_delta) {
-  // The effect can be dynamically disabled by setting disallowing user
+  gfx::Vector2dF adjusted_overscroll_delta = overscroll_delta;
+
+  // The effect can be dynamically disabled by setting styles to disallow user
   // scrolling. When disabled, disallow active or momentum overscrolling, but
   // allow any current overscroll to animate back.
-  if (!helper_->IsUserScrollable())
+  if (!helper_->IsUserScrollableHorizontal())
+    adjusted_overscroll_delta.set_x(0);
+  if (!helper_->IsUserScrollableVertical())
+    adjusted_overscroll_delta.set_y(0);
+
+  if (adjusted_overscroll_delta.IsZero())
     return;
 
-  gfx::Vector2dF adjusted_overscroll_delta =
-      pending_overscroll_delta_ + overscroll_delta;
+  adjusted_overscroll_delta += pending_overscroll_delta_;
   pending_overscroll_delta_ = gfx::Vector2dF();
 
   // TODO (arakeri): Make this prefer the writing mode direction instead.

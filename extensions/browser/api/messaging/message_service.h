@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,6 +30,7 @@ class BrowserContext;
 }
 
 namespace extensions {
+enum class ChannelType;
 class ChannelEndpoint;
 class Extension;
 class ExtensionHost;
@@ -92,6 +93,7 @@ class MessageService : public BrowserContextKeyedAPI,
                               std::unique_ptr<MessagePort> opener_port,
                               const std::string& target_extension_id,
                               const GURL& source_url,
+                              ChannelType channel_type,
                               const std::string& channel_name);
 
   // Same as above, but opens a channel to the tab with the given ID.  Messages
@@ -101,7 +103,9 @@ class MessageService : public BrowserContextKeyedAPI,
                         const PortId& source_port_id,
                         int tab_id,
                         int frame_id,
+                        const std::string& document_id,
                         const std::string& extension_id,
+                        ChannelType channel_type,
                         const std::string& channel_name);
 
   void OpenChannelToNativeApp(const ChannelEndpoint& source,
@@ -120,6 +124,12 @@ class MessageService : public BrowserContextKeyedAPI,
                  int process_id,
                  const PortContext& port_context,
                  bool force_close);
+
+  // Notifies the port that one of the receivers of a message indicated that
+  // they plan to respond to the message later.
+  void NotifyResponsePending(const PortId& port_id,
+                             int process_id,
+                             const PortContext& port_context);
 
   // Returns the number of open channels for test.
   size_t GetChannelCountForTest() { return channels_.size(); }

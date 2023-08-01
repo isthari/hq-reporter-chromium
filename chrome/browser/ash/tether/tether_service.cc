@@ -1,28 +1,28 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/tether/tether_service.h"
 
-#include "ash/components/tether/gms_core_notifications_state_tracker_impl.h"
-#include "ash/components/tether/tether_component.h"
-#include "ash/components/tether/tether_component_impl.h"
-#include "ash/components/tether/tether_host_fetcher_impl.h"
-#include "ash/services/secure_channel/public/cpp/client/secure_channel_client.h"
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/ash/tether/tether_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/ash/network/tether_notification_presenter.h"
 #include "chrome/common/pref_names.h"
-#include "chromeos/components/multidevice/logging/logging.h"
-#include "chromeos/network/device_state.h"
-#include "chromeos/network/network_connect.h"
-#include "chromeos/network/network_type_pattern.h"
-#include "chromeos/services/multidevice_setup/public/cpp/prefs.h"
+#include "chromeos/ash/components/multidevice/logging/logging.h"
+#include "chromeos/ash/components/network/device_state.h"
+#include "chromeos/ash/components/network/network_connect.h"
+#include "chromeos/ash/components/network/network_type_pattern.h"
+#include "chromeos/ash/components/tether/gms_core_notifications_state_tracker_impl.h"
+#include "chromeos/ash/components/tether/tether_component.h"
+#include "chromeos/ash/components/tether/tether_component_impl.h"
+#include "chromeos/ash/components/tether/tether_host_fetcher_impl.h"
+#include "chromeos/ash/services/multidevice_setup/public/cpp/prefs.h"
+#include "chromeos/ash/services/secure_channel/public/cpp/client/secure_channel_client.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
@@ -93,11 +93,10 @@ std::string TetherService::TetherFeatureStateToString(
 TetherService::TetherService(
     Profile* profile,
     chromeos::PowerManagerClient* power_manager_client,
-    chromeos::device_sync::DeviceSyncClient* device_sync_client,
-    chromeos::secure_channel::SecureChannelClient* secure_channel_client,
-    chromeos::multidevice_setup::MultiDeviceSetupClient*
-        multidevice_setup_client,
-    chromeos::NetworkStateHandler* network_state_handler,
+    device_sync::DeviceSyncClient* device_sync_client,
+    secure_channel::SecureChannelClient* secure_channel_client,
+    multidevice_setup::MultiDeviceSetupClient* multidevice_setup_client,
+    NetworkStateHandler* network_state_handler,
     session_manager::SessionManager* session_manager)
     : profile_(profile),
       power_manager_client_(power_manager_client),
@@ -107,9 +106,8 @@ TetherService::TetherService(
       network_state_handler_(network_state_handler),
       session_manager_(session_manager),
       notification_presenter_(
-          std::make_unique<chromeos::tether::TetherNotificationPresenter>(
-              profile_,
-              chromeos::NetworkConnect::Get())),
+          std::make_unique<TetherNotificationPresenter>(profile_,
+                                                        NetworkConnect::Get())),
       gms_core_notifications_state_tracker_(
           std::make_unique<GmsCoreNotificationsStateTrackerImpl>()),
       tether_host_fetcher_(
@@ -118,7 +116,7 @@ TetherService::TetherService(
       timer_(std::make_unique<base::OneShotTimer>()) {
   tether_host_fetcher_->AddObserver(this);
   power_manager_client_->AddObserver(this);
-  network_state_handler_->AddObserver(this, FROM_HERE);
+  network_state_handler_observer_.Observe(network_state_handler_.get());
   device_sync_client_->AddObserver(this);
   multidevice_setup_client_->AddObserver(this);
 
@@ -142,7 +140,7 @@ TetherService::~TetherService() {
 
 void TetherService::StartTetherIfPossible() {
   if (GetTetherTechnologyState() !=
-      chromeos::NetworkStateHandler::TechnologyState::TECHNOLOGY_ENABLED) {
+      NetworkStateHandler::TechnologyState::TECHNOLOGY_ENABLED) {
     return;
   }
 
@@ -156,9 +154,10 @@ void TetherService::StartTetherIfPossible() {
       notification_presenter_.get(),
       gms_core_notifications_state_tracker_.get(), profile_->GetPrefs(),
       network_state_handler_,
-      chromeos::NetworkHandler::Get()->managed_network_configuration_handler(),
-      chromeos::NetworkConnect::Get(),
-      chromeos::NetworkHandler::Get()->network_connection_handler(), adapter_,
+      NetworkHandler::Get()->technology_state_controller(),
+      NetworkHandler::Get()->managed_network_configuration_handler(),
+      NetworkConnect::Get(),
+      NetworkHandler::Get()->network_connection_handler(), adapter_,
       session_manager_);
 }
 
@@ -228,7 +227,7 @@ void TetherService::Shutdown() {
   // calls to UpdateTetherTechnologyState() will be triggered.
   tether_host_fetcher_->RemoveObserver(this);
   power_manager_client_->RemoveObserver(this);
-  network_state_handler_->RemoveObserver(this, FROM_HERE);
+  network_state_handler_observer_.Reset();
   device_sync_client_->RemoveObserver(this);
   multidevice_setup_client_->RemoveObserver(this);
 
@@ -278,31 +277,29 @@ void TetherService::DeviceListChanged() {
   UpdateEnabledState();
 }
 
-void TetherService::DevicePropertiesUpdated(
-    const chromeos::DeviceState* device) {
-  if (device->Matches(chromeos::NetworkTypePattern::Tether() |
-                      chromeos::NetworkTypePattern::WiFi())) {
+void TetherService::DevicePropertiesUpdated(const DeviceState* device) {
+  if (device->Matches(NetworkTypePattern::Tether() |
+                      NetworkTypePattern::WiFi())) {
     UpdateEnabledState();
   }
 }
 
 void TetherService::UpdateEnabledState() {
   bool was_pref_enabled = IsEnabledByPreference();
-  chromeos::NetworkStateHandler::TechnologyState tether_technology_state =
-      network_state_handler_->GetTechnologyState(
-          chromeos::NetworkTypePattern::Tether());
+  NetworkStateHandler::TechnologyState tether_technology_state =
+      network_state_handler_->GetTechnologyState(NetworkTypePattern::Tether());
 
   // If |was_pref_enabled| differs from the new Tether TechnologyState, the
   // settings toggle has been changed. Update the kInstantTetheringEnabled user
   // pref accordingly.
   bool is_enabled;
-  if (was_pref_enabled && tether_technology_state ==
-                              chromeos::NetworkStateHandler::TechnologyState::
-                                  TECHNOLOGY_AVAILABLE) {
+  if (was_pref_enabled &&
+      tether_technology_state ==
+          NetworkStateHandler::TechnologyState::TECHNOLOGY_AVAILABLE) {
     is_enabled = false;
-  } else if (!was_pref_enabled && tether_technology_state ==
-                                      chromeos::NetworkStateHandler::
-                                          TechnologyState::TECHNOLOGY_ENABLED) {
+  } else if (!was_pref_enabled &&
+             tether_technology_state ==
+                 NetworkStateHandler::TechnologyState::TECHNOLOGY_ENABLED) {
     is_enabled = true;
   } else {
     is_enabled = was_pref_enabled;
@@ -310,8 +307,8 @@ void TetherService::UpdateEnabledState() {
 
   if (is_enabled != was_pref_enabled) {
     multidevice_setup_client_->SetFeatureEnabledState(
-        chromeos::multidevice_setup::mojom::Feature::kInstantTethering,
-        is_enabled, absl::nullopt /* auth_token */, base::DoNothing());
+        multidevice_setup::mojom::Feature::kInstantTethering, is_enabled,
+        absl::nullopt /* auth_token */, base::DoNothing());
   } else {
     UpdateTetherTechnologyState();
   }
@@ -338,21 +335,20 @@ void TetherService::OnReady() {
 }
 
 void TetherService::OnFeatureStatesChanged(
-    const chromeos::multidevice_setup::MultiDeviceSetupClient::FeatureStatesMap&
+    const multidevice_setup::MultiDeviceSetupClient::FeatureStatesMap&
         feature_states_map) {
-  const chromeos::multidevice_setup::mojom::FeatureState new_state =
+  const multidevice_setup::mojom::FeatureState new_state =
       feature_states_map
-          .find(chromeos::multidevice_setup::mojom::Feature::kInstantTethering)
+          .find(multidevice_setup::mojom::Feature::kInstantTethering)
           ->second;
 
   // If the feature changed from enabled to disabled or vice-versa, log the
   // associated metric.
-  if (new_state ==
-          chromeos::multidevice_setup::mojom::FeatureState::kEnabledByUser &&
+  if (new_state == multidevice_setup::mojom::FeatureState::kEnabledByUser &&
       previous_feature_state_ == TetherFeatureState::USER_PREFERENCE_DISABLED) {
     LogUserPreferenceChanged(true /* is_now_enabled */);
-  } else if (new_state == chromeos::multidevice_setup::mojom::FeatureState::
-                              kDisabledByUser &&
+  } else if (new_state ==
+                 multidevice_setup::mojom::FeatureState::kDisabledByUser &&
              previous_feature_state_ == TetherFeatureState::ENABLED) {
     LogUserPreferenceChanged(false /* is_now_enabled */);
   }
@@ -371,11 +367,11 @@ void TetherService::UpdateTetherTechnologyState() {
   if (!adapter_)
     return;
 
-  chromeos::NetworkStateHandler::TechnologyState new_tether_technology_state =
+  NetworkStateHandler::TechnologyState new_tether_technology_state =
       GetTetherTechnologyState();
 
   if (new_tether_technology_state ==
-      chromeos::NetworkStateHandler::TechnologyState::TECHNOLOGY_ENABLED) {
+      NetworkStateHandler::TechnologyState::TECHNOLOGY_ENABLED) {
     // If Tether should be enabled, notify NetworkStateHandler before starting
     // up the component. This ensures that it is not possible to add Tether
     // networks before the network stack is ready for them.
@@ -393,8 +389,7 @@ void TetherService::UpdateTetherTechnologyState() {
   }
 }
 
-chromeos::NetworkStateHandler::TechnologyState
-TetherService::GetTetherTechnologyState() {
+NetworkStateHandler::TechnologyState TetherService::GetTetherTechnologyState() {
   TetherFeatureState new_feature_state = GetTetherFeatureState();
   if (new_feature_state != previous_feature_state_) {
     PA_LOG(INFO) << "Tether state has changed. New state: "
@@ -414,27 +409,35 @@ TetherService::GetTetherTechnologyState() {
     case NO_AVAILABLE_HOSTS:
     case CELLULAR_DISABLED:
     case BETTER_TOGETHER_SUITE_DISABLED:
-      return chromeos::NetworkStateHandler::TechnologyState::
-          TECHNOLOGY_UNAVAILABLE;
+      return NetworkStateHandler::TechnologyState::TECHNOLOGY_UNAVAILABLE;
 
     case PROHIBITED:
-      return chromeos::NetworkStateHandler::TechnologyState::
-          TECHNOLOGY_PROHIBITED;
+      return NetworkStateHandler::TechnologyState::TECHNOLOGY_PROHIBITED;
 
     case BLUETOOTH_DISABLED:
-      return chromeos::NetworkStateHandler::TechnologyState::
-          TECHNOLOGY_UNINITIALIZED;
+      // Instant Tethering can sometimes be made available by enabling
+      // Bluetooth, in which case we should return TECHNOLOGY_UNINITIALIZED.
+      // However, if the user or policy has disabled the feature, then more
+      // steps are needed by user (or policy needs to be changed). In this case,
+      // return TECHNOLOGY_UNAVAILABLE.
+      switch (multidevice_setup_client_->GetFeatureState(
+          multidevice_setup::mojom::Feature::kInstantTethering)) {
+        case multidevice_setup::mojom::FeatureState::kUnavailableSuiteDisabled:
+        case multidevice_setup::mojom::FeatureState::kDisabledByUser:
+        case multidevice_setup::mojom::FeatureState::kProhibitedByPolicy:
+          return NetworkStateHandler::TechnologyState::TECHNOLOGY_UNAVAILABLE;
+        default:
+          return NetworkStateHandler::TechnologyState::TECHNOLOGY_UNINITIALIZED;
+      }
 
     case USER_PREFERENCE_DISABLED:
-      return chromeos::NetworkStateHandler::TechnologyState::
-          TECHNOLOGY_AVAILABLE;
+      return NetworkStateHandler::TechnologyState::TECHNOLOGY_AVAILABLE;
 
     case ENABLED:
-      return chromeos::NetworkStateHandler::TechnologyState::TECHNOLOGY_ENABLED;
+      return NetworkStateHandler::TechnologyState::TECHNOLOGY_ENABLED;
 
     default:
-      return chromeos::NetworkStateHandler::TechnologyState::
-          TECHNOLOGY_UNAVAILABLE;
+      return NetworkStateHandler::TechnologyState::TECHNOLOGY_UNAVAILABLE;
   }
 }
 
@@ -449,7 +452,7 @@ void TetherService::GetBluetoothAdapter() {
   // problems with the Fake implementation since the class is not fully
   // constructed yet. Post the GetAdapter call to avoid this.
   auto* factory = device::BluetoothAdapterFactory::Get();
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE,
       base::BindOnce(&device::BluetoothAdapterFactory::GetAdapter,
                      base::Unretained(factory),
@@ -482,24 +485,24 @@ bool TetherService::IsBluetoothPowered() const {
 
 bool TetherService::IsWifiPresent() const {
   return network_state_handler_->IsTechnologyAvailable(
-      chromeos::NetworkTypePattern::WiFi());
+      NetworkTypePattern::WiFi());
 }
 
 bool TetherService::IsCellularAvailableButNotEnabled() const {
   return (network_state_handler_->IsTechnologyAvailable(
-              chromeos::NetworkTypePattern::Cellular()) &&
+              NetworkTypePattern::Cellular()) &&
           !network_state_handler_->IsTechnologyEnabled(
-              chromeos::NetworkTypePattern::Cellular()));
+              NetworkTypePattern::Cellular()));
 }
 
 bool TetherService::IsAllowedByPolicy() const {
   return profile_->GetPrefs()->GetBoolean(
-      chromeos::multidevice_setup::kInstantTetheringAllowedPrefName);
+      multidevice_setup::kInstantTetheringAllowedPrefName);
 }
 
 bool TetherService::IsEnabledByPreference() const {
   return profile_->GetPrefs()->GetBoolean(
-      chromeos::multidevice_setup::kInstantTetheringEnabledPrefName);
+      multidevice_setup::kInstantTetheringEnabledPrefName);
 }
 
 TetherService::TetherFeatureState TetherService::GetTetherFeatureState() {
@@ -527,37 +530,35 @@ TetherService::TetherFeatureState TetherService::GetTetherFeatureState() {
   if (!IsBluetoothPowered())
     return BLUETOOTH_DISABLED;
 
-  chromeos::multidevice_setup::mojom::FeatureState tether_multidevice_state =
+  multidevice_setup::mojom::FeatureState tether_multidevice_state =
       multidevice_setup_client_->GetFeatureState(
-          chromeos::multidevice_setup::mojom::Feature::kInstantTethering);
+          multidevice_setup::mojom::Feature::kInstantTethering);
   switch (tether_multidevice_state) {
-    case chromeos::multidevice_setup::mojom::FeatureState::kProhibitedByPolicy:
+    case multidevice_setup::mojom::FeatureState::kProhibitedByPolicy:
       return PROHIBITED;
-    case chromeos::multidevice_setup::mojom::FeatureState::kDisabledByUser:
+    case multidevice_setup::mojom::FeatureState::kDisabledByUser:
       return USER_PREFERENCE_DISABLED;
-    case chromeos::multidevice_setup::mojom::FeatureState::kEnabledByUser:
+    case multidevice_setup::mojom::FeatureState::kEnabledByUser:
       return ENABLED;
-    case chromeos::multidevice_setup::mojom::FeatureState::
-        kUnavailableSuiteDisabled:
+    case multidevice_setup::mojom::FeatureState::kUnavailableSuiteDisabled:
       return BETTER_TOGETHER_SUITE_DISABLED;
-    case chromeos::multidevice_setup::mojom::FeatureState::
-        kUnavailableNoVerifiedHost:
-      // Note that because of the early return above after
-      // !HasSyncedTetherHosts, if this point is hit, there are synced tether
-      // hosts available, but the multidevice state is unverified.
+    case multidevice_setup::mojom::FeatureState::
+        kUnavailableNoVerifiedHost_HostExistsButNotSetAndVerified:
       [[fallthrough]];
-    case chromeos::multidevice_setup::mojom::FeatureState::
+    case multidevice_setup::mojom::FeatureState::
         kUnavailableNoVerifiedHost_ClientNotReady:
       [[fallthrough]];
-    case chromeos::multidevice_setup::mojom::FeatureState::
-        kNotSupportedByChromebook:
+    case multidevice_setup::mojom::FeatureState::
+        kUnavailableNoVerifiedHost_NoEligibleHosts:
+      [[fallthrough]];
+    case multidevice_setup::mojom::FeatureState::kNotSupportedByChromebook:
       // CryptAuth may not yet know that this device supports
       // MAGIC_TETHER_CLIENT (and the local device metadata is reflecting
       // that). This should be resolved shortly once DeviceReenroller realizes
       // reconciles the discrepancy. For now, fall through to mark as
       // unavailable.
       [[fallthrough]];
-    case chromeos::multidevice_setup::mojom::FeatureState::kNotSupportedByPhone:
+    case multidevice_setup::mojom::FeatureState::kNotSupportedByPhone:
       return NO_AVAILABLE_HOSTS;
     default:
       // Other FeatureStates:

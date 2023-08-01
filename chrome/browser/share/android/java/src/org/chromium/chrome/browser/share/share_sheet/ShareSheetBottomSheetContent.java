@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -19,7 +19,6 @@ import android.widget.AdapterView;
 import android.widget.AdapterView.OnItemClickListener;
 import android.widget.ImageView;
 import android.widget.ImageView.ScaleType;
-import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
@@ -31,15 +30,16 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import org.chromium.base.ApiCompatibilityUtils;
+import org.chromium.base.BuildInfo;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.share.ChromeShareExtras.DetailedContentType;
+import org.chromium.chrome.browser.share.ShareContentTypeHelper.ContentType;
 import org.chromium.chrome.browser.share.link_to_text.LinkToTextCoordinator.LinkGeneration;
 import org.chromium.chrome.browser.share.share_sheet.ShareSheetLinkToggleCoordinator.LinkToggleState;
 import org.chromium.chrome.browser.share.share_sheet.ShareSheetLinkToggleMetricsHelper.LinkToggleMetricsDetails;
-import org.chromium.chrome.browser.share.share_sheet.ShareSheetPropertyModelBuilder.ContentType;
+import org.chromium.chrome.browser.ui.favicon.FaviconUtils;
 import org.chromium.chrome.browser.user_education.IPHCommandBuilder;
 import org.chromium.chrome.browser.user_education.UserEducationHelper;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetContent;
@@ -54,6 +54,7 @@ import org.chromium.components.feature_engagement.EventConstants;
 import org.chromium.components.feature_engagement.FeatureConstants;
 import org.chromium.components.feature_engagement.Tracker;
 import org.chromium.components.url_formatter.UrlFormatter;
+import org.chromium.ui.base.ViewUtils;
 import org.chromium.ui.modelutil.LayoutViewBuilder;
 import org.chromium.ui.modelutil.MVCListAdapter.ListItem;
 import org.chromium.ui.modelutil.MVCListAdapter.ModelList;
@@ -146,43 +147,17 @@ class ShareSheetBottomSheetContent implements BottomSheetContent, OnItemClickLis
         createFirstPartyRecyclerViews(firstPartyModels);
 
         RecyclerView thirdParty = this.getContentView().findViewById(R.id.share_sheet_other_apps);
+        // Disable third party share options for automotive.
+        if (BuildInfo.getInstance().isAutomotive) {
+            thirdParty.setVisibility(View.GONE);
+            this.getContentView().findViewById(R.id.share_sheet_divider).setVisibility(View.GONE);
+            return;
+        }
         populateView(thirdPartyModels,
                 this.getContentView().findViewById(R.id.share_sheet_other_apps),
                 /*firstParty=*/false);
         thirdParty.addOnScrollListener(
                 new ScrollEventReporter("SharingHubAndroid.ThirdPartyAppsScrolled"));
-
-        if (shouldSwapFirstAndThirdPartyRows()) {
-            swapFirstAndThirdPartyRows();
-        }
-    }
-
-    boolean shouldSwapFirstAndThirdPartyRows() {
-        return ChromeFeatureList.isEnabled(ChromeFeatureList.SWAP_ANDROID_SHARE_HUB_ROWS)
-                || ChromeFeatureList.isEnabled(ChromeFeatureList.UPCOMING_SHARING_FEATURES);
-    }
-
-    void swapFirstAndThirdPartyRows() {
-        View firstPartyRow = getContentView().findViewById(R.id.share_sheet_chrome_apps);
-        View thirdPartyRow = getContentView().findViewById(R.id.share_sheet_other_apps);
-
-        LinearLayout layout = getContentView().findViewById(R.id.share_sheet_layout);
-        assert firstPartyRow.getParent() == layout;
-        assert thirdPartyRow.getParent() == layout;
-
-        int firstPartyIndex = layout.indexOfChild(firstPartyRow);
-        int thirdPartyIndex = layout.indexOfChild(thirdPartyRow);
-
-        if (thirdPartyIndex > firstPartyIndex) {
-            // If the rows are already swapped, we're updating an existing sheet;
-            // don't swap them again.
-            return;
-        }
-
-        layout.removeViewAt(firstPartyIndex);
-        layout.removeViewAt(thirdPartyIndex);
-        layout.addView(firstPartyRow, thirdPartyIndex);
-        layout.addView(thirdPartyRow, firstPartyIndex);
     }
 
     void createFirstPartyRecyclerViews(List<PropertyModel> firstPartyModels) {
@@ -260,7 +235,7 @@ class ShareSheetBottomSheetContent implements BottomSheetContent, OnItemClickLis
             ViewGroup.LayoutParams params = view.getLayoutParams();
             params.height = iconSize;
             params.width = iconSize;
-            view.requestLayout();
+            ViewUtils.requestLayout(view, "ShareSheetBottomSheetContent.bind3PShareItem");
             layout.setPadding(0, paddingTop, 0, 0);
         }
     }
@@ -275,7 +250,8 @@ class ShareSheetBottomSheetContent implements BottomSheetContent, OnItemClickLis
 
         if (contentTypes.contains(ContentType.IMAGE)
                 || contentTypes.contains(ContentType.IMAGE_AND_LINK)) {
-            setImageForPreviewFromUri(mParams.getFileUris().get(0));
+            assert mParams.getImageUriToShare() != null;
+            setImageForPreviewFromUri(mParams.getImageUriToShare());
             if (TextUtils.isEmpty(subtitle)) {
                 subtitle = getFileType(fileContentType);
             }
@@ -544,20 +520,20 @@ class ShareSheetBottomSheetContent implements BottomSheetContent, OnItemClickLis
      */
     private void onFaviconAvailable(@Nullable Bitmap icon, @ColorInt int fallbackColor,
             boolean isColorDefault, @IconType int iconType) {
+        int size = mActivity.getResources().getDimensionPixelSize(
+                R.dimen.sharing_hub_preview_inner_icon_size);
         // If we didn't get a favicon, use the generic favicon instead.
+        Bitmap scaledIcon;
         if (icon == null) {
-            setDefaultIconForPreview(
-                    AppCompatResources.getDrawable(mActivity, R.drawable.generic_favicon));
+            scaledIcon = FaviconUtils.createGenericFaviconBitmap(mActivity, size, null);
             RecordUserAction.record("SharingHubAndroid.GenericFaviconShown");
         } else {
-            int size = mActivity.getResources().getDimensionPixelSize(
-                    R.dimen.sharing_hub_preview_inner_icon_size);
-            Bitmap scaledIcon = Bitmap.createScaledBitmap(icon, size, size, true);
-            ImageView imageView = this.getContentView().findViewById(R.id.image_preview);
-            imageView.setImageBitmap(scaledIcon);
-            centerIcon(imageView);
+            scaledIcon = Bitmap.createScaledBitmap(icon, size, size, true);
             RecordUserAction.record("SharingHubAndroid.LinkFaviconShown");
         }
+        ImageView imageView = this.getContentView().findViewById(R.id.image_preview);
+        imageView.setImageBitmap(scaledIcon);
+        centerIcon(imageView);
     }
 
     private String getFileType(String mimeType) {

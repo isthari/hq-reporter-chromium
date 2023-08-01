@@ -1,9 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.user_education;
 
+import android.content.res.Resources;
 import android.graphics.Rect;
 import android.view.View;
 
@@ -17,9 +18,14 @@ import org.chromium.ui.widget.ViewRectProvider;
  * Class encapsulating the data needed to show in-product help (IPH).
  */
 public class IPHCommand {
+    private Resources mResources;
     public final String featureName;
-    public final String contentString;
-    public final String accessibilityText;
+    public final int stringId;
+    public Object[] stringArgs;
+    public String contentString;
+    public final int accessibilityStringId;
+    public Object[] accessibilityStringArgs;
+    public String accessibilityText;
     public final boolean dismissOnTouch;
     public final View anchorView;
     @Nullable
@@ -28,7 +34,7 @@ public class IPHCommand {
     public final Runnable onShowCallback;
     @Nullable
     public final Runnable onBlockedCallback;
-    public final Rect insetRect;
+    public Rect insetRect;
     public final long autoDismissTimeout;
     public final ViewRectProvider viewRectProvider;
     @Nullable
@@ -38,21 +44,50 @@ public class IPHCommand {
     @AnchoredPopupWindow.VerticalOrientation
     public final int preferredVerticalOrientation;
 
-    IPHCommand(String featureName, String contentString, String accessibilityText,
-            boolean dismissOnTouch, View anchorView, Runnable onDismissCallback,
-            Runnable onShowCallback, Runnable onBlockedCallback, Rect insetRect,
-            long autoDismissTimeout, ViewRectProvider viewRectProvider, HighlightParams params,
-            Rect anchorRect, boolean removeArrow,
+    public void fetchFromResources() {
+        if (contentString == null) {
+            assert mResources != null;
+            if (stringArgs != null) {
+                contentString = mResources.getString(stringId, stringArgs);
+            } else {
+                contentString = mResources.getString(stringId);
+            }
+        }
+
+        if (accessibilityText == null) {
+            assert mResources != null;
+            if (accessibilityStringArgs != null) {
+                accessibilityText =
+                        mResources.getString(accessibilityStringId, accessibilityStringArgs);
+            } else {
+                accessibilityText = mResources.getString(accessibilityStringId);
+            }
+        }
+
+        if (insetRect == null && anchorRect == null) {
+            int yInsetPx =
+                    mResources.getDimensionPixelOffset(R.dimen.iph_text_bubble_menu_anchor_y_inset);
+            insetRect = new Rect(0, 0, 0, yInsetPx);
+        }
+    }
+
+    IPHCommand(Resources resources, String featureName, int stringId, Object[] stringArgs,
+            int accessibilityStringId, Object[] accessibilityStringArgs, boolean dismissOnTouch,
+            View anchorView, Runnable onDismissCallback, Runnable onShowCallback,
+            Runnable onBlockedCallback, long autoDismissTimeout, ViewRectProvider viewRectProvider,
+            HighlightParams params, Rect anchorRect, boolean removeArrow,
             @AnchoredPopupWindow.VerticalOrientation int preferredVerticalOrientation) {
+        this.mResources = resources;
         this.featureName = featureName;
-        this.contentString = contentString;
-        this.accessibilityText = accessibilityText;
+        this.stringId = stringId;
+        this.stringArgs = stringArgs;
+        this.accessibilityStringId = accessibilityStringId;
+        this.accessibilityStringArgs = accessibilityStringArgs;
         this.dismissOnTouch = dismissOnTouch;
         this.anchorView = anchorView;
         this.onDismissCallback = onDismissCallback;
         this.onShowCallback = onShowCallback;
         this.onBlockedCallback = onBlockedCallback;
-        this.insetRect = insetRect;
         this.autoDismissTimeout = autoDismissTimeout;
         this.viewRectProvider = viewRectProvider;
         this.highlightParams = params;

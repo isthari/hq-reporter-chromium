@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include "base/unguessable_token.h"
 #include "services/network/public/mojom/blocked_by_response_reason.mojom-blink.h"
-#include "third_party/blink/renderer/bindings/core/v8/source_location.h"
+#include "third_party/blink/renderer/bindings/core/v8/capture_source_location.h"
 #include "third_party/blink/renderer/bindings/core/v8/v8_security_policy_violation_event_init.h"
 #include "third_party/blink/renderer/core/dom/dom_node_ids.h"
 #include "third_party/blink/renderer/core/dom/element.h"
@@ -17,6 +17,7 @@
 #include "third_party/blink/renderer/core/inspector/protocol/audits.h"
 #include "third_party/blink/renderer/core/inspector/protocol/network.h"
 #include "third_party/blink/renderer/core/page/page.h"
+#include "third_party/blink/renderer/platform/bindings/source_location.h"
 #include "third_party/blink/renderer/platform/bindings/v8_binding.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_error.h"
 
@@ -75,7 +76,6 @@ protocol::Network::CorsError RendererCorsIssueCodeToProtocol(
       return protocol::Network::CorsErrorEnum::DisallowedByMode;
   }
 }
-
 }  // namespace
 
 std::unique_ptr<protocol::Audits::SourceCodeLocation> CreateProtocolLocation(
@@ -85,8 +85,57 @@ std::unique_ptr<protocol::Audits::SourceCodeLocation> CreateProtocolLocation(
                                .setLineNumber(location.LineNumber() - 1)
                                .setColumnNumber(location.ColumnNumber())
                                .build();
-  protocol_location->setScriptId(WTF::String::Number(location.ScriptId()));
+  if (location.ScriptId()) {
+    protocol_location->setScriptId(WTF::String::Number(location.ScriptId()));
+  }
   return protocol_location;
+}
+
+protocol::Audits::GenericIssueErrorType
+AuditsIssue::GenericIssueErrorTypeToProtocol(
+    mojom::blink::GenericIssueErrorType error_type) {
+  switch (error_type) {
+    case mojom::blink::GenericIssueErrorType::
+        kCrossOriginPortalPostMessageError:
+      return protocol::Audits::GenericIssueErrorTypeEnum::
+          CrossOriginPortalPostMessageError;
+    case mojom::blink::GenericIssueErrorType::kFormLabelForNameError:
+      return protocol::Audits::GenericIssueErrorTypeEnum::FormLabelForNameError;
+    case mojom::blink::GenericIssueErrorType::kFormDuplicateIdForInputError:
+      return protocol::Audits::GenericIssueErrorTypeEnum::
+          FormDuplicateIdForInputError;
+    case mojom::blink::GenericIssueErrorType::kFormInputWithNoLabelError:
+      return protocol::Audits::GenericIssueErrorTypeEnum::
+          FormInputWithNoLabelError;
+    case mojom::blink::GenericIssueErrorType::
+        kFormAutocompleteAttributeEmptyError:
+      return protocol::Audits::GenericIssueErrorTypeEnum::
+          FormAutocompleteAttributeEmptyError;
+    case mojom::blink::GenericIssueErrorType::
+        kFormEmptyIdAndNameAttributesForInputError:
+      return protocol::Audits::GenericIssueErrorTypeEnum::
+          FormEmptyIdAndNameAttributesForInputError;
+    case mojom::blink::GenericIssueErrorType::
+        kFormAriaLabelledByToNonExistingId:
+      return protocol::Audits::GenericIssueErrorTypeEnum::
+          FormAriaLabelledByToNonExistingId;
+    case mojom::blink::GenericIssueErrorType::
+        kFormInputAssignedAutocompleteValueToIdOrNameAttributeError:
+      return protocol::Audits::GenericIssueErrorTypeEnum::
+          FormInputAssignedAutocompleteValueToIdOrNameAttributeError;
+    case mojom::blink::GenericIssueErrorType::
+        kFormLabelHasNeitherForNorNestedInput:
+      return protocol::Audits::GenericIssueErrorTypeEnum::
+          FormLabelHasNeitherForNorNestedInput;
+    case mojom::blink::GenericIssueErrorType::
+        kFormLabelForMatchesNonExistingIdError:
+      return protocol::Audits::GenericIssueErrorTypeEnum::
+          FormLabelForMatchesNonExistingIdError;
+    case mojom::blink::GenericIssueErrorType::
+        kFormInputHasWrongButWellIntendedAutocompleteValueError:
+      return protocol::Audits::GenericIssueErrorTypeEnum::
+          FormInputHasWrongButWellIntendedAutocompleteValueError;
+  }
 }
 
 void AuditsIssue::ReportCorsIssue(
@@ -116,7 +165,7 @@ void AuditsIssue::ReportCorsIssue(
           .setCorsErrorStatus(std::move(protocol_cors_error_status))
           .build();
   cors_issue_details->setInitiatorOrigin(initiator_origin);
-  auto location = SourceLocation::Capture(execution_context);
+  auto location = CaptureSourceLocation(execution_context);
   if (location) {
     cors_issue_details->setLocation(CreateProtocolLocation(*location));
   }
@@ -141,65 +190,67 @@ BuildAttributionReportingIssueType(AttributionReportingIssueType type) {
     case AttributionReportingIssueType::kPermissionPolicyDisabled:
       return protocol::Audits::AttributionReportingIssueTypeEnum::
           PermissionPolicyDisabled;
-    case AttributionReportingIssueType::kInvalidAttributionSourceEventId:
+    case AttributionReportingIssueType::kUntrustworthyReportingOrigin:
       return protocol::Audits::AttributionReportingIssueTypeEnum::
-          InvalidAttributionSourceEventId;
-    case AttributionReportingIssueType::kAttributionSourceUntrustworthyOrigin:
+          UntrustworthyReportingOrigin;
+    case AttributionReportingIssueType::kInsecureContext:
       return protocol::Audits::AttributionReportingIssueTypeEnum::
-          AttributionSourceUntrustworthyOrigin;
-    case AttributionReportingIssueType::kInvalidAttributionData:
+          InsecureContext;
+    case AttributionReportingIssueType::kInvalidRegisterSourceHeader:
+      return protocol::Audits::AttributionReportingIssueTypeEnum::InvalidHeader;
+    case AttributionReportingIssueType::kInvalidRegisterTriggerHeader:
       return protocol::Audits::AttributionReportingIssueTypeEnum::
-          InvalidAttributionData;
-    case AttributionReportingIssueType::kAttributionUntrustworthyOrigin:
+          InvalidRegisterTriggerHeader;
+    case AttributionReportingIssueType::kSourceAndTriggerHeaders:
       return protocol::Audits::AttributionReportingIssueTypeEnum::
-          AttributionUntrustworthyOrigin;
-    case AttributionReportingIssueType::kInvalidAttributionSourceExpiry:
+          SourceAndTriggerHeaders;
+    case AttributionReportingIssueType::kSourceIgnored:
+      return protocol::Audits::AttributionReportingIssueTypeEnum::SourceIgnored;
+    case AttributionReportingIssueType::kTriggerIgnored:
       return protocol::Audits::AttributionReportingIssueTypeEnum::
-          InvalidAttributionSourceExpiry;
-    case AttributionReportingIssueType::kInvalidAttributionSourcePriority:
+          TriggerIgnored;
+    case AttributionReportingIssueType::kOsSourceIgnored:
       return protocol::Audits::AttributionReportingIssueTypeEnum::
-          InvalidAttributionSourcePriority;
-    case AttributionReportingIssueType::kInvalidEventSourceTriggerData:
+          OsSourceIgnored;
+    case AttributionReportingIssueType::kOsTriggerIgnored:
       return protocol::Audits::AttributionReportingIssueTypeEnum::
-          InvalidEventSourceTriggerData;
-    case AttributionReportingIssueType::kInvalidTriggerPriority:
+          OsTriggerIgnored;
+    case AttributionReportingIssueType::kInvalidRegisterOsSourceHeader:
       return protocol::Audits::AttributionReportingIssueTypeEnum::
-          InvalidTriggerPriority;
-    case AttributionReportingIssueType::kInvalidTriggerDedupKey:
+          InvalidRegisterOsSourceHeader;
+    case AttributionReportingIssueType::kInvalidRegisterOsTriggerHeader:
       return protocol::Audits::AttributionReportingIssueTypeEnum::
-          InvalidTriggerDedupKey;
+          InvalidRegisterOsTriggerHeader;
+    case AttributionReportingIssueType::kWebAndOsHeaders:
+      return protocol::Audits::AttributionReportingIssueTypeEnum::
+          WebAndOsHeaders;
+    case AttributionReportingIssueType::kNoWebOrOsSupport:
+      return protocol::Audits::AttributionReportingIssueTypeEnum::
+          NoWebOrOsSupport;
   }
 }
 
 }  // namespace
 
-void AuditsIssue::ReportAttributionIssue(
-    ExecutionContext* reporting_execution_context,
-    AttributionReportingIssueType type,
-    const absl::optional<base::UnguessableToken>& offending_frame_token,
-    Element* element,
-    const absl::optional<String>& request_id,
-    const absl::optional<String>& invalid_parameter) {
+void AuditsIssue::ReportAttributionIssue(ExecutionContext* execution_context,
+                                         AttributionReportingIssueType type,
+                                         Element* element,
+                                         const String& request_id,
+                                         const String& invalid_parameter) {
   auto details = protocol::Audits::AttributionReportingIssueDetails::create()
                      .setViolationType(BuildAttributionReportingIssueType(type))
                      .build();
 
-  if (offending_frame_token) {
-    details->setFrame(
-        protocol::Audits::AffectedFrame::create()
-            .setFrameId(IdentifiersFactory::IdFromToken(*offending_frame_token))
-            .build());
-  }
   if (element) {
     details->setViolatingNodeId(DOMNodeIds::IdForNode(element));
   }
-  if (request_id) {
+  if (!request_id.IsNull()) {
     details->setRequest(protocol::Audits::AffectedRequest::create()
-                            .setRequestId(*request_id)
+                            .setRequestId(request_id)
                             .build());
   }
-  if (invalid_parameter) {
-    details->setInvalidParameter(*invalid_parameter);
+  if (!invalid_parameter.IsNull()) {
+    details->setInvalidParameter(invalid_parameter);
   }
 
   auto issue_details =
@@ -211,7 +262,7 @@ void AuditsIssue::ReportAttributionIssue(
                                 AttributionReportingIssue)
                    .setDetails(std::move(issue_details))
                    .build();
-  reporting_execution_context->AddInspectorIssue(AuditsIssue(std::move(issue)));
+  execution_context->AddInspectorIssue(AuditsIssue(std::move(issue)));
 }
 
 void AuditsIssue::ReportNavigatorUserAgentAccess(
@@ -224,11 +275,13 @@ void AuditsIssue::ReportNavigatorUserAgentAccess(
 
   // Try to get only the script name quickly.
   std::unique_ptr<SourceLocation> location;
-  String script_url = GetCurrentScriptUrl();
-  if (!script_url.IsEmpty())
-    location = std::make_unique<SourceLocation>(script_url, 1, 0, nullptr);
-  else
-    location = SourceLocation::Capture(execution_context);
+  String script_url = GetCurrentScriptUrl(execution_context->GetIsolate());
+  if (!script_url.empty()) {
+    location =
+        std::make_unique<SourceLocation>(script_url, String(), 1, 0, nullptr);
+  } else {
+    location = CaptureSourceLocation(execution_context);
+  }
 
   if (location) {
     navigator_user_agent_details->setLocation(
@@ -286,6 +339,8 @@ protocol::Audits::MixedContentResourceType
 RequestContextToMixedContentResourceType(
     mojom::blink::RequestContextType request_context) {
   switch (request_context) {
+    case mojom::blink::RequestContextType::ATTRIBUTION_SRC:
+      return protocol::Audits::MixedContentResourceTypeEnum::AttributionSrc;
     case mojom::blink::RequestContextType::AUDIO:
       return protocol::Audits::MixedContentResourceTypeEnum::Audio;
     case mojom::blink::RequestContextType::BEACON:
@@ -403,7 +458,7 @@ void AuditsIssue::ReportSharedArrayBufferIssue(
     ExecutionContext* execution_context,
     bool shared_buffer_transfer_allowed,
     SharedArrayBufferIssueType issue_type) {
-  auto source_location = SourceLocation::Capture(execution_context);
+  auto source_location = CaptureSourceLocation(execution_context);
   auto sab_issue_details =
       protocol::Audits::SharedArrayBufferIssueDetails::create()
           .setSourceCodeLocation(CreateProtocolLocation(*source_location))
@@ -425,14 +480,12 @@ void AuditsIssue::ReportSharedArrayBufferIssue(
 
 // static
 void AuditsIssue::ReportDeprecationIssue(ExecutionContext* execution_context,
-                                         const String& message,
-                                         const String& type) {
-  auto source_location = SourceLocation::Capture(execution_context);
+                                         String type) {
+  auto source_location = CaptureSourceLocation(execution_context);
   auto deprecation_issue_details =
       protocol::Audits::DeprecationIssueDetails::create()
           .setSourceCodeLocation(CreateProtocolLocation(*source_location))
-          .setMessage(message)
-          .setDeprecationType(type)
+          .setType(type)
           .build();
   if (auto* window = DynamicTo<LocalDOMWindow>(execution_context)) {
     auto affected_frame =
@@ -471,7 +524,7 @@ protocol::Audits::ClientHintIssueReason ClientHintIssueReasonToProtocol(
 // static
 void AuditsIssue::ReportClientHintIssue(LocalDOMWindow* local_dom_window,
                                         ClientHintIssueReason reason) {
-  auto source_location = SourceLocation::Capture(local_dom_window);
+  auto source_location = CaptureSourceLocation(local_dom_window);
   auto client_hint_issue_details =
       protocol::Audits::ClientHintIssueDetails::create()
           .setSourceCodeLocation(CreateProtocolLocation(*source_location))
@@ -571,6 +624,52 @@ void AuditsIssue::ReportMixedContentIssue(
   frame->DomWindow()->AddInspectorIssue(AuditsIssue(std::move(issue)));
 }
 
+void AuditsIssue::ReportGenericIssue(
+    LocalFrame* frame,
+    mojom::blink::GenericIssueErrorType error_type,
+    int violating_node_id) {
+  auto audits_issue_details =
+      protocol::Audits::GenericIssueDetails::create()
+          .setErrorType(GenericIssueErrorTypeToProtocol(error_type))
+          .setViolatingNodeId(violating_node_id)
+          .build();
+
+  auto issue =
+      protocol::Audits::InspectorIssue::create()
+          .setCode(protocol::Audits::InspectorIssueCodeEnum::GenericIssue)
+          .setDetails(
+              protocol::Audits::InspectorIssueDetails::create()
+                  .setGenericIssueDetails(std::move(audits_issue_details))
+                  .build())
+          .build();
+
+  frame->DomWindow()->AddInspectorIssue(AuditsIssue(std::move(issue)));
+}
+
+void AuditsIssue::ReportGenericIssue(
+    LocalFrame* frame,
+    mojom::blink::GenericIssueErrorType error_type,
+    int violating_node_id,
+    const String& violating_node_attribute) {
+  auto audits_issue_details =
+      protocol::Audits::GenericIssueDetails::create()
+          .setErrorType(GenericIssueErrorTypeToProtocol(error_type))
+          .setViolatingNodeId(violating_node_id)
+          .setViolatingNodeAttribute(violating_node_attribute)
+          .build();
+
+  auto issue =
+      protocol::Audits::InspectorIssue::create()
+          .setCode(protocol::Audits::InspectorIssueCodeEnum::GenericIssue)
+          .setDetails(
+              protocol::Audits::InspectorIssueDetails::create()
+                  .setGenericIssueDetails(std::move(audits_issue_details))
+                  .build())
+          .build();
+
+  frame->DomWindow()->AddInspectorIssue(AuditsIssue(std::move(issue)));
+}
+
 AuditsIssue AuditsIssue::CreateContentSecurityPolicyIssue(
     const blink::SecurityPolicyViolationEventInit& violation_data,
     bool is_report_only,
@@ -600,19 +699,8 @@ AuditsIssue AuditsIssue::CreateContentSecurityPolicyIssue(
     cspDetails->setFrameAncestor(std::move(affected_frame));
   }
 
-  if (violation_data.sourceFile() && violation_data.lineNumber()) {
-    std::unique_ptr<protocol::Audits::SourceCodeLocation> source_code_location =
-        protocol::Audits::SourceCodeLocation::create()
-            .setUrl(violation_data.sourceFile())
-            // The frontend expects 0-based line numbers.
-            .setLineNumber(violation_data.lineNumber() - 1)
-            .setColumnNumber(violation_data.columnNumber())
-            .build();
-    if (source_location) {
-      source_code_location->setScriptId(
-          WTF::String::Number(source_location->ScriptId()));
-    }
-    cspDetails->setSourceCodeLocation(std::move(source_code_location));
+  if (source_location) {
+    cspDetails->setSourceCodeLocation(CreateProtocolLocation(*source_location));
   }
 
   if (element) {

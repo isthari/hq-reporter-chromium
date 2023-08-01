@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -42,7 +42,8 @@ public class IdleDetector extends BroadcastReceiver {
         IntentFilter filter = new IntentFilter();
         filter.addAction(Intent.ACTION_SCREEN_OFF);
         filter.addAction(Intent.ACTION_USER_PRESENT);
-        ContextUtils.getApplicationContext().registerReceiver(this, filter);
+        ContextUtils.registerProtectedBroadcastReceiver(
+                ContextUtils.getApplicationContext(), this, filter);
     }
 
     @CalledByNative
@@ -87,6 +88,7 @@ public class IdleDetector extends BroadcastReceiver {
         if (keyguardManager.inKeyguardRestrictedInputMode()) return true;
 
         PowerManager powerManager = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+        if (powerManager == null) return false;
         return !powerManager.isInteractive();
     }
 }

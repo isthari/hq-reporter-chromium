@@ -1,4 +1,4 @@
-# Copyright 2016 The Chromium Authors. All rights reserved.
+# Copyright 2016 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -10,12 +10,12 @@ import re
 import six
 
 from collections import namedtuple
-from six.moves.urllib.error import HTTPError
-from six.moves.urllib.error import URLError
+from requests.exceptions import HTTPError
+from requests.exceptions import InvalidURL
 from six.moves.urllib.parse import quote
 
 from blinkpy.common.memoized import memoized
-from blinkpy.w3c.common import WPT_GH_ORG, WPT_GH_REPO_NAME, EXPORT_PR_LABEL
+from blinkpy.w3c.common import WPT_GH_ORG, WPT_GH_REPO_NAME, EXPORT_PR_LABEL, PROVISIONAL_PR_LABEL
 
 _log = logging.getLogger(__name__)
 API_BASE = 'https://api.github.com'
@@ -137,13 +137,17 @@ class WPTGitHub(object):
         try:
             response = self.request(path, method='POST', body=body)
         except HTTPError as e:
-            _log.error(e.reason)
-            if e.code == 422:
-                _log.error('Please check if branch already exists; If so, '
-                           'please remove the PR description and '
-                           'delete the branch')
-            raise GitHubError(201, e.code,
-                              'create PR branch %s' % remote_branch_name)
+            if hasattr(e, 'response'):
+                _log.error(e.response.reason)
+                if e.response.status_code == 422:
+                    _log.error('Please check if branch already exists; If so, '
+                               'please remove the PR description and '
+                               'delete the branch')
+                raise GitHubError(201, e.response.status_code,
+                                  'create PR branch %s' % remote_branch_name)
+            else:
+                raise GitHubError(201, e,
+                                  'create PR branch %s' % remote_branch_name)
 
         if response.status_code != 201:
             raise GitHubError(201, response.status_code, 'create PR')
@@ -270,16 +274,29 @@ class WPTGitHub(object):
         return failing_prs
 
     @memoized
+    def all_provisional_pull_requests(self):
+        """Fetches the most recent open PRs with export and provisional labels
+
+        Returns:
+            A list of PullRequest namedtuples.
+        """
+        # label name in query param with space require character escape and quotation
+        escaped_provisional_pr_label = "\"{}\"".format(
+            PROVISIONAL_PR_LABEL.replace(" ", "+"))
+        path = ('/search/issues'
+                '?q=repo:{}/{}%20type:pr%20label:{}%20label:{}'
+                '&status:open'
+                '&sort=updated'
+                '&page=1'
+                '&per_page={}').format(
+                    WPT_GH_ORG, WPT_GH_REPO_NAME, EXPORT_PR_LABEL,
+                    escaped_provisional_pr_label,
+                    min(MAX_PER_PAGE, self._pr_history_window))
+        return self.fetch_pull_requests_from_path(path, min_expected_prs=200)
+
+    @memoized
     def all_pull_requests(self):
         """Fetches the most recent (open and closed) PRs with the export label.
-
-        The maximum number of PRs is pr_history_window. Search endpoint is used
-        instead of listing PRs, because we need to filter by labels. Note that
-        there are already more than MAX_PR_HISTORY_WINDOW export PRs, so we
-        can't really find *all* of them; we fetch the most recently updated ones
-        because we only check whether recent commits have been exported.
-
-        API doc: https://developer.github.com/v3/search/#search-issues-and-pull-requests
 
         Returns:
             A list of PullRequest namedtuples.
@@ -291,6 +308,21 @@ class WPTGitHub(object):
                 '&per_page={}').format(
                     WPT_GH_ORG, WPT_GH_REPO_NAME, EXPORT_PR_LABEL,
                     min(MAX_PER_PAGE, self._pr_history_window))
+        return self.fetch_pull_requests_from_path(path)
+
+    def fetch_pull_requests_from_path(self, path, min_expected_prs=1000):
+        """Fetches PRs from url path.
+
+        The maximum number of PRs is pr_history_window. Search endpoint is used
+        instead of listing PRs, because we need to filter by labels. Note that
+        there are already more than MAX_PR_HISTORY_WINDOW export PRs, so we
+        can't really find *all* of them; we fetch the most recently updated ones
+        because we only check whether recent commits have been exported.
+
+        API doc: https://developer.github.com/v3/search/#search-issues-and-pull-requests
+
+        Returns:
+            A list of PullRequest namedtuples."""
         all_prs = []
         while path is not None and len(all_prs) < self._pr_history_window:
             response = self.request(path, method='GET')
@@ -309,12 +341,12 @@ class WPTGitHub(object):
                                   'fetch all pull requests', path)
             path = self.extract_link_next(response.getheader('Link'))
 
-        # There are way more than 1000 exported PRs on GitHub, so we should
-        # always get at least pr_history_window PRs. This assertion is added to
-        # mitigate transient GitHub API issues (crbug.com/814617).
-        if len(all_prs) < self._pr_history_window:
-            raise GitHubError('at least %d commits' % self._pr_history_window,
-                              len(all_prs), 'fetch all pull requests')
+        # Doing this check to mitigate Github API issues (crbug.com/814617).
+        # Use a minimum based on which path it comes from
+        min_prs = min(self._pr_history_window, min_expected_prs)
+        if len(all_prs) < min_prs:
+            raise GitHubError('at least %d commits' % min_prs, len(all_prs),
+                              'fetch all pull requests')
 
         _log.info('Fetched %d PRs from GitHub.', len(all_prs))
         return all_prs
@@ -384,11 +416,11 @@ class WPTGitHub(object):
                     raise GitHubError(204, response.status_code,
                                       'check if PR %d is merged' % pr_number)
             except HTTPError as e:
-                if e.code == 404:
+                if hasattr(e, 'response') and e.response.status_code == 404:
                     return False
                 else:
                     raise
-            except URLError as e:
+            except InvalidURL as e:
                 # After migrate to py3 we met random timeout issue here,
                 # Retry this request in this case
                 _log.warning("Meet URLError...")
@@ -413,7 +445,7 @@ class WPTGitHub(object):
         try:
             response = self.request(path, method='PUT', body=body)
         except HTTPError as e:
-            if e.code == 405:
+            if hasattr(e, 'response') and e.response.status_code == 405:
                 raise MergeError(pr_number)
             else:
                 raise
@@ -472,23 +504,20 @@ class JSONResponse(object):
         """Initializes a JSONResponse instance.
 
         Args:
-            raw_response: a response object returned by open methods in urllib2.
+            raw_response: a response object returned by requests.
         """
         self._raw_response = raw_response
-        self.status_code = raw_response.getcode()
+        self.status_code = raw_response.status_code
         try:
-            self.data = json.load(raw_response)
+            self.data = raw_response.json()
         except ValueError:
             self.data = None
 
     def getheader(self, header):
         """Gets the value of the header with the given name.
 
-        Delegates to HTTPMessage.getheader(), which is case-insensitive."""
-        if six.PY3:
-            return self._raw_response.getheader(header)
-        else:
-            return self._raw_response.info().getheader(header)
+        Delegates to request.Response.headers, which is case-insensitive."""
+        return self._raw_response.headers.get(header)
 
 
 class GitHubError(Exception):

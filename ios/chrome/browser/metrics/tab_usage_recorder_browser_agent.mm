@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,22 +6,22 @@
 
 #import <UIKit/UIKit.h>
 
-#include "base/metrics/histogram_macros.h"
+#import "base/metrics/histogram_macros.h"
 #import "components/previous_session_info/previous_session_info.h"
-#include "components/ukm/ios/ukm_url_recorder.h"
-#include "ios/chrome/browser/chrome_url_constants.h"
-#import "ios/chrome/browser/main/browser.h"
+#import "components/ukm/ios/ukm_url_recorder.h"
 #import "ios/chrome/browser/prerender/prerender_service.h"
 #import "ios/chrome/browser/prerender/prerender_service_factory.h"
 #import "ios/chrome/browser/sessions/session_restoration_browser_agent.h"
-#import "ios/chrome/browser/web_state_list/web_state_list.h"
-#include "ios/components/webui/web_ui_url_constants.h"
+#import "ios/chrome/browser/shared/model/browser/browser.h"
+#import "ios/chrome/browser/shared/model/url/chrome_url_constants.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/components/webui/web_ui_url_constants.h"
 #import "ios/web/public/navigation/navigation_context.h"
 #import "ios/web/public/navigation/navigation_item.h"
 #import "ios/web/public/navigation/navigation_manager.h"
 #import "ios/web/public/web_state.h"
-#include "services/metrics/public/cpp/ukm_builders.h"
-#include "ui/base/page_transition_types.h"
+#import "services/metrics/public/cpp/ukm_builders.h"
+#import "ui/base/page_transition_types.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -49,7 +49,7 @@ TabUsageRecorderBrowserAgent::TabUsageRecorderBrowserAgent(Browser* browser)
     restoration_agent->AddObserver(this);
 
   // Register for backgrounding and foregrounding notifications. It is safe for
-  // the block to capture a pointer to |this| as they are unregistered in the
+  // the block to capture a pointer to `this` as they are unregistered in the
   // destructor and thus the block are not called after the end of its lifetime.
   application_backgrounding_observer_ = [[NSNotificationCenter defaultCenter]
       addObserverForName:UIApplicationDidEnterBackgroundNotification
@@ -135,7 +135,7 @@ void TabUsageRecorderBrowserAgent::RecordTabSwitched(
     web::WebState* new_web_state) {
   // If a tab was created to be selected, and is selected shortly thereafter,
   // it should not add its state to the "kSelectedTabHistogramName" metric.
-  // |web_state_created_selected_| is reset at the first tab switch seen after
+  // `web_state_created_selected_` is reset at the first tab switch seen after
   // it was created, regardless of whether or not it was the tab selected.
   const bool was_just_created = new_web_state == web_state_created_selected_;
   web_state_created_selected_ = nullptr;
@@ -152,16 +152,6 @@ void TabUsageRecorderBrowserAgent::RecordTabSwitched(
   if (!old_web_state || !new_web_state)
     return;
 
-  // Before knowledge of the previous tab, |old_web_state|, is lost, see if it
-  // is a previously-evicted tab still reloading.  If it is, record that the
-  // user did not wait for the evicted tab to finish reloading.
-  if (old_web_state == evicted_web_state_ && old_web_state != new_web_state &&
-      evicted_web_state_reload_start_time_ != base::TimeTicks()) {
-    UMA_HISTOGRAM_ENUMERATION(
-        tab_usage_recorder::kDidUserWaitForEvictedTabReload,
-        tab_usage_recorder::USER_DID_NOT_WAIT,
-        tab_usage_recorder::USER_BEHAVIOR_COUNT);
-  }
   ResetEvictedTab();
 
   if (ShouldIgnoreWebState(new_web_state) || was_just_created)
@@ -189,8 +179,9 @@ void TabUsageRecorderBrowserAgent::RecordTabSwitched(
 }
 
 void TabUsageRecorderBrowserAgent::RecordPrimaryBrowserChange(
-    bool primary_browser,
-    web::WebState* active_web_state) {
+    bool primary_browser) {
+  web::WebState* active_web_state =
+      web_state_list_ ? web_state_list_->GetActiveWebState() : nullptr;
   if (primary_browser) {
     // User just came back to this tab model, so record a tab selection even
     // though the current tab was reselected.
@@ -219,38 +210,15 @@ void TabUsageRecorderBrowserAgent::RecordPageLoadStart(
         RecordRestoreStartTime();
     }
   } else {
-    // If there is a currently-evicted tab reloading, make sure it is recorded
-    // that the user did not wait for it to load.
-    if (evicted_web_state_ &&
-        evicted_web_state_reload_start_time_ != base::TimeTicks()) {
-      UMA_HISTOGRAM_ENUMERATION(
-          tab_usage_recorder::kDidUserWaitForEvictedTabReload,
-          tab_usage_recorder::USER_DID_NOT_WAIT,
-          tab_usage_recorder::USER_BEHAVIOR_COUNT);
-    }
     ResetEvictedTab();
   }
 }
 
-void TabUsageRecorderBrowserAgent::RecordPageLoadDone(web::WebState* web_state,
-                                                      bool success) {
+void TabUsageRecorderBrowserAgent::RecordPageLoadDone(
+    web::WebState* web_state) {
   if (!web_state)
     return;
   if (web_state == evicted_web_state_) {
-    if (success) {
-      LOCAL_HISTOGRAM_TIMES(
-          tab_usage_recorder::kEvictedTabReloadTime,
-          base::TimeTicks::Now() - evicted_web_state_reload_start_time_);
-    }
-    UMA_HISTOGRAM_ENUMERATION(tab_usage_recorder::kEvictedTabReloadSuccessRate,
-                              success ? tab_usage_recorder::LOAD_SUCCESS
-                                      : tab_usage_recorder::LOAD_FAILURE,
-                              tab_usage_recorder::LOAD_DONE_STATE_COUNT);
-
-    UMA_HISTOGRAM_ENUMERATION(
-        tab_usage_recorder::kDidUserWaitForEvictedTabReload,
-        tab_usage_recorder::USER_WAITED,
-        tab_usage_recorder::USER_BEHAVIOR_COUNT);
     ResetEvictedTab();
   }
 }
@@ -297,12 +265,9 @@ void TabUsageRecorderBrowserAgent::RendererTerminated(
   BOOL saw_memory_warning =
       [defaults boolForKey:previous_session_info_constants::
                                kDidSeeMemoryWarningShortlyBeforeTerminating];
-  UMA_HISTOGRAM_BOOLEAN(
-      tab_usage_recorder::kRendererTerminationSawMemoryWarning,
-      saw_memory_warning);
 
   // Log number of live tabs after the renderer termination. This count does not
-  // include |terminated_web_state|.
+  // include `terminated_web_state`.
   int live_web_states_count = GetLiveWebStatesCount();
   UMA_HISTOGRAM_COUNTS_100(
       tab_usage_recorder::kRendererTerminationAliveRenderers,
@@ -312,8 +277,8 @@ void TabUsageRecorderBrowserAgent::RendererTerminated(
       tab_usage_recorder::kRendererTerminationTotalTabCount,
       web_state_list_->count());
 
-  // Clear |termination_timestamps_| of timestamps older than
-  // |kSecondsBeforeRendererTermination| ago.
+  // Clear `termination_timestamps_` of timestamps older than
+  // `kSecondsBeforeRendererTermination` ago.
   base::TimeDelta seconds_before =
       base::Seconds(tab_usage_recorder::kSecondsBeforeRendererTermination);
   base::TimeTicks timestamp_boundary = now - seconds_before;
@@ -322,7 +287,7 @@ void TabUsageRecorderBrowserAgent::RendererTerminated(
   }
 
   // Log number of recently alive tabs, where recently alive is defined to mean
-  // alive within the past |kSecondsBeforeRendererTermination|.
+  // alive within the past `kSecondsBeforeRendererTermination`.
   NSUInteger recently_live_web_states_count =
       live_web_states_count + termination_timestamps_.size();
   UMA_HISTOGRAM_COUNTS_100(
@@ -347,10 +312,6 @@ void TabUsageRecorderBrowserAgent::AppDidEnterBackground() {
                         time_now - restore_start_time_);
   if (evicted_web_state_ &&
       evicted_web_state_reload_start_time_ != base::TimeTicks()) {
-    UMA_HISTOGRAM_ENUMERATION(
-        tab_usage_recorder::kDidUserWaitForEvictedTabReload,
-        tab_usage_recorder::USER_LEFT_CHROME,
-        tab_usage_recorder::USER_BEHAVIOR_COUNT);
     ResetEvictedTab();
   }
 }
@@ -509,7 +470,7 @@ bool TabUsageRecorderBrowserAgent::ShouldRecordPageLoadStartForNavigation(
       ui::PAGE_TRANSITION_KEYWORD_GENERATED,
   };
 
-  for (size_t i = 0; i < base::size(kRecordedPageTransitionTypes); ++i) {
+  for (size_t i = 0; i < std::size(kRecordedPageTransitionTypes); ++i) {
     const ui::PageTransition recorded_type = kRecordedPageTransitionTypes[i];
     if (ui::PageTransitionCoreTypeIs(transition, recorded_type)) {
       return true;
@@ -534,8 +495,7 @@ void TabUsageRecorderBrowserAgent::DidStartNavigation(
 void TabUsageRecorderBrowserAgent::PageLoaded(
     web::WebState* web_state,
     web::PageLoadCompletionStatus load_completion_status) {
-  RecordPageLoadDone(web_state, load_completion_status ==
-                                    web::PageLoadCompletionStatus::SUCCESS);
+  RecordPageLoadDone(web_state);
 }
 
 void TabUsageRecorderBrowserAgent::RenderProcessGone(web::WebState* web_state) {

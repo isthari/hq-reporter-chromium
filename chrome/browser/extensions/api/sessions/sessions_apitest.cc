@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,26 +7,27 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ptr_util.h"
 #include "base/path_service.h"
 #include "base/strings/pattern.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/bind.h"
+#include "base/test/test_future.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/extensions/api/sessions/sessions_api.h"
 #include "chrome/browser/extensions/api/tabs/tabs_api.h"
+#include "chrome/browser/extensions/api/tabs/tabs_constants.h"
 #include "chrome/browser/extensions/extension_apitest.h"
-#include "chrome/browser/extensions/extension_function_test_utils.h"
-#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/sync/session_sync_service_factory.h"
+#include "chrome/browser/ui/tabs/tab_enums.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "chrome/test/base/test_browser_window.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/sync/base/client_tag_hash.h"
@@ -38,7 +39,7 @@
 #include "components/sync/protocol/model_type_state.pb.h"
 #include "components/sync/protocol/session_specifics.pb.h"
 #include "components/sync/protocol/sync_enums.pb.h"
-#include "components/sync/test/engine/mock_model_type_worker.h"
+#include "components/sync/test/mock_model_type_worker.h"
 #include "components/sync_sessions/session_store.h"
 #include "components/sync_sessions/session_sync_service.h"
 #include "content/public/test/browser_test.h"
@@ -49,9 +50,9 @@
 #include "ash/constants/ash_switches.h"
 #endif
 
-namespace utils = extension_function_test_utils;
-
 namespace extensions {
+
+namespace utils = api_test_utils;
 
 namespace {
 
@@ -76,9 +77,9 @@ void BuildWindowSpecifics(int window_id,
   sync_pb::SessionWindow* window = header->add_window();
   window->set_window_id(window_id);
   window->set_selected_tab_index(0);
-  window->set_browser_type(sync_pb::SessionWindow_BrowserType_TYPE_TABBED);
-  for (auto iter = tab_list.cbegin(); iter != tab_list.cend(); ++iter) {
-    window->add_tab(*iter);
+  window->set_browser_type(sync_pb::SyncEnums_BrowserType_TYPE_TABBED);
+  for (int tab : tab_list) {
+    window->add_tab(tab);
   }
 }
 
@@ -102,37 +103,29 @@ void BuildTabSpecifics(const std::string& tag,
   navigation->set_page_transition(sync_pb::SyncEnums_PageTransition_TYPED);
 }
 
-testing::AssertionResult CheckSessionModels(const base::ListValue& devices,
+testing::AssertionResult CheckSessionModels(const base::Value::List& devices,
                                             size_t num_sessions) {
-  EXPECT_EQ(5u, devices.GetList().size());
-  for (size_t i = 0; i < devices.GetList().size(); ++i) {
-    const base::Value& device_value = devices.GetList()[i];
+  EXPECT_EQ(5u, devices.size());
+  for (size_t i = 0; i < devices.size(); ++i) {
+    const base::Value& device_value = devices[i];
     EXPECT_TRUE(device_value.is_dict());
-    const base::Value::DictStorage device = utils::ToDictionary(device_value);
+    const base::Value::Dict device = utils::ToDict(device_value);
     EXPECT_EQ(kSessionTags[i], api_test_utils::GetString(device, "info"));
     EXPECT_EQ(kSessionTags[i], api_test_utils::GetString(device, "deviceName"));
-    const std::unique_ptr<base::ListValue> sessions =
+    const base::Value::List sessions =
         api_test_utils::GetList(device, "sessions");
-    EXPECT_EQ(num_sessions, sessions->GetList().size());
+    EXPECT_EQ(num_sessions, sessions.size());
     // Because this test is hurried, really there are only ever 0 or 1
     // sessions, and if 1, that will be a Window. Grab it.
     if (num_sessions == 0)
       continue;
-    const base::Value::DictStorage session =
-        utils::ToDictionary(sessions->GetList()[0]);
-    const base::Value::DictStorage window =
-        api_test_utils::GetDict(session, "window");
+    const base::Value::Dict session = utils::ToDict(sessions[0]);
+    const base::Value::Dict window = api_test_utils::GetDict(session, "window");
     // Only the tabs are interesting.
-    const std::unique_ptr<base::ListValue> tabs =
-        api_test_utils::GetList(window, "tabs");
-    if (!tabs) {
-      return testing::AssertionFailure()
-             << "window dictionary does not contain a tabs list entry";
-    }
-    EXPECT_EQ(base::size(kTabIDs), tabs->GetList().size());
-    for (size_t j = 0; j < tabs->GetList().size(); ++j) {
-      const base::Value::DictStorage tab =
-          utils::ToDictionary(tabs->GetList()[j]);
+    const base::Value::List tabs = api_test_utils::GetList(window, "tabs");
+    EXPECT_EQ(std::size(kTabIDs), tabs.size());
+    for (size_t j = 0; j < tabs.size(); ++j) {
+      const base::Value::Dict tab = utils::ToDict(tabs[j]);
       EXPECT_FALSE(tab.contains("id"));  // sessions API does not give tab IDs
       EXPECT_EQ(static_cast<int>(j), api_test_utils::GetInteger(tab, "index"));
       EXPECT_EQ(0, api_test_utils::GetInteger(tab, "windowId"));
@@ -205,35 +198,33 @@ void ExtensionSessionsTest::CreateSessionModels() {
   syncer::DataTypeActivationRequest request;
   request.error_handler = base::DoNothing();
   request.cache_guid = kTestCacheGuid;
-  request.authenticated_account_id = CoreAccountId("SomeAccountId");
+  request.authenticated_account_id = CoreAccountId::FromGaiaId("SomeAccountId");
 
   sync_sessions::SessionSyncService* service =
       SessionSyncServiceFactory::GetForProfile(browser()->profile());
 
   service->ProxyTabsStateChanged(syncer::DataTypeController::RUNNING);
 
-  std::unique_ptr<syncer::DataTypeActivationResponse> activation_response;
-  base::RunLoop loop;
+  base::test::TestFuture<std::unique_ptr<syncer::DataTypeActivationResponse>>
+      sync_start_future;
   service->GetControllerDelegate()->OnSyncStarting(
-      request,
-      base::BindLambdaForTesting(
-          [&](std::unique_ptr<syncer::DataTypeActivationResponse> response) {
-            activation_response = std::move(response);
-            loop.Quit();
-          }));
-  loop.Run();
+      request, sync_start_future.GetCallback());
+  syncer::MockModelTypeWorker worker(
+      sync_pb::ModelTypeState(), sync_start_future.Get()->type_processor.get());
 
-  syncer::MockModelTypeWorker worker(sync_pb::ModelTypeState(),
-                                     activation_response->type_processor.get());
+  // ClientTagBasedModelTypeProcessor requires connecting before other
+  // interactions with the worker happen.
+  sync_start_future.Get()->type_processor->ConnectSync(
+      worker.MakeForwardingCommitQueue());
 
   const base::Time time_now = base::Time::Now();
   syncer::SyncDataList initial_data;
-  for (size_t index = 0; index < base::size(kSessionTags); ++index) {
+  for (size_t index = 0; index < std::size(kSessionTags); ++index) {
     // Fill an instance of session specifics with a foreign session's data.
     sync_pb::EntitySpecifics header_entity;
     BuildSessionSpecifics(kSessionTags[index], header_entity.mutable_session());
     std::vector<SessionID::id_type> tab_list(kTabIDs,
-                                             kTabIDs + base::size(kTabIDs));
+                                             kTabIDs + std::size(kTabIDs));
     BuildWindowSpecifics(index, tab_list, header_entity.mutable_session());
     std::vector<sync_pb::SessionSpecifics> tabs(tab_list.size());
     for (size_t i = 0; i < tab_list.size(); ++i) {
@@ -261,9 +252,9 @@ void ExtensionSessionsTest::CreateSessionModels() {
     updates.push_back(std::move(header_update));
     worker.UpdateFromServer(std::move(updates));
 
-    for (size_t i = 0; i < tabs.size(); i++) {
+    for (const auto& tab : tabs) {
       sync_pb::EntitySpecifics tab_entity;
-      *tab_entity.mutable_session() = tabs[i];
+      *tab_entity.mutable_session() = tab;
       worker.UpdateFromServer(TagHashFromSpecifics(tab_entity.session()),
                               tab_entity);
     }
@@ -277,56 +268,51 @@ void ExtensionSessionsTest::CreateSessionModels() {
 
 IN_PROC_BROWSER_TEST_F(ExtensionSessionsTest, GetDevices) {
   CreateSessionModels();
-  std::unique_ptr<base::ListValue> result(
+  base::Value::List result =
       utils::ToList(utils::RunFunctionAndReturnSingleResult(
           CreateFunction<SessionsGetDevicesFunction>(true).get(),
-          "[{\"maxResults\": 0}]", browser())));
-  ASSERT_TRUE(result);
-  EXPECT_TRUE(CheckSessionModels(*result, 0u));
+          "[{\"maxResults\": 0}]", browser()->profile()));
+  EXPECT_TRUE(CheckSessionModels(result, 0u));
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionSessionsTest, GetDevicesMaxResults) {
   CreateSessionModels();
-  std::unique_ptr<base::ListValue> result(
+  base::Value::List result =
       utils::ToList(utils::RunFunctionAndReturnSingleResult(
           CreateFunction<SessionsGetDevicesFunction>(true).get(), "[]",
-          browser())));
-  ASSERT_TRUE(result);
-  EXPECT_TRUE(CheckSessionModels(*result, 1u));
+          browser()->profile()));
+  EXPECT_TRUE(CheckSessionModels(result, 1u));
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionSessionsTest, GetDevicesListEmpty) {
-  std::unique_ptr<base::ListValue> result(
+  base::Value::List devices(
       utils::ToList(utils::RunFunctionAndReturnSingleResult(
           CreateFunction<SessionsGetDevicesFunction>(true).get(), "[]",
-          browser())));
+          browser()->profile())));
 
-  ASSERT_TRUE(result);
-  base::ListValue* devices = result.get();
-  EXPECT_EQ(0u, devices->GetList().size());
+  EXPECT_TRUE(devices.empty());
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionSessionsTest, RestoreForeignSessionWindow) {
   CreateSessionModels();
 
-  const base::Value::DictStorage restored_window_session =
-      utils::ToDictionary(utils::RunFunctionAndReturnSingleResult(
+  const base::Value::Dict restored_window_session =
+      utils::ToDict(utils::RunFunctionAndReturnSingleResult(
           CreateFunction<SessionsRestoreFunction>(true).get(), "[\"tag3.3\"]",
-          browser(), api_test_utils::INCLUDE_INCOGNITO));
+          browser()->profile(), api_test_utils::FunctionMode::kIncognito));
 
-  std::unique_ptr<base::ListValue> result(
+  base::Value::List windows(
       utils::ToList(utils::RunFunctionAndReturnSingleResult(
-          CreateFunction<WindowsGetAllFunction>(true).get(), "[]", browser())));
-  ASSERT_TRUE(result);
+          CreateFunction<WindowsGetAllFunction>(true).get(), "[]",
+          browser()->profile())));
 
-  base::ListValue* windows = result.get();
-  EXPECT_EQ(2u, windows->GetList().size());
-  const base::Value::DictStorage restored_window =
+  EXPECT_EQ(2u, windows.size());
+  const base::Value::Dict restored_window =
       api_test_utils::GetDict(restored_window_session, "window");
-  base::Value::DictStorage window;
+  base::Value::Dict window;
   int restored_id = api_test_utils::GetInteger(restored_window, "id");
-  for (base::Value& window_value : windows->GetList()) {
-    window = utils::ToDictionary(std::move(window_value));
+  for (base::Value& window_value : windows) {
+    window = utils::ToDict(std::move(window_value));
     if (api_test_utils::GetInteger(window, "id") == restored_id)
       break;
   }
@@ -339,7 +325,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionSessionsTest, RestoreForeignSessionInvalidId) {
   EXPECT_TRUE(base::MatchPattern(
       utils::RunFunctionAndReturnError(
           CreateFunction<SessionsRestoreFunction>(true).get(), "[\"tag3.0\"]",
-          browser()),
+          browser()->profile()),
       "Invalid session id: \"tag3.0\"."));
 }
 
@@ -349,18 +335,37 @@ IN_PROC_BROWSER_TEST_F(ExtensionSessionsTest, RestoreInIncognito) {
   EXPECT_TRUE(base::MatchPattern(
       utils::RunFunctionAndReturnError(
           CreateFunction<SessionsRestoreFunction>(true).get(), "[\"1\"]",
-          CreateIncognitoBrowser()),
+          CreateIncognitoBrowser()->profile()),
       "Can not restore sessions in incognito mode."));
 }
 
+IN_PROC_BROWSER_TEST_F(ExtensionSessionsTest, RestoreNonEditableTabstrip) {
+  CreateSessionModels();
+
+  // Set up a browser with a non-editable tabstrip, simulating one in the midst
+  // of a tab dragging session.
+  std::unique_ptr<TestBrowserWindow> browser_window =
+      std::make_unique<TestBrowserWindow>();
+  Browser::CreateParams params(browser()->profile(), true);
+  params.type = Browser::TYPE_NORMAL;
+  params.window = browser_window.get();
+  std::unique_ptr<Browser> browser =
+      std::unique_ptr<Browser>(Browser::Create(params));
+  browser_window->SetIsTabStripEditable(false);
+
+  EXPECT_TRUE(base::MatchPattern(
+      utils::RunFunctionAndReturnError(
+          CreateFunction<SessionsRestoreFunction>(true).get(), "[\"1\"]",
+          browser->profile()),
+      tabs_constants::kTabStripNotEditableError));
+}
+
 IN_PROC_BROWSER_TEST_F(ExtensionSessionsTest, GetRecentlyClosedIncognito) {
-  std::unique_ptr<base::ListValue> result(
+  base::Value::List sessions(
       utils::ToList(utils::RunFunctionAndReturnSingleResult(
           CreateFunction<SessionsGetRecentlyClosedFunction>(true).get(), "[]",
-          CreateIncognitoBrowser())));
-  ASSERT_TRUE(result);
-  base::ListValue* sessions = result.get();
-  EXPECT_EQ(0u, sessions->GetList().size());
+          CreateIncognitoBrowser()->profile())));
+  EXPECT_TRUE(sessions.empty());
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionSessionsTest, GetRecentlyClosedMaxResults) {
@@ -375,30 +380,33 @@ IN_PROC_BROWSER_TEST_F(ExtensionSessionsTest, GetRecentlyClosedMaxResults) {
     content::WebContentsDestroyedWatcher destroyed_watcher(
         browser()->tab_strip_model()->GetWebContentsAt(tab_index));
     browser()->tab_strip_model()->CloseWebContentsAt(
-        tab_index, TabStripModel::CLOSE_CREATE_HISTORICAL_TAB);
+        tab_index, TabCloseTypes::CLOSE_CREATE_HISTORICAL_TAB);
     destroyed_watcher.Wait();
   }
 
   {
-    std::unique_ptr<base::Value> result(utils::RunFunctionAndReturnSingleResult(
-        CreateFunction<SessionsGetRecentlyClosedFunction>(true).get(), "[]",
-        browser()));
+    absl::optional<base::Value> result =
+        utils::RunFunctionAndReturnSingleResult(
+            CreateFunction<SessionsGetRecentlyClosedFunction>(true).get(), "[]",
+            browser()->profile());
     ASSERT_TRUE(result);
     ASSERT_TRUE(result->is_list());
     EXPECT_EQ(kTabCount, result->GetList().size());
   }
   {
-    std::unique_ptr<base::Value> result(utils::RunFunctionAndReturnSingleResult(
-        CreateFunction<SessionsGetRecentlyClosedFunction>(true).get(),
-        "[{\"maxResults\": 0}]", browser()));
+    absl::optional<base::Value> result =
+        utils::RunFunctionAndReturnSingleResult(
+            CreateFunction<SessionsGetRecentlyClosedFunction>(true).get(),
+            "[{\"maxResults\": 0}]", browser()->profile());
     ASSERT_TRUE(result);
     ASSERT_TRUE(result->is_list());
     EXPECT_EQ(0u, result->GetList().size());
   }
   {
-    std::unique_ptr<base::Value> result(utils::RunFunctionAndReturnSingleResult(
-        CreateFunction<SessionsGetRecentlyClosedFunction>(true).get(),
-        "[{\"maxResults\": 2}]", browser()));
+    absl::optional<base::Value> result =
+        utils::RunFunctionAndReturnSingleResult(
+            CreateFunction<SessionsGetRecentlyClosedFunction>(true).get(),
+            "[{\"maxResults\": 2}]", browser()->profile());
     ASSERT_TRUE(result);
     ASSERT_TRUE(result->is_list());
     EXPECT_EQ(2u, result->GetList().size());
@@ -407,7 +415,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionSessionsTest, GetRecentlyClosedMaxResults) {
 
 // http://crbug.com/251199
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest, DISABLED_SessionsApis) {
-  ASSERT_TRUE(RunExtensionTest("sessions", {.page_url = "sessions.html"}))
+  ASSERT_TRUE(RunExtensionTest("sessions", {.extension_url = "sessions.html"}))
       << message_;
 }
 

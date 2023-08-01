@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,10 @@
 #include <getopt.h>
 
 #include <string>
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 void Usage() {
   fprintf(stderr,
@@ -64,7 +68,7 @@ int main(int argc, char* argv[]) {
   }
 
   if (reinstall) {
-    [[NSFileManager defaultManager]
+    [NSFileManager.defaultManager
         removeItemAtPath:@"/Applications/Google Chrome.app"
                    error:nil];
   }
@@ -72,8 +76,9 @@ int main(int argc, char* argv[]) {
   unsigned reasons;
   int can_install = GoogleChromeCompatibilityCheck(&reasons);
   NSLog(@"can_install: %d, reasons %x", can_install, reasons);
-  if (check_only)
+  if (check_only) {
     return 0;
+  }
 
   if (can_install && !source_path.empty()) {
     int install_result = InstallGoogleChrome(
@@ -82,6 +87,7 @@ int main(int argc, char* argv[]) {
     NSLog(@"install result: %d", install_result);
   }
 
-  if (launch)
+  if (launch) {
     LaunchGoogleChrome();
+  }
 }

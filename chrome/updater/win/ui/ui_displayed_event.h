@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,7 @@
 #include "chrome/updater/updater_scope.h"
 #include "chrome/updater/win/scoped_handle.h"
 
-namespace updater {
-namespace ui {
+namespace updater::ui {
 
 // Manages an event used to synchronize the state of the UI between processes.
 // In this case, one process presents the splash screen UI, forks another
@@ -41,7 +40,6 @@ class UIDisplayedEventManager {
   static ScopedKernelHANDLE& GetUIDisplayedEvent();
 };
 
-}  // namespace ui
-}  // namespace updater
+}  // namespace updater::ui
 
 #endif  // CHROME_UPDATER_WIN_UI_UI_DISPLAYED_EVENT_H_

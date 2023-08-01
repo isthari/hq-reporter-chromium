@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -39,6 +39,9 @@ class MockDataChannel : public webrtc::DataChannelInterface {
   uint64_t buffered_amount() const override;
   void Close() override;
   bool Send(const webrtc::DataBuffer& buffer) override;
+  void SendAsync(
+      webrtc::DataBuffer buffer,
+      absl::AnyInvocable<void(webrtc::RTCError) &&> on_complete) override;
 
   // For testing.
   void changeState(DataState state);

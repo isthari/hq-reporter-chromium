@@ -1,13 +1,13 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "cc/mojom/render_frame_metadata_mojom_traits.h"
 
 #include "build/build_config.h"
-#include "mojo/public/cpp/base/time_mojom_traits.h"
 #include "services/viz/public/cpp/compositing/selection_mojom_traits.h"
 #include "services/viz/public/cpp/compositing/vertical_scroll_direction_mojom_traits.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/geometry/mojom/geometry_mojom_traits.h"
 #include "ui/gfx/mojom/selection_bound_mojom_traits.h"
 
@@ -27,7 +27,6 @@ bool StructTraits<
     cc::mojom::RenderFrameMetadataDataView,
     cc::RenderFrameMetadata>::Read(cc::mojom::RenderFrameMetadataDataView data,
                                    cc::RenderFrameMetadata* out) {
-  out->root_background_color = data.root_background_color();
   out->is_scroll_offset_at_top = data.is_scroll_offset_at_top();
   out->is_mobile_optimized = data.is_mobile_optimized();
   out->device_scale_factor = data.device_scale_factor();
@@ -57,8 +56,7 @@ bool StructTraits<
          data.ReadLocalSurfaceId(&out->local_surface_id) &&
          data.ReadNewVerticalScrollDirection(
              &out->new_vertical_scroll_direction) &&
-         data.ReadVisualPropertiesUpdateDuration(
-             &out->visual_properties_update_duration);
+         data.ReadRootBackgroundColor(&out->root_background_color);
 }
 
 }  // namespace mojo

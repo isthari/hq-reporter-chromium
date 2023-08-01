@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,18 +9,21 @@
 #include <string>
 #include <vector>
 
-#include "ash/components/cryptohome/cryptohome_parameters.h"
-#include "base/bind.h"
 #include "base/containers/contains.h"
 #include "base/containers/span.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
-#include "chrome/browser/ash/certificate_provider/certificate_provider_service.h"
-#include "chrome/browser/ash/certificate_provider/certificate_provider_service_factory.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
+#include "chrome/browser/browser_process.h"
+#include "chrome/browser/certificate_provider/certificate_provider_service.h"
+#include "chrome/browser/certificate_provider/certificate_provider_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chromeos/dbus/cryptohome/key.pb.h"
-#include "chromeos/dbus/cryptohome/rpc.pb.h"
+#include "chromeos/ash/components/cryptohome/cryptohome_parameters.h"
+#include "chromeos/ash/components/dbus/cryptohome/key.pb.h"
+#include "chromeos/ash/components/dbus/cryptohome/rpc.pb.h"
 #include "components/account_id/account_id.h"
+#include "components/user_manager/common_types.h"
+#include "components/user_manager/known_user.h"
 #include "dbus/message.h"
 #include "net/base/net_errors.h"
 #include "third_party/boringssl/src/include/openssl/ssl.h"
@@ -125,8 +128,9 @@ void HandleSignatureKeyChallenge(
   // installed (e.g., for the smart card based login they are force-installed
   // via the DeviceLoginScreenExtensions admin policy).
   Profile* signin_profile = ProfileHelper::GetSigninProfile();
-  CertificateProviderService* certificate_provider_service =
-      CertificateProviderServiceFactory::GetForBrowserContext(signin_profile);
+  chromeos::CertificateProviderService* certificate_provider_service =
+      chromeos::CertificateProviderServiceFactory::GetForBrowserContext(
+          signin_profile);
   if (!certificate_provider_service) {
     std::move(response_sender)
         .Run(dbus::ErrorResponse::FromMethodCall(
@@ -197,8 +201,10 @@ void CryptohomeKeyDelegateServiceProvider::HandleChallengeKey(
             "Unable to parse AccountIdentifier from request"));
     return;
   }
+  user_manager::KnownUser known_user(g_browser_process->local_state());
+  user_manager::CryptohomeId cryptohome_id(account_identifier.account_id());
   const AccountId account_id =
-      cryptohome::GetAccountIdFromAccountIdentifier(account_identifier);
+      known_user.GetAccountIdByCryptohomeId(cryptohome_id);
   if (!account_id.is_valid() ||
       account_id.GetAccountType() == AccountType::UNKNOWN) {
     std::move(response_sender)

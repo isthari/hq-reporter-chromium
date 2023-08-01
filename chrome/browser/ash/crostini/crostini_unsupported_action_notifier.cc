@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,9 @@
 #include <utility>
 
 #include "ash/constants/app_types.h"
+#include "ash/constants/ash_features.h"
+#include "ash/constants/notifier_catalogs.h"
 #include "ash/public/cpp/keyboard/keyboard_controller.h"
-#include "ash/public/cpp/system/toast_catalog.h"
 #include "ash/public/cpp/system/toast_manager.h"
 #include "ash/public/cpp/tablet_mode.h"
 #include "base/check.h"
@@ -17,7 +18,6 @@
 #include "chrome/browser/ash/accessibility/magnification_manager.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/exo/wm_helper.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/base/ime/ash/input_method_util.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -117,8 +117,8 @@ void CrostiniUnsupportedActionNotifier::
         ash::ToastCatalogName::kCrostiniUnsupportedVirtualKeyboard,
         /*text=*/
         l10n_util::GetStringUTF16(IDS_CROSTINI_UNSUPPORTED_VIRTUAL_KEYBOARD),
-        /*timeout_ms=*/delegate_->ToastTimeoutMs()};
-    delegate_->ShowToast(data);
+        delegate_->ToastTimeout()};
+    delegate_->ShowToast(std::move(data));
     virtual_keyboard_unsupported_message_shown_ = true;
     EmitMetricReasonShown(reason);
   }
@@ -126,7 +126,17 @@ void CrostiniUnsupportedActionNotifier::
 
 void CrostiniUnsupportedActionNotifier::
     ShowIMEUnsupportedNotificationIfNeeded() {
-  auto method = delegate_->GetCurrentInputMethod();
+  if (base::FeatureList::IsEnabled(ash::features::kCrostiniImeSupport)) {
+    // IME support is not yet available for all Crostini apps, but Chrome can
+    // not yet determine up front whether an app is supported or not.
+    return;
+  }
+  auto method_opt = delegate_->GetCurrentInputMethod();
+  if (!method_opt.has_value()) {
+    return;
+  }
+  auto method = *method_opt;
+
   if (IsIMESupportedByCrostini(method) ||
       !delegate_->IsFocusedWindowCrostini()) {
     return;
@@ -140,8 +150,8 @@ void CrostiniUnsupportedActionNotifier::
         ash::ToastCatalogName::kCrostiniUnsupportedIME,
         /*text=*/
         l10n_util::GetStringFUTF16(IDS_CROSTINI_UNSUPPORTED_IME, ime_name),
-        /*timeout_ms=*/delegate_->ToastTimeoutMs()};
-    delegate_->ShowToast(data);
+        delegate_->ToastTimeout()};
+    delegate_->ShowToast(std::move(data));
     ime_unsupported_message_shown_ = true;
     EmitMetricReasonShown(NotificationReason::kUnsupportedIME);
   }
@@ -165,11 +175,15 @@ bool CrostiniUnsupportedActionNotifier::Delegate::IsFocusedWindowCrostini() {
           static_cast<int>(ash::AppType::CROSTINI_APP));
 }
 
-ash::input_method::InputMethodDescriptor
+absl::optional<ash::input_method::InputMethodDescriptor>
 CrostiniUnsupportedActionNotifier::Delegate::GetCurrentInputMethod() {
-  return ash::input_method::InputMethodManager::Get()
-      ->GetActiveIMEState()
-      ->GetCurrentInputMethod();
+  auto active_ime_state =
+      ash::input_method::InputMethodManager::Get()->GetActiveIMEState();
+  if (!active_ime_state) {
+    return absl::nullopt;
+  }
+
+  return active_ime_state->GetCurrentInputMethod();
 }
 
 bool CrostiniUnsupportedActionNotifier::Delegate::IsVirtualKeyboardVisible() {
@@ -177,8 +191,8 @@ bool CrostiniUnsupportedActionNotifier::Delegate::IsVirtualKeyboardVisible() {
 }
 
 void CrostiniUnsupportedActionNotifier::Delegate::ShowToast(
-    const ash::ToastData& toast_data) {
-  ash::ToastManager::Get()->Show(toast_data);
+    ash::ToastData toast_data) {
+  ash::ToastManager::Get()->Show(std::move(toast_data));
 }
 
 std::string
@@ -189,13 +203,13 @@ CrostiniUnsupportedActionNotifier::Delegate::GetLocalizedDisplayName(
       ->GetLocalizedDisplayName(descriptor);
 }
 
-int CrostiniUnsupportedActionNotifier::Delegate::ToastTimeoutMs() {
+base::TimeDelta CrostiniUnsupportedActionNotifier::Delegate::ToastTimeout() {
   auto* manager = ash::MagnificationManager::Get();
   if (manager &&
       (manager->IsMagnifierEnabled() || manager->IsDockedMagnifierEnabled())) {
-    return 60 * 1000;
+    return base::Seconds(60);
   } else {
-    return ash::ToastData::kDefaultToastDurationMs;
+    return ash::ToastData::kDefaultToastDuration;
   }
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,9 +12,9 @@
 #include "media/base/video_bitrate_allocation.h"
 #include "media/filters/vp9_parser.h"
 #include "media/gpu/vaapi/vaapi_video_encoder_delegate.h"
+#include "media/gpu/video_rate_control.h"
 #include "media/gpu/vp9_picture.h"
 #include "media/gpu/vp9_reference_frame_vector.h"
-#include "media/gpu/vpx_rate_control.h"
 
 namespace libvpx {
 struct VP9FrameParamsQpRTC;
@@ -44,6 +44,8 @@ class VP9VaapiVideoEncoderDelegate : public VaapiVideoEncoderDelegate {
     // 0-255.
     uint8_t min_qp;
     uint8_t max_qp;
+
+    bool error_resilident_mode = false;
   };
 
   VP9VaapiVideoEncoderDelegate(scoped_refptr<VaapiWrapper> vaapi_wrapper,
@@ -68,9 +70,10 @@ class VP9VaapiVideoEncoderDelegate : public VaapiVideoEncoderDelegate {
   friend class VP9VaapiVideoEncoderDelegateTest;
   friend class VaapiVideoEncodeAcceleratorTest;
 
-  using VP9RateControl = VPXRateControl<libvpx::VP9RateControlRtcConfig,
-                                        libvpx::VP9RateControlRTC,
-                                        libvpx::VP9FrameParamsQpRTC>;
+  using VP9RateControl = VideoRateControl<libvpx::VP9RateControlRtcConfig,
+                                          libvpx::VP9RateControlRTC,
+                                          libvpx::VP9FrameParamsQpRTC,
+                                          int>;
   void set_rate_ctrl_for_testing(std::unique_ptr<VP9RateControl> rate_ctrl);
 
   bool ApplyPendingUpdateRates();
@@ -78,7 +81,7 @@ class VP9VaapiVideoEncoderDelegate : public VaapiVideoEncoderDelegate {
   bool PrepareEncodeJob(EncodeJob& encode_job) override;
   BitstreamBufferMetadata GetMetadata(const EncodeJob& encode_job,
                                       size_t payload_size) override;
-  void BitrateControlUpdate(uint64_t encoded_chunk_size_bytes) override;
+  void BitrateControlUpdate(const BitstreamBufferMetadata& metadata) override;
 
   Vp9FrameHeader GetDefaultFrameHeader(const bool keyframe) const;
   void SetFrameHeader(bool keyframe,

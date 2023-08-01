@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include <windows.h>
 
-namespace base {
-namespace internal {
+namespace partition_alloc::internal {
+
 namespace {
 
 // Store the key as the thread destruction callback doesn't get it.
@@ -19,16 +19,19 @@ void (*g_on_dll_process_detach)() = nullptr;
 void NTAPI PartitionTlsOnThreadExit(PVOID module,
                                     DWORD reason,
                                     PVOID reserved) {
-  if (reason != DLL_THREAD_DETACH && reason != DLL_PROCESS_DETACH)
+  if (reason != DLL_THREAD_DETACH && reason != DLL_PROCESS_DETACH) {
     return;
+  }
 
-  if (reason == DLL_PROCESS_DETACH && g_on_dll_process_detach)
+  if (reason == DLL_PROCESS_DETACH && g_on_dll_process_detach) {
     g_on_dll_process_detach();
+  }
 
   if (g_destructor) {
     void* per_thread_data = PartitionTlsGet(g_key);
-    if (per_thread_data)
+    if (per_thread_data) {
       g_destructor(per_thread_data);
+    }
   }
 }
 
@@ -51,8 +54,7 @@ void PartitionTlsSetOnDllProcessDetach(void (*callback)()) {
   g_on_dll_process_detach = callback;
 }
 
-}  // namespace internal
-}  // namespace base
+}  // namespace partition_alloc::internal
 
 // See thread_local_storage_win.cc for details and reference.
 //
@@ -93,7 +95,7 @@ extern "C" {
 // linker doesn't discard it.
 extern const PIMAGE_TLS_CALLBACK partition_tls_thread_exit_callback;
 const PIMAGE_TLS_CALLBACK partition_tls_thread_exit_callback =
-    base::internal::PartitionTlsOnThreadExit;
+    partition_alloc::internal::PartitionTlsOnThreadExit;
 
 // Reset the default section.
 #pragma const_seg()
@@ -102,10 +104,10 @@ const PIMAGE_TLS_CALLBACK partition_tls_thread_exit_callback =
 
 #pragma data_seg(".CRT$XLY")
 PIMAGE_TLS_CALLBACK partition_tls_thread_exit_callback =
-    base::internal::PartitionTlsOnThreadExit;
+    partition_alloc::internal::PartitionTlsOnThreadExit;
 
 // Reset the default section.
 #pragma data_seg()
 
 #endif  // _WIN64
-}
+}  // extern "C"

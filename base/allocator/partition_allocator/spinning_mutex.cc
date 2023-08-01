@@ -1,9 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/allocator/partition_allocator/spinning_mutex.h"
 
+#include "base/allocator/partition_allocator/partition_alloc_base/compiler_specific.h"
 #include "base/allocator/partition_allocator/partition_alloc_check.h"
 #include "build/build_config.h"
 
@@ -15,15 +16,15 @@
 #include <pthread.h>
 #endif
 
-#if defined(PA_HAS_LINUX_KERNEL)
+#if PA_CONFIG(HAS_LINUX_KERNEL)
 #include <errno.h>
 #include <linux/futex.h>
 #include <sys/syscall.h>
 #include <unistd.h>
-#endif  // defined(PA_HAS_LINUX_KERNEL)
+#endif  // PA_CONFIG(HAS_LINUX_KERNEL)
 
-#if !defined(PA_HAS_FAST_MUTEX)
-#include "base/threading/platform_thread.h"
+#if !PA_CONFIG(HAS_FAST_MUTEX)
+#include "base/allocator/partition_allocator/partition_alloc_base/threading/platform_thread.h"
 
 #if BUILDFLAG(IS_POSIX)
 #include <sched.h>
@@ -36,7 +37,7 @@
 #define PA_YIELD_THREAD ((void)0)
 #endif
 
-#endif  // !defined(PA_HAS_FAST_MUTEX)
+#endif  // !PA_CONFIG(HAS_FAST_MUTEX)
 
 namespace partition_alloc::internal {
 
@@ -45,23 +46,45 @@ void SpinningMutex::Reinit() {
   // On most platforms, no need to re-init the lock, can just unlock it.
   Release();
 #else
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunguarded-availability"
-
-  if (LIKELY(os_unfair_lock_trylock)) {
-    unfair_lock_ = OS_UNFAIR_LOCK_INIT;
-    return;
-  }
-
-#pragma clang diagnostic pop
-
-  Release();
+  unfair_lock_ = OS_UNFAIR_LOCK_INIT;
 #endif  // BUILDFLAG(IS_APPLE)
 }
 
-#if defined(PA_HAS_FAST_MUTEX)
+void SpinningMutex::AcquireSpinThenBlock() {
+  int tries = 0;
+  int backoff = 1;
+  do {
+    if (PA_LIKELY(Try())) {
+      return;
+    }
+    // Note: Per the intel optimization manual
+    // (https://software.intel.com/content/dam/develop/public/us/en/documents/64-ia-32-architectures-optimization-manual.pdf),
+    // the "pause" instruction is more costly on Skylake Client than on previous
+    // architectures. The latency is found to be 141 cycles
+    // there (from ~10 on previous ones, nice 14x).
+    //
+    // According to Agner Fog's instruction tables, the latency is still >100
+    // cycles on Ice Lake, and from other sources, seems to be high as well on
+    // Adler Lake. Separately, it is (from
+    // https://agner.org/optimize/instruction_tables.pdf) also high on AMD Zen 3
+    // (~65). So just assume that it's this way for most x86_64 architectures.
+    //
+    // Also, loop several times here, following the guidelines in section 2.3.4
+    // of the manual, "Pause latency in Skylake Client Microarchitecture".
+    for (int yields = 0; yields < backoff; yields++) {
+      PA_YIELD_PROCESSOR;
+      tries++;
+    }
+    constexpr int kMaxBackoff = 16;
+    backoff = std::min(kMaxBackoff, backoff << 1);
+  } while (tries < kSpinCount);
 
-#if defined(PA_HAS_LINUX_KERNEL)
+  LockSlow();
+}
+
+#if PA_CONFIG(HAS_FAST_MUTEX)
+
+#if PA_CONFIG(HAS_LINUX_KERNEL)
 
 void SpinningMutex::FutexWait() {
   // Save and restore errno.
@@ -119,6 +142,12 @@ void SpinningMutex::LockSlow() {
   ::AcquireSRWLockExclusive(reinterpret_cast<PSRWLOCK>(&lock_));
 }
 
+#elif BUILDFLAG(IS_APPLE)
+
+void SpinningMutex::LockSlow() {
+  return os_unfair_lock_lock(&unfair_lock_);
+}
+
 #elif BUILDFLAG(IS_POSIX)
 
 void SpinningMutex::LockSlow() {
@@ -134,7 +163,7 @@ void SpinningMutex::LockSlow() {
 
 #endif
 
-#else  // defined(PA_HAS_FAST_MUTEX)
+#else  // PA_CONFIG(HAS_FAST_MUTEX)
 
 void SpinningMutex::LockSlowSpinLock() {
   int yield_thread_count = 0;
@@ -152,6 +181,6 @@ void SpinningMutex::LockSlowSpinLock() {
   } while (!TrySpinLock());
 }
 
-#endif  // defined(PA_HAS_FAST_MUTEX)
+#endif  // PA_CONFIG(HAS_FAST_MUTEX)
 
 }  // namespace partition_alloc::internal

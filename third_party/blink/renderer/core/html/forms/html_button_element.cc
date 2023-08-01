@@ -26,14 +26,15 @@
 #include "third_party/blink/renderer/core/html/forms/html_button_element.h"
 
 #include "third_party/blink/renderer/core/dom/attribute.h"
+#include "third_party/blink/renderer/core/dom/element.h"
+#include "third_party/blink/renderer/core/dom/events/event.h"
 #include "third_party/blink/renderer/core/dom/events/simulated_click_options.h"
-#include "third_party/blink/renderer/core/events/keyboard_event.h"
+#include "third_party/blink/renderer/core/dom/qualified_name.h"
 #include "third_party/blink/renderer/core/frame/web_feature.h"
 #include "third_party/blink/renderer/core/html/forms/form_data.h"
 #include "third_party/blink/renderer/core/html/forms/html_form_element.h"
-#include "third_party/blink/renderer/core/html/html_popup_element.h"
 #include "third_party/blink/renderer/core/html_names.h"
-#include "third_party/blink/renderer/core/layout/layout_object_factory.h"
+#include "third_party/blink/renderer/core/layout/ng/layout_ng_button.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
 #include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
 
@@ -46,16 +47,16 @@ void HTMLButtonElement::setType(const AtomicString& type) {
   setAttribute(html_names::kTypeAttr, type);
 }
 
-LayoutObject* HTMLButtonElement::CreateLayoutObject(const ComputedStyle& style,
-                                                    LegacyLayout legacy) {
+LayoutObject* HTMLButtonElement::CreateLayoutObject(
+    const ComputedStyle& style) {
   // https://html.spec.whatwg.org/C/#button-layout
   EDisplay display = style.Display();
   if (display == EDisplay::kInlineGrid || display == EDisplay::kGrid ||
       display == EDisplay::kInlineFlex || display == EDisplay::kFlex ||
       display == EDisplay::kInlineLayoutCustom ||
       display == EDisplay::kLayoutCustom)
-    return HTMLFormControlElement::CreateLayoutObject(style, legacy);
-  return LayoutObjectFactory::CreateButton(*this, style, legacy);
+    return HTMLFormControlElement::CreateLayoutObject(style);
+  return MakeGarbageCollected<LayoutNGButton>(this);
 }
 
 const AtomicString& HTMLButtonElement::FormControlType() const {
@@ -110,11 +111,6 @@ void HTMLButtonElement::ParseAttribute(
 
 void HTMLButtonElement::DefaultEventHandler(Event& event) {
   if (event.type() == event_type_names::kDOMActivate) {
-    Element* popupElement =
-        GetDocument().getElementById(getAttribute(html_names::kPopupAttr));
-    if (popupElement && IsA<HTMLPopupElement>(popupElement)) {
-      To<HTMLPopupElement>(popupElement)->Invoke(this);
-    }
     if (!IsDisabledFormControl()) {
       if (Form() && type_ == kSubmit) {
         Form()->PrepareForSubmission(&event, this);
@@ -157,13 +153,13 @@ void HTMLButtonElement::SetActivatedSubmit(bool flag) {
 }
 
 void HTMLButtonElement::AppendToFormData(FormData& form_data) {
-  if (type_ == kSubmit && !GetName().IsEmpty() && is_activated_submit_)
+  if (type_ == kSubmit && !GetName().empty() && is_activated_submit_)
     form_data.AppendFromElement(GetName(), Value());
 }
 
 void HTMLButtonElement::AccessKeyAction(
     SimulatedClickCreationScope creation_scope) {
-  focus();
+  Focus();
   DispatchSimulatedClick(nullptr, creation_scope);
 }
 

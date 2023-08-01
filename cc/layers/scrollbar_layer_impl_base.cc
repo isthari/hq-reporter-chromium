@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <algorithm>
 
-#include "base/cxx17_backports.h"
 #include "cc/trees/effect_node.h"
 #include "cc/trees/layer_tree_impl.h"
 #include "cc/trees/scroll_node.h"
@@ -218,7 +217,7 @@ gfx::Rect ScrollbarLayerImplBase::ComputeThumbQuadRectWithThumbThicknessScale(
   // DCHECK(scroll_layer_length() >= clip_layer_length());
 
   // With the length known, we can compute the thumb's position.
-  float clamped_current_pos = base::clamp(current_pos(), 0.0f, maximum);
+  float clamped_current_pos = std::clamp(current_pos(), 0.0f, maximum);
 
   int thumb_offset = TrackStart();
   if (maximum > 0) {
@@ -257,6 +256,10 @@ gfx::Rect ScrollbarLayerImplBase::ComputeExpandedThumbQuadRect() const {
 gfx::Rect ScrollbarLayerImplBase::ComputeThumbQuadRect() const {
   return ComputeThumbQuadRectWithThumbThicknessScale(
       thumb_thickness_scale_factor_);
+}
+
+gfx::Rect ScrollbarLayerImplBase::ComputeHitTestableThumbQuadRect() const {
+  return ComputeThumbQuadRect();
 }
 
 void ScrollbarLayerImplBase::SetOverlayScrollbarLayerOpacityAnimated(
@@ -300,6 +303,10 @@ bool ScrollbarLayerImplBase::JumpOnTrackClick() const {
   return false;
 }
 
+bool ScrollbarLayerImplBase::IsFluentScrollbarEnabled() const {
+  return layer_tree_impl()->settings().enable_fluent_scrollbar;
+}
+
 gfx::Rect ScrollbarLayerImplBase::BackButtonRect() const {
   return gfx::Rect(0, 0);
 }
@@ -328,7 +335,7 @@ ScrollbarPart ScrollbarLayerImplBase::IdentifyScrollbarPart(
   if (ForwardButtonRect().Contains(pointer_location))
     return ScrollbarPart::FORWARD_BUTTON;
 
-  if (ComputeThumbQuadRect().Contains(pointer_location))
+  if (ComputeHitTestableThumbQuadRect().Contains(pointer_location))
     return ScrollbarPart::THUMB;
 
   if (BackTrackRect().Contains(pointer_location))

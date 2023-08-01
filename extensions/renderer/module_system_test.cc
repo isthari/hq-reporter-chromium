@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,18 +11,18 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/lazy_instance.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/strings/string_piece.h"
+#include "base/values.h"
 #include "extensions/common/extension_builder.h"
 #include "extensions/common/extension_paths.h"
-#include "extensions/common/value_builder.h"
 #include "extensions/renderer/ipc_message_sender.h"
 #include "extensions/renderer/logging_native_handler.h"
 #include "extensions/renderer/native_extension_bindings_system.h"
@@ -248,7 +248,7 @@ void ModuleSystemTestEnvironment::ShutdownModuleSystem() {
 v8::Local<v8::Object> ModuleSystemTestEnvironment::CreateGlobal(
     const std::string& name) {
   v8::EscapableHandleScope handle_scope(isolate_);
-  v8::MicrotasksScope microtasks(isolate_,
+  v8::MicrotasksScope microtasks(isolate_->GetCurrentContext(),
                                  v8::MicrotasksScope::kDoNotRunMicrotasks);
   v8::Local<v8::Object> object = v8::Object::New(isolate_);
   isolate_->GetCurrentContext()
@@ -312,12 +312,10 @@ void ModuleSystemTest::TearDown() {
 }
 
 scoped_refptr<const Extension> ModuleSystemTest::CreateExtension() {
-  std::unique_ptr<base::DictionaryValue> manifest =
-      DictionaryBuilder()
-          .Set("name", "test")
-          .Set("version", "1.0")
-          .Set("manifest_version", 2)
-          .Build();
+  base::Value::Dict manifest = base::Value::Dict()
+                                   .Set("name", "test")
+                                   .Set("version", "1.0")
+                                   .Set("manifest_version", 2);
   return ExtensionBuilder().SetManifest(std::move(manifest)).Build();
 }
 

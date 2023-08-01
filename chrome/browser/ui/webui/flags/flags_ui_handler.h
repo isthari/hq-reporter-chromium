@@ -1,4 +1,4 @@
-// Copyright (c) 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,7 +28,8 @@ class FlagsUIHandler : public content::WebUIMessageHandler {
   // Initializes the UI handler with the provided flags storage and flags
   // access. If there were flags experiments requested from javascript before
   // this was called, it calls |SendExperimentalFeatures|.
-  void Init(flags_ui::FlagsStorage* flags_storage, flags_ui::FlagAccess access);
+  void Init(std::unique_ptr<flags_ui::FlagsStorage> flags_storage,
+            flags_ui::FlagAccess access);
 
   // Sends experimental features lists to the UI.
   void SendExperimentalFeatures();
@@ -43,23 +44,23 @@ class FlagsUIHandler : public content::WebUIMessageHandler {
   void RegisterMessages() override;
 
   // Callback for the "requestExperimentFeatures" message.
-  void HandleRequestExperimentalFeatures(const base::ListValue* args);
+  void HandleRequestExperimentalFeatures(const base::Value::List& args);
 
   // Callback for the "enableExperimentalFeature" message.
-  void HandleEnableExperimentalFeatureMessage(const base::ListValue* args);
+  void HandleEnableExperimentalFeatureMessage(const base::Value::List& args);
 
   // Callback for the "setOriginListFlag" message.
-  void HandleSetOriginListFlagMessage(const base::ListValue* args);
+  void HandleSetOriginListFlagMessage(const base::Value::List& args);
 
   // Callback for the "restartBrowser" message. Restores all tabs on restart.
-  void HandleRestartBrowser(const base::ListValue* args);
+  void HandleRestartBrowser(const base::Value::List& args);
 
   // Callback for the "resetAllFlags" message.
-  void HandleResetAllFlags(const base::ListValue* args);
+  void HandleResetAllFlags(const base::Value::List& args);
 
 #if BUILDFLAG(IS_CHROMEOS)
   // Callback for the "CrosUrlFlagsRedirect" message.
-  void HandleCrosUrlFlagsRedirect(const base::ListValue* args);
+  void HandleCrosUrlFlagsRedirect(const base::Value::List& args);
 #endif
 
  private:

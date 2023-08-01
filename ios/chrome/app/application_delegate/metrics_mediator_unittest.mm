@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,29 +7,32 @@
 
 #import <Foundation/Foundation.h>
 
-#include "base/test/metrics/histogram_tester.h"
-#include "components/metrics/metrics_service.h"
+#import "base/test/metrics/histogram_tester.h"
+#import "components/metrics/metrics_service.h"
 #import "components/previous_session_info/previous_session_info.h"
 #import "components/previous_session_info/previous_session_info_private.h"
+#import "ios/chrome/app/app_startup_parameters.h"
+#import "ios/chrome/app/application_delegate/metric_kit_subscriber.h"
 #import "ios/chrome/app/application_delegate/startup_information.h"
-#include "ios/chrome/browser/application_context.h"
-#include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
-#include "ios/chrome/browser/chrome_url_constants.h"
-#import "ios/chrome/browser/main/test_browser.h"
-#import "ios/chrome/browser/ui/main/browser_interface_provider.h"
-#import "ios/chrome/browser/ui/main/scene_state.h"
-#import "ios/chrome/browser/ui/main/test/fake_scene_state.h"
-#import "ios/chrome/browser/web_state_list/fake_web_state_list_delegate.h"
-#import "ios/chrome/browser/web_state_list/web_state_list.h"
-#import "ios/chrome/browser/web_state_list/web_state_opener.h"
-#include "ios/chrome/common/app_group/app_group_metrics.h"
-#import "ios/chrome/test/ocmock/OCMockObject+BreakpadControllerTesting.h"
+#import "ios/chrome/browser/shared/coordinator/scene/connection_information.h"
+#import "ios/chrome/browser/shared/coordinator/scene/scene_state.h"
+#import "ios/chrome/browser/shared/coordinator/scene/test/fake_scene_state.h"
+#import "ios/chrome/browser/shared/model/application_context/application_context.h"
+#import "ios/chrome/browser/shared/model/browser/browser_provider_interface.h"
+#import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
+#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/url/chrome_url_constants.h"
+#import "ios/chrome/browser/shared/model/web_state_list/test/fake_web_state_list_delegate.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_opener.h"
+#import "ios/chrome/common/app_group/app_group_metrics.h"
+#import "ios/chrome/test/ios_chrome_scoped_testing_local_state.h"
 #import "ios/testing/scoped_block_swizzler.h"
 #import "ios/web/public/test/web_task_environment.h"
-#include "net/base/network_change_notifier.h"
-#include "testing/platform_test.h"
+#import "net/base/network_change_notifier.h"
+#import "testing/platform_test.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
-#include "third_party/ocmock/gtest_support.h"
+#import "third_party/ocmock/gtest_support.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -154,6 +157,7 @@ class MetricsMediatorLogLaunchTest : public PlatformTest {
   }
 
   web::WebTaskEnvironment task_environment_;
+  IOSChromeScopedTestingLocalState local_state_;
   std::unique_ptr<TestChromeBrowserState> browser_state_;
   NSArray<FakeSceneState*>* connected_scenes_;
   __block BOOL num_tabs_has_been_called_;
@@ -265,3 +269,56 @@ TEST_F(MetricsMediatorNoFixtureTest, logDateInUserDefaultsTest) {
   EXPECT_NE(nil, lastAppClose);
 }
 
+// Tests that +logStartupDuration:connectionInformation: calls
+// +endExtendedLaunchTask on cold start.
+TEST_F(MetricsMediatorNoFixtureTest, endExtendedLaunchTaskOnColdStart) {
+  id startupInformation =
+      [OCMockObject mockForProtocol:@protocol(StartupInformation)];
+  [[[startupInformation stub] andReturnValue:@YES] isColdStart];
+
+  base::TimeTicks time = base::TimeTicks();
+  [[[startupInformation stub] andDo:^(NSInvocation* invocation) {
+    [invocation setReturnValue:(void*)&time];
+  }] appLaunchTime];
+
+  [[[startupInformation stub] andDo:^(NSInvocation* invocation) {
+    [invocation setReturnValue:(void*)&time];
+  }] didFinishLaunchingTime];
+
+  [[[startupInformation stub] andDo:^(NSInvocation* invocation) {
+    [invocation setReturnValue:(void*)&time];
+  }] firstSceneConnectionTime];
+
+  id connectionInformation =
+      [OCMockObject mockForProtocol:@protocol(ConnectionInformation)];
+  id startupParameters =
+      [OCMockObject mockForClass:[AppStartupParameters class]];
+  [[[connectionInformation stub] andReturn:startupParameters]
+      startupParameters];
+
+  id metricKitSubscriber =
+      [OCMockObject mockForClass:[MetricKitSubscriber class]];
+  [[metricKitSubscriber expect] endExtendedLaunchTask];
+
+  [MetricsMediator logStartupDuration:startupInformation
+                connectionInformation:connectionInformation];
+  EXPECT_OCMOCK_VERIFY(metricKitSubscriber);
+}
+
+// Tests that +logStartupDuration:connectionInformation: does not call
+// +endExtendedLaunchTask on warm start.
+TEST_F(MetricsMediatorNoFixtureTest, endExtendedLaunchTaskOnWarmStart) {
+  id startupInformation =
+      [OCMockObject mockForProtocol:@protocol(StartupInformation)];
+  [[[startupInformation stub] andReturnValue:@NO] isColdStart];
+  id connectionInformation =
+      [OCMockObject mockForProtocol:@protocol(ConnectionInformation)];
+
+  id metricKitSubscriber =
+      [OCMockObject mockForClass:[MetricKitSubscriber class]];
+  [[metricKitSubscriber reject] endExtendedLaunchTask];
+
+  [MetricsMediator logStartupDuration:startupInformation
+                connectionInformation:connectionInformation];
+  EXPECT_OCMOCK_VERIFY(metricKitSubscriber);
+}

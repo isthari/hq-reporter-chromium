@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,6 +24,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.robolectric.android.util.concurrent.RoboExecutorService;
 import org.robolectric.annotation.Config;
+import org.robolectric.annotation.LooperMode;
 import org.robolectric.fakes.BaseCursor;
 
 import org.chromium.base.ThreadUtils;
@@ -44,6 +45,7 @@ import java.util.List;
  */
 @RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE)
+@LooperMode(LooperMode.Mode.LEGACY)
 public class FileEnumWorkerTaskTest implements FileEnumWorkerTask.FilesEnumeratedCallback {
     // The Fields the test Cursor represents.
     @IntDef({Fields.ID, Fields.MIME_TYPE, Fields.DATE_ADDED})
@@ -56,6 +58,7 @@ public class FileEnumWorkerTaskTest implements FileEnumWorkerTask.FilesEnumerate
 
     private static class TestFileEnumWorkerTask extends FileEnumWorkerTask {
         private boolean mShouldShowCameraTile = true;
+        private boolean mShouldShowBrowseTile = true;
 
         public TestFileEnumWorkerTask(WindowAndroid windowAndroid, FilesEnumeratedCallback callback,
                 MimeTypeFilter filter, List<String> mimeTypes, ContentResolver contentResolver) {
@@ -64,6 +67,10 @@ public class FileEnumWorkerTaskTest implements FileEnumWorkerTask.FilesEnumerate
 
         public void setShouldShowCameraTile(boolean shouldShow) {
             mShouldShowCameraTile = shouldShow;
+        }
+
+        public void setShouldShowBrowseTile(boolean shouldShow) {
+            mShouldShowBrowseTile = shouldShow;
         }
 
         @Override
@@ -82,6 +89,11 @@ public class FileEnumWorkerTaskTest implements FileEnumWorkerTask.FilesEnumerate
         @Override
         protected boolean shouldShowCameraTile() {
             return mShouldShowCameraTile;
+        }
+
+        @Override
+        protected boolean shouldShowBrowseTile() {
+            return mShouldShowBrowseTile;
         }
     }
 
@@ -204,8 +216,8 @@ public class FileEnumWorkerTaskTest implements FileEnumWorkerTask.FilesEnumerate
         String[] selectColumns = {MediaStore.Files.FileColumns._ID,
                 MediaStore.Files.FileColumns.DATE_ADDED, MediaStore.Files.FileColumns.MEDIA_TYPE,
                 MediaStore.Files.FileColumns.MIME_TYPE, MediaStore.Files.FileColumns.DATA};
-        String whereClause =
-                "_data LIKE ? OR _data LIKE ? OR _data LIKE ? OR _data LIKE ? OR _data LIKE ?";
+        String whereClause = "_data LIKE ? OR _data LIKE ? OR _data LIKE ? OR _data LIKE ? OR "
+                + "_data LIKE ? OR _data LIKE ?";
         String orderBy = MediaStore.MediaColumns.DATE_ADDED + " DESC";
 
         ArgumentCaptor<String[]> argument = ArgumentCaptor.forClass(String[].class);
@@ -213,17 +225,19 @@ public class FileEnumWorkerTaskTest implements FileEnumWorkerTask.FilesEnumerate
                 .query(eq(contentUri), eq(selectColumns), eq(whereClause), argument.capture(),
                         eq(orderBy));
         String[] actualWhereArgs = argument.getValue();
-        Assert.assertEquals(5, actualWhereArgs.length);
+        Assert.assertEquals(6, actualWhereArgs.length);
         Assert.assertTrue(actualWhereArgs[0],
                 actualWhereArgs[0].contains(Environment.DIRECTORY_DCIM + "/Camera"));
         Assert.assertTrue(
                 actualWhereArgs[1], actualWhereArgs[1].contains(Environment.DIRECTORY_PICTURES));
         Assert.assertTrue(
-                actualWhereArgs[2], actualWhereArgs[2].contains(Environment.DIRECTORY_DOWNLOADS));
-        Assert.assertTrue(actualWhereArgs[3],
-                actualWhereArgs[3].contains(Environment.DIRECTORY_DCIM + "/Restored"));
+                actualWhereArgs[2], actualWhereArgs[2].contains(Environment.DIRECTORY_MOVIES));
+        Assert.assertTrue(
+                actualWhereArgs[3], actualWhereArgs[3].contains(Environment.DIRECTORY_DOWNLOADS));
         Assert.assertTrue(actualWhereArgs[4],
-                actualWhereArgs[4].contains(Environment.DIRECTORY_DCIM + "/Screenshots"));
+                actualWhereArgs[4].contains(Environment.DIRECTORY_DCIM + "/Restored"));
+        Assert.assertTrue(actualWhereArgs[5],
+                actualWhereArgs[5].contains(Environment.DIRECTORY_DCIM + "/Screenshots"));
     }
 
     @Test
@@ -270,6 +284,28 @@ public class FileEnumWorkerTaskTest implements FileEnumWorkerTask.FilesEnumerate
 
         PickerBitmap tile = mFilesReturned.get(0);
         Assert.assertEquals(PickerBitmap.TileTypes.GALLERY, tile.type());
+        Assert.assertEquals(0, tile.getLastModifiedForTesting());
+        Assert.assertEquals(null, tile.getUri());
+    }
+
+    @Test
+    @SmallTest
+    public void testNoBrowseTile() throws Exception {
+        List<String> mimeTypes = Collections.singletonList("");
+        TestFileEnumWorkerTask task = new TestFileEnumWorkerTask(/* windowAndroid= */ null, this,
+                new MimeTypeFilter(mimeTypes, true), mimeTypes, /* contentResolver= */ null);
+        task.setShouldShowBrowseTile(false);
+        task.executeOnExecutor(mRoboExecutorService);
+        mOnWorkerCompleteCallback.waitForFirst();
+
+        // If this assert hits, then onCancelled has been called in FileEnumWorkerTask, most likely
+        // due to an exception thrown inside doInBackground. To surface the exception message, call
+        // task.doInBackground() directly, instead of task.executeOnExecutor(...).
+        Assert.assertTrue(mFilesReturned != null);
+        Assert.assertEquals(1, mFilesReturned.size());
+
+        PickerBitmap tile = mFilesReturned.get(0);
+        Assert.assertEquals(PickerBitmap.TileTypes.CAMERA, tile.type());
         Assert.assertEquals(0, tile.getLastModifiedForTesting());
         Assert.assertEquals(null, tile.getUri());
     }

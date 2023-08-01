@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,17 +6,21 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/files/file_path.h"
+#include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/path_service.h"
 #include "base/sequence_checker.h"
 #include "base/task/sequenced_task_runner.h"
 #include "chrome/browser/ash/login/startup_utils.h"
 #include "chrome/browser/ash/policy/core/device_policy_decoder.h"
 #include "chrome/browser/ash/policy/dev_mode/dev_mode_policy_util.h"
 #include "chrome/browser/ash/policy/value_validation/onc_device_policy_value_validator.h"
-#include "chromeos/tpm/install_attributes.h"
+#include "chromeos/ash/components/install_attributes/install_attributes.h"
+#include "chromeos/dbus/constants/dbus_paths.h"
 #include "components/ownership/owner_key_util.h"
 #include "components/policy/core/common/cloud/cloud_external_data_manager.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
@@ -31,11 +35,12 @@ namespace policy {
 namespace {
 
 const char kDMTokenCheckHistogram[] = "Enterprise.EnrolledPolicyHasDMToken";
+const char kPolicyCheckHistogram[] = "Enterprise.EnrolledDevicePolicyPresent";
 
 void RecordDeviceIdValidityMetric(
     const std::string& histogram_name,
     const em::PolicyData& policy_data,
-    const chromeos::InstallAttributes& install_attributes) {
+    const ash::InstallAttributes& install_attributes) {
   PolicyDeviceIdValidity device_id_validity = PolicyDeviceIdValidity::kMaxValue;
   if (install_attributes.GetDeviceId().empty())
     device_id_validity = PolicyDeviceIdValidity::kActualIdUnknown;
@@ -52,7 +57,7 @@ void RecordDeviceIdValidityMetric(
 
 DeviceCloudPolicyStoreAsh::DeviceCloudPolicyStoreAsh(
     ash::DeviceSettingsService* device_settings_service,
-    chromeos::InstallAttributes* install_attributes,
+    ash::InstallAttributes* install_attributes,
     scoped_refptr<base::SequencedTaskRunner> background_task_runner)
     : device_settings_service_(device_settings_service),
       install_attributes_(install_attributes),
@@ -79,13 +84,13 @@ void DeviceCloudPolicyStoreAsh::Store(const em::PolicyFetchResponse& policy) {
       device_settings_service_->GetPublicKey());
   if (!install_attributes_->IsCloudManaged() ||
       !device_settings_service_->policy_data() || !public_key.get() ||
-      !public_key->is_loaded()) {
+      public_key->is_empty()) {
     LOG(ERROR) << "Policy store failed, is_cloud_managed: "
                << install_attributes_->IsCloudManaged() << ", policy_data: "
                << (device_settings_service_->policy_data() != nullptr)
                << ", public_key: " << (public_key.get() != nullptr)
                << ", public_key_is_loaded: "
-               << (public_key.get() ? public_key->is_loaded() : false);
+               << (public_key.get() ? !public_key->is_empty() : false);
     status_ = STATUS_BAD_STATE;
     NotifyStoreError();
     return;
@@ -286,18 +291,37 @@ void DeviceCloudPolicyStoreAsh::CheckDMToken() {
 
   const em::PolicyData* policy_data = device_settings_service_->policy_data();
   if (policy_data && policy_data->has_request_token()) {
-    UMA_HISTOGRAM_BOOLEAN(kDMTokenCheckHistogram, true);
-  } else {
-    UMA_HISTOGRAM_BOOLEAN(kDMTokenCheckHistogram, false);
-    LOG(ERROR) << "Device policy read on enrolled device yields "
-               << "no DM token! Status: " << service_status << ".";
-
-    // At the time LoginDisplayHostWebUI decides whether enrollment flow is to
-    // be started, policy hasn't been read yet.  To work around this, once the
-    // need for recovery is detected upon policy load, a flag is stored in prefs
-    // which is accessed by LoginDisplayHostWebUI early during (next) boot.
-    ash::StartupUtils::MarkEnrollmentRecoveryRequired();
+    base::UmaHistogramBoolean(kDMTokenCheckHistogram, true);
+    base::UmaHistogramBoolean(kPolicyCheckHistogram, true);
+    return;
   }
+
+  base::UmaHistogramBoolean(kDMTokenCheckHistogram, false);
+  base::UmaHistogramBoolean(kPolicyCheckHistogram, policy_data);
+
+  std::stringstream debug_info;
+  debug_info << "has_policy: " << (policy_data != nullptr);
+  if (policy_data) {
+    debug_info << ", has_managed_by: " << policy_data->has_managed_by();
+    if (policy_data->has_policy_type()) {
+      debug_info << ", policy_type: " << policy_data->policy_type();
+    }
+  }
+  base::FilePath key_path;
+  bool path_found =
+      base::PathService::Get(chromeos::dbus_paths::FILE_OWNER_KEY, &key_path);
+  debug_info << ", has_key: " << (path_found && base::PathExists(key_path));
+  debug_info << ", attrs mode: " << install_attributes_->GetMode()
+             << ", is_locked: " << install_attributes_->IsDeviceLocked();
+  LOG(ERROR) << "Device policy read on enrolled device yields "
+             << "no DM token! Status: " << service_status
+             << ", debug_info: " << debug_info.str() << ".";
+
+  // At the time LoginDisplayHostWebUI decides whether enrollment flow is to
+  // be started, policy hasn't been read yet.  To work around this, once the
+  // need for recovery is detected upon policy load, a flag is stored in prefs
+  // which is accessed by LoginDisplayHostWebUI early during (next) boot.
+  ash::StartupUtils::MarkEnrollmentRecoveryRequired();
 }
 
 void DeviceCloudPolicyStoreAsh::UpdateFirstPoliciesLoaded() {

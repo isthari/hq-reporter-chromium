@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,8 @@
 
 #include <fuzzer/FuzzedDataProvider.h>
 
+#include "base/memory/raw_ptr.h"
+#include "sandbox/win/src/broker_services.h"
 #include "sandbox/win/src/ipc_tags.h"
 #include "sandbox/win/src/policy_engine_params.h"
 #include "sandbox/win/src/sandbox_policy.h"
@@ -18,32 +20,44 @@ constexpr size_t maxParams = 2;
 
 // This fills policies with rules based on the current
 // renderer sandbox in Chrome.
-scoped_refptr<sandbox::PolicyBase> InitPolicy() {
-  scoped_refptr<sandbox::PolicyBase> policy(new sandbox::PolicyBase);
-  policy->Release();
+std::unique_ptr<sandbox::PolicyBase> InitPolicy() {
+  auto policy = std::make_unique<sandbox::PolicyBase>("");
+  auto* config = policy->GetConfig();
 
-  policy->AddRule(sandbox::TargetPolicy::SUBSYS_WIN32K_LOCKDOWN,
-                  sandbox::TargetPolicy::FAKE_USER_GDI_INIT, nullptr);
+  auto result = config->AddRule(sandbox::SubSystem::kWin32kLockdown,
+                                sandbox::Semantics::kFakeGdiInit, nullptr);
+  if (result != sandbox::SBOX_ALL_OK)
+    return nullptr;
 
-  policy->AddRule(sandbox::TargetPolicy::SUBSYS_FILES,
-                  sandbox::TargetPolicy::FILES_ALLOW_ANY,
-                  L"\\??\\pipe\\chrome.*");
+  result = config->AddRule(sandbox::SubSystem::kFiles,
+                           sandbox::Semantics::kFilesAllowAny,
+                           L"\\??\\pipe\\chrome.*");
+  if (result != sandbox::SBOX_ALL_OK)
+    return nullptr;
 
-  policy->AddRule(sandbox::TargetPolicy::SUBSYS_NAMED_PIPES,
-                  sandbox::TargetPolicy::NAMEDPIPES_ALLOW_ANY,
-                  L"\\\\.\\pipe\\chrome.nacl.*");
+  result = config->AddRule(sandbox::SubSystem::kNamedPipes,
+                           sandbox::Semantics::kNamedPipesAllowAny,
+                           L"\\\\.\\pipe\\chrome.nacl.*");
+  if (result != sandbox::SBOX_ALL_OK)
+    return nullptr;
 
-  policy->AddRule(sandbox::TargetPolicy::SUBSYS_NAMED_PIPES,
-                  sandbox::TargetPolicy::NAMEDPIPES_ALLOW_ANY,
-                  L"\\\\.\\pipe\\chrome.sync.*");
+  result = config->AddRule(sandbox::SubSystem::kNamedPipes,
+                           sandbox::Semantics::kNamedPipesAllowAny,
+                           L"\\\\.\\pipe\\chrome.sync.*");
+  if (result != sandbox::SBOX_ALL_OK)
+    return nullptr;
 
+  sandbox::BrokerServicesBase::FreezeTargetConfigForTesting(
+      policy->GetConfig());
   return policy;
 }
 
 struct FakeParameterSet {
   sandbox::ArgType real_type_;
-  void* address_;
+  raw_ptr<void> address_;
 };
+
+static_assert(sizeof(FakeParameterSet) == sizeof(sandbox::ParameterSet));
 
 struct FakeCountedParameterSetBase {
   size_t count;
@@ -53,10 +67,18 @@ struct FakeCountedParameterSetBase {
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   FakeCountedParameterSetBase params;
 
-  static scoped_refptr<sandbox::PolicyBase> policy = InitPolicy();
+  static std::unique_ptr<sandbox::PolicyBase> policy = InitPolicy();
 
-  if (size < 20)
+  if (size < 20) {
     return 0;
+  }
+  // We will take a sizeof(pointer) and a wchar_t string so need an even number.
+  if (size % sizeof(wchar_t)) {
+    return 0;
+  }
+
+  // As parameters are created by Chromium code the format of the variables must
+  // be correct, and any wstrings will be validly null-terminated.
 
   FuzzedDataProvider data_provider(data, size);
   params.count = maxParams;
@@ -64,15 +86,31 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   // remaining bytes.
   params.params[1].real_type_ = static_cast<sandbox::ArgType>(
       data_provider.ConsumeIntegralInRange<uint8_t>(
-          0, sandbox::ArgType::LAST_TYPE));
-  auto pointed_at_value = data_provider.ConsumeBytes<uint8_t>(sizeof(void*));
-  params.params[1].address_ = static_cast<void*>(pointed_at_value.data());
+          sandbox::ArgType::WCHAR_TYPE, sandbox::ArgType::LAST_TYPE));
+  auto pointed_at_bytes = data_provider.ConsumeBytes<uint8_t>(sizeof(void*));
+  // These variables must  remain in scope past the EvalPolicy call later.
+  std::wstring param_1_wstring;
+  const unsigned char* param_data = nullptr;
+  if (params.params[1].real_type_ == sandbox::ArgType::WCHAR_TYPE) {
+    param_1_wstring =
+        std::wstring(reinterpret_cast<wchar_t*>(pointed_at_bytes.data()),
+                     pointed_at_bytes.size() / sizeof(wchar_t));
 
-  // param[0] is usually the filename.
+    param_data =
+        reinterpret_cast<const unsigned char*>(param_1_wstring.c_str());
+  } else {
+    param_data = pointed_at_bytes.data();
+  }
+  params.params[1].address_ = static_cast<void*>(&param_data);
+
+  // param[0] is usually the filename. It must be a valid terminated wstring.
   params.params[0].real_type_ = sandbox::ArgType::WCHAR_TYPE;
-  auto pointed_at_string =
+  auto string_bytes =
       data_provider.ConsumeBytes<uint8_t>(data_provider.remaining_bytes());
-  params.params[0].address_ = static_cast<void*>(pointed_at_string.data());
+  std::wstring valid_wstr(reinterpret_cast<wchar_t*>(string_bytes.data()),
+                          string_bytes.size() / sizeof(wchar_t));
+  const wchar_t* wcharstar_variable = valid_wstr.c_str();
+  params.params[0].address_ = static_cast<void*>(&wcharstar_variable);
 
   // Overlay the real type.
   sandbox::CountedParameterSetBase* real_params =
@@ -81,8 +119,9 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   // We send the fuzzer generated data to every available policy rule.
   // Only some of the services will be registered, but it will
   // quickly skip those that have nothing registered.
-  for (size_t i = 0; i < sandbox::kMaxIpcTag; i++)
+  for (size_t i = 0; i < sandbox::kMaxIpcTag; i++) {
     policy->EvalPolicy(static_cast<sandbox::IpcTag>(i), real_params);
+  }
 
   return 0;
 }

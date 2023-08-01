@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,8 @@
 #include <string>
 
 #include "base/atomicops.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "base/location.h"
 #include "base/memory/memory_pressure_listener.h"
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
@@ -50,6 +51,7 @@ namespace content {
 class BrowserChildProcessHostImpl;
 
 #if BUILDFLAG(IS_MAC)
+class BrowserChildProcessBackgroundedBridge;
 class CATransactionGPUCoordinator;
 #endif
 
@@ -79,6 +81,7 @@ class GpuProcessHost : public BrowserChildProcessHostDelegate,
   // called with a null host (e.g. when |force_create| is false, and no
   // GpuProcessHost instance exists).
   CONTENT_EXPORT static void CallOnIO(
+      const base::Location& location,
       GpuProcessKind kind,
       bool force_create,
       base::OnceCallback<void(GpuProcessHost*)> callback);
@@ -126,6 +129,13 @@ class GpuProcessHost : public BrowserChildProcessHostDelegate,
 
   viz::GpuHostImpl* gpu_host() { return gpu_host_.get(); }
 
+#if BUILDFLAG(IS_MAC)
+  BrowserChildProcessBackgroundedBridge*
+  browser_child_process_backgrounded_bridge_for_testing() {
+    return browser_child_process_backgrounded_bridge_.get();
+  }
+#endif
+
  private:
   enum class GpuTerminationOrigin {
     kUnknownOrigin = 0,
@@ -167,12 +177,16 @@ class GpuProcessHost : public BrowserChildProcessHostDelegate,
   void DidUpdateGPUInfo(const gpu::GPUInfo& gpu_info) override;
 #if BUILDFLAG(IS_WIN)
   void DidUpdateOverlayInfo(const gpu::OverlayInfo& overlay_info) override;
-  void DidUpdateHDRStatus(bool hdr_enabled) override;
+  void DidUpdateDXGIInfo(gfx::mojom::DXGIInfoPtr dxgi_info) override;
 #endif
-  void BlockDomainFrom3DAPIs(const GURL& url, gpu::DomainGuilt guilt) override;
+  std::string GetIsolationKey(
+      int32_t process_id,
+      const blink::WebGPUExecutionContextToken& token) override;
+  void BlockDomainsFrom3DAPIs(const std::set<GURL>& urls,
+                              gpu::DomainGuilt guilt) override;
   void DisableGpuCompositing() override;
   bool GpuAccessAllowed() const override;
-  gpu::ShaderCacheFactory* GetShaderCacheFactory() override;
+  gpu::GpuDiskCacheFactory* GetGpuDiskCacheFactory() override;
   void RecordLogMessage(int32_t severity,
                         const std::string& header,
                         const std::string& message) override;
@@ -183,7 +197,7 @@ class GpuProcessHost : public BrowserChildProcessHostDelegate,
   void BindInterface(const std::string& interface_name,
                      mojo::ScopedMessagePipeHandle interface_pipe) override;
   void BindHostReceiver(mojo::GenericPendingReceiver generic_receiver) override;
-#if defined(USE_OZONE)
+#if BUILDFLAG(IS_OZONE)
   void TerminateGpuProcess(const std::string& message) override;
 #endif
 
@@ -195,6 +209,7 @@ class GpuProcessHost : public BrowserChildProcessHostDelegate,
 
   // Update GPU crash counters.  Disable GPU if crash limit is reached.
   void RecordProcessCrash();
+  int GetFallbackCrashLimit() const;
 
   void RunServiceImpl(mojo::GenericPendingReceiver receiver);
 
@@ -248,6 +263,11 @@ class GpuProcessHost : public BrowserChildProcessHostDelegate,
 
 #if BUILDFLAG(IS_MAC)
   scoped_refptr<CATransactionGPUCoordinator> ca_transaction_gpu_coordinator_;
+
+  // Ensures the backgrounded state of the GPU process mirrors the backgrounded
+  // state of the browser process.
+  std::unique_ptr<BrowserChildProcessBackgroundedBridge>
+      browser_child_process_backgrounded_bridge_;
 #endif
 
   // Track the URLs of the pages which have live offscreen contexts,

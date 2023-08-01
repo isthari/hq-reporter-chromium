@@ -1,15 +1,19 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "media/base/audio_decoder.h"
+#include "media/base/audio_encoder.h"
+#include "media/base/media_log.h"
 #include "media/base/video_decoder.h"
 #include "media/mojo/services/gpu_mojo_media_client.h"
 
 namespace media {
 
 std::unique_ptr<VideoDecoder> CreatePlatformVideoDecoder(
-    const VideoDecoderTraits& traits) {
+    VideoDecoderTraits& traits) {
   return nullptr;
 }
 
@@ -23,7 +27,13 @@ GetPlatformSupportedVideoDecoderConfigs(
 }
 
 std::unique_ptr<AudioDecoder> CreatePlatformAudioDecoder(
-    scoped_refptr<base::SingleThreadTaskRunner> task_runner) {
+    scoped_refptr<base::SequencedTaskRunner> task_runner,
+    std::unique_ptr<MediaLog> media_log) {
+  return nullptr;
+}
+
+std::unique_ptr<AudioEncoder> CreatePlatformAudioEncoder(
+    scoped_refptr<base::SequencedTaskRunner> task_runner) {
   return nullptr;
 }
 

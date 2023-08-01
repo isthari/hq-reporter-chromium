@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,9 @@
 #include "ash/session/session_controller_impl.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
-#include "base/callback_helpers.h"
-#include "chromeos/dbus/services/service_provider_test_helper.h"
+#include "base/functional/callback_helpers.h"
+#include "base/memory/raw_ptr.h"
+#include "chromeos/ash/components/dbus/services/service_provider_test_helper.h"
 #include "components/prefs/pref_service.h"
 #include "dbus/message.h"
 #include "dbus/object_path.h"
@@ -135,7 +136,7 @@ class PrivacyScreenControllerTest : public NoSessionAshTestBase {
 
  private:
   std::unique_ptr<display::test::ActionLogger> logger_;
-  display::test::TestNativeDisplayDelegate*
+  raw_ptr<display::test::TestNativeDisplayDelegate, ExperimentalAsh>
       native_display_delegate_;  // Not owned.
   std::unique_ptr<display::DisplayChangeObserver> display_change_observer_;
   std::unique_ptr<display::DisplayConfigurator::TestApi> test_api_;
@@ -207,7 +208,7 @@ class PrivacyScreenServiceProviderTest : public PrivacyScreenControllerTest {
   privacy_screen::PrivacyScreenSetting_PrivacyScreenState last_signal_state_ =
       privacy_screen::PrivacyScreenSetting_PrivacyScreenState_NOT_SUPPORTED;
   std::unique_ptr<PrivacyScreenServiceProvider> service_provider_;
-  chromeos::ServiceProviderTestHelper test_helper_;
+  ServiceProviderTestHelper test_helper_;
 };
 
 // Test that user prefs do not get mixed up between user changes on a device

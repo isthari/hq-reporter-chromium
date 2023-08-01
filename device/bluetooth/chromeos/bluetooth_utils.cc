@@ -1,11 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "device/bluetooth/chromeos/bluetooth_utils.h"
 
-#include "ash/constants/ash_features.h"
 #include "base/containers/contains.h"
+#include "base/containers/fixed_flat_set.h"
 #include "base/feature_list.h"
 #include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_functions.h"
@@ -14,18 +14,18 @@
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/time/time.h"
+#include "build/chromeos_buildflags.h"
 #include "chromeos/constants/chromeos_features.h"
-#include "device/bluetooth/floss/floss_features.h"
+#include "device/base/features.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
-#include "device/base/features.h"
-
 #if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/constants/ash_features.h"
 #include "ash/constants/ash_switches.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
-#include "chromeos/lacros/lacros_service.h"
+#include "chromeos/startup/browser_params_proxy.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
 
 namespace device {
@@ -78,9 +78,8 @@ BluetoothAdapter::DeviceList FilterUnknownDevices(
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
-  if (chromeos::LacrosService::Get()
-          ->init_params()
-          ->is_unfiltered_bluetooth_device_enabled) {
+  if (chromeos::BrowserParamsProxy::Get()
+          ->IsUnfilteredBluetoothDeviceEnabled()) {
     return devices;
   }
 #endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
@@ -141,12 +140,63 @@ std::string GetTransportName(BluetoothTransport transport) {
       return "BLE";
     case BluetoothTransport::BLUETOOTH_TRANSPORT_DUAL:
       return "Dual";
+    case BLUETOOTH_TRANSPORT_INVALID:
+      return "Invalid";
     default:
-      // A transport type of INVALID or other is unexpected, and no success
+      // A transport type of other is unexpected, and no success
       // metric for it exists.
       return "";
   }
 }
+
+void EmitFilteredFailureReason(ConnectionFailureReason failure_reason,
+                               const std::string& transport_name) {
+  switch (failure_reason) {
+    case ConnectionFailureReason::kAuthCanceled:
+      [[fallthrough]];
+    case ConnectionFailureReason::kAuthRejected:
+      return;
+    case ConnectionFailureReason::kUnknownError:
+      [[fallthrough]];
+    case ConnectionFailureReason::kAuthFailed:
+      [[fallthrough]];
+    case ConnectionFailureReason::kAuthTimeout:
+      [[fallthrough]];
+    case ConnectionFailureReason::kUnknownConnectionError:
+      [[fallthrough]];
+    case ConnectionFailureReason::kUnsupportedDevice:
+      [[fallthrough]];
+    case ConnectionFailureReason::kNotConnectable:
+      [[fallthrough]];
+    case ConnectionFailureReason::kSystemError:
+      [[fallthrough]];
+    case ConnectionFailureReason::kFailed:
+      [[fallthrough]];
+    case ConnectionFailureReason::kInprogress:
+      const std::string result_histogram_name_prefix =
+          "Bluetooth.ChromeOS.Pairing.Result";
+      base::UmaHistogramEnumeration(
+          result_histogram_name_prefix + ".FilteredFailureReason",
+          failure_reason);
+      base::UmaHistogramEnumeration(result_histogram_name_prefix +
+                                        ".FilteredFailureReason." +
+                                        transport_name,
+                                    failure_reason);
+      return;
+  }
+  NOTREACHED();
+}
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+bool IsPolyDevice(const device::BluetoothDevice* device) {
+  // OUI portions of Bluetooth addresses for devices manufactured by Poly. See
+  // https://standards-oui.ieee.org/.
+  constexpr auto kPolyOuis = base::MakeFixedFlatSet<base::StringPiece>(
+      {"64:16:7F", "48:25:67", "00:04:F2"});
+
+  return base::Contains(kPolyOuis, device->GetOuiPortionOfBluetoothAddress());
+}
+#endif
 
 }  // namespace
 
@@ -161,24 +211,25 @@ device::BluetoothAdapter::DeviceList FilterBluetoothDeviceList(
 }
 
 bool IsUnsupportedDevice(const device::BluetoothDevice* device) {
-  // With Floss, device list filtering is still unstable. We disable filtering
-  // first so that Floss testing of other features can be unblocked.
-  // TODO(b/202335393): Enable device filtering once it's stable with Floss.
-  if (base::FeatureList::IsEnabled(floss::features::kFlossEnabled))
-    return false;
-
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   if (ash::switches::IsUnfilteredBluetoothDevicesEnabled())
     return false;
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
-  if (chromeos::LacrosService::Get()
-          ->init_params()
-          ->is_unfiltered_bluetooth_device_enabled) {
+  if (chromeos::BrowserParamsProxy::Get()
+          ->IsUnfilteredBluetoothDeviceEnabled()) {
     return false;
   }
 #endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  // Never filter out Poly devices; this requires a special case since these
+  // devices often identify themselves as phones, which are disallowed below.
+  // See b/228118615.
+  if (IsPolyDevice(device))
+    return false;
+#endif
 
   // Always filter out laptops, etc. There is no intended use case or
   // Bluetooth profile in this context.
@@ -192,9 +243,17 @@ bool IsUnsupportedDevice(const device::BluetoothDevice* device) {
     return true;
   }
 
-  // Allow paired devices which are not filtered above to appear in the UI.
-  if (device->IsPaired())
+#if BUILDFLAG(IS_CHROMEOS)
+  // Allow bonded devices which are not filtered above to appear in the UI.
+  if (device->IsBonded()) {
     return false;
+  }
+#else
+  // Allow paired devices which are not filtered above to appear in the UI.
+  if (device->IsPaired()) {
+    return false;
+  }
+#endif
 
   switch (device->GetType()) {
     // Device with invalid bluetooth transport is filtered out.
@@ -265,6 +324,7 @@ void RecordPairingResult(absl::optional<ConnectionFailureReason> failure_reason,
     base::UmaHistogramEnumeration(
         result_histogram_name_prefix + ".FailureReason." + transport_name,
         *failure_reason);
+    EmitFilteredFailureReason(*failure_reason, transport_name);
   }
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,11 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
-import static org.mockito.Mockito.any;
-import static org.mockito.Mockito.anyInt;
-import static org.mockito.Mockito.anyString;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -41,6 +41,7 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
+import org.robolectric.annotation.LooperMode;
 import org.robolectric.shadows.ShadowLooper;
 
 import org.chromium.base.test.BaseRobolectricTestRunner;
@@ -59,7 +60,10 @@ import java.util.List;
  */
 @RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE,
-        shadows = {ShadowMediaRouter.class, ShadowCastContext.class, ShadowLooper.class})
+        shadows = {ShadowMediaRouter.class, ShadowCastContext.class, ShadowLooper.class},
+        // Required to mock final.
+        instrumentedPackages = {"androidx.mediarouter.media.MediaRouteSelector"})
+@LooperMode(LooperMode.Mode.LEGACY)
 public class CafBaseMediaRouteProviderTest {
     private Context mContext;
     private TestMRP mProvider;
@@ -279,7 +283,7 @@ public class CafBaseMediaRouteProviderTest {
         inOrder.verify(mSessionController).requestSessionLaunch();
         CreateRouteRequestInfo pendingCreateRouteRequestInfo =
                 mProvider.getPendingCreateRouteRequestInfo();
-        assertEquals(pendingCreateRouteRequestInfo.source, mockSource);
+        assertEquals(pendingCreateRouteRequestInfo.getMediaSource(), mockSource);
         assertEquals(pendingCreateRouteRequestInfo.sink.getId(), "cast-route");
         assertEquals(pendingCreateRouteRequestInfo.presentationId, "presentation-id");
         assertEquals(pendingCreateRouteRequestInfo.origin, "origin");
@@ -296,7 +300,7 @@ public class CafBaseMediaRouteProviderTest {
         inOrder.verify(mSessionManager).addSessionManagerListener(mProvider, CastSession.class);
         inOrder.verify(mSessionController).requestSessionLaunch();
         pendingCreateRouteRequestInfo = mProvider.getPendingCreateRouteRequestInfo();
-        assertEquals(pendingCreateRouteRequestInfo.source, mockSource);
+        assertEquals(pendingCreateRouteRequestInfo.getMediaSource(), mockSource);
         assertEquals(pendingCreateRouteRequestInfo.sink.getId(), "other-cast-route");
         assertEquals(pendingCreateRouteRequestInfo.presentationId, "presentation-id-2");
         assertEquals(pendingCreateRouteRequestInfo.origin, "origin-2");
@@ -402,7 +406,7 @@ public class CafBaseMediaRouteProviderTest {
 
         MediaRoute route = (MediaRoute) (mProvider.mRoutes.values().toArray()[0]);
         assertEquals(route.sinkId, "cast-route");
-        assertEquals(route.sourceId, "source-id");
+        assertEquals(route.getSourceId(), "source-id");
         assertEquals(route.presentationId, "presentation-id");
         assertNull(mProvider.getPendingCreateRouteRequestInfo());
     }
@@ -448,7 +452,7 @@ public class CafBaseMediaRouteProviderTest {
 
         MediaRoute route = (MediaRoute) (mProvider.mRoutes.values().toArray()[0]);
         assertEquals(route.sinkId, "cast-route");
-        assertEquals(route.sourceId, "source-id");
+        assertEquals(route.getSourceId(), "source-id");
         assertEquals(route.presentationId, "presentation-id");
         assertNull(mProvider.getPendingCreateRouteRequestInfo());
 
@@ -461,7 +465,7 @@ public class CafBaseMediaRouteProviderTest {
 
         route = (MediaRoute) (mProvider.mRoutes.values().toArray()[0]);
         assertEquals(route.sinkId, "cast-route");
-        assertEquals(route.sourceId, "source-id");
+        assertEquals(route.getSourceId(), "source-id");
         assertEquals(route.presentationId, "presentation-id");
         assertNull(mProvider.getPendingCreateRouteRequestInfo());
     }

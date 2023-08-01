@@ -1,10 +1,11 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "third_party/blink/public/web/web_navigation_params.h"
 
-#include "third_party/blink/renderer/core/exported/web_document_loader_impl.h"
+#include "third_party/blink/public/common/features.h"
+#include "third_party/blink/public/platform/modules/service_worker/web_service_worker_network_provider.h"
 #include "third_party/blink/renderer/platform/loader/static_data_navigation_body_loader.h"
 #include "third_party/blink/renderer/platform/network/encoded_form_data.h"
 #include "third_party/blink/renderer/platform/network/http_names.h"
@@ -19,8 +20,10 @@ WebNavigationParams::WebNavigationParams()
 WebNavigationParams::~WebNavigationParams() = default;
 
 WebNavigationParams::WebNavigationParams(
+    const blink::DocumentToken& document_token,
     const base::UnguessableToken& devtools_navigation_token)
     : http_method(http_names::kGET),
+      document_token(document_token),
       devtools_navigation_token(devtools_navigation_token) {}
 
 // static
@@ -35,6 +38,9 @@ std::unique_ptr<WebNavigationParams> WebNavigationParams::CreateFromInfo(
   result->http_content_type =
       info.url_request.HttpHeaderField(http_names::kContentType);
   result->requestor_origin = info.url_request.RequestorOrigin();
+  if (features::IsNewBaseUrlInheritanceBehaviorEnabled()) {
+    result->fallback_base_url = info.requestor_base_url;
+  }
   result->frame_load_type = info.frame_load_type;
   result->is_client_redirect = info.is_client_redirect;
   result->navigation_timings.input_start = info.input_start;
@@ -42,7 +48,6 @@ std::unique_ptr<WebNavigationParams> WebNavigationParams::CreateFromInfo(
       info.initiator_origin_trial_features;
   result->frame_policy = info.frame_policy;
   result->had_transient_user_activation = info.url_request.HasUserGesture();
-  result->sandbox_flags = info.frame_policy.sandbox_flags;
   return result;
 }
 
@@ -52,7 +57,6 @@ WebNavigationParams::CreateWithHTMLStringForTesting(base::span<const char> html,
                                                     const WebURL& base_url) {
   auto result = std::make_unique<WebNavigationParams>();
   result->url = base_url;
-  result->sandbox_flags = network::mojom::WebSandboxFlags::kNone;
   FillStaticResponse(result.get(), "text/html", "UTF-8", html);
   return result;
 }
@@ -65,7 +69,6 @@ WebNavigationParams::CreateWithHTMLBufferForTesting(
     const KURL& base_url) {
   auto result = std::make_unique<WebNavigationParams>();
   result->url = base_url;
-  result->sandbox_flags = network::mojom::WebSandboxFlags::kNone;
   FillStaticResponse(result.get(), "text/html", "UTF-8",
                      base::make_span(buffer->Data(), buffer->size()));
   return result;

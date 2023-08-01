@@ -1,4 +1,4 @@
-// Copyright (c) 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -43,12 +43,13 @@ void AddLocalizedString(content::WebUIDataSource* source,
   source->AddString(message, str);
 }
 
-content::WebUIDataSource* CreateBookmarksUIHTMLSource(Profile* profile) {
-  content::WebUIDataSource* source =
-      content::WebUIDataSource::Create(chrome::kChromeUIBookmarksHost);
+content::WebUIDataSource* CreateAndAddBookmarksUIHTMLSource(Profile* profile) {
+  content::WebUIDataSource* source = content::WebUIDataSource::CreateAndAdd(
+      profile, chrome::kChromeUIBookmarksHost);
   webui::SetupWebUIDataSource(
       source, base::make_span(kBookmarksResources, kBookmarksResourcesSize),
       IDR_BOOKMARKS_BOOKMARKS_HTML);
+  webui::SetupChromeRefresh2023(source);
 
   // Build an Accelerator to describe undo shortcut
   // NOTE: the undo shortcut is also defined in bookmarks/command_manager.js
@@ -128,11 +129,6 @@ content::WebUIDataSource* CreateBookmarksUIHTMLSource(Profile* profile) {
   for (const auto& str : kStrings)
     AddLocalizedString(source, str.name, str.id);
 
-  source->AddString("enableBrandingUpdateAttribute",
-                    base::FeatureList::IsEnabled(features::kWebUIBrandingUpdate)
-                        ? "enable-branding-update"
-                        : "");
-
   return source;
 }
 
@@ -141,9 +137,8 @@ content::WebUIDataSource* CreateBookmarksUIHTMLSource(Profile* profile) {
 BookmarksUI::BookmarksUI(content::WebUI* web_ui) : WebUIController(web_ui) {
   // Set up the chrome://bookmarks/ source.
   Profile* profile = Profile::FromWebUI(web_ui);
-  auto* source = CreateBookmarksUIHTMLSource(profile);
+  auto* source = CreateAndAddBookmarksUIHTMLSource(profile);
   ManagedUIHandler::Initialize(web_ui, source);
-  content::WebUIDataSource::Add(profile, source);
 
   content::URLDataSource::Add(
       profile, std::make_unique<FaviconSource>(

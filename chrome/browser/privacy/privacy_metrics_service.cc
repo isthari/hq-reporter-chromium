@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/prefs/pref_service.h"
 #include "components/spellcheck/browser/pref_names.h"
-#include "components/sync/driver/sync_service.h"
+#include "components/sync/service/sync_service.h"
 
 PrivacyMetricsService::PrivacyMetricsService(
     PrefService* pref_service,
@@ -146,18 +146,17 @@ void PrivacyMetricsService::OnPrimaryAccountChanged(
 
 void PrivacyMetricsService::RecordStartupMetrics() {
   base::UmaHistogramBoolean(
-      "Privacy.DoNotTrackSetting",
+      "Privacy.DoNotTrackSetting2",
       pref_service_->GetBoolean(prefs::kEnableDoNotTrack));
 
-  base::UmaHistogramBoolean("Settings.PreloadStatus.OnStartup",
-                            prefetch::IsSomePreloadingEnabled(*pref_service_));
-
+  base::UmaHistogramEnumeration("Settings.PreloadStatus.OnStartup3",
+                                prefetch::GetPreloadPagesState(*pref_service_));
   base::UmaHistogramBoolean(
-      "Settings.AutocompleteSearches.OnStartup",
+      "Settings.AutocompleteSearches.OnStartup2",
       pref_service_->GetBoolean(::prefs::kSearchSuggestEnabled));
 
   base::UmaHistogramBoolean(
-      "Settings.AdvancedSpellcheck.OnStartup",
+      "Settings.AdvancedSpellcheck.OnStartup2",
       pref_service_->GetBoolean(
           ::spellcheck::prefs::kSpellCheckUseSpellingService));
 }

@@ -1,12 +1,14 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/feature_list.h"
-#include "base/ios/ios_util.h"
-#include "base/mac/foundation_util.h"
-#include "ios/chrome/browser/ui/safe_mode/safe_mode_app_interface.h"
-#include "ios/chrome/grit/ios_chromium_strings.h"
+#import "base/feature_list.h"
+#import "base/ios/ios_util.h"
+#import "base/mac/foundation_util.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
+#import "ios/chrome/browser/ui/safe_mode/safe_mode_app_interface.h"
+#import "ios/chrome/grit/ios_chromium_strings.h"
+#import "ios/chrome/grit/ios_strings.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey.h"
 #import "ios/chrome/test/earl_grey/chrome_earl_grey_app_interface.h"
 #import "ios/chrome/test/earl_grey/chrome_matchers.h"
@@ -15,6 +17,7 @@
 #import "ios/testing/earl_grey/app_launch_manager.h"
 #import "ios/testing/earl_grey/earl_grey_test.h"
 #import "ios/testing/scoped_block_swizzler.h"
+#import "ui/base/l10n/l10n_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -24,7 +27,7 @@ using chrome_test_util::ButtonWithAccessibilityLabel;
 
 namespace {
 
-// Verifies that |message| is displayed.
+// Verifies that `message` is displayed.
 void AssertMessageOnPage(NSString* message) {
   id<GREYMatcher> messageMatcher =
       grey_allOf(grey_text(message), grey_kindOfClass([UILabel class]), nil);
@@ -32,7 +35,7 @@ void AssertMessageOnPage(NSString* message) {
       assertWithMatcher:grey_notNil()];
 }
 
-// Verifies that |message| is not displayed.
+// Verifies that `message` is not displayed.
 void AssertMessageNotOnPage(NSString* message) {
   id<GREYMatcher> messageMatcher =
       grey_allOf(grey_text(message), grey_kindOfClass([UILabel class]),
@@ -128,7 +131,7 @@ void AssertTryAgainButtonOnPage() {
   // Verifies screen content that does not show crash report being uploaded.
   // When devices are jailbroken, the crash reports are not very useful.
   AssertMessageOnPage(NSLocalizedString(@"IDS_IOS_SAFE_MODE_AW_SNAP", @""));
-  // Constructs the list of bad mods based on |badModulesList| above.
+  // Constructs the list of bad mods based on `badModulesList` above.
   NSString* message =
       [NSLocalizedString(@"IDS_IOS_SAFE_MODE_NAMED_TWEAKS_FOUND", @"")
           stringByAppendingString:@"\n\n    iAmBad\n    MJackson"];
@@ -136,6 +139,36 @@ void AssertTryAgainButtonOnPage() {
   AssertTryAgainButtonOnPage();
   AssertMessageNotOnPage(
       NSLocalizedString(@"IDS_IOS_SAFE_MODE_SENDING_CRASH_REPORT", @""));
+}
+
+// Tests that a start NTP is shown after 2 crashes.
+- (void)testPostCrashNTP {
+  [SafeModeAppInterface setFailedStartupAttemptCount:0];
+  [ChromeEarlGrey closeAllTabsInCurrentMode];
+  [ChromeEarlGrey openNewTab];
+  [ChromeEarlGrey loadURL:GURL("chrome://version")];
+  [ChromeEarlGrey openNewIncognitoTab];
+  [ChromeEarlGrey loadURL:GURL("chrome://about")];
+  [ChromeEarlGrey openNewTab];
+  [ChromeEarlGrey loadURL:GURL("chrome://about")];
+  // The best way to ensure the session is synced to disk is by triggering a
+  // background (which forces an immediate session save) and a terminate (which
+  // waits for the session save disk write). Alternatively this test could just
+  // wait 2-4 seconds.
+  [[AppLaunchManager sharedManager] ensureAppLaunchedWithFeaturesEnabled:{}
+      disabled:{}
+      relaunchPolicy:ForceRelaunchByCleanShutdown];
+  [SafeModeAppInterface setFailedStartupAttemptCount:2];
+  [[AppLaunchManager sharedManager] ensureAppLaunchedWithFeaturesEnabled:{}
+      disabled:{}
+      relaunchPolicy:ForceRelaunchByKilling];
+  [ChromeEarlGrey waitForMainTabCount:3];
+  [ChromeEarlGrey waitForIncognitoTabCount:1];
+  [[EarlGrey
+      selectElementWithMatcher:grey_accessibilityLabel(l10n_util::GetNSString(
+                                   IDS_IOS_RETURN_TO_RECENT_TAB_TITLE))]
+      assertWithMatcher:grey_sufficientlyVisible()];
+  [SafeModeAppInterface setFailedStartupAttemptCount:0];
 }
 
 @end

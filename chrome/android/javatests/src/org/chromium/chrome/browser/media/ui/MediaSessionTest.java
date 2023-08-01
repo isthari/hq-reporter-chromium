@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@ package org.chromium.chrome.browser.media.ui;
 
 import android.content.Intent;
 import android.media.AudioManager;
-import android.support.test.InstrumentationRegistry;
 
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.MediumTest;
 import androidx.test.filters.SmallTest;
 
@@ -20,13 +20,13 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.CriteriaHelper;
-import org.chromium.base.test.util.FlakyTest;
-import org.chromium.chrome.R;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.ntp.NewTabPage;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.util.NewTabPageTestUtils;
 import org.chromium.chrome.test.util.browser.TabLoadObserver;
 import org.chromium.components.browser_ui.media.MediaNotificationController;
@@ -58,7 +58,7 @@ public class MediaSessionTest {
 
     @Test
     @SmallTest
-    @FlakyTest
+    @DisabledTest(message = "https://crbug.com/1315419")
     public void testPauseOnHeadsetUnplug() throws IllegalArgumentException, TimeoutException {
         mActivityTestRule.startMainActivityWithURL(mTestServer.getURL(TEST_PATH));
         Tab tab = mActivityTestRule.getActivity().getActivityTab();
@@ -107,7 +107,8 @@ public class MediaSessionTest {
 
     @Before
     public void setUp() {
-        mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
+        mTestServer = EmbeddedTestServer.createAndStartServer(
+                ApplicationProvider.getApplicationContext());
     }
 
     @After
@@ -122,10 +123,10 @@ public class MediaSessionTest {
     }
 
     private void simulateHeadsetUnplug() {
-        Intent i = new Intent(InstrumentationRegistry.getTargetContext(),
+        Intent i = new Intent(ApplicationProvider.getApplicationContext(),
                 ChromeMediaNotificationControllerServices.PlaybackListenerService.class);
         i.setAction(AudioManager.ACTION_AUDIO_BECOMING_NOISY);
 
-        InstrumentationRegistry.getContext().startService(i);
+        ApplicationProvider.getApplicationContext().startService(i);
     }
 }

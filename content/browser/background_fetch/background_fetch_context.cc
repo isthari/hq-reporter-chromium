@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,9 @@
 
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
+#include "base/observer_list.h"
 #include "content/browser/background_fetch/background_fetch_data_manager.h"
 #include "content/browser/background_fetch/background_fetch_job_controller.h"
 #include "content/browser/background_fetch/background_fetch_metrics.h"
@@ -22,7 +23,7 @@
 #include "content/common/background_fetch/background_fetch_types.h"
 #include "content/public/browser/background_fetch_delegate.h"
 #include "content/public/browser/browser_context.h"
-#include "content/public/browser/browser_task_traits.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_contents.h"
 #include "storage/browser/blob/blob_data_handle.h"
 #include "storage/browser/quota/quota_manager_proxy.h"
@@ -80,8 +81,6 @@ void BackgroundFetchContext::DidGetInitializationData(
 
   if (error != blink::mojom::BackgroundFetchError::NONE)
     return;
-
-  background_fetch::RecordRegistrationsOnStartup(initialization_data.size());
 
   for (auto& data : initialization_data) {
     for (auto& observer : data_manager_->observers()) {
@@ -145,6 +144,7 @@ void BackgroundFetchContext::StartFetch(
     blink::mojom::BackgroundFetchOptionsPtr options,
     const SkBitmap& icon,
     blink::mojom::BackgroundFetchUkmDataPtr ukm_data,
+    RenderProcessHost* rph,
     RenderFrameHostImpl* rfh,
     const net::IsolationInfo& isolation_info,
     blink::mojom::BackgroundFetchService::FetchCallback callback) {
@@ -159,7 +159,7 @@ void BackgroundFetchContext::StartFetch(
 
   auto rfh_id = rfh ? rfh->GetGlobalId() : GlobalRenderFrameHostId();
   delegate_proxy_.GetPermissionForOrigin(
-      registration_id.storage_key().origin(), rfh,
+      registration_id.storage_key().origin(), rph, rfh,
       base::BindOnce(&BackgroundFetchContext::DidGetPermission,
                      weak_factory_.GetWeakPtr(), registration_id,
                      std::move(requests), std::move(options), icon,

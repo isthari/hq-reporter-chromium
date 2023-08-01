@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -63,13 +63,16 @@ class WebTestContentBrowserClient : public ShellContentBrowserClient {
       RenderProcessHost* render_process_host) override;
   void OverrideWebkitPrefs(WebContents* web_contents,
                            blink::web_pref::WebPreferences* prefs) override;
+  std::vector<std::unique_ptr<content::NavigationThrottle>>
+  CreateThrottlesForNavigation(
+      content::NavigationHandle* navigation_handle) override;
   void AppendExtraCommandLineSwitches(base::CommandLine* command_line,
                                       int child_process_id) override;
   std::unique_ptr<BrowserMainParts> CreateBrowserMainParts(
-      MainFunctionParams parameters) override;
+      bool is_integration_test) override;
   std::vector<url::Origin> GetOriginsRequiringDedicatedProcess() override;
-  std::unique_ptr<OverlayWindow> CreateWindowForPictureInPicture(
-      PictureInPictureWindowController* controller) override;
+  std::unique_ptr<VideoOverlayWindow> CreateWindowForVideoPictureInPicture(
+      VideoPictureInPictureWindowController* controller) override;
   bool CanCreateWindow(content::RenderFrameHost* opener,
                        const GURL& opener_url,
                        const GURL& opener_top_level_frame_url,
@@ -100,7 +103,7 @@ class WebTestContentBrowserClient : public ShellContentBrowserClient {
       bool first_auth_attempt,
       LoginAuthRequiredCallback auth_required_callback) override;
 #if BUILDFLAG(IS_WIN)
-  bool PreSpawnChild(sandbox::TargetPolicy* policy,
+  bool PreSpawnChild(sandbox::TargetConfig* config,
                      sandbox::mojom::Sandbox sandbox_type,
                      ChildSpawnFlags flags) override;
 #endif

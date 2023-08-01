@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@ import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ContextUtils;
 import org.chromium.base.StrictModeContext;
+import org.chromium.base.annotations.CalledByNative;
 import org.chromium.build.BuildConfig;
 
 import java.util.Collections;
@@ -32,6 +33,7 @@ public class SharedPreferencesManager {
     /**
      * @return The SharedPreferencesManager singleton.
      */
+    @CalledByNative
     public static SharedPreferencesManager getInstance() {
         return LazyHolder.INSTANCE;
     }
@@ -242,6 +244,7 @@ public class SharedPreferencesManager {
      * @param defaultValue The default value to return if the preference is not set.
      * @return The value of the preference.
      */
+    @CalledByNative
     public int readInt(String key, int defaultValue) {
         mKeyChecker.checkIsKeyInUse(key);
         try (StrictModeContext ignored = StrictModeContext.allowDiskReads()) {
@@ -529,6 +532,7 @@ public class SharedPreferencesManager {
      * @param defaultValue The default value to return if there's no value stored.
      * @return The value of the preference if stored; defaultValue otherwise.
      */
+    @CalledByNative
     public boolean readBoolean(String key, boolean defaultValue) {
         mKeyChecker.checkIsKeyInUse(key);
         try (StrictModeContext ignored = StrictModeContext.allowDiskReads()) {
@@ -552,6 +556,7 @@ public class SharedPreferencesManager {
      * @param key The name of the preference to modify.
      * @param value The new value for the preference.
      */
+    @CalledByNative
     public void writeString(String key, String value) {
         mKeyChecker.checkIsKeyInUse(key);
         SharedPreferences.Editor ed = ContextUtils.getAppSharedPreferences().edit();
@@ -596,6 +601,7 @@ public class SharedPreferencesManager {
      * @return The value of the preference if stored; defaultValue otherwise.
      */
     @Nullable
+    @CalledByNative
     public String readString(String key, @Nullable String defaultValue) {
         mKeyChecker.checkIsKeyInUse(key);
         try (StrictModeContext ignored = StrictModeContext.allowDiskReads()) {
@@ -618,6 +624,7 @@ public class SharedPreferencesManager {
      *
      * @param key The key of the preference to remove.
      */
+    @CalledByNative
     public void removeKey(String key) {
         mKeyChecker.checkIsKeyInUse(key);
         SharedPreferences.Editor ed = ContextUtils.getAppSharedPreferences().edit();
@@ -656,6 +663,7 @@ public class SharedPreferencesManager {
      * @param key The key of the preference to check.
      * @return Whether any value was written for that key.
      */
+    @CalledByNative
     public boolean contains(String key) {
         mKeyChecker.checkIsKeyInUse(key);
         return ContextUtils.getAppSharedPreferences().contains(key);

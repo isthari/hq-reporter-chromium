@@ -2,7 +2,17 @@
 :host {
   --focus-border-width: 1px;
 }
+
+:host-context(body.jelly-enabled) .navigation-item {
+  font: var(--cros-button-2-font);
+}
+
 .navigation-item {
+  --active-shadow-rgb: transparent; /* Disable Active Shadow on cr-button */
+  --focus-shadow-color: transparent; /* Disable Focus Shadow on cr-button */
+  --hover-bg-color: var(--cros-ripple-color);
+  --ripple-opacity: 0; /* Disable Ripple on cr-button */
+
   align-items: center;
   border-block-end-width: var(--focus-border-width);
   border-block-start-width: var(--focus-border-width);
@@ -15,19 +25,26 @@
   cursor: pointer;
   display: flex;
   font-weight: 500;
+  justify-content: start;
   margin-bottom: 8px;
   margin-inline-end: 2px;
   min-height: 32px;
   padding-inline-start: 20px;
 }
 
-div:hover:not(.selected).navigation-item {
-  background-color: var(--cros-ripple-color);
+.navigation-item:focus-visible {
+  outline: var(--cros-focus-ring-color) solid var(--focus-border-width);
 }
 
 .navigation-item.selected {
   background-color: var(--cros-highlight-color);
   color: var(--cros-color-prominent);
+}
+
+:host-context(body.jelly-enabled) .navigation-item.selected {
+  /* TODO(276493287): Remove cros-highlight-color fallback after jelly colors
+                      launches. */
+  background-color: var(--cros-sys-highlight_shape);
 }
 
 iron-icon {
@@ -47,17 +64,23 @@ cr-expand-button {
   padding-inline-start: 20px;
 }
 
+#navigationSelectorMenu {
+  position: relative;
+  top: var(--focus-border-width, 0);
+}
+
 </style>
 
 <div id="navigationSelectorComponent">
-  <div id="navigationSelectorMenu">
+  <nav id="navigationSelectorMenu">
     <template id="selectorItems" is="dom-repeat" items="{{selectorItems}}">
-        <div class$="{{computeInitialClass_(item)}}" tabindex="0"
+        <cr-button class$="{{computeInitialClass_(item)}}" tabindex="0"
+            part="navigation-item"
             on-click="onSelected_">
-          <iron-icon class="icon" icon="[[item.icon]]" alt="">
-          </iron-icon>
+          <iron-icon class="icon" icon="[[item.icon]]"
+            alt="" hidden="[[!item.icon]]"></iron-icon>
           [[item.name]]
-        </div>
+        </cr-button>
     </template>
-  </div>
+  </nav>
 </div>

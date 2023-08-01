@@ -1,18 +1,18 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef IOS_CHROME_BROWSER_SESSIONS_LIVE_TAB_CONTEXT_BROWSER_AGENT_H_
 #define IOS_CHROME_BROWSER_SESSIONS_LIVE_TAB_CONTEXT_BROWSER_AGENT_H_
 
-#include <map>
-#include <string>
-#include <vector>
+#import <map>
+#import <string>
+#import <vector>
 
-#include "components/keyed_service/core/keyed_service.h"
-#include "components/sessions/core/live_tab_context.h"
-#include "ios/chrome/browser/main/browser_observer.h"
-#include "ios/chrome/browser/main/browser_user_data.h"
+#import "components/keyed_service/core/keyed_service.h"
+#import "components/sessions/core/live_tab_context.h"
+#import "ios/chrome/browser/shared/model/browser/browser_observer.h"
+#import "ios/chrome/browser/shared/model/browser/browser_user_data.h"
 
 class WebStateList;
 
@@ -31,6 +31,7 @@ class LiveTabContextBrowserAgent
   // Sessions::LiveTabContext:
   void ShowBrowserWindow() override;
   SessionID GetSessionID() const override;
+  sessions::SessionWindow::WindowType GetWindowType() const override;
   int GetTabCount() const override;
   int GetSelectedIndex() const override;
   std::string GetAppName() const override;
@@ -75,9 +76,10 @@ class LiveTabContextBrowserAgent
   void CloseTab() override;
 
  private:
-  explicit LiveTabContextBrowserAgent(Browser* browser);
   friend class BrowserUserData<LiveTabContextBrowserAgent>;
   BROWSER_USER_DATA_KEY_DECL();
+
+  explicit LiveTabContextBrowserAgent(Browser* browser);
 
   ChromeBrowserState* browser_state_;
   WebStateList* web_state_list_;

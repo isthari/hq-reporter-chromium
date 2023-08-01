@@ -1,11 +1,10 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <algorithm>
-
 #include "ash/login/ui/login_auth_factors_view.h"
 
+#include "ash/login/resources/grit/login_resources.h"
 #include "ash/login/ui/animated_auth_factors_label_wrapper.h"
 #include "ash/login/ui/arrow_button_view.h"
 #include "ash/login/ui/auth_icon_view.h"
@@ -13,8 +12,10 @@
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/style/ash_color_provider.h"
-#include "base/callback.h"
+#include "ash/style/dark_light_mode_controller_impl.h"
+#include "base/functional/callback.h"
 #include "base/logging.h"
+#include "base/ranges/algorithm.h"
 #include "base/time/time.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -35,11 +36,13 @@ namespace {
 
 using AuthFactorState = AuthFactorModel::AuthFactorState;
 
-constexpr int kAuthFactorsViewWidthDp = 204;
+constexpr int kAuthFactorsViewWidthDp = 280;
 constexpr int kSpacingBetweenIconsAndLabelDp = 8;
 constexpr int kIconTopSpacingDp = 10;
 constexpr int kArrowButtonSizeDp = 32;
 constexpr base::TimeDelta kErrorTimeout = base::Seconds(3);
+constexpr base::TimeDelta kCheckmarkAnimationDuration = base::Milliseconds(450);
+constexpr int kCheckmarkAnimationNumFrames = 13;
 
 // The values of this enum should be nearly the same as the values of
 // AuthFactorState, except instead of kErrorTemporary and kErrorPermanent, we
@@ -89,8 +92,9 @@ PrioritizedAuthFactorViewState GetPrioritizedAuthFactorViewState(
     case AuthFactorState::kUnavailable:
       return PrioritizedAuthFactorViewState::kUnavailable;
     case AuthFactorState::kErrorPermanent:
-      if (auth_factor.has_permanent_error_display_timed_out())
+      if (auth_factor.has_permanent_error_display_timed_out()) {
         return PrioritizedAuthFactorViewState::kErrorBackground;
+      }
 
       return PrioritizedAuthFactorViewState::kErrorForeground;
     case AuthFactorState::kAvailable:
@@ -113,8 +117,9 @@ PrioritizedAuthFactorViewState GetPrioritizedAuthFactorViewState(
 // state determines the behavior of LoginAuthFactorsView.
 AuthFactorModel* GetHighestPriorityAuthFactor(
     const std::vector<std::unique_ptr<AuthFactorModel>>& auth_factors) {
-  if (auth_factors.empty())
+  if (auth_factors.empty()) {
     return nullptr;
+  }
 
   // PrioritizedAuthFactorViewState enum values are assigned so that the
   // highest numerical value corresponds to the highest priority.
@@ -166,13 +171,19 @@ AuthIconView* LoginAuthFactorsView::TestApi::checkmark_icon() {
 }
 
 LoginAuthFactorsView::LoginAuthFactorsView(
-    base::RepeatingClosure on_click_to_enter_callback)
-    : on_click_to_enter_callback_(on_click_to_enter_callback) {
+    base::RepeatingClosure on_click_to_enter_callback,
+    base::RepeatingCallback<void(bool)>
+        on_auth_factor_is_hiding_password_changed_callback)
+    : on_click_to_enter_callback_(on_click_to_enter_callback),
+      on_auth_factor_is_hiding_password_changed_callback_(
+          on_auth_factor_is_hiding_password_changed_callback) {
   DCHECK(on_click_to_enter_callback);
+  DCHECK(on_auth_factor_is_hiding_password_changed_callback);
 
   SetPaintToLayer();
   layer()->SetFillsBoundsOpaquely(false);
-  SetBorder(views::CreateEmptyBorder(kIconTopSpacingDp, 0, 0, 0));
+  SetBorder(
+      views::CreateEmptyBorder(gfx::Insets::TLBR(kIconTopSpacingDp, 0, 0, 0)));
 
   auto* layout = SetLayoutManager(std::make_unique<views::FlexLayout>());
   layout->SetOrientation(views::LayoutOrientation::kVertical);
@@ -207,9 +218,9 @@ LoginAuthFactorsView::LoginAuthFactorsView(
   arrow_nudge_animation_ =
       arrow_icon_container_->AddChildView(std::make_unique<AuthIconView>());
   arrow_nudge_animation_->SetCircleImage(
-      kArrowButtonSizeDp / 2, AshColorProvider::Get()->GetControlsLayerColor(
-                                  AshColorProvider::ControlsLayerType::
-                                      kControlBackgroundColorInactive));
+      kArrowButtonSizeDp / 2,
+      AshColorProvider::Get()->GetControlsLayerColor(
+          AshColorProvider::ControlsLayerType::kHairlineBorderColor));
 
   arrow_nudge_animation_->set_on_tap_or_click_callback(base::BindRepeating(
       &LoginAuthFactorsView::RelayArrowButtonPressed, base::Unretained(this)));
@@ -227,9 +238,7 @@ LoginAuthFactorsView::LoginAuthFactorsView(
       AddChildView(std::make_unique<AnimatedAuthFactorsLabelWrapper>());
   label_wrapper_->SetProperty(
       views::kMarginsKey,
-      gfx::Insets(/*top=*/kSpacingBetweenIconsAndLabelDp, /*left=*/0,
-                  /*bottom=*/0,
-                  /*right=*/0));
+      gfx::Insets::TLBR(kSpacingBetweenIconsAndLabelDp, 0, 0, 0));
 }
 
 LoginAuthFactorsView::~LoginAuthFactorsView() = default;
@@ -249,8 +258,9 @@ void LoginAuthFactorsView::AddAuthFactor(
 }
 
 void LoginAuthFactorsView::SetCanUsePin(bool can_use_pin) {
-  if (can_use_pin == AuthFactorModel::can_use_pin())
+  if (can_use_pin == AuthFactorModel::can_use_pin()) {
     return;
+  }
 
   AuthFactorModel::set_can_use_pin(can_use_pin);
   UpdateState();
@@ -264,32 +274,20 @@ void LoginAuthFactorsView::UpdateState() {
   AuthFactorModel* active_auth_factor =
       GetHighestPriorityAuthFactor(auth_factors_);
   if (!active_auth_factor) {
-    SetVisible(false);
     return;
   }
 
   PrioritizedAuthFactorViewState state =
       GetPrioritizedAuthFactorViewState(*active_auth_factor);
   if (state == PrioritizedAuthFactorViewState::kUnavailable) {
-    SetVisible(false);
     return;
   }
-  SetVisible(true);
 
   if (state != PrioritizedAuthFactorViewState::kErrorForeground) {
     error_timer_.Stop();
   }
 
-  // Update |should_hide_password_field_| when entering/leaving a state that
-  // requires hiding/showing the password/PIN fields.
-  //
-  // At the moment, Smart Lock is the only auth factor which needs to hide
-  // the password field, and it does so only during states kClickRequired and
-  // kAuthenticated.
-  should_hide_password_field_ =
-      active_auth_factor->GetType() == AuthFactorType::kSmartLock &&
-      (state == PrioritizedAuthFactorViewState::kClickRequired ||
-       state == PrioritizedAuthFactorViewState::kAuthenticated);
+  UpdateShouldHidePasswordField(*active_auth_factor);
 
   int ready_label_id;
   size_t num_factors_in_error_background_state;
@@ -304,6 +302,11 @@ void LoginAuthFactorsView::UpdateState() {
         label_wrapper_->SetLabelTextAndAccessibleName(
             IDS_AUTH_FACTOR_LABEL_UNLOCKED, IDS_AUTH_FACTOR_LABEL_UNLOCKED);
       }
+
+      // Clear focus so that the focus on arrow button does not jump to another
+      // element after the view transitions.
+      GetFocusManager()->ClearFocus();
+
       return;
     case PrioritizedAuthFactorViewState::kClickRequired:
       // An auth factor requires a click to enter. Show arrow button.
@@ -343,8 +346,9 @@ void LoginAuthFactorsView::UpdateState() {
       // the error for a period of time.
 
       // Do not replace the current error if an error is already showing.
-      if (error_timer_.IsRunning())
+      if (error_timer_.IsRunning()) {
         return;
+      }
 
       error_timer_.Start(FROM_HERE, kErrorTimeout,
                          base::BindOnce(&LoginAuthFactorsView::OnErrorTimeout,
@@ -365,10 +369,10 @@ void LoginAuthFactorsView::UpdateState() {
       // their password.
       ShowReadyAndDisabledAuthFactors();
 
-      num_factors_in_error_background_state = std::count_if(
-          auth_factors_.begin(), auth_factors_.end(), [](const auto& factor) {
-            return GetPrioritizedAuthFactorViewState(*factor) ==
-                   PrioritizedAuthFactorViewState::kErrorBackground;
+      num_factors_in_error_background_state = base::ranges::count(
+          auth_factors_, PrioritizedAuthFactorViewState::kErrorBackground,
+          [](const auto& factor) {
+            return GetPrioritizedAuthFactorViewState(*factor);
           });
 
       if (num_factors_in_error_background_state == 1) {
@@ -416,11 +420,21 @@ void LoginAuthFactorsView::ShowReadyAndDisabledAuthFactors() {
 }
 
 void LoginAuthFactorsView::ShowCheckmark() {
+  const bool arrow_button_was_visible = arrow_button_->GetVisible();
   auth_factor_icon_row_->SetVisible(false);
   checkmark_icon_->SetVisible(true);
   SetArrowVisibility(false);
-  // TODO(crbug.com/1233614): If transitioning from Click Required state, show
-  // animation.
+  if (arrow_button_was_visible) {
+    const auto& resource =
+        DarkLightModeControllerImpl::Get()->IsDarkModeEnabled()
+            ? IDR_LOGIN_ARROW_CHECKMARK_SPINNER_DARKMODE
+            : IDR_LOGIN_ARROW_CHECKMARK_SPINNER_LIGHTMODE;
+    checkmark_icon_->SetAnimation(resource, kCheckmarkAnimationDuration,
+                                  kCheckmarkAnimationNumFrames);
+  } else {
+    checkmark_icon_->SetIcon(kLockScreenFingerprintSuccessIcon,
+                             AuthIconView::Color::kPositive);
+  }
 }
 
 int LoginAuthFactorsView::GetReadyLabelId() const {
@@ -441,8 +455,9 @@ int LoginAuthFactorsView::GetReadyLabelId() const {
     return GetDefaultLabelId();
   }
 
-  if (ready_factor_count == 1u)
+  if (ready_factor_count == 1u) {
     return ready_factor->GetLabelId();
+  }
 
   // Multiple auth factors are ready.
   switch (ready_factors) {
@@ -536,6 +551,28 @@ void LoginAuthFactorsView::SetArrowVisibility(bool is_visible) {
     arrow_nudge_animation_->StopAnimating();
     arrow_button_->StopAnimating();
   }
+}
+
+void LoginAuthFactorsView::UpdateShouldHidePasswordField(
+    const AuthFactorModel& active_auth_factor) {
+  PrioritizedAuthFactorViewState state =
+      GetPrioritizedAuthFactorViewState(active_auth_factor);
+
+  // At the moment, Smart Lock is the only auth factor which needs to hide
+  // the password field, and it does so only during states kClickRequired
+  // and kAuthenticated.
+  bool should_hide_password_field =
+      active_auth_factor.GetType() == AuthFactorType::kSmartLock &&
+      (state == PrioritizedAuthFactorViewState::kClickRequired ||
+       state == PrioritizedAuthFactorViewState::kAuthenticated);
+
+  if (should_hide_password_field == should_hide_password_field_) {
+    return;
+  }
+  should_hide_password_field_ = should_hide_password_field;
+
+  on_auth_factor_is_hiding_password_changed_callback_.Run(
+      should_hide_password_field);
 }
 
 }  // namespace ash

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,8 @@
 #include <memory>
 
 #include "ash/ash_export.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
 #include "base/scoped_observation.h"
 #include "ui/compositor/layer_animation_observer.h"
 #include "ui/compositor/layer_delegate.h"
@@ -22,7 +23,7 @@ class Layer;
 namespace ash {
 
 class HoldingSpaceItem;
-class HoldingSpaceProgressIndicator;
+class ProgressIndicator;
 class Shelf;
 enum class ShelfAlignment;
 
@@ -125,11 +126,11 @@ class ASH_EXPORT HoldingSpaceTrayIconPreview
   void AdjustForShelfAlignmentAndTextDirection(gfx::Vector2dF* vector_2df);
 
   // The shelf whose holding space tray icon this preview belongs.
-  Shelf* const shelf_;
+  const raw_ptr<Shelf, ExperimentalAsh> shelf_;
 
   // The view that contains all preview layers belonging to the holding space
   // icon.
-  views::View* const container_;
+  const raw_ptr<views::View, ExperimentalAsh> container_;
 
   // Owns the `ui::Layer` which paints the image representation of the
   // associated holding space item.
@@ -138,7 +139,7 @@ class ASH_EXPORT HoldingSpaceTrayIconPreview
   // Owns the `ui::Layer` which paints indicate of progress for the associated
   // holding space item. NOTE: The `ui::Layer` is *not* painted if the holding
   // space item is not in-progress.
-  std::unique_ptr<HoldingSpaceProgressIndicator> progress_indicator_;
+  std::unique_ptr<ProgressIndicator> progress_indicator_;
 
   // Whether or not this preview is currently using small dimensions. This is
   // done when in tablet mode and an app is in use.

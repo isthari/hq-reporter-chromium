@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=0.5, maximum-scale=0.5, minimum-scale=0.5">
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'none'; script-src 'unsafe-eval'; frame-src https://other.example:*"
@@ -18,7 +18,7 @@
             'self'</li>
           <li>The cross-origin iframe creates a payment request that triggers
             JIT
-            crawling of the payment method manifest hosted at kylepay.com.
+            crawling of the payment method manifest hosted at kylepay.test.
           </li>
         </ul>
       <li>Test: if Chrome handles CSP policy correctly, request.canMakePayment()

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,17 +8,17 @@
 #include <utility>
 #include <vector>
 
-#include "base/callback.h"
-#include "base/callback_helpers.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/run_loop.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/test_simple_task_runner.h"
-#include "base/threading/sequenced_task_runner_handle.h"
 #include "components/subresource_filter/content/browser/async_document_subresource_filter.h"
 #include "components/subresource_filter/content/browser/async_document_subresource_filter_test_utils.h"
+#include "components/subresource_filter/content/browser/content_subresource_filter_web_contents_helper.h"
 #include "components/subresource_filter/core/common/scoped_timers.h"
 #include "components/subresource_filter/core/common/test_ruleset_creator.h"
 #include "components/subresource_filter/core/common/test_ruleset_utils.h"
@@ -97,7 +97,7 @@ class ActivationStateComputingNavigationThrottleTest
     // Make the blocking task runner run on the current task runner for the
     // tests, to ensure that the NavigationSimulator properly runs all necessary
     // tasks while waiting for throttle checks to finish.
-    InitializeRulesetHandles(base::SequencedTaskRunnerHandle::Get());
+    InitializeRulesetHandles(base::SequencedTaskRunner::GetCurrentDefault());
   }
 
   void NavigateAndCommitMainFrameWithPageActivationState(
@@ -188,10 +188,10 @@ class ActivationStateComputingNavigationThrottleTest
   void DidStartNavigation(
       content::NavigationHandle* navigation_handle) override {
     std::unique_ptr<ActivationStateComputingNavigationThrottle> throttle =
-        navigation_handle->IsInMainFrame()
-            ? ActivationStateComputingNavigationThrottle::CreateForMainFrame(
+        IsInSubresourceFilterRoot(navigation_handle)
+            ? ActivationStateComputingNavigationThrottle::CreateForRoot(
                   navigation_handle)
-            : ActivationStateComputingNavigationThrottle::CreateForSubframe(
+            : ActivationStateComputingNavigationThrottle::CreateForChild(
                   navigation_handle, ruleset_handle_.get(),
                   parent_activation_state_.value());
     if (navigation_handle->IsInMainFrame() && dryrun_speculation_) {
@@ -266,9 +266,11 @@ TEST_P(ActivationStateComputingThrottleMainFrameTest, Activate) {
   EXPECT_FALSE(state.filtering_disabled_for_document);
 }
 
-// TODO(crbug.com/1069398): Fix this test failure.
 TEST_P(ActivationStateComputingThrottleMainFrameTest,
-       DISABLED_NoPageActivationNotification_NoActivation) {
+       NoPageActivationNotification_NoActivation) {
+  if (dryrun_speculation()) {
+    GTEST_SKIP() << "TODO(crbug.com/1069398): Fix this test failure.";
+  }
   CreateTestNavigationForMainFrame(GURL("http://example.test/"));
   SimulateStartAndExpectToProceed();
   SimulateRedirectAndExpectToProceed(GURL("http://example.test/?v=1"));
@@ -475,45 +477,9 @@ TEST_P(ActivationStateComputingThrottleSubFrameTest, DisabledStatePropagated2) {
   EXPECT_TRUE(state.generic_blocking_rules_disabled);
 }
 
-// TODO(crbug.com/1143730): This test needs to verify that
+// TODO(crbug.com/1143730): A test is needed to verify that
 // ComputeActivationState was called appropriately.  Previously this was done
 // via looking at performance histograms, but those are now obsolete.
-TEST_P(ActivationStateComputingThrottleSubFrameTest, DISABLED_Speculation) {
-  // Main frames don't do speculative lookups, a navigation commit should only
-  // trigger a single ruleset lookup.
-  CreateTestNavigationForMainFrame(GURL("http://example.test/"));
-  SimulateStartAndExpectToProceed();
-  base::RunLoop().RunUntilIdle();
-  // Check that there was one activation decision.
-
-  SimulateRedirectAndExpectToProceed(GURL("http://example.test2/"));
-  base::RunLoop().RunUntilIdle();
-  // Check that there was one additional activation decision.
-
-  mojom::ActivationState state;
-  state.activation_level = mojom::ActivationLevel::kEnabled;
-  NotifyPageActivation(state);
-  SimulateCommitAndExpectToProceed();
-  // Check that there was one additional activation decision.
-
-  base::HistogramTester sub_histogram_tester;
-  CreateSubframeAndInitTestNavigation(GURL("http://example.test/"),
-                                      last_committed_frame_host(),
-                                      last_activation_state());
-  // For subframes, do a ruleset lookup at the start and every redirect.
-  SimulateStartAndExpectToProceed();
-  base::RunLoop().RunUntilIdle();
-  // Check that there was one additional activation decision.
-
-  SimulateRedirectAndExpectToProceed(GURL("http://example.test2/"));
-  base::RunLoop().RunUntilIdle();
-  // Check that there was one additional activation decision.
-
-  // No ruleset lookup required at commit because we've already checked the
-  // latest URL.
-  SimulateCommitAndExpectToProceed();
-  // Check that there were no additional activation decisions.
-}
 
 TEST_P(ActivationStateComputingThrottleSubFrameTest, SpeculationWithDelay) {
   InitializeRulesetHandles(simple_task_runner());

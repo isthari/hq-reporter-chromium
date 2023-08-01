@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,6 +19,13 @@
 #if BUILDFLAG(ENABLE_MOJO_MEDIA_IN_GPU_PROCESS)
 #include "content/gpu/gpu_service_factory.h"
 #include "media/mojo/mojom/media_service.mojom.h"
+#endif
+
+#if !BUILDFLAG(IS_CHROMEOS)
+#include "base/task/single_thread_task_runner.h"
+#include "base/task/thread_pool.h"
+#include "services/webnn/public/mojom/webnn_service.mojom.h"
+#include "services/webnn/webnn_service.h"
 #endif
 
 namespace content {
@@ -49,6 +56,22 @@ void GpuChildThread::BindServiceInterface(
 #if BUILDFLAG(ENABLE_MOJO_MEDIA_IN_GPU_PROCESS)
   if (auto r = receiver.As<media::mojom::MediaService>()) {
     service_factory_->RunMediaService(std::move(r));
+    return;
+  }
+#endif
+
+#if !BUILDFLAG(IS_CHROMEOS)
+  if (auto webnn_receiver = receiver.As<webnn::mojom::WebNNService>()) {
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner =
+        base::SingleThreadTaskRunner::GetCurrentDefault();
+    task_runner->PostTask(
+        FROM_HERE, base::BindOnce(
+                       [](mojo::PendingReceiver<webnn::mojom::WebNNService>
+                              webnn_receiver) {
+                         static base::NoDestructor<webnn::WebNNService> service{
+                             std::move(webnn_receiver)};
+                       },
+                       std::move(webnn_receiver)));
     return;
   }
 #endif

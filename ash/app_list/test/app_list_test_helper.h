@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,14 +11,14 @@
 #include "ash/app_list/app_list_metrics.h"
 #include "ash/app_list/model/app_list_test_model.h"
 #include "ash/app_list/model/search/search_model.h"
+#include "ash/app_list/quick_app_access_model.h"
 #include "ash/app_list/test_app_list_client.h"
+#include "ash/test/ash_test_color_generator.h"
+#include "base/memory/raw_ptr.h"
+#include "ui/gfx/animation/tween.h"
 
 namespace base {
 class TimeDelta;
-}
-
-namespace ui {
-class Layer;
 }
 
 namespace views {
@@ -37,7 +37,7 @@ class AppListView;
 class AppsContainerView;
 class ContinueSectionView;
 class PagedAppsGridView;
-class ProductivityLauncherSearchView;
+class AppListSearchView;
 class RecentAppsView;
 class ScrollableAppsGridView;
 class SearchBoxView;
@@ -47,6 +47,19 @@ enum class AppListViewState;
 
 class AppListTestHelper {
  public:
+  // The color types of app list item icons.
+  enum class IconColorType {
+    // Use the default icon color which is SK_ColorRED.
+    kDefaultColor,
+
+    // This color type guarantees that the neighboring app list items added by
+    // the test helper have different icon colors.
+    kAlternativeColor,
+
+    // The icon is transparent.
+    kNotSet,
+  };
+
   AppListTestHelper();
 
   AppListTestHelper(const AppListTestHelper&) = delete;
@@ -82,14 +95,11 @@ class AppListTestHelper {
   // until animation finishes.
   void ToggleAndRunLoop(uint64_t display_id, AppListShowSource show_source);
 
-  // Waits for a layer animation to complete and for animation throughput data
-  // to be passed from cc to ui.
-  void WaitForLayerAnimation(ui::Layer* layer);
-
   // Slides a bubble apps page's component using a layer animation.
   void StartSlideAnimationOnBubbleAppsPage(views::View* view,
                                            int vertical_offset,
-                                           base::TimeDelta duration);
+                                           base::TimeDelta duration,
+                                           gfx::Tween::Type tween_type);
 
   // Check the visibility value of the app list and its target.
   // Fails in tests if either one doesn't match |visible|.
@@ -104,11 +114,19 @@ class AppListTestHelper {
   // Run all pending in message loop to wait for animation to finish.
   void WaitUntilIdle();
 
-  // Adds `num_apps` to the app list model.
+  // If a folder view is shown, waits until the folder animations complete.
+  void WaitForFolderAnimation();
+
+  // Adds `num_apps` to the app list model. These app items have transparent
+  // icons. Their names are set so that the accessibility paint checker tests
+  // pass (focusable views are expected to have accessible names).
   void AddAppItems(int num_apps);
 
-  // Adds a page break item to the app list model.
-  void AddPageBreakItem();
+  // Similar to `AddAppItems()` but provides the options to set item icon colors
+  // and names.
+  void AddAppItemsWithColorAndName(int num_apps,
+                                   IconColorType color_type,
+                                   bool set_name);
 
   // Adds `num_results` to continue section in the app list.
   void AddContinueSuggestionResults(int num_results);
@@ -119,6 +137,12 @@ class AppListTestHelper {
   // Whether the app list is showing a folder.
   bool IsInFolderView();
 
+  // Enables/Disables the app list nudge for testing.
+  void DisableAppListNudge(bool disable);
+
+  // Accessibility helpers.
+  views::View* GetAccessibilityAnnounceView();
+
   // Fullscreen/peeking launcher helpers.
   AppListView* GetAppListView();
   SearchBoxView* GetSearchBoxView();
@@ -128,8 +152,10 @@ class AppListTestHelper {
   ContinueSectionView* GetFullscreenContinueSectionView();
   SearchResultPageView* GetFullscreenSearchResultPageView();
   SearchResultPageAnchoredDialog* GetFullscreenSearchPageDialog();
-  ProductivityLauncherSearchView* GetProductivityLauncherSearchView();
   views::View* GetFullscreenLauncherAppsSeparatorView();
+
+  // Whether the fullscreen/peeking launcher is showing the search results view.
+  bool IsShowingFullscreenSearchResults();
 
   // Paged launcher helpers.
   PagedAppsGridView* GetRootPagedAppsGridView();
@@ -148,14 +174,27 @@ class AppListTestHelper {
   SearchModel::SearchResults* GetSearchResults();
   views::View* GetBubbleLauncherAppsSeparatorView();
   std::vector<ash::AppListSearchResultCategory>* GetOrderedResultCategories();
+  AppListSearchView* GetBubbleAppListSearchView();
 
+  test::AppListTestModel* model() { return &model_; }
+  SearchModel* search_model() { return &search_model_; }
+  QuickAppAccessModel* quick_app_access_model() {
+    return &quick_app_access_model_;
+  }
   TestAppListClient* app_list_client() { return app_list_client_.get(); }
 
  private:
+  // Helper function to set user prefs relative to the app_list in tests.
+  void ConfigureDefaultUserPrefs();
+
   test::AppListTestModel model_;
   SearchModel search_model_;
-  AppListControllerImpl* app_list_controller_ = nullptr;
+  QuickAppAccessModel quick_app_access_model_;
+  raw_ptr<AppListControllerImpl, ExperimentalAsh> app_list_controller_ =
+      nullptr;
   std::unique_ptr<TestAppListClient> app_list_client_;
+
+  AshTestColorGenerator icon_color_generator_{/*default_color=*/SK_ColorRED};
 };
 
 }  // namespace ash

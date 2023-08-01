@@ -1,18 +1,35 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/updater/win/ui/owner_draw_controls.h"
 
-#include <stdint.h>
 #include <algorithm>
+#include <cstdint>
 #include <vector>
 
 #include "base/check.h"
-#include "chrome/updater/win/ui/resources/resources.grh"
+#include "base/check_op.h"
+#include "chrome/updater/win/ui/l10n_util.h"
+#include "chrome/updater/win/ui/resources/updater_installer_strings.h"
+#include "chrome/updater/win/ui/ui_util.h"
 
-namespace updater {
-namespace ui {
+namespace updater::ui {
+
+// Returns the system color corresponding to `high_contrast_color_index` if the
+// system is in high contrast mode. Otherwise, it returns `normal_color`.
+COLORREF GetColor(COLORREF normal_color, int high_contrast_color_index) {
+  return IsHighContrastOn() ? ::GetSysColor(high_contrast_color_index)
+                            : normal_color;
+}
+
+// Returns the system color brush corresponding to `high_contrast_color_index`
+// if the system is in high contrast mode. Otherwise, it returns `normal_brush`.
+HBRUSH GetColorBrush(const WTL::CBrush& normal_brush,
+                     int high_contrast_color_index) {
+  return IsHighContrastOn() ? ::GetSysColorBrush(high_contrast_color_index)
+                            : HBRUSH{normal_brush};
+}
 
 CaptionButton::CaptionButton() = default;
 CaptionButton::~CaptionButton() = default;
@@ -21,8 +38,8 @@ LRESULT CaptionButton::OnCreate(UINT, WPARAM, LPARAM, BOOL& handled) {
   handled = false;
 
   tool_tip_window_.Create(m_hWnd);
-  DCHECK(tool_tip_window_.IsWindow());
-  DCHECK(!tool_tip_text_.IsEmpty());
+  CHECK(tool_tip_window_.IsWindow());
+  CHECK(!tool_tip_text_.IsEmpty());
 
   tool_tip_window_.SetDelayTime(TTDT_AUTOMATIC, 2000);
   tool_tip_window_.Activate(TRUE);
@@ -101,7 +118,9 @@ void CaptionButton::DrawItem(LPDRAWITEMSTRUCT draw_item_struct) {
   CRect button_rect;
   GetClientRect(&button_rect);
 
-  COLORREF bk_color(is_mouse_hovering_ ? kCaptionBkHover : bk_color_);
+  COLORREF bk_color(is_mouse_hovering_
+                        ? GetColor(kCaptionBkHover, COLOR_HIGHLIGHT)
+                        : GetColor(bk_color_, COLOR_WINDOW));
   dc.FillSolidRect(&button_rect, bk_color);
 
   int rgn_width = button_rect.Width() * 12 / 31;
@@ -112,11 +131,14 @@ void CaptionButton::DrawItem(LPDRAWITEMSTRUCT draw_item_struct) {
   rgn.OffsetRgn((button_rect.Width() - rgn_width) / 2,
                 (button_rect.Height() - rgn_height) / 2);
 
-  dc.FillRgn(rgn, foreground_brush_);
+  dc.FillRgn(rgn, GetColorBrush(foreground_brush_, is_mouse_hovering_
+                                                       ? COLOR_HIGHLIGHTTEXT
+                                                       : COLOR_BTNTEXT));
 
   const UINT button_state = draw_item_struct->itemState;
-  if (button_state & ODS_FOCUS && button_state & ODS_SELECTED)
+  if (button_state & ODS_FOCUS && button_state & ODS_SELECTED) {
     dc.FrameRect(&button_rect, frame_brush_);
+  }
 }
 
 COLORREF CaptionButton::bk_color() const {
@@ -136,9 +158,7 @@ void CaptionButton::set_tool_tip_text(const CString& tool_tip_text) {
 }
 
 CloseButton::CloseButton() {
-  CString tool_tip_text;
-  tool_tip_text.LoadString(IDS_CLOSE_BUTTON);
-  set_tool_tip_text(tool_tip_text);
+  set_tool_tip_text(GetLocalizedString(IDS_CLOSE_BUTTON_BASE).c_str());
 }
 
 HRGN CloseButton::GetButtonRgn(int rgn_width, int rgn_height) {
@@ -165,9 +185,7 @@ HRGN CloseButton::GetButtonRgn(int rgn_width, int rgn_height) {
 }
 
 MinimizeButton::MinimizeButton() {
-  CString tool_tip_text;
-  tool_tip_text.LoadString(IDS_MINIMIZE_BUTTON);
-  set_tool_tip_text(tool_tip_text);
+  set_tool_tip_text(GetLocalizedString(IDS_MINIMIZE_BUTTON_BASE).c_str());
 }
 
 HRGN MinimizeButton::GetButtonRgn(int rgn_width, int rgn_height) {
@@ -179,9 +197,9 @@ HRGN MinimizeButton::GetButtonRgn(int rgn_width, int rgn_height) {
 }
 
 MaximizeButton::MaximizeButton() {
-  CString tool_tip_text;
-  tool_tip_text.LoadString(IDS_MAXIMIZE_BUTTON);
-  set_tool_tip_text(tool_tip_text);
+  // TODO(crbug.com/1314812) Maximize button is not utilized. Adding a
+  // placeholder for IDS_MAXIMIZE_BUTTON_BASE.
+  set_tool_tip_text(L"");
 }
 
 HRGN MaximizeButton::GetButtonRgn(int rgn_width, int rgn_height) {
@@ -211,11 +229,13 @@ LRESULT OwnerDrawTitleBarWindow::OnDestroy(UINT,
                                            BOOL& handled) {
   handled = false;
 
-  if (close_button_.IsWindow())
+  if (close_button_.IsWindow()) {
     close_button_.DestroyWindow();
+  }
 
-  if (minimize_button_.IsWindow())
+  if (minimize_button_.IsWindow()) {
     minimize_button_.DestroyWindow();
+  }
 
   return 0;
 }
@@ -225,8 +245,9 @@ LRESULT OwnerDrawTitleBarWindow::OnMouseMove(UINT,
                                              LPARAM,
                                              BOOL& handled) {
   handled = false;
-  if (current_drag_position_.x == -1 || wparam != MK_LBUTTON)
+  if (current_drag_position_.x == -1 || wparam != MK_LBUTTON) {
     return 0;
+  }
 
   CPoint pt;
   ::GetCursorPos(&pt);
@@ -274,7 +295,7 @@ LRESULT OwnerDrawTitleBarWindow::OnEraseBkgnd(UINT,
   CRect rect;
   GetClientRect(&rect);
 
-  dc.FillSolidRect(&rect, bk_color_);
+  dc.FillSolidRect(&rect, GetColor(bk_color_, COLOR_WINDOW));
   return 1;
 }
 
@@ -325,15 +346,17 @@ void OwnerDrawTitleBarWindow::UpdateButtonState(const WTL::CMenuHandle& menu,
                                                 const int button_margin,
                                                 CaptionButton* button,
                                                 CRect* button_rect) {
-  DCHECK(button);
-  DCHECK(button_rect);
+  CHECK(button);
+  CHECK(button_rect);
 
-  if (!button->IsWindow())
+  if (!button->IsWindow()) {
     return;
+  }
 
   int state = -1;
-  if (!menu.IsNull() && menu.IsMenu())
+  if (!menu.IsNull() && menu.IsMenu()) {
     state = menu.GetMenuState(button_sc_id, MF_BYCOMMAND);
+  }
 
   if (state == -1) {
     button->ShowWindow(SW_HIDE);
@@ -392,7 +415,7 @@ OwnerDrawTitleBar::~OwnerDrawTitleBar() = default;
 void OwnerDrawTitleBar::CreateOwnerDrawTitleBar(HWND parent_hwnd,
                                                 HWND title_bar_spacer_hwnd,
                                                 COLORREF bk_color) {
-  DCHECK(parent_hwnd);
+  CHECK(parent_hwnd);
 
   CRect title_bar_client_rect =
       ComputeTitleBarClientRect(parent_hwnd, title_bar_spacer_hwnd);
@@ -401,9 +424,9 @@ void OwnerDrawTitleBar::CreateOwnerDrawTitleBar(HWND parent_hwnd,
   // dialog box window. DS_MODALFRAME and WS_BORDER are incompatible with this
   // title bar. WS_DLGFRAME is recommended as well.
   const LONG parent_style = ::GetWindowLong(parent_hwnd, GWL_STYLE);
-  DCHECK(!(parent_style & DS_MODALFRAME));
-  DCHECK(!(parent_style & WS_BORDER));
-  DCHECK(parent_style & WS_DLGFRAME);
+  CHECK(!(parent_style & DS_MODALFRAME));
+  CHECK(!(parent_style & WS_BORDER));
+  CHECK(parent_style & WS_DLGFRAME);
 
   title_bar_window_.set_bk_color(bk_color);
   title_bar_window_.Create(
@@ -412,13 +435,13 @@ void OwnerDrawTitleBar::CreateOwnerDrawTitleBar(HWND parent_hwnd,
 }
 
 void OwnerDrawTitleBar::RecalcLayout() {
-  DCHECK(title_bar_window_.IsWindow());
+  CHECK(title_bar_window_.IsWindow());
   title_bar_window_.RecalcLayout();
 }
 
 CRect OwnerDrawTitleBar::ComputeTitleBarClientRect(HWND parent_hwnd,
                                                    HWND title_bar_spacer_hwnd) {
-  DCHECK(parent_hwnd);
+  CHECK(parent_hwnd);
 
   CRect parent_client_rect;
   ::GetClientRect(parent_hwnd, &parent_client_rect);
@@ -441,7 +464,7 @@ void CustomDlgColors::SetCustomDlgColors(COLORREF text_color,
   text_color_ = text_color;
   bk_color_ = bk_color;
 
-  DCHECK(bk_brush_.IsNull());
+  CHECK(bk_brush_.IsNull());
   bk_brush_.CreateSolidBrush(bk_color_);
 }
 
@@ -452,10 +475,10 @@ LRESULT CustomDlgColors::OnCtrlColor(UINT,
   handled = true;
 
   WTL::CDCHandle dc(reinterpret_cast<HDC>(wparam));
-  SetBkColor(dc, bk_color_);
-  SetTextColor(dc, text_color_);
+  SetBkColor(dc, GetColor(bk_color_, COLOR_WINDOW));
+  SetTextColor(dc, GetColor(text_color_, COLOR_WINDOWTEXT));
 
-  return reinterpret_cast<LRESULT>(static_cast<HBRUSH>(bk_brush_));
+  return reinterpret_cast<LRESULT>(GetColorBrush(bk_brush_, COLOR_WINDOW));
 }
 
 CustomProgressBarCtrl::CustomProgressBarCtrl()
@@ -509,7 +532,7 @@ LRESULT CustomProgressBarCtrl::OnPaint(UINT, WPARAM, LPARAM, BOOL& handled) {
     LONG bar_rect_left(bar_rect_right -
                        client_rect.Width() * kMarqueeWidth / kBarWidth);
     progress_bar_rect.left = std::max(bar_rect_left, client_rect.left);
-    DCHECK(progress_bar_rect.left <= progress_bar_rect.right);
+    CHECK_LE(progress_bar_rect.left, progress_bar_rect.right);
   }
 
   WTL::CRgn rgn = ::CreateRectRgnIndirect(&client_rect);
@@ -525,7 +548,7 @@ LRESULT CustomProgressBarCtrl::OnPaint(UINT, WPARAM, LPARAM, BOOL& handled) {
   // Since the region is rectangles, instead of using FillRgn, this code gets
   // all the rectangles in the 'rgn' and fills them by hand.
   const int rgndata_size = rgn.GetRegionData(nullptr, 0);
-  DCHECK(rgndata_size);
+  CHECK(rgndata_size);
   std::vector<uint8_t> rgndata_buff(rgndata_size);
   RGNDATA& rgndata = *reinterpret_cast<RGNDATA*>(&rgndata_buff[0]);
 
@@ -546,12 +569,13 @@ LRESULT CustomProgressBarCtrl::OnPaint(UINT, WPARAM, LPARAM, BOOL& handled) {
 
       dc.FrameRect(r, empty_frame_brush_);
       r.DeflateRect(1, 1);
-      dc.FillSolidRect(r, empty_fill_color_);
+      dc.FillSolidRect(r, GetColor(empty_fill_color_, COLOR_WINDOWTEXT));
     }
   }
 
-  if (progress_bar_rect.IsRectEmpty())
+  if (progress_bar_rect.IsRectEmpty()) {
     return 0;
+  }
 
   // Have a 2-pixel bottom shadow with a gradient fill.
   CRect shadow_rect = progress_bar_rect;
@@ -575,7 +599,8 @@ LRESULT CustomProgressBarCtrl::OnPaint(UINT, WPARAM, LPARAM, BOOL& handled) {
                kProgressInnerFrameDark);
 
   progress_bar_rect.DeflateRect(1, 1);
-  GradientFill(dc, progress_bar_rect, bar_color_light_, bar_color_dark_);
+  GradientFill(dc, progress_bar_rect, GetColor(bar_color_light_, COLOR_WINDOW),
+               GetColor(bar_color_dark_, COLOR_WINDOW));
 
   return 0;
 }
@@ -614,8 +639,9 @@ LRESULT CustomProgressBarCtrl::OnSetPos(UINT,
     current_position_ = std::min(static_cast<int>(new_position), kMaxPosition);
   }
 
-  if (current_position_ < kMinPosition)
+  if (current_position_ < kMinPosition) {
     current_position_ = kMinPosition;
+  }
 
   RedrawWindow();
 
@@ -674,5 +700,4 @@ LRESULT CustomProgressBarCtrl::OnSetMarquee(UINT,
   return is_set_marquee;
 }
 
-}  // namespace ui
-}  // namespace updater
+}  // namespace updater::ui

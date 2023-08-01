@@ -1,10 +1,12 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_PEERCONNECTION_PEER_CONNECTION_DEPENDENCY_FACTORY_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_PEERCONNECTION_PEER_CONNECTION_DEPENDENCY_FACTORY_H_
 
+#include "base/feature_list.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread.h"
 #include "base/threading/thread_checker.h"
@@ -12,14 +14,15 @@
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context_lifecycle_observer.h"
 #include "third_party/blink/renderer/modules/modules_export.h"
+#include "third_party/blink/renderer/modules/peerconnection/webrtc_video_perf_reporter.h"
 #include "third_party/blink/renderer/platform/bindings/exception_state.h"
 #include "third_party/blink/renderer/platform/heap/prefinalizer.h"
 #include "third_party/blink/renderer/platform/mojo/mojo_binding_context.h"
 #include "third_party/blink/renderer/platform/supplementable.h"
+#include "third_party/blink/renderer/platform/wtf/gc_plugin.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "third_party/webrtc/api/peer_connection_interface.h"
-#include "third_party/webrtc_overrides/metronome_provider.h"
 #include "third_party/webrtc_overrides/metronome_source.h"
 
 namespace base {
@@ -81,8 +84,7 @@ class MODULES_EXPORT PeerConnectionDependencyFactory
   std::unique_ptr<RTCPeerConnectionHandler> CreateRTCPeerConnectionHandler(
       RTCPeerConnectionHandlerClient* client,
       scoped_refptr<base::SingleThreadTaskRunner> task_runner,
-      bool force_encoded_audio_insertable_streams,
-      bool force_encoded_video_insertable_streams);
+      bool encoded_insertable_streams);
 
   // Create a proxy object for a VideoTrackSource that makes sure it's called on
   // the correct threads.
@@ -101,14 +103,12 @@ class MODULES_EXPORT PeerConnectionDependencyFactory
   // Asks the libjingle PeerConnection factory to create a libjingle
   // PeerConnection object.
   // The PeerConnection object is owned by PeerConnectionHandler.
-  virtual scoped_refptr<webrtc::PeerConnectionInterface> CreatePeerConnection(
+  virtual rtc::scoped_refptr<webrtc::PeerConnectionInterface>
+  CreatePeerConnection(
       const webrtc::PeerConnectionInterface::RTCConfiguration& config,
       blink::WebLocalFrame* web_frame,
       webrtc::PeerConnectionObserver* observer,
       ExceptionState& exception_state);
-  size_t open_peer_connections() const;
-  void OnPeerConnectionClosed();
-  scoped_refptr<MetronomeProvider> metronome_provider() const;
 
   // Creates a PortAllocator that uses Chrome IPC sockets and enforces privacy
   // controls according to the permissions granted on the page.
@@ -136,9 +136,12 @@ class MODULES_EXPORT PeerConnectionDependencyFactory
 
   void EnsureInitialized();
 
-  // Returns the SingleThreadTaskRunner suitable for running WebRTC networking.
-  // An rtc::Thread will have already been created.
-  scoped_refptr<base::SingleThreadTaskRunner> GetWebRtcNetworkTaskRunner();
+  // Returns the SingleThreadTaskRunner corresponding to the WebRTC worker or
+  // network threads (rtc::Thread), if they exist. These threads are ensured to
+  // exist after an RTCPeerConnectionHandler has been Initialized().
+  scoped_refptr<base::SingleThreadTaskRunner> GetWebRtcWorkerTaskRunner();
+  virtual scoped_refptr<base::SingleThreadTaskRunner>
+  GetWebRtcNetworkTaskRunner();
 
   virtual scoped_refptr<base::SingleThreadTaskRunner>
   GetWebRtcSignalingTaskRunner();
@@ -151,15 +154,12 @@ class MODULES_EXPORT PeerConnectionDependencyFactory
   // Ctor for tests.
   PeerConnectionDependencyFactory();
 
-  virtual const scoped_refptr<webrtc::PeerConnectionFactoryInterface>&
+  virtual const rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface>&
   GetPcFactory();
   virtual bool PeerConnectionFactoryCreated();
 
   // Helper method to create a WebRtcAudioDeviceImpl.
   void EnsureWebRtcAudioDeviceImpl();
-
-  // Number of non-closed peer connections in existence.
-  size_t open_peer_connections_ = 0u;
 
  private:
   // ExecutionContextLifecycleObserver:
@@ -177,7 +177,7 @@ class MODULES_EXPORT PeerConnectionDependencyFactory
       const gfx::ColorSpace& render_color_space,
       scoped_refptr<base::SequencedTaskRunner> media_task_runner,
       media::GpuVideoAcceleratorFactories* gpu_factories,
-      media::DecoderFactory* media_decoder_factory,
+      base::WeakPtr<media::DecoderFactory> media_decoder_factory,
       base::WaitableEvent* event);
 
   void CreateIpcNetworkManagerOnNetworkThread(
@@ -193,11 +193,7 @@ class MODULES_EXPORT PeerConnectionDependencyFactory
   std::unique_ptr<IpcNetworkManager> network_manager_;
   std::unique_ptr<IpcPacketSocketFactory> socket_factory_;
 
-  scoped_refptr<webrtc::PeerConnectionFactoryInterface> pc_factory_;
-  // The metronome should only be used if kWebRtcMetronomeTaskQueue is enabled
-  // and there exists open RTCPeerConnection objects.
-  scoped_refptr<MetronomeProvider> metronome_provider_;
-  scoped_refptr<MetronomeSource> metronome_source_;
+  rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> pc_factory_;
 
   // Dispatches all P2P sockets.
   Member<P2PSocketDispatcher> p2p_socket_dispatcher_;
@@ -206,7 +202,8 @@ class MODULES_EXPORT PeerConnectionDependencyFactory
 
   media::GpuVideoAcceleratorFactories* gpu_factories_;
 
-  bool encode_decode_capabilities_reported_ = false;
+  GC_PLUGIN_IGNORE("https://crbug.com/1381979")
+  WebrtcVideoPerfReporter webrtc_video_perf_reporter_;
 
   THREAD_CHECKER(thread_checker_);
 };

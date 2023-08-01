@@ -1,22 +1,22 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 /* Script used to strip anchor links from webview */
-const webviewStripLinksContentScript = {
+export const webviewStripLinksContentScript = {
   name: 'stripLinks',
   matches: ['<all_urls>'],
   js: {
     code: 'document.querySelectorAll(\'a\').forEach(' +
-        'function(anchor){anchor.href=\'javascript:void(0)\';})'
+        'function(anchor){anchor.href=\'javascript:void(0)\';})',
   },
-  run_at: 'document_end'
+  run_at: 'document_end',
 };
 
 /**
  * Sanitizer which filters the html snippet with a set of whitelisted tags.
  */
-class HtmlSanitizer {
+export class HtmlSanitizer {
   constructor() {
     // initialize set of whitelisted tags.
     this.allowedTags = new Set(['b', 'i', 'br', 'p', 'a', 'ul', 'li', 'div']);
@@ -32,8 +32,8 @@ class HtmlSanitizer {
    * @public
    */
   sanitizeHtml(content) {
-    var doc = document.implementation.createHTMLDocument();
-    var div = doc.createElement('div');
+    const doc = document.implementation.createHTMLDocument();
+    const div = doc.createElement('div');
     div.innerHTML = content;
     return this.sanitizeNode_(doc, div).innerHTML;
   }
@@ -48,7 +48,7 @@ class HtmlSanitizer {
    * @private
    */
   sanitizeNode_(doc, node) {
-    var name = node.nodeName.toLowerCase();
+    const name = node.nodeName.toLowerCase();
     if (name == '#text') {
       return node;
     }
@@ -56,7 +56,7 @@ class HtmlSanitizer {
       return doc.createTextNode('');
     }
 
-    var copy = doc.createElement(name);
+    const copy = doc.createElement(name);
     // Only allow 'href' attribute for tag 'a'.
     if (name == 'a' && node.attributes.length == 1 &&
         node.attributes.item(0).name == 'href') {
@@ -64,9 +64,26 @@ class HtmlSanitizer {
     }
 
     while (node.childNodes.length > 0) {
-      var child = node.removeChild(node.childNodes[0]);
+      const child = node.removeChild(node.childNodes[0]);
       copy.appendChild(this.sanitizeNode_(doc, child));
     }
     return copy;
   }
 }
+
+/**
+ * Possible native assistant icons
+ * Must be in sync with the corresponding c++ enum
+ * @enum {number}
+ */
+export const AssistantNativeIconType = {
+  NONE: 0,
+
+  // Web & App Activity.
+  WAA: 1,
+
+  // Device Applications Information.
+  DA: 2,
+
+  INFO: 3,
+};

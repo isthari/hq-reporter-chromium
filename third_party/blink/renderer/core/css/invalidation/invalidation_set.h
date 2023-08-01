@@ -139,6 +139,9 @@ class CORE_EXPORT InvalidationSet
   void SetInvalidatesSelf() { invalidates_self_ = true; }
   bool InvalidatesSelf() const { return invalidates_self_; }
 
+  void SetInvalidatesNth() { invalidates_nth_ = true; }
+  bool InvalidatesNth() const { return invalidates_nth_; }
+
   void SetTreeBoundaryCrossing() {
     invalidation_flags_.SetTreeBoundaryCrossing(true);
   }
@@ -245,7 +248,7 @@ class CORE_EXPORT InvalidationSet
 
   // Each BackingType has a corresponding bit in an instance of this class. A
   // set bit indicates that the Backing at that position is a HashSet. An unset
-  // bit indicates an AtomicString (which may be nullptr).
+  // bit indicates a StringImpl (which may be nullptr).
   class BackingFlags {
    private:
     uint8_t bits_ = 0;
@@ -257,78 +260,82 @@ class CORE_EXPORT InvalidationSet
   // attributes to invalidate. However, since it's common for these hash sets
   // to contain only one element (with a total capacity of 8), we avoid creating
   // the actual HashSets until we have more than one item. If a set contains
-  // just one item, we store a pointer to an AtomicString instead, along with a
-  // bit indicating either AtomicString or HashSet.
+  // just one item, we store a pointer to a StringImpl instead, along with a
+  // bit indicating either StringImpl or HashSet.
   //
   // The bits (see BackingFlags) associated with each Backing are stored on the
   // outside, to make sizeof(InvalidationSet) as small as possible.
   //
   // WARNING: Backings must be cleared manually in ~InvalidationSet, otherwise
-  //          an AtomicString or HashSet will leak.
-  //
-  // TODO: Consider de-unionizing this and using virtual classes to represent
-  // different backing types.
+  //          a StringImpl or HashSet will leak.
   template <BackingType type>
   union Backing {
     using Flags = BackingFlags;
     static_assert(static_cast<size_t>(type) < sizeof(BackingFlags::bits_) * 8,
                   "Enough bits in BackingFlags");
 
+    ~Backing() {
+      // Destruction is done by Clear(), since we don't know
+      // which of the two members are active without any flags.
+    }
+
     // Adds an AtomicString to the associated Backing. If the Backing is
-    // currently empty, we simply copy the incoming AtomicString. If the
-    // Backing already has one item, we first "upgrade"
+    // currently empty, we simply AddRef the StringImpl of the incoming
+    // AtomicString. If the Backing already has one item, we first "upgrade"
     // to a HashSet, and add the AtomicString.
     void Add(Flags&, const AtomicString&);
-    // Clears the associated Backing.
+    // Clears the associated Backing. If the Backing is a String, it is
+    // destroyed. If the Backing is a HashSet, it is deleted.
     void Clear(Flags&);
     bool Contains(const Flags&, const AtomicString&) const;
     bool IsEmpty(const Flags&) const;
     size_t Size(const Flags&) const;
     bool IsHashSet(const Flags& flags) const { return flags.bits_ & GetMask(); }
 
-    const AtomicString& GetAtomicString(const Flags& flags) const {
-      return (IsHashSet(flags) || !atomic_string_) ? g_null_atom
-                                                   : *atomic_string_;
+    const String* GetString(const Flags& flags) const {
+      return IsHashSet(flags) ? nullptr : &string_;
     }
     const HashSet<AtomicString>* GetHashSet(const Flags& flags) const {
       return IsHashSet(flags) ? hash_set_ : nullptr;
     }
 
     // A simple forward iterator, which can either "iterate" over a single
-    // AtomicString, or act as a wrapper for HashSet<AtomicString>::iterator.
+    // StringImpl, or act as a wrapper for HashSet<AtomicString>::iterator.
     class Iterator {
      public:
       enum class Type { kString, kHashSet };
 
-      explicit Iterator(AtomicString* string_impl)
+      explicit Iterator(const String& string_impl)
           : type_(Type::kString), string_(string_impl) {}
       explicit Iterator(HashSet<AtomicString>::iterator iterator)
           : type_(Type::kHashSet), hash_set_iterator_(iterator) {}
 
       bool operator==(const Iterator& other) const {
-        if (type_ != other.type_)
+        if (type_ != other.type_) {
           return false;
-        if (type_ == Type::kString)
+        }
+        if (type_ == Type::kString) {
           return string_ == other.string_;
+        }
         return hash_set_iterator_ == other.hash_set_iterator_;
       }
       bool operator!=(const Iterator& other) const { return !(*this == other); }
       void operator++() {
-        if (type_ == Type::kString)
-          string_ = nullptr;
-        else
+        if (type_ == Type::kString) {
+          string_ = g_null_atom;
+        } else {
           ++hash_set_iterator_;
+        }
       }
 
       const AtomicString& operator*() const {
-        return type_ == Type::kString ? (string_ ? *string_ : g_null_atom)
-                                      : *hash_set_iterator_;
+        return type_ == Type::kString ? string_ : *hash_set_iterator_;
       }
 
      private:
       Type type_;
       // Used when type_ is kString.
-      AtomicString* string_;
+      AtomicString string_;
       // Used when type_ is kHashSet.
       HashSet<AtomicString>::iterator hash_set_iterator_;
     };
@@ -345,10 +352,10 @@ class CORE_EXPORT InvalidationSet
     };
 
     Range Items(const Flags& flags) const {
-      Iterator begin = IsHashSet(flags) ? Iterator(hash_set_->begin())
-                                        : Iterator(atomic_string_);
-      Iterator end =
-          IsHashSet(flags) ? Iterator(hash_set_->end()) : Iterator(nullptr);
+      Iterator begin =
+          IsHashSet(flags) ? Iterator(hash_set_->begin()) : Iterator(string_);
+      Iterator end = IsHashSet(flags) ? Iterator(hash_set_->end())
+                                      : Iterator(g_null_atom.Impl());
       return Range(begin, end);
     }
 
@@ -357,7 +364,7 @@ class CORE_EXPORT InvalidationSet
     void SetIsString(Flags& flags) { flags.bits_ &= ~GetMask(); }
     void SetIsHashSet(Flags& flags) { flags.bits_ |= GetMask(); }
 
-    AtomicString* atomic_string_ = nullptr;
+    String string_{};
     HashSet<AtomicString>* hash_set_;
   };
 
@@ -407,9 +414,9 @@ class CORE_EXPORT InvalidationSet
   }
 
   // Look for any class name on Element that is contained in |classes_|.
-  StringImpl* FindAnyClass(Element&) const;
+  const String* FindAnyClass(Element&) const;
   // Look for any attribute on Element that is contained in |attributes_|.
-  StringImpl* FindAnyAttribute(Element&) const;
+  const String* FindAnyAttribute(Element&) const;
 
   Backing<BackingType::kClasses> classes_;
   Backing<BackingType::kIds> ids_;
@@ -423,6 +430,12 @@ class CORE_EXPORT InvalidationSet
 
   // If true, the element or sibling itself is invalid.
   unsigned invalidates_self_ : 1;
+
+  // If true, scheduling this invalidation set on a node
+  // will also schedule nth-child invalidation on its parent
+  // (unless we know for sure no child can be affected by a
+  // selector of the :nth-child type).
+  unsigned invalidates_nth_ : 1;
 
   // If true, the instance is alive and can be used.
   unsigned is_alive_ : 1;
@@ -532,17 +545,18 @@ void InvalidationSet::Backing<type>::Add(InvalidationSet::BackingFlags& flags,
   DCHECK(!string.IsNull());
   if (IsHashSet(flags)) {
     hash_set_->insert(string);
-  } else if (atomic_string_) {
-    if (string == *atomic_string_)
+  } else if (string_) {
+    if (string_ == string) {
       return;
-    AtomicString atomic_string(std::move(*atomic_string_));
-    delete atomic_string_;
+    }
+    AtomicString atomic_string(std::move(string_));
+    string_.~String();
     hash_set_ = new HashSet<AtomicString>();
-    hash_set_->insert(std::move(atomic_string));
+    hash_set_->insert(atomic_string);
     hash_set_->insert(string);
     SetIsHashSet(flags);
   } else {
-    atomic_string_ = new AtomicString(string);
+    new (&string_) String(string.GetString());
   }
 }
 
@@ -552,13 +566,10 @@ void InvalidationSet::Backing<type>::Clear(
   if (IsHashSet(flags)) {
     if (hash_set_) {
       delete hash_set_;
-      hash_set_ = nullptr;
+      new (&string_) String;
     }
   } else {
-    if (atomic_string_) {
-      delete atomic_string_;
-      atomic_string_ = nullptr;
-    }
+    string_ = String();
   }
   SetIsString(flags);
 }
@@ -567,26 +578,27 @@ template <typename InvalidationSet::BackingType type>
 bool InvalidationSet::Backing<type>::Contains(
     const InvalidationSet::BackingFlags& flags,
     const AtomicString& string) const {
-  if (IsHashSet(flags))
+  if (IsHashSet(flags)) {
     return hash_set_->Contains(string);
-  if (atomic_string_)
-    return string == *atomic_string_;
-  return false;
+  }
+  return string == string_;
 }
 
 template <typename InvalidationSet::BackingType type>
 bool InvalidationSet::Backing<type>::IsEmpty(
     const InvalidationSet::BackingFlags& flags) const {
-  return !IsHashSet(flags) && !atomic_string_;
+  return !IsHashSet(flags) && !string_;
 }
 
 template <typename InvalidationSet::BackingType type>
 size_t InvalidationSet::Backing<type>::Size(
     const InvalidationSet::BackingFlags& flags) const {
-  if (const HashSet<AtomicString>* set = GetHashSet(flags))
+  if (const HashSet<AtomicString>* set = GetHashSet(flags)) {
     return set->size();
-  if (const AtomicString& impl = GetAtomicString(flags))
+  }
+  if (const String* string = GetString(flags)) {
     return 1;
+  }
   return 0;
 }
 

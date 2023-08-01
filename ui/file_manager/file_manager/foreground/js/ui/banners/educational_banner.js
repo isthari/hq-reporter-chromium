@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -100,10 +100,16 @@ export class EducationalBanner extends Banner {
         this.shadowRoot.querySelector('#dismiss-button');
     if (overridenDismissButton) {
       overridenDismissButton.addEventListener(
-          'click', event => this.onDismissClickHandler_(event));
+          'click',
+          event => this.onDismissClickHandler_(
+              event,
+              Banner.DismissedForeverEventSource.OVERRIDEN_DISMISS_BUTTON));
     } else if (defaultDismissButton) {
       defaultDismissButton.addEventListener(
-          'click', event => this.onDismissClickHandler_(event));
+          'click',
+          event => this.onDismissClickHandler_(
+              event,
+              Banner.DismissedForeverEventSource.DEFAULT_DISMISS_BUTTON));
     }
 
     // Attach an onclick handler to the extra-button slot. This enables a new
@@ -111,15 +117,19 @@ export class EducationalBanner extends Banner {
     // TODO(crbug.com/1228128): Add UMA trigger to capture number of extra
     // button clicks.
     const extraButton = this.querySelector('[slot="extra-button"]');
-    if (extraButton) {
+    const href = extraButton?.getAttribute('href');
+    if (href) {
       extraButton.addEventListener('click', (e) => {
-        util.visitURL(extraButton.getAttribute('href'));
+        util.visitURL(/** @type {!string} */ (href));
         if (extraButton.hasAttribute('dismiss-banner-when-clicked')) {
           this.dispatchEvent(
               new CustomEvent(Banner.Event.BANNER_DISMISSED_FOREVER, {
                 bubbles: true,
                 composed: true,
-                detail: {banner: this.getBannerInstance_()}
+                detail: {
+                  banner: this.getBannerInstance_(),
+                  eventSource: Banner.DismissedForeverEventSource.EXTRA_BUTTON,
+                },
               }));
         }
         e.preventDefault();
@@ -150,13 +160,18 @@ export class EducationalBanner extends Banner {
    * Handler for the dismiss button on click, switches to the custom banner
    * dismissal event to ensure the controller can catch the event.
    * @param {!Event} event The click event.
+   * @param {!Banner.DismissedForeverEventSource} dismissedForeverEventSource A
+   *     source of this event.
    * @private
    */
-  onDismissClickHandler_(event) {
+  onDismissClickHandler_(event, dismissedForeverEventSource) {
     this.dispatchEvent(new CustomEvent(Banner.Event.BANNER_DISMISSED_FOREVER, {
       bubbles: true,
       composed: true,
-      detail: {banner: this.getBannerInstance_()}
+      detail: {
+        banner: this.getBannerInstance_(),
+        eventSource: dismissedForeverEventSource,
+      },
     }));
   }
 }

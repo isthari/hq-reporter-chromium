@@ -1,8 +1,10 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.autofill;
+
+import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
@@ -23,7 +25,8 @@ final class SaveUpdateAddressProfilePromptController {
     }
 
     @CalledByNative
-    private static SaveUpdateAddressProfilePromptController create(
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    static SaveUpdateAddressProfilePromptController create(
             long nativeSaveUpdateAddressProfilePromptController) {
         return new SaveUpdateAddressProfilePromptController(
                 nativeSaveUpdateAddressProfilePromptController);

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 
@@ -45,7 +45,7 @@ class IsDirectoryCollector {
  private:
   void OnIsDirectoryCollected(size_t index, bool directory);
 
-  raw_ptr<content::BrowserContext> context_;
+  raw_ptr<content::BrowserContext, FlakyDanglingUntriaged> context_;
   std::vector<base::FilePath> paths_;
   std::unique_ptr<std::set<base::FilePath>> result_;
   size_t left_;

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,15 +10,15 @@ namespace extensions {
 
 ServiceWorkerData::ServiceWorkerData(
     int64_t service_worker_version_id,
-    ActivationSequence activation_sequence,
+    base::UnguessableToken activation_sequence,
     ScriptContext* context,
     std::unique_ptr<NativeExtensionBindingsSystem> bindings_system)
     : service_worker_version_id_(service_worker_version_id),
-      activation_sequence_(activation_sequence),
+      activation_sequence_(std::move(activation_sequence)),
       context_(context),
       v8_schema_registry_(new V8SchemaRegistry),
       bindings_system_(std::move(bindings_system)) {}
 
-ServiceWorkerData::~ServiceWorkerData() {}
+ServiceWorkerData::~ServiceWorkerData() = default;
 
 }  // namespace extensions

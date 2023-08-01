@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 
 import org.chromium.base.Callback;
-import org.chromium.base.ContextUtils;
 import org.chromium.base.PackageUtils;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.NativeMethods;
@@ -17,6 +16,7 @@ import org.chromium.chrome.browser.AppHooks;
 import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntentDataProvider;
 import org.chromium.chrome.browser.browserservices.intents.WebappIntentUtils;
 import org.chromium.chrome.browser.browserservices.metrics.WebApkUmaRecorder;
+import org.chromium.components.webapps.WebApkInstallResult;
 
 /**
  * Java counterpart to webapk_installer.h
@@ -71,7 +71,7 @@ public class WebApkInstaller {
         }
 
         if (mInstallDelegate == null) {
-            notify(WebApkInstallResult.FAILURE);
+            notify(WebApkInstallResult.NO_INSTALLER);
             WebApkUmaRecorder.recordGooglePlayInstallResult(
                     WebApkUmaRecorder.GooglePlayInstallResult.FAILED_NO_DELEGATE);
             return;
@@ -108,8 +108,7 @@ public class WebApkInstaller {
 
     private void notify(@WebApkInstallResult int result) {
         if (mNativePointer != 0) {
-            WebApkInstallerJni.get().onInstallFinished(
-                    mNativePointer, WebApkInstaller.this, result);
+            WebApkInstallerJni.get().onInstallFinished(mNativePointer, result);
         }
     }
 
@@ -124,7 +123,7 @@ public class WebApkInstaller {
     private void updateAsync(
             String packageName, int version, String title, String token) {
         if (mInstallDelegate == null) {
-            notify(WebApkInstallResult.FAILURE);
+            notify(WebApkInstallResult.NO_INSTALLER);
             return;
         }
 
@@ -156,8 +155,7 @@ public class WebApkInstaller {
 
             @Override
             protected void onPostExecute(Integer result) {
-                WebApkInstallerJni.get().onGotSpaceStatus(
-                        mNativePointer, WebApkInstaller.this, result);
+                WebApkInstallerJni.get().onGotSpaceStatus(mNativePointer, result);
             }
         }
                 .executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
@@ -169,13 +167,12 @@ public class WebApkInstaller {
     }
 
     private boolean isWebApkInstalled(String packageName) {
-        return PackageUtils.isPackageInstalled(ContextUtils.getApplicationContext(), packageName);
+        return PackageUtils.isPackageInstalled(packageName);
     }
 
     @NativeMethods
     interface Natives {
-        void onInstallFinished(long nativeWebApkInstaller, WebApkInstaller caller,
-                @WebApkInstallResult int result);
-        void onGotSpaceStatus(long nativeWebApkInstaller, WebApkInstaller caller, int status);
+        void onInstallFinished(long nativeWebApkInstaller, @WebApkInstallResult int result);
+        void onGotSpaceStatus(long nativeWebApkInstaller, int status);
     }
 }

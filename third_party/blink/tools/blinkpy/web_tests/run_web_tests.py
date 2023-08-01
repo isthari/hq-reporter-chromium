@@ -29,11 +29,8 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import logging
-import multiprocessing
 import optparse
-import sys
 import traceback
-import six
 
 from blinkpy.common import exit_codes
 from blinkpy.common.host import Host
@@ -42,7 +39,6 @@ from blinkpy.web_tests.models import test_run_results
 from blinkpy.web_tests.port.factory import configuration_options
 from blinkpy.web_tests.port.factory import platform_options
 from blinkpy.web_tests.port.factory import wpt_options
-from blinkpy.web_tests.port.factory import python_server_options
 from blinkpy.web_tests.views import printing
 
 _log = logging.getLogger(__name__)
@@ -60,7 +56,7 @@ def main(argv, stderr):
     else:
         host = Host()
 
-    if six.PY3 and stderr.isatty():
+    if stderr.isatty():
         stderr.reconfigure(write_through=True)
     printer = printing.Printer(host, options, stderr)
 
@@ -70,10 +66,6 @@ def main(argv, stderr):
         _log.error(error)
         printer.cleanup()
         return exit_codes.UNEXPECTED_ERROR_EXIT_STATUS
-
-    # Spawn ends up with pickle errors while creating workers on fuchsia.
-    if not six.PY2 and ("fuchsia" not in port.port_name):
-        multiprocessing.set_start_method('spawn')
 
     try:
         return run(port, options, args, printer).exit_code
@@ -120,29 +112,6 @@ def parse_args(args):
     option_group_definitions.append(('web-platform-tests (WPT) Options',
                                      wpt_options()))
 
-    option_group_definitions.append(('Python Server Options',
-                                     python_server_options()))
-
-    option_group_definitions.append((
-        'Android-specific Options',
-        [
-            optparse.make_option(
-                '--adb-device',
-                action='append',
-                default=[],
-                dest='adb_devices',
-                help='Run Android web tests on these devices'),
-            # FIXME: Flip this to be off by default once we can log the
-            # device setup more cleanly.
-            optparse.make_option(
-                '--no-android-logging',
-                dest='android_logging',
-                action='store_false',
-                default=True,
-                help=('Do not log android-specific debug messages (default '
-                      'is to log as part of --debug-rwt-logging)')),
-        ]))
-
     option_group_definitions.append(('Fuchsia-specific Options', [
         optparse.make_option(
             '--zircon-logging',
@@ -156,10 +125,10 @@ def parse_args(args):
                              default=True,
                              help=('Do not log Zircon debug messages.')),
         optparse.make_option('--device',
-                             choices=['aemu', 'qemu', 'device', 'fvdl'],
+                             choices=['qemu', 'device', 'fvdl'],
                              default='fvdl',
                              help=('Choose device to launch Fuchsia with. '
-                                   'Defaults to AEMU.')),
+                                   'Defaults to fvdl.')),
         optparse.make_option('--fuchsia-target-cpu',
                              choices=['x64', 'arm64'],
                              default='x64',
@@ -167,30 +136,39 @@ def parse_args(args):
                                    'to x64.')),
         optparse.make_option('--fuchsia-out-dir',
                              help=('Path to Fuchsia build output directory.')),
+        optparse.make_option('--custom-image',
+                             help=('Specify an image used for booting up the '
+                                   'emulator.')),
         optparse.make_option(
             '--fuchsia-ssh-config',
             help=('The path to the SSH configuration used for '
                   'connecting to the target device.')),
-        optparse.make_option('--fuchsia-host',
-                             help=('The IP of the target device. Optional.')),
-        optparse.make_option(
-            '--fuchsia-port',
-            type=int,
-            default=None,
-            help=('The port of the SSH service running on the '
-                  'device. Optional.')),
-        optparse.make_option('--fuchsia-node-name',
+        optparse.make_option('--fuchsia-target-id',
                              help=('The node-name of the device to boot or '
-                                   'deploy to. Optional')),
+                                   'deploy to.')),
         optparse.make_option(
             '--fuchsia-host-ip',
             help=('The IP address of the test host observed by the Fuchsia '
                   'device. Required if running on hardware devices.')),
+        optparse.make_option('--logs-dir',
+                             help='Location of diagnostics logs'),
     ]))
 
     option_group_definitions.append((
         'Results Options',
         [
+            optparse.make_option(
+                '--flag-specific',
+                dest='flag_specific',
+                action='store',
+                default=None,
+                help=
+                ('Name of a flag-specific configuration defined in FlagSpecificConfig. '
+                 'It is like a shortcut of --additional-driver-flag, '
+                 '--additional-expectations and --additional-platform-directory. '
+                 'When setting up flag-specific testing on bots, we should use '
+                 'this option instead of the discrete options. '
+                 'See crbug.com/1238155 for details.')),
             optparse.make_option(
                 '--additional-driver-flag',
                 '--additional-drt-flag',
@@ -200,14 +178,6 @@ def parse_args(args):
                 help=
                 ('Additional command line flag to pass to the driver. Specify multiple '
                  'times to add multiple flags.')),
-            optparse.make_option(
-                '--flag-specific',
-                dest='flag_specific',
-                action='store',
-                default=None,
-                help=
-                ('Name of a flag-specific configuration defined in FlagSpecificConfig, '
-                 ' as a shortcut of --additional-driver-flag options.')),
             optparse.make_option(
                 '--additional-expectations',
                 action='append',
@@ -262,21 +232,17 @@ def parse_args(args):
                  'directory, or the flag-specific generic-platform directory if '
                  '--additional-driver-flag is specified. See --reset-results.'
                  )),
-            optparse.make_option(
-                '--driver-name',
-                type='string',
-                help='Alternative driver binary to use'),
+            optparse.make_option('--driver-name',
+                                 type='string',
+                                 help='Alternative driver binary to use'),
             optparse.make_option(
                 '--json-test-results',  # New name from json_results_generator
                 '--write-full-results-to',  # Old argument name
                 '--isolated-script-test-output',  # Isolated API
                 help='Path to write the JSON test results for *all* tests.'),
-            # FIXME(tansell): Remove this option if nobody is found who needs it.
             optparse.make_option(
-                '--json-failing-test-results',
-                help=
-                'Path to write the JSON test results for only *failing* tests.'
-            ),
+                '--write-run-histories-to',
+                help='Path to write the JSON test run histories.'),
             optparse.make_option(
                 '--no-show-results',
                 dest='show_results',
@@ -295,16 +261,15 @@ def parse_args(args):
                  'If --additional-driver-flag is specified, reset the flag-specific baselines. '
                  'If --copy-baselines is specified, the copied baselines will be reset.'
                  )),
-            optparse.make_option(
-                '--results-directory', help='Location of test results'),
-            optparse.make_option(
-                '--smoke', action='store_true',
-                help='Run just the SmokeTests'),
-            optparse.make_option(
-                '--no-smoke',
-                dest='smoke',
-                action='store_false',
-                help='Do not run just the SmokeTests'),
+            optparse.make_option('--results-directory',
+                                 help='Location of test results'),
+            optparse.make_option('--smoke',
+                                 action='store_true',
+                                 help='Run just the SmokeTests'),
+            optparse.make_option('--no-smoke',
+                                 dest='smoke',
+                                 action='store_false',
+                                 help='Do not run just the SmokeTests'),
         ]))
 
     option_group_definitions.append((
@@ -328,6 +293,10 @@ def parse_args(args):
                 dest='build',
                 action='store_false',
                 help="Don't check to see if the build is up to date."),
+            optparse.make_option('--wpt-only',
+                                 action='store_true',
+                                 default=False,
+                                 help=('Run web platform tests only.')),
             optparse.make_option('--child-processes',
                                  '--jobs',
                                  '-j',
@@ -351,9 +320,9 @@ def parse_args(args):
             optparse.make_option(
                 '--enable-tracing',
                 type='string',
-                help='Capture and write a trace file with the specied '
+                help='Capture and write a trace file with the specified '
                 'categories for each test. Passes appropriate --trace-startup '
-                'flags to the driver.'),
+                'flags to the driver. If in doubt, use "*".'),
             optparse.make_option(
                 '--exit-after-n-crashes-or-timeouts',
                 type='int',
@@ -531,14 +500,17 @@ def parse_args(args):
                 help=
                 'Run the N% fastest tests as well as any tests listed on the command line'
             ),
+            optparse.make_option('--test-list',
+                                 action='append',
+                                 metavar='FILE',
+                                 help='read filters for tests to run'),
             optparse.make_option(
-                '--test-list',
                 '--isolated-script-test-filter-file',
                 '--test-launcher-filter-file',
                 action='append',
                 metavar='FILE',
                 help=
-                'read list of tests to run from file, as if they were specified on the command line'
+                'read filters for tests to not run as if they were specified on the command line'
             ),
             optparse.make_option(
                 '--isolated-script-test-filter',
@@ -611,7 +583,13 @@ def parse_args(args):
                  'use case is to leave enough time to allow the process to '
                  'finish post-run hooks, such as dumping code coverage data. '
                  'Default is 1 second, can be overriden for specific use cases.'
-                 ))
+                 )),
+            optparse.make_option(
+                '--ignore-testharness-expected-txt',
+                action='store_true',
+                help=('Ignore *-expected.txt for all testharness tests. All '
+                      'testharness test failures will be shown, even if the '
+                      'failures are expected in *-expected.txt.')),
         ]))
 
     # FIXME: Move these into json_results_generator.py.
@@ -633,16 +611,6 @@ def parse_args(args):
                 default='',
                 help='The name of the builder shown on the waterfall running '
                 'this script, e.g. "Mac10.13 Tests".'),
-            # TODO(qyearsley): This is not actually a Buildbot master since
-            # Buildbot is gone; all instances of the term "master" in this
-            # code-base should be removed after test-results.appspot.com is
-            # removed.
-            optparse.make_option('--master-name'),
-            optparse.make_option(
-                '--test-results-server',
-                default='',
-                help='If specified, upload results JSON files to this '
-                'App Engine server.'),
         ]))
 
     option_parser = optparse.OptionParser(
@@ -691,7 +659,10 @@ def _set_up_derived_options(port, options, args):
                                   str(port.default_max_locked_shards())))
 
     if not options.configuration:
-        options.configuration = port.default_configuration()
+        options.configuration = port.get_option('configuration')
+
+    if not options.target:
+        options.target = port.get_option('target')
 
     if not options.timeout_ms:
         options.timeout_ms = str(port.timeout_ms())
@@ -716,8 +687,7 @@ def _set_up_derived_options(port, options, args):
 
         if not options.test_list:
             options.test_list = []
-        options.test_list.append(
-            port.host.filesystem.join(port.web_tests_dir(), 'SmokeTests'))
+        options.test_list.append(port.path_to_smoke_tests_file())
         if not options.skipped:
             options.skipped = 'always'
 
@@ -745,7 +715,3 @@ def run(port, options, args, printer):
     _log.debug('Testing completed. Exit status: %d', run_details.exit_code)
     printer.flush()
     return run_details
-
-
-if __name__ == '__main__':
-    sys.exit(main(sys.argv[1:], sys.stderr))

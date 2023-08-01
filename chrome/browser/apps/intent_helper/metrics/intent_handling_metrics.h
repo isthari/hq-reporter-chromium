@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include "chrome/browser/apps/intent_helper/apps_navigation_types.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chrome/browser/ash/arc/intent_helper/arc_external_protocol_dialog.h"
+#include "chrome/browser/chromeos/arc/arc_external_protocol_dialog.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace content {
@@ -17,8 +17,6 @@ class BrowserContext;
 }  // namespace content
 
 namespace apps {
-
-enum class PickerShowState;
 
 class IntentHandlingMetrics {
  public:
@@ -109,6 +107,19 @@ class IntentHandlingMetrics {
     kMaxValue = kAutoPopOut,
   };
 
+  // These are the events that occur in the link capturing flow.
+  enum class LinkCapturingEvent {
+    // An entry point for the link capturing flow was shown, in the form of the
+    // Intent Chip or Intent Picker.
+    kEntryPointShown = 0,
+    // The link was captured (opened) in an available app.
+    kAppOpened = 1,
+    // The user accepted the option to automatically open similar links in the
+    // future with this same app selection.
+    kSettingsChanged = 2,
+    kMaxValue = kSettingsChanged,
+  };
+
   IntentHandlingMetrics();
 
   // Records metrics for the outcome of a user selection in the http/https
@@ -117,8 +128,7 @@ class IntentHandlingMetrics {
   // whether the persistence checkbox was checked.
   static void RecordIntentPickerMetrics(PickerEntryType entry_type,
                                         IntentPickerCloseReason close_reason,
-                                        bool should_persist,
-                                        PickerShowState show_state);
+                                        bool should_persist);
 
   // Records metrics for when a link is clicked which can handle a preferred
   // app, as the result of a user previously setting a preference for that app.
@@ -128,7 +138,18 @@ class IntentHandlingMetrics {
   // Omnibox.
   static void RecordIntentPickerIconEvent(IntentPickerIconEvent event);
 
+  // Records metrics for when an entry point is shown for the link capturing
+  // flow. An entry point can be the Intent Chip or Intent Picker.
+  static void RecordLinkCapturingEntryPointShown(
+      const std::vector<IntentPickerAppInfo>& app_infos);
+
+  // Records metrics for link capturing flow events, including when an app is
+  // opened and when settings are saved.
+  static void RecordLinkCapturingEvent(PickerEntryType app_type,
+                                       LinkCapturingEvent event);
+
 #if BUILDFLAG(IS_CHROMEOS_ASH)
+  // TODO(crbug.com/1275075): Support metrices in Lacros.
   static void RecordExternalProtocolMetrics(arc::Scheme scheme,
                                             apps::PickerEntryType entry_type,
                                             bool accepted,

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,13 @@
 #include "ash/public/cpp/notifier_settings_observer.h"
 #include "base/feature_list.h"
 #include "base/i18n/string_compare.h"
+#include "base/memory/raw_ptr.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_features.h"
 #include "chrome/browser/notifications/arc_application_notifier_controller.h"
 #include "chrome/browser/notifications/extension_notifier_controller.h"
 #include "chrome/browser/notifications/pwa_notifier_controller.h"
 #include "chrome/browser/notifications/web_page_notifier_controller.h"
-#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
 #include "chrome/common/webui_url_constants.h"
 #include "components/user_manager/user.h"
@@ -54,7 +54,7 @@ class NotifierComparator {
   }
 
  private:
-  icu::Collator* collator_;
+  raw_ptr<icu::Collator, ExperimentalAsh> collator_;
 };
 
 // This delegate forwards NotificationDelegate methods to their equivalent in
@@ -99,7 +99,7 @@ class ForwardingNotificationDelegate
   // The ID of the notification.
   const std::string notification_id_;
 
-  NotificationPlatformBridgeDelegate* delegate_;
+  raw_ptr<NotificationPlatformBridgeDelegate, ExperimentalAsh> delegate_;
 };
 
 }  // namespace

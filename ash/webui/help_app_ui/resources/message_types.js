@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,4 +22,7 @@ export const Message = {
   MAYBE_SHOW_DISCOVER_NOTIFICATION: 'maybe-show-discover-notification',
   MAYBE_SHOW_RELEASE_NOTES_NOTIFICATION:
       'maybe-show-release-notes-notification',
+  GET_DEVICE_INFO: 'get-device-info',
+  OPEN_URL_IN_BROWSER_AND_TRIGGER_INSTALL_DIALOG:
+      'open-url-in-browser-and-trigger-install-dialog',
 };

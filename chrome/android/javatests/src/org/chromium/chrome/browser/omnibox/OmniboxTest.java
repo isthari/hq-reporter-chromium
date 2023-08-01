@@ -1,16 +1,17 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.omnibox;
 
 import android.annotation.SuppressLint;
-import android.support.test.InstrumentationRegistry;
 import android.view.KeyEvent;
 import android.widget.ImageView;
 
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.MediumTest;
 import androidx.test.filters.SmallTest;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -19,19 +20,16 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.ThreadUtils;
-import org.chromium.base.test.params.ParameterizedCommandLineFlags;
-import org.chromium.base.test.params.ParameterizedCommandLineFlags.Switches;
 import org.chromium.base.test.params.SkipCommandLineParameterization;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.EnormousTest;
 import org.chromium.base.test.util.Feature;
-import org.chromium.chrome.R;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.omnibox.status.StatusCoordinator;
 import org.chromium.chrome.browser.omnibox.suggestions.AutocompleteController.OnSuggestionsReceivedListener;
+import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.search_engines.TemplateUrlServiceFactory;
 import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
@@ -40,10 +38,10 @@ import org.chromium.chrome.browser.tabmodel.TabModelSelectorTabObserver;
 import org.chromium.chrome.browser.theme.ThemeColorProvider.ThemeColorObserver;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.chrome.test.util.OmniboxTestUtils;
 import org.chromium.components.embedder_support.util.UrlConstants;
-import org.chromium.components.omnibox.AutocompleteResult;
 import org.chromium.components.search_engines.TemplateUrl;
 import org.chromium.components.search_engines.TemplateUrlService;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
@@ -60,12 +58,6 @@ import java.util.List;
  */
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE})
-// clang-format off
-@ParameterizedCommandLineFlags({
-  @Switches(),
-  @Switches("disable-features=" + ChromeFeatureList.SPANNABLE_INLINE_AUTOCOMPLETE),
-})
-// clang-format on
 @SuppressLint("SetTextI18n")
 public class OmniboxTest {
     @Rule
@@ -79,11 +71,7 @@ public class OmniboxTest {
     }
 
     private static final OnSuggestionsReceivedListener sEmptySuggestionListener =
-            new OnSuggestionsReceivedListener() {
-                @Override
-                public void onSuggestionsReceived(
-                        AutocompleteResult autocompleteResult, String inlineAutocompleteText) {}
-            };
+            (result, autocompleteText, isFinal) -> {};
 
     /**
      * Sanity check of Omnibox.  The problem in http://b/5021723 would
@@ -175,8 +163,8 @@ public class OmniboxTest {
     @MediumTest
     @SkipCommandLineParameterization
     public void testSecurityIconOnHTTP() {
-        EmbeddedTestServer testServer =
-                EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
+        EmbeddedTestServer testServer = EmbeddedTestServer.createAndStartServer(
+                ApplicationProvider.getApplicationContext());
         try {
             final String testUrl = testServer.getURL("/chrome/test/data/android/omnibox/one.html");
 
@@ -202,8 +190,7 @@ public class OmniboxTest {
     @SkipCommandLineParameterization
     public void testSecurityIconOnHTTPS() throws Exception {
         EmbeddedTestServer httpsTestServer = EmbeddedTestServer.createAndStartHTTPSServer(
-                InstrumentationRegistry.getContext(),
-                ServerCertificate.CERT_OK);
+                ApplicationProvider.getApplicationContext(), ServerCertificate.CERT_OK);
         CallbackHelper onSSLStateUpdatedCallbackHelper = new CallbackHelper();
         TabObserver observer = new EmptyTabObserver() {
             @Override
@@ -256,7 +243,7 @@ public class OmniboxTest {
         setNonDefaultSearchEngine();
 
         EmbeddedTestServer httpsTestServer = EmbeddedTestServer.createAndStartHTTPSServer(
-                InstrumentationRegistry.getContext(), ServerCertificate.CERT_OK);
+                ApplicationProvider.getApplicationContext(), ServerCertificate.CERT_OK);
         CallbackHelper onSSLStateUpdatedCallbackHelper = new CallbackHelper();
         TabObserver observer = new EmptyTabObserver() {
             @Override
@@ -306,14 +293,14 @@ public class OmniboxTest {
     }
 
     private void setNonDefaultSearchEngine() {
-        TestThreadUtils.runOnUiThreadBlocking(() -> TemplateUrlServiceFactory.get().load());
-        CriteriaHelper.pollUiThread(() -> TemplateUrlServiceFactory.get().isLoaded());
+        TemplateUrlService templateUrlService = TestThreadUtils.runOnUiThreadBlockingNoException(
+                () -> TemplateUrlServiceFactory.getForProfile(Profile.getLastUsedRegularProfile()));
+        TestThreadUtils.runOnUiThreadBlocking(() -> templateUrlService.load());
+        CriteriaHelper.pollUiThread(() -> templateUrlService.isLoaded());
 
         TestThreadUtils.runOnUiThreadBlocking(() -> {
-            TemplateUrlService service = TemplateUrlServiceFactory.get();
-
-            List<TemplateUrl> searchEngines = service.getTemplateUrls();
-            TemplateUrl defaultEngine = service.getDefaultSearchEngineTemplateUrl();
+            List<TemplateUrl> searchEngines = templateUrlService.getTemplateUrls();
+            TemplateUrl defaultEngine = templateUrlService.getDefaultSearchEngineTemplateUrl();
 
             TemplateUrl notDefault = null;
             for (TemplateUrl searchEngine : searchEngines) {
@@ -325,13 +312,14 @@ public class OmniboxTest {
 
             Assert.assertNotNull(notDefault);
 
-            service.setSearchEngine(notDefault.getKeyword());
+            templateUrlService.setSearchEngine(notDefault.getKeyword());
         });
     }
 
     private void restoreDefaultSearchEngine() {
         TestThreadUtils.runOnUiThreadBlocking(() -> {
-            TemplateUrlService service = TemplateUrlServiceFactory.get();
+            TemplateUrlService service =
+                    TemplateUrlServiceFactory.getForProfile(Profile.getLastUsedRegularProfile());
             TemplateUrl defaultEngine = service.getDefaultSearchEngineTemplateUrl();
             service.setSearchEngine(defaultEngine.getKeyword());
         });

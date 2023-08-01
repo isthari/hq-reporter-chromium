@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,9 +6,9 @@
 
 #include <atomic>
 #include <limits>
-#include <memory>
 
 #include <assert.h>
+#include <ntstatus.h>
 
 #include "chrome/chrome_elf/crash/crash_helper.h"
 #include "chrome/chrome_elf/hook_util/hook_util.h"
@@ -209,6 +209,9 @@ bool GetDataFromImage(PVOID buffer,
   }
 
   // Lowercase |image_name|.
+  const auto tolower = [](auto c) {
+    return (c >= 'A' && c <= 'Z') ? (c + ('a' - 'A')) : c;
+  };
   for (size_t i = 0; i < image_name->size(); i++)
     (*image_name)[i] = tolower((*image_name)[i]);
 
@@ -235,7 +238,7 @@ bool GetDataFromImage(PVOID buffer,
 
   // Lowercase |section_basename|.
   for (size_t i = 0; i < temp_section_basename.size(); i++)
-    temp_section_basename[i] = towlower(temp_section_basename[i]);
+    temp_section_basename[i] = tolower(temp_section_basename[i]);
 
   // Convert section strings from UTF-16 to UTF-8.
   return UTF16ToUTF8(temp_section_path, section_path) &&
@@ -249,7 +252,7 @@ bool GetDataFromImage(PVOID buffer,
 // 2) Return if OS failure or not interested in section.
 // 3) Mine the data needed out of the PE headers.
 // 4) Lookup module in local cache (blocking).
-// 5) Temporarily check old (deprecated) blacklist.
+// 5) Temporarily check old (deprecated) blocklist.
 // 6) Unmap view if blocking required.
 // 7) Log the result either way.
 //------------------------------------------------------------------------------
@@ -315,25 +318,25 @@ NTSTATUS NewNtMapViewOfSectionImpl(
   elf_sha1::Digest fingerprint_hash = elf_sha1::SHA1HashString(
       GetFingerprintString(time_date_stamp, image_size));
 
-  // Check sources for blacklist decision.
+  // Check sources for blocklist decision.
   bool block = false;
 
   if (!image_name.empty() &&
       IsModuleListed(image_name_hash, fingerprint_hash)) {
-    // 1) Third-party DLL blacklist, check for image name from PE header.
+    // 1) Third-party DLL blocklist, check for image name from PE header.
     block = true;
   } else if (!section_basename.empty() &&
              section_basename_hash != image_name_hash &&
              IsModuleListed(section_basename_hash, fingerprint_hash)) {
-    // 2) Third-party DLL blacklist, check for image name from the section.
+    // 2) Third-party DLL blocklist, check for image name from the section.
     block = true;
   } else if (!image_name.empty() && DllMatch(image_name)) {
-    // 3) Hard-coded blacklist with name from PE header (deprecated).
+    // 3) Hard-coded blocklist with name from PE header (deprecated).
     block = true;
   } else if (!section_basename.empty() &&
              section_basename.compare(image_name) != 0 &&
              DllMatch(section_basename)) {
-    // 4) Hard-coded blacklist with name from the section (deprecated).
+    // 4) Hard-coded blocklist with name from the section (deprecated).
     block = true;
   }
   // Else, no block.
@@ -416,13 +419,10 @@ ThirdPartyStatus ApplyHook() {
     return ThirdPartyStatus::kHookInitImportsFailure;
 
   // Prep system-service thunk via the appropriate ServiceResolver instance.
-  std::unique_ptr<sandbox::ServiceResolverThunk> thunk(
-      elf_hook::HookSystemService(false));
-  if (!thunk)
-    return ThirdPartyStatus::kHookUnsupportedOs;
+  sandbox::ServiceResolverThunk thunk(::GetCurrentProcess(), /*relaxed=*/false);
 
   // Set target process to self.
-  thunk->AllowLocalPatches();
+  thunk.AllowLocalPatches();
 
   // Mark the thunk storage as readable and writeable, since we
   // are ready to write to it now.
@@ -440,10 +440,10 @@ ThirdPartyStatus ApplyHook() {
   // Setup() applies the system-service patch, and stores a copy of the original
   // system service coded in |thunk_storage|.
   ntstatus =
-      thunk->Setup(::GetModuleHandle(sandbox::kNtdllName),
-                   reinterpret_cast<void*>(&__ImageBase), "NtMapViewOfSection",
-                   nullptr, reinterpret_cast<void*>(&NewNtMapViewOfSection64),
-                   thunk_storage, sizeof(sandbox::ThunkData), nullptr);
+      thunk.Setup(::GetModuleHandle(sandbox::kNtdllName),
+                  reinterpret_cast<void*>(&__ImageBase), "NtMapViewOfSection",
+                  nullptr, reinterpret_cast<void*>(&NewNtMapViewOfSection64),
+                  thunk_storage, sizeof(sandbox::ThunkData), nullptr);
 
   // Keep a pointer to the original system-service code, which is now in
   // |thunk_storage|.  Use this pointer for passing off execution from new shim.
@@ -460,10 +460,10 @@ ThirdPartyStatus ApplyHook() {
   }
 #else   // x86
   ntstatus =
-      thunk->Setup(::GetModuleHandle(sandbox::kNtdllName),
-                   reinterpret_cast<void*>(&__ImageBase), "NtMapViewOfSection",
-                   nullptr, reinterpret_cast<void*>(&NewNtMapViewOfSection),
-                   thunk_storage, sizeof(sandbox::ThunkData), nullptr);
+      thunk.Setup(::GetModuleHandle(sandbox::kNtdllName),
+                  reinterpret_cast<void*>(&__ImageBase), "NtMapViewOfSection",
+                  nullptr, reinterpret_cast<void*>(&NewNtMapViewOfSection),
+                  thunk_storage, sizeof(sandbox::ThunkData), nullptr);
 #endif  // defined(_WIN64)
 
   if (!NT_SUCCESS(ntstatus)) {

@@ -15,7 +15,6 @@ All changes to this list should go through Blink's feature review process: http:
     -webkit-box-reflect
     -webkit-font-smoothing
     -webkit-highlight
-    -webkit-hyphenate-character
     -webkit-line-break
     -webkit-line-clamp
     -webkit-locale
@@ -58,6 +57,10 @@ All changes to this list should go through Blink's feature review process: http:
     align-self
     alignment-baseline
     all
+    anchor-default
+    anchor-name
+    anchor-scroll
+    animation-composition
     animation-delay
     animation-direction
     animation-duration
@@ -65,6 +68,8 @@ All changes to this list should go through Blink's feature review process: http:
     animation-iteration-count
     animation-name
     animation-play-state
+    animation-range-end
+    animation-range-start
     animation-timeline
     animation-timing-function
     app-region
@@ -84,6 +89,7 @@ All changes to this list should go through Blink's feature review process: http:
     background-repeat-y
     background-size
     baseline-shift
+    baseline-source
     block-size
     border-block-end-color
     border-block-end-style
@@ -193,10 +199,12 @@ All changes to this list should go through Blink's feature review process: http:
     font-synthesis-small-caps
     font-synthesis-style
     font-synthesis-weight
+    font-variant-alternates
     font-variant-caps
     font-variant-east-asian
     font-variant-ligatures
     font-variant-numeric
+    font-variant-position
     font-variation-settings
     font-weight
     forced-color-adjust
@@ -211,9 +219,12 @@ All changes to this list should go through Blink's feature review process: http:
     grid-template-columns
     grid-template-rows
     height
+    hyphenate-character
+    hyphenate-limit-chars
     hyphens
     image-orientation
     image-rendering
+    initial-letter
     inline-size
     inset-block-end
     inset-block-start
@@ -228,7 +239,6 @@ All changes to this list should go through Blink's feature review process: http:
     lighting-color
     line-break
     line-height
-    line-height-step
     list-style-image
     list-style-position
     list-style-type
@@ -259,6 +269,7 @@ All changes to this list should go through Blink's feature review process: http:
     mix-blend-mode
     object-fit
     object-position
+    object-view-box
     offset-anchor
     offset-distance
     offset-path
@@ -278,6 +289,7 @@ All changes to this list should go through Blink's feature review process: http:
     overflow-wrap
     overflow-x
     overflow-y
+    overlay
     overscroll-behavior-block
     overscroll-behavior-inline
     overscroll-behavior-x
@@ -296,7 +308,10 @@ All changes to this list should go through Blink's feature review process: http:
     perspective
     perspective-origin
     pointer-events
+    popover-hide-delay
+    popover-show-delay
     position
+    position-fallback
     quotes
     r
     resize
@@ -327,6 +342,17 @@ All changes to this list should go through Blink's feature review process: http:
     scroll-snap-align
     scroll-snap-stop
     scroll-snap-type
+    scroll-start-block
+    scroll-start-inline
+    scroll-start-target-block
+    scroll-start-target-inline
+    scroll-start-target-x
+    scroll-start-target-y
+    scroll-start-x
+    scroll-start-y
+    scroll-timeline-attachment
+    scroll-timeline-axis
+    scroll-timeline-name
     scrollbar-gutter
     scrollbar-width
     shape-image-threshold
@@ -350,6 +376,7 @@ All changes to this list should go through Blink's feature review process: http:
     text-align
     text-align-last
     text-anchor
+    text-box-trim
     text-combine-upright
     text-decoration-color
     text-decoration-line
@@ -360,7 +387,6 @@ All changes to this list should go through Blink's feature review process: http:
     text-emphasis-position
     text-emphasis-style
     text-indent
-    text-justify
     text-orientation
     text-overflow
     text-rendering
@@ -369,6 +395,12 @@ All changes to this list should go through Blink's feature review process: http:
     text-transform
     text-underline-offset
     text-underline-position
+    text-wrap
+    timeline-scope
+    toggle-group
+    toggle-root
+    toggle-trigger
+    toggle-visibility
     top
     touch-action
     transform
@@ -384,8 +416,13 @@ All changes to this list should go through Blink's feature review process: http:
     user-select
     vector-effect
     vertical-align
+    view-timeline-attachment
+    view-timeline-axis
+    view-timeline-inset
+    view-timeline-name
+    view-transition-name
     visibility
-    white-space
+    white-space-collapse
     widows
     width
     will-change
@@ -436,8 +473,13 @@ All changes to this list should go through Blink's feature review process: http:
         animation-iteration-count
         animation-name
         animation-play-state
+        animation-range-end
+        animation-range-start
         animation-timeline
         animation-timing-function
+    animation-range
+        animation-range-end
+        animation-range-start
     background
         background-attachment
         background-clip
@@ -588,13 +630,20 @@ All changes to this list should go through Blink's feature review process: http:
         flex-wrap
     font
         font-family
+        font-feature-settings
+        font-kerning
+        font-optical-sizing
         font-size
+        font-size-adjust
         font-stretch
         font-style
+        font-variant-alternates
         font-variant-caps
         font-variant-east-asian
         font-variant-ligatures
         font-variant-numeric
+        font-variant-position
+        font-variation-settings
         font-weight
         line-height
     font-synthesis
@@ -602,10 +651,12 @@ All changes to this list should go through Blink's feature review process: http:
         font-synthesis-style
         font-synthesis-weight
     font-variant
+        font-variant-alternates
         font-variant-caps
         font-variant-east-asian
         font-variant-ligatures
         font-variant-numeric
+        font-variant-position
     gap
         column-gap
         row-gap
@@ -732,6 +783,16 @@ All changes to this list should go through Blink's feature review process: http:
     scroll-padding-inline
         scroll-padding-inline-end
         scroll-padding-inline-start
+    scroll-start
+        scroll-start-block
+        scroll-start-inline
+    scroll-start-target
+        scroll-start-target-block
+        scroll-start-target-inline
+    scroll-timeline
+        scroll-timeline-attachment
+        scroll-timeline-axis
+        scroll-timeline-name
     text-decoration
         text-decoration-color
         text-decoration-line
@@ -740,11 +801,21 @@ All changes to this list should go through Blink's feature review process: http:
     text-emphasis
         text-emphasis-color
         text-emphasis-style
+    toggle
+        toggle-root
+        toggle-trigger
     transition
         transition-delay
         transition-duration
         transition-property
         transition-timing-function
+    view-timeline
+        view-timeline-attachment
+        view-timeline-axis
+        view-timeline-name
+    white-space
+        text-wrap
+        white-space-collapse
 
 [ALIASES]
     -epub-caption-side
@@ -885,6 +956,8 @@ All changes to this list should go through Blink's feature review process: http:
         flex-wrap
     -webkit-font-feature-settings
         font-feature-settings
+    -webkit-hyphenate-character
+        hyphenate-character
     -webkit-justify-content
         justify-content
     -webkit-logical-height

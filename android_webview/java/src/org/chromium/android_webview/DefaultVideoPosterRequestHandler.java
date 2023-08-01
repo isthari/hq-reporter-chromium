@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@ import android.util.Log;
 import org.chromium.base.task.PostTask;
 import org.chromium.base.task.TaskTraits;
 import org.chromium.components.embedder_support.util.WebResourceResponseInfo;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -35,7 +34,7 @@ public class DefaultVideoPosterRequestHandler {
         // Send the request to UI thread to callback to the client, and if it provides a
         // valid bitmap bounce on to the worker thread pool to compress it into the piped
         // input/output stream.
-        PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT, () -> {
+        PostTask.runOrPostTask(TaskTraits.UI_DEFAULT, () -> {
             final Bitmap defaultVideoPoster = contentClient.getDefaultVideoPoster();
             if (defaultVideoPoster == null) {
                 closeOutputStream(outputStream);

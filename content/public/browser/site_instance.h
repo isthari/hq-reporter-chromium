@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,10 @@
 #include "content/public/browser/site_instance_process_assignment.h"
 #include "content/public/browser/storage_partition_config.h"
 #include "url/gurl.h"
+
+namespace perfetto::protos::pbzero {
+class SiteInstance;
+}  // namespace perfetto::protos::pbzero
 
 namespace content {
 class BrowserContext;
@@ -158,12 +162,20 @@ class CONTENT_EXPORT SiteInstance : public base::RefCounted<SiteInstance> {
   virtual bool IsRelatedSiteInstance(const SiteInstance* instance) = 0;
 
   // Returns the total active WebContents count for this SiteInstance and all
-  // related SiteInstances in the same BrowsingInstance.
+  // related SiteInstances that have a form of communication with each other.
+  // This include all the WebContents for documents in the same BrowsingInstance
+  // as well as all the BrowsingInstances in the same CoopRelatedGroup. The
+  // latter is useful to include because some interactions (e.g., messaging) are
+  // allowed across such BrowsingInstances.
   virtual size_t GetRelatedActiveContentsCount() = 0;
 
   // Returns true if this SiteInstance is for a site that requires a dedicated
   // process. This only returns true under the "site per process" process model.
   virtual bool RequiresDedicatedProcess() = 0;
+
+  // Returns true if this SiteInstance is for a process-isolated origin with its
+  // own OriginAgentCluster.
+  virtual bool RequiresOriginKeyedProcess() = 0;
 
   // Return whether this SiteInstance and the provided |url| are part of the
   // same web site, for the purpose of assigning them to processes accordingly.
@@ -186,8 +198,9 @@ class CONTENT_EXPORT SiteInstance : public base::RefCounted<SiteInstance> {
   // affects performance.
   virtual SiteInstanceProcessAssignment GetLastProcessAssignmentOutcome() = 0;
 
+  using TraceProto = perfetto::protos::pbzero::SiteInstance;
   // Write a representation of this object into a trace.
-  virtual void WriteIntoTrace(perfetto::TracedValue context) = 0;
+  virtual void WriteIntoTrace(perfetto::TracedProto<TraceProto> context) = 0;
 
   // Estimates the overhead in terms of process count due to OriginAgentCluster
   // (OAC) SiteInstances in the BrowsingInstance related to this SiteInstance.
@@ -225,6 +238,11 @@ class CONTENT_EXPORT SiteInstance : public base::RefCounted<SiteInstance> {
 
   // Determine if a URL should "use up" a site.  URLs such as about:blank or
   // chrome-native:// leave the site unassigned.
+  //
+  // Note that this API shouldn't be used for cases where about:blank has an
+  // inherited origin, because that origin may influence the outcome of this
+  // call.  See the content-internal ShouldAssignSiteForUrlInfo() for more
+  // information.
   static bool ShouldAssignSiteForURL(const GURL& url);
 
   // Starts requiring a dedicated process for |url|'s site.  On platforms where

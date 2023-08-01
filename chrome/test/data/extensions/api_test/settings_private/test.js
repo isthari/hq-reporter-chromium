@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -55,7 +55,7 @@ var availableTests = [
     chrome.settingsPrivate.getPref(
         kTestPrefName,
         function(value) {
-          chrome.test.assertTrue(value !== null);
+          chrome.test.assertNe(null, value);
           callbackResult(true);
           chrome.test.succeed();
         });
@@ -123,7 +123,7 @@ var availableTests = [
     chrome.settingsPrivate.getPref(
         'cros.accounts.allowBWSI',
         function(value) {
-          chrome.test.assertTrue(value !== null);
+          chrome.test.assertNe(null, value);
           callbackResult(true);
           chrome.test.succeed();
         });

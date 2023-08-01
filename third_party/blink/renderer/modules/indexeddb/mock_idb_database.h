@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -77,6 +77,15 @@ class MockIDBDatabase : public testing::StrictMock<mojom::blink::IDBDatabase> {
                GetAllCallback),
               (override));
   MOCK_METHOD(void,
+              BatchGetAll,
+              (int64_t transaction_id,
+               int64_t object_store_id,
+               int64_t index_id,
+               Vector<mojom::blink::IDBKeyRangePtr> key_ranges,
+               uint32_t max_count,
+               BatchGetAllCallback),
+              (override));
+  MOCK_METHOD(void,
               SetIndexKeys,
               (int64_t transaction_id,
                int64_t object_store_id,
@@ -127,6 +136,7 @@ class MockIDBDatabase : public testing::StrictMock<mojom::blink::IDBDatabase> {
                int64_t object_store_id,
                mojo::PendingAssociatedRemote<mojom::blink::IDBCallbacks>),
               (override));
+  MOCK_METHOD(void, DidBecomeInactive, (), (override));
 
   void Bind(mojo::PendingAssociatedReceiver<mojom::blink::IDBDatabase>);
   mojo::PendingAssociatedRemote<mojom::blink::IDBDatabase>

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 #include <stddef.h>
 #include <memory>
 
-#include "base/callback.h"
-#include "base/memory/ref_counted.h"
+#include "base/functional/callback.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/sequence_checker.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
@@ -103,8 +103,10 @@ class TestVideoConfig {
   static VideoDecoderConfig NormalCodecProfile(
       VideoCodec codec = VideoCodec::kVP8,
       VideoCodecProfile profile = VP8PROFILE_MIN);
-  static VideoDecoderConfig NormalEncrypted(VideoCodec codec = VideoCodec::kVP8,
-                                            VideoCodecProfile = VP8PROFILE_MIN);
+  static VideoDecoderConfig NormalEncrypted(
+      VideoCodec codec = VideoCodec::kVP8);
+  static VideoDecoderConfig NormalEncrypted(VideoCodec codec,
+                                            VideoCodecProfile);
   static VideoDecoderConfig NormalRotated(VideoRotation rotation);
 
   // Returns a configuration that is larger in dimensions than Normal().
@@ -227,6 +229,10 @@ scoped_refptr<DecoderBuffer> CreateFakeVideoBufferForTest(
     base::TimeDelta timestamp,
     base::TimeDelta duration);
 
+// Create a mismatched DecoderBuffer to verify in unit tests that we error
+// out and do not continue to decode or decrypt if subsamples do not match.
+scoped_refptr<DecoderBuffer> CreateMismatchedBufferForTest();
+
 // Verify if a fake video DecoderBuffer is valid.
 bool VerifyFakeVideoBufferForTest(const DecoderBuffer& buffer,
                                   const VideoDecoderConfig& config);
@@ -250,7 +256,7 @@ MATCHER_P(SameStatusCode, status, "") {
   }
 }
 
-// Compares an `arg` Status.code() to a test-supplied StatusCode.
+// Compares an `arg` TypedStatus<T>.code() to a test-supplied StatusCode.
 MATCHER_P(HasStatusCode, status_code, "") {
   return arg.code() == status_code;
 }
@@ -270,13 +276,19 @@ MATCHER_P(DecoderConfigEq, config, "") {
   return arg.Matches(config);
 }
 
-MATCHER_P(HasTimestamp, timestamp_in_ms, "") {
-  return arg.get() && !arg->end_of_stream() &&
-         arg->timestamp().InMilliseconds() == timestamp_in_ms;
+MATCHER_P(ReadOneAndHasTimestamp, timestamp_in_ms, "") {
+  DCHECK_EQ(arg.size(), 1u);
+  return !arg[0]->end_of_stream() &&
+         arg[0]->timestamp().InMilliseconds() == timestamp_in_ms;
 }
 
-MATCHER(IsEndOfStream, "") {
-  return arg.get() && arg->end_of_stream();
+MATCHER(ReadOneAndIsEndOfStream, "") {
+  DCHECK_EQ(arg.size(), 1u);
+  return arg[0]->end_of_stream();
+}
+
+MATCHER(IsEmpty, "") {
+  return arg.empty();
 }
 
 MATCHER(EosBeforeHaveMetadata, "") {
@@ -316,7 +328,7 @@ MATCHER_P2(KeyframeTimeGreaterThanDependant,
 }
 
 MATCHER(StreamParsingFailed, "") {
-  return CONTAINS_STRING(arg, "Append: stream parsing failed.");
+  return CONTAINS_STRING(arg, "RunSegmentParserLoop: stream parsing failed.");
 }
 
 MATCHER(ParsedBuffersNotInDTSSequence, "") {
@@ -515,6 +527,51 @@ MATCHER_P3(DroppedAppendWindowUnusedPreroll,
           base::NumberToString(pts_us) + "us that ends too far (" +
           base::NumberToString(delta_us) + "us) from next buffer with PTS " +
           base::NumberToString(next_pts_us) + "us");
+}
+
+MATCHER_P(PtsUnknown, frame_type, "") {
+  return CONTAINS_STRING(
+      arg, "Unknown PTS for " + std::string(frame_type) + " frame");
+}
+
+MATCHER_P2(FrameDurationUnknown, frame_type, pts_us, "") {
+  return CONTAINS_STRING(arg, "Unknown duration for " +
+                                  std::string(frame_type) + " frame at PTS " +
+                                  base::NumberToString(pts_us) + "us");
+}
+
+MATCHER_P3(FrameTimeOutOfRange, when, pts_or_dts, frame_type, "") {
+  return CONTAINS_STRING(
+      arg, std::string(when) + ", " + pts_or_dts + " for " + frame_type +
+               " frame exceeds range allowed by implementation");
+}
+
+MATCHER(SequenceOffsetUpdateOutOfRange, "") {
+  return CONTAINS_STRING(arg,
+                         "Sequence mode timestampOffset update resulted in an "
+                         "offset that exceeds range allowed by implementation");
+}
+
+MATCHER(SequenceOffsetUpdatePreventedByOutOfRangeGroupStartTimestamp, "") {
+  return CONTAINS_STRING(
+      arg,
+      "Sequence mode timestampOffset update prevented by a group start "
+      "timestamp that exceeds range allowed by implementation");
+}
+
+MATCHER(OffsetOutOfRange, "") {
+  return CONTAINS_STRING(
+      arg, "timestampOffset exceeds range allowed by implementation");
+}
+
+MATCHER_P(FrameEndTimestampOutOfRange, frame_type, "") {
+  return CONTAINS_STRING(arg,
+                         "Frame end timestamp for " + std::string(frame_type) +
+                             " frame exceeds range allowed by implementation");
+}
+
+MATCHER(HlsDemuxerCtor, "") {
+  return CONTAINS_STRING(arg, "HlsDemuxer");
 }
 
 }  // namespace media

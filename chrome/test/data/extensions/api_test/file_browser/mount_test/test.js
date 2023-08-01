@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -70,7 +70,7 @@ var expectedVolume3 = {
 
 var expectedDownloadsVolume = {
   volumeId: /^downloads:[^\/]*$/,
-  volumeLabel: '',
+  volumeLabel: 'My files',
   volumeType: 'downloads',
   isReadOnly: false,
   isReadOnlyRemovableDevice: false,
@@ -192,19 +192,32 @@ function validateObject(received, expected, name) {
 
 chrome.test.runTests([
   function removeMount() {
-    chrome.fileManagerPrivate.removeMount('removable:mount_path1');
-
-    // We actually check this one on C++ side. If MountLibrary.RemoveMount
-    // doesn't get called, test will fail.
-    chrome.test.succeed();
+    chrome.fileManagerPrivate.removeMount('removable:mount_path1', () => {
+      chrome.test.assertNoLastError();
+      chrome.test.succeed();
+    });
   },
 
   function removeMountArchive() {
-    chrome.fileManagerPrivate.removeMount('archive:archive_mount_path');
+    chrome.fileManagerPrivate.removeMount('archive:archive_mount_path', () => {
+      chrome.test.assertNoLastError();
+      chrome.test.succeed();
+    });
+  },
 
-    // We actually check this one on C++ side. If MountLibrary.RemoveMount
-    // doesn't get called, test will fail.
-    chrome.test.succeed();
+  function removeMount() {
+    chrome.fileManagerPrivate.removeMount('removable:mount_path1', () => {
+      chrome.test.assertEq(chrome.runtime.lastError.message, 'cancelled');
+      chrome.test.succeed();
+    });
+  },
+
+  function removeMountArchive() {
+    chrome.fileManagerPrivate.removeMount('archive:archive_mount_path', () => {
+      chrome.test.assertEq(
+          chrome.runtime.lastError.message, 'need_password');
+      chrome.test.succeed();
+    });
   },
 
   function getVolumeMetadataList() {

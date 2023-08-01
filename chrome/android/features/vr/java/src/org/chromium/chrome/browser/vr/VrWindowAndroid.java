@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,12 +16,11 @@ import org.chromium.base.ActivityState;
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.ContextUtils;
-import org.chromium.base.supplier.Supplier;
-import org.chromium.ui.base.AndroidPermissionDelegate;
-import org.chromium.ui.base.PermissionCallback;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.ui.display.DisplayAndroid;
 import org.chromium.ui.modaldialog.ModalDialogManager;
+import org.chromium.ui.permissions.AndroidPermissionDelegate;
+import org.chromium.ui.permissions.PermissionCallback;
 
 import java.lang.ref.WeakReference;
 import java.util.Arrays;
@@ -32,21 +31,16 @@ import java.util.Arrays;
  */
 public class VrWindowAndroid
         extends WindowAndroid implements ApplicationStatus.ActivityStateListener {
-    private final Supplier<ModalDialogManager> mModalDialogManagerSupplier;
     /**
      * @param activity The current application {@link Activity}.
      * @param display The application {@link DisplayAndroid}.
-     * @param modalDialogManagerSupplier Supplies the current {@link ModalDialogManager}.
      */
-    public VrWindowAndroid(Activity activity, DisplayAndroid display,
-            Supplier<ModalDialogManager> modalDialogManagerSupplier) {
+    public VrWindowAndroid(Activity activity, DisplayAndroid display) {
         super(activity, display);
-        mModalDialogManagerSupplier = modalDialogManagerSupplier;
         ApplicationStatus.registerStateListenerForActivity(this, activity);
         setAndroidPermissionDelegate(new ActivityAndroidPermissionDelegate());
     }
 
-    // TODO(mthiesse): How do we want to handle intents that might kick us out of VR?
     @Override
     public int showCancelableIntent(
             PendingIntent intent, IntentCallback callback, Integer errorId) {
@@ -77,12 +71,10 @@ public class VrWindowAndroid
 
     @Override
     public @Nullable ModalDialogManager getModalDialogManager() {
-        return mModalDialogManagerSupplier.get();
+        return null;
     }
 
     // We can't request permissions inside of VR without getting kicked out of VR.
-    // TODO(mthiesse): Should we add some UI to ask the user to exit VR, then accept the permission?
-    // There's also the possibility that GVR will handle this in the future.
     private class ActivityAndroidPermissionDelegate implements AndroidPermissionDelegate {
         @Override
         public boolean hasPermission(String permission) {

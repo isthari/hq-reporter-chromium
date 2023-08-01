@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,12 +13,9 @@
 #include "chrome/browser/sync/test/integration/sync_service_impl_harness.h"
 #include "chrome/browser/sync/test/integration/sync_test.h"
 #include "components/consent_auditor/consent_auditor.h"
-#include "components/sync/driver/sync_driver_switches.h"
 #include "components/sync/protocol/user_consent_specifics.pb.h"
 #include "content/public/test/browser_test.h"
 
-using consent_auditor::ConsentStatus;
-using consent_auditor::Feature;
 using fake_server::FakeServer;
 using sync_pb::SyncEntity;
 using sync_pb::UserConsentSpecifics;
@@ -28,7 +25,7 @@ using SyncConsent = sync_pb::UserConsentTypes::SyncConsent;
 namespace {
 
 CoreAccountId GetAccountId() {
-  return CoreAccountId("gaia_id_for_user_gmail.com");
+  return CoreAccountId::FromGaiaId("gaia_id_for_user_gmail.com");
 }
 
 class UserConsentEqualityChecker : public SingleClientStatusChangeChecker {
@@ -137,7 +134,7 @@ IN_PROC_BROWSER_TEST_F(
   consent_service->RecordSyncConsent(GetAccountId(), sync_consent);
 
   GetClient(0)->StopSyncServiceAndClearData();
-  ASSERT_TRUE(GetClient(0)->StartSyncService());
+  ASSERT_TRUE(GetClient(0)->EnableSyncFeature());
 
   EXPECT_TRUE(ExpectUserConsents({specifics}));
 }

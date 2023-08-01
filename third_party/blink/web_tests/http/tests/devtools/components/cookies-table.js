@@ -1,6 +1,8 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import {TestRunner} from 'test_runner';
 
 (async function() {
   TestRunner.addResult(`Tests inspector cookies table\n`);
@@ -88,7 +90,7 @@
   }
 
   function createSortAndDumpCookies(cookieData, sortColumn, isAsc) {
-    const table = new CookieTable.CookiesTable(SDK.targetManager.mainTarget(), true);
+    const table = new CookieTable.CookiesTable(SDK.targetManager.rootTarget(), true);
     const cookies = cookieData.map(createCookie);
     table.dataGrid = mockDataGrid({sortColumn, isAsc});
     table.sortCookies(cookies);
@@ -97,7 +99,7 @@
   }
 
   function createBuildAndDumpTable(cookieData, selectedNode, isAsc, lastEditedColumn) {
-    const table = new CookieTable.CookiesTable(SDK.targetManager.mainTarget(), true);
+    const table = new CookieTable.CookiesTable(SDK.targetManager.rootTarget(), true);
     const cookies = cookieData && cookieData.map(createCookie);
     const rootNode = mockNode({});
     table.lastEditedColumnId = lastEditedColumn || null;

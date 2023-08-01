@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,12 @@
 #define ASH_COMPONENTS_ARC_DISK_QUOTA_ARC_DISK_QUOTA_BRIDGE_H_
 
 #include "ash/components/arc/mojom/disk_quota.mojom.h"
-#include "base/files/file_path.h"
-#include "chromeos/dbus/cryptohome/UserDataAuth.pb.h"
+#include "base/memory/raw_ptr.h"
+#include "base/memory/weak_ptr.h"
+#include "chromeos/ash/components/dbus/cryptohome/UserDataAuth.pb.h"
 #include "components/account_id/account_id.h"
 #include "components/keyed_service/core/keyed_service.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/cros_system_api/dbus/cryptohome/dbus-constants.h"
 
 namespace content {
@@ -27,15 +29,6 @@ class ArcDiskQuotaBridge : public KeyedService, public mojom::DiskQuotaHost {
   // or nullptr if the browser |context| is not allowed to use ARC.
   static ArcDiskQuotaBridge* GetForBrowserContext(
       content::BrowserContext* context);
-
-  // Converts an Android path to a pair of (parent_path, child_path) to be
-  // passed to SetProjectId() on cryptohome.
-  // Returns false if SetProjectId() is not allowed for the path.
-  // (go/arc-project-quota)
-  static bool convertPathForSetProjectId(
-      const base::FilePath& android_path,
-      user_data_auth::SetProjectIdAllowedPathType* parent_path_out,
-      base::FilePath* child_path_out);
 
   ArcDiskQuotaBridge(content::BrowserContext* context,
                      ArcBridgeService* bridge_service);
@@ -60,14 +53,21 @@ class ArcDiskQuotaBridge : public KeyedService, public mojom::DiskQuotaHost {
       uint32_t project_id,
       GetCurrentSpaceForProjectIdCallback callback) override;
 
-  void SetProjectId(uint32_t project_id,
-                    const std::string& android_path,
-                    SetProjectIdCallback callback) override;
+  void GetFreeDiskSpace(GetFreeDiskSpaceCallback) override;
+
+  static void EnsureFactoryBuilt();
 
  private:
-  ArcBridgeService* const arc_bridge_service_;  // Owned by ArcServiceManager.
+  void OnGetFreeDiskSpace(GetFreeDiskSpaceCallback callback,
+                          absl::optional<int64_t> reply);
+
+  const raw_ptr<ArcBridgeService, ExperimentalAsh>
+      arc_bridge_service_;  // Owned by ArcServiceManager.
 
   AccountId account_id_;
+
+  // WeakPtrFactory to use for callbacks.
+  base::WeakPtrFactory<ArcDiskQuotaBridge> weak_factory_{this};
 };
 
 }  // namespace arc

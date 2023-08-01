@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -59,7 +59,6 @@ class PaymentMethodManifestTable : public WebDatabaseTable {
   // WebDatabaseTable:
   WebDatabaseTable::TypeKey GetTypeKey() const override;
   bool CreateTablesIfNecessary() override;
-  bool IsSyncable() override;
   bool MigrateToVersion(int version, bool* update_compatible_version) override;
 
   // Remove expired data.
@@ -118,7 +117,8 @@ class PaymentMethodManifestTable : public WebDatabaseTable {
   // copies.
   std::vector<std::unique_ptr<SecurePaymentConfirmationCredential>>
   GetSecurePaymentConfirmationCredentials(
-      std::vector<std::vector<uint8_t>> credential_ids);
+      std::vector<std::vector<uint8_t>> credential_ids,
+      const std::string& relying_party_id);
 };
 
 }  // namespace payments

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -4302,54 +4302,6 @@ GLES2DecoderPassthroughImpl::HandleCreateAndConsumeTextureINTERNALImmediate(
   return error::kNoError;
 }
 
-error::Error GLES2DecoderPassthroughImpl::HandleBindTexImage2DCHROMIUM(
-    uint32_t immediate_data_size,
-    const volatile void* cmd_data) {
-  const volatile gles2::cmds::BindTexImage2DCHROMIUM& c =
-      *static_cast<const volatile gles2::cmds::BindTexImage2DCHROMIUM*>(
-          cmd_data);
-  GLenum target = static_cast<GLenum>(c.target);
-  GLint imageId = static_cast<GLint>(c.imageId);
-  error::Error error = DoBindTexImage2DCHROMIUM(target, imageId);
-  if (error != error::kNoError) {
-    return error;
-  }
-  return error::kNoError;
-}
-
-error::Error
-GLES2DecoderPassthroughImpl::HandleBindTexImage2DWithInternalformatCHROMIUM(
-    uint32_t immediate_data_size,
-    const volatile void* cmd_data) {
-  const volatile gles2::cmds::BindTexImage2DWithInternalformatCHROMIUM& c =
-      *static_cast<const volatile gles2::cmds::
-                       BindTexImage2DWithInternalformatCHROMIUM*>(cmd_data);
-  GLenum target = static_cast<GLenum>(c.target);
-  GLenum internalformat = static_cast<GLenum>(c.internalformat);
-  GLint imageId = static_cast<GLint>(c.imageId);
-  error::Error error = DoBindTexImage2DWithInternalformatCHROMIUM(
-      target, internalformat, imageId);
-  if (error != error::kNoError) {
-    return error;
-  }
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::HandleReleaseTexImage2DCHROMIUM(
-    uint32_t immediate_data_size,
-    const volatile void* cmd_data) {
-  const volatile gles2::cmds::ReleaseTexImage2DCHROMIUM& c =
-      *static_cast<const volatile gles2::cmds::ReleaseTexImage2DCHROMIUM*>(
-          cmd_data);
-  GLenum target = static_cast<GLenum>(c.target);
-  GLint imageId = static_cast<GLint>(c.imageId);
-  error::Error error = DoReleaseTexImage2DCHROMIUM(target, imageId);
-  if (error != error::kNoError) {
-    return error;
-  }
-  return error::kNoError;
-}
-
 error::Error GLES2DecoderPassthroughImpl::HandleTraceEndCHROMIUM(
     uint32_t immediate_data_size,
     const volatile void* cmd_data) {
@@ -4433,94 +4385,10 @@ error::Error GLES2DecoderPassthroughImpl::HandleDrawBuffersEXTImmediate(
   return error::kNoError;
 }
 
-error::Error
-GLES2DecoderPassthroughImpl::HandleScheduleCALayerInUseQueryCHROMIUMImmediate(
-    uint32_t immediate_data_size,
-    const volatile void* cmd_data) {
-  const volatile gles2::cmds::ScheduleCALayerInUseQueryCHROMIUMImmediate& c =
-      *static_cast<const volatile gles2::cmds::
-                       ScheduleCALayerInUseQueryCHROMIUMImmediate*>(cmd_data);
-  GLsizei count = static_cast<GLsizei>(c.count);
-  uint32_t textures_size = 0;
-  if (count >= 0 &&
-      !GLES2Util::ComputeDataSize<GLuint, 1>(count, &textures_size)) {
-    return error::kOutOfBounds;
-  }
-  if (textures_size > immediate_data_size) {
-    return error::kOutOfBounds;
-  }
-  volatile const GLuint* textures = GetImmediateDataAs<volatile const GLuint*>(
-      c, textures_size, immediate_data_size);
-  if (textures == nullptr) {
-    return error::kOutOfBounds;
-  }
-  error::Error error = DoScheduleCALayerInUseQueryCHROMIUM(count, textures);
-  if (error != error::kNoError) {
-    return error;
-  }
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::HandleCommitOverlayPlanesCHROMIUM(
-    uint32_t immediate_data_size,
-    const volatile void* cmd_data) {
-  const volatile gles2::cmds::CommitOverlayPlanesCHROMIUM& c =
-      *static_cast<const volatile gles2::cmds::CommitOverlayPlanesCHROMIUM*>(
-          cmd_data);
-  GLuint64 swap_id = c.swap_id();
-  GLbitfield flags = static_cast<GLbitfield>(c.flags);
-  error::Error error = DoCommitOverlayPlanesCHROMIUM(swap_id, flags);
-  if (error != error::kNoError) {
-    return error;
-  }
-  return error::kNoError;
-}
-
 error::Error GLES2DecoderPassthroughImpl::HandleFlushDriverCachesCHROMIUM(
     uint32_t immediate_data_size,
     const volatile void* cmd_data) {
   error::Error error = DoFlushDriverCachesCHROMIUM();
-  if (error != error::kNoError) {
-    return error;
-  }
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::HandleScheduleDCLayerCHROMIUM(
-    uint32_t immediate_data_size,
-    const volatile void* cmd_data) {
-  const volatile gles2::cmds::ScheduleDCLayerCHROMIUM& c =
-      *static_cast<const volatile gles2::cmds::ScheduleDCLayerCHROMIUM*>(
-          cmd_data);
-  GLuint texture_0 = static_cast<GLuint>(c.texture_0);
-  GLuint texture_1 = static_cast<GLuint>(c.texture_1);
-  GLint z_order = static_cast<GLint>(c.z_order);
-  GLint content_x = static_cast<GLint>(c.content_x);
-  GLint content_y = static_cast<GLint>(c.content_y);
-  GLint content_width = static_cast<GLint>(c.content_width);
-  GLint content_height = static_cast<GLint>(c.content_height);
-  GLint quad_x = static_cast<GLint>(c.quad_x);
-  GLint quad_y = static_cast<GLint>(c.quad_y);
-  GLint quad_width = static_cast<GLint>(c.quad_width);
-  GLint quad_height = static_cast<GLint>(c.quad_height);
-  GLfloat transform_c1r1 = static_cast<GLfloat>(c.transform_c1r1);
-  GLfloat transform_c2r1 = static_cast<GLfloat>(c.transform_c2r1);
-  GLfloat transform_c1r2 = static_cast<GLfloat>(c.transform_c1r2);
-  GLfloat transform_c2r2 = static_cast<GLfloat>(c.transform_c2r2);
-  GLfloat transform_tx = static_cast<GLfloat>(c.transform_tx);
-  GLfloat transform_ty = static_cast<GLfloat>(c.transform_ty);
-  GLboolean is_clipped = static_cast<GLboolean>(c.is_clipped);
-  GLint clip_x = static_cast<GLint>(c.clip_x);
-  GLint clip_y = static_cast<GLint>(c.clip_y);
-  GLint clip_width = static_cast<GLint>(c.clip_width);
-  GLint clip_height = static_cast<GLint>(c.clip_height);
-  GLuint protected_video_type = static_cast<GLuint>(c.protected_video_type);
-  error::Error error = DoScheduleDCLayerCHROMIUM(
-      texture_0, texture_1, z_order, content_x, content_y, content_width,
-      content_height, quad_x, quad_y, quad_width, quad_height, transform_c1r1,
-      transform_c2r1, transform_c1r2, transform_c2r2, transform_tx,
-      transform_ty, is_clipped, clip_x, clip_y, clip_width, clip_height,
-      protected_video_type);
   if (error != error::kNoError) {
     return error;
   }
@@ -4541,24 +4409,6 @@ error::Error GLES2DecoderPassthroughImpl::HandleContextVisibilityHintCHROMIUM(
   return error::kNoError;
 }
 
-error::Error GLES2DecoderPassthroughImpl::HandleCoverageModulationCHROMIUM(
-    uint32_t immediate_data_size,
-    const volatile void* cmd_data) {
-  const volatile gles2::cmds::CoverageModulationCHROMIUM& c =
-      *static_cast<const volatile gles2::cmds::CoverageModulationCHROMIUM*>(
-          cmd_data);
-  if (!features().chromium_framebuffer_mixed_samples) {
-    return error::kUnknownCommand;
-  }
-
-  GLenum components = static_cast<GLenum>(c.components);
-  error::Error error = DoCoverageModulationCHROMIUM(components);
-  if (error != error::kNoError) {
-    return error;
-  }
-  return error::kNoError;
-}
-
 error::Error GLES2DecoderPassthroughImpl::HandleBlendBarrierKHR(
     uint32_t immediate_data_size,
     const volatile void* cmd_data) {
@@ -4567,91 +4417,6 @@ error::Error GLES2DecoderPassthroughImpl::HandleBlendBarrierKHR(
   }
 
   error::Error error = DoBlendBarrierKHR();
-  if (error != error::kNoError) {
-    return error;
-  }
-  return error::kNoError;
-}
-
-error::Error
-GLES2DecoderPassthroughImpl::HandleSwapBuffersWithBoundsCHROMIUMImmediate(
-    uint32_t immediate_data_size,
-    const volatile void* cmd_data) {
-  const volatile gles2::cmds::SwapBuffersWithBoundsCHROMIUMImmediate& c =
-      *static_cast<
-          const volatile gles2::cmds::SwapBuffersWithBoundsCHROMIUMImmediate*>(
-          cmd_data);
-  GLuint64 swap_id = c.swap_id();
-  GLsizei count = static_cast<GLsizei>(c.count);
-  uint32_t rects_size = 0;
-  if (count >= 0 && !GLES2Util::ComputeDataSize<GLint, 4>(count, &rects_size)) {
-    return error::kOutOfBounds;
-  }
-  if (rects_size > immediate_data_size) {
-    return error::kOutOfBounds;
-  }
-  volatile const GLint* rects = GetImmediateDataAs<volatile const GLint*>(
-      c, rects_size, immediate_data_size);
-  GLbitfield flags = static_cast<GLbitfield>(c.flags);
-  if (rects == nullptr) {
-    return error::kOutOfBounds;
-  }
-  error::Error error =
-      DoSwapBuffersWithBoundsCHROMIUM(swap_id, count, rects, flags);
-  if (error != error::kNoError) {
-    return error;
-  }
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::HandleSetDrawRectangleCHROMIUM(
-    uint32_t immediate_data_size,
-    const volatile void* cmd_data) {
-  const volatile gles2::cmds::SetDrawRectangleCHROMIUM& c =
-      *static_cast<const volatile gles2::cmds::SetDrawRectangleCHROMIUM*>(
-          cmd_data);
-  GLint x = static_cast<GLint>(c.x);
-  GLint y = static_cast<GLint>(c.y);
-  GLint width = static_cast<GLint>(c.width);
-  GLint height = static_cast<GLint>(c.height);
-  error::Error error = DoSetDrawRectangleCHROMIUM(x, y, width, height);
-  if (error != error::kNoError) {
-    return error;
-  }
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::HandleSetEnableDCLayersCHROMIUM(
-    uint32_t immediate_data_size,
-    const volatile void* cmd_data) {
-  const volatile gles2::cmds::SetEnableDCLayersCHROMIUM& c =
-      *static_cast<const volatile gles2::cmds::SetEnableDCLayersCHROMIUM*>(
-          cmd_data);
-  GLboolean enabled = static_cast<GLboolean>(c.enabled);
-  error::Error error = DoSetEnableDCLayersCHROMIUM(enabled);
-  if (error != error::kNoError) {
-    return error;
-  }
-  return error::kNoError;
-}
-
-error::Error GLES2DecoderPassthroughImpl::HandleTexStorage2DImageCHROMIUM(
-    uint32_t immediate_data_size,
-    const volatile void* cmd_data) {
-  const volatile gles2::cmds::TexStorage2DImageCHROMIUM& c =
-      *static_cast<const volatile gles2::cmds::TexStorage2DImageCHROMIUM*>(
-          cmd_data);
-  if (!features().chromium_texture_storage_image) {
-    return error::kUnknownCommand;
-  }
-
-  GLenum target = static_cast<GLenum>(c.target);
-  GLenum internalFormat = static_cast<GLenum>(c.internalFormat);
-  GLenum bufferUsage = static_cast<GLenum>(c.bufferUsage);
-  GLsizei width = static_cast<GLsizei>(c.width);
-  GLsizei height = static_cast<GLsizei>(c.height);
-  error::Error error = DoTexStorage2DImageCHROMIUM(target, internalFormat,
-                                                   bufferUsage, width, height);
   if (error != error::kNoError) {
     return error;
   }
@@ -4765,7 +4530,6 @@ error::Error GLES2DecoderPassthroughImpl::
                            CreateAndTexStorage2DSharedImageINTERNALImmediate*>(
           cmd_data);
   GLuint texture = static_cast<GLuint>(c.texture);
-  GLenum internalformat = static_cast<GLenum>(c.internalformat);
   uint32_t mailbox_size;
   if (!GLES2Util::ComputeDataSize<GLbyte, 16>(1, &mailbox_size)) {
     return error::kOutOfBounds;
@@ -4778,8 +4542,8 @@ error::Error GLES2DecoderPassthroughImpl::
   if (mailbox == nullptr) {
     return error::kOutOfBounds;
   }
-  error::Error error = DoCreateAndTexStorage2DSharedImageINTERNAL(
-      texture, internalformat, mailbox);
+  error::Error error =
+      DoCreateAndTexStorage2DSharedImageINTERNAL(texture, mailbox);
   if (error != error::kNoError) {
     return error;
   }
@@ -4820,10 +4584,29 @@ GLES2DecoderPassthroughImpl::HandleEndSharedImageAccessDirectCHROMIUM(
 }
 
 error::Error
-GLES2DecoderPassthroughImpl::HandleBeginBatchReadAccessSharedImageCHROMIUM(
+GLES2DecoderPassthroughImpl::HandleConvertRGBAToYUVAMailboxesINTERNALImmediate(
     uint32_t immediate_data_size,
     const volatile void* cmd_data) {
-  error::Error error = DoBeginBatchReadAccessSharedImageCHROMIUM();
+  const volatile gles2::cmds::ConvertRGBAToYUVAMailboxesINTERNALImmediate& c =
+      *static_cast<const volatile gles2::cmds::
+                       ConvertRGBAToYUVAMailboxesINTERNALImmediate*>(cmd_data);
+  GLenum planes_yuv_color_space = static_cast<GLenum>(c.planes_yuv_color_space);
+  GLenum plane_config = static_cast<GLenum>(c.plane_config);
+  GLenum subsampling = static_cast<GLenum>(c.subsampling);
+  uint32_t mailboxes_size;
+  if (!GLES2Util::ComputeDataSize<GLbyte, 80>(1, &mailboxes_size)) {
+    return error::kOutOfBounds;
+  }
+  if (mailboxes_size > immediate_data_size) {
+    return error::kOutOfBounds;
+  }
+  volatile const GLbyte* mailboxes = GetImmediateDataAs<volatile const GLbyte*>(
+      c, mailboxes_size, immediate_data_size);
+  if (mailboxes == nullptr) {
+    return error::kOutOfBounds;
+  }
+  error::Error error = DoConvertRGBAToYUVAMailboxesINTERNAL(
+      planes_yuv_color_space, plane_config, subsampling, mailboxes);
   if (error != error::kNoError) {
     return error;
   }
@@ -4831,10 +4614,102 @@ GLES2DecoderPassthroughImpl::HandleBeginBatchReadAccessSharedImageCHROMIUM(
 }
 
 error::Error
-GLES2DecoderPassthroughImpl::HandleEndBatchReadAccessSharedImageCHROMIUM(
+GLES2DecoderPassthroughImpl::HandleConvertYUVAMailboxesToRGBINTERNALImmediate(
     uint32_t immediate_data_size,
     const volatile void* cmd_data) {
-  error::Error error = DoEndBatchReadAccessSharedImageCHROMIUM();
+  const volatile gles2::cmds::ConvertYUVAMailboxesToRGBINTERNALImmediate& c =
+      *static_cast<const volatile gles2::cmds::
+                       ConvertYUVAMailboxesToRGBINTERNALImmediate*>(cmd_data);
+  GLenum planes_yuv_color_space = static_cast<GLenum>(c.planes_yuv_color_space);
+  GLenum plane_config = static_cast<GLenum>(c.plane_config);
+  GLenum subsampling = static_cast<GLenum>(c.subsampling);
+  uint32_t mailboxes_size;
+  if (!GLES2Util::ComputeDataSize<GLbyte, 144>(1, &mailboxes_size)) {
+    return error::kOutOfBounds;
+  }
+  if (mailboxes_size > immediate_data_size) {
+    return error::kOutOfBounds;
+  }
+  volatile const GLbyte* mailboxes = GetImmediateDataAs<volatile const GLbyte*>(
+      c, mailboxes_size, immediate_data_size);
+  if (mailboxes == nullptr) {
+    return error::kOutOfBounds;
+  }
+  error::Error error = DoConvertYUVAMailboxesToRGBINTERNAL(
+      planes_yuv_color_space, plane_config, subsampling, mailboxes);
+  if (error != error::kNoError) {
+    return error;
+  }
+  return error::kNoError;
+}
+
+error::Error
+GLES2DecoderPassthroughImpl::HandleCopySharedImageINTERNALImmediate(
+    uint32_t immediate_data_size,
+    const volatile void* cmd_data) {
+  const volatile gles2::cmds::CopySharedImageINTERNALImmediate& c =
+      *static_cast<
+          const volatile gles2::cmds::CopySharedImageINTERNALImmediate*>(
+          cmd_data);
+  GLint xoffset = static_cast<GLint>(c.xoffset);
+  GLint yoffset = static_cast<GLint>(c.yoffset);
+  GLint x = static_cast<GLint>(c.x);
+  GLint y = static_cast<GLint>(c.y);
+  GLsizei width = static_cast<GLsizei>(c.width);
+  GLsizei height = static_cast<GLsizei>(c.height);
+  GLboolean unpack_flip_y = static_cast<GLboolean>(c.unpack_flip_y);
+  uint32_t mailboxes_size;
+  if (!GLES2Util::ComputeDataSize<GLbyte, 32>(1, &mailboxes_size)) {
+    return error::kOutOfBounds;
+  }
+  if (mailboxes_size > immediate_data_size) {
+    return error::kOutOfBounds;
+  }
+  volatile const GLbyte* mailboxes = GetImmediateDataAs<volatile const GLbyte*>(
+      c, mailboxes_size, immediate_data_size);
+  if (mailboxes == nullptr) {
+    return error::kOutOfBounds;
+  }
+  error::Error error = DoCopySharedImageINTERNAL(
+      xoffset, yoffset, x, y, width, height, unpack_flip_y, mailboxes);
+  if (error != error::kNoError) {
+    return error;
+  }
+  return error::kNoError;
+}
+
+error::Error
+GLES2DecoderPassthroughImpl::HandleCopySharedImageToTextureINTERNALImmediate(
+    uint32_t immediate_data_size,
+    const volatile void* cmd_data) {
+  const volatile gles2::cmds::CopySharedImageToTextureINTERNALImmediate& c =
+      *static_cast<const volatile gles2::cmds::
+                       CopySharedImageToTextureINTERNALImmediate*>(cmd_data);
+  GLuint texture = static_cast<GLuint>(c.texture);
+  GLenum target = static_cast<GLenum>(c.target);
+  GLuint internal_format = static_cast<GLuint>(c.internal_format);
+  GLenum type = static_cast<GLenum>(c.type);
+  GLint src_x = static_cast<GLint>(c.src_x);
+  GLint src_y = static_cast<GLint>(c.src_y);
+  GLsizei width = static_cast<GLsizei>(c.width);
+  GLsizei height = static_cast<GLsizei>(c.height);
+  GLboolean flip_y = static_cast<GLboolean>(c.flip_y);
+  uint32_t src_mailbox_size;
+  if (!GLES2Util::ComputeDataSize<GLbyte, 16>(1, &src_mailbox_size)) {
+    return error::kOutOfBounds;
+  }
+  if (src_mailbox_size > immediate_data_size) {
+    return error::kOutOfBounds;
+  }
+  volatile const GLbyte* src_mailbox =
+      GetImmediateDataAs<volatile const GLbyte*>(c, src_mailbox_size,
+                                                 immediate_data_size);
+  if (src_mailbox == nullptr) {
+    return error::kOutOfBounds;
+  }
+  error::Error error = DoCopySharedImageToTextureINTERNAL(
+      texture, target, internal_format, type, src_x, src_y, width, height,
+      flip_y, src_mailbox);
   if (error != error::kNoError) {
     return error;
   }
@@ -4999,6 +4874,363 @@ error::Error GLES2DecoderPassthroughImpl::HandleIsEnablediOES(
   if (error != error::kNoError) {
     return error;
   }
+  return error::kNoError;
+}
+
+error::Error GLES2DecoderPassthroughImpl::HandleProvokingVertexANGLE(
+    uint32_t immediate_data_size,
+    const volatile void* cmd_data) {
+  const volatile gles2::cmds::ProvokingVertexANGLE& c =
+      *static_cast<const volatile gles2::cmds::ProvokingVertexANGLE*>(cmd_data);
+  if (!features().angle_provoking_vertex) {
+    return error::kUnknownCommand;
+  }
+
+  GLenum provokeMode = static_cast<GLenum>(c.provokeMode);
+  error::Error error = DoProvokingVertexANGLE(provokeMode);
+  if (error != error::kNoError) {
+    return error;
+  }
+  return error::kNoError;
+}
+
+error::Error
+GLES2DecoderPassthroughImpl::HandleFramebufferMemorylessPixelLocalStorageANGLE(
+    uint32_t immediate_data_size,
+    const volatile void* cmd_data) {
+  if (!feature_info_->IsWebGL2OrES3OrHigherContext())
+    return error::kUnknownCommand;
+  const volatile gles2::cmds::FramebufferMemorylessPixelLocalStorageANGLE& c =
+      *static_cast<const volatile gles2::cmds::
+                       FramebufferMemorylessPixelLocalStorageANGLE*>(cmd_data);
+  if (!features().angle_shader_pixel_local_storage) {
+    return error::kUnknownCommand;
+  }
+
+  GLint plane = static_cast<GLint>(c.plane);
+  GLenum internalformat = static_cast<GLenum>(c.internalformat);
+  error::Error error =
+      DoFramebufferMemorylessPixelLocalStorageANGLE(plane, internalformat);
+  if (error != error::kNoError) {
+    return error;
+  }
+  return error::kNoError;
+}
+
+error::Error
+GLES2DecoderPassthroughImpl::HandleFramebufferTexturePixelLocalStorageANGLE(
+    uint32_t immediate_data_size,
+    const volatile void* cmd_data) {
+  if (!feature_info_->IsWebGL2OrES3OrHigherContext())
+    return error::kUnknownCommand;
+  const volatile gles2::cmds::FramebufferTexturePixelLocalStorageANGLE& c =
+      *static_cast<const volatile gles2::cmds::
+                       FramebufferTexturePixelLocalStorageANGLE*>(cmd_data);
+  if (!features().angle_shader_pixel_local_storage) {
+    return error::kUnknownCommand;
+  }
+
+  GLint plane = static_cast<GLint>(c.plane);
+  GLuint backingtexture = static_cast<GLuint>(c.backingtexture);
+  GLint level = static_cast<GLint>(c.level);
+  GLint layer = static_cast<GLint>(c.layer);
+  error::Error error = DoFramebufferTexturePixelLocalStorageANGLE(
+      plane, backingtexture, level, layer);
+  if (error != error::kNoError) {
+    return error;
+  }
+  return error::kNoError;
+}
+
+error::Error GLES2DecoderPassthroughImpl::
+    HandleFramebufferPixelLocalClearValuefvANGLEImmediate(
+        uint32_t immediate_data_size,
+        const volatile void* cmd_data) {
+  if (!feature_info_->IsWebGL2OrES3OrHigherContext())
+    return error::kUnknownCommand;
+  const volatile gles2::cmds::FramebufferPixelLocalClearValuefvANGLEImmediate&
+      c = *static_cast<const volatile gles2::cmds::
+                           FramebufferPixelLocalClearValuefvANGLEImmediate*>(
+          cmd_data);
+  if (!features().angle_shader_pixel_local_storage) {
+    return error::kUnknownCommand;
+  }
+
+  GLint plane = static_cast<GLint>(c.plane);
+  uint32_t value_size;
+  if (!GLES2Util::ComputeDataSize<GLfloat, 4>(1, &value_size)) {
+    return error::kOutOfBounds;
+  }
+  if (value_size > immediate_data_size) {
+    return error::kOutOfBounds;
+  }
+  volatile const GLfloat* value = GetImmediateDataAs<volatile const GLfloat*>(
+      c, value_size, immediate_data_size);
+  if (value == nullptr) {
+    return error::kOutOfBounds;
+  }
+  error::Error error = DoFramebufferPixelLocalClearValuefvANGLE(plane, value);
+  if (error != error::kNoError) {
+    return error;
+  }
+  return error::kNoError;
+}
+
+error::Error GLES2DecoderPassthroughImpl::
+    HandleFramebufferPixelLocalClearValueivANGLEImmediate(
+        uint32_t immediate_data_size,
+        const volatile void* cmd_data) {
+  if (!feature_info_->IsWebGL2OrES3OrHigherContext())
+    return error::kUnknownCommand;
+  const volatile gles2::cmds::FramebufferPixelLocalClearValueivANGLEImmediate&
+      c = *static_cast<const volatile gles2::cmds::
+                           FramebufferPixelLocalClearValueivANGLEImmediate*>(
+          cmd_data);
+  if (!features().angle_shader_pixel_local_storage) {
+    return error::kUnknownCommand;
+  }
+
+  GLint plane = static_cast<GLint>(c.plane);
+  uint32_t value_size;
+  if (!GLES2Util::ComputeDataSize<GLint, 4>(1, &value_size)) {
+    return error::kOutOfBounds;
+  }
+  if (value_size > immediate_data_size) {
+    return error::kOutOfBounds;
+  }
+  volatile const GLint* value = GetImmediateDataAs<volatile const GLint*>(
+      c, value_size, immediate_data_size);
+  if (value == nullptr) {
+    return error::kOutOfBounds;
+  }
+  error::Error error = DoFramebufferPixelLocalClearValueivANGLE(plane, value);
+  if (error != error::kNoError) {
+    return error;
+  }
+  return error::kNoError;
+}
+
+error::Error GLES2DecoderPassthroughImpl::
+    HandleFramebufferPixelLocalClearValueuivANGLEImmediate(
+        uint32_t immediate_data_size,
+        const volatile void* cmd_data) {
+  if (!feature_info_->IsWebGL2OrES3OrHigherContext())
+    return error::kUnknownCommand;
+  const volatile gles2::cmds::FramebufferPixelLocalClearValueuivANGLEImmediate&
+      c = *static_cast<const volatile gles2::cmds::
+                           FramebufferPixelLocalClearValueuivANGLEImmediate*>(
+          cmd_data);
+  if (!features().angle_shader_pixel_local_storage) {
+    return error::kUnknownCommand;
+  }
+
+  GLint plane = static_cast<GLint>(c.plane);
+  uint32_t value_size;
+  if (!GLES2Util::ComputeDataSize<GLuint, 4>(1, &value_size)) {
+    return error::kOutOfBounds;
+  }
+  if (value_size > immediate_data_size) {
+    return error::kOutOfBounds;
+  }
+  volatile const GLuint* value = GetImmediateDataAs<volatile const GLuint*>(
+      c, value_size, immediate_data_size);
+  if (value == nullptr) {
+    return error::kOutOfBounds;
+  }
+  error::Error error = DoFramebufferPixelLocalClearValueuivANGLE(plane, value);
+  if (error != error::kNoError) {
+    return error;
+  }
+  return error::kNoError;
+}
+
+error::Error
+GLES2DecoderPassthroughImpl::HandleBeginPixelLocalStorageANGLEImmediate(
+    uint32_t immediate_data_size,
+    const volatile void* cmd_data) {
+  if (!feature_info_->IsWebGL2OrES3OrHigherContext())
+    return error::kUnknownCommand;
+  const volatile gles2::cmds::BeginPixelLocalStorageANGLEImmediate& c =
+      *static_cast<
+          const volatile gles2::cmds::BeginPixelLocalStorageANGLEImmediate*>(
+          cmd_data);
+  if (!features().angle_shader_pixel_local_storage) {
+    return error::kUnknownCommand;
+  }
+
+  GLsizei count = static_cast<GLsizei>(c.count);
+  uint32_t loadops_size = 0;
+  if (count >= 0 &&
+      !GLES2Util::ComputeDataSize<GLenum, 1>(count, &loadops_size)) {
+    return error::kOutOfBounds;
+  }
+  if (loadops_size > immediate_data_size) {
+    return error::kOutOfBounds;
+  }
+  volatile const GLenum* loadops = GetImmediateDataAs<volatile const GLenum*>(
+      c, loadops_size, immediate_data_size);
+  if (loadops == nullptr) {
+    return error::kOutOfBounds;
+  }
+  error::Error error = DoBeginPixelLocalStorageANGLE(count, loadops);
+  if (error != error::kNoError) {
+    return error;
+  }
+  return error::kNoError;
+}
+
+error::Error
+GLES2DecoderPassthroughImpl::HandleEndPixelLocalStorageANGLEImmediate(
+    uint32_t immediate_data_size,
+    const volatile void* cmd_data) {
+  if (!feature_info_->IsWebGL2OrES3OrHigherContext())
+    return error::kUnknownCommand;
+  const volatile gles2::cmds::EndPixelLocalStorageANGLEImmediate& c =
+      *static_cast<
+          const volatile gles2::cmds::EndPixelLocalStorageANGLEImmediate*>(
+          cmd_data);
+  if (!features().angle_shader_pixel_local_storage) {
+    return error::kUnknownCommand;
+  }
+
+  GLsizei count = static_cast<GLsizei>(c.count);
+  uint32_t storeops_size = 0;
+  if (count >= 0 &&
+      !GLES2Util::ComputeDataSize<GLenum, 1>(count, &storeops_size)) {
+    return error::kOutOfBounds;
+  }
+  if (storeops_size > immediate_data_size) {
+    return error::kOutOfBounds;
+  }
+  volatile const GLenum* storeops = GetImmediateDataAs<volatile const GLenum*>(
+      c, storeops_size, immediate_data_size);
+  if (storeops == nullptr) {
+    return error::kOutOfBounds;
+  }
+  error::Error error = DoEndPixelLocalStorageANGLE(count, storeops);
+  if (error != error::kNoError) {
+    return error;
+  }
+  return error::kNoError;
+}
+
+error::Error GLES2DecoderPassthroughImpl::HandlePixelLocalStorageBarrierANGLE(
+    uint32_t immediate_data_size,
+    const volatile void* cmd_data) {
+  if (!feature_info_->IsWebGL2OrES3OrHigherContext())
+    return error::kUnknownCommand;
+  if (!features().angle_shader_pixel_local_storage) {
+    return error::kUnknownCommand;
+  }
+
+  error::Error error = DoPixelLocalStorageBarrierANGLE();
+  if (error != error::kNoError) {
+    return error;
+  }
+  return error::kNoError;
+}
+
+error::Error
+GLES2DecoderPassthroughImpl::HandleFramebufferPixelLocalStorageInterruptANGLE(
+    uint32_t immediate_data_size,
+    const volatile void* cmd_data) {
+  if (!feature_info_->IsWebGL2OrES3OrHigherContext())
+    return error::kUnknownCommand;
+  if (!features().angle_shader_pixel_local_storage) {
+    return error::kUnknownCommand;
+  }
+
+  error::Error error = DoFramebufferPixelLocalStorageInterruptANGLE();
+  if (error != error::kNoError) {
+    return error;
+  }
+  return error::kNoError;
+}
+
+error::Error
+GLES2DecoderPassthroughImpl::HandleFramebufferPixelLocalStorageRestoreANGLE(
+    uint32_t immediate_data_size,
+    const volatile void* cmd_data) {
+  if (!feature_info_->IsWebGL2OrES3OrHigherContext())
+    return error::kUnknownCommand;
+  if (!features().angle_shader_pixel_local_storage) {
+    return error::kUnknownCommand;
+  }
+
+  error::Error error = DoFramebufferPixelLocalStorageRestoreANGLE();
+  if (error != error::kNoError) {
+    return error;
+  }
+  return error::kNoError;
+}
+
+error::Error GLES2DecoderPassthroughImpl::
+    HandleGetFramebufferPixelLocalStorageParameterfvANGLE(
+        uint32_t immediate_data_size,
+        const volatile void* cmd_data) {
+  if (!feature_info_->IsWebGL2OrES3OrHigherContext())
+    return error::kUnknownCommand;
+  const volatile gles2::cmds::GetFramebufferPixelLocalStorageParameterfvANGLE&
+      c = *static_cast<const volatile gles2::cmds::
+                           GetFramebufferPixelLocalStorageParameterfvANGLE*>(
+          cmd_data);
+  GLint plane = static_cast<GLint>(c.plane);
+  GLenum pname = static_cast<GLenum>(c.pname);
+  unsigned int buffer_size = 0;
+  typedef cmds::GetFramebufferPixelLocalStorageParameterfvANGLE::Result Result;
+  Result* result = GetSharedMemoryAndSizeAs<Result*>(
+      c.params_shm_id, c.params_shm_offset, sizeof(Result), &buffer_size);
+  GLfloat* params = result ? result->GetData() : nullptr;
+  if (params == nullptr) {
+    return error::kOutOfBounds;
+  }
+  GLsizei bufsize = Result::ComputeMaxResults(buffer_size);
+  GLsizei written_values = 0;
+  GLsizei* length = &written_values;
+  error::Error error = DoGetFramebufferPixelLocalStorageParameterfvANGLE(
+      plane, pname, bufsize, length, params);
+  if (error != error::kNoError) {
+    return error;
+  }
+  if (written_values > bufsize) {
+    return error::kOutOfBounds;
+  }
+  result->SetNumResults(written_values);
+  return error::kNoError;
+}
+
+error::Error GLES2DecoderPassthroughImpl::
+    HandleGetFramebufferPixelLocalStorageParameterivANGLE(
+        uint32_t immediate_data_size,
+        const volatile void* cmd_data) {
+  if (!feature_info_->IsWebGL2OrES3OrHigherContext())
+    return error::kUnknownCommand;
+  const volatile gles2::cmds::GetFramebufferPixelLocalStorageParameterivANGLE&
+      c = *static_cast<const volatile gles2::cmds::
+                           GetFramebufferPixelLocalStorageParameterivANGLE*>(
+          cmd_data);
+  GLint plane = static_cast<GLint>(c.plane);
+  GLenum pname = static_cast<GLenum>(c.pname);
+  unsigned int buffer_size = 0;
+  typedef cmds::GetFramebufferPixelLocalStorageParameterivANGLE::Result Result;
+  Result* result = GetSharedMemoryAndSizeAs<Result*>(
+      c.params_shm_id, c.params_shm_offset, sizeof(Result), &buffer_size);
+  GLint* params = result ? result->GetData() : nullptr;
+  if (params == nullptr) {
+    return error::kOutOfBounds;
+  }
+  GLsizei bufsize = Result::ComputeMaxResults(buffer_size);
+  GLsizei written_values = 0;
+  GLsizei* length = &written_values;
+  error::Error error = DoGetFramebufferPixelLocalStorageParameterivANGLE(
+      plane, pname, bufsize, length, params);
+  if (error != error::kNoError) {
+    return error;
+  }
+  if (written_values > bufsize) {
+    return error::kOutOfBounds;
+  }
+  result->SetNumResults(written_values);
   return error::kNoError;
 }
 

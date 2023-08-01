@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -88,6 +88,15 @@ OverviewSession* GetOverviewSession() {
   return session;
 }
 
+OverviewGrid* GetOverviewGridForRoot(aura::Window* root) {
+  DCHECK(root->IsRootWindow());
+
+  auto* overview_controller = Shell::Get()->overview_controller();
+  DCHECK(overview_controller->InOverviewSession());
+
+  return overview_controller->overview_session()->GetGridWithRootWindow(root);
+}
+
 const std::vector<std::unique_ptr<OverviewItem>>& GetOverviewItemsForRoot(
     int index) {
   return GetOverviewSession()->grid_list()[index]->window_list();
@@ -102,7 +111,7 @@ gfx::Rect ShrinkBoundsByHotseatInset(const gfx::Rect& rect) {
   const int hotseat_bottom_inset = ShelfConfig::Get()->GetHotseatSize(
                                        /*density=*/HotseatDensity::kNormal) +
                                    ShelfConfig::Get()->hotseat_bottom_padding();
-  new_rect.Inset(0, 0, 0, hotseat_bottom_inset);
+  new_rect.Inset(gfx::Insets::TLBR(0, 0, hotseat_bottom_inset, 0));
   return new_rect;
 }
 

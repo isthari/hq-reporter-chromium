@@ -1,20 +1,22 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/arc/tracing/arc_app_performance_tracing_test_helper.h"
 
+#include "ash/constants/ash_features.h"
+#include "base/containers/enum_set.h"
 #include "chrome/browser/ash/arc/arc_util.h"
 #include "chrome/browser/ash/arc/tracing/arc_app_performance_tracing.h"
 #include "chrome/browser/ash/arc/tracing/arc_app_performance_tracing_session.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/sync/sync_service_factory.h"
 #include "components/exo/shell_surface_util.h"
 #include "components/exo/surface.h"
 #include "components/exo/wm_helper.h"
-#include "components/exo/wm_helper_chromeos.h"
-#include "components/prefs/pref_service.h"
-#include "components/sync/base/pref_names.h"
-#include "components/sync/base/sync_prefs.h"
+#include "components/sync/base/user_selectable_type.h"
+#include "components/sync/service/sync_service.h"
+#include "components/sync/service/sync_user_settings.h"
 #include "ui/views/widget/widget.h"
 
 namespace arc {
@@ -28,7 +30,7 @@ void ArcAppPerformanceTracingTestHelper::SetUp(Profile* profile) {
   DCHECK(!profile_ && profile);
   DCHECK(IsArcAllowedForProfile(profile));
   profile_ = profile;
-  wm_helper_ = std::make_unique<exo::WMHelperChromeOS>();
+  wm_helper_ = std::make_unique<exo::WMHelper>();
   // Make sure it is accessible in test.
   if (!GetTracing()) {
     ArcAppPerformanceTracing::GetForBrowserContextForTesting(profile_);
@@ -38,6 +40,7 @@ void ArcAppPerformanceTracingTestHelper::SetUp(Profile* profile) {
 
 void ArcAppPerformanceTracingTestHelper::TearDown() {
   DCHECK(profile_);
+  exo::WMHelper::GetInstance()->RemoveActivationObserver(GetTracing());
   wm_helper_.reset();
   profile_ = nullptr;
 }
@@ -119,9 +122,13 @@ void ArcAppPerformanceTracingTestHelper::PlayDefaultSequence() {
 
 void ArcAppPerformanceTracingTestHelper::DisableAppSync() {
   DCHECK(profile_);
-  PrefService* pref_service = profile_->GetPrefs();
-  pref_service->SetBoolean(syncer::prefs::kSyncKeepEverythingSynced, false);
-  pref_service->SetBoolean(syncer::prefs::kSyncApps, false);
+  syncer::SyncUserSettings* sync_user_settings =
+      SyncServiceFactory::GetForProfile(profile_)->GetUserSettings();
+  syncer::UserSelectableOsTypeSet selected_sync_types =
+      sync_user_settings->GetSelectedOsTypes();
+  selected_sync_types.Remove(syncer::UserSelectableOsType::kOsApps);
+  sync_user_settings->SetSelectedOsTypes(
+      /*sync_all_os_types=*/false, selected_sync_types);
 }
 
 }  // namespace arc

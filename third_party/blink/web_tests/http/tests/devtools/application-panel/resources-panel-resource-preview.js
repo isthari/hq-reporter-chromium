@@ -1,14 +1,18 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {TestRunner} from 'test_runner';
+import {ApplicationTestRunner} from 'application_test_runner';
+import {ConsoleTestRunner} from 'console_test_runner';
+
 (async function() {
   TestRunner.addResult(`Tests Application Panel preview for resources of different types.\n`);
-  await TestRunner.loadLegacyModule('console'); await TestRunner.loadTestModule('application_test_runner');
+  await TestRunner.loadLegacyModule('console');
     // Note: every test that uses a storage API must manually clean-up state from previous tests.
   await ApplicationTestRunner.resetState();
 
-  await TestRunner.loadLegacyModule('console'); await TestRunner.loadTestModule('console_test_runner');
+  await TestRunner.loadLegacyModule('console');
   await TestRunner.loadLegacyModule('source_frame');
   await TestRunner.showPanel('resources');
   await TestRunner.loadHTML(`
@@ -50,7 +54,7 @@
   }
 
   async function revealResourceWithDisplayName(name) {
-    var target = SDK.targetManager.mainTarget();
+    var target = SDK.targetManager.primaryPageTarget();
     var model = target.model(SDK.ResourceTreeModel);
     var resource = null;
     for (var r of model.mainFrame.resources()) {

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -41,8 +41,8 @@ class CastDialogMetricsTest : public ChromeViewsTestBase {
  protected:
   TestingProfile profile_;
   base::HistogramTester tester_;
-  CastDialogMetrics metrics_{init_time, MediaRouterDialogOpenOrigin::TOOLBAR,
-                             &profile_};
+  CastDialogMetrics metrics_{
+      init_time, MediaRouterDialogActivationLocation::TOOLBAR, &profile_};
 };
 
 TEST_F(CastDialogMetricsTest, OnSinksLoaded) {
@@ -62,15 +62,12 @@ TEST_F(CastDialogMetricsTest, OnStartCasting) {
   constexpr int kSinkIndex = 4;
   metrics_.OnSinksLoaded(sink_load_time);
   metrics_.OnStartCasting(start_casting_time, kSinkIndex, TAB_MIRROR,
-                          SinkIconType::CAST, true);
+                          SinkIconType::CAST);
   tester_.ExpectUniqueSample(
       MediaRouterMetrics::kHistogramStartLocalLatency,
       (start_casting_time - sink_load_time).InMilliseconds(), 1);
   tester_.ExpectUniqueSample("MediaRouter.Sink.SelectedType.CastHarmony",
                              SinkIconType::CAST, 1);
-  tester_.ExpectUniqueSample(
-      "MediaRouter.Sink.SelectedType.CastAndDialPresent.CastHarmony",
-      SinkIconType::CAST, 1);
 }
 
 TEST_F(CastDialogMetricsTest, OnStopCasting) {
@@ -100,6 +97,26 @@ TEST_F(CastDialogMetricsTest, OnRecordSinkCount) {
                              buttons.size(), 1);
 }
 
+TEST_F(CastDialogMetricsTest, OnRecordSinkCountSinkView) {
+  UIMediaSink sink1{mojom::MediaRouteProviderId::CAST};
+  UIMediaSink sink2{mojom::MediaRouteProviderId::CAST};
+  UIMediaSink sink3{mojom::MediaRouteProviderId::DIAL};
+  CastDialogSinkView sink_view1{
+      &profile_, sink1, views::Button::PressedCallback(),
+      views::Button::PressedCallback(), views::Button::PressedCallback()};
+  CastDialogSinkView sink_view2{
+      &profile_, sink2, views::Button::PressedCallback(),
+      views::Button::PressedCallback(), views::Button::PressedCallback()};
+  CastDialogSinkView sink_view3{
+      &profile_, sink3, views::Button::PressedCallback(),
+      views::Button::PressedCallback(), views::Button::PressedCallback()};
+  std::vector<raw_ptr<CastDialogSinkView>> sink_views{&sink_view1, &sink_view2,
+                                                      &sink_view3};
+  metrics_.OnRecordSinkCount(sink_views);
+  tester_.ExpectUniqueSample(MediaRouterMetrics::kHistogramUiDeviceCount,
+                             sink_views.size(), 1);
+}
+
 TEST_F(CastDialogMetricsTest, RecordFirstAction) {
   metrics_.OnStopCasting(true);
   metrics_.OnCastModeSelected();
@@ -116,48 +133,36 @@ TEST_F(CastDialogMetricsTest, RecordIconState) {
 
   profile_.GetPrefs()->SetBoolean(::prefs::kShowCastIconInToolbar, true);
   CastDialogMetrics metrics_with_pinned_icon{
-      init_time, MediaRouterDialogOpenOrigin::PAGE, &profile_};
+      init_time, MediaRouterDialogActivationLocation::PAGE, &profile_};
   tester_.ExpectBucketCount(
       MediaRouterMetrics::kHistogramUiDialogIconStateAtOpen,
       /* is_pinned */ true, 1);
-}
-
-TEST_F(CastDialogMetricsTest, RecordCloudPref) {
-  // When a dialog is opened after enabling the cloud services, that should be
-  // recorded.
-  profile_.GetPrefs()->SetBoolean(prefs::kMediaRouterEnableCloudServices, true);
-  CastDialogMetrics metrics_with_cloud_pref_enabled{
-      init_time, MediaRouterDialogOpenOrigin::PAGE, &profile_};
-  tester_.ExpectBucketCount(MediaRouterMetrics::kHistogramCloudPrefAtDialogOpen,
-                            /* enabled */ true, 1);
 }
 
 TEST_F(CastDialogMetricsTest, RecordDialogActivationLocationAndCastMode) {
   constexpr int kSinkIndex = 4;
   metrics_.OnSinksLoaded(sink_load_time);
   metrics_.OnStartCasting(start_casting_time, kSinkIndex, TAB_MIRROR,
-                          SinkIconType::CAST, false);
+                          SinkIconType::CAST);
   tester_.ExpectUniqueSample(
       "MediaRouter.Ui.Dialog.ActivationLocationAndCastMode",
       DialogActivationLocationAndCastMode::kEphemeralIconAndTabMirror, 1);
 
   CastDialogMetrics metrics_opened_from_page{
-      init_time, MediaRouterDialogOpenOrigin::PAGE, &profile_};
+      init_time, MediaRouterDialogActivationLocation::PAGE, &profile_};
   metrics_opened_from_page.OnSinksLoaded(sink_load_time);
   metrics_opened_from_page.OnStartCasting(start_casting_time, kSinkIndex,
-                                          PRESENTATION, SinkIconType::GENERIC,
-                                          false);
+                                          PRESENTATION, SinkIconType::GENERIC);
   tester_.ExpectBucketCount(
       "MediaRouter.Ui.Dialog.ActivationLocationAndCastMode",
       DialogActivationLocationAndCastMode::kPageAndPresentation, 1);
 
   profile_.GetPrefs()->SetBoolean(::prefs::kShowCastIconInToolbar, true);
   CastDialogMetrics metrics_with_pinned_icon{
-      init_time, MediaRouterDialogOpenOrigin::TOOLBAR, &profile_};
+      init_time, MediaRouterDialogActivationLocation::TOOLBAR, &profile_};
   metrics_with_pinned_icon.OnSinksLoaded(sink_load_time);
   metrics_with_pinned_icon.OnStartCasting(start_casting_time, kSinkIndex,
-                                          DESKTOP_MIRROR, SinkIconType::CAST,
-                                          false);
+                                          DESKTOP_MIRROR, SinkIconType::CAST);
   tester_.ExpectBucketCount(
       "MediaRouter.Ui.Dialog.ActivationLocationAndCastMode",
       DialogActivationLocationAndCastMode::kPinnedIconAndDesktopMirror, 1);

@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,13 +6,18 @@
 #define CHROME_BROWSER_TOUCH_TO_FILL_ANDROID_TOUCH_TO_FILL_VIEW_IMPL_H_
 
 #include "base/android/scoped_java_ref.h"
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "chrome/browser/touch_to_fill/touch_to_fill_view.h"
 
 namespace gfx {
 class Image;
 }
+
+namespace password_manager {
+class PasskeyCredential;
+class UiCredential;
+}  // namespace password_manager
 
 class TouchToFillController;
 
@@ -27,7 +32,10 @@ class TouchToFillViewImpl : public TouchToFillView {
   void Show(
       const GURL& url,
       IsOriginSecure is_origin_secure,
-      base::span<const password_manager::UiCredential> credentials) override;
+      base::span<const password_manager::UiCredential> credentials,
+      base::span<const password_manager::PasskeyCredential> passkey_credentials,
+      bool trigger_submission,
+      bool can_manage_passwords_when_passkeys_present) override;
   void OnCredentialSelected(
       const password_manager::UiCredential& credential) override;
   void OnDismiss() override;
@@ -35,7 +43,10 @@ class TouchToFillViewImpl : public TouchToFillView {
   void OnCredentialSelected(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& credential);
-  void OnManagePasswordsSelected(JNIEnv* env);
+  void OnWebAuthnCredentialSelected(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& credential);
+  void OnManagePasswordsSelected(JNIEnv* env, jboolean passkeys_shown);
   void OnDismiss(JNIEnv* env);
 
  private:

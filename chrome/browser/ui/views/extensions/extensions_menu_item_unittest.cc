@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,15 +16,15 @@
 #include "chrome/browser/ui/views/native_widget_factory.h"
 #include "ui/views/controls/styled_label.h"
 
-class ExtensionsMenuItemViewTest : public ExtensionsToolbarUnitTest {
+class ExtensionMenuItemViewTest : public ExtensionsToolbarUnitTest {
  public:
-  ExtensionsMenuItemViewTest()
+  ExtensionMenuItemViewTest()
       : initial_extension_name_(u"Initial Extension Name"),
         initial_tooltip_(u"Initial tooltip") {}
-  ExtensionsMenuItemViewTest(const ExtensionsMenuItemViewTest&) = delete;
-  ExtensionsMenuItemViewTest& operator=(const ExtensionsMenuItemViewTest&) =
+  ExtensionMenuItemViewTest(const ExtensionMenuItemViewTest&) = delete;
+  ExtensionMenuItemViewTest& operator=(const ExtensionMenuItemViewTest&) =
       delete;
-  ~ExtensionsMenuItemViewTest() override = default;
+  ~ExtensionMenuItemViewTest() override = default;
 
  protected:
   ExtensionsMenuButton* primary_button() { return primary_button_; }
@@ -44,12 +44,9 @@ class ExtensionsMenuItemViewTest : public ExtensionsToolbarUnitTest {
   raw_ptr<TestToolbarActionViewController> controller_ = nullptr;
 };
 
-void ExtensionsMenuItemViewTest::SetUp() {
+void ExtensionMenuItemViewTest::SetUp() {
   ExtensionsToolbarUnitTest::SetUp();
 
-  // TODO(crbug.com/1263310): This widget only tests behavior of
-  // MenuItemType::kExtensions. Once MenuItemType::kSiteAccess is implemented,
-  // add a separate widget and test accordingly.
   widget_ = std::make_unique<views::Widget>();
   views::Widget::InitParams init_params(views::Widget::InitParams::TYPE_POPUP);
   init_params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
@@ -69,9 +66,8 @@ void ExtensionsMenuItemViewTest::SetUp() {
   controller_ = controller.get();
   controller_->SetActionName(initial_extension_name_);
   controller_->SetTooltip(initial_tooltip_);
-  auto menu_item = std::make_unique<ExtensionsMenuItemView>(
-      ExtensionsMenuItemView::MenuItemType::kExtensions, browser(),
-      std::move(controller), true);
+  auto menu_item = std::make_unique<ExtensionMenuItemView>(
+      browser(), std::move(controller), true);
   primary_button_ = menu_item->primary_action_button_for_testing();
   pin_button_ = menu_item->pin_button_for_testing();
   context_menu_button_ = menu_item->context_menu_button_for_testing();
@@ -79,14 +75,14 @@ void ExtensionsMenuItemViewTest::SetUp() {
   widget_->SetContentsView(std::move(menu_item));
 }
 
-void ExtensionsMenuItemViewTest::TearDown() {
+void ExtensionMenuItemViewTest::TearDown() {
   // All windows need to be closed before tear down.
   widget_.reset();
 
   TestWithBrowserView::TearDown();
 }
 
-TEST_F(ExtensionsMenuItemViewTest, UpdatesToDisplayCorrectActionTitle) {
+TEST_F(ExtensionMenuItemViewTest, UpdatesToDisplayCorrectActionTitle) {
   EXPECT_EQ(primary_button()->label_text_for_testing(),
             initial_extension_name_);
 
@@ -96,7 +92,7 @@ TEST_F(ExtensionsMenuItemViewTest, UpdatesToDisplayCorrectActionTitle) {
   EXPECT_EQ(primary_button()->label_text_for_testing(), extension_name);
 }
 
-TEST_F(ExtensionsMenuItemViewTest, UpdatesToDisplayTooltip) {
+TEST_F(ExtensionMenuItemViewTest, UpdatesToDisplayTooltip) {
   EXPECT_EQ(primary_button()->GetTooltipText(gfx::Point()), initial_tooltip_);
 
   std::u16string tooltip = u"New Tooltip";
@@ -105,7 +101,7 @@ TEST_F(ExtensionsMenuItemViewTest, UpdatesToDisplayTooltip) {
   EXPECT_EQ(primary_button()->GetTooltipText(gfx::Point()), tooltip);
 }
 
-TEST_F(ExtensionsMenuItemViewTest, ButtonMatchesEnabledStateOfExtension) {
+TEST_F(ExtensionMenuItemViewTest, ButtonMatchesEnabledStateOfExtension) {
   EXPECT_TRUE(primary_button()->GetEnabled());
   controller_->SetEnabled(false);
   EXPECT_FALSE(primary_button()->GetEnabled());
@@ -113,7 +109,7 @@ TEST_F(ExtensionsMenuItemViewTest, ButtonMatchesEnabledStateOfExtension) {
   EXPECT_TRUE(primary_button()->GetEnabled());
 }
 
-TEST_F(ExtensionsMenuItemViewTest, NotifyClickExecutesAction) {
+TEST_F(ExtensionMenuItemViewTest, NotifyClickExecutesAction) {
   base::UserActionTester user_action_tester;
   constexpr char kActivatedUserAction[] =
       "Extensions.Toolbar.ExtensionActivatedFromMenu";
@@ -127,7 +123,7 @@ TEST_F(ExtensionsMenuItemViewTest, NotifyClickExecutesAction) {
   EXPECT_EQ(1, user_action_tester.GetActionCount(kActivatedUserAction));
 }
 
-TEST_F(ExtensionsMenuItemViewTest, PinButtonUserAction) {
+TEST_F(ExtensionMenuItemViewTest, PinButtonUserAction) {
   base::UserActionTester user_action_tester;
   constexpr char kPinButtonUserAction[] = "Extensions.Toolbar.PinButtonPressed";
   EXPECT_EQ(0, user_action_tester.GetActionCount(kPinButtonUserAction));
@@ -137,7 +133,7 @@ TEST_F(ExtensionsMenuItemViewTest, PinButtonUserAction) {
   EXPECT_EQ(1, user_action_tester.GetActionCount(kPinButtonUserAction));
 }
 
-TEST_F(ExtensionsMenuItemViewTest, ContextMenuButtonUserAction) {
+TEST_F(ExtensionMenuItemViewTest, ContextMenuButtonUserAction) {
   base::UserActionTester user_action_tester;
   constexpr char kContextMenuButtonUserAction[] =
       "Extensions.Toolbar.MoreActionsButtonPressedFromMenu";

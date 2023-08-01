@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,10 +14,14 @@ import android.widget.TextView;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.recyclerview.widget.RecyclerView.ItemDecoration;
+import androidx.recyclerview.widget.RecyclerView.RecycledViewPool;
 
+import org.chromium.chrome.browser.omnibox.OmniboxFeatures;
 import org.chromium.chrome.browser.omnibox.R;
+import org.chromium.chrome.browser.omnibox.styles.OmniboxResourceProvider;
 import org.chromium.chrome.browser.omnibox.suggestions.header.HeaderView;
 import org.chromium.chrome.browser.util.KeyNavigationUtil;
+import org.chromium.ui.base.ViewUtils;
 import org.chromium.ui.modelutil.SimpleRecyclerViewAdapter;
 
 /**
@@ -27,6 +31,7 @@ public class BaseCarouselSuggestionView extends LinearLayout {
     private final HeaderView mHeader;
     private final RecyclerView mRecyclerView;
     private final BaseCarouselSuggestionSelectionManager mSelectionManager;
+    private int mItemSpacingPx;
 
     /**
      * Constructs a new carousel suggestion view.
@@ -45,9 +50,6 @@ public class BaseCarouselSuggestionView extends LinearLayout {
         mHeader = new HeaderView(context);
         mHeader.setLayoutParams(
                 new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT));
-        mHeader.getIconView().setVisibility(GONE);
-        mHeader.setClickable(false);
-        mHeader.setFocusable(false);
         mHeader.setVisibility(View.GONE);
         addView(mHeader);
 
@@ -59,20 +61,25 @@ public class BaseCarouselSuggestionView extends LinearLayout {
         mRecyclerView.setItemAnimator(null);
         mRecyclerView.setLayoutManager(
                 new LinearLayoutManager(context, LinearLayoutManager.HORIZONTAL, false));
+        mRecyclerView.setClipToPadding(false);
+        int startPadding = OmniboxResourceProvider.getSideSpacing(context);
+        if (OmniboxFeatures.shouldShowModernizeVisualUpdate(context)) {
+            startPadding -= context.getResources().getDimensionPixelSize(
+                    R.dimen.omnibox_carousel_start_padding_reduction);
+        }
+        mRecyclerView.setPaddingRelative(startPadding, mRecyclerView.getPaddingTop(),
+                mRecyclerView.getPaddingEnd(), mRecyclerView.getPaddingBottom());
 
         mSelectionManager =
                 new BaseCarouselSuggestionSelectionManager(mRecyclerView.getLayoutManager());
         mRecyclerView.addOnChildAttachStateChangeListener(mSelectionManager);
 
-        final int itemSpacing = context.getResources().getDimensionPixelOffset(
-                R.dimen.omnibox_suggestion_carousel_horizontal_spacing);
-
         mRecyclerView.addItemDecoration(new ItemDecoration() {
             @Override
             public void getItemOffsets(
                     Rect outRect, View view, RecyclerView parent, RecyclerView.State state) {
-                outRect.left = itemSpacing;
-                outRect.right = itemSpacing;
+                outRect.left = 0;
+                outRect.right = mItemSpacingPx;
             }
         });
 
@@ -106,7 +113,7 @@ public class BaseCarouselSuggestionView extends LinearLayout {
 
     /** @return Header TextView element. */
     TextView getHeaderTextView() {
-        return mHeader.getTextView();
+        return mHeader;
     }
 
     /** @return Header element. */
@@ -122,5 +129,37 @@ public class BaseCarouselSuggestionView extends LinearLayout {
     /** @return Recycler view used by the Carousel suggestion. */
     public RecyclerView getRecyclerViewForTest() {
         return mRecyclerView;
+    }
+
+    /**
+     * Applies a new item spacing to the carousel.
+     *
+     * @param itemSpacingPx The requested item spacing, expressed in Pixels.
+     */
+    public void setItemSpacingPx(int itemSpacingPx) {
+        mItemSpacingPx = itemSpacingPx;
+        ViewUtils.requestLayout(mRecyclerView, "BaseCarouselSuggestionView.setItemSpacingPx");
+    }
+
+    /**
+     * Set the carousel to have horizontal fade effect.
+     *
+     * @param enableFade whether we should enable horizontal fade.
+     */
+    public void setCarouselHorizontalFade(boolean enableFade) {
+        mRecyclerView.setHorizontalFadingEdgeEnabled(enableFade);
+    }
+
+    /**
+     * Set the recycler view pool to the carousel view to reduce extra image fetching and jackiness
+     * on carousel rendering.
+     *
+     * @param recycledViewPool the recycled view pool to assign to the recycler view.
+     */
+    void setCarouselRecycledViewPool(RecycledViewPool recycledViewPool) {
+        // TODO(rongtan): Investigate why null assignment causes crashes in Recycler View.
+        if (recycledViewPool != null) {
+            mRecyclerView.setRecycledViewPool(recycledViewPool);
+        }
     }
 }

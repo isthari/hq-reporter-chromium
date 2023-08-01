@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,14 +8,12 @@
 
 #include "base/json/values_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/enterprise/reporting/extension_info.h"
 #include "chrome/browser/enterprise/reporting/extension_request/extension_request_report_generator.h"
 #include "chrome/browser/extensions/extension_management.h"
 #include "chrome/browser/policy/chrome_browser_policy_connector.h"
-#include "chrome/common/chrome_features.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/pref_names.h"
 #include "components/enterprise/browser/reporting/policy_info.h"
@@ -45,12 +43,10 @@ void ProfileReportGeneratorDesktop::GetExtensionRequest(
     enterprise_management::ChromeUserProfileInfo* report) {
   if (!profile_->GetPrefs()->GetBoolean(prefs::kCloudExtensionRequestEnabled))
     return;
-  const base::Value* pending_requests =
-      profile_->GetPrefs()->GetDictionary(prefs::kCloudExtensionRequestIds);
+  const base::Value::Dict& pending_requests =
+      profile_->GetPrefs()->GetDict(prefs::kCloudExtensionRequestIds);
 
   // In case a corrupted profile prefs causing |pending_requests| to be null.
-  if (!pending_requests)
-    return;
 
   extensions::ExtensionManagement* extension_management =
       extensions::ExtensionManagementFactory::GetForBrowserContext(profile_);
@@ -58,9 +54,9 @@ void ProfileReportGeneratorDesktop::GetExtensionRequest(
       extension_urls::GetDefaultWebstoreUpdateUrl().spec();
 
   int number_of_requests = 0;
-  for (auto it : pending_requests->DictItems()) {
+  for (auto [extension_id, request_data] : pending_requests) {
     if (!ExtensionRequestReportGenerator::ShouldUploadExtensionRequest(
-            it.first, webstore_update_url, extension_management)) {
+            extension_id, webstore_update_url, extension_management)) {
       continue;
     }
 
@@ -71,18 +67,18 @@ void ProfileReportGeneratorDesktop::GetExtensionRequest(
       break;
 
     auto* request = report->add_extension_requests();
-    request->set_id(it.first);
+    request->set_id(extension_id);
+
+    const auto& request_data_dict = request_data.GetDict();
     absl::optional<base::Time> timestamp = ::base::ValueToTime(
-        it.second.FindKey(extension_misc::kExtensionRequestTimestamp));
+        request_data_dict.Find(extension_misc::kExtensionRequestTimestamp));
     if (timestamp)
       request->set_request_timestamp(timestamp->ToJavaTime());
 
-    if (base::FeatureList::IsEnabled(
-            features::kExtensionWorkflowJustification)) {
-      const std::string* justification = it.second.FindStringKey(
-          extension_misc::kExtensionWorkflowJustification);
-      if (justification)
-        request->set_justification(*justification);
+    const std::string* justification = request_data_dict.FindString(
+        extension_misc::kExtensionWorkflowJustification);
+    if (justification) {
+      request->set_justification(*justification);
     }
   }
 }

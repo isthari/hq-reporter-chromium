@@ -1,6 +1,7 @@
 <?xml version="1.0" ?>
 <!DOCTYPE translationbundle>
 <translationbundle lang="sv">
+<translation id="100506692671054486">inget tidigare kommando</translation>
 <translation id="1009046985747440431">Flytta markeringen med uppåtpil eller nedåtpil, aktivera med retur</translation>
 <translation id="1011903154582639569">Leta upp en tangent och lyft sedan fingret för att skriva tecknet</translation>
 <translation id="1012173283529841972">Post i lista</translation>
@@ -25,13 +26,14 @@
 <translation id="1156488781945104845">Aktuell tid</translation>
 <translation id="1161762950103988776">Hoppa</translation>
 <translation id="1164857107703583584">Med hoppkommandon kan du effektivt navigera genom en webbsida.</translation>
+<translation id="116896278675803795">Ändra språk automatiskt för att matcha valt innehåll</translation>
 <translation id="1175914831232945926">Siffror</translation>
 <translation id="1188858454923323853">kompletterande</translation>
 <translation id="1189258430971676908">Övningsområde: Rullgardinsmenyer</translation>
 <translation id="1195238899008218998">Efterord</translation>
 <translation id="1197088940767939838">Orange</translation>
 <translation id="1198865190323699001">Tryckrörelser</translation>
-<translation id="1201402288615127009">Nästa</translation>
+<translation id="1202112913213080585">avbryt</translation>
 <translation id="1206619573307042055">markör</translation>
 <translation id="1207086294218137981">Det finns inga fler rubriker på nivå 4</translation>
 <translation id="1212770441379271564">De följande kortkommandona är inte ChromeVox-kommandon, men de är fortfarande mycket användbara för att få ut så mycket som möjligt av Chrome.
@@ -43,6 +45,7 @@
     Öppna Chrome-menyn genom att trycka på Alt + F.</translation>
 <translation id="1213216066620407844">ChromeVox – ger röst åt Chrome</translation>
 <translation id="1225969361094801578">Mörkt skiffergrå</translation>
+<translation id="122928249241119550">flytta till föregående mening</translation>
 <translation id="1230503547248836149">Textmarkeringens början</translation>
 <translation id="1236794971743289975">Slutnot</translation>
 <translation id="1237797094773582699">På liknande sätt kan du komma tillbaka till föregående avsnitt genom att svepa från höger till vänster med fyra fingrar. Testa nu!</translation>
@@ -68,7 +71,6 @@
 <translation id="1342835525016946179">artikel</translation>
 <translation id="1346059596910821859">Tips</translation>
 <translation id="1354356357730355833">kopiera</translation>
-<translation id="135978014023467274">Du har uppdaterat till ChromeVox 63.</translation>
 <translation id="1360699455582016846">Klicka på objektet under markörhämtaren <ph name="ROUTING_KEY_NUMBER" /></translation>
 <translation id="1376703628032300005">flytta till nästa tecken</translation>
 <translation id="1377925789329510816">Det här är den sista rubriken. Tryck på söktangenten + H för fortsätta runt tillbaka till den första rubriken eller på söktangenten + Skift + H för att fortsätta till den andra rubriken på den här sidan.</translation>
@@ -93,7 +95,7 @@
 <translation id="151784044608172266">Nästa mening</translation>
 <translation id="1524531499102321782">Punktskrift på nästa rad</translation>
 <translation id="1542513807034338907">Scrolla till föregående sida</translation>
-<translation id="1546370775711804143">Rullningslist</translation>
+<translation id="1546370775711804143">Scrollningslist</translation>
 <translation id="1551572888042734032">Sommar</translation>
 <translation id="1555130319947370107">Blå</translation>
 <translation id="1559739829547075274">Navigera bakåt</translation>
@@ -136,9 +138,9 @@
 <translation id="1812527064848182527">liggande</translation>
 <translation id="1829244130665387512">Hitta på sida</translation>
 <translation id="1834891354138622109">Kolumn</translation>
-<translation id="1845944666972354496">Aktivera genom att trycka snabbt två gånger</translation>
 <translation id="1846771122725914429">Punktskriftsskärm med Bluetooth</translation>
 <translation id="1852018405765032699">Du öppnar och stänger ChromeVox-menyerna genom att trycka på skärmen med fyra fingrar. Menyerna innehåller praktisk information om kommandon och genvägar. När menyerna är öppna kan du navigera mellan menyalternativen genom att svepa med ett finger och aktivera ett alternativ genom att trycka snabbt två gånger. Fortsätt genom att trycka på skärmen med fyra fingrar.</translation>
+<translation id="1864430479908918647">Tryck på Sök + blanksteg</translation>
 <translation id="1865601187525349519">Slutet på texten</translation>
 <translation id="1876229593313240038">dok</translation>
 <translation id="1902396333223336119">Cell</translation>
@@ -213,6 +215,7 @@
 <translation id="2435422727584637732">Dodgers-blå</translation>
 <translation id="2438712309510062123">Föreslå</translation>
 <translation id="2450814015951372393">Kryssruta</translation>
+<translation id="2450992626945324272">flytta till nästa mening</translation>
 <translation id="2461822463642141190">Nuvarande</translation>
 <translation id="2462626033734746142">Alternativknappsgrupp</translation>
 <translation id="2467741090055146971">avmarkera</translation>
@@ -235,6 +238,7 @@
 <translation id="2619344480613750862">Du kan även flytta dig från en del av skärmen till en annan. Du kan till exempel flytta dig mellan Appstartaren, hyllan och flikar i Chrome. Du kommer till nästa del genom att svepa från vänster till höger med fyra fingrar. Prova det nu för att fortsätta.</translation>
 <translation id="2624431853467395961">Öppna inlärningsläge</translation>
 <translation id="2626530649491650971">klickbart</translation>
+<translation id="263637551280112393">Tryck på Sök + Skift + blanksteg</translation>
 <translation id="2637227747952042642">Matematiskt</translation>
 <translation id="2638785836053527382">Nedladdningen återupptogs <ph name="FILE_NAME" /></translation>
 <translation id="2639750663247012216">ChromeVox-specialtangent</translation>
@@ -286,6 +290,7 @@
 <translation id="2909584066358367921">Det finns inga fler knappar</translation>
 <translation id="2911433807131383493">Öppna självstudierna för ChromeVox</translation>
 <translation id="2912405967290226587">Svep åt höger med tre fingrar</translation>
+<translation id="2919107550468490321">Smart låstangentsläge är på</translation>
 <translation id="2937799153569150791">Det finns inga fler rubriker på nivå 3</translation>
 <translation id="2942710183375260152">Mörkt skifferblå</translation>
 <translation id="2943596527105977722">Mörkt gullrisgul</translation>
@@ -300,6 +305,7 @@
 <translation id="2999559350546931576">Minska tonhöjden</translation>
 <translation id="3009352964623081324">Sök + O, sedan S. Använd till att installera, hantera och anpassa röster.</translation>
 <translation id="3014130421870723208">@red 8punkt</translation>
+<translation id="3018210433491759145">ChromeVox läses in</translation>
 <translation id="3030432017085518523">Alternativknapp för menyalternativ</translation>
 <translation id="3037392361165431467">{COUNT,plural, =1{apostrof}other{# apostrofer}}</translation>
 <translation id="3040901448410802366">Förloppsindikator</translation>
@@ -311,7 +317,7 @@
 <translation id="307516670110542567">Snabbguide</translation>
 <translation id="3078345202707391975">Nästa rubrik på nivå 2</translation>
 <translation id="3078740164268491126">tabell</translation>
-<translation id="3082249673510793544">Rulla bakåt</translation>
+<translation id="3082249673510793544">Scrolla bakåt</translation>
 <translation id="3084806535845658316">inget eko vid inmatning</translation>
 <translation id="3086746722712840547">anm</translation>
 <translation id="308736057934395497">Detta förbättrar integriteten genom att inaktivera skärmen så att andra inte kan se den. Du kan aktivera skärmen igen när du vill genom att trycka på Sök + Öka ljusstyrkan.</translation>
@@ -356,7 +362,6 @@
 <translation id="3283583562490372694">inte markerad</translation>
 <translation id="3286372614333682499">stående</translation>
 <translation id="3286390186030710347">Skjutreglage</translation>
-<translation id="3300348286427369683">Stöd för Rich Text. ChromeVox har nu stöd för fält med Rich Text, till exempel hoppkommandon, dirigering av punktskriftsmarkören, urval med mera.</translation>
 <translation id="3300733168898541351">ångra</translation>
 <translation id="3307886118343381874">Flytta till slutet av tabellen</translation>
 <translation id="3312997241656799641">Nästa länk som har besökts</translation>
@@ -376,6 +381,7 @@
 <translation id="3389259863310851658">Föregående formulärfält</translation>
 <translation id="3393605254399152980">Dra med fingret och få det du rör vid uppläst</translation>
 <translation id="3406283310380167331">Visa formulärlistan</translation>
+<translation id="3407726812456125464">Lyssna på markerad text</translation>
 <translation id="3414400929511680526">Isblå</translation>
 <translation id="3418936350470374046">Det finns inga celler nedanför den här</translation>
 <translation id="3419269701801640163">klistra in</translation>
@@ -433,6 +439,7 @@
 <translation id="3810838688059735925">Video</translation>
 <translation id="3813387282697781382">Ljust korallröd</translation>
 <translation id="3816633764618089385">Nästa media</translation>
+<translation id="3821689185319271077">Inget pekarankare</translation>
 <translation id="3840823741487267909">Förkortning</translation>
 <translation id="3841319830220785495">Naturlig standardröst</translation>
 <translation id="385383972552776628">Öppna alternativsidan</translation>
@@ -453,13 +460,14 @@
 <translation id="3936394396199829062">Lavendelrosa</translation>
 <translation id="3943857333388298514">Klistra in</translation>
 <translation id="3962990492275676168">Börja läsa från aktuell plats</translation>
+<translation id="397094149579293440">ingen markerad text</translation>
 <translation id="3970951409746498040">Sandbrun</translation>
 <translation id="3989324057180830702">på/av-knapp</translation>
 <translation id="3991317907213946254">Mockasinbrun</translation>
 <translation id="4002709828007663583">Mörkt orkidélila</translation>
 <translation id="4004802134384979325">markerad</translation>
 <translation id="4006140876663370126">bild</translation>
-<translation id="4021716437419160885">Rulla ned</translation>
+<translation id="4021716437419160885">Scrolla ned</translation>
 <translation id="4035381225449278841">Vår</translation>
 <translation id="4038098586530338813">gör om</translation>
 <translation id="4047216625641135770">Markering</translation>
@@ -489,6 +497,7 @@
 <translation id="42164919740161077">Kadettblå</translation>
 <translation id="4217571870635786043">Diktering</translation>
 <translation id="4218529045364428769">{COUNT,plural, =1{bindestreck}other{# bindestreck}}</translation>
+<translation id="4220024144662591089">välj från <ph name="START_PHRASE" /> till <ph name="END_PHRASE" /></translation>
 <translation id="4221012616705981690">Det finns ingen föregående lista</translation>
 <translation id="4225355998815256469">Formulärkontroller</translation>
 <translation id="4230834257931120629">Ljust skiffergrå</translation>
@@ -507,11 +516,12 @@
 <translation id="4300318234632215983">Läs upp webbadressen bakom en länk</translation>
 <translation id="4322625298640984693">Siennabrun</translation>
 <translation id="4342180618051828363">{COUNT,plural, =1{punkt}=3{tre punkter}other{# punkter}}</translation>
+<translation id="4352022650330571548">skriv <ph name="PHRASE" /></translation>
 <translation id="4372435075475052704">min: <ph name="X" /></translation>
 <translation id="4372705107434148843">Stoppa tal</translation>
 <translation id="4376316291247992553">Visa bild som punktskrift</translation>
 <translation id="437809255587011096">Läs upp textformat</translation>
-<translation id="4378308539633073595">Rulla framåt</translation>
+<translation id="4378308539633073595">Scrolla framåt</translation>
 <translation id="4384583879834880242">Frågor och svar</translation>
 <translation id="4391478986194775161">innehållsinformation</translation>
 <translation id="4402014469255336455">Djupt himmelsblå</translation>
@@ -524,6 +534,7 @@
 <translation id="4479068155583208887">Tegelröd</translation>
 <translation id="4482330759234983253">Föregående tabell</translation>
 <translation id="4491109536499578614">Bild</translation>
+<translation id="4507332368061453500">Långt klick på aktuellt objekt</translation>
 <translation id="4511186779140817916">Blekt mandelbrun</translation>
 <translation id="451510441928265982">Det finns ingen föregående rubrik på nivå 2</translation>
 <translation id="4515799157838123044">Skugga innehåll i bakgrunden</translation>
@@ -535,10 +546,10 @@
 <translation id="4597532268155981612">formulär</translation>
 <translation id="4601367666219428522">tabell <ph name="TABLENAME" /> <ph name="TABLEROWS" />×<ph name="TABLECOLS" /></translation>
 <translation id="4615592953348396470">Ignorera nästa tangenttryckning</translation>
+<translation id="4617384941327705512">Smart låstangentsläge är av</translation>
 <translation id="4623097797855662355">Kolofon</translation>
-<translation id="463135993322337640">Tryck på ChromeVox O + N om du vill veta mer om nyheterna.</translation>
+<translation id="4624970070706497034">TalkBack har inte längre stöd för anpassning på Chromebook. Du kan fortfarande använda TalkBack med standardkortkommandon. Tryck på Sök + A och sedan K för att se tillgängliga kortkommandon. Om du fortfarande vill använda TalkBack trycker du kommandot igen.</translation>
 <translation id="4649220074413114917">Du kan avbryta det som läses upp genom att trycka på skärmen med två fingrar. Det kan vara bra om du inte vill att ChromeVox ska läsa upp något. Fortsätt genom att trycka på skärmen med två fingrar.</translation>
-<translation id="4660783501463101648">Klassisk Chromevox har tagits bort. Det går inte längre att aktivera och inaktivera klassisk Chromevox med tangentbordet.</translation>
 <translation id="4661075872484491155">träd</translation>
 <translation id="4668929960204016307">,</translation>
 <translation id="4677535310137735442">Fortsätt till nästa kolumn</translation>
@@ -556,6 +567,7 @@
 <translation id="4786285211967466855">Det finns ingen föregående rubrik på nivå 1</translation>
 <translation id="4787577491510559358">Läs upp formatering för det aktuella objektet</translation>
 <translation id="479989351350248267">sök</translation>
+<translation id="4802034228771424756">inget textfält i fokus</translation>
 <translation id="4804818685124855865">Koppla från</translation>
 <translation id="481165870889056555">Läs upp den aktuella sidans titel</translation>
 <translation id="4815668758102003883">Blekt turkos</translation>
@@ -578,21 +590,24 @@
 <translation id="489907760999452556">Intern länk</translation>
 <translation id="4909019435900810068">Flytta bakåt ett ord</translation>
 <translation id="4911349081560453449">Det finns ingen föregående kryssruta</translation>
+<translation id="4919186071145887492">Det går inte att <ph name="COMMAND" />, försök igen</translation>
 <translation id="492295894462528572">Förord</translation>
-<translation id="495046168593986294">Rulla upp</translation>
+<translation id="495046168593986294">Scrolla upp</translation>
 <translation id="495170559598752135">Åtgärder</translation>
 <translation id="4953585991029886728">Textinmatning</translation>
+<translation id="4964701498510730546">textfältet är tomt</translation>
 <translation id="4973717656530883744">Minst <ph name="X" /></translation>
 <translation id="4974612477719259470">Det finns ingen föregående knapp</translation>
 <translation id="4979404613699303341">Föregående knapp</translation>
+<translation id="4981239367072766915">okänd inmatning</translation>
 <translation id="4982917827052020884">Vi börjar med några vanliga tangenter. Ctrl-tangenten kan användas för att stoppa en pågående uppläsning. Du hittar Ctrl-tangenten längst ned till vänster på tangentbordet. Tryck på Ctrl-tangenten för att fortsätta.</translation>
 <translation id="4983588134362688868">Till början av sidan</translation>
 <translation id="4986606102545753256"><ph name="NAME" />, fönster</translation>
 <translation id="4993152509206108683">Hastighet: <ph name="PERCENT" /> procent</translation>
 <translation id="4994420463726586413">Läs upp aktuell batteristatus</translation>
 <translation id="4997282455736854877"><ph name="NAME" />, markerad alternativknapp</translation>
-<translation id="5011664330025416377">Aktivera med Sök+blanksteg</translation>
 <translation id="5012724933919010465"><ph name="NAME" />, menyalternativ med markerad alternativknapp</translation>
+<translation id="5014131807708055994">Det går inte att <ph name="COMMAND" />, <ph name="REASON" /></translation>
 <translation id="5020651427400641814">Aktivera loggning av tal</translation>
 <translation id="5041394372352067729">Flytta punktskriftsskärmen till sidans början</translation>
 <translation id="5042770794184672516">Höj talvolymen</translation>
@@ -604,7 +619,6 @@
 <translation id="5087864757604726239">tillbaka</translation>
 <translation id="5102981729317424850">Verktygsfält</translation>
 <translation id="5105050547967751155">obligatoriskt</translation>
-<translation id="5106547198195128110">Den nya versionen innehåller spännande ändringar. Detta är nytt:</translation>
 <translation id="5111640677200759579">Kolumnrubrik</translation>
 <translation id="5115892389597951922">Logg för ChromeVox</translation>
 <translation id="5119330972669454698">Burlywoodbrun</translation>
@@ -618,7 +632,6 @@
 <translation id="5170206230005240598">Textning med punktskrift har aktiverats</translation>
 <translation id="5183440668879371625">Punktskrift på föregående rad</translation>
 <translation id="5189244881767082992">Rad</translation>
-<translation id="5234747236692380506">skriv <ph name="TEXT" /></translation>
 <translation id="5263034204789987535">Majssilkebrun</translation>
 <translation id="5263344797180442561">rubr2</translation>
 <translation id="528468243742722775">Avsluta</translation>
@@ -645,6 +658,7 @@
 <translation id="5355014376930441909">Det finns inga fler avsnitt</translation>
 <translation id="5368000168321181111">Ljudikoner har inaktiverats</translation>
 <translation id="5368505757342402527">Nedladdningen <ph name="PROGRESS" /> % klar <ph name="FILE_NAME" />. Cirka <ph name="TIME" /> <ph name="UNITS" /> återstår.</translation>
+<translation id="5381388086899614489">klicka länge</translation>
 <translation id="5400836586163650660">Grå</translation>
 <translation id="5402367795255837559">Punktskrift</translation>
 <translation id="5402791055281059602">En modal avisering</translation>
@@ -666,6 +680,7 @@
 <translation id="5522423213731659107">Snabbguiden har slutförts!</translation>
 <translation id="5534303576632885660">rubr</translation>
 <translation id="5539820223028224601">Gainsborogrå</translation>
+<translation id="554893713779400387">Aktivera och inaktivera diktamen</translation>
 <translation id="5549179427201066174">Aktivera eller inaktivera ljudsignaler (ljudikoner)</translation>
 <translation id="556042886152191864">Knapp</translation>
 <translation id="5561345396546889625">Nästa lista</translation>
@@ -684,6 +699,8 @@
 <translation id="5623842676595125836">Logg</translation>
 <translation id="5628125749885014029">rubr4</translation>
 <translation id="5632083598315326067">Grafisk symbol</translation>
+<translation id="5648939288050772726">Grattis! Nu kan du grunderna i att använda ChromeVox. Kom ihåg att du kan öppna kommandomenyn för ChromeVox när som helst genom att trycka på söktangenten + punkt. Om du vill veta ännu mer om ChromeVox och Chrome OS kan du läsa följande artiklar.
+    Om du är klar med självstudierna kan du använda ChromeVox till att navigera till stängningsknappen och klicka på den.</translation>
 <translation id="5653397561111110475">Använda tillgänglighetsfunktioner för pekskärmen på Chromebook</translation>
 <translation id="5655682562155942719">Hoppkommandon</translation>
 <translation id="56637627897541303">Textområde</translation>
@@ -752,10 +769,11 @@
 <translation id="6082768461603900813">Grundläggande navigering</translation>
 <translation id="609281021724813947">Det finns inget föregående skjutreglage</translation>
 <translation id="6100239002225743044">Flytta uppåt en rad</translation>
-<translation id="6118126368611144850">Android-appar till Chrome. Du kan få en förhandstitt på hur ChromeVox fungerar med Android-appar om Play Butik är installerat på enheten. Ladda ned Google Chrome Canary från Play Butik och testa det experimentella stödet för Android-appar.</translation>
 <translation id="611827076493383239">besökt</translation>
+<translation id="6119846243427417423">aktivera</translation>
 <translation id="6122013438240733403">knapp</translation>
 <translation id="6132506484792346370">En listruta eller kombinationsruta</translation>
+<translation id="613344593214611552">radera föregående mening</translation>
 <translation id="6142308968191113180">Rubrik 4</translation>
 <translation id="6150023170003443621">Gulgrön</translation>
 <translation id="6158882249329863701">rad <ph name="TABLECELLROWINDEX" /> kolumn <ph name="TABLECELLCOLUMNINDEX" /></translation>
@@ -765,9 +783,11 @@
 <translation id="6186305613600865047">Till slutet av sidan</translation>
 <translation id="6187190722927752226">Akvamarin</translation>
 <translation id="6197361807490522975">Mörkblå</translation>
+<translation id="6218813441317556731">ersätt <ph name="DELETE_PHRASE" /> med <ph name="INSERT_PHRASE" /></translation>
 <translation id="6236061028292614533">Nästa rubrik</translation>
 <translation id="6254901459154107917">Nästa redigerbara textområde</translation>
 <translation id="6259464875943891919">Lämnade <ph name="TYPE" />.</translation>
+<translation id="6280088282605782512">Tryck snabbt två gånger</translation>
 <translation id="6282062888058716985">navig</translation>
 <translation id="6295699829709583154">Viktiga tangenter: Sök</translation>
 <translation id="6305702903308659374">Spela upp på normal volym även när ChromeVox används</translation>
@@ -822,7 +842,6 @@
 <translation id="6697092096875747123">Föregående kombinationsruta</translation>
 <translation id="6702609185760332517">{COUNT,plural, =1{utropstecken}other{# utropstecken}}</translation>
 <translation id="670717715607710284">Skärm av</translation>
-<translation id="6710213216561001401">Föregående</translation>
 <translation id="6714813999819678458">Föregående rubrik på nivå 2</translation>
 <translation id="6730312624811567147">Söktangenten plus vänsterpil eller högerpil motsvarar Home-tangenten respektive End-tangenten. Tangenterna Sök och Ctrl plus vänsterpil eller högerpil motsvarar Ctrl Home respektive Ctrl End. Söktangenten plus uppåtpil eller nedåtpil motsvarar tangenterna PageUp respektive PageDown</translation>
 <translation id="6736510033526053669">ny flik har öppnats</translation>
@@ -938,6 +957,7 @@
 <translation id="7533226154149229506">Ljust gullrisgul</translation>
 <translation id="7543255924852002459">Ignorera etikett</translation>
 <translation id="7552432549459840808">Användbara kortkommandon i Chrome</translation>
+<translation id="7553679324939294712">infoga <ph name="INSERT_PHRASE" /> före <ph name="BEFORE_PHRASE" /></translation>
 <translation id="7569983096843329377">Svart</translation>
 <translation id="7579911500627256166">punkt <ph name="DOT" /></translation>
 <translation id="7592060599656252486">Vissa</translation>
@@ -961,16 +981,16 @@
 <translation id="7684431668231950609">Textinmatning, webbadress</translation>
 <translation id="7685589220304187312">verktygsfält</translation>
 <translation id="7693840228159394336">Föregående alternativknapp</translation>
+<translation id="7696631298608145306">flytta till nästa ord</translation>
 <translation id="7701040980221191251">Inga</translation>
 <translation id="7701196182766842984">autoslutför i lista</translation>
 <translation id="7713139339518499741">Naturlig röst</translation>
 <translation id="7714340021005120797">Det finns inga fler kombinationsrutor</translation>
-<translation id="772146615414628379">Grattis! Nu kan du grunderna i att använda ChromeVox. Kom ihåg att du kan öppna kommandomenyn för ChromeVox när som helst genom att trycka på söktangenten + punkt. Om du vill veta ännu mer om ChromeVox och Chrome OS kan du läsa följande artiklar.
-    Om du är klar med självstudierna kan du använda ChromeVox till att navigera till stängningsknappen och klicka på den.</translation>
 <translation id="7724603315864178912">Klipp ut</translation>
 <translation id="7731785449856576010">Det finns inga fler mediewidgetar</translation>
 <translation id="7735498529470878067">Med Explore by touch kan du snabbt få en uppfattning om vad som finns på skärmen.</translation>
 <translation id="773906353055481349">Flytta en cell i taget genom att trycka på Sök+Ctrl+Alt</translation>
+<translation id="7746976083433980639"><ph name="ACTION" /> till <ph name="LABEL" /></translation>
 <translation id="7763537600611320912">Nedladdningen startades <ph name="FILE_NAME" /></translation>
 <translation id="7768784765476638775">Textuppläsning</translation>
 <translation id="7776293189010177726">Öppna ChromeVox-menyerna</translation>
@@ -1023,14 +1043,14 @@
 <translation id="8096975275316362544">Ljust mintgrön</translation>
 <translation id="8098587210054821856">Skiffergrå</translation>
 <translation id="8121539003537428024">Aktivera alla händelsefilter</translation>
-<translation id="8123975449645947908">Rulla bakåt</translation>
+<translation id="8123975449645947908">Scrolla bakåt</translation>
 <translation id="8126386426083591964">Det finns ingen föregående rubrik på nivå 5</translation>
 <translation id="812886159861361726">Nedladdningen stoppades <ph name="FILE_NAME" /></translation>
 <translation id="8129445297241948503">Det finns inga celler ovanför den här</translation>
 <translation id="8132248161074464367">Föregående giltiga objekt</translation>
 <translation id="8138880386467279117">Trycka</translation>
 <translation id="8146613869421949343">I nästa steg får du lära dig om Sök-tangenten. Sök-tangenten används tillsammans med andra tangenter för olika ChromeVox-kommandon. Sök-tangenten sitter precis ovanför den vänstra Skift-tangenten. Tryck på Sök-tangenten för att fortsätta.</translation>
-<translation id="8158033275290782295">markera alla</translation>
+<translation id="8158033275290782295">markera allt</translation>
 <translation id="816818801578874684">Det här är den första rubriken. Tryck på Sök + H för att fortsätta till nästa rubrik.</translation>
 <translation id="8173092779156526980">Svep åt vänster med fyra fingrar</translation>
 <translation id="817440585505441544">{COUNT,plural, =1{understreck}other{# understreck}}</translation>
@@ -1070,6 +1090,7 @@
 <translation id="8455868257606149352">Högst <ph name="X" /></translation>
 <translation id="84575901236241018">har snabbtangenten <ph name="KEY" /></translation>
 <translation id="8463645336674919227">Grammatikfelet lämnas</translation>
+<translation id="8465573210279050749">radera föregående ord</translation>
 <translation id="847040613207937740">Det finns inga fler kryssrutor</translation>
 <translation id="8473540203671727883">Läs upp text under muspekaren</translation>
 <translation id="8476408756881832830">Pausa uppspelningen när ChromeVox används</translation>
@@ -1106,6 +1127,7 @@
 <translation id="8697111817566059991">{COUNT,plural, =1{lodstreck}other{# lodstreck}}</translation>
 <translation id="8741370088760768424">Tips! Tryck på Sök + blanksteg för att aktivera det aktuella objektet.</translation>
 <translation id="8743786158317878347">öppna strukturerat innehåll, t.ex. tabeller</translation>
+<translation id="8746846427395705317">flytta till föregående ord</translation>
 <translation id="8747966237988593539">Sorterad lista</translation>
 <translation id="8749988712346667988">Silverfärgad</translation>
 <translation id="875769700429317857">Nedladdningen är klar <ph name="FILE_NAME" /></translation>
@@ -1133,6 +1155,7 @@
 <translation id="8970172509886453271">Det finns inget föregående avsnitt</translation>
 <translation id="89720367119469899">Escape</translation>
 <translation id="8978496506222343566">beskrivning</translation>
+<translation id="898089897833732740">ta bort <ph name="PHRASE" /></translation>
 <translation id="8986362086234534611">Glöm</translation>
 <translation id="8989104346085848538">Tryck på Ctrl-tangenten för att stoppa en pågående ChromeVox-uppläsning.</translation>
 <translation id="8993737615451556423">Reglage som du kan använda för att göra uppläsningen snabbare eller långsammare eller pausa den</translation>
@@ -1166,7 +1189,6 @@
 <translation id="9208241857935108694">Antikvit</translation>
 <translation id="9220679313820249046">Orangeröd</translation>
 <translation id="9223032053830369045">Mörkröd</translation>
-<translation id="923331726185079994">ChromeVox har uppdaterats</translation>
 <translation id="93384979447910801">Mörkt havsgrön</translation>
 <translation id="937605981140327129">TalkBack är inte installerat. Installera Android Tillgänglighet via Play Butik och försök igen.</translation>
 <translation id="948171205378458592">Sänk talhastigheten</translation>

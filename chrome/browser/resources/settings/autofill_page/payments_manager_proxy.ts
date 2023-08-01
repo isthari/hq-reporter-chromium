@@ -1,8 +1,6 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-
-import {assert} from 'chrome://resources/js/assert.m.js';
 
 import {PersonalDataChangedListener} from './autofill_manager_proxy.js';
 
@@ -24,10 +22,15 @@ export interface PaymentsManagerProxy {
   /**
    * Request the list of credit cards.
    */
-  getCreditCardList(
-      callback:
-          (entries: Array<chrome.autofillPrivate.CreditCardEntry>) => void):
-      void;
+  getCreditCardList(): Promise<chrome.autofillPrivate.CreditCardEntry[]>;
+
+  /**
+   * Request the list of IBANs.
+   */
+  getIbanList(): Promise<chrome.autofillPrivate.IbanEntry[]>;
+
+  /** @param ibanValue Returns true if the given ibanValue is valid. */
+  isValidIban(ibanValue: string): Promise<boolean>;
 
   /** @param guid The GUID of the credit card to remove. */
   removeCreditCard(guid: string): void;
@@ -42,6 +45,14 @@ export interface PaymentsManagerProxy {
    */
   saveCreditCard(creditCard: chrome.autofillPrivate.CreditCardEntry): void;
 
+  /** @param guid The GUID of the IBAN to remove. */
+  removeIban(guid: string): void;
+
+  /**
+   * Saves the given IBAN.
+   */
+  saveIban(iban: chrome.autofillPrivate.IbanEntry): void;
+
   /**
    * Migrate the local credit cards.
    */
@@ -55,12 +66,33 @@ export interface PaymentsManagerProxy {
   /**
    * Enables FIDO authentication for card unmasking.
    */
-  setCreditCardFIDOAuthEnabledState(enabled: boolean): void;
+  setCreditCardFidoAuthEnabledState(enabled: boolean): void;
 
   /**
    * Requests the list of UPI IDs from personal data.
    */
-  getUpiIdList(callback: (entries: Array<string>) => void): void;
+  getUpiIdList(): Promise<string[]>;
+
+  /**
+   * Enrolls the card into virtual cards.
+   */
+  addVirtualCard(cardId: string): void;
+
+  /**
+   * Unenrolls the card from virtual cards.
+   */
+  removeVirtualCard(cardId: string): void;
+
+  /**
+   * A null response means that there is no platform authenticator.
+   */
+  isUserVerifyingPlatformAuthenticatorAvailable(): Promise<boolean|null>;
+
+  /**
+   * Authenticate the user via device authentication and flip the mandatory auth
+   * toggle is successful.
+   */
+  authenticateUserAndFlipMandatoryAuthToggle(): void;
 }
 
 /**
@@ -75,22 +107,36 @@ export class PaymentsManagerImpl implements PaymentsManagerProxy {
     chrome.autofillPrivate.onPersonalDataChanged.removeListener(listener);
   }
 
-  getCreditCardList(
-      callback:
-          (entries: Array<chrome.autofillPrivate.CreditCardEntry>) => void) {
-    chrome.autofillPrivate.getCreditCardList(callback);
+  getCreditCardList() {
+    return chrome.autofillPrivate.getCreditCardList();
+  }
+
+  getIbanList() {
+    return chrome.autofillPrivate.getIbanList();
+  }
+
+  isValidIban(ibanValue: string) {
+    return chrome.autofillPrivate.isValidIban(ibanValue);
   }
 
   removeCreditCard(guid: string) {
-    chrome.autofillPrivate.removeEntry(assert(guid));
+    chrome.autofillPrivate.removeEntry(guid);
   }
 
   clearCachedCreditCard(guid: string) {
-    chrome.autofillPrivate.maskCreditCard(assert(guid));
+    chrome.autofillPrivate.maskCreditCard(guid);
   }
 
   saveCreditCard(creditCard: chrome.autofillPrivate.CreditCardEntry) {
     chrome.autofillPrivate.saveCreditCard(creditCard);
+  }
+
+  saveIban(iban: chrome.autofillPrivate.IbanEntry) {
+    chrome.autofillPrivate.saveIban(iban);
+  }
+
+  removeIban(guid: string) {
+    chrome.autofillPrivate.removeEntry(guid);
   }
 
   migrateCreditCards() {
@@ -101,12 +147,33 @@ export class PaymentsManagerImpl implements PaymentsManagerProxy {
     chrome.autofillPrivate.logServerCardLinkClicked();
   }
 
-  setCreditCardFIDOAuthEnabledState(enabled: boolean) {
+  setCreditCardFidoAuthEnabledState(enabled: boolean) {
     chrome.autofillPrivate.setCreditCardFIDOAuthEnabledState(enabled);
   }
 
-  getUpiIdList(callback: (entries: Array<string>) => void) {
-    chrome.autofillPrivate.getUpiIdList(callback);
+  getUpiIdList() {
+    return chrome.autofillPrivate.getUpiIdList();
+  }
+
+  addVirtualCard(cardId: string) {
+    chrome.autofillPrivate.addVirtualCard(cardId);
+  }
+
+  removeVirtualCard(serverId: string) {
+    chrome.autofillPrivate.removeVirtualCard(serverId);
+  }
+
+  isUserVerifyingPlatformAuthenticatorAvailable() {
+    if (!window.PublicKeyCredential) {
+      return Promise.resolve(null);
+    }
+
+    return window.PublicKeyCredential
+        .isUserVerifyingPlatformAuthenticatorAvailable();
+  }
+
+  authenticateUserAndFlipMandatoryAuthToggle() {
+    chrome.autofillPrivate.authenticateUserAndFlipMandatoryAuthToggle();
   }
 
   static getInstance(): PaymentsManagerProxy {

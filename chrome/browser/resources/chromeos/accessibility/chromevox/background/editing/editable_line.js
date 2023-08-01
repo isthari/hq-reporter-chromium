@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,23 +8,28 @@
  * (e.g. start/end offsets) get saved. Line: nodes/offsets at the beginning/end
  * of a line get saved.
  */
+import {AutomationPredicate} from '../../../common/automation_predicate.js';
+import {AutomationUtil} from '../../../common/automation_util.js';
+import {constants} from '../../../common/constants.js';
+import {Cursor, CURSOR_NODE_INDEX, CursorMovement, CursorUnit} from '../../../common/cursors/cursor.js';
+import {CursorRange} from '../../../common/cursors/range.js';
+import {RecoveryStrategy, TreePathRecoveryStrategy} from '../../../common/cursors/recovery_strategy.js';
+import {Spannable} from '../../common/spannable.js';
+import {LibLouis} from '../braille/liblouis.js';
+import {Output} from '../output/output.js';
+import {OutputCustomEvent, OutputNodeSpan} from '../output/output_types.js';
 
-goog.provide('editing.EditableLine');
-
-goog.scope(function() {
 const AutomationEvent = chrome.automation.AutomationEvent;
 const AutomationNode = chrome.automation.AutomationNode;
-const Cursor = cursors.Cursor;
 const Dir = constants.Dir;
 const EventType = chrome.automation.EventType;
 const FormType = LibLouis.FormType;
-const Range = cursors.Range;
 const RoleType = chrome.automation.RoleType;
 const StateType = chrome.automation.StateType;
-const Movement = cursors.Movement;
-const Unit = cursors.Unit;
+const Movement = CursorMovement;
+const Unit = CursorUnit;
 
-editing.EditableLine = class {
+export class EditableLine {
   /**
    * @param {!AutomationNode} startNode
    * @param {number} startIndex
@@ -37,23 +42,23 @@ editing.EditableLine = class {
   constructor(startNode, startIndex, endNode, endIndex, opt_baseLineOnStart) {
     /** @private {!Cursor} */
     this.start_ = new Cursor(startNode, startIndex);
-    this.start_ = this.start_.deepEquivalent || this.start_;
+    this.start_ = this.start_.deepEquivalent ?? this.start_;
     /** @private {!Cursor} */
     this.end_ = new Cursor(endNode, endIndex);
-    this.end_ = this.end_.deepEquivalent || this.end_;
+    this.end_ = this.end_.deepEquivalent ?? this.end_;
 
     /** @private {AutomationNode|undefined} */
     this.endContainer_;
 
     // Update |startIndex| and |endIndex| if the calls above to
-    // cursors.Cursor.deepEquivalent results in cursors to different container
+    // Cursor.deepEquivalent results in cursors to different container
     // nodes. The cursors can point directly to inline text boxes, in which case
     // we should not adjust the container start or end index.
     if (!AutomationPredicate.text(startNode) ||
         (this.start_.node !== startNode &&
          this.start_.node.parent !== startNode)) {
       startIndex =
-          (this.start_.index === cursors.NODE_INDEX && this.start_.node.name) ?
+          (this.start_.index === CURSOR_NODE_INDEX && this.start_.node.name) ?
           this.start_.node.name.length :
           this.start_.index;
     }
@@ -61,7 +66,7 @@ editing.EditableLine = class {
     if (!AutomationPredicate.text(endNode) ||
         (this.end_.node !== endNode && this.end_.node.parent !== endNode)) {
       endIndex =
-          (this.end_.index === cursors.NODE_INDEX && this.end_.node.name) ?
+          (this.end_.index === CURSOR_NODE_INDEX && this.end_.node.name) ?
           this.end_.node.name.length :
           this.end_.index;
     }
@@ -114,7 +119,7 @@ editing.EditableLine = class {
       nameLen = lineBase.node.name.length;
     }
 
-    this.value_ = new Spannable(lineBase.node.name || '', lineBase);
+    this.value_ = new Spannable(lineBase.node.name ?? '', lineBase);
     if (lineBase.node === lineExtend.node) {
       this.value_.setSpan(lineExtend, 0, nameLen);
     }
@@ -125,8 +130,8 @@ editing.EditableLine = class {
     }
     this.startContainerValue_ =
         this.startContainer_.role === RoleType.TEXT_FIELD ?
-        this.startContainer_.value || '' :
-        this.startContainer_.name || '';
+        this.startContainer_.value ?? '' :
+        this.startContainer_.name ?? '';
     this.endContainer_ = this.end_.node;
     if (this.endContainer_.role === RoleType.INLINE_TEXT_BOX) {
       this.endContainer_ = this.endContainer_.parent;
@@ -219,9 +224,11 @@ editing.EditableLine = class {
     // as follows.
     let textCountBeforeLineStart = 0;
     let finder = lineStart;
-    while (finder.previousSibling) {
+    while (finder.previousSibling &&
+           (EditableLine.includeOffscreen ||
+            !finder.previousSibling.state[StateType.OFFSCREEN])) {
       finder = finder.previousSibling;
-      textCountBeforeLineStart += finder.name ? finder.name.length : 0;
+      textCountBeforeLineStart += finder.name?.length ?? 0;
     }
 
     return {lineStart, value, textCountBeforeLineStart};
@@ -268,9 +275,11 @@ editing.EditableLine = class {
     // as follows.
     let textCountAfterLineEnd = 0;
     let finder = lineEnd;
-    while (finder.nextSibling) {
+    while (finder.nextSibling &&
+           (EditableLine.includeOffscreen ||
+            !finder.nextSibling.state[StateType.OFFSCREEN])) {
       finder = finder.nextSibling;
-      textCountAfterLineEnd += finder.name ? finder.name.length : 0;
+      textCountAfterLineEnd += finder.name?.length ?? 0;
     }
 
     return {lineEnd, value, textCountAfterLineEnd};
@@ -319,6 +328,7 @@ editing.EditableLine = class {
           value.setSpan(parent, prevLen, len);
         }
       } catch (e) {
+        console.error(e);
       }
     }
     return value;
@@ -332,14 +342,14 @@ editing.EditableLine = class {
   getNextOnLine_(node) {
     const nextOnLine = node.nextOnLine;
     const nextSibling = node.nextSibling;
-    if (nextOnLine && nextOnLine.role) {
+    if (nextOnLine?.role) {
       // Ensure that there is a next-on-line node. The role can be undefined
       // for an object that has been destroyed since the object was first
       // cached.
       return nextOnLine;
     }
 
-    if (nextSibling && nextSibling.previousOnLine === node) {
+    if (nextSibling?.previousOnLine === node) {
       // Catches potential breaks in the chain of next-on-line nodes.
       return nextSibling.firstChild;
     }
@@ -355,15 +365,14 @@ editing.EditableLine = class {
   getPreviousOnLine_(node) {
     const previousLine = node.previousOnLine;
     const previousSibling = node.previousSibling;
-    if (previousLine && previousLine.role) {
+    if (previousLine?.role) {
       // Ensure that there is a previous-on-line node. The role can be undefined
       // for an object that has been destroyed since the object was first
       // cached.
       return previousLine;
     }
 
-    if (previousSibling && previousSibling.lastChild &&
-        previousSibling.lastChild.nextOnLine === node) {
+    if (previousSibling?.lastChild?.nextOnLine === node) {
       // Catches potential breaks in the chain of previous-on-line nodes.
       return previousSibling.lastChild;
     }
@@ -380,7 +389,7 @@ editing.EditableLine = class {
     // (e.g. in a multi-line selection).
     try {
       return this.value_.getSpanStart(this.start_) +
-          (this.start_.index === cursors.NODE_INDEX ? 0 : this.start_.index);
+          (this.start_.index === CURSOR_NODE_INDEX ? 0 : this.start_.index);
     } catch (e) {
       // When that happens, fall back to the start of this line.
       return 0;
@@ -394,8 +403,9 @@ editing.EditableLine = class {
   get endOffset() {
     try {
       return this.value_.getSpanStart(this.end_) +
-          (this.end_.index === cursors.NODE_INDEX ? 0 : this.end_.index);
+          (this.end_.index === CURSOR_NODE_INDEX ? 0 : this.end_.index);
     } catch (e) {
+      // When that happens, fall back to the end of this line.
       return this.value_.length;
     }
   }
@@ -465,12 +475,12 @@ editing.EditableLine = class {
     return this.value_;
   }
 
-  /** @return {!cursors.Cursor} */
+  /** @return {!Cursor} */
   get start() {
     return this.start_;
   }
 
-  /** @return {!cursors.Cursor} */
+  /** @return {!Cursor} */
   get end() {
     return this.end_;
   }
@@ -511,29 +521,36 @@ editing.EditableLine = class {
   /**
    * Returns true if |otherLine| surrounds the same line as |this|. Note that
    * the contents of the line might be different.
-   * @param {editing.EditableLine} otherLine
+   * @param {EditableLine} otherLine
    * @return {boolean}
    */
   isSameLine(otherLine) {
     // Equality is intentionally loose here as any of the state nodes can be
     // invalidated at any time. We rely upon the start/anchor of the line
     // staying the same.
-    return (otherLine.lineStartContainer_ === this.lineStartContainer_ &&
-            otherLine.localLineStartContainerOffset_ ===
-                this.localLineStartContainerOffset_) ||
-        (otherLine.lineEndContainer_ === this.lineEndContainer_ &&
-         otherLine.localLineEndContainerOffset_ ===
-             this.localLineEndContainerOffset_) ||
-        (otherLine.lineStartContainerRecovery_.node ===
-             this.lineStartContainerRecovery_.node &&
-         otherLine.localLineStartContainerOffset_ ===
-             this.localLineStartContainerOffset_);
+    const startNodeAndOffsetMatch =
+        otherLine.lineStartContainer_ === this.lineStartContainer_ &&
+        otherLine.localLineStartContainerOffset_ ===
+            this.localLineStartContainerOffset_;
+    const endNodeAndOffsetMatch =
+        otherLine.lineEndContainer_ === this.lineEndContainer_ &&
+        otherLine.localLineEndContainerOffset_ ===
+            this.localLineEndContainerOffset_;
+    const recoveryNodeAndOffsetMatch =
+        otherLine.lineStartContainerRecovery_.node ===
+            this.lineStartContainerRecovery_.node &&
+        otherLine.localLineStartContainerOffset_ ===
+            this.localLineStartContainerOffset_;
+
+
+    return startNodeAndOffsetMatch || endNodeAndOffsetMatch ||
+        recoveryNodeAndOffsetMatch;
   }
 
   /**
    * Returns true if |otherLine| surrounds the same line as |this| and has the
    * same selection.
-   * @param {editing.EditableLine} otherLine
+   * @param {EditableLine} otherLine
    * @return {boolean}
    */
   isSameLineAndSelection(otherLine) {
@@ -544,7 +561,7 @@ editing.EditableLine = class {
 
   /**
    * Returns whether this line comes before |otherLine| in document order.
-   * @param {!editing.EditableLine} otherLine
+   * @param {!EditableLine} otherLine
    * @return {boolean}
    */
   isBeforeLine(otherLine) {
@@ -571,12 +588,12 @@ editing.EditableLine = class {
       return false;
     }
 
-    const start = new cursors.Cursor(
+    const start = new Cursor(
         this.lineStartContainer_, this.localLineStartContainerOffset_);
-    const end = new cursors.Cursor(
+    const end = new Cursor(
         this.lineEndContainer_, this.localLineEndContainerOffset_ - 1);
-    const localStart = start.deepEquivalent || start;
-    const localEnd = end.deepEquivalent || end;
+    const localStart = start.deepEquivalent ?? start;
+    const localEnd = end.deepEquivalent ?? end;
     const localStartNode = localStart.node;
     const localEndNode = localEnd.node;
 
@@ -589,11 +606,9 @@ editing.EditableLine = class {
       }
 
       // Hack/workaround for broken *OnLine links.
-      if (testStartNode.nextOnLine && testStartNode.nextOnLine.role) {
+      if (testStartNode.nextOnLine?.role) {
         testStartNode = testStartNode.nextOnLine;
-      } else if (
-          testStartNode.nextSibling &&
-          testStartNode.nextSibling.previousOnLine === testStartNode) {
+      } else if (testStartNode.nextSibling?.previousOnLine === testStartNode) {
         testStartNode = testStartNode.nextSibling;
       } else {
         break;
@@ -607,11 +622,9 @@ editing.EditableLine = class {
       }
 
       // Hack/workaround for broken *OnLine links.
-      if (testEndNode.previousOnLine && testEndNode.previousOnLine.role) {
+      if (testEndNode.previousOnLine?.role) {
         testEndNode = testEndNode.previousOnLine;
-      } else if (
-          testEndNode.previousSibling &&
-          testEndNode.previousSibling.nextOnLine === testEndNode) {
+      } else if (testEndNode.previousSibling?.nextOnLine === testEndNode) {
         testEndNode = testEndNode.previousSibling;
       } else {
         break;
@@ -623,7 +636,7 @@ editing.EditableLine = class {
 
   /**
    * Speaks the line using text to speech.
-   * @param {editing.EditableLine} prevLine
+   * @param {EditableLine} prevLine
    */
   speakLine(prevLine) {
     // Detect when the entire line is just a breaking space. This occurs on
@@ -632,15 +645,20 @@ editing.EditableLine = class {
     // ancestors of line nodes.
     const isLineBreakingSpace = this.text === '\u00a0';
 
-    let prev = (prevLine && prevLine.startContainer_.role) ?
-        prevLine.startContainer_ :
-        null;
+    const prev =
+        prevLine?.startContainer_.role ? prevLine.startContainer_ : null;
     const lineNodes =
         /** @type {Array<!AutomationNode>} */ (this.value_.getSpansInstanceOf(
             /** @type {function()} */ (this.startContainer_.constructor)));
-    for (let i = 0, cur; cur = lineNodes[i]; i++) {
+    const speakNodeAtIndex = (index, prev) => {
+      const cur = lineNodes[index];
+      if (!cur) {
+        return;
+      }
+
       if (cur.children.length) {
-        continue;
+        speakNodeAtIndex(++index, cur);
+        return;
       }
 
       const o = new Output();
@@ -651,23 +669,27 @@ editing.EditableLine = class {
       }
 
       o.withRichSpeech(
-          Range.fromNode(cur),
-          prev ? Range.fromNode(prev) : Range.fromNode(cur),
-          OutputEventType.NAVIGATE);
+           CursorRange.fromNode(cur),
+           prev ? CursorRange.fromNode(prev) : CursorRange.fromNode(cur),
+           OutputCustomEvent.NAVIGATE)
+          .onSpeechEnd(() => speakNodeAtIndex(++index, cur));
 
       // Ignore whitespace only output except if it is leading content on the
       // line.
-      if (!o.isOnlyWhitespace || i === 0) {
+      if (!o.isOnlyWhitespace || index === 0) {
         o.go();
+      } else {
+        speakNodeAtIndex(++index, cur);
       }
-      prev = cur;
-    }
+    };
+
+    speakNodeAtIndex(0, prev);
   }
 
   /**
    * Creates a range around the character to the right of the line's starting
    * position.
-   * @return {!Range}
+   * @return {!CursorRange}
    */
   createCharRange() {
     const start = this.start_;
@@ -679,14 +701,14 @@ editing.EditableLine = class {
         // When |start| and |end| are equal, that means we've reached
         // the end of the document. This is a node boundary as well.
         start.equals(end)) {
-      end = new cursors.Cursor(start.node, start.index + 1);
+      end = new Cursor(start.node, start.index + 1);
     }
-    return new Range(start, end);
+    return new CursorRange(start, end);
   }
 
   /**
    * @param {boolean} shouldMoveToPreviousWord
-   * @return {!Range}
+   * @return {!CursorRange}
    */
   createWordRange(shouldMoveToPreviousWord) {
     const pos = this.start_;
@@ -698,8 +720,14 @@ editing.EditableLine = class {
         Unit.WORD,
         shouldMoveToPreviousWord ? Movement.DIRECTIONAL : Movement.BOUND,
         Dir.BACKWARD);
-    const end = pos.move(Unit.WORD, Movement.BOUND, Dir.FORWARD);
-    return new Range(start, end);
+    const end = start.move(Unit.WORD, Movement.BOUND, Dir.FORWARD);
+    return new CursorRange(start, end);
   }
-};
-});  // goog.scope
+}
+
+/**
+ * Controls whether line computations include offscreen inline text boxes. Note
+ * that a caller should have this set prior to creating a line.
+ * @public {boolean}
+ */
+EditableLine.includeOffscreen = true;

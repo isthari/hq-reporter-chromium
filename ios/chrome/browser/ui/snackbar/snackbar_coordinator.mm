@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,10 @@
 
 #import <MaterialComponents/MaterialSnackbar.h>
 
-#import "ios/chrome/browser/main/browser.h"
-#import "ios/chrome/browser/ui/commands/command_dispatcher.h"
-#import "ios/chrome/browser/ui/commands/snackbar_commands.h"
-#import "ios/chrome/browser/ui/util/uikit_ui_util.h"
+#import "ios/chrome/browser/shared/model/browser/browser.h"
+#import "ios/chrome/browser/shared/public/commands/command_dispatcher.h"
+#import "ios/chrome/browser/shared/public/commands/snackbar_commands.h"
+#import "ios/chrome/browser/shared/ui/util/uikit_ui_util.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -38,6 +38,13 @@
 
 - (void)start {
   DCHECK(self.browser);
+
+  // Set the font which supports the Dynamic Type.
+  UIFont* defaultSnackbarFont =
+      [UIFont preferredFontForTextStyle:UIFontTextStyleFootnote];
+  [[MDCSnackbarManager defaultManager] setMessageFont:defaultSnackbarFont];
+  [[MDCSnackbarManager defaultManager] setButtonFont:defaultSnackbarFont];
+
   CommandDispatcher* dispatcher = self.browser->GetCommandDispatcher();
   [dispatcher startDispatchingToTarget:self
                            forProtocol:@protocol(SnackbarCommands)];
@@ -52,7 +59,8 @@
 #pragma mark - SnackbarCommands
 
 - (void)showSnackbarMessage:(MDCSnackbarMessage*)message {
-  CGFloat offset = [self.delegate bottomOffsetForCurrentlyPresentedView];
+  CGFloat offset = [self.delegate
+      snackbarCoordinatorBottomOffsetForCurrentlyPresentedView:self];
   [self showSnackbarMessage:message bottomOffset:offset];
 }
 

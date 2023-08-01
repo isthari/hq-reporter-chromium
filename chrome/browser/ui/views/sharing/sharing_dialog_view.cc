@@ -1,10 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/sharing/sharing_dialog_view.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -15,9 +15,9 @@
 #include "chrome/browser/ui/views/accessibility/theme_tracking_non_accessible_image_view.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/chrome_typography.h"
+#include "chrome/browser/ui/views/controls/hover_button.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/frame/toolbar_button_provider.h"
-#include "chrome/browser/ui/views/hover_button.h"
 #include "components/sync/protocol/sync_enums.pb.h"
 #include "components/sync_device_info/device_info.h"
 #include "components/url_formatter/elide_url.h"
@@ -57,7 +57,7 @@ bool ShouldShowOrigin(const SharingDialogData& data,
                       content::WebContents* web_contents) {
   return data.initiating_origin &&
          !data.initiating_origin->IsSameOriginWith(
-             web_contents->GetMainFrame()->GetLastCommittedOrigin());
+             web_contents->GetPrimaryMainFrame()->GetLastCommittedOrigin());
 }
 
 std::u16string PrepareHelpTextWithoutOrigin(const SharingDialogData& data) {
@@ -89,6 +89,18 @@ std::unique_ptr<views::View> CreateOriginView(const SharingDialogData& data) {
   label->SetAllowCharacterBreak(true);
   label->SetMultiLine(true);
   return label;
+}
+
+const gfx::VectorIcon& GetIconType(
+    const syncer::DeviceInfo::FormFactor& device_form_factor) {
+  switch (device_form_factor) {
+    case syncer::DeviceInfo::FormFactor::kPhone:
+      return kHardwareSmartphoneIcon;
+    case syncer::DeviceInfo::FormFactor::kTablet:
+      return kTabletIcon;
+    default:
+      return kHardwareComputerIcon;
+  }
 }
 
 }  // namespace
@@ -217,13 +229,14 @@ void SharingDialogView::Init() {
     case SharingDialogType::kDialogWithoutDevicesWithApp:
     case SharingDialogType::kDialogWithDevicesMaybeApps:
       // Spread buttons across the whole dialog width.
-      insets = gfx::Insets(kSharingDialogSpacing, 0, kSharingDialogSpacing, 0);
+      insets = gfx::Insets::VH(kSharingDialogSpacing, 0);
       InitListView();
       break;
   }
 
-  set_margins(gfx::Insets(insets.top(), 0, insets.bottom(), 0));
-  SetBorder(views::CreateEmptyBorder(0, insets.left(), 0, insets.right()));
+  set_margins(gfx::Insets::TLBR(insets.top(), 0, insets.bottom(), 0));
+  SetBorder(views::CreateEmptyBorder(
+      gfx::Insets::TLBR(0, insets.left(), 0, insets.right())));
 
   if (GetWidget())
     SizeToContents();
@@ -232,10 +245,10 @@ void SharingDialogView::Init() {
 void SharingDialogView::InitListView() {
   constexpr int kPrimaryIconSize = 20;
   const gfx::Insets device_border =
-      gfx::Insets(kSharingDialogSpacing, kSharingDialogSpacing * 2,
-                  kSharingDialogSpacing, 0);
+      gfx::Insets::TLBR(kSharingDialogSpacing, kSharingDialogSpacing * 2,
+                        kSharingDialogSpacing, 0);
   // Apps need more padding at the top and bottom as they only have one line.
-  const gfx::Insets app_border = device_border + gfx::Insets(2, 0, 2, 0);
+  const gfx::Insets app_border = device_border + gfx::Insets::VH(2, 0);
 
   auto button_list = std::make_unique<views::View>();
   button_list->SetLayoutManager(std::make_unique<views::BoxLayout>(
@@ -245,12 +258,9 @@ void SharingDialogView::InitListView() {
   LogSharingDevicesToShow(data_.prefix, kSharingUiDialog, data_.devices.size());
   size_t index = 0;
   for (const auto& device : data_.devices) {
-    auto icon =
-        std::make_unique<views::ImageView>(ui::ImageModel::FromVectorIcon(
-            device->device_type() == sync_pb::SyncEnums::TYPE_TABLET
-                ? kTabletIcon
-                : kHardwareSmartphoneIcon,
-            ui::kColorIcon, kPrimaryIconSize));
+    auto icon = std::make_unique<views::ImageView>(
+        ui::ImageModel::FromVectorIcon(GetIconType(device->form_factor()),
+                                       ui::kColorIcon, kPrimaryIconSize));
 
     auto* dialog_button =
         button_list->AddChildView(std::make_unique<HoverButton>(

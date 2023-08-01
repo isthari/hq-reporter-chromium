@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,7 @@ package org.chromium.chrome.browser.customtabs.content;
 
 import static org.junit.Assert.assertEquals;
 
-import android.support.test.InstrumentationRegistry;
-
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.MediumTest;
 
 import org.junit.Rule;
@@ -16,10 +15,10 @@ import org.junit.runner.RunWith;
 
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
-import org.chromium.base.test.util.FlakyTest;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.chrome.browser.customtabs.CustomTabActivity;
 import org.chromium.chrome.browser.customtabs.CustomTabActivityTestRule;
-import org.chromium.chrome.browser.customtabs.CustomTabsTestUtils;
+import org.chromium.chrome.browser.customtabs.CustomTabsIntentTestUtils;
 import org.chromium.chrome.browser.customtabs.content.TabObserverRegistrar.CustomTabTabObserver;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.tab.Tab;
@@ -64,7 +63,7 @@ public class TabObserverRegistrarTest {
      */
     @Test
     @MediumTest
-    @FlakyTest(message = "crbug.com/1269017")
+    @DisabledTest(message = "crbug.com/1269017")
     public void testObserveActiveTab() throws Throwable {
         EmbeddedTestServer testServer = mCustomTabActivityTestRule.getTestServer();
         final String windowOpenUrl =
@@ -73,8 +72,8 @@ public class TabObserverRegistrarTest {
         final String url2 = testServer.getURL("/chrome/test/data/android/simple.html");
 
         mCustomTabActivityTestRule.startCustomTabActivityWithIntent(
-                CustomTabsTestUtils.createMinimalCustomTabIntent(
-                        InstrumentationRegistry.getTargetContext(), windowOpenUrl));
+                CustomTabsIntentTestUtils.createMinimalCustomTabIntent(
+                        ApplicationProvider.getApplicationContext(), windowOpenUrl));
 
         // Register TabObserver via TabObserverRegistrar#registerActiveTabObserver()
         CustomTabActivity customTabActivity = mCustomTabActivityTestRule.getActivity();

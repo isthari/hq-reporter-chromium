@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,8 @@
 
 #include <ostream>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
 #include "base/time/time.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
@@ -49,7 +50,18 @@ class AppsAccessSetupOperation {
     // The user has completed the phone-side opt-in flow.
     kCompletedSuccessfully = 5,
 
-    kMaxValue = kCompletedSuccessfully
+    // The user's phone is prohibited from granting feature access (e.g.,
+    // the user could be using a Work Profile). Apps access will not have this
+    // case.
+    kProhibitedFromProvidingAccess = 6,
+
+    // The user has rejected the phone-side opt-in flow.
+    kCompletedUserRejected = 7,
+
+    // The operation failed or cancelled because a system error.
+    kOperationFailedOrCancelled = 8,
+
+    kMaxValue = kOperationFailedOrCancelled
   };
 
   // Returns true if the provided status is the final one for this operation,
@@ -79,12 +91,9 @@ class AppsAccessSetupOperation {
 
   absl::optional<Status> current_status_;
   const base::TimeTicks start_timestamp_ = base::TimeTicks::Now();
-  Delegate* const delegate_;
+  const raw_ptr<Delegate, ExperimentalAsh> delegate_;
   base::OnceClosure destructor_callback_;
 };
-
-std::ostream& operator<<(std::ostream& stream,
-                         AppsAccessSetupOperation::Status status);
 
 }  // namespace eche_app
 }  // namespace ash

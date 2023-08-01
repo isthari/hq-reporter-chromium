@@ -1,4 +1,4 @@
-# Copyright 2018 The Chromium Authors. All rights reserved.
+# Copyright 2018 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -16,7 +16,8 @@ from py_utils import discover
 
 class RenderingStorySet(story.StorySet):
   """Stories related to rendering."""
-  def __init__(self, platform, scroll_forever=False):
+
+  def __init__(self, platform, scroll_forever=False, disable_tracing=False):
     super(RenderingStorySet, self).__init__(
         archive_data_file=('../data/rendering_%s.json' % platform),
         cloud_storage_bucket=story.PARTNER_BUCKET)
@@ -37,11 +38,15 @@ class RenderingStorySet(story.StorySet):
     self.target_scale_factor = 4.0
 
     for story_class in _IterAllRenderingStoryClasses():
-      if (story_class.ABSTRACT_STORY or
-          platform not in story_class.SUPPORTED_PLATFORMS):
+      if (story_class.ABSTRACT_STORY
+          or platform not in story_class.SUPPORTED_PLATFORMS
+          or story_class.DISABLE_TRACING != disable_tracing):
         continue
 
       required_args = []
+      if story_class.EXTRA_BROWSER_ARGUMENTS:
+        required_args += story_class.EXTRA_BROWSER_ARGUMENTS
+
       name_suffix = ''
       if (story_class.TAGS and
           story_tags.USE_FAKE_CAMERA_DEVICE in story_class.TAGS):
@@ -84,11 +89,10 @@ class RenderingStorySet(story.StorySet):
     if self._platform == platforms.DESKTOP:
       if os.name == 'nt':
         return 'representative_win_desktop'
-      else:
-        # There is no specific tag for linux, cros, etc,
-        # so just use mac's.
-        return 'representative_mac_desktop'
-    elif self._platform == platforms.MOBILE:
+      # There is no specific tag for linux, cros, etc,
+      # so just use mac's.
+      return 'representative_mac_desktop'
+    if self._platform == platforms.MOBILE:
       return 'representative_mobile'
     raise RuntimeError('Platform {} is not in the list of expected platforms.')
 

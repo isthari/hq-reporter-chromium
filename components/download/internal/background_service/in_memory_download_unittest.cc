@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,13 +6,13 @@
 
 #include <memory>
 
-#include "base/bind.h"
-#include "base/guid.h"
+#include "base/functional/bind.h"
 #include "base/message_loop/message_pump_type.h"
 #include "base/run_loop.h"
 #include "base/test/bind.h"
 #include "base/test/task_environment.h"
 #include "base/threading/thread.h"
+#include "base/uuid.h"
 #include "net/base/io_buffer.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "services/network/public/mojom/url_response_head.mojom.h"
@@ -125,9 +125,9 @@ class InMemoryDownloadTest : public testing::Test {
   // Helper method to create a download with request_params.
   void CreateDownload(const RequestParams& request_params) {
     download_ = std::make_unique<InMemoryDownloadImpl>(
-        base::GenerateGUID(), request_params, /* request_body= */ nullptr,
-        TRAFFIC_ANNOTATION_FOR_TESTS, delegate(), &url_loader_factory_,
-        io_thread_->task_runner());
+        base::Uuid::GenerateRandomV4().AsLowercaseString(), request_params,
+        /* request_body= */ nullptr, TRAFFIC_ANNOTATION_FOR_TESTS, delegate(),
+        &url_loader_factory_, io_thread_->task_runner());
   }
 
   InMemoryDownload* download() { return download_.get(); }
@@ -226,7 +226,7 @@ TEST_F(InMemoryDownloadTest, RedirectResponseHeaders) {
 
   // The size must match for download as stream from SimpleUrlLoader.
   network::URLLoaderCompletionStatus status;
-  status.decoded_body_length = base::size(kTestDownloadData) - 1;
+  status.decoded_body_length = std::size(kTestDownloadData) - 1;
 
   url_loader_factory()->AddResponse(request_params.url, response_head.Clone(),
                                     kTestDownloadData, status,

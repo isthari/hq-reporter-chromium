@@ -1,29 +1,28 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/reading_list/reading_list_model_factory.h"
+#import "ios/chrome/browser/reading_list/reading_list_model_factory.h"
 
-#include <utility>
+#import <utility>
 
-#include "base/bind.h"
-#include "base/files/file_path.h"
-#include "base/no_destructor.h"
-#include "base/time/default_clock.h"
-#include "components/keyed_service/ios/browser_state_dependency_manager.h"
-#include "components/pref_registry/pref_registry_syncable.h"
-#include "components/reading_list/core/reading_list_model_impl.h"
-#include "components/reading_list/core/reading_list_pref_names.h"
-#include "components/reading_list/core/reading_list_store.h"
-#include "components/sync/base/report_unrecoverable_error.h"
-#include "components/sync/model/client_tag_based_model_type_processor.h"
-#include "components/sync/model/model_type_store_service.h"
-#include "ios/chrome/browser/browser_state/browser_state_otr_helper.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/sync/model_type_store_service_factory.h"
-#include "ios/chrome/browser/system_flags.h"
-#include "ios/chrome/common/channel_info.h"
-#include "ios/web/public/thread/web_thread.h"
+#import "base/feature_list.h"
+#import "base/files/file_path.h"
+#import "base/functional/bind.h"
+#import "base/no_destructor.h"
+#import "base/time/default_clock.h"
+#import "components/keyed_service/ios/browser_state_dependency_manager.h"
+#import "components/reading_list/core/dual_reading_list_model.h"
+#import "components/reading_list/core/reading_list_model_impl.h"
+#import "components/reading_list/core/reading_list_model_storage_impl.h"
+#import "components/reading_list/features/reading_list_switches.h"
+#import "components/sync/base/storage_type.h"
+#import "components/sync/model/model_type_store_service.h"
+#import "ios/chrome/browser/flags/system_flags.h"
+#import "ios/chrome/browser/shared/model/browser_state/browser_state_otr_helper.h"
+#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/sync/model_type_store_service_factory.h"
+#import "ios/web/public/thread/web_thread.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -32,15 +31,8 @@
 // static
 ReadingListModel* ReadingListModelFactory::GetForBrowserState(
     ChromeBrowserState* browser_state) {
-  return static_cast<ReadingListModelImpl*>(
+  return static_cast<ReadingListModel*>(
       GetInstance()->GetServiceForBrowserState(browser_state, true));
-}
-
-// static
-ReadingListModel* ReadingListModelFactory::GetForBrowserStateIfExists(
-    ChromeBrowserState* browser_state) {
-  return static_cast<ReadingListModelImpl*>(
-      GetInstance()->GetServiceForBrowserState(browser_state, false));
 }
 
 // static
@@ -58,13 +50,6 @@ ReadingListModelFactory::ReadingListModelFactory()
 
 ReadingListModelFactory::~ReadingListModelFactory() {}
 
-void ReadingListModelFactory::RegisterBrowserStatePrefs(
-    user_prefs::PrefRegistrySyncable* registry) {
-  registry->RegisterBooleanPref(
-      reading_list::prefs::kReadingListHasUnseenEntries, false,
-      PrefRegistry::NO_REGISTRATION_FLAGS);
-}
-
 std::unique_ptr<KeyedService> ReadingListModelFactory::BuildServiceInstanceFor(
     web::BrowserState* context) const {
   ChromeBrowserState* chrome_browser_state =
@@ -73,18 +58,28 @@ std::unique_ptr<KeyedService> ReadingListModelFactory::BuildServiceInstanceFor(
   syncer::OnceModelTypeStoreFactory store_factory =
       ModelTypeStoreServiceFactory::GetForBrowserState(chrome_browser_state)
           ->GetStoreFactory();
-  auto change_processor =
-      std::make_unique<syncer::ClientTagBasedModelTypeProcessor>(
-          syncer::READING_LIST,
-          base::BindRepeating(&syncer::ReportUnrecoverableError,
-                              ::GetChannel()));
-  std::unique_ptr<ReadingListStore> store = std::make_unique<ReadingListStore>(
-      std::move(store_factory), std::move(change_processor));
-  std::unique_ptr<KeyedService> reading_list_model =
-      std::make_unique<ReadingListModelImpl>(std::move(store),
-                                             chrome_browser_state->GetPrefs(),
+  auto storage =
+      std::make_unique<ReadingListModelStorageImpl>(std::move(store_factory));
+  auto reading_list_model = std::make_unique<ReadingListModelImpl>(
+      std::move(storage), syncer::StorageType::kUnspecified,
+      base::DefaultClock::GetInstance());
+  if (!base::FeatureList::IsEnabled(
+          reading_list::switches::kReadingListEnableDualReadingListModel)) {
+    return reading_list_model;
+  }
+
+  syncer::OnceModelTypeStoreFactory store_factory_for_account_storage =
+      ModelTypeStoreServiceFactory::GetForBrowserState(chrome_browser_state)
+          ->GetStoreFactoryForAccountStorage();
+  auto account_storage = std::make_unique<ReadingListModelStorageImpl>(
+      std::move(store_factory_for_account_storage));
+  auto reading_list_model_for_account_storage =
+      std::make_unique<ReadingListModelImpl>(std::move(account_storage),
+                                             syncer::StorageType::kAccount,
                                              base::DefaultClock::GetInstance());
-  return reading_list_model;
+  return std::make_unique<reading_list::DualReadingListModel>(
+      /*local_or_syncable_model=*/std::move(reading_list_model),
+      /*account_model=*/std::move(reading_list_model_for_account_storage));
 }
 
 web::BrowserState* ReadingListModelFactory::GetBrowserStateToUse(

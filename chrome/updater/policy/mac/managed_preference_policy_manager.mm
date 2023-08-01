@@ -1,16 +1,26 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/updater/policy/mac/managed_preference_policy_manager.h"
 
 #include <string>
+#include <vector>
 
+#include "base/apple/bridging.h"
 #include "base/mac/scoped_cftyperef.h"
-#include "base/mac/scoped_nsobject.h"
+#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/strings/sys_string_conversions.h"
+#include "base/time/time.h"
+#include "chrome/updater/constants.h"
 #include "chrome/updater/policy/mac/managed_preference_policy_manager_impl.h"
 #include "chrome/updater/policy/manager.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 namespace updater {
 
@@ -24,38 +34,37 @@ class ManagedPreferencePolicyManager : public PolicyManagerInterface {
       delete;
   ManagedPreferencePolicyManager& operator=(
       const ManagedPreferencePolicyManager&) = delete;
-  ~ManagedPreferencePolicyManager() override;
 
   // Overrides for PolicyManagerInterface.
   std::string source() const override;
 
-  bool IsManaged() const override;
+  bool HasActiveDevicePolicies() const override;
 
-  bool GetLastCheckPeriodMinutes(int* minutes) const override;
-  bool GetUpdatesSuppressedTimes(
-      UpdatesSuppressedTimes* suppressed_times) const override;
-  bool GetDownloadPreferenceGroupPolicy(
-      std::string* download_preference) const override;
-  bool GetPackageCacheSizeLimitMBytes(int* cache_size_limit) const override;
-  bool GetPackageCacheExpirationTimeDays(int* cache_life_limit) const override;
-
-  bool GetEffectivePolicyForAppInstalls(const std::string& app_id,
-                                        int* install_policy) const override;
-  bool GetEffectivePolicyForAppUpdates(const std::string& app_id,
-                                       int* update_policy) const override;
-  bool GetTargetVersionPrefix(
-      const std::string& app_id,
-      std::string* target_version_prefix) const override;
-  bool IsRollbackToTargetVersionAllowed(const std::string& app_id,
-                                        bool* rollback_allowed) const override;
-  bool GetProxyMode(std::string* proxy_mode) const override;
-  bool GetProxyPacUrl(std::string* proxy_pac_url) const override;
-  bool GetProxyServer(std::string* proxy_server) const override;
-  bool GetTargetChannel(const std::string& app_id,
-                        std::string* channel) const override;
+  absl::optional<base::TimeDelta> GetLastCheckPeriod() const override;
+  absl::optional<UpdatesSuppressedTimes> GetUpdatesSuppressedTimes()
+      const override;
+  absl::optional<std::string> GetDownloadPreferenceGroupPolicy() const override;
+  absl::optional<int> GetPackageCacheSizeLimitMBytes() const override;
+  absl::optional<int> GetPackageCacheExpirationTimeDays() const override;
+  absl::optional<int> GetEffectivePolicyForAppInstalls(
+      const std::string& app_id) const override;
+  absl::optional<int> GetEffectivePolicyForAppUpdates(
+      const std::string& app_id) const override;
+  absl::optional<std::string> GetTargetVersionPrefix(
+      const std::string& app_id) const override;
+  absl::optional<bool> IsRollbackToTargetVersionAllowed(
+      const std::string& app_id) const override;
+  absl::optional<std::string> GetProxyMode() const override;
+  absl::optional<std::string> GetProxyPacUrl() const override;
+  absl::optional<std::string> GetProxyServer() const override;
+  absl::optional<std::string> GetTargetChannel(
+      const std::string& app_id) const override;
+  absl::optional<std::vector<std::string>> GetForceInstallApps() const override;
+  absl::optional<std::vector<std::string>> GetAppsWithPolicy() const override;
 
  private:
-  base::scoped_nsobject<CRUManagedPreferencePolicyManager> impl_;
+  ~ManagedPreferencePolicyManager() override;
+  CRUManagedPreferencePolicyManager* __strong impl_;
 };
 
 ManagedPreferencePolicyManager::ManagedPreferencePolicyManager(
@@ -65,158 +74,155 @@ ManagedPreferencePolicyManager::ManagedPreferencePolicyManager(
 
 ManagedPreferencePolicyManager::~ManagedPreferencePolicyManager() = default;
 
-bool ManagedPreferencePolicyManager::IsManaged() const {
-  return [impl_ managed];
+bool ManagedPreferencePolicyManager::HasActiveDevicePolicies() const {
+  return impl_.managed;
 }
 
 std::string ManagedPreferencePolicyManager::source() const {
-  return base::SysNSStringToUTF8([impl_ source]);
+  return base::SysNSStringToUTF8(impl_.source);
 }
 
-bool ManagedPreferencePolicyManager::GetLastCheckPeriodMinutes(
-    int* minutes) const {
-  *minutes = [impl_ lastCheckPeriodMinutes];
-  return (*minutes != kPolicyNotSet);
+absl::optional<base::TimeDelta>
+ManagedPreferencePolicyManager::GetLastCheckPeriod() const {
+  int minutes = [impl_ lastCheckPeriodMinutes];
+  return minutes != kPolicyNotSet
+             ? absl::optional<base::TimeDelta>(base::Minutes(minutes))
+             : absl::nullopt;
 }
 
-bool ManagedPreferencePolicyManager::GetUpdatesSuppressedTimes(
-    UpdatesSuppressedTimes* suppressed_times) const {
-  *suppressed_times = [impl_ updatesSuppressed];
-  return suppressed_times->valid();
+absl::optional<UpdatesSuppressedTimes>
+ManagedPreferencePolicyManager::GetUpdatesSuppressedTimes() const {
+  UpdatesSuppressedTimes suppressed_times = [impl_ updatesSuppressed];
+  return suppressed_times.valid()
+             ? absl::optional<UpdatesSuppressedTimes>(suppressed_times)
+             : absl::nullopt;
 }
 
-bool ManagedPreferencePolicyManager::GetDownloadPreferenceGroupPolicy(
-    std::string* download_preference) const {
+absl::optional<std::string>
+ManagedPreferencePolicyManager::GetDownloadPreferenceGroupPolicy() const {
   NSString* value = [impl_ downloadPreference];
-  if (value) {
-    *download_preference = base::SysNSStringToUTF8(value);
-    return true;
-  }
-
-  return false;
+  return value ? absl::optional<std::string>(base::SysNSStringToUTF8(value))
+               : absl::nullopt;
 }
 
-bool ManagedPreferencePolicyManager::GetPackageCacheSizeLimitMBytes(
-    int* cache_size_limit) const {
-  return false;  // Not supported on Mac.
+absl::optional<int>
+ManagedPreferencePolicyManager::GetPackageCacheSizeLimitMBytes() const {
+  return absl::nullopt;  // Not supported on Mac.
 }
 
-bool ManagedPreferencePolicyManager::GetPackageCacheExpirationTimeDays(
-    int* cache_life_limit) const {
-  return false;  // Not supported on Mac.
+absl::optional<int>
+ManagedPreferencePolicyManager::GetPackageCacheExpirationTimeDays() const {
+  return absl::nullopt;  // Not supported on Mac.
 }
 
-bool ManagedPreferencePolicyManager::GetEffectivePolicyForAppInstalls(
-    const std::string& app_id,
-    int* install_policy) const {
-  return false;  // Not supported on Mac.
+absl::optional<int>
+ManagedPreferencePolicyManager::GetEffectivePolicyForAppInstalls(
+    const std::string& app_id) const {
+  return absl::nullopt;  // Not supported on Mac.
 }
 
-bool ManagedPreferencePolicyManager::GetEffectivePolicyForAppUpdates(
-    const std::string& app_id,
-    int* update_policy) const {
+absl::optional<int>
+ManagedPreferencePolicyManager::GetEffectivePolicyForAppUpdates(
+    const std::string& app_id) const {
   // Check app-specific settings first.
-  *update_policy = [impl_ appUpdatePolicy:base::SysUTF8ToNSString(app_id)];
-  if (*update_policy != kPolicyNotSet)
-    return true;
+  int update_policy = [impl_ appUpdatePolicy:base::SysUTF8ToNSString(app_id)];
+  if (update_policy != kPolicyNotSet)
+    return update_policy;
 
   // Then fallback to global-level policy if needed.
-  *update_policy = [impl_ defaultUpdatePolicy];
-  return (*update_policy != kPolicyNotSet);
+  update_policy = [impl_ defaultUpdatePolicy];
+  return update_policy != kPolicyNotSet ? absl::optional<int>(update_policy)
+                                        : absl::nullopt;
 }
 
-bool ManagedPreferencePolicyManager::GetTargetVersionPrefix(
-    const std::string& app_id,
-    std::string* target_version_prefix) const {
+absl::optional<std::string>
+ManagedPreferencePolicyManager::GetTargetVersionPrefix(
+    const std::string& app_id) const {
   NSString* value = [impl_ targetVersionPrefix:base::SysUTF8ToNSString(app_id)];
-  if (value) {
-    *target_version_prefix = base::SysNSStringToUTF8(value);
-    return true;
-  }
-
-  return false;
+  return value ? absl::optional<std::string>(base::SysNSStringToUTF8(value))
+               : absl::nullopt;
 }
 
-bool ManagedPreferencePolicyManager::IsRollbackToTargetVersionAllowed(
-    const std::string& app_id,
-    bool* rollback_allowed) const {
+absl::optional<bool>
+ManagedPreferencePolicyManager::IsRollbackToTargetVersionAllowed(
+    const std::string& app_id) const {
   int rollback_policy =
       [impl_ rollbackToTargetVersion:base::SysUTF8ToNSString(app_id)];
-  if (rollback_policy != kPolicyNotSet) {
-    *rollback_allowed = (rollback_policy != 0);
-    return true;
-  }
-
-  return false;
+  return rollback_policy != kPolicyNotSet
+             ? absl::optional<bool>(rollback_policy != 0)
+             : absl::nullopt;
 }
 
-bool ManagedPreferencePolicyManager::GetProxyMode(
-    std::string* proxy_mode) const {
+absl::optional<std::string> ManagedPreferencePolicyManager::GetProxyMode()
+    const {
   NSString* value = [impl_ proxyMode];
-  if (value) {
-    *proxy_mode = base::SysNSStringToUTF8(value);
-    return true;
-  }
-
-  return false;
+  return value ? absl::optional<std::string>(base::SysNSStringToUTF8(value))
+               : absl::nullopt;
 }
 
-bool ManagedPreferencePolicyManager::GetProxyPacUrl(
-    std::string* proxy_pac_url) const {
+absl::optional<std::string> ManagedPreferencePolicyManager::GetProxyPacUrl()
+    const {
   NSString* value = [impl_ proxyPacURL];
-  if (value) {
-    *proxy_pac_url = base::SysNSStringToUTF8(value);
-    return true;
-  }
-
-  return false;
+  return value ? absl::optional<std::string>(base::SysNSStringToUTF8(value))
+               : absl::nullopt;
 }
 
-bool ManagedPreferencePolicyManager::GetProxyServer(
-    std::string* proxy_server) const {
+absl::optional<std::string> ManagedPreferencePolicyManager::GetProxyServer()
+    const {
   NSString* value = [impl_ proxyServer];
-  if (value) {
-    *proxy_server = base::SysNSStringToUTF8(value);
-    return true;
-  }
-
-  return false;
+  return value ? absl::optional<std::string>(base::SysNSStringToUTF8(value))
+               : absl::nullopt;
 }
 
-bool ManagedPreferencePolicyManager::GetTargetChannel(
-    const std::string& app_id,
-    std::string* channel) const {
+absl::optional<std::string> ManagedPreferencePolicyManager::GetTargetChannel(
+    const std::string& app_id) const {
   NSString* value = [impl_ targetChannel:base::SysUTF8ToNSString(app_id)];
-  if (value) {
-    *channel = base::SysNSStringToUTF8(value);
-    return true;
+  return value ? absl::optional<std::string>(base::SysNSStringToUTF8(value))
+               : absl::nullopt;
+}
+
+absl::optional<std::vector<std::string>>
+ManagedPreferencePolicyManager::GetForceInstallApps() const {
+  return absl::nullopt;
+}
+
+absl::optional<std::vector<std::string>>
+ManagedPreferencePolicyManager::GetAppsWithPolicy() const {
+  NSArray<NSString*>* apps_with_policy = [impl_ appsWithPolicy];
+  if (!apps_with_policy) {
+    return absl::nullopt;
   }
 
-  return false;
+  std::vector<std::string> app_ids;
+  for (NSString* app in apps_with_policy) {
+    app_ids.push_back(base::SysNSStringToUTF8(app));
+  }
+
+  return app_ids;
 }
 
 NSDictionary* ReadManagedPreferencePolicyDictionary() {
   base::ScopedCFTypeRef<CFPropertyListRef> policies(CFPreferencesCopyAppValue(
-      (__bridge CFStringRef)kManagedPreferencesUpdatePolicies,
-      (__bridge CFStringRef)kKeystoneSharedPreferenceSuite));
+      base::apple::NSToCFPtrCast(kManagedPreferencesUpdatePolicies),
+      base::apple::NSToCFPtrCast(kKeystoneSharedPreferenceSuite)));
   if (!policies)
     return nil;
 
   if (!CFPreferencesAppValueIsForced(
-          (__bridge CFStringRef)kManagedPreferencesUpdatePolicies,
-          (__bridge CFStringRef)kKeystoneSharedPreferenceSuite)) {
+          base::apple::NSToCFPtrCast(kManagedPreferencesUpdatePolicies),
+          base::apple::NSToCFPtrCast(kKeystoneSharedPreferenceSuite))) {
     return nil;
   }
 
   if (CFGetTypeID(policies) != CFDictionaryGetTypeID())
     return nil;
 
-  return reinterpret_cast<NSDictionary*>(CFBridgingRelease(policies.release()));
+  return base::apple::CFToNSOwnershipCast((CFDictionaryRef)policies.release());
 }
 
-std::unique_ptr<PolicyManagerInterface> CreateManagedPreferencePolicyManager() {
+scoped_refptr<PolicyManagerInterface> CreateManagedPreferencePolicyManager() {
   NSDictionary* policyDict = ReadManagedPreferencePolicyDictionary();
-  return std::make_unique<ManagedPreferencePolicyManager>(policyDict);
+  return base::MakeRefCounted<ManagedPreferencePolicyManager>(policyDict);
 }
 
 }  // namespace updater

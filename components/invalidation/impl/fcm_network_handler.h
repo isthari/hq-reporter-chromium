@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,9 @@
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/clock.h"
+#include "base/time/time.h"
 #include "base/timer/timer.h"
+#include "base/values.h"
 #include "components/gcm_driver/gcm_app_handler.h"
 #include "components/gcm_driver/instance_id/instance_id.h"
 #include "components/invalidation/impl/channels_states.h"
@@ -74,15 +76,15 @@ class FCMNetworkHandler : public gcm::GCMAppHandler,
       std::unique_ptr<base::OneShotTimer> token_validation_timer);
 
   void RequestDetailedStatus(
-      const base::RepeatingCallback<void(const base::DictionaryValue&)>&
-          callback) override;
+      const base::RepeatingCallback<void(base::Value::Dict)>& callback)
+      override;
 
  private:
   struct FCMNetworkHandlerDiagnostic {
     FCMNetworkHandlerDiagnostic();
 
     // Collect all the internal variables in a single readable dictionary.
-    base::DictionaryValue CollectDebugData() const;
+    base::Value::Dict CollectDebugData() const;
 
     std::string RegistrationResultToString(
         const instance_id::InstanceID::Result result) const;

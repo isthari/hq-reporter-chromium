@@ -1,10 +1,9 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ios/chrome/browser/sync/session_sync_service_factory.h"
 
-#include "ios/chrome/browser/chrome_url_constants.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
@@ -27,9 +26,6 @@ TEST(SessionSyncServiceFactoryTest, ShouldSyncURL) {
       GURL("file://anything")));
   EXPECT_FALSE(SessionSyncServiceFactory::ShouldSyncURLForTesting(
       GURL("chrome://anything")));
-
-  EXPECT_TRUE(SessionSyncServiceFactory::ShouldSyncURLForTesting(
-      GURL(kChromeUIHistoryURL)));
 }
 
 }  // namespace

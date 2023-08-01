@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -72,10 +72,8 @@ DevToolsEmulator::DevToolsEmulator(WebViewImpl* web_view)
           web_view->GetPage()->GetSettings().GetTextAutosizingEnabled()),
       embedder_device_scale_adjustment_(
           web_view->GetPage()->GetSettings().GetDeviceScaleAdjustment()),
-      embedder_prefer_compositing_to_lcd_text_enabled_(
-          web_view->GetPage()
-              ->GetSettings()
-              .GetPreferCompositingToLCDTextEnabled()),
+      embedder_lcd_text_preference_(
+          web_view->GetPage()->GetSettings().GetLCDTextPreference()),
       embedder_viewport_style_(
           web_view->GetPage()->GetSettings().GetViewportStyle()),
       embedder_plugins_enabled_(
@@ -136,16 +134,16 @@ void DevToolsEmulator::SetDeviceScaleAdjustment(float device_scale_adjustment) {
   }
 }
 
-void DevToolsEmulator::SetPreferCompositingToLCDTextEnabled(bool enabled) {
-  if (embedder_prefer_compositing_to_lcd_text_enabled_ == enabled)
+void DevToolsEmulator::SetLCDTextPreference(LCDTextPreference preference) {
+  if (embedder_lcd_text_preference_ == preference) {
     return;
+  }
 
-  embedder_prefer_compositing_to_lcd_text_enabled_ = enabled;
+  embedder_lcd_text_preference_ = preference;
   bool emulate_mobile_enabled =
       device_metrics_enabled_ && emulate_mobile_enabled_;
   if (!emulate_mobile_enabled) {
-    web_view_->GetPage()->GetSettings().SetPreferCompositingToLCDTextEnabled(
-        enabled);
+    web_view_->GetPage()->GetSettings().SetLCDTextPreference(preference);
   }
 }
 
@@ -267,7 +265,13 @@ void DevToolsEmulator::SetPrimaryHoverType(mojom::blink::HoverType hover_type) {
     web_view_->GetPage()->GetSettings().SetPrimaryHoverType(hover_type);
 }
 
-TransformationMatrix DevToolsEmulator::EnableDeviceEmulation(
+void DevToolsEmulator::SetOutputDeviceUpdateAbilityType(
+    mojom::blink::OutputDeviceUpdateAbilityType type) {
+  embedder_output_device_update_ability_type_ = type;
+  web_view_->GetPage()->GetSettings().SetOutputDeviceUpdateAbilityType(type);
+}
+
+gfx::Transform DevToolsEmulator::EnableDeviceEmulation(
     const DeviceEmulationParams& params) {
   if (device_metrics_enabled_ &&
       emulation_params_.view_size == params.view_size &&
@@ -280,7 +284,7 @@ TransformationMatrix DevToolsEmulator::EnableDeviceEmulation(
   }
   if (emulation_params_.device_scale_factor != params.device_scale_factor ||
       !device_metrics_enabled_)
-    GetMemoryCache()->EvictResources();
+    MemoryCache::Get()->EvictResources();
 
   emulation_params_ = params;
   device_metrics_enabled_ = true;
@@ -315,7 +319,7 @@ void DevToolsEmulator::DisableDeviceEmulation() {
   if (!device_metrics_enabled_)
     return;
 
-  GetMemoryCache()->EvictResources();
+  MemoryCache::Get()->EvictResources();
   device_metrics_enabled_ = false;
   web_view_->GetPage()->GetSettings().SetDeviceScaleAdjustment(
       embedder_device_scale_adjustment_);
@@ -331,7 +335,7 @@ void DevToolsEmulator::DisableDeviceEmulation() {
       document->MediaQueryAffectingValueChanged(MediaValueChange::kOther);
   }
 
-  TransformationMatrix matrix = ResetViewport();
+  gfx::Transform matrix = ResetViewport();
   DCHECK(matrix.IsIdentity());
 }
 
@@ -342,6 +346,7 @@ void DevToolsEmulator::EnableMobileEmulation() {
   is_overlay_scrollbars_enabled_ =
       ScrollbarThemeSettings::OverlayScrollbarsEnabled();
   ScrollbarThemeSettings::SetOverlayScrollbarsEnabled(true);
+  Page::UsesOverlayScrollbarsChanged();
   is_orientation_event_enabled_ =
       RuntimeEnabledFeatures::OrientationEventEnabled();
   RuntimeEnabledFeatures::SetOrientationEventEnabled(true);
@@ -354,16 +359,22 @@ void DevToolsEmulator::EnableMobileEmulation() {
       mojom::blink::ViewportStyle::kMobile);
   web_view_->GetPage()->GetSettings().SetViewportEnabled(true);
   web_view_->GetPage()->GetSettings().SetViewportMetaEnabled(true);
-  web_view_->GetPage()->GetVisualViewport().InitializeScrollbars();
   web_view_->GetPage()->GetSettings().SetShrinksViewportContentToFit(true);
   web_view_->GetPage()->GetSettings().SetTextAutosizingEnabled(true);
-  web_view_->GetPage()->GetSettings().SetPreferCompositingToLCDTextEnabled(
-      true);
+  web_view_->GetPage()->GetSettings().SetLCDTextPreference(
+      LCDTextPreference::kIgnored);
   web_view_->GetPage()->GetSettings().SetPluginsEnabled(false);
   web_view_->GetPage()->GetSettings().SetMainFrameResizesAreOrientationChanges(
       true);
   web_view_->SetZoomFactorOverride(1);
   web_view_->GetPage()->SetDefaultPageScaleLimits(0.25f, 5);
+
+  // If the viewport is active, refresh the scrollbar layers to reflect the
+  // emulated viewport style. If it's not active, either we're in an embedded
+  // frame and we don't have visual viewport scrollbars or the scrollbars will
+  // initialize as part of their regular lifecycle.
+  if (web_view_->GetPage()->GetVisualViewport().IsActiveViewport())
+    web_view_->GetPage()->GetVisualViewport().InitializeScrollbars();
 
   if (web_view_->MainFrameImpl()) {
     web_view_->MainFrameImpl()->GetFrameView()->UpdateLifecycleToLayoutClean(
@@ -376,6 +387,7 @@ void DevToolsEmulator::DisableMobileEmulation() {
     return;
   ScrollbarThemeSettings::SetOverlayScrollbarsEnabled(
       is_overlay_scrollbars_enabled_);
+  Page::UsesOverlayScrollbarsChanged();
   RuntimeEnabledFeatures::SetOrientationEventEnabled(
       is_orientation_event_enabled_);
   RuntimeEnabledFeatures::SetMobileLayoutThemeEnabled(
@@ -391,8 +403,8 @@ void DevToolsEmulator::DisableMobileEmulation() {
       embedder_shrink_viewport_content_);
   web_view_->GetPage()->GetSettings().SetTextAutosizingEnabled(
       embedder_text_autosizing_enabled_);
-  web_view_->GetPage()->GetSettings().SetPreferCompositingToLCDTextEnabled(
-      embedder_prefer_compositing_to_lcd_text_enabled_);
+  web_view_->GetPage()->GetSettings().SetLCDTextPreference(
+      embedder_lcd_text_preference_);
   web_view_->GetPage()->GetSettings().SetViewportStyle(
       embedder_viewport_style_);
   web_view_->GetPage()->GetSettings().SetPluginsEnabled(
@@ -410,9 +422,8 @@ void DevToolsEmulator::DisableMobileEmulation() {
   }
 }
 
-TransformationMatrix DevToolsEmulator::ForceViewport(
-    const gfx::PointF& position,
-    float scale) {
+gfx::Transform DevToolsEmulator::ForceViewport(const gfx::PointF& position,
+                                               float scale) {
   if (!viewport_override_)
     viewport_override_ = ViewportOverride();
 
@@ -424,19 +435,19 @@ TransformationMatrix DevToolsEmulator::ForceViewport(
   return ComputeRootLayerTransform();
 }
 
-TransformationMatrix DevToolsEmulator::ResetViewport() {
+gfx::Transform DevToolsEmulator::ResetViewport() {
   viewport_override_ = absl::nullopt;
   return ComputeRootLayerTransform();
 }
 
-TransformationMatrix DevToolsEmulator::MainFrameScrollOrScaleChanged() {
+gfx::Transform DevToolsEmulator::OutermostMainFrameScrollOrScaleChanged() {
   // Viewport override has to take current page scale and scroll offset into
   // account. Update the transform if override is active.
   DCHECK(viewport_override_);
   return ComputeRootLayerTransform();
 }
 
-void DevToolsEmulator::ApplyViewportOverride(TransformationMatrix* transform) {
+void DevToolsEmulator::ApplyViewportOverride(gfx::Transform* transform) {
   if (!viewport_override_)
     return;
 
@@ -461,29 +472,14 @@ void DevToolsEmulator::ApplyViewportOverride(TransformationMatrix* transform) {
   transform->Scale(1. / web_view_->PageScaleFactor());
 }
 
-TransformationMatrix DevToolsEmulator::ComputeRootLayerTransform() {
-  TransformationMatrix transform;
+gfx::Transform DevToolsEmulator::ComputeRootLayerTransform() {
+  gfx::Transform transform;
   // Apply device emulation transform first, so that it is affected by the
   // viewport override.
   ApplyViewportOverride(&transform);
   if (device_metrics_enabled_)
     transform.Scale(emulation_params_.scale);
   return transform;
-}
-
-void DevToolsEmulator::OverrideVisibleRect(
-    const gfx::Size& viewport_size,
-    gfx::Rect* visible_rect_in_frame) const {
-  WebLocalFrameImpl* frame = web_view_->MainFrameImpl();
-  if (!viewport_override_ || !frame)
-    return;
-
-  // Don't apply viewport_override_->scale because all coordinates here are
-  // under the same scale.
-  gfx::Rect visible_rect_in_document = gfx::ToEnclosingRect(
-      gfx::RectF(viewport_override_->position, gfx::SizeF(viewport_size)));
-  *visible_rect_in_frame =
-      frame->GetFrameView()->DocumentToFrame(visible_rect_in_document);
 }
 
 float DevToolsEmulator::InputEventsScaleForEmulation() {

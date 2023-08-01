@@ -1,30 +1,29 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <array>
 #include <cstring>
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
-#include "ash/components/attestation/mock_attestation_flow.h"
-#include "ash/components/cryptohome/system_salt_getter.h"
-#include "ash/components/login/auth/key.h"
-#include "ash/components/login/auth/saml_password_attributes.h"
-#include "ash/components/settings/cros_settings_names.h"
 #include "ash/constants/ash_features.h"
 #include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/login_screen_test_api.h"
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/containers/flat_set.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
+#include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/post_task.h"
 #include "base/test/bind.h"
 #include "base/test/gmock_callback_support.h"
 #include "base/test/metrics/histogram_tester.h"
@@ -33,12 +32,13 @@
 #include "chrome/browser/ash/attestation/mock_machine_certificate_uploader.h"
 #include "chrome/browser/ash/attestation/tpm_challenge_key.h"
 #include "chrome/browser/ash/login/existing_user_controller.h"
+#include "chrome/browser/ash/login/lock/screen_locker_tester.h"
 #include "chrome/browser/ash/login/saml/fake_saml_idp_mixin.h"
+#include "chrome/browser/ash/login/saml/lockscreen_reauth_dialog_test_helper.h"
 #include "chrome/browser/ash/login/startup_utils.h"
 #include "chrome/browser/ash/login/test/device_state_mixin.h"
-#include "chrome/browser/ash/login/test/embedded_policy_test_server_mixin.h"
 #include "chrome/browser/ash/login/test/enrollment_ui_mixin.h"
-#include "chrome/browser/ash/login/test/fake_gaia_mixin.h"
+#include "chrome/browser/ash/login/test/feature_parameter_interface.h"
 #include "chrome/browser/ash/login/test/js_checker.h"
 #include "chrome/browser/ash/login/test/login_manager_mixin.h"
 #include "chrome/browser/ash/login/test/oobe_base_test.h"
@@ -51,36 +51,47 @@
 #include "chrome/browser/ash/policy/affiliation/affiliation_test_helper.h"
 #include "chrome/browser/ash/policy/core/device_policy_builder.h"
 #include "chrome/browser/ash/policy/core/device_policy_cros_browser_test.h"
+#include "chrome/browser/ash/policy/test_support/embedded_policy_test_server_mixin.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/ash/settings/cros_settings.h"
 #include "chrome/browser/ash/settings/scoped_testing_cros_settings.h"
 #include "chrome/browser/ash/settings/stub_cros_settings_provider.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/content_settings/host_content_settings_map_factory.h"
+#include "chrome/browser/enterprise/connectors/connectors_prefs.h"
+#include "chrome/browser/enterprise/connectors/device_trust/common/metrics_utils.h"
+#include "chrome/browser/enterprise/connectors/device_trust/device_trust_features.h"
 #include "chrome/browser/media/webrtc/media_capture_devices_dispatcher.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/login/login_handler.h"
 #include "chrome/browser/ui/login/login_handler_test_utils.h"
-#include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/saml_challenge_key_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/signin_fatal_error_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/gaia_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/saml_challenge_key_handler.h"
+#include "chrome/browser/ui/webui/ash/login/saml_confirm_password_handler.h"
+#include "chrome/browser/ui/webui/ash/login/signin_fatal_error_screen_handler.h"
 #include "chrome/browser/ui/webui/signin/signin_utils.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/grit/generated_resources.h"
+#include "chrome/test/base/fake_gaia_mixin.h"
 #include "chrome/test/base/in_process_browser_test.h"
-#include "chromeos/dbus/attestation/fake_attestation_client.h"
-#include "chromeos/dbus/attestation/interface.pb.h"
-#include "chromeos/dbus/constants/attestation_constants.h"
-#include "chromeos/dbus/cryptohome/key.pb.h"
-#include "chromeos/dbus/cryptohome/rpc.pb.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/session_manager/fake_session_manager_client.h"
-#include "chromeos/dbus/session_manager/session_manager_client.h"
-#include "chromeos/dbus/shill/shill_manager_client.h"
-#include "chromeos/dbus/userdataauth/fake_cryptohome_misc_client.h"
-#include "chromeos/dbus/userdataauth/fake_userdataauth_client.h"
-#include "chromeos/tpm/stub_install_attributes.h"
+#include "chromeos/ash/components/attestation/mock_attestation_flow.h"
+#include "chromeos/ash/components/cryptohome/system_salt_getter.h"
+#include "chromeos/ash/components/dbus/attestation/fake_attestation_client.h"
+#include "chromeos/ash/components/dbus/attestation/interface.pb.h"
+#include "chromeos/ash/components/dbus/constants/attestation_constants.h"
+#include "chromeos/ash/components/dbus/cryptohome/key.pb.h"
+#include "chromeos/ash/components/dbus/cryptohome/rpc.pb.h"
+#include "chromeos/ash/components/dbus/session_manager/fake_session_manager_client.h"
+#include "chromeos/ash/components/dbus/session_manager/session_manager_client.h"
+#include "chromeos/ash/components/dbus/shill/shill_manager_client.h"
+#include "chromeos/ash/components/dbus/userdataauth/fake_cryptohome_misc_client.h"
+#include "chromeos/ash/components/dbus/userdataauth/fake_userdataauth_client.h"
+#include "chromeos/ash/components/install_attributes/stub_install_attributes.h"
+#include "chromeos/ash/components/login/auth/public/key.h"
+#include "chromeos/ash/components/login/auth/public/saml_password_attributes.h"
+#include "chromeos/ash/components/settings/cros_settings_names.h"
 #include "components/account_id/account_id.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/common/content_settings_types.h"
@@ -103,6 +114,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
+#include "extensions/browser/guest_view/web_view/web_view_guest.h"
 #include "extensions/common/features/feature_channel.h"
 #include "google_apis/gaia/fake_gaia.h"
 #include "google_apis/gaia/gaia_constants.h"
@@ -117,15 +129,14 @@
 #include "url/gurl.h"
 
 namespace ash {
+
 namespace {
 
 namespace em = ::enterprise_management;
 
 using ::base::test::RunOnceCallback;
-using ::testing::_;
 using ::testing::Invoke;
 using ::testing::NiceMock;
-using ::testing::Return;
 using ::testing::WithArgs;
 
 const test::UIPath kPasswordInput = {"saml-confirm-password", "passwordInput"};
@@ -139,18 +150,15 @@ const test::UIPath kSamlNoticeContainer = {"gaia-signin", "signin-frame-dialog",
                                            "saml-notice-container"};
 constexpr test::UIPath kBackButton = {"gaia-signin", "signin-frame-dialog",
                                       "signin-back-button"};
-constexpr test::UIPath kChangeIdPLink = {"gaia-signin",
-                                         "interstitial-change-account"};
 constexpr test::UIPath kChangeIdPButton = {"gaia-signin", "signin-frame-dialog",
                                            "change-account"};
 constexpr test::UIPath kEnterprisePrimaryButton = {
     "enterprise-enrollment", "step-signin", "primary-action-button"};
-constexpr test::UIPath kSamlCloseButton = {"gaia-signin", "signin-frame-dialog",
-                                           "saml-close-button"};
 constexpr test::UIPath kSamlBackButton = {"gaia-signin", "signin-frame-dialog",
                                           "saml-back-button"};
-const test::UIPath kGaiaLoading = {"gaia-signin", "gaia-loading"};
-const test::UIPath kSamlInterstitial = {"gaia-signin", "saml-interstitial"};
+const test::UIPath kGaiaLoading = {"gaia-signin", "step-loading"};
+constexpr test::UIPath kFatalErrorActionButton = {"signin-fatal-error",
+                                                  "actionButton"};
 
 constexpr char kGAIASIDCookieName[] = "SID";
 constexpr char kGAIALSIDCookieName[] = "LSID";
@@ -179,8 +187,13 @@ constexpr char kTestRefreshToken[] = "fake-refresh-token";
 
 constexpr char kAffiliationID[] = "some-affiliation-id";
 
-// A FakeUserDataAuthClient that stores the salted and hashed secret passed to
-// MountEx().
+constexpr char kDeviceTrustMatchHistogramName[] =
+    "Enterprise.VerifiedAccess.SAML.DeviceTrustMatchesEndpoints";
+constexpr char kDeviceTrustAttestationFunnelStep[] =
+    "Enterprise.DeviceTrust.Attestation.Funnel";
+
+// A FakeUserDataAuthClient that stores the salted and hashed secret passed
+// to AddAuthFactor().
 class SecretInterceptingFakeUserDataAuthClient : public FakeUserDataAuthClient {
  public:
   SecretInterceptingFakeUserDataAuthClient();
@@ -190,12 +203,8 @@ class SecretInterceptingFakeUserDataAuthClient : public FakeUserDataAuthClient {
   SecretInterceptingFakeUserDataAuthClient& operator=(
       const SecretInterceptingFakeUserDataAuthClient&) = delete;
 
-  void AuthenticateAuthSession(
-      const ::user_data_auth::AuthenticateAuthSessionRequest& request,
-      AuthenticateAuthSessionCallback callback) override;
-
-  void Mount(const ::user_data_auth::MountRequest& request,
-             MountCallback callback) override;
+  void AddAuthFactor(const ::user_data_auth::AddAuthFactorRequest& request,
+                     AddAuthFactorCallback callback) override;
 
   const std::string& salted_hashed_secret() { return salted_hashed_secret_; }
 
@@ -206,27 +215,28 @@ class SecretInterceptingFakeUserDataAuthClient : public FakeUserDataAuthClient {
 SecretInterceptingFakeUserDataAuthClient::
     SecretInterceptingFakeUserDataAuthClient() = default;
 
-void SecretInterceptingFakeUserDataAuthClient::AuthenticateAuthSession(
-    const ::user_data_auth::AuthenticateAuthSessionRequest& request,
-    AuthenticateAuthSessionCallback callback) {
-  salted_hashed_secret_ = request.authorization().key().secret();
-  FakeUserDataAuthClient::AuthenticateAuthSession(request, std::move(callback));
-}
-
-void SecretInterceptingFakeUserDataAuthClient::Mount(
-    const ::user_data_auth::MountRequest& request,
-    MountCallback callback) {
-  if (request.has_authorization()) {
-    salted_hashed_secret_ = request.authorization().key().secret();
-  }
-  FakeUserDataAuthClient::Mount(request, std::move(callback));
+void SecretInterceptingFakeUserDataAuthClient::AddAuthFactor(
+    const ::user_data_auth::AddAuthFactorRequest& request,
+    AddAuthFactorCallback callback) {
+  CHECK(request.auth_factor().type() ==
+        user_data_auth::AUTH_FACTOR_TYPE_PASSWORD);
+  salted_hashed_secret_ = request.auth_input().password_input().secret();
+  FakeUserDataAuthClient::AddAuthFactor(request, std::move(callback));
 }
 
 }  // namespace
 
 class SamlTestBase : public OobeBaseTest {
  public:
-  SamlTestBase() { fake_gaia_.set_initialize_fake_merge_session(false); }
+  SamlTestBase() {
+    auto cryptohome_client =
+        std::make_unique<SecretInterceptingFakeUserDataAuthClient>();
+    cryptohome_client_ = cryptohome_client.get();
+    FakeUserDataAuthClient::TestApi::OverrideGlobalInstance(
+        std::move(cryptohome_client));
+
+    fake_gaia_.set_initialize_fake_merge_session(false);
+  }
 
   SamlTestBase(const SamlTestBase&) = delete;
   SamlTestBase& operator=(const SamlTestBase&) = delete;
@@ -244,9 +254,6 @@ class SamlTestBase : public OobeBaseTest {
   }
 
   void SetUpInProcessBrowserTestFixture() override {
-    // Creates a fake UserDataAuthClient. Will be destroyed in browser shutdown.
-    cryptohome_client_ = new SecretInterceptingFakeUserDataAuthClient();
-
     OobeBaseTest::SetUpInProcessBrowserTestFixture();
   }
 
@@ -262,6 +269,7 @@ class SamlTestBase : public OobeBaseTest {
     sign_enterprise_challenge_request.set_key_label(
         attestation::kEnterpriseMachineKey);
     sign_enterprise_challenge_request.set_device_id("device_id");
+    sign_enterprise_challenge_request.set_include_customer_id(true);
     AttestationClient::Get()
         ->GetTestInterface()
         ->AllowlistSignEnterpriseChallengeKey(
@@ -282,6 +290,9 @@ class SamlTestBase : public OobeBaseTest {
     fake_gaia_.fake_gaia()->RegisterSamlUser(
         saml_test_users::kFifthUserExampleTestEmail,
         fake_saml_idp()->GetSamlPageUrl());
+    fake_gaia_.fake_gaia()->RegisterSamlUser(
+        saml_test_users::kSixthUserCorpExampleTestEmail,
+        fake_saml_idp()->GetSamlWithDeviceTrustUrl());
 
     fake_gaia_.fake_gaia()->SetFakeMergeSessionParams(
         saml_test_users::kFirstUserCorpExampleComEmail, kTestAuthSIDCookie1,
@@ -298,7 +309,7 @@ class SamlTestBase : public OobeBaseTest {
         "      $('gaia-signin').authenticator_.removeEventListener("
         "          'authFlowChange', f);"
         "      window.domAutomationController.send("
-        "          $('gaia-signin').isSamlForTesting() ?"
+        "          $('gaia-signin').isSamlAuthFlowForTesting() ?"
         "              'SamlLoaded' : 'GaiaLoaded');"
         "    });");
   }
@@ -306,7 +317,8 @@ class SamlTestBase : public OobeBaseTest {
   virtual void StartSamlAndWaitForIdpPageLoad(const std::string& gaia_email) {
     OobeScreenWaiter(GetFirstSigninScreen()).Wait();
 
-    content::DOMMessageQueue message_queue;  // Start observe before SAML.
+    content::DOMMessageQueue message_queue(
+        GetLoginUI()->GetWebContents());  // Start observe before SAML.
     SetupAuthFlowChangeListener();
     LoginDisplayHost::default_host()
         ->GetOobeUI()
@@ -345,7 +357,8 @@ class SamlTestBase : public OobeBaseTest {
   FakeSamlIdpMixin* fake_saml_idp() { return &fake_saml_idp_mixin_; }
 
  protected:
-  SecretInterceptingFakeUserDataAuthClient* cryptohome_client_;
+  raw_ptr<SecretInterceptingFakeUserDataAuthClient, ExperimentalAsh>
+      cryptohome_client_;
 
   FakeGaiaMixin fake_gaia_{&mixin_host_};
 
@@ -356,25 +369,20 @@ class SamlTestBase : public OobeBaseTest {
   FakeSamlIdpMixin fake_saml_idp_mixin_{&mixin_host_, &fake_gaia_};
 };
 
-// The first value of the parameter runs the tests with
-// kUseAuthsessionAuthentication feature and the second value with
-// kRedirectToDefaultIdP feature.
-class SamlTestWithFeatures
-    : public SamlTestBase,
-      public testing::WithParamInterface<std::tuple<bool, bool>> {
+// This test is run with both variants of CheckPasswordsAgainstCryptohomeHelper
+// feature.
+class SamlTestWithFeatures : public SamlTestBase,
+                             public testing::WithParamInterface<bool> {
  public:
   SamlTestWithFeatures() {
-    std::vector<base::Feature> enabled_features;
-    std::vector<base::Feature> disabled_features;
-    if (std::get<0>(GetParam())) {
-      enabled_features.push_back(features::kUseAuthsessionAuthentication);
+    std::vector<base::test::FeatureRef> enabled_features;
+    std::vector<base::test::FeatureRef> disabled_features;
+    if (GetParam()) {
+      enabled_features.push_back(
+          features::kCheckPasswordsAgainstCryptohomeHelper);
     } else {
-      disabled_features.push_back(features::kUseAuthsessionAuthentication);
-    }
-    if (std::get<1>(GetParam())) {
-      enabled_features.push_back(features::kRedirectToDefaultIdP);
-    } else {
-      disabled_features.push_back(features::kRedirectToDefaultIdP);
+      disabled_features.push_back(
+          features::kCheckPasswordsAgainstCryptohomeHelper);
     }
     scoped_feature_list_.InitWithFeatures(enabled_features, disabled_features);
   }
@@ -383,23 +391,46 @@ class SamlTestWithFeatures
   base::test::ScopedFeatureList scoped_feature_list_;
 };
 
-// The value of the parameter runs the tests with kRedirectToDefaultIdP feature.
-class SamlTestWithRedirectToDefaultIdPFeature
-    : public SamlTestBase,
-      public testing::WithParamInterface<bool> {
+class ImprovedScrapingTestBase : public SamlTestBase {
  public:
-  SamlTestWithRedirectToDefaultIdPFeature() {
-    if (GetParam()) {
-      scoped_feature_list_.InitAndEnableFeature(
-          features::kRedirectToDefaultIdP);
-    } else {
-      scoped_feature_list_.InitAndDisableFeature(
-          features::kRedirectToDefaultIdP);
-    }
-  }
+  ImprovedScrapingTestBase();
 
  protected:
+  void SetFeatures(bool enable_improved_scraping);
+
+ private:
   base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+ImprovedScrapingTestBase::ImprovedScrapingTestBase() = default;
+
+void ImprovedScrapingTestBase::SetFeatures(bool enable_improved_scraping) {
+  std::vector<base::test::FeatureRef> enabled_features;
+  std::vector<base::test::FeatureRef> disabled_features;
+  if (enable_improved_scraping) {
+    enabled_features.push_back(
+        features::kCheckPasswordsAgainstCryptohomeHelper);
+  } else {
+    disabled_features.push_back(
+        features::kCheckPasswordsAgainstCryptohomeHelper);
+  }
+  scoped_feature_list_.InitWithFeatures(enabled_features, disabled_features);
+}
+
+// Saml test with kCheckPasswordsAgainstCryptohomeHelper enabled.
+class SamlTestWithImprovedScraping : public ImprovedScrapingTestBase {
+ public:
+  SamlTestWithImprovedScraping() {
+    SetFeatures(/*enable_improved_scraping=*/true);
+  }
+};
+
+// Saml test with kCheckPasswordsAgainstCryptohomeHelper disabled.
+class SamlTestWithoutImprovedScraping : public ImprovedScrapingTestBase {
+ public:
+  SamlTestWithoutImprovedScraping() {
+    SetFeatures(/*enable_improved_scraping=*/false);
+  }
 };
 
 // Tests that signin frame should display the SAML notice and the 'back' button
@@ -421,11 +452,10 @@ IN_PROC_BROWSER_TEST_P(SamlTestWithFeatures, SamlUI) {
                                      fake_saml_idp()->GetIdpHost());
   test::OobeJS().ExpectTrue(js);
 
-  content::DOMMessageQueue message_queue;  // Observe before 'close'.
+  content::DOMMessageQueue message_queue(GetLoginUI()->GetWebContents());
   SetupAuthFlowChangeListener();
-  // Click on 'close'.
-  test::OobeJS().ClickOnPath(std::get<1>(GetParam()) ? kSamlBackButton
-                                                     : kSamlCloseButton);
+  // Click on 'back'.
+  test::OobeJS().ClickOnPath(kSamlBackButton);
 
   // Auth flow should change back to Gaia.
   std::string message;
@@ -450,14 +480,14 @@ IN_PROC_BROWSER_TEST_P(SamlTestWithFeatures, IdpRequiresHttpAuth) {
   // WebContents.
   WaitForGaiaPageLoad();
 
-  content::WebContents* gaia_frame_web_contents =
-      signin::GetAuthFrameWebContents(GetLoginUI()->GetWebContents(),
-                                      gaia_frame_parent_);
+  extensions::WebViewGuest* gaia_guest = signin::GetAuthWebViewGuest(
+      GetLoginUI()->GetWebContents(), gaia_frame_parent_);
+  ASSERT_TRUE(gaia_guest);
   content::NavigationController* gaia_frame_navigation_controller =
-      &(gaia_frame_web_contents->GetController());
+      &gaia_guest->GetController();
 
   // Start observing before initiating SAML sign-in.
-  content::DOMMessageQueue message_queue;
+  content::DOMMessageQueue message_queue(GetLoginUI()->GetWebContents());
   LoginPromptBrowserTestObserver login_prompt_observer;
   login_prompt_observer.Register(content::Source<content::NavigationController>(
       gaia_frame_navigation_controller));
@@ -524,11 +554,10 @@ IN_PROC_BROWSER_TEST_P(SamlTestWithFeatures, CredentialPassingAPI) {
                     FakeCryptohomeMiscClient::GetStubSystemSalt()));
   EXPECT_EQ(key.GetSecret(), cryptohome_client_->salted_hashed_secret());
 
-  EXPECT_TRUE(
-      user_manager::KnownUser(user_manager::UserManager::Get()->GetLocalState())
-          .GetIsUsingSAMLPrincipalsAPI(AccountId::FromUserEmailGaiaId(
-              saml_test_users::kFirstUserCorpExampleComEmail,
-              kFirstSAMLUserGaiaId)));
+  EXPECT_TRUE(user_manager::KnownUser(g_browser_process->local_state())
+                  .GetIsUsingSAMLPrincipalsAPI(AccountId::FromUserEmailGaiaId(
+                      saml_test_users::kFirstUserCorpExampleComEmail,
+                      kFirstSAMLUserGaiaId)));
 
   histogram_tester.ExpectUniqueSample("ChromeOS.SAML.APILogin", 1, 1);
   histogram_tester.ExpectUniqueSample("ChromeOS.SAML.Provider", 1, 1);
@@ -573,11 +602,10 @@ IN_PROC_BROWSER_TEST_P(SamlTestWithFeatures,
                     FakeCryptohomeMiscClient::GetStubSystemSalt()));
   EXPECT_EQ(key.GetSecret(), cryptohome_client_->salted_hashed_secret());
 
-  EXPECT_TRUE(
-      user_manager::KnownUser(user_manager::UserManager::Get()->GetLocalState())
-          .GetIsUsingSAMLPrincipalsAPI(AccountId::FromUserEmailGaiaId(
-              saml_test_users::kFirstUserCorpExampleComEmail,
-              kFirstSAMLUserGaiaId)));
+  EXPECT_TRUE(user_manager::KnownUser(g_browser_process->local_state())
+                  .GetIsUsingSAMLPrincipalsAPI(AccountId::FromUserEmailGaiaId(
+                      saml_test_users::kFirstUserCorpExampleComEmail,
+                      kFirstSAMLUserGaiaId)));
 
   histogram_tester.ExpectUniqueSample("ChromeOS.SAML.APILogin", 1, 1);
   histogram_tester.ExpectUniqueSample("ChromeOS.SAML.Provider", 1, 1);
@@ -601,9 +629,9 @@ IN_PROC_BROWSER_TEST_P(SamlTestWithFeatures, ScrapedSingle) {
   StartSamlAndWaitForIdpPageLoad(
       saml_test_users::kFirstUserCorpExampleComEmail);
 
-  content::DOMMessageQueue message_queue;
+  content::DOMMessageQueue message_queue(GetLoginUI()->GetWebContents());
   // Make sure that the password is scraped correctly.
-  ASSERT_TRUE(content::ExecuteScript(
+  ASSERT_TRUE(content::ExecJs(
       GetLoginUI()->GetWebContents(),
       "$('gaia-signin').authenticator_.addEventListener('authCompleted',"
       "    function(e) {"
@@ -624,11 +652,10 @@ IN_PROC_BROWSER_TEST_P(SamlTestWithFeatures, ScrapedSingle) {
 
   test::WaitForPrimaryUserSessionStart();
 
-  EXPECT_FALSE(
-      user_manager::KnownUser(user_manager::UserManager::Get()->GetLocalState())
-          .GetIsUsingSAMLPrincipalsAPI(AccountId::FromUserEmailGaiaId(
-              saml_test_users::kFirstUserCorpExampleComEmail,
-              kFirstSAMLUserGaiaId)));
+  EXPECT_FALSE(user_manager::KnownUser(g_browser_process->local_state())
+                   .GetIsUsingSAMLPrincipalsAPI(AccountId::FromUserEmailGaiaId(
+                       saml_test_users::kFirstUserCorpExampleComEmail,
+                       kFirstSAMLUserGaiaId)));
 
   histogram_tester.ExpectUniqueSample("ChromeOS.SAML.APILogin", 2, 1);
   histogram_tester.ExpectUniqueSample("ChromeOS.SAML.Scraping.PasswordCountAll",
@@ -669,15 +696,14 @@ IN_PROC_BROWSER_TEST_P(SamlTestWithFeatures, ScrapedDynamic) {
   SigninFrameJS().TapOn("Submit");
   test::WaitForPrimaryUserSessionStart();
 
-  EXPECT_FALSE(
-      user_manager::KnownUser(user_manager::UserManager::Get()->GetLocalState())
-          .GetIsUsingSAMLPrincipalsAPI(AccountId::FromUserEmailGaiaId(
-              saml_test_users::kFirstUserCorpExampleComEmail,
-              kFirstSAMLUserGaiaId)));
+  EXPECT_FALSE(user_manager::KnownUser(g_browser_process->local_state())
+                   .GetIsUsingSAMLPrincipalsAPI(AccountId::FromUserEmailGaiaId(
+                       saml_test_users::kFirstUserCorpExampleComEmail,
+                       kFirstSAMLUserGaiaId)));
 }
 
 // Tests the multiple password scraped flow.
-IN_PROC_BROWSER_TEST_P(SamlTestWithFeatures, ScrapedMultiple) {
+IN_PROC_BROWSER_TEST_F(SamlTestWithoutImprovedScraping, ScrapedMultiple) {
   base::HistogramTester histogram_tester;
   fake_saml_idp()->SetLoginHTMLTemplate("saml_login_two_passwords.html");
 
@@ -689,21 +715,20 @@ IN_PROC_BROWSER_TEST_P(SamlTestWithFeatures, ScrapedMultiple) {
   SigninFrameJS().TypeIntoPath("password1", {"Password1"});
   SigninFrameJS().TapOn("Submit");
   // Lands on confirm password screen.
-  OobeScreenWaiter(OobeScreen::SCREEN_CONFIRM_PASSWORD).Wait();
+  OobeScreenWaiter(SamlConfirmPasswordView::kScreenId).Wait();
   test::OobeJS().ExpectHiddenPath(kPasswordConfirmInput);
   // Entering an unknown password should go back to the confirm password screen.
   SendConfirmPassword("wrong_password");
-  OobeScreenWaiter(OobeScreen::SCREEN_CONFIRM_PASSWORD).Wait();
+  OobeScreenWaiter(SamlConfirmPasswordView::kScreenId).Wait();
   test::OobeJS().ExpectHiddenPath(kPasswordConfirmInput);
   // Either scraped password should be able to sign-in.
   SendConfirmPassword("password1");
   test::WaitForPrimaryUserSessionStart();
 
-  EXPECT_FALSE(
-      user_manager::KnownUser(user_manager::UserManager::Get()->GetLocalState())
-          .GetIsUsingSAMLPrincipalsAPI(AccountId::FromUserEmailGaiaId(
-              saml_test_users::kFirstUserCorpExampleComEmail,
-              kFirstSAMLUserGaiaId)));
+  EXPECT_FALSE(user_manager::KnownUser(g_browser_process->local_state())
+                   .GetIsUsingSAMLPrincipalsAPI(AccountId::FromUserEmailGaiaId(
+                       saml_test_users::kFirstUserCorpExampleComEmail,
+                       kFirstSAMLUserGaiaId)));
 
   histogram_tester.ExpectUniqueSample("ChromeOS.SAML.APILogin", 2, 1);
   histogram_tester.ExpectUniqueSample("ChromeOS.SAML.Scraping.PasswordCountAll",
@@ -721,7 +746,42 @@ IN_PROC_BROWSER_TEST_P(SamlTestWithFeatures, ScrapedMultiple) {
                                      1);
 }
 
-// Tests the no password scraped flow.
+// Tests the multiple password scraped flow.
+IN_PROC_BROWSER_TEST_F(SamlTestWithImprovedScraping, ScrapedMultiple) {
+  base::HistogramTester histogram_tester;
+  fake_saml_idp()->SetLoginHTMLTemplate("saml_login_two_passwords.html");
+
+  StartSamlAndWaitForIdpPageLoad(
+      saml_test_users::kFirstUserCorpExampleComEmail);
+
+  SigninFrameJS().TypeIntoPath("fake_user", {"Email"});
+  SigninFrameJS().TypeIntoPath("fake_password", {"Password"});
+  SigninFrameJS().TypeIntoPath("password1", {"Password1"});
+  SigninFrameJS().TapOn("Submit");
+
+  test::WaitForPrimaryUserSessionStart();
+
+  EXPECT_FALSE(user_manager::KnownUser(g_browser_process->local_state())
+                   .GetIsUsingSAMLPrincipalsAPI(AccountId::FromUserEmailGaiaId(
+                       saml_test_users::kFirstUserCorpExampleComEmail,
+                       kFirstSAMLUserGaiaId)));
+
+  histogram_tester.ExpectUniqueSample("ChromeOS.SAML.APILogin", 2, 1);
+  histogram_tester.ExpectUniqueSample("ChromeOS.SAML.Scraping.PasswordCountAll",
+                                      2, 1);
+  histogram_tester.ExpectTotalCount("OOBE.GaiaLoginTime", 0);
+
+  histogram_tester.ExpectBucketCount("ChromeOS.Gaia.Message.Saml.UserInfo", 0,
+                                     0);
+  histogram_tester.ExpectBucketCount("ChromeOS.Gaia.Message.Saml.UserInfo", 1,
+                                     1);
+
+  histogram_tester.ExpectBucketCount("ChromeOS.Gaia.Message.Saml.CloseView", 0,
+                                     0);
+  histogram_tester.ExpectBucketCount("ChromeOS.Gaia.Message.Saml.CloseView", 1,
+                                     1);
+}
+
 IN_PROC_BROWSER_TEST_P(SamlTestWithFeatures, ScrapedNone) {
   base::HistogramTester histogram_tester;
   fake_saml_idp()->SetLoginHTMLTemplate("saml_login_no_passwords.html");
@@ -733,23 +793,22 @@ IN_PROC_BROWSER_TEST_P(SamlTestWithFeatures, ScrapedNone) {
   SigninFrameJS().TapOn("Submit");
 
   // Lands on confirm password screen with manual input state.
-  OobeScreenWaiter(OobeScreen::SCREEN_CONFIRM_PASSWORD).Wait();
+  OobeScreenWaiter(SamlConfirmPasswordView::kScreenId).Wait();
   test::OobeJS().ExpectTrue("$('saml-confirm-password').isManualInput");
   // Entering passwords that don't match will make us land again in the same
   // page.
   SetManualPasswords("Test1", "Test2");
-  OobeScreenWaiter(OobeScreen::SCREEN_CONFIRM_PASSWORD).Wait();
+  OobeScreenWaiter(SamlConfirmPasswordView::kScreenId).Wait();
   test::OobeJS().ExpectTrue("$('saml-confirm-password').isManualInput");
 
   // Two matching passwords should let the user to sign in.
   SetManualPasswords("Test1", "Test1");
   test::WaitForPrimaryUserSessionStart();
 
-  EXPECT_FALSE(
-      user_manager::KnownUser(user_manager::UserManager::Get()->GetLocalState())
-          .GetIsUsingSAMLPrincipalsAPI(AccountId::FromUserEmailGaiaId(
-              saml_test_users::kFirstUserCorpExampleComEmail,
-              kFirstSAMLUserGaiaId)));
+  EXPECT_FALSE(user_manager::KnownUser(g_browser_process->local_state())
+                   .GetIsUsingSAMLPrincipalsAPI(AccountId::FromUserEmailGaiaId(
+                       saml_test_users::kFirstUserCorpExampleComEmail,
+                       kFirstSAMLUserGaiaId)));
 
   histogram_tester.ExpectUniqueSample("ChromeOS.SAML.APILogin", 2, 1);
   histogram_tester.ExpectUniqueSample("ChromeOS.SAML.Scraping.PasswordCountAll",
@@ -808,11 +867,13 @@ IN_PROC_BROWSER_TEST_P(SamlTestWithFeatures,
 
   ExpectFatalErrorMessage(
       l10n_util::GetStringUTF8(IDS_LOGIN_FATAL_ERROR_NO_ACCOUNT_DETAILS));
+
+  test::OobeJS().TapOnPath(kFatalErrorActionButton);
+  WaitForSigninScreen();
 }
 
-// Tests the password confirm flow when more than one password is scraped: show
-// error on the first failure and fatal error on the second failure.
-IN_PROC_BROWSER_TEST_P(SamlTestWithFeatures, PasswordConfirmFlow) {
+IN_PROC_BROWSER_TEST_F(SamlTestWithoutImprovedScraping, PasswordConfirmFlow) {
+  base::HistogramTester histogram_tester;
   fake_saml_idp()->SetLoginHTMLTemplate("saml_login_two_passwords.html");
   StartSamlAndWaitForIdpPageLoad(
       saml_test_users::kFirstUserCorpExampleComEmail);
@@ -824,7 +885,7 @@ IN_PROC_BROWSER_TEST_P(SamlTestWithFeatures, PasswordConfirmFlow) {
   SigninFrameJS().TapOn("Submit");
 
   // Lands on confirm password screen with no error message.
-  OobeScreenWaiter(OobeScreen::SCREEN_CONFIRM_PASSWORD).Wait();
+  OobeScreenWaiter(SamlConfirmPasswordView::kScreenId).Wait();
   test::OobeJS().ExpectHiddenPath(kPasswordConfirmInput);
   test::OobeJS().ExpectTrue(
       "!$('saml-confirm-password').$.passwordInput.invalid");
@@ -832,7 +893,7 @@ IN_PROC_BROWSER_TEST_P(SamlTestWithFeatures, PasswordConfirmFlow) {
   // Enter an unknown password for the first time should go back to confirm
   // password screen with error message.
   SendConfirmPassword("wrong_password");
-  OobeScreenWaiter(OobeScreen::SCREEN_CONFIRM_PASSWORD).Wait();
+  OobeScreenWaiter(SamlConfirmPasswordView::kScreenId).Wait();
   test::OobeJS().ExpectHiddenPath(kPasswordConfirmInput);
   test::OobeJS().ExpectTrue(
       "$('saml-confirm-password').$.passwordInput.invalid");
@@ -841,6 +902,24 @@ IN_PROC_BROWSER_TEST_P(SamlTestWithFeatures, PasswordConfirmFlow) {
   SendConfirmPassword("wrong_password");
   ExpectFatalErrorMessage(
       l10n_util::GetStringUTF8(IDS_LOGIN_FATAL_ERROR_PASSWORD_VERIFICATION));
+
+  test::OobeJS().TapOnPath(kFatalErrorActionButton);
+  WaitForSigninScreen();
+
+  histogram_tester.ExpectUniqueSample("ChromeOS.SAML.APILogin", 2, 1);
+  histogram_tester.ExpectUniqueSample("ChromeOS.SAML.Scraping.PasswordCountAll",
+                                      2, 1);
+  histogram_tester.ExpectTotalCount("OOBE.GaiaLoginTime", 0);
+
+  histogram_tester.ExpectBucketCount("ChromeOS.Gaia.Message.Saml.UserInfo", 0,
+                                     0);
+  histogram_tester.ExpectBucketCount("ChromeOS.Gaia.Message.Saml.UserInfo", 1,
+                                     1);
+
+  histogram_tester.ExpectBucketCount("ChromeOS.Gaia.Message.Saml.CloseView", 0,
+                                     0);
+  histogram_tester.ExpectBucketCount("ChromeOS.Gaia.Message.Saml.CloseView", 1,
+                                     1);
 }
 
 // Verifies that when the login flow redirects from one host to another, the
@@ -866,33 +945,34 @@ IN_PROC_BROWSER_TEST_P(SamlTestWithFeatures, NoticeUpdatedOnRedirect) {
   // Wait until the notice shown to the user is updated to contain
   // `kAdditionalIdPHost`.
   std::string js =
-      "var sendIfHostFound = function() {"
-      "  var found = $SamlNoticeMessagePath.textContent.indexOf('$Host') > -1;"
-      "  if (found)"
-      "    window.domAutomationController.send(true);"
-      "  return found;"
-      "};"
-      "var processEventsAndSendIfHostFound = function() {"
-      "  window.setTimeout(function() {"
-      "    if (sendIfHostFound()) {"
-      "      $('gaia-signin').authenticator_.removeEventListener("
-      "          'authDomainChange',"
-      "          processEventsAndSendIfHostFound);"
-      "    }"
-      "  }, 0);"
-      "};"
-      "if (!sendIfHostFound()) {"
-      "  $('gaia-signin').authenticator_.addEventListener("
-      "      'authDomainChange',"
-      "      processEventsAndSendIfHostFound);"
-      "}";
+      "new Promise(resolve => {"
+      "  var sendIfHostFound = function() {"
+      "    var found = $SamlNoticeMessagePath.textContent.indexOf('$Host') > "
+      "-1;"
+      "    if (found)"
+      "      resolve(true);"
+      "    return found;"
+      "  };"
+      "  var processEventsAndSendIfHostFound = function() {"
+      "    window.setTimeout(function() {"
+      "      if (sendIfHostFound()) {"
+      "        $('gaia-signin').authenticator_.removeEventListener("
+      "            'authDomainChange',"
+      "            processEventsAndSendIfHostFound);"
+      "      }"
+      "    }, 0);"
+      "  };"
+      "  if (!sendIfHostFound()) {"
+      "    $('gaia-signin').authenticator_.addEventListener("
+      "        'authDomainChange',"
+      "        processEventsAndSendIfHostFound);"
+      "  }"
+      "});";
   base::ReplaceSubstringsAfterOffset(
       &js, 0, "$SamlNoticeMessagePath",
       test::GetOobeElementPath(kSamlNoticeMessage));
   base::ReplaceSubstringsAfterOffset(&js, 0, "$Host", kAdditionalIdPHost);
-  bool dummy;
-  EXPECT_TRUE(content::ExecuteScriptAndExtractBool(
-      GetLoginUI()->GetWebContents(), js, &dummy));
+  EXPECT_EQ(true, content::ExecJs(GetLoginUI()->GetWebContents(), js));
 
   // Verify that the notice is visible.
   test::OobeJS().ExpectVisiblePath(kSamlNoticeContainer);
@@ -913,6 +993,9 @@ IN_PROC_BROWSER_TEST_P(SamlTestWithFeatures, HTTPRedirectDisallowed) {
   const GURL url = fake_saml_idp()->GetHttpSamlPageUrl();
   ExpectFatalErrorMessage(l10n_util::GetStringFUTF8(
       IDS_LOGIN_FATAL_ERROR_TEXT_INSECURE_URL, base::UTF8ToUTF16(url.spec())));
+
+  test::OobeJS().TapOnPath(kFatalErrorActionButton);
+  WaitForSigninScreen();
 }
 
 // Verifies that when GAIA attempts to redirect to a page served over http, not
@@ -932,9 +1015,12 @@ IN_PROC_BROWSER_TEST_P(SamlTestWithFeatures, MetaRefreshToHTTPDisallowed) {
 
   ExpectFatalErrorMessage(l10n_util::GetStringFUTF8(
       IDS_LOGIN_FATAL_ERROR_TEXT_INSECURE_URL, base::UTF8ToUTF16(url.spec())));
+
+  test::OobeJS().TapOnPath(kFatalErrorActionButton);
+  WaitForSigninScreen();
 }
 
-class SAMLEnrollmentTest : public SamlTestWithRedirectToDefaultIdPFeature {
+class SAMLEnrollmentTest : public SamlTestBase {
  public:
   SAMLEnrollmentTest();
 
@@ -983,7 +1069,7 @@ void SAMLEnrollmentTest::StartSamlAndWaitForIdpPageLoad(
   flow_change_waiter->Wait();
 }
 
-IN_PROC_BROWSER_TEST_P(SAMLEnrollmentTest, WithoutCredentialsPassingAPI) {
+IN_PROC_BROWSER_TEST_F(SAMLEnrollmentTest, WithoutCredentialsPassingAPI) {
   fake_saml_idp()->SetLoginHTMLTemplate("saml_login.html");
   StartSamlAndWaitForIdpPageLoad(
       saml_test_users::kFirstUserCorpExampleComEmail);
@@ -996,7 +1082,7 @@ IN_PROC_BROWSER_TEST_P(SAMLEnrollmentTest, WithoutCredentialsPassingAPI) {
   enrollment_ui_.WaitForStep(test::ui::kEnrollmentStepDeviceAttributes);
 }
 
-IN_PROC_BROWSER_TEST_P(SAMLEnrollmentTest, WithCredentialsPassingAPI) {
+IN_PROC_BROWSER_TEST_F(SAMLEnrollmentTest, WithCredentialsPassingAPI) {
   fake_saml_idp()->SetLoginHTMLTemplate("saml_api_login.html");
   fake_saml_idp()->SetLoginAuthHTMLTemplate("saml_api_login_auth.html");
   StartSamlAndWaitForIdpPageLoad(
@@ -1010,9 +1096,7 @@ IN_PROC_BROWSER_TEST_P(SAMLEnrollmentTest, WithCredentialsPassingAPI) {
   enrollment_ui_.WaitForStep(test::ui::kEnrollmentStepDeviceAttributes);
 }
 
-INSTANTIATE_TEST_SUITE_P(All, SAMLEnrollmentTest, testing::Bool());
-
-class SAMLPolicyTest : public SamlTestWithRedirectToDefaultIdPFeature {
+class SAMLPolicyTest : public SamlTestBase {
  public:
   SAMLPolicyTest();
 
@@ -1030,12 +1114,13 @@ class SAMLPolicyTest : public SamlTestWithRedirectToDefaultIdPFeature {
   void EnableTransferSAMLCookiesPolicy();
   void SetLoginBehaviorPolicyToSAMLInterstitial();
   void SetLoginVideoCaptureAllowedUrls(const std::vector<GURL>& allowed);
+  // SSO_profile in device policy blob is responsible for per-OU IdP
+  // configuration.
+  void SetSSOProfile(const std::string& sso_profile);
 
   void ShowGAIALoginForm();
-  void ShowSAMLInterstitial();
-  void ClickBackOnSAMLInterstitialPage();
-  void ClickNextOnSAMLInterstitialPage();
   void ShowSAMLLoginForm();
+  void MaybeWaitForSAMLToLoad();
   void ClickBackOnSAMLPage();
   void LogInWithSAML(const std::string& user_id,
                      const std::string& auth_sid_cookie,
@@ -1046,8 +1131,6 @@ class SAMLPolicyTest : public SamlTestWithRedirectToDefaultIdPFeature {
   void GetCookies();
 
  protected:
-  policy::DevicePolicyCrosTestHelper test_helper_;
-  policy::DevicePolicyBuilder* device_policy_;
   NiceMock<policy::MockConfigurationPolicyProvider> provider_;
   net::CookieList cookie_list_;
 
@@ -1060,8 +1143,7 @@ class SAMLPolicyTest : public SamlTestWithRedirectToDefaultIdPFeature {
           AccountId::FromUserEmailGaiaId("user@gmail.com", "1111"))}};
 };
 
-SAMLPolicyTest::SAMLPolicyTest()
-    : device_policy_(test_helper_.device_policy()) {
+SAMLPolicyTest::SAMLPolicyTest() {
   device_state_.SetState(
       DeviceStateMixin::State::OOBE_COMPLETED_CLOUD_ENROLLED);
   device_state_.set_skip_initial_policy_setup(true);
@@ -1074,13 +1156,11 @@ void SAMLPolicyTest::SetUpInProcessBrowserTestFixture() {
 
   SamlTestBase::SetUpInProcessBrowserTestFixture();
 
-  // Initialize device policy.
-  std::set<std::string> device_affiliation_ids;
-  device_affiliation_ids.insert(kAffiliationID);
-  auto affiliation_helper = policy::AffiliationTestHelper::CreateForCloud(
-      FakeSessionManagerClient::Get());
-  ASSERT_NO_FATAL_FAILURE((affiliation_helper.SetDeviceAffiliationIDs(
-      &test_helper_, device_affiliation_ids)));
+  // Add device affiliation id.
+  std::unique_ptr<ScopedDevicePolicyUpdate> device_policy_update =
+      device_state_.RequestDevicePolicyUpdate();
+  device_policy_update->policy_data()->add_device_affiliation_ids(
+      kAffiliationID);
 
   // Initialize user policy.
   provider_.SetDefaultReturns(/*is_initialization_complete_return=*/true,
@@ -1105,8 +1185,7 @@ void SAMLPolicyTest::SetUpOnMainThread() {
       user_manager::User::OAUTH2_TOKEN_STATUS_VALID);
 
   // Give affiliated users appropriate affiliation IDs.
-  std::set<std::string> user_affiliation_ids;
-  user_affiliation_ids.insert(kAffiliationID);
+  const base::flat_set<std::string> user_affiliation_ids = {kAffiliationID};
   ChromeUserManager::Get()->SetUserAffiliation(
       AccountId::FromUserEmailGaiaId(
           saml_test_users::kFirstUserCorpExampleComEmail, kFirstSAMLUserGaiaId),
@@ -1125,11 +1204,9 @@ void SAMLPolicyTest::SetUpOnMainThread() {
       user_affiliation_ids);
 
   // Set up fake networks.
-  DBusThreadManager::Get()
-      ->GetShillManagerClient()
-      ->GetTestInterface()
-      ->SetupDefaultEnvironment();
+  ShillManagerClient::Get()->GetTestInterface()->SetupDefaultEnvironment();
 }
+
 void SAMLPolicyTest::SetUpCommandLine(base::CommandLine* command_line) {
   SamlTestBase::SetUpCommandLine(command_line);
 
@@ -1147,59 +1224,41 @@ void SAMLPolicyTest::SetSAMLOfflineSigninTimeLimitPolicy(int limit) {
 }
 
 void SAMLPolicyTest::EnableTransferSAMLCookiesPolicy() {
-  em::ChromeDeviceSettingsProto& proto(device_policy_->payload());
+  std::unique_ptr<ScopedDevicePolicyUpdate> device_policy_update =
+      device_state_.RequestDevicePolicyUpdate();
+  em::ChromeDeviceSettingsProto& proto(*device_policy_update->policy_payload());
   proto.mutable_saml_settings()->set_transfer_saml_cookies(true);
-
-  base::RunLoop run_loop;
-  base::CallbackListSubscription subscription =
-      CrosSettings::Get()->AddSettingsObserver(kAccountsPrefTransferSAMLCookies,
-                                               run_loop.QuitClosure());
-  device_policy_->SetDefaultSigningKey();
-  device_policy_->Build();
-  FakeSessionManagerClient::Get()->set_device_policy(device_policy_->GetBlob());
-  FakeSessionManagerClient::Get()->OnPropertyChangeComplete(true);
-  run_loop.Run();
 }
 
 void SAMLPolicyTest::SetLoginBehaviorPolicyToSAMLInterstitial() {
-  em::ChromeDeviceSettingsProto& proto(device_policy_->payload());
+  std::unique_ptr<ScopedDevicePolicyUpdate> device_policy_update =
+      device_state_.RequestDevicePolicyUpdate();
+  em::ChromeDeviceSettingsProto& proto(*device_policy_update->policy_payload());
   proto.mutable_login_authentication_behavior()
       ->set_login_authentication_behavior(
           em::LoginAuthenticationBehaviorProto_LoginBehavior_SAML_INTERSTITIAL);
-
-  base::RunLoop run_loop;
-  base::CallbackListSubscription subscription =
-      CrosSettings::Get()->AddSettingsObserver(kLoginAuthenticationBehavior,
-                                               run_loop.QuitClosure());
-  device_policy_->SetDefaultSigningKey();
-  device_policy_->Build();
-  FakeSessionManagerClient::Get()->set_device_policy(device_policy_->GetBlob());
-  FakeSessionManagerClient::Get()->OnPropertyChangeComplete(true);
-  run_loop.Run();
 }
 
 void SAMLPolicyTest::SetLoginVideoCaptureAllowedUrls(
     const std::vector<GURL>& allowed) {
-  em::ChromeDeviceSettingsProto& proto(device_policy_->payload());
+  std::unique_ptr<ScopedDevicePolicyUpdate> device_policy_update =
+      device_state_.RequestDevicePolicyUpdate();
+  em::ChromeDeviceSettingsProto& proto(*device_policy_update->policy_payload());
   for (const GURL& url : allowed)
     proto.mutable_login_video_capture_allowed_urls()->add_urls(url.spec());
+}
 
-  base::RunLoop run_loop;
-  base::CallbackListSubscription subscription =
-      CrosSettings::Get()->AddSettingsObserver(kLoginVideoCaptureAllowedUrls,
-                                               run_loop.QuitClosure());
-  device_policy_->SetDefaultSigningKey();
-  device_policy_->Build();
-  FakeSessionManagerClient::Get()->set_device_policy(device_policy_->GetBlob());
-  FakeSessionManagerClient::Get()->OnPropertyChangeComplete(true);
-  run_loop.Run();
+void SAMLPolicyTest::SetSSOProfile(const std::string& sso_profile) {
+  std::unique_ptr<ScopedDevicePolicyUpdate> device_policy_update =
+      device_state_.RequestDevicePolicyUpdate();
+  device_policy_update->policy_data()->set_sso_profile(sso_profile);
 }
 
 void SAMLPolicyTest::ShowGAIALoginForm() {
-  ash::LoginDisplayHost::default_host()->StartWizard(GaiaView::kScreenId);
+  LoginDisplayHost::default_host()->StartWizard(GaiaView::kScreenId);
   OobeScreenWaiter(GaiaView::kScreenId).Wait();
-  content::DOMMessageQueue message_queue;
-  ASSERT_TRUE(content::ExecuteScript(
+  content::DOMMessageQueue message_queue(GetLoginUI()->GetWebContents());
+  ASSERT_TRUE(content::ExecJs(
       GetLoginUI()->GetWebContents(),
       "$('gaia-signin').authenticator_.addEventListener('ready', function() {"
       "  window.domAutomationController.send('ready');"
@@ -1211,36 +1270,28 @@ void SAMLPolicyTest::ShowGAIALoginForm() {
   } while (message != "\"ready\"");
 }
 
-void SAMLPolicyTest::ShowSAMLInterstitial() {
-  MaybeWaitForLoginScreenLoad();
-  ASSERT_TRUE(LoginScreenTestApi::ClickAddUserButton());
-  OobeScreenWaiter(GaiaView::kScreenId).Wait();
-  test::OobeJS().CreateVisibilityWaiter(true, kSamlInterstitial)->Wait();
-}
-
-void SAMLPolicyTest::ClickBackOnSAMLInterstitialPage() {
-  test::OobeJS().TapOnPath({"gaia-signin", "interstitial-back"});
-}
-
-void SAMLPolicyTest::ClickNextOnSAMLInterstitialPage() {
-  content::DOMMessageQueue message_queue;
-  SetupAuthFlowChangeListener();
-
-  test::OobeJS().TapOnPath({"gaia-signin", "interstitial-next"});
-
-  std::string message;
-  do {
-    ASSERT_TRUE(message_queue.WaitForMessage(&message));
-  } while (message != "\"SamlLoaded\"");
-}
-
 void SAMLPolicyTest::ShowSAMLLoginForm() {
   MaybeWaitForLoginScreenLoad();
   ASSERT_TRUE(LoginScreenTestApi::ClickAddUserButton());
   OobeScreenWaiter(GaiaView::kScreenId).Wait();
   test::OobeJS().CreateVisibilityWaiter(true, kSigninFrameDialog)->Wait();
   test::OobeJS().CreateVisibilityWaiter(false, kGaiaLoading)->Wait();
-  test::OobeJS().ExpectAttributeEQ("isSamlForTesting()", {"gaia-signin"}, true);
+}
+
+void SAMLPolicyTest::MaybeWaitForSAMLToLoad() {
+  // If SAML already loaded return and otherwise wait for the SamlLoaded
+  // message.
+  if (test::OobeJS().GetAttributeBool("isSamlAuthFlowForTesting()",
+                                      {"gaia-signin"}))
+    return;
+  content::DOMMessageQueue message_queue(GetLoginUI()->GetWebContents());
+  SetupAuthFlowChangeListener();
+  std::string message;
+  do {
+    ASSERT_TRUE(message_queue.WaitForMessage(&message));
+  } while (message != "\"SamlLoaded\"");
+  test::OobeJS().ExpectAttributeEQ("isSamlAuthFlowForTesting()",
+                                   {"gaia-signin"}, true);
 }
 
 void SAMLPolicyTest::ClickBackOnSAMLPage() {
@@ -1275,7 +1326,7 @@ std::string SAMLPolicyTest::GetCookieValue(const std::string& name) {
 }
 
 void SAMLPolicyTest::GetCookies() {
-  Profile* profile = ProfileHelper::Get()->GetProfileByUserUnsafe(
+  Profile* profile = ProfileHelper::Get()->GetProfileByUser(
       user_manager::UserManager::Get()->GetActiveUser());
   ASSERT_TRUE(profile);
   base::RunLoop run_loop;
@@ -1289,7 +1340,7 @@ void SAMLPolicyTest::GetCookies() {
   run_loop.Run();
 }
 
-IN_PROC_BROWSER_TEST_P(SAMLPolicyTest, PRE_NoSAML) {
+IN_PROC_BROWSER_TEST_F(SAMLPolicyTest, PRE_NoSAML) {
   // Set the offline login time limit for SAML users to zero.
   SetSAMLOfflineSigninTimeLimitPolicy(0);
 
@@ -1316,7 +1367,7 @@ IN_PROC_BROWSER_TEST_P(SAMLPolicyTest, PRE_NoSAML) {
 
 // Verifies that the offline login time limit does not affect a user who
 // authenticated without SAML.
-IN_PROC_BROWSER_TEST_P(SAMLPolicyTest, NoSAML) {
+IN_PROC_BROWSER_TEST_F(SAMLPolicyTest, NoSAML) {
   // Verify that offline login is allowed.
   LoginScreenTestApi::SubmitPassword(
       AccountId::FromUserEmail(kNonSAMLUserEmail), "password",
@@ -1324,7 +1375,7 @@ IN_PROC_BROWSER_TEST_P(SAMLPolicyTest, NoSAML) {
   test::WaitForPrimaryUserSessionStart();
 }
 
-IN_PROC_BROWSER_TEST_P(SAMLPolicyTest, PRE_SAMLNoLimit) {
+IN_PROC_BROWSER_TEST_F(SAMLPolicyTest, PRE_SAMLNoLimit) {
   // Remove the offline login time limit for SAML users.
   SetSAMLOfflineSigninTimeLimitPolicy(-1);
 
@@ -1335,7 +1386,7 @@ IN_PROC_BROWSER_TEST_P(SAMLPolicyTest, PRE_SAMLNoLimit) {
 
 // Verifies that when no offline login time limit is set, a user who
 // authenticated with SAML is allowed to log in offline.
-IN_PROC_BROWSER_TEST_P(SAMLPolicyTest, SAMLNoLimit) {
+IN_PROC_BROWSER_TEST_F(SAMLPolicyTest, SAMLNoLimit) {
   // Verify that offline login is allowed.
   LoginScreenTestApi::SubmitPassword(
       AccountId::FromUserEmail(saml_test_users::kFirstUserCorpExampleComEmail),
@@ -1343,7 +1394,7 @@ IN_PROC_BROWSER_TEST_P(SAMLPolicyTest, SAMLNoLimit) {
   test::WaitForPrimaryUserSessionStart();
 }
 
-IN_PROC_BROWSER_TEST_P(SAMLPolicyTest, PRE_SAMLZeroLimit) {
+IN_PROC_BROWSER_TEST_F(SAMLPolicyTest, PRE_SAMLZeroLimit) {
   // Set the offline login time limit for SAML users to zero.
   SetSAMLOfflineSigninTimeLimitPolicy(0);
 
@@ -1354,13 +1405,13 @@ IN_PROC_BROWSER_TEST_P(SAMLPolicyTest, PRE_SAMLZeroLimit) {
 
 // Verifies that when the offline login time limit is exceeded for a user who
 // authenticated via SAML, that user is forced to log in online the next time.
-IN_PROC_BROWSER_TEST_P(SAMLPolicyTest, SAMLZeroLimit) {
+IN_PROC_BROWSER_TEST_F(SAMLPolicyTest, SAMLZeroLimit) {
   // Verify that offline login is not allowed.
   ASSERT_TRUE(LoginScreenTestApi::IsForcedOnlineSignin(AccountId::FromUserEmail(
       saml_test_users::kFirstUserCorpExampleComEmail)));
 }
 
-IN_PROC_BROWSER_TEST_P(SAMLPolicyTest, PRE_PRE_TransferCookiesAffiliated) {
+IN_PROC_BROWSER_TEST_F(SAMLPolicyTest, PRE_PRE_TransferCookiesAffiliated) {
   fake_saml_idp()->SetCookieValue(kSAMLIdPCookieValue1);
   ShowGAIALoginForm();
   LogInWithSAML(saml_test_users::kFirstUserCorpExampleComEmail,
@@ -1376,7 +1427,7 @@ IN_PROC_BROWSER_TEST_P(SAMLPolicyTest, PRE_PRE_TransferCookiesAffiliated) {
 // IdP cookies are not transferred to a user's profile on subsequent login, even
 // if the user belongs to the domain that the device is enrolled into. Also
 // verifies that GAIA cookies are not transferred.
-IN_PROC_BROWSER_TEST_P(SAMLPolicyTest, PRE_TransferCookiesAffiliated) {
+IN_PROC_BROWSER_TEST_F(SAMLPolicyTest, PRE_TransferCookiesAffiliated) {
   fake_saml_idp()->SetCookieValue(kSAMLIdPCookieValue2);
   fake_saml_idp()->SetLoginHTMLTemplate("saml_login.html");
   ShowGAIALoginForm();
@@ -1393,7 +1444,7 @@ IN_PROC_BROWSER_TEST_P(SAMLPolicyTest, PRE_TransferCookiesAffiliated) {
 // cookies are transferred to a user's profile on subsequent login when the user
 // belongs to the domain that the device is enrolled into. Also verifies that
 // GAIA cookies are not transferred.
-IN_PROC_BROWSER_TEST_P(SAMLPolicyTest, TransferCookiesAffiliated) {
+IN_PROC_BROWSER_TEST_F(SAMLPolicyTest, TransferCookiesAffiliated) {
   fake_saml_idp()->SetCookieValue(kSAMLIdPCookieValue2);
   fake_saml_idp()->SetLoginHTMLTemplate("saml_login.html");
   ShowGAIALoginForm();
@@ -1408,7 +1459,7 @@ IN_PROC_BROWSER_TEST_P(SAMLPolicyTest, TransferCookiesAffiliated) {
   EXPECT_EQ(kSAMLIdPCookieValue2, GetCookieValue(kSAMLIdPCookieName));
 }
 
-IN_PROC_BROWSER_TEST_P(SAMLPolicyTest, PRE_TransferCookiesUnaffiliated) {
+IN_PROC_BROWSER_TEST_F(SAMLPolicyTest, PRE_TransferCookiesUnaffiliated) {
   fake_saml_idp()->SetCookieValue(kSAMLIdPCookieValue1);
   ShowGAIALoginForm();
   LogInWithSAML(saml_test_users::kFifthUserExampleTestEmail,
@@ -1424,7 +1475,7 @@ IN_PROC_BROWSER_TEST_P(SAMLPolicyTest, PRE_TransferCookiesUnaffiliated) {
 // IdP are not transferred to a user's profile on subsequent login if the user
 // does not belong to the domain that the device is enrolled into. Also verifies
 // that GAIA cookies are not transferred.
-IN_PROC_BROWSER_TEST_P(SAMLPolicyTest, TransferCookiesUnaffiliated) {
+IN_PROC_BROWSER_TEST_F(SAMLPolicyTest, TransferCookiesUnaffiliated) {
   fake_saml_idp()->SetCookieValue(kSAMLIdPCookieValue2);
   fake_saml_idp()->SetLoginHTMLTemplate("saml_login.html");
   ShowGAIALoginForm();
@@ -1439,56 +1490,31 @@ IN_PROC_BROWSER_TEST_P(SAMLPolicyTest, TransferCookiesUnaffiliated) {
   EXPECT_EQ(kSAMLIdPCookieValue1, GetCookieValue(kSAMLIdPCookieName));
 }
 
-// When GetParam() is false:
-// Tests that the SAML interstitial page is loaded when the authentication
-// behavior device policy is set to SAML_INTERSTITIAL, and when the user clicks
-// the "change account" link, we go back to the default GAIA signin screen.
-//
-// When GetParam() is true:
 // Tests that the SAML page is loaded when the authentication behavior device
 // policy is set to SAML_INTERSTITIAL, and when the user clicks the "Enter
 // Google Account info" button, we go to the default GAIA signin screen.
-IN_PROC_BROWSER_TEST_P(SAMLPolicyTest, SAMLInterstitialChangeAccount) {
+IN_PROC_BROWSER_TEST_F(SAMLPolicyTest, SAMLChangeAccount) {
   fake_saml_idp()->SetLoginHTMLTemplate("saml_login.html");
   SetLoginBehaviorPolicyToSAMLInterstitial();
   WaitForSigninScreen();
 
-  if (GetParam()) {
-    ShowSAMLLoginForm();
+  ShowSAMLLoginForm();
 
-    // Click the "Enter Google Account info" button on the SAML page.
-    test::OobeJS().TapOnPath(kChangeIdPButton);
-  } else {
-    ShowSAMLInterstitial();
-    test::OobeJS().ExpectHiddenPath(kSigninFrameDialog);
-    test::OobeJS().ExpectVisiblePath(kSamlInterstitial);
-
-    // Click the "change account" link on the SAML interstitial page.
-    test::OobeJS().TapLinkOnPath(kChangeIdPLink);
-  }
+  // Click the "Enter Google Account info" button on the SAML page.
+  test::OobeJS().TapOnPath(kChangeIdPButton);
 
   // Expects that the gaia signin frame is shown.
   test::OobeJS().CreateVisibilityWaiter(true, kSigninFrameDialog)->Wait();
   test::OobeJS().CreateVisibilityWaiter(false, kGaiaLoading)->Wait();
   test::OobeJS().ExpectHasNoAttribute("transparent", kSigninFrameDialog);
-  test::OobeJS().ExpectAttributeEQ("isSamlForTesting()", {"gaia-signin"},
-                                   false);
-
-  if (!GetParam())
-    test::OobeJS().ExpectHiddenPath(kSamlInterstitial);
+  test::OobeJS().ExpectAttributeEQ("isSamlAuthFlowForTesting()",
+                                   {"gaia-signin"}, false);
 }
 
-// When GetParam() is false:
-// Tests that clicking "Next" in the SAML interstitial page successfully
-// triggers a SAML redirect request, and the SAML IdP authentication page is
-// loaded and authenticaing there is successful.
-// TODO(https://crbug.com/1102738) flaky test
-//
-// When GetParam() is true:
 // Tests that clicking back on the SAML page successfully closes the oobe
 // dialog. Reopens a dialog and checks that SAML IdP authentication page is
-// loaded and authenticaing there is successful.
-IN_PROC_BROWSER_TEST_P(SAMLPolicyTest, DISABLED_SAMLInterstitialNext) {
+// loaded and authenticating there is successful.
+IN_PROC_BROWSER_TEST_F(SAMLPolicyTest, SAMLClosaAndReopen) {
   fake_saml_idp()->SetLoginHTMLTemplate("saml_login.html");
   fake_gaia_.fake_gaia()->SetFakeMergeSessionParams(
       saml_test_users::kFirstUserCorpExampleComEmail, kTestAuthSIDCookie1,
@@ -1496,23 +1522,15 @@ IN_PROC_BROWSER_TEST_P(SAMLPolicyTest, DISABLED_SAMLInterstitialNext) {
   SetLoginBehaviorPolicyToSAMLInterstitial();
   WaitForSigninScreen();
 
-  if (GetParam()) {
-    ShowSAMLLoginForm();
-    ClickBackOnSAMLPage();
-  } else {
-    ShowSAMLInterstitial();
-    ClickBackOnSAMLInterstitialPage();
-  }
+  ShowSAMLLoginForm();
+  ClickBackOnSAMLPage();
+
   // Back button should hide OOBE dialog.
   EXPECT_FALSE(LoginScreenTestApi::IsOobeDialogVisible());
   EXPECT_TRUE(LoginScreenTestApi::IsAddUserButtonShown());
 
-  if (GetParam()) {
-    ShowSAMLLoginForm();
-  } else {
-    ShowSAMLInterstitial();
-    ClickNextOnSAMLInterstitialPage();
-  }
+  ShowSAMLLoginForm();
+  MaybeWaitForSAMLToLoad();
 
   SigninFrameJS().TypeIntoPath("fake_user", {"Email"});
   SigninFrameJS().TypeIntoPath("fake_password", {"Password"});
@@ -1522,40 +1540,99 @@ IN_PROC_BROWSER_TEST_P(SAMLPolicyTest, DISABLED_SAMLInterstitialNext) {
   test::WaitForPrimaryUserSessionStart();
 }
 
+IN_PROC_BROWSER_TEST_F(SAMLPolicyTest, PRE_SamlToGaiaChange) {
+  ShowGAIALoginForm();
+  LogInWithSAML(saml_test_users::kFirstUserCorpExampleComEmail,
+                kTestAuthSIDCookie1, kTestAuthLSIDCookie1);
+
+  user_manager::KnownUser known_user(g_browser_process->local_state());
+  EXPECT_TRUE(known_user.IsUsingSAML(AccountId::FromUserEmailGaiaId(
+      saml_test_users::kFirstUserCorpExampleComEmail, kFirstSAMLUserGaiaId)));
+  const user_manager::User* user =
+      user_manager::UserManager::Get()->GetActiveUser();
+  ASSERT_TRUE(user);
+  EXPECT_TRUE(user->using_saml());
+}
+
+// Verifies that when SAML user changes IdP to GAIA we detect it correctly and
+// update corresponding flags in the local state and in user session.
+IN_PROC_BROWSER_TEST_F(SAMLPolicyTest, SamlToGaiaChange) {
+  // Change user IdP to GAIA.
+  fake_gaia_.fake_gaia()->RemoveSamlIdpForUser(
+      saml_test_users::kFirstUserCorpExampleComEmail);
+
+  // Log in without SAML.
+  LoginDisplayHost::default_host()->StartWizard(GaiaView::kScreenId);
+  LoginDisplayHost::default_host()
+      ->GetOobeUI()
+      ->GetView<GaiaScreenHandler>()
+      ->ShowSigninScreenForTest(saml_test_users::kFirstUserCorpExampleComEmail,
+                                "password", "[]");
+  test::WaitForPrimaryUserSessionStart();
+
+  user_manager::KnownUser known_user(g_browser_process->local_state());
+  EXPECT_FALSE(known_user.IsUsingSAML(AccountId::FromUserEmailGaiaId(
+      saml_test_users::kFirstUserCorpExampleComEmail, kFirstSAMLUserGaiaId)));
+  const user_manager::User* user =
+      user_manager::UserManager::Get()->GetActiveUser();
+  ASSERT_TRUE(user);
+  EXPECT_FALSE(user->using_saml());
+}
+
 // Ensure that the permission status of getUserMedia requests from SAML login
 // pages is controlled by the kLoginVideoCaptureAllowedUrls pref rather than the
 // underlying user content setting.
-IN_PROC_BROWSER_TEST_P(SAMLPolicyTest, TestLoginMediaPermission) {
-  fake_saml_idp()->SetLoginHTMLTemplate("saml_login.html");
+IN_PROC_BROWSER_TEST_F(SAMLPolicyTest, TestLoginMediaPermission) {
+  fake_saml_idp()->SetLoginHTMLTemplate("saml_api_login.html");
+  SetLoginBehaviorPolicyToSAMLInterstitial();
+  WaitForSigninScreen();
 
+  ShowSAMLLoginForm();
+  MaybeWaitForSAMLToLoad();
+
+  const GURL url0(fake_saml_idp()->GetSamlPageUrl());
   const GURL url1("https://google.com");
   const GURL url2("https://corp.example.com");
   const GURL url3("https://not-allowed.com");
-  SetLoginVideoCaptureAllowedUrls({url1, url2});
-  WaitForSigninScreen();
+  SetLoginVideoCaptureAllowedUrls({url0, url1, url2});
 
-  // Make sure WebUI is loaded.
-  LoginDisplayHost::default_host()->GetWizardController();
+  // Trigger the permission check from the js side.
+  ASSERT_EQ(true, content::EvalJs(SigninFrameJS().web_contents(),
+                                  "new Promise(resolve => {"
+                                  "  navigator.getUserMedia("
+                                  "    {video: true},"
+                                  "    function() { resolve(true); },"
+                                  "    function() { resolve(false); });"
+                                  "});"));
+  ASSERT_EQ(false, content::EvalJs(SigninFrameJS().web_contents(),
+                                   "new Promise(resolve => {"
+                                   "  navigator.getUserMedia("
+                                   "    {audio: true},"
+                                   "    function() { resolve(true); },"
+                                   "    function() { resolve(false); });"
+                                   "});"));
+
+  // Check permissions directly by calling the `CheckMediaAccessPermission`.
   content::WebContents* web_contents = GetLoginUI()->GetWebContents();
   content::WebContentsDelegate* web_contents_delegate =
       web_contents->GetDelegate();
 
   // Mic should always be blocked.
   EXPECT_FALSE(web_contents_delegate->CheckMediaAccessPermission(
-      web_contents->GetMainFrame(), url1,
+      web_contents->GetPrimaryMainFrame(), url1,
       blink::mojom::MediaStreamType::DEVICE_AUDIO_CAPTURE));
 
   // Camera should be allowed if allowed by the allowlist, otherwise blocked.
   EXPECT_TRUE(web_contents_delegate->CheckMediaAccessPermission(
-      web_contents->GetMainFrame(), url1,
+      web_contents->GetPrimaryMainFrame(), url1,
       blink::mojom::MediaStreamType::DEVICE_VIDEO_CAPTURE));
 
   EXPECT_TRUE(web_contents_delegate->CheckMediaAccessPermission(
-      web_contents->GetMainFrame(), url2,
+      web_contents->GetPrimaryMainFrame(), url2,
       blink::mojom::MediaStreamType::DEVICE_VIDEO_CAPTURE));
 
   EXPECT_FALSE(web_contents_delegate->CheckMediaAccessPermission(
-      web_contents->GetMainFrame(), url3,
+      web_contents->GetPrimaryMainFrame(), url3,
       blink::mojom::MediaStreamType::DEVICE_VIDEO_CAPTURE));
 
   // Camera should be blocked in the login screen, even if it's allowed via
@@ -1568,20 +1645,125 @@ IN_PROC_BROWSER_TEST_P(SAMLPolicyTest, TestLoginMediaPermission) {
                                       CONTENT_SETTING_ALLOW);
 
   EXPECT_FALSE(web_contents_delegate->CheckMediaAccessPermission(
-      web_contents->GetMainFrame(), url3,
+      web_contents->GetPrimaryMainFrame(), url3,
       blink::mojom::MediaStreamType::DEVICE_VIDEO_CAPTURE));
 }
 
-INSTANTIATE_TEST_SUITE_P(All, SAMLPolicyTest, testing::Bool());
+// Tests that requesting webcam access from the lock screen works correctly.
+IN_PROC_BROWSER_TEST_F(SAMLPolicyTest, TestLockMediaPermission) {
+  SetSAMLOfflineSigninTimeLimitPolicy(0);
+  const GURL url0(fake_saml_idp()->GetSamlPageUrl());
+  const GURL url1("https://google.com");
+  const GURL url2("https://corp.example.com");
+  const GURL url3("https://not-allowed.com");
+  SetLoginVideoCaptureAllowedUrls({url0, url1, url2});
+  ShowGAIALoginForm();
+  LogInWithSAML(saml_test_users::kFirstUserCorpExampleComEmail,
+                kTestAuthSIDCookie1, kTestAuthLSIDCookie1);
+  ScreenLockerTester().Lock();
 
-class SAMLPasswordAttributesTest : public SAMLPolicyTest {
+  absl::optional<LockScreenReauthDialogTestHelper> reauth_dialog_helper =
+      LockScreenReauthDialogTestHelper::StartSamlAndWaitForIdpPageLoad();
+  ASSERT_TRUE(reauth_dialog_helper);
+
+  ASSERT_EQ(true, content::EvalJs(
+                      reauth_dialog_helper->SigninFrameJS().web_contents(),
+                      "new Promise(resolve => {"
+                      "  navigator.getUserMedia("
+                      "    {video: true},"
+                      "    function() { resolve(true); },"
+                      "    function() { resolve(false); });"
+                      "});"));
+  ASSERT_EQ(false, content::EvalJs(
+                       reauth_dialog_helper->SigninFrameJS().web_contents(),
+                       "new Promise(resolve => {"
+                       "  navigator.getUserMedia("
+                       "    {audio: true},"
+                       "    function() { resolve(true); },"
+                       "    function() { resolve(false); });"
+                       "});"));
+
+  // Check permissions directly by calling the `CheckMediaAccessPermission`.
+  // Video devices should be allowed from the lock screen for specified urls.
+  content::WebContents* web_contents =
+      reauth_dialog_helper->DialogWebContents();
+  content::WebContentsDelegate* web_contents_delegate =
+      web_contents->GetDelegate();
+
+  // Mic should always be blocked.
+  EXPECT_FALSE(web_contents_delegate->CheckMediaAccessPermission(
+      web_contents->GetPrimaryMainFrame(), url1,
+      blink::mojom::MediaStreamType::DEVICE_AUDIO_CAPTURE));
+
+  // Camera should be allowed if allowed by the allowlist, otherwise blocked.
+  EXPECT_TRUE(web_contents_delegate->CheckMediaAccessPermission(
+      web_contents->GetPrimaryMainFrame(), url1,
+      blink::mojom::MediaStreamType::DEVICE_VIDEO_CAPTURE));
+
+  EXPECT_TRUE(web_contents_delegate->CheckMediaAccessPermission(
+      web_contents->GetPrimaryMainFrame(), url2,
+      blink::mojom::MediaStreamType::DEVICE_VIDEO_CAPTURE));
+
+  EXPECT_FALSE(web_contents_delegate->CheckMediaAccessPermission(
+      web_contents->GetPrimaryMainFrame(), url3,
+      blink::mojom::MediaStreamType::DEVICE_VIDEO_CAPTURE));
+}
+
+// Tests that we land on 3P IdP page corresponding to sso_profile from the
+// device policy blob during "add user" flow.
+IN_PROC_BROWSER_TEST_F(SAMLPolicyTest, SsoProfileInAddNewUserFlow) {
+  fake_saml_idp()->SetLoginHTMLTemplate("saml_login.html");
+
+  // Set wrong redirect url for domain-based saml redirection. This ensures that
+  // for test to finish successfully it should perform redirection based on sso
+  // profile.
+  const GURL wrong_redirect_url("https://wrong.com");
+  fake_gaia_.fake_gaia()->RegisterSamlDomainRedirectUrl(
+      fake_saml_idp()->GetIdpDomain(), wrong_redirect_url);
+
+  SetLoginBehaviorPolicyToSAMLInterstitial();
+  SetSSOProfile(fake_saml_idp()->GetIdpSsoProfile());
+
+  // Launch "add user" flow.
+  ShowSAMLLoginForm();
+
+  SigninFrameJS().TypeIntoPath("fake_user", {"Email"});
+  SigninFrameJS().TypeIntoPath("fake_password", {"Password"});
+
+  SigninFrameJS().TapOn("Submit");
+  test::WaitForPrimaryUserSessionStart();
+}
+
+// Pushes DeviceLoginScreenLocales into the device policy.
+class SAMLLocalesTest : public SamlTestBase {
  public:
-  SAMLPasswordAttributesTest() {
-    // Reset feature list, as we use parameterization here to test against
-    // different policy values and not against enabling/disabling feature
-    // from SamlTestWithRedirectToDefaultIdPFeature.
-    scoped_feature_list_.Reset();
+  constexpr static char kLoginLocale[] = "de";
+  SAMLLocalesTest() {
+    device_state_.SetState(
+        DeviceStateMixin::State::OOBE_COMPLETED_CLOUD_ENROLLED);
+    auto policy_update = device_state_.RequestDevicePolicyUpdate();
+    em::ChromeDeviceSettingsProto& proto(*policy_update->policy_payload());
+    *proto.mutable_login_screen_locales()->add_login_screen_locales() =
+        kLoginLocale;
   }
+};
+
+// Tests that DeviceLoginLocales policy propagates to the 3rd-party IdP. We use
+// a separate `SAMLLocalesTest` test fixture for this instead of expanding
+// `SAMLPolicyTest` because dynamically reloading the language on policy change
+// is hard.
+IN_PROC_BROWSER_TEST_F(SAMLLocalesTest, PropagatesToIdp) {
+  fake_saml_idp()->SetLoginHTMLTemplate("saml_login.html");
+  StartSamlAndWaitForIdpPageLoad(
+      saml_test_users::kFirstUserCorpExampleComEmail);
+
+  SigninFrameJS().ExpectEQ("navigator.language", std::string(kLoginLocale));
+}
+
+class SAMLPasswordAttributesTest : public SAMLPolicyTest,
+                                   public testing::WithParamInterface<bool> {
+ public:
+  SAMLPasswordAttributesTest() = default;
 
   SAMLPasswordAttributesTest(const SAMLPasswordAttributesTest&) = delete;
   SAMLPasswordAttributesTest& operator=(const SAMLPasswordAttributesTest&) =
@@ -1660,6 +1842,9 @@ IN_PROC_BROWSER_TEST_P(SAMLPasswordAttributesTest, LoginFailed) {
   ExpectFatalErrorMessage(
       l10n_util::GetStringUTF8(IDS_LOGIN_FATAL_ERROR_NO_ACCOUNT_DETAILS));
 
+  test::OobeJS().TapOnPath(kFatalErrorActionButton);
+  WaitForSigninScreen();
+
   // Make sure no SAML password attributes are saved.
   // None are saved for the logged in user, since there is no logged in user:
   EXPECT_EQ(nullptr, user_manager::UserManager::Get()->GetPrimaryUser());
@@ -1694,8 +1879,7 @@ static_assert(
     "kTimeoutTaskDelay should be less than kBuildResponseTaskDelay to trigger "
     "timeout error in SAMLDeviceAttestationTest.TimeoutError test.");
 
-class SAMLDeviceAttestationTest
-    : public SamlTestWithRedirectToDefaultIdPFeature {
+class SAMLDeviceAttestationTest : public SamlTestBase {
  public:
   SAMLDeviceAttestationTest() = default;
 
@@ -1706,14 +1890,20 @@ class SAMLDeviceAttestationTest
   void SetUpInProcessBrowserTestFixture() override;
 
  protected:
-  void SetAllowedUrlsPolicy(const std::vector<std::string>& allowed_urls);
+  virtual void SetAllowedUrlsPolicy(
+      const std::vector<std::string>& allowed_urls);
+  void SetDeviceContextAwareAccessSignalsAllowlistPolicy(
+      const std::vector<std::string>& allowed_urls);
 
   ScopedTestingCrosSettings settings_helper_;
-  StubCrosSettingsProvider* settings_provider_ = nullptr;
+  raw_ptr<StubCrosSettingsProvider, ExperimentalAsh> settings_provider_ =
+      nullptr;
+
+  policy::DevicePolicyCrosTestHelper policy_helper_;
 
   attestation::MockMachineCertificateUploader mock_cert_uploader_;
   NiceMock<attestation::MockAttestationFlow> mock_attestation_flow_;
-  chromeos::ScopedStubInstallAttributes stub_install_attributes_;
+  ScopedStubInstallAttributes stub_install_attributes_;
 };
 
 void SAMLDeviceAttestationTest::SetUpInProcessBrowserTestFixture() {
@@ -1722,7 +1912,7 @@ void SAMLDeviceAttestationTest::SetUpInProcessBrowserTestFixture() {
   settings_provider_ = settings_helper_.device_settings();
 
   ON_CALL(mock_attestation_flow_, GetCertificate)
-      .WillByDefault(WithArgs<5>(Invoke(FakeGetCertificateCallbackTrue)));
+      .WillByDefault(WithArgs<7>(Invoke(FakeGetCertificateCallbackTrue)));
 
   // By default make it reply that the certificate is already uploaded.
   ON_CALL(mock_cert_uploader_, WaitForUploadComplete)
@@ -1737,12 +1927,27 @@ void SAMLDeviceAttestationTest::SetUpInProcessBrowserTestFixture() {
 
 void SAMLDeviceAttestationTest::SetAllowedUrlsPolicy(
     const std::vector<std::string>& allowed_urls) {
-  std::vector<base::Value> allowed_urls_values;
+  base::Value::List allowed_urls_values;
   for (const auto& url : allowed_urls) {
-    allowed_urls_values.push_back(base::Value(url));
+    allowed_urls_values.Append(url);
   }
   settings_provider_->Set(kDeviceWebBasedAttestationAllowedUrls,
                           base::Value(std::move(allowed_urls_values)));
+}
+
+void SAMLDeviceAttestationTest::
+    SetDeviceContextAwareAccessSignalsAllowlistPolicy(
+        const std::vector<std::string>& allowed_urls) {
+  em::StringListPolicyProto* allowed_urls_proto =
+      policy_helper_.device_policy()
+          ->payload()
+          .mutable_device_login_screen_context_aware_access_signals_allowlist();
+  allowed_urls_proto->mutable_policy_options()->set_mode(
+      em::PolicyOptions::MANDATORY);
+  for (const auto& url : allowed_urls) {
+    allowed_urls_proto->mutable_value()->add_entries(url.c_str());
+  }
+  policy_helper_.RefreshDevicePolicy();
 }
 
 class SAMLDeviceAttestationEnrolledTest : public SAMLDeviceAttestationTest {
@@ -1750,52 +1955,52 @@ class SAMLDeviceAttestationEnrolledTest : public SAMLDeviceAttestationTest {
   SAMLDeviceAttestationEnrolledTest() {
     device_state_.SetState(
         DeviceStateMixin::State::OOBE_COMPLETED_CLOUD_ENROLLED);
+    scoped_feature_list_.InitAndEnableFeature(
+        enterprise_connectors::kDeviceTrustConnectorEnabled);
   }
 
   void SetUpInProcessBrowserTestFixture() override {
     SAMLDeviceAttestationTest::SetUpInProcessBrowserTestFixture();
     stub_install_attributes_.Get()->SetCloudManaged("google.com", "device_id");
   }
+
+  base::test::ScopedFeatureList scoped_feature_list_;
+  base::HistogramTester histogram_tester_;
 };
 
 // Verify that device attestation is not available when
 // DeviceWebBasedAttestationAllowedUrls policy is not set.
-IN_PROC_BROWSER_TEST_P(SAMLDeviceAttestationTest, DefaultPolicy) {
-  base::HistogramTester histogram_tester;
-
+IN_PROC_BROWSER_TEST_F(SAMLDeviceAttestationTest, DefaultPolicy) {
   // Leave policy unset.
 
   StartSamlAndWaitForIdpPageLoad(
       saml_test_users::kFourthUserCorpExampleTestEmail);
 
   ASSERT_FALSE(fake_saml_idp()->IsLastChallengeResponseExists());
-  histogram_tester.ExpectUniqueSample(kSamlChallengeKeyHandlerResultMetric,
-                                      attestation::TpmChallengeKeyResultCode::
-                                          kDeviceWebBasedAttestationUrlError,
-                                      1);
 }
 
 // Verify that device attestation is not available when
 // DeviceWebBasedAttestationAllowedUrls policy is set to empty list of allowed
 // URLs.
-IN_PROC_BROWSER_TEST_P(SAMLDeviceAttestationTest, EmptyPolicy) {
-  base::HistogramTester histogram_tester;
+IN_PROC_BROWSER_TEST_F(SAMLDeviceAttestationTest, EmptyPolicy) {
   SetAllowedUrlsPolicy({/* empty list */});
 
   StartSamlAndWaitForIdpPageLoad(
       saml_test_users::kFourthUserCorpExampleTestEmail);
 
   ASSERT_FALSE(fake_saml_idp()->IsLastChallengeResponseExists());
-  histogram_tester.ExpectUniqueSample(kSamlChallengeKeyHandlerResultMetric,
-                                      attestation::TpmChallengeKeyResultCode::
-                                          kDeviceWebBasedAttestationUrlError,
-                                      1);
 }
 
 // Verify that device attestation is not available when device is not enterprise
 // enrolled.
-IN_PROC_BROWSER_TEST_P(SAMLDeviceAttestationTest, NotEnterpriseEnrolledError) {
-  base::HistogramTester histogram_tester;
+// TODO(crbug.com/1407565): Re-enable when no longer flaky.
+#if BUILDFLAG(IS_LINUX)
+#define MAYBE_NotEnterpriseEnrolledError DISABLED_NotEnterpriseEnrolledError
+#else
+#define MAYBE_NotEnterpriseEnrolledError NotEnterpriseEnrolledError
+#endif
+IN_PROC_BROWSER_TEST_F(SAMLDeviceAttestationTest,
+                       MAYBE_NotEnterpriseEnrolledError) {
   SetAllowedUrlsPolicy({fake_saml_idp()->GetIdpHost()});
 
   StartSamlAndWaitForIdpPageLoad(
@@ -1806,18 +2011,12 @@ IN_PROC_BROWSER_TEST_P(SAMLDeviceAttestationTest, NotEnterpriseEnrolledError) {
   }
 
   ASSERT_FALSE(fake_saml_idp()->IsLastChallengeResponseExists());
-  histogram_tester.ExpectUniqueSample(
-      kSamlChallengeKeyHandlerResultMetric,
-      attestation::TpmChallengeKeyResultCode::kNonEnterpriseDeviceError, 1);
 }
-
-INSTANTIATE_TEST_SUITE_P(All, SAMLDeviceAttestationTest, testing::Bool());
 
 // Verify that device attestation is not available when device attestation is
 // not enabled.
-IN_PROC_BROWSER_TEST_P(SAMLDeviceAttestationEnrolledTest,
+IN_PROC_BROWSER_TEST_F(SAMLDeviceAttestationEnrolledTest,
                        DeviceAttestationNotEnabledError) {
-  base::HistogramTester histogram_tester;
   SetAllowedUrlsPolicy({fake_saml_idp()->GetIdpHost()});
 
   StartSamlAndWaitForIdpPageLoad(
@@ -1828,14 +2027,10 @@ IN_PROC_BROWSER_TEST_P(SAMLDeviceAttestationEnrolledTest,
   }
 
   ASSERT_FALSE(fake_saml_idp()->IsLastChallengeResponseExists());
-  histogram_tester.ExpectUniqueSample(
-      kSamlChallengeKeyHandlerResultMetric,
-      attestation::TpmChallengeKeyResultCode::kDevicePolicyDisabledError, 1);
 }
 
 // Verify that device attestation works when all policies configured correctly.
-IN_PROC_BROWSER_TEST_P(SAMLDeviceAttestationEnrolledTest, Success) {
-  base::HistogramTester histogram_tester;
+IN_PROC_BROWSER_TEST_F(SAMLDeviceAttestationEnrolledTest, Success) {
   SetAllowedUrlsPolicy({fake_saml_idp()->GetIdpHost()});
   settings_provider_->SetBoolean(kDeviceAttestationEnabled, true);
 
@@ -1846,18 +2041,16 @@ IN_PROC_BROWSER_TEST_P(SAMLDeviceAttestationEnrolledTest, Success) {
     return;
   }
 
+  histogram_tester_.ExpectBucketCount(kDeviceTrustMatchHistogramName, false, 1);
+
   ASSERT_TRUE(fake_saml_idp()->IsLastChallengeResponseExists());
   ASSERT_NO_FATAL_FAILURE(
       fake_saml_idp()->AssertChallengeResponseMatchesTpmResponse());
-  histogram_tester.ExpectUniqueSample(
-      kSamlChallengeKeyHandlerResultMetric,
-      attestation::TpmChallengeKeyResultCode::kSuccess, 1);
 }
 
 // Verify that device attestation is not available for URLs that are not in the
 // allowed URLs list.
-IN_PROC_BROWSER_TEST_P(SAMLDeviceAttestationEnrolledTest, PolicyNoMatchError) {
-  base::HistogramTester histogram_tester;
+IN_PROC_BROWSER_TEST_F(SAMLDeviceAttestationEnrolledTest, PolicyNoMatchError) {
   SetAllowedUrlsPolicy({fake_saml_idp()->GetIdpDomain()});
   settings_provider_->SetBoolean(kDeviceAttestationEnabled, true);
 
@@ -1868,17 +2061,14 @@ IN_PROC_BROWSER_TEST_P(SAMLDeviceAttestationEnrolledTest, PolicyNoMatchError) {
     return;
   }
 
+  histogram_tester_.ExpectTotalCount(kDeviceTrustMatchHistogramName, 0);
+
   ASSERT_FALSE(fake_saml_idp()->IsLastChallengeResponseExists());
-  histogram_tester.ExpectUniqueSample(kSamlChallengeKeyHandlerResultMetric,
-                                      attestation::TpmChallengeKeyResultCode::
-                                          kDeviceWebBasedAttestationUrlError,
-                                      1);
 }
 
 // Verify that device attestation is available for URLs that match a pattern
 // from allowed URLs list.
-IN_PROC_BROWSER_TEST_P(SAMLDeviceAttestationEnrolledTest, PolicyRegexSuccess) {
-  base::HistogramTester histogram_tester;
+IN_PROC_BROWSER_TEST_F(SAMLDeviceAttestationEnrolledTest, PolicyRegexSuccess) {
   SetAllowedUrlsPolicy({"[*.]" + fake_saml_idp()->GetIdpDomain()});
   settings_provider_->SetBoolean(kDeviceAttestationEnabled, true);
 
@@ -1889,19 +2079,17 @@ IN_PROC_BROWSER_TEST_P(SAMLDeviceAttestationEnrolledTest, PolicyRegexSuccess) {
     return;
   }
 
+  histogram_tester_.ExpectBucketCount(kDeviceTrustMatchHistogramName, false, 1);
+
   ASSERT_TRUE(fake_saml_idp()->IsLastChallengeResponseExists());
   ASSERT_NO_FATAL_FAILURE(
       fake_saml_idp()->AssertChallengeResponseMatchesTpmResponse());
-  histogram_tester.ExpectUniqueSample(
-      kSamlChallengeKeyHandlerResultMetric,
-      attestation::TpmChallengeKeyResultCode::kSuccess, 1);
 }
 
 // Verify that device attestation works in case of multiple items in allowed
 // URLs list.
-IN_PROC_BROWSER_TEST_P(SAMLDeviceAttestationEnrolledTest,
+IN_PROC_BROWSER_TEST_F(SAMLDeviceAttestationEnrolledTest,
                        PolicyTwoEntriesSuccess) {
-  base::HistogramTester histogram_tester;
   SetAllowedUrlsPolicy({"example2.com", fake_saml_idp()->GetIdpHost()});
   settings_provider_->SetBoolean(kDeviceAttestationEnabled, true);
 
@@ -1912,16 +2100,44 @@ IN_PROC_BROWSER_TEST_P(SAMLDeviceAttestationEnrolledTest,
     return;
   }
 
+  histogram_tester_.ExpectBucketCount(kDeviceTrustMatchHistogramName, false, 1);
+
   ASSERT_TRUE(fake_saml_idp()->IsLastChallengeResponseExists());
   ASSERT_NO_FATAL_FAILURE(
       fake_saml_idp()->AssertChallengeResponseMatchesTpmResponse());
-  histogram_tester.ExpectUniqueSample(
-      kSamlChallengeKeyHandlerResultMetric,
-      attestation::TpmChallengeKeyResultCode::kSuccess, 1);
 }
 
-IN_PROC_BROWSER_TEST_P(SAMLDeviceAttestationEnrolledTest, TimeoutError) {
-  base::HistogramTester histogram_tester;
+// Verify that device attestation is not available for URLs that also match the
+// ones on the DeviceContextAwareAccessSignalsAllowlist. Instead, device trust
+// is doing the attestation handshake.
+IN_PROC_BROWSER_TEST_F(SAMLDeviceAttestationEnrolledTest,
+                       PolicyDeviceTrustMatchError) {
+  SetAllowedUrlsPolicy({fake_saml_idp()->GetIdpHost()});
+  SetDeviceContextAwareAccessSignalsAllowlistPolicy(
+      {fake_saml_idp()->GetIdpHost()});
+  settings_provider_->SetBoolean(kDeviceAttestationEnabled, true);
+
+  StartSamlAndWaitForIdpPageLoad(
+      saml_test_users::kFourthUserCorpExampleTestEmail);
+
+  if (Test::HasFailure()) {
+    return;
+  }
+
+  // TODO(b/249082222) kDeviceTrustMatchHistogramName should get called once
+  // with value "true"
+  histogram_tester_.ExpectTotalCount(kDeviceTrustMatchHistogramName, 0);
+
+  ASSERT_EQ(fake_saml_idp()->GetChallengeResponseCount(), 1);
+
+  // TODO(b:253427534): Handle VA V1 challenges cases for Device Trust.
+  histogram_tester_.ExpectBucketCount(
+      kDeviceTrustAttestationFunnelStep,
+      enterprise_connectors::DTAttestationFunnelStep::kChallengeResponseSent,
+      0);
+}
+
+IN_PROC_BROWSER_TEST_F(SAMLDeviceAttestationEnrolledTest, TimeoutError) {
   SetAllowedUrlsPolicy({"example2.com", fake_saml_idp()->GetIdpHost()});
   settings_provider_->SetBoolean(kDeviceAttestationEnabled, true);
 
@@ -1944,19 +2160,206 @@ IN_PROC_BROWSER_TEST_P(SAMLDeviceAttestationEnrolledTest, TimeoutError) {
     return;
   }
 
+  histogram_tester_.ExpectBucketCount(kDeviceTrustMatchHistogramName, false, 1);
+
   ASSERT_FALSE(fake_saml_idp()->IsLastChallengeResponseExists());
-  histogram_tester.ExpectUniqueSample(
-      kSamlChallengeKeyHandlerResultMetric,
-      attestation::TpmChallengeKeyResultCode::kTimeoutError, 1);
 }
 
-INSTANTIATE_TEST_SUITE_P(All,
-                         SAMLDeviceAttestationEnrolledTest,
-                         testing::Bool());
+// Similar to SamlTestWithFeatures, this class runs for all possible scenarios
+// of the features kDeviceTrustConnectorEnabled &
+// kLoginScreenDeviceTrustConnectorEnabled.
+class SAMLDeviceTrustTest : public SAMLDeviceAttestationTest,
+                            public FeatureAsParameterInterface<2> {
+ public:
+  SAMLDeviceTrustTest() {
+    device_state_.SetState(
+        DeviceStateMixin::State::OOBE_COMPLETED_CLOUD_ENROLLED);
+  }
+
+  void SetUpInProcessBrowserTestFixture() override {
+    SAMLDeviceAttestationTest::SetUpInProcessBrowserTestFixture();
+    // Enable device trust feature.
+    settings_provider_->SetBoolean(kDeviceAttestationEnabled, true);
+  }
+
+  void ExpectDeviceTrustSuccessful(bool expected) {
+    ASSERT_EQ(fake_saml_idp()->DeviceTrustHeaderRecieved(), expected);
+    ASSERT_EQ(fake_saml_idp()->IsLastChallengeResponseExists(), expected);
+
+    histogram_tester_.ExpectBucketCount(
+        kDeviceTrustAttestationFunnelStep,
+        enterprise_connectors::DTAttestationFunnelStep::kChallengeResponseSent,
+        expected ? 1 : 0);
+  }
+
+  bool login_screen_device_trust_enabled() {
+    return IsFeatureEnabledInThisTestCase(
+               enterprise_connectors::kDeviceTrustConnectorEnabled) &&
+           IsFeatureEnabledInThisTestCase(
+               features::kLoginScreenDeviceTrustConnectorEnabled);
+  }
+
+ private:
+  base::HistogramTester histogram_tester_;
+};
+
+class SAMLDeviceTrustEnrolledTest : public SAMLDeviceTrustTest {
+  void SetUpInProcessBrowserTestFixture() override {
+    SAMLDeviceTrustTest::SetUpInProcessBrowserTestFixture();
+    stub_install_attributes_.Get()->SetCloudManaged("google.com", "device_id");
+  }
+};
+
+// Verify that device trust is not available when device is not enterprise
+// enrolled.
+IN_PROC_BROWSER_TEST_P(SAMLDeviceTrustTest, NotEnterpriseEnrolledError) {
+  SetDeviceContextAwareAccessSignalsAllowlistPolicy(
+      {fake_saml_idp()->GetIdpHost()});
+
+  StartSamlAndWaitForIdpPageLoad(
+      saml_test_users::kSixthUserCorpExampleTestEmail);
+
+  if (Test::HasFailure()) {
+    return;
+  }
+
+  ASSERT_FALSE(fake_saml_idp()->DeviceTrustHeaderRecieved());
+}
+
+// Verify that device trust is not available when
+// DeviceLoginScreenContextAwareAccessSignalsAllowlistPolicy policy is not set.
+IN_PROC_BROWSER_TEST_P(SAMLDeviceTrustEnrolledTest, DefaultPolicy) {
+  // Leave policy unset.
+
+  StartSamlAndWaitForIdpPageLoad(
+      saml_test_users::kSixthUserCorpExampleTestEmail);
+
+  ASSERT_FALSE(fake_saml_idp()->DeviceTrustHeaderRecieved());
+}
+
+// Verify that device trust is not available when
+// DeviceLoginScreenContextAwareAccessSignalsAllowlistPolicy policy is set to
+// empty list of allowed URLs.
+IN_PROC_BROWSER_TEST_P(SAMLDeviceTrustEnrolledTest, EmptyPolicy) {
+  SetDeviceContextAwareAccessSignalsAllowlistPolicy({/* empty list */});
+
+  StartSamlAndWaitForIdpPageLoad(
+      saml_test_users::kSixthUserCorpExampleTestEmail);
+
+  ASSERT_FALSE(fake_saml_idp()->DeviceTrustHeaderRecieved());
+}
+
+// Verify that device trust is not available when device trust is
+// not enabled.
+IN_PROC_BROWSER_TEST_P(SAMLDeviceTrustEnrolledTest,
+                       DeviceTrustNotEnabledError) {
+  SetDeviceContextAwareAccessSignalsAllowlistPolicy(
+      {fake_saml_idp()->GetIdpHost()});
+  settings_provider_->SetBoolean(kDeviceAttestationEnabled, false);
+
+  StartSamlAndWaitForIdpPageLoad(
+      saml_test_users::kSixthUserCorpExampleTestEmail);
+
+  if (Test::HasFailure()) {
+    return;
+  }
+
+  ASSERT_FALSE(fake_saml_idp()->IsLastChallengeResponseExists());
+}
+
+// Verify that device trust is available for URLs that match a pattern
+// from allowed URLs list.
+IN_PROC_BROWSER_TEST_P(SAMLDeviceTrustEnrolledTest, PolicyRegexSuccess) {
+  SetDeviceContextAwareAccessSignalsAllowlistPolicy(
+      {fake_saml_idp()->GetIdpDomain()});
+
+  StartSamlAndWaitForIdpPageLoad(
+      saml_test_users::kSixthUserCorpExampleTestEmail);
+
+  if (Test::HasFailure()) {
+    return;
+  }
+
+  ExpectDeviceTrustSuccessful(login_screen_device_trust_enabled());
+}
+
+// Verify that Device trust sends the header for a matching URL.
+IN_PROC_BROWSER_TEST_P(SAMLDeviceTrustEnrolledTest, SendHeaderForMatchingURL) {
+  SetDeviceContextAwareAccessSignalsAllowlistPolicy(
+      {fake_saml_idp()->GetIdpHost()});
+
+  StartSamlAndWaitForIdpPageLoad(
+      saml_test_users::kSixthUserCorpExampleTestEmail);
+
+  if (Test::HasFailure()) {
+    return;
+  }
+
+  ASSERT_EQ(fake_saml_idp()->DeviceTrustHeaderRecieved(),
+            login_screen_device_trust_enabled());
+}
+
+// Verify that Device trust doesn't sends the header for a non matching URL.
+IN_PROC_BROWSER_TEST_P(SAMLDeviceTrustEnrolledTest,
+                       HeaderNotSentForNonMatchingURL) {
+  SetDeviceContextAwareAccessSignalsAllowlistPolicy({"example2.com"});
+
+  StartSamlAndWaitForIdpPageLoad(
+      saml_test_users::kSixthUserCorpExampleTestEmail);
+
+  if (Test::HasFailure()) {
+    return;
+  }
+
+  ASSERT_FALSE(fake_saml_idp()->DeviceTrustHeaderRecieved());
+}
+
+// Verify that Device trust sends the challenge-response for a matching URL.
+IN_PROC_BROWSER_TEST_P(SAMLDeviceTrustEnrolledTest, Success) {
+  SetDeviceContextAwareAccessSignalsAllowlistPolicy(
+      {fake_saml_idp()->GetIdpHost()});
+
+  StartSamlAndWaitForIdpPageLoad(
+      saml_test_users::kSixthUserCorpExampleTestEmail);
+
+  if (Test::HasFailure()) {
+    return;
+  }
+
+  ExpectDeviceTrustSuccessful(login_screen_device_trust_enabled());
+}
+
+// Verify that device trust works in case of multiple items in allowed
+// URLs list.
+IN_PROC_BROWSER_TEST_P(SAMLDeviceTrustEnrolledTest, PolicyTwoEntriesSuccess) {
+  SetDeviceContextAwareAccessSignalsAllowlistPolicy(
+      {fake_saml_idp()->GetIdpHost()});
+
+  StartSamlAndWaitForIdpPageLoad(
+      saml_test_users::kSixthUserCorpExampleTestEmail);
+
+  if (Test::HasFailure()) {
+    return;
+  }
+
+  ExpectDeviceTrustSuccessful(login_screen_device_trust_enabled());
+}
+
+INSTANTIATE_TEST_SUITE_P(All, SamlTestWithFeatures, ::testing::Bool());
+
+const auto kDeviceTrustFeatureVariations =
+    FeatureAsParameterInterface<2>::Generator(
+        {&enterprise_connectors::kDeviceTrustConnectorEnabled,
+         &features::kLoginScreenDeviceTrustConnectorEnabled});
 
 INSTANTIATE_TEST_SUITE_P(All,
-                         SamlTestWithFeatures,
-                         ::testing::Combine(::testing::Bool(),
-                                            ::testing::Bool()));
+                         SAMLDeviceTrustTest,
+                         testing::ValuesIn(kDeviceTrustFeatureVariations),
+                         FeatureAsParameterInterface<2>::ParamInfoToString);
+
+INSTANTIATE_TEST_SUITE_P(All,
+                         SAMLDeviceTrustEnrolledTest,
+                         testing::ValuesIn(kDeviceTrustFeatureVariations),
+                         FeatureAsParameterInterface<2>::ParamInfoToString);
 
 }  // namespace ash

@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "third_party/blink/renderer/bindings/core/v8/v8_union_htmlcanvaselement_offscreencanvas.h"
 #include "third_party/blink/renderer/core/imagebitmap/image_bitmap.h"
+#include "third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.h"
 #include "third_party/blink/renderer/platform/graphics/canvas_resource_provider.h"
 #include "third_party/blink/renderer/platform/graphics/gpu/image_layer_bridge.h"
 #include "third_party/blink/renderer/platform/graphics/gpu/shared_gpu_context.h"
@@ -49,12 +50,13 @@ void ImageBitmapRenderingContextBase::ResetInternalBitmapToBlackTransparent(
     int width,
     int height) {
   SkBitmap black_bitmap;
-  black_bitmap.allocN32Pixels(width, height);
-  black_bitmap.eraseARGB(0, 0, 0, 0);
-  auto image = SkImage::MakeFromBitmap(black_bitmap);
-  if (image) {
-    image_layer_bridge_->SetImage(
-        UnacceleratedStaticBitmapImage::Create(image));
+  if (black_bitmap.tryAllocN32Pixels(width, height)) {
+    black_bitmap.eraseARGB(0, 0, 0, 0);
+    auto image = SkImages::RasterFromBitmap(black_bitmap);
+    if (image) {
+      image_layer_bridge_->SetImage(
+          UnacceleratedStaticBitmapImage::Create(image));
+    }
   }
 }
 
@@ -74,7 +76,8 @@ void ImageBitmapRenderingContextBase::SetImage(ImageBitmap* image_bitmap) {
     image_bitmap->close();
 }
 
-scoped_refptr<StaticBitmapImage> ImageBitmapRenderingContextBase::GetImage() {
+scoped_refptr<StaticBitmapImage> ImageBitmapRenderingContextBase::GetImage(
+    CanvasResourceProvider::FlushReason) {
   return image_layer_bridge_->GetImage();
 }
 
@@ -135,7 +138,8 @@ bool ImageBitmapRenderingContextBase::PushFrame() {
       image->PaintImageForCurrentFrame(), 0, 0, SkSamplingOptions(),
       &paint_flags);
   scoped_refptr<CanvasResource> resource =
-      Host()->ResourceProvider()->ProduceCanvasResource();
+      Host()->ResourceProvider()->ProduceCanvasResource(
+          CanvasResourceProvider::FlushReason::kNon2DCanvas);
   Host()->PushFrame(
       std::move(resource),
       SkIRect::MakeWH(image_layer_bridge_->GetImage()->Size().width(),

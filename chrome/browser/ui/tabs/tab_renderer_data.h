@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,11 @@
 
 #include <string>
 
+#include "base/process/kill.h"
 #include "chrome/browser/ui/tabs/tab_enums.h"
 #include "chrome/browser/ui/tabs/tab_network_state.h"
-#include "chrome/browser/ui/tabs/tab_utils.h"
 #include "chrome/browser/ui/thumbnails/thumbnail_image.h"
+#include "ui/base/models/image_model.h"
 #include "ui/gfx/image/image_skia.h"
 #include "url/gurl.h"
 
@@ -35,7 +36,7 @@ struct TabRendererData {
   // process died unexpectedly).
   bool IsCrashed() const;
 
-  gfx::ImageSkia favicon;
+  ui::ImageModel favicon;
   scoped_refptr<ThumbnailImage> thumbnail;
   TabNetworkState network_state = TabNetworkState::kNone;
   std::u16string title;
@@ -43,6 +44,9 @@ struct TabRendererData {
   GURL visible_url;
   // This corresponds to WebContents::GetLastCommittedUrl().
   GURL last_committed_url;
+  // False if the omnibox doesn't display the URL (i.e. when a lookalike URL
+  // interstitial is being displayed).
+  bool should_display_url = true;
   base::TerminationStatus crashed_status =
       base::TERMINATION_STATUS_STILL_RUNNING;
   bool incognito = false;
@@ -53,6 +57,9 @@ struct TabRendererData {
   bool should_hide_throbber = false;
   bool should_render_empty_title = false;
   bool should_themify_favicon = false;
+  bool is_tab_discarded = false;
+  bool should_show_discard_status = false;
+  bool is_monochrome_favicon = false;
 };
 
 #endif  // CHROME_BROWSER_UI_TABS_TAB_RENDERER_DATA_H_

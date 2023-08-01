@@ -1,10 +1,17 @@
-specific_include_rules = {
-  "^location_bar_model_impl_ios\.mm$": [
-    "+ios/web/web_state/ui/crw_web_controller.h",
-  ],
-  # web::HttpServer is deprecated in favor of net::EmbeddedTestServer.
-  # TODO:(crbug.com/891834) Remove this exception.
-  "toolbar_egtest\.mm": [
-    "+ios/web/public/test/http_server",
-  ],
-}
+include_rules = [
+  "+ios/chrome/browser/ui/infobars/test_infobar_delegate.h",
+  "+ios/chrome/browser/ui/menu",
+  "+ios/chrome/browser/ui/popup_menu/public",
+  "+ios/chrome/browser/ui/fullscreen",
+  "+ios/chrome/browser/ui/location_bar",
+  "+ios/chrome/browser/ui/omnibox",
+  "+ios/chrome/browser/ui/orchestrator",
+  "+ios/chrome/browser/ui/thumb_strip/thumb_strip_feature.h",
+  "+ios/chrome/browser/ui/gestures",
+  "+ios/chrome/browser/ui/keyboard/key_command_actions.h",
+  "+ios/chrome/browser/ui/keyboard/UIKeyCommand+Chrome.h",
+  "+ios/chrome/browser/ui/toolbar_container",
+  "+ios/chrome/browser/ui/ntp/new_tab_page_controller_delegate.h",
+  "+ios/chrome/browser/ui/sharing",
+  "+ios/chrome/browser/ui/ntp/new_tab_page_util.h",
+]

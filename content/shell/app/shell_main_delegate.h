@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,9 @@
 #include <memory>
 
 #include "build/build_config.h"
+#include "components/memory_system/memory_system.h"
 #include "content/public/app/content_main_delegate.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace content {
 class ShellContentClient;
@@ -31,8 +33,9 @@ class ShellMainDelegate : public ContentMainDelegate {
   ~ShellMainDelegate() override;
 
   // ContentMainDelegate implementation:
-  bool BasicStartupComplete(int* exit_code) override;
-  bool ShouldCreateFeatureList() override;
+  absl::optional<int> BasicStartupComplete() override;
+  bool ShouldCreateFeatureList(InvokedIn invoked_in) override;
+  bool ShouldInitializeMojo(InvokedIn invoked_in) override;
   void PreSandboxStartup() override;
   absl::variant<int, MainFunctionParams> RunProcess(
       const std::string& process_type,
@@ -40,8 +43,8 @@ class ShellMainDelegate : public ContentMainDelegate {
 #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
   void ZygoteForked() override;
 #endif
-  void PreBrowserMain() override;
-  void PostEarlyInitialization(bool is_running_tests) override;
+  absl::optional<int> PreBrowserMain() override;
+  absl::optional<int> PostEarlyInitialization(InvokedIn invoked_in) override;
   ContentClient* CreateContentClient() override;
   ContentBrowserClient* CreateContentBrowserClient() override;
   ContentGpuClient* CreateContentGpuClient() override;
@@ -70,6 +73,8 @@ class ShellMainDelegate : public ContentMainDelegate {
   std::unique_ptr<ShellContentRendererClient> renderer_client_;
   std::unique_ptr<ShellContentUtilityClient> utility_client_;
   std::unique_ptr<ShellContentClient> content_client_;
+
+  memory_system::MemorySystem memory_system_;
 };
 
 }  // namespace content

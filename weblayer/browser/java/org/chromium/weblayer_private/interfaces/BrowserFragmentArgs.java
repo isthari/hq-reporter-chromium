@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,5 +12,7 @@ public interface BrowserFragmentArgs {
      * A boolean value indicating whether the profile is incognito.
      */
     String IS_INCOGNITO = "is_incognito";
+    String IS_EXTERNAL_INTENTS_ENABLED = "is_external_intents_enabled";
     String USE_VIEW_MODEL = "use_view_model";
+    String ALLOWED_ORIGINS = "allowed_origins";
 }

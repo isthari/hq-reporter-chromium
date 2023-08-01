@@ -1,9 +1,10 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/web_apps/frame_toolbar/window_controls_overlay_toggle_button.h"
 
+#include "base/functional/bind.h"
 #include "chrome/app/vector_icons/vector_icons.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/web_applications/app_browser_controller.h"
@@ -21,8 +22,9 @@ WindowControlsOverlayToggleButton::~WindowControlsOverlayToggleButton() =
     default;
 
 void WindowControlsOverlayToggleButton::ButtonPressed(const ui::Event& event) {
-  browser_view_->ToggleWindowControlsOverlayEnabled();
-  UpdateIcon();
+  browser_view_->ToggleWindowControlsOverlayEnabled(
+      base::BindOnce(&WindowControlsOverlayToggleButton::UpdateIcon,
+                     weak_factory_.GetWeakPtr()));
 }
 
 void WindowControlsOverlayToggleButton::SetColor(SkColor icon_color) {

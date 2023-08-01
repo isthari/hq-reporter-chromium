@@ -2,6 +2,10 @@ Tests Accessibility.getAXNodeAndAncestors
 {
     backendDOMNodeId : <number>
     childIds : <object>
+    chromeRole : {
+        type : internalRole
+        value : 133
+    }
     ignored : false
     name : {
         sources : [
@@ -33,6 +37,10 @@ Tests Accessibility.getAXNodeAndAncestors
 {
     backendDOMNodeId : <number>
     childIds : <object>
+    chromeRole : {
+        type : internalRole
+        value : 5
+    }
     ignored : false
     name : {
         sources : [
@@ -64,6 +72,10 @@ Tests Accessibility.getAXNodeAndAncestors
 {
     backendDOMNodeId : <number>
     childIds : <object>
+    chromeRole : {
+        type : internalRole
+        value : 118
+    }
     ignored : false
     name : {
         sources : [
@@ -95,6 +107,10 @@ Tests Accessibility.getAXNodeAndAncestors
 {
     backendDOMNodeId : <number>
     childIds : <object>
+    chromeRole : {
+        type : internalRole
+        value : 0
+    }
     ignored : true
     ignoredReasons : [
         [0] : {
@@ -115,8 +131,19 @@ Tests Accessibility.getAXNodeAndAncestors
 {
     backendDOMNodeId : <number>
     childIds : <object>
+    chromeRole : {
+        type : internalRole
+        value : 0
+    }
     ignored : true
     ignoredReasons : [
+        [0] : {
+            name : uninteresting
+            value : {
+                type : boolean
+                value : true
+            }
+        }
     ]
     nodeId : <string>
     parentId : <string>
@@ -128,6 +155,10 @@ Tests Accessibility.getAXNodeAndAncestors
 {
     backendDOMNodeId : <number>
     childIds : <object>
+    chromeRole : {
+        type : internalRole
+        value : 144
+    }
     frameId : <string>
     ignored : false
     name : {

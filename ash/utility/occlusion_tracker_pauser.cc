@@ -1,11 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/utility/occlusion_tracker_pauser.h"
 
 #include "ash/shell.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/compositor/compositor.h"
 
@@ -34,7 +34,8 @@ void OcclusionTrackerPauser::PauseUntilAnimationsEnd(base::TimeDelta timeout) {
   }
 }
 
-void OcclusionTrackerPauser::OnLastAnimationEnded(ui::Compositor* compositor) {
+void OcclusionTrackerPauser::OnFirstNonAnimatedFrameStarted(
+    ui::Compositor* compositor) {
   OnFinish(compositor);
 }
 

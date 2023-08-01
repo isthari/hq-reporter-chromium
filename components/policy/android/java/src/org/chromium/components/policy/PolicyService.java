@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -101,7 +101,7 @@ public class PolicyService {
     }
 
     /**
-     * Pass the onPolicyServiceInitialized event to the |mObservers|.
+     * Pass the onPolicyUpdated event to the |mObservers|.
      */
     @CalledByNative
     private void onPolicyUpdated(PolicyMap previous, PolicyMap current) {

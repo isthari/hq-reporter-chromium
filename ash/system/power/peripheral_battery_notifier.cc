@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "ash/constants/ash_features.h"
+#include "ash/constants/notifier_catalogs.h"
 #include "ash/power/hid_battery_util.h"
 #include "ash/public/cpp/notification_utils.h"
 #include "ash/public/cpp/system_tray_client.h"
@@ -15,8 +16,9 @@
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/system/model/system_tray_model.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
+#include "base/memory/raw_ptr.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
@@ -59,7 +61,7 @@ struct NotificationParams {
   std::u16string message;
   std::string notifier_name;
   GURL url;
-  const gfx::VectorIcon* icon;
+  raw_ptr<const gfx::VectorIcon, ExperimentalAsh> icon;
 };
 
 NotificationParams GetNonStylusNotificationParams(const std::string& map_key,
@@ -239,11 +241,12 @@ void PeripheralBatteryNotifier::ShowOrUpdateNotification(
       },
       params));
 
-  auto notification = CreateSystemNotification(
+  auto notification = CreateSystemNotificationPtr(
       message_center::NOTIFICATION_TYPE_SIMPLE, params.id, params.title,
       params.message, std::u16string(), params.url,
       message_center::NotifierId(message_center::NotifierType::SYSTEM_COMPONENT,
-                                 params.notifier_name),
+                                 params.notifier_name,
+                                 NotificationCatalogName::kPeripheralBattery),
       message_center::RichNotificationData(), std::move(delegate), *params.icon,
       message_center::SystemNotificationWarningLevel::WARNING);
 

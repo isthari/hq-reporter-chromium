@@ -1,19 +1,19 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.background_sync;
 
 import static org.junit.Assert.assertEquals;
-import static org.mockito.Mockito.any;
-import static org.mockito.Mockito.anyBoolean;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import android.content.Context;
-import android.os.Bundle;
+import android.os.PersistableBundle;
 
 import org.junit.After;
 import org.junit.Before;
@@ -29,9 +29,9 @@ import org.robolectric.annotation.Config;
 
 import org.chromium.base.BaseSwitches;
 import org.chromium.base.Callback;
-import org.chromium.base.CommandLine;
 import org.chromium.base.SysUtils;
 import org.chromium.base.test.BaseRobolectricTestRunner;
+import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Feature;
 import org.chromium.base.test.util.JniMocker;
 import org.chromium.chrome.browser.device.ShadowDeviceConditions;
@@ -49,15 +49,12 @@ import org.chromium.net.ConnectionType;
  */
 @RunWith(BaseRobolectricTestRunner.class)
 @Config(manifest = Config.NONE, shadows = {ShadowDeviceConditions.class})
+@CommandLineFlags.Add({BaseSwitches.ENABLE_LOW_END_DEVICE_MODE})
 public class PeriodicBackgroundSyncChromeWakeUpTaskTest {
-    private static final String IS_LOW_END_DEVICE_SWITCH =
-            "--" + BaseSwitches.ENABLE_LOW_END_DEVICE_MODE;
-
-
     @Rule
     public JniMocker mocker = new JniMocker();
 
-    private Bundle mTaskExtras;
+    private PersistableBundle mTaskExtras;
     private long mTaskTime;
 
     @Mock
@@ -76,7 +73,7 @@ public class PeriodicBackgroundSyncChromeWakeUpTaskTest {
         MockitoAnnotations.initMocks(this);
         BackgroundTaskSchedulerFactory.setSchedulerForTesting(mTaskScheduler);
 
-        mTaskExtras = new Bundle();
+        mTaskExtras = new PersistableBundle();
 
         doReturn(true)
                 .when(mTaskScheduler)
@@ -84,16 +81,12 @@ public class PeriodicBackgroundSyncChromeWakeUpTaskTest {
 
         ShadowDeviceConditions.setCurrentNetworkConnectionType(ConnectionType.CONNECTION_NONE);
 
-        // Run tests as a low-end device.
-        CommandLine.init(new String[] {"testcommand", IS_LOW_END_DEVICE_SWITCH});
-
         mocker.mock(PeriodicBackgroundSyncChromeWakeUpTaskJni.TEST_HOOKS, mNativeMock);
     }
 
     @After
     public void tearDown() {
         // Clean up static state for subsequent Robolectric tests.
-        CommandLine.reset();
         SysUtils.resetForTesting();
     }
 

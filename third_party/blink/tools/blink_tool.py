@@ -1,4 +1,4 @@
-#!/usr/bin/env vpython
+#!/usr/bin/env vpython3
 # Copyright (c) 2011 Code Aurora Forum. All rights reserved.
 # Copyright (c) 2010 Google Inc. All rights reserved.
 # Copyright (c) 2009 Apple Inc. All rights reserved.
@@ -35,6 +35,7 @@ import logging
 import os
 import signal
 import sys
+import six
 
 from blinkpy.common.system.log_utils import configure_logging
 from blinkpy.tool.blink_tool import BlinkTool
@@ -62,10 +63,12 @@ class ForgivingUTF8Writer(codecs.lookup('utf-8')[-1]):
 # contain unicode strings (as with some peoples' names) we need to apply
 # the utf-8 codec to prevent throwing and exception.
 # Not having this was the cause of https://bugs.webkit.org/show_bug.cgi?id=63452.
-sys.stdout = ForgivingUTF8Writer(sys.stdout)
+# In PY3 default encoding is utf-8. Hence we don't need this.
+if six.PY2:
+    sys.stdout = ForgivingUTF8Writer(sys.stdout)
 
 
-def main():
+def main() -> int:
     # This is a hack to let us enable DEBUG logging as early as possible.
     # Note this can't be ternary as versioning.check_version()
     # hasn't run yet and this python might be older than 2.5.
@@ -74,11 +77,11 @@ def main():
     else:
         logging_level = logging.INFO
     configure_logging(logging_level=logging_level)
-    BlinkTool(os.path.abspath(__file__)).main()
+    return BlinkTool(os.path.abspath(__file__)).main()
 
 
 if __name__ == "__main__":
     try:
-        main()
+        sys.exit(main())
     except KeyboardInterrupt:
         sys.exit(signal.SIGINT + 128)

@@ -1,19 +1,20 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/power/auto_screen_brightness/als_file_reader.h"
 
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/process/launch.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
-#include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/time/time.h"
 #include "chrome/browser/ash/power/auto_screen_brightness/utils.h"
 #include "content/public/browser/browser_thread.h"
 
@@ -124,17 +125,16 @@ void AlsFileReader::OnAlsPathReadAttempted(const std::string& path) {
 
 void AlsFileReader::RetryAlsPath() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  base::PostTaskAndReplyWithResult(
-      blocking_task_runner_.get(), FROM_HERE, base::BindOnce(&GetAlsPath),
+  blocking_task_runner_->PostTaskAndReplyWithResult(
+      FROM_HERE, base::BindOnce(&GetAlsPath),
       base::BindOnce(&AlsFileReader::OnAlsPathReadAttempted,
                      weak_ptr_factory_.GetWeakPtr()));
 }
 
 void AlsFileReader::ReadAlsPeriodically() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  base::PostTaskAndReplyWithResult(
-      blocking_task_runner_.get(), FROM_HERE,
-      base::BindOnce(&ReadAlsFromFile, ambient_light_path_),
+  blocking_task_runner_->PostTaskAndReplyWithResult(
+      FROM_HERE, base::BindOnce(&ReadAlsFromFile, ambient_light_path_),
       base::BindOnce(&AlsFileReader::OnAlsRead,
                      weak_ptr_factory_.GetWeakPtr()));
 }

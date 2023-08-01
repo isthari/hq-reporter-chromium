@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@ import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ContextUtils;
+import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.search_engines.TemplateUrlServiceFactory;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.state.CriticalPersistedTabData;
@@ -90,9 +91,9 @@ public class TabAttributeCache {
             }
 
             @Override
-            public void onDidFinishNavigation(Tab tab, NavigationHandle navigationHandle) {
+            public void onDidFinishNavigationInPrimaryMainFrame(
+                    Tab tab, NavigationHandle navigationHandle) {
                 if (tab.isIncognito()) return;
-                if (!navigationHandle.isInPrimaryMainFrame()) return;
                 if (tab.getWebContents() == null) return;
                 // TODO(crbug.com/1048255): skip cacheLastSearchTerm() according to
                 //  isValidSearchFormUrl() and PageTransition.GENERATED for optimization.
@@ -121,17 +122,20 @@ public class TabAttributeCache {
             public void onTabStateInitialized() {
                 // TODO(wychen): after this cache is enabled by default, we only need to populate it
                 //  once.
-                getSharedPreferences().edit().clear().apply();
+                SharedPreferences.Editor editor = getSharedPreferences().edit();
+                editor.clear();
                 TabModelFilter filter =
                         mTabModelSelector.getTabModelFilterProvider().getTabModelFilter(false);
                 for (int i = 0; i < filter.getCount(); i++) {
                     Tab tab = filter.getTabAt(i);
-                    cacheUrl(tab.getId(), tab.getUrl());
-                    cacheTitle(tab.getId(), tab.getTitle());
-                    cacheRootId(tab.getId(), CriticalPersistedTabData.from(tab).getRootId());
-                    cacheTimestampMillis(
-                            tab.getId(), CriticalPersistedTabData.from(tab).getTimestampMillis());
+                    int id = tab.getId();
+                    editor.putString(getUrlKey(id), tab.getUrl().serialize());
+                    editor.putString(getTitleKey(id), tab.getTitle());
+                    CriticalPersistedTabData tabData = CriticalPersistedTabData.from(tab);
+                    editor.putInt(getRootIdKey(id), tabData.getRootId());
+                    editor.putLong(getTimestampMillisKey(id), tabData.getTimestampMillis());
                 }
+                editor.apply();
                 Tab currentTab = mTabModelSelector.getCurrentTab();
                 if (currentTab != null) cacheLastSearchTerm(currentTab);
                 filter.addObserver(mTabModelObserver);
@@ -295,15 +299,18 @@ public class TabAttributeCache {
         NavigationController controller = tab.getWebContents().getNavigationController();
         NavigationHistory history = controller.getNavigationHistory();
 
-        if (!TextUtils.isEmpty(
-                    TemplateUrlServiceFactory.get().getSearchQueryForUrl(tab.getUrl()))) {
+        Profile profile = Profile.fromWebContents(tab.getWebContents());
+        if (profile == null) return null;
+
+        TemplateUrlService templateUrlService = TemplateUrlServiceFactory.getForProfile(profile);
+        if (!TextUtils.isEmpty(templateUrlService.getSearchQueryForUrl(tab.getUrl()))) {
             // If we are already at a search result page, do not show the last search term.
             return null;
         }
 
         for (int i = history.getCurrentEntryIndex() - 1; i >= 0; i--) {
             GURL url = history.getEntryAtIndex(i).getOriginalUrl();
-            String query = TemplateUrlServiceFactory.get().getSearchQueryForUrl(url);
+            String query = templateUrlService.getSearchQueryForUrl(url);
             if (!TextUtils.isEmpty(query)) {
                 return removeEscapedCodePoints(query);
             }

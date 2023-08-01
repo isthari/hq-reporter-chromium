@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,15 +18,20 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/test/browser_task_environment.h"
-#include "content/public/test/browser_test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/common/input/synthetic_web_input_event_builders.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
+#include "third_party/blink/public/mojom/fenced_frame/fenced_frame.mojom.h"
+#include "third_party/blink/public/mojom/usb/web_usb_service.mojom-forward.h"
 #include "ui/base/page_transition_types.h"
 
 #if defined(USE_AURA)
 #include "ui/aura/test/aura_test_helper.h"
 #endif
+
+#if !BUILDFLAG(IS_ANDROID)
+#include "third_party/blink/public/mojom/hid/hid.mojom-forward.h"
+#endif  // !BUILDFLAG(IS_ANDROID)
 
 namespace aura {
 namespace test {
@@ -35,6 +40,9 @@ class AuraTestHelper;
 }  // namespace aura
 
 namespace blink {
+struct ParsedPermissionsPolicyDeclaration;
+using ParsedPermissionsPolicy = std::vector<ParsedPermissionsPolicyDeclaration>;
+
 namespace web_pref {
 struct WebPreferences;
 }
@@ -42,7 +50,8 @@ struct WebPreferences;
 
 namespace display {
 class Screen;
-}
+class ScopedNativeScreen;
+}  // namespace display
 
 namespace net {
 namespace test {
@@ -58,15 +67,17 @@ namespace content {
 
 class BrowserContext;
 class ContentBrowserConsistencyChecker;
+class InputMsgWatcher;
 class MockAgentSchedulingGroupHostFactory;
 class MockRenderProcessHost;
 class MockRenderProcessHostFactory;
 class NavigationController;
 class RenderProcessHostFactory;
+class TestNavigationURLLoaderFactory;
+class TestPageFactory;
 class TestRenderFrameHostFactory;
 class TestRenderViewHostFactory;
 class TestRenderWidgetHostFactory;
-class TestNavigationURLLoaderFactory;
 class WebContents;
 
 // An interface and utility for driving tests of RenderFrameHost.
@@ -111,6 +122,11 @@ class RenderFrameHostTester {
       const std::string& frame_name,
       const blink::ParsedPermissionsPolicy& allow) = 0;
 
+  // Same as AppendChild above, but simulates the `credentialless` attribute
+  // being added.
+  virtual RenderFrameHost* AppendCredentiallessChild(
+      const std::string& frame_name) = 0;
+
   // Gives tests access to RenderFrameHostImpl::OnDetach. Destroys |this|.
   virtual void Detach() = 0;
 
@@ -138,6 +154,16 @@ class RenderFrameHostTester {
 
   // Creates and appends a fenced frame.
   virtual RenderFrameHost* AppendFencedFrame() = 0;
+
+#if !BUILDFLAG(IS_ANDROID)
+  // Creates the HidService and binds `receiver`.
+  virtual void CreateHidServiceForTesting(
+      mojo::PendingReceiver<blink::mojom::HidService> receiever) = 0;
+#endif  // !BUILDFLAG(IS_ANDROID)
+
+  // Creates the WebUsbService and binds `receiver`.
+  virtual void CreateWebUsbServiceForTesting(
+      mojo::PendingReceiver<blink::mojom::WebUsbService> receiver) = 0;
 };
 
 // An interface and utility for driving tests of RenderViewHost.
@@ -175,7 +201,18 @@ class RenderViewHostTester {
 // RenderViewHostTester and RenderFrameHostTester respectively.
 class RenderViewHostTestEnabler {
  public:
-  RenderViewHostTestEnabler();
+  // Whether this RenderViewHostTestEnabler should create
+  // TestNavigationURLLoaderFactory or not.
+  enum class NavigationURLLoaderFactoryType {
+    // Create TestNavigationURLLoaderFactory.
+    kTest,
+    // Do not create TestRenderViewHostFactory. Useful for the tests which want
+    // to mock or customise the NavigationURLLoader creation logic themselves.
+    kNone,
+  };
+  explicit RenderViewHostTestEnabler(
+      NavigationURLLoaderFactoryType navigation_url_loader_factory_type =
+          NavigationURLLoaderFactoryType::kTest);
 
   RenderViewHostTestEnabler(const RenderViewHostTestEnabler&) = delete;
   RenderViewHostTestEnabler& operator=(const RenderViewHostTestEnabler&) =
@@ -191,6 +228,7 @@ class RenderViewHostTestEnabler {
   std::unique_ptr<base::test::SingleThreadTaskEnvironment> task_environment_;
   std::unique_ptr<MockRenderProcessHostFactory> rph_factory_;
   std::unique_ptr<MockAgentSchedulingGroupHostFactory> asgh_factory_;
+  std::unique_ptr<TestPageFactory> page_factory_;
   std::unique_ptr<TestRenderViewHostFactory> rvh_factory_;
   std::unique_ptr<TestRenderFrameHostFactory> rfh_factory_;
   std::unique_ptr<TestRenderWidgetHostFactory> rwhi_factory_;
@@ -221,11 +259,11 @@ class RenderViewHostTestHarness : public ::testing::Test {
   // RVH/RFH getters are shorthand for oft-used bits of web_contents().
 
   // rvh() is equivalent to either of:
-  //   web_contents()->GetMainFrame()->GetRenderViewHost()
+  //   web_contents()->GetPrimaryMainFrame()->GetRenderViewHost()
   //   web_contents()->GetRenderViewHost()
   RenderViewHost* rvh();
 
-  // main_rfh() is equivalent to web_contents()->GetMainFrame()
+  // main_rfh() is equivalent to web_contents()->GetPrimaryMainFrame()
   RenderFrameHost* main_rfh();
 
   BrowserContext* browser_context();
@@ -310,6 +348,9 @@ class RenderViewHostTestHarness : public ::testing::Test {
   std::unique_ptr<WebContents> contents_;
 #if BUILDFLAG(IS_WIN)
   std::unique_ptr<ui::ScopedOleInitializer> ole_initializer_;
+#endif
+#if BUILDFLAG(IS_MAC)
+  std::unique_ptr<display::ScopedNativeScreen> screen_;
 #endif
 #if defined(USE_AURA)
   std::unique_ptr<aura::test::AuraTestHelper> aura_test_helper_;

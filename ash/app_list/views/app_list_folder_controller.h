@@ -1,9 +1,11 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef ASH_APP_LIST_VIEWS_APP_LIST_FOLDER_CONTROLLER_H_
 #define ASH_APP_LIST_VIEWS_APP_LIST_FOLDER_CONTROLLER_H_
+
+#include "base/functional/callback_forward.h"
 
 namespace ash {
 
@@ -25,8 +27,10 @@ class AppListFolderController {
   // the associated folder item (`folder_item_view->item()`).
   // `focus_name_input` indicates whether the folder name textfield should
   // receive focus by default.
+  // `hide_callback` is a callback run when the folder view gets hidden.
   virtual void ShowFolderForItemView(AppListItemView* folder_item_view,
-                                     bool focus_name_input) = 0;
+                                     bool focus_name_input,
+                                     base::OnceClosure hide_callback) = 0;
 
   // Shows the root level apps list. Called when the UI navigates back from the
   // folder for `folder_item_view`. If `folder_item_view` is nullptr skips

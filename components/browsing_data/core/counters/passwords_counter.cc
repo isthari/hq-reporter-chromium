@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,12 +8,13 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
+#include "base/time/time.h"
 #include "components/browsing_data/core/pref_names.h"
 #include "components/password_manager/core/browser/password_manager_util.h"
 #include "components/password_manager/core/browser/password_store_change.h"
 #include "components/password_manager/core/browser/password_store_interface.h"
-#include "components/sync/driver/sync_service.h"
+#include "components/sync/service/sync_service.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "url/gurl.h"
 
@@ -26,12 +27,16 @@ bool IsPasswordSyncEnabled(const syncer::SyncService* sync_service) {
   switch (password_manager_util::GetPasswordSyncState(sync_service)) {
     case password_manager::SyncState::kNotSyncing:
     case password_manager::SyncState::kAccountPasswordsActiveNormalEncryption:
+    case password_manager::SyncState::
+        kAccountPasswordsActiveWithCustomPassphrase:
       return false;
     case password_manager::SyncState::kSyncingNormalEncryption:
     case password_manager::SyncState::kSyncingWithCustomPassphrase:
       return true;
   }
 }
+
+}  // namespace
 
 // PasswordStoreFetcher ----------------------------------
 
@@ -135,7 +140,7 @@ void PasswordStoreFetcher::OnGetPasswordStoreResults(
   std::sort(results.begin(), results.end(),
             [](const std::unique_ptr<password_manager::PasswordForm>& a,
                const std::unique_ptr<password_manager::PasswordForm>& b) {
-              return a->times_used > b->times_used;
+              return a->times_used_in_html_form > b->times_used_in_html_form;
             });
 
   std::vector<std::string> sorted_domains;
@@ -166,8 +171,6 @@ void PasswordStoreFetcher::CancelAllRequests() {
   cancelable_task_tracker()->TryCancelAll();
   weak_ptr_factory_.InvalidateWeakPtrs();
 }
-
-}  // namespace
 
 // PasswordsCounter::PasswordsResult ----------------------------------
 PasswordsCounter::PasswordsResult::PasswordsResult(
@@ -236,6 +239,10 @@ void PasswordsCounter::Count() {
       base::BindOnce(&PasswordsCounter::OnFetchDone, base::Unretained(this)));
 }
 
+void PasswordsCounter::OnPasswordsFetchDone() {
+  ReportResult(MakeResult());
+}
+
 std::unique_ptr<PasswordsCounter::PasswordsResult>
 PasswordsCounter::MakeResult() {
   DCHECK(!(is_sync_active() && num_account_passwords() > 0));
@@ -246,7 +253,7 @@ PasswordsCounter::MakeResult() {
 
 void PasswordsCounter::OnFetchDone() {
   if (--remaining_tasks_ == 0)
-    ReportResult(MakeResult());
+    OnPasswordsFetchDone();
 }
 
 }  // namespace browsing_data

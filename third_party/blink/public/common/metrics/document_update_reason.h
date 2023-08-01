@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,12 +20,15 @@ enum class DocumentUpdateReason {
   kBaseColor,
   kBeginMainFrame,
   kCanvas,
+  kComputedStyle,
   kContextMenu,
   kDisplayLock,
+  kViewTransition,
   kDragImage,
   kEditing,
   kFindInPage,
   kFocus,
+  kFocusgroup,
   kForm,
   kHitTest,
   kInput,
@@ -35,15 +38,18 @@ enum class DocumentUpdateReason {
   kOverlay,
   kPagePopup,
   kPlugin,
+  kPopover,
   kPrinting,
   kScroll,
   kSelection,
   kSizeChange,
   kSpatialNavigation,
   kSpellCheck,
+  kSMILAnimation,
   kSVGImage,
   kTapHighlight,
   kTest,
+  kWebAnimation,
   kUnknown
 };
 

@@ -1,10 +1,11 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/nacl/browser/nacl_process_host.h"
 
 #include <string.h>
+
 #include <algorithm>
 #include <memory>
 #include <string>
@@ -12,11 +13,10 @@
 #include <vector>
 
 #include "base/base_switches.h"
-#include "base/bind.h"
 #include "base/command_line.h"
-#include "base/cxx17_backports.h"
 #include "base/feature_list.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/path_service.h"
@@ -29,10 +29,8 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/sys_byteorder.h"
-#include "base/task/post_task.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "components/nacl/browser/nacl_browser.h"
@@ -48,10 +46,10 @@
 #include "content/public/browser/browser_child_process_host.h"
 #include "content/public/browser/browser_ppapi_host.h"
 #include "content/public/browser/child_process_data.h"
+#include "content/public/browser/child_process_host.h"
 #include "content/public/browser/plugin_service.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/child_process_host.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/process_type.h"
 #include "content/public/common/sandboxed_process_launcher_delegate.h"
@@ -62,14 +60,13 @@
 #include "ppapi/host/host_factory.h"
 #include "ppapi/host/ppapi_host.h"
 #include "ppapi/proxy/ppapi_messages.h"
-#include "ppapi/shared_impl/ppapi_constants.h"
 #include "ppapi/shared_impl/ppapi_nacl_plugin_args.h"
 #include "sandbox/policy/mojom/sandbox.mojom.h"
 #include "sandbox/policy/switches.h"
 
-#if BUILDFLAG(USE_ZYGOTE_HANDLE)
+#if BUILDFLAG(USE_ZYGOTE)
 #include "content/public/common/zygote/zygote_handle.h"  // nogncheck
-#endif  // BUILDFLAG(USE_ZYGOTE_HANDLE)
+#endif  // BUILDFLAG(USE_ZYGOTE)
 
 #if BUILDFLAG(IS_POSIX)
 
@@ -87,6 +84,7 @@
 #include "base/win/windows_version.h"
 #include "components/nacl/browser/nacl_broker_service_win.h"
 #include "components/nacl/common/nacl_debug_exception_handler_win.h"
+#include "sandbox/policy/win/sandbox_win.h"
 #endif
 
 using content::BrowserThread;
@@ -183,6 +181,11 @@ class NaClSandboxedProcessLauncherDelegate
     }
   }
 
+  std::string GetSandboxTag() override {
+    return sandbox::policy::SandboxWin::GetSandboxTagForDelegate(
+        "nacl-process-host", GetSandboxType());
+  }
+
   bool CetCompatible() override {
     // Disable CET for NaCl loader processes as x86 NaCl sandboxes are not CET
     // compatible. NaCl untrusted code is allowed to switch stacks within the
@@ -191,11 +194,11 @@ class NaClSandboxedProcessLauncherDelegate
   }
 #endif  // BUILDFLAG(IS_WIN)
 
-#if BUILDFLAG(USE_ZYGOTE_HANDLE)
-  content::ZygoteHandle GetZygote() override {
+#if BUILDFLAG(USE_ZYGOTE)
+  content::ZygoteCommunication* GetZygote() override {
     return content::GetGenericZygote();
   }
-#endif  // BUILDFLAG(USE_ZYGOTE_HANDLE)
+#endif  // BUILDFLAG(USE_ZYGOTE)
 
   sandbox::mojom::Sandbox GetSandboxType() override {
     return sandbox::mojom::Sandbox::kPpapi;
@@ -814,8 +817,8 @@ bool NaClProcessHost::StartPPAPIProxy(
 
   ipc_proxy_channel_ = IPC::ChannelProxy::Create(
       channel_handle.release(), IPC::Channel::MODE_CLIENT, nullptr,
-      base::ThreadTaskRunnerHandle::Get().get(),
-      base::ThreadTaskRunnerHandle::Get().get());
+      base::SingleThreadTaskRunner::GetCurrentDefault().get(),
+      base::SingleThreadTaskRunner::GetCurrentDefault().get());
   // Create the browser ppapi host and enable PPAPI message dispatching to the
   // browser process.
   ppapi_host_.reset(content::BrowserPpapiHost::CreateExternalPluginProcess(
@@ -832,7 +835,7 @@ bool NaClProcessHost::StartPPAPIProxy(
       switches::kV,
       switches::kVModule,
   };
-  for (size_t i = 0; i < base::size(flag_allowlist); ++i) {
+  for (size_t i = 0; i < std::size(flag_allowlist); ++i) {
     std::string value = cmdline->GetSwitchValueASCII(flag_allowlist[i]);
     if (!value.empty()) {
       args.switch_names.push_back(flag_allowlist[i]);
@@ -1050,7 +1053,8 @@ bool NaClProcessHost::AttachDebugExceptionHandler(const std::string& info,
                info);
   }
   NaClStartDebugExceptionHandlerThread(
-      std::move(process), info, base::ThreadTaskRunnerHandle::Get(),
+      std::move(process), info,
+      base::SingleThreadTaskRunner::GetCurrentDefault(),
       base::BindRepeating(
           &NaClProcessHost::OnDebugExceptionHandlerLaunchedByBroker,
           weak_factory_.GetWeakPtr()));

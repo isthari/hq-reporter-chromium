@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,49 +7,38 @@
  * delete browsing data that has been cached by Chromium.
  */
 
-import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
-import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.m.js';
+import 'chrome://resources/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
 import 'chrome://resources/cr_elements/cr_tabs/cr_tabs.js';
-import 'chrome://resources/cr_elements/shared_vars_css.m.js';
+import 'chrome://resources/cr_elements/cr_shared_vars.css.js';
 import 'chrome://resources/polymer/v3_0/iron-pages/iron-pages.js';
 import 'chrome://resources/polymer/v3_0/paper-spinner/paper-spinner-lite.js';
 import './history_deletion_dialog.js';
 import './passwords_deletion_dialog.js';
-import './installed_app_checkbox.js';
 import '../controls/settings_checkbox.js';
-import '../icons.js';
-import '../settings_shared_css.js';
+import '../icons.html.js';
+import '../settings_shared.css.js';
 
-import {CrDialogElement} from 'chrome://resources/cr_elements/cr_dialog/cr_dialog.m.js';
-import {assert} from 'chrome://resources/js/assert.m.js';
-import {I18nMixin, I18nMixinInterface} from 'chrome://resources/js/i18n_mixin.js';
-import {WebUIListenerMixin, WebUIListenerMixinInterface} from 'chrome://resources/js/web_ui_listener_mixin.js';
-import {IronA11yAnnouncer} from 'chrome://resources/polymer/v3_0/iron-a11y-announcer/iron-a11y-announcer.js';
+import {PrefControlMixinInterface} from '/shared/settings/controls/pref_control_mixin.js';
+import {DropdownMenuOptionList} from '/shared/settings/controls/settings_dropdown_menu.js';
+import {StatusAction, SyncBrowserProxy, SyncBrowserProxyImpl, SyncStatus} from '/shared/settings/people_page/sync_browser_proxy.js';
+import {getInstance as getAnnouncerInstance} from 'chrome://resources/cr_elements/cr_a11y_announcer/cr_a11y_announcer.js';
+import {CrDialogElement} from 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
+import {I18nMixin} from 'chrome://resources/cr_elements/i18n_mixin.js';
+import {WebUiListenerMixin} from 'chrome://resources/cr_elements/web_ui_listener_mixin.js';
+import {assert} from 'chrome://resources/js/assert_ts.js';
+import {FocusOutlineManager} from 'chrome://resources/js/focus_outline_manager.js';
+import {sanitizeInnerHtml} from 'chrome://resources/js/parse_html_subset.js';
 import {IronPagesElement} from 'chrome://resources/polymer/v3_0/iron-pages/iron-pages.js';
-import {html, PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
+import {PolymerElement} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {PrefControlMixinInterface} from '../controls/pref_control_mixin.js';
 import {SettingsCheckboxElement} from '../controls/settings_checkbox.js';
-import {DropdownMenuOptionList} from '../controls/settings_dropdown_menu.js';
-import {SettingsDropdownMenuElement} from '../controls/settings_dropdown_menu.js';
 import {loadTimeData} from '../i18n_setup.js';
-import {StatusAction, SyncBrowserProxy, SyncBrowserProxyImpl, SyncStatus} from '../people_page/sync_browser_proxy.js';
 import {routes} from '../route.js';
-import {Route, RouteObserverMixin, RouteObserverMixinInterface, Router} from '../router.js';
+import {Route, RouteObserverMixin, Router} from '../router.js';
 
-import {ClearBrowsingDataBrowserProxy, ClearBrowsingDataBrowserProxyImpl, InstalledApp, UpdateSyncStateEvent} from './clear_browsing_data_browser_proxy.js';
-
-/**
- * InstalledAppsDialogActions enum.
- * These values are persisted to logs and should not be renumbered or
- * re-used.
- * See tools/metrics/histograms/enums.xml.
- */
-enum InstalledAppsDialogActions {
-  CLOSE = 0,
-  CANCEL_BUTTON = 1,
-  CLEAR_BUTTON = 2,
-}
+import {ClearBrowsingDataBrowserProxy, ClearBrowsingDataBrowserProxyImpl, UpdateSyncStateEvent} from './clear_browsing_data_browser_proxy.js';
+import {getTemplate} from './clear_browsing_data_dialog.html.js';
 
 /**
  * @param dialog the dialog to close
@@ -66,33 +55,17 @@ function closeDialog(dialog: CrDialogElement, isLast: boolean) {
   dialog.close();
 }
 
-/**
- * @param oldDialog the dialog to close
- * @param newDialog the dialog to open
- */
-function replaceDialog(oldDialog: CrDialogElement, newDialog: CrDialogElement) {
-  closeDialog(oldDialog, false);
-  if (!newDialog.open) {
-    newDialog.showModal();
-  }
-}
-
 export interface SettingsClearBrowsingDataDialogElement {
   $: {
-    installedAppsConfirm: HTMLElement,
     clearBrowsingDataConfirm: HTMLElement,
     cookiesCheckboxBasic: SettingsCheckboxElement,
     clearBrowsingDataDialog: CrDialogElement,
-    installedAppsDialog: CrDialogElement,
     tabs: IronPagesElement,
   };
 }
 
 const SettingsClearBrowsingDataDialogElementBase =
-    RouteObserverMixin(WebUIListenerMixin(I18nMixin(PolymerElement))) as {
-      new (): PolymerElement & WebUIListenerMixinInterface &
-      I18nMixinInterface & RouteObserverMixinInterface
-    };
+    RouteObserverMixin(WebUiListenerMixin(I18nMixin(PolymerElement)));
 
 export class SettingsClearBrowsingDataDialogElement extends
     SettingsClearBrowsingDataDialogElementBase {
@@ -101,7 +74,7 @@ export class SettingsClearBrowsingDataDialogElement extends
   }
 
   static get template() {
-    return html`{__html_template__}`;
+    return getTemplate();
   }
 
   static get properties() {
@@ -129,7 +102,7 @@ export class SettingsClearBrowsingDataDialogElement extends
         // Will be filled as results are reported.
         value() {
           return {};
-        }
+        },
       },
 
       /**
@@ -162,10 +135,11 @@ export class SettingsClearBrowsingDataDialogElement extends
         value: false,
       },
 
-      isChildAccount_: {
+      isChildAccountWithDisallowedHistoryDeletion_: {
         type: Boolean,
         value() {
-          return loadTimeData.getBoolean('isChildAccount');
+          return loadTimeData.getBoolean('isChildAccount') &&
+                 !loadTimeData.getBoolean('allowDeletingBrowserHistory');
         },
       },
 
@@ -231,25 +205,6 @@ export class SettingsClearBrowsingDataDialogElement extends
     ],
       },
 
-      /**
-       * Installed apps that might be cleared if the user clears browsing data
-       * for the selected time period.
-       */
-      installedApps_: {
-        type: Array,
-        value: () => [],
-      },
-
-      installedAppsFlagEnabled_: {
-        type: Boolean,
-        value: () => loadTimeData.getBoolean('installedAppsInCbd'),
-      },
-
-      searchHistoryLinkFlagEnabled_: {
-        type: Boolean,
-        value: () => loadTimeData.getBoolean('searchHistoryLink'),
-      },
-
       googleSearchHistoryString_: {
         type: String,
         computed: 'computeGoogleSearchHistoryString_(isNonGoogleDse_)',
@@ -271,7 +226,7 @@ export class SettingsClearBrowsingDataDialogElement extends
   private clearingInProgress_: boolean;
   private clearingDataAlertString_: string;
   private clearButtonDisabled_: boolean;
-  private isChildAccount_: boolean;
+  private isChildAccountWithDisallowedHistoryDeletion_: boolean;
   private showHistoryDeletionDialog_: boolean;
   private showPasswordsDeletionDialogLater_: boolean;
   private showPasswordsDeletionDialog_: boolean;
@@ -282,41 +237,50 @@ export class SettingsClearBrowsingDataDialogElement extends
   private isSyncPaused_: boolean;
   private hasPassphraseError_: boolean;
   private hasOtherSyncError_: boolean;
-  private tabsNames_: Array<string>;
-  private installedApps_: Array<InstalledApp>;
-  private installedAppsFlagEnabled_: boolean;
-  private searchHistoryLinkFlagEnabled_: boolean;
-  private googleSearchHistoryString_: string;
+  private tabsNames_: string[];
+  private googleSearchHistoryString_: TrustedHTML;
   private isNonGoogleDse_: boolean;
-  private nonGoogleSearchHistoryString_: string;
+  private nonGoogleSearchHistoryString_: TrustedHTML;
+  private focusOutlineManager_: FocusOutlineManager;
 
   private browserProxy_: ClearBrowsingDataBrowserProxy =
       ClearBrowsingDataBrowserProxyImpl.getInstance();
   private syncBrowserProxy_: SyncBrowserProxy =
       SyncBrowserProxyImpl.getInstance();
 
-  ready() {
+  override ready() {
     super.ready();
 
     this.syncBrowserProxy_.getSyncStatus().then(
         this.handleSyncStatus_.bind(this));
-    this.addWebUIListener(
+    this.addWebUiListener(
         'sync-status-changed', this.handleSyncStatus_.bind(this));
 
-    this.addWebUIListener(
+    this.addWebUiListener(
         'update-sync-state', this.updateSyncState_.bind(this));
-    this.addWebUIListener(
+    this.addWebUiListener(
         'update-counter-text', this.updateCounterText_.bind(this));
 
     this.addEventListener(
         'settings-boolean-control-change', this.updateClearButtonState_);
   }
 
-  connectedCallback() {
+  override connectedCallback() {
     super.connectedCallback();
 
     this.browserProxy_.initialize().then(() => {
       this.$.clearBrowsingDataDialog.showModal();
+
+      // AutoFocus is not visible in mouse navigation by default. But in this
+      // dialog the default focus is on cancel which is not a default button. To
+      // make this clear to the user we make it visible to the user and remove
+      // the focus after the next mouse event.
+      this.focusOutlineManager_ = FocusOutlineManager.forDocument(document);
+
+      this.focusOutlineManager_.visible = true;
+      document.addEventListener('mousedown', () => {
+        this.focusOutlineManager_.visible = false;
+      }, {once: true});
     });
   }
 
@@ -354,7 +318,7 @@ export class SettingsClearBrowsingDataDialogElement extends
    *
    * RouteObserverMixin
    */
-  currentRouteChanged(currentRoute: Route) {
+  override currentRouteChanged(currentRoute: Route) {
     if (currentRoute === routes.CLEAR_BROWSER_DATA) {
       chrome.metricsPrivate.recordUserAction('ClearBrowsingData_DialogCreated');
     }
@@ -371,23 +335,15 @@ export class SettingsClearBrowsingDataDialogElement extends
     this.shouldShowCookieException_ = event.shouldShowCookieException;
     this.$.clearBrowsingDataDialog.classList.add('fully-rendered');
     this.isNonGoogleDse_ = event.isNonGoogleDse;
-    this.nonGoogleSearchHistoryString_ = event.nonGoogleSearchHistoryString;
+    this.nonGoogleSearchHistoryString_ =
+        sanitizeInnerHtml(event.nonGoogleSearchHistoryString);
   }
 
   /** Choose a label for the history checkbox. */
   private browsingCheckboxLabel_(
-      isSyncConsented: boolean, isSyncingHistory: boolean,
-      hasSyncError: boolean, historySummary: string,
-      historySummarySignedIn: string, historySummarySignedInNoLink: string,
-      historySummarySynced: string): string {
-    if (this.searchHistoryLinkFlagEnabled_) {
-      return isSyncingHistory ? historySummarySignedInNoLink : historySummary;
-    } else if (isSyncingHistory && !hasSyncError) {
-      return historySummarySynced;
-    } else if (isSyncConsented && !this.isSyncPaused_) {
-      return historySummarySignedIn;
-    }
-    return historySummary;
+      isSyncingHistory: boolean, historySummary: string,
+      historySummarySignedInNoLink: string): string {
+    return isSyncingHistory ? historySummarySignedInNoLink : historySummary;
   }
 
   /** Choose a label for the cookie checkbox. */
@@ -397,6 +353,11 @@ export class SettingsClearBrowsingDataDialogElement extends
     if (shouldShowCookieException) {
       return cookiesSummarySignedIn;
     }
+    // <if expr="chromeos_lacros">
+    if (!loadTimeData.getBoolean('isSecondaryUser')) {
+      return loadTimeData.getString('clearCookiesSummarySignedInMainProfile');
+    }
+    // </if>
     return cookiesSummary;
   }
 
@@ -410,62 +371,22 @@ export class SettingsClearBrowsingDataDialogElement extends
     // Data type deletion preferences are named "browser.clear_data.<datatype>".
     // Strip the common prefix, i.e. use only "<datatype>".
     const matches = prefName.match(/^browser\.clear_data\.(\w+)$/)!;
-    this.set('counters_.' + assert(matches[1]), text);
+    assert(matches[1]);
+    this.set('counters_.' + matches[1], text);
   }
 
   /**
    * @return A list of selected data types.
    */
-  private getSelectedDataTypes_(tab: HTMLElement): Array<string> {
+  private getSelectedDataTypes_(tab: HTMLElement): string[] {
     const checkboxes = tab.querySelectorAll('settings-checkbox');
-    const dataTypes: Array<string> = [];
+    const dataTypes: string[] = [];
     checkboxes.forEach((checkbox) => {
       if (checkbox.checked && !checkbox.hidden) {
         dataTypes.push(checkbox.pref!.key);
       }
     });
     return dataTypes;
-  }
-
-  /**
-   * Gets a list of top 5 installed apps that have been launched
-   * within the time period selected. This is used to warn the user
-   * that data for these apps will be cleared as well, and offers
-   * them the option to exclude deletion of this data.
-   */
-  private async getInstalledApps_() {
-    const tab = this.$.tabs.selectedItem as HTMLElement;
-    const timePeriod = tab.querySelector<SettingsDropdownMenuElement>(
-                              '.time-range-select')!.pref!.value;
-    this.installedApps_ = await this.browserProxy_.getInstalledApps(timePeriod);
-  }
-
-  private shouldShowInstalledApps_(): boolean {
-    if (!this.installedAppsFlagEnabled_) {
-      return false;
-    }
-    const haveInstalledApps = this.installedApps_.length > 0;
-    chrome.send('metricsHandler:recordBooleanHistogram', [
-      'History.ClearBrowsingData.InstalledAppsDialogShown', haveInstalledApps
-    ]);
-    return haveInstalledApps;
-  }
-
-  /** Logs interactions with the installed app dialog to UMA. */
-  private recordInstalledAppsInteractions_() {
-    if (this.installedApps_.length === 0) {
-      return;
-    }
-
-    const uncheckedAppCount =
-        this.installedApps_.filter(app => !app.isChecked).length;
-    chrome.metricsPrivate.recordBoolean(
-        'History.ClearBrowsingData.InstalledAppExcluded', !!uncheckedAppCount);
-    chrome.metricsPrivate.recordCount(
-        'History.ClearBrowsingData.InstalledDeselectedNum', uncheckedAppCount);
-    chrome.metricsPrivate.recordPercentage(
-        'History.ClearBrowsingData.InstalledDeselectedPercent',
-        Math.round(100 * uncheckedAppCount / this.installedApps_.length));
   }
 
   /** Clears browsing data and maybe shows a history notice. */
@@ -490,15 +411,9 @@ export class SettingsClearBrowsingDataDialogElement extends
         .forEach(checkbox => checkbox.sendPrefChange());
 
     const {showHistoryNotice, showPasswordsNotice} =
-        await this.browserProxy_.clearBrowsingData(
-            dataTypes, timePeriod, this.installedApps_);
+        await this.browserProxy_.clearBrowsingData(dataTypes, timePeriod);
     this.clearingInProgress_ = false;
-    IronA11yAnnouncer.requestAvailability();
-    this.dispatchEvent(new CustomEvent('iron-announce', {
-      bubbles: true,
-      composed: true,
-      detail: {text: loadTimeData.getString('clearedData')}
-    }));
+    getAnnouncerInstance().announce(loadTimeData.getString('clearedData'));
     this.showHistoryDeletionDialog_ = showHistoryNotice;
     // If both the history notice and the passwords notice should be shown, show
     // the history notice first, and then show the passwords notice once the
@@ -508,17 +423,14 @@ export class SettingsClearBrowsingDataDialogElement extends
     this.showPasswordsDeletionDialogLater_ =
         showPasswordsNotice && showHistoryNotice;
 
-    // Close the clear browsing data or installed apps dialog if they are open.
+    // Close the clear browsing data if it is open.
     const isLastDialog = !showHistoryNotice && !showPasswordsNotice;
     if (this.$.clearBrowsingDataDialog.open) {
       closeDialog(this.$.clearBrowsingDataDialog, isLastDialog);
     }
-    if (this.$.installedAppsDialog.open) {
-      closeDialog(this.$.installedAppsDialog, isLastDialog);
-    }
   }
 
-  private onCancelTap_() {
+  private onCancelClick_() {
     this.$.clearBrowsingDataDialog.cancel();
   }
 
@@ -556,7 +468,7 @@ export class SettingsClearBrowsingDataDialogElement extends
     }
   }
 
-  // <if expr="not chromeos">
+  // <if expr="not chromeos_ash">
   /** Called when the user clicks the link in the footer. */
   private onSyncDescriptionLinkClicked_(e: Event) {
     if ((e.target as HTMLElement).tagName === 'A') {
@@ -598,62 +510,19 @@ export class SettingsClearBrowsingDataDialogElement extends
         !this.isSyncPaused_ && !this.hasPassphraseError_;
   }
 
-  private computeGoogleSearchHistoryString_(isNonGoogleDse: boolean): string {
+  private computeGoogleSearchHistoryString_(isNonGoogleDse: boolean):
+      TrustedHTML {
     return isNonGoogleDse ?
         this.i18nAdvanced('clearGoogleSearchHistoryNonGoogleDse') :
         this.i18nAdvanced('clearGoogleSearchHistoryGoogleDse');
   }
 
-  private shouldShowGoogleSearchHistoryLabel_(isSignedIn: boolean): boolean {
-    return this.searchHistoryLinkFlagEnabled_ && isSignedIn;
-  }
-
-  private shouldShowNonGoogleSearchHistoryLabel_(isNonGoogleDse: boolean):
-      boolean {
-    return this.searchHistoryLinkFlagEnabled_ && isNonGoogleDse;
-  }
-
   private shouldShowFooter_(): boolean {
     let showFooter = false;
-    // <if expr="not chromeos and not lacros">
+    // <if expr="not is_chromeos">
     showFooter = !!this.syncStatus && !!this.syncStatus!.signedIn;
     // </if>
     return showFooter;
-  }
-
-  private async onClearBrowsingDataClick_() {
-    await this.getInstalledApps_();
-    if (this.shouldShowInstalledApps_()) {
-      replaceDialog(this.$.clearBrowsingDataDialog, this.$.installedAppsDialog);
-    } else {
-      await this.clearBrowsingData_();
-    }
-  }
-
-  private hideInstalledApps_() {
-    chrome.metricsPrivate.recordEnumerationValue(
-        'History.ClearBrowsingData.InstalledAppsDialogAction',
-        InstalledAppsDialogActions.CLOSE,
-        Object.keys(InstalledAppsDialogActions).length);
-    replaceDialog(this.$.installedAppsDialog, this.$.clearBrowsingDataDialog);
-  }
-
-  private onCancelInstalledApps_() {
-    chrome.metricsPrivate.recordEnumerationValue(
-        'History.ClearBrowsingData.InstalledAppsDialogAction',
-        InstalledAppsDialogActions.CANCEL_BUTTON,
-        Object.keys(InstalledAppsDialogActions).length);
-    replaceDialog(this.$.installedAppsDialog, this.$.clearBrowsingDataDialog);
-  }
-
-  /** Handles the tap confirm button in installed apps. */
-  private async onInstalledAppsConfirmClick_() {
-    chrome.metricsPrivate.recordEnumerationValue(
-        'History.ClearBrowsingData.InstalledAppsDialogAction',
-        InstalledAppsDialogActions.CLEAR_BUTTON,
-        Object.keys(InstalledAppsDialogActions).length);
-    this.recordInstalledAppsInteractions_();
-    await this.clearBrowsingData_();
   }
 }
 

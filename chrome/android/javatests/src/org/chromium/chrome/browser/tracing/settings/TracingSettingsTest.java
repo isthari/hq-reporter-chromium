@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,7 +10,6 @@ import android.app.Notification;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
-import android.support.test.InstrumentationRegistry;
 import android.util.Pair;
 
 import androidx.core.app.NotificationCompat;
@@ -18,8 +17,10 @@ import androidx.preference.CheckBoxPreference;
 import androidx.preference.ListPreference;
 import androidx.preference.Preference;
 import androidx.preference.PreferenceFragmentCompat;
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.MediumTest;
 import androidx.test.filters.SmallTest;
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.hamcrest.Matchers;
 import org.junit.After;
@@ -33,8 +34,6 @@ import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
-import org.chromium.base.test.util.DisableIf;
-import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.settings.SettingsActivity;
@@ -144,8 +143,6 @@ public class TracingSettingsTest {
     @Test
     @MediumTest
     @Feature({"Preferences"})
-    @DisabledTest
-    @DisableIf.Build(sdk_is_less_than = 21, message = "crbug.com/899894")
     public void testRecordTrace() throws Exception {
         mActivityTestRule.startMainActivityOnBlankPage();
         mSettingsActivityTestRule.startSettingsActivity();
@@ -274,7 +271,6 @@ public class TracingSettingsTest {
     @Test
     @MediumTest
     @Feature({"Preferences"})
-    @DisableIf.Build(sdk_is_less_than = 24, message = "crbug.com/1233456")
     public void testSelectCategories() throws Exception {
         // We need a renderer so that its tracing categories will be populated.
         mActivityTestRule.startMainActivityOnBlankPage();
@@ -302,7 +298,7 @@ public class TracingSettingsTest {
 
             // Simulate clicking the preference, which should open a new preferences fragment in
             // a new activity.
-            Context context = InstrumentationRegistry.getTargetContext();
+            Context context = ApplicationProvider.getApplicationContext();
             Assert.assertNotNull(categoriesPref.getExtras());
             Assert.assertFalse(categoriesPref.getExtras().isEmpty());
             SettingsLauncher settingsLauncher = new SettingsLauncherImpl();

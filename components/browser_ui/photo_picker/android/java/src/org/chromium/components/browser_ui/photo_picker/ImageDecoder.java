@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,8 +40,7 @@ public class ImageDecoder extends IDecoderService.Stub {
     private boolean mSandboxInitialized;
 
     /**
-     * Initializes the seccomp-bpf sandbox when it's supported by the device. Records the
-     * sandbox status to the Android.SeccompStatus.PhotoPickerSandbox histogram.
+     * Initializes the seccomp-bpf sandbox when it's supported by the device.
      */
     public void initializeSandbox() {
         ImageDecoderJni.get().initializePhotoPickerSandbox();

@@ -1,16 +1,17 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_ASH_LOGIN_TEST_LOGGED_IN_USER_MIXIN_H_
 #define CHROME_BROWSER_ASH_LOGIN_TEST_LOGGED_IN_USER_MIXIN_H_
 
-#include "chrome/browser/ash/login/test/embedded_policy_test_server_mixin.h"
+#include "base/memory/raw_ptr.h"
 #include "chrome/browser/ash/login/test/embedded_test_server_setup_mixin.h"
-#include "chrome/browser/ash/login/test/fake_gaia_mixin.h"
 #include "chrome/browser/ash/login/test/login_manager_mixin.h"
 #include "chrome/browser/ash/login/test/user_policy_mixin.h"
 #include "chrome/browser/ash/policy/core/user_policy_test_helper.h"
+#include "chrome/browser/ash/policy/test_support/embedded_policy_test_server_mixin.h"
+#include "chrome/test/base/fake_gaia_mixin.h"
 #include "chrome/test/base/mixin_based_in_process_browser_test.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
@@ -122,15 +123,9 @@ class LoggedInUserMixin : public InProcessBrowserTestMixin {
   EmbeddedTestServerSetupMixin embedded_test_server_setup_;
   FakeGaiaMixin fake_gaia_;
 
-  InProcessBrowserTest* test_base_;
+  raw_ptr<InProcessBrowserTest, ExperimentalAsh> test_base_;
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove after the //chrome/browser/chromeos
-// source migration is finished.
-namespace chromeos {
-using ::ash::LoggedInUserMixin;
-}
 
 #endif  // CHROME_BROWSER_ASH_LOGIN_TEST_LOGGED_IN_USER_MIXIN_H_

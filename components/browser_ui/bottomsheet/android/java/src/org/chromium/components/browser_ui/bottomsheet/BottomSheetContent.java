@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@ import android.view.View;
 import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 
-import org.chromium.base.Callback;
+import org.chromium.base.supplier.ObservableSupplierImpl;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -104,8 +104,18 @@ public interface BottomSheetContent {
     };
 
     /**
-     * @return Whether this content owns its lifecycle. If false, the content will be hidden
-     *         when the user navigates away from the page or switches tab.
+     * @return Whether this content owns its lifecycle. If false, the content will be dismissed
+     *         when the user navigates away from the page, switches tabs, or a layout change
+     *         occurs.
+     *
+     * If a BottomSheetContent ever needs to suppress across a layout state change rather than
+     * being dismissed this can be addressed by:
+     * * Registering a LayoutStateObserver to re-request to be shown when the correct LayoutType
+     *   finishes showing.
+     * * For LayoutType.BROWSING also registering a TabModelSelectorObserver to dismiss if
+     *   a tab switch occurs.
+     * * The client is responsible for restoring any previous state of the BottomSheetContent
+     *   and the View's it hosts.
      */
     default boolean hasCustomLifecycle() {
         return false;
@@ -154,19 +164,7 @@ public interface BottomSheetContent {
     }
 
     /**
-     * Set a {@link ContentSizeListener} that should be notified when the size of the content
-     * has changed. This will be called only if {@link #getFullHeightRatio()} returns {@link
-     * HeightMode#WRAP_CONTENT}. Note that you need to implement this method only if the content
-     * view height changes are animated.
-     *
-     * @return Whether the listener was correctly set.
-     */
-    default boolean setContentSizeListener(@Nullable ContentSizeListener listener) {
-        return false;
-    }
-
-    /**
-     * @return Whether the sheet should be hidden when it is in the PEEK state and the user
+     * @return Whether the sheet should be hidden when it is in the PEEK/HALF state and the user
      *         scrolls down the page.
      */
     default boolean hideOnScroll() {
@@ -182,6 +180,23 @@ public interface BottomSheetContent {
     default boolean handleBackPress() {
         return false;
     }
+
+    /**
+     * @return An observable supplier that will hold true if the content will intercept and handle a
+     *         back press event, false otherwise. If left {@code false}, the sheet will collapse to
+     *         its minimum state on back press or do nothing if in the minimum / peeking state.
+     */
+    default ObservableSupplierImpl<Boolean> getBackPressStateChangedSupplier() {
+        ObservableSupplierImpl<Boolean> supplier = new ObservableSupplierImpl<>();
+        supplier.set(false);
+        return supplier;
+    }
+
+    /**
+     * Invoked in the event of a back press that is pre-emptively determined by
+     * #getBackPressStateChangedSupplier.
+     */
+    default void onBackPressed() {}
 
     /**
      * @return The resource id of the content description for the bottom sheet. This is
@@ -207,23 +222,4 @@ public interface BottomSheetContent {
      *         typically the name of your feature followed by 'closed'.
      */
     int getSheetClosedAccessibilityStringId();
-
-    /**
-     * Return {@code true} if the content expects {@link #setOffsetController} to be called.
-     *
-     * This is an experimental feature. Use it at your own risks. TODO(b/177037825): Remove or
-     * cleanup.
-     */
-    default boolean contentControlsOffset() {
-        return false;
-    }
-
-    /**
-     * Set or reset the set offset callback.
-     *
-     * The active content can use this callback to move the sheet to the given offset.
-     *
-     * Only called if {@link #contentControlsOffset} returns {@code true}.
-     */
-    default void setOffsetController(@Nullable Callback<Integer> setOffset) {}
 }

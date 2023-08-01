@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Copyright 2010 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,10 @@
 #include <utility>
 
 #include "chrome/browser/ui/cocoa/status_icons/status_icon_mac.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 std::unique_ptr<StatusTray> StatusTray::Create() {
   return std::make_unique<StatusTrayMac>();

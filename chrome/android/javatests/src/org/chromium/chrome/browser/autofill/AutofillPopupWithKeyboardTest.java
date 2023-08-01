@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,12 +26,12 @@ import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.util.browser.Features;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.test.util.DOMUtils;
 import org.chromium.content_public.browser.test.util.TestThreadUtils;
 import org.chromium.ui.DropdownPopupWindowInterface;
-import org.chromium.ui.R;
 
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
@@ -58,7 +58,7 @@ public class AutofillPopupWithKeyboardTest {
     @Test
     @MediumTest
     @Feature({"autofill-keyboard"})
-    @DisabledTest
+    @DisabledTest(message = "crbug.com/921062")
     public void testShowAutofillPopupAndKeyboardimultaneously() throws TimeoutException {
         mActivityTestRule.startMainActivityWithURL(UrlUtils.encodeHtmlDataUri("<html><head>"
                 + "<meta name=\"viewport\""
@@ -80,9 +80,18 @@ public class AutofillPopupWithKeyboardTest {
                 + "</select>"
                 + "<input type=\"submit\" />"
                 + "</form></body></html>"));
-        new AutofillTestHelper().setProfile(new AutofillProfile("", "https://www.example.com",
-                "" /* honorific prefix */, "John Smith", "Acme Inc", "1 Main\nApt A", "CA",
-                "San Francisco", "", "94102", "", "US", "(415) 888-9999", "john@acme.inc", "en"));
+        new AutofillTestHelper().setProfile(AutofillProfile.builder()
+                                                    .setFullName("John Smith")
+                                                    .setCompanyName("Acme Inc")
+                                                    .setStreetAddress("1 Main\nApt A")
+                                                    .setRegion("CA")
+                                                    .setLocality("San Francisco")
+                                                    .setPostalCode("94102")
+                                                    .setCountryCode("US")
+                                                    .setPhoneNumber("(415) 888-9999")
+                                                    .setEmailAddress("john@acme.inc")
+                                                    .setLanguageCode("en")
+                                                    .build());
         final AtomicReference<WebContents> webContentsRef = new AtomicReference<WebContents>();
         final AtomicReference<ViewGroup> viewRef = new AtomicReference<ViewGroup>();
         TestThreadUtils.runOnUiThreadBlocking(() -> {

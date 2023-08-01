@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "components/omnibox/browser/autocomplete_match_classification.h"
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
+#include "third_party/omnibox_proto/types.pb.h"
 
 namespace {
 // Maximum and minimum score allowed for voice suggestions.
@@ -29,17 +30,13 @@ constexpr int ConfidenceScoreToSuggestionScore(float confidence_score) {
 }
 }  // namespace
 
-VoiceSuggestProvider::VoiceSuggestProvider(
-    AutocompleteProviderClient* client,
-    AutocompleteProviderListener* listener)
+VoiceSuggestProvider::VoiceSuggestProvider(AutocompleteProviderClient* client)
     : BaseSearchProvider(TYPE_VOICE_SUGGEST, client) {}
 
 VoiceSuggestProvider::~VoiceSuggestProvider() = default;
 
 void VoiceSuggestProvider::Start(const AutocompleteInput& input,
                                  bool minimal_changes) {
-  autocomplete_input_ = &input;
-
   MatchMap map;
   int index = 0;
   for (const auto& score_and_suggestion_pair : voice_matches_) {
@@ -50,10 +47,15 @@ void VoiceSuggestProvider::Start(const AutocompleteInput& input,
     AddMatchToMap(
         SearchSuggestionParser::SuggestResult(
             score_and_suggestion_pair.second,
-            AutocompleteMatchType::VOICE_SUGGEST, {}, false,
+            AutocompleteMatchType::VOICE_SUGGEST,
+            /*suggest_type=*/omnibox::TYPE_NATIVE_CHROME, /*subtypes=*/{},
+            false,
             ConfidenceScoreToSuggestionScore(score_and_suggestion_pair.first),
             false, {}),
-        {}, index, false, false, &map);
+        {}, input,
+        client()->GetTemplateURLService()->GetDefaultSearchProvider(),
+        client()->GetTemplateURLService()->search_terms_data(), index, false,
+        false, &map);
     ++index;
 
     // Stop if the first voice suggestion has a high relevance score suggesting
@@ -66,19 +68,6 @@ void VoiceSuggestProvider::Start(const AutocompleteInput& input,
   for (auto& match_pair : map) {
     matches_.push_back(std::move(match_pair.second));
   }
-
-  autocomplete_input_ = nullptr;
-}
-
-const TemplateURL* VoiceSuggestProvider::GetTemplateURL(bool is_keyword) const {
-  DCHECK(!is_keyword);
-  return client()->GetTemplateURLService()->GetDefaultSearchProvider();
-}
-
-const AutocompleteInput VoiceSuggestProvider::GetInput(bool is_keyword) const {
-  DCHECK(!is_keyword);
-  DCHECK(autocomplete_input_);
-  return *autocomplete_input_;
 }
 
 bool VoiceSuggestProvider::ShouldAppendExtraParams(
@@ -91,10 +80,11 @@ void VoiceSuggestProvider::RecordDeletionResult(bool success) {}
 
 void VoiceSuggestProvider::Stop(bool clear_cached_results,
                                 bool due_to_user_inactivity) {
+  AutocompleteProvider::Stop(clear_cached_results, due_to_user_inactivity);
+
   if (clear_cached_results) {
     ClearCache();
   }
-  matches_.clear();
 }
 
 void VoiceSuggestProvider::ClearCache() {

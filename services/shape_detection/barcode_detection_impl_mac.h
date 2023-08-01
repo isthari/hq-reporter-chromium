@@ -1,23 +1,27 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef SERVICES_SHAPE_DETECTION_BARCODE_DETECTION_IMPL_MAC_H_
 #define SERVICES_SHAPE_DETECTION_BARCODE_DETECTION_IMPL_MAC_H_
 
-#include <os/availability.h>
-
 #include <vector>
 
-#include "base/mac/scoped_nsobject.h"
 #include "services/shape_detection/public/mojom/barcodedetection.mojom.h"
 #include "services/shape_detection/public/mojom/barcodedetection_provider.mojom.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 @class CIDetector;
 
 namespace shape_detection {
 
+// This class is the implementation of Barcode Detection based on Core Image.
+// This is used in some cases on macOS 10.14 when Vision is broken. When macOS
+// 10.14 is no longer supported by Chromium, remove.
 class BarcodeDetectionImplMac
     : public shape_detection::mojom::BarcodeDetection {
  public:
@@ -36,7 +40,7 @@ class BarcodeDetectionImplMac
   GetSupportedSymbologies();
 
  private:
-  base::scoped_nsobject<CIDetector> detector_;
+  CIDetector* __strong detector_;
 };
 
 }  // namespace shape_detection

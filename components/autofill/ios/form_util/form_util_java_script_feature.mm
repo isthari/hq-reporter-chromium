@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,8 @@
 #endif
 
 namespace {
-const char kFillScriptName[] = "fill_js";
-const char kFormScriptName[] = "form_js";
+const char kFillScriptName[] = "fill";
+const char kFormScriptName[] = "form";
 }  // namespace
 
 namespace autofill {
@@ -27,9 +27,7 @@ FormUtilJavaScriptFeature* FormUtilJavaScriptFeature::GetInstance() {
 
 FormUtilJavaScriptFeature::FormUtilJavaScriptFeature()
     : web::JavaScriptFeature(
-          // TODO(crbug.com/1175793): Move autofill code to kAnyContentWorld
-          // once all scripts are converted to JavaScriptFeatures.
-          ContentWorld::kPageContentWorld,
+          web::ContentWorld::kIsolatedWorld,
           {FeatureScript::CreateWithFilename(
                kFillScriptName,
                FeatureScript::InjectionTime::kDocumentStart,
@@ -48,9 +46,9 @@ FormUtilJavaScriptFeature::~FormUtilJavaScriptFeature() = default;
 void FormUtilJavaScriptFeature::SetUpForUniqueIDsWithInitialState(
     web::WebFrame* frame,
     uint32_t next_available_id) {
-  std::vector<base::Value> parameters;
-  parameters.emplace_back(static_cast<int>(next_available_id));
-  CallJavaScriptFunction(frame, "fill.setUpForUniqueIDs", parameters);
+  CallJavaScriptFunction(
+      frame, "fill.setUpForUniqueIDs",
+      base::Value::List().Append(static_cast<int>(next_available_id)));
 }
 
 }  // namespace autofill

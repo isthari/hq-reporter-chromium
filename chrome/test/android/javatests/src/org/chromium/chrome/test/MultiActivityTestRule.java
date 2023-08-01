@@ -1,11 +1,12 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.test;
 
 import android.content.Context;
-import android.support.test.InstrumentationRegistry;
+
+import androidx.test.core.app.ApplicationProvider;
 
 import org.hamcrest.Matchers;
 import org.junit.rules.TestRule;
@@ -60,7 +61,7 @@ public class MultiActivityTestRule implements TestRule {
     }
 
     private void ruleSetUp() {
-        mContext = InstrumentationRegistry.getTargetContext();
+        mContext = ApplicationProvider.getApplicationContext();
         ChromeApplicationTestUtils.setUp(mContext);
     }
 

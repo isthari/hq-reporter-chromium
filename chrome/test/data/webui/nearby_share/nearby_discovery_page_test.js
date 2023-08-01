@@ -1,18 +1,21 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// So that mojo is defined.
-import 'chrome://resources/mojo/mojo/public/js/mojo_bindings_lite.js';
 import 'chrome://nearby/nearby_discovery_page.js';
+import 'chrome://webui-test/mojo_webui_test_support.js';
 
 import {setDiscoveryManagerForTesting} from 'chrome://nearby/discovery_manager.js';
-import {getDeepActiveElement} from 'chrome://resources/js/util.m.js';
+import {SelectShareTargetResult, ShareTargetListenerRemote, StartDiscoveryResult} from 'chrome://nearby/shared/nearby_share.mojom-webui.js';
+import {ShareType} from 'chrome://nearby/shared/nearby_share_share_type.mojom-webui.js';
+import {getDeepActiveElement} from 'chrome://resources/ash/common/util.js';
+import {ShareTargetType} from 'chrome://resources/mojo/chromeos/ash/services/nearby/public/mojom/nearby_share_target_types.mojom-webui.js';
+import {UnguessableToken} from 'chrome://resources/mojo/mojo/public/mojom/base/unguessable_token.mojom-webui.js';
 import {keyEventOn} from 'chrome://resources/polymer/v3_0/iron-test-helpers/mock-interactions.js';
 import {flush} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
-import {assertEquals, assertFalse, assertTrue} from '../chai_assert.js';
-import {isVisible} from '../test_util.js';
+import {assertEquals, assertFalse, assertTrue} from '../chromeos/chai_assert.js';
+import {isVisible} from '../chromeos/test_util.js';
 
 import {FakeConfirmationManagerRemote, FakeDiscoveryManagerRemote} from './fake_mojo_interfaces.js';
 
@@ -28,8 +31,8 @@ suite('DiscoveryPageTest', function() {
 
   /**
    * Compares two unguessable tokens.
-   * @param {!mojoBase.mojom.UnguessableToken} a
-   * @param {!mojoBase.mojom.UnguessableToken} b
+   * @param {!UnguessableToken} a
+   * @param {!UnguessableToken} b
    */
   function assertTokensEqual(a, b) {
     assertEquals(a.high, b.high);
@@ -38,8 +41,8 @@ suite('DiscoveryPageTest', function() {
 
   /**
    * Compares two share targets.
-   * @param {?nearbyShare.mojom.ShareTarget} a
-   * @param {?nearbyShare.mojom.ShareTarget} b
+   * @param {?ShareTarget} a
+   * @param {?ShareTarget} b
    */
   function assertShareTargetsEqual(a, b) {
     assertTrue(!!a);
@@ -53,7 +56,9 @@ suite('DiscoveryPageTest', function() {
    */
   function getShareTargetElements() {
     flush();
-    const selector = discoveryPageElement.$$('#selector');
+    const selector =
+        /** @type {{items: !Array<NearbyDiscoveryPageElement>}} */ (
+            discoveryPageElement.shadowRoot.querySelector('#selector'));
 
     // If the device list isn't found, it's because the dom-if wrapping it
     // isn't showing because there are no elements.
@@ -68,7 +73,8 @@ suite('DiscoveryPageTest', function() {
    * Returns a list of visible share target elements.
    */
   function getNearbyDeviceElementAt(index) {
-    const container = discoveryPageElement.$$('.device-list-container');
+    const container =
+        discoveryPageElement.shadowRoot.querySelector('.device-list-container');
     const nearbyDeviceElements = container.querySelectorAll('nearby-device');
     return nearbyDeviceElements[index];
   }
@@ -78,10 +84,10 @@ suite('DiscoveryPageTest', function() {
    * @return {!Array<string>}
    */
   function getDeviceNames() {
-    let names = [];
-    let shareTargets = getShareTargetElements();
+    const names = [];
+    const shareTargets = getShareTargetElements();
 
-    for (let shareTarget of shareTargets) {
+    for (const shareTarget of shareTargets) {
       names.push(shareTarget.name);
     }
 
@@ -118,7 +124,7 @@ suite('DiscoveryPageTest', function() {
       charCode: 13,
       keyCode: 13,
       view: window,
-      bubbles: true
+      bubbles: true,
     }));
     return true;
   }
@@ -139,7 +145,7 @@ suite('DiscoveryPageTest', function() {
       charCode: 32,
       keyCode: 32,
       view: window,
-      bubbles: true
+      bubbles: true,
     }));
     return true;
   }
@@ -160,7 +166,7 @@ suite('DiscoveryPageTest', function() {
       charCode: 38,
       keyCode: 38,
       view: window,
-      bubbles: true
+      bubbles: true,
     }));
 
     return true;
@@ -183,7 +189,7 @@ suite('DiscoveryPageTest', function() {
       keyCode: 40,
       view: window,
       composed: true,
-      bubbles: true
+      bubbles: true,
     }));
 
     return true;
@@ -191,20 +197,20 @@ suite('DiscoveryPageTest', function() {
 
   /**
    * @param {!string} name Device name
-   * @return {!nearbyShare.mojom.ShareTarget}
+   * @return {!ShareTarget}
    */
   function createShareTarget(name) {
     return {
       id: {high: BigInt(0), low: BigInt(nextId++)},
       name,
-      type: nearbyShare.mojom.ShareTargetType.kPhone,
+      type: ShareTargetType.kPhone,
       imageUrl: {
         url: 'testImageURL',
       },
       payloadPreview: {
         description: '',
         fileCount: 0,
-        shareType: /** @type {!nearbyShare.mojom.ShareType} */ (0),
+        shareType: /** @type {!ShareType} */ (0),
       },
     };
   }
@@ -213,21 +219,22 @@ suite('DiscoveryPageTest', function() {
    * @param {string} button button selector (i.e. #actionButton)
    */
   function getButton(button) {
-    return discoveryPageElement.$$('nearby-page-template').$$(button);
+    return discoveryPageElement.shadowRoot.querySelector('nearby-page-template')
+        .shadowRoot.querySelector(button);
   }
 
   /**
    * Starts discovery and returns the ShareTargetListenerRemote.
-   * @return {!Promise<nearbyShare.mojom.ShareTargetListenerRemote>}
+   * @return {!Promise<ShareTargetListenerRemote>}
    */
   async function startDiscovery() {
-    discoveryPageElement.fire('view-enter-start');
+    fireViewEnterStart();
     return await discoveryManager.whenCalled('startDiscovery');
   }
 
   /**
    * Creates a share target and sends it to the WebUI.
-   * @return {!Promise<nearbyShare.mojom.ShareTarget>}
+   * @return {!Promise<ShareTarget>}
    */
   async function setupShareTarget() {
     const listener = await startDiscovery();
@@ -235,6 +242,11 @@ suite('DiscoveryPageTest', function() {
     listener.onShareTargetDiscovered(shareTarget);
     await listener.$.flushForTesting();
     return shareTarget;
+  }
+
+  function fireViewEnterStart() {
+    discoveryPageElement.dispatchEvent(
+        new CustomEvent('view-enter-start', {bubbles: true, composed: true}));
   }
 
   setup(function() {
@@ -251,52 +263,52 @@ suite('DiscoveryPageTest', function() {
 
   test('renders component', async function() {
     assertEquals('NEARBY-DISCOVERY-PAGE', discoveryPageElement.tagName);
-    discoveryPageElement.fire('view-enter-start');
+    fireViewEnterStart();
     await discoveryManager.whenCalled('getPayloadPreview');
     assertEquals(
         discoveryManager.shareDescription,
-        discoveryPageElement.$$('nearby-preview').payloadPreview.description);
+        discoveryPageElement.shadowRoot.querySelector('nearby-preview')
+            .payloadPreview.description);
   });
 
   test('error state with generic error', async function() {
-    discoveryManager.startDiscoveryResult =
-        nearbyShare.mojom.StartDiscoveryResult.kErrorGeneric;
-    discoveryPageElement.fire('view-enter-start');
-    await discoveryManager.whenCalled('startDiscovery');
+    discoveryManager.startDiscoveryResult = StartDiscoveryResult.kErrorGeneric;
+    await startDiscovery();
     flush();
 
     const expectedMessage = 'Something went wrong. Please try again.';
     assertEquals(
         expectedMessage,
-        discoveryPageElement.$$('#errorDescription').textContent.trim());
+        discoveryPageElement.shadowRoot.querySelector('#errorDescription')
+            .textContent.trim());
   });
 
   test('error state with in progress transfer', async function() {
     discoveryManager.startDiscoveryResult =
-        nearbyShare.mojom.StartDiscoveryResult.kErrorInProgressTransferring;
-    discoveryPageElement.fire('view-enter-start');
-    await discoveryManager.whenCalled('startDiscovery');
+        StartDiscoveryResult.kErrorInProgressTransferring;
+    await startDiscovery();
     flush();
 
     const expectedMessage = 'You can only share one file at a time.' +
         ' Try again when the current transfer is complete.';
     assertEquals(
         expectedMessage,
-        discoveryPageElement.$$('#errorDescription').textContent.trim());
+        discoveryPageElement.shadowRoot.querySelector('#errorDescription')
+            .textContent.trim());
   });
 
   test('error state with unavailable connections error', async function() {
     discoveryManager.startDiscoveryResult =
-        nearbyShare.mojom.StartDiscoveryResult.kNoConnectionMedium;
-    discoveryPageElement.fire('view-enter-start');
-    await discoveryManager.whenCalled('startDiscovery');
+        StartDiscoveryResult.kNoConnectionMedium;
+    await startDiscovery();
     flush();
 
     const expectedMessage = 'To use Nearby Share, turn on Bluetooth' +
         ' and Wi-Fi';
     assertEquals(
         expectedMessage,
-        discoveryPageElement.$$('#errorDescription').textContent.trim());
+        discoveryPageElement.shadowRoot.querySelector('#errorDescription')
+            .textContent.trim());
   });
 
   test('selects share target with success', async function() {
@@ -310,7 +322,7 @@ suite('DiscoveryPageTest', function() {
   test('selects share target with error', async function() {
     discoveryPageElement.selectedShareTarget = await setupShareTarget();
     discoveryManager.selectShareTargetResult.result =
-        nearbyShare.mojom.SelectShareTargetResult.kError;
+        SelectShareTargetResult.kError;
 
     getButton('#actionButton').click();
     await discoveryManager.whenCalled('selectShareTarget');
@@ -365,15 +377,16 @@ suite('DiscoveryPageTest', function() {
     await listener.$.flushForTesting();
     flush();
     const deviceList = /** @type{?HTMLElement} */
-        (discoveryPageElement.$$('#deviceList'));
-    const placeholder = discoveryPageElement.$$('#placeholder');
+        (discoveryPageElement.shadowRoot.querySelector('#deviceList'));
+    const placeholder =
+        discoveryPageElement.shadowRoot.querySelector('#placeholder');
     assertTrue(!!deviceList && !deviceList.hidden);
     assertTrue(placeholder.hidden);
     assertEquals(1, getShareTargetElements().length);
 
     const onConnectionClosedPromise = new Promise(
         (resolve) => listener.onConnectionError.addListener(resolve));
-    discoveryPageElement.fire('view-exit-finish');
+    discoveryPageElement.dispatchEvent(new CustomEvent('view-exit-finish'));
     await onConnectionClosedPromise;
 
     assertFalse(!!deviceList && isVisible(deviceList));
@@ -458,7 +471,7 @@ suite('DiscoveryPageTest', function() {
     const shareTarget = discoveryPageElement.selectedShareTarget;
     const onConnectionClosedPromise = new Promise(
         (resolve) => listener.onConnectionError.addListener(resolve));
-    discoveryPageElement.fire('view-exit-finish');
+    discoveryPageElement.dispatchEvent(new CustomEvent('view-exit-finish'));
     await onConnectionClosedPromise;
 
     // Stopping discovery does not clear selected share target.

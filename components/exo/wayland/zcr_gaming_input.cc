@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include <memory>
 
 #include "base/feature_list.h"
+#include "base/memory/raw_ptr.h"
 #include "components/exo/gamepad.h"
 #include "components/exo/gamepad_delegate.h"
 #include "components/exo/gamepad_observer.h"
@@ -86,7 +87,7 @@ class WaylandGamepadVibratorImpl : public GamepadObserver {
   }
 
  private:
-  Gamepad* gamepad_;
+  raw_ptr<Gamepad, ExperimentalAsh> gamepad_;
 };
 
 void gamepad_vibrator_vibrate(wl_client* client,
@@ -195,6 +196,25 @@ class WaylandGamepadDelegate : public GamepadDelegate {
                                          gamepad_vibrator_resource);
     }
 
+    if (wl_resource_get_version(gamepad_resource_) >=
+        ZCR_GAMEPAD_V2_SUPPORTED_KEY_BITS_SINCE_VERSION) {
+      // Sending key_bits.
+      wl_array wl_key_bits;
+      wl_array_init(&wl_key_bits);
+      std::vector<uint64_t> key_bits =
+          ui::OzonePlatform::GetInstance()
+              ->GetInputController()
+              ->GetGamepadKeyBits(gamepad->device.id);
+      size_t key_bits_len = key_bits.size() * sizeof(uint64_t);
+      uint64_t* wl_key_bits_ptr =
+          static_cast<uint64_t*>(wl_array_add(&wl_key_bits, key_bits_len));
+      if (wl_key_bits_ptr) {
+        memcpy(wl_key_bits_ptr, key_bits.data(), key_bits_len);
+        zcr_gamepad_v2_send_supported_key_bits(gamepad_resource_, &wl_key_bits);
+      }
+      wl_array_release(&wl_key_bits);
+    }
+
     zcr_gamepad_v2_send_activated(gamepad_resource_);
   }
 
@@ -205,7 +225,7 @@ class WaylandGamepadDelegate : public GamepadDelegate {
   }
 
   // The gamepad resource associated with the gamepad.
-  wl_resource* gamepad_resource_;
+  raw_ptr<wl_resource, ExperimentalAsh> gamepad_resource_;
 };
 
 void gamepad_destroy(wl_client* client, wl_resource* resource) {
@@ -259,7 +279,7 @@ class WaylandGamingSeatDelegate : public GamingSeatDelegate {
 
  private:
   // The gaming seat resource associated with the gaming seat.
-  wl_resource* const gaming_seat_resource_;
+  const raw_ptr<wl_resource, ExperimentalAsh> gaming_seat_resource_;
 };
 
 void gaming_seat_destroy(wl_client* client, wl_resource* resource) {

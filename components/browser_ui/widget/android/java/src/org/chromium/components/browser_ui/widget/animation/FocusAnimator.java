@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,8 @@ import android.view.ViewGroup;
 import android.widget.LinearLayout;
 
 import androidx.annotation.Nullable;
+
+import org.chromium.ui.base.ViewUtils;
 
 import java.util.ArrayList;
 
@@ -146,7 +148,8 @@ public class FocusAnimator {
                 finishAnimation(callback);
 
                 // Request a layout to put everything in the right final place.
-                mLayout.requestLayout();
+                ViewUtils.requestLayout(mLayout,
+                        "FocusAnimator.startAnimator.AnimatorListenerAdapter.onAnimationEnd");
             }
         });
         animator.start();

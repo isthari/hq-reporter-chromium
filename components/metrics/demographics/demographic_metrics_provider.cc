@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include "base/feature_list.h"
 #include "base/metrics/histogram_functions.h"
 #include "build/chromeos_buildflags.h"
-#include "components/sync/driver/sync_service_utils.h"
+#include "components/sync/service/sync_service_utils.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/metrics_proto/ukm/report.pb.h"
 
@@ -35,8 +35,9 @@ bool CanUploadDemographicsToGoogle(syncer::SyncService* sync_service) {
 }  // namespace
 
 // static
-const base::Feature DemographicMetricsProvider::kDemographicMetricsReporting = {
-    "DemographicMetricsReporting", base::FEATURE_ENABLED_BY_DEFAULT};
+BASE_FEATURE(kDemographicMetricsReporting,
+             "DemographicMetricsReporting",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
 DemographicMetricsProvider::DemographicMetricsProvider(
     std::unique_ptr<ProfileClient> profile_client,
@@ -88,7 +89,8 @@ DemographicMetricsProvider::ProvideSyncedUserNoisedBirthYearAndGender() {
 
   UserDemographicsResult demographics_result =
       GetUserNoisedBirthYearAndGenderFromPrefs(
-          profile_client_->GetNetworkTime(), profile_client_->GetPrefService());
+          profile_client_->GetNetworkTime(), profile_client_->GetLocalState(),
+          profile_client_->GetProfilePrefs());
   LogUserDemographicsStatusInHistogram(demographics_result.status());
 
   if (demographics_result.IsSuccess())
@@ -120,6 +122,9 @@ void DemographicMetricsProvider::LogUserDemographicsStatusInHistogram(
       return;
     case MetricsLogUploader::MetricServiceType::UKM:
       base::UmaHistogramEnumeration("UKM.UserDemographics.Status", status);
+      return;
+    case MetricsLogUploader::MetricServiceType::STRUCTURED_METRICS:
+      // Structured Metrics doesn't have demographic metrics.
       return;
   }
   NOTREACHED();

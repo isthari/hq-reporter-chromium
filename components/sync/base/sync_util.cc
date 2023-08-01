@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,11 @@
 
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/strings/strcat.h"
 #include "base/strings/stringize_macros.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
-#include "components/sync/base/sync_base_switches.h"
+#include "components/sync/base/command_line_switches.h"
 #include "google_apis/gaia/gaia_config.h"
 #include "ui/base/device_form_factor.h"
 #include "url/gurl.h"
@@ -54,18 +55,14 @@ namespace internal {
 
 std::string FormatUserAgentForSync(const std::string& system,
                                    version_info::Channel channel) {
-  std::string product = STRINGIZE(SYNC_USER_AGENT_PRODUCT);
-  std::string user_agent;
-  user_agent = product + " ";
-  user_agent += system;
-  user_agent += version_info::GetVersionNumber();
-  user_agent += " (" + version_info::GetLastChange() + ")";
-  if (!version_info::IsOfficialBuild()) {
-    user_agent += "-devel";
-  } else {
-    user_agent += " channel(" + version_info::GetChannelString(channel) + ")";
-  }
-  return user_agent;
+  constexpr base::StringPiece kProduct = STRINGIZE(SYNC_USER_AGENT_PRODUCT);
+  return base::StrCat(
+      {kProduct, " ", system, version_info::GetVersionNumber(), " (",
+       version_info::GetLastChange(), ")",
+       version_info::IsOfficialBuild()
+           ? base::StrCat(
+                 {" channel(", version_info::GetChannelString(channel), ")"})
+           : std::string("-devel")});
 }
 
 }  // namespace internal
@@ -79,9 +76,8 @@ GURL GetSyncServiceURL(const base::CommandLine& command_line,
 
   // 1. Get the sync server URL from the --sync-url command-line param, if
   // specified.
-  if (command_line.HasSwitch(switches::kSyncServiceURL)) {
-    std::string value(
-        command_line.GetSwitchValueASCII(switches::kSyncServiceURL));
+  if (command_line.HasSwitch(kSyncServiceURL)) {
+    std::string value(command_line.GetSwitchValueASCII(kSyncServiceURL));
     if (!value.empty()) {
       GURL custom_sync_url(value);
       if (custom_sync_url.is_valid()) {

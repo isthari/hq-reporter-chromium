@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@ package org.chromium.android_webview.gfx;
 
 import android.graphics.Canvas;
 
+import org.chromium.android_webview.common.Lifetime;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
 
@@ -13,6 +14,7 @@ import org.chromium.base.annotations.NativeMethods;
  * Implementation of draw_fn.h.
  */
 @JNINamespace("android_webview")
+@Lifetime.WebView
 public class AwDrawFnImpl implements AwFunctor {
     private long mNativeAwDrawFnImpl;
     private final DrawFnAccess mAccess;

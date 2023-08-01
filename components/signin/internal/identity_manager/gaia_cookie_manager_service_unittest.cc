@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,8 @@
 #include <string>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
@@ -20,7 +20,6 @@
 #include "base/test/mock_callback.h"
 #include "base/test/task_environment.h"
 #include "base/test/test_mock_time_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "components/prefs/testing_pref_service.h"
 #include "components/signin/internal/identity_manager/account_tracker_service.h"
 #include "components/signin/internal/identity_manager/fake_profile_oauth2_token_service.h"
@@ -28,9 +27,15 @@
 #include "components/signin/public/base/test_signin_client.h"
 #include "google_apis/gaia/gaia_constants.h"
 #include "google_apis/gaia/gaia_urls.h"
+#include "net/cookies/canonical_cookie.h"
+#include "net/cookies/cookie_access_result.h"
+#include "net/cookies/cookie_change_dispatcher.h"
+#include "net/cookies/cookie_options.h"
+#include "services/network/test/test_cookie_manager.h"
 #include "services/network/test/test_url_loader_factory.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "url/gurl.h"
 
 namespace {
 
@@ -92,6 +97,18 @@ bool AreAccountListsEqual(const std::vector<gaia::ListedAccount>& left,
   return true;
 }
 
+net::CanonicalCookie GetTestCookie(const GURL& url, const std::string& name) {
+  std::unique_ptr<net::CanonicalCookie> cookie =
+      net::CanonicalCookie::CreateSanitizedCookie(
+          url, name, /*value=*/"cookie_value", /*domain=*/"." + url.host(),
+          /*path=*/"/", /*creation_time=*/base::Time(),
+          /*expiration_time=*/base::Time(), /*last_access_time=*/base::Time(),
+          /*secure=*/true, /*http_only=*/false,
+          net::CookieSameSite::NO_RESTRICTION, net::COOKIE_PRIORITY_DEFAULT,
+          /*same_party=*/false, /*partition_key=*/absl::nullopt);
+  return *cookie;
+}
+
 // Custom matcher for ListedAccounts.
 MATCHER_P(ListedAccountEquals, expected, "") {
   return AreAccountListsEqual(expected, arg);
@@ -104,9 +121,13 @@ MATCHER_P(ListedAccountMatchesGaiaId, gaia_id, "") {
 
 class InstrumentedGaiaCookieManagerService : public GaiaCookieManagerService {
  public:
-  InstrumentedGaiaCookieManagerService(ProfileOAuth2TokenService* token_service,
-                                       SigninClient* signin_client)
-      : GaiaCookieManagerService(token_service, signin_client) {
+  InstrumentedGaiaCookieManagerService(
+      AccountTrackerService* account_tracker_service,
+      ProfileOAuth2TokenService* token_service,
+      SigninClient* signin_client)
+      : GaiaCookieManagerService(account_tracker_service,
+                                 token_service,
+                                 signin_client) {
     total++;
   }
 
@@ -126,20 +147,25 @@ class InstrumentedGaiaCookieManagerService : public GaiaCookieManagerService {
 class GaiaCookieManagerServiceTest : public testing::Test {
  public:
   GaiaCookieManagerServiceTest()
-      : account_id1_(kAccountId1),
-        account_id2_(kAccountId2),
-        account_id3_(kAccountId3),
-        account_id4_(kAccountId4),
+      : account_id1_(CoreAccountId::FromGaiaId(kAccountId1)),
+        account_id2_(CoreAccountId::FromGaiaId(kAccountId2)),
+        account_id3_(CoreAccountId::FromGaiaId(kAccountId3)),
+        account_id4_(CoreAccountId::FromGaiaId(kAccountId4)),
         no_error_(GoogleServiceAuthError::NONE),
         error_(GoogleServiceAuthError::SERVICE_ERROR),
         canceled_(GoogleServiceAuthError::REQUEST_CANCELED) {
     AccountTrackerService::RegisterPrefs(pref_service_.registry());
     GaiaCookieManagerService::RegisterPrefs(pref_service_.registry());
     signin_client_ = std::make_unique<TestSigninClient>(&pref_service_);
+    account_tracker_service_ = std::make_unique<AccountTrackerService>();
+    account_tracker_service_->Initialize(&pref_service_, base::FilePath());
     token_service_ =
         std::make_unique<FakeProfileOAuth2TokenService>(&pref_service_);
   }
 
+  AccountTrackerService* account_tracker_service() {
+    return account_tracker_service_.get();
+  }
   ProfileOAuth2TokenService* token_service() { return token_service_.get(); }
   TestSigninClient* signin_client() { return signin_client_.get(); }
 
@@ -247,6 +273,7 @@ class GaiaCookieManagerServiceTest : public testing::Test {
   GoogleServiceAuthError canceled_;
   TestingPrefServiceSimple pref_service_;
   std::unique_ptr<TestSigninClient> signin_client_;
+  std::unique_ptr<AccountTrackerService> account_tracker_service_;
   std::unique_ptr<FakeProfileOAuth2TokenService> token_service_;
 };
 
@@ -256,7 +283,8 @@ using ::testing::_;
 using ::testing::ElementsAre;
 
 TEST_F(GaiaCookieManagerServiceTest, Success) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   MockObserver observer(&helper);
 
   EXPECT_CALL(helper, StartFetchingUbertoken());
@@ -270,7 +298,8 @@ TEST_F(GaiaCookieManagerServiceTest, Success) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, FailedMergeSession) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   MockObserver observer(&helper);
   base::HistogramTester histograms;
 
@@ -289,7 +318,8 @@ TEST_F(GaiaCookieManagerServiceTest, FailedMergeSession) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, AddAccountCookiesDisabled) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   MockObserver observer(&helper);
   signin_client()->set_are_signin_cookies_allowed(false);
 
@@ -301,12 +331,13 @@ TEST_F(GaiaCookieManagerServiceTest, AddAccountCookiesDisabled) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, MergeSessionRetried) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   MockObserver observer(&helper);
 
   auto test_task_runner = base::MakeRefCounted<base::TestMockTimeTaskRunner>();
-  base::ThreadTaskRunnerHandleOverrideForTesting ttrh_override(
-      test_task_runner);
+  base::SingleThreadTaskRunner::CurrentHandleOverrideForTesting
+      sttrcdh_override(test_task_runner);
 
   EXPECT_CALL(helper, StartFetchingUbertoken());
   EXPECT_CALL(helper, StartFetchingMergeSession());
@@ -324,13 +355,15 @@ TEST_F(GaiaCookieManagerServiceTest, MergeSessionRetried) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, MergeSessionRetriedTwice) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   MockObserver observer(&helper);
   base::HistogramTester histograms;
 
   auto test_task_runner = base::MakeRefCounted<base::TestMockTimeTaskRunner>();
-  base::ThreadTaskRunnerHandleOverrideForTesting ttrh_override(
-      test_task_runner);
+
+  base::SingleThreadTaskRunner::CurrentHandleOverrideForTesting
+      sttrcdh_override(test_task_runner);
 
   EXPECT_CALL(helper, StartFetchingUbertoken());
   EXPECT_CALL(helper, StartFetchingMergeSession()).Times(2);
@@ -353,7 +386,8 @@ TEST_F(GaiaCookieManagerServiceTest, MergeSessionRetriedTwice) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, FailedUbertoken) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   MockObserver observer(&helper);
 
   EXPECT_CALL(helper, StartFetchingUbertoken());
@@ -367,7 +401,8 @@ TEST_F(GaiaCookieManagerServiceTest, FailedUbertoken) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, ContinueAfterSuccess) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   MockObserver observer(&helper);
 
   EXPECT_CALL(helper, StartFetchingUbertoken()).Times(2);
@@ -386,7 +421,8 @@ TEST_F(GaiaCookieManagerServiceTest, ContinueAfterSuccess) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, ContinueAfterFailure1) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   MockObserver observer(&helper);
 
   EXPECT_CALL(helper, StartFetchingUbertoken()).Times(2);
@@ -405,7 +441,8 @@ TEST_F(GaiaCookieManagerServiceTest, ContinueAfterFailure1) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, ContinueAfterFailure2) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   MockObserver observer(&helper);
 
   EXPECT_CALL(helper, StartFetchingUbertoken()).Times(2);
@@ -424,7 +461,8 @@ TEST_F(GaiaCookieManagerServiceTest, ContinueAfterFailure2) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, AllRequestsInMultipleGoes) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   MockObserver observer(&helper);
 
   EXPECT_CALL(helper, StartFetchingUbertoken()).Times(4);
@@ -452,7 +490,8 @@ TEST_F(GaiaCookieManagerServiceTest, AllRequestsInMultipleGoes) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, LogOutAllAccountsNoQueue) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   MockObserver observer(&helper);
 
   EXPECT_CALL(helper, StartFetchingUbertoken());
@@ -475,7 +514,8 @@ TEST_F(GaiaCookieManagerServiceTest, LogOutAllAccountsNoQueue) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, LogOutAllAccountsFails) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   MockObserver observer(&helper);
 
   EXPECT_CALL(helper, StartFetchingUbertoken());
@@ -498,7 +538,8 @@ TEST_F(GaiaCookieManagerServiceTest, LogOutAllAccountsFails) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, LogOutAllAccountsAfterOneAddInQueue) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   MockObserver observer(&helper);
 
   EXPECT_CALL(helper, StartFetchingUbertoken());
@@ -519,7 +560,8 @@ TEST_F(GaiaCookieManagerServiceTest, LogOutAllAccountsAfterOneAddInQueue) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, LogOutAllAccountsAfterTwoAddsInQueue) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   MockObserver observer(&helper);
 
   EXPECT_CALL(helper, StartFetchingUbertoken());
@@ -545,7 +587,8 @@ TEST_F(GaiaCookieManagerServiceTest, LogOutAllAccountsAfterTwoAddsInQueue) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, LogOutAllAccountsTwice) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   MockObserver observer(&helper);
 
   EXPECT_CALL(helper, StartFetchingUbertoken());
@@ -572,7 +615,8 @@ TEST_F(GaiaCookieManagerServiceTest, LogOutAllAccountsTwice) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, LogOutAllAccountsBeforeAdd) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   MockObserver observer(&helper);
 
   EXPECT_CALL(helper, StartFetchingUbertoken()).Times(2);
@@ -601,7 +645,8 @@ TEST_F(GaiaCookieManagerServiceTest, LogOutAllAccountsBeforeAdd) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, LogOutAllAccountsBeforeLogoutAndAdd) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   MockObserver observer(&helper);
 
   EXPECT_CALL(helper, StartFetchingUbertoken()).Times(2);
@@ -635,7 +680,8 @@ TEST_F(GaiaCookieManagerServiceTest, LogOutAllAccountsBeforeLogoutAndAdd) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, PendingSigninThenSignout) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   MockObserver observer(&helper);
 
   // From the first Signin.
@@ -667,7 +713,8 @@ TEST_F(GaiaCookieManagerServiceTest, PendingSigninThenSignout) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, CancelSignIn) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   MockObserver observer(&helper);
 
   EXPECT_CALL(helper, StartFetchingUbertoken());
@@ -692,7 +739,8 @@ TEST_F(GaiaCookieManagerServiceTest, CancelSignIn) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, ListAccountsFirstReturnsEmpty) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   MockObserver observer(&helper);
 
   std::vector<gaia::ListedAccount> list_accounts;
@@ -710,7 +758,8 @@ TEST_F(GaiaCookieManagerServiceTest, ListAccountsFirstReturnsEmpty) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, ListAccountsFindsOneAccount) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   MockObserver observer(&helper);
 
   std::vector<gaia::ListedAccount> list_accounts;
@@ -741,7 +790,8 @@ TEST_F(GaiaCookieManagerServiceTest, ListAccountsFindsOneAccount) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, ListAccountsFindsSignedOutAccounts) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   MockObserver observer(&helper);
 
   std::vector<gaia::ListedAccount> list_accounts;
@@ -781,7 +831,8 @@ TEST_F(GaiaCookieManagerServiceTest, ListAccountsFindsSignedOutAccounts) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, ListAccountsAcceptsNull) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   MockObserver observer(&helper);
 
   ASSERT_FALSE(helper.ListAccounts(nullptr, nullptr));
@@ -807,7 +858,8 @@ TEST_F(GaiaCookieManagerServiceTest, ListAccountsAcceptsNull) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, ListAccountsAfterOnCookieChange) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   MockObserver observer(&helper);
 
   std::vector<gaia::ListedAccount> list_accounts;
@@ -891,8 +943,8 @@ TEST_F(GaiaCookieManagerServiceTest, GaiaCookieLastListAccountsDataSaved) {
   std::vector<gaia::ListedAccount> signed_out_accounts;
 
   {
-    InstrumentedGaiaCookieManagerService helper(token_service(),
-                                                signin_client());
+    InstrumentedGaiaCookieManagerService helper(
+        account_tracker_service(), token_service(), signin_client());
     MockObserver observer(&helper);
 
     EXPECT_CALL(helper, StartFetchingListAccounts());
@@ -918,13 +970,14 @@ TEST_F(GaiaCookieManagerServiceTest, GaiaCookieLastListAccountsDataSaved) {
   // starting a new Gaia Service Manager gives synchronous answers to list
   // accounts.
   {
-    InstrumentedGaiaCookieManagerService helper(token_service(),
-                                                signin_client());
+    InstrumentedGaiaCookieManagerService helper(
+        account_tracker_service(), token_service(), signin_client());
     MockObserver observer(&helper);
     auto test_task_runner =
         base::MakeRefCounted<base::TestMockTimeTaskRunner>();
-    base::ThreadTaskRunnerHandleOverrideForTesting ttrh_override(
-        test_task_runner);
+
+    base::SingleThreadTaskRunner::CurrentHandleOverrideForTesting
+        sttrcdh_override(test_task_runner);
 
     EXPECT_CALL(helper, StartFetchingListAccounts()).Times(3);
 
@@ -985,7 +1038,8 @@ TEST_F(GaiaCookieManagerServiceTest, GaiaCookieLastListAccountsDataSaved) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, ExternalCcResultFetcher) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   GaiaCookieManagerService::ExternalCcResultFetcher result_fetcher(&helper);
   EXPECT_CALL(helper, StartFetchingMergeSession());
   result_fetcher.Start(base::BindOnce(
@@ -1012,7 +1066,8 @@ TEST_F(GaiaCookieManagerServiceTest, ExternalCcResultFetcher) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, ExternalCcResultFetcherTimeout) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   GaiaCookieManagerService::ExternalCcResultFetcher result_fetcher(&helper);
   EXPECT_CALL(helper, StartFetchingMergeSession());
   result_fetcher.Start(base::BindOnce(
@@ -1043,7 +1098,8 @@ TEST_F(GaiaCookieManagerServiceTest, ExternalCcResultFetcherTimeout) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, ExternalCcResultFetcherTruncate) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   GaiaCookieManagerService::ExternalCcResultFetcher result_fetcher(&helper);
   EXPECT_CALL(helper, StartFetchingMergeSession());
   result_fetcher.Start(base::BindOnce(
@@ -1066,7 +1122,8 @@ TEST_F(GaiaCookieManagerServiceTest, ExternalCcResultFetcherTruncate) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, ExternalCcResultFetcherWithCommas) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
   GaiaCookieManagerService::ExternalCcResultFetcher result_fetcher(&helper);
   EXPECT_CALL(helper, StartFetchingMergeSession());
   result_fetcher.Start(base::BindOnce(
@@ -1089,7 +1146,8 @@ TEST_F(GaiaCookieManagerServiceTest, ExternalCcResultFetcherWithCommas) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, UbertokenSuccessFetchesExternalCC) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
 
   EXPECT_CALL(helper, StartFetchingUbertoken());
   helper.AddAccountToCookie(
@@ -1111,7 +1169,8 @@ TEST_F(GaiaCookieManagerServiceTest, UbertokenSuccessFetchesExternalCC) {
 }
 
 TEST_F(GaiaCookieManagerServiceTest, UbertokenSuccessFetchesExternalCCOnce) {
-  InstrumentedGaiaCookieManagerService helper(token_service(), signin_client());
+  InstrumentedGaiaCookieManagerService helper(account_tracker_service(),
+                                              token_service(), signin_client());
 
   helper.external_cc_result_fetcher_for_testing()->Start(base::BindOnce(
       &InstrumentedGaiaCookieManagerService::StartFetchingMergeSession,
@@ -1132,7 +1191,7 @@ TEST_F(GaiaCookieManagerServiceTest, RemoveLoggedOutAccountByGaiaId) {
   const std::string kTestGaiaId2 = "9";
 
   ::testing::NiceMock<InstrumentedGaiaCookieManagerService> helper(
-      token_service(), signin_client());
+      account_tracker_service(), token_service(), signin_client());
   ::testing::NiceMock<MockObserver> observer(&helper);
 
   std::vector<gaia::ListedAccount> signed_in_accounts;
@@ -1165,7 +1224,7 @@ TEST_F(GaiaCookieManagerServiceTest, RemoveLoggedOutAccountByGaiaId) {
 
   // Verify that ListAccounts wasn't triggered.
   EXPECT_FALSE(helper.is_running());
-  EXPECT_TRUE(testing::Mock::VerifyAndClearExpectations(&helper));
+  testing::Mock::VerifyAndClearExpectations(&helper);
 
   ASSERT_TRUE(helper.ListAccounts(&signed_in_accounts, &signed_out_accounts));
   EXPECT_THAT(signed_out_accounts,
@@ -1177,7 +1236,7 @@ TEST_F(GaiaCookieManagerServiceTest,
   const std::string kTestGaiaId1 = "8";
 
   ::testing::NiceMock<InstrumentedGaiaCookieManagerService> helper(
-      token_service(), signin_client());
+      account_tracker_service(), token_service(), signin_client());
   ::testing::NiceMock<MockObserver> observer(&helper);
 
   std::vector<gaia::ListedAccount> signed_in_accounts;
@@ -1207,7 +1266,7 @@ TEST_F(GaiaCookieManagerServiceTest,
   helper.RemoveLoggedOutAccountByGaiaId(kTestGaiaId1);
 
   // Verify that ListAccounts wasn't triggered again.
-  EXPECT_TRUE(testing::Mock::VerifyAndClearExpectations(&helper));
+  testing::Mock::VerifyAndClearExpectations(&helper);
 
   ASSERT_FALSE(helper.ListAccounts(&signed_in_accounts, &signed_out_accounts));
   EXPECT_THAT(signed_out_accounts,
@@ -1220,7 +1279,7 @@ TEST_F(GaiaCookieManagerServiceTest,
   const std::string kNonListedAccount = "9";
 
   ::testing::NiceMock<InstrumentedGaiaCookieManagerService> helper(
-      token_service(), signin_client());
+      account_tracker_service(), token_service(), signin_client());
   ::testing::NiceMock<MockObserver> observer(&helper);
 
   std::vector<gaia::ListedAccount> signed_in_accounts;
@@ -1247,9 +1306,62 @@ TEST_F(GaiaCookieManagerServiceTest,
 
   // Verify that ListAccounts wasn't triggered.
   EXPECT_FALSE(helper.is_running());
-  EXPECT_TRUE(testing::Mock::VerifyAndClearExpectations(&helper));
+  testing::Mock::VerifyAndClearExpectations(&helper);
 
   ASSERT_TRUE(helper.ListAccounts(&signed_in_accounts, &signed_out_accounts));
   EXPECT_THAT(signed_out_accounts,
               ElementsAre(ListedAccountMatchesGaiaId(kTestGaiaId1)));
 }
+
+class GaiaCookieManagerServiceCookieTest
+    : public GaiaCookieManagerServiceTest,
+      public testing::WithParamInterface<
+          std::tuple<bool /*is_gaia_signin_cookie*/, net::CookieChangeCause>> {
+};
+
+TEST_P(GaiaCookieManagerServiceCookieTest, CookieChange) {
+  GURL kGoogleUrl = GaiaUrls::GetInstance()->secure_google_url();
+  network::TestCookieManager* test_cookie_manager = nullptr;
+  {
+    auto cookie_manager = std::make_unique<network::TestCookieManager>();
+    test_cookie_manager = cookie_manager.get();
+    signin_client()->set_cookie_manager(std::move(cookie_manager));
+  }
+  ASSERT_EQ(test_cookie_manager, signin_client()->GetCookieManager());
+  base::MockCallback<
+      GaiaCookieManagerService::GaiaCookieDeletedByUserActionCallback>
+      cookie_deleted_callback;
+  InstrumentedGaiaCookieManagerService service(
+      account_tracker_service(), token_service(), signin_client());
+  service.SetGaiaCookieDeletedByUserActionCallback(
+      cookie_deleted_callback.Get());
+  service.InitCookieListener();
+
+  auto [/*bool*/ is_gaia_signin_cookie, cause] = GetParam();
+  std::string cookie_name =
+      is_gaia_signin_cookie ? GaiaConstants::kGaiaSigninCookieName : "Foo";
+  bool list_account_expected =
+      is_gaia_signin_cookie || cause == net::CookieChangeCause::EXPLICIT;
+  bool callback_expected =
+      is_gaia_signin_cookie && cause == net::CookieChangeCause::EXPLICIT;
+
+  if (list_account_expected) {
+    EXPECT_CALL(service, StartFetchingListAccounts()).Times(1);
+  }
+  if (callback_expected) {
+    EXPECT_CALL(cookie_deleted_callback, Run).Times(1);
+  }
+  test_cookie_manager->DispatchCookieChange(
+      net::CookieChangeInfo(GetTestCookie(kGoogleUrl, cookie_name),
+                            net::CookieAccessResult(), cause));
+  service.cookie_listener_receiver_.FlushForTesting();
+  testing::Mock::VerifyAndClearExpectations(&cookie_deleted_callback);
+  testing::Mock::VerifyAndClearExpectations(&service);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    GaiaCookieManagerServiceCookieTest,
+    testing::Combine(/*is_gaia_signin_cookie=*/testing::Bool(),
+                     testing::Values(net::CookieChangeCause::UNKNOWN_DELETION,
+                                     net::CookieChangeCause::EXPLICIT)));

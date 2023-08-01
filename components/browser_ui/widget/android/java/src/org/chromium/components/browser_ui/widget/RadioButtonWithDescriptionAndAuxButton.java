@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@ package org.chromium.components.browser_ui.widget;
 import android.content.Context;
 import android.util.AttributeSet;
 import android.view.View;
-import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.ImageButton;
 
 import androidx.annotation.VisibleForTesting;
@@ -95,6 +94,7 @@ public class RadioButtonWithDescriptionAndAuxButton extends RadioButtonWithDescr
     protected void setViewsInternal() {
         super.setViewsInternal();
         mAuxButton = findViewById(R.id.expand_arrow);
+        getPrimaryTextView().setLabelFor(mAuxButton.getId());
     }
 
     /**
@@ -114,12 +114,6 @@ public class RadioButtonWithDescriptionAndAuxButton extends RadioButtonWithDescr
     public void setEnabled(boolean enabled) {
         super.setEnabled(enabled);
         setAuxButtonEnabled(enabled);
-    }
-
-    @Override
-    public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
-        super.onInitializeAccessibilityNodeInfo(info);
-        info.setLabeledBy(mAuxButton);
     }
 
     /**

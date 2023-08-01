@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,17 +7,20 @@
 
 #include "android_webview/browser/gfx/aw_gl_surface.h"
 
+// Lifetime: WebView
 namespace android_webview {
 class AwGLSurfaceExternalStencil : public AwGLSurface {
  public:
-  explicit AwGLSurfaceExternalStencil(bool is_angle);
+  AwGLSurfaceExternalStencil(gl::GLDisplayEGL* display, bool is_angle);
 
   AwGLSurfaceExternalStencil(const AwGLSurfaceExternalStencil&) = delete;
   AwGLSurfaceExternalStencil& operator=(const AwGLSurfaceExternalStencil&) =
       delete;
 
   unsigned int GetBackingFramebufferObject() override;
-  gfx::SwapResult SwapBuffers(PresentationCallback callback) override;
+  gfx::SwapResult SwapBuffers(
+      PresentationCallback callbackaw_gl_surface_external_stencil,
+      gfx::FrameData data) override;
   void RecalculateClipAndTransform(gfx::Size* viewport,
                                    gfx::Rect* clip_rect,
                                    gfx::Transform* transform) override;

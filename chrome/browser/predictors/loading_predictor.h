@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -120,7 +120,7 @@ class LoadingPredictor : public KeyedService,
   void PreconnectURLIfAllowed(
       const GURL& url,
       bool allow_credentials,
-      const net::NetworkIsolationKey& network_isolation_key);
+      const net::NetworkAnonymizationKey& network_anonymization_key);
 
  private:
   // Stores the information necessary to keep track of the active navigations.
@@ -150,6 +150,10 @@ class LoadingPredictor : public KeyedService,
   // May start a preconnect or a preresolve for |url|. |preconnectable|
   // indicates if preconnect is possible.
   void HandleOmniboxHint(const GURL& url, bool preconnectable);
+
+  // May start a preconnect or a preresolve for |url|. |preconnectable|
+  // indicates if preconnect is possible.
+  void HandleBookmarkBarHint(const GURL& url, bool preconnectable);
 
   // For testing.
   void set_mock_resource_prefetch_predictor(
@@ -185,6 +189,10 @@ class LoadingPredictor : public KeyedService,
   url::Origin last_omnibox_origin_;
   base::TimeTicks last_omnibox_preconnect_time_;
   base::TimeTicks last_omnibox_preresolve_time_;
+
+  url::Origin last_bookmark_bar_origin_;
+  base::TimeTicks last_bookmark_bar_preconnect_time_;
+  base::TimeTicks last_bookmark_bar_preresolve_time_;
 
   friend class LoadingPredictorTest;
   friend class LoadingPredictorPreconnectTest;

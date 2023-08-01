@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -35,18 +35,17 @@ bool URLSchemeListPolicyHandler::CheckPolicySettings(const PolicyMap& policies,
   if (!TypeCheckingPolicyHandler::CheckPolicySettings(policies, errors))
     return false;
 
-  const base::Value* schemes = policies.GetValue(policy_name());
+  const base::Value* schemes =
+      policies.GetValue(policy_name(), base::Value::Type::LIST);
   if (!schemes || schemes->GetList().empty())
     return true;
 
-  DCHECK(schemes->is_list());
-
   // Filters more than |url_util::kMaxFiltersPerPolicy| are ignored, add a
   // warning message.
-  if (schemes->GetList().size() > policy::kMaxUrlFiltersPerPolicy) {
+  if (schemes->GetList().size() > max_items()) {
     errors->AddError(policy_name(),
                      IDS_POLICY_URL_ALLOW_BLOCK_LIST_MAX_FILTERS_LIMIT_WARNING,
-                     base::NumberToString(policy::kMaxUrlFiltersPerPolicy));
+                     base::NumberToString(max_items()));
   }
 
   std::vector<std::string> invalid_policies;
@@ -65,18 +64,25 @@ bool URLSchemeListPolicyHandler::CheckPolicySettings(const PolicyMap& policies,
 
 void URLSchemeListPolicyHandler::ApplyPolicySettings(const PolicyMap& policies,
                                                      PrefValueMap* prefs) {
-  const base::Value* schemes = policies.GetValue(policy_name());
-  if (!schemes || !schemes->is_list())
+  const base::Value* schemes =
+      policies.GetValue(policy_name(), base::Value::Type::LIST);
+  if (!schemes)
     return;
-  std::vector<base::Value> filtered_schemes;
+  base::Value::List filtered_schemes;
   for (const auto& entry : schemes->GetList()) {
+    if (filtered_schemes.size() >= max_items()) {
+      break;
+    }
+
     if (ValidatePolicyEntry(entry.GetIfString()))
-      filtered_schemes.push_back(entry.Clone());
+      filtered_schemes.Append(entry.Clone());
   }
-  if (filtered_schemes.size() > policy::kMaxUrlFiltersPerPolicy)
-    filtered_schemes.resize(policy::kMaxUrlFiltersPerPolicy);
 
   prefs->SetValue(pref_path_, base::Value(std::move(filtered_schemes)));
+}
+
+size_t URLSchemeListPolicyHandler::max_items() {
+  return kMaxUrlFiltersPerPolicy;
 }
 
 // Validates that policy follows official pattern

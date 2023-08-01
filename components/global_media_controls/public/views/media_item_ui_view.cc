@@ -1,12 +1,13 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/global_media_controls/public/views/media_item_ui_view.h"
 
-#include "base/bind.h"
 #include "base/containers/contains.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
+#include "base/observer_list.h"
 #include "components/global_media_controls/public/constants.h"
 #include "components/global_media_controls/public/media_item_manager.h"
 #include "components/global_media_controls/public/media_item_ui_observer.h"
@@ -30,8 +31,13 @@
 #include "ui/views/controls/button/image_button_factory.h"
 #include "ui/views/controls/highlight_path_generator.h"
 #include "ui/views/controls/image_view.h"
+#include "ui/views/controls/scroll_view.h"
 #include "ui/views/layout/box_layout.h"
 #include "ui/views/layout/fill_layout.h"
+
+#if BUILDFLAG(IS_CHROMEOS)
+#include "chromeos/constants/chromeos_features.h"
+#endif
 
 namespace global_media_controls {
 
@@ -49,6 +55,8 @@ constexpr gfx::Size kCrOSDismissButtonSize = gfx::Size(20, 20);
 constexpr int kCrOSDismissButtonIconSize = 12;
 constexpr gfx::Size kModernDismissButtonSize = gfx::Size(14, 14);
 constexpr int kModernDismissButtonIconSize = 10;
+constexpr gfx::Insets kSwipeableContainerInsets =
+    gfx::Insets::TLBR(0, 16, 8, 16);
 
 // The minimum number of enabled and visible user actions such that we should
 // force the MediaNotificationView to be expanded.
@@ -80,14 +88,13 @@ MediaItemUIView::MediaItemUIView(
     base::WeakPtr<media_message_center::MediaNotificationItem> item,
     std::unique_ptr<MediaItemUIFooter> footer_view,
     std::unique_ptr<MediaItemUIDeviceSelector> device_selector_view,
-    absl::optional<media_message_center::NotificationTheme> theme)
+    absl::optional<media_message_center::NotificationTheme> notification_theme,
+    absl::optional<media_message_center::MediaColorTheme> media_color_theme,
+    absl::optional<media_message_center::MediaDisplayPage> media_display_page)
     : views::Button(base::BindRepeating(&MediaItemUIView::ContainerClicked,
                                         base::Unretained(this))),
       id_(id),
-      footer_view_(footer_view.get()),
-      foreground_color_(kDefaultForegroundColor),
-      background_color_(kDefaultBackgroundColor),
-      is_cros_(theme.has_value()) {
+      has_notification_theme_(notification_theme.has_value()) {
   DCHECK(item);
   SetLayoutManager(std::make_unique<views::BoxLayout>(
       views::BoxLayout::Orientation::kVertical));
@@ -97,70 +104,89 @@ MediaItemUIView::MediaItemUIView(
   SetTooltipText(
       l10n_util::GetStringUTF16(IDS_GLOBAL_MEDIA_CONTROLS_BACK_TO_TAB));
 
+#if BUILDFLAG(IS_CHROMEOS)
+  // The updated UI requires media color theme to be set while the toolbar
+  // media button does not provide it, so we need to verify the source display
+  // page is from the quick settings.
+  bool use_cros_updated_ui =
+      base::FeatureList::IsEnabled(media::kGlobalMediaControlsCrOSUpdatedUI) &&
+      chromeos::features::IsJellyrollEnabled() &&
+      media_display_page.has_value();
+#else
+  bool use_cros_updated_ui = false;
+#endif
+
   auto swipeable_container = std::make_unique<views::View>();
   swipeable_container->SetLayoutManager(std::make_unique<views::FillLayout>());
   swipeable_container->SetPaintToLayer();
   swipeable_container->layer()->SetFillsBoundsOpaquely(false);
+  if (use_cros_updated_ui) {
+    swipeable_container->SetBorder(
+        views::CreateEmptyBorder(kSwipeableContainerInsets));
+  }
   swipeable_container_ = AddChildView(std::move(swipeable_container));
 
-  gfx::Size dismiss_button_size =
-      is_cros_ ? kCrOSDismissButtonSize : kDismissButtonSize;
-  if (base::FeatureList::IsEnabled(media::kGlobalMediaControlsModernUI))
-    dismiss_button_size = kModernDismissButtonSize;
-
-  auto dismiss_button_placeholder = std::make_unique<views::View>();
-  dismiss_button_placeholder->SetPreferredSize(dismiss_button_size);
-  dismiss_button_placeholder->SetLayoutManager(
-      std::make_unique<views::FillLayout>());
-  dismiss_button_placeholder_ = dismiss_button_placeholder.get();
-
-  auto dismiss_button_container = std::make_unique<views::View>();
-  dismiss_button_container->SetPreferredSize(dismiss_button_size);
-  dismiss_button_container->SetLayoutManager(
-      std::make_unique<views::FillLayout>());
-  dismiss_button_container->SetVisible(false);
-  dismiss_button_container_ = dismiss_button_placeholder_->AddChildView(
-      std::move(dismiss_button_container));
-
-  auto dismiss_button = std::make_unique<DismissButton>(base::BindRepeating(
-      &MediaItemUIView::DismissNotification, base::Unretained(this)));
-  dismiss_button->SetPreferredSize(dismiss_button_size);
-  dismiss_button->SetTooltipText(l10n_util::GetStringUTF16(
-      IDS_GLOBAL_MEDIA_CONTROLS_DISMISS_ICON_TOOLTIP_TEXT));
-  dismiss_button_ =
-      dismiss_button_container_->AddChildView(std::move(dismiss_button));
-  UpdateDismissButtonIcon();
-
   std::unique_ptr<media_message_center::MediaNotificationView> view;
-  if (base::FeatureList::IsEnabled(media::kGlobalMediaControlsModernUI)) {
-    view =
-        std::make_unique<media_message_center::MediaNotificationViewModernImpl>(
-            this, std::move(item), std::move(dismiss_button_placeholder),
-            std::move(footer_view), kModernUIWidth);
-    SetPreferredSize(kModernUISize);
+  if (use_cros_updated_ui) {
+    DCHECK(media_color_theme.has_value());
+    view = std::make_unique<media_message_center::MediaNotificationViewAshImpl>(
+        this, std::move(item), media_color_theme.value(),
+        media_display_page.value());
   } else {
-    view = std::make_unique<media_message_center::MediaNotificationViewImpl>(
-        this, std::move(item), std::move(dismiss_button_placeholder),
-        std::u16string(), kWidth, /*should_show_icon=*/false, theme);
+    gfx::Size dismiss_button_size =
+        has_notification_theme_ ? kCrOSDismissButtonSize : kDismissButtonSize;
+    if (base::FeatureList::IsEnabled(media::kGlobalMediaControlsModernUI)) {
+      dismiss_button_size = kModernDismissButtonSize;
+    }
 
-    if (footer_view)
-      AddChildView(std::move(footer_view));
+    auto dismiss_button_placeholder = std::make_unique<views::View>();
+    dismiss_button_placeholder->SetPreferredSize(dismiss_button_size);
+    dismiss_button_placeholder->SetLayoutManager(
+        std::make_unique<views::FillLayout>());
+    dismiss_button_placeholder_ = dismiss_button_placeholder.get();
 
-    SetPreferredSize(kNormalSize);
+    auto dismiss_button_container = std::make_unique<views::View>();
+    dismiss_button_container->SetPreferredSize(dismiss_button_size);
+    dismiss_button_container->SetLayoutManager(
+        std::make_unique<views::FillLayout>());
+    dismiss_button_container->SetVisible(false);
+    dismiss_button_container_ = dismiss_button_placeholder_->AddChildView(
+        std::move(dismiss_button_container));
+
+    auto dismiss_button = std::make_unique<DismissButton>(base::BindRepeating(
+        &MediaItemUIView::DismissNotification, base::Unretained(this)));
+    dismiss_button->SetPreferredSize(dismiss_button_size);
+    dismiss_button->SetTooltipText(l10n_util::GetStringUTF16(
+        IDS_GLOBAL_MEDIA_CONTROLS_DISMISS_ICON_TOOLTIP_TEXT));
+    dismiss_button_ =
+        dismiss_button_container_->AddChildView(std::move(dismiss_button));
+    UpdateDismissButtonIcon();
+
+    slide_out_controller_ =
+        std::make_unique<views::SlideOutController>(this, this);
+
+    if (base::FeatureList::IsEnabled(media::kGlobalMediaControlsModernUI)) {
+      footer_view_ = footer_view.get();
+      view = std::make_unique<
+          media_message_center::MediaNotificationViewModernImpl>(
+          this, std::move(item), std::move(dismiss_button_placeholder),
+          std::move(footer_view), kModernUIWidth, notification_theme);
+      SetPreferredSize(kModernUISize);
+    } else {
+      view = std::make_unique<media_message_center::MediaNotificationViewImpl>(
+          this, std::move(item), std::move(dismiss_button_placeholder),
+          std::u16string(), kWidth, /*should_show_icon=*/false,
+          notification_theme);
+
+      UpdateFooterView(std::move(footer_view));
+      SetPreferredSize(kNormalSize);
+    }
   }
   view_ = swipeable_container_->AddChildView(std::move(view));
 
-  if (device_selector_view) {
-    device_selector_view_ = device_selector_view.get();
-    device_selector_view_->SetMediaItemUIView(this);
-    AddChildView(std::move(device_selector_view));
-    view_->UpdateCornerRadius(message_center::kNotificationCornerRadius, 0);
-  }
+  UpdateDeviceSelector(std::move(device_selector_view));
 
   ForceExpandedState();
-
-  slide_out_controller_ =
-      std::make_unique<views::SlideOutController>(this, this);
 }
 
 MediaItemUIView::~MediaItemUIView() {
@@ -184,6 +210,11 @@ void MediaItemUIView::OnMouseEntered(const ui::MouseEvent& event) {
 
 void MediaItemUIView::OnMouseExited(const ui::MouseEvent& event) {
   UpdateDismissButtonVisibility();
+}
+
+void MediaItemUIView::OnGestureEvent(ui::GestureEvent* event) {
+  if (scroll_view_ && event->IsScrollGestureEvent())
+    scroll_view_->OnGestureEvent(event);
 }
 
 void MediaItemUIView::OnDidChangeFocus(views::View* focused_before,
@@ -243,9 +274,13 @@ void MediaItemUIView::OnMediaArtworkChanged(const gfx::ImageSkia& image) {
   ForceExpandedState();
 }
 
-void MediaItemUIView::OnColorsChanged(SkColor foreground, SkColor background) {
-  if (foreground_color_ != foreground) {
+void MediaItemUIView::OnColorsChanged(SkColor foreground,
+                                      SkColor foreground_disabled,
+                                      SkColor background) {
+  if (foreground_color_ != foreground ||
+      foreground_disabled_color_ != foreground_disabled) {
     foreground_color_ = foreground;
+    foreground_disabled_color_ = foreground_disabled;
     UpdateDismissButtonIcon();
   }
 
@@ -275,6 +310,22 @@ ui::Layer* MediaItemUIView::GetSlideOutLayer() {
   return swipeable_container_->layer();
 }
 
+void MediaItemUIView::OnSlideChanged(bool in_progress) {
+  // Make sure we are only scrolling in one dimension.
+  if (scroll_view_ && in_progress && !is_sliding_ &&
+      slide_out_controller_->GetGestureAmount()) {
+    is_sliding_ = true;
+    scroll_view_->SetVerticalScrollBarMode(
+        views::ScrollView::ScrollBarMode::kDisabled);
+  }
+
+  if (!in_progress && scroll_view_ && is_sliding_) {
+    is_sliding_ = false;
+    scroll_view_->SetVerticalScrollBarMode(
+        views::ScrollView::ScrollBarMode::kEnabled);
+  }
+}
+
 void MediaItemUIView::OnSlideOut() {
   DismissNotification();
 }
@@ -293,22 +344,65 @@ const std::u16string& MediaItemUIView::GetTitle() const {
   return title_;
 }
 
+void MediaItemUIView::SetScrollView(views::ScrollView* scroll_view) {
+  scroll_view_ = scroll_view;
+}
+
+void MediaItemUIView::UpdateFooterView(
+    std::unique_ptr<MediaItemUIFooter> footer_view) {
+  if (footer_view_) {
+    RemoveChildView(footer_view_);
+    delete footer_view_;
+    footer_view_ = nullptr;
+  }
+
+  if (footer_view) {
+    footer_view->OnColorsChanged(foreground_color_, background_color_);
+    footer_view_ = AddChildView(std::move(footer_view));
+  }
+}
+
+void MediaItemUIView::UpdateDeviceSelector(
+    std::unique_ptr<MediaItemUIDeviceSelector> device_selector_view) {
+  if (device_selector_view_) {
+    RemoveChildView(device_selector_view_);
+    delete device_selector_view_;
+    device_selector_view_ = nullptr;
+  }
+
+  if (device_selector_view) {
+    device_selector_view_ = AddChildView(std::move(device_selector_view));
+    device_selector_view_->SetMediaItemUIView(this);
+    view_->UpdateCornerRadius(message_center::kNotificationCornerRadius, 0);
+    device_selector_view_->OnColorsChanged(foreground_color_,
+                                           background_color_);
+  }
+}
+
 views::ImageButton* MediaItemUIView::GetDismissButtonForTesting() {
   return dismiss_button_;
 }
 
 void MediaItemUIView::UpdateDismissButtonIcon() {
-  int icon_size =
-      is_cros_ ? kCrOSDismissButtonIconSize : kDismissButtonIconSize;
+  if (!dismiss_button_) {
+    return;
+  }
+
+  int icon_size = has_notification_theme_ ? kCrOSDismissButtonIconSize
+                                          : kDismissButtonIconSize;
   if (base::FeatureList::IsEnabled(media::kGlobalMediaControlsModernUI))
     icon_size = kModernDismissButtonIconSize;
 
-  views::SetImageFromVectorIconWithColor(dismiss_button_,
-                                         vector_icons::kCloseRoundedIcon,
-                                         icon_size, foreground_color_);
+  views::SetImageFromVectorIconWithColor(
+      dismiss_button_, vector_icons::kCloseRoundedIcon, icon_size,
+      foreground_color_, foreground_disabled_color_);
 }
 
 void MediaItemUIView::UpdateDismissButtonBackground() {
+  if (!dismiss_button_container_) {
+    return;
+  }
+
   if (!has_artwork_) {
     dismiss_button_container_->SetBackground(nullptr);
     return;
@@ -319,6 +413,10 @@ void MediaItemUIView::UpdateDismissButtonBackground() {
 }
 
 void MediaItemUIView::UpdateDismissButtonVisibility() {
+  if (!dismiss_button_container_) {
+    return;
+  }
+
   bool has_focus = false;
   if (GetFocusManager()) {
     views::View* focused_view = GetFocusManager()->GetFocusedView();

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,10 +12,11 @@ import android.view.ViewGroup.LayoutParams;
 
 import org.chromium.base.Callback;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
+import org.chromium.chrome.R;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.components.browser_ui.util.GlobalDiscardableReferencePool;
-import org.chromium.components.browser_ui.widget.R;
 import org.chromium.components.browser_ui.widget.image_tiles.ImageTile;
 import org.chromium.components.browser_ui.widget.image_tiles.ImageTileCoordinator;
 import org.chromium.components.browser_ui.widget.image_tiles.ImageTileCoordinatorFactory;
@@ -27,7 +28,6 @@ import org.chromium.components.query_tiles.QueryTile;
 import org.chromium.components.query_tiles.QueryTileConstants;
 import org.chromium.components.query_tiles.TileProvider;
 import org.chromium.components.query_tiles.TileUmaLogger;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.ui.display.DisplayAndroid;
 import org.chromium.ui.display.DisplayUtil;
 import org.chromium.url.GURL;
@@ -50,6 +50,7 @@ public class QueryTileSection {
     private static final String VARIATION_SMALL_SCREEN_HEIGHT_THRESHOLD_DP =
             "small_screen_height_threshold_dp";
     private static final int DEFAULT_SMALL_SCREEN_HEIGHT_THRESHOLD_DP = 700;
+    private static final int DEFAULT_MOST_VISITED_MAX_ROWS = 1;
 
     private final ViewGroup mQueryTileSectionView;
     private final Callback<QueryInfo> mSubmitQueryCallback;
@@ -120,9 +121,7 @@ public class QueryTileSection {
     private void onTileClicked(ImageTile tile) {
         QueryTile queryTile = (QueryTile) tile;
         mTileUmaLogger.recordTileClicked(queryTile);
-        if (ChromeFeatureList.isEnabled(ChromeFeatureList.QUERY_TILES_LOCAL_ORDERING)) {
-            mTileProvider.onTileClicked(queryTile.id);
-        }
+        mTileProvider.onTileClicked(queryTile.id);
         QueryTileUtils.onQueryTileClicked();
 
         // TODO(qinmin): make isLastLevelTile a member variable of ImageTile.
@@ -157,7 +156,7 @@ public class QueryTileSection {
 
     private void fetchImage(QueryTile queryTile, int size, Callback<Bitmap> callback) {
         if (queryTile.urls.isEmpty()) {
-            PostTask.postTask(UiThreadTaskTraits.DEFAULT, () -> callback.onResult(null));
+            PostTask.postTask(TaskTraits.UI_DEFAULT, () -> callback.onResult(null));
             return;
         }
 
@@ -183,6 +182,6 @@ public class QueryTileSection {
         return ChromeFeatureList.getFieldTrialParamByFeatureAsInt(ChromeFeatureList.QUERY_TILES,
                 isSmallScreen ? MOST_VISITED_MAX_ROWS_SMALL_SCREEN
                               : MOST_VISITED_MAX_ROWS_NORMAL_SCREEN,
-                2);
+                DEFAULT_MOST_VISITED_MAX_ROWS);
     }
 }

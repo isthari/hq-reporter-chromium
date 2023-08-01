@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -503,6 +503,47 @@ TEST_F(NodeTest, UpdateChildDirtyAfterSlottingDirtyNode) {
 
   // This used to call a DCHECK failure. Make sure we don't regress.
   UpdateAllLifecyclePhasesForTest();
+}
+
+TEST_F(NodeTest, ReassignStyleDirtyElementIntoSlotOutsideFlatTree) {
+  GetDocument().body()->setInnerHTMLWithDeclarativeShadowDOMForTesting(R"HTML(
+    <div>
+      <template shadowroot="open">
+        <div>
+          <slot name="s1"></slot>
+        </div>
+        <div>
+          <template shadowroot="open">
+            <div></div>
+          </template>
+          <slot name="s2"></slot>
+        </div>
+      </template>
+      <span id="slotted" slot="s1"></span>
+    </div>
+  )HTML");
+
+  UpdateAllLifecyclePhasesForTest();
+
+  Element* slotted = GetDocument().getElementById("slotted");
+
+  // Starts with #slotted in the flat tree as a child of the s1 slot.
+  EXPECT_TRUE(slotted->GetComputedStyle());
+
+  // Mark #slotted dirty.
+  slotted->SetInlineStyleProperty(CSSPropertyID::kColor, "orange");
+  EXPECT_TRUE(slotted->NeedsStyleRecalc());
+
+  // Mark for slot reassignment. The #s2 slot is outside the flat tree because
+  // its parent is a shadow host with no slots in the shadow tree.
+  slotted->setAttribute("slot", "s2");
+
+  // After doing the slot assignment, the #slotted element should no longer be
+  // marked dirty and its ComputedStyle should be null because it's outside the
+  // flat tree.
+  GetDocument().GetSlotAssignmentEngine().RecalcSlotAssignments();
+  EXPECT_FALSE(slotted->NeedsStyleRecalc());
+  EXPECT_FALSE(slotted->GetComputedStyle());
 }
 
 TEST_F(NodeTest, FlatTreeParentForChildDirty) {

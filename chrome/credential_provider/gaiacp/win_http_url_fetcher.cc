@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -421,18 +421,16 @@ HRESULT WinHttpUrlFetcher::BuildRequestAndFetchResultFromHttpService(
     const GURL& request_url,
     std::string access_token,
     const std::vector<std::pair<std::string, std::string>>& headers,
-    const base::Value& request_dict,
+    const base::Value::Dict& request_dict,
     const base::TimeDelta& request_timeout,
     unsigned int request_retries,
     absl::optional<base::Value>* request_result) {
   DCHECK(request_result);
 
   std::string request_body;
-  if (request_dict.is_dict()) {
-    if (!base::JSONWriter::Write(request_dict, &request_body)) {
-      LOGFN(ERROR) << "base::JSONWriter::Write failed";
-      return E_FAIL;
-    }
+  if (!base::JSONWriter::Write(request_dict, &request_body)) {
+    LOGFN(ERROR) << "base::JSONWriter::Write failed";
+    return E_FAIL;
   }
 
   for (unsigned int try_count = 0; try_count <= request_retries; ++try_count) {
@@ -447,8 +445,8 @@ HRESULT WinHttpUrlFetcher::BuildRequestAndFetchResultFromHttpService(
       continue;
 
     *request_result = std::move(extracted_param);
-    const base::Value* error_detail =
-        (*request_result)->FindDictKey(kErrorKeyInRequestResult);
+    const base::Value::Dict* error_detail =
+        (*request_result)->GetDict().FindDict(kErrorKeyInRequestResult);
     if (!error_detail)
       return S_OK;
 
@@ -456,7 +454,7 @@ HRESULT WinHttpUrlFetcher::BuildRequestAndFetchResultFromHttpService(
 
     // If error code is known, retry only on retryable server errors.
     absl::optional<int> error_code =
-        error_detail->FindIntKey(kHttpErrorCodeKeyNameInResponse);
+        error_detail->FindInt(kHttpErrorCodeKeyNameInResponse);
     if (error_code.has_value() &&
         !base::Contains(kRetryableHttpErrorCodes, error_code.value())) {
       return E_FAIL;

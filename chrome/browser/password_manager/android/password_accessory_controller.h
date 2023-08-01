@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,14 +33,9 @@ class PasswordAccessoryController
 
   ~PasswordAccessoryController() override = default;
 
-  // Returns true if the accessory controller may exist for |web_contents|.
-  // Otherwise (e.g. if VR is enabled), it returns false.
-  static bool AllowedForWebContents(content::WebContents* web_contents);
-
   // Returns a reference to the unique PasswordAccessoryController associated
   // with |web_contents|. A new instance is created if the first time this
-  // function is called. Only valid to be called if
-  // |PasswordAccessoryController::AllowedForWebContents(web_contents)|.
+  // function is called.
   static PasswordAccessoryController* GetOrCreate(
       content::WebContents* web_contents,
       password_manager::CredentialCache* credential_cache);
@@ -65,6 +60,10 @@ class PasswordAccessoryController
   // the automatically provided button.
   virtual void OnGenerationRequested(
       autofill::password_generation::PasswordGenerationType type) = 0;
+
+  // Asks the controller to update the UI allowing users to continue with the
+  // CredMan conditional UI.
+  virtual void UpdateCredManReentryUi() = 0;
 };
 
 #endif  // CHROME_BROWSER_PASSWORD_MANAGER_ANDROID_PASSWORD_ACCESSORY_CONTROLLER_H_

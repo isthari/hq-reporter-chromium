@@ -1,4 +1,4 @@
-// Copyright 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,8 @@
 #include "net/http/http_request_headers.h"
 #include "net/http/http_response_headers.h"
 #include "net/url_request/url_request.h"
+#include "net/url_request/url_request_context.h"
+#include "net/url_request/url_request_context_builder.h"
 #include "net/url_request/url_request_filter.h"
 #include "net/url_request/url_request_interceptor.h"
 #include "net/url_request/url_request_job.h"
@@ -29,15 +31,6 @@
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
-
-// When C++ exceptions are disabled, the C++ library defines |try| and
-// |catch| so as to allow exception-expecting C++ code to build properly when
-// language support for exceptions is not present.  These macros interfere
-// with the use of |@try| and |@catch| in Objective-C files such as this one.
-// Undefine these macros here, after everything has been #included, since
-// there will be no C++ uses and only Objective-C uses from this point on.
-#undef try
-#undef catch
 
 namespace net {
 namespace {
@@ -109,7 +102,7 @@ class ProtocolHandlerUtilTest : public PlatformTest,
  public:
   ProtocolHandlerUtilTest()
       : task_environment_(base::test::TaskEnvironment::MainThreadType::IO),
-        request_context_(std::make_unique<TestURLRequestContext>()) {
+        request_context_(net::CreateTestURLRequestContextBuilder()->Build()) {
     URLRequestFilter::GetInstance()->AddHostnameInterceptor(
         "http", "foo.test", std::make_unique<NetURLRequestInterceptor>());
   }

@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,10 @@ import android.app.PendingIntent;
 import android.content.Intent;
 import android.util.Pair;
 
-import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 
 import org.chromium.base.Callback;
-
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
+import org.chromium.base.annotations.NativeMethods;
 
 /**
  * Reflects the Android parts of the C++ class <code>WebAuthenticationDelegate</code>.
@@ -24,13 +21,11 @@ import java.lang.annotation.RetentionPolicy;
  * <code>ContentClient</code> has been set.
  */
 public class WebAuthenticationDelegate {
-    // TODO: actually wire this up to the C++ code.
-    //
-    // private final long mNativeDelegate;
-    //
-    // public WebAuthenticationDelegate() {
-    //    mNativeDelegate = WebAuthenticationDelegateJni.get().getNativeDelegate();
-    // }
+    private final long mNativeDelegate;
+
+    public WebAuthenticationDelegate() {
+        mNativeDelegate = WebAuthenticationDelegateJni.get().getNativeDelegate();
+    }
 
     /**
      * Abstracts the task of starting an intent and getting the result.
@@ -55,58 +50,12 @@ public class WebAuthenticationDelegate {
      */
     @Nullable
     public IntentSender getIntentSender(WebContents webContents) {
-        // TODO: actually wire this up to the C++ code.
-        //
-        // return WebAuthenticationDelegateJni.get().getIntentSender(mNativeDelegate, webContents);
-        return null;
+        return WebAuthenticationDelegateJni.get().getIntentSender(mNativeDelegate, webContents);
     }
 
-    /**
-     * Enumerates the different level of WebAuthn support in an Android app.
-     */
-    @IntDef({Support.NONE, Support.APP, Support.BROWSER})
-    @Retention(RetentionPolicy.SOURCE)
-    public @interface Support {
-        /**
-         * WebAuthn is disabled. The <code>PublicKeyCredential</code> will be missing in Javascript
-         * so that sites can detect that there's no WebAuthn support.
-         */
-        int NONE = 0;
-        /**
-         * The unprivileged Play Services API will be used. This requires that the app be listed in
-         * the Asset Links for the RP ID that it is trying to assert / register for.
-         */
-        int APP = 1;
-        /**
-         * The privileged Play Services API will be used which allows any RP ID.
-         */
-        int BROWSER = 2;
+    @NativeMethods
+    interface Natives {
+        long getNativeDelegate();
+        IntentSender getIntentSender(long delegatePtr, WebContents webContents);
     }
-
-    /**
-     * @return the current WebAuthn support level for the given {@link WebContents}.
-     */
-    public @Support int getSupportLevel(WebContents webContents) {
-        // TODO: actually wire this up to the C++ code.
-        //
-        // switch (WebAuthenticationDelegateJni.get().getSupportLevel(mNativeDelegate,
-        // webContents)){
-        switch (2) {
-            case 1:
-                return Support.APP;
-            case 2:
-                return Support.BROWSER;
-            default:
-                return Support.NONE;
-        }
-    }
-
-    // TODO: actually wire this up to the C++ code.
-    //
-    // @NativeMethods
-    // interface Natives {
-    //     long getNativeDelegate();
-    //     IntentSender getIntentSender(long delegatePtr, WebContents webContents);
-    //     int getSupportLevel(long delegatePtr, WebContents webContents);
-    // }
 }

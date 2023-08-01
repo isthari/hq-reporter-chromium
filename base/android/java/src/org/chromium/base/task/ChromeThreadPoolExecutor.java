@@ -1,12 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.base.task;
 
 import static java.util.concurrent.TimeUnit.SECONDS;
-
-import android.os.Process;
 
 import androidx.annotation.VisibleForTesting;
 
@@ -37,11 +35,7 @@ class ChromeThreadPoolExecutor extends ThreadPoolExecutor {
         private final AtomicInteger mCount = new AtomicInteger(1);
         @Override
         public Thread newThread(Runnable r) {
-            Thread t = new Thread(() -> {
-                Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
-                r.run();
-            }, "CrAsyncTask #" + mCount.getAndIncrement());
-            return t;
+            return new Thread(r, "CrAsyncTask #" + mCount.getAndIncrement());
         }
     };
 

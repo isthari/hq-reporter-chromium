@@ -1,9 +1,10 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/quick_pair/repository/fast_pair/device_metadata_fetcher.h"
 
+#include "ash/constants/ash_features.h"
 #include "ash/quick_pair/common/fast_pair/fast_pair_http_result.h"
 #include "ash/quick_pair/common/fast_pair/fast_pair_metrics.h"
 #include "ash/quick_pair/common/logging.h"
@@ -19,7 +20,9 @@ namespace {
 
 const char kGetObservedDeviceUrl[] =
     "https://nearbydevices-pa.googleapis.com/v1/device/"
-    "%d?key=%s&mode=MODE_RELEASE&alt=proto";
+    "%d?key=%s&mode=%s&alt=proto";
+const char kReleaseMode[] = "MODE_RELEASE";
+const char kDebugMode[] = "MODE_DEBUG";
 
 const net::NetworkTrafficAnnotationTag kTrafficAnnotation =
     net::DefineNetworkTrafficAnnotation("fast_pair_device_metadata_fetcher", R"(
@@ -41,7 +44,7 @@ const net::NetworkTrafficAnnotationTag kTrafficAnnotation =
             "feature is enabled by default. "
           chrome_policy {
             FastPairEnabled {
-                FastPairEnabled: true
+                FastPairEnabled: false
             }
           }
         })");
@@ -63,8 +66,17 @@ DeviceMetadataFetcher::~DeviceMetadataFetcher() = default;
 
 void DeviceMetadataFetcher::LookupDeviceId(int id,
                                            GetObservedDeviceCallback callback) {
+  const char* mode;
+  if (features::IsFastPairDebugMetadataEnabled()) {
+    QP_LOG(INFO) << __func__ << ": Fetching DEBUG_MODE metadata.";
+    mode = kDebugMode;
+  } else {
+    mode = kReleaseMode;
+  }
+
   GURL url = GURL(base::StringPrintf(kGetObservedDeviceUrl, id,
-                                     google_apis::GetAPIKey().c_str()));
+                                     google_apis::GetAPIKey().c_str(), mode));
+
   http_fetcher_->ExecuteGetRequest(
       url, base::BindOnce(&DeviceMetadataFetcher::OnFetchComplete,
                           weak_ptr_factory_.GetWeakPtr(), std::move(callback)));

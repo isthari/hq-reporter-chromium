@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,16 +6,17 @@
 
 #include <stddef.h>
 
-#include <algorithm>
 #include <memory>
 #include <utility>
 
-#include "base/callback_helpers.h"
 #include "base/containers/contains.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ptr_util.h"
+#include "base/memory/raw_ptr.h"
+#include "base/ranges/algorithm.h"
+#include "chrome/browser/ash/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/extensions/launch_util.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/app_list/arc/arc_app_utils.h"
 #include "chrome/browser/ui/ash/ash_util.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_util.h"
 #include "chrome/browser/ui/ash/multi_user/multi_user_window_manager_helper.h"
@@ -27,12 +28,15 @@
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/tabs/tab_enums.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/web_applications/app_browser_controller.h"
+#include "chrome/browser/web_applications/mojom/user_display_mode.mojom.h"
 #include "chrome/browser/web_applications/web_app_helpers.h"
 #include "chrome/browser/web_applications/web_app_provider.h"
 #include "chrome/browser/web_applications/web_app_registrar.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
+#include "components/app_constants/constants.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/app_window/native_app_window.h"
@@ -101,7 +105,7 @@ absl::optional<ash::ShelfAction> AdvanceApp(
   size_t index = 0;
   if (active_item) {
     DCHECK(base::Contains(items, active_item));
-    auto it = std::find(items.cbegin(), items.cend(), active_item);
+    auto it = base::ranges::find(items, active_item);
     index = (it - items.cbegin() + 1) % items.size();
   }
   std::move(activate_callback).Run(items[index]);
@@ -120,9 +124,9 @@ class AppMatcher {
       : app_id_(app_id), refocus_pattern_(refocus_pattern) {
     DCHECK(profile);
     if (web_app::WebAppProvider* provider =
-            web_app::WebAppProvider::GetDeprecated(profile)) {
-      if (provider->registrar().IsLocallyInstalled(app_id)) {
-        registrar_ = &provider->registrar();
+            web_app::WebAppProvider::GetForLocalAppsUnchecked(profile)) {
+      if (provider->registrar_unsafe().IsLocallyInstalled(app_id)) {
+        registrar_ = &provider->registrar_unsafe();
       }
     }
     if (!registrar_)
@@ -145,6 +149,8 @@ class AppMatcher {
     return extension_ ? WebContentMatchesHostedApp(web_contents, browser)
                       : WebContentMatchesWebApp(web_contents, browser);
   }
+
+  bool IsAshBrowser() const { return app_id_ == app_constants::kChromeAppId; }
 
  private:
   bool WebContentMatchesHostedApp(content::WebContents* web_contents,
@@ -219,10 +225,10 @@ class AppMatcher {
   // AppMatcher is stack allocated. Pointer members below are not owned.
 
   // registrar_ is set when app_id_ is a web app.
-  const web_app::WebAppRegistrar* registrar_ = nullptr;
+  raw_ptr<const web_app::WebAppRegistrar, ExperimentalAsh> registrar_ = nullptr;
 
   // extension_ is set when app_id_ is a hosted app.
-  const Extension* extension_ = nullptr;
+  raw_ptr<const Extension, ExperimentalAsh> extension_ = nullptr;
 };
 
 }  // namespace
@@ -387,7 +393,7 @@ void AppShortcutShelfItemController::ExecuteCommand(bool from_context_menu,
                                 : TabStripModel::kNoTab;
     if (index != TabStripModel::kNoTab) {
       if (should_close) {
-        tab_strip->CloseWebContentsAt(index, TabStripModel::CLOSE_USER_GESTURE);
+        tab_strip->CloseWebContentsAt(index, TabCloseTypes::CLOSE_USER_GESTURE);
       } else {
         tab_strip->ActivateTabAt(index);
         activate_browser(browser);
@@ -413,7 +419,7 @@ void AppShortcutShelfItemController::Close() {
       TabStripModel* tab_strip = browser->tab_strip_model();
       int index = tab_strip->GetIndexOfWebContents(item);
       DCHECK(index != TabStripModel::kNoTab);
-      tab_strip->CloseWebContentsAt(index, TabStripModel::CLOSE_NONE);
+      tab_strip->CloseWebContentsAt(index, TabCloseTypes::CLOSE_NONE);
     }
   }
 }
@@ -422,8 +428,7 @@ void AppShortcutShelfItemController::OnBrowserClosing(Browser* browser) {
   if (!app_menu_cached_by_browsers_)
     return;
   // Reset pointers to the closed browser, but leave menu indices intact.
-  auto it =
-      std::find(app_menu_browsers_.begin(), app_menu_browsers_.end(), browser);
+  auto it = base::ranges::find(app_menu_browsers_, browser);
   if (it != app_menu_browsers_.end())
     *it = nullptr;
 }
@@ -457,8 +462,10 @@ AppShortcutShelfItemController::GetAppWebContents(
     TabStripModel* tab_strip = browser->tab_strip_model();
     for (int index = 0; index < tab_strip->count(); index++) {
       content::WebContents* web_contents = tab_strip->GetWebContentsAt(index);
-      if (matcher.WebContentMatchesApp(web_contents, browser))
+      if (matcher.IsAshBrowser() ||
+          matcher.WebContentMatchesApp(web_contents, browser)) {
         items.push_back(web_contents);
+      }
     }
   }
   return items;
@@ -552,12 +559,12 @@ bool AppShortcutShelfItemController::AllowNextLaunchAttempt() {
 
 bool AppShortcutShelfItemController::IsWindowedWebApp() {
   if (web_app::WebAppProvider* provider =
-          web_app::WebAppProvider::GetDeprecated(
+          web_app::WebAppProvider::GetForLocalAppsUnchecked(
               ChromeShelfController::instance()->profile())) {
-    web_app::WebAppRegistrar& registrar = provider->registrar();
+    web_app::WebAppRegistrar& registrar = provider->registrar_unsafe();
     if (registrar.IsLocallyInstalled(app_id())) {
       return registrar.GetAppUserDisplayMode(app_id()) !=
-             web_app::DisplayMode::kBrowser;
+             web_app::mojom::UserDisplayMode::kBrowser;
     }
   }
   return false;

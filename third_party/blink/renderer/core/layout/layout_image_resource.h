@@ -27,6 +27,7 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_IMAGE_RESOURCE_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_LAYOUT_IMAGE_RESOURCE_H_
 
+#include "base/gtest_prod_util.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/loader/resource/image_resource_content.h"
 #include "third_party/blink/renderer/core/style/style_image.h"
@@ -50,6 +51,7 @@ class CORE_EXPORT LayoutImageResource
   void SetImageResource(ImageResourceContent*);
   ImageResourceContent* CachedImage() const { return cached_image_.Get(); }
   virtual bool HasImage() const { return cached_image_; }
+  ResourcePriority ComputeResourcePriority() const;
 
   void ResetAnimation();
   bool MaybeAnimated() const;
@@ -74,10 +76,11 @@ class CORE_EXPORT LayoutImageResource
   virtual WrappedImagePtr ImagePtr() const { return cached_image_.Get(); }
 
  protected:
-  // Device scale factor for the associated LayoutObject.
-  float DeviceScaleFactor() const;
   // Returns an image based on the passed device scale factor.
-  static Image* BrokenImage(float device_scale_factor);
+  static Image* BrokenImage(double device_pixel_ratio);
+  double DevicePixelRatio() const;
+
+  FRIEND_TEST_ALL_PREFIXES(LayoutImageResourceTest, BrokenImageHighRes);
 
   Member<LayoutObject> layout_object_;
   Member<ImageResourceContent> cached_image_;

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,9 +32,8 @@ import org.chromium.ui.touch_selection.SelectionEventType;
  * </ul>
  */
 @RunWith(BaseRobolectricTestRunner.class)
-@Config(shadows = {ContextualSearchSelectionControllerTest.ShadowContextualSearchFieldTrial.class,
-                ContextualSearchSelectionControllerTest.ShadowContextualSearchSelectionController
-                        .class})
+@Config(shadows = {ContextualSearchSelectionControllerTest.ShadowContextualSearchSelectionController
+                           .class})
 public final class ContextualSearchSelectionControllerTest {
     private static final String USER_SELECTION = "user selection";
 
@@ -48,27 +47,9 @@ public final class ContextualSearchSelectionControllerTest {
     public void setUp() throws Exception {
         Activity activity = Robolectric.buildActivity(Activity.class).setup().get();
         mSelectionControllerUnderTest =
-                new ContextualSearchSelectionController(activity, null, null, null);
+                new ContextualSearchSelectionController(activity, null, null);
         mSelectionControllerUnderTest.setSelectedText(USER_SELECTION);
         sSelectionSetByHandleSelection = null;
-    }
-
-    /**
-     * Shadows the ContextualSearchFieldTrial class.
-     * The values returned are not important for this test, they just fulfill the stubbing.
-     */
-    @Implements(ContextualSearchFieldTrial.class)
-    static class ShadowContextualSearchFieldTrial {
-        @Implementation
-        protected static boolean getSwitch(
-                @ContextualSearchFieldTrial.ContextualSearchSwitch int value) {
-            return false;
-        }
-
-        @Implementation
-        protected static int getValue(int someValue) {
-            return someValue;
-        }
     }
 
     /**

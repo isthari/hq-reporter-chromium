@@ -1,4 +1,4 @@
-// Copyright (c) 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include <string>
 
 #include "base/cancelable_callback.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
@@ -45,8 +46,8 @@ class HeartbeatScheduler : public gcm::GCMAppHandler,
   // to DM server, and can be null. |driver| can be null for tests.
   HeartbeatScheduler(
       gcm::GCMDriver* driver,
-      policy::CloudPolicyClient* cloud_policy_client,
-      policy::CloudPolicyStore* cloud_policy_store,
+      CloudPolicyClient* cloud_policy_client,
+      CloudPolicyStore* cloud_policy_store,
       const std::string& device_id,
       const scoped_refptr<base::SequencedTaskRunner>& task_runner);
 
@@ -138,12 +139,12 @@ class HeartbeatScheduler : public gcm::GCMAppHandler,
   // Callback invoked via a delay to send a heartbeat.
   base::CancelableOnceClosure heartbeat_callback_;
 
-  policy::CloudPolicyClient* cloud_policy_client_;
+  raw_ptr<CloudPolicyClient, ExperimentalAsh> cloud_policy_client_;
 
-  policy::CloudPolicyStore* cloud_policy_store_;
+  raw_ptr<CloudPolicyStore, ExperimentalAsh> cloud_policy_store_;
 
   // The GCMDriver used to send heartbeat messages.
-  gcm::GCMDriver* const gcm_driver_;
+  const raw_ptr<gcm::GCMDriver, ExperimentalAsh> gcm_driver_;
 
   // The GCM registration ID - if empty, we are not registered yet.
   std::string registration_id_;

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_ASH_WEB_APPLICATIONS_CHROME_FILE_MANAGER_UI_DELEGATE_H_
 
 #include "ash/webui/file_manager/file_manager_ui_delegate.h"
+#include "base/memory/raw_ptr.h"
 
 namespace content {
 class WebUI;
@@ -20,11 +21,17 @@ class ChromeFileManagerUIDelegate : public ash::FileManagerUIDelegate {
   ChromeFileManagerUIDelegate& operator=(const ChromeFileManagerUIDelegate&) =
       delete;
 
-  // FileManagerUIDelegate:
-  void PopulateLoadTimeData(content::WebUIDataSource*) const override;
+  // Fetches a map that maps message IDs to actual strings shown to the user.
+  // Extends the map with properties used by the files app, such as which
+  // features are enabled. Returns the populated map to the caller.
+  base::Value::Dict GetLoadTimeData() const override;
+
+  // Calls volume manager io_task_controller ProgressPausedTasks API to make
+  // I/O state::PAUSED tasks emit their IOTask progress status.
+  void ProgressPausedTasks() const override;
 
  private:
-  content::WebUI* web_ui_;  // Owns |this|.
+  raw_ptr<content::WebUI, ExperimentalAsh> web_ui_;  // Owns |this|.
 };
 
 #endif  // CHROME_BROWSER_ASH_WEB_APPLICATIONS_CHROME_FILE_MANAGER_UI_DELEGATE_H_

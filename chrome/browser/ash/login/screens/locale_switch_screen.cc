@@ -1,17 +1,22 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/login/screens/locale_switch_screen.h"
 
+#include "base/containers/contains.h"
 #include "base/time/time.h"
 #include "chrome/browser/ash/base/locale_util.h"
+#include "chrome/browser/ash/login/login_pref_names.h"
+#include "chrome/browser/ash/login/screens/locale_switch_notification.h"
+#include "chrome/browser/ash/login/users/chrome_user_manager_util.h"
+#include "chrome/browser/ash/login/wizard_context.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
-#include "chrome/browser/ui/webui/chromeos/login/locale_switch_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/locale_switch_screen_handler.h"
 #include "components/language/core/browser/pref_names.h"
 #include "components/language/core/common/locale_util.h"
 #include "components/prefs/pref_service.h"
@@ -46,26 +51,38 @@ std::string LocaleSwitchScreen::GetResultString(Result result) {
       return "SwitchFailed";
     case Result::SWITCH_SUCCEDED:
       return "SwitchSucceded";
+    case Result::SWITCH_DELEGATED:
+      return "SwitchDelegated";
     case Result::NOT_APPLICABLE:
       return BaseScreen::kNotApplicable;
   }
 }
 
-LocaleSwitchScreen::LocaleSwitchScreen(LocaleSwitchView* view,
+LocaleSwitchScreen::LocaleSwitchScreen(base::WeakPtr<LocaleSwitchView> view,
                                        const ScreenExitCallback& exit_callback)
     : BaseScreen(LocaleSwitchView::kScreenId, OobeScreenPriority::DEFAULT),
-      view_(view),
-      exit_callback_(exit_callback) {
-  if (view_)
-    view_->Bind(this);
-}
+      view_(std::move(view)),
+      exit_callback_(exit_callback) {}
 
-LocaleSwitchScreen::~LocaleSwitchScreen() {
-  if (view_)
-    view_->Unbind();
-}
+LocaleSwitchScreen::~LocaleSwitchScreen() = default;
 
-bool LocaleSwitchScreen::MaybeSkip(WizardContext* wizard_context) {
+bool LocaleSwitchScreen::MaybeSkip(WizardContext& wizard_context) {
+  if (wizard_context.skip_post_login_screens_for_tests) {
+    exit_callback_.Run(Result::NOT_APPLICABLE);
+    return true;
+  }
+
+  // Skip GAIA language sync if user specifically set language through the UI
+  // on the welcome screen.
+  PrefService* local_state = g_browser_process->local_state();
+  if (local_state->GetBoolean(prefs::kOobeLocaleChangedOnWelcomeScreen)) {
+    VLOG(1) << "Skipping GAIA language sync because user chose specific"
+            << " locale on the Welcome Screen.";
+    local_state->ClearPref(prefs::kOobeLocaleChangedOnWelcomeScreen);
+    exit_callback_.Run(Result::NOT_APPLICABLE);
+    return true;
+  }
+
   user_manager::User* user = user_manager::UserManager::Get()->GetActiveUser();
   if (user->HasGaiaAccount()) {
     return false;
@@ -88,7 +105,7 @@ void LocaleSwitchScreen::ShowImpl() {
     std::string locale =
         profile->GetPrefs()->GetString(language::prefs::kApplicationLocale);
     DCHECK(!locale.empty());
-    SwitchLocale(locale);
+    SwitchLocale(std::move(locale));
     return;
   }
 
@@ -112,7 +129,7 @@ void LocaleSwitchScreen::ShowImpl() {
     return;
   }
 
-  identity_manager_observer_.Observe(identity_manager_);
+  identity_manager_observer_.Observe(identity_manager_.get());
 
   gaia_id_ = user->GetAccountId().GetGaiaId();
   const AccountInfo account_info =
@@ -131,11 +148,6 @@ void LocaleSwitchScreen::ShowImpl() {
 
 void LocaleSwitchScreen::HideImpl() {
   ResetState();
-}
-
-void LocaleSwitchScreen::OnViewDestroyed(LocaleSwitchView* view) {
-  if (view == view_)
-    view_ = nullptr;
 }
 
 void LocaleSwitchScreen::OnErrorStateOfRefreshTokenUpdatedForAccount(
@@ -175,6 +187,32 @@ void LocaleSwitchScreen::SwitchLocale(std::string locale) {
     exit_callback_.Run(Result::NO_SWITCH_NEEDED);
     return;
   }
+
+  // Types of users that have a GAIA account and could be used during the
+  // "Add Person" flow.
+  static constexpr user_manager::UserType kAddPersonUserTypes[] = {
+      user_manager::USER_TYPE_REGULAR, user_manager::USER_TYPE_CHILD};
+  const user_manager::User* user =
+      user_manager::UserManager::Get()->GetActiveUser();
+  // Don't show notification for the ephemeral logins, proceed with the default
+  // flow.
+  if (!chrome_user_manager_util::IsPublicSessionOrEphemeralLogin() &&
+      context()->is_add_person_flow &&
+      base::Contains(kAddPersonUserTypes, user->GetType())) {
+    VLOG(1) << "Add Person flow detected, delegating locale switch decision"
+            << " to the user.";
+    // Delegate language switch to the notification. User will be able to
+    // decide whether switch/not switch on their own.
+    Profile* profile = ProfileHelper::Get()->GetProfileByUser(user);
+    locale_util::SwitchLanguageCallback callback(base::BindOnce(
+        &LocaleSwitchScreen::OnLanguageChangedNotificationCallback,
+        weak_factory_.GetWeakPtr()));
+    LocaleSwitchNotification::Show(profile, std::move(locale),
+                                   std::move(callback));
+    exit_callback_.Run(Result::SWITCH_DELEGATED);
+    return;
+  }
+
   locale_util::SwitchLanguageCallback callback(
       base::BindOnce(&LocaleSwitchScreen::OnLanguageChangedCallback,
                      weak_factory_.GetWeakPtr()));
@@ -197,6 +235,15 @@ void LocaleSwitchScreen::OnLanguageChangedCallback(
 
   view_->UpdateStrings();
   exit_callback_.Run(Result::SWITCH_SUCCEDED);
+}
+
+void LocaleSwitchScreen::OnLanguageChangedNotificationCallback(
+    const locale_util::LanguageSwitchResult& result) {
+  if (!result.success) {
+    return;
+  }
+
+  view_->UpdateStrings();
 }
 
 void LocaleSwitchScreen::ResetState() {

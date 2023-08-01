@@ -1,5 +1,5 @@
-#!/usr/bin/env python
-# Copyright (c) 2012 The Chromium Authors. All rights reserved.
+#!/usr/bin/env python3
+# Copyright 2012 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -57,6 +57,9 @@ VERSION_HISTORY_URL = ('https://versionhistory.googleapis.com/v1/chrome'
 
 OMAHA_REVISIONS_URL = ('https://omahaproxy.appspot.com/deps.json?version=%s')
 
+CRDASH_REVISIONS_URL = (
+    'https://chromiumdash.appspot.com/fetch_version?version=%s')
+
 # Search pattern to be matched in the JSON output from
 # CHROMIUM_GITHASH_TO_SVN_URL to get the chromium revision (svn revision).
 CHROMIUM_SEARCH_PATTERN_OLD = (
@@ -77,12 +80,17 @@ SEARCH_PATTERN = {
 CREDENTIAL_ERROR_MESSAGE = ('You are attempting to access protected data with '
                             'no configured credentials')
 
+# Commands used for Android.
+_ANDROID_CHROME_INTENT = 'android.intent.action.MAIN'
+_ANDROID_CHROME_PACKAGE = 'org.chromium.chrome'
+
 ###############################################################################
 
 import glob
 import json
 import optparse
 import os
+import platform
 import re
 import shlex
 import shutil
@@ -103,8 +111,9 @@ else:
 class PathContext(object):
   """A PathContext is used to carry the information used to construct URLs and
   paths when dealing with the storage server and archives."""
-  def __init__(self, base_url, platform, good_revision, bad_revision,
-               is_asan, use_local_cache, flash_path = None):
+
+  def __init__(self, base_url, platform, good_revision, bad_revision, is_asan,
+               use_local_cache):
     super(PathContext, self).__init__()
     # Store off the input parameters.
     self.base_url = base_url
@@ -113,7 +122,6 @@ class PathContext(object):
     self.bad_revision = bad_revision
     self.is_asan = is_asan
     self.build_type = 'release'
-    self.flash_path = flash_path
     # Dictionary which stores svn revision number as key and it's
     # corresponding git hash as value. This data is populated in
     # _FetchAndParse and used later in GetDownloadURL while downloading
@@ -151,6 +159,14 @@ class PathContext(object):
       self.archive_name = 'chrome-win32.zip'
       self._archive_extract_dir = 'chrome-win32'
       self._binary_name = 'chrome.exe'
+    elif self.platform in ('android', 'android64'):
+      self._binary_name = 'apks/ChromePublic.apk'
+      self.archive_name = 'chrome-android.zip'
+      self._archive_extract_dir = 'chrome-android'
+    elif self.platform in ('webview', 'webview64'):
+      self._binary_name = 'apks/SystemWebView.apk'
+      self.archive_name = 'chrome-android.zip'
+      self._archive_extract_dir = 'chrome-android'
     else:
       raise Exception('Invalid platform: %s' % self.platform)
 
@@ -177,6 +193,10 @@ class PathContext(object):
       self._listing_platform_dir = 'Win/'
     elif self.platform == 'win64':
       self._listing_platform_dir = 'Win_x64/'
+    elif self.platform in ('android', 'webview'):
+      self._listing_platform_dir = 'Android/'
+    elif self.platform in ('android64', 'webview64'):
+      self._listing_platform_dir = 'Android_Arm64/'
 
   def GetASANPlatformDir(self):
     """ASAN builds are in directories like "linux-release", or have filenames
@@ -321,8 +341,17 @@ class PathContext(object):
             pass
       return (revisions, next_marker, githash_svn_dict)
 
+    # crbug.com/1338727
+    # loop_around is used to continue paging from e.g. */999988 to */1000000
+    # due to the lexicographical sort of the prefixes.
+    loop_around = False
+    # only use the flag above when the starting revision is set and less than
+    # this
+    LOOP_AROUND_REV = 1000000
     # Fetch the first list of revisions.
     if last_known_rev:
+      if last_known_rev < LOOP_AROUND_REV:
+        loop_around = True
       revisions = []
       # Optimization: Start paging at the last known revision (local cache).
       next_marker = _GetMarkerForRev(last_known_rev)
@@ -337,7 +366,12 @@ class PathContext(object):
 
     # If the result list was truncated, refetch with the next marker. Do this
     # until an entire directory listing is done.
-    while next_marker:
+    while next_marker or loop_around:
+      # If we got to the end of the listing but we started e.g on rev 999XXX,
+      # then loop around once to get revs >= 1000000.
+      if loop_around and not next_marker:
+        loop_around = False
+        next_marker = _GetMarkerForRev(0)
       sys.stdout.write('\rFetching revisions at marker %s' % next_marker)
       sys.stdout.flush()
 
@@ -474,8 +508,9 @@ class PathContext(object):
       # Check for specifying a number before the available range.
       if maxrev < first_known_rev:
         msg = (
-            'First available bisect revision for %s is %d. Be sure to specify revision '
-            'numbers, not branch numbers.' % (archive, first_known_rev))
+            'First available bisect revision for %s is %d. Be sure to specify '
+            'revision numbers, not branch numbers.' %
+            (archive, first_known_rev))
         raise (RuntimeError(msg))
 
       # Check for specifying a number beyond the available range.
@@ -483,11 +518,11 @@ class PathContext(object):
         # Check for the special case of linux where bisect builds stopped at
         # revision 382086, around March 2016.
         if archive == 'linux':
-          msg = 'Last available bisect revision for %s is %d. Try linux64 instead.' % (
-              archive, last_known_rev)
+          msg = ('Last available bisect revision for %s is %d. Try linux64 '
+                 'instead.' % (archive, last_known_rev))
         else:
-          msg = 'Last available bisect revision for %s is %d. Try a different good/bad range.' % (
-              archive, last_known_rev)
+          msg = ('Last available bisect revision for %s is %d. Try a different '
+                 'good/bad range.' % (archive, last_known_rev))
         raise (RuntimeError(msg))
 
       # Otherwise give a generic message.
@@ -572,9 +607,9 @@ def FetchRevision(context, rev, filename, quit_event=None, progress_event=None):
                     displayed.
   """
   def ReportHook(blocknum, blocksize, totalsize):
-    if quit_event and quit_event.isSet():
+    if quit_event and quit_event.is_set():
       raise RuntimeError('Aborting download of revision %s' % str(rev))
-    if progress_event and progress_event.isSet():
+    if progress_event and progress_event.is_set():
       size = blocknum * blocksize
       if totalsize == -1:  # Total size not known.
         progress = 'Received %d bytes' % size
@@ -588,7 +623,7 @@ def FetchRevision(context, rev, filename, quit_event=None, progress_event=None):
   download_url = context.GetDownloadURL(rev)
   try:
     urllib.urlretrieve(download_url, filename, ReportHook)
-    if progress_event and progress_event.isSet():
+    if progress_event and progress_event.is_set():
       print()
 
   except RuntimeError:
@@ -620,6 +655,15 @@ def RunRevision(context, revision, zip_file, profile, num_runs, command, args):
   # Create a temp directory and unzip the revision into it.
   cwd = os.getcwd()
   tempdir = tempfile.mkdtemp(prefix='bisect_tmp')
+  # On Windows 10, file system needs to be readable from App Container.
+  if sys.platform == 'win32' and platform.release() == '10':
+    icacls_cmd = ['icacls', tempdir, '/grant', '*S-1-15-2-2:(OI)(CI)(RX)']
+    proc = subprocess.Popen(icacls_cmd,
+                            bufsize=0,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE)
+    proc.communicate()
+
   UnzipFilenameToDir(zip_file, tempdir)
 
   # Hack: Some Chrome OS archives are missing some files; try to copy them
@@ -634,32 +678,37 @@ def RunRevision(context, revision, zip_file, profile, num_runs, command, args):
 
   # Run the build as many times as specified.
   testargs = ['--user-data-dir=%s' % profile] + args
-  # The sandbox must be run as root on Official Chrome, so bypass it.
-  if (context.flash_path and context.platform.startswith('linux')):
-    testargs.append('--no-sandbox')
-  if context.flash_path:
-    testargs.append('--ppapi-flash-path=%s' % context.flash_path)
-    # We have to pass a large enough Flash version, which currently needs not
-    # be correct. Instead of requiring the user of the script to figure out and
-    # pass the correct version we just spoof it.
-    testargs.append('--ppapi-flash-version=99.9.999.999')
-
   runcommand = []
-  for token in shlex.split(command):
-    if token == '%a':
-      runcommand.extend(testargs)
-    else:
-      runcommand.append(
-          token.replace('%p', os.path.abspath(context.GetLaunchPath(revision))).
-          replace('%s', ' '.join(testargs)))
+  # Ideally we'd use third_party/catapult for the adb command, but testers need
+  # the script to be more portable without the chromium repo.
+  if 'android' in context.platform:
+    runcommand = ('adb install -d -r {} &&'
+                  ' adb shell am start -a {} -p {}'.format(
+                      os.path.abspath(context.GetLaunchPath(revision)),
+                      _ANDROID_CHROME_INTENT, _ANDROID_CHROME_PACKAGE))
+  elif 'webview' in context.platform:
+    # Doesn't start an intent as testers use different apps for testing.
+    runcommand = 'adb install -d -r {}'.format(
+        os.path.abspath(context.GetLaunchPath(revision)))
+  else:
+    for token in shlex.split(command):
+      if token == '%a':
+        runcommand.extend(testargs)
+      else:
+        runcommand.append(
+            token.replace('%p', os.path.abspath(
+                context.GetLaunchPath(revision))).replace(
+                    '%s', ' '.join(testargs)))
   result = None
   try:
     for _ in range(num_runs):
-      subproc = subprocess.Popen(
-          runcommand,
-          bufsize=-1,
-          stdout=subprocess.PIPE,
-          stderr=subprocess.PIPE)
+      use_shell = ('android' in context.platform
+                   or 'webview' in context.platform)
+      subproc = subprocess.Popen(runcommand,
+                                 shell=use_shell,
+                                 bufsize=-1,
+                                 stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE)
       (stdout, stderr) = subproc.communicate()
       result = (subproc.returncode, stdout, stderr)
       if subproc.returncode:
@@ -694,8 +743,8 @@ def AskIsGoodBuild(rev, exit_status, stdout, stderr):
     if response == 'q':
       raise SystemExit()
     if response == 's':
-      print(stdout)
-      print(stderr)
+      print(stdout.decode('utf-8', 'ignore'))
+      print(stderr.decode('utf-8', 'ignore'))
 
 
 def IsGoodASANBuild(rev, exit_status, stdout, stderr):
@@ -755,7 +804,11 @@ class DownloadJob(object):
     assert self.thread, 'DownloadJob must be started before Stop is called.'
     self.quit_event.set()
     self.thread.join()
-    os.unlink(self.zip_file)
+    # If a very small range is requested, with verification, then the same
+    # download may be requested twice, so the second delete will fail. Check for
+    # that.
+    if os.path.exists(self.zip_file):
+      os.unlink(self.zip_file)
 
   def WaitFor(self):
     """Prints a message and waits for the download to complete. The download
@@ -1090,6 +1143,8 @@ def GetRevision(revision_text):
   if type(revision_text) == type(0):
     return revision_text
 
+  arg_revision_text = revision_text
+
   # Translate from stable milestone name to the latest version number released
   # for that milestone, i.e.; 'M85' to '85.0.4183.121'.
   if revision_text[:1].upper() == 'M':
@@ -1107,14 +1162,27 @@ def GetRevision(revision_text):
         revision_text = '.'.join(match.groups())
         break
     if revision_text[:1].upper() == 'M':
-      raise Exception('No stable release matching %s found.' % revision_text)
+      raise Exception('No stable release matching %s found.' %
+                      arg_revision_text)
 
   # Translate from version number to commit position, also known as revision
-  # number.
+  # number. First read from Chromium Dash, then fall back to OmahaProxy, as CD
+  # data is more correct but only if it's available (crbug.com/1317667).
   if len(revision_text.split('.')) == 4:
-    response = urllib.urlopen(OMAHA_REVISIONS_URL % revision_text)
+    revisions_url = CRDASH_REVISIONS_URL % revision_text
+    fallback_revisions_url = OMAHA_REVISIONS_URL % revision_text
+    response = urllib.urlopen(revisions_url)
     revision_details = json.loads(response.read())
-    revision_text = revision_details['chromium_base_position']
+    revision_text = revision_details.get('chromium_main_branch_position')
+    if not revision_text:
+      # OmahaProxy fallback.
+      response = urllib.urlopen(fallback_revisions_url)
+      revision_details = json.loads(response.read())
+      revision_text = revision_details['chromium_base_position']
+
+    if not revision_text:
+      raise Exception("No 'chromium_base_position' matching %s found." %
+                      arg_revision_text)
 
   # Translate from text commit position to integer commit position.
   return int(revision_text)
@@ -1157,12 +1225,26 @@ def main():
            '    are incorrect, they are from branches.\n'
            '\n'
            'Use "-- <args-to-pass-to-chromium>" to pass arbitrary extra \n'
-           'arguments to the test binaries.\n'
-           'E.g., add "-- --no-first-run" to bypass the first run prompts.')
+           'arguments to the test binaries. For example, to bypass first-run\n'
+           'prompts, add "-- --no-first-run", and on Mac, also append\n'
+           '"--use-mock-keychain --disable-features=DialMediaRouteProvider.')
   parser = optparse.OptionParser(usage=usage)
   # Strangely, the default help output doesn't include the choice list.
-  choices = ['mac', 'mac64', 'mac-arm', 'win', 'win64', 'linux', 'linux64',
-             'linux-arm', 'chromeos']
+  choices = [
+      'mac',
+      'mac64',
+      'mac-arm',
+      'win',
+      'win64',
+      'linux',
+      'linux64',
+      'linux-arm',
+      'chromeos',
+      'android',
+      'android64',
+      'webview',
+      'webview64',
+  ]
   parser.add_option('-a', '--archive',
                     choices=choices,
                     help='The buildbot archive to bisect [%s].' %
@@ -1175,13 +1257,6 @@ def main():
                     'Default is HEAD. Can be a revision number, milestone '
                     'name (eg. M85, matches the most recent stable release of '
                     'that milestone) or version number (eg. 85.0.4183.121)')
-  parser.add_option('-f', '--flash_path',
-                    type='str',
-                    help='Absolute path to a recent Adobe Pepper Flash '
-                         'binary to be used in this bisection (e.g. '
-                         'on Windows C:\...\pepflashplayer.dll and on Linux '
-                         '/opt/google/chrome/PepperFlash/'
-                         'libpepflashplayer.so).')
   parser.add_option('-g',
                     '--good',
                     type='str',
@@ -1262,9 +1337,8 @@ def main():
     base_url = CHROMIUM_BASE_URL
 
   # Create the context. Initialize 0 for the revisions as they are set below.
-  context = PathContext(base_url, opts.archive, opts.good, opts.bad,
-                        opts.asan, opts.use_local_cache,
-                        opts.flash_path)
+  context = PathContext(base_url, opts.archive, opts.good, opts.bad, opts.asan,
+                        opts.use_local_cache)
 
   # Pick a starting point, try to get HEAD for this.
   if not opts.bad:
@@ -1275,10 +1349,6 @@ def main():
   # Find out when we were good.
   if not opts.good:
     context.good_revision = 0
-
-  if opts.flash_path:
-    msg = 'Could not find Flash binary at %s' % opts.flash_path
-    assert os.path.exists(opts.flash_path), msg
 
   context.good_revision = GetRevision(context.good_revision)
   context.bad_revision = GetRevision(context.bad_revision)

@@ -1,18 +1,20 @@
 #!/usr/bin/env vpython3
-# Copyright 2017 The Chromium Authors. All rights reserved.
+# Copyright 2017 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
 """Tests for generate_buildbot_json.py."""
 
-import argparse
 import contextlib
 import json
 import os
+import re
 import unittest
 
 import generate_buildbot_json
 from pyfakefs import fake_filesystem_unittest
+
+# pylint: disable=super-with-arguments
 
 EMPTY_PYL_FILE = """\
 {
@@ -29,14 +31,36 @@ class TestCase(fake_filesystem_unittest.TestCase):
   def setUp(self):
     self.setUpPyfakefs()
     self.fs.cwd = THIS_DIR
-    self.args = generate_buildbot_json.BBJSONGenerator.parse_args([])
 
-  def override_args(self, **kwargs):
-    for k, v in kwargs.items():
-      setattr(self.args, k, v)
+    expectations_dir = os.path.join(THIS_DIR, 'unittest_expectations')
+    self.output_dir = os.path.join(expectations_dir, self.id().split('.')[-1])
 
-  def create_testing_buildbot_json_file(self, path, contents):
-    return self.fs.create_file(os.path.join(THIS_DIR, path), contents=contents)
+    # This allows reads into this directory to fallback to the real fs, which we
+    # want so each test case's json can be checked-in.
+    self.fs.add_real_directory(expectations_dir)
+
+    self.set_args()
+
+  def set_args(self, *args):
+    self.args = generate_buildbot_json.BBJSONGenerator.parse_args(
+        args + ('--output-dir', self.output_dir))
+
+  def regen_test_json(self, fakebb):
+    """Regenerates a unittest's json files.
+
+    Useful when making sweeping changes to pyl inputs in many test cases. Can be
+    used by simply inserting a call to this method in a unit test after
+    initializing its FakeBBGen object.
+    """
+    contents = fakebb.generate_outputs()
+    with fake_filesystem_unittest.Pause(self.fs):
+      try:
+        os.mkdir(self.output_dir)
+      except FileExistsError:
+        if not os.path.isdir(self.output_dir):
+          raise
+
+      fakebb.write_json_result(contents)
 
 
 @contextlib.contextmanager
@@ -57,6 +81,7 @@ class FakeBBGen(generate_buildbot_json.BBJSONGenerator):
                luci_milo_cfg,
                project_pyl='{"validate_source_side_specs_have_builder": True}',
                exceptions=EMPTY_PYL_FILE,
+               autoshard_exceptions=json.dumps({}),
                mixins=EMPTY_PYL_FILE,
                gn_isolate_map=EMPTY_PYL_FILE,
                variants=EMPTY_PYL_FILE):
@@ -66,21 +91,23 @@ class FakeBBGen(generate_buildbot_json.BBJSONGenerator):
     infra_config_dir = args.infra_config_dir
 
     files = {
-        (pyl_files_dir, 'waterfalls.pyl'): waterfalls,
-        (pyl_files_dir, 'test_suites.pyl'): test_suites,
-        (pyl_files_dir, 'test_suite_exceptions.pyl'): exceptions,
-        (pyl_files_dir, 'mixins.pyl'): mixins,
-        (pyl_files_dir, 'gn_isolate_map.pyl'): gn_isolate_map,
-        (pyl_files_dir, 'gn_isolate_map2.pyl'): GPU_TELEMETRY_GN_ISOLATE_MAP,
-        (pyl_files_dir, 'variants.pyl'): variants,
-        (infra_config_dir, 'generated/project.pyl'): project_pyl,
-        (infra_config_dir, 'generated/luci/luci-milo.cfg'): luci_milo_cfg,
-        (infra_config_dir, 'generated/luci/luci-milo-dev.cfg'): '',
+        args.waterfalls_pyl_path: waterfalls,
+        args.test_suites_pyl_path: test_suites,
+        args.test_suite_exceptions_pyl_path: exceptions,
+        args.autoshard_exceptions_json_path: autoshard_exceptions,
+        args.mixins_pyl_path: mixins,
+        args.gn_isolate_map_pyl_path: gn_isolate_map,
+        args.variants_pyl_path: variants,
+        os.path.join(pyl_files_dir, 'gn_isolate_map2.pyl'):
+        GPU_TELEMETRY_GN_ISOLATE_MAP,
+        os.path.join(infra_config_dir, 'generated/project.pyl'): project_pyl,
+        os.path.join(infra_config_dir, 'generated/luci/luci-milo.cfg'):
+        luci_milo_cfg,
+        os.path.join(infra_config_dir, 'generated/luci/luci-milo-dev.cfg'): '',
     }
-    for (d, filename), content in files.items():
+    for path, content in files.items():
       if content is None:
         continue
-      path = os.path.join(d, filename)
       parent = os.path.abspath(os.path.dirname(path))
       if not os.path.exists(parent):
         os.makedirs(parent)
@@ -96,7 +123,7 @@ class FakeBBGen(generate_buildbot_json.BBJSONGenerator):
   def check_output_file_consistency(self, verbose=False, dump=True):
     with dump_on_failure(self, dump=verbose and dump):
       super(FakeBBGen, self).check_output_file_consistency(verbose)
-# pragma pylint: enable=arguments-differ
+  # pragma pylint: enable=arguments-differ
 
 
 FOO_GTESTS_WATERFALL = """\
@@ -111,6 +138,7 @@ FOO_GTESTS_WATERFALL = """\
           'dimension_sets': [
             {
               'kvm': '1',
+              'os': 'Linux',
             },
           ],
         },
@@ -131,6 +159,13 @@ FOO_GTESTS_WITH_ENABLE_FEATURES_WATERFALL = """\
     'name': 'chromium.test',
     'machines': {
       'Fake Tester': {
+        'swarming': {
+          'dimension_sets': [
+            {
+              'os': 'Linux',
+            }
+          ],
+        },
         'test_suites': {
           'gtest_tests': 'foo_tests',
         },
@@ -177,6 +212,13 @@ FOO_LINUX_GTESTS_WATERFALL = """\
     'machines': {
       'Fake Tester': {
         'os_type': 'linux',
+        'swarming': {
+          'dimension_sets': [
+            {
+              'os': 'Linux',
+            }
+          ],
+        },
         'test_suites': {
           'gtest_tests': 'foo_tests',
         },
@@ -433,6 +475,55 @@ FOO_GPU_TELEMETRY_TEST_WATERFALL_FUCHSIA = """\
 ]
 """
 
+FOO_GPU_TELEMETRY_TEST_WATERFALL_CAST_STREAMING = """\
+[
+  {
+    'project': 'chromium',
+    'bucket': 'ci',
+    'name': 'chromium.test',
+    'machines': {
+      'Fake Tester': {
+        'os_type': 'fuchsia',
+        'browser_config': 'not-a-real-browser',
+        'swarming': {
+          'dimension_sets': [
+            {
+              'kvm': '1',
+            },
+          ],
+        },
+        'test_suites': {
+          'cast_streaming_tests': 'composition_tests',
+        },
+      },
+    },
+  },
+]
+"""
+
+FOO_GPU_TELEMETRY_TEST_WATERFALL_SKYLAB = """\
+[
+  {
+    'project': 'chromium',
+    'bucket': 'ci',
+    'name': 'chromium.test',
+    'machines': {
+      'Fake Tester': {
+        'os_type': 'chromeos',
+        'browser_config': 'cros-chrome',
+        'use_swarming': False,
+        'swarming': {
+          'some_key': 'some_value',
+        },
+        'test_suites': {
+          'skylab_gpu_telemetry_tests': 'composition_tests',
+        },
+      },
+    },
+  },
+]
+"""
+
 NVIDIA_GPU_TELEMETRY_TEST_WATERFALL = """\
 [
   {
@@ -504,6 +595,33 @@ INTEL_UHD_GPU_TELEMETRY_TEST_WATERFALL = """\
         },
         'test_suites': {
           'gpu_telemetry_tests': 'composition_tests',
+        },
+      },
+    },
+  },
+]
+"""
+
+GPU_TELEMETRY_TEST_VARIANTS_WATERFALL = """\
+[
+  {
+    'project': 'chromium',
+    'bucket': 'ci',
+    'name': 'chromium.test',
+    'machines': {
+      'Fake Tester': {
+        'os_type': 'win',
+        'browser_config': 'release',
+        'swarming': {
+          'dimension_sets': [
+            {
+              'gpu': '8086:3e92-24.20.100.6286',
+              'os': 'Linux',
+            },
+          ],
+        },
+        'test_suites': {
+          'gpu_telemetry_tests': 'matrix_tests',
         },
       },
     },
@@ -641,6 +759,13 @@ MATRIX_GTEST_SUITE_WATERFALL = """\
     'name': 'chromium.test',
     'machines': {
       'Fake Tester': {
+        'swarming': {
+          'dimension_sets': [
+            {
+              'os': 'Linux',
+            },
+          ],
+        },
         'test_suites': {
           'gtest_tests': 'matrix_tests',
         },
@@ -677,6 +802,7 @@ FOO_TEST_SUITE = """\
           'dimension_sets': [
             {
               'integrity': 'high',
+              'os': 'Linux',
             }
           ],
           'expiration': 120,
@@ -829,10 +955,26 @@ GOOD_COMPOSITION_TEST_SUITES = """\
 {
   'basic_suites': {
     'bar_tests': {
-      'bar_test': {},
+      'bar_test': {
+        'swarming': {
+          'dimension_sets': [
+            {
+              'os': 'Linux',
+            }
+          ],
+        },
+      },
     },
     'foo_tests': {
-      'foo_test': {},
+      'foo_test': {
+        'swarming': {
+          'dimension_sets': [
+            {
+              'os': 'Linux',
+            }
+          ],
+        },
+      },
     },
   },
   'compound_suites': {
@@ -949,10 +1091,26 @@ COMPOSITION_SUITE_WITH_NAME_NOT_ENDING_IN_TEST = """\
 {
   'basic_suites': {
     'foo_tests': {
-      'foo': {},
+      'foo': {
+        'swarming': {
+          'dimension_sets': [
+            {
+              'os': 'Linux',
+            }
+          ],
+        },
+      },
     },
     'bar_tests': {
-      'bar_test': {},
+      'bar_test': {
+        'swarming': {
+          'dimension_sets': [
+            {
+              'os': 'Linux',
+            }
+          ],
+        },
+      },
     },
   },
   'compound_suites': {
@@ -969,6 +1127,13 @@ COMPOSITION_SUITE_WITH_GPU_ARGS = """\
   'basic_suites': {
     'foo_tests': {
       'foo': {
+        'swarming': {
+          'dimension_sets': [
+            {
+              'os': 'Linux',
+            }
+          ],
+        },
         'args': [
           '--gpu-vendor-id',
           '${gpu_vendor_id}',
@@ -978,7 +1143,15 @@ COMPOSITION_SUITE_WITH_GPU_ARGS = """\
       },
     },
     'bar_tests': {
-      'bar_test': {},
+      'bar_test': {
+        'swarming': {
+          'dimension_sets': [
+            {
+              'os': 'Linux',
+            }
+          ],
+        },
+      },
     },
   },
   'compound_suites': {
@@ -1052,6 +1225,22 @@ SCRIPT_WITH_ARGS_SWARMING_EXCEPTIONS = """\
   },
 }
 """
+
+AUTOSHARD_EXCEPTIONS = json.dumps({
+    'chromium.test': {
+        'Fake Tester': {
+            'foo_test': {
+                'shards': 20,
+            },
+            'foo_test_apk': {
+                'shards': 2,
+            },
+            'swarming_test a_variant': {
+                'shards': 10,
+            },
+        }
+    },
+})
 
 NO_BAR_TEST_EXCEPTIONS = """\
 {
@@ -1192,903 +1381,6 @@ NONEXISTENT_MODIFICATION = """\
         'args': [],
       },
     },
-  }
-}
-"""
-
-COMPOSITION_WATERFALL_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "bar_test"
-      },
-      {
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "foo_test"
-      }
-    ]
-  }
-}
-"""
-
-COMPOSITION_WATERFALL_WITH_ARGS_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "args": [
-          "--this-is-an-argument"
-        ],
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "bar_test"
-      },
-      {
-        "args": [
-          "--this-is-an-argument"
-        ],
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "foo_test"
-      }
-    ]
-  }
-}
-"""
-
-VARIATION_GTEST_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "kvm": "1"
-            }
-          ]
-        },
-        "test": "foo_test",
-        "test_id_prefix": "ninja://chrome/test:foo_test/"
-      },
-      {
-        "args": [
-          "--variation"
-        ],
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "name": "variation_test",
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "kvm": "1"
-            }
-          ]
-        },
-        "test": "foo_test",
-        "test_id_prefix": "ninja://chrome/test:foo_test/"
-      }
-    ]
-  }
-}
-"""
-
-FOO_WATERFALL_GTEST_ISOLATED_SCRIPT_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_isolated_script_merge.py"
-        },
-        "script": "foo.py",
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "kvm": "1"
-            }
-          ]
-        },
-        "test": "foo_test",
-        "test_id_prefix": "ninja://chrome/test:foo_test/",
-        "use_isolated_scripts_api": true
-      }
-    ]
-  }
-}
-"""
-
-COMPOSITION_WATERFALL_FILTERED_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "foo_test"
-      }
-    ]
-  }
-}
-"""
-
-MERGED_ARGS_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "args": [
-          "--c_arg",
-          "--bar"
-        ],
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "kvm": "1"
-            }
-          ],
-          "hard_timeout": 600
-        },
-        "test": "foo_test"
-      }
-    ]
-  }
-}
-"""
-
-LINUX_ARGS_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "args": [
-          "--no-xvfb"
-        ],
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "foo_test"
-      }
-    ]
-  }
-}
-"""
-
-MERGED_ENABLE_FEATURES_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "args": [
-          "--enable-features=Foo,Bar,Baz"
-        ],
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "foo_test"
-      }
-    ]
-  }
-}
-"""
-
-MODIFIED_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "args": [
-          "--bar"
-        ],
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "integrity": "high",
-              "kvm": "1"
-            }
-          ],
-          "expiration": 120,
-          "hard_timeout": 600
-        },
-        "test": "foo_test"
-      }
-    ]
-  }
-}
-"""
-
-EXPLICIT_NONE_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "kvm": "1"
-            }
-          ],
-          "expiration": 120
-        },
-        "test": "foo_test"
-      }
-    ]
-  }
-}
-"""
-
-ISOLATED_SCRIPT_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "isolated_scripts": [
-      {
-        "isolate_name": "foo_test",
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_isolated_script_merge.py"
-        },
-        "name": "foo_test",
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        }
-      }
-    ]
-  }
-}
-"""
-
-ISOLATED_SCRIPT_OUTPUT_ANDROID = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "isolated_scripts": [
-      {
-        "args": [
-          "--gs-results-bucket=chromium-result-details"
-        ],
-        "isolate_name": "foo_test",
-        "merge": {
-          "args": [
-            "--bucket",
-            "chromium-result-details",
-            "--test-name",
-            "foo_test"
-          ],
-          "script": \
-"//build/android/pylib/results/presentation/test_results_presentation.py"
-        },
-        "name": "foo_test",
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "cipd_packages": [
-            {
-              "cipd_package": "infra/tools/luci/logdog/butler/${platform}",
-              "location": "bin",
-              "revision": \
-"git_revision:ff387eadf445b24c935f1cf7d6ddd279f8a6b04c"
-            }
-          ],
-          "output_links": [
-            {
-              "link": [
-                "https://luci-logdog.appspot.com/v/?s",
-                "=android%2Fswarming%2Flogcats%2F",
-                "${TASK_ID}%2F%2B%2Funified_logcats"
-              ],
-              "name": "shard #${SHARD_INDEX} logcats"
-            }
-          ]
-        }
-      }
-    ]
-  }
-}
-"""
-
-SCRIPT_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "scripts": [
-      {
-        "name": "foo_test",
-        "script": "foo.py"
-      }
-    ]
-  }
-}
-"""
-
-SCRIPT_WITH_ARGS_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "scripts": [
-      {
-        "args": [
-          "--fake-arg"
-        ],
-        "name": "foo_test",
-        "script": "foo.py"
-      }
-    ]
-  }
-}
-"""
-
-JUNIT_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "junit_tests": [
-      {
-        "name": "foo_test",
-        "test": "foo_test"
-      }
-    ]
-  }
-}
-"""
-
-GPU_TELEMETRY_TEST_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "isolated_scripts": [
-      {
-        "args": [
-          "foo",
-          "--show-stdout",
-          "--browser=release",
-          "--passthrough",
-          "-v",
-          "--extra-browser-args=--enable-logging=stderr --js-flags=--expose-gc"
-        ],
-        "isolate_name": "telemetry_gpu_integration_test",
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_isolated_script_merge.py"
-        },
-        "name": "foo_tests",
-        "should_retry_with_patch": false,
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "gpu": "10de:1cb3"
-            }
-          ],
-          "idempotent": false
-        },
-        "test_id_prefix": "ninja://chrome/test:telemetry_gpu_integration_test/"
-      }
-    ]
-  }
-}
-"""
-
-GPU_TELEMETRY_TEST_OUTPUT_ANDROID = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "isolated_scripts": [
-      {
-        "args": [
-          "foo",
-          "--show-stdout",
-          "--browser=android-chromium",
-          "--passthrough",
-          "-v",
-          "--extra-browser-args=--enable-logging=stderr --js-flags=--expose-gc"
-        ],
-        "isolate_name": "telemetry_gpu_integration_test_android_chrome",
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_isolated_script_merge.py"
-        },
-        "name": "foo_tests",
-        "should_retry_with_patch": false,
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "cipd_packages": [
-            {
-              "cipd_package": "infra/tools/luci/logdog/butler/${platform}",
-              "location": "bin",
-              "revision": "git_revision:ff387eadf445b24c935f1cf7d6ddd279f8a6b04c"
-            }
-          ],
-          "dimension_sets": [
-            {
-              "device_type": "bullhead"
-            }
-          ],
-          "idempotent": false
-        },
-        "test_id_prefix": "ninja://chrome/test:telemetry_gpu_integration_test_android_chrome/"
-      }
-    ]
-  }
-}
-"""
-
-GPU_TELEMETRY_TEST_OUTPUT_ANDROID_WEBVIEW = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "isolated_scripts": [
-      {
-        "args": [
-          "foo",
-          "--show-stdout",
-          "--browser=android-webview-instrumentation",
-          "--passthrough",
-          "-v",
-          "--extra-browser-args=--enable-logging=stderr --js-flags=--expose-gc"
-        ],
-        "isolate_name": "telemetry_gpu_integration_test_android_webview",
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_isolated_script_merge.py"
-        },
-        "name": "foo_tests",
-        "should_retry_with_patch": false,
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "cipd_packages": [
-            {
-              "cipd_package": "infra/tools/luci/logdog/butler/${platform}",
-              "location": "bin",
-              "revision": "git_revision:ff387eadf445b24c935f1cf7d6ddd279f8a6b04c"
-            }
-          ],
-          "dimension_sets": [
-            {
-              "device_type": "bullhead"
-            }
-          ],
-          "idempotent": false
-        },
-        "test_id_prefix": "ninja://chrome/test:telemetry_gpu_integration_test_android_webview/"
-      }
-    ]
-  }
-}
-"""
-
-GPU_TELEMETRY_TEST_OUTPUT_FUCHSIA = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "isolated_scripts": [
-      {
-        "args": [
-          "foo",
-          "--show-stdout",
-          "--browser=fuchsia-chrome",
-          "--passthrough",
-          "-v",
-          "--extra-browser-args=--enable-logging=stderr --js-flags=--expose-gc"
-        ],
-        "isolate_name": "telemetry_gpu_integration_test_fuchsia",
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_isolated_script_merge.py"
-        },
-        "name": "foo_tests",
-        "should_retry_with_patch": false,
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "kvm": "1"
-            }
-          ],
-          "idempotent": false
-        },
-        "test_id_prefix": "ninja://chrome/test:telemetry_gpu_integration_test_fuchsia/"
-      }
-    ]
-  }
-}
-"""
-
-NVIDIA_GPU_TELEMETRY_TEST_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "isolated_scripts": [
-      {
-        "args": [
-          "foo",
-          "--show-stdout",
-          "--browser=release",
-          "--passthrough",
-          "-v",
-          "--extra-browser-args=--enable-logging=stderr --js-flags=--expose-gc",
-          "--gpu-vendor-id",
-          "10de",
-          "--gpu-device-id",
-          "1cb3"
-        ],
-        "isolate_name": "telemetry_gpu_integration_test",
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_isolated_script_merge.py"
-        },
-        "name": "foo_tests",
-        "should_retry_with_patch": false,
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "gpu": "10de:1cb3-26.21.14.3102"
-            }
-          ],
-          "idempotent": false
-        },
-        "test_id_prefix": "ninja://chrome/test:telemetry_gpu_integration_test/"
-      }
-    ]
-  }
-}
-"""
-
-INTEL_GPU_TELEMETRY_TEST_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "isolated_scripts": [
-      {
-        "args": [
-          "foo",
-          "--show-stdout",
-          "--browser=release",
-          "--passthrough",
-          "-v",
-          "--extra-browser-args=--enable-logging=stderr --js-flags=--expose-gc",
-          "--gpu-vendor-id",
-          "8086",
-          "--gpu-device-id",
-          "5912"
-        ],
-        "isolate_name": "telemetry_gpu_integration_test",
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_isolated_script_merge.py"
-        },
-        "name": "foo_tests",
-        "should_retry_with_patch": false,
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "gpu": "8086:5912-24.20.100.6286"
-            }
-          ],
-          "idempotent": false
-        },
-        "test_id_prefix": "ninja://chrome/test:telemetry_gpu_integration_test/"
-      }
-    ]
-  }
-}
-"""
-
-INTEL_UHD_GPU_TELEMETRY_TEST_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "isolated_scripts": [
-      {
-        "args": [
-          "foo",
-          "--show-stdout",
-          "--browser=release",
-          "--passthrough",
-          "-v",
-          "--extra-browser-args=--enable-logging=stderr --js-flags=--expose-gc",
-          "--gpu-vendor-id",
-          "8086",
-          "--gpu-device-id",
-          "3e92"
-        ],
-        "isolate_name": "telemetry_gpu_integration_test",
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_isolated_script_merge.py"
-        },
-        "name": "foo_tests",
-        "should_retry_with_patch": false,
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "gpu": "8086:3e92-24.20.100.6286"
-            }
-          ],
-          "idempotent": false
-        },
-        "test_id_prefix": "ninja://chrome/test:telemetry_gpu_integration_test/"
-      }
-    ]
-  }
-}
-"""
-
-ANDROID_WATERFALL_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Android Builder": {
-    "additional_compile_targets": [
-      "bar_test"
-    ]
-  },
-  "Fake Android K Tester": {
-    "additional_compile_targets": [
-      "bar_test"
-    ],
-    "gtest_tests": [
-      {
-        "args": [
-          "--gs-results-bucket=chromium-result-details",
-          "--recover-devices"
-        ],
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "cipd_packages": [
-            {
-              "cipd_package": "infra/tools/luci/logdog/butler/${platform}",
-              "location": "bin",
-              "revision": \
-"git_revision:ff387eadf445b24c935f1cf7d6ddd279f8a6b04c"
-            }
-          ],
-          "dimension_sets": [
-            {
-              "device_os": "KTU84P",
-              "device_os_type": "userdebug",
-              "device_type": "hammerhead",
-              "integrity": "high",
-              "os": "Android"
-            }
-          ],
-          "expiration": 120,
-          "output_links": [
-            {
-              "link": [
-                "https://luci-logdog.appspot.com/v/?s",
-                "=android%2Fswarming%2Flogcats%2F",
-                "${TASK_ID}%2F%2B%2Funified_logcats"
-              ],
-              "name": "shard #${SHARD_INDEX} logcats"
-            }
-          ]
-        },
-        "test": "foo_test"
-      }
-    ]
-  },
-  "Fake Android L Tester": {
-    "gtest_tests": [
-      {
-        "args": [
-          "--gs-results-bucket=chromium-result-details",
-          "--recover-devices"
-        ],
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "cipd_packages": [
-            {
-              "cipd_package": "infra/tools/luci/logdog/butler/${platform}",
-              "location": "bin",
-              "revision": \
-"git_revision:ff387eadf445b24c935f1cf7d6ddd279f8a6b04c"
-            }
-          ],
-          "dimension_sets": [
-            {
-              "device_os": "LMY41U",
-              "device_os_type": "user",
-              "device_type": "hammerhead",
-              "integrity": "high",
-              "os": "Android"
-            }
-          ],
-          "expiration": 120
-        },
-        "test": "foo_test"
-      }
-    ]
-  },
-  "Fake Android M Tester": {
-    "gtest_tests": [
-      {
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": false
-        },
-        "test": "foo_test"
-      }
-    ]
-  }
-}
-"""
-
-CHROMEOS_TRIGGER_SCRIPT_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "device_type": "foo_device",
-              "integrity": "high"
-            }
-          ],
-          "expiration": 120
-        },
-        "test": "foo_test",
-        "trigger_script": {
-          "script": "//testing/trigger_scripts/chromeos_device_trigger.py"
-        }
-      }
-    ]
-  }
-}
-"""
-
-GPU_DIMENSIONS_WATERFALL_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "isolated_scripts": [
-      {
-        "args": [
-          "foo_test",
-          "--show-stdout",
-          "--browser=release",
-          "--passthrough",
-          "-v",
-          "--extra-browser-args=--enable-logging=stderr --js-flags=--expose-gc"
-        ],
-        "isolate_name": "telemetry_gpu_integration_test",
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_isolated_script_merge.py"
-        },
-        "name": "foo_test",
-        "should_retry_with_patch": false,
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "iama": "mixin",
-              "integrity": "high"
-            }
-          ],
-          "expiration": 120,
-          "idempotent": false,
-          "value": "test"
-        },
-        "test_id_prefix": "ninja://chrome/test:telemetry_gpu_integration_test/"
-      }
-    ]
   }
 }
 """
@@ -2404,6 +1696,15 @@ GPU_TELEMETRY_GN_ISOLATE_MAP_FUCHSIA = """\
 }
 """
 
+GPU_TELEMETRY_GN_ISOLATE_MAP_CAST_STREAMING = """\
+{
+  'telemetry_gpu_integration_test_fuchsia': {
+    'label': '//chrome/test:telemetry_gpu_integration_test_fuchsia',
+    'type': 'script',
+      }
+}
+"""
+
 GN_ISOLATE_MAP_KEY_LABEL_MISMATCH="""\
 {
   'foo_test': {
@@ -2495,8 +1796,6 @@ class UnitTest(TestCase):
   def test_good_waterfall_output(self):
     fbb = FakeBBGen(self.args, COMPOSITION_GTEST_SUITE_WATERFALL,
                     GOOD_COMPOSITION_TEST_SUITES, LUCI_MILO_CFG)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           COMPOSITION_WATERFALL_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -2506,8 +1805,6 @@ class UnitTest(TestCase):
                     REUSING_TEST_WITH_DIFFERENT_NAME,
                     LUCI_MILO_CFG,
                     gn_isolate_map=GN_ISOLATE_MAP)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           VARIATION_GTEST_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -2568,8 +1865,6 @@ class UnitTest(TestCase):
                     GOOD_COMPOSITION_TEST_SUITES,
                     LUCI_MILO_CFG,
                     exceptions=EMPTY_BAR_TEST_EXCEPTIONS)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           COMPOSITION_WATERFALL_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -2579,24 +1874,18 @@ class UnitTest(TestCase):
                     FOO_TEST_SUITE_WITH_ARGS,
                     LUCI_MILO_CFG,
                     exceptions=FOO_TEST_MODIFICATIONS)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           MERGED_ARGS_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
   def test_enable_features_arg_merges(self):
     fbb = FakeBBGen(self.args, FOO_GTESTS_WITH_ENABLE_FEATURES_WATERFALL,
                     FOO_TEST_SUITE_WITH_ENABLE_FEATURES, LUCI_MILO_CFG)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           MERGED_ENABLE_FEATURES_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
   def test_linux_args(self):
     fbb = FakeBBGen(self.args, FOO_LINUX_GTESTS_WATERFALL,
                     FOO_TEST_SUITE_WITH_LINUX_ARGS, LUCI_MILO_CFG)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           LINUX_ARGS_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -2606,8 +1895,6 @@ class UnitTest(TestCase):
                     GOOD_COMPOSITION_TEST_SUITES,
                     LUCI_MILO_CFG,
                     exceptions=NO_BAR_TEST_EXCEPTIONS)
-    self.create_testing_buildbot_json_file(
-        'chromium.test.json', COMPOSITION_WATERFALL_FILTERED_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -2617,9 +1904,6 @@ class UnitTest(TestCase):
                     FOO_TEST_SUITE,
                     LUCI_MILO_CFG,
                     exceptions=FOO_TEST_MODIFICATIONS)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           MODIFIED_OUTPUT)
-    self.create_testing_buildbot_json_file('chromium.ci.json', MODIFIED_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -2630,10 +1914,6 @@ class UnitTest(TestCase):
                     LUCI_MILO_CFG,
                     exceptions=FOO_TEST_EXPLICIT_NONE_EXCEPTIONS,
                     mixins=SWARMING_MIXINS)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           EXPLICIT_NONE_OUTPUT)
-    self.create_testing_buildbot_json_file('chromium.ci.json',
-                                           EXPLICIT_NONE_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -2643,23 +1923,15 @@ class UnitTest(TestCase):
                     GOOD_COMPOSITION_TEST_SUITES,
                     LUCI_MILO_CFG,
                     exceptions=NO_BAR_TEST_EXCEPTIONS)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           ISOLATED_SCRIPT_OUTPUT)
-    self.create_testing_buildbot_json_file('chromium.ci.json',
-                                           ISOLATED_SCRIPT_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
-  def test_isolated_script_tests(self):
+  def test_isolated_script_tests_android(self):
     fbb = FakeBBGen(self.args,
                     FOO_ISOLATED_SCRIPTS_WATERFALL_ANDROID,
                     GOOD_COMPOSITION_TEST_SUITES,
                     LUCI_MILO_CFG,
                     exceptions=NO_BAR_TEST_EXCEPTIONS)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           ISOLATED_SCRIPT_OUTPUT_ANDROID)
-    self.create_testing_buildbot_json_file('chromium.ci.json',
-                                           ISOLATED_SCRIPT_OUTPUT_ANDROID)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -2669,10 +1941,6 @@ class UnitTest(TestCase):
                     SCRIPT_SUITE,
                     LUCI_MILO_CFG,
                     exceptions=SCRIPT_WITH_ARGS_EXCEPTIONS)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           SCRIPT_WITH_ARGS_OUTPUT)
-    self.create_testing_buildbot_json_file('chromium.ci.json',
-                                           SCRIPT_WITH_ARGS_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -2682,8 +1950,6 @@ class UnitTest(TestCase):
                     FOO_SCRIPT_SUITE,
                     LUCI_MILO_CFG,
                     exceptions=NO_BAR_TEST_EXCEPTIONS)
-    self.create_testing_buildbot_json_file('chromium.test.json', SCRIPT_OUTPUT)
-    self.create_testing_buildbot_json_file('chromium.ci.json', SCRIPT_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -2715,8 +1981,6 @@ class UnitTest(TestCase):
                     GOOD_COMPOSITION_TEST_SUITES,
                     LUCI_MILO_CFG,
                     exceptions=NO_BAR_TEST_EXCEPTIONS)
-    self.create_testing_buildbot_json_file('chromium.test.json', JUNIT_OUTPUT)
-    self.create_testing_buildbot_json_file('chromium.ci.json', JUNIT_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -2727,26 +1991,8 @@ class UnitTest(TestCase):
                     LUCI_MILO_CFG,
                     exceptions=NO_BAR_TEST_EXCEPTIONS,
                     gn_isolate_map=GPU_TELEMETRY_GN_ISOLATE_MAP)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           GPU_TELEMETRY_TEST_OUTPUT)
-    self.create_testing_buildbot_json_file('chromium.ci.json',
-                                           GPU_TELEMETRY_TEST_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
-
-  def test_gpu_telemetry_tests_pixel_with_filter(self):
-    fbb = FakeBBGen(self.args,
-                    FOO_GPU_TELEMETRY_TEST_WATERFALL,
-                    COMPOSITION_SUITE_WITH_PIXEL_AND_FILTER,
-                    LUCI_MILO_CFG,
-                    exceptions=NO_BAR_TEST_EXCEPTIONS,
-                    gn_isolate_map=GPU_TELEMETRY_GN_ISOLATE_MAP)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           GPU_TELEMETRY_TEST_OUTPUT)
-    self.create_testing_buildbot_json_file('chromium.ci.json',
-                                           GPU_TELEMETRY_TEST_OUTPUT)
-    with self.assertRaises(RuntimeError):
-      fbb.check_output_file_consistency(verbose=True)
 
   def test_gpu_telemetry_tests_android(self):
     fbb = FakeBBGen(self.args,
@@ -2755,10 +2001,6 @@ class UnitTest(TestCase):
                     LUCI_MILO_CFG,
                     exceptions=NO_BAR_TEST_EXCEPTIONS,
                     gn_isolate_map=GPU_TELEMETRY_GN_ISOLATE_MAP_ANDROID)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           GPU_TELEMETRY_TEST_OUTPUT_ANDROID)
-    self.create_testing_buildbot_json_file('chromium.ci.json',
-                                           GPU_TELEMETRY_TEST_OUTPUT_ANDROID)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -2769,10 +2011,6 @@ class UnitTest(TestCase):
                     LUCI_MILO_CFG,
                     exceptions=NO_BAR_TEST_EXCEPTIONS,
                     gn_isolate_map=GPU_TELEMETRY_GN_ISOLATE_MAP_ANDROID_WEBVIEW)
-    self.create_testing_buildbot_json_file(
-        'chromium.test.json', GPU_TELEMETRY_TEST_OUTPUT_ANDROID_WEBVIEW)
-    self.create_testing_buildbot_json_file(
-        'chromium.ci.json', GPU_TELEMETRY_TEST_OUTPUT_ANDROID_WEBVIEW)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -2783,10 +2021,26 @@ class UnitTest(TestCase):
                     LUCI_MILO_CFG,
                     exceptions=NO_BAR_TEST_EXCEPTIONS,
                     gn_isolate_map=GPU_TELEMETRY_GN_ISOLATE_MAP_FUCHSIA)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           GPU_TELEMETRY_TEST_OUTPUT_FUCHSIA)
-    self.create_testing_buildbot_json_file('chromium.ci.json',
-                                           GPU_TELEMETRY_TEST_OUTPUT_FUCHSIA)
+    fbb.check_output_file_consistency(verbose=True)
+    self.assertFalse(fbb.printed_lines)
+
+  def test_gpu_telemetry_tests_cast_streaming(self):
+    fbb = FakeBBGen(self.args,
+                    FOO_GPU_TELEMETRY_TEST_WATERFALL_CAST_STREAMING,
+                    COMPOSITION_SUITE_WITH_NAME_NOT_ENDING_IN_TEST,
+                    LUCI_MILO_CFG,
+                    exceptions=NO_BAR_TEST_EXCEPTIONS,
+                    gn_isolate_map=GPU_TELEMETRY_GN_ISOLATE_MAP_CAST_STREAMING)
+    fbb.check_output_file_consistency(verbose=True)
+    self.assertFalse(fbb.printed_lines)
+
+  def test_gpu_telemetry_tests_skylab(self):
+    fbb = FakeBBGen(self.args,
+                    FOO_GPU_TELEMETRY_TEST_WATERFALL_SKYLAB,
+                    COMPOSITION_SUITE_WITH_NAME_NOT_ENDING_IN_TEST,
+                    LUCI_MILO_CFG,
+                    exceptions=NO_BAR_TEST_EXCEPTIONS,
+                    gn_isolate_map=GPU_TELEMETRY_GN_ISOLATE_MAP)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -2797,10 +2051,6 @@ class UnitTest(TestCase):
                     LUCI_MILO_CFG,
                     exceptions=NO_BAR_TEST_EXCEPTIONS,
                     gn_isolate_map=GPU_TELEMETRY_GN_ISOLATE_MAP)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           NVIDIA_GPU_TELEMETRY_TEST_OUTPUT)
-    self.create_testing_buildbot_json_file('chromium.ci.json',
-                                           NVIDIA_GPU_TELEMETRY_TEST_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -2811,10 +2061,17 @@ class UnitTest(TestCase):
                     LUCI_MILO_CFG,
                     exceptions=NO_BAR_TEST_EXCEPTIONS,
                     gn_isolate_map=GPU_TELEMETRY_GN_ISOLATE_MAP)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           INTEL_GPU_TELEMETRY_TEST_OUTPUT)
-    self.create_testing_buildbot_json_file('chromium.ci.json',
-                                           INTEL_GPU_TELEMETRY_TEST_OUTPUT)
+    fbb.check_output_file_consistency(verbose=True)
+    self.assertFalse(fbb.printed_lines)
+
+  def test_gpu_telemetry_tests_with_variants(self):
+    fbb = FakeBBGen(self.args,
+                    GPU_TELEMETRY_TEST_VARIANTS_WATERFALL,
+                    MATRIX_COMPOUND_MIXED_VARIANTS_REF,
+                    LUCI_MILO_CFG,
+                    exceptions=NO_BAR_TEST_EXCEPTIONS,
+                    gn_isolate_map=GPU_TELEMETRY_GN_ISOLATE_MAP,
+                    variants=MULTI_VARIANTS_FILE)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -2825,10 +2082,6 @@ class UnitTest(TestCase):
                     LUCI_MILO_CFG,
                     exceptions=NO_BAR_TEST_EXCEPTIONS,
                     gn_isolate_map=GPU_TELEMETRY_GN_ISOLATE_MAP)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           INTEL_UHD_GPU_TELEMETRY_TEST_OUTPUT)
-    self.create_testing_buildbot_json_file('chromium.ci.json',
-                                           INTEL_UHD_GPU_TELEMETRY_TEST_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -2838,10 +2091,6 @@ class UnitTest(TestCase):
                     GTEST_AS_ISOLATED_SCRIPT_SUITE,
                     LUCI_MILO_CFG,
                     gn_isolate_map=GN_ISOLATE_MAP)
-    self.create_testing_buildbot_json_file(
-        'chromium.test.json', FOO_WATERFALL_GTEST_ISOLATED_SCRIPT_OUTPUT)
-    self.create_testing_buildbot_json_file(
-        'chromium.ci.json', FOO_WATERFALL_GTEST_ISOLATED_SCRIPT_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -2851,8 +2100,6 @@ class UnitTest(TestCase):
                     GOOD_COMPOSITION_TEST_SUITES,
                     LUCI_MILO_CFG,
                     exceptions=NO_BAR_TEST_EXCEPTIONS)
-    self.create_testing_buildbot_json_file(
-        'chromium.test.json', '\n' + COMPOSITION_WATERFALL_FILTERED_OUTPUT)
     with self.assertRaises(generate_buildbot_json.BBGenErr):
       fbb.check_output_file_consistency(verbose=True, dump=False)
     joined_lines = ' '.join(fbb.printed_lines)
@@ -2866,10 +2113,6 @@ class UnitTest(TestCase):
 
   def test_android_output_options(self):
     fbb = FakeBBGen(self.args, ANDROID_WATERFALL, FOO_TEST_SUITE, LUCI_MILO_CFG)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           ANDROID_WATERFALL_OUTPUT)
-    self.create_testing_buildbot_json_file('chromium.ci.json',
-                                           ANDROID_WATERFALL_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -2898,35 +2141,23 @@ class UnitTest(TestCase):
   def test_waterfall_args(self):
     fbb = FakeBBGen(self.args, COMPOSITION_GTEST_SUITE_WITH_ARGS_WATERFALL,
                     GOOD_COMPOSITION_TEST_SUITES, LUCI_MILO_CFG)
-    self.create_testing_buildbot_json_file(
-        'chromium.test.json', COMPOSITION_WATERFALL_WITH_ARGS_OUTPUT)
-    self.create_testing_buildbot_json_file(
-        'chromium.ci.json', COMPOSITION_WATERFALL_WITH_ARGS_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
   def test_chromeos_trigger_script_output(self):
     fbb = FakeBBGen(self.args, FOO_CHROMEOS_TRIGGER_SCRIPT_WATERFALL,
                     FOO_TEST_SUITE, LUCI_MILO_CFG)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           CHROMEOS_TRIGGER_SCRIPT_OUTPUT)
-    self.create_testing_buildbot_json_file('chromium.ci.json',
-                                           CHROMEOS_TRIGGER_SCRIPT_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
   def test_relative_pyl_file_dir(self):
-    self.override_args(pyl_files_dir='relative/path/', waterfall_filters=[])
+    self.set_args('--pyl-files-dir=relative/path')
     fbb = FakeBBGen(self.args,
                     FOO_GTESTS_WATERFALL,
                     REUSING_TEST_WITH_DIFFERENT_NAME,
                     LUCI_MILO_CFG,
                     gn_isolate_map=GN_ISOLATE_MAP)
     fbb.check_input_file_consistency(verbose=True)
-    self.create_testing_buildbot_json_file('relative/path/chromium.test.json',
-                                           VARIATION_GTEST_OUTPUT)
-    self.create_testing_buildbot_json_file('relative/path/chromium.ci.json',
-                                           VARIATION_GTEST_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -2966,7 +2197,9 @@ class UnitTest(TestCase):
                     TEST_SUITE_SORTED, LUCI_MILO_CFG_WATERFALL_SORTING)
     with self.assertRaisesRegex(
         generate_buildbot_json.BBGenErr,
-        'The following files have invalid keys: waterfalls.pyl'):
+        ('The following files have invalid keys: ' +
+         re.escape(self.args.waterfalls_pyl_path)),
+    ):
       fbb.check_input_file_consistency(verbose=True)
     joined_lines = '\n'.join(fbb.printed_lines)
     self.assertRegex(joined_lines, '.*\+ chromium\..*test.*')
@@ -2978,7 +2211,9 @@ class UnitTest(TestCase):
                     TEST_SUITE_SORTED, LUCI_MILO_CFG_WATERFALL_SORTING)
     with self.assertRaisesRegex(
         generate_buildbot_json.BBGenErr,
-        'The following files have invalid keys: waterfalls.pyl'):
+        ('The following files have invalid keys: ' +
+         re.escape(self.args.waterfalls_pyl_path)),
+    ):
       fbb.check_input_file_consistency(verbose=True)
     joined_lines = ' '.join(fbb.printed_lines)
     self.assertRegex(joined_lines, '.*\+.*Fake Tester.*')
@@ -3082,7 +2317,13 @@ FOO_GTESTS_WATERFALL_MIXIN_WATERFALL = """\
     'name': 'chromium.test',
     'machines': {
       'Fake Tester': {
-        'swarming': {},
+        'swarming': {
+          'dimension_sets': [
+            {
+              'os': 'Linux',
+            }
+          ],
+        },
         'test_suites': {
           'gtest_tests': 'foo_tests',
         },
@@ -3101,7 +2342,39 @@ FOO_GTESTS_BUILDER_MIXIN_WATERFALL = """\
     'machines': {
       'Fake Tester': {
         'mixins': ['builder_mixin'],
-        'swarming': {},
+        'swarming': {
+          'dimension_sets': [
+            {
+              'os': 'Linux',
+            }
+          ],
+        },
+        'test_suites': {
+          'gtest_tests': 'foo_tests',
+        },
+      },
+    },
+  },
+]
+"""
+
+FOO_LINUX_GTESTS_BUILDER_MIXIN_WATERFALL = """\
+[
+  {
+    'project': 'chromium',
+    'bucket': 'ci',
+    'name': 'chromium.test',
+    'machines': {
+      'Fake Tester': {
+        'os_type': 'linux',
+        'mixins': ['builder_mixin'],
+        'swarming': {
+          'dimension_sets': [
+            {
+              'os': 'Linux',
+            }
+          ],
+        },
         'test_suites': {
           'gtest_tests': 'foo_tests',
         },
@@ -3125,7 +2398,6 @@ FOO_GTESTS_DIMENSION_SETS_MIXIN_WATERFALL = """\
           'duplicate_dimension_set_mixin_1',
           'dimension_mixin',
         ],
-        'swarming': {},
         'test_suites': {
           'gtest_tests': 'foo_tests',
         },
@@ -3304,6 +2576,7 @@ FOO_TEST_SUITE_WITH_MIXIN = """\
           'dimension_sets': [
             {
               'integrity': 'high',
+              'os': 'Linux',
             }
           ],
           'expiration': 120,
@@ -3311,6 +2584,22 @@ FOO_TEST_SUITE_WITH_MIXIN = """\
         'mixins': ['test_mixin'],
       },
     },
+  },
+}
+"""
+
+MIXIN_ARGS = """\
+{
+  'builder_mixin': {
+    'args': [],
+  },
+}
+"""
+
+MIXIN_ARGS_NOT_LIST = """\
+{
+  'builder_mixin': {
+    'args': 'I am not a list',
   },
 }
 """
@@ -3347,11 +2636,27 @@ SWARMING_MIXINS = """\
 }
 """
 
+SWARMING_NAMED_CACHES = """\
+{
+  'builder_mixin': {
+    'swarming': {
+      'named_caches': [
+        {
+          'name': 'cache',
+          'file': 'cache_file',
+        },
+      ],
+    },
+  },
+}
+"""
+
 SWARMING_MIXINS_APPEND = """\
 {
   'builder_mixin': {
     '$mixin_append': {
       'args': [ '--mixin-argument' ],
+      'linux_args': [ '--linux-mixin-argument' ],
     },
   },
 }
@@ -3418,6 +2723,7 @@ SWARMING_MIXINS_DIMENSION_SETS = """\
     'swarming': {
       'dimension_sets': [
         {
+          'os': 'Linux',
           'value': 'ds1',
         },
       ],
@@ -3427,6 +2733,7 @@ SWARMING_MIXINS_DIMENSION_SETS = """\
     'swarming': {
       'dimension_sets': [
         {
+          'os': 'Linux',
           'value': 'ds2',
         },
       ],
@@ -3436,6 +2743,7 @@ SWARMING_MIXINS_DIMENSION_SETS = """\
     'swarming': {
       'dimension_sets': [
         {
+          'os': 'Linux',
           'value': 'ds1',
         },
       ],
@@ -3490,290 +2798,6 @@ SWARMING_MIXINS_SORTED = """\
 }
 """
 
-WATERFALL_DIMENSION_SETS_WATERFALL_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "other_value": "dimension_mixin",
-              "value": "ds1"
-            },
-            {
-              "other_value": "dimension_mixin",
-              "value": "ds2"
-            }
-          ]
-        },
-        "test": "foo_test"
-      }
-    ]
-  }
-}
-"""
-
-WATERFALL_MIXIN_WATERFALL_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "integrity": "high"
-            }
-          ],
-          "expiration": 120,
-          "value": "waterfall"
-        },
-        "test": "foo_test"
-      }
-    ]
-  }
-}
-"""
-
-WATERFALL_MIXIN_REMOVE_WATERFALL_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "integrity": "high"
-            }
-          ],
-          "expiration": 120
-        },
-        "test": "foo_test"
-      }
-    ]
-  }
-}
-"""
-
-WATERFALL_MIXIN_WATERFALL_EXCEPTION_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "integrity": "high"
-            }
-          ],
-          "expiration": 120,
-          "value": "exception"
-        },
-        "test": "foo_test"
-      }
-    ]
-  }
-}
-"""
-
-BUILDER_MIXIN_WATERFALL_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "integrity": "high"
-            }
-          ],
-          "expiration": 120,
-          "value": "builder"
-        },
-        "test": "foo_test"
-      }
-    ]
-  }
-}
-"""
-
-BUILDER_MIXIN_NON_SWARMING_WATERFALL_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "integrity": "high"
-            }
-          ],
-          "expiration": 120
-        },
-        "test": "foo_test",
-        "value": "random"
-      }
-    ]
-  }
-}
-"""
-
-BUILDER_MIXIN_APPEND_ARGS_WATERFALL_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "args": [
-          "--c_arg",
-          "--mixin-argument"
-        ],
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "foo_test"
-      }
-    ]
-  }
-}
-"""
-
-BUILDER_MIXIN_APPEND_NAMED_CACHES_WATERFALL_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "named_caches": [
-            {
-              "file": "cache_in_test_file",
-              "name": "cache_in_test"
-            },
-            {
-              "file": "cache_file",
-              "name": "cache"
-            }
-          ]
-        },
-        "test": "foo_test"
-      }
-    ]
-  }
-}
-"""
-
-TEST_MIXIN_WATERFALL_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "integrity": "high",
-              "kvm": "1"
-            }
-          ],
-          "expiration": 120,
-          "value": "test"
-        },
-        "test": "foo_test"
-      }
-    ]
-  }
-}
-"""
-
-DIMENSIONS_MIXIN_WATERFALL_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "iama": "mixin",
-              "integrity": "high"
-            }
-          ],
-          "expiration": 120,
-          "value": "test"
-        },
-        "test": "foo_test"
-      }
-    ]
-  }
-}
-"""
-
 
 class MixinTests(TestCase):
   """Tests for the mixins feature."""
@@ -3805,10 +2829,6 @@ class MixinTests(TestCase):
                     FOO_TEST_SUITE,
                     LUCI_MILO_CFG,
                     mixins=SWARMING_MIXINS)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           WATERFALL_MIXIN_WATERFALL_OUTPUT)
-    self.create_testing_buildbot_json_file('chromium.ci.json',
-                                           WATERFALL_MIXIN_WATERFALL_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -3819,10 +2839,27 @@ class MixinTests(TestCase):
                     LUCI_MILO_CFG,
                     exceptions=SCRIPT_WITH_ARGS_SWARMING_EXCEPTIONS,
                     mixins=SWARMING_MIXINS)
-    self.create_testing_buildbot_json_file(
-        'chromium.test.json', WATERFALL_MIXIN_WATERFALL_EXCEPTION_OUTPUT)
-    self.create_testing_buildbot_json_file(
-        'chromium.ci.json', WATERFALL_MIXIN_WATERFALL_EXCEPTION_OUTPUT)
+    fbb.check_output_file_consistency(verbose=True)
+    self.assertFalse(fbb.printed_lines)
+
+  def test_autoshard_exceptions(self):
+    fbb = FakeBBGen(self.args,
+                    FOO_GTESTS_WATERFALL_MIXIN_WATERFALL,
+                    FOO_TEST_SUITE,
+                    LUCI_MILO_CFG,
+                    exceptions=SCRIPT_WITH_ARGS_SWARMING_EXCEPTIONS,
+                    autoshard_exceptions=AUTOSHARD_EXCEPTIONS,
+                    mixins=SWARMING_MIXINS)
+    fbb.check_output_file_consistency(verbose=True)
+    self.assertFalse(fbb.printed_lines)
+
+  def test_autoshard_exceptions_variant_names(self):
+    fbb = FakeBBGen(self.args,
+                    MATRIX_GTEST_SUITE_WATERFALL,
+                    MATRIX_COMPOUND_TEST_WITH_TEST_KEY,
+                    LUCI_MILO_CFG,
+                    autoshard_exceptions=AUTOSHARD_EXCEPTIONS,
+                    variants=VARIANTS_FILE)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -3832,10 +2869,6 @@ class MixinTests(TestCase):
                     FOO_TEST_SUITE,
                     LUCI_MILO_CFG,
                     mixins=SWARMING_MIXINS)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           BUILDER_MIXIN_WATERFALL_OUTPUT)
-    self.create_testing_buildbot_json_file('chromium.ci.json',
-                                           BUILDER_MIXIN_WATERFALL_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -3845,10 +2878,6 @@ class MixinTests(TestCase):
                     FOO_TEST_SUITE,
                     LUCI_MILO_CFG,
                     mixins=SWARMING_MIXINS)
-    self.create_testing_buildbot_json_file(
-        'chromium.test.json', BUILDER_MIXIN_NON_SWARMING_WATERFALL_OUTPUT)
-    self.create_testing_buildbot_json_file(
-        'chromium.ci.json', BUILDER_MIXIN_NON_SWARMING_WATERFALL_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -3858,10 +2887,6 @@ class MixinTests(TestCase):
                     FOO_TEST_SUITE_WITH_MIXIN,
                     LUCI_MILO_CFG,
                     mixins=SWARMING_MIXINS)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           TEST_MIXIN_WATERFALL_OUTPUT)
-    self.create_testing_buildbot_json_file('chromium.ci.json',
-                                           TEST_MIXIN_WATERFALL_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -3871,10 +2896,6 @@ class MixinTests(TestCase):
                     FOO_TEST_SUITE_WITH_MIXIN,
                     LUCI_MILO_CFG,
                     mixins=SWARMING_MIXINS)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           DIMENSIONS_MIXIN_WATERFALL_OUTPUT)
-    self.create_testing_buildbot_json_file('chromium.ci.json',
-                                           DIMENSIONS_MIXIN_WATERFALL_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -3885,10 +2906,6 @@ class MixinTests(TestCase):
                     LUCI_MILO_CFG,
                     mixins=SWARMING_MIXINS,
                     gn_isolate_map=GPU_TELEMETRY_GN_ISOLATE_MAP)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           GPU_DIMENSIONS_WATERFALL_OUTPUT)
-    self.create_testing_buildbot_json_file('chromium.ci.json',
-                                           GPU_DIMENSIONS_WATERFALL_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -3909,10 +2926,6 @@ class MixinTests(TestCase):
                     FOO_TEST_SUITE_WITH_MIXIN,
                     LUCI_MILO_CFG,
                     mixins=SWARMING_MIXINS)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           DIMENSIONS_MIXIN_WATERFALL_OUTPUT)
-    self.create_testing_buildbot_json_file('chromium.ci.json',
-                                           DIMENSIONS_MIXIN_WATERFALL_OUTPUT)
     with self.assertRaises(generate_buildbot_json.BBGenErr):
       fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
@@ -3923,10 +2936,6 @@ class MixinTests(TestCase):
                     FOO_TEST_SUITE_WITH_MIXIN,
                     LUCI_MILO_CFG,
                     mixins=SWARMING_MIXINS)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           DIMENSIONS_MIXIN_WATERFALL_OUTPUT)
-    self.create_testing_buildbot_json_file('chromium.ci.json',
-                                           DIMENSIONS_MIXIN_WATERFALL_OUTPUT)
     with self.assertRaises(generate_buildbot_json.BBGenErr):
       fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
@@ -3940,7 +2949,9 @@ class MixinTests(TestCase):
                     mixins=SWARMING_MIXINS_DUPLICATED)
     with self.assertRaisesRegex(
         generate_buildbot_json.BBGenErr,
-        'The following files have invalid keys: mixins.pyl'):
+        ('The following files have invalid keys: ' +
+         re.escape(self.args.mixins_pyl_path)),
+    ):
       fbb.check_input_file_consistency(verbose=True)
     joined_lines = '\n'.join(fbb.printed_lines)
     self.assertRegex(joined_lines, '.*\- builder_mixin')
@@ -3952,7 +2963,9 @@ class MixinTests(TestCase):
                     LUCI_MILO_CFG)
     with self.assertRaisesRegex(
         generate_buildbot_json.BBGenErr,
-        'The following files have invalid keys: test_suites.pyl'):
+        ('The following files have invalid keys: ' +
+         re.escape(self.args.test_suites_pyl_path)),
+    ):
       fbb.check_input_file_consistency(verbose=True)
     joined_lines = '\n'.join(fbb.printed_lines)
     self.assertRegex(joined_lines, '.*\- a_test')
@@ -3963,11 +2976,13 @@ class MixinTests(TestCase):
   def test_type_assert_printing_help(self):
     fbb = FakeBBGen(self.args, FOO_GTESTS_WATERFALL, TEST_SUITES_SYNTAX_ERROR,
                     LUCI_MILO_CFG)
-    with self.assertRaisesRegex(generate_buildbot_json.BBGenErr,
-                                'Invalid \.pyl file \'test_suites.pyl\'.*'):
+    with self.assertRaisesRegex(
+        generate_buildbot_json.BBGenErr,
+        f'Invalid \.pyl file \'{re.escape(self.args.test_suites_pyl_path)}\'.*',
+    ):
       fbb.check_input_file_consistency(verbose=True)
     self.assertEqual(fbb.printed_lines, [
-        '== test_suites.pyl ==',
+        f'== {self.args.test_suites_pyl_path} ==',
         '<snip>',
         '1 {',
         "2   'basic_suites': {",
@@ -3987,10 +3002,24 @@ class MixinTests(TestCase):
                     FOO_TEST_SUITE_WITH_ARGS,
                     LUCI_MILO_CFG,
                     mixins=SWARMING_MIXINS_APPEND)
-    self.create_testing_buildbot_json_file(
-        'chromium.test.json', BUILDER_MIXIN_APPEND_ARGS_WATERFALL_OUTPUT)
-    self.create_testing_buildbot_json_file(
-        'chromium.ci.json', BUILDER_MIXIN_APPEND_ARGS_WATERFALL_OUTPUT)
+    fbb.check_output_file_consistency(verbose=True)
+    self.assertFalse(fbb.printed_lines)
+
+  def test_mixin_append_linux_args(self):
+    fbb = FakeBBGen(self.args,
+                    FOO_LINUX_GTESTS_BUILDER_MIXIN_WATERFALL,
+                    FOO_TEST_SUITE_WITH_ARGS,
+                    LUCI_MILO_CFG,
+                    mixins=SWARMING_MIXINS_APPEND)
+    fbb.check_output_file_consistency(verbose=True)
+    self.assertFalse(fbb.printed_lines)
+
+  def test_swarming_named_caches(self):
+    fbb = FakeBBGen(self.args,
+                    FOO_GTESTS_BUILDER_MIXIN_WATERFALL,
+                    FOO_TEST_SUITE_WITH_SWARMING_NAMED_CACHES,
+                    LUCI_MILO_CFG,
+                    mixins=SWARMING_NAMED_CACHES)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -4000,11 +3029,6 @@ class MixinTests(TestCase):
                     FOO_TEST_SUITE_WITH_SWARMING_NAMED_CACHES,
                     LUCI_MILO_CFG,
                     mixins=SWARMING_MIXINS_APPEND_NAMED_CACHES)
-    self.create_testing_buildbot_json_file(
-        'chromium.test.json',
-        BUILDER_MIXIN_APPEND_NAMED_CACHES_WATERFALL_OUTPUT)
-    self.create_testing_buildbot_json_file(
-        'chromium.ci.json', BUILDER_MIXIN_APPEND_NAMED_CACHES_WATERFALL_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -4032,6 +3056,26 @@ class MixinTests(TestCase):
       fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
+  def test_args_field_not_list(self):
+    fbb = FakeBBGen(self.args,
+                    FOO_GTESTS_BUILDER_MIXIN_WATERFALL,
+                    FOO_TEST_SUITE_WITH_ARGS,
+                    LUCI_MILO_CFG,
+                    mixins=MIXIN_ARGS_NOT_LIST)
+    with self.assertRaisesRegex(generate_buildbot_json.BBGenErr,
+                                '"args" must be a list'):
+      fbb.check_output_file_consistency(verbose=True)
+    self.assertFalse(fbb.printed_lines)
+
+  def test_args_field_merging(self):
+    fbb = FakeBBGen(self.args,
+                    FOO_GTESTS_BUILDER_MIXIN_WATERFALL,
+                    FOO_TEST_SUITE_WITH_ARGS,
+                    LUCI_MILO_CFG,
+                    mixins=MIXIN_ARGS)
+    fbb.check_output_file_consistency(verbose=True)
+    self.assertFalse(fbb.printed_lines)
+
   def test_mixin_append_test_field_not_list(self):
     fbb = FakeBBGen(self.args,
                     FOO_GTESTS_BUILDER_MIXIN_WATERFALL,
@@ -4050,10 +3094,6 @@ class MixinTests(TestCase):
                     FOO_TEST_SUITE,
                     LUCI_MILO_CFG,
                     mixins=SWARMING_MIXINS)
-    self.create_testing_buildbot_json_file(
-        'chromium.test.json', WATERFALL_MIXIN_REMOVE_WATERFALL_OUTPUT)
-    self.create_testing_buildbot_json_file(
-        'chromium.ci.json', WATERFALL_MIXIN_REMOVE_WATERFALL_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -4063,10 +3103,6 @@ class MixinTests(TestCase):
                     FOO_TEST_SUITE_WITH_REMOVE_WATERFALL_MIXIN,
                     LUCI_MILO_CFG,
                     mixins=SWARMING_MIXINS)
-    self.create_testing_buildbot_json_file(
-        'chromium.test.json', WATERFALL_MIXIN_REMOVE_WATERFALL_OUTPUT)
-    self.create_testing_buildbot_json_file(
-        'chromium.ci.json', WATERFALL_MIXIN_REMOVE_WATERFALL_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -4076,10 +3112,6 @@ class MixinTests(TestCase):
                     FOO_TEST_SUITE_WITH_REMOVE_BUILDER_MIXIN,
                     LUCI_MILO_CFG,
                     mixins=SWARMING_MIXINS)
-    self.create_testing_buildbot_json_file(
-        'chromium.test.json', WATERFALL_MIXIN_REMOVE_WATERFALL_OUTPUT)
-    self.create_testing_buildbot_json_file(
-        'chromium.ci.json', WATERFALL_MIXIN_REMOVE_WATERFALL_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -4089,10 +3121,6 @@ class MixinTests(TestCase):
                     FOO_TEST_SUITE_NO_DIMENSIONS,
                     LUCI_MILO_CFG,
                     mixins=SWARMING_MIXINS_DIMENSION_SETS)
-    self.create_testing_buildbot_json_file(
-        'chromium.test.json', WATERFALL_DIMENSION_SETS_WATERFALL_OUTPUT)
-    self.create_testing_buildbot_json_file(
-        'chromium.ci.json', WATERFALL_DIMENSION_SETS_WATERFALL_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -4160,13 +3188,6 @@ TEST_QUERY_BOTS_OUTPUT = {
     "gtest_tests": [
       {
         "test": "foo_test",
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": False
-        }
       }
     ]
   },
@@ -4179,18 +3200,9 @@ TEST_QUERY_BOTS_OUTPUT = {
           "--recover-devices"
         ],
         "merge": {
-          "args": [],
           "script": "//testing/merge_scripts/standard_gtest_merge.py"
         },
         "swarming": {
-          "cipd_packages": [
-            {
-              "cipd_package": "infra/tools/luci/logdog/butler/${platform}",
-              "location": "bin",
-              "revision":
-              "git_revision:ff387eadf445b24c935f1cf7d6ddd279f8a6b04c"
-            }
-          ],
           "dimension_sets":[
             {
               "device_os": "LMY41U",
@@ -4214,18 +3226,9 @@ TEST_QUERY_BOTS_OUTPUT = {
           "--recover-devices"
         ],
         "merge": {
-          "args": [],
           "script": "//testing/merge_scripts/standard_gtest_merge.py"
         },
         "swarming": {
-          "cipd_packages": [
-            {
-              "cipd_package": "infra/tools/luci/logdog/butler/${platform}",
-              "location": "bin",
-              "revision":
-              "git_revision:ff387eadf445b24c935f1cf7d6ddd279f8a6b04c"
-            }
-          ],
           "dimension_sets": [
             {
               "device_os": "KTU84P",
@@ -4254,14 +3257,7 @@ TEST_QUERY_BOTS_OUTPUT = {
 TEST_QUERY_BOTS_TESTS_OUTPUT = {
   "Fake Android M Tester": [
     {
-      "merge": {
-        "args": [],
-        "script": "//testing/merge_scripts/standard_gtest_merge.py"
-      },
       "test": "foo_test",
-      "swarming": {
-        "can_use_on_swarming_builders": False
-      }
     }
   ],
   "Fake Android L Tester": [
@@ -4272,17 +3268,9 @@ TEST_QUERY_BOTS_TESTS_OUTPUT = {
         "--recover-devices"
       ],
       "merge": {
-        "args": [],
         "script": "//testing/merge_scripts/standard_gtest_merge.py"
       },
       "swarming": {
-        "cipd_packages": [
-          {
-            "cipd_package": "infra/tools/luci/logdog/butler/${platform}",
-            "location": "bin",
-            "revision": "git_revision:ff387eadf445b24c935f1cf7d6ddd279f8a6b04c"
-          }
-        ],
         "dimension_sets": [
           {
             "device_os": "LMY41U",
@@ -4304,17 +3292,9 @@ TEST_QUERY_BOTS_TESTS_OUTPUT = {
         "--recover-devices"
       ],
       "merge": {
-        "args": [],
         "script": "//testing/merge_scripts/standard_gtest_merge.py"
       },
       "swarming": {
-        "cipd_packages": [
-          {
-            "cipd_package": "infra/tools/luci/logdog/butler/${platform}",
-            "location": "bin",
-            "revision": "git_revision:ff387eadf445b24c935f1cf7d6ddd279f8a6b04c"
-          }
-        ],
         "dimension_sets": [
           {
             "device_os": "KTU84P",
@@ -4349,17 +3329,9 @@ TEST_QUERY_BOT_OUTPUT = {
         "--recover-devices"
       ],
       "merge": {
-        "args": [],
         "script": "//testing/merge_scripts/standard_gtest_merge.py"
       },
       "swarming": {
-        "cipd_packages": [
-          {
-            "cipd_package": "infra/tools/luci/logdog/butler/${platform}",
-            "location": "bin",
-            "revision": "git_revision:ff387eadf445b24c935f1cf7d6ddd279f8a6b04c"
-          }
-        ],
         "dimension_sets": [
           {
             "device_os": "KTU84P",
@@ -4390,17 +3362,9 @@ TEST_QUERY_BOT_TESTS_OUTPUT = [
       "--recover-devices"
     ],
     "merge": {
-      "args": [],
       "script": "//testing/merge_scripts/standard_gtest_merge.py"
     },
     "swarming": {
-      "cipd_packages": [
-        {
-          "cipd_package": "infra/tools/luci/logdog/butler/${platform}",
-          "location": "bin",
-          "revision": "git_revision:ff387eadf445b24c935f1cf7d6ddd279f8a6b04c"
-        }
-      ],
       "dimension_sets": [
         {
           "device_os": "LMY41U",
@@ -4415,8 +3379,20 @@ TEST_QUERY_BOT_TESTS_OUTPUT = [
 ]
 
 TEST_QUERY_TESTS_OUTPUT = {
-  "bar_test": {},
-  "foo_test": {}
+    "bar_test": {
+        'swarming': {
+            'dimension_sets': [{
+                'os': 'Linux'
+            }]
+        }
+    },
+    "foo_test": {
+        'swarming': {
+            'dimension_sets': [{
+                'os': 'Linux'
+            }]
+        }
+    }
 }
 
 TEST_QUERY_TESTS_MULTIPLE_PARAMS_OUTPUT = ["foo_test"]
@@ -4429,7 +3405,7 @@ TEST_QUERY_TESTS_PARAMS_OUTPUT = ['bar_test_test']
 
 TEST_QUERY_TESTS_PARAMS_FALSE_OUTPUT = ['bar_test']
 
-TEST_QUERY_TEST_OUTPUT = {}
+TEST_QUERY_TEST_OUTPUT = {'swarming': {'dimension_sets': [{'os': 'Linux'}]}}
 
 TEST_QUERY_TEST_BOTS_OUTPUT = [
     "Fake Android K Tester",
@@ -4445,11 +3421,7 @@ TEST_QUERY_TEST_BOTS_NO_BOTS_OUTPUT = []
 class QueryTests(TestCase):
   """Tests for the query feature."""
   def test_query_bots(self):
-    self.override_args(query='bots',
-                       check=False,
-                       pyl_files_dir=None,
-                       json=None,
-                       waterfall_filters=[])
+    self.set_args('--query=bots')
     fbb = FakeBBGen(self.args,
                     ANDROID_WATERFALL,
                     GOOD_COMPOSITION_TEST_SUITES,
@@ -4460,11 +3432,7 @@ class QueryTests(TestCase):
     self.assertEqual(query_json, TEST_QUERY_BOTS_OUTPUT)
 
   def test_query_bots_invalid(self):
-    self.override_args(query='bots/blah/blah',
-                       check=False,
-                       pyl_files_dir=None,
-                       json=None,
-                       waterfall_filters=[])
+    self.set_args('--query=bots/blah/blah')
     fbb = FakeBBGen(self.args,
                     ANDROID_WATERFALL,
                     GOOD_COMPOSITION_TEST_SUITES,
@@ -4476,11 +3444,7 @@ class QueryTests(TestCase):
     self.assertTrue(fbb.printed_lines)
 
   def test_query_bots_json(self):
-    self.override_args(query='bots',
-                       check=False,
-                       pyl_files_dir=None,
-                       json='result.json',
-                       waterfall_filters=[])
+    self.set_args('--query=bots', '--json=result.json')
     fbb = FakeBBGen(self.args,
                     ANDROID_WATERFALL,
                     GOOD_COMPOSITION_TEST_SUITES,
@@ -4490,11 +3454,7 @@ class QueryTests(TestCase):
     self.assertFalse(fbb.printed_lines)
 
   def test_query_bots_tests(self):
-    self.override_args(query='bots/tests',
-                       check=False,
-                       pyl_files_dir=None,
-                       json=None,
-                       waterfall_filters=[])
+    self.set_args('--query=bots/tests')
     fbb = FakeBBGen(self.args,
                     ANDROID_WATERFALL,
                     GOOD_COMPOSITION_TEST_SUITES,
@@ -4505,11 +3465,7 @@ class QueryTests(TestCase):
     self.assertEqual(query_json, TEST_QUERY_BOTS_TESTS_OUTPUT)
 
   def test_query_invalid_bots_tests(self):
-    self.override_args(query='bots/tdfjdk',
-                       check=False,
-                       pyl_files_dir=None,
-                       json=None,
-                       waterfall_filters=[])
+    self.set_args('--query=bots/tdfjdk')
     fbb = FakeBBGen(self.args,
                     ANDROID_WATERFALL,
                     GOOD_COMPOSITION_TEST_SUITES,
@@ -4521,11 +3477,7 @@ class QueryTests(TestCase):
     self.assertTrue(fbb.printed_lines)
 
   def test_query_bot(self):
-    self.override_args(query='bot/Fake Android K Tester',
-                       check=False,
-                       pyl_files_dir=None,
-                       json=None,
-                       waterfall_filters=[])
+    self.set_args('--query=bot/Fake Android K Tester')
     fbb = FakeBBGen(self.args,
                     ANDROID_WATERFALL,
                     GOOD_COMPOSITION_TEST_SUITES,
@@ -4537,11 +3489,7 @@ class QueryTests(TestCase):
     self.assertEqual(query_json, TEST_QUERY_BOT_OUTPUT)
 
   def test_query_bot_invalid_id(self):
-    self.override_args(query='bot/bot1',
-                       check=False,
-                       pyl_files_dir=None,
-                       json=None,
-                       waterfall_filters=[])
+    self.set_args('--query=bot/bot1')
     fbb = FakeBBGen(self.args,
                     ANDROID_WATERFALL,
                     GOOD_COMPOSITION_TEST_SUITES,
@@ -4553,11 +3501,7 @@ class QueryTests(TestCase):
     self.assertTrue(fbb.printed_lines)
 
   def test_query_bot_invalid_query_too_many(self):
-    self.override_args(query='bot/Fake Android K Tester/blah/blah',
-                       check=False,
-                       pyl_files_dir=None,
-                       json=None,
-                       waterfall_filters=[])
+    self.set_args('--query=bot/Fake Android K Tester/blah/blah')
     fbb = FakeBBGen(self.args,
                     ANDROID_WATERFALL,
                     GOOD_COMPOSITION_TEST_SUITES,
@@ -4569,11 +3513,7 @@ class QueryTests(TestCase):
     self.assertTrue(fbb.printed_lines)
 
   def test_query_bot_invalid_query_no_tests(self):
-    self.override_args(query='bot/Fake Android K Tester/blahs',
-                       check=False,
-                       pyl_files_dir=None,
-                       json=None,
-                       waterfall_filters=[])
+    self.set_args('--query=bot/Fake Android K Tester/blahs')
     fbb = FakeBBGen(self.args,
                     ANDROID_WATERFALL,
                     GOOD_COMPOSITION_TEST_SUITES,
@@ -4585,11 +3525,7 @@ class QueryTests(TestCase):
     self.assertTrue(fbb.printed_lines)
 
   def test_query_bot_tests(self):
-    self.override_args(query='bot/Fake Android L Tester/tests',
-                       check=False,
-                       pyl_files_dir=None,
-                       json=None,
-                       waterfall_filters=[])
+    self.set_args('--query=bot/Fake Android L Tester/tests')
     fbb = FakeBBGen(self.args,
                     ANDROID_WATERFALL,
                     GOOD_COMPOSITION_TEST_SUITES,
@@ -4600,11 +3536,7 @@ class QueryTests(TestCase):
     self.assertEqual(query_json, TEST_QUERY_BOT_TESTS_OUTPUT)
 
   def test_query_tests(self):
-    self.override_args(query='tests',
-                       check=False,
-                       pyl_files_dir=None,
-                       json=None,
-                       waterfall_filters=[])
+    self.set_args('--query=tests')
     fbb = FakeBBGen(self.args,
                     ANDROID_WATERFALL,
                     GOOD_COMPOSITION_TEST_SUITES,
@@ -4615,11 +3547,7 @@ class QueryTests(TestCase):
     self.assertEqual(query_json, TEST_QUERY_TESTS_OUTPUT)
 
   def test_query_tests_invalid(self):
-    self.override_args(query='tests/blah/blah',
-                       check=False,
-                       pyl_files_dir=None,
-                       json=None,
-                       waterfall_filters=[])
+    self.set_args('--query=tests/blah/blah')
     fbb = FakeBBGen(self.args,
                     ANDROID_WATERFALL,
                     GOOD_COMPOSITION_TEST_SUITES,
@@ -4631,11 +3559,7 @@ class QueryTests(TestCase):
     self.assertTrue(fbb.printed_lines)
 
   def test_query_tests_multiple_params(self):
-    self.override_args(query='tests/--jobs=1&--verbose',
-                       check=False,
-                       pyl_files_dir=None,
-                       json=None,
-                       waterfall_filters=[])
+    self.set_args('--query=tests/--jobs=1&--verbose')
     fbb = FakeBBGen(self.args,
                     ANDROID_WATERFALL,
                     TEST_SUITE_WITH_PARAMS,
@@ -4646,11 +3570,7 @@ class QueryTests(TestCase):
     self.assertEqual(query_json, TEST_QUERY_TESTS_MULTIPLE_PARAMS_OUTPUT)
 
   def test_query_tests_invalid_params(self):
-    self.override_args(query='tests/device_os?',
-                       check=False,
-                       pyl_files_dir=None,
-                       json=None,
-                       waterfall_filters=[])
+    self.set_args('--query=tests/device_os?')
     fbb = FakeBBGen(self.args,
                     ANDROID_WATERFALL,
                     TEST_SUITE_WITH_PARAMS,
@@ -4662,11 +3582,7 @@ class QueryTests(TestCase):
     self.assertTrue(fbb.printed_lines)
 
   def test_query_tests_dimension_params(self):
-    self.override_args(query='tests/device_os:NMF26U',
-                       check=False,
-                       pyl_files_dir=None,
-                       json=None,
-                       waterfall_filters=[])
+    self.set_args('--query=tests/device_os:NMF26U')
     fbb = FakeBBGen(self.args,
                     ANDROID_WATERFALL,
                     TEST_SUITE_WITH_PARAMS,
@@ -4677,11 +3593,7 @@ class QueryTests(TestCase):
     self.assertEqual(query_json, TEST_QUERY_TESTS_DIMENSION_PARAMS_OUTPUT)
 
   def test_query_tests_swarming_params(self):
-    self.override_args(query='tests/hard_timeout:1000',
-                       check=False,
-                       pyl_files_dir=None,
-                       json=None,
-                       waterfall_filters=[])
+    self.set_args('--query=tests/hard_timeout:1000')
     fbb = FakeBBGen(self.args,
                     ANDROID_WATERFALL,
                     TEST_SUITE_WITH_PARAMS,
@@ -4692,11 +3604,7 @@ class QueryTests(TestCase):
     self.assertEqual(query_json, TEST_QUERY_TESTS_SWARMING_PARAMS_OUTPUT)
 
   def test_query_tests_params(self):
-    self.override_args(query='tests/should_retry_with_patch:true',
-                       check=False,
-                       pyl_files_dir=None,
-                       json=None,
-                       waterfall_filters=[])
+    self.set_args('--query=tests/should_retry_with_patch:true')
     fbb = FakeBBGen(self.args,
                     ANDROID_WATERFALL,
                     TEST_SUITE_WITH_PARAMS,
@@ -4707,11 +3615,7 @@ class QueryTests(TestCase):
     self.assertEqual(query_json, TEST_QUERY_TESTS_PARAMS_OUTPUT)
 
   def test_query_tests_params_false(self):
-    self.override_args(query='tests/should_retry_with_patch:false',
-                       check=False,
-                       pyl_files_dir=None,
-                       json=None,
-                       waterfall_filters=[])
+    self.set_args('--query=tests/should_retry_with_patch:false')
     fbb = FakeBBGen(self.args,
                     ANDROID_WATERFALL,
                     TEST_SUITE_WITH_PARAMS,
@@ -4722,11 +3626,7 @@ class QueryTests(TestCase):
     self.assertEqual(query_json, TEST_QUERY_TESTS_PARAMS_FALSE_OUTPUT)
 
   def test_query_test(self):
-    self.override_args(query='test/foo_test',
-                       check=False,
-                       pyl_files_dir=None,
-                       json=None,
-                       waterfall_filters=[])
+    self.set_args('--query=test/foo_test')
     fbb = FakeBBGen(self.args,
                     ANDROID_WATERFALL,
                     GOOD_COMPOSITION_TEST_SUITES,
@@ -4737,11 +3637,7 @@ class QueryTests(TestCase):
     self.assertEqual(query_json, TEST_QUERY_TEST_OUTPUT)
 
   def test_query_test_invalid_id(self):
-    self.override_args(query='test/foo_foo',
-                       check=False,
-                       pyl_files_dir=None,
-                       json=None,
-                       waterfall_filters=[])
+    self.set_args('--query=test/foo_foo')
     fbb = FakeBBGen(self.args,
                     ANDROID_WATERFALL,
                     GOOD_COMPOSITION_TEST_SUITES,
@@ -4753,11 +3649,7 @@ class QueryTests(TestCase):
     self.assertTrue(fbb.printed_lines)
 
   def test_query_test_invalid_length(self):
-    self.override_args(query='test/foo_tests/foo/foo',
-                       check=False,
-                       pyl_files_dir=None,
-                       json=None,
-                       waterfall_filters=[])
+    self.set_args('--query=test/foo_tests/foo/foo')
     fbb = FakeBBGen(self.args,
                     ANDROID_WATERFALL,
                     GOOD_COMPOSITION_TEST_SUITES,
@@ -4769,11 +3661,7 @@ class QueryTests(TestCase):
     self.assertTrue(fbb.printed_lines)
 
   def test_query_test_bots(self):
-    self.override_args(query='test/foo_test/bots',
-                       check=False,
-                       pyl_files_dir=None,
-                       json=None,
-                       waterfall_filters=[])
+    self.set_args('--query=test/foo_test/bots')
     fbb = FakeBBGen(self.args,
                     ANDROID_WATERFALL,
                     GOOD_COMPOSITION_TEST_SUITES,
@@ -4784,11 +3672,7 @@ class QueryTests(TestCase):
     self.assertEqual(query_json, TEST_QUERY_TEST_BOTS_OUTPUT)
 
   def test_query_test_bots_isolated_scripts(self):
-    self.override_args(query='test/foo_test/bots',
-                       check=False,
-                       pyl_files_dir=None,
-                       json=None,
-                       waterfall_filters=[])
+    self.set_args('--query=test/foo_test/bots')
     fbb = FakeBBGen(self.args,
                     FOO_ISOLATED_SCRIPTS_WATERFALL,
                     GOOD_COMPOSITION_TEST_SUITES,
@@ -4799,11 +3683,7 @@ class QueryTests(TestCase):
     self.assertEqual(query_json, TEST_QUERY_TEST_BOTS_ISOLATED_SCRIPTS_OUTPUT)
 
   def test_query_test_bots_invalid(self):
-    self.override_args(query='test/foo_tests/foo',
-                       check=False,
-                       pyl_files_dir=None,
-                       json=None,
-                       waterfall_filters=[])
+    self.set_args('--query=test/foo_tests/foo')
     fbb = FakeBBGen(self.args,
                     ANDROID_WATERFALL,
                     GOOD_COMPOSITION_TEST_SUITES,
@@ -4815,11 +3695,7 @@ class QueryTests(TestCase):
     self.assertTrue(fbb.printed_lines)
 
   def test_query_test_bots_no_bots(self):
-    self.override_args(query='test/bar_tests/bots',
-                       check=False,
-                       pyl_files_dir=None,
-                       json=None,
-                       waterfall_filters=[])
+    self.set_args('--query=test/bar_tests/bots')
     fbb = FakeBBGen(self.args,
                     ANDROID_WATERFALL,
                     GOOD_COMPOSITION_TEST_SUITES,
@@ -4830,11 +3706,7 @@ class QueryTests(TestCase):
     self.assertEqual(query_json, TEST_QUERY_TEST_BOTS_NO_BOTS_OUTPUT)
 
   def test_query_invalid(self):
-    self.override_args(query='foo',
-                       check=False,
-                       pyl_files_dir=None,
-                       json=None,
-                       waterfall_filters=[])
+    self.set_args('--query=foo')
     fbb = FakeBBGen(self.args,
                     ANDROID_WATERFALL,
                     GOOD_COMPOSITION_TEST_SUITES,
@@ -4922,93 +3794,6 @@ FOO_TEST_REPLACEMENTS_INVALID_KEY = """\
 """
 
 
-REPLACEMENTS_REMOVE_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "args": [],
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "kvm": "1"
-            }
-          ]
-        },
-        "test": "foo_test"
-      }
-    ]
-  }
-}
-"""
-
-REPLACEMENTS_VALUE_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "args": [
-          "--enable-features=Bar,Baz"
-        ],
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "kvm": "1"
-            }
-          ]
-        },
-        "test": "foo_test"
-      }
-    ]
-  }
-}
-"""
-
-REPLACEMENTS_VALUE_SEPARATE_ENTRIES_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "args": [
-          "--enable-features",
-          "Bar,Baz"
-        ],
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "kvm": "1"
-            }
-          ]
-        },
-        "test": "foo_test"
-      }
-    ]
-  }
-}
-"""
-
-
 class ReplacementTests(TestCase):
   """Tests for the arg replacement feature."""
   def test_replacement_valid_remove_no_value(self):
@@ -5017,10 +3802,6 @@ class ReplacementTests(TestCase):
                     FOO_TEST_SUITE_WITH_ARGS,
                     LUCI_MILO_CFG,
                     exceptions=FOO_TEST_REPLACEMENTS_REMOVE_NO_VALUE)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           REPLACEMENTS_REMOVE_OUTPUT)
-    self.create_testing_buildbot_json_file('chromium.ci.json',
-                                           REPLACEMENTS_REMOVE_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -5030,10 +3811,6 @@ class ReplacementTests(TestCase):
                     FOO_TEST_SUITE_WITH_ENABLE_FEATURES,
                     LUCI_MILO_CFG,
                     exceptions=FOO_TEST_REPLACEMENTS_REMOVE_VALUE)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           REPLACEMENTS_REMOVE_OUTPUT)
-    self.create_testing_buildbot_json_file('chromium.ci.json',
-                                           REPLACEMENTS_REMOVE_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -5043,10 +3820,6 @@ class ReplacementTests(TestCase):
                     FOO_TEST_SUITE_WITH_ENABLE_FEATURES,
                     LUCI_MILO_CFG,
                     exceptions=FOO_TEST_REPLACEMENTS_REPLACE_VALUE)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           REPLACEMENTS_VALUE_OUTPUT)
-    self.create_testing_buildbot_json_file('chromium.ci.json',
-                                           REPLACEMENTS_VALUE_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -5056,10 +3829,6 @@ class ReplacementTests(TestCase):
                     FOO_TEST_SUITE_WITH_ENABLE_FEATURES_SEPARATE_ENTRIES,
                     LUCI_MILO_CFG,
                     exceptions=FOO_TEST_REPLACEMENTS_REPLACE_VALUE)
-    self.create_testing_buildbot_json_file(
-        'chromium.test.json', REPLACEMENTS_VALUE_SEPARATE_ENTRIES_OUTPUT)
-    self.create_testing_buildbot_json_file(
-        'chromium.ci.json', REPLACEMENTS_VALUE_SEPARATE_ENTRIES_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -5114,45 +3883,11 @@ FOO_TEST_SUITE_WITH_INVALID_MAGIC_ARGS = """\
 """
 
 
-MAGIC_SUBSTITUTIONS_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "args": [
-          "--magic-substitution-success"
-        ],
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "kvm": "1"
-            }
-          ]
-        },
-        "test": "foo_test"
-      }
-    ]
-  }
-}
-"""
-
-
 class MagicSubstitutionTests(TestCase):
   """Tests for the magic substitution feature."""
   def test_valid_function(self):
     fbb = FakeBBGen(self.args, FOO_GTESTS_WATERFALL,
                     FOO_TEST_SUITE_WITH_MAGIC_ARGS, LUCI_MILO_CFG)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           MAGIC_SUBSTITUTIONS_OUTPUT)
-    self.create_testing_buildbot_json_file('chromium.ci.json',
-                                           MAGIC_SUBSTITUTIONS_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -5171,6 +3906,27 @@ MATRIX_COMPOUND_EMPTY = """\
   'basic_suites': {
     'bar_tests': {
       'bar_test': {},
+    },
+    'foo_tests': {
+      'foo_test': {},
+    },
+  },
+  'matrix_compound_suites': {
+    'matrix_tests': {
+      'foo_tests': {},
+      'bar_tests': {},
+    },
+  },
+}
+"""
+
+MATRIX_COMPOUND_EMPTY_WITH_DESCRIPTION = """\
+{
+  'basic_suites': {
+    'bar_tests': {
+      'bar_test': {
+        'description': 'This is a bar test',
+      },
     },
     'foo_tests': {
       'foo_test': {},
@@ -5212,19 +3968,11 @@ MATRIX_COMPOUND_MISSING_IDENTIFIER = """\
 }
 """
 
-MATRIX_MISMATCHED_SWARMING_LENGTH = """\
+MATRIX_COMPOUND_EMPTY_IDENTIFIER = """\
 {
   'basic_suites': {
     'foo_tests': {
-      'foo_test': {
-        'swarming': {
-          'dimension_sets': [
-            {
-              'hello': 'world',
-            }
-          ],
-        },
-      },
+      'foo_test': {},
     },
   },
   'matrix_compound_suites': {
@@ -5232,15 +3980,54 @@ MATRIX_MISMATCHED_SWARMING_LENGTH = """\
       'foo_tests': {
         'variants': [
           {
-            'identifier': 'test',
+            'identifier': '',
             'swarming': {
               'dimension_sets': [
                 {
-                  'foo': 'bar',
+                  'foo': 'empty identifier not allowed',
                 },
+              ],
+            },
+          },
+        ],
+      },
+    },
+  },
+}
+"""
+
+MATRIX_COMPOUND_TRAILING_IDENTIFIER = """\
+{
+  'basic_suites': {
+    'foo_tests': {
+      'foo_test': {},
+    },
+  },
+  'matrix_compound_suites': {
+    'matrix_tests': {
+      'foo_tests': {
+        'variants': [
+          {
+            'identifier': ' ',
+            'swarming': {
+              'dimension_sets': [
                 {
-                  'bar': 'foo',
-                }
+                  'foo': 'strip to empty not allowed',
+                },
+              ],
+            },
+          },
+        ],
+      },
+      'foo_tests': {
+        'variants': [
+          {
+            'identifier': 'id ',
+            'swarming': {
+              'dimension_sets': [
+                {
+                  'foo': 'trailing whitespace not allowed',
+                },
               ],
             },
           },
@@ -5532,11 +4319,9 @@ MATRIX_COMPOUND_TARGETS_SWARMING = """\
             'identifier': 'swarming',
             'swarming': {
               'a': 'b',
-              'dimension_sets': [
-                {
-                  'hello': 'world',
-                }
-              ]
+              'dimensions': {
+                'hello': 'world',
+              }
             }
           },
           {
@@ -5555,6 +4340,27 @@ MATRIX_COMPOUND_VARIANTS_REF = """\
   'basic_suites': {
     'foo_tests': {
       'swarming_test': {},
+    }
+  },
+  'matrix_compound_suites': {
+    'matrix_tests': {
+      'foo_tests': {
+        'variants': [
+          'a_variant'
+        ],
+      },
+    },
+  },
+}
+"""
+
+MATRIX_COMPOUND_VARIANTS_REF_WITH_DESCRIPTION = """\
+{
+  'basic_suites': {
+    'foo_tests': {
+      'swarming_test': {
+        'description': 'This is a swarming test.'
+      },
     }
   },
   'matrix_compound_suites': {
@@ -5630,6 +4436,15 @@ VARIANTS_FILE = """\
 }
 """
 
+VARIANTS_FILE_WITH_DESCRIPTION = """\
+{
+  'a_variant': {
+    'identifier': 'a_variant',
+    'description': 'Variant description.'
+  }
+}
+"""
+
 MULTI_VARIANTS_FILE = """\
 {
   'a_variant': {
@@ -5655,302 +4470,14 @@ MULTI_VARIANTS_FILE = """\
 
 # # Dictionary composition test suite outputs
 
-MATRIX_COMPOUND_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "bar_test"
-      },
-      {
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "foo_test"
-      }
-    ]
-  }
-}
-"""
-
-MATRIX_COMPOUND_TEST_SUITE_WITH_TEST_KEY_DICT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "args": [
-          "--platform",
-          "device",
-          "--version",
-          "1"
-        ],
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "name": "swarming_test_a_variant",
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "foo_test_apk"
-      }
-    ]
-  }
-}
-"""
-
-MATRIX_TARGET_DICT_MERGE_OUTPUT_ARGS = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "args": [
-          "--iam",
-          "--anarg"
-        ],
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "name": "args_test_args",
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "args_test"
-      },
-      {
-        "args": [
-          "--iam"
-        ],
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "name": "args_test_mixins",
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "iama": "mixin"
-            }
-          ]
-        },
-        "test": "args_test"
-      },
-      {
-        "args": [
-          "--iam"
-        ],
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "name": "args_test_swarming",
-        "swarming": {
-          "a": "b",
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "hello": "world"
-            }
-          ]
-        },
-        "test": "args_test"
-      }
-    ]
-  }
-}
-"""
-
-MATRIX_TARGET_DICT_MERGE_OUTPUT_MIXINS = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "args": [
-          "--anarg"
-        ],
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "name": "mixins_test_args",
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "value": "test"
-        },
-        "test": "mixins_test",
-        "value": "random"
-      },
-      {
-        "args": [],
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "name": "mixins_test_mixins",
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "iama": "mixin"
-            }
-          ],
-          "value": "test"
-        },
-        "test": "mixins_test",
-        "value": "random"
-      },
-      {
-        "args": [],
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "name": "mixins_test_swarming",
-        "swarming": {
-          "a": "b",
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "hello": "world"
-            }
-          ],
-          "value": "test"
-        },
-        "test": "mixins_test",
-        "value": "random"
-      }
-    ]
-  }
-}
-"""
-
-MATRIX_TARGET_DICT_MERGE_OUTPUT_SWARMING = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "args": [
-          "--anarg"
-        ],
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "name": "swarming_test_args",
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "foo": "bar"
-            }
-          ],
-          "foo": "bar"
-        },
-        "test": "swarming_test"
-      },
-      {
-        "args": [],
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "name": "swarming_test_mixins",
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "foo": "bar",
-              "iama": "mixin"
-            }
-          ],
-          "foo": "bar"
-        },
-        "test": "swarming_test"
-      },
-      {
-        "args": [],
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "name": "swarming_test_swarming",
-        "swarming": {
-          "a": "b",
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "foo": "bar",
-              "hello": "world"
-            }
-          ],
-          "foo": "bar"
-        },
-        "test": "swarming_test"
-      }
-    ]
-  }
-}
-"""
-
-MATRIX_COMPOUND_VARIANTS_REF_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "gtest_tests": [
-      {
-        "args": [
-          "--platform",
-          "device",
-          "--version",
-          "1"
-        ],
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
-        },
-        "name": "swarming_test_a_variant",
-        "swarming": {
-          "can_use_on_swarming_builders": true
-        },
-        "test": "swarming_test"
-      }
-    ]
-  }
-}
-"""
-
 EMPTY_SKYLAB_TEST_EXCEPTIONS = """\
 {
-  'tast.foo_OCTOPUS_TOT': {
+  'tast.foo OCTOPUS_TOT': {
     'remove_from': [
       'Fake Tester',
     ]
   },
-  'tast.foo_OCTOPUS_TOT-1': {
+  'tast.foo OCTOPUS_TOT-1': {
     'remove_from': [
       'Fake Tester',
     ]
@@ -6063,58 +4590,6 @@ ENABLED_AND_DISABLED_MATRIX_COMPOUND_SKYLAB_REF = """\
 }
 """
 
-VARIATION_SKYLAB_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "skylab_tests": [
-      {
-        "args": [],
-        "cros_board": "octopus",
-        "cros_img": "octopus-release/R89-13655.0.0",
-        "name": "tast.basic_OCTOPUS_TOT",
-        "suite": "tast.basic",
-        "swarming": {},
-        "test": "tast.basic",
-        "timeout": 3600
-      },
-      {
-        "args": [],
-        "cros_board": "octopus",
-        "cros_img": "octopus-release/R88-13597.23.0",
-        "name": "tast.basic_OCTOPUS_TOT-1",
-        "suite": "tast.basic",
-        "swarming": {},
-        "test": "tast.basic",
-        "timeout": 3600
-      }
-    ]
-  }
-}
-"""
-
-ENABLED_AND_DISABLED_VARIATION_SKYLAB_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Fake Tester": {
-    "skylab_tests": [
-      {
-        "args": [],
-        "cros_board": "octopus",
-        "cros_img": "octopus-release/R89-13655.0.0",
-        "name": "tast.basic_OCTOPUS_TOT",
-        "suite": "tast.basic",
-        "swarming": {},
-        "test": "tast.basic",
-        "timeout": 3600
-      }
-    ]
-  }
-}
-"""
-
 
 class MatrixCompositionTests(TestCase):
 
@@ -6125,10 +4600,15 @@ class MatrixCompositionTests(TestCase):
     """
     fbb = FakeBBGen(self.args, MATRIX_GTEST_SUITE_WATERFALL,
                     MATRIX_COMPOUND_EMPTY, LUCI_MILO_CFG)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           MATRIX_COMPOUND_OUTPUT)
-    self.create_testing_buildbot_json_file('chromium.ci.json',
-                                           MATRIX_COMPOUND_OUTPUT)
+    fbb.check_output_file_consistency(verbose=True)
+    self.assertFalse(fbb.printed_lines)
+
+  def test_good_structure_with_description(self):
+    """
+    Tests matrix compound test suite structure with description.
+    """
+    fbb = FakeBBGen(self.args, MATRIX_GTEST_SUITE_WATERFALL,
+                    MATRIX_COMPOUND_EMPTY_WITH_DESCRIPTION, LUCI_MILO_CFG)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -6143,14 +4623,27 @@ class MatrixCompositionTests(TestCase):
         'Missing required identifier field in matrix compound suite*'):
       fbb.check_output_file_consistency(verbose=True)
 
-  def test_mismatched_swarming_length(self):
+  def test_empty_identifier(self):
     """
-    Swarming dimension set length mismatch test. Composition set > basic set
+    Variant identifier is empty.
     """
     fbb = FakeBBGen(self.args, MATRIX_GTEST_SUITE_WATERFALL,
-                    MATRIX_MISMATCHED_SWARMING_LENGTH, LUCI_MILO_CFG)
-    with self.assertRaisesRegex(generate_buildbot_json.BBGenErr,
-                                'Error merging lists by key *'):
+                    MATRIX_COMPOUND_EMPTY_IDENTIFIER, LUCI_MILO_CFG)
+    with self.assertRaisesRegex(
+        generate_buildbot_json.BBGenErr,
+        'Identifier field can not be "" in matrix compound suite*'):
+      fbb.check_output_file_consistency(verbose=True)
+
+  def test_trailing_identifier(self):
+    """
+    Variant identifier has trailing whitespace.
+    """
+    fbb = FakeBBGen(self.args, MATRIX_GTEST_SUITE_WATERFALL,
+                    MATRIX_COMPOUND_TRAILING_IDENTIFIER, LUCI_MILO_CFG)
+    with self.assertRaisesRegex(
+        generate_buildbot_json.BBGenErr,
+        'Identifier field can not have leading and trailing whitespace in'
+        ' matrix compound suite*'):
       fbb.check_output_file_consistency(verbose=True)
 
   def test_noexistent_ref(self):
@@ -6202,10 +4695,6 @@ class MatrixCompositionTests(TestCase):
                     MATRIX_COMPOUND_TARGETS_ARGS,
                     LUCI_MILO_CFG,
                     mixins=SWARMING_MIXINS)
-    self.create_testing_buildbot_json_file(
-        'chromium.test.json', MATRIX_TARGET_DICT_MERGE_OUTPUT_ARGS)
-    self.create_testing_buildbot_json_file(
-        'chromium.ci.json', MATRIX_TARGET_DICT_MERGE_OUTPUT_ARGS)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -6218,10 +4707,6 @@ class MatrixCompositionTests(TestCase):
                     MATRIX_COMPOUND_TARGETS_MIXINS,
                     LUCI_MILO_CFG,
                     mixins=SWARMING_MIXINS)
-    self.create_testing_buildbot_json_file(
-        'chromium.test.json', MATRIX_TARGET_DICT_MERGE_OUTPUT_MIXINS)
-    self.create_testing_buildbot_json_file(
-        'chromium.ci.json', MATRIX_TARGET_DICT_MERGE_OUTPUT_MIXINS)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -6234,10 +4719,6 @@ class MatrixCompositionTests(TestCase):
                     MATRIX_COMPOUND_TARGETS_SWARMING,
                     LUCI_MILO_CFG,
                     mixins=SWARMING_MIXINS)
-    self.create_testing_buildbot_json_file(
-        'chromium.test.json', MATRIX_TARGET_DICT_MERGE_OUTPUT_SWARMING)
-    self.create_testing_buildbot_json_file(
-        'chromium.ci.json', MATRIX_TARGET_DICT_MERGE_OUTPUT_SWARMING)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -6250,10 +4731,26 @@ class MatrixCompositionTests(TestCase):
                     MATRIX_COMPOUND_TEST_WITH_TEST_KEY,
                     LUCI_MILO_CFG,
                     variants=VARIANTS_FILE)
-    self.create_testing_buildbot_json_file(
-        'chromium.test.json', MATRIX_COMPOUND_TEST_SUITE_WITH_TEST_KEY_DICT)
-    self.create_testing_buildbot_json_file(
-        'chromium.ci.json', MATRIX_COMPOUND_TEST_SUITE_WITH_TEST_KEY_DICT)
+    fbb.check_output_file_consistency(verbose=True)
+    self.assertFalse(fbb.printed_lines)
+
+  def test_variants_with_description(self):
+    """Test variants with description field"""
+    fbb = FakeBBGen(self.args,
+                    MATRIX_GTEST_SUITE_WATERFALL,
+                    MATRIX_COMPOUND_VARIANTS_REF,
+                    LUCI_MILO_CFG,
+                    variants=VARIANTS_FILE_WITH_DESCRIPTION)
+    fbb.check_output_file_consistency(verbose=True)
+    self.assertFalse(fbb.printed_lines)
+
+  def test_both_test_suite_and_variants_with_description(self):
+    """Test both test suite and variants with description field"""
+    fbb = FakeBBGen(self.args,
+                    MATRIX_GTEST_SUITE_WATERFALL,
+                    MATRIX_COMPOUND_VARIANTS_REF_WITH_DESCRIPTION,
+                    LUCI_MILO_CFG,
+                    variants=VARIANTS_FILE_WITH_DESCRIPTION)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -6264,10 +4761,6 @@ class MatrixCompositionTests(TestCase):
                     MATRIX_COMPOUND_VARIANTS_REF,
                     LUCI_MILO_CFG,
                     variants=VARIANTS_FILE)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           MATRIX_COMPOUND_VARIANTS_REF_OUTPUT)
-    self.create_testing_buildbot_json_file('chromium.ci.json',
-                                           MATRIX_COMPOUND_VARIANTS_REF_OUTPUT)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
 
@@ -6286,8 +4779,6 @@ class MatrixCompositionTests(TestCase):
                     MATRIX_COMPOUND_MIXED_VARIANTS_REF,
                     LUCI_MILO_CFG,
                     variants=MULTI_VARIANTS_FILE)
-    # self.create_testing_buildbot_json_file(
-    #     'chromium.test.json', MATRIX_COMPOUND_VARIANTS_REF_OUTPUT)
     with self.assertRaisesRegex(generate_buildbot_json.BBGenErr,
                                 'The following variants were unreferenced *'):
       fbb.check_input_file_consistency(verbose=True)
@@ -6298,8 +4789,6 @@ class MatrixCompositionTests(TestCase):
                     MATRIX_COMPOUND_SKYLAB_REF,
                     LUCI_MILO_CFG,
                     exceptions=EMPTY_SKYLAB_TEST_EXCEPTIONS)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           VARIATION_SKYLAB_OUTPUT)
     fbb.check_input_file_consistency(verbose=True)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
@@ -6313,8 +4802,6 @@ class MatrixCompositionTests(TestCase):
                     exceptions=EMPTY_SKYLAB_TEST_EXCEPTIONS)
     # some skylab test variant is disabled; the corresponding skylab tests
     # is not generated.
-    self.create_testing_buildbot_json_file(
-        'chromium.test.json', ENABLED_AND_DISABLED_VARIATION_SKYLAB_OUTPUT)
     fbb.check_input_file_consistency(verbose=True)
     fbb.check_output_file_consistency(verbose=True)
     self.assertFalse(fbb.printed_lines)
@@ -6331,7 +4818,7 @@ MAC_TEST_SUITE = """\
 }
 """
 
-MAC_GTESTS_WATERFALL = """\
+NO_DIMENSIONS_GTESTS_WATERFALL = """\
 [
   {
     'project': 'chromium',
@@ -6351,25 +4838,28 @@ MAC_GTESTS_WATERFALL = """\
 ]
 """
 
-MAC_GTEST_WATERFALL_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Mac": {
-    "gtest_tests": [
-      {
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_gtest_merge.py"
+NO_OS_GTESTS_WATERFALL = """\
+[
+  {
+    'project': 'chromium',
+    'bucket': 'ci',
+    'name': 'chromium.test',
+    'machines': {
+      'Mac': {
+        'swarming': {
+          'dimension_sets': [
+            {
+              'foo': 'bar',
+            },
+          ],
         },
-        "swarming": {
-          "can_use_on_swarming_builders": true
+        'test_suites': {
+          'gtest_tests': 'foo_tests',
         },
-        "test": "foo_test"
-      }
-    ]
-  }
-}
+      },
+    },
+  },
+]
 """
 
 MAC_ISOLATED_SCRIPTS_WATERFALL = """\
@@ -6396,33 +4886,6 @@ MAC_ISOLATED_SCRIPTS_WATERFALL = """\
 ]
 """
 
-MAC_ISOLATED_SCRIPTS_WATERFALL_OUTPUT = """\
-{
-  "AAAAA1 AUTOGENERATED FILE DO NOT EDIT": {},
-  "AAAAA2 See generate_buildbot_json.py to make changes": {},
-  "Mac": {
-    "isolated_scripts": [
-      {
-        "isolate_name": "foo_test",
-        "merge": {
-          "args": [],
-          "script": "//testing/merge_scripts/standard_isolated_script_merge.py"
-        },
-        "name": "foo_test",
-        "swarming": {
-          "can_use_on_swarming_builders": true,
-          "dimension_sets": [
-            {
-              "os": "Mac"
-            }
-          ]
-        }
-      }
-    ]
-  }
-}
-"""
-
 MAC_LUCI_MILO_CFG = """\
 consoles {
   builders {
@@ -6433,14 +4896,22 @@ consoles {
 
 
 class SwarmingTests(TestCase):
-  def test_mac_builder_with_no_cpu_dimension_in_gtest_fails(self):
-    fbb = FakeBBGen(self.args, MAC_GTESTS_WATERFALL, MAC_TEST_SUITE,
+  def test_builder_with_no_dimension_fails(self):
+    fbb = FakeBBGen(self.args, NO_DIMENSIONS_GTESTS_WATERFALL, MAC_TEST_SUITE,
                     MAC_LUCI_MILO_CFG)
-    self.create_testing_buildbot_json_file('chromium.test.json',
-                                           MAC_GTEST_WATERFALL_OUTPUT)
     fbb.check_input_file_consistency(verbose=True)
     self.assertRaisesRegex(generate_buildbot_json.BBGenErr,
-                           'os and cpu',
+                           'os must be specified for all swarmed tests',
+                           fbb.check_output_file_consistency,
+                           verbose=True)
+    self.assertFalse(fbb.printed_lines)
+
+  def test_builder_with_no_os_dimension_fails(self):
+    fbb = FakeBBGen(self.args, NO_OS_GTESTS_WATERFALL, MAC_TEST_SUITE,
+                    MAC_LUCI_MILO_CFG)
+    fbb.check_input_file_consistency(verbose=True)
+    self.assertRaisesRegex(generate_buildbot_json.BBGenErr,
+                           'os must be specified for all swarmed tests',
                            fbb.check_output_file_consistency,
                            verbose=True)
     self.assertFalse(fbb.printed_lines)
@@ -6448,11 +4919,9 @@ class SwarmingTests(TestCase):
   def test_mac_builder_with_no_cpu_dimension_in_isolated_script_fails(self):
     fbb = FakeBBGen(self.args, MAC_ISOLATED_SCRIPTS_WATERFALL, MAC_TEST_SUITE,
                     MAC_LUCI_MILO_CFG)
-    self.create_testing_buildbot_json_file(
-        'chromium.test.json', MAC_ISOLATED_SCRIPTS_WATERFALL_OUTPUT)
     fbb.check_input_file_consistency(verbose=True)
     self.assertRaisesRegex(generate_buildbot_json.BBGenErr,
-                           'os and cpu',
+                           'cpu must be specified for mac',
                            fbb.check_output_file_consistency,
                            verbose=True)
     self.assertFalse(fbb.printed_lines)

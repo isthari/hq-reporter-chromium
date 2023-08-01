@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 #include "base/no_destructor.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/views/bubble/bubble_contents_wrapper_service.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 
 // static
 BubbleContentsWrapperService*
@@ -26,9 +25,14 @@ BubbleContentsWrapperServiceFactory::GetInstance() {
 }
 
 BubbleContentsWrapperServiceFactory::BubbleContentsWrapperServiceFactory()
-    : BrowserContextKeyedServiceFactory(
+    : ProfileKeyedServiceFactory(
           "BubbleContentsWrapperService",
-          BrowserContextDependencyManager::GetInstance()) {}
+          ProfileSelections::Builder()
+              .WithRegular(ProfileSelection::kOriginalOnly)
+              // TODO(crbug.com/1418376): Check if this service is needed in
+              // Guest mode.
+              .WithGuest(ProfileSelection::kOriginalOnly)
+              .Build()) {}
 
 KeyedService* BubbleContentsWrapperServiceFactory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {

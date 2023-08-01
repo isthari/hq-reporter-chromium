@@ -26,7 +26,6 @@
 #include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
-#include "third_party/blink/renderer/platform/wtf/hash_set.h"
 #include "ui/gfx/geometry/point_f.h"
 #include "ui/gfx/geometry/vector2d_f.h"
 
@@ -35,7 +34,6 @@ namespace blink {
 class Document;
 class SVGElement;
 class SVGSVGElement;
-class SubtreeLayoutScope;
 
 class CORE_EXPORT SVGDocumentExtensions final
     : public GarbageCollected<SVGDocumentExtensions> {
@@ -58,6 +56,7 @@ class CORE_EXPORT SVGDocumentExtensions final
 
   void StartAnimations();
   void PauseAnimations();
+  bool HasSmilAnimations() const;
   // True if a SMIL animation frame is successfully scheduled.
   bool ServiceSmilAnimations();
   void ServiceWebAnimations();
@@ -66,7 +65,7 @@ class CORE_EXPORT SVGDocumentExtensions final
 
   void AddSVGRootWithRelativeLengthDescendents(SVGSVGElement*);
   void RemoveSVGRootWithRelativeLengthDescendents(SVGSVGElement*);
-  void InvalidateSVGRootsWithRelativeLengthDescendents(SubtreeLayoutScope*);
+  void InvalidateSVGRootsWithRelativeLengthDescendents();
 
   bool ZoomAndPanEnabled() const;
 

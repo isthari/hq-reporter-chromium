@@ -1,10 +1,9 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <string>
 
-#include "ash/constants/ash_features.h"
 #include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/login_screen_test_api.h"
 #include "ash/shelf/shelf.h"
@@ -12,18 +11,16 @@
 #include "ash/system/status_area_widget.h"
 #include "ash/system/status_area_widget_test_helper.h"
 #include "ash/system/unified/unified_system_tray.h"
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
 #include "base/strings/string_split.h"
-#include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "chrome/browser/ash/login/login_manager_test.h"
 #include "chrome/browser/ash/login/login_wizard.h"
 #include "chrome/browser/ash/login/test/cryptohome_mixin.h"
 #include "chrome/browser/ash/login/test/device_state_mixin.h"
 #include "chrome/browser/ash/login/test/embedded_test_server_setup_mixin.h"
-#include "chrome/browser/ash/login/test/fake_gaia_mixin.h"
 #include "chrome/browser/ash/login/test/guest_session_mixin.h"
 #include "chrome/browser/ash/login/test/login_manager_mixin.h"
 #include "chrome/browser/ash/login/test/login_or_lock_screen_visible_waiter.h"
@@ -37,16 +34,19 @@
 #include "chrome/browser/ash/login/test/user_adding_screen_utils.h"
 #include "chrome/browser/ash/login/ui/login_display_host_webui.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/webui/chromeos/login/error_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/signin_fatal_error_screen_handler.h"
-#include "chrome/browser/ui/webui/chromeos/login/welcome_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/error_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/gaia_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/signin_fatal_error_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/welcome_screen_handler.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/test/base/fake_gaia_mixin.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
-#include "chromeos/dbus/userdataauth/fake_userdataauth_client.h"
+#include "chromeos/ash/components/browser_context_helper/browser_context_helper.h"
+#include "chromeos/ash/components/dbus/userdataauth/fake_userdataauth_client.h"
 #include "components/policy/proto/chrome_device_policy.pb.h"
 #include "components/safe_browsing/core/common/safe_browsing_prefs.h"
 #include "components/user_manager/known_user.h"
@@ -58,6 +58,7 @@
 #include "testing/gmock/include/gmock/gmock.h"
 
 namespace ash {
+
 namespace {
 
 const char kDomainAllowlist[] = "*@example.com";
@@ -89,18 +90,9 @@ class LoginCursorTest : public OobeBaseTest {
 
 using LoginSigninTest = LoginManagerTest;
 
-class LoginOfflineTest : public LoginManagerTest,
-                         public testing::WithParamInterface<bool> {
+class LoginOfflineTest : public LoginManagerTest {
  public:
   LoginOfflineTest() {
-    if (GetParam()) {
-      scoped_feature_list_.InitAndEnableFeature(
-          features::kUseAuthsessionAuthentication);
-    } else {
-      scoped_feature_list_.InitAndDisableFeature(
-          features::kUseAuthsessionAuthentication);
-    }
-
     login_manager_.AppendRegularUsers(1);
     test_account_id_ = login_manager_.users()[0].account_id;
   }
@@ -118,9 +110,6 @@ class LoginOfflineTest : public LoginManagerTest,
   // attempts to load real GAIA.
   FakeGaiaMixin fake_gaia_{&mixin_host_};
   NetworkPortalDetectorMixin network_portal_detector_{&mixin_host_};
-
- private:
-  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
 class LoginOnlineCryptohomeError : public LoginManagerTest {
@@ -145,7 +134,8 @@ IN_PROC_BROWSER_TEST_F(LoginOnlineCryptohomeError, FatalScreenShown) {
   EXPECT_TRUE(LoginScreenTestApi::FocusUser(account_id));
   OobeScreenWaiter(GaiaView::kScreenId).Wait();
   EXPECT_TRUE(LoginScreenTestApi::IsOobeDialogVisible());
-  chromeos::FakeUserDataAuthClient::Get()->set_cryptohome_error(
+  FakeUserDataAuthClient::Get()->SetNextOperationError(
+      FakeUserDataAuthClient::Operation::kStartAuthSession,
       user_data_auth::CRYPTOHOME_ERROR_MOUNT_FATAL);
 
   LoginDisplayHost::default_host()
@@ -160,9 +150,10 @@ IN_PROC_BROWSER_TEST_F(LoginOnlineCryptohomeError, FatalScreenShown) {
   OobeScreenWaiter(GaiaView::kScreenId).Wait();
 }
 
-IN_PROC_BROWSER_TEST_P(LoginOfflineTest, FatalScreenShown) {
+IN_PROC_BROWSER_TEST_F(LoginOfflineTest, FatalScreenShown) {
   EXPECT_FALSE(LoginScreenTestApi::IsOobeDialogVisible());
-  chromeos::FakeUserDataAuthClient::Get()->set_cryptohome_error(
+  FakeUserDataAuthClient::Get()->SetNextOperationError(
+      FakeUserDataAuthClient::Operation::kAuthenticateAuthFactor,
       user_data_auth::CRYPTOHOME_ERROR_TPM_UPDATE_REQUIRED);
   LoginScreenTestApi::SubmitPassword(test_account_id_, "password",
                                      /*check_if_submittable=*/false);
@@ -170,9 +161,10 @@ IN_PROC_BROWSER_TEST_P(LoginOfflineTest, FatalScreenShown) {
   EXPECT_TRUE(LoginScreenTestApi::IsOobeDialogVisible());
 }
 
-IN_PROC_BROWSER_TEST_P(LoginOfflineTest, FatalScreenNotShown) {
+IN_PROC_BROWSER_TEST_F(LoginOfflineTest, FatalScreenNotShown) {
   EXPECT_FALSE(LoginScreenTestApi::IsOobeDialogVisible());
-  chromeos::FakeUserDataAuthClient::Get()->set_cryptohome_error(
+  FakeUserDataAuthClient::Get()->SetNextOperationError(
+      FakeUserDataAuthClient::Operation::kAuthenticateAuthFactor,
       user_data_auth::CRYPTOHOME_ERROR_AUTHORIZATION_KEY_FAILED);
   LoginScreenTestApi::SubmitPassword(test_account_id_, "password",
                                      /*check_if_submittable=*/false);
@@ -226,10 +218,10 @@ class LoginOfflineManagedTest : public LoginManagerTest {
   void SetUserOnlineLoginState() {
     const base::Time now = base::Time::Now();
 
-    user_manager::known_user::SetLastOnlineSignin(managed_user_id_,
-                                                  now - kLoginOnlineLongDelay);
-    user_manager::known_user::SetOfflineSigninLimit(managed_user_id_,
-                                                    kLoginOnlineShortDelay);
+    user_manager::KnownUser known_user(g_browser_process->local_state());
+    known_user.SetLastOnlineSignin(managed_user_id_,
+                                   now - kLoginOnlineLongDelay);
+    known_user.SetOfflineSigninLimit(managed_user_id_, kLoginOnlineShortDelay);
   }
 
  protected:
@@ -279,9 +271,9 @@ void TestSystemTrayIsVisible() {
 // This profile should NOT be an OTR profile.
 IN_PROC_BROWSER_TEST_F(LoginUserTest, UserPassed) {
   Profile* profile = browser()->profile();
-  std::string profile_base_path("hash");
-  profile_base_path.insert(0, chrome::kProfileDirPrefix);
-  EXPECT_EQ(profile_base_path, profile->GetBaseName().value());
+  std::string profile_base_name =
+      BrowserContextHelper::GetUserBrowserContextDirName("hash");
+  EXPECT_EQ(profile_base_name, profile->GetBaseName().value());
   EXPECT_FALSE(profile->IsOffTheRecord());
 
   TestSystemTrayIsVisible();
@@ -299,7 +291,7 @@ IN_PROC_BROWSER_TEST_F(LoginGuestTest, GuestIsOTR) {
 
 // Verifies the cursor is hidden at startup on login screen.
 IN_PROC_BROWSER_TEST_F(LoginCursorTest, CursorHidden) {
-  OobeScreenWaiter(WelcomeView::kScreenId).Wait();
+  test::WaitForWelcomeScreen();
   // Cursor should be hidden at startup
   EXPECT_FALSE(Shell::Get()->cursor_manager()->IsCursorVisible());
 
@@ -315,11 +307,11 @@ IN_PROC_BROWSER_TEST_F(LoginSigninTest, WebUIVisible) {
   LoginOrLockScreenVisibleWaiter().Wait();
 }
 
-IN_PROC_BROWSER_TEST_P(LoginOfflineTest, PRE_AuthOffline) {
+IN_PROC_BROWSER_TEST_F(LoginOfflineTest, PRE_AuthOffline) {
   offline_login_test_mixin_.PrepareOfflineLogin();
 }
 
-IN_PROC_BROWSER_TEST_P(LoginOfflineTest, AuthOffline) {
+IN_PROC_BROWSER_TEST_F(LoginOfflineTest, AuthOffline) {
   network_portal_detector_.SimulateDefaultNetworkState(
       NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_OFFLINE);
   offline_login_test_mixin_.GoOffline();
@@ -412,7 +404,7 @@ IN_PROC_BROWSER_TEST_F(LoginOfflineManagedTest, UserOfflineLoginBlocked) {
   std::string email = managed_user_id_.GetUserEmail();
   std::vector<std::string> email_and_domain = base::SplitString(
       email, "@", base::KEEP_WHITESPACE, base::SPLIT_WANT_ALL);
-  ASSERT_EQ(email_and_domain.size(), 2);
+  ASSERT_EQ(email_and_domain.size(), 2u);
   std::string prefix = *(email_and_domain.begin());
 
   OobeScreenWaiter(GaiaView::kScreenId).Wait();
@@ -447,7 +439,5 @@ IN_PROC_BROWSER_TEST_F(LoginManagerTest, SafeBrowsingDisabledForSigninProfile) {
   ASSERT_FALSE(ProfileHelper::GetSigninProfile()->GetPrefs()->GetBoolean(
       prefs::kSafeBrowsingEnabled));
 }
-
-INSTANTIATE_TEST_SUITE_P(All, LoginOfflineTest, testing::Bool());
 
 }  // namespace ash

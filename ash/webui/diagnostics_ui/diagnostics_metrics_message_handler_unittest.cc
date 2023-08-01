@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,7 @@
 #include "content/public/test/test_web_ui.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-namespace ash {
-namespace diagnostics {
-namespace metrics {
+namespace ash::diagnostics::metrics {
 namespace {
 
 const base::TimeDelta kDefaultTimeDelta = base::Minutes(1);
@@ -44,10 +42,10 @@ class DiagnosticsMetricsMessageHandlerTest : public testing::Test {
   }
 
   void SendRecordNavigation(NavigationView from, NavigationView to) {
-    base::ListValue args;
-    args.Append(base::Value(static_cast<int>(from)));
-    args.Append(base::Value(static_cast<int>(to)));
-    web_ui_.HandleReceivedMessage(kRecordNavigation, &args);
+    base::Value::List args;
+    args.Append(static_cast<int>(from));
+    args.Append(static_cast<int>(to));
+    web_ui_.HandleReceivedMessage(kRecordNavigation, args);
 
     task_environment_.RunUntilIdle();
   }
@@ -182,6 +180,70 @@ TEST_F(DiagnosticsMetricsMessageHandlerTest,
   histograms.ExpectTotalCount(kConnectivityOpenDurationMetric, /** count= */ 2);
   histograms.ExpectTotalCount(kInputOpenDurationMetric, /** count= */ 1);
 }
-}  // namespace metrics
-}  // namespace diagnostics
-}  // namespace ash
+
+TEST_F(DiagnosticsMetricsMessageHandlerTest,
+       HandleRecordNavigationWithoutArgs) {
+  base::Value::List args;
+
+  NavigationView expected_view = NavigationView::kSystem;
+  InitializeHandler(expected_view);
+
+  EXPECT_NO_FATAL_FAILURE(
+      web_ui_.HandleReceivedMessage(kRecordNavigation, args));
+  EXPECT_EQ(expected_view, handler_->GetCurrentViewForTesting());
+}
+
+TEST_F(DiagnosticsMetricsMessageHandlerTest, HandleRecordNavigationWithOneArg) {
+  base::Value::List args;
+  args.Append(0);
+
+  NavigationView expected_view = NavigationView::kSystem;
+  InitializeHandler(expected_view);
+
+  EXPECT_NO_FATAL_FAILURE(
+      web_ui_.HandleReceivedMessage(kRecordNavigation, args));
+  EXPECT_EQ(expected_view, handler_->GetCurrentViewForTesting());
+}
+
+TEST_F(DiagnosticsMetricsMessageHandlerTest,
+       HandleRecordNavigationWithInvalidArgs) {
+  base::Value::List args;
+  args.Append("0");
+  args.Append(base::Value());
+
+  NavigationView expected_view = NavigationView::kSystem;
+  InitializeHandler(expected_view);
+
+  EXPECT_NO_FATAL_FAILURE(
+      web_ui_.HandleReceivedMessage(kRecordNavigation, args));
+  EXPECT_EQ(expected_view, handler_->GetCurrentViewForTesting());
+}
+
+TEST_F(DiagnosticsMetricsMessageHandlerTest,
+       HandleRecordNavigationWithMatchingArgs) {
+  base::Value::List args;
+  args.Append(1);
+  args.Append(1);
+
+  NavigationView expected_view = NavigationView::kSystem;
+  InitializeHandler(expected_view);
+
+  EXPECT_NO_FATAL_FAILURE(
+      web_ui_.HandleReceivedMessage(kRecordNavigation, args));
+  EXPECT_EQ(expected_view, handler_->GetCurrentViewForTesting());
+}
+
+TEST_F(DiagnosticsMetricsMessageHandlerTest,
+       HandleRecordNavigationWithOutOfRangeArgs) {
+  base::Value::List args;
+  args.Append(-100);
+  args.Append(100);
+
+  NavigationView expected_view = NavigationView::kSystem;
+  InitializeHandler(expected_view);
+
+  EXPECT_NO_FATAL_FAILURE(
+      web_ui_.HandleReceivedMessage(kRecordNavigation, args));
+  EXPECT_EQ(expected_view, handler_->GetCurrentViewForTesting());
+}
+}  // namespace ash::diagnostics::metrics

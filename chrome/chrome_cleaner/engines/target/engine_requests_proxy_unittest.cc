@@ -1,8 +1,10 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/chrome_cleaner/engines/target/engine_requests_proxy.h"
+
+#include <ntstatus.h>
 
 #include <limits>
 #include <memory>
@@ -12,8 +14,9 @@
 #include <utility>
 #include <vector>
 
-#include "base/callback_helpers.h"
 #include "base/command_line.h"
+#include "base/functional/callback_helpers.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/string_util.h"
 #include "base/test/task_environment.h"
 #include "base/win/registry.h"
@@ -216,7 +219,7 @@ MULTIPROCESS_TEST_MAIN(GetProcesses) {
   }
 
   base::ProcessId current_pid = ::GetCurrentProcessId();
-  if (std::count(processes.begin(), processes.end(), current_pid) != 1) {
+  if (base::ranges::count(processes, current_pid) != 1) {
     LOG(ERROR)
         << "Failed to find current process in list of returned processes";
     return 1;
@@ -385,8 +388,7 @@ MULTIPROCESS_TEST_MAIN(GetLoadedModules) {
   // Every process contains its executable as a module.
   const base::FilePath exe_path =
       PreFetchedPaths::GetInstance()->GetExecutablePath();
-  if (std::count(module_names.begin(), module_names.end(), exe_path.value()) !=
-      1) {
+  if (base::ranges::count(module_names, exe_path.value()) != 1) {
     LOG(ERROR) << "Failed to find executable in own process";
     return 1;
   }

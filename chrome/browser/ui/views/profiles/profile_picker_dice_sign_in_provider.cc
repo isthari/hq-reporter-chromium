@@ -1,52 +1,48 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/profiles/profile_picker_dice_sign_in_provider.h"
 
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/profiles/delete_profile_helper.h"
 #include "chrome/browser/profiles/keep_alive/profile_keep_alive_types.h"
-#include "chrome/browser/profiles/profile_attributes_entry.h"
+#include "chrome/browser/profiles/nuke_profile_directory_utils.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/profiles/profile_avatar_icon_util.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/signin/dice_tab_helper.h"
 #include "chrome/browser/signin/identity_manager_factory.h"
+#include "chrome/browser/signin/signin_features.h"
+#include "chrome/browser/signin/signin_promo.h"
 #include "chrome/browser/sync/sync_encryption_keys_tab_helper.h"
-#include "chrome/browser/themes/custom_theme_supplier.h"
-#include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
-#include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_navigator.h"
-#include "chrome/browser/ui/views/profiles/profile_picker_dice_sign_in_toolbar.h"
+#include "chrome/browser/ui/browser_navigator_params.h"
+#include "chrome/browser/ui/views/profiles/profile_picker_view.h"
+#include "chrome/browser/ui/views/profiles/profile_picker_web_contents_host.h"
 #include "chrome/common/webui_url_constants.h"
+#include "components/signin/public/base/signin_metrics.h"
 #include "components/signin/public/identity_manager/account_info.h"
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "content/public/browser/context_menu_params.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "google_apis/gaia/gaia_auth_util.h"
-#include "google_apis/gaia/gaia_urls.h"
 #include "net/base/url_util.h"
-#include "ui/base/theme_provider.h"
+#include "third_party/blink/public/mojom/window_features/window_features.mojom.h"
 #include "ui/views/controls/webview/web_contents_set_background_color.h"
 
 namespace {
-
-GURL GetSigninURL(bool dark_mode) {
-  GURL signin_url = GaiaUrls::GetInstance()->signin_chrome_sync_dice();
-  if (dark_mode)
-    signin_url = net::AppendQueryParameter(signin_url, "color_scheme", "dark");
-  return signin_url;
-}
 
 bool IsExternalURL(const GURL& url) {
   // Empty URL is used initially, about:blank is used to stop navigation after
   // sign-in succeeds.
   if (url.is_empty() || url == GURL(url::kAboutBlankURL))
     return false;
-  if (gaia::IsGaiaSignonRealm(url.DeprecatedGetOriginAsURL()))
+  if (gaia::HasGaiaSchemeHostPort(url))
     return false;
   return true;
 }
@@ -55,8 +51,14 @@ bool IsExternalURL(const GURL& url) {
 
 ProfilePickerDiceSignInProvider::ProfilePickerDiceSignInProvider(
     ProfilePickerWebContentsHost* host,
-    ProfilePickerDiceSignInToolbar* toolbar)
-    : host_(host), toolbar_(toolbar) {}
+    signin_metrics::AccessPoint signin_access_point,
+    absl::optional<base::FilePath> profile_path)
+    : host_(host),
+      signin_access_point_(signin_access_point),
+      profile_path_(profile_path) {
+  // If the path is provided, it must be non-empty.
+  DCHECK(!(profile_path.has_value() && profile_path->empty()));
+}
 
 ProfilePickerDiceSignInProvider::~ProfilePickerDiceSignInProvider() {
   // Handle unfinished signed-in profile creation (i.e. when callback was not
@@ -64,14 +66,10 @@ ProfilePickerDiceSignInProvider::~ProfilePickerDiceSignInProvider() {
   if (callback_) {
     if (IsInitialized()) {
       contents()->SetDelegate(nullptr);
-
-      // Schedule the profile for deletion, it's not needed any more.
-      g_browser_process->profile_manager()->ScheduleEphemeralProfileForDeletion(
-          profile_->GetPath());
     }
 
     ProfileMetrics::LogProfileAddSignInFlowOutcome(
-        ProfileMetrics::ProfileAddSignInFlowOutcome::kAbortedBeforeSignIn);
+        ProfileMetrics::ProfileSignedInFlowOutcome::kAbortedBeforeSignIn);
   }
 }
 
@@ -87,21 +85,28 @@ void ProfilePickerDiceSignInProvider::SwitchToSignIn(
     // Do not load any url because the desired sign-in screen is still loaded in
     // `contents()`.
     host_->ShowScreen(contents(), GURL());
-    toolbar_->SetVisible(true);
+    host_->SetNativeToolbarVisible(true);
     return;
   }
 
-  size_t icon_index = profiles::GetPlaceholderAvatarIndex();
-  // Silently create the new profile for browsing on GAIA (so that the sign-in
-  // cookies are stored in the right profile).
-  ProfileManager::CreateMultiProfileAsync(
-      g_browser_process->profile_manager()
-          ->GetProfileAttributesStorage()
-          .ChooseNameForNewProfile(icon_index),
-      icon_index, /*is_hidden=*/true,
-      base::BindRepeating(&ProfilePickerDiceSignInProvider::OnProfileCreated,
-                          weak_ptr_factory_.GetWeakPtr(),
-                          base::OwnedRef(std::move(switch_finished_callback))));
+  auto profile_init_callback = base::BindOnce(
+      &ProfilePickerDiceSignInProvider::OnProfileInitialized,
+      weak_ptr_factory_.GetWeakPtr(), std::move(switch_finished_callback));
+  ProfileManager* profile_manager = g_browser_process->profile_manager();
+  if (profile_path_.has_value()) {
+    bool profile_exists = profile_manager->LoadProfileByPath(
+        profile_path_.value(), /*incognito=*/false,
+        std::move(profile_init_callback));
+    DCHECK(profile_exists);
+  } else {
+    size_t icon_index = profiles::GetPlaceholderAvatarIndex();
+    // Silently create the new profile for browsing on GAIA (so that the sign-in
+    // cookies are stored in the right profile).
+    ProfileManager::CreateMultiProfileAsync(
+        profile_manager->GetProfileAttributesStorage().ChooseNameForNewProfile(
+            icon_index),
+        icon_index, /*is_hidden=*/true, std::move(profile_init_callback));
+  }
 }
 
 void ProfilePickerDiceSignInProvider::ReloadSignInPage() {
@@ -124,21 +129,7 @@ void ProfilePickerDiceSignInProvider::NavigateBack() {
   // Do not load any url because the desired screen is still loaded in the
   // picker contents.
   host_->ShowScreenInPickerContents(GURL());
-  toolbar_->SetVisible(false);
-}
-
-const ui::ThemeProvider* ProfilePickerDiceSignInProvider::GetThemeProvider()
-    const {
-  if (!IsInitialized())
-    return nullptr;
-  return &ThemeService::GetThemeProviderForProfile(profile_);
-}
-
-ui::ColorProviderManager::InitializerSupplier*
-ProfilePickerDiceSignInProvider::GetCustomTheme() const {
-  if (!IsInitialized())
-    return nullptr;
-  return ThemeService::GetThemeSupplierForProfile(profile_);
+  host_->SetNativeToolbarVisible(false);
 }
 
 bool ProfilePickerDiceSignInProvider::HandleContextMenu(
@@ -153,21 +144,21 @@ void ProfilePickerDiceSignInProvider::AddNewContents(
     std::unique_ptr<content::WebContents> new_contents,
     const GURL& target_url,
     WindowOpenDisposition disposition,
-    const gfx::Rect& initial_rect,
+    const blink::mojom::WindowFeatures& window_features,
     bool user_gesture,
     bool* was_blocked) {
   NavigateParams params(profile_, target_url, ui::PAGE_TRANSITION_LINK);
   // Open all links as new popups.
   params.disposition = WindowOpenDisposition::NEW_POPUP;
   params.contents_to_insert = std::move(new_contents);
-  params.window_bounds = initial_rect;
+  params.window_features = window_features;
   Navigate(&params);
 }
 
 bool ProfilePickerDiceSignInProvider::HandleKeyboardEvent(
     content::WebContents* source,
     const content::NativeWebKeyboardEvent& event) {
-  return host_->HandleKeyboardEvent(source, event);
+  return host_->GetWebContentsDelegate()->HandleKeyboardEvent(source, event);
 }
 
 void ProfilePickerDiceSignInProvider::NavigationStateChanged(
@@ -181,8 +172,7 @@ void ProfilePickerDiceSignInProvider::NavigationStateChanged(
     // Use |redirect_url| and not |continue_url|, so that the DiceTabHelper can
     // redirect to chrome:// URLs such as the NTP.
     tab_helper->InitializeSigninFlow(
-        GetSigninURL(host_->ShouldUseDarkColors()),
-        signin_metrics::AccessPoint::ACCESS_POINT_USER_MANAGER,
+        BuildSigninURL(), signin_access_point_,
         signin_metrics::Reason::kSigninPrimaryAccount,
         signin_metrics::PromoAction::PROMO_ACTION_NO_SIGNIN_PROMO,
         GURL(chrome::kChromeUINewTabURL));
@@ -195,7 +185,7 @@ void ProfilePickerDiceSignInProvider::NavigationStateChanged(
 
 web_modal::WebContentsModalDialogHost*
 ProfilePickerDiceSignInProvider::GetWebContentsModalDialogHost() {
-  return host_;
+  return host_->GetWebContentsModalDialogHost();
 }
 
 void ProfilePickerDiceSignInProvider::OnRefreshTokenUpdatedForAccount(
@@ -221,22 +211,15 @@ void ProfilePickerDiceSignInProvider::FinishFlowIfSignedIn() {
   }
 }
 
-void ProfilePickerDiceSignInProvider::OnProfileCreated(
-    base::OnceCallback<void(bool)>& switch_finished_callback,
-    Profile* new_profile,
-    Profile::CreateStatus status) {
-  if (status == Profile::CREATE_STATUS_LOCAL_FAIL) {
+void ProfilePickerDiceSignInProvider::OnProfileInitialized(
+    base::OnceCallback<void(bool)> switch_finished_callback,
+    Profile* new_profile) {
+  if (!new_profile) {
     std::move(switch_finished_callback).Run(false);
     return;
   }
-  if (status != Profile::CREATE_STATUS_INITIALIZED) {
-    return;
-  }
-
-  DCHECK(new_profile);
   DCHECK(!profile_);
   DCHECK(!contents());
-  std::move(switch_finished_callback).Run(true);
 
   profile_ = new_profile;
   profile_keep_alive_ = std::make_unique<ScopedProfileKeepAlive>(
@@ -259,35 +242,41 @@ void ProfilePickerDiceSignInProvider::OnProfileCreated(
   identity_manager_observation_.Observe(
       IdentityManagerFactory::GetForProfile(profile_));
 
-  // Record that the sign in process starts (its end is recorded automatically
-  // by the instance of DiceTurnSyncOnHelper constructed later on in
-  // ProfilePickerSignedInFlowController).
-  signin_metrics::RecordSigninUserActionForAccessPoint(
-      signin_metrics::AccessPoint::ACCESS_POINT_USER_MANAGER,
-      signin_metrics::PromoAction::PROMO_ACTION_NO_SIGNIN_PROMO);
+  // Record that the sign in process starts. Its end is recorded automatically
+  // when the primary account is set.
+  signin_metrics::RecordSigninUserActionForAccessPoint(signin_access_point_);
   signin_metrics::LogSigninAccessPointStarted(
-      signin_metrics::AccessPoint::ACCESS_POINT_USER_MANAGER,
+      signin_access_point_,
       signin_metrics::PromoAction::PROMO_ACTION_NO_SIGNIN_PROMO);
+  if (signin_access_point_ ==
+      signin_metrics::AccessPoint::ACCESS_POINT_FOR_YOU_FRE) {
+    // This metric is logged for only one access point for now. Others should
+    // audit all their flows to make sure the reflected data is accurate.
+    // `LogSigninAccessPointStarted()` covers them in the meantime.
+    signin_metrics::LogSignInStarted(signin_access_point_);
+  }
 
-  // Apply the default theme to get consistent colors for toolbars (this matters
-  // for linux where the 'system' theme is used for new profiles).
-  auto* theme_service = ThemeServiceFactory::GetForProfile(profile_);
-  theme_service->UseDefaultTheme();
+  // Apply the default theme to get consistent colors for toolbars in newly
+  // created profiles (this matters for linux where the 'system' theme is used
+  // for new profiles).
+  if (!profile_path_.has_value()) {
+    auto* theme_service = ThemeServiceFactory::GetForProfile(profile_);
+    theme_service->UseDefaultTheme();
+  }
 
   // Make sure the web contents used for sign-in has proper background to match
   // the toolbar (for dark mode).
   views::WebContentsSetBackgroundColor::CreateForWebContentsWithColor(
-      contents(), GetThemeProvider()->GetColor(ThemeProperties::COLOR_TOOLBAR));
+      contents(), host_->GetPreferredBackgroundColor());
 
-  toolbar_->BuildToolbar(base::BindRepeating(
-      &ProfilePickerDiceSignInProvider::NavigateBack, base::Unretained(this)));
-
-  host_->ShowScreen(
-      contents(), GetSigninURL(host_->ShouldUseDarkColors()),
-      base::BindOnce(&ProfilePickerDiceSignInToolbar::SetVisible,
-                     // Unretained is enough as the callback is
-                     // called by the owner of the toolbar.
-                     base::Unretained(toolbar_), /*visible=*/true));
+  base::OnceClosure navigation_finished_closure =
+      base::BindOnce(&ProfilePickerWebContentsHost::SetNativeToolbarVisible,
+                     // Unretained is enough as the callback is called by the
+                     // host itself.
+                     base::Unretained(host_), /*visible=*/true)
+          .Then(base::BindOnce(std::move(switch_finished_callback), true));
+  host_->ShowScreen(contents(), BuildSigninURL(),
+                    std::move(navigation_finished_closure));
 }
 
 bool ProfilePickerDiceSignInProvider::IsInitialized() const {
@@ -296,9 +285,15 @@ bool ProfilePickerDiceSignInProvider::IsInitialized() const {
 
 void ProfilePickerDiceSignInProvider::FinishFlow(bool is_saml) {
   DCHECK(IsInitialized());
+  host_->SetNativeToolbarVisible(false);
   contents()->SetDelegate(nullptr);
-  // Stop the sign-in: hide and clear the toolbar.
-  toolbar_->ClearToolbar();
-  toolbar_->SetVisible(false);
-  std::move(callback_).Run(profile_.get(), std::move(contents_), is_saml);
+  identity_manager_observation_.Reset();
+  std::move(callback_).Run(profile_.get(), is_saml, std::move(contents_));
+}
+
+GURL ProfilePickerDiceSignInProvider::BuildSigninURL() const {
+  return signin::GetChromeSyncURLForDice({
+      .request_dark_scheme = host_->ShouldUseDarkColors(),
+      .for_promo_flow = true,
+  });
 }

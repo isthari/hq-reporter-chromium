@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,26 +11,32 @@
 #include <string>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/run_loop.h"
 #include "base/task/bind_post_task.h"
-#include "base/task/post_task.h"
+#include "base/task/sequenced_task_runner.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
 #include "base/test/task_environment.h"
 #include "base/test/test_future.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "chrome/browser/support_tool/data_collector.h"
-#include "components/feedback/pii_types.h"
+#include "components/feedback/redaction_tool/pii_types.h"
 #include "testing/gmock/include/gmock/gmock-matchers.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/zlib/google/zip_reader.h"
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chromeos/ash/components/system/fake_statistics_provider.h"
+#include "chromeos/ash/components/system/statistics_provider.h"
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
+using testing::IsSupersetOf;
 using testing::Pair;
 using testing::UnorderedElementsAre;
 
@@ -55,20 +61,21 @@ class TestDataCollector : public DataCollector {
   void CollectDataAndDetectPII(
       DataCollectorDoneCallback on_data_collected_callback,
       scoped_refptr<base::SequencedTaskRunner> task_runner_for_redaction_tool,
-      scoped_refptr<feedback::RedactionToolContainer> redaction_tool_container)
+      scoped_refptr<redaction::RedactionToolContainer> redaction_tool_container)
       override {
     // Add fake PII for testing and return error to the callback if required.
     PrepareDataCollectionOutput(std::move(on_data_collected_callback));
   }
 
   void ExportCollectedDataWithPII(
-      std::set<feedback::PIIType> pii_types_to_keep,
+      std::set<redaction::PIIType> pii_types_to_keep,
       base::FilePath target_directory,
       scoped_refptr<base::SequencedTaskRunner> task_runner_for_redaction_tool,
-      scoped_refptr<feedback::RedactionToolContainer> redaction_tool_container,
+      scoped_refptr<redaction::RedactionToolContainer> redaction_tool_container,
       DataCollectorDoneCallback on_exported_callback) override {
-    on_exported_callback = base::BindPostTask(
-        base::ThreadTaskRunnerHandle::Get(), std::move(on_exported_callback));
+    on_exported_callback =
+        base::BindPostTask(base::SingleThreadTaskRunner::GetCurrentDefault(),
+                           std::move(on_exported_callback));
     base::ThreadPool::PostTask(
         FROM_HERE, {base::MayBlock()},
         base::BindOnce(&TestDataCollector::WriteFileForTesting,
@@ -85,7 +92,7 @@ class TestDataCollector : public DataCollector {
       std::move(callback).Run(SupportToolError(
           SupportToolErrorCode::kDataCollectorError, /*error_message=*/""));
     } else {
-      pii_map_[feedback::PIIType::kUIHierarchyWindowTitles].insert(name_);
+      pii_map_[redaction::PIIType::kUIHierarchyWindowTitles].insert(name_);
       std::move(callback).Run(absl::nullopt);
     }
   }
@@ -122,7 +129,15 @@ class SupportToolHandlerTest : public ::testing::Test {
   SupportToolHandlerTest(const SupportToolHandlerTest&) = delete;
   SupportToolHandlerTest& operator=(const SupportToolHandlerTest&) = delete;
 
-  void SetUp() override { ASSERT_TRUE(temp_dir_.CreateUniqueTempDir()); }
+  void SetUp() override {
+    ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+    // Set serial number for testing.
+    fake_statistics_provider_.SetMachineStatistic("serial_number", "000000");
+    ash::system::StatisticsProvider::SetTestProvider(
+        &fake_statistics_provider_);
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+  }
 
   void TearDown() override {
     if (!temp_dir_.IsValid())
@@ -140,17 +155,11 @@ class SupportToolHandlerTest : public ::testing::Test {
       ADD_FAILURE() << "Could not open " << zip_file;
       return {};
     }
-    while (reader.HasMore()) {
-      if (!reader.OpenCurrentEntryInZip()) {
-        ADD_FAILURE() << "Could not open entry in zip";
-        return {};
-      }
-      const zip::ZipReader::EntryInfo* entry = reader.current_entry_info();
-      std::string entry_file_name =
-          entry->file_path().BaseName().MaybeAsASCII();
-      if (entry->original_size() > kMaxEntrySize) {
+    while (const zip::ZipReader::Entry* const entry = reader.Next()) {
+      std::string entry_file_name = entry->path.BaseName().MaybeAsASCII();
+      if (entry->original_size > kMaxEntrySize) {
         ADD_FAILURE() << "Zip entry " << entry_file_name
-                      << " was too large: " << entry->original_size();
+                      << " was too large: " << entry->original_size;
         return {};
       }
 
@@ -161,11 +170,6 @@ class SupportToolHandlerTest : public ::testing::Test {
         return {};
       }
       result[entry_file_name] = entry_contents;
-
-      if (!reader.AdvanceToNextEntry()) {
-        ADD_FAILURE() << "Could not advance to next entry";
-        return {};
-      }
     }
     return result;
   }
@@ -176,6 +180,9 @@ class SupportToolHandlerTest : public ::testing::Test {
  private:
   // The temporary directory that we'll store the output files.
   base::ScopedTempDir temp_dir_;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  ash::system::FakeStatisticsProvider fake_statistics_provider_;
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
   base::test::TaskEnvironment task_environment;
 };
 
@@ -214,12 +221,16 @@ TEST_F(SupportToolHandlerTest, ExportSupportDataTest) {
   // Export collected data into a file in temporary directory.
   base::FilePath target_path = GetPathForOutput().Append(
       FILE_PATH_LITERAL("support-tool-export-success"));
-  base::test::TestFuture<std::set<SupportToolError>> test_future;
-  std::set<feedback::PIIType> pii_types{
-      feedback::PIIType::kUIHierarchyWindowTitles};
+  base::test::TestFuture<base::FilePath, std::set<SupportToolError>>
+      test_future;
+  std::set<redaction::PIIType> pii_types{
+      redaction::PIIType::kUIHierarchyWindowTitles};
   handler->ExportCollectedData(pii_types, target_path,
                                test_future.GetCallback());
-  std::set<SupportToolError> errors = test_future.Get();
+  // handler should return the exported path on success.
+  base::FilePath exported_path = test_future.Get<0>();
+  EXPECT_FALSE(exported_path.empty());
+  std::set<SupportToolError> errors = test_future.Get<1>();
   EXPECT_TRUE(errors.empty());
 
   // SupportToolHandler will achieve the data into a .zip archieve.
@@ -230,10 +241,15 @@ TEST_F(SupportToolHandlerTest, ExportSupportDataTest) {
       ReadZipFileContents(target_path);
   // Each TestDataCollector should write the output contents on a file in the
   // .zip file which has a same name as the data collector.
-  EXPECT_THAT(zip_contents,
-              UnorderedElementsAre(
-                  Pair("test_data_collector_1", kTestDataToWriteOnFile),
-                  Pair("test_data_collector_2", kTestDataToWriteOnFile)));
+  EXPECT_THAT(
+      zip_contents,
+      IsSupersetOf({Pair("test_data_collector_1", kTestDataToWriteOnFile),
+                    Pair("test_data_collector_2", kTestDataToWriteOnFile)}));
+  // Check metadata file.
+  auto metadata_file_contents = zip_contents.find("metadata.txt");
+  EXPECT_TRUE(metadata_file_contents != zip_contents.end());
+  // Metadata file should not be empty.
+  EXPECT_FALSE(metadata_file_contents->second.empty());
 }
 
 TEST_F(SupportToolHandlerTest, ErrorMessageOnCollectData) {
@@ -284,14 +300,14 @@ TEST_F(SupportToolHandlerTest, ErrorMessageOnExportSupportData) {
       GetPathForOutput().Append(FILE_PATH_LITERAL("support-tool-export-error"));
 
   // Export collected data into the target temporary directory.
-  base::test::TestFuture<std::set<SupportToolError>> test_future;
-  std::set<feedback::PIIType> pii_types{
-      feedback::PIIType::kUIHierarchyWindowTitles};
+  base::test::TestFuture<base::FilePath, std::set<SupportToolError>>
+      test_future;
+  std::set<redaction::PIIType> pii_types{
+      redaction::PIIType::kUIHierarchyWindowTitles};
   handler->ExportCollectedData(pii_types, target_path,
                                test_future.GetCallback());
-
   // Check the error message.
-  std::set<SupportToolError> errors = test_future.Get();
+  std::set<SupportToolError> errors = test_future.Get<1>();
   EXPECT_FALSE(errors.empty());
   // SupportToolErrorCode::kDataCollectorError should be present in the errors
   // returned.
@@ -311,8 +327,13 @@ TEST_F(SupportToolHandlerTest, ErrorMessageOnExportSupportData) {
   // Each TestDataCollector should write the output contents on a file in the
   // .zip file which has a same name as the data collector. The data collectors
   // with error won't create and write to any file.
-  EXPECT_THAT(zip_contents,
-              UnorderedElementsAre(
-                  Pair("test_data_collector_1", kTestDataToWriteOnFile),
-                  Pair("test_data_collector_2", kTestDataToWriteOnFile)));
+  EXPECT_THAT(
+      zip_contents,
+      IsSupersetOf({Pair("test_data_collector_1", kTestDataToWriteOnFile),
+                    Pair("test_data_collector_2", kTestDataToWriteOnFile)}));
+  // Check metadata file.
+  auto metadata_file_contents = zip_contents.find("metadata.txt");
+  EXPECT_TRUE(metadata_file_contents != zip_contents.end());
+  // Metadata file should not be empty.
+  EXPECT_FALSE(metadata_file_contents->second.empty());
 }

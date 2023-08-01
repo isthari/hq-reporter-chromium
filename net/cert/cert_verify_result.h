@@ -1,22 +1,19 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef NET_CERT_CERT_VERIFY_RESULT_H_
 #define NET_CERT_CERT_VERIFY_RESULT_H_
 
-#include "base/memory/ref_counted.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/supports_user_data.h"
+#include "base/values.h"
 #include "net/base/hash_value.h"
 #include "net/base/net_export.h"
 #include "net/cert/cert_status_flags.h"
 #include "net/cert/ct_policy_status.h"
 #include "net/cert/ocsp_verify_result.h"
 #include "net/cert/signed_certificate_timestamp_and_status.h"
-
-namespace base {
-class Value;
-}
 
 namespace ct {
 enum class CTPolicyCompliance;
@@ -47,7 +44,7 @@ class NET_EXPORT CertVerifyResult : public base::SupportsUserData {
   // Creates NetLog parameter to describe the CertVerifyResult. |net_error| is
   // a net error code to include in the params, if non-zero. It must not be
   // ERR_IO_PENDING, as that is not a true error.
-  base::Value NetLogParams(int net_error) const;
+  base::Value::Dict NetLogParams(int net_error) const;
 
   // The certificate chain that was constructed during verification.
   //
@@ -75,11 +72,7 @@ class NET_EXPORT CertVerifyResult : public base::SupportsUserData {
 
   // Hash algorithms used by the certificate chain, excluding the trust
   // anchor.
-  bool has_md2;
-  bool has_md4;
-  bool has_md5;
   bool has_sha1;
-  bool has_sha1_leaf;
 
   // If the certificate was successfully verified then this contains the
   // hashes for all of the SubjectPublicKeyInfos of the chain (target,

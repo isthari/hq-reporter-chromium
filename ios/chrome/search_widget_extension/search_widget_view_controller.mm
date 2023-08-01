@@ -1,17 +1,17 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/search_widget_extension/search_widget_view_controller.h"
 
-#include "base/mac/foundation_util.h"
-#include "base/notreached.h"
-#include "base/strings/sys_string_conversions.h"
-#include "components/open_from_clipboard/clipboard_recent_content_impl_ios.h"
-#include "ios/chrome/common/app_group/app_group_command.h"
-#include "ios/chrome/common/app_group/app_group_constants.h"
-#include "ios/chrome/common/app_group/app_group_field_trial_version.h"
-#include "ios/chrome/common/app_group/app_group_metrics.h"
+#import "base/mac/foundation_util.h"
+#import "base/notreached.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/open_from_clipboard/clipboard_recent_content_impl_ios.h"
+#import "ios/chrome/common/app_group/app_group_command.h"
+#import "ios/chrome/common/app_group/app_group_constants.h"
+#import "ios/chrome/common/app_group/app_group_field_trial_version.h"
+#import "ios/chrome/common/app_group/app_group_metrics.h"
 #import "ios/chrome/common/crash_report/crash_helper.h"
 #import "ios/chrome/common/ui/util/constraints_ui_util.h"
 #import "ios/chrome/common/ui/util/image_util.h"
@@ -38,9 +38,7 @@
 
 + (void)initialize {
   if (self == [SearchWidgetViewController self]) {
-    if (crash_helper::common::CanUseCrashpad()) {
-      crash_helper::common::StartCrashpad();
-    }
+    crash_helper::common::StartCrashpad();
   }
 }
 
@@ -48,10 +46,11 @@
   self = [super init];
   if (self) {
     _clipboardRecentContent = [[ClipboardRecentContentImplIOS alloc]
-           initWithMaxAge:1 * 60 * 60
-        authorizedSchemes:[NSSet setWithObjects:@"http", @"https", nil]
-             userDefaults:app_group::GetGroupUserDefaults()
-                 delegate:nil];
+               initWithMaxAge:1 * 60 * 60
+            authorizedSchemes:[NSSet setWithObjects:@"http", @"https", nil]
+                 userDefaults:app_group::GetGroupUserDefaults()
+        onlyUseClipboardAsync:NO
+                     delegate:nil];
     _copiedContentType = CopiedContentTypeNone;
     _command = [[AppGroupCommand alloc]
         initWithSourceApp:app_group::kOpenCommandSourceSearchExtension
@@ -94,7 +93,7 @@
   [self registerWidgetDisplay];
   [self updateWidget];
 
-  // |widgetActiveDisplayMode| does not contain a valid value in viewDidLoad. By
+  // `widgetActiveDisplayMode` does not contain a valid value in viewDidLoad. By
   // the time viewWillAppear is called, it is correct, so set the mode here.
   BOOL initiallyCompact = [self.extensionContext widgetActiveDisplayMode] ==
                           NCWidgetDisplayModeCompact;
@@ -173,8 +172,7 @@
 #pragma mark - NCWidgetProviding
 
 - (void)widgetActiveDisplayModeDidChange:(NCWidgetDisplayMode)activeDisplayMode
-                         withMaximumSize:(CGSize)maxSize
-    API_AVAILABLE(ios(10.0)) {
+                         withMaximumSize:(CGSize)maxSize {
   switch (activeDisplayMode) {
     case NCWidgetDisplayModeCompact:
       self.preferredContentSize = maxSize;
@@ -255,7 +253,7 @@
 
 #pragma mark - internal
 
-// Opens the main application with the given |command|.
+// Opens the main application with the given `command`.
 - (void)openAppWithCommand:(NSString*)command {
   [self.command prepareWithCommandID:command];
   [self.command executeInApp];

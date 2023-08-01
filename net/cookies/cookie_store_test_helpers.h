@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,11 +11,12 @@
 #include <string>
 #include <vector>
 
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "base/synchronization/lock.h"
 #include "net/cookies/cookie_change_dispatcher.h"
 #include "net/log/net_log_with_source.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 class GURL;
 
@@ -59,10 +60,13 @@ class DelayedCookieMonster : public CookieStore {
   // invoke the internal callback.
   // Post a delayed task to invoke the original callback with the results.
 
-  void SetCanonicalCookieAsync(std::unique_ptr<CanonicalCookie> cookie,
-                               const GURL& source_url,
-                               const CookieOptions& options,
-                               SetCookiesCallback callback) override;
+  void SetCanonicalCookieAsync(
+      std::unique_ptr<CanonicalCookie> cookie,
+      const GURL& source_url,
+      const CookieOptions& options,
+      SetCookiesCallback callback,
+      const absl::optional<CookieAccessResult> cookie_access_result =
+          absl::nullopt) override;
 
   void GetCookieListWithOptionsAsync(
       const GURL& url,
@@ -115,7 +119,7 @@ class DelayedCookieMonster : public CookieStore {
   std::unique_ptr<CookieMonster> cookie_monster_;
   DelayedCookieMonsterChangeDispatcher change_dispatcher_;
 
-  bool did_run_;
+  bool did_run_ = false;
   CookieAccessResult result_;
   std::string cookie_;
   std::string cookie_line_;
@@ -165,7 +169,7 @@ class FlushablePersistentStore : public CookieMonster::PersistentCookieStore {
  private:
   ~FlushablePersistentStore() override;
 
-  int flush_count_;
+  int flush_count_ = 0;
   base::Lock flush_count_lock_;  // Protects |flush_count_|.
 };
 
@@ -180,9 +184,14 @@ class CallbackCounter : public base::RefCountedThreadSafe<CallbackCounter> {
   friend class base::RefCountedThreadSafe<CallbackCounter>;
   ~CallbackCounter();
 
-  int callback_count_;
+  int callback_count_ = 0;
   base::Lock callback_count_lock_;  // Protects |callback_count_|.
 };
+
+// Returns a cookie expiration string in the form of "; expires=<date>", where
+// date is an RFC 7231 date a year in the future, which can be appended to
+// cookie lines.
+std::string FutureCookieExpirationString();
 
 }  // namespace net
 

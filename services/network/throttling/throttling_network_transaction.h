@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -90,7 +90,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) ThrottlingNetworkTransaction
   void SetEarlyResponseHeadersCallback(
       net::ResponseHeadersCallback callback) override;
   int ResumeNetworkStart() override;
-  void GetConnectionAttempts(net::ConnectionAttempts* out) const override;
+  net::ConnectionAttempts GetConnectionAttempts() const override;
   void CloseConnectionOnDestruction() override;
 
  protected:
@@ -122,7 +122,8 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) ThrottlingNetworkTransaction
   // User callback.
   net::CompletionOnceCallback callback_;
 
-  raw_ptr<const net::HttpRequestInfo> request_;
+  // TODO(https://crbug.com/1427078): Prevent this pointer from dangling.
+  raw_ptr<const net::HttpRequestInfo, DanglingUntriaged> request_;
 
   // True if Fail was already invoked.
   bool failed_;

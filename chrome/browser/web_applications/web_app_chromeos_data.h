@@ -1,15 +1,20 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_WEB_APPLICATIONS_WEB_APP_CHROMEOS_DATA_H_
 #define CHROME_BROWSER_WEB_APPLICATIONS_WEB_APP_CHROMEOS_DATA_H_
 
+#include "base/files/file_path.h"
 #include "base/values.h"
 
 namespace web_app {
 
 struct WebAppChromeOsData {
+  WebAppChromeOsData();
+  WebAppChromeOsData(const WebAppChromeOsData&);
+  ~WebAppChromeOsData();
+
   base::Value AsDebugValue() const;
 
   // By default an app is shown everywhere.
@@ -25,6 +30,10 @@ struct WebAppChromeOsData {
   // manage multiple Sources for a single app.
   bool oem_installed = false;
   bool handles_file_open_intents = show_in_launcher;
+  // Experimental field to specify the file path of the dedicated app profile
+  // within which the app should launch. The value is serialized in Pickle
+  // format.
+  absl::optional<base::FilePath> app_profile_path;
 };
 
 bool operator==(const WebAppChromeOsData& chromeos_data1,

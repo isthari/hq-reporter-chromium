@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,6 @@
 #include "base/notreached.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/time/default_clock.h"
-#include "build/build_config.h"
 #include "components/autofill/core/common/form_data.h"
 #include "components/autofill/core/common/password_generation_util.h"
 #include "components/password_manager/core/browser/form_fetcher.h"
@@ -273,6 +272,12 @@ PasswordFormMetricsRecorder::~PasswordFormMetricsRecorder() {
                                   generated_password_status_.value()));
   }
 
+  if (submitted_form_frame_.has_value()) {
+    base::UmaHistogramEnumeration(
+        "PasswordManager.SubmittedFormFrame2", submitted_form_frame_.value(),
+        metrics_util::SubmittedFormFrame::SUBMITTED_FORM_FRAME_COUNT);
+  }
+
   if (password_generation_popup_shown_ !=
       PasswordGenerationPopupShown::kNotShown) {
     UMA_HISTOGRAM_ENUMERATION("PasswordGeneration.PopupShown",
@@ -518,9 +523,7 @@ void PasswordFormMetricsRecorder::CalculateFillingAssistanceMetric(
     is_mixed_content_form_ = true;
   }
 
-#if !BUILDFLAG(IS_IOS)
   filling_source_ = FillingSource::kNotFilled;
-#endif
   account_storage_usage_level_ = account_storage_usage_level;
 
   if (saved_passwords.empty() && is_blocklisted) {
@@ -557,14 +560,12 @@ void PasswordFormMetricsRecorder::CalculateFillingAssistanceMetric(
     return;
   }
 
-#if !BUILDFLAG(IS_IOS)
   // At this point, the password was filled from at least one of the two stores,
   // so compute the filling source now.
   filling_source_ = ComputeFillingSource(
       username_password_state.password_exists_in_profile_store,
       username_password_state.password_exists_in_account_store);
   DCHECK_NE(*filling_source_, FillingSource::kNotFilled);
-#endif
 
   if (username_password_state.saved_username_typed) {
     filling_assistance_ = FillingAssistance::kUsernameTypedPasswordFilled;
@@ -596,7 +597,7 @@ void PasswordFormMetricsRecorder::CalculateJsOnlyInput(
     if (field.HadFocus())
       had_focus = true;
     if (field.IsPasswordInputElement() &&
-        (field.DidUserType() || field.WasAutofilled())) {
+        (field.DidUserType() || field.WasPasswordAutofilled())) {
       had_user_input_or_autofill_on_password = true;
     }
   }
@@ -662,6 +663,9 @@ void PasswordFormMetricsRecorder::RecordPasswordBubbleShown(
     case metrics_util::AUTOMATIC_SIGNIN_TOAST:
     case metrics_util::AUTOMATIC_COMPROMISED_CREDENTIALS_REMINDER:
     case metrics_util::AUTOMATIC_MOVE_TO_ACCOUNT_STORE:
+    case metrics_util::AUTOMATIC_BIOMETRIC_AUTHENTICATION_FOR_FILLING:
+    case metrics_util::MANUAL_BIOMETRIC_AUTHENTICATION_FOR_FILLING:
+    case metrics_util::AUTOMATIC_BIOMETRIC_AUTHENTICATION_CONFIRMATION:
       // Do nothing.
       return;
 

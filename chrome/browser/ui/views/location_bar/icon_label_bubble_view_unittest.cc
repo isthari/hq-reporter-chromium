@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,7 +21,7 @@
 #include "ui/events/gesture_detection/gesture_configuration.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/views/animation/ink_drop.h"
-#include "ui/views/animation/test/ink_drop_host_view_test_api.h"
+#include "ui/views/animation/test/ink_drop_host_test_api.h"
 #include "ui/views/animation/test/test_ink_drop.h"
 #include "ui/views/controls/image_view.h"
 #include "ui/views/widget/widget_utils.h"
@@ -39,7 +39,6 @@ const int kStayOpenTimeMS = 100;
 const int kOpenTimeMS = 100;
 const int kAnimationDurationMS = (kOpenTimeMS * 2) + kStayOpenTimeMS;
 const int kImageSize = 15;
-const SkColor kTestColor = SkColorSetRGB(64, 64, 64);
 const int kNumberOfSteps = 300;
 
 class TestIconLabelBubbleView : public IconLabelBubbleView {
@@ -93,15 +92,6 @@ class TestIconLabelBubbleView : public IconLabelBubbleView {
   bool IsBubbleShowing() const override { return is_bubble_showing_; }
 
  protected:
-  // IconLabelBubbleView:
-  bool ShouldShowLabel() const override {
-    return !IsShrinking() ||
-           (width() >
-            (image()->GetPreferredSize().width() +
-             GetLayoutInsets(LOCATION_BAR_ICON_INTERIOR_PADDING).width() +
-             2 * GetLayoutConstant(LOCATION_BAR_ELEMENT_PADDING)));
-  }
-
   int GetWidthBetween(int min, int max) const override {
     const double kOpenFraction =
         static_cast<double>(kOpenTimeMS) / kAnimationDurationMS;
@@ -114,8 +104,7 @@ class TestIconLabelBubbleView : public IconLabelBubbleView {
       case SHRINKING:
         return min + (max - min) * ((1.0 - fraction) / kOpenFraction);
     }
-    NOTREACHED();
-    return 1.0;
+    NOTREACHED_NORETURN();
   }
 
   bool IsShrinking() const override { return state() == SHRINKING; }
@@ -142,10 +131,10 @@ class IconLabelBubbleViewTestBase : public ChromeViewsTestBase,
  public:
   // IconLabelBubbleView::Delegate:
   SkColor GetIconLabelBubbleSurroundingForegroundColor() const override {
-    return kTestColor;
+    return gfx::kPlaceholderColor;
   }
   SkColor GetIconLabelBubbleBackgroundColor() const override {
-    return kTestColor;
+    return gfx::kPlaceholderColor;
   }
 };
 
@@ -427,6 +416,38 @@ TEST_F(IconLabelBubbleViewTest,
   // Label should reappear if animated in after being animated out.
   view()->AnimateIn(IDS_AUTOFILL_CARD_SAVED);
   EXPECT_TRUE(view()->IsLabelVisible());
+}
+
+TEST_F(IconLabelBubbleViewTest, LabelPaintsOverSolidBackgroundWhenNecessary) {
+  view()->ResetSlideAnimation(false);
+
+  // Initially no background should be present.
+  EXPECT_FALSE(view()->IsLabelVisible());
+  EXPECT_EQ(nullptr, view()->GetBackground());
+
+  // Set the view to paint its label over a solid background. There should still
+  // be no background present as the label will not be visible.
+  view()->SetPaintLabelOverSolidBackground(true);
+  EXPECT_FALSE(view()->IsLabelVisible());
+  EXPECT_EQ(nullptr, view()->GetBackground());
+
+  // Animate the label in, the background should be present.
+  view()->AnimateIn(IDS_AUTOFILL_CARD_SAVED);
+  EXPECT_TRUE(view()->IsLabelVisible());
+  EXPECT_NE(nullptr, view()->GetBackground());
+
+  // After returning to the collapsed state the background should no longer be
+  // present.
+  view()->ResetSlideAnimation(false);
+  EXPECT_FALSE(view()->IsLabelVisible());
+  EXPECT_EQ(nullptr, view()->GetBackground());
+
+  // Disable painting over a background. The background should no longer be
+  // present when it animates in.
+  view()->SetPaintLabelOverSolidBackground(false);
+  view()->AnimateIn(IDS_AUTOFILL_CARD_SAVED);
+  EXPECT_TRUE(view()->IsLabelVisible());
+  EXPECT_EQ(nullptr, view()->GetBackground());
 }
 
 #if defined(USE_AURA)

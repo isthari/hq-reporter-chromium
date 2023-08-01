@@ -33,10 +33,10 @@
 #include <algorithm>
 
 #include "cc/animation/animation_host.h"
+#include "cc/animation/animation_timeline.h"
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/renderer/core/animation/animation_clock.h"
 #include "third_party/blink/renderer/core/animation/animation_timeline.h"
-#include "third_party/blink/renderer/core/animation/css/css_scroll_timeline.h"
 #include "third_party/blink/renderer/core/animation/keyframe_effect.h"
 #include "third_party/blink/renderer/core/animation/pending_animations.h"
 #include "third_party/blink/renderer/core/animation/worklet_animation_controller.h"
@@ -44,6 +44,7 @@
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/node_computed_style.h"
+#include "third_party/blink/renderer/core/execution_context/agent.h"
 #include "third_party/blink/renderer/core/frame/local_frame.h"
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/frame/settings.h"
@@ -51,8 +52,8 @@
 #include "third_party/blink/renderer/core/page/page.h"
 #include "third_party/blink/renderer/core/page/page_animator.h"
 #include "third_party/blink/renderer/core/style/computed_style.h"
-#include "third_party/blink/renderer/platform/bindings/microtask.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
+#include "third_party/blink/renderer/platform/scheduler/public/event_loop.h"
 
 namespace blink {
 
@@ -80,11 +81,10 @@ DocumentAnimations::DocumentAnimations(Document* document)
 
 void DocumentAnimations::AddTimeline(AnimationTimeline& timeline) {
   timelines_.insert(&timeline);
-  unvalidated_timelines_.insert(&timeline);
 }
 
 void DocumentAnimations::UpdateAnimationTimingForAnimationFrame() {
-  // https://drafts.csswg.org/web-animations-1/#timelines.
+  // https://w3.org/TR/web-animations-1/#timelines
 
   // 1. Update the current time of all timelines associated with doc passing now
   //    as the timestamp.
@@ -100,7 +100,7 @@ void DocumentAnimations::UpdateAnimationTimingForAnimationFrame() {
   // This is to ensure that any microtasks queued up as a result of resolving or
   // rejecting Promise objects as part of updating timelines run their callbacks
   // prior to dispatching animation events and generating the next main frame.
-  Microtask::PerformCheckpoint(V8PerIsolateData::MainThreadIsolate());
+  document_->GetAgent().event_loop()->PerformMicrotaskCheckpoint();
 }
 
 bool DocumentAnimations::NeedsAnimationTimingUpdate() {
@@ -132,8 +132,14 @@ void DocumentAnimations::UpdateAnimations(
   }
 
   document_->GetWorkletAnimationController().UpdateAnimationStates();
-  for (auto& timeline : timelines_)
-    timeline->ScheduleNextService();
+  document_->GetFrame()->ScheduleNextServiceForScrollSnapshotClients();
+  for (auto& timeline : timelines_) {
+    // ScrollSnapshotTimelines are already handled as ScrollSnapshotClients
+    // above.
+    if (!timeline->IsScrollSnapshotTimeline()) {
+      timeline->ScheduleNextService();
+    }
+  }
 }
 
 void DocumentAnimations::MarkPendingIfCompositorPropertyAnimationChanges(
@@ -167,9 +173,7 @@ HeapVector<Member<Animation>> DocumentAnimations::getAnimations(
     const TreeScope& tree_scope) {
   // This method implements the Document::getAnimations method defined in the
   // web-animations-1 spec.
-  // https://drafts.csswg.org/web-animations-1/#dom-document-getanimations
-  // TODO(crbug.com/1046916): refactoring work to create a shared implementation
-  // of getAnimations for Documents and ShadowRoots.
+  // https://w3.org/TR/web-animations-1/#extensions-to-the-documentorshadowroot-interface-mixin
   document_->UpdateStyleAndLayoutTree();
   HeapVector<Member<Animation>> animations;
   if (document_->GetPage())
@@ -181,15 +185,6 @@ HeapVector<Member<Animation>> DocumentAnimations::getAnimations(
   return animations;
 }
 
-void DocumentAnimations::ValidateTimelines() {
-  for (auto& timeline : unvalidated_timelines_) {
-    if (auto* scroll_timeline = DynamicTo<CSSScrollTimeline>(timeline.Get()))
-      scroll_timeline->ValidateState();
-  }
-
-  unvalidated_timelines_.clear();
-}
-
 void DocumentAnimations::DetachCompositorTimelines() {
   if (!Platform::Current()->IsThreadedAnimationEnabled() ||
       !document_->GetSettings()->GetAcceleratedCompositingEnabled() ||
@@ -197,20 +192,21 @@ void DocumentAnimations::DetachCompositorTimelines() {
     return;
 
   for (auto& timeline : timelines_) {
-    CompositorAnimationTimeline* compositor_timeline =
-        timeline->CompositorTimeline();
+    cc::AnimationTimeline* compositor_timeline = timeline->CompositorTimeline();
     if (!compositor_timeline)
       continue;
 
-    document_->GetPage()->GetChromeClient().DetachCompositorAnimationTimeline(
-        compositor_timeline, document_->GetFrame());
+    if (cc::AnimationHost* host =
+            document_->GetPage()->GetChromeClient().GetCompositorAnimationHost(
+                *document_->GetFrame())) {
+      host->RemoveAnimationTimeline(compositor_timeline);
+    }
   }
 }
 
 void DocumentAnimations::Trace(Visitor* visitor) const {
   visitor->Trace(document_);
   visitor->Trace(timelines_);
-  visitor->Trace(unvalidated_timelines_);
 }
 
 void DocumentAnimations::GetAnimationsTargetingTreeScope(
@@ -278,6 +274,8 @@ void DocumentAnimations::RemoveReplacedAnimations(
         animations_to_remove.push_back(*anim_it);
     }
   }
+  scoped_refptr<scheduler::EventLoop> event_loop =
+      document_->GetAgent().event_loop();
 
   // The list of animations for removal is constructed in reverse composite
   // ordering for efficiency. Flip the ordering to ensure that events are
@@ -286,8 +284,8 @@ void DocumentAnimations::RemoveReplacedAnimations(
   for (auto it = animations_to_remove.rbegin();
        it != animations_to_remove.rend(); it++) {
     Animation* animation = *it;
-    Microtask::EnqueueMicrotask(WTF::Bind(&Animation::RemoveReplacedAnimation,
-                                          WrapWeakPersistent(animation)));
+    event_loop->EnqueueMicrotask(WTF::BindOnce(
+        &Animation::RemoveReplacedAnimation, WrapWeakPersistent(animation)));
   }
 }
 

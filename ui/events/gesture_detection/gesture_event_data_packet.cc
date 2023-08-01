@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -119,6 +119,17 @@ void GestureEventDataPacket::Ack(bool event_consumed,
   for (auto& gesture : gestures_.container()) {
     gesture.details.set_is_source_touch_event_set_blocking(
         is_source_touch_event_set_blocking);
+  }
+}
+
+void GestureEventDataPacket::AddEventLatencyMetadataToGestures(
+    const EventLatencyMetadata& event_latency_metadata,
+    const base::RepeatingCallback<bool(const ui::GestureEventData&)>& filter) {
+  for (auto& gesture : gestures_) {
+    if (filter.Run(gesture)) {
+      gesture.details.GetModifiableEventLatencyMetadata() =
+          event_latency_metadata;
+    }
   }
 }
 

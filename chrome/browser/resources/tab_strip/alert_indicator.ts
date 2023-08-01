@@ -1,12 +1,14 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import './strings.m.js';
 
+import {assert} from 'chrome://resources/js/assert_ts.js';
 import {CustomElement} from 'chrome://resources/js/custom_element.js';
-import {loadTimeData} from 'chrome://resources/js/load_time_data.m.js';
+import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 
+import {getTemplate} from './alert_indicator.html.js';
 import {TabAlertState} from './tabs.mojom-webui.js';
 
 const MAX_WIDTH: string = '16px';
@@ -68,11 +70,11 @@ function getAlertStateAttribute(alertState: TabAlertState): string {
 }
 
 export class AlertIndicatorElement extends CustomElement {
-  static get template() {
-    return `{__html_template__}`;
+  static override get template() {
+    return getTemplate();
   }
 
-  private alertState_: TabAlertState;
+  private alertState_: TabAlertState|null = null;
   private fadeDurationMs_: number = 125;
   private fadeInAnimation_: Animation|null;
   private fadeOutAnimation_: Animation|null;
@@ -99,6 +101,7 @@ export class AlertIndicatorElement extends CustomElement {
   }
 
   get alertState(): TabAlertState {
+    assert(this.alertState_ !== null);
     return this.alertState_;
   }
 

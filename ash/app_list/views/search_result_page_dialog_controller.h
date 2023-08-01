@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,8 @@
 #define ASH_APP_LIST_VIEWS_SEARCH_RESULT_PAGE_DIALOG_CONTROLLER_H_
 
 #include <memory>
+
+#include "base/memory/raw_ptr.h"
 
 namespace views {
 class WidgetDelegate;
@@ -31,9 +33,9 @@ class SearchResultPageDialogController {
   // No-op if not enabled.
   void Show(std::unique_ptr<views::WidgetDelegate> dialog_contents);
 
-  // Sets whether search result page dialogs are enabled. Disabling dialoga will
-  // close any currently opened dialogs.
-  void SetEnabled(bool enabled);
+  // Sets whether search result page dialogs are enabled. It closes the
+  // current dialog if it exists.
+  void Reset(bool enabled);
 
   SearchResultPageAnchoredDialog* dialog() { return dialog_.get(); }
 
@@ -41,7 +43,7 @@ class SearchResultPageDialogController {
   // Called when the search result page dialog gets closed.
   void OnAnchoredDialogClosed();
 
-  views::View* const host_view_;
+  const raw_ptr<views::View, ExperimentalAsh> host_view_;
 
   // Whether search result page dialogs are allowed. If false, calls to `Show()`
   // will be no-op.

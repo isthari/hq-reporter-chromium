@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,18 +12,20 @@
 #include "ash/wm/overview/overview_constants.h"
 #include "ash/wm/overview/overview_grid.h"
 #include "ash/wm/overview/overview_item.h"
+#include "ash/wm/window_mini_view_header_view.h"
 #include "ash/wm/window_preview_view.h"
-#include "ash/wm/wm_highlight_item_border.h"
 #include "base/containers/contains.h"
+#include "chromeos/constants/chromeos_features.h"
 #include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/aura/window.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/compositor/layer.h"
-#include "ui/compositor/scoped_layer_animation_settings.h"
+#include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/size_conversions.h"
 #include "ui/strings/grit/ui_strings.h"
+#include "ui/views/animation/animation_builder.h"
 #include "ui/views/animation/ink_drop.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/widget/widget.h"
@@ -58,18 +60,16 @@ void AnimateLayerOpacity(ui::Layer* layer, bool visible) {
   if (layer->GetTargetOpacity() == target_opacity)
     return;
 
-  layer->SetOpacity(1.f - target_opacity);
-  gfx::Tween::Type tween =
-      visible ? gfx::Tween::LINEAR_OUT_SLOW_IN : gfx::Tween::FAST_OUT_LINEAR_IN;
-  ui::ScopedLayerAnimationSettings settings(layer->GetAnimator());
-  settings.SetTransitionDuration(kHeaderFadeDuration);
-  settings.SetTweenType(tween);
-  settings.SetPreemptionStrategy(ui::LayerAnimator::REPLACE_QUEUED_ANIMATIONS);
-  if (visible) {
-    layer->GetAnimator()->SchedulePauseForProperties(
-        kHeaderFadeInDelay, ui::LayerAnimationElement::OPACITY);
-  }
-  layer->SetOpacity(target_opacity);
+  views::AnimationBuilder()
+      .SetPreemptionStrategy(ui::LayerAnimator::REPLACE_QUEUED_ANIMATIONS)
+      .Once()
+      .SetDuration(base::TimeDelta())
+      .SetOpacity(layer, 1.f - target_opacity)
+      .At(visible ? kHeaderFadeInDelay : base::TimeDelta())
+      .SetDuration(kHeaderFadeDuration)
+      .SetOpacity(layer, target_opacity,
+                  visible ? gfx::Tween::LINEAR_OUT_SLOW_IN
+                          : gfx::Tween::FAST_OUT_LINEAR_IN);
 }
 
 }  // namespace
@@ -81,9 +81,12 @@ OverviewItemView::OverviewItemView(
     bool show_preview)
     : WindowMiniView(window),
       overview_item_(overview_item),
-      close_button_(header_view()->AddChildView(
-          std::make_unique<CloseButton>(std::move(close_callback),
-                                        CloseButton::Type::kLargeFloating))) {
+      close_button_(header_view()->icon_label_view()->AddChildView(
+          std::make_unique<CloseButton>(
+              std::move(close_callback),
+              chromeos::features::IsJellyrollEnabled()
+                  ? CloseButton::Type::kMediumFloating
+                  : CloseButton::Type::kLargeFloating))) {
   DCHECK(overview_item_);
   // This should not be focusable. It's also to avoid accessibility error when
   // |window->GetTitle()| is empty.
@@ -99,30 +102,37 @@ OverviewItemView::OverviewItemView(
   // elements existing.
   SetShowPreview(show_preview);
   // Do not show header if the current overview item is the drop target widget.
-  if (show_preview || overview_item_->overview_grid()->IsDropTargetWindow(
-                          overview_item_->GetWindow())) {
-    header_view()->layer()->SetOpacity(0.f);
+  if (overview_item_->overview_grid()->IsDropTargetWindow(
+          overview_item_->GetWindow())) {
+    header_view()->SetVisible(false);
     current_header_visibility_ = HeaderVisibility::kInvisible;
   }
 
-  UpdateIconView();
+  header_view()->UpdateIconView(window);
 }
 
 OverviewItemView::~OverviewItemView() = default;
 
-void OverviewItemView::SetHeaderVisibility(HeaderVisibility visibility) {
+void OverviewItemView::SetHeaderVisibility(HeaderVisibility visibility,
+                                           bool animate) {
   DCHECK(header_view()->layer());
-  if (visibility == current_header_visibility_)
+  if (visibility == current_header_visibility_) {
     return;
+  }
   const HeaderVisibility previous_visibility = current_header_visibility_;
   current_header_visibility_ = visibility;
 
   const bool all_invisible = visibility == HeaderVisibility::kInvisible;
-  AnimateLayerOpacity(header_view()->layer(), !all_invisible);
+  if (animate) {
+    AnimateLayerOpacity(header_view()->layer(), !all_invisible);
+  } else {
+    header_view()->layer()->SetOpacity(all_invisible ? 0.f : 1.f);
+  }
 
   // If there is not a `close_button_`, then we are done.
-  if (!close_button_)
+  if (!close_button_) {
     return;
+  }
 
   // If the whole header is fading out and there is a `close_button_`, then
   // we need to disable the close button without also fading the close button.
@@ -134,8 +144,9 @@ void OverviewItemView::SetHeaderVisibility(HeaderVisibility visibility) {
   const bool close_button_visible = visibility == HeaderVisibility::kVisible;
   // If `header_view()` was hidden and is fading in, set the opacity and enabled
   // state of `close_button_` depending on whether the close button should fade
-  // in with `header_view()` or stay hidden.
-  if (previous_visibility == HeaderVisibility::kInvisible) {
+  // in with `header_view()` or stay hidden. Or show the close button
+  // immediately if we are not animating.
+  if (previous_visibility == HeaderVisibility::kInvisible || !animate) {
     close_button_->layer()->SetOpacity(close_button_visible ? 1.f : 0.f);
     close_button_->SetEnabled(close_button_visible);
     return;
@@ -150,15 +161,17 @@ void OverviewItemView::HideCloseInstantlyAndThenShowItSlowly() {
   DCHECK_NE(HeaderVisibility::kInvisible, current_header_visibility_);
   ui::Layer* layer = close_button_->layer();
   DCHECK(layer);
+
+  views::AnimationBuilder()
+      .SetPreemptionStrategy(ui::LayerAnimator::REPLACE_QUEUED_ANIMATIONS)
+      .Once()
+      .SetDuration(base::TimeDelta())
+      .SetOpacity(layer, 0.f)
+      .At(kCloseButtonSlowFadeInDelay)
+      .SetDuration(kCloseButtonSlowFadeInDuration)
+      .SetOpacity(layer, 1.f, gfx::Tween::FAST_OUT_SLOW_IN);
+
   current_header_visibility_ = HeaderVisibility::kVisible;
-  layer->SetOpacity(0.f);
-  ui::ScopedLayerAnimationSettings settings(layer->GetAnimator());
-  settings.SetTransitionDuration(kCloseButtonSlowFadeInDuration);
-  settings.SetTweenType(gfx::Tween::FAST_OUT_SLOW_IN);
-  settings.SetPreemptionStrategy(ui::LayerAnimator::REPLACE_QUEUED_ANIMATIONS);
-  layer->GetAnimator()->SchedulePauseForProperties(
-      kCloseButtonSlowFadeInDelay, ui::LayerAnimationElement::OPACITY);
-  layer->SetOpacity(1.f);
   close_button_->SetEnabled(true);
 }
 
@@ -176,6 +189,10 @@ void OverviewItemView::RefreshPreviewView() {
 }
 
 gfx::Rect OverviewItemView::GetHeaderBounds() const {
+  if (chromeos::features::IsJellyrollEnabled()) {
+    return WindowMiniView::GetHeaderBounds();
+  }
+
   // We want to align the edges of the image as shown below in the diagram. The
   // resource itself contains some padding, which is the distance from the edges
   // of the image to the edges of the vector icon. The icon keeps its size in
@@ -194,9 +211,9 @@ gfx::Rect OverviewItemView::GetHeaderBounds() const {
   // provided icon (which contains some padding), b represents the right edge of
   // |close_button_| and c represents the right edge of the local bounds.
   // ---------------------------+---------+
-  //                            |  +---+  |
-  //      |title_label_|        |  |   a  b
-  //                            |  +---+  |
+  // |                          |  +---+  |
+  // |    |title_label_|        |  |   a  b
+  // |                          |  +---+  |
   // ---------------------------+---------+
   //                                   c
   //                                   |
@@ -243,8 +260,8 @@ void OverviewItemView::MaybeActivateHighlightedView() {
     overview_item_->OnHighlightedViewActivated();
 }
 
-void OverviewItemView::MaybeCloseHighlightedView() {
-  if (overview_item_)
+void OverviewItemView::MaybeCloseHighlightedView(bool primary_action) {
+  if (overview_item_ && primary_action)
     overview_item_->OnHighlightedViewClosed();
 }
 
@@ -258,17 +275,18 @@ bool OverviewItemView::MaybeActivateHighlightedViewOnOverviewExit(
 }
 
 void OverviewItemView::OnViewHighlighted() {
-  UpdateBorderState(/*show=*/true);
+  UpdateFocusState(/*focus=*/true);
 }
 
 void OverviewItemView::OnViewUnhighlighted() {
-  UpdateBorderState(/*show=*/false);
+  UpdateFocusState(/*focus=*/false);
 }
 
 gfx::Point OverviewItemView::GetMagnifierFocusPointInScreen() {
   // When this item is tabbed into, put the magnifier focus on the front of the
   // title, so that users can read the title first thing.
-  const gfx::Rect title_bounds = title_label()->GetBoundsInScreen();
+  const gfx::Rect title_bounds =
+      header_view()->title_label()->GetBoundsInScreen();
   return gfx::Point(GetMirroredXInView(title_bounds.x()),
                     title_bounds.CenterPoint().y());
 }
@@ -327,6 +345,11 @@ void OverviewItemView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
       ax::mojom::StringAttribute::kDescription,
       l10n_util::GetStringUTF8(
           IDS_ASH_OVERVIEW_CLOSABLE_HIGHLIGHT_ITEM_A11Y_EXTRA_TIP));
+}
+
+void OverviewItemView::OnThemeChanged() {
+  WindowMiniView::OnThemeChanged();
+  UpdateFocusState(IsViewHighlighted());
 }
 
 BEGIN_METADATA(OverviewItemView, WindowMiniView)

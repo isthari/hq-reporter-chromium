@@ -1,15 +1,16 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/metrics/chrome_browser_state_client.h"
+#import "ios/chrome/browser/metrics/chrome_browser_state_client.h"
 
-#include "components/network_time/network_time_tracker.h"
-#include "ios/chrome/browser/application_context.h"
-#include "ios/chrome/browser/browser_state/browser_state_info_cache.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/chrome/browser/browser_state/chrome_browser_state_manager.h"
-#include "ios/chrome/browser/sync/sync_service_factory.h"
+#import "base/time/time.h"
+#import "components/network_time/network_time_tracker.h"
+#import "ios/chrome/browser/shared/model/application_context/application_context.h"
+#import "ios/chrome/browser/shared/model/browser_state/browser_state_info_cache.h"
+#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state_manager.h"
+#import "ios/chrome/browser/sync/sync_service_factory.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -42,7 +43,11 @@ syncer::SyncService* ChromeBrowserStateClient::GetSyncService() {
           ->GetOriginalChromeBrowserState());
 }
 
-PrefService* ChromeBrowserStateClient::GetPrefService() {
+PrefService* ChromeBrowserStateClient::GetLocalState() {
+  return GetApplicationContext()->GetLocalState();
+}
+
+PrefService* ChromeBrowserStateClient::GetProfilePrefs() {
   // Get PrefService from BrowserState that was the last to be used. Will create
   // a new BrowserState if no BrowserState exists.
   return GetApplicationContext()

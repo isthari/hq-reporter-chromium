@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,16 +12,17 @@
 #include "third_party/blink/renderer/modules/webcodecs/codec_pressure_manager.h"
 #include "third_party/blink/renderer/modules/webcodecs/codec_pressure_manager_provider.h"
 #include "third_party/blink/renderer/platform/heap/persistent.h"
-#include "third_party/blink/renderer/platform/scheduler/public/thread.h"
 #include "third_party/blink/renderer/platform/wtf/functional.h"
 
 namespace blink {
 
-const base::Feature kReclaimInactiveWebCodecs{"ReclaimInactiveWebCodecs",
-                                              base::FEATURE_ENABLED_BY_DEFAULT};
+BASE_FEATURE(kReclaimInactiveWebCodecs,
+             "ReclaimInactiveWebCodecs",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
-const base::Feature kOnlyReclaimBackgroundWebCodecs{
-    "OnlyReclaimBackgroundWebCodecs", base::FEATURE_ENABLED_BY_DEFAULT};
+BASE_FEATURE(kOnlyReclaimBackgroundWebCodecs,
+             "OnlyReclaimBackgroundWebCodecs",
+             base::FEATURE_ENABLED_BY_DEFAULT);
 
 constexpr base::TimeDelta ReclaimableCodec::kInactivityReclamationThreshold;
 
@@ -31,7 +32,7 @@ ReclaimableCodec::ReclaimableCodec(CodecType type, ExecutionContext* context)
       tick_clock_(base::DefaultTickClock::GetInstance()),
       inactivity_threshold_(kInactivityReclamationThreshold),
       last_activity_(tick_clock_->NowTicks()),
-      activity_timer_(Thread::Current()->GetTaskRunner(),
+      activity_timer_(context->GetTaskRunner(TaskType::kInternalMedia),
                       this,
                       &ReclaimableCodec::OnActivityTimerFired) {
   DCHECK(context);
@@ -68,14 +69,23 @@ void ReclaimableCodec::ReleaseCodecPressure() {
     return;
   }
 
-  if (auto* pressure_manager = PressureManager())
+  if (auto* pressure_manager = PressureManager()) {
+    // If we fail to get |pressure_manager| here (say, because the
+    // ExecutionContext is being destroyed), this is harmless. The
+    // CodecPressureManager maintains its own local pressure count, and it will
+    // properly decrement it from the global pressure count upon the manager's
+    // disposal. The CodecPressureManager's WeakMember reference to |this| will
+    // be cleared by the GC when |this| is disposed. The manager might still
+    // call into SetGlobalPressureExceededFlag() before |this| is disposed, but
+    // we will simply noop those calls.
     pressure_manager->RemoveCodec(this);
-
-  is_applying_pressure_ = false;
+  }
 
   // We might still exceed global codec pressure at this point, but this codec
   // isn't contributing to it, and needs to reset its own flag.
   SetGlobalPressureExceededFlag(false);
+
+  is_applying_pressure_ = false;
 }
 
 void ReclaimableCodec::Dispose() {
@@ -88,6 +98,13 @@ void ReclaimableCodec::Dispose() {
 
 void ReclaimableCodec::SetGlobalPressureExceededFlag(
     bool global_pressure_exceeded) {
+  if (!is_applying_pressure_) {
+    // We should only hit this call because we failed to get the
+    // PressureManager() in ReleaseCodecPressure(). See the note above.
+    DCHECK(!PressureManager());
+    return;
+  }
+
   if (global_pressure_exceeded_ == global_pressure_exceeded)
     return;
 

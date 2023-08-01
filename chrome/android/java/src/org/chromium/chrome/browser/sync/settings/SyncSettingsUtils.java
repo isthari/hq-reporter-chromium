@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 package org.chromium.chrome.browser.sync.settings;
@@ -11,6 +11,7 @@ import android.content.IntentSender;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.provider.Browser;
+import android.text.TextUtils;
 
 import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
@@ -29,7 +30,9 @@ import org.chromium.chrome.R;
 import org.chromium.chrome.browser.LaunchIntentDispatcher;
 import org.chromium.chrome.browser.browserservices.intents.BrowserServicesIntentDataProvider.CustomTabsUiType;
 import org.chromium.chrome.browser.customtabs.CustomTabIntentDataProvider;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.signin.services.DisplayableProfileData;
 import org.chromium.chrome.browser.signin.services.IdentityServicesProvider;
 import org.chromium.chrome.browser.sync.SyncService;
 import org.chromium.chrome.browser.sync.TrustedVaultClient;
@@ -42,13 +45,18 @@ import org.chromium.ui.widget.Toast;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 
-/**
- * Helper methods for sync settings.
- */
+/** Helper methods for sync settings. */
 public class SyncSettingsUtils {
     private static final String DASHBOARD_URL = "https://www.google.com/settings/chrome/sync";
     private static final String MY_ACCOUNT_URL = "https://myaccount.google.com/smartlink/home";
     private static final String TAG = "SyncSettingsUtils";
+
+    @IntDef({TitlePreference.FULL_NAME, TitlePreference.EMAIL})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface TitlePreference {
+        int FULL_NAME = 0;
+        int EMAIL = 1;
+    }
 
     @IntDef({SyncError.NO_ERROR, SyncError.AUTH_ERROR, SyncError.PASSPHRASE_REQUIRED,
             SyncError.TRUSTED_VAULT_KEY_REQUIRED_FOR_EVERYTHING,
@@ -70,9 +78,7 @@ public class SyncSettingsUtils {
         int OTHER_ERRORS = 128;
     }
 
-    /**
-     * Returns the type of the sync error.
-     */
+    /** Returns the type of the sync error. */
     @SyncError
     public static int getSyncError() {
         SyncService syncService = SyncService.get();
@@ -80,7 +86,7 @@ public class SyncSettingsUtils {
             return SyncError.NO_ERROR;
         }
 
-        if (!syncService.isSyncRequested()) {
+        if (!syncService.hasSyncConsent()) {
             return SyncError.NO_ERROR;
         }
 
@@ -116,7 +122,7 @@ public class SyncSettingsUtils {
                     : SyncError.TRUSTED_VAULT_RECOVERABILITY_DEGRADED_FOR_PASSWORDS;
         }
 
-        if (!syncService.isFirstSetupComplete()) {
+        if (!syncService.isInitialSyncFeatureSetupComplete()) {
             return SyncError.SYNC_SETUP_INCOMPLETE;
         }
 
@@ -125,13 +131,14 @@ public class SyncSettingsUtils {
 
     /**
      * Gets hint message to resolve sync error.
+     *
      * @param context The application context.
      * @param error The sync error.
      */
     public static String getSyncErrorHint(Context context, @SyncError int error) {
         switch (error) {
             case SyncError.AUTH_ERROR:
-                return context.getString(R.string.hint_sync_auth_error);
+                return context.getString(R.string.hint_sync_auth_error_modern);
             case SyncError.CLIENT_OUT_OF_DATE:
                 return context.getString(
                         R.string.hint_client_out_of_date, BuildInfo.getInstance().hostPackageLabel);
@@ -225,7 +232,7 @@ public class SyncSettingsUtils {
             return context.getString(R.string.sync_is_disabled_by_administrator);
         }
 
-        if (!syncService.isFirstSetupComplete()) {
+        if (!syncService.isInitialSyncFeatureSetupComplete()) {
             return context.getString(R.string.sync_settings_not_confirmed);
         }
 
@@ -242,7 +249,7 @@ public class SyncSettingsUtils {
             return context.getString(R.string.sync_error_generic);
         }
 
-        if (!syncService.isSyncRequested()) {
+        if (syncService.getSelectedTypes().isEmpty()) {
             return context.getString(R.string.sync_data_types_off);
         }
 
@@ -272,7 +279,7 @@ public class SyncSettingsUtils {
      * @param context The application context, used by the method to get string resources.
      * @param state Must not be GoogleServiceAuthError.State.None.
      */
-    public static String getSyncStatusSummaryForAuthError(
+    private static String getSyncStatusSummaryForAuthError(
             Context context, @GoogleServiceAuthError.State int state) {
         switch (state) {
             case GoogleServiceAuthError.State.INVALID_GAIA_CREDENTIALS:
@@ -305,7 +312,7 @@ public class SyncSettingsUtils {
         }
 
         SyncService syncService = SyncService.get();
-        if (syncService == null || !syncService.isSyncRequested()) {
+        if (syncService == null || syncService.getSelectedTypes().isEmpty()) {
             return AppCompatResources.getDrawable(context, R.drawable.ic_sync_off_48dp);
         }
         if (syncService.isSyncDisabledByEnterprisePolicy()) {
@@ -397,6 +404,12 @@ public class SyncSettingsUtils {
                 (pendingIntent)
                         -> {
                     try {
+                        // startIntentSenderForResult() will fail if the fragment is
+                        // already gone, see crbug.com/1362141.
+                        if (!fragment.isAdded()) {
+                            return;
+                        }
+
                         fragment.startIntentSenderForResult(pendingIntent.getIntentSender(),
                                 requestCode,
                                 /* fillInIntent */ null, /* flagsMask */ 0,
@@ -470,5 +483,44 @@ public class SyncSettingsUtils {
         Toast.makeText(context, context.getString(R.string.sync_is_disabled_by_administrator),
                      Toast.LENGTH_LONG)
                 .show();
+    }
+
+    /**
+     * Returns either the full name or the email address of a DisplayableProfileData according
+     * to preference. If the preferred string is not displayable, returns the other displayable
+     * string, or fallback to default string.
+     *
+     * This method is used by {@link Preference#setTitle(CharSequence)} callers.
+     *
+     * @param profileData DisplayableProfileData containing the user's full name and email address.
+     * @param context The context where the returned string is passed to setTitle(CharSequence).
+     * @param preference Whether the full name or the email is preferred.
+     */
+    public static String getDisplayableFullNameOrEmailWithPreference(
+            DisplayableProfileData profileData, Context context, @TitlePreference int preference) {
+        final String fullName = profileData.getFullName();
+        final String accountEmail = profileData.getAccountEmail();
+        final String defaultString = context.getString(R.string.default_google_account_username);
+        final boolean canShowFullName = !TextUtils.isEmpty(fullName);
+        final boolean canShowEmailAddress = profileData.hasDisplayableEmailAddress()
+                || !ChromeFeatureList.isEnabled(
+                        ChromeFeatureList.HIDE_NON_DISPLAYABLE_ACCOUNT_EMAIL);
+        // Both strings are not displayable, use generic string.
+        if (!canShowFullName && !canShowEmailAddress) {
+            return defaultString;
+        }
+        // Both strings are displayable, use the preferred one.
+        if (canShowFullName && canShowEmailAddress) {
+            switch (preference) {
+                case TitlePreference.FULL_NAME:
+                    return fullName;
+                case TitlePreference.EMAIL:
+                    return accountEmail;
+                default:
+                    return defaultString;
+            }
+        }
+        // The preference cannot be fulfilled, use the other displayable string.
+        return canShowFullName ? fullName : accountEmail;
     }
 }

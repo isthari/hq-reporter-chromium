@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,14 @@
 #include <string>
 #include <vector>
 
+#include "ash/constants/ambient_video.h"
 #include "ash/public/cpp/ambient/common/ambient_settings.h"
 #include "ash/public/cpp/ambient/proto/photo_cache_entry.pb.h"
 #include "ash/public/cpp/ash_public_export.h"
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "ui/gfx/geometry/size.h"
+#include "url/gurl.h"
 
 namespace ash {
 
@@ -23,6 +26,8 @@ struct ASH_PUBLIC_EXPORT AmbientModeTopic {
   AmbientModeTopic();
   AmbientModeTopic(const AmbientModeTopic&);
   AmbientModeTopic& operator=(const AmbientModeTopic&);
+  AmbientModeTopic(AmbientModeTopic&&);
+  AmbientModeTopic& operator=(AmbientModeTopic&&);
   ~AmbientModeTopic();
 
   // Details, i.e. the attribution, to be displayed for the current photo on
@@ -90,13 +95,9 @@ class ASH_PUBLIC_EXPORT AmbientBackendController {
  public:
   using OnScreenUpdateInfoFetchedCallback =
       base::OnceCallback<void(const ScreenUpdate&)>;
-  using GetSettingsCallback =
-      base::OnceCallback<void(const absl::optional<AmbientSettings>& settings)>;
+  using OnPreviewImagesFetchedCallback =
+      base::OnceCallback<void(const std::vector<GURL>& preview_urls)>;
   using UpdateSettingsCallback = base::OnceCallback<void(bool success)>;
-  using OnSettingPreviewFetchedCallback =
-      base::OnceCallback<void(const std::vector<std::string>& preview_urls)>;
-  using OnPersonalAlbumsFetchedCallback =
-      base::OnceCallback<void(PersonalAlbums)>;
   // TODO(wutao): Make |settings| move only.
   using OnSettingsAndAlbumsFetchedCallback =
       base::OnceCallback<void(const absl::optional<AmbientSettings>& settings,
@@ -112,26 +113,27 @@ class ASH_PUBLIC_EXPORT AmbientBackendController {
   virtual ~AmbientBackendController();
 
   // Sends request to retrieve |num_topics| of |ScreenUpdate| from the backdrop
-  // server.
+  // server with the specified |screen_size|.
+  //
+  // |show_pair_personal_portraits|: Whether IMAX should serve paired or single
+  // personal portrait photos returned by the Photos backend. Ignored for
+  // non-personal topic types.
+  //
   // Upon completion, |callback| is run with the parsed |ScreenUpdate|. If any
   // errors happened during the process, e.g. failed to fetch access token, a
   // default instance will be returned.
   virtual void FetchScreenUpdateInfo(
       int num_topics,
+      bool show_pair_personal_portraits,
+      const gfx::Size& screen_size,
       OnScreenUpdateInfoFetchedCallback callback) = 0;
 
-  // Get ambient mode Settings from server.
-  virtual void GetSettings(GetSettingsCallback callback) = 0;
+  virtual void FetchPreviewImages(const gfx::Size& preview_size,
+                                  OnPreviewImagesFetchedCallback callback) = 0;
 
   // Update ambient mode Settings to server.
   virtual void UpdateSettings(const AmbientSettings& settings,
                               UpdateSettingsCallback callback) = 0;
-
-  virtual void FetchPersonalAlbums(int banner_width,
-                                   int banner_height,
-                                   int num_albums,
-                                   const std::string& resume_token,
-                                   OnPersonalAlbumsFetchedCallback) = 0;
 
   // Fetch the Settings and albums as one API.
   virtual void FetchSettingsAndAlbums(int banner_width,
@@ -145,6 +147,18 @@ class ASH_PUBLIC_EXPORT AmbientBackendController {
   // Get stock photo urls to cache in advance in case Ambient mode is started
   // without internet access.
   virtual const std::array<const char*, 2>& GetBackupPhotoUrls() const = 0;
+
+  // Returns the preview image urls for the video screen saver.
+  virtual std::array<const char*, 2> GetTimeOfDayVideoPreviewImageUrls(
+      AmbientVideo video) const = 0;
+
+  // Returns the promo banner url to highlight time-of-day wallpapers and screen
+  // saver feature.
+  virtual const char* GetPromoBannerUrl() const = 0;
+
+  // Returns the product name that features the exclusive time of day wallpapers
+  // and screen savers.
+  virtual const char* GetTimeOfDayProductName() const = 0;
 };
 
 }  // namespace ash

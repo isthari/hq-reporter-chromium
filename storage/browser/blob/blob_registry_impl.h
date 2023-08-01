@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,19 +9,24 @@
 #include "base/component_export.h"
 #include "base/containers/flat_set.h"
 #include "base/containers/unique_ptr_adapters.h"
+#include "base/functional/callback_forward.h"
+#include "components/file_access/scoped_file_access.h"
+#include "components/file_access/scoped_file_access_delegate.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
 #include "mojo/public/cpp/bindings/self_owned_associated_receiver.h"
 #include "storage/browser/blob/blob_url_registry.h"
-#include "storage/browser/file_system/file_system_context.h"
 #include "third_party/blink/public/mojom/blob/blob_registry.mojom.h"
 #include "url/origin.h"
+
+namespace base {
+class FilePath;
+}
 
 namespace storage {
 
 class BlobBuilderFromStream;
 class BlobDataHandle;
 class BlobStorageContext;
-class FileSystemURL;
 
 class COMPONENT_EXPORT(STORAGE_BROWSER) BlobRegistryImpl
     : public blink::mojom::BlobRegistry {
@@ -32,13 +37,16 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) BlobRegistryImpl
    public:
     virtual ~Delegate() {}
     virtual bool CanReadFile(const base::FilePath& file) = 0;
-    virtual bool CanReadFileSystemFile(const FileSystemURL& url) = 0;
     virtual bool CanAccessDataForOrigin(const url::Origin& origin) = 0;
+    virtual file_access::ScopedFileAccessDelegate::RequestFilesAccessIOCallback
+    GetAccessCallback() = 0;
   };
 
   BlobRegistryImpl(base::WeakPtr<BlobStorageContext> context,
                    base::WeakPtr<BlobUrlRegistry> url_registry,
-                   scoped_refptr<FileSystemContext> file_system_context);
+                   scoped_refptr<base::TaskRunner> url_registry_runner);
+
+  explicit BlobRegistryImpl(base::WeakPtr<BlobStorageContext> context);
 
   BlobRegistryImpl(const BlobRegistryImpl&) = delete;
   BlobRegistryImpl& operator=(const BlobRegistryImpl&) = delete;
@@ -95,8 +103,10 @@ class COMPONENT_EXPORT(STORAGE_BROWSER) BlobRegistryImpl
                          std::unique_ptr<BlobDataHandle> result);
 
   base::WeakPtr<BlobStorageContext> context_;
+
+  // `url_registry_` should only be accessed on `url_registry_runner_`.
   base::WeakPtr<BlobUrlRegistry> url_registry_;
-  scoped_refptr<FileSystemContext> file_system_context_;
+  scoped_refptr<base::TaskRunner> url_registry_runner_;
 
   mojo::ReceiverSet<blink::mojom::BlobRegistry, std::unique_ptr<Delegate>>
       receivers_;

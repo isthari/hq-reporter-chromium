@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,16 +8,15 @@
 #include <memory>
 #include <string>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/core/common/cloud/device_management_service.h"
 
-namespace enterprise_management {
-class DeviceManagementResponse;
-}  // namespace enterprise_management
-
 namespace policy {
+
+struct DMServerJobResult;
 
 // This class handles sending request to check account to DM server,
 // waits for the response and retrieves the account status from it.
@@ -58,11 +57,7 @@ class AccountStatusCheckFetcher {
 
  private:
   // Response from DM server.
-  void OnAccountStatusCheckReceived(
-      DeviceManagementService::Job* job,
-      DeviceManagementStatus dm_status,
-      int net_error,
-      const enterprise_management::DeviceManagementResponse& response);
+  void OnAccountStatusCheckReceived(DMServerJobResult result);
 
   // Account ID, added to the DM server request.
   std::string email_;
@@ -73,7 +68,7 @@ class AccountStatusCheckFetcher {
   // Acconut status.
   AccountStatus result_ = AccountStatus::kUnknown;
 
-  DeviceManagementService* service_ = nullptr;
+  raw_ptr<DeviceManagementService, ExperimentalAsh> service_ = nullptr;
   scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
 
   // Randomly generated device id for the request to make sure request won't

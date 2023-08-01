@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -89,6 +89,8 @@ void ExpectEquality(const ExplodedFrameState& expected,
   EXPECT_EQ(expected.referrer, actual.referrer);
   EXPECT_EQ(expected.referrer_policy, actual.referrer_policy);
   EXPECT_EQ(expected.initiator_origin, actual.initiator_origin);
+  EXPECT_EQ(expected.initiator_base_url_string,
+            actual.initiator_base_url_string);
   EXPECT_EQ(expected.target, actual.target);
   EXPECT_EQ(expected.state_object, actual.state_object);
   ExpectEquality(expected.document_state, actual.document_state);
@@ -102,11 +104,11 @@ void ExpectEquality(const ExplodedFrameState& expected,
   EXPECT_EQ(expected.scroll_anchor_selector, actual.scroll_anchor_selector);
   EXPECT_EQ(expected.scroll_anchor_offset, actual.scroll_anchor_offset);
   EXPECT_EQ(expected.scroll_anchor_simhash, actual.scroll_anchor_simhash);
-  EXPECT_EQ(expected.app_history_key, actual.app_history_key);
-  EXPECT_EQ(expected.app_history_id, actual.app_history_id);
-  EXPECT_EQ(expected.app_history_state, actual.app_history_state);
-  EXPECT_EQ(expected.protect_url_in_app_history,
-            actual.protect_url_in_app_history);
+  EXPECT_EQ(expected.navigation_api_key, actual.navigation_api_key);
+  EXPECT_EQ(expected.navigation_api_id, actual.navigation_api_id);
+  EXPECT_EQ(expected.navigation_api_state, actual.navigation_api_state);
+  EXPECT_EQ(expected.protect_url_in_navigation_api,
+            actual.protect_url_in_navigation_api);
   ExpectEquality(expected.http_body, actual.http_body);
   ExpectEquality(expected.children, actual.children);
 }
@@ -142,10 +144,14 @@ class PageStateSerializationTest : public testing::Test {
     frame_state->scroll_anchor_selector = u"#selector";
     frame_state->scroll_anchor_offset = gfx::PointF(2.5, 3.5);
     frame_state->scroll_anchor_simhash = 12345;
-    frame_state->app_history_key = u"abcd";
-    frame_state->app_history_id = u"wxyz";
-    frame_state->app_history_state = absl::nullopt;
-    frame_state->protect_url_in_app_history = false;
+    frame_state->initiator_origin =
+        url::Origin::Create(GURL("https://initiator.example.com"));
+    frame_state->navigation_api_key = u"abcd";
+    frame_state->navigation_api_id = u"wxyz";
+    frame_state->navigation_api_state = absl::nullopt;
+    frame_state->protect_url_in_navigation_api = false;
+    frame_state->initiator_base_url_string =
+        base::UTF8ToUTF16(frame_state->initiator_origin->GetURL().spec());
   }
 
   void PopulateHttpBody(
@@ -170,10 +176,19 @@ class PageStateSerializationTest : public testing::Test {
                                                 bool is_child,
                                                 int version) {
     if (version < 28) {
-      // Older versions didn't cover |initiator_origin| -  we expect that
+      // Older versions didn't cover `initiator_origin` -  we expect that
       // deserialization will set it to the default, null value.
       frame_state->initiator_origin = absl::nullopt;
+    } else if (version < 32) {
+      // Here we only give the parent an initiator origin value, and not the
+      // child. This is required to match the existing baseline files for
+      // versions 28 through 31 inclusive (see https://crbug.com/1405812).
+      if (!is_child) {
+        frame_state->initiator_origin =
+            url::Origin::Create(GURL("https://initiator.example.com"));
+      }
     } else {
+      // As of version 32, all frames can have an initiator origin.
       frame_state->initiator_origin =
           url::Origin::Create(GURL("https://initiator.example.com"));
     }
@@ -213,14 +228,19 @@ class PageStateSerializationTest : public testing::Test {
     frame_state->document_state.push_back(u"displayName");
 
     if (version >= 29) {
-      frame_state->app_history_key = u"abcdef";
-      frame_state->app_history_id = u"uvwxyz";
+      frame_state->navigation_api_key = u"abcdef";
+      frame_state->navigation_api_id = u"uvwxyz";
     }
     if (version >= 30)
-      frame_state->app_history_state = u"js_serialized_state";
+      frame_state->navigation_api_state = u"js_serialized_state";
 
     if (version >= 31)
-      frame_state->protect_url_in_app_history = true;
+      frame_state->protect_url_in_navigation_api = true;
+
+    if (version >= 33) {
+      frame_state->initiator_base_url_string =
+          base::UTF8ToUTF16(GURL("https://initiator.example.com").spec());
+    }
 
     if (!is_child) {
       frame_state->http_body.http_content_type = u"foo/bar";
@@ -308,6 +328,17 @@ class PageStateSerializationTest : public testing::Test {
   }
 };
 
+TEST_F(PageStateSerializationTest, InitiatorOriginAssign) {
+  ExplodedFrameState a, b;
+  a.initiator_origin =
+      url::Origin::Create(GURL("https://initiator.example.com"));
+  b = a;
+  ExpectEquality(a, b);
+
+  ExplodedFrameState c(a);
+  ExpectEquality(a, c);
+}
+
 TEST_F(PageStateSerializationTest, BasicEmpty) {
   ExplodedPageState input;
 
@@ -356,6 +387,10 @@ TEST_F(PageStateSerializationTest, BasicFrameSet) {
     ExplodedFrameState child_state;
     PopulateFrameState(&child_state);
     input.top.children.push_back(child_state);
+
+    // Ensure `child_state` made it into `input` successfully, to catch any
+    // cases where ExplodedFrameState::assign may have been missed.
+    ExpectEquality(child_state, input.top.children[i]);
   }
 
   std::string encoded;
@@ -402,7 +437,7 @@ TEST_F(PageStateSerializationTest, BadMessagesTest1) {
   // Bad real number.
   p.WriteInt(-1);
 
-  std::string s(static_cast<const char*>(p.data()), p.size());
+  std::string s(p.data_as_char(), p.size());
 
   ExplodedPageState output;
   EXPECT_FALSE(DecodePageState(s, &output));
@@ -428,7 +463,7 @@ TEST_F(PageStateSerializationTest, BadMessagesTest2) {
   p.WriteInt(1);
   p.WriteInt(static_cast<int>(HTTPBodyElementType::kTypeData));
 
-  std::string s(static_cast<const char*>(p.data()), p.size());
+  std::string s(p.data_as_char(), p.size());
 
   ExplodedPageState output;
   EXPECT_FALSE(DecodePageState(s, &output));
@@ -484,10 +519,10 @@ TEST_F(PageStateSerializationTest, ScrollAnchorSelectorLengthLimited) {
 // Change to #if 1 to enable this code. Run this test to generate data, based on
 // the current serialization format, for the BackwardsCompat_vXX tests. This
 // will generate an expected.dat in the temp directory, which should be moved
-// //content/test/data/page_state/serialization_vXX.dat. A corresponding test
-// case for that version should also then be added below. You need to add such
-// a test for any addition/change to the schema of serialized page state.
-// If you're adding a field whose type is defined externally of
+// //third_party/blink/common/page_state/test_data/serialized_vXX.dat. A
+// corresponding test case for that version should also then be added below. You
+// need to add such a test for any addition/change to the schema of serialized
+// page state. If you're adding a field whose type is defined externally of
 // page_state.mojom, add an backwards compat test for that field specifically
 // by dumping a state object with only that field populated. See, e.g.,
 // BackwardsCompat_UrlString as an example.
@@ -606,6 +641,14 @@ TEST_F(PageStateSerializationTest, BackwardsCompat_v30) {
 
 TEST_F(PageStateSerializationTest, BackwardsCompat_v31) {
   TestBackwardsCompat(31);
+}
+
+TEST_F(PageStateSerializationTest, BackwardsCompat_v32) {
+  TestBackwardsCompat(32);
+}
+
+TEST_F(PageStateSerializationTest, BackwardsCompat_v33) {
+  TestBackwardsCompat(33);
 }
 
 // Add your new backwards compat test for future versions *above* this

@@ -1,5 +1,5 @@
 <!--
-Copyright 2020 The Chromium Authors. All rights reserved.
+Copyright 2020 The Chromium Authors
 Use of this source code is governed by a BSD-style license that can be
 found in the LICENSE file.
 -->
@@ -23,7 +23,7 @@ chromium-metrics-reviews@google.com.
 <histograms>
 
 <histogram name="ConnectivityDetector.ConnectionState.{Client}"
-    enum="ConnectivityDetectorConnectionState" expires_after="2021-11-15">
+    enum="ConnectivityDetectorConnectionState" expires_after="2023-04-20">
   <owner>curranmax@chromium.org</owner>
   <owner>tbansal@chromium.org</owner>
   <owner>jianli@chromium.org</owner>
@@ -38,7 +38,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="ConnectivityDetector.DefaultHttpProbeResult.{Client}"
-    enum="ProbeResult" expires_after="2021-11-15">
+    enum="ProbeResult" expires_after="2023-04-20">
   <owner>curranmax@chromium.org</owner>
   <owner>tbansal@chromium.org</owner>
   <owner>jianli@chromium.org</owner>
@@ -54,7 +54,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="ConnectivityDetector.FallbackHttpProbeResult.{Client}"
-    enum="ProbeResult" expires_after="2021-11-15">
+    enum="ProbeResult" expires_after="2023-04-20">
   <owner>curranmax@chromium.org</owner>
   <owner>tbansal@chromium.org</owner>
   <owner>jianli@chromium.org</owner>
@@ -70,11 +70,11 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="ConnectivityDetector.SentHttpProbe.{Client}" units="count"
-    expires_after="2021-11-15">
+    expires_after="2023-04-20">
   <owner>curranmax@chromium.org</owner>
   <owner>tbansal@chromium.org</owner>
   <owner>jianli@chromium.org</owner>
-  <owner>src/components/data_reduction_proxy/OWNERS</owner>
+  <owner>src/chrome/browser/data_saver/OWNERS</owner>
   <summary>
     Count of times when a HTTP Probe was made by connectivity detector.
   </summary>
@@ -85,7 +85,10 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="DataReductionProxy.BypassedBytes" units="bytes"
-    expires_after="M85">
+    expires_after="2022-04-20">
+  <obsolete>
+    Data reduction proxy was turned down.
+  </obsolete>
   <owner>bengr@chromium.org</owner>
   <owner>tbansal@chromium.org</owner>
   <summary>
@@ -95,7 +98,10 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="DataReductionProxy.EnabledState"
-    enum="DataReductionProxyEnabledState" expires_after="2021-12-12">
+    enum="DataReductionProxyEnabledState" expires_after="2022-04-20">
+  <obsolete>
+    Data reduction proxy was turned down.
+  </obsolete>
   <owner>rajendrant@chromium.org</owner>
   <owner>tbansal@chromium.org</owner>
   <summary>
@@ -110,9 +116,12 @@ chromium-metrics-reviews@google.com.
 
 <histogram name="DataReductionProxy.ProxyPrefMigrationResult"
     enum="DataReductionProxyProxyPrefMigrationResult"
-    expires_after="2021-04-27">
+    expires_after="2022-04-20">
+  <obsolete>
+    Data reduction proxy was turned down.
+  </obsolete>
   <owner>sclittle@chromium.org</owner>
-  <owner>src/components/data_reduction_proxy/OWNERS</owner>
+  <owner>src/chrome/browser/data_saver/OWNERS</owner>
   <summary>
     Records the result of migrating the Data Reduction Proxy away from being
     configured via a proxy preference, including cases when no migration action
@@ -121,7 +130,10 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="DataReductionProxy.StartupState"
-    enum="DataReductionProxyStartupState" expires_after="2022-07-24">
+    enum="DataReductionProxyStartupState" expires_after="2022-04-20">
+  <obsolete>
+    Data reduction proxy was turned down.
+  </obsolete>
   <owner>rajendrant@chromium.org</owner>
   <owner>tbansal@chromium.org</owner>
   <summary>
@@ -132,25 +144,10 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="DataUse.AllServicesKB" enum="DataUseServicesHash"
-    expires_after="2022-06-26">
-  <owner>rajendrant@chromium.org</owner>
-  <owner>mcrouse@chromium.org</owner>
-  <summary>
-    The request and response size of the messages exchanged by all the services.
-    Whenever a URLRequest of a service is completed, the number of exchanged
-    bytes is logged in this histogram. The buckets in this histogram are
-    services recorded by the corresponding network traffic annotation tag
-    hashes, so it makes it possible to compare the use of different services in
-    different conditions. Different conditions are added as suffixes to this
-    histogram. If the OS is not Android all the requests are considered
-    foreground.
-  </summary>
-</histogram>
-
-<histogram name="DataUse.AppTabState" units="bytes" expires_after="2022-06-26">
-  <owner>rajendrant@chromium.org</owner>
-  <owner>mcrouse@chromium.org</owner>
+<histogram name="DataUse.AppTabState" units="bytes" expires_after="2023-05-07">
+  <owner>spelchat@chromium.org</owner>
+  <owner>curranmax@chromium.org</owner>
+  <owner>chrome-brapp-loading@google.com</owner>
   <summary>
     Records the data use of Chrome user traffic by the foregound vs. background
     state of the app and tab.
@@ -159,6 +156,9 @@ chromium-metrics-reviews@google.com.
 
 <histogram name="DataUse.BackgroundToDataRecievedPerByte" units="ms"
     expires_after="2021-12-20">
+  <obsolete>
+    Obsoleted.
+  </obsolete>
   <owner>rajendrant@chromium.org</owner>
   <owner>mcrouse@chromium.org</owner>
   <summary>
@@ -170,6 +170,9 @@ chromium-metrics-reviews@google.com.
 
 <histogram name="DataUse.BackgroundToFirstDownstream" units="ms"
     expires_after="2021-12-20">
+  <obsolete>
+    Obsoleted.
+  </obsolete>
   <owner>rajendrant@chromium.org</owner>
   <owner>mcrouse@chromium.org</owner>
   <summary>
@@ -182,6 +185,9 @@ chromium-metrics-reviews@google.com.
 
 <histogram name="DataUse.BytesReceived2" units="bytes"
     expires_after="2022-06-19">
+  <obsolete>
+    Obsoleted.
+  </obsolete>
   <owner>rajendrant@chromium.org</owner>
   <owner>mcrouse@chromium.org</owner>
   <summary>
@@ -190,19 +196,49 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="DataUse.BytesSent" units="bytes" expires_after="2022-06-26">
-  <owner>rajendrant@chromium.org</owner>
-  <owner>mcrouse@chromium.org</owner>
+<histogram name="DataUse.BytesReceived3.Delegate" units="bytes"
+    expires_after="2023-11-12">
+  <owner>curranmax@chromium.org</owner>
+  <owner>ryansturm@chromium.org</owner>
+  <owner>spelchat@chromium.org</owner>
+  <owner>chrome-brapp-loading@google.com</owner>
+  <summary>
+    Count of total bytes received by the Chrome on the network, as reported by
+    the network delegate. This is recorded when requests complete.
+  </summary>
+</histogram>
+
+<histogram name="DataUse.BytesSent" units="bytes" expires_after="2022-08-28">
+  <obsolete>
+    Obsoleted.
+  </obsolete>
+  <owner>spelchat@chromium.org</owner>
+  <owner>curranmax@chromium.org</owner>
+  <owner>chrome-brapp-loading@google.com</owner>
   <summary>
     Count of total bytes sent by the Chrome on the network. With network
     servicification this is recorded when requests complete.
   </summary>
 </histogram>
 
+<histogram name="DataUse.BytesSent3.Delegate" units="bytes"
+    expires_after="2023-11-12">
+  <owner>curranmax@chromium.org</owner>
+  <owner>ryansturm@chromium.org</owner>
+  <owner>spelchat@chromium.org</owner>
+  <owner>chrome-brapp-loading@google.com</owner>
+  <summary>
+    Count of total bytes sent by the Chrome on the network, as reported by the
+    network delegate. With network servicification this is recorded when
+    requests complete.
+  </summary>
+</histogram>
+
 <histogram name="DataUse.ContentType.UserTrafficKB" enum="DataUseContentType"
-    expires_after="2022-06-26">
-  <owner>rajendrant@chromium.org</owner>
-  <owner>mcrouse@chromium.org</owner>
+    expires_after="2023-03-05">
+  <owner>spelchat@chromium.org</owner>
+  <owner>curranmax@chromium.org</owner>
+  <owner>chrome-brapp-loading@google.com</owner>
   <summary>
     Data use of user traffic by different content types. Recorded in KB when
     network bytes are received by Chrome.
@@ -211,6 +247,9 @@ chromium-metrics-reviews@google.com.
 
 <histogram name="DataUse.FavIcon.Downstream" units="bytes"
     expires_after="2021-12-20">
+  <obsolete>
+    Obsoleted.
+  </obsolete>
   <owner>rajendrant@chromium.org</owner>
   <owner>mcrouse@chromium.org</owner>
   <summary>
@@ -222,6 +261,9 @@ chromium-metrics-reviews@google.com.
 
 <histogram name="DataUse.FavIcon.Downstream.Non200Response" units="bytes"
     expires_after="2021-12-20">
+  <obsolete>
+    Obsoleted.
+  </obsolete>
   <owner>rajendrant@chromium.org</owner>
   <owner>mcrouse@chromium.org</owner>
   <summary>
@@ -232,6 +274,9 @@ chromium-metrics-reviews@google.com.
 
 <histogram name="DataUse.PageTransition.UserTrafficKB"
     enum="DataUsePageTransition" expires_after="2021-12-20">
+  <obsolete>
+    Obsoleted.
+  </obsolete>
   <owner>rajendrant@chromium.org</owner>
   <owner>mcrouse@chromium.org</owner>
   <summary>
@@ -241,9 +286,10 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="DataUse.TrafficSize.User" units="bytes"
-    expires_after="2022-06-26">
-  <owner>rajendrant@chromium.org</owner>
-  <owner>mcrouse@chromium.org</owner>
+    expires_after="2024-05-07">
+  <owner>spelchat@chromium.org</owner>
+  <owner>curranmax@chromium.org</owner>
+  <owner>chrome-brapp-loading@google.com</owner>
   <summary>
     The total amount of data use of Chrome for user traffic. This traffic has
     content::ResourceRequestInfo attached to its request. If the OS is not

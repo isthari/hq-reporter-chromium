@@ -1,11 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/credential_provider/gaiacp/scoped_user_profile.h"
 
 #include <Windows.h>
-
 #include <aclapi.h>
 #include <atlcomcli.h>
 #include <atlconv.h>
@@ -13,22 +12,22 @@
 #include <objidl.h>
 #include <security.h>
 #include <shlobj.h>
-#include <shlwapi.h>
 #include <userenv.h>
 
+#include <memory>
+#include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/win/registry.h"
-#include "base/win/windows_version.h"
+#include "base/win/shlwapi.h"
 #include "chrome/credential_provider/common/gcp_strings.h"
 #include "chrome/credential_provider/gaiacp/gcp_utils.h"
 #include "chrome/credential_provider/gaiacp/gcpw_strings.h"
@@ -51,7 +50,7 @@ constexpr int kProfilePictureSizes[] = {32, 40, 48, 96, 192, 240, 448};
 
 std::string GetEncryptedRefreshToken(
     base::win::ScopedHandle::Handle logon_handle,
-    const base::Value& properties) {
+    const base::Value::Dict& properties) {
   std::string refresh_token = GetDictStringUTF8(properties, kKeyRefreshToken);
   if (refresh_token.empty()) {
     LOGFN(ERROR) << "Refresh token is empty";
@@ -167,7 +166,7 @@ HRESULT CreateDirectoryWithRestrictedAccess(const base::FilePath& path) {
       SECURITY_CREATOR_SID_AUTHORITY;
   SID_IDENTIFIER_AUTHORITY administrators_sid_id = SECURITY_NT_AUTHORITY;
   BYTE real_owner_sid[SECURITY_MAX_SID_SIZE];
-  DWORD size_owner_sid = base::size(real_owner_sid);
+  DWORD size_owner_sid = std::size(real_owner_sid);
 
   HRESULT hr = S_OK;
 
@@ -212,7 +211,7 @@ HRESULT CreateDirectoryWithRestrictedAccess(const base::FilePath& path) {
           reinterpret_cast<wchar_t*>(creator_owner_sid)}});
 
     PACL acl = nullptr;
-    DWORD err = ::SetEntriesInAcl(base::size(ea), ea.data(), nullptr, &acl);
+    DWORD err = ::SetEntriesInAcl(std::size(ea), ea.data(), nullptr, &acl);
     if (ERROR_SUCCESS != errno) {
       hr = HRESULT_FROM_WIN32(err);
       LOGFN(ERROR) << "Failed set sids in acl hr=" << putHR(hr);
@@ -260,13 +259,11 @@ HRESULT CreateDirectoryWithRestrictedAccess(const base::FilePath& path) {
   return hr;
 }
 
-HRESULT UpdateProfilePicturesForWindows8AndNewer(
-    const std::wstring& sid,
-    const std::wstring& picture_url,
-    bool force_update) {
+HRESULT UpdateProfilePictures(const std::wstring& sid,
+                              const std::wstring& picture_url,
+                              bool force_update) {
   DCHECK(!sid.empty());
   DCHECK(!picture_url.empty());
-  DCHECK(base::win::GetVersion() >= base::win::Version::WIN8);
 
   // Try to download profile pictures of all required sizes for windows.
   // Needed profile picture sizes are in |kProfilePictureSizes|.
@@ -317,7 +314,7 @@ HRESULT UpdateProfilePicturesForWindows8AndNewer(
     if (!needs_to_save_original) {
       // Update the reg string for the image if it is not up to date.
       wchar_t old_picture_path[MAX_PATH];
-      ULONG path_size = base::size(old_picture_path);
+      ULONG path_size = std::size(old_picture_path);
       hr = GetAccountPictureRegString(sid, image_size, old_picture_path,
                                       &path_size);
       if (FAILED(hr) || target_picture_path.value() != old_picture_path) {
@@ -360,9 +357,10 @@ HRESULT UpdateProfilePicturesForWindows8AndNewer(
                  const base::FilePath& picture_path,
                  const std::vector<char>& picture_buffer) {
                 HRESULT hr = S_OK;
-                if (base::WriteFile(picture_path, picture_buffer.data(),
-                                    picture_buffer.size()) !=
-                    static_cast<int>(picture_buffer.size())) {
+                if (!base::WriteFile(
+                        picture_path,
+                        base::StringPiece(picture_buffer.data(),
+                                          picture_buffer.size()))) {
                   LOGFN(ERROR) << "Failed to write profile picture to file="
                                << picture_path;
                   hr = HRESULT_FROM_WIN32(::GetLastError());
@@ -435,7 +433,7 @@ bool ScopedUserProfile::IsValid() {
 }
 
 HRESULT ScopedUserProfile::ExtractAssociationInformation(
-    const base::Value& properties,
+    const base::Value::Dict& properties,
     std::wstring* sid,
     std::wstring* id,
     std::wstring* email,
@@ -509,7 +507,8 @@ HRESULT ScopedUserProfile::RegisterAssociation(
   return S_OK;
 }
 
-HRESULT ScopedUserProfile::SaveAccountInfo(const base::Value& properties) {
+HRESULT ScopedUserProfile::SaveAccountInfo(
+    const base::Value::Dict& properties) {
   LOGFN(VERBOSE);
 
   std::wstring sid;
@@ -535,7 +534,7 @@ HRESULT ScopedUserProfile::SaveAccountInfo(const base::Value& properties) {
   // but administrators and SYSTEM can.
   {
     wchar_t key_name[128];
-    swprintf_s(key_name, base::size(key_name), L"%s\\%s\\%s", sid.c_str(),
+    swprintf_s(key_name, std::size(key_name), L"%s\\%s\\%s", sid.c_str(),
                kRegHkcuAccountsPath, id.c_str());
     LOGFN(VERBOSE) << "HKU\\" << key_name;
 
@@ -592,24 +591,20 @@ HRESULT ScopedUserProfile::SaveAccountInfo(const base::Value& properties) {
     }
   }
 
-  // This code for setting profile pictures is specific for windows 8+.
-  if (base::win::GetVersion() >= base::win::Version::WIN8) {
-    std::wstring picture_url = GetDictString(properties, kKeyPicture);
-    if (!picture_url.empty() && !sid.empty()) {
-      wchar_t old_picture_url[512];
-      ULONG url_size = base::size(old_picture_url);
-      hr = GetUserProperty(sid, kUserPictureUrl, old_picture_url, &url_size);
+  std::wstring picture_url = GetDictString(properties, kKeyPicture);
+  if (!picture_url.empty() && !sid.empty()) {
+    wchar_t old_picture_url[512];
+    ULONG url_size = std::size(old_picture_url);
+    hr = GetUserProperty(sid, kUserPictureUrl, old_picture_url, &url_size);
 
-      UpdateProfilePicturesForWindows8AndNewer(
-          sid, picture_url, FAILED(hr) || old_picture_url != picture_url);
-      hr = SetUserProperty(sid.c_str(), kUserPictureUrl, picture_url.c_str());
-      if (FAILED(hr)) {
-        LOGFN(ERROR) << "SetUserProperty(pic) hr=" << putHR(hr);
-        return hr;
-      }
+    UpdateProfilePictures(sid, picture_url,
+                          FAILED(hr) || old_picture_url != picture_url);
+    hr = SetUserProperty(sid.c_str(), kUserPictureUrl, picture_url.c_str());
+    if (FAILED(hr)) {
+      LOGFN(ERROR) << "SetUserProperty(pic) hr=" << putHR(hr);
+      return hr;
     }
   }
-
   return S_OK;
 }
 
@@ -622,7 +617,7 @@ bool ScopedUserProfile::WaitForProfileCreation(const std::wstring& sid) {
 
   for (int i = 0; i < kWaitForProfileCreationRetryCount; ++i) {
     ::Sleep(1000);
-    DWORD length = base::size(profile_dir);
+    DWORD length = std::size(profile_dir);
     if (::GetUserProfileDirectoryW(token_.Get(), profile_dir, &length)) {
       LOGFN(VERBOSE) << "GetUserProfileDirectoryW " << i << " " << profile_dir;
       created = true;
@@ -643,7 +638,7 @@ bool ScopedUserProfile::WaitForProfileCreation(const std::wstring& sid) {
   // but administrators and SYSTEM can.
   base::win::RegKey key;
   wchar_t key_name[128];
-  swprintf_s(key_name, base::size(key_name), L"%s\\%s", sid.c_str(),
+  swprintf_s(key_name, std::size(key_name), L"%s\\%s", sid.c_str(),
              kRegHkcuAccountsPath);
   LOGFN(VERBOSE) << "HKU\\" << key_name;
 

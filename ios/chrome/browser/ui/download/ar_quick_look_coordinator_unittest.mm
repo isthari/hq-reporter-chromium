@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,26 +8,25 @@
 
 #import <memory>
 
-#include "base/base_paths.h"
-#include "base/files/file_path.h"
-#include "base/path_service.h"
-#include "base/strings/sys_string_conversions.h"
+#import "base/base_paths.h"
+#import "base/files/file_path.h"
+#import "base/path_service.h"
+#import "base/strings/sys_string_conversions.h"
 #import "base/test/ios/wait_util.h"
-#include "base/test/metrics/histogram_tester.h"
-#include "base/test/task_environment.h"
-#include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
+#import "base/test/metrics/histogram_tester.h"
+#import "base/test/task_environment.h"
 #import "ios/chrome/browser/download/ar_quick_look_tab_helper.h"
 #import "ios/chrome/browser/download/ar_quick_look_tab_helper_delegate.h"
-#include "ios/chrome/browser/download/download_test_util.h"
-#import "ios/chrome/browser/main/test_browser.h"
-#include "ios/chrome/browser/ui/util/ui_util.h"
-#import "ios/chrome/browser/web_state_list/fake_web_state_list_delegate.h"
-#import "ios/chrome/browser/web_state_list/web_state_list.h"
-#import "ios/chrome/browser/web_state_list/web_state_opener.h"
+#import "ios/chrome/browser/download/download_test_util.h"
+#import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
+#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/web_state_list/test/fake_web_state_list_delegate.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_opener.h"
 #import "ios/chrome/test/scoped_key_window.h"
 #import "ios/web/public/test/fakes/fake_web_state.h"
-#include "testing/gtest/include/gtest/gtest.h"
-#include "testing/platform_test.h"
+#import "testing/gtest/include/gtest/gtest.h"
+#import "testing/platform_test.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -72,9 +71,13 @@ class ARQuickLookCoordinatorTest : public PlatformTest {
 
   ~ARQuickLookCoordinatorTest() override { [coordinator_ stop]; }
 
+  web::WebState* web_state() {
+    DCHECK_GE(browser_->GetWebStateList()->count(), 1);
+    return browser_->GetWebStateList()->GetWebStateAt(0);
+  }
+
   ARQuickLookTabHelper* tab_helper() {
-    return ARQuickLookTabHelper::FromWebState(
-        browser_->GetWebStateList()->GetWebStateAt(0));
+    return ARQuickLookTabHelper::FromWebState(web_state());
   }
 
   // Needed for test browser state created by TestBrowser().
@@ -116,9 +119,10 @@ TEST_F(ARQuickLookCoordinatorTest, ValidUSDZFile) {
   NSURL* fileURL =
       [NSURL fileURLWithPath:base::SysUTF8ToNSString(path.value())];
 
-  [tab_helper()->delegate() ARQuickLookTabHelper:tab_helper()
-                  didFinishDowloadingFileWithURL:fileURL
-                            allowsContentScaling:YES];
+  [tab_helper()->delegate() presentUSDZFileWithURL:fileURL
+                                      canonicalURL:nil
+                                          webState:web_state()
+                               allowContentScaling:YES];
 
   EXPECT_TRUE(WaitUntilConditionOrTimeout(kWaitForUIElementTimeout, ^{
     return [base_view_controller_.presentedViewController class] ==
@@ -134,9 +138,10 @@ TEST_F(ARQuickLookCoordinatorTest, ValidUSDZFile) {
 
 // Tests attempting to present an invalid USDZ file.
 TEST_F(ARQuickLookCoordinatorTest, InvalidUSDZFile) {
-  [tab_helper()->delegate() ARQuickLookTabHelper:tab_helper()
-                  didFinishDowloadingFileWithURL:nil
-                            allowsContentScaling:YES];
+  [tab_helper()->delegate() presentUSDZFileWithURL:nil
+                                      canonicalURL:nil
+                                          webState:web_state()
+                               allowContentScaling:YES];
 
   EXPECT_FALSE(WaitUntilConditionOrTimeout(kWaitForUIElementTimeout, ^{
     return [base_view_controller_.presentedViewController class] ==
@@ -155,9 +160,10 @@ TEST_F(ARQuickLookCoordinatorTest, MultipleValidUSDZFiles) {
   base::FilePath path = GetTestFilePath();
   NSURL* fileURL =
       [NSURL fileURLWithPath:base::SysUTF8ToNSString(path.value())];
-  [tab_helper()->delegate() ARQuickLookTabHelper:tab_helper()
-                  didFinishDowloadingFileWithURL:fileURL
-                            allowsContentScaling:YES];
+  [tab_helper()->delegate() presentUSDZFileWithURL:fileURL
+                                      canonicalURL:nil
+                                          webState:web_state()
+                               allowContentScaling:YES];
 
   EXPECT_TRUE(WaitUntilConditionOrTimeout(kWaitForUIElementTimeout, ^{
     return [base_view_controller_.presentedViewController class] ==
@@ -174,9 +180,10 @@ TEST_F(ARQuickLookCoordinatorTest, MultipleValidUSDZFiles) {
   UIViewController* presented_view_controller =
       base_view_controller_.presentedViewController;
 
-  [tab_helper()->delegate() ARQuickLookTabHelper:tab_helper()
-                  didFinishDowloadingFileWithURL:fileURL
-                            allowsContentScaling:YES];
+  [tab_helper()->delegate() presentUSDZFileWithURL:fileURL
+                                      canonicalURL:nil
+                                          webState:web_state()
+                               allowContentScaling:YES];
 
   // The attempt is ignored.
   EXPECT_EQ(presented_view_controller,
@@ -206,9 +213,10 @@ TEST_F(ARQuickLookCoordinatorTest, AnotherViewControllerIsPresented) {
   base::FilePath path = GetTestFilePath();
   NSURL* fileURL =
       [NSURL fileURLWithPath:base::SysUTF8ToNSString(path.value())];
-  [tab_helper()->delegate() ARQuickLookTabHelper:tab_helper()
-                  didFinishDowloadingFileWithURL:fileURL
-                            allowsContentScaling:YES];
+  [tab_helper()->delegate() presentUSDZFileWithURL:fileURL
+                                      canonicalURL:nil
+                                          webState:web_state()
+                               allowContentScaling:YES];
 
   // The attempt is ignored.
   EXPECT_EQ(presented_view_controller,

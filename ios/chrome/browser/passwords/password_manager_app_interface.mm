@@ -1,23 +1,26 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/passwords/password_manager_app_interface.h"
 
-#include "base/strings/sys_string_conversions.h"
-#include "base/strings/utf_string_conversions.h"
-#include "base/test/ios/wait_util.h"
-#include "components/keyed_service/core/service_access_type.h"
-#include "components/password_manager/core/browser/password_form.h"
-#include "components/password_manager/core/browser/password_store_consumer.h"
-#include "components/password_manager/core/browser/password_store_interface.h"
-#include "ios/chrome/browser/passwords/ios_chrome_password_store_factory.h"
+#import "base/strings/sys_string_conversions.h"
+#import "base/strings/utf_string_conversions.h"
+#import "base/test/ios/wait_util.h"
+#import "components/keyed_service/core/service_access_type.h"
+#import "components/password_manager/core/browser/password_form.h"
+#import "components/password_manager/core/browser/password_store_consumer.h"
+#import "components/password_manager/core/browser/password_store_interface.h"
+#import "components/password_manager/core/common/password_manager_pref_names.h"
+#import "components/prefs/pref_service.h"
+#import "ios/chrome/browser/passwords/ios_chrome_password_store_factory.h"
+#import "ios/chrome/browser/shared/model/browser_state/chrome_browser_state.h"
 #import "ios/chrome/test/app/chrome_test_util.h"
 #import "ios/chrome/test/app/tab_test_util.h"
 #import "ios/testing/nserror_util.h"
 #import "ios/web/public/web_state.h"
-#include "net/base/mac/url_conversions.h"
-#include "url/gurl.h"
+#import "net/base/mac/url_conversions.h"
+#import "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -123,6 +126,11 @@ class PasswordStoreConsumerHelper : public PasswordStoreConsumer {
       consumer.WaitForResult();
 
   return credentials.size();
+}
+
++ (void)setAccountStorageNoticeShown:(BOOL)shown {
+  chrome_test_util::GetOriginalBrowserState()->GetPrefs()->SetBoolean(
+      password_manager::prefs::kAccountStorageNoticeShown, shown);
 }
 
 @end

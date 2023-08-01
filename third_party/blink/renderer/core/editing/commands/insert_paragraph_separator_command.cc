@@ -166,7 +166,8 @@ Element* InsertParagraphSeparatorCommand::CloneHierarchyUnderNewBlock(
   // Make clones of ancestors in between the start node and the start block.
   Element* parent = block_to_insert;
   for (wtf_size_t i = ancestors.size(); i != 0; --i) {
-    Element& child = ancestors[i - 1]->CloneWithoutChildren();
+    Element& ancestor = *ancestors[i - 1];
+    Element& child = ancestor.CloneWithoutChildren();
     // It should always be okay to remove id from the cloned elements, since the
     // originals are not deleted.
     child.removeAttribute(html_names::kIdAttr);
@@ -488,7 +489,7 @@ void InsertParagraphSeparatorCommand::DoApply(EditingState* editing_state) {
   if (leading_whitespace.IsNotNull()) {
     if (auto* text_node = DynamicTo<Text>(leading_whitespace.AnchorNode())) {
       DCHECK(!text_node->GetLayoutObject() ||
-             text_node->GetLayoutObject()->Style()->CollapseWhiteSpace())
+             text_node->GetLayoutObject()->Style()->ShouldCollapseWhiteSpaces())
           << text_node;
       ReplaceTextInNode(text_node,
                         leading_whitespace.ComputeOffsetInContainerNode(), 1,
@@ -591,7 +592,7 @@ void InsertParagraphSeparatorCommand::DoApply(EditingState* editing_state) {
              position_after_split.ComputeContainerNode()
                  ->GetLayoutObject()
                  ->Style()
-                 ->CollapseWhiteSpace())
+                 ->ShouldCollapseWhiteSpaces())
           << position_after_split;
       DeleteInsignificantTextDownstream(position_after_split);
       if (position_after_split.AnchorNode()->IsTextNode()) {

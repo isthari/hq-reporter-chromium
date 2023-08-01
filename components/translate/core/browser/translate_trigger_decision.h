@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -66,6 +66,7 @@ struct TranslateTriggerDecision {
   std::string auto_translate_target;
   std::string href_translate_source;
   std::string href_translate_target;
+  std::string predefined_translate_source;
   std::string predefined_translate_target;
 
  private:

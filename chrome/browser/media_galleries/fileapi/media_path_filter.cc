@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,6 @@
 #include <string>
 
 #include "base/containers/cxx20_erase.h"
-#include "base/cxx17_backports.h"
 #include "base/strings/string_util.h"
 #include "build/build_config.h"
 #include "net/base/mime_util.h"
@@ -138,7 +137,7 @@ bool MediaPathFilter::ShouldSkip(const base::FilePath& path) {
 
 MediaPathFilter::MediaPathFilter()
     : initialized_(false) {
-  sequence_checker_.DetachFromSequence();
+  DETACH_FROM_SEQUENCE(sequence_checker_);
 }
 
 MediaPathFilter::~MediaPathFilter() {
@@ -158,7 +157,7 @@ MediaGalleryFileType MediaPathFilter::GetType(const base::FilePath& path) {
 }
 
 void MediaPathFilter::EnsureInitialized() {
-  DCHECK(sequence_checker_.CalledOnValidSequence());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (initialized_)
     return;
 
@@ -172,16 +171,13 @@ void MediaPathFilter::EnsureInitialized() {
   AddExtensionsToMediaFileExtensionMap(GetMediaExtensionList("video/*"),
                                        MEDIA_GALLERY_FILE_TYPE_VIDEO);
   AddAdditionalExtensionsToMediaFileExtensionMap(
-      kExtraSupportedImageExtensions,
-      base::size(kExtraSupportedImageExtensions),
+      kExtraSupportedImageExtensions, std::size(kExtraSupportedImageExtensions),
       MEDIA_GALLERY_FILE_TYPE_IMAGE);
   AddAdditionalExtensionsToMediaFileExtensionMap(
-      kExtraSupportedAudioExtensions,
-      base::size(kExtraSupportedAudioExtensions),
+      kExtraSupportedAudioExtensions, std::size(kExtraSupportedAudioExtensions),
       MEDIA_GALLERY_FILE_TYPE_AUDIO);
   AddAdditionalExtensionsToMediaFileExtensionMap(
-      kExtraSupportedVideoExtensions,
-      base::size(kExtraSupportedVideoExtensions),
+      kExtraSupportedVideoExtensions, std::size(kExtraSupportedVideoExtensions),
       MEDIA_GALLERY_FILE_TYPE_VIDEO);
 
   initialized_ = true;

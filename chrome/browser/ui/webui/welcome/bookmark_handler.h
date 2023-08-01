@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -26,8 +26,8 @@ class BookmarkHandler : public content::WebUIMessageHandler {
   void RegisterMessages() override;
 
   // Callbacks for JS APIs.
-  void HandleToggleBookmarkBar(const base::ListValue* args);
-  void HandleIsBookmarkBarShown(const base::ListValue* args);
+  void HandleToggleBookmarkBar(const base::Value::List& args);
+  void HandleIsBookmarkBarShown(const base::Value::List& args);
 
  private:
   // Weak reference.

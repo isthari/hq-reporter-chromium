@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,7 +12,6 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewGroup.MarginLayoutParams;
 import android.view.accessibility.AccessibilityEvent;
-import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.RelativeLayout;
@@ -28,6 +27,7 @@ import androidx.recyclerview.widget.RecyclerView.OnScrollListener;
 import androidx.recyclerview.widget.SnapHelper;
 
 import org.chromium.chrome.browser.content_creation.internal.R;
+import org.chromium.components.browser_ui.widget.FullscreenAlertDialog;
 import org.chromium.components.content_creation.notes.models.NoteTemplate;
 import org.chromium.ui.modelutil.LayoutViewBuilder;
 import org.chromium.ui.modelutil.MVCListAdapter.ModelList;
@@ -48,7 +48,6 @@ public class NoteCreationDialog extends DialogFragment {
     private String mSelectedText;
     private int mSelectedItemIndex;
     private Toast mToast;
-    private boolean mIsPublishAvailable;
     private int mNbTemplateSwitches;
     private boolean mInitialized;
     private Runnable mExecuteActionForAccessibility;
@@ -59,13 +58,11 @@ public class NoteCreationDialog extends DialogFragment {
     private NoteDialogObserver mNoteDialogObserver;
 
     public void initDialog(NoteDialogObserver noteDialogObserver, String urlDomain, String title,
-            String selectedText, boolean isPublishAvailable,
-            Runnable executeActionForAccessibility) {
+            String selectedText, Runnable executeActionForAccessibility) {
         mNoteDialogObserver = noteDialogObserver;
         mUrlDomain = urlDomain;
         mTitle = title;
         mSelectedText = selectedText;
-        mIsPublishAvailable = isPublishAvailable;
         mInitialized = true;
         mExecuteActionForAccessibility = executeActionForAccessibility;
     }
@@ -80,18 +77,12 @@ public class NoteCreationDialog extends DialogFragment {
 
     @Override
     public Dialog onCreateDialog(Bundle savedInstanceState) {
-        AlertDialog.Builder builder =
-                new AlertDialog.Builder(getActivity(), R.style.ThemeOverlay_BrowserUI_Fullscreen);
+        AlertDialog.Builder builder = new FullscreenAlertDialog.Builder(getActivity());
         mContentView = getActivity().getLayoutInflater().inflate(R.layout.creation_dialog, null);
         builder.setView(mContentView);
 
-        setTitleTopMargin();
+        setTopMargin();
         addOrRemoveScrollView();
-
-        if (mIsPublishAvailable) {
-            Button publishButton = (Button) mContentView.findViewById(R.id.publish);
-            publishButton.setVisibility(View.VISIBLE);
-        }
 
         if (mNoteDialogObserver != null) mNoteDialogObserver.onViewCreated(mContentView);
 
@@ -111,7 +102,7 @@ public class NoteCreationDialog extends DialogFragment {
         }
 
         // Title top margin depends on screen orientation.
-        setTitleTopMargin();
+        setTopMargin();
 
         // Add or remove scroll view as needed.
         addOrRemoveScrollView();
@@ -289,7 +280,6 @@ public class NoteCreationDialog extends DialogFragment {
         params.setMarginStart(paddingLeft);
         params.setMarginEnd(paddingRight);
         itemView.setLayoutParams(params);
-        itemView.requestLayout();
     }
 
     private void maybeShowToast() {
@@ -334,18 +324,20 @@ public class NoteCreationDialog extends DialogFragment {
         layoutManager.scrollToPositionWithOffset(mSelectedItemIndex, centerOfScreen);
     }
 
-    private void setTitleTopMargin() {
+    private void setTopMargin() {
         // Push down the note title depending on screensize.
         int minTopMargin = getActivity().getResources().getDimensionPixelSize(
                 R.dimen.note_title_min_top_margin);
         int screenHeight = getActivity().getResources().getDisplayMetrics().heightPixels;
         int topMarginOffset = getActivity().getResources().getDimensionPixelSize(
                 R.dimen.note_title_top_margin_offset);
-        View titleView = mContentView.findViewById(R.id.title);
-        MarginLayoutParams params = (MarginLayoutParams) titleView.getLayoutParams();
+        int templateWidth =
+                (int) getActivity().getResources().getDimensionPixelSize(R.dimen.note_width);
+
+        View firstView = mContentView.findViewById(R.id.title);
+        MarginLayoutParams params = (MarginLayoutParams) firstView.getLayoutParams();
         params.topMargin = (int) (minTopMargin + (screenHeight - topMarginOffset) * 0.15f);
-        titleView.setLayoutParams(params);
-        titleView.requestLayout();
+        firstView.setLayoutParams(params);
     }
 
     private void addScrollView() {

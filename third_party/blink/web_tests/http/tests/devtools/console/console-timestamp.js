@@ -1,10 +1,13 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {TestRunner} from 'test_runner';
+import {ConsoleTestRunner} from 'console_test_runner';
+
 (async function() {
   TestRunner.addResult(`Tests the console timestamp setting.\n`);
-  await TestRunner.loadLegacyModule('console'); await TestRunner.loadTestModule('console_test_runner');
+  await TestRunner.loadLegacyModule('console');
   await TestRunner.showPanel('console');
 
   // It is essential that we calculate timezone for this particular moment of time
@@ -25,7 +28,8 @@
           // timestamp: 2014-05-13T16:53:20.123Z
           timestamp: timestamp || baseTimestamp + 123,
         });
-    SDK.consoleModel.addMessage(message, true);  // allowGrouping
+    const consoleModel = SDK.targetManager.primaryPageTarget().model(SDK.ConsoleModel);
+    consoleModel.addMessage(message, true);  // allowGrouping
   }
 
   TestRunner.addResult('Console messages with timestamps disabled:');

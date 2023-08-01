@@ -1,12 +1,15 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+import {TestRunner} from 'test_runner';
+import {ApplicationTestRunner} from 'application_test_runner';
+import {NetworkTestRunner} from 'network_test_runner';
 
 (async function() {
     'use strict';
     TestRunner.addResult(`Tests that serviceworker timings are displayed correctly.\n`);
-    await TestRunner.loadLegacyModule('console'); await TestRunner.loadTestModule('application_test_runner');
-    await TestRunner.loadTestModule('network_test_runner');
+    await TestRunner.loadLegacyModule('console');
     await TestRunner.showPanel('network');
 
     await TestRunner.reloadPagePromise();

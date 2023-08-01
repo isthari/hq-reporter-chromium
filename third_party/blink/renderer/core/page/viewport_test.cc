@@ -28,8 +28,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "base/test/scoped_feature_list.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/public/platform/web_url_loader_mock_factory.h"
+#include "third_party/blink/public/common/features.h"
 #include "third_party/blink/public/web/web_console_message.h"
 #include "third_party/blink/public/web/web_frame.h"
 #include "third_party/blink/public/web/web_local_frame.h"
@@ -51,7 +52,9 @@
 #include "third_party/blink/renderer/platform/testing/histogram_tester.h"
 #include "third_party/blink/renderer/platform/testing/testing_platform_support.h"
 #include "third_party/blink/renderer/platform/testing/unit_test_helpers.h"
+#include "third_party/blink/renderer/platform/testing/url_loader_mock_factory.h"
 #include "third_party/blink/renderer/platform/testing/url_test_helpers.h"
+#include "ui/base/ime/mojom/virtual_keyboard_types.mojom-blink.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
@@ -88,10 +91,6 @@ class ViewportTest : public testing::Test {
     blink::test::RunPendingTasks();
   }
 
-  void SetUseZoomForDSF(bool use_zoom_for_dsf) {
-    platform_->SetUseZoomForDSF(use_zoom_for_dsf);
-  }
-
   std::string base_url_;
   std::string chrome_url_;
 
@@ -120,96 +119,6 @@ static PageScaleConstraints RunViewportTest(Page* page,
                                  initial_width);
   constraints.ResolveAutoInitialScale();
   return constraints;
-}
-
-TEST_F(ViewportTest, viewport1) {
-  RegisterMockedHttpURLLoad("viewport/viewport-1.html");
-
-  frame_test_helpers::WebViewHelper web_view_helper;
-  web_view_helper.InitializeAndLoad(base_url_ + "viewport/viewport-1.html",
-                                    nullptr, nullptr, SetViewportSettings);
-
-  Page* page = web_view_helper.GetWebView()->GetPage();
-  PageScaleConstraints constraints = RunViewportTest(page, 320, 352);
-
-  EXPECT_EQ(320, constraints.layout_size.width());
-  EXPECT_EQ(352, constraints.layout_size.height());
-  EXPECT_NEAR(1.0f, constraints.initial_scale, 0.01f);
-  EXPECT_NEAR(1.0f, constraints.minimum_scale, 0.01f);
-  EXPECT_NEAR(5.0f, constraints.maximum_scale, 0.01f);
-  EXPECT_TRUE(page->GetViewportDescription().user_zoom);
-}
-
-TEST_F(ViewportTest, viewport2) {
-  RegisterMockedHttpURLLoad("viewport/viewport-2.html");
-
-  frame_test_helpers::WebViewHelper web_view_helper;
-  web_view_helper.InitializeAndLoad(base_url_ + "viewport/viewport-2.html",
-                                    nullptr, nullptr, SetViewportSettings);
-
-  Page* page = web_view_helper.GetWebView()->GetPage();
-  PageScaleConstraints constraints = RunViewportTest(page, 320, 352);
-
-  EXPECT_EQ(980, constraints.layout_size.width());
-  EXPECT_EQ(352, constraints.layout_size.height());
-  EXPECT_NEAR(0.32f, constraints.initial_scale, 0.01f);
-  EXPECT_NEAR(0.32f, constraints.minimum_scale, 0.01f);
-  EXPECT_NEAR(5.0f, constraints.maximum_scale, 0.01f);
-  EXPECT_TRUE(page->GetViewportDescription().user_zoom);
-}
-
-TEST_F(ViewportTest, viewport3) {
-  RegisterMockedHttpURLLoad("viewport/viewport-3.html");
-
-  frame_test_helpers::WebViewHelper web_view_helper;
-  web_view_helper.InitializeAndLoad(base_url_ + "viewport/viewport-3.html",
-                                    nullptr, nullptr, SetViewportSettings);
-
-  Page* page = web_view_helper.GetWebView()->GetPage();
-  PageScaleConstraints constraints = RunViewportTest(page, 320, 352);
-
-  EXPECT_EQ(320, constraints.layout_size.width());
-  EXPECT_EQ(352, constraints.layout_size.height());
-  EXPECT_NEAR(1.0f, constraints.initial_scale, 0.01f);
-  EXPECT_NEAR(1.0f, constraints.minimum_scale, 0.01f);
-  EXPECT_NEAR(5.0f, constraints.maximum_scale, 0.01f);
-  EXPECT_TRUE(page->GetViewportDescription().user_zoom);
-}
-
-TEST_F(ViewportTest, viewport4) {
-  RegisterMockedHttpURLLoad("viewport/viewport-4.html");
-
-  frame_test_helpers::WebViewHelper web_view_helper;
-  web_view_helper.InitializeAndLoad(base_url_ + "viewport/viewport-4.html",
-                                    nullptr, nullptr, SetViewportSettings);
-
-  Page* page = web_view_helper.GetWebView()->GetPage();
-  PageScaleConstraints constraints = RunViewportTest(page, 320, 352);
-
-  EXPECT_EQ(160, constraints.layout_size.width());
-  EXPECT_EQ(176, constraints.layout_size.height());
-  EXPECT_NEAR(2.0f, constraints.initial_scale, 0.01f);
-  EXPECT_NEAR(2.0f, constraints.minimum_scale, 0.01f);
-  EXPECT_NEAR(5.0f, constraints.maximum_scale, 0.01f);
-  EXPECT_TRUE(page->GetViewportDescription().user_zoom);
-}
-
-TEST_F(ViewportTest, viewport5) {
-  RegisterMockedHttpURLLoad("viewport/viewport-5.html");
-
-  frame_test_helpers::WebViewHelper web_view_helper;
-  web_view_helper.InitializeAndLoad(base_url_ + "viewport/viewport-5.html",
-                                    nullptr, nullptr, SetViewportSettings);
-
-  Page* page = web_view_helper.GetWebView()->GetPage();
-  PageScaleConstraints constraints = RunViewportTest(page, 320, 352);
-
-  EXPECT_EQ(640, constraints.layout_size.width());
-  EXPECT_EQ(704, constraints.layout_size.height());
-  EXPECT_NEAR(0.5f, constraints.initial_scale, 0.01f);
-  EXPECT_NEAR(0.5f, constraints.minimum_scale, 0.01f);
-  EXPECT_NEAR(5.0f, constraints.maximum_scale, 0.01f);
-  EXPECT_TRUE(page->GetViewportDescription().user_zoom);
 }
 
 TEST_F(ViewportTest, viewport6) {
@@ -2841,7 +2750,7 @@ TEST_F(ViewportTest, viewportWarnings1) {
   Page* page = web_view_helper.GetWebView()->GetPage();
   PageScaleConstraints constraints = RunViewportTest(page, 320, 352);
 
-  EXPECT_TRUE(web_frame_client.messages.IsEmpty());
+  EXPECT_TRUE(web_frame_client.messages.empty());
 
   EXPECT_EQ(320, constraints.layout_size.width());
   EXPECT_EQ(352, constraints.layout_size.height());
@@ -3026,9 +2935,8 @@ TEST_F(ViewportTest, viewportWarnings8) {
   EXPECT_EQ(0U, web_frame_client.messages.size());
 }
 
-TEST_F(ViewportTest, viewportUseZoomForDSF1) {
+TEST_F(ViewportTest, viewport1) {
   RegisterMockedHttpURLLoad("viewport/viewport-legacy-merge-quirk-1.html");
-  SetUseZoomForDSF(true);
 
   frame_test_helpers::WebViewHelper web_view_helper;
   WebViewImpl* web_view_impl =
@@ -3039,14 +2947,11 @@ TEST_F(ViewportTest, viewportUseZoomForDSF1) {
       base_url_ + "viewport/viewport-legacy-merge-quirk-1.html");
 
   Page* page = web_view_helper.GetWebView()->GetPage();
-  // Initial width and height must be scaled by DSF when --use-zoom-for-dsf
-  // is enabled.
+  // Initial width and height must be scaled by DSF.
   PageScaleConstraints constraints = RunViewportTest(page, 960, 1056);
 
-  // When --use-zoom-for-dsf is enabled,
   // constraints layout width == 640 * DSF = 1920
   EXPECT_EQ(1920, constraints.layout_size.width());
-  // When --use-zoom-for-dsf is enabled,
   // constraints layout height == 704 * DSF = 2112
   EXPECT_EQ(2112, constraints.layout_size.height());
   EXPECT_NEAR(1.0f, constraints.initial_scale, 0.01f);
@@ -3055,9 +2960,8 @@ TEST_F(ViewportTest, viewportUseZoomForDSF1) {
   EXPECT_FALSE(page->GetViewportDescription().user_zoom);
 }
 
-TEST_F(ViewportTest, viewportUseZoomForDSF2) {
+TEST_F(ViewportTest, viewport2) {
   RegisterMockedHttpURLLoad("viewport/viewport-legacy-merge-quirk-2.html");
-  SetUseZoomForDSF(true);
 
   frame_test_helpers::WebViewHelper web_view_helper;
   WebViewImpl* web_view_impl =
@@ -3070,14 +2974,11 @@ TEST_F(ViewportTest, viewportUseZoomForDSF2) {
 
   // This quirk allows content attributes of meta viewport tags to be merged.
   page->GetSettings().SetViewportMetaMergeContentQuirk(true);
-  // Initial width and height must be scaled by DSF when --use-zoom-for-dsf
-  // is enabled.
+  // Initial width and height must be scaled by DSF.
   PageScaleConstraints constraints = RunViewportTest(page, 960, 1056);
 
-  // When --use-zoom-for-dsf is enabled,
   // constraints layout width == 500 * DSF = 1500
   EXPECT_EQ(1500, constraints.layout_size.width());
-  // When --use-zoom-for-dsf is enabled,
   // constraints layout height == 550 * DSF = 1650
   EXPECT_EQ(1650, constraints.layout_size.height());
   EXPECT_NEAR(2.0f, constraints.initial_scale, 0.01f);
@@ -3086,9 +2987,8 @@ TEST_F(ViewportTest, viewportUseZoomForDSF2) {
   EXPECT_FALSE(page->GetViewportDescription().user_zoom);
 }
 
-TEST_F(ViewportTest, viewportUseZoomForDSF3) {
+TEST_F(ViewportTest, viewport3) {
   RegisterMockedHttpURLLoad("viewport/viewport-48.html");
-  SetUseZoomForDSF(true);
 
   frame_test_helpers::WebViewHelper web_view_helper;
   WebViewImpl* web_view_impl =
@@ -3098,11 +2998,9 @@ TEST_F(ViewportTest, viewportUseZoomForDSF3) {
                                 base_url_ + "viewport/viewport-48.html");
 
   Page* page = web_view_helper.GetWebView()->GetPage();
-  // Initial width and height must be scaled by DSF when --use-zoom-for-dsf
-  // is enabled.
+  // Initial width and height must be scaled by DSF.
   PageScaleConstraints constraints = RunViewportTest(page, 960, 1056);
 
-  // When --use-zoom-for-dsf is enabled,
   // constraints layout width == 3000 * DSF = 9000
   EXPECT_EQ(9000, constraints.layout_size.width());
   EXPECT_EQ(1056, constraints.layout_size.height());
@@ -3112,9 +3010,8 @@ TEST_F(ViewportTest, viewportUseZoomForDSF3) {
   EXPECT_TRUE(page->GetViewportDescription().user_zoom);
 }
 
-TEST_F(ViewportTest, viewportUseZoomForDSF4) {
+TEST_F(ViewportTest, viewport4) {
   RegisterMockedHttpURLLoad("viewport/viewport-39.html");
-  SetUseZoomForDSF(true);
 
   frame_test_helpers::WebViewHelper web_view_helper;
   WebViewImpl* web_view_impl =
@@ -3124,14 +3021,11 @@ TEST_F(ViewportTest, viewportUseZoomForDSF4) {
                                 base_url_ + "viewport/viewport-39.html");
 
   Page* page = web_view_helper.GetWebView()->GetPage();
-  // Initial width and height must be scaled by DSF when --use-zoom-for-dsf
-  // is enabled.
+  // Initial width and height must be scaled by DSF.
   PageScaleConstraints constraints = RunViewportTest(page, 960, 1056);
 
-  // When --use-zoom-for-dsf is enabled,
   // constraints layout width == 200 * DSF = 600
   EXPECT_EQ(600, constraints.layout_size.width());
-  // When --use-zoom-for-dsf is enabled,
   // constraints layout height == 700 * DSF = 2100
   EXPECT_EQ(2100, constraints.layout_size.height());
   EXPECT_NEAR(1.6f, constraints.initial_scale, 0.01f);
@@ -3143,9 +3037,8 @@ TEST_F(ViewportTest, viewportUseZoomForDSF4) {
 // Verifies that the value clamping from
 // https://www.w3.org/TR/css-device-adapt-1/#width-and-height-properties
 // applies to CSS pixel not physical pixel.
-TEST_F(ViewportTest, viewportUseZoomForDSF5) {
+TEST_F(ViewportTest, viewport5) {
   RegisterMockedHttpURLLoad("viewport/viewport-48.html");
-  SetUseZoomForDSF(true);
 
   frame_test_helpers::WebViewHelper web_view_helper;
   WebViewImpl* web_view_impl =
@@ -3155,11 +3048,9 @@ TEST_F(ViewportTest, viewportUseZoomForDSF5) {
                                 base_url_ + "viewport/viewport-48.html");
 
   Page* page = web_view_helper.GetWebView()->GetPage();
-  // Initial width and height must be scaled by DSF when --use-zoom-for-dsf
-  // is enabled.
+  // Initial width and height must be scaled by DSF.
   PageScaleConstraints constraints = RunViewportTest(page, 960, 1056);
 
-  // When --use-zoom-for-dsf is enabled,
   // constraints layout width == 3000 * DSF = 12000 and it should not be clamped
   // to 10000.
   EXPECT_EQ(12000, constraints.layout_size.width());
@@ -3255,6 +3146,306 @@ TEST_F(ViewportHistogramsTest, TypeXhtml) {
       "<!DOCTYPE html PUBLIC '-//WAPFORUM//DTD XHTML Mobile 1.1//EN' "
       "'http://www.openmobilealliance.org/tech/DTD/xhtml-mobile11.dtd'");
   ExpectType(ViewportDescription::ViewportUMAType::kXhtmlMobileProfile);
+}
+
+class ViewportMetaSimTest : public SimTest {
+ public:
+  ViewportMetaSimTest() = default;
+
+  void SetUp() override {
+    SimTest::SetUp();
+    WebView().GetSettings()->SetViewportEnabled(true);
+    WebView().GetSettings()->SetViewportMetaEnabled(true);
+    WebView().GetSettings()->SetViewportStyle(
+        mojom::blink::ViewportStyle::kMobile);
+    WebView().MainFrameViewWidget()->Resize(gfx::Size(800, 600));
+  }
+
+  void LoadPageWithHTML(const String& html) {
+    SimRequest request("https://example.com/test.html", "text/html");
+    LoadURL("https://example.com/test.html");
+    request.Complete(html);
+    blink::test::RunPendingTasks();
+  }
+};
+
+// Test that the virtual keyboard mode isn't set when a interactive-widget key
+// isn't provided.
+TEST_F(ViewportMetaSimTest, VirtualKeyboardUnsetWithFlag) {
+  // Without a viewport meta tag.
+  LoadPageWithHTML(R"HTML(
+    <!DOCTYPE html>
+  )HTML");
+  EXPECT_EQ(WebView().VirtualKeyboardModeForTesting(),
+            ui::mojom::blink::VirtualKeyboardMode::kUnset);
+
+  // With a viewport meta tag.
+  LoadPageWithHTML(R"HTML(
+    <!DOCTYPE html>
+    <meta name="viewport" content="width=device-width">
+  )HTML");
+  EXPECT_EQ(WebView().VirtualKeyboardModeForTesting(),
+            ui::mojom::blink::VirtualKeyboardMode::kUnset);
+}
+
+// Test that an invalid value to the interactive-widget property fails to be
+// parsed.
+TEST_F(ViewportMetaSimTest, VirtualKeyboardParsingEnabledByFlag) {
+  LoadPageWithHTML(R"HTML(
+    <!DOCTYPE html>
+    <meta name="viewport" content="interactive-widget=invalid-value">
+  )HTML");
+
+  // Parsing will still fail but now because the value isn't a valid one.
+  EXPECT_EQ(ConsoleMessages().front(),
+            "The value \"invalid-value\" for key \"interactive-widget\" is "
+            "invalid, and has been ignored.");
+}
+
+// Test that the resizes-content value is correctly parsed and set on the
+// interactive-widget key.
+TEST_F(ViewportMetaSimTest, VirtualKeyboardResizesContent) {
+  // Blank page to set the default.
+  LoadPageWithHTML(R"HTML(
+    <!DOCTYPE html>
+  )HTML");
+  ASSERT_EQ(WebView().VirtualKeyboardModeForTesting(),
+            ui::mojom::blink::VirtualKeyboardMode::kUnset);
+
+  // Check resizes-content value is set in a basic test case.
+  LoadPageWithHTML(R"HTML(
+    <!DOCTYPE html>
+    <meta name="viewport" content="interactive-widget=resizes-content">
+  )HTML");
+
+  EXPECT_TRUE(ConsoleMessages().empty()) << ConsoleMessages().front();
+  EXPECT_EQ(WebView().VirtualKeyboardModeForTesting(),
+            ui::mojom::blink::VirtualKeyboardMode::kResizesContent);
+
+  // Ensure a blank page resets the value.
+  LoadPageWithHTML(R"HTML(
+    <!DOCTYPE html>
+  )HTML");
+  EXPECT_EQ(WebView().VirtualKeyboardModeForTesting(),
+            ui::mojom::blink::VirtualKeyboardMode::kUnset);
+
+  // Mixed with other keys.
+  LoadPageWithHTML(R"HTML(
+    <!DOCTYPE html>
+    <meta name="viewport" content="width=device-width,interactive-widget=resizes-content,minimum-scale=1">
+  )HTML");
+
+  EXPECT_TRUE(ConsoleMessages().empty()) << ConsoleMessages().front();
+  EXPECT_EQ(WebView().VirtualKeyboardModeForTesting(),
+            ui::mojom::blink::VirtualKeyboardMode::kResizesContent);
+}
+
+// Test that the resizes-visual value is correctly parsed and set on the
+// interactive-widget key.
+TEST_F(ViewportMetaSimTest, VirtualKeyboardResizeVisual) {
+  // Blank page to set the default.
+  LoadPageWithHTML(R"HTML(
+    <!DOCTYPE html>
+  )HTML");
+  ASSERT_EQ(WebView().VirtualKeyboardModeForTesting(),
+            ui::mojom::blink::VirtualKeyboardMode::kUnset);
+
+  // Check resizes-visual value is set.
+  LoadPageWithHTML(R"HTML(
+    <!DOCTYPE html>
+    <meta name="viewport" content="interactive-widget=resizes-visual">
+  )HTML");
+
+  EXPECT_TRUE(ConsoleMessages().empty()) << ConsoleMessages().front();
+  EXPECT_EQ(WebView().VirtualKeyboardModeForTesting(),
+            ui::mojom::blink::VirtualKeyboardMode::kResizesVisual);
+}
+
+// Test that the overlays-content value is correctly parsed and set on the
+// interactive-widget key.
+TEST_F(ViewportMetaSimTest, VirtualKeyboardOverlaysContent) {
+  // Blank page to set the default.
+  LoadPageWithHTML(R"HTML(
+    <!DOCTYPE html>
+  )HTML");
+  ASSERT_EQ(WebView().VirtualKeyboardModeForTesting(),
+            ui::mojom::blink::VirtualKeyboardMode::kUnset);
+
+  // Check overlays-content value is set.
+  LoadPageWithHTML(R"HTML(
+    <!DOCTYPE html>
+    <meta name="viewport" content="interactive-widget=overlays-content">
+  )HTML");
+
+  EXPECT_TRUE(ConsoleMessages().empty()) << ConsoleMessages().front();
+  EXPECT_EQ(WebView().VirtualKeyboardModeForTesting(),
+            ui::mojom::blink::VirtualKeyboardMode::kOverlaysContent);
+}
+
+// Test that the virtualKeyboard.overlaysContent API overrides any values set
+// from the meta tag and that unsetting it goes back to using the meta tag
+// keyboard mode.
+TEST_F(ViewportMetaSimTest, VirtualKeyboardAPIOverlaysContent) {
+  v8::HandleScope handle_scope(
+      WebView().GetPage()->GetAgentGroupScheduler().Isolate());
+  LoadPageWithHTML(R"HTML(
+    <!DOCTYPE html>
+    <meta name="viewport" content="interactive-widget=resizes-content">
+  )HTML");
+
+  ASSERT_EQ(WebView().VirtualKeyboardModeForTesting(),
+            ui::mojom::blink::VirtualKeyboardMode::kResizesContent);
+
+  MainFrame().ExecuteScript(
+      WebScriptSource("navigator.virtualKeyboard.overlaysContent = true;"));
+
+  EXPECT_EQ(WebView().VirtualKeyboardModeForTesting(),
+            ui::mojom::blink::VirtualKeyboardMode::kOverlaysContent);
+
+  MainFrame().ExecuteScript(
+      WebScriptSource("navigator.virtualKeyboard.overlaysContent = false;"));
+
+  EXPECT_EQ(WebView().VirtualKeyboardModeForTesting(),
+            ui::mojom::blink::VirtualKeyboardMode::kResizesContent);
+}
+
+// Ensure that updating the content to a bad value causes the mode to become
+// unset.
+TEST_F(ViewportMetaSimTest, VirtualKeyboardUpdateContent) {
+  LoadPageWithHTML(R"HTML(
+    <!DOCTYPE html>
+    <meta name="viewport" content="interactive-widget=resizes-content">
+  )HTML");
+
+  ASSERT_EQ(WebView().VirtualKeyboardModeForTesting(),
+            ui::mojom::blink::VirtualKeyboardMode::kResizesContent);
+
+  Element* meta = GetDocument().QuerySelector("[name=viewport]");
+  meta->setAttribute(html_names::kContentAttr, "interactive-widget=bad-value");
+
+  EXPECT_EQ(WebView().VirtualKeyboardModeForTesting(),
+            ui::mojom::blink::VirtualKeyboardMode::kUnset);
+}
+
+// Test use counters for values of the 'interactive-widget' property.
+TEST_F(ViewportMetaSimTest, InteractiveWidgetUseCounters) {
+  // Property unset.
+  {
+    LoadPageWithHTML(R"HTML(
+      <!DOCTYPE html>
+      <meta name="viewport" content="width=device-width">
+    )HTML");
+
+    EXPECT_FALSE(GetDocument().IsUseCounted(
+        WebFeature::kInteractiveWidgetResizesVisual));
+    EXPECT_FALSE(GetDocument().IsUseCounted(
+        WebFeature::kInteractiveWidgetResizesContent));
+    EXPECT_FALSE(GetDocument().IsUseCounted(
+        WebFeature::kInteractiveWidgetOverlaysContent));
+  }
+
+  // resizes-visual.
+  {
+    LoadPageWithHTML(R"HTML(
+      <!DOCTYPE html>
+      <meta name="viewport" content="interactive-widget=resizes-visual">
+    )HTML");
+
+    EXPECT_TRUE(GetDocument().IsUseCounted(
+        WebFeature::kInteractiveWidgetResizesVisual));
+    EXPECT_FALSE(GetDocument().IsUseCounted(
+        WebFeature::kInteractiveWidgetResizesContent));
+    EXPECT_FALSE(GetDocument().IsUseCounted(
+        WebFeature::kInteractiveWidgetOverlaysContent));
+  }
+
+  // resizes-content.
+  {
+    LoadPageWithHTML(R"HTML(
+      <!DOCTYPE html>
+      <meta name="viewport" content="interactive-widget=resizes-content">
+    )HTML");
+
+    EXPECT_FALSE(GetDocument().IsUseCounted(
+        WebFeature::kInteractiveWidgetResizesVisual));
+    EXPECT_TRUE(GetDocument().IsUseCounted(
+        WebFeature::kInteractiveWidgetResizesContent));
+    EXPECT_FALSE(GetDocument().IsUseCounted(
+        WebFeature::kInteractiveWidgetOverlaysContent));
+  }
+
+  // overlays-content.
+  {
+    LoadPageWithHTML(R"HTML(
+      <!DOCTYPE html>
+      <meta name="viewport" content="interactive-widget=overlays-content">
+    )HTML");
+
+    EXPECT_FALSE(GetDocument().IsUseCounted(
+        WebFeature::kInteractiveWidgetResizesVisual));
+    EXPECT_FALSE(GetDocument().IsUseCounted(
+        WebFeature::kInteractiveWidgetResizesContent));
+    EXPECT_TRUE(GetDocument().IsUseCounted(
+        WebFeature::kInteractiveWidgetOverlaysContent));
+  }
+}
+
+// Test that the zoom factor for the device scale is used in the calculation of
+// the viewport layout width when browser zoom is applied.
+TEST_F(ViewportMetaSimTest, PageZoomDoesntAffectMobileLayoutSize_WidthDefault) {
+  const float zoom_factor = 3.f;
+
+  // This will set the device scale zoom factor.
+  WebView().MainFrameWidget()->SetDeviceScaleFactorForTesting(zoom_factor);
+  // This will set the browser zoom level. This must not affect the layout size.
+  WebView().MainFrameWidget()->SetZoomLevelForTesting(1.5f);
+
+  LoadPageWithHTML(R"HTML(
+    <!DOCTYPE html>
+  )HTML");
+
+  Compositor().BeginFrame();
+
+  // 980 (default viewport width) * 3 (zoom factor) = 2940.
+  EXPECT_EQ(2940, GetDocument().View()->GetLayoutSize().width());
+}
+
+TEST_F(ViewportMetaSimTest, PageZoomDoesntAffectMobileLayoutSize_Width1000) {
+  const float zoom_factor = 3.f;
+
+  // This will set the device scale zoom factor.
+  WebView().MainFrameWidget()->SetDeviceScaleFactorForTesting(zoom_factor);
+  // This will set the browser zoom level. This must not affect the layout size.
+  WebView().MainFrameWidget()->SetZoomLevelForTesting(1.5f);
+
+  LoadPageWithHTML(R"HTML(
+    <!DOCTYPE html>
+    <meta name="viewport" content="width=1000">
+  )HTML");
+
+  Compositor().BeginFrame();
+
+  // 1000 (viewport width) * 3 (zoom factor) = 3000.
+  EXPECT_EQ(3000, GetDocument().View()->GetLayoutSize().width());
+}
+
+TEST_F(ViewportMetaSimTest, PageZoomDoesntAffectMobileLayoutSize_WidthDevice) {
+  const float zoom_factor = 3.f;
+
+  // This will set the device scale zoom factor.
+  WebView().MainFrameWidget()->SetDeviceScaleFactorForTesting(zoom_factor);
+  // This will set the browser zoom level. This must not affect the layout size.
+  WebView().MainFrameWidget()->SetZoomLevelForTesting(1.5f);
+
+  LoadPageWithHTML(R"HTML(
+    <!DOCTYPE html>
+    <meta name="viewport" content="width=device-width">
+  )HTML");
+
+  Compositor().BeginFrame();
+
+  // 800 (device width) * 3 (zoom factor) = 2400.
+  EXPECT_EQ(2400, GetDocument().View()->GetLayoutSize().width());
 }
 
 }  // namespace blink

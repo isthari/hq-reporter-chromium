@@ -9,7 +9,6 @@
 <translation id="3444832043240812445">Karşılaştığınız son kilitlenme olayları hakkındaki bilgiler yalnızca <ph name="BEGIN_LINK" />kilitlenme bildirmeyi etkinleştirdiyseniz<ph name="END_LINK" /> bu sayfada gösterilir.</translation>
 <translation id="3875312571075912821">Güvenlik duvarınızın veya virüsten korunma programınızın ayarlarından,
         Chrome'un ağa erişmesine izin verin.</translation>
-<translation id="4010643444566880169">Chrome OS ilk kurulumu tamamlayamadı.</translation>
 <translation id="5005121315113832363">Bu sayfa Chrome tarafından engellendi</translation>
 <translation id="6011049234605203654">Chrome menüsü &gt;
           <ph name="SETTINGS_TITLE" />
@@ -36,4 +35,6 @@
 <translation id="7230956101631259640">Güvenli bir Chrome sayfasını görüntülüyorsunuz.</translation>
 <translation id="8187289872471304532">Uygulamalar &gt; Sistem Tercihleri &gt; Ağ &gt; Gelişmiş &gt; Proxy'ler
           öğesine gidin ve seçilmiş olabilecek proxy'lerin seçimini kaldırın.</translation>
+<translation id="8232971017369963250">Chrome, <ph name="BEGIN_LINK_CHROMIUM" />Chromium<ph name="END_LINK_CHROMIUM" /> açık kaynak projesiyle hazırlanmıştır.</translation>
+<translation id="8279509328145658601">Chrome diğer <ph name="BEGIN_LINK_OSS" />açık kaynak yazılımlardan<ph name="END_LINK_OSS" /> da yararlanılarak geliştirilmiştir.</translation>
 </translationbundle>

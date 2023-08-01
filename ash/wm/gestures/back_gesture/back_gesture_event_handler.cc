@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,18 +7,21 @@
 #include "ash/app_list/app_list_controller_impl.h"
 #include "ash/constants/app_types.h"
 #include "ash/constants/ash_features.h"
+#include "ash/controls/contextual_tooltip.h"
 #include "ash/display/screen_orientation_controller.h"
 #include "ash/keyboard/keyboard_util.h"
 #include "ash/keyboard/ui/keyboard_ui_controller.h"
 #include "ash/session/session_controller_impl.h"
-#include "ash/shelf/contextual_tooltip.h"
 #include "ash/shell.h"
 #include "ash/shell_delegate.h"
 #include "ash/system/model/system_tray_model.h"
 #include "ash/system/model/virtual_keyboard_model.h"
+#include "ash/wm/desks/desks_controller.h"
+#include "ash/wm/float/float_controller.h"
 #include "ash/wm/gestures/back_gesture/back_gesture_affordance.h"
 #include "ash/wm/gestures/back_gesture/back_gesture_contextual_nudge_controller_impl.h"
 #include "ash/wm/overview/overview_controller.h"
+#include "ash/wm/splitview/split_view_constants.h"
 #include "ash/wm/splitview/split_view_divider.h"
 #include "ash/wm/tablet_mode/tablet_mode_controller.h"
 #include "ash/wm/window_state.h"
@@ -44,8 +47,9 @@ constexpr int kDistanceForSplitViewResize = 49;
 // Called by CanStartGoingBack() to check whether we can start swiping from the
 // split view divider to go back.
 bool CanStartGoingBackFromSplitViewDivider(const gfx::Point& screen_location) {
-  if (!IsCurrentScreenOrientationLandscape())
+  if (!IsCurrentScreenOrientationLandscape()) {
     return false;
+  }
 
   // If virtual keyboard is visible when we swipe from the splitview divider
   // area, do not allow go back if the location is inside of the virtual
@@ -59,9 +63,9 @@ bool CanStartGoingBackFromSplitViewDivider(const gfx::Point& screen_location) {
   // Same thing for ARC virtual keyboard as well.
   SystemTrayModel* system_tray_model = Shell::Get()->system_tray_model();
   if (system_tray_model) {
-    auto* arc_keyboard = system_tray_model->virtual_keyboard();
-    if (arc_keyboard->visible() &&
-        arc_keyboard->arc_keyboard_bounds().Contains(screen_location)) {
+    auto* virtual_keyboard = system_tray_model->virtual_keyboard();
+    if (virtual_keyboard->arc_keyboard_visible() &&
+        virtual_keyboard->arc_keyboard_bounds().Contains(screen_location)) {
       return false;
     }
   }
@@ -102,16 +106,14 @@ bool CanStartGoingBackFromSplitViewDivider(const gfx::Point& screen_location) {
   }
 
   if (!base::i18n::IsRTL()) {
-    divider_bounds.set_x(divider_bounds.x() -
-                         SplitViewDivider::kDividerEdgeInsetForTouch);
+    divider_bounds.set_x(divider_bounds.x() - kSplitViewDividerExtraInset);
   } else {
-    divider_bounds.set_x(divider_bounds.x() -
-                         SplitViewDivider::kDividerEdgeInsetForTouch -
+    divider_bounds.set_x(divider_bounds.x() - kSplitViewDividerExtraInset -
                          BackGestureEventHandler::kStartGoingBackLeftEdgeInset);
   }
 
   divider_bounds.set_width(
-      divider_bounds.width() + SplitViewDivider::kDividerEdgeInsetForTouch +
+      divider_bounds.width() + kSplitViewDividerExtraInset +
       BackGestureEventHandler::kStartGoingBackLeftEdgeInset);
   return divider_bounds.Contains(screen_location);
 }
@@ -135,10 +137,10 @@ void ActivateUnderneathWindowInSplitViewMode(
     return;
 
   const bool is_rtl = base::i18n::IsRTL();
-  auto* left_window = is_rtl ? split_view_controller->right_window()
-                             : split_view_controller->left_window();
-  auto* right_window = is_rtl ? split_view_controller->left_window()
-                              : split_view_controller->right_window();
+  auto* left_window = is_rtl ? split_view_controller->secondary_window()
+                             : split_view_controller->primary_window();
+  auto* right_window = is_rtl ? split_view_controller->primary_window()
+                              : split_view_controller->secondary_window();
   const chromeos::OrientationType current_orientation =
       GetCurrentScreenOrientation();
   if (current_orientation == chromeos::OrientationType::kLandscapePrimary) {
@@ -147,17 +149,18 @@ void ActivateUnderneathWindowInSplitViewMode(
              chromeos::OrientationType::kLandscapeSecondary) {
     ActivateWindow(dragged_from_splitview_divider ? left_window : right_window);
   } else {
-    if (left_window &&
-        split_view_controller
-            ->GetSnappedWindowBoundsInScreen(
-                SplitViewController::LEFT, /*window_for_minimum_size=*/nullptr)
-            .Contains(location)) {
+    if (left_window && split_view_controller
+                           ->GetSnappedWindowBoundsInScreen(
+                               SplitViewController::SnapPosition::kPrimary,
+                               /*window_for_minimum_size=*/nullptr)
+                           .Contains(location)) {
       ActivateWindow(left_window);
-    } else if (right_window && split_view_controller
-                                   ->GetSnappedWindowBoundsInScreen(
-                                       SplitViewController::RIGHT,
-                                       /*window_for_minimum_size=*/nullptr)
-                                   .Contains(location)) {
+    } else if (right_window &&
+               split_view_controller
+                   ->GetSnappedWindowBoundsInScreen(
+                       SplitViewController::SnapPosition::kSecondary,
+                       /*window_for_minimum_size=*/nullptr)
+                   .Contains(location)) {
       ActivateWindow(right_window);
     } else if (split_view_controller->split_view_divider()
                    ->GetDividerBoundsInScreen(
@@ -293,6 +296,11 @@ void BackGestureEventHandler::OnTouchEvent(ui::TouchEvent* event) {
   }
 }
 
+const std::string& BackGestureEventHandler::GetName() const {
+  static const std::string name("BackGestureEventHandler");
+  return name;
+}
+
 void BackGestureEventHandler::OnGestureEvent(GestureConsumer* consumer,
                                              ui::GestureEvent* event) {
   // Gesture events here are generated by |gesture_provider_|, and they're
@@ -382,8 +390,8 @@ bool BackGestureEventHandler::MaybeHandleBackGesture(
               } else {
                 // Complete as exiting the fullscreen mode of the underneath
                 // window.
-                const WMEvent event(WM_EVENT_TOGGLE_FULLSCREEN);
-                top_window_state->OnWMEvent(&event);
+                const WMEvent wm_event(WM_EVENT_TOGGLE_FULLSCREEN);
+                top_window_state->OnWMEvent(&wm_event);
                 RecordEndScenarioType(
                     BackGestureEndScenarioType::kExitFullscreen);
               }
@@ -427,6 +435,11 @@ bool BackGestureEventHandler::MaybeHandleBackGesture(
 bool BackGestureEventHandler::CanStartGoingBack(
     const gfx::Point& screen_location) {
   Shell* shell = Shell::Get();
+  // Do not enable back gesture in Kiosk mode, as we are never supposed to leave
+  // fullscreen mode there.
+  if (shell->session_controller()->IsRunningInAppMode())
+    return false;
+
   if (!shell->tablet_mode_controller()->InTabletMode())
     return false;
 
@@ -435,6 +448,22 @@ bool BackGestureEventHandler::CanStartGoingBack(
   if (shell->session_controller()->GetSessionState() !=
       session_manager::SessionState::ACTIVE) {
     return false;
+  }
+
+  // Do not enable back gesture if `screen_location` is inside the tuck handle,
+  // let `FloatController` handle the event instead.
+  if (aura::Window* floated_window =
+          window_util::GetFloatedWindowForActiveDesk()) {
+    auto* float_controller = Shell::Get()->float_controller();
+    if (float_controller->IsFloatedWindowTuckedForTablet(floated_window)) {
+      auto* tuck_handle_widget =
+          float_controller->GetTuckHandleWidget(floated_window);
+      if (tuck_handle_widget &&
+          tuck_handle_widget->GetWindowBoundsInScreen().Contains(
+              screen_location)) {
+        return false;
+      }
+    }
   }
 
   gfx::Rect hit_bounds_in_screen(
@@ -446,6 +475,7 @@ bool BackGestureEventHandler::CanStartGoingBack(
     hit_bounds_in_screen.set_x(hit_bounds_in_screen.right() -
                                kStartGoingBackLeftEdgeInset);
   }
+
   hit_bounds_in_screen.set_width(kStartGoingBackLeftEdgeInset);
   const bool hit_in_limited_area =
       hit_bounds_in_screen.Contains(screen_location);

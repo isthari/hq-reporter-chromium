@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -39,7 +39,7 @@ public abstract class AutofillSaveCardPromptBase implements ModalDialogPropertie
 
     interface AutofillSaveCardPromptBaseDelegate {
         /**
-         * Called when link in legal lines is clicked.
+         * Called when a link is clicked.
          */
         void onLinkClicked(String url);
 
@@ -113,6 +113,7 @@ public abstract class AutofillSaveCardPromptBase implements ModalDialogPropertie
         if (mSpannableStringBuilder != null) {
             TextView legalMessage = mDialogView.findViewById(R.id.legal_message);
             legalMessage.setText(mSpannableStringBuilder);
+            legalMessage.setVisibility(View.VISIBLE);
             legalMessage.setMovementMethod(LinkMovementMethod.getInstance());
         }
 
@@ -125,7 +126,8 @@ public abstract class AutofillSaveCardPromptBase implements ModalDialogPropertie
         if (mSpannableStringBuilder == null) {
             mSpannableStringBuilder = new SpannableStringBuilder();
         } else {
-            mSpannableStringBuilder.append("\n");
+            // If this isn't the first line, append a new line before the legal message.
+            mSpannableStringBuilder.append("\n\n");
         }
         int offset = mSpannableStringBuilder.length();
         mSpannableStringBuilder.append(line.text);

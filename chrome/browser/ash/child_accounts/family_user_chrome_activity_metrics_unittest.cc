@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
+#include "base/memory/raw_ptr.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/time/time.h"
 #include "chrome/browser/apps/app_service/app_service_proxy.h"
@@ -25,8 +26,8 @@
 #include "chrome/test/base/test_browser_window_aura.h"
 #include "chromeos/dbus/power/fake_power_manager_client.h"
 #include "chromeos/dbus/power_manager/idle.pb.h"
+#include "components/app_constants/constants.h"
 #include "components/services/app_service/public/cpp/app_registry_cache.h"
-#include "components/services/app_service/public/mojom/types.mojom.h"
 #include "components/session_manager/core/session_manager.h"
 #include "components/session_manager/session_manager_types.h"
 
@@ -49,7 +50,8 @@ constexpr apps::InstanceState kInactiveInstanceState =
 void SetScreenOff(bool is_screen_off) {
   power_manager::ScreenIdleState screen_idle_state;
   screen_idle_state.set_off(is_screen_off);
-  FakePowerManagerClient::Get()->SendScreenIdleStateChanged(screen_idle_state);
+  chromeos::FakePowerManagerClient::Get()->SendScreenIdleStateChanged(
+      screen_idle_state);
 }
 
 }  // namespace
@@ -64,7 +66,7 @@ class FamilyUserChromeActivityMetricsTest
   ~FamilyUserChromeActivityMetricsTest() override = default;
 
   void SetUp() override {
-    PowerManagerClient::InitializeFake();
+    chromeos::PowerManagerClient::InitializeFake();
     ChromeRenderViewHostTestHarness::SetUp();
     InitiateFamilyUserChromeActivityMetrics();
 
@@ -78,10 +80,8 @@ class FamilyUserChromeActivityMetricsTest
 
     // Install Chrome.
     scoped_refptr<extensions::Extension> chrome = app_time::CreateExtension(
-        extension_misc::kChromeAppId, kExtensionNameChrome, kExtensionAppUrl);
+        app_constants::kChromeAppId, kExtensionNameChrome, kExtensionAppUrl);
     extension_service_->AddComponentExtension(chrome.get());
-
-    PushChromeApp();
 
     BrowserList* active_browser_list = BrowserList::GetInstance();
     // Expect BrowserList is empty at the beginning.
@@ -99,7 +99,7 @@ class FamilyUserChromeActivityMetricsTest
     test_browser_.reset();
     DestroyFamilyUserChromeActivityMetrics();
     ChromeRenderViewHostTestHarness::TearDown();
-    PowerManagerClient::Shutdown();
+    chromeos::PowerManagerClient::Shutdown();
   }
 
  protected:
@@ -110,19 +110,6 @@ class FamilyUserChromeActivityMetricsTest
   void InitiateFamilyUserChromeActivityMetrics() {
     family_user_chrome_activity_metrics_ =
         std::make_unique<FamilyUserChromeActivityMetrics>(profile());
-  }
-
-  void PushChromeApp() {
-    std::vector<apps::mojom::AppPtr> deltas;
-    auto app = apps::mojom::App::New();
-    app->app_id = app_time::GetChromeAppId().app_id();
-    app->app_type = app_time::GetChromeAppId().app_type();
-    deltas.push_back(std::move(app));
-
-    apps::AppServiceProxyFactory::GetForProfile(profile())
-        ->AppRegistryCache()
-        .OnApps(std::move(deltas), app_time::GetChromeAppId().app_type(),
-                false /* should_notify_initialized */);
   }
 
   void SetActiveSessionStartTime(base::Time time) {
@@ -166,7 +153,8 @@ class FamilyUserChromeActivityMetricsTest
       family_user_chrome_activity_metrics_;
   std::unique_ptr<TestBrowserWindowAura> browser_window_;
   session_manager::SessionManager session_manager_;
-  extensions::ExtensionService* extension_service_ = nullptr;
+  raw_ptr<extensions::ExtensionService, ExperimentalAsh> extension_service_ =
+      nullptr;
 };
 
 TEST_F(FamilyUserChromeActivityMetricsTest, Basic) {

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,12 +10,14 @@
 #include "third_party/blink/public/common/privacy_budget/identifiable_surface.h"
 #include "third_party/blink/public/common/privacy_budget/identifiable_token.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/dom_node_ids.h"
 #include "third_party/blink/renderer/core/dom/events/event_target.h"
+#include "third_party/blink/renderer/core/event_target_names.h"
+#include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/html/canvas/canvas_rendering_context_host.h"
 #include "third_party/blink/renderer/core/html/canvas/html_canvas_element.h"
 #include "third_party/blink/renderer/core/imagebitmap/image_bitmap_source.h"
-#include "third_party/blink/renderer/platform/bindings/script_state.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/graphics/canvas_resource_dispatcher.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
@@ -31,6 +33,7 @@ class
     OffscreenCanvasRenderingContext2DOrWebGLRenderingContextOrWebGL2RenderingContextOrImageBitmapRenderingContextOrGPUCanvasContext;
 typedef OffscreenCanvasRenderingContext2DOrWebGLRenderingContextOrWebGL2RenderingContextOrImageBitmapRenderingContextOrGPUCanvasContext
     OffscreenRenderingContext;
+class ScriptState;
 
 class CORE_EXPORT OffscreenCanvas final
     : public EventTargetWithInlineData,
@@ -111,16 +114,16 @@ class CORE_EXPORT OffscreenCanvas final
 
   // CanvasRenderingContextHost implementation.
   void PreFinalizeFrame() override {}
-  void PostFinalizeFrame() override {}
+  void PostFinalizeFrame(CanvasResourceProvider::FlushReason) override {}
   void DetachContext() override { context_ = nullptr; }
   CanvasRenderingContext* RenderingContext() const override { return context_; }
 
   bool PushFrameIfNeeded();
-  bool PushFrame(scoped_refptr<CanvasResource> frame,
+  bool PushFrame(scoped_refptr<CanvasResource>&& frame,
                  const SkIRect& damage_rect) override;
   void DidDraw(const SkIRect&) override;
   using CanvasRenderingContextHost::DidDraw;
-  void Commit(scoped_refptr<CanvasResource> bitmap_image,
+  void Commit(scoped_refptr<CanvasResource>&& bitmap_image,
               const SkIRect& damage_rect) override;
   bool ShouldAccelerate2dContext() const override;
   CanvasResourceDispatcher* GetOrCreateResourceDispatcher() override;
@@ -158,6 +161,7 @@ class CORE_EXPORT OffscreenCanvas final
 
   // CanvasImageSource implementation
   scoped_refptr<Image> GetSourceImageForCanvas(
+      CanvasResourceProvider::FlushReason,
       SourceImageStatus*,
       const gfx::SizeF&,
       const AlphaDisposition alpha_disposition = kPremultiplyAlpha) final;
@@ -253,7 +257,6 @@ class CORE_EXPORT OffscreenCanvas final
 
   SkIRect current_frame_damage_rect_;
 
-  bool needs_matrix_clip_restore_ = false;
   bool needs_push_frame_ = false;
   bool inside_worker_raf_ = false;
 

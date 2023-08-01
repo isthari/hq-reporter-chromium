@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,11 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/task/current_thread.h"
 #include "base/threading/platform_thread.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
@@ -43,12 +44,15 @@ AsyncLayerTreeFrameSink::UnboundMessagePipes::UnboundMessagePipes(
 
 AsyncLayerTreeFrameSink::AsyncLayerTreeFrameSink(
     scoped_refptr<viz::ContextProvider> context_provider,
-    scoped_refptr<viz::RasterContextProvider> worker_context_provider,
+    scoped_refptr<RasterContextProviderWrapper> worker_context_provider_wrapper,
+    std::unique_ptr<gpu::ClientSharedImageInterface> shared_image_interface,
     InitParams* params)
     : LayerTreeFrameSink(std::move(context_provider),
-                         std::move(worker_context_provider),
+                         std::move(worker_context_provider_wrapper),
                          std::move(params->compositor_task_runner),
-                         params->gpu_memory_buffer_manager),
+                         params->gpu_memory_buffer_manager,
+                         std::move(shared_image_interface)),
+      use_direct_client_receiver_(params->use_direct_client_receiver),
       synthetic_begin_frame_source_(
           std::move(params->synthetic_begin_frame_source)),
 #if BUILDFLAG(IS_ANDROID)
@@ -83,8 +87,15 @@ bool AsyncLayerTreeFrameSink::BindToClient(LayerTreeFrameSinkClient* client) {
                        weak_factory_.GetWeakPtr()));
     compositor_frame_sink_ptr_ = compositor_frame_sink_associated_.get();
   }
-  client_receiver_.Bind(std::move(pipes_.client_receiver),
-                        compositor_task_runner_);
+
+  if (use_direct_client_receiver_ && base::CurrentIOThread::IsSet()) {
+    auto& receiver = client_receiver_.emplace<DirectClientReceiver>(
+        mojo::DirectReceiverKey{}, this);
+    receiver.Bind(std::move(pipes_.client_receiver));
+  } else {
+    auto& receiver = client_receiver_.emplace<ClientReceiver>(this);
+    receiver.Bind(std::move(pipes_.client_receiver), compositor_task_runner_);
+  }
 
   if (synthetic_begin_frame_source_) {
     client->SetBeginFrameSource(synthetic_begin_frame_source_.get());
@@ -96,6 +107,7 @@ bool AsyncLayerTreeFrameSink::BindToClient(LayerTreeFrameSinkClient* client) {
 
   if (wants_animate_only_begin_frames_)
     compositor_frame_sink_->SetWantsAnimateOnlyBeginFrames();
+  compositor_frame_sink_ptr_->SetWantsBeginFrameAcks();
 
   compositor_frame_sink_ptr_->InitializeCompositorFrameSinkType(
       viz::mojom::CompositorFrameSinkType::kLayerTree);
@@ -116,10 +128,12 @@ void AsyncLayerTreeFrameSink::DetachFromClient() {
   client_->SetBeginFrameSource(nullptr);
   begin_frame_source_.reset();
   synthetic_begin_frame_source_.reset();
-  client_receiver_.reset();
+  client_receiver_ = absl::monostate{};
+  // `compositor_frame_sink_ptr_` points to either `compositor_frame_sink_` or
+  // `compositor_frame_sink_associated_`, so it must be set to nullptr first.
+  compositor_frame_sink_ptr_ = nullptr;
   compositor_frame_sink_.reset();
   compositor_frame_sink_associated_.reset();
-  compositor_frame_sink_ptr_ = nullptr;
   LayerTreeFrameSink::DetachFromClient();
 }
 
@@ -171,9 +185,6 @@ void AsyncLayerTreeFrameSink::SubmitCompositorFrame(
     } else {
       last_hit_test_data_ = *hit_test_region_list;
     }
-
-    UMA_HISTOGRAM_BOOLEAN("Event.VizHitTest.HitTestDataIsEqualAccuracy",
-                          !hit_test_region_list);
   } else {
     last_hit_test_data_ = *hit_test_region_list;
   }
@@ -253,7 +264,17 @@ void AsyncLayerTreeFrameSink::DidReceiveCompositorFrameAck(
 
 void AsyncLayerTreeFrameSink::OnBeginFrame(
     const viz::BeginFrameArgs& args,
-    const viz::FrameTimingDetailsMap& timing_details) {
+    const viz::FrameTimingDetailsMap& timing_details,
+    bool frame_ack,
+    std::vector<viz::ReturnedResource> resources) {
+  if (features::IsOnBeginFrameAcksEnabled()) {
+    if (frame_ack) {
+      DidReceiveCompositorFrameAck(std::move(resources));
+    } else if (!resources.empty()) {
+      ReclaimResources(std::move(resources));
+    }
+  }
+
   for (const auto& pair : timing_details) {
     client_->DidPresentCompositorFrame(pair.first, pair.second);
   }
@@ -270,10 +291,10 @@ void AsyncLayerTreeFrameSink::OnBeginFrame(
                        FrameSkippedReason::kNoDamage);
     return;
   }
-  TRACE_EVENT_WITH_FLOW1("viz,benchmark", "Graphics.Pipeline",
-                         TRACE_ID_GLOBAL(args.trace_id),
-                         TRACE_EVENT_FLAG_FLOW_IN | TRACE_EVENT_FLAG_FLOW_OUT,
-                         "step", "ReceiveBeginFrame");
+  TRACE_EVENT_WITH_FLOW2(
+      "viz,benchmark", "Graphics.Pipeline", TRACE_ID_GLOBAL(args.trace_id),
+      TRACE_EVENT_FLAG_FLOW_IN | TRACE_EVENT_FLAG_FLOW_OUT, "step",
+      "ReceiveBeginFrame", "frame_sequence", args.frame_id.sequence_number);
 
   if (begin_frame_source_)
     begin_frame_source_->OnBeginFrame(args);

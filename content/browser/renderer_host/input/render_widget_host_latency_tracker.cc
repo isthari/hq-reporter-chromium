@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,13 +11,13 @@
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/notreached.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "content/browser/renderer_host/render_widget_host_delegate.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/common/content_client.h"
 #include "ui/events/blink/web_input_event_traits.h"
-#include "ui/latency/latency_histogram_macros.h"
 
 using blink::WebGestureEvent;
 using blink::WebInputEvent;
@@ -57,6 +57,7 @@ const char* GetTraceNameFromType(blink::WebInputEvent::Type type) {
     CASE_TYPE(GestureTapCancel);
     CASE_TYPE(GestureDoubleTap);
     CASE_TYPE(GestureTwoFingerTap);
+    CASE_TYPE(GestureShortPress);
     CASE_TYPE(GestureLongPress);
     CASE_TYPE(GestureLongTap);
     CASE_TYPE(GesturePinchBegin);
@@ -93,7 +94,8 @@ RenderWidgetHostLatencyTracker::~RenderWidgetHostLatencyTracker() {}
 
 void RenderWidgetHostLatencyTracker::OnInputEvent(
     const blink::WebInputEvent& event,
-    LatencyInfo* latency) {
+    LatencyInfo* latency,
+    ui::EventLatencyMetadata* event_latency_metadata) {
   DCHECK(latency);
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
@@ -134,9 +136,12 @@ void RenderWidgetHostLatencyTracker::OnInputEvent(
         ui::INPUT_EVENT_LATENCY_ORIGINAL_COMPONENT, timestamp_original);
   }
 
+  base::TimeTicks begin_rwh_timestamp = base::TimeTicks::Now();
   latency->AddLatencyNumberWithTraceName(
       ui::INPUT_EVENT_LATENCY_BEGIN_RWH_COMPONENT,
-      GetTraceNameFromType(event.GetType()));
+      GetTraceNameFromType(event.GetType()), begin_rwh_timestamp);
+  event_latency_metadata->arrived_in_browser_main_timestamp =
+      begin_rwh_timestamp;
 
   if (event.GetType() == blink::WebInputEvent::Type::kGestureScrollBegin) {
     has_seen_first_gesture_scroll_update_ = false;

@@ -1,13 +1,15 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_ASH_CROSAPI_NETWORK_SETTINGS_SERVICE_ASH_H_
 #define CHROME_BROWSER_ASH_CROSAPI_NETWORK_SETTINGS_SERVICE_ASH_H_
 
+#include "base/memory/raw_ptr.h"
+#include "base/scoped_observation.h"
 #include "chrome/browser/profiles/profile_manager_observer.h"
+#include "chromeos/ash/components/network/network_state_handler_observer.h"
 #include "chromeos/crosapi/mojom/network_settings_service.mojom.h"
-#include "chromeos/network/network_state_handler_observer.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
 #include "mojo/public/cpp/bindings/receiver_set.h"
 #include "mojo/public/cpp/bindings/remote.h"
@@ -20,9 +22,10 @@ class PrefRegistrySimple;
 class Profile;
 class ProfileManager;
 
-namespace chromeos {
+namespace ash {
 class NetworkState;
-}
+class NetworkStateHandler;
+}  // namespace ash
 
 namespace crosapi {
 
@@ -35,7 +38,7 @@ namespace crosapi {
 // then it will clear the proxy settings set by an extension in the primary
 // profile.
 class NetworkSettingsServiceAsh : public crosapi::mojom::NetworkSettingsService,
-                                  public chromeos::NetworkStateHandlerObserver,
+                                  public ash::NetworkStateHandlerObserver,
                                   public ProfileManagerObserver {
  public:
   explicit NetworkSettingsServiceAsh(PrefService* local_state);
@@ -58,7 +61,7 @@ class NetworkSettingsServiceAsh : public crosapi::mojom::NetworkSettingsService,
 
  private:
   // NetworkStateHandlerObserver:
-  void DefaultNetworkChanged(const chromeos::NetworkState* network) override;
+  void DefaultNetworkChanged(const ash::NetworkState* network) override;
 
   void SendProxyConfigToObservers();
 
@@ -83,6 +86,8 @@ class NetworkSettingsServiceAsh : public crosapi::mojom::NetworkSettingsService,
   void OnProfileManagerDestroying() override;
 
   crosapi::mojom::ProxyConfigPtr cached_proxy_config_;
+  crosapi::mojom::ExtensionControllingProxyPtr extension_controlling_proxy_;
+
   // The PAC URL associated with `default_network_name_`, received via the DHCP
   // discovery method.
   GURL cached_wpad_url_;
@@ -92,8 +97,12 @@ class NetworkSettingsServiceAsh : public crosapi::mojom::NetworkSettingsService,
   // instance running.
   std::unique_ptr<PrefChangeRegistrar> profile_prefs_registrar_;
 
-  PrefService* local_state_;
-  ProfileManager* profile_manager_ = nullptr;
+  raw_ptr<PrefService, ExperimentalAsh> local_state_;
+  raw_ptr<ProfileManager, ExperimentalAsh> profile_manager_ = nullptr;
+
+  base::ScopedObservation<ash::NetworkStateHandler,
+                          ash::NetworkStateHandlerObserver>
+      network_state_handler_observer_{this};
 
   // Support any number of connections.
   mojo::ReceiverSet<mojom::NetworkSettingsService> receivers_;

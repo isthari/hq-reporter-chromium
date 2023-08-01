@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,22 +6,22 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/task/task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "components/device_event_log/device_event_log.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "services/device/geolocation/position_cache.h"
 #include "services/device/public/cpp/geolocation/geoposition.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
-#if BUILDFLAG(IS_MAC)
+#if BUILDFLAG(IS_APPLE)
 #include "services/device/public/cpp/device_features.h"
 #endif
 
@@ -35,6 +35,7 @@ const int kDataCompleteWaitSeconds = 2;
 // be returned as a fresh estimate. This should be at least as long as the
 // longest polling interval used by the WifiDataProvider.
 const int kLastPositionMaxAgeSeconds = 10 * 60;  // 10 minutes
+
 }  // namespace
 
 // NetworkLocationProvider
@@ -44,8 +45,7 @@ NetworkLocationProvider::NetworkLocationProvider(
     const scoped_refptr<base::SingleThreadTaskRunner> main_task_runner,
     const std::string& api_key,
     PositionCache* position_cache)
-    : wifi_data_provider_manager_(nullptr),
-      wifi_data_update_callback_(
+    : wifi_data_update_callback_(
           base::BindRepeating(&NetworkLocationProvider::OnWifiDataUpdate,
                               base::Unretained(this))),
       is_wifi_data_complete_(false),
@@ -58,7 +58,8 @@ NetworkLocationProvider::NetworkLocationProvider(
           base::BindRepeating(&NetworkLocationProvider::OnLocationResponse,
                               base::Unretained(this)))) {
   DCHECK(position_cache_);
-#if BUILDFLAG(IS_MAC)
+#if BUILDFLAG(IS_APPLE)
+  DCHECK(geolocation_manager);
   geolocation_manager_ = geolocation_manager;
   permission_observers_ = geolocation_manager->GetObserverList();
   permission_observers_->AddObserver(this);
@@ -73,7 +74,7 @@ NetworkLocationProvider::NetworkLocationProvider(
 
 NetworkLocationProvider::~NetworkLocationProvider() {
   DCHECK(thread_checker_.CalledOnValidThread());
-#if BUILDFLAG(IS_MAC)
+#if BUILDFLAG(IS_APPLE)
   permission_observers_->RemoveObserver(this);
 #endif
   if (IsStarted())
@@ -93,6 +94,7 @@ void NetworkLocationProvider::OnPermissionGranted() {
     RequestPosition();
 }
 
+#if BUILDFLAG(IS_APPLE)
 void NetworkLocationProvider::OnSystemPermissionUpdated(
     LocationSystemPermissionStatus new_status) {
   is_awaiting_initial_permission_status_ = false;
@@ -101,36 +103,33 @@ void NetworkLocationProvider::OnSystemPermissionUpdated(
       (new_status == LocationSystemPermissionStatus::kAllowed);
 
   if (!is_system_permission_granted_ && location_provider_update_callback_) {
-    mojom::Geoposition error_position;
-    error_position.error_code =
-        mojom::Geoposition::ErrorCode::PERMISSION_DENIED;
-    error_position.error_message =
-        "User has not allowed access to system location.";
-    location_provider_update_callback_.Run(this, error_position);
+    location_provider_update_callback_.Run(
+        this, mojom::GeopositionResult::NewError(mojom::GeopositionError::New(
+                  mojom::GeopositionErrorCode::kPermissionDenied,
+                  "User has not allowed access to system location.", "")));
   }
   if (!was_permission_granted && is_system_permission_granted_ && IsStarted()) {
-    wifi_data_provider_manager_->ForceRescan();
+    wifi_data_provider_handle_->ForceRescan();
     OnWifiDataUpdate();
   }
 }
+#endif
 
 void NetworkLocationProvider::OnWifiDataUpdate() {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(IsStarted());
-#if BUILDFLAG(IS_MAC)
+#if BUILDFLAG(IS_APPLE)
   if (!is_system_permission_granted_) {
     if (!is_awaiting_initial_permission_status_) {
-      mojom::Geoposition error_position;
-      error_position.error_code =
-          mojom::Geoposition::ErrorCode::PERMISSION_DENIED;
-      error_position.error_message =
-          "User has not allowed access to system location.";
-      location_provider_update_callback_.Run(this, error_position);
+      location_provider_update_callback_.Run(
+          this, mojom::GeopositionResult::NewError(mojom::GeopositionError::New(
+                    mojom::GeopositionErrorCode::kPermissionDenied,
+                    "User has not allowed access to system location.", "")));
     }
     return;
   }
 #endif
-  is_wifi_data_complete_ = wifi_data_provider_manager_->GetData(&wifi_data_);
+  is_wifi_data_complete_ = wifi_data_provider_handle_->GetData(&wifi_data_);
   if (is_wifi_data_complete_) {
     wifi_timestamp_ = base::Time::Now();
     is_new_data_available_ = true;
@@ -149,39 +148,45 @@ void NetworkLocationProvider::OnWifiDataUpdate() {
   // data changes, but is on the order of a few seconds to several minutes.
   // In this case it is better to call RequestPosition and return a cached
   // position estimate if it is available.
-  bool delayed = wifi_data_provider_manager_->DelayedByPolicy();
+  bool delayed = wifi_data_provider_handle_->DelayedByPolicy();
+  GEOLOCATION_LOG(DEBUG)
+      << "New Wi-Fi data is available: is_wifi_data_complete_="
+      << is_wifi_data_complete_ << " delayed=" << delayed;
   if (is_wifi_data_complete_ || delayed)
     RequestPosition();
 }
 
 void NetworkLocationProvider::OnLocationResponse(
-    const mojom::Geoposition& position,
+    mojom::GeopositionResultPtr result,
     bool server_error,
     const WifiData& wifi_data) {
   DCHECK(thread_checker_.CalledOnValidThread());
+  GEOLOCATION_LOG(DEBUG) << "Got new position";
   // Record the position and update our cache.
-  position_cache_->SetLastUsedNetworkPosition(position);
-  if (ValidateGeoposition(position))
-    position_cache_->CachePosition(wifi_data, position);
+  position_cache_->SetLastUsedNetworkPosition(*result);
+  if (result->is_position() && ValidateGeoposition(*result->get_position())) {
+    position_cache_->CachePosition(wifi_data, *result->get_position());
+  }
 
   // Let listeners know that we now have a position available.
   if (!location_provider_update_callback_.is_null()) {
-    location_provider_update_callback_.Run(this, position);
+    location_provider_update_callback_.Run(this, std::move(result));
   }
 }
 
 void NetworkLocationProvider::StartProvider(bool high_accuracy) {
+  GEOLOCATION_LOG(DEBUG) << "Start provider: high_accuracy=" << high_accuracy;
   DCHECK(thread_checker_.CalledOnValidThread());
 
   if (IsStarted())
     return;
 
-  // Registers a callback with the data provider. The first call to Register()
-  // will create a singleton data provider that will be deleted on Unregister().
-  wifi_data_provider_manager_ =
-      WifiDataProviderManager::Register(&wifi_data_update_callback_);
+  // Registers a callback with the data provider.
+  // Releasing the handle will automatically unregister the callback.
+  wifi_data_provider_handle_ =
+      WifiDataProviderHandle::CreateHandle(&wifi_data_update_callback_);
 
-  base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
       FROM_HERE,
       base::BindOnce(&NetworkLocationProvider::RequestPosition,
                      weak_factory_.GetWeakPtr()),
@@ -191,21 +196,24 @@ void NetworkLocationProvider::StartProvider(bool high_accuracy) {
 }
 
 void NetworkLocationProvider::StopProvider() {
+  GEOLOCATION_LOG(DEBUG) << "Stop provider";
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(IsStarted());
-  wifi_data_provider_manager_->Unregister(&wifi_data_update_callback_);
-  wifi_data_provider_manager_ = nullptr;
+  wifi_data_provider_handle_ = nullptr;
   weak_factory_.InvalidateWeakPtrs();
 }
 
-const mojom::Geoposition& NetworkLocationProvider::GetPosition() {
+const mojom::GeopositionResult* NetworkLocationProvider::GetPosition() {
   return position_cache_->GetLastUsedNetworkPosition();
 }
 
 void NetworkLocationProvider::RequestPosition() {
   DCHECK(thread_checker_.CalledOnValidThread());
+  GEOLOCATION_LOG(DEBUG) << "Request position: is_new_data_available_="
+                         << is_new_data_available_ << " is_wifi_data_complete_="
+                         << is_wifi_data_complete_;
 
-#if BUILDFLAG(IS_MAC)
+#if BUILDFLAG(IS_APPLE)
   if (!is_system_permission_granted_) {
     return;
   }
@@ -220,18 +228,22 @@ void NetworkLocationProvider::RequestPosition() {
   // expect to receive a new one soon (i.e., no new wifi data is available and
   // there is no pending network request), report the last network position
   // estimate as if it were a fresh estimate.
-  const mojom::Geoposition& last_position =
+  const mojom::GeopositionResult* last_result =
       position_cache_->GetLastUsedNetworkPosition();
   if (!is_new_data_available_ && !request_->is_request_pending() &&
-      ValidateGeoposition(last_position)) {
+      last_result && last_result->is_position() &&
+      ValidateGeoposition(*last_result->get_position())) {
     base::Time now = base::Time::Now();
-    base::TimeDelta last_position_age = now - last_position.timestamp;
+    base::TimeDelta last_position_age =
+        now - last_result->get_position()->timestamp;
     if (last_position_age.InSeconds() < kLastPositionMaxAgeSeconds &&
         !location_provider_update_callback_.is_null()) {
+      GEOLOCATION_LOG(DEBUG)
+          << "Updating the last network position timestamp to the current time";
       // Update the timestamp to the current time.
-      mojom::Geoposition position = last_position;
-      position.timestamp = now;
-      location_provider_update_callback_.Run(this, position);
+      mojom::GeopositionResultPtr result = last_result->Clone();
+      result->get_position()->timestamp = now;
+      location_provider_update_callback_.Run(this, std::move(result));
     }
   }
 
@@ -249,20 +261,22 @@ void NetworkLocationProvider::RequestPosition() {
                            position_cache_->GetPositionCacheSize());
 
   if (cached_position) {
-    mojom::Geoposition position(*cached_position);
-    DCHECK(ValidateGeoposition(position));
+    auto position = cached_position->Clone();
     // The timestamp of a position fix is determined by the timestamp
     // of the source data update. (The value of position.timestamp from
     // the cache could be from weeks ago!)
-    position.timestamp = wifi_timestamp_;
+    position->timestamp = wifi_timestamp_;
+    auto result =
+        device::mojom::GeopositionResult::NewPosition(std::move(position));
     is_new_data_available_ = false;
 
+    GEOLOCATION_LOG(DEBUG) << "Updating the cached WiFi position: ";
     // Record the position.
-    position_cache_->SetLastUsedNetworkPosition(position);
+    position_cache_->SetLastUsedNetworkPosition(*result);
 
     // Let listeners know that we now have a position available.
     if (!location_provider_update_callback_.is_null())
-      location_provider_update_callback_.Run(this, position);
+      location_provider_update_callback_.Run(this, std::move(result));
 
     return;
   }
@@ -301,7 +315,7 @@ void NetworkLocationProvider::RequestPosition() {
 }
 
 bool NetworkLocationProvider::IsStarted() const {
-  return wifi_data_provider_manager_ != nullptr;
+  return wifi_data_provider_handle_ != nullptr;
 }
 
 }  // namespace device

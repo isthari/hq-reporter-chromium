@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,8 +14,9 @@
 #include "ash/quick_pair/proto/fastpair.pb.h"
 #include "ash/quick_pair/repository/mock_http_fetcher.h"
 #include "base/base64.h"
-#include "base/callback_helpers.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ptr_util.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/mock_callback.h"
@@ -94,7 +95,7 @@ class DeviceMetadataFetcherTest : public testing::Test {
   base::test::TaskEnvironment task_environment;
   base::HistogramTester histogram_tester_;
   std::unique_ptr<DeviceMetadataFetcher> device_metadata_fetcher_;
-  MockHttpFetcher* mock_http_fetcher_;
+  raw_ptr<MockHttpFetcher, ExperimentalAsh> mock_http_fetcher_;
   data_decoder::test::InProcessDataDecoder in_process_data_decoder_;
 };
 

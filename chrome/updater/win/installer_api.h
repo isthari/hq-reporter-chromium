@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <string>
 
+#include "base/win/registry.h"
 #include "chrome/updater/enum_traits.h"
 #include "chrome/updater/installer.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -57,6 +58,14 @@ enum class UpdaterScope;
 //
 // `InstallerSuccessLaunchCmdLine` (String) - command line to run in the
 // success case.
+//
+// The following environment variables are passed to the installer:
+//
+// `UpdateIsMachine`: "1" (for a machine install) or "0" (for a user install).
+//
+// `%COMPANY%_USAGE_STATS_ENABLED`: "1" (if the updater sends usage stats), or
+// "0" (if the updater does not send usage stats); %COMPANY% is the uppercase
+// short company name specified in branding.gni (e.g. "GOOGLE").
 
 // These values are defined by the Installer API.
 enum class InstallerResult {
@@ -100,6 +109,12 @@ struct InstallerOutcome {
   absl::optional<std::string> installer_cmd_line;
 };
 
+// Opens the registry ClientState subkey for the `app_id`.
+absl::optional<base::win::RegKey> ClientStateAppKeyOpen(
+    UpdaterScope updater_scope,
+    const std::string& app_id,
+    REGSAM regsam);
+
 // Deletes the `app_id` registry sub key under the `ClientState`.
 bool ClientStateAppKeyDelete(UpdaterScope updater_scope,
                              const std::string& app_id);
@@ -116,7 +131,9 @@ bool SetInstallerProgressForTesting(UpdaterScope updater_scope,
 bool DeleteInstallerOutput(UpdaterScope updater_scope,
                            const std::string& app_id);
 
-// Returns the Instaler API outcome, best-effort.
+// Returns the Installer API outcome, best-effort, and renames the InstallerXXX
+// values to LastInstallerXXX values. The LastInstallerXXX values remain around
+// until the next update or install.
 absl::optional<InstallerOutcome> GetInstallerOutcome(UpdaterScope updater_scope,
                                                      const std::string& app_id);
 bool SetInstallerOutcomeForTesting(UpdaterScope updater_scope,

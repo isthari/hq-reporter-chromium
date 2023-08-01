@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,7 +25,7 @@ void VerifyPolicyProvider(ConfigurationPolicyProvider* provider) {
   const base::Value* policy_value =
       provider->policies()
           .Get(PolicyNamespace(POLICY_DOMAIN_CHROME, std::string()))
-          .GetValue("policy");
+          .GetValue("policy", base::Value::Type::INTEGER);
   ASSERT_TRUE(policy_value);
   ASSERT_TRUE(policy_value->is_int());
   EXPECT_EQ(10, policy_value->GetInt());

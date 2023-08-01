@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,8 +13,6 @@
 #include "third_party/blink/renderer/core/frame/settings.h"
 #include "third_party/blink/renderer/core/layout/layout_block_flow.h"
 #include "third_party/blink/renderer/core/layout/layout_shift_tracker.h"
-#include "third_party/blink/renderer/core/layout/layout_table.h"
-#include "third_party/blink/renderer/core/layout/layout_table_section.h"
 #include "third_party/blink/renderer/core/layout/layout_view.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_fragment_item.h"
 #include "third_party/blink/renderer/core/layout/ng/legacy_layout_tree_walking.h"
@@ -45,11 +43,6 @@ void PaintInvalidator::UpdatePaintingLayer(const LayoutObject& object,
     context.painting_layer = object.PaintingLayer();
   }
 
-  auto* layout_block_flow = DynamicTo<LayoutBlockFlow>(object);
-  if (layout_block_flow && !object.IsLayoutNGBlockFlow() &&
-      layout_block_flow->ContainsFloats())
-    context.painting_layer->SetNeedsPaintPhaseFloat();
-
   if (object.IsFloating() &&
       (object.IsInLayoutNGInlineFormattingContext() ||
        IsLayoutNGContainingBlock(object.ContainingBlock())))
@@ -57,11 +50,9 @@ void PaintInvalidator::UpdatePaintingLayer(const LayoutObject& object,
 
   if (!context.painting_layer->NeedsPaintPhaseDescendantOutlines() &&
       ((object != context.painting_layer->GetLayoutObject() &&
-        object.StyleRef().HasOutline()) ||
-       // If this is a block-in-inline, it may need to paint outline.
-       // See |StyleForContinuationOutline|.
-       (layout_block_flow && layout_block_flow->StyleForContinuationOutline())))
+        object.StyleRef().HasOutline()))) {
     context.painting_layer->SetNeedsPaintPhaseDescendantOutlines();
+  }
 }
 
 void PaintInvalidator::UpdateFromTreeBuilderContext(
@@ -90,10 +81,11 @@ void PaintInvalidator::UpdateLayoutShiftTracking(
     const LayoutObject& object,
     const PaintPropertyTreeBuilderFragmentContext& tree_builder_context,
     PaintInvalidatorContext& context) {
-  if (!object.ShouldCheckGeometryForPaintInvalidation())
+  if (!object.ShouldCheckLayoutForPaintInvalidation())
     return;
 
-  if (tree_builder_context.this_or_ancestor_opacity_is_zero) {
+  if (tree_builder_context.this_or_ancestor_opacity_is_zero ||
+      context.inside_opaque_layout_shift_root) {
     object.GetMutableForPainting().SetShouldSkipNextLayoutShiftTracking(true);
     return;
   }
@@ -156,11 +148,17 @@ void PaintInvalidator::UpdateLayoutShiftTracking(
   PhysicalRect old_rect = box.PreviousPhysicalVisualOverflowRect();
   old_rect.Move(adjusted_old_paint_offset);
 
+  // TODO(crbug.com/1178618): We may want to do better than this. For now, just
+  // don't report anything inside multicol containers.
+  const auto* block_flow = DynamicTo<LayoutBlockFlow>(&box);
+  if (block_flow && block_flow->IsFragmentationContextRoot() &&
+      block_flow->IsLayoutNGObject())
+    context.inside_opaque_layout_shift_root = true;
+
   bool should_create_containing_block_scope =
-      // TODO(crbug.com/1178618): Support multiple-fragments when switching to
-      // LayoutNGFragmentTraversal.
-      context.fragment_data == &box.FirstFragment() &&
-      box.IsLayoutBlockFlow() && box.ChildrenInline() && box.SlowFirstChild();
+      // TODO(crbug.com/1178618): Support multiple-fragments.
+      context.fragment_data == &box.FirstFragment() && block_flow &&
+      block_flow->ChildrenInline() && block_flow->FirstChild();
   if (should_create_containing_block_scope) {
     // For layout shift tracking of contained LayoutTexts.
     context.containing_block_scope_.emplace(
@@ -229,7 +227,6 @@ bool PaintInvalidator::InvalidatePaint(
 
   UpdatePaintingLayer(object, context);
 
-#if DCHECK_IS_ON()
   // Assert that the container state in the invalidation context is consistent
   // with what the LayoutObject tree says. We cannot do this if we're fragment-
   // traversing an "orphaned" object (an object that has a fragment inside a
@@ -237,9 +234,7 @@ bool PaintInvalidator::InvalidatePaint(
   // happen to OOFs, and also to floats, if they are inside a non-atomic
   // inline). In such cases we'll just have to live with the inconsitency, which
   // means that we'll lose any paint effects from such "missing" ancestors.
-  if (!pre_paint_info || !pre_paint_info->is_inside_orphaned_object)
-    DCHECK_EQ(context.painting_layer, object.PaintingLayer()) << object;
-#endif  // DCHECK_IS_ON()
+  DCHECK_EQ(context.painting_layer, object.PaintingLayer()) << object;
 
   if (AXObjectCache* cache = object.GetDocument().ExistingAXObjectCache())
     cache->InvalidateBoundingBox(&object);
@@ -254,15 +249,6 @@ bool PaintInvalidator::InvalidatePaint(
   }
 
   if (object.SubtreeShouldCheckForPaintInvalidation()) {
-    context.subtree_flags |=
-        PaintInvalidatorContext::kSubtreeInvalidationChecking;
-  }
-
-  if (UNLIKELY(object.ContainsInlineWithOutlineAndContinuation()) &&
-      // Need this only if the subtree needs to check geometry change.
-      PrePaintTreeWalk::ObjectRequiresTreeBuilderContext(object)) {
-    // Force subtree invalidation checking to ensure invalidation of focus rings
-    // when continuation's geometry changes.
     context.subtree_flags |=
         PaintInvalidatorContext::kSubtreeInvalidationChecking;
   }
@@ -314,15 +300,6 @@ bool PaintInvalidator::InvalidatePaint(
        // Delay invalidation if the client has never been painted.
        reason == PaintInvalidationReason::kJustCreated))
     pending_delayed_paint_invalidations_.push_back(&object);
-
-  if (auto* local_frame = DynamicTo<LocalFrame>(object.GetFrame()->Top())) {
-    if (auto* mf_checker =
-            local_frame->View()->GetMobileFriendlinessChecker()) {
-      if (tree_builder_context &&
-          (!pre_paint_info || pre_paint_info->is_last_for_node))
-        mf_checker->NotifyInvalidatePaint(object);
-    }
-  }
 
   return reason != PaintInvalidationReason::kNone;
 }

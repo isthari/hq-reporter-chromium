@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,12 +9,14 @@
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
+#include "ash/style/ash_color_id.h"
 #include "ash/style/ash_color_provider.h"
 #include "ash/system/power/peripheral_battery_listener.h"
 #include "ash/system/power/power_status.h"
 #include "ash/system/tray/tray_constants.h"
 #include "base/time/time.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/color/color_provider.h"
 #include "ui/gfx/color_palette.h"
 #include "ui/gfx/paint_vector_icon.h"
 
@@ -51,14 +53,12 @@ gfx::ImageSkia StylusBatteryDelegate::GetBatteryImage() const {
 
   if (IsBatteryCharging()) {
     info.icon_badge = &kUnifiedMenuBatteryBoltIcon;
-    info.badge_outline = &kUnifiedMenuBatteryBoltOutlineIcon;
+    info.badge_outline = &kUnifiedMenuBatteryBoltOutlineMaskIcon;
   }
 
   const SkColor icon_fg_color = GetColorForBatteryLevel();
-  const SkColor icon_bg_color = AshColorProvider::Get()->GetBackgroundColor();
-
   return PowerStatus::GetBatteryImage(info, kUnifiedTrayBatteryIconSize,
-                                      icon_bg_color, icon_fg_color);
+                                      icon_fg_color);
 }
 
 gfx::ImageSkia StylusBatteryDelegate::GetBatteryStatusUnknownImage() const {

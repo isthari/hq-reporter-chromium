@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,10 +10,10 @@
 #include <unordered_set>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/check_op.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/notreached.h"
 #include "base/one_shot_event.h"
@@ -21,10 +21,10 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chrome/browser/extensions/extension_garbage_collector_factory.h"
 #include "chrome/browser/extensions/extension_service.h"
+#include "chrome/browser/extensions/extension_util.h"
 #include "chrome/browser/extensions/install_tracker.h"
 #include "chrome/browser/extensions/pending_extension_manager.h"
 #include "components/crx_file/id_util.h"
@@ -38,7 +38,6 @@
 #include "extensions/browser/extension_util.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/file_util.h"
-#include "extensions/common/manifest_handlers/app_isolation_info.h"
 
 namespace extensions {
 
@@ -179,7 +178,7 @@ void ExtensionGarbageCollector::GarbageCollectExtensions() {
     // Don't garbage collect while there are installations in progress,
     // which may be using the temporary installation directory. Try to garbage
     // collect again later.
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(&ExtensionGarbageCollector::GarbageCollectExtensions,
                        weak_factory_.GetWeakPtr()),
@@ -187,18 +186,18 @@ void ExtensionGarbageCollector::GarbageCollectExtensions() {
     return;
   }
 
-  std::unique_ptr<ExtensionPrefs::ExtensionsInfo> info(
-      extension_prefs->GetInstalledExtensionsInfo());
+  ExtensionPrefs::ExtensionsInfo extensions_info =
+      extension_prefs->GetInstalledExtensionsInfo();
   std::multimap<std::string, base::FilePath> extension_paths;
-  for (size_t i = 0; i < info->size(); ++i) {
+  for (const auto& info : extensions_info) {
     extension_paths.insert(
-        std::make_pair(info->at(i)->extension_id, info->at(i)->extension_path));
+        std::make_pair(info.extension_id, info.extension_path));
   }
 
-  info = extension_prefs->GetAllDelayedInstallInfo();
-  for (size_t i = 0; i < info->size(); ++i) {
+  extensions_info = extension_prefs->GetAllDelayedInstallInfo();
+  for (const auto& info : extensions_info) {
     extension_paths.insert(
-        std::make_pair(info->at(i)->extension_id, info->at(i)->extension_path));
+        std::make_pair(info.extension_id, info.extension_path));
   }
 
   ExtensionService* service =
@@ -221,10 +220,10 @@ void ExtensionGarbageCollector::GarbageCollectIsolatedStorageIfNeeded() {
   extension_prefs->SetNeedsStorageGarbageCollection(false);
 
   std::unordered_set<base::FilePath> active_paths;
-  std::unique_ptr<ExtensionSet> extensions =
+  const ExtensionSet extensions =
       ExtensionRegistry::Get(context_)->GenerateInstalledExtensionsSet();
-  for (const auto& ext : *extensions) {
-    if (AppIsolationInfo::HasIsolatedStorage(ext.get())) {
+  for (const auto& ext : extensions) {
+    if (extensions::util::HasIsolatedStorage(*ext.get(), context_)) {
       active_paths.insert(
           util::GetStoragePartitionForExtensionId(ext->id(), context_)
               ->GetPath());
@@ -250,11 +249,13 @@ void ExtensionGarbageCollector::OnGarbageCollectIsolatedStorageFinished() {
 }
 
 void ExtensionGarbageCollector::OnBeginCrxInstall(
+    content::BrowserContext* context,
     const std::string& extension_id) {
   crx_installs_in_progress_++;
 }
 
 void ExtensionGarbageCollector::OnFinishCrxInstall(
+    content::BrowserContext* context,
     const std::string& extension_id,
     bool success) {
   crx_installs_in_progress_--;

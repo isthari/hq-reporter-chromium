@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <memory>
 #include <vector>
 
+#include "base/command_line.h"
 #include "base/memory/raw_ptr.h"
 #include "base/process/kill.h"
 #include "chrome/common/url_constants.h"
@@ -17,10 +18,11 @@
 #include "content/public/test/web_contents_tester.h"
 #include "extensions/buildflags/buildflags.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/blink/public/mojom/web_feature/web_feature.mojom-blink.h"
+#include "third_party/blink/public/mojom/use_counter/metrics/web_feature.mojom-blink.h"
 #include "url/gurl.h"
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
+#include "base/values.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/test_extension_system.h"
 #include "extensions/browser/extension_registry.h"
@@ -28,7 +30,6 @@
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_builder.h"
 #include "extensions/common/manifest_constants.h"
-#include "extensions/common/value_builder.h"
 #endif
 
 using content::NavigationSimulator;
@@ -77,15 +78,15 @@ TEST_F(MetricsWebContentsObserverTest,
        RecordFeatureUsageIgnoresChromeExtensionUpdates) {
   // Register our fake extension. The URL we access must be part of the
   // 'web_accessible_resources' for the network commit to work.
-  extensions::DictionaryBuilder manifest;
-  manifest.Set(extensions::manifest_keys::kVersion, "1.0.0.0")
-      .Set(extensions::manifest_keys::kName, "TestExtension")
-      .Set(extensions::manifest_keys::kManifestVersion, 2)
-      .Set("web_accessible_resources",
-           extensions::ListBuilder().Append("main.html").Build());
+  auto manifest = base::Value::Dict()
+                      .Set(extensions::manifest_keys::kVersion, "1.0.0.0")
+                      .Set(extensions::manifest_keys::kName, "TestExtension")
+                      .Set(extensions::manifest_keys::kManifestVersion, 2)
+                      .Set("web_accessible_resources",
+                           base::Value::List().Append("main.html"));
   scoped_refptr<const extensions::Extension> extension =
       extensions::ExtensionBuilder()
-          .SetManifest(manifest.Build())
+          .SetManifest(std::move(manifest))
           .SetID("mbflcebpggnecokmikipoihdbecnjfoj")
           .Build();
   ASSERT_TRUE(extension);

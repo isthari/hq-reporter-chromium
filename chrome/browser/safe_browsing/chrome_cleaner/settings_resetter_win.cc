@@ -1,20 +1,20 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/safe_browsing/chrome_cleaner/settings_resetter_win.h"
 
-#include <algorithm>
 #include <iterator>
 #include <memory>
 #include <utility>
 #include <vector>
 
 #include "base/barrier_closure.h"
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ref_counted.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/ranges/algorithm.h"
 #include "base/sequence_checker.h"
 #include "base/synchronization/lock.h"
 #include "base/win/registry.h"
@@ -22,7 +22,6 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profile_resetter/profile_resetter.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/safe_browsing/chrome_cleaner/srt_field_trial_win.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
@@ -58,9 +57,8 @@ void RecordResetPending(bool value, Profile* profile) {
 
 bool CopyProfilesToReset(const std::vector<Profile*>& profiles,
                          std::vector<Profile*>* profiles_to_reset) {
-  std::copy_if(profiles.begin(), profiles.end(),
-               std::back_inserter(*profiles_to_reset),
-               [](Profile* profile) -> bool { return ResetPending(profile); });
+  base::ranges::copy_if(profiles, std::back_inserter(*profiles_to_reset),
+                        &ResetPending);
   return !profiles_to_reset->empty();
 }
 

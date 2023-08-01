@@ -1,26 +1,24 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.notifications;
 
-import android.annotation.TargetApi;
 import android.app.job.JobInfo;
 import android.app.job.JobScheduler;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.os.Build;
 import android.os.PersistableBundle;
 import android.os.SystemClock;
 import android.util.Log;
 
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.chrome.browser.init.ChromeBrowserInitializer;
 import org.chromium.chrome.browser.webapps.WebappRegistry;
 import org.chromium.components.background_task_scheduler.TaskIds;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 
 /**
  * The Notification service receives intents fired as responses to user actions issued on Android
@@ -37,42 +35,25 @@ public class NotificationServiceImpl extends NotificationService.Impl {
     public static class Receiver extends BroadcastReceiver {
         @Override
         public void onReceive(Context context, Intent intent) {
-            if (NotificationConstants.ACTION_CLICK_NOTIFICATION.equals(intent.getAction())) {
-                int actionIndex = intent.getIntExtra(
-                        NotificationConstants.EXTRA_NOTIFICATION_INFO_ACTION_INDEX, -1);
-                boolean isActionButton = actionIndex != -1;
-                WebPlatformNotificationMetrics.getInstance().onNotificationClicked(isActionButton);
-            }
-
             Log.i(TAG, "Received a notification intent in the NotificationService's receiver.");
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                // Android encourages us not to start services directly on N+, so instead we
-                // schedule a job to handle the notification intent. We use the Android JobScheduler
-                // rather than GcmNetworkManager or FirebaseJobDispatcher since the JobScheduler
-                // allows us to execute immediately by setting an override deadline of zero
-                // milliseconds.
-                JobScheduler scheduler =
-                        (JobScheduler) context.getSystemService(Context.JOB_SCHEDULER_SERVICE);
-                PersistableBundle extras =
-                        NotificationJobServiceImpl.getJobExtrasFromIntent(intent);
-                putJobScheduledTimeInExtras(extras);
-                JobInfo job =
-                        new JobInfo
-                                .Builder(TaskIds.NOTIFICATION_SERVICE_JOB_ID,
-                                        new ComponentName(context, NotificationJobService.class))
-                                .setExtras(extras)
-                                .setOverrideDeadline(0)
-                                .build();
-                scheduler.schedule(job);
-            } else {
-                // TODO(peter): Do we need to acquire a wake lock here?
-
-                intent.setClass(context, NotificationService.class);
-                context.startService(intent);
-            }
+            // Android encourages us not to start services directly on N+, so instead we
+            // schedule a job to handle the notification intent. We use the Android JobScheduler
+            // rather than GcmNetworkManager or FirebaseJobDispatcher since the JobScheduler
+            // allows us to execute immediately by setting an override deadline of zero
+            // milliseconds.
+            JobScheduler scheduler =
+                    (JobScheduler) context.getSystemService(Context.JOB_SCHEDULER_SERVICE);
+            PersistableBundle extras = NotificationJobServiceImpl.getJobExtrasFromIntent(intent);
+            putJobScheduledTimeInExtras(extras);
+            JobInfo job = new JobInfo
+                                  .Builder(TaskIds.NOTIFICATION_SERVICE_JOB_ID,
+                                          new ComponentName(context, NotificationJobService.class))
+                                  .setExtras(extras)
+                                  .setOverrideDeadline(0)
+                                  .build();
+            scheduler.schedule(job);
         }
 
-        @TargetApi(Build.VERSION_CODES.N)
         private static void putJobScheduledTimeInExtras(PersistableBundle extras) {
             extras.putLong(NotificationConstants.EXTRA_JOB_SCHEDULED_TIME_MS,
                     SystemClock.elapsedRealtime());
@@ -92,8 +73,7 @@ public class NotificationServiceImpl extends NotificationService.Impl {
             return;
         }
 
-        PostTask.runOrPostTask(
-                UiThreadTaskTraits.DEFAULT, () -> { dispatchIntentOnUIThread(intent); });
+        PostTask.runOrPostTask(TaskTraits.UI_DEFAULT, () -> { dispatchIntentOnUIThread(intent); });
     }
 
     /**

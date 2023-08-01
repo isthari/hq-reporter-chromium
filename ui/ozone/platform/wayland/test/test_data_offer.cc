@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,9 @@
 #include <wayland-server-core.h>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
+#include "base/memory/raw_ptr.h"
 #include "ui/ozone/platform/wayland/test/test_selection_device_manager.h"
 
 namespace wl {
@@ -49,10 +50,8 @@ struct WlDataOfferImpl : public TestSelectionOffer::Delegate {
     wl_data_offer_send_offer(offer_->resource(), mime_type.c_str());
   }
 
-  void OnDestroying() override { delete this; }
-
  private:
-  TestDataOffer* const offer_;
+  const raw_ptr<TestDataOffer> offer_;
 };
 
 }  // namespace
@@ -62,9 +61,18 @@ const struct wl_data_offer_interface kTestDataOfferImpl = {
     DataOfferFinish, DataOfferSetActions};
 
 TestDataOffer::TestDataOffer(wl_resource* resource)
-    : TestSelectionOffer(resource, new WlDataOfferImpl(this)) {}
+    : TestSelectionOffer(resource, std::make_unique<WlDataOfferImpl>(this)) {}
 
 TestDataOffer::~TestDataOffer() = default;
+
+// static
+TestDataOffer* TestDataOffer::FromResource(wl_resource* resource) {
+  if (!ResourceHasImplementation(resource, &wl_data_offer_interface,
+                                 &kTestDataOfferImpl)) {
+    return nullptr;
+  }
+  return GetUserDataAs<TestDataOffer>(resource);
+}
 
 void TestDataOffer::SetActions(uint32_t dnd_actions,
                                uint32_t preferred_action) {

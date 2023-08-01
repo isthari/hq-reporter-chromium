@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "base/task/thread_pool.h"
 #include "base/test/bind.h"
 #include "base/test/task_environment.h"
+#include "base/time/time.h"
 #include "net/log/net_log.h"
 #include "net/log/net_log_with_source.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -32,7 +33,7 @@ class FakeNetLogProxySink : public network::mojom::NetLogProxySink {
                  base::TimeTicks source_start_time,
                  net::NetLogEventPhase phase,
                  base::TimeTicks time,
-                 base::Value params)
+                 base::Value::Dict params)
         : type(type),
           source_type(source_type),
           source_id(source_id),
@@ -56,7 +57,7 @@ class FakeNetLogProxySink : public network::mojom::NetLogProxySink {
     base::TimeTicks source_start_time;
     net::NetLogEventPhase phase;
     base::TimeTicks time;
-    base::Value params;
+    base::Value::Dict params;
   };
 
   std::vector<ProxiedEntry> entries() const {
@@ -73,7 +74,7 @@ class FakeNetLogProxySink : public network::mojom::NetLogProxySink {
                 base::TimeTicks source_start_time,
                 net::NetLogEventPhase phase,
                 base::TimeTicks time,
-                base::Value params) override {
+                base::Value::Dict params) override {
     base::AutoLock lock(lock_);
     entries_.emplace_back(type, source_type, source_id, source_start_time,
                           phase, time, std::move(params));
@@ -122,17 +123,18 @@ class NetLogCaptureModeWaiter
   base::RunLoop run_loop_;
 };
 
-base::Value NetLogCaptureModeToParams(net::NetLogCaptureMode capture_mode) {
-  base::Value dict(base::Value::Type::DICTIONARY);
+base::Value::Dict NetLogCaptureModeToParams(
+    net::NetLogCaptureMode capture_mode) {
+  base::Value::Dict dict;
   switch (capture_mode) {
     case net::NetLogCaptureMode::kDefault:
-      dict.SetStringKey("capture_mode", "kDefault");
+      dict.Set("capture_mode", "kDefault");
       break;
     case net::NetLogCaptureMode::kIncludeSensitive:
-      dict.SetStringKey("capture_mode", "kIncludeSensitive");
+      dict.Set("capture_mode", "kIncludeSensitive");
       break;
     case net::NetLogCaptureMode::kEverything:
-      dict.SetStringKey("capture_mode", "kEverything");
+      dict.Set("capture_mode", "kEverything");
       break;
   }
   return dict;
@@ -186,9 +188,9 @@ TEST(NetLogProxySource, OnlyProxiesEventsWhenCaptureModeSetIsNonZero) {
   // templatized which seems to confuse BindOnce. Capturing is safe here as
   // the test will WaitForExpectedEntries() before completing.
   base::ThreadPool::PostTask(
-      FROM_HERE, base::BindOnce(base::BindLambdaForTesting([&]() {
+      FROM_HERE, base::BindLambdaForTesting([&]() {
         source1.EndEvent(net::NetLogEventType::SOCKET_ALIVE);
-      })));
+      }));
 
   // Wait for all the expected events to be proxied over the mojo pipe and
   // recorded.
@@ -220,7 +222,7 @@ TEST(NetLogProxySource, OnlyProxiesEventsWhenCaptureModeSetIsNonZero) {
   EXPECT_EQ(source1_start_ticks, entries[0].source_start_time);
   EXPECT_EQ(net::NetLogEventPhase::BEGIN, entries[0].phase);
   EXPECT_EQ(source1_event0_ticks, entries[0].time);
-  EXPECT_TRUE(entries[0].params.is_none());
+  EXPECT_TRUE(entries[0].params.empty());
 
   EXPECT_EQ(static_cast<uint32_t>(net::NetLogEventType::SOCKET_ALIVE),
             entries[1].type);
@@ -230,7 +232,7 @@ TEST(NetLogProxySource, OnlyProxiesEventsWhenCaptureModeSetIsNonZero) {
   EXPECT_EQ(source1_start_ticks, entries[1].source_start_time);
   EXPECT_EQ(net::NetLogEventPhase::END, entries[1].phase);
   EXPECT_EQ(source1_event1_ticks, entries[1].time);
-  EXPECT_TRUE(entries[1].params.is_none());
+  EXPECT_TRUE(entries[1].params.empty());
 }
 
 TEST(NetLogProxySource, ProxiesParamsOfLeastSensitiveCaptureMode) {
@@ -293,9 +295,8 @@ TEST(NetLogProxySource, ProxiesParamsOfLeastSensitiveCaptureMode) {
             entries[0].source_type);
   EXPECT_EQ(source0.source().id, entries[0].source_id);
   EXPECT_EQ(net::NetLogEventPhase::BEGIN, entries[0].phase);
-  ASSERT_TRUE(entries[0].params.is_dict());
-  EXPECT_EQ(1U, entries[0].params.DictSize());
-  const std::string* param = entries[0].params.FindStringKey("capture_mode");
+  EXPECT_EQ(1U, entries[0].params.size());
+  const std::string* param = entries[0].params.FindString("capture_mode");
   ASSERT_TRUE(param);
   EXPECT_EQ("kIncludeSensitive", *param);
 
@@ -305,9 +306,8 @@ TEST(NetLogProxySource, ProxiesParamsOfLeastSensitiveCaptureMode) {
             entries[1].source_type);
   EXPECT_EQ(source0.source().id, entries[1].source_id);
   EXPECT_EQ(net::NetLogEventPhase::NONE, entries[1].phase);
-  ASSERT_TRUE(entries[1].params.is_dict());
-  EXPECT_EQ(1U, entries[1].params.DictSize());
-  param = entries[1].params.FindStringKey("capture_mode");
+  EXPECT_EQ(1U, entries[1].params.size());
+  param = entries[1].params.FindString("capture_mode");
   ASSERT_TRUE(param);
   EXPECT_EQ("kDefault", *param);
 
@@ -317,9 +317,8 @@ TEST(NetLogProxySource, ProxiesParamsOfLeastSensitiveCaptureMode) {
             entries[2].source_type);
   EXPECT_EQ(source0.source().id, entries[2].source_id);
   EXPECT_EQ(net::NetLogEventPhase::END, entries[2].phase);
-  ASSERT_TRUE(entries[2].params.is_dict());
-  EXPECT_EQ(1U, entries[2].params.DictSize());
-  param = entries[2].params.FindStringKey("capture_mode");
+  EXPECT_EQ(1U, entries[2].params.size());
+  param = entries[2].params.FindString("capture_mode");
   ASSERT_TRUE(param);
   EXPECT_EQ("kDefault", *param);
 }

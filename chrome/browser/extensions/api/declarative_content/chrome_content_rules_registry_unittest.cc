@@ -1,10 +1,10 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/extensions/api/declarative_content/chrome_content_rules_registry.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/test/values_test_util.h"
 #include "chrome/browser/extensions/api/declarative_content/content_predicate.h"
@@ -171,7 +171,7 @@ TEST_F(DeclarativeChromeContentRulesRegistryTest, ActiveRulesDoesntGrow) {
 
   // Add a rule.
   api::events::Rule rule;
-  api::events::Rule::Populate(base::test::ParseJson(R"({
+  api::events::Rule::Populate(base::test::ParseJsonDict(R"({
           "id": "rule1",
           "priority": 100,
           "conditions": [
@@ -183,11 +183,11 @@ TEST_F(DeclarativeChromeContentRulesRegistryTest, ActiveRulesDoesntGrow) {
             {"instanceType": "declarativeContent.ShowAction"}
           ]
       })"),
-                              &rule);
+                              rule);
   std::vector<const api::events::Rule*> rules({&rule});
 
   const Extension* extension =
-      env()->MakeExtension(base::test::ParseJson("{\"page_action\": {}}"));
+      env()->MakeExtension(base::test::ParseJsonDict("{\"page_action\": {}}"));
   registry->AddRulesImpl(extension->id(), rules);
 
   registry->DidFinishNavigation(tab.get(), &navigation_handle);

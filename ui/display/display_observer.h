@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/observer_list_types.h"
 #include "ui/display/display_export.h"
 
@@ -28,6 +29,8 @@ class DISPLAY_EXPORT DisplayObserver : public base::CheckedObserver {
     DISPLAY_METRIC_COLOR_SPACE = 1 << 6,
     DISPLAY_METRIC_REFRESH_RATE = 1 << 7,
     DISPLAY_METRIC_INTERLACED = 1 << 8,
+    DISPLAY_METRIC_LABEL = 1 << 9,
+    DISPLAY_METRIC_VRR = 1 << 10,
   };
 
   // This may be called before other methods to signal changes are about to
@@ -52,7 +55,7 @@ class DISPLAY_EXPORT DisplayObserver : public base::CheckedObserver {
   virtual void OnDidRemoveDisplays();
 
   // Called when the metrics of a display change.
-  // |changed_metrics| is a bitmask of DisplayMatric types indicating which
+  // |changed_metrics| is a bitmask of DisplayMetric types indicating which
   // metrics have changed. Eg; if mirroring changes (either from true to false,
   // or false to true), than the DISPLAY_METRIC_MIRROR_STATE bit is set in
   // changed_metrics.
@@ -82,7 +85,9 @@ class DISPLAY_EXPORT ScopedOptionalDisplayObserver {
   ~ScopedOptionalDisplayObserver();
 
  private:
-  DisplayObserver* observer_ = nullptr;
+  // This field is not a raw_ptr<> because it was filtered by the rewriter for:
+  // #union
+  RAW_PTR_EXCLUSION DisplayObserver* observer_ = nullptr;
 };
 
 class DISPLAY_EXPORT ScopedDisplayObserver

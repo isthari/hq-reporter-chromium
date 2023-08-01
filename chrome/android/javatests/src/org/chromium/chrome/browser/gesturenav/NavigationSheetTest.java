@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,9 +24,7 @@ import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.Restriction;
 import org.chromium.base.test.util.UrlUtils;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
-import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.gesturenav.NavigationSheetMediator.ItemProperties;
 import org.chromium.chrome.browser.profiles.Profile;
@@ -35,7 +33,7 @@ import org.chromium.chrome.browser.tabbed_mode.TabbedRootUiCoordinator;
 import org.chromium.chrome.browser.ui.RootUiCoordinator;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
-import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
+import org.chromium.chrome.test.R;
 import org.chromium.components.browser_ui.bottomsheet.BottomSheetController;
 import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.content_public.browser.NavigationController;
@@ -77,8 +75,8 @@ public class NavigationSheetTest {
     private static class TestNavigationEntry extends NavigationEntry {
         public TestNavigationEntry(int index, GURL url, GURL virtualUrl, GURL originalUrl,
                 String title, Bitmap favicon, int transition, long timestamp) {
-            super(index, url, virtualUrl, originalUrl, /*referrerUrl=*/null, title, favicon,
-                    transition, timestamp, /* isInitialEntry=*/false);
+            super(index, url, virtualUrl, originalUrl, title, favicon, transition, timestamp,
+                    /* isInitialEntry=*/false);
         }
     }
 
@@ -125,7 +123,6 @@ public class NavigationSheetTest {
             if (!isOffTheRecord) {
                 history.addEntry(new NavigationEntry(FULL_HISTORY_ENTRY_INDEX,
                         new GURL(UrlConstants.HISTORY_URL), GURL.emptyGURL(), GURL.emptyGURL(),
-                        GURL.emptyGURL(),
                         mActivityTestRule.getActivity().getResources().getString(
                                 R.string.show_full_history),
                         null, 0, 0, /* isInitialEntry=*/false));
@@ -232,7 +229,6 @@ public class NavigationSheetTest {
 
     @Test
     @MediumTest
-    @EnableFeatures({ChromeFeatureList.UPDATE_HISTORY_ENTRY_POINTS_IN_INCOGNITO})
     public void testFieldsForOffTheRecordProfile() throws ExecutionException {
         TestNavigationController controller = new TestNavigationController();
         NavigationSheetCoordinator sheet = (NavigationSheetCoordinator) showPopup(controller, true);
@@ -261,7 +257,6 @@ public class NavigationSheetTest {
 
     @Test
     @MediumTest
-    @EnableFeatures({ChromeFeatureList.UPDATE_HISTORY_ENTRY_POINTS_IN_INCOGNITO})
     public void testFieldsForRegularProfile() throws ExecutionException {
         TestNavigationController controller = new TestNavigationController();
         NavigationSheetCoordinator sheet =

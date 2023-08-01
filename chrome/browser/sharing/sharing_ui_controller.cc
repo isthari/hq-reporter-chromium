@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -62,7 +62,7 @@ std::u16string SharingUiController::GetTitle(SharingDialogType dialog_type) {
     case SharingSendMessageResult::kCommitTimeout:
       return l10n_util::GetStringFUTF16(
           IDS_BROWSER_SHARING_ERROR_DIALOG_TITLE_GENERIC_ERROR,
-          base::ToLowerASCII(GetContentType()));
+          GetContentType());
 
     case SharingSendMessageResult::kSuccessful:
     case SharingSendMessageResult::kCancelled:
@@ -74,7 +74,7 @@ std::u16string SharingUiController::GetTitle(SharingDialogType dialog_type) {
     case SharingSendMessageResult::kEncryptionError:
       return l10n_util::GetStringFUTF16(
           IDS_BROWSER_SHARING_ERROR_DIALOG_TITLE_INTERNAL_ERROR,
-          base::ToLowerASCII(GetContentType()));
+          GetContentType());
   }
 }
 
@@ -171,6 +171,10 @@ SharingDialogData SharingUiController::CreateDialogData(
 }
 
 bool SharingUiController::ShouldShowLoadingIcon() const {
+  return true;
+}
+
+bool SharingUiController::HasAccessibleUi() const {
   return true;
 }
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 #include <string>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/singleton.h"
 #include "base/run_loop.h"
@@ -56,9 +56,10 @@ MATCHER(ContainsFailedToSendLog, "") {
 
 class FFmpegVideoDecoderTest : public testing::Test {
  public:
-  FFmpegVideoDecoderTest() : decoder_(new FFmpegVideoDecoder(&media_log_)) {
+  FFmpegVideoDecoderTest()
+      : decoder_(std::make_unique<FFmpegVideoDecoder>(&media_log_)) {
     // Initialize various test buffers.
-    frame_buffer_.reset(new uint8_t[kCodedSize.GetArea()]);
+    frame_buffer_ = std::make_unique<uint8_t[]>(kCodedSize.GetArea());
     end_of_stream_buffer_ = DecoderBuffer::CreateEOSBuffer();
     i_frame_buffer_ = ReadTestDataFile("vp8-I-frame-320x240");
     corrupt_i_frame_buffer_ = ReadTestDataFile("vp8-corrupt-I-frame");

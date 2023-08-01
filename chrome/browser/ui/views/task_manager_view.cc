@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,16 +6,14 @@
 
 #include <stddef.h>
 
-#include "base/callback_helpers.h"
 #include "base/containers/adapters.h"
+#include "base/functional/callback_helpers.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/profile_window.h"
 #include "chrome/browser/task_manager/task_manager_interface.h"
 #include "chrome/browser/task_manager/task_manager_observer.h"
-#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -49,6 +47,7 @@
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if BUILDFLAG(IS_WIN)
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/shell_integration_win.h"
 #include "ui/base/win/shell.h"
 #include "ui/views/win/hwnd_util.h"
@@ -125,6 +124,12 @@ bool TaskManagerView::IsColumnVisible(int column_id) const {
 }
 
 void TaskManagerView::SetColumnVisibility(int column_id, bool new_visibility) {
+  // Check if there is at least 1 visible column before changing the visibility.
+  // If this column would be the last column to be visible and its hiding, then
+  // prevent this column visibility change. see crbug.com/1320307 for details.
+  if (!new_visibility && tab_table_->visible_columns().size() <= 1)
+    return;
+
   tab_table_->SetColumnVisibility(column_id, new_visibility);
 }
 
@@ -231,7 +236,8 @@ void TaskManagerView::WindowClosing() {
   table_model_->StoreColumnsSettings();
 }
 
-void TaskManagerView::GetGroupRange(int model_index, views::GroupRange* range) {
+void TaskManagerView::GetGroupRange(size_t model_index,
+                                    views::GroupRange* range) {
   table_model_->GetRowsGroupRange(model_index, &range->start, &range->length);
 }
 
@@ -304,7 +310,6 @@ TaskManagerView::TaskManagerView()
   SetCloseCallback(base::DoNothing());
 
   Init();
-  chrome::RecordDialogCreation(chrome::DialogIdentifier::TASK_MANAGER);
 }
 
 // static
@@ -345,7 +350,7 @@ void TaskManagerView::Init() {
       provider->GetInsetsMetric(views::INSETS_DIALOG);
   // We don't use ChromeLayoutProvider::GetDialogInsetsForContentType because we
   // don't have a title.
-  const gfx::Insets content_insets(
+  const auto content_insets = gfx::Insets::TLBR(
       dialog_insets.top(), dialog_insets.left(),
       provider->GetDistanceMetric(
           views::DISTANCE_DIALOG_CONTENT_MARGIN_BOTTOM_CONTROL),
@@ -367,9 +372,10 @@ void TaskManagerView::InitAlwaysOnTopState() {
 }
 
 void TaskManagerView::ActivateSelectedTab() {
-  const int active_row = tab_table_->selection_model().active();
-  if (active_row != ui::ListSelectionModel::kUnselectedIndex)
-    table_model_->ActivateTask(active_row);
+  const absl::optional<size_t> active_row =
+      tab_table_->selection_model().active();
+  if (active_row.has_value())
+    table_model_->ActivateTask(active_row.value());
 }
 
 void TaskManagerView::SelectTaskOfActiveTab(Browser* browser) {
@@ -385,11 +391,9 @@ void TaskManagerView::RetrieveSavedAlwaysOnTopState() {
   if (!g_browser_process->local_state())
     return;
 
-  if (const base::Value* dictionary =
-          g_browser_process->local_state()->GetDictionary(GetWindowName())) {
-    is_always_on_top_ =
-        dictionary->FindBoolKey("always_on_top").value_or(false);
-  }
+  const base::Value::Dict& dictionary =
+      g_browser_process->local_state()->GetDict(GetWindowName());
+  is_always_on_top_ = dictionary.FindBool("always_on_top").value_or(false);
 }
 
 BEGIN_METADATA(TaskManagerView, views::DialogDelegateView)

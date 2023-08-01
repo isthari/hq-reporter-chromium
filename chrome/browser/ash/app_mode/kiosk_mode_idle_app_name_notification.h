@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -59,11 +59,5 @@ class KioskModeIdleAppNameNotification
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove when the migration of
-// //chrome/browser/chromeos is finished.
-namespace chromeos {
-using ::ash::KioskModeIdleAppNameNotification;
-}
 
 #endif  // CHROME_BROWSER_ASH_APP_MODE_KIOSK_MODE_IDLE_APP_NAME_NOTIFICATION_H_

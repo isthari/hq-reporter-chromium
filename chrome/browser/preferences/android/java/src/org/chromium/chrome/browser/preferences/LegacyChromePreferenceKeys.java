@@ -1,10 +1,10 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.preferences;
 
-import org.chromium.base.annotations.CheckDiscard;
+import org.chromium.build.annotations.CheckDiscard;
 
 import java.util.Arrays;
 import java.util.List;
@@ -25,29 +25,15 @@ public class LegacyChromePreferenceKeys {
         return Arrays.asList(
                 ChromePreferenceKeys.ACCESSIBILITY_TAB_SWITCHER,
                 ChromePreferenceKeys.APP_LOCALE,
+                ChromePreferenceKeys.AUTOFILL_ASSISTANT_ENABLED,
+                ChromePreferenceKeys.AUTOFILL_ASSISTANT_ONBOARDING_ACCEPTED,
                 ChromePreferenceKeys.BACKUP_FIRST_BACKUP_DONE,
+                ChromePreferenceKeys.BACKUP_FLOW_SIGNIN_ACCOUNT_NAME,
                 ChromePreferenceKeys.BOOKMARKS_LAST_MODIFIED_FOLDER_ID,
                 ChromePreferenceKeys.BOOKMARKS_LAST_USED_URL,
                 ChromePreferenceKeys.BOOKMARKS_LAST_USED_PARENT,
                 ChromePreferenceKeys.CHROME_DEFAULT_BROWSER,
                 ChromePreferenceKeys.CONTENT_SUGGESTIONS_SHOWN,
-                ChromePreferenceKeys.CONTEXTUAL_SEARCH_ALL_TIME_OPEN_COUNT,
-                ChromePreferenceKeys.CONTEXTUAL_SEARCH_ALL_TIME_TAP_COUNT,
-                ChromePreferenceKeys.CONTEXTUAL_SEARCH_ALL_TIME_TAP_QUICK_ANSWER_COUNT,
-                ChromePreferenceKeys.CONTEXTUAL_SEARCH_CURRENT_WEEK_NUMBER,
-                ChromePreferenceKeys.CONTEXTUAL_SEARCH_ENTITY_IMPRESSIONS_COUNT,
-                ChromePreferenceKeys.CONTEXTUAL_SEARCH_ENTITY_OPENS_COUNT,
-                ChromePreferenceKeys.CONTEXTUAL_SEARCH_LAST_ANIMATION_TIME,
-                ChromePreferenceKeys.CONTEXTUAL_SEARCH_NEWEST_WEEK,
-                ChromePreferenceKeys.CONTEXTUAL_SEARCH_OLDEST_WEEK,
-                ChromePreferenceKeys.CONTEXTUAL_SEARCH_PREVIOUS_INTERACTION_ENCODED_OUTCOMES,
-                ChromePreferenceKeys.CONTEXTUAL_SEARCH_PREVIOUS_INTERACTION_EVENT_ID,
-                ChromePreferenceKeys.CONTEXTUAL_SEARCH_PREVIOUS_INTERACTION_TIMESTAMP,
-                ChromePreferenceKeys.CONTEXTUAL_SEARCH_PROMO_OPEN_COUNT,
-                ChromePreferenceKeys.CONTEXTUAL_SEARCH_QUICK_ACTIONS_IGNORED_COUNT,
-                ChromePreferenceKeys.CONTEXTUAL_SEARCH_QUICK_ACTIONS_TAKEN_COUNT,
-                ChromePreferenceKeys.CONTEXTUAL_SEARCH_QUICK_ACTION_IMPRESSIONS_COUNT,
-                ChromePreferenceKeys.CONTEXTUAL_SEARCH_TAP_SINCE_OPEN_COUNT,
                 ChromePreferenceKeys.CONTEXTUAL_SEARCH_TAP_SINCE_OPEN_QUICK_ANSWER_COUNT,
                 ChromePreferenceKeys.CONTEXTUAL_SEARCH_TAP_TRIGGERED_PROMO_COUNT,
                 ChromePreferenceKeys.CRASH_UPLOAD_FAILURE_BROWSER,
@@ -68,19 +54,13 @@ public class LegacyChromePreferenceKeys {
                 ChromePreferenceKeys.DOWNLOAD_UMA_ENTRY,
                 ChromePreferenceKeys.FIRST_RUN_CACHED_TOS_ACCEPTED,
                 ChromePreferenceKeys.FIRST_RUN_FLOW_COMPLETE,
-                ChromePreferenceKeys.FIRST_RUN_FLOW_SIGNIN_ACCOUNT_NAME,
-                ChromePreferenceKeys.FIRST_RUN_FLOW_SIGNIN_COMPLETE,
                 ChromePreferenceKeys.FIRST_RUN_FLOW_SIGNIN_SETUP,
                 ChromePreferenceKeys.FIRST_RUN_LIGHTWEIGHT_FLOW_COMPLETE,
                 ChromePreferenceKeys.FIRST_RUN_SKIP_WELCOME_PAGE,
                 ChromePreferenceKeys.FLAGS_CACHED_ADAPTIVE_TOOLBAR_ENABLED,
                 ChromePreferenceKeys.FLAGS_CACHED_COMMAND_LINE_ON_NON_ROOTED_ENABLED,
-                ChromePreferenceKeys.FLAGS_CACHED_DOWNLOAD_AUTO_RESUMPTION_IN_NATIVE,
                 ChromePreferenceKeys.FLAGS_CACHED_GRID_TAB_SWITCHER_ENABLED,
-                ChromePreferenceKeys.FLAGS_CACHED_IMMERSIVE_UI_MODE_ENABLED,
                 ChromePreferenceKeys.FLAGS_CACHED_NETWORK_SERVICE_WARM_UP_ENABLED,
-                ChromePreferenceKeys.FLAGS_CACHED_SERVICE_MANAGER_FOR_BACKGROUND_PREFETCH,
-                ChromePreferenceKeys.FLAGS_CACHED_SERVICE_MANAGER_FOR_DOWNLOAD_RESUMPTION,
                 ChromePreferenceKeys.FLAGS_CACHED_START_SURFACE_ENABLED,
                 ChromePreferenceKeys.FLAGS_CACHED_SWAP_PIXEL_FORMAT_TO_FIX_CONVERT_FROM_TRANSLUCENT,
                 ChromePreferenceKeys.FLAGS_CACHED_TAB_GROUPS_ANDROID_ENABLED,
@@ -96,6 +76,7 @@ public class LegacyChromePreferenceKeys {
                 ChromePreferenceKeys.LOCALE_MANAGER_MISSING_TIMEZONES,
                 ChromePreferenceKeys.LOCALE_MANAGER_PARTNER_PROMO_KEYWORD_SELECTED,
                 ChromePreferenceKeys.LOCALE_MANAGER_PROMO_SHOWN,
+                ChromePreferenceKeys.LOCALE_MANAGER_PROMO_V2_CHECKED,
                 ChromePreferenceKeys.LOCALE_MANAGER_SEARCH_ENGINE_PROMO_SHOW_STATE,
                 ChromePreferenceKeys.LOCALE_MANAGER_SEARCH_WIDGET_PRESENT_FIRST_START,
                 ChromePreferenceKeys.LOCALE_MANAGER_SHOULD_REPING_RLZ_FOR_SEARCH_PROMO,
@@ -113,8 +94,8 @@ public class LegacyChromePreferenceKeys {
                 ChromePreferenceKeys.OFFLINE_INDICATOR_V2_ENABLED,
                 ChromePreferenceKeys.PAYMENTS_CHECK_SAVE_CARD_TO_DEVICE,
                 ChromePreferenceKeys.PAYMENTS_PAYMENT_COMPLETE_ONCE,
-                ChromePreferenceKeys.PRIVACY_METRICS_IN_SAMPLE,
                 ChromePreferenceKeys.PRIVACY_METRICS_REPORTING,
+                ChromePreferenceKeys.PRIVACY_METRICS_IN_SAMPLE,
                 ChromePreferenceKeys.PROFILES_BOOT_TIMESTAMP,
                 ChromePreferenceKeys.PROMOS_SKIPPED_ON_FIRST_START,
                 ChromePreferenceKeys.REACHED_CODE_PROFILER_GROUP,
@@ -136,8 +117,6 @@ public class LegacyChromePreferenceKeys {
                 ChromePreferenceKeys.SETTINGS_PRIVACY_OTHER_FORMS_OF_HISTORY_DIALOG_SHOWN,
                 ChromePreferenceKeys.SETTINGS_WEBSITE_FAILED_BUILD_VERSION,
                 ChromePreferenceKeys.SIGNIN_AND_SYNC_PROMO_SHOW_COUNT,
-                ChromePreferenceKeys.SIGNIN_PROMO_IMPRESSIONS_COUNT_BOOKMARKS,
-                ChromePreferenceKeys.SIGNIN_PROMO_IMPRESSIONS_COUNT_SETTINGS,
                 ChromePreferenceKeys.SIGNIN_PROMO_LAST_SHOWN_ACCOUNT_NAMES,
                 ChromePreferenceKeys.SIGNIN_PROMO_LAST_SHOWN_MAJOR_VERSION,
                 ChromePreferenceKeys.SIGNIN_PROMO_NTP_PROMO_DISMISSED,
@@ -147,7 +126,7 @@ public class LegacyChromePreferenceKeys {
                 ChromePreferenceKeys.SIGNIN_LEGACY_SYNC_ACCOUNT_EMAIL,
                 ChromePreferenceKeys.SNAPSHOT_DATABASE_REMOVED,
                 ChromePreferenceKeys.SURVEY_DATE_LAST_ROLLED,
-                ChromePreferenceKeys.SYNC_ERROR_PROMPT_SHOWN_AT_TIME,
+                ChromePreferenceKeys.SYNC_ERROR_MESSAGE_SHOWN_AT_TIME,
                 ChromePreferenceKeys.TABBED_ACTIVITY_LAST_BACKGROUNDED_TIME_MS_PREF,
                 ChromePreferenceKeys.TABMODEL_ACTIVE_TAB_ID,
                 ChromePreferenceKeys.TABMODEL_HAS_COMPUTED_MAX_ID,
@@ -160,12 +139,8 @@ public class LegacyChromePreferenceKeys {
                 ChromePreferenceKeys.TWA_DISCLOSURE_ACCEPTED_PACKAGES,
                 ChromePreferenceKeys.UI_THEME_SETTING,
                 ChromePreferenceKeys.VERIFIED_DIGITAL_ASSET_LINKS,
-                ChromePreferenceKeys.VR_EXIT_TO_2D_COUNT,
-                ChromePreferenceKeys.VR_FEEDBACK_OPT_OUT,
-                ChromePreferenceKeys.VR_SHOULD_REGISTER_ASSETS_COMPONENT_ON_STARTUP,
                 ChromePreferenceKeys.WEBAPK_UNINSTALLED_PACKAGES,
-                ChromePreferenceKeys.KEY_ZERO_SUGGEST_LIST_SIZE,
-                ChromePreferenceKeys.KEY_ZERO_SUGGEST_HEADER_LIST_SIZE
+                ChromePreferenceKeys.KEY_ZERO_SUGGEST_LIST_SIZE
         );
         // clang-format on
     }
@@ -173,8 +148,6 @@ public class LegacyChromePreferenceKeys {
     static List<KeyPrefix> getPrefixesInUse() {
         // clang-format off
         return Arrays.asList(
-                ChromePreferenceKeys.CONTEXTUAL_SEARCH_CLICKS_WEEK_PREFIX,
-                ChromePreferenceKeys.CONTEXTUAL_SEARCH_IMPRESSIONS_WEEK_PREFIX,
                 ChromePreferenceKeys.CUSTOM_TABS_DEX_LAST_UPDATE_TIME_PREF_PREFIX,
                 ChromePreferenceKeys.PAYMENTS_PAYMENT_INSTRUMENT_USE_COUNT,
                 ChromePreferenceKeys.PAYMENTS_PAYMENT_INSTRUMENT_USE_DATE,
@@ -189,10 +162,7 @@ public class LegacyChromePreferenceKeys {
                 ChromePreferenceKeys.KEY_ZERO_SUGGEST_IS_DELETABLE_PREFIX,
                 ChromePreferenceKeys.KEY_ZERO_SUGGEST_IS_STARRED_PREFIX,
                 ChromePreferenceKeys.KEY_ZERO_SUGGEST_POST_CONTENT_TYPE_PREFIX,
-                ChromePreferenceKeys.KEY_ZERO_SUGGEST_POST_CONTENT_DATA_PREFIX,
-                ChromePreferenceKeys.KEY_ZERO_SUGGEST_HEADER_GROUP_ID_PREFIX,
-                ChromePreferenceKeys.KEY_ZERO_SUGGEST_HEADER_GROUP_TITLE_PREFIX,
-                ChromePreferenceKeys.KEY_ZERO_SUGGEST_HEADER_GROUP_COLLAPSED_BY_DEFAULT_PREFIX
+                ChromePreferenceKeys.KEY_ZERO_SUGGEST_POST_CONTENT_DATA_PREFIX
         );
         // clang-format on
     }

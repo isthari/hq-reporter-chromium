@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 
 #include "base/containers/flat_map.h"
 #include "base/containers/stack_container.h"
+#include "base/sequence_checker.h"
 #include "cc/base/rtree.h"
 #include "cc/paint/draw_image.h"
 #include "cc/paint/image_animation_count.h"
@@ -70,7 +71,7 @@ class CC_PAINT_EXPORT DiscardableImageMap {
   }
 
   void Reset();
-  void Generate(const PaintOpBuffer* paint_op_buffer, const gfx::Rect& bounds);
+  void Generate(const PaintOpBuffer& paint_op_buffer, const gfx::Rect& bounds);
 
   // This should only be called once from the compositor thread at commit time.
   base::flat_map<PaintImage::Id, PaintImage::DecodingMode>
@@ -95,11 +96,16 @@ class CC_PAINT_EXPORT DiscardableImageMap {
 
   base::flat_map<PaintImage::Id, Rects> image_id_to_rects_;
   std::vector<AnimatedImageMetadata> animated_images_metadata_;
+  std::vector<std::pair<DrawImage, gfx::Rect>> images_;
+  // This r-tree is built lazily and in practice is only constructed
+  // on the impl thread. The entries are DrawImage pointers in `images_`.
+  mutable std::unique_ptr<RTree<const DrawImage*>> images_rtree_
+      GUARDED_BY_CONTEXT(images_rtree_sequence_checker_);
   base::flat_map<PaintImage::Id, PaintImage::DecodingMode> decoding_mode_map_;
   gfx::ContentColorUsage content_color_usage_ = gfx::ContentColorUsage::kSRGB;
   bool contains_hbd_images_ = false;
 
-  RTree<DrawImage> images_rtree_;
+  SEQUENCE_CHECKER(images_rtree_sequence_checker_);
 
   std::vector<PaintWorkletInputWithImageId> paint_worklet_inputs_;
 };

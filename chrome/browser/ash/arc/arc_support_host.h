@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,8 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
+#include "base/memory/raw_ptr.h"
 #include "chrome/browser/ash/arc/extensions/arc_support_message_host.h"
 #include "extensions/browser/api/messaging/native_message_host.h"
 #include "ui/display/display_observer.h"
@@ -26,9 +27,11 @@ class ArcSupportHost : public arc::ArcSupportMessageHost::Observer,
                        public display::DisplayObserver {
  public:
   enum class UIPage {
-    NO_PAGE,                // Hide everything.
-    TERMS,                  // Terms content page.
-    ARC_LOADING,            // ARC loading progress page.
+    NO_PAGE,      // Hide everything.
+    TERMS,        // Terms content page.
+    ARC_LOADING,  // ARC loading progress page.
+    // TODO(b/282761972): Remove the AD page type below, after all places where
+    // it's used have already been cleaned up.
     ACTIVE_DIRECTORY_AUTH,  // Active Directory user SAML authentication.
     ERROR,                  // ARC start error page.
   };
@@ -69,13 +72,11 @@ class ArcSupportHost : public arc::ArcSupportMessageHost::Observer,
     // The error message to show.
     Error error;
 
-    // Some messages show an error code with the error string
-    // e.g. Something went wrong. Error code: 7
-    // The value of error code for such errors can be passsed
-    // using this arg.
-    // For SIGN_IN_UNKNOWN_ERROR the arg should be specific provisioning result
-    // code. For SIGN_IN_CLOUD_PROVISION_FLOW_* errors the arg should be error
-    // code received from ARC.
+    // Some messages show an error code with the error string (e.g. Something
+    // went wrong. Error code: 7). The value of error code for such errors can
+    // be passed using this arg. For SIGN_IN_UNKNOWN_ERROR the arg should be
+    // specific provisioning result code. For SIGN_IN_CLOUD_PROVISION_FLOW_*
+    // errors the arg should be error code received from ARC.
     absl::optional<int> arg;
   };
 
@@ -126,8 +127,9 @@ class ArcSupportHost : public arc::ArcSupportMessageHost::Observer,
     virtual void OnWindowClosed() = 0;
 
     // Called when "RETRY" button on the error page is clicked, except when
-    // terms of service negotiation or manual authentication is onging. In those
-    // cases, the more specific retry function in the other delegates is called.
+    // terms of service negotiation or manual authentication is ongoing. In
+    // those cases, the more specific retry function in the other delegates is
+    // called.
     virtual void OnRetryClicked() = 0;
 
     // Called when send feedback button on error page is clicked.
@@ -204,7 +206,7 @@ class ArcSupportHost : public arc::ArcSupportMessageHost::Observer,
   void SetLocationServicesPreferenceCheckbox(bool is_enabled, bool is_managed);
 
   // arc::ArcSupportMessageHost::Observer override:
-  void OnMessage(const base::DictionaryValue& message) override;
+  void OnMessage(const base::Value::Dict& message) override;
 
   // display::DisplayObserver:
   void OnDisplayMetricsChanged(const display::Display& display,
@@ -231,6 +233,8 @@ class ArcSupportHost : public arc::ArcSupportMessageHost::Observer,
   // Requests to start the ARC support Chrome app.
   void RequestAppStart();
 
+  void SetWindowBound(const display::Display& display);
+
   bool Initialize();
 
   // Requests to ARC support Chrome app to show the specified page.
@@ -248,12 +252,14 @@ class ArcSupportHost : public arc::ArcSupportMessageHost::Observer,
 
   void DisconnectMessageHost();
 
-  Profile* const profile_;
+  const raw_ptr<Profile, ExperimentalAsh> profile_;
   RequestOpenAppCallback request_open_app_callback_;
 
-  AuthDelegate* auth_delegate_ = nullptr;           // not owned
-  TermsOfServiceDelegate* tos_delegate_ = nullptr;  // not owned
-  ErrorDelegate* error_delegate_ = nullptr;         // not owned
+  raw_ptr<AuthDelegate, ExperimentalAsh> auth_delegate_ = nullptr;  // not owned
+  raw_ptr<TermsOfServiceDelegate, ExperimentalAsh> tos_delegate_ =
+      nullptr;  // not owned
+  raw_ptr<ErrorDelegate, ExperimentalAsh> error_delegate_ =
+      nullptr;  // not owned
 
   // True, if ARC support app is requested to start, but the connection is not
   // yet established. Reset to false, when the app is started and the
@@ -261,7 +267,7 @@ class ArcSupportHost : public arc::ArcSupportMessageHost::Observer,
   bool app_start_pending_ = false;
 
   // The instance is created and managed by Chrome.
-  arc::ArcSupportMessageHost* message_host_ = nullptr;
+  raw_ptr<arc::ArcSupportMessageHost, ExperimentalAsh> message_host_ = nullptr;
 
   absl::optional<display::ScopedOptionalDisplayObserver> display_observer_;
 

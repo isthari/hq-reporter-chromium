@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "third_party/blink/renderer/core/frame/local_frame_view.h"
 #include "third_party/blink/renderer/core/html/canvas/canvas_context_creation_attributes_core.h"
 #include "third_party/blink/renderer/core/html/canvas/canvas_rendering_context.h"
+#include "third_party/blink/renderer/core/html/canvas/html_canvas_element.h"
 #include "third_party/blink/renderer/core/testing/page_test_base.h"
 
 using testing::Mock;
@@ -55,9 +56,8 @@ void CanvasFontCacheTest::SetUp() {
 }
 
 TEST_F(CanvasFontCacheTest, CacheHardLimit) {
-  String font_string;
-  unsigned i;
-  for (i = 0; i < Cache()->HardMaxFonts() + 1; i++) {
+  for (unsigned i = 0; i < Cache()->HardMaxFonts() + 1; ++i) {
+    String font_string;
     font_string = String::Number(i + 1) + "px sans-serif";
     Context2D()->setFont(font_string);
     if (i < Cache()->HardMaxFonts()) {
@@ -97,6 +97,30 @@ TEST_F(CanvasFontCacheTest, CreateDocumentFontCache) {
   Document* document = GetDocument().implementation().createHTMLDocument();
   // This document should also create a CanvasFontCache and should not crash.
   EXPECT_TRUE(document->GetCanvasFontCache());
+}
+
+// Regression test for crbug.com/1421699.
+// When page becomes hidden the cache should be cleared. If this does not
+// happen, setFont() should clear the cache instead.
+TEST_F(CanvasFontCacheTest, HardMaxFontsOnPageVisibility) {
+  GetPage().SetVisibilityState(mojom::blink::PageVisibilityState::kVisible,
+                               /*initial_state=*/false);
+  // Fill up the font cache.
+  for (unsigned i = 0; i < Cache()->HardMaxFonts(); ++i) {
+    String font_string;
+    font_string = String::Number(i + 1) + "px sans-serif";
+    Context2D()->setFont(font_string);
+    EXPECT_TRUE(Cache()->IsInCache(font_string));
+    EXPECT_EQ(Cache()->GetCacheSize(), i + 1);
+  }
+  EXPECT_EQ(Cache()->GetCacheSize(), Cache()->HardMaxFonts());
+
+  // Set initial state to true to not trigger a flush.
+  GetPage().SetVisibilityState(mojom::blink::PageVisibilityState::kHidden,
+                               /*initial_state=*/true);
+  // Set font should detect that things are out-of-sync and clear the cache.
+  Context2D()->setFont("15px serif");
+  EXPECT_EQ(Cache()->GetCacheSize(), 1u);
 }
 
 }  // namespace blink

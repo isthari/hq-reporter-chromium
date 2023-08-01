@@ -1,12 +1,13 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/passwords/password_bubble_view_base.h"
 
+#include "base/notreached.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
-#include "chrome/browser/ui/passwords/manage_passwords_view_utils.h"
 #include "chrome/browser/ui/passwords/passwords_model_delegate.h"
 #include "chrome/browser/ui/views/accessibility/theme_tracking_non_accessible_image_view.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
@@ -15,6 +16,7 @@
 #include "chrome/browser/ui/views/frame/toolbar_button_provider.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "chrome/browser/ui/views/passwords/manage_passwords_icon_views.h"
+#include "chrome/browser/ui/views/passwords/manage_passwords_view.h"
 #include "chrome/browser/ui/views/passwords/move_to_account_store_bubble_view.h"
 #include "chrome/browser/ui/views/passwords/password_auto_sign_in_view.h"
 #include "chrome/browser/ui/views/passwords/password_generation_confirmation_view.h"
@@ -28,6 +30,11 @@
 #include "components/password_manager/core/browser/password_form.h"
 #include "components/password_manager/core/common/password_manager_features.h"
 #include "ui/views/controls/button/button.h"
+
+#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)
+#include "chrome/browser/ui/views/passwords/biometric_authentication_confirmation_bubble_view.h"
+#include "chrome/browser/ui/views/passwords/biometric_authentication_for_filling_bubble_view.h"
+#endif
 
 // static
 PasswordBubbleViewBase* PasswordBubbleViewBase::g_manage_passwords_bubble_ =
@@ -52,6 +59,11 @@ void PasswordBubbleViewBase::ShowBubble(content::WebContents* web_contents,
       CreateBubble(web_contents, anchor_view, reason);
   DCHECK(bubble);
   DCHECK_EQ(bubble, g_manage_passwords_bubble_);
+  // TODO(crbug.com/1305276): In non-DCHECK mode we could fall through here and
+  // hard-crash if we requested a bubble and were in the wrong state. In the
+  // meantime we will abort if we did not create a bubble.
+  if (!g_manage_passwords_bubble_)
+    return;
 
   g_manage_passwords_bubble_->SetHighlightedButton(
       button_provider->GetPageActionIconView(
@@ -71,7 +83,12 @@ PasswordBubbleViewBase* PasswordBubbleViewBase::CreateBubble(
   password_manager::ui::State model_state =
       PasswordsModelDelegateFromWebContents(web_contents)->GetState();
   if (model_state == password_manager::ui::MANAGE_STATE) {
-    view = new PasswordItemsView(web_contents, anchor_view);
+    if (base::FeatureList::IsEnabled(
+            password_manager::features::kRevampedPasswordManagementBubble)) {
+      view = new ManagePasswordsView(web_contents, anchor_view);
+    } else {
+      view = new PasswordItemsView(web_contents, anchor_view);
+    }
   } else if (model_state == password_manager::ui::AUTO_SIGNIN_STATE) {
     view = new PasswordAutoSignInView(web_contents, anchor_view);
   } else if (model_state == password_manager::ui::CONFIRMATION_STATE) {
@@ -92,8 +109,21 @@ PasswordBubbleViewBase* PasswordBubbleViewBase::CreateBubble(
              model_state ==
                  password_manager::ui::PASSWORD_UPDATED_MORE_TO_FIX) {
     view = new PostSaveCompromisedBubbleView(web_contents, anchor_view);
+#if BUILDFLAG(IS_MAC) || BUILDFLAG(IS_WIN)
+  } else if (model_state ==
+             password_manager::ui::BIOMETRIC_AUTHENTICATION_FOR_FILLING_STATE) {
+    view = new BiometricAuthenticationForFillingBubbleView(
+        web_contents, anchor_view,
+        Profile::FromBrowserContext(web_contents->GetBrowserContext())
+            ->GetPrefs(),
+        reason);
+  } else if (model_state == password_manager::ui::
+                                BIOMETRIC_AUTHENTICATION_CONFIRMATION_STATE) {
+    view = new BiometricAuthenticationConfirmationBubbleView(web_contents,
+                                                             anchor_view);
+#endif
   } else {
-    NOTREACHED();
+    NOTREACHED_NORETURN();
   }
 
   g_manage_passwords_bubble_ = view;
@@ -102,8 +132,19 @@ PasswordBubbleViewBase* PasswordBubbleViewBase::CreateBubble(
 
 // static
 void PasswordBubbleViewBase::CloseCurrentBubble() {
-  if (g_manage_passwords_bubble_)
+  if (g_manage_passwords_bubble_) {
+    // It can be the case that a password bubble is being closed while another
+    // password bubble is being opened. The metrics recorder can be shared
+    // between them and it doesn't understand the sequence [open1, open2,
+    // close1, close2]. Therefore, we reset the model early (before the bubble
+    // destructor) to get the following sequence of events [open1, close1,
+    // open2, close2].
+    PasswordBubbleControllerBase* controller =
+        g_manage_passwords_bubble_->GetController();
+    DCHECK(controller);
+    controller->OnBubbleClosing();
     g_manage_passwords_bubble_->GetWidget()->Close();
+  }
 }
 
 // static
@@ -135,36 +176,6 @@ PasswordBubbleViewBase::~PasswordBubbleViewBase() {
     g_manage_passwords_bubble_ = nullptr;
 }
 
-// static
-std::unique_ptr<views::Label> PasswordBubbleViewBase::CreateUsernameLabel(
-    const password_manager::PasswordForm& form) {
-  auto label = std::make_unique<views::Label>(
-      GetDisplayUsername(form), views::style::CONTEXT_DIALOG_BODY_TEXT,
-      views::style::STYLE_SECONDARY);
-  label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-  return label;
-}
-
-// static
-std::unique_ptr<views::Label> PasswordBubbleViewBase::CreatePasswordLabel(
-    const password_manager::PasswordForm& form) {
-  std::unique_ptr<views::Label> label;
-  if (form.federation_origin.opaque()) {
-    label = std::make_unique<views::Label>(
-        form.password_value, views::style::CONTEXT_DIALOG_BODY_TEXT,
-        STYLE_SECONDARY_MONOSPACED);
-    label->SetObscured(true);
-  } else {
-    label = std::make_unique<views::Label>(
-        l10n_util::GetStringFUTF16(IDS_PASSWORDS_VIA_FEDERATION,
-                                   GetDisplayFederation(form)),
-        views::style::CONTEXT_DIALOG_BODY_TEXT, views::style::STYLE_SECONDARY);
-    label->SetElideBehavior(gfx::ELIDE_HEAD);
-  }
-  label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
-  return label;
-}
-
 void PasswordBubbleViewBase::SetBubbleHeader(int light_image_id,
                                              int dark_image_id) {
   ui::ResourceBundle& bundle = ui::ResourceBundle::GetSharedInstance();
@@ -192,19 +203,4 @@ void PasswordBubbleViewBase::Init() {
   DCHECK(controller);
   SetTitle(controller->GetTitle());
   SetShowTitle(!controller->GetTitle().empty());
-}
-
-void PasswordBubbleViewBase::OnWidgetClosing(views::Widget* widget) {
-  LocationBarBubbleDelegateView::OnWidgetClosing(widget);
-  if (widget != GetWidget())
-    return;
-  // It can be the case that a password bubble is being closed while another
-  // password bubble is being opened. The metrics recorder can be shared
-  // between them and it doesn't understand the sequence [open1, open2,
-  // close1, close2]. Therefore, we reset the model early (before the bubble
-  // destructor) to get the following sequence of events [open1, close1,
-  // open2, close2].
-  PasswordBubbleControllerBase* controller = GetController();
-  DCHECK(controller);
-  controller->OnBubbleClosing();
 }

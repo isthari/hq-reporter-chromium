@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,10 @@
 
 #include <memory>
 
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
-#include "base/task/post_task.h"
 #include "chrome/browser/ash/release_notes/release_notes_storage.h"
-#include "chromeos/network/network_state_handler_observer.h"
+#include "chromeos/ash/components/network/network_state_handler_observer.h"
 #include "components/session_manager/core/session_manager_observer.h"
 
 namespace message_center {
@@ -46,7 +46,7 @@ class ReleaseNotesNotification {
 
   void HandleClickShowNotification();
 
-  Profile* const profile_;
+  const raw_ptr<Profile, ExperimentalAsh> profile_;
   std::unique_ptr<ReleaseNotesStorage> release_notes_storage_;
   std::unique_ptr<message_center::Notification>
       release_notes_available_notification_;
@@ -55,10 +55,5 @@ class ReleaseNotesNotification {
 };
 
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove when ChromOS code migration is done.
-namespace chromeos {
-using ::ash::ReleaseNotesNotification;
-}  // namespace chromeos
 
 #endif  // CHROME_BROWSER_ASH_RELEASE_NOTES_RELEASE_NOTES_NOTIFICATION_H_

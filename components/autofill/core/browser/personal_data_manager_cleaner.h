@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 
 #include "base/memory/raw_ptr.h"
 #include "components/autofill/core/browser/data_model/autofill_profile.h"
-#include "components/autofill/core/browser/data_model/test_data_creator.h"
 #include "components/autofill/core/browser/geo/alternative_state_name_map_updater.h"
 #include "components/sync/base/model_type.h"
 
@@ -45,6 +44,12 @@ class PersonalDataManagerCleaner {
   // A wrapper around |ApplyDedupingRoutine()| used for testing purposes.
   bool ApplyDedupingRoutineForTesting() { return ApplyDedupingRoutine(); }
 
+  // A wrapper around |RemoveInaccessibleProfileValues()| used for testing
+  // purposes.
+  void RemoveInaccessibleProfileValuesForTesting() {
+    RemoveInaccessibleProfileValues();
+  }
+
   // A wrapper around |DedupeProfiles()| used for testing purposes.
   void DedupeProfilesForTesting(
       std::vector<std::unique_ptr<AutofillProfile>>* existing_profiles,
@@ -68,16 +73,16 @@ class PersonalDataManagerCleaner {
     return DeleteDisusedCreditCards();
   }
 
-  // A wrapper around |ClearProfileNonSettingsOrigins()| used for testing
-  // purposes.
-  void ClearProfileNonSettingsOriginsForTesting() {
-    ClearProfileNonSettingsOrigins();
-  }
-
   // A wrapper around |ClearCreditCardNonSettingsOrigins()| used for testing
   // purposes.
   void ClearCreditCardNonSettingsOriginsForTesting() {
     ClearCreditCardNonSettingsOrigins();
+  }
+
+  // Getter for |alternative_state_name_map_updater_| used for testing purposes.
+  AlternativeStateNameMapUpdater*
+  alternative_state_name_map_updater_for_testing() {
+    return alternative_state_name_map_updater_;
   }
 #endif  // defined(UNIT_TEST)
 
@@ -91,6 +96,10 @@ class PersonalDataManagerCleaner {
   // Runs the routine that removes the orphan rows in the autofill tables if
   // it's never been done.
   void RemoveOrphanAutofillTableRows();
+
+  // Removes settings-inaccessible profiles values from all profiles stored in
+  // the |personal_data_manager_|.
+  void RemoveInaccessibleProfileValues();
 
   // Applies the deduping routine once per major version if the feature is
   // enabled. Calls DedupeProfiles with the content of
@@ -126,22 +135,12 @@ class PersonalDataManagerCleaner {
   // feature is enabled.
   bool DeleteDisusedCreditCards();
 
-  // Clears the value of the origin field of the autofill profiles or cards that
-  // were not created from the settings page.
-  void ClearProfileNonSettingsOrigins();
+  // Clears the value of the origin field of cards that were not created from
+  // the settings page.
   void ClearCreditCardNonSettingsOrigins();
-
-  // Used for adding test data by |test_data_creator_|.
-  void AddProfileForTest(const AutofillProfile& profile);
-  void AddCreditCardForTest(const CreditCard& credit_card);
 
   // True if autofill profile cleanup needs to be performed.
   bool is_autofill_profile_cleanup_pending_ = false;
-
-  // Used to create test data. If the AutofillCreateDataForTest feature is
-  // enabled, this helper creates autofill profiles and credit card data that
-  // would otherwise be difficult to create manually using the UI.
-  TestDataCreator test_data_creator_;
 
   // The personal data manager, used to load and update the personal data
   // from/to the web database.
@@ -154,6 +153,17 @@ class PersonalDataManagerCleaner {
   // AlternativeStateNameMap with the geographical state data.
   const raw_ptr<AlternativeStateNameMapUpdater>
       alternative_state_name_map_updater_ = nullptr;
+
+  // Profiles are loaded through two sync bridges, the AUTOFILL_PROFILE and the
+  // CONTACT_INFO sync bridge. Both of them are behind the same settings toggle,
+  // so it is guaranteed that either both of them or none of them are activated
+  // together. In order to initialize the alternative state map only after
+  // profiles from both sources were loaded, we track whether each model type's
+  // `SyncStarted()` event has triggered yet.
+  // TODO(crbug.com/1348294): Remove once the AUTOFILL_PROFILE sync bridge is
+  // deprecated.
+  bool autofill_profile_sync_started = false;
+  bool contact_info_sync_started = false;
 
   // base::WeakPtr ensures that the callback bound to the object is canceled
   // when that object is destroyed.

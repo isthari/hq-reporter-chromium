@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "base/hash/md5.h"
 #include "base/json/json_reader.h"
 #include "base/logging.h"
+#include "base/memory/raw_ptr.h"
 #include "chrome/browser/ash/printing/bulk_printers_calculator.h"
 #include "chrome/browser/ash/printing/bulk_printers_calculator_factory.h"
 #include "chrome/browser/ash/printing/calculators_policies_binder.h"
@@ -18,6 +19,7 @@
 #include "chrome/common/pref_names.h"
 #include "chromeos/printing/printer_configuration.h"
 #include "chromeos/printing/printer_translator.h"
+#include "components/device_event_log/device_event_log.h"
 #include "components/policy/core/common/policy_service.h"
 #include "components/policy/policy_constants.h"
 #include "components/pref_registry/pref_registry_syncable.h"
@@ -29,13 +31,11 @@ namespace ash {
 
 namespace {
 
-std::vector<std::string> ConvertToVector(const base::Value* list) {
+std::vector<std::string> ConvertToVector(const base::Value::List& list) {
   std::vector<std::string> string_list;
-  if (list && list->is_list()) {
-    for (const base::Value& value : list->GetList()) {
-      if (value.is_string()) {
-        string_list.push_back(value.GetString());
-      }
+  for (const base::Value& value : list) {
+    if (value.is_string()) {
+      string_list.push_back(value.GetString());
     }
   }
   return string_list;
@@ -135,10 +135,9 @@ class EnterprisePrintersProviderImpl : public EnterprisePrintersProvider,
     recommended_printers_.clear();
     std::vector<std::string> data = FromPrefs(prefs::kRecommendedPrinters);
     for (const auto& printer_json : data) {
-      absl::optional<base::Value> printer_dictionary = base::JSONReader::Read(
+      absl::optional<base::Value> printer_value = base::JSONReader::Read(
           printer_json, base::JSON_ALLOW_TRAILING_COMMAS);
-      if (!printer_dictionary.has_value() ||
-          !printer_dictionary.value().is_dict()) {
+      if (!printer_value.has_value() || !printer_value.value().is_dict()) {
         LOG(WARNING) << "Ignoring invalid printer.  Invalid JSON object: "
                      << printer_json;
         continue;
@@ -148,10 +147,11 @@ class EnterprisePrintersProviderImpl : public EnterprisePrintersProvider,
       // unique so we'll hash the record.  This will not collide with the
       // UUIDs generated for user entries.
       std::string id = base::MD5String(printer_json);
-      printer_dictionary.value().SetStringKey(chromeos::kPrinterId, id);
+      base::Value::Dict& printer_dictionary = printer_value.value().GetDict();
+      printer_dictionary.Set(chromeos::kPrinterId, id);
 
-      auto new_printer = chromeos::RecommendedPrinterToPrinter(
-          base::Value::AsDictionaryValue(printer_dictionary.value()));
+      auto new_printer =
+          chromeos::RecommendedPrinterToPrinter(printer_dictionary);
       if (!new_printer) {
         LOG(WARNING) << "Recommended printer is malformed.";
         continue;
@@ -190,8 +190,7 @@ class EnterprisePrintersProviderImpl : public EnterprisePrintersProvider,
     device_printers_is_complete_ =
         device_printers_->IsComplete() &&
         (device_printers_->IsDataPolicySet() ||
-         (!PolicyWithDataIsSet(policy::key::kDeviceNativePrinters) &&
-          !PolicyWithDataIsSet(policy::key::kDevicePrinters)));
+         !PolicyWithDataIsSet(policy::key::kDevicePrinters));
   }
 
   void RecalculateCurrentPrintersList() {
@@ -202,11 +201,19 @@ class EnterprisePrintersProviderImpl : public EnterprisePrintersProvider,
     if (device_printers_) {
       complete_ = complete_ && device_printers_is_complete_;
       const auto& printers = device_printers_->GetPrinters();
+      PRINTER_LOG(DEBUG)
+          << "EnterprisePrintersProvider::RecalculateCurrentPrintersList()"
+          << "-device-printers: complete=" << device_printers_is_complete_
+          << " count=" << printers.size();
       AddPrintersFromMap(printers, &current_printers);
     }
     if (user_printers_) {
       complete_ = complete_ && user_printers_is_complete_;
       const auto& printers = user_printers_->GetPrinters();
+      PRINTER_LOG(DEBUG)
+          << "EnterprisePrintersProvider::RecalculateCurrentPrintersList()"
+          << "-user-printers: complete=" << user_printers_is_complete_
+          << " count=" << printers.size();
       AddPrintersFromMap(printers, &current_printers);
     }
 
@@ -245,12 +252,9 @@ class EnterprisePrintersProviderImpl : public EnterprisePrintersProvider,
         policy::PolicyNamespace(policy::PolicyDomain::POLICY_DOMAIN_CHROME, "");
     const policy::PolicyMap& policy_map =
         policy_connector->policy_service()->GetPolicies(policy_namespace);
-    const base::Value* value = policy_map.GetValue(policy_name);
-    if (value && value->is_dict()) {
-      // policy is set and its value is a dictionary
-      return true;
-    }
-    return false;
+    const base::Value* value =
+        policy_map.GetValue(policy_name, base::Value::Type::DICT);
+    return value != nullptr;
   }
 
   // current partial results
@@ -271,7 +275,7 @@ class EnterprisePrintersProviderImpl : public EnterprisePrintersProvider,
   std::unique_ptr<CalculatorsPoliciesBinder> profile_binder_;
 
   // Profile (user) settings.
-  Profile* profile_;
+  raw_ptr<Profile, ExperimentalAsh> profile_;
   AccountId account_id_;
   PrefChangeRegistrar pref_change_registrar_;
 

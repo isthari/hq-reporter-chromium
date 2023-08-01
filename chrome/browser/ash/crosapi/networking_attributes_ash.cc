@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,12 +10,12 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chromeos/ash/components/network/device_state.h"
+#include "chromeos/ash/components/network/network_handler.h"
+#include "chromeos/ash/components/network/network_state.h"
+#include "chromeos/ash/components/network/network_state_handler.h"
+#include "chromeos/ash/components/network/network_util.h"
 #include "chromeos/crosapi/mojom/networking_attributes.mojom.h"
-#include "chromeos/network/device_state.h"
-#include "chromeos/network/network_handler.h"
-#include "chromeos/network/network_state.h"
-#include "chromeos/network/network_state_handler.h"
-#include "chromeos/network/network_util.h"
 #include "components/user_manager/user.h"
 #include "third_party/cros_system_api/dbus/shill/dbus-constants.h"
 
@@ -47,16 +47,15 @@ void NetworkingAttributesAsh::GetNetworkDetails(
     return;
   }
 
-  chromeos::NetworkStateHandler* network_state_handler =
-      chromeos::NetworkHandler::Get()->network_state_handler();
-  const chromeos::NetworkState* network =
-      network_state_handler->DefaultNetwork();
+  ash::NetworkStateHandler* network_state_handler =
+      ash::NetworkHandler::Get()->network_state_handler();
+  const ash::NetworkState* network = network_state_handler->DefaultNetwork();
   if (!network) {
     // Not connected to a network.
     std::move(callback).Run(Result::NewErrorMessage(kErrorNetworkNotConnected));
     return;
   }
-  const chromeos::DeviceState* device =
+  const ash::DeviceState* device =
       network_state_handler->GetDeviceState(network->device_path());
   if (!device) {
     std::move(callback).Run(Result::NewErrorMessage(kErrorNetworkNotConnected));
@@ -65,7 +64,7 @@ void NetworkingAttributesAsh::GetNetworkDetails(
 
   mojom::NetworkDetailsPtr details = mojom::NetworkDetails::New();
   details->mac_address =
-      chromeos::network_util::FormattedMacAddress(device->mac_address());
+      ash::network_util::FormattedMacAddress(device->mac_address());
   net::IPAddress ipv4_address;
   if (ipv4_address.AssignFromIPLiteral(
           device->GetIpAddressByType(shill::kTypeIPv4))) {
@@ -77,10 +76,8 @@ void NetworkingAttributesAsh::GetNetworkDetails(
     details->ipv6_address = ipv6_address;
   }
 
-  mojom::GetNetworkDetailsResultPtr result_ptr =
-      mojom::GetNetworkDetailsResult::New();
-  result_ptr->set_network_details(std::move(details));
-  std::move(callback).Run(std::move(result_ptr));
+  std::move(callback).Run(
+      mojom::GetNetworkDetailsResult::NewNetworkDetails(std::move(details)));
 }
 
 }  // namespace crosapi

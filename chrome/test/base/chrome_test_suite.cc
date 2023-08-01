@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,6 @@
 #include "base/memory/ref_counted.h"
 #include "base/path_service.h"
 #include "base/strings/utf_string_conversions.h"
-#include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/app/chrome_main_delegate.h"
 #include "chrome/browser/browser_process.h"
@@ -41,7 +40,7 @@
 #endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
 
 #if BUILDFLAG(IS_MAC)
-#include "base/mac/bundle_locations.h"
+#include "base/apple/bundle_locations.h"
 #include "base/mac/scoped_nsautorelease_pool.h"
 #include "chrome/browser/chrome_browser_application_mac.h"
 #endif
@@ -108,7 +107,7 @@ void ChromeTestSuite::Initialize() {
   base::FilePath path;
   base::PathService::Get(base::DIR_EXE, &path);
   path = path.Append(chrome::kFrameworkName);
-  base::mac::SetOverrideFrameworkBundlePath(path);
+  base::apple::SetOverrideFrameworkBundlePath(path);
 #endif
 
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
@@ -117,18 +116,23 @@ void ChromeTestSuite::Initialize() {
   // specific path doesn't matter as long as it exists.
   CHECK(scoped_temp_dir_.CreateUniqueTempDir());
   base::FilePath temp_path = scoped_temp_dir_.GetPath();
-  chrome::SetLacrosDefaultPaths(/*documents_dir=*/temp_path,
-                                /*downloads_dir=*/temp_path,
-                                /*drivefs=*/base::FilePath(),
-                                /*removable_media_dir*/ base::FilePath(),
-                                /*android_files_dir*/ base::FilePath(),
-                                /*linux_files_dir*/ base::FilePath());
+  chrome::SetLacrosDefaultPaths(
+      /*documents_dir=*/temp_path,
+      /*downloads_dir=*/temp_path,
+      /*drivefs=*/base::FilePath(),
+      /*removable_media_dir=*/base::FilePath(),
+      /*android_files_dir=*/base::FilePath(),
+      /*linux_files_dir=*/base::FilePath(),
+      /*ash_resources_dir=*/base::FilePath(),
+      /*share_cache_dir=*/temp_path,
+      /*preinstalled_web_app_config_dir=*/base::FilePath(),
+      /*preinstalled_web_app_extra_config_dir=*/base::FilePath());
 #endif  // BUILDFLAG(IS_CHROMEOS_LACROS)
 }
 
 void ChromeTestSuite::Shutdown() {
 #if BUILDFLAG(IS_MAC)
-  base::mac::SetOverrideFrameworkBundle(NULL);
+  base::apple::SetOverrideFrameworkBundlePath({});
 #endif
 
   content::ContentTestSuiteBase::Shutdown();

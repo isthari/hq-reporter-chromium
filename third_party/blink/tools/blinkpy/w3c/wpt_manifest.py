@@ -1,4 +1,4 @@
-# Copyright 2017 The Chromium Authors. All rights reserved.
+# Copyright 2017 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 """WPTManifest is responsible for handling MANIFEST.json.
@@ -16,6 +16,7 @@ Neither has a leading slash.
 
 import json
 import logging
+from typing import Optional
 
 from blinkpy.common.memoized import memoized
 from blinkpy.common.path_finder import PathFinder
@@ -64,6 +65,7 @@ class WPTManifest(object):
                 },
                 "manual": {...},
                 "reftest": {...},
+                "print-reftest": {...},
                 "testharness": {...},
             },
             // other info...
@@ -77,14 +79,16 @@ class WPTManifest(object):
     which can be roughly summarized as follows:
         * testharness test: [url, extras]
         * reftest: [url, references, extras]
+        * print-reftest: [url, references, extras]
     where `extras` is a dict with the following optional items:
         * testharness test: {"timeout": "long", "testdriver": True}
         * reftest: {"timeout": "long", "viewport_size": ..., "dpi": ...}
+        * print-reftest: {"timeout": "long", "viewport_size": ..., "dpi": ..., "page_ranges": ...}
     and `references` is a list that looks like:
         [[reference_url1, "=="], [reference_url2, "!="], ...]
     """
 
-    def __init__(self, host, manifest_path):
+    def __init__(self, host, manifest_path, exclude_jsshell: bool = True):
         self.host = host
         self.port = self.host.port_factory.get()
         self.raw_dict = json.loads(
@@ -97,8 +101,10 @@ class WPTManifest(object):
             self.raw_dict.get('items', {}))
 
         self.wpt_manifest_path = manifest_path
-        self.test_types = ('manual', 'reftest', 'testharness', 'crashtest')
+        self.test_types = ('manual', 'reftest', 'print-reftest', 'testharness',
+                           'crashtest')
         self.test_name_to_file = {}
+        self._exclude_jsshell = exclude_jsshell
 
     @property
     def wpt_dir(self):
@@ -164,7 +170,9 @@ class WPTManifest(object):
             if test_type not in items:
                 continue
             for filename, records in items[test_type].items():
-                for item in filter(self._is_not_jsshell, records):
+                if self._exclude_jsshell:
+                    records = filter(self._is_not_jsshell, records)
+                for item in records:
                     url_for_item = self._get_url_from_item(item)
                     url_items[url_for_item] = item
                     self.test_name_to_file[url_for_item] = filename
@@ -180,6 +188,16 @@ class WPTManifest(object):
         assert not path_in_wpt.startswith('/')
         return self._items_for_file_path(path_in_wpt) is not None
 
+    def get_test_type(self, test_path: str) -> Optional[str]:
+        """Returns the test type of the given test url."""
+        assert not test_path.startswith('/')
+        items = self.raw_dict.get('items', {})
+        for test_type in self.test_types:
+            type_items = items.get(test_type, {})
+            if test_path in type_items:
+                return test_type
+        return None
+
     def is_test_url(self, url):
         """Checks if url is a valid test in the manifest."""
         assert not url.startswith('/')
@@ -187,8 +205,15 @@ class WPTManifest(object):
 
     def is_crash_test(self, url):
         """Checks if a WPT is a crashtest according to the manifest."""
-        items = self.raw_dict.get('items', {})
-        return url in items.get('crashtest', {})
+        return self.get_test_type(url) == 'crashtest'
+
+    def is_manual_test(self, url):
+        """Checks if a WPT is a manual according to the manifest."""
+        return self.get_test_type(url) == 'manual'
+
+    def is_print_reftest(self, url):
+        """Checks if a WPT is a print reftest according to the manifest."""
+        return self.get_test_type(url) == 'print-reftest'
 
     def is_slow_test(self, url):
         """Checks if a WPT is slow (long timeout) according to the manifest.
@@ -208,8 +233,27 @@ class WPTManifest(object):
         extras = self._get_extras_from_item(item)
         return extras.get('timeout') == 'long'
 
+    def extract_test_pac(self, url):
+        """Get the proxy configuration (PAC) for the test
+
+        Args:
+            url: A WPT URL.
+
+        Returns:
+            A relative PAC url if noted by the test, None otherwise.
+        """
+        if not self.is_test_url(url):
+            return None
+
+        item = self._item_for_url(url)
+        if not item:
+            return None
+
+        extras = self._get_extras_from_item(item)
+        return extras.get('pac')
+
     def extract_reference_list(self, path_in_wpt):
-        """Extracts reference information of the specified reference test.
+        """Extracts reference information of the specified (print) reference test.
 
         The return value is a list of (match/not-match, reference path in wpt)
         pairs, like:
@@ -217,10 +261,13 @@ class WPTManifest(object):
             ("!=", "/foo/bar/baz-mismatch.html")]
         """
         items = self.raw_dict.get('items', {})
-        if path_in_wpt not in items.get('reftest', {}):
+        test_type = self.get_test_type(path_in_wpt)
+
+        if test_type not in ['reftest', 'print-reftest']:
             return []
+
         reftest_list = []
-        for item in items['reftest'][path_in_wpt]:
+        for item in items[test_type][path_in_wpt]:
             for ref_path_in_wpt, expectation in item[1]:
                 # Ref URLs in MANIFEST should be absolute, but we double check
                 # just in case.
@@ -230,7 +277,7 @@ class WPTManifest(object):
         return reftest_list
 
     def extract_fuzzy_metadata(self, url):
-        """Extracts the fuzzy reftest metadata for the specified reference test.
+        """Extracts the fuzzy reftest metadata for the specified (print) reference test.
 
         Although WPT supports multiple fuzzy references for a given test (one
         for each reference file), blinkpy only supports a single reference per
@@ -253,10 +300,11 @@ class WPTManifest(object):
         """
 
         items = self.raw_dict.get('items', {})
-        if url not in items.get('reftest', {}):
+        test_type = self.get_test_type(url)
+        if test_type not in ['reftest', 'print-reftest']:
             return None, None
 
-        for item in items['reftest'][url]:
+        for item in items[test_type][url]:
             # Each item is a list of [url, refs, properties], and the fuzzy
             # metadata is stored in the properties dict.
             if 'fuzzy' not in item[2]:
@@ -363,6 +411,7 @@ class WPTManifest(object):
                 },
                 "manual": {...},
                 "reftest": {...},
+                "print-reftest": {...},
                 "testharness": {...}
             },
             // other info...

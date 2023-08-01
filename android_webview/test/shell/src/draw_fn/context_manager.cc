@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,6 @@
 
 #include <EGL/egl.h>
 #include <GLES2/gl2.h>
-#include <android/native_window_jni.h>
 
 #include "android_webview/public/browser/draw_fn.h"
 #include "android_webview/test/draw_fn_impl_jni_headers/ContextManager_jni.h"
@@ -26,6 +25,7 @@
 #include "gpu/vulkan/vulkan_swap_chain.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkCanvas.h"
+#include "third_party/skia/include/core/SkColorSpace.h"
 #include "third_party/skia/include/core/SkDrawable.h"
 #include "third_party/skia/include/core/SkSurface.h"
 #include "third_party/skia/include/core/SkSurfaceProps.h"
@@ -34,6 +34,7 @@
 #include "third_party/skia/include/gpu/GrBackendSurface.h"
 #include "third_party/skia/include/gpu/GrBackendSurfaceMutableState.h"
 #include "third_party/skia/include/gpu/GrDirectContext.h"
+#include "third_party/skia/include/gpu/ganesh/SkSurfaceGanesh.h"
 #include "third_party/skia/include/gpu/vk/GrVkBackendContext.h"
 #include "third_party/skia/include/gpu/vk/GrVkExtensions.h"
 #include "third_party/skia/include/gpu/vk/GrVkTypes.h"
@@ -66,6 +67,9 @@ void SetColorSpace(T* params) {
 
 class ContextManagerGL : public ContextManager {
   // TODO(penghuang): remove those proc types when EGL header is updated to 1.5.
+  typedef EGLBoolean(EGLAPIENTRYP PFNEGLINITIALIZEPROC)(EGLDisplay dpy,
+                                                        EGLint* major,
+                                                        EGLint* minor);
   typedef EGLBoolean(EGLAPIENTRYP PFNEGLCHOOSECONFIGPROC)(
       EGLDisplay dpy,
       const EGLint* attrib_list,
@@ -102,6 +106,7 @@ class ContextManagerGL : public ContextManager {
   // singleton so just keeping them as member variables / functions.
   PFNEGLGETPROCADDRESSPROC eglGetProcAddressFn = nullptr;
   PFNEGLBINDAPIPROC eglBindAPIFn = nullptr;
+  PFNEGLINITIALIZEPROC eglInitialize = nullptr;
   PFNEGLGETDISPLAYPROC eglGetDisplayFn = nullptr;
   PFNEGLMAKECURRENTPROC eglMakeCurrentFn = nullptr;
   PFNEGLSWAPBUFFERSPROC eglSwapBuffersFn = nullptr;
@@ -135,6 +140,7 @@ class ContextManagerGL : public ContextManager {
     CHECK(eglGetProcAddressFn) << "Failed to get eglGetProcAddress.";
 
     AssignProc(eglBindAPIFn, "eglBindAPI");
+    AssignProc(eglInitialize, "eglInitialize");
     AssignProc(eglGetDisplayFn, "eglGetDisplay");
     AssignProc(eglMakeCurrentFn, "eglMakeCurrent");
     AssignProc(eglSwapBuffersFn, "eglSwapBuffers");
@@ -147,8 +153,12 @@ class ContextManagerGL : public ContextManager {
   }
 
   EGLDisplay GetDisplay() {
-    static EGLDisplay display = eglGetDisplayFn(EGL_DEFAULT_DISPLAY);
-    CHECK_NE(display, EGL_NO_DISPLAY);
+    static EGLDisplay display = nullptr;
+    if (!display) {
+      display = eglGetDisplayFn(EGL_DEFAULT_DISPLAY);
+      CHECK_NE(display, EGL_NO_DISPLAY);
+      CHECK(eglInitialize(display, nullptr, nullptr));
+    }
     return display;
   }
 
@@ -314,9 +324,9 @@ void ContextManagerGL::DoCreateContext(JNIEnv* env, int width, int height) {
   {
     std::vector<EGLint> egl_window_attributes;
     egl_window_attributes.push_back(EGL_NONE);
-    gl_surface_ =
-        eglCreateWindowSurfaceFn(GetDisplay(), GetConfig(&use_es3),
-                                 native_window_, &egl_window_attributes[0]);
+    gl_surface_ = eglCreateWindowSurfaceFn(GetDisplay(), GetConfig(&use_es3),
+                                           native_window_.a_native_window(),
+                                           &egl_window_attributes[0]);
     CHECK(gl_surface_);
   }
 
@@ -336,8 +346,9 @@ void ContextManagerGL::DoCreateContext(JNIEnv* env, int width, int height) {
 }
 
 void ContextManagerGL::DestroyContext() {
-  if (java_surface_.is_null())
+  if (java_surface_.IsEmpty()) {
     return;
+  }
 
   if (current_functor_) {
     MakeCurrent();
@@ -354,9 +365,8 @@ void ContextManagerGL::DestroyContext() {
   CHECK(eglDestroySurfaceFn(GetDisplay(), gl_surface_));
   gl_surface_ = nullptr;
 
-  ANativeWindow_release(native_window_);
   native_window_ = nullptr;
-  java_surface_.Reset();
+  java_surface_ = nullptr;
 }
 
 void ContextManagerGL::MakeCurrent() {
@@ -563,14 +573,14 @@ base::android::ScopedJavaLocalRef<jintArray> ContextManagerVulkan::Draw(
       auto sk_color_type = surface_format == VK_FORMAT_B8G8R8A8_UNORM
                                ? kBGRA_8888_SkColorType
                                : kRGBA_8888_SkColorType;
-      sk_surface = SkSurface::MakeFromBackendRenderTarget(
+      sk_surface = SkSurfaces::WrapBackendRenderTarget(
           gr_context_.get(), render_target, kTopLeft_GrSurfaceOrigin,
           sk_color_type, gfx::ColorSpace::CreateSRGB().ToSkColorSpace(),
           &surface_props);
       CHECK(sk_surface);
     } else {
-      auto backend = sk_surface->getBackendRenderTarget(
-          SkSurface::kFlushRead_BackendHandleAccess);
+      auto backend = SkSurfaces::GetBackendRenderTarget(
+          sk_surface.get(), SkSurfaces::BackendHandleAccess::kFlushRead);
       backend.setVkImageLayout(scoped_write.image_layout());
     }
 
@@ -623,13 +633,15 @@ base::android::ScopedJavaLocalRef<jintArray> ContextManagerVulkan::Draw(
     CHECK(gr_context_->submit(/*sync_cpu=*/false));
   }
 
-  gfx::SwapResult result = vulkan_surface_->SwapBuffers();
+  gfx::SwapResult result = vulkan_surface_->SwapBuffers(
+      base::DoNothingAs<void(const gfx::PresentationFeedback&)>());
   CHECK_EQ(gfx::SwapResult::SWAP_ACK, result);
   return readback_quadrants ? base::android::ToJavaIntArray(env, results)
                             : nullptr;
 }
 void ContextManagerVulkan::DoCreateContext(JNIEnv* env, int width, int height) {
-  vulkan_surface_ = vulkan_implementation_->CreateViewSurface(native_window_);
+  vulkan_surface_ = vulkan_implementation_->CreateViewSurface(
+      native_window_.a_native_window());
   CHECK(vulkan_surface_);
   CHECK(vulkan_surface_->Initialize(device_queue_.get(),
                                     gpu::VulkanSurface::FORMAT_RGBA_32));
@@ -683,8 +695,9 @@ void ContextManagerVulkan::DoCreateContext(JNIEnv* env, int width, int height) {
 }
 
 void ContextManagerVulkan::DestroyContext() {
-  if (java_surface_.is_null())
+  if (java_surface_.IsEmpty()) {
     return;
+  }
 
   if (current_functor_) {
     FunctorData& data = Allocator::Get()->get(current_functor_);
@@ -696,9 +709,8 @@ void ContextManagerVulkan::DestroyContext() {
   vulkan_surface_->Destroy();
   vulkan_surface_.reset();
 
-  ANativeWindow_release(native_window_);
   native_window_ = nullptr;
-  java_surface_.Reset();
+  java_surface_ = nullptr;
 }
 
 void ContextManagerVulkan::CurrentFunctorChanged() {
@@ -749,7 +761,7 @@ void ContextManager::SetSurface(JNIEnv* env,
                                 const base::android::JavaRef<jobject>& surface,
                                 int width,
                                 int height) {
-  if (!java_surface_.is_null()) {
+  if (!java_surface_.IsEmpty()) {
     DestroyContext();
   }
   if (!surface.is_null()) {
@@ -786,11 +798,12 @@ void ContextManager::CreateContext(
     const base::android::JavaRef<jobject>& surface,
     int width,
     int height) {
-  java_surface_.Reset(surface);
-  if (java_surface_.is_null())
+  java_surface_ = gl::ScopedJavaSurface(surface, /*auto_release=*/false);
+  if (!java_surface_.IsValid()) {
     return;
+  }
 
-  native_window_ = ANativeWindow_fromSurface(env, surface.obj());
+  native_window_ = gl::ScopedANativeWindow(java_surface_);
   CHECK(native_window_);
 
   DoCreateContext(env, width, height);

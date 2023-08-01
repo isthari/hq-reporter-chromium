@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -99,14 +99,15 @@ public class ChildProcessLauncher {
     // The IBinder interfaces provided to the created service.
     private final List<IBinder> mClientInterfaces;
 
-    // The actual service connection. Set once we have connected to the service.
-    private ChildProcessConnection mConnection;
+    // The actual service connection. Set once we have connected to the service. Volatile as it is
+    // accessed from threads other than the Launcher thread.
+    private volatile ChildProcessConnection mConnection;
 
     /**
      * Constructor.
      *
      * @param launcherHandler the handler for the thread where all operations should happen.
-     * @param delegate the delagate that gets notified of the launch progress.
+     * @param delegate the delegate that gets notified of the launch progress.
      * @param commandLine the command line that should be passed to the started process.
      * @param filesToBeMapped the files that should be passed to the started process.
      * @param connectionAllocator the allocator used to create connections to the service.

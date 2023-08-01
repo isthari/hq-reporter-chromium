@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,10 @@ package org.chromium.components.browser_ui.photo_picker;
 import android.content.ContentResolver;
 import android.net.Uri;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.VisibleForTesting;
-import androidx.appcompat.app.AlertDialog;
 
+import org.chromium.components.browser_ui.widget.FullscreenAlertDialog;
 import org.chromium.ui.base.PhotoPicker;
 import org.chromium.ui.base.PhotoPickerListener;
 import org.chromium.ui.base.WindowAndroid;
@@ -20,8 +21,8 @@ import java.util.List;
  * UI for the photo chooser that shows on the Android platform as a result of
  * &lt;input type=file accept=image &gt; form element.
  */
-public class PhotoPickerDialog
-        extends AlertDialog implements PhotoPickerToolbar.PhotoPickerToolbarDelegate, PhotoPicker {
+public class PhotoPickerDialog extends FullscreenAlertDialog
+        implements PhotoPickerToolbar.PhotoPickerToolbarDelegate, PhotoPicker {
     // Our window.
     private WindowAndroid mWindowAndroid;
 
@@ -88,7 +89,7 @@ public class PhotoPickerDialog
      */
     public PhotoPickerDialog(WindowAndroid windowAndroid, ContentResolver contentResolver,
             PhotoPickerListener listener, boolean multiSelectionAllowed, List<String> mimeTypes) {
-        super(windowAndroid.getContext().get(), R.style.ThemeOverlay_BrowserUI_Fullscreen);
+        super(windowAndroid.getContext().get());
 
         mWindowAndroid = windowAndroid;
         mListenerWrapper = new PhotoPickerListenerWrapper(listener);
@@ -98,17 +99,17 @@ public class PhotoPickerDialog
                 new PickerCategoryView(windowAndroid, contentResolver, multiSelectionAllowed, this);
         mCategoryView.initialize(this, mListenerWrapper, mimeTypes);
         setView(mCategoryView);
-    }
-
-    @Override
-    public void onBackPressed() {
-        // Pressing Back when a video is playing, should only end the video playback.
-        boolean videoWasStopped = mCategoryView.closeVideoPlayer();
-        if (videoWasStopped) {
-            return;
-        } else {
-            super.onBackPressed();
-        }
+        getOnBackPressedDispatcher().addCallback(new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                // Pressing Back when a video is playing, should only end the video playback.
+                boolean videoWasStopped = mCategoryView.closeVideoPlayer();
+                if (!videoWasStopped) {
+                    setEnabled(false);
+                    getOnBackPressedDispatcher().onBackPressed();
+                }
+            }
+        });
     }
 
     @Override

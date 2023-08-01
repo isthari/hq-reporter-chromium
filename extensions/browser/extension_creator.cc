@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,11 @@
 #include <string>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/strings/string_util.h"
 #include "components/crx_file/crx_creator.h"
 #include "components/crx_file/id_util.h"
@@ -107,9 +107,6 @@ bool ExtensionCreator::ValidateManifest(const base::FilePath& extension_dir,
   if (run_flags & kRequireModernManifestVersion)
     create_flags |= Extension::REQUIRE_MODERN_MANIFEST_VERSION;
 
-  if (run_flags & kBookmarkApp)
-    create_flags |= Extension::FROM_BOOKMARK;
-
   scoped_refptr<Extension> extension(file_util::LoadExtension(
       extension_dir, extension_id,
       run_flags & kSystemApp ? mojom::ManifestLocation::kExternalComponent
@@ -186,8 +183,7 @@ std::unique_ptr<crypto::RSAPrivateKey> ExtensionCreator::GenerateKey(
   }
 
   if (!output_private_key_path.empty()) {
-    if (-1 == base::WriteFile(output_private_key_path, pem_output.c_str(),
-                              pem_output.size())) {
+    if (!base::WriteFile(output_private_key_path, pem_output)) {
       error_message_ =
           l10n_util::GetStringUTF8(IDS_EXTENSION_PRIVATE_KEY_FAILED_TO_OUTPUT);
       return nullptr;
@@ -264,20 +260,6 @@ bool ExtensionCreator::CreateCrxAndPerformCleanup(
       CreateCrx(zip_path, private_key, crx_path, compressed_verified_contents);
   base::DeleteFile(zip_path);
   return result;
-}
-
-bool ExtensionCreator::CreateCrxWithVerifiedContentsInHeaderForTesting(
-    const base::FilePath& extension_dir,
-    const base::FilePath& crx_path,
-    const std::string& compressed_verified_contents,
-    std::string* extension_id) {
-  auto signing_key = crypto::RSAPrivateKey::Create(kRSAKeySize);
-  std::vector<uint8_t> public_key;
-  signing_key->ExportPublicKey(&public_key);
-  const std::string public_key_str(public_key.begin(), public_key.end());
-  *extension_id = crx_file::id_util::GenerateId(public_key_str);
-  return CreateCrxAndPerformCleanup(extension_dir, crx_path, signing_key.get(),
-                                    compressed_verified_contents);
 }
 
 bool ExtensionCreator::Run(const base::FilePath& extension_dir,

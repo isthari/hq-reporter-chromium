@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,14 +10,16 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
+#include "base/check.h"
 #include "base/check_op.h"
 #include "base/compiler_specific.h"
+#include "base/containers/flat_map.h"
+#include "base/functional/bind.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/notreached.h"
+#include "base/strings/strcat.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/task/task_runner_util.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/ash/printing/cups_print_job.h"
@@ -26,26 +28,29 @@
 #include "chrome/browser/ash/printing/cups_printers_manager_factory.h"
 #include "chrome/browser/ash/printing/history/print_job_info.pb.h"
 #include "chrome/browser/ash/printing/history/print_job_info_proto_conversions.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/chromeos/printing/cups_wrapper.h"
 #include "chrome/browser/printing/print_job.h"
+#include "chrome/browser/printing/print_job_manager.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/grit/generated_resources.h"
+#include "chromeos/printing/printing_constants.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
-#include "content/public/browser/notification_observer.h"
-#include "content/public/browser/notification_registrar.h"
-#include "content/public/browser/notification_service.h"
 #include "printing/printed_document.h"
 #include "printing/printing_utils.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/l10n/l10n_util.h"
 
-namespace chromeos {
+namespace ash {
 
 namespace {
+
+using ::chromeos::CupsWrapper;
+using StatusReason = crosapi::mojom::StatusReason::Reason;
 
 // The rate at which we will poll CUPS for print job updates.
 constexpr base::TimeDelta kPollRate = base::Milliseconds(1000);
@@ -63,6 +68,12 @@ enum JobResultForHistogram {
   FILTER_FAILED = 5,        // filter failed
   CLIENT_UNAUTHORIZED = 6,  // cancelled due to client unauthorized
   RESULT_MAX
+};
+
+// Holds the print job data for recording to metrics upon print job completion.
+struct PrinterMetrics {
+  bool printer_manually_selected;
+  absl::optional<StatusReason> printer_status_reason;
 };
 
 // Returns the appropriate JobResultForHistogram for a given |state|.  Only
@@ -86,16 +97,19 @@ void RecordJobResult(JobResultForHistogram result) {
 
 }  // namespace
 
-class CupsPrintJobManagerImpl : public CupsPrintJobManager,
-                                public content::NotificationObserver {
+class CupsPrintJobManagerImpl : public CupsPrintJobManager {
  public:
   explicit CupsPrintJobManagerImpl(Profile* profile)
       : CupsPrintJobManager(profile),
         cups_wrapper_(CupsWrapper::Create()),
         weak_ptr_factory_(this) {
+    // NOTE: base::Unretained(this) is safe here because this object owns
+    // |subscription_| and the callback won't be invoked after |subscription_|
+    // is destroyed.
+    subscription_ = g_browser_process->print_job_manager()->AddDocDoneCallback(
+        base::BindRepeating(&CupsPrintJobManagerImpl::OnDocDone,
+                            base::Unretained(this)));
     timer_.SetTaskRunner(content::GetUIThreadTaskRunner({}));
-    registrar_.Add(this, chrome::NOTIFICATION_PRINT_JOB_EVENT,
-                   content::NotificationService::AllSources());
   }
 
   CupsPrintJobManagerImpl(const CupsPrintJobManagerImpl&) = delete;
@@ -123,38 +137,37 @@ class CupsPrintJobManagerImpl : public CupsPrintJobManager,
     return false;
   }
 
-  // NotificationObserver overrides:
-  void Observe(int type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) override {
-    DCHECK_EQ(chrome::NOTIFICATION_PRINT_JOB_EVENT, type);
+  void OnDocDone(::printing::PrintJob* job,
+                 ::printing::PrintedDocument* document,
+                 int job_id) {
+    // Store the printer data for metrics to be recorded upon print job status
+    // updates.
+    const std::string printer_id =
+        base::UTF16ToUTF8(document->settings().device_name());
+    const std::string key = CupsPrintJob::CreateUniqueId(printer_id, job_id);
+    DCHECK(!printer_metrics_cache_.contains(key));
+    printer_metrics_cache_.emplace(
+        key, PrinterMetrics{job->settings().printer_manually_selected(),
+                            job->settings().printer_status_reason()});
 
-    content::Details<::printing::JobEventDetails> job_details(details);
-    content::Source<::printing::PrintJob> job(source);
-
-    // DOC_DONE occurs after the print job has been successfully sent to the
+    // This event occurs after the print job has been successfully sent to the
     // spooler which is when we begin tracking the print queue.
-    if (job_details->type() == ::printing::JobEventDetails::DOC_DONE) {
-      const ::printing::PrintedDocument* document = job_details->document();
-      DCHECK(document);
-      std::u16string title =
-          ::printing::SimplifyDocumentTitle(document->name());
-      if (title.empty()) {
-        title = ::printing::SimplifyDocumentTitle(
-            l10n_util::GetStringUTF16(IDS_DEFAULT_PRINT_DOCUMENT_TITLE));
-      }
-      CreatePrintJob(base::UTF16ToUTF8(document->settings().device_name()),
-                     base::UTF16ToUTF8(title), job_details->job_id(),
-                     document->page_count(), job->source(), job->source_id(),
-                     PrintSettingsToProto(document->settings()));
+    DCHECK(document);
+    std::u16string title = ::printing::SimplifyDocumentTitle(document->name());
+    if (title.empty()) {
+      title = ::printing::SimplifyDocumentTitle(
+          l10n_util::GetStringUTF16(IDS_DEFAULT_PRINT_DOCUMENT_TITLE));
     }
+    CreatePrintJob(printer_id, base::UTF16ToUTF8(title), job_id,
+                   document->page_count(), job->source(), job->source_id(),
+                   PrintSettingsToProto(document->settings()));
   }
 
   // Begin monitoring a print job for a given |printer_id| with the given
   // |title| with the pages |total_page_number|.
   bool CreatePrintJob(const std::string& printer_id,
                       const std::string& title,
-                      int job_id,
+                      uint32_t job_id,
                       int total_page_number,
                       ::printing::PrintJob::Source source,
                       const std::string& source_id,
@@ -174,7 +187,7 @@ class CupsPrintJobManagerImpl : public CupsPrintJobManager,
       return false;
     }
 
-    absl::optional<Printer> printer = manager->GetPrinter(printer_id);
+    absl::optional<chromeos::Printer> printer = manager->GetPrinter(printer_id);
     if (!printer) {
       LOG(WARNING)
           << "Printer was removed while job was in progress.  It cannot "
@@ -212,8 +225,10 @@ class CupsPrintJobManagerImpl : public CupsPrintJobManager,
     const int job_id = job->job_id();
     const std::string printer_id = job->printer().id();
 
-    // Stop montioring jobs after we cancel them.  The user no longer cares.
-    jobs_.erase(job->GetUniqueId());
+    // Stop monitoring jobs after we cancel them.  The user no longer cares.
+    const std::string unique_id = job->GetUniqueId();
+    jobs_.erase(unique_id);
+    printer_metrics_cache_.erase(unique_id);
 
     cups_wrapper_->CancelJob(printer_id, job_id);
   }
@@ -282,7 +297,8 @@ class CupsPrintJobManagerImpl : public CupsPrintJobManager,
           NotifyJobStateUpdate(print_job->GetWeakPtr());
         }
 
-        if (print_job->error_code() == PrinterErrorCode::CLIENT_UNAUTHORIZED) {
+        if (print_job->error_code() ==
+            chromeos::PrinterErrorCode::CLIENT_UNAUTHORIZED) {
           // Job needs to be forcibly cancelled, CUPS will keep the job in held
           // and the job cannot be resumed in chromeos.
           FinishPrintJob(print_job);
@@ -301,6 +317,7 @@ class CupsPrintJobManagerImpl : public CupsPrintJobManager,
           VLOG(1) << "Removing Job " << print_job->document_title();
           RecordJobResult(ResultForHistogram(print_job->state()));
           jobs_.erase(entry);
+          printer_metrics_cache_.erase(key);
         } else {
           active_jobs.push_back(key);
         }
@@ -332,6 +349,7 @@ class CupsPrintJobManagerImpl : public CupsPrintJobManager,
     }
 
     jobs_.clear();
+    printer_metrics_cache_.clear();
   }
 
   // Notify observers that a state update has occurred for |job|.
@@ -373,6 +391,113 @@ class CupsPrintJobManagerImpl : public CupsPrintJobManager,
         NotifyJobUpdated(job);
         break;
     }
+
+    RecordPrinterMetricIfJobComplete(job);
+  }
+
+  // Only record metrics for print jobs with states that denote success complete
+  // or an error status.
+  void RecordPrinterMetricIfJobComplete(base::WeakPtr<CupsPrintJob> job) {
+    const std::string unique_id = job->GetUniqueId();
+    auto iter = printer_metrics_cache_.find(unique_id);
+    if (iter == printer_metrics_cache_.end()) {
+      return;
+    }
+
+    bool print_job_success;
+    switch (job->state()) {
+      // Consider these print job statuses as "in progress" jobs so don't record
+      // metrics yet.
+      case CupsPrintJob::State::STATE_NONE:
+      case CupsPrintJob::State::STATE_WAITING:
+      case CupsPrintJob::State::STATE_STARTED:
+      case CupsPrintJob::State::STATE_PAGE_DONE:
+      case CupsPrintJob::State::STATE_RESUMED:
+        return;
+      // The set of states for a print job considered "failed" for metrics
+      // recording.
+      case CupsPrintJob::State::STATE_SUSPENDED:
+      case CupsPrintJob::State::STATE_CANCELLED:
+      case CupsPrintJob::State::STATE_FAILED:
+      case CupsPrintJob::State::STATE_ERROR:
+        print_job_success = false;
+        break;
+      case CupsPrintJob::State::STATE_DOCUMENT_DONE:
+        print_job_success = true;
+        break;
+    }
+
+    // Record PrintAttemptOutcome.
+    const PrinterMetrics& metrics = iter->second;
+    chromeos::PrintAttemptOutcome print_attempt_outcome;
+    if (print_job_success && metrics.printer_manually_selected) {
+      print_attempt_outcome = chromeos::PrintAttemptOutcome::
+          kPrintJobSuccessManuallySelectedPrinter;
+    } else if (print_job_success && !metrics.printer_manually_selected) {
+      print_attempt_outcome =
+          chromeos::PrintAttemptOutcome::kPrintJobSuccessInitialPrinter;
+    } else if (!print_job_success && metrics.printer_manually_selected) {
+      print_attempt_outcome =
+          chromeos::PrintAttemptOutcome::kPrintJobFailManuallySelectedPrinter;
+    } else {
+      print_attempt_outcome =
+          chromeos::PrintAttemptOutcome::kPrintJobFailInitialPrinter;
+    }
+    base::UmaHistogramEnumeration("PrintPreview.PrintAttemptOutcome",
+                                  print_attempt_outcome);
+
+    // Record printer status print job success.
+    if (metrics.printer_status_reason.has_value()) {
+      const std::string histogram_name = base::StrCat(
+          {"PrintPreview.PrinterStatus.",
+           GetPrinterStatusHistogramName(metrics.printer_status_reason.value()),
+           ".PrintJobSuccess"});
+      base::UmaHistogramBoolean(histogram_name, print_job_success);
+    }
+
+    printer_metrics_cache_.erase(unique_id);
+  }
+
+  // Maps the printer status reason to the variant names used for the
+  // "PrintPreview.PrinterStatus.{StatusReason}.PrintJobSuccess" histogram.
+  std::string GetPrinterStatusHistogramName(
+      StatusReason printer_status_reason) {
+    switch (printer_status_reason) {
+      case StatusReason::kUnknownReason:
+        return "UnknownReason";
+      case StatusReason::kDeviceError:
+        return "DeviceError";
+      case StatusReason::kDoorOpen:
+        return "DoorOpen";
+      case StatusReason::kLowOnInk:
+        return "LowOnInk";
+      case StatusReason::kLowOnPaper:
+        return "LowOnPaper";
+      case StatusReason::kNoError:
+        return "NoError";
+      case StatusReason::kOutOfInk:
+        return "OutOfInk";
+      case StatusReason::kOutOfPaper:
+        return "OutOfPaper";
+      case StatusReason::kOutputAreaAlmostFull:
+        return "OutputAreaAlmostFull";
+      case StatusReason::kOutputFull:
+        return "OutputFull";
+      case StatusReason::kPaperJam:
+        return "PaperJam";
+      case StatusReason::kPaused:
+        return "Paused";
+      case StatusReason::kPrinterQueueFull:
+        return "PrinterQueueFull";
+      case StatusReason::kPrinterUnreachable:
+        return "PrinterUnreachable";
+      case StatusReason::kStopped:
+        return "Stopped";
+      case StatusReason::kTrayMissing:
+        return "TrayMissing";
+      case StatusReason::kExpiredCertificate:
+        return "ExpiredCertificate";
+    }
   }
 
   // Ongoing print jobs.
@@ -381,9 +506,14 @@ class CupsPrintJobManagerImpl : public CupsPrintJobManager,
   // Records the number of consecutive times the GetJobs query has failed.
   int retry_count_ = 0;
 
+  // Stores the desired printer metrics in a map keyed by the CupsPrintJob
+  // `unique_id`. Once the corresponding print job either fails or completes,
+  // record the metrics entry to histograms and remove it from the map.
+  base::flat_map<std::string, PrinterMetrics> printer_metrics_cache_;
+
   base::RepeatingTimer timer_;
-  content::NotificationRegistrar registrar_;
   std::unique_ptr<CupsWrapper> cups_wrapper_;
+  ::printing::PrintJobManager::DocDoneCallbackList::Subscription subscription_;
   base::WeakPtrFactory<CupsPrintJobManagerImpl> weak_ptr_factory_;
 };
 
@@ -392,4 +522,4 @@ CupsPrintJobManager* CupsPrintJobManager::CreateInstance(Profile* profile) {
   return new CupsPrintJobManagerImpl(profile);
 }
 
-}  // namespace chromeos
+}  // namespace ash

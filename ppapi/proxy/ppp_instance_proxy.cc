@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 
 #include <algorithm>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "build/build_config.h"
 #include "ppapi/c/pp_var.h"
 #include "ppapi/c/ppb_core.h"
@@ -35,7 +35,6 @@ namespace proxy {
 using thunk::EnterInstanceAPINoLock;
 using thunk::EnterInstanceNoLock;
 using thunk::EnterResourceNoLock;
-using thunk::PPB_Flash_Fullscreen_API;
 using thunk::PPB_Instance_API;
 using thunk::PPB_View_API;
 

@@ -1,16 +1,15 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/vr/assets_loader.h"
 
-#include "base/bind.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/memory/singleton.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/task/task_traits.h"
 #include "base/task/thread_pool.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "chrome/browser/vr/model/assets.h"
 #include "chrome/browser/vr/vr_buildflags.h"
@@ -80,7 +79,7 @@ bool AssetsLoader::AssetsSupported() {
 
 void AssetsLoader::OnComponentReady(const base::Version& version,
                                     const base::FilePath& install_dir,
-                                    base::Value manifest) {
+                                    base::Value::Dict manifest) {
   main_thread_task_runner_->PostTask(
       FROM_HERE,
       base::BindOnce(&AssetsLoader::OnComponentReadyInternal,
@@ -89,10 +88,11 @@ void AssetsLoader::OnComponentReady(const base::Version& version,
 
 void AssetsLoader::Load(OnAssetsLoadedCallback on_loaded) {
   main_thread_task_runner_->PostTask(
-      FROM_HERE, base::BindOnce(&AssetsLoader::LoadInternal,
-                                weak_ptr_factory_.GetWeakPtr(),
-                                base::ThreadTaskRunnerHandle::Get(),
-                                std::move(on_loaded)));
+      FROM_HERE,
+      base::BindOnce(&AssetsLoader::LoadInternal,
+                     weak_ptr_factory_.GetWeakPtr(),
+                     base::SingleThreadTaskRunner::GetCurrentDefault(),
+                     std::move(on_loaded)));
 }
 
 bool AssetsLoader::ComponentReady() {

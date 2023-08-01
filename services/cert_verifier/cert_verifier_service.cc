@@ -1,15 +1,18 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "services/cert_verifier/cert_verifier_service.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "mojo/public/cpp/bindings/message.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "net/base/completion_once_callback.h"
+#include "net/cert/cert_verify_result.h"
+#include "net/cert/crl_set.h"
 #include "services/cert_verifier/cert_net_url_loader/cert_net_fetcher_url_loader.h"
+#include "services/cert_verifier/cert_verifier_service_factory.h"
 #include "services/network/public/mojom/cert_verifier_service.mojom.h"
 
 namespace cert_verifier {
@@ -78,17 +81,20 @@ void ReconnectURLLoaderFactory(
 }  // namespace
 
 CertVerifierServiceImpl::CertVerifierServiceImpl(
-    std::unique_ptr<net::CertVerifier> verifier,
+    std::unique_ptr<net::CertVerifierWithUpdatableProc> verifier,
     mojo::PendingReceiver<mojom::CertVerifierService> receiver,
+    mojo::PendingRemote<mojom::CertVerifierServiceClient> client,
     scoped_refptr<CertNetFetcherURLLoader> cert_net_fetcher)
     : verifier_(std::move(verifier)),
       receiver_(this, std::move(receiver)),
+      client_(std::move(client)),
       cert_net_fetcher_(std::move(cert_net_fetcher)) {
   // base::Unretained is safe because |this| owns |receiver_|, so deleting
   // |this| will prevent |receiver_| from calling this callback.
   receiver_.set_disconnect_handler(
       base::BindRepeating(&CertVerifierServiceImpl::OnDisconnectFromService,
                           base::Unretained(this)));
+  verifier_->AddObserver(this);
 }
 
 // Note: this object owns the underlying CertVerifier, which owns all of the
@@ -96,6 +102,7 @@ CertVerifierServiceImpl::CertVerifierServiceImpl(
 // mojo::Remote<CertVerifierRequest> objects, so destroying this object cancels
 // the verifications and all the callbacks.
 CertVerifierServiceImpl::~CertVerifierServiceImpl() {
+  verifier_->RemoveObserver(this);
   if (cert_net_fetcher_)
     cert_net_fetcher_->Shutdown();
 }
@@ -117,6 +124,17 @@ void CertVerifierServiceImpl::EnableNetworkAccess(
         base::BindRepeating(&ReconnectURLLoaderFactory,
                             base::Owned(std::move(reconnect_cb))));
   }
+}
+
+void CertVerifierServiceImpl::SetCertVerifierServiceFactory(
+    base::WeakPtr<cert_verifier::CertVerifierServiceFactoryImpl>
+        service_factory_impl) {
+  service_factory_impl_ = std::move(service_factory_impl);
+}
+
+void CertVerifierServiceImpl::UpdateVerifierData(
+    const net::CertVerifyProcFactory::ImplParams& impl_params) {
+  verifier_->UpdateVerifyProcData(cert_net_fetcher_, impl_params);
 }
 
 void CertVerifierServiceImpl::Verify(
@@ -174,7 +192,14 @@ void CertVerifierServiceImpl::Verify(
   }
 }
 
+void CertVerifierServiceImpl::OnCertVerifierChanged() {
+  client_->OnCertVerifierChanged();
+}
+
 void CertVerifierServiceImpl::OnDisconnectFromService() {
+  if (service_factory_impl_) {
+    service_factory_impl_->RemoveService(this);
+  }
   delete this;
 }
 

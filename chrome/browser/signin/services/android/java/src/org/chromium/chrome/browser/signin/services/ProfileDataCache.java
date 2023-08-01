@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -30,7 +30,9 @@ import androidx.appcompat.content.res.AppCompatResources;
 import org.chromium.base.ObserverList;
 import org.chromium.base.ThreadUtils;
 import org.chromium.components.browser_ui.util.AvatarGenerator;
+import org.chromium.components.signin.AccountEmailDomainDisplayability;
 import org.chromium.components.signin.AccountManagerFacadeProvider;
+import org.chromium.components.signin.Tribool;
 import org.chromium.components.signin.base.AccountInfo;
 import org.chromium.components.signin.identitymanager.AccountInfoService;
 import org.chromium.components.signin.identitymanager.AccountInfoServiceProvider;
@@ -164,16 +166,10 @@ public class ProfileDataCache implements AccountInfoService.Observer {
     public DisplayableProfileData getProfileDataOrDefault(String accountEmail) {
         DisplayableProfileData profileData = mCachedProfileData.get(accountEmail);
         if (profileData == null) {
-            return new DisplayableProfileData(accountEmail, mPlaceholderImage, null, null);
+            return new DisplayableProfileData(accountEmail, mPlaceholderImage, null, null,
+                    AccountEmailDomainDisplayability.checkIfDisplayableEmailAddress(accountEmail));
         }
         return profileData;
-    }
-
-    /**
-     * @return Whether the cache contains non-default profile data for the given account.
-     */
-    public boolean hasProfileData(String accountEmail) {
-        return mCachedProfileData.containsKey(accountEmail);
     }
 
     /**
@@ -246,9 +242,21 @@ public class ProfileDataCache implements AccountInfoService.Observer {
         }
     }
 
-    public void removeProfileData(String accountEmail) {
-        mCachedProfileData.remove(accountEmail);
-        notifyObservers(accountEmail);
+    /**
+     * Converts canHaveEmailAddressDisplayed() capability Tribool value to boolean.
+     * If the capability is not available (Tribool.UNKNOWN), uses fallback.
+     */
+    private boolean hasDisplayableEmailAddress(@NonNull AccountInfo accountInfo) {
+        switch (accountInfo.getAccountCapabilities().canHaveEmailAddressDisplayed()) {
+            case Tribool.FALSE: {
+                return false;
+            }
+            case Tribool.TRUE: {
+                return true;
+            }
+        }
+        return AccountEmailDomainDisplayability.checkIfDisplayableEmailAddress(
+                accountInfo.getEmail());
     }
 
     /**
@@ -262,8 +270,17 @@ public class ProfileDataCache implements AccountInfoService.Observer {
                 && (accountInfo.hasDisplayableInfo()
                         || getBadgeConfigForAccount(accountInfo.getEmail()) != null)) {
             updateCacheAndNotifyObservers(accountInfo.getEmail(), accountInfo.getAccountImage(),
-                    accountInfo.getFullName(), accountInfo.getGivenName());
+                    accountInfo.getFullName(), accountInfo.getGivenName(),
+                    hasDisplayableEmailAddress(accountInfo));
         }
+    }
+
+    /**
+     * @return Whether the cache contains non-default profile data for the given account.
+     */
+    @VisibleForTesting
+    public boolean hasProfileDataForTesting(String accountEmail) {
+        return mCachedProfileData.containsKey(accountEmail);
     }
 
     private void populateCache(AccountInfoService accountInfoService) {
@@ -278,8 +295,8 @@ public class ProfileDataCache implements AccountInfoService.Observer {
         accountInfoService.getAccountInfoByEmail(account.name).then(this::onAccountInfoUpdated);
     }
 
-    private void updateCacheAndNotifyObservers(
-            String email, Bitmap avatar, String fullName, String givenName) {
+    private void updateCacheAndNotifyObservers(String email, Bitmap avatar, String fullName,
+            String givenName, boolean hasDisplayableEmailAddress) {
         Drawable croppedAvatar = avatar != null
                 ? AvatarGenerator.makeRoundAvatar(mContext.getResources(), avatar, mImageSize)
                 : mPlaceholderImage;
@@ -287,8 +304,9 @@ public class ProfileDataCache implements AccountInfoService.Observer {
         if (badgeConfig != null) {
             croppedAvatar = overlayBadgeOnUserPicture(badgeConfig, croppedAvatar);
         }
-        mCachedProfileData.put(
-                email, new DisplayableProfileData(email, croppedAvatar, fullName, givenName));
+        mCachedProfileData.put(email,
+                new DisplayableProfileData(
+                        email, croppedAvatar, fullName, givenName, hasDisplayableEmailAddress));
         notifyObservers(email);
     }
 

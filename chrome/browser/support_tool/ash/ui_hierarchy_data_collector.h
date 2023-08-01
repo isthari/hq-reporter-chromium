@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,14 +7,14 @@
 
 #include <set>
 
-#include "base/callback_forward.h"
 #include "base/files/file_path.h"
+#include "base/functional/callback_forward.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/sequence_checker.h"
 #include "base/task/sequenced_task_runner.h"
 #include "chrome/browser/support_tool/data_collector.h"
-#include "components/feedback/pii_types.h"
-#include "components/feedback/redaction_tool.h"
+#include "components/feedback/redaction_tool/pii_types.h"
+#include "components/feedback/redaction_tool/redaction_tool.h"
 
 struct UIHierarchyData {
   UIHierarchyData(std::vector<std::string> window_titles, std::string data);
@@ -52,24 +52,24 @@ class UiHierarchyDataCollector : public DataCollector {
   void CollectDataAndDetectPII(
       DataCollectorDoneCallback on_data_collected_callback,
       scoped_refptr<base::SequencedTaskRunner> task_runner_for_redaction_tool,
-      scoped_refptr<feedback::RedactionToolContainer> redaction_tool_container)
+      scoped_refptr<redaction::RedactionToolContainer> redaction_tool_container)
       override;
 
   void ExportCollectedDataWithPII(
-      std::set<feedback::PIIType> pii_types_to_keep,
+      std::set<redaction::PIIType> pii_types_to_keep,
       base::FilePath target_directory,
       scoped_refptr<base::SequencedTaskRunner> task_runner_for_redaction_tool,
-      scoped_refptr<feedback::RedactionToolContainer> redaction_tool_container,
+      scoped_refptr<redaction::RedactionToolContainer> redaction_tool_container,
       DataCollectorDoneCallback on_exported_callback) override;
 
  private:
-  // Creates a "ui_hierarchy" file under `target_directory` and writes
+  // Creates a "ui_hierarchy.txt" file under `target_directory` and writes
   // `ui_hierarchy_data` into this file. Tries to scrub PII sensitive data in
   // `ui_hierarchy_data` when writing to it except the data under PII categories
   // in `pii_types_to_keep`.
   static bool WriteOutputFile(std::string ui_hierarchy_data,
                               base::FilePath target_directory,
-                              std::set<feedback::PIIType> pii_types_to_keep);
+                              std::set<redaction::PIIType> pii_types_to_keep);
 
   // Runs `on_exported_callback` when the data export is done. Returns an error
   // to the callback if `success` is false.

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 
 #include "base/component_export.h"
 #include "base/containers/flat_map.h"
+#include "base/memory/raw_ptr.h"
 #include "base/threading/thread_checker.h"
 #include "ui/base/ime/ash/input_method_descriptor.h"
 
@@ -171,7 +172,7 @@ class COMPONENT_EXPORT(UI_BASE_IME_ASH) InputMethodUtil {
   using EnglishToIDMap = base::flat_map<std::string, int>;
   EnglishToIDMap english_to_resource_id_;
 
-  InputMethodDelegate* delegate_;
+  raw_ptr<InputMethodDelegate, ExperimentalAsh> delegate_;
 
   base::ThreadChecker thread_checker_;
   std::vector<std::string> hardware_layouts_;
@@ -181,13 +182,5 @@ class COMPONENT_EXPORT(UI_BASE_IME_ASH) InputMethodUtil {
 
 }  // namespace input_method
 }  // namespace ash
-
-// TODO(https://crbug.com/1164001): remove when the migration is finished.
-namespace chromeos {
-namespace input_method {
-using ::ash::input_method::InputMethodUtil;
-using ::ash::input_method::kKeyboardLayoutsOnly;
-}  // namespace input_method
-}  // namespace chromeos
 
 #endif  // UI_BASE_IME_ASH_INPUT_METHOD_UTIL_H_

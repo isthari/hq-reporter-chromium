@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,10 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/cancelable_callback.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/location.h"
 #include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
@@ -21,7 +21,6 @@
 #include "base/task/single_thread_task_runner.h"
 #include "base/test/simple_test_clock.h"
 #include "base/test/test_timeouts.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -70,7 +69,7 @@ class FullStreamUIPolicyTest : public testing::Test {
     test_user_manager_.reset();
 #endif
     base::RunLoop().RunUntilIdle();
-    profile_.reset(NULL);
+    profile_.reset();
     base::RunLoop().RunUntilIdle();
   }
 
@@ -109,7 +108,7 @@ class FullStreamUIPolicyTest : public testing::Test {
     // when the timeout triggers then assume that the test is broken.
     base::CancelableOnceClosure timeout(
         base::BindOnce(&FullStreamUIPolicyTest::TimeoutCallback));
-    base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostDelayedTask(
         FROM_HERE, timeout.callback(), TestTimeouts::action_timeout());
 
     // Wait for results; either the checker or the timeout callbacks should
@@ -243,7 +242,7 @@ class FullStreamUIPolicyTest : public testing::Test {
     scoped_refptr<Action> action =
         new Action("punky1", mock_clock.Now() - base::Minutes(40),
                    Action::ACTION_DOM_ACCESS, "lets1");
-    action->mutable_args()->Append("vamoose1");
+    action->mutable_args().Append("vamoose1");
     action->set_page_url(GURL("http://www.google1.com"));
     action->set_page_title("Google1");
     action->set_arg_url(GURL("http://www.args-url1.com"));
@@ -254,7 +253,7 @@ class FullStreamUIPolicyTest : public testing::Test {
 
     action = new Action("punky2", mock_clock.Now() - base::Minutes(30),
                         Action::ACTION_API_CALL, "lets2");
-    action->mutable_args()->Append("vamoose2");
+    action->mutable_args().Append("vamoose2");
     action->set_page_url(GURL("http://www.google2.com"));
     action->set_page_title("Google2");
     action->set_arg_url(GURL("http://www.args-url2.com"));
@@ -342,19 +341,17 @@ TEST_F(FullStreamUIPolicyTest, Construct) {
   policy->Init();
   scoped_refptr<const Extension> extension =
       ExtensionBuilder()
-          .SetManifest(DictionaryBuilder()
+          .SetManifest(base::Value::Dict()
                            .Set("name", "Test extension")
                            .Set("version", "1.0.0")
-                           .Set("manifest_version", 2)
-                           .Build())
+                           .Set("manifest_version", 2))
           .Build();
   extension_service_->AddExtension(extension.get());
-  std::unique_ptr<base::ListValue> args(new base::ListValue());
   scoped_refptr<Action> action = new Action(extension->id(),
                                             base::Time::Now(),
                                             Action::ACTION_API_CALL,
                                             "tabs.testMethod");
-  action->set_args(std::move(args));
+  action->set_args(base::Value::List());
   policy->ProcessAction(action);
   policy->Close();
 }
@@ -364,11 +361,10 @@ TEST_F(FullStreamUIPolicyTest, LogAndFetchActions) {
   policy->Init();
   scoped_refptr<const Extension> extension =
       ExtensionBuilder()
-          .SetManifest(DictionaryBuilder()
+          .SetManifest(base::Value::Dict()
                            .Set("name", "Test extension")
                            .Set("version", "1.0.0")
-                           .Set("manifest_version", 2)
-                           .Build())
+                           .Set("manifest_version", 2))
           .Build();
   extension_service_->AddExtension(extension.get());
   GURL gurl("http://www.google.com");
@@ -378,14 +374,14 @@ TEST_F(FullStreamUIPolicyTest, LogAndFetchActions) {
                                                 base::Time::Now(),
                                                 Action::ACTION_API_CALL,
                                                 "tabs.testMethod");
-  action_api->set_args(std::make_unique<base::ListValue>());
+  action_api->set_args(base::Value::List());
   policy->ProcessAction(action_api);
 
   scoped_refptr<Action> action_dom = new Action(extension->id(),
                                                 base::Time::Now(),
                                                 Action::ACTION_DOM_ACCESS,
                                                 "document.write");
-  action_dom->set_args(std::make_unique<base::ListValue>());
+  action_dom->set_args(base::Value::List());
   action_dom->set_page_url(gurl);
   policy->ProcessAction(action_dom);
 
@@ -402,11 +398,10 @@ TEST_F(FullStreamUIPolicyTest, LogAndFetchFilteredActions) {
   policy->Init();
   scoped_refptr<const Extension> extension =
       ExtensionBuilder()
-          .SetManifest(DictionaryBuilder()
+          .SetManifest(base::Value::Dict()
                            .Set("name", "Test extension")
                            .Set("version", "1.0.0")
-                           .Set("manifest_version", 2)
-                           .Build())
+                           .Set("manifest_version", 2))
           .Build();
   extension_service_->AddExtension(extension.get());
   GURL gurl("http://www.google.com");
@@ -416,14 +411,14 @@ TEST_F(FullStreamUIPolicyTest, LogAndFetchFilteredActions) {
                                                 base::Time::Now(),
                                                 Action::ACTION_API_CALL,
                                                 "tabs.testMethod");
-  action_api->set_args(std::make_unique<base::ListValue>());
+  action_api->set_args(base::Value::List());
   policy->ProcessAction(action_api);
 
   scoped_refptr<Action> action_dom = new Action(extension->id(),
                                                 base::Time::Now(),
                                                 Action::ACTION_DOM_ACCESS,
                                                 "document.write");
-  action_dom->set_args(std::make_unique<base::ListValue>());
+  action_dom->set_args(base::Value::List());
   action_dom->set_page_url(gurl);
   policy->ProcessAction(action_dom);
 
@@ -482,17 +477,15 @@ TEST_F(FullStreamUIPolicyTest, LogWithArguments) {
   policy->Init();
   scoped_refptr<const Extension> extension =
       ExtensionBuilder()
-          .SetManifest(DictionaryBuilder()
+          .SetManifest(base::Value::Dict()
                            .Set("name", "Test extension")
                            .Set("version", "1.0.0")
-                           .Set("manifest_version", 2)
-                           .Build())
+                           .Set("manifest_version", 2))
           .Build();
   extension_service_->AddExtension(extension.get());
 
-  std::unique_ptr<base::ListValue> args(new base::ListValue());
-  args->Append("hello");
-  args->Append("world");
+  auto args = base::Value::List().Append("hello");
+  args.Append("world");
   scoped_refptr<Action> action = new Action(extension->id(),
                                             base::Time::Now(),
                                             Action::ACTION_API_CALL,
@@ -522,14 +515,14 @@ TEST_F(FullStreamUIPolicyTest, GetTodaysActions) {
   scoped_refptr<Action> action =
       new Action("punky", mock_clock.Now() - base::Minutes(40),
                  Action::ACTION_API_CALL, "brewster");
-  action->mutable_args()->Append("woof");
+  action->mutable_args().Append("woof");
   action->set_arg_url(GURL("http://www.arg-url.com"));
   action->set_page_title("Page Title");
   policy->ProcessAction(action);
 
   action =
       new Action("punky", mock_clock.Now(), Action::ACTION_DOM_ACCESS, "lets");
-  action->mutable_args()->Append("vamoose");
+  action->mutable_args().Append("vamoose");
   action->set_page_url(GURL("http://www.google.com"));
   action->set_arg_url(GURL("http://www.arg-url.com"));
   action->set_page_title("Page Title");
@@ -537,7 +530,7 @@ TEST_F(FullStreamUIPolicyTest, GetTodaysActions) {
 
   action = new Action("scoobydoo", mock_clock.Now(), Action::ACTION_DOM_ACCESS,
                       "lets");
-  action->mutable_args()->Append("vamoose");
+  action->mutable_args().Append("vamoose");
   action->set_page_url(GURL("http://www.google.com"));
   action->set_arg_url(GURL("http://www.arg-url.com"));
   policy->ProcessAction(action);
@@ -563,24 +556,24 @@ TEST_F(FullStreamUIPolicyTest, GetOlderActions) {
   scoped_refptr<Action> action =
       new Action("punky", mock_clock.Now() - base::Days(3) - base::Minutes(40),
                  Action::ACTION_API_CALL, "brewster");
-  action->mutable_args()->Append("woof");
+  action->mutable_args().Append("woof");
   policy->ProcessAction(action);
 
   action = new Action("punky", mock_clock.Now() - base::Days(3),
                       Action::ACTION_DOM_ACCESS, "lets");
-  action->mutable_args()->Append("vamoose");
+  action->mutable_args().Append("vamoose");
   action->set_page_url(GURL("http://www.google.com"));
   policy->ProcessAction(action);
 
   action =
       new Action("punky", mock_clock.Now(), Action::ACTION_DOM_ACCESS, "lets");
-  action->mutable_args()->Append("too new");
+  action->mutable_args().Append("too new");
   action->set_page_url(GURL("http://www.google.com"));
   policy->ProcessAction(action);
 
   action = new Action("punky", mock_clock.Now() - base::Days(7),
                       Action::ACTION_DOM_ACCESS, "lets");
-  action->mutable_args()->Append("too old");
+  action->mutable_args().Append("too old");
   action->set_page_url(GURL("http://www.google.com"));
   policy->ProcessAction(action);
 
@@ -603,7 +596,7 @@ TEST_F(FullStreamUIPolicyTest, RemoveAllURLs) {
   // Record some actions
   scoped_refptr<Action> action =
       new Action("punky", mock_clock.Now(), Action::ACTION_DOM_ACCESS, "lets");
-  action->mutable_args()->Append("vamoose");
+  action->mutable_args().Append("vamoose");
   action->set_page_url(GURL("http://www.google.com"));
   action->set_page_title("Google");
   action->set_arg_url(GURL("http://www.google.com"));
@@ -612,7 +605,7 @@ TEST_F(FullStreamUIPolicyTest, RemoveAllURLs) {
   mock_clock.Advance(base::Seconds(1));
   action =
       new Action("punky", mock_clock.Now(), Action::ACTION_API_CALL, "lets");
-  action->mutable_args()->Append("vamoose");
+  action->mutable_args().Append("vamoose");
   action->set_page_url(GURL("http://www.google2.com"));
   action->set_page_title("Google");
   // Deliberately no arg url set to make sure it still works when there is no
@@ -642,7 +635,7 @@ TEST_F(FullStreamUIPolicyTest, RemoveSpecificURLs) {
   // This should have the page url and args url cleared.
   scoped_refptr<Action> action =
       new Action("punky", mock_clock.Now(), Action::ACTION_DOM_ACCESS, "lets");
-  action->mutable_args()->Append("vamoose");
+  action->mutable_args().Append("vamoose");
   action->set_page_url(GURL("http://www.google1.com"));
   action->set_page_title("Google");
   action->set_arg_url(GURL("http://www.google1.com"));
@@ -652,7 +645,7 @@ TEST_F(FullStreamUIPolicyTest, RemoveSpecificURLs) {
   mock_clock.Advance(base::Seconds(1));
   action =
       new Action("punky", mock_clock.Now(), Action::ACTION_DOM_ACCESS, "lets");
-  action->mutable_args()->Append("vamoose");
+  action->mutable_args().Append("vamoose");
   action->set_page_url(GURL("http://www.google1.com"));
   action->set_page_title("Google");
   action->set_arg_url(GURL("http://www.google.com"));
@@ -663,7 +656,7 @@ TEST_F(FullStreamUIPolicyTest, RemoveSpecificURLs) {
   mock_clock.Advance(base::Seconds(1));
   action =
       new Action("punky", mock_clock.Now(), Action::ACTION_DOM_ACCESS, "lets");
-  action->mutable_args()->Append("vamoose");
+  action->mutable_args().Append("vamoose");
   action->set_page_url(GURL("http://www.google2.com"));
   action->set_page_title("Google");
   policy->ProcessAction(action);
@@ -672,7 +665,7 @@ TEST_F(FullStreamUIPolicyTest, RemoveSpecificURLs) {
   mock_clock.Advance(base::Seconds(1));
   action =
       new Action("punky", mock_clock.Now(), Action::ACTION_DOM_ACCESS, "lets");
-  action->mutable_args()->Append("vamoose");
+  action->mutable_args().Append("vamoose");
   action->set_page_url(GURL("http://www.google.com"));
   action->set_page_title("Google");
   action->set_arg_url(GURL("http://www.google1.com"));
@@ -682,7 +675,7 @@ TEST_F(FullStreamUIPolicyTest, RemoveSpecificURLs) {
   mock_clock.Advance(base::Seconds(1));
   action =
       new Action("punky", mock_clock.Now(), Action::ACTION_DOM_ACCESS, "lets");
-  action->mutable_args()->Append("vamoose");
+  action->mutable_args().Append("vamoose");
   action->set_page_url(GURL("http://www.google.com"));
   action->set_page_title("Google");
   action->set_arg_url(GURL("http://www.args-url.com"));
@@ -714,7 +707,7 @@ TEST_F(FullStreamUIPolicyTest, RemoveExtensionData) {
   scoped_refptr<Action> action =
       new Action("deleteextensiondata", mock_clock.Now(),
                  Action::ACTION_DOM_ACCESS, "lets");
-  action->mutable_args()->Append("vamoose");
+  action->mutable_args().Append("vamoose");
   action->set_page_title("Google");
   action->set_arg_url(GURL("http://www.google.com"));
   policy->ProcessAction(action);
@@ -723,7 +716,7 @@ TEST_F(FullStreamUIPolicyTest, RemoveExtensionData) {
 
   scoped_refptr<Action> action2 = new Action("dontdelete", mock_clock.Now(),
                                              Action::ACTION_DOM_ACCESS, "lets");
-  action->mutable_args()->Append("vamoose");
+  action->mutable_args().Append("vamoose");
   action->set_page_title("Google");
   action->set_arg_url(GURL("http://www.google.com"));
   policy->ProcessAction(action2);
@@ -774,11 +767,10 @@ TEST_F(FullStreamUIPolicyTest, DeleteDatabase) {
   policy->Init();
   scoped_refptr<const Extension> extension =
       ExtensionBuilder()
-          .SetManifest(DictionaryBuilder()
+          .SetManifest(base::Value::Dict()
                            .Set("name", "Test extension")
                            .Set("version", "1.0.0")
-                           .Set("manifest_version", 2)
-                           .Build())
+                           .Set("manifest_version", 2))
           .Build();
   extension_service_->AddExtension(extension.get());
   GURL gurl("http://www.google.com");
@@ -788,14 +780,14 @@ TEST_F(FullStreamUIPolicyTest, DeleteDatabase) {
                                                 base::Time::Now(),
                                                 Action::ACTION_API_CALL,
                                                 "tabs.testMethod");
-  action_api->set_args(std::make_unique<base::ListValue>());
+  action_api->set_args(base::Value::List());
   policy->ProcessAction(action_api);
 
   scoped_refptr<Action> action_dom = new Action(extension->id(),
                                                 base::Time::Now(),
                                                 Action::ACTION_DOM_ACCESS,
                                                 "document.write");
-  action_dom->set_args(std::make_unique<base::ListValue>());
+  action_dom->set_args(base::Value::List());
   action_dom->set_page_url(gurl);
   policy->ProcessAction(action_dom);
 

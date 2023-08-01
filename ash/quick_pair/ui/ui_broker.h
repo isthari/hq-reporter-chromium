@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,12 +11,12 @@
 namespace ash {
 namespace quick_pair {
 
-struct Device;
+class Device;
 
 // The UIBroker is the entry point for the UI component in the Quick Pair
 // system. It is responsible for brokering the 'show UI' calls to the correct
 // Presenter implementation, and exposing user actions taken on that UI.
-class COMPONENT_EXPORT(QUICK_PAIR_UI) UIBroker {
+class UIBroker {
  public:
   class Observer : public base::CheckedObserver {
    public:
@@ -39,7 +39,8 @@ class COMPONENT_EXPORT(QUICK_PAIR_UI) UIBroker {
   virtual void ShowPairingFailed(scoped_refptr<Device> device) = 0;
   virtual void ShowAssociateAccount(scoped_refptr<Device> device) = 0;
   virtual void ShowCompanionApp(scoped_refptr<Device> device) = 0;
-  virtual void RemoveNotifications(scoped_refptr<Device> device) = 0;
+  virtual void RemoveNotifications() = 0;
+  virtual void ExtendNotification() = 0;
 };
 
 }  // namespace quick_pair

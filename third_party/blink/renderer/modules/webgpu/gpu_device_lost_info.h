@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <dawn/webgpu.h>
 
+#include "third_party/blink/renderer/bindings/core/v8/script_value.h"
 #include "third_party/blink/renderer/platform/bindings/script_wrappable.h"
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
@@ -23,12 +24,12 @@ class GPUDeviceLostInfo : public ScriptWrappable {
   GPUDeviceLostInfo& operator=(const GPUDeviceLostInfo&) = delete;
 
   // gpu_device_lost_info.idl
+  const ScriptValue reason(ScriptState* script_state) const;
   const String& message() const;
-  const String& reason() const;
 
  private:
-  String message_;
   String reason_;
+  String message_;
 };
 
 }  // namespace blink

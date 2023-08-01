@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,8 @@
 
 #include <utility>
 
-#include "base/bind.h"
 #include "base/check_op.h"
+#include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/unsafe_shared_memory_region.h"
 #include "base/no_destructor.h"
@@ -19,6 +19,7 @@
 #include "cc/layers/texture_layer.h"
 #include "cc/resources/cross_thread_shared_bitmap.h"
 #include "components/viz/common/resources/bitmap_allocation.h"
+#include "components/viz/common/resources/shared_image_format.h"
 #include "content/web_test/renderer/test_runner.h"
 #include "gpu/GLES2/gl2extchromium.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
@@ -176,7 +177,7 @@ bool TestPlugin::Initialize(blink::WebPluginContainer* container) {
   std::unique_ptr<blink::WebGraphicsContext3DProvider> context_provider =
       blink::Platform::Current()->CreateOffscreenGraphicsContext3DProvider(
           attrs, url, &gl_info);
-  if (context_provider && !context_provider->BindToCurrentThread())
+  if (context_provider && !context_provider->BindToCurrentSequence())
     context_provider = nullptr;
   if (context_provider) {
     gl_ = context_provider ? context_provider->ContextGL() : nullptr;
@@ -251,10 +252,10 @@ void TestPlugin::UpdateGeometry(const gfx::Rect& window_rect,
     DCHECK(context_provider_);
     auto* sii = context_provider_->data->SharedImageInterface();
     mailbox_ = sii->CreateSharedImage(
-        viz::ResourceFormat::RGBA_8888, rect_.size(), gfx::ColorSpace(),
+        viz::SinglePlaneFormat::kRGBA_8888, rect_.size(), gfx::ColorSpace(),
         kTopLeft_GrSurfaceOrigin, kPremul_SkAlphaType,
-        gpu::SHARED_IMAGE_USAGE_GLES2 | gpu::SHARED_IMAGE_USAGE_DISPLAY,
-        gpu::kNullSurfaceHandle);
+        gpu::SHARED_IMAGE_USAGE_GLES2 | gpu::SHARED_IMAGE_USAGE_DISPLAY_READ,
+        "TestLabel", gpu::kNullSurfaceHandle);
     gl_->WaitSyncTokenCHROMIUM(sii->GenUnverifiedSyncToken().GetConstData());
 
     GLuint color_texture =
@@ -278,10 +279,11 @@ void TestPlugin::UpdateGeometry(const gfx::Rect& window_rect,
   } else {
     viz::SharedBitmapId id = viz::SharedBitmap::GenerateId();
     base::MappedReadOnlyRegion shm =
-        viz::bitmap_allocation::AllocateSharedBitmap(gfx::Rect(rect_).size(),
-                                                     viz::RGBA_8888);
+        viz::bitmap_allocation::AllocateSharedBitmap(
+            gfx::Rect(rect_).size(), viz::SinglePlaneFormat::kRGBA_8888);
     shared_bitmap_ = base::MakeRefCounted<cc::CrossThreadSharedBitmap>(
-        id, std::move(shm), gfx::Rect(rect_).size(), viz::RGBA_8888);
+        id, std::move(shm), gfx::Rect(rect_).size(),
+        viz::SinglePlaneFormat::kRGBA_8888);
     // The |shared_bitmap_|'s id will be registered when being given to the
     // compositor.
 
@@ -321,9 +323,9 @@ bool TestPlugin::PrepareTransferableResource(
     return false;
   gfx::Size size(rect_.size());
   if (!mailbox_.IsZero()) {
-    *resource = viz::TransferableResource::MakeGL(
-        mailbox_, GL_LINEAR, GL_TEXTURE_2D, sync_token_, size,
-        false /* is_overlay_candidate */);
+    *resource = viz::TransferableResource::MakeGpu(
+        mailbox_, GL_TEXTURE_2D, sync_token_, size,
+        viz::SinglePlaneFormat::kRGBA_8888, false /* is_overlay_candidate */);
     // We pass ownership of the shared image to the callback.
     *release_callback =
         base::BindOnce(&ReleaseSharedImage, context_provider_, mailbox_);
@@ -337,7 +339,8 @@ bool TestPlugin::PrepareTransferableResource(
                                                  shared_bitmap_);
 
     *resource = viz::TransferableResource::MakeSoftware(
-        shared_bitmap_->id(), shared_bitmap_->size(), viz::RGBA_8888);
+        shared_bitmap_->id(), shared_bitmap_->size(),
+        viz::SinglePlaneFormat::kRGBA_8888);
     *release_callback =
         base::BindOnce(&ReleaseSharedMemory, std::move(shared_bitmap_),
                        std::move(registration));

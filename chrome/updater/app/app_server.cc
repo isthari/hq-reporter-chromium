@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/process/launch.h"
@@ -29,18 +29,16 @@
 #include "chrome/updater/update_service_internal_impl_qualifying.h"
 #include "chrome/updater/updater_scope.h"
 #include "chrome/updater/updater_version.h"
+#include "chrome/updater/util/util.h"
 #include "components/prefs/pref_service.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace updater {
-
-namespace {
 
 bool IsInternalService() {
   return base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
              kServerServiceSwitch) == kServerUpdateServiceInternalSwitchValue;
 }
-
-}  // namespace
 
 AppServer::AppServer() : external_constants_(CreateExternalConstants()) {}
 
@@ -58,20 +56,29 @@ base::OnceClosure AppServer::ModeCheck() {
   }
 
   const base::Version this_version(kUpdaterVersion);
-  const base::Version active_version(global_prefs->GetActiveVersion());
+  base::Version active_version(global_prefs->GetActiveVersion());
+  if (!active_version.IsValid()) {
+    active_version = base::Version(std::vector<uint32_t>{0});
+  }
 
   VLOG(2) << "This version: " << this_version.GetString()
           << ", active version: " << active_version.GetString();
 
   if (this_version < active_version) {
     global_prefs = nullptr;
-    uninstall_self_ = true;
     if (IsInternalService()) {
+      uninstall_self_ = true;
       return base::BindOnce(&AppServer::ActiveDutyInternal, this,
                             MakeInactiveUpdateServiceInternal());
     }
+
+#if BUILDFLAG(IS_WIN)
+    return base::BindOnce(&AppServer::Shutdown, this,
+                          static_cast<int>(UpdateService::Result::kInactive));
+#else
     return base::BindOnce(&AppServer::ActiveDuty, this,
                           MakeInactiveUpdateService());
+#endif
   }
 
   if (active_version != base::Version("0") && active_version != this_version) {
@@ -79,20 +86,27 @@ base::OnceClosure AppServer::ModeCheck() {
     if (!local_prefs->GetQualified()) {
       global_prefs = nullptr;
       prefs_ = local_prefs;
-      return IsInternalService()
-                 ? base::BindOnce(&AppServer::ActiveDutyInternal, this,
-                                  MakeQualifyingUpdateServiceInternal(
-                                      base::MakeRefCounted<Configurator>(
-                                          prefs_, external_constants_),
-                                      local_prefs))
-                 : base::BindOnce(&AppServer::ActiveDuty, this,
-                                  MakeInactiveUpdateService());
+      config_ = base::MakeRefCounted<Configurator>(prefs_, external_constants_);
+      if (IsInternalService()) {
+        return base::BindOnce(
+            &AppServer::ActiveDutyInternal, this,
+            MakeQualifyingUpdateServiceInternal(config_, local_prefs));
+      }
+
+#if BUILDFLAG(IS_WIN)
+      return base::BindOnce(&AppServer::Shutdown, this,
+                            static_cast<int>(UpdateService::Result::kInactive));
+#else
+      return base::BindOnce(&AppServer::ActiveDuty, this,
+                            MakeInactiveUpdateService());
+#endif
     }
   }
 
   if (this_version > active_version || global_prefs->GetSwapping()) {
-    if (!SwapVersions(global_prefs.get()))
+    if (!SwapVersions(global_prefs.get())) {
       return base::BindOnce(&AppServer::Shutdown, this, kErrorFailedToSwap);
+    }
   }
 
   if (IsInternalService()) {
@@ -103,15 +117,15 @@ base::OnceClosure AppServer::ModeCheck() {
 
   server_starts_ = global_prefs->CountServerStarts();
   prefs_ = global_prefs;
-  return base::BindOnce(
-      &AppServer::ActiveDuty, this,
-      base::MakeRefCounted<UpdateServiceImpl>(
-          base::MakeRefCounted<Configurator>(prefs_, external_constants_)));
+  config_ = base::MakeRefCounted<Configurator>(prefs_, external_constants_);
+  return base::BindOnce(&AppServer::ActiveDuty, this,
+                        base::MakeRefCounted<UpdateServiceImpl>(config_));
 }
 
 void AppServer::Uninitialize() {
-  if (prefs_)
+  if (prefs_) {
     PrefsCommitPendingWrites(prefs_->GetPrefService());
+  }
   if (uninstall_self_) {
     VLOG(1) << "Uninstalling version " << kUpdaterVersion;
     UninstallSelf();
@@ -121,28 +135,33 @@ void AppServer::Uninitialize() {
 }
 
 void AppServer::MaybeUninstall() {
-  if (!prefs_)
+  if (!prefs_ || IsInternalService()) {
     return;
+  }
 
-  auto persisted_data =
-      base::MakeRefCounted<PersistedData>(prefs_->GetPrefService());
+  auto persisted_data = base::MakeRefCounted<PersistedData>(
+      updater_scope(), prefs_->GetPrefService());
   if (ShouldUninstall(persisted_data->GetAppIds(), server_starts_,
                       persisted_data->GetHadApps())) {
-    base::CommandLine command_line(
-        base::CommandLine::ForCurrentProcess()->GetProgram());
-    command_line.AppendSwitch(kUninstallIfUnusedSwitch);
-    if (updater_scope() == UpdaterScope::kSystem)
-      command_line.AppendSwitch(kSystemSwitch);
-    command_line.AppendSwitch(kEnableLoggingSwitch);
-    command_line.AppendSwitchASCII(kLoggingModuleSwitch,
-                                   kLoggingModuleSwitchValue);
-    VLOG(2) << "Launching uninstall command: "
-            << command_line.GetCommandLineString();
-
-    base::Process process = base::LaunchProcess(command_line, {});
-    if (!process.IsValid()) {
-      VLOG(2) << "Invalid process launching command: "
+    absl::optional<base::FilePath> executable =
+        GetUpdaterExecutablePath(updater_scope());
+    if (executable) {
+      base::CommandLine command_line(*executable);
+      command_line.AppendSwitch(kUninstallIfUnusedSwitch);
+      if (IsSystemInstall(updater_scope())) {
+        command_line.AppendSwitch(kSystemSwitch);
+      }
+      command_line.AppendSwitch(kEnableLoggingSwitch);
+      command_line.AppendSwitchASCII(kLoggingModuleSwitch,
+                                     kLoggingModuleSwitchValue);
+      VLOG(2) << "Launching uninstall command: "
               << command_line.GetCommandLineString();
+
+      base::Process process = base::LaunchProcess(command_line, {});
+      if (!process.IsValid()) {
+        VLOG(2) << "Invalid process launching command: "
+                << command_line.GetCommandLineString();
+      }
     }
   }
 }
@@ -154,16 +173,17 @@ void AppServer::FirstTaskRun() {
 bool AppServer::SwapVersions(GlobalPrefs* global_prefs) {
   global_prefs->SetSwapping(true);
   PrefsCommitPendingWrites(global_prefs->GetPrefService());
-  if (!SwapInNewVersion())
-    return false;
   if (!global_prefs->GetMigratedLegacyUpdaters()) {
-    if (!MigrateLegacyUpdaters(
-            base::BindRepeating(&PersistedData::RegisterApp,
-                                base::MakeRefCounted<PersistedData>(
-                                    global_prefs->GetPrefService())))) {
+    if (!MigrateLegacyUpdaters(base::BindRepeating(
+            &PersistedData::RegisterApp,
+            base::MakeRefCounted<PersistedData>(
+                updater_scope(), global_prefs->GetPrefService())))) {
       return false;
     }
     global_prefs->SetMigratedLegacyUpdaters();
+  }
+  if (!SwapInNewVersion()) {
+    return false;
   }
   global_prefs->SetActiveVersion(kUpdaterVersion);
   global_prefs->SetSwapping(false);

@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,11 +8,10 @@
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
 #include "components/omnibox/browser/autocomplete_provider.h"
-#include "components/omnibox/browser/history_url_provider.h"
 
 class AutocompleteProviderClient;
+class AutocompleteProviderListener;
 class ClipboardRecentContent;
-class HistoryURLProvider;
 enum class ClipboardContentType;
 
 // Autocomplete provider offering content based on the clipboard's content.
@@ -20,7 +19,6 @@ class ClipboardProvider : public AutocompleteProvider {
  public:
   ClipboardProvider(AutocompleteProviderClient* client,
                     AutocompleteProviderListener* listener,
-                    HistoryURLProvider* history_url_provider,
                     ClipboardRecentContent* clipboard_content);
 
   ClipboardProvider(const ClipboardProvider&) = delete;
@@ -53,7 +51,6 @@ class ClipboardProvider : public AutocompleteProvider {
   void Stop(bool clear_cached_results, bool due_to_user_inactivity) override;
   void DeleteMatch(const AutocompleteMatch& match) override;
   void AddProviderInfo(ProvidersInfo* provider_info) const override;
-  void ResetSession() override;
 
  private:
   FRIEND_TEST_ALL_PREFIXES(ClipboardProviderTest, MatchesImage);
@@ -67,7 +64,7 @@ class ClipboardProvider : public AutocompleteProvider {
   // extra tracking and match adding.
   void AddCreatedMatchWithTracking(
       const AutocompleteInput& input,
-      const AutocompleteMatch& match,
+      AutocompleteMatch match,
       const base::TimeDelta clipboard_contents_age);
 
   // Uses asynchronous clipboard APIs to check which content types have
@@ -181,22 +178,12 @@ class ClipboardProvider : public AutocompleteProvider {
                                   AutocompleteMatch* match);
 
   raw_ptr<AutocompleteProviderClient> client_;
-  raw_ptr<AutocompleteProviderListener> listener_;
   raw_ptr<ClipboardRecentContent> clipboard_content_;
-
-  // Used for efficiency when creating the verbatim match.  Can be NULL.
-  raw_ptr<HistoryURLProvider> history_url_provider_;
 
   // The current URL suggested and the number of times it has been offered.
   // Used for recording metrics.
   GURL current_url_suggested_;
   size_t current_url_suggested_times_;
-
-  // Whether a field trial has triggered for this query and this session,
-  // respectively. Works similarly to BaseSearchProvider, though this class does
-  // not inherit from it.
-  bool field_trial_triggered_;
-  bool field_trial_triggered_in_session_;
 
   // Used to cancel image construction callbacks if autocomplete Stop() is
   // called.

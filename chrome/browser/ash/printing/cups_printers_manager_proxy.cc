@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,11 +7,12 @@
 #include <memory>
 
 #include "base/logging.h"
+#include "base/memory/raw_ptr.h"
 #include "base/observer_list.h"
 #include "chrome/browser/ash/printing/cups_printers_manager.h"
 #include "chromeos/printing/printer_configuration.h"
 
-namespace chromeos {
+namespace ash {
 
 namespace {
 
@@ -45,8 +46,9 @@ class ProxyImpl : public CupsPrintersManagerProxy,
 
     // Emit a change event to wake up any observers.
     // Emitting for saved printers is an arbitrary decision.
-    OnPrintersChanged(PrinterClass::kSaved,
-                      active_manager_->GetPrinters(PrinterClass::kSaved));
+    OnPrintersChanged(
+        chromeos::PrinterClass::kSaved,
+        active_manager_->GetPrinters(chromeos::PrinterClass::kSaved));
   }
 
   void RemoveManager(CupsPrintersManager* manager) override {
@@ -65,8 +67,9 @@ class ProxyImpl : public CupsPrintersManagerProxy,
   }
 
   // CupsPrintersManager::Observer overrides
-  void OnPrintersChanged(PrinterClass printer_class,
-                         const std::vector<Printer>& printers) override {
+  void OnPrintersChanged(
+      chromeos::PrinterClass printer_class,
+      const std::vector<chromeos::Printer>& printers) override {
     for (auto& observer : observers_) {
       observer.OnPrintersChanged(printer_class, printers);
     }
@@ -74,7 +77,7 @@ class ProxyImpl : public CupsPrintersManagerProxy,
 
  private:
   // The manager for which we are forwarding events.
-  CupsPrintersManager* active_manager_ = nullptr;
+  raw_ptr<CupsPrintersManager, ExperimentalAsh> active_manager_ = nullptr;
   // TODO(skau): Change to CheckedObservers
   base::ObserverList<CupsPrintersManager::Observer>::Unchecked observers_;
 };
@@ -86,4 +89,4 @@ std::unique_ptr<CupsPrintersManagerProxy> CupsPrintersManagerProxy::Create() {
   return std::make_unique<ProxyImpl>();
 }
 
-}  // namespace chromeos
+}  // namespace ash

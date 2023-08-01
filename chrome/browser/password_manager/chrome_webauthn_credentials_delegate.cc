@@ -1,73 +1,100 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/password_manager/chrome_webauthn_credentials_delegate.h"
 
-#include "base/feature_list.h"
+#include "base/base64.h"
+#include "base/functional/callback.h"
 #include "build/build_config.h"
-#include "chrome/browser/password_manager/chrome_password_manager_client.h"
-#include "content/public/common/content_features.h"
+#include "components/password_manager/core/browser/passkey_credential.h"
+#include "components/password_manager/core/browser/password_ui_utils.h"
+#include "content/public/browser/web_contents.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
+#include "ui/base/l10n/l10n_util.h"
 
 #if !BUILDFLAG(IS_ANDROID)
 #include "chrome/browser/webauthn/authenticator_request_scheduler.h"
 #include "chrome/browser/webauthn/chrome_authenticator_request_delegate.h"
 #endif  // !BUILDFLAG(IS_ANDROID)
 
+#if BUILDFLAG(IS_ANDROID)
+#include "chrome/browser/webauthn/android/webauthn_request_delegate_android.h"
+#endif
+
+using password_manager::PasskeyCredential;
+
 ChromeWebAuthnCredentialsDelegate::ChromeWebAuthnCredentialsDelegate(
-    ChromePasswordManagerClient* client)
-    : client_(client) {}
+    content::WebContents* web_contents)
+    : web_contents_(web_contents) {}
 
-bool ChromeWebAuthnCredentialsDelegate::IsWebAuthnAutofillEnabled() const {
-  return base::FeatureList::IsEnabled(features::kWebAuthConditionalUI);
-}
+ChromeWebAuthnCredentialsDelegate::~ChromeWebAuthnCredentialsDelegate() =
+    default;
 
-void ChromeWebAuthnCredentialsDelegate::SelectWebAuthnCredential(
-    std::string backend_id) {
+void ChromeWebAuthnCredentialsDelegate::LaunchWebAuthnFlow() {
 #if !BUILDFLAG(IS_ANDROID)
   ChromeAuthenticatorRequestDelegate* authenticator_delegate =
-      AuthenticatorRequestScheduler::GetRequestDelegate(
-          client_->web_contents());
+      AuthenticatorRequestScheduler::GetRequestDelegate(web_contents_);
+  if (!authenticator_delegate) {
+    return;
+  }
+  authenticator_delegate->dialog_model()->TransitionToModalWebAuthnRequest();
+#endif  // !BUILDFLAG(IS_ANDROID)
+}
+
+void ChromeWebAuthnCredentialsDelegate::SelectPasskey(
+    const std::string& backend_id) {
+  // `backend_id` is the base64-encoded credential ID. See `PasskeyCredential`
+  // for where these are encoded.
+  absl::optional<std::vector<uint8_t>> selected_credential_id =
+      base::Base64Decode(backend_id);
+  DCHECK(selected_credential_id);
+
+#if BUILDFLAG(IS_ANDROID)
+  auto* request_delegate =
+      WebAuthnRequestDelegateAndroid::GetRequestDelegate(web_contents_);
+  if (!request_delegate) {
+    return;
+  }
+  request_delegate->OnWebAuthnAccountSelected(*selected_credential_id);
+#else
+  ChromeAuthenticatorRequestDelegate* authenticator_delegate =
+      AuthenticatorRequestScheduler::GetRequestDelegate(web_contents_);
   if (!authenticator_delegate) {
     return;
   }
   authenticator_delegate->dialog_model()->OnAccountPreselected(
-      std::vector<uint8_t>(backend_id.begin(), backend_id.end()));
-#endif  // !BUILDFLAG(IS_ANDROID)
+      *selected_credential_id);
+#endif  // BUILDFLAG(IS_ANDROID)
 }
 
-std::vector<autofill::Suggestion>
-ChromeWebAuthnCredentialsDelegate::GetWebAuthnSuggestions() const {
-#if BUILDFLAG(IS_ANDROID)
-  return {};
-#else
-  ChromeAuthenticatorRequestDelegate* authenticator_delegate =
-      AuthenticatorRequestScheduler::GetRequestDelegate(
-          client_->web_contents());
-  if (!authenticator_delegate) {
-    return {};
+const absl::optional<std::vector<PasskeyCredential>>&
+ChromeWebAuthnCredentialsDelegate::GetPasskeys() const {
+  return passkeys_;
+}
+
+void ChromeWebAuthnCredentialsDelegate::RetrievePasskeys(
+    base::OnceClosure callback) {
+  if (passkeys_.has_value()) {
+    // Entries were already populated from the WebAuthn request.
+    std::move(callback).Run();
+    return;
   }
-  std::vector<autofill::Suggestion> suggestions;
-  for (const auto& credential :
-       authenticator_delegate->dialog_model()->users()) {
-    std::u16string name;
-    if (credential.display_name && !credential.display_name->empty()) {
-      name = base::UTF8ToUTF16(*credential.display_name);
-    } else {
-      // TODO(crbug.com/1179014): go through UX review, choose a string, and
-      // i18n it.
-      name = u"Unknown account";
-    }
-    autofill::Suggestion suggestion(std::move(name));
-    if (credential.name) {
-      suggestion.label = base::UTF8ToUTF16(*credential.name);
-    }
-    suggestion.icon = "fingerprint";
-    suggestion.frontend_id = autofill::POPUP_ITEM_ID_WEBAUTHN_CREDENTIAL;
-    suggestion.backend_id =
-        std::string(credential.id.begin(), credential.id.end());
-    suggestions.push_back(std::move(suggestion));
+
+  retrieve_passkeys_callback_ = std::move(callback);
+}
+
+void ChromeWebAuthnCredentialsDelegate::OnCredentialsReceived(
+    std::vector<PasskeyCredential> credentials) {
+  passkeys_ = std::move(credentials);
+  if (retrieve_passkeys_callback_) {
+    std::move(retrieve_passkeys_callback_).Run();
   }
-  return suggestions;
-#endif
+}
+
+void ChromeWebAuthnCredentialsDelegate::NotifyWebAuthnRequestAborted() {
+  passkeys_ = absl::nullopt;
+  if (retrieve_passkeys_callback_) {
+    std::move(retrieve_passkeys_callback_).Run();
+  }
 }

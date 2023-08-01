@@ -1,23 +1,29 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/chrome/browser/reading_list/offline_page_tab_helper.h"
+#import "ios/chrome/browser/reading_list/offline_page_tab_helper.h"
 
-#include <memory>
+#import <memory>
+#import <vector>
 
-#include "base/path_service.h"
-#include "base/run_loop.h"
+#import "base/memory/scoped_refptr.h"
+#import "base/run_loop.h"
 #import "base/test/ios/wait_util.h"
-#include "base/time/default_clock.h"
-#include "components/reading_list/core/reading_list_model_impl.h"
-#include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
-#import "ios/chrome/browser/reading_list/fake_reading_list_model.h"
-#include "ios/chrome/browser/web/chrome_test.h"
+#import "base/time/default_clock.h"
+#import "components/reading_list/core/fake_reading_list_model_storage.h"
+#import "components/reading_list/core/reading_list_entry.h"
+#import "components/reading_list/core/reading_list_model_impl.h"
+#import "components/sync/base/storage_type.h"
+#import "ios/chrome/browser/reading_list/reading_list_model_factory.h"
+#import "ios/chrome/browser/reading_list/reading_list_test_utils.h"
+#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
 #import "ios/web/public/test/fakes/fake_navigation_context.h"
 #import "ios/web/public/test/fakes/fake_navigation_manager.h"
 #import "ios/web/public/test/fakes/fake_web_state.h"
-#include "testing/gtest/include/gtest/gtest.h"
+#import "ios/web/public/test/web_task_environment.h"
+#import "testing/gtest/include/gtest/gtest.h"
+#import "testing/platform_test.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -29,81 +35,95 @@ const char kTestSecondURL[] = "http://bar.test";
 const char kTestTitle[] = "title";
 const char kTestDistilledPath[] = "distilled.html";
 const char kTestDistilledURL[] = "http://foo.bar/distilled";
-const char kTestDirectory[] = "ios/testing/data/";
 }
 
 // Test fixture to test loading of Reading list offline pages.
-class OfflinePageTabHelperTest : public ChromeTest {
+class OfflinePageTabHelperTest : public PlatformTest {
  public:
   void SetUp() override {
-    // Ensure that the EXPECT_TRUE in CreateBrowserState() passed.
-    ASSERT_NO_FATAL_FAILURE(ChromeTest::SetUp());
+    PlatformTest::SetUp();
 
-    fake_web_state_.SetBrowserState(GetBrowserState());
+    std::vector<scoped_refptr<ReadingListEntry>> initial_entries;
+    initial_entries.push_back(base::MakeRefCounted<ReadingListEntry>(
+        GURL(kTestURL), kTestTitle, base::Time::Now()));
+
+    TestChromeBrowserState::Builder builder;
+    builder.AddTestingFactory(
+        ReadingListModelFactory::GetInstance(),
+        base::BindRepeating(&BuildReadingListModelWithFakeStorage,
+                            std::move(initial_entries)));
+    browser_state_ = builder.Build();
+
+    fake_web_state_.SetBrowserState(browser_state_.get());
     fake_web_state_.SetNavigationManager(
         std::make_unique<web::FakeNavigationManager>());
-    reading_list_model_ = std::make_unique<ReadingListModelImpl>(
-        /*storage_layer*/ nullptr, /*pref_service*/ nullptr,
-        base::DefaultClock::GetInstance());
-    reading_list_model_->AddEntry(GURL(kTestURL), kTestTitle,
-                                  reading_list::ADDED_VIA_CURRENT_APP);
+
     OfflinePageTabHelper::CreateForWebState(&fake_web_state_,
-                                            reading_list_model_.get());
+                                            reading_list_model());
   }
 
-  void CustomizeBrowserStateBuilder(
-      TestChromeBrowserState::Builder& builder) override {
-    base::FilePath test_data_dir;
-    EXPECT_TRUE(base::PathService::Get(base::DIR_SOURCE_ROOT, &test_data_dir));
-    test_data_dir = test_data_dir.AppendASCII(kTestDirectory);
-    builder.SetPath(test_data_dir);
+  ReadingListModel* reading_list_model() {
+    return ReadingListModelFactory::GetForBrowserState(browser_state_.get());
   }
 
  protected:
-  std::unique_ptr<ReadingListModelImpl> reading_list_model_;
+  web::WebTaskEnvironment task_environment_;
+  std::unique_ptr<TestChromeBrowserState> browser_state_;
   web::FakeWebState fake_web_state_;
 };
 
 // Test fixture to test loading of Reading list offline pages with a delayed
 // ReadingListModel.
-class OfflinePageTabHelperDelayedModelTest : public ChromeTest {
+class OfflinePageTabHelperDelayedModelTest : public PlatformTest {
+ public:
   void SetUp() override {
-    // Ensure that the EXPECT_TRUE in CreateBrowserState() passed.
-    ASSERT_NO_FATAL_FAILURE(ChromeTest::SetUp());
+    PlatformTest::SetUp();
 
-    fake_web_state_.SetBrowserState(GetBrowserState());
+    auto storage = std::make_unique<FakeReadingListModelStorage>();
+    fake_reading_list_model_storage_ = storage->AsWeakPtr();
+
+    TestChromeBrowserState::Builder builder;
+    builder.AddTestingFactory(
+        ReadingListModelFactory::GetInstance(),
+        base::BindRepeating(
+            [](std::unique_ptr<FakeReadingListModelStorage>& storage,
+               web::BrowserState*) -> std::unique_ptr<KeyedService> {
+              DCHECK(storage.get());
+              return std::make_unique<ReadingListModelImpl>(
+                  std::move(storage), syncer::StorageType::kUnspecified,
+                  base::DefaultClock::GetInstance());
+            },
+            base::OwnedRef(std::move(storage))));
+    browser_state_ = builder.Build();
+
+    fake_web_state_.SetBrowserState(browser_state_.get());
     fake_web_state_.SetNavigationManager(
         std::make_unique<web::FakeNavigationManager>());
-    fake_reading_list_model_ = std::make_unique<FakeReadingListModel>();
-    GURL url(kTestURL);
-    entry_ = std::make_unique<ReadingListEntry>(url, kTestTitle, base::Time());
-    std::string distilled_path = kTestDistilledPath;
-    entry_->SetDistilledInfo(base::FilePath(distilled_path),
-                             GURL(kTestDistilledURL), 50,
-                             base::Time::FromTimeT(100));
-    fake_reading_list_model_->SetEntry(entry_.get());
+
     OfflinePageTabHelper::CreateForWebState(&fake_web_state_,
-                                            fake_reading_list_model_.get());
+                                            reading_list_model());
   }
 
-  void CustomizeBrowserStateBuilder(
-      TestChromeBrowserState::Builder& builder) override {
-    base::FilePath test_data_dir;
-    EXPECT_TRUE(base::PathService::Get(base::DIR_SOURCE_ROOT, &test_data_dir));
-    test_data_dir = test_data_dir.AppendASCII(kTestDirectory);
-    builder.SetPath(test_data_dir);
+  ReadingListModel* reading_list_model() {
+    return ReadingListModelFactory::GetForBrowserState(browser_state_.get());
+  }
+
+  FakeReadingListModelStorage* fake_reading_list_model_storage() {
+    return fake_reading_list_model_storage_.get();
   }
 
  protected:
-  std::unique_ptr<FakeReadingListModel> fake_reading_list_model_;
+  web::WebTaskEnvironment task_environment_;
+  std::unique_ptr<TestChromeBrowserState> browser_state_;
   web::FakeWebState fake_web_state_;
-  std::unique_ptr<ReadingListEntry> entry_;
+  base::WeakPtr<FakeReadingListModelStorage> fake_reading_list_model_storage_;
 };
 
 // Tests that loading an online version does mark it read.
 TEST_F(OfflinePageTabHelperTest, TestLoadReadingListSuccess) {
   GURL url(kTestURL);
-  const ReadingListEntry* entry = reading_list_model_->GetEntryByURL(url);
+  scoped_refptr<const ReadingListEntry> entry =
+      reading_list_model()->GetEntryByURL(url);
   fake_web_state_.SetCurrentURL(url);
   web::FakeNavigationContext context;
   context.SetUrl(url);
@@ -125,7 +145,8 @@ TEST_F(OfflinePageTabHelperTest, TestLoadReadingListSuccess) {
 // Tests that failing loading an online version does not mark it read.
 TEST_F(OfflinePageTabHelperTest, TestLoadReadingListFailure) {
   GURL url(kTestURL);
-  const ReadingListEntry* entry = reading_list_model_->GetEntryByURL(url);
+  scoped_refptr<const ReadingListEntry> entry =
+      reading_list_model()->GetEntryByURL(url);
   web::FakeNavigationContext context;
   context.SetUrl(url);
   context.SetHasCommitted(true);
@@ -148,10 +169,11 @@ TEST_F(OfflinePageTabHelperTest, TestLoadReadingListFailure) {
 TEST_F(OfflinePageTabHelperTest, TestLoadReadingListDistilled) {
   GURL url(kTestURL);
   std::string distilled_path = kTestDistilledPath;
-  reading_list_model_->SetEntryDistilledInfo(
+  reading_list_model()->SetEntryDistilledInfoIfExists(
       url, base::FilePath(distilled_path), GURL(kTestDistilledURL), 50,
       base::Time::FromTimeT(100));
-  const ReadingListEntry* entry = reading_list_model_->GetEntryByURL(url);
+  scoped_refptr<const ReadingListEntry> entry =
+      reading_list_model()->GetEntryByURL(url);
   fake_web_state_.SetCurrentURL(url);
   web::FakeNavigationContext context;
   context.SetHasCommitted(true);
@@ -180,7 +202,8 @@ TEST_F(OfflinePageTabHelperTest, TestLoadReadingListDistilled) {
 TEST_F(OfflinePageTabHelperTest, TestLoadReadingListFailureThenNavigate) {
   GURL url(kTestURL);
   GURL second_url(kTestSecondURL);
-  const ReadingListEntry* entry = reading_list_model_->GetEntryByURL(url);
+  scoped_refptr<const ReadingListEntry> entry =
+      reading_list_model()->GetEntryByURL(url);
   web::FakeNavigationContext context;
   context.SetHasCommitted(true);
   context.SetUrl(url);
@@ -215,7 +238,7 @@ TEST_F(OfflinePageTabHelperTest, TestHasDistilledVersionForOnlineUrl) {
       offline_page_tab_helper->HasDistilledVersionForOnlineUrl(second_url));
 
   std::string distilled_path = kTestDistilledPath;
-  reading_list_model_->SetEntryDistilledInfo(
+  reading_list_model()->SetEntryDistilledInfoIfExists(
       url, base::FilePath(distilled_path), GURL(kTestDistilledURL), 50,
       base::Time::FromTimeT(100));
   EXPECT_TRUE(offline_page_tab_helper->HasDistilledVersionForOnlineUrl(url));
@@ -244,14 +267,23 @@ TEST_F(OfflinePageTabHelperDelayedModelTest, TestLateReadingListModelLoading) {
         base::RunLoop().RunUntilIdle();
         return fake_web_state_.GetLastLoadedData();
       }));
-  EXPECT_FALSE(entry_->IsRead());
   EXPECT_FALSE(offline_page_tab_helper->presenting_offline_page());
-  fake_reading_list_model_->SetLoaded();
+  // Complete the reading list model load from storage.
+  std::vector<scoped_refptr<ReadingListEntry>> initial_entries;
+  initial_entries.push_back(base::MakeRefCounted<ReadingListEntry>(
+      GURL(kTestURL), kTestTitle, base::Time()));
+  initial_entries.back()->SetDistilledInfo(base::FilePath(kTestDistilledPath),
+                                           GURL(kTestDistilledURL), 50,
+                                           base::Time::FromTimeT(100));
+  fake_reading_list_model_storage()->TriggerLoadCompletion(
+      std::move(initial_entries));
   EXPECT_TRUE(base::test::ios::WaitUntilConditionOrTimeout(
       base::test::ios::kWaitForFileOperationTimeout, ^bool {
         base::RunLoop().RunUntilIdle();
         return fake_web_state_.GetLastLoadedData();
       }));
-  EXPECT_TRUE(entry_->IsRead());
+  scoped_refptr<const ReadingListEntry> entry =
+      reading_list_model()->GetEntryByURL(url);
+  EXPECT_TRUE(entry->IsRead());
   EXPECT_TRUE(offline_page_tab_helper->presenting_offline_page());
 }

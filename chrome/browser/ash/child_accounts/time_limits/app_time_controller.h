@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,16 +8,17 @@
 #include <memory>
 #include <string>
 
-#include "ash/components/settings/timezone_settings.h"
-#include "base/callback_forward.h"
+#include "base/functional/callback_forward.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/default_tick_clock.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/ash/child_accounts/time_limits/app_activity_registry.h"
 #include "chrome/browser/ash/child_accounts/time_limits/app_time_notification_delegate.h"
-#include "chromeos/dbus/system_clock/system_clock_client.h"
-#include "components/services/app_service/public/mojom/types.mojom.h"
+#include "chromeos/ash/components/dbus/system_clock/system_clock_client.h"
+#include "chromeos/ash/components/settings/timezone_settings.h"
+#include "components/services/app_service/public/cpp/app_types.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 class Profile;
@@ -43,8 +44,6 @@ extern const char kPolicyChangeCountMetric[];
 extern const char kEngagementMetric[];
 
 class AppServiceWrapper;
-class WebTimeLimitEnforcer;
-class WebTimeActivityProvider;
 
 // Coordinates per-app time limit for child user.
 class AppTimeController : public SystemClockClient::Observer,
@@ -65,7 +64,7 @@ class AppTimeController : public SystemClockClient::Observer,
     AppActivityRegistry* app_registry();
 
    private:
-    AppTimeController* const controller_;
+    const raw_ptr<AppTimeController, ExperimentalAsh> controller_;
   };
 
   // Registers preferences
@@ -87,7 +86,7 @@ class AppTimeController : public SystemClockClient::Observer,
   // tracked.
   absl::optional<base::TimeDelta> GetTimeLimitForApp(
       const std::string& app_service_id,
-      apps::mojom::AppType app_type) const;
+      apps::AppType app_type) const;
 
   // Called by ChildUserService when it is being destructed to save metrics.
   void RecordMetricsOnShutdown() const;
@@ -111,31 +110,14 @@ class AppTimeController : public SystemClockClient::Observer,
   void OnAppLimitRemoved(const AppId& app_id) override;
   void OnAppInstalled(const AppId& app_id) override;
 
-  const WebTimeLimitEnforcer* web_time_enforcer() const {
-    return web_time_enforcer_.get();
-  }
-
-  WebTimeLimitEnforcer* web_time_enforcer() { return web_time_enforcer_.get(); }
-
   const AppActivityRegistry* app_registry() const {
     return app_registry_.get();
   }
 
   AppActivityRegistry* app_registry() { return app_registry_.get(); }
 
-  const WebTimeActivityProvider* web_time_activity_provider() const {
-    return web_time_activity_provider_.get();
-  }
-
-  WebTimeActivityProvider* web_time_activity_provider() {
-    return web_time_activity_provider_.get();
-  }
-
   // Returns true if there is any app time limit set for current user.
   bool HasAppTimeLimitRestriction() const;
-
-  // Returns true if there is any web time limit set for current user.
-  bool HasWebTimeLimitRestriction() const;
 
  private:
   void RegisterProfilePrefObservers(PrefService* pref_service);
@@ -160,7 +142,7 @@ class AppTimeController : public SystemClockClient::Observer,
                               absl::optional<base::TimeDelta> time_limit,
                               absl::optional<gfx::ImageSkia> icon);
   // Profile
-  Profile* const profile_;
+  const raw_ptr<Profile, ExperimentalAsh> profile_;
 
   // The time of the day when app time limits should be reset.
   // Defaults to 6am local time.
@@ -175,8 +157,6 @@ class AppTimeController : public SystemClockClient::Observer,
 
   std::unique_ptr<AppServiceWrapper> app_service_wrapper_;
   std::unique_ptr<AppActivityRegistry> app_registry_;
-  std::unique_ptr<WebTimeActivityProvider> web_time_activity_provider_;
-  std::unique_ptr<WebTimeLimitEnforcer> web_time_enforcer_;
 
   // Used to observe when policy preferences change.
   std::unique_ptr<PrefChangeRegistrar> pref_registrar_;

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,14 +36,16 @@ void ObjectPainter::PaintOutline(const PaintInfo& paint_info,
     return;
   }
 
+  LayoutObject::OutlineInfo info;
   auto outline_rects = layout_object_.OutlineRects(
-      paint_offset,
+      &info, paint_offset,
       style_to_use.OutlineRectsShouldIncludeBlockVisualOverflow());
-  if (outline_rects.IsEmpty())
+  if (outline_rects.empty())
     return;
 
   OutlinePainter::PaintOutlineRects(paint_info, layout_object_, outline_rects,
-                                    style_to_use, layout_object_.GetDocument());
+                                    info, style_to_use,
+                                    layout_object_.GetDocument());
 }
 
 void ObjectPainter::PaintInlineChildrenOutlines(const PaintInfo& paint_info) {
@@ -61,17 +63,17 @@ void ObjectPainter::PaintInlineChildrenOutlines(const PaintInfo& paint_info) {
 void ObjectPainter::AddURLRectIfNeeded(const PaintInfo& paint_info,
                                        const PhysicalOffset& paint_offset) {
   DCHECK(paint_info.ShouldAddUrlMetadata());
-  if (layout_object_.IsElementContinuation() || !layout_object_.GetNode() ||
-      !layout_object_.GetNode()->IsLink() ||
-      layout_object_.StyleRef().Visibility() != EVisibility::kVisible)
+  if (!layout_object_.GetNode() || !layout_object_.GetNode()->IsLink() ||
+      layout_object_.StyleRef().Visibility() != EVisibility::kVisible) {
     return;
+  }
 
   KURL url = To<Element>(layout_object_.GetNode())->HrefURL();
   if (!url.IsValid())
     return;
 
   auto outline_rects = layout_object_.OutlineRects(
-      paint_offset, NGOutlineType::kIncludeBlockVisualOverflow);
+      nullptr, paint_offset, NGOutlineType::kIncludeBlockVisualOverflow);
   gfx::Rect rect = ToPixelSnappedRect(UnionRect(outline_rects));
   if (rect.IsEmpty())
     return;

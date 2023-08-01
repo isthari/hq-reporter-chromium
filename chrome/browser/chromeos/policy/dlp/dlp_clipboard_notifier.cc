@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,24 +6,30 @@
 
 #include <memory>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/notreached.h"
 #include "chrome/browser/chromeos/policy/dlp/clipboard_bubble.h"
 #include "chrome/browser/chromeos/policy/dlp/dlp_clipboard_bubble_constants.h"
+#include "chrome/browser/chromeos/policy/dlp/dlp_policy_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/strings/grit/components_strings.h"
 #include "ui/aura/window_tree_host.h"
+#include "ui/base/clipboard/clipboard_data.h"
 #include "ui/base/clipboard/clipboard_monitor.h"
+#include "ui/base/clipboard/clipboard_non_backed.h"
 #include "ui/base/data_transfer_policy/data_transfer_endpoint.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/display/screen.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "ash/constants/notifier_catalogs.h"
+#include "ash/public/cpp/clipboard_history_controller.h"
 #include "ash/public/cpp/new_window_delegate.h"
-#include "ash/public/cpp/system/toast_catalog.h"
+#include "ash/public/cpp/scoped_clipboard_history_pause.h"
 #include "ash/public/cpp/system/toast_data.h"
 #include "ash/public/cpp/system/toast_manager.h"
 #include "ash/public/cpp/window_tree_host_lookup.h"
+#include "ash/resources/vector_icons/vector_icons.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 #if BUILDFLAG(IS_CHROMEOS_LACROS)
@@ -43,12 +49,6 @@ ui::DataTransferEndpoint CloneEndpoint(
 }
 
 void SynthesizePaste() {
-  ui::KeyEvent control_press(/*type=*/ui::ET_KEY_PRESSED, ui::VKEY_CONTROL,
-                             /*code=*/static_cast<ui::DomCode>(0),
-                             /*flags=*/0);
-  if (!display::Screen::GetScreen())  // Doesn't exist in unittests.
-    return;
-
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   auto* host = ash::GetWindowTreeHostForDisplay(
       display::Screen::GetScreen()->GetDisplayForNewWindows().id());
@@ -57,6 +57,11 @@ void SynthesizePaste() {
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
   DCHECK(host);
+
+  ui::KeyEvent control_press(/*type=*/ui::ET_KEY_PRESSED, ui::VKEY_CONTROL,
+                             /*code=*/static_cast<ui::DomCode>(0),
+                             /*flags=*/0);
+
   host->DeliverEventToSink(&control_press);
 
   ui::KeyEvent v_press(/*type=*/ui::ET_KEY_PRESSED, ui::VKEY_V,
@@ -85,7 +90,7 @@ bool HasEndpoint(const std::vector<ui::DataTransferEndpoint>& saved_endpoints,
     if (ept.type() == endpoint_type) {
       if (endpoint_type != ui::EndpointType::kUrl)
         return true;
-      else if (ept.IsSameOriginWith(*endpoint))
+      else if (ept.IsSameURLWith(*endpoint))
         return true;
     }
   }
@@ -94,8 +99,10 @@ bool HasEndpoint(const std::vector<ui::DataTransferEndpoint>& saved_endpoints,
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 void OnToastClicked() {
-  ash::NewWindowDelegate::GetInstance()->OpenUrl(
-      GURL(kDlpLearnMoreUrl), /*from_user_interaction=*/true);
+  ash::NewWindowDelegate::GetPrimary()->OpenUrl(
+      GURL(dlp::kDlpLearnMoreUrl),
+      ash::NewWindowDelegate::OpenUrlFrom::kUserInteraction,
+      ash::NewWindowDelegate::Disposition::kNewForegroundTab);
 }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
@@ -113,9 +120,9 @@ void DlpClipboardNotifier::NotifyBlockedAction(
     const ui::DataTransferEndpoint* const data_src,
     const ui::DataTransferEndpoint* const data_dst) {
   DCHECK(data_src);
-  DCHECK(data_src->GetOrigin());
+  DCHECK(data_src->GetURL());
   const std::u16string host_name =
-      base::UTF8ToUTF16(data_src->GetOrigin()->host());
+      base::UTF8ToUTF16(data_src->GetURL()->host());
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   if (data_dst) {
     if (data_dst->type() == ui::EndpointType::kCrostini) {
@@ -151,14 +158,15 @@ void DlpClipboardNotifier::NotifyBlockedAction(
 
 void DlpClipboardNotifier::WarnOnPaste(
     const ui::DataTransferEndpoint* const data_src,
-    const ui::DataTransferEndpoint* const data_dst) {
+    const ui::DataTransferEndpoint* const data_dst,
+    base::RepeatingCallback<void()> reporting_cb) {
   DCHECK(data_src);
-  DCHECK(data_src->GetOrigin());
+  DCHECK(data_src->GetURL());
 
   CloseWidget(widget_.get(), views::Widget::ClosedReason::kUnspecified);
 
   const std::u16string host_name =
-      base::UTF8ToUTF16(data_src->GetOrigin()->host());
+      base::UTF8ToUTF16(data_src->GetURL()->host());
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   if (data_dst) {
     if (data_dst->type() == ui::EndpointType::kCrostini) {
@@ -188,9 +196,22 @@ void DlpClipboardNotifier::WarnOnPaste(
   }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
-  auto proceed_cb =
-      base::BindRepeating(&DlpClipboardNotifier::ProceedPressed,
-                          base::Unretained(this), CloneEndpoint(data_dst));
+  std::unique_ptr<ui::ClipboardData> warned_clipboard_data;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  ui::DataTransferEndpoint dte(ui::EndpointType::kClipboardHistory);
+  auto* data_ptr =
+      ui::ClipboardNonBacked::GetForCurrentThread()->GetClipboardData(&dte);
+  if (data_ptr) {  // dlp_clipboard_notifier_unittests do not set the clipboard
+                   // before calling WarnOnPaste.
+    warned_clipboard_data = std::make_unique<ui::ClipboardData>(*data_ptr);
+  }
+#endif
+
+  auto proceed_cb = base::BindRepeating(
+      &DlpClipboardNotifier::ProceedPressed, base::Unretained(this),
+      // The proceed callback is run once only, base::Passed is safe here.
+      base::Passed(std::move(warned_clipboard_data)), CloneEndpoint(data_dst),
+      std::move(reporting_cb));
   auto cancel_cb =
       base::BindRepeating(&DlpClipboardNotifier::CancelWarningPressed,
                           base::Unretained(this), CloneEndpoint(data_dst));
@@ -206,15 +227,12 @@ void DlpClipboardNotifier::WarnOnBlinkPaste(
     content::WebContents* web_contents,
     base::OnceCallback<void(bool)> paste_cb) {
   DCHECK(data_src);
-  DCHECK(data_src->GetOrigin());
+  DCHECK(data_src->GetURL());
 
   CloseWidget(widget_.get(), views::Widget::ClosedReason::kUnspecified);
 
   const std::u16string host_name =
-      base::UTF8ToUTF16(data_src->GetOrigin()->host());
-
-  blink_paste_cb_ = std::move(paste_cb);
-  Observe(web_contents);
+      base::UTF8ToUTF16(data_src->GetURL()->host());
 
   auto proceed_cb =
       base::BindRepeating(&DlpClipboardNotifier::BlinkProceedPressed,
@@ -226,6 +244,8 @@ void DlpClipboardNotifier::WarnOnBlinkPaste(
   ShowWarningBubble(l10n_util::GetStringFUTF16(
                         IDS_POLICY_DLP_CLIPBOARD_WARN_ON_PASTE, host_name),
                     std::move(proceed_cb), std::move(cancel_cb));
+  SetPasteCallback(std::move(paste_cb));
+  Observe(web_contents);
 }
 
 bool DlpClipboardNotifier::DidUserApproveDst(
@@ -238,26 +258,55 @@ bool DlpClipboardNotifier::DidUserCancelDst(
   return HasEndpoint(cancelled_dsts_, data_dst);
 }
 
-void DlpClipboardNotifier::SetBlinkPasteCallbackForTesting(
-    base::OnceCallback<void(bool)> paste_cb) {
-  blink_paste_cb_ = std::move(paste_cb);
-}
-
 void DlpClipboardNotifier::ProceedPressed(
+    std::unique_ptr<ui::ClipboardData> data,
     const ui::DataTransferEndpoint& data_dst,
+    base::RepeatingCallback<void()> reporting_cb,
     views::Widget* widget) {
   CloseWidget(widget, views::Widget::ClosedReason::kAcceptButtonClicked);
   approved_dsts_.push_back(data_dst);
+
+  std::move(reporting_cb).Run();
+
+  if (!display::Screen::GetScreen()) {  // Clipboard related elements do not
+                                        // exist in unittests.
+    return;
+  }
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  // Temporarily ignore clipboard events because we are going to replace the
+  // system clipboard and this would otherwise trigger a call to
+  // `OnClipboardDataChanged` that resets the user warn selection.
+  ignore_clipboard_events_ = true;
+
+  // Pause clipboard history since we are temporarily replacing the system
+  // clipboard data with a non user-initiated action.
+  auto scoped_clipboard_history_pause =
+      ash::ClipboardHistoryController::Get()->CreateScopedPause();
+
+  auto* clipboard = ui::ClipboardNonBacked::GetForCurrentThread();
+  CHECK(clipboard);
+
+  std::unique_ptr<ui::ClipboardData> current_clipboard_data =
+      clipboard->WriteClipboardData(std::move(data));
+#endif
+
   SynthesizePaste();
+
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  // Restore the original system clipboard data.
+  ui::ClipboardNonBacked::GetForCurrentThread()->WriteClipboardData(
+      std::move(current_clipboard_data));
+
+  ignore_clipboard_events_ = false;
+#endif
 }
 
 void DlpClipboardNotifier::BlinkProceedPressed(
     const ui::DataTransferEndpoint& data_dst,
     views::Widget* widget) {
-  DCHECK(!blink_paste_cb_.is_null());
-
   approved_dsts_.push_back(data_dst);
-  std::move(blink_paste_cb_).Run(true);
+  RunPasteCallback();
   CloseWidget(widget, views::Widget::ClosedReason::kAcceptButtonClicked);
 }
 
@@ -278,25 +327,27 @@ void DlpClipboardNotifier::ShowToast(const std::string& id,
                                      ash::ToastCatalogName catalog_name,
                                      const std::u16string& text) const {
   ash::ToastData toast(
-      id, catalog_name, text, ash::ToastData::kDefaultToastDurationMs,
+      id, catalog_name, text, ash::ToastData::kDefaultToastDuration,
       /*visible_on_lock_screen=*/false,
-      l10n_util::GetStringUTF16(IDS_POLICY_DLP_CLIPBOARD_BLOCK_TOAST_BUTTON));
-  toast.is_managed = true;
-  toast.dismiss_callback = base::BindRepeating(&OnToastClicked);
-  ash::ToastManager::Get()->Show(toast);
+      /*has_dismiss_button=*/true,
+      /*custom_dismiss_text=*/
+      l10n_util::GetStringUTF16(IDS_POLICY_DLP_CLIPBOARD_BLOCK_TOAST_BUTTON),
+      /*dismiss_callback=*/base::BindRepeating(&OnToastClicked),
+      /*leading_icon=*/ash::kSystemMenuBusinessIcon);
+  ash::ToastManager::Get()->Show(std::move(toast));
 }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 void DlpClipboardNotifier::OnClipboardDataChanged() {
+  if (ignore_clipboard_events_) {
+    return;
+  }
   ResetUserWarnSelection();
 }
 
-void DlpClipboardNotifier::OnWidgetClosing(views::Widget* widget) {
-  if (!blink_paste_cb_.is_null()) {
-    std::move(blink_paste_cb_).Run(false);
-    Observe(nullptr);
-  }
-  DlpDataTransferNotifier::OnWidgetClosing(widget);
+void DlpClipboardNotifier::OnWidgetDestroying(views::Widget* widget) {
+  Observe(nullptr);
+  DlpDataTransferNotifier::OnWidgetDestroying(widget);
 }
 
 void DlpClipboardNotifier::WebContentsDestroyed() {

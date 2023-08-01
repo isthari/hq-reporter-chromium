@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -63,18 +63,18 @@ class ProfileInfoHandler : public SettingsPageUIHandler,
   FRIEND_TEST_ALL_PREFIXES(ProfileInfoHandlerTest, PushProfileInfo);
 
   // Callbacks from the page.
-  void HandleGetProfileInfo(const base::ListValue* args);
+  void HandleGetProfileInfo(const base::Value::List& args);
   void PushProfileInfo();
 
 #if !BUILDFLAG(IS_CHROMEOS_ASH)
-  void HandleGetProfileStats(const base::ListValue* args);
+  void HandleGetProfileStats(const base::Value::List& args);
 
   // Returns the sum of the counts of individual profile states. Returns 0 if
   // there exists a stat that was not successfully retrieved.
   void PushProfileStatsCount(profiles::ProfileCategoryStats stats);
 #endif
 
-  std::unique_ptr<base::DictionaryValue> GetAccountNameAndIcon();
+  base::Value::Dict GetAccountNameAndIcon();
 
   // Weak pointer.
   raw_ptr<Profile> profile_;

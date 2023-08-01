@@ -1,14 +1,15 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <memory>
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/notreached.h"
 #include "base/run_loop.h"
+#include "base/strings/escape.h"
 #include "base/test/bind.h"
 #include "base/test/metrics/histogram_tester.h"
 #include "base/test/mock_callback.h"
@@ -22,6 +23,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/signin_reauth_view_controller.h"
 #include "chrome/browser/ui/signin_view_controller.h"
+#include "chrome/browser/ui/tabs/tab_enums.h"
 #include "chrome/browser/ui/webui/signin/login_ui_test_utils.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/grit/generated_resources.h"
@@ -31,13 +33,14 @@
 #include "components/signin/public/base/signin_metrics.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
 #include "components/signin/public/identity_manager/identity_test_utils.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
+#include "content/public/test/fenced_frame_test_util.h"
 #include "content/public/test/test_navigation_observer.h"
 #include "content/public/test/test_utils.h"
 #include "google_apis/gaia/core_account_id.h"
 #include "google_apis/gaia/gaia_switches.h"
-#include "net/base/escape.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/http/http_status_code.h"
 #include "net/test/embedded_test_server/controllable_http_response.h"
@@ -101,7 +104,7 @@ std::unique_ptr<net::test_server::HttpResponse> HandleReauthURL(
 
   GURL request_url = request.GetURL();
   std::string parameter =
-      net::UnescapeBinaryURLComponent(request_url.query_piece());
+      base::UnescapeBinaryURLComponent(request_url.query_piece());
 
   if (parameter.empty()) {
     // Parameterless request redirects to the fake challenge page.
@@ -139,7 +142,7 @@ class ReauthTestObserver : SigninReauthViewController::Observer {
   }
 
  private:
-  raw_ptr<SigninReauthViewController> controller_;
+  raw_ptr<SigninReauthViewController, DanglingUntriaged> controller_;
   base::RunLoop run_loop_;
 };
 
@@ -271,7 +274,7 @@ IN_PROC_BROWSER_TEST_F(SigninReauthViewControllerBrowserTest,
   ShowReauthPrompt();
   auto* tab_strip_model = browser()->tab_strip_model();
   tab_strip_model->CloseWebContentsAt(tab_strip_model->active_index(),
-                                      TabStripModel::CLOSE_USER_GESTURE);
+                                      TabCloseTypes::CLOSE_USER_GESTURE);
   EXPECT_EQ(WaitForReauthResult(), signin::ReauthResult::kDismissedByUser);
   histogram_tester()->ExpectUniqueSample(
       kReauthUserActionHistogramName,
@@ -400,7 +403,7 @@ IN_PROC_BROWSER_TEST_F(SigninReauthViewControllerBrowserTest,
 
   content::WebContents* target_contents =
       signin_reauth_view_controller()->GetModalDialogWebContentsForTesting();
-  ASSERT_TRUE(content::ExecuteScript(
+  ASSERT_TRUE(content::ExecJs(
       target_contents, "document.getElementsByTagName('a')[0].click();"));
   EXPECT_EQ(WaitForReauthResult(), signin::ReauthResult::kSuccess);
   EXPECT_THAT(
@@ -441,13 +444,14 @@ IN_PROC_BROWSER_TEST_F(SigninReauthViewControllerBrowserTest,
       SyncEncryptionKeysTabHelper::FromWebContents(target_contents);
   ASSERT_NE(encryption_keys_tab_helper, nullptr);
   EXPECT_TRUE(encryption_keys_tab_helper->HasEncryptionKeysApiForTesting(
-      target_contents->GetMainFrame()));
+      target_contents->GetPrimaryMainFrame()));
 
   // The invocation of the API, even with dummy values, should propagate until
   // TrustedVaultClient and its observers.
   TrustedVaultKeysChangedStateChecker keys_added_checker(
-      SyncServiceFactory::GetAsSyncServiceImplForProfile(browser()->profile()));
-  EXPECT_TRUE(content::ExecuteScript(
+      SyncServiceFactory::GetAsSyncServiceImplForProfileForTesting(
+          browser()->profile()));
+  EXPECT_TRUE(content::ExecJs(
       target_contents,
       "chrome.setSyncEncryptionKeys(() => {}, \"\", [new ArrayBuffer()], 0);"));
   EXPECT_TRUE(keys_added_checker.Wait());
@@ -475,7 +479,7 @@ IN_PROC_BROWSER_TEST_F(SigninReauthViewControllerBrowserTest,
       signin_reauth_view_controller()->GetModalDialogWebContentsForTesting();
   content::TestNavigationObserver new_tab_observer(nullptr);
   new_tab_observer.StartWatchingNewWebContents();
-  ASSERT_TRUE(content::ExecuteScript(
+  ASSERT_TRUE(content::ExecJs(
       dialog_contents, "document.getElementsByTagName('a')[0].click();"));
   new_tab_observer.Wait();
 
@@ -522,7 +526,7 @@ IN_PROC_BROWSER_TEST_F(SigninReauthViewControllerBrowserTest,
       signin_reauth_view_controller()->GetModalDialogWebContentsForTesting());
   EXPECT_EQ(target_contents->GetLastCommittedURL(), target_url);
 
-  ASSERT_TRUE(content::ExecuteScript(
+  ASSERT_TRUE(content::ExecJs(
       target_contents, "document.getElementsByTagName('a')[0].click();"));
   EXPECT_EQ(WaitForReauthResult(), signin::ReauthResult::kSuccess);
   EXPECT_THAT(
@@ -550,7 +554,7 @@ IN_PROC_BROWSER_TEST_F(SigninReauthViewControllerBrowserTest, CloseSAMLTab) {
   EXPECT_EQ(tab_strip_model->GetActiveWebContents()->GetLastCommittedURL(),
             target_url);
   tab_strip_model->CloseWebContentsAt(tab_strip_model->active_index(),
-                                      TabStripModel::CLOSE_USER_GESTURE);
+                                      TabCloseTypes::CLOSE_USER_GESTURE);
   EXPECT_EQ(WaitForReauthResult(), signin::ReauthResult::kDismissedByUser);
   EXPECT_THAT(
       histogram_tester()->GetAllSamples(kReauthUserActionHistogramName),
@@ -603,13 +607,11 @@ IN_PROC_BROWSER_TEST_F(SigninReauthViewControllerBrowserTest,
       confirmation_dialog_contents);
   navigation_observer.Wait();
 
-  std::string dialog_message;
-  ASSERT_TRUE(content::ExecuteScriptAndExtractString(
-      confirmation_dialog_contents,
-      "window.domAutomationController.send("
-      "document.querySelector('signin-reauth-app').shadowRoot."
-      "querySelector('.message-container').innerText)",
-      &dialog_message));
+  std::string dialog_message =
+      content::EvalJs(confirmation_dialog_contents,
+                      "document.querySelector('signin-reauth-app').shadowRoot."
+                      "querySelector('.message-container').innerText")
+          .ExtractString();
   // The dialog message should specify that the password was already saved
   // locally.
   EXPECT_EQ(dialog_message,
@@ -628,13 +630,11 @@ IN_PROC_BROWSER_TEST_F(SigninReauthViewControllerBrowserTest,
       confirmation_dialog_contents);
   navigation_observer.Wait();
 
-  std::string dialog_message;
-  ASSERT_TRUE(content::ExecuteScriptAndExtractString(
-      confirmation_dialog_contents,
-      "window.domAutomationController.send("
-      "document.querySelector('signin-reauth-app').shadowRoot."
-      "querySelector('.message-container').innerText)",
-      &dialog_message));
+  std::string dialog_message =
+      content::EvalJs(confirmation_dialog_contents,
+                      "document.querySelector('signin-reauth-app').shadowRoot."
+                      "querySelector('.message-container').innerText")
+          .ExtractString();
   // The dialog message should be the regular one.
   EXPECT_EQ(dialog_message,
             l10n_util::GetStringUTF8(IDS_ACCOUNT_PASSWORDS_REAUTH_DESC));
@@ -667,11 +667,56 @@ IN_PROC_BROWSER_TEST_F(SigninReauthViewControllerDarkModeBrowserTest,
       confirmation_dialog_contents);
   navigation_observer.WaitForNavigationFinished();
 
-  bool prefers_dark_mode = true;
-  EXPECT_TRUE(content::ExecuteScriptAndExtractBool(
-      confirmation_dialog_contents,
-      "window.domAutomationController.send("
-      "window.matchMedia('(prefers-color-scheme: dark)').matches)",
-      &prefers_dark_mode));
-  EXPECT_EQ(prefers_dark_mode, false);
+  EXPECT_EQ(content::EvalJs(
+                confirmation_dialog_contents,
+                "window.matchMedia('(prefers-color-scheme: dark)').matches"),
+            false);
+}
+
+class SigninReauthViewControllerFencedFrameBrowserTest
+    : public SigninReauthViewControllerBrowserTest {
+ public:
+  SigninReauthViewControllerFencedFrameBrowserTest() = default;
+  ~SigninReauthViewControllerFencedFrameBrowserTest() override = default;
+
+  content::test::FencedFrameTestHelper& fenced_frame_test_helper() {
+    return fenced_frame_test_helper_;
+  }
+
+ private:
+  content::test::FencedFrameTestHelper fenced_frame_test_helper_;
+};
+
+// Tests that SigninReauthViewController proceeds Reauth only with the primary
+// main frame.
+IN_PROC_BROWSER_TEST_F(SigninReauthViewControllerFencedFrameBrowserTest,
+                       FencedFrame) {
+  const GURL target_url = https_server()->GetURL("/title1.html");
+  ShowReauthPrompt();
+  RedirectGaiaChallengeTo(target_url);
+
+  // Reauth page is shown along with the primary main frame navigation.
+  ReauthTestObserver reauth_observer(signin_reauth_view_controller());
+  ASSERT_TRUE(login_ui_test_utils::ConfirmReauthConfirmationDialog(
+      browser(), kReauthDialogTimeout));
+  reauth_observer.WaitUntilGaiaReauthPageIsShown();
+
+  content::WebContents* target_contents =
+      signin_reauth_view_controller()->GetModalDialogWebContentsForTesting();
+  const GURL fenced_frame_url =
+      https_server()->GetURL("/fenced_frames/title1.html");
+  base::HistogramTester histogram_tester;
+  // Creates a fenced frame inside the primary main frame.
+  content::RenderFrameHost* fenced_frame =
+      fenced_frame_test_helper().CreateFencedFrame(
+          &target_contents->GetPrimaryPage().GetMainDocument(),
+          fenced_frame_url);
+  EXPECT_EQ(fenced_frame->GetLastCommittedURL(), fenced_frame_url);
+  // Fenced Frame navigation doesn't have any actions for Reauth.
+  histogram_tester.ExpectBucketCount(
+      kReauthUserActionHistogramName,
+      SigninReauthViewController::UserAction::kClickNextButton, 0);
+
+  SimulateCloseButtonClick();
+  EXPECT_EQ(WaitForReauthResult(), signin::ReauthResult::kDismissedByUser);
 }

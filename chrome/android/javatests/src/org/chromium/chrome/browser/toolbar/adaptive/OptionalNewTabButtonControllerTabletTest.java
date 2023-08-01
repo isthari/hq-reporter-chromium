@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,9 @@ import android.content.res.Configuration;
 import androidx.test.filters.MediumTest;
 
 import org.junit.After;
+import org.junit.AfterClass;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
@@ -24,11 +26,11 @@ import org.junit.runner.RunWith;
 import org.chromium.base.test.util.Batch;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.DisableIf;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.batch.BlankCTATabInitialStateRule;
 import org.chromium.chrome.test.util.ActivityTestUtils;
 import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
@@ -58,6 +60,17 @@ public class OptionalNewTabButtonControllerTabletTest {
             new BlankCTATabInitialStateRule(sActivityTestRule, /*clearAllTabState=*/false);
 
     private String mTestPageUrl;
+
+    @BeforeClass
+    public static void setUpBeforeActivityLaunched() {
+        AdaptiveToolbarStatePredictor.setToolbarStateForTesting(
+                AdaptiveToolbarButtonVariant.NEW_TAB);
+    }
+
+    @AfterClass
+    public static void tearDownAfterActivityDestroyed() {
+        AdaptiveToolbarStatePredictor.setToolbarStateForTesting(null);
+    }
 
     @Before
     public void setUp() {

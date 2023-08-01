@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,15 @@
 #error "This file requires ARC support."
 #endif
 
+@interface GradientView ()
+
+// The color at the start of the gradient.
+@property(nonatomic, strong) UIColor* startColor;
+// The color at the end of the gradient.
+@property(nonatomic, strong) UIColor* endColor;
+
+@end
+
 @implementation GradientView
 
 #pragma mark - Public
@@ -19,13 +28,28 @@
   return [CAGradientLayer class];
 }
 
-- (instancetype)init {
+- (instancetype)initWithStartColor:(UIColor*)startColor
+                          endColor:(UIColor*)endColor
+                        startPoint:(CGPoint)startPoint
+                          endPoint:(CGPoint)endPoint {
   self = [super initWithFrame:CGRectZero];
   if (self) {
+    self.startColor = startColor;
+    self.endColor = endColor;
+    self.gradientLayer.startPoint = startPoint;
+    self.gradientLayer.endPoint = endPoint;
     self.userInteractionEnabled = NO;
     [self updateColors];
   }
   return self;
+}
+
+- (instancetype)initWithTopColor:(UIColor*)topColor
+                     bottomColor:(UIColor*)bottomColor {
+  return [self initWithStartColor:topColor
+                         endColor:bottomColor
+                       startPoint:CGPointMake(0.5, 0)
+                         endPoint:CGPointMake(0.5, 1)];
 }
 
 - (CAGradientLayer*)gradientLayer {
@@ -51,9 +75,8 @@
   [CATransaction setDisableActions:YES];
 
   self.gradientLayer.colors = @[
-    (id)[[UIColor colorNamed:kPrimaryBackgroundColor] colorWithAlphaComponent:0]
-        .CGColor,
-    (id)[UIColor colorNamed:kPrimaryBackgroundColor].CGColor,
+    (id)self.startColor.CGColor,
+    (id)self.endColor.CGColor,
   ];
   [CATransaction commit];
 }

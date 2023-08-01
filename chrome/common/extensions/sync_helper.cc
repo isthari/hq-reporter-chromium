@@ -1,15 +1,13 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/common/extensions/sync_helper.h"
 
 #include "base/logging.h"
+#include "components/app_constants/constants.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
-#include "extensions/common/features/behavior_feature.h"
-#include "extensions/common/features/feature.h"
-#include "extensions/common/features/feature_provider.h"
 #include "extensions/common/manifest.h"
 #include "extensions/common/manifest_url_handlers.h"
 
@@ -17,11 +15,6 @@ namespace extensions {
 namespace sync_helper {
 
 bool IsSyncable(const Extension* extension) {
-  const Feature* feature =
-      FeatureProvider::GetBehaviorFeature(behavior_feature::kDoNotSync);
-  if (feature && feature->IsAvailableToExtension(extension).is_available())
-    return false;
-
   // Default apps are not synced because otherwise they will pollute profiles
   // that don't already have them. Specially, if a user doesn't have default
   // apps, creates a new profile (which get default apps) and then enables sync
@@ -74,7 +67,7 @@ bool IsSyncableComponentExtension(const Extension* extension) {
   if (!Manifest::IsComponentLocation(extension->location()))
     return false;
   return (extension->id() == extensions::kWebStoreAppId) ||
-         (extension->id() == extension_misc::kChromeAppId);
+         (extension->id() == app_constants::kChromeAppId);
 }
 
 }  // namespace sync_helper

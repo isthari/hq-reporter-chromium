@@ -41,23 +41,23 @@
 #include "third_party/blink/renderer/modules/filesystem/directory_entry.h"
 #include "third_party/blink/renderer/modules/filesystem/dom_file_system.h"
 #include "third_party/blink/renderer/modules/filesystem/file_entry.h"
+#include "third_party/blink/renderer/platform/bindings/to_v8.h"
 #include "third_party/blink/renderer/platform/bindings/wrapper_type_info.h"
 #include "v8/include/v8.h"
 
 namespace blink {
 
 WebDOMFileSystem WebDOMFileSystem::FromV8Value(v8::Local<v8::Value> value) {
-  if (!V8DOMFileSystem::HasInstance(value, v8::Isolate::GetCurrent()))
-    return WebDOMFileSystem();
-  v8::Local<v8::Object> object = v8::Local<v8::Object>::Cast(value);
-  DOMFileSystem* dom_file_system = V8DOMFileSystem::ToImpl(object);
-  DCHECK(dom_file_system);
-  return WebDOMFileSystem(dom_file_system);
+  if (DOMFileSystem* dom_file_system =
+          V8DOMFileSystem::ToWrappable(v8::Isolate::GetCurrent(), value)) {
+    return WebDOMFileSystem(dom_file_system);
+  }
+  return WebDOMFileSystem();
 }
 
 WebURL WebDOMFileSystem::CreateFileSystemURL(v8::Local<v8::Value> value) {
   const Entry* const entry =
-      V8Entry::ToImplWithTypeCheck(v8::Isolate::GetCurrent(), value);
+      V8Entry::ToWrappable(v8::Isolate::GetCurrent(), value);
   if (entry)
     return entry->filesystem()->CreateFileSystemURL(entry);
   return WebURL();

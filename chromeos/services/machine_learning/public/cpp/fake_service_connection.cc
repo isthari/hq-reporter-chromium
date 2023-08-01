@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/notreached.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
@@ -23,6 +23,12 @@ FakeServiceConnectionImpl::FakeServiceConnectionImpl()
       load_soda_result_(mojom::LoadModelResult::OK),
       create_graph_executor_result_(mojom::CreateGraphExecutorResult::OK),
       execute_result_(mojom::ExecuteResult::OK),
+      create_web_platform_model_loader_result_(
+          ml::model_loader::mojom::CreateModelLoaderResult::kOk),
+      load_web_platform_model_result_(
+          ml::model_loader::mojom::LoadModelResult::kOk),
+      web_platform_model_compute_result_(
+          ml::model_loader::mojom::ComputeResult::kOk),
       async_mode_(false) {}
 
 FakeServiceConnectionImpl::~FakeServiceConnectionImpl() {}
@@ -75,6 +81,13 @@ void FakeServiceConnectionImpl::REMOVED_0(
   NOTIMPLEMENTED();
 }
 
+void FakeServiceConnectionImpl::REMOVED_4(
+    mojom::HandwritingRecognizerSpecPtr spec,
+    mojo::PendingReceiver<mojom::HandwritingRecognizer> receiver,
+    mojom::MachineLearningService::REMOVED_4Callback callback) {
+  NOTIMPLEMENTED();
+}
+
 void FakeServiceConnectionImpl::CreateGraphExecutor(
     mojom::GraphExecutorOptionsPtr options,
     mojo::PendingReceiver<mojom::GraphExecutor> receiver,
@@ -99,16 +112,6 @@ void FakeServiceConnectionImpl::LoadHandwritingModel(
     mojom::MachineLearningService::LoadHandwritingModelCallback callback) {
   ScheduleCall(base::BindOnce(
       &FakeServiceConnectionImpl::HandleLoadHandwritingModelCall,
-      base::Unretained(this), std::move(receiver), std::move(callback)));
-}
-
-void FakeServiceConnectionImpl::LoadHandwritingModelWithSpec(
-    mojom::HandwritingRecognizerSpecPtr spec,
-    mojo::PendingReceiver<mojom::HandwritingRecognizer> receiver,
-    mojom::MachineLearningService::LoadHandwritingModelWithSpecCallback
-        callback) {
-  ScheduleCall(base::BindOnce(
-      &FakeServiceConnectionImpl::HandleLoadHandwritingModelWithSpecCall,
       base::Unretained(this), std::move(receiver), std::move(callback)));
 }
 
@@ -161,10 +164,45 @@ void FakeServiceConnectionImpl::LoadTextSuggester(
 
 void FakeServiceConnectionImpl::LoadDocumentScanner(
     mojo::PendingReceiver<mojom::DocumentScanner> receiver,
+    mojom::DocumentScannerConfigPtr config,
     mojom::MachineLearningService::LoadDocumentScannerCallback callback) {
   ScheduleCall(base::BindOnce(
       &FakeServiceConnectionImpl::HandleLoadDocumentScannerCall,
       base::Unretained(this), std::move(receiver), std::move(callback)));
+}
+
+void FakeServiceConnectionImpl::LoadImageAnnotator(
+    mojom::ImageAnnotatorConfigPtr config,
+    mojo::PendingReceiver<mojom::ImageContentAnnotator> receiver,
+    mojom::MachineLearningService::LoadImageAnnotatorCallback callback) {
+  ScheduleCall(base::BindOnce(
+      &FakeServiceConnectionImpl::HandleLoadImageAnnotatorCall,
+      base::Unretained(this), std::move(receiver), std::move(callback)));
+}
+
+void FakeServiceConnectionImpl::Compute(
+    const base::flat_map<std::string, std::vector<uint8_t>>& input_tensors,
+    ml::model_loader::mojom::Model::ComputeCallback callback) {
+  ScheduleCall(base::BindOnce(&FakeServiceConnectionImpl::HandleComputeCall,
+                              base::Unretained(this), std::move(callback)));
+}
+
+void FakeServiceConnectionImpl::Load(
+    mojo_base::BigBuffer model_content,
+    ml::model_loader::mojom::ModelLoader::LoadCallback callback) {
+  ScheduleCall(base::BindOnce(&FakeServiceConnectionImpl::HandleLoadCall,
+                              base::Unretained(this), std::move(callback)));
+}
+
+void FakeServiceConnectionImpl::CreateWebPlatformModelLoader(
+    mojo::PendingReceiver<ml::model_loader::mojom::ModelLoader> receiver,
+    ml::model_loader::mojom::CreateModelLoaderOptionsPtr options,
+    mojom::MachineLearningService::CreateWebPlatformModelLoaderCallback
+        callback) {
+  ScheduleCall(base::BindOnce(
+      &FakeServiceConnectionImpl::HandleCreateWebPlatformModelLoaderCall,
+      base::Unretained(this), std::move(receiver), std::move(options),
+      std::move(callback)));
 }
 
 void FakeServiceConnectionImpl::Execute(
@@ -205,14 +243,38 @@ void FakeServiceConnectionImpl::SetLoadTextClassifierFailure() {
   load_text_classifier_result_ = mojom::LoadModelResult::LOAD_MODEL_ERROR;
 }
 
+void FakeServiceConnectionImpl::SetCreateWebPlatformModelLoaderResult(
+    ml::model_loader::mojom::CreateModelLoaderResult result) {
+  create_web_platform_model_loader_result_ = result;
+}
+
+void FakeServiceConnectionImpl::SetLoadWebPlatformModelResult(
+    ml::model_loader::mojom::LoadModelResult result) {
+  load_web_platform_model_result_ = result;
+}
+
+void FakeServiceConnectionImpl::SetWebPlatformModelComputeResult(
+    ml::model_loader::mojom::ComputeResult result) {
+  web_platform_model_compute_result_ = result;
+}
+
+void FakeServiceConnectionImpl::SetOutputWebPlatformModelCompute(
+    absl::optional<base::flat_map<std::string, std::vector<uint8_t>>> output) {
+  web_platform_model_compute_output_ = output;
+}
+
+void FakeServiceConnectionImpl::SetWebPlatformModelInfo(
+    ml::model_loader::mojom::ModelInfoPtr model_info) {
+  web_platform_model_info_ = std::move(model_info);
+}
+
 void FakeServiceConnectionImpl::SetOutputValue(
     const std::vector<int64_t>& shape,
     const std::vector<double>& value) {
   output_tensor_->shape = mojom::Int64List::New();
   output_tensor_->shape->value = shape;
-  output_tensor_->data = mojom::ValueList::New();
-  output_tensor_->data->set_float_list(mojom::FloatList::New());
-  output_tensor_->data->get_float_list()->value = value;
+  output_tensor_->data =
+      mojom::ValueList::NewFloatList(mojom::FloatList::New(value));
 }
 
 void FakeServiceConnectionImpl::SetAsyncMode(bool async_mode) {
@@ -308,13 +370,6 @@ void FakeServiceConnectionImpl::HandleAnnotateCall(
   std::move(callback).Run(std::move(annotations));
 }
 
-void FakeServiceConnectionImpl::HandleSuggestSelectionCall(
-    mojom::TextSuggestSelectionRequestPtr request,
-    mojom::TextClassifier::SuggestSelectionCallback callback) {
-  auto selection = suggest_selection_result_.Clone();
-  std::move(callback).Run(std::move(selection));
-}
-
 void FakeServiceConnectionImpl::HandleFindLanguagesCall(
     std::string request,
     mojom::TextClassifier::FindLanguagesCallback callback) {
@@ -331,11 +386,6 @@ void FakeServiceConnectionImpl::SetOutputAnnotation(
   for (auto const& annotate : annotations) {
     annotate_result_.emplace_back(annotate.Clone());
   }
-}
-
-void FakeServiceConnectionImpl::SetOutputSelection(
-    const mojom::CodepointSpanPtr& selection) {
-  suggest_selection_result_ = selection.Clone();
 }
 
 void FakeServiceConnectionImpl::SetOutputLanguages(
@@ -380,6 +430,11 @@ void FakeServiceConnectionImpl::SetOutputDoPostProcessingResult(
   do_post_processing_result_ = result.Clone();
 }
 
+void FakeServiceConnectionImpl::SetOutputImageContentAnnotationResult(
+    const mojom::ImageAnnotationResultPtr& result) {
+  image_annotation_result_ = result.Clone();
+}
+
 void FakeServiceConnectionImpl::Annotate(
     mojom::TextAnnotationRequestPtr request,
     mojom::TextClassifier::AnnotateCallback callback) {
@@ -388,20 +443,18 @@ void FakeServiceConnectionImpl::Annotate(
                               std::move(callback)));
 }
 
-void FakeServiceConnectionImpl::SuggestSelection(
-    mojom::TextSuggestSelectionRequestPtr request,
-    mojom::TextClassifier::SuggestSelectionCallback callback) {
-  ScheduleCall(base::BindOnce(
-      &FakeServiceConnectionImpl::HandleSuggestSelectionCall,
-      base::Unretained(this), std::move(request), std::move(callback)));
-}
-
 void FakeServiceConnectionImpl::FindLanguages(
     const std::string& text,
     mojom::TextClassifier::FindLanguagesCallback callback) {
   ScheduleCall(
       base::BindOnce(&FakeServiceConnectionImpl::HandleFindLanguagesCall,
                      base::Unretained(this), text, std::move(callback)));
+}
+
+void FakeServiceConnectionImpl::REMOVED_1(
+    mojom::REMOVED_TextSuggestSelectionRequestPtr request,
+    mojom::TextClassifier::REMOVED_1Callback callback) {
+  NOTIMPLEMENTED();
 }
 
 void FakeServiceConnectionImpl::Recognize(
@@ -491,22 +544,32 @@ void FakeServiceConnectionImpl::DoPostProcessing(
       std::move(callback)));
 }
 
+void FakeServiceConnectionImpl::AnnotateRawImage(
+    base::ReadOnlySharedMemoryRegion rgb_bytes,
+    uint32_t width,
+    uint32_t height,
+    uint32_t line_stride,
+    mojom::ImageContentAnnotator::AnnotateRawImageCallback callback) {
+  ScheduleCall(
+      base::BindOnce(&FakeServiceConnectionImpl::HandleAnnotateRawImageCall,
+                     base::Unretained(this), std::move(rgb_bytes), width,
+                     height, line_stride, std::move(callback)));
+}
+
+void FakeServiceConnectionImpl::AnnotateEncodedImage(
+    base::ReadOnlySharedMemoryRegion encoded_image,
+    mojom::ImageContentAnnotator::AnnotateEncodedImageCallback callback) {
+  ScheduleCall(base::BindOnce(
+      &FakeServiceConnectionImpl::HandleAnnotateEncodedImageCall,
+      base::Unretained(this), std::move(encoded_image), std::move(callback)));
+}
+
 void FakeServiceConnectionImpl::HandleLoadHandwritingModelCall(
     mojo::PendingReceiver<mojom::HandwritingRecognizer> receiver,
     mojom::MachineLearningService::LoadHandwritingModelCallback callback) {
   if (load_handwriting_model_result_ == mojom::LoadHandwritingModelResult::OK)
     handwriting_receivers_.Add(this, std::move(receiver));
   std::move(callback).Run(load_handwriting_model_result_);
-}
-
-void FakeServiceConnectionImpl::HandleLoadHandwritingModelWithSpecCall(
-    mojo::PendingReceiver<mojom::HandwritingRecognizer> receiver,
-    mojom::MachineLearningService::LoadHandwritingModelWithSpecCallback
-        callback) {
-  if (load_model_result_ == mojom::LoadModelResult::OK)
-    handwriting_receivers_.Add(this, std::move(receiver));
-
-  std::move(callback).Run(load_model_result_);
 }
 
 void FakeServiceConnectionImpl::HandleRecognizeCall(
@@ -578,6 +641,18 @@ void FakeServiceConnectionImpl::HandleLoadDocumentScannerCall(
   std::move(callback).Run(load_model_result_);
 }
 
+void FakeServiceConnectionImpl::HandleCreateWebPlatformModelLoaderCall(
+    mojo::PendingReceiver<ml::model_loader::mojom::ModelLoader> receiver,
+    ml::model_loader::mojom::CreateModelLoaderOptionsPtr option,
+    mojom::MachineLearningService::CreateWebPlatformModelLoaderCallback
+        callback) {
+  if (create_web_platform_model_loader_result_ ==
+      ml::model_loader::mojom::CreateModelLoaderResult::kOk)
+    web_platform_model_loader_receivers_.Add(this, std::move(receiver));
+
+  std::move(callback).Run(create_web_platform_model_loader_result_);
+}
+
 void FakeServiceConnectionImpl::HandleDocumentScannerDetectNV12Call(
     base::ReadOnlySharedMemoryRegion nv12_image,
     mojom::DocumentScanner::DetectCornersFromNV12ImageCallback callback) {
@@ -595,6 +670,58 @@ void FakeServiceConnectionImpl::HandleDocumentScannerPostProcessingCall(
     const std::vector<gfx::PointF>& corners,
     mojom::DocumentScanner::DoPostProcessingCallback callback) {
   std::move(callback).Run(do_post_processing_result_.Clone());
+}
+
+void FakeServiceConnectionImpl::HandleComputeCall(
+    ml::model_loader::mojom::Model::ComputeCallback callback) {
+  if (web_platform_model_compute_result_ ==
+      ml::model_loader::mojom::ComputeResult::kOk) {
+    std::move(callback).Run(ml::model_loader::mojom::ComputeResult::kOk,
+                            web_platform_model_compute_output_);
+  } else {
+    std::move(callback).Run(web_platform_model_compute_result_, absl::nullopt);
+  }
+}
+
+void FakeServiceConnectionImpl::HandleLoadCall(
+    ml::model_loader::mojom::ModelLoader::LoadCallback callback) {
+  if (load_web_platform_model_result_ ==
+      ml::model_loader::mojom::LoadModelResult::kOk) {
+    mojo::PendingRemote<ml::model_loader::mojom::Model> remote;
+    web_platform_model_receivers_.Add(this,
+                                      remote.InitWithNewPipeAndPassReceiver());
+    std::move(callback).Run(ml::model_loader::mojom::LoadModelResult::kOk,
+                            std::move(remote),
+                            web_platform_model_info_.Clone());
+  } else {
+    std::move(callback).Run(load_web_platform_model_result_, mojo::NullRemote(),
+                            nullptr);
+  }
+}
+
+void FakeServiceConnectionImpl::HandleLoadImageAnnotatorCall(
+    mojo::PendingReceiver<mojom::ImageContentAnnotator> receiver,
+    mojom::MachineLearningService::LoadImageAnnotatorCallback callback) {
+  if (load_model_result_ == mojom::LoadModelResult::OK) {
+    image_annotator_receivers_.Add(this, std::move(receiver));
+  }
+
+  std::move(callback).Run(load_model_result_);
+}
+
+void FakeServiceConnectionImpl::HandleAnnotateRawImageCall(
+    base::ReadOnlySharedMemoryRegion rgb_bytes,
+    uint32_t width,
+    uint32_t height,
+    uint32_t line_stride,
+    mojom::ImageContentAnnotator::AnnotateRawImageCallback callback) {
+  std::move(callback).Run(image_annotation_result_.Clone());
+}
+
+void FakeServiceConnectionImpl::HandleAnnotateEncodedImageCall(
+    base::ReadOnlySharedMemoryRegion encoded_image,
+    mojom::ImageContentAnnotator::AnnotateRawImageCallback callback) {
+  std::move(callback).Run(image_annotation_result_.Clone());
 }
 
 }  // namespace machine_learning

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,10 @@
 #include "ui/base/clipboard/clipboard_util_mac.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
 #include "ui/base/dragdrop/os_exchange_data_provider_mac.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 namespace bookmarks {
 
@@ -29,18 +33,18 @@ const ui::ClipboardFormatType& BookmarkNodeData::GetBookmarkFormatType() {
 // static
 bool BookmarkNodeData::ClipboardContainsBookmarks() {
   NSPasteboard* pb =
-      ui::ClipboardUtil::PasteboardFromBuffer(ui::ClipboardBuffer::kCopyPaste);
+      ui::clipboard_util::PasteboardFromBuffer(ui::ClipboardBuffer::kCopyPaste);
   return PasteboardContainsBookmarks(pb);
 }
 
 void BookmarkNodeData::WriteToClipboard() {
   NSPasteboard* pb =
-      ui::ClipboardUtil::PasteboardFromBuffer(ui::ClipboardBuffer::kCopyPaste);
+      ui::clipboard_util::PasteboardFromBuffer(ui::ClipboardBuffer::kCopyPaste);
   WriteBookmarksToPasteboard(pb, elements, profile_path_);
 }
 
 bool BookmarkNodeData::ReadFromClipboard(ui::ClipboardBuffer buffer) {
-  NSPasteboard* pb = ui::ClipboardUtil::PasteboardFromBuffer(buffer);
+  NSPasteboard* pb = ui::clipboard_util::PasteboardFromBuffer(buffer);
   base::FilePath file_path;
   if (ReadBookmarksFromPasteboard(pb, &elements, &file_path)) {
     profile_path_ = file_path;

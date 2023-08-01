@@ -1,12 +1,22 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/tab_switcher/tab_grid/tab_grid_constants.h"
 
+#import "base/time/time.h"
+
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
 #endif
+
+// Keys of UMA IOS.TabSwitcher.Idle histograms.
+const char kUMATabSwitcherIdleIncognitoTabGridPageHistogram[] =
+    "IOS.TabSwitcher.Idle.IncognitoTabGridPage";
+const char kUMATabSwitcherIdleRecentTabsHistogram[] =
+    "IOS.TabSwitcher.Idle.RecentTabs";
+const char kUMATabSwitcherIdleRegularTabGridPageHistogram[] =
+    "IOS.TabSwitcher.Idle.RegularTabGridPage";
 
 // Accessibility identifiers for automated testing.
 NSString* const kTabGridIncognitoTabsPageButtonIdentifier =
@@ -31,6 +41,9 @@ NSString* const kTabGridRegularTabsEmptyStateIdentifier =
 NSString* const kTabGridScrollViewIdentifier = @"kTabGridScrollViewIdentifier";
 NSString* const kRegularTabGridIdentifier = @"kRegularTabGridIdentifier";
 NSString* const kIncognitoTabGridIdentifier = @"kIncognitoTabGridIdentifier";
+NSString* const kInactiveTabGridIdentifier = @"kInactiveTabGridIdentifier";
+NSString* const kInactiveTabGridCloseAllButtonIdentifier =
+    @"kInactiveTabGridCloseAllButtonIdentifier";
 
 NSString* const kTabGridEditButtonIdentifier = @"kTabGridEditButtonIdentifier";
 NSString* const kTabGridEditCloseTabsButtonIdentifier =
@@ -42,6 +55,7 @@ NSString* const kTabGridEditAddToButtonIdentifier =
 NSString* const kTabGridEditShareButtonIdentifier =
     @"kTabGridEditShareButtonIdentifier";
 NSString* const kTabGridSearchBarIdentifier = @"kTabGridSearchBarIdentifier";
+NSString* const kTabGridSearchTextFieldIdentifierPrefix = @"kSearchTextId_";
 NSString* const kTabGridScrimIdentifier = @"kTabGridScrimIdentifier";
 
 // The color of the text buttons in the toolbars.
@@ -83,3 +97,9 @@ const CGFloat kThumbStripSlideInHeight = 40.0f;
 // The distance travelled by the thumb strip's plus sign button during the
 // slide-out animation of the transition from Peeked to Revealed state.
 const CGFloat kThumbStripPlusSignButtonSlideOutDistance = 400.0f;
+
+// Alpha of the background color of the toolbar.
+const CGFloat kToolbarBackgroundAlpha = 0.75;
+
+// Duration for animations in the tab grid.
+const base::TimeDelta kAnimationDuration = base::Milliseconds(200);

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,10 +15,13 @@
 #include "base/check_op.h"
 #include "base/containers/flat_map.h"
 #include "base/containers/flat_set.h"
+#include "base/feature_list.h"
+#include "base/features.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/threading/thread_checker.h"
+#include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
 #include "components/viz/common/surfaces/surface_id.h"
@@ -44,11 +47,13 @@ class SurfaceManagerDelegate;
 class SurfaceRange;
 struct BeginFrameAck;
 struct BeginFrameArgs;
+struct BeginFrameId;
 
 class VIZ_SERVICE_EXPORT SurfaceManager {
  public:
   SurfaceManager(SurfaceManagerDelegate* delegate,
-                 absl::optional<uint32_t> activation_deadline_in_frames);
+                 absl::optional<uint32_t> activation_deadline_in_frames,
+                 size_t max_uncommitted_frames);
 
   SurfaceManager(const SurfaceManager&) = delete;
   SurfaceManager& operator=(const SurfaceManager&) = delete;
@@ -107,6 +112,9 @@ class VIZ_SERVICE_EXPORT SurfaceManager {
 
   // Called when a surface has an active frame for the first time.
   void FirstSurfaceActivation(const SurfaceInfo& surface_info);
+
+  // Called when there is new frame in uncommitted queue of the surface.
+  void OnSurfaceHasNewUncommittedFrame(Surface* surface);
 
   // Called when a CompositorFrame within |surface| has activated.
   void SurfaceActivated(Surface* surface);
@@ -200,6 +208,15 @@ class VIZ_SERVICE_EXPORT SurfaceManager {
   // changed since the previous aggregation.
   void AggregatedFrameSinksChanged();
 
+  using CommitPredicate =
+      base::RepeatingCallback<bool(const SurfaceId&, const BeginFrameId&)>;
+  // Commits all surfaces in range and their referenced surfaces. For each
+  // surface processed calls `predicate` for each uncommitted frame from oldest
+  // to newest. If predicate returns true, surface is committed. If not the
+  // surface processing stops and we go to the next surface.
+  void CommitFramesInRangeRecursively(const SurfaceRange& range,
+                                      const CommitPredicate& predicate);
+
  private:
   friend class CompositorFrameSinkSupportTest;
   friend class FrameSinkManagerTest;
@@ -284,7 +301,7 @@ class VIZ_SERVICE_EXPORT SurfaceManager {
   base::ObserverList<SurfaceObserver>::Unchecked observer_list_;
   base::ThreadChecker thread_checker_;
 
-  base::flat_set<SurfaceId> surfaces_to_destroy_;
+  base::flat_map<SurfaceId, base::TimeTicks> surfaces_to_destroy_;
 
   // Root SurfaceId that references display root surfaces. There is no Surface
   // with this id, it's for bookkeeping purposes only.
@@ -325,6 +342,10 @@ class VIZ_SERVICE_EXPORT SurfaceManager {
   absl::optional<base::RepeatingTimer> expire_timer_;
 
   bool allocation_groups_need_garbage_collection_ = false;
+
+  // Maximum length of uncommitted queue, zero means all frames are committed
+  // automatically.
+  const size_t max_uncommitted_frames_;
 
   base::WeakPtrFactory<SurfaceManager> weak_factory_{this};
 };

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include <memory>
 #include <utility>
 
-#include "base/cxx17_backports.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -15,21 +14,20 @@
 #include "chrome/browser/extensions/event_router_forwarder.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/extensions/api/system_private.h"
-#include "chrome/common/pref_names.h"
+#include "components/policy/core/common/policy_pref_names.h"
 #include "components/prefs/pref_service.h"
 #include "google_apis/google_api_keys.h"
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "chromeos/dbus/dbus_thread_manager.h"  // nogncheck
-#include "chromeos/dbus/update_engine/update_engine_client.h"
+#include "chromeos/ash/components/dbus/update_engine/update_engine_client.h"
 #else
 #include "chrome/browser/upgrade_detector/upgrade_detector.h"
 #endif
 
 namespace {
 
-// Maps prefs::kIncognitoModeAvailability values (0 = enabled, ...)
-// to strings exposed to extensions.
+// Maps policy::policy_prefs::kIncognitoModeAvailability values (0 = enabled,
+// ...) to strings exposed to extensions.
 const char* const kIncognitoModeAvailabilityStrings[] = {
   "enabled",
   "disabled",
@@ -58,12 +56,12 @@ ExtensionFunction::ResponseAction
 SystemPrivateGetIncognitoModeAvailabilityFunction::Run() {
   PrefService* prefs =
       Profile::FromBrowserContext(browser_context())->GetPrefs();
-  int value = prefs->GetInteger(prefs::kIncognitoModeAvailability);
+  int value =
+      prefs->GetInteger(policy::policy_prefs::kIncognitoModeAvailability);
   EXTENSION_FUNCTION_VALIDATE(
       value >= 0 &&
-      value < static_cast<int>(base::size(kIncognitoModeAvailabilityStrings)));
-  return RespondNow(
-      OneArgument(base::Value(kIncognitoModeAvailabilityStrings[value])));
+      value < static_cast<int>(std::size(kIncognitoModeAvailabilityStrings)));
+  return RespondNow(WithArguments(kIncognitoModeAvailabilityStrings[value]));
 }
 
 ExtensionFunction::ResponseAction SystemPrivateGetUpdateStatusFunction::Run() {
@@ -72,9 +70,8 @@ ExtensionFunction::ResponseAction SystemPrivateGetUpdateStatusFunction::Run() {
 #if BUILDFLAG(IS_CHROMEOS_ASH)
   // With UpdateEngineClient, we can provide more detailed information about
   // system updates on ChromeOS.
-  const update_engine::StatusResult status = chromeos::DBusThreadManager::Get()
-                                                 ->GetUpdateEngineClient()
-                                                 ->GetLastStatus();
+  const update_engine::StatusResult status =
+      ash::UpdateEngineClient::Get()->GetLastStatus();
   // |download_progress| is set to 1 after download finishes
   // (i.e. verify, finalize and need-reboot phase) to indicate the progress
   // even though |status.download_progress| is 0 in these phases.
@@ -111,6 +108,8 @@ ExtensionFunction::ResponseAction SystemPrivateGetUpdateStatusFunction::Run() {
     case update_engine::Operation::REPORTING_ERROR_EVENT:
     case update_engine::Operation::ATTEMPTING_ROLLBACK:
     case update_engine::Operation::NEED_PERMISSION_TO_UPDATE:
+    case update_engine::Operation::CLEANUP_PREVIOUS_UPDATE:
+    case update_engine::Operation::UPDATED_BUT_DEFERRED:
       state = kNotAvailableState;
       break;
     default:
@@ -125,15 +124,14 @@ ExtensionFunction::ResponseAction SystemPrivateGetUpdateStatusFunction::Run() {
   }
 #endif
 
-  std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
-  dict->SetString(kStateKey, state);
-  dict->SetDoubleKey(kDownloadProgressKey, download_progress);
-  return RespondNow(
-      OneArgument(base::Value::FromUniquePtrValue(std::move(dict))));
+  base::Value::Dict dict;
+  dict.Set(kStateKey, state);
+  dict.Set(kDownloadProgressKey, download_progress);
+  return RespondNow(WithArguments(std::move(dict)));
 }
 
 ExtensionFunction::ResponseAction SystemPrivateGetApiKeyFunction::Run() {
-  return RespondNow(OneArgument(base::Value(google_apis::GetAPIKey())));
+  return RespondNow(WithArguments(google_apis::GetAPIKey()));
 }
 
 }  // namespace extensions

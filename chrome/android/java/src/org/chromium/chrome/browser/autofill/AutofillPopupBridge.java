@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,18 +7,19 @@ package org.chromium.chrome.browser.autofill;
 import android.app.Activity;
 import android.content.Context;
 import android.content.DialogInterface;
-import android.content.res.Configuration;
 import android.view.View;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.NativeMethods;
-import org.chromium.base.supplier.Supplier;
+import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
+import org.chromium.chrome.browser.fullscreen.BrowserControlsManagerSupplier;
 import org.chromium.chrome.browser.keyboard_accessory.ManualFillingComponent;
 import org.chromium.chrome.browser.keyboard_accessory.ManualFillingComponentSupplier;
 import org.chromium.chrome.browser.tab.Tab;
@@ -26,8 +27,9 @@ import org.chromium.chrome.browser.tabmodel.TabModelSelectorSupplier;
 import org.chromium.components.autofill.AutofillDelegate;
 import org.chromium.components.autofill.AutofillPopup;
 import org.chromium.components.autofill.AutofillSuggestion;
+import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContentsAccessibility;
-import org.chromium.ui.DropdownItem;
+import org.chromium.ui.base.ViewAndroidDelegate;
 import org.chromium.ui.base.WindowAndroid;
 import org.chromium.url.GURL;
 
@@ -36,34 +38,41 @@ import org.chromium.url.GURL;
 */
 @JNINamespace("autofill")
 public class AutofillPopupBridge implements AutofillDelegate, DialogInterface.OnClickListener {
-    private final long mNativeAutofillPopup;
+    private long mNativeAutofillPopup;
     private final AutofillPopup mAutofillPopup;
     private AlertDialog mDeletionDialog;
     private final Context mContext;
-    private WebContentsAccessibility mWebContentsAccessibility;
+    private final WebContentsAccessibility mWebContentsAccessibility;
+    private final WebContentsViewRectProvider mWebContentsViewRectProvider;
 
     public AutofillPopupBridge(@NonNull View anchorView, long nativeAutofillPopupViewAndroid,
             @NonNull WindowAndroid windowAndroid) {
         mNativeAutofillPopup = nativeAutofillPopupViewAndroid;
         Activity activity = windowAndroid.getActivity().get();
-        if (activity == null || notEnoughScreenSpace(activity)) {
+        // currentTab may be null if the last tab has been closed by the time
+        // this function is called (e.g. when autofill suggestions are available,
+        // see crbug.com/1315617). Its web contents may be null for a frozen
+        // tab.
+        Tab currentTab = TabModelSelectorSupplier.getCurrentTabFrom(windowAndroid);
+        WebContents webContents = currentTab != null ? currentTab.getWebContents() : null;
+        if (activity == null || webContents == null) {
             mAutofillPopup = null;
             mContext = null;
+            mWebContentsViewRectProvider = null;
+            mWebContentsAccessibility = null;
         } else {
-            mAutofillPopup = new AutofillPopup(activity, anchorView, this);
             mContext = activity;
-
-            Supplier<ManualFillingComponent> manualFillingComponentSupplier =
+            ObservableSupplier<ManualFillingComponent> manualFillingComponentSupplier =
                     ManualFillingComponentSupplier.from(windowAndroid);
-            // Could be null if this ctor is called as the activity is being destroyed.
+            mWebContentsViewRectProvider = tryCreateRectProvider(webContents, windowAndroid);
+            mAutofillPopup =
+                    new AutofillPopup(activity, anchorView, this, mWebContentsViewRectProvider);
             if (manualFillingComponentSupplier != null
                     && manualFillingComponentSupplier.hasValue()) {
                 manualFillingComponentSupplier.get().notifyPopupAvailable(mAutofillPopup);
             }
 
-            Tab currentTab = TabModelSelectorSupplier.getCurrentTabFrom(windowAndroid);
-            mWebContentsAccessibility = WebContentsAccessibility.fromWebContents(
-                    currentTab == null ? null : currentTab.getWebContents());
+            mWebContentsAccessibility = WebContentsAccessibility.fromWebContents(webContents);
         }
     }
 
@@ -75,17 +84,20 @@ public class AutofillPopupBridge implements AutofillDelegate, DialogInterface.On
 
     @Override
     public void dismissed() {
+        if (mNativeAutofillPopup == 0) return;
         AutofillPopupBridgeJni.get().popupDismissed(mNativeAutofillPopup, AutofillPopupBridge.this);
     }
 
     @Override
     public void suggestionSelected(int listIndex) {
+        if (mNativeAutofillPopup == 0) return;
         AutofillPopupBridgeJni.get().suggestionSelected(
                 mNativeAutofillPopup, AutofillPopupBridge.this, listIndex);
     }
 
     @Override
     public void deleteSuggestion(int listIndex) {
+        if (mNativeAutofillPopup == 0) return;
         AutofillPopupBridgeJni.get().deletionRequested(
                 mNativeAutofillPopup, AutofillPopupBridge.this, listIndex);
     }
@@ -97,6 +109,7 @@ public class AutofillPopupBridge implements AutofillDelegate, DialogInterface.On
 
     @Override
     public void onClick(DialogInterface dialog, int which) {
+        if (mNativeAutofillPopup == 0) return;
         assert which == DialogInterface.BUTTON_POSITIVE;
         AutofillPopupBridgeJni.get().deletionConfirmed(
                 mNativeAutofillPopup, AutofillPopupBridge.this);
@@ -107,8 +120,10 @@ public class AutofillPopupBridge implements AutofillDelegate, DialogInterface.On
      */
     @CalledByNative
     private void dismiss() {
+        mNativeAutofillPopup = 0;
         if (mAutofillPopup != null) mAutofillPopup.dismiss();
         if (mDeletionDialog != null) mDeletionDialog.dismiss();
+        if (mWebContentsViewRectProvider != null) mWebContentsViewRectProvider.dismiss();
         mWebContentsAccessibility.onAutofillPopupDismissed();
     }
 
@@ -120,43 +135,26 @@ public class AutofillPopupBridge implements AutofillDelegate, DialogInterface.On
     @CalledByNative
     private void show(AutofillSuggestion[] suggestions, boolean isRtl) {
         if (mAutofillPopup != null) {
-            mAutofillPopup.filterAndShow(suggestions, isRtl, shouldUseRefreshStyle());
+            mAutofillPopup.filterAndShow(suggestions, isRtl);
             mWebContentsAccessibility.onAutofillPopupDisplayed(mAutofillPopup.getListView());
         }
     }
 
     @CalledByNative
     private void confirmDeletion(String title, String body) {
-        mDeletionDialog = new AlertDialog.Builder(mContext, R.style.Theme_Chromium_AlertDialog)
-                                  .setTitle(title)
-                                  .setMessage(body)
-                                  .setNegativeButton(R.string.cancel, null)
-                                  .setPositiveButton(R.string.ok, this)
-                                  .create();
+        mDeletionDialog =
+                new AlertDialog.Builder(mContext, R.style.ThemeOverlay_BrowserUI_AlertDialog)
+                        .setTitle(title)
+                        .setMessage(body)
+                        .setNegativeButton(R.string.cancel, null)
+                        .setPositiveButton(R.string.ok, this)
+                        .create();
         mDeletionDialog.show();
     }
 
     @CalledByNative
     private boolean wasSuppressed() {
         return mAutofillPopup == null;
-    }
-
-    private static boolean shouldUseRefreshStyle() {
-        return ChromeFeatureList.isEnabled(ChromeFeatureList.AUTOFILL_REFRESH_STYLE_ANDROID);
-    }
-
-    private static boolean notEnoughScreenSpace(Context context) {
-        Configuration config = context.getResources().getConfiguration();
-        // In landscape mode, most vertical space is used by the on-screen keyboard. When refresh
-        // style is used, the footer is sticky, so there is not much space to even show the first
-        // suggestion. In those cases, the dropdown should only be shown on very large screen
-        // devices, such as tablets.
-        //
-        // TODO(crbug.com/907634): This is a simple first approach to not provide a degraded
-        //                         experience. Explore other alternatives when this happens such as
-        //                         showing suggestions on the keyboard accessory.
-        return shouldUseRefreshStyle() && config.orientation == Configuration.ORIENTATION_LANDSCAPE
-                && !config.isLayoutSizeAtLeast(Configuration.SCREENLAYOUT_SIZE_XLARGE);
     }
 
     // Helper methods for AutofillSuggestion
@@ -169,9 +167,11 @@ public class AutofillPopupBridge implements AutofillDelegate, DialogInterface.On
     /**
      * @param array AutofillSuggestion array that should get a new suggestion added.
      * @param index Index in the array where to place a new suggestion.
-     * @param label First line of the suggestion.
-     * @param sublabel Second line of the suggestion.
-     * @param itemTag The offer label of the suggestion.
+     * @param label The first part of the first line of the suggestion.
+     * @param secondaryLabel The second part of the first line of the suggestion.
+     * @param sublabel The first part of the second line of the suggestion.
+     * @param secondarySublabel The second part of the second line of the suggestion.
+     * @param itemTag The third line of the suggestion.
      * @param iconId The resource ID for the icon associated with the suggestion, or 0 for no icon.
      * @param isIconAtStart {@code true} if {@param iconId} is displayed before {@param label}.
      * @param suggestionId Identifier for the suggestion type.
@@ -183,27 +183,52 @@ public class AutofillPopupBridge implements AutofillDelegate, DialogInterface.On
      *         it'd be preferred over the iconId.
      */
     @CalledByNative
-    private static void addToAutofillSuggestionArray(AutofillSuggestion[] array, int index,
-            String label, String sublabel, String itemTag, int iconId, boolean isIconAtStart,
-            int suggestionId, boolean isDeletable, boolean isLabelMultiline, boolean isLabelBold,
-            GURL customIconUrl) {
-        int drawableId = iconId == 0 ? DropdownItem.NO_ICON : iconId;
-        AutofillSuggestion.Builder builder = new AutofillSuggestion.Builder()
-                                                     .setLabel(label)
-                                                     .setSubLabel(sublabel)
-                                                     .setItemTag(itemTag)
-                                                     .setIconId(drawableId)
-                                                     .setIsIconAtStart(isIconAtStart)
-                                                     .setSuggestionId(suggestionId)
-                                                     .setIsDeletable(isDeletable)
-                                                     .setIsMultiLineLabel(isLabelMultiline)
-                                                     .setIsBoldLabel(isLabelBold);
-        if (customIconUrl != null) {
-            builder.setCustomIcon(
-                    PersonalDataManager.getInstance()
-                            .getCustomImageForAutofillSuggestionIfAvailable(customIconUrl));
+    private void addToAutofillSuggestionArray(AutofillSuggestion[] array, int index, String label,
+            String secondaryLabel, String sublabel, String secondarySublabel, String itemTag,
+            int iconId, boolean isIconAtStart, int suggestionId, boolean isDeletable,
+            boolean isLabelMultiline, boolean isLabelBold, GURL customIconUrl) {
+        array[index] = new AutofillSuggestion.Builder()
+                               .setLabel(label)
+                               .setSecondaryLabel(secondaryLabel)
+                               .setSubLabel(sublabel)
+                               .setSecondarySubLabel(secondarySublabel)
+                               .setItemTag(itemTag)
+                               .setIsIconAtStart(isIconAtStart)
+                               .setSuggestionId(suggestionId)
+                               .setIsDeletable(isDeletable)
+                               .setIsMultiLineLabel(isLabelMultiline)
+                               .setIsBoldLabel(isLabelBold)
+                               .setIconDrawable(AutofillUiUtils.getCardIcon(mContext, customIconUrl,
+                                       iconId, getPopupIconWidthId(), getPopupIconHeightId(),
+                                       R.dimen.card_art_corner_radius,
+                                       /* showCustomIcon= */ true))
+                               .build();
+    }
+
+    private @Nullable WebContentsViewRectProvider tryCreateRectProvider(
+            WebContents webContents, WindowAndroid windowAndroid) {
+        ObservableSupplier<ManualFillingComponent> manualFillingComponentSupplier =
+                ManualFillingComponentSupplier.from(windowAndroid);
+        ViewAndroidDelegate viewDelegate = webContents.getViewAndroidDelegate();
+        if (viewDelegate == null || viewDelegate.getContainerView() == null) return null;
+        return new WebContentsViewRectProvider(webContents,
+                BrowserControlsManagerSupplier.from(windowAndroid), manualFillingComponentSupplier);
+    }
+
+    public static int getPopupIconWidthId() {
+        if (ChromeFeatureList.isEnabled(
+                    ChromeFeatureList.AUTOFILL_ENABLE_NEW_CARD_ART_AND_NETWORK_IMAGES)) {
+            return R.dimen.autofill_dropdown_icon_width_new;
         }
-        array[index] = builder.build();
+        return R.dimen.autofill_dropdown_icon_width;
+    }
+
+    public static int getPopupIconHeightId() {
+        if (ChromeFeatureList.isEnabled(
+                    ChromeFeatureList.AUTOFILL_ENABLE_NEW_CARD_ART_AND_NETWORK_IMAGES)) {
+            return R.dimen.autofill_dropdown_icon_height_new;
+        }
+        return R.dimen.autofill_dropdown_icon_height;
     }
 
     @NativeMethods

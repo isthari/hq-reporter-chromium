@@ -1,11 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.base.process_launcher;
 
 import android.annotation.SuppressLint;
-import android.annotation.TargetApi;
 import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.Intent;
@@ -14,6 +13,8 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Process;
 import android.os.UserHandle;
+
+import androidx.annotation.RequiresApi;
 
 import org.chromium.base.compat.ApiHelperForQ;
 import org.chromium.build.BuildConfig;
@@ -62,7 +63,7 @@ final class BindService {
         return context.bindService(intent, connection, flags);
     }
 
-    @TargetApi(Build.VERSION_CODES.N)
+    @RequiresApi(Build.VERSION_CODES.N)
     @SuppressLint("DiscouragedPrivateApi")
     private static boolean bindServiceByReflection(Context context, Intent intent,
             ServiceConnection connection, int flags, Handler handler)

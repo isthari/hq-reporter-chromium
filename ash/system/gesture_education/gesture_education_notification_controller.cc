@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "ash/constants/ash_features.h"
 #include "ash/constants/ash_pref_names.h"
+#include "ash/constants/notifier_catalogs.h"
 #include "ash/public/cpp/notification_utils.h"
 #include "ash/public/cpp/shelf_config.h"
 #include "ash/public/cpp/system_tray_client.h"
@@ -13,7 +14,7 @@
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/system/model/system_tray_model.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/vector_icons/vector_icons.h"
@@ -85,12 +86,13 @@ void GestureEducationNotificationController::RegisterProfilePrefs(
 void GestureEducationNotificationController::
     GenerateGestureEducationNotification() {
   std::unique_ptr<message_center::Notification> notification =
-      CreateSystemNotification(
+      CreateSystemNotificationPtr(
           message_center::NOTIFICATION_TYPE_SIMPLE, kNotificationId,
           GetNotificationTitle(), GetNotificationMessage(),
           std::u16string() /* display_source */, GURL(),
           message_center::NotifierId(
-              message_center::NotifierType::SYSTEM_COMPONENT, kNotificationId),
+              message_center::NotifierType::SYSTEM_COMPONENT, kNotificationId,
+              NotificationCatalogName::kGestureEducation),
           message_center::RichNotificationData(),
           base::MakeRefCounted<message_center::HandleNotificationClickDelegate>(
               base::BindRepeating(&GestureEducationNotificationController::

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
@@ -25,7 +24,6 @@ import org.chromium.android_webview.common.services.ServiceNames;
 import org.chromium.base.ContextUtils;
 import org.chromium.base.FileUtils;
 import org.chromium.base.Log;
-import org.chromium.base.compat.ApiHelperForN;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.base.task.PostTask;
 import org.chromium.base.task.TaskTraits;
@@ -216,7 +214,7 @@ public class ComponentsProviderService extends Service {
             }
             return null;
         });
-        PostTask.postTask(TaskTraits.THREAD_POOL_BEST_EFFORT, mDeleteTask);
+        PostTask.postTask(TaskTraits.BEST_EFFORT, mDeleteTask);
     }
 
     /**
@@ -294,18 +292,10 @@ public class ComponentsProviderService extends Service {
         }
     }
 
-    // Use JobScheduler.getPendingJob() if it's available. Otherwise, fall back to iterating over
-    // all jobs to find the one we want.
     // TODO(crbug.com/1189126): move this to utils class
     @VisibleForTesting
     public static boolean isJobScheduled(JobScheduler scheduler, int jobId) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
-            for (JobInfo info : scheduler.getAllPendingJobs()) {
-                if (info.getId() == jobId) return true;
-            }
-            return false;
-        }
-        return ApiHelperForN.getPendingJob(scheduler, jobId) != null;
+        return scheduler.getPendingJob(jobId) != null;
     }
 
     @VisibleForTesting

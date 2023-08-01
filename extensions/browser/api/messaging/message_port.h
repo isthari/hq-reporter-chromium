@@ -1,14 +1,14 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef EXTENSIONS_BROWSER_API_MESSAGING_MESSAGE_PORT_H_
 #define EXTENSIONS_BROWSER_API_MESSAGING_MESSAGE_PORT_H_
 
-#include <memory>
 #include <string>
 
 #include "base/values.h"
+#include "extensions/browser/activity.h"
 #include "extensions/browser/extension_api_frame_id_map.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/origin.h"
@@ -20,6 +20,7 @@ class RenderFrameHost;
 }
 
 namespace extensions {
+enum class ChannelType;
 struct Message;
 struct MessagingEndpoint;
 struct PortId;
@@ -65,10 +66,10 @@ class MessagePort {
 
   // Notifies the port that the channel has been opened.
   virtual void DispatchOnConnect(
+      ChannelType channel_type,
       const std::string& channel_name,
-      std::unique_ptr<base::DictionaryValue> source_tab,
-      int source_frame_id,
-      const ExtensionApiFrameIdMap::DocumentId& source_document_id,
+      absl::optional<base::Value::Dict> source_tab,
+      const ExtensionApiFrameIdMap::FrameData& source_frame,
       int guest_process_id,
       int guest_render_frame_routing_id,
       const MessagingEndpoint& source_endpoint,
@@ -91,11 +92,34 @@ class MessagePort {
 
   // MessagePorts that target extensions will need to adjust their keepalive
   // counts for their lazy background page.
-  virtual void IncrementLazyKeepaliveCount();
-  virtual void DecrementLazyKeepaliveCount();
+  virtual void IncrementLazyKeepaliveCount(Activity::Type activity_type);
+  virtual void DecrementLazyKeepaliveCount(Activity::Type activity_type);
+
+  // Notifies the message port that one of the receivers intents to respond
+  // later.
+  virtual void NotifyResponsePending();
+
+  bool should_have_strong_keepalive() const {
+    return should_have_strong_keepalive_;
+  }
+  bool is_for_onetime_channel() const { return is_for_onetime_channel_; }
+
+  void set_should_have_strong_keepalive(bool should_have_strong_keepalive) {
+    should_have_strong_keepalive_ = should_have_strong_keepalive;
+  }
+  void set_is_for_onetime_channel(bool is_for_onetime_channel) {
+    is_for_onetime_channel_ = is_for_onetime_channel;
+  }
 
  protected:
   MessagePort();
+
+ private:
+  // This port should keep the service worker alive while it is open.
+  bool should_have_strong_keepalive_ = false;
+
+  // This port was created for one-time messaging channel.
+  bool is_for_onetime_channel_ = false;
 };
 
 }  // namespace extensions

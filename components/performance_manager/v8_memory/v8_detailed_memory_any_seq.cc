@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,9 +8,10 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/memory/weak_ptr.h"
-#include "base/threading/sequenced_task_runner_handle.h"
+#include "base/observer_list.h"
+#include "base/task/sequenced_task_runner.h"
 #include "components/performance_manager/public/graph/frame_node.h"
 #include "components/performance_manager/public/graph/graph.h"
 #include "components/performance_manager/public/graph/process_node.h"
@@ -97,12 +98,11 @@ void V8DetailedMemoryRequestAnySeq::InitializeWrappedRequest(
     MeasurementMode mode,
     absl::optional<base::WeakPtr<ProcessNode>> process_to_measure) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  // Can't use make_unique since this calls the private any-sequence
-  // constructor. After construction the V8DetailedMemoryRequest must only be
-  // accessed on the graph sequence.
-  request_ = base::WrapUnique(new V8DetailedMemoryRequest(
+  // After construction the V8DetailedMemoryRequest must only be accessed on
+  // the graph sequence.
+  request_ = std::make_unique<V8DetailedMemoryRequest>(
       base::PassKey<V8DetailedMemoryRequestAnySeq>(), min_time_between_requests,
-      mode, std::move(process_to_measure), weak_factory_.GetWeakPtr()));
+      mode, std::move(process_to_measure), weak_factory_.GetWeakPtr());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -165,14 +165,13 @@ void V8DetailedMemoryRequestOneShotAnySeq::InitializeWrappedRequest(
   auto wrapped_callback = base::BindOnce(
       &V8DetailedMemoryRequestOneShotAnySeq::OnMeasurementAvailable,
       base::SequenceBound<MeasurementCallback>(
-          base::SequencedTaskRunnerHandle::Get(), std::move(callback)));
+          base::SequencedTaskRunner::GetCurrentDefault(), std::move(callback)));
 
-  // Can't use make_unique since this calls the private any-sequence
-  // constructor. After construction the V8DetailedMemoryRequestOneShot must
-  // only be accessed on the graph sequence.
-  request_ = base::WrapUnique(new V8DetailedMemoryRequestOneShot(
+  // After construction the V8DetailedMemoryRequest must only be accessed on
+  // the graph sequence.
+  request_ = std::make_unique<V8DetailedMemoryRequestOneShot>(
       base::PassKey<V8DetailedMemoryRequestOneShotAnySeq>(),
-      std::move(process_node), std::move(wrapped_callback), mode));
+      std::move(process_node), std::move(wrapped_callback), mode);
 }
 
 // static
@@ -186,19 +185,16 @@ void V8DetailedMemoryRequestOneShotAnySeq::OnMeasurementAvailable(
   using FrameAndData = std::pair<content::GlobalRenderFrameHostId,
                                  V8DetailedMemoryExecutionContextData>;
   std::vector<FrameAndData> all_frame_data;
-  process_node->VisitFrameNodes(base::BindRepeating(
-      [](std::vector<FrameAndData>* all_frame_data,
-         const FrameNode* frame_node) {
-        const auto* frame_data =
-            V8DetailedMemoryExecutionContextData::ForFrameNode(frame_node);
-        if (frame_data) {
-          all_frame_data->push_back(std::make_pair(
-              frame_node->GetRenderFrameHostProxy().global_frame_routing_id(),
-              *frame_data));
-        }
-        return true;
-      },
-      base::Unretained(&all_frame_data)));
+  process_node->VisitFrameNodes([&all_frame_data](const FrameNode* frame_node) {
+    const auto* frame_data =
+        V8DetailedMemoryExecutionContextData::ForFrameNode(frame_node);
+    if (frame_data) {
+      all_frame_data.push_back(std::make_pair(
+          frame_node->GetRenderFrameHostProxy().global_frame_routing_id(),
+          *frame_data));
+    }
+    return true;
+  });
 
   sequence_bound_callback.PostTaskWithThisObject(
       base::BindOnce(

@@ -4,6 +4,7 @@
 <translation id="1002108253973310084">Đã phát hiện một phiên bản giao thức không tương thích. Vui lòng đảm bảo rằng bạn đã cài đặt phiên bản mới nhất của phần mềm trên cả hai máy tính và thử lại.</translation>
 <translation id="1008557486741366299">Để sau</translation>
 <translation id="1201402288615127009">Tiếp theo</translation>
+<translation id="1296511125400541222">Bản quyền 2023 The Chromium Authors. Bảo lưu mọi quyền.</translation>
 <translation id="1297009705180977556">Lỗi khi kết nối với <ph name="HOSTNAME" /></translation>
 <translation id="1450760146488584666">Đối tượng yêu cầu không tồn tại.</translation>
 <translation id="1480046233931937785">Tín dụng</translation>
@@ -13,7 +14,7 @@
 <translation id="1742469581923031760">Đang kết nối...</translation>
 <translation id="177040763384871009">Để cho phép trình duyệt trên máy khách mở các đường liên kết được nhấp vào trên thiết bị từ xa, bạn cần thay đổi trình duyệt web của hệ thống thành "<ph name="URL_FORWARDER_NAME" />".</translation>
 <translation id="177096447311351977">IP kênh dành cho ứng dụng khách: <ph name="CLIENT_GAIA_IDENTIFIER" /> ip='<ph name="CLIENT_IP_ADDRESS_AND_PORT" />' host_ip='<ph name="HOST_IP_ADDRESS_AND_PORT" />' kênh='<ph name="CHANNEL_TYPE" />' kết nối='<ph name="CONNECTION_TYPE" />'.</translation>
-<translation id="1897488610212723051">Xóa</translation>
+<translation id="1897488610212723051">Xoá</translation>
 <translation id="2009755455353575666">Không kết nối được</translation>
 <translation id="2038229918502634450">Máy chủ đang khởi động lại, để thay đổi về chính sách có hiệu lực.</translation>
 <translation id="2078880767960296260">Quá trình lưu trữ trên máy chủ</translation>
@@ -36,7 +37,6 @@ Nếu đã chọn '<ph name="SERVICE_SCRIPT_NAME" />', hãy bỏ chọn rồi ch
 <translation id="2599300881200251572">Dịch vụ này kích hoạt các kết nối đến từ ứng dụng khách Chrome Remote Desktop.</translation>
 <translation id="2647232381348739934">Dịch vụ kết nối từ xa trên Chrome</translation>
 <translation id="2676780859508944670">Đang xử lý...</translation>
-<translation id="2692522824157224199">Bản quyền 2022 Google LLC. Bảo lưu mọi quyền.</translation>
 <translation id="2699970397166997657">Kết nối từ xa trên Chrome</translation>
 <translation id="2758123043070977469">Đã xảy ra lỗi khi xác thực, vui lòng đăng nhập lại.</translation>
 <translation id="2803375539583399270">Nhập mã PIN</translation>
@@ -73,7 +73,6 @@ Nếu đã chọn '<ph name="SERVICE_SCRIPT_NAME" />', hãy bỏ chọn rồi ch
 <translation id="4257751272692708833">Trình chuyển tiếp URL của <ph name="PRODUCT_NAME" /></translation>
 <translation id="4277736576214464567">Mã truy cập không hợp lệ. Vui lòng thử lại.</translation>
 <translation id="4281844954008187215">Điều khoản dịch vụ</translation>
-<translation id="4372650392690220936">Bản quyền 2022 The Chromium Authors. Bảo lưu mọi quyền.</translation>
 <translation id="4405930547258349619">Thư viện trung tâm</translation>
 <translation id="443560535555262820">Mở tùy chọn Hỗ trợ tiếp cận</translation>
 <translation id="4450893287417543264">Không hiện lại</translation>
@@ -90,6 +89,7 @@ Nếu đã chọn '<ph name="SERVICE_SCRIPT_NAME" />', hãy bỏ chọn rồi ch
 <translation id="4808503597364150972">Vui lòng nhập mã PIN của bạn cho <ph name="HOSTNAME" />.</translation>
 <translation id="4812684235631257312">Máy chủ</translation>
 <translation id="4867841927763172006">Gửi PrtScn</translation>
+<translation id="4960795469833295568">Bản quyền 2023 Google LLC. Bảo lưu mọi quyền.</translation>
 <translation id="4974476491460646149">Đã ngắt kết nối khỏi <ph name="HOSTNAME" /></translation>
 <translation id="4985296110227979402">Trước tiên, bạn cần thiết lập máy tính để truy cập từ xa</translation>
 <translation id="4987330545941822761">Chrome Remote Desktop không thể xác định được trình duyệt để mở URL trên thiết bị. Vui lòng chọn trình duyệt trong danh sách dưới đây.</translation>
@@ -152,7 +152,7 @@ Nếu đã chọn '<ph name="SERVICE_SCRIPT_NAME" />', hãy bỏ chọn rồi ch
 <translation id="7665369617277396874">Thêm tài khoản</translation>
 <translation id="7678209621226490279">Gắn vào bên trái</translation>
 <translation id="7693372326588366043">Làm mới danh sách máy chủ</translation>
-<translation id="7714222945760997814">Báo cáo vấn đề này</translation>
+<translation id="7714222945760997814">Báo cáo nội dung này</translation>
 <translation id="7868137160098754906">Hãy nhập mã PIN của bạn cho máy tính từ xa.</translation>
 <translation id="7895403300744144251">Chính sách quyền riêng tư trên máy tính từ xa không cho phép các kết nối từ tài khoản của bạn.</translation>
 <translation id="7936528439960309876">Gắn vào bên phải</translation>

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -581,6 +581,9 @@ bool EnumTraits<mojom_vkey, ui::KeyboardCode>::FromMojom(
       return true;
     case mojom_vkey::kKeyL:
       *out = ui::KeyboardCode::VKEY_L;
+      return true;
+    case mojom_vkey::kKeyM:
+      *out = ui::KeyboardCode::VKEY_M;
       return true;
     case mojom_vkey::kKeyN:
       *out = ui::KeyboardCode::VKEY_N;

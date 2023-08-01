@@ -1,4 +1,4 @@
-// Copyright (c) 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -41,10 +41,11 @@ class ExtensionAssetsManagerImpl :  public ExtensionAssetsManager {
   }
 
   void UninstallExtension(const std::string& id,
-                          Profile* profile,
+                          const std::string& profile_user_name,
                           const base::FilePath& local_install_dir,
-                          const base::FilePath& extension_root) override {
-    file_util::UninstallExtension(local_install_dir, id);
+                          const base::FilePath& extension_root,
+                          const base::FilePath& profile_dir) override {
+    file_util::UninstallExtension(profile_dir, local_install_dir, id);
   }
 
  private:

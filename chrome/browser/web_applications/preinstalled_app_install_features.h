@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,14 +14,10 @@ class Profile;
 
 namespace web_app {
 
-extern const base::Feature kMigrateDefaultChromeAppToWebAppsGSuite;
-
-extern const base::Feature kMigrateDefaultChromeAppToWebAppsNonGSuite;
-
-extern const base::Feature kDefaultCalculatorWebApp;
-
 #if BUILDFLAG(IS_CHROMEOS)
-extern const base::Feature kAllowDefaultWebAppMigrationForChromeOsManagedUsers;
+BASE_DECLARE_FEATURE(kCursiveManagedStylusPreinstall);
+
+BASE_DECLARE_FEATURE(kMessagesPreinstall);
 #endif  // BUILDFLAG(IS_CHROMEOS)
 
 // Returns the base::Feature in |kPreinstalledAppInstallFeatures| that
@@ -29,9 +25,6 @@ extern const base::Feature kAllowDefaultWebAppMigrationForChromeOsManagedUsers;
 // installation on features listed in |kPreinstalledAppInstallFeatures|.
 bool IsPreinstalledAppInstallFeatureEnabled(base::StringPiece feature_name,
                                             const Profile& profile);
-
-// Checks if migration flag is enabled on all OS.
-bool IsAnyChromeAppToWebAppMigrationEnabled(const Profile& profile);
 
 base::AutoReset<bool> SetPreinstalledAppInstallFeatureAlwaysEnabledForTesting();
 

@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "third_party/blink/renderer/core/dom/document.h"
 #include "third_party/blink/renderer/core/dom/qualified_name.h"
+#include "third_party/blink/renderer/core/dom/shadow_root.h"
 #include "third_party/blink/renderer/core/frame/local_dom_window.h"
 #include "third_party/blink/renderer/core/html/custom/ce_reactions_scope.h"
 #include "third_party/blink/renderer/core/html/custom/custom_element_definition.h"
@@ -22,12 +23,20 @@
 namespace blink {
 
 CustomElementRegistry* CustomElement::Registry(const Element& element) {
-  return Registry(element.GetDocument());
+  return Registry(element.GetTreeScope());
 }
 
-CustomElementRegistry* CustomElement::Registry(const Document& document) {
-  if (LocalDOMWindow* window = document.domWindow())
+CustomElementRegistry* CustomElement::Registry(const TreeScope& tree_scope) {
+  if (RuntimeEnabledFeatures::ScopedCustomElementRegistryEnabled()) {
+    if (const ShadowRoot* shadow = DynamicTo<ShadowRoot>(tree_scope)) {
+      if (CustomElementRegistry* registry = shadow->registry()) {
+        return registry;
+      }
+    }
+  }
+  if (LocalDOMWindow* window = tree_scope.GetDocument().domWindow()) {
     return window->customElements();
+  }
   return nullptr;
 }
 
@@ -102,7 +111,7 @@ bool CustomElement::ShouldCreateCustomElement(const QualifiedName& tag_name) {
 bool CustomElement::ShouldCreateCustomizedBuiltinElement(
     const AtomicString& local_name,
     const Document& document) {
-  return htmlElementTypeForTag(local_name, &document) !=
+  return HtmlElementTypeForTag(local_name, &document) !=
          HTMLElementType::kHTMLUnknownElement;
 }
 
@@ -203,16 +212,18 @@ void CustomElement::Enqueue(Element& element, CustomElementReaction& reaction) {
   // To enqueue an element on the appropriate element queue
   // https://html.spec.whatwg.org/C/#enqueue-an-element-on-the-appropriate-element-queue
 
+  CustomElementReactionStack& stack =
+      CustomElementReactionStack::From(element.GetDocument().GetAgent());
   // If the custom element reactions stack is not empty, then
   // Add element to the current element queue.
   if (CEReactionsScope* current = CEReactionsScope::Current()) {
-    current->EnqueueToCurrentQueue(element, reaction);
+    current->EnqueueToCurrentQueue(stack, element, reaction);
     return;
   }
 
   // If the custom element reactions stack is empty, then
   // Add element to the backup element queue.
-  CustomElementReactionStack::Current().EnqueueToBackupQueue(element, reaction);
+  stack.EnqueueToBackupQueue(element, reaction);
 }
 
 void CustomElement::EnqueueConnectedCallback(Element& element) {

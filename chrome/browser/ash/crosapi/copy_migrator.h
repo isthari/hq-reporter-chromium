@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
+#include "base/memory/raw_ref.h"
 #include "base/memory/scoped_refptr.h"
 #include "chrome/browser/ash/crosapi/browser_data_migrator.h"
 #include "chrome/browser/ash/crosapi/browser_data_migrator_util.h"
@@ -73,6 +74,7 @@ class CopyMigrator : public BrowserDataMigratorImpl::MigratorDelegate {
   FRIEND_TEST_ALL_PREFIXES(CopyMigratorTest, SetupTmpDir);
   FRIEND_TEST_ALL_PREFIXES(CopyMigratorTest, CancelSetupTmpDir);
   FRIEND_TEST_ALL_PREFIXES(CopyMigratorTest, MigrateInternal);
+  FRIEND_TEST_ALL_PREFIXES(CopyMigratorTest, MigrateInternalOutOfDisk);
 
   // Handles the migration on a worker thread. Returns the end status of data
   // wipe and migration. `progress_callback` gets posted on UI thread whenever
@@ -92,7 +94,7 @@ class CopyMigrator : public BrowserDataMigratorImpl::MigratorDelegate {
 
   // Path to the original profile data directory, which is directly under the
   // user data directory.
-  const base::FilePath& original_profile_dir_;
+  const raw_ref<const base::FilePath, ExperimentalAsh> original_profile_dir_;
   // A hash string of the profile user ID.
   const std::string user_id_hash_;
 

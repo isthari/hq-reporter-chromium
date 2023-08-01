@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,9 +21,9 @@ import org.chromium.android_webview.AwContents;
 import org.chromium.android_webview.AwRenderProcess;
 import org.chromium.android_webview.AwRenderProcessGoneDetail;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.base.test.util.CallbackHelper;
 import org.chromium.base.test.util.Feature;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.common.ContentUrlConstants;
 
 import java.util.concurrent.CountDownLatch;
@@ -81,7 +81,7 @@ public class AwContentsClientOnRendererUnresponsiveTest {
         }
 
         void transientlyBlockBlinkThread(final AwContents awContents) throws Exception {
-            PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT,
+            PostTask.runOrPostTask(TaskTraits.UI_DEFAULT,
                     () -> { awContents.evaluateJavaScript("blocker.block();", null); });
             mBlocker.waitUntilBlocked();
         }
@@ -129,7 +129,7 @@ public class AwContentsClientOnRendererUnresponsiveTest {
         }
 
         void permanentlyBlockBlinkThread(final AwContents awContents) throws Exception {
-            PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT,
+            PostTask.runOrPostTask(TaskTraits.UI_DEFAULT,
                     () -> { awContents.evaluateJavaScript("blocker.block();", null); });
             mBlocker.waitUntilBlocked();
         }
@@ -165,14 +165,15 @@ public class AwContentsClientOnRendererUnresponsiveTest {
     }
 
     private void sendInputEvent(final AwContents awContents) {
-        PostTask.runOrPostTask(UiThreadTaskTraits.DEFAULT, () -> {
+        PostTask.runOrPostTask(TaskTraits.UI_DEFAULT, () -> {
             long eventTime = SystemClock.uptimeMillis();
             awContents.dispatchKeyEvent(new KeyEvent(
                     eventTime, eventTime, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER, 0));
         });
     }
 
-    private void addJsBlockerInterface(final AwContents awContents, final JSBlocker blocker) {
+    private void addJsBlockerInterface(final AwContents awContents, final JSBlocker blocker)
+            throws Exception {
         AwActivityTestRule.addJavascriptInterfaceOnUiThread(awContents, blocker, "blocker");
     }
 

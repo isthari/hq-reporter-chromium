@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,21 +6,22 @@
 
 #include <utility>
 
-#include "ash/components/cryptohome/system_salt_getter.h"
-#include "ash/components/settings/cros_settings_names.h"
 #include "base/logging.h"
 #include "chrome/browser/ash/settings/cros_settings.h"
 #include "chrome/browser/ash/settings/token_encryptor.h"
 #include "chrome/common/pref_names.h"
+#include "chromeos/ash/components/cryptohome/system_salt_getter.h"
+#include "chromeos/ash/components/settings/cros_settings_names.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 
 namespace chromeos {
+
 DeviceOAuth2TokenStoreChromeOS::DeviceOAuth2TokenStoreChromeOS(
     PrefService* local_state)
     : local_state_(local_state),
       service_account_identity_subscription_(
-          CrosSettings::Get()->AddSettingsObserver(
+          ash::CrosSettings::Get()->AddSettingsObserver(
               ash::kServiceAccountIdentity,
               base::BindRepeating(&DeviceOAuth2TokenStoreChromeOS::
                                       OnServiceAccountIdentityChanged,
@@ -40,14 +41,14 @@ void DeviceOAuth2TokenStoreChromeOS::RegisterPrefs(
 void DeviceOAuth2TokenStoreChromeOS::Init(InitCallback callback) {
   state_ = State::INITIALIZING;
   // Pull in the system salt.
-  SystemSaltGetter::Get()->GetSystemSalt(
+  ash::SystemSaltGetter::Get()->GetSystemSalt(
       base::BindOnce(&DeviceOAuth2TokenStoreChromeOS::DidGetSystemSalt,
                      weak_ptr_factory_.GetWeakPtr(), std::move(callback)));
 }
 
 CoreAccountId DeviceOAuth2TokenStoreChromeOS::GetAccountId() const {
   std::string email;
-  CrosSettings::Get()->GetString(ash::kServiceAccountIdentity, &email);
+  ash::CrosSettings::Get()->GetString(ash::kServiceAccountIdentity, &email);
   return CoreAccountId::FromEmail(email);
 }
 
@@ -78,18 +79,18 @@ void DeviceOAuth2TokenStoreChromeOS::PrepareTrustedAccountId(
     TrustedAccountIdCallback callback) {
   // Make sure the value returned by GetRobotAccountId has been validated
   // against current device settings.
-  switch (CrosSettings::Get()->PrepareTrustedValues(
+  switch (ash::CrosSettings::Get()->PrepareTrustedValues(
       base::BindOnce(&DeviceOAuth2TokenStoreChromeOS::PrepareTrustedAccountId,
                      weak_ptr_factory_.GetWeakPtr(), callback))) {
-    case CrosSettingsProvider::TRUSTED:
+    case ash::CrosSettingsProvider::TRUSTED:
       // All good, let the service compare account ids.
       callback.Run(true);
       return;
-    case CrosSettingsProvider::TEMPORARILY_UNTRUSTED:
+    case ash::CrosSettingsProvider::TEMPORARILY_UNTRUSTED:
       // The callback passed to PrepareTrustedValues above will trigger a
       // re-check eventually.
       return;
-    case CrosSettingsProvider::PERMANENTLY_UNTRUSTED:
+    case ash::CrosSettingsProvider::PERMANENTLY_UNTRUSTED:
       // There's no trusted account id, which is equivalent to no token present.
       LOG(WARNING) << "Device settings permanently untrusted.";
       callback.Run(false);
@@ -109,7 +110,7 @@ void DeviceOAuth2TokenStoreChromeOS::FlushTokenSaveCallbacks(bool result) {
 }
 
 void DeviceOAuth2TokenStoreChromeOS::EncryptAndSaveToken() {
-  CryptohomeTokenEncryptor encryptor(system_salt_);
+  ash::CryptohomeTokenEncryptor encryptor(system_salt_);
   std::string encrypted_refresh_token =
       encryptor.EncryptWithSystemSalt(refresh_token_);
   bool result = true;
@@ -149,7 +150,7 @@ void DeviceOAuth2TokenStoreChromeOS::DidGetSystemSalt(
   std::string encrypted_refresh_token =
       local_state_->GetString(prefs::kDeviceRobotAnyApiRefreshToken);
   if (!encrypted_refresh_token.empty()) {
-    CryptohomeTokenEncryptor encryptor(system_salt_);
+    ash::CryptohomeTokenEncryptor encryptor(system_salt_);
     refresh_token_ = encryptor.DecryptWithSystemSalt(encrypted_refresh_token);
     if (refresh_token_.empty()) {
       LOG(ERROR) << "Failed to decrypt refresh token.";

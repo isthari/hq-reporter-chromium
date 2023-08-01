@@ -1,20 +1,20 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'chrome://resources/cr_elements/cr_button/cr_button.m.js';
-import 'chrome://resources/cr_elements/cr_checkbox/cr_checkbox.m.js';
-import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.m.js';
-import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.m.js';
-import 'chrome://resources/cr_elements/cr_input/cr_input.m.js';
-import 'chrome://resources/cr_elements/cr_radio_button/cr_radio_button.m.js';
-import 'chrome://resources/cr_elements/cr_radio_group/cr_radio_group.m.js';
-import 'chrome://resources/cr_elements/shared_style_css.m.js';
+import 'chrome://resources/cr_elements/cr_button/cr_button.js';
+import 'chrome://resources/cr_elements/cr_checkbox/cr_checkbox.js';
+import 'chrome://resources/cr_elements/cr_dialog/cr_dialog.js';
+import 'chrome://resources/cr_elements/cr_icon_button/cr_icon_button.js';
+import 'chrome://resources/cr_elements/cr_input/cr_input.js';
+import 'chrome://resources/cr_elements/cr_radio_button/cr_radio_button.js';
+import 'chrome://resources/cr_elements/cr_radio_group/cr_radio_group.js';
+import 'chrome://resources/cr_elements/cr_shared_style.css.js';
 import 'chrome://resources/polymer/v3_0/iron-flex-layout/iron-flex-layout-classes.js';
 import './icons.js';
 import './shared_styles.js';
 
-import {WebUIListenerBehavior} from 'chrome://resources/js/web_ui_listener_behavior.m.js';
+import {WebUIListenerBehavior} from 'chrome://resources/ash/common/web_ui_listener_behavior.js';
 import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bundled.min.js';
 
 
@@ -22,7 +22,7 @@ import {html, Polymer} from 'chrome://resources/polymer/v3_0/polymer/polymer_bun
  * A bluetooth device.
  * @constructor
  */
-var BluetoothDevice = function() {
+const BluetoothDevice = function() {
   // The device's address (MAC format, must be unique).
   this.address = '';
 
@@ -83,7 +83,7 @@ Polymer({
       type: Array,
       value() {
         return [];
-      }
+      },
     },
 
     /**
@@ -94,7 +94,7 @@ Polymer({
       type: Array,
       value() {
         return [];
-      }
+      },
     },
 
     /**
@@ -115,7 +115,7 @@ Polymer({
       type: Number,
       value() {
         return -1;
-      }
+      },
     },
 
     /**
@@ -128,11 +128,14 @@ Polymer({
       type: Array,
       value() {
         return [
-          {text: 'Unknown', value: 0}, {text: 'Mouse', value: 0x2580},
-          {text: 'Keyboard', value: 0x2540}, {text: 'Audio', value: 0x240408},
-          {text: 'Phone', value: 0x7a020c}, {text: 'Computer', value: 0x104}
+          {text: 'Unknown', value: 0},
+          {text: 'Mouse', value: 0x2580},
+          {text: 'Keyboard', value: 0x2540},
+          {text: 'Audio', value: 0x240408},
+          {text: 'Phone', value: 0x7a020c},
+          {text: 'Computer', value: 0x104},
         ];
-      }
+      },
     },
 
     /**
@@ -144,7 +147,7 @@ Polymer({
       type: Array,
       value() {
         return [];
-      }
+      },
     },
 
     /**
@@ -156,7 +159,7 @@ Polymer({
       type: Array,
       value() {
         return [];
-      }
+      },
     },
   },
 
@@ -192,7 +195,7 @@ Polymer({
    */
   currentEditableObjectChanged(obj) {
     if (this.currentEditIndex >= 0) {
-      var prop = obj.path.split('.')[1];
+      const prop = obj.path.split('.')[1];
       this.set(
           'devices.' + this.currentEditIndex.toString() + '.' + prop,
           obj.value);
@@ -205,14 +208,15 @@ Polymer({
   },
 
   autoFormatAddress() {
-    var input = this.$.deviceAddressInput;
-    var regex = /([a-f0-9]{2})([a-f0-9]{2})/i;
+    const input = this.$.deviceAddressInput;
+    const regex = /([a-f0-9]{2})([a-f0-9]{2})/i;
     // Remove things that aren't hex characters from the string.
-    var val = input.value.replace(/[^a-f0-9]/ig, '');
+    let val = input.value.replace(/[^a-f0-9]/ig, '');
 
     // Insert a ':' in the middle of every four hex characters.
-    while (regex.test(val))
+    while (regex.test(val)) {
       val = val.replace(regex, '$1:$2');
+    }
 
     input.value = val;
   },
@@ -225,12 +229,12 @@ Polymer({
    * in use.
    */
   validateAddress() {
-    var input = this.$.deviceAddressInput;
-    var val = input.value;
-    var exists = false;
-    var addressRegex = RegExp('^([\\da-fA-F]{2}:){5}[\\da-fA-F]{2}$');
+    const input = this.$.deviceAddressInput;
+    const val = input.value;
+    let exists = false;
+    const addressRegex = RegExp('^([\\da-fA-F]{2}:){5}[\\da-fA-F]{2}$');
     if (addressRegex.test(val)) {
-      for (var i = 0; i < this.predefinedDevices.length; ++i) {
+      for (let i = 0; i < this.predefinedDevices.length; ++i) {
         if (this.predefinedDevices[i].address == val) {
           exists = true;
           break;
@@ -238,7 +242,7 @@ Polymer({
       }
 
       if (!exists) {
-        for (var i = 0; i < this.devices.length; ++i) {
+        for (let i = 0; i < this.devices.length; ++i) {
           if (this.devices[i].address == val && i != this.currentEditIndex) {
             exists = true;
             break;
@@ -262,11 +266,11 @@ Polymer({
    * Makes sure that a path is not already used.
    */
   validatePath() {
-    var input = this.$.devicePathInput;
-    var val = input.value;
-    var exists = false;
+    const input = this.$.devicePathInput;
+    const val = input.value;
+    let exists = false;
 
-    for (var i = 0; i < this.predefinedDevices.length; ++i) {
+    for (let i = 0; i < this.predefinedDevices.length; ++i) {
       if (this.predefinedDevices[i].path == val) {
         exists = true;
         break;
@@ -274,7 +278,7 @@ Polymer({
     }
 
     if (!exists) {
-      for (var i = 0; i < this.devices.length; ++i) {
+      for (let i = 0; i < this.devices.length; ++i) {
         if (this.devices[i].path == val && i != this.currentEditIndex) {
           exists = true;
           break;
@@ -327,11 +331,12 @@ Polymer({
    * @param {boolean} predefined Whether or not the device is a predefined one.
    */
   loadDevicesFromList(devices, predefined) {
-    /** @type {!Array<!BluetoothDevice>} */ var deviceList = [];
+    /** @type {!Array<!BluetoothDevice>} */ const deviceList = [];
 
-    for (var i = 0; i < devices.length; ++i) {
-      if (this.devicePaths[devices[i].path] != undefined)
+    for (let i = 0; i < devices.length; ++i) {
+      if (this.devicePaths[devices[i].path] != undefined) {
         continue;
+      }
 
       // Get the label for the device class which should be selected.
       devices[i].class = this.getTextForDeviceClass(devices[i].classValue);
@@ -339,7 +344,7 @@ Polymer({
       deviceList.push(devices[i]);
       this.devicePaths[devices[i].path] = {
         predefined: predefined,
-        index: deviceList.length - 1
+        index: deviceList.length - 1,
       };
     }
 
@@ -352,13 +357,14 @@ Polymer({
    * @private
    */
   devicePairedFromTray_(path) {
-    var obj = this.devicePaths[path];
+    const obj = this.devicePaths[path];
 
-    if (obj == undefined)
+    if (obj == undefined) {
       return;
+    }
 
-    var index = obj.index;
-    var devicePath = (obj.predefined ? 'predefinedDevices.' : 'devices.');
+    const index = obj.index;
+    let devicePath = (obj.predefined ? 'predefinedDevices.' : 'devices.');
     devicePath += obj.index.toString();
     this.set(devicePath + '.paired', true);
   },
@@ -370,14 +376,14 @@ Polymer({
    *     of the item which the target is contained in.
    */
   pairDevice(event) {
-    var index = event.model.index;
-    var predefined =
+    const index = event.model.index;
+    const predefined =
         /** @type {boolean} */ (event.target.dataset.predefined == 'true');
-    var device =
+    const device =
         predefined ? this.predefinedDevices[index] : this.devices[index];
 
     if (event.target.checked) {
-      var devicePath = (predefined ? 'predefinedDevices.' : 'devices.');
+      let devicePath = (predefined ? 'predefinedDevices.' : 'devices.');
       devicePath += index.toString();
       this.set(devicePath + '.discoverable', true);
 
@@ -385,13 +391,13 @@ Polymer({
       chrome.send('requestBluetoothPair', [device]);
       this.devicePaths[device.path] = {predefined: predefined, index: index};
 
-      var devicePath = (predefined ? 'predefinedDevices.' : 'devices.');
+      devicePath = (predefined ? 'predefinedDevices.' : 'devices.');
       devicePath += index.toString();
       this.set(devicePath + '.paired', false);
     } else {
       chrome.send('removeBluetoothDevice', [device.path]);
 
-      var devicePath = (predefined ? 'predefinedDevices.' : 'devices.');
+      let devicePath = (predefined ? 'predefinedDevices.' : 'devices.');
       devicePath += index.toString();
       this.set(devicePath + '.discoverable', false);
     }
@@ -403,12 +409,13 @@ Polymer({
    * @private
    */
   pairFailed_(path) {
-    var obj = this.devicePaths[path];
+    const obj = this.devicePaths[path];
 
-    if (obj == undefined)
+    if (obj == undefined) {
       return;
+    }
 
-    var devicePath = (obj.predefined ? 'predefinedDevices.' : 'devices.');
+    let devicePath = (obj.predefined ? 'predefinedDevices.' : 'devices.');
     devicePath += obj.index.toString();
     this.set(devicePath + '.paired', false);
   },
@@ -419,10 +426,10 @@ Polymer({
    *     of the item which the target is contained in.
    */
   discoverDevice(event) {
-    var index = event.model.index;
-    var predefined =
+    const index = event.model.index;
+    const predefined =
         /** @type {boolean} */ (event.target.dataset.predefined == 'true');
-    var device =
+    const device =
         predefined ? this.predefinedDevices[index] : this.devices[index];
 
     if (event.target.checked) {
@@ -435,7 +442,7 @@ Polymer({
     } else {
       chrome.send('removeBluetoothDevice', [device.path]);
 
-      var devicePath = (predefined ? 'predefinedDevices.' : 'devices.');
+      let devicePath = (predefined ? 'predefinedDevices.' : 'devices.');
       devicePath += index.toString();
       this.set(devicePath + '.paired', false);
     }
@@ -443,7 +450,7 @@ Polymer({
 
   // Adds a new device with default settings to the list of devices.
   appendNewDevice() {
-    var newDevice = new BluetoothDevice();
+    const newDevice = new BluetoothDevice();
     newDevice.alias = 'New Device';
     this.push('devices', newDevice);
   },
@@ -457,8 +464,8 @@ Polymer({
    */
   addBluetoothDevice_(device) {
     if (this.devicePaths[device.path] != undefined) {
-      var obj = this.devicePaths[device.path];
-      var devicePath = (obj.predefined ? 'predefinedDevices.' : 'devices.');
+      const obj = this.devicePaths[device.path];
+      let devicePath = (obj.predefined ? 'predefinedDevices.' : 'devices.');
       devicePath += obj.index.toString();
       this.set(devicePath + '.discoverable', true);
       return;
@@ -469,7 +476,7 @@ Polymer({
     this.push('devices', device);
     this.devicePaths[device.path] = {
       predefined: false,
-      index: this.devices.length - 1
+      index: this.devices.length - 1,
     };
   },
 
@@ -480,12 +487,12 @@ Polymer({
    *     of the item which the target is contained in.
    */
   copyDevice(event) {
-    var predefined = (event.target.dataset.predefined == 'true');
-    var index = event.model.index;
-    var copyDevice =
+    const predefined = (event.target.dataset.predefined == 'true');
+    const index = event.model.index;
+    const copyDevice =
         predefined ? this.predefinedDevices[index] : this.devices[index];
     // Create a deep copy of the selected device.
-    var newDevice = new BluetoothDevice();
+    const newDevice = new BluetoothDevice();
     Object.assign(newDevice, copyDevice);
     newDevice.path = '';
     newDevice.address = '';
@@ -502,7 +509,7 @@ Polymer({
    *     of the item which the target is contained in.
    */
   showEditDialog(event) {
-    var index = event.model.index;
+    const index = event.model.index;
     this.currentEditIndex = index;
     this.currentEditableObject = this.devices[index];
     this.$.editDialog.showModal();
@@ -521,8 +528,8 @@ Polymer({
    *     of the item which the target is contained in.
    */
   deleteDevice(event) {
-    var index = event.model.index;
-    var device = this.devices[index];
+    const index = event.model.index;
+    const device = this.devices[index];
 
     chrome.send('removeBluetoothDevice', [device.path]);
 
@@ -538,11 +545,12 @@ Polymer({
    * @private
    */
   deviceRemovedFromMainAdapter_(path) {
-    if (this.devicePaths[path] == undefined)
+    if (this.devicePaths[path] == undefined) {
       return;
+    }
 
-    var obj = this.devicePaths[path];
-    var devicePath = (obj.predefined ? 'predefinedDevices.' : 'devices.');
+    const obj = this.devicePaths[path];
+    let devicePath = (obj.predefined ? 'predefinedDevices.' : 'devices.');
     devicePath += obj.index.toString();
     this.set(devicePath + '.discoverable', false);
     this.set(devicePath + '.paired', false);
@@ -555,9 +563,10 @@ Polymer({
    * @return {string} The label which represents |classValue|.
    */
   getTextForDeviceClass(classValue) {
-    for (var i = 0; i < this.deviceClassOptions.length; ++i) {
-      if (this.deviceClassOptions[i].value == classValue)
+    for (let i = 0; i < this.deviceClassOptions.length; ++i) {
+      if (this.deviceClassOptions[i].value == classValue) {
         return this.deviceClassOptions[i].text;
+      }
     }
     return '';
   },
@@ -568,9 +577,10 @@ Polymer({
    * @return {number} The value which |classText| represents.
    */
   getValueForDeviceClass(classText) {
-    for (var i = 0; i < this.deviceClassOptions.length; ++i) {
-      if (this.deviceClassOptions[i].text == classText)
+    for (let i = 0; i < this.deviceClassOptions.length; ++i) {
+      if (this.deviceClassOptions[i].text == classText) {
         return this.deviceClassOptions[i].value;
+      }
     }
     return 0;
   },

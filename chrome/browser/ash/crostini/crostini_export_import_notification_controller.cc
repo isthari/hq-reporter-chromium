@@ -1,12 +1,13 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/crostini/crostini_export_import_notification_controller.h"
 
+#include "ash/constants/notifier_catalogs.h"
+#include "ash/constants/url_constants.h"
 #include "ash/public/cpp/notification_utils.h"
-#include "base/strings/utf_string_conversions.h"
-#include "chrome/app/vector_icons/vector_icons.h"
+#include "ash/resources/vector_icons/vector_icons.h"
 #include "chrome/browser/ash/crostini/crostini_export_import.h"
 #include "chrome/browser/notifications/notification_display_service.h"
 #include "chrome/browser/platform_util.h"
@@ -15,12 +16,10 @@
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/settings_window_manager_chromeos.h"
 #include "chrome/browser/ui/webui/settings/chromeos/constants/routes.mojom.h"
-#include "chrome/common/url_constants.h"
-#include "chrome/common/webui_url_constants.h"
 #include "chrome/grit/generated_resources.h"
+#include "chromeos/constants/chromeos_features.h"
 #include "ui/base/l10n/l10n_util.h"
-#include "ui/base/text/bytes_formatting.h"
-#include "ui/message_center/public/cpp/message_center_constants.h"
+#include "ui/chromeos/styles/cros_tokens_color_mappings.h"
 #include "ui/message_center/public/cpp/notification.h"
 #include "ui/message_center/public/cpp/notification_delegate.h"
 
@@ -51,7 +50,7 @@ CrostiniExportImportNotificationController::
         ExportImportType type,
         const std::string& notification_id,
         base::FilePath path,
-        ContainerId container_id)
+        guest_os::GuestId container_id)
     : CrostiniExportImportStatusTracker(type, std::move(path)),
       profile_(profile),
       container_id_(std::move(container_id)),
@@ -62,18 +61,25 @@ CrostiniExportImportNotificationController::
       weak_ptr_factory_.GetWeakPtr()));
 
   message_center::RichNotificationData rich_notification_data;
-  rich_notification_data.vector_small_image = &kNotificationLinuxIcon;
-  rich_notification_data.accent_color = ash::kSystemNotificationColorNormal;
+  rich_notification_data.vector_small_image = &ash::kNotificationLinuxIcon;
+
+  if (chromeos::features::IsJellyEnabled()) {
+    rich_notification_data.accent_color_id = cros_tokens::kCrosSysPrimary;
+  } else {
+    rich_notification_data.accent_color = ash::kSystemNotificationColorNormal;
+  }
 
   notification_ = std::make_unique<message_center::Notification>(
       message_center::NOTIFICATION_TYPE_PROGRESS, notification_id,
       std::u16string(), std::u16string(),
-      gfx::Image(),  // icon
+      ui::ImageModel(),  // icon
       l10n_util::GetStringUTF16(
           IDS_CROSTINI_EXPORT_IMPORT_NOTIFICATION_DISPLAY_SOURCE),
       GURL(),  // origin_url
-      message_center::NotifierId(message_center::NotifierType::SYSTEM_COMPONENT,
-                                 kNotifierCrostiniExportImportOperation),
+      message_center::NotifierId(
+          message_center::NotifierType::SYSTEM_COMPONENT,
+          kNotifierCrostiniExportImportOperation,
+          ash::NotificationCatalogName::kCrostiniExportImport),
       rich_notification_data, delegate_);
 }
 
@@ -95,19 +101,23 @@ void CrostiniExportImportNotificationController::SetStatusRunningUI(
   }
 
   delegate_->SetCallback(base::BindRepeating(
-      [](Profile* profile, ExportImportType type, ContainerId container_id,
-         absl::optional<int> button_index) {
+      [](Profile* profile, ExportImportType type,
+         guest_os::GuestId container_id, absl::optional<int> button_index) {
         if (!button_index.has_value()) {
           return;
         }
-        DCHECK(*button_index == 1);
+        DCHECK_EQ(0, *button_index);
         CrostiniExportImport::GetForProfile(profile)->CancelOperation(
             type, container_id);
       },
       profile_, type(), container_id_));
 
   notification_->set_type(message_center::NOTIFICATION_TYPE_PROGRESS);
-  notification_->set_accent_color(ash::kSystemNotificationColorNormal);
+  if (chromeos::features::IsJellyEnabled()) {
+    notification_->set_accent_color_id(cros_tokens::kCrosSysPrimary);
+  } else {
+    notification_->set_accent_color(ash::kSystemNotificationColorNormal);
+  }
   notification_->set_title(l10n_util::GetStringUTF16(
       type() == ExportImportType::EXPORT
           ? IDS_CROSTINI_EXPORT_NOTIFICATION_TITLE_RUNNING
@@ -132,7 +142,11 @@ void CrostiniExportImportNotificationController::SetStatusCancellingUI() {
       CrostiniExportImportClickCloseDelegate::ButtonClickCallback());
 
   notification_->set_type(message_center::NOTIFICATION_TYPE_PROGRESS);
-  notification_->set_accent_color(ash::kSystemNotificationColorNormal);
+  if (chromeos::features::IsJellyEnabled()) {
+    notification_->set_accent_color_id(cros_tokens::kCrosSysPrimary);
+  } else {
+    notification_->set_accent_color(ash::kSystemNotificationColorNormal);
+  }
   notification_->set_title(l10n_util::GetStringUTF16(
       type() == ExportImportType::EXPORT
           ? IDS_CROSTINI_EXPORT_NOTIFICATION_TITLE_CANCELLING
@@ -159,7 +173,11 @@ void CrostiniExportImportNotificationController::SetStatusDoneUI() {
   }
 
   notification_->set_type(message_center::NOTIFICATION_TYPE_SIMPLE);
-  notification_->set_accent_color(ash::kSystemNotificationColorNormal);
+  if (chromeos::features::IsJellyEnabled()) {
+    notification_->set_accent_color_id(cros_tokens::kCrosSysPrimary);
+  } else {
+    notification_->set_accent_color(ash::kSystemNotificationColorNormal);
+  }
   notification_->set_title(l10n_util::GetStringUTF16(
       type() == ExportImportType::EXPORT
           ? IDS_CROSTINI_EXPORT_NOTIFICATION_TITLE_DONE
@@ -224,7 +242,12 @@ void CrostiniExportImportNotificationController::SetStatusFailedWithMessageUI(
   }
 
   notification_->set_type(message_center::NOTIFICATION_TYPE_SIMPLE);
-  notification_->set_accent_color(ash::kSystemNotificationColorCriticalWarning);
+  if (chromeos::features::IsJellyEnabled()) {
+    notification_->set_accent_color_id(cros_tokens::kCrosSysError);
+  } else {
+    notification_->set_accent_color(
+        ash::kSystemNotificationColorCriticalWarning);
+  }
   notification_->set_title(l10n_util::GetStringUTF16(
       type() == ExportImportType::EXPORT
           ? IDS_CROSTINI_EXPORT_NOTIFICATION_TITLE_FAILED

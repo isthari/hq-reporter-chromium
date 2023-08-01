@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,7 +20,6 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/system/sys_info.h"
@@ -28,6 +27,9 @@
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "components/crash/core/app/crash_reporter_client.h"
+#include "components/crash/core/common/crash_key.h"
+#include "third_party/abseil-cpp/absl/base/internal/raw_logging.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/crashpad/crashpad/client/annotation.h"
 #include "third_party/crashpad/crashpad/client/annotation_list.h"
 #include "third_party/crashpad/crashpad/client/crash_report_database.h"
@@ -48,48 +50,21 @@ namespace crash_reporter {
 
 namespace {
 
+void AbslAbortHook(const char* file,
+                   int line,
+                   const char* buf_start,
+                   const char* prefix_end,
+                   const char* buf_end) {
+  // This simulates that a CHECK(false) was done at file:line instead of here.
+  // This is used instead of base::ImmediateCrash() to give better error
+  // messages locally (printed stack for one).
+  logging::LogMessage check_failure(file, line, logging::LOGGING_FATAL);
+  check_failure.stream() << "Check failed: false. " << prefix_end;
+}
+
 base::FilePath* g_database_path;
 
 crashpad::CrashReportDatabase* g_database;
-
-bool LogMessageHandler(int severity,
-                       const char* file,
-                       int line,
-                       size_t message_start,
-                       const std::string& string) {
-  // Only handle FATAL.
-  if (severity != logging::LOG_FATAL) {
-    return false;
-  }
-
-  // In case of an out-of-memory condition, this code could be reentered when
-  // constructing and storing the key. Using a static is not thread-safe, but if
-  // multiple threads are in the process of a fatal crash at the same time, this
-  // should work.
-  static bool guarded = false;
-  if (guarded) {
-    return false;
-  }
-  base::AutoReset<bool> guard(&guarded, true);
-
-  // Only log last path component.  This matches logging.cc.
-  if (file) {
-    const char* slash = strrchr(file, '/');
-    if (slash) {
-      file = slash + 1;
-    }
-  }
-
-  CHECK_LE(message_start, string.size());
-  std::string message = base::StringPrintf("%s:%d: %s", file, line,
-                                           string.c_str() + message_start);
-  static crashpad::StringAnnotation<512> crash_key("LOG_FATAL");
-  crash_key.Set(message);
-
-  // Rather than including the code to force the crash here, allow the caller to
-  // do it.
-  return false;
-}
 
 void InitializeDatabasePath(const base::FilePath& database_path) {
   DCHECK(!g_database_path);
@@ -160,8 +135,7 @@ bool InitializeCrashpadImpl(bool initial_client,
   }
 #endif  // BUILDFLAG(IS_APPLE)
 
-  crashpad::AnnotationList::Register();
-
+  InitializeCrashKeys();
 #if !BUILDFLAG(IS_IOS)
   static crashpad::StringAnnotation<24> ptype_key("ptype");
   ptype_key.Set(browser_process ? base::StringPiece("browser")
@@ -182,14 +156,18 @@ bool InitializeCrashpadImpl(bool initial_client,
   platform.Set(base::SysInfo::HardwareModelName());
 #endif  // !BUILDFLAG(IS_IOS)
 
-  logging::SetLogMessageHandler(LogMessageHandler);
-
   // If clients called CRASHPAD_SIMULATE_CRASH() instead of
   // base::debug::DumpWithoutCrashing(), these dumps would appear as crashes in
   // the correct function, at the correct file and line. This would be
   // preferable to having all occurrences show up in DumpWithoutCrashing() at
   // the same file and line.
   base::debug::SetDumpWithoutCrashingFunction(DumpWithoutCrashing);
+
+  // TODO(pbos): Update this to not rely on a _internal namespace once there's
+  // a public API in absl::.
+  // Note: If this fails to compile because of an absl roll, this is fair to
+  // remove if you file a crbug.com/new and assign it to pbos@.
+  absl::raw_log_internal::RegisterAbortHook(&AbslAbortHook);
 
 #if BUILDFLAG(IS_APPLE)
   // On Mac, we only want the browser to initialize the database, but not the
@@ -209,7 +187,10 @@ bool InitializeCrashpadImpl(bool initial_client,
     g_database =
         crashpad::CrashReportDatabase::Initialize(database_path).release();
 
-#if !BUILDFLAG(IS_CHROMEOS_ASH)
+#if !BUILDFLAG(IS_CHROMEOS_ASH) && !BUILDFLAG(IS_IOS) && !BUILDFLAG(IS_ANDROID)
+    // On Android crashpad doesn't handle uploads. Android uses
+    // //components/minidump_uploader which queries metrics sample/consent opt
+    // in from preferences.
     CrashReporterClient* crash_reporter_client = GetCrashReporterClient();
     SetUploadConsent(crash_reporter_client->GetCollectStatsConsent());
 #endif
@@ -222,26 +203,28 @@ bool InitializeCrashpadImpl(bool initial_client,
 bool InitializeCrashpad(bool initial_client, const std::string& process_type) {
   return InitializeCrashpadImpl(initial_client, process_type, std::string(),
                                 base::FilePath(), std::vector<std::string>(),
-                                false);
+                                /*embedded_handler=*/false);
 }
 
 #if BUILDFLAG(IS_WIN)
-void InitializeCrashpadWithEmbeddedHandler(bool initial_client,
+bool InitializeCrashpadWithEmbeddedHandler(bool initial_client,
                                            const std::string& process_type,
                                            const std::string& user_data_dir,
                                            const base::FilePath& exe_path) {
-  InitializeCrashpadImpl(initial_client, process_type, user_data_dir, exe_path,
-                         std::vector<std::string>(), true);
+  return InitializeCrashpadImpl(initial_client, process_type, user_data_dir,
+                                exe_path, std::vector<std::string>(),
+                                /*embedded_handler=*/true);
 }
 
-void InitializeCrashpadWithDllEmbeddedHandler(
+bool InitializeCrashpadWithDllEmbeddedHandler(
     bool initial_client,
     const std::string& process_type,
     const std::string& user_data_dir,
     const base::FilePath& exe_path,
     const std::vector<std::string>& initial_arguments) {
-  InitializeCrashpadImpl(initial_client, process_type, user_data_dir, exe_path,
-                         initial_arguments, true);
+  return InitializeCrashpadImpl(initial_client, process_type, user_data_dir,
+                                exe_path, initial_arguments,
+                                /*embedded_handler=*/true);
 }
 #endif  // BUILDFLAG(IS_WIN)
 
@@ -339,12 +322,18 @@ void RequestSingleCrashUpload(const std::string& local_id) {
 #endif
 }
 
-base::FilePath GetCrashpadDatabasePath() {
+absl::optional<base::FilePath> GetCrashpadDatabasePath() {
 #if BUILDFLAG(IS_WIN)
-  return base::FilePath(GetCrashpadDatabasePath_ExportThunk());
+  base::FilePath::StringType::const_pointer path =
+      GetCrashpadDatabasePath_ExportThunk();
 #else
-  return base::FilePath(GetCrashpadDatabasePathImpl());
+  base::FilePath::StringType::const_pointer path =
+      GetCrashpadDatabasePathImpl();
 #endif
+  if (!path) {
+    return absl::nullopt;
+  }
+  return base::FilePath(path);
 }
 
 void ClearReportsBetween(const base::Time& begin, const base::Time& end) {

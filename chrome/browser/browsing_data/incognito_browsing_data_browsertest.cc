@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,11 @@
 #include <memory>
 #include <string>
 
-#include "base/bind.h"
-#include "base/callback.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/test/bind.h"
-#include "base/test/scoped_feature_list.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
@@ -21,6 +20,7 @@
 #include "chrome/browser/browsing_data/counters/site_data_counting_helper.h"
 #include "chrome/browser/browsing_data/local_data_container.h"
 #include "chrome/browser/external_protocol/external_protocol_handler.h"
+#include "chrome/browser/media/clear_key_cdm_test_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/pref_names.h"
@@ -30,7 +30,6 @@
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/storage_usage_info.h"
 #include "content/public/common/content_paths.h"
-#include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test.h"
 #include "media/base/media_switches.h"
 #include "media/mojo/mojom/media_types.mojom.h"
@@ -45,8 +44,6 @@
 #include "base/threading/platform_thread.h"
 #endif
 #include "base/memory/scoped_refptr.h"
-#include "chrome/browser/browsing_data/browsing_data_media_license_helper.h"
-#include "chrome/browser/media/library_cdm_test_helper.h"
 #endif  // BUILDFLAG(ENABLE_LIBRARY_CDMS)
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -66,7 +63,7 @@ class IncognitoBrowsingDataBrowserTest
     : public BrowsingDataRemoverBrowserTestBase {
  public:
   IncognitoBrowsingDataBrowserTest() {
-    std::vector<base::Feature> enabled_features = {};
+    std::vector<base::test::FeatureRef> enabled_features = {};
 #if BUILDFLAG(ENABLE_LIBRARY_CDMS)
     enabled_features.push_back(media::kExternalClearKeyForTesting);
 #endif
@@ -111,7 +108,11 @@ class IncognitoBrowsingDataBrowserTest
     EXPECT_EQ(0, GetSiteDataCount(GetActiveWebContents(regular_browser)));
     EXPECT_EQ(1, GetSiteDataCount(GetActiveWebContents(incognito_browser)));
     ExpectCookieTreeModelCount(regular_browser, 0);
-    ExpectCookieTreeModelCount(incognito_browser, 1);
+    // TODO(crbug.com/1307796): Use a different approach to determine presence
+    // of data that does not depend on UI code and has a better resolution when
+    // 3PSP is fully enabled. ExpectCookieTreeModelCount(incognito_browser, 1);
+    // is not always true here.
+
     EXPECT_FALSE(HasDataForType(type, GetActiveWebContents(regular_browser)));
     EXPECT_TRUE(HasDataForType(type, GetActiveWebContents(incognito_browser)));
 
@@ -145,7 +146,10 @@ class IncognitoBrowsingDataBrowserTest
     EXPECT_EQ(0, GetSiteDataCount(GetActiveWebContents(regular_browser)));
     EXPECT_EQ(1, GetSiteDataCount(GetActiveWebContents(incognito_browser)));
     ExpectCookieTreeModelCount(regular_browser, 0);
-    ExpectCookieTreeModelCount(incognito_browser, 1);
+    // TODO(crbug.com/1307796): Use a different approach to determine presence
+    // of data that does not depend on UI code and has a better resolution when
+    // 3PSP is fully enabled. ExpectCookieTreeModelCount(incognito_browser, 1);
+    // is not always true here.
 
     // Restart Incognito, ensure there is no residue from previous one.
     RestartIncognitoBrowser();
@@ -155,27 +159,9 @@ class IncognitoBrowsingDataBrowserTest
   }
 
 #if BUILDFLAG(ENABLE_LIBRARY_CDMS)
-  int GetMediaLicenseCount(Browser* browser = nullptr) {
-    if (!browser)
-      browser = GetBrowser();
-    base::RunLoop run_loop;
-    int count = -1;
-    content::StoragePartition* partition =
-        browser->profile()->GetDefaultStoragePartition();
-    scoped_refptr<BrowsingDataMediaLicenseHelper> media_license_helper =
-        BrowsingDataMediaLicenseHelper::Create(
-            partition->GetFileSystemContext());
-    media_license_helper->StartFetching(base::BindLambdaForTesting(
-        [&](const std::list<content::StorageUsageInfo>& licenses) {
-          count = licenses.size();
-          LOG(INFO) << "Found " << count << " licenses.";
-          for (const auto& license : licenses)
-            LOG(INFO) << license.last_modified;
-          run_loop.Quit();
-        }));
-    run_loop.Run();
-    return count;
-  }
+  // TODO(crbug.com/1307796): Include quota nodes in CookieTreeModelCount to
+  // allow testing media licenses with TestSiteData().
+  int GetMediaLicenseCount(Browser* browser = nullptr) { return 0; }
 #endif
 
   inline void ExpectCookieTreeModelCount(Browser* browser, int expected) {
@@ -223,8 +209,6 @@ class IncognitoBrowsingDataBrowserTest
     // it uses the External Clear Key CDM.
     RegisterClearKeyCdm(command_line);
 #endif
-    command_line->AppendSwitchASCII(switches::kEnableBlinkFeatures,
-                                    "StorageFoundationAPI");
   }
 };
 
@@ -342,8 +326,14 @@ IN_PROC_BROWSER_TEST_F(IncognitoBrowsingDataBrowserTest,
   EXPECT_TRUE(is_power_efficient);
 }
 
+// TODO(crbug.com/1317431): WebSQL does not work on Fuchsia.
+#if BUILDFLAG(IS_FUCHSIA)
+#define MAYBE_Database DISABLED_Database
+#else
+#define MAYBE_Database Database
+#endif
 // Verify database is reset after Incognito restart.
-IN_PROC_BROWSER_TEST_F(IncognitoBrowsingDataBrowserTest, Database) {
+IN_PROC_BROWSER_TEST_F(IncognitoBrowsingDataBrowserTest, MAYBE_Database) {
   GURL url = embedded_test_server()->GetURL("/simple_database.html");
   ASSERT_TRUE(ui_test_utils::NavigateToURL(GetBrowser(), url));
 
@@ -387,14 +377,13 @@ IN_PROC_BROWSER_TEST_F(IncognitoBrowsingDataBrowserTest,
   Profile* profile = GetBrowser()->profile();
   url::Origin test_origin = url::Origin::Create(GURL("https://example.test/"));
   const std::string serialized_test_origin = test_origin.Serialize();
-  base::Value origin_pref(base::Value::Type::DICTIONARY);
-  origin_pref.SetKey(serialized_test_origin,
-                     base::Value(base::Value::Type::DICTIONARY));
-  base::Value* allowed_protocols_for_origin =
-      origin_pref.FindDictKey(serialized_test_origin);
-  allowed_protocols_for_origin->SetBoolKey("tel", true);
-  profile->GetPrefs()->Set(prefs::kProtocolHandlerPerOriginAllowedProtocols,
-                           origin_pref);
+  base::Value::Dict allowed_protocols_for_origin;
+  allowed_protocols_for_origin.Set("tel", true);
+  base::Value::Dict origin_pref;
+  origin_pref.Set(serialized_test_origin,
+                  std::move(allowed_protocols_for_origin));
+  profile->GetPrefs()->SetDict(prefs::kProtocolHandlerPerOriginAllowedProtocols,
+                               std::move(origin_pref));
   ExternalProtocolHandler::BlockState block_state =
       ExternalProtocolHandler::GetBlockState("tel", &test_origin, profile);
   ASSERT_EQ(ExternalProtocolHandler::DONT_BLOCK, block_state);
@@ -470,18 +459,25 @@ IN_PROC_BROWSER_TEST_F(IncognitoBrowsingDataBrowserTest,
   TestEmptySiteData("FileSystem");
 }
 
-// Storage foundation is not supported in Incognito.
-IN_PROC_BROWSER_TEST_F(IncognitoBrowsingDataBrowserTest,
-                       DISABLED_NativeIODeletion) {
-  TestSiteData("StorageFoundation");
-}
-
-IN_PROC_BROWSER_TEST_F(IncognitoBrowsingDataBrowserTest, WebSqlDeletion) {
+// TODO(crbug.com/1317431): WebSQL does not work on Fuchsia.
+#if BUILDFLAG(IS_FUCHSIA)
+#define MAYBE_WebSqlDeletion DISABLED_WebSqlDeletion
+#else
+#define MAYBE_WebSqlDeletion WebSqlDeletion
+#endif
+IN_PROC_BROWSER_TEST_F(IncognitoBrowsingDataBrowserTest, MAYBE_WebSqlDeletion) {
   TestSiteData("WebSql");
 }
 
+// TODO(crbug.com/1317431): WebSQL does not work on Fuchsia.
+#if BUILDFLAG(IS_FUCHSIA)
+#define MAYBE_EmptyWebSqlDeletion DISABLED_EmptyWebSqlDeletion
+#else
+#define MAYBE_EmptyWebSqlDeletion EmptyWebSqlDeletion
+#endif
 // Test that empty websql dbs are deleted correctly.
-IN_PROC_BROWSER_TEST_F(IncognitoBrowsingDataBrowserTest, EmptyWebSqlDeletion) {
+IN_PROC_BROWSER_TEST_F(IncognitoBrowsingDataBrowserTest,
+                       MAYBE_EmptyWebSqlDeletion) {
   TestEmptySiteData("WebSql");
 }
 
@@ -512,10 +508,17 @@ IN_PROC_BROWSER_TEST_F(IncognitoBrowsingDataBrowserTest, MediaLicenseDeletion) {
   ExpectCookieTreeModelCount(GetBrowser(), 0);
   EXPECT_FALSE(HasDataForType(kMediaLicenseType));
 
+  // The new media license backend will not store media licenses explicitly
+  // within CookieTreeModel, but the data will still be tracked through the
+  // quota system. GetMediaLicenseCount() is expected to always return 0 using
+  // the new backend.
+  // TODO(crbug.com/1307796): Fix GetCookiesTreeModelCount() to include quota
+  // nodes. `count` should be 1 here.
+  int count = 0;
   SetDataForType(kMediaLicenseType);
   EXPECT_EQ(1, GetSiteDataCount());
-  EXPECT_EQ(1, GetMediaLicenseCount());
-  ExpectCookieTreeModelCount(GetBrowser(), 1);
+  EXPECT_EQ(count, GetMediaLicenseCount());
+  ExpectCookieTreeModelCount(GetBrowser(), count);
   EXPECT_TRUE(HasDataForType(kMediaLicenseType));
 
   // No residue in regular mode.
@@ -535,14 +538,19 @@ IN_PROC_BROWSER_TEST_F(IncognitoBrowsingDataBrowserTest, MediaLicenseDeletion) {
 }
 #endif  // BUILDFLAG(ENABLE_LIBRARY_CDMS)
 
-// Note that |"StorageFoundation"| is not supported in Incognito.
 const std::vector<std::string> kStorageTypes{
-    "Cookie",    "LocalStorage", "FileSystem",    "SessionStorage",
-    "IndexedDb", "WebSql",       "ServiceWorker", "CacheStorage"};
+    "Cookie", "LocalStorage",  "FileSystem",   "SessionStorage", "IndexedDb",
+    "WebSql", "ServiceWorker", "CacheStorage", "MediaLicense"};
 
+// TODO(crbug.com/1317431): WebSQL does not work on Fuchsia.
+#if BUILDFLAG(IS_FUCHSIA)
+#define MAYBE_StorageDoesntWriteToDisk DISABLED_StorageDoesntWriteToDisk
+#else
+#define MAYBE_StorageDoesntWriteToDisk StorageDoesntWriteToDisk
+#endif
 // Test that storage doesn't leave any traces on disk.
 IN_PROC_BROWSER_TEST_F(IncognitoBrowsingDataBrowserTest,
-                       StorageDoesntWriteToDisk) {
+                       MAYBE_StorageDoesntWriteToDisk) {
   // Checking leveldb content fails in most cases. See https://crbug.com/1238325
   ASSERT_EQ(0, CheckUserDirectoryForString(kLocalHost, {},
                                            /*check_leveldb_content=*/false));

@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,11 @@
 #include "base/scoped_observation.h"
 #include "content/browser/attribution_reporting/attribution_internals.mojom.h"
 #include "content/browser/attribution_reporting/attribution_manager.h"
-#include "content/browser/attribution_reporting/attribution_report.h"
-#include "content/browser/attribution_reporting/attribution_storage.h"
+#include "content/browser/attribution_reporting/attribution_observer.h"
 #include "mojo/public/cpp/bindings/pending_receiver.h"
+#include "mojo/public/cpp/bindings/pending_remote.h"
 #include "mojo/public/cpp/bindings/receiver.h"
-#include "mojo/public/cpp/bindings/remote_set.h"
+#include "mojo/public/cpp/bindings/remote.h"
 
 namespace content {
 
@@ -25,64 +25,77 @@ class WebUI;
 // reports being sent or dropped, to the internals WebUI. Owned by
 // `AttributionInternalsUI`.
 class AttributionInternalsHandlerImpl
-    : public mojom::AttributionInternalsHandler,
-      public AttributionManager::Observer {
+    : public attribution_internals::mojom::Handler,
+      public AttributionObserver {
  public:
   AttributionInternalsHandlerImpl(
       WebUI* web_ui,
-      mojo::PendingReceiver<mojom::AttributionInternalsHandler> receiver);
-  AttributionInternalsHandlerImpl(
-      const AttributionInternalsHandlerImpl& other) = delete;
-  AttributionInternalsHandlerImpl& operator=(
-      const AttributionInternalsHandlerImpl& other) = delete;
-  AttributionInternalsHandlerImpl(AttributionInternalsHandlerImpl&& other) =
+      mojo::PendingRemote<attribution_internals::mojom::Observer>,
+      mojo::PendingReceiver<attribution_internals::mojom::Handler>);
+  AttributionInternalsHandlerImpl(const AttributionInternalsHandlerImpl&) =
       delete;
   AttributionInternalsHandlerImpl& operator=(
-      AttributionInternalsHandlerImpl&& other) = delete;
+      const AttributionInternalsHandlerImpl&) = delete;
+  AttributionInternalsHandlerImpl(AttributionInternalsHandlerImpl&&) = delete;
+  AttributionInternalsHandlerImpl& operator=(
+      AttributionInternalsHandlerImpl&&) = delete;
   ~AttributionInternalsHandlerImpl() override;
 
   // mojom::AttributionInternalsHandler:
   void IsAttributionReportingEnabled(
-      mojom::AttributionInternalsHandler::IsAttributionReportingEnabledCallback
-          callback) override;
+      attribution_internals::mojom::Handler::
+          IsAttributionReportingEnabledCallback callback) override;
   void GetActiveSources(
-      mojom::AttributionInternalsHandler::GetActiveSourcesCallback callback)
+      attribution_internals::mojom::Handler::GetActiveSourcesCallback callback)
       override;
-  void GetReports(
-      mojom::AttributionInternalsHandler::GetReportsCallback callback) override;
-  void SendReports(
-      const std::vector<AttributionReport::EventLevelData::Id>& ids,
-      mojom::AttributionInternalsHandler::SendReportsCallback callback)
-      override;
-  void ClearStorage(mojom::AttributionInternalsHandler::ClearStorageCallback
+  void GetReports(attribution_internals::mojom::Handler::GetReportsCallback
+                      callback) override;
+  void SendReports(const std::vector<AttributionReport::Id>& ids,
+                   attribution_internals::mojom::Handler::SendReportsCallback
+                       callback) override;
+  void ClearStorage(attribution_internals::mojom::Handler::ClearStorageCallback
                         callback) override;
-  void AddObserver(
-      mojo::PendingRemote<mojom::AttributionInternalsObserver> observer,
-      mojom::AttributionInternalsHandler::AddObserverCallback callback)
-      override;
-
-  void SetAttributionManagerProviderForTesting(
-      std::unique_ptr<AttributionManager::Provider> manager_provider);
 
  private:
-  // AttributionManager::Observer:
+  // AttributionObserver:
   void OnSourcesChanged() override;
   void OnReportsChanged() override;
-  void OnSourceDeactivated(
-      const AttributionStorage::DeactivatedSource& deactivated_source) override;
+  void OnSourceHandled(
+      const StorableSource& source,
+      base::Time source_time,
+      absl::optional<uint64_t> cleared_debug_key,
+      attribution_reporting::mojom::StoreSourceResult) override;
   void OnReportSent(const AttributionReport& report,
+                    bool is_debug_report,
                     const SendResult& info) override;
-  void OnReportDropped(
-      const AttributionStorage::CreateReportResult& result) override;
+  void OnDebugReportSent(const AttributionDebugReport&,
+                         int status,
+                         base::Time) override;
+  void OnTriggerHandled(const AttributionTrigger& trigger,
+                        absl::optional<uint64_t> cleared_debug_key,
+                        const CreateReportResult& result) override;
+  void OnFailedSourceRegistration(
+      const std::string& header_value,
+      base::Time source_time,
+      const attribution_reporting::SuitableOrigin& source_origin,
+      const attribution_reporting::SuitableOrigin& reporting_origin,
+      attribution_reporting::mojom::SourceType,
+      attribution_reporting::mojom::SourceRegistrationError) override;
+  void OnOsRegistration(
+      base::Time time,
+      const OsRegistration&,
+      bool is_debug_key_allowed,
+      attribution_reporting::mojom::OsRegistrationResult) override;
+
+  void OnObserverDisconnected();
 
   raw_ptr<WebUI> web_ui_;
-  std::unique_ptr<AttributionManager::Provider> manager_provider_;
 
-  mojo::Receiver<mojom::AttributionInternalsHandler> receiver_;
+  mojo::Remote<attribution_internals::mojom::Observer> observer_;
 
-  mojo::RemoteSet<mojom::AttributionInternalsObserver> observers_;
+  mojo::Receiver<attribution_internals::mojom::Handler> handler_;
 
-  base::ScopedObservation<AttributionManager, AttributionManager::Observer>
+  base::ScopedObservation<AttributionManager, AttributionObserver>
       manager_observation_{this};
 };
 

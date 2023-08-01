@@ -1,13 +1,15 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
 
-#include "base/bind.h"
 #include "base/check.h"
 #include "base/containers/contains.h"
+#include "base/functional/bind.h"
+#include "base/lazy_instance.h"
 #include "base/logging.h"
+#include "base/observer_list.h"
 #include "base/unguessable_token.h"
 #include "build/build_config.h"
 #include "components/viz/common/features.h"
@@ -27,8 +29,10 @@
 #include "content/browser/renderer_host/render_widget_host_view_base_observer.h"
 #include "content/browser/renderer_host/render_widget_host_view_child_frame.h"
 #include "content/browser/renderer_host/text_input_manager.h"
+#include "content/browser/renderer_host/visible_time_request_trigger.h"
 #include "content/common/content_switches_internal.h"
 #include "content/public/common/page_visibility_state.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/blink/public/mojom/frame/intrinsic_sizing_info.mojom.h"
 #include "ui/base/layout.h"
 #include "ui/base/ui_base_types.h"
@@ -194,14 +198,6 @@ ui::TextInputClient* RenderWidgetHostViewBase::GetTextInputClient() {
   return nullptr;
 }
 
-void RenderWidgetHostViewBase::SetIsInVR(bool is_in_vr) {
-  NOTIMPLEMENTED_LOG_ONCE();
-}
-
-bool RenderWidgetHostViewBase::IsInVR() const {
-  return false;
-}
-
 viz::FrameSinkId RenderWidgetHostViewBase::GetRootFrameSinkId() {
   return viz::FrameSinkId();
 }
@@ -303,7 +299,8 @@ std::unique_ptr<viz::ClientFrameSinkVideoCapturer>
 RenderWidgetHostViewBase::CreateVideoCapturer() {
   std::unique_ptr<viz::ClientFrameSinkVideoCapturer> video_capturer =
       GetHostFrameSinkManager()->CreateVideoCapturer();
-  video_capturer->ChangeTarget(viz::VideoCaptureTarget(GetFrameSinkId()));
+  video_capturer->ChangeTarget(viz::VideoCaptureTarget(GetFrameSinkId()),
+                               /*crop_version=*/0);
   return video_capturer;
 }
 
@@ -316,7 +313,7 @@ std::u16string RenderWidgetHostViewBase::GetSelectedText() {
 void RenderWidgetHostViewBase::SetBackgroundColor(SkColor color) {
   // TODO(danakj): OPAQUE colors only make sense for main frame widgets,
   // as child frames are always transparent background. We should move this to
-  // RenderView instead.
+  // `blink::WebView` instead.
   DCHECK(SkColorGetA(color) == SK_AlphaOPAQUE ||
          SkColorGetA(color) == SK_AlphaTRANSPARENT);
   if (default_background_color_ == color)
@@ -376,6 +373,10 @@ bool RenderWidgetHostViewBase::GetIsMouseLockedUnadjustedMovementForTesting() {
   return false;
 }
 
+bool RenderWidgetHostViewBase::CanBeMouseLocked() {
+  return HasFocus();
+}
+
 bool RenderWidgetHostViewBase::LockKeyboard(
     absl::optional<base::flat_set<ui::DomCode>> codes) {
   NOTIMPLEMENTED_LOG_ONCE();
@@ -408,11 +409,13 @@ void RenderWidgetHostViewBase::WheelEventAck(
 
 void RenderWidgetHostViewBase::GestureEventAck(
     const blink::WebGestureEvent& event,
-    blink::mojom::InputEventResultState ack_result) {}
+    blink::mojom::InputEventResultState ack_result,
+    blink::mojom::ScrollResultDataPtr scroll_result_data) {}
 
 void RenderWidgetHostViewBase::ChildDidAckGestureEvent(
     const blink::WebGestureEvent& event,
-    blink::mojom::InputEventResultState ack_result) {}
+    blink::mojom::InputEventResultState ack_result,
+    blink::mojom::ScrollResultDataPtr scroll_result_data) {}
 
 void RenderWidgetHostViewBase::ForwardTouchpadZoomEventIfNecessary(
     const blink::WebGestureEvent& event,
@@ -497,6 +500,10 @@ RenderWidgetHostViewBase::AccessibilityGetNativeViewAccessibleForWindow() {
   return nullptr;
 }
 
+bool RenderWidgetHostViewBase::RequestStartStylusWriting() {
+  return false;
+}
+
 bool RenderWidgetHostViewBase::RequestRepaintForTesting() {
   return false;
 }
@@ -536,6 +543,23 @@ void RenderWidgetHostViewBase::UpdateScreenInfo() {
 
   auto new_screen_infos = GetNewScreenInfosForUpdate();
 
+  if (scale_override_for_capture_ != 1.0f) {
+    // If HiDPI capture mode is active, adjust the device scale factor to
+    // increase the rendered pixel count. |new_screen_infos| always contains the
+    // unmodified original values for the display, and a copy of it is saved in
+    // |screen_infos_|, with a modification applied if applicable. When HiDPI
+    // mode is turned off (the scale override is 1.0), the original
+    // |new_screen_infos| value gets copied unchanged to |screen_infos_|.
+    const float old_device_scale_factor =
+        new_screen_infos.current().device_scale_factor;
+    new_screen_infos.mutable_current().device_scale_factor =
+        old_device_scale_factor * scale_override_for_capture_;
+    DVLOG(1) << __func__ << ": Overriding device_scale_factor from "
+             << old_device_scale_factor << " to "
+             << new_screen_infos.current().device_scale_factor
+             << " for capture.";
+  }
+
   if (screen_infos_ == new_screen_infos && !force_sync_visual_properties)
     return;
 
@@ -558,6 +582,16 @@ void RenderWidgetHostViewBase::UpdateScreenInfo() {
     OnSynchronizedDisplayPropertiesChanged(has_rotation_changed);
     host()->NotifyScreenInfoChanged();
   }
+}
+
+void RenderWidgetHostViewBase::UpdateActiveState(bool active) {
+  // Send active state through the delegate if there is one to make sure
+  // it stays consistent across all widgets in the tab. Not every
+  // RenderWidgetHost has a delegate (for example, drop-down widgets).
+  if (host()->delegate())
+    host()->delegate()->SendActiveState(active);
+  else
+    host()->SetActive(active);
 }
 
 void RenderWidgetHostViewBase::DidUnregisterFromTextInputManager(
@@ -613,6 +647,16 @@ float RenderWidgetHostViewBase::GetDeviceScaleFactor() const {
   return screen_infos_.current().device_scale_factor;
 }
 
+void RenderWidgetHostViewBase::SetScaleOverrideForCapture(float scale) {
+  DVLOG(1) << __func__ << ": override=" << scale;
+  scale_override_for_capture_ = scale;
+  UpdateScreenInfo();
+}
+
+float RenderWidgetHostViewBase::GetScaleOverrideForCapture() const {
+  return scale_override_for_capture_;
+}
+
 void RenderWidgetHostViewBase::OnAutoscrollStart() {
   if (!GetMouseWheelPhaseHandler())
     return;
@@ -629,7 +673,7 @@ void RenderWidgetHostViewBase::SetInsets(const gfx::Insets& insets) {
   NOTIMPLEMENTED_LOG_ONCE();
 }
 
-void RenderWidgetHostViewBase::DisplayCursor(const WebCursor& cursor) {
+void RenderWidgetHostViewBase::DisplayCursor(const ui::Cursor& cursor) {
   return;
 }
 
@@ -880,18 +924,19 @@ bool RenderWidgetHostViewBase::TransformPointToTargetCoordSpace(
 
   float device_scale_factor = original_view->GetDeviceScaleFactor();
   DCHECK_GT(device_scale_factor, 0.0f);
-  gfx::Point3F point_in_pixels =
-      gfx::Point3F(gfx::ConvertPointToPixels(point, device_scale_factor));
   // TODO(crbug.com/966995): Optimize so that |point_in_pixels| doesn't need to
   // be in the coordinate space of the root surface in HitTestQuery.
   gfx::Transform transform_root_to_original;
   query->GetTransformToTarget(original_view->GetFrameSinkId(),
                               &transform_root_to_original);
-  if (!transform_root_to_original.TransformPointReverse(&point_in_pixels))
+  const absl::optional<gfx::PointF> point_in_pixels =
+      transform_root_to_original.InverseMapPoint(
+          gfx::ConvertPointToPixels(point, device_scale_factor));
+  if (!point_in_pixels.has_value())
     return false;
   gfx::PointF transformed_point_in_physical_pixels;
   if (!query->TransformLocationForTarget(
-          target_ancestors, point_in_pixels.AsPointF(),
+          target_ancestors, *point_in_pixels,
           &transformed_point_in_physical_pixels)) {
     return false;
   }
@@ -948,10 +993,10 @@ bool RenderWidgetHostViewBase::GetTransformToViewCoordSpace(
   // concatenating an identity matrix, so we don't add those checks here.
   transform->MakeIdentity();
 
-  transform->ConcatTransform(transform_to_pixel);
-  transform->ConcatTransform(transform_this_to_root);
-  transform->ConcatTransform(transform_root_to_target);
-  transform->ConcatTransform(transform_from_pixel);
+  transform->PostConcat(transform_to_pixel);
+  transform->PostConcat(transform_this_to_root);
+  transform->PostConcat(transform_root_to_target);
+  transform->PostConcat(transform_from_pixel);
 
   return true;
 }
@@ -982,15 +1027,10 @@ ui::Compositor* RenderWidgetHostViewBase::GetCompositor() {
   return nullptr;
 }
 
-VisibleTimeRequestTrigger*
-RenderWidgetHostViewBase::GetVisibleTimeRequestTrigger() {
-  DCHECK(
-      !visible_time_request_trigger_.is_tab_switch_metrics2_feature_enabled());
-  return &visible_time_request_trigger_;
-}
-
-bool RenderWidgetHostViewBase::ShouldVirtualKeyboardOverlayContent() {
-  return false;
+ui::mojom::VirtualKeyboardMode
+RenderWidgetHostViewBase::GetVirtualKeyboardMode() {
+  // Only platforms supporting these APIs will implement this.
+  return ui::mojom::VirtualKeyboardMode::kUnset;
 }
 
 bool RenderWidgetHostViewBase::IsHTMLFormPopup() const {
@@ -999,23 +1039,15 @@ bool RenderWidgetHostViewBase::IsHTMLFormPopup() const {
 
 void RenderWidgetHostViewBase::OnShowWithPageVisibility(
     PageVisibilityState page_visibility) {
-  auto* visible_time_request_trigger = host_->GetVisibleTimeRequestTrigger();
-  // The only way this should be null is if there is no RenderWidgetHostView.
-  DCHECK(visible_time_request_trigger);
+  if (!host())
+    return;
 
-  // NB: don't call visible_time_request_trigger->TakeRequest() unless the
+  VisibleTimeRequestTrigger& visible_time_request_trigger =
+      host_->GetVisibleTimeRequestTrigger();
+
+  // NB: don't call visible_time_request_trigger.TakeRequest() unless the
   // request will be used. If it isn't used here it must be left in the trigger
   // for the next call.
-
-  if (!visible_time_request_trigger->is_tab_switch_metrics2_feature_enabled()) {
-    // Legacy path ignores `page_visibiity` so that the semantic of the older
-    // metric doesn't change.
-    if (host_->is_hidden()) {
-      NotifyHostAndDelegateOnWasShown(
-          visible_time_request_trigger->TakeRequest());
-    }
-    return;
-  }
 
   const bool web_contents_is_visible =
       page_visibility == PageVisibilityState::kVisible;
@@ -1026,7 +1058,7 @@ void RenderWidgetHostViewBase::OnShowWithPageVisibility(
     // though the WebContents is hidden or occluded, for example due to being
     // captured, so it should not be included in visibility time metrics.
     NotifyHostAndDelegateOnWasShown(
-        web_contents_is_visible ? visible_time_request_trigger->TakeRequest()
+        web_contents_is_visible ? visible_time_request_trigger.TakeRequest()
                                 : nullptr);
     return;
   }
@@ -1038,8 +1070,8 @@ void RenderWidgetHostViewBase::OnShowWithPageVisibility(
     // The widget is already rendering, but now the WebContents is becoming
     // visible, so send any visibility time request to the compositor now.
     if (auto visible_time_request =
-            visible_time_request_trigger->TakeRequest()) {
-      RequestPresentationTimeFromHostOrDelegate(
+            visible_time_request_trigger.TakeRequest()) {
+      RequestSuccessfulPresentationTimeFromHostOrDelegate(
           std::move(visible_time_request));
     }
     return;
@@ -1052,7 +1084,7 @@ void RenderWidgetHostViewBase::OnShowWithPageVisibility(
   // compositor submitted a frame. The compositor will keep submitting
   // frames for the capture but they should not be included in the
   // visibility metrics.)
-  CancelPresentationTimeRequestForHostAndDelegate();
+  CancelSuccessfulPresentationTimeRequestForHostAndDelegate();
   return;
 }
 

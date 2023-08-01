@@ -23,16 +23,18 @@
 #define THIRD_PARTY_BLINK_RENDERER_CORE_SVG_SVG_ELEMENT_H_
 
 #include "base/dcheck_is_on.h"
+#include "base/gtest_prod_util.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/dom/element.h"
 #include "third_party/blink/renderer/core/dom/events/simulated_click_options.h"
 #include "third_party/blink/renderer/core/svg/properties/svg_property_info.h"
 #include "third_party/blink/renderer/core/svg/svg_parsing_error.h"
 #include "third_party/blink/renderer/core/svg_names.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_map.h"
+#include "third_party/blink/renderer/platform/heap/collection_support/heap_hash_set.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/casting.h"
-#include "third_party/blink/renderer/platform/wtf/hash_map.h"
 
 namespace blink {
 
@@ -41,7 +43,6 @@ class Document;
 class ElementSMILAnimations;
 class ExecutionContext;
 class SVGAnimatedPropertyBase;
-class SubtreeLayoutScope;
 class SVGAnimatedString;
 class SVGElement;
 class SVGElementRareData;
@@ -68,7 +69,7 @@ class CORE_EXPORT SVGElement : public Element {
 
   String title() const override;
   bool HasRelativeLengths() const {
-    return !elements_with_relative_lengths_.IsEmpty();
+    return !elements_with_relative_lengths_.empty();
   }
   static bool IsAnimatableCSSProperty(const QualifiedName&);
 
@@ -164,9 +165,9 @@ class CORE_EXPORT SVGElement : public Element {
   void CollectExtraStyleForPresentationAttribute(
       MutableCSSPropertyValueSet*) override;
 
-  scoped_refptr<ComputedStyle> CustomStyleForLayoutObject(
+  scoped_refptr<const ComputedStyle> CustomStyleForLayoutObject(
       const StyleRecalcContext&) final;
-  bool LayoutObjectIsNeeded(const ComputedStyle&) const override;
+  bool LayoutObjectIsNeeded(const DisplayStyle&) const override;
 
 #if DCHECK_IS_ON()
   virtual bool IsAnimatableAttribute(const QualifiedName&) const;
@@ -175,9 +176,10 @@ class CORE_EXPORT SVGElement : public Element {
   MutableCSSPropertyValueSet* AnimatedSMILStyleProperties() const;
   MutableCSSPropertyValueSet* EnsureAnimatedSMILStyleProperties();
 
+  virtual void BuildPendingResource() {}
   virtual bool HaveLoadedRequiredResources();
 
-  void InvalidateRelativeLengthClients(SubtreeLayoutScope* = nullptr);
+  void InvalidateRelativeLengthClients();
 
   void AddToPropertyMap(SVGAnimatedPropertyBase*);
 
@@ -188,7 +190,6 @@ class CORE_EXPORT SVGElement : public Element {
   void AddReferenceTo(SVGElement*);
   template <typename InvalidationFunction>
   void NotifyIncomingReferences(InvalidationFunction&&);
-  void RebuildAllIncomingReferences();
   void RemoveAllIncomingReferences();
   void RemoveAllOutgoingReferences();
 
@@ -259,6 +260,7 @@ class CORE_EXPORT SVGElement : public Element {
   }
   void UpdateRelativeLengthsInformation(bool has_relative_lengths, SVGElement*);
   static void MarkForLayoutAndParentResourceInvalidation(LayoutObject&);
+  void NotifyResourceClients() const;
 
   virtual bool SelfHasRelativeLengths() const { return false; }
 
@@ -342,7 +344,7 @@ struct SVGAttributeHashTranslator {
                                             key.NamespaceURI().Impl()};
       return HashComponents(components);
     }
-    return DefaultHash<QualifiedName>::Hash::GetHash(key);
+    return WTF::GetHash(key);
   }
   static bool Equal(const QualifiedName& a, const QualifiedName& b) {
     return a.Matches(b);

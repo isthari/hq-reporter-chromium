@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,9 @@
 #include "base/run_loop.h"
 #include "base/values.h"
 #include "chrome/browser/policy/networking/user_network_configuration_updater.h"
+#include "chromeos/ash/components/network/policy_certificate_provider.h"
 #include "chromeos/components/onc/certificate_scope.h"
 #include "chromeos/components/onc/onc_test_utils.h"
-#include "chromeos/network/policy_certificate_provider.h"
 #include "components/onc/onc_constants.h"
 #include "components/policy/core/common/mock_configuration_policy_provider.h"
 #include "components/policy/core/common/policy_map.h"
@@ -37,7 +37,7 @@ namespace policy {
 namespace {
 
 class MockPolicyProvidedCertsObserver
-    : public chromeos::PolicyCertificateProvider::Observer {
+    : public ash::PolicyCertificateProvider::Observer {
  public:
   MockPolicyProvidedCertsObserver() = default;
 
@@ -187,10 +187,6 @@ class NetworkConfigurationUpdaterTest : public testing::Test {
     policy_service_ = std::make_unique<PolicyServiceImpl>(std::move(providers));
   }
 
-  base::Value* GetExpectedFakeGlobalNetworkConfig() {
-    return &fake_global_network_config_;
-  }
-
   void TearDown() override {
     network_configuration_updater_.reset();
     provider_.Shutdown();
@@ -230,7 +226,6 @@ class NetworkConfigurationUpdaterTest : public testing::Test {
 
  private:
   base::Value fake_network_configs_;
-  base::DictionaryValue fake_global_network_config_;
 };
 
 TEST_F(NetworkConfigurationUpdaterTest, CaPolicyIsValidatedAndRepaired) {

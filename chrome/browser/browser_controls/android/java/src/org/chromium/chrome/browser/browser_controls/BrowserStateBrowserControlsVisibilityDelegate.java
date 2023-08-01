@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,10 +10,12 @@ import android.os.SystemClock;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.CommandLine;
+import org.chromium.base.FeatureList;
 import org.chromium.base.lifetime.Destroyable;
 import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.base.supplier.Supplier;
 import org.chromium.cc.input.BrowserControlsState;
+import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.components.browser_ui.util.BrowserControlsVisibilityDelegate;
 import org.chromium.ui.util.TokenHolder;
@@ -110,7 +112,17 @@ public class BrowserStateBrowserControlsVisibilityDelegate
      */
     public void releasePersistentShowingToken(int token) {
         if (mTokenHolder.containsOnly(token)) {
-            ensureControlsVisibleForMinDuration();
+            // Toolbar capture suppression logic sometimes locks the controls right as a scroll
+            // starts. This is a significantly different usage than locking controls for 3 seconds
+            // upon navigation. It feels wrong for the controls to stay locked for the min duration,
+            // there wasn't any significant change to the screen. They should unlock as soon as the
+            // capture logic thinks it's safe to do so. Long term this can probably be removed for
+            // all.
+            boolean useSuppression = (FeatureList.isInitialized()
+                    && ChromeFeatureList.isEnabled(ChromeFeatureList.SUPPRESS_TOOLBAR_CAPTURES));
+            if (!useSuppression) {
+                ensureControlsVisibleForMinDuration();
+            }
         }
         mTokenHolder.releaseToken(token);
     }
@@ -120,6 +132,9 @@ public class BrowserStateBrowserControlsVisibilityDelegate
         if (mPersistentFullscreenMode.get()) {
             return BrowserControlsState.HIDDEN;
         } else if (mTokenHolder.hasTokens() && !sDisableOverridesForTesting) {
+            return BrowserControlsState.SHOWN;
+        } else if (FeatureList.isNativeInitialized()
+                && ChromeFeatureList.isEnabled(ChromeFeatureList.TOOLBAR_SCROLL_ABLATION_ANDROID)) {
             return BrowserControlsState.SHOWN;
         }
         return BrowserControlsState.BOTH;

@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,29 +11,30 @@
 #include <vector>
 
 #include "ash/constants/ash_constants.h"
+#include "ash/constants/ash_features.h"
 #include "ash/constants/ash_switches.h"
-#include "base/callback_helpers.h"
 #include "base/check_op.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
+#include "base/functional/callback_helpers.h"
+#include "base/strings/escape.h"
 #include "chrome/browser/ash/drive/drive_integration_service.h"
 #include "chrome/browser/ash/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_paths_internal.h"
-#include "chromeos/login/login_state/login_state.h"
+#include "chromeos/ash/components/login/login_state/login_state.h"
 #include "components/drive/drive_pref_names.h"
 #include "components/prefs/pref_service.h"
-#include "components/sync/driver/sync_driver_switches.h"
+#include "components/sync/base/command_line_switches.h"
 #include "components/user_manager/user.h"
+#include "components/version_info/version_info.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/network_service_instance.h"
-#include "net/base/escape.h"
 #include "services/network/public/cpp/network_connection_tracker.h"
 
 using content::BrowserThread;
 
-namespace drive {
-namespace util {
+namespace drive::util {
 
 DriveIntegrationService* GetIntegrationServiceByProfile(Profile* profile) {
   DriveIntegrationService* service =
@@ -44,8 +45,7 @@ DriveIntegrationService* GetIntegrationServiceByProfile(Profile* profile) {
 }
 
 bool IsUnderDriveMountPoint(const base::FilePath& path) {
-  std::vector<base::FilePath::StringType> components;
-  path.GetComponents(&components);
+  std::vector<base::FilePath::StringType> components = path.GetComponents();
   if (components.size() < 4)
     return false;
   if (components[0] != FILE_PATH_LITERAL("/"))
@@ -56,7 +56,7 @@ bool IsUnderDriveMountPoint(const base::FilePath& path) {
     return false;
   static const base::FilePath::CharType kPrefix[] =
       FILE_PATH_LITERAL("drivefs");
-  if (components[3].compare(0, base::size(kPrefix) - 1, kPrefix) != 0)
+  if (components[3].compare(0, std::size(kPrefix) - 1, kPrefix) != 0)
     return false;
 
   return true;
@@ -80,7 +80,7 @@ bool IsDriveAvailableForProfile(Profile* profile) {
           ash::switches::kDisableGaiaServices)) {
     return false;
   }
-  if (!chromeos::LoginState::IsInitialized())
+  if (!ash::LoginState::IsInitialized())
     return false;
   // Disable Drive for incognito profiles.
   if (profile->IsOffTheRecord())
@@ -92,7 +92,7 @@ bool IsDriveAvailableForProfile(Profile* profile) {
 
   // Disable drive if sync is disabled by command line flag. Outside tests, this
   // only occurs in cases already handled by the gaia account check above.
-  if (!switches::IsSyncAllowedByFlag())
+  if (!syncer::IsSyncAllowedByFlag())
     return false;
 
   return true;
@@ -105,6 +105,18 @@ bool IsDriveEnabledForProfile(Profile* profile) {
     return false;
 
   return IsDriveAvailableForProfile(profile);
+}
+
+bool IsDriveFsBulkPinningEnabled() {
+  // TODO(b/279872186): Prior to M117 and only on canary builds the feature
+  // should be enabled by the feature management module OR a direct feature
+  // flag. After M117 these 2 flags should be required to enable the feature.
+  if (version_info::GetMajorVersionNumberAsInt() < 117) {
+    return base::FeatureList::IsEnabled(
+               ash::features::kFeatureManagementDriveFsBulkPinning) ||
+           base::FeatureList::IsEnabled(ash::features::kDriveFsBulkPinning);
+  }
+  return ash::features::IsDriveFsBulkPinningEnabled();
 }
 
 ConnectionStatusType GetDriveConnectionStatus(Profile* profile) {
@@ -128,5 +140,4 @@ ConnectionStatusType GetDriveConnectionStatus(Profile* profile) {
   return DRIVE_CONNECTED;
 }
 
-}  // namespace util
-}  // namespace drive
+}  // namespace drive::util

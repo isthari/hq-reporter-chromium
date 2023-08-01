@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,12 +21,6 @@ typedef NS_OPTIONS(NSUInteger, UserAction) {
 
 // UMA histogram names.
 // Note: These string constants are repeated in TranslateCompactInfoBar.java.
-extern const char kLanguageHistogramTranslate[];
-extern const char kLanguageHistogramMoreLanguages[];
-extern const char kLanguageHistogramPageNotInLanguage[];
-extern const char kLanguageHistogramAlwaysTranslate[];
-extern const char kLanguageHistogramNeverTranslate[];
 extern const char kEventHistogram[];
-extern const char kTranslationCountHistogram[];
 
 #endif  // IOS_CHROME_BROWSER_TRANSLATE_TRANSLATE_CONSTANTS_H_

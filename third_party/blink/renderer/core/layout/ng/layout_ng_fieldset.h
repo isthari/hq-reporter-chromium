@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,18 +29,28 @@ class CORE_EXPORT LayoutNGFieldset final : public LayoutNGBlockFlow {
 
   LayoutBlock* FindAnonymousFieldsetContentBox() const;
 
+  static LayoutBox* FindInFlowLegend(const LayoutBlock& fieldset);
+  LayoutBox* FindInFlowLegend() const {
+    NOT_DESTROYED();
+    return FindInFlowLegend(*this);
+  }
+
  protected:
   bool IsOfType(LayoutObjectType) const override;
-  void UpdateAnonymousChildStyle(const LayoutObject* child,
-                                 ComputedStyle& child_style) const override;
+  void InsertedIntoTree() override;
+  void UpdateAnonymousChildStyle(
+      const LayoutObject* child,
+      ComputedStyleBuilder& child_style_builder) const override;
   void InvalidatePaint(const PaintInvalidatorContext& context) const final;
   bool BackgroundIsKnownToBeOpaqueInRect(const PhysicalRect&) const override;
-  bool HitTestChildren(HitTestResult& result,
-                       const HitTestLocation& hit_test_location,
-                       const PhysicalOffset& accumulated_offset,
-                       HitTestAction hit_test_action) override;
 
-  bool AllowsNonVisibleOverflow() const override {
+  // Fieldset paints background specially.
+  bool ComputeCanCompositeBackgroundAttachmentFixed() const override {
+    NOT_DESTROYED();
+    return false;
+  }
+
+  bool RespectsCSSOverflow() const override {
     NOT_DESTROYED();
     return false;
   }
@@ -52,7 +62,7 @@ class CORE_EXPORT LayoutNGFieldset final : public LayoutNGBlockFlow {
 template <>
 struct DowncastTraits<LayoutNGFieldset> {
   static bool AllowFrom(const LayoutObject& object) {
-    return object.IsLayoutNGFieldset();
+    return object.IsFieldset();
   }
 };
 

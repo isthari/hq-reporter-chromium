@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "chrome/browser/favicon/favicon_utils.h"
 #include "chrome/browser/ui/cocoa/tab_menu_bridge.h"
 #include "chrome/browser/ui/tab_ui_helper.h"
+#include "chrome/browser/ui/tabs/tab_enums.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/tabs/test_tab_strip_model_delegate.h"
 #include "chrome/test/base/testing_profile.h"
@@ -90,7 +91,7 @@ class TabMenuBridgeTest : public ::testing::Test {
   void RemoveModelTabNamed(const std::string& name) {
     int index = ModelIndexForTabNamed(name);
     DCHECK(index >= 0);
-    model()->CloseWebContentsAt(index, TabStripModel::CLOSE_NONE);
+    model()->CloseWebContentsAt(index, TabCloseTypes::CLOSE_NONE);
   }
 
   void RenameModelTabNamed(const std::string& old_name,
@@ -148,7 +149,7 @@ class TabMenuBridgeTest : public ::testing::Test {
     // Check the static items too, to make sure none of them are checked.
     for (int i = 0; i < menu().numberOfItems; ++i) {
       NSMenuItem* item = [menu() itemAtIndex:i];
-      if (item.state == NSOnState)
+      if (item.state == NSControlStateValueOn)
         active_items.push_back(base::SysNSStringToUTF8(item.title));
     }
 

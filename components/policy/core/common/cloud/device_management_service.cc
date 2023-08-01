@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,14 +6,16 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
-#include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/strings/escape.h"
+#include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/task/sequenced_task_runner.h"
-#include "base/threading/sequenced_task_runner_handle.h"
-#include "net/base/escape.h"
+#include "build/build_config.h"
+#include "components/policy/core/common/policy_logger.h"
+#include "components/policy/proto/device_management_backend.pb.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
 #include "net/base/url_util.h"
@@ -80,7 +82,8 @@ bool FailedWithProxy(const std::string& mime_type,
                      int net_error,
                      bool was_fetched_via_proxy) {
   if (IsProxyError(net_error)) {
-    LOG(WARNING) << "Proxy failed while contacting dmserver.";
+    LOG_POLICY(WARNING, CBCM_ENROLLMENT)
+        << "Proxy failed while contacting dmserver.";
     return true;
   }
 
@@ -90,8 +93,9 @@ bool FailedWithProxy(const std::string& mime_type,
     // The proxy server can be misconfigured but pointing to an existing
     // server that replies to requests. Try to recover if a successful
     // request that went through a proxy returns an unexpected mime type.
-    LOG(WARNING) << "Got bad mime-type in response from dmserver that was "
-                 << "fetched via a proxy.";
+    LOG_POLICY(WARNING, CBCM_ENROLLMENT)
+        << "Got bad mime-type in response from dmserver that was "
+        << "fetched via a proxy.";
     return true;
   }
 
@@ -126,6 +130,7 @@ const int DeviceManagementService::kArcDisabled;
 const int DeviceManagementService::kInvalidDomainlessCustomer;
 const int DeviceManagementService::kTosHasNotBeenAccepted;
 const int DeviceManagementService::kIllegalAccountForPackagedEDULicense;
+const int DeviceManagementService::kInvalidPackagedDeviceForKiosk;
 
 // static
 std::string DeviceManagementService::JobConfiguration::GetJobTypeAsString(
@@ -221,8 +226,15 @@ JobConfigurationBase::JobConfigurationBase(
       oauth_token_(std::move(oauth_token)) {
   CHECK(!auth_data_.has_oauth_token()) << "Use |oauth_token| instead";
 
-  if (oauth_token_)
+#if !BUILDFLAG(IS_IOS)
+  if (oauth_token_) {
+    // Put the oauth token in the query parameters for platforms that are not
+    // iOS. On iOS we are trying the oauth token in the request headers
+    // (crbug.com/1312158). We might want to use the iOS approach on all
+    // platforms at some point.
     AddParameter(dm_protocol::kParamOAuthToken, *oauth_token_);
+  }
+#endif
 }
 
 JobConfigurationBase::~JobConfigurationBase() = default;
@@ -307,6 +319,20 @@ JobConfigurationBase::GetResourceRequest(bool bypass_proxy, int last_error) {
   rr->trusted_params = network::ResourceRequest::TrustedParams();
   rr->trusted_params->disable_secure_dns = true;
 
+#if BUILDFLAG(IS_IOS)
+  // Put the oauth token in the request headers on iOS. We might want
+  // to use this approach on the other platforms at some point. This approach
+  // will be tried first on iOS (crbug.com/1312158). Technically, the
+  // DMServer should already be able to handle the oauth token in the
+  // request headers, but we prefer to try the approach on iOS first to
+  // avoid breaking the other platforms with unexpected issues.
+  if (oauth_token_ && !oauth_token_->empty()) {
+    rr->headers.SetHeader(dm_protocol::kAuthHeader,
+                          base::StrCat({dm_protocol::kOAuthTokenHeaderPrefix,
+                                        " ", *oauth_token_}));
+  }
+#endif
+
   // If auth data is specified, use it to build the request.
   switch (auth_data_.token_type()) {
     case DMAuthTokenType::kNoAuth:
@@ -335,6 +361,10 @@ DeviceManagementService::Job::RetryMethod JobConfigurationBase::ShouldRetry(
     const std::string& response_body) {
   // By default, no need to retry based on the contents of the response.
   return DeviceManagementService::Job::NO_RETRY;
+}
+
+absl::optional<base::TimeDelta> JobConfigurationBase::GetTimeoutDuration() {
+  return timeout_;
 }
 
 // A device management service job implementation.
@@ -390,8 +420,6 @@ class DeviceManagementService::JobImpl : public Job {
   // Network error code passed of last call to HandleResponseData().
   int last_error_ = 0;
 
-  int retry_delay_ = 0;
-
   std::unique_ptr<network::SimpleURLLoader> url_loader_;
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
   SEQUENCE_CHECKER(sequence_checker_);
@@ -404,6 +432,8 @@ void DeviceManagementService::JobImpl::CreateUrlLoader() {
   url_loader_ = network::SimpleURLLoader::Create(std::move(rr), annotation);
   url_loader_->AttachStringForUpload(config_->GetPayload(), kPostContentType);
   url_loader_->SetAllowHttpErrorResults(true);
+  if (config_->GetTimeoutDuration())
+    url_loader_->SetTimeoutDuration(config_->GetTimeoutDuration().value());
 }
 
 void DeviceManagementService::JobImpl::OnURLLoaderComplete(
@@ -448,16 +478,18 @@ DeviceManagementService::JobImpl::OnURLLoaderCompleteInternal(
   }
 
   config_->OnBeforeRetry(response_code, response_body);
-  LOG(WARNING) << "Request of type "
-               << JobConfiguration::GetJobTypeAsString(config_->GetType())
-               << " failed (net_error = " << net_error
-               << ", response_code = " << response_code << "), retrying in "
-               << retry_delay_ << "ms.";
+  int retry_delay = GetRetryDelay(retry_method);
+  LOG_POLICY(WARNING, CBCM_ENROLLMENT)
+      << "Request of type "
+      << JobConfiguration::GetJobTypeAsString(config_->GetType())
+      << " failed (net_error = " << net_error
+      << ", response_code = " << response_code << "), retrying in "
+      << retry_delay << "ms.";
   if (!is_test) {
     task_runner_->PostDelayedTask(
         FROM_HERE,
         base::BindOnce(&DeviceManagementService::JobImpl::Start, GetWeakPtr()),
-        base::Milliseconds(GetRetryDelay(retry_method)));
+        base::Milliseconds(retry_delay));
   }
   return retry_method;
 }
@@ -474,25 +506,28 @@ DeviceManagementService::JobImpl::HandleResponseData(
     // Using histogram functions which allows runtime histogram name.
     base::UmaHistogramEnumeration(uma_name,
                                   DMServerRequestSuccess::kRequestFailed);
-    LOG(WARNING) << "Request of type "
-                 << JobConfiguration::GetJobTypeAsString(config_->GetType())
-                 << " failed (net_error = " << net_error << ").";
+    LOG_POLICY(WARNING, CBCM_ENROLLMENT)
+        << "Request of type "
+        << JobConfiguration::GetJobTypeAsString(config_->GetType())
+        << " failed (net_error = " << net_error << ").";
     config_->OnURLLoadComplete(this, net_error, response_code, std::string());
     return RetryMethod::NO_RETRY;
   }
 
   if (response_code != kSuccess) {
-    LOG(WARNING) << "Request of type "
-                 << JobConfiguration::GetJobTypeAsString(config_->GetType())
-                 << " failed (response_code = " << response_code << ").";
+    LOG_POLICY(WARNING, CBCM_ENROLLMENT)
+        << "Request of type "
+        << JobConfiguration::GetJobTypeAsString(config_->GetType())
+        << " failed (response_code = " << response_code << ").";
     base::UmaHistogramEnumeration(uma_name,
                                   DMServerRequestSuccess::kRequestError);
   } else {
     // Success with retries_count_ retries.
     if (retries_count_) {
-      LOG(WARNING) << "Request of type "
-                   << JobConfiguration::GetJobTypeAsString(config_->GetType())
-                   << " succeeded after " << retries_count_ << " retries.";
+      LOG_POLICY(WARNING, CBCM_ENROLLMENT)
+          << "Request of type "
+          << JobConfiguration::GetJobTypeAsString(config_->GetType())
+          << " succeeded after " << retries_count_ << " retries.";
     }
     base::UmaHistogramExactLinear(
         uma_name, retries_count_,
@@ -645,7 +680,7 @@ DeviceManagementService::DeviceManagementService(
     std::unique_ptr<Configuration> configuration)
     : configuration_(std::move(configuration)),
       initialized_(false),
-      task_runner_(base::SequencedTaskRunnerHandle::Get()) {
+      task_runner_(base::SequencedTaskRunner::GetCurrentDefault()) {
   DCHECK(configuration_);
 }
 

@@ -1,11 +1,10 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser;
 
-import android.support.test.InstrumentationRegistry;
-
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.filters.MediumTest;
 
 import org.hamcrest.Matchers;
@@ -17,12 +16,12 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
 import org.chromium.chrome.browser.flags.ChromeSwitches;
 import org.chromium.chrome.browser.infobar.InfoBarContainer;
@@ -30,10 +29,10 @@ import org.chromium.chrome.browser.infobar.InfoBarIdentifier;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
 import org.chromium.components.infobars.InfoBar;
 import org.chromium.components.safe_browsing.SafeBrowsingApiBridge;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
 import org.chromium.content_public.browser.test.util.DOMUtils;
 import org.chromium.content_public.browser.test.util.TouchCommon;
 import org.chromium.net.test.EmbeddedTestServer;
@@ -65,23 +64,21 @@ public class PopupTest {
 
     @Before
     public void setUp() throws Exception {
-        // Create a new temporary instance to ensure the Class is loaded. Otherwise we will get a
-        // ClassNotFoundException when trying to instantiate during startup.
-        SafeBrowsingApiBridge.setSafeBrowsingHandlerType(
-                new MockSafeBrowsingApiHandler().getClass());
+        SafeBrowsingApiBridge.setHandler(new MockSafetyNetApiHandler());
         mActivityTestRule.startMainActivityOnBlankPage();
 
         PostTask.runOrPostTask(
-                UiThreadTaskTraits.DEFAULT, () -> Assert.assertTrue(getNumInfobarsShowing() == 0));
+                TaskTraits.UI_DEFAULT, () -> Assert.assertTrue(getNumInfobarsShowing() == 0));
 
-        mTestServer = EmbeddedTestServer.createAndStartServer(InstrumentationRegistry.getContext());
+        mTestServer = EmbeddedTestServer.createAndStartServer(
+                ApplicationProvider.getApplicationContext());
         mPopupHtmlUrl = mTestServer.getURL(POPUP_HTML_PATH);
     }
 
     @After
     public void tearDown() {
         mTestServer.stopAndDestroyServer();
-        MockSafeBrowsingApiHandler.clearMockResponses();
+        MockSafetyNetApiHandler.clearMockResponses();
     }
 
     @Test
@@ -117,7 +114,7 @@ public class PopupTest {
         final TabModelSelector selector = mActivityTestRule.getActivity().getTabModelSelector();
 
         String url = mTestServer.getURL("/chrome/test/data/android/popup_on_click.html");
-        MockSafeBrowsingApiHandler.addMockResponse(url, METADATA_FOR_ABUSIVE_ENFORCEMENT);
+        MockSafetyNetApiHandler.addMockResponse(url, METADATA_FOR_ABUSIVE_ENFORCEMENT);
 
         mActivityTestRule.loadUrl(url);
         CriteriaHelper.pollUiThread(

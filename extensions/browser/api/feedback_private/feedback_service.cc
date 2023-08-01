@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,16 +9,20 @@
 #include <utility>
 
 #include "base/barrier_closure.h"
-#include "base/bind.h"
+#include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/statistics_recorder.h"
+#include "base/strings/strcat.h"
+#include "base/task/thread_pool.h"
 #include "base/time/time.h"
 #include "build/chromeos_buildflags.h"
 #include "components/feedback/feedback_data.h"
 #include "components/feedback/feedback_report.h"
+#include "components/feedback/redaction_tool/redaction_tool.h"
 #include "components/feedback/system_logs/system_logs_fetcher.h"
 #include "components/feedback/system_logs/system_logs_source.h"
 #include "content/public/browser/browser_context.h"
@@ -29,7 +33,7 @@
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
 #include "ash/public/cpp/assistant/controller/assistant_controller.h"
-#include "chromeos/services/assistant/public/cpp/assistant_service.h"
+#include "chromeos/ash/services/assistant/public/cpp/assistant_service.h"
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
 namespace extensions {
@@ -40,6 +44,7 @@ using system_logs::SystemLogsResponse;
 
 namespace {
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
 constexpr base::FilePath::CharType kBluetoothLogsFilePath[] =
     FILE_PATH_LITERAL("/var/log/bluetooth/log.bz2");
 constexpr base::FilePath::CharType kBluetoothLogsFilePathOld[] =
@@ -52,9 +57,35 @@ constexpr char kBluetoothLogsAttachmentNameOld[] = "bluetooth_logs.old.bz2";
 constexpr char kBluetoothQualityReportAttachmentName[] =
     "bluetooth_quality_report";
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
 constexpr char kLacrosHistogramsFilename[] = "lacros_histograms.zip";
+
+void LoadBluetoothLogs(scoped_refptr<feedback::FeedbackData> feedback_data) {
+  std::string bluetooth_logs;
+  if (base::ReadFileToString(base::FilePath(kBluetoothLogsFilePath),
+                             &bluetooth_logs)) {
+    feedback_data->AddFile(kBluetoothLogsAttachmentName,
+                           std::move(bluetooth_logs));
+  }
+  if (base::ReadFileToString(base::FilePath(kBluetoothLogsFilePathOld),
+                             &bluetooth_logs)) {
+    feedback_data->AddFile(kBluetoothLogsAttachmentNameOld,
+                           std::move(bluetooth_logs));
+  }
+  if (base::ReadFileToString(base::FilePath(kBluetoothQualityReportFilePath),
+                             &bluetooth_logs)) {
+    feedback_data->AddFile(kBluetoothQualityReportAttachmentName,
+                           std::move(bluetooth_logs));
+  }
+}
 #endif
+
+constexpr char kLacrosLogEntryPrefix[] = "Lacros ";
+
+void RedactFeedbackData(scoped_refptr<feedback::FeedbackData> feedback_data) {
+  redaction::RedactionTool redactor(nullptr);
+  redactor.EnableCreditCardRedaction(true);
+  feedback_data->RedactDescription(redactor);
+}
 
 }  // namespace
 
@@ -68,6 +99,17 @@ FeedbackService::FeedbackService(content::BrowserContext* browser_context,
     : browser_context_(browser_context), delegate_(delegate) {}
 
 FeedbackService::~FeedbackService() = default;
+
+void FeedbackService::RedactThenSendFeedback(
+    const FeedbackParams& params,
+    scoped_refptr<feedback::FeedbackData> feedback_data,
+    SendFeedbackCallback callback) {
+  base::ThreadPool::PostTaskAndReply(
+      FROM_HERE, {base::TaskPriority::BEST_EFFORT},
+      base::BindOnce(&RedactFeedbackData, feedback_data),
+      base::BindOnce(&FeedbackService::SendFeedback, this, params,
+                     feedback_data, std::move(callback)));
+}
 
 // After the attached file and screenshot if available are fetched, the callback
 // will be invoked. Other further processing will be done in background. The
@@ -218,7 +260,15 @@ void FeedbackService::OnLacrosHistogramsFetched(
     feedback_data->AddFile(kLacrosHistogramsFilename,
                            std::move(compressed_histograms));
   }
-  OnAllLogsFetched(params, feedback_data);
+  if (params.send_bluetooth_logs) {
+    base::ThreadPool::PostTaskAndReply(
+        FROM_HERE, {base::MayBlock()},
+        base::BindOnce(&LoadBluetoothLogs, feedback_data),
+        base::BindOnce(&FeedbackService::OnAllLogsFetched, this, params,
+                       feedback_data));
+  } else {
+    OnAllLogsFetched(params, feedback_data);
+  }
 }
 #endif  // BUILDFLAG(IS_CHROMEOS_ASH)
 
@@ -228,6 +278,10 @@ void FeedbackService::OnAllLogsFetched(
   if (!params.send_tab_titles) {
     feedback_data->RemoveLog(
         feedback::FeedbackReport::kMemUsageWithTabTitlesKey);
+    // On Lacros, the key has a prefix "Lacros ".
+    feedback_data->RemoveLog(
+        base::StrCat({kLacrosLogEntryPrefix,
+                      feedback::FeedbackReport::kMemUsageWithTabTitlesKey}));
   }
   feedback_data->CompressSystemInfo();
 
@@ -237,23 +291,8 @@ void FeedbackService::OnAllLogsFetched(
     feedback_data->SetAndCompressHistograms(std::move(histograms));
   }
 
-  if (params.send_bluetooth_logs) {
-    std::string bluetooth_logs;
-    if (base::ReadFileToString(base::FilePath(kBluetoothLogsFilePath),
-                               &bluetooth_logs)) {
-      feedback_data->AddFile(kBluetoothLogsAttachmentName,
-                             std::move(bluetooth_logs));
-    }
-    if (base::ReadFileToString(base::FilePath(kBluetoothLogsFilePathOld),
-                               &bluetooth_logs)) {
-      feedback_data->AddFile(kBluetoothLogsAttachmentNameOld,
-                             std::move(bluetooth_logs));
-    }
-    if (base::ReadFileToString(base::FilePath(kBluetoothQualityReportFilePath),
-                               &bluetooth_logs)) {
-      feedback_data->AddFile(kBluetoothQualityReportAttachmentName,
-                             std::move(bluetooth_logs));
-    }
+  if (params.send_autofill_metadata) {
+    feedback_data->CompressAutofillMetadata();
   }
 
   DCHECK(feedback_data->attached_file_uuid().empty());

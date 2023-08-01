@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,11 @@
 #include "ash/resources/vector_icons/vector_icons.h"
 #include "ash/strings/grit/ash_strings.h"
 #include "ash/style/ash_color_provider.h"
+#include "ash/style/typography.h"
 #include "ash/system/message_center/message_center_constants.h"
+#include "chromeos/constants/chromeos_features.h"
+#include "ui/chromeos/styles/cros_tokens_color_mappings.h"
+#include "ui/color/color_id.h"
 #include "ui/gfx/font_list.h"
 #include "ui/gfx/geometry/rrect_f.h"
 #include "ui/gfx/paint_vector_icon.h"
@@ -27,18 +31,18 @@ namespace {
 constexpr int kBetweenChildSpacing = 12;
 
 // Insets for inside the border.
-constexpr gfx::Insets kInsideBorderInsets(6, 16, 14, 6);
+constexpr auto kInsideBorderInsets = gfx::Insets::TLBR(6, 16, 14, 6);
 
 // The icon size of inline reply input field.
 constexpr int kInputReplyButtonSize = 20;
 // Padding on the input reply button.
-constexpr gfx::Insets kInputReplyButtonPadding(0, 6, 0, 6);
+constexpr auto kInputReplyButtonPadding = gfx::Insets::TLBR(0, 6, 0, 6);
 // Radius of the circular input reply button highlight.
 constexpr int kInputReplyHighlightRadius =
     (kInputReplyButtonPadding.width() + kInputReplyButtonSize) / 2;
 
 // Padding of the textfield, inside the rounded background.
-constexpr gfx::Insets kInputTextfieldPaddingCrOS(6, 12, 6, 12);
+constexpr auto kInputTextfieldPaddingCrOS = gfx::Insets::TLBR(6, 12, 6, 12);
 // Corner radius of the grey background of the textfield.
 constexpr int kTextfieldBackgroundCornerRadius = 24;
 
@@ -70,22 +74,22 @@ int AshNotificationInputContainer::GetDefaultPlaceholderStringId() const {
 }
 
 void AshNotificationInputContainer::StyleTextfield() {
-  textfield()->SetFontList(gfx::FontList({kGoogleSansFont}, gfx::Font::NORMAL,
-                                         kNotificationBodyFontWeight,
-                                         gfx::Font::Weight::MEDIUM));
-  auto* color_provider = ash::AshColorProvider::Get();
-  textfield()->SetBackground(views::CreateRoundedRectBackground(
-      color_provider->GetControlsLayerColor(
-          ash::AshColorProvider::ControlsLayerType::
-              kControlBackgroundColorInactive),
-      kTextfieldBackgroundCornerRadius));
+  if (!chromeos::features::IsJellyEnabled()) {
+    textfield()->SetFontList(gfx::FontList({kGoogleSansFont}, gfx::Font::NORMAL,
+                                           kNotificationBodyFontWeight,
+                                           gfx::Font::Weight::MEDIUM));
+    auto* color_provider = ash::AshColorProvider::Get();
+    textfield()->SetBackground(views::CreateRoundedRectBackground(
+        color_provider->GetControlsLayerColor(
+            ash::AshColorProvider::ControlsLayerType::
+                kControlBackgroundColorInactive),
+        kTextfieldBackgroundCornerRadius));
+  }
 
   views::FocusRing::Install(textfield());
   views::InstallRoundRectHighlightPathGenerator(
       textfield(), gfx::Insets(), kTextfieldBackgroundCornerRadius);
-  views::FocusRing::Get(textfield())
-      ->SetColor(color_provider->GetControlsLayerColor(
-          AshColorProvider::ControlsLayerType::kFocusRingColor));
+  views::FocusRing::Get(textfield())->SetColorId(ui::kColorAshFocusRing);
 }
 
 gfx::Insets AshNotificationInputContainer::GetSendButtonPadding() const {
@@ -96,21 +100,29 @@ void AshNotificationInputContainer::SetSendButtonHighlightPath() {
   views::FocusRing::Install(textfield());
   views::InstallRoundRectHighlightPathGenerator(button(), gfx::Insets(),
                                                 kInputReplyHighlightRadius);
-  views::FocusRing::Get(button())->SetColor(
-      AshColorProvider::Get()->GetControlsLayerColor(
-          AshColorProvider::ControlsLayerType::kFocusRingColor));
+  views::FocusRing::Get(button())->SetColorId(ui::kColorAshFocusRing);
 }
 
 void AshNotificationInputContainer::UpdateButtonImage() {
   if (!GetWidget())
     return;
-
-  button()->SetImage(
+  UpdateButtonState();
+  button()->SetImageModel(
       views::Button::STATE_NORMAL,
-      gfx::CreateVectorIcon(kSendIcon, kInputReplyButtonSize,
-                            ash::AshColorProvider::Get()->GetControlsLayerColor(
-                                ash::AshColorProvider::ControlsLayerType::
-                                    kControlBackgroundColorActive)));
+      ui::ImageModel::FromVectorIcon(kSendIcon, cros_tokens::kColorProminent,
+                                     kInputReplyButtonSize));
+  button()->SetImageModel(
+      views::Button::STATE_DISABLED,
+      ui::ImageModel::FromVectorIcon(kSendIcon, cros_tokens::kColorDisabled,
+                                     kInputReplyButtonSize));
+}
+
+void AshNotificationInputContainer::UpdateButtonState() {
+  button()->SetEnabled(!IsInputEmpty());
+}
+
+bool AshNotificationInputContainer::IsInputEmpty() {
+  return textfield()->GetText().empty();
 }
 
 void AshNotificationInputContainer::OnThemeChanged() {
@@ -118,6 +130,23 @@ void AshNotificationInputContainer::OnThemeChanged() {
   UpdateButtonImage();
   SetSendButtonHighlightPath();
   StyleTextfield();
+
+  if (chromeos::features::IsJellyEnabled()) {
+    textfield()->SetTextColor(
+        GetColorProvider()->GetColor(cros_tokens::kCrosSysOnSurface));
+    textfield()->SetFontList(
+        ash::TypographyProvider::Get()->ResolveTypographyToken(
+            ash::TypographyToken::kCrosBody2));
+    textfield()->set_placeholder_text_color(
+        GetColorProvider()->GetColor(cros_tokens::kCrosSysOnSurfaceVariant));
+    textfield()->set_placeholder_font_list(
+        ash::TypographyProvider::Get()->ResolveTypographyToken(
+            ash::TypographyToken::kCrosBody2));
+
+    textfield()->SetBackground(views::CreateRoundedRectBackground(
+        GetColorProvider()->GetColor(cros_tokens::kCrosSysSurface),
+        kTextfieldBackgroundCornerRadius));
+  }
 }
 
 }  // namespace ash

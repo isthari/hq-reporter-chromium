@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,13 +11,22 @@
 
 #include "ash/ash_export.h"
 #include "base/time/time.h"
-#include "media/mojo/mojom/speech_recognition_service.mojom.h"
-
-namespace base {
-class Value;
-}  // namespace base
+#include "base/values.h"
+#include "media/mojo/mojom/speech_recognition_result.h"
 
 namespace ash {
+
+// The speech recognition status.
+enum class ASH_EXPORT RecognitionStatus : int {
+  // Speech recognition was incomplete by the time the metadata
+  // was written.
+  kIncomplete = 0,
+  // Speech recognition was completed by the time the metadata was
+  // written to file.
+  kComplete = 1,
+  // Speech recognition had encountered an error.
+  kError = 2
+};
 
 // Base class to describe a metadata item.
 class MetadataItem {
@@ -34,7 +43,7 @@ class MetadataItem {
   base::TimeDelta& end_time() { return end_time_; }
 
   // Return the serialized metadata item. This is used for storage.
-  virtual base::Value ToJson() = 0;
+  virtual base::Value::Dict ToJson() = 0;
 
  protected:
   // The start time of the metadata item from the start of the recording
@@ -56,7 +65,7 @@ class ASH_EXPORT ProjectorKeyIdea : public MetadataItem {
   ProjectorKeyIdea& operator=(const ProjectorKeyIdea&) = delete;
   ~ProjectorKeyIdea() override;
 
-  base::Value ToJson() override;
+  base::Value::Dict ToJson() override;
 };
 
 // Class to describe a transcription.
@@ -71,7 +80,7 @@ class ASH_EXPORT ProjectorTranscript : public MetadataItem {
   ProjectorTranscript& operator=(const ProjectorTranscript&) = delete;
   ~ProjectorTranscript() override;
 
-  base::Value ToJson() override;
+  base::Value::Dict ToJson() override;
 
  private:
   std::vector<media::HypothesisParts> hypothesis_parts_;
@@ -91,6 +100,8 @@ class ASH_EXPORT ProjectorMetadata {
 
   // Adds the transcript to the metadata.
   void AddTranscript(std::unique_ptr<ProjectorTranscript> transcript);
+  // Notifies the metadata that transcription has completed.
+  void SetSpeechRecognitionStatus(RecognitionStatus status);
   // Marks a beginning of a key idea. The timing info of the next transcript
   // will be used as the timing of the key idea.
   void MarkKeyIdea();
@@ -100,7 +111,7 @@ class ASH_EXPORT ProjectorMetadata {
   size_t GetTranscriptsCount() const { return transcripts_.size(); }
 
  private:
-  base::Value ToJson();
+  base::Value::Dict ToJson();
 
   std::vector<std::unique_ptr<ProjectorTranscript>> transcripts_;
   std::vector<std::unique_ptr<ProjectorKeyIdea>> key_ideas_;
@@ -109,6 +120,9 @@ class ASH_EXPORT ProjectorMetadata {
   // True if user mark the transcript as a key idea. It will be reset to false
   // when the final recognition result is received and recorded as a key idea.
   bool should_mark_key_idea_ = false;
+
+  // The speech recognition status.
+  RecognitionStatus speech_recognition_status_ = RecognitionStatus::kIncomplete;
 };
 
 }  // namespace ash

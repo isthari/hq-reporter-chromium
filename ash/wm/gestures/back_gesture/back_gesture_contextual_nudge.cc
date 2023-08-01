@@ -1,18 +1,17 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ash/wm/gestures/back_gesture/back_gesture_contextual_nudge.h"
 
+#include "ash/controls/contextual_tooltip.h"
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/session/session_controller_impl.h"
-#include "ash/shelf/contextual_tooltip.h"
 #include "ash/shell.h"
 #include "ash/strings/grit/ash_strings.h"
+#include "ash/style/ash_color_id.h"
 #include "ash/style/ash_color_provider.h"
-#include "ash/style/default_color_constants.h"
-#include "ash/style/default_colors.h"
-#include "base/callback.h"
+#include "ash/wm/gestures/back_gesture/back_gesture_util.h"
 #include "base/i18n/rtl.h"
 #include "base/timer/timer.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -50,14 +49,6 @@ constexpr int kLabelCornerRadius = 16;
 
 // Top and bottom inset of the label.
 constexpr int kLabelTopBottomInset = 6;
-
-// Shadow values for the back nudge circle.
-constexpr int kBackNudgeShadowOffsetY1 = 1;
-constexpr int kBackNudgeShadowBlurRadius1 = 2;
-constexpr SkColor kBackNudgeShadowColor1 = SkColorSetA(SK_ColorBLACK, 0x4D);
-constexpr int kBackNudgeShadowOffsetY2 = 2;
-constexpr int kBackNudgeShadowBlurRadius2 = 6;
-constexpr SkColor kBackNudgeShadowColor2 = SkColorSetA(SK_ColorBLACK, 0x26);
 
 // Duration of the pause before sliding in to show the nudge.
 constexpr base::TimeDelta kPauseBeforeShowAnimationDuration = base::Seconds(10);
@@ -243,42 +234,43 @@ class BackGestureContextualNudge::ContextualNudgeView
 
     // views::View:
     void OnPaint(gfx::Canvas* canvas) override {
+      const auto* color_provider = GetColorProvider();
       // Draw the circle.
       cc::PaintFlags circle_flags;
       circle_flags.setAntiAlias(true);
       circle_flags.setStyle(cc::PaintFlags::kFill_Style);
-      circle_flags.setColor(DeprecatedGetBaseLayerColor(
-          AshColorProvider::BaseLayerType::kOpaque, kCircleColor));
-      gfx::ShadowValues shadows;
-      shadows.push_back(gfx::ShadowValue(
-          gfx::Vector2d(0, kBackNudgeShadowOffsetY1),
-          kBackNudgeShadowBlurRadius1, kBackNudgeShadowColor1));
-      shadows.push_back(gfx::ShadowValue(
-          gfx::Vector2d(0, kBackNudgeShadowOffsetY2),
-          kBackNudgeShadowBlurRadius2, kBackNudgeShadowColor2));
-      circle_flags.setLooper(gfx::CreateShadowDrawLooper(shadows));
+      circle_flags.setColor(
+          color_provider->GetColor(kColorAshShieldAndBaseOpaque));
+
+      gfx::PointF center_point;
       if (base::i18n::IsRTL()) {
         const gfx::Point right_center = GetLocalBounds().right_center();
-        canvas->DrawCircle(
-            gfx::Point(right_center.x() - kCircleRadius, right_center.y()),
-            kCircleRadius, circle_flags);
+        center_point =
+            gfx::PointF(right_center.x() - kCircleRadius, right_center.y());
       } else {
         const gfx::Point left_center = GetLocalBounds().left_center();
-        canvas->DrawCircle(
-            gfx::Point(left_center.x() + kCircleRadius, left_center.y()),
-            kCircleRadius, circle_flags);
+        center_point =
+            gfx::PointF(left_center.x() + kCircleRadius, left_center.y());
       }
+      canvas->DrawCircle(center_point, kCircleRadius, circle_flags);
+
+      // Draw highlight border circles for the affordance.
+      DrawCircleHighlightBorder(this, canvas, center_point, kCircleRadius);
 
       // Draw the black round rectangle around the text.
       cc::PaintFlags round_rect_flags;
       round_rect_flags.setStyle(cc::PaintFlags::kFill_Style);
       round_rect_flags.setAntiAlias(true);
-      round_rect_flags.setColor(DeprecatedGetBaseLayerColor(
-          AshColorProvider::BaseLayerType::kOpaque, kLabelBackgroundColor));
+      round_rect_flags.setColor(
+          color_provider->GetColor(kColorAshShieldAndBaseOpaque));
       gfx::Rect label_bounds(label_->GetMirroredBounds());
-      label_bounds.Inset(/*horizontal=*/-kLabelCornerRadius,
-                         /*vertical=*/-kLabelTopBottomInset);
+      label_bounds.Inset(
+          gfx::Insets::VH(-kLabelTopBottomInset, -kLabelCornerRadius));
       canvas->DrawRoundRect(label_bounds, kLabelCornerRadius, round_rect_flags);
+
+      // Draw highlight border for the black round rectangle around the text.
+      DrawRoundRectHighlightBorder(this, canvas, label_bounds,
+                                   kLabelCornerRadius);
     }
 
     // ui::ImplicitAnimationObserver:
@@ -295,9 +287,10 @@ class BackGestureContextualNudge::ContextualNudgeView
       }
     }
 
-    views::Label* label_ = nullptr;
+    raw_ptr<views::Label, ExperimentalAsh> label_ = nullptr;
     int current_animation_times_ = 0;
-    ContextualNudgeView* nudge_view_ = nullptr;  // Not owned.
+    raw_ptr<ContextualNudgeView, ExperimentalAsh> nudge_view_ =
+        nullptr;  // Not owned.
   };
 
   // Showing contextual nudge from off screen to its start position.
@@ -361,7 +354,7 @@ class BackGestureContextualNudge::ContextualNudgeView
   }
 
   // Created by ContextualNudgeView. Owned by views hierarchy.
-  SuggestionView* suggestion_view_ = nullptr;
+  raw_ptr<SuggestionView, ExperimentalAsh> suggestion_view_ = nullptr;
 
   // Timer to start show the sliding in animation.
   base::OneShotTimer show_timer_;

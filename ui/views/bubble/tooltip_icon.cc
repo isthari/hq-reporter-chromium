@@ -1,14 +1,14 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ui/views/bubble/tooltip_icon.h"
 
+#include "base/observer_list.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
 #include "components/vector_icons/vector_icons.h"
 #include "ui/accessibility/ax_enums.mojom.h"
-#include "ui/accessibility/ax_node_data.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/color/color_id.h"
 #include "ui/color/color_provider.h"
@@ -26,15 +26,22 @@ namespace views {
 TooltipIcon::TooltipIcon(const std::u16string& tooltip, int tooltip_icon_size)
     : tooltip_(tooltip),
       tooltip_icon_size_(tooltip_icon_size),
-      mouse_inside_(false),
-      bubble_(nullptr),
-      preferred_width_(0) {
+
+      bubble_(nullptr) {
   SetFocusBehavior(PlatformStyle::kDefaultFocusBehavior);
   set_suppress_default_focus_handling();
   FocusRing::Install(this);
   SetBorder(CreateEmptyBorder(
       LayoutProvider::Get()->GetInsetsMetric(INSETS_VECTOR_IMAGE_BUTTON)));
   InstallCircleHighlightPathGenerator(this);
+
+  // The tooltip icon, despite visually being an icon with no text, actually
+  // opens a bubble whenever the user mouses over it or focuses it, so it's
+  // essentially a text control that hides itself when not in view without
+  // altering the bubble's layout when shown. As such, have it behave like
+  // static text for screenreader users, since that's the role it serves here
+  // anyway.
+  SetAccessibilityProperties(ax::mojom::Role::kStaticText, tooltip_);
 }
 
 TooltipIcon::~TooltipIcon() {
@@ -77,17 +84,6 @@ void TooltipIcon::OnGestureEvent(ui::GestureEvent* event) {
   }
 }
 
-void TooltipIcon::GetAccessibleNodeData(ui::AXNodeData* node_data) {
-  // The tooltip icon, despite visually being an icon with no text, actually
-  // opens a bubble whenever the user mouses over it or focuses it, so it's
-  // essentially a text control that hides itself when not in view without
-  // altering the bubble's layout when shown. As such, have it behave like
-  // static text for screenreader users, since that's the role it serves here
-  // anyway.
-  node_data->role = ax::mojom::Role::kStaticText;
-  node_data->SetName(tooltip_);
-}
-
 void TooltipIcon::OnThemeChanged() {
   ImageView::OnThemeChanged();
   SetDrawAsHovered(false);
@@ -112,10 +108,11 @@ void TooltipIcon::RemoveObserver(Observer* observer) {
 }
 
 void TooltipIcon::SetDrawAsHovered(bool hovered) {
-  SetImage(gfx::CreateVectorIcon(
-      vector_icons::kInfoOutlineIcon, tooltip_icon_size_,
+  SetImage(ui::ImageModel::FromVectorIcon(
+      vector_icons::kInfoOutlineIcon,
       GetColorProvider()->GetColor(hovered ? ui::kColorHelpIconActive
-                                           : ui::kColorHelpIconInactive)));
+                                           : ui::kColorHelpIconInactive),
+      tooltip_icon_size_));
 }
 
 void TooltipIcon::ShowBubble() {

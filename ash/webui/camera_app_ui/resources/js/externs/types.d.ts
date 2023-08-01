@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,46 +8,11 @@
 // ESLint doesn't like "declare class" without jsdoc.
 /* eslint-disable require-jsdoc */
 
-// This is currently a Chrome only API, and the spec is still in working draft
-// stage.
-// https://developer.mozilla.org/en-US/docs/Web/API/UIEvent/sourceCapabilities
-
-interface UIEvent extends Event {
-  readonly sourceCapabilities: InputDeviceCapabilities|null;
-}
-
-interface InputDeviceCapabilities {
-  readonly firesTouchEvents: boolean;
-  readonly pointerMovementScrolls: boolean;
-}
-
-// The new "subtree" option is not published in the latest spec yet.
-// Ref: https://github.com/w3c/csswg-drafts/pull/3902
-
-interface GetAnimationsOptions {
-  subtree: boolean;
-}
-
-interface Animatable {
-  getAnimations(options?: GetAnimationsOptions): Animation[];
-}
-
 // File System Access API: This is currently a Chrome only API, and the spec is
 // still in working draft stage.
 // https://wicg.github.io/file-system-access/
 
-// close() is only implemented in Chrome so it's not in upstream type
-// definitions. Ref:
-// https://github.com/microsoft/TypeScript-DOM-lib-generator/pull/827.
-interface WritableStream {
-  close(): Promise<void>;
-}
-
-interface FileSystemHandleBase {
-  readonly name: string;
-}
-
-type FileSystemWriteChunkType = BufferSource|Blob|string;
+type FileSystemWriteChunkType = Blob|BufferSource|string;
 
 interface FileSystemWritableFileStream extends WritableStream {
   seek(position: number): Promise<void>;
@@ -59,43 +24,19 @@ interface FileSystemCreateWritableOptions {
   keepExistingData?: boolean;
 }
 
-interface FileSystemFileHandle extends FileSystemHandleBase {
-  readonly kind: 'file';
+interface FileSystemFileHandle {
   createWritable(options?: FileSystemCreateWritableOptions):
       Promise<FileSystemWritableFileStream>;
-  getFile(): Promise<File>;
+
+  // move() is only implemented in Chrome so it's not in upstream type
+  // definitions. Ref:
+  // https://chromestatus.com/feature/5640802622504960
+  move(dir: FileSystemDirectoryHandle, name: string): Promise<void>;
 }
 
-interface FileSystemGetDirectoryOptions {
-  create?: boolean;
-}
-
-interface FileSystemGetFileOptions {
-  create?: boolean;
-}
-
-interface FileSystemDirectoryHandle extends FileSystemHandleBase {
-  readonly kind: 'directory';
-  getDirectoryHandle(name: string, options?: FileSystemGetDirectoryOptions):
-      Promise<FileSystemDirectoryHandle>;
-  getFileHandle(name: string, options?: FileSystemGetFileOptions):
-      Promise<FileSystemFileHandle>;
-  removeEntry(name: string): Promise<void>;
+interface FileSystemDirectoryHandle {
   values(): IterableIterator<FileSystemHandle>;
 }
-
-type FileSystemHandle = FileSystemFileHandle|FileSystemDirectoryHandle;
-
-type VarFor<T> = {
-  prototype: T;
-  // clang-format parses "new" in a wrong way.
-  // clang-format off
-  new(): T;
-  // clang-format on
-};
-
-declare const FileSystemDirectoryHandle: VarFor<FileSystemDirectoryHandle>;
-declare const FileSystemFileHandle: VarFor<FileSystemFileHandle>;
 
 interface StorageManager {
   getDirectory(): Promise<FileSystemDirectoryHandle>;
@@ -106,9 +47,10 @@ interface StorageManager {
 
 interface Window {
   loadTimeData: {
-    getBoolean(id: string): boolean; getString(id: string): string;
-    getStringF(id: string, ...args: (number|string)[]): string;
-  }
+    getBoolean(id: string): boolean,
+    getString(id: string): string,
+    getStringF(id: string, ...args: Array<number|string>): string,
+  };
 }
 
 // v8 specific stack information.
@@ -126,16 +68,16 @@ interface ErrorConstructor {
 
 // Chrome private API for crash report.
 declare namespace chrome.crashReportPrivate {
-  export type ErrorInfo = {
-    message: string,
-    url: string,
-    columnNumber?: number,
-    debugId?: string,
-    lineNumber?: number,
-    product?: string,
-    stackTrace?: string,
-    version?: string,
-  };
+  export interface ErrorInfo {
+    message: string;
+    url: string;
+    columnNumber?: number;
+    debugId?: string;
+    lineNumber?: number;
+    product?: string;
+    stackTrace?: string;
+    version?: string;
+  }
   export const reportError: (info: ErrorInfo, callback: () => void) => void;
 }
 
@@ -144,6 +86,7 @@ declare namespace chrome.crashReportPrivate {
 // https://wicg.github.io/idle-detection/
 declare class IdleDetector extends EventTarget {
   screenState: 'locked'|'unlocked';
+
   start: () => Promise<void>;
 }
 
@@ -174,7 +117,7 @@ interface LaunchQueue {
 type LaunchConsumer = (params: LaunchParams) => void;
 
 interface LaunchParams {
-  readonly files: ReadonlyArray<FileSystemHandle>;
+  readonly files: readonly FileSystemHandle[];
 }
 
 // HTMLVideoElement.requestVideoFrameCallback, this is currently available in
@@ -192,9 +135,6 @@ interface VideoFrameMetadata {
   receiveTime?: DOMHighResTimeStamp;
   rtpTimestamp?: number;
 }
-
-type VideoFrameRequestCallback =
-    (now: DOMHighResTimeStamp, metadata: VideoFrameMetadata) => void;
 
 interface HTMLVideoElement {
   requestVideoFrameCallback(callback: VideoFrameRequestCallback): number;
@@ -218,75 +158,12 @@ interface DetectedBarcode {
   boundingBox: DOMRectReadOnly;
   rawValue: string;
   format: BarcodeFormat;
-  cornerPoints: ReadonlyArray<Point2D>;
+  cornerPoints: readonly Point2D[];
 }
 
 type BarcodeFormat =
-    'aztec'|'code_128'|'code_39'|'code_93'|'codabar'|'data_matrix'|'ean_13'|
-    'ean_8'|'itf'|'pdf417'|'qr_code'|'unknown'|'upc_a'|'upc_e';
-
-// Trusted Types, this spec is still in draft stage.
-// https://w3c.github.io/webappsec-trusted-types/dist/spec/
-interface TrustedScriptURL {
-  toJSON(): string;
-}
-
-interface TrustedHTML {
-  toJSON(): string;
-}
-
-interface TrustedScript {
-  toJSON(): string;
-}
-
-interface TrustedTypePolicyOptions {
-  createHTML?: CreateHTMLCallback;
-  createScript?: CreateScriptCallback;
-  createScriptURL?: CreateScriptURLCallback;
-}
-
-type CreateHTMLCallback = (input: string, arguments: any) => string;
-type CreateScriptCallback = (input: string, arguments: any) => string;
-type CreateScriptURLCallback = (input: string, arguments: any) => string;
-
-interface TrustedTypePolicy {
-  readonly name: string;
-  createHTML(input: string, arguments?: any): TrustedHTML;
-  createScript(input: string, arguments?: any): TrustedScript;
-  createScriptURL(input: string, arguments?: any): TrustedScriptURL;
-}
-
-interface TrustedTypePolicyFactory {
-  createPolicy(policyName: string, policyOptions?: TrustedTypePolicyOptions):
-      TrustedTypePolicy;
-  isHTML(value: any): boolean;
-  isScript(value: any): boolean;
-  isScriptURL(value: any): boolean;
-  readonly emptyHTML: TrustedHTML;
-  readonly emptyScript: TrustedScript;
-  getAttributeType(
-      tagName: string, attribute: string, elementNs?: string,
-      attrNs?: string): string;
-  getPropertyType(tagName: string, property: string, elementNs?: string):
-      string;
-  readonly defaultPolicy: TrustedTypePolicy;
-}
-
-declare const trustedTypes: TrustedTypePolicyFactory;
-
-// Web Share API. TypeScript only includes types for share() without the files
-// field.
-// https://w3c.github.io/web-share/
-interface ShareData {
-  files?: File[];
-  text?: string;
-  title?: string;
-  url?: string;
-}
-
-interface Navigator {
-  canShare: (data: ShareData) => boolean;
-}
+    'aztec'|'codabar'|'code_39'|'code_93'|'code_128'|'data_matrix'|'ean_8'|
+    'ean_13'|'itf'|'pdf417'|'qr_code'|'unknown'|'upc_a'|'upc_e';
 
 // Web Workers API interface. This is included in lib.webworker.d.ts and
 // available if we enable lib: ["webworker"] in tsconfig.json, but it conflicts

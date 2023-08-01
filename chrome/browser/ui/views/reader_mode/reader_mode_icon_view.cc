@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,6 @@
 #include "components/dom_distiller/core/dom_distiller_features.h"
 #include "components/dom_distiller/core/url_utils.h"
 #include "components/prefs/pref_service.h"
-#include "components/ukm/content/source_url_recorder.h"
 #include "content/public/browser/navigation_details.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
@@ -50,8 +49,14 @@ ReaderModeIconView::ReaderModeIconView(
     : PageActionIconView(command_updater,
                          IDC_DISTILL_PAGE,
                          icon_label_bubble_delegate,
-                         page_action_icon_delegate),
-      pref_service_(pref_service) {}
+                         page_action_icon_delegate,
+                         "ReaderMode"),
+      pref_service_(pref_service) {
+  SetAccessibilityProperties(
+      /*role*/ absl::nullopt,
+      l10n_util::GetStringUTF16(GetActive() ? IDS_EXIT_DISTILLED_PAGE
+                                            : IDS_DISTILL_PAGE));
+}
 
 ReaderModeIconView::~ReaderModeIconView() {
   content::WebContents* contents = web_contents();
@@ -60,11 +65,7 @@ ReaderModeIconView::~ReaderModeIconView() {
   DCHECK(!DistillabilityObserver::IsInObserverList());
 }
 
-void ReaderModeIconView::DidFinishNavigation(
-    content::NavigationHandle* navigation_handle) {
-  if (!navigation_handle->IsInPrimaryMainFrame())
-    return;
-
+void ReaderModeIconView::PrimaryPageChanged(content::Page& page) {
   if (GetVisible())
     views::InkDrop::Get(this)->AnimateToState(views::InkDropState::HIDDEN,
                                               nullptr);
@@ -127,6 +128,9 @@ void ReaderModeIconView::UpdateImpl() {
     SetActive(false);
   }
 
+  SetAccessibleName(l10n_util::GetStringUTF16(
+      GetActive() ? IDS_EXIT_DISTILLED_PAGE : IDS_DISTILL_PAGE));
+
   // Notify the icon when navigation to and from a distilled page occurs so that
   // it can hide the inkdrop.
   Observe(contents);
@@ -134,11 +138,6 @@ void ReaderModeIconView::UpdateImpl() {
 
 const gfx::VectorIcon& ReaderModeIconView::GetVectorIcon() const {
   return GetActive() ? kReaderModeIcon : kReaderModeDisabledIcon;
-}
-
-std::u16string ReaderModeIconView::GetTextForTooltipAndAccessibleName() const {
-  return l10n_util::GetStringUTF16(GetActive() ? IDS_EXIT_DISTILLED_PAGE
-                                               : IDS_DISTILL_PAGE);
 }
 
 // TODO(gilmanmh): Consider displaying a bubble the first time a user
@@ -160,7 +159,8 @@ void ReaderModeIconView::OnExecuting(
   content::WebContents* contents = GetWebContents();
   if (!contents || IsDistilledPage(contents->GetLastCommittedURL()))
     return;
-  ukm::SourceId source_id = ukm::GetSourceIdForWebContentsDocument(contents);
+  ukm::SourceId source_id =
+      contents->GetPrimaryMainFrame()->GetPageUkmSourceId();
   ukm::builders::ReaderModeActivated(source_id)
       .SetActivatedViaOmnibox(true)
       .Record(ukm::UkmRecorder::Get());
@@ -176,7 +176,7 @@ void ReaderModeIconView::OnResult(
 
   if (result.is_last) {
     ukm::SourceId source_id =
-        ukm::GetSourceIdForWebContentsDocument(web_contents);
+        web_contents->GetPrimaryMainFrame()->GetPageUkmSourceId();
     ukm::builders::ReaderModeReceivedDistillability(source_id)
         .SetIsPageDistillable(result.is_distillable)
         .Record(ukm::UkmRecorder::Get());

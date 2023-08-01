@@ -1,19 +1,22 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.bookmarks;
 
 import androidx.annotation.NonNull;
-import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.ObserverList;
+import org.chromium.base.ThreadUtils;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.components.bookmarks.BookmarkId;
+import org.chromium.components.bookmarks.BookmarkItem;
 import org.chromium.components.bookmarks.BookmarkType;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * A class that encapsulates {@link BookmarkBridge} and provides extra features such as undo, large
@@ -21,6 +24,13 @@ import java.util.List;
  * the UI to acquire data from the backend.
  */
 public class BookmarkModel extends BookmarkBridge {
+    private static BookmarkModel sInstanceForTesting;
+
+    /** Set an instance for testing. */
+    public static void setInstanceForTesting(BookmarkModel bookmarkModel) {
+        sInstanceForTesting = bookmarkModel;
+    }
+
     /**
      * Observer that listens to delete event. This interface is used by undo controllers to know
      * which bookmarks were deleted. Note this observer only listens to events that go through
@@ -39,15 +49,22 @@ public class BookmarkModel extends BookmarkBridge {
     private ObserverList<BookmarkDeleteObserver> mDeleteObservers = new ObserverList<>();
 
     /**
-     * Initialize bookmark model for last used non-incognito profile.
+     * Provides an instance of the bookmark model for the provided profile.
+     * @param profile A profile for which the bookmark model is provided.
+     * @return An instance of the bookmark model.
      */
-    public BookmarkModel() {
-        this(Profile.getLastUsedRegularProfile());
+    public static final BookmarkModel getForProfile(@NonNull Profile profile) {
+        assert profile != null;
+        if (sInstanceForTesting != null) {
+            return sInstanceForTesting;
+        }
+
+        ThreadUtils.assertOnUiThread();
+        return BookmarkBridge.getForProfile(profile);
     }
 
-    @VisibleForTesting
-    public BookmarkModel(Profile profile) {
-        super(profile);
+    BookmarkModel(long nativeBookmarkBridge) {
+        super(nativeBookmarkBridge);
     }
 
     /**
@@ -99,17 +116,20 @@ public class BookmarkModel extends BookmarkBridge {
      * Calls {@link BookmarkBridge#moveBookmark(BookmarkId, BookmarkId, int)} for the given
      * bookmark list. The bookmarks are appended at the end.
      */
-    void moveBookmarks(List<BookmarkId> bookmarkIds, BookmarkId newParentId) {
+    public void moveBookmarks(List<BookmarkId> bookmarkIds, BookmarkId newParentId) {
+        Set<BookmarkId> existingChildren = new HashSet<>(getChildIds(newParentId));
         int appendIndex = getChildCount(newParentId);
-        for (int i = 0; i < bookmarkIds.size(); ++i) {
-            moveBookmark(bookmarkIds.get(i), newParentId, appendIndex + i);
+        for (BookmarkId child : bookmarkIds) {
+            if (!existingChildren.contains(child)) {
+                moveBookmark(child, newParentId, appendIndex++);
+            }
         }
     }
 
     /**
-     * @see org.chromium.chrome.browser.bookmarks.BookmarkBridge.BookmarkItem#getTitle()
+     * @see org.chromium.chrome.browser.bookmarks.BookmarkItem#getTitle()
      */
-    String getBookmarkTitle(BookmarkId bookmarkId) {
+    public String getBookmarkTitle(BookmarkId bookmarkId) {
         BookmarkItem bookmarkItem = getBookmarkById(bookmarkId);
         if (bookmarkItem == null) return "";
         return bookmarkItem.getTitle();
@@ -121,7 +141,7 @@ public class BookmarkModel extends BookmarkBridge {
      */
     public int getUnreadCount(@NonNull BookmarkId bookmarkId) {
         assert bookmarkId.getType() == BookmarkType.READING_LIST;
-        List<BookmarkId> children = getChildIDs(bookmarkId);
+        List<BookmarkId> children = getChildIds(bookmarkId);
         int unreadCount = 0;
         for (BookmarkId child : children) {
             BookmarkItem childItem = getBookmarkById(child);
@@ -142,9 +162,6 @@ public class BookmarkModel extends BookmarkBridge {
      * @return The id of the default folder to view bookmarks.
      */
     public BookmarkId getDefaultFolderViewLocation() {
-        if (ReadingListFeatures.shouldUseRootFolderAsDefaultForReadLater()) {
-            return getRootFolderId();
-        }
-        return getMobileFolderId();
+        return getRootFolderId();
     }
 }

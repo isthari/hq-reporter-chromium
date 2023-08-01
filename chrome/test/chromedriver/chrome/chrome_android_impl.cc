@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,15 +19,19 @@ ChromeAndroidImpl::ChromeAndroidImpl(
     std::unique_ptr<DevToolsClient> websocket_client,
     std::vector<std::unique_ptr<DevToolsEventListener>>
         devtools_event_listeners,
+    absl::optional<MobileDevice> mobile_device,
+    SyncWebSocketFactory socket_factory,
     std::string page_load_strategy,
     std::unique_ptr<Device> device)
     : ChromeImpl(std::move(http_client),
                  std::move(websocket_client),
                  std::move(devtools_event_listeners),
+                 std::move(mobile_device),
+                 std::move(socket_factory),
                  page_load_strategy),
       device_(std::move(device)) {}
 
-ChromeAndroidImpl::~ChromeAndroidImpl() {}
+ChromeAndroidImpl::~ChromeAndroidImpl() = default;
 
 Status ChromeAndroidImpl::GetAsDesktop(ChromeDesktopImpl** desktop) {
   return Status(kUnknownError, "operation is unsupported on Android");

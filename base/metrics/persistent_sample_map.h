@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,7 @@
 #include <map>
 #include <memory>
 
+#include "base/base_export.h"
 #include "base/compiler_specific.h"
 #include "base/memory/raw_ptr.h"
 #include "base/metrics/histogram_base.h"
@@ -46,6 +47,7 @@ class BASE_EXPORT PersistentSampleMap : public HistogramSamples {
   HistogramBase::Count GetCount(HistogramBase::Sample value) const override;
   HistogramBase::Count TotalCount() const override;
   std::unique_ptr<SampleCountIterator> Iterator() const override;
+  std::unique_ptr<SampleCountIterator> ExtractingIterator() override;
 
   // Uses a persistent-memory |iterator| to locate and return information about
   // the next record holding information for a PersistentSampleMap. The record

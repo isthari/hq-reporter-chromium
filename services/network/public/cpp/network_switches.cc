@@ -1,12 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "services/network/public/cpp/network_switches.h"
 
-namespace network {
-
-namespace switches {
+namespace network::switches {
 
 // Forces Network Quality Estimator (NQE) to return a specific effective
 // connection type.
@@ -19,6 +17,8 @@ const char kHostResolverRules[] = "host-resolver-rules";
 // causing them to attempt an unauthenticated SSL/TLS session. This is intended
 // for use when testing various service URLs (eg: kPromoServerURL, kSbURLPrefix,
 // kSyncServiceURL, etc).
+// TODO(crbug.com/1417189): Remove this flag if the alternative solution
+// implemented for crbug.com/1221565 covers all needs.
 const char kIgnoreUrlFetcherCertRequests[] = "ignore-urlfetcher-cert-requests";
 
 // A set of public key hashes for which to ignore certificate-related errors.
@@ -56,6 +56,8 @@ const char kNetLogCaptureMode[] = "net-log-capture-mode";
 // for the format.
 const char kSSLKeyLogFile[] = "ssl-key-log-file";
 
+const char kTestThirdPartyCookiePhaseout[] = "test-third-party-cookie-phaseout";
+
 // Treat given (insecure) origins as secure origins. Multiple origins can be
 // supplied as a comma-separated list. For the definition of secure contexts,
 // see https://w3c.github.io/webappsec-secure-contexts/ and
@@ -66,8 +68,8 @@ const char kSSLKeyLogFile[] = "ssl-key-log-file";
 const char kUnsafelyTreatInsecureOriginAsSecure[] =
     "unsafely-treat-insecure-origin-as-secure";
 
-// Manually sets additional Trust Tokens key commitments in the network service
-// to the given value, which should be a JSON dictionary satisfying the
+// Manually sets additional Private State Tokens key commitments in the network
+// service to the given value, which should be a JSON dictionary satisfying the
 // requirements of TrustTokenKeyCommitmentParser::ParseMultipleIssuers.
 //
 // These keys are available in addition to keys provided by the most recent call
@@ -81,7 +83,7 @@ const char kUnsafelyTreatInsecureOriginAsSecure[] =
 // keys were overwritten some time after startup when the component updater
 // runs.
 const char kAdditionalTrustTokenKeyCommitments[] =
-    "additional-trust-token-key-commitments";
+    "additional-private-state-token-key-commitments";
 
 // Allows the manual specification of a First-Party Set, as a comma-separated
 // list of origins. The first origin in the list is treated as the owner of the
@@ -112,6 +114,8 @@ const char kUseFirstPartySet[] = "use-first-party-set";
 // https://github.com/web-platform-tests/rfcs/blob/master/rfcs/address_space_overrides.md
 const char kIpAddressSpaceOverrides[] = "ip-address-space-overrides";
 
-}  // namespace switches
+// Enables running high priority tasks in the network services using
+// ThreadDelegate::GetHighPriorityTaskRunner().
+const char kNetworkServiceScheduler[] = "network-service-scheduler";
 
-}  // namespace network
+}  // namespace network::switches

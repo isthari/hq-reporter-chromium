@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,6 @@ import static org.hamcrest.CoreMatchers.allOf;
 import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 
 import android.content.Intent;
@@ -29,6 +28,7 @@ import androidx.test.espresso.matcher.ViewMatchers;
 import androidx.test.filters.MediumTest;
 import androidx.test.filters.SmallTest;
 
+import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -39,14 +39,15 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
-import org.mockito.stubbing.Answer;
 
-import org.chromium.base.Callback;
 import org.chromium.base.CommandLine;
+import org.chromium.base.Promise;
+import org.chromium.base.metrics.UmaRecorderHolder;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.Criteria;
 import org.chromium.base.test.util.CriteriaHelper;
+import org.chromium.base.test.util.DoNotBatch;
 import org.chromium.base.test.util.Restriction;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeTabbedActivity;
 import org.chromium.chrome.browser.app.ChromeActivity;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
@@ -60,8 +61,11 @@ import org.chromium.chrome.browser.omnibox.voice.VoiceRecognitionHandler;
 import org.chromium.chrome.browser.search_engines.TemplateUrlServiceFactory;
 import org.chromium.chrome.test.ChromeJUnit4ClassRunner;
 import org.chromium.chrome.test.ChromeTabbedActivityTestRule;
+import org.chromium.chrome.test.R;
 import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.chrome.test.util.OmniboxTestUtils;
+import org.chromium.chrome.test.util.browser.Features.DisableFeatures;
+import org.chromium.chrome.test.util.browser.Features.EnableFeatures;
 import org.chromium.components.embedder_support.util.UrlConstants;
 import org.chromium.components.search_engines.TemplateUrl;
 import org.chromium.components.search_engines.TemplateUrlService;
@@ -81,6 +85,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @RunWith(ChromeJUnit4ClassRunner.class)
 @CommandLineFlags.Add({ChromeSwitches.DISABLE_FIRST_RUN_EXPERIENCE,
         ContentSwitches.HOST_RESOLVER_RULES + "=MAP * 127.0.0.1", "ignore-certificate-errors"})
+@DoNotBatch(reason = "Test start up behaviors.")
 public class LocationBarTest {
     private static final String TEST_QUERY = "testing query";
     private static final List<String> TEST_PARAMS = Arrays.asList("foo=bar");
@@ -122,7 +127,11 @@ public class LocationBarTest {
             TemplateUrlServiceFactory.setInstanceForTesting(mTemplateUrlService);
             LocaleManager.getInstance().setDelegateForTest(mLocaleManagerDelegate);
             SearchEngineLogoUtils.setInstanceForTesting(mSearchEngineLogoUtils);
+            doReturn(new Promise<>())
+                    .when(mSearchEngineLogoUtils)
+                    .getSearchEngineLogo(any(), anyInt(), any(), any());
         });
+        UmaRecorderHolder.resetForTesting();
     }
 
     @After
@@ -172,7 +181,7 @@ public class LocationBarTest {
 
     private void doPostActivitySetup(ChromeActivity activity) {
         mOmnibox = new OmniboxTestUtils(activity);
-        mUrlBar = activity.findViewById(org.chromium.chrome.R.id.url_bar);
+        mUrlBar = activity.findViewById(R.id.url_bar);
         mLocationBarCoordinator = ((LocationBarCoordinator) activity.getToolbarManager()
                                            .getToolbarLayoutForTesting()
                                            .getLocationBar());
@@ -198,16 +207,12 @@ public class LocationBarTest {
                     .when(mTemplateUrlService)
                     .getDefaultSearchEngineTemplateUrl();
 
-            Answer logoAnswer = (invocation) -> {
-                ((Callback<StatusIconResource>) invocation.getArgument(4))
-                        .onResult(new StatusIconResource(
-                                isGoogle ? R.drawable.ic_logo_googleg_20dp : R.drawable.ic_search,
-                                0));
-                return null;
-            };
-            doAnswer(logoAnswer)
+            Promise<StatusIconResource> logoPromise = Promise.fulfilled(new StatusIconResource(
+                    isGoogle ? R.drawable.ic_logo_googleg_20dp : R.drawable.ic_search, 0));
+
+            doReturn(logoPromise)
                     .when(mSearchEngineLogoUtils)
-                    .getSearchEngineLogo(any(), anyInt(), any(), any(), any());
+                    .getSearchEngineLogo(any(), anyInt(), any(), any());
         });
     }
 
@@ -260,13 +265,10 @@ public class LocationBarTest {
         TestThreadUtils.runOnUiThreadBlocking(() -> mLocationBarMediator.setSearchQuery(query));
 
         triggerAndWaitForDeferredNativeInitialization();
-        TestThreadUtils.runOnUiThreadBlocking(() -> {
-            Assert.assertEquals(query, mUrlBar.getTextWithoutAutocomplete());
-            Assert.assertTrue(mLocationBarMediator.isUrlBarFocused());
+        CriteriaHelper.pollUiThread(() -> {
+            Criteria.checkThat(mUrlBar.getTextWithoutAutocomplete(), Matchers.is(query));
+            Criteria.checkThat(mLocationBarMediator.isUrlBarFocused(), Matchers.is(true));
         });
-
-        CriteriaHelper.pollUiThread(
-                () -> mKeyboardDelegate.isKeyboardShowing(mUrlBar.getContext(), mUrlBar));
     }
 
     @Test
@@ -591,7 +593,7 @@ public class LocationBarTest {
                 () -> { mLocationBarCoordinator.setOmniboxEditingText(url); });
 
         onView(withId(R.id.mic_button))
-                .check(matches(withEffectiveVisibility(ViewMatchers.Visibility.VISIBLE)));
+                .check(matches(withEffectiveVisibility(ViewMatchers.Visibility.GONE)));
         onView(withId(R.id.delete_button))
                 .check(matches(withEffectiveVisibility(ViewMatchers.Visibility.VISIBLE)));
 
@@ -615,6 +617,41 @@ public class LocationBarTest {
         mOmnibox.requestFocus();
         mOmnibox.checkFocus(true);
         mOmnibox.clearFocus();
+        mOmnibox.checkFocus(false);
+    }
+
+    /**
+     * Test that back press should make the omnibox unfocused.
+     */
+    @Test
+    @MediumTest
+    @DisableFeatures({ChromeFeatureList.BACK_GESTURE_REFACTOR})
+    @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
+    public void testFocusLogic_backPress() {
+        startActivityNormally();
+
+        mOmnibox.requestFocus();
+        mOmnibox.checkFocus(true);
+        TestThreadUtils.runOnUiThreadBlocking(() -> mLocationBarMediator.backKeyPressed());
+        mOmnibox.checkFocus(false);
+    }
+
+    /**
+     * Same with {@link #testFocusLogic_backPress()}, but with predictive back gesture enabled.
+     */
+    @Test
+    @MediumTest
+    @EnableFeatures({ChromeFeatureList.BACK_GESTURE_REFACTOR})
+    @Restriction(UiRestriction.RESTRICTION_TYPE_PHONE)
+    public void testFocusLogic_backPress_Refactored() {
+        startActivityNormally();
+
+        mOmnibox.requestFocus();
+        mOmnibox.checkFocus(true);
+        Assert.assertTrue(mLocationBarMediator.getHandleBackPressChangedSupplier().get());
+        TestThreadUtils.runOnUiThreadBlocking(
+                () -> mActivity.getOnBackPressedDispatcher().onBackPressed());
+        Assert.assertFalse(mLocationBarMediator.getHandleBackPressChangedSupplier().get());
         mOmnibox.checkFocus(false);
     }
 

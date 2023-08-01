@@ -1,19 +1,20 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/reading_list/reading_list_list_item_factory.h"
 
-#include "base/time/time.h"
-#include "components/reading_list/core/reading_list_entry.h"
+#import "base/memory/scoped_refptr.h"
+#import "base/time/time.h"
+#import "components/reading_list/core/reading_list_entry.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_list_item.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_list_item_accessibility_delegate.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_list_item_custom_action_factory.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_list_item_factory.h"
 #import "ios/chrome/browser/ui/reading_list/reading_list_table_view_item.h"
-#include "testing/platform_test.h"
+#import "testing/platform_test.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
-#include "url/gurl.h"
+#import "url/gurl.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -23,7 +24,10 @@ class ReadingListListItemFactoryTest : public PlatformTest {
  public:
   ReadingListListItemFactoryTest()
       : PlatformTest(),
-        entry_(GURL("https://www.google.com"), "Google", base::Time::Now()) {}
+        entry_(base::MakeRefCounted<const ReadingListEntry>(
+            GURL("https://www.google.com"),
+            "Google",
+            base::Time::Now())) {}
 
   ReadingListListItemFactoryTest(const ReadingListListItemFactoryTest&) =
       delete;
@@ -31,7 +35,7 @@ class ReadingListListItemFactoryTest : public PlatformTest {
       const ReadingListListItemFactoryTest&) = delete;
 
  protected:
-  const ReadingListEntry entry_;
+  scoped_refptr<const ReadingListEntry> entry_;
 };
 
 // Tests that the accessibility delegate is properly passed to the generated
@@ -42,6 +46,7 @@ TEST_F(ReadingListListItemFactoryTest, SetA11yDelegate) {
   ReadingListListItemFactory* factory =
       [[ReadingListListItemFactory alloc] init];
   factory.accessibilityDelegate = mockDelegate;
-  id<ReadingListListItem> item = [factory cellItemForReadingListEntry:&entry_];
+  id<ReadingListListItem> item =
+      [factory cellItemForReadingListEntry:entry_.get() needsExplicitUpload:NO];
   EXPECT_EQ(item.customActionFactory.accessibilityDelegate, mockDelegate);
 }

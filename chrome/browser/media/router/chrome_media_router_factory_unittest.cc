@@ -1,11 +1,13 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <memory>
 
-#include "base/bind.h"
+#include "base/feature_list.h"
+#include "base/functional/bind.h"
 #include "chrome/browser/media/router/chrome_media_router_factory.h"
+#include "chrome/browser/media/router/media_router_feature.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/media_router/browser/media_router_factory.h"
 #include "components/media_router/browser/test/mock_media_router.h"
@@ -46,19 +48,10 @@ TEST_F(ChromeMediaRouterFactoryTest, CreateForIncognitoProfile) {
       MediaRouterFactory::GetApiForBrowserContext(incognito_profile);
   ASSERT_TRUE(router);
 
-  // A Profile and its incognito Profile share the same MediaRouter instance.
-  ASSERT_EQ(router, MediaRouterFactory::GetApiForBrowserContext(profile()));
-}
-
-TEST_F(ChromeMediaRouterFactoryTest, IncognitoBrowserContextShutdown) {
-  // Creates an incognito profile.
-  Profile* incognito =
-      profile()->GetPrimaryOTRProfile(/*create_if_needed=*/true);
-  MockMediaRouter* router = static_cast<MockMediaRouter*>(
-      MediaRouterFactory::GetApiForBrowserContext(profile()));
-  ASSERT_TRUE(router);
-  EXPECT_CALL(*router, OnIncognitoProfileShutdown());
-  profile()->DestroyOffTheRecordProfile(incognito);
+  if (!base::FeatureList::IsEnabled(kMediaRouterOTRInstance)) {
+    // A Profile and its incognito Profile share the same MediaRouter instance.
+    ASSERT_EQ(router, MediaRouterFactory::GetApiForBrowserContext(profile()));
+  }
 }
 
 }  // namespace media_router

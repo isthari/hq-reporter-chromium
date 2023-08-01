@@ -1,6 +1,6 @@
 #!/usr/bin/env vpython3
 #
-# Copyright 2018 The Chromium Authors. All rights reserved.
+# Copyright 2018 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -33,7 +33,8 @@ from pylib.base import base_test_result  # pylint: disable=import-error
 from pylib.results import json_results  # pylint: disable=import-error
 
 sys.path.insert(0, os.path.join(CHROMIUM_SRC_PATH, 'build', 'util'))
-from lib.results import result_sink  # pylint: disable=import-error
+# TODO(crbug.com/1421441): Re-enable the 'no-name-in-module' check.
+from lib.results import result_sink  # pylint: disable=import-error,no-name-in-module
 
 assert not six.PY2, 'Py2 not supported for this file.'
 
@@ -208,23 +209,9 @@ class RemoteTest:
     # side Tast bin returns 0 even for failed tests.)
     return test_proc.returncode
 
-  def post_run(self, return_code):
+  def post_run(self, _):
     if self._on_device_script:
       os.remove(self._on_device_script)
-    # Create a simple json results file for a test run. The results will contain
-    # only one test (suite_name), and will either be a PASS or FAIL depending on
-    # return_code.
-    if self._test_launcher_summary_output:
-      result = (
-          base_test_result.ResultType.FAIL
-          if return_code else base_test_result.ResultType.PASS)
-      suite_result = base_test_result.BaseTestResult(self.suite_name, result)
-      run_results = base_test_result.TestRunResults()
-      run_results.AddResult(suite_result)
-      with open(self._test_launcher_summary_output, 'w') as f:
-        json.dump(json_results.GenerateResultsDict([run_results]), f)
-      if self._rdb_client:
-        self._rdb_client.Post(self.suite_name, result, None, None, None)
 
   @staticmethod
   def get_artifacts(path):
@@ -239,7 +226,15 @@ class RemoteTest:
     for dirpath, _, filenames in os.walk(path):
       for f in filenames:
         artifact_path = os.path.join(dirpath, f)
-        artifacts[os.path.relpath(artifact_path, path)] = {
+        artifact_id = os.path.relpath(artifact_path, path)
+        # Some artifacts will have non-Latin characters in the filename, eg:
+        # 'ui_tree_Chinese Pinyin-你好.txt'. ResultDB's API rejects such
+        # characters as an artifact ID, so force the file name down into ascii.
+        # For more info, see:
+        # https://source.chromium.org/chromium/infra/infra/+/main:go/src/go.chromium.org/luci/resultdb/proto/v1/artifact.proto;drc=3bff13b8037ca76ec19f9810033d914af7ec67cb;l=46
+        artifact_id = artifact_id.encode('ascii', 'replace').decode()
+        artifact_id = artifact_id.replace('\\', '?')
+        artifacts[artifact_id] = {
             'filePath': artifact_path,
         }
     return artifacts
@@ -252,6 +247,7 @@ class TastTest(RemoteTest):
 
     self._suite_name = args.suite_name
     self._tast_vars = args.tast_vars
+    self._tast_retries = args.tast_retries
     self._tests = args.tests
     # The CQ passes in '--gtest_filter' when specifying tests to skip. Store it
     # here and parse it later to integrate it into Tast executions.
@@ -259,12 +255,7 @@ class TastTest(RemoteTest):
     self._attr_expr = args.attr_expr
     self._should_strip = args.strip_chrome
     self._deploy_lacros = args.deploy_lacros
-
-    if self._deploy_lacros and self._should_strip:
-      raise TestFormatError(
-          '--strip-chrome is only applicable to ash-chrome because '
-          'lacros-chrome deployment uses --nostrip by default, so it cannot '
-          'be specificed with --deploy-lacros.')
+    self._deploy_chrome = args.deploy_chrome
 
     if not self._logs_dir:
       # The host-side Tast bin returns 0 when tests fail, so we need to capture
@@ -299,10 +290,15 @@ class TastTest(RemoteTest):
         ]
 
     # Lacros deployment mounts itself by default.
-    self._test_cmd.extend([
-        '--deploy-lacros', '--lacros-launcher-script',
-        LACROS_LAUNCHER_SCRIPT_PATH
-    ] if self._deploy_lacros else ['--deploy', '--mount'])
+    if self._deploy_lacros:
+      self._test_cmd.extend([
+          '--deploy-lacros', '--lacros-launcher-script',
+          LACROS_LAUNCHER_SCRIPT_PATH
+      ])
+      if self._deploy_chrome:
+        self._test_cmd.extend(['--deploy', '--mount'])
+    else:
+      self._test_cmd.extend(['--deploy', '--mount'])
     self._test_cmd += [
         '--build-dir',
         os.path.relpath(self._path_to_outdir, CHROMIUM_SRC_PATH)
@@ -343,6 +339,9 @@ class TastTest(RemoteTest):
 
     for v in self._tast_vars or []:
       self._test_cmd.extend(['--tast-var', v])
+
+    if self._tast_retries:
+      self._test_cmd.append('--tast-retries=%d' % self._tast_retries)
 
     # Mounting ash-chrome gives it enough disk space to not need stripping,
     # but only for one not instrumented with code coverage.
@@ -574,7 +573,7 @@ class GTestTest(RemoteTest):
     if self._trace_dir:
       device_test_script_contents.extend([
           'rm -rf %s' % device_trace_dir,
-          'su chronos -c -- "mkdir -p %s"' % device_trace_dir,
+          'sudo -E -u chronos -- /bin/bash -c "mkdir -p %s"' % device_trace_dir,
       ])
       test_invocation += ' --trace-dir=%s' % device_trace_dir
 
@@ -588,7 +587,8 @@ class GTestTest(RemoteTest):
       # The UI service on the device owns the chronos user session, so shutting
       # it down as chronos kills the entire execution of the test. So we'll have
       # to run as root up until the test invocation.
-      test_invocation = 'su chronos -c -- "%s"' % test_invocation
+      test_invocation = (
+          'sudo -E -u chronos -- /bin/bash -c "%s"' % test_invocation)
       # And we'll need to chown everything since cros_run_test's "--as-chronos"
       # option normally does that for us.
       device_test_script_contents.append('chown -R chronos: ../..')
@@ -644,21 +644,9 @@ class GTestTest(RemoteTest):
       os.remove(self._on_device_script)
 
     if self._test_launcher_summary_output and self._rdb_client:
-      if not os.path.exists(self._test_launcher_summary_output):
-        logging.error('Unable to locate %s in order to upload results to RDB.',
-                      self._test_launcher_summary_output)
-        return
-      with open(self._test_launcher_summary_output) as f:
-        raw_results = json.load(f)
-      parsed_results = json_results.ParseResultsFromJson(raw_results)
-      for r in parsed_results:
-        self._rdb_client.Post(
-            r.GetName(),
-            r.GetType(),
-            r.GetDuration(),
-            r.GetLog(),
-            None,
-            failure_reason=r.GetFailureReason())
+      logging.error('Native ResultDB integration is not supported for GTests. '
+                    'Upload results via result_adapter instead. '
+                    'See crbug.com/1330441.')
 
 
 def device_test(args, unknown_args):
@@ -721,11 +709,22 @@ def host_cmd(args, cmd_args):
 
   test_env = setup_env()
   if args.deploy_chrome or args.deploy_lacros:
-    # Mounting ash-chrome gives it enough disk space to not need stripping.
-    cros_run_test_cmd.extend([
-        '--deploy-lacros', '--lacros-launcher-script',
-        LACROS_LAUNCHER_SCRIPT_PATH
-    ] if args.deploy_lacros else ['--deploy', '--mount', '--nostrip'])
+    if args.deploy_lacros:
+      cros_run_test_cmd.extend([
+          '--deploy-lacros', '--lacros-launcher-script',
+          LACROS_LAUNCHER_SCRIPT_PATH
+      ])
+      if args.deploy_chrome:
+        # Mounting ash-chrome gives it enough disk space to not need stripping
+        # most of the time.
+        cros_run_test_cmd.extend(['--deploy', '--mount'])
+    else:
+      # Mounting ash-chrome gives it enough disk space to not need stripping
+      # most of the time.
+      cros_run_test_cmd.extend(['--deploy', '--mount'])
+
+    if not args.strip_chrome:
+      cros_run_test_cmd.append('--nostrip')
 
     cros_run_test_cmd += [
         '--build-dir',
@@ -767,6 +766,13 @@ def add_common_args(*parsers):
     parser.add_argument('--verbose', '-v', action='store_true')
     parser.add_argument(
         '--board', type=str, required=True, help='Type of CrOS device.')
+    parser.add_argument(
+        '--deploy-chrome',
+        action='store_true',
+        help='Will deploy a locally built ash-chrome binary to the device '
+        'before running the host-cmd.')
+    parser.add_argument(
+        '--deploy-lacros', action='store_true', help='Deploy a lacros-chrome.')
     parser.add_argument(
         '--cros-cache',
         type=str,
@@ -816,6 +822,10 @@ def add_common_args(*parsers):
         '--public-image',
         action='store_true',
         help='Will flash a public "full" image to the device.')
+    parser.add_argument(
+        '--magic-vm-cache',
+        help='Path to the magic CrOS VM cache dir. See the comment above '
+             '"magic_cros_vm_cache" in mixins.pyl for more info.')
 
     vm_or_device_group = parser.add_mutually_exclusive_group()
     vm_or_device_group.add_argument(
@@ -840,14 +850,10 @@ def main():
       'will be 127.0.0.1:9222.')
   host_cmd_parser.set_defaults(func=host_cmd)
   host_cmd_parser.add_argument(
-      '--deploy-chrome',
+      '--strip-chrome',
       action='store_true',
-      help='Will deploy a locally built ash-chrome binary to the device before '
-      'running the host-cmd.')
-  host_cmd_parser.add_argument(
-      '--deploy-lacros',
-      action='store_true',
-      help='Deploy a lacros-chrome instead of ash-chrome.')
+      help='Strips symbols from ash-chrome or lacros-chrome before deploying '
+      ' to the device.')
 
   gtest_parser = subparsers.add_parser(
       'gtest', help='Runs a device-side gtest.')
@@ -912,15 +918,16 @@ def main():
       action='store_true',
       help='Strips symbols from ash-chrome before deploying to the device.')
   tast_test_parser.add_argument(
-      '--deploy-lacros',
-      action='store_true',
-      help='Deploy a lacros-chrome instead of ash-chrome.')
-  tast_test_parser.add_argument(
       '--tast-var',
       action='append',
       dest='tast_vars',
       help='Runtime variables for Tast tests, and the format are expected to '
       'be "key=value" pairs.')
+  tast_test_parser.add_argument(
+      '--tast-retries',
+      type=int,
+      dest='tast_retries',
+      help='Number of retries for failed Tast tests on the same DUT.')
   tast_test_parser.add_argument(
       '--test',
       '-t',
@@ -935,20 +942,14 @@ def main():
       'cmd-line API, this will overwrite the value(s) of "--test" above.')
 
   add_common_args(gtest_parser, tast_test_parser, host_cmd_parser)
-
-  args = sys.argv[1:]
-  unknown_args = []
-  # If a '--' is present in the args, treat everything to the right of it as
-  # args to the test and everything to the left as args to this test runner.
-  # Otherwise treat all known args as args to this test runner and all unknown
-  # args as test args.
-  if '--' in args:
-    unknown_args = args[args.index('--') + 1:]
-    args = args[0:args.index('--')]
-  if unknown_args:
-    args = parser.parse_args(args=args)
-  else:
-    args, unknown_args = parser.parse_known_args()
+  args, unknown_args = parser.parse_known_args()
+  # Re-add N-1 -v/--verbose flags to the args we'll pass to whatever we are
+  # running. The assumption is that only one verbosity incrase would be meant
+  # for this script since it's a boolean value instead of increasing verbosity
+  # with more instances.
+  verbose_flags = [a for a in sys.argv if a in ('-v', '--verbose')]
+  if verbose_flags:
+    unknown_args += verbose_flags[1:]
 
   logging.basicConfig(level=logging.DEBUG if args.verbose else logging.WARN)
 
@@ -975,6 +976,12 @@ def main():
     # public images, so make sure the env var GS uses to locate its creds is
     # unset in that case.
     os.environ.pop('BOTO_CONFIG', None)
+
+  if args.magic_vm_cache:
+    full_vm_cache_path = os.path.join(CHROMIUM_SRC_PATH, args.magic_vm_cache)
+    if os.path.exists(full_vm_cache_path):
+      with open(os.path.join(full_vm_cache_path, 'swarming.txt'), 'w') as f:
+        f.write('non-empty file to make swarming persist this cache')
 
   return args.func(args, unknown_args)
 

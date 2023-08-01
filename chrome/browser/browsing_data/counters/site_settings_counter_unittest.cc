@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,8 @@
 #include <string>
 #include <utility>
 
-#include "base/bind.h"
 #include "base/containers/flat_set.h"
+#include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "base/test/simple_test_clock.h"
 #include "build/build_config.h"
@@ -19,15 +19,19 @@
 #include "chrome/test/base/testing_profile.h"
 #include "components/browsing_data/core/browsing_data_utils.h"
 #include "components/browsing_data/core/pref_names.h"
+#include "components/custom_handlers/protocol_handler.h"
 #include "components/custom_handlers/protocol_handler_registry.h"
 #include "components/custom_handlers/test_protocol_handler_registry_delegate.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/security/protocol_handler_security_level.h"
 
 #if !BUILDFLAG(IS_ANDROID)
 #include "content/public/browser/host_zoom_map.h"
 #endif
+
+using custom_handlers::ProtocolHandler;
 
 namespace {
 
@@ -43,7 +47,7 @@ class SiteSettingsCounterTest : public testing::Test {
 #endif
     handler_registry_ =
         std::make_unique<custom_handlers::ProtocolHandlerRegistry>(
-            profile(),
+            profile()->GetPrefs(),
             std::make_unique<
                 custom_handlers::TestProtocolHandlerRegistryDelegate>());
 
@@ -178,10 +182,9 @@ TEST_F(SiteSettingsCounterTest, OnlyCountContentSettings) {
   map()->SetContentSettingDefaultScope(
       GURL("http://www.google.com"), GURL("http://www.google.com"),
       ContentSettingsType::POPUPS, CONTENT_SETTING_ALLOW);
-  map()->SetWebsiteSettingDefaultScope(
-      GURL("http://maps.google.com"), GURL(),
-      ContentSettingsType::SITE_ENGAGEMENT,
-      base::Value(base::Value::Type::DICTIONARY));
+  map()->SetWebsiteSettingDefaultScope(GURL("http://maps.google.com"), GURL(),
+                                       ContentSettingsType::SITE_ENGAGEMENT,
+                                       base::Value(base::Value::Type::DICT));
 
   counter()->Restart();
   EXPECT_EQ(1, GetResult());
@@ -189,10 +192,10 @@ TEST_F(SiteSettingsCounterTest, OnlyCountContentSettings) {
 
 // Tests that the counter counts WebUSB settings
 TEST_F(SiteSettingsCounterTest, CountWebUsbSettings) {
-  map()->SetWebsiteSettingDefaultScope(
-      GURL("http://www.google.com"), GURL("http://www.google.com"),
-      ContentSettingsType::USB_CHOOSER_DATA,
-      base::Value(base::Value::Type::DICTIONARY));
+  map()->SetWebsiteSettingDefaultScope(GURL("http://www.google.com"),
+                                       GURL("http://www.google.com"),
+                                       ContentSettingsType::USB_CHOOSER_DATA,
+                                       base::Value(base::Value::Type::DICT));
 
   counter()->Restart();
   EXPECT_EQ(1, GetResult());

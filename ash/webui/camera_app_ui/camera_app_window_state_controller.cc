@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -113,6 +113,7 @@ void CameraAppWindowStateController::OnWidgetActivationChanged(
     std::move(focus_callbacks_.front()).Run();
     focus_callbacks_.pop();
   }
+  OnWindowFocusChanged(active);
 }
 
 void CameraAppWindowStateController::OnWidgetBoundsChanged(
@@ -148,6 +149,12 @@ void CameraAppWindowStateController::OnWindowStateChanged() {
     for (const auto& monitor : monitors_) {
       monitor->OnWindowStateChanged(ToVector(window_states_));
     }
+  }
+}
+
+void CameraAppWindowStateController::OnWindowFocusChanged(bool is_focus) {
+  for (const auto& monitor : monitors_) {
+    monitor->OnWindowFocusChanged(is_focus);
   }
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,11 +24,8 @@ void LayoutNGOutsideListMarker::WillCollectInlines() {
   list_marker_.UpdateMarkerTextIfNeeded(*this);
 }
 
-LayoutBox::PaginationBreakability
-LayoutNGOutsideListMarker::GetPaginationBreakability(
-    FragmentationEngine engine) const {
-  // Outside list markers are always monolithic.
-  return kForbidBreaks;
+bool LayoutNGOutsideListMarker::IsMonolithic() const {
+  return true;
 }
 
 bool LayoutNGOutsideListMarker::NeedsOccupyWholeLine() const {

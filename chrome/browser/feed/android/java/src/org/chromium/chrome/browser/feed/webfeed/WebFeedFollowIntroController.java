@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,8 +17,10 @@ import org.chromium.base.Callback;
 import org.chromium.base.Log;
 import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.base.task.PostTask;
+import org.chromium.base.task.TaskTraits;
 import org.chromium.chrome.browser.feature_engagement.TrackerFactory;
 import org.chromium.chrome.browser.feed.FeedServiceBridge;
+import org.chromium.chrome.browser.feed.StreamKind;
 import org.chromium.chrome.browser.feed.v2.FeedUserActionType;
 import org.chromium.chrome.browser.feed.webfeed.WebFeedSnackbarController.FeedLauncher;
 import org.chromium.chrome.browser.flags.ChromeFeatureList;
@@ -37,7 +39,7 @@ import org.chromium.components.feature_engagement.FeatureConstants;
 import org.chromium.components.feature_engagement.Tracker;
 import org.chromium.components.prefs.PrefService;
 import org.chromium.components.user_prefs.UserPrefs;
-import org.chromium.content_public.browser.UiThreadTaskTraits;
+import org.chromium.content_public.browser.NavigationHandle;
 import org.chromium.ui.modaldialog.ModalDialogManager;
 import org.chromium.ui.widget.LoadingView;
 import org.chromium.url.GURL;
@@ -81,6 +83,8 @@ public class WebFeedFollowIntroController {
             "intro-appearance-threshold-minutes";
     // Time between appearances for the same WebFeedId.
     private static final long WEB_FEED_ID_APPEARANCE_THRESHOLD_MILLIS = TimeUnit.DAYS.toMillis(1);
+    // Maximum number of times a WebFeedId is promoted.
+    private static final long WEB_FEED_ID_MAX_APPEARANCES = 3;
 
     /** Clock to use so we can mock time in tests. */
     public interface Clock {
@@ -98,6 +102,8 @@ public class WebFeedFollowIntroController {
     private final WebFeedSnackbarController mWebFeedSnackbarController;
     private final WebFeedFollowIntroView mWebFeedFollowIntroView;
     private final ObservableSupplier<Tab> mTabSupplier;
+    private final WebFeedRecommendationFollowAcceleratorController
+            mRecommendationFollowAcceleratorController;
     private final RecommendationInfoFetcher mRecommendationFetcher =
             new RecommendationInfoFetcher(mPrefService);
 
@@ -126,6 +132,11 @@ public class WebFeedFollowIntroController {
             ObservableSupplier<Tab> tabSupplier, View menuButtonAnchorView,
             FeedLauncher feedLauncher, ModalDialogManager dialogManager,
             SnackbarManager snackbarManager) {
+        mRecommendationFollowAcceleratorController =
+                new WebFeedRecommendationFollowAcceleratorController(activity, appMenuHandler,
+                        tabSupplier, menuButtonAnchorView, feedLauncher, dialogManager,
+                        snackbarManager);
+
         mActivity = activity;
         mTabSupplier = tabSupplier;
         mFeatureEngagementTracker =
@@ -143,7 +154,15 @@ public class WebFeedFollowIntroController {
             @Override
             public void onPageLoadStarted(Tab tab, GURL url) {
                 mRecommendationFetcher.abort();
+                mRecommendationFollowAcceleratorController.dismissBubble();
                 mWebFeedFollowIntroView.dismissBubble();
+            }
+
+            @Override
+            public void onDidFinishNavigationInPrimaryMainFrame(
+                    Tab tab, NavigationHandle navigationHandle) {
+                mRecommendationFollowAcceleratorController.onDidFinishNavigation(
+                        tab, navigationHandle);
             }
 
             @Override
@@ -153,13 +172,21 @@ public class WebFeedFollowIntroController {
                 // interactive.
                 GURL url = tab.getUrl();
                 // TODO(crbug/1152592): Also check for certificate errors or SafeBrowser warnings.
-                if (tab.isIncognito()
-                        || !(url.getScheme().equals("http") || url.getScheme().equals("https"))) {
+                if (tab.isIncognito()) {
+                    Log.i(TAG, "No intro: tab is incognito");
+                    return;
+                } else if (!(url.getScheme().equals("http") || url.getScheme().equals("https"))) {
                     Log.i(TAG,
-                            "No intro: tab is incognito, or URL scheme is not HTTP or HTTPS"
+                            "No intro: URL scheme is not HTTP or HTTPS: "
                                     + url.getValidSpecOrEmpty());
                     return;
                 }
+
+                if (mRecommendationFollowAcceleratorController.showIfPageIsFromRecommendation(
+                            tab)) {
+                    return;
+                }
+
                 mRecommendationFetcher.beginFetch(tab, url, result -> {
                     if (result != null) {
                         maybeShowFollowIntro(result);
@@ -179,6 +206,10 @@ public class WebFeedFollowIntroController {
             mSharedPreferencesManager.writeLong(
                     getWebFeedIntroWebFeedIdShownTimeMsKey(recommendedInfo.webFeedId),
                     currentTimeMillis);
+
+            String showCountKey = getWebFeedIntroWebFeedIdShownCountKey(recommendedInfo.webFeedId);
+            long readCountBefore = mSharedPreferencesManager.readLong(showCountKey);
+            mSharedPreferencesManager.writeLong(showCountKey, readCountBefore + 1);
         }
         Log.i(TAG, "Allowed intro: all requirements met");
     }
@@ -261,9 +292,10 @@ public class WebFeedFollowIntroController {
         mWebFeedFollowIntroView.showLoadingUI();
         Tab currentTab = mTabSupplier.get();
         FeedServiceBridge.reportOtherUserAction(
-                FeedUserActionType.TAPPED_FOLLOW_ON_FOLLOW_ACCELERATOR);
+                StreamKind.UNKNOWN, FeedUserActionType.TAPPED_FOLLOW_ON_FOLLOW_ACCELERATOR);
         GURL url = currentTab.getUrl();
         WebFeedBridge.followFromUrl(currentTab, url,
+                WebFeedBridge.CHANGE_REASON_WEB_PAGE_ACCELERATOR,
                 results -> mWebFeedFollowIntroView.hideLoadingUI(new LoadingView.Observer() {
                     @Override
                     public void onShowLoadingUIComplete() {}
@@ -275,8 +307,9 @@ public class WebFeedFollowIntroController {
                             mWebFeedFollowIntroView.showFollowingBubble();
                         }
                         byte[] followId = results.metadata != null ? results.metadata.id : null;
-                        mWebFeedSnackbarController.showPostFollowHelp(
-                                currentTab, results, followId, url, recommendedInfo.title);
+                        mWebFeedSnackbarController.showPostFollowHelp(currentTab, results, followId,
+                                url, recommendedInfo.title,
+                                WebFeedBridge.CHANGE_REASON_WEB_PAGE_ACCELERATOR);
                     }
                 }));
     }
@@ -302,13 +335,18 @@ public class WebFeedFollowIntroController {
         long timeSinceLastShownForWebFeed = currentTimeMillis
                 - mSharedPreferencesManager.readLong(
                         getWebFeedIntroWebFeedIdShownTimeMsKey(recommendedInfo.webFeedId));
-        if ((timeSinceLastShown < mAppearanceThresholdMillis)
-                || (timeSinceLastShownForWebFeed < WEB_FEED_ID_APPEARANCE_THRESHOLD_MILLIS)) {
+        long previousShowCount = mSharedPreferencesManager.readLong(
+                getWebFeedIntroWebFeedIdShownCountKey(recommendedInfo.webFeedId));
+        if (timeSinceLastShown < mAppearanceThresholdMillis
+                || timeSinceLastShownForWebFeed < WEB_FEED_ID_APPEARANCE_THRESHOLD_MILLIS
+                || previousShowCount >= WEB_FEED_ID_MAX_APPEARANCES) {
             Log.i(TAG,
                     "No intro: enoughTimeSinceLastShown=%s, "
-                            + "enoughTimeSinceLastShownForWebFeed=%s",
+                            + "enoughTimeSinceLastShownForWebFeed=%s"
+                            + "tooManyShows=%s",
                     timeSinceLastShown > mAppearanceThresholdMillis,
-                    timeSinceLastShownForWebFeed > WEB_FEED_ID_APPEARANCE_THRESHOLD_MILLIS);
+                    timeSinceLastShownForWebFeed > WEB_FEED_ID_APPEARANCE_THRESHOLD_MILLIS,
+                    previousShowCount >= WEB_FEED_ID_MAX_APPEARANCES);
             return false;
         }
 
@@ -320,9 +358,18 @@ public class WebFeedFollowIntroController {
                 Base64.encodeToString(webFeedId, Base64.DEFAULT));
     }
 
+    private static String getWebFeedIntroWebFeedIdShownCountKey(byte[] webFeedId) {
+        return ChromePreferenceKeys.WEB_FEED_INTRO_WEB_FEED_ID_SHOWN_COUNT_PREFIX.createKey(
+                Base64.encodeToString(webFeedId, Base64.DEFAULT));
+    }
+
     @VisibleForTesting
     boolean getIntroShownForTesting() {
         return mIntroShownForTesting;
+    }
+    @VisibleForTesting
+    void clearIntroShownForTesting() {
+        mIntroShownForTesting = false;
     }
 
     @VisibleForTesting
@@ -333,6 +380,12 @@ public class WebFeedFollowIntroController {
     @VisibleForTesting
     void setClockForTesting(Clock clock) {
         mClock = clock;
+    }
+
+    @VisibleForTesting
+    WebFeedRecommendationFollowAcceleratorController
+    getRecommendationFollowAcceleratorController() {
+        return mRecommendationFollowAcceleratorController;
     }
 
     private static class RecommendationInfoFetcher {
@@ -369,7 +422,7 @@ public class WebFeedFollowIntroController {
             request.callback = callback;
             request.fetchStartTime = System.nanoTime();
 
-            PostTask.postDelayedTask(UiThreadTaskTraits.DEFAULT,
+            PostTask.postDelayedTask(TaskTraits.UI_DEFAULT,
                     ()
                             -> {
                         // Skip visit counts check if debug mode is enabled.

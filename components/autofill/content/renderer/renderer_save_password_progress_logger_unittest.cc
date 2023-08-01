@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,8 +45,7 @@ class FakeContentPasswordManagerDriver : public mojom::PasswordManagerDriver {
       const std::vector<autofill::FormData>& form_data) override {}
 
   void PasswordFormsRendered(
-      const std::vector<autofill::FormData>& visible_forms_data,
-      bool did_stop_loading) override {}
+      const std::vector<autofill::FormData>& visible_forms_data) override {}
 
   void PasswordFormSubmitted(const autofill::FormData& form_data) override {}
 
@@ -61,8 +60,11 @@ class FakeContentPasswordManagerDriver : public mojom::PasswordManagerDriver {
                                const std::u16string& typed_username,
                                int options,
                                const gfx::RectF& bounds) override {}
-
-  void ShowTouchToFill() override {}
+#if BUILDFLAG(IS_ANDROID)
+  void ShowKeyboardReplacingSurface(
+      autofill::mojom::SubmissionReadinessState submission_readiness,
+      bool is_webauthn_form) override {}
+#endif
 
   void RecordSavePasswordProgress(const std::string& log) override {
     called_record_save_ = true;
@@ -71,9 +73,11 @@ class FakeContentPasswordManagerDriver : public mojom::PasswordManagerDriver {
 
   void UserModifiedPasswordField() override {}
 
-  void UserModifiedNonPasswordField(autofill::FieldRendererId renderer_id,
-                                    const std::u16string& field_name,
-                                    const std::u16string& value) override {}
+  void UserModifiedNonPasswordField(
+      autofill::FieldRendererId renderer_id,
+      const std::u16string& field_name,
+      const std::u16string& value,
+      bool autocomplete_attribute_has_username) override {}
 
   void CheckSafeBrowsingReputation(const GURL& form_action,
                                    const GURL& frame_url) override {}

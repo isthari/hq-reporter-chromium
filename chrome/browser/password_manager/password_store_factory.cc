@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,51 +7,34 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/password_manager/affiliation_service_factory.h"
+#include "chrome/browser/password_manager/affiliations_prefetcher_factory.h"
 #include "chrome/browser/password_manager/credentials_cleaner_runner_factory.h"
 #include "chrome/browser/password_manager/password_store_utils.h"
-#include "chrome/browser/profiles/incognito_helpers.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/sync/sync_service_factory.h"
-#include "chrome/browser/web_data_service_factory.h"
 #include "chrome/common/chrome_paths_internal.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
-#include "components/password_manager/core/browser/login_database.h"
+#include "components/password_manager/core/browser/affiliation/affiliations_prefetcher.h"
 #include "components/password_manager/core/browser/password_manager_constants.h"
 #include "components/password_manager/core/browser/password_manager_util.h"
 #include "components/password_manager/core/browser/password_store.h"
 #include "components/password_manager/core/browser/password_store_backend.h"
-#include "components/password_manager/core/browser/password_store_factory_util.h"
-#include "components/password_manager/core/common/password_manager_features.h"
-#include "components/password_manager/core/common/password_manager_pref_names.h"
-#include "components/sync/base/user_selectable_type.h"
-#include "components/sync/driver/sync_service.h"
-#include "components/sync/driver/sync_user_settings.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/network_service_instance.h"
 #include "content/public/browser/storage_partition.h"
 #include "services/network/public/cpp/shared_url_loader_factory.h"
 
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+#include "chrome/browser/ash/profiles/profile_helper.h"
+#endif  // BUILDFLAG(IS_CHROMEOS_ASH)
+
 using password_manager::AffiliatedMatchHelper;
 using password_manager::PasswordStore;
 using password_manager::PasswordStoreInterface;
-
-namespace {
-
-bool IsSyncingPasswords(Profile* profile) {
-  syncer::SyncService* sync_service =
-      SyncServiceFactory::GetForProfile(profile);
-  return sync_service && sync_service->IsSyncFeatureEnabled() &&
-         sync_service->GetUserSettings()->GetSelectedTypes().Has(
-             syncer::UserSelectableType::kPasswords);
-}
-
-}  // namespace
 
 // static
 scoped_refptr<PasswordStoreInterface> PasswordStoreFactory::GetForProfile(
@@ -73,11 +56,17 @@ PasswordStoreFactory* PasswordStoreFactory::GetInstance() {
 }
 
 PasswordStoreFactory::PasswordStoreFactory()
-    : RefcountedBrowserContextKeyedServiceFactory(
+    : RefcountedProfileKeyedServiceFactory(
           "PasswordStore",
-          BrowserContextDependencyManager::GetInstance()) {
+          ProfileSelections::Builder()
+              .WithRegular(ProfileSelection::kRedirectedToOriginal)
+              // TODO(crbug.com/1418376): Check if this service is needed in
+              // Guest mode.
+              .WithGuest(ProfileSelection::kRedirectedToOriginal)
+              .Build()) {
   DependsOn(AffiliationServiceFactory::GetInstance());
-  DependsOn(WebDataServiceFactory::GetInstance());
+  DependsOn(AffiliationsPrefetcherFactory::GetInstance());
+  DependsOn(CredentialsCleanerRunnerFactory::GetInstance());
 }
 
 PasswordStoreFactory::~PasswordStoreFactory() = default;
@@ -85,30 +74,40 @@ PasswordStoreFactory::~PasswordStoreFactory() = default;
 scoped_refptr<RefcountedKeyedService>
 PasswordStoreFactory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {
-  Profile* profile = static_cast<Profile*>(context);
+  Profile* profile = Profile::FromBrowserContext(context);
 
-  std::unique_ptr<password_manager::LoginDatabase> login_db(
-      password_manager::CreateLoginDatabaseForProfileStorage(
-          profile->GetPath()));
+  DCHECK(!profile->IsOffTheRecord());
+
+  // Incognito profiles don't have their own password stores. Guest, or system
+  // profiles aren't relevant for Password Manager, and no PasswordStore should
+  // even be created for those types of profiles.
+  if (!profile->IsRegularProfile())
+    return nullptr;
+#if BUILDFLAG(IS_CHROMEOS_ASH)
+  // On Ash, there are additional non-interesting profile types (sign-in
+  // profile and lockscreen profile).
+  if (!ash::ProfileHelper::IsUserProfile(profile))
+    return nullptr;
+#endif
 
   scoped_refptr<PasswordStore> ps;
 #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_MAC) || \
-    defined(USE_OZONE)
+    BUILDFLAG(IS_OZONE)
   // Since SyncService has dependency on PasswordStore keyed service, there
   // are no guarantees that during the construction of the password store
   // about the sync service existence. And hence we cannot directly query the
   // status of password syncing. However, status of password syncing is
   // relevant for migrating passwords from the built-in backend to the Android
-  // backend. Since migration does *not* start immediately after start up, we
-  // inject a repeating callback that queries the sync service. Assumption is
-  // by the time the migration starts, the sync service will have been
-  // created. As a safety mechanism, if the sync service isn't created yet, we
-  // proceed as if the user isn't syncing which forces moving the passwords to
-  // the Android backend to avoid data loss.
+  // backend. Since migration does *not* start immediately after start up,
+  // SyncService will be propagated to PasswordStoreBackend after the backend
+  // creation once SyncService is initialized. Assumption is by the time the
+  // migration starts, the sync service will have been created. As a safety
+  // mechanism, if the sync service isn't created yet, we proceed as if the
+  // user isn't syncing which forces moving the passwords to the Android backend
+  // to avoid data loss.
   ps = new password_manager::PasswordStore(
-      password_manager::PasswordStoreBackend::Create(
-          std::move(login_db), profile->GetPrefs(),
-          base::BindRepeating(&IsSyncingPasswords, profile)));
+      password_manager::PasswordStoreBackend::Create(profile->GetPath(),
+                                                     profile->GetPrefs()));
 #else
   NOTIMPLEMENTED();
 #endif
@@ -119,12 +118,7 @@ PasswordStoreFactory::BuildServiceInstanceFor(
   std::unique_ptr<AffiliatedMatchHelper> affiliated_match_helper =
       std::make_unique<AffiliatedMatchHelper>(affiliation_service);
 
-  if (!ps->Init(profile->GetPrefs(), std::move(affiliated_match_helper))) {
-    // TODO(crbug.com/479725): Remove the LOG once this error is visible in the
-    // UI.
-    LOG(WARNING) << "Could not initialize password store.";
-    return nullptr;
-  }
+  ps->Init(profile->GetPrefs(), std::move(affiliated_match_helper));
 
   auto network_context_getter = base::BindRepeating(
       [](Profile* profile) -> network::mojom::NetworkContext* {
@@ -137,13 +131,12 @@ PasswordStoreFactory::BuildServiceInstanceFor(
       CredentialsCleanerRunnerFactory::GetForProfile(profile), ps,
       profile->GetPrefs(), base::Seconds(60), network_context_getter);
 
-  DelayReportingPasswordStoreMetrics(profile);
-  return ps;
-}
+  AffiliationsPrefetcherFactory::GetForProfile(profile)->RegisterPasswordStore(
+      ps.get());
 
-content::BrowserContext* PasswordStoreFactory::GetBrowserContextToUse(
-    content::BrowserContext* context) const {
-  return chrome::GetBrowserContextRedirectedInIncognito(context);
+  DelayReportingPasswordStoreMetrics(profile);
+
+  return ps;
 }
 
 bool PasswordStoreFactory::ServiceIsNULLWhileTesting() const {

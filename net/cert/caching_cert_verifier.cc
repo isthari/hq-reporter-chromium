@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/time/time.h"
 #include "net/base/net_errors.h"
 
@@ -23,16 +23,14 @@ const unsigned kTTLSecs = 1800;  // 30 minutes.
 }  // namespace
 
 CachingCertVerifier::CachingCertVerifier(std::unique_ptr<CertVerifier> verifier)
-    : verifier_(std::move(verifier)),
-      config_id_(0u),
-      cache_(kMaxCacheEntries),
-      requests_(0u),
-      cache_hits_(0u) {
+    : verifier_(std::move(verifier)), cache_(kMaxCacheEntries) {
+  verifier_->AddObserver(this);
   CertDatabase::GetInstance()->AddObserver(this);
 }
 
 CachingCertVerifier::~CachingCertVerifier() {
   CertDatabase::GetInstance()->RemoveObserver(this);
+  verifier_->RemoveObserver(this);
 }
 
 int CachingCertVerifier::Verify(const CertVerifier::RequestParams& params,
@@ -53,6 +51,9 @@ int CachingCertVerifier::Verify(const CertVerifier::RequestParams& params,
   }
 
   base::Time start_time = base::Time::Now();
+  // Unretained is safe here as `verifier_` is owned by `this`. If `this` is
+  // deleted, `verifier_' will also be deleted and guarantees that any
+  // outstanding callbacks won't be called. (See CertVerifier::Verify comments.)
   CompletionOnceCallback caching_callback = base::BindOnce(
       &CachingCertVerifier::OnRequestFinished, base::Unretained(this),
       config_id_, params, start_time, std::move(callback), verify_result);
@@ -72,7 +73,15 @@ void CachingCertVerifier::SetConfig(const CertVerifier::Config& config) {
   ClearCache();
 }
 
-CachingCertVerifier::CachedResult::CachedResult() : error(ERR_FAILED) {}
+void CachingCertVerifier::AddObserver(CertVerifier::Observer* observer) {
+  verifier_->AddObserver(observer);
+}
+
+void CachingCertVerifier::RemoveObserver(CertVerifier::Observer* observer) {
+  verifier_->RemoveObserver(observer);
+}
+
+CachingCertVerifier::CachedResult::CachedResult() = default;
 
 CachingCertVerifier::CachedResult::~CachedResult() = default;
 
@@ -171,6 +180,11 @@ void CachingCertVerifier::AddResultToCache(
   cache_.Put(
       params, cached_result, CacheValidityPeriod(start_time),
       CacheValidityPeriod(start_time, start_time + base::Seconds(kTTLSecs)));
+}
+
+void CachingCertVerifier::OnCertVerifierChanged() {
+  config_id_++;
+  ClearCache();
 }
 
 void CachingCertVerifier::OnCertDBChanged() {

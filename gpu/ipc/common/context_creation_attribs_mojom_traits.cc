@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -33,7 +33,6 @@ bool StructTraits<gpu::mojom::ContextCreationAttribsDataView,
   out->lose_context_when_out_of_memory = data.lose_context_when_out_of_memory();
   out->should_use_native_gmb_for_backbuffer =
       data.should_use_native_gmb_for_backbuffer();
-  out->own_offscreen_surface = data.own_offscreen_surface();
   out->single_buffer = data.single_buffer();
   out->enable_gles2_interface = data.enable_gles2_interface();
   out->enable_grcontext = data.enable_grcontext();

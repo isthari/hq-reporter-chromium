@@ -1,4 +1,4 @@
-# Copyright 2014 The Chromium Authors. All rights reserved.
+# Copyright 2014 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -13,7 +13,7 @@ import shutil
 import sys
 import tempfile
 
-from jinja2 import contextfilter
+import jinja2
 
 import mojom.fileutil as fileutil
 import mojom.generate.generator as generator
@@ -25,13 +25,9 @@ from mojom.generate.template_expander import UseJinja
 sys.path.insert(
     1,
     os.path.join(os.path.dirname(__file__), os.pardir, os.pardir, os.pardir,
-                 os.pardir, os.pardir, 'build', 'android', 'gyp'))
-from util import build_utils
-
-# TODO(crbug.com/1174969): Remove this once Python2 is obsoleted.
-if sys.version_info.major != 2:
-  basestring = str
-  long = int
+                 os.pardir, os.pardir, 'build'))
+import action_helpers
+import zip_helpers
 
 GENERATOR_PREFIX = 'java'
 
@@ -149,7 +145,7 @@ def GetInterfaceResponseName(method):
   return UpperCamelCase(method.name) + '_Response'
 
 def ParseStringAttribute(attribute):
-  assert isinstance(attribute, basestring)
+  assert isinstance(attribute, str)
   return attribute
 
 def GetJavaTrueFalse(value):
@@ -204,7 +200,7 @@ def AppendEncodeDecodeParams(initial_params, context, kind, bit):
   return params
 
 
-@contextfilter
+@jinja2.pass_context
 def DecodeMethod(context, kind, offset, bit):
   def _DecodeMethodName(kind):
     if mojom.IsArrayKind(kind):
@@ -226,7 +222,8 @@ def DecodeMethod(context, kind, offset, bit):
   params = AppendEncodeDecodeParams([ str(offset) ], context, kind, bit)
   return '%s(%s)' % (methodName, ', '.join(params))
 
-@contextfilter
+
+@jinja2.pass_context
 def EncodeMethod(context, kind, variable, offset, bit):
   params = AppendEncodeDecodeParams(
       [ variable, str(offset) ], context, kind, bit)
@@ -255,7 +252,8 @@ def GetNameForKind(context, kind):
   elements += _GetNameHierachy(kind)
   return '.'.join(elements)
 
-@contextfilter
+
+@jinja2.pass_context
 def GetJavaClassForEnum(context, kind):
   return GetNameForKind(context, kind)
 
@@ -265,7 +263,8 @@ def GetBoxedJavaType(context, kind, with_generics=True):
     return _java_primitive_to_boxed_type[unboxed_type]
   return unboxed_type
 
-@contextfilter
+
+@jinja2.pass_context
 def GetJavaType(context, kind, boxed=False, with_generics=True):
   if boxed:
     return GetBoxedJavaType(context, kind)
@@ -297,7 +296,8 @@ def GetJavaType(context, kind, boxed=False, with_generics=True):
     return 'int'
   return _spec_to_java_type[kind.spec]
 
-@contextfilter
+
+@jinja2.pass_context
 def DefaultValue(context, field):
   assert field.default
   if isinstance(field.kind, mojom.Struct):
@@ -307,20 +307,23 @@ def DefaultValue(context, field):
       GetJavaType(context, field.kind),
       ExpressionToText(context, field.default, kind_spec=field.kind.spec))
 
-@contextfilter
+
+@jinja2.pass_context
 def ConstantValue(context, constant):
   return '(%s) %s' % (
       GetJavaType(context, constant.kind),
       ExpressionToText(context, constant.value, kind_spec=constant.kind.spec))
 
-@contextfilter
+
+@jinja2.pass_context
 def NewArray(context, kind, size):
   if mojom.IsArrayKind(kind.kind):
     return NewArray(context, kind.kind, size) + '[]'
   return 'new %s[%s]' % (
       GetJavaType(context, kind.kind, boxed=False, with_generics=False), size)
 
-@contextfilter
+
+@jinja2.pass_context
 def ExpressionToText(context, token, kind_spec=''):
   def _TranslateNamedValue(named_value):
     entity_name = GetNameForElement(named_value)
@@ -338,7 +341,7 @@ def ExpressionToText(context, token, kind_spec=''):
     return _TranslateNamedValue(token)
   if kind_spec.startswith('i') or kind_spec.startswith('u'):
     number = ast.literal_eval(token.lstrip('+ '))
-    if not isinstance(number, (int, long)):
+    if not isinstance(number, int):
       raise ValueError('got unexpected type %r for int literal %r' % (
           type(number), token))
     # If the literal is too large to fit a signed long, convert it to the
@@ -555,7 +558,8 @@ class Generator(generator.Generator):
     with TempDir() as temp_java_root:
       self.output_dir = os.path.join(temp_java_root, package_path)
       self._DoGenerateFiles();
-      build_utils.ZipDir(zip_filename, temp_java_root)
+      with action_helpers.atomic_output(zip_filename) as f:
+        zip_helpers.zip_directory(f, temp_java_root)
 
     if args.java_output_directory:
       # If requested, generate the java files directly into indicated directory.

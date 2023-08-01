@@ -1,9 +1,9 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/bind.h"
 #include "base/files/file_util.h"
+#include "base/functional/bind.h"
 #include "base/location.h"
 #include "base/memory/raw_ptr.h"
 #include "base/path_service.h"
@@ -12,7 +12,6 @@
 #include "base/strings/stringprintf.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/threading/thread_restrictions.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "build/buildflag.h"
 #include "build/chromeos_buildflags.h"
@@ -142,12 +141,8 @@ class AppBackgroundPageApiTest : public extensions::ExtensionApiTest {
     }
     base::FilePath manifest_path =
         app_dir_.GetPath().AppendASCII("manifest.json");
-    int bytes_written = base::WriteFile(manifest_path,
-                                        app_manifest.data(),
-                                        app_manifest.size());
-    if (bytes_written != static_cast<int>(app_manifest.size())) {
-      LOG(ERROR) << "Unable to write complete manifest to file. Return code="
-                 << bytes_written;
+    if (!base::WriteFile(manifest_path, app_manifest)) {
+      LOG(ERROR) << "Unable to write manifest to file.";
       return false;
     }
     *app_dir = app_dir_.GetPath();
@@ -168,7 +163,7 @@ class AppBackgroundPageApiTest : public extensions::ExtensionApiTest {
   }
 
   void UnloadExtensionViaTask(const std::string& id) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&AppBackgroundPageApiTest::UnloadExtension,
                                   base::Unretained(this), id));
   }
@@ -312,12 +307,8 @@ IN_PROC_BROWSER_TEST_F(AppBackgroundPageApiTest, ManifestBackgroundPage) {
   // creating the background page through the manifest (not through
   // window.open).
   EXPECT_FALSE(background_contents->web_contents()->GetOpener());
-  bool window_opener_null_in_js;
-  EXPECT_TRUE(content::ExecuteScriptAndExtractBool(
-      background_contents->web_contents(),
-      "domAutomationController.send(window.opener == null);",
-      &window_opener_null_in_js));
-  EXPECT_TRUE(window_opener_null_in_js);
+  EXPECT_EQ(true, content::EvalJs(background_contents->web_contents(),
+                                  "window.opener == null;"));
 
   UnloadExtension(extension->id());
 }
@@ -369,12 +360,8 @@ IN_PROC_BROWSER_TEST_F(AppBackgroundPageApiTest, NoJsBackgroundPage) {
   // Verify that window.opener in the background contents is not set when
   // allow_js_access=false.
   EXPECT_FALSE(background_contents->web_contents()->GetOpener());
-  bool window_opener_null_in_js;
-  EXPECT_TRUE(content::ExecuteScriptAndExtractBool(
-      background_contents->web_contents(),
-      "domAutomationController.send(window.opener == null);",
-      &window_opener_null_in_js));
-  EXPECT_TRUE(window_opener_null_in_js);
+  EXPECT_EQ(true, content::EvalJs(background_contents->web_contents(),
+                                  "window.opener == null;"));
 
   // Verify multiple BackgroundContents don't get opened despite multiple
   // window.open calls.
@@ -420,12 +407,8 @@ IN_PROC_BROWSER_TEST_F(AppBackgroundPageApiTest, NoJsManifestBackgroundPage) {
   // creating the background page through the manifest (not through
   // window.open).
   EXPECT_FALSE(background_contents->web_contents()->GetOpener());
-  bool window_opener_null_in_js;
-  EXPECT_TRUE(content::ExecuteScriptAndExtractBool(
-      background_contents->web_contents(),
-      "domAutomationController.send(window.opener == null);",
-      &window_opener_null_in_js));
-  EXPECT_TRUE(window_opener_null_in_js);
+  EXPECT_EQ(true, content::EvalJs(background_contents->web_contents(),
+                                  "window.opener == null;"));
 
   // window.open should return null.
   ASSERT_TRUE(RunExtensionTest("app_background_page/no_js_manifest")) <<
@@ -433,11 +416,8 @@ IN_PROC_BROWSER_TEST_F(AppBackgroundPageApiTest, NoJsManifestBackgroundPage) {
 
   // Verify that window.opener in the background contents is still not set.
   EXPECT_FALSE(background_contents->web_contents()->GetOpener());
-  EXPECT_TRUE(content::ExecuteScriptAndExtractBool(
-      background_contents->web_contents(),
-      "domAutomationController.send(window.opener == null);",
-      &window_opener_null_in_js));
-  EXPECT_TRUE(window_opener_null_in_js);
+  EXPECT_EQ(true, content::EvalJs(background_contents->web_contents(),
+                                  "window.opener == null;"));
 
   UnloadExtension(extension->id());
 }
@@ -499,14 +479,7 @@ IN_PROC_BROWSER_TEST_F(AppBackgroundPageApiTest, OpenTwoPagesWithManifest) {
   UnloadExtension(extension->id());
 }
 
-// TODO(https://crbug.com/1124033): Fails on LaCrOS bot.
-// TODO(https://crbug.com/1186442): Fails on linux-ozone-rel bot.
-#if BUILDFLAG(IS_CHROMEOS_LACROS) || BUILDFLAG(IS_LINUX)
-#define MAYBE_OpenPopupFromBGPage DISABLED_OpenPopupFromBGPage
-#else
-#define MAYBE_OpenPopupFromBGPage OpenPopupFromBGPage
-#endif
-IN_PROC_BROWSER_TEST_F(AppBackgroundPageApiTest, MAYBE_OpenPopupFromBGPage) {
+IN_PROC_BROWSER_TEST_F(AppBackgroundPageApiTest, OpenPopupFromBGPage) {
   std::string app_manifest = base::StringPrintf(
       "{"
       "  \"name\": \"App\","
@@ -577,11 +550,10 @@ IN_PROC_BROWSER_TEST_F(AppBackgroundPageApiTest, OpenThenClose) {
   content::RenderFrameHost* background_opener =
       background_contents->web_contents()->GetOpener();
   ASSERT_TRUE(background_opener);
-  std::string window_opener_href;
-  EXPECT_TRUE(content::ExecuteScriptAndExtractString(
-      background_contents->web_contents(),
-      "domAutomationController.send(window.opener.location.href);",
-      &window_opener_href));
+  std::string window_opener_href =
+      content::EvalJs(background_contents->web_contents(),
+                      "window.opener.location.href;")
+          .ExtractString();
   EXPECT_EQ(window_opener_href,
             background_opener->GetLastCommittedURL().spec());
 
@@ -648,7 +620,8 @@ IN_PROC_BROWSER_TEST_F(AppBackgroundPageApiTest, UnloadExtensionWhileHidden) {
 IN_PROC_BROWSER_TEST_F(AppBackgroundPageNaClTest, BackgroundKeepaliveActive) {
   extensions::ProcessManager* manager =
       extensions::ProcessManager::Get(browser()->profile());
-  ExtensionTestMessageListener ready_listener("ready", true);
+  ExtensionTestMessageListener ready_listener("ready",
+                                              ReplyBehavior::kWillReply);
   LaunchTestingApp();
   EXPECT_TRUE(ready_listener.WaitUntilSatisfied());
 
@@ -666,7 +639,8 @@ IN_PROC_BROWSER_TEST_F(AppBackgroundPageNaClTest, BackgroundKeepaliveActive) {
       manager->GetLazyKeepaliveActivities(extension());
   EXPECT_THAT(activities, testing::UnorderedElementsAre(api_activity));
 
-  ExtensionTestMessageListener created1_listener("created_module:1", true);
+  ExtensionTestMessageListener created1_listener("created_module:1",
+                                                 ReplyBehavior::kWillReply);
   ready_listener.Reply("create_module");
   EXPECT_TRUE(created1_listener.WaitUntilSatisfied());
 
@@ -677,7 +651,8 @@ IN_PROC_BROWSER_TEST_F(AppBackgroundPageNaClTest, BackgroundKeepaliveActive) {
   EXPECT_THAT(activities,
               testing::UnorderedElementsAre(api_activity, pepper_api_activity));
 
-  ExtensionTestMessageListener created2_listener("created_module:2", true);
+  ExtensionTestMessageListener created2_listener("created_module:2",
+                                                 ReplyBehavior::kWillReply);
   created1_listener.Reply("create_module");
   EXPECT_TRUE(created2_listener.WaitUntilSatisfied());
 
@@ -690,10 +665,11 @@ IN_PROC_BROWSER_TEST_F(AppBackgroundPageNaClTest, BackgroundKeepaliveActive) {
                                             pepper_api_activity));
 
   // Tear-down both modules.
-  ExtensionTestMessageListener destroyed1_listener("destroyed_module", true);
+  ExtensionTestMessageListener destroyed1_listener("destroyed_module",
+                                                   ReplyBehavior::kWillReply);
   created2_listener.Reply("destroy_module");
   EXPECT_TRUE(destroyed1_listener.WaitUntilSatisfied());
-  ExtensionTestMessageListener destroyed2_listener("destroyed_module", false);
+  ExtensionTestMessageListener destroyed2_listener("destroyed_module");
   destroyed1_listener.Reply("destroy_module");
   EXPECT_TRUE(destroyed2_listener.WaitUntilSatisfied());
 

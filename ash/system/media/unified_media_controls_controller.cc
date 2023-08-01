@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include "ash/shell.h"
 #include "ash/shell_delegate.h"
 #include "ash/system/media/unified_media_controls_view.h"
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/metrics/histogram_functions.h"
 #include "services/media_session/public/cpp/util.h"
 #include "services/media_session/public/mojom/media_session.mojom.h"
@@ -88,7 +88,9 @@ void UnifiedMediaControlsController::MediaSessionMetadataChanged(
     return;
 
   session_metadata_ = *pending_metadata_;
-  media_controls_->SetTitle(pending_metadata_->title);
+  media_controls_->SetTitle(pending_metadata_->title.empty()
+                                ? pending_metadata_->source_title
+                                : pending_metadata_->title);
   media_controls_->SetArtist(pending_metadata_->artist);
   pending_metadata_.reset();
   MaybeShowMediaControlsOrEmptyState();
@@ -173,7 +175,9 @@ void UnifiedMediaControlsController::UpdateSession() {
   }
 
   if (pending_metadata_.has_value()) {
-    media_controls_->SetTitle(pending_metadata_->title);
+    media_controls_->SetTitle(pending_metadata_->title.empty()
+                                  ? pending_metadata_->source_title
+                                  : pending_metadata_->title);
     media_controls_->SetArtist(pending_metadata_->artist);
   }
   session_metadata_ =
@@ -259,13 +263,7 @@ void UnifiedMediaControlsController::ResetPendingData() {
 }
 
 bool UnifiedMediaControlsController::ShouldShowMediaControls() const {
-  if (!session_info_ || !session_info_->is_controllable)
-    return false;
-
-  if (session_metadata_.title.empty())
-    return false;
-
-  return true;
+  return session_info_ && session_info_->is_controllable;
 }
 
 void UnifiedMediaControlsController::MaybeShowMediaControlsOrEmptyState() {

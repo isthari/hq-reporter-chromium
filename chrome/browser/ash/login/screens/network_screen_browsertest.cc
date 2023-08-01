@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,8 +8,9 @@
 
 #include "ash/constants/ash_features.h"
 #include "ash/constants/ash_switches.h"
-#include "base/bind.h"
 #include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/memory/raw_ptr.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_feature_list.h"
 #include "chrome/browser/ash/login/enrollment/enrollment_screen.h"
@@ -21,7 +22,7 @@
 #include "chrome/browser/ash/login/test/oobe_screen_waiter.h"
 #include "chrome/browser/ash/login/ui/login_display_host.h"
 #include "chrome/browser/ash/login/wizard_controller.h"
-#include "chrome/browser/ui/webui/chromeos/login/network_screen_handler.h"
+#include "chrome/browser/ui/webui/ash/login/network_screen_handler.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/browser_test_utils.h"
@@ -49,6 +50,7 @@ class NetworkScreenTest : public OobeBaseTest {
             features::kEnableOobeNetworkScreenSkip,
         },
         {});
+    needs_network_screen_skip_check_ = true;
   }
 
   NetworkScreenTest(const NetworkScreenTest&) = delete;
@@ -64,7 +66,7 @@ class NetworkScreenTest : public OobeBaseTest {
         &NetworkScreenTest::HandleScreenExit, base::Unretained(this)));
     ASSERT_TRUE(network_screen_->view_ != nullptr);
 
-    mock_network_state_helper_ = new login::MockNetworkStateHelper;
+    mock_network_state_helper_ = new login::MockNetworkStateHelper();
     SetDefaultNetworkStateHelperExpectations();
     network_screen_->SetNetworkStateHelperForTest(mock_network_state_helper_);
     OobeBaseTest::SetUpOnMainThread();
@@ -80,9 +82,7 @@ class NetworkScreenTest : public OobeBaseTest {
     network_screen->OnContinueButtonClicked();
     base::RunLoop().RunUntilIdle();
 
-    ASSERT_TRUE(last_screen_result_.has_value());
-    EXPECT_EQ(NetworkScreen::Result::CONNECTED_REGULAR,
-              last_screen_result_.value());
+    CheckResult(NetworkScreen::Result::CONNECTED);
   }
 
   void SetDefaultNetworkStateHelperExpectations() {
@@ -120,6 +120,7 @@ class NetworkScreenTest : public OobeBaseTest {
   login::MockNetworkStateHelper* network_state_helper() {
     return mock_network_state_helper_;
   }
+
   NetworkScreen* network_screen() { return network_screen_; }
 
   base::HistogramTester histogram_tester_;
@@ -132,8 +133,9 @@ class NetworkScreenTest : public OobeBaseTest {
       std::move(screen_exit_callback_).Run();
   }
 
-  login::MockNetworkStateHelper* mock_network_state_helper_;
-  NetworkScreen* network_screen_;
+  raw_ptr<login::MockNetworkStateHelper, ExperimentalAsh>
+      mock_network_state_helper_;
+  raw_ptr<NetworkScreen, ExperimentalAsh> network_screen_;
   bool screen_exited_ = false;
   base::test::ScopedFeatureList feature_list_;
   absl::optional<NetworkScreen::Result> last_screen_result_;
@@ -147,7 +149,7 @@ IN_PROC_BROWSER_TEST_F(NetworkScreenTest, CanConnect) {
   network_screen()->UpdateStatus();
 
   EXPECT_CALL(*network_state_helper(), IsConnected())
-      .Times(2)
+      .Times(AnyNumber())
       .WillRepeatedly(Return(true));
   // TODO(nkostylev): Add integration with WebUI view http://crosbug.com/22570
   // EXPECT_FALSE(view_->IsContinueEnabled());
@@ -165,7 +167,7 @@ IN_PROC_BROWSER_TEST_F(NetworkScreenTest, Timeout) {
   network_screen()->UpdateStatus();
 
   EXPECT_CALL(*network_state_helper(), IsConnected())
-      .Times(2)
+      .Times(AnyNumber())
       .WillRepeatedly(Return(false));
   // TODO(nkostylev): Add integration with WebUI view http://crosbug.com/22570
   // EXPECT_FALSE(view_->IsContinueEnabled());
@@ -178,13 +180,68 @@ IN_PROC_BROWSER_TEST_F(NetworkScreenTest, Timeout) {
   // view_->ClearErrors();
 }
 
-IN_PROC_BROWSER_TEST_F(NetworkScreenTest, SkippedEthernetConnected) {
+// The network screen should be skipped if the device can connect and it's using
+// zero-touch hands-off enrollment.
+IN_PROC_BROWSER_TEST_F(NetworkScreenTest, HandsOffCanConnect_Skipped) {
+  // Configure the UI to use Hands-Off Enrollment flow. This cannot be done in
+  // the `SetUpCommandLine` method, because the welcome screen would also be
+  // skipped, causing the network screen to be shown before we could set up this
+  // test class properly.
+  base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
+      switches::kEnterpriseEnableZeroTouchEnrollment, "hands-off");
+
+  ShowNetworkScreen();
+
+  EXPECT_CALL(*network_state_helper(), IsConnecting()).WillOnce((Return(true)));
+
+  network_screen()->UpdateStatus();
+
+  EXPECT_CALL(*network_state_helper(), IsConnected())
+      .Times(AnyNumber())
+      .WillRepeatedly(Return(true));
+
+  network_screen()->UpdateStatus();
+
+  WaitForScreenExit();
+  CheckResult(NetworkScreen::Result::CONNECTED);
+}
+
+// The network screen should NOT be skipped if the connection times out, even if
+// it's using zero-touch hands-off enrollment.
+IN_PROC_BROWSER_TEST_F(NetworkScreenTest, HandsOffTimeout_NotSkipped) {
+  // Configure the UI to use Hands-Off Enrollment flow. This cannot be done in
+  // the `SetUpCommandLine` method, because the welcome screen would also be
+  // skipped, causing the network screen to be shown before we could set up this
+  // test class properly.
+  base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
+      switches::kEnterpriseEnableZeroTouchEnrollment, "hands-off");
+
+  ShowNetworkScreen();
+
+  EXPECT_CALL(*network_state_helper(), IsConnecting()).WillOnce((Return(true)));
+
+  network_screen()->UpdateStatus();
+
+  EXPECT_CALL(*network_state_helper(), IsConnected())
+      .Times(AnyNumber())
+      .WillRepeatedly(Return(false));
+
+  network_screen()->OnConnectionTimeout();
+}
+
+IN_PROC_BROWSER_TEST_F(NetworkScreenTest, EthernetConnection_Skipped) {
+  EXPECT_CALL(*network_state_helper(), IsConnected())
+      .Times(AnyNumber())
+      .WillRepeatedly(Return(true));
   EXPECT_CALL(*network_state_helper(), IsConnectedToEthernet())
       .Times(AnyNumber())
       .WillRepeatedly((Return(true)));
+
   ShowNetworkScreen();
   WaitForScreenExit();
+
   CheckResult(NetworkScreen::Result::NOT_APPLICABLE);
+
   histogram_tester_.ExpectTotalCount(
       "OOBE.StepCompletionTimeByExitReason.Network-selection.Connected", 0);
   histogram_tester_.ExpectTotalCount(
@@ -198,6 +255,30 @@ IN_PROC_BROWSER_TEST_F(NetworkScreenTest, SkippedEthernetConnected) {
       histogram_tester_.GetAllSamples("OOBE.StepShownStatus.Network-selection"),
       ElementsAre(base::Bucket(
           static_cast<int>(WizardController::ScreenShownStatus::kSkipped), 1)));
+  // Showing screen again to test skip doesn't work now.
+  ShowNetworkScreen();
+  WaitForScreenShown();
+}
+
+IN_PROC_BROWSER_TEST_F(NetworkScreenTest, DelayedEthernetConnection_Skipped) {
+  ShowNetworkScreen();
+
+  EXPECT_CALL(*network_state_helper(), IsConnecting()).WillOnce((Return(true)));
+
+  network_screen()->UpdateStatus();
+
+  EXPECT_CALL(*network_state_helper(), IsConnected())
+      .Times(AnyNumber())
+      .WillRepeatedly(Return(true));
+  EXPECT_CALL(*network_state_helper(), IsConnectedToEthernet())
+      .Times(AnyNumber())
+      .WillRepeatedly((Return(true)));
+
+  network_screen()->UpdateStatus();
+  WaitForScreenExit();
+
+  CheckResult(NetworkScreen::Result::CONNECTED);
+
   // Showing screen again to test skip doesn't work now.
   ShowNetworkScreen();
   WaitForScreenShown();

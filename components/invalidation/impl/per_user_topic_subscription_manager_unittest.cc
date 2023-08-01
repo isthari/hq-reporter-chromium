@@ -1,10 +1,10 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "components/invalidation/impl/per_user_topic_subscription_manager.h"
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/json/json_string_value_serializer.h"
 #include "base/json/json_writer.h"
 #include "base/run_loop.h"
@@ -147,11 +147,10 @@ class PerUserTopicSubscriptionManagerTest : public testing::Test {
         identity_test_env_.identity_manager());
   }
 
-  std::unique_ptr<PerUserTopicSubscriptionManager> BuildRegistrationManager(
-      bool migrate_prefs = true) {
+  std::unique_ptr<PerUserTopicSubscriptionManager> BuildRegistrationManager() {
     auto reg_manager = std::make_unique<PerUserTopicSubscriptionManager>(
         identity_provider_.get(), &pref_service_, url_loader_factory(),
-        kProjectId, migrate_prefs);
+        kProjectId);
     reg_manager->Init();
     reg_manager->AddObserver(&state_observer_);
     return reg_manager;
@@ -163,10 +162,12 @@ class PerUserTopicSubscriptionManagerTest : public testing::Test {
 
   TestingPrefServiceSimple* pref_service() { return &pref_service_; }
 
-  const base::Value* GetSubscribedTopics() {
-    return pref_service()
-        ->GetDictionary(kTypeSubscribedForInvalidation)
-        ->FindDictKey(kProjectId);
+  const base::Value::Dict& GetSubscribedTopics() const {
+    const base::Value::Dict* subscribed_topics =
+        pref_service_.GetDict(kTypeSubscribedForInvalidation)
+            .FindDict(kProjectId);
+    DCHECK(subscribed_topics);
+    return *subscribed_topics;
   }
 
   SubscriptionChannelState observed_state() {
@@ -177,12 +178,12 @@ class PerUserTopicSubscriptionManagerTest : public testing::Test {
       const std::string& private_topic = std::string(),
       const std::string& token = kFakeInstanceIdToken,
       int http_responce_code = net::HTTP_OK) {
-    std::unique_ptr<base::DictionaryValue> value(new base::DictionaryValue());
-    value->SetString("privateTopicName",
-                     private_topic.empty() ? "test-pr" : private_topic.c_str());
+    base::Value::Dict value;
+    value.Set("privateTopicName",
+              private_topic.empty() ? "test-pr" : private_topic.c_str());
     std::string serialized_response;
     JSONStringValueSerializer serializer(&serialized_response);
-    serializer.Serialize(*value);
+    serializer.Serialize(value);
     url_loader_factory()->AddResponse(
         FullSubscriptionUrl(token), CreateHeadersForTest(http_responce_code),
         serialized_response, CreateStatusForTest(net::OK, serialized_response));
@@ -262,9 +263,9 @@ TEST_F(PerUserTopicSubscriptionManagerTest, ShouldUpdateSubscribedTopics) {
       per_user_topic_subscription_manager->HaveAllRequestsFinishedForTest());
 
   for (const auto& topic : topics) {
-    const base::Value* subscribed_topics = GetSubscribedTopics();
-    const base::Value* private_topic_value = subscribed_topics->FindKeyOfType(
-        topic.first, base::Value::Type::STRING);
+    const base::Value::Dict& subscribed_topics = GetSubscribedTopics();
+    const std::string* private_topic_value =
+        subscribed_topics.FindString(topic.first);
     ASSERT_NE(private_topic_value, nullptr);
   }
 }
@@ -425,7 +426,7 @@ TEST_F(PerUserTopicSubscriptionManagerTest,
   testing::Mock::VerifyAndClearExpectations(&identity_observer);
 
   // Add valid responses to access token and subscription requests and ensure
-  // that subscribtions finished.
+  // that subscriptions finished.
   identity_test_env()->WaitForAccessTokenRequestIfNecessaryAndRespondWithToken(
       "valid_access_token", base::Time::Max());
   AddCorrectSubscriptionResponce();
@@ -609,17 +610,17 @@ TEST_F(PerUserTopicSubscriptionManagerTest,
 
   // Topics were disabled, check that they're not in the prefs.
   for (const auto& topic : disabled_topics) {
-    const base::Value* subscribed_topics = GetSubscribedTopics();
+    const base::Value::Dict& subscribed_topics = GetSubscribedTopics();
     const base::Value* private_topic_value =
-        subscribed_topics->FindKey(topic.first);
+        subscribed_topics.Find(topic.first);
     ASSERT_EQ(private_topic_value, nullptr);
   }
 
   // Check that enable topics are still in the prefs.
   for (const auto& topic : enabled_topics) {
-    const base::Value* subscribed_topics = GetSubscribedTopics();
-    const base::Value* private_topic_value = subscribed_topics->FindKeyOfType(
-        topic.first, base::Value::Type::STRING);
+    const base::Value::Dict& subscribed_topics = GetSubscribedTopics();
+    const std::string* private_topic_value =
+        subscribed_topics.FindString(topic.first);
     ASSERT_NE(private_topic_value, nullptr);
   }
 }
@@ -643,18 +644,16 @@ TEST_F(PerUserTopicSubscriptionManagerTest,
             per_user_topic_subscription_manager->GetSubscribedTopicsForTest());
 
   for (const auto& topic : topics) {
-    const base::Value* subscribed_topics = GetSubscribedTopics();
-    const base::Value* private_topic_value = subscribed_topics->FindKeyOfType(
-        topic.first, base::Value::Type::STRING);
+    const base::Value::Dict& subscribed_topics = GetSubscribedTopics();
+    const std::string* private_topic_value =
+        subscribed_topics.FindString(topic.first);
     ASSERT_NE(private_topic_value, nullptr);
-    ASSERT_TRUE(private_topic_value->is_string());
-    EXPECT_EQ("old-token-topic", private_topic_value->GetString());
+    EXPECT_EQ("old-token-topic", *private_topic_value);
   }
 
-  EXPECT_EQ(kFakeInstanceIdToken,
-            *pref_service()
-                 ->GetDictionary(kActiveRegistrationTokens)
-                 ->FindStringKey(kProjectId));
+  EXPECT_EQ(kFakeInstanceIdToken, *pref_service()
+                                       ->GetDict(kActiveRegistrationTokens)
+                                       .FindString(kProjectId));
 
   std::string token = "new-fake-token";
   AddCorrectSubscriptionResponce("new-token-topic", token);
@@ -663,23 +662,22 @@ TEST_F(PerUserTopicSubscriptionManagerTest,
   base::RunLoop().RunUntilIdle();
 
   EXPECT_EQ(token, *pref_service()
-                        ->GetDictionary(kActiveRegistrationTokens)
-                        ->FindStringKey(kProjectId));
+                        ->GetDict(kActiveRegistrationTokens)
+                        .FindString(kProjectId));
   EXPECT_EQ(TopicSetFromTopics(topics),
             per_user_topic_subscription_manager->GetSubscribedTopicsForTest());
 
   for (const auto& topic : topics) {
-    const base::Value* subscribed_topics = GetSubscribedTopics();
-    const base::Value* private_topic_value = subscribed_topics->FindKeyOfType(
-        topic.first, base::Value::Type::STRING);
+    const base::Value::Dict& subscribed_topics = GetSubscribedTopics();
+    const std::string* private_topic_value =
+        subscribed_topics.FindString(topic.first);
     ASSERT_NE(private_topic_value, nullptr);
-    ASSERT_TRUE(private_topic_value->is_string());
-    EXPECT_EQ("new-token-topic", private_topic_value->GetString());
+    EXPECT_EQ("new-token-topic", *private_topic_value);
   }
 }
 
 TEST_F(PerUserTopicSubscriptionManagerTest,
-       ShouldDeletTopicsFromPrefsWhenRequestFails) {
+       ShouldDeleteTopicsFromPrefsWhenRequestFails) {
   auto topics = GetSequenceOfTopics(kInvalidationTopicsCount);
 
   AddCorrectSubscriptionResponce();
@@ -705,17 +703,17 @@ TEST_F(PerUserTopicSubscriptionManagerTest,
 
   // Topics should still be removed from prefs.
   for (const auto& topic : disabled_topics) {
-    const base::Value* subscribed_topics = GetSubscribedTopics();
+    const base::Value::Dict& subscribed_topics = GetSubscribedTopics();
     const base::Value* private_topic_value =
-        subscribed_topics->FindKey(topic.first);
+        subscribed_topics.Find(topic.first);
     ASSERT_EQ(private_topic_value, nullptr);
   }
 
   // Check that enable topics are still in the prefs.
   for (const auto& topic : enabled_topics) {
-    const base::Value* subscribed_topics = GetSubscribedTopics();
-    const base::Value* private_topic_value = subscribed_topics->FindKeyOfType(
-        topic.first, base::Value::Type::STRING);
+    const base::Value::Dict& subscribed_topics = GetSubscribedTopics();
+    const std::string* private_topic_value =
+        subscribed_topics.FindString(topic.first);
     ASSERT_NE(private_topic_value, nullptr);
   }
 }

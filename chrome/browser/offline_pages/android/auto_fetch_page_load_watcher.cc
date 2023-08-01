@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,10 +7,12 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
+#include "base/containers/contains.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
+#include "base/task/single_thread_task_runner.h"
 #include "chrome/browser/android/tab_android.h"
 #include "chrome/browser/offline_pages/android/offline_page_auto_fetcher.h"
 #include "chrome/browser/offline_pages/android/offline_page_auto_fetcher_service.h"
@@ -55,8 +57,7 @@ std::map<int, TabInfo> AndroidTabFinder::FindAndroidTabs(
 
     for (int index = 0; index < model->GetTabCount(); ++index) {
       TabAndroid* tab = model->GetTabAt(index);
-      if (std::find(android_tab_ids.begin(), android_tab_ids.end(),
-                    tab->GetAndroidId()) != android_tab_ids.end()) {
+      if (base::Contains(android_tab_ids, tab->GetAndroidId())) {
         result[tab->GetAndroidId()] = AnroidTabInfo(*tab);
       }
     }
@@ -96,7 +97,7 @@ class AutoFetchPageLoadWatcher::NavigationObserver
   // content::WebContentsObserver implementation.
   void DidFinishNavigation(
       content::NavigationHandle* navigation_handle) override {
-    if (!navigation_handle->IsInMainFrame() ||
+    if (!navigation_handle->IsInPrimaryMainFrame() ||
         !navigation_handle->HasCommitted())
       return;
     page_load_watcher_->HandleNavigation(navigation_handle);
@@ -341,7 +342,7 @@ class AutoFetchPageLoadWatcher::TabWatcher : public TabModelListObserver,
   explicit TabWatcher(InternalImpl* impl) : impl_(impl) {
     // PostTask is used to avoid interfering with the tab model while a tab is
     // being created, as this has previously resulted in crashes.
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE,
         base::BindOnce(&TabWatcher::RegisterTabObserver, GetWeakPtr()));
   }
@@ -437,7 +438,8 @@ void AutoFetchPageLoadWatcher::HandleNavigation(
   }
 
   // Ignore if the URL didn't change.
-  const GURL& previous_url = navigation_handle->GetPreviousMainFrameURL();
+  const GURL& previous_url =
+      navigation_handle->GetPreviousPrimaryMainFrameURL();
   if (navigation_handle->GetURL() == previous_url)
     return;
 

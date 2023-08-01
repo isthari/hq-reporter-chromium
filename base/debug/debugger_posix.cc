@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,6 @@
 #include <memory>
 
 #include "base/check_op.h"
-#include "base/cxx17_backports.h"
 #include "base/notreached.h"
 #include "base/strings/string_util.h"
 #include "base/threading/platform_thread.h"
@@ -100,13 +99,13 @@ bool BeingDebugged() {
   size_t info_size = sizeof(info);
 
 #if BUILDFLAG(IS_OPENBSD)
-  if (sysctl(mib, base::size(mib), NULL, &info_size, NULL, 0) < 0)
+  if (sysctl(mib, std::size(mib), NULL, &info_size, NULL, 0) < 0)
     return -1;
 
   mib[5] = (info_size / sizeof(struct kinfo_proc));
 #endif
 
-  int sysctl_result = sysctl(mib, base::size(mib), &info, &info_size, NULL, 0);
+  int sysctl_result = sysctl(mib, std::size(mib), &info, &info_size, NULL, 0);
   DCHECK_EQ(sysctl_result, 0);
   if (sysctl_result != 0) {
     is_set = true;
@@ -171,7 +170,7 @@ Process GetDebuggerProcess() {
   if (num_read <= 0)
     return Process();
 
-  StringPiece status(buf, num_read);
+  StringPiece status(buf, static_cast<size_t>(num_read));
   StringPiece tracer("TracerPid:\t");
 
   StringPiece::size_type pid_index = status.find(tracer);

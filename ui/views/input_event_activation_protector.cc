@@ -1,11 +1,13 @@
-// Copyright (c) 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ui/views/input_event_activation_protector.h"
 
+#include "base/command_line.h"
 #include "ui/events/event.h"
 #include "ui/views/metrics.h"
+#include "ui/views/views_switches.h"
 
 namespace views {
 
@@ -14,8 +16,21 @@ void InputEventActivationProtector::VisibilityChanged(bool is_visible) {
     view_shown_time_stamp_ = base::TimeTicks::Now();
 }
 
+void InputEventActivationProtector::UpdateViewShownTimeStamp() {
+  // The UI was never shown, ignore.
+  if (view_shown_time_stamp_ == base::TimeTicks())
+    return;
+
+  view_shown_time_stamp_ = base::TimeTicks::Now();
+}
+
 bool InputEventActivationProtector::IsPossiblyUnintendedInteraction(
     const ui::Event& event) {
+  if (UNLIKELY(base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kDisableInputEventActivationProtectionForTesting))) {
+    return false;
+  }
+
   if (view_shown_time_stamp_ == base::TimeTicks()) {
     // The UI was never shown, ignore. This can happen in tests.
     return false;

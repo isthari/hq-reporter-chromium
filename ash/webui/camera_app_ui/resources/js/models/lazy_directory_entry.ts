@@ -1,8 +1,9 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 import {assert} from '../assert.js';
+
 import {
   DirectoryAccessEntry,
   FileAccessEntry,
@@ -12,6 +13,7 @@ import {
  * Gets directory entry by given |name| under |parentDir| directory. If the
  * directory does not exist, returns a lazy directory which will only be created
  * once there is any file written in it.
+ *
  * @param parentDir Parent directory.
  * @param name Name of the target directory.
  */
@@ -30,13 +32,20 @@ export async function getMaybeLazyDirectory(
  */
 class LazyDirectoryEntry implements DirectoryAccessEntry {
   private directory: DirectoryAccessEntry|null = null;
+
   private creatingDirectory: Promise<DirectoryAccessEntry>|null = null;
 
   /**
-   * @param name The name of the directory that will lazily created.
+   * @param parent The parent of the directory that will be lazily created.
+   * @param name The name of the directory that will be lazily created.
    */
   constructor(
       private readonly parent: DirectoryAccessEntry, readonly name: string) {}
+
+  async getHandle(): Promise<FileSystemDirectoryHandle> {
+    const dir = await this.getRealDirectory();
+    return dir.getHandle();
+  }
 
   async getFiles(): Promise<FileAccessEntry[]> {
     if (this.directory === null) {
@@ -59,11 +68,11 @@ class LazyDirectoryEntry implements DirectoryAccessEntry {
     return this.directory.getFile(name);
   }
 
-  async isExist(name: string): Promise<boolean> {
+  async exists(name: string): Promise<boolean> {
     if (this.directory === null) {
       return false;
     }
-    return this.directory.isExist(name);
+    return this.directory.exists(name);
   }
 
   async createFile(name: string): Promise<FileAccessEntry> {

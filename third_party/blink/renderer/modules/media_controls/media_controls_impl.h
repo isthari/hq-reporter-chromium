@@ -227,6 +227,7 @@ class MODULES_EXPORT MediaControlsImpl final : public HTMLDivElement,
   friend class MediaControlsImplTest;
   friend class MediaControlsImplInProductHelpTest;
   friend class MediaControlDisplayCutoutFullscreenButtonElementTest;
+  friend class MediaControlPopupMenuElementTest;
   friend class MediaControlTimelineElementTest;
 
   // Need to be members of MediaControls for private member access.
@@ -241,7 +242,7 @@ class MODULES_EXPORT MediaControlsImpl final : public HTMLDivElement,
   void UpdateCSSClassFromState();
 
   // Sets/removes a CSS class from this element based on |should_have_class|.
-  void SetClass(const AtomicString& class_name, bool should_have_class);
+  void SetClass(const String& class_name, bool should_have_class);
 
   // Get the HTMLVideoElement that the controls are attached to. The caller must
   // check that the element is a video element first.

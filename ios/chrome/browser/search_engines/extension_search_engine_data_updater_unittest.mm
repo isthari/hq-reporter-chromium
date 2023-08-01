@@ -1,16 +1,16 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/search_engines/extension_search_engine_data_updater.h"
 
-#include "base/strings/sys_string_conversions.h"
-#include "components/search_engines/template_url.h"
-#include "components/search_engines/template_url_data.h"
-#include "components/search_engines/template_url_service.h"
-#include "ios/chrome/common/app_group/app_group_constants.h"
-#include "testing/gtest/include/gtest/gtest.h"
-#include "testing/platform_test.h"
+#import "base/strings/sys_string_conversions.h"
+#import "components/search_engines/template_url.h"
+#import "components/search_engines/template_url_data.h"
+#import "components/search_engines/template_url_service.h"
+#import "ios/chrome/common/app_group/app_group_constants.h"
+#import "testing/gtest/include/gtest/gtest.h"
+#import "testing/platform_test.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -21,7 +21,9 @@ class ExtensionSearchEngineDataUpdaterTest : public PlatformTest {
  protected:
   ExtensionSearchEngineDataUpdaterTest()
       : search_by_image_key_(base::SysUTF8ToNSString(
-            app_group::kChromeAppGroupSupportsSearchByImage)) {}
+            app_group::kChromeAppGroupSupportsSearchByImage)),
+        is_google_key_(base::SysUTF8ToNSString(
+            app_group::kChromeAppGroupIsGoogleDefaultSearchEngine)) {}
 
   void SetUp() override {
     PlatformTest::SetUp();
@@ -40,11 +42,17 @@ class ExtensionSearchEngineDataUpdaterTest : public PlatformTest {
     return [shared_defaults boolForKey:search_by_image_key_];
   }
 
+  bool StoredIsGoogleDefaultSearchEngine() {
+    NSUserDefaults* shared_defaults = app_group::GetGroupUserDefaults();
+    return [shared_defaults boolForKey:is_google_key_];
+  }
+
   std::unique_ptr<TemplateURLService> template_url_service_;
 
  private:
   std::unique_ptr<ExtensionSearchEngineDataUpdater> observer_;
   NSString* search_by_image_key_;
+  NSString* is_google_key_;
 };
 
 TEST_F(ExtensionSearchEngineDataUpdaterTest, AddSupportedSearchEngine) {
@@ -74,4 +82,23 @@ TEST_F(ExtensionSearchEngineDataUpdaterTest, AddUnsupportedSearchEngine) {
       &unsupported_template_url);
 
   ASSERT_FALSE(StoredSupportsSearchByImage());
+}
+
+TEST_F(ExtensionSearchEngineDataUpdaterTest, AddGoogleSearchEngine) {
+  ASSERT_FALSE(StoredSupportsSearchByImage());
+
+  TemplateURLData google_template_url_data(
+      u" shortname ", u" keyword ", "https://google.com", base::StringPiece(),
+      base::StringPiece(), base::StringPiece(), base::StringPiece(),
+      base::StringPiece(), base::StringPiece(), base::StringPiece(),
+      base::StringPiece(), base::StringPiece(), base::StringPiece(),
+      base::StringPiece(), base::StringPiece(), base::StringPiece(),
+      base::StringPiece(), {}, base::StringPiece(), base::StringPiece(),
+      base::StringPiece16(), base::Value::List(), false, false, 0);
+  TemplateURL google_template_url(google_template_url_data);
+
+  template_url_service_->SetUserSelectedDefaultSearchProvider(
+      &google_template_url);
+
+  ASSERT_TRUE(StoredIsGoogleDefaultSearchEngine());
 }

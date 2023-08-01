@@ -1,10 +1,13 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {TestRunner} from 'test_runner';
+import {ElementsTestRunner} from 'elements_test_runner';
+
 (async function() {
   TestRunner.addResult(`Tests that inspect request works for nested OOPIF elements.\n`);
-  await TestRunner.loadLegacyModule('elements'); await TestRunner.loadTestModule('elements_test_runner');
+  await TestRunner.loadLegacyModule('elements');
   await TestRunner.showPanel('elements');
 
   // Save time on style updates.
@@ -14,7 +17,7 @@
 
   SDK.targetManager.observeTargets({
     targetAdded: async function(target) {
-      if (target.name() === 'Main')
+      if (target === SDK.targetManager.rootTarget() || target === SDK.targetManager.primaryPageTarget())
         return;
       let complete = false;
       target.pageAgent().setLifecycleEventsEnabled(true);

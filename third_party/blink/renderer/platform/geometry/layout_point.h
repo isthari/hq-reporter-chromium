@@ -32,7 +32,6 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_GEOMETRY_LAYOUT_POINT_H_
 
 #include <iosfwd>
-#include "third_party/blink/renderer/platform/geometry/double_point.h"
 #include "third_party/blink/renderer/platform/geometry/layout_size.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/allocator.h"
 #include "third_party/blink/renderer/platform/wtf/forward.h"
@@ -53,17 +52,17 @@ class PLATFORM_EXPORT LayoutPoint {
       : x_(point.x()), y_(point.y()) {}
   constexpr explicit LayoutPoint(const gfx::PointF& point)
       : x_(point.x()), y_(point.y()) {}
-  constexpr explicit LayoutPoint(const DoublePoint& point)
-      : x_(point.X()), y_(point.Y()) {}
   constexpr explicit LayoutPoint(const LayoutSize& size)
       : x_(size.Width()), y_(size.Height()) {}
 
   constexpr explicit operator gfx::PointF() const {
     return gfx::PointF(x_.ToFloat(), y_.ToFloat());
   }
-  constexpr explicit operator DoublePoint() const {
-    return DoublePoint(x_.ToDouble(), y_.ToDouble());
-  }
+
+  // This is deleted to avoid unwanted lossy conversion from float or double to
+  // LayoutUnit or int. Use explicit LayoutUnit constructor for each parameter
+  // instead.
+  LayoutPoint(double, double) = delete;
 
   static constexpr LayoutPoint Zero() { return LayoutPoint(); }
 
@@ -158,7 +157,7 @@ inline LayoutPoint operator-(const LayoutPoint& point) {
   return LayoutPoint(-point.X(), -point.Y());
 }
 
-constexpr ALWAYS_INLINE bool operator==(const LayoutPoint& a,
+ALWAYS_INLINE constexpr bool operator==(const LayoutPoint& a,
                                         const LayoutPoint& b) {
   return a.X() == b.X() && a.Y() == b.Y();
 }

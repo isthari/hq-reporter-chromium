@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,19 +11,17 @@ import android.widget.FrameLayout;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.bookmarks.BookmarkBridge.BookmarkItem;
-import org.chromium.chrome.browser.bookmarks.BookmarkBridge.BookmarkModelObserver;
-import org.chromium.chrome.browser.power_bookmarks.PowerBookmarkMeta;
 import org.chromium.components.bookmarks.BookmarkId;
+import org.chromium.components.bookmarks.BookmarkItem;
 import org.chromium.components.browser_ui.widget.chips.ChipProperties;
 import org.chromium.components.browser_ui.widget.chips.ChipsCoordinator;
+import org.chromium.components.power_bookmarks.PowerBookmarkMeta;
 import org.chromium.ui.modelutil.MVCListAdapter.ListItem;
 import org.chromium.ui.modelutil.MVCListAdapter.ModelList;
 import org.chromium.ui.modelutil.PropertyModel;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -88,7 +86,7 @@ public class PowerBookmarkTagChipList extends FrameLayout {
     private void populateChipsForCurrentFolder() {
         mTagMap.clear();
         mChipList.clear();
-        for (BookmarkId id : mBookmarkModel.getChildIDs(mCurrentFolder)) {
+        for (BookmarkId id : mBookmarkModel.getChildIds(mCurrentFolder)) {
             BookmarkItem item = mBookmarkModel.getBookmarkById(id);
             // TODO(crbug.com/1247825): Call #populateChipsForPowerBookmarkMeta will bookmark
             // metadata once available.
@@ -108,12 +106,10 @@ public class PowerBookmarkTagChipList extends FrameLayout {
     @VisibleForTesting
     void populateChipListFromCurrentTagMap() {
         List<Map.Entry<String, Integer>> entryList = new ArrayList<>(mTagMap.entrySet());
-        Collections.sort(entryList, new Comparator<Map.Entry<String, Integer>>() {
-            @Override
-            public int compare(Map.Entry<String, Integer> o1, Map.Entry<String, Integer> o2) {
-                return o2.getValue().compareTo(o1.getValue());
-            }
-        });
+        Collections.sort(
+                entryList, (Map.Entry<String, Integer> o1, Map.Entry<String, Integer> o2) -> {
+                    return o2.getValue().compareTo(o1.getValue());
+                });
 
         for (int i = 0; i < entryList.size(); i++) {
             Map.Entry<String, Integer> entry = entryList.get(i);

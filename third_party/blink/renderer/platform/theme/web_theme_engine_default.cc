@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "build/build_config.h"
 #include "skia/ext/platform_canvas.h"
+#include "third_party/blink/renderer/platform/graphics/scrollbar_theme_settings.h"
 #include "third_party/blink/renderer/platform/theme/web_theme_engine_conversions.h"
 #include "ui/color/color_provider_utils.h"
 #include "ui/native_theme/native_theme.h"
@@ -137,6 +138,8 @@ static void GetNativeThemeExtraParams(
           extra_params->progress_bar.value_rect_height;
       native_theme_extra_params->progress_bar.zoom =
           extra_params->progress_bar.zoom;
+      native_theme_extra_params->progress_bar.is_horizontal =
+          extra_params->progress_bar.is_horizontal;
       break;
     case WebThemeEngine::kPartScrollbarHorizontalThumb:
     case WebThemeEngine::kPartScrollbarVerticalThumb:
@@ -161,6 +164,7 @@ static void GetNativeThemeExtraParams(
 WebThemeEngineDefault::WebThemeEngineDefault() {
   light_color_provider_.GenerateColorMap();
   dark_color_provider_.GenerateColorMap();
+  emulated_forced_colors_provider_.GenerateColorMap();
 }
 
 WebThemeEngineDefault::~WebThemeEngineDefault() = default;
@@ -169,21 +173,23 @@ gfx::Size WebThemeEngineDefault::GetSize(WebThemeEngine::Part part) {
   ui::NativeTheme::ExtraParams extra;
   ui::NativeTheme::Part native_theme_part = NativeThemePart(part);
 #if BUILDFLAG(IS_WIN)
-  switch (native_theme_part) {
-    case ui::NativeTheme::kScrollbarDownArrow:
-    case ui::NativeTheme::kScrollbarLeftArrow:
-    case ui::NativeTheme::kScrollbarRightArrow:
-    case ui::NativeTheme::kScrollbarUpArrow:
-    case ui::NativeTheme::kScrollbarHorizontalThumb:
-    case ui::NativeTheme::kScrollbarVerticalThumb:
-    case ui::NativeTheme::kScrollbarHorizontalTrack:
-    case ui::NativeTheme::kScrollbarVerticalTrack: {
-      return gfx::Size(g_vertical_scroll_bar_width,
-                       g_vertical_scroll_bar_width);
-    }
+  if (!ScrollbarThemeSettings::FluentScrollbarsEnabled()) {
+    switch (native_theme_part) {
+      case ui::NativeTheme::kScrollbarDownArrow:
+      case ui::NativeTheme::kScrollbarLeftArrow:
+      case ui::NativeTheme::kScrollbarRightArrow:
+      case ui::NativeTheme::kScrollbarUpArrow:
+      case ui::NativeTheme::kScrollbarHorizontalThumb:
+      case ui::NativeTheme::kScrollbarVerticalThumb:
+      case ui::NativeTheme::kScrollbarHorizontalTrack:
+      case ui::NativeTheme::kScrollbarVerticalTrack: {
+        return gfx::Size(g_vertical_scroll_bar_width,
+                         g_vertical_scroll_bar_width);
+      }
 
-    default:
-      break;
+      default:
+        break;
+    }
   }
 #endif
   return ui::NativeTheme::GetInstanceForWeb()->GetPartSize(
@@ -257,30 +263,35 @@ ForcedColors WebThemeEngineDefault::GetForcedColors() const {
 }
 
 void WebThemeEngineDefault::OverrideForcedColorsTheme(bool is_dark_theme) {
+  // Colors were chosen based on Windows 10 default light and dark high contrast
+  // themes.
   const base::flat_map<ui::NativeTheme::SystemThemeColor, uint32_t> dark_theme{
-      {ui::NativeTheme::SystemThemeColor::kButtonFace, 4278190080},
-      {ui::NativeTheme::SystemThemeColor::kButtonText, 4294967295},
-      {ui::NativeTheme::SystemThemeColor::kGrayText, 4282380863},
-      {ui::NativeTheme::SystemThemeColor::kHighlight, 4279954431},
-      {ui::NativeTheme::SystemThemeColor::kHighlightText, 4278190080},
-      {ui::NativeTheme::SystemThemeColor::kHotlight, 4294967040},
-      {ui::NativeTheme::SystemThemeColor::kMenuHighlight, 4286578816},
-      {ui::NativeTheme::SystemThemeColor::kScrollbar, 4278190080},
-      {ui::NativeTheme::SystemThemeColor::kWindow, 4278190080},
-      {ui::NativeTheme::SystemThemeColor::kWindowText, 4294967295},
+      {ui::NativeTheme::SystemThemeColor::kButtonFace, 0xFF000000},
+      {ui::NativeTheme::SystemThemeColor::kButtonText, 0xFFFFFFFF},
+      {ui::NativeTheme::SystemThemeColor::kGrayText, 0xFF3FF23F},
+      {ui::NativeTheme::SystemThemeColor::kHighlight, 0xFF1AEBFF},
+      {ui::NativeTheme::SystemThemeColor::kHighlightText, 0xFF000000},
+      {ui::NativeTheme::SystemThemeColor::kHotlight, 0xFFFFFF00},
+      {ui::NativeTheme::SystemThemeColor::kMenuHighlight, 0xFF800080},
+      {ui::NativeTheme::SystemThemeColor::kScrollbar, 0xFF000000},
+      {ui::NativeTheme::SystemThemeColor::kWindow, 0xFF000000},
+      {ui::NativeTheme::SystemThemeColor::kWindowText, 0xFFFFFFFF},
   };
   const base::flat_map<ui::NativeTheme::SystemThemeColor, uint32_t> light_theme{
-      {ui::NativeTheme::SystemThemeColor::kButtonFace, 4294967295},
-      {ui::NativeTheme::SystemThemeColor::kButtonText, 4278190080},
-      {ui::NativeTheme::SystemThemeColor::kGrayText, 4284481536},
-      {ui::NativeTheme::SystemThemeColor::kHighlight, 4281794670},
-      {ui::NativeTheme::SystemThemeColor::kHighlightText, 4294967295},
-      {ui::NativeTheme::SystemThemeColor::kHotlight, 4278190239},
-      {ui::NativeTheme::SystemThemeColor::kMenuHighlight, 4278190080},
-      {ui::NativeTheme::SystemThemeColor::kScrollbar, 4294967295},
-      {ui::NativeTheme::SystemThemeColor::kWindow, 4294967295},
-      {ui::NativeTheme::SystemThemeColor::kWindowText, 4278190080},
+      {ui::NativeTheme::SystemThemeColor::kButtonFace, 0xFFFFFFFF},
+      {ui::NativeTheme::SystemThemeColor::kButtonText, 0xFF000000},
+      {ui::NativeTheme::SystemThemeColor::kGrayText, 0xFF600000},
+      {ui::NativeTheme::SystemThemeColor::kHighlight, 0xFF37006E},
+      {ui::NativeTheme::SystemThemeColor::kHighlightText, 0xFFFFFFFF},
+      {ui::NativeTheme::SystemThemeColor::kHotlight, 0xFF00009F},
+      {ui::NativeTheme::SystemThemeColor::kMenuHighlight, 0xFF000000},
+      {ui::NativeTheme::SystemThemeColor::kScrollbar, 0xFFFFFFFF},
+      {ui::NativeTheme::SystemThemeColor::kWindow, 0xFFFFFFFF},
+      {ui::NativeTheme::SystemThemeColor::kWindowText, 0xFF000000},
   };
+  emulated_forced_colors_provider_ =
+      ui::CreateEmulatedForcedColorsColorProvider(is_dark_theme);
+  SetEmulateForcedColors(true);
   ui::NativeTheme::GetInstanceForWeb()->UpdateSystemColorInfo(
       false, true, is_dark_theme ? dark_theme : light_theme);
 }
@@ -301,6 +312,8 @@ void WebThemeEngineDefault::ResetToSystemColors(
   ui::NativeTheme::GetInstanceForWeb()->UpdateSystemColorInfo(
       system_color_info_state.is_dark_mode,
       system_color_info_state.forced_colors, colors);
+
+  SetEmulateForcedColors(false);
 }
 
 WebThemeEngine::SystemColorInfoState
@@ -341,6 +354,9 @@ bool WebThemeEngineDefault::UpdateColorProviders(
 
 const ui::ColorProvider* WebThemeEngineDefault::GetColorProviderForPainting(
     mojom::ColorScheme color_scheme) const {
+  if (emulate_forced_colors_ && GetForcedColors() == ForcedColors::kActive) {
+    return &emulated_forced_colors_provider_;
+  }
   return color_scheme == mojom::ColorScheme::kLight ? &light_color_provider_
                                                     : &dark_color_provider_;
 }

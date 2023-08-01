@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <memory>
 #include <utility>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/lazy_instance.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
@@ -22,6 +22,7 @@
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/common/extension.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "ui/base/l10n/l10n_util.h"
 
 namespace extensions {
@@ -72,9 +73,11 @@ void ExtensionMessageBubbleController::Delegate::SetBubbleInfoBeenAcknowledged(
   if (pref_name.empty())
     return;
   extensions::ExtensionPrefs* prefs = extensions::ExtensionPrefs::Get(profile_);
-  prefs->UpdateExtensionPref(
-      extension_id, pref_name,
-      value ? std::make_unique<base::Value>(value) : nullptr);
+  absl::optional<base::Value> pref_value;
+  if (value) {
+    pref_value = base::Value(value);
+  }
+  prefs->UpdateExtensionPref(extension_id, pref_name, std::move(pref_value));
 }
 
 std::string
@@ -309,13 +312,12 @@ void ExtensionMessageBubbleController::AcknowledgeExtensions() {
 ExtensionIdList* ExtensionMessageBubbleController::GetOrCreateExtensionList() {
   if (!initialized_) {
     ExtensionRegistry* registry = ExtensionRegistry::Get(profile());
-    std::unique_ptr<const ExtensionSet> all_extensions;
+    absl::optional<ExtensionSet> all_extensions;
     if (!delegate_->ShouldLimitToEnabledExtensions())
       all_extensions = registry->GenerateInstalledExtensionsSet();
     const ExtensionSet& extensions_to_check =
         all_extensions ? *all_extensions : registry->enabled_extensions();
-    for (const scoped_refptr<const Extension>& extension :
-         extensions_to_check) {
+    for (const auto& extension : extensions_to_check) {
       if (delegate_->ShouldIncludeExtension(extension.get()))
         extension_list_.push_back(extension->id());
     }

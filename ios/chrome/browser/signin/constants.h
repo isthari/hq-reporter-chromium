@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,26 +31,33 @@ typedef enum {
 
 // Enum is used to represent the action to be taken by the authentication once
 // the user is successfully signed in.
-typedef enum {
-  POST_SIGNIN_ACTION_NONE,
-  POST_SIGNIN_ACTION_COMMIT_SYNC,
-} PostSignInAction;
+enum class PostSignInAction {
+  // No post action after sign-in.
+  kNone,
+  // Enables bookmark and reading list account storage.
+  kEnableBookmarkReadingListAccountStorage,
+  // Starts sign-in flow for a sync consent.
+  // The owner of `AuthenticationFlow` still needs to:
+  //  * Record the sync dialog strings.
+  //  * Grand the sync consent in AuthenticationService.
+  //  * Record the first setup complete.
+  // Related crbug.com/1254359.
+  kCommitSync,
+};
 
 // Enum for identity avatar size. See GetSizeForIdentityAvatarSize() to convert
 // the enum value to point.
 enum class IdentityAvatarSize {
-  // 30 pt.
-  TableViewIcon,
-  // 32 pt.
-  SmallSize,
-  // 40 pt.
-  DefaultLarge,
+  TableViewIcon,  // 30 pt.
+  SmallSize,      // 32 pt.
+  Regular,        // 40 pt.
+  Large,          // 48 pt.
 };
 
 namespace signin_ui {
 
 // Completion callback for a sign-in operation.
-// |success| is YES if the operation was successful.
+// `success` is YES if the operation was successful.
 typedef void (^CompletionCallback)(BOOL success);
 
 }  // namespace signin_ui

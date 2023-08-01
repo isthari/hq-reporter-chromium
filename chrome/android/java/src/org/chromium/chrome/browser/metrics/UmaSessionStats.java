@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,25 +8,23 @@ import android.Manifest;
 import android.content.ComponentCallbacks;
 import android.content.Context;
 import android.content.res.Configuration;
+
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.Log;
 import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.NativeMethods;
 import org.chromium.base.metrics.RecordHistogram;
-import org.chromium.base.task.PostTask;
-import org.chromium.base.task.TaskTraits;
 import org.chromium.chrome.browser.DefaultBrowserInfo;
-import org.chromium.chrome.browser.instantapps.InstantAppsHandler;
 import org.chromium.chrome.browser.omnibox.voice.VoiceRecognitionHandler.AudioPermissionState;
 import org.chromium.chrome.browser.privacy.settings.PrivacyPreferencesManagerImpl;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorTabObserver;
-import org.chromium.components.embedder_support.util.UrlUtilities;
+import org.chromium.components.variations.SyntheticTrialAnnotationMode;
 import org.chromium.content_public.browser.BrowserStartupController;
 import org.chromium.content_public.browser.WebContents;
-import org.chromium.ui.base.AndroidPermissionDelegate;
+import org.chromium.ui.permissions.AndroidPermissionDelegate;
 import org.chromium.url.GURL;
 
 /**
@@ -61,17 +59,6 @@ public class UmaSessionStats {
         UmaSessionStatsJni.get().recordPageLoaded(isDesktopUserAgent);
         if (mKeyboardConnected) {
             UmaSessionStatsJni.get().recordPageLoadedWithKeyboard();
-        }
-
-        GURL url = tab.getUrl();
-        if (UrlUtilities.isHttpOrHttps(url)) {
-            PostTask.postTask(TaskTraits.BEST_EFFORT_MAY_BLOCK, () -> {
-                boolean isEligible =
-                        InstantAppsHandler.getInstance().getInstantAppIntentForUrl(url.getSpec())
-                        != null;
-                RecordHistogram.recordBooleanHistogram(
-                        "Android.InstantApps.EligiblePageLoaded", isEligible);
-            });
         }
 
         // If the session has ended (i.e. chrome is in the background), escape early. Ideally we
@@ -171,13 +158,14 @@ public class UmaSessionStats {
      * Updates the metrics services based on a change of consent. This can happen during first-run
      * flow, and when the user changes their preferences.
      */
-    public static void changeMetricsReportingConsent(boolean consent) {
+    public static void changeMetricsReportingConsent(
+            boolean consent, @ChangeMetricsReportingStateCalledFrom int calledFrom) {
         PrivacyPreferencesManagerImpl privacyManager = PrivacyPreferencesManagerImpl.getInstance();
         // Update the metrics reporting preference.
         privacyManager.setUsageAndCrashReporting(consent);
 
         // Perform native changes needed to reflect the new consent value.
-        UmaSessionStatsJni.get().changeMetricsReportingConsent(consent);
+        UmaSessionStatsJni.get().changeMetricsReportingConsent(consent, calledFrom);
 
         updateMetricsServiceState();
     }
@@ -246,9 +234,22 @@ public class UmaSessionStats {
     }
 
     public static void registerSyntheticFieldTrial(String trialName, String groupName) {
-        Log.d(TAG, "registerSyntheticFieldTrial(%s, %s)", trialName, groupName);
+        registerSyntheticFieldTrial(trialName, groupName, SyntheticTrialAnnotationMode.NEXT_LOG);
+    }
+
+    /**
+     * Registers a synthetic field trial with the given trial name, group name, and annotation mode.
+     * If {@code annotationMode} is set to {@link SyntheticTrialAnnotationMode#CURRENT_LOG}, the
+     * metrics logs that are open at the time this method is called (if any) will be annotated with
+     * the synthetic trial. Otherwise, only logs that opened after the registration of the synthetic
+     * trial will be annotated. See C++ SyntheticTrialRegistry::RegisterSyntheticFieldTrial() for
+     * more details.
+     */
+    public static void registerSyntheticFieldTrial(
+            String trialName, String groupName, @SyntheticTrialAnnotationMode int annotationMode) {
+        Log.d(TAG, "registerSyntheticFieldTrial(%s, %s, %d)", trialName, groupName, annotationMode);
         assert isMetricsServiceAvailable();
-        UmaSessionStatsJni.get().registerSyntheticFieldTrial(trialName, groupName);
+        UmaSessionStatsJni.get().registerSyntheticFieldTrial(trialName, groupName, annotationMode);
     }
 
     /**
@@ -271,7 +272,7 @@ public class UmaSessionStats {
     @NativeMethods
     interface Natives {
         long init();
-        void changeMetricsReportingConsent(boolean consent);
+        void changeMetricsReportingConsent(boolean consent, int calledFrom);
         void initMetricsAndCrashReportingForTesting();
         void unsetMetricsAndCrashReportingForTesting();
         void updateMetricsAndCrashReportingForTesting(boolean consent);
@@ -280,7 +281,8 @@ public class UmaSessionStats {
         void umaEndSession(long nativeUmaSessionStats, UmaSessionStats caller);
         void registerExternalExperiment(
                 String studyName, int[] experimentIds, boolean overrideExistingIds);
-        void registerSyntheticFieldTrial(String trialName, String groupName);
+        void registerSyntheticFieldTrial(String trialName, String groupName,
+                @SyntheticTrialAnnotationMode int annotationMode);
         void recordTabCountPerLoad(int numTabsOpen);
         void recordPageLoaded(boolean isDesktopUserAgent);
         void recordPageLoadedWithKeyboard();

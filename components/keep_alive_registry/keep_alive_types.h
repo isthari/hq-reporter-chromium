@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -22,6 +22,9 @@ enum class KeepAliveOrigin {
   BROWSER_PROCESS_LACROS,
   SESSION_RESTORE,
 
+  // c/b/apps
+  APP_LAUNCH,
+
   // c/b/background
   BACKGROUND_MODE_MANAGER,
   BACKGROUND_MODE_MANAGER_STARTUP,
@@ -36,6 +39,7 @@ enum class KeepAliveOrigin {
   // c/b/chromeos
   LOGIN_DISPLAY_HOST_WEBUI,
   PIN_MIGRATION,
+  DRIVEFS_NATIVE_MESSAGE_HOST_LACROS,
 
   // c/b/devtools
   REMOTE_DEBUGGING,
@@ -59,8 +63,7 @@ enum class KeepAliveOrigin {
   CHROME_VIEWS_DELEGATE,
   PANEL,
   PANEL_VIEW,
-  PROFILE_HELPER,
-  PROFILE_LOADER,
+  PROFILE_MANAGER,
   USER_MANAGER_VIEW,
   CREDENTIAL_PROVIDER_SIGNIN_DIALOG,
   WEB_APP_INTENT_PICKER,
@@ -72,6 +75,8 @@ enum class KeepAliveOrigin {
   APP_MANIFEST_UPDATE,
   APP_START_URL_MIGRATION,
   APP_GET_INFO,
+  WEB_APP_LAUNCH,
+  ISOLATED_WEB_APP_INSTALL,
 
   // c/b/sessions
   SESSION_DATA_DELETER,

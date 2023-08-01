@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -20,11 +20,26 @@ namespace viz {
 
 class VIZ_SERVICE_EXPORT HintSession {
  public:
+  enum class BoostType {
+    kDefault,
+    kScrollBoost,
+    kWakeUpBoost,
+  };
+
   virtual ~HintSession() = default;
+
+  virtual void UpdateTargetDuration(base::TimeDelta target_duration) = 0;
 
   // `actual_duration` is compared to `target_duration` in `CreateSession` to
   // determine the performance of a frame.
-  virtual void ReportCpuCompletionTime(base::TimeDelta actual_duration) = 0;
+  // 'preferable_boost_type' is a hint which mode to use. There is no guarantee
+  // that this mode will be used immediately or will be used at all.
+  virtual void ReportCpuCompletionTime(base::TimeDelta actual_duration,
+                                       base::TimeTicks draw_start,
+                                       BoostType preferable_boost_type) = 0;
+
+  // Issue a mid frame boost hint to the session.
+  virtual void BoostMidFrame() = 0;
 };
 
 class VIZ_SERVICE_EXPORT HintSessionFactory {
@@ -45,6 +60,9 @@ class VIZ_SERVICE_EXPORT HintSessionFactory {
   virtual std::unique_ptr<HintSession> CreateSession(
       base::flat_set<base::PlatformThreadId> transient_thread_ids,
       base::TimeDelta target_duration) = 0;
+
+  // Issue an early hint to wake up some session.
+  virtual void WakeUp() = 0;
 };
 
 }  // namespace viz

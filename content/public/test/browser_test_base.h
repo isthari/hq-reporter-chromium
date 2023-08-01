@@ -1,29 +1,48 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+//
+// If you are looking to write a new browser test, you are probably looking for
+// one of the already-implemented subclasses, e.g. `content::ContentBrowserTest`
+// for tests that can run directly on top of content_shell,
+// `InProcessBrowserTest` for tests that require `//chrome`-layer functionality,
+// et cetera. See `//content/public/test/browser_test.h` for more information.
+//
+// `content::BrowserTestBase` is a base class that provides shared functionality
+// across various types of browser tests. It is not intended for direct use in
+// tests, as it does not actually define how to launch a browser, nor how to run
+// a test in said browser.
 
 #ifndef CONTENT_PUBLIC_TEST_BROWSER_TEST_BASE_H_
 #define CONTENT_PUBLIC_TEST_BROWSER_TEST_BASE_H_
 
 #include <memory>
+#include <string>
+#include <utility>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/weak_ptr.h"
 #include "base/metrics/field_trial.h"
 #include "base/threading/thread.h"
 #include "build/build_config.h"
 #include "build/chromeos_buildflags.h"
 #include "content/public/test/no_renderer_crashes_assertion.h"
 #include "content/public/test/test_host_resolver.h"
+#include "mojo/public/cpp/bindings/remote.h"
+#include "net/dns/public/dns_over_https_config.h"
+#include "net/dns/public/secure_dns_mode.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
+#include "services/network/public/mojom/network_service_test.mojom.h"
 #include "storage/browser/quota/quota_settings.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace base {
 class CommandLine;
 class FilePath;
 class TimeDelta;
-}
+}  // namespace base
 
 namespace chromeos {
 class ScopedDisableCrosapiForTesting;
@@ -31,6 +50,7 @@ class ScopedDisableCrosapiForTesting;
 
 namespace content {
 class BrowserMainParts;
+class ContentMainDelegate;
 class WebContents;
 
 class BrowserTestBase : public ::testing::Test {
@@ -66,16 +86,32 @@ class BrowserTestBase : public ::testing::Test {
   // this if they want to use the production path.
   virtual bool UseProductionQuotaSettings();
 
+  // This is invoked if the test receives SIGTERM or SIGSEGV.
+  virtual void SignalRunTestOnMainThread(int signal) {}
+
   // Crash the Network Service process. Should only be called when
   // out-of-process Network Service is enabled. Re-applies any added host
   // resolver rules, though network tasks started before the call returns may
   // racily start before the rules have been re-applied.
   void SimulateNetworkServiceCrash();
 
+  // Ignores all future NetworkService crashes that would be otherwise detected
+  // and flagged by the AssertThatNetworkServiceDidNotCrash method.
+  //
+  // The IgnoreNetworkServiceCrashes method is useful in a test that plans to
+  // trigger crashes. Note that calling IgnoreNetworkServiceCrashes is *not*
+  // needed when triggering the crash via SimulateNetworkServiceCrash method.
+  void IgnoreNetworkServiceCrashes();
+
   // Returns the host resolver being used for the tests. Subclasses might want
   // to configure it inside tests.
   net::RuleBasedHostResolverProc* host_resolver() {
     return test_host_resolver_ ? test_host_resolver_->host_resolver() : nullptr;
+  }
+
+  // Returns the NetworkServiceTest remote endpoint in this test fixture.
+  mojo::Remote<network::mojom::NetworkServiceTest>& network_service_test() {
+    return network_service_test_;
   }
 
  protected:
@@ -95,9 +131,28 @@ class BrowserTestBase : public ::testing::Test {
   // PreEarlyInitialization() has been called.
   virtual void CreatedBrowserMainParts(BrowserMainParts* browser_main_parts) {}
 
+  // Returns a custom ContentMainDelegate to use for the test, or nullptr to use
+  // the standard delegate. The returned object must live at least until
+  // TearDownInProcessBrowserTextFixture is called.
+  virtual ContentMainDelegate* GetOptionalContentMainDelegateOverride();
+
+  // GTest assertions that the connection to `network_service_test_` did not get
+  // dropped unexpectedly.
+  void AssertThatNetworkServiceDidNotCrash();
+
   // Sets flag to allow host resolutions to reach the network. Must be called
   // before Setup() to take effect.
   void SetAllowNetworkAccessToHostResolutions();
+
+  // Sets flag that will cause the network service's system DNS configuration to
+  // be replaced with a basic, single-server configuration. This should improve
+  // test reproducibility and consistency across platforms, at the cost of
+  // disabling the platform-specific logic that handles system config changes.
+  void SetReplaceSystemDnsConfig();
+
+  // Sets DoH configuration for use during tests.
+  void SetTestDohConfig(net::SecureDnsMode secure_dns_mode,
+                        net::DnsOverHttpsConfig config);
 
   // This is invoked from main after browser_init/browser_main have completed.
   // This prepares for the test by creating a new browser and doing any other
@@ -188,6 +243,15 @@ class BrowserTestBase : public ::testing::Test {
   // Host resolver used during tests.
   std::unique_ptr<TestHostResolver> test_host_resolver_;
 
+  // When true, `InitializeNetworkProcess` will tell the network service to use
+  // a dummy system DNS configuration.
+  bool replace_system_dns_config_ = false;
+
+  // DoH configuration used during tests. When it contains a value,
+  // `InitializeNetworkProcess` will pass it to the network service.
+  absl::optional<std::pair<net::SecureDnsMode, net::DnsOverHttpsConfig>>
+      test_doh_config_;
+
   // A field trial list that's used to support field trials activated prior to
   // browser start.
   std::unique_ptr<base::FieldTrialList> field_trial_list_;
@@ -208,7 +272,7 @@ class BrowserTestBase : public ::testing::Test {
   bool use_software_compositing_ = false;
 
   // Initial WebContents to watch for navigations during SetUpOnMainThread.
-  raw_ptr<WebContents> initial_web_contents_ = nullptr;
+  base::WeakPtr<WebContents> initial_web_contents_;
 
   // Whether SetUp was called. This value is checked in the destructor of this
   // class to ensure that SetUp was called. If it's not called, the test will
@@ -223,11 +287,13 @@ class BrowserTestBase : public ::testing::Test {
 
   std::unique_ptr<NoRendererCrashesAssertion> no_renderer_crashes_assertion_;
 
+  mojo::Remote<network::mojom::NetworkServiceTest> network_service_test_;
+
   bool initialized_network_process_ = false;
 
   bool allow_network_access_to_host_resolutions_ = false;
 
-  raw_ptr<BrowserMainParts> browser_main_parts_ = nullptr;
+  raw_ptr<BrowserMainParts, DanglingUntriaged> browser_main_parts_ = nullptr;
 
 #if BUILDFLAG(IS_POSIX)
   bool handle_sigterm_;

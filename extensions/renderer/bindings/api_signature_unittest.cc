@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -530,8 +530,6 @@ TEST_F(APISignatureTest, ParseIgnoringSchema) {
     auto signature = IntAndOptionalCallback();
     std::vector<v8::Local<v8::Value>> v8_args =
         StringToV8Vector(context, "[1, null]");
-    v8::Local<v8::Function> callback;
-    std::unique_ptr<base::ListValue> parsed;
     APISignature::JSONParseResult parse_result =
         signature->ConvertArgumentsIgnoringSchema(context, v8_args);
     EXPECT_FALSE(parse_result.error);
@@ -626,8 +624,6 @@ TEST_F(APISignatureTest, ParseIgnoringSchemaWithPromises) {
     // Test with omitting the optional callback.
     std::vector<v8::Local<v8::Value>> v8_args =
         StringToV8Vector(context, "[1, null]");
-    v8::Local<v8::Function> callback;
-    std::unique_ptr<base::ListValue> parsed;
     APISignature::JSONParseResult parse_result =
         int_and_optional_callback->ConvertArgumentsIgnoringSchema(context,
                                                                   v8_args);
@@ -660,8 +656,6 @@ TEST_F(APISignatureTest, ParseIgnoringSchemaWithPromises) {
     context_allows_promises = false;
     std::vector<v8::Local<v8::Value>> v8_args =
         StringToV8Vector(context, "[1, null]");
-    v8::Local<v8::Function> callback;
-    std::unique_ptr<base::ListValue> parsed;
     APISignature::JSONParseResult parse_result =
         int_and_optional_callback->ConvertArgumentsIgnoringSchema(context,
                                                                   v8_args);
@@ -826,7 +820,15 @@ TEST_F(APISignatureTest, PromisesSupport) {
         &access_checker);
     ExpectPass(*required_callback_signature, "[]", "[]",
                binding::AsyncResponseType::kPromise);
-    // If the context doesn't support promises, parsing should fail.
+
+    // Ensure that the promise support allowing the final argument to be
+    // optional doesn't mean we can ignore it entirely if it doesn't match the
+    // signature. See: http://crbug.com/1350315
+    ExpectFailure(*required_callback_signature, "['foo']",
+                  NoMatchingSignature());
+
+    // If the context doesn't support promises, parsing should fail if the
+    // required callback is left off.
     context_allows_promises = false;
     ExpectFailure(*required_callback_signature, "[]", NoMatchingSignature());
   }

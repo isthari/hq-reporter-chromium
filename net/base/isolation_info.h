@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,16 +10,15 @@
 
 #include "base/unguessable_token.h"
 #include "net/base/net_export.h"
+#include "net/base/network_anonymization_key.h"
 #include "net/base/network_isolation_key.h"
 #include "net/cookies/site_for_cookies.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "url/origin.h"
 
-namespace network {
-namespace mojom {
+namespace network::mojom {
 class IsolationInfoDataView;
-}  // namespace mojom
-}  // namespace network
+}  // namespace network::mojom
 
 namespace mojo {
 template <typename DataViewType, typename T>
@@ -120,19 +119,12 @@ class NET_EXPORT IsolationInfo {
       const url::Origin& frame_origin,
       const SiteForCookies& site_for_cookies,
       absl::optional<std::set<SchemefulSite>> party_context = absl::nullopt,
-      const base::UnguessableToken* nonce = nullptr);
+      const absl::optional<base::UnguessableToken>& nonce = absl::nullopt);
 
-  // Create an IsolationInfos that may not be fully correct - in particular,
-  // the SiteForCookies will always set to null, and if the NetworkIsolationKey
-  // only has a top frame origin, the frame origin will either be set to the top
-  // frame origin, in the kMainFrame case, or be replaced by an opaque
-  // origin in all other cases. If the NetworkIsolationKey is not fully
-  // populated, will create an empty IsolationInfo. This is intended for use
-  // while transitioning from NIKs being set on only some requests to
-  // IsolationInfos being set on all requests.
-  static IsolationInfo CreatePartial(
-      RequestType request_type,
-      const net::NetworkIsolationKey& network_isolation_key);
+  // TODO(crbug/1372769): Remove this and create a safer way to ensure NIKs
+  // created from NAKs aren't used by accident.
+  static IsolationInfo DoNotUseCreatePartialFromNak(
+      const net::NetworkAnonymizationKey& network_anonymization_key);
 
   // Returns nullopt if the arguments are not consistent. Otherwise, returns a
   // fully populated IsolationInfo. Any IsolationInfo that can be created by
@@ -146,19 +138,11 @@ class NET_EXPORT IsolationInfo {
       const absl::optional<url::Origin>& frame_origin,
       const SiteForCookies& site_for_cookies,
       absl::optional<std::set<SchemefulSite>> party_context = absl::nullopt,
-      const base::UnguessableToken* nonce = nullptr);
+      const absl::optional<base::UnguessableToken>& nonce = absl::nullopt);
 
   // Create a new IsolationInfo for a redirect to the supplied origin. |this| is
   // unmodified.
   IsolationInfo CreateForRedirect(const url::Origin& new_origin) const;
-
-  // Intended for temporary use in locations that should be using main frame and
-  // frame origin, but are currently only using frame origin, because the
-  // creating object may be shared across main frame objects. Having a special
-  // constructor for these methods makes it easier to keep track of locating
-  // callsites that need to have their IsolationInfo filled in.
-  static IsolationInfo ToDoUseTopFrameOriginAsWell(
-      const url::Origin& incorrectly_used_frame_origin);
 
   RequestType request_type() const { return request_type_; }
 
@@ -173,12 +157,14 @@ class NET_EXPORT IsolationInfo {
   const absl::optional<url::Origin>& top_frame_origin() const {
     return top_frame_origin_;
   }
-  const absl::optional<url::Origin>& frame_origin() const {
-    return frame_origin_;
-  }
+  const absl::optional<url::Origin>& frame_origin() const;
 
   const NetworkIsolationKey& network_isolation_key() const {
     return network_isolation_key_;
+  }
+
+  const NetworkAnonymizationKey& network_anonymization_key() const {
+    return network_anonymization_key_;
   }
 
   const absl::optional<base::UnguessableToken>& nonce() const { return nonce_; }
@@ -191,6 +177,9 @@ class NET_EXPORT IsolationInfo {
   //          policy. It MUST NEVER be used for any kind of SECURITY check.
   const SiteForCookies& site_for_cookies() const { return site_for_cookies_; }
 
+  // Do not use outside of testing. Returns the `frame_origin_`.
+  const absl::optional<url::Origin>& frame_origin_for_testing() const;
+
   // Return |party_context| which exclude the top frame origin and the frame
   // origin.
   // TODO(mmenke): Make this function PartyContextForTesting() after switching
@@ -202,16 +191,23 @@ class NET_EXPORT IsolationInfo {
 
   bool IsEqualForTesting(const IsolationInfo& other) const;
 
+  NetworkAnonymizationKey CreateNetworkAnonymizationKeyForIsolationInfo(
+      const absl::optional<url::Origin>& top_frame_origin,
+      const absl::optional<url::Origin>& frame_origin,
+      const absl::optional<base::UnguessableToken>& nonce) const;
+
   // Serialize the `IsolationInfo` into a string. Fails if transient, returning
   // an empty string.
   std::string Serialize() const;
+
+  std::string DebugString() const;
 
  private:
   IsolationInfo(RequestType request_type,
                 const absl::optional<url::Origin>& top_frame_origin,
                 const absl::optional<url::Origin>& frame_origin,
                 const SiteForCookies& site_for_cookies,
-                const base::UnguessableToken* nonce,
+                const absl::optional<base::UnguessableToken>& nonce,
                 absl::optional<std::set<SchemefulSite>> party_context);
 
   RequestType request_type_;
@@ -221,7 +217,9 @@ class NET_EXPORT IsolationInfo {
 
   // This can be deduced from the two origins above, but keep a cached version
   // to avoid repeated eTLD+1 calculations, when this is using eTLD+1.
-  net::NetworkIsolationKey network_isolation_key_;
+  NetworkIsolationKey network_isolation_key_;
+
+  NetworkAnonymizationKey network_anonymization_key_;
 
   SiteForCookies site_for_cookies_;
 

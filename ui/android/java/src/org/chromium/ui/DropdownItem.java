@@ -1,10 +1,10 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.ui;
 
-import android.graphics.Bitmap;
+import android.graphics.drawable.Drawable;
 
 import androidx.annotation.Nullable;
 
@@ -17,13 +17,23 @@ public interface DropdownItem {
     public static final int NO_ICON = 0;
 
     /**
-     * Returns the label that should be shown in the dropdown.
+     * Returns the first part of the first line that should be shown in the dropdown.
      */
     String getLabel();
     /**
-     * Returns the sublabel that should be shown in the dropdown.
+     * Returns the second part of the first line that should be shown in the dropdown.
+     */
+    @Nullable
+    String getSecondaryLabel();
+    /**
+     * Returns the first part of the second line that should be shown in the dropdown.
      */
     String getSublabel();
+    /**
+     * Returns the second part of the second line that should be shown in the dropdown.
+     */
+    @Nullable
+    String getSecondarySublabel();
     /**
      * Returns the item tag that should be shown in the dropdown.
      */
@@ -40,11 +50,11 @@ public interface DropdownItem {
      */
     GURL getCustomIconUrl();
     /**
-     * Returns the bitmap for the icon. If present, then it should be preferred over the drawable id
-     * returned by getIconId().
+     * Returns the drawable for the icon. It is either the custom card art if available, or the
+     * drawable of the id returned by getIconId().
      */
     @Nullable
-    Bitmap getCustomIcon();
+    Drawable getIconDrawable();
     /**
      * Returns true if the item should be enabled in the dropdown.
      */
@@ -65,6 +75,14 @@ public interface DropdownItem {
      * Returns resource ID of label's font color.
      */
     int getLabelFontColorResId();
+    /**
+     * Returns resource ID of label's font size.
+     */
+    int getLabelFontSizeResId();
+    /**
+     * Returns resource ID of sublabel's font color.
+     */
+    int getSublabelFontColorResId();
     /**
      * Returns resource ID of sublabel's font size.
      */

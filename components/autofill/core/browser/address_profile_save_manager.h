@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -40,10 +40,13 @@ class AddressProfileSaveManager {
   // |allow_only_silent_updates| allows only for silent updates of profiles
   // that have either a structured name or address or both but do not fulfill
   // the import requirements.
+  // |import_metadata| is passed through, to collect metrics based on the
+  // profile import decision.
   void ImportProfileFromForm(const AutofillProfile& profile,
                              const std::string& app_locale,
                              const GURL& url,
-                             bool allow_only_silent_updates);
+                             bool allow_only_silent_updates,
+                             ProfileImportMetadata import_metadata);
 
  protected:
   // Initiates showing the prompt to the user.
@@ -76,6 +79,12 @@ class AddressProfileSaveManager {
   // import process should be continued silently.
   void MaybeOfferSavePrompt(
       std::unique_ptr<ProfileImportProcess> import_process);
+
+  // Increases or resets the strike count depending on the user decision for
+  // the corresponding prompt type.
+  void AdjustNewProfileStrikes(ProfileImportProcess& import_process) const;
+  void AdjustUpdateProfileStrikes(ProfileImportProcess& import_process) const;
+  void AdjustMigrateProfileStrikes(ProfileImportProcess& import_process) const;
 
   // A pointer to the autofill client. It is assumed that the client outlives
   // the instance of this class

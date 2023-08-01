@@ -1,4 +1,4 @@
-// Copyright (c) 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -18,10 +18,6 @@
 #include "ui/message_center/notification_view_controller.h"
 #include "ui/message_center/views/message_view.h"
 #include "ui/views/widget/widget.h"
-
-namespace base {
-class OneShotTimer;
-}  // namespace base
 
 namespace gfx {
 class LinearAnimation;
@@ -64,6 +60,7 @@ class MESSAGE_CENTER_EXPORT MessagePopupCollection
   virtual void NotifyPopupClosed(MessagePopupView* popup);
 
   // NotificationViewController:
+  void AnimateResize() override;
   MessageView* GetMessageViewForNotificationId(
       const std::string& notification_id) override;
   void ConvertNotificationViewToGroupedNotificationView(
@@ -91,9 +88,9 @@ class MESSAGE_CENTER_EXPORT MessagePopupCollection
   MessagePopupView* GetPopupViewForNotificationID(
       const std::string& notification_id);
 
-  // Called when a new toast appears or toasts are rearranged in the |display|.
+  // Called when a new popup appears or popups are rearranged in the |display|.
   // The subclass may override this method to check the current desktop status
-  // so that the toasts are arranged at the correct place. Return true if
+  // so that the popups are arranged at the correct place. Return true if
   // alignment is actually changed.
   virtual bool RecomputeAlignment(const display::Display& display) = 0;
 
@@ -103,23 +100,21 @@ class MESSAGE_CENTER_EXPORT MessagePopupCollection
       views::Widget* widget,
       views::Widget::InitParams* init_params) = 0;
 
-  void set_inverse() { inverse_ = true; }
-
  protected:
-  // Returns the x-origin for the given toast bounds in the current work area.
-  virtual int GetToastOriginX(const gfx::Rect& toast_bounds) const = 0;
+  // Returns the x-origin for the given popup bounds in the current work area.
+  virtual int GetPopupOriginX(const gfx::Rect& popup_bounds) const = 0;
 
   // Returns the baseline height of the current work area. That is the starting
-  // point if there are no other toasts.
+  // point if there are no other popups.
   virtual int GetBaseline() const = 0;
 
   // Returns the rect of the current work area.
   virtual gfx::Rect GetWorkArea() const = 0;
 
-  // Returns true if the toast should be aligned top down.
+  // Returns true if the popup should be aligned top down.
   virtual bool IsTopDown() const = 0;
 
-  // Returns true if the toasts are positioned at the left side of the desktop
+  // Returns true if the popups are positioned at the left side of the desktop
   // so that their reveal animation should happen from left side.
   virtual bool IsFromLeft() const = 0;
 
@@ -177,10 +172,6 @@ class MESSAGE_CENTER_EXPORT MessagePopupCollection
     // Moving down notifications. Notification collapsing and resizing are also
     // done in MOVE_DOWN.
     MOVE_DOWN,
-
-    // Moving up notifications in order to show new one by FADE_IN. This is only
-    // used when |inverse_| is true.
-    MOVE_UP_FOR_INVERSE
   };
 
   // Stores animation related state of a popup.
@@ -196,16 +187,11 @@ class MESSAGE_CENTER_EXPORT MessagePopupCollection
     // The final bounds of the popup.
     gfx::Rect bounds;
 
-    // The popup is waiting for MOVE_UP_FOR_INVERSE animation so that it can
-    // FADE_IN after that. The value is only used when the animation type is
-    // MOVE_UP_FOR_INVERSE.
-    bool will_fade_in = false;
-
     // If the popup is animating.
     bool is_animating = false;
 
     // Unowned.
-    raw_ptr<MessagePopupView> popup = nullptr;
+    raw_ptr<MessagePopupView, DanglingUntriaged> popup = nullptr;
   };
 
   // Transition from animation state (FADE_IN, FADE_OUT, and MOVE_DOWN) to
@@ -247,21 +233,10 @@ class MESSAGE_CENTER_EXPORT MessagePopupCollection
   // Returns true if the edge is outside work area.
   bool IsNextEdgeOutsideWorkArea(const PopupItem& item) const;
 
-  // Implements hot mode. The purpose of hot mode is to allow a user to
-  // continually close many notifications by mouse without moving it. Similar
-  // functionality is also implemented in browser tab strips.
-  void StartHotMode();
-  void ResetHotMode();
-
   void CloseAnimatingPopups();
   bool CloseTransparentPopups();
   void ClosePopupsOutsideWorkArea();
   void RemoveClosedPopupItems();
-
-  // Returns true if all the animating popups are at the beginning of the
-  // collection or the queue is empty. Returns false only if there is an
-  // animating popup after a non-animating one.
-  bool AreAllAnimatingPopupsFirst() const;
 
   // Stops all the animation and closes all the popups immediately.
   void CloseAllPopupsNow();
@@ -281,7 +256,6 @@ class MESSAGE_CENTER_EXPORT MessagePopupCollection
   bool IsAnyPopupFocused() const;
 
   // Returns the popup which is visually |index_from_top|-th from the top.
-  // When |inverse_| is false, it's same as popup_items_[i].
   PopupItem* GetPopupItem(size_t index_from_top);
 
   // Reset |recently_closed_by_user_| to false. Used by
@@ -309,37 +283,6 @@ class MESSAGE_CENTER_EXPORT MessagePopupCollection
   // If true, popup sizes are resized on the next time Update() is called with
   // IDLE state.
   bool resize_requested_ = false;
-
-  // Hot mode related variables. See StartHotMode() and ResetHotMode().
-
-  // True if a notification is just closed by an user and hot mode should start.
-  // After a brief moment, this boolean will be set to false by the timer.
-  bool recently_closed_by_user_ = false;
-
-  // Timer that fires to reset |recently_closed_by_user_| to false, indicating
-  // that we should not start hot mode.
-  std::unique_ptr<base::OneShotTimer> recently_closed_by_user_timer_;
-
-  // True if the close button of the popup at |hot_index_| is hot.
-  bool is_hot_ = false;
-
-  // An index in |popup_items_|. Only valid if |is_hot_| is true.
-  size_t hot_index_ = 0;
-
-  // Fixed Y coordinate of the popup at |hot_index_|. While |is_hot_| is true,
-  // CalculateBounds() always lays out popups in a way the top of the popup at
-  // |hot_index_| is aligned to |hot_top_|. Only valid if |is_hot_| is true.
-  int hot_top_ = 0;
-
-  // Invert ordering of notification popups i.e. showing the latest notification
-  // at the top. It changes the state transition like this:
-  // Normal:
-  //   * a new notification comes in: FADE_IN
-  //   * a notification comes out: FADE_OUT -> MOVE_DOWN
-  // Inverted:
-  //   * a new notification comes in: MOVE_UP_FOR_INVERSE -> FADE_IN
-  //   * a notification comes out: FADE_OUT
-  bool inverse_ = false;
 
   base::ScopedObservation<MessageCenter, MessageCenterObserver>
       message_center_observation_{this};

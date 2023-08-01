@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,7 +11,9 @@
 #include <vector>
 
 #include "base/cancelable_callback.h"
+#include "base/containers/flat_set.h"
 #include "base/gtest_prod_util.h"
+#include "base/memory/raw_ptr.h"
 #include "ui/base/dragdrop/mojom/drag_drop_types.mojom-forward.h"
 #include "ui/base/x/x11_desktop_window_move_client.h"
 #include "ui/base/x/x11_drag_drop_client.h"
@@ -62,7 +64,6 @@ class X11Window : public PlatformWindow,
   virtual void Initialize(PlatformWindowInitProperties properties);
 
   // X11WindowManager calls this.
-  // XWindow override:
   void OnXWindowLostCapture();
 
   void OnMouseEnter();
@@ -71,19 +72,23 @@ class X11Window : public PlatformWindow,
   gfx::Rect GetOuterBounds() const;
   void SetTransientWindow(x11::Window window);
 
+  bool has_pointer() const { return has_pointer_; }
+
   // PlatformWindow:
   void Show(bool inactive) override;
   void Hide() override;
   void Close() override;
   bool IsVisible() const override;
   void PrepareForShutdown() override;
-  void SetBounds(const gfx::Rect& bounds) override;
-  gfx::Rect GetBounds() const override;
+  void SetBoundsInPixels(const gfx::Rect& bounds) override;
+  gfx::Rect GetBoundsInPixels() const override;
+  void SetBoundsInDIP(const gfx::Rect& bounds) override;
+  gfx::Rect GetBoundsInDIP() const override;
   void SetTitle(const std::u16string& title) override;
   void SetCapture() override;
   void ReleaseCapture() override;
   bool HasCapture() const override;
-  void ToggleFullscreen() override;
+  void SetFullscreen(bool fullscreen, int64_t target_display_id) override;
   void Maximize() override;
   void Minimize() override;
   void Restore() override;
@@ -95,8 +100,8 @@ class X11Window : public PlatformWindow,
   void SetCursor(scoped_refptr<PlatformCursor> cursor) override;
   void MoveCursorTo(const gfx::Point& location) override;
   void ConfineCursorToBounds(const gfx::Rect& bounds) override;
-  void SetRestoredBoundsInPixels(const gfx::Rect& bounds) override;
-  gfx::Rect GetRestoredBoundsInPixels() const override;
+  void SetRestoredBoundsInDIP(const gfx::Rect& bounds) final;
+  gfx::Rect GetRestoredBoundsInDIP() const final;
   bool ShouldWindowContentsBeTransparent() const override;
   void SetZOrderLevel(ZOrderLevel order) override;
   ZOrderLevel GetZOrderLevel() const override;
@@ -115,6 +120,7 @@ class X11Window : public PlatformWindow,
   void SetDecorationInsets(const gfx::Insets* insets_px) override;
   void SetOpaqueRegion(const std::vector<gfx::Rect>* region_px) override;
   void SetInputRegion(const gfx::Rect* region_px) override;
+  void NotifyStartupComplete(const std::string& startup_id) override;
 
   // WorkspaceExtension:
   std::string GetWorkspace() const override;
@@ -128,7 +134,6 @@ class X11Window : public PlatformWindow,
   bool IsWmTiling() const override;
   void OnCompleteSwapAfterResize() override;
   gfx::Rect GetXRootWindowOuterBounds() const override;
-  bool ContainsPointInXRegion(const gfx::Point& point) const override;
   void LowerXWindow() override;
   void SetOverrideRedirect(bool override_redirect) override;
   bool CanResetOverrideRedirect() const override;
@@ -144,7 +149,6 @@ class X11Window : public PlatformWindow,
 
   void OnXWindowStateChanged();
   void OnXWindowDamageEvent(const gfx::Rect& damage_rect);
-  void OnXWindowBoundsChanged(const gfx::Rect& size);
   void OnXWindowCloseRequested();
   void OnXWindowIsActiveChanged(bool active);
   void OnXWindowWorkspaceChanged();
@@ -176,17 +180,20 @@ class X11Window : public PlatformWindow,
   bool RunMoveLoop(const gfx::Vector2d& drag_offset) override;
   void EndMoveLoop() override;
 
-  // WmDragHandler
+  // WmDragHandler:
   bool StartDrag(const OSExchangeData& data,
                  int operations,
                  mojom::DragEventSource source,
                  gfx::NativeCursor cursor,
                  bool can_grab_pointer,
-                 WmDragHandler::Delegate* delegate) override;
+                 WmDragHandler::DragFinishedCallback drag_finished_callback,
+                 WmDragHandler::LocationDelegate* delegate) override;
   void CancelDrag() override;
+  void UpdateDragImage(const gfx::ImageSkia& image,
+                       const gfx::Vector2d& offset) override;
 
   // XDragDropClient::Delegate
-  std::unique_ptr<XTopmostWindowFinder> CreateWindowFinder() override;
+  absl::optional<gfx::AcceleratedWidget> GetDragWidget() override;
   int UpdateDrag(const gfx::Point& screen_point) override;
   void UpdateCursor(mojom::DragOperation negotiated_operation) override;
   void OnBeginForeignDrag(x11::Window window) override;
@@ -235,7 +242,7 @@ class X11Window : public PlatformWindow,
 
   void SetFlashFrameHint(bool flash_frame);
   void UpdateMinAndMaxSize();
-  void DispatchResize();
+  void DispatchResize(bool origin_changed);
   void CancelResize();
 
   // Resets the window region for the current window bounds if necessary.
@@ -267,7 +274,8 @@ class X11Window : public PlatformWindow,
   // Called when |xwindow_|'s _NET_FRAME_EXTENTS property is updated.
   void OnFrameExtentsUpdated();
 
-  void OnConfigureEvent(const x11::ConfigureNotifyEvent& event);
+  void OnConfigureEvent(const x11::ConfigureNotifyEvent& event,
+                        bool send_event);
 
   void OnWorkspaceUpdated();
 
@@ -281,7 +289,7 @@ class X11Window : public PlatformWindow,
 
   void MaybeUpdateOcclusionState();
 
-  void DelayedResize(const gfx::Rect& bounds_in_pixels);
+  void DelayedResize(bool origin_changed);
 
   // If mapped, sends a message to the window manager to enable or disable the
   // states |state1| and |state2|.  Otherwise, the states will be enabled or
@@ -301,7 +309,7 @@ class X11Window : public PlatformWindow,
 
   void UpdateWindowRegion(std::unique_ptr<std::vector<x11::Rectangle>> region);
 
-  void NotifyBoundsChanged(const gfx::Rect& new_bounds_in_px);
+  void NotifyBoundsChanged(bool origin_changed);
 
   // Initializes as a status icon window.
   bool InitializeAsStatusIcon();
@@ -309,11 +317,11 @@ class X11Window : public PlatformWindow,
   // Stores current state of this window.
   PlatformWindowState state_ = PlatformWindowState::kUnknown;
 
-  PlatformWindowDelegate* const platform_window_delegate_;
+  const raw_ptr<PlatformWindowDelegate> platform_window_delegate_;
 
-  WorkspaceExtensionDelegate* workspace_extension_delegate_ = nullptr;
+  raw_ptr<WorkspaceExtensionDelegate> workspace_extension_delegate_ = nullptr;
 
-  X11ExtensionDelegate* x11_extension_delegate_ = nullptr;
+  raw_ptr<X11ExtensionDelegate> x11_extension_delegate_ = nullptr;
 
   // Tells if the window got a ::Close call.
   bool is_shutting_down_ = false;
@@ -334,7 +342,8 @@ class X11Window : public PlatformWindow,
 
   // Handles XDND events going through this window.
   std::unique_ptr<XDragDropClient> drag_drop_client_;
-  WmDragHandler::Delegate* drag_handler_delegate_ = nullptr;
+  WmDragHandler::DragFinishedCallback drag_finished_callback_;
+  raw_ptr<WmDragHandler::LocationDelegate> drag_location_delegate_ = nullptr;
 
   // Run loop used while dragging from this window.
   std::unique_ptr<X11MoveLoop> drag_loop_;
@@ -343,7 +352,7 @@ class X11Window : public PlatformWindow,
   std::unique_ptr<x11::XScopedEventSelector> source_window_events_;
 
   // The display and the native X window hosting the root window.
-  x11::Connection* const connection_;
+  const raw_ptr<x11::Connection> connection_;
   x11::Window xwindow_ = x11::Window::None;
   x11::Window x_root_window_ = x11::Window::None;
 
@@ -362,7 +371,7 @@ class X11Window : public PlatformWindow,
   // Was this window initialized with the override_redirect window attribute?
   bool override_redirect_ = false;
 
-  std::u16string window_title_;
+  absl::optional<std::u16string> window_title_;
 
   // Whether the window is visible with respect to Aura.
   bool window_mapped_in_client_ = false;
@@ -384,6 +393,9 @@ class X11Window : public PlatformWindow,
 
   // True if the window should stay on top of most other windows.
   bool is_always_on_top_ = false;
+
+  // True if the window is security-sensitive. Implies |is_always_on_top_|.
+  bool is_security_surface_ = false;
 
   // True if the window is fully obscured by another window.
   bool is_occluded_ = false;
@@ -480,10 +492,14 @@ class X11Window : public PlatformWindow,
   // cross-display fullscreening, there is a Restore() (called by BrowserView)
   // that may cause configuration bounds updates that make this window appear to
   // temporarily be on a different screen than its destination screen.  This
-  // restore only happens if the window is maximized.
-  bool ignore_next_configure_ = false;
+  // restore only happens if the window is maximized. The integer represents how
+  // many events to ignore.
+  int ignore_next_configures_ = 0;
   // True between Restore() and the next OnXWindowStateChanged().
   bool restore_in_flight_ = false;
+  // True between SetBoundsInPixels (when the bounds actually change) and the
+  // next OnConfigureEvent.
+  bool bounds_change_in_flight_ = false;
 
   base::CancelableOnceClosure delayed_resize_task_;
 

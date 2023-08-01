@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,6 +27,10 @@ IOBuffer::IOBuffer() : data_(nullptr) {}
 IOBuffer::IOBuffer(size_t buffer_size) {
   AssertValidBufferSize(buffer_size);
   data_ = new char[buffer_size];
+#if BUILDFLAG(IS_IOS)
+  // TODO(crbug.com/1335423): Investigating crashes on iOS.
+  CHECK(data_);
+#endif  // BUILDFLAG(IS_IOS)
 }
 
 IOBuffer::IOBuffer(char* data)
@@ -68,12 +72,12 @@ StringIOBuffer::~StringIOBuffer() {
 }
 
 DrainableIOBuffer::DrainableIOBuffer(scoped_refptr<IOBuffer> base, int size)
-    : IOBuffer(base->data()), base_(std::move(base)), size_(size), used_(0) {
+    : IOBuffer(base->data()), base_(std::move(base)), size_(size) {
   AssertValidBufferSize(size);
 }
 
 DrainableIOBuffer::DrainableIOBuffer(scoped_refptr<IOBuffer> base, size_t size)
-    : IOBuffer(base->data()), base_(std::move(base)), size_(size), used_(0) {
+    : IOBuffer(base->data()), base_(std::move(base)), size_(size) {
   AssertValidBufferSize(size);
 }
 
@@ -91,8 +95,8 @@ int DrainableIOBuffer::BytesConsumed() const {
 }
 
 void DrainableIOBuffer::SetOffset(int bytes) {
-  DCHECK_GE(bytes, 0);
-  DCHECK_LE(bytes, size_);
+  CHECK_GE(bytes, 0);
+  CHECK_LE(bytes, size_);
   used_ = bytes;
   data_ = base_->data() + used_;
 }
@@ -102,16 +106,15 @@ DrainableIOBuffer::~DrainableIOBuffer() {
   data_ = nullptr;
 }
 
-GrowableIOBuffer::GrowableIOBuffer()
-    : IOBuffer(),
-      capacity_(0),
-      offset_(0) {
-}
+GrowableIOBuffer::GrowableIOBuffer() = default;
 
 void GrowableIOBuffer::SetCapacity(int capacity) {
-  DCHECK_GE(capacity, 0);
+  CHECK_GE(capacity, 0);
+  // this will get reset in `set_offset`.
+  data_ = nullptr;
   // realloc will crash if it fails.
   real_data_.reset(static_cast<char*>(realloc(real_data_.release(), capacity)));
+
   capacity_ = capacity;
   if (offset_ > capacity)
     set_offset(capacity);
@@ -120,8 +123,8 @@ void GrowableIOBuffer::SetCapacity(int capacity) {
 }
 
 void GrowableIOBuffer::set_offset(int offset) {
-  DCHECK_GE(offset, 0);
-  DCHECK_LE(offset, capacity_);
+  CHECK_GE(offset, 0);
+  CHECK_LE(offset, capacity_);
   offset_ = offset;
   data_ = real_data_.get() + offset;
 }
@@ -142,7 +145,7 @@ PickledIOBuffer::PickledIOBuffer() : IOBuffer() {
 }
 
 void PickledIOBuffer::Done() {
-  data_ = const_cast<char*>(static_cast<const char*>(pickle_.data()));
+  data_ = const_cast<char*>(pickle_.data_as_char());
 }
 
 PickledIOBuffer::~PickledIOBuffer() {

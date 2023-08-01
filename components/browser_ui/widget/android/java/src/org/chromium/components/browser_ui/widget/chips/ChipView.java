@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 package org.chromium.components.browser_ui.widget.chips;
@@ -25,6 +25,7 @@ import androidx.annotation.Px;
 import androidx.annotation.StyleRes;
 import androidx.appcompat.widget.AppCompatTextView;
 import androidx.core.view.ViewCompat;
+import androidx.core.widget.ImageViewCompat;
 
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.components.browser_ui.widget.R;
@@ -63,6 +64,8 @@ public class ChipView extends LinearLayout {
 
     private ViewGroup mEndIconWrapper;
     private AppCompatTextView mSecondaryText;
+    private int mMaxWidth = Integer.MAX_VALUE;
+    private boolean mTintWithTextColor;
 
     /** Constructor for applying a theme overlay. */
     public ChipView(Context context, @StyleRes int themeOverlay) {
@@ -113,6 +116,8 @@ public class ChipView extends LinearLayout {
                 solidColorChip ? R.dimen.chip_solid_border_width : R.dimen.chip_border_width;
         int chipColorId =
                 a.getResourceId(R.styleable.ChipView_chipColor, R.color.chip_background_color);
+        int chipStateLayerColorId = a.getResourceId(
+                R.styleable.ChipView_chipStateLayerColor, R.color.chip_state_layer_color);
         int rippleColorId =
                 a.getResourceId(R.styleable.ChipView_rippleColor, R.color.chip_ripple_color);
         int chipStrokeColorId =
@@ -136,6 +141,9 @@ public class ChipView extends LinearLayout {
         int verticalInset = a.getDimensionPixelSize(R.styleable.ChipView_verticalInset,
                 getResources().getDimensionPixelSize(R.dimen.chip_bg_vertical_inset));
         boolean allowMultipleLines = a.getBoolean(R.styleable.ChipView_allowMultipleLines, false);
+        int minMultilineVerticalTextPadding = a.getDimensionPixelSize(
+                R.styleable.ChipView_multiLineVerticalPadding,
+                getResources().getDimensionPixelSize(R.dimen.chip_text_multiline_vertical_padding));
         boolean textAlignStart = a.getBoolean(R.styleable.ChipView_textAlignStart, false);
         boolean reduceTextStartPadding =
                 a.getBoolean(R.styleable.ChipView_reduceTextStartPadding, false);
@@ -155,8 +163,8 @@ public class ChipView extends LinearLayout {
         int loadingViewWidthPadding = (iconWidth - loadingViewSize) / 2;
         mLoadingView = new LoadingView(getContext());
         mLoadingView.setVisibility(GONE);
-        mLoadingView.setIndeterminateTintList(ColorStateList.valueOf(ApiCompatibilityUtils.getColor(
-                getResources(), R.color.default_icon_color_accent1_baseline)));
+        mLoadingView.setIndeterminateTintList(ColorStateList.valueOf(
+                getContext().getColor(R.color.default_icon_color_accent1_baseline)));
         mLoadingView.setPaddingRelative(loadingViewWidthPadding, loadingViewHeightPadding,
                 loadingViewWidthPadding, loadingViewHeightPadding);
         addView(mLoadingView, new LayoutParams(iconWidth, iconHeight));
@@ -173,10 +181,6 @@ public class ChipView extends LinearLayout {
         // If false fall back to single line defined in XML styles.
         if (allowMultipleLines) {
             mPrimaryText.setMaxLines(MAX_LINES);
-            // Vertical padding must be explicitly defined for the text view to create space if text
-            // wrapping causes the chip to increase in size vertically.
-            int minMultilineVerticalTextPadding = getResources().getDimensionPixelSize(
-                    R.dimen.chip_text_multiline_vertical_padding);
             // TODO(benwgold): Test for non multiline chips to see if 4dp vertical padding can be
             // safely applied to all chips without affecting styling.
             mPrimaryText.setPaddingRelative(mPrimaryText.getPaddingStart(),
@@ -196,8 +200,9 @@ public class ChipView extends LinearLayout {
         addView(mPrimaryText);
 
         // Reset icon and background:
-        mRippleBackgroundHelper = new RippleBackgroundHelper(this, chipColorId, rippleColorId,
-                mCornerRadius, chipStrokeColorId, chipBorderWidthId, verticalInset);
+        mRippleBackgroundHelper =
+                new RippleBackgroundHelper(this, chipColorId, chipStateLayerColorId, rippleColorId,
+                        mCornerRadius, chipStrokeColorId, chipBorderWidthId, verticalInset);
         setIcon(INVALID_ICON_ID, false);
     }
 
@@ -234,6 +239,11 @@ public class ChipView extends LinearLayout {
      * @param drawable Drawable to display.
      */
     public void setIcon(Drawable drawable, boolean tintWithTextColor) {
+        if (drawable == null) {
+            mStartIcon.setVisibility(ViewGroup.GONE);
+            return;
+        }
+
         mStartIcon.setVisibility(ViewGroup.VISIBLE);
         mStartIcon.setImageDrawable(drawable);
         setTint(tintWithTextColor);
@@ -276,7 +286,7 @@ public class ChipView extends LinearLayout {
 
         ChromeImageView endIcon = new ChromeImageView(getContext());
         endIcon.setImageResource(R.drawable.btn_close);
-        ApiCompatibilityUtils.setImageTintList(endIcon, mPrimaryText.getTextColors());
+        ImageViewCompat.setImageTintList(endIcon, mPrimaryText.getTextColors());
 
         // Adding a wrapper view around the X icon to make the touch target larger, which would
         // cover the start and end margin for the X icon, and full height of the chip.
@@ -353,10 +363,11 @@ public class ChipView extends LinearLayout {
      *      color. If not, the tint will be cleared.
      */
     private void setTint(boolean tintWithTextColor) {
+        mTintWithTextColor = tintWithTextColor;
         if (mPrimaryText.getTextColors() != null && tintWithTextColor) {
-            ApiCompatibilityUtils.setImageTintList(mStartIcon, mPrimaryText.getTextColors());
+            ImageViewCompat.setImageTintList(mStartIcon, mPrimaryText.getTextColors());
         } else {
-            ApiCompatibilityUtils.setImageTintList(mStartIcon, null);
+            ImageViewCompat.setImageTintList(mStartIcon, null);
         }
     }
 
@@ -374,10 +385,80 @@ public class ChipView extends LinearLayout {
         mRippleBackgroundHelper.setBackgroundColor(color);
     }
 
+    @Override
+    public void setBackgroundTintList(ColorStateList color) {
+        mRippleBackgroundHelper.setBackgroundColor(color);
+    }
+
     /**
      * @return The corner radius in pixels of this ChipView.
      */
     public @Px int getCornerRadius() {
         return mCornerRadius;
+    }
+
+    /**
+     * TODO (crbug.com/1376691): Set a constant minimum width for the chips. The chips must always
+     * display some text.
+     * Sets the maximum width of the chip. This is achieved by resizing the
+     * primary text view. The primary text is either truncated or completely removed depending on
+     * the space available after all other chip contents are accounted for. After the primary text
+     * gets removed, the secondary text is truncated. Note: This method can cause additional
+     * measure/layout passes and could impact performance.
+     * @param maxWidth of the chip in px.
+     */
+    public void setMaxWidth(int maxWidth) {
+        mMaxWidth = maxWidth;
+    }
+
+    /**
+     * Another approach is to override the {@link LinearLayout#onLayout()} which doesn't require an
+     * additional measure pass at the end. Performance wise they are comparable.
+     */
+    @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+
+        // If the chip width exceeds the maximum allowed size, resize the contents to respect the
+        // width constraint.
+        if (getMeasuredWidth() > mMaxWidth) {
+            int newPrimaryTextWidth = mMaxWidth - getPaddingLeft() - getPaddingRight()
+                    - ((mStartIcon != null && mStartIcon.getVisibility() != GONE)
+                                    ? mStartIcon.getMeasuredWidth()
+                                    : 0)
+                    - ((mSecondaryText != null && mSecondaryText.getVisibility() != GONE)
+                                    ? mSecondaryText.getMeasuredWidth()
+                                    : 0);
+            // TODO (crbug.com/1376691): The primary text must be at least a few pixels wide, else
+            // only the ellipses will be visible.
+            // If there is space for displaying the {@link mPrimaryText}, adjust it's size, and add
+            // trailing ellipses. If not, check if the secondary text exists. If it does, remove the
+            // primary text, else do not width constrain the chip. The chip should ALWAYS display
+            // some text.
+            if (newPrimaryTextWidth > 0) {
+                mPrimaryText.setMaxWidth(newPrimaryTextWidth);
+                mPrimaryText.setEllipsize(TextUtils.TruncateAt.END);
+            } else if (mSecondaryText != null && mSecondaryText.getVisibility() != GONE) {
+                mPrimaryText.setVisibility(GONE);
+            } else {
+                return;
+            }
+            super.onMeasure(
+                    MeasureSpec.makeMeasureSpec(mMaxWidth, MeasureSpec.EXACTLY), heightMeasureSpec);
+        }
+    }
+
+    @Override
+    public boolean isFocused() {
+        // When the selection does not follow focus, we still want to properly reflect the user
+        // selection by highlighting the chip.
+        // An example where this happens is: the user interacts with the Omnibox, and the typed
+        // query triggers an Action chip to be shown.
+        // These chips can be navigated to using physical keyboard (arrow keys to select
+        // corresponding suggestion, tab to activate the chip).
+        // At this time the Omnibox continues to retain focus, but Chip should be highlighted, as
+        // pressing <Enter> on the keyboard will activate the Chip.
+        // Make sure the highlight is properly reflected.
+        return super.isFocused() || (isSelected() && !isInTouchMode());
     }
 }

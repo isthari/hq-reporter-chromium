@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -39,12 +39,9 @@ void AwaitTabsReady(content::DOMMessageQueue* message_queue, int tabs) {
 void CheckVisbility(TabStripModel* tab_strip_model, int visible_index) {
   for (int i = 0; i < tab_strip_model->count(); ++i) {
     content::WebContents* contents = tab_strip_model->GetWebContentsAt(i);
-    std::string document_visibility_state;
-    const char kGetStateJS[] =
-        "window.domAutomationController.send("
-        "window.document.visibilityState);";
-    EXPECT_TRUE(content::ExecuteScriptAndExtractString(
-        contents, kGetStateJS, &document_visibility_state));
+    const char kGetStateJS[] = "window.document.visibilityState;";
+    std::string document_visibility_state =
+        content::EvalJs(contents, kGetStateJS).ExtractString();
     if (i == visible_index) {
       EXPECT_EQ("visible", document_visibility_state);
     } else {
@@ -108,10 +105,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTabRestoreTest, RecentTabsMenuTabDisposition) {
     EXPECT_EQ("about:blank", about_blank_contents->GetURL().spec());
     if (about_blank_contents->IsLoading() ||
         about_blank_contents->GetController().NeedsReload()) {
-      content::WindowedNotificationObserver load_stop_observer(
-          content::NOTIFICATION_LOAD_STOP,
-          content::Source<content::NavigationController>(
-              &about_blank_contents->GetController()));
+      content::LoadStopObserver load_stop_observer(about_blank_contents);
       load_stop_observer.Wait();
     }
   }
@@ -215,10 +209,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTabRestoreTest, DelegateRestoreTabDisposition) {
     EXPECT_EQ("about:blank", about_blank_contents->GetURL().spec());
     if (about_blank_contents->IsLoading() ||
         about_blank_contents->GetController().NeedsReload()) {
-      content::WindowedNotificationObserver load_stop_observer(
-          content::NOTIFICATION_LOAD_STOP,
-          content::Source<content::NavigationController>(
-              &about_blank_contents->GetController()));
+      content::LoadStopObserver load_stop_observer(about_blank_contents);
       load_stop_observer.Wait();
     }
   }

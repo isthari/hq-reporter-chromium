@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -59,7 +59,7 @@ TEST_F(CrTrackingAreaTest, OwnerStopsForwarding) {
 
 TEST_F(CrTrackingAreaTest, ScoperInit) {
   {
-    ScopedCrTrackingArea scoper([trackingArea_ retain]);
+    ScopedCrTrackingArea scoper(trackingArea_);
     [[scoper.get() owner] performMessage];
     EXPECT_EQ(1U, [owner_ messageCount]);
   }
@@ -73,7 +73,7 @@ TEST_F(CrTrackingAreaTest, ScoperReset) {
     ScopedCrTrackingArea scoper;
     EXPECT_FALSE(scoper.get());
 
-    scoper.reset([trackingArea_ retain]);
+    scoper.reset(trackingArea_);
     [[scoper.get() owner] performMessage];
     EXPECT_EQ(1U, [owner_ messageCount]);
 

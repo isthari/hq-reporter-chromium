@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,14 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/bind.h"
 #include "base/path_service.h"
 #include "base/process/launch.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/task/task_traits.h"
@@ -132,10 +133,10 @@ std::vector<std::wstring> GetUnsanitizedPaths() {
 
 bool ContainsAnyOf(const std::wstring& main_string,
                    const std::vector<std::wstring>& substrings) {
-  return std::any_of(substrings.begin(), substrings.end(),
-                     [&main_string](const std::wstring& path) -> bool {
-                       return main_string.find(path) != std::wstring::npos;
-                     });
+  return base::ranges::any_of(
+      substrings, [&main_string](const std::wstring& path) {
+        return main_string.find(path) != std::wstring::npos;
+      });
 }
 
 template <typename RepeatedTypeWithFileInformation>
@@ -259,9 +260,8 @@ class CleanerTestBase : public ::testing::Test {
         startup_dir.Append(chrome_cleaner::kTestUwsBFilename));
 
     // Always create scan-only UwS. Only some tests will have removable UwS.
-    ASSERT_NE(-1, base::WriteFile(scan_only_test_uws_,
-                                  chrome_cleaner::kTestUwsAFileContents,
-                                  chrome_cleaner::kTestUwsAFileContentsSize));
+    ASSERT_TRUE(base::WriteFile(scan_only_test_uws_,
+                                chrome_cleaner::kTestUwsAFileContents));
 
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
     InitializeRemovableUwSArchivePath();
@@ -290,9 +290,8 @@ class CleanerTestBase : public ::testing::Test {
   }
 
   void CreateRemovableUwS() {
-    ASSERT_NE(-1, base::WriteFile(removable_test_uws_,
-                                  chrome_cleaner::kTestUwsBFileContents,
-                                  chrome_cleaner::kTestUwsBFileContentsSize));
+    ASSERT_TRUE(base::WriteFile(removable_test_uws_,
+                                chrome_cleaner::kTestUwsBFileContents));
   }
 
   void LockRemovableUwS() {
@@ -448,14 +447,16 @@ class CleanerTest : public CleanerTestBase,
   TestFeatures test_features_;
 };
 
-TEST_P(CleanerTest, Scanner_ScanOnly) {
+// Disabled to support shipping a no-op build of the software reporter.
+TEST_P(CleanerTest, DISABLED_Scanner_ScanOnly) {
   base::CommandLine command_line = BuildCommandLine(kScannerExecutable);
   ExpectExitCode(command_line,
                  chrome_cleaner::RESULT_CODE_REPORT_ONLY_PUPS_FOUND);
   EXPECT_TRUE(base::PathExists(scan_only_test_uws_));
 }
 
-TEST_P(CleanerTest, Scanner_Removable) {
+// Disabled to support shipping a no-op build of the software reporter.
+TEST_P(CleanerTest, DISABLED_Scanner_Removable) {
   CreateRemovableUwS();
   base::CommandLine command_line = BuildCommandLine(kScannerExecutable);
 

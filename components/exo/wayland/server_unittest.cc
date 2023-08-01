@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,92 +6,54 @@
 
 #include <stdlib.h>
 
-#include <wayland-client-core.h>
-
 #include <memory>
 
-#include "base/atomic_sequence_num.h"
-#include "base/bind.h"
-#include "base/files/file_enumerator.h"
+#include <wayland-client-core.h>
+#include <wayland-server-core.h>
+
+#include "base/files/file_path.h"
 #include "base/files/file_util.h"
-#include "base/files/scoped_temp_dir.h"
-#include "base/process/process_handle.h"
+#include "base/functional/bind.h"
 #include "base/run_loop.h"
-#include "base/strings/string_util.h"
-#include "base/strings/stringprintf.h"
+#include "base/synchronization/lock.h"
+#include "base/test/bind.h"
 #include "base/threading/thread.h"
-#include "build/chromeos_buildflags.h"
-#include "components/exo/capabilities.h"
 #include "components/exo/display.h"
-#include "components/exo/test/exo_test_base_views.h"
+#include "components/exo/security_delegate.h"
 #include "components/exo/wayland/server_util.h"
-#include "testing/gmock/include/gmock/gmock.h"
+#include "components/exo/wayland/test/wayland_server_test_base.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-#include "components/exo/test/exo_test_base.h"
-#endif
+namespace exo::wayland {
 
-namespace exo {
-namespace wayland {
-namespace {
+using ServerTest = test::WaylandServerTestBase;
 
-base::AtomicSequenceNumber g_next_socket_id;
+struct TestListener {
+ public:
+  TestListener();
 
-std::string GetUniqueSocketName() {
-  return base::StringPrintf("wayland-test-%d-%d", base::GetCurrentProcId(),
-                            g_next_socket_id.GetNext());
+  wl_listener listener;
+  bool notified = false;
+};
+
+TestListener::TestListener() {
+  listener.notify = [](wl_listener* listener_ptr, void* data) {
+    TestListener* test_listener = wl_container_of(
+        listener_ptr, /*sample=*/test_listener, /*member=*/listener);
+    test_listener->notified = true;
+  };
 }
 
-// Use ExoTestBase on Chrome OS because Server starts to depends on ash::Shell,
-// which is unavailable on other platforms so then ExoTestBaseViews instead.
-using TestBase =
-#if BUILDFLAG(IS_CHROMEOS_ASH)
-    test::ExoTestBase
-#else
-    test::ExoTestBaseViews
-#endif
-    ;
-
-class TestCapabilities : public Capabilities {
- public:
-  std::string GetSecurityContext() const override { return "test"; }
-};
-
-class ServerTest : public TestBase {
- public:
-  ServerTest() = default;
-  ServerTest(const ServerTest&) = delete;
-  ServerTest& operator=(const ServerTest&) = delete;
-  ~ServerTest() override = default;
-
-  void SetUp() override {
-    ASSERT_TRUE(xdg_temp_dir_.CreateUniqueTempDir());
-    setenv("XDG_RUNTIME_DIR", xdg_temp_dir_.GetPath().MaybeAsASCII().c_str(),
-           1 /* overwrite */);
-    TestBase::SetUp();
-  }
-
- protected:
-  base::ScopedTempDir xdg_temp_dir_;
-};
-
-TEST_F(ServerTest, AddSocket) {
-  std::unique_ptr<Display> display(new Display);
-  std::unique_ptr<Server> server(
-      new Server(display.get(), Capabilities::GetDefaultCapabilities()));
-  server->Initialize();
-  // Check that calling AddSocket() with a unique socket name succeeds.
-  bool rv = server->AddSocket(GetUniqueSocketName());
+TEST_F(ServerTest, Open) {
+  auto server = CreateServer();
+  // Check that calling Open() succeeds.
+  bool rv = server->Open();
   EXPECT_TRUE(rv);
 }
 
 TEST_F(ServerTest, GetFileDescriptor) {
-  std::unique_ptr<Display> display(new Display);
-  std::unique_ptr<Server> server(
-      new Server(display.get(), Capabilities::GetDefaultCapabilities()));
-  server->Initialize();
-  bool rv = server->AddSocket(GetUniqueSocketName());
+  auto server = CreateServer();
+  bool rv = server->Open();
   EXPECT_TRUE(rv);
 
   // Check that the returned file descriptor is valid.
@@ -99,105 +61,122 @@ TEST_F(ServerTest, GetFileDescriptor) {
   DCHECK_GE(fd, 0);
 }
 
-TEST_F(ServerTest, CapabilityAssociation) {
-  std::unique_ptr<Capabilities> capabilities =
-      Capabilities::GetDefaultCapabilities();
-  Capabilities* capability_ptr = capabilities.get();
+TEST_F(ServerTest, SecurityDelegateAssociation) {
+  std::unique_ptr<SecurityDelegate> security_delegate =
+      SecurityDelegate::GetDefaultSecurityDelegate();
+  SecurityDelegate* security_delegate_ptr = security_delegate.get();
 
-  Display display;
-  Server server(&display, std::move(capabilities));
-  server.Initialize();
+  auto server = CreateServer(std::move(security_delegate));
 
-  EXPECT_EQ(GetCapabilities(server.GetWaylandDisplayForTesting()),
-            capability_ptr);
+  EXPECT_EQ(GetSecurityDelegate(server->GetWaylandDisplayForTesting()),
+            security_delegate_ptr);
 }
 
-TEST_F(ServerTest, CreateAsync) {
-  using MockServerFunction =
-      testing::MockFunction<void(bool, const base::FilePath&)>;
+TEST_F(ServerTest, StartFd) {
+  ScopedTempSocket sock;
 
-  std::unique_ptr<Display> display(new Display);
+  auto server = CreateServer();
+  base::RunLoop start_loop;
+  server->StartWithFdAsync(sock.TakeFd(),
+                           base::BindLambdaForTesting([&](bool success) {
+                             EXPECT_TRUE(success);
+                             start_loop.Quit();
+                           }));
+  start_loop.Run();
 
-  base::ScopedTempDir non_xdg_dir;
-  ASSERT_TRUE(non_xdg_dir.CreateUniqueTempDir());
+  base::Thread client_thread("client");
+  client_thread.Start();
 
-  base::RunLoop run_loop;
-  base::FilePath server_socket;
-  MockServerFunction server_callback;
-  EXPECT_CALL(server_callback, Call(testing::_, testing::_))
-      .WillOnce(testing::Invoke([&run_loop, &server_socket](
-                                    bool success, const base::FilePath& path) {
-        EXPECT_TRUE(success);
-        server_socket = path;
-        run_loop.Quit();
-      }));
+  wl_display* client_display = nullptr;
+  base::RunLoop connect_loop;
+  client_thread.task_runner()->PostTaskAndReply(
+      FROM_HERE, base::BindLambdaForTesting([&]() {
+        client_display =
+            wl_display_connect(sock.server_path().MaybeAsASCII().c_str());
+        int events = wl_display_roundtrip(client_display);
+        EXPECT_GE(events, 0);
+      }),
+      connect_loop.QuitClosure());
+  connect_loop.Run();
+  EXPECT_NE(client_display, nullptr);
 
-  std::unique_ptr<Server> server =
-      Server::Create(display.get(), std::make_unique<TestCapabilities>());
-  server->StartAsync(base::BindOnce(&MockServerFunction::Call,
-                                    base::Unretained(&server_callback)));
-  run_loop.Run();
+  wl_list* all_clients =
+      wl_display_get_client_list(server->GetWaylandDisplayForTesting());
+  ASSERT_FALSE(wl_list_empty(all_clients));
+  wl_client* client = wl_client_from_link(all_clients->next);
 
-  // Should create a directory for the server.
-  EXPECT_TRUE(base::DirectoryExists(server_socket.DirName()));
-  // Must not be a child of the XDG dir.
-  EXPECT_TRUE(base::IsDirectoryEmpty(xdg_temp_dir_.GetPath()));
-  // Must be deleted when the helper is removed.
-  server.reset();
-  EXPECT_FALSE(base::PathExists(server_socket));
-}
+  TestListener client_destruction_listener;
+  wl_client_add_destroy_listener(client, &client_destruction_listener.listener);
 
-void ConnectToServer(const std::string socket_name,
-                     bool* connected_to_server,
-                     base::WaitableEvent* event) {
-  wl_display* display = wl_display_connect(socket_name.c_str());
-  *connected_to_server = !!display;
-  event->Signal();
-  wl_display_disconnect(display);
+  client_thread.task_runner()->PostTask(
+      FROM_HERE, base::BindLambdaForTesting(
+                     [&]() { wl_display_disconnect(client_display); }));
+
+  while (!client_destruction_listener.notified) {
+    server->Dispatch(base::Milliseconds(10));
+  }
 }
 
 TEST_F(ServerTest, Dispatch) {
-  std::unique_ptr<Display> display(new Display);
-  std::unique_ptr<Server> server(
-      new Server(display.get(), Capabilities::GetDefaultCapabilities()));
-  server->Initialize();
-
-  std::string socket_name = GetUniqueSocketName();
-  bool rv = server->AddSocket(socket_name);
+  auto server = CreateServer();
+  bool rv = server->Open();
   EXPECT_TRUE(rv);
 
-  base::Thread client("client-" + socket_name);
-  ASSERT_TRUE(client.Start());
+  base::Thread client_thread("client");
+  client_thread.Start();
 
-  // Post a task that connects server on the created thread.
+  TestListener client_creation_listener;
+  wl_display_add_client_created_listener(server->GetWaylandDisplayForTesting(),
+                                         &client_creation_listener.listener);
+
+  base::Lock lock;
+  wl_display* client_display = nullptr;
   bool connected_to_server = false;
-  base::WaitableEvent event(base::WaitableEvent::ResetPolicy::AUTOMATIC,
-                            base::WaitableEvent::InitialState::NOT_SIGNALED);
-  client.task_runner()->PostTask(FROM_HERE,
-                                 base::BindOnce(&ConnectToServer, socket_name,
-                                                &connected_to_server, &event));
 
-  // Call Dispatch() with a 5 second timeout.
-  server->Dispatch(base::Seconds(5));
+  client_thread.task_runner()->PostTask(
+      FROM_HERE, base::BindLambdaForTesting([&]() {
+        // As soon as wl_display_connect() is executed, the server side could
+        // notify client creation and exit the while-loop. Therefore, the lock
+        // is required to ensure `connected_to_server` is set before it is
+        // accessed on the main thread.
+        base::AutoLock locker(lock);
+        client_display = wl_display_connect(nullptr);
+        connected_to_server = !!client_display;
+      }));
 
-  // Check if client thread managed to connect to server.
-  event.Wait();
-  EXPECT_TRUE(connected_to_server);
+  while (!client_creation_listener.notified) {
+    server->Dispatch(base::Milliseconds(10));
+  }
+
+  {
+    base::AutoLock locker(lock);
+    EXPECT_TRUE(connected_to_server);
+  }
+
+  wl_list* all_clients =
+      wl_display_get_client_list(server->GetWaylandDisplayForTesting());
+  ASSERT_FALSE(wl_list_empty(all_clients));
+  wl_client* client = wl_client_from_link(all_clients->next);
+
+  TestListener client_destruction_listener;
+  wl_client_add_destroy_listener(client, &client_destruction_listener.listener);
+
+  client_thread.task_runner()->PostTask(
+      FROM_HERE, base::BindLambdaForTesting(
+                     [&]() { wl_display_disconnect(client_display); }));
+
+  while (!client_destruction_listener.notified) {
+    server->Dispatch(base::Milliseconds(10));
+  }
 }
 
 TEST_F(ServerTest, Flush) {
-  std::unique_ptr<Display> display(new Display);
-  std::unique_ptr<Server> server(
-      new Server(display.get(), Capabilities::GetDefaultCapabilities()));
-  server->Initialize();
-
-  bool rv = server->AddSocket(GetUniqueSocketName());
+  auto server = CreateServer();
+  bool rv = server->Open();
   EXPECT_TRUE(rv);
 
   // Just call Flush to check that it doesn't have any bad side-effects.
   server->Flush();
 }
 
-}  // namespace
-}  // namespace wayland
-}  // namespace exo
+}  // namespace exo::wayland

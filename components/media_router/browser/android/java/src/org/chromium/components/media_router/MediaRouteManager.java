@@ -1,4 +1,4 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -76,4 +76,11 @@ public interface MediaRouteManager {
      * @param message The message contents.
      */
     public void onMessage(String mediaRouteId, String message);
+
+    /**
+     * Called when a specified media route updates its media source.
+     * @param mediaRouteId The identifier of the media route.
+     * @param mediaSourceId The media source id.
+     */
+    public void onRouteMediaSourceUpdated(String mediaRouteId, String mediaSourceId);
 }

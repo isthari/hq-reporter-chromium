@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,14 +45,14 @@ public class PlayerFrameCoordinator {
             @Nullable OverscrollHandler overscrollHandler, PlayerGestureListener gestureHandler,
             @Nullable Runnable firstPaintListener,
             @Nullable Supplier<Boolean> isAccessibilityEnabled,
-            @Nullable Runnable initialViewportSizeAvailable, boolean shouldCompressBitmaps) {
+            @Nullable Runnable initialViewportSizeAvailable) {
         PropertyModel model = new PropertyModel.Builder(PlayerFrameProperties.ALL_KEYS).build();
         OverScroller scroller = new OverScroller(context);
         scroller.setFriction(ViewConfiguration.getScrollFriction() / 2);
 
         mMediator = new PlayerFrameMediator(model, compositorDelegate, gestureHandler, frameGuid,
                 new Size(contentWidth, contentHeight), initialScrollX, initialScrollY,
-                initialScaleFactor, initialViewportSizeAvailable, shouldCompressBitmaps);
+                initialScaleFactor, initialViewportSizeAvailable);
 
         if (canDetectZoom) {
             mScaleController =
@@ -64,8 +64,9 @@ public class PlayerFrameCoordinator {
         PlayerFrameGestureDetectorDelegate gestureDelegate = new PlayerFrameGestureDetectorDelegate(
                 mScaleController, mScrollController, mMediator);
 
-        mView = PlayerFrameView.create(
+        mView = new PlayerFrameView(
                 context, canDetectZoom, mMediator, gestureDelegate, firstPaintListener);
+
         if (overscrollHandler != null) {
             mScrollController.setOverscrollHandler(overscrollHandler);
         }

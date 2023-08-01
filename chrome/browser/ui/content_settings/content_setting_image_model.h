@@ -1,4 +1,4 @@
-// Copyright (c) 2011 The Chromium Authors. All rights reserved.
+// Copyright 2011 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -56,7 +56,7 @@ class ContentSettingImageModel {
   ContentSettingImageModel(const ContentSettingImageModel&) = delete;
   ContentSettingImageModel& operator=(const ContentSettingImageModel&) = delete;
 
-  virtual ~ContentSettingImageModel() {}
+  virtual ~ContentSettingImageModel() = default;
 
   // Generates a vector of all image models to be used within one window.
   static std::vector<std::unique_ptr<ContentSettingImageModel>>
@@ -119,6 +119,8 @@ class ContentSettingImageModel {
   virtual void SetPromoWasShown(content::WebContents* contents);
 
   bool IsMacRestoreLocationPermissionExperimentActive();
+
+  const gfx::VectorIcon* get_icon_for_testing() const { return icon_; }
 
  protected:
   // Note: image_type_should_notify_accessibility by itself does not guarantee

@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -36,9 +36,6 @@
 #include "ui/views/widget/widget.h"
 #endif
 
-using WebExposedIsolationLevel =
-    content::RenderFrameHost::WebExposedIsolationLevel;
-
 constexpr int WebAppMenuModel::kUninstallAppCommandId;
 constexpr int WebAppMenuModel::kExtensionsMenuCommandId;
 
@@ -46,7 +43,7 @@ WebAppMenuModel::WebAppMenuModel(ui::AcceleratorProvider* provider,
                                  Browser* browser)
     : AppMenuModel(provider, browser) {}
 
-WebAppMenuModel::~WebAppMenuModel() {}
+WebAppMenuModel::~WebAppMenuModel() = default;
 
 bool WebAppMenuModel::IsCommandIdEnabled(int command_id) const {
   switch (command_id) {
@@ -96,13 +93,32 @@ void WebAppMenuModel::ExecuteCommand(int command_id, int event_flags) {
 void WebAppMenuModel::Build() {
   AddItemWithStringId(IDC_WEB_APP_MENU_APP_INFO,
                       IDS_APP_CONTEXT_MENU_SHOW_INFO);
-  int app_info_index = GetItemCount() - 1;
+  size_t app_info_index = GetItemCount() - 1;
+
+  CHECK(browser());
   content::WebContents* web_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
+
+  bool is_isolated_web_app = browser()->app_controller() &&
+                             browser()->app_controller()->IsIsolatedWebApp();
+
   if (web_contents) {
-    SetMinorText(app_info_index, web_app::AppBrowserController::FormatUrlOrigin(
-                                     web_contents->GetVisibleURL()));
+    std::u16string display_text =
+        web_app::AppBrowserController::FormatUrlOrigin(
+            web_contents->GetVisibleURL());
+
+    // For Isolated Web Apps the origin's host name is a non-human-readable
+    // string of characters, so instead of displaying the origin, the short name
+    // of the app will be displayed.
+    if (is_isolated_web_app) {
+      std::u16string short_name =
+          browser()->app_controller()->GetAppShortName();
+      // For Isolated Web Apps, |GetAppShortName()| must be non-empty.
+      display_text = short_name;
+    }
+    SetMinorText(app_info_index, display_text);
   }
+
   SetMinorIcon(app_info_index,
                ui::ImageModel::FromVectorIcon(
                    browser()->location_bar_model()->GetVectorIcon()));
@@ -113,12 +129,8 @@ void WebAppMenuModel::Build() {
     AddItemWithStringId(kExtensionsMenuCommandId, IDS_SHOW_EXTENSIONS);
   AddItemWithStringId(IDC_COPY_URL, IDS_COPY_URL);
 
-  // Isolated apps shouldn't be opened in Chrome.
-  bool is_isolated_app =
-      web_contents &&
-      web_contents->GetMainFrame()->GetWebExposedIsolationLevel() >=
-          WebExposedIsolationLevel::kMaybeIsolatedApplication;
-  if (!is_isolated_app)
+  // Isolated Web Apps shouldn't be opened in Chrome.
+  if (!is_isolated_web_app)
     AddItemWithStringId(IDC_OPEN_IN_CHROME, IDS_OPEN_IN_CHROME);
 
 #if BUILDFLAG(IS_CHROMEOS_ASH)
@@ -158,10 +170,4 @@ void WebAppMenuModel::Build() {
     AddItemWithStringId(IDC_ROUTE_MEDIA, IDS_MEDIA_ROUTER_MENU_ITEM_TITLE);
   AddSeparator(ui::LOWER_SEPARATOR);
   CreateCutCopyPasteMenu();
-}
-
-void WebAppMenuModel::LogMenuAction(AppMenuAction action_id) {
-  AppMenuModel::LogMenuAction(action_id);
-  UMA_HISTOGRAM_ENUMERATION("HostedAppFrame.WrenchMenu.MenuAction", action_id,
-                            LIMIT_MENU_ACTION);
 }

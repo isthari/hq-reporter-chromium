@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "components/password_manager/core/browser/leak_detection/leak_detection_check_factory.h"
 #include "components/password_manager/core/browser/leak_detection/leak_detection_delegate_interface.h"
 #include "components/password_manager/core/browser/leak_detection_dialog_utils.h"
+#include "components/password_manager/core/browser/password_form.h"
 
 class PrefService;
 
@@ -20,6 +21,7 @@ namespace password_manager {
 
 class LeakDetectionCheck;
 class LeakDetectionDelegateHelper;
+enum class LeakDetectionInitiator;
 class PasswordManagerClient;
 struct PasswordForm;
 
@@ -43,7 +45,8 @@ class LeakDetectionDelegate : public LeakDetectionDelegateInterface {
   LeakDetectionCheck* leak_check() const { return leak_check_.get(); }
 #endif  // defined(UNIT_TEST)
 
-  void StartLeakCheck(const PasswordForm& form);
+  void StartLeakCheck(LeakDetectionInitiator initiator,
+                      const PasswordForm& credentials);
 
  private:
   // LeakDetectionDelegateInterface:
@@ -53,14 +56,12 @@ class LeakDetectionDelegate : public LeakDetectionDelegateInterface {
                            std::u16string password) override;
 
   // Initiates the showing of the leak detection notification. It is called by
-  // |helper_| after |is_saved|, |is_reused|, and |has_change_script| were
-  // asynchronously determined.
-  // |all_urls_with_leaked_credentials| contains all the URLs on which the
-  // leaked username/password pair is used.
+  // `helper_` after `in_stores` and `is_reused`
+  // were determined asynchronously. `all_urls_with_leaked_credentials` contains
+  // all the URLs on which the leaked username/password pair is used.
   void OnShowLeakDetectionNotification(
-      IsSaved is_saved,
+      PasswordForm::Store in_stores,
       IsReused is_reused,
-      HasChangeScript has_change_script,
       GURL url,
       std::u16string username,
       std::vector<GURL> all_urls_with_leaked_credentials);
@@ -78,15 +79,15 @@ class LeakDetectionDelegate : public LeakDetectionDelegateInterface {
   // OnLeakDetectionDone() with is_leaked = true.
   std::unique_ptr<base::ElapsedTimer> is_leaked_timer_;
 
-  // Helper class to asynchronously determine |CredentialLeakType| for leaked
+  // Helper class to asynchronously determine `CredentialLeakType` for leaked
   // credentials.
   std::unique_ptr<LeakDetectionDelegateHelper> helper_;
 };
 
-// Determines whether the leak check can be started depending on |prefs|. Will
-// use |client| for logging if non-null.
+// Determines whether the leak check can be started depending on `prefs`. Will
+// use `client` for logging if non-null.
 bool CanStartLeakCheck(const PrefService& prefs,
-                       const PasswordManagerClient* client = nullptr);
+                       PasswordManagerClient* client = nullptr);
 
 }  // namespace password_manager
 

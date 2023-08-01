@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -43,13 +43,13 @@ void RecordBubbleHistogramValue(StoragePressureBubbleHistogramValue value) {
 namespace chrome {
 
 // static
-void ShowStoragePressureBubble(const url::Origin origin) {
-  StoragePressureBubbleView::ShowBubble(std::move(origin));
+void ShowStoragePressureBubble(const url::Origin& origin) {
+  StoragePressureBubbleView::ShowBubble(origin);
 }
 
 }  // namespace chrome
 
-void StoragePressureBubbleView::ShowBubble(const url::Origin origin) {
+void StoragePressureBubbleView::ShowBubble(const url::Origin& origin) {
   Browser* browser = BrowserList::GetInstance()->GetLastActive();
   if (!browser)
     return;
@@ -58,19 +58,18 @@ void StoragePressureBubbleView::ShowBubble(const url::Origin origin) {
       BrowserView::GetBrowserViewForBrowser(browser)
           ->toolbar_button_provider()
           ->GetAppMenuButton(),
-      browser, std::move(origin));
+      browser, origin);
   views::BubbleDialogDelegateView::CreateBubble(bubble)->Show();
 
   RecordBubbleHistogramValue(StoragePressureBubbleHistogramValue::kShown);
 }
 
-StoragePressureBubbleView::StoragePressureBubbleView(
-    views::View* anchor_view,
-    Browser* browser,
-    const url::Origin origin)
+StoragePressureBubbleView::StoragePressureBubbleView(views::View* anchor_view,
+                                                     Browser* browser,
+                                                     const url::Origin& origin)
     : BubbleDialogDelegateView(anchor_view, views::BubbleBorder::TOP_RIGHT),
       browser_(browser),
-      origin_(std::move(origin)),
+      origin_(origin),
       ignored_(true) {
   SetButtons(ui::DIALOG_BUTTON_OK);
   SetTitle(IDS_SETTINGS_STORAGE_PRESSURE_BUBBLE_VIEW_TITLE);
@@ -115,7 +114,7 @@ void StoragePressureBubbleView::Init() {
           url_formatter::kFormatUrlOmitTrivialSubdomains |
           url_formatter::kFormatUrlOmitHTTPS |
           url_formatter::kFormatUrlOmitTrailingSlashOnBareHostname,
-      net::UnescapeRule::NONE, nullptr, nullptr, nullptr);
+      base::UnescapeRule::NONE, nullptr, nullptr, nullptr);
   auto text_label = std::make_unique<views::Label>(l10n_util::GetStringFUTF16(
       IDS_SETTINGS_STORAGE_PRESSURE_BUBBLE_VIEW_MESSAGE, origin_string));
   text_label->SetMultiLine(true);

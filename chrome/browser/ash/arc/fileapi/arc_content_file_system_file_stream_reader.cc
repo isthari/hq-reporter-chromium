@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,14 +9,12 @@
 
 #include <utility>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/files/file.h"
-#include "base/task/post_task.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/task/thread_pool.h"
 #include "base/threading/scoped_blocking_call.h"
 #include "chrome/browser/ash/arc/fileapi/arc_content_file_system_size_util.h"
-#include "chrome/browser/ash/arc/fileapi/arc_file_system_operation_runner_util.h"
 #include "content/public/browser/browser_thread.h"
 #include "mojo/public/cpp/platform/platform_handle.h"
 #include "mojo/public/cpp/system/platform_handle.h"
@@ -61,6 +59,7 @@ ArcContentFileSystemFileStreamReader::ArcContentFileSystemFileStreamReader(
 }
 
 ArcContentFileSystemFileStreamReader::~ArcContentFileSystemFileStreamReader() {
+  CloseInternal(CloseStatus::kStatusOk);
   // Use the task runner to destruct |file_| after the completion of all
   // in-flight operations.
   task_runner_->PostTask(
@@ -77,9 +76,9 @@ int ArcContentFileSystemFileStreamReader::Read(
     ReadInternal(buffer, buffer_length, std::move(callback));
     return net::ERR_IO_PENDING;
   }
-  file_system_operation_runner_util::OpenFileToReadOnIOThread(
+  file_system_operation_runner_util::OpenFileSessionToReadOnIOThread(
       arc_url_,
-      base::BindOnce(&ArcContentFileSystemFileStreamReader::OnOpenFile,
+      base::BindOnce(&ArcContentFileSystemFileStreamReader::OnOpenFileSession,
                      weak_ptr_factory_.GetWeakPtr(),
                      base::WrapRefCounted(buffer), buffer_length,
                      std::move(callback)));
@@ -96,6 +95,16 @@ int64_t ArcContentFileSystemFileStreamReader::GetLength(
   return net::ERR_IO_PENDING;
 }
 
+void ArcContentFileSystemFileStreamReader::CloseInternal(
+    const CloseStatus status) {
+  // Don't propagate the success status if there was a prior error.
+  if (!session_id_.empty()) {
+    file_system_operation_runner_util::CloseFileSession(session_id_, status);
+    // Clear the session to guarantee only one close per session.
+    session_id_.clear();
+  }
+}
+
 void ArcContentFileSystemFileStreamReader::ReadInternal(
     net::IOBuffer* buffer,
     int buffer_length,
@@ -103,8 +112,11 @@ void ArcContentFileSystemFileStreamReader::ReadInternal(
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   DCHECK(file_);
   DCHECK(file_->IsValid());
-  base::PostTaskAndReplyWithResult(
-      task_runner_.get(), FROM_HERE,
+
+  // |file_| is alive on ReadFile(), since the destructor will destruct
+  // |task_runner_| along with |file_| and ReadFile() won't be called.
+  task_runner_->PostTaskAndReplyWithResult(
+      FROM_HERE,
       base::BindOnce(&ReadFile, file_.get(), base::WrapRefCounted(buffer),
                      buffer_length),
       base::BindOnce(&ArcContentFileSystemFileStreamReader::OnRead,
@@ -115,6 +127,8 @@ void ArcContentFileSystemFileStreamReader::OnRead(
     net::CompletionOnceCallback callback,
     int result) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
+  if (result < 0)
+    CloseInternal(CloseStatus::kStatusError);
   std::move(callback).Run(result < 0 ? net::ERR_FAILED : result);
 }
 
@@ -127,34 +141,49 @@ void ArcContentFileSystemFileStreamReader::OnGetFileSize(
         arc_url_,
         base::BindOnce(&OnGetSizeFromFileHandle, std::move(callback)));
   } else {
+    if (size < 0) {
+      CloseInternal(CloseStatus::kStatusError);
+    }
     std::move(callback).Run(size < 0 ? net::ERR_FAILED : size);
   }
 }
 
-void ArcContentFileSystemFileStreamReader::OnOpenFile(
+void ArcContentFileSystemFileStreamReader::OnOpenFileSession(
     scoped_refptr<net::IOBuffer> buf,
     int buffer_length,
     net::CompletionOnceCallback callback,
-    mojo::ScopedHandle handle) {
+    mojom::FileSessionPtr file_handle) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   DCHECK(!file_);
+  DCHECK(session_id_.empty());
 
+  if (file_handle.is_null() || file_handle->url_id.empty()) {
+    // The file_handle and its url_id are required from the file system.
+    std::move(callback).Run(net::ERR_INVALID_ARGUMENT);
+    return;
+  }
+
+  session_id_ = std::move(file_handle->url_id);
+  DCHECK(session_id_.length() > 0);
   mojo::PlatformHandle platform_handle =
-      mojo::UnwrapPlatformHandle(std::move(handle));
+      mojo::UnwrapPlatformHandle(std::move(file_handle->fd));
   if (!platform_handle.is_valid()) {
     LOG(ERROR) << "PassWrappedInternalPlatformHandle failed";
-    std::move(callback).Run(net::ERR_FAILED);
+    CloseInternal(CloseStatus::kStatusError);
+    std::move(callback).Run(net::ERR_INVALID_HANDLE);
     return;
   }
   file_ = std::make_unique<base::File>(platform_handle.ReleaseFD());
   if (!file_->IsValid()) {
     LOG(ERROR) << "Invalid file.";
+    CloseInternal(CloseStatus::kStatusError);
     std::move(callback).Run(net::ERR_FAILED);
     return;
   }
-  base::PostTaskAndReplyWithResult(
-      task_runner_.get(), FROM_HERE,
-      base::BindOnce(&SeekFile, file_.get(), offset_),
+  // |file_| is alive on SeekFile(), since the destructor will destruct
+  // |task_runner_| along with |file_| and SeekFile() won't be called.
+  task_runner_->PostTaskAndReplyWithResult(
+      FROM_HERE, base::BindOnce(&SeekFile, file_.get(), offset_),
       base::BindOnce(&ArcContentFileSystemFileStreamReader::OnSeekFile,
                      weak_ptr_factory_.GetWeakPtr(), buf, buffer_length,
                      std::move(callback)));
@@ -184,6 +213,7 @@ void ArcContentFileSystemFileStreamReader::OnSeekFile(
     }
     default:
       LOG(ERROR) << "Failed to seek: " << seek_result;
+      CloseInternal(CloseStatus::kStatusError);
       std::move(callback).Run(net::FileErrorToNetError(
           base::File::OSErrorToFileError(seek_result)));
   }
@@ -206,8 +236,8 @@ void ArcContentFileSystemFileStreamReader::ConsumeFileContents(
   auto num_bytes_to_read = std::min(
       static_cast<int64_t>(temporary_buffer->size()), num_bytes_to_consume);
   // TODO(hashimoto): This may block the worker thread forever. crbug.com/673222
-  base::PostTaskAndReplyWithResult(
-      task_runner_.get(), FROM_HERE,
+  task_runner_->PostTaskAndReplyWithResult(
+      FROM_HERE,
       base::BindOnce(&ReadFile, file_.get(), temporary_buffer,
                      num_bytes_to_read),
       base::BindOnce(
@@ -226,6 +256,7 @@ void ArcContentFileSystemFileStreamReader::OnConsumeFileContents(
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   if (read_result < 0) {
     LOG(ERROR) << "Failed to consume the file stream.";
+    CloseInternal(CloseStatus::kStatusError);
     std::move(callback).Run(net::ERR_FAILED);
     return;
   }

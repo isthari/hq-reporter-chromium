@@ -1,19 +1,22 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_CANVAS_CANVAS2D_CANVAS_RENDERING_CONTEXT_2D_STATE_H_
 #define THIRD_PARTY_BLINK_RENDERER_MODULES_CANVAS_CANVAS2D_CANVAS_RENDERING_CONTEXT_2D_STATE_H_
 
+#include "base/types/pass_key.h"
 #include "cc/paint/paint_flags.h"
 #include "third_party/blink/renderer/core/css/css_primitive_value.h"
 #include "third_party/blink/renderer/core/css/css_value.h"
+#include "third_party/blink/renderer/modules/canvas/canvas2d/canvas_style.h"
 #include "third_party/blink/renderer/modules/canvas/canvas2d/clip_list.h"
+#include "third_party/blink/renderer/modules/modules_export.h"
 #include "third_party/blink/renderer/platform/fonts/font.h"
 #include "third_party/blink/renderer/platform/fonts/font_selector_client.h"
 #include "third_party/blink/renderer/platform/graphics/color.h"
 #include "third_party/blink/renderer/platform/graphics/paint/paint_filter.h"
-#include "third_party/blink/renderer/platform/transforms/transformation_matrix.h"
+#include "third_party/blink/renderer/platform/transforms/affine_transform.h"
 #include "third_party/blink/renderer/platform/wtf/math_extras.h"
 #include "third_party/blink/renderer/platform/wtf/vector.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
@@ -23,7 +26,8 @@ namespace blink {
 class BaseRenderingContext2D;
 class CanvasRenderingContext2D;
 class CanvasFilter;
-class CanvasStyle;
+class CanvasGradient;
+class CanvasPattern;
 class CSSValue;
 class Element;
 
@@ -33,7 +37,7 @@ enum ShadowMode {
   kDrawForegroundOnly
 };
 
-class CanvasRenderingContext2DState final
+class MODULES_EXPORT CanvasRenderingContext2DState final
     : public GarbageCollected<CanvasRenderingContext2DState>,
       public FontSelectorClient {
  public:
@@ -45,8 +49,8 @@ class CanvasRenderingContext2DState final
   // 'states', we use the kExtraState for that.
   enum class SaveType {
     kSaveRestore,
-    kBeginEndLayer,
-    kInternalLayer,
+    kBeginEndLayerOneSave,
+    kBeginEndLayerTwoSaves,
     kInitial
   };
 
@@ -83,10 +87,9 @@ class CanvasRenderingContext2DState final
   void SetLineDashOffset(double);
   double LineDashOffset() const { return line_dash_offset_; }
 
-  void SetTransform(const TransformationMatrix&);
+  void SetTransform(const AffineTransform&);
   void ResetTransform();
-  TransformationMatrix GetTransform() const { return transform_; }
-  AffineTransform GetAffineTransform() const;
+  AffineTransform GetTransform() const { return transform_; }
   bool IsTransformInvertible() const { return is_transform_invertible_; }
 
   void ClipPath(const SkPath&, AntiAliasingMode);
@@ -100,6 +103,7 @@ class CanvasRenderingContext2DState final
   }
 
   void SetFont(const FontDescription&, FontSelector*);
+  bool IsFontDirtyForFilter() const;
   const Font& GetFont() const;
   const FontDescription& GetFontDescription() const;
   inline bool HasRealizedFont() const { return realized_font_; }
@@ -130,22 +134,60 @@ class CanvasRenderingContext2DState final
   void ClearResolvedFilter();
   void ValidateFilterState() const;
 
-  void SetStrokeStyle(CanvasStyle*);
-  CanvasStyle* StrokeStyle() const { return stroke_style_.Get(); }
+  void SetLayerFilter(sk_sp<PaintFilter> filter) {
+    layer_filter_ = std::move(filter);
+  }
+  sk_sp<PaintFilter> GetLayerFilter() const { return layer_filter_; }
+  bool HasLayerFilter() const { return layer_filter_ != nullptr; }
 
-  void SetFillStyle(CanvasStyle*);
-  CanvasStyle* FillStyle() const { return fill_style_.Get(); }
+  void SetStrokeColor(Color color) {
+    if (stroke_style_.SetColor(color)) {
+      stroke_style_.ApplyColorToFlags(stroke_flags_, global_alpha_);
+    }
+  }
+  void SetStrokePattern(CanvasPattern* pattern) {
+    stroke_style_.SetPattern(pattern);
+  }
+  void SetStrokeGradient(CanvasGradient* gradient) {
+    stroke_style_.SetGradient(gradient);
+  }
+  const CanvasStyle& StrokeStyle() const { return stroke_style_; }
+
+  void SetFillColor(Color color) {
+    if (fill_style_.SetColor(color)) {
+      fill_style_.ApplyColorToFlags(fill_flags_, global_alpha_);
+    }
+  }
+  void SetFillPattern(CanvasPattern* pattern) {
+    fill_style_.SetPattern(pattern);
+  }
+  void SetFillGradient(CanvasGradient* gradient) {
+    fill_style_.SetGradient(gradient);
+  }
+  const CanvasStyle& FillStyle() const { return fill_style_; }
 
   // Prefer to use Style() over StrokeStyle() and FillStyle()
   // if properties of CanvasStyle are concerned
-  CanvasStyle* Style(PaintType) const;
+  const CanvasStyle& Style(PaintType type) const {
+    // Using DCHECK below because this is a critical hotspot.
+    DCHECK(type != kImagePaintType);
+    return type == kStrokePaintType ? stroke_style_ : fill_style_;
+  }
 
   // Check the pattern in StrokeStyle or FillStyle depending on the PaintType
-  bool HasPattern(PaintType) const;
+  bool HasPattern(PaintType type) const {
+    CanvasPattern* pattern = Style(type).GetCanvasPattern();
+    return pattern != nullptr && pattern->GetPattern() != nullptr;
+  }
 
   // Only to be used if the CanvasRenderingContext2DState has Pattern
   // Pattern is in either StrokeStyle or FillStyle depending on the PaintType
-  bool PatternIsAccelerated(PaintType) const;
+  bool PatternIsAccelerated(PaintType type) const {
+    // Using DCHECK here because condition is somewhat tautological and
+    // provides little added value to Release builds
+    DCHECK(HasPattern(type));
+    return Style(type).GetCanvasPattern()->GetPattern()->IsTextureBacked();
+  }
 
   enum Direction { kDirectionInherit, kDirectionRTL, kDirectionLTR };
 
@@ -212,8 +254,8 @@ class CanvasRenderingContext2DState final
   void SetShadowBlur(double);
   double ShadowBlur() const { return shadow_blur_; }
 
-  void SetShadowColor(SkColor);
-  SkColor ShadowColor() const { return shadow_color_; }
+  void SetShadowColor(Color);
+  Color ShadowColor() const { return shadow_color_; }
 
   void SetGlobalAlpha(double);
   double GlobalAlpha() const { return global_alpha_; }
@@ -245,13 +287,15 @@ class CanvasRenderingContext2DState final
                                  ImageType = kNoImage) const;
 
   SaveType GetSaveType() const { return save_type_; }
+  bool IsLayerSaveType() const {
+    return save_type_ == SaveType::kBeginEndLayerOneSave ||
+           save_type_ == SaveType::kBeginEndLayerTwoSaves;
+  }
 
   sk_sp<PaintFilter>& ShadowAndForegroundImageFilter() const;
 
  private:
   void UpdateLineDash() const;
-  void UpdateStrokeStyle() const;
-  void UpdateFillStyle() const;
   void UpdateFilterQuality() const;
   void UpdateFilterQuality(cc::PaintFlags::FilterQuality) const;
   void ShadowParameterChanged();
@@ -262,8 +306,8 @@ class CanvasRenderingContext2DState final
 
   String unparsed_stroke_color_;
   String unparsed_fill_color_;
-  Member<CanvasStyle> stroke_style_;
-  Member<CanvasStyle> fill_style_;
+  CanvasStyle stroke_style_;
+  CanvasStyle fill_style_;
 
   mutable cc::PaintFlags stroke_flags_;
   mutable cc::PaintFlags fill_flags_;
@@ -271,7 +315,7 @@ class CanvasRenderingContext2DState final
 
   gfx::Vector2dF shadow_offset_;
   double shadow_blur_;
-  SkColor shadow_color_;
+  Color shadow_color_;
   mutable sk_sp<SkDrawLooper> empty_draw_looper_;
   mutable sk_sp<SkDrawLooper> shadow_only_draw_looper_;
   mutable sk_sp<SkDrawLooper> shadow_and_foreground_draw_looper_;
@@ -279,7 +323,7 @@ class CanvasRenderingContext2DState final
   mutable sk_sp<PaintFilter> shadow_and_foreground_image_filter_;
 
   double global_alpha_;
-  TransformationMatrix transform_;
+  AffineTransform transform_;
   Vector<double> line_dash_;
   double line_dash_offset_;
 
@@ -298,6 +342,7 @@ class CanvasRenderingContext2DState final
   String unparsed_css_filter_;
   Member<const CSSValue> css_filter_value_;
   sk_sp<PaintFilter> resolved_filter_;
+  sk_sp<PaintFilter> layer_filter_;
 
   // Text state.
   TextAlign text_align_;
@@ -322,8 +367,8 @@ class CanvasRenderingContext2DState final
   bool is_transform_invertible_ : 1;
   bool has_clip_ : 1;
   bool has_complex_clip_ : 1;
-  mutable bool fill_style_dirty_ : 1;
-  mutable bool stroke_style_dirty_ : 1;
+  bool letter_spacing_is_set_ : 1;
+  bool word_spacing_is_set_ : 1;
   mutable bool line_dash_dirty_ : 1;
 
   bool image_smoothing_enabled_;
@@ -335,7 +380,7 @@ class CanvasRenderingContext2DState final
 };
 
 ALWAYS_INLINE bool CanvasRenderingContext2DState::ShouldDrawShadows() const {
-  return AlphaChannel(shadow_color_) &&
+  return (!shadow_color_.IsFullyTransparent()) &&
          (shadow_blur_ || !shadow_offset_.IsZero());
 }
 

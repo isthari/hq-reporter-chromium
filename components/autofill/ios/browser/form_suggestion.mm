@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,31 +11,54 @@
 @implementation FormSuggestion
 
 - (instancetype)initWithValue:(NSString*)value
-           displayDescription:(NSString*)displayDescription
-                         icon:(NSString*)icon
-                   identifier:(NSInteger)identifier
-               requiresReauth:(BOOL)requiresReauth {
+            displayDescription:(NSString*)displayDescription
+                          icon:(UIImage*)icon
+                    identifier:(NSInteger)identifier
+             backendIdentifier:(NSString*)backendIdentifier
+                requiresReauth:(BOOL)requiresReauth
+    acceptanceA11yAnnouncement:(NSString*)acceptanceA11yAnnouncement {
   self = [super init];
   if (self) {
     _value = [value copy];
     _displayDescription = [displayDescription copy];
     _icon = [icon copy];
     _identifier = identifier;
+    _backendIdentifier = backendIdentifier;
     _requiresReauth = requiresReauth;
+    _acceptanceA11yAnnouncement = [acceptanceA11yAnnouncement copy];
   }
   return self;
 }
 
 + (FormSuggestion*)suggestionWithValue:(NSString*)value
                     displayDescription:(NSString*)displayDescription
-                                  icon:(NSString*)icon
+                                  icon:(UIImage*)icon
                             identifier:(NSInteger)identifier
+                     backendIdentifier:(NSString*)backendIdentifier
+                        requiresReauth:(BOOL)requiresReauth
+            acceptanceA11yAnnouncement:(NSString*)acceptanceA11yAnnouncement {
+  return [[FormSuggestion alloc] initWithValue:value
+                            displayDescription:displayDescription
+                                          icon:icon
+                                    identifier:identifier
+                             backendIdentifier:backendIdentifier
+                                requiresReauth:requiresReauth
+                    acceptanceA11yAnnouncement:acceptanceA11yAnnouncement];
+}
+
++ (FormSuggestion*)suggestionWithValue:(NSString*)value
+                    displayDescription:(NSString*)displayDescription
+                                  icon:(UIImage*)icon
+                            identifier:(NSInteger)identifier
+                     backendIdentifier:(NSString*)backendIdentifier
                         requiresReauth:(BOOL)requiresReauth {
   return [[FormSuggestion alloc] initWithValue:value
                             displayDescription:displayDescription
                                           icon:icon
                                     identifier:identifier
-                                requiresReauth:requiresReauth];
+                             backendIdentifier:backendIdentifier
+                                requiresReauth:requiresReauth
+                    acceptanceA11yAnnouncement:nil];
 }
 
 @end

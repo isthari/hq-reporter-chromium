@@ -1,10 +1,11 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.net;
 
-import static org.junit.Assert.assertEquals;
+import static com.google.common.truth.Truth.assertThat;
+
 import static org.junit.Assert.fail;
 
 import static org.chromium.net.CronetProvider.PROVIDER_NAME_APP_PACKAGED;
@@ -12,15 +13,15 @@ import static org.chromium.net.CronetProvider.PROVIDER_NAME_FALLBACK;
 import static org.chromium.net.CronetTestRule.getContext;
 
 import android.content.Context;
-import android.support.test.runner.AndroidJUnit4;
 
+import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.filters.SmallTest;
+
+import com.google.common.truth.Correspondence;
 
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-
-import org.chromium.base.test.util.Feature;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -39,7 +40,6 @@ public class CronetEngineBuilderTest {
      */
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     @CronetTestRule.OnlyRunNativeCronet
     public void testVersionComparison() {
         assertVersionIsHigher("22.44", "22.43.12");
@@ -59,7 +59,6 @@ public class CronetEngineBuilderTest {
      */
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     public void testProviderOrdering() {
         final CronetProvider[] availableProviders = new CronetProvider[] {
                 new FakeProvider(getContext(), PROVIDER_NAME_APP_PACKAGED, "99.77", true),
@@ -72,9 +71,10 @@ public class CronetEngineBuilderTest {
                 CronetEngine.Builder.getEnabledCronetProviders(getContext(), providers);
 
         // Check the result
-        assertEquals(availableProviders[2], orderedProviders.get(0));
-        assertEquals(availableProviders[0], orderedProviders.get(1));
-        assertEquals(availableProviders[1], orderedProviders.get(2));
+        assertThat(orderedProviders)
+                .containsExactly(
+                        availableProviders[2], availableProviders[0], availableProviders[1])
+                .inOrder();
     }
 
     /**
@@ -83,7 +83,6 @@ public class CronetEngineBuilderTest {
      */
     @Test
     @SmallTest
-    @Feature({"Cronet"})
     public void testThatDisabledProvidersAreExcluded() {
         final CronetProvider[] availableProviders = new CronetProvider[] {
                 new FakeProvider(getContext(), PROVIDER_NAME_FALLBACK, "99.99", true),
@@ -95,21 +94,25 @@ public class CronetEngineBuilderTest {
         List<CronetProvider> orderedProviders =
                 CronetEngine.Builder.getEnabledCronetProviders(getContext(), providers);
 
-        assertEquals("Unexpected number of providers in the list", 2, orderedProviders.size());
-        assertEquals(PROVIDER_NAME_APP_PACKAGED, orderedProviders.get(0).getName());
-        assertEquals(PROVIDER_NAME_FALLBACK, orderedProviders.get(1).getName());
+        Correspondence<CronetProvider, String> providerName = Correspondence.transforming(
+                provider -> provider.getName(), "The name of the provider");
+
+        assertThat(orderedProviders)
+                .comparingElementsUsing(providerName)
+                .containsExactly(PROVIDER_NAME_APP_PACKAGED, PROVIDER_NAME_FALLBACK)
+                .inOrder();
     }
 
     private void assertVersionIsHigher(String s1, String s2) {
-        assertEquals(1, CronetEngine.Builder.compareVersions(s1, s2));
+        assertThat(CronetEngine.Builder.compareVersions(s1, s2)).isEqualTo(1);
     }
 
     private void assertVersionIsLower(String s1, String s2) {
-        assertEquals(-1, CronetEngine.Builder.compareVersions(s1, s2));
+        assertThat(CronetEngine.Builder.compareVersions(s1, s2)).isEqualTo(-1);
     }
 
     private void assertVersionIsEqual(String s1, String s2) {
-        assertEquals(0, CronetEngine.Builder.compareVersions(s1, s2));
+        assertThat(CronetEngine.Builder.compareVersions(s1, s2)).isEqualTo(0);
     }
 
     private void assertIllegalArgumentException(String s1, String s2) {

@@ -1,12 +1,15 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "ash/constants/ash_features.h"
 #include "ash/constants/ash_pref_names.h"
 #include "ash/constants/ash_switches.h"
 #include "ash/public/cpp/ash_view_ids.h"
 #include "ash/public/cpp/system_tray_test_api.h"
-#include "base/callback.h"
+#include "ash/system/accessibility/accessibility_detailed_view.h"
+#include "ash/system/tray/tray_detailed_view.h"
+#include "base/functional/callback.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
@@ -14,6 +17,7 @@
 #include "chrome/browser/ash/accessibility/magnification_manager.h"
 #include "chrome/browser/ash/login/helper.h"
 #include "chrome/browser/ash/login/startup_utils.h"
+#include "chrome/browser/ash/login/test/oobe_screens_utils.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/profiles/profile.h"
@@ -40,8 +44,8 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/widget/widget.h"
 
-using testing::Return;
 using testing::_;
+using testing::Return;
 using testing::WithParamInterface;
 
 namespace ash {
@@ -79,8 +83,9 @@ void EnableSelectToSpeak(bool enabled) {
 
 void EnableDictation(bool enabled) {
   bool already_enabled = AccessibilityManager::Get()->IsDictationEnabled();
-  if (enabled == already_enabled)
+  if (enabled == already_enabled) {
     return;
+  }
   AccessibilityManager::Get()->ToggleDictation();
   base::RunLoop().RunUntilIdle();
 }
@@ -144,9 +149,8 @@ void EnableStickyKeys(bool enabled) {
 
 // Uses InProcessBrowserTest instead of OobeBaseTest because most of the tests
 // don't need to test the login screen.
-class TrayAccessibilityTest
-    : public InProcessBrowserTest,
-      public WithParamInterface<PrefSettingMechanism> {
+class TrayAccessibilityTest : public InProcessBrowserTest,
+                              public WithParamInterface<PrefSettingMechanism> {
  public:
   TrayAccessibilityTest()
       : disable_animations_(
@@ -193,7 +197,10 @@ class TrayAccessibilityTest
 
   bool IsMenuButtonVisible() {
     bool visible = tray_test_api_->IsBubbleViewVisible(
-        ash::VIEW_ID_ACCESSIBILITY_TRAY_ITEM, true /* open_tray */);
+        base::FeatureList::IsEnabled(ash::features::kQsRevamp)
+            ? ash::VIEW_ID_ACCESSIBILITY_FEATURE_TILE
+            : ash::VIEW_ID_ACCESSIBILITY_TRAY_ITEM,
+        true /* open_tray */);
     tray_test_api_->CloseBubble();
     return visible;
   }
@@ -203,11 +210,20 @@ class TrayAccessibilityTest
   bool IsBubbleOpen() { return tray_test_api_->IsTrayBubbleOpen(); }
 
   void ClickVirtualKeyboardOnDetailMenu() {
+    // Scroll the detailed view to show the virtual keyboard option.
+    tray_test_api_->ScrollToShowView(
+        tray_test_api_->GetAccessibilityDetailedView()
+            ->scroll_view_for_testing(),
+        ash::VIEW_ID_ACCESSIBILITY_VIRTUAL_KEYBOARD);
     tray_test_api_->ClickBubbleView(
         ash::VIEW_ID_ACCESSIBILITY_VIRTUAL_KEYBOARD);
   }
 
   bool IsVirtualKeyboardEnabledOnDetailMenu() const {
+    if (features::IsQsRevampEnabled()) {
+      return tray_test_api_->IsToggleOn(
+          ash::VIEW_ID_ACCESSIBILITY_VIRTUAL_KEYBOARD_ENABLED);
+    }
     return tray_test_api_->IsBubbleViewVisible(
         ash::VIEW_ID_ACCESSIBILITY_VIRTUAL_KEYBOARD_ENABLED,
         false /* open_tray */);
@@ -221,13 +237,7 @@ class TrayAccessibilityTest
   base::test::ScopedFeatureList scoped_feature_list_;
 };
 
-// Fails on linux-chromeos-dbg see crbug/1027919.
-#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
-#define MAYBE_ShowMenu DISABLED_ShowMenu
-#else
-#define MAYBE_ShowMenu ShowMenu
-#endif
-IN_PROC_BROWSER_TEST_P(TrayAccessibilityTest, MAYBE_ShowMenu) {
+IN_PROC_BROWSER_TEST_P(TrayAccessibilityTest, DISABLED_ShowMenu) {
   SetShowAccessibilityOptionsInSystemTrayMenu(false);
 
   // Confirms that the menu is hidden.
@@ -397,12 +407,8 @@ IN_PROC_BROWSER_TEST_P(TrayAccessibilityTest, MAYBE_ShowMenu) {
 }
 
 // Fails on linux-chromeos-dbg see crbug/1027919.
-#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
-#define MAYBE_ShowMenuWithShowMenuOption DISABLED_ShowMenuWithShowMenuOption
-#else
-#define MAYBE_ShowMenuWithShowMenuOption ShowMenuWithShowMenuOption
-#endif
-IN_PROC_BROWSER_TEST_P(TrayAccessibilityTest, MAYBE_ShowMenuWithShowMenuOption) {
+IN_PROC_BROWSER_TEST_P(TrayAccessibilityTest,
+                       DISABLED_ShowMenuWithShowMenuOption) {
   SetShowAccessibilityOptionsInSystemTrayMenu(true);
 
   // Confirms that the menu is visible.
@@ -638,6 +644,7 @@ class TrayAccessibilityLoginTest : public TrayAccessibilityTest {
 
 IN_PROC_BROWSER_TEST_P(TrayAccessibilityLoginTest,
                        ShowMenuWithShowOnLoginScreen) {
+  test::WaitForOobeJSReady();
   EXPECT_FALSE(user_manager::UserManager::Get()->IsUserLoggedIn());
 
   // Confirms that the menu is visible.

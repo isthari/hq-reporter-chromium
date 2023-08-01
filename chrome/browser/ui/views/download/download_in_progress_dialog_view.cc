@@ -1,10 +1,9 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ui/views/download/download_in_progress_dialog_view.h"
 
-#include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/chrome_typography.h"
 #include "chrome/grit/chromium_strings.h"
@@ -73,8 +72,7 @@ DownloadInProgressDialogView::DownloadInProgressDialogView(
     case Browser::DownloadCloseType::kOk:
       // This dialog should have been created within the same thread invocation
       // as the original test, so it's never ok to close.
-      NOTREACHED();
-      break;
+      NOTREACHED_NORETURN();
   }
   auto message_label = std::make_unique<views::Label>(
       l10n_util::GetStringUTF16(message_id),
@@ -82,8 +80,6 @@ DownloadInProgressDialogView::DownloadInProgressDialogView(
   message_label->SetMultiLine(true);
   message_label->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   AddChildView(message_label.release());
-
-  chrome::RecordDialogCreation(chrome::DialogIdentifier::DOWNLOAD_IN_PROGRESS);
 }
 
 DownloadInProgressDialogView::~DownloadInProgressDialogView() = default;

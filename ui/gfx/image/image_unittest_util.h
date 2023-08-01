@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,8 +25,6 @@ typedef NSImage* PlatformImage;
 #else
 typedef gfx::ImageSkia PlatformImage;
 #endif
-
-std::vector<float> Get1xAnd2xScales();
 
 // Create a bitmap of |width|x|height|.
 const SkBitmap CreateBitmap(int width, int height);

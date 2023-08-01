@@ -1,13 +1,19 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {TestRunner} from 'test_runner';
+import {ElementsTestRunner} from 'elements_test_runner';
+import {SourcesTestRunner} from 'sources_test_runner';
+import {ConsoleTestRunner} from 'console_test_runner';
+import {ApplicationTestRunner} from 'application_test_runner';
+
 (async function() {
   TestRunner.addResult(`Tests framework event listeners output in Sources panel when service worker is present.\n`);
-  await TestRunner.loadLegacyModule('elements'); await TestRunner.loadTestModule('elements_test_runner');
-  await TestRunner.loadLegacyModule('sources'); await TestRunner.loadTestModule('sources_test_runner');
-  await TestRunner.loadLegacyModule('console'); await TestRunner.loadTestModule('console_test_runner');
-  await TestRunner.loadLegacyModule('console'); await TestRunner.loadTestModule('application_test_runner');
+  await TestRunner.loadLegacyModule('elements');
+  await TestRunner.loadLegacyModule('sources');
+  await TestRunner.loadLegacyModule('console');
+  await TestRunner.loadLegacyModule('console');
   await TestRunner.showPanel('elements');
 
   await TestRunner.evaluateInPage(`
@@ -52,7 +58,7 @@
 
   function step3() {
     TestRunner.addResult('Selecting main thread');
-    SourcesTestRunner.selectThread(SDK.targetManager.mainTarget());
+    SourcesTestRunner.selectThread(SDK.targetManager.primaryPageTarget());
     TestRunner.addResult('Context is service worker: ' + isServiceWorker());
     TestRunner.addResult('Dumping listeners');
     ElementsTestRunner.expandAndDumpEventListeners(objectEventListenersPane.eventListenersView, step4);

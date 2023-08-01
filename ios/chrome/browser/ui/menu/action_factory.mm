@@ -1,14 +1,16 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/menu/action_factory.h"
 
 #import "base/metrics/histogram_functions.h"
-#import "ios/chrome/browser/ui/commands/application_commands.h"
-#import "ios/chrome/browser/ui/commands/command_dispatcher.h"
-#include "ios/chrome/browser/ui/ui_feature_flags.h"
-#import "ios/chrome/browser/ui/util/pasteboard_util.h"
+#import "base/metrics/user_metrics.h"
+#import "ios/chrome/browser/shared/public/commands/application_commands.h"
+#import "ios/chrome/browser/shared/public/commands/command_dispatcher.h"
+#import "ios/chrome/browser/shared/public/features/features.h"
+#import "ios/chrome/browser/shared/ui/symbols/symbols.h"
+#import "ios/chrome/browser/shared/ui/util/pasteboard_util.h"
 #import "ios/chrome/grit/ios_strings.h"
 #import "ui/base/l10n/l10n_util_mac.h"
 #import "url/gurl.h"
@@ -26,7 +28,7 @@
 
 @implementation ActionFactory
 
-- (instancetype)initWithScenario:(MenuScenario)scenario {
+- (instancetype)initWithScenario:(MenuScenarioHistogram)scenario {
   if (self = [super init]) {
     _histogram = GetActionsHistogramName(scenario);
   }
@@ -50,23 +52,12 @@
                            }];
 }
 
-- (UIImage*)configuredSymbolNamed:(NSString*)symbolName
-                     systemSymbol:(BOOL)systemSymbol {
-  UIImageSymbolConfiguration* configuration = [UIImageSymbolConfiguration
-      configurationWithWeight:UIImageSymbolWeightMedium];
-  if (systemSymbol) {
-    return [UIImage systemImageNamed:symbolName
-                   withConfiguration:configuration];
-  }
-  return [UIImage imageNamed:symbolName
-                    inBundle:nil
-           withConfiguration:configuration];
-}
-
 - (UIAction*)actionToCopyURL:(const GURL)URL {
+  UIImage* image =
+      DefaultSymbolWithPointSize(kLinkActionSymbol, kSymbolActionPointSize);
   return [self
       actionWithTitle:l10n_util::GetNSString(IDS_IOS_COPY_LINK_ACTION_TITLE)
-                image:[UIImage imageNamed:@"copy_link_url"]
+                image:image
                  type:MenuActionType::CopyURL
                 block:^{
                   StoreURLInPasteboard(URL);
@@ -74,17 +65,41 @@
 }
 
 - (UIAction*)actionToShareWithBlock:(ProceduralBlock)block {
+  UIImage* image =
+      DefaultSymbolWithPointSize(kShareSymbol, kSymbolActionPointSize);
   return
       [self actionWithTitle:l10n_util::GetNSString(IDS_IOS_SHARE_BUTTON_LABEL)
-                      image:[UIImage imageNamed:@"share"]
+                      image:image
                        type:MenuActionType::Share
                       block:block];
 }
 
+- (UIAction*)actionToPinTabWithBlock:(ProceduralBlock)block {
+  UIImage* image =
+      DefaultSymbolWithPointSize(kPinSymbol, kSymbolActionPointSize);
+  return [self
+      actionWithTitle:l10n_util::GetNSString(IDS_IOS_CONTENT_CONTEXT_PINTAB)
+                image:image
+                 type:MenuActionType::PinTab
+                block:block];
+}
+
+- (UIAction*)actionToUnpinTabWithBlock:(ProceduralBlock)block {
+  UIImage* image =
+      DefaultSymbolWithPointSize(kPinSlashSymbol, kSymbolActionPointSize);
+  return [self
+      actionWithTitle:l10n_util::GetNSString(IDS_IOS_CONTENT_CONTEXT_UNPINTAB)
+                image:image
+                 type:MenuActionType::UnpinTab
+                block:block];
+}
+
 - (UIAction*)actionToDeleteWithBlock:(ProceduralBlock)block {
+  UIImage* image =
+      DefaultSymbolWithPointSize(kDeleteActionSymbol, kSymbolActionPointSize);
   UIAction* action =
       [self actionWithTitle:l10n_util::GetNSString(IDS_IOS_DELETE_ACTION_TITLE)
-                      image:[UIImage imageNamed:@"delete"]
+                      image:image
                        type:MenuActionType::Delete
                       block:block];
   action.attributes = UIMenuElementAttributesDestructive;
@@ -92,25 +107,33 @@
 }
 
 - (UIAction*)actionToOpenInNewTabWithBlock:(ProceduralBlock)block {
+  UIImage* image =
+      DefaultSymbolWithPointSize(kNewTabActionSymbol, kSymbolActionPointSize);
+  ProceduralBlock completionBlock =
+      [self recordMobileWebContextMenuOpenTabActionWithBlock:block];
+
   return [self actionWithTitle:l10n_util::GetNSString(
                                    IDS_IOS_CONTENT_CONTEXT_OPENLINKNEWTAB)
-                         image:[UIImage imageNamed:@"open_in_new_tab"]
+                         image:image
                           type:MenuActionType::OpenInNewTab
-                         block:block];
+                         block:completionBlock];
 }
 
 - (UIAction*)actionToOpenAllTabsWithBlock:(ProceduralBlock)block {
   return [self actionWithTitle:l10n_util::GetNSString(
                                    IDS_IOS_CONTENT_CONTEXT_OPEN_ALL_LINKS)
-                         image:[UIImage systemImageNamed:@"plus"]
+                         image:DefaultSymbolWithPointSize(
+                                   kPlusSymbol, kSymbolActionPointSize)
                           type:MenuActionType::OpenAllInNewTabs
                          block:block];
 }
 
 - (UIAction*)actionToRemoveWithBlock:(ProceduralBlock)block {
+  UIImage* image =
+      DefaultSymbolWithPointSize(kHideActionSymbol, kSymbolActionPointSize);
   UIAction* action =
       [self actionWithTitle:l10n_util::GetNSString(IDS_IOS_REMOVE_ACTION_TITLE)
-                      image:[UIImage imageNamed:@"remove"]
+                      image:image
                        type:MenuActionType::Remove
                       block:block];
   action.attributes = UIMenuElementAttributesDestructive;
@@ -118,17 +141,21 @@
 }
 
 - (UIAction*)actionToEditWithBlock:(ProceduralBlock)block {
+  UIImage* image =
+      DefaultSymbolWithPointSize(kEditActionSymbol, kSymbolActionPointSize);
   return [self actionWithTitle:l10n_util::GetNSString(IDS_IOS_EDIT_ACTION_TITLE)
-                         image:[UIImage imageNamed:@"edit"]
+                         image:image
                           type:MenuActionType::Edit
                          block:block];
 }
 
 - (UIAction*)actionToHideWithBlock:(ProceduralBlock)block {
+  UIImage* image =
+      DefaultSymbolWithPointSize(kHideActionSymbol, kSymbolActionPointSize);
   UIAction* action =
       [self actionWithTitle:l10n_util::GetNSString(
                                 IDS_IOS_RECENT_TABS_HIDE_MENU_OPTION)
-                      image:[UIImage imageNamed:@"remove"]
+                      image:image
                        type:MenuActionType::Hide
                       block:block];
   action.attributes = UIMenuElementAttributesDestructive;
@@ -144,80 +171,97 @@
 }
 
 - (UIAction*)actionToMarkAsReadWithBlock:(ProceduralBlock)block {
+  UIImage* image = DefaultSymbolWithPointSize(kMarkAsReadActionSymbol,
+                                              kSymbolActionPointSize);
   return [self actionWithTitle:l10n_util::GetNSString(
                                    IDS_IOS_READING_LIST_MARK_AS_READ_ACTION)
-                         image:[UIImage imageNamed:@"mark_read"]
+                         image:image
                           type:MenuActionType::Read
                          block:block];
 }
 
 - (UIAction*)actionToMarkAsUnreadWithBlock:(ProceduralBlock)block {
+  UIImage* image = DefaultSymbolWithPointSize(kMarkAsUnreadActionSymbol,
+                                              kSymbolActionPointSize);
   return [self actionWithTitle:l10n_util::GetNSString(
                                    IDS_IOS_READING_LIST_MARK_AS_UNREAD_ACTION)
-                         image:[UIImage imageNamed:@"remove"]
+                         image:image
                           type:MenuActionType::Unread
                          block:block];
 }
 
 - (UIAction*)actionToOpenOfflineVersionInNewTabWithBlock:
     (ProceduralBlock)block {
+  UIImage* image = DefaultSymbolWithPointSize(kCheckmarkCircleSymbol,
+                                              kSymbolActionPointSize);
+  ProceduralBlock completionBlock =
+      [self recordMobileWebContextMenuOpenTabActionWithBlock:block];
+
   return [self actionWithTitle:l10n_util::GetNSString(
                                    IDS_IOS_READING_LIST_OPEN_OFFLINE_BUTTON)
-                         image:[UIImage imageNamed:@"offline"]
+                         image:image
                           type:MenuActionType::ViewOffline
-                         block:block];
+                         block:completionBlock];
 }
 
 - (UIAction*)actionToAddToReadingListWithBlock:(ProceduralBlock)block {
+  UIImage* image = DefaultSymbolWithPointSize(kReadLaterActionSymbol,
+                                              kSymbolActionPointSize);
   return [self actionWithTitle:l10n_util::GetNSString(
                                    IDS_IOS_CONTENT_CONTEXT_ADDTOREADINGLIST)
-                         image:[UIImage imageNamed:@"read_later"]
+                         image:image
                           type:MenuActionType::AddToReadingList
                          block:block];
 }
 
 - (UIAction*)actionToBookmarkWithBlock:(ProceduralBlock)block {
+  UIImage* image = DefaultSymbolWithPointSize(kAddBookmarkActionSymbol,
+                                              kSymbolActionPointSize);
   return [self actionWithTitle:l10n_util::GetNSString(
                                    IDS_IOS_CONTENT_CONTEXT_ADDTOBOOKMARKS)
-                         image:[UIImage imageNamed:@"bookmark"]
+                         image:image
                           type:MenuActionType::AddToBookmarks
                          block:block];
 }
 
 - (UIAction*)actionToEditBookmarkWithBlock:(ProceduralBlock)block {
+  UIImage* image =
+      DefaultSymbolWithPointSize(kEditActionSymbol, kSymbolActionPointSize);
   return [self
       actionWithTitle:l10n_util::GetNSString(IDS_IOS_BOOKMARK_CONTEXT_MENU_EDIT)
-                image:[UIImage imageNamed:@"bookmark"]
+                image:image
                  type:MenuActionType::EditBookmark
                 block:block];
 }
 
-- (UIAction*)actionToCloseTabWithBlock:(ProceduralBlock)block {
-  UIAction* action = [self
-      actionWithTitle:l10n_util::GetNSString(IDS_IOS_CONTENT_CONTEXT_CLOSETAB)
-                image:[UIImage imageNamed:@"close"]
-                 type:MenuActionType::CloseTab
-                block:block];
-  action.attributes = UIMenuElementAttributesDestructive;
-  return action;
+- (UIAction*)actionToCloseRegularTabWithBlock:(ProceduralBlock)block {
+  NSString* title = l10n_util::GetNSString(IDS_IOS_CONTENT_CONTEXT_CLOSETAB);
+  return [self actionToCloseTabWithTitle:title block:block];
+}
+
+- (UIAction*)actionToClosePinnedTabWithBlock:(ProceduralBlock)block {
+  NSString* title =
+      l10n_util::GetNSString(IDS_IOS_CONTENT_CONTEXT_CLOSEPINNEDTAB);
+  return [self actionToCloseTabWithTitle:title block:block];
 }
 
 - (UIAction*)actionSaveImageWithBlock:(ProceduralBlock)block {
-  int title = IsContextMenuActionsRefreshEnabled()
-                  ? IDS_IOS_CONTENT_CONTEXT_ADDTOPHOTOS
-                  : IDS_IOS_CONTENT_CONTEXT_SAVEIMAGE;
-
-  UIAction* action = [self actionWithTitle:l10n_util::GetNSString(title)
-                                     image:[UIImage imageNamed:@"download"]
-                                      type:MenuActionType::SaveImage
-                                     block:block];
+  UIImage* image = DefaultSymbolWithPointSize(kSaveImageActionSymbol,
+                                              kSymbolActionPointSize);
+  UIAction* action = [self
+      actionWithTitle:l10n_util::GetNSString(IDS_IOS_CONTENT_CONTEXT_SAVEIMAGE)
+                image:image
+                 type:MenuActionType::SaveImage
+                block:block];
   return action;
 }
 
 - (UIAction*)actionCopyImageWithBlock:(ProceduralBlock)block {
+  UIImage* image =
+      DefaultSymbolWithPointSize(kCopyActionSymbol, kSymbolActionPointSize);
   UIAction* action = [self
       actionWithTitle:l10n_util::GetNSString(IDS_IOS_CONTENT_CONTEXT_COPYIMAGE)
-                image:[UIImage imageNamed:@"copy"]
+                image:image
                  type:MenuActionType::CopyImage
                 block:block];
   return action;
@@ -225,18 +269,22 @@
 
 - (UIAction*)actionSearchImageWithTitle:(NSString*)title
                                   Block:(ProceduralBlock)block {
+  UIImage* image = CustomSymbolWithPointSize(kPhotoBadgeMagnifyingglassSymbol,
+                                             kSymbolActionPointSize);
   UIAction* action = [self actionWithTitle:title
-                                     image:[UIImage imageNamed:@"search_image"]
+                                     image:image
                                       type:MenuActionType::SearchImage
                                      block:block];
   return action;
 }
 
 - (UIAction*)actionToCloseAllTabsWithBlock:(ProceduralBlock)block {
+  UIImage* image =
+      DefaultSymbolWithPointSize(kXMarkSymbol, kSymbolActionPointSize);
   UIAction* action =
       [self actionWithTitle:l10n_util::GetNSString(
                                 IDS_IOS_CONTENT_CONTEXT_CLOSEALLTABS)
-                      image:[UIImage imageNamed:@"close"]
+                      image:image
                        type:MenuActionType::CloseAllTabs
                       block:block];
   action.attributes = UIMenuElementAttributesDestructive;
@@ -244,21 +292,53 @@
 }
 
 - (UIAction*)actionToSelectTabsWithBlock:(ProceduralBlock)block {
+  UIImage* image = DefaultSymbolWithPointSize(kCheckmarkCircleSymbol,
+                                              kSymbolActionPointSize);
   UIAction* action = [self
       actionWithTitle:l10n_util::GetNSString(IDS_IOS_CONTENT_CONTEXT_SELECTTABS)
-                image:[UIImage imageNamed:@"select"]
+                image:image
                  type:MenuActionType::SelectTabs
                 block:block];
   return action;
 }
 
 - (UIAction*)actionToSearchImageUsingLensWithBlock:(ProceduralBlock)block {
+  UIImage* image =
+      CustomSymbolWithPointSize(kCameraLensSymbol, kSymbolActionPointSize);
+  int actionTitleMessageId =
+      base::FeatureList::IsEnabled(kEnableLensContextMenuAltText)
+          ? IDS_IOS_CONTEXT_MENU_SEARCHIMAGEWITHGOOGLE_ALT_TEXT
+          : IDS_IOS_CONTEXT_MENU_SEARCHIMAGEWITHGOOGLE;
   UIAction* action =
-      [self actionWithTitle:l10n_util::GetNSString(
-                                IDS_IOS_CONTEXT_MENU_SEARCHIMAGEWITHLENS)
-                      image:[UIImage imageNamed:@"lens_icon"]
+      [self actionWithTitle:l10n_util::GetNSString(actionTitleMessageId)
+                      image:image
                        type:MenuActionType::SearchImageWithLens
                       block:block];
+  return action;
+}
+
+- (ProceduralBlock)recordMobileWebContextMenuOpenTabActionWithBlock:
+    (ProceduralBlock)block {
+  return ^{
+    base::RecordAction(base::UserMetricsAction("MobileWebContextMenuOpenTab"));
+    if (block) {
+      block();
+    }
+  };
+}
+
+#pragma mark - Private
+
+// Creates a UIAction instance for closing a tab with a provided `title`.
+- (UIAction*)actionToCloseTabWithTitle:(NSString*)title
+                                 block:(ProceduralBlock)block {
+  UIImage* image =
+      DefaultSymbolWithPointSize(kXMarkSymbol, kSymbolActionPointSize);
+  UIAction* action = [self actionWithTitle:title
+                                     image:image
+                                      type:MenuActionType::CloseTab
+                                     block:block];
+  action.attributes = UIMenuElementAttributesDestructive;
   return action;
 }
 

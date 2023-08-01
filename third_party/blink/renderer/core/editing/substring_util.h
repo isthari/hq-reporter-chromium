@@ -31,16 +31,13 @@
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_EDITING_SUBSTRING_UTIL_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_EDITING_SUBSTRING_UTIL_H_
 
+#include <CoreFoundation/CoreFoundation.h>
+
 #include <cstddef>
 
+#include "base/mac/scoped_cftyperef.h"
 #include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/platform/wtf/wtf_size_t.h"
-
-#if __OBJC__
-@class NSAttributedString;
-#else
-class NSAttributedString;
-#endif
 
 namespace gfx {
 class Point;
@@ -52,31 +49,30 @@ class LocalFrame;
 
 class SubstringUtil {
  public:
-  // Returns an autoreleased NSAttributedString that is the word under
-  // the given point inside the given WebFrameWidgetImpl or nil on error.
-  // Upon return, |baselinePoint| is set to the left baseline point in
-  // AppKit coordinates.
-  CORE_EXPORT static NSAttributedString* AttributedWordAtPoint(
-      WebFrameWidgetImpl*,
-      gfx::Point,
-      gfx::Point& baseline_point);
+  // Given a point inside a `WebFrameWidgetImpl`, determines the word underneath
+  // that point and returns:
+  //
+  // - a `CFAttributedStringRef` of that word and
+  // - the left baseline point of that word in `baseline_point`
+  //
+  // Returns nil on failure.
+  CORE_EXPORT static base::ScopedCFTypeRef<CFAttributedStringRef>
+  AttributedWordAtPoint(WebFrameWidgetImpl*,
+                        gfx::Point,
+                        gfx::Point& baseline_point);
 
-  // Returns an autoreleased NSAttributedString that is a substring of the
-  // Frame at the given range, or nil on error.
-  CORE_EXPORT static NSAttributedString* AttributedSubstringInRange(
-      LocalFrame*,
-      wtf_size_t location,
-      wtf_size_t length);
-
-  // Returns an autoreleased NSAttributedString that is a substring of the
-  // Frame at the given range, or nil on error.
-  // It also gets the baseline point for the given range for showing
-  // dictionary lookup bubble.
-  CORE_EXPORT static NSAttributedString* AttributedSubstringInRange(
-      LocalFrame*,
-      wtf_size_t location,
-      wtf_size_t length,
-      gfx::Point* baseline_point);
+  // Given a range of a `LocalFrame`, determines the substring specified by that
+  // range and returns:
+  //
+  // - a `CFAttributedStringRef` of that substring and
+  // - the left baseline point of that substring in `baseline_point`
+  //
+  // Returns nil on failure.
+  CORE_EXPORT static base::ScopedCFTypeRef<CFAttributedStringRef>
+  AttributedSubstringInRange(LocalFrame*,
+                             wtf_size_t location,
+                             wtf_size_t length,
+                             gfx::Point& baseline_point);
 };
 
 }  // namespace blink

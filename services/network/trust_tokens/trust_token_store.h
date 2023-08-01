@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-#include "base/callback.h"
+#include "base/functional/callback.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
 #include "services/network/public/mojom/network_context.mojom.h"
@@ -51,9 +51,12 @@ class TrustTokenStore {
     // This is implemented with a delegate to abstract away reading
     // the values of RRs (they're opaque to this store).
     //
+    // |time_since_last_redemption| is time elapsed since last redemption.
     // |issuer| is the issuer that issued the RR.
-    virtual bool IsRecordExpired(const TrustTokenRedemptionRecord& record,
-                                 const SuitableTrustTokenOrigin& issuer) = 0;
+    virtual bool IsRecordExpired(
+        const TrustTokenRedemptionRecord& record,
+        const base::TimeDelta& time_since_last_redemption,
+        const SuitableTrustTokenOrigin& issuer) = 0;
   };
 
   // Creates a TrustTokenStore relying on the given persister for underlying
@@ -87,13 +90,8 @@ class TrustTokenStore {
   [[nodiscard]] virtual absl::optional<base::TimeDelta> TimeSinceLastIssuance(
       const SuitableTrustTokenOrigin& issuer);
 
-  // Updates the given (issuer, top-level) origin pair's last redemption time
-  // to now.
-  virtual void RecordRedemption(const SuitableTrustTokenOrigin& issuer,
-                                const SuitableTrustTokenOrigin& top_level);
-
   // Returns the time elapsed since the last redemption recorded by
-  // RecordRedemption for issuer |issuer| and top level |top_level|,
+  // SetRedemptionRecord for issuer |issuer| and top level |top_level|,
   // or nullopt in the following two cases:
   // 1. there was no prior redemption for the (issuer,
   // top-level origin) pair.
@@ -202,11 +200,18 @@ class TrustTokenStore {
   [[nodiscard]] virtual bool ClearDataForFilter(
       mojom::ClearDataFilterPtr filter);
 
+  [[nodiscard]] virtual bool ClearDataForPredicate(
+      base::RepeatingCallback<bool(const std::string&)> predicate);
+
   // Deletes all stored tokens issued by |issuer| but leaves other stored
   // data, including the issuer's Redemption Records (RRs), intact.
   // Returns whether any data was deleted.
   [[nodiscard]] virtual bool DeleteStoredTrustTokens(
       const SuitableTrustTokenOrigin& issuer);
+
+  [[nodiscard]] bool IsRedemptionLimitHit(
+      const SuitableTrustTokenOrigin& issuer,
+      const SuitableTrustTokenOrigin& top_level) const;
 
  private:
   std::unique_ptr<TrustTokenPersister> persister_;

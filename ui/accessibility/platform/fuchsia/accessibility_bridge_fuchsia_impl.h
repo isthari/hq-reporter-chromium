@@ -1,28 +1,30 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef UI_ACCESSIBILITY_PLATFORM_FUCHSIA_ACCESSIBILITY_BRIDGE_FUCHSIA_IMPL_H_
 #define UI_ACCESSIBILITY_PLATFORM_FUCHSIA_ACCESSIBILITY_BRIDGE_FUCHSIA_IMPL_H_
 
-#include <fuchsia/accessibility/semantics/cpp/fidl.h>
+#include <fidl/fuchsia.accessibility.semantics/cpp/fidl.h>
 #include <fuchsia/ui/views/cpp/fidl.h>
 #include <lib/inspect/cpp/vmo/types.h>
 
-#include "base/callback.h"
+#include "base/component_export.h"
 #include "base/containers/flat_map.h"
+#include "base/functional/callback.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
-#include "ui/accessibility/ax_export.h"
 #include "ui/accessibility/platform/fuchsia/accessibility_bridge_fuchsia.h"
 #include "ui/accessibility/platform/fuchsia/semantic_provider.h"
 #include "ui/aura/window.h"
 
 namespace ui {
 
-class AX_EXPORT AccessibilityBridgeFuchsiaImpl final
+class COMPONENT_EXPORT(AX_PLATFORM) AccessibilityBridgeFuchsiaImpl final
     : public ui::AccessibilityBridgeFuchsia,
       public ui::AXFuchsiaSemanticProvider::Delegate {
  public:
+  using OnConnectionClosedCallback = base::RepeatingCallback<bool(zx_status_t)>;
+
   // Constructor args:
   //
   // |root_window|: Refers to the root aura::Window for which this accessibility
@@ -32,10 +34,6 @@ class AX_EXPORT AccessibilityBridgeFuchsiaImpl final
   //
   // |view_ref|: The fuchsia ViewRef for the fuchsia view that corresponds to
   // |root_window|.
-  //
-  // |get_pixel_scale|: Callback used to retrieve the pixel scale for this
-  // device. We use a callback here, because the correct value may not be
-  // available at the time of construction.
   //
   // |on_semantics_enabled|: Callback invoked when fuchsia's accessibility
   // platform component requests to enable/disable semantics (e.g. when the
@@ -49,15 +47,14 @@ class AX_EXPORT AccessibilityBridgeFuchsiaImpl final
   // do not reconnect).
   AccessibilityBridgeFuchsiaImpl(
       aura::Window* root_window,
-      fuchsia::ui::views::ViewRef view_ref,
-      base::RepeatingCallback<float()> get_pixel_scale,
+      fuchsia_ui_views::ViewRef view_ref,
       base::RepeatingCallback<void(bool)> on_semantics_enabled,
-      base::RepeatingCallback<bool()> on_connection_closed,
+      OnConnectionClosedCallback on_connection_closed,
       inspect::Node inspect_node);
   ~AccessibilityBridgeFuchsiaImpl() override;
 
   // AccessibilityBridgeFuchsia overrides.
-  void UpdateNode(fuchsia::accessibility::semantics::Node node) override;
+  void UpdateNode(fuchsia_accessibility_semantics::Node node) override;
   void DeleteNode(uint32_t node_id) override;
   void OnAccessibilityHitTestResult(int hit_test_request_id,
                                     absl::optional<uint32_t> result) override;
@@ -66,19 +63,19 @@ class AX_EXPORT AccessibilityBridgeFuchsiaImpl final
   inspect::Node GetInspectNode() override;
 
   // SemanticProvider::Delegate overrides.
-  bool OnSemanticsManagerConnectionClosed() override;
+  bool OnSemanticsManagerConnectionClosed(zx_status_t status) override;
   bool OnAccessibilityAction(
       uint32_t node_id,
-      fuchsia::accessibility::semantics::Action action) override;
-  void OnHitTest(
-      fuchsia::math::PointF point,
-      fuchsia::accessibility::semantics::SemanticListener::HitTestCallback
-          callback) override;
+      fuchsia_accessibility_semantics::Action action) override;
+  void OnHitTest(fuchsia_math::PointF point, HitTestCallback callback) override;
   void OnSemanticsEnabled(bool enabled) override;
 
-  // Test-only method to set |semantic_provider_|.
+  // Test-only method to set `semantic_provider_`.
   void set_semantic_provider_for_test(
       std::unique_ptr<AXFuchsiaSemanticProvider> semantic_provider);
+
+  // Propagates new pixel scale to `semantic_provider_`.
+  void SetPixelScale(float pixel_scale);
 
  private:
   // Returns kFuchsiaRootNodeId if node_id == *root_node_id_. Otherwise, returns
@@ -99,10 +96,8 @@ class AX_EXPORT AccessibilityBridgeFuchsiaImpl final
 
   // Holds callbacks for hit tests that have not yet completed, keyed by a
   // request ID that this class generates.
-  base::flat_map<
-      int /* request_id */,
-      fuchsia::accessibility::semantics::SemanticListener::HitTestCallback>
-      pending_hit_test_callbacks_;
+  base::flat_map<int /* request_id */, HitTestCallback>
+      pending_hit_test_completers_;
 
   // Next hit test request ID to use.
   int next_hittest_request_id_ = 1;
@@ -111,7 +106,10 @@ class AX_EXPORT AccessibilityBridgeFuchsiaImpl final
   base::RepeatingCallback<void(bool)> on_semantics_enabled_;
 
   // Callback invoked whenever the semantics manager connection is closed.
-  base::RepeatingCallback<bool()> on_connection_closed_;
+  // We use a base::RepeatingCallback, because we may attempt to reconnect, in
+  // which case it's possible that we may need to invoke the callback more than
+  // once.
+  OnConnectionClosedCallback on_connection_closed_;
 
   // The inspect output will have a node for each AXTree in this accessibility
   // bridge's window. Inspect node names are static, but AXTreeIDs can change.

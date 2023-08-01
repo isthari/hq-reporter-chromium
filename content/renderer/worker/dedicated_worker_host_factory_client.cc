@@ -1,11 +1,13 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "content/renderer/worker/dedicated_worker_host_factory_client.h"
 
-#include <algorithm>
 #include <utility>
+
+#include "base/ranges/algorithm.h"
+#include "base/task/single_thread_task_runner.h"
 #include "content/renderer/render_thread_impl.h"
 #include "content/renderer/service_worker/service_worker_provider_context.h"
 #include "content/renderer/worker/fetch_client_settings_object_helpers.h"
@@ -41,8 +43,25 @@ DedicatedWorkerHostFactoryClient::~DedicatedWorkerHostFactoryClient() = default;
 void DedicatedWorkerHostFactoryClient::CreateWorkerHostDeprecated(
     const blink::DedicatedWorkerToken& dedicated_worker_token,
     const blink::WebURL& script_url,
-    base::OnceCallback<void(const network::CrossOriginEmbedderPolicy&)>
-        callback) {
+    CreateWorkerHostCallback callback) {
+  // The callback of mojom::CreateWorkerHost() requires mojo::PendingRemote as
+  // the second param, but the passed callback requires
+  // blink::CrossVariantMojoRemote. To bridge them, wrap the passed callback.
+  using MojoCreateWorkerHostCallback = base::OnceCallback<void(
+      const network::CrossOriginEmbedderPolicy&,
+      mojo::PendingRemote<blink::mojom::BackForwardCacheControllerHost>)>;
+  MojoCreateWorkerHostCallback adapter_callback = base::BindOnce(
+      [](CreateWorkerHostCallback callback,
+         const network::CrossOriginEmbedderPolicy& policy,
+         mojo::PendingRemote<blink::mojom::BackForwardCacheControllerHost>
+             back_forward_cache_controller_host) {
+        blink::CrossVariantMojoRemote<
+            blink::mojom::BackForwardCacheControllerHostInterfaceBase>
+            pending_remote = std::move(back_forward_cache_controller_host);
+        std::move(callback).Run(policy, std::move(pending_remote));
+      },
+      std::move(callback));
+
   DCHECK(!base::FeatureList::IsEnabled(blink::features::kPlzDedicatedWorker));
   mojo::PendingRemote<blink::mojom::BrowserInterfaceBroker>
       browser_interface_broker;
@@ -51,7 +70,7 @@ void DedicatedWorkerHostFactoryClient::CreateWorkerHostDeprecated(
       dedicated_worker_token, script_url,
       browser_interface_broker.InitWithNewPipeAndPassReceiver(),
       dedicated_worker_host.InitWithNewPipeAndPassReceiver(),
-      std::move(callback));
+      std::move(adapter_callback));
   OnWorkerHostCreated(std::move(browser_interface_broker),
                       std::move(dedicated_worker_host));
 }
@@ -108,10 +127,9 @@ DedicatedWorkerHostFactoryClient::CreateWorkerFetchContext(
       RenderThreadImpl::current()->cors_exempt_header_list();
   blink::WebVector<blink::WebString> web_cors_exempt_header_list(
       cors_exempt_header_list.size());
-  std::transform(cors_exempt_header_list.begin(), cors_exempt_header_list.end(),
-                 web_cors_exempt_header_list.begin(), [](const std::string& h) {
-                   return blink::WebString::FromLatin1(h);
-                 });
+  base::ranges::transform(
+      cors_exempt_header_list, web_cors_exempt_header_list.begin(),
+      [](const auto& header) { return blink::WebString::FromLatin1(header); });
   scoped_refptr<blink::WebDedicatedOrSharedWorkerFetchContext>
       web_dedicated_or_shared_worker_fetch_context =
           blink::WebDedicatedOrSharedWorkerFetchContext::Create(

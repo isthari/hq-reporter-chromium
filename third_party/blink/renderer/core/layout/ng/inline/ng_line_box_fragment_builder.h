@@ -1,15 +1,16 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_LINE_BOX_FRAGMENT_BUILDER_H_
 #define THIRD_PARTY_BLINK_RENDERER_CORE_LAYOUT_NG_INLINE_NG_LINE_BOX_FRAGMENT_BUILDER_H_
 
+#include "third_party/blink/renderer/core/core_export.h"
 #include "third_party/blink/renderer/core/layout/geometry/logical_rect.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_break_token.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_inline_node.h"
 #include "third_party/blink/renderer/core/layout/ng/inline/ng_physical_line_box_fragment.h"
-#include "third_party/blink/renderer/core/layout/ng/ng_container_fragment_builder.h"
+#include "third_party/blink/renderer/core/layout/ng/ng_fragment_builder.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_layout_result.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_physical_fragment.h"
 #include "third_party/blink/renderer/core/layout/ng/ng_positioned_float.h"
@@ -22,16 +23,15 @@ class ComputedStyle;
 class NGInlineBreakToken;
 class NGLogicalLineItems;
 
-class CORE_EXPORT NGLineBoxFragmentBuilder final
-    : public NGContainerFragmentBuilder {
+class CORE_EXPORT NGLineBoxFragmentBuilder final : public NGFragmentBuilder {
   STACK_ALLOCATED();
 
  public:
   NGLineBoxFragmentBuilder(NGInlineNode node,
                            scoped_refptr<const ComputedStyle> style,
-                           const NGConstraintSpace* space,
+                           const NGConstraintSpace& space,
                            WritingDirectionMode writing_direction)
-      : NGContainerFragmentBuilder(
+      : NGFragmentBuilder(
             node,
             style,
             space,
@@ -94,7 +94,7 @@ class CORE_EXPORT NGLineBoxFragmentBuilder final
   }
 
   // Creates the fragment. Can only be called once.
-  scoped_refptr<const NGLayoutResult> ToLineBoxFragment();
+  const NGLayoutResult* ToLineBoxFragment();
 
  private:
   absl::optional<LayoutUnit> line_box_bfc_block_offset_;

@@ -1,12 +1,16 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import {TestRunner} from 'test_runner';
+import {ConsoleTestRunner} from 'console_test_runner';
+import {ExtensionsTestRunner} from 'extensions_test_runner';
+import {SourcesTestRunner} from 'sources_test_runner';
+
 (async function() {
   TestRunner.addResult(`Tests resource-related methods of WebInspector extension API\n`);
-  await TestRunner.loadLegacyModule('console'); await TestRunner.loadTestModule('console_test_runner');
-  await TestRunner.loadTestModule('extensions_test_runner');
-  await TestRunner.loadLegacyModule('sources'); await TestRunner.loadTestModule('sources_test_runner');
+  await TestRunner.loadLegacyModule('console');
+  await TestRunner.loadLegacyModule('sources');
   await TestRunner.loadLegacyModule('components');
 
   TestRunner.clickOnURL = async function() {
@@ -110,14 +114,11 @@
       extension_runWithResource(/audits-style1\.css$/, function(resource) {
         resource.setContent("div.test { width: 140px; height: 42px; }", false);
       });
-      // The next step is going to produce a console message that will be logged, so synchronize the output now.
-      evaluateOnFrontend("TestRunner.deprecatedRunAfterPendingDispatches(reply)", function() {
-        extension_runWithResource(/abe\.png$/, function(resource) {
-          resource.setContent("", true);
-        });
-        extension_runWithResource(/audits-style1\.css$/, function(resource) {
-          resource.setContent(expected_content, true);
-        });
+      extension_runWithResource(/abe\.png$/, function(resource) {
+        resource.setContent("", true);
+      });
+      extension_runWithResource(/audits-style1\.css$/, function(resource) {
+        resource.setContent(expected_content, true);
       });
 
       function onContentCommitted(resource, content) {

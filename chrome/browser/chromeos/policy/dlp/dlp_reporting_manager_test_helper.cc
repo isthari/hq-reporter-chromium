@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,7 +27,10 @@ class DlpPolicyEventMatcher : public MatcherInterface<const DlpPolicyEvent&> {
         destination_url_(event.destination().url()),
         destination_component_(event.destination().component()),
         restriction_(event.restriction()),
-        mode_(event.mode()) {}
+        mode_(event.mode()),
+        content_name_(event.content_name()),
+        triggered_rule_name(event.triggered_rule_name()),
+        triggered_rule_id(event.triggered_rule_id()) {}
 
   bool MatchAndExplain(const DlpPolicyEvent& event,
                        MatchResultListener* listener) const override {
@@ -53,9 +56,22 @@ class DlpPolicyEventMatcher : public MatcherInterface<const DlpPolicyEvent&> {
     if (!mode_equals) {
       *listener << " |mode| is " << event.mode();
     }
+    bool content_name_equals = event.content_name() == content_name_;
+    if (!content_name_equals) {
+      *listener << " |content_name| is " << event.content_name();
+    }
+    bool rule_name_equals = event.triggered_rule_name() == triggered_rule_name;
+    if (!rule_name_equals) {
+      *listener << " |triggered_rule_name| is " << event.triggered_rule_name();
+    }
+    bool rule_id_equals = event.triggered_rule_id() == triggered_rule_id;
+    if (!rule_id_equals) {
+      *listener << " |triggered_rule_id| is " << event.triggered_rule_id();
+    }
 
     return source_url_equals && destination_url_equals &&
-           destination_component_equals && restriction_equals && mode_equals;
+           destination_component_equals && restriction_equals && mode_equals &&
+           content_name_equals && rule_name_equals && rule_id_equals;
   }
 
   void DescribeTo(::std::ostream* os) const override {}
@@ -66,6 +82,9 @@ class DlpPolicyEventMatcher : public MatcherInterface<const DlpPolicyEvent&> {
   const int destination_component_;
   const int restriction_;
   const int mode_;
+  const std::string content_name_;
+  const std::string triggered_rule_name;
+  const std::string triggered_rule_id;
 };
 
 Matcher<const DlpPolicyEvent&> IsDlpPolicyEvent(const DlpPolicyEvent& event) {

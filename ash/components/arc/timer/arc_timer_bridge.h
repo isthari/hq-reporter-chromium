@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 
 #include "ash/components/arc/mojom/timer.mojom.h"
 #include "ash/components/arc/session/connection_observer.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
@@ -65,6 +66,8 @@ class ArcTimerBridge : public KeyedService,
                   base::TimeTicks absolute_expiration_time,
                   StartTimerCallback callback) override;
 
+  static void EnsureFactoryBuilt();
+
  private:
   // Deletes all timers.
   void DeleteArcTimers();
@@ -82,7 +85,7 @@ class ArcTimerBridge : public KeyedService,
   absl::optional<TimerId> GetTimerId(clockid_t clock_id) const;
 
   // Owned by ArcServiceManager.
-  ArcBridgeService* const arc_bridge_service_;
+  const raw_ptr<ArcBridgeService, ExperimentalAsh> arc_bridge_service_;
 
   // Mapping of clock ids (coresponding to <sys/timerfd.h>) sent by the instance
   // in |CreateTimers| to timer ids returned in |OnCreateArcTimersDBusMethod|.

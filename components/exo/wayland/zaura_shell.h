@@ -1,4 +1,4 @@
-// Copyright 2018 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,21 +7,32 @@
 
 #include <stdint.h>
 
+#include "ash/shell_observer.h"
+#include "base/memory/raw_ptr.h"
+#include "chromeos/ui/base/window_state_type.h"
 #include "components/exo/surface.h"
 #include "components/exo/surface_observer.h"
+#include "components/exo/wayland/wayland_display_observer.h"
+#include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/size_f.h"
 #include "ui/wm/public/activation_change_observer.h"
 
 struct wl_client;
 struct wl_resource;
 
+namespace base {
+class TimeDelta;
+}
+
 namespace exo {
 
+class ShellSurface;
 class ShellSurfaceBase;
 
 namespace wayland {
+class SerialTracker;
 
-constexpr uint32_t kZAuraShellVersion = 29;
+constexpr uint32_t kZAuraShellVersion = 53;
 
 // Adds bindings to the Aura Shell. Normally this implies Ash on ChromeOS
 // builds. On non-ChromeOS builds the protocol provides access to Aura windowing
@@ -67,6 +78,13 @@ class AuraSurface : public SurfaceObserver,
   void Pin(bool trusted);
   void Unpin();
   void SetOrientationLock(uint32_t orientation_lock);
+  void ShowTooltip(const char* text,
+                   const gfx::Point& position,
+                   uint32_t trigger,
+                   const base::TimeDelta& show_delay,
+                   const base::TimeDelta& hide_delay);
+  void HideTooltip();
+  void SetAccessibilityId(int id);
 
   // Overridden from SurfaceObserver:
   void OnSurfaceDestroying(Surface* surface) override;
@@ -74,6 +92,10 @@ class AuraSurface : public SurfaceObserver,
   void OnFrameLockingChanged(Surface* surface, bool lock) override;
   void OnDeskChanged(Surface* surface, int state) override;
   void ThrottleFrameRate(bool on) override;
+  void OnTooltipShown(Surface* surface,
+                      const std::u16string& text,
+                      const gfx::Rect& bounds) override;
+  void OnTooltipHidden(Surface* surface) override;
 
   // Overridden from ActivationChangeObserver:
   void OnWindowActivating(ActivationReason reason,
@@ -89,8 +111,12 @@ class AuraSurface : public SurfaceObserver,
       const aura::Window::OcclusionState occlusion_state);
 
  private:
-  Surface* surface_;
-  wl_resource* const resource_;
+  raw_ptr<Surface, ExperimentalAsh> surface_;
+  const raw_ptr<wl_resource, ExperimentalAsh> resource_;
+
+  // Tooltip text sent from Lacros.
+  // This is kept here since it should out-live ShowTooltip() scope.
+  std::u16string tooltip_text_;
 
   void ComputeAndSendOcclusion(
       const aura::Window::OcclusionState occlusion_state,
@@ -100,16 +126,54 @@ class AuraSurface : public SurfaceObserver,
 // Provides an implementation for top level operations on the shell.
 class AuraToplevel {
  public:
-  AuraToplevel(ShellSurfaceBase* shell_surface);
+  AuraToplevel(ShellSurface* shell_surface,
+               SerialTracker* const serial_tracker,
+               wl_resource* aura_toplevel_resource,
+               wl_resource* xdg_toplevel_resource);
+
   AuraToplevel(const AuraToplevel&) = delete;
   AuraToplevel& operator=(const AuraToplevel&) = delete;
-  ~AuraToplevel();
+
+  virtual ~AuraToplevel();
 
   void SetOrientationLock(uint32_t lock_type);
   void SetClientSubmitsSurfacesInPixelCoordinates(bool enable);
+  void SetClientUsesScreenCoordinates();
+  void SetWindowBounds(int32_t x, int32_t y, int32_t width, int32_t height);
+  void SetRestoreInfo(int32_t restore_session_id, int32_t restore_window_id);
+  void SetRestoreInfoWithWindowIdSource(
+      int32_t restore_session_id,
+      const std::string& restore_window_id_source);
+  void SetSystemModal(bool modal);
+  void SetFloat();
+  void UnsetFloat();
+  void SetSnapPrimary(float snap_ratio);
+  void SetSnapSecondary(float snap_ratio);
+  void IntentToSnap(uint32_t snap_direction);
+  void UnsetSnap();
 
- private:
-  ShellSurfaceBase* shell_surface_;
+  void OnConfigure(const gfx::Rect& bounds,
+                   chromeos::WindowStateType state_type,
+                   bool resizing,
+                   bool activated,
+                   float raster_scale);
+  virtual void OnOriginChange(const gfx::Point& origin);
+  void SetDecoration(SurfaceFrameType type);
+  void SetZOrder(ui::ZOrderLevel z_order);
+  void Activate();
+  void Deactivate();
+  void SetFullscreenMode(uint32_t mode);
+  void SetScaleFactor(float scale_factor);
+  void SetPersistable(bool persistable);
+  void SetShape(absl::optional<cc::Region> shape);
+
+  raw_ptr<ShellSurface, ExperimentalAsh> shell_surface_;
+  const raw_ptr<SerialTracker, ExperimentalAsh> serial_tracker_;
+  raw_ptr<wl_resource, ExperimentalAsh> xdg_toplevel_resource_;
+  raw_ptr<wl_resource, ExperimentalAsh> aura_toplevel_resource_;
+  bool supports_window_bounds_ = false;
+
+  base::WeakPtrFactory<AuraToplevel> weak_ptr_factory_{this};
 };
 
 class AuraPopup {
@@ -120,9 +184,38 @@ class AuraPopup {
   ~AuraPopup();
 
   void SetClientSubmitsSurfacesInPixelCoordinates(bool enable);
+  void SetDecoration(SurfaceFrameType type);
+  void SetMenu();
+  void SetScaleFactor(float scale_factor);
 
  private:
-  ShellSurfaceBase* shell_surface_;
+  raw_ptr<ShellSurfaceBase, ExperimentalAsh> shell_surface_;
+};
+
+class AuraOutput : public WaylandDisplayObserver {
+ public:
+  AuraOutput(wl_resource* resource, WaylandDisplayHandler* display_handler);
+
+  AuraOutput(const AuraOutput&) = delete;
+  AuraOutput& operator=(const AuraOutput&) = delete;
+
+  ~AuraOutput() override;
+
+  // Overridden from WaylandDisplayObserver:
+  bool SendDisplayMetrics(const display::Display& display,
+                          uint32_t changed_metrics) override;
+  void SendActiveDisplay() override;
+  void OnOutputDestroyed() override;
+
+  bool HasDisplayHandlerForTesting() const;
+
+ protected:
+  virtual void SendInsets(const gfx::Insets& insets);
+  virtual void SendLogicalTransform(int32_t transform);
+
+ private:
+  const raw_ptr<wl_resource, ExperimentalAsh> resource_;
+  raw_ptr<WaylandDisplayHandler, ExperimentalAsh> display_handler_;
 };
 
 }  // namespace wayland

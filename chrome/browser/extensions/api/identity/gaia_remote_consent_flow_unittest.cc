@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,9 @@
 
 #include "base/run_loop.h"
 #include "base/test/metrics/histogram_tester.h"
-#include "chrome/browser/signin/identity_test_environment_profile_adaptor.h"
-#include "chrome/test/base/testing_profile.h"
-#include "components/signin/public/identity_manager/identity_test_environment.h"
-#include "components/signin/public/identity_manager/set_accounts_in_cookie_result.h"
+#include "base/test/scoped_feature_list.h"
+#include "build/chromeos_buildflags.h"
+#include "chrome/common/chrome_features.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -95,7 +94,7 @@ class IdentityGaiaRemoteConsentFlowTest : public testing::Test {
       const std::string& window_key,
       GaiaRemoteConsentFlow::Delegate* delegate) {
     CoreAccountInfo user_info;
-    user_info.account_id = CoreAccountId("account_id");
+    user_info.account_id = CoreAccountId::FromGaiaId("account_id");
     user_info.gaia = "account_id";
     user_info.email = "email";
 
@@ -119,15 +118,9 @@ TEST_F(IdentityGaiaRemoteConsentFlowTest, ConsentResult) {
   std::unique_ptr<TestGaiaRemoteConsentFlow> flow = CreateTestFlow(kWindowKey);
   EXPECT_CALL(delegate_,
               OnGaiaRemoteConsentFlowApproved(kConsentResult, kGaiaId));
-  flow->OnConsentResultSet(kConsentResult, kWindowKey);
+  flow->ReactToConsentResult(kConsentResult);
   histogram_tester()->ExpectUniqueSample(kResultHistogramName,
                                          GaiaRemoteConsentFlow::NONE, 1);
-}
-
-TEST_F(IdentityGaiaRemoteConsentFlowTest, ConsentResult_WrongWindowIgnored) {
-  std::unique_ptr<TestGaiaRemoteConsentFlow> flow = CreateTestFlow(kWindowKey);
-  // No call is expected.
-  flow->OnConsentResultSet(kConsentResult, "another_window_key");
 }
 
 TEST_F(IdentityGaiaRemoteConsentFlowTest, ConsentResult_TwoWindows) {
@@ -139,11 +132,11 @@ TEST_F(IdentityGaiaRemoteConsentFlowTest, ConsentResult_TwoWindows) {
 
   const char kConsentResult2[] = "CAESCkVOQ1JZUFRFRDI";
   EXPECT_CALL(delegate2, OnGaiaRemoteConsentFlowApproved(kConsentResult2, ""));
-  flow2->OnConsentResultSet(kConsentResult2, kWindowKey2);
+  flow2->ReactToConsentResult(kConsentResult2);
 
   EXPECT_CALL(delegate_,
               OnGaiaRemoteConsentFlowApproved(kConsentResult, kGaiaId));
-  flow->OnConsentResultSet(kConsentResult, kWindowKey);
+  flow->ReactToConsentResult(kConsentResult);
   histogram_tester()->ExpectUniqueSample(kResultHistogramName,
                                          GaiaRemoteConsentFlow::NONE, 2);
 }
@@ -154,7 +147,7 @@ TEST_F(IdentityGaiaRemoteConsentFlowTest, InvalidConsentResult) {
   EXPECT_CALL(delegate_,
               OnGaiaRemoteConsentFlowFailed(
                   GaiaRemoteConsentFlow::Failure::INVALID_CONSENT_RESULT));
-  flow->OnConsentResultSet(kInvalidConsentResult, kWindowKey);
+  flow->ReactToConsentResult(kInvalidConsentResult);
   histogram_tester()->ExpectUniqueSample(
       kResultHistogramName, GaiaRemoteConsentFlow::INVALID_CONSENT_RESULT, 1);
 }
@@ -164,22 +157,9 @@ TEST_F(IdentityGaiaRemoteConsentFlowTest, NoGrant) {
   std::unique_ptr<TestGaiaRemoteConsentFlow> flow = CreateTestFlow(kWindowKey);
   EXPECT_CALL(delegate_, OnGaiaRemoteConsentFlowFailed(
                              GaiaRemoteConsentFlow::Failure::NO_GRANT));
-  flow->OnConsentResultSet(kNoGrantConsentResult, kWindowKey);
+  flow->ReactToConsentResult(kNoGrantConsentResult);
   histogram_tester()->ExpectUniqueSample(kResultHistogramName,
                                          GaiaRemoteConsentFlow::NO_GRANT, 1);
-}
-
-TEST_F(IdentityGaiaRemoteConsentFlowTest, SetAccountsFailure) {
-  std::unique_ptr<TestGaiaRemoteConsentFlow> flow = CreateTestFlow(kWindowKey);
-  EXPECT_CALL(
-      delegate_,
-      OnGaiaRemoteConsentFlowFailed(
-          GaiaRemoteConsentFlow::Failure::SET_ACCOUNTS_IN_COOKIE_FAILED));
-  flow->OnSetAccountsComplete(
-      signin::SetAccountsInCookieResult::kPersistentError);
-  histogram_tester()->ExpectUniqueSample(
-      kResultHistogramName,
-      GaiaRemoteConsentFlow::SET_ACCOUNTS_IN_COOKIE_FAILED, 1);
 }
 
 TEST_F(IdentityGaiaRemoteConsentFlowTest, WebAuthFlowFailure_WindowClosed) {
@@ -198,6 +178,41 @@ TEST_F(IdentityGaiaRemoteConsentFlowTest, WebAuthFlowFailure_LoadFailed) {
   flow->OnAuthFlowFailure(WebAuthFlow::Failure::LOAD_FAILED);
   histogram_tester()->ExpectUniqueSample(kResultHistogramName,
                                          GaiaRemoteConsentFlow::LOAD_FAILED, 1);
+}
+
+// The following tests are only meaningful if the feature
+// `kWebAuthFlowInBrowserTab` is disabled
+class IdentityGaiaRemoteConsentFlowWebAuthFlowInBrowserTabOffTest
+    : public IdentityGaiaRemoteConsentFlowTest {
+ public:
+  IdentityGaiaRemoteConsentFlowWebAuthFlowInBrowserTabOffTest() {
+    scoped_feature_list_.InitAndDisableFeature(
+        features::kWebAuthFlowInBrowserTab);
+  }
+
+ private:
+  base::test::ScopedFeatureList scoped_feature_list_;
+};
+
+TEST_F(IdentityGaiaRemoteConsentFlowWebAuthFlowInBrowserTabOffTest,
+       ConsentResult_WrongWindowIgnored) {
+  std::unique_ptr<TestGaiaRemoteConsentFlow> flow = CreateTestFlow(kWindowKey);
+  // No call is expected.
+  flow->OnConsentResultSet(kConsentResult, "another_window_key");
+}
+
+TEST_F(IdentityGaiaRemoteConsentFlowWebAuthFlowInBrowserTabOffTest,
+       SetAccountsFailure) {
+  std::unique_ptr<TestGaiaRemoteConsentFlow> flow = CreateTestFlow(kWindowKey);
+  EXPECT_CALL(
+      delegate_,
+      OnGaiaRemoteConsentFlowFailed(
+          GaiaRemoteConsentFlow::Failure::SET_ACCOUNTS_IN_COOKIE_FAILED));
+  flow->OnSetAccountsComplete(
+      signin::SetAccountsInCookieResult::kPersistentError);
+  histogram_tester()->ExpectUniqueSample(
+      kResultHistogramName,
+      GaiaRemoteConsentFlow::SET_ACCOUNTS_IN_COOKIE_FAILED, 1);
 }
 
 }  // namespace extensions

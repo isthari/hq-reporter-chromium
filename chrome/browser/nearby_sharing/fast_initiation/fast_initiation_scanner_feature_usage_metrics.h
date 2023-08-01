@@ -1,12 +1,13 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_NEARBY_SHARING_FAST_INITIATION_FAST_INITIATION_SCANNER_FEATURE_USAGE_METRICS_H_
 #define CHROME_BROWSER_NEARBY_SHARING_FAST_INITIATION_FAST_INITIATION_SCANNER_FEATURE_USAGE_METRICS_H_
 
+#include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
-#include "chromeos/components/feature_usage/feature_usage_metrics.h"
+#include "chromeos/ash/components/feature_usage/feature_usage_metrics.h"
 #include "device/bluetooth/bluetooth_adapter.h"
 
 class PrefService;
@@ -14,7 +15,7 @@ class PrefService;
 // Tracks feature usage for FastInitiationScanner for the Standard Feature Usage
 // Logging (SFUL) framework.
 class FastInitiationScannerFeatureUsageMetrics final
-    : public feature_usage::FeatureUsageMetrics::Delegate {
+    : public ash::feature_usage::FeatureUsageMetrics::Delegate {
  public:
   explicit FastInitiationScannerFeatureUsageMetrics(PrefService* pref_service);
   FastInitiationScannerFeatureUsageMetrics(
@@ -23,7 +24,7 @@ class FastInitiationScannerFeatureUsageMetrics final
       FastInitiationScannerFeatureUsageMetrics&) = delete;
   ~FastInitiationScannerFeatureUsageMetrics() final;
 
-  // feature_usage::FeatureUsageMetrics::Delegate:
+  // ash::feature_usage::FeatureUsageMetrics::Delegate:
   bool IsEligible() const override;
   bool IsEnabled() const override;
 
@@ -31,8 +32,8 @@ class FastInitiationScannerFeatureUsageMetrics final
   void RecordUsage(bool success);
 
  private:
-  PrefService* pref_service_;
-  feature_usage::FeatureUsageMetrics feature_usage_metrics_;
+  raw_ptr<PrefService, ExperimentalAsh> pref_service_;
+  ash::feature_usage::FeatureUsageMetrics feature_usage_metrics_;
   scoped_refptr<device::BluetoothAdapter> bluetooth_adapter_;
 };
 

@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -34,8 +34,7 @@ TEST(SerializedScriptValueTest, WireFormatRoundTrip) {
       sourceSerializedScriptValue->GetWireData();
 
   scoped_refptr<SerializedScriptValue> serializedScriptValue =
-      SerializedScriptValue::Create(
-          reinterpret_cast<const char*>(wire_data.data()), wire_data.size());
+      SerializedScriptValue::Create(wire_data);
   v8::Local<v8::Value> deserialized =
       serializedScriptValue->Deserialize(scope.GetIsolate());
   EXPECT_TRUE(deserialized->IsTrue());
@@ -46,8 +45,7 @@ TEST(SerializedScriptValueTest, WireFormatVersion17NoByteSwapping) {
 
   const uint8_t data[] = {0xFF, 0x11, 0xFF, 0x0D, 0x54, 0x00};
   scoped_refptr<SerializedScriptValue> serializedScriptValue =
-      SerializedScriptValue::Create(reinterpret_cast<const char*>(data),
-                                    sizeof(data));
+      SerializedScriptValue::Create(data);
   v8::Local<v8::Value> deserialized =
       serializedScriptValue->Deserialize(scope.GetIsolate());
   EXPECT_TRUE(deserialized->IsTrue());
@@ -59,8 +57,7 @@ TEST(SerializedScriptValueTest, WireFormatVersion16ByteSwapping) {
   // Using UChar instead of uint8_t to get ntohs() byte swapping.
   const UChar data[] = {0xFF10, 0xFF0D, 0x5400};
   scoped_refptr<SerializedScriptValue> serializedScriptValue =
-      SerializedScriptValue::Create(reinterpret_cast<const char*>(data),
-                                    sizeof(data));
+      SerializedScriptValue::Create(base::as_bytes(base::make_span(data)));
   v8::Local<v8::Value> deserialized =
       serializedScriptValue->Deserialize(scope.GetIsolate());
   EXPECT_TRUE(deserialized->IsTrue());
@@ -72,8 +69,7 @@ TEST(SerializedScriptValueTest, WireFormatVersion13ByteSwapping) {
   // Using UChar instead of uint8_t to get ntohs() byte swapping.
   const UChar data[] = {0xFF0D, 0x5400};
   scoped_refptr<SerializedScriptValue> serializedScriptValue =
-      SerializedScriptValue::Create(reinterpret_cast<const char*>(data),
-                                    sizeof(data));
+      SerializedScriptValue::Create(base::as_bytes(base::make_span(data)));
   v8::Local<v8::Value> deserialized =
       serializedScriptValue->Deserialize(scope.GetIsolate());
   EXPECT_TRUE(deserialized->IsTrue());
@@ -85,8 +81,7 @@ TEST(SerializedScriptValueTest, WireFormatVersion0ByteSwapping) {
   // Using UChar instead of uint8_t to get ntohs() byte swapping.
   const UChar data[] = {0x5400};
   scoped_refptr<SerializedScriptValue> serializedScriptValue =
-      SerializedScriptValue::Create(reinterpret_cast<const char*>(data),
-                                    sizeof(data));
+      SerializedScriptValue::Create(base::as_bytes(base::make_span(data)));
   v8::Local<v8::Value> deserialized =
       serializedScriptValue->Deserialize(scope.GetIsolate());
   EXPECT_TRUE(deserialized->IsTrue());
@@ -112,14 +107,13 @@ TEST(SerializedScriptValueTest, WireFormatVersion0ImageData) {
   data.resize(257);  // (508 pixel data + 6 header bytes) / 2
 
   scoped_refptr<SerializedScriptValue> serializedScriptValue =
-      SerializedScriptValue::Create(reinterpret_cast<const char*>(data.data()),
-                                    data.size() * sizeof(UChar));
+      SerializedScriptValue::Create(base::as_bytes(base::make_span(data)));
   v8::Local<v8::Value> deserialized =
       serializedScriptValue->Deserialize(isolate);
   ASSERT_TRUE(deserialized->IsObject());
   v8::Local<v8::Object> deserializedObject = deserialized.As<v8::Object>();
-  ASSERT_TRUE(V8ImageData::HasInstance(deserializedObject, isolate));
-  ImageData* imageData = V8ImageData::ToImpl(deserializedObject);
+  ImageData* imageData = V8ImageData::ToWrappable(isolate, deserializedObject);
+  ASSERT_NE(imageData, nullptr);
   EXPECT_EQ(imageData->width(), 127);
   EXPECT_EQ(imageData->height(), 1);
 }
@@ -144,8 +138,8 @@ TEST(SerializedScriptValueTest, UserSelectedFile) {
   v8::Local<v8::Value> v8_file =
       serialized_script_value->Deserialize(scope.GetIsolate());
 
-  ASSERT_TRUE(V8File::HasInstance(v8_file, scope.GetIsolate()));
-  File* file = V8File::ToImpl(v8::Local<v8::Object>::Cast(v8_file));
+  File* file = V8File::ToWrappable(scope.GetIsolate(), v8_file);
+  ASSERT_NE(file, nullptr);
   EXPECT_TRUE(file->HasBackingFile());
   EXPECT_EQ(File::kIsUserVisible, file->GetUserVisibility());
   EXPECT_EQ(file_path, file->GetPath());
@@ -170,8 +164,8 @@ TEST(SerializedScriptValueTest, FileConstructorFile) {
   v8::Local<v8::Value> v8_file =
       serialized_script_value->Deserialize(scope.GetIsolate());
 
-  ASSERT_TRUE(V8File::HasInstance(v8_file, scope.GetIsolate()));
-  File* file = V8File::ToImpl(v8::Local<v8::Object>::Cast(v8_file));
+  File* file = V8File::ToWrappable(scope.GetIsolate(), v8_file);
+  ASSERT_NE(file, nullptr);
   EXPECT_FALSE(file->HasBackingFile());
   EXPECT_EQ(File::kIsNotUserVisible, file->GetUserVisibility());
   EXPECT_EQ("hello.txt", file->name());

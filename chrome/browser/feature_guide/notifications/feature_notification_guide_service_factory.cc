@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "base/feature_list.h"
 #include "base/memory/singleton.h"
+#include "base/metrics/field_trial_params.h"
 #include "base/time/default_clock.h"
 #include "build/build_config.h"
 #include "chrome/browser/feature_engagement/tracker_factory.h"
@@ -17,7 +18,6 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_key.h"
 #include "chrome/browser/segmentation_platform/segmentation_platform_service_factory.h"
-#include "components/keyed_service/content/browser_context_dependency_manager.h"
 #include "components/segmentation_platform/public/segmentation_platform_service.h"
 #include "content/public/browser/browser_context.h"
 
@@ -31,17 +31,17 @@ namespace {
 // Default notification time interval in days.
 constexpr int kDefaultNotificationTimeIntervalDays = 7;
 
-void AddFeature(std::vector<FeatureType>& enabled_features,
-                const std::string& feature_name,
-                FeatureType feature_type,
-                int repeat_count) {
+void AddFeatureIfEnabled(std::vector<FeatureType>* enabled_features,
+                         const std::string& feature_name,
+                         FeatureType feature_type,
+                         int repeat_count) {
   if (!base::GetFieldTrialParamByFeatureAsBool(
           features::kFeatureNotificationGuide, feature_name, false)) {
     return;
   }
 
   for (int i = 0; i < repeat_count; i++) {
-    enabled_features.emplace_back(feature_type);
+    enabled_features->emplace_back(feature_type);
   }
 }
 
@@ -51,16 +51,16 @@ std::vector<FeatureType> GetEnabledFeaturesFromVariations() {
       features::kFeatureNotificationGuide, "feature_notification_repeat_count",
       1);
 
-  AddFeature(enabled_features, "enable_feature_incognito_tab",
-             FeatureType::kIncognitoTab, repeat_count);
-  AddFeature(enabled_features, "enable_feature_ntp_suggestion_card",
-             FeatureType::kNTPSuggestionCard, repeat_count);
-  AddFeature(enabled_features, "enable_feature_voice_search",
-             FeatureType::kVoiceSearch, repeat_count);
-  AddFeature(enabled_features, "enable_feature_default_browser",
-             FeatureType::kDefaultBrowser, repeat_count);
-  AddFeature(enabled_features, "enable_feature_sign_in", FeatureType::kSignIn,
-             repeat_count);
+  AddFeatureIfEnabled(&enabled_features, "enable_feature_incognito_tab",
+                      FeatureType::kIncognitoTab, repeat_count);
+  AddFeatureIfEnabled(&enabled_features, "enable_feature_ntp_suggestion_card",
+                      FeatureType::kNTPSuggestionCard, repeat_count);
+  AddFeatureIfEnabled(&enabled_features, "enable_feature_voice_search",
+                      FeatureType::kVoiceSearch, repeat_count);
+  AddFeatureIfEnabled(&enabled_features, "enable_feature_default_browser",
+                      FeatureType::kDefaultBrowser, repeat_count);
+  AddFeatureIfEnabled(&enabled_features, "enable_feature_sign_in",
+                      FeatureType::kSignIn, repeat_count);
   return enabled_features;
 }
 
@@ -87,10 +87,16 @@ FeatureNotificationGuideServiceFactory::GetForProfile(Profile* profile) {
 }
 
 FeatureNotificationGuideServiceFactory::FeatureNotificationGuideServiceFactory()
-    : BrowserContextKeyedServiceFactory(
+    : ProfileKeyedServiceFactory(
           "FeatureNotificationGuideService",
-          BrowserContextDependencyManager::GetInstance()) {
+          ProfileSelections::Builder()
+              .WithRegular(ProfileSelection::kOriginalOnly)
+              // TODO(crbug.com/1418376): Check if this service is needed in
+              // Guest mode.
+              .WithGuest(ProfileSelection::kOriginalOnly)
+              .Build()) {
   DependsOn(NotificationScheduleServiceFactory::GetInstance());
+  DependsOn(feature_engagement::TrackerFactory::GetInstance());
   DependsOn(
       segmentation_platform::SegmentationPlatformServiceFactory::GetInstance());
 }

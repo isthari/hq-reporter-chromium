@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <memory>
 #include <string>
 
-#include "base/bind.h"
+#include "base/functional/bind.h"
 #include "base/i18n/message_formatter.h"
 #include "base/i18n/number_formatting.h"
 #include "base/memory/raw_ptr.h"
@@ -16,18 +16,19 @@
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_element_identifiers.h"
+#include "chrome/browser/ui/color/chrome_color_id.h"
 #include "chrome/browser/ui/layout_constants.h"
+#include "chrome/browser/ui/tabs/tab_enums.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_delegate.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/chrome_typography.h"
-#include "chrome/browser/ui/views/chrome_view_class_properties.h"
 #include "chrome/browser/ui/views/flying_indicator.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_ink_drop_util.h"
-#include "chrome/browser/ui/views/user_education/feature_promo_colors.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/user_education/common/user_education_class_properties.h"
 #include "components/vector_icons/vector_icons.h"
 #include "ui/aura/window.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -352,7 +353,7 @@ void TabCounterAnimator::LayoutIfAnimating() {
           border_animation_.GetCurrentValue(), GetBorderOvershootYDelta(), 0);
       break;
     default:
-      NOTREACHED();
+      NOTREACHED_NORETURN();
   }
   border_view_->SetY(GetBorderStartingY() + border_y_delta);
 
@@ -386,8 +387,7 @@ int TabCounterAnimator::GetBorderTargetYDelta() const {
     case TabCounterAnimationType::kDecreasing:
       return -kBorderBounceDistance;
     default:
-      NOTREACHED();
-      return 0;
+      NOTREACHED_NORETURN();
   }
 }
 
@@ -399,8 +399,7 @@ int TabCounterAnimator::GetBorderOvershootYDelta() const {
     case TabCounterAnimationType::kDecreasing:
       return kBorderBounceOvershoot;
     default:
-      NOTREACHED();
-      return 0;
+      NOTREACHED_NORETURN();
   }
 }
 
@@ -411,8 +410,7 @@ int TabCounterAnimator::GetAppearingLabelStartPosition() const {
     case TabCounterAnimationType::kDecreasing:
       return kOffscreenLabelDistance;
     default:
-      NOTREACHED();
-      return 0;
+      NOTREACHED_NORETURN();
   }
 }
 
@@ -455,8 +453,9 @@ class WebUITabCounterButton : public views::Button,
   // views::Button:
   void AddedToWidget() override;
   void AfterPropertyChange(const void* key, int64_t old_value) override;
-  void AddLayerBeneathView(ui::Layer* new_layer) override;
-  void RemoveLayerBeneathView(ui::Layer* old_layer) override;
+  void AddLayerToRegion(ui::Layer* new_layer,
+                        views::LayerRegion region) override;
+  void RemoveLayerFromRegions(ui::Layer* old_layer) override;
   void OnThemeChanged() override;
   void Layout() override;
 
@@ -505,7 +504,7 @@ WebUITabCounterButton::WebUITabCounterButton(PressedCallback pressed_callback,
 
 WebUITabCounterButton::~WebUITabCounterButton() {
   // TODO(pbos): Revisit explicit removal of InkDrop for classes that override
-  // Add/RemoveLayerBeneathView(). This is done so that the InkDrop doesn't
+  // Add/RemoveLayerFromRegionsw(). This is done so that the InkDrop doesn't
   // access the non-override versions in ~View.
   views::InkDrop::Remove(this);
 }
@@ -517,20 +516,16 @@ void WebUITabCounterButton::UpdateTooltip(int num_tabs) {
 }
 
 void WebUITabCounterButton::UpdateColors() {
-  const ui::ThemeProvider* theme_provider = GetThemeProvider();
-  const SkColor toolbar_color =
-      theme_provider ? theme_provider->GetColor(ThemeProperties::COLOR_TOOLBAR)
-                     : gfx::kPlaceholderColor;
+  const auto* const color_provider = GetColorProvider();
+  const SkColor toolbar_color = color_provider->GetColor(kColorToolbar);
   appearing_label_->SetBackgroundColor(toolbar_color);
   disappearing_label_->SetBackgroundColor(toolbar_color);
 
   const SkColor normal_text_color =
-      theme_provider
-          ? theme_provider->GetColor(ThemeProperties::COLOR_TOOLBAR_BUTTON_ICON)
-          : gfx::kPlaceholderColor;
+      color_provider->GetColor(kColorToolbarButtonIcon);
   const SkColor current_text_color =
-      GetProperty(kHasInProductHelpPromoKey)
-          ? GetFeaturePromoHighlightColorForToolbar(theme_provider)
+      GetProperty(user_education::kHasInProductHelpPromoKey)
+          ? color_provider->GetColor(kColorToolbarFeaturePromoHighlight)
           : normal_text_color;
 
   appearing_label_->SetEnabledColor(current_text_color);
@@ -575,14 +570,14 @@ void WebUITabCounterButton::Init() {
       WEBUI_TAB_COUNTER_CXMENU_CLOSE_TAB,
       l10n_util::GetStringUTF16(
           IDS_WEBUI_TAB_STRIP_TAB_COUNTER_CXMENU_CLOSE_TAB),
-      ui::ImageModel::FromImageSkia(gfx::CreateVectorIcon(
-          vector_icons::kCloseIcon, gfx::kFaviconSize, SK_ColorGRAY)));
+      ui::ImageModel::FromVectorIcon(vector_icons::kCloseIcon,
+                                     ui::kColorMenuIcon, gfx::kFaviconSize));
   menu_model_->AddSeparator(ui::MenuSeparatorType::NORMAL_SEPARATOR);
   menu_model_->AddItemWithIcon(
       WEBUI_TAB_COUNTER_CXMENU_NEW_TAB,
       l10n_util::GetStringUTF16(IDS_WEBUI_TAB_STRIP_TAB_COUNTER_CXMENU_NEW_TAB),
-      ui::ImageModel::FromImageSkia(
-          gfx::CreateVectorIcon(kAddIcon, gfx::kFaviconSize, SK_ColorGRAY)));
+      ui::ImageModel::FromVectorIcon(kAddIcon, ui::kColorMenuIcon,
+                                     gfx::kFaviconSize));
   menu_runner_ = std::make_unique<views::MenuRunner>(
       menu_model_.get(), views::MenuRunner::HAS_MNEMONICS |
                              views::MenuRunner::CONTEXT_MENU |
@@ -605,17 +600,18 @@ void WebUITabCounterButton::AddedToWidget() {
 void WebUITabCounterButton::AfterPropertyChange(const void* key,
                                                 int64_t old_value) {
   View::AfterPropertyChange(key, old_value);
-  if (key != kHasInProductHelpPromoKey)
+  if (key != user_education::kHasInProductHelpPromoKey)
     return;
   UpdateColors();
 }
 
-void WebUITabCounterButton::AddLayerBeneathView(ui::Layer* new_layer) {
-  ink_drop_container_->AddLayerBeneathView(new_layer);
+void WebUITabCounterButton::AddLayerToRegion(ui::Layer* new_layer,
+                                             views::LayerRegion region) {
+  ink_drop_container_->AddLayerToRegion(new_layer, region);
 }
 
-void WebUITabCounterButton::RemoveLayerBeneathView(ui::Layer* old_layer) {
-  ink_drop_container_->RemoveLayerBeneathView(old_layer);
+void WebUITabCounterButton::RemoveLayerFromRegions(ui::Layer* old_layer) {
+  ink_drop_container_->RemoveLayerFromRegions(old_layer);
 }
 
 void WebUITabCounterButton::OnThemeChanged() {
@@ -684,15 +680,15 @@ void WebUITabCounterButton::ExecuteCommand(int command_id, int event_flags) {
     case WEBUI_TAB_COUNTER_CXMENU_CLOSE_TAB: {
       tab_strip_model_->CloseWebContentsAt(
           tab_strip_model_->active_index(),
-          TabStripModel::CLOSE_USER_GESTURE |
-              TabStripModel::CLOSE_CREATE_HISTORICAL_TAB);
+          TabCloseTypes::CLOSE_USER_GESTURE |
+              TabCloseTypes::CLOSE_CREATE_HISTORICAL_TAB);
       break;
     }
     case WEBUI_TAB_COUNTER_CXMENU_NEW_TAB:
       tab_strip_model_->delegate()->AddTabAt(GURL(), -1, true);
       break;
     default:
-      NOTREACHED();
+      NOTREACHED_NORETURN();
   }
 }
 

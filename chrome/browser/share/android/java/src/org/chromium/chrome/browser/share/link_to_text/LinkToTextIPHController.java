@@ -1,10 +1,8 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.chrome.browser.share.link_to_text;
-
-import androidx.vectordrawable.graphics.drawable.VectorDrawableCompat;
 
 import org.chromium.base.supplier.ObservableSupplier;
 import org.chromium.chrome.R;
@@ -16,6 +14,7 @@ import org.chromium.chrome.browser.tab.EmptyTabObserver;
 import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabLaunchType;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
+import org.chromium.components.browser_ui.util.TraceEventVectorDrawableCompat;
 import org.chromium.components.feature_engagement.FeatureConstants;
 import org.chromium.components.feature_engagement.Tracker;
 import org.chromium.components.messages.MessageBannerProperties;
@@ -23,6 +22,7 @@ import org.chromium.components.messages.MessageDispatcher;
 import org.chromium.components.messages.MessageDispatcherProvider;
 import org.chromium.components.messages.MessageIdentifier;
 import org.chromium.components.messages.MessageScopeType;
+import org.chromium.components.messages.PrimaryActionClickBehavior;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.ui.modelutil.PropertyModel;
 import org.chromium.url.GURL;
@@ -44,10 +44,9 @@ public class LinkToTextIPHController {
      *         will be rendered.
      * @param TabModelSelector The {@link TabModelSelector} to open a new tab.
      */
-    public LinkToTextIPHController(
-            ObservableSupplier<Tab> tabSupplier, TabModelSelector tabModelSelector) {
+    public LinkToTextIPHController(ObservableSupplier<Tab> tabSupplier,
+            TabModelSelector tabModelSelector, ObservableSupplier<Profile> profileSupplier) {
         mTabModelSelector = tabModelSelector;
-        mTracker = TrackerFactory.getTrackerForProfile(Profile.getLastUsedRegularProfile());
         mCurrentTabObserver = new CurrentTabObserver(tabSupplier, new EmptyTabObserver() {
             @Override
             public void onPageLoadFinished(Tab tab, GURL url) {
@@ -58,6 +57,16 @@ public class LinkToTextIPHController {
 
                 if (!LinkToTextHelper.hasTextFragment(url)) return;
 
+                Profile profile = profileSupplier.get();
+                // In some cases, ProfileSupplier.get() will return null. See
+                // https://crbug.com/1346710 and https://crbug.com/1353138.
+                if (profile == null) {
+                    profile = Profile.getLastUsedRegularProfile();
+                }
+                if (profile == null) {
+                    return;
+                }
+                mTracker = TrackerFactory.getTrackerForProfile(profile);
                 if (!mTracker.wouldTriggerHelpUI(FEATURE_NAME)) {
                     return;
                 }
@@ -79,8 +88,9 @@ public class LinkToTextIPHController {
                         .with(MessageBannerProperties.MESSAGE_IDENTIFIER,
                                 MessageIdentifier.SHARED_HIGHLIGHTING)
                         .with(MessageBannerProperties.ICON,
-                                VectorDrawableCompat.create(tab.getContext().getResources(),
-                                        R.drawable.ink_highlighter, tab.getContext().getTheme()))
+                                TraceEventVectorDrawableCompat.create(
+                                        tab.getContext().getResources(), R.drawable.ink_highlighter,
+                                        tab.getContext().getTheme()))
                         .with(MessageBannerProperties.TITLE,
                                 tab.getContext().getResources().getString(
                                         R.string.iph_message_shared_highlighting_title))
@@ -95,9 +105,10 @@ public class LinkToTextIPHController {
                 model, tab.getWebContents(), MessageScopeType.NAVIGATION, false);
     }
 
-    private void onMessageButtonClicked() {
+    private @PrimaryActionClickBehavior int onMessageButtonClicked() {
         onOpenInChrome(LinkToTextHelper.SHARED_HIGHLIGHTING_SUPPORT_URL);
         mTracker.dismissed(FEATURE_NAME);
+        return PrimaryActionClickBehavior.DISMISS_IMMEDIATELY;
     }
 
     private void onMessageDismissed(Integer dismissReason) {

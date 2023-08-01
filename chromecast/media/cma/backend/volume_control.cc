@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,13 +11,12 @@
 #include <utility>
 #include <vector>
 
-#include "base/bind.h"
-#include "base/callback_helpers.h"
 #include "base/containers/flat_map.h"
-#include "base/cxx17_backports.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/important_file_writer.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/json/json_writer.h"
 #include "base/location.h"
 #include "base/logging.h"
@@ -27,6 +26,7 @@
 #include "base/synchronization/lock.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/thread.h"
+#include "base/time/time.h"
 #include "base/values.h"
 #include "chromecast/media/audio/mixer_service/control_connection.h"
 #include "chromecast/media/cma/backend/audio_buildflags.h"
@@ -86,8 +86,8 @@ class VolumeControlInternal : public SystemVolumeControl::Delegate {
         LoadSavedVolumes(storage_path_);
     for (auto type : {AudioContentType::kMedia, AudioContentType::kAlarm,
                       AudioContentType::kCommunication}) {
-      stored_values_.SetDoublePath(ContentTypeToDbFSPath(type),
-                                   saved_volumes[type]);
+      stored_values_.SetByDottedPath(ContentTypeToDbFSPath(type),
+                                     saved_volumes[type]);
     }
 
     base::Thread::Options options;
@@ -130,7 +130,7 @@ class VolumeControlInternal : public SystemVolumeControl::Delegate {
       return;
     }
 
-    level = base::clamp(level, 0.0f, 1.0f);
+    level = std::clamp(level, 0.0f, 1.0f);
     thread_.task_runner()->PostTask(
         FROM_HERE, base::BindOnce(&VolumeControlInternal::SetVolumeOnThread,
                                   base::Unretained(this), source, type, level,
@@ -203,7 +203,7 @@ class VolumeControlInternal : public SystemVolumeControl::Delegate {
     for (auto type : {AudioContentType::kMedia, AudioContentType::kAlarm,
                       AudioContentType::kCommunication}) {
       absl::optional<double> dbfs =
-          stored_values_.FindDoubleKey(ContentTypeToDbFSPath(type));
+          stored_values_.FindDouble(ContentTypeToDbFSPath(type));
       CHECK(dbfs);
       volumes_[type] = VolumeControl::DbFSToVolume(*dbfs);
       volume_multipliers_[type] = 1.0f;
@@ -275,7 +275,7 @@ class VolumeControlInternal : public SystemVolumeControl::Delegate {
       }
     }
 
-    stored_values_.SetDoublePath(ContentTypeToDbFSPath(type), dbfs);
+    stored_values_.SetByDottedPath(ContentTypeToDbFSPath(type), dbfs);
     std::string output_js;
     base::JSONWriter::Write(stored_values_, &output_js);
     saved_volumes_writer_->WriteNow(std::make_unique<std::string>(output_js));
@@ -332,7 +332,7 @@ class VolumeControlInternal : public SystemVolumeControl::Delegate {
     }
 
 #if !BUILDFLAG(SYSTEM_OWNS_VOLUME)
-    limit = base::clamp(limit, 0.0f, 1.0f);
+    limit = std::clamp(limit, 0.0f, 1.0f);
     mixer_->SetVolumeLimit(type,
                            DbFsToScale(VolumeControl::VolumeToDbFS(limit)));
 
@@ -359,7 +359,7 @@ class VolumeControlInternal : public SystemVolumeControl::Delegate {
   }
 
   base::FilePath storage_path_;
-  base::DictionaryValue stored_values_;
+  base::Value::Dict stored_values_;
 
   base::Lock volume_lock_;
   base::flat_map<AudioContentType, float> volumes_;

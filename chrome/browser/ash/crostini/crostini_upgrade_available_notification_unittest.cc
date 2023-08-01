@@ -1,33 +1,26 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/ash/crostini/crostini_upgrade_available_notification.h"
 
-#include "base/feature_list.h"
 #include "base/metrics/histogram_base.h"
-#include "base/run_loop.h"
 #include "base/test/metrics/histogram_tester.h"
-#include "build/branding_buildflags.h"
+#include "base/test/test_future.h"
 #include "chrome/browser/ash/crostini/crostini_manager.h"
-#include "chrome/browser/ash/crostini/crostini_test_helper.h"
-#include "chrome/browser/ash/crostini/crostini_upgrade_available_notification.h"
 #include "chrome/browser/ash/crostini/crostini_util.h"
-#include "chrome/browser/notifications/notification_display_service.h"
 #include "chrome/browser/notifications/notification_display_service_tester.h"
 #include "chrome/browser/notifications/system_notification_helper.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ui/browser.h"
-#include "chrome/browser/ui/webui/chromeos/crostini_upgrader/crostini_upgrader_dialog.h"
+#include "chrome/browser/ui/webui/ash/crostini_upgrader/crostini_upgrader_dialog.h"
 #include "chrome/common/webui_url_constants.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "chrome/test/base/testing_browser_process.h"
-#include "chromeos/dbus/cicerone/cicerone_client.h"
-#include "chromeos/dbus/cicerone/cicerone_service.pb.h"
-#include "chromeos/dbus/concierge/concierge_client.h"
-#include "chromeos/dbus/dbus_thread_manager.h"
-#include "chromeos/dbus/seneschal/seneschal_client.h"
-#include "content/public/browser/web_ui.h"
+#include "chromeos/ash/components/dbus/chunneld/chunneld_client.h"
+#include "chromeos/ash/components/dbus/cicerone/cicerone_client.h"
+#include "chromeos/ash/components/dbus/cicerone/cicerone_service.pb.h"
+#include "chromeos/ash/components/dbus/concierge/concierge_client.h"
+#include "chromeos/ash/components/dbus/seneschal/seneschal_client.h"
 #include "content/public/test/browser_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/message_center/public/cpp/notification.h"
@@ -51,10 +44,10 @@ class CrostiniUpgradeAvailableNotificationTest
 
   void SetUp() override {
     BrowserWithTestWindowTest::SetUp();
-    chromeos::DBusThreadManager::Initialize();
-    chromeos::CiceroneClient::InitializeFake();
-    chromeos::ConciergeClient::InitializeFake();
-    chromeos::SeneschalClient::InitializeFake();
+    ash::ChunneldClient::InitializeFake();
+    ash::CiceroneClient::InitializeFake();
+    ash::ConciergeClient::InitializeFake();
+    ash::SeneschalClient::InitializeFake();
 
     TestingBrowserProcess::GetGlobal()->SetSystemNotificationHelper(
         std::make_unique<SystemNotificationHelper>());
@@ -66,16 +59,16 @@ class CrostiniUpgradeAvailableNotificationTest
     RunUntilIdle();
     display_service_.reset();
     BrowserWithTestWindowTest::TearDown();
-    chromeos::SeneschalClient::Shutdown();
-    chromeos::ConciergeClient::Shutdown();
-    chromeos::CiceroneClient::Shutdown();
-    chromeos::DBusThreadManager::Shutdown();
+    ash::SeneschalClient::Shutdown();
+    ash::ConciergeClient::Shutdown();
+    ash::CiceroneClient::Shutdown();
+    ash::ChunneldClient::Shutdown();
   }
 
-  chromeos::CrostiniUpgraderDialog* GetCrostiniUpgraderDialog() {
+  ash::CrostiniUpgraderDialog* GetCrostiniUpgraderDialog() {
     auto url = GURL{chrome::kChromeUICrostiniUpgraderUrl};
-    return static_cast<chromeos::CrostiniUpgraderDialog*>(
-        chromeos::SystemWebDialogDelegate::FindInstance(url.spec()));
+    return static_cast<ash::CrostiniUpgraderDialog*>(
+        ash::SystemWebDialogDelegate::FindInstance(url.spec()));
   }
 
   void SafelyCloseDialog() {
@@ -86,10 +79,10 @@ class CrostiniUpgradeAvailableNotificationTest
     }
 
     // Now there should be enough WebUI hooked up to close properly.
-    base::RunLoop run_loop;
-    upgrader_dialog->SetDeletionClosureForTesting(run_loop.QuitClosure());
+    base::test::TestFuture<void> result_future;
+    upgrader_dialog->SetDeletionClosureForTesting(result_future.GetCallback());
     upgrader_dialog->Close();
-    run_loop.Run();
+    ASSERT_TRUE(result_future.Wait());
   }
 
   void ExpectDialog() {
@@ -135,16 +128,16 @@ TEST_F(CrostiniUpgradeAvailableNotificationTest, ShowsWhenNotified) {
 
   DowngradeOSRelease();
 
-  base::RunLoop run_loop;
+  base::test::TestFuture<void> result_future;
   auto notification = CrostiniUpgradeAvailableNotification::Show(
-      profile(), run_loop.QuitClosure());
+      profile(), result_future.GetCallback());
 
   ExpectNoDialog();
 
   // Wait for notification, press Upgrade
   ASSERT_TRUE(notification);
   notification->Get()->delegate()->Click(0, absl::nullopt);
-  run_loop.Run();
+  ASSERT_TRUE(result_future.Wait());
 
   // Dialog should show because we clicked button 0 (Upgrade).
   ExpectDialog();

@@ -1,4 +1,4 @@
-// Copyright 2013 The Chromium Authors. All rights reserved.
+// Copyright 2013 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 
 #include "ash/root_window_controller.h"
 #include "ash/shell.h"
+#include "base/memory/raw_ref.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "third_party/skia/include/core/SkPath.h"
@@ -45,7 +46,7 @@ const SkColor kColors[] = {
     SkColorSetRGB(0xFF, 0xDE, 0xAD),
 };
 const int kAlpha = 0x60;
-const int kMaxPaths = base::size(kColors);
+const int kMaxPaths = std::size(kColors);
 const int kReducedScale = 10;
 
 const char* GetTouchEventLabel(ui::EventType type) {
@@ -195,8 +196,8 @@ class TouchHudCanvas : public views::View {
   int scale() const { return scale_; }
 
   void TouchPointAdded(int touch_id) {
-    int trace_index = touch_log_.GetTraceIndex(touch_id);
-    const TouchTrace& trace = touch_log_.traces()[trace_index];
+    int trace_index = touch_log_->GetTraceIndex(touch_id);
+    const TouchTrace& trace = touch_log_->traces()[trace_index];
     const TouchPointLog& point = trace.log().back();
     if (point.type == ui::ET_TOUCH_PRESSED)
       StartedTrace(trace_index);
@@ -218,7 +219,7 @@ class TouchHudCanvas : public views::View {
   }
 
   void AddedPointToTrace(int trace_index) {
-    const TouchTrace& trace = touch_log_.traces()[trace_index];
+    const TouchTrace& trace = touch_log_->traces()[trace_index];
     const TouchPointLog& point = trace.log().back();
     const gfx::Point& location = point.location;
     SkScalar x = SkIntToScalar(location.x());
@@ -243,7 +244,7 @@ class TouchHudCanvas : public views::View {
 
   cc::PaintFlags flags_;
 
-  const TouchLog& touch_log_;
+  const raw_ref<const TouchLog, ExperimentalAsh> touch_log_;
   SkPath paths_[kMaxPaths];
   SkColor colors_[kMaxPaths];
 
@@ -261,7 +262,7 @@ TouchHudDebug::TouchHudDebug(aura::Window* initial_root)
 
   views::View* content = widget()->GetContentsView();
 
-  content->AddChildView(canvas_);
+  content->AddChildView(canvas_.get());
 
   const gfx::Size& display_size = display.size();
   canvas_->SetSize(display_size);
@@ -284,7 +285,7 @@ TouchHudDebug::TouchHudDebug(aura::Window* initial_root)
   label_container_->SetY(display_size.height() / kReducedScale);
   label_container_->SetSize(label_container_->GetPreferredSize());
   label_container_->SetVisible(false);
-  content->AddChildView(label_container_);
+  content->AddChildView(label_container_.get());
 }
 
 TouchHudDebug::~TouchHudDebug() = default;

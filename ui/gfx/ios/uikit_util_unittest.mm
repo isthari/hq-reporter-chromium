@@ -1,13 +1,17 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+#import "ui/gfx/ios/uikit_util.h"
 
 #import <Foundation/Foundation.h>
 #include <stddef.h>
 
-#include "base/cxx17_backports.h"
 #include "testing/platform_test.h"
-#import "ui/gfx/ios/uikit_util.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 namespace {
 
@@ -20,7 +24,7 @@ TEST_F(UIKitUtilTest, AlignValueToUpperPixel) {
    // "integer" values within <1 of the original value in the scaled space.
    CGFloat test_values[] = { 10.0, 55.5, 3.1, 2.9 };
    const CGFloat kMaxAlignDelta = 0.9999;
-   size_t value_count = base::size(test_values);
+   size_t value_count = std::size(test_values);
    for (unsigned int i = 0; i < value_count; ++i) {
      CGFloat aligned = ui::AlignValueToUpperPixel(test_values[i]);
      EXPECT_FLOAT_EQ(aligned * scale, floor(aligned * scale));
@@ -35,7 +39,7 @@ TEST_F(UIKitUtilTest, AlignSizeToUpperPixel) {
   // "integer" values within <1 of the original value in the scaled space.
   CGFloat test_values[] = { 10.0, 55.5, 3.1, 2.9 };
   const CGFloat kMaxAlignDelta = 0.9999;
-  size_t value_count = base::size(test_values);
+  size_t value_count = std::size(test_values);
   for (unsigned int i = 0; i < value_count; ++i) {
     CGFloat width = test_values[i];
     CGFloat height = test_values[(i + 1) % value_count];

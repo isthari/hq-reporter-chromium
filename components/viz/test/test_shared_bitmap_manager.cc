@@ -1,4 +1,4 @@
-// Copyright 2014 The Chromium Authors. All rights reserved.
+// Copyright 2014 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,7 +24,7 @@ TestSharedBitmapManager::~TestSharedBitmapManager() {
 
 std::unique_ptr<SharedBitmap> TestSharedBitmapManager::GetSharedBitmapFromId(
     const gfx::Size&,
-    ResourceFormat,
+    SharedImageFormat,
     const SharedBitmapId& id) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 

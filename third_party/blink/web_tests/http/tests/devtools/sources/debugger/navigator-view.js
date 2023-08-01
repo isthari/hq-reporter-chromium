@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -102,10 +102,7 @@
       'http://example.com/the%2fdir/foo?bar=100%&baz=a%20%2fb', false);
   await addUISourceCode(
       'http://example.com/path%20with%20spaces/white%20space.html', false);
-  await addUISourceCode('?a=b', false);
-  await addUISourceCode(
-      'very_looooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooong_url',
-      false);
+
   SourcesTestRunner.dumpNavigatorViewInAllModes(sourcesNavigatorView);
   SourcesTestRunner.dumpNavigatorViewInAllModes(contentScriptsNavigatorView);
 

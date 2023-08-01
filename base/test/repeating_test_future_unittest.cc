@@ -1,24 +1,24 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/test/repeating_test_future.h"
 
+#include "base/task/single_thread_task_runner.h"
 #include "base/test/bind.h"
 #include "base/test/gtest_util.h"
 #include "base/test/task_environment.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "testing/gtest/include/gtest/gtest-spi.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-namespace base {
-namespace test {
+namespace base::test {
 
 namespace {
 
 struct MoveOnlyValue {
  public:
   MoveOnlyValue() = default;
+  explicit MoveOnlyValue(std::string data) : data(std::move(data)) {}
   MoveOnlyValue(const MoveOnlyValue&) = delete;
   auto& operator=(const MoveOnlyValue&) = delete;
   MoveOnlyValue(MoveOnlyValue&&) = default;
@@ -38,7 +38,8 @@ class RepeatingTestFutureTest : public ::testing::Test {
   ~RepeatingTestFutureTest() override = default;
 
   void RunLater(OnceClosure callable) {
-    ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, std::move(callable));
+    SingleThreadTaskRunner::GetCurrentDefault()->PostTask(FROM_HERE,
+                                                          std::move(callable));
   }
 
  private:
@@ -79,7 +80,7 @@ TEST_F(RepeatingTestFutureTest,
   EXPECT_FALSE(future.IsEmpty());
 }
 
-TEST_F(RepeatingTestFutureTest, ShouldBeAbleToTakeElementsFiFo) {
+TEST_F(RepeatingTestFutureTest, ShouldTakeElementsFiFo) {
   RepeatingTestFuture<std::string> future;
 
   future.AddValue("first value");
@@ -122,7 +123,7 @@ TEST_F(RepeatingTestFutureTest,
 TEST_F(RepeatingTestFutureTest, WaitShouldReturnFalseIfTimeoutHappens) {
   test::ScopedRunLoopTimeout timeout(FROM_HERE, Milliseconds(1));
 
-  // |ScopedRunLoopTimeout| will automatically fail the test when a timeout
+  // `ScopedRunLoopTimeout` will automatically fail the test when a timeout
   // happens, so we use EXPECT_FATAL_FAILURE to handle this failure.
   // EXPECT_FATAL_FAILURE only works on static objects.
   static bool success;
@@ -154,7 +155,7 @@ TEST_F(RepeatingTestFutureTest, TakeShouldWorkWithMoveOnlyValue) {
   RepeatingTestFuture<MoveOnlyValue> future;
 
   RunLater(BindLambdaForTesting(
-      [&future]() { future.AddValue({.data = "move only value"}); }));
+      [&future]() { future.AddValue(MoveOnlyValue("move only value")); }));
 
   MoveOnlyValue result = future.Take();
 
@@ -238,5 +239,32 @@ TEST_F(RepeatingTestFutureTest,
   EXPECT_EQ(expected_string_value, std::get<1>(actual));
 }
 
-}  // namespace test
-}  // namespace base
+TEST_F(RepeatingTestFutureTest, ShouldSupportCvRefType) {
+  std::string expected_value = "value";
+  RepeatingTestFuture<const std::string&> future;
+
+  base::OnceCallback<void(const std::string&)> callback = future.GetCallback();
+  std::move(callback).Run(expected_value);
+
+  std::string actual = future.Take();
+  EXPECT_EQ(expected_value, actual);
+}
+
+TEST_F(RepeatingTestFutureTest, ShouldSupportMultipleCvRefType) {
+  const int expected_first_value = 5;
+  std::string expected_second_value = "value";
+  const long expected_third_value = 10;
+  RepeatingTestFuture<const int, std::string&, const long&> future;
+
+  base::OnceCallback<void(const int, std::string&, const long&)> callback =
+      future.GetCallback();
+  std::move(callback).Run(expected_first_value, expected_second_value,
+                          expected_third_value);
+
+  std::tuple<int, std::string, long> take_result = future.Take();
+  EXPECT_EQ(expected_first_value, std::get<0>(take_result));
+  EXPECT_EQ(expected_second_value, std::get<1>(take_result));
+  EXPECT_EQ(expected_third_value, std::get<2>(take_result));
+}
+
+}  // namespace base::test

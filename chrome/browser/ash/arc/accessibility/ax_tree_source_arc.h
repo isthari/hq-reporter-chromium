@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 
 #include "ash/components/arc/mojom/accessibility_helper.mojom-forward.h"
 #include "base/containers/flat_map.h"
+#include "base/memory/raw_ptr.h"
 #include "chrome/browser/ash/arc/accessibility/accessibility_info_data_wrapper.h"
 #include "extensions/browser/api/automation_internal/automation_event_router.h"
 #include "ui/accessibility/ax_action_handler.h"
@@ -168,19 +169,34 @@ class AXTreeSourceArc : public ui::AXTreeSource<AccessibilityInfoDataWrapper*>,
   // Resets tree state.
   void Reset();
 
+  // Returns true if we want to traversal |left| after |right|.
+  // Note that this comparison is NOT transitive.
+  bool NeedReorder(AccessibilityInfoDataWrapper* left,
+                   AccessibilityInfoDataWrapper* right) const;
+
+  // Returns true if we can traversal |left| before |right|.
+  bool CompareBounds(const gfx::Rect& left, const gfx::Rect& right) const;
+
   // AXTreeSource:
   int32_t GetId(AccessibilityInfoDataWrapper* info_data) const override;
-  void GetChildren(
-      AccessibilityInfoDataWrapper* info_data,
-      std::vector<AccessibilityInfoDataWrapper*>* out_children) const override;
+  void CacheChildrenIfNeeded(AccessibilityInfoDataWrapper*) override;
+  size_t GetChildCount(AccessibilityInfoDataWrapper*) const override;
+  AccessibilityInfoDataWrapper* ChildAt(AccessibilityInfoDataWrapper*,
+                                        size_t) const override;
+  void ClearChildCache(AccessibilityInfoDataWrapper*) override;
+
   bool IsIgnored(AccessibilityInfoDataWrapper* info_data) const override;
-  bool IsValid(AccessibilityInfoDataWrapper* info_data) const override;
   bool IsEqual(AccessibilityInfoDataWrapper* info_data1,
                AccessibilityInfoDataWrapper* info_data2) const override;
   AccessibilityInfoDataWrapper* GetNull() const override;
 
   // AXActionHandlerBase:
   void PerformAction(const ui::AXActionData& data) override;
+
+  std::vector<AccessibilityInfoDataWrapper*>& GetChildren(
+      AccessibilityInfoDataWrapper* info_data) const;
+
+  void ComputeAndCacheChildren(AccessibilityInfoDataWrapper* info_data) const;
 
   // Maps an AccessibilityInfoDataWrapper ID to its tree data.
   std::map<int32_t, std::unique_ptr<AccessibilityInfoDataWrapper>> tree_map_;
@@ -199,7 +215,7 @@ class AXTreeSourceArc : public ui::AXTreeSource<AccessibilityInfoDataWrapper*>,
   absl::optional<std::string> notification_key_;
 
   // Window corresponding this tree.
-  aura::Window* window_;
+  raw_ptr<aura::Window, ExperimentalAsh> window_;
 
   // Cache of mapping from the *Android* window id to the last focused node id.
   std::map<int32_t, int32_t> window_id_to_last_focus_node_id_;
@@ -208,17 +224,14 @@ class AXTreeSourceArc : public ui::AXTreeSource<AccessibilityInfoDataWrapper*>,
   // This simplifies bounds calculations.
   std::map<int32_t, gfx::Rect> computed_bounds_;
 
-  // Mapping from Chrome node ID to the previous computed name for live region.
-  std::map<int32_t, std::string> previous_live_region_name_;
-
   // Mapping from Chrome node ID to the attached hook implementations.
   base::flat_map<int32_t, std::unique_ptr<Hook>> hooks_;
 
   // A delegate that handles accessibility actions on behalf of this tree. The
   // delegate is valid during the lifetime of this tree.
-  const Delegate* const delegate_;
+  const raw_ptr<const Delegate, ExperimentalAsh> delegate_;
 
-  extensions::AutomationEventRouterInterface*
+  raw_ptr<extensions::AutomationEventRouterInterface, ExperimentalAsh>
       automation_event_router_for_test_ = nullptr;
 };
 

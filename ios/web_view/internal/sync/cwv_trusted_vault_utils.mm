@@ -1,10 +1,10 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/web_view/public/cwv_trusted_vault_utils.h"
 
-#import "components/sync/driver/trusted_vault_histograms.h"
+#import "components/sync/service/trusted_vault_histograms.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -14,9 +14,9 @@ namespace {
 syncer::TrustedVaultDeviceRegistrationStateForUMA CWVConvertTrustedVaultState(
     CWVTrustedVaultState state) {
   switch (state) {
-    case CWVTrustedVaultStateAlreadyRegistered:
+    case CWVTrustedVaultStateAlreadyRegisteredV0:
       return syncer::TrustedVaultDeviceRegistrationStateForUMA::
-          kAlreadyRegistered;
+          kAlreadyRegisteredV0;
     case CWVTrustedVaultStateLocalKeysAreStale:
       return syncer::TrustedVaultDeviceRegistrationStateForUMA::
           kLocalKeysAreStale;
@@ -30,8 +30,12 @@ syncer::TrustedVaultDeviceRegistrationStateForUMA CWVConvertTrustedVaultState(
       return syncer::TrustedVaultDeviceRegistrationStateForUMA::
           kAttemptingRegistrationWithExistingKeyPair;
     case CWVTrustedVaultStateAttemptingRegistrationWithPersistentAuthError:
+      // TODO(crbug.com/1418027): remove CWV version of this bucket.
       return syncer::TrustedVaultDeviceRegistrationStateForUMA::
-          kAttemptingRegistrationWithPersistentAuthError;
+          kDeprecatedAttemptingRegistrationWithPersistentAuthError;
+    case CWVTrustedVaultStateAlreadyRegisteredV1:
+      return syncer::TrustedVaultDeviceRegistrationStateForUMA::
+          kAlreadyRegisteredV1;
   }
 }
 }  // namespace
@@ -44,7 +48,9 @@ syncer::TrustedVaultDeviceRegistrationStateForUMA CWVConvertTrustedVaultState(
 }
 
 + (void)logTrustedVaultDidReceiveHTTPStatusCode:(NSInteger)statusCode {
-  syncer::RecordTrustedVaultURLFetchResponse(statusCode, /*net_error=*/0);
+  syncer::RecordTrustedVaultURLFetchResponse(
+      statusCode, /*net_error=*/0,
+      syncer::TrustedVaultURLFetchReasonForUMA::kUnspecified);
 }
 
 + (void)logTrustedVaultDidFailKeyDistribution:(NSError*)error {

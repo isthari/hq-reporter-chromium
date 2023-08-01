@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,8 +12,14 @@
 #include "chrome/browser/ui/cocoa/screentime/tab_helper.h"
 #include "chrome/browser/ui/cocoa/screentime/webpage_controller.h"
 #include "chrome/browser/ui/cocoa/screentime/webpage_controller_impl.h"
+#include "components/policy/core/common/policy_pref_names.h"
+#include "components/prefs/pref_service.h"
 #include "content/public/browser/media_session.h"
 #include "content/public/browser/web_contents.h"
+
+#if !defined(__has_feature) || !__has_feature(objc_arc)
+#error "This file requires ARC support."
+#endif
 
 namespace screentime {
 
@@ -30,6 +36,13 @@ void TabHelper::UseFakeWebpageControllerForTesting() {
 bool TabHelper::IsScreentimeEnabledForProfile(Profile* profile) {
   if (profile->IsOffTheRecord())
     return false;
+  if (!profile->GetPrefs()
+           ->FindPreference(policy::policy_prefs::kScreenTimeEnabled)
+           ->GetValue()
+           ->GetBool()) {
+    return false;
+  }
+
   return IsScreenTimeEnabled();
 }
 
@@ -65,10 +78,16 @@ std::unique_ptr<WebpageController> TabHelper::MakeWebpageController() {
   auto callback =
       base::BindRepeating(&TabHelper::OnBlockedChanged, base::Unretained(this));
   std::unique_ptr<WebpageController> controller;
-  if (use_fake)
+  if (@available(macOS 12.1, *)) {
+    if (use_fake) {
+      controller = std::make_unique<FakeWebpageController>(callback);
+    } else {
+      controller = std::make_unique<WebpageControllerImpl>(callback);
+    }
+  } else {
+    DCHECK(use_fake);
     controller = std::make_unique<FakeWebpageController>(callback);
-  else
-    controller = std::make_unique<WebpageControllerImpl>(callback);
+  }
   return controller;
 }
 

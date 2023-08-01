@@ -1,15 +1,18 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2021 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/safe_browsing/chrome_safe_browsing_blocking_page_factory.h"
 
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/enterprise/connectors/interstitials/enterprise_block_controller_client.h"
+#include "chrome/browser/enterprise/connectors/interstitials/enterprise_block_page.h"
+#include "chrome/browser/enterprise/connectors/interstitials/enterprise_warn_controller_client.h"
+#include "chrome/browser/enterprise/connectors/interstitials/enterprise_warn_page.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/interstitials/chrome_settings_page_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/safe_browsing/chrome_controller_client.h"
-#include "chrome/browser/safe_browsing/chrome_user_population_helper.h"
 #include "chrome/browser/safe_browsing/safe_browsing_metrics_collector_factory.h"
 #include "chrome/browser/safe_browsing/safe_browsing_navigation_observer_manager_factory.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
@@ -69,12 +72,37 @@ ChromeSafeBrowsingBlockingPageFactory::CreateSafeBrowsingPage(
       display_options, should_trigger_reporting,
       HistoryServiceFactory::GetForProfile(profile,
                                            ServiceAccessType::EXPLICIT_ACCESS),
-      base::BindRepeating(&safe_browsing::GetUserPopulationForProfile, profile),
       SafeBrowsingNavigationObserverManagerFactory::GetForBrowserContext(
           web_contents->GetBrowserContext()),
       SafeBrowsingMetricsCollectorFactory::GetForProfile(profile),
       trigger_manager);
 }
+
+#if !BUILDFLAG(IS_ANDROID)
+security_interstitials::SecurityInterstitialPage*
+ChromeSafeBrowsingBlockingPageFactory::CreateEnterpriseWarnPage(
+    BaseUIManager* ui_manager,
+    content::WebContents* web_contents,
+    const GURL& main_frame_url,
+    const SafeBrowsingBlockingPage::UnsafeResourceList& unsafe_resources) {
+  return new EnterpriseWarnPage(
+      ui_manager, web_contents, main_frame_url, unsafe_resources,
+      std::make_unique<EnterpriseWarnControllerClient>(web_contents,
+                                                       main_frame_url));
+}
+
+security_interstitials::SecurityInterstitialPage*
+ChromeSafeBrowsingBlockingPageFactory::CreateEnterpriseBlockPage(
+    BaseUIManager* ui_manager,
+    content::WebContents* web_contents,
+    const GURL& main_frame_url,
+    const SafeBrowsingBlockingPage::UnsafeResourceList& unsafe_resources) {
+  return new EnterpriseBlockPage(
+      web_contents, main_frame_url,
+      std::make_unique<EnterpriseBlockControllerClient>(web_contents,
+                                                        main_frame_url));
+}
+#endif
 
 ChromeSafeBrowsingBlockingPageFactory::ChromeSafeBrowsingBlockingPageFactory() =
     default;

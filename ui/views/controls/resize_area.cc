@@ -1,4 +1,4 @@
-// Copyright (c) 2012 The Chromium Authors. All rights reserved.
+// Copyright 2012 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,21 +6,21 @@
 
 #include "base/i18n/rtl.h"
 #include "ui/accessibility/ax_enums.mojom.h"
-#include "ui/accessibility/ax_node_data.h"
 #include "ui/base/cursor/cursor.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/views/controls/resize_area_delegate.h"
-#include "ui/views/native_cursor.h"
 
 namespace views {
 
-ResizeArea::ResizeArea(ResizeAreaDelegate* delegate)
-    : delegate_(delegate), initial_position_(0) {}
+ResizeArea::ResizeArea(ResizeAreaDelegate* delegate) : delegate_(delegate) {
+  SetAccessibilityProperties(ax::mojom::Role::kSplitter);
+}
 
 ResizeArea::~ResizeArea() = default;
 
-gfx::NativeCursor ResizeArea::GetCursor(const ui::MouseEvent& event) {
-  return GetEnabled() ? GetNativeEastWestResizeCursor() : gfx::kNullCursor;
+ui::Cursor ResizeArea::GetCursor(const ui::MouseEvent& event) {
+  return GetEnabled() ? ui::Cursor(ui::mojom::CursorType::kEastWestResize)
+                      : ui::Cursor();
 }
 
 void ResizeArea::OnGestureEvent(ui::GestureEvent* event) {
@@ -59,10 +59,6 @@ void ResizeArea::OnMouseReleased(const ui::MouseEvent& event) {
 
 void ResizeArea::OnMouseCaptureLost() {
   ReportResizeAmount(initial_position_, true);
-}
-
-void ResizeArea::GetAccessibleNodeData(ui::AXNodeData* node_data) {
-  node_data->role = ax::mojom::Role::kSplitter;
 }
 
 void ResizeArea::ReportResizeAmount(int resize_amount, bool last_update) {

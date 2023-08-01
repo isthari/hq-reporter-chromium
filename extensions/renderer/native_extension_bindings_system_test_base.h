@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,27 +8,23 @@
 #include <memory>
 #include <string>
 
+#include "base/values.h"
+#include "extensions/common/api/messaging/channel_type.h"
 #include "extensions/common/api/messaging/message.h"
 #include "extensions/common/api/messaging/port_id.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_id.h"
 #include "extensions/common/features/feature.h"
 #include "extensions/common/mojom/frame.mojom-forward.h"
+#include "extensions/renderer/api/messaging/message_target.h"
 #include "extensions/renderer/bindings/api_binding_test.h"
 #include "extensions/renderer/bindings/api_binding_types.h"
 #include "extensions/renderer/ipc_message_sender.h"
-#include "extensions/renderer/message_target.h"
 #include "extensions/renderer/string_source_map.h"
 #include "extensions/renderer/test_extensions_renderer_client.h"
 #include "mojo/public/cpp/bindings/struct_ptr.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "v8/include/v8-forward.h"
-
-struct ExtensionHostMsg_APIActionOrEvent_Params;
-
-namespace base {
-class DictionaryValue;
-}
 
 namespace content {
 class MockRenderThread;
@@ -39,6 +35,7 @@ class ExtensionConfiguration;
 }
 
 namespace extensions {
+
 class NativeExtensionBindingsSystem;
 class ScriptContext;
 class ScriptContextSet;
@@ -74,18 +71,19 @@ class TestIPCMessageSender : public IPCMessageSender {
   MOCK_METHOD4(SendAddFilteredEventListenerIPC,
                void(ScriptContext* context,
                     const std::string& event_name,
-                    const base::DictionaryValue& filter,
+                    const base::Value::Dict& filter,
                     bool is_lazy));
   MOCK_METHOD4(SendRemoveFilteredEventListenerIPC,
                void(ScriptContext* context,
                     const std::string& event_name,
-                    const base::DictionaryValue& filter,
+                    const base::Value::Dict& filter,
                     bool remove_lazy_listener));
 
-  MOCK_METHOD4(SendOpenMessageChannel,
+  MOCK_METHOD5(SendOpenMessageChannel,
                void(ScriptContext* script_context,
                     const PortId& port_id,
                     const MessageTarget& target,
+                    ChannelType channel_type,
                     const std::string& channel_name));
   MOCK_METHOD2(SendOpenMessagePort,
                void(int routing_id, const PortId& port_id));
@@ -93,10 +91,14 @@ class TestIPCMessageSender : public IPCMessageSender {
                void(int routing_id, const PortId& port_id, bool close_channel));
   MOCK_METHOD2(SendPostMessageToPort,
                void(const PortId& port_id, const Message& message));
-  MOCK_METHOD3(SendActivityLogIPC,
+  MOCK_METHOD2(SendMessageResponsePending,
+               void(int routing_id, const PortId& port_id));
+  MOCK_METHOD5(SendActivityLogIPC,
                void(const ExtensionId& extension_id,
                     IPCMessageSender::ActivityLogCallType call_type,
-                    const ExtensionHostMsg_APIActionOrEvent_Params& params));
+                    const std::string& call_name,
+                    base::Value::List args,
+                    const std::string& extra));
 
   const mojom::RequestParams* last_params() const { return last_params_.get(); }
 

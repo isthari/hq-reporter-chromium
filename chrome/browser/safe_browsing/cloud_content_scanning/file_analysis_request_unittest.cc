@@ -1,12 +1,12 @@
-// Copyright (c) 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/safe_browsing/cloud_content_scanning/file_analysis_request.h"
 
-#include "base/callback_helpers.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
+#include "base/functional/callback_helpers.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/test/bind.h"
@@ -14,6 +14,7 @@
 #include "build/build_config.h"
 #include "chrome/browser/enterprise/connectors/analysis/content_analysis_delegate.h"
 #include "chrome/browser/enterprise/connectors/common.h"
+#include "chrome/browser/enterprise/connectors/service_provider_config.h"
 #include "chrome/browser/safe_browsing/cloud_content_scanning/binary_upload_service.h"
 #include "chrome/common/chrome_paths.h"
 #include "content/public/test/browser_task_environment.h"
@@ -74,7 +75,7 @@ class FileAnalysisRequestTest : public testing::Test {
     base::ScopedTempDir temp_dir;
     ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
     base::FilePath file_path = temp_dir.GetPath().AppendASCII("normal.doc");
-    base::WriteFile(file_path, file_contents.data(), file_contents.size());
+    base::WriteFile(file_path, file_contents);
 
     auto request =
         MakeRequest(/*block_unsupported_types=*/false, file_path,
@@ -315,7 +316,7 @@ TEST_F(FileAnalysisRequestTest, CachesResults) {
 
   std::string normal_contents = "Normal file contents";
   base::FilePath file_path = temp_dir.GetPath().AppendASCII("normal.doc");
-  base::WriteFile(file_path, normal_contents.data(), normal_contents.size());
+  base::WriteFile(file_path, normal_contents);
 
   BinaryUploadService::Result async_result;
   BinaryUploadService::Request::Data async_data;
@@ -365,7 +366,7 @@ TEST_F(FileAnalysisRequestTest, CachesResultsWithKnownMimetype) {
 
   std::string normal_contents = "Normal file contents";
   base::FilePath file_path = temp_dir.GetPath().AppendASCII("normal.doc");
-  base::WriteFile(file_path, normal_contents.data(), normal_contents.size());
+  base::WriteFile(file_path, normal_contents);
 
   BinaryUploadService::Result result;
   BinaryUploadService::Request::Data data;
@@ -501,98 +502,6 @@ TEST_P(FileAnalysisRequestZipTest, Encrypted) {
   EXPECT_TRUE(data.contents.empty());
   EXPECT_EQ(test_zip, data.path);
   EXPECT_TRUE(IsZipMimeType(data.mime_type));
-}
-
-TEST_F(FileAnalysisRequestTest, UnsupportedFileTypeBlock) {
-  base::test::TaskEnvironment task_environment;
-  base::ScopedTempDir temp_dir;
-  ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
-
-  std::string normal_contents = "\x89PNG\x0D\x0A\x1A\x0A";
-  base::FilePath file_path = temp_dir.GetPath().AppendASCII("normal.png");
-  base::WriteFile(file_path, normal_contents.data(), normal_contents.size());
-
-  auto request =
-      MakeRequest(/*block_unsupported_types=*/true, file_path,
-                  file_path.BaseName(), /*delay_opening_file*/ false);
-  request->add_tag("dlp");
-  request->add_tag("malware");
-
-  bool called = false;
-  base::RunLoop run_loop;
-  BinaryUploadService::Result result;
-  BinaryUploadService::Request::Data data;
-  request->GetRequestData(base::BindLambdaForTesting(
-      [&run_loop, &called, &result, &data](
-          BinaryUploadService::Result tmp_result,
-          BinaryUploadService::Request::Data tmp_data) {
-        called = true;
-        run_loop.Quit();
-        result = tmp_result;
-        data = std::move(tmp_data);
-      }));
-  run_loop.Run();
-
-  ASSERT_TRUE(called);
-
-  EXPECT_EQ(result,
-            BinaryUploadService::Result::DLP_SCAN_UNSUPPORTED_FILE_TYPE);
-  EXPECT_TRUE(data.contents.empty());
-  EXPECT_EQ(file_path, data.path);
-  EXPECT_EQ(data.size, normal_contents.size());
-  // printf "\x89PNG\x0D\x0A\x1A\x0A" | sha256sum |  tr '[:lower:]' '[:upper:]'
-  EXPECT_EQ(data.hash,
-            "4C4B6A3BE1314AB86138BEF4314DDE022E600960D8689A2C8F8631802D20DAB6");
-  EXPECT_EQ(request->digest(), data.hash);
-  EXPECT_EQ("image/png", data.mime_type)
-      << data.mime_type << " is not an expected mimetype";
-}
-
-TEST_F(FileAnalysisRequestTest, UnsupportedFileTypeNoBlock) {
-  base::test::TaskEnvironment task_environment;
-  base::ScopedTempDir temp_dir;
-  ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
-
-  std::string normal_contents = "\x89PNG\x0D\x0A\x1A\x0A";
-  base::FilePath file_path = temp_dir.GetPath().AppendASCII("normal.png");
-  base::WriteFile(file_path, normal_contents.data(), normal_contents.size());
-
-  auto request =
-      MakeRequest(/*block_unsupported_types=*/false, file_path,
-                  file_path.BaseName(), /*delay_opening_file*/ false);
-  request->add_tag("dlp");
-  request->add_tag("malware");
-
-  bool called = false;
-  base::RunLoop run_loop;
-  BinaryUploadService::Result result;
-  BinaryUploadService::Request::Data data;
-  request->GetRequestData(base::BindLambdaForTesting(
-      [&run_loop, &called, &result, &data](
-          BinaryUploadService::Result tmp_result,
-          BinaryUploadService::Request::Data tmp_data) {
-        called = true;
-        run_loop.Quit();
-        result = tmp_result;
-        data = std::move(tmp_data);
-      }));
-  run_loop.Run();
-
-  ASSERT_TRUE(called);
-
-  // The dlp request should have been removed since the type is unsupported.
-  for (const std::string& tag : request->content_analysis_request().tags())
-    EXPECT_NE("dlp", tag);
-  EXPECT_EQ(result, BinaryUploadService::Result::SUCCESS);
-  EXPECT_TRUE(data.contents.empty());
-  EXPECT_EQ(file_path, data.path);
-  EXPECT_EQ(data.size, normal_contents.size());
-  // printf "\x89PNG\x0D\x0A\x1A\x0A" | sha256sum |  tr '[:lower:]' '[:upper:]'
-  EXPECT_EQ(data.hash,
-            "4C4B6A3BE1314AB86138BEF4314DDE022E600960D8689A2C8F8631802D20DAB6");
-  EXPECT_EQ(request->digest(), data.hash);
-  EXPECT_EQ("image/png", data.mime_type)
-      << data.mime_type << " is not an expected mimetype";
 }
 
 }  // namespace safe_browsing

@@ -1,35 +1,41 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #import "ios/chrome/browser/ui/location_bar/location_bar_coordinator.h"
 
-#include <memory>
-#include <string>
-#include <vector>
+#import <memory>
+#import <string>
+#import <vector>
 
-#include "components/omnibox/browser/test_location_bar_model.h"
-#include "components/variations/scoped_variations_ids_provider.h"
-#include "components/variations/variations_ids_provider.h"
-#include "ios/chrome/browser/autocomplete/autocomplete_classifier_factory.h"
-#include "ios/chrome/browser/browser_state/test_chrome_browser_state.h"
-#include "ios/chrome/browser/favicon/favicon_service_factory.h"
-#include "ios/chrome/browser/favicon/ios_chrome_favicon_loader_factory.h"
-#include "ios/chrome/browser/favicon/ios_chrome_large_icon_service_factory.h"
-#include "ios/chrome/browser/history/history_service_factory.h"
-#import "ios/chrome/browser/main/test_browser.h"
-#include "ios/chrome/browser/search_engines/template_url_service_factory.h"
-#import "ios/chrome/browser/ui/main/scene_state.h"
-#import "ios/chrome/browser/ui/main/scene_state_browser_agent.h"
-#import "ios/chrome/browser/ui/toolbar/toolbar_coordinator_delegate.h"
+#import "components/omnibox/browser/test_location_bar_model.h"
+#import "components/variations/scoped_variations_ids_provider.h"
+#import "components/variations/variations_ids_provider.h"
+#import "ios/chrome/browser/autocomplete/autocomplete_classifier_factory.h"
+#import "ios/chrome/browser/favicon/favicon_service_factory.h"
+#import "ios/chrome/browser/favicon/ios_chrome_favicon_loader_factory.h"
+#import "ios/chrome/browser/favicon/ios_chrome_large_icon_service_factory.h"
+#import "ios/chrome/browser/history/history_service_factory.h"
+#import "ios/chrome/browser/search_engines/template_url_service_factory.h"
+#import "ios/chrome/browser/shared/coordinator/scene/scene_state.h"
+#import "ios/chrome/browser/shared/coordinator/scene/scene_state_browser_agent.h"
+#import "ios/chrome/browser/shared/model/browser/test/test_browser.h"
+#import "ios/chrome/browser/shared/model/browser_state/test_chrome_browser_state.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_list.h"
+#import "ios/chrome/browser/shared/model/web_state_list/web_state_opener.h"
+#import "ios/chrome/browser/shared/public/commands/application_commands.h"
+#import "ios/chrome/browser/shared/public/commands/command_dispatcher.h"
+#import "ios/chrome/browser/shared/public/commands/lens_commands.h"
+#import "ios/chrome/browser/shared/public/commands/qr_scanner_commands.h"
+#import "ios/chrome/browser/ui/omnibox/omnibox_focus_delegate.h"
 #import "ios/chrome/browser/url_loading/fake_url_loading_browser_agent.h"
 #import "ios/chrome/browser/url_loading/url_loading_notifier_browser_agent.h"
 #import "ios/chrome/browser/url_loading/url_loading_params.h"
-#include "ios/chrome/browser/web_state_list/web_state_list.h"
-#import "ios/chrome/browser/web_state_list/web_state_opener.h"
 #import "ios/web/public/test/fakes/fake_web_state.h"
 #import "ios/web/public/test/web_task_environment.h"
-#include "testing/platform_test.h"
+#import "testing/platform_test.h"
+#import "third_party/ocmock/OCMock/OCMock.h"
+#import "third_party/ocmock/gtest_support.h"
 
 #if !defined(__has_feature) || !__has_feature(objc_arc)
 #error "This file requires ARC support."
@@ -37,17 +43,17 @@
 
 using variations::VariationsIdsProvider;
 
-@interface TestToolbarCoordinatorDelegate : NSObject<ToolbarCoordinatorDelegate>
+@interface TestOmniboxFocusDelegate : NSObject <OmniboxFocusDelegate>
 
 @end
 
-@implementation TestToolbarCoordinatorDelegate {
+@implementation TestOmniboxFocusDelegate {
   std::unique_ptr<LocationBarModel> _model;
 }
 
-- (void)locationBarDidBecomeFirstResponder {
+- (void)omniboxDidBecomeFirstResponder {
 }
-- (void)locationBarDidResignFirstResponder {
+- (void)omniboxDidResignFirstResponder {
 }
 
 - (LocationBarModel*)locationBarModel {
@@ -106,11 +112,34 @@ class LocationBarCoordinatorTest : public PlatformTest {
         0, std::move(web_state), WebStateList::INSERT_FORCE_INDEX,
         WebStateOpener());
 
-    delegate_ = [[TestToolbarCoordinatorDelegate alloc] init];
+    CommandDispatcher* dispatcher = browser_->GetCommandDispatcher();
+
+    id mockQrScannerCommandHandler =
+        OCMProtocolMock(@protocol(QRScannerCommands));
+    [dispatcher startDispatchingToTarget:mockQrScannerCommandHandler
+                             forProtocol:@protocol(QRScannerCommands)];
+    id mockLensCommandsHandler = OCMProtocolMock(@protocol(LensCommands));
+    [dispatcher startDispatchingToTarget:mockLensCommandsHandler
+                             forProtocol:@protocol(LensCommands)];
+
+    // Set up ApplicationCommands mock. Because ApplicationCommands conforms
+    // to ApplicationSettingsCommands, that needs to be mocked and dispatched
+    // as well.
+    id mockApplicationCommandHandler =
+        OCMProtocolMock(@protocol(ApplicationCommands));
+    id mockApplicationSettingsCommandHandler =
+        OCMProtocolMock(@protocol(ApplicationSettingsCommands));
+    [dispatcher startDispatchingToTarget:mockApplicationCommandHandler
+                             forProtocol:@protocol(ApplicationCommands)];
+    [dispatcher
+        startDispatchingToTarget:mockApplicationSettingsCommandHandler
+                     forProtocol:@protocol(ApplicationSettingsCommands)];
+
+    delegate_ = [[TestOmniboxFocusDelegate alloc] init];
 
     coordinator_ = [[LocationBarCoordinator alloc]
-        initWithBaseViewController:nil
-                           browser:browser_.get()];
+
+        initWithBrowser:browser_.get()];
     coordinator_.delegate = delegate_;
   }
 
@@ -128,7 +157,7 @@ class LocationBarCoordinatorTest : public PlatformTest {
   std::unique_ptr<TestChromeBrowserState> browser_state_;
   std::unique_ptr<Browser> browser_;
   SceneState* scene_state_;
-  TestToolbarCoordinatorDelegate* delegate_;
+  TestOmniboxFocusDelegate* delegate_;
 };
 
 TEST_F(LocationBarCoordinatorTest, Stops) {
@@ -158,9 +187,10 @@ TEST_F(LocationBarCoordinatorTest, LoadGoogleUrl) {
   WindowOpenDisposition disposition = WindowOpenDisposition::SWITCH_TO_TAB;
   [coordinator_ start];
   [coordinator_ loadGURLFromLocationBar:url
-                            postContent:nil
-                             transition:transition
-                            disposition:disposition];
+                                 postContent:nil
+                                  transition:transition
+                                 disposition:disposition
+      destination_url_entered_without_scheme:false];
 
   FakeUrlLoadingBrowserAgent* url_loader =
       FakeUrlLoadingBrowserAgent::FromUrlLoadingBrowserAgent(
@@ -192,9 +222,10 @@ TEST_F(LocationBarCoordinatorTest, LoadNonGoogleUrl) {
   WindowOpenDisposition disposition = WindowOpenDisposition::CURRENT_TAB;
   [coordinator_ start];
   [coordinator_ loadGURLFromLocationBar:url
-                            postContent:nil
-                             transition:transition
-                            disposition:disposition];
+                                 postContent:nil
+                                  transition:transition
+                                 disposition:disposition
+      destination_url_entered_without_scheme:false];
 
   FakeUrlLoadingBrowserAgent* url_loader =
       FakeUrlLoadingBrowserAgent::FromUrlLoadingBrowserAgent(

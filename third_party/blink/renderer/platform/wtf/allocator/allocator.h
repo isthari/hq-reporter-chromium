@@ -1,34 +1,19 @@
-// Copyright 2015 The Chromium Authors. All rights reserved.
+// Copyright 2015 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_ALLOCATOR_ALLOCATOR_H_
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_WTF_ALLOCATOR_ALLOCATOR_H_
 
-#include <atomic>
-
-#include "base/allocator/buildflags.h"
-#include "base/check_op.h"
+#include "base/check.h"
+#include "base/memory/stack_allocated.h"
 #include "build/build_config.h"
 #include "third_party/blink/renderer/platform/wtf/allocator/partitions.h"
 #include "third_party/blink/renderer/platform/wtf/type_traits.h"
 
-#if BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
-#if !BUILDFLAG(IS_APPLE)
-// FastMalloc() defers to malloc() in this case, and including its header
-// ensures that the compiler knows that malloc() is "special", e.g. that it
-// returns properly-aligned, distinct memory locations.
-#include <malloc.h>
-#elif BUILDFLAG(IS_APPLE)
-// malloc.h doesn't exist on Apple OSes (it's in malloc/malloc.h), but the
-// definitions we want are actually in stdlib.h.
-#include <stdlib.h>
-#endif  // BUILDFLAG(IS_APPLE)
-#else
-#include "base/allocator/partition_allocator/partition_alloc.h"
-#endif  // BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
-
 namespace WTF {
+
+using base::NotNullTag;
 
 namespace internal {
 // A dummy class used in following macros.
@@ -41,48 +26,36 @@ class __thisIsHereToForceASemicolonAfterThisMacro;
 // is able to discover their references. These macros will be useful for
 // non-garbage-collected objects to avoid unintended allocations.
 //
-// STACK_ALLOCATED(): Use if the object is only stack allocated.
-// Garbage-collected objects should be in raw pointers.
+// STACK_ALLOCATED() classes may contain raw pointers to garbage-collected
+// objects.
 //
 // DISALLOW_NEW(): Cannot be allocated with new operators but can be a
 // part of object, a value object in collections or stack allocated. If it has
 // Members you need a trace method and the containing object needs to call that
 // trace method.
 //
-#define DISALLOW_NEW()                                                        \
- public:                                                                      \
-  using IsDisallowNewMarker = int;                                            \
-  void* operator new(size_t, NotNullTag, void* location) { return location; } \
-  void* operator new(size_t, void* location) { return location; }             \
-                                                                              \
- private:                                                                     \
-  void* operator new(size_t) = delete;                                        \
-                                                                              \
- public:                                                                      \
-  friend class ::WTF::internal::__thisIsHereToForceASemicolonAfterThisMacro
-
-#define STATIC_ONLY(Type)                                 \
-  Type() = delete;                                        \
-  Type(const Type&) = delete;                             \
-  Type& operator=(const Type&) = delete;                  \
-  void* operator new(size_t) = delete;                    \
-  void* operator new(size_t, NotNullTag, void*) = delete; \
-  void* operator new(size_t, void*) = delete
-
-#if defined(__clang__)
-#define ANNOTATE_STACK_ALLOCATED \
-  __attribute__((annotate("blink_stack_allocated")))
-#else
-#define ANNOTATE_STACK_ALLOCATED
-#endif
-
-#define STACK_ALLOCATED()                                       \
+#define DISALLOW_NEW()                                          \
  public:                                                        \
-  using IsStackAllocatedTypeMarker [[maybe_unused]] = int;      \
+  using IsDisallowNewMarker [[maybe_unused]] = int;             \
+  void* operator new(size_t, WTF::NotNullTag, void* location) { \
+    return location;                                            \
+  }                                                             \
+  void* operator new(size_t, void* location) {                  \
+    return location;                                            \
+  }                                                             \
                                                                 \
  private:                                                       \
-  ANNOTATE_STACK_ALLOCATED void* operator new(size_t) = delete; \
-  void* operator new(size_t, NotNullTag, void*) = delete;       \
+  void* operator new(size_t) = delete;                          \
+                                                                \
+ public:                                                        \
+  friend class ::WTF::internal::__thisIsHereToForceASemicolonAfterThisMacro
+
+#define STATIC_ONLY(Type)                                      \
+  Type() = delete;                                             \
+  Type(const Type&) = delete;                                  \
+  Type& operator=(const Type&) = delete;                       \
+  void* operator new(size_t) = delete;                         \
+  void* operator new(size_t, WTF::NotNullTag, void*) = delete; \
   void* operator new(size_t, void*) = delete
 
 // Provides customizable overrides of fastMalloc/fastFree and operator
@@ -123,35 +96,42 @@ class __thisIsHereToForceASemicolonAfterThisMacro;
 #define USING_FAST_MALLOC_WITH_TYPE_NAME(type) \
   USING_FAST_MALLOC_INTERNAL(type, #type)
 
-#define USING_FAST_MALLOC_INTERNAL(type, typeName)                    \
- public:                                                              \
-  void* operator new(size_t, void* p) { return p; }                   \
-  void* operator new[](size_t, void* p) { return p; }                 \
-                                                                      \
-  void* operator new(size_t size) {                                   \
-    return ::WTF::Partitions::FastMalloc(size, typeName);             \
-  }                                                                   \
-                                                                      \
-  void operator delete(void* p) { ::WTF::Partitions::FastFree(p); }   \
-                                                                      \
-  void* operator new[](size_t size) {                                 \
-    return ::WTF::Partitions::FastMalloc(size, typeName);             \
-  }                                                                   \
-                                                                      \
-  void operator delete[](void* p) { ::WTF::Partitions::FastFree(p); } \
-  void* operator new(size_t, NotNullTag, void* location) {            \
-    DCHECK(location);                                                 \
-    return location;                                                  \
-  }                                                                   \
-                                                                      \
- private:                                                             \
+#define USING_FAST_MALLOC_INTERNAL(type, typeName)              \
+ public:                                                        \
+  void* operator new(size_t, void* p) {                         \
+    return p;                                                   \
+  }                                                             \
+  void* operator new[](size_t, void* p) {                       \
+    return p;                                                   \
+  }                                                             \
+                                                                \
+  void* operator new(size_t size) {                             \
+    return ::WTF::Partitions::FastMalloc(size, typeName);       \
+  }                                                             \
+                                                                \
+  void operator delete(void* p) {                               \
+    ::WTF::Partitions::FastFree(p);                             \
+  }                                                             \
+                                                                \
+  void* operator new[](size_t size) {                           \
+    return ::WTF::Partitions::FastMalloc(size, typeName);       \
+  }                                                             \
+                                                                \
+  void operator delete[](void* p) {                             \
+    ::WTF::Partitions::FastFree(p);                             \
+  }                                                             \
+  void* operator new(size_t, WTF::NotNullTag, void* location) { \
+    DCHECK(location);                                           \
+    return location;                                            \
+  }                                                             \
+                                                                \
+ private:                                                       \
   friend class ::WTF::internal::__thisIsHereToForceASemicolonAfterThisMacro
 
 }  // namespace WTF
 
 // This version of placement new omits a 0 check.
-enum class NotNullTag { kNotNull };
-inline void* operator new(size_t, NotNullTag, void* location) {
+inline void* operator new(size_t, WTF::NotNullTag, void* location) {
   DCHECK(location);
   return location;
 }

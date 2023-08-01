@@ -1,4 +1,4 @@
-// Copyright 2020 The Chromium Authors. All rights reserved.
+// Copyright 2020 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,22 +8,13 @@
 #include "chrome/browser/bitmap_fetcher/bitmap_fetcher.h"
 #include "chrome/browser/bitmap_fetcher/bitmap_fetcher_delegate.h"
 #include "chrome/browser/profiles/profile.h"
-#include "components/user_manager/user.h"
-#include "components/user_manager/user_manager.h"
-#include "content/public/browser/browser_context.h"
-#include "content/public/browser/storage_partition.h"
-#include "net/base/load_flags.h"
+#include "components/account_id/account_id.h"
 #include "net/url_request/referrer_policy.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
+#include "services/network/public/mojom/fetch_api.mojom-shared.h"
+#include "ui/gfx/image/image_skia.h"
 
 namespace {
-
-Profile* GetProfileForActiveUser() {
-  const user_manager::User* const active_user =
-      user_manager::UserManager::Get()->GetActiveUser();
-  DCHECK(active_user);
-
-  return ash::ProfileHelper::Get()->GetProfileByUser(active_user);
-}
 
 // DownloadTask ----------------------------------------------------------------
 
@@ -31,10 +22,11 @@ class DownloadTask : public BitmapFetcherDelegate {
  public:
   DownloadTask(const GURL& url,
                const net::NetworkTrafficAnnotationTag& annotation_tag,
+               const AccountId& account_id,
                const net::HttpRequestHeaders& additional_headers,
                ash::ImageDownloader::DownloadCallback callback)
       : callback_(std::move(callback)) {
-    StartTask(url, annotation_tag, additional_headers);
+    StartTask(url, annotation_tag, account_id, additional_headers);
   }
 
   DownloadTask(const DownloadTask&) = delete;
@@ -52,8 +44,10 @@ class DownloadTask : public BitmapFetcherDelegate {
  private:
   void StartTask(const GURL& url,
                  const net::NetworkTrafficAnnotationTag& annotation_tag,
+                 const AccountId& account_id,
                  const net::HttpRequestHeaders& additional_headers) {
-    auto* profile = GetProfileForActiveUser();
+    Profile* profile =
+        ash::ProfileHelper::Get()->GetProfileByAccountId(account_id);
     if (!profile) {
       std::move(callback_).Run(gfx::ImageSkia());
       return;
@@ -84,16 +78,20 @@ ImageDownloaderImpl::~ImageDownloaderImpl() = default;
 void ImageDownloaderImpl::Download(
     const GURL& url,
     const net::NetworkTrafficAnnotationTag& annotation_tag,
+    const AccountId& account_id,
     ash::ImageDownloader::DownloadCallback callback) {
-  Download(url, annotation_tag, /*additional_headers=*/{}, std::move(callback));
+  Download(url, annotation_tag, account_id, /*additional_headers=*/{},
+           std::move(callback));
 }
 
 void ImageDownloaderImpl::Download(
     const GURL& url,
     const net::NetworkTrafficAnnotationTag& annotation_tag,
+    const AccountId& account_id,
     const net::HttpRequestHeaders& additional_headers,
     ash::ImageDownloader::DownloadCallback callback) {
+  DCHECK(account_id.is_valid());
   // The download task will delete itself upon task completion.
-  new DownloadTask(url, annotation_tag, additional_headers,
+  new DownloadTask(url, annotation_tag, account_id, additional_headers,
                    std::move(callback));
 }

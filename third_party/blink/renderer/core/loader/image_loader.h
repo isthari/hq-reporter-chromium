@@ -30,17 +30,14 @@
 #include "third_party/blink/renderer/bindings/core/v8/script_promise.h"
 #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
 #include "third_party/blink/renderer/core/core_export.h"
-#include "third_party/blink/renderer/core/loader/resource/image_resource.h"
 #include "third_party/blink/renderer/core/loader/resource/image_resource_content.h"
 #include "third_party/blink/renderer/core/loader/resource/image_resource_observer.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/heap/prefinalizer.h"
-#include "third_party/blink/renderer/platform/wtf/hash_set.h"
 #include "third_party/blink/renderer/platform/wtf/text/atomic_string.h"
 
 namespace blink {
 
-class ContainerNode;
 class DOMWrapperWorld;
 class Element;
 class ExceptionState;
@@ -63,6 +60,10 @@ class CORE_EXPORT ImageLoader : public GarbageCollected<ImageLoader>,
     // document, or when DOM mutations trigger a new load. Starts loading if a
     // load hasn't already been started.
     kUpdateNormal,
+    // This is the behavior when the update is triggered by the lazy loading
+    // mechanism. We can't update synchronously, because doing so may invalidate
+    // style, which is forbidden from lazy load callbacks.
+    kUpdateFromMicrotask,
     // This should be the update behavior when the resource was changed (via
     // 'src', 'srcset' or 'sizes'). Starts a new load even if a previous load of
     // the same resource have failed, to match Firefox's behavior.
@@ -77,24 +78,15 @@ class CORE_EXPORT ImageLoader : public GarbageCollected<ImageLoader>,
   };
 
   // force_blocking ensures that the image will block the load event.
-  void UpdateFromElement(
-      UpdateFromElementBehavior = kUpdateNormal,
-      network::mojom::ReferrerPolicy = network::mojom::ReferrerPolicy::kDefault,
-      bool force_blocking = false);
+  void UpdateFromElement(UpdateFromElementBehavior = kUpdateNormal,
+                         bool force_blocking = false);
 
   void ElementDidMoveToNewDocument();
 
   Element* GetElement() const { return element_; }
-  bool ImageComplete() const { return image_complete_ && !pending_task_; }
+  bool ImageComplete() const { return image_complete_; }
 
   ImageResourceContent* GetContent() const { return image_content_.Get(); }
-
-  // Returns true if this loader should be updated via UpdateFromElement() when
-  // being inserted into a new parent; returns false otherwise.
-  bool ShouldUpdateOnInsertedInto(
-      ContainerNode& insertion_point,
-      network::mojom::ReferrerPolicy referrer_policy =
-          network::mojom::ReferrerPolicy::kDefault) const;
 
   // Returns true if a the owner of this loader should consider the image being
   // loaded as "potentially available", i.e that it may eventually become
@@ -136,19 +128,20 @@ class CORE_EXPORT ImageLoader : public GarbageCollected<ImageLoader>,
 
   bool HasPendingError() const { return pending_error_event_.IsActive(); }
 
-  bool HadError() const { return !failed_load_url_.IsEmpty(); }
+  bool HadError() const { return !failed_load_url_.empty(); }
 
   bool GetImageAnimationPolicy(mojom::blink::ImageAnimationPolicy&) final;
 
   ScriptPromise Decode(ScriptState*, ExceptionState&);
 
-  // force_blocking ensures that the image will block the load event.
-  void LoadDeferredImage(network::mojom::ReferrerPolicy,
-                         bool force_blocking = false);
+  // `force_blocking` ensures that the image will block the load event.
+  void LoadDeferredImage(bool force_blocking = false,
+                         bool update_from_microtask = false);
 
  protected:
   void ImageChanged(ImageResourceContent*, CanDeferInvalidation) override;
   void ImageNotifyFinished(ImageResourceContent*) override;
+  ResourcePriority ComputeResourcePriority() const override;
 
  private:
   class Task;
@@ -171,12 +164,11 @@ class CORE_EXPORT ImageLoader : public GarbageCollected<ImageLoader>,
 
   // Called from the task or from updateFromElement to initiate the load.
   // force_blocking ensures that the image will block the load event.
-  void DoUpdateFromElement(
-      scoped_refptr<const DOMWrapperWorld> world,
-      UpdateFromElementBehavior,
-      network::mojom::ReferrerPolicy = network::mojom::ReferrerPolicy::kDefault,
-      UpdateType = UpdateType::kAsync,
-      bool force_blocking = false);
+  void DoUpdateFromElement(scoped_refptr<const DOMWrapperWorld> world,
+                           UpdateFromElementBehavior,
+                           base::TimeTicks discovery_time,
+                           UpdateType = UpdateType::kAsync,
+                           bool force_blocking = false);
 
   virtual void DispatchLoadEvent() = 0;
   virtual void NoImageResourceToLoad() {}
@@ -186,7 +178,7 @@ class CORE_EXPORT ImageLoader : public GarbageCollected<ImageLoader>,
   void DispatchPendingLoadEvent(std::unique_ptr<IncrementLoadEventDelayCount>);
   void DispatchPendingErrorEvent(std::unique_ptr<IncrementLoadEventDelayCount>);
 
-  LayoutImageResource* GetLayoutImageResource();
+  LayoutImageResource* GetLayoutImageResource() const;
   void UpdateLayoutObject();
 
   // Note: SetImage.*() are not a simple setter.
@@ -198,8 +190,8 @@ class CORE_EXPORT ImageLoader : public GarbageCollected<ImageLoader>,
   void ClearFailedLoadURL();
   void DispatchErrorEvent();
   void CrossSiteOrCSPViolationOccurred(AtomicString);
-  void EnqueueImageLoadingMicroTask(UpdateFromElementBehavior,
-                                    network::mojom::ReferrerPolicy);
+  void EnqueueImageLoadingMicroTask(UpdateFromElementBehavior update_behavior,
+                                    base::TimeTicks discovery_time);
 
   KURL ImageSourceToKURL(AtomicString) const;
 
@@ -222,9 +214,6 @@ class CORE_EXPORT ImageLoader : public GarbageCollected<ImageLoader>,
   Member<ImageResourceContent> image_content_;
   Member<ImageResourceContent> image_content_for_image_document_;
 
-  String last_base_element_url_;
-  network::mojom::ReferrerPolicy last_referrer_policy_ =
-      network::mojom::ReferrerPolicy::kDefault;
   AtomicString failed_load_url_;
   base::WeakPtr<Task> pending_task_;  // owned by Microtask
   std::unique_ptr<IncrementLoadEventDelayCount>
@@ -252,12 +241,6 @@ class CORE_EXPORT ImageLoader : public GarbageCollected<ImageLoader>,
 
   bool image_complete_ : 1;
   bool suppress_error_events_ : 1;
-  // Tracks whether or not an image whose load was deferred was explicitly lazy
-  // (i.e., had developer-supplied `loading=lazy`). This matters because images
-  // that were not explicitly lazy but were deferred via automatic lazy image
-  // loading should continue to block the window load event, whereas explicitly
-  // lazy images should never block the window load event.
-  bool was_deferred_explicitly_ : 1;
 
   LazyImageLoadState lazy_image_load_state_;
 

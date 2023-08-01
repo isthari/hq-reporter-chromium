@@ -1,4 +1,4 @@
-// Copyright 2016 The Chromium Authors. All rights reserved.
+// Copyright 2016 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,9 @@
 #include "ash/components/arc/ime/key_event_result_receiver.h"
 #include "ash/keyboard/ui/keyboard_ui_controller.h"
 #include "ash/public/cpp/app_types_util.h"
+#include "ash/public/cpp/external_arc/message_center/arc_notification_content_view.h"
 #include "base/logging.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/singleton.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/strings/string_util.h"
@@ -27,9 +29,10 @@
 #include "ui/base/ime/ash/extension_ime_util.h"
 #include "ui/base/ime/ash/input_method_manager.h"
 #include "ui/base/ime/constants.h"
+#include "ui/base/ime/ime_key_event_dispatcher.h"
 #include "ui/base/ime/input_method.h"
-#include "ui/base/ime/input_method_delegate.h"
 #include "ui/base/ime/text_input_flags.h"
+#include "ui/display/screen.h"
 #include "ui/events/base_event_utils.h"
 #include "ui/events/event.h"
 #include "ui/events/keycodes/keyboard_codes.h"
@@ -43,6 +46,7 @@ namespace arc {
 namespace {
 
 absl::optional<double> g_override_default_device_scale_factor;
+absl::optional<gfx::Point> g_override_display_origin;
 
 // Return true when a rich text editing is available on a text field with the
 // given type.
@@ -56,7 +60,7 @@ bool IsCharacterKeyEvent(const ui::KeyEvent* event) {
 }
 
 // Return true if the given key event is used for language switching by IME.
-// Please refer to ui::InputMethodAsh::DispatchKeyEvent for details.
+// Please refer to `ash::InputMethodAsh::DispatchKeyEvent` for details.
 bool IsLanguageInputKey(const ui::KeyEvent* event) {
   switch (event->key_code()) {
     case ui::VKEY_CONVERT:
@@ -140,7 +144,7 @@ class ArcWindowDelegateImpl : public ArcImeService::ArcWindowDelegate {
   }
 
  private:
-  ArcImeService* const ime_service_;
+  const raw_ptr<ArcImeService, ExperimentalAsh> ime_service_;
 };
 
 // Singleton factory for ArcImeService.
@@ -316,9 +320,6 @@ void ArcImeService::OnTextInputTypeChanged(
     ui::TextInputType type,
     bool is_personalized_learning_allowed,
     int flags) {
-  if (!ShouldSendUpdateToInputMethod())
-    return;
-
   if (ime_type_ == type &&
       is_personalized_learning_allowed_ == is_personalized_learning_allowed &&
       ime_flags_ == flags) {
@@ -327,6 +328,9 @@ void ArcImeService::OnTextInputTypeChanged(
   ime_type_ = type;
   is_personalized_learning_allowed_ = is_personalized_learning_allowed;
   ime_flags_ = flags;
+
+  if (!ShouldSendUpdateToInputMethod())
+    return;
 
   ui::InputMethod* const input_method = GetInputMethod();
   if (input_method)
@@ -343,13 +347,14 @@ void ArcImeService::OnTextInputTypeChanged(
   }
 }
 
-void ArcImeService::OnCursorRectChanged(const gfx::Rect& rect,
-                                        bool is_screen_coordinates) {
+void ArcImeService::OnCursorRectChanged(
+    const gfx::Rect& rect,
+    mojom::CursorCoordinateSpace coordinate_space) {
   if (!ShouldSendUpdateToInputMethod())
     return;
 
   InvalidateSurroundingTextAndSelectionRange();
-  if (!UpdateCursorRect(rect, is_screen_coordinates))
+  if (!UpdateCursorRect(rect, coordinate_space))
     return;
 
   ui::InputMethod* const input_method = GetInputMethod();
@@ -382,13 +387,12 @@ void ArcImeService::OnCursorRectChangedWithSurroundingText(
     const gfx::Range& text_range,
     const std::u16string& text_in_range,
     const gfx::Range& selection_range,
-    bool is_screen_coordinates) {
+    mojom::CursorCoordinateSpace coordinate_space) {
   if (!ShouldSendUpdateToInputMethod())
     return;
 
-  if (!UpdateCursorRect(rect, is_screen_coordinates) &&
-      text_range_ == text_range && text_in_range_ == text_in_range &&
-      selection_range_ == selection_range) {
+  if (!UpdateCursorRect(rect, coordinate_space) && text_range_ == text_range &&
+      text_in_range_ == text_in_range && selection_range_ == selection_range) {
     return;
   }
 
@@ -431,7 +435,7 @@ void ArcImeService::SetCompositionText(const ui::CompositionText& composition) {
   ime_bridge_->SendSetCompositionText(composition);
 }
 
-uint32_t ArcImeService::ConfirmCompositionText(bool keep_selection) {
+size_t ArcImeService::ConfirmCompositionText(bool keep_selection) {
   if (!keep_selection) {
     InvalidateSurroundingTextAndSelectionRange();
   }
@@ -439,7 +443,7 @@ uint32_t ArcImeService::ConfirmCompositionText(bool keep_selection) {
   // Note: SendConfirmCompositonText() will commit the text and
   // keep the selection unchanged
   ime_bridge_->SendConfirmCompositionText();
-  return UINT32_MAX;
+  return std::numeric_limits<size_t>::max();
 }
 
 void ArcImeService::ClearCompositionText() {
@@ -545,7 +549,7 @@ bool ArcImeService::CanComposeInline() const {
   return true;
 }
 
-bool ArcImeService::GetCompositionCharacterBounds(uint32_t index,
+bool ArcImeService::GetCompositionCharacterBounds(size_t index,
                                                   gfx::Rect* rect) const {
   return false;
 }
@@ -569,10 +573,6 @@ bool ArcImeService::SetEditableSelectionRange(const gfx::Range& range) {
   selection_range_ = range;
   ime_bridge_->SendSelectionRange(selection_range_);
   return true;
-}
-
-bool ArcImeService::DeleteRange(const gfx::Range& range) {
-  return false;
 }
 
 bool ArcImeService::ChangeTextDirectionAndLayoutAlignment(
@@ -643,8 +643,8 @@ bool ArcImeService::SetAutocorrectRange(const gfx::Range& range) {
   return false;
 }
 
-absl::optional<ui::GrammarFragment> ArcImeService::GetGrammarFragment(
-    const gfx::Range& range) {
+absl::optional<ui::GrammarFragment> ArcImeService::GetGrammarFragmentAtCursor()
+    const {
   // TODO(https://crbug.com/1201454): Implement this method.
   NOTIMPLEMENTED_LOG_ONCE();
   return absl::nullopt;
@@ -658,6 +658,10 @@ bool ArcImeService::ClearGrammarFragments(const gfx::Range& range) {
 
 bool ArcImeService::AddGrammarFragments(
     const std::vector<ui::GrammarFragment>& fragments) {
+  if (!fragments.empty()) {
+    base::UmaHistogramEnumeration("InputMethod.Assistive.Grammar.Count",
+                                  TextInputClient::SubClass::kArcImeService);
+  }
   // TODO(https://crbug.com/1201454): Implement this method.
   NOTIMPLEMENTED_LOG_ONCE();
   return false;
@@ -671,7 +675,7 @@ void ArcImeService::OnDispatchingKeyEventPostIME(ui::KeyEvent* event) {
 
   // Do not forward the key event from virtual keyboard if it's sent via
   // InsertChar(). By the special logic in
-  // `ui::InputMethodAsh::DispatchKeyEvent`, both of InsertChar() and
+  // `ash::InputMethodAsh::DispatchKeyEvent`, both of InsertChar() and
   // DispatchKeyEventPostIME() are called for a key event injected by the
   // virtual keyboard. The below logic stops key event propagation through
   // DispatchKeyEventPostIME() to prevent from inputting two characters.
@@ -682,7 +686,7 @@ void ArcImeService::OnDispatchingKeyEventPostIME(ui::KeyEvent* event) {
     event->SetHandled();
 
   // Do not forward the language input key event from virtual keyboard because
-  // it's already handled by ui::InputMethodAsh.
+  // it's already handled by `ash::InputMethodAsh`.
   if (from_vk && IsLanguageInputKey(event))
     event->SetHandled();
 
@@ -700,27 +704,53 @@ void ArcImeService::SetOverrideDefaultDeviceScaleFactorForTesting(
   g_override_default_device_scale_factor = scale_factor;
 }
 
+// static
+void ArcImeService::SetOverrideDisplayOriginForTesting(
+    absl::optional<gfx::Point> origin) {
+  g_override_display_origin = origin;
+}
+
 void ArcImeService::InvalidateSurroundingTextAndSelectionRange() {
   text_range_ = gfx::Range::InvalidRange();
   text_in_range_ = std::u16string();
   selection_range_ = gfx::Range::InvalidRange();
 }
 
-bool ArcImeService::UpdateCursorRect(const gfx::Rect& rect,
-                                     bool is_screen_coordinates) {
-  // Divide by the scale factor. To convert from Android pixels to Chrome DIP.
-  gfx::Rect converted(gfx::ScaleToEnclosingRect(
-      rect, 1 / GetDeviceScaleFactorForFocusedWindow()));
-
-  // If the supplied coordinates are relative to the window, add the offset of
-  // the window showing the ARC app.
-  if (!is_screen_coordinates) {
+bool ArcImeService::UpdateCursorRect(
+    const gfx::Rect& rect,
+    mojom::CursorCoordinateSpace coordinate_space) {
+  gfx::Rect converted;
+  if (coordinate_space == mojom::CursorCoordinateSpace::NOTIFICATION) {
     if (!focused_arc_window_)
       return false;
-    converted.Offset(focused_arc_window_->GetToplevelWindow()
-                         ->GetBoundsInScreen()
-                         .OffsetFromOrigin());
+
+    // Rect is always scaled by the default device scale factor for
+    // notification windows.
+    converted =
+        gfx::ScaleToEnclosingRect(rect, 1.0 / GetDefaultDeviceScaleFactor());
+
+    // Convert the rect from a "notification display" coordinate into the window
+    // coordinate. Because notification are aligned in horizontally on the
+    // Android side, we just divide x coordinate by the width of the
+    // notification window.
+    converted.set_x(
+        converted.x() %
+        ash::ArcNotificationContentView::GetNotificationContentViewWidth());
+
+    // Convert the window coordinate into the screen coordinate.
+    converted.Offset(
+        focused_arc_window_->GetBoundsInScreen().OffsetFromOrigin());
   } else if (focused_arc_window_) {
+    // Convert from Android pixels to Chrome DIP.
+    converted = gfx::ScaleToEnclosingRect(
+        rect, 1.0 / GetDeviceScaleFactorForFocusedWindow());
+
+    if (coordinate_space == mojom::CursorCoordinateSpace::DISPLAY) {
+      // Convert into the screen coordinate.
+      const gfx::Point display_origin = GetDisplayOriginForFocusedWindow();
+      converted.Offset(display_origin.x(), display_origin.y());
+    }
+
     auto* window = focused_arc_window_->GetToplevelWindow();
     auto* widget = views::Widget::GetWidgetForNativeWindow(window);
     // Check fullscreen window as well because it's possible for ARC to request
@@ -773,6 +803,29 @@ double ArcImeService::GetDeviceScaleFactorForFocusedWindow() const {
     return 1.0;
   return exo::WMHelper::GetInstance()->GetDeviceScaleFactorForWindow(
       focused_arc_window_);
+}
+
+double ArcImeService::GetDefaultDeviceScaleFactor() const {
+  if (g_override_default_device_scale_factor.has_value())
+    return g_override_default_device_scale_factor.value();
+  if (!exo::WMHelper::HasInstance())
+    return 1.0;
+  return exo::GetDefaultDeviceScaleFactor();
+}
+
+gfx::Point ArcImeService::GetDisplayOriginForFocusedWindow() const {
+  DCHECK(focused_arc_window_);
+  if (g_override_display_origin.has_value())
+    return g_override_display_origin.value();
+  return display::Screen::GetScreen()
+      ->GetDisplayNearestWindow(focused_arc_window_)
+      .bounds()
+      .origin();
+}
+
+// static
+void ArcImeService::EnsureFactoryBuilt() {
+  ArcImeServiceFactory::GetInstance();
 }
 
 }  // namespace arc

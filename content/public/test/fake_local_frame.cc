@@ -1,4 +1,4 @@
-// Copyright 2019 The Chromium Authors. All rights reserved.
+// Copyright 2019 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,6 @@
 #include "third_party/blink/public/mojom/devtools/inspector_issue.mojom.h"
 #include "third_party/blink/public/mojom/frame/media_player_action.mojom.h"
 #include "third_party/blink/public/mojom/push_messaging/push_messaging.mojom.h"
-#include "third_party/blink/public/mojom/timing/resource_timing.mojom.h"
 
 #if BUILDFLAG(IS_MAC)
 #include "ui/base/mojom/attributed_string.mojom.h"
@@ -71,10 +70,6 @@ void FakeLocalFrame::Focus() {}
 
 void FakeLocalFrame::ClearFocusedElement() {}
 
-void FakeLocalFrame::GetResourceSnapshotForWebBundle(
-    mojo::PendingReceiver<data_decoder::mojom::ResourceSnapshotForWebBundle>
-        receiver) {}
-
 void FakeLocalFrame::CopyImageAt(const gfx::Point& window_point) {}
 
 void FakeLocalFrame::SaveImageAt(const gfx::Point& window_point) {}
@@ -83,11 +78,6 @@ void FakeLocalFrame::ReportBlinkFeatureUsage(
     const std::vector<blink::mojom::WebFeature>&) {}
 
 void FakeLocalFrame::RenderFallbackContent() {}
-
-void FakeLocalFrame::RenderFallbackContentWithResourceTiming(
-    blink::mojom::ResourceTimingInfoPtr,
-    const std::string& server_timing_value) {}
-
 void FakeLocalFrame::BeforeUnload(bool is_reload,
                                   BeforeUnloadCallback callback) {
   base::TimeTicks now = base::TimeTicks::Now();
@@ -105,7 +95,7 @@ void FakeLocalFrame::AdvanceFocusInFrame(
     blink::mojom::FocusType focus_type,
     const absl::optional<blink::RemoteFrameToken>& source_frame_token) {}
 
-void FakeLocalFrame::AdvanceFocusInForm(blink::mojom::FocusType focus_type) {}
+void FakeLocalFrame::AdvanceFocusForIME(blink::mojom::FocusType focus_type) {}
 
 void FakeLocalFrame::ReportContentSecurityPolicyViolation(
     network::mojom::CSPViolationPtr violation) {}
@@ -122,7 +112,7 @@ void FakeLocalFrame::PostMessageEvent(
 void FakeLocalFrame::JavaScriptMethodExecuteRequest(
     const std::u16string& object_name,
     const std::u16string& method_name,
-    base::Value arguments,
+    base::Value::List arguments,
     bool wants_result,
     JavaScriptMethodExecuteRequestCallback callback) {}
 
@@ -187,6 +177,41 @@ void FakeLocalFrame::HandleRendererDebugURL(const GURL& url) {}
 
 void FakeLocalFrame::GetCanonicalUrlForSharing(
     base::OnceCallback<void(const absl::optional<GURL>&)> callback) {}
+
+void FakeLocalFrame::GetOpenGraphMetadata(
+    base::OnceCallback<void(blink::mojom::OpenGraphMetadataPtr)>) {}
+
+void FakeLocalFrame::SetNavigationApiHistoryEntriesForRestore(
+    blink::mojom::NavigationApiHistoryEntryArraysPtr entry_arrays) {}
+
+void FakeLocalFrame::NotifyNavigationApiOfDisposedEntries(
+    const std::vector<std::string>& keys) {}
+
+void FakeLocalFrame::TraverseCancelled(
+    const std::string& navigation_api_key,
+    blink::mojom::TraverseCancelledReason reason) {}
+
+void FakeLocalFrame::SnapshotDocumentForViewTransition(
+    SnapshotDocumentForViewTransitionCallback callback) {}
+
+void FakeLocalFrame::AddResourceTimingEntryForFailedSubframeNavigation(
+    const ::blink::FrameToken& subframe_token,
+    const GURL& initial_url,
+    ::base::TimeTicks start_time,
+    ::base::TimeTicks redirect_time,
+    ::base::TimeTicks request_start,
+    ::base::TimeTicks response_start,
+    uint32_t response_code,
+    const std::string& mime_type,
+    const ::net::LoadTimingInfo& load_timing_info,
+    ::net::HttpResponseInfo::ConnectionInfo connection_info,
+    const std::string& alpn_negotiated_protocol,
+    bool is_secure_transport,
+    bool is_validated,
+    const std::string& normalized_server_timing,
+    const ::network::URLLoaderCompletionStatus& completion_status) {}
+
+void FakeLocalFrame::RequestFullscreenDocumentElement() {}
 
 void FakeLocalFrame::BindFrameHostReceiver(
     mojo::ScopedInterfaceEndpointHandle handle) {

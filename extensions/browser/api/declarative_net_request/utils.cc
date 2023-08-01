@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2017 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "base/files/file_util.h"
 #include "base/hash/hash.h"
 #include "base/metrics/histogram_functions.h"
+#include "base/ranges/algorithm.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -39,18 +40,19 @@ namespace declarative_net_request {
 namespace {
 
 namespace dnr_api = api::declarative_net_request;
+namespace flat_rule = url_pattern_index::flat;
 
 // The ruleset format version of the flatbuffer schema. Increment this whenever
 // making an incompatible change to the schema at extension_ruleset.fbs or
 // url_pattern_index.fbs. Whenever an extension with an indexed ruleset format
 // version different from the one currently used by Chrome is loaded, the
 // extension ruleset will be reindexed.
-constexpr int kIndexedRulesetFormatVersion = 26;
+constexpr int kIndexedRulesetFormatVersion = 28;
 
 // This static assert is meant to catch cases where
 // url_pattern_index::kUrlPatternIndexFormatVersion is incremented without
 // updating kIndexedRulesetFormatVersion.
-static_assert(url_pattern_index::kUrlPatternIndexFormatVersion == 13,
+static_assert(url_pattern_index::kUrlPatternIndexFormatVersion == 15,
               "kUrlPatternIndexFormatVersion has changed, make sure you've "
               "also updated kIndexedRulesetFormatVersion above.");
 
@@ -66,6 +68,7 @@ int g_static_guaranteed_minimum_for_testing = kInvalidRuleLimit;
 int g_global_static_rule_limit_for_testing = kInvalidRuleLimit;
 int g_regex_rule_limit_for_testing = kInvalidRuleLimit;
 int g_dynamic_and_session_rule_limit_for_testing = kInvalidRuleLimit;
+int g_disabled_static_rule_limit_for_testing = kInvalidRuleLimit;
 
 int GetIndexedRulesetFormatVersion() {
   return g_indexed_ruleset_format_version_for_testing ==
@@ -187,59 +190,109 @@ void LogReadDynamicRulesStatus(ReadJSONRulesResult::Status status) {
   base::UmaHistogramEnumeration(kReadDynamicRulesJSONStatusHistogram, status);
 }
 
-// Maps WebRequestResourceType to api::declarative_net_request::ResourceType.
+// Maps WebRequestResourceType to dnr_api::ResourceType.
 dnr_api::ResourceType GetDNRResourceType(WebRequestResourceType resource_type) {
   switch (resource_type) {
     case WebRequestResourceType::OTHER:
-      return dnr_api::RESOURCE_TYPE_OTHER;
+      return dnr_api::ResourceType::kOther;
     case WebRequestResourceType::MAIN_FRAME:
-      return dnr_api::RESOURCE_TYPE_MAIN_FRAME;
+      return dnr_api::ResourceType::kMainFrame;
     case WebRequestResourceType::CSP_REPORT:
-      return dnr_api::RESOURCE_TYPE_CSP_REPORT;
+      return dnr_api::ResourceType::kCspReport;
     case WebRequestResourceType::SCRIPT:
-      return dnr_api::RESOURCE_TYPE_SCRIPT;
+      return dnr_api::ResourceType::kScript;
     case WebRequestResourceType::IMAGE:
-      return dnr_api::RESOURCE_TYPE_IMAGE;
+      return dnr_api::ResourceType::kImage;
     case WebRequestResourceType::STYLESHEET:
-      return dnr_api::RESOURCE_TYPE_STYLESHEET;
+      return dnr_api::ResourceType::kStylesheet;
     case WebRequestResourceType::OBJECT:
-      return dnr_api::RESOURCE_TYPE_OBJECT;
+      return dnr_api::ResourceType::kObject;
     case WebRequestResourceType::XHR:
-      return dnr_api::RESOURCE_TYPE_XMLHTTPREQUEST;
+      return dnr_api::ResourceType::kXmlhttprequest;
     case WebRequestResourceType::SUB_FRAME:
-      return dnr_api::RESOURCE_TYPE_SUB_FRAME;
+      return dnr_api::ResourceType::kSubFrame;
     case WebRequestResourceType::PING:
-      return dnr_api::RESOURCE_TYPE_PING;
+      return dnr_api::ResourceType::kPing;
     case WebRequestResourceType::MEDIA:
-      return dnr_api::RESOURCE_TYPE_MEDIA;
+      return dnr_api::ResourceType::kMedia;
     case WebRequestResourceType::FONT:
-      return dnr_api::RESOURCE_TYPE_FONT;
+      return dnr_api::ResourceType::kFont;
     case WebRequestResourceType::WEB_SOCKET:
-      return dnr_api::RESOURCE_TYPE_WEBSOCKET;
+      return dnr_api::ResourceType::kWebsocket;
     case WebRequestResourceType::WEB_TRANSPORT:
-      return dnr_api::RESOURCE_TYPE_WEBTRANSPORT;
+      return dnr_api::ResourceType::kWebtransport;
     case WebRequestResourceType::WEBBUNDLE:
-      return dnr_api::RESOURCE_TYPE_WEBBUNDLE;
+      return dnr_api::ResourceType::kWebbundle;
   }
   NOTREACHED();
-  return dnr_api::RESOURCE_TYPE_OTHER;
+  return dnr_api::ResourceType::kOther;
+}
+
+// Maps dnr_api::ResourceType to WebRequestResourceType.
+WebRequestResourceType GetWebRequestResourceType(
+    dnr_api::ResourceType resource_type) {
+  switch (resource_type) {
+    case dnr_api::ResourceType::kOther:
+      return WebRequestResourceType::OTHER;
+    case dnr_api::ResourceType::kMainFrame:
+      return WebRequestResourceType::MAIN_FRAME;
+    case dnr_api::ResourceType::kCspReport:
+      return WebRequestResourceType::CSP_REPORT;
+    case dnr_api::ResourceType::kScript:
+      return WebRequestResourceType::SCRIPT;
+    case dnr_api::ResourceType::kImage:
+      return WebRequestResourceType::IMAGE;
+    case dnr_api::ResourceType::kStylesheet:
+      return WebRequestResourceType::STYLESHEET;
+    case dnr_api::ResourceType::kObject:
+      return WebRequestResourceType::OBJECT;
+    case dnr_api::ResourceType::kXmlhttprequest:
+      return WebRequestResourceType::XHR;
+    case dnr_api::ResourceType::kSubFrame:
+      return WebRequestResourceType::SUB_FRAME;
+    case dnr_api::ResourceType::kPing:
+      return WebRequestResourceType::PING;
+    case dnr_api::ResourceType::kMedia:
+      return WebRequestResourceType::MEDIA;
+    case dnr_api::ResourceType::kFont:
+      return WebRequestResourceType::FONT;
+    case dnr_api::ResourceType::kWebsocket:
+      return WebRequestResourceType::WEB_SOCKET;
+    case dnr_api::ResourceType::kWebtransport:
+      return WebRequestResourceType::WEB_TRANSPORT;
+    case dnr_api::ResourceType::kWebbundle:
+      return WebRequestResourceType::WEBBUNDLE;
+    case dnr_api::ResourceType::kNone:
+      NOTREACHED();
+      return WebRequestResourceType::OTHER;
+  }
+  NOTREACHED();
+  return WebRequestResourceType::OTHER;
 }
 
 dnr_api::RequestDetails CreateRequestDetails(const WebRequestInfo& request) {
-  api::declarative_net_request::RequestDetails details;
+  dnr_api::RequestDetails details;
   details.request_id = base::NumberToString(request.id);
   details.url = request.url.spec();
 
   if (request.initiator) {
-    details.initiator =
-        std::make_unique<std::string>(request.initiator->Serialize());
+    details.initiator = request.initiator->Serialize();
   }
 
   details.method = request.method;
   details.frame_id = request.frame_data.frame_id;
+  if (request.frame_data.document_id) {
+    details.document_id = request.frame_data.document_id.ToString();
+  }
   details.parent_frame_id = request.frame_data.parent_frame_id;
+  if (request.frame_data.parent_document_id) {
+    details.parent_document_id =
+        request.frame_data.parent_document_id.ToString();
+  }
   details.tab_id = request.frame_data.tab_id;
   details.type = GetDNRResourceType(request.web_request_type);
+  details.frame_type = request.frame_data.frame_type;
+  details.document_lifecycle = request.frame_data.document_lifecycle;
   return details;
 }
 
@@ -268,19 +321,19 @@ re2::RE2::Options CreateRE2Options(bool is_case_sensitive,
 
 flat::ActionType ConvertToFlatActionType(dnr_api::RuleActionType action_type) {
   switch (action_type) {
-    case dnr_api::RULE_ACTION_TYPE_BLOCK:
+    case dnr_api::RuleActionType::kBlock:
       return flat::ActionType_block;
-    case dnr_api::RULE_ACTION_TYPE_ALLOW:
+    case dnr_api::RuleActionType::kAllow:
       return flat::ActionType_allow;
-    case dnr_api::RULE_ACTION_TYPE_REDIRECT:
+    case dnr_api::RuleActionType::kRedirect:
       return flat::ActionType_redirect;
-    case dnr_api::RULE_ACTION_TYPE_MODIFYHEADERS:
+    case dnr_api::RuleActionType::kModifyHeaders:
       return flat::ActionType_modify_headers;
-    case dnr_api::RULE_ACTION_TYPE_UPGRADESCHEME:
+    case dnr_api::RuleActionType::kUpgradeScheme:
       return flat::ActionType_upgrade_scheme;
-    case dnr_api::RULE_ACTION_TYPE_ALLOWALLREQUESTS:
+    case dnr_api::RuleActionType::kAllowAllRequests:
       return flat::ActionType_allow_all_requests;
-    case dnr_api::RULE_ACTION_TYPE_NONE:
+    case dnr_api::RuleActionType::kNone:
       break;
   }
   NOTREACHED();
@@ -337,6 +390,12 @@ int GetRegexRuleLimit() {
              : g_regex_rule_limit_for_testing;
 }
 
+int GetDisabledStaticRuleLimit() {
+  return g_disabled_static_rule_limit_for_testing == kInvalidRuleLimit
+             ? kMaxDisabledStaticRules
+             : g_disabled_static_rule_limit_for_testing;
+}
+
 ScopedRuleLimitOverride CreateScopedStaticGuaranteedMinimumOverrideForTesting(
     int minimum) {
   return base::AutoReset<int>(&g_static_guaranteed_minimum_for_testing,
@@ -357,6 +416,11 @@ ScopedRuleLimitOverride
 CreateScopedDynamicAndSessionRuleLimitOverrideForTesting(int limit) {
   return base::AutoReset<int>(&g_dynamic_and_session_rule_limit_for_testing,
                               limit);
+}
+
+ScopedRuleLimitOverride CreateScopedDisabledStaticRuleLimitOverrideForTesting(
+    int limit) {
+  return base::AutoReset<int>(&g_disabled_static_rule_limit_for_testing, limit);
 }
 
 size_t GetEnabledStaticRuleCount(const CompositeMatcher* composite_matcher) {
@@ -386,6 +450,8 @@ bool HasDNRFeedbackPermission(const Extension* extension,
                    mojom::APIPermissionID::kDeclarativeNetRequestFeedback);
 }
 
+// TODO(crbug.com/1370166): Add a parameter that allows more specific strings
+// for error messages that can pinpoint the error within a single rule.
 std::string GetParseError(ParseResult error_reason, int rule_id) {
   switch (error_reason) {
     case ParseResult::NONE:
@@ -413,6 +479,22 @@ std::string GetParseError(ParseResult error_reason, int rule_id) {
     case ParseResult::ERROR_EMPTY_DOMAINS_LIST:
       return ErrorUtils::FormatErrorMessage(
           kErrorEmptyList, base::NumberToString(rule_id), kDomainsKey);
+    case ParseResult::ERROR_EMPTY_INITIATOR_DOMAINS_LIST:
+      return ErrorUtils::FormatErrorMessage(
+          kErrorEmptyList, base::NumberToString(rule_id), kInitiatorDomainsKey);
+    case ParseResult::ERROR_EMPTY_REQUEST_DOMAINS_LIST:
+      return ErrorUtils::FormatErrorMessage(
+          kErrorEmptyList, base::NumberToString(rule_id), kRequestDomainsKey);
+    case ParseResult::ERROR_DOMAINS_AND_INITIATOR_DOMAINS_BOTH_SPECIFIED:
+      return ErrorUtils::FormatErrorMessage(
+          kErrorDomainsAndInitiatorDomainsBothSpecified,
+          base::NumberToString(rule_id), kDomainsKey, kInitiatorDomainsKey);
+    case ParseResult::
+        ERROR_EXCLUDED_DOMAINS_AND_EXCLUDED_INITIATOR_DOMAINS_BOTH_SPECIFIED:
+      return ErrorUtils::FormatErrorMessage(
+          kErrorDomainsAndInitiatorDomainsBothSpecified,
+          base::NumberToString(rule_id), kExcludedDomainsKey,
+          kExcludedInitiatorDomainsKey);
     case ParseResult::ERROR_EMPTY_RESOURCE_TYPES_LIST:
       return ErrorUtils::FormatErrorMessage(
           kErrorEmptyList, base::NumberToString(rule_id), kResourceTypesKey);
@@ -438,6 +520,20 @@ std::string GetParseError(ParseResult error_reason, int rule_id) {
     case ParseResult::ERROR_NON_ASCII_EXCLUDED_DOMAIN:
       return ErrorUtils::FormatErrorMessage(
           kErrorNonAscii, base::NumberToString(rule_id), kExcludedDomainsKey);
+    case ParseResult::ERROR_NON_ASCII_INITIATOR_DOMAIN:
+      return ErrorUtils::FormatErrorMessage(
+          kErrorNonAscii, base::NumberToString(rule_id), kInitiatorDomainsKey);
+    case ParseResult::ERROR_NON_ASCII_EXCLUDED_INITIATOR_DOMAIN:
+      return ErrorUtils::FormatErrorMessage(kErrorNonAscii,
+                                            base::NumberToString(rule_id),
+                                            kExcludedInitiatorDomainsKey);
+    case ParseResult::ERROR_NON_ASCII_REQUEST_DOMAIN:
+      return ErrorUtils::FormatErrorMessage(
+          kErrorNonAscii, base::NumberToString(rule_id), kRequestDomainsKey);
+    case ParseResult::ERROR_NON_ASCII_EXCLUDED_REQUEST_DOMAIN:
+      return ErrorUtils::FormatErrorMessage(kErrorNonAscii,
+                                            base::NumberToString(rule_id),
+                                            kExcludedRequestDomainsKey);
     case ParseResult::ERROR_INVALID_URL_FILTER:
       return ErrorUtils::FormatErrorMessage(
           kErrorInvalidKey, base::NumberToString(rule_id), kUrlFilterKey);
@@ -501,8 +597,8 @@ std::string GetParseError(ParseResult error_reason, int rule_id) {
     case ParseResult::ERROR_HEADER_VALUE_PRESENT:
       return ErrorUtils::FormatErrorMessage(kErrorHeaderValuePresent,
                                             base::NumberToString(rule_id));
-    case ParseResult::ERROR_APPEND_REQUEST_HEADER_UNSUPPORTED:
-      return ErrorUtils::FormatErrorMessage(kErrorCannotAppendRequestHeader,
+    case ParseResult::ERROR_APPEND_INVALID_REQUEST_HEADER:
+      return ErrorUtils::FormatErrorMessage(kErrorAppendInvalidRequestHeader,
                                             base::NumberToString(rule_id));
     case ParseResult::ERROR_REGEX_TOO_LARGE:
       return ErrorUtils::FormatErrorMessage(
@@ -536,6 +632,156 @@ std::string GetParseError(ParseResult error_reason, int rule_id) {
   }
   NOTREACHED();
   return std::string();
+}
+
+flat_rule::ElementType GetElementType(WebRequestResourceType web_request_type) {
+  switch (web_request_type) {
+    case WebRequestResourceType::OTHER:
+      return flat_rule::ElementType_OTHER;
+    case WebRequestResourceType::MAIN_FRAME:
+      return flat_rule::ElementType_MAIN_FRAME;
+    case WebRequestResourceType::CSP_REPORT:
+      return flat_rule::ElementType_CSP_REPORT;
+    case WebRequestResourceType::SCRIPT:
+      return flat_rule::ElementType_SCRIPT;
+    case WebRequestResourceType::IMAGE:
+      return flat_rule::ElementType_IMAGE;
+    case WebRequestResourceType::STYLESHEET:
+      return flat_rule::ElementType_STYLESHEET;
+    case WebRequestResourceType::OBJECT:
+      return flat_rule::ElementType_OBJECT;
+    case WebRequestResourceType::XHR:
+      return flat_rule::ElementType_XMLHTTPREQUEST;
+    case WebRequestResourceType::SUB_FRAME:
+      return flat_rule::ElementType_SUBDOCUMENT;
+    case WebRequestResourceType::PING:
+      return flat_rule::ElementType_PING;
+    case WebRequestResourceType::MEDIA:
+      return flat_rule::ElementType_MEDIA;
+    case WebRequestResourceType::FONT:
+      return flat_rule::ElementType_FONT;
+    case WebRequestResourceType::WEBBUNDLE:
+      return flat_rule::ElementType_WEBBUNDLE;
+    case WebRequestResourceType::WEB_SOCKET:
+      return flat_rule::ElementType_WEBSOCKET;
+    case WebRequestResourceType::WEB_TRANSPORT:
+      return flat_rule::ElementType_WEBTRANSPORT;
+  }
+  NOTREACHED();
+  return flat_rule::ElementType_OTHER;
+}
+
+flat_rule::ElementType GetElementType(dnr_api::ResourceType resource_type) {
+  switch (resource_type) {
+    case dnr_api::ResourceType::kNone:
+      return flat_rule::ElementType_NONE;
+    case dnr_api::ResourceType::kMainFrame:
+      return flat_rule::ElementType_MAIN_FRAME;
+    case dnr_api::ResourceType::kSubFrame:
+      return flat_rule::ElementType_SUBDOCUMENT;
+    case dnr_api::ResourceType::kStylesheet:
+      return flat_rule::ElementType_STYLESHEET;
+    case dnr_api::ResourceType::kScript:
+      return flat_rule::ElementType_SCRIPT;
+    case dnr_api::ResourceType::kImage:
+      return flat_rule::ElementType_IMAGE;
+    case dnr_api::ResourceType::kFont:
+      return flat_rule::ElementType_FONT;
+    case dnr_api::ResourceType::kObject:
+      return flat_rule::ElementType_OBJECT;
+    case dnr_api::ResourceType::kXmlhttprequest:
+      return flat_rule::ElementType_XMLHTTPREQUEST;
+    case dnr_api::ResourceType::kPing:
+      return flat_rule::ElementType_PING;
+    case dnr_api::ResourceType::kCspReport:
+      return flat_rule::ElementType_CSP_REPORT;
+    case dnr_api::ResourceType::kMedia:
+      return flat_rule::ElementType_MEDIA;
+    case dnr_api::ResourceType::kWebsocket:
+      return flat_rule::ElementType_WEBSOCKET;
+    case dnr_api::ResourceType::kWebtransport:
+      return flat_rule::ElementType_WEBTRANSPORT;
+    case dnr_api::ResourceType::kWebbundle:
+      return flat_rule::ElementType_WEBBUNDLE;
+    case dnr_api::ResourceType::kOther:
+      return flat_rule::ElementType_OTHER;
+  }
+  NOTREACHED();
+  return flat_rule::ElementType_NONE;
+}
+
+// Maps an HTTP request method string to flat_rule::RequestMethod.
+// Returns `flat::RequestMethod_NON_HTTP` for non-HTTP(s) requests, and
+// `flat::RequestMethod_OTHER_HTTP` for HTTP(s) requests with an unknown
+// request method.
+flat_rule::RequestMethod GetRequestMethod(bool http_or_https,
+                                          const std::string& method) {
+  if (!http_or_https)
+    return flat_rule::RequestMethod_NON_HTTP;
+
+  using net::HttpRequestHeaders;
+  static const base::NoDestructor<
+      base::flat_map<base::StringPiece, flat_rule::RequestMethod>>
+      kRequestMethods(
+          {{HttpRequestHeaders::kDeleteMethod, flat_rule::RequestMethod_DELETE},
+           {HttpRequestHeaders::kGetMethod, flat_rule::RequestMethod_GET},
+           {HttpRequestHeaders::kHeadMethod, flat_rule::RequestMethod_HEAD},
+           {HttpRequestHeaders::kOptionsMethod,
+            flat_rule::RequestMethod_OPTIONS},
+           {HttpRequestHeaders::kPatchMethod, flat_rule::RequestMethod_PATCH},
+           {HttpRequestHeaders::kPostMethod, flat_rule::RequestMethod_POST},
+           {HttpRequestHeaders::kPutMethod, flat_rule::RequestMethod_PUT},
+           {HttpRequestHeaders::kConnectMethod,
+            flat_rule::RequestMethod_CONNECT}});
+
+  DCHECK(base::ranges::all_of(*kRequestMethods, [](const auto& key_value) {
+    return base::ranges::none_of(key_value.first, base::IsAsciiLower<char>);
+  }));
+
+  std::string normalized_method = base::ToUpperASCII(method);
+  auto it = kRequestMethods->find(normalized_method);
+  if (it == kRequestMethods->end()) {
+    return flat_rule::RequestMethod_OTHER_HTTP;
+  }
+  return it->second;
+}
+
+flat_rule::RequestMethod GetRequestMethod(
+    dnr_api::RequestMethod request_method) {
+  switch (request_method) {
+    case dnr_api::RequestMethod::kNone:
+      NOTREACHED();
+      return flat_rule::RequestMethod_NONE;
+    case dnr_api::RequestMethod::kConnect:
+      return flat_rule::RequestMethod_CONNECT;
+    case dnr_api::RequestMethod::kDelete:
+      return flat_rule::RequestMethod_DELETE;
+    case dnr_api::RequestMethod::kGet:
+      return flat_rule::RequestMethod_GET;
+    case dnr_api::RequestMethod::kHead:
+      return flat_rule::RequestMethod_HEAD;
+    case dnr_api::RequestMethod::kOptions:
+      return flat_rule::RequestMethod_OPTIONS;
+    case dnr_api::RequestMethod::kOther:
+      return flat_rule::RequestMethod_OTHER_HTTP;
+    case dnr_api::RequestMethod::kPatch:
+      return flat_rule::RequestMethod_PATCH;
+    case dnr_api::RequestMethod::kPost:
+      return flat_rule::RequestMethod_POST;
+    case dnr_api::RequestMethod::kPut:
+      return flat_rule::RequestMethod_PUT;
+  }
+  NOTREACHED();
+  return flat_rule::RequestMethod_NONE;
+}
+
+flat_rule::RequestMethod GetRequestMethod(
+    bool http_or_https,
+    dnr_api::RequestMethod request_method) {
+  if (!http_or_https)
+    return flat_rule::RequestMethod_NON_HTTP;
+
+  return GetRequestMethod(request_method);
 }
 
 }  // namespace declarative_net_request
